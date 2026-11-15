@@ -1,7 +1,5 @@
 package com.workplace.agentruntime.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.dto.ApplyMode;
@@ -54,6 +52,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * runner 쪽 원하는 상태·관찰 상태 서비스(WP-1249) — runner 토큰이 가리키는 위치에 떠 있어야 할 AI 목록을 만들고, runner 가 본 Pod 상태를

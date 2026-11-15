@@ -15,8 +15,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.records.AuditLogRecord;
@@ -47,6 +45,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 공유 목록·트리 표시·관리자 정책(WP-579 Task 5) — 스페이스·내 공유 목록, 트리 행의 공유 표시와 상세의 {@code shared}, 관리자 외부 공유
@@ -113,7 +113,7 @@ class WikiShareAdminTest extends IntegrationTestBase {
 
     JsonNode after = json(call(get(pagesPath(spaceId)), viewerId).andExpect(status().isOk()));
     JsonNode share = row(after, rootId).get("share");
-    assertThat(share.get("audience").asText()).isEqualTo("WORKSPACE");
+    assertThat(share.get("audience").asString()).isEqualTo("WORKSPACE");
     assertThat(share.get("includeChildren").asBoolean()).isTrue();
     // 상위 공유에 포함돼 보이는 자식은 자기 자신의 공유가 아니므로 표시가 없다.
     assertThat(row(after, childId).get("share").isNull()).isTrue();
@@ -218,16 +218,16 @@ class WikiShareAdminTest extends IntegrationTestBase {
     JsonNode mine = json(call(get("/api/v1/wiki/shares/mine"), ownerId).andExpect(status().isOk()));
     assertThat(pageIds(mine)).containsExactlyInAnyOrder(rootId, otherPageId);
     JsonNode first = byPage(mine, rootId);
-    assertThat(first.get("token").asText()).isEqualTo(mineToken);
+    assertThat(first.get("token").asString()).isEqualTo(mineToken);
     assertThat(first.get("spaceId").asLong()).isEqualTo(spaceId);
-    assertThat(first.get("spaceName").asText()).startsWith("공유목록-");
-    assertThat(first.get("title").asText()).isEqualTo("제품 로드맵");
+    assertThat(first.get("spaceName").asString()).startsWith("공유목록-");
+    assertThat(first.get("title").asString()).isEqualTo("제품 로드맵");
     assertThat(first.get("createdBy").get("userId").asLong()).isEqualTo(ownerId);
     assertThat(first.get("peopleCount").asInt()).isZero();
     JsonNode second = byPage(mine, otherPageId);
     assertThat(second.get("spaceId").asLong()).isEqualTo(otherSpaceId);
-    assertThat(second.get("audience").asText()).isEqualTo("PEOPLE");
-    assertThat(second.get("permission").asText()).isEqualTo("EDIT");
+    assertThat(second.get("audience").asString()).isEqualTo("PEOPLE");
+    assertThat(second.get("permission").asString()).isEqualTo("EDIT");
     assertThat(second.get("peopleCount").asInt()).isEqualTo(2);
 
     // 편집자가 만든 공유는 편집자의 내 공유에만 보인다.
@@ -249,12 +249,12 @@ class WikiShareAdminTest extends IntegrationTestBase {
         json(call(get(spaceSharesPath(spaceId)), viewerId).andExpect(status().isOk()));
     assertThat(pageIds(asViewer)).containsExactly(rootId); // 다른 스페이스의 공유는 섞이지 않는다
     assertThat(asViewer.get(0).get("token").isNull()).isTrue();
-    assertThat(asViewer.get(0).get("permission").asText()).isEqualTo("EDIT");
-    assertThat(asViewer.get(0).get("spaceName").asText()).startsWith("공유목록-");
+    assertThat(asViewer.get(0).get("permission").asString()).isEqualTo("EDIT");
+    assertThat(asViewer.get(0).get("spaceName").asString()).startsWith("공유목록-");
 
     JsonNode asEditor =
         json(call(get(spaceSharesPath(spaceId)), editorId).andExpect(status().isOk()));
-    assertThat(asEditor.get(0).get("token").asText()).isEqualTo(token);
+    assertThat(asEditor.get(0).get("token").asString()).isEqualTo(token);
 
     call(get(spaceSharesPath(spaceId)), strangerId).andExpect(status().isNotFound());
   }
@@ -288,8 +288,8 @@ class WikiShareAdminTest extends IntegrationTestBase {
 
     JsonNode all = json(call(get("/api/v1/admin/wiki/shares"), adminId).andExpect(status().isOk()));
     assertThat(pageIds(all)).contains(rootId, childId, otherPageId);
-    assertThat(byPage(all, rootId).get("token").asText()).isEqualTo(t1);
-    assertThat(byPage(all, otherPageId).get("spaceName").asText()).startsWith("공유목록2-");
+    assertThat(byPage(all, rootId).get("token").asString()).isEqualTo(t1);
+    assertThat(byPage(all, otherPageId).get("spaceName").asString()).startsWith("공유목록2-");
     assertThat(byPage(all, otherPageId).get("peopleCount").asInt()).isEqualTo(1);
     assertThat(byPage(all, childId).get("createdBy").get("userId").asLong()).isEqualTo(editorId);
   }
@@ -333,7 +333,7 @@ class WikiShareAdminTest extends IntegrationTestBase {
       assertThat(audits).hasSize(1);
       assertThat(audits.get(0).getUserId()).isEqualTo(adminId);
       JsonNode meta = metadata(audits.get(0));
-      assertThat(meta.get("reason").asText()).isEqualTo("ADMIN");
+      assertThat(meta.get("reason").asString()).isEqualTo("ADMIN");
       assertThat(meta.get("spaceId").asLong()).isEqualTo(pageId == rootId ? spaceId : otherSpaceId);
       assertThat(meta.has("audience")).isTrue();
       assertThat(meta.has("permission")).isTrue();
@@ -404,8 +404,8 @@ class WikiShareAdminTest extends IntegrationTestBase {
       assertThat(audits).hasSize(1);
       assertThat(audits.get(0).getUserId()).isEqualTo(adminId);
       JsonNode meta = metadata(audits.get(0));
-      assertThat(meta.get("reason").asText()).isEqualTo("POLICY");
-      assertThat(meta.get("audience").asText()).isEqualTo("PUBLIC");
+      assertThat(meta.get("reason").asString()).isEqualTo("POLICY");
+      assertThat(meta.get("audience").asString()).isEqualTo("PUBLIC");
     }
     assertThat(audits("wiki", String.valueOf(otherPageId), "WIKI_SHARE_REVOKED")).isEmpty();
 
@@ -554,7 +554,7 @@ class WikiShareAdminTest extends IntegrationTestBase {
                         shareBody(audience, permission, includeChildren, userIds)),
                     userId)
                 .andExpect(status().isOk()));
-    return res.get("token").asText();
+    return res.get("token").asString();
   }
 
   private MockHttpServletRequestBuilder putJson(String path, Object body) throws Exception {

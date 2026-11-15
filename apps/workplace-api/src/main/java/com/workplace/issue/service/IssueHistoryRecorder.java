@@ -1,6 +1,5 @@
 package com.workplace.issue.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.component.dto.ComponentSummary;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueAttachmentResponse;
@@ -19,6 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /** 이슈 수정 시 before/after 비교 후 변경된 항목에 대해 history row 를 기록한다. body 변경은 소음 방지를 위해 기록 대상에서 제외한다. */
 @Component
@@ -443,8 +443,8 @@ public class IssueHistoryRecorder {
       Long defId,
       String name,
       String type,
-      com.fasterxml.jackson.databind.JsonNode from,
-      com.fasterxml.jackson.databind.JsonNode to) {
+      tools.jackson.databind.JsonNode from,
+      tools.jackson.databind.JsonNode to) {
     Map<String, Object> body = new HashMap<>();
     body.put("defId", defId);
     body.put("name", name);

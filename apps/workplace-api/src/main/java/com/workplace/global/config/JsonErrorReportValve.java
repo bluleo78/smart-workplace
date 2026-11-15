@@ -1,8 +1,8 @@
 package com.workplace.global.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.global.exception.GlobalExceptionHandler;
+import com.workplace.global.json.JsonMappers;
 import java.io.IOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -13,6 +13,8 @@ import org.apache.catalina.connector.Response;
 import org.apache.catalina.valves.ErrorReportValve;
 import org.apache.coyote.ActionCode;
 import org.springframework.http.HttpStatus;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Tomcat 이 앱 핸들러에 닿기 전에 거절한 요청(요청 줄·머리글이 너무 김, 경로의 인코딩된 슬래시 등)의 오류 본문을 앱 공통 형식({@link
@@ -23,7 +25,7 @@ import org.springframework.http.HttpStatus;
  */
 public class JsonErrorReportValve extends ErrorReportValve {
 
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = JsonMappers.JACKSON2;
 
   @Override
   protected void report(Request request, Response response, Throwable throwable) {
@@ -54,8 +56,8 @@ public class JsonErrorReportValve extends ErrorReportValve {
         writer.write(JSON.writeValueAsString(body));
         response.finishResponse();
       }
-    } catch (IOException | IllegalStateException e) {
-      // 기본 밸브와 같이 오류 본문을 못 써도 상태 코드는 이미 나갔으므로 무시한다.
+    } catch (IOException | JacksonException | IllegalStateException e) {
+      // 기본 밸브와 같이 오류 본문을 못 써도 상태 코드는 이미 나갔으므로 무시한다(Jackson 3 직렬화 오류는 비검사 예외라 따로 잡는다).
     }
   }
 

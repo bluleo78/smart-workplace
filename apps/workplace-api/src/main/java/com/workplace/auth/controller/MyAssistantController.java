@@ -1,6 +1,5 @@
 package com.workplace.auth.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.AssistantStatusResponse;
 import com.workplace.auth.dto.RegisterAssistantCredentialRequest;
 import com.workplace.auth.dto.UpdateAssistantNameRequest;
@@ -16,6 +15,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 로그인한 본인의 개인 비서 self-service 엔드포인트. 권한 체크 없음(누구나 자기 비서만 관리) — callerId 는 인증 principal(Long) 에서

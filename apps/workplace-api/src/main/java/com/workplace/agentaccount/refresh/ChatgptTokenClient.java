@@ -2,15 +2,16 @@ package com.workplace.agentaccount.refresh;
 
 import static com.workplace.auth.service.LoginInfoNormalizer.textOrNull;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.workplace.global.json.JsonMappers;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * ChatGPT(Codex 로그인) 토큰 갱신 클라이언트(WP-1450). Codex CLI 와 같은 요청을 보낸다 — {@code POST {tokenUrl}} JSON
@@ -36,7 +37,7 @@ public class ChatgptTokenClient {
   /** 기록해도 되는 사유 코드 모양. */
   private static final Pattern SAFE_CODE = Pattern.compile("[a-z0-9_]{1,64}");
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   /** 갱신 결과 — refreshToken 은 응답에 없으면 null(기존 값을 유지한다). 토큰 원문이라 toString 에서 가린다. */
   public record ChatgptTokens(String idToken, String accessToken, String refreshToken) {
@@ -115,7 +116,7 @@ public class ChatgptTokenClient {
   private static String errorCode(byte[] body) {
     try {
       JsonNode error = MAPPER.readTree(body).path("error");
-      String code = error.isTextual() ? error.asText() : textOrNull(error.path("code"));
+      String code = error.isString() ? error.asString("") : textOrNull(error.path("code"));
       // 서버가 준 문자열은 믿지 않는다 — 소문자·숫자·밑줄 1~64자만 코드로 받고, 아니면 null(호출자가 http_<상태> 로 대신한다).
       // 길이 제한은 error_code 칸(64) 때문이고, 형식 제한은 서버가 되돌려 준 임의 문구(토큰 등)가 기록·로그에 실리지 않게 하기 위함.
       return code != null && SAFE_CODE.matcher(code).matches() ? code : null;

@@ -6,8 +6,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -20,6 +18,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * ConfirmActionDispatcher 의 issue.create actionType 통합 테스트 — 노트→이슈 cross-app 실행기. 멤버 유저가 이슈를 생성할 수

@@ -6,7 +6,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphAttendeeWrite;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphDateTime;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEmail;
@@ -15,12 +14,14 @@ import com.workplace.mail.outbound.GraphCalendarClient.GraphEventWrite;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphItemBody;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.json.JsonMapper;
 
 /** GraphCalendarClient 쓰기 경로 단위 테스트 — GraphApiClient 를 모킹해 경로·직렬화를 검증한다. */
 class GraphCalendarClientWriteTest {
 
   private final GraphApiClient api = mock(GraphApiClient.class);
-  private final GraphCalendarClient client = new GraphCalendarClient(api, new ObjectMapper());
+  private final GraphCalendarClient client =
+      new GraphCalendarClient(api, JsonMapper.builderWithJackson2Defaults().build());
 
   private GraphEventWrite timed() {
     return new GraphEventWrite(

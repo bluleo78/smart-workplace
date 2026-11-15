@@ -1,6 +1,6 @@
 package com.workplace.auth.sso;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.security.JwtProperties;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 인가 요청과 콜백 사이의 OIDC 트랜잭션(state·nonce·PKCE verifier·returnTo)을 서버 저장 없이 쿠키에 싣는다(WP-48).
@@ -34,7 +35,7 @@ public class SsoTransactionCookie {
 
   private static final Duration TTL = Duration.ofMinutes(10);
   private static final String HMAC = "HmacSHA256";
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = JsonMappers.JACKSON2;
   private static final SecureRandom RANDOM = new SecureRandom();
   private static final Base64.Encoder B64 = Base64.getUrlEncoder().withoutPadding();
   private static final Base64.Decoder B64D = Base64.getUrlDecoder();

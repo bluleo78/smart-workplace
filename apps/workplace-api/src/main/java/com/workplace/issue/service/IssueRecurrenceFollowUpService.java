@@ -1,6 +1,5 @@
 package com.workplace.issue.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.IssueRecurrenceRow;
 import com.workplace.issue.dto.IssueRow;
@@ -24,6 +23,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 반복 회차가 남긴 질문의 답을 받아 같은 AI 의 이어 처리를 보낸다(WP-1312, {@link RecurringQuestionAnswers} 구현).

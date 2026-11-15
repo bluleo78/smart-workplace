@@ -18,8 +18,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.repository.DriveShareLinkVisitRepository;
@@ -41,6 +39,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 「공유받은 항목」(WP-1539) 통합 테스트 — 공유 정보 조회(GET /public/drive/share/{token})가 기록하고, GET/DELETE
@@ -217,7 +217,7 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String viewToken = objectMapper.readTree(body).get("viewToken").asText();
+    String viewToken = objectMapper.readTree(body).get("viewToken").asString();
     mockMvc
         .perform(
             get("/api/v1/public/drive/share/" + token)
@@ -263,7 +263,7 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
             .getResponse()
             .getContentAsString();
     for (JsonNode n : objectMapper.readTree(body)) {
-      assertThat(n.get("kind").asText()).isEqualTo("FOLDER");
+      assertThat(n.get("kind").asString()).isEqualTo("FOLDER");
       assertThat(n.get("openable").asBoolean()).isFalse();
       assertThat(n.get("token").isNull()).isTrue();
       assertThat(n.get("folderCount").isNull()).isTrue();
@@ -329,7 +329,7 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String viewToken = objectMapper.readTree(body).get("viewToken").asText();
+    String viewToken = objectMapper.readTree(body).get("viewToken").asString();
     mockMvc
         .perform(
             get("/api/v1/public/drive/share/" + token)

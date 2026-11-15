@@ -10,7 +10,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.dto.MailMoveRequest;
 import com.workplace.mail.dto.MailMoveRequest.Kind;
 import com.workplace.mail.dto.MailMoveResponse;
@@ -38,6 +37,8 @@ import org.jooq.Record;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 메일 옮기기(WP-962) Graph 통합 테스트 — {@link GraphApiClient}·{@link GraphTokenService} 를 스텁하고 $batch 로
@@ -48,7 +49,7 @@ import org.springframework.transaction.annotation.Transactional;
 class MailMoveGraphTest extends ExternalClientMockedTestBase {
 
   private static final String TOKEN = "FAKE_TOKEN";
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
 
   @Autowired DSLContext dsl;
   @Autowired MailMoveService moveService;

@@ -5,8 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -31,6 +29,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 페이지 「전체 폭」 설정 저장(WP-793) — {@code PUT /wiki/pages/{id}} 의 {@code fullWidth}. 제목처럼 버전 검사 없이 나중
@@ -87,10 +87,10 @@ class WikiPageFullWidthTest extends IntegrationTestBase {
 
     JsonNode after = read(pageId, viewerId); // 읽는 사람 모두에게 같다
     assertThat(after.get("fullWidth").asBoolean()).isTrue();
-    assertThat(after.get("title").asText()).isEqualTo(before.get("title").asText());
-    assertThat(after.get("body").asText()).isEqualTo(before.get("body").asText());
+    assertThat(after.get("title").asString()).isEqualTo(before.get("title").asString());
+    assertThat(after.get("body").asString()).isEqualTo(before.get("body").asString());
     assertThat(after.get("version").asInt()).isEqualTo(before.get("version").asInt());
-    assertThat(after.get("updatedAt").asText()).isEqualTo(before.get("updatedAt").asText());
+    assertThat(after.get("updatedAt").asString()).isEqualTo(before.get("updatedAt").asString());
     assertThat(after.path("updatedBy").asLong()).isEqualTo(before.path("updatedBy").asLong());
 
     // 다시 끌 수 있다.
@@ -107,7 +107,7 @@ class WikiPageFullWidthTest extends IntegrationTestBase {
     titleOnly.put("title", "새 제목");
     JsonNode saved =
         json(call(putRaw(pageId, titleOnly, null), editorId).andExpect(status().isOk()));
-    assertThat(saved.get("title").asText()).isEqualTo("새 제목");
+    assertThat(saved.get("title").asString()).isEqualTo("새 제목");
     assertThat(saved.get("fullWidth").asBoolean()).isTrue();
     assertThat(read(pageId, ownerId).get("fullWidth").asBoolean()).isTrue();
 
@@ -117,7 +117,7 @@ class WikiPageFullWidthTest extends IntegrationTestBase {
     both.put("fullWidth", false);
     JsonNode bothSaved =
         json(call(putRaw(pageId, both, null), editorId).andExpect(status().isOk()));
-    assertThat(bothSaved.get("title").asText()).isEqualTo("둘 다");
+    assertThat(bothSaved.get("title").asString()).isEqualTo("둘 다");
     assertThat(bothSaved.get("fullWidth").asBoolean()).isFalse();
   }
 
@@ -131,7 +131,7 @@ class WikiPageFullWidthTest extends IntegrationTestBase {
     withBody.put("fullWidth", true);
     JsonNode saved =
         json(call(putRaw(pageId, withBody, null), editorId).andExpect(status().isOk()));
-    assertThat(saved.get("body").asText()).isEqualTo("새 본문");
+    assertThat(saved.get("body").asString()).isEqualTo("새 본문");
     assertThat(saved.get("fullWidth").asBoolean()).isFalse();
     assertThat(read(pageId, ownerId).get("fullWidth").asBoolean()).isFalse();
   }
@@ -199,7 +199,7 @@ class WikiPageFullWidthTest extends IntegrationTestBase {
                         .content(om.writeValueAsString(body)),
                     ownerId)
                 .andExpect(status().isOk()));
-    return saved.get("token").asText();
+    return saved.get("token").asString();
   }
 
   private JsonNode read(long id, long userId) throws Exception {

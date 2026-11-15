@@ -56,7 +56,7 @@ class HomeSessionServiceTest extends IntegrationTestBase {
     List<HomeMessageResponse> msgs = sessionService.getMessages(u, s.id());
     assertThat(msgs).hasSize(2);
     assertThat(msgs.get(0).role()).isEqualTo("USER");
-    assertThat(msgs.get(1).widgets().get(0).get("type").asText()).isEqualTo("issue_list");
+    assertThat(msgs.get(1).widgets().get(0).get("type").asString()).isEqualTo("issue_list");
   }
 
   @Test

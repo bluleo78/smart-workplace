@@ -15,8 +15,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingConflictException;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
@@ -39,6 +37,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1268 AI 별·호스트별 저장소 토큰 통합 테스트 — 관리자 API(등록·교체·폐기·목록·검증·감사·테넌트 격리), desired 의 repos 버전, runner
@@ -131,7 +131,7 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
     JsonNode desired = fx.json(runner(get(BASE + "/desired")).andExpect(status().isOk()));
     for (JsonNode a : desired.get("agents")) {
       if (a.get("agentUserId").asLong() != agent) continue;
-      for (JsonNode s : a.get("secrets")) if ("repos".equals(s.get("name").asText())) return s;
+      for (JsonNode s : a.get("secrets")) if ("repos".equals(s.get("name").asString())) return s;
     }
     throw new AssertionError("repos 참조 없음: " + agent);
   }
@@ -146,8 +146,8 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
   void register_whenValid_returnsMetaWithoutTokenAndStoresCiphertext() throws Exception {
     JsonNode created = register(a1, "github", "GitHub.com", TOKEN_A);
 
-    assertThat(created.get("kind").asText()).isEqualTo("GITHUB");
-    assertThat(created.get("host").asText()).isEqualTo("github.com");
+    assertThat(created.get("kind").asString()).isEqualTo("GITHUB");
+    assertThat(created.get("host").asString()).isEqualTo("github.com");
     assertThat(created.get("id").asLong()).isPositive();
     assertThat(created.get("createdAt").isNull()).isFalse();
     assertThat(created.get("lastUsedAt").isNull()).isTrue();
@@ -172,11 +172,10 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
     ResultActions r = admin(get(url(a1))).andExpect(status().isOk());
     JsonNode list = fx.json(r);
     assertThat(list).hasSize(2);
-    assertThat(list.get(0).get("host").asText()).isEqualTo("github.com");
-    assertThat(list.get(1).get("host").asText()).isEqualTo("gitlab.iacloud.kr");
-    assertThat(list.get(1).get("kind").asText()).isEqualTo("GITLAB");
-    assertThat(list.get(0).fieldNames())
-        .toIterable()
+    assertThat(list.get(0).get("host").asString()).isEqualTo("github.com");
+    assertThat(list.get(1).get("host").asString()).isEqualTo("gitlab.iacloud.kr");
+    assertThat(list.get(1).get("kind").asString()).isEqualTo("GITLAB");
+    assertThat(list.get(0).propertyNames())
         .containsExactlyInAnyOrder("id", "kind", "host", "createdAt", "lastUsedAt");
     assertThat(list.toString()).doesNotContain(TOKEN_A).doesNotContain(TOKEN_C);
   }
@@ -201,7 +200,7 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
     JsonNode list = fx.json(admin(get(url(a1))));
     assertThat(list).hasSize(1);
     assertThat(list.get(0).get("id").asLong()).isEqualTo(second);
-    assertThat(reposSecret(a1).at("/tokens/0/token").asText()).isEqualTo(TOKEN_B);
+    assertThat(reposSecret(a1).at("/tokens/0/token").asString()).isEqualTo(TOKEN_B);
   }
 
   /** 폐기는 204, 목록에서 빠지고 같은 id 를 다시 폐기하면 404. */
@@ -247,7 +246,7 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
   void register_whenTokenHasSurroundingWhitespace_storesTrimmed() throws Exception {
     register(a1, "GITHUB", "github.com", "  " + TOKEN_A + "\\n");
 
-    assertThat(reposSecret(a1).at("/tokens/0/token").asText()).isEqualTo(TOKEN_A);
+    assertThat(reposSecret(a1).at("/tokens/0/token").asString()).isEqualTo(TOKEN_A);
   }
 
   /** 사람(AI 아닌 구성원)에게는 등록할 수 없다(400) — AI 연결 등록과 같은 검사. */
@@ -323,11 +322,11 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
   void desired_whenNoCredentials_reposVersionNullFromWorks() throws Exception {
     JsonNode ref = reposRef(a1);
 
-    assertThat(ref.get("source").asText()).isEqualTo("WORKS");
+    assertThat(ref.get("source").asString()).isEqualTo("WORKS");
     assertThat(ref.get("version").isNull()).isTrue();
     JsonNode desired = fx.json(runner(get(BASE + "/desired")));
     for (JsonNode s : desired.at("/agents/0/secrets")) {
-      assertThat(s.get("name").asText()).isNotEqualTo("github");
+      assertThat(s.get("name").asString()).isNotEqualTo("github");
     }
   }
 
@@ -450,11 +449,11 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
 
     assertThat(secret.get("version").asLong()).isEqualTo(reposRef(a1).get("version").asLong());
     assertThat(secret.get("tokens")).hasSize(2);
-    assertThat(secret.at("/tokens/0/kind").asText()).isEqualTo("GITHUB");
-    assertThat(secret.at("/tokens/0/host").asText()).isEqualTo("github.com");
-    assertThat(secret.at("/tokens/0/token").asText()).isEqualTo(TOKEN_A);
-    assertThat(secret.at("/tokens/1/host").asText()).isEqualTo("gitlab.iacloud.kr");
-    assertThat(secret.at("/tokens/1/token").asText()).isEqualTo(TOKEN_C);
+    assertThat(secret.at("/tokens/0/kind").asString()).isEqualTo("GITHUB");
+    assertThat(secret.at("/tokens/0/host").asString()).isEqualTo("github.com");
+    assertThat(secret.at("/tokens/0/token").asString()).isEqualTo(TOKEN_A);
+    assertThat(secret.at("/tokens/1/host").asString()).isEqualTo("gitlab.iacloud.kr");
+    assertThat(secret.at("/tokens/1/token").asString()).isEqualTo(TOKEN_C);
     JsonNode list = fx.json(admin(get(url(a1))));
     assertThat(list.get(0).get("lastUsedAt").isNull()).isFalse();
     assertThat(list.get(1).get("lastUsedAt").isNull()).isFalse();
@@ -498,8 +497,8 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
     JsonNode s1 = reposSecret(a1);
     JsonNode s2 = reposSecret(a2);
 
-    assertThat(s1.at("/tokens/0/token").asText()).isEqualTo(TOKEN_A);
-    assertThat(s2.at("/tokens/0/token").asText()).isEqualTo(TOKEN_B);
+    assertThat(s1.at("/tokens/0/token").asString()).isEqualTo(TOKEN_A);
+    assertThat(s2.at("/tokens/0/token").asString()).isEqualTo(TOKEN_B);
     assertThat(s1.get("tokens")).hasSize(1);
     assertThat(s2.get("tokens")).hasSize(1);
   }

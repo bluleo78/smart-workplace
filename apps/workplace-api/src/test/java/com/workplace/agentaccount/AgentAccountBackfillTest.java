@@ -5,8 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountResponse;
 import com.workplace.agentaccount.dto.AgentAccountRow;
@@ -44,6 +42,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1448 기존 연결 이관 백필 통합 테스트 — 작업 공간(Pod) AI 의 활성 연결을 계정으로 옮기고 같은 키는 하나로 합친다.
@@ -171,7 +171,7 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
   private String refreshTokenOf(AgentAccountRow row) throws Exception {
     return om.readTree(encryption.decrypt(row.encryptedSecret()))
         .at("/tokens/refresh_token")
-        .asText();
+        .asString();
   }
 
   // ---- 이관 ----
@@ -440,7 +440,7 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
       if (a.get("agentUserId").asLong() != agent) continue;
       Map<String, Long> out = new HashMap<>();
       for (JsonNode ref : a.get("secrets")) {
-        String name = ref.get("name").asText();
+        String name = ref.get("name").asString();
         if (name.equals("claude") || name.equals("login")) {
           out.put(name, ref.get("version").isNull() ? null : ref.get("version").asLong());
         }

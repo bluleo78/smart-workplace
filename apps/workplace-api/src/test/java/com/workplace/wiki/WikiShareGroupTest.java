@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -43,6 +41,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트를 조직도 부서(팀) 단위로 공유(WP-1023) — 지정한 사람(PEOPLE) 공유의 대상에 부서를 둔다.
@@ -283,7 +283,7 @@ class WikiShareGroupTest extends IntegrationTestBase {
         json(saveRaw(rootId, false, List.of(strangerId), List.of(devId), null)).get("groups");
     assertThat(saved).hasSize(1);
     assertThat(saved.get(0).get("groupId").asLong()).isEqualTo(devId);
-    assertThat(saved.get(0).get("name").asText()).isEqualTo("개발팀-" + suffix);
+    assertThat(saved.get(0).get("name").asString()).isEqualTo("개발팀-" + suffix);
     assertThat(saved.get(0).get("memberCount").asInt()).isEqualTo(2);
 
     // 사람만 고친 요청(groupIds 없음)은 부서를 그대로 둔다 — 부서를 모르는 이전 클라이언트.
@@ -367,7 +367,7 @@ class WikiShareGroupTest extends IntegrationTestBase {
                         .content(om.writeValueAsString(body)),
                     ownerId)
                 .andExpect(status().isOk()));
-    String token = saved.get("token").asText();
+    String token = saved.get("token").asString();
     // 개발팀 직속 사람 + 하위 백엔드 사람 = 2명(AI·정지된 구성원은 세지 않는다).
     assertThat(saved.get("groups").get(0).get("memberCount").asInt()).isEqualTo(2);
 
@@ -448,7 +448,7 @@ class WikiShareGroupTest extends IntegrationTestBase {
       throws Exception {
     return json(saveRaw(pageId, children, userIds, groupIds, notify).andExpect(status().isOk()))
         .get("token")
-        .asText();
+        .asString();
   }
 
   /** PEOPLE 공유 저장 요청 — groupIds 가 null 이면 필드를 보내지 않는다(부서를 모르는 이전 클라이언트). */

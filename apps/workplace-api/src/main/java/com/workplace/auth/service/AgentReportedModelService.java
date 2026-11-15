@@ -1,8 +1,5 @@
 package com.workplace.auth.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.dto.ModelOption;
 import com.workplace.auth.repository.AgentReportedModelRepository;
@@ -17,6 +14,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 로그인 계정 모델 목록 보고 서비스(WP-1297). ChatGPT 로그인은 refresh token 이 1회용이라 Works 서버가 저장된 로그인으로 모델 목록을 조회하면
@@ -100,7 +100,7 @@ public class AgentReportedModelService {
                           ? null
                           : s.efforts().stream().map(e -> e.toUpperCase(Locale.ROOT)).toList()))
           .toList();
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       // 저장 때 우리가 만든 JSON 이라 오지 않는다 — 와도 드롭다운 전체가 막히지 않게 빈 목록으로.
       log.warn("보고된 모델 목록을 읽지 못해 빈 목록으로 대체: agent={}", agentUserId);
       return List.of();
@@ -120,7 +120,7 @@ public class AgentReportedModelService {
     try {
       return objectMapper.writeValueAsString(
           models.stream().map(m -> new Stored(m.id(), m.label(), m.efforts())).toList());
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("모델 목록을 저장 형식으로 바꾸지 못했습니다", e);
     }
   }

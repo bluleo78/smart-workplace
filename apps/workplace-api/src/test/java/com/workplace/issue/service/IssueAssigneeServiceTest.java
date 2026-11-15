@@ -9,7 +9,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
@@ -36,6 +35,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /** IssueAssigneeService 통합 테스트 — 집합 교체, 멤버십 가드, history, watcher 자동 등록. */
 @Transactional

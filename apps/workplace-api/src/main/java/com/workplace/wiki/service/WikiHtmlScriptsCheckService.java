@@ -1,6 +1,5 @@
 package com.workplace.wiki.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.fileai.security.FileSecurityCheckExecutorConfig;
 import com.workplace.fileai.security.FileSecurityCheckService;
@@ -17,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 HTML 블록 보안 점검 조회·요청(WP-1290). 페이지의 스크립트가 든 HTML 소스({@link WikiHtmlScriptSources})를 (페이지, 지문)으로

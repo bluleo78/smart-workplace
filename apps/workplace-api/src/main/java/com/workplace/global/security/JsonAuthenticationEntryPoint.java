@@ -1,7 +1,7 @@
 package com.workplace.global.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.global.json.JsonMappers;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -23,8 +23,6 @@ public class JsonAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
   static final String MESSAGE = "로그인이 필요합니다. 다시 로그인해 주세요.";
 
-  private static final ObjectMapper JSON = new ObjectMapper();
-
   @Override
   public void commence(
       HttpServletRequest request, HttpServletResponse response, AuthenticationException e)
@@ -33,7 +31,7 @@ public class JsonAuthenticationEntryPoint implements AuthenticationEntryPoint {
     response.setStatus(status.value());
     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-    JSON.writeValue(
+    JsonMappers.writeTo(
         response.getWriter(),
         new ErrorResponse(
             status.value(),

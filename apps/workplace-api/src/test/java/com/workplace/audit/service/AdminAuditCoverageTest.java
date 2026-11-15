@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.service.AgentApiKeyService;
@@ -21,6 +20,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import tools.jackson.databind.ObjectMapper;
 
 /** 관리자의 AI 관련 작업 감사 기록 빈틈(WP-706) — 공용 비서 지정·설정·해제 기록, 키·AI 연결 기록의 대상 AI 아이디, 관리 작업의 요청 IP. */
 @Transactional

@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 구성요소 담당자 자동 지정(WP-933 §4.3) — 담당자 없이 만든 이슈에 고른 구성요소 중 목록 순서로 처음 유효한 담당자를 붙이고, 일반 담당자 지정과 같은
@@ -49,9 +49,9 @@ class IssueComponentAutoAssignTest extends IssueComponentTestSupport {
     List<JsonNode> rows = history(issueId, "ASSIGNEES_CHANGED");
     assertThat(rows).hasSize(1);
     JsonNode p = rows.get(0);
-    assertThat(p.get("reason").asText()).isEqualTo("COMPONENT_DEFAULT");
+    assertThat(p.get("reason").asString()).isEqualTo("COMPONENT_DEFAULT");
     assertThat(p.get("componentId").asLong()).isEqualTo(compute);
-    assertThat(p.get("componentName").asText()).isEqualTo("Compute");
+    assertThat(p.get("componentName").asString()).isEqualTo("Compute");
     assertThat(p.get("added").get(0).get("id").asLong()).isEqualTo(soonId);
     assertThat(p.get("removed")).isEmpty();
   }

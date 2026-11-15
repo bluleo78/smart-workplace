@@ -6,13 +6,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 버전 검색 필터(WP-888) — {@code fixVersion}·{@code affectsVersion} 은 id·이름(대소문자 무시) CSV 의 OR, {@code
@@ -122,7 +122,7 @@ class IssueVersionFilterTest extends IssueVersionTestSupport {
         .andExpect(jsonPath("$.query").value(query));
     JsonNode list = json(call(get(base), ownerId).andExpect(status().isOk()));
     List<String> queries = new ArrayList<>();
-    list.forEach(v -> queries.add(v.get("query").asText()));
+    list.forEach(v -> queries.add(v.get("query").asString()));
     assertThat(queries).contains(query);
   }
 

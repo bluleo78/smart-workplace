@@ -5,11 +5,26 @@ drive:
 spring:
   application:
     name: workplace-api
+  # Boot 기본 Jackson 3 매퍼를 Jackson 2 때 기본값으로 맞춘다(WP-1609) — 응답 JSON(속성 순서·날짜 형식 등)과
+  # 요청 해석(null→기본형, 알 수 없는 속성 등)을 Jackson 2 때와 같게 유지한다(응답 비교로 확인).
+  # configureForJackson2 는 MapperFeature.DETECT_PARAMETER_NAMES 를 끄지만, Boot 3(Jackson 2) 때는 ParameterNamesModule 이
+  # 켜 두어 @JsonCreator 없는 전체 인자 생성자 클래스도 역직렬화됐다 — 예전과 같게 다시 켠다.
+  jackson:
+    use-jackson2-defaults: true
+    mapper:
+      detect-parameter-names: true
+    # use-jackson2-defaults 는 읽기·쓰기 한도(StreamRead/WriteConstraints)는 바꾸지 않는다. Jackson 3 기본은 문자열 100,000,000자·
+    # 중첩 500 단계라, Jackson 2 때 값(문자열 20,000,000자·중첩 1000 단계)으로 되돌린다 — 긴 본문 400「입력한 내용이 너무 깁니다」
+    # (WP-1387, OversizedJsonValueTest)와 메모리 보호 한도를 그대로 유지한다. 빈이 아닌 매퍼(global/json/JsonMappers)도 같은 값을 쓰므로
+    # 바꿀 때 함께 바꾼다.
+    factory:
+      constraints:
+        read:
+          max-string-length: 20000000
+          max-nesting-depth: 1000
+        write:
+          max-nesting-depth: 1000
   http:
-    # HTTP 메시지 변환기가 Jackson 2 ObjectMapper 를 쓰게 한다(WP-1588). Boot 4 기본은 Jackson 3 이라, 이 값이 없으면
-    # 우리 Jackson 2 설정·@JsonComponent(LocalDate 범위 검사)·역직렬화 예외 처리가 HTTP 경로에서 빠져 400/500 응답이 바뀐다.
-    converters:
-      preferred-json-mapper: jackson2
     # 자동 구성 RestClient/RestTemplate 빌더의 HTTP 구현을 JDK 로 고정한다(WP-874). 링크 미리보기용 Apache HttpClient5 가 classpath 에
     # 들어오면 Boot 가 그쪽을 먼저 고르는데, 재시도·풀·리다이렉트 기본값이 달라 기존 외부 호출(웹 푸시 등)의 동작이 조용히 바뀐다.
     # SafeHttpFetcher 는 이 설정과 무관하게 자기 Apache 클라이언트를 직접 만든다.

@@ -18,8 +18,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.imap.ImapHostManager;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
@@ -73,6 +71,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * 메일 작성 첨부(WP-574) 통합 — 임시 업로드, 업로드·전달 첨부를 붙인 SMTP 발송(MIME 구조·한글 파일명·바이트), 남의·만료된 id 거절, 25MB 초과

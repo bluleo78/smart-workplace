@@ -3,8 +3,6 @@ package com.workplace.issue.controller;
 import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.AgentWorkTestSupport;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,6 +11,9 @@ import org.jooq.JSONB;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * AI 질문 답 선택지(WP-1569) — report_agent_work 의 options 가 정리(공백·빈 값·중복 제거)돼 질문 글에 저장되고 메시지 목록 응답에
@@ -20,7 +21,7 @@ import org.springframework.http.HttpStatus;
  */
 class AgentWorkReportOptionsTest extends AgentWorkTestSupport {
 
-  private static final ObjectMapper OM = new ObjectMapper();
+  private static final ObjectMapper OM = JsonMapper.builderWithJackson2Defaults().build();
 
   @Test
   void 질문_보고의_options_는_정리돼_질문_글에_저장되고_목록_응답에_실린다() {
@@ -152,7 +153,7 @@ class AgentWorkReportOptionsTest extends AgentWorkTestSupport {
 
   private static List<String> texts(JsonNode array) {
     List<String> out = new ArrayList<>();
-    array.forEach(n -> out.add(n.asText()));
+    array.forEach(n -> out.add(n.asString()));
     return out;
   }
 }

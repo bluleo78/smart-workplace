@@ -1504,7 +1504,9 @@ public class GlobalExceptionHandler {
     // - 지원 범위 밖 날짜(WP-725): 본문 해석 중에 걸린다 — 일반 문구 대신 그 이유를 그대로 알린다.
     // - Jackson 길이 한도(문자열·숫자·이름, WP-1387): 서비스의 크기 검사까지 가지 못하고 일반 문구로 나가 무엇을 줄일지 알 수 없었다.
     //   한도 자체는 바꾸지 않는다(메모리 보호). 중첩 깊이 초과는 「길다」가 아니라서 일반 문구로 둔다.
-    //   칸 경로는 체인 안 JsonMappingException(Jackson 이 칸 경로를 붙여 감싼다)이 짚을 때만 errors 에 싣는다.
+    //   칸 경로는 체인 안 Jackson 예외가 짚을 때만 errors 에 싣는다.
+    //   Jackson 2 는 JsonMappingException 으로 감싸 경로를 붙였지만, Jackson 3 은 감싸지 않고 원래 예외
+    //   (StreamConstraintsException 등, 모두 JacksonException)에 경로를 붙인다(WP-1609).
     boolean overLimit = false;
     String limitField = "";
     for (Throwable t = ex; t != null; t = t.getCause()) {
@@ -1512,14 +1514,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest()
             .body(buildError(HttpStatus.BAD_REQUEST, t.getMessage(), null, request));
       }
-      if (t instanceof com.fasterxml.jackson.core.exc.StreamConstraintsException sce
+      if (t instanceof tools.jackson.core.exc.StreamConstraintsException sce
           && sce.getOriginalMessage() != null
           && sce.getOriginalMessage().contains("length")) {
         overLimit = true;
       }
-      if (limitField.isEmpty()
-          && t instanceof com.fasterxml.jackson.databind.JsonMappingException jme) {
-        limitField = jsonPath(jme.getPath());
+      if (limitField.isEmpty() && t instanceof tools.jackson.core.JacksonException je) {
+        limitField = jsonPath(je.getPath());
       }
     }
     if (overLimit) {
@@ -1534,7 +1535,7 @@ public class GlobalExceptionHandler {
     }
     // 값의 형식이 틀린 칸(예: 2026-02-30 날짜)이 짚이면 그 칸을 errors 에 싣는다(WP-744 — 어느 칸이 왜 틀렸는지 알 수 없었다).
     Map<String, String> fieldErrors = null;
-    if (ex.getCause() instanceof com.fasterxml.jackson.databind.exc.MismatchedInputException mie) {
+    if (ex.getCause() instanceof tools.jackson.databind.exc.MismatchedInputException mie) {
       String field = jsonPath(mie.getPath());
       if (!field.isEmpty()) {
         // 받아야 할 타입을 알면 경로·쿼리 형식 오류와 같은 안내(「정수여야 합니다」 등)를 쓴다(WP-1394).
@@ -1553,12 +1554,12 @@ public class GlobalExceptionHandler {
 
   /** Jackson 참조 경로를 검증 오류와 같은 꼴(「widgets[0].label」)로 만든다. */
   private static String jsonPath(
-      java.util.List<com.fasterxml.jackson.databind.JsonMappingException.Reference> path) {
+      java.util.List<tools.jackson.core.JacksonException.Reference> path) {
     StringBuilder sb = new StringBuilder();
     for (var ref : path) {
-      if (ref.getFieldName() != null) {
+      if (ref.getPropertyName() != null) {
         if (!sb.isEmpty()) sb.append('.');
-        sb.append(ref.getFieldName());
+        sb.append(ref.getPropertyName());
       } else if (ref.getIndex() >= 0) {
         sb.append('[').append(ref.getIndex()).append(']');
       }

@@ -1,7 +1,5 @@
 package com.workplace.issue.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.issue.domain.IssueDependencyGraph;
 import com.workplace.issue.domain.IssueKeys;
@@ -35,6 +33,8 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 관계 일괄 가져오기(WP-887) — 이슈를 모두 가져온 뒤 이슈 사이 관계(관련·중복·복제·원인·사용자 정의, 차단)를 한 번에 넣는다. 관리자·프로젝트
@@ -353,7 +353,7 @@ public class IssueRelationImportService {
     }
     try {
       return objectMapper.writeValueAsString(rows);
-    } catch (JsonProcessingException ex) {
+    } catch (JacksonException ex) {
       throw new IllegalStateException(ex);
     }
   }

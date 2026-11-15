@@ -10,8 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.service.HomeProposalService;
@@ -30,6 +28,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 홈 확인카드 REST 계약 테스트(#843) — 복원(GET)·승인·거부의 응답 형태와 상태코드.
@@ -105,7 +105,7 @@ class HomeProposalControllerTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String validateReason = om.readTree(validateBody).path("message").asText();
+    String validateReason = om.readTree(validateBody).path("message").asString();
 
     String body =
         mockMvc
@@ -118,8 +118,8 @@ class HomeProposalControllerTest extends IntegrationTestBase {
             .getContentAsString();
     JsonNode out = om.readTree(body);
     assertThat(validateReason).isNotBlank();
-    assertThat(out.path("proposal").path("errorMessage").asText()).isEqualTo(validateReason);
-    assertThat(out.path("message").path("content").asText()).endsWith("사유: " + validateReason);
+    assertThat(out.path("proposal").path("errorMessage").asString()).isEqualTo(validateReason);
+    assertThat(out.path("message").path("content").asString()).endsWith("사유: " + validateReason);
   }
 
   @Test

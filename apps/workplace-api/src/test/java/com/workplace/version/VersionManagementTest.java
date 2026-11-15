@@ -7,8 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
@@ -33,6 +31,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-888 버전 목록 관리 API — 목록 순서, 권한(OWNER·ADMIN·멤버·비멤버), 이름 유일(대소문자·공백), 날짜 검증, 개인 프로젝트 거부, 보관·복원, 진행
@@ -91,11 +91,11 @@ class VersionManagementTest extends IntegrationTestBase {
 
     JsonNode list = json(call(get(base), ownerId).andExpect(status().isOk()));
     List<String> names = new ArrayList<>();
-    list.forEach(n -> names.add(n.get("name").asText()));
+    list.forEach(n -> names.add(n.get("name").asString()));
     assertThat(names).containsExactly("B", "A", "C", "E", "D", "F");
-    assertThat(list.get(0).get("status").asText()).isEqualTo("UNRELEASED");
-    assertThat(list.get(3).get("status").asText()).isEqualTo("RELEASED");
-    assertThat(list.get(5).get("status").asText()).isEqualTo("ARCHIVED");
+    assertThat(list.get(0).get("status").asString()).isEqualTo("UNRELEASED");
+    assertThat(list.get(3).get("status").asString()).isEqualTo("RELEASED");
+    assertThat(list.get(5).get("status").asString()).isEqualTo("ARCHIVED");
   }
 
   /** 테넌트 ADMIN(비멤버)은 관리할 수 있고, 일반 멤버는 403, 읽을 수 있는 비멤버는 목록만 본다. */
@@ -221,8 +221,8 @@ class VersionManagementTest extends IntegrationTestBase {
     JsonNode p = null;
     JsonNode q = null;
     for (JsonNode n : list) {
-      if (n.get("name").asText().equals("P")) p = n;
-      if (n.get("name").asText().equals("Q")) q = n;
+      if (n.get("name").asString().equals("P")) p = n;
+      if (n.get("name").asString().equals("Q")) q = n;
     }
     assertThat(p.get("progress").get("done").asInt()).isEqualTo(2);
     assertThat(p.get("progress").get("inProgress").asInt()).isEqualTo(1);

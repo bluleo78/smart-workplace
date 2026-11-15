@@ -6,12 +6,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@link GraphCalendarClient} 단위 테스트.
@@ -123,7 +124,7 @@ class GraphCalendarClientTest {
 
   // ── 헬퍼 ────────────────────────────────────────────────────────────────────
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
   private GraphCalendarClient.GraphEventPage mapPage(String json) throws Exception {
     return MAPPER.readValue(json, GraphCalendarClient.GraphEventPage.class);

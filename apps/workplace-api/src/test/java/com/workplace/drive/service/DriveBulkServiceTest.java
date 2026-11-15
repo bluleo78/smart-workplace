@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
+import tools.jackson.databind.json.JsonMapper;
 
 /** 벌크 삭제/이동 — 최상위 항목별 op-id(따로 복원), 단일 트랜잭션 롤백. */
 @org.springframework.transaction.annotation.Transactional
@@ -210,8 +211,7 @@ class DriveBulkServiceTest extends IntegrationTestBase {
             .orderBy(AUDIT_LOG.RESOURCE_ID)
             .fetch(r -> r.value1().data());
     assertThat(metas).hasSize(2);
-    com.fasterxml.jackson.databind.ObjectMapper om =
-        new com.fasterxml.jackson.databind.ObjectMapper();
+    tools.jackson.databind.ObjectMapper om = JsonMapper.builderWithJackson2Defaults().build();
     var m0 = om.readTree(metas.get(0));
     var m1 = om.readTree(metas.get(1));
     // 같은 묶음

@@ -8,9 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
@@ -33,6 +30,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /** WP-55 §6: 채팅 결과 줄 되돌리기 — 반대 동작 3종, 멱등, 이미 지워짐, 상한, 꺼짐 허용, 남의 메시지 404, 순번 규칙(판정 4). */
 @Transactional
@@ -92,7 +92,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
             .value1()
             .data();
     List<JsonNode> out = new ArrayList<>();
-    for (JsonNode b : om.readTree(json)) if ("memory".equals(b.path("kind").asText())) out.add(b);
+    for (JsonNode b : om.readTree(json)) if ("memory".equals(b.path("kind").asString())) out.add(b);
     return out;
   }
 

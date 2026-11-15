@@ -1,7 +1,6 @@
 package com.workplace.help.outbound;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.outbound.InternalHttp;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.help.HelpProperties;
@@ -16,6 +15,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 웹의 정적 파일에서 도움말 묶음을 읽는다(WP-1509) — 먼저 index 로 장 목록·audience 를 얻고 장마다 장 파일을 받는다.
@@ -31,7 +33,7 @@ public class HttpHelpBundleSource implements HelpBundleSource {
 
   private final String base;
   private final HttpClient http;
-  private final ObjectMapper mapper = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   public HttpHelpBundleSource(HelpProperties props) {
     // 끝 슬래시를 떼 경로를 이을 때 겹치지 않게. HTTP/1.1 고정 — InternalHttp 참조
@@ -69,7 +71,10 @@ public class HttpHelpBundleSource implements HelpBundleSource {
       if (res.statusCode() != 200) {
         throw new IOException("도움말 파일 응답 " + res.statusCode() + ": " + path);
       }
-      return mapper.readValue(res.body(), type);
+      return MAPPER.readValue(res.body(), type);
+    } catch (JacksonException e) {
+      // Jackson 3 의 해석 오류는 비검사 예외다 — Jackson 2 때처럼 IOException 으로 알려 호출자의 처리 경로를 유지한다(WP-1609).
+      throw new IOException("도움말 파일 JSON 해석 실패: " + path, e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IOException("도움말 파일 읽기 중단: " + path, e);

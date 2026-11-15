@@ -6,13 +6,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.global.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * WP-888 버전 삭제 — 보관한 것만 지운다(서버도 막음), 떼기/같은 종류로 옮기기와 종류별 이력, 옮길 대상 검증, 삭제 전 이슈 수.
@@ -70,7 +70,7 @@ class VersionDeleteTest extends VersionOpsTestSupport {
     for (long i : new long[] {fix1, fix2}) {
       List<JsonNode> h = history(i, "FIX_VERSIONS_CHANGED");
       assertThat(h).hasSize(1);
-      assertThat(h.get(0).get("removed").get(0).get("name").asText()).isEqualTo("1.0");
+      assertThat(h.get(0).get("removed").get(0).get("name").asString()).isEqualTo("1.0");
       assertThat(h.get(0).get("added")).isEmpty();
     }
     assertThat(history(aff, "AFFECTS_VERSIONS_CHANGED")).hasSize(1);

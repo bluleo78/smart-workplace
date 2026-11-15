@@ -1,6 +1,5 @@
 package com.workplace.audit.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.audit.dto.AuditLogResponse;
 import com.workplace.audit.repository.AuditLogRepository;
 import com.workplace.global.dto.PageResponse;
@@ -17,6 +16,7 @@ import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor

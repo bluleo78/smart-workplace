@@ -1,6 +1,5 @@
 package com.workplace.global.realtime;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
@@ -10,6 +9,7 @@ import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 키별 SSE emitter 묶음 — 사용자용 {@link SseRegistry}(키 userId)와 runner 변경 스트림 레지스트리(키 테넌트·위치, WP-1249)가

@@ -1,6 +1,5 @@
 package com.workplace.notify.push;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.util.Collection;
 import java.util.HashMap;
@@ -10,6 +9,7 @@ import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 수신자 → 구독 조회 → 암호화 → 발송 → 결과 반영. 호출자(PushDispatcher)가 pushExecutor 스레드에서 동기 호출한다. 한 구독의 실패/예외는 로그만

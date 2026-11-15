@@ -2,13 +2,13 @@ package com.workplace.messaging.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.support.IntegrationTestBase;
 import java.io.InputStream;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 미리보기를 가져올 URL 고르기(WP-896) — 우리 앱 주소(공개 웹 주소와 같은 호스트)는 웹이 앱 카드로 그리므로 OG 가져오기에서 뺀다. 테스트 프로필의 공개 웹
@@ -68,13 +68,13 @@ class LinkPreviewDispatcherTest extends IntegrationTestBase {
     // 웹 lib/appLinks.test.ts 도 같은 표를 읽는다 — 한쪽 문법(경로·자릿수 상한)만 바뀌면 그쪽 테스트가 실패한다(WP-1165).
     JsonNode table;
     try (InputStream in = getClass().getResourceAsStream("/app-links/app-card-urls.json")) {
-      table = new ObjectMapper().readTree(in);
+      table = JsonMapper.builderWithJackson2Defaults().build().readTree(in);
     }
     // 테스트 프로필의 공개 웹 주소(http://localhost:6173)가 표의 호스트와 같아야 한다.
-    assertThat(table.get("host").asText()).isEqualTo("localhost");
+    assertThat(table.get("host").asString()).isEqualTo("localhost");
     SoftAssertions soft = new SoftAssertions();
     for (JsonNode c : table.get("cases")) {
-      String url = c.get("url").asText();
+      String url = c.get("url").asString();
       soft.assertThat(dispatcher.isAppCardUrl(url)).as(url).isEqualTo(c.get("card").asBoolean());
     }
     soft.assertAll();

@@ -2,7 +2,6 @@ package com.workplace.chat.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.AgentWorkTestSupport;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,6 +9,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import tools.jackson.databind.JsonNode;
 
 /** 이슈 챗 메시지 after·afterMine 조회와 스레드 externalAgent(WP-373 §3.3·§5.2) — 실제 HTTP 로 검증한다. */
 class ChatMessageAfterTest extends AgentWorkTestSupport {
@@ -20,7 +20,7 @@ class ChatMessageAfterTest extends AgentWorkTestSupport {
 
   private List<String> bodies(JsonNode page) {
     List<String> out = new ArrayList<>();
-    page.get("items").forEach(n -> out.add(n.get("body").asText()));
+    page.get("items").forEach(n -> out.add(n.get("body").asString()));
     return out;
   }
 
@@ -48,7 +48,7 @@ class ChatMessageAfterTest extends AgentWorkTestSupport {
                 null));
     assertThat(bodies(page)).containsExactly("m2", "m3", "m4");
     assertThat(page.get("hasMore").asBoolean()).isTrue();
-    assertThat(page.get("nextCursor").asText()).isEqualTo(String.valueOf(ids.get(3)));
+    assertThat(page.get("nextCursor").asString()).isEqualTo(String.valueOf(ids.get(3)));
     var next =
         json(
             call(
@@ -147,6 +147,6 @@ class ChatMessageAfterTest extends AgentWorkTestSupport {
     makeExternal(agentId);
     var after = json(call(HttpMethod.GET, issuePath() + "/chat/thread", jwtToken, null, null));
     assertThat(after.get("externalAgent").get("id").asLong()).isEqualTo(agentId);
-    assertThat(after.get("externalAgent").get("kind").asText()).isEqualTo("AGENT");
+    assertThat(after.get("externalAgent").get("kind").asString()).isEqualTo("AGENT");
   }
 }

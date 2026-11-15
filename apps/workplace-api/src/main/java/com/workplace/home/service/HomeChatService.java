@@ -1,7 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.SharedAiMemoryReader;
@@ -37,6 +35,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 홈 채팅 오케스트레이션 (B2, #593 편입): 세션 ensure → 맥락 스냅샷(누적 요약 + 원문, WP-232) 구성 → 비서 해석 → USER 영속 →
@@ -492,11 +492,11 @@ public class HomeChatService {
 
   /** tool 이벤트 — 표시 가능 도구는 영속 단계에 추가(숨김 도구는 발행만), show_* 는 위젯 블록, result 는 단계 상태 갱신. */
   private void onTool(HomeChatTurn turn, JsonNode toolNode) {
-    String phase = toolNode.path("phase").asText();
+    String phase = toolNode.path("phase").asString("");
     boolean isError = toolNode.path("isError").asBoolean(false); // result 에만 실린다(없으면 false)
-    int seq = toolNode.path("seq").asInt();
+    int seq = toolNode.path("seq").asInt(0);
     if ("start".equals(phase)) {
-      String toolName = toolNode.path("toolName").asText();
+      String toolName = toolNode.path("toolName").asString("");
       if (isDisplayableTool(toolName)) {
         Map<String, Object> step = new LinkedHashMap<>();
         step.put("kind", "tool");
@@ -525,7 +525,7 @@ public class HomeChatService {
     // WP-55: 메모리 도구 성공 결과(result) → 결과 줄 블록(되돌리기 근거). ai-agent 가 이미 거르지만 API 도 다시 거른다.
     // start 단계, 오류 결과, 메모리가 아닌 도구, 모양이 틀린 memory 는 블록을 만들지 않는다.
     ChatBlockRecorder.Block memory =
-        !"start".equals(phase) && !isError && isMemoryTool(toolNode.path("toolName").asText())
+        !"start".equals(phase) && !isError && isMemoryTool(toolNode.path("toolName").asString(""))
             ? ChatBlockRecorder.memoryBlockOf(toolNode.get("memory"))
             : null;
     @SuppressWarnings("unchecked")

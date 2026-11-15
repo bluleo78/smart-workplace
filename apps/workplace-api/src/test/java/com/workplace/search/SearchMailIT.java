@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -34,6 +32,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 통합 검색 팔레트(WP-1359)의 전 메일함 메일 검색 — 받은편지함·보낸편지함(앱 기록 + 서버 사본 중복 제거)·보관함·사용자 메일함을 내 모든 계정에서 최신순으로
@@ -194,38 +194,38 @@ class SearchMailIT extends IntegrationTestBase {
     assertThat(r.get("hasMore").asBoolean()).isFalse();
 
     JsonNode custom0 = items.get(0);
-    assertThat(custom0.get("folderKind").asText()).isEqualTo("OTHER");
+    assertThat(custom0.get("folderKind").asString()).isEqualTo("OTHER");
     assertThat(custom0.get("folderId").asLong()).isEqualTo(custom);
-    assertThat(custom0.get("folderName").asText()).isEqualTo("거래처");
+    assertThat(custom0.get("folderName").asString()).isEqualTo("거래처");
     assertThat(custom0.get("firstRecipient").isNull()).isTrue();
     assertThat(custom0.get("recipientCount").asInt()).isZero();
-    assertThat(custom0.get("fromName").asText()).isEqualTo("보낸이");
+    assertThat(custom0.get("fromName").asString()).isEqualTo("보낸이");
     assertThat(custom0.get("accountId").asLong()).isEqualTo(acc);
 
-    assertThat(items.get(1).get("folderName").asText()).isEqualTo("보관");
+    assertThat(items.get(1).get("folderName").asString()).isEqualTo("보관");
     assertThat(items.get(1).get("folderId").asLong()).isEqualTo(archive);
 
     // 서버 보낸편지함(외부 발송) — 보낸편지함으로 묶이고 folderId 는 비운다.
     JsonNode ext = items.get(2);
-    assertThat(ext.get("folderKind").asText()).isEqualTo("SENT");
-    assertThat(ext.get("folderName").asText()).isEqualTo("보낸편지함");
+    assertThat(ext.get("folderKind").asString()).isEqualTo("SENT");
+    assertThat(ext.get("folderName").asString()).isEqualTo("보낸편지함");
     assertThat(ext.get("folderId").isNull()).isTrue();
-    assertThat(ext.get("firstRecipient").asText()).isEqualTo("park@test.local");
+    assertThat(ext.get("firstRecipient").asString()).isEqualTo("park@test.local");
     assertThat(ext.get("recipientCount").asInt()).isEqualTo(1);
 
     // 앱 발송 기록 — 첫 받는 사람은 이름, 수는 to 전체.
     JsonNode app = items.get(3);
-    assertThat(app.get("folderKind").asText()).isEqualTo("SENT");
-    assertThat(app.get("folderName").asText()).isEqualTo("보낸편지함");
-    assertThat(app.get("firstRecipient").asText()).isEqualTo("김철수");
+    assertThat(app.get("folderKind").asString()).isEqualTo("SENT");
+    assertThat(app.get("folderName").asString()).isEqualTo("보낸편지함");
+    assertThat(app.get("firstRecipient").asString()).isEqualTo("김철수");
     assertThat(app.get("recipientCount").asInt()).isEqualTo(3);
 
     JsonNode in = items.get(5);
-    assertThat(in.get("folderKind").asText()).isEqualTo("INBOX");
-    assertThat(in.get("folderName").asText()).isEqualTo("받은편지함");
+    assertThat(in.get("folderKind").asString()).isEqualTo("INBOX");
+    assertThat(in.get("folderName").asString()).isEqualTo("받은편지함");
     assertThat(in.get("folderId").isNull()).isTrue();
-    assertThat(in.get("subject").asText()).isEqualTo("견적 " + word + " 받은");
-    assertThat(in.get("receivedAt").asText()).isNotBlank();
+    assertThat(in.get("subject").asString()).isEqualTo("견적 " + word + " 받은");
+    assertThat(in.get("receivedAt").asString()).isNotBlank();
   }
 
   @Test
@@ -243,7 +243,7 @@ class SearchMailIT extends IntegrationTestBase {
     assertThat(p1.get("hasMore").asBoolean()).isTrue();
 
     JsonNode last = p1.get("items").get(2);
-    JsonNode p2 = search(me, word, last.get("receivedAt").asText(), last.get("id").asLong(), 3);
+    JsonNode p2 = search(me, word, last.get("receivedAt").asString(), last.get("id").asLong(), 3);
     assertThat(ids(p2.get("items"))).containsExactlyElementsOf(expected.subList(3, 5));
     assertThat(p2.get("hasMore").asBoolean()).isFalse();
   }

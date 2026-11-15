@@ -13,8 +13,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.records.AuditLogRecord;
@@ -49,6 +47,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 공유 링크 열기·접근 요청(WP-579 Task 4) — {@code GET /wiki/shares/{token}} 의 범위·조회 수·member 플래그·다른
@@ -106,15 +106,15 @@ class WikiShareLinkTest extends IntegrationTestBase {
     JsonNode r = json(call(get(link(whole)), strangerId).andExpect(status().isOk()));
     assertThat(r.get("rootPageId").asLong()).isEqualTo(rootId);
     assertThat(r.get("spaceId").asLong()).isEqualTo(spaceId);
-    assertThat(r.get("permission").asText()).isEqualTo("VIEW");
+    assertThat(r.get("permission").asString()).isEqualTo("VIEW");
     assertThat(r.get("includeChildren").asBoolean()).isTrue();
     assertThat(r.get("sharedBy").get("userId").asLong()).isEqualTo(ownerId);
-    assertThat(r.get("sharedBy").get("name").asText()).isNotBlank();
+    assertThat(r.get("sharedBy").get("name").asString()).isNotBlank();
     assertThat(r.get("member").asBoolean()).isFalse();
     assertThat(pageIds(r)).containsExactlyInAnyOrder(rootId, childId, grandchildId);
     JsonNode root = pageNode(r, rootId);
     assertThat(root.get("parentId").isNull()).isTrue();
-    assertThat(root.get("title").asText()).isEqualTo("제품 로드맵");
+    assertThat(root.get("title").asString()).isEqualTo("제품 로드맵");
     assertThat(pageNode(r, childId).get("parentId").asLong()).isEqualTo(rootId);
 
     // 하위 포함을 끄면 루트 하나.
@@ -233,7 +233,7 @@ class WikiShareLinkTest extends IntegrationTestBase {
 
     JsonNode body =
         json(callAs(get(link(token)), outsider, otherTenant).andExpect(status().isConflict()));
-    assertThat(body.get("code").asText()).isEqualTo("WIKI_SHARE_PUBLIC");
+    assertThat(body.get("code").asString()).isEqualTo("WIKI_SHARE_PUBLIC");
     assertThat(body.has("tenantId")).isFalse();
     assertThat(viewCount(rootId)).isZero(); // 외부 보기가 다시 열며 센다 — 여기서 세지 않는다
 
@@ -411,8 +411,8 @@ class WikiShareLinkTest extends IntegrationTestBase {
     JsonNode meta = om.readTree(audits.get(0).getMetadata().data());
     assertThat(meta.get("requesterId").asLong()).isEqualTo(strangerId);
     assertThat(meta.get("spaceId").asLong()).isEqualTo(spaceId);
-    assertThat(meta.get("audience").asText()).isEqualTo("PEOPLE");
-    assertThat(meta.get("permission").asText()).isEqualTo("VIEW");
+    assertThat(meta.get("audience").asString()).isEqualTo("PEOPLE");
+    assertThat(meta.get("permission").asString()).isEqualTo("VIEW");
     assertThat(appEvents.stream(WikiShareAccessApprovedEvent.class)).isEmpty();
 
     // 거절 직후(24시간 안) 다시 요청하면 새 요청 없이 거절 상태를 돌려준다 — 같은 사람에게 알림이 되풀이되지 않게.
@@ -693,7 +693,7 @@ class WikiShareLinkTest extends IntegrationTestBase {
                         .content(om.writeValueAsString(body)),
                     ownerId)
                 .andExpect(status().isOk()));
-    return saved.get("token").asText();
+    return saved.get("token").asString();
   }
 
   private boolean member(String token, long userId) throws Exception {
@@ -768,7 +768,7 @@ class WikiShareLinkTest extends IntegrationTestBase {
     JsonNode events =
         json(call(get(sharePath(pageId) + "/events"), ownerId).andExpect(status().isOk()));
     List<String> out = new ArrayList<>();
-    events.forEach(e -> out.add(e.get("type").asText()));
+    events.forEach(e -> out.add(e.get("type").asString()));
     return out;
   }
 
@@ -777,8 +777,8 @@ class WikiShareLinkTest extends IntegrationTestBase {
     JsonNode events =
         json(call(get(sharePath(pageId) + "/events"), ownerId).andExpect(status().isOk()));
     for (JsonNode e : events) {
-      if (type.equals(e.get("type").asText())) {
-        return e.get("detail").asText();
+      if (type.equals(e.get("type").asString())) {
+        return e.get("detail").asString();
       }
     }
     throw new AssertionError("공유 기록에 " + type + " 줄이 없습니다");

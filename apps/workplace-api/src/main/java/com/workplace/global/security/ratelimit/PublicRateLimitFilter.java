@@ -1,8 +1,8 @@
 package com.workplace.global.security.ratelimit;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DrivePlaybackService;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.ClientIpExtractor;
 import com.workplace.user.service.AvatarService;
@@ -42,7 +42,6 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
   /** 넘쳤을 때의 안내 — 화면은 이 문구를 그대로 보인다. */
   static final String MESSAGE = "요청이 너무 많습니다. 잠시 후 다시 시도하세요.";
 
-  private static final ObjectMapper JSON = new ObjectMapper();
   private static final Pattern SHARE_DOWNLOAD =
       Pattern.compile("^/api/v1/public/drive/share/[^/]+(/files/\\d+)?/download$");
 
@@ -184,7 +183,7 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
     response.setHeader("Retry-After", Long.toString(retryAfter));
     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-    JSON.writeValue(
+    JsonMappers.writeTo(
         response.getWriter(),
         new ErrorResponse(
             status.value(),

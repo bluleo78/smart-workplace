@@ -12,8 +12,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.audit.dto.AuditLogResponse;
 import com.workplace.audit.repository.AuditLogRepository;
 import com.workplace.issue.dto.CreateIssueRequest;
@@ -50,6 +48,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 상태 삭제와 이슈 이전(WP-809) 통합 테스트. 픽스처 TEAM 프로젝트는 기본 4상태에 「검토 중」(진행 중 범주)·「배포됨」(완료 범주)을 더해 둔다. 이전은 조용해야
@@ -226,7 +226,7 @@ class ProjectStatusDeletionTest extends IntegrationTestBase {
 
   private List<AuditLogResponse> deleteLogs() {
     return auditLogRepository.findByResource("DELETE", "project_status", null).stream()
-        .filter(l -> project.key().equals(meta(l).path("projectKey").asText()))
+        .filter(l -> project.key().equals(meta(l).path("projectKey").asString()))
         .toList();
   }
 
@@ -617,8 +617,8 @@ class ProjectStatusDeletionTest extends IntegrationTestBase {
     assertThat(log.resourceId()).isEqualTo(String.valueOf(review));
     assertThat(log.userId()).isEqualTo(owner);
     var m = meta(log);
-    assertThat(m.path("name").asText()).isEqualTo("검토 중");
-    assertThat(m.path("moveTo").asText()).isEqualTo("진행 중");
+    assertThat(m.path("name").asString()).isEqualTo("검토 중");
+    assertThat(m.path("moveTo").asString()).isEqualTo("진행 중");
     assertThat(m.path("movedIssueCount").asInt()).isEqualTo(2);
   }
 

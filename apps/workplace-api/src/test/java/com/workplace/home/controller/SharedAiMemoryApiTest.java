@@ -16,8 +16,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.repository.CursorCodec;
 import com.workplace.home.repository.SharedAiMemoryForgottenRepository;
@@ -42,6 +40,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** WP-386 관리 API — 공간 목록·권한 표(추가·고치기·지우기)·한도·키셋·검색·지운 기록·내부 토큰 쓰기 거절. */
 @Transactional
@@ -275,7 +275,7 @@ class SharedAiMemoryApiTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String cursor = om.readTree(first).path("nextCursor").asText();
+    String cursor = om.readTree(first).path("nextCursor").asString();
     mvc.perform(
             get("/api/v1/shared-ai-memories")
                 .param("spaceType", "PROJECT")
@@ -310,7 +310,7 @@ class SharedAiMemoryApiTest extends IntegrationTestBase {
                   .getResponse()
                   .getContentAsString());
       page.path("items").forEach(n -> seen.add(n.path("id").asLong()));
-      cursor = page.path("nextCursor").isMissingNode() ? null : page.path("nextCursor").asText();
+      cursor = page.path("nextCursor").isMissingNode() ? null : page.path("nextCursor").asString();
       pages++;
     } while (cursor != null && pages < 10);
     assertThat(seen).hasSize(5);
@@ -397,8 +397,8 @@ class SharedAiMemoryApiTest extends IntegrationTestBase {
                         + " from shared_ai_memory_change where memory_id = ? order by id desc limit 1",
                     id)
                 .get(0, String.class));
-    assertThat(row.path("a").asText()).isEqualTo("ADDED");
-    assertThat(row.path("k").asText()).isEqualTo("USER");
+    assertThat(row.path("a").asString()).isEqualTo("ADDED");
+    assertThat(row.path("k").asString()).isEqualTo("USER");
     assertThat(row.path("u").asLong()).isEqualTo(member);
     assertThat(row.path("m").asLong()).isEqualTo(id);
   }

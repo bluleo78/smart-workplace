@@ -8,7 +8,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -23,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /** IssueFieldDefRepository 통합 테스트 — TEXT/SELECT 생성, 조회/batch, update, delete cascade. */
 @Transactional
@@ -84,8 +84,8 @@ class IssueFieldDefRepositoryTest extends IntegrationTestBase {
 
     var fetched = defRepo.findById(row.id()).orElseThrow();
     assertThat(fetched.options().isArray()).isTrue();
-    assertThat(fetched.options().get(0).asText()).isEqualTo("low");
-    assertThat(fetched.options().get(1).asText()).isEqualTo("high");
+    assertThat(fetched.options().get(0).asString()).isEqualTo("low");
+    assertThat(fetched.options().get(1).asString()).isEqualTo("high");
   }
 
   @Test

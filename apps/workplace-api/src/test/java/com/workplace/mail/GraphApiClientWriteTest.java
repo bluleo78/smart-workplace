@@ -7,8 +7,6 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.config.M365GraphProperties;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.outbound.GraphApiClient;
@@ -27,6 +25,9 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** GraphApiClient 쓰기 경로(sendMail/patch/batch) 단위 테스트 — 실제 HTTP 미호출(HttpClient mock). */
 class GraphApiClientWriteTest {
@@ -41,7 +42,8 @@ class GraphApiClientWriteTest {
     HttpResponse<String> resp = mock(HttpResponse.class);
     when(resp.statusCode()).thenReturn(202);
     doReturn(resp).when(http).send(any(), any());
-    GraphApiClient client = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient client =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     client.sendMail("TOKEN", "QkFTRTY0TUlNRQ==");
 
@@ -62,7 +64,8 @@ class GraphApiClientWriteTest {
     when(resp.statusCode()).thenReturn(403);
     when(resp.body()).thenReturn("{\"error\":{\"code\":\"ErrorAccessDenied\"}}");
     doReturn(resp).when(http).send(any(), any());
-    GraphApiClient client = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient client =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     assertThatThrownBy(() -> client.sendMail("TOKEN", "x")).isInstanceOf(MailSendException.class);
   }
@@ -74,7 +77,8 @@ class GraphApiClientWriteTest {
     HttpResponse<String> resp = mock(HttpResponse.class);
     when(resp.statusCode()).thenReturn(200);
     doReturn(resp).when(http).send(any(), any());
-    GraphApiClient client = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient client =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     client.patch("TOKEN", "/me/messages/AAA", "{\"isRead\":true}");
 
@@ -98,7 +102,7 @@ class GraphApiClientWriteTest {
             "{\"responses\":[{\"id\":\"22\",\"status\":429,\"headers\":{\"Retry-After\":\"5\"}},"
                 + "{\"id\":\"11\",\"status\":200,\"body\":{}}]}");
     doReturn(resp).when(http).send(any(), any());
-    ObjectMapper mapper = new ObjectMapper();
+    ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     GraphApiClient client = new GraphApiClient(http, mapper, props);
 
     List<GraphBatchResponse> out =
@@ -117,10 +121,10 @@ class GraphApiClientWriteTest {
     JsonNode reqs = mapper.readTree(bodyOf(req)).path("requests");
     assertThat(reqs).hasSize(2);
     JsonNode first = reqs.get(0);
-    assertThat(first.path("id").asText()).isEqualTo("11");
-    assertThat(first.path("method").asText()).isEqualTo("PATCH");
-    assertThat(first.path("url").asText()).isEqualTo("/me/messages/A");
-    assertThat(first.path("headers").path("Content-Type").asText()).isEqualTo("application/json");
+    assertThat(first.path("id").asString()).isEqualTo("11");
+    assertThat(first.path("method").asString()).isEqualTo("PATCH");
+    assertThat(first.path("url").asString()).isEqualTo("/me/messages/A");
+    assertThat(first.path("headers").path("Content-Type").asString()).isEqualTo("application/json");
     assertThat(first.path("body").path("isRead").asBoolean()).isTrue();
     assertThat(reqs.get(1).path("body").path("isRead").asBoolean()).isFalse();
     assertThat(out)
@@ -148,7 +152,8 @@ class GraphApiClientWriteTest {
     when(resp.statusCode()).thenReturn(503);
     when(resp.body()).thenReturn("{}");
     doReturn(resp).when(http).send(any(), any());
-    GraphApiClient client = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient client =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     assertThatThrownBy(
             () ->

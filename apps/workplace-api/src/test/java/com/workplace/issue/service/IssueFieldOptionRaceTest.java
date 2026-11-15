@@ -11,7 +11,6 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.dto.CreateIssueRequest;
@@ -37,6 +36,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * SELECT 필드 옵션 삭제와 그 옵션 값 지정이 겹쳐도 이슈에 옵션에 없는 값이 남지 않는다(WP-773).

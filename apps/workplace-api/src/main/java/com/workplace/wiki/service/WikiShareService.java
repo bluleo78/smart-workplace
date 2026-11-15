@@ -1,7 +1,5 @@
 package com.workplace.wiki.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.CapabilityTokens;
@@ -40,6 +38,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 페이지 공유 설정(WP-579) — 공유 창의 만들기·바꾸기·재발급·해제·기록. 모두 그 페이지 스페이스의 EDITOR 이상만 한다(공유 토큰 헤더는 받지 않는다 —
@@ -671,7 +671,7 @@ public class WikiShareService {
   JSONB detail(Map<String, Object> fields) {
     try {
       return JSONB.jsonb(objectMapper.writeValueAsString(fields));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("공유 기록 문구를 직렬화하지 못했습니다", e);
     }
   }

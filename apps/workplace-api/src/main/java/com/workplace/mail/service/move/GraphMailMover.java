@@ -1,6 +1,5 @@
 package com.workplace.mail.service.move;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.exception.MailSendException;
@@ -18,6 +17,7 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Graph 메일 옮기기(WP-962) — {@code POST /me/messages/{id}/move {"destinationId": …}} 를 $batch 로 20건씩
@@ -135,7 +135,7 @@ public class GraphMailMover implements MailMover {
       return null;
     }
     JsonNode id = body.get("id");
-    return id == null || id.isNull() || id.asText().isBlank() ? null : id.asText();
+    return id == null || id.isNull() || id.asString("").isBlank() ? null : id.asString("");
   }
 
   /** 반영 대기 읽음을 옛 id 로 먼저 PATCH 한다. 성공(2xx)한 메일 id 집합을 돌려준다 — 실패는 옮기기를 막지 않고 대기를 남긴다(클래스 주석). */

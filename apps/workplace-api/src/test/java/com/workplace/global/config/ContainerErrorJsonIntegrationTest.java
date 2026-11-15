@@ -2,8 +2,6 @@ package com.workplace.global.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.exception.GlobalExceptionHandler;
 import com.workplace.support.IntegrationTestBase;
 import java.net.URI;
@@ -15,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 앱 핸들러에 닿기 전에 Tomcat 이 거절하는 요청(WP-732) — 영어 HTML 오류 페이지 대신 앱 공통 형식의 한국어 JSON 으로 답한다.
@@ -46,7 +46,7 @@ class ContainerErrorJsonIntegrationTest extends IntegrationTestBase {
         .startsWith("application/json");
     JsonNode body = om.readTree(res.body());
     assertThat(body.get("status").asInt()).isEqualTo(400);
-    assertThat(body.get("message").asText()).matches(".*[가-힣].*");
+    assertThat(body.get("message").asString()).matches(".*[가-힣].*");
   }
 
   @Test
@@ -54,7 +54,7 @@ class ContainerErrorJsonIntegrationTest extends IntegrationTestBase {
     String q = URLEncoder.encode("가".repeat(3000), StandardCharsets.UTF_8);
     HttpResponse<String> res = get("/api/v1/admin/audit-logs?search=" + q, null, null);
     assertKoreanJson400(res);
-    assertThat(om.readTree(res.body()).get("message").asText()).contains("너무 길거나");
+    assertThat(om.readTree(res.body()).get("message").asString()).contains("너무 길거나");
   }
 
   @Test
@@ -81,7 +81,7 @@ class ContainerErrorJsonIntegrationTest extends IntegrationTestBase {
         .startsWith("application/json");
     JsonNode body = om.readTree(res.body());
     assertThat(body.get("status").asInt()).isEqualTo(406);
-    assertThat(body.get("message").asText())
+    assertThat(body.get("message").asString())
         .isEqualTo(GlobalExceptionHandler.NOT_ACCEPTABLE_MESSAGE);
   }
 }

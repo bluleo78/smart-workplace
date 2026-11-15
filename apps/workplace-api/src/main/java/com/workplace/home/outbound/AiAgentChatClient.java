@@ -1,8 +1,6 @@
 package com.workplace.home.outbound;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.MissingNode;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.InternalHttp;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
@@ -16,6 +14,9 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.MissingNode;
 
 /**
  * ai-agent {@code POST /ai/chat} SSE 를 JDK {@link HttpClient} 로 스트리밍 소비한다 (B2).
@@ -58,7 +59,7 @@ public class AiAgentChatClient {
 
   private final HttpClient http;
   private final AiAgentProperties props;
-  private final ObjectMapper mapper = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   /** 프로덕션 생성자 — props 에서 baseUrl/internalToken 을 읽는다. */
   public AiAgentChatClient(AiAgentProperties props) {
@@ -110,7 +111,7 @@ public class AiAgentChatClient {
               .header("Authorization", "Internal " + props.internalToken())
               .header("Content-Type", "application/json")
               .header("Accept", "text/event-stream")
-              .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(request)))
+              .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(request)))
               .build();
 
       HttpResponse<Stream<String>> resp = http.send(req, HttpResponse.BodyHandlers.ofLines());
@@ -166,7 +167,7 @@ public class AiAgentChatClient {
             } else if ("tool".equals(event)) {
               // 도구 호출 라이브 이벤트 — 상위로 패스스루(표시·누적용). 루프 계속.
               try {
-                JsonNode node = mapper.readTree(data);
+                JsonNode node = MAPPER.readTree(data);
                 if (node != null && onTool != null) {
                   onTool.accept(node);
                 }
@@ -187,9 +188,9 @@ public class AiAgentChatClient {
               JsonNode widgets = done.path("widgets");
               JsonNode source = done.path("source");
               onDone.accept(
-                  fullText.isTextual() ? fullText.asText() : "",
+                  fullText.isString() ? fullText.asString("") : "",
                   widgets.isMissingNode() || widgets.isNull() ? null : widgets,
-                  source.isTextual() ? source.asText() : null);
+                  source.isString() ? source.asString("") : null);
               return;
             } else if ("error".equals(event)) {
               log.error("ai-agent home chat stream error: {}", data);
@@ -242,9 +243,9 @@ public class AiAgentChatClient {
   /** {@code {"text":"..."}} 에서 text 추출. 형식이 다르면 null. */
   private String parseDeltaText(String data) {
     try {
-      JsonNode node = mapper.readTree(data);
+      JsonNode node = MAPPER.readTree(data);
       JsonNode text = node.get("text");
-      return (text != null && text.isTextual()) ? text.asText() : null;
+      return (text != null && text.isString()) ? text.asString("") : null;
     } catch (Exception e) {
       return null; // 비JSON/파싱 실패는 무시
     }
@@ -253,7 +254,7 @@ public class AiAgentChatClient {
   /** JSON 파싱 — 비JSON·빈 값·파싱 실패는 MissingNode(어떤 필드를 path 로 물어도 비어 있다). */
   private JsonNode readTreeOrMissing(String data) {
     try {
-      JsonNode node = mapper.readTree(data);
+      JsonNode node = MAPPER.readTree(data);
       return node != null ? node : MissingNode.getInstance();
     } catch (Exception e) {
       return MissingNode.getInstance();
@@ -263,9 +264,9 @@ public class AiAgentChatClient {
   /** {@code {"label":"..."}} 에서 label 추출. 형식이 다르면 null. */
   private String parseProgressLabel(String data) {
     try {
-      JsonNode node = mapper.readTree(data);
+      JsonNode node = MAPPER.readTree(data);
       JsonNode label = node.get("label");
-      return (label != null && label.isTextual()) ? label.asText() : null;
+      return (label != null && label.isString()) ? label.asString("") : null;
     } catch (Exception e) {
       return null;
     }
@@ -282,7 +283,7 @@ public class AiAgentChatClient {
    */
   private JsonNode parsePendingAction(String data) {
     try {
-      JsonNode node = mapper.readTree(data);
+      JsonNode node = MAPPER.readTree(data);
       if (node == null) return null;
       if (node.isArray()) {
         // 배열: 빈 배열은 무시. 원소 형태 검증은 프론트/실행기에 위임.
@@ -290,7 +291,7 @@ public class AiAgentChatClient {
       }
       // 하위호환: 단일 객체가 오면 길이 1 배열로 감싸 항상 배열 계약으로 중계.
       if (node.isObject() && node.has("actionType")) {
-        return mapper.createArrayNode().add(node);
+        return MAPPER.createArrayNode().add(node);
       }
       return null;
     } catch (Exception e) {

@@ -1,9 +1,5 @@
 package com.workplace.auth.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.dto.ActiveCredentialRef;
 import com.workplace.auth.dto.AiAgentCredentialRow;
@@ -38,6 +34,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Phase 5c-2 후속 (#33), 멀티 프로바이더(#opencode) 확장: AGENT 의 프로바이더 자격증명(Claude CLI OAuth 토큰 / opencode 호환
@@ -468,7 +468,7 @@ public class AiAgentCredentialService {
   public boolean isPodUnsafeOpencodePayload(String plaintext) {
     try {
       return !isPodSafeProviderId(objectMapper.readTree(plaintext).get("providerId"));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       return true;
     }
   }
@@ -479,8 +479,8 @@ public class AiAgentCredentialService {
    */
   private static boolean isPodSafeProviderId(JsonNode providerId) {
     return providerId != null
-        && providerId.isTextual()
-        && AgentProviders.isPodSafeProviderId(providerId.asText());
+        && providerId.isString()
+        && AgentProviders.isPodSafeProviderId(providerId.asString(""));
   }
 
   /**
@@ -538,7 +538,7 @@ public class AiAgentCredentialService {
     ObjectNode payload;
     try {
       payload = (ObjectNode) readPayload(row);
-    } catch (JsonProcessingException | ClassCastException e) {
+    } catch (JacksonException | ClassCastException e) {
       throw new IllegalStateException("저장된 provider config 를 읽을 수 없습니다", e);
     }
     if (auto) {
@@ -552,7 +552,7 @@ public class AiAgentCredentialService {
     try {
       repo.updateEncryptedToken(
           row.id(), encryptionService.encrypt(objectMapper.writeValueAsString(payload)));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("provider config 를 저장할 수 없습니다", e);
     }
   }
@@ -638,9 +638,9 @@ public class AiAgentCredentialService {
       throw new InvalidProviderCredentialException(
           "opencode provider config 에 options.baseURL/options.apiKey 가 필요합니다");
     }
-    urlGuard.validate(options.get("baseURL").asText());
+    urlGuard.validate(options.get("baseURL").asString(""));
     validateVision(node.get("vision"));
-    return node.get("providerId").asText();
+    return node.get("providerId").asString("");
   }
 
   /**
@@ -682,7 +682,7 @@ public class AiAgentCredentialService {
     try {
       JsonNode options = readPayload(row).get("options");
       return options != null && options.hasNonNull("baseURL")
-          ? options.get("baseURL").asText()
+          ? options.get("baseURL").asString("")
           : null;
     } catch (Exception e) {
       return null; // 메타 조회는 best-effort — 파싱 실패로 전체 응답을 깨뜨리지 않는다.
@@ -693,7 +693,7 @@ public class AiAgentCredentialService {
    * 저장된 자격증명을 복호화해 JSON 으로 읽는다(opencode provider config). 파싱 실패 처리는 호출자마다 다르다(best-effort 조회·저장
    * 거절).
    */
-  private JsonNode readPayload(AiAgentCredentialRow row) throws JsonProcessingException {
+  private JsonNode readPayload(AiAgentCredentialRow row) throws JacksonException {
     return objectMapper.readTree(encryptionService.decrypt(row.encryptedToken()));
   }
 

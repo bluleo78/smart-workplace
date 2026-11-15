@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
@@ -36,6 +34,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-385 스펙 8.1 「AI가 정리한 기록」 — 목록(최신순·커서·지난 30일 횟수·출처 대화), 되돌리기 5종(ADDED 는 지운 기록에), 409 두 종(그 뒤
@@ -157,7 +157,7 @@ class AiMemoryChangeApiTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String cursor = om.readTree(body).path("nextCursor").asText();
+    String cursor = om.readTree(body).path("nextCursor").asString();
     assertThat(cursor).isNotBlank();
 
     getAs(uid, BASE + "/changes?size=2&cursor=" + cursor)
@@ -489,7 +489,7 @@ class AiMemoryChangeApiTest extends IntegrationTestBase {
     String body =
         getAs(uid, BASE).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
     JsonNode items = om.readTree(body).path("items");
-    assertThat(itemById(items, cleaned.id()).path("cleanedAt").isTextual()).isTrue();
+    assertThat(itemById(items, cleaned.id()).path("cleanedAt").isString()).isTrue();
     assertThat(itemById(items, mine.id()).has("cleanedAt")).isFalse();
 
     UpdateAiMemoryRequest edit = new UpdateAiMemoryRequest();

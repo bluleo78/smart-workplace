@@ -1,8 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.home.repository.SharedAiMemoryChangeRepository;
 import com.workplace.home.repository.SharedAiMemoryChangeRepository.NewChange;
 import com.workplace.home.service.SharedSpace.SpaceKey;
@@ -12,6 +9,9 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 공간 기록 쓰기·읽기(WP-386) — 스냅숏 JSON 직렬화를 한 곳에. 행위자 id 가 null 이면 AI(actor_kind=AI) — 배경 추출·정리는 발화자를 남기지
@@ -62,7 +62,7 @@ public class SharedAiMemoryChangeLog {
   public List<SharedMemorySnapshot> readBefore(String json) {
     try {
       return json == null ? List.of() : objectMapper.readValue(json, SNAPSHOTS);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("공용 메모리 기록 before 를 읽지 못했어요", e);
     }
   }
@@ -71,7 +71,7 @@ public class SharedAiMemoryChangeLog {
   public SharedMemorySnapshot readAfter(String json) {
     try {
       return json == null ? null : objectMapper.readValue(json, SharedMemorySnapshot.class);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("공용 메모리 기록 after 를 읽지 못했어요", e);
     }
   }
@@ -79,7 +79,7 @@ public class SharedAiMemoryChangeLog {
   private String write(Object value) {
     try {
       return objectMapper.writeValueAsString(value);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("공용 메모리 기록 직렬화 실패", e);
     }
   }

@@ -1,8 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.action.ConfirmActionDispatcher;
 import com.workplace.global.exception.ApiErrorDescriber;
 import com.workplace.global.exception.ApiErrorDescriber.ApiError;
@@ -21,6 +18,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 홈 AI 채팅 확인카드(propose_*) 영속·승인·거부(#843).
@@ -89,8 +89,8 @@ public class HomeProposalService {
           proposalRepo.insert(
               sessionId,
               callerId,
-              a.path("actionType").asText(),
-              a.path("summary").asText(),
+              a.path("actionType").asString(""),
+              a.path("summary").asString(""),
               params.toString());
       // 방금 직렬화한 params 를 다시 파싱하지 않고 원본 노드를 그대로 응답에 싣는다.
       saved.add(
@@ -199,13 +199,17 @@ public class HomeProposalService {
     // 이슈(IssueResponse)는 key 필드가 없고 projectKey+number 로 식별된다 — AI 의 이슈 도구가 모두 issueKey(ABC-12)
     // 기준이라 내부 숫자 id 대신 이슈 키를 남긴다(#833: LLM 표면에 숫자 id 노출 금지).
     if (node.hasNonNull("projectKey") && node.hasNonNull("number")) {
-      return " (key: " + node.get("projectKey").asText() + "-" + node.get("number").asText() + ")";
+      return " (key: "
+          + node.get("projectKey").asString("")
+          + "-"
+          + node.get("number").asString("")
+          + ")";
     }
     if (node.hasNonNull("key")) {
-      return " (key: " + node.get("key").asText() + ")";
+      return " (key: " + node.get("key").asString("") + ")";
     }
     if (node.hasNonNull("id")) {
-      return " (id: " + node.get("id").asText() + ")";
+      return " (id: " + node.get("id").asString("") + ")";
     }
     return "";
   }
@@ -224,7 +228,7 @@ public class HomeProposalService {
   private JsonNode readJson(String json) {
     try {
       return objectMapper.readTree(json);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("제안 params 역직렬화 실패", e);
     }
   }

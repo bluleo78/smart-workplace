@@ -1,6 +1,5 @@
 package com.workplace.agentaccount.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRow;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository.Binding;
@@ -36,6 +35,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * {@link PodAccountSource} 구현(WP-1448) — 작업 공간 AI 가 묶인 계정을 runner

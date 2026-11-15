@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.global.tenant.TenantContext;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -15,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * WP-888 버전 출시·출시 취소 — 출시일 기본값(기존 → 오늘 Asia/Seoul), 끝나지 않은 수정 버전 이슈 옮기기(완료·취소 제외, 영향 버전 불변, 이력 1건),
@@ -46,10 +46,10 @@ class VersionReleaseTest extends VersionOpsTestSupport {
     JsonNode res = json(release(v, null, null).andExpect(status().isOk()));
     LocalDate after = LocalDate.now(SEOUL);
 
-    assertThat(res.get("status").asText()).isEqualTo("RELEASED");
+    assertThat(res.get("status").asString()).isEqualTo("RELEASED");
     assertThat(res.get("releasedAt").isNull()).isFalse();
     // 자정을 넘기는 순간에도 결정적이도록 호출 전후의 오늘 중 하나와 맞는지 본다.
-    assertThat(LocalDate.parse(res.get("releaseDate").asText())).isIn(before, after);
+    assertThat(LocalDate.parse(res.get("releaseDate").asString())).isIn(before, after);
   }
 
   /** 출시일을 주지 않으면 기존 출시 예정일을 그대로 쓰고, 주면 그 값으로 바꾼다. */

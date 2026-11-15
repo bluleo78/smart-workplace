@@ -10,9 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingConflictException;
@@ -47,6 +44,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.BooleanNode;
 
 /**
  * WP-1296·1297 로그인 정보 AI 계정 통합 테스트 — 실행 방식별 「맞는 계정」 등록 검사, 계정 이메일 메타, ai-agent redeem 거절, desired 의
@@ -159,7 +159,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
   }
 
   private static JsonNode secretNamed(JsonNode agent, String name) {
-    for (JsonNode s : agent.get("secrets")) if (name.equals(s.get("name").asText())) return s;
+    for (JsonNode s : agent.get("secrets")) if (name.equals(s.get("name").asString())) return s;
     return null;
   }
 
@@ -283,7 +283,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     JsonNode n = om.readTree(stored);
     assertThat(n.has("junk")).isFalse();
     assertThat(n.get("OPENAI_API_KEY").isNull()).isTrue();
-    assertThat(n.at("/tokens/refresh_token").asText()).isEqualTo("r");
+    assertThat(n.at("/tokens/refresh_token").asString()).isEqualTo("r");
   }
 
   /** ai-agent redeem·복호화 경로는 로그인 정보를 Claude 토큰으로 넘기지 않는다(연결 없음). */
@@ -311,7 +311,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     settingService.start(admin, agent);
 
     JsonNode login = secretNamed(desiredAgent(agent), "login");
-    assertThat(login.get("source").asText()).isEqualTo("WORKS");
+    assertThat(login.get("source").asString()).isEqualTo("WORKS");
     assertThat(login.get("version").asLong()).isEqualTo(credId);
     assertThat(login.get("rotateAfter").isNull()).isTrue();
     assertThat(secretNamed(desiredAgent(agent), "claude")).isNull();
@@ -327,8 +327,9 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
                     .getResponse()
                     .getContentAsString())
             .get("payload")
-            .asText();
-    assertThat(om.readTree(payload).at("/tokens/refresh_token").asText()).isEqualTo("fake-refresh");
+            .asString();
+    assertThat(om.readTree(payload).at("/tokens/refresh_token").asString())
+        .isEqualTo("fake-refresh");
   }
 
   /** 다른 종류의 연결만 남았거나 연결이 없으면 login version null·/secrets/login 은 RUNNER_SECRET_NOT_FOUND. */
@@ -418,7 +419,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     settingService.start(admin, agent);
 
     JsonNode login = secretNamed(desiredAgent(agent), "login");
-    assertThat(login.get("source").asText()).isEqualTo("WORKS");
+    assertThat(login.get("source").asString()).isEqualTo("WORKS");
     assertThat(login.get("version").isIntegralNumber()).isTrue();
     assertThat(login.get("version").asLong()).isEqualTo(loginSecretVersion(agent));
     // runner(TypeScript)의 JSON 숫자로 정확히 옮겨지는 범위(2^53 미만)여야 한다.
@@ -448,7 +449,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
                     .getResponse()
                     .getContentAsString())
             .get("payload")
-            .asText());
+            .asString());
   }
 
   private long desiredLoginVersion(long agent) throws Exception {
@@ -474,7 +475,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     long after = desiredLoginVersion(agent);
     assertThat(after).isNotEqualTo(before);
     assertThat(loginSecretVersion(agent)).isEqualTo(after);
-    assertThat(loginSecretPayload(agent).get("defaultModel").asText()).isEqualTo("vllm/llama4");
+    assertThat(loginSecretPayload(agent).get("defaultModel").asString()).isEqualTo("vllm/llama4");
   }
 
   /**
@@ -581,13 +582,13 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
                     .getResponse()
                     .getContentAsString())
             .get("payload")
-            .asText();
+            .asString();
     JsonNode n = om.readTree(payload);
-    assertThat(n.get("providerId").asText()).isEqualTo("vllm");
-    assertThat(n.get("npm").asText()).isEqualTo("@ai-sdk/openai-compatible");
-    assertThat(n.at("/options/baseURL").asText()).isEqualTo("https://api.example.com/v1");
-    assertThat(n.at("/options/apiKey").asText()).isEqualTo("sk-fake-opencode");
-    assertThat(n.get("defaultModel").asText()).isEqualTo("vllm/qwen3");
+    assertThat(n.get("providerId").asString()).isEqualTo("vllm");
+    assertThat(n.get("npm").asString()).isEqualTo("@ai-sdk/openai-compatible");
+    assertThat(n.at("/options/baseURL").asString()).isEqualTo("https://api.example.com/v1");
+    assertThat(n.at("/options/apiKey").asString()).isEqualTo("sk-fake-opencode");
+    assertThat(n.get("defaultModel").asString()).isEqualTo("vllm/qwen3");
   }
 
   /** 연결을 읽어도 last_used_at 은 갱신하지 않는다(Pod 로 옮겨 담는 것이지 실제 호출이 아니다). */
@@ -619,7 +620,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
                     .getResponse()
                     .getContentAsString())
             .get("payload")
-            .asText();
+            .asString();
     JsonNode n = om.readTree(payload);
     assertThat(n.has("defaultModel")).isTrue();
     assertThat(n.get("defaultModel").isNull()).isTrue();

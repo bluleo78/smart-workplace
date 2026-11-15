@@ -1,8 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import java.util.HashMap;
@@ -14,6 +11,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 홈 채팅 턴 1회의 이벤트 봉투와 종결 처리(WP-190).
@@ -220,7 +220,7 @@ final class HomeChatTurn {
   private String toJson(Object value, String column) {
     try {
       return objectMapper.writeValueAsString(value);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       log.warn("{} 직렬화 실패 — null 로 저장: {}", column, e.getMessage());
       return null;
     }

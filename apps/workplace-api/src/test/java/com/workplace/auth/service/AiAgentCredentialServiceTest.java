@@ -6,7 +6,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
 import com.workplace.auth.exception.OAuthTokenNotFoundException;
@@ -18,6 +17,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Phase 5c-2 후속 (#33), 멀티 프로바이더(#opencode) 확장: AGENT 프로바이더 자격증명 등록/회수/redeem 서비스 통합 테스트. */
 @Transactional
@@ -301,7 +301,11 @@ class AiAgentCredentialServiceTest extends IntegrationTestBase {
 
     service.register(admin, agent, "opencode", cfg, "custom", "custom/qwen3.6-35b-vl");
 
-    var vision = new ObjectMapper().readTree(service.redeemSelf(agent).payload()).get("vision");
+    var vision =
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readTree(service.redeemSelf(agent).payload())
+            .get("vision");
     assertThat(vision.get("custom/qwen3.6-35b-vl").asBoolean()).isTrue();
     assertThat(vision.get("custom/text-only").asBoolean()).isFalse();
   }
@@ -313,7 +317,11 @@ class AiAgentCredentialServiceTest extends IntegrationTestBase {
 
     service.register(admin, agent, "opencode", cfgWithVision("true"), "custom", "custom/m");
 
-    var vision = new ObjectMapper().readTree(service.redeemSelf(agent).payload()).get("vision");
+    var vision =
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readTree(service.redeemSelf(agent).payload())
+            .get("vision");
     assertThat(vision.isBoolean()).isTrue();
     assertThat(vision.asBoolean()).isTrue();
   }
@@ -324,11 +332,17 @@ class AiAgentCredentialServiceTest extends IntegrationTestBase {
     Long agent = createUser("ai", "AGENT");
 
     service.register(admin, agent, "opencode", cfgWithVision(null), "custom", "custom/m");
-    var none = new ObjectMapper().readTree(service.redeemSelf(agent).payload());
+    var none =
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readTree(service.redeemSelf(agent).payload());
     assertThat(none.hasNonNull("vision")).isFalse();
 
     service.register(admin, agent, "opencode", cfgWithVision("null"), "custom", "custom/m");
-    var nul = new ObjectMapper().readTree(service.redeemSelf(agent).payload());
+    var nul =
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readTree(service.redeemSelf(agent).payload());
     assertThat(nul.hasNonNull("vision")).isFalse();
   }
 

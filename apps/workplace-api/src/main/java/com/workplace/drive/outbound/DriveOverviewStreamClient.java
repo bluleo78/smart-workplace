@@ -1,7 +1,6 @@
 package com.workplace.drive.outbound;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.InternalHttp;
 import java.net.URI;
@@ -13,6 +12,8 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * ai-agent {@code POST /drive/overview} SSE 를 JDK {@link HttpClient} 로 스트리밍
@@ -29,7 +30,7 @@ public class DriveOverviewStreamClient {
 
   private final HttpClient http;
   private final AiAgentProperties props;
-  private final ObjectMapper mapper = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   @Autowired
   public DriveOverviewStreamClient(AiAgentProperties props) {
@@ -59,7 +60,7 @@ public class DriveOverviewStreamClient {
             .header("Authorization", "Internal " + props.internalToken())
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
-            .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(requestBody)))
+            .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(requestBody)))
             .build();
 
     HttpResponse<Stream<String>> resp = http.send(req, HttpResponse.BodyHandlers.ofLines());
@@ -105,9 +106,9 @@ public class DriveOverviewStreamClient {
   /** {@code {"text":"..."}} 에서 text 추출. 형식이 다르면 null. */
   private String parseDeltaText(String data) {
     try {
-      JsonNode node = mapper.readTree(data);
+      JsonNode node = MAPPER.readTree(data);
       JsonNode text = node.get("text");
-      return (text != null && text.isTextual()) ? text.asText() : null;
+      return (text != null && text.isString()) ? text.asString("") : null;
     } catch (Exception e) {
       return null; // 비JSON/파싱 실패는 무시
     }

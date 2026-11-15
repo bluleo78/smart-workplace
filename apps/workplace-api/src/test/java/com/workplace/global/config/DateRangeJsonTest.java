@@ -3,13 +3,13 @@ package com.workplace.global.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.cycle.dto.CreateCycleRequest;
 import com.workplace.milestone.dto.CreateMilestoneRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-725 — 앱 ObjectMapper 는 모든 요청 본문의 날짜(LocalDate)를 1900-01-01 ~ 9999-12-31 로 제한한다. 마일스톤·사이클처럼 DTO

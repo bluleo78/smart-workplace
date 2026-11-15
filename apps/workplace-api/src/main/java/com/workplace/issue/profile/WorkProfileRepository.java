@@ -4,9 +4,6 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORK_PROFILE;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.issue.dto.MeOverviewPeriod;
 import com.workplace.issue.metrics.MetricsPeriod;
@@ -23,6 +20,9 @@ import org.jooq.JSONB;
 import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 업무 프로파일(work_profile) jOOQ 리포지토리(WP-1485). 사람×기간 한 행을 덮어쓰며, tasks/areas/skills 는 JSONB 로 저장한다.
@@ -244,7 +244,7 @@ public class WorkProfileRepository {
   private JSONB json(Object value) {
     try {
       return JSONB.valueOf(objectMapper.writeValueAsString(value));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("업무 프로파일 JSON 직렬화 실패", e);
     }
   }
@@ -252,7 +252,7 @@ public class WorkProfileRepository {
   private <T> T read(JSONB jsonb, TypeReference<T> type) {
     try {
       return objectMapper.readValue(jsonb.data(), type);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("업무 프로파일 JSON 파싱 실패", e);
     }
   }

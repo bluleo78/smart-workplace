@@ -7,7 +7,6 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.AgentWorkTestSupport;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.label.repository.LabelRepository;
@@ -24,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 라벨 대기열 이슈 가져가기(WP-800) 실제 HTTP 통합 테스트. AI 구성원이 ak_ 키로 {@code POST .../claim} 을 불러 「담당자 추가(사람 유지)
@@ -277,7 +277,7 @@ class IssueClaimControllerTest extends AgentWorkTestSupport {
           .isEqualTo(1);
       var loser =
           results.stream().filter(r -> r.getStatusCode().value() == 409).findFirst().orElseThrow();
-      assertThat(json(loser).get("errors").get("code").asText())
+      assertThat(json(loser).get("errors").get("code").asString())
           .isIn("NOT_IN_QUEUE", "AI_ALREADY_ASSIGNED");
     } finally {
       pool.shutdownNow();
@@ -307,7 +307,7 @@ class IssueClaimControllerTest extends AgentWorkTestSupport {
   /** 거절 응답이 409 이고 errors.code 가 기대값인지. */
   private static void assertRejected(ResponseEntity<String> res, String code) {
     assertThat(res.getStatusCode()).as(res.getBody()).isEqualTo(HttpStatus.CONFLICT);
-    assertThat(json(res).get("errors").get("code").asText()).isEqualTo(code);
+    assertThat(json(res).get("errors").get("code").asString()).isEqualTo(code);
   }
 
   /** 담당자(사람 둘 + extra)·라벨(대기열·다른 라벨)이 거절 전 그대로인지. */
@@ -347,7 +347,7 @@ class IssueClaimControllerTest extends AgentWorkTestSupport {
   /** JSON 배열 각 원소의 한 필드를 문자열로 뽑는다(id 도 문자열로 비교). */
   private static List<String> field(JsonNode array, String name) {
     var out = new ArrayList<String>();
-    array.forEach(n -> out.add(n.get(name).asText()));
+    array.forEach(n -> out.add(n.get(name).asString()));
     return out;
   }
 }

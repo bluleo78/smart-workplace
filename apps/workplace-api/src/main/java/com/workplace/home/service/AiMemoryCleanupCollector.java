@@ -1,7 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.MemoryTextNormalizer;
@@ -28,6 +26,8 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 배경 정리 1단 — 입력 수집(WP-385 스펙 5.1·5.2). 짧은 읽기 트랜잭션으로 경계 뒤 메시지·꺼짐·이 대화가 저장한 메모리를 읽고, 건너뛸 세션(꺼짐·비서
@@ -258,13 +258,13 @@ public class AiMemoryCleanupCollector {
       if (!"ASSISTANT".equals(m.role()) || m.contentBlocksJson() == null) continue;
       try {
         for (JsonNode b : om.readTree(m.contentBlocksJson())) {
-          if ("memory".equals(b.path("kind").asText())
-              && ChatBlockRecorder.Memory.ACTIONS.contains(b.path("action").asText())
+          if ("memory".equals(b.path("kind").asString(""))
+              && ChatBlockRecorder.Memory.ACTIONS.contains(b.path("action").asString(""))
               && b.path("memoryId").canConvertToLong()) {
             out.add(
                 new MemoryBlock(
-                    b.path("memoryId").asLong(),
-                    b.path("action").asText(),
+                    b.path("memoryId").asLong(0L),
+                    b.path("action").asString(""),
                     b.path("undone").asBoolean(false)));
           }
         }

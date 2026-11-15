@@ -4,7 +4,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.milestone.repository.MilestoneRepository;
@@ -14,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.json.JsonMapper;
 
 /** IssueHistoryRecorder 단위 테스트. Phase 3c 이후 담당자는 별도 흐름에서 기록되므로 recordChanges 는 다루지 않는다. */
 @ExtendWith(MockitoExtension.class)
@@ -23,7 +23,8 @@ class IssueHistoryRecorderTest {
   @Mock private MilestoneRepository milestoneRepository;
 
   private IssueHistoryRecorder recorder() {
-    return new IssueHistoryRecorder(repo, new ObjectMapper(), milestoneRepository);
+    return new IssueHistoryRecorder(
+        repo, JsonMapper.builderWithJackson2Defaults().build(), milestoneRepository);
   }
 
   /** 비교용 IssueRow 헬퍼. id/projectId/number/reporter 등은 고정. */

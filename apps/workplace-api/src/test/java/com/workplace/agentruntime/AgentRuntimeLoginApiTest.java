@@ -15,8 +15,6 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountRow;
 import com.workplace.agentaccount.dto.AgentAccountUpdateRequest;
@@ -49,6 +47,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1450 Pod 용 로그인 엔드포인트 통합 테스트 — Pod 가 자기 AI 키로 묶인 로그인(auth.json)을 받아 가고({@code GET /me/login}),
@@ -190,7 +190,7 @@ class AgentRuntimeLoginApiTest extends IntegrationTestBase {
 
   private long desiredLoginVersion() throws Exception {
     for (JsonNode s : desiredAgent().get("secrets")) {
-      if ("login".equals(s.get("name").asText())) return s.get("version").asLong();
+      if ("login".equals(s.get("name").asString())) return s.get("version").asLong();
     }
     throw new AssertionError("desired 에 login 참조 없음");
   }
@@ -212,7 +212,7 @@ class AgentRuntimeLoginApiTest extends IntegrationTestBase {
             .getContentAsString();
     JsonNode json = om.readTree(body);
     assertThat(json.get("version").asLong()).isEqualTo(desiredLoginVersion());
-    assertThat(om.readTree(json.get("payload").asText()).at("/tokens/refresh_token").asText())
+    assertThat(om.readTree(json.get("payload").asString()).at("/tokens/refresh_token").asString())
         .isEqualTo("refresh-1");
   }
 
@@ -264,7 +264,7 @@ class AgentRuntimeLoginApiTest extends IntegrationTestBase {
     assertThat(after.secretVersion()).isEqualTo(before.secretVersion());
     assertThat(after.loginRevision()).isEqualTo(before.loginRevision() + 1);
     assertThat(after.status()).isEqualTo(AgentAccountService.STATUS_ACTIVE);
-    assertThat(om.readTree(stored()).at("/tokens/refresh_token").asText()).isEqualTo("refresh-2");
+    assertThat(om.readTree(stored()).at("/tokens/refresh_token").asString()).isEqualTo("refresh-2");
     assertThat(after.lastRefreshedAt()).isEqualTo(OffsetDateTime.parse(NEWER).toInstant());
     // desired 의 loginVersion 은 그대로, loginRevision 만 바뀐다.
     assertThat(desiredLoginVersion()).isEqualTo(version);

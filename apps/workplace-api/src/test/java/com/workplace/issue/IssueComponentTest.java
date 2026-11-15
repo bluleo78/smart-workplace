@@ -5,13 +5,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.project.dto.CreateProjectRequest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 이슈에 구성요소 붙이기·떼기(WP-933) — PUT 전체 교체의 diff 이력, 보관된 구성요소 규칙(새로 붙이기 거절·이미 붙은 것 유지), 다른 프로젝트 id 거절,
@@ -134,7 +134,7 @@ class IssueComponentTest extends IssueComponentTestSupport {
 
   private static List<String> names(JsonNode arr) {
     List<String> out = new ArrayList<>();
-    arr.forEach(n -> out.add(n.get("name").asText()));
+    arr.forEach(n -> out.add(n.get("name").asString()));
     return out;
   }
 }

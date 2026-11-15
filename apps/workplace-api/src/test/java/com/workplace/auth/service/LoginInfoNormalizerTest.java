@@ -3,12 +3,13 @@ package com.workplace.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WP-1296·1297 로그인 정보 다듬기 단위 테스트 — ChatGPT(Codex)·Gen:iA auth.json 을 받아 필요한 키만 남기고, 형식이 틀리면 입력 값을
@@ -16,7 +17,7 @@ import org.junit.jupiter.api.Test;
  */
 class LoginInfoNormalizerTest {
 
-  private static final ObjectMapper OM = new ObjectMapper();
+  private static final ObjectMapper OM = JsonMapper.builderWithJackson2Defaults().build();
   private static final String SECRET_MARK = "fake-refresh-SECRETVALUE";
 
   /** 가짜 id_token — 본문에 email 만 둔 서명 없는 JWT 모양. */
@@ -56,12 +57,12 @@ class LoginInfoNormalizerTest {
             AgentProviders.CHATGPT, "  \n" + chatgptAuthJson("a@example.test") + "\n ");
 
     JsonNode n = OM.readTree(out);
-    assertThat(n.get("auth_mode").asText()).isEqualTo("chatgpt");
+    assertThat(n.get("auth_mode").asString()).isEqualTo("chatgpt");
     assertThat(n.get("OPENAI_API_KEY").isNull()).isTrue();
     assertThat(n.has("extra")).isFalse();
     assertThat(n.get("tokens").properties().stream().map(e -> e.getKey()).toList())
         .containsExactly("id_token", "access_token", "refresh_token", "account_id");
-    assertThat(n.get("last_refresh").asText()).isEqualTo("2026-11-01T00:00:00Z");
+    assertThat(n.get("last_refresh").asString()).isEqualTo("2026-11-01T00:00:00Z");
   }
 
   /** ChatGPT — tokens 에 없는 키·last_refresh 는 싣지 않는다. */
@@ -111,9 +112,9 @@ class LoginInfoNormalizerTest {
           "{\"OPENAI_API_KEY\":\"\"," + tokens + "}"
         }) {
       JsonNode n = OM.readTree(LoginInfoNormalizer.normalize(AgentProviders.CHATGPT, raw));
-      assertThat(n.get("auth_mode").asText()).isEqualTo("chatgpt");
+      assertThat(n.get("auth_mode").asString()).isEqualTo("chatgpt");
       assertThat(n.get("OPENAI_API_KEY").isNull()).isTrue();
-      assertThat(n.at("/tokens/refresh_token").asText()).isEqualTo(SECRET_MARK);
+      assertThat(n.at("/tokens/refresh_token").asString()).isEqualTo(SECRET_MARK);
     }
   }
 
@@ -141,12 +142,12 @@ class LoginInfoNormalizerTest {
     assertThat(
             OM.readTree(LoginInfoNormalizer.normalize(AgentProviders.CHATGPT, mixed))
                 .at("/tokens/refresh_token")
-                .asText())
+                .asString())
         .isEqualTo("c");
     assertThat(
             OM.readTree(LoginInfoNormalizer.normalize(AgentProviders.GENIA, mixed))
                 .at("/genia/refresh")
-                .asText())
+                .asString())
         .isEqualTo("g");
     // tokens 없는 chatgpt 표시만 있는 파일은 Codex 모양이 아니다.
     assertRejects(
@@ -161,8 +162,8 @@ class LoginInfoNormalizerTest {
 
     JsonNode n = OM.readTree(out);
     assertThat(n.properties().stream().map(e -> e.getKey()).toList()).containsExactly("genia");
-    assertThat(n.at("/genia/refresh").asText()).isEqualTo(SECRET_MARK);
-    assertThat(n.at("/genia/access").asText()).isEqualTo("fake-access");
+    assertThat(n.at("/genia/refresh").asString()).isEqualTo(SECRET_MARK);
+    assertThat(n.at("/genia/access").asString()).isEqualTo("fake-access");
   }
 
   /** Gen:iA — oauth 가 아니거나 refresh 가 없거나 ChatGPT 정보면 거절한다. */

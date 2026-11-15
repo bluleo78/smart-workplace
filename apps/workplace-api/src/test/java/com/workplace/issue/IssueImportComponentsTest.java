@@ -10,7 +10,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.dto.ImportIssueRequest;
 import com.workplace.issue.exception.IssueImportException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
@@ -32,6 +31,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 이슈 가져오기의 구성요소(WP-933) — 이름(대소문자 무시)으로 이미 있는 구성요소를 연결하고, 보관된 것도 지난 기록이라 허용하며, 없는 이름은 만들지 않고 쓰기 전에
@@ -218,7 +218,7 @@ class IssueImportComponentsTest extends IssueImportTestSupport {
     JsonNode payload = objectMapper.readTree(row.getToValue());
     assertThat(payload.get("added")).hasSize(1);
     assertThat(payload.get("added").get(0).get("id").asLong()).isEqualTo(compute);
-    assertThat(payload.get("added").get(0).get("name").asText()).isEqualTo("Compute");
+    assertThat(payload.get("added").get(0).get("name").asString()).isEqualTo("Compute");
     assertThat(payload.get("removed")).isEmpty();
     // 이력만 옮겼을 뿐 현재 연결은 만들지 않는다 — 연결은 componentNames 가 정한다.
     assertThat(componentNamesOf(number)).isEmpty();

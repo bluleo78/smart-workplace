@@ -34,6 +34,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WP-371 — 에이전트 실행 방식(runtime) 관리 API 통합 테스트.
@@ -287,19 +288,19 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body);
+    var root = JsonMapper.builderWithJackson2Defaults().build().readTree(body);
     boolean sawUsed = false;
     boolean sawUnused = false;
     for (var n : root) {
       if (n.get("id").asLong() == used) {
         sawUsed = true;
-        assertThat(n.get("runtime").asText()).isEqualTo("EXTERNAL");
-        assertThat(java.time.Instant.parse(n.get("lastKeyUsedAt").asText()))
+        assertThat(n.get("runtime").asString()).isEqualTo("EXTERNAL");
+        assertThat(java.time.Instant.parse(n.get("lastKeyUsedAt").asString()))
             .isEqualTo(newer.toInstant());
       }
       if (n.get("id").asLong() == unused) {
         sawUnused = true;
-        assertThat(n.get("runtime").asText()).isEqualTo("INTERNAL");
+        assertThat(n.get("runtime").asString()).isEqualTo("INTERNAL");
         assertThat(n.get("lastKeyUsedAt").isNull()).isTrue();
       }
     }
@@ -329,12 +330,12 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body);
+    var root = JsonMapper.builderWithJackson2Defaults().build().readTree(body);
     boolean saw = false;
     for (var n : root) {
       if (n.get("id").asLong() == agent) {
         saw = true;
-        assertThat(java.time.Instant.parse(n.get("lastKeyUsedAt").asText()))
+        assertThat(java.time.Instant.parse(n.get("lastKeyUsedAt").asString()))
             .isEqualTo(active.toInstant());
       }
     }

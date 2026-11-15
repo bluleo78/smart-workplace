@@ -62,7 +62,7 @@ class SharedAiMemoryChangeApiTest extends IntegrationTestBase {
   @Autowired SharedAiMemoryForgottenService forgotten;
   @Autowired WikiSpaceService wikiService;
   @Autowired SharedAiMemoryChangeService changeService;
-  @Autowired com.fasterxml.jackson.databind.ObjectMapper om;
+  @Autowired tools.jackson.databind.ObjectMapper om;
 
   long owner;
   long member;
@@ -505,7 +505,7 @@ class SharedAiMemoryChangeApiTest extends IntegrationTestBase {
                   .getContentAsString());
       node.path("items").forEach(i -> seen.add(i.path("id").asLong()));
       if (node.path("nextCursor").isMissingNode()) break;
-      cursor = node.path("nextCursor").asText();
+      cursor = node.path("nextCursor").asString();
     }
     assertThat(seen).hasSize(5).doesNotHaveDuplicates();
   }

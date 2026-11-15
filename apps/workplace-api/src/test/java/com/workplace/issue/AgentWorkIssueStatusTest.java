@@ -160,7 +160,7 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
             TOOL);
     assertOk(res);
     long created = json(res).get("id").asLong();
-    assertThat(json(res).get("status").asText()).isEqualTo("TODO");
+    assertThat(json(res).get("status").asString()).isEqualTo("TODO");
     assertThat(statusOf(created)).isEqualTo("TODO");
     assertThat(activeWork(created, agentId).orElseThrow().state()).isEqualTo("SUBMITTED");
   }

@@ -8,8 +8,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateProposalRequest;
 import com.workplace.messaging.dto.MessageResponse;
@@ -28,6 +26,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** 일정 제안(calendar.create_event) propose 통합 테스트 — 프로젝트 후보 계산 없이 일정 payload 가 저장되는지. */
 class MessagingCalendarProposalTest extends ExternalClientMockedTestBase {
@@ -106,9 +106,9 @@ class MessagingCalendarProposalTest extends ExternalClientMockedTestBase {
             .value1()
             .data();
     JsonNode p = objectMapper.readTree(payload);
-    assertThat(p.path("title").asText()).isEqualTo("팀 동기화 미팅");
-    assertThat(p.path("startsAt").asText()).isEqualTo("2026-07-02T10:00:00+09:00");
-    assertThat(p.path("location").asText()).isEqualTo("회의실 A");
+    assertThat(p.path("title").asString()).isEqualTo("팀 동기화 미팅");
+    assertThat(p.path("startsAt").asString()).isEqualTo("2026-07-02T10:00:00+09:00");
+    assertThat(p.path("location").asString()).isEqualTo("회의실 A");
     assertThat(p.has("projectKey")).isFalse();
   }
 

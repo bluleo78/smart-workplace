@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.home.dto.ActivityEntryResponse;
 import com.workplace.home.repository.HomeActivityRepository;
 import com.workplace.issue.dto.CreateIssueRequest;
@@ -46,6 +45,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 이슈 가져오기의 변경 이력(WP-883) — 원래 행위자·시각, 상태는 id 로 받아 지금 이름으로 저장, 일반 변경과 같은 저장 모양, 잘못된 항목은 400 으로 전부
@@ -309,7 +309,7 @@ class IssueImportHistoryTest extends IssueImportTestSupport {
 
   private void collect(String prefix, JsonNode n, Set<String> out) {
     if (n.isObject()) {
-      n.fields().forEachRemaining(f -> collect(prefix + "/" + f.getKey(), f.getValue(), out));
+      n.properties().forEach(f -> collect(prefix + "/" + f.getKey(), f.getValue(), out));
     } else if (n.isArray()) {
       if (n.size() > 0) collect(prefix + "[]", n.get(0), out);
       else out.add(prefix + "[]");

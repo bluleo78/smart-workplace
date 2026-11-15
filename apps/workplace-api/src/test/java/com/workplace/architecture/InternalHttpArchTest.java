@@ -34,8 +34,8 @@ import org.springframework.web.client.RestTemplate;
  *
  * <p>배경: JDK HttpClient 기본(HTTP/2)은 평문 요청에 h2c 업그레이드 헤더를 붙여, 상대(Node·uvicorn·프록시)가 404/400 으로 거절할 수
  * 있다. 클라이언트마다 따로 HTTP/1.1 을 고정하면 새 클라이언트가 빠뜨리므로(WP-172 이후에도 10여 곳 누락) 공용 생성 지점 밖의 직접 생성을 막는다.
- * RestClient 빌더의 출발점은 Jackson 2 를 고정한 {@code OutboundJson.restClientBuilder()} 이고(WP-1608), 내부
- * 클라이언트는 그것을 직접 쓰지 않고 그 위에 HTTP/1.1 팩토리를 얹는 {@link InternalHttp} 로 만든다.
+ * RestClient 빌더의 출발점은 Jackson 2 기본값의 JSON 변환기를 고정한 {@code OutboundJson.restClientBuilder()}
+ * 이고(WP-1608·WP-1609), 내부 클라이언트는 그것을 직접 쓰지 않고 그 위에 HTTP/1.1 팩토리를 얹는 {@link InternalHttp} 로 만든다.
  *
  * <p>범위 밖(사유): 외부 HTTPS 클라이언트 — {@code WebPushGateway}(notify.push), {@code
  * M365OidcClient}(auth.sso), {@code GraphApiConfig}(mail.config). h2c 는 평문에서만 쓰이고 HTTPS 는 ALPN 으로
@@ -136,8 +136,8 @@ public class InternalHttpArchTest {
 
   /**
    * 정적 {@code RestClient.builder()/create()}(메서드 참조 포함)는 {@link OutboundJson} 안에서만 쓴다 — 왜 Jackson 2
-   * 고정이 필요한지는 {@link OutboundJson} 참조(WP-1608). 내부 평문 호출은 그 위에 {@link InternalHttp} 로 HTTP/1.1 을
-   * 고정한다(WP-305).
+   * 기본값 고정이 필요한지는 {@link OutboundJson} 참조(WP-1608·WP-1609). 내부 평문 호출은 그 위에 {@link InternalHttp} 로
+   * HTTP/1.1 을 고정한다(WP-305).
    */
   @ArchTest
   public static final ArchRule 정적_RestClient_는_OutboundJson_에서만_만든다 =
@@ -146,7 +146,7 @@ public class InternalHttpArchTest {
           .doNotBelongToAnyOf(OutboundJson.class)
           .should(USES_STATIC_RESTCLIENT_FACTORY)
           .because(
-              "정적 RestClient 는 OutboundJson.restClientBuilder() 로 Jackson 2 를 고정한다(WP-1608) — 내부 호출은 InternalHttp.restClient(..)로 HTTP/1.1·리다이렉트 미추종도 고정(WP-305)");
+              "정적 RestClient 는 OutboundJson.restClientBuilder() 로 Jackson 2 기본값의 JSON 변환기를 고정한다(WP-1608·WP-1609) — 내부 호출은 InternalHttp.restClient(..)로 HTTP/1.1·리다이렉트 미추종도 고정(WP-305)");
 
   /** {@code OutboundJson.restClientBuilder()} 의 호출 또는 메서드 참조. */
   private static final ArchCondition<JavaClass> USES_OUTBOUND_JSON_BUILDER =
@@ -183,5 +183,5 @@ public class InternalHttpArchTest {
           .doNotBelongToAnyOf(M365OidcClient.class)
           .should(CONSTRUCTS_REST_TEMPLATE)
           .because(
-              "정적 RestTemplate 는 Jackson 3 변환기를 고를 수 있다 — JSON 을 쓰지 않는 JWKS 용 한 곳만 허용(WP-1608)");
+              "정적 RestTemplate 는 Boot 설정을 거치지 않은 Jackson 3 기본값 변환기를 쓴다 — JSON 을 쓰지 않는 JWKS 용 한 곳만 허용(WP-1608)");
 }

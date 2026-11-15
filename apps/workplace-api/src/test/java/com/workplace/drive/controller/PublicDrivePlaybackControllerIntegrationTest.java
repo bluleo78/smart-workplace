@@ -14,7 +14,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DrivePlaybackService;
 import com.workplace.drive.service.DrivePlaybackTokens;
@@ -42,6 +41,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 드라이브 재생 주소(WP-1532) 발급 → 공개 Range 재생 전 구간(HTTP) 통합 테스트.
@@ -148,7 +148,7 @@ class PublicDrivePlaybackControllerIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String url = objectMapper.readTree(body).get("url").asText();
+    String url = objectMapper.readTree(body).get("url").asString();
     assertThat(url).startsWith(DrivePlaybackService.PUBLIC_PATH);
     return url;
   }

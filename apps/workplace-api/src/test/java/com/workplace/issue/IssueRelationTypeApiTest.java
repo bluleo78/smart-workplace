@@ -9,8 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.security.JwtTokenProvider;
@@ -38,6 +36,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-887 관계 유형 조회·관리 API — 로그인 사용자 목록, 관리자 추가·편집·숨김·삭제(옮기기·함께 삭제), 권한·상한·기본 유형 보호.
@@ -91,12 +91,12 @@ class IssueRelationTypeApiTest extends IntegrationTestBase {
     JsonNode list = json(call(get(PUBLIC_PATH), userId).andExpect(status().isOk()));
 
     List<String> codes = new ArrayList<>();
-    list.forEach(n -> codes.add(n.get("code").isNull() ? null : n.get("code").asText()));
+    list.forEach(n -> codes.add(n.get("code").isNull() ? null : n.get("code").asString()));
     assertThat(codes)
         .startsWith("BLOCKS", "RELATES", "DUPLICATES", "CLONES", "CAUSES", "PARENT_EPIC");
     JsonNode causes = byCode(list, "CAUSES");
-    assertThat(causes.get("outwardLabel").asText()).isEqualTo("원인임");
-    assertThat(causes.get("inwardLabel").asText()).isEqualTo("결과임");
+    assertThat(causes.get("outwardLabel").asString()).isEqualTo("원인임");
+    assertThat(causes.get("inwardLabel").asString()).isEqualTo("결과임");
     assertThat(causes.get("directed").asBoolean()).isTrue();
     assertThat(byCode(list, "PARENT_EPIC").get("externalOnly").asBoolean()).isTrue();
     assertThat(byCode(list, "RELATES").get("inwardLabel").isNull()).isTrue();
@@ -138,7 +138,7 @@ class IssueRelationTypeApiTest extends IntegrationTestBase {
     JsonNode after = json(call(get(PUBLIC_PATH), userId));
     JsonNode row = byId(after, id);
     assertThat(row.get("hidden").asBoolean()).isTrue();
-    assertThat(row.get("name").asText()).isEqualTo("테스트2");
+    assertThat(row.get("name").asString()).isEqualTo("테스트2");
 
     assertThat(auditCount("ISSUE_RELATION_TYPE_CREATED", id)).isEqualTo(1);
     assertThat(auditCount("ISSUE_RELATION_TYPE_UPDATED", id)).isEqualTo(1);
@@ -550,7 +550,7 @@ class IssueRelationTypeApiTest extends IntegrationTestBase {
 
   private JsonNode byCode(JsonNode list, String code) {
     for (JsonNode n : list) {
-      if (!n.get("code").isNull() && code.equals(n.get("code").asText())) {
+      if (!n.get("code").isNull() && code.equals(n.get("code").asString())) {
         return n;
       }
     }

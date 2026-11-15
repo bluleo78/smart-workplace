@@ -2,10 +2,10 @@ package com.workplace.issue.overview.status;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.workplace.issue.outbound.dto.ProjectStatusAiRequest;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /** 상태 요약 입력(WP-1479) — ai-agent 로 가는 JSON 모양(배지·빈 여부는 inputs 에 없음)과 해시의 안정성·민감도. */
 class ProjectStatusInputsTest {
@@ -45,12 +45,12 @@ class ProjectStatusInputsTest {
 
     JsonNode json = JsonMapper.builder().build().valueToTree(req);
 
-    assertThat(json.get("badge").asText()).isEqualTo("WARN");
+    assertThat(json.get("badge").asString()).isEqualTo("WARN");
     JsonNode in = json.get("inputs");
     assertThat(in.has("badge")).isFalse();
     assertThat(in.has("empty")).isFalse();
     assertThat(in.get("openTotal").asInt()).isEqualTo(4);
-    assertThat(in.get("progressEnd").asText()).isEqualTo("2026-11-14");
+    assertThat(in.get("progressEnd").asString()).isEqualTo("2026-11-14");
     assertThat(in.get("overdueOldestDays").isNull()).isTrue();
     assertThat(in.size()).isEqualTo(22);
   }

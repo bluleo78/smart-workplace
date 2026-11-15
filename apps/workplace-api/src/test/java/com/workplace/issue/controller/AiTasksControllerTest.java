@@ -10,8 +10,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.support.IssueSeeds;
@@ -42,6 +40,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * AI 위임 작업 목록·건수 API(WP-377 §5.2) — GET /api/v1/me/ai-tasks, /counts. 실 JWT + MockMvc 로 범위(나와
@@ -216,7 +216,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     var items = getJson("/api/v1/me/ai-tasks").get("items");
     List<String> states = new ArrayList<>();
     items.forEach(
-        it -> states.add(it.has("agentWork") ? it.at("/agentWork/0/state").asText() : null));
+        it -> states.add(it.has("agentWork") ? it.at("/agentWork/0/state").asString() : null));
     assertThat(states)
         .containsExactly(
             "INPUT_REQUIRED", "REVIEW", "BLOCKED", "WORKING", "WAITING", "SCHEDULED", "PAUSED");
@@ -363,7 +363,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     JsonNode body = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES);
     assertThat(titles(body)).containsExactly("failed", "retried", "completed", "rejected");
     List<String> states = new ArrayList<>();
-    body.get("items").forEach(it -> states.add(it.at("/agentWork/0/state").asText()));
+    body.get("items").forEach(it -> states.add(it.at("/agentWork/0/state").asString()));
     assertThat(states).containsExactly("FAILED", "COMPLETED", "COMPLETED", "REJECTED");
     // 종료 작업은 대표 1건만 싣는다.
     body.get("items").forEach(it -> assertThat(it.get("agentWork")).hasSize(1));
@@ -404,7 +404,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     endedWork(i, other, "CANCELED", at);
 
     var item = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES).get("items").get(0);
-    assertThat(item.at("/agentWork/0/state").asText()).isEqualTo("COMPLETED");
+    assertThat(item.at("/agentWork/0/state").asString()).isEqualTo("COMPLETED");
   }
 
   /**
@@ -425,15 +425,15 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
     JsonNode all = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES);
     assertThat(titles(all)).containsExactly("retried", "assisted");
-    assertThat(all.at("/items/0/agentWork/0/state").asText()).isEqualTo("COMPLETED");
-    assertThat(all.at("/items/0/agentWork/0/endedAt").asText()).isEqualTo("2026-10-04T00:00:00Z");
-    assertThat(all.at("/items/1/agentWork/0/state").asText()).isEqualTo("REJECTED");
+    assertThat(all.at("/items/0/agentWork/0/state").asString()).isEqualTo("COMPLETED");
+    assertThat(all.at("/items/0/agentWork/0/endedAt").asString()).isEqualTo("2026-10-04T00:00:00Z");
+    assertThat(all.at("/items/1/agentWork/0/state").asString()).isEqualTo("REJECTED");
     assertThat(all.at("/items/1/agentWork/0/worker/id").asLong()).isEqualTo(me);
 
     JsonNode failed = getJson("/api/v1/me/ai-tasks?agentState=FAILED");
     assertThat(titles(failed)).containsExactly("retried");
-    assertThat(failed.at("/items/0/agentWork/0/state").asText()).isEqualTo("FAILED");
-    assertThat(failed.at("/items/0/agentWork/0/endedAt").asText())
+    assertThat(failed.at("/items/0/agentWork/0/state").asString()).isEqualTo("FAILED");
+    assertThat(failed.at("/items/0/agentWork/0/endedAt").asString())
         .isEqualTo("2026-10-03T00:00:00Z");
   }
 
@@ -459,9 +459,9 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
     JsonNode body = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES);
     assertThat(titles(body)).containsExactly("assigned-me", "co-assigned");
-    assertThat(body.at("/items/0/agentWork/0/state").asText()).isEqualTo("CANCELED");
+    assertThat(body.at("/items/0/agentWork/0/state").asString()).isEqualTo("CANCELED");
     assertThat(body.at("/items/0/agentWork/0/worker/id").asLong()).isEqualTo(other);
-    assertThat(body.at("/items/1/agentWork/0/state").asText()).isEqualTo("COMPLETED");
+    assertThat(body.at("/items/1/agentWork/0/state").asString()).isEqualTo("COMPLETED");
     assertThat(counts("/api/v1/me/ai-tasks/counts")).containsEntry("done", 2);
   }
 
@@ -498,7 +498,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     JsonNode body = getJson("/api/v1/me/ai-tasks");
     assertThat(titles(body)).containsExactly("i");
     assertThat(body.at("/items/0/agentWork")).hasSize(1);
-    assertThat(body.at("/items/0/agentWork/0/state").asText()).isEqualTo("WORKING");
+    assertThat(body.at("/items/0/agentWork/0/state").asString()).isEqualTo("WORKING");
     assertThat(body.at("/items/0/agentWork/0").has("endedAt")).isFalse();
   }
 
@@ -520,7 +520,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     do {
       JsonNode page = getJson(base + "&size=2" + (cursor == null ? "" : "&cursor=" + cursor));
       paged.addAll(titles(page));
-      cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asText() : null;
+      cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asString() : null;
       assertThat(++pages).as("페이지 순회가 끝나지 않는다").isLessThan(10);
     } while (cursor != null);
     assertThat(paged).isEqualTo(all);
@@ -566,7 +566,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
           getJson(
               "/api/v1/me/ai-tasks?scope=ALL&size=3" + (cursor == null ? "" : "&cursor=" + cursor));
       seen.addAll(titles(page));
-      cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asText() : null;
+      cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asString() : null;
       assertThat(++pages).as("페이지 순회가 끝나지 않는다").isLessThan(10);
     } while (cursor != null);
 
@@ -759,7 +759,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
                   int expected = it.at("/aiGroup/epicNumber").isNumber() ? 3 : 2;
                   assertThat(it.at("/aiGroup/size").asInt()).isEqualTo(expected);
                 });
-        cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asText() : null;
+        cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asString() : null;
         assertThat(++pages).as("페이지 순회가 끝나지 않는다").isLessThan(20);
       } while (cursor != null);
       assertThat(paged).as("size=" + size).isEqualTo(all);
@@ -886,8 +886,8 @@ class AiTasksControllerTest extends IntegrationTestBase {
     List<JsonNode> rows = walk(1);
     assertThat(rows).hasSize(4);
     for (JsonNode row : rows) {
-      boolean inB = row.get("title").asText().startsWith("B-");
-      assertThat(row.at("/aiProject/name").asText()).isEqualTo(inB ? "P-b" : "P-ai");
+      boolean inB = row.get("title").asString().startsWith("B-");
+      assertThat(row.at("/aiProject/name").asString()).isEqualTo(inB ? "P-b" : "P-ai");
       assertThat(row.at("/aiProject/size").asInt()).isEqualTo(inB ? 1 : 3);
     }
 
@@ -895,8 +895,8 @@ class AiTasksControllerTest extends IntegrationTestBase {
     JsonNode working = getJson("/api/v1/me/ai-tasks?agentState=WORKING");
     assertThat(working.get("items")).hasSize(3);
     for (JsonNode row : working.get("items")) {
-      boolean inB = row.get("title").asText().startsWith("B-");
-      assertThat(row.at("/aiProject/name").asText()).isEqualTo(inB ? "P-b" : "P-ai");
+      boolean inB = row.get("title").asString().startsWith("B-");
+      assertThat(row.at("/aiProject/name").asString()).isEqualTo(inB ? "P-b" : "P-ai");
       assertThat(row.at("/aiProject/size").asInt()).isEqualTo(inB ? 1 : 2);
     }
   }
@@ -905,7 +905,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
   @Test
   void aiProject_는_다른_이슈_목록_응답에는_없다() throws Exception {
     work(issue("only", other), me, "WORKING");
-    String key = getJson("/api/v1/me/ai-tasks").get("items").get(0).get("projectKey").asText();
+    String key = getJson("/api/v1/me/ai-tasks").get("items").get(0).get("projectKey").asString();
 
     JsonNode list = getJson("/api/v1/projects/" + key + "/issues");
     assertThat(list.get("items")).isNotEmpty();
@@ -991,10 +991,10 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(b, me, "REVIEW");
 
     var item = getJson("/api/v1/me/ai-tasks").get("items").get(0);
-    assertThat(item.get("projectKey").asText()).startsWith("AT");
-    assertThat(item.at("/agentWork/0/state").asText()).isEqualTo("REVIEW");
-    assertThat(item.at("/agentWork/0/tool").asText()).isEqualTo("claude-code");
-    assertThat(item.at("/agentWork/0/worker/kind").asText()).isEqualTo("HUMAN");
+    assertThat(item.get("projectKey").asString()).startsWith("AT");
+    assertThat(item.at("/agentWork/0/state").asString()).isEqualTo("REVIEW");
+    assertThat(item.at("/agentWork/0/tool").asString()).isEqualTo("claude-code");
+    assertThat(item.at("/agentWork/0/worker/kind").asString()).isEqualTo("HUMAN");
   }
 
   // ---------------------------------------------------------------- helpers
@@ -1184,14 +1184,14 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   private static List<String> titles(JsonNode page) {
     List<String> out = new ArrayList<>();
-    page.get("items").forEach(it -> out.add(it.get("title").asText()));
+    page.get("items").forEach(it -> out.add(it.get("title").asString()));
     return out;
   }
 
   /** 행들의 한 필드 값(문자열) — 순서 비교용. */
   private static List<String> field(Iterable<JsonNode> rows, String name) {
     List<String> out = new ArrayList<>();
-    rows.forEach(it -> out.add(it.get(name).asText()));
+    rows.forEach(it -> out.add(it.get(name).asString()));
     return out;
   }
 
@@ -1204,7 +1204,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
       JsonNode page =
           getJson("/api/v1/me/ai-tasks?size=" + size + (cursor == null ? "" : "&cursor=" + cursor));
       page.get("items").forEach(rows::add);
-      cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asText() : null;
+      cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asString() : null;
       assertThat(++pages).as("페이지 순회가 끝나지 않는다").isLessThan(20);
     } while (cursor != null);
     return rows;

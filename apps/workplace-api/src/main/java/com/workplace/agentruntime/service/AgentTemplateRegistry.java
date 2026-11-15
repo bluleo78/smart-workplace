@@ -1,11 +1,11 @@
 package com.workplace.agentruntime.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.dto.AgentTemplate.ConfigField;
 import com.workplace.agentruntime.exception.InvalidAgentConfigException;
 import com.workplace.auth.service.AgentProviders;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.validation.ModelIds;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
@@ -30,6 +30,8 @@ import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * AI 실행 템플릿 레지스트리(WP-1246) — 클래스패스 {@code agent-templates/*.yaml} 을 시작 때 한 번 읽어 검증하고 메모리에 둔다.
@@ -40,7 +42,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 @Component
 public class AgentTemplateRegistry {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
   private static final Set<String> KINDS = Set.of("SERVER", "WORKSPACE");
   private static final Set<String> FIELD_TYPES = Set.of("select", "text");
 
@@ -186,8 +188,10 @@ public class AgentTemplateRegistry {
         throw new IllegalStateException("실행 템플릿에 「account」 는 적을 수 없습니다 — requires 로 정해집니다");
       }
       return normalizeRequires(MAPPER.convertValue(raw, AgentTemplate.class));
-    } catch (IllegalArgumentException e) {
+    } catch (IllegalArgumentException | JacksonException e) {
       // Jackson 변환 실패(모르는 키·타입 불일치) — 시작 실패로 통일한다.
+      // Jackson 3 의 convertValue 는 IllegalArgumentException 이 아니라 JacksonException 을 던져 함께
+      // 잡는다(WP-1609).
       throw new IllegalStateException("실행 템플릿 형식이 올바르지 않습니다: " + e.getMessage(), e);
     }
   }

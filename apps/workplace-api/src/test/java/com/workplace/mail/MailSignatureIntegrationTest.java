@@ -6,8 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.ExternalClientMockedTestBase;
@@ -22,6 +20,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 메일 서명 GET/PUT(WP-1517) 통합 — 처음 조회 기본값, 저장·정리·다시 조회, 사용자별 분리, 내 이미지가 아닌 img 빼기, 크기·null 플래그 400.
@@ -100,7 +100,7 @@ class MailSignatureIntegrationTest extends ExternalClientMockedTestBase {
                     me, body("<p style=\"color:#123456\">홍길동<script>x</script></p>", false, true))
                 .andExpect(status().isOk()));
 
-    assertThat(saved.get("html").asText())
+    assertThat(saved.get("html").asString())
         .contains("color:#123456")
         .contains("홍길동")
         .doesNotContain("script");
@@ -109,7 +109,7 @@ class MailSignatureIntegrationTest extends ExternalClientMockedTestBase {
     assertThat(saved.get("updatedAt").isNull()).isFalse();
 
     JsonNode again = json(getSignature(me).andExpect(status().isOk()));
-    assertThat(again.get("html").asText()).isEqualTo(saved.get("html").asText());
+    assertThat(again.get("html").asString()).isEqualTo(saved.get("html").asString());
     assertThat(again.get("autoNew").asBoolean()).isFalse();
     assertThat(again.get("autoReply").asBoolean()).isTrue();
   }
@@ -155,7 +155,7 @@ class MailSignatureIntegrationTest extends ExternalClientMockedTestBase {
                 .andExpect(status().isOk()));
 
     assertThat(saved.get("droppedImageCount").asInt()).isEqualTo(1);
-    assertThat(saved.get("html").asText()).doesNotContain("<img").contains("x");
+    assertThat(saved.get("html").asString()).doesNotContain("<img").contains("x");
   }
 
   @Test

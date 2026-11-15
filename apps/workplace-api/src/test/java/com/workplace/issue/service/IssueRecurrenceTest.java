@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
@@ -51,6 +49,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 반복 AI 작업(WP-989) 통합 테스트 — REST(PUT/GET/DELETE 검증·409), 저장 시 AI 작업 「다음 회차 대기」, 스케줄러 회차 실행(이벤트·다음
@@ -128,14 +128,14 @@ class IssueRecurrenceTest extends IntegrationTestBase {
         json(
             call(put(path()).content(req("FREQ=WEEKLY;BYDAY=MO,WE", "08:30")), owner)
                 .andExpect(status().isOk()));
-    assertThat(body.get("rrule").asText()).isEqualTo("FREQ=WEEKLY;BYDAY=MO,WE");
-    assertThat(body.get("time").asText()).isEqualTo("08:30");
+    assertThat(body.get("rrule").asString()).isEqualTo("FREQ=WEEKLY;BYDAY=MO,WE");
+    assertThat(body.get("time").asString()).isEqualTo("08:30");
     assertThat(body.get("enabled").asBoolean()).isTrue();
     assertThat(body.get("consecutiveFailures").asInt()).isZero();
     assertThat(body.get("agentUserId").asLong()).isEqualTo(agent);
-    assertThat(body.get("agentName").asText()).isNotBlank();
+    assertThat(body.get("agentName").asString()).isNotBlank();
     // 다음 회차는 KST 월·수 08:30 이고 지금 이후다.
-    Instant next = Instant.parse(body.get("nextRunAt").asText());
+    Instant next = Instant.parse(body.get("nextRunAt").asString());
     var kst = next.atZone(IssueRecurrenceRules.KST);
     assertThat(next).isAfter(Instant.now());
     assertThat(kst.getDayOfWeek()).isIn(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY);
@@ -149,7 +149,7 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(work.get(AGENT_WORK.NEXT_RUN_AT).toInstant()).isEqualTo(next);
 
     JsonNode got = json(call(get(path()), owner).andExpect(status().isOk()));
-    assertThat(got.get("rrule").asText()).isEqualTo("FREQ=WEEKLY;BYDAY=MO,WE");
+    assertThat(got.get("rrule").asString()).isEqualTo("FREQ=WEEKLY;BYDAY=MO,WE");
   }
 
   @Test
@@ -187,8 +187,8 @@ class IssueRecurrenceTest extends IntegrationTestBase {
         json(
             call(put(path()).content(req("freq=monthly;bymonthday=15", "23:59")), owner)
                 .andExpect(status().isOk()));
-    assertThat(monthly.get("rrule").asText()).isEqualTo("FREQ=MONTHLY;BYMONTHDAY=15");
-    var kst = Instant.parse(monthly.get("nextRunAt").asText()).atZone(IssueRecurrenceRules.KST);
+    assertThat(monthly.get("rrule").asString()).isEqualTo("FREQ=MONTHLY;BYMONTHDAY=15");
+    var kst = Instant.parse(monthly.get("nextRunAt").asString()).atZone(IssueRecurrenceRules.KST);
     assertThat(kst.getDayOfMonth()).isEqualTo(15);
     assertThat(kst.getHour()).isEqualTo(23);
   }
@@ -254,7 +254,7 @@ class IssueRecurrenceTest extends IntegrationTestBase {
                 .andExpect(status().isOk()));
     assertThat(body.get("enabled").asBoolean()).isTrue();
     assertThat(body.get("consecutiveFailures").asInt()).isZero();
-    assertThat(body.get("time").asText()).isEqualTo("09:00");
+    assertThat(body.get("time").asString()).isEqualTo("09:00");
   }
 
   @Test
@@ -872,8 +872,8 @@ class IssueRecurrenceTest extends IntegrationTestBase {
       if (it.get("id").asLong() == issueId) item = it;
     }
     assertThat(item).isNotNull();
-    assertThat(item.get("recurrence").get("rrule").asText()).isEqualTo("FREQ=WEEKLY;BYDAY=FR");
-    assertThat(item.get("recurrence").get("time").asText()).isEqualTo("18:00");
+    assertThat(item.get("recurrence").get("rrule").asString()).isEqualTo("FREQ=WEEKLY;BYDAY=FR");
+    assertThat(item.get("recurrence").get("time").asString()).isEqualTo("18:00");
     assertThat(item.get("recurrence").get("enabled").asBoolean()).isTrue();
   }
 

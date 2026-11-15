@@ -1,7 +1,5 @@
 package com.workplace.mail.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.EncryptionService;
@@ -22,6 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Microsoft 365 OAuth2 auth-code 흐름으로 메일 계정을 연결하는 서비스.
@@ -164,12 +164,12 @@ public class M365OAuthService {
           graphApiClient.get(accessToken, "/me?$select=mail,userPrincipalName", JsonNode.class);
       if (me != null) {
         JsonNode mail = me.get("mail");
-        if (mail != null && !mail.isNull() && !mail.asText().isBlank()) {
-          return mail.asText();
+        if (mail != null && !mail.isNull() && !mail.asString("").isBlank()) {
+          return mail.asString("");
         }
         JsonNode upn = me.get("userPrincipalName");
-        if (upn != null && !upn.isNull() && !upn.asText().isBlank()) {
-          return upn.asText();
+        if (upn != null && !upn.isNull() && !upn.asString("").isBlank()) {
+          return upn.asString("");
         }
       }
     } catch (Exception e) {
@@ -205,13 +205,13 @@ public class M365OAuthService {
 
       // preferred_username: M365 사용자 주체 이름(UPN, 보통 이메일 형식)
       JsonNode prefUsername = claims.get("preferred_username");
-      if (prefUsername != null && !prefUsername.asText().isBlank()) {
-        return prefUsername.asText();
+      if (prefUsername != null && !prefUsername.asString("").isBlank()) {
+        return prefUsername.asString("");
       }
       // email: OIDC 표준 클레임(옵션)
       JsonNode email = claims.get("email");
-      if (email != null && !email.asText().isBlank()) {
-        return email.asText();
+      if (email != null && !email.asString("").isBlank()) {
+        return email.asString("");
       }
       throw new IllegalArgumentException("id_token 에 이메일 클레임(preferred_username/email)이 없습니다.");
     } catch (IllegalArgumentException e) {

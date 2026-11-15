@@ -5,7 +5,6 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -17,6 +16,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /** IssueFieldValueRepository 통합 테스트 — upsert/diff 조회/batch fetch/cascade. */
 @Transactional
@@ -68,7 +68,7 @@ class IssueFieldValueRepositoryTest extends IntegrationTestBase {
     var map = valueRepo.findValuesByIssue(issue.id());
 
     assertThat(map).containsKey(def.id());
-    assertThat(map.get(def.id()).asText()).isEqualTo("hello");
+    assertThat(map.get(def.id()).asString()).isEqualTo("hello");
   }
 
   @Test

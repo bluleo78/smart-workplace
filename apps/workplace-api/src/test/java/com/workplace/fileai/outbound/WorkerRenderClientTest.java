@@ -3,8 +3,6 @@ package com.workplace.fileai.outbound;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.AttachmentViewException;
@@ -15,6 +13,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WorkerRenderClient 단위 테스트(WP-250) — 로컬 HttpServer 로 워커 /render 를 흉내 내 요청 헤더·본문과 응답·오류 매핑을 검증한다.
@@ -24,7 +25,7 @@ import org.junit.jupiter.api.Test;
  */
 class WorkerRenderClientTest {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
   private HttpServer server;
   private final AtomicReference<String> body = new AtomicReference<>();
@@ -94,8 +95,8 @@ class WorkerRenderClientTest {
     assertThat(r.pageCount()).isEqualTo(3);
     assertThat(auth.get()).isEqualTo("Internal tok");
     JsonNode sent = MAPPER.readTree(body.get());
-    assertThat(sent.get("storageKey").asText()).isEqualTo("t/1/a.pdf");
-    assertThat(sent.get("mime").asText()).isEqualTo("application/pdf");
+    assertThat(sent.get("storageKey").asString()).isEqualTo("t/1/a.pdf");
+    assertThat(sent.get("mime").asString()).isEqualTo("application/pdf");
     assertThat(sent.get("page").asInt()).isEqualTo(2);
     assertThat(sent.get("maxEdge").asInt()).isEqualTo(1568);
   }

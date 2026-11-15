@@ -1,13 +1,14 @@
 package com.workplace.auth.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
+import com.workplace.global.json.JsonMappers;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * 「로그인 정보」(Gen:iA Code·Codex 의 auth.json) 검증·다듬기(WP-1296·1297). 붙여 넣은 파일 내용을 그 프로그램이 읽는 데 필요한 키만 남긴
@@ -17,7 +18,7 @@ import java.util.List;
  */
 public final class LoginInfoNormalizer {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   /** ChatGPT 로그인의 tokens 안에서 옮겨 담는 키 — 이 밖의 키는 버린다. */
   private static final List<String> CHATGPT_TOKEN_KEYS =
@@ -46,7 +47,7 @@ public final class LoginInfoNormalizer {
     ObjectNode out = AgentProviders.CHATGPT.equals(provider) ? chatgpt(root) : genia(root);
     try {
       return MAPPER.writeValueAsString(out);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("로그인 정보를 저장할 수 없습니다");
     }
   }
@@ -98,9 +99,9 @@ public final class LoginInfoNormalizer {
    * 웹 lib/loginInfo.ts 와 같은 규칙.
    */
   private static boolean isChatgptMode(JsonNode root) {
-    if (root.has("auth_mode")) return "chatgpt".equals(root.path("auth_mode").asText(null));
+    if (root.has("auth_mode")) return "chatgpt".equals(root.path("auth_mode").asString(null));
     JsonNode key = root.get("OPENAI_API_KEY");
-    return key == null || key.isNull() || (key.isTextual() && key.asText().isEmpty());
+    return key == null || key.isNull() || (key.isString() && key.asString("").isEmpty());
   }
 
   /**
@@ -113,7 +114,7 @@ public final class LoginInfoNormalizer {
       throw new InvalidProviderCredentialException(
           root.path("tokens").isObject() ? CHATGPT_GIVEN : NOT_GENIA);
     }
-    if (!"oauth".equals(genia.path("type").asText(null)) || isBlankText(genia.get("refresh"))) {
+    if (!"oauth".equals(genia.path("type").asString(null)) || isBlankText(genia.get("refresh"))) {
       throw new InvalidProviderCredentialException(NOT_GENIA);
     }
     ObjectNode out = MAPPER.createObjectNode();
@@ -192,11 +193,11 @@ public final class LoginInfoNormalizer {
   }
 
   private static boolean isBlankText(JsonNode n) {
-    return n == null || !n.isTextual() || n.asText().isBlank();
+    return n == null || !n.isString() || n.asString("").isBlank();
   }
 
   /** 비어 있지 않은 문자열 노드의 값, 아니면 null — 계정 목록(WP-1448)의 지문·갱신 시각 읽기도 같은 규칙을 쓴다. */
   public static String textOrNull(JsonNode n) {
-    return n != null && n.isTextual() && !n.asText().isBlank() ? n.asText() : null;
+    return n != null && n.isString() && !n.asString("").isBlank() ? n.asString("") : null;
   }
 }

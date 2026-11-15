@@ -5,8 +5,6 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.WORKER_JOB;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.fileai.ExtractionProfile;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -19,6 +17,8 @@ import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /** worker_job + file_extraction CAS 전이 레포지토리. */
 @Repository
@@ -116,7 +116,7 @@ public class WorkerJobRepository {
       paramsJson =
           objectMapper.writeValueAsString(
               Map.of("fileId", fileId, "storageKey", storageKey, "mime", mime));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("worker_job params 직렬화 실패", e);
     }
     return dsl.insertInto(WORKER_JOB)
@@ -470,7 +470,7 @@ public class WorkerJobRepository {
           .set(WORKER_JOB.TENANT_ID, tenantId)
           .returning(WORKER_JOB.ID)
           .fetchOne(WORKER_JOB.ID);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("embed job params 직렬화 실패", e);
     }
   }

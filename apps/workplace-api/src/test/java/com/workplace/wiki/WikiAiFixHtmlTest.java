@@ -11,8 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.security.JwtTokenProvider;
@@ -37,6 +35,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 HTML 블록 「AI로 고치기」(WP-1302) — POST /wiki/pages/{id}/ai 의 fix_html 이 지금
@@ -86,12 +86,12 @@ class WikiAiFixHtmlTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.correlationId").isNotEmpty());
 
     JsonNode sent = sentBody();
-    assertThat(sent.get("action").asText()).isEqualTo("fix_html");
-    assertThat(sent.get("selection").asText()).isEqualTo(SOURCE);
-    assertThat(sent.get("prompt").asText()).isEqualTo("제목을 4분기로 바꿔 줘");
+    assertThat(sent.get("action").asString()).isEqualTo("fix_html");
+    assertThat(sent.get("selection").asString()).isEqualTo(SOURCE);
+    assertThat(sent.get("prompt").asString()).isEqualTo("제목을 4분기로 바꿔 줘");
     assertThat(sent.get("targets")).hasSize(2);
-    assertThat(sent.get("targets").get(0).asText()).isEqualTo(targets.get(0));
-    assertThat(sent.get("targets").get(1).asText()).isEqualTo(targets.get(1));
+    assertThat(sent.get("targets").get(0).asString()).isEqualTo(targets.get(0));
+    assertThat(sent.get("targets").get(1).asString()).isEqualTo(targets.get(1));
   }
 
   /** 고른 요소가 없으면(빈 목록) targets 필드를 뺀다 — 블록 전체가 대상. */
@@ -100,7 +100,7 @@ class WikiAiFixHtmlTest extends ExternalClientMockedTestBase {
     start(body("fix_html", "색을 파랑으로", SOURCE, List.of())).andExpect(status().isOk());
 
     JsonNode sent = sentBody();
-    assertThat(sent.get("action").asText()).isEqualTo("fix_html");
+    assertThat(sent.get("action").asString()).isEqualTo("fix_html");
     assertThat(sent.has("targets")).isFalse();
   }
 
@@ -141,7 +141,7 @@ class WikiAiFixHtmlTest extends ExternalClientMockedTestBase {
   @Test
   void other_actions_unaffected() throws Exception {
     start(body("continue", null, null, null)).andExpect(status().isOk());
-    assertThat(sentBody().get("action").asText()).isEqualTo("continue");
+    assertThat(sentBody().get("action").asString()).isEqualTo("continue");
   }
 
   /** 펌프 스레드가 에이전트에 넘긴 요청 본문 — 실제 직렬화 결과(JSON)로 본다. */

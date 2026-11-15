@@ -10,8 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.platform.repository.PlatformRoleRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -22,6 +20,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** PlatformAuthController 통합 테스트 — 운영자 로그인 200·쿠키·바디, 비운영자 403, 발급 토큰으로 /me 200 을 검증한다. */
 @Transactional
@@ -101,7 +101,7 @@ class PlatformAuthControllerTest extends IntegrationTestBase {
             .andReturn();
 
     JsonNode body = objectMapper.readTree(loginResult.getResponse().getContentAsString());
-    String accessToken = body.get("accessToken").asText();
+    String accessToken = body.get("accessToken").asString();
     assertThat(accessToken).isNotBlank();
 
     mvc.perform(get("/api/platform/auth/me").header("Authorization", "Bearer " + accessToken))

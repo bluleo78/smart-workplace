@@ -1,6 +1,5 @@
 package com.workplace.auth.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.AgentModelsResponse;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.dto.ModelOption;
@@ -35,6 +34,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Task10 — 프로바이더 모델 목록/프로브 API. 등록 전(POST .../probe, 임의 baseURL+apiKey) 과 등록 후(GET .../models, 저장된

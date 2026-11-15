@@ -1,8 +1,5 @@
 package com.workplace.issue.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.workplace.global.time.SupportedDates;
 import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.exception.InvalidFieldOptionsException;
@@ -11,6 +8,9 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.HashSet;
 import java.util.Set;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.JsonNodeFactory;
 
 /**
  * type / options / value 검증 dispatcher. 모든 검증 실패는 400 으로 매핑되는 InvalidField* 예외 throw. value 가 null
@@ -52,10 +52,10 @@ public final class FieldTypeValidator {
     ArrayNode out = JsonNodeFactory.instance.arrayNode();
     Set<String> seen = new HashSet<>();
     for (JsonNode opt : options) {
-      if (!opt.isTextual()) {
+      if (!opt.isString()) {
         throw new InvalidFieldOptionsException("옵션은 문자열이어야 합니다");
       }
-      String s = SingleLineTitles.normalize(opt.asText());
+      String s = SingleLineTitles.normalize(opt.asString(""));
       if (s.isEmpty()) {
         throw new InvalidFieldOptionsException("빈 옵션은 만들 수 없습니다");
       }
@@ -77,10 +77,10 @@ public final class FieldTypeValidator {
     }
     switch (type) {
       case "TEXT" -> {
-        if (!value.isTextual()) {
+        if (!value.isString()) {
           throw new InvalidFieldValueException("TEXT 는 문자열");
         }
-        if (value.asText().length() > TEXT_MAX) {
+        if (value.asString("").length() > TEXT_MAX) {
           throw new InvalidFieldValueException("텍스트 필드는 2000자 이하여야 합니다");
         }
       }
@@ -88,21 +88,25 @@ public final class FieldTypeValidator {
         if (!value.isNumber()) {
           throw new InvalidFieldValueException("NUMBER 는 숫자");
         }
-        // WP-587: 1e400 같은 값은 Jackson 이 double Infinity 로 읽어 문자열 "Infinity" 로 저장됐다. 웹(JS)이 정확히 다룰 수
-        // 있는
-        // 범위(안전 정수)의 유한한 수만 받는다 — 큰 정수(BigInteger)도 double 로 바꿔 같은 기준으로 본다.
+        // WP-587: 1e400 같은 값은 Jackson 이 double Infinity 로 읽어 문자열 "Infinity" 로 저장됐다.
+        // 웹(JS)이 정확히 다룰 수 있는 범위(안전 정수)의 유한한 수만 받는다.
+        // WP-1609: Jackson 3 은 double 범위를 넘는 큰 정수(BigInteger)의 doubleValue() 에서 Infinity 대신
+        // 예외를 던져 500 이 됐다 — long 에 들지 않는 정수는 double 로 바꾸기 전에 같은 400 으로 거른다.
+        if (value.isIntegralNumber() && !value.canConvertToLong()) {
+          throw new InvalidFieldValueException("숫자 필드에는 ±9007199254740991 안의 숫자만 쓸 수 있습니다");
+        }
         double d = value.doubleValue();
         if (!Double.isFinite(d) || Math.abs(d) > NUMBER_MAX) {
           throw new InvalidFieldValueException("숫자 필드에는 ±9007199254740991 안의 숫자만 쓸 수 있습니다");
         }
       }
       case "DATE" -> {
-        if (!value.isTextual()) {
+        if (!value.isString()) {
           throw new InvalidFieldValueException("DATE 는 ISO 문자열");
         }
         LocalDate date;
         try {
-          date = LocalDate.parse(value.asText());
+          date = LocalDate.parse(value.asString(""));
         } catch (DateTimeParseException e) {
           throw new InvalidFieldValueException("DATE 형식 (YYYY-MM-DD)");
         }
@@ -112,11 +116,11 @@ public final class FieldTypeValidator {
         }
       }
       case "SELECT" -> {
-        if (!value.isTextual()) {
+        if (!value.isString()) {
           throw new InvalidFieldValueException("SELECT 는 문자열");
         }
-        if (!optionsContains(options, value.asText())) {
-          throw new InvalidFieldValueException("옵션 외 값: " + value.asText());
+        if (!optionsContains(options, value.asString(""))) {
+          throw new InvalidFieldValueException("옵션 외 값: " + value.asString(""));
         }
       }
       case "MULTI_SELECT" -> {
@@ -126,14 +130,14 @@ public final class FieldTypeValidator {
         // 같은 옵션을 두 번 고른 값은 거절한다(WP-610) — 그대로 저장하면 같은 칩이 두 번 보였다.
         Set<String> picked = new HashSet<>();
         for (JsonNode v : value) {
-          if (!v.isTextual()) {
+          if (!v.isString()) {
             throw new InvalidFieldValueException("MULTI_SELECT 요소는 문자열");
           }
-          if (!optionsContains(options, v.asText())) {
-            throw new InvalidFieldValueException("옵션 외 값: " + v.asText());
+          if (!optionsContains(options, v.asString(""))) {
+            throw new InvalidFieldValueException("옵션 외 값: " + v.asString(""));
           }
-          if (!picked.add(v.asText())) {
-            throw new InvalidFieldValueException("같은 옵션을 두 번 고를 수 없습니다: " + v.asText());
+          if (!picked.add(v.asString(""))) {
+            throw new InvalidFieldValueException("같은 옵션을 두 번 고를 수 없습니다: " + v.asString(""));
           }
         }
       }
@@ -145,7 +149,7 @@ public final class FieldTypeValidator {
   private static boolean optionsContains(JsonNode options, String v) {
     if (options == null || !options.isArray()) return false;
     for (JsonNode o : options) {
-      if (o.isTextual() && o.asText().equals(v)) return true;
+      if (o.isString() && o.asString("").equals(v)) return true;
     }
     return false;
   }

@@ -7,8 +7,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.SharedAiMemoryReader;
@@ -36,6 +34,8 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.AsyncTaskExecutor;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * HomeChatService 의 progress·pending_action·tool 콜백 → 통합 /events 채널(SseRegistry.fanOut) 이벤트 포워드
@@ -218,9 +218,9 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
                 null,
                 null));
     var node = objectMapper.readTree(objectMapper.writeValueAsString(ctx));
-    assertThat(node.at("/help/section/id").asText()).isEqualTo("mail.rules");
-    assertThat(node.at("/help/section/path/1").asText()).isEqualTo("규칙");
-    assertThat(node.at("/help/focus/name").asText()).isEqualTo("제목");
+    assertThat(node.at("/help/section/id").asString()).isEqualTo("mail.rules");
+    assertThat(node.at("/help/section/path/1").asString()).isEqualTo("규칙");
+    assertThat(node.at("/help/focus/name").asString()).isEqualTo("제목");
     assertThat(node.at("/help/focus").has("value")).isFalse();
     assertThat(node.at("/help/focus").has("secret")).isFalse();
     assertThat(node.at("/help").has("dialogs")).isFalse();
@@ -371,8 +371,8 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     stubAssistant();
 
     // 2건 배열 노드: [{actionType, summary, params}, {...}]
-    com.fasterxml.jackson.databind.node.ArrayNode proposals =
-        (com.fasterxml.jackson.databind.node.ArrayNode)
+    tools.jackson.databind.node.ArrayNode proposals =
+        (tools.jackson.databind.node.ArrayNode)
             objectMapper.readTree(
                 "[{\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시\",\"params\":{}},"
                     + "{\"actionType\":\"mail.send\",\"summary\":\"메일 보내기\",\"params\":{}}]");

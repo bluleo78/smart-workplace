@@ -11,8 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -35,6 +33,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 메일 서명 이미지(WP-1517) 통합 — data:·외부 이미지를 받아 저장하고 경로로 바꾸기, 형식·크기·개수 상한, 내 경로 유지, 남의 경로 빼기·404, 본인만
@@ -133,7 +133,7 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
 
     JsonNode saved = putHtml(me, "<p><img src=\"" + dataUri("image/png", PNG) + "\">홍길동</p>");
 
-    String html = saved.get("html").asText();
+    String html = saved.get("html").asString();
     List<String> paths = imagePaths(html);
     assertThat(paths).hasSize(1);
     assertThat(paths.get(0)).matches("^/api/v1/mail/signature/images/\\d+$");
@@ -161,7 +161,7 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
     JsonNode saved = putHtml(me, "<img src=\"" + dataUri("image/png", html) + "\"><p>x</p>");
 
     assertThat(saved.get("droppedImageCount").asInt()).isEqualTo(1);
-    assertThat(saved.get("html").asText()).doesNotContain("<img");
+    assertThat(saved.get("html").asString()).doesNotContain("<img");
     assertThat(imageRows(me)).isZero();
   }
 
@@ -172,7 +172,7 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
     JsonNode saved =
         putHtml(me, "<p><img src=\"" + FixtureHttpFetcherConfig.SIGNATURE_GIF + "\"></p>");
 
-    List<String> paths = imagePaths(saved.get("html").asText());
+    List<String> paths = imagePaths(saved.get("html").asString());
     assertThat(paths).hasSize(1);
     byte[] body =
         getImage(me, paths.get(0))
@@ -191,7 +191,7 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
     JsonNode saved = putHtml(me, "<p><img src=\"https://fixture.test/없는-이미지.png\">x</p>");
 
     assertThat(saved.get("droppedImageCount").asInt()).isEqualTo(1);
-    assertThat(saved.get("html").asText()).doesNotContain("<img");
+    assertThat(saved.get("html").asString()).doesNotContain("<img");
   }
 
   @Test
@@ -230,7 +230,7 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
     JsonNode saved = putHtml(me, html.toString());
 
     assertThat(saved.get("droppedImageCount").asInt()).isEqualTo(1);
-    assertThat(imagePaths(saved.get("html").asText())).hasSize(10);
+    assertThat(imagePaths(saved.get("html").asString())).hasSize(10);
     assertThat(imageRows(me)).isEqualTo(10);
   }
 
@@ -258,7 +258,7 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
 
     JsonNode saved = putHtml(me, "<p><img src=\"" + src + "\"><img src=\"" + src + "\"></p>");
 
-    List<String> paths = imagePaths(saved.get("html").asText());
+    List<String> paths = imagePaths(saved.get("html").asString());
     assertThat(paths).hasSize(2);
     assertThat(paths.get(0)).isEqualTo(paths.get(1));
     assertThat(imageRows(me)).isEqualTo(1);
@@ -268,11 +268,13 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
   void 이미_내_경로인_img는_그대로() throws Exception {
     long me = user();
     String first =
-        putHtml(me, "<p><img src=\"" + dataUri("image/png", PNG) + "\"></p>").get("html").asText();
+        putHtml(me, "<p><img src=\"" + dataUri("image/png", PNG) + "\"></p>")
+            .get("html")
+            .asString();
 
     JsonNode again = putHtml(me, first);
 
-    assertThat(again.get("html").asText()).isEqualTo(first);
+    assertThat(again.get("html").asString()).isEqualTo(first);
     assertThat(again.get("droppedImageCount").asInt()).isZero();
     assertThat(imageRows(me)).isEqualTo(1);
   }
@@ -285,13 +287,13 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
         imagePaths(
                 putHtml(a, "<p><img src=\"" + dataUri("image/png", PNG) + "\"></p>")
                     .get("html")
-                    .asText())
+                    .asString())
             .get(0);
 
     JsonNode saved = putHtml(b, "<p><img src=\"" + aPath + "\">x</p>");
 
     assertThat(saved.get("droppedImageCount").asInt()).isEqualTo(1);
-    assertThat(saved.get("html").asText()).doesNotContain("<img");
+    assertThat(saved.get("html").asString()).doesNotContain("<img");
     getImage(b, aPath)
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.errors.code").value("SIGNATURE_IMAGE_NOT_FOUND"));
@@ -305,7 +307,7 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
         imagePaths(
                 putHtml(me, "<p><img src=\"" + dataUri("image/png", PNG) + "\"></p>")
                     .get("html")
-                    .asText())
+                    .asString())
             .get(0);
     long imageId = Long.parseLong(path.substring(path.lastIndexOf('/') + 1));
 
@@ -339,14 +341,14 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
         imagePaths(
                 putHtml(a, "<p><img src=\"" + dataUri("image/png", PNG) + "\"></p>")
                     .get("html")
-                    .asText())
+                    .asString())
             .get(0);
     long aImage = Long.parseLong(aPath.substring(aPath.lastIndexOf('/') + 1));
     String bPath =
         imagePaths(
                 putHtml(b, "<p><img src=\"" + dataUri("image/png", pngOfSize(64, 7)) + "\"></p>")
                     .get("html")
-                    .asText())
+                    .asString())
             .get(0);
     long bImage = Long.parseLong(bPath.substring(bPath.lastIndexOf('/') + 1));
 
@@ -406,7 +408,7 @@ class MailSignatureImageIntegrationTest extends ExternalClientMockedTestBase {
     JsonNode saved = putHtml(me, html.toString());
 
     assertThat(saved.get("droppedImageCount").asInt()).isEqualTo(10);
-    assertThat(imagePaths(saved.get("html").asText())).hasSize(2);
+    assertThat(imagePaths(saved.get("html").asString())).hasSize(2);
     assertThat(imageRows(me)).isEqualTo(2);
   }
 }

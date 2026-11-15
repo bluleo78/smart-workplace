@@ -55,7 +55,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
-  @Autowired com.fasterxml.jackson.databind.ObjectMapper om;
+  @Autowired tools.jackson.databind.ObjectMapper om;
   @Autowired AgentLocationService locationService;
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired AgentApiKeyService keyService;

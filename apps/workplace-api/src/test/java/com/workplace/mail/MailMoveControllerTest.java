@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphBatchRequest;
@@ -26,12 +25,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** WP-962 메일 옮기기 API — 요청 형태 검증(400)·소유 검증(404)·보낸 기록(400)·응답 모양. 서버 I/O 는 Graph 스텁. */
 @Transactional
 class MailMoveControllerTest extends ExternalClientMockedTestBase {
 
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;

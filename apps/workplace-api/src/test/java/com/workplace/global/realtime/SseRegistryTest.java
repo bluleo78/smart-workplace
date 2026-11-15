@@ -3,7 +3,6 @@ package com.workplace.global.realtime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -14,10 +13,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import tools.jackson.databind.json.JsonMapper;
 
 class SseRegistryTest {
 
-  private final SseRegistry registry = new SseRegistry(new ObjectMapper());
+  private final SseRegistry registry =
+      new SseRegistry(JsonMapper.builderWithJackson2Defaults().build());
 
   @Test
   void register_returnsEmitterAndCounts() {

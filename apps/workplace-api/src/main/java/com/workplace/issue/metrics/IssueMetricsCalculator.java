@@ -1,7 +1,6 @@
 package com.workplace.issue.metrics;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.issue.dto.IssueDueWindow;
 import com.workplace.issue.metrics.IssueMetricsRepository.ClosedCandidate;
 import com.workplace.issue.metrics.IssueMetricsRepository.HistoryEvent;
@@ -24,6 +23,8 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 성과 지표의 순수 계산(WP-1476) — DB·스프링 없이 원재료(후보 이슈·이력·담당자·agent_work)만 받아 이슈별 사실과 요약·칸을 만든다. 정의가 까다로운
@@ -36,7 +37,7 @@ import lombok.extern.slf4j.Slf4j;
 public final class IssueMetricsCalculator {
 
   /** payload 파싱 전용 — readTree 만 쓰므로 기본 설정으로 충분하고, 공유해도 스레드 안전하다. */
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = JsonMappers.JACKSON2;
 
   /** 하루 초 — 소요 일수 = 초 / 86400.0(반올림 없음). */
   private static final double SECONDS_PER_DAY = 86_400.0;
@@ -108,7 +109,7 @@ public final class IssueMetricsCalculator {
     if (arr == null || !arr.isArray()) return out;
     for (JsonNode n : arr) {
       JsonNode id = n.get("id");
-      if (id != null && id.canConvertToLong()) out.add(id.asLong());
+      if (id != null && id.canConvertToLong()) out.add(id.asLong(0L));
     }
     return out;
   }

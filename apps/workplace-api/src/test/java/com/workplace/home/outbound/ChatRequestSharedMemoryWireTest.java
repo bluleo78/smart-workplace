@@ -2,13 +2,14 @@ package com.workplace.home.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.home.outbound.ChatMessages.CurrentSpace;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WP-386: ai-agent 로 가는 요청 본문의 공용 메모리 필드 이름 고정 — AiAgentChatClient 와 같은 모듈 없는 ObjectMapper 로 직렬화한다.
@@ -16,7 +17,7 @@ import org.junit.jupiter.api.Test;
  */
 class ChatRequestSharedMemoryWireTest {
 
-  private final ObjectMapper mapper = new ObjectMapper();
+  private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
   private static ChatRequest request(CurrentSpace space) {
     return new ChatRequest(
@@ -48,12 +49,12 @@ class ChatRequestSharedMemoryWireTest {
     JsonNode json =
         mapper.readTree(
             mapper.writeValueAsString(request(new CurrentSpace("PROJECT", "WP 프로젝트(WP)"))));
-    assertThat(json.get("sharedMemories").get(0).get("space").asText()).isEqualTo("조직");
-    assertThat(json.get("sharedMemories").get(0).get("content").asText())
+    assertThat(json.get("sharedMemories").get(0).get("space").asString()).isEqualTo("조직");
+    assertThat(json.get("sharedMemories").get(0).get("content").asString())
         .isEqualTo("배포는 API 먼저 한다");
     assertThat(json.get("sharedMemoryMoreCount").asInt()).isEqualTo(3);
-    assertThat(json.get("currentSpace").get("type").asText()).isEqualTo("PROJECT");
-    assertThat(json.get("currentSpace").get("name").asText()).isEqualTo("WP 프로젝트(WP)");
+    assertThat(json.get("currentSpace").get("type").asString()).isEqualTo("PROJECT");
+    assertThat(json.get("currentSpace").get("name").asString()).isEqualTo("WP 프로젝트(WP)");
   }
 
   @Test

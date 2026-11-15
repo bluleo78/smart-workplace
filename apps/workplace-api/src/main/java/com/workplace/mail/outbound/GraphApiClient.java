@@ -1,9 +1,6 @@
 package com.workplace.mail.outbound;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.config.M365GraphProperties;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailSyncException;
@@ -21,6 +18,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Microsoft Graph API / Azure AD 토큰 엔드포인트 HTTP 클라이언트.
@@ -172,7 +172,8 @@ public class GraphApiClient {
       return mapper.readValue(resp.body(), type);
     } catch (MailSyncException e) {
       throw e;
-    } catch (IOException e) {
+    } catch (IOException | JacksonException e) {
+      // Jackson 3 의 해석 오류는 IOException 이 아니라 따로 잡는다 — Jackson 2 때처럼 같은 오류로 바꾼다(WP-1609).
       throw new MailSyncException("Graph API 네트워크 오류", e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -268,7 +269,7 @@ public class GraphApiClient {
     JsonNode imid = draft.path("internetMessageId");
     return new DraftRef(
         requireText(draft, "id", "createDraft"),
-        imid.isTextual() && !imid.asText().isBlank() ? imid.asText() : null);
+        imid.isString() && !imid.asString("").isBlank() ? imid.asString("") : null);
   }
 
   /**
@@ -293,7 +294,9 @@ public class GraphApiClient {
             "/me/messages/" + messageId + "?$select=internetMessageId",
             JsonNode.class);
     JsonNode imid = node == null ? null : node.path("internetMessageId");
-    return imid != null && imid.isTextual() && !imid.asText().isBlank() ? imid.asText() : null;
+    return imid != null && imid.isString() && !imid.asString("").isBlank()
+        ? imid.asString("")
+        : null;
   }
 
   /**
@@ -407,7 +410,7 @@ public class GraphApiClient {
   private byte[] toJsonBytes(Object body) {
     try {
       return mapper.writeValueAsBytes(body);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new MailSendException("Graph 요청 직렬화 실패", e);
     }
   }
@@ -415,10 +418,10 @@ public class GraphApiClient {
   /** 응답 JSON 의 필수 문자열 필드 — 없으면 쓰기 실패. */
   private static String requireText(JsonNode node, String field, String op) {
     JsonNode v = node.path(field);
-    if (!v.isTextual() || v.asText().isBlank()) {
+    if (!v.isString() || v.asString("").isBlank()) {
       throw new MailSendException("Graph " + op + " 응답에 " + field + " 없음");
     }
-    return v.asText();
+    return v.asString("");
   }
 
   /**
@@ -499,7 +502,8 @@ public class GraphApiClient {
       return mapper.readValue(resp.body(), type);
     } catch (MailSendException e) {
       throw e;
-    } catch (IOException e) {
+    } catch (IOException | JacksonException e) {
+      // Jackson 3 의 해석 오류는 IOException 이 아니라 따로 잡는다 — Jackson 2 때처럼 같은 오류로 바꾼다(WP-1609).
       throw new MailSendException("Graph post 네트워크 오류", e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -534,7 +538,7 @@ public class GraphApiClient {
     String json;
     try {
       json = mapper.writeValueAsString(Map.of("requests", reqs));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new MailSendException("Graph batch 직렬화 실패", e);
     }
     // 요청 타임아웃 — 공용 HttpClient 엔 타임아웃이 없어, 걸린 요청이 읽음 역동기화 계정 리스(WP-188)보다 오래 끌지 않게 끊는다
@@ -545,8 +549,8 @@ public class GraphApiClient {
       JsonNode body = n.get("body");
       out.add(
           new GraphBatchResponse(
-              n.path("id").asText(),
-              n.path("status").asInt(),
+              n.path("id").asString(""),
+              n.path("status").asInt(0),
               body == null || body.isNull() ? null : body));
     }
     return out;
@@ -634,7 +638,8 @@ public class GraphApiClient {
           json.idToken());
     } catch (MailSyncException e) {
       throw e;
-    } catch (IOException e) {
+    } catch (IOException | JacksonException e) {
+      // Jackson 3 의 해석 오류는 IOException 이 아니라 따로 잡는다 — Jackson 2 때처럼 같은 오류로 바꾼다(WP-1609).
       throw new MailSyncException("AAD 토큰 네트워크 오류", e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -650,16 +655,16 @@ public class GraphApiClient {
    */
   private String extractErrorCode(String body) {
     try {
-      com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(body);
+      tools.jackson.databind.JsonNode root = mapper.readTree(body);
       // Graph API 형식: error.code
-      com.fasterxml.jackson.databind.JsonNode errorNode = root.path("error");
+      tools.jackson.databind.JsonNode errorNode = root.path("error");
       if (errorNode.isObject()) {
-        com.fasterxml.jackson.databind.JsonNode code = errorNode.path("code");
-        return code.isTextual() ? code.asText() : null;
+        tools.jackson.databind.JsonNode code = errorNode.path("code");
+        return code.isString() ? code.asString("") : null;
       }
       // AAD 형식: error (문자열)
-      if (errorNode.isTextual()) {
-        return errorNode.asText();
+      if (errorNode.isString()) {
+        return errorNode.asString("");
       }
     } catch (Exception ignored) {
       // 파싱 실패 시 코드 없음 — 바디 전체 노출 방지

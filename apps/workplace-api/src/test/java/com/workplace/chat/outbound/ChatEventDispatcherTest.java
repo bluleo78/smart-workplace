@@ -8,8 +8,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.global.ai.SharedAiMemoryReader;
 import com.workplace.global.ai.SharedMemories;
@@ -27,6 +25,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 class ChatEventDispatcherTest {
 
@@ -306,8 +306,12 @@ class ChatEventDispatcherTest {
     verify(client).publish(captor.capture());
 
     JsonNode payload =
-        new ObjectMapper()
-            .readTree(new ObjectMapper().writeValueAsString(captor.getValue()))
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readTree(
+                JsonMapper.builderWithJackson2Defaults()
+                    .build()
+                    .writeValueAsString(captor.getValue()))
             .get("payload");
 
     assertThat(payload.get("sharedMemories").toString())

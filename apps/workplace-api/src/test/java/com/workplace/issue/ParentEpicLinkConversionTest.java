@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.domain.IssueRelationBuiltIns;
 import com.workplace.issue.dto.CreateIssueRequest;
@@ -38,6 +37,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 부모 에픽 외부 링크 일괄 변환(WP-1038) 통합 테스트 — dryRun 은 아무것도 쓰지 않고, 줄마다
@@ -212,21 +212,21 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
             .andExpect(jsonPath("$.counts.CONVERT").value(3))
             .andExpect(jsonPath("$.counts.EPIC_CHILD").value(0));
     Map<Long, JsonNode> rows = rowsByLink(r);
-    assertThat(rows.get(convert).get("outcome").asText()).isEqualTo("CONVERT");
-    assertThat(rows.get(convert).get("parentKey").asText()).isEqualTo(keyOf(b, epicB));
-    assertThat(rows.get(bySource).get("outcome").asText()).isEqualTo("CONVERT");
-    assertThat(rows.get(bySource).get("parentKey").asText()).isEqualTo(keyOf(b, sourceEpicB));
-    assertThat(rows.get(byUrl).get("outcome").asText()).isEqualTo("CONVERT");
-    assertThat(rows.get(byUrl).get("extKey").asText()).isEqualTo(keyOf(b, epicB));
-    assertThat(rows.get(ambiguous).get("outcome").asText()).isEqualTo("AMBIGUOUS");
+    assertThat(rows.get(convert).get("outcome").asString()).isEqualTo("CONVERT");
+    assertThat(rows.get(convert).get("parentKey").asString()).isEqualTo(keyOf(b, epicB));
+    assertThat(rows.get(bySource).get("outcome").asString()).isEqualTo("CONVERT");
+    assertThat(rows.get(bySource).get("parentKey").asString()).isEqualTo(keyOf(b, sourceEpicB));
+    assertThat(rows.get(byUrl).get("outcome").asString()).isEqualTo("CONVERT");
+    assertThat(rows.get(byUrl).get("extKey").asString()).isEqualTo(keyOf(b, epicB));
+    assertThat(rows.get(ambiguous).get("outcome").asString()).isEqualTo("AMBIGUOUS");
     assertThat(rows.get(ambiguous).get("parentKey").isNull()).isTrue();
-    assertThat(rows.get(notFound).get("outcome").asText()).isEqualTo("NOT_FOUND");
-    assertThat(rows.get(notEpic).get("outcome").asText()).isEqualTo("NOT_EPIC");
-    assertThat(rows.get(personalRow).get("outcome").asText()).isEqualTo("NOT_FOUND");
+    assertThat(rows.get(notFound).get("outcome").asString()).isEqualTo("NOT_FOUND");
+    assertThat(rows.get(notEpic).get("outcome").asString()).isEqualTo("NOT_EPIC");
+    assertThat(rows.get(personalRow).get("outcome").asString()).isEqualTo("NOT_FOUND");
     assertThat(rows.get(personalRow).get("parentKey").isNull()).isTrue();
-    assertThat(rows.get(doneEpic).get("outcome").asText()).isEqualTo("DONE_EPIC_OPEN_CHILD");
-    assertThat(rows.get(subtaskRow).get("outcome").asText()).isEqualTo("SUBTASK");
-    assertThat(rows.get(hasParentRow).get("outcome").asText()).isEqualTo("SKIP_HAS_PARENT");
+    assertThat(rows.get(doneEpic).get("outcome").asString()).isEqualTo("DONE_EPIC_OPEN_CHILD");
+    assertThat(rows.get(subtaskRow).get("outcome").asString()).isEqualTo("SUBTASK");
+    assertThat(rows.get(hasParentRow).get("outcome").asString()).isEqualTo("SKIP_HAS_PARENT");
 
     // 아무것도 쓰지 않았다 — 링크·부모·이력·감사 로그 그대로.
     assertThat(linkCount()).isEqualTo(10);
@@ -358,8 +358,8 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.counts.CHANGED").value(1))
                 .andExpect(jsonPath("$.counts.CONVERT").value(1)));
-    assertThat(rows.get(raceLink).get("outcome").asText()).isEqualTo("CHANGED");
-    assertThat(rows.get(okLink).get("outcome").asText()).isEqualTo("CONVERT");
+    assertThat(rows.get(raceLink).get("outcome").asString()).isEqualTo("CHANGED");
+    assertThat(rows.get(okLink).get("outcome").asString()).isEqualTo("CONVERT");
     // 바뀐 줄은 쓰지 않고 링크를 남긴다. 뒤 줄은 바뀌었다.
     assertThat(parentOf(raceChild)).isNull();
     assertThat(linkRepository.findById(raceLink)).isPresent();
@@ -381,8 +381,8 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
 
     // 개인 프로젝트로는 좁힐 수 없어(가져오기와 같은 규칙) 워크스페이스 전체로 판정한다.
     Map<Long, JsonNode> rows = rowsByLink(convertAs(admin, true, null).andExpect(status().isOk()));
-    assertThat(rows.get(row).get("outcome").asText()).isEqualTo("PERSONAL");
-    assertThat(rows.get(row).get("parentKey").asText()).isEqualTo(keyOf(b, epicB));
+    assertThat(rows.get(row).get("outcome").asString()).isEqualTo("PERSONAL");
+    assertThat(rows.get(row).get("parentKey").asString()).isEqualTo(keyOf(b, epicB));
   }
 
   @Test
@@ -407,8 +407,8 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
     projectService.softDelete(owner, e.key());
 
     Map<Long, JsonNode> rows = rowsByLink(convertAs(admin, true).andExpect(status().isOk()));
-    assertThat(rows.get(byKey).get("outcome").asText()).isEqualTo("NOT_FOUND");
-    assertThat(rows.get(bySource).get("outcome").asText()).isEqualTo("NOT_FOUND");
+    assertThat(rows.get(byKey).get("outcome").asString()).isEqualTo("NOT_FOUND");
+    assertThat(rows.get(bySource).get("outcome").asString()).isEqualTo("NOT_FOUND");
     Map<Long, JsonNode> all = rowsByLink(convertAs(admin, true, null).andExpect(status().isOk()));
     assertThat(all).doesNotContainKey(onDeleted);
   }

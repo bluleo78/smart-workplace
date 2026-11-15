@@ -8,7 +8,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.dto.ImportIssueRequest;
 import com.workplace.issue.exception.IssueImportException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
@@ -28,6 +27,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 이슈 가져오기의 수정 버전·영향 버전(WP-888) — 이름(대소문자 무시)으로 프로젝트에 이미 있는 버전을 연결하고, 보관·출시된 버전도 지난 기록이라 허용하며, 없는
@@ -203,7 +203,7 @@ class IssueImportVersionsTest extends IssueImportTestSupport {
     JsonNode payload = objectMapper.readTree(fix.getToValue());
     assertThat(payload.get("added")).hasSize(1);
     assertThat(payload.get("added").get(0).get("id").asLong()).isEqualTo(v153);
-    assertThat(payload.get("added").get(0).get("name").asText()).isEqualTo("v1.5.3");
+    assertThat(payload.get("added").get(0).get("name").asString()).isEqualTo("v1.5.3");
     assertThat(payload.get("removed")).isEmpty();
 
     var affects =
@@ -215,8 +215,8 @@ class IssueImportVersionsTest extends IssueImportTestSupport {
                     .and(ISSUE_HISTORY.EVENT_TYPE.eq("AFFECTS_VERSIONS_CHANGED")))
             .fetchOne();
     JsonNode p2 = objectMapper.readTree(affects.getToValue());
-    assertThat(p2.get("added").get(0).get("name").asText()).isEqualTo("v2");
-    assertThat(p2.get("removed").get(0).get("name").asText()).isEqualTo("v1.5.3");
+    assertThat(p2.get("added").get(0).get("name").asString()).isEqualTo("v2");
+    assertThat(p2.get("removed").get(0).get("name").asString()).isEqualTo("v1.5.3");
 
     assertThat(versionNamesOf(number, "FIX")).isEmpty();
     assertThat(versionNamesOf(number, "AFFECTS")).isEmpty();

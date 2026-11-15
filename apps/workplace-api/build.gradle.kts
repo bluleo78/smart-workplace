@@ -45,6 +45,7 @@ version = "0.0.1-SNAPSHOT"
 // Boot 4.0.9(WP-1588)로 올리며 아래 고정은 지웠고, Boot 4.1.2(WP-1608)로 올리며 httpcore5 고정도 지웠다(BOM 이 5.4.4).
 // - Tomcat: Boot 4 는 Tomcat 11 이라 옛 10.1.59 고정을 그대로 쓸 수 없다. BOM 의 11.0.27 을 쓴다(운영 이미지 trivy 로 재확인).
 // - Jackson 2: Boot 4 BOM 의 jackson-2-bom 이 이미 2.21.7 이다(jackson-bom 속성은 이제 Jackson 3 을 가리킨다).
+//   앱은 Jackson 3 으로 옮겼고(WP-1609) Jackson 2 는 jjwt-jackson 런타임 의존으로만 남는다.
 // - PostgreSQL JDBC: BOM 이 42.7.14 라 옛 고정(42.7.12)이 오히려 버전을 내린다.
 
 java {
@@ -54,19 +55,6 @@ java {
 
 repositories {
     mavenCentral()
-}
-
-// Boot 의 Jackson 3 자동 구성·스타터(spring-boot-starter-jackson, spring-boot-jackson)는 classpath 에서 뺀다(WP-1588).
-// 앱 매퍼와 서버 HTTP 변환기는 Jackson 2 를 유지한다(preferred-json-mapper=jackson2, Jackson 3 전환은 WP-1609).
-// Jackson 3(tools.jackson.core:jackson-databind) 자체는 classpath 에 있다 — Flyway 12 가 필수 의존으로 끌어오며,
-// 제외하면 Flyway 가 NoClassDefFoundError 로 못 뜬다(WP-1608).
-// 정적 RestClient.builder()·new RestTemplate() 는 Boot 설정을 거치지 않고 classpath 에 Jackson 3 이 있으면 그것을 먼저 골라
-// 응답을 Jackson 3 기본값으로 읽는다(OutboundJsonMapperTest). 이 경로는 classpath 가 아니라 OutboundJson.jackson2(builder)
-// 로 변환기를 Jackson 2 에 직접 고정해 막고, InternalHttpArchTest 가 감싸지 않은 새 호출 지점을 막는다.
-// Jackson 3 전환(WP-1609)에서 이 제외와 OutboundJson 고정을 함께 정리한다.
-configurations.all {
-    exclude(group = "org.springframework.boot", module = "spring-boot-starter-jackson")
-    exclude(group = "org.springframework.boot", module = "spring-boot-jackson")
 }
 
 dependencies {
@@ -89,18 +77,14 @@ dependencies {
     // Boot 4 모듈 분리(WP-1588)로 기존 스타터가 더는 끌어오지 않는 것들을 직접 선언한다.
     // - angus-mail: Jakarta Mail 구현체. 메일 수신(IMAP)·발송 코드가 직접 쓴다.
     // - starter-restclient: RestClient·RestTemplateBuilder·ClientHttpRequestFactoryBuilder 자동 구성이 별도 모듈로 나뉘었다.
-    // - spring-boot-jackson2: Boot 4 기본은 Jackson 3 이다. Jackson 2 를 유지하므로(Jackson 3 전환은 범위 밖)
-    //   Jackson 2 ObjectMapper 자동 구성·@JsonComponent 를 따로 넣는다. jsr310·jdk8·parameter-names 모듈은 이것이 함께 끌어온다.
-    //   HTTP 변환기도 Jackson 2 를 쓰게 application.yml 에 spring.http.converters.preferred-json-mapper=jackson2 를 둔다.
-    //   Jackson 3 은 Flyway 12 가 필수 의존으로 끌어와 classpath 에 있다. Boot 의 Jackson 3 자동 구성·스타터만 제외하고,
-    //   정적 아웃바운드 RestClient 는 OutboundJson 으로 Jackson 2 로 고정한다(Jackson 3 전환은 WP-1609).
     implementation("org.eclipse.angus:angus-mail")
     implementation("org.springframework.boot:spring-boot-starter-restclient")
-    implementation("org.springframework.boot:spring-boot-jackson2")
 
     // JWT (jjwt)
     implementation("io.jsonwebtoken:jjwt-api:0.12.6")
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
+    // jjwt 는 Jackson 3 지원 판이 없어(0.13.0 도 Jackson 2) jjwt 내부만 Jackson 2 를 런타임에 쓴다 — 컴파일 classpath 에는 없다(WP-1609).
+    // 앱 코드·HTTP 변환기는 Boot 기본 Jackson 3(tools.jackson.*) 을 쓴다.
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 
     // 반복 일정 RRULE(RFC 5545) 파싱/전개 — 회차 계산

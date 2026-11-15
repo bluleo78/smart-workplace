@@ -7,8 +7,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.audit.dto.AuditLogResponse;
 import com.workplace.audit.repository.AuditLogRepository;
 import com.workplace.issue.dto.CreateProjectStatusRequest;
@@ -27,6 +25,8 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 상태 설정 감사 로그 통합 테스트(WP-811) — 추가·이름/색 변경·순서 변경이 resource "project_status" 로 남고, 실패한 쓰기는 남지 않는지
@@ -86,7 +86,7 @@ class ProjectStatusAuditTest extends IntegrationTestBase {
   /** 이 프로젝트의 project_status 감사 로그(액션별) — 다른 테스트가 남긴 행과 섞이지 않게 metadata.projectKey 로 거른다. */
   private List<AuditLogResponse> logs(String action, String projectKey) {
     return auditLogRepository.findByResource(action, "project_status", null).stream()
-        .filter(l -> projectKey.equals(meta(l).path("projectKey").asText()))
+        .filter(l -> projectKey.equals(meta(l).path("projectKey").asString()))
         .toList();
   }
 
@@ -117,9 +117,9 @@ class ProjectStatusAuditTest extends IntegrationTestBase {
     assertThat(log.result()).isEqualTo("SUCCESS");
     assertThat(log.description()).isEqualTo(p.key() + " 상태 '검토 중' 추가");
     var m = meta(log);
-    assertThat(m.path("name").asText()).isEqualTo("검토 중");
-    assertThat(m.path("category").asText()).isEqualTo("IN_PROGRESS");
-    assertThat(m.path("color").asText()).isEqualTo("BLUE");
+    assertThat(m.path("name").asString()).isEqualTo("검토 중");
+    assertThat(m.path("category").asString()).isEqualTo("IN_PROGRESS");
+    assertThat(m.path("color").asString()).isEqualTo("BLUE");
   }
 
   @Test
@@ -134,8 +134,8 @@ class ProjectStatusAuditTest extends IntegrationTestBase {
     assertThat(renamed).hasSize(1);
     assertThat(renamed.get(0).resourceId()).isEqualTo(String.valueOf(inProgress));
     var m = meta(renamed.get(0));
-    assertThat(m.path("name").path("from").asText()).isEqualTo("진행 중");
-    assertThat(m.path("name").path("to").asText()).isEqualTo("작업 중");
+    assertThat(m.path("name").path("from").asString()).isEqualTo("진행 중");
+    assertThat(m.path("name").path("to").asString()).isEqualTo("작업 중");
     assertThat(m.has("color")).isFalse();
 
     // 색만 바꾸면 name 키가 없다
@@ -143,8 +143,8 @@ class ProjectStatusAuditTest extends IntegrationTestBase {
     var recolored = logs("UPDATE", p.key()).stream().filter(l -> meta(l).has("color")).toList();
     assertThat(recolored).hasSize(1);
     var c = meta(recolored.get(0));
-    assertThat(c.path("color").path("from").asText()).isEqualTo("BLUE");
-    assertThat(c.path("color").path("to").asText()).isEqualTo("PURPLE");
+    assertThat(c.path("color").path("from").asString()).isEqualTo("BLUE");
+    assertThat(c.path("color").path("to").asString()).isEqualTo("PURPLE");
     assertThat(c.has("name")).isFalse();
   }
 
@@ -185,7 +185,7 @@ class ProjectStatusAuditTest extends IntegrationTestBase {
     // 설명은 범주 코드 대신 화면과 같은 한국어 라벨
     assertThat(logs.get(0).description()).isEqualTo(p.key() + " 진행 중 상태 순서 변경");
     var reorder = meta(logs.get(0)).path("reorder");
-    assertThat(reorder.path("category").asText()).isEqualTo("IN_PROGRESS");
+    assertThat(reorder.path("category").asString()).isEqualTo("IN_PROGRESS");
     assertThat(objectMapper.convertValue(reorder.path("from"), List.class))
         .containsExactly("진행 중", "검토 중", "QA");
     assertThat(objectMapper.convertValue(reorder.path("to"), List.class))

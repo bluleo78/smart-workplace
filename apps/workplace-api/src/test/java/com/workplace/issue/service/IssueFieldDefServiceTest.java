@@ -7,7 +7,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.exception.FieldNameDuplicatedException;
 import com.workplace.issue.exception.FieldOptionInUseException;
@@ -29,6 +28,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /** IssueFieldDefService — OWNER 가드, 5 타입 생성, type immutable, 중복/유효성, 삭제 cascade. */
 @Transactional
@@ -246,7 +246,7 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
 
     // 삭제가 차단되었으므로 정의는 원래 옵션 3개를 그대로 유지해야 한다.
     assertThat(defRepo.findById(def.id()).orElseThrow().options().size()).isEqualTo(3);
-    assertThat(valueRepo.findValuesByIssue(issue.id()).get(def.id()).asText()).isEqualTo("옵션C");
+    assertThat(valueRepo.findValuesByIssue(issue.id()).get(def.id()).asString()).isEqualTo("옵션C");
   }
 
   @Test

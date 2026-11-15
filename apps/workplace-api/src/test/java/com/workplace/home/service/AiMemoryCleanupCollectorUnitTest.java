@@ -2,12 +2,12 @@ package com.workplace.home.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.home.repository.AiMemoryCleanupRepository.Message;
 import com.workplace.home.service.SessionCleanupInput.AssistantNote;
 import com.workplace.home.service.SessionCleanupInput.Utterance;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WP-385 스펙 5.2 입력 조립 — 사용자 발화 각 4,000자·합계 16,000자(앞쪽을 버림), AI 답 각 300자(바로 앞 발화 번호), memory 블록 id.
@@ -77,7 +77,8 @@ class AiMemoryCleanupCollectorUnitTest {
 
     assertThat(
             AiMemoryCleanupCollector.blockMemoryIds(
-                AiMemoryCleanupCollector.memoryBlocks(msgs, new ObjectMapper())))
+                AiMemoryCleanupCollector.memoryBlocks(
+                    msgs, JsonMapper.builderWithJackson2Defaults().build())))
         .containsExactly(11L, 12L);
   }
 
@@ -134,7 +135,8 @@ class AiMemoryCleanupCollectorUnitTest {
 
     assertThat(
             AiMemoryCleanupCollector.undoneMemoryIds(
-                AiMemoryCleanupCollector.memoryBlocks(msgs, new ObjectMapper())))
+                AiMemoryCleanupCollector.memoryBlocks(
+                    msgs, JsonMapper.builderWithJackson2Defaults().build())))
         .containsExactly(12L, 13L, 14L);
   }
 
@@ -150,7 +152,7 @@ class AiMemoryCleanupCollectorUnitTest {
     var parsed =
         AiMemoryCleanupCollector.memoryBlocks(
             List.of(new Message(8, "ASSISTANT", "답", "COMPLETE", blocks, null)),
-            new ObjectMapper());
+            JsonMapper.builderWithJackson2Defaults().build());
 
     assertThat(AiMemoryCleanupCollector.undoneMemoryIds(parsed)).containsExactly(13L);
     assertThat(AiMemoryCleanupCollector.blockMemoryIds(parsed)).containsExactly(14L);

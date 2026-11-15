@@ -5,7 +5,6 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.file.storage.FileStore;
@@ -36,6 +35,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1222 아바타 — 실제 HTTP(Tomcat) 로 확인한다. MockMvc 는 multipart 필드를 요청 파라미터로 바로 넣어 주므로, PUT multipart 의
@@ -142,7 +142,7 @@ class AvatarRealHttpTest extends IntegrationTestBase {
         AvatarTestImages.encode(AvatarTestImages.halves(400, 200, RED, BLUE, false), "png");
     ResponseEntity<String> first = putAvatar(halves, 200, 0, 200);
     assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
-    String firstUrl = objectMapper.readTree(first.getBody()).get("avatarUrl").asText();
+    String firstUrl = objectMapper.readTree(first.getBody()).get("avatarUrl").asString();
     assertThat(firstUrl).startsWith("/api/v1/avatars/" + agentId + "/");
 
     // 공개 주소 — 인증 헤더 없이.
@@ -171,7 +171,7 @@ class AvatarRealHttpTest extends IntegrationTestBase {
     byte[] red = AvatarTestImages.encode(AvatarTestImages.solid(300, 300, RED), "png");
     ResponseEntity<String> second = putAvatar(red, 0, 0, 300);
     assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
-    String secondUrl = objectMapper.readTree(second.getBody()).get("avatarUrl").asText();
+    String secondUrl = objectMapper.readTree(second.getBody()).get("avatarUrl").asString();
     assertThat(secondUrl).isNotEqualTo(firstUrl);
     assertThat(Files.exists(fileStore.resolve(hashDir(firstUrl)))).isFalse();
     assertThat(
@@ -224,8 +224,8 @@ class AvatarRealHttpTest extends IntegrationTestBase {
     ResponseEntity<String> second = putAvatar(red, 0, 0, 300);
     assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
     assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
-    String firstUrl = objectMapper.readTree(first.getBody()).get("avatarUrl").asText();
-    String secondUrl = objectMapper.readTree(second.getBody()).get("avatarUrl").asText();
+    String firstUrl = objectMapper.readTree(first.getBody()).get("avatarUrl").asString();
+    String secondUrl = objectMapper.readTree(second.getBody()).get("avatarUrl").asString();
     assertThat(secondUrl).isNotEqualTo(firstUrl);
 
     assertThat(

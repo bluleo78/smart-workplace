@@ -49,6 +49,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.ResourceAccessException;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WP-386 스펙 6.2 — 직접 요청: 지금 공간(대화의 마지막 사용자 메시지 공간)·이름 지정, 권한, 한도, 공용성 검사(통과·개인 422·실패 503), 사람 요청
@@ -148,7 +149,7 @@ class SharedAiMemoryRequestApiTest extends ExternalClientMockedTestBase {
             .getResponse()
             .getContentAsString();
     long changeId =
-        new com.fasterxml.jackson.databind.ObjectMapper().readTree(json).path("changeId").asLong();
+        JsonMapper.builderWithJackson2Defaults().build().readTree(json).path("changeId").asLong();
     var c = com.workplace.jooq.Tables.SHARED_AI_MEMORY_CHANGE;
     var rec = dsl.selectFrom(c).where(c.ID.eq(changeId)).fetchOne();
     assertThat(rec.getAction()).isEqualTo("ADDED");

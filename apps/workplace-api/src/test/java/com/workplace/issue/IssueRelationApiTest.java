@@ -11,8 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -54,6 +52,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-887 이슈 사이 관계 — 걸기(같은·다른 프로젝트, A·B 쪽)·지우기(어느 쪽 팀이든 자기 이슈 주소로)·상세 목록·양쪽 이력·가림·찾기(lookup).
@@ -124,32 +124,32 @@ class IssueRelationApiTest extends IntegrationTestBase {
     JsonNode list =
         json(addRelation(alice, wp, wp1, "RELATES", null, null, wp2).andExpect(status().isOk()));
     assertThat(list).hasSize(1);
-    assertThat(list.get(0).get("label").asText()).isEqualTo("관련");
-    assertThat(list.get(0).get("typeCode").asText()).isEqualTo("RELATES");
-    assertThat(list.get(0).get("issue").get("projectKey").asText()).isEqualTo(wp);
+    assertThat(list.get(0).get("label").asString()).isEqualTo("관련");
+    assertThat(list.get(0).get("typeCode").asString()).isEqualTo("RELATES");
+    assertThat(list.get(0).get("issue").get("projectKey").asString()).isEqualTo(wp);
     assertThat(list.get(0).get("issue").get("number").asInt()).isEqualTo(wp2);
-    assertThat(list.get(0).get("issue").get("title").asText()).isEqualTo("WP 둘째");
-    assertThat(list.get(0).get("issue").get("type").get("name").isTextual()).isTrue();
+    assertThat(list.get(0).get("issue").get("title").asString()).isEqualTo("WP 둘째");
+    assertThat(list.get(0).get("issue").get("type").get("name").isString()).isTrue();
 
     JsonNode d1 = detail(alice, wp, wp1);
     assertThat(d1.get("relations")).hasSize(1);
-    assertThat(d1.get("relations").get(0).get("label").asText()).isEqualTo("관련");
+    assertThat(d1.get("relations").get(0).get("label").asString()).isEqualTo("관련");
     assertThat(d1.get("externalLinks")).isEmpty();
     JsonNode d2 = detail(alice, wp, wp2);
-    assertThat(d2.get("relations").get(0).get("label").asText()).isEqualTo("관련");
+    assertThat(d2.get("relations").get(0).get("label").asString()).isEqualTo("관련");
     assertThat(d2.get("relations").get(0).get("issue").get("number").asInt()).isEqualTo(wp1);
     // 방향 없는 유형은 저장 쌍이 (작은 id, 큰 id) 여도 양쪽 모두 side=source — 화면이 한 묶음으로 그린다.
-    assertThat(d1.get("relations").get(0).get("side").asText()).isEqualTo("source");
-    assertThat(d2.get("relations").get(0).get("side").asText()).isEqualTo("source");
+    assertThat(d1.get("relations").get(0).get("side").asString()).isEqualTo("source");
+    assertThat(d2.get("relations").get(0).get("side").asString()).isEqualTo("source");
 
     assertThat(history(issueId(wpId, wp1), "RELATION_ADDED")).hasSize(1);
     assertThat(history(issueId(wpId, wp2), "RELATION_ADDED")).hasSize(1);
     JsonNode h1 = om.readTree(history(issueId(wpId, wp1), "RELATION_ADDED").get(0));
     assertThat(h1.get("typeId").asLong()).isEqualTo(typeId("RELATES"));
-    assertThat(h1.get("label").asText()).isEqualTo("관련");
-    assertThat(h1.get("other").get("projectKey").asText()).isEqualTo(wp);
+    assertThat(h1.get("label").asString()).isEqualTo("관련");
+    assertThat(h1.get("other").get("projectKey").asString()).isEqualTo(wp);
     assertThat(h1.get("other").get("number").asInt()).isEqualTo(wp2);
-    assertThat(h1.get("other").get("title").asText()).isEqualTo("WP 둘째");
+    assertThat(h1.get("other").get("title").asString()).isEqualTo("WP 둘째");
   }
 
   /** #1 화면에서 CAUSES 를 B 쪽(side=target)으로 #2 와 걸면 #2 가 원인(source) — #1 은 「결과임」, #2 는 「원인임」. */
@@ -157,8 +157,8 @@ class IssueRelationApiTest extends IntegrationTestBase {
   void addFromTargetSideStoresReversed() throws Exception {
     JsonNode list =
         json(addRelation(alice, wp, wp1, "CAUSES", "target", null, wp2).andExpect(status().isOk()));
-    assertThat(list.get(0).get("label").asText()).isEqualTo("결과임");
-    assertThat(list.get(0).get("side").asText()).isEqualTo("target");
+    assertThat(list.get(0).get("label").asString()).isEqualTo("결과임");
+    assertThat(list.get(0).get("side").asString()).isEqualTo("target");
 
     var row = dsl.selectFrom(ISSUE_RELATION).where(ISSUE_RELATION.TYPE_ID.eq(typeId("CAUSES")));
     var rel =
@@ -167,18 +167,22 @@ class IssueRelationApiTest extends IntegrationTestBase {
             .fetch();
     assertThat(rel).hasSize(1);
 
-    assertThat(detail(alice, wp, wp1).get("relations").get(0).get("label").asText())
+    assertThat(detail(alice, wp, wp1).get("relations").get(0).get("label").asString())
         .isEqualTo("결과임");
-    assertThat(detail(alice, wp, wp2).get("relations").get(0).get("label").asText())
+    assertThat(detail(alice, wp, wp2).get("relations").get(0).get("label").asString())
         .isEqualTo("원인임");
-    assertThat(detail(alice, wp, wp2).get("relations").get(0).get("side").asText())
+    assertThat(detail(alice, wp, wp2).get("relations").get(0).get("side").asString())
         .isEqualTo("source");
     // 이력도 각자 쪽 말.
     assertThat(
-            om.readTree(history(issueId(wpId, wp1), "RELATION_ADDED").get(0)).get("label").asText())
+            om.readTree(history(issueId(wpId, wp1), "RELATION_ADDED").get(0))
+                .get("label")
+                .asString())
         .isEqualTo("결과임");
     assertThat(
-            om.readTree(history(issueId(wpId, wp2), "RELATION_ADDED").get(0)).get("label").asText())
+            om.readTree(history(issueId(wpId, wp2), "RELATION_ADDED").get(0))
+                .get("label")
+                .asString())
         .isEqualTo("원인임");
   }
 
@@ -206,14 +210,14 @@ class IssueRelationApiTest extends IntegrationTestBase {
   void crossProjectAllowedForReader() throws Exception {
     JsonNode list =
         json(addRelation(reader, wp, wp1, "RELATES", null, wpv, wpv1).andExpect(status().isOk()));
-    assertThat(list.get(0).get("issue").get("projectKey").asText()).isEqualTo(wpv);
+    assertThat(list.get(0).get("issue").get("projectKey").asString()).isEqualTo(wpv);
 
     JsonNode d = detail(bob, wpv, wpv1);
     // bob 은 WP(TEAM) 를 읽을 수 없다 — 그래서 alice(WP 소유, OPEN 인 WPV 를 읽음)로 확인한다.
     assertThat(d.get("relations")).isEmpty();
     JsonNode da = detail(alice, wpv, wpv1);
     assertThat(da.get("relations")).hasSize(1);
-    assertThat(da.get("relations").get(0).get("issue").get("projectKey").asText()).isEqualTo(wp);
+    assertThat(da.get("relations").get(0).get("issue").get("projectKey").asString()).isEqualTo(wp);
     assertThat(da.get("relations").get(0).get("issue").get("number").asInt()).isEqualTo(wp1);
     // 다른 프로젝트 이슈의 이력에도 남는다.
     assertThat(history(issueId(wpvId, wpv1), "RELATION_ADDED")).hasSize(1);
@@ -231,7 +235,7 @@ class IssueRelationApiTest extends IntegrationTestBase {
     setProjectType(wpvId, "TEAM");
     JsonNode rels = detail(reader, wp, wp1).get("relations");
     assertThat(rels).hasSize(1);
-    assertThat(rels.get(0).get("issue").get("projectKey").asText()).isEqualTo(wp);
+    assertThat(rels.get(0).get("issue").get("projectKey").asString()).isEqualTo(wp);
   }
 
   /** 위 사용자에게 WP#1 이력의 RELATION_ADDED 상대는 {"hidden":true} — 유형·말은 남는다. 대조군: 읽을 수 있을 땐 키가 보인다. */
@@ -239,13 +243,13 @@ class IssueRelationApiTest extends IntegrationTestBase {
   void historyRedactsUnreadableOther() throws Exception {
     addRelation(reader, wp, wp1, "RELATES", null, wpv, wpv1).andExpect(status().isOk());
     JsonNode before = relationHistory(detail(reader, wp, wp1), "RELATION_ADDED");
-    assertThat(before.get("other").get("projectKey").asText()).isEqualTo(wpv);
+    assertThat(before.get("other").get("projectKey").asString()).isEqualTo(wpv);
 
     setProjectType(wpvId, "TEAM");
     JsonNode after = relationHistory(detail(reader, wp, wp1), "RELATION_ADDED");
     assertThat(after.get("other")).isEqualTo(om.readTree("{\"hidden\":true}"));
     assertThat(after.get("typeId").asLong()).isEqualTo(typeId("RELATES"));
-    assertThat(after.get("label").asText()).isEqualTo("관련");
+    assertThat(after.get("label").asString()).isEqualTo("관련");
     // WPV 멤버(bob)는 WPV 이슈 이력에서 WP 상대를 못 본다(WP 는 TEAM 비멤버).
     JsonNode bobView = relationHistory(detail(bob, wpv, wpv1), "RELATION_ADDED");
     assertThat(bobView.get("other")).isEqualTo(om.readTree("{\"hidden\":true}"));
@@ -269,7 +273,7 @@ class IssueRelationApiTest extends IntegrationTestBase {
     List<String> others = new ArrayList<>();
     for (var h : redacted) {
       JsonNode other = om.readTree(h.toValue()).get("other");
-      others.add(other.has("hidden") ? "hidden" : other.get("projectKey").asText());
+      others.add(other.has("hidden") ? "hidden" : other.get("projectKey").asString());
     }
     assertThat(others).containsExactlyInAnyOrder(wpv, "hidden", wp);
   }
@@ -291,8 +295,8 @@ class IssueRelationApiTest extends IntegrationTestBase {
             addRelation(reader, wp, wp1, "RELATES", null, "ZZNOPE", 1)
                 .andExpect(status().isBadRequest()));
     for (JsonNode n : List.of(unreadable, missingNumber, missingProject)) {
-      assertThat(n.get("errors").get("code").asText()).isEqualTo("RELATION_TARGET_NOT_FOUND");
-      assertThat(n.get("message").asText()).isEqualTo(unreadable.get("message").asText());
+      assertThat(n.get("errors").get("code").asString()).isEqualTo("RELATION_TARGET_NOT_FOUND");
+      assertThat(n.get("message").asString()).isEqualTo(unreadable.get("message").asString());
     }
     // 삭제된 이슈도 같은 답.
     softDelete(issueId(wpId, wp2));
@@ -300,7 +304,7 @@ class IssueRelationApiTest extends IntegrationTestBase {
         json(
             addRelation(reader, wp, wp1, "RELATES", null, null, wp2)
                 .andExpect(status().isBadRequest()));
-    assertThat(deleted.get("errors").get("code").asText()).isEqualTo("RELATION_TARGET_NOT_FOUND");
+    assertThat(deleted.get("errors").get("code").asString()).isEqualTo("RELATION_TARGET_NOT_FOUND");
     assertThat(relationCount()).isZero();
   }
 
@@ -368,7 +372,7 @@ class IssueRelationApiTest extends IntegrationTestBase {
     addRelation(alice, wp, wp2, "RELATES", null, null, wp1).andExpect(status().isOk());
     JsonNode relations = detail(alice, wp, wp2).get("relations");
     assertThat(relations).hasSize(2);
-    assertThat(relations.get(1).get("typeCode").asText()).isEqualTo("PARENT_EPIC");
+    assertThat(relations.get(1).get("typeCode").asString()).isEqualTo("PARENT_EPIC");
     assertThat(
             relations.get(1).path("label").isMissingNode()
                 || relations.get(1).get("label").isNull())
@@ -396,9 +400,9 @@ class IssueRelationApiTest extends IntegrationTestBase {
     List<String> removedWpv = history(issueId(wpvId, wpv1), "RELATION_REMOVED");
     assertThat(removedWp).hasSize(1);
     assertThat(removedWpv).hasSize(1);
-    assertThat(om.readTree(removedWp.get(0)).get("label").asText()).isEqualTo("원인임");
-    assertThat(om.readTree(removedWpv.get(0)).get("label").asText()).isEqualTo("결과임");
-    assertThat(om.readTree(removedWpv.get(0)).get("other").get("projectKey").asText())
+    assertThat(om.readTree(removedWp.get(0)).get("label").asString()).isEqualTo("원인임");
+    assertThat(om.readTree(removedWpv.get(0)).get("label").asString()).isEqualTo("결과임");
+    assertThat(om.readTree(removedWpv.get(0)).get("other").get("projectKey").asString())
         .isEqualTo(wp);
 
     // 다시 지워도 204, 이력 추가 없음.
@@ -742,8 +746,8 @@ class IssueRelationApiTest extends IntegrationTestBase {
   /** 상세 응답(가림 뒤)의 해당 종류 이력 첫 건 toValue. */
   private JsonNode relationHistory(JsonNode detail, String eventType) throws Exception {
     for (JsonNode h : detail.get("history")) {
-      if (eventType.equals(h.get("eventType").asText())) {
-        return om.readTree(h.get("toValue").asText());
+      if (eventType.equals(h.get("eventType").asString())) {
+        return om.readTree(h.get("toValue").asString());
       }
     }
     throw new AssertionError(eventType + " 이력 없음");
@@ -822,7 +826,7 @@ class IssueRelationApiTest extends IntegrationTestBase {
   /** 찾기 결과를 「키-번호」 문자열로. */
   private static List<String> keys(JsonNode items) {
     List<String> out = new ArrayList<>();
-    items.forEach(n -> out.add(n.get("projectKey").asText() + "-" + n.get("number").asInt()));
+    items.forEach(n -> out.add(n.get("projectKey").asString() + "-" + n.get("number").asInt()));
     return out;
   }
 

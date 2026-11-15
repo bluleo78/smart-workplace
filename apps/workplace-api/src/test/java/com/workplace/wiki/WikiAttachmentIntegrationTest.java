@@ -16,7 +16,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.support.IntegrationTestBase;
@@ -38,6 +37,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WikiAttachmentController + WikiAttachmentService 통합 테스트. 실 JWT 발급 + MockMvc 로 전체 보안 체인을 통과시키고,

@@ -2,10 +2,7 @@ package com.workplace.agentaccount.genialogin;
 
 import static com.workplace.auth.service.LoginInfoNormalizer.textOrNull;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.io.IOException;
+import com.workplace.global.json.JsonMappers;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -14,6 +11,10 @@ import java.util.regex.Pattern;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Gen:iA 브라우저 로그인(PKCE) 서버 클라이언트(WP-1461). {@code POST /auth/login} 으로 로그인을 시작해 인증 주소·state 를 받고,
@@ -27,7 +28,7 @@ public class GeniaLoginClient {
   /** 기록해도 되는 사유 코드 모양. */
   private static final Pattern SAFE_CODE = Pattern.compile("[a-z0-9_]{1,64}");
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   /** 서버가 interval·expires_at 을 안 주면 쓰는 기본값. */
   private static final int DEFAULT_INTERVAL_SECONDS = 2;
@@ -122,7 +123,7 @@ public class GeniaLoginClient {
     JsonNode json;
     try {
       json = MAPPER.readTree(bodyBytes);
-    } catch (IOException e) {
+    } catch (JacksonException e) {
       throw new GeniaLoginUnavailable("bad_response");
     }
     String url = textOrNull(json.path("authorize_url"));
@@ -131,7 +132,7 @@ public class GeniaLoginClient {
       throw new GeniaLoginUnavailable("bad_response");
     }
     JsonNode iv = json.path("interval");
-    int interval = iv.isInt() && iv.asInt() > 0 ? iv.asInt() : DEFAULT_INTERVAL_SECONDS;
+    int interval = iv.isInt() && iv.asInt(0) > 0 ? iv.asInt(0) : DEFAULT_INTERVAL_SECONDS;
     Instant expires = parseInstant(json.path("expires_at"));
     if (expires == null) expires = Instant.now().plusSeconds(DEFAULT_EXPIRY_MINUTES * 60);
     return new LoginStart(url, state, interval, expires);
@@ -208,7 +209,7 @@ public class GeniaLoginClient {
   private static String errorCode(byte[] body) {
     try {
       JsonNode error = MAPPER.readTree(body).path("error");
-      String code = error.isTextual() ? error.asText() : textOrNull(error.path("type"));
+      String code = error.isString() ? error.asString("") : textOrNull(error.path("type"));
       // 서버가 준 문자열은 믿지 않는다 — 소문자·숫자·밑줄 1~64자만 받아 임의 문구(토큰 등)가 기록에 실리지 않게 한다.
       return code != null && SAFE_CODE.matcher(code).matches() ? code : null;
     } catch (Exception e) {
@@ -221,10 +222,10 @@ public class GeniaLoginClient {
     if (v == null || v.isMissingNode() || v.isNull()) return null;
     try {
       if (v.isNumber()) {
-        long n = v.asLong();
+        long n = v.asLong(0L);
         return n < 1_000_000_000_000L ? Instant.ofEpochSecond(n) : Instant.ofEpochMilli(n);
       }
-      if (v.isTextual()) return Instant.parse(v.asText());
+      if (v.isString()) return Instant.parse(v.asString(""));
     } catch (DateTimeParseException | ArithmeticException e) {
       return null;
     }

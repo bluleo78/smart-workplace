@@ -22,7 +22,7 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     var r = putReport(patToken, TOOL, Map.of("note", "시작"));
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
     assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
-    assertThat(json(r).at("/work/state").asText()).isEqualTo("WORKING");
+    assertThat(json(r).at("/work/state").asString()).isEqualTo("WORKING");
     assertThat(json(r).at("/ended").asBoolean()).isFalse();
   }
 
@@ -71,8 +71,8 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
             TOOL,
             Map.of("state", "WAITING", "message", "<@" + humanId + "> 2번 UX 를 정해 주세요"));
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(json(r).at("/work/state").asText()).isEqualTo("INPUT_REQUIRED");
-    assertThat(json(r).at("/coercedFrom").asText()).isEqualTo("WAITING");
+    assertThat(json(r).at("/work/state").asString()).isEqualTo("INPUT_REQUIRED");
+    assertThat(json(r).at("/coercedFrom").asString()).isEqualTo("WAITING");
     assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("INPUT_REQUIRED");
     assertThat(lastChatMessage(issueId).isQuestion()).isTrue();
   }
@@ -85,7 +85,7 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
             akToken,
             TOOL,
             Map.of("state", "WAITING", "message", "<@" + agentId + "> PR 검토 부탁드립니다"));
-    assertThat(json(r).at("/work/state").asText()).isEqualTo("WAITING");
+    assertThat(json(r).at("/work/state").asString()).isEqualTo("WAITING");
     assertThat(json(r).at("/coercedFrom").isNull()).isTrue();
     assertThat(lastChatMessage(issueId).isQuestion()).isFalse();
   }
@@ -93,7 +93,7 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
   @Test
   void 멘션_없는_대기중_보고는_그대로_대기중() {
     var r = putReport(akToken, TOOL, Map.of("state", "WAITING", "message", "다른 AI 의 답을 기다립니다"));
-    assertThat(json(r).at("/work/state").asText()).isEqualTo("WAITING");
+    assertThat(json(r).at("/work/state").asString()).isEqualTo("WAITING");
     assertThat(json(r).at("/coercedFrom").isNull()).isTrue();
   }
 
@@ -102,7 +102,7 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     var r =
         putReport(
             patToken, TOOL, Map.of("state", "WAITING", "message", "<@" + otherId + "> 확인 부탁"));
-    assertThat(json(r).at("/work/state").asText()).isEqualTo("WAITING");
+    assertThat(json(r).at("/work/state").asString()).isEqualTo("WAITING");
     assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WAITING");
   }
 
@@ -111,7 +111,7 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     // 작업 중 글의 사람 멘션은 질문인지 알림인지 서버가 가릴 수 없어 손대지 않는다(스킬 규칙이 막는다).
     var r =
         putReport(akToken, TOOL, Map.of("state", "WORKING", "message", "<@" + humanId + "> 머지했어요"));
-    assertThat(json(r).at("/work/state").asText()).isEqualTo("WORKING");
+    assertThat(json(r).at("/work/state").asString()).isEqualTo("WORKING");
     assertThat(lastChatMessage(issueId).isQuestion()).isFalse();
   }
 
@@ -430,14 +430,14 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
   void SCHEDULED_는_시각_없이도_보고되고_시각이_있으면_저장되어_응답에_왕복() {
     var none = putReport(patToken, TOOL, Map.of("state", "SCHEDULED"));
     assertThat(none.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(json(none).at("/work/state").asText()).isEqualTo("SCHEDULED");
+    assertThat(json(none).at("/work/state").asString()).isEqualTo("SCHEDULED");
     assertThat(json(none).at("/work").has("nextRunAt")).isFalse();
 
     var r = putReport(patToken, TOOL, Map.of("state", "SCHEDULED", "nextRunAt", NEXT_RUN));
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
     assertThat(activeWork(issueId, humanId).orElseThrow().nextRunAt()).isEqualTo(NEXT_RUN_INSTANT);
     // 응답은 Instant(UTC) 로 나간다 — 같은 시점이다.
-    assertThat(Instant.parse(json(r).at("/work/nextRunAt").asText())).isEqualTo(NEXT_RUN_INSTANT);
+    assertThat(Instant.parse(json(r).at("/work/nextRunAt").asString())).isEqualTo(NEXT_RUN_INSTANT);
   }
 
   @Test
@@ -526,7 +526,7 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
                 null));
     var first = page.get("items").get(0);
     assertThat(first.get("question").asBoolean()).isTrue();
-    assertThat(first.get("authorUsername").asText()).isNotBlank();
+    assertThat(first.get("authorUsername").asString()).isNotBlank();
     var thread = json(call(HttpMethod.GET, issuePath() + "/chat/thread", jwtToken, null, null));
     assertThat(thread.get("recentMessages").get(0).get("question").asBoolean()).isTrue();
   }

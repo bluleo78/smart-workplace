@@ -2,8 +2,6 @@ package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.ISSUE_FIELD_DEF;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.IssueFieldDefRow;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -16,6 +14,8 @@ import org.jooq.JSONB;
 import org.jooq.Record;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * issue_field_def jOOQ 리포지토리. options 컬럼은 JSONB ↔ JsonNode 양방향 변환. UNIQUE(project_id,name) 위반은

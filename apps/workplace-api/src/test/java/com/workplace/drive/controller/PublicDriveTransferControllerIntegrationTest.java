@@ -20,8 +20,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveSpaceService;
@@ -47,6 +45,8 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 드라이브 전송 링크(WP-369) 공개 다운로드 전 구간(HTTP) 통합 테스트.
@@ -144,7 +144,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
             .getResponse()
             .getContentAsString();
     JsonNode json = objectMapper.readTree(body);
-    String url = json.get("url").asText();
+    String url = json.get("url").asString();
     assertThat(url).startsWith("http://localhost:6173/api/v1/public/drive/transfer/dl_");
     return url.substring("http://localhost:6173".length());
   }
@@ -336,7 +336,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String url = objectMapper.readTree(body).get("url").asText();
+    String url = objectMapper.readTree(body).get("url").asString();
     assertThat(url).startsWith("http://localhost:6173/api/v1/public/drive/transfer/ul_");
     return url.substring("http://localhost:6173".length());
   }
@@ -866,7 +866,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String url = objectMapper.readTree(body).get("url").asText();
+    String url = objectMapper.readTree(body).get("url").asString();
     return url.substring("http://localhost:6173".length());
   }
 
@@ -903,7 +903,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String token = objectMapper.readTree(body).get("url").asText().replaceAll(".*/", "");
+    String token = objectMapper.readTree(body).get("url").asString().replaceAll(".*/", "");
     String hash = com.workplace.global.util.CapabilityTokens.sha256Hex(token);
     cleanupInTenant(
         1L,
@@ -1032,7 +1032,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
                     .getResponse()
                     .getContentAsString())
             .get("message")
-            .asText();
+            .asString();
     assertThat(message).isEqualTo("올릴 파일을 찾을 수 없습니다. 새 링크를 발급받으세요");
     assertThat(message).doesNotContainPattern("[0-9]");
     mockMvc

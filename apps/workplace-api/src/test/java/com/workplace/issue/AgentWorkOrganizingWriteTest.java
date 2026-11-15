@@ -205,9 +205,9 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
     assertThat(activeWork(newIssueId, humanId)).isEmpty();
     assertThat(
             json(call(HttpMethod.GET, issuePath(json(res)) + "/attachments", patToken, null, null))
-                .findValuesAsText("fileId"))
+                .findValuesAsString("fileId"))
         .containsExactly(String.valueOf(fileId));
-    assertThat(json(res).get("status").asText()).isEqualTo("TODO");
+    assertThat(json(res).get("status").asString()).isEqualTo("TODO");
   }
 
   /** 첨부 클레임은 작업 쓰기라 일하던 작업을 되돌린다(작업이 없을 때 시작하지 않는 것은 AgentWorkIssueStatusTest). */
@@ -228,7 +228,7 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
   }
 
   /** 응답 JSON 의 이슈 경로 — 새 이슈의 번호로 만든다. */
-  private String issuePath(com.fasterxml.jackson.databind.JsonNode issue) {
+  private String issuePath(tools.jackson.databind.JsonNode issue) {
     return "/api/v1/projects/" + projectKey + "/issues/" + issue.get("number").asInt();
   }
 

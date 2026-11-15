@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
@@ -57,6 +55,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1253 runner 비밀값 API 통합 테스트 — Works 가 띄운 AI 의 키 자동 발급·교체(generation 올림·옛 키 정리)·폐기(끄기·삭제·내부 전환),
@@ -184,10 +184,10 @@ class RunnerSecretApiTest extends IntegrationTestBase {
             .andExpect(status().isOk())
             .andExpect(header().string("Cache-Control", "no-store"));
     JsonNode body = fx.json(r);
-    String plaintext = body.get("plaintext").asText();
+    String plaintext = body.get("plaintext").asString();
     assertThat(plaintext).startsWith("ak_");
-    OffsetDateTime expiresAt = OffsetDateTime.parse(body.get("expiresAt").asText());
-    OffsetDateTime rotateAfter = OffsetDateTime.parse(body.get("rotateAfter").asText());
+    OffsetDateTime expiresAt = OffsetDateTime.parse(body.get("expiresAt").asString());
+    OffsetDateTime rotateAfter = OffsetDateTime.parse(body.get("rotateAfter").asString());
     assertThat(Duration.between(OffsetDateTime.now(), expiresAt))
         .isBetween(Duration.ofDays(30).minusMinutes(1), Duration.ofDays(30).plusMinutes(1));
     assertThat(Duration.between(rotateAfter, expiresAt)).isEqualTo(Duration.ofDays(7));
@@ -321,7 +321,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
         .where(AGENT_API_KEY.ID.eq(key.get("keyId").asLong()))
         .execute();
 
-    me(key.get("plaintext").asText()).andExpect(status().isUnauthorized());
+    me(key.get("plaintext").asString()).andExpect(status().isUnauthorized());
   }
 
   /** 관리자가 발급한 키(만료 없음)는 자동 발급·교체·끄기와 상관없이 그대로 통한다. */
@@ -342,10 +342,10 @@ class RunnerSecretApiTest extends IntegrationTestBase {
   void desired_includesAgentKeyAndClaudeVersions() throws Exception {
     JsonNode before = fx.json(runner(get(BASE + "/desired")).andExpect(status().isOk()));
     JsonNode secrets = before.at("/agents/0/secrets");
-    assertThat(secretNamed(secrets, "agent-key").get("source").asText()).isEqualTo("WORKS");
+    assertThat(secretNamed(secrets, "agent-key").get("source").asString()).isEqualTo("WORKS");
     assertThat(secretNamed(secrets, "agent-key").get("version").isNull()).isTrue();
     assertThat(secretNamed(secrets, "claude").get("version").isNull()).isTrue();
-    assertThat(secretNamed(secrets, "repos").get("source").asText()).isEqualTo("WORKS");
+    assertThat(secretNamed(secrets, "repos").get("source").asString()).isEqualTo("WORKS");
     assertThat(secretNamed(secrets, "repos").get("version").isNull()).isTrue();
 
     JsonNode key = issueKey(a1);
@@ -357,15 +357,15 @@ class RunnerSecretApiTest extends IntegrationTestBase {
         fx.json(runner(get(BASE + "/desired")).andExpect(status().isOk())).at("/agents/0/secrets");
     assertThat(secretNamed(after, "agent-key").get("version").asLong())
         .isEqualTo(key.get("keyId").asLong());
-    assertThat(secretNamed(after, "agent-key").get("rotateAfter").asText())
+    assertThat(secretNamed(after, "agent-key").get("rotateAfter").asString())
         .isNotBlank()
         .isNotEqualTo("null");
     assertThat(secretNamed(after, "claude").get("version").asLong()).isEqualTo(credId);
-    assertThat(secretNamed(after, "claude").get("source").asText()).isEqualTo("WORKS");
+    assertThat(secretNamed(after, "claude").get("source").asString()).isEqualTo("WORKS");
   }
 
   private static JsonNode secretNamed(JsonNode secrets, String name) {
-    for (JsonNode s : secrets) if (name.equals(s.get("name").asText())) return s;
+    for (JsonNode s : secrets) if (name.equals(s.get("name").asString())) return s;
     throw new AssertionError("비밀값 참조 없음: " + name);
   }
 
@@ -532,7 +532,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
       if (k.get("id").asLong() == managedId) {
         assertThat(k.get("managed").asBoolean()).isTrue();
         assertThat(k.get("expiresAt").isNull()).isFalse();
-        assertThat(k.get("label").asText()).isEqualTo("Works 자동 발급");
+        assertThat(k.get("label").asString()).isEqualTo("Works 자동 발급");
       } else if (k.get("id").asLong() == adminKeyId) {
         assertThat(k.get("managed").asBoolean()).isFalse();
         assertThat(k.get("expiresAt").isNull()).isTrue();
@@ -566,7 +566,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
             mvc.perform(asAdmin(get("/api/v1/admin/agents/" + a1 + "/keys")))
                 .andExpect(status().isOk()));
 
-    assertThat(list.findValuesAsText("id"))
+    assertThat(list.findValuesAsString("id"))
         .containsExactlyInAnyOrder(String.valueOf(own), String.valueOf(adminKeyId))
         .doesNotContain(String.valueOf(foreign));
   }
@@ -594,7 +594,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
   /** 자동 발급 감사 기록은 남되 평문(접두사 포함)은 없다. */
   @Test
   void auditLogs_doNotContainPlaintext() throws Exception {
-    String plaintext = issueKey(a1).get("plaintext").asText();
+    String plaintext = issueKey(a1).get("plaintext").asString();
     issueKey(a1);
 
     var rows =

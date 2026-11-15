@@ -211,8 +211,7 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
   }
 
   /** 이 대화에 memory 블록 하나를 단 답을 남기고 그 답의 id. */
-  private long answerWithBlock(
-      long uid, UUID sid, com.fasterxml.jackson.databind.node.ObjectNode block) {
+  private long answerWithBlock(long uid, UUID sid, tools.jackson.databind.node.ObjectNode block) {
     String blocks = "[" + block + "]";
     return inTenant(
         () -> sessions.appendMessage(uid, sid, "ASSISTANT", "기억해 둘게요.", null, null, blocks));

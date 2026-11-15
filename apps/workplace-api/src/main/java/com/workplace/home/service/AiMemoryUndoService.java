@@ -1,10 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.UndoAiMemoryRequest;
 import com.workplace.home.dto.UndoAiMemoryResponse;
@@ -14,6 +9,11 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * 채팅 결과 줄 되돌리기(WP-55 §6). 메시지를 행 잠금으로 읽고 → memory 블록(순번)의 반대 동작 → 같은 트랜잭션에서 그 블록 undone=true. 반대
@@ -69,8 +69,8 @@ public class AiMemoryUndoService {
    * 못하게(saved 는 deleteIfExists 가 남긴다).
    */
   private AiMemoryItem reverse(long userId, ObjectNode b) {
-    long memoryId = b.path("memoryId").asLong();
-    return switch (b.path("action").asText()) {
+    long memoryId = b.path("memoryId").asLong(0L);
+    return switch (b.path("action").asString("")) {
       case "saved" -> {
         memoryService.deleteIfExists(userId, memoryId);
         yield null;
@@ -101,7 +101,7 @@ public class AiMemoryUndoService {
               memoryId,
               requiredText(b, "memoryKind"),
               requiredText(b, "content"),
-              b.path("source").asText("AI"),
+              b.path("source").asString("AI"),
               textOrNull(b, "scope"),
               textOrNull(b, "expiresOn"));
       // WP-386: 공용 메모리 요청 결과 줄 — 그 공간 기록을 요청자 권한으로 되돌린다(공간 잠금·409 규칙은 기록 되돌리기와 같다).
@@ -109,7 +109,7 @@ public class AiMemoryUndoService {
       // undoLocked 가 기록 행 잠금 아래에서 ALREADY_UNDONE 으로 알리므로 줄만 되돌림으로 맞춘다 — 눌러도 늘 실패하는 버튼을 남기지 않는다.
       // 호출자 트랜잭션에 그대로 합류한다(TransactionTemplate 을 거치지 않아 예외로 바깥이 rollback-only 가 되지 않는다).
       case "shared" -> {
-        sharedChanges.undoLocked(userId, b.path("changeId").asLong());
+        sharedChanges.undoLocked(userId, b.path("changeId").asLong(0L));
         yield null;
       }
       default -> throw AiMemoryException.invalid("되돌릴 수 없는 메모리 결과예요");
@@ -120,7 +120,7 @@ public class AiMemoryUndoService {
   private static ObjectNode memoryBlockAt(ArrayNode blocks, int blockIndex) {
     int ordinal = 0;
     for (JsonNode b : blocks) {
-      if (!"memory".equals(b.path("kind").asText())) continue;
+      if (!"memory".equals(b.path("kind").asString(""))) continue;
       if (ordinal++ == blockIndex) return b instanceof ObjectNode o ? o : null;
     }
     return null;
@@ -128,14 +128,14 @@ public class AiMemoryUndoService {
 
   private static String requiredText(ObjectNode b, String field) {
     JsonNode v = b.path(field);
-    if (!v.isTextual()) throw AiMemoryException.invalid("되돌릴 메모리 결과가 손상됐어요");
-    return v.asText();
+    if (!v.isString()) throw AiMemoryException.invalid("되돌릴 메모리 결과가 손상됐어요");
+    return v.asString("");
   }
 
   /** 문자열 필드(없거나 문자열이 아니면 null — 구 블록의 scope·previousKind). */
   private static String textOrNull(ObjectNode b, String field) {
     JsonNode v = b.path(field);
-    return v.isTextual() ? v.asText() : null;
+    return v.isString() ? v.asString("") : null;
   }
 
   private ArrayNode readBlocks(String json) {
@@ -143,7 +143,7 @@ public class AiMemoryUndoService {
     try {
       JsonNode n = objectMapper.readTree(json);
       return n instanceof ArrayNode a ? a : objectMapper.createArrayNode();
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw AiMemoryException.invalid("되돌릴 메모리 결과를 읽지 못했어요");
     }
   }
@@ -151,7 +151,7 @@ public class AiMemoryUndoService {
   private String write(ArrayNode blocks) {
     try {
       return objectMapper.writeValueAsString(blocks);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("content_blocks 직렬화 실패", e);
     }
   }

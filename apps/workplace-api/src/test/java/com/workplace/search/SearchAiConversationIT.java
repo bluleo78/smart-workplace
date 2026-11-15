@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.service.HomeSessionService;
@@ -23,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 통합 검색 팔레트(WP-1360)의 AI 대화 검색 — 본인 대화만, AI 기억이 꺼져 있어도 결과, offset/size/hasMore 페이지, 짧은 검색어 빈 결과, 맞은
@@ -71,7 +71,7 @@ class SearchAiConversationIT extends IntegrationTestBase {
     JsonNode r = search(me, word, null, null);
 
     assertThat(r.get("items")).hasSize(1);
-    assertThat(r.get("items").get(0).get("sessionId").asText()).isEqualTo(mine.toString());
+    assertThat(r.get("items").get(0).get("sessionId").asString()).isEqualTo(mine.toString());
   }
 
   @Test
@@ -92,8 +92,8 @@ class SearchAiConversationIT extends IntegrationTestBase {
     JsonNode p2 = search(me, word, 2, 2);
     assertThat(p2.get("items")).hasSize(1);
     assertThat(p2.get("hasMore").asBoolean()).isFalse();
-    assertThat(p1.get("items").get(0).get("sessionId").asText())
-        .isNotEqualTo(p2.get("items").get(0).get("sessionId").asText());
+    assertThat(p1.get("items").get(0).get("sessionId").asString())
+        .isNotEqualTo(p2.get("items").get(0).get("sessionId").asString());
   }
 
   /** 맞은 대화는 점수가 아니라 최근 대화 순 — 나중에 만든(id 가 큰) 대화라도 마지막 대화가 오래됐으면 뒤로 간다. */
@@ -107,8 +107,8 @@ class SearchAiConversationIT extends IntegrationTestBase {
     JsonNode items = search(me, word, null, null).get("items");
 
     assertThat(items).hasSize(2);
-    assertThat(items.get(0).get("sessionId").asText()).isEqualTo(recent.toString());
-    assertThat(items.get(1).get("sessionId").asText()).isEqualTo(old.toString());
+    assertThat(items.get(0).get("sessionId").asString()).isEqualTo(recent.toString());
+    assertThat(items.get(1).get("sessionId").asString()).isEqualTo(old.toString());
   }
 
   @Test
@@ -124,16 +124,16 @@ class SearchAiConversationIT extends IntegrationTestBase {
     UUID inAnswer = turn(me, "무관한 질문", "답에만 " + word + " 가 있다");
     JsonNode a = search(me, word, null, null).get("items");
     assertThat(a).hasSize(1);
-    assertThat(a.get(0).get("sessionId").asText()).isEqualTo(inAnswer.toString());
-    assertThat(a.get(0).get("role").asText()).isEqualTo("ASSISTANT");
-    assertThat(a.get(0).get("excerpt").asText()).contains(word);
+    assertThat(a.get(0).get("sessionId").asString()).isEqualTo(inAnswer.toString());
+    assertThat(a.get(0).get("role").asString()).isEqualTo("ASSISTANT");
+    assertThat(a.get(0).get("excerpt").asString()).contains(word);
 
     String w2 = "yk" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     turn(me, "질문에만 " + w2 + " 가 있다", "무관한 답");
     JsonNode q = search(me, w2, null, null).get("items");
     assertThat(q).hasSize(1);
-    assertThat(q.get(0).get("role").asText()).isEqualTo("USER");
-    assertThat(q.get(0).get("excerpt").asText()).contains(w2);
+    assertThat(q.get(0).get("role").asString()).isEqualTo("USER");
+    assertThat(q.get(0).get("excerpt").asString()).contains(w2);
   }
 
   @Test

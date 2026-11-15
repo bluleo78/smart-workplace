@@ -5,8 +5,6 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.time.SupportedDates;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -22,6 +20,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * 확인카드 파라미터·대상 오류의 상태코드/문구 매핑 회귀 테스트(#843).
@@ -182,6 +182,19 @@ class ConfirmActionErrorMappingTest extends IntegrationTestBase {
         .isExactlyInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("'allDay'")
         .hasMessageNotContaining("Cannot deserialize");
+  }
+
+  @Test
+  @DisplayName("정수 칸에 범위를 넘는 숫자 — Jackson 2 때처럼 칸 이름을 짚는 한국어 사유(WP-1609)")
+  void mapping_intOverflow_namesField() {
+    // Jackson 3 은 숫자 넘침(InputCoercionException)을 DatabindException 으로 감싸지 않고 원래 예외에 경로만 붙인다.
+    // DatabindException 일 때만 칸 이름을 뽑으면 「값의 형식이 올바르지 않습니다」만 남아 어느 칸인지 알 수 없다.
+    ObjectNode p = eventBody();
+    p.put("reminderMinutes", 99_999_999_999L);
+
+    assertThatThrownBy(() -> dispatcher.validate(owner, "calendar.create_event", p))
+        .isExactlyInstanceOf(IllegalArgumentException.class)
+        .hasMessage("잘못된 params: 'reminderMinutes' 값의 형식이 올바르지 않습니다");
   }
 
   @Test

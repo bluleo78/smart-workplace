@@ -3,11 +3,11 @@ package com.workplace.home.service;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import tools.jackson.databind.JsonNode;
 
 /**
  * WP-158: AI 응답 스트림의 표시 블록 순서(텍스트·도구 그룹·위젯)를 도착순으로 기록한다.
@@ -131,31 +131,32 @@ class ChatBlockRecorder {
      */
     static Memory from(JsonNode m) {
       if (m == null || !m.isObject()) return null;
-      String action = m.path("action").asText("");
-      String kind = m.path("kind").asText("");
-      String content = m.path("content").asText("");
+      String action = m.path("action").asString("");
+      String kind = m.path("kind").asString("");
+      String content = m.path("content").asString("");
       JsonNode id = m.path("memoryId");
       JsonNode prev = m.path("previousContent");
       if (!ACTIONS.contains(action) || !AiMemoryService.KINDS.contains(kind) || content.isBlank())
         return null;
-      if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) return null;
+      if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong(0L) <= 0) return null;
       // 빈 이전 내용은 되돌릴 수 없다(복원이 1~300자 검증에 걸린다) — 되돌리기 버튼만 남는 줄을 만들지 않는다.
-      if ("updated".equals(action) && (!prev.isTextual() || prev.asText().isBlank())) return null;
+      if ("updated".equals(action) && (!prev.isString() || prev.asString("").isBlank()))
+        return null;
       if (!isScopeOrAbsent(m.path("scope")) || !isScopeOrAbsent(m.path("previousScope")))
         return null;
       if (!isDateOrAbsent(m.path("expiresOn")) || !isDateOrAbsent(m.path("previousExpiresOn")))
         return null;
       String source =
-          AiMemoryService.SOURCE_USER.equals(m.path("source").asText())
+          AiMemoryService.SOURCE_USER.equals(m.path("source").asString(""))
               ? AiMemoryService.SOURCE_USER
               : AiMemoryService.SOURCE_AI;
-      String prevKind = m.path("previousKind").asText("");
+      String prevKind = m.path("previousKind").asString("");
       return new Memory(
           action,
-          id.asLong(),
+          id.asLong(0L),
           kind,
           content,
-          prev.isTextual() ? prev.asText() : null,
+          prev.isString() ? prev.asString("") : null,
           "updated".equals(action) && AiMemoryService.KINDS.contains(prevKind) ? prevKind : null,
           source,
           false,
@@ -168,7 +169,9 @@ class ChatBlockRecorder {
 
     /** 범위 값이 없거나(키 없음·null = 공통) 앱 6개 중 하나인가. */
     private static boolean isScopeOrAbsent(JsonNode n) {
-      return n.isMissingNode() || n.isNull() || (n.isTextual() && AiMemoryScope.isApp(n.asText()));
+      return n.isMissingNode()
+          || n.isNull()
+          || (n.isString() && AiMemoryScope.isApp(n.asString("")));
     }
 
     /**
@@ -177,11 +180,11 @@ class ChatBlockRecorder {
      */
     private static boolean isDateOrAbsent(JsonNode n) {
       if (n.isMissingNode() || n.isNull()) return true;
-      return n.isTextual() && AiMemoryService.isStrictDate(n.asText());
+      return n.isString() && AiMemoryService.isStrictDate(n.asString(""));
     }
 
     private static String textOrNull(JsonNode n) {
-      return n.isTextual() ? n.asText() : null;
+      return n.isString() ? n.asString("") : null;
     }
   }
 
@@ -228,13 +231,14 @@ class ChatBlockRecorder {
     static SharedMemory from(JsonNode m) {
       JsonNode change = m.path("changeId");
       JsonNode id = m.path("memoryId");
-      String space = m.path("spaceName").asText("");
-      String content = m.path("content").asText("");
-      if (!change.isIntegralNumber() || !change.canConvertToLong() || change.asLong() <= 0)
+      String space = m.path("spaceName").asString("");
+      String content = m.path("content").asString("");
+      if (!change.isIntegralNumber() || !change.canConvertToLong() || change.asLong(0L) <= 0)
         return null;
-      if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) return null;
+      if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong(0L) <= 0) return null;
       if (space.isBlank() || content.isBlank()) return null;
-      return new SharedMemory("shared", change.asLong(), id.asLong(), space, content, false, null);
+      return new SharedMemory(
+          "shared", change.asLong(0L), id.asLong(0L), space, content, false, null);
     }
   }
 
@@ -244,7 +248,7 @@ class ChatBlockRecorder {
    */
   static Block memoryBlockOf(JsonNode m) {
     if (m == null || !m.isObject()) return null;
-    return "shared".equals(m.path("action").asText()) ? SharedMemory.from(m) : Memory.from(m);
+    return "shared".equals(m.path("action").asString("")) ? SharedMemory.from(m) : Memory.from(m);
   }
 
   private final List<Block> blocks = new ArrayList<>();

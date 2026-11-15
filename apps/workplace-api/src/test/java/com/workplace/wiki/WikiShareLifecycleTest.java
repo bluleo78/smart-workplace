@@ -16,8 +16,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.records.AuditLogRecord;
@@ -57,6 +55,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 공유의 생애(WP-579 Task 6) — 페이지 이동(하위 포함 공유 안·밖), 공유한 사람의 편집 권한 상실·워크스페이스 정지, 페이지·스페이스 삭제 때 공유가
@@ -142,7 +142,7 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     assertThat(out).hasSize(1);
     assertThat(out.get(0).getActorId()).isEqualTo(ownerId);
     assertThat(text(out.get(0))).contains("1분기 계획");
-    assertThat(om.readTree(out.get(0).getDetail().data()).get("title").asText())
+    assertThat(om.readTree(out.get(0).getDetail().data()).get("title").asString())
         .isEqualTo("1분기 계획");
     assertThat(events(rootId, "PAGE_MOVED_IN")).isEmpty();
 
@@ -347,11 +347,12 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     AuditLogRecord audit = single(audits(rootId));
     assertThat(audit.getUserId()).isEqualTo(ownerId);
     JsonNode meta = metadata(audit);
-    assertThat(meta.get("reason").asText()).isEqualTo("MEMBERSHIP");
+    assertThat(meta.get("reason").asString()).isEqualTo("MEMBERSHIP");
     assertThat(meta.get("spaceId").asLong()).isEqualTo(spaceId);
-    assertThat(meta.get("audience").asText()).isEqualTo("WORKSPACE");
-    assertThat(meta.get("permission").asText()).isEqualTo("EDIT");
-    assertThat(metadata(single(audits(outsideId))).get("reason").asText()).isEqualTo("MEMBERSHIP");
+    assertThat(meta.get("audience").asString()).isEqualTo("WORKSPACE");
+    assertThat(meta.get("permission").asString()).isEqualTo("EDIT");
+    assertThat(metadata(single(audits(outsideId))).get("reason").asString())
+        .isEqualTo("MEMBERSHIP");
     assertThat(audits(otherPageId)).isEmpty();
 
     List<WikiShareAccessChangedEvent> changed = accessChanged();
@@ -375,7 +376,7 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     assertThat(shareCount(rootId)).isZero();
     assertThat(shareCount(otherPageId)).isEqualTo(1);
     assertThat(events(rootId, "REVOKED_BY_MEMBERSHIP")).hasSize(1);
-    assertThat(metadata(single(audits(rootId))).get("reason").asText()).isEqualTo("MEMBERSHIP");
+    assertThat(metadata(single(audits(rootId))).get("reason").asString()).isEqualTo("MEMBERSHIP");
   }
 
   /**
@@ -407,8 +408,8 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     AuditLogRecord audit = single(audits(rootId));
     assertThat(audit.getUserId()).isNull();
     assertThat(audit.getUsername()).isEqualTo("system");
-    assertThat(metadata(audit).get("reason").asText()).isEqualTo("MEMBERSHIP");
-    assertThat(metadata(single(audits(otherPageId))).get("reason").asText())
+    assertThat(metadata(audit).get("reason").asString()).isEqualTo("MEMBERSHIP");
+    assertThat(metadata(single(audits(otherPageId))).get("reason").asString())
         .isEqualTo("MEMBERSHIP");
 
     List<WikiShareAccessChangedEvent> changed = accessChanged();
@@ -445,7 +446,7 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     assertThat(revokedEvents).hasSize(1);
     assertThat(text(revokedEvents.get(0))).contains("에이전트가 삭제되어");
     AuditLogRecord revoked = single(audits(rootId));
-    assertThat(metadata(revoked).get("reason").asText()).isEqualTo("MEMBERSHIP");
+    assertThat(metadata(revoked).get("reason").asString()).isEqualTo("MEMBERSHIP");
     assertThat(accessChanged())
         .singleElement()
         .satisfies(
@@ -556,12 +557,12 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     AuditLogRecord rootAudit = single(audits(rootId));
     assertThat(rootAudit.getUserId()).isEqualTo(ownerId);
     JsonNode meta = metadata(rootAudit);
-    assertThat(meta.get("reason").asText()).isEqualTo("PAGE_DELETED");
+    assertThat(meta.get("reason").asString()).isEqualTo("PAGE_DELETED");
     assertThat(meta.get("spaceId").asLong()).isEqualTo(spaceId);
-    assertThat(meta.get("audience").asText()).isEqualTo("WORKSPACE");
+    assertThat(meta.get("audience").asString()).isEqualTo("WORKSPACE");
     JsonNode publicMeta = metadata(single(audits(grandchildId)));
-    assertThat(publicMeta.get("reason").asText()).isEqualTo("PAGE_DELETED");
-    assertThat(publicMeta.get("audience").asText()).isEqualTo("PUBLIC");
+    assertThat(publicMeta.get("reason").asString()).isEqualTo("PAGE_DELETED");
+    assertThat(publicMeta.get("audience").asString()).isEqualTo("PUBLIC");
     assertThat(audits(outsideId)).isEmpty();
   }
 
@@ -577,7 +578,7 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     assertThat(shareCount(otherPageId)).isEqualTo(1);
     AuditLogRecord audit = single(audits(childId));
     assertThat(audit.getUserId()).isEqualTo(ownerId);
-    assertThat(metadata(audit).get("reason").asText()).isEqualTo("PAGE_DELETED");
+    assertThat(metadata(audit).get("reason").asString()).isEqualTo("PAGE_DELETED");
     assertThat(audits(otherPageId)).isEmpty();
   }
 
@@ -713,7 +714,7 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
   }
 
   private String text(WikiPageShareEventRecord r) throws Exception {
-    return om.readTree(r.getDetail().data()).get("text").asText();
+    return om.readTree(r.getDetail().data()).get("text").asString();
   }
 
   /** 이 페이지의 공유 해제 감사 로그. */

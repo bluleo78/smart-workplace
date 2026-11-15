@@ -11,8 +11,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.screen.AgentScreenService;
 import com.workplace.agentruntime.screen.AgentScreenTickets;
@@ -55,6 +53,8 @@ import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1277 AI 작업 화면 통합 테스트 — 실제 서버(RANDOM_PORT)에 실제 WebSocket 으로 붙는다. 세션 열기 권한·상태 확인, 일회용
@@ -268,9 +268,9 @@ class AgentScreenRelayTest extends IntegrationTestBase {
 
   private Screen connected(long agentId) throws Exception {
     JsonNode opened = openSession(agentId);
-    String id = opened.get("sessionId").asText();
+    String id = opened.get("sessionId").asString();
     Recorder b = new Recorder();
-    WebSocketSession bs = browser(opened.get("ticket").asText(), b);
+    WebSocketSession bs = browser(opened.get("ticket").asString(), b);
     Recorder r = new Recorder();
     WebSocketSession rs = runner(id, t1, r);
     return new Screen(id, bs, b, rs, r);
@@ -313,14 +313,14 @@ class AgentScreenRelayTest extends IntegrationTestBase {
   @Test
   void open_whenThreeAlreadyOpen_returns409() throws Exception {
     JsonNode first = openSession(agent);
-    assertThat(first.get("ticket").asText()).hasSizeGreaterThanOrEqualTo(43);
-    assertThat(first.get("expiresAt").asText()).isNotBlank();
+    assertThat(first.get("ticket").asString()).hasSizeGreaterThanOrEqualTo(43);
+    assertThat(first.get("expiresAt").asString()).isNotBlank();
     openSession(agent);
     openSession(agent);
     HttpResponse<String> r = post(admin, agent);
     assertThat(r.statusCode()).isEqualTo(409);
     assertThat(r.body()).contains("이 AI 의 작업 화면이 이미 3개 열려 있어요");
-    UUID id = UUID.fromString(first.get("sessionId").asText());
+    UUID id = UUID.fromString(first.get("sessionId").asString());
     callInTenant(
         1L,
         () -> {
@@ -358,7 +358,7 @@ class AgentScreenRelayTest extends IntegrationTestBase {
   @Test
   void browserSocket_whenTicketReused_isRejected() throws Exception {
     JsonNode opened = openSession(agent);
-    String ticket = opened.get("ticket").asText();
+    String ticket = opened.get("ticket").asString();
     browser(ticket, new Recorder());
     assertThatThrownBy(() -> browser(ticket, new Recorder())).isInstanceOf(Exception.class);
   }
@@ -367,11 +367,11 @@ class AgentScreenRelayTest extends IntegrationTestBase {
   @Test
   void browserSocket_whenTicketExpired_isRejected() throws Exception {
     JsonNode opened = openSession(agent);
-    UUID id = UUID.fromString(opened.get("sessionId").asText());
+    UUID id = UUID.fromString(opened.get("sessionId").asString());
     String expired =
         tickets.issue(new AgentScreenTickets.Claims(id, 1L, admin, Instant.now().minusSeconds(1)));
     assertThatThrownBy(() -> browser(expired, new Recorder())).isInstanceOf(Exception.class);
-    assertThat(browser(opened.get("ticket").asText(), new Recorder()).isOpen()).isTrue();
+    assertThat(browser(opened.get("ticket").asString(), new Recorder()).isOpen()).isTrue();
   }
 
   // ------------------------------------------------------------------ runner
@@ -380,7 +380,7 @@ class AgentScreenRelayTest extends IntegrationTestBase {
   @Test
   void runnerSocket_whenOtherLocation_isRejected() throws Exception {
     JsonNode opened = openSession(agent);
-    String id = opened.get("sessionId").asText();
+    String id = opened.get("sessionId").asString();
     // L1 runner 의 변경 스트림 — 브라우저가 붙으면 agent-runtime.screen 이 와야 한다.
     CompletableFuture<String> sse = new CompletableFuture<>();
     HttpClient http = HttpClient.newHttpClient();
@@ -416,9 +416,9 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     try {
       // SSE 가 등록될 시간을 준 뒤 브라우저를 붙인다.
       Thread.sleep(300);
-      browser(opened.get("ticket").asText(), new Recorder());
+      browser(opened.get("ticket").asString(), new Recorder());
       JsonNode event = om.readTree(sse.get(10, TimeUnit.SECONDS));
-      assertThat(event.get("sessionId").asText()).isEqualTo(id);
+      assertThat(event.get("sessionId").asString()).isEqualTo(id);
       assertThat(event.get("agentUserId").asLong()).isEqualTo(agent);
 
       assertThatThrownBy(() -> runner(id, t2, new Recorder())).isInstanceOf(Exception.class);
@@ -451,7 +451,7 @@ class AgentScreenRelayTest extends IntegrationTestBase {
 
     s.browser().sendMessage(text("{\"type\":\"bogus\"}"));
     s.browser().sendMessage(text("{\"type\":\"resize\",\"cols\":120,\"rows\":40}"));
-    assertThat(om.readTree((String) s.r().next()).get("type").asText()).isEqualTo("resize");
+    assertThat(om.readTree((String) s.r().next()).get("type").asString()).isEqualTo("resize");
     s.browser().sendMessage(text("{\"type\":\"window\",\"index\":1}"));
     assertThat(om.readTree((String) s.r().next()).get("index").asInt()).isEqualTo(1);
   }
@@ -535,10 +535,10 @@ class AgentScreenRelayTest extends IntegrationTestBase {
 
     second.browser().sendMessage(text("{\"type\":\"input\",\"enabled\":true}"));
     JsonNode err = om.readTree((String) second.b().next());
-    assertThat(err.get("type").asText()).isEqualTo("error");
-    assertThat(err.get("message").asText()).isEqualTo("다른 관리자가 이미 입력 중이에요");
+    assertThat(err.get("type").asString()).isEqualTo("error");
+    assertThat(err.get("message").asString()).isEqualTo("다른 관리자가 이미 입력 중이에요");
     second.browser().sendMessage(text("{\"type\":\"resize\",\"cols\":1,\"rows\":1}"));
-    assertThat(om.readTree((String) second.r().next()).get("type").asText()).isEqualTo("resize");
+    assertThat(om.readTree((String) second.r().next()).get("type").asString()).isEqualTo("resize");
   }
 
   // ------------------------------------------------------------------ 닫기
@@ -572,8 +572,8 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     Screen s = connected(agent);
     s.runner().close();
     JsonNode status = om.readTree((String) s.b().next());
-    assertThat(status.get("type").asText()).isEqualTo("status");
-    assertThat(status.get("state").asText()).isEqualTo("ended");
+    assertThat(status.get("type").asString()).isEqualTo("status");
+    assertThat(status.get("state").asString()).isEqualTo("ended");
     assertThat(s.b().closed.get(10, TimeUnit.SECONDS)).isNotNull();
   }
 

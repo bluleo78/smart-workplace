@@ -1,8 +1,7 @@
 package com.workplace.agentaccount.usage;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AgentProviders;
+import com.workplace.global.json.JsonMappers;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -12,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * ChatGPT(Codex 로그인) 사용량 조회기. 비밀은 Codex auth.json 원문이며, tokens.access_token·account_id 로
@@ -20,7 +21,7 @@ import org.springframework.web.client.RestClientException;
 @Slf4j
 public class ChatgptUsageProbe implements UsageProbe {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   private final RestClient client;
 
@@ -40,8 +41,8 @@ public class ChatgptUsageProbe implements UsageProbe {
     String accountId;
     try {
       JsonNode tokens = MAPPER.readTree(plaintextSecret).path("tokens");
-      accessToken = tokens.path("access_token").asText("");
-      accountId = tokens.path("account_id").asText("");
+      accessToken = tokens.path("access_token").asString("");
+      accountId = tokens.path("account_id").asString("");
     } catch (Exception e) {
       throw new UsageProbeException("BAD_SECRET", "저장된 로그인 정보를 읽을 수 없음");
     }
@@ -99,9 +100,9 @@ public class ChatgptUsageProbe implements UsageProbe {
     BigDecimal percent = used.decimalValue().setScale(2, RoundingMode.HALF_UP);
     Instant resetsAt = null;
     if (node.path("reset_at").isNumber()) {
-      resetsAt = Instant.ofEpochSecond(node.path("reset_at").asLong());
+      resetsAt = Instant.ofEpochSecond(node.path("reset_at").asLong(0L));
     } else if (node.path("reset_after_seconds").isNumber()) {
-      resetsAt = now.plusSeconds(node.path("reset_after_seconds").asLong());
+      resetsAt = now.plusSeconds(node.path("reset_after_seconds").asLong(0L));
     }
     out.add(new UsageSnapshot(window, percent, resetsAt, null, now));
   }

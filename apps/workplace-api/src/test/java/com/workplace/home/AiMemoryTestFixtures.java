@@ -3,9 +3,6 @@ package com.workplace.home;
 import static com.workplace.jooq.Tables.AI_MEMORY;
 import static com.workplace.jooq.Tables.AI_MEMORY_FORGOTTEN;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.repository.AiMemoryRepository;
@@ -17,6 +14,10 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * WP-55 메모리 테스트 공용 픽스처 — 설정 화면처럼 USER 로 직접 만든 메모리, 영속 memory 블록(판정 6), 그 블록을 단 ASSISTANT 메시지. 되돌리기
@@ -24,7 +25,7 @@ import org.jooq.DSLContext;
  */
 public final class AiMemoryTestFixtures {
 
-  private static final ObjectMapper OM = new ObjectMapper();
+  private static final ObjectMapper OM = JsonMapper.builderWithJackson2Defaults().build();
 
   private AiMemoryTestFixtures() {}
 

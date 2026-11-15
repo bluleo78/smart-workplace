@@ -2,8 +2,6 @@ package com.workplace.global.realtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
@@ -17,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.type.filter.RegexPatternTypeFilter;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * resource.changed 리소스 이름 계약 테스트 (WP-36). 백엔드 *ChangeNotifier 의 {@code RESOURCE_*} 상수 집합이 프론트 무효화 맵
@@ -34,7 +34,9 @@ class ResourceChangedContractTest {
   void notifierResourceConstants_matchWebContract() throws Exception {
     Set<String> backend = collectNotifierResources();
     List<String> web =
-        new ObjectMapper().readValue(Files.readString(CONTRACT), new TypeReference<>() {});
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readValue(Files.readString(CONTRACT), new TypeReference<>() {});
 
     assertThat(backend).as("RESOURCE_* 상수가 하나도 수집되지 않음 — 스캔 경로 확인").isNotEmpty();
     assertThat(backend).containsExactlyInAnyOrderElementsOf(new TreeSet<>(web));
