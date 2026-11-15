@@ -2,7 +2,7 @@
 // - 보관 공간(WP-527): 생성 폼·「+ 새 링크 만들기」 대신 안내, 기존 링크 복사·폐기는 남긴다. 목록 조회 실패는 안내 + 폼.
 // - 링크 목록 먼저(WP-1528): 살아 있는 링크는 URL·[복사]·[폐기] 카드, 새 링크는 「+ 새 링크 만들기」로 그 자리에 폼을 펼친다.
 //   링크가 없으면 폼이 바로 보이고, 폐기·만료 링크는 「지난 링크 n개」로 접힌다. 예전(토큰 없는) 링크는 URL 대신 안내.
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ShareTargetRef } from '../../api/drive'
@@ -431,5 +431,101 @@ describe('ShareLinkModal — 폴더 대상', () => {
     expect(expiry().value).toBe('')
     expect(screen.queryByTestId('share-folder-external-warning')).toBeNull()
     expect(screen.queryByTestId('share-target-folder-icon')).toBeNull()
+  })
+})
+
+// WP-1624 — 생성 폼의 비밀번호 칸에서 Enter 는 「링크 생성」 단추를 누른 것과 같다.
+// 한글 조합 Enter 는 글자 확정용이라 제출하지 않고, 요청이 나가 있는 동안엔 Enter 를 몇 번 눌러도 링크를 하나만 만든다.
+describe('Enter 로 생성 (WP-1624)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // 링크가 없으면 폼이 바로 보인다.
+    api.listShareLinks.mockResolvedValue([])
+    clip.copyToClipboard.mockResolvedValue(true)
+  })
+
+  const created = { ...activeLink, id: 8, token: 'sl_x' }
+  const passwordInput = () => document.getElementById('share-password') as HTMLInputElement
+  const expiresInput = () => document.getElementById('share-expires') as HTMLInputElement
+
+  /** 링크가 없는 파일의 창을 띄워 생성 폼이 보일 때까지 기다린다. */
+  async function renderForm() {
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+  }
+
+  /** 「일어나지 않음」 확인 — 요청이 나갔다면 들어갈 만큼 한 틱 기다린 뒤 생성 요청이 없음을 본다. */
+  async function expectNoCreate() {
+    await new Promise((r) => setTimeout(r, 0))
+    expect(api.createShareLink).not.toHaveBeenCalled()
+  }
+
+  it('비밀번호 칸 Enter 는 링크 생성과 같다', async () => {
+    api.createShareLink.mockResolvedValue(created)
+    await renderForm()
+
+    fireEvent.change(passwordInput(), { target: { value: 'pw47Test!' } })
+    fireEvent.keyDown(passwordInput(), { key: 'Enter' })
+
+    await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(1))
+    expect(api.createShareLink).toHaveBeenCalledWith({ kind: 'file', id: 10 }, {
+      audience: 'EXTERNAL', password: 'pw47Test!', expiresAt: undefined,
+    })
+  })
+
+  // 날짜를 다 넣기 전엔 값이 비어 올라와, Enter 가 만료 없는 링크를 만들 수 있다 — 만료일 칸 Enter 는 만들지 않는다.
+  it('만료일 칸 Enter 는 링크를 만들지 않는다', async () => {
+    await renderForm()
+
+    fireEvent.keyDown(expiresInput(), { key: 'Enter' })
+
+    await expectNoCreate()
+  })
+
+  it('공백만 비밀번호는 Enter 해도 만들지 않고 오류를 보인다', async () => {
+    await renderForm()
+
+    fireEvent.change(passwordInput(), { target: { value: '   ' } })
+    fireEvent.keyDown(passwordInput(), { key: 'Enter' })
+
+    expect(await screen.findByTestId('share-password-error')).toHaveTextContent('공백만 넣을 수 없어요')
+    expect(api.createShareLink).not.toHaveBeenCalled()
+  })
+
+  it('한글 조합 중 Enter 는 만들지 않는다', async () => {
+    await renderForm()
+
+    fireEvent.change(passwordInput(), { target: { value: '비밀' } })
+    fireEvent.keyDown(passwordInput(), { key: 'Enter', isComposing: true, keyCode: 229 })
+
+    await expectNoCreate()
+  })
+
+  it('처리 중 같은 틱 Enter 두 번은 한 번만 만들고, 실패하면 다시 Enter 로 만들 수 있다', async () => {
+    const first = deferred<typeof created>()
+    api.createShareLink.mockReturnValueOnce(first.promise)
+    await renderForm()
+
+    const el = passwordInput()
+    // fireEvent 는 매번 다시 그려 두 번째 Enter 가 isPending 에 막히므로, 같은 틱에 직접 보낸다.
+    act(() => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(1))
+
+    // 처리 중 Enter 는 다시 그린 뒤에도 만들지 않는다.
+    fireEvent.keyDown(el, { key: 'Enter' })
+    expect(api.createShareLink).toHaveBeenCalledTimes(1)
+
+    // 요청이 실패하면 막이 풀려 다시 Enter 로 요청이 나간다.
+    api.createShareLink.mockResolvedValueOnce(created)
+    await act(async () => {
+      first.reject(new Error('500'))
+      await first.promise.catch(() => {})
+    })
+    await waitFor(() => expect(screen.getByTestId('share-link-create-btn')).toBeEnabled())
+    fireEvent.keyDown(el, { key: 'Enter' })
+    await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(2))
   })
 })
