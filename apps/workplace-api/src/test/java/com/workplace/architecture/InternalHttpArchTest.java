@@ -34,6 +34,8 @@ import org.springframework.web.client.RestTemplate;
  *
  * <p>배경: JDK HttpClient 기본(HTTP/2)은 평문 요청에 h2c 업그레이드 헤더를 붙여, 상대(Node·uvicorn·프록시)가 404/400 으로 거절할 수
  * 있다. 클라이언트마다 따로 HTTP/1.1 을 고정하면 새 클라이언트가 빠뜨리므로(WP-172 이후에도 10여 곳 누락) 공용 생성 지점 밖의 직접 생성을 막는다.
+ * RestClient 빌더의 출발점은 Jackson 2 를 고정한 {@code OutboundJson.restClientBuilder()} 이고(WP-1608), 내부
+ * 클라이언트는 그것을 직접 쓰지 않고 그 위에 HTTP/1.1 팩토리를 얹는 {@link InternalHttp} 로 만든다.
  *
  * <p>범위 밖(사유): 외부 HTTPS 클라이언트 — {@code WebPushGateway}(notify.push), {@code
  * M365OidcClient}(auth.sso), {@code GraphApiConfig}(mail.config). h2c 는 평문에서만 쓰이고 HTTPS 는 ALPN 으로
@@ -145,6 +147,30 @@ public class InternalHttpArchTest {
           .should(USES_STATIC_RESTCLIENT_FACTORY)
           .because(
               "정적 RestClient 는 OutboundJson.restClientBuilder() 로 Jackson 2 를 고정한다(WP-1608) — 내부 호출은 InternalHttp.restClient(..)로 HTTP/1.1·리다이렉트 미추종도 고정(WP-305)");
+
+  /** {@code OutboundJson.restClientBuilder()} 의 호출 또는 메서드 참조. */
+  private static final ArchCondition<JavaClass> USES_OUTBOUND_JSON_BUILDER =
+      accessesTarget(
+          "OutboundJson.restClientBuilder() 를 호출하거나 참조한다",
+          a ->
+              a.getTargetOwner().isEquivalentTo(OutboundJson.class)
+                  && a.getTarget().getName().equals("restClientBuilder"));
+
+  /**
+   * 내부 클라이언트({@code ..outbound..})는 {@code OutboundJson.restClientBuilder()} 를 직접 쓰지 않고 {@link
+   * InternalHttp} 로 만든다(WP-305). OutboundJson 의 빌더는 요청 팩토리가 비어 있어 그대로 쓰면 기본 JDK(HTTP/2) 팩토리가 붙고, 평문
+   * 내부 호출에 h2c 업그레이드 헤더가 다시 붙는다 — 위 규칙들은 팩토리를 아예 지정하지 않는 경우를 잡지 못한다.
+   */
+  @ArchTest
+  public static final ArchRule 내부_클라이언트는_RestClient_를_InternalHttp_로만_만든다 =
+      noClasses()
+          .that()
+          .resideInAPackage("..outbound..")
+          .and()
+          .doNotBelongToAnyOf(InternalHttp.class, OutboundJson.class)
+          .should(USES_OUTBOUND_JSON_BUILDER)
+          .because(
+              "RestClient 는 InternalHttp.restClient(..)로만 만든다 — HTTP/1.1·리다이렉트 미추종 고정(WP-305)");
 
   /**
    * RestTemplate·RestTemplateBuilder 생성은 {@code M365OidcClient}(JWKS 전용 — 이유는 그 클래스 주석)에서만
