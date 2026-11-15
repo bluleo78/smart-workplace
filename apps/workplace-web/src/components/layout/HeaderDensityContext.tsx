@@ -1,9 +1,13 @@
 // 포털 AI 칩과 페이지 헤더가 하나의 밀도 상태를 공유한다. 헤더 ref 등록으로 라우트 교체도 추적한다.
+// 마지막 단계(docked, WP-1611)에서도 떠 있는 틀은 숨긴 채(visibility) 마운트돼 있어 같은 측정으로 복귀 시점을 판정한다.
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 
-import { type HeaderDensityState, nextHeaderDensityState } from './headerDensity'
+import { HEADER_DOCK_SELECTOR, type HeaderDensityState, nextHeaderDensityState } from './headerDensity'
 
-const expanded: HeaderDensityState = { folded: false, circle: false }
+const expanded: HeaderDensityState = { folded: false, circle: false, docked: false }
+/** 두 밀도 상태가 같은지 — 단계가 바뀔 때만 다시 그리고 안정 대기를 건다. */
+const sameState = (a: HeaderDensityState, b: HeaderDensityState) =>
+  a.folded === b.folded && a.circle === b.circle && a.docked === b.docked
 const DensityContext = createContext(expanded)
 const HeaderContext = createContext<HTMLElement | null>(null)
 const RegisterContext = createContext<(header: HTMLElement | null) => void>(() => {})
@@ -23,7 +27,7 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
     let settling = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const publish = (next: HeaderDensityState) => {
-      if (next.folded === current.folded && next.circle === current.circle) return
+      if (sameState(next, current)) return
       current = next
       setState(next)
     }
@@ -32,6 +36,7 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
       const chipBox = chip.getBoundingClientRect()
       const leftBox = left.getBoundingClientRect()
       // 제목은 clamp로 폭이 0이 되어도 시작 좌표가 유효하므로 계속 밀도를 판정한다.
+      // 헤더에 넣은(docked) 동안에도 틀은 visibility 로만 숨겨 폭·위치가 남는다 — 그 자리가 돌아갔을 때의 자리다(WP-1611).
       if (!chipBox.width || settling) return
       const titleSpace = chipBox.left - leftBox.left - 16
       if (unfoldedActionsWidth !== null && actions) {
@@ -45,10 +50,12 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
         titleSpace,
         hasAuxiliaryActions: header?.dataset.aiHasAuxiliaryActions === 'true',
         hasAiChip: !!chip.querySelector('[data-ai-density-chip]'),
+        // 헤더 안 자리가 없는 화면(페이지 헤더 없음)은 떠 있는 틀을 끝까지 유지한다.
+        hasDockSlot: !!header?.querySelector(HEADER_DOCK_SELECTOR),
         current,
         foldDisplacement,
       })
-      if (next.folded !== current.folded || next.circle !== current.circle) {
+      if (!sameState(next, current)) {
         if (next.folded && !current.folded) unfoldedActionsWidth = actions?.getBoundingClientRect().width ?? null
         if (!next.folded) unfoldedActionsWidth = null
         // left 전환(200ms) 중간값은 복귀 판정에 쓰지 않는다. 칩 폭 전환에도 같은 안정 시간을 둔다.

@@ -3,6 +3,7 @@
 import { createContext, type ReactNode, type Ref, useContext, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
+import { HEADER_DOCK_ATTR } from '@/components/layout/headerDensity'
 import { useHeaderDensity, useHeaderDensityHeader } from '@/components/layout/HeaderDensityContext'
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import { useAiChipClamp } from '@/components/layout/useAiChipClamp'
@@ -207,10 +208,13 @@ function DesktopPageHeader({
   // 상단 가운데 틀(AI 칩, 비서가 없으면 검색 트리거 — WP-1324·WP-1353)이 있으면 좌측 그룹을 그 경계 앞에서 자른다(위치 실측).
   // 틀이 없으면(모바일) 훅이 제한을 푼다.
   const leftGroupRef = useRef<HTMLDivElement>(null)
-  useAiChipClamp(leftGroupRef)
   // 제목 자리가 160px보다 좁으면 보조 단추를 ⋯ 로 접는다(WP-1415).
-  const { folded } = useHeaderDensity()
+  // 그래도 모자라 상단 가운데 단추가 헤더 안으로 들어오면(docked, WP-1611) 틀이 좌측 그룹 위에 없으므로 자르기를 푼다.
+  const { folded, docked } = useHeaderDensity()
+  useAiChipClamp(leftGroupRef, docked)
   const registerHeader = useHeaderDensityHeader()
+  // 오른쪽 액션 묶음이 있는지 — 헤더 넣기 자리의 오른쪽 간격도 이것으로 정한다(WP-1611).
+  const hasActions = Boolean(actions || auxiliaryActions)
   return (
     <header
       ref={registerHeader}
@@ -226,14 +230,29 @@ function DesktopPageHeader({
         {/* AI 칩은 fixed(레일·옆 패널 폭에 따라 이동) — 좌측 그룹이 칩 좌측 경계를 넘지 않게 useAiChipClamp 가 max-width 를 실측해 둔다.
             줄어드는 것은 제목·위치 표시(truncate/min-w-0)이고, icon 슬롯(캘린더 이동 버튼 등)은 shrink-0 로 온전히 남긴다. */}
         {/* leadingGrow 면 좌측 그룹이 남는 폭을 모두 받는다(flex-1) — 공용 Breadcrumb 가 그 폭을 재 접을지 정한다(WP-977). 오른쪽 actions 는 shrink-0 이라 위치가 같다. */}
-        <div ref={leftGroupRef} data-ai-left-group className={cn('flex min-w-0 items-center gap-2', leadingGrow && 'flex-1')}>
+        {/* 헤더 넣기 단계(docked, WP-1611)에서는 좌측 그룹이 자기 내용보다 좁아질 수 있다 — 경로의 줄어들지 않는 조각(구분자·「…」)이
+            그룹 밖으로 넘쳐 헤더 단추 밑에 비치지 않게 그룹 경계에서 자른다. overflow-clip-margin 4px 는 ← 단추의 포커스 링(3px)이 잘리지 않을 여유. */}
+        <div
+          ref={leftGroupRef}
+          data-ai-left-group
+          className={cn('flex min-w-0 items-center gap-2', leadingGrow && 'flex-1', docked && 'overflow-clip [overflow-clip-margin:4px]')}
+        >
           {icon != null && <div className="flex shrink-0 items-center">{icon}</div>}
           {leading}
           {title != null && <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>}
           {title == null && srTitle && <h1 className="sr-only">{srTitle}</h1>}
           {meta}
         </div>
-        {(actions || auxiliaryActions) && (
+        {/* 상단 가운데 단추 자리(WP-1611) — 제목 자리가 모자라면 TopCenterSlot 이 AI 동그라미·검색·「?」 상자를 여기로 옮긴다(다시 마운트 없이 — 포커스·검색 팔레트 유지).
+            [data-ai-actions] 밖 형제라 --ai-actions-width(숨긴 떠 있는 틀의 위치)에 들지 않는다 — 숨긴 틀이 돌아갈 자리에 남아 복귀를 판정한다.
+            ml-auto: 좌측 그룹이 자기 폭만 차지해도 단추가 액션 바로 앞에 붙는다. mr-2(8px) + 헤더 gap-2(8px) = 액션 앞 16px — 떠 있을 때의 정지선 간격과 같다.
+            액션이 없으면 이 자리가 맨 끝이라 mr-2 를 빼 오른쪽 끝을 페이지 여백 축(액션이 있었다면 그 끝)에 맞춘다.
+            평소에는 hidden(display:none)이라 gap·폭을 차지하지 않는다. 표식은 HEADER_DOCK_ATTR 하나로 쓴다(선택자 중복 방지). */}
+        <div
+          {...{ [HEADER_DOCK_ATTR]: '' }}
+          className={cn('ml-auto flex shrink-0 items-center gap-2', hasActions && 'mr-2', !docked && 'hidden')}
+        />
+        {hasActions && (
           <div data-ai-actions className="flex shrink-0 items-center gap-2">
             {auxiliaryActions != null && (folded ? <MobileHeaderMore>{auxiliaryActions}</MobileHeaderMore> : auxiliaryActions)}
             {actions}

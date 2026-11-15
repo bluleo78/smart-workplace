@@ -137,7 +137,8 @@ async function expectHeaderFitsBeforeChip(page: Page) {
   const title = page.getByTestId('page-header').getByRole('heading', { level: 1 })
   const group = title.locator('..')
   // 우측 액션 그룹 — 좌측 그룹은 칩뿐 아니라 액션 앞(gap 8px)에서도 멈추므로 남는 자리는 둘 중 좁은 쪽.
-  const actions = group.locator('xpath=following-sibling::div[1]')
+  // 둘 사이에 상단 단추 헤더 자리(data-ai-header-dock, WP-1611 — 평소 숨김)가 끼므로 바로 다음 형제가 아니라 표식으로 찾는다.
+  const actions = page.getByTestId('page-header').locator('[data-ai-actions]')
   const chip = page.getByTestId('chat-launcher')
   await expect(title).toBeVisible()
   await expect(chip).toBeVisible()

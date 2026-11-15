@@ -155,9 +155,10 @@ export function AppLayout() {
             </InboxProvider>
             {/* AI 칩 — fixed 상단 중앙, 데스크톱 전용(모바일은 탭바 가운데 AI 가 대신한다). 비서 있을 때만.
                 WP-1353: 칩 오른쪽에 통합 검색 트리거(가운데 팔레트). 비서가 없으면 검색이 칩 자리에 선다.
-                WP-1505: 검색 오른쪽에 도움말 「?」 — 비서가 있든 없든 검색 → 도움말 순서. */}
+                WP-1505: 검색 오른쪽에 도움말 「?」 — 비서가 있든 없든 검색 → 도움말 순서.
+                WP-1611: 제목 자리가 모자라면 같은 단추가 페이지 헤더 안(오른쪽 액션 앞)으로 들어간다(TopCenterSlot). */}
             {!isMobile && (
-              <TopCenterSlot trailing={aiAvailable ? <><SearchTrigger /><HelpTrigger /></> : <HelpTrigger />}>
+              <TopCenterSlot densityChip={aiAvailable} trailing={aiAvailable ? <><SearchTrigger /><HelpTrigger /></> : <HelpTrigger />}>
                 {aiAvailable ? <AIChip /> : <SearchTrigger />}
               </TopCenterSlot>
             )}

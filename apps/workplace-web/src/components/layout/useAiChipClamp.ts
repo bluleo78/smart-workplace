@@ -24,16 +24,22 @@ function touchesChip(records: MutationRecord[]) {
 }
 
 /**
- * group 의 style.maxWidth = 칩 좌측 − 그룹 좌측 − 16px(최소 120px). 칩이 없으면 제한을 푼다.
+ * group 의 style.maxWidth = 칩 좌측 − 그룹 좌측 − 16px(최소 120px). 칩이 없거나 released(헤더 넣기 단계, WP-1611)면 제한을 푼다.
  * 재측정 시점: 헤더 크기 변화(레일 토글·패널 열림/폭 조절·창 크기 — ResizeObserver),
  * 칩의 left 전환 종료(transitionend), body 직계 자식 중 칩이 붙거나 떨어질 때(MutationObserver).
  * 창 resize 는 헤더(콘텐츠 영역) 크기를 바꾸므로 ResizeObserver 가 함께 잡는다.
  * 관찰자 콜백은 한 프레임에 모아(requestAnimationFrame) rect 두 번 읽고 style 한 번 쓴다 — 첫 측정만 페인트 전에 바로 한다.
  */
-export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>) {
+export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>, released = false) {
   useLayoutEffect(() => {
     const group = groupRef.current
     if (!group) return
+    // 상단 가운데 단추가 헤더 안으로 들어오면(WP-1611) 숨긴 틀은 좌측 그룹을 가리지 않는다 — 제한을 풀고 flex(min-w-0)가 줄이게 둔다.
+    // 숨긴 틀 기준으로 계속 자르면 최소 120px 에서 멈춰 넘친 글자가 헤더 단추 밑으로 들어간다(이 이슈의 원인).
+    if (released) {
+      group.style.maxWidth = ''
+      return
+    }
     let chip: HTMLElement | null = null
     let frame = 0
 
@@ -107,5 +113,5 @@ export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>) {
       chip?.removeEventListener('transitionend', onTransitionEnd)
       group.style.maxWidth = ''
     }
-  }, [groupRef])
+  }, [groupRef, released])
 }

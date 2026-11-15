@@ -3,17 +3,20 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { createPortal } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { HEADER_DOCK_ATTR } from './headerDensity'
 import { HeaderDensityProvider, useHeaderDensity, useHeaderDensityHeader } from './HeaderDensityContext'
 import { useAiActionsWidth } from './useAiActionsWidth'
 
-function Fixture({ mounted, chipMounted = mounted, ai = true }: { mounted: boolean; chipMounted?: boolean; ai?: boolean }) {
+function Fixture({ mounted, chipMounted = mounted, ai = true, dock = false }: { mounted: boolean; chipMounted?: boolean; ai?: boolean; dock?: boolean }) {
   useAiActionsWidth()
-  const { folded, circle } = useHeaderDensity()
+  const { folded, circle, docked } = useHeaderDensity()
   const register = useHeaderDensityHeader()
   return <>
-    <output>{`${folded}/${circle}`}</output>
+    <output data-docked={docked}>{`${folded}/${circle}`}</output>
     {mounted && <header ref={register} data-ai-has-auxiliary-actions="true">
       <div data-ai-left-group />
+      {/* 헤더 넣기 자리(WP-1611) — 있을 때만 마지막 단계로 간다. */}
+      {dock && <div {...{ [HEADER_DOCK_ATTR]: '' }} />}
       <div data-ai-actions>{folded ? '더보기' : '설정'}</div>
     </header>}
     {chipMounted && createPortal(<div data-ai-chip>{ai && <button data-ai-density-chip />}</div>, document.body)}
@@ -146,6 +149,39 @@ describe('HeaderDensityProvider', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe('true/false'))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
     expect(screen.getByRole('status').textContent).toBe('true/false')
+  })
+
+  // WP-1611: 숨긴 틀도 폭·위치가 남으므로 같은 측정으로 헤더 넣기에 들어가고, 넓어지면 같은 측정으로 돌아간다.
+  it('헤더 자리가 있으면 동그라미 다음 안정 대기 뒤 헤더로 넣고, 160 + 40px 를 넘으면 돌아간다', async () => {
+    let chipLeft = 120
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const left = this.hasAttribute('data-ai-chip') ? chipLeft : 0
+      return { left, right: left + 32, width: 32 } as DOMRect
+    })
+    render(<HeaderDensityProvider><Fixture mounted dock /></HeaderDensityProvider>)
+    const status = () => screen.getByRole('status')
+    await waitFor(() => expect(status().textContent).toBe('true/true'), { timeout: 2000 })
+    await waitFor(() => expect(status().dataset.docked).toBe('true'), { timeout: 2000 })
+    // 제목 자리 200px(= 216 − 16)는 이력 구간이라 그대로 헤더에 있다.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    chipLeft = 216
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(status().dataset.docked).toBe('true')
+    chipLeft = 217
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(status().dataset.docked).toBe('false')
+    expect(status().textContent).toBe('true/true')
+  })
+
+  it('헤더 자리가 없으면 끝까지 좁아도 헤더 넣기에 들어가지 않는다', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const left = this.hasAttribute('data-ai-chip') ? 120 : 0
+      return { left, right: left + 32, width: 32 } as DOMRect
+    })
+    render(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>)
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('true/true'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    expect(screen.getByRole('status').dataset.docked).toBe('false')
   })
 
   it('접기 이동이 안정된 뒤 실측한 250px를 복귀 여유로 보존한다', async () => {
