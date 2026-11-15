@@ -1,5 +1,5 @@
 // 채널 생성 모달 — 이름 입력 + 공개/비공개 토글. 성공 시 새 채널로 라우팅.
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useCreateChannel } from '@/hooks/queries/useChannelMutations'
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { extractApiError } from '@/lib/api-error'
 import type { ChannelVisibility } from '@/types/messaging'
 
@@ -31,10 +32,17 @@ export function CreateChannelModal({
   const [nameError, setNameError] = useState<string | null>(null)
   const create = useCreateChannel()
   const navigate = useNavigate()
+  // 이름 칸 Enter 로 만들기(WP-1614) — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 만들기로 보지 않는다(WP-331 공용 훅).
+  const enterKey = useSingleLineEnter()
+  // 요청이 나가 있는 동안 true — create.isPending 은 다시 그려진 뒤에야 바뀌어, 같은 틱에 들어온 Enter 두 번을 막지 못한다.
+  const inFlightRef = useRef(false)
+  // 「만들기」 단추 활성과 Enter 제출이 같은 조건을 쓰도록 한 곳에서 정한다.
+  const canSubmit = name.trim() !== '' && !create.isPending
 
   const submit = async () => {
     const trimmed = name.trim()
-    if (!trimmed) return
+    if (!trimmed || inFlightRef.current) return
+    inFlightRef.current = true
     setNameError(null)
     const visibility: ChannelVisibility = isPrivate ? 'PRIVATE' : 'PUBLIC'
     try {
@@ -45,6 +53,8 @@ export function CreateChannelModal({
       navigate(`/chat/channels/${channel.id}`)
     } catch (err) {
       setNameError(extractApiError(err, '채널 생성에 실패했습니다.'))
+    } finally {
+      inFlightRef.current = false
     }
   }
 
@@ -52,7 +62,12 @@ export function CreateChannelModal({
     <Dialog
       open={open}
       onOpenChange={(v) => {
-        if (!v) setNameError(null)
+        // 닫으면 입력을 비운다 — 다시 열었을 때 남은 이름이 Enter 한 번에 만들어지지 않게(대화상자 공통 규칙 #178).
+        if (!v) {
+          setNameError(null)
+          setName('')
+          setIsPrivate(false)
+        }
         onOpenChange(v)
       }}
     >
@@ -72,6 +87,8 @@ export function CreateChannelModal({
                 setName(e.target.value)
                 setNameError(null)
               }}
+              onCompositionEnd={enterKey.onCompositionEnd}
+              onKeyDown={(e) => enterKey.handleEnter(e, () => void submit())}
               placeholder="예: 마케팅"
               maxLength={80}
               aria-invalid={!!nameError}
@@ -98,7 +115,7 @@ export function CreateChannelModal({
         <DialogFooter>
           <Button
             data-testid="create-channel-submit"
-            disabled={!name.trim() || create.isPending}
+            disabled={!canSubmit}
             onClick={() => void submit()}
           >
             {create.isPending ? '생성 중…' : '만들기'}

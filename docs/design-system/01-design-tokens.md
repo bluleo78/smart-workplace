@@ -311,7 +311,7 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 |--------|------|------|
 | 이슈/프로젝트 라벨 색 | `src/lib/labelColors.ts` | `ColorToken`(사용자 선택값, 백엔드 저장) → Tailwind 팔레트 정적 매핑(`bg`/`text`/`dot`, light+dark) |
 | 사용자 아바타·노트 접속자 색(아바타·원격 커서)·에픽 색점 | `src/index.css` `--presence-1..8` · `src/lib/collab/presence.ts` | `userId`(에픽은 번호 — 옛 팔레트 시절부터 아바타 팔레트를 공유) → 8색 **토큰**(Tailwind 팔레트 아님). 리터럴 `bg-presence text-presence-foreground` + `presenceStyle(id)`. 라이트/다크 값이 따로 있고 대비를 테스트로 고정(§1-5 "접속자 색" 소절, WP-318) |
-| 프로젝트 컬러 사각형 | `src/lib/project-color.ts` | key 해시 → `hsl(hue 60% 45%)`(고정 채도/명도, 흰 텍스트) |
+| 프로젝트 컬러 사각형 | `src/lib/project-color.ts` | key 해시 → `hsl(hue 60% L)`, 흰 텍스트. L 은 45% 에서 시작해 흰 글자 대비가 4.5:1 이 될 때까지만 낮춘다(노랑~청록 hue 는 30~44%, 나머지 45% — WP-1620). 프로젝트 목록 멤버 아바타(`nameColor`)도 같은 규칙 |
 
 **설계 원칙**:
 
