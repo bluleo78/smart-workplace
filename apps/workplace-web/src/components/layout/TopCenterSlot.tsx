@@ -1,10 +1,13 @@
 // 상단 가운데 고정 틀(WP-1324, 검색은 WP-1353 에서 팔레트로 교체) — AI 칩과 그 오른쪽 통합 검색·도움말(WP-1505) 단추가 함께 쓰는 자리.
 // 비서 없는 워크스페이스에서는 검색이 가운데, 도움말이 그 오른쪽에 선다.
 // 칩만 있던 때 AIChip 이 맡던 위치 계산을 여기로 옮겼다 — AI 와 무관한 검색이 AI 칩 컴포넌트에 기대지 않게.
+// WP-1611: 앞 단계(접기·동그라미)를 다 써도 제목 자리가 모자라면(docked) 틀을 숨기고 같은 단추를 페이지 헤더 안(오른쪽 액션 앞)에 그린다.
 import { type ReactNode, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
+import { useActiveDensityHeader, useHeaderDensity } from '@/components/layout/HeaderDensityContext';
 import { useAiActionsWidth } from '@/components/layout/useAiActionsWidth';
+import { cn } from '@/lib/utils';
 
 const TOP_CENTER_POSITION =
   // 데스크톱(lg+): 뷰포트 중앙(+28 AppRail 보정)에 고정하되, 사이드 패널이 칩을
@@ -23,22 +26,64 @@ const TOP_CENTER_POSITION =
   // WP-1261: pointer-events-auto — 패널이 닫힌 채 modal 다이얼로그(첨부 미리 보기 등)가 열리면 Radix 가 body 에
   // pointer-events:none 을 거는데, body 직속 포털인 칩도 그 차단을 물려받아 눌리지 않았다. 칩만 다시 받게 한다
   // (data-ai-panel 이라 다이얼로그는 닫히지 않고, side 로 바뀌면 다이얼로그가 non-modal 로 다시 마운트돼 패널 옆으로 비켜선다).
-  'pointer-events-auto fixed left-1/2 top-3 z-[70] -translate-x-1/2 transition-[left] duration-200 ease-in-out panel-resizing:transition-none lg:left-[min(calc(50%+28px),calc(100%-var(--right-dock-width)-150px),calc(100%-var(--right-dock-width)-var(--ai-actions-width,0px)-var(--ai-chip-offset,182px)))]';
+  'fixed left-1/2 top-3 z-[70] -translate-x-1/2 transition-[left] duration-200 ease-in-out panel-resizing:transition-none lg:left-[min(calc(50%+28px),calc(100%-var(--right-dock-width)-150px),calc(100%-var(--right-dock-width)-var(--ai-actions-width,0px)-var(--ai-chip-offset,182px)))]';
+
+/** 페이지 헤더(Page.tsx DesktopPageHeader)가 열어 두는 단추 자리 표식 — 헤더 넣기 단계에서 단추를 이 안으로 포털한다. */
+export const HEADER_DOCK_SELECTOR = '[data-ai-header-dock]';
 
 /**
  * 상단 가운데 고정 틀. children 이 가운데에 서고, trailing(검색·「?」 등)은 그 오른쪽에 8px 간격으로 나란히 떠서(absolute) 가운데 자리를 바꾸지 않는다.
  * data-ai-chip: 페이지 헤더 좌측 그룹이 이 틀의 실제 위치를 재서 겹치지 않게 자른다(useAiChipClamp — left 전환도 이 틀에서 일어난다).
  */
-export function TopCenterSlot({ children, trailing }: { children: ReactNode; trailing?: ReactNode }) {
+export function TopCenterSlot({ children, trailing, densityChip = false }: {
+  children: ReactNode;
+  trailing?: ReactNode;
+  /** children 이 밀도 칩(AIChip, data-ai-density-chip)인지 — 헤더에 넣은 동안 숨긴 틀의 자리 표시가 같은 표식을 이어받아 동그라미 단계 판정이 유지된다. */
+  densityChip?: boolean;
+}) {
   const frameRef = useRef<HTMLDivElement>(null);
   // 헤더 우측 액션 폭을 --ai-actions-width 로 넘긴다(3 번째 min() 항) — 칩 포털이 body 직속이라 액션 폭을 CSS 로 알 수 없기 때문.
   useAiActionsWidth();
-  return createPortal(
-    <div ref={frameRef} data-ai-chip className={TOP_CENTER_POSITION}>
+  const { docked } = useHeaderDensity();
+  const header = useActiveDensityHeader();
+  // 헤더 넣기 단계에서만 헤더 안 자리를 찾는다. 자리는 헤더가 늘 그려 두므로(숨김) 같은 커밋에 이미 DOM 에 있다.
+  // 못 찾으면(헤더가 막 바뀌는 중) 떠 있는 틀을 그대로 보인다 — 단추가 사라지는 프레임을 만들지 않는다.
+  const dock = docked ? header?.querySelector<HTMLElement>(HEADER_DOCK_SELECTOR) ?? null : null;
+  const buttons = (
+    <>
       {children}
-      {/* ml-2·gap-2(8px) — TOP_CENTER_POSITION 의 150px(칩 반폭 70 + 8 + 검색 32 + 8 + 「?」 32)와 맞물린다. */}
-      {trailing && <div className="absolute left-full top-0 ml-2 flex gap-2">{trailing}</div>}
-    </div>,
-    document.body,
+      {trailing}
+    </>
+  );
+  return (
+    <>
+      {createPortal(
+        // 헤더에 넣은 동안에도 틀은 마운트한 채 숨긴다(WP-1611) — 밀도 측정(HeaderDensityContext)이 이 틀의 자리로
+        // 「가운데로 돌아가면 남을 제목 자리」를 재고, useAiActionsWidth 도 계속 위치 변수를 넘긴다.
+        // 안에는 실제 단추 대신 같은 폭(32px 동그라미)의 빈 자리만 둔다 — 검색 팔레트·「/」 단축키·도움말 포커스 복귀 자리(data-help-trigger)와
+        // testid 가 둘이 되지 않게 실제 단추는 헤더 한 곳에만 그린다. 보이지도 눌리지도 읽히지도 않게(invisible·pointer-events-none·aria-hidden·inert).
+        <div
+          ref={frameRef}
+          data-ai-chip
+          data-ai-docked={dock ? '' : undefined}
+          aria-hidden={dock ? true : undefined}
+          inert={dock ? true : undefined}
+          className={cn(TOP_CENTER_POSITION, dock ? 'pointer-events-none invisible' : 'pointer-events-auto')}
+        >
+          {dock ? (
+            <span className="block h-8 w-8" data-ai-density-chip={densityChip ? '' : undefined} />
+          ) : (
+            <>
+              {children}
+              {/* ml-2·gap-2(8px) — TOP_CENTER_POSITION 의 150px(칩 반폭 70 + 8 + 검색 32 + 8 + 「?」 32)와 맞물린다. */}
+              {trailing && <div className="absolute left-full top-0 ml-2 flex gap-2">{trailing}</div>}
+            </>
+          )}
+        </div>,
+        document.body,
+      )}
+      {/* 같은 순서(AI 동그라미 → 검색 → 「?」)·같은 32px 단추로 헤더 안 자리에 그린다. 상태는 스토어·컨텍스트에 있어 위치가 바뀌어도 공유된다. */}
+      {dock && createPortal(buttons, dock)}
+    </>
   );
 }
