@@ -24,11 +24,11 @@ const CYCLES = [
 ];
 const PROGRESS: CycleProgress[] = [{ cycleId: 1, total: 20, done: 9, byStatus: { DONE: 9, TODO: 11 } }];
 
-async function setup(page: Page) {
+async function setup(page: Page, cycles: CycleResponse[] = CYCLES) {
   const deletes = trackRequests(page, 'DELETE', /\/api\/v1\/projects\/WP\/cycles\/\d+$/);
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY }))));
-  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles`, (r) => r.fulfill(json(CYCLES)));
+  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles`, (r) => r.fulfill(json(cycles)));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles/progress`, (r) => r.fulfill(json(PROGRESS)));
   await page.route((u) => /\/api\/v1\/projects\/WP\/cycles\/\d+$/.test(u.pathname), (r) => {
     if (r.request().method() !== 'DELETE') return r.fallback();
@@ -97,4 +97,25 @@ test('새 사이클 창 — 390px 에서 가로로 넘치지 않고 입력·버�
     const b = (await t.boundingBox())!;
     expect(b.x + b.width, `${t} right ${b.x + b.width} vs dialog inner right ${innerRight}`).toBeLessThanOrEqual(innerRight + 0.5);
   }
+});
+
+// 사이클 완료 창(WP-1606) — 미완료를 새 사이클로 보낼 때 펼치는 칸(기간 날짜 입력 2개)의 최소 너비가 창 안쪽을 넘어
+// 390px 에서 창이 가로로 스크롤되던 결함. 창은 fixed 라 문서 폭이 아니라 창 자신의 넘침·가장자리를 잰다(jsdom 은 못 잰다).
+test('사이클 완료 창 — 새 사이클 칸(기간 날짜 2개)이 390px 창 안에 들어간다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // 짧은 이름(제목 넘침과 섞이지 않게) · 끝 숫자 없음(추천 이름 없음 → 칸이 처음부터 펼쳐짐) · 예정 사이클 없음(보낼 곳 = 새 사이클).
+  await setup(page, [cycle({ id: 1, name: '결제 스프린트', startDate: '2026-09-29', endDate: '2026-10-10', status: 'ACTIVE' })]);
+  await page.getByTestId('cycle-more-1').tap();
+  await page.getByTestId('cycle-sheet').getByTestId('mobile-action-complete').tap();
+  const dialog = page.getByTestId('cycle-complete-dialog');
+  const end = dialog.getByLabel('새 사이클 종료일');
+  await expect(end).toBeVisible();
+  // 열림 애니메이션(zoom-in)이 끝나 자리 잡을 때까지 다시 잰다. 창은 grid 스크롤 컨테이너라 내용이 오른쪽 패딩을
+  // 침범해도 scrollWidth 가 커진다 — 종료일 칸이 잘리거나 패딩에 걸치는 것까지 이 한 줄로 잡힌다.
+  await expect.poll(() => dialog.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  // 날짜 칸은 한 줄씩 쌓여 칸마다 패널 폭을 다 쓴다 — 나란히 두면 126px 로 줄어 연도가 칸 안에서 잘렸다.
+  // (잘림은 date 입력 내부라 scrollWidth 로는 보이지 않아 칸의 자리·폭으로 본다.)
+  const sb = (await dialog.getByLabel('새 사이클 시작일').boundingBox())!;
+  const eb = (await end.boundingBox())!;
+  expect(eb.y).toBeGreaterThanOrEqual(sb.y + sb.height);
+  expect(eb.width).toBeGreaterThan(200);
 });
