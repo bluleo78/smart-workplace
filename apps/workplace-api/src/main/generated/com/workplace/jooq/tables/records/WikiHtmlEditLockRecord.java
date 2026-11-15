@@ -137,6 +137,6 @@ public class WikiHtmlEditLockRecord extends UpdatableRecordImpl<WikiHtmlEditLock
         setToken(token);
         setAcquiredAt(acquiredAt);
         setLastActiveAt(lastActiveAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

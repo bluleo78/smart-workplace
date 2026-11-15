@@ -227,6 +227,6 @@ public class ProjectVersionRecord extends UpdatableRecordImpl<ProjectVersionReco
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -121,6 +121,6 @@ public class MessageReactionRecord extends UpdatableRecordImpl<MessageReactionRe
         setEmoji(emoji);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

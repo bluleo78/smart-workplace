@@ -122,6 +122,6 @@ public class AgentScreenInputRecord extends UpdatableRecordImpl<AgentScreenInput
         setSessionId(sessionId);
         setRecordedAt(recordedAt);
         setData(data);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

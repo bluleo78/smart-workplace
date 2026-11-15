@@ -166,6 +166,6 @@ public class AssistantConfigRecord extends UpdatableRecordImpl<AssistantConfigRe
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
         setSuggestionModel(suggestionModel);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

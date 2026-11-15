@@ -166,6 +166,6 @@ public class StagedUploadLinkRecord extends UpdatableRecordImpl<StagedUploadLink
         setUsedAt(usedAt);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

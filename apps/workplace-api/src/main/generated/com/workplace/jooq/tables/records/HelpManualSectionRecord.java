@@ -223,6 +223,6 @@ public class HelpManualSectionRecord extends UpdatableRecordImpl<HelpManualSecti
         setOrd(ord);
         setEmbedding(embedding);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

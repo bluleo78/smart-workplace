@@ -301,6 +301,6 @@ public class EmailCalendarInviteRecord extends UpdatableRecordImpl<EmailCalendar
         setMyResponse(myResponse);
         setRespondedAt(respondedAt);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

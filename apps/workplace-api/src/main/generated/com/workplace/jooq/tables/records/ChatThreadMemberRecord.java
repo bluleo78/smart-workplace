@@ -121,6 +121,6 @@ public class ChatThreadMemberRecord extends UpdatableRecordImpl<ChatThreadMember
         setLastReadMessageId(lastReadMessageId);
         setJoinedAt(joinedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

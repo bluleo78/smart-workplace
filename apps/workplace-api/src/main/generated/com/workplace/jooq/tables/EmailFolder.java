@@ -8,7 +8,6 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.EmailAccount.EmailAccountPath;
-import com.workplace.jooq.tables.EmailFolder.EmailFolderPath;
 import com.workplace.jooq.tables.EmailMessage.EmailMessagePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.records.EmailFolderRecord;
@@ -32,10 +31,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -68,7 +67,7 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
     /**
      * The column <code>public.email_folder.id</code>.
      */
-    public final TableField<EmailFolderRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<EmailFolderRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.email_folder.account_id</code>.
@@ -358,7 +357,7 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
      */
     @Override
     public EmailFolder where(Condition condition) {
-        return new EmailFolder(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new EmailFolder(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -425,7 +424,7 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public EmailFolder whereExists(Select<?> select) {
+    public EmailFolder whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -433,7 +432,7 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public EmailFolder whereNotExists(Select<?> select) {
+    public EmailFolder whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

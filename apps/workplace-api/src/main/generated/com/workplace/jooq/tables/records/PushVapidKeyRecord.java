@@ -106,6 +106,6 @@ public class PushVapidKeyRecord extends UpdatableRecordImpl<PushVapidKeyRecord> 
         setPublicKey(publicKey);
         setPrivateKeyEnc(privateKeyEnc);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

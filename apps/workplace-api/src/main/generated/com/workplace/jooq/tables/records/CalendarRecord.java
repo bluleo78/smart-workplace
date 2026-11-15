@@ -241,6 +241,6 @@ public class CalendarRecord extends UpdatableRecordImpl<CalendarRecord> {
         setExternalId(externalId);
         setIsReadOnly(isReadOnly);
         setIsOwnMailbox(isOwnMailbox);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

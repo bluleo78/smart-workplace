@@ -122,6 +122,6 @@ public class AgentReportedModelRecord extends UpdatableRecordImpl<AgentReportedM
         setCredentialId(credentialId);
         setModels(models);
         setReportedAt(reportedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

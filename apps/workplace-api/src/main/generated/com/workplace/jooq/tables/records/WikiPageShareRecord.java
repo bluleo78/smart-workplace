@@ -256,6 +256,6 @@ public class WikiPageShareRecord extends UpdatableRecordImpl<WikiPageShareRecord
         setUpdatedAt(updatedAt);
         setLastAccessedAt(lastAccessedAt);
         setViewCount(viewCount);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

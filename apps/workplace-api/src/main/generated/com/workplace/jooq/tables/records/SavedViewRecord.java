@@ -196,6 +196,6 @@ public class SavedViewRecord extends UpdatableRecordImpl<SavedViewRecord> {
         setUpdatedAt(updatedAt);
         setIsPinned(isPinned);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

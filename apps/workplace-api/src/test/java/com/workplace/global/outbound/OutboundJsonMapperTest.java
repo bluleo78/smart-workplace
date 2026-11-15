@@ -1,6 +1,7 @@
 package com.workplace.global.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -11,15 +12,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 /**
- * 정적 {@code RestClient.builder()} 로 만든 외부·내부 호출 클라이언트가 응답 JSON 을 Jackson 2 로 읽는지 검증한다(WP-1588).
- *
- * <p>왜: 정적 빌더는 Boot 의 변환기 설정({@code spring.http.converters.preferred-json-mapper})을 거치지 않고
- * classpath 를 보고 JSON 라이브러리를 고른다. Boot 4 스타터가 Jackson 3(tools.jackson)을 함께 끌어오면 Jackson 3 이 먼저
- * 골라지고, 기본값이 달라 (null → 기본형 실패 등) Boot 3.5 때 잘 읽던 응답이 조용히 예외가 된다. 예: 우선순위 분류 응답 {@code
- * importanceScore: null} → {@code int}. InternalHttp·WebPushGateway·Gen:iA 로그인·토큰 갱신·사용량 조회 클라이언트가
- * 모두 같은 정적 빌더 경로다.
+ * 정적 아웃바운드 클라이언트가 응답 JSON 을 Jackson 2 로 읽는지 검증한다(WP-1588·WP-1608) — 왜 고정이 필요한지는 {@link
+ * OutboundJson} 참조. 예: 우선순위 분류 응답 {@code importanceScore: null} → {@code int} 가 Jackson 3 기본값이면 예외가
+ * 된다.
  */
 class OutboundJsonMapperTest {
 
@@ -59,8 +57,25 @@ class OutboundJsonMapperTest {
   }
 
   @Test
-  void 정적_빌더_기본_JSON_변환기는_Jackson2_다() {
-    Score s = RestClient.builder().baseUrl(baseUrl).build().get().retrieve().body(Score.class);
+  void OutboundJson_빌더는_null_을_기본형_0_으로_읽는다() {
+    Score s =
+        OutboundJson.restClientBuilder()
+            .baseUrl(baseUrl)
+            .build()
+            .get()
+            .retrieve()
+            .body(Score.class);
     assertThat(s.importanceScore()).isZero();
+  }
+
+  /**
+   * 전제: 감싸지 않은 정적 빌더는 Jackson 3 기본값으로 {@code null → int} 를 실패한다. 의존성 변경 뒤 이 테스트가 깨지면(= 평범한 빌더도
+   * 성공하면) OutboundJson 이 아직 필요한지 재검토한다(WP-1609).
+   */
+  @Test
+  void 평범한_정적_빌더는_null_을_기본형으로_읽지_못한다() {
+    assertThatThrownBy(
+            () -> RestClient.builder().baseUrl(baseUrl).build().get().retrieve().body(Score.class))
+        .isInstanceOf(RestClientException.class);
   }
 }

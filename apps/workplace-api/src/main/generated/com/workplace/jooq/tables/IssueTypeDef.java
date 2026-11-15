@@ -30,13 +30,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -65,7 +66,7 @@ public class IssueTypeDef extends TableImpl<IssueTypeDefRecord> {
     /**
      * The column <code>public.issue_type_def.id</code>.
      */
-    public final TableField<IssueTypeDefRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<IssueTypeDefRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.issue_type_def.project_id</code>.
@@ -284,7 +285,7 @@ public class IssueTypeDef extends TableImpl<IssueTypeDefRecord> {
      */
     @Override
     public IssueTypeDef where(Condition condition) {
-        return new IssueTypeDef(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new IssueTypeDef(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -351,7 +352,7 @@ public class IssueTypeDef extends TableImpl<IssueTypeDefRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueTypeDef whereExists(Select<?> select) {
+    public IssueTypeDef whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -359,7 +360,7 @@ public class IssueTypeDef extends TableImpl<IssueTypeDefRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueTypeDef whereNotExists(Select<?> select) {
+    public IssueTypeDef whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

@@ -136,6 +136,6 @@ public class ProjectMemberGroupRecord extends UpdatableRecordImpl<ProjectMemberG
         setTenantId(tenantId);
         setAddedBy(addedBy);
         setAddedAt(addedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

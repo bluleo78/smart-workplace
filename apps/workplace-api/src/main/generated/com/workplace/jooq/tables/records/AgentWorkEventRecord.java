@@ -181,6 +181,6 @@ public class AgentWorkEventRecord extends UpdatableRecordImpl<AgentWorkEventReco
         setStepsDone(stepsDone);
         setStepsTotal(stepsTotal);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

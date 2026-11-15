@@ -104,6 +104,6 @@ public class NotificationSettingRecord extends UpdatableRecordImpl<NotificationS
         setItem(item);
         setActor(actor);
         setEnabled(enabled);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

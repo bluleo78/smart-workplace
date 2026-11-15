@@ -151,6 +151,6 @@ public class AgentAccountLoginRefreshRecord extends UpdatableRecordImpl<AgentAcc
         setSucceededAt(succeededAt);
         setErrorCode(errorCode);
         setErrorMessage(errorMessage);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

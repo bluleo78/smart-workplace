@@ -211,6 +211,6 @@ public class ContentAttachmentRecord extends UpdatableRecordImpl<ContentAttachme
         setContentHash(contentHash);
         setCreatedAt(createdAt);
         setExtractFileId(extractFileId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

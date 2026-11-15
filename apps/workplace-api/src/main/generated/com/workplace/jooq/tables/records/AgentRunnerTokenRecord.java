@@ -181,6 +181,6 @@ public class AgentRunnerTokenRecord extends UpdatableRecordImpl<AgentRunnerToken
         setCreatedAt(createdAt);
         setLastUsedAt(lastUsedAt);
         setRevokedAt(revokedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -1,5 +1,6 @@
 package com.workplace.agentaccount.genialogin;
 
+import com.workplace.global.outbound.OutboundJson;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -31,7 +32,8 @@ public class GeniaLoginHttpConfig {
       KeyStore trust = GeniaTrustStores.withExtraCa(Path.of(props.caCertFile()));
       settings = settings.withSslBundle(SslBundle.of(SslStoreBundle.of(null, null, trust)));
     }
-    RestClient client = RestClient.builder().requestFactory(factoryBuilder.build(settings)).build();
+    RestClient client =
+        OutboundJson.restClientBuilder().requestFactory(factoryBuilder.build(settings)).build();
     return new GeniaLoginClient(client, props.serverUrl(), props.client());
   }
 }

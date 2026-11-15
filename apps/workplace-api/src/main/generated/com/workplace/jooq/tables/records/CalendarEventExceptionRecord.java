@@ -153,6 +153,6 @@ public class CalendarEventExceptionRecord extends UpdatableRecordImpl<CalendarEv
         setOverrideEventId(overrideEventId);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

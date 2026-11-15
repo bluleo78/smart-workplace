@@ -181,6 +181,6 @@ public class MessageLinkPreviewRecord extends UpdatableRecordImpl<MessageLinkPre
         setSiteName(siteName);
         setImageUrl(imageUrl);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

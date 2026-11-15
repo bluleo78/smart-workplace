@@ -167,6 +167,6 @@ public class RefreshTokenRecord extends UpdatableRecordImpl<RefreshTokenRecord> 
         setRevoked(revoked);
         setCreatedAt(createdAt);
         setRevokedAt(revokedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

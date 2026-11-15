@@ -121,6 +121,6 @@ public class WorkspaceAssistantRecord extends UpdatableRecordImpl<WorkspaceAssis
         setUpdatedBy(updatedBy);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

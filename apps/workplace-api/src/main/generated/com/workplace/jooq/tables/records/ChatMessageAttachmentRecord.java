@@ -121,6 +121,6 @@ public class ChatMessageAttachmentRecord extends UpdatableRecordImpl<ChatMessage
         setAttachedBy(attachedBy);
         setAttachedAt(attachedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

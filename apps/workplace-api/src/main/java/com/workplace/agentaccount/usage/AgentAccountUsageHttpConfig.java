@@ -1,5 +1,6 @@
 package com.workplace.agentaccount.usage;
 
+import com.workplace.global.outbound.OutboundJson;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.boot.http.client.HttpRedirects;
@@ -49,7 +50,7 @@ public class AgentAccountUsageHttpConfig {
                 b ->
                     b.setConnectionReuseStrategy((request, response, context) -> false)
                         .disableAutomaticRetries());
-    return RestClient.builder()
+    return OutboundJson.restClientBuilder()
         .baseUrl(baseUrl)
         .requestFactory(factoryBuilder.build(settings))
         .build();

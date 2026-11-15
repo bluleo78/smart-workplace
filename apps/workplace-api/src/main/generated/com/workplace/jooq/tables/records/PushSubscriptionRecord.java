@@ -196,6 +196,6 @@ public class PushSubscriptionRecord extends UpdatableRecordImpl<PushSubscription
         setLastSuccessAt(lastSuccessAt);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

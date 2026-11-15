@@ -31,13 +31,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -66,7 +67,7 @@ public class EmailAttachment extends TableImpl<EmailAttachmentRecord> {
     /**
      * The column <code>public.email_attachment.id</code>.
      */
-    public final TableField<EmailAttachmentRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<EmailAttachmentRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.email_attachment.message_id</code>.
@@ -283,7 +284,7 @@ public class EmailAttachment extends TableImpl<EmailAttachmentRecord> {
      */
     @Override
     public EmailAttachment where(Condition condition) {
-        return new EmailAttachment(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new EmailAttachment(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -350,7 +351,7 @@ public class EmailAttachment extends TableImpl<EmailAttachmentRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public EmailAttachment whereExists(Select<?> select) {
+    public EmailAttachment whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -358,7 +359,7 @@ public class EmailAttachment extends TableImpl<EmailAttachmentRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public EmailAttachment whereNotExists(Select<?> select) {
+    public EmailAttachment whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

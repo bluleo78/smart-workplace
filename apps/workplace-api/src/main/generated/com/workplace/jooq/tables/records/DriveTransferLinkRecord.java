@@ -226,6 +226,6 @@ public class DriveTransferLinkRecord extends UpdatableRecordImpl<DriveTransferLi
         setUsedAt(usedAt);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -106,6 +106,6 @@ public class WikiPageShareExclusionRecord extends UpdatableRecordImpl<WikiPageSh
         setTenantId(tenantId);
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

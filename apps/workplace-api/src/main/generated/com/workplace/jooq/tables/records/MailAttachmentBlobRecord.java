@@ -151,6 +151,6 @@ public class MailAttachmentBlobRecord extends UpdatableRecordImpl<MailAttachment
         setSizeBytes(sizeBytes);
         setLastAccessedAt(lastAccessedAt);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

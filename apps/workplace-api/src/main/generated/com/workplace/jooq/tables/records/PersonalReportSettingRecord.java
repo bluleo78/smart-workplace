@@ -233,6 +233,6 @@ public class PersonalReportSettingRecord extends UpdatableRecordImpl<PersonalRep
         setLastAttemptAt(lastAttemptAt);
         setLastError(lastError);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

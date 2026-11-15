@@ -33,13 +33,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -68,7 +69,7 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
     /**
      * The column <code>public.email_account.id</code>.
      */
-    public final TableField<EmailAccountRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<EmailAccountRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.email_account.user_id</code>.
@@ -409,7 +410,7 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
      */
     @Override
     public EmailAccount where(Condition condition) {
-        return new EmailAccount(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new EmailAccount(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -476,7 +477,7 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public EmailAccount whereExists(Select<?> select) {
+    public EmailAccount whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -484,7 +485,7 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public EmailAccount whereNotExists(Select<?> select) {
+    public EmailAccount whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

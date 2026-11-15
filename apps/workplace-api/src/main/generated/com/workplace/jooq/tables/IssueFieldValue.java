@@ -30,13 +30,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -250,7 +251,7 @@ public class IssueFieldValue extends TableImpl<IssueFieldValueRecord> {
      */
     @Override
     public IssueFieldValue where(Condition condition) {
-        return new IssueFieldValue(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new IssueFieldValue(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -317,7 +318,7 @@ public class IssueFieldValue extends TableImpl<IssueFieldValueRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueFieldValue whereExists(Select<?> select) {
+    public IssueFieldValue whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -325,7 +326,7 @@ public class IssueFieldValue extends TableImpl<IssueFieldValueRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueFieldValue whereNotExists(Select<?> select) {
+    public IssueFieldValue whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

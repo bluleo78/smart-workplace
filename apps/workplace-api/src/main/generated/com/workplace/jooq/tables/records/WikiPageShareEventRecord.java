@@ -152,6 +152,6 @@ public class WikiPageShareEventRecord extends UpdatableRecordImpl<WikiPageShareE
         setType(type);
         setDetail(detail);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

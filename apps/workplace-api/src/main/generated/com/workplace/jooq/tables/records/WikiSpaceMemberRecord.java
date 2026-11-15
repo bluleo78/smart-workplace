@@ -121,6 +121,6 @@ public class WikiSpaceMemberRecord extends UpdatableRecordImpl<WikiSpaceMemberRe
         setUserId(userId);
         setRole(role);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

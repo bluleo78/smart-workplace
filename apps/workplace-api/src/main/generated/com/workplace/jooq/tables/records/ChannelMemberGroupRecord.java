@@ -121,6 +121,6 @@ public class ChannelMemberGroupRecord extends UpdatableRecordImpl<ChannelMemberG
         setTenantId(tenantId);
         setAddedBy(addedBy);
         setAddedAt(addedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

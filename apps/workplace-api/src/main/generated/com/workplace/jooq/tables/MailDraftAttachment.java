@@ -30,13 +30,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -65,7 +66,7 @@ public class MailDraftAttachment extends TableImpl<MailDraftAttachmentRecord> {
     /**
      * The column <code>public.mail_draft_attachment.id</code>.
      */
-    public final TableField<MailDraftAttachmentRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<MailDraftAttachmentRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.mail_draft_attachment.tenant_id</code>.
@@ -256,7 +257,7 @@ public class MailDraftAttachment extends TableImpl<MailDraftAttachmentRecord> {
      */
     @Override
     public MailDraftAttachment where(Condition condition) {
-        return new MailDraftAttachment(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new MailDraftAttachment(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -323,7 +324,7 @@ public class MailDraftAttachment extends TableImpl<MailDraftAttachmentRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public MailDraftAttachment whereExists(Select<?> select) {
+    public MailDraftAttachment whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -331,7 +332,7 @@ public class MailDraftAttachment extends TableImpl<MailDraftAttachmentRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public MailDraftAttachment whereNotExists(Select<?> select) {
+    public MailDraftAttachment whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

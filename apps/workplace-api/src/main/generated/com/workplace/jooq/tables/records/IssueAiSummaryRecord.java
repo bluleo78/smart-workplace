@@ -121,6 +121,6 @@ public class IssueAiSummaryRecord extends UpdatableRecordImpl<IssueAiSummaryReco
         setSummary(summary);
         setNextAction(nextAction);
         setGeneratedAt(generatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

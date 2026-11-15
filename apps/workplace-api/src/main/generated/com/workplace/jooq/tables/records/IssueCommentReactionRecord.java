@@ -121,6 +121,6 @@ public class IssueCommentReactionRecord extends UpdatableRecordImpl<IssueComment
         setEmoji(emoji);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

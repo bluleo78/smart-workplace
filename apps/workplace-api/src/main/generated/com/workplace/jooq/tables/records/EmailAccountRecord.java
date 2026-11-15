@@ -455,6 +455,6 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
         setAiClassifyVersion(aiClassifyVersion);
         setSeenPushLeaseOwner(seenPushLeaseOwner);
         setSeenPushLeaseUntil(seenPushLeaseUntil);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

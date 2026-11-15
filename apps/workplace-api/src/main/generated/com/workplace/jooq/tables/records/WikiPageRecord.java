@@ -346,6 +346,6 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         setSearchText(searchText);
         setKind(kind);
         setHtmlSource(htmlSource);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

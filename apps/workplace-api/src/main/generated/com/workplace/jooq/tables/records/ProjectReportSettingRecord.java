@@ -229,6 +229,6 @@ public class ProjectReportSettingRecord extends UpdatableRecordImpl<ProjectRepor
         setLastAttemptAt(lastAttemptAt);
         setLastError(lastError);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

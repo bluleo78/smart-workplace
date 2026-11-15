@@ -211,6 +211,6 @@ public class UserPriorityItemRecord extends UpdatableRecordImpl<UserPriorityItem
         setUrgencyScore(urgencyScore);
         setReason(reason);
         setComputedAt(computedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

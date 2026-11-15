@@ -212,6 +212,6 @@ public class MessageRecord extends UpdatableRecordImpl<MessageRecord> {
         setParentMessageId(parentMessageId);
         setTenantId(tenantId);
         setLinkPreviewsDismissed(linkPreviewsDismissed);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -106,6 +106,6 @@ public class DriveShareLinkAttemptsRecord extends UpdatableRecordImpl<DriveShare
         setAttempts(attempts);
         setExpiresAt(expiresAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

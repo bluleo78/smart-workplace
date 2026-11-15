@@ -121,6 +121,6 @@ public class WikiPageShareMemberRecord extends UpdatableRecordImpl<WikiPageShare
         setTenantId(tenantId);
         setAddedBy(addedBy);
         setAddedAt(addedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

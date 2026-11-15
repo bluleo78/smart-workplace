@@ -151,6 +151,6 @@ public class IssueBodyImageRecord extends UpdatableRecordImpl<IssueBodyImageReco
         setUploadedBy(uploadedBy);
         setCreatedAt(createdAt);
         setDemotedAt(demotedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

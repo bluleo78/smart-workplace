@@ -376,6 +376,6 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
         setCategoriesWrittenAt(categoriesWrittenAt);
         setIcalSequence(icalSequence);
         setCancelledAt(cancelledAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

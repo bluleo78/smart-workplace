@@ -28,13 +28,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -63,7 +64,7 @@ public class PushSubscription extends TableImpl<PushSubscriptionRecord> {
     /**
      * The column <code>public.push_subscription.id</code>.
      */
-    public final TableField<PushSubscriptionRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<PushSubscriptionRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.push_subscription.user_id</code>.
@@ -258,7 +259,7 @@ public class PushSubscription extends TableImpl<PushSubscriptionRecord> {
      */
     @Override
     public PushSubscription where(Condition condition) {
-        return new PushSubscription(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new PushSubscription(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -325,7 +326,7 @@ public class PushSubscription extends TableImpl<PushSubscriptionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public PushSubscription whereExists(Select<?> select) {
+    public PushSubscription whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -333,7 +334,7 @@ public class PushSubscription extends TableImpl<PushSubscriptionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public PushSubscription whereNotExists(Select<?> select) {
+    public PushSubscription whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

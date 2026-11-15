@@ -7,19 +7,21 @@ import java.util.Properties
 buildscript {
     repositories { mavenCentral() }
     dependencies {
-        // Testcontainers 2 아티팩트 이름(testcontainers-*)·버전을 테스트 의존성(Boot 4.0.9 BOM = 2.0.5)과 맞춘다(WP-1588).
+        // Testcontainers 2 아티팩트 이름(testcontainers-*)·버전을 테스트 의존성(Boot 4.1.2 BOM = 2.0.5)과 맞춘다(WP-1588).
         // buildscript 는 BOM 을 받지 않아 버전을 직접 적는다 — BOM 의 testcontainers.version 이 바뀌면 함께 올린다.
         classpath("org.testcontainers:testcontainers-postgresql:2.0.5")
-        classpath("org.flywaydb:flyway-core:11.20.3")
-        classpath("org.flywaydb:flyway-database-postgresql:11.20.3")
-        classpath("org.postgresql:postgresql:42.7.4")
-        classpath("org.jooq:jooq-codegen:3.19.35")
+        // Flyway·jOOQ 는 Boot 4.1.2 BOM(Flyway 12.4.0, jOOQ 3.21.9)과 같은 버전으로 맞춘다(WP-1608). BOM 이 바뀌면 함께 올린다.
+        classpath("org.flywaydb:flyway-core:12.4.0")
+        classpath("org.flywaydb:flyway-database-postgresql:12.4.0")
+        // PostgreSQL JDBC 는 Boot 4.1.2 BOM(42.7.14)과 같게 유지한다 — BOM 이 바뀌면 함께 올린다.
+        classpath("org.postgresql:postgresql:42.7.14")
+        classpath("org.jooq:jooq-codegen:3.21.9")
     }
 }
 
 plugins {
     java
-    id("org.springframework.boot") version "4.0.9"
+    id("org.springframework.boot") version "4.1.2"
     id("io.spring.dependency-management") version "1.1.7"
     id("com.diffplug.spotless") version "6.25.0"
     jacoco
@@ -33,20 +35,17 @@ jacoco {
 group = "com.workplace"
 version = "0.0.1-SNAPSHOT"
 
-// Flyway 를 Spring Boot BOM(4.0.9 = 11.14.1)이 아니라 11.20.3 으로 고정한다 (postgres 18):
-// PG18 정식 지원은 Flyway 11.20+ 부터라 BOM 버전은 "support has not been tested" 경고를 낸다.
-// Flyway 12 는 Boot 4.0 대상이 아니라(WP-1588 범위 밖) 11.x 최신 수정판에 머문다.
-// jOOQ 코드 생성 buildscript 의 flyway-core 버전과 맞춘다.
-extra["flyway.version"] = "11.20.3"
+// Flyway 는 Spring Boot 4.1.2 BOM(12.4.0)을 그대로 쓴다(WP-1608). 예전에 11.20.3 으로 고정한 이유는 둘이다:
+// PostgreSQL 18 공식 지원이 Flyway 11.20+ 부터라(Boot 4.0.9 BOM 의 11.14.1 은 "support has not been tested" 경고를 냈다)
+// 올려야 했고, Flyway 12 는 Boot 4.0 의 대상이 아니라 11 계열에서 골라야 했다. 4.1.2 BOM 의 12.4.0 은 PG18 을 지원해
+// (18.7 에서 경고 없음 확인) 고정을 풀고 BOM 값을 쓴다. jOOQ 코드 생성 buildscript 의 flyway-core 버전과 맞춘다.
 
 // 운영 이미지 trivy 검사(WP-1570·WP-1571)에서 나온 취약 의존성을 Spring Boot BOM 보다 높은 수정판으로 고정한다.
 // Boot BOM 이 이 버전 이상으로 올라오면 해당 줄을 지운다.
-// Boot 4.0.9(WP-1588)로 올리며 아래 고정은 지웠다.
+// Boot 4.0.9(WP-1588)로 올리며 아래 고정은 지웠고, Boot 4.1.2(WP-1608)로 올리며 httpcore5 고정도 지웠다(BOM 이 5.4.4).
 // - Tomcat: Boot 4 는 Tomcat 11 이라 옛 10.1.59 고정을 그대로 쓸 수 없다. BOM 의 11.0.27 을 쓴다(운영 이미지 trivy 로 재확인).
 // - Jackson 2: Boot 4 BOM 의 jackson-2-bom 이 이미 2.21.7 이다(jackson-bom 속성은 이제 Jackson 3 을 가리킨다).
 // - PostgreSQL JDBC: BOM 이 42.7.14 라 옛 고정(42.7.12)이 오히려 버전을 내린다.
-// HttpCore5 5.4.3 — httpcore5·httpcore5-h2 HIGH(링크 미리보기 HttpClient5 가 쓴다). Boot 4.0.9 BOM 은 5.3.6.
-extra["httpcore5.version"] = "5.4.3"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -57,15 +56,17 @@ repositories {
     mavenCentral()
 }
 
-// Jackson 3(tools.jackson)을 classpath 에서 뺀다(WP-1588). Boot 4 의 web·webmvc·restclient 스타터가 spring-boot-starter-jackson 으로
-// Jackson 3 을 끌어오는데, 정적 RestClient.builder()·new RestTemplate() 는 Boot 설정(preferred-json-mapper)을 거치지 않고
-// classpath 에 Jackson 3 이 있으면 그것을 먼저 고른다. 그러면 내부·외부 호출 응답을 Jackson 3 기본값(null → 기본형 실패 등)으로 읽어
-// Boot 3.5 때 잘 읽던 응답이 조용히 예외가 된다(OutboundJsonMapperTest). Jackson 2 를 유일한 매퍼로 두어 그 경로를 원천 차단한다.
-// Jackson 3 으로 전환할 때 이 제외를 지운다.
+// Boot 의 Jackson 3 자동 구성·스타터(spring-boot-starter-jackson, spring-boot-jackson)는 classpath 에서 뺀다(WP-1588).
+// 앱 매퍼와 서버 HTTP 변환기는 Jackson 2 를 유지한다(preferred-json-mapper=jackson2, Jackson 3 전환은 WP-1609).
+// Jackson 3(tools.jackson.core:jackson-databind) 자체는 classpath 에 있다 — Flyway 12 가 필수 의존으로 끌어오며,
+// 제외하면 Flyway 가 NoClassDefFoundError 로 못 뜬다(WP-1608).
+// 정적 RestClient.builder()·new RestTemplate() 는 Boot 설정을 거치지 않고 classpath 에 Jackson 3 이 있으면 그것을 먼저 골라
+// 응답을 Jackson 3 기본값으로 읽는다(OutboundJsonMapperTest). 이 경로는 classpath 가 아니라 OutboundJson.jackson2(builder)
+// 로 변환기를 Jackson 2 에 직접 고정해 막고, InternalHttpArchTest 가 감싸지 않은 새 호출 지점을 막는다.
+// Jackson 3 전환(WP-1609)에서 이 제외와 OutboundJson 고정을 함께 정리한다.
 configurations.all {
     exclude(group = "org.springframework.boot", module = "spring-boot-starter-jackson")
     exclude(group = "org.springframework.boot", module = "spring-boot-jackson")
-    exclude(group = "tools.jackson.core")
 }
 
 dependencies {
@@ -91,7 +92,8 @@ dependencies {
     // - spring-boot-jackson2: Boot 4 기본은 Jackson 3 이다. Jackson 2 를 유지하므로(Jackson 3 전환은 범위 밖)
     //   Jackson 2 ObjectMapper 자동 구성·@JsonComponent 를 따로 넣는다. jsr310·jdk8·parameter-names 모듈은 이것이 함께 끌어온다.
     //   HTTP 변환기도 Jackson 2 를 쓰게 application.yml 에 spring.http.converters.preferred-json-mapper=jackson2 를 둔다.
-    //   Jackson 3 자체는 위 configurations.all 에서 classpath 에서 뺀다.
+    //   Jackson 3 은 Flyway 12 가 필수 의존으로 끌어와 classpath 에 있다. Boot 의 Jackson 3 자동 구성·스타터만 제외하고,
+    //   정적 아웃바운드 RestClient 는 OutboundJson 으로 Jackson 2 로 고정한다(Jackson 3 전환은 WP-1609).
     implementation("org.eclipse.angus:angus-mail")
     implementation("org.springframework.boot:spring-boot-starter-restclient")
     implementation("org.springframework.boot:spring-boot-jackson2")
@@ -135,7 +137,7 @@ dependencies {
     // 아키텍처 정적 검사 — 컨트롤러 Repository 직접 주입 시 @Transactional 강제(#640, RLS fail-closed 재발 방지)
     testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
     // Testcontainers — 통합 테스트마다 격리된 Postgres(+pgvector) 컨테이너.
-    // 버전은 Spring Boot 4.0.9 BOM 관리(Testcontainers 2.x). 2.x 부터 모듈 아티팩트 이름에 testcontainers- 접두사가 붙는다.
+    // 버전은 Spring Boot 4.1.2 BOM 관리(Testcontainers 2.x). 2.x 부터 모듈 아티팩트 이름에 testcontainers- 접두사가 붙는다.
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-postgresql")

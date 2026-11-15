@@ -181,6 +181,6 @@ public class ProjectStatusRecord extends UpdatableRecordImpl<ProjectStatusRecord
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setColor(color);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

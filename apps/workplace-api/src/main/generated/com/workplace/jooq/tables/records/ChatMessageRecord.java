@@ -214,6 +214,6 @@ public class ChatMessageRecord extends UpdatableRecordImpl<ChatMessageRecord> {
         setTenantId(tenantId);
         setIsQuestion(isQuestion);
         setOptions(options);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

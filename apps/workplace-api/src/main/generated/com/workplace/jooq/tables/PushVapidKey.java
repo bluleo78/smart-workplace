@@ -21,10 +21,10 @@ import org.jooq.PlainSQL;
 import org.jooq.QueryPart;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -164,7 +164,7 @@ public class PushVapidKey extends TableImpl<PushVapidKeyRecord> {
      */
     @Override
     public PushVapidKey where(Condition condition) {
-        return new PushVapidKey(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new PushVapidKey(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -231,7 +231,7 @@ public class PushVapidKey extends TableImpl<PushVapidKeyRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public PushVapidKey whereExists(Select<?> select) {
+    public PushVapidKey whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -239,7 +239,7 @@ public class PushVapidKey extends TableImpl<PushVapidKeyRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public PushVapidKey whereNotExists(Select<?> select) {
+    public PushVapidKey whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

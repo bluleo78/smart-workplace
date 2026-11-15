@@ -202,6 +202,6 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
         setDeletedAt(deletedAt);
         setPurgeError(purgeError);
         setWikiExternalShareEnabled(wikiExternalShareEnabled);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

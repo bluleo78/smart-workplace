@@ -196,6 +196,6 @@ public class AiAgentCredentialRecord extends UpdatableRecordImpl<AiAgentCredenti
         setRevokedAt(revokedAt);
         setProvider(provider);
         setWorkspaceId(workspaceId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -475,6 +475,6 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         setPendingQuestionActions(pendingQuestionActions);
         setFollowUpTestBy(followUpTestBy);
         setQueuedAt(queuedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

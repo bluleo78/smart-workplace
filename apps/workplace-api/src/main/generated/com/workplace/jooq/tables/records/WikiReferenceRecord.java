@@ -136,6 +136,6 @@ public class WikiReferenceRecord extends UpdatableRecordImpl<WikiReferenceRecord
         setTargetType(targetType);
         setTargetId(targetId);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

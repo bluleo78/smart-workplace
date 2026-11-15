@@ -196,6 +196,6 @@ public class ProjectComponentRecord extends UpdatableRecordImpl<ProjectComponent
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

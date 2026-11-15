@@ -67,13 +67,13 @@ public final class InternalHttp {
    */
   public static RestClient.Builder restClient(
       String baseUrl, Duration connectTimeout, Duration readTimeout) {
-    return RestClient.builder()
+    return OutboundJson.restClientBuilder()
         .baseUrl(baseUrl)
         .requestFactory(requestFactory(connectTimeout, readTimeout));
   }
 
   /** 타임아웃 없는(JDK 기본) {@link #restClient(String, Duration, Duration)} — 기존에 팩토리를 지정하지 않던 호출 지점용. */
   public static RestClient.Builder restClient(String baseUrl) {
-    return RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory());
+    return OutboundJson.restClientBuilder().baseUrl(baseUrl).requestFactory(requestFactory());
   }
 }

@@ -226,6 +226,6 @@ public class ContactEntryRecord extends UpdatableRecordImpl<ContactEntryRecord> 
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

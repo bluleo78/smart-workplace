@@ -121,6 +121,6 @@ public class HomeMessageAttachmentRecord extends UpdatableRecordImpl<HomeMessage
         setAttachedBy(attachedBy);
         setAttachedAt(attachedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

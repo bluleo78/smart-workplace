@@ -33,10 +33,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -69,7 +69,7 @@ public class AgentLocation extends TableImpl<AgentLocationRecord> {
     /**
      * The column <code>public.agent_location.id</code>.
      */
-    public final TableField<AgentLocationRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<AgentLocationRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.agent_location.tenant_id</code>.
@@ -322,7 +322,7 @@ public class AgentLocation extends TableImpl<AgentLocationRecord> {
      */
     @Override
     public AgentLocation where(Condition condition) {
-        return new AgentLocation(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new AgentLocation(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -389,7 +389,7 @@ public class AgentLocation extends TableImpl<AgentLocationRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AgentLocation whereExists(Select<?> select) {
+    public AgentLocation whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -397,7 +397,7 @@ public class AgentLocation extends TableImpl<AgentLocationRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AgentLocation whereNotExists(Select<?> select) {
+    public AgentLocation whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

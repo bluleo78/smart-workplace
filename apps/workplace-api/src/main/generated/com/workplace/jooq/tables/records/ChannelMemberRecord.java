@@ -166,6 +166,6 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
         setTenantId(tenantId);
         setDirect(direct);
         setLastReadAt(lastReadAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

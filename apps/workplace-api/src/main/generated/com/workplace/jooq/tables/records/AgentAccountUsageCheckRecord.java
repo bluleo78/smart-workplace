@@ -181,6 +181,6 @@ public class AgentAccountUsageCheckRecord extends UpdatableRecordImpl<AgentAccou
         setErrorMessage(errorMessage);
         setLeaseUntil(leaseUntil);
         setLastUsedAt(lastUsedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -106,6 +106,6 @@ public class IssueWatcherRecord extends UpdatableRecordImpl<IssueWatcherRecord> 
         setUserId(userId);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

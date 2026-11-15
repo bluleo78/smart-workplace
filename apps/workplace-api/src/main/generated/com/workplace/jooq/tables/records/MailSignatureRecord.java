@@ -151,6 +151,6 @@ public class MailSignatureRecord extends UpdatableRecordImpl<MailSignatureRecord
         setAutoNew(autoNew);
         setAutoReply(autoReply);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

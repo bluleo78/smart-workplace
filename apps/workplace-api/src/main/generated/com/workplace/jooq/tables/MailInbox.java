@@ -16,12 +16,13 @@ import org.jooq.PlainSQL;
 import org.jooq.QueryPart;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -109,7 +110,7 @@ public class MailInbox extends TableImpl<MailInboxRecord> {
 
     private MailInbox(Name alias, Table<MailInboxRecord> aliased, Field<?>[] parameters, Condition where) {
         super(alias, null, aliased, parameters, DSL.comment("envelope-first 메일 받은편지함 뷰: email_content 직접 조회 금지 표면. account 소유 필터는 소비 쿼리에서 account_id 조건으로 추가한다."), TableOptions.view("""
-        create view "mail_inbox" as  SELECT m.id,
+        CREATE VIEW "mail_inbox" AS  SELECT m.id,
          m.account_id,
          m.folder_id,
          m.tenant_id,
@@ -195,7 +196,7 @@ public class MailInbox extends TableImpl<MailInboxRecord> {
      */
     @Override
     public MailInbox where(Condition condition) {
-        return new MailInbox(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new MailInbox(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -262,7 +263,7 @@ public class MailInbox extends TableImpl<MailInboxRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public MailInbox whereExists(Select<?> select) {
+    public MailInbox whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -270,7 +271,7 @@ public class MailInbox extends TableImpl<MailInboxRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public MailInbox whereNotExists(Select<?> select) {
+    public MailInbox whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

@@ -89,6 +89,6 @@ public class ProjectIssueSequenceRecord extends UpdatableRecordImpl<ProjectIssue
         setProjectId(projectId);
         setNextNumber(nextNumber);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

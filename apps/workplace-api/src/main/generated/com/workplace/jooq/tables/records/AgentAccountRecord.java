@@ -305,6 +305,6 @@ public class AgentAccountRecord extends UpdatableRecordImpl<AgentAccountRecord> 
         setLoginRevision(loginRevision);
         setServerRefreshReady(serverRefreshReady);
         setWorkspaceId(workspaceId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -212,6 +212,6 @@ public class HomeSessionRecord extends UpdatableRecordImpl<HomeSessionRecord> {
         setSummaryUptoMessageId(summaryUptoMessageId);
         setMemoryProcessedMessageId(memoryProcessedMessageId);
         setMemoryCleanupFailures(memoryCleanupFailures);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

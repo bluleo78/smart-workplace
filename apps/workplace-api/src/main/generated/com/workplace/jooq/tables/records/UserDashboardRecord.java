@@ -137,6 +137,6 @@ public class UserDashboardRecord extends UpdatableRecordImpl<UserDashboardRecord
         setWidgets(widgets);
         setUpdatedAt(updatedAt);
         setDevice(device);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -31,13 +31,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -318,7 +319,7 @@ public class AgentScreenSession extends TableImpl<AgentScreenSessionRecord> {
      */
     @Override
     public AgentScreenSession where(Condition condition) {
-        return new AgentScreenSession(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new AgentScreenSession(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -385,7 +386,7 @@ public class AgentScreenSession extends TableImpl<AgentScreenSessionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AgentScreenSession whereExists(Select<?> select) {
+    public AgentScreenSession whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -393,7 +394,7 @@ public class AgentScreenSession extends TableImpl<AgentScreenSessionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AgentScreenSession whereNotExists(Select<?> select) {
+    public AgentScreenSession whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

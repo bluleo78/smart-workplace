@@ -89,6 +89,6 @@ public class NotificationAppSettingRecord extends UpdatableRecordImpl<Notificati
         setUserId(userId);
         setApp(app);
         setEnabled(enabled);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

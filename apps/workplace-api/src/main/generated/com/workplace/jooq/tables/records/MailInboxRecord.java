@@ -200,6 +200,6 @@ public class MailInboxRecord extends TableRecordImpl<MailInboxRecord> {
         setBodyText(bodyText);
         setBodyHtml(bodyHtml);
         setThreadId(threadId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -151,6 +151,6 @@ public class WikiPageDocRecord extends UpdatableRecordImpl<WikiPageDocRecord> {
         setUpdatedAt(updatedAt);
         setBodyChangedAt(bodyChangedAt);
         setPendingEditorIds(pendingEditorIds);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

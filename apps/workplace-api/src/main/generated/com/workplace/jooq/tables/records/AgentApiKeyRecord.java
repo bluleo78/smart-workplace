@@ -256,6 +256,6 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
         setRotationGeneration(rotationGeneration);
         setTenantId(tenantId);
         setRetiringAt(retiringAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -33,10 +33,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -69,7 +69,7 @@ public class ProjectComponent extends TableImpl<ProjectComponentRecord> {
     /**
      * The column <code>public.project_component.id</code>.
      */
-    public final TableField<ProjectComponentRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<ProjectComponentRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.project_component.tenant_id</code>.
@@ -325,7 +325,7 @@ public class ProjectComponent extends TableImpl<ProjectComponentRecord> {
      */
     @Override
     public ProjectComponent where(Condition condition) {
-        return new ProjectComponent(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new ProjectComponent(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -392,7 +392,7 @@ public class ProjectComponent extends TableImpl<ProjectComponentRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public ProjectComponent whereExists(Select<?> select) {
+    public ProjectComponent whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -400,7 +400,7 @@ public class ProjectComponent extends TableImpl<ProjectComponentRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public ProjectComponent whereNotExists(Select<?> select) {
+    public ProjectComponent whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

@@ -250,6 +250,6 @@ public class SharedAiMemoryRecord extends UpdatableRecordImpl<SharedAiMemoryReco
         setUpdatedBy(updatedBy);
         setSearchTv(searchTv);
         setEmbedding(embedding);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

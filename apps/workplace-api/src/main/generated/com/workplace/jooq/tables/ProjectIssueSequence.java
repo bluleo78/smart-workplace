@@ -27,13 +27,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -226,7 +227,7 @@ public class ProjectIssueSequence extends TableImpl<ProjectIssueSequenceRecord> 
      */
     @Override
     public ProjectIssueSequence where(Condition condition) {
-        return new ProjectIssueSequence(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new ProjectIssueSequence(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -293,7 +294,7 @@ public class ProjectIssueSequence extends TableImpl<ProjectIssueSequenceRecord> 
      * Create an inline derived table from this table
      */
     @Override
-    public ProjectIssueSequence whereExists(Select<?> select) {
+    public ProjectIssueSequence whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -301,7 +302,7 @@ public class ProjectIssueSequence extends TableImpl<ProjectIssueSequenceRecord> 
      * Create an inline derived table from this table
      */
     @Override
-    public ProjectIssueSequence whereNotExists(Select<?> select) {
+    public ProjectIssueSequence whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

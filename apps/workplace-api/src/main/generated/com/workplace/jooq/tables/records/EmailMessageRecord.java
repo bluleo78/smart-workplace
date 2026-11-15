@@ -562,6 +562,6 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         setSeenPushNextAt(seenPushNextAt);
         setUserCategory(userCategory);
         setAiPersonalCategory(aiPersonalCategory);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

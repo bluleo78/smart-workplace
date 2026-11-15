@@ -257,6 +257,6 @@ public class FileSecurityCheckRecord extends UpdatableRecordImpl<FileSecurityChe
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
         setCriteriaVersion(criteriaVersion);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -136,6 +136,6 @@ public class WikiPageBodyHistoryRecord extends UpdatableRecordImpl<WikiPageBodyH
         setBody(body);
         setSubmittedBody(submittedBody);
         setReadAt(readAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

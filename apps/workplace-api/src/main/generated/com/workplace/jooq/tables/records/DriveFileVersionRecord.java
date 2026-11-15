@@ -181,6 +181,6 @@ public class DriveFileVersionRecord extends UpdatableRecordImpl<DriveFileVersion
         setCreatedAt(createdAt);
         setComment(comment);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

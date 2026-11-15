@@ -272,6 +272,6 @@ public class PersonalReportRecord extends UpdatableRecordImpl<PersonalReportReco
         setError(error);
         setReservedAt(reservedAt);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

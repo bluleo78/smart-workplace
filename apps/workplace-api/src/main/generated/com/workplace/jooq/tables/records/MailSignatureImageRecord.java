@@ -151,6 +151,6 @@ public class MailSignatureImageRecord extends UpdatableRecordImpl<MailSignatureI
         setMimeType(mimeType);
         setSizeBytes(sizeBytes);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

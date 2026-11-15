@@ -31,10 +31,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -67,7 +67,7 @@ public class EventAttendee extends TableImpl<EventAttendeeRecord> {
     /**
      * The column <code>public.event_attendee.id</code>.
      */
-    public final TableField<EventAttendeeRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<EventAttendeeRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.event_attendee.event_id</code>.
@@ -313,7 +313,7 @@ public class EventAttendee extends TableImpl<EventAttendeeRecord> {
      */
     @Override
     public EventAttendee where(Condition condition) {
-        return new EventAttendee(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new EventAttendee(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -380,7 +380,7 @@ public class EventAttendee extends TableImpl<EventAttendeeRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public EventAttendee whereExists(Select<?> select) {
+    public EventAttendee whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -388,7 +388,7 @@ public class EventAttendee extends TableImpl<EventAttendeeRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public EventAttendee whereNotExists(Select<?> select) {
+    public EventAttendee whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

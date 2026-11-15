@@ -10,7 +10,6 @@ import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.ChatThread.ChatThreadPath;
 import com.workplace.jooq.tables.Cycle.CyclePath;
-import com.workplace.jooq.tables.Issue.IssuePath;
 import com.workplace.jooq.tables.IssueAiSummary.IssueAiSummaryPath;
 import com.workplace.jooq.tables.IssueAssignee.IssueAssigneePath;
 import com.workplace.jooq.tables.IssueAttachment.IssueAttachmentPath;
@@ -59,10 +58,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -95,7 +94,7 @@ public class Issue extends TableImpl<IssueRecord> {
     /**
      * The column <code>public.issue.id</code>.
      */
-    public final TableField<IssueRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<IssueRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.issue.project_id</code>.
@@ -792,7 +791,7 @@ public class Issue extends TableImpl<IssueRecord> {
      */
     @Override
     public Issue where(Condition condition) {
-        return new Issue(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new Issue(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -859,7 +858,7 @@ public class Issue extends TableImpl<IssueRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public Issue whereExists(Select<?> select) {
+    public Issue whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -867,7 +866,7 @@ public class Issue extends TableImpl<IssueRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public Issue whereNotExists(Select<?> select) {
+    public Issue whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

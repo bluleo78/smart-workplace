@@ -121,6 +121,6 @@ public class ChatThreadRecord extends UpdatableRecordImpl<ChatThreadRecord> {
         setCreatedAt(createdAt);
         setArchivedAt(archivedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

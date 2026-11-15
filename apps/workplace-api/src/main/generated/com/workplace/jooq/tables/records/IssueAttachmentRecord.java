@@ -121,6 +121,6 @@ public class IssueAttachmentRecord extends UpdatableRecordImpl<IssueAttachmentRe
         setAttachedBy(attachedBy);
         setAttachedAt(attachedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -196,6 +196,6 @@ public class UserApiTokenRecord extends UpdatableRecordImpl<UserApiTokenRecord> 
         setCreatedAt(createdAt);
         setLastUsedAt(lastUsedAt);
         setRevokedAt(revokedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

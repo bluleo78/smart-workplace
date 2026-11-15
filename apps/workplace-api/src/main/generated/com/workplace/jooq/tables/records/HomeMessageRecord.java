@@ -270,6 +270,6 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         setEmbedding(embedding);
         setSpaceType(spaceType);
         setSpaceId(spaceId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

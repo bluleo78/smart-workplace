@@ -33,10 +33,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -69,7 +69,7 @@ public class AiMemoryChange extends TableImpl<AiMemoryChangeRecord> {
     /**
      * The column <code>public.ai_memory_change.id</code>.
      */
-    public final TableField<AiMemoryChangeRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<AiMemoryChangeRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.ai_memory_change.tenant_id</code>.
@@ -300,7 +300,7 @@ public class AiMemoryChange extends TableImpl<AiMemoryChangeRecord> {
      */
     @Override
     public AiMemoryChange where(Condition condition) {
-        return new AiMemoryChange(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new AiMemoryChange(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -367,7 +367,7 @@ public class AiMemoryChange extends TableImpl<AiMemoryChangeRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AiMemoryChange whereExists(Select<?> select) {
+    public AiMemoryChange whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -375,7 +375,7 @@ public class AiMemoryChange extends TableImpl<AiMemoryChangeRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AiMemoryChange whereNotExists(Select<?> select) {
+    public AiMemoryChange whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

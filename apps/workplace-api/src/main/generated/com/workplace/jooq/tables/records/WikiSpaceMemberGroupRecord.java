@@ -136,6 +136,6 @@ public class WikiSpaceMemberGroupRecord extends UpdatableRecordImpl<WikiSpaceMem
         setTenantId(tenantId);
         setAddedBy(addedBy);
         setAddedAt(addedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

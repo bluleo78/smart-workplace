@@ -196,6 +196,6 @@ public class IssueCommentRecord extends UpdatableRecordImpl<IssueCommentRecord> 
         setTenantId(tenantId);
         setImportedBy(importedBy);
         setImportedAt(importedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

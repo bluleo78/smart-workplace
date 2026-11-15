@@ -286,6 +286,6 @@ public class MailDraftRecord extends UpdatableRecordImpl<MailDraftRecord> {
         setVersion(version);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

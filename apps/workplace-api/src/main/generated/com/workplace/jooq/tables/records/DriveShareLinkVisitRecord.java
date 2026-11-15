@@ -166,6 +166,6 @@ public class DriveShareLinkVisitRecord extends UpdatableRecordImpl<DriveShareLin
         setFirstOpenedAt(firstOpenedAt);
         setLastOpenedAt(lastOpenedAt);
         setHiddenAt(hiddenAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

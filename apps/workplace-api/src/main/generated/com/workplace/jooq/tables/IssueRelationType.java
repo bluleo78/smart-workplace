@@ -31,13 +31,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -66,7 +67,7 @@ public class IssueRelationType extends TableImpl<IssueRelationTypeRecord> {
     /**
      * The column <code>public.issue_relation_type.id</code>.
      */
-    public final TableField<IssueRelationTypeRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<IssueRelationTypeRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.issue_relation_type.tenant_id</code>.
@@ -309,7 +310,7 @@ public class IssueRelationType extends TableImpl<IssueRelationTypeRecord> {
      */
     @Override
     public IssueRelationType where(Condition condition) {
-        return new IssueRelationType(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new IssueRelationType(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -376,7 +377,7 @@ public class IssueRelationType extends TableImpl<IssueRelationTypeRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueRelationType whereExists(Select<?> select) {
+    public IssueRelationType whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -384,7 +385,7 @@ public class IssueRelationType extends TableImpl<IssueRelationTypeRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueRelationType whereNotExists(Select<?> select) {
+    public IssueRelationType whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

@@ -30,10 +30,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -258,7 +258,7 @@ public class IssueVersion extends TableImpl<IssueVersionRecord> {
      */
     @Override
     public IssueVersion where(Condition condition) {
-        return new IssueVersion(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new IssueVersion(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -325,7 +325,7 @@ public class IssueVersion extends TableImpl<IssueVersionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueVersion whereExists(Select<?> select) {
+    public IssueVersion whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -333,7 +333,7 @@ public class IssueVersion extends TableImpl<IssueVersionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueVersion whereNotExists(Select<?> select) {
+    public IssueVersion whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

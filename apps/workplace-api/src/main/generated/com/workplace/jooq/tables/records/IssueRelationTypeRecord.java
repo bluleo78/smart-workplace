@@ -241,6 +241,6 @@ public class IssueRelationTypeRecord extends UpdatableRecordImpl<IssueRelationTy
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

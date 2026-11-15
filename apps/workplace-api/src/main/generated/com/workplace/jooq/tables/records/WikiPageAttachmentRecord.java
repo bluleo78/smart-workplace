@@ -136,6 +136,6 @@ public class WikiPageAttachmentRecord extends UpdatableRecordImpl<WikiPageAttach
         setAttachedBy(attachedBy);
         setAttachedAt(attachedAt);
         setDemotedAt(demotedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

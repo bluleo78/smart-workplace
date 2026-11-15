@@ -167,6 +167,6 @@ public class MilestoneRecord extends UpdatableRecordImpl<MilestoneRecord> {
         setDescription(description);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

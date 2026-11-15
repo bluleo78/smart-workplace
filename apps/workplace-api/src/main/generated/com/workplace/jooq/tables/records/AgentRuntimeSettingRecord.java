@@ -424,6 +424,6 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setUpdatedAt(updatedAt);
         setAgentIssueKeys(agentIssueKeys);
         setAcceptNewWork(acceptNewWork);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

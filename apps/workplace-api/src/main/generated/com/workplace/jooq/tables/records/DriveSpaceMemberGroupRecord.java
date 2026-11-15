@@ -136,6 +136,6 @@ public class DriveSpaceMemberGroupRecord extends UpdatableRecordImpl<DriveSpaceM
         setTenantId(tenantId);
         setAddedBy(addedBy);
         setAddedAt(addedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

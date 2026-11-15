@@ -153,6 +153,6 @@ public class AgentAccountBindingRecord extends UpdatableRecordImpl<AgentAccountB
         setBoundAt(boundAt);
         setVersionIdOverride(versionIdOverride);
         setOverrideSecretVersion(overrideSecretVersion);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }
