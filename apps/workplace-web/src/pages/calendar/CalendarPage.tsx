@@ -1,5 +1,5 @@
 import { addDays, addMonths, format, isSameMonth, startOfDay, startOfMonth } from 'date-fns'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -722,6 +722,18 @@ export function CalendarPage() {
                   <option key={v.key} value={v.key}>{v.label}</option>
                 ))}
               </select>
+              {/* 새 일정 — 첫 화면(목록)에도 만드는 입구가 보이게 도구 줄 끝에 둔다(WP-1607). ☰ 시트 안 [새 일정]만으로는 찾기 어려웠다.
+                  헤더에 두면 ＋ 만큼 제목 폭이 줄어 '2026년 12월' 같은 긴 제목이 잘린다. */}
+              <Button
+                size="icon"
+                aria-label="새 일정"
+                title="새 일정"
+                data-testid="calendar-mobile-new-event"
+                className="h-11 w-11 shrink-0"
+                onClick={() => openNew()}
+              >
+                <Plus />
+              </Button>
             </div>
           )}
 
