@@ -274,3 +274,78 @@ describe('채널 이름 변경 창 — 라벨과 Enter 저장 (WP-1615)', () => 
     expect(input).toHaveAttribute('aria-invalid', 'true')
   })
 })
+
+describe('채널 만들기 — Enter 로 만들기 (WP-1614)', () => {
+  // 이름 칸에서 Enter 를 누르면 「만들기」 단추를 누른 것과 같이 채널이 만들어져야 한다.
+  test('이름을 넣고 Enter 를 누르면 채널이 한 번 만들어지고 새 채널로 간다', async () => {
+    const bodies: unknown[] = []
+    const created = createChannel({ id: 11, name: '엔터채널', visibility: 'PUBLIC', role: 'OWNER' })
+    const { user, location } = renderScreen(<CreateChannelModal open onOpenChange={() => {}} />, {
+      path: '/chat',
+      handlers: [
+        http.post('/api/v1/messaging/channels', async ({ request }) => {
+          bodies.push(await request.json())
+          return HttpResponse.json(created, { status: 201 })
+        }),
+      ],
+    })
+    await user.click(await screen.findByTestId('create-channel-name'))
+    await user.paste('엔터채널')
+    await user.keyboard('{Enter}')
+
+    await waitFor(() => expect(location()).toBe('/chat/channels/11'))
+    expect(bodies).toEqual([{ name: '엔터채널', visibility: 'PUBLIC' }])
+  })
+
+  // 공백만 넣은 이름은 Enter 로도 만들지 않는다 — 단추가 비활성인 것과 같은 판정.
+  test('공백만 넣고 Enter 를 누르면 요청하지 않고 창이 그대로다', async () => {
+    // 요청이 들어오는 순간 센다 — 본문을 읽은 뒤 세면 비동기라 단언보다 늦게 늘어 회귀를 놓친다.
+    let posts = 0
+    const { user, location } = renderScreen(<CreateChannelModal open onOpenChange={() => {}} />, {
+      path: '/chat',
+      handlers: [
+        http.post('/api/v1/messaging/channels', () => {
+          posts += 1
+          return HttpResponse.json({}, { status: 201 })
+        }),
+      ],
+    })
+    await user.click(await screen.findByTestId('create-channel-name'))
+    await user.paste('   ')
+    await user.keyboard('{Enter}')
+    // 「일어나지 않음」 확인 — 요청이 나갔다면 도착할 만큼 잠시 기다린다.
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    expect(posts).toBe(0)
+    expect(screen.getByTestId('create-channel-modal')).toBeInTheDocument()
+    expect(location()).toBe('/chat')
+  })
+
+  // 같은 틱에 Enter 가 두 번 들어와도(Safari 229 Enter + 진짜 Enter, 빠른 연타) 한 번만 만든다 — isPending 은 다시 그린 뒤에야 바뀐다.
+  test('같은 틱에 Enter 를 두 번 눌러도 요청은 한 번이다', async () => {
+    const { held, release } = hold()
+    let posts = 0
+    const created = createChannel({ id: 12, name: '연타채널', visibility: 'PUBLIC', role: 'OWNER' })
+    const { user, location } = renderScreen(<CreateChannelModal open onOpenChange={() => {}} />, {
+      path: '/chat',
+      handlers: [
+        http.post('/api/v1/messaging/channels', async () => {
+          posts += 1
+          await held
+          return HttpResponse.json(created, { status: 201 })
+        }),
+      ],
+    })
+    const input = await screen.findByTestId('create-channel-name')
+    await user.click(input)
+    await user.paste('연타채널')
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await waitFor(() => expect(posts).toBe(1))
+    release()
+    await waitFor(() => expect(location()).toBe('/chat/channels/12'))
+    expect(posts).toBe(1)
+  })
+})
