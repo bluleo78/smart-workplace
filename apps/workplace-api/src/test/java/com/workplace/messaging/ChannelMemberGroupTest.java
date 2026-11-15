@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.api.DriveChannelSpacePort;
 import com.workplace.drive.api.DriveChannelSpacePort.ChannelMemberSnapshot;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
@@ -52,6 +50,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 비공개 채널 멤버에 조직도 부서(부서 자체)를 둔다(WP-1058).
@@ -122,10 +122,10 @@ class ChannelMemberGroupTest extends IntegrationTestBase {
   void sub_department_member_gets_row_and_can_read_and_post() throws Exception {
     JsonNode added = json(addGroup(devId, ownerId).andExpect(status().isCreated()));
     assertThat(added.get("groupId").asLong()).isEqualTo(devId);
-    assertThat(added.get("name").asText()).isEqualTo("개발팀-" + suffix);
+    assertThat(added.get("name").asString()).isEqualTo("개발팀-" + suffix);
     assertThat(added.get("memberCount").asInt()).isEqualTo(2); // 직속 1 + 하위 부서 1
-    assertThat(added.get("addedAt").isTextual()).isTrue(); // ISO 문자열(웹 계약)
-    assertThat(java.time.Instant.parse(added.get("addedAt").asText())).isNotNull();
+    assertThat(added.get("addedAt").isString()).isTrue(); // ISO 문자열(웹 계약)
+    assertThat(java.time.Instant.parse(added.get("addedAt").asString())).isNotNull();
 
     for (long user : List.of(devMemberId, backendMemberId)) {
       Record row = row(user);

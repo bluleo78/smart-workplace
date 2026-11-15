@@ -5,8 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.service.DriveFileService;
@@ -28,6 +26,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 통합 검색 팔레트(WP-1353)의 모든 공간 드라이브 이름 검색 — 멤버 공간만, 휴지통 제외, 폴더 먼저·경로·공간 이름, hasMore 페이지, 짧은 검색어 빈 결과.
@@ -100,13 +100,13 @@ class SearchDriveIT extends IntegrationTestBase {
     assertThat(items.get(1).get("id").asLong()).isEqualTo(named.id());
     assertThat(items.get(1).get("snippet").isNull()).isTrue();
     JsonNode hit = items.get(2);
-    assertThat(hit.get("kind").asText()).isEqualTo("FILE");
+    assertThat(hit.get("kind").asString()).isEqualTo("FILE");
     assertThat(hit.get("id").asLong()).isEqualTo(body.id());
-    assertThat(hit.get("name").asText()).isEqualTo("보고서.txt");
+    assertThat(hit.get("name").asString()).isEqualTo("보고서.txt");
     assertThat(hit.get("folderId").asLong()).isEqualTo(folder.id());
-    assertThat(hit.get("folderPath").asText()).isEqualTo("폴더-" + word);
+    assertThat(hit.get("folderPath").asString()).isEqualTo("폴더-" + word);
     // 줄바꿈은 한 칸 공백으로 펴고, 짧은 본문은 자르지 않아 「…」가 없다.
-    assertThat(hit.get("snippet").asText()).isEqualTo("첫 줄 둘째 줄에 " + word + " 이 들어 있다");
+    assertThat(hit.get("snippet").asString()).isEqualTo("첫 줄 둘째 줄에 " + word + " 이 들어 있다");
   }
 
   @Test
@@ -165,7 +165,7 @@ class SearchDriveIT extends IntegrationTestBase {
     String filler = "가".repeat(500);
     extracted(f, filler + " " + word + " " + filler);
 
-    String snippet = search(me, word, null, null).get("items").get(0).get("snippet").asText();
+    String snippet = search(me, word, null, null).get("items").get(0).get("snippet").asString();
 
     // 맞은 곳 앞뒤로 잘려 양쪽에 「…」, 맞은 낱말이 들어 있고, 긴 본문 전체가 오지 않는다.
     assertThat(snippet).startsWith("…").endsWith("…").contains(word);
@@ -200,7 +200,7 @@ class SearchDriveIT extends IntegrationTestBase {
     JsonNode r = search(me, word, null, null);
 
     assertThat(r.get("items")).hasSize(1);
-    assertThat(r.get("items").get(0).get("name").asText()).isEqualTo(word + "-mine.txt");
+    assertThat(r.get("items").get(0).get("name").asString()).isEqualTo(word + "-mine.txt");
   }
 
   @Test
@@ -215,7 +215,7 @@ class SearchDriveIT extends IntegrationTestBase {
     JsonNode r = search(me, word, null, null);
 
     assertThat(r.get("items")).hasSize(1);
-    assertThat(r.get("items").get(0).get("name").asText()).isEqualTo(word + "-live.txt");
+    assertThat(r.get("items").get(0).get("name").asString()).isEqualTo(word + "-live.txt");
   }
 
   @Test
@@ -229,19 +229,19 @@ class SearchDriveIT extends IntegrationTestBase {
 
     assertThat(items).hasSize(2);
     JsonNode first = items.get(0);
-    assertThat(first.get("kind").asText()).isEqualTo("FOLDER");
+    assertThat(first.get("kind").asString()).isEqualTo("FOLDER");
     assertThat(first.get("id").asLong()).isEqualTo(hitFolder.id());
     assertThat(first.get("folderId").asLong()).isEqualTo(a.id());
-    assertThat(first.get("folderPath").asText()).isEqualTo("프로젝트");
+    assertThat(first.get("folderPath").asString()).isEqualTo("프로젝트");
     assertThat(first.get("mimeType").isNull()).isTrue();
     JsonNode second = items.get(1);
-    assertThat(second.get("kind").asText()).isEqualTo("FILE");
+    assertThat(second.get("kind").asString()).isEqualTo("FILE");
     assertThat(second.get("id").asLong()).isEqualTo(f.id());
     assertThat(second.get("spaceId").asLong()).isEqualTo(mySpace);
-    assertThat(second.get("spaceName").asText()).startsWith("내공간-");
+    assertThat(second.get("spaceName").asString()).startsWith("내공간-");
     assertThat(second.get("folderId").asLong()).isEqualTo(b.id());
-    assertThat(second.get("mimeType").asText()).isEqualTo("text/plain");
-    assertThat(second.get("folderPath").asText()).isEqualTo("프로젝트/문서");
+    assertThat(second.get("mimeType").asString()).isEqualTo("text/plain");
+    assertThat(second.get("folderPath").asString()).isEqualTo("프로젝트/문서");
   }
 
   @Test
@@ -249,7 +249,7 @@ class SearchDriveIT extends IntegrationTestBase {
     file(me, mySpace, null, word + ".txt");
     JsonNode item = search(me, word, null, null).get("items").get(0);
     assertThat(item.get("folderId").isNull()).isTrue();
-    assertThat(item.get("folderPath").asText()).isEmpty();
+    assertThat(item.get("folderPath").asString()).isEmpty();
   }
 
   @Test
@@ -261,7 +261,7 @@ class SearchDriveIT extends IntegrationTestBase {
 
     // 「_」 는 글자 그대로 — 「ab…」 와 맞지 않는다.
     assertThat(items).hasSize(1);
-    assertThat(items.get(0).get("name").asText()).isEqualTo("a_" + word + ".txt");
+    assertThat(items.get(0).get("name").asString()).isEqualTo("a_" + word + ".txt");
   }
 
   @Test

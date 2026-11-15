@@ -6,8 +6,6 @@ import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -25,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 404 존재 은닉(WP-558) — 비멤버에게 「볼 수 없는 페이지·공간」과 「없는 페이지·공간」이 같은 404 안내여야 한다. 응답이 다르면 페이지 존재와 소속 공간
@@ -80,8 +80,10 @@ class WikiNotFoundOracleTest extends IntegrationTestBase {
             "/api/v1/wiki/pages/{id}/backlinks")) {
       JsonNode foreign = notFound(path, pageId);
       JsonNode none = notFound(path, missing);
-      assertThat(foreign.get("message").asText()).as(path).isEqualTo(none.get("message").asText());
-      assertThat(foreign.get("message").asText()).as(path).doesNotContainPattern("\\d");
+      assertThat(foreign.get("message").asString())
+          .as(path)
+          .isEqualTo(none.get("message").asString());
+      assertThat(foreign.get("message").asString()).as(path).doesNotContainPattern("\\d");
     }
   }
 
@@ -91,9 +93,9 @@ class WikiNotFoundOracleTest extends IntegrationTestBase {
     JsonNode foreign = notFound("/api/v1/wiki/spaces/{id}/pages", spaceId);
     JsonNode none = notFound("/api/v1/wiki/spaces/{id}/pages", spaceId + 1_000_000);
     JsonNode page = notFound("/api/v1/wiki/pages/{id}", pageId);
-    assertThat(foreign.get("message").asText())
-        .isEqualTo(none.get("message").asText())
-        .isEqualTo(page.get("message").asText())
+    assertThat(foreign.get("message").asString())
+        .isEqualTo(none.get("message").asString())
+        .isEqualTo(page.get("message").asString())
         .doesNotContainPattern("\\d");
   }
 

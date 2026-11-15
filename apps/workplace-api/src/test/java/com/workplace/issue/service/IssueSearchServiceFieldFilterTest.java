@@ -5,7 +5,6 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest.FieldValueInput;
@@ -22,6 +21,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /** Phase 4c — IssueSearchService 의 fieldId/fieldValue 동등 비교 필터 + customFields 응답 batch. */
 @Transactional

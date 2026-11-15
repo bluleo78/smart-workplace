@@ -1,8 +1,5 @@
 package com.workplace.issue.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AssistantResolver;
@@ -59,6 +56,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 이슈의 반복 AI 작업(WP-989, 「실행 일정」). 이슈에 반복 규칙을 붙이면 정한 시각(KST)마다 담당 AI 에게 회차 실행 이벤트를 보내고, AI 의 결과 보고를 그
@@ -1103,7 +1103,7 @@ public class IssueRecurrenceService {
       if (json.length() <= PAUSED_ACTIONS_MAX_CHARS) return json;
       return objectMapper.writeValueAsString(
           kept.stream().map(a -> new RecurringPausedAction(a.tool(), null)).toList());
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("멈춘 쓰기 목록을 저장하지 못했습니다", e);
     }
   }
@@ -1113,7 +1113,7 @@ public class IssueRecurrenceService {
     if (json == null || json.isBlank()) return List.of();
     try {
       return om.readValue(json, new TypeReference<List<RecurringPausedAction>>() {});
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       log.warn("[recurrence] 멈춘 쓰기 목록을 읽지 못했습니다 — 허락 없이 이어 처리한다", e);
       return List.of();
     }

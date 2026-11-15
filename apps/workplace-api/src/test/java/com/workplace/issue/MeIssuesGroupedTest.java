@@ -3,8 +3,6 @@ package com.workplace.issue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.MeIssuesTestFixtures.ProjectRef;
 import com.workplace.issue.dto.IssueCursor;
@@ -22,6 +20,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-915: /me/issues 프로젝트 묶음 정렬(opt-in, group=due|recent). 한 프로젝트의 행이 페이지를 넘어서도 이어지고, 묶음 순서·묶음 안
@@ -94,7 +94,7 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
     JsonNode shown = getJson(DUE + "&size=100");
     assertThat(ids(shown)).hasSize(4);
     shown.get("items").forEach(it -> assertThat(it.at("/projectGroup/size").asInt()).isEqualTo(4));
-    assertThat(shown.at("/items/0/projectGroup/name").asText()).isEqualTo("P");
+    assertThat(shown.at("/items/0/projectGroup/name").asString()).isEqualTo("P");
   }
 
   @Test
@@ -109,8 +109,8 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
     JsonNode hidden = getJson(DUE + "&hideClosed=true&size=100");
     assertThat(ids(hidden)).containsExactly(review);
     // 행의 상태 이름·색은 상태 조인에서 온다(WP-870) — 범주 코드가 아니라 사람이 정한 이름.
-    assertThat(hidden.at("/items/0/statusName").asText()).isEqualTo("검토 중");
-    assertThat(hidden.at("/items/0/statusColor").asText()).isEqualTo("PURPLE");
+    assertThat(hidden.at("/items/0/statusName").asString()).isEqualTo("검토 중");
+    assertThat(hidden.at("/items/0/statusColor").asString()).isEqualTo("PURPLE");
 
     assertThat(ids(getJson(DUE + "&size=100"))).containsExactly(review, shipped);
   }
@@ -193,10 +193,10 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
 
     JsonNode first = getJson(DUE + "&size=2");
     assertThat(first.get("items")).hasSize(2);
-    assertThat(first.at("/items/1/projectKey").asText()).isEqualTo(p.key());
+    assertThat(first.at("/items/1/projectKey").asString()).isEqualTo(p.key());
     assertThat(first.at("/items/1/projectGroup/size").asInt()).isEqualTo(3);
-    JsonNode second = getJson(DUE + "&size=2&cursor=" + first.get("nextCursor").asText());
-    assertThat(second.at("/items/0/projectKey").asText()).isEqualTo(p.key());
+    JsonNode second = getJson(DUE + "&size=2&cursor=" + first.get("nextCursor").asString());
+    assertThat(second.at("/items/0/projectKey").asString()).isEqualTo(p.key());
     assertThat(second.at("/items/0/projectGroup/size").asInt()).isEqualTo(3);
     assertThat(second.at("/items/1/projectGroup/size").asInt()).isEqualTo(1);
   }
@@ -216,7 +216,7 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
     assertThat(all.at("/items/0/projectGroup").isMissingNode()).isTrue();
 
     JsonNode first = getJson("/api/v1/me/issues?assignee=me&size=2");
-    String next = first.get("nextCursor").asText();
+    String next = first.get("nextCursor").asString();
     assertThat(IssueCursor.decode(next).id()).isEqualTo(a2);
   }
 
@@ -229,7 +229,7 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
     // 다른 묶음 기준의 커서도 400 — RECENT 커서를 DUE 에 보내면 묶음 키가 비어 있다.
     open(p, "p2", null, t(2));
     JsonNode recent = getJson("/api/v1/me/issues?assignee=me&group=recent&size=1");
-    assertThat(status(DUE + "&cursor=" + recent.get("nextCursor").asText())).isEqualTo(400);
+    assertThat(status(DUE + "&cursor=" + recent.get("nextCursor").asString())).isEqualTo(400);
   }
 
   // WP-1586: 커서 시각이 앱 공통 범위 밖이면 400 — 기본 목록(IssueCursor)은 10000년도 200 으로 받았고, 묶음 커서는 atOffset 에서
@@ -274,7 +274,7 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
       out.addAll(ids(page));
       JsonNode next = page.get("nextCursor");
       if (next == null || next.isNull()) return out;
-      cursor = next.asText();
+      cursor = next.asString();
     }
     throw new AssertionError("커서 순회가 끝나지 않았다");
   }
@@ -312,7 +312,7 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
     page.get("items")
         .forEach(
             it -> {
-              String k = it.get("projectKey").asText();
+              String k = it.get("projectKey").asString();
               if (out.isEmpty() || !out.get(out.size() - 1).equals(k)) out.add(k);
             });
     return out;

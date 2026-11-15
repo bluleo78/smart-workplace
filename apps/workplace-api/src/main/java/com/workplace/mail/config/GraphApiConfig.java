@@ -1,11 +1,11 @@
 package com.workplace.mail.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphCalendarClient;
 import java.net.http.HttpClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Graph API 관련 스프링 빈 구성.

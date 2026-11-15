@@ -6,8 +6,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
@@ -33,6 +31,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 통합 검색 팔레트(WP-1358)의 메시지 본문 검색 — 내가 멤버인 채널·DM 만, 보관 채널·삭제 메시지 제외, 스레드 답글 포함, 대소문자 무시·와일드카드 글자 그대로,
@@ -104,13 +104,13 @@ class SearchMessagesIT extends IntegrationTestBase {
     JsonNode hit = items.get(0);
     assertThat(hit.get("id").asLong()).isEqualTo(mine);
     assertThat(hit.get("channelId").asLong()).isEqualTo(myChannel);
-    assertThat(hit.get("channelKind").asText()).isEqualTo("CHANNEL");
-    assertThat(hit.get("channelName").asText()).isEqualTo("srch-" + s);
-    assertThat(hit.get("authorName").asText()).isEqualTo(nameOf(me));
-    assertThat(hit.get("authorKind").asText()).isEqualTo("HUMAN");
+    assertThat(hit.get("channelKind").asString()).isEqualTo("CHANNEL");
+    assertThat(hit.get("channelName").asString()).isEqualTo("srch-" + s);
+    assertThat(hit.get("authorName").asString()).isEqualTo(nameOf(me));
+    assertThat(hit.get("authorKind").asString()).isEqualTo("HUMAN");
     assertThat(hit.get("parentMessageId").isNull()).isTrue();
-    assertThat(hit.get("excerpt").asText()).isEqualTo("내 채널 " + word);
-    assertThat(hit.get("createdAt").isTextual()).isTrue();
+    assertThat(hit.get("excerpt").asString()).isEqualTo("내 채널 " + word);
+    assertThat(hit.get("createdAt").isString()).isTrue();
   }
 
   @Test
@@ -144,7 +144,7 @@ class SearchMessagesIT extends IntegrationTestBase {
 
     assertThat(items).hasSize(2);
     assertThat(items.get(0).get("id").asLong()).isEqualTo(agentMsg);
-    assertThat(items.get(0).get("authorKind").asText()).isEqualTo("AGENT");
+    assertThat(items.get(0).get("authorKind").asString()).isEqualTo("AGENT");
     assertThat(items.get(1).get("id").asLong()).isEqualTo(reply);
     assertThat(items.get(1).get("parentMessageId").asLong()).isEqualTo(root);
   }
@@ -198,8 +198,8 @@ class SearchMessagesIT extends IntegrationTestBase {
                 get("/api/v1/search/messages")
                     .param("q", word)
                     .param("size", "2")
-                    .param("beforeAt", last.get("createdAt").asText())
-                    .param("beforeId", last.get("id").asText()),
+                    .param("beforeAt", last.get("createdAt").asString())
+                    .param("beforeId", last.get("id").asString()),
                 me));
     assertThat(p2.get("items")).extracting(n -> n.get("id").asLong()).containsExactly(ids.get(0));
     assertThat(p2.get("hasMore").asBoolean()).isFalse();
@@ -212,10 +212,10 @@ class SearchMessagesIT extends IntegrationTestBase {
 
     JsonNode hit = search(me, word, null).get("items").get(0);
 
-    assertThat(hit.get("channelKind").asText()).isEqualTo("DM");
+    assertThat(hit.get("channelKind").asString()).isEqualTo("DM");
     assertThat(hit.get("channelId").asLong()).isEqualTo(dm);
-    assertThat(hit.get("channelName").asText()).isEqualTo(nameOf(other));
-    assertThat(hit.get("authorName").asText()).isEqualTo(nameOf(other));
+    assertThat(hit.get("channelName").asString()).isEqualTo(nameOf(other));
+    assertThat(hit.get("authorName").asString()).isEqualTo(nameOf(other));
   }
 
   @Test
@@ -223,7 +223,7 @@ class SearchMessagesIT extends IntegrationTestBase {
     String body = "가".repeat(200) + "\n" + word + "\n" + "나".repeat(200);
     post(me, myChannel, body);
 
-    String excerpt = search(me, word, null).get("items").get(0).get("excerpt").asText();
+    String excerpt = search(me, word, null).get("items").get(0).get("excerpt").asString();
 
     assertThat(excerpt)
         .startsWith("…")
@@ -238,7 +238,7 @@ class SearchMessagesIT extends IntegrationTestBase {
     String body = "다".repeat(80) + " " + word + " 끝";
     post(me, myChannel, body);
 
-    String excerpt = search(me, word, null).get("items").get(0).get("excerpt").asText();
+    String excerpt = search(me, word, null).get("items").get(0).get("excerpt").asString();
 
     assertThat(excerpt).startsWith("…").contains(word);
     assertThat(excerpt.indexOf(word)).isLessThan(30);

@@ -10,8 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationResponse;
@@ -49,6 +47,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 공유 알림(WP-579 Task 8) — 「공유받음」·「접근 요청」·「접근 승인」 알림 생성(받는 사람·본인 제외), 목록의 페이지 제목·메시지, 푸시 문구·경로,
@@ -428,7 +428,7 @@ class WikiShareNotificationTest extends IntegrationTestBase {
     JsonNode recipient = json(call(get(entry(rootId)), listedId).andExpect(status().isOk()));
     assertThat(recipient.get("spaceId").asLong()).isEqualTo(spaceId);
     assertThat(recipient.get("member").asBoolean()).isFalse();
-    assertThat(recipient.get("shareToken").asText()).isEqualTo(token);
+    assertThat(recipient.get("shareToken").asString()).isEqualTo(token);
 
     // 지정한 사람이 아니면 페이지가 있는지도 알려 주지 않는다.
     call(get(entry(rootId)), strangerId).andExpect(status().isNotFound());
@@ -441,7 +441,7 @@ class WikiShareNotificationTest extends IntegrationTestBase {
     assertThat(widened).isEqualTo(token);
     JsonNode viaRoot = json(call(get(entry(childId)), listedId).andExpect(status().isOk()));
     assertThat(viaRoot.get("member").asBoolean()).isFalse();
-    assertThat(viaRoot.get("shareToken").asText()).isEqualTo(token);
+    assertThat(viaRoot.get("shareToken").asString()).isEqualTo(token);
 
     // 지정에서 빠지면 다시 404.
     savePeople(rootId, true, List.of(otherListedId));
@@ -494,7 +494,7 @@ class WikiShareNotificationTest extends IntegrationTestBase {
                         .content(om.writeValueAsString(body)),
                     ownerId)
                 .andExpect(status().isOk()));
-    return saved.get("token").asText();
+    return saved.get("token").asString();
   }
 
   /** 소유자가 조직도 부서만 지정한 PEOPLE 공유(하위 포함)를 저장한다(WP-1023). 알림 보내기 없음. */

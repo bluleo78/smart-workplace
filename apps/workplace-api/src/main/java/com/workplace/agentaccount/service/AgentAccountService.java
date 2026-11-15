@@ -1,7 +1,5 @@
 package com.workplace.agentaccount.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AccountUsage;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountResponse;
@@ -29,6 +27,7 @@ import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AnthropicCredentialVerifier;
 import com.workplace.auth.service.AnthropicKeys;
 import com.workplace.auth.service.LoginInfoNormalizer;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.Texts;
@@ -49,6 +48,8 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.exception.IntegrityConstraintViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * AI 계정 목록 서비스(WP-1448) — 팀 AI(작업 공간 Pod)가 쓰는 키(Claude 구독 토큰·ChatGPT/Gen:iA 로그인 정보·OpenAI 호환 설정)를
@@ -85,8 +86,8 @@ public class AgentAccountService {
   /** 같은 키 유일 인덱스(V274) — 동시 등록 경합에서 DB 위반을 409 로 옮길 때 이름으로 가린다. */
   private static final String FINGERPRINT_INDEX = "uq_agent_account_fingerprint";
 
-  /** 지문 계산용 JSON 파서 — 정적 함수({@link #fingerprint})가 쓰므로 빈이 아닌 자체 인스턴스. */
-  private static final ObjectMapper JSON = new ObjectMapper();
+  /** 지문 계산용 JSON 파서 — 정적 함수({@link #fingerprint})가 쓰므로 빈이 아닌 공유 Jackson 2 호환 매퍼. */
+  private static final ObjectMapper JSON = JsonMappers.JACKSON2;
 
   private final AgentAccountRepository accounts;
   private final AgentAccountBindingRepository bindings;

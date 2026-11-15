@@ -1,9 +1,9 @@
 package com.workplace.action;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 공용 확인 액션 실행 진입점. @Transactional 로 RLS GUC 를 주입한 뒤 ConfirmActionDispatcher 로 위임한다 (비-tx 호출 시 GUC

@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.MESSAGE_ATTACHMENT;
 import static com.workplace.jooq.Tables.USER;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.MentionResponse;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.messaging.dto.LastMessageSummary;
@@ -23,6 +22,7 @@ import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 채널별 마지막 메시지 요약 배치 조회(WP-135 모바일 목록 미리보기). N+1 없이 쿼리 1개 + 멘션 hydrate.

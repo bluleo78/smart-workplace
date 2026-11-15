@@ -1,9 +1,8 @@
 package com.workplace.drive.outbound;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.fileai.outbound.WorkerProperties;
 import com.workplace.global.ai.TextEmbedder;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.outbound.InternalHttp;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,6 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 검색 쿼리를 워커로 동기 임베딩(/embed-query). 5s 타임아웃, LRU 캐시(200/사실상 짧은 수명), 실패 시 empty → 호출부가 키워드 전용으로 우아하게
@@ -34,7 +35,7 @@ public class WorkerEmbedClient implements TextEmbedder {
 
   private final WorkerProperties props;
   private final HttpClient http;
-  private final ObjectMapper mapper = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
   // 최근 쿼리 임베딩 LRU(동일 쿼리 반복 시 워커 왕복 회피).
   private final Map<String, float[]> cache =
       Collections.synchronizedMap(
@@ -97,20 +98,20 @@ public class WorkerEmbedClient implements TextEmbedder {
               .header("Content-Type", "application/json")
               .POST(
                   HttpRequest.BodyPublishers.ofString(
-                      mapper.writeValueAsString(Map.of("text", text))))
+                      MAPPER.writeValueAsString(Map.of("text", text))))
               .build();
       HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
       if (resp.statusCode() != 200) {
         log.warn("embed-query 비정상 응답: status={} body={}", resp.statusCode(), resp.body());
         return Optional.empty();
       }
-      JsonNode arr = mapper.readTree(resp.body()).get("embedding");
+      JsonNode arr = MAPPER.readTree(resp.body()).get("embedding");
       if (arr == null || !arr.isArray()) {
         return Optional.empty();
       }
       float[] vec = new float[arr.size()];
       for (int i = 0; i < arr.size(); i++) {
-        vec[i] = (float) arr.get(i).asDouble();
+        vec[i] = (float) arr.get(i).asDouble(0.0);
       }
       return Optional.of(vec);
     } catch (Exception e) {

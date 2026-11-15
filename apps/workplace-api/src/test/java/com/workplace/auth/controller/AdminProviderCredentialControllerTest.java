@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.support.IntegrationTestBase;
@@ -27,6 +26,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 멀티 프로바이더(#opencode) 확장: AdminProviderCredentialController 통합 테스트 — 권한/HTTP/응답 형태 검증. 구

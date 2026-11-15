@@ -1,7 +1,5 @@
 package com.workplace.messaging.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.dto.AiProgressStep;
@@ -56,6 +54,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** 메시지 작성/조회 + MessageCreatedEvent 발행 (AFTER_COMMIT SSE fan-out). */
 @Service
@@ -504,14 +504,14 @@ public class MessageService {
       p = objectMapper.createObjectNode();
     }
     // L3 후보 라우팅: payload 에 저장된 projectKey + candidates 배열 복원.
-    String projectKey = p.path("projectKey").asText(null);
+    String projectKey = p.path("projectKey").asString(null);
     java.util.List<com.workplace.messaging.dto.ProjectCandidateDto> cands =
         new java.util.ArrayList<>();
     if (p.has("candidates") && p.get("candidates").isArray()) {
       for (JsonNode c : p.get("candidates")) {
         cands.add(
             new com.workplace.messaging.dto.ProjectCandidateDto(
-                c.path("key").asText(null), c.path("name").asText(null)));
+                c.path("key").asString(null), c.path("name").asString(null)));
       }
     }
     // 일정(calendar.create_event) 전용 필드 — payload 에서 추출(없으면 null).
@@ -521,10 +521,10 @@ public class MessageService {
       for (JsonNode c : p.get("conflicts")) {
         conflicts.add(
             new com.workplace.messaging.dto.EventConflictDto(
-                c.path("id").asLong(),
-                c.path("title").asText(null),
-                c.path("startsAt").asText(null),
-                c.path("endsAt").asText(null)));
+                c.path("id").asLong(0L),
+                c.path("title").asString(null),
+                c.path("startsAt").asString(null),
+                c.path("endsAt").asString(null)));
       }
     }
 
@@ -532,7 +532,7 @@ public class MessageService {
     List<ProposalAttendeeDto> attendees = new ArrayList<>();
     for (JsonNode a : p.path("attendees")) {
       attendees.add(
-          new ProposalAttendeeDto(a.path("userId").asLong(), a.path("name").asText(null)));
+          new ProposalAttendeeDto(a.path("userId").asLong(0L), a.path("name").asString(null)));
     }
 
     return new MessageProposalResponse(
@@ -540,15 +540,15 @@ public class MessageService {
         r.proposedByUserId(),
         r.actionType(),
         r.status(),
-        p.path("title").asText(null),
-        p.path("priority").asText(null),
-        p.path("projectName").asText(null),
+        p.path("title").asString(null),
+        p.path("priority").asString(null),
+        p.path("projectName").asString(null),
         r.resultIssueKey(),
         projectKey,
         cands,
-        p.path("startsAt").asText(null),
-        p.path("endsAt").asText(null),
-        p.path("location").asText(null),
+        p.path("startsAt").asString(null),
+        p.path("endsAt").asString(null),
+        p.path("location").asString(null),
         p.has("allDay") ? p.path("allDay").asBoolean(false) : null,
         conflicts.isEmpty() ? null : conflicts,
         attendees.isEmpty() ? null : attendees);

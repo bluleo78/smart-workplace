@@ -5,7 +5,6 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.service.AgentWorkService;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.repository.UserRepository;
@@ -16,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 외부 실행 AI 구성원을 담당자로 두면 "시작 전"(SUBMITTED) 작업이 만들어지고, 첫 보고가 같은 행을 작업 중(WORKING)으로 이어 쓴다(WP-377, A2A
@@ -313,7 +313,7 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
       if (id == submitted) {
         submittedAt = i;
         var work = items.get("items").get(i).at("/agentWork/0");
-        assertThat(work.get("state").asText()).isEqualTo("SUBMITTED");
+        assertThat(work.get("state").asString()).isEqualTo("SUBMITTED");
         assertThat(work.get("stale").asBoolean()).isFalse();
       }
     }

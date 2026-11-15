@@ -1,8 +1,5 @@
 package com.workplace.issue.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.issue.domain.IssueKeys;
@@ -36,6 +33,9 @@ import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * 이슈 사이 관계(WP-887) — 관련·중복·복제·원인과 사용자 정의 유형을 같은·다른 프로젝트 이슈와 걸고 지우고, 상세 목록·이력 가림·관계 대상 찾기를 맡는다.
@@ -278,8 +278,8 @@ public class IssueRelationService {
     boolean changed = false;
     for (String side : List.of("from", "to")) {
       JsonNode keyNode = payload.path(side).path("projectKey");
-      if (keyNode.isTextual()
-          && !readableByKey.computeIfAbsent(keyNode.asText(), k -> canReadKey(k, viewerId))) {
+      if (keyNode.isString()
+          && !readableByKey.computeIfAbsent(keyNode.asString(""), k -> canReadKey(k, viewerId))) {
         payload.set(side, objectMapper.createObjectNode().put("hidden", true));
         changed = true;
       }
@@ -313,8 +313,8 @@ public class IssueRelationService {
       payload = objectMapper.createObjectNode();
     }
     JsonNode keyNode = payload.path("other").path("projectKey");
-    if (keyNode.isTextual()
-        && readableByKey.computeIfAbsent(keyNode.asText(), k -> canReadKey(k, viewerId))) {
+    if (keyNode.isString()
+        && readableByKey.computeIfAbsent(keyNode.asString(""), k -> canReadKey(k, viewerId))) {
       return h;
     }
     payload.set("other", objectMapper.createObjectNode().put("hidden", true));

@@ -17,7 +17,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.cycle.dto.CreateCycleRequest;
 import com.workplace.cycle.dto.CycleCompleteRequest;
 import com.workplace.cycle.dto.CycleCompleteRequest.Destination;
@@ -42,6 +41,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * POST /api/v1/projects/{key}/cycles/{cycleId}/complete 엔드포인트 테스트(WP-1578).

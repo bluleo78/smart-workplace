@@ -7,8 +7,6 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.config.M365GraphProperties;
 import com.workplace.mail.exception.MailSendException;
 import java.io.ByteArrayOutputStream;
@@ -23,6 +21,8 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /** GraphApiClient 쓰기 메서드(post/delete) 단위 테스트 — HttpClient 를 모킹해 상태코드 처리를 검증한다. */
 class GraphApiClientWriteTest {
@@ -47,7 +47,8 @@ class GraphApiClientWriteTest {
   @Test
   void post_parses_2xx_body() throws Exception {
     HttpClient http = clientReturning(201, "{\"id\":\"AAA123\"}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     CreatedId out = api.post("tok", "/me/calendars/c1/events", "{}", CreatedId.class);
     assertThat(out.id()).isEqualTo("AAA123");
   }
@@ -55,7 +56,8 @@ class GraphApiClientWriteTest {
   @Test
   void post_throws_on_non_2xx() throws Exception {
     HttpClient http = clientReturning(400, "{\"error\":{\"code\":\"ErrorInvalidIdMalformed\"}}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     assertThatThrownBy(() -> api.post("tok", "/me/calendars/c1/events", "{}", CreatedId.class))
         .isInstanceOf(MailSendException.class);
   }
@@ -63,14 +65,16 @@ class GraphApiClientWriteTest {
   @Test
   void delete_treats_404_as_success() throws Exception {
     HttpClient http = clientReturning(404, "{\"error\":{\"code\":\"ErrorItemNotFound\"}}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     api.delete("tok", "/me/events/gone"); // 예외 없이 통과해야 함
   }
 
   @Test
   void delete_throws_on_500() throws Exception {
     HttpClient http = clientReturning(500, "{}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     assertThatThrownBy(() -> api.delete("tok", "/me/events/x"))
         .isInstanceOf(MailSendException.class);
   }
@@ -123,7 +127,8 @@ class GraphApiClientWriteTest {
         clientReturning(
             201,
             "{\"id\":\"DRAFT-1\",\"isDraft\":true,\"internetMessageId\":\"<x@prod.outlook.com>\"}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     GraphApiClient.DraftRef draft = api.createDraftFromMime("tok", "TUlNRQ==");
 
@@ -140,7 +145,8 @@ class GraphApiClientWriteTest {
   @Test
   void createDraftFromMime_missingId_throws() throws Exception {
     HttpClient http = clientReturning(201, "{}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     assertThatThrownBy(() -> api.createDraftFromMime("tok", "x"))
         .isInstanceOf(MailSendException.class);
   }
@@ -148,7 +154,8 @@ class GraphApiClientWriteTest {
   @Test
   void addFileAttachment_postsFileAttachmentJson() throws Exception {
     HttpClient http = clientReturning(201, "{\"id\":\"A1\"}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     byte[] content = {1, 2, 3, (byte) 0xFF};
 
     api.addFileAttachment("tok", "D1", "한글.pdf", "application/pdf", content, null);
@@ -156,11 +163,11 @@ class GraphApiClientWriteTest {
     HttpRequest req = captured(http);
     assertThat(req.method()).isEqualTo("POST");
     assertThat(req.uri().getPath()).isEqualTo("/v1.0/me/messages/D1/attachments");
-    JsonNode body = new ObjectMapper().readTree(bodyOf(req));
-    assertThat(body.path("@odata.type").asText()).isEqualTo("#microsoft.graph.fileAttachment");
-    assertThat(body.path("name").asText()).isEqualTo("한글.pdf");
-    assertThat(body.path("contentType").asText()).isEqualTo("application/pdf");
-    assertThat(Base64.getDecoder().decode(body.path("contentBytes").asText())).isEqualTo(content);
+    JsonNode body = JsonMapper.builderWithJackson2Defaults().build().readTree(bodyOf(req));
+    assertThat(body.path("@odata.type").asString()).isEqualTo("#microsoft.graph.fileAttachment");
+    assertThat(body.path("name").asString()).isEqualTo("한글.pdf");
+    assertThat(body.path("contentType").asString()).isEqualTo("application/pdf");
+    assertThat(Base64.getDecoder().decode(body.path("contentBytes").asString())).isEqualTo(content);
     // 일반 첨부(contentId null)에는 인라인 필드를 싣지 않는다(WP-1522 회귀)
     assertThat(body.has("isInline")).isFalse();
     assertThat(body.has("contentId")).isFalse();
@@ -169,7 +176,8 @@ class GraphApiClientWriteTest {
   @Test
   void createAttachmentUploadSession_postsAttachmentItem_andReturnsUploadUrl() throws Exception {
     HttpClient http = clientReturning(201, "{\"uploadUrl\":\"https://outlook.office.com/up/1\"}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     String url =
         api.createAttachmentUploadSession("tok", "D1", "big.mp4", "video/mp4", 7_000_000L, null);
@@ -178,59 +186,74 @@ class GraphApiClientWriteTest {
     HttpRequest req = captured(http);
     assertThat(req.uri().getPath())
         .isEqualTo("/v1.0/me/messages/D1/attachments/createUploadSession");
-    JsonNode item = new ObjectMapper().readTree(bodyOf(req)).path("AttachmentItem");
-    assertThat(item.path("attachmentType").asText()).isEqualTo("file");
-    assertThat(item.path("name").asText()).isEqualTo("big.mp4");
+    JsonNode item =
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readTree(bodyOf(req))
+            .path("AttachmentItem");
+    assertThat(item.path("attachmentType").asString()).isEqualTo("file");
+    assertThat(item.path("name").asString()).isEqualTo("big.mp4");
     assertThat(item.path("size").asLong()).isEqualTo(7_000_000L);
-    assertThat(item.path("contentType").asText()).isEqualTo("video/mp4");
+    assertThat(item.path("contentType").asString()).isEqualTo("video/mp4");
   }
 
   /** WP-1522: 인라인 이미지 첨부 — isInline=true 와 본문 cid: 와 같은 contentId 를 싣는다(일반 첨부 필드는 같다). */
   @Test
   void addFileAttachment_withContentId_postsIsInlineAndContentId() throws Exception {
     HttpClient http = clientReturning(201, "{\"id\":\"A2\"}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     byte[] content = {9, 8, 7};
 
     api.addFileAttachment("tok", "D1", "image001.png", "image/png", content, "image001.png@01D");
 
     HttpRequest req = captured(http);
     assertThat(req.uri().getPath()).isEqualTo("/v1.0/me/messages/D1/attachments");
-    JsonNode body = new ObjectMapper().readTree(bodyOf(req));
-    assertThat(body.path("@odata.type").asText()).isEqualTo("#microsoft.graph.fileAttachment");
-    assertThat(body.path("name").asText()).isEqualTo("image001.png");
+    JsonNode body = JsonMapper.builderWithJackson2Defaults().build().readTree(bodyOf(req));
+    assertThat(body.path("@odata.type").asString()).isEqualTo("#microsoft.graph.fileAttachment");
+    assertThat(body.path("name").asString()).isEqualTo("image001.png");
     assertThat(body.path("isInline").asBoolean()).isTrue();
-    assertThat(body.path("contentId").asText()).isEqualTo("image001.png@01D");
-    assertThat(Base64.getDecoder().decode(body.path("contentBytes").asText())).isEqualTo(content);
+    assertThat(body.path("contentId").asString()).isEqualTo("image001.png@01D");
+    assertThat(Base64.getDecoder().decode(body.path("contentBytes").asString())).isEqualTo(content);
   }
 
   /** WP-1522: 큰 인라인 이미지 업로드 세션 — AttachmentItem 에 isInline=true·contentId 를 싣는다. */
   @Test
   void createAttachmentUploadSession_withContentId_postsIsInlineAndContentId() throws Exception {
     HttpClient http = clientReturning(201, "{\"uploadUrl\":\"https://outlook.office.com/up/2\"}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     String url =
         api.createAttachmentUploadSession(
             "tok", "D1", "big.png", "image/png", 4_000_000L, "big.png");
 
     assertThat(url).isEqualTo("https://outlook.office.com/up/2");
-    JsonNode item = new ObjectMapper().readTree(bodyOf(captured(http))).path("AttachmentItem");
-    assertThat(item.path("attachmentType").asText()).isEqualTo("file");
+    JsonNode item =
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readTree(bodyOf(captured(http)))
+            .path("AttachmentItem");
+    assertThat(item.path("attachmentType").asString()).isEqualTo("file");
     assertThat(item.path("size").asLong()).isEqualTo(4_000_000L);
     assertThat(item.path("isInline").asBoolean()).isTrue();
-    assertThat(item.path("contentId").asText()).isEqualTo("big.png");
+    assertThat(item.path("contentId").asString()).isEqualTo("big.png");
   }
 
   /** 일반 첨부 업로드 세션에는 isInline·contentId 를 싣지 않는다(회귀). */
   @Test
   void createAttachmentUploadSession_regularHasNoInlineFields() throws Exception {
     HttpClient http = clientReturning(201, "{\"uploadUrl\":\"https://outlook.office.com/up/3\"}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     api.createAttachmentUploadSession("tok", "D1", "a.zip", "application/zip", 5_000_000L, null);
 
-    JsonNode item = new ObjectMapper().readTree(bodyOf(captured(http))).path("AttachmentItem");
+    JsonNode item =
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
+            .readTree(bodyOf(captured(http)))
+            .path("AttachmentItem");
     assertThat(item.has("isInline")).isFalse();
     assertThat(item.has("contentId")).isFalse();
   }
@@ -239,7 +262,8 @@ class GraphApiClientWriteTest {
   @Test
   void uploadAttachmentChunk_putsRangeWithoutAuthorization() throws Exception {
     HttpClient http = clientReturning(200, "{\"nextExpectedRanges\":[\"4-\"]}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     byte[] content = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19};
 
     api.uploadAttachmentChunk("https://outlook.office.com/up/1", content, 4, 8);
@@ -255,7 +279,8 @@ class GraphApiClientWriteTest {
   @Test
   void uploadAttachmentChunk_throwsOnNon2xx() throws Exception {
     HttpClient http = clientReturning(416, "{}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
     assertThatThrownBy(() -> api.uploadAttachmentChunk("https://u/1", new byte[4], 0, 4))
         .isInstanceOf(MailSendException.class);
   }
@@ -263,7 +288,8 @@ class GraphApiClientWriteTest {
   @Test
   void sendDraft_postsToSendEndpoint() throws Exception {
     HttpClient http = clientReturning(202, "");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     api.sendDraft("tok", "D1");
 
@@ -277,7 +303,8 @@ class GraphApiClientWriteTest {
   @Test
   void getInternetMessageId_selectsField() throws Exception {
     HttpClient http = clientReturning(200, "{\"internetMessageId\":\"<y@prod.outlook.com>\"}");
-    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    GraphApiClient api =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
 
     assertThat(api.getInternetMessageId("tok", "D1")).isEqualTo("<y@prod.outlook.com>");
     HttpRequest req = captured(http);

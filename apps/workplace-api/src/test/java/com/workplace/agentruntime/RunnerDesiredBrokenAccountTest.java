@@ -12,8 +12,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.agentaccount.service.AgentAccountBindingService;
@@ -38,6 +36,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1448 리뷰 수정 — 묶인 OpenAI 호환 계정 하나의 원문을 읽지 못해도 runner desired 는 그 AI 의 login 버전만 빼고 200 으로 나간다.
@@ -207,7 +207,7 @@ class RunnerDesiredBrokenAccountTest extends IntegrationTestBase {
     Map<Long, Map<String, JsonNode>> out = new HashMap<>();
     for (JsonNode a : om.readTree(body).get("agents")) {
       Map<String, JsonNode> secrets = new HashMap<>();
-      for (JsonNode s : a.get("secrets")) secrets.put(s.get("name").asText(), s.get("version"));
+      for (JsonNode s : a.get("secrets")) secrets.put(s.get("name").asString(), s.get("version"));
       out.put(a.get("agentUserId").asLong(), secrets);
     }
     return out;

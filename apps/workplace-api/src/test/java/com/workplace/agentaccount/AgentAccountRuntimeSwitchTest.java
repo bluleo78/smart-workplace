@@ -9,8 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountResponse;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
@@ -49,6 +47,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1448 실행 방식 전환·켜기 확인·기존 연결 등록 다리 통합 테스트.
@@ -392,7 +392,7 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
     settingService.start(admin, agent);
     JsonNode login = runnerSecret(agent, "login");
     assertThat(login.get("version").asLong()).isGreaterThanOrEqualTo(1_000_000_000_000L);
-    assertThat(om.readTree(login.get("payload").asText()).at("/tokens/refresh_token").asText())
+    assertThat(om.readTree(login.get("payload").asString()).at("/tokens/refresh_token").asString())
         .isEqualTo("refresh-bridge");
   }
 
@@ -414,7 +414,7 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
     assertThat(boundAccount(a)).contains(all.getFirst().id());
     assertThat(boundAccount(b)).contains(all.getFirst().id());
     settingService.start(admin, b);
-    assertThat(runnerSecret(b, "claude").get("payload").asText()).isEqualTo(claudeToken('S'));
+    assertThat(runnerSecret(b, "claude").get("payload").asString()).isEqualTo(claudeToken('S'));
   }
 
   /** 같은 ChatGPT 계정을 다시 로그인해 등록하면 계정은 그대로 하나이고 원문만 방금 넣은 것으로 바뀐다(옛 갱신 토큰을 Pod 에 주지 않게). */
@@ -441,7 +441,7 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
     assertThat(accounts.findActive(first).orElseThrow().secretVersion()).isNotEqualTo(oldVersion);
     settingService.start(admin, agent);
     JsonNode login = runnerSecret(agent, "login");
-    assertThat(om.readTree(login.get("payload").asText()).at("/tokens/refresh_token").asText())
+    assertThat(om.readTree(login.get("payload").asString()).at("/tokens/refresh_token").asString())
         .isEqualTo("refresh-new");
   }
 

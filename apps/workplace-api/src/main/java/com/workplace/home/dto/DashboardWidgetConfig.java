@@ -1,6 +1,6 @@
 package com.workplace.home.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 대시보드 위젯 한 개의 설정. 배열의 순서가 곧 표시 순서다.

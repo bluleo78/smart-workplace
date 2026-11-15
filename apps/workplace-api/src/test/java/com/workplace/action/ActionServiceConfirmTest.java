@@ -12,8 +12,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
@@ -33,6 +31,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** confirm 실행기 — 권한 검사·params 검증·도메인 실행을 service 레이어에서 검증. 메서드 롤백 격리. */
 @Transactional

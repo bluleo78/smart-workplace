@@ -6,8 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -31,6 +29,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 「HTML 문서」 페이지(WP-1307) — 만들기·원본 저장·판 기록과 되돌리기·검색·공유·종류 경계(노트 저장 경로·동기화 서버가 HTML 문서를 건드리지 않음)·크기
@@ -77,20 +77,20 @@ class WikiHtmlPageTest extends IntegrationTestBase {
   @Test
   void create_keeps_source_and_extracts_text() throws Exception {
     JsonNode page = json(create(editorId, null, "회고", HTML_V1).andExpect(status().isCreated()));
-    assertThat(page.get("kind").asText()).isEqualTo("HTML");
-    assertThat(page.get("html").asText()).isEqualTo(HTML_V1);
-    String body = page.get("body").asText();
+    assertThat(page.get("kind").asString()).isEqualTo("HTML");
+    assertThat(page.get("html").asString()).isEqualTo(HTML_V1);
+    String body = page.get("body").asString();
     assertThat(body).contains("3분기 회고", "출시·운영 요약", "출시 4건", "만족도 4.7");
     assertThat(body).doesNotContain("<", "막대그래프스크립트", "color:red");
 
     JsonNode read = read(page.get("id").asLong(), viewerId);
-    assertThat(read.get("html").asText()).isEqualTo(HTML_V1);
+    assertThat(read.get("html").asString()).isEqualTo(HTML_V1);
 
     JsonNode tree =
         json(
             call(get("/api/v1/wiki/spaces/{id}/pages", spaceId), viewerId)
                 .andExpect(status().isOk()));
-    assertThat(tree.get(0).get("kind").asText()).isEqualTo("HTML");
+    assertThat(tree.get(0).get("kind").asString()).isEqualTo("HTML");
   }
 
   /** 일반 노트는 종류 NOTE·html null — 기존 응답 모양은 그대로다. */
@@ -98,7 +98,7 @@ class WikiHtmlPageTest extends IntegrationTestBase {
   void note_reports_note_kind() throws Exception {
     long noteId = pageService.create(ownerId, spaceId, new CreatePageRequest(null, "노트")).id();
     JsonNode note = read(noteId, ownerId);
-    assertThat(note.get("kind").asText()).isEqualTo("NOTE");
+    assertThat(note.get("kind").asString()).isEqualTo("NOTE");
     assertThat(note.get("html").isNull()).isTrue();
   }
 
@@ -122,8 +122,8 @@ class WikiHtmlPageTest extends IntegrationTestBase {
     int v1 = page.get("version").asInt();
 
     JsonNode saved = json(saveHtml(id, editorId, HTML_V2, v1).andExpect(status().isOk()));
-    assertThat(saved.get("html").asText()).isEqualTo(HTML_V2);
-    assertThat(saved.get("body").asText()).contains("장애 1건").doesNotContain("만족도");
+    assertThat(saved.get("html").asString()).isEqualTo(HTML_V2);
+    assertThat(saved.get("body").asString()).contains("장애 1건").doesNotContain("만족도");
     int v2 = saved.get("version").asInt();
     assertThat(v2).isEqualTo(v1 + 1);
 
@@ -143,21 +143,21 @@ class WikiHtmlPageTest extends IntegrationTestBase {
         json(
             call(get("/api/v1/wiki/pages/{id}/revisions/{v}", id, v1), viewerId)
                 .andExpect(status().isOk()));
-    assertThat(rev.get("html").asText()).isEqualTo(HTML_V1);
+    assertThat(rev.get("html").asString()).isEqualTo(HTML_V1);
 
     JsonNode restored =
         json(
             call(post("/api/v1/wiki/pages/{id}/revisions/{v}/restore", id, v1), editorId)
                 .andExpect(status().isOk()));
-    assertThat(restored.get("html").asText()).isEqualTo(HTML_V1);
-    assertThat(restored.get("body").asText()).contains("만족도 4.7");
+    assertThat(restored.get("html").asString()).isEqualTo(HTML_V1);
+    assertThat(restored.get("body").asString()).contains("만족도 4.7");
     // 되돌리기 직전 판(v2)도 남는다.
     JsonNode rev2 =
         json(
             call(get("/api/v1/wiki/pages/{id}/revisions/{v}", id, v2), viewerId)
                 .andExpect(status().isOk()));
-    assertThat(rev2.get("html").asText()).isEqualTo(HTML_V2);
-    assertThat(rev2.get("reason").asText()).isEqualTo("RESTORE");
+    assertThat(rev2.get("html").asString()).isEqualTo(HTML_V2);
+    assertThat(rev2.get("reason").asString()).isEqualTo("RESTORE");
   }
 
   /** 노트 검색이 HTML 문서 본문 글자로 찾는다 — 스크립트 안 글자로는 찾지 않는다. */
@@ -194,7 +194,7 @@ class WikiHtmlPageTest extends IntegrationTestBase {
     md.put("body", "# 덮어쓰기");
     md.put("version", version);
     call(putJson("/api/v1/wiki/pages/" + id, md), editorId).andExpect(status().isConflict());
-    assertThat(read(id, ownerId).get("html").asText()).isEqualTo(HTML_V1);
+    assertThat(read(id, ownerId).get("html").asString()).isEqualTo(HTML_V1);
 
     Map<String, Object> titleOnly = new HashMap<>();
     titleOnly.put("title", "새 제목");
@@ -202,8 +202,8 @@ class WikiHtmlPageTest extends IntegrationTestBase {
         json(
             call(putJson("/api/v1/wiki/pages/" + id, titleOnly), editorId)
                 .andExpect(status().isOk()));
-    assertThat(renamed.get("title").asText()).isEqualTo("새 제목");
-    assertThat(renamed.get("html").asText()).isEqualTo(HTML_V1);
+    assertThat(renamed.get("title").asString()).isEqualTo("새 제목");
+    assertThat(renamed.get("html").asString()).isEqualTo(HTML_V1);
 
     long noteId = pageService.create(ownerId, spaceId, new CreatePageRequest(null, "노트")).id();
     saveHtml(noteId, ownerId, HTML_V2, 1).andExpect(status().isConflict());
@@ -230,7 +230,7 @@ class WikiHtmlPageTest extends IntegrationTestBase {
   void empty_document_then_first_save() throws Exception {
     JsonNode page = json(create(editorId, null, "빈 문서", ""));
     long id = page.get("id").asLong();
-    assertThat(page.get("html").asText()).isEmpty();
+    assertThat(page.get("html").asString()).isEmpty();
     saveHtml(id, editorId, HTML_V2, page.get("version").asInt()).andExpect(status().isOk());
     JsonNode revisions =
         json(
@@ -255,13 +255,13 @@ class WikiHtmlPageTest extends IntegrationTestBase {
         json(call(putJson("/api/v1/wiki/pages/" + id + "/share", share), ownerId)
                 .andExpect(status().isOk()))
             .get("token")
-            .asText();
+            .asString();
     ResultActions r = mvc.perform(get("/api/v1/public/wiki/shares/" + token));
     TenantContext.set(1L);
     JsonNode res = json(r.andExpect(status().isOk()));
-    assertThat(res.get("page").get("kind").asText()).isEqualTo("HTML");
-    assertThat(res.get("page").get("html").asText()).isEqualTo(HTML_V1);
-    assertThat(res.get("pages").get(0).get("kind").asText()).isEqualTo("HTML");
+    assertThat(res.get("page").get("kind").asString()).isEqualTo("HTML");
+    assertThat(res.get("page").get("html").asString()).isEqualTo(HTML_V1);
+    assertThat(res.get("pages").get(0).get("kind").asString()).isEqualTo("HTML");
   }
 
   // ── 도우미 ─────────────────────────────────────────────────────────────

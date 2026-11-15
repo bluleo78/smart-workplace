@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.home.dto.DashboardUpdateRequest;
 import com.workplace.home.dto.DashboardWidgetConfig;
@@ -24,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * GET/PUT /api/v1/me/dashboard 통합 테스트. 실 JWT 발급 + MockMvc 로 전체 보안 체인을 통과시켜 기본 레이아웃·객체 배열 라운드트립·검증
@@ -550,11 +550,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
 
   /** 카탈로그 위젯(issue_list) 하나로 PUT 한다(WP-519 크기 상한 검증용). */
   private org.springframework.test.web.servlet.ResultActions putCatalog(
-      long userId,
-      String id,
-      String type,
-      com.fasterxml.jackson.databind.JsonNode params,
-      String label)
+      long userId, String id, String type, tools.jackson.databind.JsonNode params, String label)
       throws Exception {
     String body =
         om.writeValueAsString(

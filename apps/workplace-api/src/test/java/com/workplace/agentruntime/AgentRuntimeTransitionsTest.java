@@ -3,7 +3,6 @@ package com.workplace.agentruntime;
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.dto.RunnerPrincipal;
@@ -27,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1274 실행 설정 전이의 부수 처리 한곳(AgentRuntimeTransitions) 테스트 — 전이마다 runner 알림(원하는 상태 변경 이벤트)이 영향받는 실제

@@ -1,7 +1,5 @@
 package com.workplace.agentruntime.screen;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
@@ -27,6 +25,9 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * AI 작업 화면 중계 레지스트리(WP-1277) — 관리자 브라우저 소켓과 runner 소켓을 세션 id 로 짝지어 프레임을 넘긴다. API 한 대 전제로 메모리에만 둔다
@@ -248,10 +249,10 @@ public class AgentScreenRelay {
     JsonNode node;
     try {
       node = objectMapper.readTree(message.getPayload());
-    } catch (IOException e) {
+    } catch (JacksonException e) {
       return true; // JSON 이 아니어도 runner 출력은 그대로 넘긴다
     }
-    if (!"input".equals(node.path("type").asText()) || !node.path("enabled").isBoolean()) {
+    if (!"input".equals(node.path("type").asString("")) || !node.path("enabled").isBoolean()) {
       return true;
     }
     if (!node.get("enabled").booleanValue()) {
@@ -312,10 +313,10 @@ public class AgentScreenRelay {
     JsonNode node;
     try {
       node = objectMapper.readTree(message.getPayload());
-    } catch (IOException e) {
+    } catch (JacksonException e) {
       return; // JSON 이 아니면 버린다
     }
-    String type = node.path("type").asText("");
+    String type = node.path("type").asString("");
     switch (type) {
       case "resize", "window" -> send(p, p.runner, message);
       case "input" -> {

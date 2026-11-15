@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 import static org.jooq.impl.DSL.row;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.global.dto.MentionResponse;
@@ -28,6 +27,7 @@ import org.jooq.Record;
 import org.jooq.SelectConditionStep;
 import org.jooq.SelectField;
 import org.springframework.stereotype.Repository;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * chat_message 리포지토리. cursor = base64(createdAt|id) DESC. soft-deleted 메시지는 body 를 "(삭제됨)" 으로 마스킹해

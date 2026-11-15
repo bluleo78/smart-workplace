@@ -1,11 +1,5 @@
 package com.workplace.action;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.action.dto.MailSendActionParams;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.EditScope;
@@ -34,7 +28,6 @@ import com.workplace.wiki.service.WikiPageService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import jakarta.validation.constraints.AssertTrue;
-import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
@@ -47,6 +40,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * 확인 카드 actionType 디스패처(중립 패키지). 도크/채팅 확인 카드 승인 시 actionType 으로 도메인 액션을 결정적으로 실행한다. 공용 실행기 —
@@ -415,8 +414,8 @@ public class ConfirmActionDispatcher {
     if (params == null) return;
     Set<String> ok = Set.of(allowed);
     params
-        .fieldNames()
-        .forEachRemaining(
+        .propertyNames()
+        .forEach(
             f -> {
               if (!ok.contains(f)) {
                 throw new IllegalArgumentException(
@@ -462,10 +461,10 @@ public class ConfirmActionDispatcher {
    * <p>경로 변수 상당의 필드(key 등)를 params 에서 별도 추출할 때 사용.
    */
   private String requireText(JsonNode params, String field) {
-    if (params == null || !params.hasNonNull(field) || params.get(field).asText().isBlank()) {
+    if (params == null || !params.hasNonNull(field) || params.get(field).asString("").isBlank()) {
       throw new IllegalArgumentException("필수 파라미터 누락: " + field);
     }
-    return params.get(field).asText();
+    return params.get(field).asString("");
   }
 
   /**
@@ -480,11 +479,11 @@ public class ConfirmActionDispatcher {
     // #843: asLong() 은 "abc"·1.5 같은 값을 조용히 0 으로 바꿔 엉뚱한 404 를 냈다 — 정수로 해석 가능한 값만 받는다.
     JsonNode node = params.get(field);
     if (node.isIntegralNumber() && node.canConvertToLong()) {
-      return node.asLong();
+      return node.asLong(0L);
     }
-    if (node.isTextual()) {
+    if (node.isString()) {
       try {
-        return Long.parseLong(node.asText().strip());
+        return Long.parseLong(node.asString("").strip());
       } catch (NumberFormatException ignored) {
         // 아래 공통 오류로
       }
@@ -503,8 +502,9 @@ public class ConfirmActionDispatcher {
     if (node.isBoolean()) {
       return node.booleanValue();
     }
-    if (node.isTextual() && ("true".equals(node.asText()) || "false".equals(node.asText()))) {
-      return Boolean.parseBoolean(node.asText());
+    if (node.isString()
+        && ("true".equals(node.asString("")) || "false".equals(node.asString("")))) {
+      return Boolean.parseBoolean(node.asString(""));
     }
     throw new IllegalArgumentException(field + " 는 true 또는 false 여야 합니다: " + node);
   }
@@ -516,7 +516,7 @@ public class ConfirmActionDispatcher {
    */
   private EditScope parseScope(JsonNode params) {
     if (params == null || !params.hasNonNull("scope")) return EditScope.ALL;
-    String raw = params.get("scope").asText();
+    String raw = params.get("scope").asString("");
     try {
       return EditScope.valueOf(raw);
     } catch (IllegalArgumentException e) {
@@ -533,7 +533,7 @@ public class ConfirmActionDispatcher {
    */
   private OffsetDateTime parseOffsetDateTime(JsonNode params, String field) {
     if (params == null || !params.hasNonNull(field)) return null;
-    String raw = params.get(field).asText();
+    String raw = params.get(field).asString("");
     OffsetDateTime value;
     try {
       value = OffsetDateTime.parse(raw);
@@ -585,7 +585,7 @@ public class ConfirmActionDispatcher {
               .readerFor(type)
               .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
               .readValue(params);
-    } catch (IOException e) {
+    } catch (JacksonException e) {
       // #843: Jackson 원문("Cannot deserialize value of type ...")은 영문+내부 클래스명 노출 → 필드 단위 한국어 사유로.
       throw new IllegalArgumentException(describeMappingError(e));
     }
@@ -617,19 +617,23 @@ public class ConfirmActionDispatcher {
     return FIELD_LABELS.getOrDefault(path, path) + ": " + v.getMessage();
   }
 
-  /** 매핑 실패 원인에서 문제 필드 경로를 뽑아 사용자·AI 가 고칠 수 있는 문장으로 만든다. */
-  private static String describeMappingError(IOException e) {
-    if (e instanceof JsonMappingException jme) {
-      String field =
-          jme.getPath().stream()
-              .map(r -> r.getFieldName() != null ? r.getFieldName() : "[" + r.getIndex() + "]")
-              .collect(Collectors.joining("."));
-      if (jme instanceof UnrecognizedPropertyException) {
-        return "잘못된 params: 알 수 없는 필드 '" + field + "'";
-      }
-      if (!field.isEmpty()) {
-        return "잘못된 params: '" + field + "' 값의 형식이 올바르지 않습니다";
-      }
+  /**
+   * 매핑 실패 원인에서 문제 필드 경로를 뽑아 사용자·AI 가 고칠 수 있는 문장으로 만든다.
+   *
+   * <p>경로는 모든 {@link JacksonException} 에서 읽는다 — Jackson 2 는 숫자 넘침·길이 한도 위반도 JsonMappingException 으로
+   * 감싸 경로를 붙였지만, Jackson 3 은 감싸지 않고 원래 예외(InputCoercionException·StreamConstraintsException 등)에 경로를
+   * 붙인다(WP-1609). DatabindException 만 보면 그런 실패에서 칸 이름이 빠진다.
+   */
+  private static String describeMappingError(JacksonException e) {
+    String field =
+        e.getPath().stream()
+            .map(r -> r.getPropertyName() != null ? r.getPropertyName() : "[" + r.getIndex() + "]")
+            .collect(Collectors.joining("."));
+    if (e instanceof UnrecognizedPropertyException) {
+      return "잘못된 params: 알 수 없는 필드 '" + field + "'";
+    }
+    if (!field.isEmpty()) {
+      return "잘못된 params: '" + field + "' 값의 형식이 올바르지 않습니다";
     }
     return "잘못된 params: 값의 형식이 올바르지 않습니다";
   }

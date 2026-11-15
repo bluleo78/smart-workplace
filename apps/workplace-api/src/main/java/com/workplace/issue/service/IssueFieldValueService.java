@@ -1,6 +1,5 @@
 package com.workplace.issue.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.dto.FieldTypeValidator;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueFieldDefRow;
@@ -18,6 +17,7 @@ import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 프로젝트 custom field 값 PUT 서비스 — 멤버 권한, incoming 만 처리. 모든 def 가 같은 프로젝트인지 검증 → value 검증 → 현재값과 diff

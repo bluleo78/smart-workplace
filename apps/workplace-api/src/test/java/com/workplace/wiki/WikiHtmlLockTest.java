@@ -10,8 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -37,6 +35,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 「HTML 문서」 편집 잠금(WP-1308) — 편집 시작·막힘(편집·저장·다시 올리기·되돌리기·MCP/AI)·저장/취소로 풀림·10분 무입력 만료와 임시 저장본·이어 고치기
@@ -97,29 +97,29 @@ class WikiHtmlLockTest extends IntegrationTestBase {
 
     JsonNode acquired = json(acquire(aId).andExpect(status().isOk()));
     assertThat(acquired.get("lock").get("mine").asBoolean()).isTrue();
-    assertThat(acquired.get("token").asText()).isNotBlank();
+    assertThat(acquired.get("token").asString()).isNotBlank();
     assertThat(acquired.get("draft").isNull()).isTrue();
 
     JsonNode refused = json(acquire(bId).andExpect(status().isConflict()));
-    assertThat(refused.get("errors").get("code").asText()).isEqualTo("HTML_LOCKED");
-    assertThat(refused.get("errors").get("holderName").asText()).isEqualTo(nameOf(aId));
-    assertThat(refused.get("message").asText()).contains(nameOf(aId), "편집 중");
+    assertThat(refused.get("errors").get("code").asString()).isEqualTo("HTML_LOCKED");
+    assertThat(refused.get("errors").get("holderName").asString()).isEqualTo(nameOf(aId));
+    assertThat(refused.get("message").asString()).contains(nameOf(aId), "편집 중");
 
     int v = version();
     // 소스 저장·다시 올리기 모두 PUT /html 이다.
     JsonNode saveRefused = json(saveHtml(bId, HTML_B, v).andExpect(status().isConflict()));
-    assertThat(saveRefused.get("errors").get("code").asText()).isEqualTo("HTML_LOCKED");
+    assertThat(saveRefused.get("errors").get("code").asString()).isEqualTo("HTML_LOCKED");
     // version 이 낡았어도 「편집 중」을 먼저 알린다(무엇을 기다려야 하는지가 더 쓸모 있다).
     JsonNode staleRefused = json(saveHtml(bId, HTML_B, v - 1).andExpect(status().isConflict()));
-    assertThat(staleRefused.get("errors").get("code").asText()).isEqualTo("HTML_LOCKED");
+    assertThat(staleRefused.get("errors").get("code").asString()).isEqualTo("HTML_LOCKED");
     // 되돌리기도 원본을 바꾸므로 막는다.
     JsonNode restoreRefused = json(restore(bId, v1).andExpect(status().isConflict()));
-    assertThat(restoreRefused.get("errors").get("code").asText()).isEqualTo("HTML_LOCKED");
+    assertThat(restoreRefused.get("errors").get("code").asString()).isEqualTo("HTML_LOCKED");
 
     JsonNode seenByB = lockOf(bId);
     assertThat(seenByB.get("locked").asBoolean()).isTrue();
     assertThat(seenByB.get("mine").asBoolean()).isFalse();
-    assertThat(seenByB.get("holderName").asText()).isEqualTo(nameOf(aId));
+    assertThat(seenByB.get("holderName").asString()).isEqualTo(nameOf(aId));
     assertThat(seenByB.get("canForceRelease").asBoolean()).isFalse();
     assertThat(lockOf(viewerId).get("locked").asBoolean()).isTrue();
     assertThat(lockOf(ownerId).get("canForceRelease").asBoolean()).isTrue();
@@ -129,7 +129,7 @@ class WikiHtmlLockTest extends IntegrationTestBase {
     assertThat(seenByB.has("token")).isFalse();
 
     // 원본은 그대로다.
-    assertThat(read().get("html").asText()).isEqualTo(HTML_A);
+    assertThat(read().get("html").asString()).isEqualTo(HTML_A);
   }
 
   /** 편집 「저장」(token)은 잠금을 풀고 임시 저장본을 지운다 — 그다음 B 가 편집을 시작할 수 있다. */
@@ -173,7 +173,7 @@ class WikiHtmlLockTest extends IntegrationTestBase {
     JsonNode late = json(heartbeat(aId, a, HTML_B, version()).andExpect(status().isOk()));
     assertThat(late.get("mine").asBoolean()).isFalse();
     assertThat(lockOf(bId).get("locked").asBoolean()).isFalse();
-    assertThat(json(acquire(aId)).get("draft").get("html").asText()).isEqualTo(HTML_A);
+    assertThat(json(acquire(aId)).get("draft").get("html").asString()).isEqualTo(HTML_A);
   }
 
   /** 다른 세션 표지의 신호(남·다른 창)는 mine=false 로 거절되고 그 잠금을 빼앗지도, 마지막 입력 시각을 미루지도 않는다. */
@@ -186,7 +186,7 @@ class WikiHtmlLockTest extends IntegrationTestBase {
                 .andExpect(status().isOk()));
     assertThat(wrong.get("locked").asBoolean()).isTrue();
     assertThat(wrong.get("mine").asBoolean()).isFalse();
-    assertThat(wrong.get("holderName").asText()).isEqualTo(nameOf(aId));
+    assertThat(wrong.get("holderName").asString()).isEqualTo(nameOf(aId));
     // 표지 없는 신호도 같다.
     assertThat(json(heartbeat(aId, null, HTML_B, version())).get("mine").asBoolean()).isFalse();
     // B 의 신호가 B 의 임시 저장본을 남기지 않았다.
@@ -214,11 +214,11 @@ class WikiHtmlLockTest extends IntegrationTestBase {
     assertThat(lockOf(bId).get("locked").asBoolean()).isTrue();
     JsonNode refused =
         json(saveHtml(aId, first, HTML_A, version()).andExpect(status().isConflict()));
-    assertThat(refused.get("errors").get("code").asText()).isEqualTo("HTML_LOCKED");
+    assertThat(refused.get("errors").get("code").asString()).isEqualTo("HTML_LOCKED");
 
     // 새 창이 쥔 채 그 창의 신호가 남긴 임시 저장본이 남아 있다.
     forceRelease(ownerId).andExpect(status().isNoContent());
-    assertThat(json(acquire(aId)).get("draft").get("html").asText()).isEqualTo(HTML_B);
+    assertThat(json(acquire(aId)).get("draft").get("html").asString()).isEqualTo(HTML_B);
   }
 
   /** 바뀐 것 없이 「저장」해도 편집이 끝난다(잠금이 풀린다). */
@@ -262,12 +262,12 @@ class WikiHtmlLockTest extends IntegrationTestBase {
     String b = acquireToken(bId);
     JsonNode late = json(heartbeat(aId, a, HTML_A + "<!-- 더 -->", base).andExpect(status().isOk()));
     assertThat(late.get("mine").asBoolean()).isFalse();
-    assertThat(late.get("holderName").asText()).isEqualTo(nameOf(bId));
+    assertThat(late.get("holderName").asString()).isEqualTo(nameOf(bId));
     saveHtml(bId, b, HTML_B, base).andExpect(status().isOk());
 
     JsonNode resumed = json(acquire(aId).andExpect(status().isOk()));
     JsonNode draft = resumed.get("draft");
-    assertThat(draft.get("html").asText()).isEqualTo(HTML_A);
+    assertThat(draft.get("html").asString()).isEqualTo(HTML_A);
     assertThat(draft.get("baseVersion").asInt()).isEqualTo(base);
     assertThat(draft.get("pageChangedSince").asBoolean()).isTrue();
   }
@@ -300,7 +300,7 @@ class WikiHtmlLockTest extends IntegrationTestBase {
     release(bId, acquireToken(bId)).andExpect(status().isNoContent());
 
     JsonNode resumed = json(acquire(aId).andExpect(status().isOk()));
-    assertThat(resumed.get("draft").get("html").asText()).isEqualTo(HTML_A);
+    assertThat(resumed.get("draft").get("html").asString()).isEqualTo(HTML_A);
     assertThat(resumed.get("draft").get("pageChangedSince").asBoolean()).isFalse();
   }
 
@@ -340,11 +340,11 @@ class WikiHtmlLockTest extends IntegrationTestBase {
     // 편집 화면을 거치지 않은 같은 사람의 저장(다시 올리기)도 같다.
     saveHtml(aId, HTML_B, v).andExpect(status().isConflict());
 
-    assertThat(read().get("html").asText()).isEqualTo(HTML_V1);
+    assertThat(read().get("html").asString()).isEqualTo(HTML_V1);
     JsonNode still = json(heartbeat(aId, a, HTML_A + "<!-- 이어서 -->", v));
     assertThat(still.get("mine").asBoolean()).isTrue();
     forceRelease(ownerId).andExpect(status().isNoContent());
-    assertThat(json(acquire(aId)).get("draft").get("html").asText())
+    assertThat(json(acquire(aId)).get("draft").get("html").asString())
         .isEqualTo(HTML_A + "<!-- 이어서 -->");
   }
 
@@ -355,11 +355,11 @@ class WikiHtmlLockTest extends IntegrationTestBase {
     saveHtml(aId, HTML_A, v1).andExpect(status().isOk());
     String a = acquireToken(aId);
     restore(aId, v1).andExpect(status().isConflict());
-    assertThat(read().get("html").asText()).isEqualTo(HTML_A);
+    assertThat(read().get("html").asString()).isEqualTo(HTML_A);
 
     release(aId, a).andExpect(status().isNoContent());
     restore(bId, v1).andExpect(status().isOk());
-    assertThat(read().get("html").asText()).isEqualTo(HTML_V1);
+    assertThat(read().get("html").asString()).isEqualTo(HTML_V1);
   }
 
   /** 보는 사람은 편집을 시작할 수 없고(403), 노트에는 잠금이 없다(409). 5MB 넘는 임시 저장본은 413. */
@@ -407,7 +407,7 @@ class WikiHtmlLockTest extends IntegrationTestBase {
 
   /** 「편집」하고 받은 편집 세션 표지. */
   private String acquireToken(long userId) throws Exception {
-    return json(acquire(userId).andExpect(status().isOk())).get("token").asText();
+    return json(acquire(userId).andExpect(status().isOk())).get("token").asString();
   }
 
   private ResultActions restore(long userId, int version) throws Exception {

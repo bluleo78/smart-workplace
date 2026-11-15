@@ -17,8 +17,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.records.AuditLogRecord;
@@ -67,6 +65,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 공유 설정 API(WP-579 Task 3) — 만들기·바꾸기·재발급·해제·기록·감사 로그와, 접근을 줄이는 변경이 동기화 서버 재검증을 부르는지.
@@ -152,18 +152,18 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
         json(
             call(save(rootId, "WORKSPACE", "VIEW", false, List.of(), null), ownerId)
                 .andExpect(status().isOk()));
-    String token = created.get("token").asText();
+    String token = created.get("token").asString();
     assertThat(token).startsWith("wsh_");
     assertThat(created.get("pageId").asLong()).isEqualTo(rootId);
-    assertThat(created.get("audience").asText()).isEqualTo("WORKSPACE");
-    assertThat(created.get("permission").asText()).isEqualTo("VIEW");
+    assertThat(created.get("audience").asString()).isEqualTo("WORKSPACE");
+    assertThat(created.get("permission").asString()).isEqualTo("VIEW");
     assertThat(created.get("includeChildren").asBoolean()).isFalse();
     assertThat(created.get("expiresAt").isNull()).isTrue();
     assertThat(created.get("people")).isEmpty();
     assertThat(created.get("createdBy").get("userId").asLong()).isEqualTo(ownerId);
-    assertThat(created.get("createdBy").get("name").asText()).isEqualTo(nameOf(ownerId));
-    assertThat(created.get("createdAt").asText()).isNotBlank();
-    assertThat(created.get("updatedAt").asText()).isNotBlank();
+    assertThat(created.get("createdBy").get("name").asString()).isEqualTo(nameOf(ownerId));
+    assertThat(created.get("createdAt").asString()).isNotBlank();
+    assertThat(created.get("updatedAt").asString()).isNotBlank();
     assertThat(created.get("lastAccessedAt").isNull()).isTrue();
     assertThat(created.get("viewCount").asLong()).isZero();
 
@@ -174,11 +174,11 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
 
     JsonNode events = events(rootId);
     assertThat(events).hasSize(1);
-    assertThat(events.get(0).get("type").asText()).isEqualTo("CREATED");
+    assertThat(events.get(0).get("type").asString()).isEqualTo("CREATED");
     assertThat(events.get(0).get("actor").get("userId").asLong()).isEqualTo(ownerId);
-    assertThat(events.get(0).get("actor").get("name").asText()).isEqualTo(nameOf(ownerId));
-    assertThat(events.get(0).get("detail").asText()).isEqualTo("링크를 만들었습니다(워크스페이스 전체 · 보기)");
-    assertThat(events.get(0).get("at").asText()).isNotBlank();
+    assertThat(events.get(0).get("actor").get("name").asString()).isEqualTo(nameOf(ownerId));
+    assertThat(events.get(0).get("detail").asString()).isEqualTo("링크를 만들었습니다(워크스페이스 전체 · 보기)");
+    assertThat(events.get(0).get("at").asString()).isNotBlank();
     assertThat(events.get(0).get("id").asLong()).isPositive();
 
     List<AuditLogRecord> audits = audits(rootId, "WIKI_SHARE_CREATED");
@@ -188,8 +188,8 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
     assertThat(audits.get(0).getDescription()).isEqualTo("노트 공유 생성");
     JsonNode meta = metadata(audits.get(0));
     assertThat(meta.get("spaceId").asLong()).isEqualTo(spaceId);
-    assertThat(meta.get("audience").asText()).isEqualTo("WORKSPACE");
-    assertThat(meta.get("permission").asText()).isEqualTo("VIEW");
+    assertThat(meta.get("audience").asString()).isEqualTo("WORKSPACE");
+    assertThat(meta.get("permission").asString()).isEqualTo("VIEW");
     assertThat(meta.get("includeChildren").asBoolean()).isFalse();
     assertThat(meta.has("expiresAt")).isTrue();
     assertThat(meta.get("expiresAt").isNull()).isTrue();
@@ -248,7 +248,7 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.permission").value("VIEW"));
     JsonNode meta = metadata(audits(rootId, "WIKI_SHARE_CREATED").get(0));
     assertThat(meta.get("external").asBoolean()).isTrue();
-    assertThat(meta.get("expiresAt").asText()).isNotBlank();
+    assertThat(meta.get("expiresAt").asString()).isNotBlank();
 
     // 이미 외부인 공유를 편집으로 바꾸는 것도 400.
     call(save(rootId, "PUBLIC", "EDIT", false, List.of(), in30), ownerId)
@@ -267,11 +267,11 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
     AuditLogRecord updated = audits(childId, "WIKI_SHARE_UPDATED").get(0);
     JsonNode changed = metadata(updated);
     assertThat(changed.get("external").asBoolean()).isTrue();
-    assertThat(changed.get("audience").asText()).isEqualTo("PUBLIC");
-    assertThat(changed.get("changed").get("audience").get(0).asText()).isEqualTo("WORKSPACE");
-    assertThat(changed.get("changed").get("audience").get(1).asText()).isEqualTo("PUBLIC");
+    assertThat(changed.get("audience").asString()).isEqualTo("PUBLIC");
+    assertThat(changed.get("changed").get("audience").get(0).asString()).isEqualTo("WORKSPACE");
+    assertThat(changed.get("changed").get("audience").get(1).asString()).isEqualTo("PUBLIC");
     assertThat(changed.get("changed").get("expiresAt").get(0).isNull()).isTrue();
-    assertThat(events(childId).get(0).get("type").asText()).isEqualTo("UPDATED");
+    assertThat(events(childId).get(0).get("type").asString()).isEqualTo("UPDATED");
     assertThat(texts(events(childId))).contains("열 수 있는 사람을 외부 공개로 바꿨습니다");
   }
 
@@ -293,7 +293,7 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
                         OffsetDateTime.now().plusDays(7)),
                     ownerId)
                 .andExpect(status().isOk()));
-    OffsetDateTime stored = OffsetDateTime.parse(created.get("expiresAt").asText());
+    OffsetDateTime stored = OffsetDateTime.parse(created.get("expiresAt").asString());
 
     call(save(rootId, "WORKSPACE", "VIEW", false, List.of(), stored), ownerId)
         .andExpect(status().isOk());
@@ -310,7 +310,7 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.permission").value("EDIT"));
     JsonNode events = events(rootId);
     assertThat(events).hasSize(2);
-    assertThat(events.get(0).get("detail").asText()).isEqualTo("권한을 편집으로 바꿨습니다");
+    assertThat(events.get(0).get("detail").asString()).isEqualTo("권한을 편집으로 바꿨습니다");
     JsonNode changed = metadata(audits(rootId, "WIKI_SHARE_UPDATED").get(0)).get("changed");
     assertThat(changed.has("permission")).isTrue();
     assertThat(changed.has("expiresAt")).isFalse();
@@ -335,11 +335,11 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
     Set<Long> people = new HashSet<>();
     res.get("people").forEach(p -> people.add(p.get("userId").asLong()));
     assertThat(people).containsExactlyInAnyOrder(p2, p3);
-    res.get("people").forEach(p -> assertThat(p.get("name").asText()).isNotBlank());
+    res.get("people").forEach(p -> assertThat(p.get("name").asString()).isNotBlank());
 
     JsonNode events = events(rootId);
     List<String> types = new ArrayList<>();
-    events.forEach(e -> types.add(e.get("type").asText()));
+    events.forEach(e -> types.add(e.get("type").asString()));
     assertThat(types)
         .containsExactlyInAnyOrder("CREATED", "PEOPLE_ADDED", "PEOPLE_ADDED", "PEOPLE_REMOVED");
     assertThat(texts(events)).contains(nameOf(p3) + " 님을 추가했습니다", nameOf(p1) + " 님을 제외했습니다");
@@ -350,7 +350,7 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
     assertThat(longs(last.get("added"))).containsExactly(p3);
     assertThat(longs(last.get("removed"))).containsExactly(p1);
     assertThat(last.get("viaRequest").asBoolean()).isFalse();
-    assertThat(last.get("audience").asText()).isEqualTo("PEOPLE");
+    assertThat(last.get("audience").asString()).isEqualTo("PEOPLE");
     assertThat(last.get("spaceId").asLong()).isEqualTo(spaceId);
     JsonNode first = metadata(changes.get(1));
     assertThat(longs(first.get("added"))).containsExactlyInAnyOrder(p1, p2);
@@ -369,22 +369,22 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
         json(call(save(rootId, "WORKSPACE", "VIEW", false, List.of(), null), ownerId)
                 .andExpect(status().isOk()))
             .get("token")
-            .asText();
+            .asString();
     callWithShare(get("/api/v1/wiki/pages/{id}", rootId), strangerId, old)
         .andExpect(status().isOk());
 
     JsonNode res =
         json(call(post(sharePath(rootId) + "/regenerate"), ownerId).andExpect(status().isOk()));
-    String fresh = res.get("token").asText();
+    String fresh = res.get("token").asString();
     assertThat(fresh).startsWith("wsh_").isNotEqualTo(old);
-    assertThat(res.get("audience").asText()).isEqualTo("WORKSPACE");
+    assertThat(res.get("audience").asString()).isEqualTo("WORKSPACE");
 
     callWithShare(get("/api/v1/wiki/pages/{id}", rootId), strangerId, old)
         .andExpect(status().isNotFound());
     callWithShare(get("/api/v1/wiki/pages/{id}", rootId), strangerId, fresh)
         .andExpect(status().isOk());
 
-    assertThat(events(rootId).get(0).get("type").asText()).isEqualTo("REGENERATED");
+    assertThat(events(rootId).get(0).get("type").asString()).isEqualTo("REGENERATED");
     assertThat(audits(rootId, "WIKI_SHARE_REGENERATED")).hasSize(1);
     // 공유가 없는 페이지의 재발급은 404.
     call(post(sharePath(childId) + "/regenerate"), ownerId).andExpect(status().isNotFound());
@@ -397,7 +397,7 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
         json(call(save(rootId, "WORKSPACE", "EDIT", true, List.of(), null), ownerId)
                 .andExpect(status().isOk()))
             .get("token")
-            .asText();
+            .asString();
 
     call(delete(sharePath(rootId)), ownerId).andExpect(status().isNoContent());
 
@@ -410,14 +410,14 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
 
     JsonNode events = events(rootId);
     assertThat(events).hasSize(2);
-    assertThat(events.get(0).get("type").asText()).isEqualTo("REVOKED");
-    assertThat(events.get(0).get("detail").asText()).isEqualTo("공유를 해제했습니다");
-    assertThat(events.get(1).get("type").asText()).isEqualTo("CREATED");
+    assertThat(events.get(0).get("type").asString()).isEqualTo("REVOKED");
+    assertThat(events.get(0).get("detail").asString()).isEqualTo("공유를 해제했습니다");
+    assertThat(events.get(1).get("type").asString()).isEqualTo("CREATED");
 
     JsonNode meta = metadata(audits(rootId, "WIKI_SHARE_REVOKED").get(0));
-    assertThat(meta.get("reason").asText()).isEqualTo("USER");
-    assertThat(meta.get("audience").asText()).isEqualTo("WORKSPACE");
-    assertThat(meta.get("permission").asText()).isEqualTo("EDIT");
+    assertThat(meta.get("reason").asString()).isEqualTo("USER");
+    assertThat(meta.get("audience").asString()).isEqualTo("WORKSPACE");
+    assertThat(meta.get("permission").asString()).isEqualTo("EDIT");
 
     // 이미 해제된 공유를 다시 해제해도 204(멱등) — 기록은 더 생기지 않는다.
     call(delete(sharePath(rootId)), ownerId).andExpect(status().isNoContent());
@@ -622,7 +622,7 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
         json(call(save(rootId, "PEOPLE", "VIEW", false, List.of(p1), null), ownerId)
                 .andExpect(status().isOk()))
             .get("token")
-            .asText();
+            .asString();
 
     CountDownLatch reshared = new CountDownLatch(1);
     CountDownLatch release = new CountDownLatch(1);
@@ -835,7 +835,7 @@ class WikiShareServiceTest extends ExternalClientMockedTestBase {
 
   private static List<String> texts(JsonNode events) {
     List<String> out = new ArrayList<>();
-    events.forEach(e -> out.add(e.get("detail").asText()));
+    events.forEach(e -> out.add(e.get("detail").asString()));
     return out;
   }
 

@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.dto.RegisterAssistantCredentialRequest;
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
@@ -33,6 +32,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-139: 비서 추천 모델 — 저장·조회 왕복(개인·공용), 부분 갱신(보내지 않은 필드 보존 — 모델만 바꾸면 생각의 깊이가 초기화되던 기존 버그 회귀), 자동 모델은

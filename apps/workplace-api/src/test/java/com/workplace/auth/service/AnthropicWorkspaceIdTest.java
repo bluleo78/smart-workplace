@@ -14,7 +14,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountUpdateRequest;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
@@ -44,6 +43,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1496 Anthropic 워크스페이스 ID 통합 테스트(개정 스펙) — 워크스페이스 ID 는 모든 Claude 토큰에 선택이고 주면 키 종류와 상관없이 저장한다.

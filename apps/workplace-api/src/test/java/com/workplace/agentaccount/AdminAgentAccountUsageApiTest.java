@@ -9,8 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountUpdateRequest;
 import com.workplace.agentaccount.service.AgentAccountBindingService;
@@ -43,6 +41,8 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1449 계정 목록 응답의 사용량 블록 통합 테스트 — 저장소에 심어 둔 스냅샷·실패가 {@code usage} 의 상태·창·실패 이유로 실리고, 응답 본문에 등록한
@@ -165,16 +165,16 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
     String body = listBody();
 
     JsonNode c = item(body, claude).get("usage");
-    assertThat(c.get("status").asText()).isEqualTo("CHECK_FAILED");
+    assertThat(c.get("status").asString()).isEqualTo("CHECK_FAILED");
     assertThat(c.get("fiveHour").get("usedPercent").decimalValue())
         .isEqualByComparingTo(new BigDecimal("42.50"));
-    assertThat(Instant.parse(c.get("weekly").get("resetsAt").asText())).isEqualTo(weekReset);
-    assertThat(c.get("errorCode").asText()).isEqualTo("TOKEN_EXPIRED");
-    assertThat(Instant.parse(c.get("succeededAt").asText())).isEqualTo(t0);
-    assertThat(Instant.parse(c.get("checkedAt").asText())).isEqualTo(t0.plusSeconds(600));
+    assertThat(Instant.parse(c.get("weekly").get("resetsAt").asString())).isEqualTo(weekReset);
+    assertThat(c.get("errorCode").asString()).isEqualTo("TOKEN_EXPIRED");
+    assertThat(Instant.parse(c.get("succeededAt").asString())).isEqualTo(t0);
+    assertThat(Instant.parse(c.get("checkedAt").asString())).isEqualTo(t0.plusSeconds(600));
 
     JsonNode g = item(body, chatgpt).get("usage");
-    assertThat(g.get("status").asText()).isEqualTo("NEAR_LIMIT");
+    assertThat(g.get("status").asString()).isEqualTo("NEAR_LIMIT");
     assertThat(g.get("errorCode").isNull()).isTrue();
     assertThat(g.get("weekly").get("usedPercent").decimalValue())
         .isEqualByComparingTo(new BigDecimal("80.00"));
@@ -196,7 +196,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
         List.of(snap(UsageWindow.FIVE_HOUR, "95.00", base.plus(1, ChronoUnit.HOURS), base)),
         true);
     usage.saveFailure(claude, "UNAUTHORIZED", "토큰이 거절됨");
-    assertThat(item(listBody(), claude).get("usage").get("status").asText())
+    assertThat(item(listBody(), claude).get("usage").get("status").asString())
         .isEqualTo("CHECK_FAILED");
 
     // 관리자가 PATCH 로 토큰을 바꾼다
@@ -216,7 +216,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
 
     // 옛 키의 값은 사라지고 「모름」 — 창·실패 이유 없음
     JsonNode u = item(listBody(), claude).get("usage");
-    assertThat(u.get("status").asText()).isEqualTo("UNKNOWN");
+    assertThat(u.get("status").asString()).isEqualTo("UNKNOWN");
     assertThat(u.get("fiveHour").isNull()).isTrue();
     assertThat(u.get("weekly").isNull()).isTrue();
     assertThat(u.get("errorCode").isNull()).isTrue();
@@ -231,7 +231,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
             .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, null, null, null))
             .id();
     JsonNode u = item(listBody(), claude).get("usage");
-    assertThat(u.get("status").asText()).isEqualTo("UNKNOWN");
+    assertThat(u.get("status").asString()).isEqualTo("UNKNOWN");
     assertThat(u.get("fiveHour").isNull()).isTrue();
     assertThat(u.get("weekly").isNull()).isTrue();
     assertThat(u.get("lastUsedAt").isNull()).isTrue();
@@ -267,7 +267,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
     bindingService.bind(admin, agent, acc);
 
     JsonNode before = item(listBody(), acc).get("usage");
-    assertThat(before.get("status").asText()).isEqualTo("UNLIMITED");
+    assertThat(before.get("status").asString()).isEqualTo("UNLIMITED");
     assertThat(before.get("lastUsedAt").isNull()).isTrue();
 
     useTenant(1L);
@@ -280,7 +280,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.updated").value(1));
 
     JsonNode after = item(listBody(), acc).get("usage");
-    assertThat(after.get("status").asText()).isEqualTo("UNLIMITED");
+    assertThat(after.get("status").asString()).isEqualTo("UNLIMITED");
     assertThat(after.get("lastUsedAt").isNull()).isFalse();
   }
 

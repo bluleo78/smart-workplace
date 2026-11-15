@@ -14,8 +14,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.repository.DriveUploadSessionRepository;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveQuotaService;
@@ -48,6 +46,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 드라이브 나눠 올리기(WP-1520) 전 구간(HTTP) 통합 테스트 — 시작 → 조각 PUT → 상태 조회 → 완료 / 취소, 사전 검사(범주 한도·용량), 위치 불일치
@@ -150,7 +150,7 @@ class DriveUploadSessionControllerIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    return UUID.fromString(objectMapper.readTree(json).get("id").asText());
+    return UUID.fromString(objectMapper.readTree(json).get("id").asString());
   }
 
   private ResultActions putChunk(long caller, UUID id, long offset, byte[] bytes) throws Exception {
@@ -302,7 +302,7 @@ class DriveUploadSessionControllerIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    UUID id = UUID.fromString(objectMapper.readTree(json).get("id").asText());
+    UUID id = UUID.fromString(objectMapper.readTree(json).get("id").asString());
     putChunk(owner, id, 0, new byte[16 * 1024 * 1024 + 1])
         .andExpect(status().is(413))
         .andExpect(jsonPath("$.errors.code").value("UPLOAD_CHUNK_TOO_LARGE"));

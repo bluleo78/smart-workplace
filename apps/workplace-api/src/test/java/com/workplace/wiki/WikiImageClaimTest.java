@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.file.exception.StagedFileUnusableException;
@@ -38,6 +37,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 이미지 클레임(WP-424) 통합 테스트 — 먼저 올려 둔 스테이징 파일을 {@code POST /wiki/pages/{id}/attachments/claim} 으로

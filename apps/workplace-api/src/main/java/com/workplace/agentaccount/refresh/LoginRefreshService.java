@@ -3,15 +3,13 @@ package com.workplace.agentaccount.refresh;
 import static com.workplace.agentaccount.service.AgentAccountService.STATUS_ACTIVE;
 import static com.workplace.agentaccount.service.AgentAccountService.STATUS_RELOGIN_REQUIRED;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.agentaccount.dto.AgentAccountRow;
 import com.workplace.agentaccount.refresh.ChatgptTokenClient.ChatgptTokens;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.agentaccount.service.AgentAccountService;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.LoginInfoNormalizer;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.tenant.repository.TenantRepository;
@@ -23,6 +21,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * ChatGPT 로그인 계정 서버 갱신 서비스(WP-1450). 서버가 team AI 계정에 보관한 Codex auth.json 의 access token 이 만료되기 전에
@@ -55,7 +56,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class LoginRefreshService {
 
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = JsonMappers.JACKSON2;
 
   /** 갱신을 하는 종류 — ChatGPT(갱신)와 Gen:iA(만료 표시). 목록 조회는 SQL 에서 이 종류만 읽는다. */
   private static final List<String> REFRESHED_PROVIDERS =
@@ -337,7 +338,7 @@ public class LoginRefreshService {
                   JSON.readTree(secret).path("tokens").get("access_token")));
       if (claims == null) return null;
       JsonNode exp = claims.path("exp");
-      return exp.isNumber() ? Instant.ofEpochSecond(exp.asLong()) : null;
+      return exp.isNumber() ? Instant.ofEpochSecond(exp.asLong(0L)) : null;
     } catch (Exception e) {
       return null;
     }
@@ -351,7 +352,7 @@ public class LoginRefreshService {
     try {
       JsonNode v = JSON.readTree(secret).path("genia").path("expires");
       if (!v.isNumber()) return;
-      expires = v.asLong();
+      expires = v.asLong(0L);
     } catch (Exception e) {
       return;
     }

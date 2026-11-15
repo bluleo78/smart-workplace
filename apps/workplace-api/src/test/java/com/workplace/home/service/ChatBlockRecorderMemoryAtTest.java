@@ -2,10 +2,11 @@ package com.workplace.home.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * WP-581: 메모리 결과 줄의 자리(at) — 결과 줄 뒤의 도구·텍스트는 새 블록으로 시작하고, 결과 줄마다 앞에 오는 표시 블록 수를 남긴다. 위임 안내 문장을 버려도
@@ -13,7 +14,7 @@ import org.junit.jupiter.api.Test;
  */
 class ChatBlockRecorderMemoryAtTest {
 
-  private static final ObjectMapper OM = new ObjectMapper();
+  private static final ObjectMapper OM = JsonMapper.builderWithJackson2Defaults().build();
 
   private static ChatBlockRecorder.Block memory(long id) {
     ObjectNode m = OM.createObjectNode();

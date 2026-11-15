@@ -1,8 +1,8 @@
 package com.workplace.home.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
 import java.util.List;
+import tools.jackson.databind.JsonNode;
 
 /** 세션 메시지 1건(복원용). widgets/toolCalls 는 실제 JSON 으로 직렬화. */
 public record HomeMessageResponse(

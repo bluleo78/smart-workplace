@@ -9,9 +9,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
@@ -33,6 +30,9 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * HomeChatService 통합 테스트(#593 편입) — 통합 /events 채널(SseRegistry.fanOut) 로의
@@ -138,7 +138,7 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     assertThat(msgs.get(0).content()).isEqualTo("내 할 일");
     assertThat(msgs.get(1).role()).isEqualTo("ASSISTANT");
     assertThat(msgs.get(1).content()).isEqualTo("내 할 일이에요");
-    assertThat(msgs.get(1).widgets().get(0).get("type").asText()).isEqualTo("my_tasks");
+    assertThat(msgs.get(1).widgets().get(0).get("type").asString()).isEqualTo("my_tasks");
 
     // fanOut: delta×2 + done, 모두 correlationId 포함.
     @SuppressWarnings("unchecked")
@@ -165,7 +165,7 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     doAnswer(
             inv -> {
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
-              java.util.function.Consumer<com.fasterxml.jackson.databind.JsonNode> onTool =
+              java.util.function.Consumer<tools.jackson.databind.JsonNode> onTool =
                   inv.getArgument(6);
 
               // 숨김 도구: respond_chat (내부 응답 배관)
@@ -217,8 +217,8 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     assertThat(assistant.toolCalls()).isNotNull();
     assertThat(assistant.toolCalls().isArray()).isTrue();
     assertThat(assistant.toolCalls()).hasSize(1);
-    assertThat(assistant.toolCalls().get(0).get("toolName").asText()).isEqualTo("update_issue");
-    assertThat(assistant.toolCalls().get(0).get("status").asText()).isEqualTo("done");
+    assertThat(assistant.toolCalls().get(0).get("toolName").asString()).isEqualTo("update_issue");
+    assertThat(assistant.toolCalls().get(0).get("status").asString()).isEqualTo("done");
 
     // home.chat.tool fanOut 은 숨김 도구까지 6건 모두 전달되고, 각 payload 에 correlationId 가 병합돼야 한다.
     @SuppressWarnings("unchecked")
@@ -243,7 +243,7 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     doAnswer(
             inv -> {
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
-              java.util.function.Consumer<com.fasterxml.jackson.databind.JsonNode> onTool =
+              java.util.function.Consumer<tools.jackson.databind.JsonNode> onTool =
                   inv.getArgument(6);
 
               // 숨김 도구만

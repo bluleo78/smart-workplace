@@ -2,13 +2,11 @@ package com.workplace.agentruntime.repository;
 
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.dto.RunnerObservedAgent;
+import com.workplace.global.json.JsonMappers;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,6 +26,9 @@ import org.jooq.SelectField;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * AI 별 실행 설정(agent_runtime_setting) 리포지토리(WP-1247). 테넌트 격리는 RLS + tenant_id GUC DEFAULT 로
@@ -38,7 +39,7 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class AgentRuntimeSettingRepository {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
   private static final TypeReference<LinkedHashMap<String, String>> CONFIG_TYPE =
       new TypeReference<>() {};
 
@@ -483,7 +484,7 @@ public class AgentRuntimeSettingRepository {
   private static JSONB writeConfig(Map<String, String> config) {
     try {
       return JSONB.valueOf(MAPPER.writeValueAsString(config == null ? Map.of() : config));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("실행 설정을 저장 형식으로 바꾸지 못했습니다", e);
     }
   }
@@ -492,7 +493,7 @@ public class AgentRuntimeSettingRepository {
     if (json == null || json.data() == null || json.data().isBlank()) return new LinkedHashMap<>();
     try {
       return MAPPER.readValue(json.data(), CONFIG_TYPE);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("저장된 실행 설정을 읽지 못했습니다", e);
     }
   }

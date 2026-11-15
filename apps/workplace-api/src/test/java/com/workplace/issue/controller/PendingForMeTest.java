@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.ISSUE_COMMENT;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.AgentWorkTestSupport;
 import com.workplace.issue.dto.CreateIssueRequest;
 import java.util.ArrayList;
@@ -12,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import tools.jackson.databind.JsonNode;
 
 /** /me/issues pendingForMe(WP-373 §3.4) — 내 마지막 이슈 챗 글 이후 다른 사람이 글을 남긴 이슈만. ak_·사람 토큰 같은 규칙. */
 class PendingForMeTest extends AgentWorkTestSupport {

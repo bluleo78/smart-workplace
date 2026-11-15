@@ -1,7 +1,5 @@
 package com.workplace.fileai.security;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.file.storage.FileStore;
@@ -18,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * HTML 보안 점검 한 건의 상태 전이(WP-1262). 요약 파이프라인({@code FileExtractionPipeline.summarizePending})을 따른다.
@@ -238,7 +237,7 @@ public class FileSecurityCheckPipeline {
       validate(res);
       evidenceJson =
           objectMapper.writeValueAsString(res.evidence() == null ? List.of() : res.evidence());
-    } catch (JsonProcessingException | RuntimeException ex) {
+    } catch (RuntimeException ex) {
       return onAgentFailure(fileId, ex, bytesMode);
     }
 

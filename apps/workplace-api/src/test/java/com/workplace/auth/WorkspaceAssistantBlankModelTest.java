@@ -5,7 +5,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.service.AssistantDefaults;
 import com.workplace.auth.service.PersonalAssistantService;
@@ -24,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1395 — 비서 설정에 공백만 든 모델명을 보내면 " " 가 그대로 저장돼 기본 모델로 대체되지 않았다. 공백뿐이면 모델 없음(null)으로 저장해 기본 모델이

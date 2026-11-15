@@ -16,8 +16,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.chat.repository.IssueStakeholderLookup;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
@@ -64,6 +62,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 팀 프로젝트(TEAM·OPEN) 멤버에 조직도 부서(부서 자체)를 둔다(WP-1057).
@@ -136,8 +136,8 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
   void department_and_sub_department_members_get_access_on_team_project() throws Exception {
     JsonNode added = json(addGroup(team.key(), devId, null).andExpect(status().isCreated()));
     assertThat(added.get("groupId").asLong()).isEqualTo(devId);
-    assertThat(added.get("name").asText()).isEqualTo("개발팀-" + suffix);
-    assertThat(added.get("role").asText()).isEqualTo("MEMBER");
+    assertThat(added.get("name").asString()).isEqualTo("개발팀-" + suffix);
+    assertThat(added.get("role").asString()).isEqualTo("MEMBER");
     assertThat(added.get("memberCount").asInt()).isEqualTo(2); // 직속 1 + 하위 부서 1
 
     for (long user : List.of(devMemberId, backendMemberId)) {
@@ -253,7 +253,7 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
     assertThat(members.get(1).get("direct").asBoolean()).isTrue();
     JsonNode backend = members.get(2);
     assertThat(backend.get("direct").asBoolean()).isFalse();
-    assertThat(backend.get("role").asText()).isEqualTo("MEMBER");
+    assertThat(backend.get("role").asString()).isEqualTo("MEMBER");
     assertThat(backend.get("active").asBoolean()).isTrue();
 
     assertThat(memberRepository.findUserIdsByProject(team.id()))

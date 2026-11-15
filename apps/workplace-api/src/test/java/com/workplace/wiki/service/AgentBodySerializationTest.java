@@ -2,10 +2,11 @@ package com.workplace.wiki.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.wiki.dto.WikiAiAction;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A↔B 와이어 계약 잠금 테스트. WikiAiService.AgentBody 를 실제 Jackson 으로 직렬화해 키 집합·값 표현이 ai-agent zod
@@ -13,7 +14,7 @@ import org.junit.jupiter.api.Test;
  */
 class AgentBodySerializationTest {
 
-  private final ObjectMapper mapper = new ObjectMapper();
+  private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
   /** selection/prompt 가 null 이면 JSON 에서 생략된다 — zod .optional() 은 null 이 아닌 undefined 만 허용. */
   @Test
@@ -39,8 +40,7 @@ class AgentBodySerializationTest {
 
     // 키 집합이 정확히 9개(필수)여야 한다 — selection/prompt/memories/sharedMemories 는 생략, sharedMemoryMoreCount
     // 는 항상.
-    assertThat(json.fieldNames())
-        .toIterable()
+    assertThat(json.propertyNames())
         .containsExactlyInAnyOrder(
             "action",
             "pageTitle",
@@ -52,7 +52,7 @@ class AgentBodySerializationTest {
             "timeoutMs",
             "sharedMemoryMoreCount");
     // action 은 소문자 와이어.
-    assertThat(json.get("action").asText()).isEqualTo("continue");
+    assertThat(json.get("action").asString()).isEqualTo("continue");
     assertThat(json.get("assistantAgentId").asLong()).isEqualTo(900L);
     assertThat(json.has("selection")).isFalse();
     assertThat(json.has("prompt")).isFalse();
@@ -80,8 +80,7 @@ class AgentBodySerializationTest {
 
     JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
 
-    assertThat(json.fieldNames())
-        .toIterable()
+    assertThat(json.propertyNames())
         .containsExactlyInAnyOrder(
             "action",
             "pageTitle",
@@ -94,9 +93,9 @@ class AgentBodySerializationTest {
             "maxTurns",
             "timeoutMs",
             "sharedMemoryMoreCount");
-    assertThat(json.get("action").asText()).isEqualTo("draft");
-    assertThat(json.get("selection").asText()).isEqualTo("선택된 텍스트");
-    assertThat(json.get("prompt").asText()).isEqualTo("이 주제로 써줘");
+    assertThat(json.get("action").asString()).isEqualTo("draft");
+    assertThat(json.get("selection").asString()).isEqualTo("선택된 텍스트");
+    assertThat(json.get("prompt").asString()).isEqualTo("이 주제로 써줘");
   }
 
   /** WP-381: memories 는 ai-agent memoryItemSchema 모양 — scope·expiresOn 은 있을 때만. */

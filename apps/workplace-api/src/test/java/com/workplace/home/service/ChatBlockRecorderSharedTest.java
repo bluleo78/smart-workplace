@@ -2,15 +2,16 @@ package com.workplace.home.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /** WP-386: 공용 저장 결과 줄 — 모양 검사, 개인 결과 줄과 같은 목록·순번, 직렬화 모양, 도구 이름 판별. */
 class ChatBlockRecorderSharedTest {
 
-  private static final ObjectMapper OM = new ObjectMapper();
+  private static final ObjectMapper OM = JsonMapper.builderWithJackson2Defaults().build();
 
   private static ObjectNode shared() {
     ObjectNode m = OM.createObjectNode();

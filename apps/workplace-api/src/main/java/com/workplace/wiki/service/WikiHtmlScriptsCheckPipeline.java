@@ -1,7 +1,5 @@
 package com.workplace.wiki.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.exception.FileAiException;
@@ -19,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 HTML 블록 보안 점검 한 건의 상태 전이(WP-1290). 파일 점검({@link FileSecurityCheckPipeline})과 같은 단계·규칙이고, 점검
@@ -111,7 +110,7 @@ public class WikiHtmlScriptsCheckPipeline {
       FileSecurityCheckPipeline.validate(res);
       evidenceJson =
           objectMapper.writeValueAsString(res.evidence() == null ? List.of() : res.evidence());
-    } catch (JsonProcessingException | RuntimeException ex) {
+    } catch (RuntimeException ex) {
       return onAgentFailure(pageId, hash, ex);
     }
 

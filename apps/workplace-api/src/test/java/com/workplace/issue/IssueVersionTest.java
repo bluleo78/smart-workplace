@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.global.security.AgentToolContext;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.service.IssueVersionService;
@@ -19,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 이슈에 수정 버전·영향 버전 붙이기·떼기(WP-888) — 종류별 diff 이력, 두 종류의 독립, 보관 버전 규칙(새로 붙이기 거절·이미 붙은 것 유지), 출시 버전 허용,
@@ -202,7 +202,7 @@ class IssueVersionTest extends IssueVersionTestSupport {
 
   private static List<String> names(JsonNode arr) {
     List<String> out = new ArrayList<>();
-    arr.forEach(n -> out.add(n.get("name").asText()));
+    arr.forEach(n -> out.add(n.get("name").asString()));
     return out;
   }
 }

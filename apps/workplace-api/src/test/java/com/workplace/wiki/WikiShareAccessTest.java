@@ -14,8 +14,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -46,6 +44,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 공유 판정 표(WP-579 Task 2) — {@link WikiShareAccess} 의 판정(멤버/WORKSPACE/PEOPLE/PUBLIC × 하위 포함 × 이동
@@ -198,7 +198,7 @@ class WikiShareAccessTest extends IntegrationTestBase {
             call(get("/api/v1/wiki/pages/{id}", rootId), strangerId, token)
                 .andExpect(status().isForbidden()));
     assertThat(body.get("requested").asBoolean()).isFalse();
-    assertThat(body.get("message").asText()).isNotBlank();
+    assertThat(body.get("message").asString()).isNotBlank();
   }
 
   /** PUBLIC 공유는 언제나 VIEWER — 로그인 사용자·비로그인(userId null) 모두. 편집 판정은 403. */
@@ -379,7 +379,7 @@ class WikiShareAccessTest extends IntegrationTestBase {
             call(get("/api/v1/wiki/pages/{id}", rootId + 1_000_000), strangerId, token)
                 .andExpect(status().isNotFound()));
     // 존재 은닉 문구는 헤더 유무·사유와 무관하게 하나다.
-    assertThat(noHeader.get("message").asText()).isEqualTo(missing.get("message").asText());
+    assertThat(noHeader.get("message").asString()).isEqualTo(missing.get("message").asString());
     call(get("/api/v1/wiki/pages/{id}/collab-access", rootId), strangerId, null)
         .andExpect(status().isNotFound());
     assertThat(shareAccess.grant(rootId, strangerId, null)).isEmpty();
@@ -412,13 +412,13 @@ class WikiShareAccessTest extends IntegrationTestBase {
                 .andExpect(status().isOk()));
     assertThat(refs).hasSize(3);
     assertThat(refs.get(0).get("id").asLong()).isEqualTo(childId);
-    assertThat(refs.get(0).get("label").asText()).isEqualTo("1분기");
+    assertThat(refs.get(0).get("label").asString()).isEqualTo("1분기");
     assertThat(refs.get(0).get("inaccessible").asBoolean()).isFalse();
     assertThat(refs.get(1).get("id").asLong()).isEqualTo(unrelatedId);
     assertThat(refs.get(1).get("label").isNull()).isTrue();
     assertThat(refs.get(1).get("spaceId").isNull()).isTrue();
     assertThat(refs.get(1).get("inaccessible").asBoolean()).isTrue();
-    assertThat(refs.get(2).get("type").asText()).isEqualTo("ISSUE");
+    assertThat(refs.get(2).get("type").asString()).isEqualTo("ISSUE");
     assertThat(refs.get(2).get("inaccessible").asBoolean()).isTrue();
 
     // 멤버(OWNER)는 헤더가 있어도 기존 동작 — 두 페이지 모두 제목, 없는 이슈는 뺀다.
@@ -427,7 +427,7 @@ class WikiShareAccessTest extends IntegrationTestBase {
             call(get("/api/v1/wiki/pages/{id}/mentions", rootId), ownerId, token)
                 .andExpect(status().isOk()));
     assertThat(member).hasSize(2);
-    assertThat(member.get(1).get("label").asText()).isEqualTo("인사 평가");
+    assertThat(member.get(1).get("label").asString()).isEqualTo("인사 평가");
   }
 
   // ── 시드·요청 도우미 ─────────────────────────────────────────────────────

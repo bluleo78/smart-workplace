@@ -3,11 +3,11 @@ package com.workplace.home.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 /** WP-55: 메모리 주입의 순수 규칙 — 조회 실패 폴백, 블록 토큰 추정, ai-agent 로 나가는 JSON 모양(모듈 없는 ObjectMapper 직렬화). */
 class HomeChatMemoryFallbackTest {
@@ -103,7 +103,7 @@ class HomeChatMemoryFallbackTest {
             List.of(),
             0,
             null);
-    String json = new ObjectMapper().writeValueAsString(req);
+    String json = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(req);
     assertThat(json)
         .contains(
             "\"memories\":[{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧은 목록으로 보여 준다\"}]")
@@ -149,7 +149,7 @@ class HomeChatMemoryFallbackTest {
             List.of(),
             0,
             null);
-    String json = new ObjectMapper().writeValueAsString(req);
+    String json = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(req);
     assertThat(json)
         .contains("{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"scope\":\"ISSUE\"}")
         .contains("{\"id\":9,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}")
@@ -184,7 +184,7 @@ class HomeChatMemoryFallbackTest {
             List.of(),
             0,
             null);
-    String json = new ObjectMapper().writeValueAsString(req);
+    String json = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(req);
     assertThat(json)
         .contains(
             "{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"expiresOn\":\"2026-10-24\"}")
@@ -242,7 +242,7 @@ class HomeChatMemoryFallbackTest {
             List.of(),
             0,
             null);
-    String json = new ObjectMapper().writeValueAsString(req);
+    String json = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(req);
     assertThat(json)
         .contains("{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"pinned\":true}")
         .contains("{\"id\":9,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}")

@@ -10,8 +10,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.security.KeyPair;
@@ -28,6 +26,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** PushSender — 헤더, 상태코드별 구독 처리(성공 초기화·410 삭제·5회 실패 삭제), 한 구독 실패 격리. */
 @Transactional
@@ -178,10 +178,10 @@ class PushSenderTest extends ExternalClientMockedTestBase {
     JsonNode n = om.readTree(json);
     assertThat(n.get("v").asInt()).isEqualTo(1);
     assertThat(n.get("tenantId").asLong()).isEqualTo(1L);
-    assertThat(n.get("category").asText()).isEqualTo("DM");
-    assertThat(n.get("title").asText()).isEqualTo("박OO");
-    assertThat(n.get("url").asText()).isEqualTo("/chat/dms/42");
-    assertThat(n.get("tag").asText()).isEqualTo("ch-42");
+    assertThat(n.get("category").asString()).isEqualTo("DM");
+    assertThat(n.get("title").asString()).isEqualTo("박OO");
+    assertThat(n.get("url").asString()).isEqualTo("/chat/dms/42");
+    assertThat(n.get("tag").asString()).isEqualTo("ch-42");
     assertThat(json.length).isLessThan(3000);
   }
 

@@ -3,13 +3,14 @@ package com.workplace.wiki.dto;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** WikiAiAction 와이어 포맷(소문자) 직렬화·역직렬화 검증 — 프론트/에이전트 zod 계약 일치. */
 class WikiAiActionTest {
 
-  private final ObjectMapper mapper = new ObjectMapper();
+  private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
   @Test
   void deserialize_fromLowercaseJson() throws Exception {

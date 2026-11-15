@@ -156,7 +156,7 @@ class MentionsMeTest extends AgentWorkTestSupport {
             null);
     assertOk(res);
     List<String> keys = new ArrayList<>();
-    json(res).get("items").forEach(i -> keys.add(i.path("projectKey").asText()));
+    json(res).get("items").forEach(i -> keys.add(i.path("projectKey").asString()));
     assertThat(keys).doesNotContain(otherKey);
   }
 
@@ -187,7 +187,7 @@ class MentionsMeTest extends AgentWorkTestSupport {
     var res = call(HttpMethod.GET, "/api/v1/me/issues?mentionsMe=true", akToken, null, null);
     assertOk(res);
     List<String> keys = new ArrayList<>();
-    json(res).get("items").forEach(i -> keys.add(i.path("projectKey").asText()));
+    json(res).get("items").forEach(i -> keys.add(i.path("projectKey").asString()));
     assertThat(keys).doesNotContain(closedKey);
   }
 }

@@ -32,7 +32,7 @@ class MessagingCalendarConfirmTest extends ExternalClientMockedTestBase {
 
   @Autowired MessagingProposalService proposalService;
   @Autowired com.workplace.messaging.repository.MessageActionProposalRepository proposalRepo;
-  @Autowired com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+  @Autowired tools.jackson.databind.ObjectMapper objectMapper;
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelMemberRepository memberRepo;
   @Autowired DSLContext dsl;
@@ -201,12 +201,12 @@ class MessagingCalendarConfirmTest extends ExternalClientMockedTestBase {
     // 저장된 제안 payload — 채널 목록이 카드를 다시 그릴 때 읽는 값. 충돌 등 나머지 필드는 그대로다.
     var saved =
         objectMapper.readTree(proposalRepo.findById(proposalId).orElseThrow().payloadJson());
-    assertThat(saved.path("title").asText()).isEqualTo("고친 제목");
-    assertThat(OffsetDateTime.parse(saved.path("startsAt").asText()).toInstant())
+    assertThat(saved.path("title").asString()).isEqualTo("고친 제목");
+    assertThat(OffsetDateTime.parse(saved.path("startsAt").asString()).toInstant())
         .isEqualTo(start.toInstant());
-    assertThat(OffsetDateTime.parse(saved.path("endsAt").asText()).toInstant())
+    assertThat(OffsetDateTime.parse(saved.path("endsAt").asString()).toInstant())
         .isEqualTo(end.toInstant());
-    assertThat(saved.path("location").asText()).isEqualTo("고친 장소");
+    assertThat(saved.path("location").asString()).isEqualTo("고친 장소");
     assertThat(saved.path("allDay").asBoolean()).isFalse();
   }
 

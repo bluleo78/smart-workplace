@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -42,6 +40,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-887 외부 링크 — 붙이기(유형·방향 말, 스킴 검사, 같은 주소 멱등/충돌, 상한 50)·수정·삭제·이력·상세 표시·권한·가져오기용 삽입.
@@ -100,22 +100,22 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
             add(alice, wp, wp1, "PARENT_EPIC", null, JIRA, "CL-1867", "v1.7.0 버그 픽스")
                 .andExpect(status().isOk()));
     assertThat(list).hasSize(1);
-    assertThat(list.get(0).get("label").asText()).isEqualTo("에픽에 속함");
-    assertThat(list.get(0).get("typeCode").asText()).isEqualTo("PARENT_EPIC");
+    assertThat(list.get(0).get("label").asString()).isEqualTo("에픽에 속함");
+    assertThat(list.get(0).get("typeCode").asString()).isEqualTo("PARENT_EPIC");
 
     JsonNode link = detail(alice, wp, wp1).get("externalLinks").get(0);
-    assertThat(link.get("label").asText()).isEqualTo("에픽에 속함");
-    assertThat(link.get("url").asText()).isEqualTo(JIRA);
-    assertThat(link.get("key").asText()).isEqualTo("CL-1867");
-    assertThat(link.get("title").asText()).isEqualTo("v1.7.0 버그 픽스");
+    assertThat(link.get("label").asString()).isEqualTo("에픽에 속함");
+    assertThat(link.get("url").asString()).isEqualTo(JIRA);
+    assertThat(link.get("key").asString()).isEqualTo("CL-1867");
+    assertThat(link.get("title").asString()).isEqualTo("v1.7.0 버그 픽스");
 
     List<String> h = history(wp1, "EXTERNAL_LINK_ADDED");
     assertThat(h).hasSize(1);
     JsonNode to = om.readTree(h.get(0));
-    assertThat(to.get("label").asText()).isEqualTo("에픽에 속함");
-    assertThat(to.get("key").asText()).isEqualTo("CL-1867");
-    assertThat(to.get("title").asText()).isEqualTo("v1.7.0 버그 픽스");
-    assertThat(to.get("url").asText()).isEqualTo(JIRA);
+    assertThat(to.get("label").asString()).isEqualTo("에픽에 속함");
+    assertThat(to.get("key").asString()).isEqualTo("CL-1867");
+    assertThat(to.get("title").asString()).isEqualTo("v1.7.0 버그 픽스");
+    assertThat(to.get("url").asString()).isEqualTo(JIRA);
     assertThat(events.stream(ResourceChangedEvent.class).count()).isPositive();
   }
 
@@ -126,8 +126,8 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
         json(
             add(alice, wp, wp1, "CAUSES", "target", "https://x.test/1", null, "원인 이슈")
                 .andExpect(status().isOk()));
-    assertThat(list.get(0).get("label").asText()).isEqualTo("결과임");
-    assertThat(list.get(0).get("side").asText()).isEqualTo("target");
+    assertThat(list.get(0).get("label").asString()).isEqualTo("결과임");
+    assertThat(list.get(0).get("side").asString()).isEqualTo("target");
 
     JsonNode relates =
         json(
@@ -141,8 +141,8 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
             .fetchOne(ISSUE_EXTERNAL_LINK.ISSUE_IS_SOURCE);
     assertThat(stored).isTrue();
     for (JsonNode l : relates) {
-      if (l.get("url").asText().equals("https://x.test/2")) {
-        assertThat(l.get("side").asText()).isEqualTo("source");
+      if (l.get("url").asString().equals("https://x.test/2")) {
+        assertThat(l.get("side").asString()).isEqualTo("source");
       }
     }
 
@@ -178,7 +178,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
         json(
             add(alice, wp, wp1, "RELATES", null, "  https://a.b/c  ", null, "공백")
                 .andExpect(status().isOk()));
-    assertThat(list.get(0).get("url").asText()).isEqualTo("https://a.b/c");
+    assertThat(list.get(0).get("url").asString()).isEqualTo("https://a.b/c");
     // 스킴은 대소문자 무시.
     add(alice, wp, wp1, "RELATES", null, "HTTP://A.B/d", null, "대문자").andExpect(status().isOk());
     assertThat(linkCount(wp1)).isEqualTo(2);
@@ -193,7 +193,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
             add(alice, wp, wp1, "PARENT_EPIC", null, " " + JIRA + " ", "다른키", "다른 제목")
                 .andExpect(status().isOk()));
     assertThat(again).hasSize(1);
-    assertThat(again.get(0).get("title").asText()).isEqualTo("에픽");
+    assertThat(again.get(0).get("title").asString()).isEqualTo("에픽");
     assertThat(history(wp1, "EXTERNAL_LINK_ADDED")).hasSize(1);
 
     assertCode(
@@ -239,7 +239,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
         json(
             add(alice, wp, wp1, "CAUSES", "target", JIRA + "-2", null, "원인")
                 .andExpect(status().isOk()))) {
-      if (l.get("typeCode").asText().equals("CAUSES")) causesId = l.get("id").asLong();
+      if (l.get("typeCode").asString().equals("CAUSES")) causesId = l.get("id").asLong();
     }
     assertCode(
         update(alice, wp, wp1, causesId, "PARENT_EPIC", null, null, null, "원인"),
@@ -267,7 +267,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
         JIRA + "-legacy");
     JsonNode links = detail(alice, wp, wp1).get("externalLinks");
     assertThat(links).hasSize(3);
-    assertThat(links.get(2).get("title").asText()).isEqualTo("옛 줄");
+    assertThat(links.get(2).get("title").asString()).isEqualTo("옛 줄");
   }
 
   /** 이슈당 50개까지, 51번째는 400. */
@@ -311,16 +311,16 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
                     "고친 제목")
                 .andExpect(status().isOk()));
     assertThat(edited).hasSize(1);
-    assertThat(edited.get(0).get("title").asText()).isEqualTo("고친 제목");
-    assertThat(edited.get(0).get("label").asText()).isEqualTo("결과임");
-    assertThat(edited.get(0).get("url").asText()).isEqualTo(JIRA);
-    assertThat(edited.get(0).get("key").asText()).isEqualTo("CL-1868");
+    assertThat(edited.get(0).get("title").asString()).isEqualTo("고친 제목");
+    assertThat(edited.get(0).get("label").asString()).isEqualTo("결과임");
+    assertThat(edited.get(0).get("url").asString()).isEqualTo(JIRA);
+    assertThat(edited.get(0).get("key").asString()).isEqualTo("CL-1868");
 
     List<String> upd = history(wp1, "EXTERNAL_LINK_UPDATED");
     assertThat(upd).hasSize(1);
     JsonNode to = om.readTree(upd.get(0));
-    assertThat(to.get("label").asText()).isEqualTo("결과임");
-    assertThat(to.get("title").asText()).isEqualTo("고친 제목");
+    assertThat(to.get("label").asString()).isEqualTo("결과임");
+    assertThat(to.get("title").asString()).isEqualTo("고친 제목");
     String fromValue =
         dsl.select(ISSUE_HISTORY.FROM_VALUE)
             .from(ISSUE_HISTORY)
@@ -328,10 +328,10 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
             .and(ISSUE_HISTORY.ISSUE_ID.eq(issueId(wp1)))
             .fetchOne(ISSUE_HISTORY.FROM_VALUE);
     JsonNode from = om.readTree(fromValue);
-    assertThat(from.get("label").asText()).isEqualTo("관련");
-    assertThat(from.get("title").asText()).isEqualTo("처음 제목");
-    assertThat(from.get("key").asText()).isEqualTo("CL-1867");
-    assertThat(from.get("url").asText()).isEqualTo(JIRA);
+    assertThat(from.get("label").asString()).isEqualTo("관련");
+    assertThat(from.get("title").asString()).isEqualTo("처음 제목");
+    assertThat(from.get("key").asString()).isEqualTo("CL-1867");
+    assertThat(from.get("url").asString()).isEqualTo(JIRA);
 
     // 바뀐 게 없으면 이력 없이 그대로.
     update(alice, wp, wp1, id, "CAUSES", "target", null, "CL-1868", "고친 제목")
@@ -342,7 +342,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
     assertThat(linkCount(wp1)).isZero();
     List<String> removed = history(wp1, "EXTERNAL_LINK_REMOVED");
     assertThat(removed).hasSize(1);
-    assertThat(om.readTree(removed.get(0)).get("title").asText()).isEqualTo("고친 제목");
+    assertThat(om.readTree(removed.get(0)).get("title").asString()).isEqualTo("고친 제목");
     call(delete(path(wp, wp1) + "/" + id), alice).andExpect(status().isNoContent());
     assertThat(history(wp1, "EXTERNAL_LINK_REMOVED")).hasSize(1);
   }
@@ -370,7 +370,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
     update(alice, wp, wp1, id, "RELATES", null, JIRA, "CL-1867", "\u200B")
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.errors.title").value("제목을 입력해 주세요"));
-    assertThat(detail(alice, wp, wp1).get("externalLinks").get(0).get("title").asText())
+    assertThat(detail(alice, wp, wp1).get("externalLinks").get(0).get("title").asString())
         .isEqualTo("처음 제목");
   }
 
@@ -420,7 +420,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
             .orderBy(ISSUE_HISTORY.ID.desc())
             .limit(1)
             .fetchOne(ISSUE_HISTORY.FROM_VALUE);
-    assertThat(om.readTree(fromValue).get("title").asText()).isEqualTo("처음");
+    assertThat(om.readTree(fromValue).get("title").asString()).isEqualTo("처음");
   }
 
   /**
@@ -500,7 +500,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
         json(
             add(alice, wp, wp1, "BLOCKS", null, "https://x.test/b", "X-1", "외부 차단")
                 .andExpect(status().isOk()));
-    assertThat(list.get(0).get("label").asText()).isEqualTo("차단 중");
+    assertThat(list.get(0).get("label").asString()).isEqualTo("차단 중");
     JsonNode d = detail(alice, wp, wp1);
     assertThat(d.get("summary").get("blocked").asBoolean()).isFalse();
     assertThat(d.get("summary").get("blockedBy")).isEmpty();
@@ -530,10 +530,10 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
     add(alice, wp, wp1, "BLOCKS", null, "https://x.test/b", null, "차단").andExpect(status().isOk());
     JsonNode links = detail(alice, wp, wp1).get("externalLinks");
     assertThat(links).hasSize(4);
-    assertThat(links.get(0).get("typeCode").asText()).isEqualTo("BLOCKS");
-    assertThat(links.get(1).get("key").asText()).isEqualTo("A-1");
-    assertThat(links.get(2).get("key").asText()).isEqualTo("B-2");
-    assertThat(links.get(3).get("typeCode").asText()).isEqualTo("PARENT_EPIC");
+    assertThat(links.get(0).get("typeCode").asString()).isEqualTo("BLOCKS");
+    assertThat(links.get(1).get("key").asString()).isEqualTo("A-1");
+    assertThat(links.get(2).get("key").asString()).isEqualTo("B-2");
+    assertThat(links.get(3).get("typeCode").asString()).isEqualTo("PARENT_EPIC");
   }
 
   /** 가져오기용 삽입 — 이력·실시간 없이 넣고, 같은 줄은 건너뛰고, 같은 주소 다른 유형은 409 예외. */
@@ -578,8 +578,8 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
         json(
             update(alice, wp, wp1, id, "CAUSES", null, null, null, "새 제목")
                 .andExpect(status().isOk()));
-    assertThat(edited.get(0).get("label").asText()).isEqualTo("결과임");
-    assertThat(edited.get(0).get("title").asText()).isEqualTo("새 제목");
+    assertThat(edited.get(0).get("label").asString()).isEqualTo("결과임");
+    assertThat(edited.get(0).get("title").asString()).isEqualTo("새 제목");
     assertThat(
             dsl.select(ISSUE_EXTERNAL_LINK.ISSUE_IS_SOURCE)
                 .from(ISSUE_EXTERNAL_LINK)
@@ -593,7 +593,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
                 .where(ISSUE_HISTORY.EVENT_TYPE.eq("EXTERNAL_LINK_UPDATED"))
                 .and(ISSUE_HISTORY.ISSUE_ID.eq(issueId(wp1)))
                 .fetchOne(ISSUE_HISTORY.FROM_VALUE));
-    assertThat(from.get("label").asText()).isEqualTo("결과임");
+    assertThat(from.get("label").asString()).isEqualTo("결과임");
   }
 
   /** 관리자 가져오기는 숨긴 유형도 쓸 수 있다(이관 직전에 유형을 숨겨 둬도 일괄이 실패하지 않게). */

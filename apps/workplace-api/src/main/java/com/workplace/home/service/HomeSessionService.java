@@ -1,10 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.dto.HomeAttachment;
@@ -27,6 +22,11 @@ import lombok.SneakyThrows;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.JsonNodeFactory;
 
 /** 홈 AI Chat 세션 CRUD + 메시지 영속/복원. 모든 변경은 소유권 검증. */
 @Service
@@ -354,7 +354,7 @@ public class HomeSessionService {
   }
 
   private static boolean isMemoryBlock(JsonNode b) {
-    return "memory".equals(b.path("kind").asText());
+    return "memory".equals(b.path("kind").asString(""));
   }
 
   /** 후속 질문 JSON → 문자열 목록. 깨진 값은 표시하지 않는다(null) — 복원 화면을 막을 만큼 중요하지 않다. */

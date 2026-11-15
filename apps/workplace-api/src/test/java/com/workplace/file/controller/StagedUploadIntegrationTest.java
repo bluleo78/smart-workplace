@@ -17,7 +17,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.exception.DriveQuotaExceededException;
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.StagedFileClaimer;
@@ -47,6 +46,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 스테이징 업로드 API(WP-421) 통합 테스트 — 텍스트로 임시 첨부 만들기, 일회용 PUT 링크 발급·익명 PUT, 만료 정리, 클레임 소유자 검사.
@@ -137,7 +137,7 @@ class StagedUploadIntegrationTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String url = objectMapper.readTree(body).get("url").asText();
+    String url = objectMapper.readTree(body).get("url").asString();
     assertThat(url).startsWith(BASE + "/api/v1/public/staged-files/su_");
     return url.substring(BASE.length());
   }

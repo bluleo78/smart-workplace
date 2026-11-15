@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -21,6 +20,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WP-1590: 일정 생성·수정(scope=ALL)의 반복 규칙 UNTIL 검사.
@@ -117,7 +117,8 @@ class CalendarRecurrenceUntilTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    long id = new ObjectMapper().readTree(created).path("id").asLong();
+    long id =
+        JsonMapper.builderWithJackson2Defaults().build().readTree(created).path("id").asLong();
 
     for (String rrule : List.of("FREQ=DAILY;UNTIL=20261301T000000Z", "FREQ=DAILY;UNTIL=nope")) {
       mvc.perform(

@@ -2,11 +2,11 @@ package com.workplace.global.util;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /** SingleLineTitles.normalize — 한 줄로 다듬기·앞뒤 보이지 않는 문자 제거, 그려지는 글자가 없으면 빈 문자열(WP-724). */
 class SingleLineTitlesTest {
@@ -59,22 +59,24 @@ class SingleLineTitlesTest {
   @Test
   void matchesSharedFixtureWithWeb() throws Exception {
     JsonNode cases =
-        new ObjectMapper()
+        JsonMapper.builderWithJackson2Defaults()
+            .build()
             .readTree(
                 Files.readString(Path.of("../workplace-web/src/lib/visible-text-cases.json")));
     cases
         .get("invisible")
         .forEach(
-            t -> assertThat(PersonNames.hasVisibleChar(t.asText())).as(t.toString()).isFalse());
+            t -> assertThat(PersonNames.hasVisibleChar(t.asString())).as(t.toString()).isFalse());
     cases
         .get("visible")
-        .forEach(t -> assertThat(PersonNames.hasVisibleChar(t.asText())).as(t.toString()).isTrue());
+        .forEach(
+            t -> assertThat(PersonNames.hasVisibleChar(t.asString())).as(t.toString()).isTrue());
     cases
         .get("singleLine")
         .forEach(
             c ->
-                assertThat(SingleLineTitles.normalize(c.get("in").asText()))
+                assertThat(SingleLineTitles.normalize(c.get("in").asString()))
                     .as(c.get("in").toString())
-                    .isEqualTo(c.get("out").asText()));
+                    .isEqualTo(c.get("out").asString()));
   }
 }

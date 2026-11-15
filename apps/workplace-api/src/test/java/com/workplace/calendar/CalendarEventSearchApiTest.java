@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -32,6 +31,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 일정 키워드 검색 API(WP-1357) — 정렬(다가오는 순 → 지난 순)·반복 일정 한 줄·동료 사본 한 줄·페이지·빈 검색어·인증. 지금 시각 기준 상대 날짜로 시드해
@@ -122,11 +122,11 @@ class CalendarEventSearchApiTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    var item = new ObjectMapper().readTree(body).path("items").get(0);
-    OffsetDateTime occ = OffsetDateTime.parse(item.path("occurrenceStart").asText());
+    var item = JsonMapper.builderWithJackson2Defaults().build().readTree(body).path("items").get(0);
+    OffsetDateTime occ = OffsetDateTime.parse(item.path("occurrenceStart").asString());
     assertThat(occ.toInstant()).isEqualTo(start.plusWeeks(4).toInstant());
     // 전개기는 UTC 로 주지만 응답은 마스터 startsAt 의 오프셋으로 맞춘다
-    OffsetDateTime startsAt = OffsetDateTime.parse(item.path("startsAt").asText());
+    OffsetDateTime startsAt = OffsetDateTime.parse(item.path("startsAt").asString());
     assertThat(occ.getOffset()).isEqualTo(startsAt.getOffset());
   }
 
@@ -154,12 +154,13 @@ class CalendarEventSearchApiTest extends IntegrationTestBase {
             .getContentAsString();
     OffsetDateTime occ =
         OffsetDateTime.parse(
-            new ObjectMapper()
+            JsonMapper.builderWithJackson2Defaults()
+                .build()
                 .readTree(body)
                 .path("items")
                 .get(0)
                 .path("occurrenceStart")
-                .asText());
+                .asString());
     assertThat(occ.toInstant()).isEqualTo(now.minusWeeks(2).toInstant());
   }
 
@@ -190,12 +191,13 @@ class CalendarEventSearchApiTest extends IntegrationTestBase {
     // 다음 회차는 지금 이후 7일 안
     OffsetDateTime occ =
         OffsetDateTime.parse(
-            new com.fasterxml.jackson.databind.ObjectMapper()
+            JsonMapper.builderWithJackson2Defaults()
+                .build()
                 .readTree(body)
                 .path("items")
                 .get(0)
                 .path("occurrenceStart")
-                .asText());
+                .asString());
     org.assertj.core.api.Assertions.assertThat(occ)
         .isAfter(now)
         .isBefore(now.plusDays(7).plusMinutes(1));
@@ -218,12 +220,13 @@ class CalendarEventSearchApiTest extends IntegrationTestBase {
     // 진행 중인 회차는 이미 시작했으므로 occurrenceStart 는 지금보다 앞(약 30분 전)
     OffsetDateTime occ =
         OffsetDateTime.parse(
-            new com.fasterxml.jackson.databind.ObjectMapper()
+            JsonMapper.builderWithJackson2Defaults()
+                .build()
                 .readTree(body)
                 .path("items")
                 .get(0)
                 .path("occurrenceStart")
-                .asText());
+                .asString());
     org.assertj.core.api.Assertions.assertThat(occ).isBefore(now).isAfter(now.minusHours(1));
   }
 

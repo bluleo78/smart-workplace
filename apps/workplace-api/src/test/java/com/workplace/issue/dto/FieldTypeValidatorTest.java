@@ -3,16 +3,17 @@ package com.workplace.issue.dto;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.exception.InvalidFieldOptionsException;
 import com.workplace.issue.exception.InvalidFieldTypeException;
 import com.workplace.issue.exception.InvalidFieldValueException;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** FieldType / FieldTypeValidator — 5 타입 화이트리스트와 options/value 검증 dispatcher. */
 class FieldTypeValidatorTest {
 
-  private final ObjectMapper om = new ObjectMapper();
+  private final ObjectMapper om = JsonMapper.builderWithJackson2Defaults().build();
 
   @Test
   void valid_types_accepted() {
@@ -156,7 +157,7 @@ class FieldTypeValidatorTest {
   /** WP-725: DATE 필드는 1900-01-01 ~ 9999-12-31 만 — 큰 연도(+999999999)·음수 연도가 저장되면 이슈 상세가 열리지 않았다. */
   @Test
   void date_outsideSupportedRange_rejected() {
-    ObjectMapper om = new ObjectMapper();
+    ObjectMapper om = JsonMapper.builderWithJackson2Defaults().build();
     for (String v :
         new String[] {"+10000-01-01", "+999999999-12-31", "-0001-01-01", "1899-12-31"}) {
       assertThatThrownBy(() -> FieldTypeValidator.validateValue("DATE", null, om.valueToTree(v)))

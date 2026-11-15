@@ -1,10 +1,10 @@
 package com.workplace.auth.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.service.AgentProviders;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * provider-credential 등록 컨트롤러(admin/개인) 공용 헬퍼 — provider 기본값 결정과 opencode providerConfig 의 JSON
@@ -38,7 +38,7 @@ public final class ProviderCredentialSecrets {
     }
     try {
       return objectMapper.writeValueAsString(providerConfig);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new InvalidProviderCredentialException("providerConfig 직렬화에 실패했습니다");
     }
   }

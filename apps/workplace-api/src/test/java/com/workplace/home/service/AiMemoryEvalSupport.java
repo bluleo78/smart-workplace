@@ -1,7 +1,6 @@
 package com.workplace.home.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import java.io.IOException;
@@ -12,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WP-383 메모리 선택 평가 세트(src/test/resources/ai-memory-eval/fixture.json) — 읽기·넣기·recall 계산. CI 평가(가짜
@@ -33,7 +33,8 @@ final class AiMemoryEvalSupport {
   static Fixture load() {
     try (InputStream in =
         AiMemoryEvalSupport.class.getResourceAsStream("/ai-memory-eval/fixture.json")) {
-      return new ObjectMapper()
+      return JsonMapper.builderWithJackson2Defaults()
+          .build()
           .readValue(Objects.requireNonNull(in, "fixture.json 없음"), Fixture.class);
     } catch (IOException e) {
       throw new UncheckedIOException(e);

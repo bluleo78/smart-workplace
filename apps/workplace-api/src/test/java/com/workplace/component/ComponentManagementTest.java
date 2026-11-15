@@ -9,8 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.component.dto.ComponentSummary;
 import com.workplace.component.repository.ComponentRepository;
 import com.workplace.global.security.JwtTokenProvider;
@@ -36,6 +34,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-933 구성요소 목록 관리 API — 권한(OWNER·ADMIN·멤버·비멤버), 이름 유일(대소문자·공백), 개인 프로젝트 거부, 담당자 유효성, 보관·복원, 삭제 시
@@ -97,7 +97,7 @@ class ComponentManagementTest extends IntegrationTestBase {
 
     JsonNode list = json(call(get(base), ownerId).andExpect(status().isOk()));
     List<String> names = new ArrayList<>();
-    list.forEach(n -> names.add(n.get("name").asText()));
+    list.forEach(n -> names.add(n.get("name").asString()));
     assertThat(names).containsExactly("Audit", "compute", "Network");
   }
 
@@ -178,7 +178,7 @@ class ComponentManagementTest extends IntegrationTestBase {
     projectService.removeMember(ownerId, key, memberId);
     JsonNode row = json(call(get(base), ownerId)).get(0);
     assertThat(row.get("defaultAssigneeValid").asBoolean()).isFalse();
-    assertThat(row.get("defaultAssigneeInvalidReason").asText()).isEqualTo("NOT_MEMBER");
+    assertThat(row.get("defaultAssigneeInvalidReason").asString()).isEqualTo("NOT_MEMBER");
     // 값은 남는다 — 설정 화면이 경고를 그릴 수 있게.
     assertThat(row.get("defaultAssignee").get("id").asLong()).isEqualTo(memberId);
 
@@ -206,11 +206,11 @@ class ComponentManagementTest extends IntegrationTestBase {
     TestFixtures.suspendMember(dsl, assignee, 1L);
     JsonNode row = json(call(get(base), ownerId)).get(0);
     assertThat(row.get("defaultAssigneeValid").asBoolean()).isFalse();
-    assertThat(row.get("defaultAssigneeInvalidReason").asText()).isEqualTo("INACTIVE");
+    assertThat(row.get("defaultAssigneeInvalidReason").asString()).isEqualTo("INACTIVE");
 
     projectService.removeMember(ownerId, key, assignee);
     row = json(call(get(base), ownerId)).get(0);
-    assertThat(row.get("defaultAssigneeInvalidReason").asText()).isEqualTo("INACTIVE");
+    assertThat(row.get("defaultAssigneeInvalidReason").asString()).isEqualTo("INACTIVE");
   }
 
   /** 보관하면 archived=true, 다시 false 로 복원. 목록에는 보관된 것도 남는다. */
@@ -254,7 +254,7 @@ class ComponentManagementTest extends IntegrationTestBase {
       JsonNode payload = om.readTree(rows.get(0).get("to_value", String.class));
       assertThat(payload.get("added")).isEmpty();
       assertThat(payload.get("removed").get(0).get("id").asLong()).isEqualTo(id);
-      assertThat(payload.get("removed").get(0).get("name").asText()).isEqualTo("Compute");
+      assertThat(payload.get("removed").get(0).get("name").asString()).isEqualTo("Compute");
     }
     call(get(base + "/" + id + "/issue-count"), ownerId).andExpect(status().isNotFound());
   }

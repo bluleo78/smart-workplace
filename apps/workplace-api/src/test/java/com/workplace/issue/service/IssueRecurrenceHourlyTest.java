@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.global.security.JwtTokenProvider;
@@ -41,6 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 「몇 시간마다」 실행 일정(WP-1373) 통합 테스트 — FREQ=HOURLY;INTERVAL=n;BYDAY=..;UNTILTIME=HH:mm 의 검증(허용 간격·요일·끝

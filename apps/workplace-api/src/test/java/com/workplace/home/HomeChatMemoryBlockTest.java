@@ -9,7 +9,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.dto.HomeMessageResponse;
 import java.util.List;
@@ -21,6 +20,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.JsonNode;
 
 /**
  * WP-55: 메모리 도구 결과 → 결과 줄 블록 영속·재발행, done messageId. 펌프가 다른 스레드에서 커밋하므로 @Transactional 없이
@@ -296,7 +296,7 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
             });
 
     JsonNode json = om.valueToTree(a);
-    assertThat(json.path("contentBlocks").findValuesAsText("kind")).doesNotContain("memory");
+    assertThat(json.path("contentBlocks").findValuesAsString("kind")).doesNotContain("memory");
     assertThat(json.path("memoryBlocks")).isEqualTo(om.readTree("[" + at(SAVED_BLOCK, 1) + "]"));
   }
 
@@ -530,7 +530,7 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
             });
 
     assertThat(a.memoryBlocks()).hasSize(1);
-    assertThat(a.memoryBlocks().get(0).path("expiresOn").asText()).isEqualTo("2026-10-19");
+    assertThat(a.memoryBlocks().get(0).path("expiresOn").asString()).isEqualTo("2026-10-19");
     assertThat(a.memoryBlocks().get(0).has("previousExpiresOn")).isFalse();
   }
 }

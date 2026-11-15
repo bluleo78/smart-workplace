@@ -1,9 +1,9 @@
 package com.workplace.issue.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 이슈 필드 값 PUT 본문. incoming 만 처리 — 전송하지 않은 defId 의 기존 값은 유지된다. value 가 null/NullNode 면 row 삭제.

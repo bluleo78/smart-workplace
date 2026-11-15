@@ -1,10 +1,9 @@
 package com.workplace.fileai.outbound;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.file.service.MimeNormalizer;
 import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.AttachmentViewException;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.outbound.InternalHttp;
 import com.workplace.global.outbound.InternalResponses;
 import java.io.IOException;
@@ -21,6 +20,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 워커 /render 동기 호출(WP-250) — PDF 한 쪽 또는 이미지를 모델 입력용 PNG/JPEG 로 그려 받는다.
@@ -38,7 +40,7 @@ public class WorkerRenderClient {
 
   private final WorkerProperties props;
   private final HttpClient http;
-  private final ObjectMapper mapper = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   @Autowired
   public WorkerRenderClient(WorkerProperties props) {
@@ -73,8 +75,8 @@ public class WorkerRenderClient {
       body.put("mime", mime);
       body.put("page", page);
       body.put("maxEdge", maxEdge);
-      json = mapper.writeValueAsBytes(body);
-    } catch (IOException e) {
+      json = MAPPER.writeValueAsBytes(body);
+    } catch (JacksonException e) {
       throw new IllegalStateException("render 요청 직렬화 실패", e);
     }
     return send(URI.create(props.baseUrl() + "/render"), "application/json", json, storageKey);
@@ -158,9 +160,9 @@ public class WorkerRenderClient {
   private AttachmentViewException toException(int status, byte[] body, String storageKey) {
     // JSON 이 아니거나 detail 이 목록(FastAPI 요청 검증 실패)이면 code 없음 → 아래에서 503
     JsonNode detail = InternalResponses.errorDetail(body);
-    String code = detail == null ? null : detail.path("code").asText(null);
+    String code = detail == null ? null : detail.path("code").asString(null);
     JsonNode pc = detail == null ? null : detail.path("pageCount");
-    Integer pageCount = pc != null && pc.isInt() ? pc.asInt() : null;
+    Integer pageCount = pc != null && pc.isInt() ? pc.asInt(0) : null;
     if (AttachmentViewException.isPassThrough(code)) {
       return new AttachmentViewException(code, "PAGE_OUT_OF_RANGE".equals(code) ? pageCount : null);
     }

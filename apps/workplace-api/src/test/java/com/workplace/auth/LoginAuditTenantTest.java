@@ -11,7 +11,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
@@ -25,6 +24,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-598 — 로그인·로그아웃 감사는 실제로 들어간 워크스페이스에 남아 그 워크스페이스 관리자의 감사 로그에 보인다.
@@ -109,7 +109,7 @@ class LoginAuditTenantTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    return objectMapper.readTree(body).get("accessToken").asText();
+    return objectMapper.readTree(body).get("accessToken").asString();
   }
 
   @Test

@@ -49,7 +49,7 @@ class AgentWorkReportAttachmentTest extends AgentWorkTestSupport {
                 jwtToken,
                 null,
                 null));
-    assertThat(list.findValuesAsText("fileId"))
+    assertThat(list.findValuesAsString("fileId"))
         .containsExactlyInAnyOrder(String.valueOf(a), String.valueOf(b));
   }
 

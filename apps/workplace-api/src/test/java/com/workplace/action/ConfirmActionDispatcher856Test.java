@@ -15,8 +15,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
 import com.workplace.calendar.repository.EventAttendeeRepository;
@@ -53,6 +51,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * #856 확인 카드 액션 8종 통합 테스트 — 참석자 추가·제거, 프로젝트 멤버 역할 변경·제거, 채널 멤버 초대, 이슈·코멘트·노트 삭제.

@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.repository.AiMemoryRepository;
@@ -32,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * WP-380: 메모리 기한 — 오늘(고정 시계 2026-10-14, Asia/Seoul) 기준 유효/만료 경계, 과거·형식 오류 400, 기한 지정·없애기, 만료 행 되살리기

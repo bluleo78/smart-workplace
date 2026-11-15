@@ -18,7 +18,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.agentaccount.service.AgentAccountService;
@@ -61,6 +60,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /** Task10 — 모델 목록/프로브 API 통합 테스트. ai-agent 호출은 AiAgentModelsClient @MockitoBean 으로 대체. */
 @Transactional

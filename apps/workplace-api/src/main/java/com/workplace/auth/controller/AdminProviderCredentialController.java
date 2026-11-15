@@ -1,6 +1,5 @@
 package com.workplace.auth.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.OAuthTokenMetaResponse;
 import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.auth.service.AdminProviderCredentialService;
@@ -21,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Phase 5c-2 후속 (#33), 멀티 프로바이더(#opencode) 확장: AGENT 프로바이더 자격증명 관리 — admin (user:write) 권한. 평문

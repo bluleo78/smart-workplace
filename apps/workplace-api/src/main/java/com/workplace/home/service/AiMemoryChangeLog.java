@@ -1,8 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.ai.MemoryTextNormalizer;
 import com.workplace.home.repository.AiMemoryChangeRepository;
 import com.workplace.home.repository.AiMemoryChangeRepository.NewChange;
@@ -14,6 +11,9 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 정리 기록 쓰기·읽기(WP-385) — 스냅숏을 JSON 으로 바꿔 ai_memory_change 에 남기고, 되돌리기·목록이 다시 스냅숏으로 읽는다. 사유는 DB
@@ -92,7 +92,7 @@ public class AiMemoryChangeLog {
   public List<MemorySnapshot> readBefore(String json) {
     try {
       return objectMapper.readValue(json, SNAPSHOTS);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("정리 기록 before 를 읽지 못했어요", e);
     }
   }
@@ -102,7 +102,7 @@ public class AiMemoryChangeLog {
     if (json == null) return null;
     try {
       return objectMapper.readValue(json, MemorySnapshot.class);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("정리 기록 after 를 읽지 못했어요", e);
     }
   }
@@ -117,7 +117,7 @@ public class AiMemoryChangeLog {
   private String write(Object value) {
     try {
       return objectMapper.writeValueAsString(value);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("정리 기록 직렬화 실패", e);
     }
   }

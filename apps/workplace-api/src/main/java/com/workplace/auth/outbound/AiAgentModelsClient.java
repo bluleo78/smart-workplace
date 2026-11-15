@@ -1,10 +1,10 @@
 package com.workplace.auth.outbound;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.ModelOption;
 import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.exception.AssistantModelsProbeException;
+import com.workplace.global.json.JsonMappers;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Task10 — ai-agent POST /models/list 동기 위임. AiAgentMailClient/AiAgentIssueClient 미러(Internal 토큰,
@@ -21,8 +22,8 @@ import org.springframework.web.client.RestClientException;
 @Slf4j
 public class AiAgentModelsClient {
 
-  /** ai-agent 오류 본문({error}) 판독용 — 응답 본문만 읽으므로 빈이 아닌 자체 인스턴스. */
-  private static final ObjectMapper JSON = new ObjectMapper();
+  /** ai-agent 오류 본문({error}) 판독용 — 응답 본문만 읽으므로 빈이 아닌 공유 Jackson 2 호환 매퍼. */
+  private static final ObjectMapper JSON = JsonMappers.JACKSON2;
 
   /**
    * ai-agent 가 키 인증 실패(업스트림 401)를 알리는 오류 코드(WP-1496 계약). 403·다른 400 은 목록 권한만 없는 토큰일 수 있어 ai-agent 가
@@ -134,7 +135,7 @@ public class AiAgentModelsClient {
   private static String errorCode(String body) {
     try {
       var node = JSON.readTree(body);
-      return node != null && node.path("error").isTextual() ? node.get("error").asText() : null;
+      return node != null && node.path("error").isString() ? node.get("error").asString("") : null;
     } catch (Exception e) {
       return null;
     }

@@ -15,8 +15,6 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.dto.IssueUserTokenRequest;
 import com.workplace.auth.service.AgentApiKeyService;
@@ -56,6 +54,9 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * AI 작업 기록(WP-377) 실제 HTTP 통합 테스트 공용 기반. 쓰기 터치·자동 종료·보고 테스트가 함께 쓴다.
@@ -299,7 +300,7 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     return call(HttpMethod.PUT, issuePath() + "/agent-work", token, body, tool);
   }
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
   /** 요청이 성공(2xx)했는지 — 거절로 인한 거짓 통과를 막는다. 실패 응답이면 본문을 메시지로 보여준다. */
   protected static void assertOk(ResponseEntity<String> res) {

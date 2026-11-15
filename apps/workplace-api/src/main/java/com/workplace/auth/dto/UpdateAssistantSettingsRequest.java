@@ -1,10 +1,10 @@
 package com.workplace.auth.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.auth.service.ThinkingDepths;
 import com.workplace.global.util.Texts;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 비서 설정 변경 요청 — 개인/공용 공통.

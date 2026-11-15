@@ -2,8 +2,6 @@ package com.workplace.mail.outbound;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -12,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Microsoft Graph API 캘린더 읽기·쓰기 클라이언트.
@@ -327,7 +327,7 @@ public class GraphCalendarClient {
     String json;
     try {
       json = mapper.writeValueAsString(new GraphCategoriesPatch(categories));
-    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+    } catch (tools.jackson.core.JacksonException e) {
       // 메일 보내기 실패(MailSendException)로 보이지 않게 메일과 무관한 예외를 던진다. calendar 예외를 직접 쓰면
       // mail → calendar 패키지 순환이 생기므로, 502 변환은 GraphCalendarTransport 의 catch(RuntimeException)에
       // 맡긴다.
@@ -362,7 +362,7 @@ public class GraphCalendarClient {
             "/me/messages/" + messageId + "?$select=id&$expand=microsoft.graph.eventMessage/event",
             JsonNode.class);
     if (node == null) return Optional.empty();
-    String id = node.path("event").path("id").asText(null);
+    String id = node.path("event").path("id").asString(null);
     return id == null || id.isBlank() ? Optional.empty() : Optional.of(id);
   }
 
@@ -379,7 +379,7 @@ public class GraphCalendarClient {
                 + URLEncoder.encode(filter, StandardCharsets.UTF_8).replace("+", "%20"),
             JsonNode.class);
     if (node == null) return Optional.empty();
-    String id = node.path("value").path(0).path("id").asText(null);
+    String id = node.path("value").path(0).path("id").asString(null);
     return id == null || id.isBlank() ? Optional.empty() : Optional.of(id);
   }
 
@@ -429,7 +429,7 @@ public class GraphCalendarClient {
   private String serialize(GraphEventWrite body) {
     try {
       return mapper.writeValueAsString(body);
-    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+    } catch (tools.jackson.core.JacksonException e) {
       throw new com.workplace.mail.exception.MailSendException("Graph 일정 직렬화 실패", e);
     }
   }
@@ -442,7 +442,7 @@ public class GraphCalendarClient {
   private String serializeAttendees(GraphAttendeesPatch patch) {
     try {
       return mapper.writeValueAsString(patch);
-    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+    } catch (tools.jackson.core.JacksonException e) {
       throw new com.workplace.mail.exception.MailSendException("Graph 참석자 직렬화 실패", e);
     }
   }

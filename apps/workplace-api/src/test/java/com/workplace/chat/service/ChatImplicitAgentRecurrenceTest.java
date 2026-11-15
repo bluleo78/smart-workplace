@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
@@ -50,6 +48,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 실행 일정이 걸린 작업의 이슈챗은 멘션 없이도 담당 AI 가 답한다(WP-1377) — 통합 테스트.
@@ -357,7 +357,7 @@ class ChatImplicitAgentRecurrenceTest extends IntegrationTestBase {
 
     // 빈 멤버 목록은 「글쓴이 + 담당 AI 뿐」이 아니다 — ALWAYS 로 올리지 않는다(WP-1377).
     JsonNode team = thread(teamKey, teamNumber, alice).get("implicitAgent");
-    assertThat(team.get("mode").asText()).isEqualTo("AFTER_AI_REPLY");
+    assertThat(team.get("mode").asString()).isEqualTo("AFTER_AI_REPLY");
   }
 
   @Test
@@ -422,18 +422,18 @@ class ChatImplicitAgentRecurrenceTest extends IntegrationTestBase {
     saveRecurrence(personalKey, personalNumber, owner, null);
     JsonNode personal = thread(personalKey, personalNumber, owner).get("implicitAgent");
     assertThat(personal.get("id").asLong()).isEqualTo(agent);
-    assertThat(personal.get("name").asText()).isEqualTo(nameOf(agent));
-    assertThat(personal.get("mode").asText()).isEqualTo("ALWAYS");
+    assertThat(personal.get("name").asString()).isEqualTo(nameOf(agent));
+    assertThat(personal.get("mode").asString()).isEqualTo("ALWAYS");
 
     // 팀 이슈 — 둘뿐이면 ALWAYS, 멤버가 늘면 AFTER_AI_REPLY.
     saveRecurrence(teamKey, teamNumber, alice, teamAi);
     long threadId = thread(teamKey, teamNumber, alice).get("threadId").asLong();
-    assertThat(thread(teamKey, teamNumber, alice).get("implicitAgent").get("mode").asText())
+    assertThat(thread(teamKey, teamNumber, alice).get("implicitAgent").get("mode").asString())
         .isEqualTo("ALWAYS");
     memberRepository.insertIgnoreConflict(threadId, List.of(bob));
     JsonNode team = thread(teamKey, teamNumber, alice).get("implicitAgent");
     assertThat(team.get("id").asLong()).isEqualTo(teamAi);
-    assertThat(team.get("mode").asText()).isEqualTo("AFTER_AI_REPLY");
+    assertThat(team.get("mode").asString()).isEqualTo("AFTER_AI_REPLY");
 
     // 일정을 건 사람도 담당도 아닌 bob 에게는 싣지 않는다.
     assertThat(thread(teamKey, teamNumber, bob).get("implicitAgent").isNull()).isTrue();

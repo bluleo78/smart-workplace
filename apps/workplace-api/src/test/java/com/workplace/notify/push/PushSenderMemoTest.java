@@ -10,10 +10,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 /** PushSender — 한 번의 send 안에서 endpoint 검증은 origin 별, VAPID 서명은 origin(aud) 별 1회만 수행한다. */
 class PushSenderMemoTest {
@@ -31,7 +31,7 @@ class PushSenderMemoTest {
           signer,
           validator,
           gateway,
-          new ObjectMapper());
+          JsonMapper.builderWithJackson2Defaults().build());
 
   @Test
   void send_memoizesValidationAndSignaturePerOrigin() {

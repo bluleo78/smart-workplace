@@ -12,7 +12,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailFolderResponse;
 import com.workplace.mail.exception.MailSyncException;
@@ -34,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 서버 메일함 목록(WP-960) Graph 통합 테스트. {@link GraphApiClient}·{@link GraphTokenService} 를 스텁하고 Outlook

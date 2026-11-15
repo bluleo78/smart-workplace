@@ -1,7 +1,7 @@
 package com.workplace.global.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.global.json.JsonMappers;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,8 +29,6 @@ public class DbBusyResponseFilter extends OncePerRequestFilter {
   /** GlobalExceptionHandler.handleCannotCreateTransaction 과 같은 문구. */
   static final String MESSAGE = "서버가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요.";
 
-  private static final ObjectMapper JSON = new ObjectMapper();
-
   @Override
   protected void doFilterInternal(
       @NonNull HttpServletRequest request,
@@ -47,7 +45,7 @@ public class DbBusyResponseFilter extends OncePerRequestFilter {
       response.setStatus(status.value());
       response.setContentType(MediaType.APPLICATION_JSON_VALUE);
       response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-      JSON.writeValue(
+      JsonMappers.writeTo(
           response.getWriter(),
           new ErrorResponse(
               status.value(),

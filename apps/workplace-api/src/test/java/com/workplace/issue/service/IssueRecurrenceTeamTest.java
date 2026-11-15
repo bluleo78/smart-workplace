@@ -11,8 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.global.security.JwtTokenProvider;
@@ -44,6 +42,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 팀 프로젝트 이슈의 실행 일정(WP-1314) 통합 테스트 — 팀 이슈에 담당 AI 를 골라 저장·회차 실행, 실행 신원(개인 비서 = 주인 대행, 그 밖의 AI = 자기

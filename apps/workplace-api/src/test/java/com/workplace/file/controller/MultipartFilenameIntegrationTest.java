@@ -4,8 +4,6 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -20,6 +18,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * multipart 파일명 처리(홈 첨부 선업로드 경로로 확인) — 실제 Tomcat 이 파트 머리글을 파싱하는 경로를 RANDOM_PORT 로 검증한다(MockMvc 는
@@ -62,7 +62,7 @@ class MultipartFilenameIntegrationTest extends IntegrationTestBase {
     HttpResponse<String> res = upload(name);
     assertThat(res.statusCode()).as(res.body()).isEqualTo(200);
     JsonNode body = om.readTree(res.body());
-    assertThat(body.get(0).get("originalName").asText()).isEqualTo(name);
+    assertThat(body.get(0).get("originalName").asString()).isEqualTo(name);
   }
 
   /** 머리글 한도까지 넘는 파일명 — 「크기 초과」가 아니라 파일 이름이 너무 길다고 안내한다. */
@@ -70,7 +70,7 @@ class MultipartFilenameIntegrationTest extends IntegrationTestBase {
   void filenameBeyondHeaderLimit_saysNameTooLong() throws Exception {
     HttpResponse<String> res = upload("가".repeat(4000) + ".png");
     assertThat(res.statusCode()).isEqualTo(400);
-    String message = om.readTree(res.body()).get("message").asText();
+    String message = om.readTree(res.body()).get("message").asString();
     assertThat(message).contains("파일 이름").doesNotContain("크기");
   }
 
@@ -101,7 +101,7 @@ class MultipartFilenameIntegrationTest extends IntegrationTestBase {
   private String uploadedName(String filenameParam) throws Exception {
     HttpResponse<String> res = uploadRaw(filenameParam);
     assertThat(res.statusCode()).as(res.body()).isEqualTo(200);
-    return om.readTree(res.body()).get(0).get("originalName").asText();
+    return om.readTree(res.body()).get(0).get("originalName").asString();
   }
 
   private HttpResponse<String> upload(String filename) throws Exception {

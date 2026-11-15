@@ -15,8 +15,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.GeniaLoginStartRequest;
 import com.workplace.agentaccount.genialogin.GeniaLoginClient;
@@ -48,6 +46,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1461 Gen:iA 브라우저 로그인 관리자 API 통합 테스트 — 시작(비밀 미노출), 상태 조회 안의 폴링(대기·간격 증가·만료·실패·일시 장애), 성공 때 붙여
@@ -124,7 +124,9 @@ class AdminGeniaLoginApiTest extends IntegrationTestBase {
 
   /** 시작하고 진행 id 를 돌려준다(201 확인). */
   private String startId(String label, Long accountId) throws Exception {
-    return json(start(label, accountId, admin).andExpect(status().isCreated())).get("id").asText();
+    return json(start(label, accountId, admin).andExpect(status().isCreated()))
+        .get("id")
+        .asString();
   }
 
   private ResultActions getLogin(String id) throws Exception {
@@ -203,12 +205,12 @@ class AdminGeniaLoginApiTest extends IntegrationTestBase {
     assertThat(row.provider()).isEqualTo("genia");
     assertThat(row.label()).isEqualTo("내 Gen:iA");
     JsonNode genia = storedGenia(accountId);
-    assertThat(genia.get("type").asText()).isEqualTo("oauth");
-    assertThat(genia.get("access").asText()).isEqualTo("tok-1");
-    assertThat(genia.get("refresh").asText()).isEqualTo("tok-1");
+    assertThat(genia.get("type").asString()).isEqualTo("oauth");
+    assertThat(genia.get("access").asString()).isEqualTo("tok-1");
+    assertThat(genia.get("refresh").asString()).isEqualTo("tok-1");
     assertThat(genia.get("expires").asLong()).isEqualTo(1797033600000L);
-    assertThat(genia.get("email").asText()).isEqualTo("me@iacloud.kr");
-    assertThat(genia.get("role").asText()).isEqualTo("member");
+    assertThat(genia.get("email").asString()).isEqualTo("me@iacloud.kr");
+    assertThat(genia.get("role").asString()).isEqualTo("member");
     assertThat(done.toString()).doesNotContain("tok-1");
 
     // 끝난 진행은 같은 결과를 다시 돌려주고 Gen:iA 를 더 부르지 않는다(멱등).
@@ -318,7 +320,7 @@ class AdminGeniaLoginApiTest extends IntegrationTestBase {
     String msg =
         json(getLogin(id).andExpect(jsonPath("$.status").value("FAILED")))
             .get("errorMessage")
-            .asText();
+            .asString();
     assertThat(msg).contains("authentication_error");
   }
 
@@ -352,7 +354,7 @@ class AdminGeniaLoginApiTest extends IntegrationTestBase {
     String msg =
         json(getLogin(id).andExpect(jsonPath("$.status").value("FAILED")))
             .get("errorMessage")
-            .asText();
+            .asString();
     assertThat(msg).contains("같은 키의 계정이 이미 있어요");
     assertThat(accounts.findAllActive()).hasSize(before);
   }
@@ -423,7 +425,7 @@ class AdminGeniaLoginApiTest extends IntegrationTestBase {
     assertThat(row.label()).isEqualTo("팀 Gen:iA");
     assertThat(row.secretVersion()).isGreaterThan(versionBefore);
     assertThat(row.status()).isEqualTo(AgentAccountService.STATUS_ACTIVE);
-    assertThat(storedGenia(acc).get("access").asText()).isEqualTo("new-tok");
+    assertThat(storedGenia(acc).get("access").asString()).isEqualTo("new-tok");
     assertThat(accounts.findAllActive()).hasSize(before);
   }
 
@@ -439,12 +441,12 @@ class AdminGeniaLoginApiTest extends IntegrationTestBase {
     String msg =
         json(getLogin(id).andExpect(jsonPath("$.status").value("FAILED")))
             .get("errorMessage")
-            .asText();
+            .asString();
 
     assertThat(msg).isEqualTo("다른 Gen:iA 계정으로 로그인했어요 — team@iacloud.kr 로 로그인해 주세요");
     var row = accounts.findActive(acc).orElseThrow();
     assertThat(row.secretVersion()).isEqualTo(versionBefore);
-    assertThat(storedGenia(acc).get("access").asText()).isEqualTo("old-tok");
+    assertThat(storedGenia(acc).get("access").asString()).isEqualTo("old-tok");
   }
 
   /** 이메일 대소문자만 다르면 같은 계정으로 보고 다시 로그인한다. */
@@ -456,7 +458,7 @@ class AdminGeniaLoginApiTest extends IntegrationTestBase {
     String id = startId(null, acc);
 
     getLogin(id).andExpect(jsonPath("$.status").value("SUCCEEDED"));
-    assertThat(storedGenia(acc).get("access").asText()).isEqualTo("new-tok");
+    assertThat(storedGenia(acc).get("access").asString()).isEqualTo("new-tok");
   }
 
   @Test

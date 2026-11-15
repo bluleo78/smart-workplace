@@ -1,7 +1,5 @@
 package com.workplace.agentaccount.genialogin;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountResponse;
 import com.workplace.agentaccount.dto.AgentAccountUpdateRequest;
@@ -18,6 +16,7 @@ import com.workplace.agentaccount.service.AgentAccountService;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.sso.SsoTransactionCookie;
+import com.workplace.global.json.JsonMappers;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.Texts;
@@ -30,6 +29,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Gen:iA 브라우저 로그인 진행 서비스(WP-1461) — 관리자가 [로그인] 을 누르면 PKCE 로 Gen:iA 로그인을 시작하고, 웹의 상태 조회(2초마다) 안에서
@@ -77,7 +78,7 @@ public class GeniaLoginService {
   /** 다시 로그인 창에서 다른 Gen:iA 계정으로 로그인했을 때 — 뒤에 기존 이메일을 넣는다. */
   static final String MSG_OTHER_IDENTITY = "다른 Gen:iA 계정으로 로그인했어요 — %s 로 로그인해 주세요";
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   private final GeniaLoginClient client;
   private final AgentAccountService accountService;

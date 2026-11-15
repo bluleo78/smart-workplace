@@ -1,7 +1,5 @@
 package com.workplace.version;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
@@ -19,6 +17,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 버전 출시·삭제(WP-888) 통합 테스트 공용 헬퍼 — 프로젝트(OWNER·멤버)·이슈·버전 시드와 연결·이력 조회, MockMvc 호출을 준다. 트랜잭션 여부는 하위

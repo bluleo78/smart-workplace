@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.platform.dto.CreateTenantRequest;
 import com.workplace.platform.dto.UpdateTenantRequest;
@@ -21,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 테넌트 이름·slug 수정 — PATCH /api/platform/tenants/{id} 검증(WP-336).
@@ -142,7 +142,7 @@ class PlatformTenantUpdateTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String slug = objectMapper.readTree(json).get("slug").asText();
+    String slug = objectMapper.readTree(json).get("slug").asString();
     org.assertj.core.api.Assertions.assertThat(slug)
         .hasSizeLessThanOrEqualTo(64)
         .doesNotEndWith("-");

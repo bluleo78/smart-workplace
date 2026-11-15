@@ -3,7 +3,6 @@ package com.workplace.messaging.repository;
 import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.MentionResponse;
 import com.workplace.global.time.SupportedDates;
 import com.workplace.messaging.dto.MessagePage;
@@ -26,6 +25,7 @@ import org.jooq.Record5;
 import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * message 리포지토리. cursor = base64(epochSecond|nano|id) DESC. soft-deleted 메시지는 body 를 "(삭제됨)" 으로

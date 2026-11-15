@@ -1,7 +1,5 @@
 package com.workplace.fileai.security;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.fileai.outbound.AiAgentDriveClient.Evidence;
 import com.workplace.fileai.security.dto.SecurityCheckView;
@@ -16,6 +14,8 @@ import org.jooq.JSONB;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * HTML 보안 점검 조회·요청(WP-1262). 출처별 컨트롤러(드라이브·이슈 첨부·챗 첨부·메일)가 접근 권한을 확인한 뒤 file id 로 부른다 — 이 서비스는 권한을

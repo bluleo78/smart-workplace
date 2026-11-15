@@ -9,8 +9,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.MeIssuesTestFixtures;
 import com.workplace.issue.MeIssuesTestFixtures.ProjectRef;
@@ -35,6 +33,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-915: /me/watched-issues — 목록 조립을 IssueSearchService 공용 조립(assembleItems)에 맡겨 담당자·유형이 실리고 행마다
@@ -75,7 +75,7 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
     JsonNode item = getJson(URL + "?size=30").at("/items/0");
     assertThat(item.get("id").asLong()).isEqualTo(id);
     assertThat(item.at("/assignees/0/id").asLong()).isEqualTo(me);
-    assertThat(item.at("/type/name").asText()).isNotBlank();
+    assertThat(item.at("/type/name").asString()).isNotBlank();
     // 기본 경로는 묶음 정보를 싣지 않는다.
     assertThat(item.at("/projectGroup").isMissingNode()).isTrue();
   }
@@ -118,7 +118,7 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
     assertThat(groupKeys(body)).containsExactly(x.key(), z.key(), y.key());
     assertThat(ids(body)).containsExactly(x5, x1, z4, z2, y3);
     assertThat(sizes(body)).containsExactly(2, 2, 2, 2, 1);
-    assertThat(body.at("/items/0/projectGroup/name").asText()).isEqualTo("X");
+    assertThat(body.at("/items/0/projectGroup/name").asString()).isEqualTo("X");
   }
 
   @Test
@@ -204,9 +204,9 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
     assertThat(status(URL + "?group=due")).isEqualTo(400);
     assertThat(status(URL + "?group=nope")).isEqualTo(400);
     // 기본 커서를 묶음 경로에, 묶음 커서를 기본 경로에 보내면 400.
-    String legacy = getJson(URL + "?size=1").get("nextCursor").asText();
+    String legacy = getJson(URL + "?size=1").get("nextCursor").asString();
     assertThat(status(URL + "?group=recent&cursor=" + legacy)).isEqualTo(400);
-    String groupedCursor = getJson(URL + "?group=recent&size=1").get("nextCursor").asText();
+    String groupedCursor = getJson(URL + "?group=recent&size=1").get("nextCursor").asString();
     assertThat(status(URL + "?cursor=" + groupedCursor)).isEqualTo(400);
   }
 
@@ -242,7 +242,7 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
       out.addAll(ids(page));
       JsonNode next = page.get("nextCursor");
       if (next == null || next.isNull()) return out;
-      cursor = next.asText();
+      cursor = next.asString();
       if (grouped) MeGroupedCursor.decode(cursor);
       else IssueCursor.decode(cursor);
     }
@@ -288,7 +288,7 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
     page.get("items")
         .forEach(
             it -> {
-              String k = it.get("projectKey").asText();
+              String k = it.get("projectKey").asString();
               if (out.isEmpty() || !out.get(out.size() - 1).equals(k)) out.add(k);
             });
     return out;

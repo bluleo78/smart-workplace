@@ -5,8 +5,6 @@ import static com.workplace.jooq.Tables.ISSUE_FIELD_DEF;
 import static com.workplace.jooq.Tables.ISSUE_FIELD_VALUE;
 import static org.jooq.impl.DSL.count;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.IssueFieldEntry;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -18,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
 import org.springframework.stereotype.Repository;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * issue_field_value jOOQ 리포지토리. JSONB ↔ JsonNode 변환을 캡슐화하고 단일 이슈 diff 조회, upsert/delete, 다중 이슈
@@ -147,13 +147,13 @@ public class IssueFieldValueRepository {
         if (multi) {
           if (node.isArray()) {
             for (JsonNode el : node) {
-              if (el.isTextual() && removedOptions.contains(el.asText())) {
+              if (el.isString() && removedOptions.contains(el.asString(""))) {
                 count++;
                 break;
               }
             }
           }
-        } else if (node.isTextual() && removedOptions.contains(node.asText())) {
+        } else if (node.isString() && removedOptions.contains(node.asString(""))) {
           count++;
         }
       } catch (Exception ignored) {

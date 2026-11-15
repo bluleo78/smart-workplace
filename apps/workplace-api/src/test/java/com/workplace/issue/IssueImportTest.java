@@ -15,7 +15,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.cycle.dto.CreateCycleRequest;
@@ -62,6 +61,7 @@ import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 이슈 가져오기 API(WP-883 원작성자·원시각 보존, WP-884 알림 억제) 통합 테스트 — 관리자만(프로젝트 OWNER·AI 구성원 거절), 원래 보고자·시각·
@@ -752,8 +752,8 @@ class IssueImportTest extends IssueImportTestSupport {
     assertThat(rows.get(0).getUserId()).isEqualTo(admin);
     assertThat(rows.get(0).getResource()).isEqualTo("issue");
     JsonNode meta = objectMapper.readTree(rows.get(0).getMetadata().data());
-    assertThat(meta.get("sourceKey").asText()).isEqualTo("CLIM-9");
-    assertThat(meta.get("reporter").asText()).isEqualTo(username(reporter));
+    assertThat(meta.get("sourceKey").asString()).isEqualTo("CLIM-9");
+    assertThat(meta.get("reporter").asString()).isEqualTo(username(reporter));
     assertThat(meta.get("comments").asInt()).isZero();
   }
 }

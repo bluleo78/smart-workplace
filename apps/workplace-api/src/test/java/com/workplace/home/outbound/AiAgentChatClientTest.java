@@ -241,16 +241,17 @@ class AiAgentChatClientTest {
             + "event: done\ndata: {\"fullText\":\"제안했어요\",\"widgets\":null}\n\n";
     boot(body, 200);
 
-    AtomicReference<com.fasterxml.jackson.databind.JsonNode> pending = new AtomicReference<>();
+    AtomicReference<tools.jackson.databind.JsonNode> pending = new AtomicReference<>();
     client.composeStream(
         dummyReq(), d -> {}, (ft, w, src) -> {}, msg -> {}, label -> {}, pending::set, tn -> {});
 
     assertThat(pending.get()).isNotNull();
     // 단일 객체는 길이 1 배열로 래핑됨.
     assertThat(pending.get().isArray()).isTrue();
-    assertThat(pending.get().get(0).get("actionType").asText()).isEqualTo("calendar.create_event");
-    assertThat(pending.get().get(0).get("summary").asText()).isEqualTo("내일 10시 회의");
-    assertThat(pending.get().get(0).get("params").get("title").asText()).isEqualTo("회의");
+    assertThat(pending.get().get(0).get("actionType").asString())
+        .isEqualTo("calendar.create_event");
+    assertThat(pending.get().get(0).get("summary").asString()).isEqualTo("내일 10시 회의");
+    assertThat(pending.get().get(0).get("params").get("title").asString()).isEqualTo("회의");
   }
 
   @Test
@@ -262,15 +263,16 @@ class AiAgentChatClientTest {
             + "event: done\ndata: {\"fullText\":\"제안했어요\",\"widgets\":null}\n\n";
     boot(body, 200);
 
-    AtomicReference<com.fasterxml.jackson.databind.JsonNode> pending = new AtomicReference<>();
+    AtomicReference<tools.jackson.databind.JsonNode> pending = new AtomicReference<>();
     client.composeStream(
         dummyReq(), d -> {}, (ft, w, src) -> {}, msg -> {}, label -> {}, pending::set, tn -> {});
 
     assertThat(pending.get()).isNotNull();
     assertThat(pending.get().isArray()).isTrue();
     assertThat(pending.get().size()).isEqualTo(2);
-    assertThat(pending.get().get(0).get("actionType").asText()).isEqualTo("calendar.create_event");
-    assertThat(pending.get().get(1).get("actionType").asText()).isEqualTo("mail.send");
+    assertThat(pending.get().get(0).get("actionType").asString())
+        .isEqualTo("calendar.create_event");
+    assertThat(pending.get().get(1).get("actionType").asString()).isEqualTo("mail.send");
   }
 
   @Test
@@ -282,7 +284,7 @@ class AiAgentChatClientTest {
             + "event: done\ndata: {\"fullText\":\"이슈를 조회했어요\",\"widgets\":null}\n\n";
     boot(body, 200);
 
-    List<com.fasterxml.jackson.databind.JsonNode> tools = new ArrayList<>();
+    List<tools.jackson.databind.JsonNode> tools = new ArrayList<>();
     AtomicBoolean done = new AtomicBoolean(false);
     client.composeStream(
         dummyReq(),
@@ -297,9 +299,9 @@ class AiAgentChatClientTest {
 
     // tool 이벤트가 onTool 으로 전달됐는지 검증.
     assertThat(tools).hasSize(2);
-    assertThat(tools.get(0).get("toolName").asText()).isEqualTo("get_issue_detail");
-    assertThat(tools.get(0).get("phase").asText()).isEqualTo("start");
-    assertThat(tools.get(1).get("phase").asText()).isEqualTo("result");
+    assertThat(tools.get(0).get("toolName").asString()).isEqualTo("get_issue_detail");
+    assertThat(tools.get(0).get("phase").asString()).isEqualTo("start");
+    assertThat(tools.get(1).get("phase").asString()).isEqualTo("result");
     assertThat(tools.get(1).get("isError").asBoolean()).isFalse();
     // tool 이벤트가 스트림을 끊지 않아 done 까지 소비되는지 검증.
     assertThat(done).isTrue();

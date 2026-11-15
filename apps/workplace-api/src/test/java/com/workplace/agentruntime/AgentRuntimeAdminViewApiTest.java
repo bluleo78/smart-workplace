@@ -11,8 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.dto.UpdateAgentLocationRequest;
@@ -41,6 +39,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1254·1255 관리자 화면용 AI 실행 API 통합 테스트 — 실행 상태 요약(기본 위치는 이름 비움·템플릿 제목·관찰 메시지), AI 가 맡을 프로젝트(실제 멤버
@@ -204,22 +204,22 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
 
     assertThat(summaryOf(list, withoutSetting)).isNull();
     JsonNode a = summaryOf(list, unassigned);
-    assertThat(a.get("templateName").asText()).isEqualTo("claude-code");
-    assertThat(a.get("templateTitle").asText()).isNotBlank();
-    assertThat(a.get("status").asText()).isEqualTo("FAILED");
-    assertThat(a.get("locationName").asText()).isEqualTo("L1");
-    assertThat(a.get("message").asText()).isEqualTo("이미지를 받지 못했습니다");
+    assertThat(a.get("templateName").asString()).isEqualTo("claude-code");
+    assertThat(a.get("templateTitle").asString()).isNotBlank();
+    assertThat(a.get("status").asString()).isEqualTo("FAILED");
+    assertThat(a.get("locationName").asString()).isEqualTo("L1");
+    assertThat(a.get("message").asString()).isEqualTo("이미지를 받지 못했습니다");
     assertThat(a.has("agentState")).isTrue();
     assertThat(a.has("agentIssueKey")).isTrue();
     assertThat(a.has("agentNextCheckAt")).isTrue();
 
     JsonNode b = summaryOf(list, explicitDefault);
-    assertThat(b.get("status").asText()).isEqualTo("OFF");
-    assertThat(b.get("locationName").asText()).isEqualTo("L1");
+    assertThat(b.get("status").asString()).isEqualTo("OFF");
+    assertThat(b.get("locationName").asString()).isEqualTo("L1");
 
     JsonNode c = summaryOf(list, elsewhere);
-    assertThat(c.get("status").asText()).isEqualTo("STARTING");
-    assertThat(c.get("locationName").asText()).isEqualTo("L2");
+    assertThat(c.get("status").asString()).isEqualTo("STARTING");
+    assertThat(c.get("locationName").asString()).isEqualTo("L2");
   }
 
   /** 여러 칸이 일하면(WP-1409) 상세의 관찰 상태와 요약 줄이 현재 이슈를 칸 키 순으로 모두 싣는다. 보고가 없는 AI 는 빈 목록이다. */
@@ -248,8 +248,8 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
             call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
     JsonNode a = summaryOf(list, agent);
     assertThat(a.get("agentIssueKeys").isArray()).isTrue();
-    assertThat(a.get("agentIssueKeys").get(0).asText()).isEqualTo("HR-2");
-    assertThat(a.get("agentIssueKeys").get(1).asText()).isEqualTo("WP-1");
+    assertThat(a.get("agentIssueKeys").get(0).asString()).isEqualTo("HR-2");
+    assertThat(a.get("agentIssueKeys").get(1).asString()).isEqualTo("WP-1");
     assertThat(a.get("agentIssueKeys").size()).isEqualTo(2);
     JsonNode b = summaryOf(list, silent);
     assertThat(b.get("agentIssueKeys").isArray()).isTrue();
@@ -280,7 +280,7 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
         fx.json(
             call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
     assertThat(summaryOf(list, agent).get("agentIssueKeys").size()).isEqualTo(1);
-    assertThat(summaryOf(list, agent).get("agentIssueKeys").get(0).asText()).isEqualTo("WP-5");
+    assertThat(summaryOf(list, agent).get("agentIssueKeys").get(0).asString()).isEqualTo("WP-5");
 
     // 배열이 없음(마이그레이션 전 행) — 그 키 하나.
     setIssueColumns(agent, "WP-5", null);
@@ -314,9 +314,9 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
         fx.json(
             call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
 
-    assertThat(summaryOf(list, onL1).get("locationName").asText()).isEqualTo("L1");
-    assertThat(summaryOf(list, onL2).get("locationName").asText()).isEqualTo("L2");
-    assertThat(summaryOf(list, unassigned).get("locationName").asText()).isEqualTo("L2");
+    assertThat(summaryOf(list, onL1).get("locationName").asString()).isEqualTo("L1");
+    assertThat(summaryOf(list, onL2).get("locationName").asString()).isEqualTo("L2");
+    assertThat(summaryOf(list, unassigned).get("locationName").asString()).isEqualTo("L2");
   }
 
   /** ADMIN 이 아니면 user:write 가 있어도 요약·프로젝트 API 를 부를 수 없다 — 403. */

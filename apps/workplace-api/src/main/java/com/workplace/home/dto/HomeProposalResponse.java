@@ -1,7 +1,7 @@
 package com.workplace.home.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.UUID;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 홈 AI 채팅 확인카드 1건(#843). 웹은 id 로 승인/거부하고, status·errorMessage 로 카드 상태를 그린다.

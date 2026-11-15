@@ -9,8 +9,6 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.domain.IssueKeys;
@@ -38,6 +36,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * AI 위임 작업 「AI별」 보기 API(WP-1201) — GET /api/v1/me/ai-agents. 실 JWT + MockMvc 로 범위(나와 관련·전체)·볼 수 없는
@@ -111,20 +111,20 @@ class AiAgentsControllerTest extends IntegrationTestBase {
 
     assertThat(body.get("slotLimit").asInt()).isEqualTo(5);
     JsonNode b = agent(body, busy);
-    assertThat(b.get("agent").get("kind").asText()).isEqualTo("AGENT");
+    assertThat(b.get("agent").get("kind").asString()).isEqualTo("AGENT");
     // 작업 중·답변 필요만 자리를 쥔다 — 대기 중(PR 리뷰 대기 = 기차 대기)·막힘·검토 대기는 세지 않는다(WP-1216).
     assertThat(b.get("slotsUsed").asInt()).isEqualTo(2);
     assertThat(b.get("hiddenWorks").asInt()).isZero();
     assertThat(field(b.get("works"), "title"))
         .containsExactly("작업 중 이슈", "대기 중 이슈", "막힌 이슈", "검토 대기 이슈", "답변 필요 이슈");
     JsonNode first = b.get("works").get(0);
-    assertThat(first.get("state").asText()).isEqualTo("WORKING");
-    assertThat(first.get("projectKey").asText()).isNotBlank();
-    assertThat(first.get("stateChangedAt").asText()).isNotBlank();
+    assertThat(first.get("state").asString()).isEqualTo("WORKING");
+    assertThat(first.get("projectKey").asString()).isNotBlank();
+    assertThat(first.get("stateChangedAt").asString()).isNotBlank();
     JsonNode i = agent(body, idle);
     assertThat(i.get("works")).isEmpty();
     assertThat(i.get("slotsUsed").asInt()).isZero();
-    assertThat(Instant.parse(i.get("lastEndedAt").asText()))
+    assertThat(Instant.parse(i.get("lastEndedAt").asString()))
         .isEqualTo(Instant.parse("2026-10-09T03:00:00Z"));
   }
 
@@ -435,14 +435,14 @@ class AiAgentsControllerTest extends IntegrationTestBase {
 
   private static List<String> field(JsonNode rows, String name) {
     List<String> out = new ArrayList<>();
-    rows.forEach(r -> out.add(r.get(name).asText()));
+    rows.forEach(r -> out.add(r.get(name).asString()));
     return out;
   }
 
   /** 문자열 배열 → 목록. */
   private static List<String> texts(JsonNode arr) {
     List<String> out = new ArrayList<>();
-    arr.forEach(v -> out.add(v.asText()));
+    arr.forEach(v -> out.add(v.asString()));
     return out;
   }
 

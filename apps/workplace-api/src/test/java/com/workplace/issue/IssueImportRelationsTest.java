@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
@@ -46,6 +45,7 @@ import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 이슈 가져오기의 관계 부분(WP-887) — 가져오기 요청의 외부 링크, 관계 일괄 호출(전부 아니면 무·멱등·차단 순환·숨긴 유형·관리자 전용), 이력·알림이 없는지.
@@ -95,9 +95,9 @@ class IssueImportRelationsTest extends IssueImportTestSupport {
 
     JsonNode links = detail(admin, key, number).get("externalLinks");
     assertThat(links).hasSize(2);
-    assertThat(links.get(0).get("typeCode").asText()).isEqualTo("RELATES");
-    assertThat(links.get(1).get("typeCode").asText()).isEqualTo("PARENT_EPIC");
-    assertThat(links.get(1).get("label").asText()).isEqualTo("에픽에 속함");
+    assertThat(links.get(0).get("typeCode").asString()).isEqualTo("RELATES");
+    assertThat(links.get(1).get("typeCode").asString()).isEqualTo("PARENT_EPIC");
+    assertThat(links.get(1).get("label").asString()).isEqualTo("에픽에 속함");
     assertThat(dsl.fetchCount(ISSUE_HISTORY, ISSUE_HISTORY.ISSUE_ID.eq(issueId(number)))).isZero();
   }
 
@@ -237,10 +237,10 @@ class IssueImportRelationsTest extends IssueImportTestSupport {
         relations(admin, key, rows)
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.errors.reason").value("IMPORT_INVALID_RELATIONS"));
-    JsonNode errs = objectMapper.readTree(json(r).get("errors").get("rows").asText());
+    JsonNode errs = objectMapper.readTree(json(r).get("errors").get("rows").asString());
     assertThat(errs).hasSize(1);
     assertThat(errs.get(0).get("index").asInt()).isEqualTo(4);
-    assertThat(errs.get(0).get("reason").asText()).isNotBlank();
+    assertThat(errs.get(0).get("reason").asString()).isNotBlank();
     assertThat(dsl.fetchCount(ISSUE_RELATION, ISSUE_RELATION.SOURCE_ISSUE_ID.eq(issueId(n.get(0)))))
         .isZero();
     assertThat(dsl.fetchCount(ISSUE_DEPENDENCY, ISSUE_DEPENDENCY.ISSUE_ID.eq(issueId(n.get(4)))))
@@ -260,7 +260,7 @@ class IssueImportRelationsTest extends IssueImportTestSupport {
             row("RELATES", n.get(0), null, "bad key"),
             row("RELATES", n.get(0), n.get(1), null));
     ResultActions r = relations(admin, key, rows).andExpect(status().isBadRequest());
-    JsonNode errs = objectMapper.readTree(json(r).get("errors").get("rows").asText());
+    JsonNode errs = objectMapper.readTree(json(r).get("errors").get("rows").asString());
     List<Integer> idx = new ArrayList<>();
     errs.forEach(e -> idx.add(e.get("index").asInt()));
     assertThat(idx).containsExactly(0, 1, 2, 3, 4, 5);
@@ -278,7 +278,7 @@ class IssueImportRelationsTest extends IssueImportTestSupport {
                     row("BLOCKS", n.get(1), n.get(0), null)))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.errors.reason").value("IMPORT_INVALID_RELATIONS"));
-    JsonNode errs = objectMapper.readTree(json(r).get("errors").get("rows").asText());
+    JsonNode errs = objectMapper.readTree(json(r).get("errors").get("rows").asString());
     assertThat(errs).hasSize(1);
     assertThat(errs.get(0).get("index").asInt()).isEqualTo(1);
     assertThat(

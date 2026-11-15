@@ -2,13 +2,13 @@ package com.workplace.fileai.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /** HTML 스크립트 판정 규칙(WP-1262) — 웹 {@code htmlHasScripts} 와 같은 예시 JSON 을 함께 읽어 두 판정이 어긋나지 않게 한다. */
 class HtmlScriptRulesTest {
@@ -17,13 +17,14 @@ class HtmlScriptRulesTest {
   @Test
   void hasScripts_matchesSharedCases() throws Exception {
     Path path = Path.of("../workplace-web/src/lib/htmlHasScripts.cases.json");
-    JsonNode cases = new ObjectMapper().readTree(Files.readString(path));
+    JsonNode cases =
+        JsonMapper.builderWithJackson2Defaults().build().readTree(Files.readString(path));
     assertThat(cases.size()).isGreaterThanOrEqualTo(10);
     for (JsonNode c : cases) {
-      String html = c.get("html").asText();
+      String html = c.get("html").asString();
       boolean expected = c.get("hasScripts").asBoolean();
       assertThat(HtmlScriptRules.hasScripts(html))
-          .as("%s — %s", c.get("note").asText(), html)
+          .as("%s — %s", c.get("note").asString(), html)
           .isEqualTo(expected);
     }
   }

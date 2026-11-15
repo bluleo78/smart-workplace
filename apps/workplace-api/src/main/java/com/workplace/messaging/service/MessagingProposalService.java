@@ -1,9 +1,5 @@
 package com.workplace.messaging.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.action.ConfirmActionDispatcher;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.global.util.AppWebLinks;
@@ -34,6 +30,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /** 채팅 L3 위임 제안 오케스트레이션 — 제안 메시지(AGENT 작성)+제안 행 생성, 승인 시 이슈 생성, 거부 처리. */
 @Service
@@ -212,16 +212,16 @@ public class MessagingProposalService {
     String projectKey =
         (projectKeyOverride != null && !projectKeyOverride.isBlank())
             ? projectKeyOverride
-            : p.path("projectKey").asText();
+            : p.path("projectKey").asString("");
     if (candidateProjects(row.proposedByUserId(), agentId).stream()
         .noneMatch(c -> c.key().equals(projectKey)))
       throw new InvalidDelegationProjectException(projectKey);
 
-    String title = p.path("title").asText();
+    String title = p.path("title").asString("");
     String priority =
-        p.hasNonNull("priority") ? p.get("priority").asText() : IssuePriorities.DEFAULT;
+        p.hasNonNull("priority") ? p.get("priority").asString("") : IssuePriorities.DEFAULT;
     // 이슈 본문 — payload 저장값 사용(body 파라미터는 일정 override 용, 이슈 본문은 항상 제안 저장값).
-    String issueBody = p.hasNonNull("body") ? p.get("body").asText() : null;
+    String issueBody = p.hasNonNull("body") ? p.get("body").asString("") : null;
 
     // #540: 이슈 생성을 공용 ConfirmActionDispatcher(issue.create)로 통일.
     // candidateProjects 검증(위)은 채팅 위임 고유 가드이므로 유지하고, 실행만 디스패처로 위임한다.
@@ -305,7 +305,7 @@ public class MessagingProposalService {
             .orElse(null);
     String resultBody =
         "✅ 「"
-            + params.path("title").asText()
+            + params.path("title").asString("")
             + "」 일정 만들었어요 → [일정 보기](/calendar?event="
             + event.id()
             + ")";

@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountUpdateRequest;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
@@ -45,6 +43,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1448 runner 계약 통합 테스트 — 작업 공간 AI 가 계정에 묶이면 runner 가 받는 desired 의 claude·login 버전과
@@ -191,7 +191,7 @@ class RunnerAccountContractTest extends IntegrationTestBase {
   /** desired 의 비밀값 참조 버전(null 이면 Long null). */
   private Long desiredVersion(long agent, String secretName) throws Exception {
     for (JsonNode s : desiredAgent(agent).get("secrets")) {
-      if (secretName.equals(s.get("name").asText())) {
+      if (secretName.equals(s.get("name").asString())) {
         return s.get("version").isNull() ? null : s.get("version").asLong();
       }
     }
@@ -228,8 +228,8 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     JsonNode sb = secret(b, "login");
     assertThat(sa.get("version").asLong()).isEqualTo(v);
     assertThat(sb.get("version").asLong()).isEqualTo(v);
-    assertThat(sa.get("payload").asText()).isEqualTo(sb.get("payload").asText());
-    assertThat(om.readTree(sa.get("payload").asText()).at("/tokens/refresh_token").asText())
+    assertThat(sa.get("payload").asString()).isEqualTo(sb.get("payload").asString());
+    assertThat(om.readTree(sa.get("payload").asString()).at("/tokens/refresh_token").asString())
         .isEqualTo("refresh-share");
 
     // Claude 구독 계정 하나에 claude-code AI 둘
@@ -247,9 +247,9 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     JsonNode sc = secret(c, "claude");
     JsonNode sd = secret(d, "claude");
     assertThat(sc.get("version").asLong()).isEqualTo(cv);
-    assertThat(sc.get("provider").asText()).isEqualTo("anthropic");
-    assertThat(sc.get("payload").asText()).isEqualTo(claudeToken('S'));
-    assertThat(sd.get("payload").asText()).isEqualTo(claudeToken('S'));
+    assertThat(sc.get("provider").asString()).isEqualTo("anthropic");
+    assertThat(sc.get("payload").asString()).isEqualTo(claudeToken('S'));
+    assertThat(sd.get("payload").asString()).isEqualTo(claudeToken('S'));
   }
 
   @Test
@@ -267,7 +267,7 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     assertThat(desiredChangedEvents()).isGreaterThan(before);
 
     assertThat(desiredVersion(c, "claude")).isEqualTo(secretVersion(claude));
-    assertThat(secret(c, "claude").get("payload").asText()).isEqualTo(claudeToken('A'));
+    assertThat(secret(c, "claude").get("payload").asString()).isEqualTo(claudeToken('A'));
 
     // 로그인: 활성 chatgpt 연결이 있어도 묶인 계정 것
     long g = agentWith(LOGIN_TEMPLATE);
@@ -280,7 +280,7 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     assertThat(desiredVersion(g, "login")).isEqualTo(secretVersion(login));
     JsonNode s = secret(g, "login");
     assertThat(s.get("version").asLong()).isEqualTo(secretVersion(login));
-    assertThat(om.readTree(s.get("payload").asText()).at("/tokens/refresh_token").asText())
+    assertThat(om.readTree(s.get("payload").asString()).at("/tokens/refresh_token").asString())
         .isEqualTo("refresh-bound");
   }
 
@@ -292,7 +292,7 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     settingService.start(admin, c);
 
     assertThat(desiredVersion(c, "claude")).isEqualTo(legacy);
-    assertThat(secret(c, "claude").get("payload").asText()).isEqualTo(claudeToken('L'));
+    assertThat(secret(c, "claude").get("payload").asString()).isEqualTo(claudeToken('L'));
 
     // 묶었다 풀면 다시 활성 연결
     long claude = anthropicAccount('U');
@@ -304,7 +304,7 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     assertThat(desiredChangedEvents()).isGreaterThan(before);
 
     assertThat(desiredVersion(c, "claude")).isEqualTo(legacy);
-    assertThat(secret(c, "claude").get("payload").asText()).isEqualTo(claudeToken('L'));
+    assertThat(secret(c, "claude").get("payload").asString()).isEqualTo(claudeToken('L'));
   }
 
   @Test
@@ -334,7 +334,7 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     for (long agent : new long[] {a, b}) {
       JsonNode s = secret(agent, "login");
       assertThat(s.get("version").asLong()).isEqualTo(v);
-      assertThat(om.readTree(s.get("payload").asText()).at("/tokens/refresh_token").asText())
+      assertThat(om.readTree(s.get("payload").asString()).at("/tokens/refresh_token").asString())
           .isEqualTo("refresh-new");
     }
   }
@@ -358,14 +358,14 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     assertThat(desiredVersion(a, "login")).isEqualTo(secretVersion(second));
     assertThat(desiredVersion(b, "login")).isEqualTo(bBefore).isEqualTo(secretVersion(first));
     assertThat(
-            om.readTree(secret(a, "login").get("payload").asText())
+            om.readTree(secret(a, "login").get("payload").asString())
                 .at("/tokens/refresh_token")
-                .asText())
+                .asString())
         .isEqualTo("refresh-2");
     assertThat(
-            om.readTree(secret(b, "login").get("payload").asText())
+            om.readTree(secret(b, "login").get("payload").asString())
                 .at("/tokens/refresh_token")
-                .asText())
+                .asString())
         .isEqualTo("refresh-1");
   }
 
@@ -404,7 +404,7 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     assertThat(va).isNotEqualTo(vb);
     JsonNode sa = secret(a, "login");
     assertThat(sa.get("version").asLong()).isEqualTo(va);
-    assertThat(om.readTree(sa.get("payload").asText()).get("defaultModel").asText())
+    assertThat(om.readTree(sa.get("payload").asString()).get("defaultModel").asString())
         .isEqualTo("vllm/qwen3");
     assertThat(secret(b, "login").get("version").asLong()).isEqualTo(vb);
   }

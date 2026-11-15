@@ -3,8 +3,6 @@ package com.workplace.agentaccount.genialogin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.genialogin.GeniaLoginClient.GeniaLoginUnavailable;
 import com.workplace.agentaccount.genialogin.GeniaLoginClient.LoginStart;
 import com.workplace.agentaccount.genialogin.GeniaLoginClient.PollResult;
@@ -14,11 +12,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** GeniaLoginClient 단위 테스트(WP-1461) — 가짜 Gen:iA 서버로 요청 모양과 응답 분류를 검증한다. */
 class GeniaLoginClientTest {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
   private static final String LOGIN = "/auth/login";
   private static final String TOKEN = "/auth/login/token";
 
@@ -54,8 +55,8 @@ class GeniaLoginClientTest {
     assertThat(req.path()).isEqualTo(LOGIN);
     assertThat(req.contentType()).contains("application/json");
     JsonNode body = MAPPER.readTree(req.body());
-    assertThat(body.get("code_challenge").asText()).isEqualTo("abc");
-    assertThat(body.get("client").asText()).isEqualTo("genia-works");
+    assertThat(body.get("code_challenge").asString()).isEqualTo("abc");
+    assertThat(body.get("client").asString()).isEqualTo("genia-works");
     assertThat(body.size()).isEqualTo(2);
   }
 
@@ -123,8 +124,8 @@ class GeniaLoginClientTest {
     var req = server.requests.get(0);
     assertThat(req.path()).isEqualTo(TOKEN);
     JsonNode body = MAPPER.readTree(req.body());
-    assertThat(body.get("state").asText()).isEqualTo("st1");
-    assertThat(body.get("code_verifier").asText()).isEqualTo("ver1");
+    assertThat(body.get("state").asString()).isEqualTo("st1");
+    assertThat(body.get("code_verifier").asString()).isEqualTo("ver1");
   }
 
   @Test

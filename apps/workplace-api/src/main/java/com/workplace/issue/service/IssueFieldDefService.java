@@ -4,7 +4,6 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.dto.FieldType;
 import com.workplace.issue.dto.FieldTypeValidator;
@@ -25,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 프로젝트 custom field 정의 서비스. 조회는 멤버, CUD 는 OWNER 권한. type 은 immutable — PATCH 에서 변경 시도 시 400. 삭제는
@@ -112,8 +112,8 @@ public class IssueFieldDefService {
     Set<String> set = new LinkedHashSet<>();
     if (options != null && options.isArray()) {
       for (JsonNode n : options) {
-        if (n.isTextual()) {
-          set.add(n.asText());
+        if (n.isString()) {
+          set.add(n.asString(""));
         }
       }
     }

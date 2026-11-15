@@ -2,8 +2,6 @@ package com.workplace.agentruntime;
 
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.global.tenant.TenantContext;
@@ -11,6 +9,8 @@ import com.workplace.support.TestFixtures;
 import java.util.Map;
 import org.jooq.DSLContext;
 import org.springframework.test.web.servlet.ResultActions;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * agentruntime API 통합 테스트들이 함께 쓰는 준비·조회 도우미 — 테넌트 1 에 Works 가 띄우는 AI 를 만들고 켜며, 실행 설정 generation 과

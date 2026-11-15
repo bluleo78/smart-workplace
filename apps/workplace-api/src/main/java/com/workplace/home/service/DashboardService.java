@@ -1,7 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.home.dto.DashboardDevice;
 import com.workplace.home.dto.DashboardResponse;
 import com.workplace.home.dto.DashboardWidgetConfig;
@@ -18,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 홈 대시보드 레이아웃 조회/저장. 위젯은 두 종류다 — 시스템 위젯(고정 8종, 타입당 1개, count 기반)과 카탈로그 위젯(9종, 인스턴스 다중 허용, id +
@@ -275,11 +275,11 @@ public class DashboardService {
       }
       JsonNode first = root.get(0);
       List<DashboardWidgetConfig> result = new ArrayList<>();
-      if (first.isTextual()) {
+      if (first.isString()) {
         // 레거시: ["my_tasks", ...] → {type, count:5, hidden:false}
         for (JsonNode node : root) {
-          if (node.isTextual()) {
-            result.add(new DashboardWidgetConfig(node.asText(), DEFAULT_COUNT, false));
+          if (node.isString()) {
+            result.add(new DashboardWidgetConfig(node.asString(""), DEFAULT_COUNT, false));
           }
         }
       } else {

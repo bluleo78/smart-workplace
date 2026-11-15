@@ -16,8 +16,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.api.DriveChannelSpacePort;
 import com.workplace.drive.api.DriveChannelSpacePort.ChannelMemberSnapshot;
 import com.workplace.drive.outbound.DriveChangeNotifier;
@@ -52,6 +50,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 드라이브 팀 공간 멤버에 조직도 부서(부서 자체)를 둔다(WP-1056) — 노트 스페이스(WP-1052)와 같은 규칙.
@@ -127,7 +127,7 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
       List<JsonNode> mine = matching(json(call(get("/api/v1/drive/spaces"), user)), spaceId);
       assertThat(mine)
           .singleElement()
-          .satisfies(s -> assertThat(s.get("role").asText()).isEqualTo("EDITOR"));
+          .satisfies(s -> assertThat(s.get("role").asString()).isEqualTo("EDITOR"));
     }
     call(get("/api/v1/drive/spaces/{id}/items", spaceId), strangerId)
         .andExpect(status().isNotFound());
@@ -174,10 +174,10 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
                 .andExpect(status().isOk()));
     Map<Long, JsonNode> byUser = new HashMap<>();
     list.forEach(n -> byUser.put(n.get("userId").asLong(), n));
-    assertThat(byUser.get(devMemberId).get("role").asText()).isEqualTo("VIEWER");
-    assertThat(byUser.get(devMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(devMemberId).get("role").asString()).isEqualTo("VIEWER");
+    assertThat(byUser.get(devMemberId).get("departmentRole").asString()).isEqualTo("EDITOR");
     // 백엔드는 자기 부서(VIEWER)와 상위 부서(EDITOR) 중 높은 쪽.
-    assertThat(byUser.get(backendMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(backendMemberId).get("departmentRole").asString()).isEqualTo("EDITOR");
     assertThat(byUser.get(ownerId).get("departmentRole").isNull()).isTrue();
   }
 
@@ -197,8 +197,8 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
                 .andExpect(status().isOk()));
     Map<Long, JsonNode> byUser = new HashMap<>();
     list.forEach(n -> byUser.put(n.get("userId").asLong(), n));
-    assertThat(byUser.get(devMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
-    assertThat(byUser.get(backendMemberId).get("role").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(devMemberId).get("departmentRole").asString()).isEqualTo("EDITOR");
+    assertThat(byUser.get(backendMemberId).get("role").asString()).isEqualTo("EDITOR");
     assertThat(byUser.get(backendMemberId).get("departmentRole").isNull()).isTrue();
     assertThat(byUser.get(ownerId).get("departmentRole").isNull()).isTrue();
   }
@@ -215,7 +215,7 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.role").value("EDITOR"));
     List<JsonNode> mine = matching(json(call(get("/api/v1/drive/spaces"), devMemberId)), spaceId);
     assertThat(mine).hasSize(1); // 직접·부서 양쪽에 걸려도 한 번만
-    assertThat(mine.get(0).get("role").asText()).isEqualTo("EDITOR");
+    assertThat(mine.get(0).get("role").asString()).isEqualTo("EDITOR");
     createFolder(devMemberId).andExpect(status().isCreated());
 
     // 직접 EDITOR + 부서 VIEWER → EDITOR.
@@ -350,8 +350,8 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
 
     JsonNode added = json(addGroup(devId, "EDITOR").andExpect(status().isCreated()));
     assertThat(added.get("groupId").asLong()).isEqualTo(devId);
-    assertThat(added.get("name").asText()).isEqualTo("개발팀-" + suffix);
-    assertThat(added.get("role").asText()).isEqualTo("EDITOR");
+    assertThat(added.get("name").asString()).isEqualTo("개발팀-" + suffix);
+    assertThat(added.get("role").asString()).isEqualTo("EDITOR");
     assertThat(added.get("memberCount").asInt()).isEqualTo(2);
     assertThat(spaceChanges()).hasSize(1);
 
@@ -367,9 +367,9 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
                 .andExpect(status().isOk()));
     assertThat(list).hasSize(2);
     JsonNode backend = matchingGroup(list, backendId);
-    assertThat(backend.get("role").asText()).isEqualTo("EDITOR");
+    assertThat(backend.get("role").asString()).isEqualTo("EDITOR");
     assertThat(backend.get("memberCount").asInt()).isEqualTo(1);
-    assertThat(matchingGroup(list, devId).get("role").asText()).isEqualTo("VIEWER");
+    assertThat(matchingGroup(list, devId).get("role").asString()).isEqualTo("VIEWER");
 
     changeGroup(devId, "EDITOR")
         .andExpect(status().isOk())

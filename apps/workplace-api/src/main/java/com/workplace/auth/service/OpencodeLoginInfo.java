@@ -1,12 +1,12 @@
 package com.workplace.auth.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * OpenCode(OpenAI 호환) 로그인 정보의 Pod 원문·runner login version 계산식(WP-1410·1448) — 활성 연결({@link
@@ -62,13 +62,13 @@ public final class OpencodeLoginInfo {
   public static String withDefaultModel(ObjectMapper om, String plaintext, String model) {
     try {
       ObjectNode node = (ObjectNode) om.readTree(plaintext);
-      String prefix = node.path("providerId").asText("") + "/";
+      String prefix = node.path("providerId").asString("") + "/";
       String m = model == null ? "" : model.strip();
       node.put(
           "defaultModel",
           prefix.length() > 1 && m.startsWith(prefix) && m.length() > prefix.length() ? m : null);
       return om.writeValueAsString(node);
-    } catch (JsonProcessingException | ClassCastException e) {
+    } catch (JacksonException | ClassCastException e) {
       throw new IllegalStateException("저장된 OpenAI 호환 연결을 읽을 수 없습니다");
     }
   }

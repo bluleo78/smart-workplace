@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.service.AiMemoryService;
@@ -25,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /** WP-55: 본인 AI 메모리 관리 — 목록·직접 추가·고치기·지우기·모두 지우기·길이·상한·다른 사용자 404. */
 @Transactional

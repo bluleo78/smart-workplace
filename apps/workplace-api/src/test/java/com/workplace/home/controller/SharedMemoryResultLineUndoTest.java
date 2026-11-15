@@ -10,9 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.workplace.home.repository.SharedAiMemoryRepository;
 import com.workplace.home.repository.SharedAiMemoryRepository.Row;
 import com.workplace.home.service.HomeSessionService;
@@ -36,6 +33,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
 
 /**
  * WP-386 스펙 6.2 결과 줄 「되돌리기」 — 그 기록을 요청자 권한으로 되돌리고 블록을 undone 으로, 두 번 눌러도 한 번, 개인 블록 순번과 섞여도 맞고, 남의
@@ -116,7 +116,7 @@ class SharedMemoryResultLineUndoTest extends IntegrationTestBase {
             .data();
     int i = 0;
     for (JsonNode b : om.readTree(json)) {
-      if ("memory".equals(b.path("kind").asText()) && i++ == ordinal) return b;
+      if ("memory".equals(b.path("kind").asString()) && i++ == ordinal) return b;
     }
     return null;
   }

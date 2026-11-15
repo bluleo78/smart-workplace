@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.project.dto.AddMemberRequest;
@@ -30,6 +28,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1001 프로젝트 즐겨찾기 서버 저장 — 추가·해제(멱등), 사용자별 분리, 볼 수 없는 프로젝트(404·목록에서 숨김), 지운 프로젝트 숨김, 브라우저 값
@@ -173,7 +173,7 @@ class ProjectFavoriteApiTest extends IntegrationTestBase {
 
   private static List<String> texts(JsonNode arr) {
     List<String> out = new ArrayList<>();
-    arr.forEach(n -> out.add(n.asText()));
+    arr.forEach(n -> out.add(n.asString()));
     return out;
   }
 

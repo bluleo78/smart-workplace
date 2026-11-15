@@ -21,9 +21,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.action.ConfirmActionDispatcher;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.file.service.FileCleanupService;
@@ -63,6 +60,9 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.ResultActions;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * 메일 임시저장(WP-577) 통합 — REST CRUD·목록·개수·소유 404·버전 충돌 409·상한 400, 업로드 묶기(만료 스윕 생존·풀기·삭제 정리), draftId
@@ -280,7 +280,7 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
     JsonNode created = create(me, b);
     long id = created.get("id").asLong();
     assertThat(created.get("version").asInt()).isEqualTo(1);
-    assertThat(created.get("updatedAt").asText()).isNotBlank();
+    assertThat(created.get("updatedAt").asString()).isNotBlank();
 
     http(get("/api/v1/mail/drafts/" + id).header("Authorization", bearer(me)))
         .andExpect(status().isOk())
@@ -400,17 +400,17 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
     assertThat(top.get("id").asLong()).isEqualTo(firstId);
     assertThat(list.get(1).get("id").asLong()).isEqualTo(secondId);
     assertThat(top.get("accountId").asLong()).isEqualTo(acc);
-    assertThat(top.get("mode").asText()).isEqualTo("new");
-    assertThat(top.get("to").get(0).asText()).isEqualTo("a@x.com");
+    assertThat(top.get("mode").asString()).isEqualTo("new");
+    assertThat(top.get("to").get(0).asString()).isEqualTo("a@x.com");
     // 목록 요약에는 참조·숨은참조가 없다(상세에서만 내려준다)
     assertThat(top.has("cc")).isFalse();
     assertThat(top.has("bcc")).isFalse();
-    assertThat(top.get("subject").asText()).isEqualTo("첫째");
-    String preview = top.get("preview").asText();
+    assertThat(top.get("subject").asString()).isEqualTo("첫째");
+    String preview = top.get("preview").asString();
     assertThat(preview).startsWith("가나다 라");
     assertThat(preview.codePointCount(0, preview.length())).isEqualTo(120);
     assertThat(top.get("attachmentCount").asInt()).isEqualTo(2);
-    assertThat(top.get("updatedAt").asText()).isNotBlank();
+    assertThat(top.get("updatedAt").asString()).isNotBlank();
     // 본문 HTML 은 목록에 싣지 않는다
     assertThat(top.has("bodyHtml")).isFalse();
 

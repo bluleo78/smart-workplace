@@ -15,8 +15,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -42,6 +40,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 외부(비로그인) 공유 보기(WP-579 Task 7) — {@code GET /api/v1/public/wiki/shares/{token}} 와 공개 첨부. 인증 헤더
@@ -119,7 +119,7 @@ class PublicWikiShareTest extends IntegrationTestBase {
     JsonNode res = json(anon(publicPath(token)).andExpect(status().isOk()));
     assertThat(fieldNames(res))
         .containsExactlyInAnyOrder("workspaceName", "rootPageId", "pages", "page");
-    assertThat(res.get("workspaceName").asText()).isEqualTo(tenantName());
+    assertThat(res.get("workspaceName").asString()).isEqualTo(tenantName());
     assertThat(res.get("rootPageId").asLong()).isEqualTo(rootId);
     assertThat(ids(res.get("pages"))).containsExactlyInAnyOrder(rootId, childId, grandchildId);
     for (JsonNode p : res.get("pages")) {
@@ -134,13 +134,13 @@ class PublicWikiShareTest extends IntegrationTestBase {
             "id", "title", "markdown", "updatedAt", "fullWidth", "kind", "html");
     assertThat(page.get("fullWidth").asBoolean()).isFalse();
     assertThat(page.get("id").asLong()).isEqualTo(rootId);
-    assertThat(page.get("title").asText()).isEqualTo("제품 로드맵");
+    assertThat(page.get("title").asString()).isEqualTo("제품 로드맵");
 
     // 범위 안 하위 페이지로 이동.
     JsonNode child =
         json(anon(publicPath(token) + "?pageId=" + grandchildId).andExpect(status().isOk()));
     assertThat(child.get("page").get("id").asLong()).isEqualTo(grandchildId);
-    assertThat(child.get("page").get("title").asText()).isEqualTo("1월");
+    assertThat(child.get("page").get("title").asString()).isEqualTo("1월");
     // 범위 밖(부모·형제·다른 스페이스·없는 페이지)은 404.
     for (long outside : List.of(topId, siblingId, otherPageId, Long.MAX_VALUE)) {
       anon(publicPath(token) + "?pageId=" + outside).andExpect(status().isNotFound());
@@ -198,7 +198,7 @@ class PublicWikiShareTest extends IntegrationTestBase {
         .doesNotContain("updatedBy")
         .doesNotContain("createdBy")
         .doesNotContain("spaceId");
-    String markdown = om.readTree(raw).get("page").get("markdown").asText();
+    String markdown = om.readTree(raw).get("page").get("markdown").asString();
     assertThat(markdown).contains("하위 1분기").contains("‹접근 권한 없음›").contains("| 비밀 |");
   }
 
@@ -511,7 +511,7 @@ class PublicWikiShareTest extends IntegrationTestBase {
 
   /** 404 를 확인하고 본문의 message 를 돌려준다 — 없음·만료·정책 꺼짐이 같은 문구인지 비교한다. */
   private String notFoundMessage(String path) throws Exception {
-    return json(anon(path).andExpect(status().isNotFound())).get("message").asText();
+    return json(anon(path).andExpect(status().isNotFound())).get("message").asString();
   }
 
   /** 설정 API 로 공유를 만들거나 바꾸고 토큰을 돌려준다(공유한 사람 = OWNER). */
@@ -533,7 +533,7 @@ class PublicWikiShareTest extends IntegrationTestBase {
                         .content(om.writeValueAsString(body)),
                     ownerId)
                 .andExpect(status().isOk()));
-    return res.get("token").asText();
+    return res.get("token").asString();
   }
 
   /** 멤버(OWNER)로 PNG 를 올리고 file id 를 돌려준다. */
@@ -579,7 +579,7 @@ class PublicWikiShareTest extends IntegrationTestBase {
 
   private static List<String> fieldNames(JsonNode node) {
     List<String> out = new ArrayList<>();
-    node.fieldNames().forEachRemaining(out::add);
+    out.addAll(node.propertyNames());
     return out;
   }
 

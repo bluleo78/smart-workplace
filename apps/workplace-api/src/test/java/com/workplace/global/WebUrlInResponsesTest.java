@@ -9,8 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -32,6 +30,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 도구가 읽는 응답에 웹 화면 주소(url)가 실리는지(WP-1523) — AI 가 본문에 주소를 지어내지 않고 이 값을 쓴다.
@@ -76,13 +76,13 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
         json(call(postJson("/api/v1/projects/" + key + "/issues", Map.of("title", "t"))));
     int number = created.get("number").asInt();
     // 기존 필드는 그대로 펼쳐져 있다(@JsonUnwrapped) — 웹이 읽는 모양이 바뀌지 않는다.
-    assertThat(created.get("title").asText()).isEqualTo("t");
-    assertThat(created.get("url").asText())
+    assertThat(created.get("title").asString()).isEqualTo("t");
+    assertThat(created.get("url").asString())
         .isEqualTo(base + "/projects/" + key + "/issues/" + number);
 
     JsonNode detail = json(call(get("/api/v1/projects/" + key + "/issues/" + number)));
     assertThat(detail.get("summary").get("number").asInt()).isEqualTo(number);
-    assertThat(detail.get("url").asText())
+    assertThat(detail.get("url").asString())
         .isEqualTo(base + "/projects/" + key + "/issues/" + number);
 
     // 수정(PATCH) 응답에도 실린다 — update_issue 가 내용 수정 응답에서 옮긴다.
@@ -92,8 +92,8 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
                 patch("/api/v1/projects/" + key + "/issues/" + number)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(om.writeValueAsString(Map.of("title", "t2")))));
-    assertThat(updated.get("summary").get("title").asText()).isEqualTo("t2");
-    assertThat(updated.get("url").asText())
+    assertThat(updated.get("summary").get("title").asString()).isEqualTo("t2");
+    assertThat(updated.get("url").asString())
         .isEqualTo(base + "/projects/" + key + "/issues/" + number);
   }
 
@@ -110,10 +110,10 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
     JsonNode created = json(call(postJson("/api/v1/wiki/spaces/" + spaceId + "/pages", body)));
     long pageId = created.get("id").asLong();
     String expected = base + "/wiki/spaces/" + spaceId + "/pages/" + pageId;
-    assertThat(created.get("url").asText()).isEqualTo(expected);
+    assertThat(created.get("url").asString()).isEqualTo(expected);
 
     JsonNode read = json(call(get("/api/v1/wiki/pages/" + pageId)));
-    assertThat(read.get("url").asText()).isEqualTo(expected);
+    assertThat(read.get("url").asString()).isEqualTo(expected);
 
     Map<String, Object> save = new HashMap<>();
     save.put("version", read.get("version").asInt());
@@ -125,7 +125,7 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
                 put("/api/v1/wiki/pages/" + pageId)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(om.writeValueAsString(save))));
-    assertThat(saved.get("url").asText()).isEqualTo(expected);
+    assertThat(saved.get("url").asString()).isEqualTo(expected);
   }
 
   /**
@@ -143,14 +143,14 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
                     Map.of("name", "memo.md", "content", "hello"))));
     long driveFileId = created.get("id").asLong();
     String expected = base + "/drive/spaces/" + spaceId + "?preview=" + driveFileId;
-    assertThat(created.get("url").asText()).isEqualTo(expected);
+    assertThat(created.get("url").asString()).isEqualTo(expected);
 
     JsonNode updated =
         json(
             call(
                 postJson(
                     "/api/v1/drive/files/" + driveFileId + "/text", Map.of("content", "hello 2"))));
-    assertThat(updated.get("url").asText()).isEqualTo(expected);
+    assertThat(updated.get("url").asString()).isEqualTo(expected);
 
     long folderId =
         json(call(postJson("/api/v1/drive/spaces/" + spaceId + "/folders", Map.of("name", "회의"))))
@@ -162,7 +162,7 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
     inFolder.put("content", "x");
     JsonNode sub =
         json(call(postJson("/api/v1/drive/spaces/" + spaceId + "/files/text", inFolder)));
-    assertThat(sub.get("url").asText())
+    assertThat(sub.get("url").asString())
         .isEqualTo(
             base
                 + "/drive/spaces/"
@@ -187,10 +187,10 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
                         "endsAt", "2026-11-20T11:00:00+09:00"))));
     long eventId = created.get("id").asLong();
     String expected = base + "/calendar?eventId=" + eventId;
-    assertThat(created.get("url").asText()).isEqualTo(expected);
+    assertThat(created.get("url").asString()).isEqualTo(expected);
 
     JsonNode read = json(call(get("/api/v1/calendar/events/" + eventId)));
-    assertThat(read.get("url").asText()).isEqualTo(expected);
+    assertThat(read.get("url").asString()).isEqualTo(expected);
 
     // 수정(PATCH) 응답에도 실린다.
     JsonNode updated =
@@ -204,8 +204,8 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
                                 "title", "회의2",
                                 "startsAt", "2026-11-20T10:00:00+09:00",
                                 "endsAt", "2026-11-20T11:00:00+09:00")))));
-    assertThat(updated.get("title").asText()).isEqualTo("회의2");
-    assertThat(updated.get("url").asText()).isEqualTo(expected);
+    assertThat(updated.get("title").asString()).isEqualTo("회의2");
+    assertThat(updated.get("url").asString()).isEqualTo(expected);
   }
 
   /** 기준 주소가 비면 url 을 만들지 않는다(null) — 상대 경로를 내보내면 AI 가 호스트를 지어 붙인다. 끝 슬래시는 지운다. */

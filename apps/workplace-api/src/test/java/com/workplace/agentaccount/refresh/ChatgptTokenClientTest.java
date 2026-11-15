@@ -3,18 +3,19 @@ package com.workplace.agentaccount.refresh;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.refresh.ChatgptTokenClient.ChatgptTokens;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** ChatGPT 토큰 갱신 클라이언트 — 요청 모양(Codex 와 같음)·응답 해석·실패 분류를 가짜 HTTP 서버로 확인한다. */
 class ChatgptTokenClientTest {
 
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
 
   private FakeTokenServer server;
   private ChatgptTokenClient client;
@@ -41,9 +42,9 @@ class ChatgptTokenClientTest {
     assertThat(req.contentType()).startsWith("application/json");
     JsonNode body = JSON.readTree(req.body());
     assertThat(body.size()).isEqualTo(3);
-    assertThat(body.get("client_id").asText()).isEqualTo("app_EMoamEEZ73f0CkXaXp7hrann");
-    assertThat(body.get("grant_type").asText()).isEqualTo("refresh_token");
-    assertThat(body.get("refresh_token").asText()).isEqualTo("rt-old");
+    assertThat(body.get("client_id").asString()).isEqualTo("app_EMoamEEZ73f0CkXaXp7hrann");
+    assertThat(body.get("grant_type").asString()).isEqualTo("refresh_token");
+    assertThat(body.get("refresh_token").asString()).isEqualTo("rt-old");
   }
 
   @Test

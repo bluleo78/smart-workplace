@@ -11,8 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.tenant.TenantContext;
@@ -37,6 +35,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1222 프로필 아바타 API 통합 테스트 — 내 아바타 바꾸기·되돌리기, 공개 이미지(인증 없음·영구 캐시·크기·404), 형식·크기·자를 영역 검증, EXIF
@@ -95,7 +95,7 @@ class AvatarControllerTest extends IntegrationTestBase {
 
   private String avatarUrlOf(MvcResult result) throws Exception {
     JsonNode body = objectMapper.readTree(result.getResponse().getContentAsString());
-    return body.get("avatarUrl").asText();
+    return body.get("avatarUrl").asString();
   }
 
   /** 공개 이미지를 인증 없이 받는다. */
@@ -407,7 +407,7 @@ class AvatarControllerTest extends IntegrationTestBase {
         n -> {
           ids.add(n.get("userId").asLong());
           if (n.get("userId").asLong() == withAvatar) {
-            assertThat(n.get("avatarUrl").asText())
+            assertThat(n.get("avatarUrl").asString())
                 .isEqualTo("/api/v1/avatars/" + withAvatar + "/" + suffix);
           }
         });

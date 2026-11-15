@@ -7,8 +7,6 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.support.IntegrationTestBase;
@@ -31,6 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * WP-1450 ChatGPT 로그인 서버 갱신 통합 테스트 — 대상 선정(만료 임박·NEEDS_CHECK·폐기 제외), 성공 병합·secret_version
@@ -42,7 +43,7 @@ import org.springframework.web.client.RestClient;
 class LoginRefreshServiceTest extends IntegrationTestBase {
 
   private static final long TENANT = 1L;
-  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
   private static final String OLD_REFRESH = "rt-OLD-SECRET-VALUE";
 
   @Autowired DSLContext dsl;
@@ -192,13 +193,13 @@ class LoginRefreshServiceTest extends IntegrationTestBase {
     assertThat(server.requests).hasSize(1);
     assertThat(server.requests.get(0).body()).contains(OLD_REFRESH);
     JsonNode s = secret(id);
-    assertThat(s.at("/tokens/access_token").asText()).isEqualTo("at-NEW");
-    assertThat(s.at("/tokens/refresh_token").asText()).isEqualTo("rt-NEW");
+    assertThat(s.at("/tokens/access_token").asString()).isEqualTo("at-NEW");
+    assertThat(s.at("/tokens/refresh_token").asString()).isEqualTo("rt-NEW");
     // 응답에 없던 칸·다른 최상위 칸은 그대로.
-    assertThat(s.at("/tokens/id_token").asText()).isEqualTo("id-old");
-    assertThat(s.at("/tokens/account_id").asText()).isEqualTo("acct-1");
+    assertThat(s.at("/tokens/id_token").asString()).isEqualTo("id-old");
+    assertThat(s.at("/tokens/account_id").asString()).isEqualTo("acct-1");
     assertThat(s.has("OPENAI_API_KEY")).isTrue();
-    Instant lastRefresh = Instant.parse(s.get("last_refresh").asText());
+    Instant lastRefresh = Instant.parse(s.get("last_refresh").asString());
     assertThat(lastRefresh).isAfter(Instant.now().minus(Duration.ofMinutes(1)));
     var r = row(id);
     assertThat(r.get("secret_version")).isEqualTo(versionBefore);
@@ -336,8 +337,8 @@ class LoginRefreshServiceTest extends IntegrationTestBase {
     service.refreshOne(TENANT, id);
 
     JsonNode s = secret(id);
-    assertThat(s.at("/tokens/account_id").asText()).isEqualTo("acct-HUMAN");
-    assertThat(s.at("/tokens/access_token").asText()).doesNotContain("at-NEW");
+    assertThat(s.at("/tokens/account_id").asString()).isEqualTo("acct-HUMAN");
+    assertThat(s.at("/tokens/access_token").asString()).doesNotContain("at-NEW");
     assertThat(row(id).get("login_revision")).isEqualTo(0L);
     assertThat(refreshRow(id).get("lease_until")).isNull();
   }

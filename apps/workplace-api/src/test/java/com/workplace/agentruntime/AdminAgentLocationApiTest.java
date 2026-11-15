@@ -11,8 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.RunnerPrincipal;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.RunnerTokenVerifier;
@@ -34,6 +32,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1248 AI 실행 위치·runner 토큰 API 통합 테스트 — 첫 위치 자동 기본, 토큰 평문 1회 노출, 기본 이동·삭제 가드, 토큰 재발급(옛 토큰 회수), 토큰
@@ -95,7 +95,7 @@ class AdminAgentLocationApiTest extends IntegrationTestBase {
     JsonNode created = json(create("운영", 3).andExpect(status().isOk()));
 
     assertThat(created.at("/location/isDefault").asBoolean()).isTrue();
-    String token = created.get("plaintextToken").asText();
+    String token = created.get("plaintextToken").asString();
     assertThat(token).startsWith("rt_");
 
     call(get(BASE), admin)
@@ -138,12 +138,12 @@ class AdminAgentLocationApiTest extends IntegrationTestBase {
   void rotateToken_revokesOldToken() throws Exception {
     JsonNode created = json(create("운영", 3));
     long id = created.at("/location/id").asLong();
-    String old = created.get("plaintextToken").asText();
+    String old = created.get("plaintextToken").asString();
 
     String fresh =
         json(call(post(BASE + "/" + id + "/token"), admin).andExpect(status().isOk()))
             .get("plaintextToken")
-            .asText();
+            .asString();
 
     TenantContext.clear();
     assertThat(verifier.verify(old)).isEmpty();
@@ -155,7 +155,7 @@ class AdminAgentLocationApiTest extends IntegrationTestBase {
   void verify_returnsBoundTenantAndLocation() throws Exception {
     JsonNode created = json(create("운영", 3));
     long id = created.at("/location/id").asLong();
-    String token = created.get("plaintextToken").asText();
+    String token = created.get("plaintextToken").asString();
 
     TenantContext.clear();
     Optional<RunnerPrincipal> p = verifier.verify(token);
@@ -237,9 +237,9 @@ class AdminAgentLocationApiTest extends IntegrationTestBase {
     JsonNode rotated =
         json(call(post(BASE + "/" + id + "/token"), admin).andExpect(status().isOk()));
 
-    assertThat(rotated.at("/location/tokenPrefix").asText())
-        .isEqualTo(rotated.get("plaintextToken").asText().substring(0, 12));
-    assertThat(rotated.at("/location/connection").asText()).isEqualTo("PENDING");
+    assertThat(rotated.at("/location/tokenPrefix").asString())
+        .isEqualTo(rotated.get("plaintextToken").asString().substring(0, 12));
+    assertThat(rotated.at("/location/connection").asString()).isEqualTo("PENDING");
     assertThat(
             dsl.fetchCount(
                 AGENT_RUNNER_TOKEN,
@@ -261,7 +261,7 @@ class AdminAgentLocationApiTest extends IntegrationTestBase {
   void verify_throttlesLastUsedUpdates() throws Exception {
     JsonNode created = json(create("운영", 3));
     long id = created.at("/location/id").asLong();
-    String token = created.get("plaintextToken").asText();
+    String token = created.get("plaintextToken").asString();
     OffsetDateTime recent = OffsetDateTime.now().minusSeconds(10).truncatedTo(ChronoUnit.MICROS);
     setLastUsed(id, recent);
 

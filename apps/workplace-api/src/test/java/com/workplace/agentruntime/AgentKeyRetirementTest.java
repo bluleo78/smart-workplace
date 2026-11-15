@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.AGENT_API_KEY;
 import static com.workplace.jooq.Tables.AGENT_LOCATION;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
@@ -28,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1264 키 정리 한 규칙(AgentKeyRetirement) 표 테스트 — 실행 설정의 전이마다 Works 자동 발급 키가 정리 유예로 줄어드는지(retiring_at

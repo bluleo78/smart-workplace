@@ -3,8 +3,6 @@ package com.workplace.action;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.service.CalendarService;
 import com.workplace.global.tenant.TenantContext;
@@ -18,6 +16,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * ConfirmActionDispatcher — calendar.create_event 경로 집중 테스트.

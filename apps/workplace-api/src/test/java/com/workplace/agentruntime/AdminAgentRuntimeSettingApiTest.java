@@ -49,7 +49,7 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
-  @Autowired com.fasterxml.jackson.databind.ObjectMapper om;
+  @Autowired tools.jackson.databind.ObjectMapper om;
   @Autowired AgentLocationService locationService;
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired WorkspaceAssistantService workspaceAssistantService;
@@ -461,7 +461,7 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    for (com.fasterxml.jackson.databind.JsonNode n : om.readTree(json)) {
+    for (tools.jackson.databind.JsonNode n : om.readTree(json)) {
       if (n.get("agentUserId").asLong() == agent) return n.get("acceptNewWork").asBoolean();
     }
     throw new AssertionError("요약에 AI 가 없음: " + agent);
@@ -494,8 +494,8 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.acceptNewWork").value(false))
         .andExpect(jsonPath("$.generation").value(before.get("generation").asLong()))
-        .andExpect(jsonPath("$.desired").value(before.get("desired").asText()))
-        .andExpect(jsonPath("$.applyMode").value(before.get("applyMode").asText()));
+        .andExpect(jsonPath("$.desired").value(before.get("desired").asString()))
+        .andExpect(jsonPath("$.applyMode").value(before.get("applyMode").asString()));
 
     assertThat(summaryAcceptNewWork(agent)).isFalse();
     assertThat(desiredEvents()).hasSize(eventsBefore);

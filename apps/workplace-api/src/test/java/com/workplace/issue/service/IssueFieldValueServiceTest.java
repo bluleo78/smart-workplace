@@ -6,8 +6,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.NullNode;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest.FieldValueInput;
@@ -27,6 +25,8 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.NullNode;
 
 /** IssueFieldValueService — PUT 집합 변경, diff history, 검증. */
 @Transactional

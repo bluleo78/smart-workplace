@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.dto.RegisterAssistantCredentialRequest;
@@ -35,6 +33,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-250 코드 리뷰: 등록 후 모델을 바꿔도 이미지 입력을 지정할 수 있다 — 비서 설정 변경(개인·공용)이 provider config 의 vision 만 그 자리에서
@@ -127,9 +127,9 @@ class AssistantVisionSettingsTest extends IntegrationTestBase {
     JsonNode p = payloadOf(agent);
     assertThat(p.get("vision")).isEqualTo(om.readTree("{\"openai/my-custom-vl\":true}"));
     // 재등록이 아니라 같은 행을 고친다 — 비밀값·프로바이더 설정·행 id·라벨이 그대로다.
-    assertThat(p.get("providerId").asText()).isEqualTo("openai");
-    assertThat(p.get("options").get("apiKey").asText()).isEqualTo("sk-secret-123");
-    assertThat(p.get("options").get("baseURL").asText()).isEqualTo("https://api.example.com/v1");
+    assertThat(p.get("providerId").asString()).isEqualTo("openai");
+    assertThat(p.get("options").get("apiKey").asString()).isEqualTo("sk-secret-123");
+    assertThat(p.get("options").get("baseURL").asString()).isEqualTo("https://api.example.com/v1");
     AiAgentCredentialRow after = credentialRepo.findActive(agent).orElseThrow();
     assertThat(after.id()).isEqualTo(before.id());
     assertThat(after.label()).isEqualTo(before.label());
@@ -147,7 +147,7 @@ class AssistantVisionSettingsTest extends IntegrationTestBase {
     putSettings(human, "{\"vision\":null}").andExpect(status().isNoContent());
     statusOf(human).andExpect(jsonPath("$.vision").doesNotExist());
     assertThat(payloadOf(agent).has("vision")).isFalse();
-    assertThat(payloadOf(agent).get("options").get("apiKey").asText()).isEqualTo("sk-secret-123");
+    assertThat(payloadOf(agent).get("options").get("apiKey").asString()).isEqualTo("sk-secret-123");
   }
 
   @Test
@@ -207,7 +207,7 @@ class AssistantVisionSettingsTest extends IntegrationTestBase {
     assertThat(workspaceService.get().model()).isEqualTo("openai/my-vl");
     assertThat(workspaceService.get().vision()).isFalse();
     assertThat(payloadOf(agent).get("vision")).isEqualTo(om.readTree("{\"openai/my-vl\":false}"));
-    assertThat(payloadOf(agent).get("options").get("apiKey").asText()).isEqualTo("sk-ws");
+    assertThat(payloadOf(agent).get("options").get("apiKey").asString()).isEqualTo("sk-ws");
 
     assertThatThrownBy(() -> workspaceService.updateSettings(admin, req("{\"vision\":1}")))
         .isInstanceOf(InvalidProviderCredentialException.class);

@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
@@ -50,6 +48,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 HTML 블록 보안 점검 API(WP-1290) — 앱 조회(읽기만)·요청(행 생성·되돌림)·권한(멤버·공유 토큰·비멤버)·공개 보기(지연 생성·기존 행 그대로·범위 밖
@@ -107,7 +107,7 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
   void get_returns_hash_and_creates_no_row() throws Exception {
     JsonNode res = json(call(get(path(rootId)), ownerId).andExpect(status().isOk()));
 
-    assertThat(res.get("hash").asText())
+    assertThat(res.get("hash").asString())
         .isEqualTo(WikiHtmlScriptSources.hash(List.of(SCRIPT_SOURCE)));
     assertThat(res.get("blockCount").asInt()).isEqualTo(1);
     assertThat(res.get("view").get("status").isNull()).isTrue();
@@ -136,8 +136,8 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
   void post_creates_pending_then_pipeline_stores_done() throws Exception {
     stubHigh();
     JsonNode res = json(call(post(path(rootId)), ownerId).andExpect(status().isOk()));
-    String hash = res.get("hash").asText();
-    assertThat(res.get("view").get("status").asText()).isEqualTo("PENDING");
+    String hash = res.get("hash").asString();
+    assertThat(res.get("view").get("status").asString()).isEqualTo("PENDING");
 
     String joined = WikiHtmlScriptSources.joined(List.of(SCRIPT_SOURCE));
     ScriptDigest.Result expected = ScriptDigest.build(joined);
@@ -157,9 +157,9 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
     assertThat(row.getStatus()).isEqualTo("DONE");
     assertThat(row.getCriteriaVersion()).isEqualTo(FileSecurityCheckRepository.CRITERIA_VERSION);
     JsonNode view = json(call(get(path(rootId)), ownerId)).get("view");
-    assertThat(view.get("status").asText()).isEqualTo("DONE");
-    assertThat(view.get("risk").asText()).isEqualTo("HIGH");
-    assertThat(view.get("evidence").get(0).get("kind").asText()).isEqualTo("EXTERNAL_REQUEST");
+    assertThat(view.get("status").asString()).isEqualTo("DONE");
+    assertThat(view.get("risk").asString()).isEqualTo("HIGH");
+    assertThat(view.get("evidence").get(0).get("kind").asString()).isEqualTo("EXTERNAL_REQUEST");
     assertThat(view.get("outdated").asBoolean()).isFalse();
 
     // 지금 기준의 DONE 은 다시 요청해도 그대로.
@@ -169,7 +169,7 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
     // FAILED 는 되돌린다.
     setStatus(rootId, hash, "FAILED", "boom");
     JsonNode again = json(call(post(path(rootId)), ownerId).andExpect(status().isOk()));
-    assertThat(again.get("view").get("status").asText()).isEqualTo("PENDING");
+    assertThat(again.get("view").get("status").asString()).isEqualTo("PENDING");
     assertThat(row(rootId, hash).getAttempts()).isZero();
   }
 
@@ -187,8 +187,8 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
         .set(WIKI_HTML_SCRIPTS_CHECK.ERROR, "too-large")
         .execute();
     JsonNode res = json(call(post(path(rootId)), ownerId).andExpect(status().isOk()));
-    assertThat(res.get("view").get("status").asText()).isEqualTo("FAILED");
-    assertThat(res.get("view").get("reason").asText()).isEqualTo("TOO_LARGE");
+    assertThat(res.get("view").get("status").asString()).isEqualTo("FAILED");
+    assertThat(res.get("view").get("reason").asString()).isEqualTo("TOO_LARGE");
   }
 
   /** AI 가 없으면 행을 만들지 않고 reason NO_AI. */
@@ -198,7 +198,7 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
     JsonNode res = json(call(post(path(rootId)), ownerId).andExpect(status().isOk()));
     assertThat(res.get("hash").isNull()).isFalse();
     assertThat(res.get("view").get("status").isNull()).isTrue();
-    assertThat(res.get("view").get("reason").asText()).isEqualTo("NO_AI");
+    assertThat(res.get("view").get("reason").asString()).isEqualTo("NO_AI");
     assertThat(rowCount(rootId)).isZero();
     verify(driveClient, never()).securityCheck(any());
   }
@@ -244,7 +244,7 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
 
     JsonNode res = json(call(get(path(id)), ownerId).andExpect(status().isOk()));
     assertThat(res.get("blockCount").asInt()).isEqualTo(1);
-    assertThat(res.get("hash").asText()).isEqualTo(WikiHtmlScriptSources.hash(List.of(html)));
+    assertThat(res.get("hash").asString()).isEqualTo(WikiHtmlScriptSources.hash(List.of(html)));
   }
 
   /** 페이지가 지워지면 점검 행도 함께 지워진다(ON DELETE CASCADE). */
@@ -267,11 +267,11 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
     String token = share(rootId, "PUBLIC");
 
     JsonNode res = json(anon(publicPath(token, rootId)).andExpect(status().isOk()));
-    String hash = res.get("hash").asText();
+    String hash = res.get("hash").asString();
     // 멘션·앱 주소가 없는 소스라 공개 본문과 저장 본문의 지문이 같다.
     assertThat(hash).isEqualTo(WikiHtmlScriptSources.hash(List.of(SCRIPT_SOURCE)));
     assertThat(res.get("blockCount").asInt()).isEqualTo(1);
-    assertThat(res.get("view").get("status").asText()).isEqualTo("PENDING");
+    assertThat(res.get("view").get("status").asString()).isEqualTo("PENDING");
     assertThat(rowCount(rootId)).isEqualTo(1);
 
     anon(publicPath(token, rootId)).andExpect(status().isOk());
@@ -279,7 +279,7 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
 
     setStatus(rootId, hash, "FAILED", "boom");
     JsonNode again = json(anon(publicPath(token, rootId)).andExpect(status().isOk()));
-    assertThat(again.get("view").get("status").asText()).isEqualTo("FAILED");
+    assertThat(again.get("view").get("status").asString()).isEqualTo("FAILED");
     assertThat(row(rootId, hash).getStatus()).isEqualTo("FAILED");
   }
 
@@ -303,10 +303,10 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
 
     JsonNode pub = json(anon(publicPath(token, rootId)).andExpect(status().isOk()));
     JsonNode app = json(call(get(path(rootId)), ownerId).andExpect(status().isOk()));
-    assertThat(app.get("hash").asText()).isEqualTo(WikiHtmlScriptSources.hash(List.of(source)));
-    assertThat(pub.get("hash").asText())
+    assertThat(app.get("hash").asString()).isEqualTo(WikiHtmlScriptSources.hash(List.of(source)));
+    assertThat(pub.get("hash").asString())
         .isEqualTo(WikiHtmlScriptSources.hash(List.of("<script>fetch(\"\")</script>")))
-        .isNotEqualTo(app.get("hash").asText());
+        .isNotEqualTo(app.get("hash").asString());
   }
 
   // ── 도우미 ─────────────────────────────────────────────────────────────

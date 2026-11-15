@@ -14,8 +14,6 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
@@ -40,6 +38,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 노트 HTML 블록 보안 점검 요청의 커밋 경로(WP-1290) — 요청이 커밋되면 전용 실행기에서 점검이 돌아 DONE 이 된다. 커밋 뒤 콜백은 실제 커밋에서만 돌므로
@@ -131,8 +131,8 @@ class WikiHtmlScriptsCheckCommitTest extends ExternalClientMockedTestBase {
             .getResponse()
             .getContentAsString(StandardCharsets.UTF_8);
     JsonNode res = om.readTree(body);
-    assertThat(res.get("view").get("status").asText()).isEqualTo("PENDING");
-    awaitDone(pageId, res.get("hash").asText());
+    assertThat(res.get("view").get("status").asString()).isEqualTo("PENDING");
+    awaitDone(pageId, res.get("hash").asString());
   }
 
   private void stubAi() {
