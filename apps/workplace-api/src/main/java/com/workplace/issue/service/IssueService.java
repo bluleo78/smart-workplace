@@ -889,7 +889,7 @@ public class IssueService {
             .withVersions(versions.fix(), versions.affects());
     // AI Instant Context: 항상 반환 — 블로커는 항상 계산, summary/nextAction/generatedAt 은 저장본 없으면 null.
     // 생성 버튼은 항상 렌더(aiContext non-null)해야 하므로 저장본/블로커 여부와 무관하게 인스턴스화.
-    var blockers = blockerCalculator.compute(summaryResponse, LocalDate.now(), Instant.now());
+    var blockers = blockerCalculator.compute(summaryResponse);
     var stored = aiSummaryRepository.find(row.id()).orElse(null);
     IssueAiContext aiContext =
         new IssueAiContext(

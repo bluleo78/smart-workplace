@@ -26,6 +26,24 @@ public class IssueBlockerCalculator {
   /** STALE 판단 기준 일수 — IN_PROGRESS 상태에서 이 일수 이상 갱신 없으면 정체로 간주. */
   static final int STALE_DAYS = 3;
 
+  /** 「오늘」(서울 날짜)·「지금」의 기준 — 호출자가 날짜를 따로 넘기다 빠뜨리지 않게 계산기가 직접 갖는다(WP-1617). */
+  private final IssueClock issueClock;
+
+  /** 오늘·지금을 줄 시계를 받는다 — 운영은 Spring 빈, 단위 테스트는 고정 시계로 만든 IssueClock. */
+  public IssueBlockerCalculator(IssueClock issueClock) {
+    this.issueClock = issueClock;
+  }
+
+  /**
+   * IssueClock 기준(오늘=Asia/Seoul 날짜, 지금=시계 instant)으로 블로커 배지를 계산한다(WP-1617).
+   *
+   * @param issue 이미 로드된 이슈 응답 (새 쿼리 0)
+   * @return 감지된 블로커 배지 목록 (없으면 빈 리스트)
+   */
+  public List<IssueBlockerBadge> compute(IssueResponse issue) {
+    return compute(issue, issueClock.today(), issueClock.now());
+  }
+
   /**
    * 이슈의 블로커 배지 목록을 결정적으로 계산한다.
    *

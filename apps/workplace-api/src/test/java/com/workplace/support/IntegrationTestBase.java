@@ -22,6 +22,7 @@ import com.workplace.home.service.SharedAiMemoryChangeLog;
 import com.workplace.issue.outbound.ImplicitChatAgents;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueClock;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -101,6 +102,8 @@ import org.springframework.transaction.support.TransactionTemplate;
       ImplicitChatAgents.class,
       ImapConnector.class,
       ImapFolderLister.class,
+      // WP-1617: 이슈 마감 배지의 「오늘」 고정.
+      IssueClock.class,
       IssueRepository.class,
       LabelRepository.class,
       MailAttachmentBlobStore.class,

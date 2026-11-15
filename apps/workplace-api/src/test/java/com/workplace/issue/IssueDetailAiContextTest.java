@@ -4,15 +4,20 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.IssueBlockerBadge.BlockerType;
 import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueClock;
 import com.workplace.issue.service.IssueService;
 import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +37,7 @@ class IssueDetailAiContextTest extends IntegrationTestBase {
   @Autowired private IssueAiSummaryRepository summaryRepo;
   @Autowired private IssueRepository issueRepository;
   @Autowired private ProjectService projectService;
+  @Autowired private IssueClock issueClock;
 
   // ── 케이스 A: 저장 요약 있음 ─────────────────────────────────────────────────────
 
@@ -85,6 +91,40 @@ class IssueDetailAiContextTest extends IntegrationTestBase {
     assertThat(detail.aiContext().nextAction()).isNull();
     assertThat(detail.aiContext().generatedAt()).isNull();
     assertThat(detail.aiContext().blockers()).isEmpty();
+  }
+
+  // ── WP-1617: 마감 배지 기준일은 서울 날짜 ─────────────────────────────────────────
+
+  /**
+   * UTC 2099-01-01 18:00(= KST 2099-01-02 03:00) 에 마감 2099-01-03 이슈는 상세에서 OVERDUE 가 붙어야 한다. 먼 미래
+   * 날짜라 예전 코드(LocalDate.now() = 실제 오늘)로는 어느 날 돌려도 배지가 붙지 않아 회귀를 잡는다.
+   */
+  @Test
+  void get_overdueBadge_usesSeoulToday_duringKstEarlyMorning() {
+    long userId = createUser("aic-c");
+    TenantContext.set(1L);
+    String projKey = uniqueKey("AICC");
+    long projectId =
+        projectService.create(userId, new CreateProjectRequest(projKey, "AiContext C", "x")).id();
+    IssueSeeds.insert(
+        issueRepository,
+        baseDsl,
+        projectId,
+        1,
+        "마감 이슈",
+        null,
+        "MID",
+        LocalDate.of(2099, 1, 3),
+        userId);
+    // 시각 2099-01-01T18:00Z 의 서울 날짜는 2099-01-02 — spy 는 테스트 뒤 자동 초기화된다.
+    doReturn(LocalDate.of(2099, 1, 2)).when(issueClock).today();
+    doReturn(Instant.parse("2099-01-01T18:00:00Z")).when(issueClock).now();
+
+    var detail = issueService.get(userId, projKey, 1);
+
+    assertThat(detail.aiContext().blockers())
+        .extracting(b -> b.type())
+        .contains(BlockerType.OVERDUE);
   }
 
   // ── 헬퍼 ────────────────────────────────────────────────────────────────────────
