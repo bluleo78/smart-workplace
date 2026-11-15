@@ -1,6 +1,7 @@
 // 마일스톤 창 마감일 필수 표시(WP-1556) — 서버가 마감일을 요구하니 왜 저장이 안 되는지 화면에 알린다.
-import { fireEvent, screen } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
+import { describe, expect, test, vi } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
 import type { MilestoneResponse } from '@/types/milestone'
@@ -55,5 +56,46 @@ describe('MilestoneFormDialog — 마감일 필수 표시', () => {
     renderDialog({ defaultDueDate: '2026-12-01' })
     expect(screen.getByTestId('milestone-due-date-input')).toHaveValue('2026-12-01')
     expect(screen.queryByTestId(REQUIRED)).not.toBeInTheDocument()
+  })
+})
+
+// 이름 칸 Enter 로 저장(WP-1616) — 필수 칸(이름·마감일)이 채워졌으면 저장 단추와 같이 POST 하고 창을 닫는다. 비면 아무 일도 없다.
+describe('MilestoneFormDialog — 이름 칸 Enter 로 저장', () => {
+  /** POST 를 모으는 생성 창 — 닫기 요청은 onOpenChange 스파이로 본다. */
+  function renderCreate() {
+    const posts: unknown[] = []
+    const onOpenChange = vi.fn()
+    const view = renderScreen(<MilestoneFormDialog projectKey="WP" open onOpenChange={onOpenChange} />, {
+      handlers: [
+        http.post('/api/v1/projects/WP/milestones', async ({ request }) => {
+          posts.push(await request.json())
+          return HttpResponse.json({ id: 9, name: 'M1', dueDate: '2026-12-01' }, { status: 201 })
+        }),
+      ],
+    })
+    return { ...view, posts, onOpenChange }
+  }
+
+  test('이름·마감일이 채워졌으면 이름 칸 Enter 로 POST 한 번, 창을 닫는다', async () => {
+    const { user, posts, onOpenChange } = renderCreate()
+    const name = await screen.findByTestId('milestone-name-input')
+    fireEvent.change(screen.getByTestId('milestone-due-date-input'), { target: { value: '2026-12-01' } })
+    await user.click(name)
+    await user.paste('  M1  ')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(posts).toEqual([{ name: 'M1', dueDate: '2026-12-01' }])
+  })
+
+  test('마감일이 비면 폼 제출(Enter 저장)에도 요청하지 않는다', async () => {
+    const { user, posts, onOpenChange } = renderCreate()
+    const name = await screen.findByTestId('milestone-name-input')
+    await user.click(name)
+    await user.paste('M1')
+    // 잠긴 단추를 거치지 않는 직접 제출도 submit() 가드가 막는다.
+    fireEvent.submit(name.closest('form')!)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(posts).toEqual([])
+    expect(onOpenChange).not.toHaveBeenCalled()
   })
 })

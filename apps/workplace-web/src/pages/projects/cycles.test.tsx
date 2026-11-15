@@ -4,7 +4,7 @@
 // e2e/pages/projects/cycles.spec.ts 에서 옮겼다. 그 spec 에는 사이클 화면 배선 1건(@wiring)과 실제 오프라인 저장(@platform)이 남는다.
 // 화면 테스트(WP-1002) — 사이클 화면(CyclesPage)·이슈 상세의 사이클 피커(CyclePickerPopover)는 그것만, 목록 필터는 필터 바와 목록 검색이
 // 한 화면에서 이어져 프로젝트 상세 화면만 renderScreen 으로 띄운다(App·앱 셸 없이).
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
@@ -144,8 +144,9 @@ describe('사이클 관리', () => {
     expect(await screen.findByTestId('cycle-date-range-error')).toHaveTextContent('종료일은 시작일 이후여야 합니다')
     const submit = screen.getByTestId('cycle-submit')
     expect(submit).toBeDisabled()
-    // 잠긴 버튼을 눌러도(폼 제출 포함) 요청은 없다.
+    // 잠긴 버튼을 눌러도, 단추를 거치지 않는 폼 제출(Enter 저장 WP-1616)로도 요청은 없다.
     await user.click(submit)
+    fireEvent.submit(submit.closest('form')!)
     await new Promise((r) => setTimeout(r, 100))
     expect(posts).toBe(0)
   })
@@ -210,6 +211,43 @@ describe('사이클 관리', () => {
     await waitFor(() => expect(screen.getByTestId('cycle-submit')).not.toBeDisabled())
     await user.click(screen.getByTestId('cycle-submit'))
     await waitFor(() => expect(posts).toBe(2))
+  })
+
+  test('이름·기간이 채워졌으면 이름 칸 Enter 로 POST 한 번, 창을 닫는다 (WP-1616)', async () => {
+    const posts: unknown[] = []
+    const { user } = await openCycles({ current: [] })
+    server.use(
+      http.post(CYCLES, async ({ request }) => {
+        posts.push(await request.json())
+        return HttpResponse.json(createCycle({ name: '스프린트 E' }), { status: 201 })
+      }),
+    )
+    await fillNewCycle(user, '스프린트 E')
+    await user.click(screen.getByTestId('cycle-name-input'))
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(screen.queryByTestId('cycle-form-dialog')).not.toBeInTheDocument())
+    expect(posts).toEqual([{ name: '스프린트 E', goal: null, startDate: '2026-09-01', endDate: '2026-09-14', status: 'PLANNED' }])
+  })
+
+  test('기간이 비면 폼 제출(Enter 저장)에도 POST 하지 않는다 (WP-1616)', async () => {
+    let posts = 0
+    const { user } = await openCycles({ current: [] })
+    server.use(
+      http.post(CYCLES, () => {
+        posts++
+        return HttpResponse.json({}, { status: 201 })
+      }),
+    )
+    await user.click(screen.getByTestId('cycle-new'))
+    await screen.findByTestId('cycle-form-dialog')
+    const name = screen.getByTestId('cycle-name-input')
+    await user.click(name)
+    await user.paste('스프린트 E')
+    // 기간이 빈 채 — 잠긴 단추를 거치지 않는 직접 제출도 submit() 가드가 막는다(기간 역전은 위 #804 테스트).
+    fireEvent.submit(name.closest('form')!)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(posts).toBe(0)
+    expect(screen.getByTestId('cycle-form-dialog')).toBeInTheDocument()
   })
 
   test('수정 — 이름이 채워져 열리고, 고치면 PATCH { name } 뒤 성공 토스트', async () => {

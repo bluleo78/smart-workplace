@@ -49,6 +49,8 @@ export function CycleFormDialog({
   const dateMissing = isCycleDateMissing(startDate, endDate);
   // 종료일이 시작일보다 빠르면 오류(#804).
   const dateRangeInvalid = isCycleDateRangeInvalid(startDate, endDate);
+  // 저장 단추 잠금 조건 — 단추와 Enter 제출(WP-1616)이 같이 쓴다.
+  const canSubmit = name.trim().length > 0 && !dateMissing && !dateRangeInvalid && !saving;
 
   useEffect(() => {
     if (open) {
@@ -68,9 +70,9 @@ export function CycleFormDialog({
   }
 
   async function submit() {
-    // 이미 저장 요청이 진행 중이면 무시 — 두 번째 POST 가 이름 중복 409 로 실패해 성공·오류 토스트가 같이 뜨던 문제(WP-1554).
-    if (submittingRef.current) return;
-    if (dateMissing || dateRangeInvalid) return;
+    // 저장 요청 진행 중(두 번째 POST 가 409 로 성공·오류 토스트가 같이 뜨던 문제, WP-1554)이거나
+    // 단추가 잠길 조건이면(폼 submit 이벤트로 들어와도, WP-1616) 보내지 않는다.
+    if (submittingRef.current || !canSubmit) return;
     const body = {
       name: name.trim(),
       goal: goal.trim() || null,
@@ -99,75 +101,84 @@ export function CycleFormDialog({
           <DialogTitle>{cycle ? '사이클 수정' : '새 사이클'}</DialogTitle>
           <DialogDescription className="sr-only">{cycle ? '사이클 수정' : '새 사이클'}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <Input
-            placeholder="이름"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={CYCLE_NAME_MAX} // 서버 상한(CreateCycleRequest.name) — 넘긴 채 저장하면 400 이었다(WP-687)
-            aria-label="사이클 이름"
-            data-testid="cycle-name-input"
-          />
-          <Textarea
-            placeholder="목표 (선택)"
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            maxLength={2000} // 서버 상한(CreateCycleRequest.goal)
-            aria-label="사이클 목표"
-          />
-          <div className="flex gap-2">
+        {/* 이름 칸 Enter 로도 저장되게 form 으로 감싼다(WP-1616). contents 라 DialogContent 의 grid 간격은 그대로다. */}
+        <form
+          className="contents"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <div className="space-y-3">
             <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              aria-label="시작일"
-              required
+              placeholder="이름"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={CYCLE_NAME_MAX} // 서버 상한(CreateCycleRequest.name) — 넘긴 채 저장하면 400 이었다(WP-687)
+              aria-label="사이클 이름"
+              data-testid="cycle-name-input"
             />
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              aria-label="종료일"
-              aria-invalid={dateRangeInvalid}
-              required
+            <Textarea
+              placeholder="목표 (선택)"
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              maxLength={2000} // 서버 상한(CreateCycleRequest.goal)
+              aria-label="사이클 목표"
             />
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                aria-label="시작일"
+                required
+              />
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                aria-label="종료일"
+                aria-invalid={dateRangeInvalid}
+                required
+              />
+            </div>
+            {dateMissing && (
+              <p className="text-sm text-muted-foreground" data-testid="cycle-date-required">
+                시작일과 종료일을 모두 입력해 주세요
+              </p>
+            )}
+            {dateRangeInvalid && (
+              <p className="text-sm text-destructive" data-testid="cycle-date-range-error">
+                종료일은 시작일 이후여야 합니다
+              </p>
+            )}
+            {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+            <Select value={status} onValueChange={(v) => setStatus(v as CycleStatus)}>
+              <SelectTrigger
+                className="w-full"
+                aria-label="상태"
+                data-testid="cycle-status-select"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CYCLE_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {CYCLE_STATUS_LABEL[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          {dateMissing && (
-            <p className="text-sm text-muted-foreground" data-testid="cycle-date-required">
-              시작일과 종료일을 모두 입력해 주세요
-            </p>
-          )}
-          {dateRangeInvalid && (
-            <p className="text-sm text-destructive" data-testid="cycle-date-range-error">
-              종료일은 시작일 이후여야 합니다
-            </p>
-          )}
-          {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
-          <Select value={status} onValueChange={(v) => setStatus(v as CycleStatus)}>
-            <SelectTrigger
-              className="w-full"
-              aria-label="상태"
-              data-testid="cycle-status-select"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CYCLE_STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {CYCLE_STATUS_LABEL[s]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            취소
-          </Button>
-          <Button onClick={submit} disabled={!name.trim() || dateMissing || dateRangeInvalid || saving} data-testid="cycle-submit">
-            저장
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              취소
+            </Button>
+            <Button type="submit" disabled={!canSubmit} data-testid="cycle-submit">
+              저장
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
