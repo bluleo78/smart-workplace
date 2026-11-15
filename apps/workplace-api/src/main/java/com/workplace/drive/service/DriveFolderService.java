@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -47,38 +48,65 @@ public class DriveFolderService {
   public DriveFolderResponse create(long callerId, long spaceId, Long parentId, String name) {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더명 정규화·검사 — NFC(중복검사·검색 일관) + 경로 문자·"."·".." 차단(ZIP 경로 안전, WP-339).
-    name = SafeFileNames.validate(name, "폴더");
+    String folderName = SafeFileNames.validate(name, "폴더");
     requireLiveParent(spaceId, parentId);
-    if (folders.existsInSpace(spaceId, parentId, name)) {
-      throw new DriveDuplicateNameException(name);
-    }
-    long id = folders.insert(spaceId, parentId, name);
+    // 같은 이름이 있으면 409 — 「있나 확인 → 넣기」로 나누면 그 사이 같은 이름을 동시에 만드는 요청이 유니크 위반(트랜잭션 깨짐, DB 원문 409)을
+    // 냈다(WP-1619). 「없을 때만 넣기」 한 문장으로 확인과 넣기를 함께 하고, 비면(이미 있음·동시 요청이 먼저 만듦) 같은 이름 충돌로 알린다.
+    long id =
+        folders
+            .insertIfAbsent(spaceId, parentId, folderName)
+            .orElseThrow(() -> new DriveDuplicateNameException(folderName));
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(id), callerId);
     return folders.findById(id).orElseThrow(() -> new DriveFolderNotFoundException(id));
   }
 
+  /** resolveOrCreate 가 「없을 때만 넣기 → 다시 찾기」를 되풀이하는 최대 횟수(WP-1619). */
+  static final int RESOLVE_MAX_ATTEMPTS = 3;
+
   /**
    * 폴더 merge 해석 — 같은 (space, parent, name) live 폴더가 있으면 그 id 를 반환하고, 없으면 새로 만든다. 폴더 업로드의 구조
-   * 재생(merge-on-conflict)에서 사용한다.
+   * 재생(merge-on-conflict)에서 사용한다. 같은 이름을 동시에 해석해도 모두 같은 폴더를 받는다(WP-1619).
    */
   @Transactional
   public DriveFolderResponse resolveOrCreate(
       long callerId, long spaceId, Long parentId, String name) {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더명 NFC 정규화(merge 키 일관) + 경로·제어 문자는 "_" 로(WP-339). 업로드하는 폴더 이름은 사용자가 고칠 수 없어, 거절하면 트리가
-    // 반쯤 올라간 채 멈추므로 바꿔 받는다. 람다 캡처 위해 별도 final 지역변수.
+    // 반쯤 올라간 채 멈추므로 바꿔 받는다.
     String nfcName = SafeFileNames.sanitize(name, "_");
     requireLiveParent(spaceId, parentId);
-    return folders
-        .findIdInSpace(spaceId, parentId, nfcName)
-        .flatMap(folders::findById)
-        .orElseGet(
-            () -> {
-              long id = folders.insert(spaceId, parentId, nfcName);
-              // 실제로 생성했을 때만 발행 — 기존 폴더 재사용(merge)은 변경이 아니다.
-              notifier.itemsChanged(OP_CREATED, spaceId, List.of(id), callerId);
-              return folders.findById(id).orElseThrow(() -> new DriveFolderNotFoundException(id));
-            });
+    // 이미 있으면 그대로 돌려준다 — 기존 폴더 재사용(merge)은 변경이 아니라 알림을 내지 않는다.
+    Optional<DriveFolderResponse> existing = findLive(spaceId, parentId, nfcName);
+    if (existing.isPresent()) {
+      return existing.get();
+    }
+    // 없으면 「없을 때만 넣기」로 만든다. 찾기와 넣기 사이에 같은 이름을 동시에 해석하는 요청(폴더 업로드의 여러 파일)이 먼저 넣으면, 그냥 넣기는
+    // 유니크 위반으로 트랜잭션이 깨져 409 가 났다. ON CONFLICT DO NOTHING 은 위반 없이 빈 결과를 돌려준다.
+    for (int attempt = 0; attempt < RESOLVE_MAX_ATTEMPTS; attempt++) {
+      Optional<Long> inserted = folders.insertIfAbsent(spaceId, parentId, nfcName);
+      if (inserted.isPresent()) {
+        long id = inserted.get();
+        // 이 호출이 실제로 넣었을 때만 생성 알림을 낸다.
+        notifier.itemsChanged(OP_CREATED, spaceId, List.of(id), callerId);
+        return folders.findById(id).orElseThrow(() -> new DriveFolderNotFoundException(id));
+      }
+      // 비었다 = 동시 요청이 먼저 만들었다. READ COMMITTED 에서 INSERT 는 먼저 넣은 트랜잭션이 커밋될 때까지 기다렸다 DO NOTHING 이 되고,
+      // 이어지는 SELECT 는 새 문장이라 그 커밋된 행을 본다 — 그 폴더를 돌려준다(내가 만든 게 아니니 알림 없음). 먼저 넣은 쪽이 롤백하면 INSERT 가
+      // 그대로 들어가므로 이 길로 오지 않는다.
+      Optional<DriveFolderResponse> winner = findLive(spaceId, parentId, nfcName);
+      if (winner.isPresent()) {
+        return winner.get();
+      }
+      // 다시 찾아도 없으면 넣기와 찾기 사이에 누군가 그 폴더를 휴지통으로 보내거나 이름을 바꾼 것(드묾)이다. 웹 업로드 큐는 resolve 를 다시 부르지
+      // 않아 여기서 실패하면 그 아래 업로드가 멈추므로, 서버가 넣기부터 다시 해 본다(각 문장이 새 스냅샷이라 같은 트랜잭션에서도 새 상태를 본다).
+    }
+    // 정해 둔 횟수만큼 매번 엇갈렸다면 더 버티지 않고, 생성(create)의 같은 이름 충돌과 같은 409 로 알린다.
+    throw new DriveDuplicateNameException(nfcName);
+  }
+
+  /** 같은 (space, parent, name) 의 살아있는 폴더(resolveOrCreate 의 찾기). */
+  private Optional<DriveFolderResponse> findLive(long spaceId, Long parentId, String name) {
+    return folders.findIdInSpace(spaceId, parentId, name).flatMap(folders::findById);
   }
 
   @Transactional
