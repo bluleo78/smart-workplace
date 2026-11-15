@@ -3,7 +3,7 @@
 // 토큰은 서버가 암호화해 저장하고 다시 돌려주지 않는다 — 입력한 원문은 저장하거나 닫으면 화면 상태에서 바로 지운다.
 
 import { X } from 'lucide-react';
-import { type RefObject, useRef, useState } from 'react';
+import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useAiDialogTarget } from '@/components/ai/dialogTargets/AiDialogTargets';
@@ -31,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 
 import {
   useAgentRepoCredentials,
@@ -206,6 +207,22 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
   const tokenOk = tokenText.length >= TOKEN_MIN && tokenText.length <= TOKEN_MAX;
   const hostError = !row && hostInput.trim() !== '' && host == null;
 
+  // 「연결하기」/「변경」 단추를 끄는 조건(WP-1627). 제출 자체는 submit 이 같은 입력 조건 + 진행 중 ref 로 막는다.
+  const submitBlocked = !host || !tokenOk || register.isPending;
+  // 요청 진행 중 표시(WP-1627) — isPending 은 다음 렌더에야 바뀌어 같은 틱 두 번 제출(Enter 연타·Enter 뒤 클릭)이 모두 통과한다.
+  // ref 는 즉시 바뀌어 두 번째를 막는다. 성공하면 대화상자가 닫혀(언마운트) 끝나고, 실패하면 풀어 다시 시도할 수 있다.
+  const inFlight = useRef(false);
+  // 대화상자가 아직 떠 있는지 — 요청 중에 취소·Esc 로 닫고 다른 호스트 창을 열었으면, 늦게 끝난 앞 요청이 그 새 창을 닫지 않게 한다.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // 호스트·토큰 칸 Enter = 단추(WP-1627) — 한글 조합 Enter·macOS Chrome 꼬리 Enter 는 제출로 보지 않는다(WP-331 공용 훅).
+  const enterKey = useSingleLineEnter();
+
   const onHostChange = (value: string) => {
     setHostInput(value);
     const next = normalizeRepoHost(value);
@@ -213,16 +230,22 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
   };
 
   const submit = async () => {
-    if (!host || !tokenOk) return;
+    if (!host || !tokenOk || inFlight.current) return;
+    inFlight.current = true;
     try {
       await register.mutateAsync({ kind, host, token: tokenText });
-      setToken('');
+      // 연결은 됐으니 알림은 늘 띄우고, 닫기는 이 대화상자가 아직 떠 있을 때만 한다.
       toast.success(`${host} 저장소를 연결했어요`);
+      if (!mounted.current) return;
+      setToken('');
       onClose();
     } catch {
       // 오류 알림은 훅의 onError 가 이미 띄웠다 — 입력은 그대로 두어 다시 시도할 수 있게 한다.
+    } finally {
+      inFlight.current = false;
     }
   };
+  const onFieldKeyDown = (e: KeyboardEvent<HTMLInputElement>) => enterKey.handleEnter(e, () => void submit());
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -266,6 +289,8 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
               value={hostInput}
               onChange={(e) => onHostChange(e.target.value)}
               readOnly={row != null}
+              onCompositionEnd={enterKey.onCompositionEnd}
+              onKeyDown={onFieldKeyDown}
               placeholder="github.com"
               className="font-mono text-sm"
               autoComplete="off"
@@ -281,6 +306,8 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
               fieldLabel="토큰"
               value={token}
               onChange={(e) => setToken(e.target.value)}
+              onCompositionEnd={enterKey.onCompositionEnd}
+              onKeyDown={onFieldKeyDown}
               placeholder="붙여넣기"
               className="font-mono text-sm"
               autoComplete="off"
@@ -294,7 +321,7 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
           <Button variant="ghost" onClick={onClose}>
             취소
           </Button>
-          <Button onClick={() => void submit()} disabled={!host || !tokenOk || register.isPending} data-testid="agent-repo-save">
+          <Button onClick={() => void submit()} disabled={submitBlocked} data-testid="agent-repo-save">
             {register.isPending ? '저장 중…' : row?.credential ? '변경' : '연결하기'}
           </Button>
         </DialogFooter>
