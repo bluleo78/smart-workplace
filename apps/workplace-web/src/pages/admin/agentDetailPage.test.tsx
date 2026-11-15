@@ -3,7 +3,7 @@
 // 작업 공간 AI 의 AI 계정은 계정 목록에서 고른다(WP-1451) — 맞는 종류만·고르면 PUT {accountId}·사용률·다시 시작/쉴 때 적용 안내(WP-1515)·빈 목록·거절 문구를 본다.
 // 확인창·PUT payload 같은 섹션별 동작은 agentManagement.test.tsx 가 본다. 섹션·묶음·대화상자가 매뉴얼 15장 도움말 절(data-help)로
 // 이어지는지와 AI 화면 참고(매뉴얼 요약 + 에이전트 대상)는 아래 「도움말 문맥」 묶음이 본다(WP-1507).
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, test } from 'vitest'
@@ -613,6 +613,150 @@ describe('Works 실행 AI — 저장소 연결(WP-1268)', () => {
     expect(await screen.findByText('토큰 형식이 올바르지 않아요')).toBeInTheDocument()
     expect(screen.getByTestId('agent-repo-dialog')).toBeInTheDocument()
     expect(within(screen.getByTestId('agent-repo-dialog')).getByTestId('agent-repo-token')).toHaveValue('glpat-0123456789abcdefghij')
+  })
+
+  // ── 호스트·토큰 칸 Enter = 「연결하기」/「변경」 단추(WP-1627) ──
+  // 단추와 같은 조건(호스트·토큰 길이·처리 중)일 때만 보내고, 한글 조합 Enter·같은 틱 연타는 보내지 않는다.
+
+  test('연결하기 — 토큰 칸에서 Enter 를 누르면 단추를 누른 것처럼 POST 하고 닫힌다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    await user.click(within(dialog).getByTestId('agent-repo-token'))
+    await user.paste('glpat-0123456789abcdefghij')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(calls.repoRegisters).toEqual([{ kind: 'GITLAB', host: 'gitlab.iacloud.kr', token: 'glpat-0123456789abcdefghij' }]))
+    await waitFor(() => expect(screen.queryByTestId('agent-repo-dialog')).not.toBeInTheDocument())
+  })
+
+  test('다시 연결(변경) — 읽기 전용 호스트 칸에서 Enter 를 눌러도 같은 호스트로 저장한다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-reconnect-github.com'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    await user.click(within(dialog).getByTestId('agent-repo-token'))
+    await user.paste('github_pat_0123456789abcdef')
+    await user.click(within(dialog).getByTestId('agent-repo-host'))
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(calls.repoRegisters).toEqual([{ kind: 'GITHUB', host: 'github.com', token: 'github_pat_0123456789abcdef' }]))
+  })
+
+  test('+ 다른 호스트 추가 — 토큰이 짧거나 호스트 형식이 틀리면 Enter 로 보내지 않고, 다 채우면 호스트 칸 Enter 로 보낸다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-add'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    const host = within(dialog).getByTestId('agent-repo-host')
+    await user.click(host)
+    await user.paste('git.example.com')
+    await user.click(within(dialog).getByTestId('agent-repo-token'))
+    await user.paste('short')
+    await user.keyboard('{Enter}')
+    await user.clear(host)
+    await user.click(host)
+    await user.paste('https://git.example.com')
+    await user.clear(within(dialog).getByTestId('agent-repo-token'))
+    await user.click(within(dialog).getByTestId('agent-repo-token'))
+    await user.paste('tok_0123456789abcdef')
+    await user.keyboard('{Enter}')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls.repoRegisters).toEqual([])
+    await user.clear(host)
+    await user.click(host)
+    await user.paste('git.example.com')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(calls.repoRegisters).toEqual([{ kind: 'GITLAB', host: 'git.example.com', token: 'tok_0123456789abcdef' }]))
+  })
+
+  test.each([
+    ['조합 중(isComposing)', { isComposing: true }],
+    ['keyCode 229(Safari 조합 확정)', { keyCode: 229 }],
+  ])('%s Enter 는 보내지 않는다', async (_label, init) => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    const token = within(dialog).getByTestId('agent-repo-token')
+    await user.click(token)
+    await user.paste('glpat-0123456789abcdefghij')
+    fireEvent.keyDown(token, { key: 'Enter', ...init })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls.repoRegisters).toEqual([])
+    expect(screen.getByTestId('agent-repo-dialog')).toBeInTheDocument()
+  })
+
+  // isPending 은 다시 그린 뒤에야 켜진다 — 같은 틱 Enter 두 번에도 한 번만 보내야 토큰이 두 번 등록(이전 것 폐기)되지 않는다.
+  test('같은 틱에 Enter 를 두 번 눌러도 한 번만 보낸다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    const token = within(dialog).getByTestId('agent-repo-token')
+    await user.click(token)
+    await user.paste('glpat-0123456789abcdefghij')
+    act(() => {
+      token.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      token.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    })
+    await waitFor(() => expect(screen.queryByTestId('agent-repo-dialog')).not.toBeInTheDocument())
+    expect(calls.repoRegisters).toHaveLength(1)
+  })
+
+  test('Enter 뒤 같은 틱에 「연결하기」를 눌러도 한 번만 보낸다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    const token = within(dialog).getByTestId('agent-repo-token')
+    await user.click(token)
+    await user.paste('glpat-0123456789abcdefghij')
+    const save = within(dialog).getByTestId('agent-repo-save')
+    act(() => {
+      token.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      save.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+    await waitFor(() => expect(screen.queryByTestId('agent-repo-dialog')).not.toBeInTheDocument())
+    expect(calls.repoRegisters).toHaveLength(1)
+  })
+
+  // 요청 중에 창을 닫고 다른 호스트 창을 열었으면, 늦게 끝난 앞 요청이 새 창을 닫지 않는다(입력 중이던 토큰을 잃지 않게).
+  test('보낸 뒤 취소하고 다른 창을 열면, 앞 요청이 끝나도 새 창은 열려 있다', async () => {
+    const { user, calls } = await renderDetail(works())
+    let release!: () => void
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    server.use(
+      http.post('/api/v1/admin/agents/:id/repo-credentials', async ({ request }) => {
+        calls.repoRegisters.push((await request.json()) as { kind: string; host: string; token: string })
+        await held
+        return HttpResponse.json({ id: 300, kind: 'GITLAB', host: 'gitlab.iacloud.kr', createdAt: new Date().toISOString(), lastUsedAt: null }, { status: 201 })
+      }),
+    )
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    let dialog = await screen.findByTestId('agent-repo-dialog')
+    await user.click(within(dialog).getByTestId('agent-repo-token'))
+    await user.paste('glpat-0123456789abcdefghij')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(calls.repoRegisters).toHaveLength(1))
+    await user.click(within(dialog).getByRole('button', { name: '취소' }))
+    await user.click(screen.getByTestId('agent-repo-add'))
+    dialog = await screen.findByTestId('agent-repo-dialog')
+    await user.click(within(dialog).getByTestId('agent-repo-token'))
+    await user.paste('tok_typing')
+    await act(async () => release())
+    expect(await screen.findByText('gitlab.iacloud.kr 저장소를 연결했어요')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-repo-dialog')).toBeInTheDocument()
+    expect(within(screen.getByTestId('agent-repo-dialog')).getByTestId('agent-repo-token')).toHaveValue('tok_typing')
+  })
+
+  test('등록이 실패해 창이 남으면 다시 Enter 로 보낼 수 있다', async () => {
+    const { user, calls } = await renderDetail(works({ failRepoRegister: { status: 400, message: '토큰 형식이 올바르지 않아요' } }))
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    await user.click(within(dialog).getByTestId('agent-repo-token'))
+    await user.paste('glpat-0123456789abcdefghij')
+    await user.keyboard('{Enter}')
+    expect(await screen.findByText('토큰 형식이 올바르지 않아요')).toBeInTheDocument()
+    await waitFor(() => expect(within(dialog).getByTestId('agent-repo-save')).toBeEnabled())
+    await user.click(within(dialog).getByTestId('agent-repo-token'))
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(calls.repoRegisters).toHaveLength(2))
   })
 
   test('켜기 전 확인 — 연결 안 된 호스트를 알리고 시작을 「저장소를 먼저 연결해 주세요」로 막는다(Claude 다음·프로젝트 앞)', async () => {
