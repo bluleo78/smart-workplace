@@ -38,6 +38,23 @@ Claude 세션에서 `/release prepare` — 범위 수집·버전 제안(`deploy/
 
 프로젝트 CI/CD 변수(Protected, `v*` 는 Protected tag): `DOCKERHUB_USERNAME`·`DOCKERHUB_TOKEN`(iacloudops push), `DHI_USERNAME`·`DHI_TOKEN`(dhi.io 베이스 pull). 비밀값 백업은 아래 「비밀값 백업·복구」. *(GitLab 설정·첫 파이프라인 검증은 WP-442)*
 
+### 전체 재빌드 (WP-1589)
+
+승계한 앱은 기준 릴리스의 이미지를 그대로 쓰므로, 앱 파일이 바뀌지 않으면 베이스 이미지(`dhi.io/...`)와 OS 패키지(apt)의 보안 갱신이 들어가지 않는다. npm·Gradle 의존성은 lockfile·빌드 파일을 고쳐야 바뀐다. 전체 재빌드로는 바뀌지 않는다. 다음 경우에는 그 릴리스를 승계 없이 전부 새로 빌드한다.
+
+- 한 달에 한 번
+- 운영 이미지 검사(trivy)에서 고칠 수 있는 CVE 가 베이스나 시스템 패키지에서 나왔을 때
+
+방법: 주석 태그 메시지에 `rebuild-all` 한 줄을 넣는다. 파이프라인 변수를 쓰지 않으므로 프로젝트 설정과 무관하고, 태그에 기록이 남는다.
+
+```bash
+git tag -a vX.Y.Z -m "vX.Y.Z" -m "rebuild-all" <노트 커밋>
+# 지난 전체 재빌드 찾기
+git tag -l 'v*' --sort=-v:refname --format='%(refname:short) %(contents)' | grep -m1 rebuild-all
+```
+
+build-images 가 `--rebuild-all` 로 돌아 캐시 없이(`--pull --no-cache`) 모든 앱을 빌드하고, 사유에 `rebuild-all` 을 붙인다. 매니페스트·체크리스트의 기준 릴리스는 그대로 남는다. 모든 앱의 digest 가 바뀌므로 반영 때 모든 앱이 롤링 재시작된다. 작업 공간 이미지는 쉬는 AI Pod 부터 바뀌고, 계속 일하는 Pod 는 직접 교체해야 한다.
+
 ## ③ 반영
 
 ```sh

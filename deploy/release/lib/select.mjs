@@ -20,9 +20,12 @@ const canonicalArgs = (args) => JSON.stringify(Object.entries(args).sort(([a], [
  *   변경 파일이 하나라도 걸리면 build, 아니면 carry(reasons 비어 있음).
  *   사유는 걸린 것을 모두 모으되 중복 없이, 설정 사유(repository-changed → build-args) · 경로 사유(카탈로그 순) · 워크스페이스 사유(deps 순)로 낸다.
  *
+ * - rebuildAll: 모든 앱을 build 로 하고 사유 끝에 `rebuild-all` 을 붙인다(WP-1589). 앱 파일이 그대로여도 베이스 이미지·OS 패키지(apt)
+ *   보안 갱신을 새로 받게 하려는 것이라 승계를 쓰지 않는다. 바뀐 앱도 사유를 붙여 매니페스트만 보고 전체 재빌드였음을 알 수 있게 한다.
+ *
  * deps 는 workspaceDeps() 의 결과로, 키는 dirname(dockerfile)(예: `apps/workplace-web`). 키가 없는 앱(db)은 의존 없음으로 본다.
  */
-export function selectImages({ catalog, deps, changedFiles, baseManifest }) {
+export function selectImages({ catalog, deps, changedFiles, baseManifest, rebuildAll = false }) {
   return catalog.images.map((image) => {
     const { id } = image;
     if (changedFiles === null || baseManifest === null) return { id, action: 'build', reasons: ['no-base'] };
@@ -39,6 +42,7 @@ export function selectImages({ catalog, deps, changedFiles, baseManifest }) {
       if (changedFiles.some((file) => matchesPath(file, dir))) reasons.push(`workspace:${dir}`);
     }
     const unique = [...new Set(reasons)];
+    if (rebuildAll) return { id, action: 'build', reasons: [...unique, 'rebuild-all'] };
     return { id, action: unique.length > 0 ? 'build' : 'carry', reasons: unique };
   });
 }

@@ -232,6 +232,34 @@ test('기준 태그가 있고 매니페스트가 정상이면 변경분만 build
   c.cleanup();
 });
 
+test('--rebuild-all: 기준 매니페스트가 있어도 승계 없이 전부 build 하고 기준 버전은 그대로 기록한다 (WP-1589)', async () => {
+  const c = cli(['--rebuild-all'], { published: withBase });
+  const manifest = await c.run();
+  assert.equal(manifest.baseVersion, '0.8.0');
+  for (const img of Object.values(manifest.images)) assert.equal(img.action, 'build');
+  assert.deepEqual(manifest.images.mcp.reasons, ['rebuild-all']);
+  assert.equal(manifest.images.mcp.builtVersion, '0.9.0');
+  assert.notEqual(manifest.images.mcp.digest, withBase['0.8.0'].images.mcp.digest);
+  const calls = buildCalls(c.exec);
+  assert.equal(calls.length, catalog.images.length);
+  for (const { args } of calls) {
+    assert.ok(args.includes('--pull') && args.includes('--no-cache'), '전체 재빌드는 캐시 없이 베이스를 다시 받는다');
+  }
+  c.cleanup();
+});
+
+test('빌드는 provenance·sbom 을 끄고 단일 매니페스트로 push 하며, 평소에는 --pull·--no-cache 를 붙이지 않는다 (WP-1589)', async () => {
+  const c = cli([], { published: withBase });
+  await c.run();
+  const calls = buildCalls(c.exec);
+  assert.ok(calls.length > 0);
+  for (const { args } of calls) {
+    assert.ok(args.includes('--provenance=false') && args.includes('--sbom=false'));
+    assert.ok(!args.includes('--pull') && !args.includes('--no-cache'));
+  }
+  c.cleanup();
+});
+
 // ── 코드 리뷰 수정 (WP-440) ─────────────────────────────────────────────
 
 test('dry-run: 기준 매니페스트를 못 받으면(토큰 없음) 경고하고 기준 없이 끝까지 미리 본다(전부 build). 실제 실행은 throw', async () => {

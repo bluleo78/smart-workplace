@@ -56,8 +56,9 @@ verify-tag:
 
 build-images:
   stage: build
-  image: docker:27
-  services: ["docker:27-dind"]
+  # 작업 공간 dind(agent-templates)와 같은 29.x 를 digest 로 고정한다(WP-1589). 잡 컨테이너는 CLI 만 쓰므로 -cli 변형.
+  image: docker:29.9.3-cli@sha256:5a7af0dcb0e46c803efe9b45371dd21cb500e5b4453250394ac6f06d49b6e6f1
+  services: ["docker:29.9.3-dind@sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b"]
   needs: [verify-tag]
   # 같은 저장소의 태그 파이프라인이 동시에 레지스트리 태그를 옮기지 않게 한 줄로 세운다.
   resource_group: release-images
@@ -74,7 +75,12 @@ build-images:
     - echo "$DHI_TOKEN" | docker login dhi.io -u "$DHI_USERNAME" --password-stdin
   script:
     # 바뀐 앱만 :sha- 로 빌드 → 전부 성공하면 :<버전> 태그(승계 포함) → 검증 → release-manifest.json 을 GitLab 패키지에 올린다.
-    - node deploy/release/build-images.mjs --version "$VERSION" --upload
+    # 태그 메시지에 `rebuild-all` 한 줄이 있으면 승계 없이 전부 새로 빌드한다(WP-1589). 파이프라인 변수는 프로젝트 설정에 따라 막힐 수 있고
+    # 기록도 남지 않아, 태그에 남는 메시지로 켠다(git tag -l --format 으로 지난 전체 재빌드를 찾을 수 있다).
+    - |
+      REBUILD_FLAG=""
+      if printf '%s\n' "$CI_COMMIT_TAG_MESSAGE" | grep -qx 'rebuild-all'; then REBUILD_FLAG="--rebuild-all"; fi
+      node deploy/release/build-images.mjs --version "$VERSION" --upload $REBUILD_FLAG
   artifacts:
     paths: [release-manifest.json]
     expire_in: 1 year

@@ -92,6 +92,11 @@
         ".dockerignore",
         "scripts/vite-app-version.mjs",
         "scripts/vite-app-version.d.mts",
+        "scripts/vite-manual-help.mjs",
+        "scripts/vite-manual-help.d.mts",
+        "docs/manual/scripts/lib/",
+        "docs/manual/user/",
+        "docs/manual/help-figures/user/",
         "releases/"
       ]
     },

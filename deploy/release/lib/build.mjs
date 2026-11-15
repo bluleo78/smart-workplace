@@ -205,8 +205,9 @@ export function dryRunExec(realExec, log, writeFile) {
  * 릴리스 하나를 빌드·태그하고 매니페스트를 돌려준다.
  * `base`(`{ baseTag, baseVersion }`)와 `baseManifest`(없으면 null)는 호출자가 findBase·검증으로 이미 정해 넘긴다 — 여기서는 다시 정하지 않는다.
  * baseManifest 가 null 이면 승계할 digest 가 없으므로 전부 새로 빌드한다(그래도 되는지는 호출자 몫). catalog·deps 를 생략하면 repoRoot 에서 읽는다.
+ * rebuildAll 이면 승계하지 않고 전부 새로 빌드한다(WP-1589) — 기준은 그대로 기록해 체크리스트·다음 릴리스 비교가 이어진다.
  */
-export function runRelease({ repoRoot, version, base, baseManifest = null, catalog = loadCatalog(repoRoot), deps = workspaceDeps(repoRoot), exec = defaultExec, now = new Date(), dryRun = false, log = console.error }) {
+export function runRelease({ repoRoot, version, base, baseManifest = null, rebuildAll = false, catalog = loadCatalog(repoRoot), deps = workspaceDeps(repoRoot), exec = defaultExec, now = new Date(), dryRun = false, log = console.error }) {
   assertVersion(version);
   if (!base) throw new Error('base({ baseTag, baseVersion })가 필요하다');
   if (dryRun) {
@@ -236,7 +237,7 @@ export function runRelease({ repoRoot, version, base, baseManifest = null, catal
   // --no-renames: 옮겨진 파일의 옛 경로도 변경으로 나와야 한다(앱 경로 밖으로 옮겨진 파일이 가려지면 그 앱이 잘못 승계된다).
   // -z + core.quotePath=false: git 기본값은 비ASCII 경로를 따옴표·8진 이스케이프로 내보내 카탈로그 경로와 영영 맞지 않는다(변경을 놓쳐 잘못 승계).
   const changedFiles = useBase ? nulSplit(git('-c', 'core.quotePath=false', 'diff', '--name-only', '-z', '--no-renames', `${baseTag}..HEAD`)) : null;
-  const plan = selectImages({ catalog, deps, changedFiles, baseManifest: useBase ? baseManifest : null });
+  const plan = selectImages({ catalog, deps, changedFiles, baseManifest: useBase ? baseManifest : null, rebuildAll });
   const byId = new Map(catalog.images.map((i) => [i.id, i]));
 
   // 승계할 digest 는 비싼 빌드·첫 태그 전에 전부 확인한다 — 깨진 기준 매니페스트로 일부 태그만 붙은 채 멈추지 않게(마지막 방어선).
@@ -258,6 +259,11 @@ export function runRelease({ repoRoot, version, base, baseManifest = null, catal
       const extra = Object.entries(image.buildArgs ?? {}).flatMap(([k, v]) => ['--build-arg', `${k}=${v}`]);
       exec('docker', [
         'buildx', 'build', '--platform', catalog.platform, '--push',
+        // 단일 이미지 매니페스트로 push 한다(WP-1589) — Docker 29 의 containerd 이미지 저장소는 provenance 를 붙여 index 로 올리는데,
+        // 그러면 metadata 의 digest 가 index 것이 되어 승계·imagetools --prefer-index=false·inspect 검증이 기대하는 바이트와 어긋난다.
+        '--provenance=false', '--sbom=false',
+        // 전체 재빌드는 베이스·apt 갱신을 받으려는 것이라 캐시를 쓰지 않고 베이스를 다시 받는다.
+        ...(rebuildAll ? ['--pull', '--no-cache'] : []),
         '-t', `${image.repository}:${shaTag}`,
         '-f', join(repoRoot, image.dockerfile),
         '--build-arg', `APP_VERSION=${version}`, '--build-arg', `GIT_SHA=${gitSha}`, ...extra,
