@@ -31,6 +31,19 @@ test('기준 매니페스트가 없으면 변경 파일이 있어도 전부 buil
   for (const x of Object.values(r)) assert.deepEqual(x.reasons, ['no-base']);
 });
 
+test('rebuildAll: 모든 앱이 build, 승계될 앱은 rebuild-all 만, 바뀐 앱은 제 사유 뒤에 rebuild-all (WP-1589)', () => {
+  const result = selectImages({ catalog, deps, changedFiles: ['apps/workplace-api/a'], baseManifest: manifestWith(), rebuildAll: true });
+  const r = Object.fromEntries(result.map((x) => [x.id, x]));
+  assert.equal(built(r).length, catalog.images.length);
+  assert.deepEqual(r.api.reasons, ['path:apps/workplace-api/', 'rebuild-all']);
+  assert.deepEqual(r.mcp.reasons, ['rebuild-all']);
+});
+
+test('rebuildAll 이어도 기준이 없으면 사유는 no-base 그대로다', () => {
+  const result = selectImages({ catalog, deps, changedFiles: null, baseManifest: null, rebuildAll: true });
+  for (const x of result) assert.deepEqual(x.reasons, ['no-base']);
+});
+
 test('결과는 카탈로그 순서를 따른다', () => {
   const result = selectImages({ catalog, deps, changedFiles: [], baseManifest: manifestWith() });
   assert.deepEqual(result.map((r) => r.id), catalog.images.map((i) => i.id));

@@ -59,6 +59,8 @@ git push origin v0.9.0
 git push --no-verify gitlab v0.9.0      # GitLab 파이프라인 시작
 ```
 
+- **전체 재빌드**(WP-1589): 마지막 확인 때 이번 릴리스를 승계 없이 전부 새로 빌드할지 함께 묻는다. 지난 전체 재빌드(`git tag -l 'v*' --sort=-v:refname --format='%(refname:short) %(contents)' | grep -m1 rebuild-all`) 뒤 한 달이 지났거나, 운영 이미지 검사에서 베이스·시스템 패키지 CVE 가 나왔으면 권한다. 하기로 했으면 태그를 `git tag -a v0.9.0 -m "v0.9.0" -m "rebuild-all" <노트 커밋>` 로 만든다(`docs/ops/release.md` 「전체 재빌드」).
+
 - **WP 버전 등록**(태그 push 뒤, genia-works MCP — 토큰·환경변수 없이 내 세션 신원으로 한다):
   1. `get_project({projectKey:'WP'})` 의 `versions` 에 `vX.Y.Z` 가 없을 때만 `create_project_meta({projectKey:'WP', kind:'version', name:'vX.Y.Z', releaseDate:'<예정일>'})`. (버전 만들기는 프로젝트 OWNER 만 된다 — 403 이면 멈추고 사람에게 알린다.)
   2. 이번 릴리스 노트에 담은 WP 이슈마다 `update_issue({issueKey, fixVersions:[…기존 수정 버전, 'vX.Y.Z']})` — `fixVersions` 는 통째로 바꾸는 집합이라 `get_issue_detail` 의 기존 값을 먼저 합친다.

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // 릴리스 이미지 빌드 CLI (WP-440).
-//   node deploy/release/build-images.mjs --version 0.9.0 [--base-manifest <file>] [--allow-no-base] [--dry-run] [--force] [--upload] [--out <file>]
+//   node deploy/release/build-images.mjs --version 0.9.0 [--base-manifest <file>] [--allow-no-base] [--dry-run] [--force] [--rebuild-all] [--upload] [--out <file>]
 // 기준 릴리스(findBase)와 그 매니페스트(--base-manifest 파일 또는 GitLab 패키지, 둘 다 validateBaseManifest 로 검증)를 main 에서 한 번 정해 runRelease 에 넘긴다.
 // 결과는 --out(기본 <저장소 루트>/release-manifest.json)에 쓰고 앱별 판정 표는 stderr 로 낸다.
 //   --upload  결과 매니페스트를 GitLab 패키지에 올린다(dry-run 에서는 올리지 않는다).  --force  이미 게시된 같은 버전을 다시 빌드한다.
+//   --rebuild-all  승계 없이 모든 앱을 새로 빌드한다(WP-1589) — 앱 파일이 그대로인 앱에도 베이스 이미지·OS 패키지(apt) 보안 갱신을 넣는다(npm 의존성은 lockfile 이 바뀌어야 바뀐다).
 // 필요 환경: CI_API_V4_URL · CI_PROJECT_ID + CI_JOB_TOKEN 또는 GITLAB_TOKEN (기준 매니페스트·게시 여부 확인·업로드. dry-run 은 확인 실패 시 경고만).
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -52,6 +53,7 @@ export async function main(argv, { repoRoot = REPO_ROOT, exec = defaultExec, dow
       'allow-no-base': { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
       force: { type: 'boolean', default: false },
+      'rebuild-all': { type: 'boolean', default: false },
       upload: { type: 'boolean', default: false },
       out: { type: 'string' },
     },
@@ -75,7 +77,7 @@ export async function main(argv, { repoRoot = REPO_ROOT, exec = defaultExec, dow
   checkAlreadyPublished({ existing: published, taggedIds, version, force: values.force, dryRun, action: '빌드', warn: log });
 
   const baseManifest = await resolveBaseManifest({ baseFile: values['base-manifest'], ...base, allowNoBase, dryRun, download, exec, repoRoot, log });
-  const manifest = runRelease({ repoRoot, version, exec, now, base, baseManifest, catalog, deps, dryRun, log });
+  const manifest = runRelease({ repoRoot, version, exec, now, base, baseManifest, rebuildAll: values['rebuild-all'], catalog, deps, dryRun, log });
 
   const out = values.out ?? defaultManifestPath(repoRoot);
   await finishManifest({ manifest, out, upload: values.upload, dryRun, uploadFn: upload, log, title: `릴리스 ${manifest.version} (기준 ${manifest.baseVersion ?? '없음'})` });
