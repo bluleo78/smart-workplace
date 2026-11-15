@@ -10,7 +10,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Folder } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import {
   createShareLink,
@@ -35,6 +35,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { handleApiError } from '@/lib/api-error';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { splitShareLinks } from '@/lib/driveShareLinks';
@@ -151,9 +152,19 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
     void copyToClipboard(shareLandingUrl(token), { success });
   }
 
+  // 비밀번호 칸 Enter 로 링크 만들기(WP-1624) — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 만들기로 보지 않는다(WP-331 공용 훅).
+  // 만료일 칸에는 걸지 않는다 — 날짜를 다 넣기 전(예: '2026-12-')에는 값이 비어 올라와, 그때 Enter 가 만료 없는 링크를 만들 수 있다.
+  const enterKey = useSingleLineEnter();
+  // 생성 요청이 나가 있는 동안 true — create.isPending 은 다시 그려진 뒤에야 바뀌어, 같은 틱에 들어온 Enter 두 번이 링크를 둘 만드는 걸 막지 못한다.
+  const inFlightRef = useRef(false);
+
   // 생성 — 서버가 목록과 같은 모양의 항목을 돌려주므로 그대로 맨 위에 넣는다(같은 id 는 중복 제거). 재조회가 늦거나 실패해도 새 링크가 바로 보인다.
   const create = useMutation({
     mutationFn: (body: CreateBody) => createShareLink(ref, body),
+    // 성공·실패 모두 끝나면 막을 푼다 — 실패 뒤 다시 Enter 로 시도할 수 있게. mutate 호출별 콜백은 reset·재구독 때 건너뛸 수 있어 훅 옵션에 둔다.
+    onSettled: () => {
+      inFlightRef.current = false;
+    },
     onSuccess: (created) => {
       resetForm();
       setFormOpen(false);
@@ -181,6 +192,8 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
 
   /** 공유 링크 생성 — 입력을 검사한 뒤 요청한다. */
   function onCreate() {
+    // 처리 중이면 만들지 않는다(WP-1624) — 단추 disabled 와 같은 조건 + 같은 틱 Enter 연타를 막는 ref. Enter 경로도 이 함수를 지나므로 아래 검사를 건너뛰지 않는다.
+    if (create.isPending || inFlightRef.current) return;
     // 모든 입력을 한 번에 검사해 각 칸의 오류를 세우거나 지운 뒤 막는다 — 한 칸만 보고 돌아가면 이미 고친
     // 다른 칸의 오류가 화면에 남는다(WP-1385).
     // 비밀번호: 72바이트 초과(WP-497)·공백만(WP-1385 — 예전엔 서버가 「비밀번호 없음」으로 바꿔 누구나 여는 링크가
@@ -204,6 +217,7 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
     setExpiresAtError(nextExpiresAtError);
     if (nextPasswordError || nextExpiresAtError) return;
 
+    inFlightRef.current = true;
     create.mutate({ audience, password: password || undefined, expiresAt: expiresAtIso });
   }
 
@@ -379,6 +393,8 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
                   if (passwordError != null) setPasswordError(sharePasswordError(e.target.value));
                 }}
                 autoComplete="new-password"
+                onCompositionEnd={enterKey.onCompositionEnd}
+                onKeyDown={(e) => enterKey.handleEnter(e, onCreate)}
                 aria-invalid={passwordError != null}
                 aria-describedby={passwordError ? 'share-password-error' : undefined}
               />
