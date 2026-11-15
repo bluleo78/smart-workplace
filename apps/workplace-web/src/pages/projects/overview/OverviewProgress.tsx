@@ -10,6 +10,7 @@ import type { ProjectOverviewProgress } from '@/types/projectOverview'
 
 import { OverviewCard } from '../../me/overview/OverviewCard'
 import {
+  endLabelPct,
   epicsHref,
   progressChart,
   progressCount,
@@ -98,6 +99,7 @@ function ProgressChartView({ progress, label }: { progress: ProjectOverviewProgr
     )
   const trend = progress.kind === 'TREND'
   const endWord = progress.kind === 'VERSION' ? '출시' : '종료'
+  const endPct = c.endX != null ? endLabelPct(c.endX, c.width) : null
   return (
     <div className="relative h-28" data-testid="progress-chart">
       <svg
@@ -145,10 +147,13 @@ function ProgressChartView({ progress, label }: { progress: ProjectOverviewProgr
           />
         )}
       </svg>
-      {c.endX != null && progress.target?.end && (
+      {endPct != null && progress.target?.end && (
+        // 한 줄로 둔다(whitespace-nowrap) — 없으면 선이 그래프 오른쪽 끝일 때 절대 위치 글의 가용 폭이 0 이 되어
+        // 「출 / 시 / 12/1」로 세로로 쌓였다(WP-1626). 글을 자기 폭의 같은 %만큼 밀어 어느 폭에서도 그래프 안에 둔다(endLabelPct).
         <span
-          className="pointer-events-none absolute top-0 -translate-x-1/2 bg-card px-1 text-xs text-muted-foreground"
-          style={{ left: `${(c.endX / c.width) * 100}%` }}
+          className="pointer-events-none absolute top-0 whitespace-nowrap bg-card px-1 text-xs text-muted-foreground"
+          style={{ left: `${endPct}%`, transform: `translateX(-${endPct}%)` }}
+          data-testid="progress-end-label"
           aria-hidden
         >
           {endWord} {slashDay(progress.target.end)}
