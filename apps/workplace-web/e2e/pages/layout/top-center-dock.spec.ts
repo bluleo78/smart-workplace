@@ -5,8 +5,10 @@ import type { Page } from '@playwright/test'
 
 import { createChatThread } from '../../factories/chat.factory'
 import { createUser } from '../../factories/auth.factory'
+import { personalSpace } from '../../factories/drive.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
+import { restoreAnimations } from '../../fixtures/animations'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockHelpBundle } from '../../fixtures/help-bundle-mock'
@@ -26,6 +28,23 @@ async function gotoIssue(page: Page) {
   await mockHelpBundle(page)
   await page.goto('/projects/WP/issues/7')
   await expect(page.getByTestId('breadcrumb-current')).toBeVisible()
+  await expect(page.getByTestId('page-header').locator('[data-ai-actions]')).toBeVisible()
+}
+
+/**
+ * 드라이브 개인 공간 루트(빈 목록) — 경로가 「내 드라이브」뿐이고 액션(🔗·새 폴더·업로드·휴지통)이 넓어, 패널을 열면 좌측 그룹이
+ * useAiChipClamp 의 최소 폭(120px)보다 좁은 119px 로 줄어든다(WP-1612). 공간 조회(spaces/1)가 있어야 경로 이름과 🔗 가 실측과 같다.
+ * 그러면 틀이 옮겨 가도 좌측 그룹 크기가 안 바뀌어, 틀 left 전환 종료에서 다시 재지 않으면 헤더 넣기에 못 들어간다.
+ */
+async function gotoDrive(page: Page) {
+  await page.route((u) => u.pathname === '/api/v1/drive/quota', (r) => r.fulfill({ json: { usedBytes: 0, quotaBytes: 1024 ** 3 } }))
+  await page.route((u) => u.pathname === '/api/v1/drive/spaces/1', (r) => r.fulfill({ json: personalSpace({ id: 1 }) }))
+  await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ json: [personalSpace({ id: 1 })] }) : r.fallback())
+  await page.route((u) => /\/api\/v1\/drive\/spaces\/\d+\/items$/.test(u.pathname), (r) => r.fulfill({ json: { folders: [], files: [] } }))
+  await mockHelpBundle(page)
+  await page.goto('/drive')
+  await expect(page.getByTestId('drive-page')).toBeVisible()
   await expect(page.getByTestId('page-header').locator('[data-ai-actions]')).toBeVisible()
 }
 
@@ -134,6 +153,19 @@ for (const ai of [true, false]) {
         await expectNoCollision(page, ai)
       })
     }
+
+    // 이슈 상세는 경로가 길어 clamp 변화가 좌측 그룹 크기를 바꿔 다시 재게 됐지만, 짧은 경로는 그 신호가 없었다(WP-1612).
+    // 고치기 전 코드에서 실패하는 것은 비서 없음 쪽이다 — 비서 있음은 넓은 칩이 첫 측정에서 단계를 바꿔 250ms 안정 재측정이 우연히 최종 자리를 잡는다(지킴용).
+    test('1024px 드라이브 + 도움말 패널 — 짧은 경로도 검색·「?」가 덮지 않는다', async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1024, height: 900 })
+      await gotoDrive(page)
+      // 공통 fixture 의 전환 끄기 style 을 걷어 실제 화면처럼 틀의 left 전환(200ms)을 돌린다 — 전환이 0s 면 헤더가 줄어드는 순간
+      // 틀도 이미 새 자리에 있어 첫 측정이 맞게 나오고, 전환이 끝난 뒤 다시 재지 않던 결함이 드러나지 않는다.
+      await restoreAnimations(page)
+      await openHelpPanel(page)
+      await expectNoCollision(page, ai)
+      await expect(page.getByTestId('page-header').getByTestId('global-search-toggle')).toBeVisible()
+    })
 
     test('1440px 패널 닫힘 — 가운데 떠 있는 틀로 보인다', async ({ authenticatedPage: page }) => {
       await page.setViewportSize({ width: 1440, height: 900 })
