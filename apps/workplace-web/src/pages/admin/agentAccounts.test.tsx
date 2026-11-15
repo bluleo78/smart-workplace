@@ -3,7 +3,7 @@
 // 빈 창(값 없음/—), 초기화 시각(남은 시간·주간 날짜와 시각), 쓰는 AI 와 마지막 사용, 사용량 확인 상대 시각, 빈 목록·오류, 탭 주소·머리 단추·60초 다시 받기를 본다.
 // 표시 규칙의 경계값은 lib/agentAccountUsage.test.ts 가 본다.
 // 시각은 결정적으로 — vitest 는 TZ=Asia/Seoul 고정(vitest.config.ts), Date 는 2026-11-09(월) 10:00 KST 로 고정한다.
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 
@@ -952,4 +952,149 @@ test('수정 — 워크스페이스 ID 칸은 「키 교체」를 열 때만 보
   await user.paste('wrkspc_02')
   await user.click(within(dialog).getByTestId('agent-account-submit'))
   await waitFor(() => expect(calls.updates).toEqual([{ token: TOKEN_64, workspaceId: 'wrkspc_02' }]))
+})
+
+// ── 한 줄 칸 Enter 로 제출(WP-1622) ─────────────────────────────────────────────
+// 라벨·워크스페이스 ID·Base URL·API Key 같은 한 줄 칸에서 Enter 를 누르면 [추가]/[저장] 단추와 같은 조건으로 제출한다.
+// 여러 줄 칸(토큰·로그인 정보)의 Enter 는 줄바꿈이고, 한글 조합 Enter·빈 필수 칸·같은 틱 연타는 요청을 보내지 않는다.
+
+/** 「요청이 없다」 를 네트워크 계층에서 확인하기 전 잠시 기다린다 — 요청이 나갔다면 이 사이 핸들러에 닿는다. */
+const letStrayRequestArrive = () => new Promise((r) => setTimeout(r, 50))
+
+test('Enter — 추가 창 라벨 칸에서 Enter 를 누르면 [추가]와 같은 본문으로 한 번 보내고 창을 닫는다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste(TOKEN_64)
+  await user.click(within(dialog).getByTestId('agent-account-label'))
+  await user.paste('팀 Claude')
+  await user.keyboard('{Enter}')
+  await waitFor(() => expect(calls.creates).toEqual([{ provider: 'anthropic', label: '팀 Claude', token: TOKEN_64 }]))
+  await waitFor(() => expect(screen.queryByTestId('agent-account-dialog')).not.toBeInTheDocument())
+})
+
+test('Enter — 워크스페이스 ID 칸에서도 Enter 로 보낸다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste(TOKEN_64)
+  await user.click(within(dialog).getByTestId('anthropic-workspace-id-input'))
+  await user.paste('wrkspc_01')
+  await user.keyboard('{Enter}')
+  await waitFor(() => expect(calls.creates).toEqual([{ provider: 'anthropic', token: TOKEN_64, workspaceId: 'wrkspc_01' }]))
+})
+
+test('Enter — OpenAI 호환 API Key 칸에서 Enter 로 보낸다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByTestId('agent-account-kind-opencode'))
+  const baseUrl = within(dialog).getByTestId('credential-base-url')
+  await user.clear(baseUrl)
+  await user.click(baseUrl)
+  await user.paste('https://llm.example.com/v1')
+  await user.click(within(dialog).getByTestId('credential-api-key'))
+  await user.paste('sk-test-key')
+  await user.keyboard('{Enter}')
+  await waitFor(() => expect(calls.creates).toHaveLength(1))
+  expect(calls.creates[0]).toMatchObject({ provider: 'opencode', providerConfig: { options: { baseURL: 'https://llm.example.com/v1', apiKey: 'sk-test-key' } } })
+})
+
+test('Enter — 필수 칸(토큰)이 비면 라벨 칸 Enter 로도 보내지 않는다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByTestId('agent-account-label'))
+  await user.paste('팀 Claude')
+  await user.keyboard('{Enter}')
+  await letStrayRequestArrive()
+  expect(calls.creates).toEqual([])
+  expect(screen.getByTestId('agent-account-dialog')).toBeInTheDocument()
+})
+
+test('Enter — OpenAI 호환 주소·키가 비면 Base URL 칸 Enter 로도 보내지 않는다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByTestId('agent-account-kind-opencode'))
+  await user.click(within(dialog).getByTestId('credential-base-url'))
+  await user.keyboard('{Enter}')
+  await letStrayRequestArrive()
+  expect(calls.creates).toEqual([])
+})
+
+test.each([
+  ['조합 중(isComposing)', { isComposing: true }],
+  ['keyCode 229(Safari 조합 확정)', { keyCode: 229 }],
+])('Enter — %s Enter 는 보내지 않는다', async (_label, init) => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste(TOKEN_64)
+  const label = within(dialog).getByTestId('agent-account-label')
+  await user.click(label)
+  await user.paste('팀 클로드')
+  fireEvent.keyDown(label, { key: 'Enter', ...init })
+  await letStrayRequestArrive()
+  expect(calls.creates).toEqual([])
+  expect(screen.getByTestId('agent-account-dialog')).toBeInTheDocument()
+})
+
+test('Enter — 토큰(여러 줄) 칸의 Enter 는 줄바꿈이고 보내지 않는다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  const token = within(dialog).getByLabelText('토큰')
+  await user.click(token)
+  await user.paste(TOKEN_64)
+  await user.keyboard('{Enter}')
+  await letStrayRequestArrive()
+  expect(token).toHaveValue(`${TOKEN_64}\n`)
+  expect(calls.creates).toEqual([])
+})
+
+test('Enter — 같은 틱에 Enter 를 두 번 눌러도(다시 그리기 전) 요청은 한 번이다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste(TOKEN_64)
+  const label = within(dialog).getByTestId('agent-account-label')
+  // pending 은 다시 그린 뒤에야 바뀐다 — 한 act 안에서 연달아 보내 렌더 전 경합을 만든다.
+  act(() => {
+    label.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    label.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  await waitFor(() => expect(screen.queryByTestId('agent-account-dialog')).not.toBeInTheDocument())
+  await letStrayRequestArrive()
+  expect(calls.creates).toHaveLength(1)
+})
+
+test('Enter — 수정 창에서 라벨을 바꾸고 Enter 를 누르면 라벨만 보내고, 바꾼 것이 없으면 보내지 않는다', async () => {
+  const { user, calls } = renderWritable({ list: [createAccount({ id: 1, provider: 'opencode', label: '사내 모델' })] })
+  await screen.findByTestId('agent-account-row-1')
+  await pickRowMenu(user, 1, 'edit')
+  const dialog = await screen.findByTestId('agent-account-dialog')
+  const label = within(dialog).getByTestId('agent-account-label')
+  // 바꾼 것이 없으면 [저장]이 비활성 — Enter 도 막힌다
+  await user.click(label)
+  await user.keyboard('{Enter}')
+  await letStrayRequestArrive()
+  expect(calls.updates).toEqual([])
+  await user.clear(label)
+  await user.paste('사내 모델 2')
+  await user.keyboard('{Enter}')
+  await waitFor(() => expect(calls.updates).toEqual([{ label: '사내 모델 2' }]))
+  await waitFor(() => expect(screen.queryByTestId('agent-account-dialog')).not.toBeInTheDocument())
+})
+
+test('Enter — 짧은 토큰으로 같은 틱에 Enter 를 두 번 눌러도 「짧다」 알림은 한 번이다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste('short-token')
+  const label = within(dialog).getByTestId('agent-account-label')
+  act(() => {
+    label.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    label.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  expect(await screen.findByText('토큰이 너무 짧습니다 (최소 32자)')).toBeInTheDocument()
+  await letStrayRequestArrive()
+  expect(screen.getAllByText('토큰이 너무 짧습니다 (최소 32자)')).toHaveLength(1)
+  expect(calls.creates).toEqual([])
 })

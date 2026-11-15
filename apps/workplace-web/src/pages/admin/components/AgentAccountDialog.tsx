@@ -8,7 +8,7 @@
 // Gen:iA 추가는 붙여 넣기 칸 위에 [로그인](Microsoft 브라우저 로그인, WP-1461)을 더한다 — 성공하면 서버가 이미 계정을 만들었으니 창은 [닫기] 만 남긴다.
 // 수정 창의 Gen:iA 「키 교체」에도 같은 [로그인] 을 두어(accountId 전달) 만료된 계정의 로그인 정보만 바꾼다 — 성공하면 라벨 수정만 남는다.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { probeAgentModels } from '@/api/models';
@@ -26,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { agentAccountKeys, useCreateAgentAccount, useUpdateAgentAccount } from '@/hooks/queries/useAgentAccounts';
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { accountLabel, isLoginProvider } from '@/lib/agentAccount';
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
 import { extractApiError, handleApiError } from '@/lib/api-error';
@@ -142,9 +143,29 @@ export function AgentAccountDialog({ account, onClose }: Props) {
     return { loginInfo };
   };
 
+  // 요청 진행 중 표시(WP-1622) — pending 은 다음 렌더에야 바뀌므로 같은 틱에 두 번 제출(Enter 자동 반복·Enter 뒤 클릭)되면
+  // 둘 다 pending 검사를 통과한다. ref 는 즉시 바뀌어 두 번째 제출을 막는다.
+  const inFlight = useRef(false);
+  // 한 줄 칸(라벨·워크스페이스 ID·Base URL·API Key) Enter 공용 처리(WP-331) — 한글 조합 Enter·macOS Chrome 꼬리 Enter 는 제출로 보지 않는다.
+  const enterKey = useSingleLineEnter();
+
+  // [추가]/[저장] 단추를 막는 조건 — Enter 제출도 같은 조건을 지키도록 submit 맨 앞에서 함께 쓴다(WP-1622).
+  const submitBlocked = !canSubmit || pending;
+
   const submit = async () => {
     // 원문을 보낼 때(추가·「키 교체」) 다 채워졌는지는 canSubmit(secretReady)이 이미 거른다.
-    if (!canSubmit) return;
+    if (submitBlocked || inFlight.current) return;
+    // 검사 앞에서 건다 — 같은 틱 두 번째 제출이 검사 토스트(짧은 토큰 등)를 겹쳐 띄우지 않게. 검사에서 돌아가도 finally 가 푼다.
+    inFlight.current = true;
+    try {
+      await send();
+    } finally {
+      inFlight.current = false;
+    }
+  };
+
+  /** 입력 검사 → 추가·수정 요청 → 알림·닫기. 진행 중 가드는 submit 이 건다. */
+  const send = async () => {
     // 토큰 최소 길이는 제출 때 알린다(AI 별 연결 창과 같다) — 칸에 치는 중에 「짧다」가 먼저 뜨지 않게.
     if (sendSecret && kind === 'anthropic' && token.trim().length < CLAUDE_TOKEN_MIN) {
       toast.error(`토큰이 너무 짧습니다 (최소 ${CLAUDE_TOKEN_MIN}자)`);
@@ -172,6 +193,17 @@ export function AgentAccountDialog({ account, onClose }: Props) {
       // 409 중복(같은 키의 계정이 이미 있음)·400 형식 오류는 서버 문구를 그대로 보인다.
       handleApiError(e, editing ? '계정을 수정하지 못했습니다' : '계정을 추가하지 못했습니다');
     }
+  };
+
+  /**
+   * 한 줄 칸 Enter → 제출(WP-1622). 조건 검사는 submit 이 단추와 같은 기준으로 한다.
+   * Gen:iA 브라우저 로그인이 진행 중이면 Enter 로는 보내지 않는다 — 수정 창은 로그인 중에도 라벨 칸이 열려 있어,
+   * 라벨을 고치다 누른 Enter 가 로그인 결과(로그인 정보 교체)보다 먼저 저장을 보내지 않게.
+   * [추가]/[저장] 단추는 그대로 둔다 — 로그인 중에도 붙여 넣기로 추가하는 길(기존 동작)은 단추로 명시적으로 고른 것이다.
+   */
+  const submitOnEnter = () => {
+    if (geniaLoginActive) return;
+    void submit();
   };
 
   /**
@@ -287,6 +319,9 @@ export function AgentAccountDialog({ account, onClose }: Props) {
               maxLength={LABEL_MAX}
               placeholder={editing ? undefined : `비우면 「${kindName} 계정」`}
               autoComplete="off"
+              // Enter 로도 제출한다(WP-1622) — 한글 조합을 확정하는 Enter 는 제출로 이어지지 않게 공용 훅이 거른다.
+              onCompositionEnd={enterKey.onCompositionEnd}
+              onKeyDown={(e) => enterKey.handleEnter(e, submitOnEnter)}
             />
           </div>
 
@@ -319,7 +354,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
                       토큰이 너무 깁니다 (최대 {CLAUDE_TOKEN_MAX}자)
                     </p>
                   )}
-                  <AnthropicWorkspaceIdField {...workspace.fieldProps} />
+                  <AnthropicWorkspaceIdField {...workspace.fieldProps} onEnter={submitOnEnter} />
                 </>
               )}
               {kind === 'opencode' && (
@@ -336,6 +371,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
                     onBaseUrlChange={resettingProbe(setBaseUrl)}
                     apiKey={apiKey}
                     onApiKeyChange={resettingProbe(setApiKey)}
+                    onEnter={submitOnEnter}
                   />
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -402,7 +438,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
             {loginDone ? '닫기' : '취소'}
           </Button>
           {!addedByLogin && (
-            <Button onClick={() => void submit()} disabled={!canSubmit || pending} data-testid="agent-account-submit">
+            <Button onClick={() => void submit()} disabled={submitBlocked} data-testid="agent-account-submit">
               {pending ? '저장 중…' : editing ? '저장' : '추가'}
             </Button>
           )}

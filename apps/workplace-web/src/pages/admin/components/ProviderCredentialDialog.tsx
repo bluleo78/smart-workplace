@@ -5,7 +5,7 @@
 //   모델 목록을 프로브한 뒤 모델을 선택(또는 프로브 실패 시 수동 입력)해 등록한다.
 // 저장 후 평문(토큰/apiKey)은 다시 표시되지 않으며, 재발급 시 기존 active API 키는 자동 회수된다.
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { probeAgentModels } from '@/api/models';
@@ -31,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useRegisterAgentProviderCredential } from '@/hooks/queries/useAgentProviderCredential';
 import { useModelVisionChoice } from '@/hooks/useModelVisionChoice';
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { withProviderPrefix } from '@/lib/ai/suggestionModel';
 import { visionConfigFor } from '@/lib/ai/visionConfig';
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
@@ -92,13 +93,16 @@ export function ProviderCredentialDialog({
       probeAgentModels({ providerConfig: toOpencodeProviderConfig(presetKey, baseUrl, apiKey) }),
   });
 
-  const reset = () => {
-    setConnectionType('anthropic');
-    setToken('');
-    workspace.reset();
-    setPresetKey(DEFAULT_OPENCODE_PRESET);
-    setBaseUrl(DEFAULT_OPENCODE_BASE_URL);
-    setApiKey('');
+  // 연결 대상(프리셋·주소·키)이 바뀐 횟수 — 진행 중이던 「모델 불러오기」 응답이 바뀌기 전 대상의 것이면 버리려고 쓴다(WP-1622).
+  const probeGeneration = useRef(0);
+
+  /**
+   * 불러온 모델 목록·고른 모델·직접 입력한 모델·불러오기 오류를 비운다(WP-1622).
+   * 왜: 모델 목록은 그때의 주소·키로 받은 것이라, 주소나 키를 고친 뒤에도 남아 있으면 Enter 한 번으로
+   *     「주소 B + 주소 A 에서 고른 모델」이 저장된다. 주소·키·프리셋이 바뀌면 모델을 다시 불러오게 한다.
+   */
+  const clearLoadedModels = () => {
+    probeGeneration.current += 1;
     setModelOptions(null);
     setProbeError(null);
     setSelectedModel('');
@@ -106,14 +110,25 @@ export function ProviderCredentialDialog({
     resetVision();
   };
 
-  // 프리셋 변경 시 이전 프로브 결과 초기화(baseURL 템플릿은 OpencodeConnectionFields 가 채운다).
-  const onPresetChange = (key: PresetKey) => {
-    setPresetKey(key);
-    setModelOptions(null);
-    setProbeError(null);
-    setSelectedModel('');
-    setManualModel('');
-    resetVision();
+  const reset = () => {
+    setConnectionType('anthropic');
+    setToken('');
+    workspace.reset();
+    setPresetKey(DEFAULT_OPENCODE_PRESET);
+    setBaseUrl(DEFAULT_OPENCODE_BASE_URL);
+    setApiKey('');
+    clearLoadedModels();
+  };
+
+  /**
+   * 연결 칸 하나(프리셋·주소·키)를 바꾸고 불러온 모델 상태를 비운다(WP-1622) — 앞서 불러온 모델은 지금 연결의 것이 아니다.
+   * 칸마다 같은 두 줄(값 바꾸기 + clearLoadedModels)을 되풀이하지 않게 한 곳에 둔다(계정 창의 resettingProbe 와 같은 뜻).
+   * 커링(setter 를 감싼 함수를 렌더 중에 만들기)으로 쓰면 React Compiler 린트(react-hooks/refs)가 렌더 중 ref 접근으로 보아,
+   * 칸의 onChange 안에서 (setter, 값) 으로 부른다. 프리셋을 바꿀 때 baseURL 템플릿은 OpencodeConnectionFields 가 채운다.
+   */
+  const setClearingModels = <T,>(set: (v: T) => void, v: T) => {
+    set(v);
+    clearLoadedModels();
   };
 
   // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
@@ -122,10 +137,16 @@ export function ProviderCredentialDialog({
     setModelOptions(null);
     setSelectedModel('');
     resetVision();
+    const generation = probeGeneration.current;
     try {
       const res = await probe.mutateAsync();
+      // 불러오는 사이 주소·키·프리셋이 바뀌었으면 이 목록은 지금 연결의 것이 아니라 버린다.
+      if (generation !== probeGeneration.current) return;
       setModelOptions(res.models);
+      // 목록이 보이면 직접 입력 칸은 사라진다 — 숨은 칸에 남은 값이 resolvedModel 로 보내지지 않게 비운다(WP-1622).
+      setManualModel('');
     } catch (e) {
+      if (generation !== probeGeneration.current) return;
       const message =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         '모델 목록을 불러오지 못했습니다. 모델 id를 직접 입력하세요.';
@@ -135,7 +156,30 @@ export function ProviderCredentialDialog({
 
   const visionConfig = visionConfigFor(vision, resolvedModel);
 
+  // [연결하기] 단추의 비활성 조건 — Enter 제출도 같은 조건을 지키도록 submit 맨 앞에서 함께 쓴다(WP-1622).
+  // 「모델 불러오기」 중에는 모델이 곧 바뀌므로(목록 도착·오류) 그동안은 보내지 않는다.
+  const submitDisabled =
+    mutation.isPending || (connectionType === 'opencode' && (probe.isPending || !resolvedModel));
+  // 요청 진행 중 표시(WP-1622) — isPending 은 다음 렌더에야 바뀌므로 같은 틱에 두 번 제출(Enter 자동 반복·Enter 뒤 클릭)되면
+  // 둘 다 submitDisabled 를 통과한다. ref 는 즉시 바뀌어 두 번째 제출을 막는다.
+  const inFlight = useRef(false);
+  // 한 줄 칸(워크스페이스 ID·Base URL·API Key·모델 id) Enter 공용 처리(WP-331) — 한글 조합 Enter·macOS Chrome 꼬리 Enter 는 제출로 보지 않는다.
+  const enterKey = useSingleLineEnter();
+
   const submit = async () => {
+    // Enter 로 제출할 때도 단추와 같은 조건(처리 중·모델 불러오는 중·opencode 모델 미정)을 지키고, 같은 틱 이중 제출을 막는다.
+    if (submitDisabled || inFlight.current) return;
+    // 검사 앞에서 건다 — 같은 틱 두 번째 제출이 검사 토스트(짧은 토큰 등)를 겹쳐 띄우지 않게. 검사에서 돌아가도 finally 가 푼다.
+    inFlight.current = true;
+    try {
+      await send();
+    } finally {
+      inFlight.current = false;
+    }
+  };
+
+  /** 입력 검사 → 등록 요청 → 알림·닫기. 진행 중 가드는 submit 이 건다. */
+  const send = async () => {
     if (connectionType === 'anthropic') {
       const trimmed = token.trim();
       // 백엔드 검증과 정합 (@Size(min = 32, max = 2048)) — 계정 창과 같은 상수. 넘거나 모자라면 보내도 400 이라 미리 알린다.
@@ -166,11 +210,7 @@ export function ProviderCredentialDialog({
       return;
     }
 
-    // opencode — model 미선택 시 제출 차단.
-    if (!resolvedModel) {
-      toast.error('모델을 선택하거나 직접 입력하세요.');
-      return;
-    }
+    // opencode — 모델 미정은 submitDisabled 가 이미 막는다.
     try {
       await mutation.mutateAsync({
         provider: 'opencode',
@@ -189,8 +229,8 @@ export function ProviderCredentialDialog({
     }
   };
 
-  const submitDisabled =
-    mutation.isPending || (connectionType === 'opencode' && !resolvedModel);
+  /** 한 줄 칸 Enter → 제출(WP-1622). 조건 검사는 submit 이 단추와 같은 기준으로 한다. */
+  const submitOnEnter = () => void submit();
 
   return (
     <Dialog
@@ -249,17 +289,18 @@ export function ProviderCredentialDialog({
           {connectionType === 'anthropic' ? (
             <>
               <ClaudeTokenField value={token} onChange={setToken} />
-              <AnthropicWorkspaceIdField {...workspace.fieldProps} />
+              <AnthropicWorkspaceIdField {...workspace.fieldProps} onEnter={submitOnEnter} />
             </>
           ) : (
             <div className="space-y-3">
               <OpencodeConnectionFields
                 presetKey={presetKey}
-                onPresetChange={onPresetChange}
+                onPresetChange={(v) => setClearingModels(setPresetKey, v)}
                 baseUrl={baseUrl}
-                onBaseUrlChange={setBaseUrl}
+                onBaseUrlChange={(v) => setClearingModels(setBaseUrl, v)}
                 apiKey={apiKey}
-                onApiKeyChange={setApiKey}
+                onApiKeyChange={(v) => setClearingModels(setApiKey, v)}
+                onEnter={submitOnEnter}
               />
               <Button
                 type="button"
@@ -304,6 +345,9 @@ export function ProviderCredentialDialog({
                     onChange={(e) => setManualModel(e.target.value)}
                     placeholder={`${presetKey}/model-id`}
                     autoComplete="off"
+                    // Enter 로도 제출한다(WP-1622) — 한글 조합을 확정하는 Enter 는 제출로 이어지지 않게 공용 훅이 거른다.
+                    onCompositionEnd={enterKey.onCompositionEnd}
+                    onKeyDown={(e) => enterKey.handleEnter(e, submitOnEnter)}
                   />
                 </div>
               ) : null}

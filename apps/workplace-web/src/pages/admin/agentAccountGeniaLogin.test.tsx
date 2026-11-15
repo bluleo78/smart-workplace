@@ -367,3 +367,25 @@ test('수정 — ChatGPT 계정의 키 교체에는 [로그인] 이 없다', asy
   expect(within(dialog).queryByTestId('genia-login-start')).not.toBeInTheDocument()
   expect(within(dialog).getByTestId('login-info-text')).toBeInTheDocument()
 })
+
+test('수정 — 로그인 진행 중에는 라벨 칸 Enter 로 저장을 보내지 않는다(WP-1622)', async () => {
+  const { user, calls } = renderLogin({ accounts: [EXPIRED()] })
+  const dialog = await openEdit(user, 6)
+  await user.click(within(dialog).getByTestId('agent-account-replace-toggle'))
+  await user.click(within(dialog).getByTestId('genia-login-start'))
+  await within(dialog).findByTestId('genia-login-open')
+  // 붙여 넣기 칸도 채워 [저장]이 열린 상태 — 단추와 같은 조건만으로는 Enter 가 막히지 않는다
+  await user.click(within(dialog).getByTestId('login-info-text'))
+  await user.paste(GENIA_LOGIN)
+  expect(within(dialog).getByTestId('agent-account-submit')).toBeEnabled()
+  // 수정 창은 로그인 중에도 라벨 칸이 열려 있다 — 라벨을 고치고 Enter
+  const label = within(dialog).getByTestId('agent-account-label')
+  expect(label).toBeEnabled()
+  await user.clear(label)
+  await user.click(label)
+  await user.paste('새 이름')
+  await user.keyboard('{Enter}')
+  await vi.advanceTimersByTimeAsync(50)
+  expect(calls.updates).toEqual([])
+  expect(screen.getByTestId('agent-account-dialog')).toBeInTheDocument()
+})
