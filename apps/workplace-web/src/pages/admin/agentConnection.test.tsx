@@ -3,7 +3,7 @@
 // 폼 → payload, 응답 → 화면이라 브라우저 없이 판정되므로 e2e/pages/admin/oauth-token.spec.ts 에서 옮겼다.
 // 이미지 입력 선택의 TC 스크린샷 2건(@layout)은 E2E 에 남고, /settings/agents 화면 배선은 agents.spec.ts 의 @wiring 이 지킨다.
 // 섹션을 가진 가장 작은 컴포넌트(AgentConnectionSection)만 renderScreen 으로 띄운다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
@@ -374,4 +374,190 @@ test('서버가 워크스페이스 ID 가 필요하다고 거절하면 칸 아�
   expect(screen.getByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
   expect(screen.getByRole('textbox', { name: '토큰' })).toHaveValue(VALID_TOKEN_64)
   expect(state.posts).toHaveLength(1)
+})
+
+// ── 한 줄 칸 Enter 로 제출(WP-1622) ─────────────────────────────────────────────
+// 워크스페이스 ID·Base URL·API Key·모델 id 같은 한 줄 칸에서 Enter 를 누르면 [연결하기]와 같은 조건으로 제출한다.
+// 토큰(여러 줄) 칸의 Enter 는 줄바꿈이고, 한글 조합 Enter·빈 필수 칸·같은 틱 연타는 요청을 보내지 않는다.
+
+/** 「요청이 없다」 를 네트워크 계층에서 확인하기 전 잠시 기다린다 — 요청이 나갔다면 이 사이 핸들러에 닿는다. */
+const letStrayRequestArrive = () => new Promise((r) => setTimeout(r, 50))
+
+/** 등록 창을 열고 토큰을 붙여 넣은 뒤 워크스페이스 ID 칸을 돌려준다. */
+async function openWithToken(user: ReturnType<typeof renderScreen>['user'], token = VALID_TOKEN_64) {
+  await user.click(screen.getByTestId('oauth-token-register'))
+  await user.click(await screen.findByRole('textbox', { name: '토큰' }))
+  if (token) await user.paste(token)
+  return screen.getByTestId('anthropic-workspace-id-input')
+}
+
+test('Enter — 워크스페이스 ID 칸에서 Enter 를 누르면 [연결하기]와 같은 본문으로 한 번 보내고 창을 닫는다', async () => {
+  const { user, state } = await renderSection(null)
+  const workspaceId = await openWithToken(user)
+  await user.click(workspaceId)
+  await user.paste('wrkspc_01')
+  await user.keyboard('{Enter}')
+  expect(await screen.findByText('AI에 연결했습니다.')).toBeInTheDocument()
+  expect(state.posts).toEqual([{ provider: 'anthropic', token: VALID_TOKEN_64, workspaceId: 'wrkspc_01' }])
+  await waitFor(() => expect(screen.queryByRole('heading', { name: 'AI 연결하기' })).not.toBeInTheDocument())
+})
+
+test('Enter — 토큰이 비면 워크스페이스 ID 칸 Enter 로도 보내지 않는다', async () => {
+  const { user, state } = await renderSection(null)
+  const workspaceId = await openWithToken(user, '')
+  await user.click(workspaceId)
+  await user.keyboard('{Enter}')
+  await letStrayRequestArrive()
+  expect(state.posts).toEqual([])
+  expect(screen.getByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
+})
+
+test.each([
+  ['조합 중(isComposing)', { isComposing: true }],
+  ['keyCode 229(Safari 조합 확정)', { keyCode: 229 }],
+])('Enter — %s Enter 는 보내지 않는다', async (_label, init) => {
+  const { user, state } = await renderSection(null)
+  const workspaceId = await openWithToken(user)
+  fireEvent.keyDown(workspaceId, { key: 'Enter', ...init })
+  await letStrayRequestArrive()
+  expect(state.posts).toEqual([])
+  expect(screen.getByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
+})
+
+test('Enter — 토큰(여러 줄) 칸의 Enter 는 줄바꿈이고 보내지 않는다', async () => {
+  const { user, state } = await renderSection(null)
+  await openWithToken(user)
+  await user.keyboard('{Enter}')
+  await letStrayRequestArrive()
+  expect(screen.getByRole('textbox', { name: '토큰' })).toHaveValue(`${VALID_TOKEN_64}\n`)
+  expect(state.posts).toEqual([])
+})
+
+test('Enter — 같은 틱에 Enter 를 두 번 눌러도(다시 그리기 전) 요청은 한 번이다', async () => {
+  const { user, state } = await renderSection(null)
+  const workspaceId = await openWithToken(user)
+  // isPending 은 다시 그린 뒤에야 바뀐다 — 한 act 안에서 연달아 보내 렌더 전 경합을 만든다.
+  act(() => {
+    workspaceId.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    workspaceId.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  expect(await screen.findByText('AI에 연결했습니다.')).toBeInTheDocument()
+  await letStrayRequestArrive()
+  expect(state.posts).toHaveLength(1)
+})
+
+test('Enter — opencode 모델을 정하지 않으면 API Key 칸 Enter 로도 보내지 않고, 직접 입력한 모델 id 칸 Enter 로는 보낸다', async () => {
+  const probe = probeApi({ status: 502 })
+  const { user, state } = await renderSection(null, {}, [probe.handler])
+  await openOpencode(user)
+  await user.click(screen.getByTestId('credential-api-key'))
+  await user.paste('sk-openai-test')
+  // 모델 미정 — [연결하기]가 비활성이니 Enter 도 막히고, 「모델 불러오기」도 부르지 않는다
+  await user.keyboard('{Enter}')
+  await letStrayRequestArrive()
+  expect(state.posts).toEqual([])
+  expect(probe.bodies).toEqual([])
+
+  await user.click(screen.getByTestId('credential-probe-models'))
+  const manual = await screen.findByTestId('credential-model-manual')
+  await user.click(manual)
+  await user.paste('gpt-4o-mini')
+  await user.keyboard('{Enter}')
+  expect(await screen.findByText('AI에 연결했습니다.')).toBeInTheDocument()
+  expect(state.posts).toHaveLength(1)
+  expect((state.posts[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+})
+
+/** 「모델 불러오기」 응답을 차례대로 돌려준다 — 'fail' 은 502, 'hold' 는 release 를 부를 때까지 붙잡았다가 목록을 준다. */
+function probeSequence(steps: Array<'ok' | 'fail' | 'hold'>) {
+  let calls = 0
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => {
+    release = r
+  })
+  const handler = http.post(PROBE, async () => {
+    const step = steps[Math.min(calls, steps.length - 1)]
+    calls += 1
+    if (step === 'fail') return HttpResponse.json({ message: '프로바이더 연결에 실패했습니다' }, { status: 502 })
+    if (step === 'hold') await held
+    return HttpResponse.json({ models: MODELS })
+  })
+  return { handler, release: () => release() }
+}
+
+/** OpenAI 호환으로 바꾸고 키를 넣은 뒤 API Key 칸을 돌려준다(주소는 기본 프리셋 값). */
+async function openOpencodeWithKey(user: ReturnType<typeof renderScreen>['user']) {
+  await openOpencode(user)
+  const apiKey = screen.getByTestId('credential-api-key')
+  await user.click(apiKey)
+  await user.paste('sk-openai-test')
+  return apiKey
+}
+
+test('Enter — 모델을 불러와 고른 뒤 Base URL 을 고치면 모델이 지워져, Enter 로 옛 모델을 보내지 않는다', async () => {
+  const probe = probeApi({ status: 200, models: MODELS })
+  const { user, state } = await renderSection(null, {}, [probe.handler])
+  await openOpencodeWithKey(user)
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await user.click(await screen.findByTestId('credential-model-select'))
+  await user.click(await screen.findByRole('option', { name: 'GPT-OSS 120B' }))
+  expect(screen.getByRole('button', { name: '연결하기' })).toBeEnabled()
+
+  const baseUrl = screen.getByTestId('credential-base-url')
+  await user.click(baseUrl)
+  await user.keyboard('x{Enter}')
+  await letStrayRequestArrive()
+  expect(state.posts).toEqual([])
+  expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '연결하기' })).toBeDisabled()
+})
+
+test('Enter — 불러오기 실패 뒤 직접 입력한 모델은, 다시 불러오기가 성공하면 지워져 모델을 고르기 전엔 보내지 않는다', async () => {
+  const probe = probeSequence(['fail', 'ok'])
+  const { user, state } = await renderSection(null, {}, [probe.handler])
+  const apiKey = await openOpencodeWithKey(user)
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await user.click(await screen.findByTestId('credential-model-manual'))
+  await user.paste('gpt-4o-mini')
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await screen.findByTestId('credential-model-select')
+  expect(screen.queryByTestId('credential-model-manual')).not.toBeInTheDocument()
+
+  await user.click(apiKey)
+  await user.keyboard('{End}{Enter}')
+  await letStrayRequestArrive()
+  expect(state.posts).toEqual([])
+  expect(screen.getByRole('button', { name: '연결하기' })).toBeDisabled()
+})
+
+test('Enter — 「모델 불러오기」 중에는 Enter 로도 [연결하기]로도 보내지 않는다', async () => {
+  const probe = probeSequence(['fail', 'hold'])
+  const { user, state } = await renderSection(null, {}, [probe.handler])
+  const apiKey = await openOpencodeWithKey(user)
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await user.click(await screen.findByTestId('credential-model-manual'))
+  await user.paste('gpt-4o-mini')
+  // 다시 불러오기 — 응답을 붙잡아 둔 동안 직접 입력한 모델은 아직 남아 있다
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await screen.findByRole('button', { name: '불러오는 중…' })
+  expect(screen.getByRole('button', { name: '연결하기' })).toBeDisabled()
+  await user.click(apiKey)
+  await user.keyboard('{End}{Enter}')
+  await letStrayRequestArrive()
+  expect(state.posts).toEqual([])
+  probe.release()
+  await screen.findByTestId('credential-model-select')
+})
+
+test('Enter — 짧은 토큰으로 같은 틱에 Enter 를 두 번 눌러도 「짧다」 알림은 한 번이다', async () => {
+  const { user, state } = await renderSection(null)
+  const workspaceId = await openWithToken(user, SHORT_TOKEN_16)
+  act(() => {
+    workspaceId.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    workspaceId.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  expect(await screen.findByText('토큰이 너무 짧습니다 (최소 32자)')).toBeInTheDocument()
+  await letStrayRequestArrive()
+  expect(screen.getAllByText('토큰이 너무 짧습니다 (최소 32자)')).toHaveLength(1)
+  expect(state.posts).toEqual([])
 })
