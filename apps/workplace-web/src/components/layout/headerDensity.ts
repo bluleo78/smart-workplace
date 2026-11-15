@@ -1,5 +1,14 @@
 // 헤더의 접기와 AI 축소를 순서대로 결정해 서로 다른 측정이 상태를 되돌리지 않게 한다.
 // 순서: ① 보조 액션 접기(folded) → ② AI 칩 동그라미(circle) → ③ 상단 가운데 단추를 헤더 안으로 넣기(docked, WP-1611).
+/**
+ * 페이지 헤더(Page.tsx DesktopPageHeader)가 열어 두는 상단 가운데 단추 자리 표식(WP-1611).
+ * 헤더 넣기 단계에서 TopCenterSlot 이 단추를 이 안으로 옮기고, 밀도 측정(HeaderDensityContext)은 이 자리가 있는 화면만 그 단계를 쓴다.
+ * 순수 모듈에 두어 TopCenterSlot ↔ HeaderDensityContext 사이에 import 고리가 생기지 않게 한다.
+ */
+export const HEADER_DOCK_ATTR = 'data-ai-header-dock'
+/** HEADER_DOCK_ATTR 를 찾는 선택자 — 문자열을 곳곳에 따로 적지 않는다. */
+export const HEADER_DOCK_SELECTOR = `[${HEADER_DOCK_ATTR}]`
+
 export interface HeaderDensityState {
   folded: boolean
   circle: boolean
@@ -35,8 +44,11 @@ export function nextHeaderDensityState({ titleSpace, hasAuxiliaryActions, hasAiC
   // ③ 헤더 안에 있는 동안은 앞 단계를 그대로 둔다 — 숨긴 틀의 폭(동그라미)이 바뀌면 측정 기준이 흔들린다.
   // 충분히 넓어지면 헤더 넣기만 풀고, 동그라미·접기는 다음 측정부터 기존 규칙으로 차례로 풀린다.
   if (current.docked) {
-    if (hasDockSlot && titleSpace <= MIN_TITLE_SPACE + UNDOCK_MARGIN) return current
-    return { ...current, docked: false }
+    if (!hasDockSlot || titleSpace > MIN_TITLE_SPACE + UNDOCK_MARGIN) return { ...current, docked: false }
+    // 넣은 뒤에 보조 액션이 새로 나타나면(펼친 채) 그것만은 접는다 — 그대로 두면 좌측 그룹이 0 폭까지 밀린다(WP-1611 리뷰).
+    // 헤더 넣기·동그라미는 유지한다(접기는 숨긴 틀의 폭을 바꾸지 않아 측정 기준이 흔들리지 않는다).
+    if (hasAuxiliaryActions && !current.folded && titleSpace < MIN_TITLE_SPACE) return { ...current, folded: true }
+    return current
   }
   if (hasAuxiliaryActions && !current.folded && titleSpace < MIN_TITLE_SPACE) return { folded: true, circle: false, docked: false }
   // 앞 단계(있는 것만)를 이미 다 쓴 상태에서도 좁으면 헤더로 넣는다. 한 측정에 한 단계씩만 나아간다.

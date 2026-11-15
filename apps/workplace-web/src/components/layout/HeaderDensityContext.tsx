@@ -2,7 +2,7 @@
 // 마지막 단계(docked, WP-1611)에서도 떠 있는 틀은 숨긴 채(visibility) 마운트돼 있어 같은 측정으로 복귀 시점을 판정한다.
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 
-import { type HeaderDensityState, nextHeaderDensityState } from './headerDensity'
+import { HEADER_DOCK_SELECTOR, type HeaderDensityState, nextHeaderDensityState } from './headerDensity'
 
 const expanded: HeaderDensityState = { folded: false, circle: false, docked: false }
 /** 두 밀도 상태가 같은지 — 단계가 바뀔 때만 다시 그리고 안정 대기를 건다. */
@@ -51,7 +51,7 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
         hasAuxiliaryActions: header?.dataset.aiHasAuxiliaryActions === 'true',
         hasAiChip: !!chip.querySelector('[data-ai-density-chip]'),
         // 헤더 안 자리가 없는 화면(페이지 헤더 없음)은 떠 있는 틀을 끝까지 유지한다.
-        hasDockSlot: !!header?.querySelector('[data-ai-header-dock]'),
+        hasDockSlot: !!header?.querySelector(HEADER_DOCK_SELECTOR),
         current,
         foldDisplacement,
       })

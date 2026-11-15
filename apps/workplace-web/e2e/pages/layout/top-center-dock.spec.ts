@@ -154,5 +154,51 @@ for (const ai of [true, false]) {
       await expect(page.getByTestId('help-panel')).toBeHidden()
       await expectFloating(page)
     })
+
+    // 헤더 넣기 ↔ 가운데 복귀 때 단추가 다시 마운트되면 포커스가 body 로 떨어졌다(WP-1505 포커스 복귀 회귀, WP-1611 리뷰).
+    test('도움말 패널을 ✕ 로 닫아 가운데로 돌아와도 포커스가 「?」에 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1024, height: 900 })
+      await gotoIssue(page)
+      await openHelpPanel(page)
+      await expect(page.getByTestId('page-header').getByTestId('help-toggle')).toBeVisible()
+      await page.getByTestId('help-close').click()
+      await expect(page.getByTestId('help-panel')).toBeHidden()
+      await expectFloating(page)
+      // 패널이 「?」로 돌려준 포커스가 헤더 → 가운데 이동 뒤에도 같은 단추에 있다.
+      await expect(page.getByTestId('help-toggle')).toBeFocused()
+    })
+
+    test('키보드로 「?」를 눌러 헤더로 들어가도 포커스가 「?」에 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1024, height: 900 })
+      await gotoIssue(page)
+      await expectFloating(page)
+      await page.getByTestId('help-toggle').focus()
+      await page.keyboard.press('Enter')
+      await expect(page.getByTestId('help-panel')).toBeVisible()
+      await expect(page.getByTestId('page-header').getByTestId('help-toggle')).toBeVisible()
+      await expect(page.getByTestId('help-toggle')).toBeFocused()
+    })
+
+    // 트리거가 다시 마운트되면 팔레트가 닫히고(useSearchPaletteSession 정리) 입력한 검색어도 사라졌다(WP-1611 리뷰).
+    test('검색 팔레트가 열린 채 헤더 넣기가 바뀌어도 팔레트와 검색어가 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1600, height: 900 })
+      await gotoIssue(page)
+      await openHelpPanel(page)
+      await expectFloating(page)
+      await page.getByTestId('global-search-toggle').click()
+      const input = page.getByTestId('global-search-input')
+      await expect(input).toBeVisible()
+      await input.fill('헤더')
+      // 좁히면 헤더로 들어간다 — 팔레트는 그대로 열려 있고 검색어도 남는다.
+      await page.setViewportSize({ width: 1024, height: 900 })
+      await expect(page.getByTestId('page-header').getByTestId('global-search-toggle')).toBeAttached()
+      await expect(page.getByTestId('global-search')).toBeVisible()
+      await expect(input).toHaveValue('헤더')
+      // 다시 넓히면 가운데로 돌아온다 — 마찬가지로 남는다.
+      await page.setViewportSize({ width: 1600, height: 900 })
+      await expect(page.locator('[data-ai-chip]').getByTestId('global-search-toggle')).toBeAttached()
+      await expect(page.getByTestId('global-search')).toBeVisible()
+      await expect(input).toHaveValue('헤더')
+    })
   })
 }

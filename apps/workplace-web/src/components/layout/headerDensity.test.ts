@@ -97,6 +97,30 @@ describe('nextHeaderDensityState — 헤더 넣기(docked, WP-1611)', () => {
     expect(step(450, uncircled)).toEqual(state())
   })
 
+  // WP-1611 리뷰: 넣은 뒤에 나타난 보조 액션은 접지 않고 그대로 두어 좌측 그룹이 0 폭까지 밀렸다.
+  it('헤더에 넣은 뒤 펼친 보조 액션이 나타나 160px 보다 좁으면 넣은 채 접는다', () => {
+    // 비서 없음 — 보조 액션 없이 바로 넣은 상태에서 보조 액션이 생겼다.
+    expect(step(100, state({ docked: true }), { ai: false })).toEqual(state({ folded: true, docked: true }))
+    // 비서 있음 — 동그라미·넣기는 유지하고 접기만 더한다.
+    expect(step(100, state({ circle: true, docked: true }))).toEqual(state({ folded: true, circle: true, docked: true }))
+    // 접은 뒤 같은 자리에서는 그대로 머문다.
+    expect(step(100, state({ folded: true, circle: true, docked: true }))).toEqual(state({ folded: true, circle: true, docked: true }))
+  })
+
+  it.each([
+    [159, true],
+    [160, false],
+    [200, false],
+  ])('헤더에 넣은 채 펼친 보조 액션, 제목 자리 %ipx → 접기 %s (160 미만만 접는다)', (titleSpace, folds) => {
+    expect(step(titleSpace, state({ circle: true, docked: true }))).toEqual(state({ folded: folds, circle: true, docked: true }))
+  })
+
+  it('헤더에 넣은 채 보조 액션이 없거나 헤더 자리가 없으면 접지 않는다', () => {
+    expect(step(100, state({ circle: true, docked: true }), { aux: false })).toEqual(state({ circle: true, docked: true }))
+    // 헤더 자리가 사라지면 넣기를 푸는 것이 먼저다(접기는 다음 측정에서 기존 규칙으로).
+    expect(step(100, state({ circle: true, docked: true }), { dock: false })).toEqual(state({ circle: true }))
+  })
+
   it('돌아간 직후 이력 구간(160~200px)에서는 다시 헤더로 들어가지 않는다', () => {
     const undocked = step(201, state({ folded: true, circle: true, docked: true }))
     expect(undocked.docked).toBe(false)

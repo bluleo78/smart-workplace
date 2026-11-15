@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { createPortal } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { HEADER_DOCK_ATTR } from './headerDensity'
 import { HeaderDensityProvider, useHeaderDensity, useHeaderDensityHeader } from './HeaderDensityContext'
 import { useAiActionsWidth } from './useAiActionsWidth'
 
@@ -15,7 +16,7 @@ function Fixture({ mounted, chipMounted = mounted, ai = true, dock = false }: { 
     {mounted && <header ref={register} data-ai-has-auxiliary-actions="true">
       <div data-ai-left-group />
       {/* 헤더 넣기 자리(WP-1611) — 있을 때만 마지막 단계로 간다. */}
-      {dock && <div data-ai-header-dock />}
+      {dock && <div {...{ [HEADER_DOCK_ATTR]: '' }} />}
       <div data-ai-actions>{folded ? '더보기' : '설정'}</div>
     </header>}
     {chipMounted && createPortal(<div data-ai-chip>{ai && <button data-ai-density-chip />}</div>, document.body)}
