@@ -201,11 +201,15 @@ test('캘린더: 헤더엔 제목만(잘림 없음), 도구 줄의 오늘·‹·
   // 모바일 첫 보기(일정 목록)는 ‹ › 를 숨긴다 — 이동 버튼이 있는 월 보기에서 크기·동작을 본다.
   const select = toolbar.getByTestId('calendar-view-select')
   await toCalendarMonthView(page, toolbar)
-  for (const id of ['calendar-today', 'calendar-prev', 'calendar-next']) {
+  for (const id of ['calendar-today', 'calendar-prev', 'calendar-next', 'calendar-mobile-new-event']) {
     const b = (await toolbar.getByTestId(id).boundingBox())!
     expect(b.width, id).toBeGreaterThanOrEqual(44)
     expect(b.height, id).toBeGreaterThanOrEqual(44)
   }
+  // 새 일정 ＋(WP-1607)까지 놓여도 버튼이 가장 많은 월 보기 도구 줄이 화면 안에 든다.
+  const plus = (await toolbar.getByTestId('calendar-mobile-new-event').boundingBox())!
+  expect(plus.x + plus.width).toBeLessThanOrEqual(390)
+  expect(await toolbar.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
   await toolbar.getByTestId('calendar-prev').click()
   // 다른 해로 넘어가면 'yyyy년 M월' — 가장 긴 제목도 잘리지 않고 좌측 16px 에서 시작한다.
   await expect(h1).toHaveText('2026년 12월')

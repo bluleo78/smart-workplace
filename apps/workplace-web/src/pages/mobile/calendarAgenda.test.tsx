@@ -203,3 +203,13 @@ test('이슈 마감 조회가 실패해도 일정은 보이고, 하단 다시 �
   expect(await screen.findByTestId('calendar-issue-due-7')).toBeInTheDocument()
   await waitFor(() => expect(screen.queryByRole('button', { name: /다시 시도$/ })).not.toBeInTheDocument())
 })
+
+test('첫 화면(목록)에서도 도구 줄 ＋ 「새 일정」으로 새 일정 창을 연다(WP-1607)', async () => {
+  const cal = stubCalendar()
+  const { user } = openCalendar(cal.handlers)
+  await screen.findByTestId('calendar-view-agenda')
+  // ☰ 시트를 열지 않아도 도구 줄에 바로 보인다 — 시트 안 [새 일정]만으로는 찾기 어려웠다.
+  await user.click(within(screen.getByTestId('calendar-mobile-toolbar')).getByRole('button', { name: '새 일정' }))
+  const dialog = await screen.findByTestId('calendar-event-dialog')
+  expect(within(dialog).getByRole('heading', { name: '새 일정' })).toBeInTheDocument()
+})
