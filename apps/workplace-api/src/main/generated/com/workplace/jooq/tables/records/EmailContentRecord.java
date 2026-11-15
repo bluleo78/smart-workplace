@@ -428,6 +428,6 @@ public class EmailContentRecord extends UpdatableRecordImpl<EmailContentRecord> 
         setAiCategoryAttempts(aiCategoryAttempts);
         setAiCategoryNextAttemptAt(aiCategoryNextAttemptAt);
         setSentByGeniaWorks(sentByGeniaWorks);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

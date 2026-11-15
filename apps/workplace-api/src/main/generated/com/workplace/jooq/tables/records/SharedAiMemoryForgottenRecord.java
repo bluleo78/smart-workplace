@@ -178,6 +178,6 @@ public class SharedAiMemoryForgottenRecord extends UpdatableRecordImpl<SharedAiM
         setNormalized(normalized);
         setEmbedding(embedding);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

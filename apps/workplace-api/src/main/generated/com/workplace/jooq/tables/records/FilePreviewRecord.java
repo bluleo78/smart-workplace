@@ -211,6 +211,6 @@ public class FilePreviewRecord extends UpdatableRecordImpl<FilePreviewRecord> {
         setLeasedUntil(leasedUntil);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

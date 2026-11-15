@@ -211,6 +211,6 @@ public class AgentRepoCredentialRecord extends UpdatableRecordImpl<AgentRepoCred
         setLastUsedAt(lastUsedAt);
         setRevokedAt(revokedAt);
         setChangeSeq(changeSeq);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

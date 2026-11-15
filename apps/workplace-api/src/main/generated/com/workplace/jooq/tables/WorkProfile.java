@@ -32,10 +32,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -68,7 +68,7 @@ public class WorkProfile extends TableImpl<WorkProfileRecord> {
     /**
      * The column <code>public.work_profile.id</code>.
      */
-    public final TableField<WorkProfileRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<WorkProfileRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.work_profile.tenant_id</code>.
@@ -333,7 +333,7 @@ public class WorkProfile extends TableImpl<WorkProfileRecord> {
      */
     @Override
     public WorkProfile where(Condition condition) {
-        return new WorkProfile(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new WorkProfile(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -400,7 +400,7 @@ public class WorkProfile extends TableImpl<WorkProfileRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public WorkProfile whereExists(Select<?> select) {
+    public WorkProfile whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -408,7 +408,7 @@ public class WorkProfile extends TableImpl<WorkProfileRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public WorkProfile whereNotExists(Select<?> select) {
+    public WorkProfile whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

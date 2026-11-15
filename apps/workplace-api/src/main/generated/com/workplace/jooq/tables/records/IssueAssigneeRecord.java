@@ -121,6 +121,6 @@ public class IssueAssigneeRecord extends UpdatableRecordImpl<IssueAssigneeRecord
         setAssignedBy(assignedBy);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

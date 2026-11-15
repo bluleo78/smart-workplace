@@ -32,10 +32,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -68,7 +68,7 @@ public class CalendarTag extends TableImpl<CalendarTagRecord> {
     /**
      * The column <code>public.calendar_tag.id</code>.
      */
-    public final TableField<CalendarTagRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<CalendarTagRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.calendar_tag.tenant_id</code>.
@@ -303,7 +303,7 @@ public class CalendarTag extends TableImpl<CalendarTagRecord> {
      */
     @Override
     public CalendarTag where(Condition condition) {
-        return new CalendarTag(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new CalendarTag(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -370,7 +370,7 @@ public class CalendarTag extends TableImpl<CalendarTagRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public CalendarTag whereExists(Select<?> select) {
+    public CalendarTag whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -378,7 +378,7 @@ public class CalendarTag extends TableImpl<CalendarTagRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public CalendarTag whereNotExists(Select<?> select) {
+    public CalendarTag whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

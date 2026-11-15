@@ -136,6 +136,6 @@ public class UserExternalIdentityRecord extends UpdatableRecordImpl<UserExternal
         setIssuerTenant(issuerTenant);
         setSubject(subject);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -34,10 +34,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -70,7 +70,7 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
     /**
      * The column <code>public.drive_share_link.id</code>.
      */
-    public final TableField<DriveShareLinkRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<DriveShareLinkRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.drive_share_link.drive_file_id</code>.
@@ -343,7 +343,7 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
      */
     @Override
     public DriveShareLink where(Condition condition) {
-        return new DriveShareLink(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new DriveShareLink(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -410,7 +410,7 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public DriveShareLink whereExists(Select<?> select) {
+    public DriveShareLink whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -418,7 +418,7 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public DriveShareLink whereNotExists(Select<?> select) {
+    public DriveShareLink whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

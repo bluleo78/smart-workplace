@@ -121,6 +121,6 @@ public class MailDraftAttachmentRecord extends UpdatableRecordImpl<MailDraftAtta
         setDraftId(draftId);
         setFileId(fileId);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

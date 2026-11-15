@@ -228,6 +228,6 @@ public class AiMemoryChangeRecord extends UpdatableRecordImpl<AiMemoryChangeReco
         setReason(reason);
         setCreatedAt(createdAt);
         setUndoneAt(undoneAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

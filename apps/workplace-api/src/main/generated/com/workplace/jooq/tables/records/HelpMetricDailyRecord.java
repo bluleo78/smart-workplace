@@ -182,6 +182,6 @@ public class HelpMetricDailyRecord extends UpdatableRecordImpl<HelpMetricDailyRe
         setTerm(term);
         setCount(count);
         setLastAt(lastAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

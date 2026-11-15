@@ -8,7 +8,6 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Channel.ChannelPath;
-import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
 import com.workplace.jooq.tables.MessageLinkPreview.MessageLinkPreviewPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
@@ -37,10 +36,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -73,7 +72,7 @@ public class Message extends TableImpl<MessageRecord> {
     /**
      * The column <code>public.message.id</code>.
      */
-    public final TableField<MessageRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<MessageRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.message.channel_id</code>.
@@ -363,7 +362,7 @@ public class Message extends TableImpl<MessageRecord> {
      */
     @Override
     public Message where(Condition condition) {
-        return new Message(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new Message(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -430,7 +429,7 @@ public class Message extends TableImpl<MessageRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public Message whereExists(Select<?> select) {
+    public Message whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -438,7 +437,7 @@ public class Message extends TableImpl<MessageRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public Message whereNotExists(Select<?> select) {
+    public Message whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

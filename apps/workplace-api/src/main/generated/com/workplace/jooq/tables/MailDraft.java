@@ -34,10 +34,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -70,7 +70,7 @@ public class MailDraft extends TableImpl<MailDraftRecord> {
     /**
      * The column <code>public.mail_draft.id</code>.
      */
-    public final TableField<MailDraftRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<MailDraftRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.mail_draft.tenant_id</code>.
@@ -356,7 +356,7 @@ public class MailDraft extends TableImpl<MailDraftRecord> {
      */
     @Override
     public MailDraft where(Condition condition) {
-        return new MailDraft(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new MailDraft(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -423,7 +423,7 @@ public class MailDraft extends TableImpl<MailDraftRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public MailDraft whereExists(Select<?> select) {
+    public MailDraft whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -431,7 +431,7 @@ public class MailDraft extends TableImpl<MailDraftRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public MailDraft whereNotExists(Select<?> select) {
+    public MailDraft whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

@@ -166,6 +166,6 @@ public class IssueHistoryRecord extends UpdatableRecordImpl<IssueHistoryRecord> 
         setToValue(toValue);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -138,6 +138,6 @@ public class ConversationAttentionRecord extends UpdatableRecordImpl<Conversatio
         setClassifiedMessageId(classifiedMessageId);
         setClassifiedAt(classifiedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

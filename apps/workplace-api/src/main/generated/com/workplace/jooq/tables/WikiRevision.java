@@ -29,10 +29,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -279,7 +279,7 @@ public class WikiRevision extends TableImpl<WikiRevisionRecord> {
      */
     @Override
     public WikiRevision where(Condition condition) {
-        return new WikiRevision(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new WikiRevision(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -346,7 +346,7 @@ public class WikiRevision extends TableImpl<WikiRevisionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public WikiRevision whereExists(Select<?> select) {
+    public WikiRevision whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -354,7 +354,7 @@ public class WikiRevision extends TableImpl<WikiRevisionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public WikiRevision whereNotExists(Select<?> select) {
+    public WikiRevision whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

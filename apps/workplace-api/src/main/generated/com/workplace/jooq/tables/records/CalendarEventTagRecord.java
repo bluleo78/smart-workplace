@@ -121,6 +121,6 @@ public class CalendarEventTagRecord extends UpdatableRecordImpl<CalendarEventTag
         setSource(source);
         setTenantId(tenantId);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

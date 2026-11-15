@@ -121,6 +121,6 @@ public class IssueDependencyRecord extends UpdatableRecordImpl<IssueDependencyRe
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

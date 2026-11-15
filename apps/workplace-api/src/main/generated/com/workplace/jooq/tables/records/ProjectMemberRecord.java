@@ -121,6 +121,6 @@ public class ProjectMemberRecord extends UpdatableRecordImpl<ProjectMemberRecord
         setRole(role);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

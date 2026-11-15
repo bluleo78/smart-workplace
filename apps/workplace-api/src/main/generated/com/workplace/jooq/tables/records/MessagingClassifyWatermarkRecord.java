@@ -110,6 +110,6 @@ public class MessagingClassifyWatermarkRecord extends UpdatableRecordImpl<Messag
         setLastClassifiedMessageId(lastClassifiedMessageId);
         setClassifiedAt(classifiedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

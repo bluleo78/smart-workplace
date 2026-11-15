@@ -32,10 +32,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -68,7 +68,7 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
     /**
      * The column <code>public.agent_work.id</code>.
      */
-    public final TableField<AgentWorkRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<AgentWorkRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.agent_work.tenant_id</code>.
@@ -331,7 +331,7 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
      */
     @Override
     public AgentWork where(Condition condition) {
-        return new AgentWork(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new AgentWork(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -398,7 +398,7 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AgentWork whereExists(Select<?> select) {
+    public AgentWork whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -406,7 +406,7 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AgentWork whereNotExists(Select<?> select) {
+    public AgentWork whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

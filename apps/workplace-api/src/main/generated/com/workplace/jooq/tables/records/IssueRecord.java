@@ -437,6 +437,6 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
         setImportedAt(importedAt);
         setImportSourceKey(importSourceKey);
         setEpicColor(epicColor);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

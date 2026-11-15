@@ -134,6 +134,6 @@ public class EmailAttachmentRecord extends UpdatableRecordImpl<EmailAttachmentRe
         setProviderAttachmentId(providerAttachmentId);
         setContentAttachmentId(contentAttachmentId);
         setOrdinal(ordinal);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

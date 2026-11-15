@@ -136,6 +136,6 @@ public class EventReminderRecord extends UpdatableRecordImpl<EventReminderRecord
         setFiredAt(firedAt);
         setTenantId(tenantId);
         setNextFireAt(nextFireAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

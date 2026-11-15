@@ -346,6 +346,6 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
         setSyncedSince(syncedSince);
         setFolderSyncedAt(folderSyncedAt);
         setServerSent(serverSent);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

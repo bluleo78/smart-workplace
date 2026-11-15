@@ -348,6 +348,6 @@ public class WorkProfileRecord extends UpdatableRecordImpl<WorkProfileRecord> {
         setManualDate(manualDate);
         setManualCount(manualCount);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

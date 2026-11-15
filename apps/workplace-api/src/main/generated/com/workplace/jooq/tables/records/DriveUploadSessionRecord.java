@@ -227,6 +227,6 @@ public class DriveUploadSessionRecord extends UpdatableRecordImpl<DriveUploadSes
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setExpiresAt(expiresAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

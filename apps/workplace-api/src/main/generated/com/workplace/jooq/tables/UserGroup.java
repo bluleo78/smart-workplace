@@ -15,7 +15,6 @@ import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.ProjectMemberGroup.ProjectMemberGroupPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
-import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.UserGroupMember.UserGroupMemberPath;
 import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
 import com.workplace.jooq.tables.WikiPageShareGroup.WikiPageShareGroupPath;
@@ -42,10 +41,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -78,7 +77,7 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
     /**
      * The column <code>public.user_group.id</code>.
      */
-    public final TableField<UserGroupRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<UserGroupRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.user_group.code</code>.
@@ -413,7 +412,7 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
      */
     @Override
     public UserGroup where(Condition condition) {
-        return new UserGroup(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new UserGroup(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -480,7 +479,7 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public UserGroup whereExists(Select<?> select) {
+    public UserGroup whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -488,7 +487,7 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public UserGroup whereNotExists(Select<?> select) {
+    public UserGroup whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

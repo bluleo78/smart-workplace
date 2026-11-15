@@ -166,6 +166,6 @@ public class WikiShareAccessRequestRecord extends UpdatableRecordImpl<WikiShareA
         setCreatedAt(createdAt);
         setDecidedBy(decidedBy);
         setDecidedAt(decidedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

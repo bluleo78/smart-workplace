@@ -226,6 +226,6 @@ public class WikiRevisionRecord extends UpdatableRecordImpl<WikiRevisionRecord> 
         setReason(reason);
         setEditedAt(editedAt);
         setHtmlSource(htmlSource);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

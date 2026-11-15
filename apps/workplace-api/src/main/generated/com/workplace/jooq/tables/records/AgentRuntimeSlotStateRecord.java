@@ -152,6 +152,6 @@ public class AgentRuntimeSlotStateRecord extends UpdatableRecordImpl<AgentRuntim
         setIssueKey(issueKey);
         setNextCheckAt(nextCheckAt);
         setReportedAt(reportedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

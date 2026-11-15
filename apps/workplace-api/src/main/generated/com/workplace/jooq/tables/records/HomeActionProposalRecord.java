@@ -213,6 +213,6 @@ public class HomeActionProposalRecord extends UpdatableRecordImpl<HomeActionProp
         setResolvedAt(resolvedAt);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -106,6 +106,6 @@ public class IssueLabelRecord extends UpdatableRecordImpl<IssueLabelRecord> {
         setLabelId(labelId);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

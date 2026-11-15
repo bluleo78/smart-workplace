@@ -136,6 +136,6 @@ public class WikiHtmlDraftRecord extends UpdatableRecordImpl<WikiHtmlDraftRecord
         setHtmlSource(htmlSource);
         setBaseVersion(baseVersion);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

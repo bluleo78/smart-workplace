@@ -196,6 +196,6 @@ public class AgentLocationRecord extends UpdatableRecordImpl<AgentLocationRecord
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setMetricsAvailable(metricsAvailable);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

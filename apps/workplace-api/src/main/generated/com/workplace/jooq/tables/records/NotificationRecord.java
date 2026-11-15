@@ -286,6 +286,6 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         setEventStartsAt(eventStartsAt);
         setStatusName(statusName);
         setAgentWorkState(agentWorkState);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

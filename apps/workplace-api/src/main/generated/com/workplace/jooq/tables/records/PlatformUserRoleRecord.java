@@ -91,6 +91,6 @@ public class PlatformUserRoleRecord extends UpdatableRecordImpl<PlatformUserRole
         setUserId(userId);
         setPlatformRoleId(platformRoleId);
         setGrantedAt(grantedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

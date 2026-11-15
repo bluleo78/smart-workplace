@@ -29,14 +29,15 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
 import org.jooq.impl.DefaultDataType;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -65,7 +66,7 @@ public class AiMemoryForgotten extends TableImpl<AiMemoryForgottenRecord> {
     /**
      * The column <code>public.ai_memory_forgotten.id</code>.
      */
-    public final TableField<AiMemoryForgottenRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<AiMemoryForgottenRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.ai_memory_forgotten.tenant_id</code>.
@@ -258,7 +259,7 @@ public class AiMemoryForgotten extends TableImpl<AiMemoryForgottenRecord> {
      */
     @Override
     public AiMemoryForgotten where(Condition condition) {
-        return new AiMemoryForgotten(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new AiMemoryForgotten(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -325,7 +326,7 @@ public class AiMemoryForgotten extends TableImpl<AiMemoryForgottenRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AiMemoryForgotten whereExists(Select<?> select) {
+    public AiMemoryForgotten whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -333,7 +334,7 @@ public class AiMemoryForgotten extends TableImpl<AiMemoryForgottenRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AiMemoryForgotten whereNotExists(Select<?> select) {
+    public AiMemoryForgotten whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

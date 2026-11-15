@@ -38,10 +38,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -74,7 +74,7 @@ public class DriveSpace extends TableImpl<DriveSpaceRecord> {
     /**
      * The column <code>public.drive_space.id</code>.
      */
-    public final TableField<DriveSpaceRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<DriveSpaceRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.drive_space.type</code>.
@@ -376,7 +376,7 @@ public class DriveSpace extends TableImpl<DriveSpaceRecord> {
      */
     @Override
     public DriveSpace where(Condition condition) {
-        return new DriveSpace(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new DriveSpace(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -443,7 +443,7 @@ public class DriveSpace extends TableImpl<DriveSpaceRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public DriveSpace whereExists(Select<?> select) {
+    public DriveSpace whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -451,7 +451,7 @@ public class DriveSpace extends TableImpl<DriveSpaceRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public DriveSpace whereNotExists(Select<?> select) {
+    public DriveSpace whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

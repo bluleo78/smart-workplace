@@ -197,6 +197,6 @@ public class AgentScreenSessionRecord extends UpdatableRecordImpl<AgentScreenSes
         setCloseReason(closeReason);
         setInputEnabledAt(inputEnabledAt);
         setInputEnabledBy(inputEnabledBy);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

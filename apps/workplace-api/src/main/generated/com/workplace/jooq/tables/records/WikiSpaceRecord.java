@@ -166,6 +166,6 @@ public class WikiSpaceRecord extends UpdatableRecordImpl<WikiSpaceRecord> {
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setLinkedProjectId(linkedProjectId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

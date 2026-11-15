@@ -226,6 +226,6 @@ public class MailAttachmentPreviewRecord extends UpdatableRecordImpl<MailAttachm
         setBlobPath(blobPath);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

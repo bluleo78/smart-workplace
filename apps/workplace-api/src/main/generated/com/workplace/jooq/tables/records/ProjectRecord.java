@@ -271,6 +271,6 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
         setRepositoryBranch(repositoryBranch);
         setNonMemberComment(nonMemberComment);
         setStatusSummaryInterval(statusSummaryInterval);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -32,10 +32,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -68,7 +68,7 @@ public class PersonalReport extends TableImpl<PersonalReportRecord> {
     /**
      * The column <code>public.personal_report.id</code>.
      */
-    public final TableField<PersonalReportRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<PersonalReportRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.personal_report.user_id</code>.
@@ -316,7 +316,7 @@ public class PersonalReport extends TableImpl<PersonalReportRecord> {
      */
     @Override
     public PersonalReport where(Condition condition) {
-        return new PersonalReport(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new PersonalReport(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -383,7 +383,7 @@ public class PersonalReport extends TableImpl<PersonalReportRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public PersonalReport whereExists(Select<?> select) {
+    public PersonalReport whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -391,7 +391,7 @@ public class PersonalReport extends TableImpl<PersonalReportRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public PersonalReport whereNotExists(Select<?> select) {
+    public PersonalReport whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

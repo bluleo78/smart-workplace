@@ -28,13 +28,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -249,7 +250,7 @@ public class WorkspaceAssistant extends TableImpl<WorkspaceAssistantRecord> {
      */
     @Override
     public WorkspaceAssistant where(Condition condition) {
-        return new WorkspaceAssistant(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new WorkspaceAssistant(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -316,7 +317,7 @@ public class WorkspaceAssistant extends TableImpl<WorkspaceAssistantRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public WorkspaceAssistant whereExists(Select<?> select) {
+    public WorkspaceAssistant whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -324,7 +325,7 @@ public class WorkspaceAssistant extends TableImpl<WorkspaceAssistantRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public WorkspaceAssistant whereNotExists(Select<?> select) {
+    public WorkspaceAssistant whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

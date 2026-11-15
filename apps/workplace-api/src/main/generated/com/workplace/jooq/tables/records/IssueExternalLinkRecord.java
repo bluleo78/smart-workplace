@@ -211,6 +211,6 @@ public class IssueExternalLinkRecord extends UpdatableRecordImpl<IssueExternalLi
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

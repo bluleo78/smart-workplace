@@ -226,6 +226,6 @@ public class FileRecord extends UpdatableRecordImpl<FileRecord> {
         setExpiresAt(expiresAt);
         setThumbnailPath(thumbnailPath);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

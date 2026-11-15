@@ -106,6 +106,6 @@ public class IssueComponentRecord extends UpdatableRecordImpl<IssueComponentReco
         setComponentId(componentId);
         setTenantId(tenantId);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

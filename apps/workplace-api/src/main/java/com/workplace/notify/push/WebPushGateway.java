@@ -1,5 +1,6 @@
 package com.workplace.notify.push;
 
+import com.workplace.global.outbound.OutboundJson;
 import com.workplace.global.util.Texts;
 import java.io.IOException;
 import java.io.InputStream;
@@ -53,7 +54,7 @@ public class WebPushGateway implements PushGateway {
             .withReadTimeout(props.timeout())
             .withRedirects(HttpRedirects.DONT_FOLLOW);
     var factory = factoryBuilder.build(settings);
-    return RestClient.builder().requestFactory(factory).build();
+    return OutboundJson.restClientBuilder().requestFactory(factory).build();
   }
 
   @Override

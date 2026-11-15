@@ -26,10 +26,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -238,7 +238,7 @@ public class AgentRuntimeSlotState extends TableImpl<AgentRuntimeSlotStateRecord
      */
     @Override
     public AgentRuntimeSlotState where(Condition condition) {
-        return new AgentRuntimeSlotState(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new AgentRuntimeSlotState(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -305,7 +305,7 @@ public class AgentRuntimeSlotState extends TableImpl<AgentRuntimeSlotStateRecord
      * Create an inline derived table from this table
      */
     @Override
-    public AgentRuntimeSlotState whereExists(Select<?> select) {
+    public AgentRuntimeSlotState whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -313,7 +313,7 @@ public class AgentRuntimeSlotState extends TableImpl<AgentRuntimeSlotStateRecord
      * Create an inline derived table from this table
      */
     @Override
-    public AgentRuntimeSlotState whereNotExists(Select<?> select) {
+    public AgentRuntimeSlotState whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

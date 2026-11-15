@@ -1,5 +1,6 @@
 package com.workplace.agentaccount.refresh;
 
+import com.workplace.global.outbound.OutboundJson;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.boot.http.client.HttpRedirects;
@@ -23,7 +24,8 @@ public class LoginRefreshHttpConfig {
             .withConnectTimeout(props.connectTimeout())
             .withReadTimeout(props.readTimeout())
             .withRedirects(HttpRedirects.DONT_FOLLOW);
-    RestClient client = RestClient.builder().requestFactory(factoryBuilder.build(settings)).build();
+    RestClient client =
+        OutboundJson.restClientBuilder().requestFactory(factoryBuilder.build(settings)).build();
     return new ChatgptTokenClient(client, props.tokenUrl());
   }
 }

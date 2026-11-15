@@ -166,6 +166,6 @@ public class ProjectStatusSummaryRecord extends UpdatableRecordImpl<ProjectStatu
         setGeneratedAt(generatedAt);
         setCheckedAt(checkedAt);
         setNextRunAt(nextRunAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -151,6 +151,6 @@ public class DriveFileRefRecord extends UpdatableRecordImpl<DriveFileRefRecord> 
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

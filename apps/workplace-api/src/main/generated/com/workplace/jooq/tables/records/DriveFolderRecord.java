@@ -196,6 +196,6 @@ public class DriveFolderRecord extends UpdatableRecordImpl<DriveFolderRecord> {
         setTrashOpId(trashOpId);
         setTrashRoot(trashRoot);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

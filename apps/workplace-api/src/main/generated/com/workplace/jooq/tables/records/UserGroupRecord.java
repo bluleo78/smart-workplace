@@ -181,6 +181,6 @@ public class UserGroupRecord extends UpdatableRecordImpl<UserGroupRecord> {
         setSortOrder(sortOrder);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

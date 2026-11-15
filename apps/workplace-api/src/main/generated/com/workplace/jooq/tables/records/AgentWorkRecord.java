@@ -271,6 +271,6 @@ public class AgentWorkRecord extends UpdatableRecordImpl<AgentWorkRecord> {
         setEndedAt(endedAt);
         setNextRunAt(nextRunAt);
         setStateChangedAt(stateChangedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

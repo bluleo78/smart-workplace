@@ -229,6 +229,6 @@ public class MessageActionProposalRecord extends UpdatableRecordImpl<MessageActi
         setResolvedAt(resolvedAt);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

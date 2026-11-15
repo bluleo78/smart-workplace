@@ -297,6 +297,6 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
         setSearchTv(searchTv);
         setEmbedding(embedding);
         setLastUsedAt(lastUsedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

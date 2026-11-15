@@ -121,6 +121,6 @@ public class DriveSpaceMemberRecord extends UpdatableRecordImpl<DriveSpaceMember
         setRole(role);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

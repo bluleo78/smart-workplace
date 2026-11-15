@@ -104,6 +104,6 @@ public class MailDraftForwardRecord extends UpdatableRecordImpl<MailDraftForward
         setTenantId(tenantId);
         setDraftId(draftId);
         setEmailAttachmentId(emailAttachmentId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

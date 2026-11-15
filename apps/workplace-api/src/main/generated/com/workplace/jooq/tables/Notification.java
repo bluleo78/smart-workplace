@@ -32,13 +32,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -67,7 +68,7 @@ public class Notification extends TableImpl<NotificationRecord> {
     /**
      * The column <code>public.notification.id</code>.
      */
-    public final TableField<NotificationRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<NotificationRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.notification.recipient_id</code>.
@@ -350,7 +351,7 @@ public class Notification extends TableImpl<NotificationRecord> {
      */
     @Override
     public Notification where(Condition condition) {
-        return new Notification(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new Notification(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -417,7 +418,7 @@ public class Notification extends TableImpl<NotificationRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public Notification whereExists(Select<?> select) {
+    public Notification whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -425,7 +426,7 @@ public class Notification extends TableImpl<NotificationRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public Notification whereNotExists(Select<?> select) {
+    public Notification whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

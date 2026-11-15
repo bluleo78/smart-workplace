@@ -24,13 +24,14 @@ import org.jooq.PlainSQL;
 import org.jooq.QueryPart;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -59,7 +60,7 @@ public class MessageActionProposal extends TableImpl<MessageActionProposalRecord
     /**
      * The column <code>public.message_action_proposal.id</code>.
      */
-    public final TableField<MessageActionProposalRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<MessageActionProposalRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.message_action_proposal.message_id</code>.
@@ -217,7 +218,7 @@ public class MessageActionProposal extends TableImpl<MessageActionProposalRecord
      */
     @Override
     public MessageActionProposal where(Condition condition) {
-        return new MessageActionProposal(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new MessageActionProposal(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -284,7 +285,7 @@ public class MessageActionProposal extends TableImpl<MessageActionProposalRecord
      * Create an inline derived table from this table
      */
     @Override
-    public MessageActionProposal whereExists(Select<?> select) {
+    public MessageActionProposal whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -292,7 +293,7 @@ public class MessageActionProposal extends TableImpl<MessageActionProposalRecord
      * Create an inline derived table from this table
      */
     @Override
-    public MessageActionProposal whereNotExists(Select<?> select) {
+    public MessageActionProposal whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

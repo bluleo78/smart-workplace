@@ -301,6 +301,6 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
         setDescription(description);
         setInstructions(instructions);
         setAvatarHash(avatarHash);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

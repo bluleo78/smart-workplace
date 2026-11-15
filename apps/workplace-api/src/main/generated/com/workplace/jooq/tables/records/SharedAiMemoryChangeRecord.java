@@ -258,6 +258,6 @@ public class SharedAiMemoryChangeRecord extends UpdatableRecordImpl<SharedAiMemo
         setCreatedAt(createdAt);
         setUndoneAt(undoneAt);
         setUndoneBy(undoneBy);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

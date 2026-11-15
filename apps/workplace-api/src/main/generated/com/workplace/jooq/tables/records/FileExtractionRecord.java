@@ -370,6 +370,6 @@ public class FileExtractionRecord extends UpdatableRecordImpl<FileExtractionReco
         setEmbedding(embedding);
         setProfile(profile);
         setPageCount(pageCount);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

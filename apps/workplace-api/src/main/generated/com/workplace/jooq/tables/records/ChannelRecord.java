@@ -181,6 +181,6 @@ public class ChannelRecord extends UpdatableRecordImpl<ChannelRecord> {
         setArchivedAt(archivedAt);
         setMemberKey(memberKey);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

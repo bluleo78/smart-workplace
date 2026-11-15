@@ -32,13 +32,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -67,7 +68,7 @@ public class IssueFieldDef extends TableImpl<IssueFieldDefRecord> {
     /**
      * The column <code>public.issue_field_def.id</code>.
      */
-    public final TableField<IssueFieldDefRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<IssueFieldDefRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.issue_field_def.project_id</code>.
@@ -285,7 +286,7 @@ public class IssueFieldDef extends TableImpl<IssueFieldDefRecord> {
      */
     @Override
     public IssueFieldDef where(Condition condition) {
-        return new IssueFieldDef(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new IssueFieldDef(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -352,7 +353,7 @@ public class IssueFieldDef extends TableImpl<IssueFieldDefRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueFieldDef whereExists(Select<?> select) {
+    public IssueFieldDef whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -360,7 +361,7 @@ public class IssueFieldDef extends TableImpl<IssueFieldDefRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public IssueFieldDef whereNotExists(Select<?> select) {
+    public IssueFieldDef whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

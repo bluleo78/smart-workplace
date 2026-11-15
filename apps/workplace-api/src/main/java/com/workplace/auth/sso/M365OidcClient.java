@@ -59,6 +59,7 @@ public class M365OidcClient {
         new JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(TIMEOUT).build());
     factory.setReadTimeout(TIMEOUT);
     this.http = builder.requestFactory(factory).build();
+    // Jackson 2 고정 불필요: Nimbus 가 JWKS 를 String 으로 받아 직접 파싱하므로 JSON 메시지 변환기가 관여하지 않는다.
     this.jwksHttp = new RestTemplate(factory);
   }
 

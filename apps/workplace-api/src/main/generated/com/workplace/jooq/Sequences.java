@@ -5,6 +5,7 @@ package com.workplace.jooq;
 
 
 import org.jooq.Sequence;
+import org.jooq.impl.DSL;
 import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 
@@ -18,10 +19,10 @@ public class Sequences {
     /**
      * The sequence <code>public.agent_repo_credential_change_seq</code>
      */
-    public static final Sequence<Long> AGENT_REPO_CREDENTIAL_CHANGE_SEQ = Internal.createSequence("agent_repo_credential_change_seq", Public.PUBLIC, SQLDataType.BIGINT.nullable(false), null, null, null, null, false, null);
+    public static final Sequence<Long> AGENT_REPO_CREDENTIAL_CHANGE_SEQ = Internal.createSequence("agent_repo_credential_change_seq", Public.PUBLIC, DSL.comment(""), SQLDataType.BIGINT.nullable(false), null, null, null, null, false, null);
 
     /**
      * The sequence <code>public.drive_trash_op_seq</code>
      */
-    public static final Sequence<Long> DRIVE_TRASH_OP_SEQ = Internal.createSequence("drive_trash_op_seq", Public.PUBLIC, SQLDataType.BIGINT.nullable(false), null, null, null, null, false, null);
+    public static final Sequence<Long> DRIVE_TRASH_OP_SEQ = Internal.createSequence("drive_trash_op_seq", Public.PUBLIC, DSL.comment(""), SQLDataType.BIGINT.nullable(false), null, null, null, null, false, null);
 }

@@ -257,6 +257,6 @@ public class ProjectReportRecord extends UpdatableRecordImpl<ProjectReportRecord
         setOverdue(overdue);
         setReservedAt(reservedAt);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

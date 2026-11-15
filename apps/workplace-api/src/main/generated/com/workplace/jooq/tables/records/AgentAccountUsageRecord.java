@@ -152,6 +152,6 @@ public class AgentAccountUsageRecord extends UpdatableRecordImpl<AgentAccountUsa
         setResetsAt(resetsAt);
         setLimitStatus(limitStatus);
         setObservedAt(observedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

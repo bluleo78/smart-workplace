@@ -317,6 +317,6 @@ public class WikiHtmlScriptsCheckRecord extends UpdatableRecordImpl<WikiHtmlScri
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

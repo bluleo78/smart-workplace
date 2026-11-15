@@ -196,6 +196,6 @@ public class CalendarTagRecord extends UpdatableRecordImpl<CalendarTagRecord> {
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setOrigin(origin);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

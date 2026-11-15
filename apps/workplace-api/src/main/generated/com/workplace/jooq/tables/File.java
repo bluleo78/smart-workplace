@@ -42,13 +42,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -77,7 +78,7 @@ public class File extends TableImpl<FileRecord> {
     /**
      * The column <code>public.file.id</code>.
      */
-    public final TableField<FileRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<FileRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.file.original_name</code>.
@@ -458,7 +459,7 @@ public class File extends TableImpl<FileRecord> {
      */
     @Override
     public File where(Condition condition) {
-        return new File(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new File(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -525,7 +526,7 @@ public class File extends TableImpl<FileRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public File whereExists(Select<?> select) {
+    public File whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -533,7 +534,7 @@ public class File extends TableImpl<FileRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public File whereNotExists(Select<?> select) {
+    public File whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

@@ -121,6 +121,6 @@ public class ThreadReadStateRecord extends UpdatableRecordImpl<ThreadReadStateRe
         setLastReadReplyId(lastReadReplyId);
         setFollowedAt(followedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

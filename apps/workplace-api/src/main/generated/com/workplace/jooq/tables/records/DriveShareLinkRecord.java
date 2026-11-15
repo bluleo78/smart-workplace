@@ -241,6 +241,6 @@ public class DriveShareLinkRecord extends UpdatableRecordImpl<DriveShareLinkReco
         setTenantId(tenantId);
         setTokenEncrypted(tokenEncrypted);
         setDriveFolderId(driveFolderId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -163,6 +163,6 @@ public class AiMemoryForgottenRecord extends UpdatableRecordImpl<AiMemoryForgott
         setNormalized(normalized);
         setEmbedding(embedding);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

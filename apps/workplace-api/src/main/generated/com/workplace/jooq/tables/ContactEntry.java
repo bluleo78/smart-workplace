@@ -30,10 +30,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -66,7 +66,7 @@ public class ContactEntry extends TableImpl<ContactEntryRecord> {
     /**
      * The column <code>public.contact_entry.id</code>.
      */
-    public final TableField<ContactEntryRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<ContactEntryRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.contact_entry.name</code>.
@@ -285,7 +285,7 @@ public class ContactEntry extends TableImpl<ContactEntryRecord> {
      */
     @Override
     public ContactEntry where(Condition condition) {
-        return new ContactEntry(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new ContactEntry(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -352,7 +352,7 @@ public class ContactEntry extends TableImpl<ContactEntryRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public ContactEntry whereExists(Select<?> select) {
+    public ContactEntry whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -360,7 +360,7 @@ public class ContactEntry extends TableImpl<ContactEntryRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public ContactEntry whereNotExists(Select<?> select) {
+    public ContactEntry whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

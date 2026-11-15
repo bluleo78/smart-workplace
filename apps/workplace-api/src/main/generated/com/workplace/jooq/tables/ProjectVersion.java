@@ -33,10 +33,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -69,7 +69,7 @@ public class ProjectVersion extends TableImpl<ProjectVersionRecord> {
     /**
      * The column <code>public.project_version.id</code>.
      */
-    public final TableField<ProjectVersionRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<ProjectVersionRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.project_version.tenant_id</code>.
@@ -314,7 +314,7 @@ public class ProjectVersion extends TableImpl<ProjectVersionRecord> {
      */
     @Override
     public ProjectVersion where(Condition condition) {
-        return new ProjectVersion(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new ProjectVersion(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -381,7 +381,7 @@ public class ProjectVersion extends TableImpl<ProjectVersionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public ProjectVersion whereExists(Select<?> select) {
+    public ProjectVersion whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -389,7 +389,7 @@ public class ProjectVersion extends TableImpl<ProjectVersionRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public ProjectVersion whereNotExists(Select<?> select) {
+    public ProjectVersion whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

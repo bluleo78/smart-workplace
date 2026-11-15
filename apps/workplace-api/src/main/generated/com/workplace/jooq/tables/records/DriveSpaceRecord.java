@@ -181,6 +181,6 @@ public class DriveSpaceRecord extends UpdatableRecordImpl<DriveSpaceRecord> {
         setTenantId(tenantId);
         setLinkedChannelId(linkedChannelId);
         setArchivedAt(archivedAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

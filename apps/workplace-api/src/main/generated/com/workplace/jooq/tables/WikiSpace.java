@@ -35,13 +35,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -70,7 +71,7 @@ public class WikiSpace extends TableImpl<WikiSpaceRecord> {
     /**
      * The column <code>public.wiki_space.id</code>.
      */
-    public final TableField<WikiSpaceRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<WikiSpaceRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.wiki_space.tenant_id</code>.
@@ -334,7 +335,7 @@ public class WikiSpace extends TableImpl<WikiSpaceRecord> {
      */
     @Override
     public WikiSpace where(Condition condition) {
-        return new WikiSpace(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new WikiSpace(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -401,7 +402,7 @@ public class WikiSpace extends TableImpl<WikiSpaceRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public WikiSpace whereExists(Select<?> select) {
+    public WikiSpace whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -409,7 +410,7 @@ public class WikiSpace extends TableImpl<WikiSpaceRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public WikiSpace whereNotExists(Select<?> select) {
+    public WikiSpace whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

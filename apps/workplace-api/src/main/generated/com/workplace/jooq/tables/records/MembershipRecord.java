@@ -136,6 +136,6 @@ public class MembershipRecord extends UpdatableRecordImpl<MembershipRecord> {
         setStatus(status);
         setCreatedAt(createdAt);
         setRole(role);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

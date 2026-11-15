@@ -121,6 +121,6 @@ public class IssueVersionRecord extends UpdatableRecordImpl<IssueVersionRecord> 
         setKind(kind);
         setTenantId(tenantId);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -182,6 +182,6 @@ public class IssueFieldDefRecord extends UpdatableRecordImpl<IssueFieldDefRecord
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

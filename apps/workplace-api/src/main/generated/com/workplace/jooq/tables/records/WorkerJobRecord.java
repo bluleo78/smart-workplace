@@ -197,6 +197,6 @@ public class WorkerJobRecord extends UpdatableRecordImpl<WorkerJobRecord> {
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

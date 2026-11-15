@@ -106,6 +106,6 @@ public class ProjectFavoriteRecord extends UpdatableRecordImpl<ProjectFavoriteRe
         setUserId(userId);
         setProjectId(projectId);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -32,10 +32,10 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
@@ -68,7 +68,7 @@ public class HomeActionProposal extends TableImpl<HomeActionProposalRecord> {
     /**
      * The column <code>public.home_action_proposal.id</code>.
      */
-    public final TableField<HomeActionProposalRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<HomeActionProposalRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.home_action_proposal.session_id</code>.
@@ -284,7 +284,7 @@ public class HomeActionProposal extends TableImpl<HomeActionProposalRecord> {
      */
     @Override
     public HomeActionProposal where(Condition condition) {
-        return new HomeActionProposal(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new HomeActionProposal(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -351,7 +351,7 @@ public class HomeActionProposal extends TableImpl<HomeActionProposalRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public HomeActionProposal whereExists(Select<?> select) {
+    public HomeActionProposal whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -359,7 +359,7 @@ public class HomeActionProposal extends TableImpl<HomeActionProposalRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public HomeActionProposal whereNotExists(Select<?> select) {
+    public HomeActionProposal whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

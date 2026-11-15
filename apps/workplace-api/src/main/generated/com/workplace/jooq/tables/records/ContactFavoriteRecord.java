@@ -121,6 +121,6 @@ public class ContactFavoriteRecord extends UpdatableRecordImpl<ContactFavoriteRe
         setTargetId(targetId);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

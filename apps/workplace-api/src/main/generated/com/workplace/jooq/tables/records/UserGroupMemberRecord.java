@@ -136,6 +136,6 @@ public class UserGroupMemberRecord extends UpdatableRecordImpl<UserGroupMemberRe
         setCreatedAt(createdAt);
         setTenantId(tenantId);
         setIsLeader(isLeader);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -106,6 +106,6 @@ public class ChannelMemberGroupExclusionRecord extends UpdatableRecordImpl<Chann
         setUserId(userId);
         setTenantId(tenantId);
         setCreatedAt(createdAt);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

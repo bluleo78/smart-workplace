@@ -226,6 +226,6 @@ public class DriveFileRecord extends UpdatableRecordImpl<DriveFileRecord> {
         setTrashRoot(trashRoot);
         setTenantId(tenantId);
         setVersionCount(versionCount);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -197,6 +197,6 @@ public class CycleRecord extends UpdatableRecordImpl<CycleRecord> {
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -33,13 +33,14 @@ import org.jooq.QueryPart;
 import org.jooq.Record;
 import org.jooq.SQL;
 import org.jooq.Schema;
-import org.jooq.Select;
 import org.jooq.Stringly;
 import org.jooq.Table;
 import org.jooq.TableField;
+import org.jooq.TableLike;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -68,7 +69,7 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
     /**
      * The column <code>public.agent_account.id</code>.
      */
-    public final TableField<AgentAccountRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<AgentAccountRecord, Long> ID = createField(DSL.name("id"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.agent_account.tenant_id</code>.
@@ -93,7 +94,7 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
     /**
      * The column <code>public.agent_account.secret_version</code>.
      */
-    public final TableField<AgentAccountRecord, Long> SECRET_VERSION = createField(DSL.name("secret_version"), SQLDataType.BIGINT.nullable(false).identity(true), this, "");
+    public final TableField<AgentAccountRecord, Long> SECRET_VERSION = createField(DSL.name("secret_version"), SQLDataType.BIGINT.nullable(false).generatedByDefaultAsIdentity(), this, "");
 
     /**
      * The column <code>public.agent_account.account_email</code>.
@@ -359,7 +360,7 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
      */
     @Override
     public AgentAccount where(Condition condition) {
-        return new AgentAccount(getQualifiedName(), aliased() ? this : null, null, condition);
+        return new AgentAccount(getQualifiedName(), aliased() ? this : null, null, Internal.condition(this, condition));
     }
 
     /**
@@ -426,7 +427,7 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AgentAccount whereExists(Select<?> select) {
+    public AgentAccount whereExists(TableLike<?> select) {
         return where(DSL.exists(select));
     }
 
@@ -434,7 +435,7 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
      * Create an inline derived table from this table
      */
     @Override
-    public AgentAccount whereNotExists(Select<?> select) {
+    public AgentAccount whereNotExists(TableLike<?> select) {
         return where(DSL.notExists(select));
     }
 }

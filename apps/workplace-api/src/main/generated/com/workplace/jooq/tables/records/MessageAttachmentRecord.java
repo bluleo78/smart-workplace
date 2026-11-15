@@ -121,6 +121,6 @@ public class MessageAttachmentRecord extends UpdatableRecordImpl<MessageAttachme
         setAttachedBy(attachedBy);
         setAttachedAt(attachedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

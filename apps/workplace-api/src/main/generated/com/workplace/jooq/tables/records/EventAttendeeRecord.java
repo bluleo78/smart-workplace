@@ -211,6 +211,6 @@ public class EventAttendeeRecord extends UpdatableRecordImpl<EventAttendeeRecord
         setTenantId(tenantId);
         setExternalEmail(externalEmail);
         setExternalName(externalName);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }

@@ -122,6 +122,6 @@ public class IssueFieldValueRecord extends UpdatableRecordImpl<IssueFieldValueRe
         setValue(value);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
-        resetChangedOnNotNull();
+        resetTouchedOnNotNull();
     }
 }
