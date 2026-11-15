@@ -187,6 +187,15 @@ export function progressChart(p: ProjectOverviewProgress, width = 600, height = 
   return { width, height, scope, done, projected, endX: targetEnd ? x(targetEnd) : null }
 }
 
+/**
+ * 종료선 위 글(「출시 12/1」)의 놓는 자리 — 선 x 의 그래프 폭 대비 %(WP-1626). 화면은 이 값을 left 로 주고 글을 자기 폭의 같은 %만큼
+ * 왼쪽으로 민다(translateX(-p%)). 그러면 글 왼쪽 끝 = p × (그래프 폭 − 글 폭) 이라 그래프 폭·글 길이와 상관없이 늘 그래프 안이고,
+ * 선이 가운데면 글 가운데, 끝이면 글 끝에 선이 온다(구간 문턱값 없이).
+ */
+export function endLabelPct(endX: number, width: number): number {
+  return Math.min(100, Math.max(0, (endX / width) * 100))
+}
+
 /** 날짜 키 → 「11/23」 — 그래프 종료선 위 짧은 글. */
 export function slashDay(key: string): string {
   const [, m, d] = key.split('-').map(Number)

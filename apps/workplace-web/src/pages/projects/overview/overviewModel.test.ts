@@ -12,6 +12,7 @@ import {
   attentionHref,
   barPct,
   dueSoonHref,
+  endLabelPct,
   epicsHref,
   firstAttentionTile,
   progressChart,
@@ -112,6 +113,17 @@ describe('projectionText', () => {
     expect(projectionText(createTrendProgress({ trendDelta: 14 }), TODAY)).toEqual({ text: '8주 동안 +14 · 늘어나는 중', tone: 'warning' })
     expect(projectionText(createTrendProgress({ trendDelta: -9 }), TODAY)).toEqual({ text: '8주 동안 -9 · 줄어드는 중', tone: 'success' })
     expect(projectionText(createTrendProgress({ trendDelta: 0 }), TODAY)).toEqual({ text: '8주 동안 그대로', tone: 'muted' })
+  })
+})
+
+// WP-1626 — 종료선 글 자리: 선 x 의 폭 대비 %. 화면이 같은 %로 글을 밀어 그래프 안에 둔다. 0~100 밖은 자른다.
+describe('endLabelPct', () => {
+  it('선 x 를 그래프 폭 대비 %로 주고 0~100 으로 자른다', () => {
+    expect(endLabelPct(596, 600)).toBeCloseTo(99.33, 2)
+    expect(endLabelPct(300, 600)).toBe(50)
+    expect(endLabelPct(0, 600)).toBe(0)
+    expect(endLabelPct(-4, 600)).toBe(0)
+    expect(endLabelPct(610, 600)).toBe(100)
   })
 })
 

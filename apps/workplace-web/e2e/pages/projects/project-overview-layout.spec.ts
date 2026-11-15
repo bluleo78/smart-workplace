@@ -4,6 +4,7 @@ import { createProject } from '../../factories/project.factory'
 import {
   createActivityGroup,
   createAttentionItem,
+  createCycleProgress,
   createProjectOverview,
   overviewHuman,
 } from '../../factories/projectOverview.factory'
@@ -37,6 +38,39 @@ test.describe('프로젝트 개요 — 좁은 폭', { tag: '@layout' }, () => {
     expect(overflow).toEqual([])
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   })
+
+  // WP-1626 — 종료선이 그래프 오른쪽 끝(사이클 종료일 = 그래프 끝)일 때 「종료 11/23」이 「종료 / 11/23」으로 세로로 쌓였다.
+  // 선이 끝·가운데·시작 가까이 어디에 서도 글은 한 줄이고 그래프 안이어야 한다(가로는 시작 ~ max(종료일, 예상일)).
+  const endCases = [
+    { name: '오른쪽 끝(사이클 종료일 = 그래프 끝)', progress: createCycleProgress(), text: '종료 11/23' },
+    { name: '가운데(예상일이 종료일보다 늦은 버전)', progress: createCycleProgress({ kind: 'VERSION', projectedDate: '2026-12-06' }), text: '출시 11/23' },
+    {
+      name: '왼쪽 끝(종료일 다음 날 시작한 것처럼 예상일이 아주 늦음)',
+      progress: createCycleProgress({ target: { id: 3, name: 'v1', start: '2026-11-10', end: '2026-11-11' }, projectedDate: '2027-02-17' }),
+      text: '종료 11/11',
+    },
+  ]
+  for (const c of endCases) {
+    test(`진행 중 그래프의 종료선 글이 한 줄로 그래프 안에 보인다 — ${c.name}`, async ({ authenticatedPage: page }) => {
+      const overview = createProjectOverview()
+      overview.progress = c.progress
+      await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject({ key: KEY }) }))
+      await page.route(`**/api/v1/projects/${KEY}/overview`, (r) => r.fulfill({ json: overview }))
+      await page.goto(`/projects/${KEY}/overview`)
+
+      const label = page.getByTestId('progress-end-label')
+      await expect(label).toHaveText(c.text)
+      const box = await label.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const chart = el.closest('[data-testid="progress-chart"]')!.getBoundingClientRect()
+        return { height: r.height, over: r.right - chart.right, under: chart.left - r.left }
+      })
+      // text-xs 한 줄은 16px — 두 줄이면 32px 다.
+      expect(box.height).toBeLessThan(24)
+      expect(box.over).toBeLessThanOrEqual(0)
+      expect(box.under).toBeLessThanOrEqual(0)
+    })
+  }
 })
 
 // WP-1610 — 도움말 패널을 연 1280px 데스크탑처럼 우측 열(12열 중 4열) 카드가 좁아질 때 「열린 이슈」·「작업량」 줄의 건수가 카드 밖으로 밀리지 않는다.
