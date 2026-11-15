@@ -3,7 +3,7 @@
 // 브라우저 없이 판정되므로 e2e/pages/dialog-state-reset.spec.ts · required-field-indicators.spec.ts · submit-loading-state.spec.ts 에서 옮겼다.
 // 이슈·프로젝트 만들기 대화상자의 같은 판정은 src/pages/projects/issueCreateValidation.test.tsx · projectCreateValidation.test.tsx 에 있다.
 // 대화상자(또는 대화상자를 가진 가장 작은 화면)만 renderScreen 으로 띄운다.
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
@@ -110,5 +110,167 @@ describe('채널 대화상자 — 제출 중 표시 (#131)', () => {
     expect(bodies).toEqual([expect.objectContaining({ name: '변경채널' })])
     release()
     await waitFor(() => expect(submit).not.toHaveTextContent('저장 중…'))
+  })
+})
+
+// 채널 이름 변경 창 — 입력칸에 보이는 라벨 「채널 이름」 이 이어지고, Enter 로도 저장된다(WP-1615).
+// Enter 저장도 「저장」 단추의 비활성 조건(빈 이름·지금 이름 그대로·처리 중)을 그대로 지키고, 한글 조합 Enter 는 저장으로 보지 않는다.
+describe('채널 이름 변경 창 — 라벨과 Enter 저장 (WP-1615)', () => {
+  /**
+   * 이름 변경 창을 띄우고 이름 변경(PATCH)·보관 해제(POST unarchive) 요청 본문을 모은다.
+   * held 를 주면 응답을 붙잡아 「처리 중」 을 관찰할 수 있고, error 를 주면 그 상태·문구로 실패 응답한다.
+   */
+  async function renderRename({
+    mode = 'rename',
+    currentName = '기존채널',
+    held,
+    error,
+  }: {
+    mode?: 'rename' | 'unarchive'
+    currentName?: string
+    held?: Promise<void>
+    error?: { status: number; message: string }
+  } = {}) {
+    const bodies: unknown[] = []
+    const closes: boolean[] = []
+    const respond = async (request: Request, ok: () => Response) => {
+      bodies.push(await request.json())
+      if (held) await held
+      return error ? HttpResponse.json({ message: error.message }, { status: error.status }) : ok()
+    }
+    const { user } = renderScreen(
+      <RenameChannelModal
+        channelId={5}
+        currentName={currentName}
+        mode={mode}
+        open
+        onOpenChange={(v) => closes.push(v)}
+      />,
+      {
+        handlers: [
+          http.patch('/api/v1/messaging/channels/5', ({ request }) => respond(request, () => HttpResponse.json({}))),
+          http.post('/api/v1/messaging/channels/5/unarchive', ({ request }) =>
+            respond(request, () => new HttpResponse(null, { status: 204 })),
+          ),
+        ],
+      },
+    )
+    const input = await screen.findByRole<HTMLInputElement>('textbox', { name: '채널 이름' })
+    /** 입력칸을 비우고 새 이름을 채운다. */
+    const fill = async (value: string) => {
+      await user.clear(input)
+      await user.paste(value)
+    }
+    return { user, input, fill, bodies, closes }
+  }
+
+  /** 「요청이 없다」 를 네트워크 계층에서 확인하기 전 잠시 기다린다 — 요청이 나갔다면 이 사이 핸들러에 닿는다. */
+  const letStrayRequestArrive = () => new Promise((r) => setTimeout(r, 50))
+
+  test.each(['rename', 'unarchive'] as const)('%s 모드 — 입력칸을 「채널 이름」 으로 찾을 수 있다', async (mode) => {
+    const { input } = await renderRename({ mode })
+    expect(input).toHaveValue('기존채널')
+  })
+
+  test('이름을 바꾸고 Enter 를 누르면 이름 변경 요청이 한 번 가고 창이 닫힌다', async () => {
+    const { user, fill, bodies, closes } = await renderRename()
+    await fill('변경채널')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(closes).toEqual([false]))
+    expect(bodies).toEqual([{ name: '변경채널' }])
+  })
+
+  test('처리 중에 Enter 를 거듭 눌러도 요청은 한 번만 간다', async () => {
+    const { held, release } = hold()
+    const { user, fill, bodies } = await renderRename({ held })
+    await fill('변경채널')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(screen.getByTestId('rename-channel-submit')).toHaveTextContent('저장 중…'))
+    await user.keyboard('{Enter}')
+    await user.keyboard('{Enter}')
+    release()
+    await waitFor(() => expect(screen.getByTestId('rename-channel-submit')).not.toHaveTextContent('저장 중…'))
+    expect(bodies).toEqual([{ name: '변경채널' }])
+  })
+
+  test('같은 틱에 Enter 와 저장 클릭이 겹쳐도(다시 그리기 전) 요청은 한 번만 간다', async () => {
+    const { held, release } = hold()
+    const { input, fill, bodies } = await renderRename({ held })
+    await fill('변경채널')
+    const submit = screen.getByTestId('rename-channel-submit')
+    // fireEvent 는 매번 다시 그려 두 번째가 pending(비활성)에 막힌다 — 한 act 안에서 연달아 보내 렌더 전 경합을 만든다.
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      submit.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    release()
+    await waitFor(() => expect(submit).not.toHaveTextContent('저장 중…'))
+    expect(bodies).toEqual([{ name: '변경채널' }])
+  })
+
+  test('공백만 남긴 이름으로 Enter 를 누르면 요청을 보내지 않는다', async () => {
+    const { user, fill, bodies } = await renderRename()
+    await fill('   ')
+    await user.keyboard('{Enter}')
+    await letStrayRequestArrive()
+    expect(bodies).toEqual([])
+    expect(screen.getByTestId('rename-channel-modal')).toBeInTheDocument()
+  })
+
+  test('이름 변경 — 지금 이름 그대로면 저장 단추가 비활성이고 Enter 로도 요청이 가지 않는다', async () => {
+    const { user, input, bodies } = await renderRename()
+    expect(screen.getByTestId('rename-channel-submit')).toBeDisabled()
+    await user.click(input)
+    await user.keyboard('{Enter}')
+    await letStrayRequestArrive()
+    expect(bodies).toEqual([])
+  })
+
+  test('이름 변경 — 대소문자만 바꾸는 변경은 보낸다', async () => {
+    const { user, fill, bodies } = await renderRename({ currentName: 'general' })
+    await fill('General')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(bodies).toEqual([{ name: 'General' }]))
+  })
+
+  test('보관 해제 — 같은 이름 그대로 Enter 는 요청이 없고, 새 이름으로 Enter 하면 그 이름으로 해제한다', async () => {
+    const { user, input, fill, bodies, closes } = await renderRename({ mode: 'unarchive' })
+    await user.click(input)
+    await user.keyboard('{Enter}')
+    await letStrayRequestArrive()
+    expect(bodies).toEqual([])
+
+    await fill('새채널')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(closes).toEqual([false]))
+    expect(bodies).toEqual([{ name: '새채널' }])
+  })
+
+  test.each([
+    ['조합 중(isComposing)', { isComposing: true }],
+    ['keyCode 229(Safari 조합 확정)', { keyCode: 229 }],
+  ])('%s Enter 는 저장하지 않는다', async (_label, init) => {
+    const { input, fill, bodies } = await renderRename()
+    await fill('변경채널')
+    fireEvent.keyDown(input, { key: 'Enter', ...init })
+    await letStrayRequestArrive()
+    expect(bodies).toEqual([])
+    expect(screen.getByTestId('rename-channel-modal')).toBeInTheDocument()
+  })
+
+  test('서버가 이름 중복(409)을 돌려주면 오류 문구가 보이고 입력칸이 그 문구를 설명으로 가리킨다', async () => {
+    const { user, input, fill } = await renderRename({
+      error: { status: 409, message: '이미 같은 이름의 채널이 있습니다.' },
+    })
+    // 오류가 없을 때는 없는 id 를 가리키지 않는다.
+    expect(input).not.toHaveAttribute('aria-describedby')
+    await fill('겹치는채널')
+    await user.keyboard('{Enter}')
+    const error = await screen.findByTestId('rename-channel-name-error')
+    expect(error).toHaveTextContent('이미 같은 이름의 채널이 있습니다.')
+    expect(input).toHaveAccessibleDescription('이미 같은 이름의 채널이 있습니다.')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
   })
 })
