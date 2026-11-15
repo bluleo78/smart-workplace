@@ -5,15 +5,19 @@
 // 대화상자(또는 대화상자를 가진 가장 작은 화면)만 renderScreen 으로 띄운다.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { describe, expect, test } from 'vitest'
 
+import { CalendarEditDialog } from '@/components/calendar/CalendarEditDialog'
 import { CreateChannelModal } from '@/components/chat/CreateChannelModal'
 import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ExternalContactFormDialog } from '@/components/contacts/ExternalContactFormDialog'
 import RoleListPage from '@/pages/admin/RoleListPage'
 import { renderScreen } from '@/test/renderScreen'
+import type { Calendar, CalendarRequest } from '@/types/calendar'
 import type { RoleResponse } from '@/types/role'
 
+import { calendar as makeCalendar } from '../../e2e/factories/calendar.factory'
 import { createChannel } from '../../e2e/factories/messaging.factory'
 
 /** 응답을 붙잡아 두는 지연 — release() 전까지 요청이 끝나지 않아 「제출 중」 상태를 관찰할 수 있다. */
@@ -347,5 +351,123 @@ describe('채널 만들기 — Enter 로 만들기 (WP-1614)', () => {
     release()
     await waitFor(() => expect(location()).toBe('/chat/channels/12'))
     expect(posts).toBe(1)
+  })
+})
+
+// 캘린더 추가·편집 창 — 이름 칸 Enter 가 「추가/저장」 단추와 같다(WP-1623).
+// 제출은 화면(CalendarPage)이 mutation 으로 하고 그 Promise 를 돌려주며 isPending 을 내려 준다 — 같은 모양의 작은 틀로 띄운다:
+// 제출하면 처리 중이 되고, succeed()·fail() 로 요청을 끝낸다. 틀은 성공해도 창을 닫지 않아(닫히는 애니메이션 동안과 같다)
+// 성공 뒤 Enter 가 다시 보내지 않는지, 실패 뒤에는 다시 보낼 수 있는지 본다.
+describe('캘린더 추가·편집 창 — Enter 로 추가 (WP-1623)', () => {
+  function renderCalendarDialog(cal: Calendar | null = null) {
+    const submits: CalendarRequest[] = []
+    let settle: { resolve: () => void; reject: (e: Error) => void } | null = null
+    function Harness() {
+      const [pending, setPending] = useState(false)
+      return (
+        <CalendarEditDialog
+          open
+          onOpenChange={() => {}}
+          calendar={cal}
+          isPending={pending}
+          onSubmit={(body) => {
+            submits.push(body)
+            setPending(true)
+            return new Promise<void>((resolve, reject) => {
+              settle = { resolve, reject }
+            }).finally(() => setPending(false))
+          }}
+        />
+      )
+    }
+    const view = renderScreen(<Harness />, { path: '/calendar' })
+    const finish = async (ok: boolean) => {
+      await act(async () => {
+        if (ok) settle?.resolve()
+        else settle?.reject(new Error('실패'))
+      })
+    }
+    return { ...view, submits, succeed: () => finish(true), fail: () => finish(false) }
+  }
+
+  test('이름을 넣고 Enter 를 누르면 그 이름·기본 색으로 한 번 추가한다', async () => {
+    const { user, submits } = renderCalendarDialog()
+    await user.click(await screen.findByTestId('calendar-edit-name'))
+    await user.paste('  엔터캘린더  ')
+    await user.keyboard('{Enter}')
+    expect(submits).toEqual([{ name: '엔터캘린더', color: 'blue' }])
+    // 처리 중에는 단추가 꺼지고 Enter 를 거듭 눌러도 다시 보내지 않는다.
+    expect(screen.getByTestId('calendar-edit-submit')).toBeDisabled()
+    await user.keyboard('{Enter}{Enter}')
+    expect(submits).toHaveLength(1)
+  })
+
+  test('공백만 넣고 Enter 를 누르면 추가하지 않는다 — 단추가 꺼진 것과 같은 판정', async () => {
+    const { user, submits } = renderCalendarDialog()
+    await user.click(await screen.findByTestId('calendar-edit-name'))
+    await user.paste('   ')
+    expect(screen.getByTestId('calendar-edit-submit')).toBeDisabled()
+    await user.keyboard('{Enter}')
+    expect(submits).toEqual([])
+  })
+
+  test.each([
+    ['조합 중(isComposing)', { isComposing: true }],
+    ['keyCode 229(Safari 조합 확정)', { keyCode: 229 }],
+  ])('%s Enter 는 추가하지 않는다', async (_label, init) => {
+    const { user, submits } = renderCalendarDialog()
+    const input = await screen.findByTestId('calendar-edit-name')
+    await user.click(input)
+    await user.paste('조합캘린더')
+    fireEvent.keyDown(input, { key: 'Enter', ...init })
+    expect(submits).toEqual([])
+  })
+
+  // isPending 은 다시 그린 뒤에야 켜진다 — 같은 틱 Enter 두 번에도 한 번만 보내야 캘린더가 둘 생기지 않는다.
+  test('같은 틱에 Enter 를 두 번 눌러도 한 번만 추가한다', async () => {
+    const { user, submits } = renderCalendarDialog()
+    const input = await screen.findByTestId('calendar-edit-name')
+    await user.click(input)
+    await user.paste('연타캘린더')
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    })
+    expect(submits).toHaveLength(1)
+  })
+
+  test('요청이 실패해 창이 남으면 다시 Enter 로 추가할 수 있다', async () => {
+    const { user, submits, fail } = renderCalendarDialog()
+    await user.click(await screen.findByTestId('calendar-edit-name'))
+    await user.paste('재시도캘린더')
+    await user.keyboard('{Enter}')
+    await fail()
+    expect(screen.getByTestId('calendar-edit-submit')).toBeEnabled()
+    await user.keyboard('{Enter}')
+    expect(submits).toEqual([
+      { name: '재시도캘린더', color: 'blue' },
+      { name: '재시도캘린더', color: 'blue' },
+    ])
+  })
+
+  // 성공하면 화면이 창을 닫지만 닫히는 동안에도 입력칸에 포커스가 남는다 — 그 사이 Enter 로 하나 더 만들지 않아야 한다.
+  test('추가가 끝난 뒤 창이 닫히기 전에 Enter 를 눌러도 다시 추가하지 않는다', async () => {
+    const { user, submits, succeed } = renderCalendarDialog()
+    await user.click(await screen.findByTestId('calendar-edit-name'))
+    await user.paste('한번만캘린더')
+    await user.keyboard('{Enter}')
+    await succeed()
+    await user.keyboard('{Enter}')
+    expect(submits).toEqual([{ name: '한번만캘린더', color: 'blue' }])
+  })
+
+  test('편집 — 이름을 바꾸고 Enter 를 누르면 바꾼 이름·기존 색으로 저장한다', async () => {
+    const { user, submits } = renderCalendarDialog(makeCalendar({ id: 7, name: '업무', color: 'green', isDefault: false }))
+    const input = await screen.findByTestId('calendar-edit-name')
+    expect(input).toHaveValue('업무')
+    await user.clear(input)
+    await user.paste('업무2')
+    await user.keyboard('{Enter}')
+    expect(submits).toEqual([{ name: '업무2', color: 'green' }])
   })
 })

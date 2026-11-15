@@ -509,12 +509,15 @@ export function CalendarPage() {
     setEditingCal(c)
     setCalEditOpen(true)
   }
-  const submitCalendar = (body: CalendarRequest) => {
+  // 추가·저장 — 끝을 기다릴 수 있게 Promise 를 돌려준다(창이 같은 제출을 두 번 보내지 않도록 막고 실패 때만 푼다, WP-1623).
+  // 성공하면 창을 닫고, 실패는 훅이 토스트로 알린 뒤 거절로 돌려준다.
+  const submitCalendar = async (body: CalendarRequest) => {
     if (editingCal) {
-      updateCal.mutate({ id: editingCal.id, body }, { onSuccess: () => setCalEditOpen(false) })
+      await updateCal.mutateAsync({ id: editingCal.id, body })
     } else {
-      createCal.mutate(body, { onSuccess: () => setCalEditOpen(false) })
+      await createCal.mutateAsync(body)
     }
+    setCalEditOpen(false)
   }
   // 편집 창 「삭제」 → 편집 창을 닫고 확인 창을 연다. 소속 일정이 기본 캘린더로 옮겨지는 것을 먼저 알린다(WP-1140).
   const deleteCalendar = () => {

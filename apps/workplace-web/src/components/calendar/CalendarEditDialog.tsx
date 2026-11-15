@@ -1,7 +1,8 @@
 // 캘린더 추가/수정 다이얼로그 — 이름 입력 + 팔레트 스와치 색 선택.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { PaletteSwatches } from '@/components/calendar/PaletteSwatches'
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import type { Calendar, CalendarRequest } from '@/types/calendar'
 
 import { Button } from '../ui/button'
@@ -20,7 +21,8 @@ interface CalendarEditDialogProps {
   onOpenChange: (open: boolean) => void
   /** null = 추가 모드, 값 = 편집 모드 */
   calendar?: Calendar | null
-  onSubmit: (body: CalendarRequest) => void
+  /** 추가·저장 — 끝나면 resolve, 실패하면 reject(창이 다시 제출할 수 있게 된다). */
+  onSubmit: (body: CalendarRequest) => Promise<unknown>
   onDelete?: () => void
   isPending?: boolean
 }
@@ -36,19 +38,33 @@ export function CalendarEditDialog({
 }: CalendarEditDialogProps) {
   const [name, setName] = useState('')
   const [color, setColor] = useState('blue')
+  // 제출한 뒤 같은 제출을 다시 보내지 않게 막는다 — isPending 은 다시 그린 뒤에야 켜져 같은 틱 Enter 두 번을 못 막고,
+  // 성공 직후 닫히는 애니메이션 동안에도 입력칸에 포커스가 남아 Enter 가 들어온다. 실패했을 때와 창을 다시 열 때만 푼다.
+  const submittedRef = useRef(false)
 
-  // 편집 모드 진입 시 기존 값으로 초기화.
+  // 열 때마다 기존 값(편집)·빈 값(추가)으로 초기화하고 제출 막음을 푼다.
   useEffect(() => {
     if (open) {
+      submittedRef.current = false
       setName(calendar?.name ?? '')
       setColor(calendar?.color ?? 'blue')
     }
   }, [open, calendar])
 
-  const handleSubmit = () => {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    onSubmit({ name: trimmed, color })
+  // 이름 칸 Enter 로 추가·저장(WP-1623) — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 제출로 보지 않는다(WP-331 공용 훅).
+  const enterKey = useSingleLineEnter()
+  // 「추가/저장」 단추 활성과 Enter 제출이 같은 조건을 쓰도록 한 곳에서 정한다.
+  const canSubmit = name.trim() !== '' && !isPending
+
+  const handleSubmit = async () => {
+    if (!canSubmit || submittedRef.current) return
+    submittedRef.current = true
+    try {
+      await onSubmit({ name: name.trim(), color })
+    } catch {
+      // 실패 안내는 제출한 쪽(훅의 토스트)이 한다 — 여기서는 다시 제출할 수 있게만 푼다.
+      submittedRef.current = false
+    }
   }
 
   const isEditing = calendar != null
@@ -72,6 +88,8 @@ export function CalendarEditDialog({
               data-testid="calendar-edit-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onCompositionEnd={enterKey.onCompositionEnd}
+              onKeyDown={(e) => enterKey.handleEnter(e, () => void handleSubmit())}
               maxLength={100} // 서버 상한(CalendarRequest.name) — 넘긴 채 저장하면 400 이었다(WP-687)
               placeholder="캘린더 이름"
               autoFocus={!isExternal}
@@ -113,8 +131,8 @@ export function CalendarEditDialog({
           </Button>
           <Button
             data-testid="calendar-edit-submit"
-            onClick={handleSubmit}
-            disabled={isPending || !name.trim()}
+            onClick={() => void handleSubmit()}
+            disabled={!canSubmit}
           >
             {isEditing ? '저장' : '추가'}
           </Button>
