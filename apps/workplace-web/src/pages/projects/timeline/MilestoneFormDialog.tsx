@@ -1,5 +1,5 @@
 // 마일스톤 생성/수정 다이얼로그. milestone 이 주어지면 수정, 없으면 생성(defaultDueDate 로 날짜 프리필 가능).
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -69,19 +69,34 @@ function MilestoneForm({
   const [description, setDescription] = useState(milestone?.description ?? '');
   const dueDateId = useId();
   const dueDateHintId = `${dueDateId}-hint`;
+  // 저장 단추의 잠금 조건(WP-1616) — 단추와 submit() 이 같이 쓴다.
+  const canSubmit = name.trim().length > 0 && dueDate !== '' && !create.isPending && !update.isPending;
+  // 중복 제출 가드 — Enter 두 번·Enter+클릭이 isPending 이 그려지기 전에 들어와도 한 번만 보낸다(사이클 창 WP-1554 와 같은 방식).
+  const submittingRef = useRef(false);
 
   function submit() {
+    if (submittingRef.current || !canSubmit) return;
+    submittingRef.current = true;
     const body = {
       name: name.trim(),
       dueDate,
       description: description.trim() || undefined,
     };
-    if (milestone) update.mutate({ id: milestone.id, body }, { onSuccess: onClose });
-    else create.mutate(body, { onSuccess: onClose });
+    // 성공·실패 어느 쪽이든 끝나면 가드를 푼다 — 실패하면 창·입력이 남아 다시 저장할 수 있어야 한다.
+    const options = { onSuccess: onClose, onSettled: () => { submittingRef.current = false; } };
+    if (milestone) update.mutate({ id: milestone.id, body }, options);
+    else create.mutate(body, options);
   }
 
   return (
-    <>
+    // 이름 칸 Enter 로도 저장되게 form 으로 감싼다(WP-1616). contents 라 DialogContent 의 grid 간격은 그대로다.
+    <form
+      className="contents"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
       <div className="space-y-3">
         <Input
           placeholder="이름"
@@ -121,17 +136,13 @@ function MilestoneForm({
         />
       </div>
       <DialogFooter>
-        <Button variant="outline" onClick={onClose}>
+        <Button type="button" variant="outline" onClick={onClose}>
           취소
         </Button>
-        <Button
-          onClick={submit}
-          disabled={!name.trim() || !dueDate}
-          data-testid="milestone-submit"
-        >
+        <Button type="submit" disabled={!canSubmit} data-testid="milestone-submit">
           저장
         </Button>
       </DialogFooter>
-    </>
+    </form>
   );
 }
