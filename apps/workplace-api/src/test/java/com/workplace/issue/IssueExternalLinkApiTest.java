@@ -184,6 +184,17 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
     assertThat(linkCount(wp1)).isEqualTo(2);
   }
 
+  /** 주소창에서 복사한 한글 도메인(IDN)도 저장된다 — 입력한 그대로 남긴다(WP-1613). */
+  @Test
+  void acceptsInternationalizedDomain() throws Exception {
+    JsonNode list =
+        json(
+            add(alice, wp, wp1, "RELATES", null, "https://예시.한국/", null, "한글 도메인")
+                .andExpect(status().isOk()));
+    assertThat(list.get(0).get("url").asString()).isEqualTo("https://예시.한국/");
+    assertThat(history(wp1, "EXTERNAL_LINK_ADDED")).hasSize(1);
+  }
+
   /** 같은 주소·같은 유형·방향은 200 으로 한 줄만(이력 추가 없음), 다른 유형이면 409. */
   @Test
   void sameUrlIdempotentOrConflict() throws Exception {
@@ -617,6 +628,33 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
         .isInstanceOf(IssueRelationException.class);
     assertThatThrownBy(() -> IssueExternalLinkService.normalizeUrl("mailto:a@b.c"))
         .isInstanceOf(IssueRelationException.class);
+    // 한글 도메인(WP-1613) — 사용자 정보·포트·경로가 붙어도 받고, 입력한 그대로 돌려준다.
+    for (String ok :
+        new String[] {
+          "https://예시.한국/",
+          "http://예시.한국",
+          "https://user@예시.한국:8443/경로?q=가#f",
+          "https://예시.한국:65535/",
+          "https://WWW.예시.한국/a"
+        }) {
+      assertThat(IssueExternalLinkService.normalizeUrl(ok)).as(ok).isEqualTo(ok);
+    }
+    // 한글이 섞여도 호스트로 쓸 수 없는 것은 그대로 거부한다.
+    for (String bad :
+        new String[] {
+          "https://예시..한국/",
+          "https://예시_한국/",
+          "https:///예시",
+          "javascript://예시.한국/%0aalert(1)",
+          "https://:8443/",
+          "https://user@/",
+          "https://예시.한국:99999999999/",
+          "https://예시.한국:80a/"
+        }) {
+      assertThatThrownBy(() -> IssueExternalLinkService.normalizeUrl(bad))
+          .as(bad)
+          .isInstanceOf(IssueRelationException.class);
+    }
   }
 
   // ── 헬퍼 ────────────────────────────────────────────────────────────────────────────────

@@ -104,6 +104,49 @@ class IssueSearchServiceTest extends IntegrationTestBase {
     assertThat(resp.items()).isEmpty();
   }
 
+  /**
+   * 같은 밀리초 안에서 마이크로초만 다른 수정 시각의 이슈를 기본 정렬로 작은 페이지씩 끝까지 따라가도 하나도 빠지지 않는다(WP-1618). 전에는 커서가 수정 시각을
+   * 밀리초로 잘라 페이지 끝 행보다 이른 같은 밀리초 행을 건너뛰었다.
+   */
+  @Test
+  void cursor_paging_keeps_rows_within_same_millisecond() {
+    Long userId = createUser("uf");
+    String key = uniqueKey("PF");
+    ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
+    java.util.Set<Long> all = new java.util.HashSet<>();
+    for (int i = 1; i <= 5; i++) {
+      Long id =
+          IssueSeeds.insert(
+                  issueRepository, baseDsl, proj.id(), i, "t" + i, null, "MID", null, userId)
+              .id();
+      all.add(id);
+      // 모두 같은 밀리초(…00.001), 마이크로초만 다르게.
+      baseDsl
+          .update(com.workplace.jooq.Tables.ISSUE)
+          .set(
+              com.workplace.jooq.Tables.ISSUE.UPDATED_AT,
+              java.time.OffsetDateTime.parse("2026-01-01T00:00:00.0011" + i + "0Z"))
+          .where(com.workplace.jooq.Tables.ISSUE.ID.eq(id))
+          .execute();
+    }
+
+    for (String size : new String[] {"1", "2", "3"}) {
+      java.util.List<Long> seen = new java.util.ArrayList<>();
+      String cursor = null;
+      do {
+        java.util.Map<String, String> params = new java.util.HashMap<>();
+        params.put("size", size);
+        if (cursor != null) {
+          params.put("cursor", cursor);
+        }
+        var resp = searchService.search(userId, key, params);
+        resp.items().forEach(it -> seen.add(it.id()));
+        cursor = resp.nextCursor();
+      } while (cursor != null);
+      assertThat(seen).as("size=" + size).containsExactlyInAnyOrderElementsOf(all);
+    }
+  }
+
   @Test
   void invalid_cursor_throws() {
     Long userId = createUser("ud");

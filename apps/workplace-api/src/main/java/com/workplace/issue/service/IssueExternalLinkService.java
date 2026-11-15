@@ -17,6 +17,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueHistoryRecorder.ExternalLinkSnapshot;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
+import java.net.IDN;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
@@ -220,8 +221,9 @@ public class IssueExternalLinkService {
 
   /**
    * 외부 링크 주소 정규화 — 앞뒤 공백을 떼고 {@link URI} 로 읽어 스킴이 {@code http}/{@code https}(대소문자 무시)이고 호스트가 있을 때만
-   * 받는다. 그 밖(javascript:·data:·ftp:·호스트 없음·공백 섞임·빈 값·2000자 초과)은 {@code EXTERNAL_LINK_URL_INVALID}.
-   * 화면이 이 주소를 그대로 링크로 열므로 스킴 검사가 곧 XSS 방어다.
+   * 받는다. 한글 도메인처럼 {@link URI#getHost()} 가 null 인 호스트는 {@link #hasIdnHost} 로 punycode 로 바꿔 검사한다 —
+   * 저장하는 주소는 입력 그대로라 다시 읽을 때 {@code getHost()} 가 null 일 수 있다. 그 밖(javascript:·data:·ftp:·호스트 없음·공백
+   * 섞임·빈 값·2000자 초과)은 {@code EXTERNAL_LINK_URL_INVALID}. 화면이 이 주소를 그대로 링크로 열므로 스킴 검사가 곧 XSS 방어다.
    */
   public static String normalizeUrl(String raw) {
     if (raw == null) {
@@ -238,12 +240,37 @@ public class IssueExternalLinkService {
       throw IssueRelationException.externalLinkUrlInvalid();
     }
     String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-    if (!(scheme.equals("http") || scheme.equals("https"))
-        || uri.getHost() == null
-        || uri.getHost().isBlank()) {
+    if (!(scheme.equals("http") || scheme.equals("https"))) {
+      throw IssueRelationException.externalLinkUrlInvalid();
+    }
+    boolean hasHost =
+        uri.getHost() != null ? !uri.getHost().isBlank() : hasIdnHost(uri.getRawAuthority());
+    if (!hasHost) {
       throw IssueRelationException.externalLinkUrlInvalid();
     }
     return url;
+  }
+
+  /**
+   * 한글 도메인(IDN) 호스트가 쓸 수 있는 호스트인가. {@link URI} 는 ASCII 가 아닌 호스트를 호스트로 읽지 않아({@code getHost()} null)
+   * 주소창에서 복사한 {@code https://예시.한국/} 가 거부됐다(WP-1613). 권한부에서 호스트만 떼어(사용자 정보 {@code …@}·포트 {@code :…}
+   * 제외) {@link IDN#toASCII} 로 바꾸고, 포트를 다시 붙여 {@link URI} 로 읽었을 때 호스트가 나올 때만 받는다 — 빈 라벨·밑줄·잘못된 포트는
+   * ASCII 주소와 같은 규칙으로 거부된다. 저장하는 주소는 바꾸지 않는다(경로의 한글처럼 입력한 그대로).
+   */
+  private static boolean hasIdnHost(String rawAuthority) {
+    if (rawAuthority == null) {
+      return false;
+    }
+    String hostPort = rawAuthority.substring(rawAuthority.lastIndexOf('@') + 1);
+    int colon = hostPort.lastIndexOf(':');
+    String host = colon >= 0 ? hostPort.substring(0, colon) : hostPort;
+    String port = colon >= 0 ? hostPort.substring(colon) : "";
+    try {
+      String ascii = IDN.toASCII(host, IDN.USE_STD3_ASCII_RULES);
+      return new URI("http://" + ascii + port + "/").getHost() != null;
+    } catch (IllegalArgumentException | URISyntaxException e) {
+      return false;
+    }
   }
 
   /**
