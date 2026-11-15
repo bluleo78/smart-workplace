@@ -85,7 +85,7 @@ export function BarRow({
 }) {
   const body = (
     <>
-      <span className="flex w-32 min-w-0 shrink-0 items-center gap-2 sm:w-40">
+      <span className="flex min-w-0 shrink basis-32 items-center gap-2 sm:basis-40">
         {leading}
         <span className="truncate">{label}</span>
       </span>
