@@ -1,5 +1,6 @@
 package com.workplace.issue.dto;
 
+import com.workplace.global.time.CursorInstants;
 import com.workplace.global.time.SupportedDates;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -21,17 +22,9 @@ public final class CursorTimes {
 
   private CursorTimes() {}
 
-  /** Instant 문자열을 읽고 범위를 본다. */
+  /** Instant 문자열을 읽고 범위를 본다 — 범위 검사는 {@link CursorInstants#checked} 한 곳. */
   public static Instant instant(String s) {
-    return checked(Instant.parse(s));
-  }
-
-  /** 이미 읽은 시각의 범위를 본다(밀리초 epoch 커서용). */
-  public static Instant checked(Instant t) {
-    if (!SupportedDates.isSupported(t)) {
-      throw new IllegalArgumentException(SupportedDates.MESSAGE);
-    }
-    return t;
+    return CursorInstants.checked(Instant.parse(s));
   }
 
   /** 날짜(yyyy-MM-dd) 문자열을 읽고 범위(0001-01-01 ~ 9999-12-31)를 본다. */
