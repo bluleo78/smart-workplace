@@ -20,13 +20,14 @@ class MailConnectionTesterTest {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
+      new MailTestGreenMail()
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("u@test.local", "u@test.local", "pw"));
 
   /** GreenMail 이 루프백에 떠 있으므로 127.0.0.1 만 허용 목록에 넣는다(WP-740 내부망 차단 예외). */
   private final MailConnectionTester tester =
-      new MailConnectionTester(new MailHostGuard(List.of("127.0.0.1")));
+      new MailConnectionTester(
+          new MailHostGuard(List.of("127.0.0.1")), MailTestPorts.IO_TIMEOUT_MS);
 
   @Test
   void success_whenCredentialsValid() {

@@ -27,6 +27,7 @@ import org.eclipse.angus.mail.smtp.SMTPAddressFailedException;
 import org.eclipse.angus.mail.smtp.SMTPSendFailedException;
 import org.eclipse.angus.mail.smtp.SMTPSenderFailedException;
 import org.eclipse.angus.mail.smtp.SMTPTransport;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -40,17 +41,29 @@ public class SmtpMailTransport implements MailTransport {
   /** 받는 서버가 메일 크기로 거절했을 때 사용자 문구(WP-574). */
   static final String SIZE_REJECTED_MESSAGE = "받는 메일 서버가 허용하는 크기를 넘었어요. 첨부를 줄이거나 나눠서 보내 주세요";
 
-  /** 연결·읽기 타임아웃(ms) — 행 방지. */
-  private static final int TIMEOUT_MS = 10_000;
-
   /**
    * 첨부가 있는 메일의 읽기·쓰기 타임아웃(ms, WP-574). 25MB 첨부는 base64 로 약 34MB 를 DATA 로 쓰고, 서버는 본문을 다 받은 뒤 크기·바이러스
    * 검사를 마치고서야 최종 250 을 돌려준다. 10초로는 그 응답을 기다리다 끊겨 이미 나간 메일을 실패로 처리할 수 있어(사용자는 다시 보낸다) 2분으로 늘린다. 연결
-   * 타임아웃은 그대로 10초.
+   * 타임아웃은 이 값이 아니라 {@code workplace.mail.io-timeout-ms}(기본 10초)를 따른다.
    */
   static final int ATTACHMENT_IO_TIMEOUT_MS = 120_000;
 
   private final MailAccountCredentials credentials;
+
+  /**
+   * 연결·읽기 타임아웃(ms) — 행 방지. 설정 {@code workplace.mail.io-timeout-ms}, 기본 10초(운영). test 프로필은 2분으로 올려
+   * 테스트 JVM 이 잠시 멈춰도 메일 테스트가 시간 제한으로 깨지지 않게 한다(WP-1641).
+   */
+  @Value(ImapConnector.IO_TIMEOUT_PROPERTY)
+  private final int ioTimeoutMs;
+
+  /**
+   * 읽기·쓰기 타임아웃(ms). 첨부가 있으면 설정값이 작아도 {@link #ATTACHMENT_IO_TIMEOUT_MS} 아래로 내려가지 않게 둘 중 큰 값(WP-574),
+   * 없으면 설정값.
+   */
+  int ioTimeoutMs(boolean hasAttachments) {
+    return hasAttachments ? Math.max(ATTACHMENT_IO_TIMEOUT_MS, ioTimeoutMs) : ioTimeoutMs;
+  }
 
   @Override
   public MailProvider provider() {
@@ -288,8 +301,8 @@ public class SmtpMailTransport implements MailTransport {
     Properties props = new Properties();
     props.put("mail.transport.protocol", "smtp");
     props.put("mail.smtp.auth", "true");
-    props.put("mail.smtp.connectiontimeout", String.valueOf(TIMEOUT_MS));
-    int ioTimeout = hasAttachments ? ATTACHMENT_IO_TIMEOUT_MS : TIMEOUT_MS;
+    props.put("mail.smtp.connectiontimeout", String.valueOf(ioTimeoutMs));
+    int ioTimeout = ioTimeoutMs(hasAttachments);
     props.put("mail.smtp.timeout", String.valueOf(ioTimeout));
     // 쓰기 타임아웃 — 큰 DATA 를 쓰다 상대가 받지 않을 때도 끝없이 걸리지 않게(읽기와 같은 값).
     props.put("mail.smtp.writetimeout", String.valueOf(ioTimeout));

@@ -87,6 +87,8 @@ workplace:
   # 메일 테스트는 루프백의 GreenMail 에 붙는다 — 그 주소만 내부망 차단 예외로 둔다(WP-740). ::1 등 다른 루프백 표기는 막힌 채로 남겨 차단을 검증한다.
   mail:
     allowed-internal-hosts: 127.0.0.1,localhost
+    # 메일 I/O 시간 제한을 2분으로(운영 기본 10초) — 테스트 JVM 이 10초 넘게 멈춰도 GreenMail 상대 메일 테스트가 시간 제한으로 깨지지 않게(WP-1641).
+    io-timeout-ms: 120000
     m365:
       # 메일용 M365 앱도 설정된 상태로 둔다(WP-879 기본 공급자 판단). 실제 AAD 호출은 테스트마다 GraphApiClient 를 목으로 바꾼다.
       client-id: test-mail-client

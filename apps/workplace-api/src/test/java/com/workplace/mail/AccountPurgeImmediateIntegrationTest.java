@@ -9,7 +9,6 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.service.EmailAccountService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
-import java.time.Duration;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,7 +95,7 @@ class AccountPurgeImmediateIntegrationTest extends IntegrationTestBase {
     // 스케줄러(initialDelay 90s)는 이 윈도우에 발화 불가 → 계정 행이 사라지면 즉시 트리거가 동작한 것.
     final long accId = accountId;
     await()
-        .atMost(Duration.ofSeconds(10))
+        .atMost(MailTestPorts.WAIT)
         .untilAsserted(
             () ->
                 new TransactionTemplate(txManager)

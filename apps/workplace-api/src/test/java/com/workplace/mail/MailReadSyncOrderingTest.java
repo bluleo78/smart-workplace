@@ -190,10 +190,10 @@ class MailReadSyncOrderingTest extends ExternalClientMockedTestBase {
     proceed.countDown(); // 옛 값 true 가 이제야 서버에 닿는다
 
     await()
-        .atMost(Duration.ofSeconds(10))
+        .atMost(MailTestPorts.WAIT)
         .until(() -> !row(id).getSeenPushPending() && Boolean.FALSE.equals(server.get(url)));
     ThreadPoolTaskExecutor exec = (ThreadPoolTaskExecutor) mailReadSyncExecutor;
-    await().atMost(Duration.ofSeconds(5)).until(() -> exec.getActiveCount() == 0);
+    await().atMost(MailTestPorts.WAIT).until(() -> exec.getActiveCount() == 0);
 
     assertThat(server.get(url)).as("서버 최종값 = 사용자의 마지막 값").isFalse();
     assertThat(row(id).getSeen()).isFalse();
