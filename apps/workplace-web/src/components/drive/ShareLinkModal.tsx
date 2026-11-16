@@ -38,6 +38,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { handleApiError } from '@/lib/api-error';
 import { copyToClipboard } from '@/lib/copyToClipboard';
+import { isIncompleteDateInput } from '@/lib/dateInput';
 import { splitShareLinks } from '@/lib/driveShareLinks';
 import { formatDateOnly, formatInstantMonthDay } from '@/lib/formatters';
 import { initialExpiry, nextExpiry, shareFormGuide } from '@/lib/shareLinkDefaults';
@@ -202,7 +203,7 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
    */
   function recheckIncompleteExpiry() {
     if (expiresAtError !== SHARE_EXPIRES_INCOMPLETE_MESSAGE) return;
-    if (!expiresInputRef.current?.validity.badInput) setExpiresAtError(null);
+    if (!isIncompleteDateInput(expiresInputRef.current)) setExpiresAtError(null);
   }
 
   /** 공유 링크 생성 — 입력을 검사한 뒤 요청한다. */
@@ -218,7 +219,7 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
     // 만료일 — 로컬 23:59:59 로 설정해 UTC+ 사용자의 당일 만료 오인 방지("2026-06-30" → "2026-06-30T23:59:59" 로컬 → ISO).
     let expiresAtIso: string | undefined;
     let nextExpiresAtError: string | null = null;
-    if (expiresInputRef.current?.validity.badInput) {
+    if (isIncompleteDateInput(expiresInputRef.current)) {
       // 덜 넣은 날짜(WP-1625) — <input type="date"> 는 덜 넣은 값을 '' 로 올려 「비움」과 구분되지 않고, 빈 칸에서 일부만 치면
       // 값이 계속 '' 라 onChange 도 오지 않는다. 그래서 상태(expiresAt)로는 가를 수 없어 입력 요소의 badInput 을 직접 읽는다.
       // 막지 않으면 만료를 정한 줄 알고 눌렀는데 만료 없는 링크가 만들어진다. 값이 '' 라 아래 범위·과거 검사는 어차피 건너뛴다.

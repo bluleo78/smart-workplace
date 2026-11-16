@@ -8,6 +8,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
+import { expectNoRequest, setBadInput } from '@/test/dateInput'
 import { atRoute } from '@/test/kits/projects/atRoute'
 import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { API, KEY, milestone, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
@@ -229,6 +230,123 @@ describe('타임라인 마일스톤 — 편집 팝오버', () => {
     expect(await screen.findByText('마감일은 비울 수 없습니다.')).toBeInTheDocument()
     expect(due).toHaveValue('2026-08-01')
     expect(calls).toHaveLength(0)
+  })
+
+  // WP-1644 — 마감일을 덜 넣은 채(예: '2026-08-' 까지만) 칸을 벗어나면 「비울 수 없습니다」 토스트와 함께 치던 값이 지워졌다.
+  // <input type="date"> 는 덜 넣은 날짜를 값 '' 로 올리고 change 도 오지 않으므로 validity.badInput 으로 가린다(공용 lib/dateInput).
+  // jsdom 은 덜 넣은 날짜를 칠 수 없어 validity 를 덮어 흉내 낸다(값은 실제로도 '' 로 올라온다).
+  describe('마감일 덜 넣음 (WP-1644)', () => {
+    const MESSAGE = '날짜를 끝까지 입력해 주세요.'
+
+
+
+    test('덜 넣고 blur 하면 토스트·되돌리기·저장 없이 칸 아래에 안내를 보인다', async () => {
+      const { user, calls } = await open()
+      await openPopover(user)
+      const due = screen.getByTestId('milestone-popover-due-date-input') as HTMLInputElement
+      // 덜 넣은 날짜는 값이 '' 로 올라온다 — 저장된 값(2026-08-01)과 다르게 비워 두고 되돌려지는지 본다.
+      fireEvent.change(due, { target: { value: '' } })
+      setBadInput(due, true)
+      fireEvent.blur(due)
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(MESSAGE)
+      expect(due).toHaveAttribute('aria-invalid', 'true')
+      expect(due).toHaveAttribute('aria-describedby', alert.id)
+      expect(screen.queryByText('마감일은 비울 수 없습니다.')).not.toBeInTheDocument()
+      expect(due).toHaveValue('')
+      await expectNoRequest(calls)
+    })
+
+    test('완전히 비우고(badInput 아님) blur 하면 지금처럼 토스트와 되돌리기, 안내는 없다', async () => {
+      const { user, calls } = await open()
+      await openPopover(user)
+      const due = screen.getByTestId('milestone-popover-due-date-input') as HTMLInputElement
+      fireEvent.change(due, { target: { value: '' } })
+      setBadInput(due, false)
+      fireEvent.blur(due)
+      expect(await screen.findByText('마감일은 비울 수 없습니다.')).toBeInTheDocument()
+      expect(due).toHaveValue('2026-08-01')
+      expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument()
+      expect(due).not.toHaveAttribute('aria-invalid')
+      expect(calls).toHaveLength(0)
+    })
+
+    test('끝까지 넣고 blur 하면 저장하고 안내가 사라진다', async () => {
+      const { user, calls } = await open()
+      await openPopover(user)
+      const due = screen.getByTestId('milestone-popover-due-date-input') as HTMLInputElement
+      setBadInput(due, true)
+      fireEvent.blur(due)
+      expect(await screen.findByText(MESSAGE)).toBeInTheDocument()
+      setBadInput(due, false)
+      // change·keyUp 없이 blur 만으로도 안내가 거두어지고 저장되는지 보려고 값만 바꾼다.
+      due.value = '2026-09-15'
+      fireEvent.blur(due)
+      await waitFor(() => expect(calls).toHaveLength(1))
+      expect((calls[0].body as { dueDate: string }).dueDate).toBe('2026-09-15')
+      expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument()
+      expect(due).not.toHaveAttribute('aria-invalid')
+    })
+
+    test('안내가 선 뒤 덜 넣음이 풀리면 keyUp 에서 안내를 거둔다', async () => {
+      const { user, calls } = await open()
+      await openPopover(user)
+      const due = screen.getByTestId('milestone-popover-due-date-input') as HTMLInputElement
+      setBadInput(due, true)
+      fireEvent.blur(due)
+      expect(await screen.findByText(MESSAGE)).toBeInTheDocument()
+      // 아직 덜 넣은 채 키만 떼면 안내는 그대로.
+      fireEvent.keyUp(due, { key: '1' })
+      expect(screen.getByText(MESSAGE)).toBeInTheDocument()
+      // 끝까지 넣으면(저장은 blur 때) 안내를 거둔다.
+      setBadInput(due, false)
+      fireEvent.keyUp(due, { key: '5' })
+      await waitFor(() => expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument())
+      expect(due).not.toHaveAttribute('aria-invalid')
+      expect(calls).toHaveLength(0)
+    })
+
+    // 리뷰 지적: 덜 넣은 채 팝오버를 닫으면 칸 아래 안내도 함께 사라져 저장됐는지 알 수 없었다 — 닫을 때 저장하지 않았다고 알린다.
+    test('덜 넣은 채 닫기 단추로 닫으면 저장하지 않았다는 토스트를 보이고 요청은 없다', async () => {
+      const { user, calls } = await open()
+      await openPopover(user)
+      const due = screen.getByTestId('milestone-popover-due-date-input') as HTMLInputElement
+      setBadInput(due, true)
+      fireEvent.blur(due)
+      await user.click(screen.getByRole('button', { name: '닫기' }))
+      expect(await screen.findByText('마감일을 끝까지 넣지 않아 저장하지 않았습니다.')).toBeInTheDocument()
+      expect(screen.queryByTestId('milestone-popover-due-date-input')).not.toBeInTheDocument()
+      await expectNoRequest(calls)
+    })
+
+    test('덜 넣은 채 Esc 로 닫아도 저장하지 않았다는 토스트를 보인다', async () => {
+      const { user } = await open()
+      await openPopover(user)
+      const due = screen.getByTestId('milestone-popover-due-date-input') as HTMLInputElement
+      setBadInput(due, true)
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(await screen.findByText('마감일을 끝까지 넣지 않아 저장하지 않았습니다.')).toBeInTheDocument()
+    })
+
+    test('덜 넣지 않은 채 닫으면 토스트가 없다', async () => {
+      const { user } = await open()
+      await openPopover(user)
+      await user.click(screen.getByRole('button', { name: '닫기' }))
+      await waitFor(() => expect(screen.queryByTestId('milestone-popover-due-date-input')).not.toBeInTheDocument())
+      expect(screen.queryByText('마감일을 끝까지 넣지 않아 저장하지 않았습니다.')).not.toBeInTheDocument()
+    })
+
+    test('안내가 선 뒤 change 로 덜 넣음이 풀리면 안내를 거둔다', async () => {
+      const { user } = await open()
+      await openPopover(user)
+      const due = screen.getByTestId('milestone-popover-due-date-input') as HTMLInputElement
+      setBadInput(due, true)
+      fireEvent.blur(due)
+      expect(await screen.findByText(MESSAGE)).toBeInTheDocument()
+      setBadInput(due, false)
+      fireEvent.change(due, { target: { value: '2026-09-15' } })
+      await waitFor(() => expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument())
+    })
   })
 
   // 삭제는 연결 해제 영향을 알리는 확인 창을 거쳐 DELETE.

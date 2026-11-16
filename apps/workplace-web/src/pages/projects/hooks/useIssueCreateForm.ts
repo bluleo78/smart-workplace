@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { type FocusEvent, useEffect, useRef, useState } from 'react';
+import { type Resolver, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { useComponents } from '../../../hooks/queries/useComponents';
@@ -12,6 +12,7 @@ import { isStatusGoneError, useProjectStatusList } from '../../../hooks/queries/
 import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { extractApiError, handleApiError } from '../../../lib/api-error';
+import { INCOMPLETE_DATE_MESSAGE, isIncompleteDateInput } from '../../../lib/dateInput';
 import { hasActiveComponents } from '../../../lib/issueComponents';
 import { type CreateEpicChoice, resolveCreateParent } from '../../../lib/issueCreateParent';
 import { hasIssueDraftContent } from '../../../lib/issueDraft';
@@ -19,6 +20,24 @@ import { isIntakeOnly } from '../../../lib/projectPermissions';
 import { defaultStatusOf } from '../../../lib/projectStatuses';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
 import { type CreateMode, useCreateAiHandoff } from './useCreateAiHandoff';
+
+const zodIssueCreateResolver = zodResolver(createIssueSchema);
+const DATE_FIELDS = ['startDate', 'dueDate'] as const;
+
+/**
+ * 이슈 만들기 폼 검사 — zod 검사에 「덜 넣은 날짜」 판정을 더한다(WP-1644, 이유는 lib/dateInput).
+ * 값이 '' 라 zod 로는 못 거르므로 react-hook-form 이 넘겨 주는 칸 요소(fields[name].ref)를 읽는다. 검사 안에 두어
+ * 제출(주 단추·「만들기만」)·다른 오류 함께 보이기·첫 오류 칸 포커스·제출 뒤 다시 검사가 다른 오류와 똑같이 움직인다.
+ * 모바일 시트는 날짜 칸이 달력이라(ref 가 input 이 아님) 판정이 늘 false 다.
+ */
+const issueCreateResolver: Resolver<CreateIssueFormData> = async (values, context, options) => {
+  const result = await zodIssueCreateResolver(values, context, options);
+  const incomplete = DATE_FIELDS.filter((name) => isIncompleteDateInput(options.fields[name]?.ref));
+  if (incomplete.length === 0) return result;
+  const errors = { ...result.errors };
+  for (const name of incomplete) errors[name] = { type: 'incomplete', message: INCOMPLETE_DATE_MESSAGE };
+  return { values: {}, errors };
+};
 
 // 이슈 생성 폼 로직 — 데스크톱 다이얼로그와 모바일 시트가 공유한다(WP-196). 렌더링은 각 컴포넌트 몫.
 export function useIssueCreateForm({
@@ -56,10 +75,10 @@ export function useIssueCreateForm({
   // 모바일 에픽 칩 값(R8) — 폼 스키마 밖 별도 상태. 일반 이슈의 부모로 송신되고(다른 프로젝트 에픽은 parentKey, WP-1039), EPIC·SUBTASK 유형이면 해제된다.
   const [epic, setEpic] = useState<CreateEpicChoice | null>(null);
   const form = useForm<CreateIssueFormData>({
-    resolver: zodResolver(createIssueSchema),
+    resolver: issueCreateResolver,
     defaultValues: { priority: 'MID' },
   });
-  const { register, handleSubmit, reset, getValues, setValue, watch } = form;
+  const { register, handleSubmit, reset, getValues, setValue, watch, getFieldState, trigger } = form;
 
   // 본문 이미지 업로드(WP-199) — register 의 ref 와 우리 ref 를 함께 쓰기 위해 bodyField.ref 를 감싼다.
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
@@ -70,6 +89,27 @@ export function useIssueCreateForm({
     getValue: () => getValues('body') ?? '',
     setValue: (v) => setValue('body', v, { shouldDirty: true }),
   });
+
+  /**
+   * 시작일·마감일 칸(WP-1644) — 덜 넣은 날짜 판정은 위 resolver 가 하고, 여기서는 안내를 거두는 때만 더한다.
+   * 칸을 비우면 값이 '' 그대로라 change 가 오지 않고, 제출 뒤 react-hook-form 은 blur 에서 다시 검사하지 않으므로
+   * 오류가 서 있을 때 keyUp·blur 에서 그 칸을 다시 검사한다. 달력으로 고르는 change 는 react-hook-form 이 다시 검사한다.
+   * 화면(JSX)에서 그 칸을 그릴 때 부른다 — 등록 순서가 화면 순서와 같아야 첫 오류 칸 포커스가 위 칸(제목 등)부터 간다.
+   */
+  const dateField = (name: 'startDate' | 'dueDate') => {
+    const field = register(name);
+    const recheck = () => {
+      if (getFieldState(name).error) void trigger(name);
+    };
+    return {
+      ...field,
+      onKeyUp: recheck,
+      onBlur: (e: FocusEvent<HTMLInputElement>) => {
+        recheck();
+        return field.onBlur(e);
+      },
+    };
+  };
 
   // dialog가 열릴 때 폼 상태 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
   useEffect(() => {
@@ -199,6 +239,8 @@ export function useIssueCreateForm({
     statusNote: !intakeOnly && initialStatus && initialStatus.id !== defaultStatusOf(statuses, 'TODO')?.id ? initialStatus.name : null,
     form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify, images, bodyRef, bodyField,
+    // 시작일·마감일 칸에 펼치는 register 결과 — 덜 넣은 날짜 안내를 거두는 keyUp·blur 가 얹혀 있다(WP-1644).
+    dateField,
     // 폼 제출(Enter·주 버튼) — 맡기기가 켜져 있으면 「만들고 지금 실행」, 아니면 만들기.
     onSubmit: handleSubmit((d) => submit(d, 'run')),
     // 「만들기만」 — 맡기기 일정은 저장하되 지금 실행하지 않는다.

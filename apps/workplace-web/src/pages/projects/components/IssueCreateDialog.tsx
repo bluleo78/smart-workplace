@@ -174,7 +174,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
                 max={SUPPORTED_DATE_MAX}
                 aria-invalid={!!errors.startDate || undefined}
                 aria-describedby={errors.startDate ? 'issue-start-error' : undefined}
-                {...register('startDate')}
+                {...f.dateField('startDate')}
               />
               {errors.startDate && (
                 <p id="issue-start-error" role="alert" className="text-sm text-destructive">
@@ -191,7 +191,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
                 max={SUPPORTED_DATE_MAX}
                 aria-invalid={!!errors.dueDate || undefined}
                 aria-describedby={errors.dueDate ? 'issue-due-error' : undefined}
-                {...register('dueDate')}
+                {...f.dateField('dueDate')}
               />
               {/* 마감일 오류도 그린다 — 안 그리면 「생성」이 막혀도 아무 안내가 없었다(WP-900). */}
               {errors.dueDate && (
