@@ -14,6 +14,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.issue.dto.IssueAiClassifyResponse;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
+import com.workplace.issue.exception.IssueAiDisabledException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.dto.IssueClassifyRequest;
 import com.workplace.issue.outbound.dto.IssueClassifyResult;
@@ -22,6 +23,7 @@ import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.support.AiAgentSwitch;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.Optional;
@@ -181,5 +183,21 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
     assertThat(captor.getAllValues().get(0).body())
         .isEqualTo("가".repeat(20_000) + "…(이하 30000자 생략)");
     assertThat(captor.getAllValues().get(1).body()).isEqualTo("나".repeat(20_000));
+  }
+
+  /** AI 연동이 꺼져 있으면(WP-1640) 409 AI_DISABLED — ai-agent 를 부르지 않는다. */
+  @Test
+  void classify_연동꺼짐_409_AI호출없음() {
+    AiAgentSwitch.whileDisabled(
+        classifyService,
+        () ->
+            assertThatThrownBy(() -> classifyService.classify(1L, "TEST", "제목", "본문"))
+                .isInstanceOfSatisfying(
+                    IssueAiDisabledException.class,
+                    e -> {
+                      assertThat(e.errors()).containsEntry("code", "AI_DISABLED");
+                      assertThat(e.getMessage()).isEqualTo("AI 연동이 꺼져 있어 분류를 제안할 수 없어요.");
+                    }));
+    verify(aiClient, never()).classify(any());
   }
 }

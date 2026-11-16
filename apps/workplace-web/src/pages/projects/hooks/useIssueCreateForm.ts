@@ -11,7 +11,7 @@ import { useProject } from '../../../hooks/queries/useProjects';
 import { isStatusGoneError, useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
-import { handleApiError } from '../../../lib/api-error';
+import { extractApiError, handleApiError } from '../../../lib/api-error';
 import { hasActiveComponents } from '../../../lib/issueComponents';
 import { type CreateEpicChoice, resolveCreateParent } from '../../../lib/issueCreateParent';
 import { hasIssueDraftContent } from '../../../lib/issueDraft';
@@ -132,8 +132,9 @@ export function useIssueCreateForm({
           setValue('priority', result.priority);
           setClassifyReason(result.reason);
         },
-        onError: () => {
-          toast.error('AI 제안을 받지 못했습니다');
+        // 서버 문구를 우선한다 — AI 연동 꺼짐(409 AI_DISABLED, WP-1640)·비서 없음(422)의 이유가 보이게.
+        onError: (e) => {
+          toast.error(extractApiError(e, 'AI 제안을 받지 못했습니다'));
         },
       },
     );

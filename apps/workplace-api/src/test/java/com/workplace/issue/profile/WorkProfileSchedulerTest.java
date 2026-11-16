@@ -5,8 +5,13 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WORK_PROFILE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.workplace.issue.dto.MeOverviewPeriod;
+import com.workplace.issue.outbound.AiAgentIssueClient;
+import com.workplace.support.AiAgentSwitch;
 import com.workplace.support.AsyncPools;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.time.LocalDate;
@@ -33,6 +38,7 @@ class WorkProfileSchedulerTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired WorkProfileScheduler scheduler;
+  @Autowired AiAgentIssueClient aiClient;
   @Autowired WorkProfileRepository repository;
 
   @Autowired
@@ -136,5 +142,16 @@ class WorkProfileSchedulerTest extends ExternalClientMockedTestBase {
     assertThat(lock).isNotNull();
     // 차례로 도는 긴 회차 도중 잠금이 풀리지 않게 넉넉히.
     assertThat(lock.lockAtMostFor()).isEqualTo("PT2H");
+  }
+
+  /** AI 연동이 꺼져 있으면(WP-1640) 회차를 열지 않는다 — 프로파일을 FAILED 로 덮지 않고 ai-agent 도 부르지 않는다. */
+  @Test
+  void refreshAllTenants_aiDisabled_skipsRun() {
+    AiAgentSwitch.whileDisabled(
+        scheduler,
+        () ->
+            assertThat(scheduler.refreshAllTenants())
+                .isEqualTo(new WorkProfileScheduler.Summary(0, 0, 0, 0, 0)));
+    verify(aiClient, never()).analyzeWorkProfile(any());
   }
 }

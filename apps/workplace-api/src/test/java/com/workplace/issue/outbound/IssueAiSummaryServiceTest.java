@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +17,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
+import com.workplace.issue.exception.IssueAiDisabledException;
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.dto.IssueSummaryRequest;
 import com.workplace.issue.outbound.dto.IssueSummaryResult;
@@ -25,6 +27,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.AiAgentSwitch;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.Optional;
 import java.util.UUID;
@@ -463,5 +466,51 @@ class IssueAiSummaryServiceTest extends ExternalClientMockedTestBase {
     String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
     String key = prefix + suffix;
     return key.substring(0, Math.min(10, key.length()));
+  }
+
+  /**
+   * AI 연동이 꺼져 있으면(WP-1640) 「요약 생성」은 409 AI_DISABLED, 자동 갱신은 조용히 건너뛴다 — 어느 쪽도 ai-agent 를 부르지 않고 저장본은
+   * 그대로다.
+   */
+  @Test
+  void aiDisabled_onDemandRejected_regenerateSkipped_noClientCall() {
+    when(client.summarizeProgress(any())).thenReturn(new IssueSummaryResult("기존 요약", "액션"));
+    long userId = createUser("wp1640-user");
+    TenantContext.set(1L);
+    long issueId = -1;
+    try {
+      long projectId =
+          projectService
+              .create(userId, new CreateProjectRequest(uniqueKey("OFF"), "연동꺼짐", "x"))
+              .id();
+      issueId =
+          IssueSeeds.insert(issueRepo, baseDsl, projectId, 1, "연동꺼짐 이슈", null, "MID", null, userId)
+              .id();
+      service.generateOnDemand(issueId); // 저장본(자동 갱신 대상) 만들기 — AI 1회
+      final long fid = issueId;
+
+      AiAgentSwitch.whileDisabled(
+          service,
+          () -> {
+            assertThatThrownBy(() -> service.generateOnDemand(fid))
+                .isInstanceOfSatisfying(
+                    IssueAiDisabledException.class,
+                    e -> {
+                      assertThat(e.status().value()).isEqualTo(409);
+                      assertThat(e.errors()).containsEntry("code", "AI_DISABLED");
+                      assertThat(e.getMessage()).isEqualTo("AI 연동이 꺼져 있어 요약을 만들 수 없어요.");
+                    });
+            service.regenerate(fid);
+          });
+
+      verify(client, times(1)).summarizeProgress(any());
+      assertThat(summaryRepo.find(issueId).get().summary()).isEqualTo("기존 요약");
+    } finally {
+      if (issueId != -1) {
+        long fid = issueId;
+        cleanupInTenant(1L, () -> summaryRepo.deleteByIssue(fid));
+      }
+      TenantContext.clear();
+    }
   }
 }

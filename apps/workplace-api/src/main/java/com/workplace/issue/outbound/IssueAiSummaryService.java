@@ -2,10 +2,12 @@ package com.workplace.issue.outbound;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.issue.dto.IssueCommentResponse;
 import com.workplace.issue.dto.IssueHistoryEntryResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
+import com.workplace.issue.exception.IssueAiDisabledException;
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
@@ -77,6 +79,10 @@ public class IssueAiSummaryService {
   private final ProjectRepository projectRepo;
   private final IssueChatExcerptReader chatReader;
   private final IssueRelationService relationService;
+  private final AiAgentProperties aiAgentProperties;
+
+  /** AI 연동이 꺼져 있을 때 「요약 생성」 버튼에 보이는 문구(WP-1640). */
+  static final String DISABLED_MESSAGE = "AI 연동이 꺼져 있어 요약을 만들 수 없어요.";
 
   public IssueAiSummaryService(
       IssueRepository issueRepo,
@@ -88,7 +94,8 @@ public class IssueAiSummaryService {
       AssistantResolver assistantResolver,
       ProjectRepository projectRepo,
       IssueChatExcerptReader chatReader,
-      IssueRelationService relationService) {
+      IssueRelationService relationService,
+      AiAgentProperties aiAgentProperties) {
     this.issueRepo = issueRepo;
     this.commentRepo = commentRepo;
     this.historyRepo = historyRepo;
@@ -99,6 +106,7 @@ public class IssueAiSummaryService {
     this.projectRepo = projectRepo;
     this.chatReader = chatReader;
     this.relationService = relationService;
+    this.aiAgentProperties = aiAgentProperties;
   }
 
   /** 이슈 생성 이벤트 핸들러. AFTER_COMMIT — 커밋 후 별도 워커 스레드에서 opt-in 자동 갱신. */
@@ -124,6 +132,8 @@ public class IssueAiSummaryService {
 
   /** 사용자 요청(버튼) 경로 — 생성 실패/agent 없음/빈 요약은 예외로 전파(컨트롤러 4xx/5xx). */
   public void generateOnDemand(long issueId) {
+    // AI 연동이 꺼져 있으면 ai-agent 를 부르지 않고 409 로 알린다(WP-1640).
+    if (!aiAgentProperties.enabled()) throw new IssueAiDisabledException(DISABLED_MESSAGE);
     generateInternal(issueId);
   }
 
@@ -201,6 +211,8 @@ public class IssueAiSummaryService {
    * <p>패키지 가시성 — 테스트에서 직접 호출(TenantContext 명시 설정 후).
    */
   void regenerate(long issueId) {
+    // AI 연동이 꺼져 있으면 자동 갱신을 하지 않는다(WP-1640) — 저장본은 그대로 둔다.
+    if (!aiAgentProperties.enabled()) return;
     // opt-in 게이트: 저장본 없는 이슈는 자동 갱신 대상이 아님.
     if (!hasStoredSummary(issueId)) {
       log.debug("저장본 없음(미-opt-in) — 자동 요약 생략 issueId={}", issueId);

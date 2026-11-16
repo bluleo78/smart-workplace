@@ -2,8 +2,10 @@ package com.workplace.issue.service;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.issue.dto.IssueAiClassifyResponse;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
+import com.workplace.issue.exception.IssueAiDisabledException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.IssueAiInputText;
 import com.workplace.issue.outbound.dto.IssueClassifyRequest;
@@ -43,17 +45,23 @@ public class IssueAiClassifyService {
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient aiClient;
   private final TransactionTemplate txTemplate;
+  private final AiAgentProperties aiAgentProperties;
+
+  /** AI 연동이 꺼져 있을 때 「AI 분류」에 보이는 문구(WP-1640). */
+  static final String DISABLED_MESSAGE = "AI 연동이 꺼져 있어 분류를 제안할 수 없어요.";
 
   public IssueAiClassifyService(
       ProjectAccessGuard accessGuard,
       LabelRepository labelRepository,
       AssistantResolver assistantResolver,
       AiAgentIssueClient aiClient,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiAgentProperties aiAgentProperties) {
     this.accessGuard = accessGuard;
     this.labelRepository = labelRepository;
     this.assistantResolver = assistantResolver;
     this.aiClient = aiClient;
+    this.aiAgentProperties = aiAgentProperties;
     this.txTemplate = new TransactionTemplate(txManager);
     // readOnly 힌트 — 조회 전용 TX1 에서 불필요한 쓰기 락 방지
     this.txTemplate.setReadOnly(true);
@@ -70,6 +78,8 @@ public class IssueAiClassifyService {
    */
   public IssueAiClassifyResponse classify(
       long callerId, String projectKey, String title, String body) {
+    // AI 연동이 꺼져 있으면 ai-agent 를 부르지 않고 409 로 알린다(WP-1640).
+    if (!aiAgentProperties.enabled()) throw new IssueAiDisabledException(DISABLED_MESSAGE);
     // ── TX1: 프로젝트·라벨·어시스턴트 조회 (TransactionTemplate — RLS GUC 필요) ────────
     // @Transactional(readOnly=true) 대신 txTemplate 사용 — HTTP(최대 30s) 구간에서
     // 커넥션을 반납해 HikariCP 고갈 방지(IssueAiSummaryService #232 패턴).

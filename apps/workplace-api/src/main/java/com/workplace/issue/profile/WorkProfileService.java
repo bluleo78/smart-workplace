@@ -2,10 +2,12 @@ package com.workplace.issue.profile;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.util.AfterCommit;
 import com.workplace.global.util.Texts;
 import com.workplace.issue.dto.IssueDueWindow;
 import com.workplace.issue.dto.MeOverviewPeriod;
+import com.workplace.issue.exception.IssueAiDisabledException;
 import com.workplace.issue.metrics.ClosedIssueFact;
 import com.workplace.issue.metrics.IssueMetricsService;
 import com.workplace.issue.metrics.MetricsPeriod;
@@ -78,6 +80,7 @@ public class WorkProfileService {
   static final int SUMMARY_CHARS = 500;
 
   static final String ERROR_NO_ASSISTANT = "AI 비서가 설정되지 않아 분석할 수 없어요";
+  static final String ERROR_AI_DISABLED = "AI 연동이 꺼져 있어 분석할 수 없어요";
   static final String ERROR_ANALYZE = "분석하지 못했어요. 잠시 후 다시 분석해 주세요";
   static final String ERROR_BUSY = "분석이 몰려 있어요. 잠시 후 다시 분석해 주세요";
 
@@ -88,6 +91,7 @@ public class WorkProfileService {
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient client;
   private final Executor executor;
+  private final AiAgentProperties aiAgentProperties;
   private final TransactionTemplate txTemplate;
 
   /** 커밋 뒤(afterCommit) 콜백에서 쓰는 새 트랜잭션 — 그 시점엔 끝난 트랜잭션 자원이 아직 묶여 있어 REQUIRED 로는 참여가 꼬인다. */
@@ -104,7 +108,8 @@ public class WorkProfileService {
       AssistantResolver assistantResolver,
       AiAgentIssueClient client,
       @Qualifier("workProfileExecutor") Executor executor,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiAgentProperties aiAgentProperties) {
     this.metricsService = metricsService;
     this.repository = repository;
     this.inputRepository = inputRepository;
@@ -112,6 +117,7 @@ public class WorkProfileService {
     this.assistantResolver = assistantResolver;
     this.client = client;
     this.executor = executor;
+    this.aiAgentProperties = aiAgentProperties;
     this.txTemplate = new TransactionTemplate(txManager);
     this.newTxTemplate = new TransactionTemplate(txManager);
     this.newTxTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -151,6 +157,11 @@ public class WorkProfileService {
     OffsetDateTime staleBefore = token.minus(STALE_PENDING);
     MetricsPeriod range = period.resolve(today);
     Optional<WorkProfileRow> row = repository.find(userId, period);
+    if (!aiAgentProperties.enabled()) {
+      // AI 연동이 꺼져 있으면(WP-1640) 점유·분석을 시작하지 않는다 — 있는 행은 그대로, 없으면 저장 없이 이유만 보인다(다시 켜면 평소처럼 시작).
+      return row.map(WorkProfileResponse::of)
+          .orElseGet(() -> WorkProfileResponse.unavailable(period, range, ERROR_AI_DISABLED));
+    }
     if (row.isPresent()) {
       // 재기동·롤아웃으로 워커가 사라져 버려진 PENDING(10분 넘음), 그리고 주·달이 바뀌었는데 08:00 갱신 전이라 지난 기간을 담은 행은 사람이
       // 누르지 않아도 다시 점유해 새 분석을 띄운다 — 첫 자동 시작과 같은 경로라 하루 상한은 세지 않는다. 그 밖의 행은 그대로 돌려준다.
@@ -213,10 +224,13 @@ public class WorkProfileService {
    * 점유한 뒤 커밋 뒤 분석을 맡긴다. 상한에 걸린 경우를 뺀 모든 호출은 하루 계수에 들어간다(같은 버튼을 연타해도 상한이 지켜지게). 단, 행이 없고 기간 안 끝낸 이슈도
    * 없으면 분석할 것이 없으므로 행을 만들지 않고 NONE·UNCHANGED 로 돌려준다(계수도 세지 않는다).
    *
+   * @throws IssueAiDisabledException AI 연동이 꺼져 있을 때(409, WP-1640)
    * @throws WorkProfileDailyLimitException 오늘 이미 {@link #DAILY_MANUAL_LIMIT} 번 눌렀을 때
    */
   @Transactional
   WorkProfileAnalyzeResponse analyze(long userId, MeOverviewPeriod period, OffsetDateTime now) {
+    // AI 연동이 꺼져 있으면(WP-1640) 하루 계수를 쓰지 않고 409 로 알린다.
+    if (!aiAgentProperties.enabled()) throw new IssueAiDisabledException(ERROR_AI_DISABLED);
     OffsetDateTime token = claimToken(now);
     LocalDate today = IssueDueWindow.seoulDate(token);
     OffsetDateTime staleBefore = token.minus(STALE_PENDING);
@@ -287,7 +301,7 @@ public class WorkProfileService {
    *   <li>tx: 기간 범위·끝낸 이슈(최신 {@link #ANALYZE_CAP} 건)·표시 정보·지문·저장 행
    *   <li>지난 분석과 지문이 같으면 기간만 갱신하고 끝(AI 호출 없음)
    *   <li>대상이 없으면 빈 결과로 READY
-   *   <li>비서가 없으면 FAILED
+   *   <li>AI 연동이 꺼져 있거나 비서가 없으면 FAILED
    *   <li>같은 tx 에서 라벨·구성요소·마지막 코멘트를 한 번에 읽어 요청을 만든다
    *   <li>tx 밖: AI 호출 — 빈 요약은 실패로 본다
    *   <li>어느 단계든 RuntimeException 이면 FAILED(이전 내용 유지, PENDING 을 남기지 않는다)
@@ -391,6 +405,11 @@ public class WorkProfileService {
                   List.of(),
                   OffsetDateTime.now(clock)));
       return Prepared.done(written(ok, RunResult.REFRESHED, userId, period));
+    }
+    // AI 연동이 꺼져 있으면(WP-1640) 비서가 없을 때처럼 FAILED + 문구로 닫는다 — 카드가 이유를 보이고, 다시 켜면 다시 분석된다.
+    if (!aiAgentProperties.enabled()) {
+      boolean ok = repository.markFailed(userId, period, token, snap.range(), ERROR_AI_DISABLED);
+      return Prepared.done(written(ok, RunResult.FAILED, userId, period));
     }
     Optional<AssistantSpec> spec = assistantResolver.resolveOrEmpty(userId);
     if (spec.isEmpty()) {

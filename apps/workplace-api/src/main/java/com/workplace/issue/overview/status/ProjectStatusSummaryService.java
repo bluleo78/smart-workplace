@@ -2,6 +2,7 @@ package com.workplace.issue.overview.status;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.util.Texts;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.dto.ProjectStatusAiRequest;
@@ -49,6 +50,7 @@ public class ProjectStatusSummaryService {
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient client;
   private final TransactionTemplate txTemplate;
+  private final AiAgentProperties aiAgentProperties;
 
   public ProjectStatusSummaryService(
       ProjectStatusSummaryRepository repository,
@@ -56,12 +58,14 @@ public class ProjectStatusSummaryService {
       ProjectOverviewService overviewService,
       AssistantResolver assistantResolver,
       AiAgentIssueClient client,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiAgentProperties aiAgentProperties) {
     this.repository = repository;
     this.projectRepository = projectRepository;
     this.overviewService = overviewService;
     this.assistantResolver = assistantResolver;
     this.client = client;
+    this.aiAgentProperties = aiAgentProperties;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -97,6 +101,8 @@ public class ProjectStatusSummaryService {
    * @param now 「지금」 — 점유·점검·생성 시각과 개요의 오늘을 정한다
    */
   public Outcome refresh(long projectId, OffsetDateTime now) {
+    // AI 연동이 꺼져 있으면(WP-1640) 실행권을 잡기 전에 건너뛴다 — 점검 시각을 밀지 않고 이전 요약은 그대로 둔다.
+    if (!aiAgentProperties.enabled()) return Outcome.SKIPPED;
     // 프로젝트는 한 번만 읽어 실행권 잡기(간격)와 개요 계산에 함께 쓴다 — 두 단계가 같은 행을 따로 읽지 않게.
     Optional<ProjectRow> found = txTemplate.execute(s -> projectRepository.findById(projectId));
     if (found == null || found.isEmpty()) return Outcome.SKIPPED;

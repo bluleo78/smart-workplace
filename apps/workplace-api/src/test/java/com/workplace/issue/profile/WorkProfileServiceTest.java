@@ -27,8 +27,10 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.MeOverviewPeriod;
+import com.workplace.issue.exception.IssueAiDisabledException;
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.dto.WorkProfileAiRequest;
@@ -41,6 +43,7 @@ import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.AiAgentSwitch;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.LocalDate;
@@ -82,6 +85,7 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
   @Autowired AiAgentIssueClient client;
   @Autowired AssistantResolver assistantResolver;
   @Autowired PlatformTransactionManager txManager;
+  @Autowired AiAgentProperties aiAgentProperties;
 
   @BeforeEach
   void assistant() {
@@ -354,6 +358,22 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
     verify(client, never()).analyzeWorkProfile(any());
   }
 
+  /** AI 연동이 꺼져 있으면(WP-1640) 비서가 없을 때처럼 FAILED + 이유 문구 — ai-agent 를 부르지 않는다. */
+  @Test
+  void runAnalysis_aiDisabled_marksFailedWithoutCallingAi() {
+    Long me = user("wf-me");
+    var p = project(me);
+    done(me, p, "첫째", t("2026-11-03T01:00:00Z"));
+
+    AiAgentSwitch.whileDisabled(service, () -> run(me));
+
+    WorkProfileRow row = row(me);
+    assertThat(row.status()).isEqualTo(WorkProfileStatus.FAILED);
+    assertThat(row.error()).isEqualTo("AI 연동이 꺼져 있어 분석할 수 없어요");
+    assertThat(row.pendingSince()).isNull();
+    verify(client, never()).analyzeWorkProfile(any());
+  }
+
   @Test
   void runAnalysis_aiFailure_keepsPreviousContent() {
     Long me = user("wf-me");
@@ -495,7 +515,8 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
             task -> {
               throw new TaskRejectedException("가득 참");
             },
-            txManager);
+            txManager,
+            aiAgentProperties);
 
     rejecting.submit(1L, MeOverviewPeriod.MONTH, TODAY, NOW);
 
@@ -646,6 +667,47 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
     assertThat(row(me).pendingSince()).isNotNull();
     // 테스트 트랜잭션은 커밋되지 않아 워커가 돌지 않는다.
     verify(client, never()).analyzeWorkProfile(any());
+  }
+
+  /** AI 연동이 꺼져 있으면(WP-1640) 조회는 분석을 시작하지 않는다 — 행 없이 이번 응답에만 FAILED + 이유. 다시 켜면 다음 조회가 평소처럼 점유한다. */
+  @Test
+  void get_aiDisabled_noRow_showsReasonWithoutClaiming() {
+    Long me = user("wf-me");
+    var p = project(me);
+    done(me, p, "첫째", t("2026-11-03T01:00:00Z"));
+
+    AiAgentSwitch.whileDisabled(
+        service,
+        () -> {
+          WorkProfileResponse res = service.get(me, MeOverviewPeriod.MONTH, NOW);
+          assertThat(res.status()).isEqualTo("FAILED");
+          assertThat(res.error()).isEqualTo("AI 연동이 꺼져 있어 분석할 수 없어요");
+          assertThat(res.periodFrom()).isEqualTo(LocalDate.parse("2026-11-01"));
+        });
+    assertThat(repository.find(me, MeOverviewPeriod.MONTH)).isEmpty();
+
+    // 연동을 다시 켜면 평소처럼 분석을 시작한다.
+    assertThat(service.get(me, MeOverviewPeriod.MONTH, NOW).status()).isEqualTo("PENDING");
+  }
+
+  /** AI 연동이 꺼져 있으면(WP-1640) 「다시 분석」은 409 — 하루 계수를 쓰지 않고 행도 건드리지 않는다. */
+  @Test
+  void analyze_aiDisabled_409WithoutCounting() {
+    Long me = user("wf-me");
+    var p = project(me);
+    done(me, p, "첫째", t("2026-11-03T01:00:00Z"));
+    run(me);
+    WorkProfileRow before = row(me);
+
+    AiAgentSwitch.whileDisabled(
+        service,
+        () ->
+            assertThatThrownBy(() -> service.analyze(me, MeOverviewPeriod.MONTH, NOW))
+                .isInstanceOf(IssueAiDisabledException.class)
+                .hasMessage("AI 연동이 꺼져 있어 분석할 수 없어요"));
+
+    assertThat(row(me).manualCount()).isEqualTo(before.manualCount());
+    assertThat(row(me).status()).isEqualTo(before.status());
   }
 
   // ── analyze ────────────────────────────────────────────────────────────────

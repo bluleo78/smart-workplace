@@ -30,16 +30,25 @@ const projectMetaHandlers = [
   http.get(`/api/v1/projects/${KEY}/labels`, () => HttpResponse.json(LABELS)),
 ]
 
-/** AI 분류 엔드포인트 — 요청 본문을 모은다. status 가 있으면 그 상태로 실패한다. */
-function classifyHandler(bodies: unknown[], status?: number) {
+/** AI 연동이 꺼졌을 때의 서버 응답(WP-1640) — 409 + errors.code=AI_DISABLED + 화면에 보일 문구. */
+const AI_DISABLED_BODY = {
+  status: 409,
+  message: 'AI 연동이 꺼져 있어 분류를 제안할 수 없어요.',
+  errors: { code: 'AI_DISABLED' },
+}
+
+/** AI 분류 엔드포인트 — 요청 본문을 모은다. status 가 있으면 그 상태(본문 errorBody, 없으면 문구 없는 본문)로 실패한다. */
+function classifyHandler(bodies: unknown[], status?: number, errorBody?: object) {
   return http.post(`/api/v1/projects/${KEY}/issues/ai-classify`, async ({ request }) => {
     bodies.push(await request.json())
-    return status ? HttpResponse.json({ error: 'issue_classify_failed' }, { status }) : HttpResponse.json(SUGGESTION)
+    return status
+      ? HttpResponse.json(errorBody ?? { error: 'issue_classify_failed' }, { status })
+      : HttpResponse.json(SUGGESTION)
   })
 }
 
 /** 생성 대화상자만 띄운다. 생성 POST 본문은 creates 에 모은다. */
-function renderCreateDialog(classifyStatus?: number) {
+function renderCreateDialog(classifyStatus?: number, classifyErrorBody?: object) {
   const classifies: unknown[] = []
   const creates: Record<string, unknown>[] = []
   const onOpenChange = vi.fn()
@@ -47,7 +56,7 @@ function renderCreateDialog(classifyStatus?: number) {
     path: `/projects/${KEY}`,
     handlers: [
       ...projectMetaHandlers,
-      classifyHandler(classifies, classifyStatus),
+      classifyHandler(classifies, classifyStatus, classifyErrorBody),
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY, type: 'TEAM' }))),
       http.get(`/api/v1/projects/${KEY}/:sub`, () => HttpResponse.json([])),
       http.post(`/api/v1/projects/${KEY}/issues`, async ({ request }) => {
@@ -98,6 +107,42 @@ test('생성 대화상자 — AI 제안이 실패하면 오류 토스트를 띄�
   expect(within(dialog).getByLabelText(/^제목/)).toHaveValue('제목')
   expect(within(dialog).queryByTestId('ai-classify-reason')).not.toBeInTheDocument()
   expect(onOpenChange).not.toHaveBeenCalled()
+})
+
+test('생성 대화상자 — AI 연동이 꺼져 있으면(409 AI_DISABLED) 서버 문구를 토스트로 보인다', async () => {
+  const { user } = renderCreateDialog(409, AI_DISABLED_BODY)
+  const dialog = await screen.findByRole('dialog', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+  await user.click(within(dialog).getByLabelText(/^제목/))
+  await user.paste('제목')
+  await user.click(within(dialog).getByTestId('ai-classify-btn'))
+  expect(await screen.findByText('AI 연동이 꺼져 있어 분류를 제안할 수 없어요.')).toBeInTheDocument()
+  expect(screen.queryByText('AI 제안을 받지 못했습니다')).not.toBeInTheDocument()
+})
+
+test('편집 속성 레일 — AI 연동이 꺼져 있으면(409 AI_DISABLED) 서버 문구를 토스트로 보이고 아무것도 바꾸지 않는다', async () => {
+  const detail = createIssueDetail({
+    summary: createIssue({ projectKey: KEY, number: 1, title: '기존 이슈 제목', priority: 'LOW' }),
+    body: '기존 본문',
+  })
+  const writes: string[] = []
+  const { user } = await openIssueDetailScreen({
+    key: KEY,
+    number: 1,
+    detail,
+    project: { type: 'TEAM' },
+    handlers: [
+      classifyHandler([], 409, AI_DISABLED_BODY),
+      http.patch(`/api/v1/projects/${KEY}/issues/1`, ({ request }) => {
+        writes.push(request.url)
+        return HttpResponse.json(detail)
+      }),
+      ...projectMetaHandlers,
+    ],
+  })
+  await user.click(await screen.findByTestId('ai-classify-btn'))
+  expect(await screen.findByText('AI 연동이 꺼져 있어 분류를 제안할 수 없어요.')).toBeInTheDocument()
+  expect(screen.queryByTestId('ai-classify-reason')).not.toBeInTheDocument()
+  expect(writes).toEqual([])
 })
 
 test('편집 속성 레일 — 제안의 우선순위·유형·라벨을 각각 적용하고 토스트는 통합 1개만 띄운다(#578)', async () => {
