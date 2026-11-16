@@ -265,6 +265,8 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
   test('?thread= 딥링크 — 채널 헤더가 스레드 칸 위까지 덮고 스레드는 헤더 아래 칸, ✕ 로 닫힌다', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
+    // 부하 속 첫 로드(최대 30초)를 기다려도 기본 30초 테스트 한도를 넘지 않게 한도를 늘린다(WP-1650).
+    test.slow()
     await page.setViewportSize({ width: 1440, height: 900 })
     const CHANNEL_ID = 512
     const PARENT_ID = 9900
@@ -273,7 +275,7 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
+    // 기본 픽스처의 열린 스트림을 쓴다 — 유한 본문 스텁은 응답 직후 닫혀 재연결 배너(32px)가 헤더를 밀어 내려 하단선이 88px 로 재였다(WP-1650).
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     await stubMessages(page, CHANNEL_ID, [parent])
@@ -282,7 +284,8 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await page.goto(`/chat/channels/${CHANNEL_ID}?thread=${PARENT_ID}`)
     const header = page.getByTestId('channel-header')
     const panel = page.getByTestId('thread-panel')
-    await expect(panel).toBeVisible()
+    // 부하 속 워커 첫 로드는 dev 서버의 첫 변환을 기다려 기본 10초를 넘었다 — 첫 화면만 넉넉히 기다린다(WP-1650).
+    await expect(panel).toBeVisible({ timeout: 30_000 })
 
     // 헤더 하단선 56px, 헤더 폭 = 채널 칸 + 스레드 칸(좌단은 채널 칸, 우단은 스레드 칸과 일치).
     await expectHeaderBottomAt56(header)

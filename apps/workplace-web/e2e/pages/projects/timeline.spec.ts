@@ -410,7 +410,9 @@ test('일정 모순 의존성 링크가 destructive 색으로 강조된다', { t
 
 // WP-486 — 1024 폭에서는 차트가 좁아 처음 열면 이른 이슈 쪽(차트 시작)만 보이고 오늘선·사이클 구간이 화면 밖이었다.
 // 처음 열 때 조회 기간 시작(기본은 활성 사이클)으로 스크롤해 오늘선과 사이클 구간이 차트 안에 보인다.
-test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크롤돼 오늘선이 차트 안에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+// 기본 기간과 전체 기간은 테스트를 나눴다 — 한 테스트에서 goto 를 두 번 하며 부하 속 첫 로드가 한도를 넘었다(WP-1650).
+// 1024 폭·고정 시계·이른 이슈(1월) route 를 깔고, 오늘선이 차트 안에 있는지 재는 함수를 돌려준다.
+async function setupEarlyIssueTimeline(page: Page) {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z')); // 오늘 = 활성 사이클(7/1~7/14) 안
   await setupTimelineStubs(page);
@@ -430,13 +432,28 @@ test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크�
     const t = await todayLine.boundingBox();
     return !!c && !!t && t.x >= c.x && t.x <= c.x + c.width;
   };
+  return todayInChart;
+}
+
+test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크롤돼 오늘선이 차트 안에 보인다 — 기본 기간', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // 부하 속 첫 로드(최대 30초)를 기다려도 테스트 한도를 넘지 않게 한도를 늘린다(WP-1650).
+  test.slow();
+  const todayInChart = await setupEarlyIssueTimeline(page);
   // 기본(활성 사이클) 기간 — 사이클 시작으로 스크롤.
   await page.goto(`/projects/${KEY}/timeline`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  // 첫 로드는 dev 서버의 첫 변환을 기다려 부하 속에서 기본 10초를 넘었다(WP-1650).
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible({ timeout: 30_000 });
   await expect.poll(todayInChart).toBe(true);
+});
+
+test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크롤돼 오늘선이 차트 안에 보인다 — 전체 기간', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // 부하 속 첫 로드(최대 30초)를 기다려도 테스트 한도를 넘지 않게 한도를 늘린다(WP-1650).
+  test.slow();
+  const todayInChart = await setupEarlyIssueTimeline(page);
   // 전체 기간 — 차트는 1월 이슈부터 시작하지만 처음 열 때 오늘 근처로 스크롤.
   await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  // 첫 로드는 dev 서버의 첫 변환을 기다려 부하 속에서 기본 10초를 넘었다(WP-1650).
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible({ timeout: 30_000 });
   await expect.poll(todayInChart).toBe(true);
 });
 
