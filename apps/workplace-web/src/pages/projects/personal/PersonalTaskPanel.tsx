@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { isIncompleteDateInput } from '@/lib/dateInput';
 import { isTextEntryTarget } from '@/lib/escapeOverlay';
 import { parseId } from '@/lib/historyParam';
 import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
@@ -348,16 +349,16 @@ function DueDateInput({ value, onSave }: { value: string | null; onSave: (next: 
         const next = e.target.value;
         setDraft(next);
         if (next === '') {
-          if (!e.target.validity.badInput && value) onSave(null);
+          if (!isIncompleteDateInput(e.target) && value) onSave(null);
           return;
         }
         if (isSupportedDateKey(next) && next !== value) onSave(next);
       }}
       onBlur={(e) => {
-        if (draft === (value ?? '') && !e.target.validity.badInput) return;
+        if (draft === (value ?? '') && !isIncompleteDateInput(e.target)) return;
         if (draft !== '' && !isSupportedDateKey(draft)) toast.error(SUPPORTED_DATE_RANGE_MESSAGE);
         // 덜 친 칸(badInput)은 React 값이 '' 그대로라 다시 그려도 칸의 숫자가 남는다 — 직접 비운 뒤 저장된 값으로 돌린다.
-        if (e.target.validity.badInput) e.target.value = '';
+        if (isIncompleteDateInput(e.target)) e.target.value = '';
         setDraft(value ?? '');
       }}
       className="rounded border bg-background px-2 py-1 text-sm"
