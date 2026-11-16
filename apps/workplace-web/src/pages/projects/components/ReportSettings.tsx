@@ -1,4 +1,4 @@
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, Loader2 } from 'lucide-react';
 import { type ReactNode, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -21,12 +21,17 @@ import { formatKstMonthDayWeekdayClock } from '@/lib/formatters';
 import { HOUR_OPTIONS } from '@/lib/hourOptions';
 
 import {
+  useGenerateProjectReport,
   useProjectReportSettings,
   useResetProjectReportTemplate,
   useUpdateProjectReportSettings,
 } from '../../../hooks/queries/useProjectReportSettings';
-import { handleApiError } from '../../../lib/api-error';
-import type { ReportCadence, ReportWeekday, UpdateProjectReportSettingsRequest } from '../../../types/projectReport';
+import { extractApiError, handleApiError } from '../../../lib/api-error';
+import type {
+  ReportCadence,
+  ReportWeekday,
+  UpdateProjectReportSettingsRequest,
+} from '../../../types/projectReport';
 import { projectNotePath } from '../tabs/projectTabs';
 
 /** 주기 보기 — 서버 값과 화면 문구(보이는 순서 그대로). 매월은 그 달 첫 번째 고른 요일에 쓴다. */
@@ -208,6 +213,9 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
         <span className="text-sm">프로젝트 노트 › 리포트</span>
       </ReportRow>
 
+      {/* 「지금 생성」은 설정을 고칠 수 있는 사람만(서버도 같은 권한) — 꺼져 있어도 쓸 수 있다(정기 일정과 따로). */}
+      {editable && <GenerateNowRow projectKey={projectKey} />}
+
       <AlertDialog open={confirmOpen} onOpenChange={(open) => !reset.isPending && setConfirmOpen(open)}>
         <AlertDialogContent data-help="project-settings.report.reset">
           <AlertDialogHeader>
@@ -230,6 +238,69 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+/**
+ * 「지금 생성」 줄(WP-1630) — 다음 회차를 기다리지 않고 직전에 끝난 회차 리포트를 지금 만든다(같은 회차가 있으면 새 판).
+ * AI 가 다 쓸 때까지 기다리는 요청이라 그동안 단추가 「만드는 중…」으로 바뀐다. 실패하면 이유를 줄 아래 보이고 단추가 「다시 시도」가 된다.
+ * 만든 뒤에는 그 리포트 페이지로 가는 링크를 단추 옆에 둔다.
+ */
+function GenerateNowRow({ projectKey }: { projectKey: string }) {
+  const generate = useGenerateProjectReport(projectKey);
+  // 만든 리포트·실패 이유는 변경 상태에서 읽는다 — 다시 누르면 변경이 새로 시작되며 둘 다 비워진다.
+  const made = generate.data;
+  const error = generate.isError ? extractApiError(generate.error, '리포트를 만들지 못했어요') : null;
+  // 만드는 중 두 번째 누름을 막는다 — 단추를 disabled 로 잠그면 초점이 body 로 떨어져(WP-847) 잠그지 않고 이 값으로 거른다.
+  // ref 인 이유: 같은 틱의 두 번째 누름은 다시 그리기 전이라 generate.isPending 이 아직 false 다.
+  const runningRef = useRef(false);
+  const busy = generate.isPending;
+
+  const run = async () => {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    try {
+      const result = await generate.mutateAsync();
+      toast.success(result.replaced ? '리포트를 새 판으로 바꿨어요' : '리포트를 만들었어요');
+    } catch {
+      // 실패 이유는 generate.error 로 줄 아래에 보인다.
+    } finally {
+      runningRef.current = false;
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <ReportRow label="지금 생성">
+        {made && !busy && (
+          <Link
+            to={projectNotePath(projectKey, made.pageId)}
+            className="rounded-sm text-sm font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+          >
+            {made.title}
+          </Link>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void run()}
+          aria-busy={busy || undefined}
+          data-testid="settings-report-generate"
+        >
+          {busy && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+          {busy ? '만드는 중…' : error ? '다시 시도' : '지금 생성'}
+        </Button>
+      </ReportRow>
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          직전에 끝난 회차 리포트를 바로 만들어요. 같은 회차 리포트가 있으면 새 판으로 바꾸고, 이전 내용은 노트의 수정 기록에 남아요.
+        </p>
+      )}
+    </div>
   );
 }
 

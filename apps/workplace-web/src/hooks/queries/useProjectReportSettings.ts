@@ -1,12 +1,15 @@
-// 프로젝트 설정 「리포트」 주간 리포트 줄(WP-1483) — 설정 조회·저장·템플릿 되돌리기 훅.
+// 프로젝트 설정 「리포트」 주간 리포트 줄(WP-1483) — 설정 조회·저장·템플릿 되돌리기·지금 생성(WP-1630) 훅.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
   fetchProjectReportSettings,
+  generateProjectReport,
   resetProjectReportTemplate,
   updateProjectReportSettings,
 } from '../../api/projectReports'
 import type { ProjectReportSettings, UpdateProjectReportSettingsRequest } from '../../types/projectReport'
+import { projectReportsKey } from './useProjectReports'
+import { wikiKeys } from './wikiKeys'
 
 /** 쿼리 키. */
 export const projectReportSettingsKey = (projectKey: string) => ['projectReportSettings', projectKey] as const
@@ -46,5 +49,22 @@ export function useResetProjectReportTemplate(projectKey: string) {
   return useMutation({
     mutationFn: () => resetProjectReportTemplate(projectKey),
     onSuccess,
+  })
+}
+
+/**
+ * 「지금 생성」(WP-1630) — 서버가 노트 페이지를 만들거나 새 판을 쓰므로, 개요 카드 리포트 줄·노트 트리·그 페이지 본문·수정 기록 캐시를 무효화한다
+ * (방금 만든 링크를 따라가거나 「리포트」를 열 때 옛 캐시가 보이지 않게). 트리는 어느 공간인지 응답에 없어 모든 공간 트리를 무효화한다.
+ */
+export function useGenerateProjectReport(projectKey: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => generateProjectReport(projectKey),
+    onSuccess: (result) => {
+      void qc.invalidateQueries({ queryKey: projectReportsKey(projectKey) })
+      void qc.invalidateQueries({ queryKey: wikiKeys.trees() })
+      void qc.invalidateQueries({ queryKey: wikiKeys.page(result.pageId) })
+      void qc.invalidateQueries({ queryKey: wikiKeys.revisions(result.pageId) })
+    },
   })
 }

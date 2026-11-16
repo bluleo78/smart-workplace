@@ -4,6 +4,7 @@ import com.workplace.issue.report.ReportCadence;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.wiki.report.ProjectReportSettingRepository.SettingRow;
+import com.workplace.wiki.report.dto.ProjectReportGenerateResponse;
 import com.workplace.wiki.report.dto.ProjectReportSettingsResponse;
 import com.workplace.wiki.report.dto.UpdateProjectReportSettingsRequest;
 import com.workplace.wiki.repository.ProjectNoteSpaceRepository;
@@ -24,6 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>읽기: 프로젝트를 읽을 수 있는 사람. 행이 없으면 기본값(꺼짐·매주·월요일·09:00)
  *   <li>저장·되돌리기: 프로젝트 OWNER·ADMIN(상태 요약 간격과 같은 판정 — {@code assertWithRole(OWNER)} 이 ADMIN 을 통과시킨다).
  *       개인 프로젝트는 400
+ *   <li>「지금 생성」(WP-1630): 저장과 같은 권한으로 직전 회차 리포트를 바로 만든다
  *   <li>켤 때 템플릿이 없거나 지워졌으면 기본 템플릿을 복사하고, 다음 실행 시각을 다시 정한다(끄면 비운다)
  * </ul>
  *
@@ -46,6 +48,7 @@ public class ProjectReportSettingsService {
   private final ProjectNoteSpaceRepository projects;
   private final WikiSystemPageWriter writer;
   private final ProjectReportTemplate template;
+  private final ProjectReportGenerator generator;
   private final TransactionTemplate tx;
 
   public ProjectReportSettingsService(
@@ -54,12 +57,14 @@ public class ProjectReportSettingsService {
       ProjectNoteSpaceRepository projects,
       WikiSystemPageWriter writer,
       ProjectReportTemplate template,
+      ProjectReportGenerator generator,
       PlatformTransactionManager txManager) {
     this.guard = guard;
     this.settings = settings;
     this.projects = projects;
     this.writer = writer;
     this.template = template;
+    this.generator = generator;
     this.tx = new TransactionTemplate(txManager);
   }
 
@@ -120,6 +125,32 @@ public class ProjectReportSettingsService {
     template.reset(project, reportAuthor(project));
     return tx.execute(s -> response(project, callerId));
   }
+
+  /** 「지금 생성」(WP-1630) — 지금 시각 기준. */
+  public ProjectReportGenerateResponse generateNow(long callerId, String key) {
+    return generateNow(callerId, key, OffsetDateTime.now());
+  }
+
+  /**
+   * 「지금 생성」 — 설정 저장과 같은 권한(OWNER·ADMIN, 개인 400)으로, 설정의 주기(행이 없으면 기본 매주)에서 직전에 끝난 회차 리포트를 지금 만든다. 꺼져
+   * 있어도 만들고 정기 일정은 건드리지 않는다. 생성은 정기 실행과 같은 생성기가 한다({@link ProjectReportGenerator#runNow}).
+   *
+   * @throws ProjectReportGenerateException 비서 없음·만드는 중(409), 생성 실패(502)
+   */
+  public ProjectReportGenerateResponse generateNow(long callerId, String key, OffsetDateTime now) {
+    // 권한 확인과 설정 읽기는 한 트랜잭션으로 — 생성(AI·본문 쓰기)은 트랜잭션 밖에서 한다.
+    Target target =
+        tx.execute(
+            s -> {
+              ProjectRow p = requireManageable(key, callerId);
+              return new Target(
+                  p, settings.find(p.id()).orElseGet(() -> SettingRow.defaults(p.id())));
+            });
+    return generator.runNow(target.project(), target.setting(), now);
+  }
+
+  /** 「지금 생성」 대상 — 권한을 확인한 프로젝트와 그 설정(행이 없으면 기본값). */
+  private record Target(ProjectRow project, SettingRow setting) {}
 
   /** 저장·되돌리기 권한 — OWNER·ADMIN(아니면 403/404), 개인 프로젝트면 400. 트랜잭션 안에서 부른다. */
   private ProjectRow requireManageable(String key, long callerId) {

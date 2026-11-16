@@ -46,7 +46,7 @@ export function useLinkWikiProjectSpace(projectKey: string) {
       void qc.invalidateQueries({ queryKey: wikiKeys.members(data.id) })
       void qc.invalidateQueries({ queryKey: wikiKeys.memberGroups(data.id) })
       // 「리포트」 페이지가 고른 공간 트리로 옮겨진다 — 공간 트리 캐시를 모두 다시 받게 한다(tree(id) 공통 접두).
-      void qc.invalidateQueries({ queryKey: ['wiki', 'tree'] })
+      void qc.invalidateQueries({ queryKey: wikiKeys.trees() })
     },
   })
 }

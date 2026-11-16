@@ -488,7 +488,7 @@ public class GlobalExceptionHandler {
    * 코드 있는 도메인 예외 — 예외가 정한 상태와 errors(사유 코드)를 그대로 싣는다. WP-55 AI 메모리(웹 토스트·ai-agent 도구 오류 문구가 코드로
    * 가른다, 가득 참이면 errors.scope 도 WP-379), WP-386 공용 AI 메모리, WP-800 대기열 가져가기 거절(409), WP-936 상태가 방금
    * 삭제됨(409), WP-883 이슈 가져오기 거절, WP-933 구성요소 거절, WP-1084 채널 보관 해제 이름 겹침(409), WP-1246~1248 AI 실행
-   * 위치·템플릿·실행 설정, WP-1286 AI 키 전용 API.
+   * 위치·템플릿·실행 설정, WP-1286 AI 키 전용 API, WP-1630 프로젝트 리포트 「지금 생성」 거절.
    */
   @ExceptionHandler({
     AiMemoryException.class,
@@ -511,7 +511,8 @@ public class GlobalExceptionHandler {
     com.workplace.agentaccount.exception.GeniaLoginNotFoundException.class,
     com.workplace.agentaccount.exception.GeniaLoginUnavailableException.class,
     com.workplace.help.exception.HelpSectionNotFoundException.class,
-    com.workplace.drive.exception.DriveUploadSessionException.class
+    com.workplace.drive.exception.DriveUploadSessionException.class,
+    com.workplace.wiki.report.ProjectReportGenerateException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {
