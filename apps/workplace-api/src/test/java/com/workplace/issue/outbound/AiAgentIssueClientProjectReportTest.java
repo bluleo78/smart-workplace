@@ -11,11 +11,9 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.dto.ProjectReportAiRequest;
-import com.workplace.issue.report.ReportIssue;
+import com.workplace.issue.report.ProjectReportEpics;
 import com.workplace.issue.report.ReportTableRow;
-import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -38,22 +36,6 @@ class AiAgentIssueClientProjectReportTest {
   }
 
   private ProjectReportAiRequest request() {
-    ReportIssue issue =
-        new ReportIssue(
-            "WP-1",
-            "https://app.test/projects/WP/issues/1",
-            "제목",
-            "완료",
-            "DONE",
-            List.of("동희"),
-            "에픽",
-            LocalDate.of(2026, 11, 10),
-            null,
-            "DONE",
-            "WP",
-            null,
-            false,
-            List.of());
     return new ProjectReportAiRequest(
         "WP",
         "11월 2주차 주간 리포트",
@@ -63,8 +45,7 @@ class AiAgentIssueClientProjectReportTest {
         "WARN",
         null,
         List.of(new ReportTableRow("완료", "3", "+1")),
-        List.of(issue),
-        Map.of("에픽 없음", 2),
+        ProjectReportEpics.empty(),
         7L,
         "m",
         4,
@@ -80,9 +61,15 @@ class AiAgentIssueClientProjectReportTest {
         .andExpect(jsonPath("$.projectName").value("WP"))
         .andExpect(jsonPath("$.badge").value("WARN"))
         .andExpect(jsonPath("$.tableRows[0].label").value("완료"))
-        .andExpect(jsonPath("$.issues[0].url").value("https://app.test/projects/WP/issues/1"))
-        .andExpect(jsonPath("$.issues[0].dueDate").value("2026-11-10"))
-        .andExpect(jsonPath("$.omittedByEpic['에픽 없음']").value(2))
+        .andExpect(jsonPath("$.epics.projectOwner").value("프로젝트 소유자"))
+        .andExpect(jsonPath("$.epics.noEpicDone").value(0))
+        .andExpect(jsonPath("$.epics.completed").isEmpty())
+        // 옛 ai-agent 롤링 배포 호환(WP-1629) — 옛 스키마의 필수 issues 는 빈 목록, omittedByEpic 은 빈 맵으로 한 릴리스 동안
+        // 보낸다.
+        .andExpect(jsonPath("$.issues").isArray())
+        .andExpect(jsonPath("$.issues").isEmpty())
+        .andExpect(jsonPath("$.omittedByEpic").isMap())
+        .andExpect(jsonPath("$.omittedByEpic").isEmpty())
         .andExpect(jsonPath("$.assistantAgentId").value(7))
         .andRespond(withSuccess("{\"markdown\":\"## 본문\\n\"}", MediaType.APPLICATION_JSON));
 

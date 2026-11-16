@@ -1,12 +1,15 @@
 package com.workplace.wiki.report;
 
 import com.workplace.issue.overview.status.StatusBadge;
+import com.workplace.issue.report.ProjectReportEpics;
 import com.workplace.issue.report.ProjectReportFacts;
+import com.workplace.issue.report.ReportCadence;
 import com.workplace.wiki.service.WikiAiInstruction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,6 +42,42 @@ public final class ReportMarkdown {
 
   /** 배지 줄을 둘 섹션 제목. */
   static final String STATUS_SECTION = ReportTableSpec.PROJECT_STATUS_SECTION;
+
+  /** 새 모양(WP-1629)의 진행 상태 줄을 둘 h2 섹션. */
+  static final String SUMMARY_SECTION = ReportTableSpec.PROJECT_SUMMARY_SECTION;
+
+  /** 새 모양의 일정 도표를 둘 h2 섹션(자리 줄이 없을 때). */
+  static final String SCHEDULE_SECTION = "일정";
+
+  /** 일정 도표 자리 줄 — 글자 그대로(중괄호 2개 + 「일정 도표」). */
+  static final String CHART_TOKEN = "{{일정 도표}}";
+
+  /** 지난 리포트가 바로 앞 기간이 아닐 때 진행 상태 줄의 견줌 낱말(「(지난 리포트 주의)」). */
+  static final String PREVIOUS_REPORT_WORD = "지난 리포트";
+
+  /** 진행 상태 표지 글자 — 쓰기(줄 찾기)와 읽기(카드 낱말)가 같은 글자를 쓰게 한 곳에 둔다(WP-1629). */
+  private static final String STATUS_TEXT = "진행 상태";
+
+  /** 진행 상태 줄 표지. */
+  static final String STATUS_LABEL = "**" + STATUS_TEXT + "**";
+
+  /**
+   * 진행 상태 줄 찾기(WP-1629) — 굵은 구간이 「진행 상태」 낱말 하나(뒤에 콜론만 허용)여야 줄로 본다 — 「**진행 상태가 늦은 에픽**」 같은 다른 굵은 글은
+   * 줄이 아니다. 「**진행 상태**」·「**진행 상태:** 주의」·「**진행 상태: 주의**」·「**진행 상태** : 주의」 변형을 모두 잡는다. 굵지 않은 본문 글(「진행
+   * 상태가 …」)은 줄로 보지 않는다.
+   */
+  private static final Pattern STATUS_LINE =
+      Pattern.compile("\\*\\*\\s*" + STATUS_TEXT + "\\s*(?:[:：]|\\*\\*)");
+
+  /** 진행 상태 줄의 낱말 — 「**진행 상태** 주의」·「**진행 상태: 주의**」 모두 읽는다. */
+  private static final Pattern STATUS_WORD = Pattern.compile(STATUS_TEXT + "[\\s*:：]*(순조로움|주의|위험)");
+
+  /** 줄 중간에 남은 일정 도표 자리 글자(앞 공백 포함). */
+  private static final Pattern STRAY_TOKEN =
+      Pattern.compile("[ \\t]*" + Pattern.quote(CHART_TOKEN));
+
+  /** 목록 줄(글머리·번호). */
+  private static final Pattern LIST_ITEM = Pattern.compile("^[ \\t]*(?:[-*+]|\\d+[.)])[ \\t]+");
 
   /** 카드 한 줄 길이 상한. */
   static final int CARD_LINE_MAX = 200;
@@ -88,9 +127,13 @@ public final class ReportMarkdown {
   /**
    * AI 마크다운을 노트에 넣을 모양으로 바로잡는다.
    *
+   * <p>순서(WP-1629): clean → 상태 줄({@link #fixStatus}) → 옛 「지난 리포트 이후」 표 → 「참고 지표」 표 → 일정 도표({@link
+   * #fixChart}) → render.
+   *
    * @param aiMarkdown AI 가 쓴 마크다운(null 이면 빈 글)
-   * @param facts 계산값(배지·표 행)
+   * @param facts 계산값(배지·표 행·에픽 집계)
    * @param templateHasTable 템플릿에 리포트 표가 있었는가 — 결과에 표가 없을 때 넣을지 정한다(팀이 뺐으면 넣지 않는다)
+   * @param templateHasMetrics 템플릿에 「참고 지표」 표(머리 첫 칸 「지표」)가 있었는가 — 결과에 없을 때 문서 끝에 넣을지 정한다
    * @param issueUrlPrefix 앱 이슈 주소 접두 — {@code {base}/projects/} 또는 {@code
    *     {base}/projects/{KEY}/issues/}. 이 접두 뒤가 {@code KEY/issues/n} 또는 {@code n} 인 링크만 맨 주소로 바꾼다.
    *     비어 있으면 링크를 건드리지 않는다
@@ -99,10 +142,27 @@ public final class ReportMarkdown {
       String aiMarkdown,
       ProjectReportFacts facts,
       boolean templateHasTable,
+      boolean templateHasMetrics,
       String issueUrlPrefix) {
     List<String> lines = clean(aiMarkdown, issueUrlPrefix);
-    fixBadge(lines, facts.badge(), facts.previousBadge());
+    ReportCadence cadence = facts.period().cadence();
+    // 지난 리포트가 바로 앞 기간이 아니면(건너뛴 회차가 낌) 「지난주」가 틀리므로 「지난 리포트」로 견준다(WP-1629 리뷰).
+    String previousWord =
+        facts.previousFromPreviousPeriod() ? cadence.previousWord() : PREVIOUS_REPORT_WORD;
+    fixStatus(lines, facts.badge(), facts.previousBadge(), previousWord);
+    // 옛 표 자리는 「상태와 한 줄」 → 없으면 「요약」(AI 가 썼거나 위에서 넣음) 순 후보(ReportTableSpec#project) — 「요약」 제목과 진행 상태
+    // 줄 사이에 끼지 않게.
     fixTable(lines, ReportTableSpec.project(facts.rows()), templateHasTable);
+    ProjectReportEpics epics = facts.epics();
+    // 지표가 비어 있으면(계산값 없음) 표를 비우지 않게 건너뛴다 — 운영 집계는 늘 다섯 줄이다.
+    if (epics != null && !epics.metrics().isEmpty()) {
+      fixTable(lines, ReportTableSpec.metrics(epics.metrics(), cadence), templateHasMetrics);
+    }
+    Optional<String> chart =
+        epics == null
+            ? Optional.empty()
+            : ReportScheduleChart.block(epics.completed(), epics.previousCompleted(), cadence);
+    fixChart(lines, chart);
     return render(lines);
   }
 
@@ -127,6 +187,11 @@ public final class ReportMarkdown {
     return hasTable(markdown, ReportTableSpec.project(List.of()).headFirstCell());
   }
 
+  /** 펜스 밖에 머리 첫 칸이 「지표」인 「참고 지표」 표가 있는가(WP-1629) — 템플릿에 그 표가 있었는지 볼 때 쓴다. */
+  public static boolean hasMetricsTable(String markdown) {
+    return hasTable(markdown, ReportTableSpec.METRICS_HEAD::equals);
+  }
+
   /**
    * 펜스 밖에 머리 첫 칸(굵게·공백 제거)이 판정을 통과하는 표가 있는가(WP-1486) — 템플릿에 그 표가 있었는지 볼 때 쓴다.
    *
@@ -146,6 +211,9 @@ public final class ReportMarkdown {
     if (markdown == null) return new CardSummary(null, null);
     List<String> lines = Arrays.asList(markdown.replace("\r\n", "\n").split("\n", -1));
     boolean[] fenced = fenced(lines);
+    // 새 모양(WP-1629) — 「요약」 h2 가 있으면 진행 상태 줄 낱말이 배지, 첫 글 문단(판단 문장)이 한 줄.
+    int summary = findH2(lines, fenced, SUMMARY_SECTION);
+    if (summary >= 0) return summaryCard(lines, fenced, summary);
     int from = 0;
     int to = lines.size();
     int h = findSection(lines, fenced, STATUS_SECTION);
@@ -169,6 +237,36 @@ public final class ReportMarkdown {
       return new CardSummary(badge, line);
     }
     return new CardSummary(null, plainLine(first));
+  }
+
+  /**
+   * 「요약」 섹션 카드 읽기(WP-1629) — 배지는 펜스 밖 진행 상태 줄의 낱말(없으면 null → 저장 배지), 한 줄은 목록이 아닌 첫 글 문단(판단 문장). 판단
+   * 문장 없이 목록만 있으면 문서 전체의 목록·제목이 아닌 첫 글 문단으로 물러선다 — AI 가 「요약」·「상태와 한 줄」 없이 써서 {@link #fixStatus} 가
+   * 「## 요약」 + 진행 상태 줄만 넣은 리포트도 옛 카드처럼 첫 문단을 한 줄로 보이게(리뷰 반영). 진행 상태 줄은 목록 줄이라 한 줄로 되풀이하지 않는다. 그런 문단도
+   * 없으면 null.
+   */
+  private static CardSummary summaryCard(List<String> lines, boolean[] fenced, int h) {
+    int end = sectionEnd(lines, fenced, h);
+    String badge = null;
+    for (int i = h + 1; i < end && badge == null; i++) {
+      if (fenced[i]) continue;
+      Matcher m = STATUS_WORD.matcher(lines.get(i));
+      if (m.find()) badge = badgeKey(m.group(1));
+    }
+    String line = firstProse(lines, fenced, h + 1, end);
+    if (line == null) line = firstProse(lines, fenced, 0, lines.size());
+    return new CardSummary(badge, line);
+  }
+
+  /** {@code [from, to)} 의 펜스 밖 첫 글 문단 중 목록·진행 상태 줄로 시작하지 않는 것을 한 줄로(없으면 null) — 카드 한 줄 후보. */
+  private static String firstProse(List<String> lines, boolean[] fenced, int from, int to) {
+    for (List<String> p : textParagraphs(lines, fenced, from, to)) {
+      String first = p.get(0);
+      if (LIST_ITEM.matcher(first).find() || STATUS_LINE.matcher(first).find()) continue;
+      String line = plainLine(p);
+      if (line != null) return line;
+    }
+    return null;
   }
 
   // ───────────── ② 맨 앞 h1 ─────────────
@@ -221,6 +319,147 @@ public final class ReportMarkdown {
     }
   }
 
+  // ───────────── 새 모양 진행 상태 줄(WP-1629) ─────────────
+
+  /**
+   * 진행 상태 줄을 시스템 값으로(결정 18). 펜스 밖 「요약」 h2 가 있으면 그 섹션에서 {@code **진행 상태**} 가 든 첫 줄을 {@code - **진행
+   * 상태** {지금} ({견줌 낱말} {지난})} 로 바꾸고 같은 섹션의 나머지 진행 상태 줄은 지운다(한 번만 보이게). 없으면 섹션의 첫 목록 줄 앞에, 목록이 없으면 첫
+   * 문단 뒤에 넣는다. 「요약」이 없고 옛 「상태와 한 줄」이 있으면 옛 배지 규칙({@link #fixBadge}) 그대로. 둘 다 없으면 맨 앞에 「## 요약」 + 진행
+   * 상태 줄을 넣는다 — 옛 「맨 앞 굵은 배지」 대신(「주의」가 본문 배지와 두 번 나오지 않게), 섹션 밖 다른 굵은 글은 건드리지 않는다.
+   *
+   * @param previousWord 지난 배지 앞 견줌 낱말 — 지난 리포트가 바로 앞 기간이면 주기 낱말(지난주·지난 기간·지난달), 아니면 {@link
+   *     #PREVIOUS_REPORT_WORD}
+   */
+  static void fixStatus(
+      List<String> lines, StatusBadge now, StatusBadge previous, String previousWord) {
+    String statusLine = "- " + STATUS_LABEL + " " + KO.get(now);
+    if (previous != null) {
+      statusLine += " (" + previousWord + " " + KO.get(previous) + ")";
+    }
+    boolean[] fenced = fenced(lines);
+    int h = findH2(lines, fenced, SUMMARY_SECTION);
+    if (h < 0) {
+      if (findSection(lines, fenced, STATUS_SECTION) >= 0) {
+        fixBadge(lines, now, previous);
+        return;
+      }
+      lines.addAll(0, List.of("## " + SUMMARY_SECTION, "", statusLine, ""));
+      return;
+    }
+    int end = sectionEnd(lines, fenced, h);
+    // 뒤에서부터 훑어 앞의 것을 남긴다 — 뒤 줄을 지워도 앞 위치는 그대로다.
+    int found = -1;
+    for (int i = end - 1; i > h; i--) {
+      // 콜론 위치가 다른 변형도 같은 줄로 찾아 한 줄로 고친다 — 못 찾으면 AI 줄이 남아 시스템 값과 모순된 줄이 둘이 된다(WP-1629).
+      if (fenced[i] || !STATUS_LINE.matcher(lines.get(i)).find()) continue;
+      if (found >= 0) lines.remove(found);
+      found = i;
+    }
+    if (found >= 0) {
+      lines.set(found, statusLine);
+      return;
+    }
+    for (int i = h + 1; i < end; i++) {
+      if (!fenced[i] && LIST_ITEM.matcher(lines.get(i)).find()) {
+        lines.add(i, statusLine);
+        return;
+      }
+    }
+    // 목록이 없으면 첫 문단 뒤(문단도 없으면 제목 바로 뒤)에 빈 줄로 띄워 넣는다.
+    int at = afterFirstParagraph(lines, fenced, h, end);
+    lines.add(at, "");
+    lines.add(at + 1, statusLine);
+    if (at + 2 < lines.size() && !lines.get(at + 2).isBlank()) {
+      lines.add(at + 2, "");
+    }
+  }
+
+  // ───────────── 일정 도표(WP-1629) ─────────────
+
+  /**
+   * 「{{일정 도표}}」 자리 줄을 도표 블록으로(결정 18). 펜스 밖에서 줄 전체(앞뒤 공백 제외)가 토큰인 첫 줄을 블록으로 바꾸고 나머지 토큰 줄은 지운다 — AI 가
+   * 토큰을 두 번 써도 도표는 하나. 토큰 줄이 없으면 「일정」 h2 섹션의 첫 문단 뒤에 넣고, 그 섹션도 없으면 넣지 않는다. 도표를 만들 수 없으면(기한 정한 완료 에픽
+   * 없음) 토큰 줄만 지운다. 펜스 안 토큰은 예시 글이라 건드리지 않는다.
+   */
+  static void fixChart(List<String> lines, Optional<String> chart) {
+    boolean[] fenced = fenced(lines);
+    List<Integer> tokens = new ArrayList<>();
+    for (int i = 0; i < lines.size(); i++) {
+      if (!fenced[i] && lines.get(i).strip().equals(CHART_TOKEN)) tokens.add(i);
+    }
+    // 첫 토큰 뒤의 것부터, 뒤에서 앞으로 지운다(앞 위치가 밀리지 않게).
+    for (int k = tokens.size() - 1; k >= 1; k--) removeLine(lines, tokens.get(k));
+    boolean changed = tokens.size() > 1;
+    if (!tokens.isEmpty()) {
+      int t = tokens.get(0);
+      if (chart.isEmpty()) {
+        removeLine(lines, t);
+      } else {
+        lines.remove(t);
+        insertBlock(lines, t, chart.get());
+      }
+      changed = true;
+    }
+    // 줄 중간에만 남은 토큰은 글자만 지운다 — 자리 줄이 없었다면 아래 기본 위치에 넣는다.
+    if (removeStrayTokens(lines, changed ? fenced(lines) : fenced)) changed = true;
+    if (!tokens.isEmpty() || chart.isEmpty()) return;
+    // 줄이 바뀌었을 때만 펜스 표시를 다시 계산한다.
+    if (changed) fenced = fenced(lines);
+    int h = findH2(lines, fenced, SCHEDULE_SECTION);
+    if (h < 0) return;
+    insertBlock(
+        lines, afterFirstParagraph(lines, fenced, h, sectionEnd(lines, fenced, h)), chart.get());
+  }
+
+  /**
+   * 줄 중간·목록 항목 안에 남은 「{{일정 도표}}」 글자를 펜스 밖 줄에서 지운다(WP-1629) — 자리 표시가 한 줄을 혼자 차지하지 않으면 도표가 이미 한 번 들어간
+   * 뒤에도 글자가 보이기 때문. 지운 뒤 줄이 비거나 목록 표지({@code -}, {@code *})만 남으면 그 줄을 뺀다.
+   *
+   * @param fenced 지금 줄 목록에 맞는 펜스 표시
+   * @return 줄을 하나라도 바꿨는가
+   */
+  private static boolean removeStrayTokens(List<String> lines, boolean[] fenced) {
+    boolean changed = false;
+    for (int i = lines.size() - 1; i >= 0; i--) {
+      if (fenced[i] || !lines.get(i).contains(CHART_TOKEN)) continue;
+      // 토큰 앞의 공백까지 함께 지워 문장에 빈 틈이 남지 않게.
+      String cleaned = STRAY_TOKEN.matcher(lines.get(i)).replaceAll("");
+      String rest = cleaned.strip();
+      if (rest.isEmpty() || rest.equals("-") || rest.equals("*")) {
+        removeLine(lines, i);
+      } else {
+        lines.set(i, cleaned.stripTrailing());
+      }
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** 제목 줄 {@code h} 섹션의 첫 문단(펜스 밖 연속한 글 줄) 바로 뒤 위치 — 문단이 없으면 제목 바로 뒤. */
+  private static int afterFirstParagraph(List<String> lines, boolean[] fenced, int h, int end) {
+    int j = h + 1;
+    while (j < end && lines.get(j).isBlank()) j++;
+    if (j >= end) return h + 1;
+    while (j < end && !fenced[j] && !lines.get(j).isBlank()) j++;
+    return j;
+  }
+
+  /** 블록(여러 줄 글)을 {@code at} 에 넣는다 — 앞뒤에 글이 붙어 있으면 빈 줄로 띄워 따로 한 블록이 되게. */
+  private static void insertBlock(List<String> lines, int at, String block) {
+    List<String> add = new ArrayList<>(Arrays.asList(block.split("\n", -1)));
+    if (at < lines.size() && !lines.get(at).isBlank()) add.add("");
+    if (at > 0 && !lines.get(at - 1).isBlank()) add.add(0, "");
+    lines.addAll(at, add);
+  }
+
+  /** 줄 하나를 지운다 — 그 결과 빈 줄이 둘 이어지면 하나를 지워 문단 간격을 그대로 둔다. */
+  private static void removeLine(List<String> lines, int i) {
+    lines.remove(i);
+    if (i > 0 && i < lines.size() && lines.get(i - 1).isBlank() && lines.get(i).isBlank()) {
+      lines.remove(i);
+    }
+  }
+
   // ───────────── ④ 표 ─────────────
 
   /**
@@ -255,7 +494,7 @@ public final class ReportMarkdown {
     }
     if (!templateHasTable) return;
 
-    // 넣는 표의 머리 — 시스템 머리 칸이 없으면(프로젝트) 「제목 | 이번 | 변화」 세 칸.
+    // 넣는 표의 머리 — 시스템 머리 칸 → 없으면(프로젝트) 「제목 | 이번 | 변화」 세 칸.
     List<String> head =
         spec.headCells() != null
             ? spec.headCells()
@@ -266,6 +505,16 @@ public final class ReportMarkdown {
     block.add(row(head));
     block.add(delimiter(head.size()));
     block.addAll(bodyRows(spec.body()));
+
+    // 문서 끝에 넣는 표(참고 지표, WP-1629) — 끝 빈 줄을 걷고 빈 줄 하나로 띄워 붙인다.
+    if (spec.insertAtEnd()) {
+      while (!lines.isEmpty() && lines.get(lines.size() - 1).isBlank()) {
+        lines.remove(lines.size() - 1);
+      }
+      if (!lines.isEmpty()) block.add(0, "");
+      lines.addAll(block);
+      return;
+    }
     block.add("");
 
     int at;
@@ -428,6 +677,18 @@ public final class ReportMarkdown {
       if (fenced[i]) continue;
       Matcher m = HEADING.matcher(lines.get(i));
       if (m.matches() && unemphasize(m.group(2)).startsWith(title)) return i;
+    }
+    return -1;
+  }
+
+  /** 펜스 밖 첫 「{title}」 으로 시작하는 h2 제목 줄 위치(없으면 -1) — 새 모양의 「요약」·「일정」 절(WP-1629). */
+  private static int findH2(List<String> lines, boolean[] fenced, String title) {
+    for (int i = 0; i < lines.size(); i++) {
+      if (fenced[i]) continue;
+      Matcher m = HEADING.matcher(lines.get(i));
+      if (m.matches() && m.group(1).length() == 2 && unemphasize(m.group(2)).startsWith(title)) {
+        return i;
+      }
     }
     return -1;
   }

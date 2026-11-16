@@ -1,5 +1,7 @@
 package com.workplace.wiki.report;
 
+import com.workplace.issue.report.ProjectReportEpics.ReportMetric;
+import com.workplace.issue.report.ReportCadence;
 import com.workplace.issue.report.ReportTableRow;
 import java.util.List;
 import java.util.function.Predicate;
@@ -15,14 +17,27 @@ import java.util.function.Predicate;
  * @param insertSectionTitle 표가 없을 때 표 앞에 넣는 h2 제목. headCells 가 null 이면 넣는 표의 머리도 {@code | 이 제목 | 이번
  *     | 변화 |} 로 만든다(프로젝트 표의 머리 모양)
  * @param insertAfterSections 표를 넣을 자리 후보 — 앞 후보부터 제목이 그 글로 시작하는 섹션을 찾아 처음 찾은 섹션의 끝에 넣는다. 하나도 없으면 첫
- *     문단 뒤. 후보가 여럿인 것은 개인 보고(WP-1632)가 옛 템플릿 순서(「한 줄」 뒤)와 새 템플릿 순서(「막힌 것」 뒤 = 맨 끝)를 함께 받기 때문이다
+ *     문단 뒤. 후보가 여럿인 것은 개인 보고(WP-1632)가 옛 템플릿 순서(「한 줄」 뒤)와 새 템플릿 순서(「막힌 것」 뒤 = 맨 끝)를 함께 받고, 프로젝트
+ *     리포트(WP-1629)가 옛 「상태와 한 줄」 과 새 「요약」 을 함께 받기 때문이다
+ * @param insertAtEnd true 면 insertAfterSections 대신 문서 끝에 넣는다(WP-1629 「참고 지표」 — 보고서 맨 끝 절)
  */
 public record ReportTableSpec(
     Predicate<String> headFirstCell,
     List<String> headCells,
     List<List<String>> body,
     String insertSectionTitle,
-    List<String> insertAfterSections) {
+    List<String> insertAfterSections,
+    boolean insertAtEnd) {
+
+  /** 섹션 뒤에 넣는 표(기존 모양) — 넣을 때 머리는 headCells 규칙, 자리는 insertAfterSections 후보. */
+  public ReportTableSpec(
+      Predicate<String> headFirstCell,
+      List<String> headCells,
+      List<List<String>> body,
+      String insertSectionTitle,
+      List<String> insertAfterSections) {
+    this(headFirstCell, headCells, body, insertSectionTitle, insertAfterSections, false);
+  }
 
   /** 프로젝트 리포트 표의 머리 첫 칸 접두이자 넣을 때의 섹션 제목. */
   static final String PROJECT_TABLE_HEAD = "지난 리포트 이후";
@@ -30,9 +45,13 @@ public record ReportTableSpec(
   /** 프로젝트 리포트에서 표를 둘 섹션(배지 줄 섹션). */
   static final String PROJECT_STATUS_SECTION = "상태와 한 줄";
 
+  /** 새 모양(WP-1629) 프로젝트 리포트의 진행 상태 줄 섹션 — 「상태와 한 줄」 이 없을 때 옛 표를 둘 다음 자리. */
+  static final String PROJECT_SUMMARY_SECTION = "요약";
+
   /**
    * 프로젝트 리포트(WP-1483)의 「지난 리포트 이후」 표 — 머리 첫 칸이 「지난 리포트 이후」 로 시작하는 표의 몸통만 계산값 행으로 다시 쓰고, 없으면 「상태와 한
-   * 줄」 섹션 뒤에 {@code | 지난 리포트 이후 | 이번 | 변화 |} 표를 넣는다.
+   * 줄」 섹션 뒤(그 섹션이 없으면 새 모양의 「요약」 섹션 뒤, WP-1629 — 「요약」 제목과 진행 상태 줄 사이에 끼지 않게)에 {@code | 지난 리포트 이후 |
+   * 이번 | 변화 |} 표를 넣는다.
    */
   public static ReportTableSpec project(List<ReportTableRow> rows) {
     List<List<String>> body =
@@ -42,7 +61,27 @@ public record ReportTableSpec(
         null,
         body,
         PROJECT_TABLE_HEAD,
-        List.of(PROJECT_STATUS_SECTION));
+        List.of(PROJECT_STATUS_SECTION, PROJECT_SUMMARY_SECTION));
+  }
+
+  /** 「참고 지표」 표의 머리 첫 칸이자 넣을 때의 섹션 제목(WP-1629). */
+  static final String METRICS_HEAD = "지표";
+
+  /** 「참고 지표」 표를 넣을 때의 섹션 제목. */
+  static final String METRICS_SECTION = "참고 지표";
+
+  /**
+   * 프로젝트 리포트(WP-1629)의 「참고 지표」 표 — 머리 첫 칸이 「지표」인 표의 머리(주기 낱말)·몸통을 다시 쓰고(지표 다섯 줄), 없으면 문서 끝에 {@code
+   * ## 참고 지표} 와 {@code | 지표 | 이번 주 | 지난주 |}(주기 낱말 맞춤) 표를 넣는다.
+   */
+  public static ReportTableSpec metrics(List<ReportMetric> metrics, ReportCadence cadence) {
+    List<List<String>> body =
+        metrics.stream()
+            .map(m -> List.of(nz(m.label()), nz(m.current()), nz(m.previous())))
+            .toList();
+    // 머리도 주기 낱말로 다시 쓴다 — 템플릿의 「이번 주 | 지난주」 머리가 월간·격주 리포트에 남지 않게(WP-1629).
+    List<String> head = List.of(METRICS_HEAD, cadence.currentWord(), cadence.previousWord());
+    return new ReportTableSpec(METRICS_HEAD::equals, head, body, METRICS_SECTION, List.of(), true);
   }
 
   /** null 칸은 빈 칸 — List.of 가 null 을 받지 않아서 여기서 바꾼다(기존 표 쓰기도 null 을 빈 칸으로 썼다). */

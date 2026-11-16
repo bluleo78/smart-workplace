@@ -51,7 +51,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>공통 비서가 없으면 예약을 풀고 {@link Outcome#SKIPPED_NO_ASSISTANT}. 계산값이 「변화 없음」이면 페이지 없이 SKIPPED 로
  *       기록({@link Outcome#SKIPPED_NO_CHANGE}) — 단 앞선 시도가 이미 페이지를 만든 재시도면 그 페이지에 이어 쓴다.
  *   <li>노트 자리 보장(공간·「리포트」·템플릿 — 지워졌으면 다시 만든다) → 템플릿 본문 읽기(20,000자 상한).
- *   <li>tx 밖 AI → 출력 상한(20,000자) → {@link ReportMarkdown#finish} 로 지시 상자·h1·배지·표 숫자·이슈 링크를 바로잡는다.
+ *   <li>tx 밖 AI → 출력 상한(20,000자) → {@link ReportMarkdown#finish} 로 지시 상자·h1·배지(진행 상태 줄)·표 숫자(참고 지표
+ *       포함)·이슈 링크를 바로잡고 일정 도표를 넣는다(WP-1629).
  *   <li>tx 밖 페이지 쓰기(작성자 = 「리포트」와 같은 규칙 — 소유자가 멤버면 소유자, 아니면 가장 작은 OWNER id): createPage →
  *       writeBody(ai) → moveTo(템플릿 바로 아래 = 최신이 위) → markAiReport.
  *   <li>tx 저장: 회차 GENERATED(페이지·배지·스냅숏), 실패 수 0.
@@ -348,7 +349,11 @@ public class ProjectReportGenerator {
     }
     String body =
         ReportMarkdown.finish(
-            markdown, facts, ReportMarkdown.hasReportTable(templateMarkdown), issueUrlPrefix);
+            markdown,
+            facts,
+            ReportMarkdown.hasReportTable(templateMarkdown),
+            ReportMarkdown.hasMetricsTable(templateMarkdown),
+            issueUrlPrefix);
 
     return writePage(
         projectId, author, home, templateId, period, facts, body, pendingPageId, manual, now);
@@ -356,11 +361,16 @@ public class ProjectReportGenerator {
 
   /**
    * tx — 계산값. 「지난 리포트 이후」 변화는 지난 GENERATED/SKIPPED 스냅숏과, 「지난 배지」는 지난 GENERATED 회차의 배지와 견준다(변화 없음으로
-   * 건너뛴 회차는 리포트가 아니라서).
+   * 건너뛴 회차는 리포트가 아니라서). 그 회차가 바로 앞 기간({@link ReportPeriod#previous})이 아니면(건너뛴·실패한 회차가 끼었거나 주기가 바뀜)
+   * 진행 상태 줄의 견줌 낱말을 「지난주」 대신 「지난 리포트」로 쓰게 표시한다(WP-1629 리뷰).
    */
   private ProjectReportFacts computeFacts(
       ProjectRow project, ReportPeriod period, OffsetDateTime now) {
-    Optional<String> generatedBadge = reports.lastGeneratedBadge(project.id(), period.start());
+    Optional<ProjectReportRepository.LastReport> lastReport =
+        reports.lastGenerated(project.id(), period.start());
+    Optional<String> generatedBadge = lastReport.map(ProjectReportRepository.LastReport::badge);
+    boolean lastIsPreviousPeriod =
+        lastReport.map(r -> r.periodStart().equals(period.previous().start())).orElse(true);
     Optional<ReportSnapshot> last =
         reports
             .lastSnapshot(project.id(), period.start())
@@ -372,13 +382,16 @@ public class ProjectReportGenerator {
                         s.openIssues(),
                         s.overdue(),
                         generatedBadge.orElse(null)));
-    return factsService.compute(project, period, last, now);
+    return factsService
+        .compute(project, period, last, now)
+        .withPreviousFromPreviousPeriod(lastIsPreviousPeriod);
   }
 
   /**
-   * AI 요청 — 템플릿은 지시 상자를 담은 그대로(AI 가 따르고 출력하지 않는다), 이슈는 상한까지(넘친 것은 에픽별 건수로). 이슈 상한({@link
-   * ProjectReportFactsService#ISSUE_LIMIT})과 에픽별 건수는 계산값({@link
-   * ProjectReportFactsService#compute})이 이미 지키므로 그대로 싣는다.
+   * AI 요청 — 템플릿은 지시 상자를 담은 그대로(AI 가 따르고 출력하지 않는다). 계산값({@link ProjectReportFactsService#compute})의
+   * 에픽 집계(WP-1629)를 이슈 60건 목록 대신 싣는다. 프로젝트 소유자 이름은 집계 안({@code epics.projectOwner})에만 둔다 — ai-agent
+   * 가 그 값으로 프롬프트의 「프로젝트 소유자」 줄을 만든다. 옛 ai-agent 와의 롤링 배포 호환용 빈 {@code issues}·{@code omittedByEpic}
+   * 은 {@link ProjectReportAiRequest} 의 보조 생성자가 채운다.
    */
   private ProjectReportAiRequest request(
       ProjectRow project,
@@ -395,8 +408,7 @@ public class ProjectReportGenerator {
         facts.badge().name(),
         facts.previousBadge() == null ? null : facts.previousBadge().name(),
         facts.rows(),
-        facts.issues(),
-        facts.omittedByEpic(),
+        facts.epics(),
         spec.agentUserId(),
         spec.model(),
         spec.maxTurns(),

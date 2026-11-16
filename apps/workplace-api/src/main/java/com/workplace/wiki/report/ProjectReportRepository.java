@@ -305,7 +305,20 @@ public class ProjectReportRepository {
 
   /** before 보다 앞 GENERATED 회차 중 최신의 배지 — 리포트의 「지난 배지」(SKIPPED 회차는 리포트가 아니라 건너뛴다). */
   public Optional<String> lastGeneratedBadge(long projectId, LocalDate before) {
-    return dsl.select(BADGE)
+    return lastGenerated(projectId, before).map(LastReport::badge);
+  }
+
+  /**
+   * 지난 리포트(GENERATED 회차)의 배지와 기간 시작일.
+   *
+   * @param badge 배지 이름(ON_TRACK / WARN / RISK)
+   * @param periodStart 그 회차 기간 시작일 — 바로 앞 회차인지 가려 「지난주」/「지난 리포트」 낱말을 고른다(WP-1629)
+   */
+  public record LastReport(String badge, LocalDate periodStart) {}
+
+  /** before 보다 앞 GENERATED 회차 중 최신의 배지·기간 시작일({@link #lastGeneratedBadge} 와 같은 회차). */
+  public Optional<LastReport> lastGenerated(long projectId, LocalDate before) {
+    return dsl.select(BADGE, PERIOD_START)
         .from(T)
         .where(PROJECT_ID.eq(projectId))
         .and(PERIOD_START.lt(before))
@@ -313,7 +326,7 @@ public class ProjectReportRepository {
         .and(BADGE.isNotNull())
         .orderBy(PERIOD_START.desc())
         .limit(1)
-        .fetchOptional(BADGE);
+        .fetchOptional(r -> new LastReport(r.get(BADGE), r.get(PERIOD_START)));
   }
 
   /**

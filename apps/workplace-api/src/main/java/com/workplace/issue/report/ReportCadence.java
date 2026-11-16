@@ -36,6 +36,24 @@ public enum ReportCadence {
     return label;
   }
 
+  /** 「이번」 낱말 — 주간 「이번 주」, 격주 「이번 기간」, 월간 「이번 달」. */
+  public String currentWord() {
+    return switch (this) {
+      case WEEKLY -> "이번 주";
+      case BIWEEKLY -> "이번 기간";
+      case MONTHLY -> "이번 달";
+    };
+  }
+
+  /** 「지난」 낱말 — 주간 「지난주」, 격주 「지난 기간」, 월간 「지난달」. */
+  public String previousWord() {
+    return switch (this) {
+      case WEEKLY -> "지난주";
+      case BIWEEKLY -> "지난 기간";
+      case MONTHLY -> "지난달";
+    };
+  }
+
   /** 저장된·요청된 이름을 읽는다. 모르는 값이면 IllegalArgumentException(요청이면 400). */
   public static ReportCadence parse(String value) {
     for (ReportCadence c : values()) {

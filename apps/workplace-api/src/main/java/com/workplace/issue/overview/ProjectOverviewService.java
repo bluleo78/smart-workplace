@@ -395,7 +395,7 @@ public class ProjectOverviewService {
    * 예상 완료일 — 남은 = 범위 − 완료 − 0.25×진행 중, 속도 = 최근 14일(기간 시작이 더 늦으면 그때부터, 오늘 포함) 완료 수 ÷ 일수. 예상일 = 오늘 +
    * ceil(남은 ÷ 속도). 범위가 0 이거나 속도가 0 이면(남은 일이 있는데) 예상할 수 없어 null. 남은 일이 없으면 오늘.
    */
-  static LocalDate projectedDate(
+  public static LocalDate projectedDate(
       List<ScopeRow> rows, int total, int done, int inProgress, LocalDate start, LocalDate today) {
     if (total == 0) return null;
     double remaining = total - done - IN_PROGRESS_CREDIT * inProgress;

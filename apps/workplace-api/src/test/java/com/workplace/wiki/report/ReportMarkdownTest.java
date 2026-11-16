@@ -6,6 +6,7 @@ import com.workplace.issue.metrics.MetricsSummary;
 import com.workplace.issue.overview.status.StatusBadge;
 import com.workplace.issue.report.PersonalReportFactsService;
 import com.workplace.issue.report.PersonalReportKind;
+import com.workplace.issue.report.ProjectReportEpics;
 import com.workplace.issue.report.ProjectReportFacts;
 import com.workplace.issue.report.ReportCadence;
 import com.workplace.issue.report.ReportPeriod;
@@ -13,7 +14,6 @@ import com.workplace.issue.report.ReportSnapshot;
 import com.workplace.issue.report.ReportTableRow;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -42,8 +42,7 @@ class ReportMarkdownTest {
         previous,
         ROWS,
         new ReportSnapshot(2, 3, 10, 1, badge.name()),
-        List.of(),
-        Map.of(),
+        ProjectReportEpics.empty(),
         false);
   }
 
@@ -59,7 +58,7 @@ class ReportMarkdownTest {
       | 기한 지남 | 1 | 0 |""";
 
   private static String finish(String md, boolean templateHasTable) {
-    return ReportMarkdown.finish(md, facts(), templateHasTable, PREFIX);
+    return ReportMarkdown.finish(md, facts(), templateHasTable, false, PREFIX);
   }
 
   @Test
@@ -239,11 +238,10 @@ class ReportMarkdownTest {
             null,
             List.of(new ReportTableRow("v1|베타 (11/20)", "3|4", "+1")),
             new ReportSnapshot(0, 0, 0, 0, "ON_TRACK"),
-            List.of(),
-            Map.of(),
+            ProjectReportEpics.empty(),
             false);
 
-    String out = ReportMarkdown.finish("## 상태와 한 줄\n\n**순조로움**\n", f, true, PREFIX);
+    String out = ReportMarkdown.finish("## 상태와 한 줄\n\n**순조로움**\n", f, true, false, PREFIX);
 
     assertThat(out).contains("| v1\\|베타 (11/20) | 3\\|4 | +1 |");
   }
@@ -274,7 +272,8 @@ class ReportMarkdownTest {
         """;
 
     String out =
-        ReportMarkdown.finish(md, facts(StatusBadge.WARN, StatusBadge.ON_TRACK), false, PREFIX);
+        ReportMarkdown.finish(
+            md, facts(StatusBadge.WARN, StatusBadge.ON_TRACK), false, false, PREFIX);
 
     assertThat(out).contains("## 상태와 한 줄\n\n**주의** · 순조로움 → 주의\n\n검토가 밀렸어요.");
   }
@@ -291,7 +290,7 @@ class ReportMarkdownTest {
         """;
 
     String out =
-        ReportMarkdown.finish(md, facts(StatusBadge.WARN, StatusBadge.WARN), false, PREFIX);
+        ReportMarkdown.finish(md, facts(StatusBadge.WARN, StatusBadge.WARN), false, false, PREFIX);
 
     assertThat(out).contains("## 상태와 한 줄\n\n**주의**\n\n글");
     assertThat(out).doesNotContain("→");
@@ -301,16 +300,18 @@ class ReportMarkdownTest {
   void fixBadge_insertsWhenMissing() {
     String md = "## 상태와 한 줄\n\n그냥 글\n";
 
-    String out = ReportMarkdown.finish(md, facts(StatusBadge.RISK, null), false, PREFIX);
+    String out = ReportMarkdown.finish(md, facts(StatusBadge.RISK, null), false, false, PREFIX);
 
     assertThat(out).contains("## 상태와 한 줄\n\n**위험**\n\n그냥 글");
   }
 
+  /** 「요약」도 「상태와 한 줄」도 없으면 맨 앞에 「## 요약」 + 진행 상태 줄(WP-1629 — 옛 맨 앞 굵은 배지 대신). */
   @Test
   void fixBadge_insertsAtTopWhenNoSection() {
-    String out = ReportMarkdown.finish("글만 있음\n", facts(StatusBadge.RISK, null), false, PREFIX);
+    String out =
+        ReportMarkdown.finish("글만 있음\n", facts(StatusBadge.RISK, null), false, false, PREFIX);
 
-    assertThat(out).startsWith("**위험**\n\n글만 있음");
+    assertThat(out).startsWith("## 요약\n\n- **진행 상태** 위험\n\n글만 있음");
   }
 
   /** 「상태:」 접두 뒤 굵은 배지 — 둘째 배지 줄을 넣지 않고 그 줄을 시스템 배지 줄로 바꾼다(뒤 글은 남김, 코드 리뷰 #5). */
@@ -325,7 +326,7 @@ class ReportMarkdownTest {
         글
         """;
 
-    String out = ReportMarkdown.finish(md, facts(StatusBadge.RISK, null), false, PREFIX);
+    String out = ReportMarkdown.finish(md, facts(StatusBadge.RISK, null), false, false, PREFIX);
 
     assertThat(out).contains("## 상태와 한 줄\n\n**위험** · 검토가 밀렸어요.\n\n글");
     assertThat(out).doesNotContain("**주의**").doesNotContain("상태:");
@@ -344,7 +345,7 @@ class ReportMarkdownTest {
         """;
 
     String out =
-        ReportMarkdown.finish(md, facts(StatusBadge.RISK, StatusBadge.WARN), false, PREFIX);
+        ReportMarkdown.finish(md, facts(StatusBadge.RISK, StatusBadge.WARN), false, false, PREFIX);
 
     assertThat(out).contains("## 상태와 한 줄\n\n**위험** · 주의 → 위험\n\n글");
     assertThat(out).doesNotContain("상태: 주의");
@@ -355,7 +356,7 @@ class ReportMarkdownTest {
   void fixBadge_replacesBadgeInsideFirstParagraph() {
     String md = "## 상태와 한 줄\n\n이번 주 상태\n**주의**\n\n글\n";
 
-    String out = ReportMarkdown.finish(md, facts(StatusBadge.RISK, null), false, PREFIX);
+    String out = ReportMarkdown.finish(md, facts(StatusBadge.RISK, null), false, false, PREFIX);
 
     assertThat(out).contains("이번 주 상태\n**위험**\n\n글");
     assertThat(out.split("\\*\\*위험\\*\\*", -1)).hasSize(2);
@@ -672,5 +673,449 @@ class ReportMarkdownTest {
     assertThat(lines).contains("https://w.example/projects/WP/issues/1");
     // 고칠 수 있는 목록이어야 한다(다음 단계가 줄을 넣고 뺀다).
     lines.add("끝");
+  }
+
+  // ───────────── 새 모양(WP-1629) — 진행 상태 줄 / 참고 지표 표 / 일정 도표 ─────────────
+
+  private static final List<ProjectReportEpics.ReportMetric> METRICS =
+      List.of(
+          new ProjectReportEpics.ReportMetric("완료한 에픽", "4", "4"),
+          new ProjectReportEpics.ReportMetric("기한 내 완료", "0/3", "3/4"),
+          new ProjectReportEpics.ReportMetric("완료한 이슈", "163", "189"),
+          new ProjectReportEpics.ReportMetric("릴리스", "14회", "10회"),
+          new ProjectReportEpics.ReportMetric("기한 초과 미완료 이슈", "0", "0"));
+
+  private static final String METRICS_BODY =
+      """
+      | 완료한 에픽 | 4 | 4 |
+      | 기한 내 완료 | 0/3 | 3/4 |
+      | 완료한 이슈 | 163 | 189 |
+      | 릴리스 | 14회 | 10회 |
+      | 기한 초과 미완료 이슈 | 0 | 0 |""";
+
+  /** spike 데이터의 에픽 집계 — 이번 주 완료 4개(하나는 기한 없음), 지난주 4개. */
+  private static ProjectReportEpics spikeEpics(boolean withDue) {
+    List<ProjectReportEpics.CompletedEpic> completed =
+        List.of(
+            completed("WP-1245", "AI 에이전트 직접 실행 지원", withDue ? "11/6" : null, "11/9", 3),
+            completed("WP-1447", "AI 계정 관리와 사용량 모니터링", withDue ? "11/11" : null, "11/14", 3),
+            completed("WP-1503", "도움말 기능 강화", null, "11/14", null));
+    List<ProjectReportEpics.PastEpic> previous =
+        withDue
+            ? List.of(
+                new ProjectReportEpics.PastEpic("WP-718", "외부 AI 에이전트 연동 개선", "10/30", "11/2", 3),
+                new ProjectReportEpics.PastEpic("WP-1310", "반복 AI 작업", "11/6", "11/3", -3))
+            : List.of();
+    return new ProjectReportEpics(
+        completed, previous, List.of(), List.of(), List.of(), 0, List.of(), List.of(), METRICS,
+        "소유자");
+  }
+
+  private static ProjectReportEpics.CompletedEpic completed(
+      String key, String title, String due, String done, Integer late) {
+    return new ProjectReportEpics.CompletedEpic(
+        key, "u/" + key, title, due, done, due == null ? null : late, 1, null, List.of());
+  }
+
+  private static ProjectReportFacts newFacts(
+      StatusBadge badge, StatusBadge previous, boolean withDue) {
+    ReportPeriod period =
+        new ReportPeriod(
+            LocalDate.parse("2026-11-09"), LocalDate.parse("2026-11-15"), ReportCadence.WEEKLY);
+    return new ProjectReportFacts(
+        period,
+        badge,
+        previous,
+        ROWS,
+        new ReportSnapshot(2, 3, 10, 1, badge.name()),
+        spikeEpics(withDue),
+        false);
+  }
+
+  private static String finishNew(String md, boolean withDue, boolean templateHasMetrics) {
+    return ReportMarkdown.finish(
+        md,
+        newFacts(StatusBadge.ON_TRACK, StatusBadge.WARN, withDue),
+        false,
+        templateHasMetrics,
+        PREFIX);
+  }
+
+  private static int count(String s, String part) {
+    return s.split(java.util.regex.Pattern.quote(part), -1).length - 1;
+  }
+
+  /** (a) 「{{일정 도표}}」 줄 → 그 자리에 도표 블록 하나, 토큰 글자는 사라진다. */
+  @Test
+  void chart_replacesTokenLine() {
+    String md = "## 일정\n\n기한을 넘겼습니다.\n\n{{일정 도표}}\n\n- 근거\n";
+
+    String out = finishNew(md, true, false);
+
+    assertThat(out).doesNotContain("{{일정 도표}}");
+    assertThat(count(out, "```html-embed")).isEqualTo(1);
+    assertThat(out).contains("기한을 넘겼습니다.\n\n```html-embed\n");
+    assertThat(out).contains("\n```\n\n- 근거");
+  }
+
+  /** (b) 토큰 두 번 → 도표 블록 하나(뒤 토큰 줄은 지움). */
+  @Test
+  void chart_tokenTwice_singleBlock() {
+    String md = "## 일정\n\n글\n\n{{일정 도표}}\n\n- 근거\n\n  {{일정 도표}}  \n\n끝\n";
+
+    String out = finishNew(md, true, false);
+
+    assertThat(count(out, "```html-embed")).isEqualTo(1);
+    assertThat(out).doesNotContain("{{일정 도표}}");
+    assertThat(out).contains("- 근거\n\n끝");
+  }
+
+  /** (c) 토큰이 없으면 「## 일정」 첫 문단 뒤에 넣는다. */
+  @Test
+  void chart_noToken_insertsAfterFirstParagraphOfSchedule() {
+    String md = "## 일정\n\n판단 한 문장.\n둘째 줄.\n\n- 근거\n\n## 진행 중인 에픽\n";
+
+    String out = finishNew(md, true, false);
+
+    assertThat(count(out, "```html-embed")).isEqualTo(1);
+    assertThat(out).contains("판단 한 문장.\n둘째 줄.\n\n```html-embed\n");
+    assertThat(out.indexOf("```html-embed")).isLessThan(out.indexOf("- 근거"));
+  }
+
+  /** 토큰도 「일정」 섹션도 없으면 도표를 넣지 않는다. */
+  @Test
+  void chart_noTokenNoSection_nothing() {
+    String out = finishNew("## 주요 성과\n\n글\n", true, false);
+
+    assertThat(out).doesNotContain("html-embed");
+  }
+
+  /** (d) 도표를 만들 수 없으면(기한 정한 완료 에픽 없음) 토큰 줄만 지운다. */
+  @Test
+  void chart_impossible_removesTokenLine() {
+    String md = "## 일정\n\n글\n\n{{일정 도표}}\n\n- 근거\n";
+
+    String out = finishNew(md, false, false);
+
+    assertThat(out).doesNotContain("{{일정 도표}}").doesNotContain("html-embed");
+    assertThat(out).contains("## 일정\n\n글\n\n- 근거");
+  }
+
+  /** 목록 항목·문장 안에 든 토큰 — 글자는 남지 않고 도표는 한 번만. */
+  @Test
+  void chart_strayTokensRemoved() {
+    String md = "## 일정\n\n글\n\n- {{일정 도표}}\n\n아래 {{일정 도표}} 를 보세요.\n";
+
+    String out = finishNew(md, true, false);
+
+    assertThat(out).doesNotContain("{{일정 도표}}");
+    assertThat(count(out, "```html-embed")).isEqualTo(1);
+    assertThat(out).doesNotContain("\n- \n").doesNotContain("\n-\n");
+    assertThat(out).contains("아래 를 보세요.");
+  }
+
+  /** (j) 펜스 안 토큰은 건드리지 않는다(진짜 토큰 줄은 바뀜). */
+  @Test
+  void chart_tokenInsideFenceUntouched() {
+    String md = "## 일정\n\n글\n\n```\n{{일정 도표}}\n```\n\n{{일정 도표}}\n";
+
+    String out = finishNew(md, true, false);
+
+    assertThat(out).contains("```\n{{일정 도표}}\n```");
+    assertThat(count(out, "```html-embed")).isEqualTo(1);
+    assertThat(count(out, "{{일정 도표}}")).isEqualTo(1);
+  }
+
+  /** (e) 「요약」의 진행 상태 줄을 시스템 값으로(지금 순조로움, 지난 주의). */
+  @Test
+  void status_rewritesSummaryStatusLine() {
+    String md =
+        """
+        ## 요약
+
+        판단 두 문장입니다.
+
+        - **진행 상태** 주의 (지난주 순조로움)
+        - **주의** 통합 검색 기한 초과 예상
+        """;
+
+    String out = finishNew(md, true, false);
+
+    assertThat(out).contains("- **진행 상태** 순조로움 (지난주 주의)\n- **주의** 통합 검색 기한 초과 예상");
+    assertThat(count(out, "**진행 상태**")).isEqualTo(1);
+    // 옛 배지 줄(굵은 「주의」)을 따로 넣지 않는다.
+    assertThat(out).doesNotContain("**순조로움**");
+  }
+
+  /** 콜론 위치가 다른 진행 상태 줄 변형도 같은 줄로 찾아 한 줄로 고친다 — AI 낱말(위험)이 남지 않는다(WP-1629). */
+  @Test
+  void status_replacesColonVariantsWithSingleLine() {
+    for (String variant :
+        List.of("- **진행 상태:** 위험", "- **진행 상태: 위험**", "- **진행 상태** : 위험", "- **진행 상태：** 위험")) {
+      String md = "## 요약\n\n판단 두 문장입니다.\n\n" + variant + "\n- **성과** 에픽 4개\n";
+
+      String out = finishNew(md, true, false);
+
+      assertThat(out).as(variant).contains("- **진행 상태** 순조로움 (지난주 주의)\n- **성과** 에픽 4개");
+      assertThat(count(out, "진행 상태")).as(variant).isEqualTo(1);
+      assertThat(out).as(variant).doesNotContain("위험");
+    }
+  }
+
+  /** 진행 상태 줄이 없으면 첫 목록 줄 앞에, 목록도 없으면 첫 문단 뒤에. 지난 배지 없으면 괄호 생략. */
+  @Test
+  void status_insertsBeforeFirstListOrAfterParagraph() {
+    String withList = "## 요약\n\n판단.\n\n- **성과** 에픽 4개\n";
+    String out1 =
+        ReportMarkdown.finish(
+            withList, newFacts(StatusBadge.WARN, null, true), false, false, PREFIX);
+    assertThat(out1).contains("판단.\n\n- **진행 상태** 주의\n- **성과** 에픽 4개");
+
+    String noList = "## 요약\n\n판단.\n\n## 주요 성과\n";
+    String out2 =
+        ReportMarkdown.finish(noList, newFacts(StatusBadge.RISK, null, true), false, false, PREFIX);
+    assertThat(out2).contains("## 요약\n\n판단.\n\n- **진행 상태** 위험\n\n## 주요 성과");
+  }
+
+  /** 주기 낱말 — 월간은 「지난달」. */
+  @Test
+  void status_monthlyWord() {
+    ReportPeriod period =
+        new ReportPeriod(
+            LocalDate.parse("2026-10-01"), LocalDate.parse("2026-10-31"), ReportCadence.MONTHLY);
+    ProjectReportFacts f =
+        new ProjectReportFacts(
+            period,
+            StatusBadge.WARN,
+            StatusBadge.ON_TRACK,
+            ROWS,
+            new ReportSnapshot(0, 0, 0, 0, "WARN"),
+            ProjectReportEpics.empty(),
+            false);
+
+    String out = ReportMarkdown.finish("## 요약\n\n판단.\n", f, false, false, PREFIX);
+
+    assertThat(out).contains("- **진행 상태** 주의 (지난달 순조로움)");
+  }
+
+  /** (f) 「요약」도 「상태와 한 줄」도 없으면 맨 앞에 「## 요약」 + 진행 상태 줄 하나. */
+  @Test
+  void status_noSummaryNoOldSection_insertsSummaryAtTop() {
+    String md = "## 주요 성과\n\n### 무엇\n\n- 결과\n";
+
+    String out = finishNew(md, true, false);
+
+    assertThat(out).startsWith("## 요약\n\n- **진행 상태** 순조로움 (지난주 주의)\n\n## 주요 성과");
+    assertThat(count(out, "**진행 상태**")).isEqualTo(1);
+  }
+
+  /** 옛 표를 넣어야 하는데 섹션이 다 없으면 맨 앞에 넣은 「요약」 섹션 뒤에 — 제목과 진행 상태 줄 사이에 끼지 않는다. */
+  @Test
+  void oldTable_insertedAfterInsertedSummary() {
+    String out = finish("## 한 일\n\n- 무엇\n", true);
+
+    assertThat(out)
+        .startsWith(
+            "## 요약\n\n- **진행 상태** 순조로움 (지난주 순조로움)\n\n## 지난 리포트 이후\n\n"
+                + "| 지난 리포트 이후 | 이번 | 변화 |\n|---|---|---|\n"
+                + SYSTEM_BODY
+                + "\n\n## 한 일");
+  }
+
+  /** (g) 옛 「상태와 한 줄」 모양은 기존 배지 동작 그대로. */
+  @Test
+  void status_oldTemplate_keepsBadgeBehavior() {
+    String md = "## 상태와 한 줄\n\n**위험**\n\n글\n";
+
+    String out = finishNew(md, true, false);
+
+    assertThat(out).startsWith("## 상태와 한 줄\n\n**순조로움** · 주의 → 순조로움\n\n글");
+    assertThat(out).doesNotContain("진행 상태").doesNotContain("## 요약");
+  }
+
+  /** (h) 참고 지표 표 몸통은 AI 가 숫자를 틀려도 계산값 다섯 줄로(머리 줄은 그대로). */
+  @Test
+  void metrics_rewritesBody() {
+    String md =
+        """
+        ## 참고 지표
+
+        | 지표 | 이번 주 | 지난주 |
+        | --- | --- | --- |
+        | 완료한 에픽 | 99 | 4 |
+        | 아무 지표 | 1 | 1 |
+        """;
+
+    String out = finishNew(md, true, true);
+
+    assertThat(out).contains("| 지표 | 이번 주 | 지난주 |\n|---|---|---|\n" + METRICS_BODY);
+    assertThat(out).doesNotContain("99").doesNotContain("아무 지표");
+  }
+
+  /** (i) 표가 없고 템플릿에 있었으면 문서 끝에 「## 참고 지표」 표. 템플릿에 없었으면 넣지 않는다. */
+  @Test
+  void metrics_insertsAtEnd_whenTemplateHadIt() {
+    String md = "## 요약\n\n판단.\n\n## 결정 요청\n\n없음\n";
+
+    String out = finishNew(md, true, true);
+
+    assertThat(out)
+        .endsWith(
+            "## 결정 요청\n\n없음\n\n## 참고 지표\n\n| 지표 | 이번 주 | 지난주 |\n|---|---|---|\n"
+                + METRICS_BODY
+                + "\n");
+    assertThat(finishNew(md, true, false)).doesNotContain("참고 지표");
+  }
+
+  /** 월간·격주 리포트는 템플릿의 「이번 주 | 지난주」 머리를 주기 낱말로 고친다(WP-1629). */
+  @Test
+  void metrics_headFollowsCadence() {
+    List<com.workplace.issue.report.ProjectReportEpics.ReportMetric> ms =
+        List.of(new com.workplace.issue.report.ProjectReportEpics.ReportMetric("완료한 에픽", "1", "2"));
+    for (String[] c :
+        new String[][] {
+          {"MONTHLY", "이번 달", "지난달"}, {"BIWEEKLY", "이번 기간", "지난 기간"}, {"WEEKLY", "이번 주", "지난주"}
+        }) {
+      List<String> lines =
+          new java.util.ArrayList<>(
+              List.of(
+                  "## 참고 지표", "", "| 지표 | 이번 주 | 지난주 |", "| --- | --- | --- |", "| 아무 | 1 | 1 |"));
+
+      ReportMarkdown.fixTable(
+          lines,
+          com.workplace.wiki.report.ReportTableSpec.metrics(ms, ReportCadence.valueOf(c[0])),
+          true);
+
+      assertThat(lines)
+          .as(c[0])
+          .contains("| 지표 | " + c[1] + " | " + c[2] + " |", "| 완료한 에픽 | 1 | 2 |");
+      assertThat(String.join("\n", lines)).as(c[0]).doesNotContain("아무");
+    }
+  }
+
+  /** 「**진행 상태가 늦은 에픽**」 같은 다른 굵은 글은 진행 상태 줄이 아니다 — 지우지 않고 상태 줄도 한 번만(WP-1629). */
+  @Test
+  void status_doesNotTreatOtherBoldStartingWithPhraseAsStatusLine() {
+    String md = "## 요약\n\n판단.\n\n- **진행 상태가 늦은 에픽** 통합 검색\n- **성과** 에픽 4개\n";
+
+    String out = finishNew(md, true, false);
+
+    assertThat(out).contains("- **진행 상태가 늦은 에픽** 통합 검색");
+    assertThat(count(out, "- **진행 상태** ")).isEqualTo(1);
+    assertThat(out).contains("- **성과** 에픽 4개");
+  }
+
+  @Test
+  void hasMetricsTable_detectsTemplateTable() {
+    assertThat(ReportMarkdown.hasMetricsTable("| 지표 | 이번 주 | 지난주 |\n| --- | --- | --- |")).isTrue();
+    assertThat(ReportMarkdown.hasMetricsTable("| 지난 리포트 이후 | 이번 | 변화 |\n|---|---|---|")).isFalse();
+  }
+
+  /** 새 모양 카드 — 배지는 진행 상태 줄 낱말, 한 줄은 「요약」 첫 글 문단. */
+  @Test
+  void cardSummary_newShape_readsStatusLineAndJudgment() {
+    String md =
+        """
+        ## 요약
+
+        이번 주 에픽 4개를 마쳤습니다. **다만** 기한을 넘겼습니다.
+
+        - **진행 상태** 순조로움 (지난주 주의)
+        - **주의** 기한 초과
+
+        ## 주요 성과
+        """;
+
+    ReportMarkdown.CardSummary s = ReportMarkdown.cardSummary(md);
+
+    assertThat(s.badge()).isEqualTo("ON_TRACK");
+    assertThat(s.line()).isEqualTo("이번 주 에픽 4개를 마쳤습니다. 다만 기한을 넘겼습니다.");
+  }
+
+  /**
+   * 「요약」·「상태와 한 줄」 없이 다른 절로 시작한 AI 글 — finish 가 맨 앞에 「## 요약」 + 진행 상태 줄만 넣어 요약 절에 글 문단이 없어도 카드 한 줄은
+   * 문서의 첫 글 문단(옛 카드와 같음, 리뷰 반영). 배지는 넣은 진행 상태 줄 낱말, 목록·제목·진행 상태 줄은 한 줄로 쓰지 않는다.
+   */
+  @Test
+  void cardSummary_noSummaryNoStatusSection_fallsBackToFirstProse() {
+    String ai =
+        """
+        ## 주요 성과
+
+        - 목록이 먼저 와도 한 줄이 아니다
+
+        이번 주는 결제 개편을 마쳤습니다. **다음 주** 배포합니다.
+
+        ## 다음 할 일
+
+        둘째 문단
+        """;
+
+    String out = ReportMarkdown.finish(ai, facts(StatusBadge.WARN, null), false, false, PREFIX);
+    ReportMarkdown.CardSummary s = ReportMarkdown.cardSummary(out);
+
+    assertThat(out).startsWith("## 요약\n\n- **진행 상태** 주의\n");
+    assertThat(s.badge()).isEqualTo("WARN");
+    assertThat(s.line()).isEqualTo("이번 주는 결제 개편을 마쳤습니다. 다음 주 배포합니다.");
+  }
+
+  /** 지난 리포트가 바로 앞 기간이 아니면 진행 상태 줄은 「(지난 리포트 …)」 로 견준다 — 건너뛴 회차가 끼면 「지난주」가 틀리다(WP-1629 리뷰). */
+  @Test
+  void fixStatus_lastReportNotPreviousPeriod_saysLastReport() {
+    ProjectReportFacts f =
+        facts(StatusBadge.RISK, StatusBadge.WARN).withPreviousFromPreviousPeriod(false);
+
+    String out = ReportMarkdown.finish("## 요약\n\n판단입니다.\n", f, false, false, PREFIX);
+    String adjacent =
+        ReportMarkdown.finish(
+            "## 요약\n\n판단입니다.\n", facts(StatusBadge.RISK, StatusBadge.WARN), false, false, PREFIX);
+
+    assertThat(out).contains("- **진행 상태** 위험 (지난 리포트 주의)").doesNotContain("지난주");
+    assertThat(adjacent).contains("- **진행 상태** 위험 (지난주 주의)");
+  }
+
+  /** 「요약」에 진행 상태 줄(목록)만 있고 문서 어디에도 글 문단이 없으면 한 줄은 null — 진행 상태 줄을 되풀이하지 않는다. */
+  @Test
+  void cardSummary_onlyStatusLine_lineNull() {
+    ReportMarkdown.CardSummary s =
+        ReportMarkdown.cardSummary("## 요약\n\n- **진행 상태** 위험\n\n## 일정\n\n- 목록만\n");
+
+    assertThat(s.badge()).isEqualTo("RISK");
+    assertThat(s.line()).isNull();
+  }
+
+  /** 기본 템플릿 + spike 출력 흐름 — 도표 한 번, 진행 상태 한 번, 지표 표 한 번. */
+  @Test
+  void finish_spikeShapedOutput_endToEnd() {
+    String md =
+        """
+        ## 요약
+
+        판단.
+
+        - **진행 상태** 순조로움 (지난주 순조로움)
+        - **주의** 기한 초과
+
+        ## 일정
+
+        판단.
+
+        {{일정 도표}}
+
+        - 근거
+
+        ## 참고 지표
+
+        | 지표 | 이번 주 | 지난주 |
+        | --- | --- | --- |
+        | 완료한 에픽 | 4 | 4 |
+        """;
+
+    String out = finishNew(md, true, true);
+
+    assertThat(count(out, "```html-embed")).isEqualTo(1);
+    assertThat(count(out, "**진행 상태**")).isEqualTo(1);
+    assertThat(count(out, "| 지표 |")).isEqualTo(1);
+    assertThat(out).contains(METRICS_BODY);
   }
 }

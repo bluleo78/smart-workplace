@@ -114,6 +114,27 @@ class ProjectReportCardServiceTest extends ExternalClientMockedTestBase {
     assertThat(r.latest().line()).isEqualTo("배지 없이 쓴 한 줄.");
   }
 
+  /** 새 모양 리포트(WP-1629) — 배지는 「요약」의 진행 상태 줄 낱말, 한 줄은 「요약」 첫 글 문단(판단 문장). */
+  @Test
+  void card_newShapeReport_readsSummary() {
+    String body =
+        """
+        ## 요약
+
+        에픽 4개를 마쳤습니다. 다만 기한을 넘겼습니다.
+
+        - **진행 상태** 순조로움 (지난주 주의)
+        - **주의** 기한 초과
+
+        ## 주요 성과
+        """;
+    report(START, body, "RISK");
+
+    ProjectReportCardResponse r = service.card(ownerId, project.key());
+    assertThat(r.latest().badge()).isEqualTo("ON_TRACK");
+    assertThat(r.latest().line()).isEqualTo("에픽 4개를 마쳤습니다. 다만 기한을 넘겼습니다.");
+  }
+
   /** 지난 목록 — 최신 회차부터, 최대 10개, 지워진 페이지는 뺀다. 목록 배지는 저장값. */
   @Test
   void card_pastNewestFirst_max10_excludesDeletedPages() {
