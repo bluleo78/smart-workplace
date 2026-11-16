@@ -51,6 +51,11 @@ check "둘째 쌓기 — 같은 기차" "$out" "WP-2 → integ/ai-1" "새 기차
 check "이슈당 커밋 하나" "$(git log --format=%s origin/main..integ/ai-1 | wc -l | tr -d ' ')" "2"
 check "커밋 제목·작성자 유지" "$(git log -1 --format='%s|%an|%b' integ/ai-1)" "fix(web): f-b 고침 (WP-2)|dev|본문 WP-2"
 check "쌓은 내용" "$(git show integ/ai-1:a.txt)" "a2"
+# worktree-sweep 의 트레일러 판정이 feature 커밋이 들어갔는지 정확히 보도록 옮긴 커밋에 원래 커밋 SHA(40자) 트레일러를 단다(WP-1643).
+check "쌓은 커밋에 Stacked-From 트레일러(feature SHA)" \
+  "[$(git log -1 --format='%(trailers:key=Stacked-From,valueonly,separator=%x2C)' integ/ai-1)]" "[$(git rev-parse f-b)]"
+check "트레일러는 쌓은 커밋마다 하나" \
+  "[$(git log -1 --format='%(trailers:key=Stacked-From,valueonly,separator=%x2C)' integ/ai-1~1)]" "[$(git rev-parse f-a)]"
 check "실린 키 — 쌓은 순서" "$($TRAIN keys integ/ai-1)" "WP-1·WP-2"
 out=$($TRAIN stack ai f-a WP-1 2>&1 || true)
 check "같은 이슈 다시 쌓기 거부" "$out" "이미 integ/ai-1 에 실려"
