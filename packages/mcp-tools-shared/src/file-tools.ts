@@ -19,10 +19,12 @@ export const uploadFileInput = z.object({
  * upload_file 설명의 content 모드 부분(무엇을 하는지·텍스트 쓰기). 업로드 링크를 쓸 수 없는 판(allowUploadLink: false)은 이 부분만 한국어 머리말 뒤에
  * 붙인다(CREATE_DRIVE_FILE_CONTENT_DESCRIPTION 과 같은 구조). 붙일 도구는 이름 대신 입력(fileIds)으로 가리킨다 — 도구 이름을 적으면
  * 앱 범위 교차 참조 규칙(tool-apps.test.ts)에 걸리고, 세 앱의 도구를 모두 나열하면 정의 크기만 커진다.
+ * WP-1634: 이슈 본문·댓글에는 fileIds 대신 `![설명](file:<fileId>)` 자리표시로 원하는 자리에 넣을 수 있다(서버가 저장 때 이미지는 본문 이미지로,
+ * 그 밖은 이슈 첨부로 옮긴다). 정의 크기 상한(tool-naming.test.ts) 여유가 10토큰뿐이라 본문 도구 4종 설명에는 싣지 않고 여기 한 곳에만 둔다.
  */
 export const UPLOAD_FILE_CONTENT_DESCRIPTION =
-  'Stages a file to attach (fileIds input of issue, message and wiki tools) within 24 hours. With content: saves that text (md, txt, csv, json; ' +
-  'else plain text).';
+  'Stages a file to attach within 24h (fileIds of issue, message, wiki tools; ![alt](file:<fileId>) in issue/comment body). With content: saves ' +
+  'that text (md, txt, csv, json; else plain text).';
 /** upload_file 설명의 업로드 링크 부분 — 셸이 있는 외부 클라이언트용. 실패·만료 안내는 응답 note 에 싣는다(정의 크기 절약). */
 const UPLOAD_FILE_LINK_DESCRIPTION =
   'Without: returns a one-time upload link valid 10 minutes, up to maxBytes: curl -T <file> "<uploadUrl>" prints fileId.';
@@ -43,7 +45,8 @@ export function toStagedUploadLinkView({ url, method, expiresAt, maxBytes, name,
     howTo: curlPutHowTo(url),
     note:
       UPLOAD_LINK_NOTE_COMMON +
-      'PUT 응답 JSON 의 fileId 를 첨부 입력(fileIds)에 넘기세요. 24시간 안에 붙이지 않으면 파일이 사라집니다. ' +
+      'PUT 응답 JSON 의 fileId 를 첨부 입력(fileIds)에 넘기세요. 이슈 본문·댓글에는 ![설명](file:<fileId>) 로 원하는 자리에 넣을 수 있습니다. ' +
+      '24시간 안에 붙이지 않으면 파일이 사라집니다. ' +
       '전송이 실패하면 이 링크는 다시 쓸 수 없으니 upload_file 로 새 링크를 만드세요.',
   };
 }

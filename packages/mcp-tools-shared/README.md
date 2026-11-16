@@ -227,6 +227,8 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 
 외부 MCP 클라이언트가 이슈·메시지·노트에 파일을 붙이게 한다. 바이트는 MCP 를 거치지 않는다(JSON 본문 4MB 상한·secretless) — 먼저 `upload_file` 로 **스테이징**하고, 받은 `fileId` 를 쓰기 도구의 `fileIds` 입력(`create_issue`·`update_issue`·`add_channel_message`·`update_wiki_page`, WP-422~424)으로 붙인다. 어느 도메인에 붙일지는 그때(클레임) 그 도메인이 자기 권한으로 정하므로 `upload_file` 은 대상을 받지 않는다.
 
+- **본문 자리표시(WP-1634)**: 이슈 본문·댓글(`create_issue`·`update_issue`·`add_comment`·`update_comment`)에는 `fileIds` 대신 본문 원하는 자리에 `![설명](file:<fileId>)`(또는 `[이름](file:<fileId>)`)을 적을 수 있다. 저장할 때 API 가 호출자 본인의 만료 전 스테이징 파일만 받아, 이미지(PNG·JPEG·GIF·WebP, 10MB)는 본문 이미지(`/api/v1/projects/{KEY}/issue-images/{id}`)로 옮기고 그 밖의 파일은 이슈 첨부로 붙인 뒤 `**이름** (첨부 파일)` 로 바꾼다. 코드 블록·인라인 코드 안은 그대로 두고, 쓸 수 없는 번호면 400 으로 아무것도 저장하지 않는다. 도구 정의 크기 상한 때문에 안내는 `upload_file` 설명·업로드 링크 note 에만 둔다.
+
 | 도구 | 하는 일 | 서버 |
 |---|---|---|
 | `upload_file` | `{name, content?}`(content null = 생략). `content` 가 있으면(빈 문자열 포함) 텍스트로 저장해 `{fileId, name, sizeBytes, mimeType, expiresAt}` 를, 없으면 일회용 PUT 링크를 `{uploadUrl, method:"PUT", expiresAt, maxBytes, name, singleUse, howTo, note}` 로 준다(`toStagedUploadLinkView` 허용 목록 — 로그인 없이 쓰는 링크라 서버 새 필드가 새지 않게). `curl -T <file> "<uploadUrl>"` 의 응답 JSON 이 같은 `{fileId, …}` 다. `note` 는 한 번만·원시 바이트·응답의 `fileId` 를 `fileIds` 에·24시간·실패하면 새 링크를 말한다 | `POST /staged-files/text`(201, UTF-8 10MB, MIME 은 이름으로 md·txt·csv·json 외 text/plain) · `POST /staged-files/upload-link`(201, 10분·일회용·일률 25MB) · 공개 `PUT /public/staged-files/{token}`(201) |

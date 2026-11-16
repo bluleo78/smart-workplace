@@ -184,4 +184,26 @@ public record CreateIssueRequest(
         null,
         null);
   }
+
+  /** 본문만 바꾼 사본(WP-1634) — 본문의 스테이징 파일 자리표시를 실제 주소로 바꾼 뒤 그 본문으로 저장하려고 쓴다. 다른 필드는 그대로다. */
+  public CreateIssueRequest withBody(String newBody) {
+    return new CreateIssueRequest(
+        title,
+        newBody,
+        priority,
+        dueDate,
+        assigneeIds,
+        typeId,
+        parentNumber,
+        startDate,
+        labelIds,
+        milestoneId,
+        cycleIds,
+        labelNames,
+        fileIds,
+        status,
+        statusId,
+        componentIds,
+        parentKey);
+  }
 }
