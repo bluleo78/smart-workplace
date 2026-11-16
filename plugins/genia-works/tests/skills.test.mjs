@@ -905,3 +905,47 @@ test('질문할 때 선택지를 options 로도 보내고 추천을 첫 번째�
   const onLine = lineWith(workOnSkill, '사용자에게 질문하기 **직전**');
   assert.ok(onLine.includes('같은 선택지를 `options` 로도 보낸다(2~4개, 각 40자 이내, 추천을 첫 번째에)'));
 });
+
+// WP-1637 — 워크트리 정리는 머지가 아니라 이슈 DONE·CANCELED 뒤에 한다. 머지 뒤 다시 고를 때만 지우면 사람이 DONE 으로 바꾼 이슈가 후보에서 빠져 영영 남았다.
+test('끝난 이슈 정리: 잠금 뒤 부를 때마다 worktree-sweep 으로 DONE·CANCELED 이슈의 워크트리를 지우고, 머지만으로는 지우지 않는다 — 들어간 기차는 머지 뒤 바로 지운다 (WP-1637)', () => {
+  const skill = body(workLoop('SKILL.md'));
+  const pi = workLoop('process-issue.md');
+  const sweep = section(skill, '\n### 2-1. 끝난 이슈 정리\n', '\n### 3. 후보 고르기\n');
+  // 잠금을 잡은 세션만 정리한다 — 다른 work-loop 가 쓰는 워크트리를 지우지 않게.
+  assertBefore(skill, '\n### 2. 잠금\n', '\n### 2-1. 끝난 이슈 정리\n');
+  // 이 세션의 프로젝트·내 기차만 — 거르기는 스크립트 인자로 한다.
+  assert.ok(sweep.includes('scripts/worktree-sweep" list "<MAIN>" <프로젝트 키> <내 AI 이름>'));
+  assert.ok(sweep.includes("username 의 `@` 앞"));
+  assert.ok(sweep.includes('scripts/worktree-sweep" remove "<MAIN>"'));
+  assert.ok(sweep.includes('`DONE`·`CANCELED`'));
+  // 머지만 된 이슈는 남긴다(배포 뒤 추가 요청). 들어간 내 기차는 조회 없이 끝난 것이다.
+  assert.ok(sweep.includes('머지만 된 이슈의 워크트리는 남긴다'));
+  assert.ok(sweep.includes('`integ-<내 AI 이름>-<번호>`'));
+  // 돌고 있는 작업은 끄지 않고 기다린다. 올리지 않은 커밋·커밋 안 한 변경·잠김은 지우지 않고 이유를 남긴다(DONE 이슈라 report_agent_work 는 409 — add_issue_chat).
+  assert.ok(sweep.includes('- `running`: 지우지 않고 알리지도 않는다'));
+  assert.ok(sweep.includes('`unpushed`·`dirty`·`locked`'));
+  assert.ok(!sweep.includes('bg-job stop'), '정리 단계가 돌고 있는 작업을 끈다');
+  assert.ok(sweep.includes('add_issue_chat'));
+  // 정리 보류 표시는 이유를 담고, 이유가 바뀌었을 때만 다시 알린다.
+  assert.ok(sweep.includes('`정리 보류: <이유>`'));
+  assert.ok(sweep.includes('이유가 적힌 것과 다르면'));
+  // 11번·기차 7번·검토자 7번·본문 지시 5번은 지우지 않고 정리 단계에 맡긴다.
+  const review = section(pi, '\n### 11. 검토 대기\n', '\n### 기차 (저장소가 켰을 때)\n');
+  assert.ok(!review.includes('worktree remove'), '11번이 아직 머지 뒤 워크트리를 지운다');
+  assert.ok(review.includes('`SKILL.md` 2-1번 「끝난 이슈 정리」'));
+  assert.ok(review.includes('bg-job stop'));
+  const train = section(pi, '\n### 기차 (저장소가 켰을 때)\n', '\n### 분류 (분류 역할 AI)\n');
+  assert.ok(!/feature 워크트리·브랜치·notes 를 지운다/.test(train));
+  assert.ok(train.includes('2-1번 「끝난 이슈 정리」'));
+  // 머지된 기차로는 돌아오지 않으니 기차 워크트리는 머지 뒤 바로 지운다.
+  assert.ok(train.includes('기차 워크트리·로컬 기차 브랜치·기차 notes 는 바로 지운다'));
+  const reviewer = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업 (백그라운드)\n');
+  assert.ok(!reviewer.includes('위 11번처럼 지운다'));
+  assert.ok(reviewer.includes('2-1번 「끝난 이슈 정리」'));
+  const body5 = pi.slice(pi.indexOf('\n### 본문 지시 회차\n'));
+  assert.ok(!body5.includes('11번처럼 지운다'));
+  assert.ok(body5.includes('2-1번 「끝난 이슈 정리」'));
+  // 사람이 부르는 마무리(work-done)는 그대로 바로 지우되, work-loop 와 기준이 다름을 적는다.
+  const done = readFileSync(new URL('work-done/SKILL.md', skillsDir), 'utf8');
+  assert.ok(section(done, '## 5. 리소스 정리', '## 6.').includes('DONE·CANCELED'));
+});
