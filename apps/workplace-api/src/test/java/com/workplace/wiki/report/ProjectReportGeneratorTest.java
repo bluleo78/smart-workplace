@@ -538,7 +538,9 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(r.badge()).isEqualTo("ON_TRACK");
     assertThat(r.previousBadge()).isNull();
     assertThat(r.tableRows()).hasSize(4);
-    assertThat(r.issues()).hasSize(1);
+    // 이슈 60건 목록은 에픽 집계로 바뀌어(WP-1629) 집계와 소유자 이름을 싣는다.
+    assertThat(r.epics()).isNotNull();
+    assertThat(r.epics().projectOwner()).isNotBlank();
     assertThat(r.assistantAgentId()).isEqualTo(owner);
     // 리포트는 비서 기본 예산(60초)이 아니라 리포트 전용 예산(180초)으로 쓴다.
     assertThat(r.timeoutMs()).isEqualTo(AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS);

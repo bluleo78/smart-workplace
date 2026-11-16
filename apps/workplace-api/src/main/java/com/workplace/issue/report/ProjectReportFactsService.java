@@ -22,10 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 리포트 계산값(WP-1483) — 표의 숫자·배지·기간 이슈 목록을 시스템이 정한다. 숫자는 새로 세지 않고 기존 정의를 그대로 쓴다: 완료·새로 생김은 지표 모듈
- * ({@link IssueMetricsService#countsForProject}), 열린 이슈·기한 지남은 개요({@link
- * ProjectOverviewService#computeWithoutAccessCheck}), 배지는 {@link ProjectStatusRule} — 개요 화면·상태 요약과
- * 같은 숫자가 나오게. 배지·사이클/버전 행의 진행 중 위젯만은 생성 시각이 아니라 기간 끝날 기준({@link
+ * 리포트 계산값(WP-1483) — 표의 숫자·배지·에픽 집계(WP-1629, {@link ProjectReportEpicRepository})를 시스템이 정한다. 숫자는 새로
+ * 세지 않고 기존 정의를 그대로 쓴다: 완료·새로 생김은 지표 모듈({@link IssueMetricsService#countsForProject}), 열린 이슈·기한 지남은
+ * 개요({@link ProjectOverviewService#computeWithoutAccessCheck}), 배지는 {@link ProjectStatusRule} — 개요
+ * 화면·상태 요약과 같은 숫자가 나오게. 배지·사이클/버전 행의 진행 중 위젯만은 생성 시각이 아니라 기간 끝날 기준({@link
  * ProjectOverviewService#progressAsOf}, WP-1631)이다 — 다음 회차 첫날 시작한 사이클이 이번 회차 상태를 정하지 않게. 숫자·변화 표기는
  * 개인 보고와 나눠 쓰는 {@link ReportNumbers}(WP-1486).
  */
@@ -33,12 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class ProjectReportFactsService {
 
-  /** 기간 이슈 목록 상한 — 생성 비용 상한(넘치면 에픽별 남은 건수로 요약). */
-  public static final int ISSUE_LIMIT = 60;
-
   private final IssueMetricsService metricsService;
   private final ProjectOverviewService overviewService;
-  private final ProjectReportIssueRepository issueRepository;
+  private final ProjectReportEpicRepository epicRepository;
 
   /**
    * 한 회차의 계산값을 만든다. <b>권한 검사 없음 — 시스템(리포트 실행기) 전용</b>이다. 호출자가 삭제되지 않은 프로젝트 행을 골랐고 테넌트 컨텍스트가 있어야 한다.
@@ -83,8 +80,17 @@ public class ProjectReportFactsService {
             "기한 지남", num(overdue), last.map(s -> diff(overdue, s.overdue())).orElse(DASH)));
     progressRow(progress).ifPresent(rows::add);
 
-    ProjectReportIssueRepository.Selection sel =
-        issueRepository.select(project.id(), period, overview.today(), ISSUE_LIMIT);
+    // 에픽 집계 — 지표 표의 완료 이슈·기한 초과는 위에서 센 같은 값을 넘겨 「지난 리포트 이후」 표와 어긋나지 않게 한다.
+    ProjectReportEpics epics =
+        epicRepository.load(
+            project,
+            period,
+            overview.today(),
+            new ProjectReportEpicRepository.IssueCounts(
+                counts.completed(),
+                prevCompleted,
+                overdue,
+                last.map(ReportSnapshot::overdue).orElse(null)));
 
     return new ProjectReportFacts(
         period,
@@ -92,8 +98,7 @@ public class ProjectReportFactsService {
         last.map(ReportSnapshot::badge).flatMap(ProjectReportFactsService::parseBadge).orElse(null),
         List.copyOf(rows),
         new ReportSnapshot(counts.completed(), counts.created(), open, overdue, badge.name()),
-        sel.issues(),
-        sel.omittedByEpic(),
+        epics,
         counts.completed() == 0 && counts.created() == 0);
   }
 

@@ -66,7 +66,7 @@ class ProjectReportSettingsServiceTest extends ExternalClientMockedTestBase {
     assertThat(r.canManage()).isTrue();
   }
 
-  /** 켜면 「리포트」 아래 맨 위에 「템플릿 · 주간 리포트」를 기본 글(지시 상자·표 포함, 자리표시 치환)로 복사한다. */
+  /** 켜면 「리포트」 아래 맨 위에 「템플릿 · 주간 리포트」를 기본 글(지시 상자·참고 지표 표 포함, 주소 자리표시 치환)로 복사한다. */
   @Test
   void enable_copiesTemplateUnderReports() {
     ProjectReportSettingsResponse r = service.update(ownerId, project.key(), enable());
@@ -79,9 +79,12 @@ class ProjectReportSettingsServiceTest extends ExternalClientMockedTestBase {
     assertThat(parent.parentId()).isNull();
     assertThat(template.body())
         .contains("wp-ai-instruction")
-        .contains("| 지난 리포트 이후 |")
+        .contains("| 지표 | 이번 주 | 지난주 |")
         .contains("/projects/" + project.key() + "/issues/1299")
-        .doesNotContain("{{");
+        // 새 기본 템플릿(WP-1629) — 주소 자리표시는 바뀌고, 후처리가 도표로 바꿀 「{{일정 도표}}」 줄은 남는다.
+        .contains("{{일정 도표}}")
+        .doesNotContain("{{BASE_URL}}")
+        .doesNotContain("{{PROJECT_KEY}}");
     assertThat(writer.childIdsOrdered(parent.id())).first().isEqualTo(template.id());
   }
 

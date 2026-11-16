@@ -6,8 +6,10 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_COMMENT;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ISSUE_VERSION;
+import static com.workplace.jooq.Tables.LABEL;
 import static com.workplace.jooq.Tables.PROJECT_VERSION;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,7 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 리포트 계산값(WP-1483) — 표 행(완료는 DONE 만, 앞 회차 대비 변화, 열린·기한 지남은 지난 스냅숏 대비 또는 「—」, 진행 중 사이클 행), 변화 없음 판정,
- * 기간 이슈 목록(60건 상한·에픽별 남은 수·공개 주소)을 시드 이슈로 고정한다.
+ * 에픽 집계(WP-1629 — 완료·진행 중·상시·결정 후보·지표, 제목 상한)를 시드 이슈로 고정한다.
  *
  * <p>회차는 2026-11-09(월) ~ 15(일) 주간, 「지금」은 2026-11-16 09:00 KST. 앞 회차는 11-02 ~ 08.
  */
@@ -440,86 +442,327 @@ class ProjectReportFactsServiceTest extends ExternalClientMockedTestBase {
     assertThat(compute(Optional.empty()).noChange()).isFalse();
   }
 
-  // ───────────── 이슈 목록 ─────────────
+  // ───────────── 에픽 집계(WP-1629) ─────────────
 
-  @Test
-  void issues_capAt60_withOmittedByEpic() {
-    long epic = issue("노트 에픽", "IN_PROGRESS", OLD, null);
-    typeAs(epic, "EPIC");
-    long overdue = open(OLD);
-    due(overdue, LocalDate.parse("2026-11-01"));
-    // 가장 오래된 생성 셋 — 상한 밖으로 밀린다(둘은 에픽 아래).
-    long e1 = open(kst("2026-11-09T01:00:00"));
-    long e2 = open(kst("2026-11-09T02:00:00"));
-    open(kst("2026-11-09T03:00:00"));
-    parent(e1, epic);
-    parent(e2, epic);
-    // 그보다 늦게 생긴 59건.
-    for (int i = 0; i < 59; i++) {
-      open(kst("2026-11-10T00:00:00").plusMinutes(i * 10L));
-    }
-
-    ProjectReportFacts f = compute(Optional.empty());
-
-    assertThat(f.issues()).hasSize(60);
-    assertThat(f.issues().get(0).reason()).isEqualTo("OVERDUE");
-    assertThat(f.issues().get(1).reason()).isEqualTo("CREATED");
-    // 생김은 최신순.
-    assertThat(f.issues().get(1).key())
-        .endsWith(
-            "-"
-                + (dsl.select(ISSUE.NUMBER)
-                    .from(ISSUE)
-                    .where(ISSUE.PROJECT_ID.eq(project.id()))
-                    .orderBy(ISSUE.NUMBER.desc())
-                    .limit(1)
-                    .fetchOne(ISSUE.NUMBER)));
-    assertThat(f.omittedByEpic())
-        .containsEntry("노트 에픽", 2)
-        .containsEntry(ProjectReportIssueRepository.NO_EPIC, 1)
-        .hasSize(2);
+  /** 에픽 유형 이슈 — 상태·생성·닫힘·기한을 정한다. */
+  private long epic(String title, String status, OffsetDateTime closedAt, LocalDate dueDate) {
+    long id = issue(title, status, OLD, closedAt);
+    typeAs(id, "EPIC");
+    if (dueDate != null) due(id, dueDate);
+    return id;
   }
 
-  @Test
-  void issues_urlUsesPublicBaseUrl() {
-    String longTitle = "가".repeat(100);
-    long done = issue(longTitle, "DONE", kst("2026-11-10T09:00:00"), kst("2026-11-11T09:00:00"));
+  /** 에픽(또는 다른 부모) 아래 DONE 하위. */
+  private long doneChild(String title, long parentId, OffsetDateTime closedAt) {
+    long id = issue(title, "DONE", OLD, closedAt);
+    parent(id, parentId);
+    return id;
+  }
+
+  /** 프로젝트 라벨을 (없으면 만들어) 이슈에 붙인다. */
+  private void label(long issueId, String name) {
+    Long labelId =
+        dsl.select(LABEL.ID)
+            .from(LABEL)
+            .where(LABEL.PROJECT_ID.eq(project.id()))
+            .and(LABEL.NAME.eq(name))
+            .fetchOne(LABEL.ID);
+    if (labelId == null) {
+      labelId =
+          dsl.insertInto(LABEL)
+              .set(LABEL.PROJECT_ID, project.id())
+              .set(LABEL.NAME, name)
+              .set(LABEL.COLOR_TOKEN, "blue")
+              .returning(LABEL.ID)
+              .fetchOne()
+              .getId();
+    }
+    dsl.insertInto(ISSUE_LABEL)
+        .set(ISSUE_LABEL.ISSUE_ID, issueId)
+        .set(ISSUE_LABEL.LABEL_ID, labelId)
+        .execute();
+  }
+
+  private void assign(long issueId, long userId) {
     dsl.insertInto(ISSUE_ASSIGNEE)
-        .set(ISSUE_ASSIGNEE.ISSUE_ID, done)
-        .set(ISSUE_ASSIGNEE.USER_ID, owner)
+        .set(ISSUE_ASSIGNEE.ISSUE_ID, issueId)
+        .set(ISSUE_ASSIGNEE.USER_ID, userId)
         .set(ISSUE_ASSIGNEE.ASSIGNED_BY, owner)
         .execute();
+  }
+
+  private void comment(long issueId, String body, OffsetDateTime at) {
     dsl.insertInto(ISSUE_COMMENT)
-        .set(ISSUE_COMMENT.ISSUE_ID, done)
+        .set(ISSUE_COMMENT.ISSUE_ID, issueId)
         .set(ISSUE_COMMENT.AUTHOR_ID, owner)
-        .set(ISSUE_COMMENT.BODY, "예전 댓글")
-        .set(ISSUE_COMMENT.CREATED_AT, kst("2026-11-10T10:00:00"))
+        .set(ISSUE_COMMENT.BODY, body)
+        .set(ISSUE_COMMENT.CREATED_AT, at)
         .execute();
-    dsl.insertInto(ISSUE_COMMENT)
-        .set(ISSUE_COMMENT.ISSUE_ID, done)
-        .set(ISSUE_COMMENT.AUTHOR_ID, owner)
-        .set(ISSUE_COMMENT.BODY, "나".repeat(150))
-        .set(ISSUE_COMMENT.CREATED_AT, kst("2026-11-11T10:00:00"))
-        .execute();
+  }
+
+  private String keyOf(long issueId) {
     int number =
-        dsl.select(ISSUE.NUMBER).from(ISSUE).where(ISSUE.ID.eq(done)).fetchOne(ISSUE.NUMBER);
+        dsl.select(ISSUE.NUMBER).from(ISSUE).where(ISSUE.ID.eq(issueId)).fetchOne(ISSUE.NUMBER);
+    return project.key() + "-" + number;
+  }
 
-    ProjectReportFacts f = compute(Optional.empty());
+  /**
+   * 완료(이번·지난)·상시·진행 중·에픽 없는 완료·결정 후보·지표를 한 시드로 고정한다. 에픽 → 스토리 → 하위 작업의 하위 작업도 에픽 하위로 세고, 상시 라벨이 붙은
+   * 완료 에픽은 완료 목록에 나오지 않는다.
+   */
+  @Test
+  void epics_aggregateForPeriod() {
+    // 에픽 A — 기한 11/11, 11/14 완료(3일 늦음). 하위 3건 DONE, 그중 하나는 스토리 아래 하위 작업.
+    long a = epic("에픽 A", "DONE", kst("2026-11-14T10:00:00"), LocalDate.parse("2026-11-11"));
+    doneChild("A 작업", a, kst("2026-11-12T10:00:00"));
+    long story = doneChild("A 스토리", a, kst("2026-11-13T10:00:00"));
+    typeAs(story, "STORY");
+    long sub = doneChild("A 하위 작업", story, kst("2026-11-13T11:00:00"));
+    typeAs(sub, "SUBTASK");
+    // 에픽 B — 기한 없음, 11/14 완료.
+    long b = epic("에픽 B", "DONE", kst("2026-11-14T12:00:00"), null);
+    // 지난 기간 에픽 C — 기한 11/6, 11/3 완료(3일 앞당김).
+    long c = epic("에픽 C", "DONE", kst("2026-11-03T10:00:00"), LocalDate.parse("2026-11-06"));
+    // 상시 에픽 S — 기간 안 DONE 하위 2건(하나는 AI 탐색).
+    long s = epic("결함 처리", "IN_PROGRESS", null, null);
+    label(s, ProjectReportEpics.ONGOING_LABEL);
+    long found = doneChild("AI 가 찾은 결함", s, kst("2026-11-10T10:00:00"));
+    label(found, ProjectReportEpics.AI_TESTER_LABEL);
+    doneChild("사람이 찾은 결함", s, kst("2026-11-11T10:00:00"));
+    // 상시 라벨이 붙은 완료 에픽 — 완료 목록에 나오지 않는다.
+    long ongoingDone = epic("상시 완료", "DONE", kst("2026-11-12T10:00:00"), null);
+    label(ongoingDone, ProjectReportEpics.ONGOING_LABEL);
+    // 진행 중 에픽 P — 하위 4건 중 2건 기간 안 DONE, 남은 2건은 사람 담당·할 일.
+    long p = epic("에픽 P", "IN_PROGRESS", null, null);
+    doneChild("P 하나", p, kst("2026-11-10T10:00:00"));
+    doneChild("P 둘", p, kst("2026-11-11T10:00:00"));
+    long p3 = issue("P 셋", "TODO", OLD, null);
+    parent(p3, p);
+    assign(p3, owner);
+    comment(p3, "기다리는 중", kst("2026-11-12T10:00:00"));
+    long p4 = issue("P 넷", "TODO", OLD, null);
+    parent(p4, p);
+    assign(p4, owner);
+    // 에픽 없는 DONE 이슈.
+    closed("DONE", kst("2026-11-12T15:00:00"));
+    // 이번 기간 릴리스 1회.
+    dsl.insertInto(PROJECT_VERSION)
+        .set(PROJECT_VERSION.PROJECT_ID, project.id())
+        .set(PROJECT_VERSION.NAME, "v1")
+        .set(PROJECT_VERSION.RELEASED_AT, kst("2026-11-13T10:00:00"))
+        .execute();
 
-    assertThat(f.issues()).hasSize(1);
-    ReportIssue i = f.issues().get(0);
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+
+    assertThat(e.completed())
+        .extracting(ProjectReportEpics.CompletedEpic::key)
+        .containsExactly(keyOf(a), keyOf(b));
+    var ca = e.completed().get(0);
+    assertThat(ca.lateDays()).isEqualTo(3);
+    assertThat(ca.dueDate()).isEqualTo("11/11");
+    assertThat(ca.completedDate()).isEqualTo("11/14");
+    assertThat(ca.children()).isEqualTo(3);
+    assertThat(ca.doneChildren()).containsExactly("A 하위 작업", "A 스토리", "A 작업");
     String base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-    assertThat(i.url()).isEqualTo(base + "/projects/" + project.key() + "/issues/" + number);
-    assertThat(i.key()).isEqualTo(project.key() + "-" + number);
-    // 생기고 닫힌 이슈는 닫힘 한 번으로만.
-    assertThat(i.reason()).isEqualTo("DONE");
-    assertThat(i.category()).isEqualTo("DONE");
-    assertThat(i.statusName()).isNotBlank();
-    assertThat(i.title()).hasSize(80);
-    assertThat(i.assignees()).containsExactly("김담당");
-    // 담당 사람/AI 구분은 개인 보고 전용(WP-1632) — 프로젝트 요청에는 이름을 두 번 싣지 않게 비운다.
-    assertThat(i.assigneesDetail()).isNull();
-    assertThat(i.lastComment()).hasSize(120).startsWith("나");
-    assertThat(i.epic()).isNull();
+    assertThat(ca.url())
+        .isEqualTo(base + "/projects/" + project.key() + "/issues/" + keyOf(a).split("-")[1]);
+    assertThat(e.completed().get(1).lateDays()).isNull();
+    assertThat(e.completed().get(1).dueDate()).isNull();
+
+    assertThat(e.previousCompleted())
+        .extracting(ProjectReportEpics.PastEpic::key)
+        .containsExactly(keyOf(c));
+    assertThat(e.previousCompleted().get(0).lateDays()).isEqualTo(-3);
+
+    assertThat(e.inProgress())
+        .extracting(ProjectReportEpics.InProgressEpic::key)
+        .containsExactly(keyOf(p));
+    var ip = e.inProgress().get(0);
+    assertThat(ip.done()).isEqualTo(2);
+    assertThat(ip.total()).isEqualTo(4);
+    assertThat(ip.doneThisPeriod()).isEqualTo(2);
+    assertThat(ip.doneChildren()).containsExactly("P 둘", "P 하나");
+    assertThat(ip.remaining()).hasSize(2);
+    assertThat(ip.remaining()).allSatisfy(r -> assertThat(r.assignee()).isEqualTo("김담당(사람)"));
+    assertThat(ip.remaining().get(0).key()).isEqualTo(keyOf(p3));
+    assertThat(ip.remaining().get(0).lastComment()).isEqualTo("기다리는 중");
+    assertThat(ip.remaining().get(0).status()).isNotBlank();
+
+    assertThat(e.ongoing()).hasSize(1);
+    var og = e.ongoing().get(0);
+    assertThat(og.title()).isEqualTo("결함 처리");
+    assertThat(og.doneThisPeriod()).isEqualTo(2);
+    assertThat(og.foundByAiTester()).isEqualTo(1);
+    assertThat(og.doneTitles()).contains("AI 가 찾은 결함 [AI 탐색]", "사람이 찾은 결함");
+
+    assertThat(e.noEpicDone()).isEqualTo(1);
+    assertThat(e.noEpicDoneTitles()).hasSize(1);
+    assertThat(e.upcomingWithDue()).isEmpty();
+
+    assertThat(e.decisionCandidates())
+        .extracting(ProjectReportEpics.DecisionCandidate::kind)
+        .containsExactly(ProjectReportEpics.NO_NEXT_EPIC, ProjectReportEpics.BLOCKED_ON_HUMAN);
+    assertThat(e.decisionCandidates().get(0).detail()).isEqualTo("진행 중 에픽 1개 외에 앞으로 기한을 정한 에픽이 없음");
+    assertThat(e.decisionCandidates().get(0).owner()).isEqualTo("김담당");
+    var blocked = e.decisionCandidates().get(1);
+    assertThat(blocked.epic()).isEqualTo(keyOf(p));
+    assertThat(blocked.detail()).isEqualTo("남은 2건이 모두 사람(김담당) 담당·할 일 상태");
+    assertThat(blocked.owner()).isEqualTo("김담당");
+
+    assertThat(e.metrics())
+        .extracting(ProjectReportEpics.ReportMetric::label)
+        .containsExactly("완료한 에픽", "기한 내 완료", "완료한 이슈", "릴리스", "기한 초과 미완료 이슈");
+    assertThat(e.metrics().get(0).current()).isEqualTo("2");
+    assertThat(e.metrics().get(0).previous()).isEqualTo("1");
+    assertThat(e.metrics().get(1).current()).isEqualTo("0/1");
+    assertThat(e.metrics().get(1).previous()).isEqualTo("1/1");
+    assertThat(e.metrics().get(3).current()).isEqualTo("1회");
+    assertThat(e.metrics().get(3).previous()).isEqualTo("0회");
+    assertThat(e.metrics().get(4).previous()).isEqualTo("—");
+    assertThat(e.projectOwner()).isEqualTo("김담당");
+  }
+
+  /** 지난 기간에 닫힌(또는 취소된) 에픽 아래에서 이번 기간 끝낸 이슈는 에픽 밖 완료로 센다(WP-1629). */
+  @Test
+  void epics_doneUnderEarlierClosedEpic_countsAsOutsideEpic() {
+    long old = epic("지난 에픽", "DONE", kst("2026-11-03T10:00:00"), null);
+    long cancelled = epic("취소 에픽", "CANCELED", kst("2026-11-04T10:00:00"), null);
+    doneChild("지난 에픽 뒤늦은 일", old, kst("2026-11-12T10:00:00"));
+    doneChild("취소 에픽 뒤늦은 일", cancelled, kst("2026-11-13T10:00:00"));
+
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+
+    assertThat(e.noEpicDone()).isEqualTo(2);
+    assertThat(e.noEpicDoneTitles()).containsExactly("취소 에픽 뒤늦은 일", "지난 에픽 뒤늦은 일");
+  }
+
+  /** 하위가 없는 열린 에픽이 기한을 넘기면 에픽 자신이 남은 일이라 위험이다(WP-1629). */
+  @Test
+  void epics_openEpicWithoutChildren_overdue_isRisk() {
+    epic("빈 에픽", "IN_PROGRESS", null, LocalDate.parse("2026-11-10"));
+
+    var ip = compute(Optional.empty()).epics().inProgress();
+
+    assertThat(ip).hasSize(1);
+    assertThat(ip.get(0).status()).isEqualTo(ProjectReportEpics.RISK);
+  }
+
+  /** 하위가 모두 닫힌 열린 에픽은 기한이 지났어도 남은 일이 없어 순조로움 — 예상 완료일·기한 초과 결정 후보 없음(WP-1629). */
+  @Test
+  void epics_openEpicAllChildrenClosed_pastDue_isOnTrack() {
+    long q = epic("다 끝난 에픽", "IN_PROGRESS", null, LocalDate.parse("2026-11-10"));
+    doneChild("끝 1", q, kst("2026-11-12T10:00:00"));
+    doneChild("끝 2", q, kst("2026-11-13T10:00:00"));
+
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+
+    assertThat(e.inProgress()).hasSize(1);
+    assertThat(e.inProgress().get(0).status()).isEqualTo(ProjectReportEpics.ON_TRACK);
+    assertThat(e.inProgress().get(0).projectedDate()).isNull();
+    assertThat(e.decisionCandidates())
+        .extracting(ProjectReportEpics.DecisionCandidate::kind)
+        .doesNotContain(ProjectReportEpics.EPIC_OVERDUE_PROJECTED);
+  }
+
+  /** 하위 101건 에픽 — 제목은 100건 + 「외 1건」. */
+  @Test
+  void epics_doneChildrenCapAt100() {
+    long big = epic("큰 에픽", "DONE", kst("2026-11-14T10:00:00"), null);
+    for (int i = 0; i < 101; i++) {
+      doneChild("하위 " + i, big, kst("2026-11-01T00:00:00").plusMinutes(i));
+    }
+
+    var completed = compute(Optional.empty()).epics().completed();
+
+    assertThat(completed).hasSize(1);
+    assertThat(completed.get(0).children()).isEqualTo(101);
+    assertThat(completed.get(0).doneChildren()).hasSize(101);
+    assertThat(completed.get(0).doneChildren().get(0)).isEqualTo("하위 100");
+    assertThat(completed.get(0).doneChildren().get(100)).isEqualTo("외 1건");
+  }
+
+  /** 예상 완료일이 기한을 넘는 진행 중 에픽 — EPIC_OVERDUE_PROJECTED 후보, 상태 주의/위험. */
+  @Test
+  void epics_overdueProjected() {
+    long q = epic("에픽 Q", "IN_PROGRESS", null, LocalDate.parse("2026-11-17"));
+    doneChild("Q 끝", q, kst("2026-11-15T10:00:00"));
+    for (int i = 0; i < 9; i++) {
+      long t = issue("Q 남음 " + i, "TODO", OLD, null);
+      parent(t, q);
+    }
+
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+
+    assertThat(e.inProgress()).hasSize(1);
+    var ip = e.inProgress().get(0);
+    assertThat(ip.status()).isIn(ProjectReportEpics.WARN, ProjectReportEpics.RISK);
+    assertThat(ip.projectedDate()).isNotNull();
+    assertThat(ip.dueDate()).isEqualTo("11/17");
+    // 기한이 오늘 이후라 앞으로 기한을 정한 에픽이 있다 — NO_NEXT_EPIC 없음. 남은 일은 담당이 없어 사람 대기 아님.
+    assertThat(e.upcomingWithDue()).hasSize(1);
+    assertThat(e.decisionCandidates())
+        .extracting(ProjectReportEpics.DecisionCandidate::kind)
+        .containsExactly(ProjectReportEpics.EPIC_OVERDUE_PROJECTED);
+    var d = e.decisionCandidates().get(0);
+    assertThat(d.epic()).isEqualTo(keyOf(q));
+    assertThat(d.detail()).startsWith("예상 완료 ").contains("로 기한(11/17)을 ").endsWith("일 넘김");
+    assertThat(d.owner()).isEqualTo("김담당");
+    assertThat(ip.remaining()).allSatisfy(r -> assertThat(r.assignee()).isEqualTo("없음"));
+    assertThat(ip.remaining()).allSatisfy(r -> assertThat(r.lastComment()).isNull());
+  }
+
+  /** 에픽·이슈가 하나도 없는 프로젝트 — 빈 묶음, NO_NEXT_EPIC 하나, 예외 없음. */
+  @Test
+  void epics_emptyProject() {
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+
+    assertThat(e.completed()).isEmpty();
+    assertThat(e.previousCompleted()).isEmpty();
+    assertThat(e.inProgress()).isEmpty();
+    assertThat(e.upcomingWithDue()).isEmpty();
+    assertThat(e.ongoing()).isEmpty();
+    assertThat(e.noEpicDone()).isZero();
+    assertThat(e.noEpicDoneTitles()).isEmpty();
+    assertThat(e.decisionCandidates()).hasSize(1);
+    assertThat(e.decisionCandidates().get(0).kind()).isEqualTo(ProjectReportEpics.NO_NEXT_EPIC);
+    assertThat(e.decisionCandidates().get(0).detail()).isEqualTo("앞으로 기한을 정한 에픽이 없음");
+    assertThat(e.metrics()).hasSize(5);
+    assertThat(e.metrics().get(1).current()).isEqualTo("—");
+    assertThat(e.metrics().get(3).current()).isEqualTo("0회");
+  }
+
+  /** 기한 초과 지표의 지난 값은 지난 리포트 스냅숏의 기한 지남 수다. */
+  @Test
+  void epics_overdueMetric_vsLastSnapshot() {
+    long late = open(OLD);
+    due(late, LocalDate.parse("2026-11-10"));
+
+    ProjectReportEpics e =
+        compute(Optional.of(new ReportSnapshot(0, 0, 1, 3, StatusBadge.ON_TRACK.name()))).epics();
+
+    assertThat(e.metrics().get(4))
+        .isEqualTo(new ProjectReportEpics.ReportMetric("기한 초과 미완료 이슈", "1", "3"));
+  }
+
+  /** 남은 하위에 AI 담당이 있으면 「AI」 이고 사람 대기 후보가 아니다. 기한 초과 남은 하위에는 마지막 댓글을 싣는다. */
+  @Test
+  void epics_agentAssignee_andOverdueComment() {
+    long agent = TestFixtures.createAgentNoToken(dsl);
+    long p = epic("에픽 AI", "IN_PROGRESS", null, null);
+    doneChild("끝", p, kst("2026-11-10T10:00:00"));
+    long t = issue("AI 할 일", "IN_PROGRESS", OLD, null);
+    parent(t, p);
+    assign(t, agent);
+    due(t, LocalDate.parse("2026-11-12"));
+    comment(t, "진행 중 메모", kst("2026-11-12T10:00:00"));
+
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+
+    var r = e.inProgress().get(0).remaining().get(0);
+    assertThat(r.assignee()).isEqualTo("AI");
+    assertThat(r.lastComment()).isEqualTo("진행 중 메모");
+    assertThat(e.decisionCandidates())
+        .extracting(ProjectReportEpics.DecisionCandidate::kind)
+        .doesNotContain(ProjectReportEpics.BLOCKED_ON_HUMAN);
   }
 }

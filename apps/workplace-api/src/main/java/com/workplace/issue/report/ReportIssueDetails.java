@@ -22,7 +22,8 @@ import org.springframework.stereotype.Repository;
 
 /**
  * 리포트 이슈 표시 정보(WP-1486) — 후보 이슈 id 를 AI 재료 {@link ReportIssue}(키·주소·제목·상태·담당자·에픽·마감·마지막 코멘트)로 만든다.
- * 프로젝트 리포트(WP-1483 {@link ProjectReportIssueRepository})와 개인 보고가 후보 쿼리만 따로 두고 이 표시 단계를 나눠 쓴다.
+ * 개인 보고가 후보 쿼리만 따로 두고 이 표시 단계를 쓴다(프로젝트 리포트는 WP-1629 부터 에픽 집계 {@link ProjectReportEpicRepository} 로
+ * 바뀌어 주소·마지막 코멘트 읽기만 나눠 쓴다).
  *
  * <p>쿼리 수는 이슈 수와 무관하게 고정이다(표시 정보 1 + 담당자 1 + 코멘트 1). RLS 보호 테이블이라 트랜잭션 안에서 부른다.
  */
@@ -111,7 +112,7 @@ public class ReportIssueDetails {
       out.add(
           new ReportIssue(
               key + "-" + number,
-              baseUrl + "/projects/" + key + "/issues/" + number,
+              issueUrl(key, number),
               cut(oneLine(r.get(ISSUE.TITLE)), TITLE_MAX),
               r.get(PROJECT_STATUS.NAME),
               r.get(ISSUE.STATUS),
@@ -126,6 +127,14 @@ public class ReportIssueDetails {
               people));
     }
     return out;
+  }
+
+  /**
+   * 이슈 공개 주소 {@code {public-base-url}/projects/{KEY}/issues/{n}} — 앱 링크 칩이 알아보는 모양. 프로젝트 리포트 에픽
+   * 집계(WP-1629)도 같은 모양을 쓴다.
+   */
+  String issueUrl(String projectKey, int number) {
+    return baseUrl + "/projects/" + projectKey + "/issues/" + number;
   }
 
   /** 밀린 후보를 묶음 이름별로 센다(많은 순, 같으면 이름순). */
@@ -165,8 +174,8 @@ public class ReportIssueDetails {
                     r -> new ReportAssignee(r.value2(), r.value3()), Collectors.toList())));
   }
 
-  /** 이슈별 지워지지 않은 마지막 코멘트 본문(DISTINCT ON). */
-  private Map<Long, String> lastComments(Collection<Long> ids) {
+  /** 이슈별 지워지지 않은 마지막 코멘트 본문(DISTINCT ON). 에픽 집계(WP-1629)의 남은 하위 댓글도 이 쿼리를 쓴다. */
+  Map<Long, String> lastComments(Collection<Long> ids) {
     Map<Long, String> out = new HashMap<>();
     dsl.select(ISSUE_COMMENT.ISSUE_ID, ISSUE_COMMENT.BODY)
         .distinctOn(ISSUE_COMMENT.ISSUE_ID)
@@ -179,7 +188,7 @@ public class ReportIssueDetails {
   }
 
   /** 줄바꿈·연속 공백을 한 칸으로 — AI 입력 한 줄로 만든다. */
-  private static String oneLine(String s) {
+  static String oneLine(String s) {
     return s == null ? null : s.strip().replaceAll("\\s+", " ");
   }
 
