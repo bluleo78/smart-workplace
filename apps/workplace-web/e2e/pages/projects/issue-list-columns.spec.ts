@@ -19,6 +19,11 @@ const COLS = 'priority,assignee,due,closed,reporter,cycle,cf7';
 
 test.use({ timezoneId: 'Asia/Seoul' });
 
+// 첫 목록 그리기 대기 — 워커마다 처음 여는 화면은 dev 서버의 첫 변환을 기다려, 부하 속 커밋 훅에서 기본 10초를 넘겼다(WP-1648).
+// 판정은 그대로 두고 첫 로드 대기와 테스트 한도만 늘린다.
+const FIRST_LOAD = { timeout: 30_000 };
+test.describe.configure({ timeout: 60_000 });
+
 // 커스텀 필드 정의 — cf7 「고객사」(SELECT). cf8 은 정의만 있고 URL 에 없으니 열로 나오지 않아야 한다.
 const FIELD_DEFS: IssueFieldDef[] = [
   { id: 7, projectId: 1, name: '고객사', type: 'SELECT', options: ['한빛', '누리'], position: 0, createdAt: '', updatedAt: '' },
@@ -82,14 +87,16 @@ async function visibleHeaders(page: Page, scope: string) {
 
 
 test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, () => {
-  test('열을 많이 켜면 제목 칸은 최소 16rem 을 지키고 표가 가로 스크롤된다 — 평면·사이클 구간', async ({ authenticatedPage: page }) => {
-    const ALL = 'priority,assignee,due,closed,start,created,updated,reporter,milestone,cycle,cf7,cf8';
+  // 평면·사이클 구간을 테스트 하나씩으로 둔다 — 한 테스트에서 goto 를 되풀이하면 부하 속 커밋 훅에서 30초 한도를 넘었다(WP-1648).
+  const ALL = 'priority,assignee,due,closed,start,created,updated,reporter,milestone,cycle,cf7,cf8';
+
+  test('열을 많이 켜면 제목 칸은 최소 16rem 을 지키고 표가 가로 스크롤된다 — 평면', async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await setup(page, { cycles: [CYCLE] });
 
     // 평면 — 표 스크롤 영역(issue-list-scroll)이 가로로 넘친다.
     await page.goto(`/projects/${KEY}?group=none&cols=${ALL}`);
-    await expect(page.getByTestId('issue-row-1')).toBeVisible();
+    await expect(page.getByTestId('issue-row-1')).toBeVisible(FIRST_LOAD);
     await expect(async () => {
       const scroll = page.getByTestId('issue-list-scroll');
       const { sw, cw } = await scroll.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
@@ -97,12 +104,15 @@ test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, (
       const title = await page.getByRole('columnheader', { name: '제목' }).boundingBox();
       expect(title!.width).toBeGreaterThanOrEqual(256);
     }).toPass();
+  });
 
+  test('열을 많이 켜면 제목 칸은 최소 16rem 을 지키고 표가 가로 스크롤된다 — 사이클 구간', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await setup(page, { cycles: [CYCLE] });
     // 사이클 구간 — 구간 표(table-fixed)의 제목 칸도 같은 하한, 상단 열 이름 행과 구간 행의 칸 위치가 맞는다.
-    // group=cycle 을 적는다 — 주소에 조건이 없으면 바로 앞의 group=none 을 되살린다(WP-1035 필터·보기 기억).
     await page.goto(`/projects/${KEY}?group=cycle&cols=${ALL}`);
     const row = page.getByTestId('list-cycle-section-cycle-3').getByTestId('issue-row-1');
-    await expect(row).toBeVisible();
+    await expect(row).toBeVisible(FIRST_LOAD);
     await expect(async () => {
       const link = await row.getByRole('link', { name: '결제 모듈 개편' }).boundingBox();
       const head = page.locator('[data-testid="list-cycle-column-head"] th', { hasText: '제목' });
@@ -131,7 +141,7 @@ test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, (
     await page.goto(`/projects/${KEY}?closedIn=last-week`);
     const list = page.getByTestId('issue-cycle-grouped-list');
     const row = page.getByTestId('list-cycle-section-cycle-3').getByTestId('issue-row-1');
-    await expect(row).toBeVisible();
+    await expect(row).toBeVisible(FIRST_LOAD);
     // 스크롤 컨테이너 = 목록을 감싼 슬롯(ProjectDetailPage overflow-auto).
     const slot = list.locator('xpath=..');
     const inView = async (testId: string) => {
@@ -180,7 +190,7 @@ test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, (
     await setup(page, { issue: longIssue, fields: [...FIELD_DEFS, textDef] });
     await page.goto(`/projects/${KEY}?group=none&cols=priority,assignee,due,milestone,cf9,reporter`);
     const cf = page.getByTestId('issue-row-1-cf9');
-    await expect(cf).toContainText('주식회사');
+    await expect(cf).toContainText('주식회사', FIRST_LOAD);
     await expect(async () => {
       // 칸은 열 폭(8rem = 128px)을 넘지 않고, 안쪽 글자는 잘린다(말줄임).
       for (const id of ['issue-row-1-cf9', 'issue-row-1-milestone']) {
@@ -225,7 +235,7 @@ test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, (
     const longDef: IssueFieldDef = { id: 9, projectId: 1, name: LONG_NAME, type: 'TEXT', options: null, position: 2, createdAt: '', updatedAt: '' };
     await setup(page, { issue: wide, fields: [...FIELD_DEFS, longDef] });
     await page.goto(`/projects/${KEY}?group=none&cols=priority,assignee,due,components,cf9,reporter`);
-    await expect(page.getByTestId('issue-row-1-cf9')).toContainText('짧음');
+    await expect(page.getByTestId('issue-row-1-cf9')).toContainText('짧음', FIRST_LOAD);
     await expect(async () => {
       // 칸 폭 = 열 폭(담당자 5rem·마감·구성요소·커스텀 필드 8rem) — 내용이 길어도 넓어지지 않는다.
       const widths = { assignee: 80, due: 128, components: 128, cf9: 128 };
@@ -258,7 +268,7 @@ test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, (
     await setup(page, { cycles: [CYCLE], issue: lastYear });
     await page.goto(`/projects/${KEY}?cols=${COLS}`);
     const closed = page.getByTestId('list-cycle-section-cycle-3').getByTestId('issue-row-1-closed');
-    await expect(closed).toContainText('2025년 10월 23일');
+    await expect(closed).toContainText('2025년 10월 23일', FIRST_LOAD);
     const td = closed.locator('xpath=ancestor::td[1]');
     // 내용이 칸보다 넓지만(scrollWidth > clientWidth) 칸이 잘라 낸다(overflow hidden + 말줄임), 툴팁엔 정확한 값.
     const m = await td.evaluate((el) => {
@@ -284,9 +294,12 @@ test.describe('이슈 목록 열 고르기 — 개인 저장 (WP-270)', { tag: '
   test('「열」에서 보고자를 켜면 표에 보이고, 새로고침 뒤에도 남으며 URL 엔 cols 가 없다 — 「기본 열로 되돌리기」로 원래대로', async ({
     authenticatedPage: page,
   }) => {
+    // 개인 저장값이 새로고침 뒤에도 남는지 이어서 봐야 해 나눌 수 없는 한 흐름이다(로드 3번) — 부하 속 커밋 훅에서 30초 한도를 넘어(WP-1648)
+    // 한도를 늘린다.
+    test.slow();
     await setup(page);
     await page.goto(`/projects/${KEY}?group=none`);
-    await expect(page.getByTestId('issue-row-1')).toBeVisible();
+    await expect(page.getByTestId('issue-row-1')).toBeVisible(FIRST_LOAD);
 
     // 메뉴 — 제목·기본 켜짐 항목 체크 상태.
     await page.getByTestId('issue-column-picker').click();

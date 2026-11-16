@@ -21,6 +21,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectMemberGroupService;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.RowLockWaits;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.UserGroupService;
 import java.util.ArrayList;
@@ -127,7 +128,8 @@ class IssueAssigneeDepartmentLeaveRaceTest extends IntegrationTestBase {
   }
 
   /**
-   * first 를 트랜잭션 안에서 실행하고 커밋 전에 멈춘 뒤 second 를 보내, 잠시 뒤 first 를 커밋시킨다. second 의 결과(값 또는 예외)를 돌려준다.
+   * first 를 트랜잭션 안에서 실행하고 커밋 전에 멈춘 뒤 second 를 보내, second 가 그 잠금을 기다리는 것을 확인한 뒤 first 를 커밋시킨다.
+   * second 의 결과(값 또는 예외)를 돌려준다.
    */
   private Object race(Runnable first, Callable<Object> second) throws Exception {
     CountDownLatch firstDone = new CountDownLatch(1);
@@ -144,17 +146,26 @@ class IssueAssigneeDepartmentLeaveRaceTest extends IntegrationTestBase {
                           st -> {
                             first.run();
                             firstDone.countDown();
+                            // 커밋 전에 멈춰 잠금을 쥔 채 second 가 그 잠금을 기다릴 때까지 둔다.
+                            // 상한은 main 의 잠금 대기 확인(최대 10초)보다 넉넉히 — 놓아 주기 전에 먼저 풀려 순서가 바뀌지 않게.
                             try {
-                              release.await(20, TimeUnit.SECONDS);
+                              if (!release.await(30, TimeUnit.SECONDS)) {
+                                throw new AssertionError("release 신호가 오지 않았다");
+                              }
                             } catch (InterruptedException e) {
                               Thread.currentThread().interrupt();
+                              throw new AssertionError(e);
                             }
                           });
                 } finally {
                   TenantContext.clear();
                 }
               });
-      firstDone.await(10, TimeUnit.SECONDS);
+      // first 가 커밋 전 멈춤에 닿지 못했으면(예외·지연) 순서를 보장할 수 없다 — 결과를 버리지 않고 그 이유로 실패한다(WP-1647).
+      if (!firstDone.await(30, TimeUnit.SECONDS)) {
+        if (f1.isDone()) f1.get();
+        throw new AssertionError("first 가 커밋 전 멈춤에 닿지 못했다");
+      }
       Future<Object> f2 =
           pool.submit(
               () -> {
@@ -167,7 +178,9 @@ class IssueAssigneeDepartmentLeaveRaceTest extends IntegrationTestBase {
                   TenantContext.clear();
                 }
               });
-      Thread.sleep(800);
+      // second 가 first 의 잠금을 실제로 기다리는 상태가 된 뒤에 first 를 커밋시킨다 — sleep 으로 가정하면 부하에서 순서가
+      // 어긋난다(WP-1646·1647).
+      RowLockWaits.awaitLockWaiter(f2);
       release.countDown();
       f1.get(20, TimeUnit.SECONDS);
       return f2.get(20, TimeUnit.SECONDS);
