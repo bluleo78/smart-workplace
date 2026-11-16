@@ -12,6 +12,7 @@ import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.RowLockWaits;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -111,12 +112,14 @@ class IssueCommentReactionConcurrentCapTest extends IntegrationTestBase {
   }
 
   /**
-   * 앞 요청(first)은 트랜잭션을 열어 반응을 넣은 뒤 잠시 커밋하지 않고, 그동안 뒷 요청(second)이 자기 트랜잭션으로 반응을 시도한다. 앞 요청은 늘 저장돼야
-   * 하고, 뒷 요청이 저장됐는지(상한 400 이면 false)를 돌려준다.
+   * 앞 요청(first)은 트랜잭션을 열어 반응을 넣은 뒤 커밋하지 않고, 그동안 뒷 요청(second)이 자기 트랜잭션으로 반응을 시도한다. 뒷 요청이 코멘트 잠금을 실제로
+   * 기다리는 것을 확인한 뒤에 앞 요청을 커밋시킨다 — sleep 으로 가정하면 부하에서 뒷 요청이 앞 요청 커밋 뒤에야 도착해 잠금 없이도 통과할 수
+   * 있었다(WP-1647). 앞 요청은 늘 저장돼야 하고, 뒷 요청이 저장됐는지(상한 400 이면 false)를 돌려준다.
    */
   private boolean race(long firstUser, String firstEmoji, long secondUser, String secondEmoji)
       throws Exception {
     CountDownLatch firstAdded = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
     ExecutorService pool = Executors.newFixedThreadPool(2);
     try {
       Future<?> first =
@@ -129,11 +132,14 @@ class IssueCommentReactionConcurrentCapTest extends IntegrationTestBase {
                           st -> {
                             reactionService.add(firstUser, s.issueId(), commentId, firstEmoji);
                             firstAdded.countDown();
+                            // 뒷 요청이 코멘트 잠금을 기다리는 동안 커밋하지 않고 버틴다(상한은 main 의 확인 10초보다 넉넉히).
                             try {
-                              // 뒷 요청이 상한을 확인할 동안 커밋하지 않고 버틴다.
-                              Thread.sleep(800);
+                              if (!release.await(30, TimeUnit.SECONDS)) {
+                                throw new AssertionError("release 신호가 오지 않았다");
+                              }
                             } catch (InterruptedException e) {
                               Thread.currentThread().interrupt();
+                              throw new AssertionError(e);
                             }
                           });
                 } finally {
@@ -142,9 +148,12 @@ class IssueCommentReactionConcurrentCapTest extends IntegrationTestBase {
               });
       assertThat(firstAdded.await(10, TimeUnit.SECONDS)).isTrue();
       Future<Boolean> second = pool.submit(() -> tryAdd(secondUser, secondEmoji));
+      RowLockWaits.awaitLockWaiter(second);
+      release.countDown();
       first.get(30, TimeUnit.SECONDS);
       return second.get(30, TimeUnit.SECONDS);
     } finally {
+      release.countDown();
       pool.shutdownNow();
     }
   }
