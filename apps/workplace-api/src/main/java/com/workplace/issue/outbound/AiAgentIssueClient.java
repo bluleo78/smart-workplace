@@ -43,15 +43,36 @@ public class AiAgentIssueClient {
   private final String internalToken;
 
   /**
+   * ai-agent 연동 전역 on/off({@code workplace.ai-agent.enabled}, WP-1639). 꺼져 있으면 보고 작성(개인·프로젝트)은
+   * ai-agent 를 부르지 않고 {@link #DISABLED_MESSAGE} 로 실패한다 — 격리 라이브 스택처럼 연동을 끈 API 가 baseUrl(local
+   * 6070)의 남의 ai-agent 로 요청을 보내지 않게.
+   */
+  private final boolean enabled;
+
+  /** 연동이 꺼져 있을 때 보고 작성이 남기는 오류 문구(WP-1639) — 회차 오류로 화면에 보인다. */
+  public static final String DISABLED_MESSAGE = "AI 연동이 꺼져 있어 보고를 만들 수 없어요.";
+
+  /**
    * @param builder 일반 이슈 AI 호출용 빌더(IssueAiConfig 에서 주입)
    * @param reportBuilder 프로젝트 리포트용 빌더 — 읽기 시간 제한이 {@link #PROJECT_REPORT_TIMEOUT_MS} 보다 길다
    * @param internalToken AiAgentProperties.internalToken
+   * @param enabled AiAgentProperties.enabled — false 면 보고 작성이 ai-agent 를 부르지 않는다(WP-1639)
    */
   public AiAgentIssueClient(
-      RestClient.Builder builder, RestClient.Builder reportBuilder, String internalToken) {
+      RestClient.Builder builder,
+      RestClient.Builder reportBuilder,
+      String internalToken,
+      boolean enabled) {
     this.restClient = builder.build();
     this.reportRestClient = reportBuilder.build();
     this.internalToken = internalToken;
+    this.enabled = enabled;
+  }
+
+  /** 연동이 켜진 클라이언트 — 호출 모양만 보는 테스트용(운영 빈은 {@link IssueAiConfig} 가 설정값을 넘긴다). */
+  public AiAgentIssueClient(
+      RestClient.Builder builder, RestClient.Builder reportBuilder, String internalToken) {
+    this(builder, reportBuilder, internalToken, true);
   }
 
   /**
@@ -125,6 +146,7 @@ public class AiAgentIssueClient {
    * @return AI 가 쓴 리포트 본문 마크다운(후처리 전)
    */
   public ProjectReportAiResult writeProjectReport(ProjectReportAiRequest req) {
+    requireEnabled("project report");
     return post(
         reportRestClient,
         "/issue/project-report",
@@ -139,6 +161,7 @@ public class AiAgentIssueClient {
    * 시간 제한)로 보내고, 실행 예산도 {@link #PROJECT_REPORT_TIMEOUT_MS} 를 같이 쓴다.
    */
   public PersonalReportAiResult writePersonalReport(PersonalReportAiRequest req) {
+    requireEnabled("personal report");
     return post(
         reportRestClient,
         "/issue/personal-report",
@@ -146,6 +169,19 @@ public class AiAgentIssueClient {
         PersonalReportAiResult.class,
         "AI 보고 작성 요청에 실패했어요.",
         "personal report");
+  }
+
+  /**
+   * 보고 작성 전 연동 확인(WP-1639) — 꺼져 있으면 HTTP 요청 없이 {@link IssueAiException} 으로 끝낸다. 생성기들은 이 예외를 다른 AI
+   * 실패와 똑같이 회차 실패(오류 문구 {@link #DISABLED_MESSAGE})로 닫는다.
+   *
+   * @param logLabel 로그에 남길 호출 이름
+   */
+  private void requireEnabled(String logLabel) {
+    if (!enabled) {
+      log.warn("ai-agent 연동이 꺼져 있어 {} 를 보내지 않음", logLabel);
+      throw new IssueAiException(DISABLED_MESSAGE);
+    }
   }
 
   /**

@@ -1,6 +1,7 @@
 package com.workplace.wiki.report;
 
 import com.workplace.auth.service.AssistantResolver;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.wiki.report.ProjectReportGenerator.Outcome;
@@ -45,6 +46,7 @@ public class ProjectReportScheduler {
   private final AssistantResolver assistantResolver;
   private final ProjectReportSettingRepository settings;
   private final ProjectReportGenerator generator;
+  private final AiAgentProperties aiAgentProperties;
 
   /** 「지금」의 기준 시계. */
   private final Clock clock = Clock.systemUTC();
@@ -84,6 +86,8 @@ public class ProjectReportScheduler {
    * 프로젝트가 다음 회차 앞쪽에 온다.
    */
   Summary runOnce(Clock runClock, int limit) {
+    // AI 연동이 꺼져 있으면 회차를 열지 않는다(WP-1639) — 재시도·건너뛰기로 회차를 잃지 않게. 다시 켜면 남은 예정부터 만든다.
+    if (!aiAgentProperties.enabled()) return new Summary(0, 0, 0);
     OffsetDateTime now = OffsetDateTime.now(runClock);
     List<Target> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(

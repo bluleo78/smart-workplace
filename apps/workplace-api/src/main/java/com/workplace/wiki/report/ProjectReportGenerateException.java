@@ -1,6 +1,7 @@
 package com.workplace.wiki.report;
 
 import com.workplace.global.exception.CodedException;
+import com.workplace.issue.outbound.AiAgentIssueClient;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 
@@ -9,6 +10,7 @@ import org.springframework.http.HttpStatus;
  *
  * <ul>
  *   <li>{@code REPORT_BUSY}(409): 정기 실행이나 다른 「지금 생성」이 같은 회차를 만드는 중
+ *   <li>{@code AI_DISABLED}(409): AI 연동이 꺼져 있음(설정 상태, WP-1639)
  *   <li>{@code NO_ASSISTANT}(409): 워크스페이스 공통 비서가 없어 AI 를 부를 수 없음(설정 상태)
  *   <li>{@code REPORT_FAILED}(502): 생성 실패(AI 오류·빈 글·상한 초과·노트 쓰기 실패) — 문구에 이유를 붙인다
  * </ul>
@@ -28,6 +30,12 @@ public class ProjectReportGenerateException extends RuntimeException implements 
   static ProjectReportGenerateException busy() {
     return new ProjectReportGenerateException(
         HttpStatus.CONFLICT, "REPORT_BUSY", "이미 리포트를 만드는 중이에요");
+  }
+
+  /** AI 연동이 꺼져 있다(WP-1639) — 설정 상태라 502 가 아니라 409 로 알린다. */
+  static ProjectReportGenerateException aiDisabled() {
+    return new ProjectReportGenerateException(
+        HttpStatus.CONFLICT, "AI_DISABLED", AiAgentIssueClient.DISABLED_MESSAGE);
   }
 
   /** 공통 비서가 없다. */

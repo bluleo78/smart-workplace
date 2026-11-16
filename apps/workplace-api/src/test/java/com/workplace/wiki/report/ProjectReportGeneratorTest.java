@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.exception.IssueAiException;
@@ -635,6 +636,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
   @Autowired ProjectReportFactsService factsService;
   @Autowired ProjectNoteSpaceRepository noteSpaces;
   @Autowired ProjectReportTemplate reportTemplate;
+  @Autowired AiAgentProperties aiAgentProperties;
 
   /** 노트 쓰기·회차 저장소를 Mockito 스파이로 바꾼 생성기 — 페이지를 만든 뒤의 실패를 만든다(실제 빈의 대상 객체를 감싸 동작은 그대로). */
   private ProjectReportGenerator generatorWith(
@@ -649,6 +651,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
         reportTemplate,
         assistantResolver,
         client,
+        aiAgentProperties,
         txManager,
         baseUrl);
   }

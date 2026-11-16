@@ -34,6 +34,6 @@ public class IssueAiConfig {
     var builder = InternalHttp.restClient(props.baseUrl(), CONNECT_TIMEOUT, READ_TIMEOUT);
     var reportBuilder =
         InternalHttp.restClient(props.baseUrl(), CONNECT_TIMEOUT, REPORT_READ_TIMEOUT);
-    return new AiAgentIssueClient(builder, reportBuilder, props.internalToken());
+    return new AiAgentIssueClient(builder, reportBuilder, props.internalToken(), props.enabled());
   }
 }

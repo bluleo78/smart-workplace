@@ -1,6 +1,7 @@
 package com.workplace.wiki.report;
 
 import com.workplace.auth.service.AssistantResolver;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.util.AfterCommit;
 import com.workplace.issue.report.PersonalReportKind;
 import com.workplace.issue.report.PersonalReportPeriod;
@@ -32,9 +33,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * {@code personalReportExecutor} 가 트랜잭션 밖에서 한다(P15 — 화면은 3초마다 {@link #status} 로 묻고, 창을 닫아도 계속된다).
  * 대상은 언제나 호출자 본인이다.
  *
- * <p>만들기 순서: 기간(빠진 값·모르는 종류 400) → 미래 거절(400) → 비서 없음(409 NO_ASSISTANT) → 오늘(KST 0시부터) 수동 20번
- * 상한(429) → 같은 회차에 살아 있는 보고가 있고 「새로 만들기」가 아니면 409 REPORT_EXISTS(pageId·제목) → 예약(만드는 중이면 409
- * REPORT_IN_PROGRESS + 그 id) → 커밋 뒤 실행기에 맡김. 실행기가 꽉 차 거절하면 회차를 FAILED + 안내 문구로 닫는다.
+ * <p>만들기 순서: 기간(빠진 값·모르는 종류 400) → 미래 거절(400) → AI 연동 꺼짐(409 AI_DISABLED) → 비서 없음(409 NO_ASSISTANT)
+ * → 오늘(KST 0시부터) 수동 20번 상한(429) → 같은 회차에 살아 있는 보고가 있고 「새로 만들기」가 아니면 409 REPORT_EXISTS(pageId·제목) →
+ * 예약(만드는 중이면 409 REPORT_IN_PROGRESS + 그 id) → 커밋 뒤 실행기에 맡김. 실행기가 꽉 차 거절하면 회차를 FAILED + 안내 문구로 닫는다.
  */
 @Slf4j
 @Service
@@ -54,6 +55,7 @@ public class PersonalReportService {
   private final WikiSystemPageWriter writer;
   private final Executor executor;
   private final TransactionTemplate tx;
+  private final AiAgentProperties aiAgentProperties;
 
   /** 커밋 뒤(afterCommit) 콜백에서도 안전한 새 트랜잭션 — 실행기 거절 기록용. */
   private final TransactionTemplate newTx;
@@ -75,8 +77,10 @@ public class PersonalReportService {
       PersonalReportGenerator generator,
       WikiSystemPageWriter writer,
       @Qualifier("personalReportExecutor") Executor executor,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiAgentProperties aiAgentProperties) {
     this.reports = reports;
+    this.aiAgentProperties = aiAgentProperties;
     this.assistantResolver = assistantResolver;
     this.generator = generator;
     this.writer = writer;
@@ -95,7 +99,7 @@ public class PersonalReportService {
    * 「보고서 만들기」(시각을 받는 판) — 클래스 설명의 순서대로 따지고 회차를 예약한다.
    *
    * @throws IllegalArgumentException 기간 값이 빠졌거나 틀렸거나 미래일 때(400)
-   * @throws PersonalReportConflictException 비서 없음·이미 있음·만드는 중(409)
+   * @throws PersonalReportConflictException AI 연동 꺼짐·비서 없음·이미 있음·만드는 중(409)
    * @throws PersonalReportDailyLimitException 오늘 이미 {@link #DAILY_MANUAL_LIMIT} 번 만들었을 때(429)
    */
   public CreateResult create(long userId, CreatePersonalReportRequest req, OffsetDateTime now) {
@@ -104,6 +108,8 @@ public class PersonalReportService {
     period.requireNotFuture(today);
     boolean force = Boolean.TRUE.equals(req.force());
     OffsetDateTime since = today.atStartOfDay(ReportCadence.KST).toOffsetDateTime();
+    // AI 연동이 꺼져 있으면 회차를 예약하지 않고 거절한다(WP-1639) — 만들 수 없는 보고가 하루 수동 상한을 쓰지 않게.
+    if (!aiAgentProperties.enabled()) throw PersonalReportConflictException.aiDisabled();
 
     long id =
         tx.execute(

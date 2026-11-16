@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.report.PersonalReportKind;
@@ -43,6 +44,7 @@ import java.util.concurrent.TimeUnit;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.annotation.Propagation;
@@ -70,6 +72,7 @@ class PersonalReportServiceTest extends ExternalClientMockedTestBase {
   @Autowired WikiSystemPageWriter writer;
   @Autowired AssistantResolver assistantResolver;
   @Autowired AiAgentIssueClient client;
+  @Autowired AiAgentProperties aiAgentProperties;
 
   @BeforeEach
   void mocks() {
@@ -246,6 +249,29 @@ class PersonalReportServiceTest extends ExternalClientMockedTestBase {
     assertThat(reports.latestGenerated(me, PersonalReportPeriod.daily(DAY))).isEmpty();
   }
 
+  /** AI 연동이 꺼져 있으면(WP-1639) 409 AI_DISABLED — 회차를 예약하지 않아 하루 수동 상한도 쓰지 않는다. */
+  @Test
+  void create_aiDisabled_409_withoutReserving() {
+    long me = human();
+    PersonalReportService offService =
+        new PersonalReportService(
+            reports,
+            assistantResolver,
+            generator,
+            writer,
+            r -> {},
+            txManager,
+            Mockito.mock(AiAgentProperties.class)); // enabled() == false
+
+    PersonalReportConflictResponse body =
+        conflict(() -> offService.create(me, daily(DAY, false), NOW));
+
+    assertThat(body.code()).isEqualTo("AI_DISABLED");
+    assertThat(body.message()).isEqualTo("AI 연동이 꺼져 있어 보고를 만들 수 없어요.");
+    assertThat(reports.countManualSince(me, NOW.minusDays(1))).isZero();
+    verify(client, never()).writePersonalReport(any());
+  }
+
   @Test
   void create_21stToday_429() {
     long me = human();
@@ -271,7 +297,7 @@ class PersonalReportServiceTest extends ExternalClientMockedTestBase {
     long me = callInTenant(1L, () -> TestFixtures.createHuman(dsl));
     PersonalReportService noRun =
         new PersonalReportService(
-            reports, assistantResolver, generator, writer, r -> {}, txManager);
+            reports, assistantResolver, generator, writer, r -> {}, txManager, aiAgentProperties);
     ExecutorService pool = Executors.newFixedThreadPool(2);
     try {
       for (int i = 2; i < PersonalReportService.DAILY_MANUAL_LIMIT + 1; i++) {
@@ -352,7 +378,8 @@ class PersonalReportServiceTest extends ExternalClientMockedTestBase {
           }
         });
     PersonalReportService rejecting =
-        new PersonalReportService(reports, assistantResolver, generator, writer, full, txManager);
+        new PersonalReportService(
+            reports, assistantResolver, generator, writer, full, txManager, aiAgentProperties);
     try {
       TenantContext.set(1L);
       CreateResult res = rejecting.create(me, daily(DAY, false), NOW);

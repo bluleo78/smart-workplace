@@ -112,4 +112,20 @@ class AiAgentIssueClientProjectReportTest {
         .isInstanceOf(IssueAiException.class)
         .hasMessageContaining("AI 리포트 작성 요청에 실패했어요.");
   }
+
+  /**
+   * 연동이 꺼진 API(workplace.ai-agent.enabled=false — 격리 라이브 스택 등)에서는 프로젝트 보고 작성이 ai-agent 로 HTTP 요청을
+   * 보내지 않고 「AI 연동이 꺼져 있어…」로 실패한다(WP-1639). 기대 요청을 하나도 걸지 않은 서버의 verify 가 요청 0건을 확인한다.
+   */
+  @Test
+  void writeProjectReport_연동꺼짐_요청없이_실패() {
+    RestClient.Builder off = RestClient.builder().baseUrl("http://ai-agent.test");
+    MockRestServiceServer offServer = MockRestServiceServer.bindTo(off).build();
+    AiAgentIssueClient disabled = new AiAgentIssueClient(off, off, "tok-123", false);
+
+    assertThatThrownBy(() -> disabled.writeProjectReport(request()))
+        .isInstanceOf(IssueAiException.class)
+        .hasMessage(AiAgentIssueClient.DISABLED_MESSAGE);
+    offServer.verify();
+  }
 }

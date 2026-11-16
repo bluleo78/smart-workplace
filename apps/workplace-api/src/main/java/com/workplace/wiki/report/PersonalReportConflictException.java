@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.wiki.report.dto.PersonalReportConflictResponse;
 
 /**
@@ -10,6 +11,9 @@ public class PersonalReportConflictException extends RuntimeException {
 
   /** 비서가 없을 때(설정 창·만들기 창 경고와 같은 문구). */
   static final String NO_ASSISTANT = "AI 비서가 없어 보고를 만들 수 없어요";
+
+  /** AI 연동이 꺼져 있을 때(WP-1639) — 클라이언트 게이트와 같은 문구. */
+  static final String AI_DISABLED = AiAgentIssueClient.DISABLED_MESSAGE;
 
   private final transient PersonalReportConflictResponse body;
 
@@ -27,6 +31,12 @@ public class PersonalReportConflictException extends RuntimeException {
   static PersonalReportConflictException noAssistant() {
     return new PersonalReportConflictException(
         new PersonalReportConflictResponse("NO_ASSISTANT", NO_ASSISTANT, null, null, null));
+  }
+
+  /** AI 연동이 꺼져 있다(WP-1639) — 예약·하루 상한을 쓰기 전에 거절한다. */
+  static PersonalReportConflictException aiDisabled() {
+    return new PersonalReportConflictException(
+        new PersonalReportConflictResponse("AI_DISABLED", AI_DISABLED, null, null, null));
   }
 
   /** 같은 회차에 이미 만든 노트가 있다 — 「이미 있음 — {제목}」. */
