@@ -5,11 +5,17 @@ import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.LABEL;
+import static com.workplace.jooq.Tables.PROJECT;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.MeDaySummary;
+import com.workplace.issue.report.PersonalReportWork.EpicWork;
+import com.workplace.issue.report.PersonalReportWork.ProjectWork;
 import com.workplace.issue.service.IssueService;
 import com.workplace.issue.service.MeOverviewService;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -17,6 +23,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.wiki.report.ReportTableSpec;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
@@ -410,7 +417,7 @@ class PersonalReportFactsServiceTest extends ExternalClientMockedTestBase {
 
     PersonalReportFacts f = daily();
 
-    assertThat(f.issues()).hasSize(PersonalReportFactsService.ISSUE_LIMIT);
+    assertThat(f.issues()).hasSize(PersonalReportFactsService.DETAIL_LIMIT);
     assertThat(f.omittedByGroup().values().stream().mapToInt(Integer::intValue).sum()).isEqualTo(5);
     assertThat(f.omittedByGroup()).isEqualTo(Map.of(epicTitle, 3, project.name(), 2));
   }
@@ -468,5 +475,285 @@ class PersonalReportFactsServiceTest extends ExternalClientMockedTestBase {
     assertThat(f.table().headCells()).containsExactly("지난달 대비", "이번 달", "변화");
     assertThat(f.table().insertSectionTitle()).isEqualTo("지난달 대비");
     assertThat(row(f, "끝냄")).containsExactly("끝냄", "1", "0");
+  }
+
+  // ───────────── 끝낸 일 집계(WP-1632) — 프로젝트 → 에픽 ─────────────
+
+  private static final PersonalReportPeriod WEEK =
+      PersonalReportPeriod.weekly(LocalDate.parse("2026-11-02"));
+
+  /** 주 안의 닫힌 시각 — 분만 바꿔 순서를 정한다(분이 클수록 최근). */
+  private static OffsetDateTime inWeek(int minutes) {
+    return kst("2026-11-04T10:00:00").plusMinutes(minutes);
+  }
+
+  /** p 프로젝트의 EPIC 유형 이슈(만든 사람 me, 담당 없음) — status·closedAt 를 정한다. */
+  private long epicIn(ProjectResponse p, String status, OffsetDateTime closedAt) {
+    long id = issue(me, p, status, OLD, closedAt);
+    Long typeId =
+        dsl.select(ISSUE_TYPE_DEF.ID)
+            .from(ISSUE_TYPE_DEF)
+            .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(p.id()))
+            .and(ISSUE_TYPE_DEF.NAME.eq("EPIC"))
+            .fetchOne(ISSUE_TYPE_DEF.ID);
+    dsl.update(ISSUE).set(ISSUE.TYPE_ID, typeId).where(ISSUE.ID.eq(id)).execute();
+    return id;
+  }
+
+  /** p 프로젝트에서 내가 담당한 채 closedAt 에 DONE 된 이슈, 부모가 있으면 부모 아래. */
+  private long doneIn(ProjectResponse p, Long parentId, OffsetDateTime closedAt) {
+    long id = issue(me, p, "DONE", OLD, closedAt);
+    assign(id, me);
+    if (parentId != null) {
+      dsl.update(ISSUE).set(ISSUE.PARENT_ISSUE_ID, parentId).where(ISSUE.ID.eq(id)).execute();
+    }
+    return id;
+  }
+
+  /** 이슈 프로젝트의 라벨을 (없으면 만들어) 붙인다. */
+  private void label(long issueId, ProjectResponse p, String name) {
+    Long labelId =
+        dsl.select(LABEL.ID)
+            .from(LABEL)
+            .where(LABEL.PROJECT_ID.eq(p.id()))
+            .and(LABEL.NAME.eq(name))
+            .fetchOne(LABEL.ID);
+    if (labelId == null) {
+      labelId =
+          dsl.insertInto(LABEL)
+              .set(LABEL.PROJECT_ID, p.id())
+              .set(LABEL.NAME, name)
+              .set(LABEL.COLOR_TOKEN, "blue")
+              .returning(LABEL.ID)
+              .fetchOne()
+              .getId();
+    }
+    dsl.insertInto(ISSUE_LABEL)
+        .set(ISSUE_LABEL.ISSUE_ID, issueId)
+        .set(ISSUE_LABEL.LABEL_ID, labelId)
+        .execute();
+  }
+
+  private String keyOf(long issueId) {
+    var r =
+        dsl.select(ISSUE.NUMBER, ISSUE.PROJECT_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(issueId))
+            .fetchOne();
+    String key =
+        dsl.select(PROJECT.KEY)
+            .from(PROJECT)
+            .where(PROJECT.ID.eq(r.value2()))
+            .fetchOne(PROJECT.KEY);
+    return key + "-" + r.value1();
+  }
+
+  private String titleOf(long issueId) {
+    return dsl.select(ISSUE.TITLE).from(ISSUE).where(ISSUE.ID.eq(issueId)).fetchOne(ISSUE.TITLE);
+  }
+
+  private PersonalReportFacts weekly() {
+    return service.compute(me, WEEK, NOW);
+  }
+
+  /** 프로젝트는 끝낸 일 많은 순, 에픽은 많은 순·「에픽 없음」 맨 뒤, 제목은 최근 끝낸 순. 표는 프로젝트마다 한 행 「N건」. */
+  @Test
+  void weekly_doneByProject_groupsProjectThenEpic_noEpicLast() {
+    ProjectResponse other = newProject(me);
+    long epic = epicIn(project, "IN_PROGRESS", null);
+    long older = doneIn(project, epic, inWeek(1));
+    long newer = doneIn(project, epic, inWeek(5));
+    long loose = doneIn(project, null, inWeek(3));
+    doneIn(other, null, inWeek(2));
+
+    PersonalReportFacts f = weekly();
+
+    PersonalReportWork work = f.work();
+    assertThat(work.projects())
+        .extracting(ProjectWork::projectName, ProjectWork::done)
+        .containsExactly(tuple(project.name(), 3), tuple(other.name(), 1));
+    ProjectWork mine = work.projects().get(0);
+    assertThat(mine.projectKey()).isEqualTo(project.key());
+    assertThat(mine.epics())
+        .extracting(EpicWork::title, EpicWork::done)
+        .containsExactly(tuple(titleOf(epic), 2), tuple(PersonalReportWork.NO_EPIC, 1));
+    EpicWork e = mine.epics().get(0);
+    assertThat(e.key()).isEqualTo(keyOf(epic));
+    assertThat(e.url())
+        .endsWith("/projects/" + project.key() + "/issues/" + keyOf(epic).split("-")[1]);
+    assertThat(e.epicDone()).isFalse();
+    assertThat(e.doneTitles()).containsExactly(titleOf(newer), titleOf(older));
+    EpicWork none = mine.epics().get(1);
+    assertThat(none.key()).isNull();
+    assertThat(none.url()).isNull();
+    assertThat(none.doneTitles()).containsExactly(titleOf(loose));
+
+    // 표 모양은 생성기가 집계에서 만든다(ReportTableSpec.personalWork).
+    ReportTableSpec workTable =
+        ReportTableSpec.personalWork(f.work().projects(), PersonalReportKind.WEEKLY);
+    assertThat(workTable.headCells()).containsExactly("프로젝트", "끝낸 일", "주요 내용");
+    assertThat(workTable.body())
+        .containsExactly(List.of(project.name(), "3건", "—"), List.of(other.name(), "1건", "—"));
+    assertThat(workTable.keepAi().columns()).containsExactly(2);
+    assertThat(workTable.keepAi().rowKeys().get(0))
+        .containsExactly(project.key(), project.name()); // 키 먼저(WP-1632 리뷰)
+    assertThat(workTable.insertIntoSection().test("이번 주 한 일")).isTrue();
+    assertThat(workTable.insertIntoSection().test("이번 달 한 일")).isTrue();
+    assertThat(workTable.insertIntoSection().test("다음 주 할 일")).isFalse();
+  }
+
+  /** 프로젝트 합은 끝냄 건수와 같다 — 상세 이슈 목록(상한 40)에 담기지 않은 것까지 센다. */
+  @Test
+  void doneByProject_sumEqualsCompleted_over40() {
+    long epic = epicIn(project, "IN_PROGRESS", null);
+    for (int i = 0; i < 120; i++) doneIn(project, i % 2 == 0 ? epic : null, inWeek(i));
+
+    PersonalReportFacts f = weekly();
+
+    assertThat(f.completed()).isEqualTo(120);
+    assertThat(f.work().total()).isEqualTo(120);
+    assertThat(f.work().projects().get(0).epics())
+        .extracting(EpicWork::done)
+        .containsExactly(60, 60);
+    assertThat(f.issues().size()).isLessThanOrEqualTo(PersonalReportFactsService.DETAIL_LIMIT);
+  }
+
+  /** 에픽 → 스토리 → 하위 작업의 하위 작업은 가장 가까운 에픽(조부모)으로 묶는다. */
+  @Test
+  void grandchild_groupedUnderNearestEpic() {
+    long epic = epicIn(project, "IN_PROGRESS", null);
+    long story = issue(me, project, "IN_PROGRESS", OLD, null);
+    dsl.update(ISSUE).set(ISSUE.PARENT_ISSUE_ID, epic).where(ISSUE.ID.eq(story)).execute();
+    doneIn(project, story, inWeek(1));
+
+    EpicWork e = weekly().work().projects().get(0).epics().get(0);
+    assertThat(e.key()).isEqualTo(keyOf(epic));
+    assertThat(e.done()).isEqualTo(1);
+  }
+
+  /** 에픽이 내가 읽을 수 있는 다른 프로젝트에 있어도 묶음은 이슈의 프로젝트, 에픽 키는 에픽 프로젝트 키. */
+  @Test
+  void epicInOtherReadableProject_groupedUnderIssueProject() {
+    ProjectResponse other = newProject(me);
+    long epic = epicIn(other, "IN_PROGRESS", null);
+    doneIn(project, epic, inWeek(1));
+
+    PersonalReportWork work = weekly().work();
+    assertThat(work.projects()).hasSize(1);
+    assertThat(work.projects().get(0).projectKey()).isEqualTo(project.key());
+    EpicWork e = work.projects().get(0).epics().get(0);
+    assertThat(e.key()).isEqualTo(keyOf(epic)).startsWith(other.key() + "-");
+    assertThat(e.title()).isEqualTo(titleOf(epic));
+  }
+
+  /** 에픽이 내가 읽을 수 없는 프로젝트에 있으면 제목을 숨기고 「에픽 없음」 으로 센다. */
+  @Test
+  void epicInUnreadableProject_fallsToNoEpic() {
+    long stranger = TestFixtures.createHuman(dsl);
+    grantUserRole(stranger);
+    withMembership(stranger);
+    ProjectResponse hidden = newProject(stranger);
+    long epic = issue(stranger, hidden, "IN_PROGRESS", OLD, null);
+    Long typeId =
+        dsl.select(ISSUE_TYPE_DEF.ID)
+            .from(ISSUE_TYPE_DEF)
+            .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(hidden.id()))
+            .and(ISSUE_TYPE_DEF.NAME.eq("EPIC"))
+            .fetchOne(ISSUE_TYPE_DEF.ID);
+    dsl.update(ISSUE).set(ISSUE.TYPE_ID, typeId).where(ISSUE.ID.eq(epic)).execute();
+    doneIn(project, epic, inWeek(1));
+
+    PersonalReportWork work = weekly().work();
+    assertThat(work.projects().get(0).epics())
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.key()).isNull();
+              assertThat(e.title()).isEqualTo(PersonalReportWork.NO_EPIC);
+              assertThat(e.done()).isEqualTo(1);
+            });
+  }
+
+  /** 취소는 끝낸 일이 아니다. */
+  @Test
+  void canceled_excluded() {
+    closedMine("CANCELED", inWeek(1));
+    doneIn(project, null, inWeek(2));
+
+    PersonalReportFacts f = weekly();
+    assertThat(f.work().total()).isEqualTo(1).isEqualTo(f.completed());
+  }
+
+  /** 이번 주 내가 에픽 자체를 끝냈으면 그 에픽 묶음에 세고 epicDone 을 켠다. */
+  @Test
+  void epicItselfDone_epicDoneFlag() {
+    long epic = epicIn(project, "DONE", inWeek(9));
+    assign(epic, me);
+    doneIn(project, epic, inWeek(1));
+
+    PersonalReportFacts f = weekly();
+    EpicWork e = f.work().projects().get(0).epics().get(0);
+    assertThat(f.work().projects().get(0).epics()).hasSize(1);
+    assertThat(e.key()).isEqualTo(keyOf(epic));
+    assertThat(e.epicDone()).isTrue();
+    assertThat(e.done()).isEqualTo(2);
+    assertThat(f.work().total()).isEqualTo(f.completed());
+  }
+
+  /** 「상시」 에픽 표시와 「AI 탐색」 결함 수(에픽·프로젝트 합). */
+  @Test
+  void ongoingAndAiTesterCounts() {
+    long epic = epicIn(project, "IN_PROGRESS", null);
+    label(epic, project, ProjectReportEpics.ONGOING_LABEL);
+    long a = doneIn(project, epic, inWeek(1));
+    long b = doneIn(project, epic, inWeek(2));
+    doneIn(project, epic, inWeek(3));
+    long c = doneIn(project, null, inWeek(4));
+    label(a, project, ProjectReportEpics.AI_TESTER_LABEL);
+    label(b, project, ProjectReportEpics.AI_TESTER_LABEL);
+    label(c, project, ProjectReportEpics.AI_TESTER_LABEL);
+
+    ProjectWork p = weekly().work().projects().get(0);
+    assertThat(p.foundByAiTester()).isEqualTo(3);
+    EpicWork e = p.epics().get(0);
+    assertThat(e.ongoing()).isTrue();
+    assertThat(e.foundByAiTester()).isEqualTo(2);
+    assertThat(p.epics().get(1).ongoing()).isFalse();
+    assertThat(p.epics().get(1).foundByAiTester()).isEqualTo(1);
+  }
+
+  /** 에픽당 제목은 100건까지, 넘치면 「외 N건」. 건수는 모두 센다. */
+  @Test
+  void perEpicTitles_cappedWithRemainder() {
+    long epic = epicIn(project, "IN_PROGRESS", null);
+    for (int i = 0; i < 103; i++) doneIn(project, epic, inWeek(i));
+
+    EpicWork e = weekly().work().projects().get(0).epics().get(0);
+    assertThat(e.done()).isEqualTo(103);
+    assertThat(e.doneTitles()).hasSize(ProjectReportEpics.TITLE_LIMIT + 1);
+    assertThat(e.doneTitles().get(ProjectReportEpics.TITLE_LIMIT)).isEqualTo("외 3건");
+  }
+
+  /** 일일은 끝낸 일 집계가 없다. */
+  @Test
+  void daily_noWork() {
+    closedMine("DONE", kst("2026-11-11T10:00:00"));
+
+    PersonalReportFacts f = daily();
+    assertThat(f.work()).isNull();
+  }
+
+  /** 월간은 달력 달(1일~말일) 안에 끝낸 일만 묶는다. */
+  @Test
+  void monthly_calendarMonthRange() {
+    doneIn(project, null, kst("2026-10-15T10:00:00"));
+    doneIn(project, null, kst("2026-09-30T23:30:00"));
+    doneIn(project, null, kst("2026-11-01T00:30:00"));
+
+    PersonalReportFacts f =
+        service.compute(me, PersonalReportPeriod.monthly(YearMonth.of(2026, 10)), NOW);
+    assertThat(f.work().total()).isEqualTo(1).isEqualTo(f.completed());
+    assertThat(ReportTableSpec.personalWork(f.work().projects(), PersonalReportKind.MONTHLY).body())
+        .containsExactly(List.of(project.name(), "1건", "—"));
   }
 }

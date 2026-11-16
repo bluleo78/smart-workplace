@@ -41,8 +41,11 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PersonalReportFactsService {
 
-  /** AI 재료 이슈 상한 — 생성 비용 상한(넘치면 에픽·프로젝트별 남은 건수로 요약). 프로젝트 리포트(60)보다 작다. */
-  public static final int ISSUE_LIMIT = 40;
+  /**
+   * AI 재료 상세 이슈 상한 — 생성 비용 상한(넘치면 에픽·프로젝트별 남은 건수로 요약). 상세 행(키·주소·댓글 등) 상한일 뿐이고, 주간·월간의 끝낸 일 전체는
+   * 건수·제목만 담은 {@link PersonalReportWork} 가 덮는다(WP-1632). 프로젝트 리포트(60)보다 작다.
+   */
+  public static final int DETAIL_LIMIT = 40;
 
   /** 주간·월간에 덧붙이는 진행 중 이슈(위 이유에 안 든 내 담당 열린 이슈) 건수 — 최근에 움직인 순. */
   public static final int OPEN_LIMIT = 10;
@@ -68,6 +71,7 @@ public class PersonalReportFactsService {
   private final MeOverviewRepository overviewRepository;
   private final PersonalReportIssueRepository issueRepository;
   private final ReportIssueDetails details;
+  private final PersonalReportWorkRepository workRepository;
 
   /**
    * 한 회차의 계산값을 만든다.
@@ -96,8 +100,14 @@ public class PersonalReportFactsService {
     // forMe 의 closedIssues 는 closedIssuesForMe 와 같은 정의·같은 결과라 다시 묻지 않는다.
     List<ReportIssueDetails.Candidate> all =
         candidates(userId, period, today, open, metrics.closedIssues(), statusChanged);
-    List<ReportIssueDetails.Candidate> shown = all.subList(0, Math.min(ISSUE_LIMIT, all.size()));
+    List<ReportIssueDetails.Candidate> shown = all.subList(0, Math.min(DETAIL_LIMIT, all.size()));
     List<ReportIssueDetails.Candidate> rest = all.subList(shown.size(), all.size());
+
+    // 끝낸 일 프로젝트 → 에픽 집계(WP-1632) — 끝냄 건수와 같은 집합에서 묶어 AI 가 세지 않게 한다. 일일 보고는 쓰지 않는다.
+    PersonalReportWork work =
+        period.kind() == PersonalReportKind.DAILY
+            ? null
+            : workRepository.doneWork(userId, metrics.closedIssues());
 
     return new PersonalReportFacts(
         period,
@@ -107,7 +117,8 @@ public class PersonalReportFactsService {
         cur.completed(),
         cur.created(),
         statusChanged.size(),
-        cur.completedWithAi());
+        cur.completedWithAi(),
+        work);
   }
 
   /** 월간 비교 대상 — 지난 달력 달(1일~말일)의 지표. */

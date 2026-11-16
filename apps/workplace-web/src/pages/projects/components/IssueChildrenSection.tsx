@@ -3,8 +3,7 @@
 // parentTypeName === 'EPIC' 이면 추가 폼에 유형 선택(SUBTASK/EPIC 제외)이 노출되고,
 // 그 외(일반 이슈)는 기존처럼 SUBTASK 고정 추가 폼을 사용한다.
 // 자식 조회는 부모 number 필터로 별도 search 호출 (cache key 분리).
-// 에픽 하위는 다른 프로젝트에도 있을 수 있어(WP-1038) 하위 목록 API(/children)로 받는다 — 다른 프로젝트 하위는 자기 키로 보이고 그 프로젝트로
-// 이어지며, 조회자가 읽을 수 없는 하위는 「볼 수 없는 하위 N건」 한 줄로만 센다(WP-1039). 일반 이슈의 하위 태스크는 같은 프로젝트라 예전 검색 그대로.
+// 에픽 하위는 다른 프로젝트에도 있을 수 있어(WP-1038) 하위 목록 API(/children)로 받는다 — 다른 프로젝트 하위는 그 프로젝트로 이어지며, 조회자가 읽을 수 없는 하위는 「볼 수 없는 하위 N건」 한 줄로만 센다(WP-1039). 일반 이슈의 하위 태스크는 같은 프로젝트라 예전 검색 그대로.
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
@@ -208,7 +207,8 @@ export function IssueChildrenSection({
             // 행당 배지는 최대 1개(WP-374) — 열린 행에 AI 배지(진행·시작 전·위임)가 있으면 상태배지 대신 그것,
             // 그 외(끝난 행·AI 관여 없는 열린 행)는 상태배지. 할 일/진행 중 구분은 진행률 바로 알 수 없어 남긴다.
             const showAi = !isClosedStatus(it.status) && delegationState(it) !== null;
-            // 다른 프로젝트 하위(WP-1039) — 자기 프로젝트 키로 잇고, 같은 번호의 이 프로젝트 이슈와 헷갈리지 않게 키를 앞에 보인다.
+            // 키는 늘 제목 앞에 전체 키(WP-12)로 보인다(WP-1635) — 제목만으로는 어느 이슈인지 알 수 없고, 검색·비교에 쓰는 형태 그대로 보인다.
+            // 다른 프로젝트 하위(WP-1039)는 그 프로젝트 키로 보이고 그 프로젝트로 잇는다.
             const childKey = it.projectKey || projectKey;
             const otherProject = childKey !== projectKey;
             const issueKey = formatIssueKey(childKey, it.number);
@@ -220,14 +220,13 @@ export function IssueChildrenSection({
               >
                 <span className="text-muted-foreground">└</span>
                 {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
-                {otherProject && (
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums" data-testid="child-row-key">
-                    {issueKey}
-                  </span>
-                )}
+                {/* 키는 텍스트 — 행의 링크는 제목 하나만(탭 순서·스크린리더 중복 방지). */}
+                <span className="shrink-0 font-mono text-xs text-muted-foreground" data-testid="child-row-key">
+                  {issueKey}
+                </span>
                 <Link
                   to={`/projects/${childKey}/issues/${it.number}`}
-                  className="flex-1 truncate hover:underline"
+                  className="min-w-0 flex-1 truncate hover:underline"
                 >
                   {it.title}
                 </Link>

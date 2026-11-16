@@ -1,6 +1,6 @@
 // 리포트 러너 공유 조각(WP-1486) — 프로젝트 리포트·개인 보고가 함께 쓰는 한 줄 정리·이슈 한 줄·출력 정리를 고정한다.
 import { describe, it, expect } from 'vitest'
-import { cleanOutput, formatIssue, sanitizeInline, type ReportIssueInput } from './report-shared.js'
+import { cleanOutput, formatIssue, sanitizeDeep, sanitizeInline, type ReportIssueInput } from './report-shared.js'
 
 const issue: ReportIssueInput = {
   key: 'WP-1',
@@ -51,5 +51,12 @@ describe('cleanOutput', () => {
 
   it('프로젝트 코드는 project_report_ 접두로 던진다', () => {
     expect(() => cleanOutput('', 'project_report', 20000)).toThrow('project_report_empty')
+  })
+})
+
+describe('sanitizeDeep', () => {
+  it('중첩 객체·배열의 모든 글자 값을 한 줄로 거르고 숫자·불리언·null 은 그대로 둔다', () => {
+    const out = sanitizeDeep({ 제목: '<a>\n b', 목록: ['x <y>', 3, true, null], 안: { 글: ' c ' } })
+    expect(out).toEqual({ 제목: '＜a＞ b', 목록: ['x ＜y＞', 3, true, null], 안: { 글: 'c' } })
   })
 })

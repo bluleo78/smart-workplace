@@ -6,6 +6,7 @@ import {
   personalReportInputSchema,
   runPersonalReport,
   type PersonalIssueInput,
+  type ProjectWorkInput,
 } from './run-personal-report.js'
 import type { RunAgentDeps } from './run-agent.js'
 
@@ -83,6 +84,44 @@ function weekly(extra: Record<string, unknown> = {}) {
     ...extra,
   })
 }
+
+// 끝낸 일 프로젝트 → 에픽 집계(WP-1632) — 새 API 의 주간·월간 요청에 실린다. 제목에 꺾쇠를 넣어 걸러지는지 본다.
+const DONE_BY_PROJECT: ProjectWorkInput[] = [
+  {
+    projectKey: 'WP',
+    projectName: 'Gen:iA Works',
+    done: 112,
+    foundByAiTester: 90,
+    epics: [
+      {
+        key: 'WP-10',
+        url: 'https://app.test/projects/WP/issues/10',
+        title: '통합 검색',
+        ongoing: false,
+        epicDone: true,
+        done: 12,
+        foundByAiTester: 0,
+        doneTitles: ['색인 <script>', '결과 화면'],
+      },
+      {
+        key: null,
+        url: null,
+        title: '에픽 없음',
+        ongoing: false,
+        epicDone: false,
+        done: 100,
+        foundByAiTester: 90,
+        doneTitles: ['버그 1'],
+      },
+    ],
+  },
+]
+
+// 프로젝트 표가 든 주간 템플릿(WP-1632 기본 템플릿 모양) — 표 판정은 API 가 해서 workTableInTemplate 로 보낸다.
+const WORK_TEMPLATE = '## 이번 주 한 일\n\n| 프로젝트 | 끝낸 일 | 주요 내용 |\n| --- | --- | --- |\n| 예시 | 1건 | 예시 |\n'
+const WITH_TABLE = { templateMarkdown: WORK_TEMPLATE, workTableInTemplate: true }
+// 표 규칙 문구(템플릿 지시 상자를 따르라는 줄).
+const TABLE_RULE = '프로젝트 표와 프로젝트별 절은 템플릿 지시 상자대로 쓴다'
 
 // 첫 이슈에 값을 덮어쓴 일일 요청 — 새 선택 필드(assigneesDetail 등)를 실은 새 API 페이로드를 흉내 낸다.
 // patch 를 zod 입력 타입(PersonalIssueInput)으로 받아 픽스처가 스키마와 어긋나면 타입 검사에서 걸리게 한다.
@@ -254,6 +293,75 @@ describe('runPersonalReport', () => {
   it('userMessage_omittedLine', async () => {
     const { user } = await runWith(daily())
     expect(user).toContain('목록에 담지 못한 이슈: 메일 3건')
+  })
+
+  // ───────────── 끝낸 일 프로젝트 집계(WP-1632) ─────────────
+
+  it('schema_acceptsDoneByProject_oldPayloadStillPasses', () => {
+    expect(personalReportInputSchema.safeParse(weekly({ doneByProject: DONE_BY_PROJECT })).success).toBe(true)
+    expect(personalReportInputSchema.safeParse(weekly({ doneByProject: null })).success).toBe(true)
+    expect(personalReportInputSchema.safeParse(weekly({ workTableInTemplate: null })).success).toBe(true)
+    expect(personalReportInputSchema.safeParse(weekly()).success).toBe(true)
+    const bad = [{ ...DONE_BY_PROJECT[0], done: '많음' }]
+    expect(personalReportInputSchema.safeParse(weekly({ doneByProject: bad })).success).toBe(false)
+  })
+
+  it('userMessage_dataBlock_sanitized_andDetailListName', async () => {
+    const { user } = await runWith(weekly({ doneByProject: DONE_BY_PROJECT, ...WITH_TABLE }))
+    expect(user).toContain('<data>')
+    expect(user).toContain('"프로젝트별_끝낸_일"')
+    // 들여쓰기 없는 한 줄 JSON — 큰 달의 입력 크기를 줄인다(WP-1632 리뷰).
+    expect(user).toContain('"프로젝트":"Gen:iA Works"')
+    expect(user).toContain('"끝낸_일":112')
+    expect(user).toContain('"주소":"https://app.test/projects/WP/issues/10"')
+    expect(user).toContain('"AI_테스터_발견":90')
+    expect(user).toContain('"에픽_완료":true')
+    expect(user).not.toContain('\n "프로젝트별_끝낸_일"')
+    // 사람이 쓴 제목의 꺾쇠는 전각으로 — <data> 표지를 닫거나 태그를 끼우지 못한다.
+    expect(user).toContain('색인 ＜script＞')
+    expect(user).not.toContain('<script>')
+    expect(user).toContain('상세 이슈 목록(2건):')
+  })
+
+  it('systemPrompt_workTableRules_onlyWithDataAndTemplateTable', async () => {
+    const { system } = await runWith(weekly({ doneByProject: DONE_BY_PROJECT, ...WITH_TABLE }))
+    expect(system).toContain(TABLE_RULE)
+    expect(system).toContain('시스템이 그 칸을 다시 쓴다')
+    // 건수 출처 규칙은 한 번만 싣는다.
+    expect(system.split('끝낸 일 건수는').length - 1).toBe(1)
+    expect(system).toContain('「프로젝트별_끝낸_일」 값만 쓴다')
+    expect(system).toContain('결함 수정 약 N건 — AI 테스터가 찾은 결함 위주')
+    expect(system).toContain('상세 이슈 목록에 담지 못한 이슈의 건수')
+    expect(system).not.toContain('목록 밖 이슈가 있다는 사실은 참고로만 쓴다')
+
+    // 1단계 템플릿(표 없음 — workTableInTemplate false·구 API 는 없음) — 건수 규칙은 싣되 표 규칙은 싣지 않는다.
+    for (const flag of [{ workTableInTemplate: false }, {}]) {
+      vi.clearAllMocks()
+      const old = await runWith(weekly({ doneByProject: DONE_BY_PROJECT, templateMarkdown: '## 이번 주 한 일\n샘플\n', ...flag }))
+      expect(old.system).toContain('「프로젝트별_끝낸_일」 값만 쓴다')
+      expect(old.system).not.toContain(TABLE_RULE)
+    }
+  })
+
+  it('systemPrompt_monthly_workTableInMonthSection', async () => {
+    const { system } = await runWith(
+      weekly({ kind: 'MONTHLY', kindLabel: '월간', doneByProject: DONE_BY_PROJECT, ...WITH_TABLE }),
+    )
+    expect(system).toContain(TABLE_RULE)
+    expect(system).toContain('「이번 주 한 일」 → 「이번 달 한 일」')
+  })
+
+  it('noDoneByProject_noRulesNoDataBlock', async () => {
+    for (const input of [weekly(WITH_TABLE), weekly({ doneByProject: [], ...WITH_TABLE })]) {
+      vi.clearAllMocks()
+      const { system, user } = await runWith(input)
+      expect(user).not.toContain('<data>')
+      expect(user).toContain('이슈 목록(2건):')
+      expect(user).not.toContain('상세 이슈 목록')
+      expect(system).not.toContain('프로젝트별_끝낸_일')
+      expect(system).not.toContain(TABLE_RULE)
+      expect(system).toContain('목록 밖 이슈가 있다는 사실은 참고로만 쓴다')
+    }
   })
 
   it('schema_newFieldsOptional_oldPayloadPasses_unknownKindAccepted', () => {

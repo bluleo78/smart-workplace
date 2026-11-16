@@ -4,10 +4,14 @@ import com.workplace.issue.overview.status.StatusBadge;
 import com.workplace.issue.report.ProjectReportEpics;
 import com.workplace.issue.report.ProjectReportFacts;
 import com.workplace.issue.report.ReportCadence;
+import com.workplace.issue.report.ReportIssueDetails;
+import com.workplace.issue.report.ReportNumbers;
 import com.workplace.wiki.service.WikiAiInstruction;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -201,6 +205,18 @@ public final class ReportMarkdown {
     if (markdown == null) return false;
     List<String> lines = Arrays.asList(markdown.replace("\r\n", "\n").split("\n", -1));
     return findTable(lines, fenced(lines), headFirstCell) >= 0;
+  }
+
+  /**
+   * 템플릿에 이 명세의 표가 있는가(WP-1632 리뷰) — {@link #fixTable} 이 표를 찾는 규칙과 같다. 명세에 {@code insertIntoSection}
+   * 이 있으면 그 절(「이번 주 한 일」 등) 안의 표만 센다 — 다른 절의 같은 머리 표(사용자 표)를 템플릿 표로 착각해 넣지 않게.
+   *
+   * @param spec 표 모양(머리 판정·절 제한)
+   */
+  public static boolean hasTable(String markdown, ReportTableSpec spec) {
+    if (markdown == null) return false;
+    List<String> lines = Arrays.asList(markdown.replace("\r\n", "\n").split("\n", -1));
+    return findTable(lines, fenced(lines), spec) >= 0;
   }
 
   /**
@@ -468,13 +484,17 @@ public final class ReportMarkdown {
    * 몸통을 시스템 행만으로 다시 쓴다(AI 가 뺀 행은 다시 넣고 모르는 행은 버린다). 표가 없고 템플릿에 있었으면 {@code insertSectionTitle} 제목과
    * 표를 {@code insertAfterSections} 중 처음 찾은 섹션 뒤(하나도 없으면 첫 문단 뒤)에 넣는다 — 팀이 템플릿에서 표를 뺐으면 넣지 않는다.
    *
+   * <p>{@code keepAi} 가 있으면(WP-1632 개인 프로젝트 표) 지우기 전에 AI 행을 첫 칸으로 기억해 두었다가, 시스템 행마다 맞는 AI 행의 지정 칸
+   * 글을 옮긴다 — 건수는 늘 시스템 값, 모르는 AI 행은 버리고, 빠진 프로젝트는 「—」. {@code insertIntoSection} 이 있고 맞는 절이 있으면 표가
+   * 없을 때 그 절 제목 바로 뒤에 h2 없이 넣는다.
+   *
    * @param lines 고칠 줄 목록({@link #clean} 결과)
    * @param spec 표 모양
    * @param templateHasTable 템플릿에 이 표가 있었는가
    */
   public static void fixTable(List<String> lines, ReportTableSpec spec, boolean templateHasTable) {
     boolean[] fenced = fenced(lines);
-    int t = findTable(lines, fenced, spec.headFirstCell());
+    int t = findTable(lines, fenced, spec);
     if (t >= 0) {
       if (spec.headCells() != null) {
         lines.set(t, row(spec.headCells()));
@@ -488,11 +508,24 @@ public final class ReportMarkdown {
           && lines.get(bodyEnd).contains("|")) {
         bodyEnd++;
       }
+      List<List<String>> body =
+          spec.keepAi() == null
+              ? spec.body()
+              : keepAiCells(spec, lines.subList(bodyStart, bodyEnd));
       lines.subList(bodyStart, bodyEnd).clear();
-      lines.addAll(bodyStart, bodyRows(spec.body()));
+      lines.addAll(bodyStart, bodyRows(body));
       return;
     }
     if (!templateHasTable) return;
+
+    // 절 처음에 넣는 표(WP-1632 「이번 주 한 일」) — 맞는 절이 있으면 제목 줄 바로 뒤(판단 문장 앞)에 머리·몸통만 넣는다.
+    if (spec.insertIntoSection() != null) {
+      int s = findSection(lines, fenced, spec.insertIntoSection());
+      if (s >= 0) {
+        insertBlock(lines, s + 1, String.join("\n", tableBlock(spec.headCells(), spec.body())));
+        return;
+      }
+    }
 
     // 넣는 표의 머리 — 시스템 머리 칸 → 없으면(프로젝트) 「제목 | 이번 | 변화」 세 칸.
     List<String> head =
@@ -502,9 +535,7 @@ public final class ReportMarkdown {
     List<String> block = new ArrayList<>();
     block.add("## " + spec.insertSectionTitle());
     block.add("");
-    block.add(row(head));
-    block.add(delimiter(head.size()));
-    block.addAll(bodyRows(spec.body()));
+    block.addAll(tableBlock(head, spec.body()));
 
     // 문서 끝에 넣는 표(참고 지표, WP-1629) — 끝 빈 줄을 걷고 빈 줄 하나로 띄워 붙인다.
     if (spec.insertAtEnd()) {
@@ -538,6 +569,96 @@ public final class ReportMarkdown {
     lines.addAll(at, block);
   }
 
+  /**
+   * AI 칸 살리기(WP-1632) — 옛 몸통 줄(AI 행)을 첫 칸 맞춤 열쇠({@link #matchKey})로 읽고, 시스템 행마다 맞는 AI 행의 지정 칸 글을 한
+   * 줄로·상한까지 옮긴다. 맞는 AI 행이 없거나 칸이 비면 「—」. 건수 등 나머지 칸은 시스템 값 그대로다.
+   *
+   * <p>맞춤은 이름 순위별로 돈다(WP-1632 리뷰) — 모든 시스템 행을 첫 순위 이름(프로젝트 키)으로 먼저 맞춘 뒤, 남은 행을 다음 순위(이름)로 맞춘다. AI 행
+   * 하나는 한 시스템 행에만 쓰고(위에서부터 순서대로 소비), 그래서 이름이 같은 두 프로젝트가 같은 AI 요약을 나눠 갖지 않고 서로 다른 AI 행을 받는다.
+   */
+  private static List<List<String>> keepAiCells(ReportTableSpec spec, List<String> aiRows) {
+    List<List<String>> ai = new ArrayList<>();
+    List<String> aiKeys = new ArrayList<>();
+    for (String r : aiRows) {
+      List<String> cs = cells(r);
+      if (cs.isEmpty()) continue;
+      ai.add(cs);
+      aiKeys.add(matchKey(cs.get(0)));
+    }
+    boolean[] used = new boolean[ai.size()];
+    ReportTableSpec.KeepAiColumns keep = spec.keepAi();
+    int n = spec.body().size();
+    List<List<String>> matched = new ArrayList<>(Collections.nCopies(n, null));
+    int ranks = keep.rowKeys().stream().mapToInt(List::size).max().orElse(0);
+    for (int rank = 0; rank < ranks; rank++) {
+      for (int i = 0; i < n; i++) {
+        if (matched.get(i) != null) continue;
+        List<String> names = keep.rowKeys().get(i);
+        if (rank >= names.size() || names.get(rank) == null || names.get(rank).isBlank()) continue;
+        int a = take(aiKeys, used, matchKey(names.get(rank)));
+        if (a >= 0) matched.set(i, ai.get(a));
+      }
+    }
+    List<List<String>> out = new ArrayList<>(n);
+    for (int i = 0; i < n; i++) {
+      List<String> sys = new ArrayList<>(spec.body().get(i));
+      List<String> row = matched.get(i);
+      for (int c : keep.columns()) {
+        if (c >= sys.size()) continue;
+        String v = row != null && c < row.size() ? keptText(row.get(c), keep.maxLength()) : null;
+        sys.set(c, v == null ? ReportNumbers.DASH : v);
+      }
+      out.add(List.copyOf(sys));
+    }
+    return out;
+  }
+
+  /** 아직 쓰지 않은 AI 행 중 열쇠가 같은 첫 행을 쓴 것으로 표시하고 그 번호를 돌려준다(없으면 -1). */
+  private static int take(List<String> aiKeys, boolean[] used, String want) {
+    for (int a = 0; a < aiKeys.size(); a++) {
+      if (!used[a] && aiKeys.get(a).equals(want)) {
+        used[a] = true;
+        return a;
+      }
+    }
+    return -1;
+  }
+
+  /** AI 칸 글 — 이스케이프를 풀고(다시 쓸 때 {@link #cell} 이 이스케이프한다) 한 줄로·상한까지. 비면 null. */
+  private static String keptText(String raw, int max) {
+    String v = ReportIssueDetails.oneLine(raw.replace("\\|", "|"));
+    if (v == null || v.isEmpty()) return null;
+    return ReportIssueDetails.cut(v, max);
+  }
+
+  /**
+   * 행 맞춤 열쇠 — 링크는 글만 남기고 {@code *}·{@code _}·{@code `} 표시를 모두 지운 뒤 공백을 접어 소문자로. AI 가 이름을 꾸며 써도 맞추려는
+   * 것이고, 시스템 이름에도 같은 규칙을 걸어 양쪽이 똑같이 바뀐다.
+   */
+  private static String matchKey(String s) {
+    String v = MD_LINK.matcher(s.replace("\\|", "|")).replaceAll("$1");
+    v = EMPHASIS_MARKS.matcher(v).replaceAll("").strip();
+    return SPACES.matcher(v).replaceAll(" ").toLowerCase(Locale.ROOT);
+  }
+
+  /** 맞춤 열쇠용 링크(이미지 포함) {@code [글](주소)}: 1=글. */
+  private static final Pattern MD_LINK = Pattern.compile("!?\\[([^\\]\\n]*)\\]\\([^)\\n]*\\)");
+
+  /** 맞춤 열쇠에서 지우는 강조·코드 표시 글자. */
+  private static final Pattern EMPHASIS_MARKS = Pattern.compile("[*_`]");
+
+  /** 맞춤 열쇠에서 하나로 접는 공백 연속. */
+  private static final Pattern SPACES = Pattern.compile("\\s+");
+
+  /** 머리 줄·구분 줄·몸통 줄로 된 표 블록. */
+  private static List<String> tableBlock(List<String> head, List<List<String>> body) {
+    List<String> block = new ArrayList<>();
+    block.add(row(head));
+    block.add(delimiter(head.size()));
+    block.addAll(bodyRows(body));
+    return block;
+  }
+
   /** 시스템 행 → 표 몸통 줄. */
   private static List<String> bodyRows(List<List<String>> rows) {
     return rows.stream().map(ReportMarkdown::row).toList();
@@ -560,10 +681,35 @@ public final class ReportMarkdown {
     return v == null ? "" : v.replace("|", "\\|");
   }
 
+  /**
+   * 명세의 표 머리 줄 위치(없으면 -1). {@code insertIntoSection} 이 있으면(WP-1632 프로젝트 표) 제목이 그 판정을 통과하는 절들 안에서만
+   * 찾는다 — 다른 절의 「프로젝트」 머리 표(사용자 표, AI 가 엉뚱한 절에 쓴 표)는 건드리지 않는다. 맞는 절이 없으면 표도 없다(-1) — 그러면 {@link
+   * #fixTable} 이 넣기 경로로 간다. 절 범위는 제목 다음 줄부터 같거나 높은 단계의 다음 제목 앞까지(하위 ### 는 안에 든다).
+   */
+  private static int findTable(List<String> lines, boolean[] fenced, ReportTableSpec spec) {
+    if (spec.insertIntoSection() == null) {
+      return findTable(lines, fenced, spec.headFirstCell(), 0, lines.size());
+    }
+    Predicate<String> section = spec.insertIntoSection();
+    for (int h = findSection(lines, fenced, section, 0);
+        h >= 0;
+        h = findSection(lines, fenced, section, h + 1)) {
+      int t = findTable(lines, fenced, spec.headFirstCell(), h + 1, sectionEnd(lines, fenced, h));
+      if (t >= 0) return t;
+    }
+    return -1;
+  }
+
   /** 펜스 밖 첫 리포트 표의 머리 줄 위치(없으면 -1) — 머리 첫 칸(굵게·공백 제거)이 판정을 통과해야 한다. */
   private static int findTable(
       List<String> lines, boolean[] fenced, Predicate<String> headFirstCell) {
-    for (int i = 0; i + 1 < lines.size(); i++) {
+    return findTable(lines, fenced, headFirstCell, 0, lines.size());
+  }
+
+  /** [from, to) 안에서 머리·구분 줄이 모두 든 펜스 밖 첫 표의 머리 줄 위치(없으면 -1). */
+  private static int findTable(
+      List<String> lines, boolean[] fenced, Predicate<String> headFirstCell, int from, int to) {
+    for (int i = from; i + 1 < to; i++) {
       if (fenced[i] || fenced[i + 1]) continue;
       String head = lines.get(i);
       String delim = lines.get(i + 1);
@@ -673,10 +819,21 @@ public final class ReportMarkdown {
 
   /** 펜스 밖 첫 「{title}」 으로 시작하는 제목 줄 위치(없으면 -1). */
   private static int findSection(List<String> lines, boolean[] fenced, String title) {
-    for (int i = 0; i < lines.size(); i++) {
+    return findSection(lines, fenced, t -> t.startsWith(title));
+  }
+
+  /** 펜스 밖 첫 제목 줄 중 제목 글(굵게 뗀)이 판정을 통과하는 것의 위치(없으면 -1, WP-1632). */
+  private static int findSection(List<String> lines, boolean[] fenced, Predicate<String> title) {
+    return findSection(lines, fenced, title, 0);
+  }
+
+  /** {@code from} 줄부터 찾는 {@link #findSection(List, boolean[], Predicate)}. */
+  private static int findSection(
+      List<String> lines, boolean[] fenced, Predicate<String> title, int from) {
+    for (int i = from; i < lines.size(); i++) {
       if (fenced[i]) continue;
       Matcher m = HEADING.matcher(lines.get(i));
-      if (m.matches() && unemphasize(m.group(2)).startsWith(title)) return i;
+      if (m.matches() && title.test(unemphasize(m.group(2)))) return i;
     }
     return -1;
   }

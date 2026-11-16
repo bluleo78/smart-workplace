@@ -10,13 +10,15 @@ import java.util.Map;
  *
  * @param period 회차
  * @param table 숫자 표 모양(일일 가로 한 줄, 주간·월간 세로)
- * @param issues AI 재료 이슈(이유 순, 최대 {@link PersonalReportFactsService#ISSUE_LIMIT} 건)
+ * @param issues AI 재료 상세 이슈(이유 순, 최대 {@link PersonalReportFactsService#DETAIL_LIMIT} 건) — 끝낸 일 전체는
+ *     {@link #work} 가 덮는다
  * @param omittedByGroup 상한 밖으로 밀린 이슈의 에픽 제목(없으면 프로젝트 이름) → 건수(많은 순)
  * @param completed 기간 안 끝냄(개요 「어제」 칸과 같은 정의)
  * @param created 기간 안 새로 만듦(내가 보고자)
  * @param statusChanged 기간 안 상태를 바꾼 이슈 수(내가 바꿨거나 지금 내 담당)
  * @param completedWithAi 끝냄 중 「AI와 함께」(WP-1632, 개요·지표와 같은 정의) — 요약의 「끝낸 일 n건 (AI와 함께 a, 직접 b)」 재료.
  *     지표 값 그대로이고, 끝냄 이하로 깎는 것은 요청을 만들 때({@code PersonalReportAiRequest.CompletedSplit#of}) 한다
+ * @param work 끝낸 일 프로젝트 → 에픽 집계(WP-1632, 주간·월간만 — 일일은 null). 프로젝트 합 = completed
  */
 public record PersonalReportFacts(
     PersonalReportPeriod period,
@@ -26,7 +28,8 @@ public record PersonalReportFacts(
     int completed,
     int created,
     int statusChanged,
-    int completedWithAi) {
+    int completedWithAi,
+    PersonalReportWork work) {
 
   /** 한 일 없음(끝냄·새로 만듦·상태 바꿈 셋 다 0) — 「한 일이 없는 날은 건너뜀」 판정. */
   public boolean isEmpty() {

@@ -114,6 +114,27 @@ class PersonalReportTemplateTest extends ExternalClientMockedTestBase {
     assertThat(template.defaultMarkdown(PersonalReportKind.MONTHLY)).isEqualTo(md);
   }
 
+  /**
+   * 주간 원문의 프로젝트 표(WP-1632) — 「이번 주 한 일」 절 안, 첫 프로젝트 소제목(###) 앞에 {@code | 프로젝트 | 끝낸 일 | 주요 내용 |} 머리가
+   * 있고, 후처리가 알아보는 표다. 요약의 「끝낸 일」 예시 숫자는 표 합(112 + 6 = 118)과 맞다.
+   */
+  @Test
+  void defaultMarkdown_weekly_projectTableAtStartOfDoneSection() {
+    String md = template.defaultMarkdown(PersonalReportKind.WEEKLY);
+    int section = md.indexOf("## 이번 주 한 일");
+    int head = md.indexOf("| 프로젝트 | 끝낸 일 | 주요 내용 |");
+    int firstProject = md.indexOf("### ", section);
+    assertThat(section).isPositive();
+    assertThat(head).isGreaterThan(section).isLessThan(firstProject);
+    assertThat(firstProject).isLessThan(md.indexOf("## 다음 주 할 일"));
+    assertThat(
+            ReportMarkdown.hasTable(
+                md, ReportTableSpec.personalWork(List.of(), PersonalReportKind.WEEKLY)))
+        .isTrue();
+    assertThat(md).contains("- **끝낸 일** 118건 (AI와 함께 95, 직접 23)");
+    assertThat(md).contains("| Gen:iA Works | 112건 |", "| 고객 포털 | 6건 |");
+  }
+
   /** 되돌리기 — 고친 본문을 기본으로 덮고, 고친 판은 수정 기록에 한 건 남는다. */
   @Test
   void reset_overwritesAndKeepsPreviousRevision() {

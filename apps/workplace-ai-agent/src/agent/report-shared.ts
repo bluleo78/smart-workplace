@@ -43,6 +43,17 @@ export function sanitizeInline(s: string | null | undefined): string {
   return s.replace(/[<>]/g, (c) => (c === '<' ? '＜' : '＞')).replace(/\s+/g, ' ').trim()
 }
 
+// JSON 안 모든 글자 값에 sanitizeInline 을 적용 — 에픽 제목·요약·댓글 같은 사람이 쓴 글이 <data> 표지를 닫거나 줄을 끼우지 못하게(요약의 줄바꿈도 공백으로).
+// 프로젝트 리포트(WP-1629)와 개인 보고의 끝낸 일 집계(WP-1632)가 <data> JSON 을 같은 규칙으로 거르게 여기 둔다.
+export function sanitizeDeep(v: unknown): unknown {
+  if (typeof v === 'string') return sanitizeInline(v)
+  if (Array.isArray(v)) return v.map(sanitizeDeep)
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sanitizeDeep(x)]))
+  }
+  return v
+}
+
 // formatIssue 가 받는 이슈 — 공용 바탕에 이유만 개인 보고까지 넓힌 모양.
 type FormattableIssue = Omit<ReportIssueInput, 'reason'> & { reason: ReportReason }
 

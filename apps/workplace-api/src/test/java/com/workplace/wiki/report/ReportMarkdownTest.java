@@ -6,6 +6,7 @@ import com.workplace.issue.metrics.MetricsSummary;
 import com.workplace.issue.overview.status.StatusBadge;
 import com.workplace.issue.report.PersonalReportFactsService;
 import com.workplace.issue.report.PersonalReportKind;
+import com.workplace.issue.report.PersonalReportWork.ProjectWork;
 import com.workplace.issue.report.ProjectReportEpics;
 import com.workplace.issue.report.ProjectReportFacts;
 import com.workplace.issue.report.ReportCadence;
@@ -501,6 +502,14 @@ class ReportMarkdownTest {
     return new java.util.ArrayList<>(List.of(md.split("\n", -1)));
   }
 
+  /**
+   * 「이번 주 한 일」 절 제목 줄 + 주어진 글 — 프로젝트 표는 그 절 안 표만 고치므로(WP-1632 리뷰) 표만 보는 테스트도 절 안에 둔다. 고친 뒤 0번
+   * 줄(제목)을 떼고 본다.
+   */
+  private static List<String> doneSection(String md) {
+    return lines("## 이번 주 한 일\n" + md);
+  }
+
   @Test
   void fixTable_headCellsSpec_rewritesHeadDelimiterAndBody() {
     List<String> lines = lines("| 끝냄 | 리뷰 |\n|---|---|\n| 9 | 9 |");
@@ -659,6 +668,282 @@ class ReportMarkdownTest {
     ReportMarkdown.fixTable(lines, WEEKLY_SPEC, true);
     String out = ReportMarkdown.render(lines);
     assertThat(out.indexOf("## 지난주 대비")).isGreaterThan(out.indexOf("## 막힌 것"));
+  }
+
+  // ───────────── 개인 주간·월간 프로젝트 표(WP-1632) — 건수는 시스템, 「주요 내용」 은 AI 글 살림 ─────────────
+
+  /** 두 프로젝트(Gen:iA Works 112건, 고객 포털 6건) 표 모양. */
+  private static ReportTableSpec workSpec(PersonalReportKind kind) {
+    return ReportTableSpec.personalWork(
+        List.of(
+            new ProjectWork("WP", "Gen:iA Works", 112, 90, List.of()),
+            new ProjectWork("CP", "고객 포털", 6, 0, List.of())),
+        kind);
+  }
+
+  /** 건수는 시스템 값으로, 「주요 내용」 은 프로젝트 이름·굵은 이름·키 어느 쪽으로 써도 맞춰 살린다. */
+  @Test
+  void workTable_overwritesCounts_keepsSummaryMatchedByNameOrKey() {
+    List<String> byName =
+        lines(
+            "## 이번 주 한 일\n\n| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n"
+                + "| **Gen:iA Works** | 100건 | 통합 검색 1단계 |\n| CP | 9건 | 로그인 개편 |\n\n판단.");
+
+    ReportMarkdown.fixTable(byName, workSpec(PersonalReportKind.WEEKLY), true);
+
+    assertThat(String.join("\n", byName))
+        .isEqualTo(
+            "## 이번 주 한 일\n\n| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n"
+                + "| Gen:iA Works | 112건 | 통합 검색 1단계 |\n| 고객 포털 | 6건 | 로그인 개편 |\n\n판단.");
+  }
+
+  /** 모르는 프로젝트 행(예시 행)은 버리고, AI 가 빠뜨린 프로젝트는 「—」 로 더하고, 순서는 시스템 순서다. */
+  @Test
+  void workTable_dropsUnknownRows_addsMissingWithDash_systemOrder() {
+    List<String> lines =
+        doneSection(
+            "| 프로젝트 | 끝낸 일 | 주요 내용 |\n| --- | --- | --- |\n"
+                + "| 고객 포털 | 6건 | 로그인 개편 |\n| 예시 프로젝트 | 3건 | 예시 |");
+
+    ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+
+    lines.remove(0);
+
+    assertThat(lines)
+        .containsExactly(
+            "| 프로젝트 | 끝낸 일 | 주요 내용 |",
+            "|---|---|---|",
+            "| Gen:iA Works | 112건 | — |",
+            "| 고객 포털 | 6건 | 로그인 개편 |");
+  }
+
+  /** 긴 주요 내용은 40자에서 자르고, 「|」 든 이름·글은 이스케이프해 맞추고 다시 쓴다. */
+  @Test
+  void workTable_longSummaryCut_pipeEscaped() {
+    ReportTableSpec spec =
+        ReportTableSpec.personalWork(
+            List.of(new ProjectWork("AB", "A|B 팀", 2, 0, List.of())), PersonalReportKind.WEEKLY);
+    String longText = "가".repeat(50);
+    List<String> lines =
+        doneSection("| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n| A\\|B 팀 | 1건 | " + longText + " |");
+
+    ReportMarkdown.fixTable(lines, spec, true);
+
+    lines.remove(0);
+
+    assertThat(lines.get(2)).isEqualTo("| A\\|B 팀 | 2건 | " + "가".repeat(39) + "… |");
+
+    List<String> pipe =
+        doneSection("| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n| AB | 1건 | 검색 \\| 필터 |");
+    ReportMarkdown.fixTable(pipe, spec, true);
+    pipe.remove(0);
+    assertThat(pipe.get(2)).isEqualTo("| A\\|B 팀 | 2건 | 검색 \\| 필터 |");
+  }
+
+  /** 표가 없으면 「이번 주 한 일」 절 처음(제목 바로 뒤, 판단 문장 앞)에 h2 없이 넣는다. */
+  @Test
+  void workTable_missing_insertedAtStartOfWeekDoneSection() {
+    List<String> lines = lines("## 요약\n글\n\n## 이번 주 한 일\n판단입니다.\n\n### Gen:iA Works\n- 했음");
+
+    ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+
+    assertThat(ReportMarkdown.render(lines))
+        .isEqualTo(
+            """
+            ## 요약
+            글
+
+            ## 이번 주 한 일
+
+            | 프로젝트 | 끝낸 일 | 주요 내용 |
+            |---|---|---|
+            | Gen:iA Works | 112건 | — |
+            | 고객 포털 | 6건 | — |
+
+            판단입니다.
+
+            ### Gen:iA Works
+            - 했음
+            """);
+  }
+
+  /** 월간 「이번 달 한 일」 절에도 넣고, 템플릿에 표가 없었으면 넣지 않는다. */
+  @Test
+  void workTable_monthSection_andNoInsertWhenTemplateLacked() {
+    List<String> monthly = lines("## 이번 달 한 일\n판단입니다.");
+    ReportMarkdown.fixTable(monthly, workSpec(PersonalReportKind.MONTHLY), true);
+    assertThat(monthly.get(0)).isEqualTo("## 이번 달 한 일");
+    assertThat(monthly.get(2)).isEqualTo("| 프로젝트 | 끝낸 일 | 주요 내용 |");
+    assertThat(monthly).doesNotContain("## 이번 주 한 일");
+
+    List<String> old = lines("## 이번 주 한 일\n판단입니다.");
+    List<String> before = List.copyOf(old);
+    ReportMarkdown.fixTable(old, workSpec(PersonalReportKind.WEEKLY), false);
+    assertThat(old).isEqualTo(before);
+  }
+
+  /** 코드 펜스 안의 표는 프로젝트 표로 보지 않는다 — 고치지 않고 절 처음에 새로 넣는다. */
+  @Test
+  void workTable_fencedTableIgnored() {
+    String fenced = "```\n| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n| X | 1건 | y |\n```";
+    List<String> lines = lines("## 이번 주 한 일\n판단입니다.\n\n" + fenced);
+
+    ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+
+    String out = String.join("\n", lines);
+    assertThat(out).endsWith(fenced);
+    assertThat(out.indexOf("| Gen:iA Works | 112건 | — |")).isLessThan(out.indexOf("판단입니다."));
+  }
+
+  /** 「한 일」 절이 없으면 기존 경로 — 「요약」 절 뒤에 「이번 주 한 일」 h2 와 함께 넣는다. */
+  @Test
+  void workTable_noDoneSection_insertedAsNewSectionAfterSummary() {
+    List<String> lines = lines("## 요약\n글\n\n## 막힌 것\n- 없음");
+
+    ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+
+    String out = ReportMarkdown.render(lines);
+    assertThat(out.indexOf("## 이번 주 한 일")).isGreaterThan(out.indexOf("## 요약"));
+    assertThat(out.indexOf("## 이번 주 한 일")).isLessThan(out.indexOf("## 막힌 것"));
+    assertThat(out).contains("| Gen:iA Works | 112건 | — |");
+  }
+
+  /** 기본 주간 템플릿 그대로 고치면 예시 행은 사라지고 시스템 프로젝트 행만 남으며, 다른 표는 그대로다. */
+  @Test
+  void workTable_weeklyTemplate_examplesReplaced() {
+    String template = ReportTemplateCopier.loadResource("report/personal-weekly-template.md");
+    assertThat(ReportMarkdown.hasTable(template, workSpec(PersonalReportKind.WEEKLY))).isTrue();
+    List<String> lines = lines(template);
+
+    ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+
+    String out = String.join("\n", lines);
+    assertThat(out)
+        .contains("| Gen:iA Works | 112건 | 통합 검색 1단계·결함 수정 |")
+        .contains("| 고객 포털 | 6건 | 로그인 화면 개편 |")
+        .contains("| 1 | {{BASE_URL}}/projects/WP/issues/1301 | AI 개발자3이 답을 기다림 |");
+  }
+
+  /**
+   * 끝낸 일이 없는 주(WP-1632 리뷰) — AI 가 템플릿 예시 표(가짜 건수)를 베껴도 시스템 한 행 「— | 0건 | 끝낸 일 없음」 으로 바뀐다. 표를 지우지 않고
+   * 행을 남기는 것은 템플릿 모양(표로 시작하는 절)을 지키고 「0건」 을 눈에 보이게 하려는 것이다.
+   */
+  @Test
+  void workTable_noFinishedWork_exampleRowsReplacedBySingleSystemRow() {
+    List<String> lines =
+        lines(
+            "## 이번 주 한 일\n\n| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n"
+                + "| Gen:iA Works | 112건 | 통합 검색 1단계·결함 수정 |\n| 고객 포털 | 6건 | 로그인 화면 개편 |\n\n판단.");
+
+    ReportMarkdown.fixTable(
+        lines, ReportTableSpec.personalWork(List.of(), PersonalReportKind.WEEKLY), true);
+
+    assertThat(String.join("\n", lines))
+        .isEqualTo(
+            "## 이번 주 한 일\n\n| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n"
+                + "| — | 0건 | 끝낸 일 없음 |\n\n판단.");
+  }
+
+  /** 다른 절(「다음 주 할 일」)의 「프로젝트」 머리 표는 사용자 표라 건드리지 않고, 시스템 표는 「이번 주 한 일」 절 처음에 넣는다. */
+  @Test
+  void workTable_projectTableInOtherSection_untouched_insertedIntoDoneSection() {
+    String custom = "| 프로젝트 | 다음 할 일 |\n|---|---|\n| Gen:iA Works | 검색 2단계 |";
+    List<String> lines = lines("## 이번 주 한 일\n판단입니다.\n\n## 다음 주 할 일\n\n" + custom + "\n");
+
+    ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+
+    String out = String.join("\n", lines);
+    assertThat(out).contains(custom);
+    assertThat(out.indexOf("| Gen:iA Works | 112건 | — |")).isLessThan(out.indexOf("판단입니다."));
+  }
+
+  /** AI 가 다른 절(「요약」)에 쓴 프로젝트 표는 그대로 두고, 시스템 표는 맞는 절에 넣는다. */
+  @Test
+  void workTable_aiTableElsewhere_untouched_systemTableInDoneSection() {
+    String aiTable = "| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n| Gen:iA Works | 99건 | 요약 표 |";
+    List<String> lines = lines("## 요약\n\n" + aiTable + "\n\n## 이번 주 한 일\n판단입니다.");
+
+    ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+
+    String out = String.join("\n", lines);
+    assertThat(out).startsWith("## 요약\n\n" + aiTable);
+    int section = out.indexOf("## 이번 주 한 일");
+    assertThat(out.indexOf("| Gen:iA Works | 112건 | — |")).isGreaterThan(section);
+  }
+
+  /** 템플릿 판정도 절 안 표만 센다 — 「다음 주 할 일」 의 「프로젝트」 표는 프로젝트 표가 아니다. */
+  @Test
+  void workTable_hasTable_onlyInsideDoneSection() {
+    ReportTableSpec spec = workSpec(PersonalReportKind.WEEKLY);
+    String other = "## 이번 주 한 일\n글\n\n## 다음 주 할 일\n| 프로젝트 | 다음 할 일 |\n|---|---|\n| A | b |\n";
+    String inside = "## 이번 주 한 일\n\n| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n| A | 1건 | b |\n";
+
+    assertThat(ReportMarkdown.hasTable(other, spec)).isFalse();
+    assertThat(ReportMarkdown.hasTable(inside, spec)).isTrue();
+  }
+
+  /** 절 안에서는 「프로젝트명」·「프로젝트 이름」 처럼 「프로젝트」 로 시작하는 머리도 프로젝트 표로 보고 시스템 머리로 다시 쓴다(표가 겹치지 않게). */
+  @Test
+  void workTable_headPrefixVariant_rewrittenNotDuplicated() {
+    for (String head : List.of("프로젝트명", "**프로젝트 이름**")) {
+      List<String> lines =
+          lines(
+              "## 이번 주 한 일\n\n| "
+                  + head
+                  + " | 건수 | 내용 |\n|---|---|---|\n| 고객 포털 | 1건 | 로그인 개편 |\n\n판단.");
+
+      ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+
+      String out = String.join("\n", lines);
+      assertThat(out)
+          .isEqualTo(
+              "## 이번 주 한 일\n\n| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n"
+                  + "| Gen:iA Works | 112건 | — |\n| 고객 포털 | 6건 | 로그인 개편 |\n\n판단.");
+    }
+  }
+
+  /** 이름이 같은 두 프로젝트 — 키로 먼저 맞추고, 이름으로 맞출 때는 AI 행을 한 번씩만(순서대로) 쓴다. */
+  @Test
+  void workTable_duplicateNames_keyFirst_eachAiRowOnce() {
+    ReportTableSpec spec =
+        ReportTableSpec.personalWork(
+            List.of(
+                new ProjectWork("A", "공통", 3, 0, List.of()),
+                new ProjectWork("B", "공통", 2, 0, List.of())),
+            PersonalReportKind.WEEKLY);
+    List<String> byName =
+        doneSection("| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n| 공통 | 1건 | 첫째 |\n| 공통 | 1건 | 둘째 |");
+    ReportMarkdown.fixTable(byName, spec, true);
+    byName.remove(0);
+    assertThat(byName.subList(2, 4)).containsExactly("| 공통 | 3건 | 첫째 |", "| 공통 | 2건 | 둘째 |");
+
+    // 키로 쓴 B 행이 먼저 B 에 맞고, 이름 행은 남은 A 에 간다(행 순서와 무관).
+    List<String> keyFirst =
+        doneSection("| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n| 공통 | 1건 | 이름 행 |\n| B | 1건 | 키 행 |");
+    ReportMarkdown.fixTable(keyFirst, spec, true);
+    keyFirst.remove(0);
+    assertThat(keyFirst.subList(2, 4)).containsExactly("| 공통 | 3건 | 이름 행 |", "| 공통 | 2건 | 키 행 |");
+  }
+
+  /** 맞춤 열쇠는 링크 {@code [글](주소)}·코드 표시·기울임도 푼다. */
+  @Test
+  void workTable_matchKey_stripsLinksCodeAndItalics() {
+    List<String> lines =
+        doneSection(
+            "| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n"
+                + "| [Gen:iA Works](https://w.example/projects/WP) | 1건 | 링크 행 |\n| `CP` | 1건 | 코드 행 |");
+    ReportMarkdown.fixTable(lines, workSpec(PersonalReportKind.WEEKLY), true);
+    lines.remove(0);
+    assertThat(lines.subList(2, 4))
+        .containsExactly("| Gen:iA Works | 112건 | 링크 행 |", "| 고객 포털 | 6건 | 코드 행 |");
+
+    List<String> italic =
+        doneSection(
+            "| 프로젝트 | 끝낸 일 | 주요 내용 |\n|---|---|---|\n| *고객 포털* | 1건 | 기울임 |\n| _WP_ | 1건 | 밑줄 |");
+    ReportMarkdown.fixTable(italic, workSpec(PersonalReportKind.WEEKLY), true);
+    italic.remove(0);
+    assertThat(italic.subList(2, 4))
+        .containsExactly("| Gen:iA Works | 112건 | 밑줄 |", "| 고객 포털 | 6건 | 기울임 |");
   }
 
   @Test

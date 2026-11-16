@@ -1,5 +1,6 @@
 package com.workplace.issue.outbound.dto;
 
+import com.workplace.issue.report.PersonalReportWork;
 import com.workplace.issue.report.ReportIssue;
 import com.workplace.issue.report.ReportTableRow;
 import java.util.List;
@@ -22,6 +23,10 @@ import java.util.Map;
  * @param omittedByEpic 상한에 걸려 빠진 이슈의 에픽(없으면 프로젝트)별 건수(없으면 빈 맵)
  * @param completedSplit 끝낸 일 건수와 그중 AI와 함께/직접(WP-1632) — 요약 고정 줄 재료. 새 선택 필드(롤링 배포 호환 — {@link
  *     com.workplace.issue.report.ReportAssignee} 참고)
+ * @param doneByProject 끝낸 일 프로젝트 → 에픽 집계(WP-1632, 주간·월간만 — 일일은 null). 「이번 주 한 일」 프로젝트 표·소제목 재료이고
+ *     건수는 후처리가 시스템 값으로 다시 쓴다. 새 선택 필드(롤링 배포 호환 — 옛 ai-agent 는 모르는 키를 버리고 issues 로 돈다)
+ * @param workTableInTemplate 템플릿에 프로젝트 표가 있는가(WP-1632) — API 가 후처리와 같은 판정으로 한 번 정해 보내, 프롬프트의 표 규칙과
+ *     후처리가 엇갈리지 않게 한다. 새 선택 필드(옛 ai-agent 는 버린다)
  * @param assistantAgentId 비서 사용자 id(개인 비서 → 공용 비서)
  * @param model 비서 모델
  * @param maxTurns 비서 최대 턴
@@ -39,6 +44,8 @@ public record PersonalReportAiRequest(
     List<ReportIssue> issues,
     Map<String, Integer> omittedByEpic,
     CompletedSplit completedSplit,
+    List<PersonalReportWork.ProjectWork> doneByProject,
+    boolean workTableInTemplate,
     long assistantAgentId,
     String model,
     int maxTurns,
