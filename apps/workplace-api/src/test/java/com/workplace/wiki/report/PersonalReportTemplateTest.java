@@ -95,8 +95,11 @@ class PersonalReportTemplateTest extends ExternalClientMockedTestBase {
   void defaultMarkdown_daily_hasSectionsAndNoPlaceholderLeft() {
     String md = template.defaultMarkdown(PersonalReportKind.DAILY);
     assertThat(md)
-        .contains("## 한 줄", "## 어제 숫자", "## 어제 한 일", "## 오늘 할 일", "## 막힌 것")
+        .contains("## 요약", "## 어제 숫자", "## 어제 한 일", "## 오늘 할 일", "## 막힌 것")
         .doesNotContain("{{");
+    // WP-1632 새 순서 — 요약 → 어제 한 일 → 오늘 할 일 → 막힌 것 → 어제 숫자(맨 끝).
+    assertThat(md.indexOf("## 어제 숫자")).isGreaterThan(md.indexOf("## 막힌 것"));
+    assertThat(md).contains("- **끝낸 일** 7건 (AI와 함께 5, 직접 2)");
     assertThat(md.split("class=\"wp-ai-instruction\"", -1)).hasSize(7);
     assertThat(ReportMarkdown.hasTable(md, PersonalReportFactsService.DAILY_HEAD)).isTrue();
   }

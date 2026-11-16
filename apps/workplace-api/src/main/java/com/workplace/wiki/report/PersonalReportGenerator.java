@@ -333,6 +333,8 @@ public class PersonalReportGenerator {
         daily ? numbersLine(table) : null,
         facts.issues(),
         facts.omittedByGroup(),
+        // 끝낸 일 AI와 함께/직접(WP-1632) — 요약 고정 줄을 AI 가 계산 없이 옮기게 직접 건수까지 넣어 보낸다.
+        PersonalReportAiRequest.CompletedSplit.of(facts.completed(), facts.completedWithAi()),
         spec.agentUserId(),
         spec.model(),
         spec.maxTurns(),

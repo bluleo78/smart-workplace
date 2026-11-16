@@ -11,6 +11,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.dto.PersonalReportAiRequest;
+import com.workplace.issue.report.ReportAssignee;
 import com.workplace.issue.report.ReportIssue;
 import java.time.LocalDate;
 import java.util.List;
@@ -52,7 +53,8 @@ class AiAgentIssueClientPersonalReportTest {
             "WAITING",
             "WP",
             null,
-            false);
+            false,
+            List.of(new ReportAssignee("양동희", "HUMAN"), new ReportAssignee("AI 개발자1", "AGENT")));
     return new PersonalReportAiRequest(
         "양동희",
         "DAILY",
@@ -64,6 +66,7 @@ class AiAgentIssueClientPersonalReportTest {
         "끝냄 4 · 기한 내 3 · AI와 함께 1 | 새로 만듦 1 | 상태 바꿈 6 | 기한 지남 2",
         List.of(issue),
         Map.of("WP", 2),
+        new PersonalReportAiRequest.CompletedSplit(4, 1, 3),
         7L,
         "m",
         4,
@@ -86,6 +89,13 @@ class AiAgentIssueClientPersonalReportTest {
         .andExpect(jsonPath("$.issues[0].dueDate").value("2026-11-10"))
         .andExpect(jsonPath("$.issues[0].project").value("WP"))
         .andExpect(jsonPath("$.omittedByEpic['WP']").value(2))
+        // WP-1632 — 담당 kind·끝낸 일 AI와 함께/직접 건수(선택 필드, 기존 assignees 모양은 그대로).
+        .andExpect(jsonPath("$.issues[0].assignees[0]").value("양동희"))
+        .andExpect(jsonPath("$.issues[0].assigneesDetail[1].name").value("AI 개발자1"))
+        .andExpect(jsonPath("$.issues[0].assigneesDetail[1].kind").value("AGENT"))
+        .andExpect(jsonPath("$.completedSplit.completed").value(4))
+        .andExpect(jsonPath("$.completedSplit.withAi").value(1))
+        .andExpect(jsonPath("$.completedSplit.direct").value(3))
         .andExpect(jsonPath("$.timeoutMs").value(180000))
         .andRespond(withSuccess("{\"markdown\":\"## 한 줄\\n\"}", MediaType.APPLICATION_JSON));
 

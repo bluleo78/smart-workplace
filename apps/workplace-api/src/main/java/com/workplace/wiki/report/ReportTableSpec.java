@@ -14,14 +14,15 @@ import java.util.function.Predicate;
  * @param body 몸통 행(행마다 칸 값). 칸 값의 「|」 는 쓸 때 이스케이프한다
  * @param insertSectionTitle 표가 없을 때 표 앞에 넣는 h2 제목. headCells 가 null 이면 넣는 표의 머리도 {@code | 이 제목 | 이번
  *     | 변화 |} 로 만든다(프로젝트 표의 머리 모양)
- * @param insertAfterSection 표를 넣을 자리 — 제목이 이 글로 시작하는 섹션의 끝. 섹션이 없으면 첫 문단 뒤
+ * @param insertAfterSections 표를 넣을 자리 후보 — 앞 후보부터 제목이 그 글로 시작하는 섹션을 찾아 처음 찾은 섹션의 끝에 넣는다. 하나도 없으면 첫
+ *     문단 뒤. 후보가 여럿인 것은 개인 보고(WP-1632)가 옛 템플릿 순서(「한 줄」 뒤)와 새 템플릿 순서(「막힌 것」 뒤 = 맨 끝)를 함께 받기 때문이다
  */
 public record ReportTableSpec(
     Predicate<String> headFirstCell,
     List<String> headCells,
     List<List<String>> body,
     String insertSectionTitle,
-    String insertAfterSection) {
+    List<String> insertAfterSections) {
 
   /** 프로젝트 리포트 표의 머리 첫 칸 접두이자 넣을 때의 섹션 제목. */
   static final String PROJECT_TABLE_HEAD = "지난 리포트 이후";
@@ -41,7 +42,7 @@ public record ReportTableSpec(
         null,
         body,
         PROJECT_TABLE_HEAD,
-        PROJECT_STATUS_SECTION);
+        List.of(PROJECT_STATUS_SECTION));
   }
 
   /** null 칸은 빈 칸 — List.of 가 null 을 받지 않아서 여기서 바꾼다(기존 표 쓰기도 null 을 빈 칸으로 썼다). */

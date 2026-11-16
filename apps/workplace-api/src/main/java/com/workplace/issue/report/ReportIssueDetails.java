@@ -97,7 +97,7 @@ public class ReportIssueDetails {
         .where(ISSUE.ID.in(ids))
         .fetch()
         .forEach(r -> rows.put(r.get(ISSUE.ID), r));
-    Map<Long, List<String>> assignees = assigneeNames(ids);
+    Map<Long, List<ReportAssignee>> assignees = assignees(ids);
     Map<Long, String> comments = lastComments(ids);
 
     List<ReportIssue> out = new ArrayList<>(shown.size());
@@ -107,6 +107,7 @@ public class ReportIssueDetails {
       String key = r.get(PROJECT.KEY);
       int number = r.get(ISSUE.NUMBER);
       String comment = comments.get(c.id());
+      List<ReportAssignee> people = assignees.getOrDefault(c.id(), List.of());
       out.add(
           new ReportIssue(
               key + "-" + number,
@@ -114,14 +115,15 @@ public class ReportIssueDetails {
               cut(oneLine(r.get(ISSUE.TITLE)), TITLE_MAX),
               r.get(PROJECT_STATUS.NAME),
               r.get(ISSUE.STATUS),
-              assignees.getOrDefault(c.id(), List.of()),
+              people.stream().map(ReportAssignee::name).toList(),
               c.epic(),
               c.due() != null ? c.due() : r.get(ISSUE.DUE_DATE),
               comment == null ? null : cut(oneLine(comment), COMMENT_MAX),
               c.reason(),
               r.get(PROJECT.NAME),
               c.lateDays(),
-              c.withAi()));
+              c.withAi(),
+              people));
     }
     return out;
   }
@@ -142,10 +144,13 @@ public class ReportIssueDetails {
     return sorted;
   }
 
-  /** 이슈별 담당자 이름(이름순, 같으면 id 순). */
-  private Map<Long, List<String>> assigneeNames(Collection<Long> ids) {
+  /**
+   * 이슈별 담당자 이름·사람/AI 구분(이름순, 같으면 id 순). kind 는 같은 쿼리에서 함께 읽는다(WP-1632) — 이름 목록({@link
+   * ReportIssue#assignees})과 구분 목록({@link ReportIssue#assigneesDetail})을 한 결과에서 만들어 순서가 어긋나지 않게.
+   */
+  private Map<Long, List<ReportAssignee>> assignees(Collection<Long> ids) {
     return dsl
-        .select(ISSUE_ASSIGNEE.ISSUE_ID, USER.NAME)
+        .select(ISSUE_ASSIGNEE.ISSUE_ID, USER.NAME, USER.KIND)
         .from(ISSUE_ASSIGNEE)
         .join(USER)
         .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
@@ -155,7 +160,9 @@ public class ReportIssueDetails {
         .stream()
         .collect(
             Collectors.groupingBy(
-                r -> r.value1(), Collectors.mapping(r -> r.value2(), Collectors.toList())));
+                r -> r.value1(),
+                Collectors.mapping(
+                    r -> new ReportAssignee(r.value2(), r.value3()), Collectors.toList())));
   }
 
   /** 이슈별 지워지지 않은 마지막 코멘트 본문(DISTINCT ON). */

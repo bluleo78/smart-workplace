@@ -2,7 +2,10 @@ package com.workplace.wiki.report;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.issue.metrics.MetricsSummary;
 import com.workplace.issue.overview.status.StatusBadge;
+import com.workplace.issue.report.PersonalReportFactsService;
+import com.workplace.issue.report.PersonalReportKind;
 import com.workplace.issue.report.ProjectReportFacts;
 import com.workplace.issue.report.ReportCadence;
 import com.workplace.issue.report.ReportPeriod;
@@ -489,7 +492,7 @@ class ReportMarkdownTest {
         List.of("끝냄", "새로 만듦", "상태 바꿈", "기한 지남"),
         List.of(List.of("4 · 기한 내 3", "1", "6", "2")),
         "어제 숫자",
-        "한 줄");
+        List.of("한 줄"));
   }
 
   /** 줄 목록으로 나눈다(수정 가능한 목록 — fixTable 이 고친다). */
@@ -552,6 +555,109 @@ class ReportMarkdownTest {
     assertThat(String.join("\n", lines)).isEqualTo("## 한 줄\n글\n\n" + fencedTable);
     assertThat(ReportMarkdown.hasTable(fencedTable, "끝냄"::equals)).isFalse();
     assertThat(ReportMarkdown.hasTable("| 끝냄 | 리뷰 |\n|---|---|", "끝냄"::equals)).isTrue();
+  }
+
+  // ───────────── 개인 기본 템플릿(WP-1632) — 새 순서에서도 숫자 표를 찾고 없으면 「막힌 것」 뒤에 넣는다 ─────────────
+
+  /** 어제 끝냄 5(기한 내 2, AI와 함께 3)·새로 만듦 1 지표. */
+  private static final MetricsSummary DAY_METRICS =
+      new MetricsSummary(5, 3, 1, 2, 0, 0, null, null, null, null);
+
+  /** 주간 「지난주 대비」 표 모양 — 이번·지난 기간 모두 {@link #DAY_METRICS}(변화 0), 기한 지남 0. */
+  private static final ReportTableSpec WEEKLY_SPEC =
+      PersonalReportFactsService.periodSpec(PersonalReportKind.WEEKLY, DAY_METRICS, DAY_METRICS, 0);
+
+  /** 기본 일일 템플릿을 그대로 고쳐도 「어제 숫자」 표만 시스템 값으로 바뀌고 「오늘 할 일」 표는 그대로다. */
+  @Test
+  void personalDailyTemplate_fixTable_rewritesYesterdayNumbersOnly() {
+    String template = ReportTemplateCopier.loadResource("report/personal-daily-template.md");
+    assertThat(ReportMarkdown.hasTable(template, PersonalReportFactsService.DAILY_HEAD)).isTrue();
+    List<String> lines = lines(template);
+
+    ReportMarkdown.fixTable(lines, PersonalReportFactsService.dailySpec(DAY_METRICS, 6, 1), true);
+
+    String out = String.join("\n", lines);
+    int section = out.indexOf("## 어제 숫자");
+    assertThat(section).isPositive();
+    assertThat(out.substring(section))
+        .contains("| 끝냄 | 새로 만듦 | 상태 바꿈 | 기한 지남 |")
+        .contains("| 5 · 기한 내 2 · AI와 함께 3 | 1 | 6 | 1 |")
+        .doesNotContain("| 7 · 기한 내 3 · AI와 함께 5 | 1 | 6 | 1 |");
+    assertThat(out).contains("| 1 | {{BASE_URL}}/projects/WP/issues/1301 | AI 개발자3이 답을 기다림 |");
+  }
+
+  /** 새 순서의 일일 글에 숫자 표가 없으면 「막힌 것」 뒤(맨 끝)에 「어제 숫자」 표를 넣는다. */
+  @Test
+  void personalDaily_missingTable_insertedAfterBlockedSection() {
+    List<String> lines = lines("## 요약\n글\n\n## 어제 한 일\n- 했음\n\n## 오늘 할 일\n- 할 일\n\n## 막힌 것\n- 없음");
+
+    ReportMarkdown.fixTable(lines, PersonalReportFactsService.dailySpec(DAY_METRICS, 6, 1), true);
+
+    assertThat(ReportMarkdown.render(lines))
+        .endsWith(
+            """
+            ## 막힌 것
+            - 없음
+
+            ## 어제 숫자
+
+            | 끝냄 | 새로 만듦 | 상태 바꿈 | 기한 지남 |
+            |---|---|---|---|
+            | 5 · 기한 내 2 · AI와 함께 3 | 1 | 6 | 1 |
+            """);
+  }
+
+  /**
+   * 옛 순서(「한 줄」 → 숫자 표 → …)를 쓰는 사람(옛 템플릿 페이지는 그대로 남는다)의 글에 표가 없으면 예전처럼 「한 줄」 뒤에 넣는다 — 새 순서의 「막힌 것」
+   * 뒤로 옮기지 않는다(넣을 자리는 앞 후보부터 있는 섹션을 쓴다).
+   */
+  @Test
+  void personalDaily_oldTemplateOrder_missingTable_insertedAfterOneLine() {
+    List<String> lines = lines("## 한 줄\n글\n\n## 어제 한 일\n- 했음\n\n## 막힌 것\n- 없음");
+
+    ReportMarkdown.fixTable(lines, PersonalReportFactsService.dailySpec(DAY_METRICS, 6, 1), true);
+
+    String out = ReportMarkdown.render(lines);
+    assertThat(out)
+        .startsWith(
+            """
+            ## 한 줄
+            글
+
+            ## 어제 숫자
+
+            | 끝냄 | 새로 만듦 | 상태 바꿈 | 기한 지남 |
+            """);
+    assertThat(out).endsWith("## 막힌 것\n- 없음\n");
+  }
+
+  /** 주간도 같다 — 옛 순서 글은 「한 줄」 뒤, 표가 맨 끝으로 가지 않는다. */
+  @Test
+  void personalWeekly_oldTemplateOrder_missingTable_insertedAfterOneLine() {
+    List<String> lines = lines("## 한 줄\n글\n\n## 한 일\n- 했음\n\n## 막힌 것\n- 없음");
+
+    ReportMarkdown.fixTable(lines, WEEKLY_SPEC, true);
+
+    String out = ReportMarkdown.render(lines);
+    assertThat(out.indexOf("## 지난주 대비")).isGreaterThan(out.indexOf("## 한 줄"));
+    assertThat(out.indexOf("## 지난주 대비")).isLessThan(out.indexOf("## 한 일"));
+  }
+
+  /** 기본 주간 템플릿은 맨 끝 「지난주 대비」 표를 갖고, 새 순서의 주간 글에 표가 없으면 「막힌 것」 뒤에 넣는다. */
+  @Test
+  void personalWeeklyTemplate_tableAtEnd_missingInsertedAfterBlocked() {
+    String template = ReportTemplateCopier.loadResource("report/personal-weekly-template.md");
+    assertThat(ReportMarkdown.hasTable(template, PersonalReportFactsService.PERIOD_HEAD)).isTrue();
+    assertThat(template.indexOf("## 지난주 대비")).isGreaterThan(template.indexOf("## 막힌 것"));
+
+    List<String> fixed = lines(template);
+    ReportMarkdown.fixTable(fixed, WEEKLY_SPEC, true);
+    assertThat(String.join("\n", fixed)).contains("| 끝냄 | 5 | 0 |");
+
+    List<String> lines = lines("## 요약\n글\n\n## 이번 주 한 일\n- 했음\n\n## 막힌 것\n- 없음");
+    ReportMarkdown.fixTable(lines, WEEKLY_SPEC, true);
+    String out = ReportMarkdown.render(lines);
+    assertThat(out.indexOf("## 지난주 대비")).isGreaterThan(out.indexOf("## 막힌 것"));
   }
 
   @Test

@@ -57,8 +57,12 @@ public class PersonalReportFactsService {
   /** 일일 표를 둘 섹션 제목. */
   static final String DAILY_SECTION = "어제 숫자";
 
-  /** 표를 넣을 자리 — 이 섹션 뒤. */
-  static final String AFTER_SECTION = "한 줄";
+  /**
+   * 표가 없을 때 넣을 자리 후보 — 앞에서부터 처음 찾은 섹션 뒤. 옛 템플릿(이미 만든 페이지는 그대로 남는다)은 「한 줄」 바로 뒤가 숫자 표 자리라 그 자리를 지키고,
+   * 「한 줄」 이 없는 WP-1632 기본 템플릿은 숫자 표가 맨 끝(요약 → 한 일 → 할 일 → (잘된 것/놓친 것) → 막힌 것 → 숫자 표)이라 「막힌 것」 뒤에
+   * 넣는다. 둘 다 없으면 {@code fixTable} 이 첫 문단 뒤에 넣는다.
+   */
+  static final List<String> AFTER_SECTIONS = List.of("한 줄", "막힌 것");
 
   private final IssueMetricsService metricsService;
   private final MeOverviewRepository overviewRepository;
@@ -102,7 +106,8 @@ public class PersonalReportFactsService {
         ReportIssueDetails.countByGroup(rest),
         cur.completed(),
         cur.created(),
-        statusChanged.size());
+        statusChanged.size(),
+        cur.completedWithAi());
   }
 
   /** 월간 비교 대상 — 지난 달력 달(1일~말일)의 지표. */
@@ -209,7 +214,7 @@ public class PersonalReportFactsService {
 
   /**
    * 일일 「어제 숫자」 표 — 머리까지 시스템이 쓰는 가로 한 줄 {@code | 끝냄 | 새로 만듦 | 상태 바꿈 | 기한 지남 |}. 끝냄 칸은 「4 · 기한 내 3 ·
-   * AI와 함께 1」, 0 인 꼬리는 뺀다. 없으면 「한 줄」 섹션 뒤에 「어제 숫자」 섹션으로 넣는다.
+   * AI와 함께 1」, 0 인 꼬리는 뺀다. 없으면 「한 줄」(옛 템플릿) 또는 「막힌 것」(새 템플릿) 섹션 뒤에 「어제 숫자」 섹션으로 넣는다.
    */
   public static ReportTableSpec dailySpec(MetricsSummary cur, int statusChanged, int overdueNow) {
     StringBuilder done = new StringBuilder(num(cur.completed()));
@@ -220,7 +225,7 @@ public class PersonalReportFactsService {
         List.of("끝냄", "새로 만듦", "상태 바꿈", "기한 지남"),
         List.of(List.of(done.toString(), num(cur.created()), num(statusChanged), num(overdueNow))),
         DAILY_SECTION,
-        AFTER_SECTION);
+        AFTER_SECTIONS);
   }
 
   /**
@@ -249,6 +254,6 @@ public class PersonalReportFactsService {
                 ReportNumbers.days(cur.leadTimeDaysAvg()),
                 ReportNumbers.diffDays(cur.leadTimeDaysAvg(), prev.leadTimeDaysAvg())),
             List.of("기한 지남(지금)", num(overdueNow), DASH));
-    return new ReportTableSpec(PERIOD_HEAD, List.of(head, now, "변화"), body, head, AFTER_SECTION);
+    return new ReportTableSpec(PERIOD_HEAD, List.of(head, now, "변화"), body, head, AFTER_SECTIONS);
   }
 }

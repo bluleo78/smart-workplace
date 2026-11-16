@@ -74,7 +74,8 @@ public class ProjectReportIssueRepository {
 
   /**
    * 프로젝트 이름을 비운다 — 프로젝트 리포트는 한 프로젝트라 이슈마다 「프로젝트: …」 를 실을 이유가 없다. ai-agent 의 공유 스키마가 project 를 알게 돼
-   * 값이 있으면 프롬프트 이슈 줄마다 덧붙으므로, WP-1483 프롬프트를 그대로 두려고 개인 보고 전용 값으로 남긴다.
+   * 값이 있으면 프롬프트 이슈 줄마다 덧붙으므로, WP-1483 프롬프트를 그대로 두려고 개인 보고 전용 값으로 남긴다. 담당 사람/AI 구분(assigneesDetail,
+   * WP-1632)도 개인 보고 전용이라 비운다 — 프로젝트 스키마는 어차피 버리므로 요청에 담당 이름을 두 번 싣지 않게.
    */
   private static ReportIssue withoutProject(ReportIssue i) {
     return new ReportIssue(
@@ -90,7 +91,8 @@ public class ProjectReportIssueRepository {
         i.reason(),
         null,
         i.lateDays(),
-        i.withAi());
+        i.withAi(),
+        null);
   }
 
   /** 세 이유 중 하나라도 든 이슈를 모아 이유·정렬 키를 정하고 정렬한다. */
