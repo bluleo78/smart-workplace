@@ -53,6 +53,9 @@ interface ShareLinkModalProps {
   onClose: () => void;
 }
 
+/** 만료일을 덜 넣은 채(예: '2026-12-' 까지만) 링크를 만들려 할 때 칸 아래에 보이는 안내(WP-1625). */
+const SHARE_EXPIRES_INCOMPLETE_MESSAGE = '만료일을 끝까지 입력하거나 칸을 비워 주세요.';
+
 /** 생성 요청 본문 — 비밀번호·만료일은 비우면 보내지 않는다. */
 type CreateBody = Parameters<typeof createShareLink>[1];
 
@@ -157,6 +160,8 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
   const enterKey = useSingleLineEnter();
   // 생성 요청이 나가 있는 동안 true — create.isPending 은 다시 그려진 뒤에야 바뀌어, 같은 틱에 들어온 Enter 두 번이 링크를 둘 만드는 걸 막지 못한다.
   const inFlightRef = useRef(false);
+  // 만료일 입력 요소 — 덜 넣은 날짜(validity.badInput)를 onCreate 에서 직접 읽으려고 잡아 둔다(WP-1625).
+  const expiresInputRef = useRef<HTMLInputElement>(null);
 
   // 생성 — 서버가 목록과 같은 모양의 항목을 돌려주므로 그대로 맨 위에 넣는다(같은 id 는 중복 제거). 재조회가 늦거나 실패해도 새 링크가 바로 보인다.
   const create = useMutation({
@@ -190,6 +195,16 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
     onError: (e) => handleApiError(e, '공유 링크 폐기에 실패했습니다.'),
   });
 
+  /**
+   * 「덜 넣은 만료일」 안내 다시 확인(WP-1625) — 안내대로 덜 넣은 날짜를 지워 칸을 비우면 값이 '' 그대로라 onChange 가 오지 않는다.
+   * 그래서 키를 뗄 때·칸을 벗어날 때 입력 요소를 다시 읽어, 지금 안내가 「덜 넣음」이고 더는 덜 넣은 상태가 아니면 거둔다.
+   * 다른 안내(지난 날짜·범위 밖)는 건드리지 않는다.
+   */
+  function recheckIncompleteExpiry() {
+    if (expiresAtError !== SHARE_EXPIRES_INCOMPLETE_MESSAGE) return;
+    if (!expiresInputRef.current?.validity.badInput) setExpiresAtError(null);
+  }
+
   /** 공유 링크 생성 — 입력을 검사한 뒤 요청한다. */
   function onCreate() {
     // 처리 중이면 만들지 않는다(WP-1624) — 단추 disabled 와 같은 조건 + 같은 틱 Enter 연타를 막는 ref. Enter 경로도 이 함수를 지나므로 아래 검사를 건너뛰지 않는다.
@@ -203,7 +218,12 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
     // 만료일 — 로컬 23:59:59 로 설정해 UTC+ 사용자의 당일 만료 오인 방지("2026-06-30" → "2026-06-30T23:59:59" 로컬 → ISO).
     let expiresAtIso: string | undefined;
     let nextExpiresAtError: string | null = null;
-    if (expiresAt && !isSupportedDateKey(expiresAt)) {
+    if (expiresInputRef.current?.validity.badInput) {
+      // 덜 넣은 날짜(WP-1625) — <input type="date"> 는 덜 넣은 값을 '' 로 올려 「비움」과 구분되지 않고, 빈 칸에서 일부만 치면
+      // 값이 계속 '' 라 onChange 도 오지 않는다. 그래서 상태(expiresAt)로는 가를 수 없어 입력 요소의 badInput 을 직접 읽는다.
+      // 막지 않으면 만료를 정한 줄 알고 눌렀는데 만료 없는 링크가 만들어진다. 값이 '' 라 아래 범위·과거 검사는 어차피 건너뛴다.
+      nextExpiresAtError = SHARE_EXPIRES_INCOMPLETE_MESSAGE;
+    } else if (expiresAt && !isSupportedDateKey(expiresAt)) {
       // 범위 밖 날짜(5자리 연도 등) — 그대로 toISOString 하면 RangeError 로 「링크 생성」이 무반응이었다(WP-901).
       // 변환 전에 서버와 같은 범위 안내로 막는다.
       nextExpiresAtError = SUPPORTED_DATE_RANGE_MESSAGE;
@@ -410,6 +430,7 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
               <Label htmlFor="share-expires">만료일 (선택)</Label>
               <Input
                 id="share-expires"
+                ref={expiresInputRef}
                 type="date"
                 value={expiresAt}
                 onChange={(e) => {
@@ -417,6 +438,11 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
                   setExpiresTouched(true);
                   setExpiresAtError(null);
                 }}
+                // 빈 칸에서 날짜를 덜 넣으면 값이 '' 라 onChange 가 오지 않아 touched 가 false 로 남는다(WP-1625).
+                // 그러면 가시성을 바꿀 때 폴더 기본값이 사용자가 치던 칸을 덮어쓰고 기본값 안내도 남는다 — 키를 누른 것을 사용자가 만진 것으로 센다.
+                onKeyDown={() => setExpiresTouched(true)}
+                onKeyUp={recheckIncompleteExpiry}
+                onBlur={recheckIncompleteExpiry}
                 min={new Date().toISOString().slice(0, 10)}
                 max={SUPPORTED_DATE_MAX}
                 aria-invalid={expiresAtError != null}

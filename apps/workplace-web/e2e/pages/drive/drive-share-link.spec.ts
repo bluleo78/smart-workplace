@@ -4,6 +4,7 @@
 // src/pages/drive/shareLink.test.tsx, 보관 공간 분기는 src/components/drive/ShareLinkModal.test.tsx 가 지킨다(WP-971, WP-984).
 import { createFile, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 // ShareLinkPage (/s/:token) 는 AppLayout·인증 없이 렌더되어야 한다 — 인증 fixture 를 쓰지 않고 기본 page 를 직접 사용.
 test('공개 공유 링크 랜딩 — 인증 없이 share-download-btn 표시', { tag: '@wiring' }, async ({ page }) => {
@@ -65,4 +66,38 @@ test('모바일 390px — 배지 많은 공유 링크도 창이 넘치지 않고
   await expect(past).toHaveCount(1)
   const pb = (await past.boundingBox())!
   expect(pb.x + pb.width).toBeLessThanOrEqual(box.x + box.width)
+})
+
+// WP-1625 — 만료일을 덜 넣고(월만 치고 일·연은 비움) 「링크 생성」을 누르면 만료 없는 링크가 만들어지던 결함.
+// 실제 <input type="date"> 는 덜 넣은 날짜를 값 '' 로 올리면서 validity.badInput 을 켜고, 빈 칸에서 일부만 치면 change 도 오지 않는다.
+// jsdom 은 이 동작을 재현하지 못해(vitest 는 validity 를 덮어 흉내만 낸다) 키보드 입력이 필요한 @input 으로 실제 Chromium 에서 본다.
+test('만료일을 덜 넣고 링크 생성을 누르면 안내를 보이고 링크 생성 요청을 보내지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  // 공유 창은 위 @layout 테스트와 같이 행 ⋮ 의 작업 시트(모바일 폭)로 연다 — 창 안 동작은 폭과 무관하다.
+  await page.setViewportSize({ width: 390, height: 844 })
+  const file = createFile({ id: 71, name: 'draft.pdf', mimeType: 'application/pdf' })
+  await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ json: [personalSpace()] }) : r.fallback())
+  await page.route((u) => u.pathname === '/api/v1/drive/spaces/1/items', (r) => r.fulfill({ json: { folders: [], files: [file] } }))
+  // 살아 있는 링크가 없으면 생성 폼이 바로 보인다. 생성 POST 는 모킹하지 않고 tracker 로 나갔는지만 센다.
+  await page.route((u) => u.pathname === '/api/v1/drive/files/71/share-links', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
+  const creates = trackRequests(page, 'POST', '/api/v1/drive/files/71/share-links')
+
+  await page.goto('/drive/spaces/1')
+  await page.getByTestId('drive-row-more-file-71').click()
+  await page.getByTestId('mobile-action-share').click()
+  const modal = page.getByTestId('share-link-modal')
+  await expect(modal.getByTestId('share-link-form')).toBeVisible()
+
+  // 날짜 칸의 첫 조각(월)에 두 자리만 친다 — 나머지(일·연)는 비워 둬 칸이 덜 채워진 채 남는다.
+  const expires = modal.getByLabel('만료일 (선택)')
+  await expires.focus()
+  await page.keyboard.type('12')
+  await expect.poll(() => expires.evaluate((el: HTMLInputElement) => el.validity.badInput)).toBe(true)
+  await expect(expires).toHaveValue('')
+
+  await modal.getByTestId('share-link-create-btn').click()
+  await expect(modal.getByTestId('share-expires-error')).toHaveText('만료일을 끝까지 입력하거나 칸을 비워 주세요.')
+  await expect(expires).toHaveAttribute('aria-invalid', 'true')
+  expect(creates.count()).toBe(0)
 })
