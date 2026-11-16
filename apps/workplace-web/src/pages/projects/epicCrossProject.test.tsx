@@ -128,7 +128,8 @@ describe('에픽 하위 목록 — 다른 프로젝트 하위', () => {
     )
     const own = await screen.findByTestId('child-row-2')
     expect(within(own).getByRole('link', { name: '같은 프로젝트 하위' })).toHaveAttribute('href', '/projects/WP/issues/2')
-    expect(within(own).queryByTestId('child-row-key')).not.toBeInTheDocument()
+    // 같은 프로젝트 하위도 키를 늘 보인다(WP-1635) — 제목만으로는 어느 이슈인지 바로 알 수 없다.
+    expect(within(own).getByTestId('child-row-key')).toHaveTextContent('WP-2')
 
     const other = screen.getByTestId('child-row-PLAN-7')
     expect(within(other).getByTestId('child-row-key')).toHaveTextContent('PLAN-7')
