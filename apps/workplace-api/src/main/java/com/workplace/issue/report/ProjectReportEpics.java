@@ -50,7 +50,7 @@ public record ProjectReportEpics(
   /** 결정 후보 — 남은 하위가 모두 사람 담당·할 일 상태. */
   public static final String BLOCKED_ON_HUMAN = "BLOCKED_ON_HUMAN";
 
-  /** 결정 후보 — 예상 완료일이 기한을 넘김. */
+  /** 결정 후보 — 예상 완료일이 기한을 넘김, 또는 기한이 지났는데 예상 완료일을 낼 수 없는 「위험」 에픽. */
   public static final String EPIC_OVERDUE_PROJECTED = "EPIC_OVERDUE_PROJECTED";
 
   /** 결정 후보 owner 기본값 · 소유자 이름을 모를 때의 이름. */
@@ -67,6 +67,24 @@ public record ProjectReportEpics(
 
   public static final String ASSIGNEE_NONE = "없음";
   public static final String HUMAN_SUFFIX = "(사람)";
+
+  /**
+   * 기한·완료일이 있는 완료 에픽의 공통 모양 — 일정 도표({@code ReportScheduleChart})가 이번·지난 기간 에픽을 옮겨 담지 않고 그대로 그리게
+   * 한다(WP-1629 리뷰). 레코드 칸 이름이 곧 이 메서드들이다.
+   */
+  public interface ScheduledEpic {
+    /** 에픽 제목. */
+    String title();
+
+    /** 기한 M/d, 없으면 null. */
+    String dueDate();
+
+    /** 완료일 M/d. */
+    String completedDate();
+
+    /** 완료일 − 기한(양수 = 늦음), 기한 없으면 null. */
+    Integer lateDays();
+  }
 
   /**
    * 이번 기간 완료한 에픽.
@@ -87,11 +105,13 @@ public record ProjectReportEpics(
       Integer lateDays,
       int children,
       String summary,
-      List<String> doneChildren) {}
+      List<String> doneChildren)
+      implements ScheduledEpic {}
 
   /** 지난 기간 완료한 에픽 — 일정 도표 아래쪽·기한 내 완료 지난 값에 쓴다. */
   public record PastEpic(
-      String key, String title, String dueDate, String completedDate, Integer lateDays) {}
+      String key, String title, String dueDate, String completedDate, Integer lateDays)
+      implements ScheduledEpic {}
 
   /**
    * 진행 중인 에픽.

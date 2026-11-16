@@ -50,8 +50,8 @@ public record ReportTableSpec(
 
   /**
    * 프로젝트 리포트(WP-1483)의 「지난 리포트 이후」 표 — 머리 첫 칸이 「지난 리포트 이후」 로 시작하는 표의 몸통만 계산값 행으로 다시 쓰고, 없으면 「상태와 한
-   * 줄」 섹션 뒤(그 섹션이 없으면 새 모양의 「요약」 섹션 뒤, WP-1629 — 「요약」 제목과 진행 상태 줄 사이에 끼지 않게)에 {@code | 지난 리포트 이후 | 이번
-   * | 변화 |} 표를 넣는다.
+   * 줄」 섹션 뒤(그 섹션이 없으면 새 모양의 「요약」 섹션 뒤, WP-1629 — 「요약」 제목과 진행 상태 줄 사이에 끼지 않게)에 {@code | 지난 리포트 이후 |
+   * 이번 | 변화 |} 표를 넣는다.
    */
   public static ReportTableSpec project(List<ReportTableRow> rows) {
     List<List<String>> body =

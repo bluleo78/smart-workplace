@@ -14,6 +14,8 @@ import java.util.List;
  * @param snapshot 이번 회차 스냅숏 — 회차 행에 저장한다
  * @param epics 에픽 집계(WP-1629) — AI 재료(이슈 60건 목록을 대신한다)와 일정 도표·참고 지표 표의 값
  * @param noChange 변화 없음(완료 0·새로 생김 0) — 페이지 없이 회차만 기록한다
+ * @param previousFromPreviousPeriod 지난 배지가 바로 앞 기간 리포트의 것인가(WP-1629) — 아니면(건너뛴 회차가 끼었음) 진행 상태 줄이
+ *     「(지난주 …)」 대신 「(지난 리포트 …)」 로 견준다. 지난 리포트가 없으면 true(견줄 배지도 없다)
  */
 public record ProjectReportFacts(
     ReportPeriod period,
@@ -22,4 +24,24 @@ public record ProjectReportFacts(
     List<ReportTableRow> rows,
     ReportSnapshot snapshot,
     ProjectReportEpics epics,
-    boolean noChange) {}
+    boolean noChange,
+    boolean previousFromPreviousPeriod) {
+
+  /** 지난 배지가 바로 앞 기간 리포트의 것인 계산값(기본) — 기간 비교는 호출자({@code ProjectReportGenerator})가 회차 행을 보고 정한다. */
+  public ProjectReportFacts(
+      ReportPeriod period,
+      StatusBadge badge,
+      StatusBadge previousBadge,
+      List<ReportTableRow> rows,
+      ReportSnapshot snapshot,
+      ProjectReportEpics epics,
+      boolean noChange) {
+    this(period, badge, previousBadge, rows, snapshot, epics, noChange, true);
+  }
+
+  /** 지난 배지가 바로 앞 기간 리포트의 것인지만 바꾼 사본. */
+  public ProjectReportFacts withPreviousFromPreviousPeriod(boolean value) {
+    return new ProjectReportFacts(
+        period, badge, previousBadge, rows, snapshot, epics, noChange, value);
+  }
+}

@@ -52,6 +52,9 @@ public final class ReportMarkdown {
   /** 일정 도표 자리 줄 — 글자 그대로(중괄호 2개 + 「일정 도표」). */
   static final String CHART_TOKEN = "{{일정 도표}}";
 
+  /** 지난 리포트가 바로 앞 기간이 아닐 때 진행 상태 줄의 견줌 낱말(「(지난 리포트 주의)」). */
+  static final String PREVIOUS_REPORT_WORD = "지난 리포트";
+
   /** 진행 상태 표지 글자 — 쓰기(줄 찾기)와 읽기(카드 낱말)가 같은 글자를 쓰게 한 곳에 둔다(WP-1629). */
   private static final String STATUS_TEXT = "진행 상태";
 
@@ -143,8 +146,12 @@ public final class ReportMarkdown {
       String issueUrlPrefix) {
     List<String> lines = clean(aiMarkdown, issueUrlPrefix);
     ReportCadence cadence = facts.period().cadence();
-    fixStatus(lines, facts.badge(), facts.previousBadge(), cadence);
-    // 옛 표 자리는 「상태와 한 줄」 → 없으면 「요약」(AI 가 썼거나 위에서 넣음) 순 후보(ReportTableSpec#project) — 「요약」 제목과 진행 상태 줄 사이에 끼지 않게.
+    // 지난 리포트가 바로 앞 기간이 아니면(건너뛴 회차가 낌) 「지난주」가 틀리므로 「지난 리포트」로 견준다(WP-1629 리뷰).
+    String previousWord =
+        facts.previousFromPreviousPeriod() ? cadence.previousWord() : PREVIOUS_REPORT_WORD;
+    fixStatus(lines, facts.badge(), facts.previousBadge(), previousWord);
+    // 옛 표 자리는 「상태와 한 줄」 → 없으면 「요약」(AI 가 썼거나 위에서 넣음) 순 후보(ReportTableSpec#project) — 「요약」 제목과 진행 상태
+    // 줄 사이에 끼지 않게.
     fixTable(lines, ReportTableSpec.project(facts.rows()), templateHasTable);
     ProjectReportEpics epics = facts.epics();
     // 지표가 비어 있으면(계산값 없음) 표를 비우지 않게 건너뛴다 — 운영 집계는 늘 다섯 줄이다.
@@ -154,10 +161,7 @@ public final class ReportMarkdown {
     Optional<String> chart =
         epics == null
             ? Optional.empty()
-            : ReportScheduleChart.block(
-                ReportScheduleChart.ofCompleted(epics.completed()),
-                ReportScheduleChart.ofPast(epics.previousCompleted()),
-                cadence);
+            : ReportScheduleChart.block(epics.completed(), epics.previousCompleted(), cadence);
     fixChart(lines, chart);
     return render(lines);
   }
@@ -237,7 +241,9 @@ public final class ReportMarkdown {
 
   /**
    * 「요약」 섹션 카드 읽기(WP-1629) — 배지는 펜스 밖 진행 상태 줄의 낱말(없으면 null → 저장 배지), 한 줄은 목록이 아닌 첫 글 문단(판단 문장). 판단
-   * 문장 없이 목록만 있으면 한 줄은 null — 진행 상태 줄을 한 줄로 되풀이하지 않는다.
+   * 문장 없이 목록만 있으면 문서 전체의 목록·제목이 아닌 첫 글 문단으로 물러선다 — AI 가 「요약」·「상태와 한 줄」 없이 써서 {@link #fixStatus} 가
+   * 「## 요약」 + 진행 상태 줄만 넣은 리포트도 옛 카드처럼 첫 문단을 한 줄로 보이게(리뷰 반영). 진행 상태 줄은 목록 줄이라 한 줄로 되풀이하지 않는다. 그런 문단도
+   * 없으면 null.
    */
   private static CardSummary summaryCard(List<String> lines, boolean[] fenced, int h) {
     int end = sectionEnd(lines, fenced, h);
@@ -247,14 +253,20 @@ public final class ReportMarkdown {
       Matcher m = STATUS_WORD.matcher(lines.get(i));
       if (m.find()) badge = badgeKey(m.group(1));
     }
-    String line = null;
-    for (List<String> p : textParagraphs(lines, fenced, h + 1, end)) {
-      if (!LIST_ITEM.matcher(p.get(0)).find()) {
-        line = plainLine(p);
-        break;
-      }
-    }
+    String line = firstProse(lines, fenced, h + 1, end);
+    if (line == null) line = firstProse(lines, fenced, 0, lines.size());
     return new CardSummary(badge, line);
+  }
+
+  /** {@code [from, to)} 의 펜스 밖 첫 글 문단 중 목록·진행 상태 줄로 시작하지 않는 것을 한 줄로(없으면 null) — 카드 한 줄 후보. */
+  private static String firstProse(List<String> lines, boolean[] fenced, int from, int to) {
+    for (List<String> p : textParagraphs(lines, fenced, from, to)) {
+      String first = p.get(0);
+      if (LIST_ITEM.matcher(first).find() || STATUS_LINE.matcher(first).find()) continue;
+      String line = plainLine(p);
+      if (line != null) return line;
+    }
+    return null;
   }
 
   // ───────────── ② 맨 앞 h1 ─────────────
@@ -311,15 +323,18 @@ public final class ReportMarkdown {
 
   /**
    * 진행 상태 줄을 시스템 값으로(결정 18). 펜스 밖 「요약」 h2 가 있으면 그 섹션에서 {@code **진행 상태**} 가 든 첫 줄을 {@code - **진행
-   * 상태** {지금} (지난주 {지난})} 로 바꾸고 같은 섹션의 나머지 진행 상태 줄은 지운다(한 번만 보이게). 없으면 섹션의 첫 목록 줄 앞에, 목록이 없으면 첫 문단
-   * 뒤에 넣는다. 「요약」이 없고 옛 「상태와 한 줄」이 있으면 옛 배지 규칙({@link #fixBadge}) 그대로. 둘 다 없으면 맨 앞에 「## 요약」 + 진행 상태
-   * 줄을 넣는다 — 옛 「맨 앞 굵은 배지」 대신(「주의」가 본문 배지와 두 번 나오지 않게), 섹션 밖 다른 굵은 글은 건드리지 않는다.
+   * 상태** {지금} ({견줌 낱말} {지난})} 로 바꾸고 같은 섹션의 나머지 진행 상태 줄은 지운다(한 번만 보이게). 없으면 섹션의 첫 목록 줄 앞에, 목록이 없으면 첫
+   * 문단 뒤에 넣는다. 「요약」이 없고 옛 「상태와 한 줄」이 있으면 옛 배지 규칙({@link #fixBadge}) 그대로. 둘 다 없으면 맨 앞에 「## 요약」 + 진행
+   * 상태 줄을 넣는다 — 옛 「맨 앞 굵은 배지」 대신(「주의」가 본문 배지와 두 번 나오지 않게), 섹션 밖 다른 굵은 글은 건드리지 않는다.
+   *
+   * @param previousWord 지난 배지 앞 견줌 낱말 — 지난 리포트가 바로 앞 기간이면 주기 낱말(지난주·지난 기간·지난달), 아니면 {@link
+   *     #PREVIOUS_REPORT_WORD}
    */
   static void fixStatus(
-      List<String> lines, StatusBadge now, StatusBadge previous, ReportCadence cadence) {
+      List<String> lines, StatusBadge now, StatusBadge previous, String previousWord) {
     String statusLine = "- " + STATUS_LABEL + " " + KO.get(now);
     if (previous != null) {
-      statusLine += " (" + cadence.previousWord() + " " + KO.get(previous) + ")";
+      statusLine += " (" + previousWord + " " + KO.get(previous) + ")";
     }
     boolean[] fenced = fenced(lines);
     int h = findH2(lines, fenced, SUMMARY_SECTION);

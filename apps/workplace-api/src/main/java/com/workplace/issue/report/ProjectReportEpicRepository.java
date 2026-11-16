@@ -175,8 +175,8 @@ public class ProjectReportEpicRepository {
               }
             });
 
-    // ② 에픽 목록(삭제 제외, 번호 순).
-    List<Epic> epics = epics(pid, ongoingLabeled);
+    // ② 에픽 목록(삭제 제외, 번호 순) — 보고에 나올 수 있는 것만(열림·지난 기간 시작 뒤 닫힘·상시).
+    List<Epic> epics = epics(pid, ongoingLabeled, prevFrom);
 
     // 이번 기간 완료한 에픽(상시 제외)과 열린 에픽(상시 제외)은 하위 전체가 필요하다. 상시 에픽·에픽 없는 이슈는 기간 안 완료만 있으면 된다.
     Set<Long> fullChildren = new HashSet<>();
@@ -323,6 +323,9 @@ public class ProjectReportEpicRepository {
                     ? null
                     : ReportIssueDetails.cut(ReportIssueDetails.oneLine(comment), COMMENT_MAX)));
       }
+      // 하위가 없으면 에픽 자신이 남은 일이다(WP-1629).
+      boolean hasRemaining = !w.remaining().isEmpty() || w.kids().isEmpty();
+      String status = ProjectReportEpics.epicStatus(e.due(), w.projected(), hasRemaining, today);
       inProgress.add(
           new InProgressEpic(
               key,
@@ -331,9 +334,7 @@ public class ProjectReportEpicRepository {
               w.done(),
               w.kids().size(),
               doneNow.size(),
-              ProjectReportEpics.epicStatus(
-                  // 하위가 없으면 에픽 자신이 남은 일이다(WP-1629).
-                  e.due(), w.projected(), !w.remaining().isEmpty() || w.kids().isEmpty(), today),
+              status,
               ProjectReportEpics.md(e.due()),
               ProjectReportEpics.md(w.projected()),
               summary(e.body()),
@@ -354,6 +355,19 @@ public class ProjectReportEpicRepository {
                     + ")을 "
                     + late
                     + "일 넘김",
+                owner));
+      } else if (w.projected() == null && ProjectReportEpics.RISK.equals(status)) {
+        // 기한이 지났는데 속도가 없어(하위 없음·끝낸 하위 없음) 예상일을 낼 수 없는 「위험」 에픽도 결정 후보다 — 예상일이 없다고 빠지면 가장 늦은 에픽이
+        // 결정 요청에서 사라진다(리뷰 반영). 위험 판정(epicStatus)은 이 경우 남은 일이 있고 기한이 오늘보다 앞일 때뿐이다.
+        overdueProjected.add(
+            new DecisionCandidate(
+                ProjectReportEpics.EPIC_OVERDUE_PROJECTED,
+                key,
+                "기한 "
+                    + ProjectReportEpics.md(e.due())
+                    + " 지남, 예상 완료일을 계산할 수 없음(남은 하위 "
+                    + w.remaining().size()
+                    + "건)",
                 owner));
       }
       if (!w.remaining().isEmpty()
@@ -464,7 +478,14 @@ public class ProjectReportEpicRepository {
   // ───────────────────────── 쿼리 ─────────────────────────
 
   /** 프로젝트의 에픽(EPIC 유형, 삭제 제외, 번호 순) — 상시 여부는 라벨 id 집합으로 정한다. */
-  private List<Epic> epics(long pid, Set<Long> ongoingLabeled) {
+  /**
+   * 에픽 목록 — 보고에 나올 수 있는 에픽만 본문과 함께 읽는다(WP-1629 리뷰): 열린 에픽(진행 중·앞으로 기한), 지난 기간 시작 뒤 닫힌 에픽(이번·지난 기간
+   * 완료), 상시 라벨 에픽(닫혀도 이번 기간 하위 완료가 있으면 처리량에 나옴). 오래전에 닫힌 에픽은 어느 목록에도 들지 않으므로 본문을 읽지 않는다 — 그 아래 이번
+   * 기간 완료 이슈는 목록이 아니라 하위 쿼리의 가까운 에픽 id 로 가려져 「에픽 밖 완료」 로 센다(전과 같음).
+   *
+   * @param closedSince 닫힌 에픽은 이 시각 이후 닫힌 것만(지난 기간 시작)
+   */
+  private List<Epic> epics(long pid, Set<Long> ongoingLabeled, OffsetDateTime closedSince) {
     return dsl.select(
             ISSUE.ID,
             ISSUE.NUMBER,
@@ -479,6 +500,12 @@ public class ProjectReportEpicRepository {
         .on(ISSUE_TYPE_DEF.ID.eq(ISSUE.TYPE_ID).and(ISSUE_TYPE_DEF.NAME.eq(EPIC_TYPE)))
         .where(ISSUE.PROJECT_ID.eq(pid))
         .and(ISSUE.DELETED_AT.isNull())
+        .and(
+            ISSUE
+                .STATUS
+                .notIn(IssueStatuses.CLOSED)
+                .or(ISSUE.CLOSED_AT.ge(closedSince))
+                .or(ISSUE.ID.in(ongoingLabeled)))
         .orderBy(ISSUE.NUMBER.asc())
         .fetch(
             r ->

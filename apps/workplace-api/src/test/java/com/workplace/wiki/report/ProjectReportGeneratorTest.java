@@ -594,6 +594,40 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(all.get(1).previousBadge()).isEqualTo("WARN");
   }
 
+  /**
+   * 지난 리포트가 바로 앞 기간이 아니면(사이에 변화 없음으로 건너뛴 회차) 진행 상태 줄은 「(지난주 …)」 가 아니라 「(지난 리포트 …)」 로 견준다 — 바로 앞
+   * 기간이면 「(지난주 …)」(WP-1629 리뷰).
+   */
+  @Test
+  void run_statusLineSaysLastReport_whenPreviousPeriodSkipped() {
+    doReturn(new ProjectReportAiResult("## 요약\n\n판단 문장입니다.\n"))
+        .when(client)
+        .writeProjectReport(any());
+    activity();
+    generator.run(project.id(), NOW);
+    dsl.update(table(name("project_report")))
+        .set(field(name("badge"), String.class), "WARN")
+        .where(field(name("project_id"), Long.class).eq(project.id()))
+        .execute();
+    // 바로 다음 주 — 지난 리포트가 바로 앞 기간이라 「지난주」.
+    activity(kst("2026-11-17T10:00:00"));
+    assertThat(generator.run(project.id(), NOW.plusWeeks(1))).isEqualTo(Outcome.GENERATED);
+    assertThat(page(rowPageId(PERIOD_START.plusWeeks(1))).body())
+        .contains("**진행 상태**")
+        .contains("(지난주 주의)");
+    // 그다음 주는 변화 없음 → SKIPPED, 그 뒤 회차는 지난 리포트가 두 기간 앞이라 「지난 리포트」.
+    dsl.update(table(name("project_report")))
+        .set(field(name("badge"), String.class), "WARN")
+        .where(field(name("project_id"), Long.class).eq(project.id()))
+        .execute();
+    assertThat(generator.run(project.id(), NOW.plusWeeks(2))).isEqualTo(Outcome.SKIPPED_NO_CHANGE);
+    activity(kst("2026-12-01T10:00:00"));
+    assertThat(generator.run(project.id(), NOW.plusWeeks(3))).isEqualTo(Outcome.GENERATED);
+    assertThat(page(rowPageId(PERIOD_START.plusWeeks(3))).body())
+        .contains("(지난 리포트 주의)")
+        .doesNotContain("(지난주 ");
+  }
+
   // ───────────── 페이지를 만든 뒤 실패(Fix round 1) ─────────────
 
   @Autowired ProjectRepository projectRepository;

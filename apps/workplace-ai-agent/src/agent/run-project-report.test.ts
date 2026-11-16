@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as messagingAi from './run-messaging-ai.js'
 import {
+  EMPTY_PROJECT_REPORT_EPICS,
   PROJECT_REPORT_MAX,
   buildSystemPrompt,
   buildUserMessage,
@@ -167,6 +168,27 @@ describe('projectReportInputSchema(에픽 집계)', () => {
       completed: [{ ...epics().completed[0], lateDays: null, dueDate: null }],
     })
     expect(() => projectReportInputSchema.parse(raw({ epics: e }))).not.toThrow()
+  })
+
+  // 롤링 배포 호환(WP-1629 리뷰) — 옛 API 요청(epics 없음, issues·omittedByEpic 있음)도 400 이 아니라 빈 집계로 받는다.
+  it('옛 모양(epics 없음 + issues·omittedByEpic)은 빈 집계와 기본 소유자로 통과한다', () => {
+    const { epics: _e, ...legacy } = raw({
+      issues: [{ key: 'WP-1', url: 'https://app.test/projects/WP/issues/1', title: '옛 이슈', reason: 'DONE' }],
+      omittedByEpic: { 에픽: 3 },
+    })
+    const parsed = projectReportInputSchema.parse(legacy)
+    expect(parsed.epics).toEqual(EMPTY_PROJECT_REPORT_EPICS)
+    expect(parsed.epics.projectOwner).toBe('프로젝트 소유자')
+    const user = buildUserMessage(parsed)
+    expect(user).toContain('프로젝트 소유자: 프로젝트 소유자')
+    // 옛 이슈 목록은 쓰지 않는다 — 프롬프트에 실리지 않는다.
+    expect(user).not.toContain('옛 이슈')
+  })
+
+  it('새 API 의 호환 칸(issues: [], omittedByEpic: {})과 epics 를 함께 받으면 epics 를 쓴다', () => {
+    const parsed = projectReportInputSchema.parse(raw({ issues: [], omittedByEpic: {} }))
+    expect(parsed.epics.completed).toHaveLength(1)
+    expect(buildUserMessage(parsed)).not.toContain('omittedByEpic')
   })
 
   it('결정 후보 kind 가 세 이름 밖이면 실패한다', () => {

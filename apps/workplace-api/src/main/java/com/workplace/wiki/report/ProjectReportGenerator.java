@@ -361,11 +361,16 @@ public class ProjectReportGenerator {
 
   /**
    * tx — 계산값. 「지난 리포트 이후」 변화는 지난 GENERATED/SKIPPED 스냅숏과, 「지난 배지」는 지난 GENERATED 회차의 배지와 견준다(변화 없음으로
-   * 건너뛴 회차는 리포트가 아니라서).
+   * 건너뛴 회차는 리포트가 아니라서). 그 회차가 바로 앞 기간({@link ReportPeriod#previous})이 아니면(건너뛴·실패한 회차가 끼었거나 주기가 바뀜)
+   * 진행 상태 줄의 견줌 낱말을 「지난주」 대신 「지난 리포트」로 쓰게 표시한다(WP-1629 리뷰).
    */
   private ProjectReportFacts computeFacts(
       ProjectRow project, ReportPeriod period, OffsetDateTime now) {
-    Optional<String> generatedBadge = reports.lastGeneratedBadge(project.id(), period.start());
+    Optional<ProjectReportRepository.LastReport> lastReport =
+        reports.lastGenerated(project.id(), period.start());
+    Optional<String> generatedBadge = lastReport.map(ProjectReportRepository.LastReport::badge);
+    boolean lastIsPreviousPeriod =
+        lastReport.map(r -> r.periodStart().equals(period.previous().start())).orElse(true);
     Optional<ReportSnapshot> last =
         reports
             .lastSnapshot(project.id(), period.start())
@@ -377,12 +382,16 @@ public class ProjectReportGenerator {
                         s.openIssues(),
                         s.overdue(),
                         generatedBadge.orElse(null)));
-    return factsService.compute(project, period, last, now);
+    return factsService
+        .compute(project, period, last, now)
+        .withPreviousFromPreviousPeriod(lastIsPreviousPeriod);
   }
 
   /**
    * AI 요청 — 템플릿은 지시 상자를 담은 그대로(AI 가 따르고 출력하지 않는다). 계산값({@link ProjectReportFactsService#compute})의
-   * 에픽 집계(WP-1629)를 이슈 60건 목록 대신 싣는다. 소유자 이름은 집계 안의 값을 요청 최상위에도 둔다(AI 프롬프트의 「프로젝트 소유자」 줄).
+   * 에픽 집계(WP-1629)를 이슈 60건 목록 대신 싣는다. 프로젝트 소유자 이름은 집계 안({@code epics.projectOwner})에만 둔다 — ai-agent
+   * 가 그 값으로 프롬프트의 「프로젝트 소유자」 줄을 만든다. 옛 ai-agent 와의 롤링 배포 호환용 빈 {@code issues}·{@code omittedByEpic}
+   * 은 {@link ProjectReportAiRequest} 의 보조 생성자가 채운다.
    */
   private ProjectReportAiRequest request(
       ProjectRow project,

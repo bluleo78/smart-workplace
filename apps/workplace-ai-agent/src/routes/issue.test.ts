@@ -239,6 +239,17 @@ describe('POST /issue/project-report', () => {
     expect(res.body).toEqual({ markdown: '## 본문' });
   });
 
+  // 롤링 배포 호환(WP-1629 리뷰) — 새 ai-agent 가 먼저 떠도 옛 API 요청(epics 없음, issues 있음)은 400 이 아니다.
+  it('projectReport_legacyPayloadWithoutEpics_200', async () => {
+    vi.mocked(runProjectReport).mockResolvedValue({ markdown: '## 본문' });
+    const { epics: _e, ...rest } = valid;
+    const res = await request(app())
+      .post('/issue/project-report')
+      .send({ ...rest, issues: [], omittedByEpic: null });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(runProjectReport).mock.calls[0][0].epics.projectOwner).toBe('프로젝트 소유자');
+  });
+
   it('projectReport_invalidPayload_400', async () => {
     const { templateMarkdown: _t, ...rest } = valid;
     const res = await request(app()).post('/issue/project-report').send(rest);

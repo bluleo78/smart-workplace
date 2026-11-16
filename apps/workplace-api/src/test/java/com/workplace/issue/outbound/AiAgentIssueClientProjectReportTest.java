@@ -64,7 +64,12 @@ class AiAgentIssueClientProjectReportTest {
         .andExpect(jsonPath("$.epics.projectOwner").value("프로젝트 소유자"))
         .andExpect(jsonPath("$.epics.noEpicDone").value(0))
         .andExpect(jsonPath("$.epics.completed").isEmpty())
-        .andExpect(jsonPath("$.issues").doesNotExist())
+        // 옛 ai-agent 롤링 배포 호환(WP-1629) — 옛 스키마의 필수 issues 는 빈 목록, omittedByEpic 은 빈 맵으로 한 릴리스 동안
+        // 보낸다.
+        .andExpect(jsonPath("$.issues").isArray())
+        .andExpect(jsonPath("$.issues").isEmpty())
+        .andExpect(jsonPath("$.omittedByEpic").isMap())
+        .andExpect(jsonPath("$.omittedByEpic").isEmpty())
         .andExpect(jsonPath("$.assistantAgentId").value(7))
         .andRespond(withSuccess("{\"markdown\":\"## 본문\\n\"}", MediaType.APPLICATION_JSON));
 

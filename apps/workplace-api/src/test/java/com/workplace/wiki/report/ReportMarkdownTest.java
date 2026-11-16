@@ -1032,6 +1032,58 @@ class ReportMarkdownTest {
     assertThat(s.line()).isEqualTo("이번 주 에픽 4개를 마쳤습니다. 다만 기한을 넘겼습니다.");
   }
 
+  /**
+   * 「요약」·「상태와 한 줄」 없이 다른 절로 시작한 AI 글 — finish 가 맨 앞에 「## 요약」 + 진행 상태 줄만 넣어 요약 절에 글 문단이 없어도 카드 한 줄은
+   * 문서의 첫 글 문단(옛 카드와 같음, 리뷰 반영). 배지는 넣은 진행 상태 줄 낱말, 목록·제목·진행 상태 줄은 한 줄로 쓰지 않는다.
+   */
+  @Test
+  void cardSummary_noSummaryNoStatusSection_fallsBackToFirstProse() {
+    String ai =
+        """
+        ## 주요 성과
+
+        - 목록이 먼저 와도 한 줄이 아니다
+
+        이번 주는 결제 개편을 마쳤습니다. **다음 주** 배포합니다.
+
+        ## 다음 할 일
+
+        둘째 문단
+        """;
+
+    String out = ReportMarkdown.finish(ai, facts(StatusBadge.WARN, null), false, false, PREFIX);
+    ReportMarkdown.CardSummary s = ReportMarkdown.cardSummary(out);
+
+    assertThat(out).startsWith("## 요약\n\n- **진행 상태** 주의\n");
+    assertThat(s.badge()).isEqualTo("WARN");
+    assertThat(s.line()).isEqualTo("이번 주는 결제 개편을 마쳤습니다. 다음 주 배포합니다.");
+  }
+
+  /** 지난 리포트가 바로 앞 기간이 아니면 진행 상태 줄은 「(지난 리포트 …)」 로 견준다 — 건너뛴 회차가 끼면 「지난주」가 틀리다(WP-1629 리뷰). */
+  @Test
+  void fixStatus_lastReportNotPreviousPeriod_saysLastReport() {
+    ProjectReportFacts f =
+        facts(StatusBadge.RISK, StatusBadge.WARN).withPreviousFromPreviousPeriod(false);
+
+    String out = ReportMarkdown.finish("## 요약\n\n판단입니다.\n", f, false, false, PREFIX);
+    String adjacent =
+        ReportMarkdown.finish(
+            "## 요약\n\n판단입니다.\n", facts(StatusBadge.RISK, StatusBadge.WARN), false, false, PREFIX);
+
+    assertThat(out).contains("- **진행 상태** 위험 (지난 리포트 주의)").doesNotContain("지난주");
+    assertThat(adjacent).contains("- **진행 상태** 위험 (지난주 주의)");
+  }
+
+  /** 「요약」에 진행 상태 줄(목록)만 있고 문서 어디에도 글 문단이 없으면 한 줄은 null — 진행 상태 줄을 되풀이하지 않는다. */
+  @Test
+  void cardSummary_onlyStatusLine_lineNull() {
+    ReportMarkdown.CardSummary s =
+        ReportMarkdown.cardSummary("## 요약\n\n- **진행 상태** 위험\n\n## 일정\n\n- 목록만\n");
+
+    assertThat(s.badge()).isEqualTo("RISK");
+    assertThat(s.line()).isNull();
+  }
+
   /** 기본 템플릿 + spike 출력 흐름 — 도표 한 번, 진행 상태 한 번, 지표 표 한 번. */
   @Test
   void finish_spikeShapedOutput_endToEnd() {

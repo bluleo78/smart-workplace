@@ -636,15 +636,67 @@ class ProjectReportFactsServiceTest extends ExternalClientMockedTestBase {
     assertThat(e.noEpicDoneTitles()).containsExactly("취소 에픽 뒤늦은 일", "지난 에픽 뒤늦은 일");
   }
 
-  /** 하위가 없는 열린 에픽이 기한을 넘기면 에픽 자신이 남은 일이라 위험이다(WP-1629). */
+  /** 지난 기간보다 앞에 닫힌 에픽은 보고에 나오지 않아 읽지 않는다 — 그 아래 이번 기간 완료는 에픽 밖 완료(WP-1629 리뷰, 에픽 읽기 범위). */
+  @Test
+  void epics_longClosedEpic_notReported_childCountsOutsideEpic() {
+    long old = epic("오래전 에픽", "DONE", kst("2026-10-01T10:00:00"), null);
+    doneChild("오래전 에픽 뒤늦은 일", old, kst("2026-11-12T10:00:00"));
+
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+
+    assertThat(e.completed()).isEmpty();
+    assertThat(e.previousCompleted()).isEmpty();
+    assertThat(e.inProgress()).isEmpty();
+    assertThat(e.noEpicDone()).isEqualTo(1);
+    assertThat(e.noEpicDoneTitles()).containsExactly("오래전 에픽 뒤늦은 일");
+  }
+
+  /**
+   * 하위가 없는 열린 에픽이 기한을 넘기면 에픽 자신이 남은 일이라 위험이다(WP-1629). 예상 완료일을 낼 수 없어도 기한 초과 결정 후보에 든다(리뷰 반영 — 예상일이
+   * 없다고 가장 늦은 에픽이 결정 요청에서 빠지지 않게).
+   */
   @Test
   void epics_openEpicWithoutChildren_overdue_isRisk() {
-    epic("빈 에픽", "IN_PROGRESS", null, LocalDate.parse("2026-11-10"));
+    long empty = epic("빈 에픽", "IN_PROGRESS", null, LocalDate.parse("2026-11-10"));
 
-    var ip = compute(Optional.empty()).epics().inProgress();
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+    var ip = e.inProgress();
 
     assertThat(ip).hasSize(1);
     assertThat(ip.get(0).status()).isEqualTo(ProjectReportEpics.RISK);
+    assertThat(ip.get(0).projectedDate()).isNull();
+    assertThat(e.decisionCandidates())
+        .extracting(ProjectReportEpics.DecisionCandidate::kind)
+        .containsExactly(
+            ProjectReportEpics.NO_NEXT_EPIC, ProjectReportEpics.EPIC_OVERDUE_PROJECTED);
+    var d = e.decisionCandidates().get(1);
+    assertThat(d.epic()).isEqualTo(keyOf(empty));
+    assertThat(d.detail()).isEqualTo("기한 11/10 지남, 예상 완료일을 계산할 수 없음(남은 하위 0건)");
+    assertThat(d.owner()).isEqualTo("김담당");
+  }
+
+  /** 끝낸 하위가 없어 속도가 없는 기한 초과 에픽 — 예상일 없이 위험, 남은 하위 수를 담은 기한 초과 결정 후보(리뷰 반영). */
+  @Test
+  void epics_overdueWithoutVelocity_isDecisionCandidate() {
+    long q = epic("멈춘 에픽", "IN_PROGRESS", null, LocalDate.parse("2026-11-10"));
+    for (int i = 0; i < 2; i++) {
+      long t = issue("멈춘 하위 " + i, "TODO", OLD, null);
+      parent(t, q);
+    }
+
+    ProjectReportEpics e = compute(Optional.empty()).epics();
+
+    assertThat(e.inProgress()).hasSize(1);
+    assertThat(e.inProgress().get(0).status()).isEqualTo(ProjectReportEpics.RISK);
+    assertThat(e.inProgress().get(0).projectedDate()).isNull();
+    assertThat(e.decisionCandidates())
+        .filteredOn(c -> c.kind().equals(ProjectReportEpics.EPIC_OVERDUE_PROJECTED))
+        .singleElement()
+        .satisfies(
+            d -> {
+              assertThat(d.epic()).isEqualTo(keyOf(q));
+              assertThat(d.detail()).isEqualTo("기한 11/10 지남, 예상 완료일을 계산할 수 없음(남은 하위 2건)");
+            });
   }
 
   /** 하위가 모두 닫힌 열린 에픽은 기한이 지났어도 남은 일이 없어 순조로움 — 예상 완료일·기한 초과 결정 후보 없음(WP-1629). */

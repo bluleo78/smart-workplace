@@ -81,7 +81,24 @@ export const projectReportEpicsSchema = z.object({
   projectOwner: z.string(),
 })
 
-// 요청 바디 스키마 — Spring 의 ProjectReportAiRequest 와 1:1. WP-1629: issues·omittedByEpic 을 없애고 epics(소유자 projectOwner 포함)를 더했다.
+/** epics 가 없는 옛 API 요청(WP-1629 이전)용 빈 집계 — 소유자는 프롬프트에 쓸 기본 이름. */
+export const EMPTY_PROJECT_REPORT_EPICS: z.infer<typeof projectReportEpicsSchema> = {
+  completed: [],
+  previousCompleted: [],
+  inProgress: [],
+  upcomingWithDue: [],
+  ongoing: [],
+  noEpicDone: 0,
+  noEpicDoneTitles: [],
+  decisionCandidates: [],
+  metrics: [],
+  projectOwner: '프로젝트 소유자',
+}
+
+// 요청 바디 스키마 — Spring 의 ProjectReportAiRequest 와 1:1. WP-1629: 이슈 목록 대신 epics(소유자 projectOwner 포함)를 더했다.
+// 롤링 배포 호환(WP-1629 리뷰): API·ai-agent 가 어느 순서로 바뀌어도 400 이 나지 않게 —
+// · epics 가 없는 옛 API 요청은 빈 집계(EMPTY_PROJECT_REPORT_EPICS)로 받는다.
+// · 옛 issues·omittedByEpic 칸은 어떤 모양이든 받고 쓰지 않는다(새 API 도 옛 ai-agent 를 위해 빈 값으로 한 릴리스 동안 보낸다).
 export const projectReportInputSchema = z.object({
   projectName: z.string(),
   title: z.string(),
@@ -91,7 +108,9 @@ export const projectReportInputSchema = z.object({
   badge: badgeSchema,
   previousBadge: badgeSchema.nullish(),
   tableRows: z.array(tableRowSchema),
-  epics: projectReportEpicsSchema,
+  epics: projectReportEpicsSchema.optional().transform((v) => v ?? EMPTY_PROJECT_REPORT_EPICS),
+  issues: z.unknown().optional(),
+  omittedByEpic: z.unknown().optional(),
   assistantAgentId: z.number(),
   model: z.string(),
   maxTurns: z.number(),

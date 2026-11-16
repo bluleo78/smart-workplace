@@ -1,7 +1,6 @@
 package com.workplace.wiki.report;
 
-import com.workplace.issue.report.ProjectReportEpics.CompletedEpic;
-import com.workplace.issue.report.ProjectReportEpics.PastEpic;
+import com.workplace.issue.report.ProjectReportEpics.ScheduledEpic;
 import com.workplace.issue.report.ReportCadence;
 import java.util.List;
 import java.util.Optional;
@@ -19,14 +18,15 @@ import org.springframework.web.util.HtmlUtils;
 public final class ReportScheduleChart {
 
   /**
-   * 도표 한 행의 재료.
+   * 도표 한 행의 재료 — 에픽 집계 밖에서(테스트 등) 행을 직접 만들 때 쓴다. 집계의 완료 에픽은 같은 {@link ScheduledEpic} 이라 옮겨 담지 않는다.
    *
    * @param title 에픽 제목(사람이 쓴 글 — 쓸 때 이스케이프)
    * @param dueDate 기한 M/d, 없으면 null(행에서 빠진다)
    * @param completedDate 완료일 M/d
    * @param lateDays 완료일 − 기한(양수 = 늦음), 기한 없으면 null(행에서 빠진다)
    */
-  public record ChartRow(String title, String dueDate, String completedDate, Integer lateDays) {}
+  public record ChartRow(String title, String dueDate, String completedDate, Integer lateDays)
+      implements ScheduledEpic {}
 
   /** 지연 색(주황) — 선·점·「+N일」 라벨. */
   static final String LATE_COLOR = "#c2410c";
@@ -68,43 +68,26 @@ public final class ReportScheduleChart {
 
   private ReportScheduleChart() {}
 
-  /** 이번 기간 완료 에픽 → 도표 행(순서 그대로 — 완료 시각 순). */
-  public static List<ChartRow> ofCompleted(List<CompletedEpic> epics) {
-    return epics.stream()
-        .map(e -> toRow(e.title(), e.dueDate(), e.completedDate(), e.lateDays()))
-        .toList();
-  }
-
-  /** 지난 기간 완료 에픽 → 도표 행(순서 그대로). */
-  public static List<ChartRow> ofPast(List<PastEpic> epics) {
-    return epics.stream()
-        .map(e -> toRow(e.title(), e.dueDate(), e.completedDate(), e.lateDays()))
-        .toList();
-  }
-
-  /** 두 에픽 모양(이번·지난 기간)이 같은 필드를 가져 한 곳에서 도표 행으로 옮긴다. */
-  private static ChartRow toRow(String title, String due, String done, Integer late) {
-    return new ChartRow(title, due, done, late);
-  }
-
   /**
    * 도표 블록({@code ```html-embed} … {@code ```}, 끝 줄바꿈 없음). 기한·늦은 날수가 없는 행은 뺀다. 남는 행이 없으면 빈 값 — 후처리는
    * 자리 줄만 지운다.
    *
-   * @param current 이번 기간 행(위)
-   * @param previous 지난 기간 행(아래)
+   * @param current 이번 기간 행(위, 순서 그대로 — 완료 시각 순)
+   * @param previous 지난 기간 행(아래, 순서 그대로)
    * @param cadence 주기 — 부제의 「이번 주/지난주」 낱말
    */
   public static Optional<String> block(
-      List<ChartRow> current, List<ChartRow> previous, ReportCadence cadence) {
-    List<ChartRow> now = withDue(current);
-    List<ChartRow> before = withDue(previous);
+      List<? extends ScheduledEpic> current,
+      List<? extends ScheduledEpic> previous,
+      ReportCadence cadence) {
+    List<ScheduledEpic> now = withDue(current);
+    List<ScheduledEpic> before = withDue(previous);
     if (now.isEmpty() && before.isEmpty()) return Optional.empty();
 
     // 축 반폭 = max(3, 가장 큰 |늦은 날수|) — 가장 먼 점이 축 끝에 닿는다.
     int range = MIN_RANGE;
-    for (ChartRow r : now) range = Math.max(range, Math.abs(r.lateDays()));
-    for (ChartRow r : before) range = Math.max(range, Math.abs(r.lateDays()));
+    for (ScheduledEpic r : now) range = Math.max(range, Math.abs(r.lateDays()));
+    for (ScheduledEpic r : before) range = Math.max(range, Math.abs(r.lateDays()));
 
     // 400px 안에 들도록 행 수를 정한다(WP-1629) — 행이 하한 높이로도 안 들어가면 지난 기간의 오래된 행부터, 그래도 넘치면 이번 기간의 오래된 행을
     // 덜어낸다.
@@ -176,8 +159,8 @@ public final class ReportScheduleChart {
     }
 
     int i = 0;
-    for (ChartRow r : now) svg.append(row(r, rowsTop + (i++) * rowH, range, rowH));
-    for (ChartRow r : before) svg.append(row(r, rowsTop + (i++) * rowH, range, rowH));
+    for (ScheduledEpic r : now) svg.append(row(r, rowsTop + (i++) * rowH, range, rowH));
+    for (ScheduledEpic r : before) svg.append(row(r, rowsTop + (i++) * rowH, range, rowH));
 
     // 눈금 라벨 「k일 앞당김 / 기한일 / k일 지연」.
     int labelY = rowsBottom + 22;
@@ -200,8 +183,11 @@ public final class ReportScheduleChart {
   }
 
   /** 기한·늦은 날수가 있는 행만 — 기한 없는 에픽은 「완료일 − 기한」을 셀 수 없다. */
-  private static List<ChartRow> withDue(List<ChartRow> rows) {
-    return rows.stream().filter(r -> r.dueDate() != null && r.lateDays() != null).toList();
+  private static List<ScheduledEpic> withDue(List<? extends ScheduledEpic> rows) {
+    return rows.stream()
+        .<ScheduledEpic>map(r -> r)
+        .filter(r -> r.dueDate() != null && r.lateDays() != null)
+        .toList();
   }
 
   /**
@@ -223,7 +209,7 @@ public final class ReportScheduleChart {
   }
 
   /** 한 행 — 툴팁 묶음 안에 보이지 않는 행 영역·제목·기한·선·점·(지연이면) 「+N일」. */
-  private static String row(ChartRow r, int top, int range, int rowH) {
+  private static String row(ScheduledEpic r, int top, int range, int rowH) {
     int late = r.lateDays();
     int cy = top + rowH / 2;
     // 행이 좁으면(24 미만) 제목·기한 글자를 한 단계 줄여 겹치지 않게.
@@ -298,7 +284,7 @@ public final class ReportScheduleChart {
   }
 
   /** 툴팁 — 「{제목} — 기한 {M/d}, 완료 {M/d}, {N일 지연|N일 앞당김|기한일 완료}」(제목은 자르지 않음). */
-  private static String tooltip(ChartRow r) {
+  private static String tooltip(ScheduledEpic r) {
     int late = r.lateDays();
     String result = late > 0 ? late + "일 지연" : late < 0 ? (-late) + "일 앞당김" : "기한일 완료";
     return nz(r.title()) + " — 기한 " + r.dueDate() + ", 완료 " + nz(r.completedDate()) + ", " + result;
