@@ -1,12 +1,13 @@
 // mdast 공용 도구(WP-1511) — 도움말 요약(manualSummary)·자리표시 플러그인(helpMarkup)·AI 답 표식 해석(helpAnswer)이 함께 쓴다.
 // 같은 파서 구성·트리 순회·평문 추출을 파일마다 따로 두면 규칙이 어긋나므로 한 곳에 모았다.
 import type { Nodes } from 'mdast'
-import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 
-/** 도움말 패널(HelpMarkdown)과 같은 문법(CommonMark + GFM 표)의 파서 — 파싱만 하므로 한 번 만들어 둔다. */
-export const markdownParser = unified().use(remarkParse).use(remarkGfm)
+import { markdownBasePlugins } from '@/lib/markdownBasePlugins'
+
+/** 화면 그리기와 같은 앱 공용 문법(markdownBasePlugins)의 파서 — 파싱만 하므로 한 번 만들어 둔다. */
+export const markdownParser = unified().use(remarkParse).use(markdownBasePlugins)
 
 /**
  * 문서 순서(앞에서 뒤, 부모 먼저)로 노드를 방문한다 — unist-util-visit 는 web 의 직접 의존성이 아니라 작은 재귀로 돈다.

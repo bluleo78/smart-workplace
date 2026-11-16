@@ -106,3 +106,33 @@ describe('MarkdownMessage 멘션 칩', () => {
     expect(render('<@7> 확인')).toContain('&lt;@7&gt; 확인')
   })
 })
+
+// 한국어 굵게(WP-1633) — 닫는 ** 앞이 문장부호(괄호·따옴표·코드)이고 바로 뒤에 조사가 붙어도 굵게로 닫힌다(CommonMark 만으로는 ** 가 기호째 남는다).
+describe('MarkdownMessage 한국어 굵게', () => {
+  it.each([
+    ['**설정(A)**을 누르세요', '<strong class="font-semibold">설정(A)</strong>을 누르세요'],
+    ['**"허용"**으로 바꿉니다', '<strong class="font-semibold">&quot;허용&quot;</strong>으로 바꿉니다'],
+    ['**「저장」**을 누르면', '<strong class="font-semibold">「저장」</strong>을 누르면'],
+  ])('%j', (md, expected) => {
+    const html = render(md)
+    expect(html).toContain(expected)
+    expect(html).not.toContain('**')
+  })
+
+  it('코드 표기를 굵게 감싸고 조사가 붙어도 굵게 안의 코드로 그린다', () => {
+    const html = render('**`VBR`**을 고릅니다')
+    expect(html).toMatch(/<strong class="font-semibold"><code[^>]*>VBR<\/code><\/strong>을 고릅니다/)
+    expect(html).not.toContain('**')
+  })
+
+  it('취소선도 문장부호 뒤 조사 앞에서 닫힌다', () => {
+    const html = render('~~취소(A)~~를 확인')
+    expect(html).toContain('<del>취소(A)</del>를 확인')
+    expect(html).not.toContain('~~')
+  })
+
+  it('영문 강조 규칙은 그대로 — 단어 안 밑줄은 강조가 아니다', () => {
+    expect(render('snake_case_name')).toContain('snake_case_name')
+    expect(render('**bold**')).toContain('<strong class="font-semibold">bold</strong>')
+  })
+})

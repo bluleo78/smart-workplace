@@ -46,6 +46,12 @@ describe('HelpMarkdown', () => {
     expect(screen.queryByRole('button', { name: '에이전트' })).toBeNull()
   })
 
+  it('문장부호 뒤 조사 앞 굵게도 기호째가 아니라 굵게로 그린다(WP-1633)', () => {
+    const { container } = render(<HelpMarkdown section={section('**설정(관리)**을 누릅니다')} values={noValues} vars={null} onNavigate={() => {}} />)
+    expect(container.querySelector('strong')?.textContent).toBe('설정(관리)')
+    expect(container.textContent).not.toContain('**')
+  })
+
   it('바깥 주소는 새 탭 링크로 연다', () => {
     render(<HelpMarkdown section={section('[사이트](https://example.com/a)')} values={noValues} vars={null} onNavigate={() => {}} />)
     const link = screen.getByRole('link', { name: '사이트' })
