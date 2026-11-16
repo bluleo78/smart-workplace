@@ -93,6 +93,23 @@ describe('타임라인 — 줌', () => {
   })
 })
 
+describe('타임라인 — 사이클 칸 (WP-1642)', () => {
+  // 사이클 띠는 간트 위 「사이클」 칸에 그린다 — 사이클이 없으면 칸 자체를 그리지 않는다(빈 칸이 간트 세로 공간을 먹지 않게).
+  test('사이클이 없으면 사이클 칸이 없다', async () => {
+    await openTimeline(`/projects/${KEY}/timeline?period=all`, defaultApi({ cycles: [] }))
+    expect(screen.queryByTestId('cycle-lane')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('timeline-cycle-band')).not.toBeInTheDocument()
+  })
+
+  test('사이클이 있으면 사이클 칸에 「사이클」 라벨·구분선과 사이클 띠가 들어 있다', async () => {
+    await openTimeline(`/projects/${KEY}/timeline?period=all`)
+    const lane = screen.getByTestId('cycle-lane')
+    expect(within(lane).getByText('사이클')).toBeInTheDocument()
+    expect(within(lane).getByTestId('cycle-lane-divider')).toBeInTheDocument()
+    expect(within(lane).getByTestId('timeline-cycle-band')).toHaveTextContent('사이클 7')
+  })
+})
+
 describe('타임라인 — 일정 미정 섹션', () => {
   // 마감일 없는 이슈는 접힌 「일정 미정」에 모이고, 배치하면 오늘~+7일(시작일이 있으면 마감만 시작일+7일)을 PATCH 한다(WP-483).
   test('접이식 목록 — 배치하면 7일 기간을, 시작일만 있으면 마감일만 보낸다', async () => {
