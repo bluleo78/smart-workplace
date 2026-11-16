@@ -45,7 +45,7 @@ class MailSentFolderSyncTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
+      new MailTestGreenMail()
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("box@test.local", "box@test.local", "pw"));
 

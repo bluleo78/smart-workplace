@@ -21,6 +21,7 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Properties;
 
@@ -62,10 +63,35 @@ public final class MailTestPorts {
   /** GreenMail IMAP 포트(평문). */
   public static final int IMAP = SMTP + 1;
 
-  private static final ServerSetup SMTP_SETUP = ServerSetupTest.SMTP.port(SMTP);
+  /**
+   * GreenMail 서버 기동 대기(ms). 기본 값(ServerSetupTest 2000ms)은 포드·JVM 이 정지된 직후 기동이 늦어지면 "Could not start
+   * mail server" 로 실패하므로 60초로 늘린다(WP-1641).
+   */
+  public static final int STARTUP_TIMEOUT_MS = 60_000;
 
-  /** {@code ServerSetupTest.SMTP_IMAP} 과 같은 구성에서 포트만 위 값으로 바꾼 것. */
-  public static final ServerSetup[] SMTP_IMAP = {SMTP_SETUP, ServerSetupTest.IMAP.port(IMAP)};
+  /**
+   * 직접 만드는 메일 클라이언트·GreenMail 클라이언트 세션의 연결·읽기·쓰기 타임아웃(ms). application-test.yml 의 {@code
+   * workplace.mail.io-timeout-ms} 와 같은 값이라, 스프링 빈이 아니라 직접 생성한 메일 클라이언트도 테스트 JVM 정지(수십 초)에 같은 만큼
+   * 견딘다(WP-1641).
+   */
+  public static final int IO_TIMEOUT_MS = 120_000;
+
+  /**
+   * 메일 테스트의 도착·완료 대기 상한 — {@link MailTestGreenMail#waitForIncomingEmail(int)}(GreenMail 기본 5초 대신)와
+   * Awaitility {@code atMost} 에 쓴다. 조건이 맞는 즉시 돌아오므로 테스트를 느리게 하지 않고, JVM 정지로 늦어져 실패하는 일만
+   * 막는다(WP-1641).
+   */
+  public static final Duration WAIT = Duration.ofMillis(IO_TIMEOUT_MS);
+
+  private static final ServerSetup SMTP_SETUP = withTimeouts(ServerSetupTest.SMTP.port(SMTP));
+
+  /**
+   * {@code ServerSetupTest.SMTP_IMAP} 과 같은 구성에서 포트만 위 값으로 바꾸고 기동 대기를 {@link #STARTUP_TIMEOUT_MS} 로
+   * 늘린 것.
+   */
+  public static final ServerSetup[] SMTP_IMAP = {
+    SMTP_SETUP, withTimeouts(ServerSetupTest.IMAP.port(IMAP))
+  };
 
   private MailTestPorts() {}
 
@@ -134,6 +160,19 @@ public final class MailTestPorts {
     } catch (IOException ignored) {
       // 닫기 실패는 다음 쌍을 고르는 데 영향이 없다
     }
+  }
+
+  /**
+   * {@code ServerSetup.port(..)} 가 돌려준 복사본에 기동 대기와 클라이언트 연결·읽기·쓰기 타임아웃을 걸어 돌려준다(공유 상수
+   * ServerSetupTest.* 는 건드리지 않는다). GreenMail 은 {@code GreenMailUtil.sendTextEmail(.., setup)} 같은
+   * 클라이언트 세션을 이 값으로 만든다 — 미지정(-1)이면 15초로 돌아간다.
+   */
+  private static ServerSetup withTimeouts(ServerSetup setup) {
+    setup.setServerStartupTimeout(STARTUP_TIMEOUT_MS);
+    setup.setConnectionTimeout(IO_TIMEOUT_MS);
+    setup.setReadTimeout(IO_TIMEOUT_MS);
+    setup.setWriteTimeout(IO_TIMEOUT_MS);
+    return setup;
   }
 
   /**

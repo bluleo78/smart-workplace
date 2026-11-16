@@ -12,12 +12,13 @@ import java.net.UnknownHostException;
 import java.util.Properties;
 import javax.net.ssl.SSLException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
  * IMAP/SMTP 에 실제 접속해 호스트·포트·보안·자격증명을 검증한다. 메일 페치/발송은 하지 않고 connect/close 만 수행한다. 행(hang) 방지를 위해
- * 연결·읽기 타임아웃을 10초로 제한한다. 접속 전에 {@link MailHostGuard} 로 내부망 호스트를 거른다(WP-740). 단위 테스트는 허용 목록을 준
- * MailHostGuard 와 함께 직접 new 로 생성한다.
+ * 연결·읽기 타임아웃을 설정값(기본 10초)으로 제한한다. 접속 전에 {@link MailHostGuard} 로 내부망 호스트를 거른다(WP-740). 단위 테스트는 허용
+ * 목록을 준 MailHostGuard 와 함께 직접 new 로 생성한다.
  */
 @Component
 @RequiredArgsConstructor
@@ -26,8 +27,17 @@ public class MailConnectionTester {
   /** 내부망 호스트 차단 — 막히면 접속하지 않고 그 문구를 해당 프로토콜 오류로 돌려준다. */
   private final MailHostGuard hostGuard;
 
-  /** 연결·읽기 타임아웃(ms). */
-  private static final int TIMEOUT_MS = 10_000;
+  /**
+   * 연결·읽기 타임아웃(ms) — 행 방지. 설정 {@code workplace.mail.io-timeout-ms}, 기본 10초(운영). test 프로필은 2분으로 올려
+   * 테스트 JVM 이 잠시 멈춰도 메일 테스트가 시간 제한으로 깨지지 않게 한다(WP-1641).
+   */
+  @Value(ImapConnector.IO_TIMEOUT_PROPERTY)
+  private final int ioTimeoutMs;
+
+  /** 적용 중인 연결·읽기 타임아웃(ms) — 설정 주입 검증용. */
+  int ioTimeoutMs() {
+    return ioTimeoutMs;
+  }
 
   /** IMAP·SMTP 를 각각 검증해 합쳐서 반환. */
   public ConnectionTestResult test(
@@ -53,8 +63,8 @@ public class MailConnectionTester {
     String protocol = security == MailSecurity.SSL_TLS ? "imaps" : "imap";
     Properties props = new Properties();
     props.put("mail.store.protocol", protocol);
-    props.put("mail." + protocol + ".connectiontimeout", String.valueOf(TIMEOUT_MS));
-    props.put("mail." + protocol + ".timeout", String.valueOf(TIMEOUT_MS));
+    props.put("mail." + protocol + ".connectiontimeout", String.valueOf(ioTimeoutMs));
+    props.put("mail." + protocol + ".timeout", String.valueOf(ioTimeoutMs));
     if (security == MailSecurity.STARTTLS) {
       props.put("mail.imap.starttls.enable", "true");
       props.put("mail.imap.starttls.required", "true");
@@ -88,8 +98,8 @@ public class MailConnectionTester {
     Properties props = new Properties();
     props.put("mail.transport.protocol", "smtp");
     props.put("mail.smtp.auth", "true");
-    props.put("mail.smtp.connectiontimeout", String.valueOf(TIMEOUT_MS));
-    props.put("mail.smtp.timeout", String.valueOf(TIMEOUT_MS));
+    props.put("mail.smtp.connectiontimeout", String.valueOf(ioTimeoutMs));
+    props.put("mail.smtp.timeout", String.valueOf(ioTimeoutMs));
     if (security == MailSecurity.SSL_TLS) {
       props.put("mail.smtp.ssl.enable", "true");
     } else if (security == MailSecurity.STARTTLS) {

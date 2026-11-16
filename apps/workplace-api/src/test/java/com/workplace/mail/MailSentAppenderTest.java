@@ -39,7 +39,7 @@ class MailSentAppenderTest {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
+      new MailTestGreenMail()
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("me@test.local", "me@test.local", "pw"));
 
@@ -55,7 +55,9 @@ class MailSentAppenderTest {
   void setUp() {
     // 자격증명 조회는 실제 MailAccountCredentials 에 목 repo/encryption 을 넣어 쓴다(단위 테스트라 트랜잭션 프록시 없음).
     appender =
-        new MailSentAppender(new MailAccountCredentials(accountRepo, folderRepo, encryption));
+        new MailSentAppender(
+            new MailAccountCredentials(accountRepo, folderRepo, encryption),
+            MailTestPorts.IO_TIMEOUT_MS);
     // 비밀번호 스텁: findEncryptedPassword(1L, 1L) → "encrypted_pw" → decrypt → "pw"
     when(accountRepo.findEncryptedPassword(anyLong(), anyLong()))
         .thenReturn(Optional.of("encrypted_pw"));

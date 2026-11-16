@@ -24,7 +24,6 @@ import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailReadSyncDispatcher;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -225,7 +224,7 @@ class MailReadSyncFlowTest extends ExternalClientMockedTestBase {
     verify(graphApiClient, org.mockito.Mockito.timeout(5_000)).batch(eq("FAKE_TOKEN"), anyList());
     // 리스너가 예외를 흡수하고 디스패치를 끝낼 때까지 — 실행기가 한가해지면 판정한다(고정 sleep 대신).
     ThreadPoolTaskExecutor exec = (ThreadPoolTaskExecutor) mailReadSyncExecutor;
-    await().atMost(Duration.ofSeconds(5)).until(() -> exec.getActiveCount() == 0);
+    await().atMost(MailTestPorts.WAIT).until(() -> exec.getActiveCount() == 0);
 
     org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
   }

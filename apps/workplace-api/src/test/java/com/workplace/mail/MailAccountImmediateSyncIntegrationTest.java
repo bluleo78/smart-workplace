@@ -14,7 +14,6 @@ import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.service.EmailAccountService;
 import com.workplace.support.TestFixtures;
-import java.time.Duration;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +38,7 @@ class MailAccountImmediateSyncIntegrationTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
+      new MailTestGreenMail()
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("box@test.local", "box@test.local", "pw"));
 
@@ -108,7 +107,7 @@ class MailAccountImmediateSyncIntegrationTest extends MailSyncTestSupport {
     // 스케줄러를 호출하지 않는다 — 즉시 sync 만으로 메일이 적재되어야 한다.
     final long accId = acc.id();
     await()
-        .atMost(Duration.ofSeconds(10))
+        .atMost(MailTestPorts.WAIT)
         .untilAsserted(
             () -> {
               TenantContext.set(1L);

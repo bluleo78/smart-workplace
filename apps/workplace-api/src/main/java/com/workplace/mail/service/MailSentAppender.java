@@ -11,6 +11,7 @@ import jakarta.mail.internet.MimeMessage;
 import java.util.Properties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,9 +26,19 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class MailSentAppender {
 
-  private static final int TIMEOUT_MS = 10_000;
-
   private final MailAccountCredentials credentials;
+
+  /**
+   * 연결·읽기 타임아웃(ms) — 행 방지. 설정 {@code workplace.mail.io-timeout-ms}, 기본 10초(운영). test 프로필은 2분으로 올려
+   * 테스트 JVM 이 잠시 멈춰도 메일 테스트가 시간 제한으로 깨지지 않게 한다(WP-1641).
+   */
+  @Value(ImapConnector.IO_TIMEOUT_PROPERTY)
+  private final int ioTimeoutMs;
+
+  /** 적용 중인 연결·읽기 타임아웃(ms) — 설정 주입 검증용. */
+  int ioTimeoutMs() {
+    return ioTimeoutMs;
+  }
 
   /**
    * 발송본을 Sent 폴더에 추가. 비밀번호는 내부에서 직접 조회·복호화한다. 어떤 실패도 던지지 않는다(로그만).
@@ -65,8 +76,8 @@ public class MailSentAppender {
     String protocol = security == MailSecurity.SSL_TLS ? "imaps" : "imap";
     Properties props = new Properties();
     props.put("mail.store.protocol", protocol);
-    props.put("mail." + protocol + ".connectiontimeout", String.valueOf(TIMEOUT_MS));
-    props.put("mail." + protocol + ".timeout", String.valueOf(TIMEOUT_MS));
+    props.put("mail." + protocol + ".connectiontimeout", String.valueOf(ioTimeoutMs));
+    props.put("mail." + protocol + ".timeout", String.valueOf(ioTimeoutMs));
     if (security == MailSecurity.STARTTLS) {
       props.put("mail.imap.starttls.enable", "true");
       props.put("mail.imap.starttls.required", "true");
