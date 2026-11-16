@@ -5,15 +5,23 @@
 #   worktree-sweep list   <MAIN> <프로젝트 키> <AI 이름>
 #   worktree-sweep remove <MAIN> <워크트리 경로 | -> <키[,키…]>
 #
-# list — 정리 후보를 한 줄에 하나, 탭 구분 `<키> <워크트리 경로> <브랜치> <상태>`(워크트리 없는 줄은 경로·브랜치 `-`):
-# - MAIN/.claude/worktrees/<프로젝트 키>-<번호> 이슈 워크트리 — 키는 폴더 이름.
-# - MAIN/.claude/worktrees/integ-<AI 이름>-<번호> 기차 워크트리(브랜치 integ/…) 중 브랜치 끝이 origin/main 에 들어간 것 — 키는 폴더 이름.
+# list — 정리 후보를 한 줄에 하나, 탭 구분 `<키> <워크트리 경로> <브랜치> <상태>`(워크트리 없는 줄은 경로·브랜치 `-`).
+# 후보가 하나라도 있으면 판정 전에 `git fetch origin` 을 한다(낡은 origin/main 으로 머지·올림을 판정하지 않게 — 실패하면
+# 아무것도 내지 않고 exit 2). 후보가 없으면 fetch 없이 아무것도 내지 않는다. 갈래는 폴더 이름으로 가른다:
+# - MAIN/.claude/worktrees/<프로젝트 키>-<번호> 이슈 워크트리 중 notes 파일(state/notes/<키>.md)이 있는 것 — 키는 폴더 이름.
+#   work-loop 는 맡은 이슈마다(개발자·검토자 모두) notes 를 남긴다 — notes 없는 같은 이름 워크트리는 사람 세션이 만든 것일 수
+#   있어 내지 않는다. 브랜치와 상관없다(검토자가 통합 PR 을 받은 integ/… 브랜치도).
+# - MAIN/.claude/worktrees/integ-<AI 이름>-<번호> 기차 워크트리 중 origin/main 에 들어간 것(판정은 ws_train_merged) — 키는 폴더 이름.
 # - 워크트리 없이 남은 notes(MAIN/.work-loop/state/notes/<프로젝트 키>-<번호>.md · integ-<AI 이름>-<번호>.md).
-# 상태(여럿이면 앞의 것): locked(git worktree lock) · running(bg-job 이 running) · unpushed(올리지 않은 커밋) ·
-#   dirty(커밋 안 한 변경 — git 무시 파일은 세지 않는다) · ok(지워도 됨) · notes-only
-# remove — 지우면 `removed <경로>`(- 면 `removed - <키들>`), 남기면 `kept <경로>: <이유>`.
+#   기차 notes 는 기차 브랜치(로컬, 없으면 origin)가 들어갔을 때만 낸다 — 확인할 수 없으면 남긴다.
+# 상태(여럿이면 앞의 것): locked(git worktree lock) · running(bg-job 이 running — 어느 작업을 보는지는 ws_any_running) ·
+#   unpushed(올리지 않은 커밋) · dirty(커밋 안 한 변경 — git 무시 파일은 세지 않는다) · ok(지워도 됨) · notes-only
+# remove — fetch 하지 않는다(list 바로 뒤에 부르고, 기차 머지 뒤에는 부르는 쪽이 `git fetch origin` 뒤 부른다).
+#   지우면 `removed <경로>`(- 면 `removed - <키들>`), 남기면 `kept <경로>: <이유>`(- 면 `kept - <키들>: <이유>`).
+#   워크트리·로컬 브랜치와 그 키들의 notes·seen·evidence·정리 보류 기록(state/sweep/<키>)·끝난 bg-job 파일을 지운다
+#   (다른 폴더의 작업 파일은 남긴다 — ws_job_elsewhere).
 #
-# 종료 코드: 0 = 성공 · 2 = 사용법 오류·등록 안 된 워크트리·git 이 지우기를 거절함 · 3 = 남김(list 의 ok 가 아닌 이유가 생김)
+# 종료 코드: 0 = 성공 · 2 = 사용법 오류·fetch 실패·등록 안 된 워크트리·git 이 지우기를 거절함 · 3 = 남김(list 의 ok 가 아닌 이유가 생김)
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
 
@@ -34,15 +42,22 @@ _ws_main=$(pwd)
 _ws_state="$_ws_main/.work-loop/state"
 _ws_bg=$here/bg-job
 _ws_tab=$(printf '\t')
+_ws_nl='
+'
+# origin/main 의 첫 부모 줄(SHA 목록) — ws_train_merged 가 처음 쓸 때 한 번만 구한다.
+_ws_fp=""
 
-# 원격 기본 브랜치(origin/HEAD, 없으면 origin/main)의 ref — 부를 때 한 번만 구한다. 없으면 빈 값.
-if _ws_base=$(git -C "$_ws_main" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null); then
-  :
-elif git -C "$_ws_main" rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
-  _ws_base=refs/remotes/origin/main
-else
-  _ws_base=""
-fi
+# 원격 기본 브랜치(origin/HEAD, 없으면 origin/main)의 ref 를 _ws_base 에 둔다. 없으면 빈 값.
+# list 는 fetch 뒤에 불러야 한다 — fetch 가 origin/main 을 처음 만들 수도 있다.
+ws_find_base() {
+  if _ws_base=$(git -C "$_ws_main" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null); then
+    :
+  elif git -C "$_ws_main" rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
+    _ws_base=refs/remotes/origin/main
+  else
+    _ws_base=""
+  fi
+}
 
 # MAIN/.claude/worktrees/ 바로 아래의 워크트리를 한 줄에 하나 "<경로>\t<브랜치 또는 ->\t<locked|->" 로 낸다.
 # git 이 적은 경로는 MAIN 을 부른 모양(심볼릭 링크 포함)이나 실제 경로일 수 있어 두 앞머리를 모두 받는다.
@@ -73,8 +88,46 @@ ws_my_train() {
   return 0
 }
 
-# 올리지 않은 커밋 수를 낸다 — $1(ref·SHA)에서 어느 원격 ref 에도 없고 origin/main 에 같은 patch 로도 없는 커밋.
-# 기차 흐름의 feature 브랜치는 push 하지 않고 커밋을 기차에 cherry-pick 해 머지하므로 patch 가 같으면(git cherry 의 `-`) 올라간 것으로 본다.
+# 기차 브랜치(이름 $1 — integ/…)가 origin/main 에 들어갔으면 0. 기차 워크트리 줄과 워크트리 없는 기차 notes 가 같이 쓴다.
+# 로컬 브랜치가 있으면 그것을 본다(올리지 않은 커밋이 더 있을 수 있다). 없으면 origin 의 브랜치를 본다.
+# 둘 다 없거나 기준(origin/main)이 없으면 들어갔는지 확인할 수 없어 1 — 지우지 않는 쪽으로.
+# 조상인 것만으로는 모자라다 — 아무것도 쌓지 않은 빈 기차(origin/main 에서 만든 브랜치)도 조상이다. 기차는 merge 커밋으로 들어가
+# 끝이 그 merge 의 둘째 부모가 되므로, 끝이 origin/main 의 첫 부모 줄에 있으면 들어간 것으로 보지 않는다(빨리 감기도 남기는 쪽으로).
+ws_train_merged() {
+  [ -n "$_ws_base" ] || return 1
+  _ws_tip=$(git -C "$_ws_main" rev-parse -q --verify "refs/heads/$1^{commit}") \
+    || _ws_tip=$(git -C "$_ws_main" rev-parse -q --verify "refs/remotes/origin/$1^{commit}") || return 1
+  git -C "$_ws_main" merge-base --is-ancestor "$_ws_tip" "$_ws_base" 2>/dev/null || return 1
+  [ -n "$_ws_fp" ] || _ws_fp=$(git -C "$_ws_main" rev-list --first-parent "$_ws_base" 2>/dev/null) || return 1
+  # SHA 는 40자 전체라 부분 문자열로 찾아도 다른 SHA 와 헷갈리지 않는다.
+  case "$_ws_fp" in *"$_ws_tip"*) return 1 ;; esac
+  return 0
+}
+
+# 커밋 $1 과 작성자 시각·작성자 메일·제목이 같은 merge 아닌 커밋이 origin/main 에 있으면 0.
+# 기대는 약속 — 기차에 쌓기(scripts/husky/train.sh cmd_stack)는 feature 커밋을 `merge --squash` + `commit-tree` 로 옮기며
+# 작성자 이름·메일·시각과 메시지를 그대로 옮긴다. 기차 rebase·충돌 풀기도 작성자 정보를 바꾸지 않아, patch 가 바뀌어도 알아본다.
+# --since 는 커미터 시각 기준이다 — 옮겨 간 커밋은 원래 작성 뒤에 커밋되니 빠지지 않고, 그보다 오래된 main 은 훑지 않는다.
+# 들어간 사본이 이 커밋보다 나중에 커밋됐을 때만 같은 커밋으로 본다(커미터 시각 비교) — 기차가 들어간 뒤 feature 커밋을
+# amend 해도 작성자 정보는 그대로라, 고친 내용이 올라가지 않았는데 들어간 것으로 보고 브랜치를 지우게 된다.
+ws_landed() {
+  _ws_id=$(git -C "$_ws_main" log -1 --format='%ct %at %ae %s' "$1" 2>/dev/null) || return 1
+  [ -n "$_ws_id" ] || return 1
+  _ws_ct=${_ws_id%% *}
+  _ws_id=${_ws_id#* }
+  # 글자 비교는 awk -v 대신 환경 변수로 넘긴다 — -v 는 제목의 역슬래시를 풀어 버린다.
+  git -C "$_ws_main" log --no-merges --since="@${_ws_id%% *}" --format='%ct %at %ae %s' "$_ws_base" 2>/dev/null \
+    | WS_ID=$_ws_id WS_CT=$_ws_ct awk '{
+        c = $1
+        sub(/^[^ ]* /, "")
+        if ($0 == ENVIRON["WS_ID"] && c + 0 >= ENVIRON["WS_CT"] + 0) { f = 1; exit }
+      }
+      END { exit !f }'
+}
+
+# 올리지 않은 커밋 수를 낸다 — $1(ref·SHA)에서 어느 원격 ref 에도 없고 origin/main 에 같은 patch 로도, 같은 작성자 정보(ws_landed)로도 없는 커밋.
+# 기차 흐름의 feature 브랜치는 push 하지 않고 커밋을 기차에 옮겨(train.sh stack) 머지하므로 patch 가 같으면(git cherry 의 `-`) 올라간 것으로 본다.
+# patch 가 바뀐 커밋(git cherry 의 `+`)은 작성자 정보로 한 번 더 본다(ws_landed).
 # merge 커밋은 git cherry 가 내지 않아 세지 않는다(origin/main 을 당겨 온 merge 로 영영 남기지 않게).
 # 견줄 수 없으면 지우지 않는 쪽으로 — rev-list 가 실패하면 `?`, 기준이 없거나 cherry 가 실패하면 원격에 없는 커밋을 모두 센다.
 ws_unpushed() {
@@ -83,8 +136,12 @@ ws_unpushed() {
   if [ -n "$_ws_base" ] && _ws_ch=$(git -C "$_ws_main" cherry "$_ws_base" "$1" 2>/dev/null); then
     _ws_plus=$(printf '%s\n' "$_ws_ch" | sed -n 's/^+ //p')
     [ -n "$_ws_plus" ] || { echo 0; return; }
-    # 원격 어딘가에 있는 커밋(push 한 feature 브랜치)은 빼고 센다.
-    printf '%s\n' "$_ws_un" | grep -cxF "$_ws_plus"
+    # 원격 어딘가에 있는 커밋(push 한 feature 브랜치)은 빼고, 남은 것 중 작성자 정보로 main 에 들어간 것도 뺀다.
+    _ws_cnt=0
+    for _ws_c in $(printf '%s\n' "$_ws_un" | grep -xF "$_ws_plus"); do
+      ws_landed "$_ws_c" || _ws_cnt=$((_ws_cnt + 1))
+    done
+    echo "$_ws_cnt"
   else
     printf '%s\n' "$_ws_un" | wc -l | tr -d ' '
   fi
@@ -109,18 +166,47 @@ ws_dirty() {
   printf '%s\n' "$_ws_st" | wc -l | tr -d ' '
 }
 
-# 키(공백으로 이은) 중 하나라도 bg-job 이 running 이면 0.
-# bg-job 은 exit 파일이 있으면 끝남, pid 파일이 없으면 none 이다 — 그때는 bg-job 을 부르지 않는다.
-# 기차는 첫 이슈 키로 게이트를 띄우지만 기차 키(integ-…)만 본다 — main 에 들어간 기차는 게이트를 돌릴 이유가 없다.
+# bg-job 이 남긴 <키>.dir(작업 폴더의 실제 경로 한 줄) 파일 $1 을 읽어 _ws_jd 에 둔다. 파일이 없으면 1.
+ws_read_dir() {
+  _ws_jd=""
+  [ -f "$1" ] || return 1
+  { IFS= read -r _ws_jd || true; } < "$1"
+}
+
+# 키 $1 의 bg-job 이 돌고 있으면 0. exit 파일이 있으면 끝남, pid 파일이 없으면 none 이라 그때는 bg-job 을 부르지 않는다.
+# 키는 따옴표로 넘기므로 나뉘지 않고, 이상한 이름이면 bg-job 이 사용법 오류로 거절해(running 이 아님) 따로 검사하지 않는다.
+ws_job_running() {
+  [ -f "$_ws_state/jobs/$1.pid" ] && [ ! -f "$_ws_state/jobs/$1.exit" ] || return 1
+  [ "$("$_ws_bg" status "$_ws_main" "$1" 2>/dev/null)" = running ]
+}
+
+# 키 $1 의 bg-job 이 다른 폴더의 작업이면 0 — <키>.dir 가 있고 그 경로가 이 워크트리(_ws_rd)가 아닐 때(이유는 ws_any_running).
+# notes-only(_ws_rd 빈 값)면 그 폴더가 지금 있을 때만 다른 곳의 작업으로 본다(지운 워크트리의 작업은 이 키의 것이다).
+# <키>.dir 가 없으면(이 기록을 남기기 전의 작업) 1 — 지금처럼 키로 본다.
+ws_job_elsewhere() {
+  ws_read_dir "$_ws_state/jobs/$1.dir" || return 1
+  [ -n "$_ws_jd" ] && [ "$_ws_jd" != "$_ws_rd" ] || return 1
+  [ -n "$_ws_rd" ] || [ -d "$_ws_jd" ]
+}
+
+# 키(공백으로 이은 $1) 중 하나라도, 또는 이 워크트리(실제 경로 _ws_rd — notes-only 면 빈 값)에서 띄운 작업이 돌고 있으면 0.
+# 작업은 키가 아니라 폴더로 가른다 — 기차 게이트는 기차 키가 아니라 첫 이슈 키로 기차 워크트리에서 띄운다. 그래서
+# bg-job start 가 남긴 jobs/<키>.dir 가 이 워크트리인 작업은 키가 달라도 보고, 키가 같아도 다른 폴더의 작업이면 보지 않는다.
 ws_any_running() {
   for _ws_k in $1; do
-    [ -f "$_ws_state/jobs/$_ws_k.pid" ] && [ ! -f "$_ws_state/jobs/$_ws_k.exit" ] || continue
-    [ "$("$_ws_bg" status "$_ws_main" "$_ws_k" 2>/dev/null)" = running ] && return 0
+    ws_job_elsewhere "$_ws_k" && continue
+    ws_job_running "$_ws_k" && return 0
+  done
+  [ -n "$_ws_rd" ] || return 1
+  for _ws_jf in "$_ws_state/jobs/"*.dir; do
+    ws_read_dir "$_ws_jf" && [ "$_ws_jd" = "$_ws_rd" ] || continue
+    _ws_jk=${_ws_jf##*/}
+    ws_job_running "${_ws_jk%.dir}" && return 0
   done
   return 1
 }
 
-# 남길 이유를 본다 — 경로 $1(없으면 빈 값)·브랜치 $2·잠김 $3·키들 $4(공백).
+# 남길 이유를 본다 — 경로 $1(없으면 빈 값)·브랜치 $2·잠김 $3·키들 $4(공백). _ws_rd 에 그 경로의 실제 경로(ws_abs, 없으면 빈 값)를 두고 부른다.
 # list 의 상태와 remove 의 남김이 같은 순서(locked > running > unpushed > dirty)를 쓰도록 여기 한곳에 둔다.
 # _ws_st 에 상태, _ws_why 에 이유를 두고, 남기면 0·ok 면 1.
 ws_keep() {
@@ -174,27 +260,24 @@ ws_abs() {
 }
 
 cmd_list() {
-  # 워크트리에 걸린 이름 — notes-only 를 가를 때 쓴다(앞뒤 공백으로 WP-37 과 WP-377 을 나눈다).
-  # 줄로 내지 않는 기차(아직 안 들어감)도 넣는다 — 그 notes 는 아직 쓰는 중이다.
-  _ws_have=" "
+  # 1) 후보를 로컬에서만 모은다 — 후보가 없으면 fetch(네트워크) 없이 끝낸다.
+  # _ws_have: 워크트리에 걸린 이름(앞뒤 공백으로 WP-37 과 WP-377 을 나눈다). 줄로 내지 않는 워크트리(안 들어간 기차 등)도 넣는다 — 그 notes 는 아직 쓰는 중이다.
+  _ws_have=" " _ws_cand="" _ws_notes=""
   _ws_list=$(ws_worktrees) || exit 2
   while IFS="$_ws_tab" read -r _ws_path _ws_branch _ws_lock; do
     [ -n "$_ws_path" ] || continue
     _ws_name=${_ws_path##*/}
     _ws_have="$_ws_have$_ws_name "
-    case "$_ws_branch" in
-      integ/*)
-        ws_my_train "$_ws_name" || continue
-        # 머지된 기차로는 돌아오지 않는다(고칠 것은 새 브랜치·다음 기차로) — 들어간 기차만 낸다.
-        [ -n "$_ws_base" ] && git -C "$_ws_main" merge-base --is-ancestor "refs/heads/$_ws_branch" "$_ws_base" 2>/dev/null || continue
-        ;;
-      *)
-        # 기획 워크트리(<키>-plan)는 이름이 이슈 키가 아니라 여기서 빠진다 — 기획 넘기기(plan-issue.md)가 지운다.
-        ws_my_issue "$_ws_name" || continue
-        ;;
-    esac
-    ws_keep "$_ws_path" "$_ws_branch" "$_ws_lock" "$_ws_name"
-    printf '%s\t%s\t%s\t%s\n' "$_ws_name" "$_ws_path" "$_ws_branch" "$_ws_st"
+    # 갈래는 브랜치가 아니라 폴더 이름으로 가른다(이유는 머리 주석).
+    if ws_my_train "$_ws_name"; then
+      [ "$_ws_branch" != - ] || continue
+    elif ws_my_issue "$_ws_name"; then
+      [ -f "$_ws_state/notes/$_ws_name.md" ] || continue
+    else
+      # 기획 워크트리(<키>-plan)는 이름이 이슈 키가 아니라 여기서 빠진다 — 기획 넘기기(plan-issue.md)가 지운다.
+      continue
+    fi
+    _ws_cand="$_ws_cand$_ws_path$_ws_tab$_ws_branch$_ws_tab$_ws_lock$_ws_nl"
   done <<EOF
 $_ws_list
 EOF
@@ -202,8 +285,36 @@ EOF
     [ -f "$_ws_f" ] || continue
     _ws_n=${_ws_f##*/}
     _ws_n=${_ws_n%.md}
-    ws_my_issue "$_ws_n" || ws_my_train "$_ws_n" || continue
     case "$_ws_have" in *" $_ws_n "*) continue ;; esac
+    # 검사를 통과한 이름에는 공백·glob 문자가 없어 공백으로 이어 둔다.
+    ws_my_train "$_ws_n" || ws_my_issue "$_ws_n" || continue
+    _ws_notes="$_ws_notes$_ws_n "
+  done
+  [ -n "$_ws_cand$_ws_notes" ] || return 0
+
+  # 2) 머지·올림 판정의 기준(origin/main)을 최신으로 — 낡은 기준이면 머지된 브랜치를 unpushed 로, 들어간 기차를 안 들어간 것으로 본다.
+  # 실패하면 판정하지 않는다(부르는 쪽은 이번 정리를 건너뛴다).
+  GIT_TERMINAL_PROMPT=0 git -C "$_ws_main" fetch -q origin >/dev/null 2>&1 || { echo "git fetch origin 이 실패했다 — 정리 후보를 판정하지 않는다" >&2; exit 2; }
+  ws_find_base
+
+  # 3) 후보를 판정한다. 머지된 기차로는 돌아오지 않는다(고칠 것은 새 브랜치·다음 기차로) — 들어간 기차만 낸다.
+  while IFS="$_ws_tab" read -r _ws_path _ws_branch _ws_lock; do
+    [ -n "$_ws_path" ] || continue
+    _ws_name=${_ws_path##*/}
+    if ws_my_train "$_ws_name"; then
+      ws_train_merged "$_ws_branch" || continue
+    fi
+    _ws_rd=$(ws_abs "$_ws_path")
+    ws_keep "$_ws_path" "$_ws_branch" "$_ws_lock" "$_ws_name"
+    printf '%s\t%s\t%s\t%s\n' "$_ws_name" "$_ws_path" "$_ws_branch" "$_ws_st"
+  done <<EOF
+$_ws_cand
+EOF
+  for _ws_n in $_ws_notes; do
+    # 워크트리 없는 기차 notes 는 그 기차(integ/<AI>-<n>)가 들어갔을 때만 — 출발 전에 워크트리를 잃은 기차의 기록일 수 있다.
+    if ws_my_train "$_ws_n"; then
+      ws_train_merged "integ/${_ws_n#integ-}" || continue
+    fi
     printf '%s\t-\t-\tnotes-only\n' "$_ws_n"
   done
 }
@@ -217,18 +328,31 @@ cmd_remove() {
     gw_valid_name "$_ws_k" || usage
   done
 
-  _ws_path="" _ws_branch=- _ws_lock=-
-  if [ "$_ws_target" != - ]; then
+  ws_find_base
+  _ws_path="" _ws_branch=- _ws_lock=- _ws_rd=""
+  _ws_list=$(ws_worktrees) || exit 2
+  if [ "$_ws_target" = - ]; then
+    # notes 만 지우는데 list 뒤에 그 키의 워크트리가 생겼으면(같은 이슈를 다시 시작) 쓰는 중인 notes 다 — 아무것도 지우지 않는다.
+    _ws_have=" "
+    while IFS="$_ws_tab" read -r _ws_p _ws_b _ws_l; do
+      [ -n "$_ws_p" ] && _ws_have="$_ws_have${_ws_p##*/} "
+    done <<EOF
+$_ws_list
+EOF
+    for _ws_k in $_ws_keys; do
+      case "$_ws_have" in *" $_ws_k "*) echo "kept - $2: 워크트리가 있다($_ws_main/.claude/worktrees/$_ws_k)"; exit 3 ;; esac
+    done
+  else
     # 받은 경로를 절대·정규 경로로 바꿔, MAIN/.claude/worktrees/ 바로 아래에 등록된 워크트리 경로와 정확히 같을 때만 받는다(끝 이름만 맞추지 않는다).
     _ws_want=$(ws_abs "$_ws_target")
     _ws_root=$(ws_abs "$_ws_main/.claude/worktrees")
-    _ws_list=$(ws_worktrees) || exit 2
     while IFS="$_ws_tab" read -r _ws_p _ws_b _ws_l; do
       [ -n "$_ws_p" ] || continue
       _ws_rp=$(ws_abs "$_ws_p")
       [ "$_ws_rp" = "$_ws_want" ] || continue
       [ "${_ws_rp%/*}" = "$_ws_root" ] || continue
-      _ws_path=$_ws_p _ws_branch=$_ws_b _ws_lock=$_ws_l
+      # 맞춘 실제 경로는 ws_keep·작업 파일 판정(_ws_rd)에 그대로 쓴다.
+      _ws_path=$_ws_p _ws_branch=$_ws_b _ws_lock=$_ws_l _ws_rd=$_ws_rp
     done <<EOF
 $_ws_list
 EOF
@@ -239,7 +363,9 @@ EOF
   ws_keep "$_ws_path" "$_ws_branch" "$_ws_lock" "$_ws_keys" && { echo "kept $_ws_target: $_ws_why"; exit 3; }
 
   # 끝난 작업 파일을 지운다 — clear 는 돌고 있으면 거절하므로, 위 검사 뒤에 작업이 떴으면 아무것도 지우지 않고 남긴다.
+  # 다른 폴더의 작업(ws_job_elsewhere)은 그쪽이 아직 결과를 읽지 않았을 수 있어 지우지 않는다.
   for _ws_k in $_ws_keys; do
+    ws_job_elsewhere "$_ws_k" && continue
     "$_ws_bg" clear "$_ws_main" "$_ws_k" >/dev/null || { echo "kept $_ws_target: 백그라운드 작업 도는 중"; exit 3; }
   done
 
@@ -259,7 +385,7 @@ EOF
   fi
 
   for _ws_k in $_ws_keys; do
-    rm -f "$_ws_state/notes/$_ws_k.md" "$_ws_state/seen/$_ws_k"
+    rm -f "$_ws_state/notes/$_ws_k.md" "$_ws_state/seen/$_ws_k" "$_ws_state/sweep/$_ws_k"
     rm -rf "$_ws_state/evidence/$_ws_k"
   done
 

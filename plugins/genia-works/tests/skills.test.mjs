@@ -38,7 +38,9 @@ test('work-loop SKILL.md 는 신원 확인(get_member)이 후보 고르기(list_
 test('work-loop SKILL.md 는 상태 보고(gw-status IDLE)가 후보 고르기(list_issues)보다 먼저, 이슈를 집은 뒤 WORKING 을 보고한다', () => {
   // 꺼지는 중이거나 다시 띄워질 차례(DRAIN·RESTART)인 AI 가 새 이슈를 집으면 일이 중간에 끊긴다(WP-1250).
   const text = body(workLoop('SKILL.md'));
-  assertBefore(text, '`"<이 스킬 폴더>/../../scripts/gw-status" IDLE`', '`list_issues(');
+  // 후보 고르기(3번) 안에서 본다 — 2-1번 「끝난 이슈 정리」도 끝났는지 가르려 list_issues 를 읽지만 새 이슈를 집지 않는다(WP-1637).
+  const pick = section(text, '\n### 3. 후보 고르기\n', '\n### 4. 이슈를 하나씩 처리\n');
+  assertBefore(pick, '`"<이 스킬 폴더>/../../scripts/gw-status" IDLE`', '`list_issues(');
   assertBefore(text, '\n### 4. 이슈를 하나씩 처리\n', '`"<이 스킬 폴더>/../../scripts/gw-status" WORKING <이슈 키>`');
   assertBefore(text, '\n### 5. 다음 확인\n', '`"<이 스킬 폴더>/../../scripts/gw-status" IDLE "" <다음 확인 시각(ISO-8601)>`');
 });
@@ -927,10 +929,50 @@ test('끝난 이슈 정리: 잠금 뒤 부를 때마다 worktree-sweep 으로 DO
   assert.ok(!sweep.includes('bg-job stop'), '정리 단계가 돌고 있는 작업을 끈다');
   assert.ok(sweep.includes('add_issue_chat'));
   // 정리 보류 표시는 이유를 담고, 이유가 바뀌었을 때만 다시 알린다.
-  assert.ok(sweep.includes('`정리 보류: <이유>`'));
+  // notes 가 아니라 state/sweep/<키> 에 둔다 — notes 를 새로 만들면 이슈가 다시 열렸을 때 1번 「시작」이 그것을 이어 하기로 읽는다.
+  assert.ok(sweep.includes('`MAIN/.work-loop/state/sweep/<키>`'));
   assert.ok(sweep.includes('이유가 적힌 것과 다르면'));
-  // 11번·기차 7번·검토자 7번·본문 지시 5번은 지우지 않고 정리 단계에 맡긴다.
+  assert.ok(!sweep.includes('`정리 보류: <이유>`'), '정리 보류를 아직 notes 줄로 적는다');
+  assert.ok(sweep.includes('notes 파일에는 적지 않는다'));
+  // list 는 먼저 origin 을 fetch 한다 — 실패하면 낡은 origin/main 으로 판정하지 않게 정리를 건너뛴다.
+  assert.ok(sweep.includes('git fetch origin'));
+  assert.ok(sweep.includes('이번 정리를 건너뛴다'));
+  // 1번 「시작」은 notes 가 있을 때의 갈래를 하위 항목으로 나누고, 없을 때를 따로 적는다.
+  const start = section(pi, '\n### 1. 시작\n', '\n### 2. 워크트리\n');
+  assert.ok(start.includes('\n  - 「PR 리뷰 대기」: '));
+  assert.ok(start.includes('\n  - 「백그라운드: …」: '));
+  assert.ok(start.includes('\n  - 「11. 검토 대기」(머지 뒤'));
+  assert.ok(start.includes('\n- notes 파일이 없으면 2번부터다.\n'));
+  // 머지 뒤 남은 워크트리가 있으면 그 자리에서 새 브랜치로 바꾼다 — 같은 경로에 worktree add 는 실패한다.
+  const understand = section(pi, '\n### 3. 이해\n', '\n### 4. 질문 판단\n');
+  assert.ok(understand.includes('이 이슈 워크트리가 남아 있으면 1번 「11. 검토 대기」 갈래대로, 없으면 2번대로 새로 만든다'));
+  // 다시 시작하는 절차와 `-2` 이름 규칙은 1번 갈래 한 곳에만 둔다.
+  assert.equal(pi.split('`git switch -c <브랜치>-2 origin/main`').length - 1, 1);
+  // 남은 워크트리의 커밋 안 한 변경은 보고 가른다 — 이 요청의 것이면 가져가고, 아니면 버리지 않고 BLOCKED 로 멈춘다.
+  const restart = lineWith(start, '「11. 검토 대기」(머지 뒤');
+  assert.ok(!restart.includes('커밋 안 한 변경이 없을 때만'));
+  assert.ok(restart.includes('`git diff --stat`'));
+  assert.ok(restart.includes("state: 'BLOCKED', note: '남은 워크트리에 커밋 안 한 변경 — 사람이 정리'"));
+  // 머지 뒤 bg-job stop 이 실패하면 REVIEW 가 아니라 BLOCKED — 멈춘 게이트가 잠금을 쥐어도 정리 단계는 running 이면 알리지 않는다.
   const review = section(pi, '\n### 11. 검토 대기\n', '\n### 기차 (저장소가 켰을 때)\n');
+  assert.ok(review.includes("state: 'BLOCKED', note: '머지됨 — 백그라운드 작업을 끝내지 못함'"));
+  assertBefore(review, 'bg-job stop', "state: 'REVIEW'");
+  // 고르는 기준(notes 파일이 있는 이슈 워크트리만 — 사람 세션의 같은 이름 워크트리 보호)은 스크립트 머리 주석이 말한다.
+  assert.ok(sweep.includes('고르는 기준·상태의 뜻은 스크립트 머리 주석'));
+  // 열린 내 이슈 목록에 있는 키는 조회 없이 끝나지 않은 것으로 본다 — 키마다 get_issue_detail 을 부르지 않게.
+  assert.ok(sweep.includes("`list_issues({ projectKey: <프로젝트 키>, assignee: 'me', status: 'TODO,IN_PROGRESS' })`"));
+  assert.ok(sweep.includes('그 목록에 없는 이슈 키만 `get_issue_detail`'));
+  // remove 가 「백그라운드 작업 도는 중」으로 남기면 running 과 같다 — 알리지 않고 보류 기록도 남기지 않는다.
+  assert.ok(sweep.includes('\n     - `kept …: 백그라운드 작업 도는 중`(list 뒤에 작업이 떴다): 아래 `running` 과 같다'));
+  assert.ok(sweep.includes('\n     - `removed …`: 끝.'));
+  assert.ok(sweep.includes('\n     - 그 밖의 `kept <경로>: <이유>`: 아래 「남길 때」대로 한다.'));
+  assert.ok(sweep.includes('알리지 않고 `state/sweep/<키>` 에도 적지 않는다'));
+  // 검토자 받기 — 남은 워크트리의 브랜치가 PR 브랜치와 다르면 reset 이 아니라 switch -C 로 바꾼다.
+  const take = lineWith(pi, '2. **받기**: ');
+  assert.ok(take.includes('`headRefName` 과 같으면'));
+  assert.ok(take.includes('`git switch -C <headRefName> origin/<headRefName>`'));
+  assert.ok(take.includes('옛 로컬 브랜치를 `git branch -D` 로 지운다'));
+  // 11번·기차 7번·검토자 7번·본문 지시 5번은 지우지 않고 정리 단계에 맡긴다.
   assert.ok(!review.includes('worktree remove'), '11번이 아직 머지 뒤 워크트리를 지운다');
   assert.ok(review.includes('`SKILL.md` 2-1번 「끝난 이슈 정리」'));
   assert.ok(review.includes('bg-job stop'));

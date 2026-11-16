@@ -427,6 +427,22 @@ test('bg-job start/status: 작업 폴더에서 명령을 돌려 로그를 남기
   assert.equal(waitDone(main, 'WP-1'), 'failed 3');
 });
 
+// WP-1637 — 기차 게이트는 첫 이슈 키로 띄워, 워크트리 정리(worktree-sweep)가 키가 아니라 작업 폴더로도 도는 작업을 찾아야 한다.
+test('bg-job start: 작업 폴더의 실제 경로를 <키>.dir 에 남기고, clear·stop 이 그 파일도 지운다 (WP-1637)', () => {
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const work = mkdtempSync(join(tmpdir(), 'gw-work-'));
+  const dir = join(main, '.work-loop', 'state', 'jobs', 'WP-6.dir');
+  job(['start', main, 'WP-6', work, '--', 'true']);
+  assert.equal(readFileSync(dir, 'utf8'), `${realpathSync(work)}\n`);
+  assert.equal(waitDone(main, 'WP-6'), 'passed');
+  assert.equal(job(['clear', main, 'WP-6']).stdout.trim(), 'ok');
+  assert.equal(existsSync(dir), false);
+  job(['start', main, 'WP-6', work, '--', 'sleep', '5']);
+  assert.equal(existsSync(dir), true);
+  assert.equal(job(['stop', main, 'WP-6']).stdout.trim(), 'ok');
+  assert.equal(existsSync(dir), false);
+});
+
 test('bg-job start: 돌고 있으면 새로 띄우지 않고 running 으로 exit 1, clear 도 거절하고, stop 은 자식까지 그룹째 끝낸다', () => {
   const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
   const work = mkdtempSync(join(tmpdir(), 'gw-work-'));
