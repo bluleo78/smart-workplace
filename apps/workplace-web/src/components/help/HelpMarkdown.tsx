@@ -7,9 +7,9 @@
 import { Check, Copy } from 'lucide-react'
 import { createContext, memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 
 import { copyToClipboard } from '@/lib/copyToClipboard'
+import { markdownBasePlugins } from '@/lib/markdownBasePlugins'
 import { markdownListClass } from '@/lib/markdownListClass'
 import { cn } from '@/lib/utils'
 
@@ -120,7 +120,7 @@ export interface HelpMarkdownProps {
  */
 export const HelpMarkdown = memo(function HelpMarkdown({ section, values, vars, onNavigate, canNavigate }: HelpMarkdownProps) {
   const markdown = useMemo(() => applyHelpConditions(section.markdown, values.conditions, vars), [section.markdown, values.conditions, vars])
-  const remarkPlugins = useMemo(() => [remarkGfm, remarkHelpPlaceholders({ values: values.placeholders, vars })], [values.placeholders, vars])
+  const remarkPlugins = useMemo(() => [...markdownBasePlugins, remarkHelpPlaceholders({ values: values.placeholders, vars })], [values.placeholders, vars])
 
   const components = useMemo<Components>(
     () => ({

@@ -1,12 +1,12 @@
 import { type ReactNode, useMemo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link, useInRouterContext, useLocation } from 'react-router-dom'
-import remarkGfm from 'remark-gfm'
 
 import { mentionSeg, parseMessageSegments, type RenderMention } from '@/components/mentions/parseMessageSegments'
 import type { MentionUser } from '@/components/mentions/types'
 import { chatLinkSessionId, isInternalHref, withChatParam } from '@/lib/aiChatLink'
 import { mayContainIssueKey, type RenderIssueRef, splitIssueKeys } from '@/lib/issueKeyRefs'
+import { markdownBasePlugins } from '@/lib/markdownBasePlugins'
 import { markdownListClass } from '@/lib/markdownListClass'
 import { cn } from '@/lib/utils'
 
@@ -14,8 +14,6 @@ import { helpAnswerUrlTransform, parseHelpAnswer } from './helpAnswer/helpAnswer
 import { markFirstFigure, withHelpAnswerComponents } from './helpAnswer/helpAnswerComponents'
 import { type HelpAnswerActions,HelpAnswerContext } from './helpAnswer/helpAnswerContext'
 import { HelpAnswerFooter } from './helpAnswer/HelpAnswerFooter'
-
-const REMARK_PLUGINS = [remarkGfm]
 
 // 블록 요소 — 이 앞뒤에 낀 공백 전용 텍스트는 원문의 줄바꿈이 아니라 mdast→hast 변환이 끼워 넣는 포맷용 공백이다(section 은 GFM 각주).
 const BLOCK_TAGS = new Set([
@@ -310,7 +308,7 @@ export function MarkdownMessage({
       className={cn('space-y-2 whitespace-normal break-words text-sm [overflow-wrap:anywhere]', className)}
     >
       <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
+        remarkPlugins={markdownBasePlugins}
         rehypePlugins={rehypePlugins}
         components={components}
         urlTransform={actions ? helpAnswerUrlTransform : undefined}
