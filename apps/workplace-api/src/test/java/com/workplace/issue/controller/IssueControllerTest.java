@@ -24,6 +24,7 @@ import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
+import com.workplace.issue.exception.IssueAiDisabledException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueAiSummaryService;
 import com.workplace.issue.service.IssueAiClassifyService;
@@ -462,6 +463,24 @@ class IssueControllerTest extends WebMvcSliceTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.summary").value("요약 내용"))
         .andExpect(jsonPath("$.nextAction").value("다음 행동"));
+  }
+
+  /** AI 연동이 꺼져 있으면(WP-1640) 409 + errors.code=AI_DISABLED + 서버 문구 — 처리기에 등록돼 500 이 되지 않는다. */
+  @Test
+  void generateAiSummary_aiDisabled_returns409WithCode() throws Exception {
+    mockAuthentication("project:read");
+    when(issueService.resolveAccessibleIssueId(1L, "WP", 1)).thenReturn(100L);
+    doThrow(new IssueAiDisabledException("AI 연동이 꺼져 있어 요약을 만들 수 없어요."))
+        .when(aiSummaryService)
+        .generateOnDemand(100L);
+
+    mockMvc
+        .perform(
+            post("/api/v1/projects/WP/issues/1/ai-summary")
+                .header("Authorization", "Bearer valid-token"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("AI_DISABLED"))
+        .andExpect(jsonPath("$.message").value("AI 연동이 꺼져 있어 요약을 만들 수 없어요."));
   }
 
   @Test

@@ -55,7 +55,7 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { aiClassifyApplyToast } from '../../lib/aiClassifyResult';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
-import { isNotFoundError } from '../../lib/api-error';
+import { extractApiError, isNotFoundError } from '../../lib/api-error';
 import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../lib/issueDeleteText';
 import { isProjectOwner, workflowLockedNotice } from '../../lib/projectPermissions';
 import { eulReul } from '../../lib/utils';
@@ -313,7 +313,8 @@ export default function IssueDetailPage() {
           toast.success(message);
           setClassifyReason(result.reason);
         },
-        onError: () => toast.error('AI 제안을 받지 못했습니다'),
+        // 서버 문구를 우선한다 — AI 연동 꺼짐(409 AI_DISABLED, WP-1640)·비서 없음(422)의 이유가 보이게.
+        onError: (e) => toast.error(extractApiError(e, 'AI 제안을 받지 못했습니다')),
       },
     );
   };

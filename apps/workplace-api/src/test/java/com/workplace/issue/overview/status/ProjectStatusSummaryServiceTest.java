@@ -23,6 +23,7 @@ import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.AiAgentSwitch;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
@@ -246,6 +247,16 @@ class ProjectStatusSummaryServiceTest extends ExternalClientMockedTestBase {
 
     // 비서가 없는 것은 실패가 아니라 건너뜀 — 회차 로그의 「실패」를 부풀리지 않는다.
     assertThat(service.refresh(project.id(), NOW)).isEqualTo(Outcome.SKIPPED);
+    verify(client, never()).summarizeProjectStatus(any());
+  }
+
+  /** AI 연동이 꺼져 있으면(WP-1640) 비서가 없을 때처럼 건너뛴다 — 실패가 아니고 ai-agent 를 부르지 않는다. */
+  @Test
+  void aiDisabledSkipsWithoutAi() {
+    openIssue();
+
+    AiAgentSwitch.whileDisabled(
+        service, () -> assertThat(service.refresh(project.id(), NOW)).isEqualTo(Outcome.SKIPPED));
     verify(client, never()).summarizeProjectStatus(any());
   }
 

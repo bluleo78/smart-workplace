@@ -1,6 +1,7 @@
 package com.workplace.issue.overview.status;
 
 import com.workplace.auth.service.AssistantResolver;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.issue.overview.status.ProjectStatusSummaryService.Outcome;
@@ -37,6 +38,7 @@ public class ProjectStatusSummaryScheduler {
   private final AssistantResolver assistantResolver;
   private final ProjectStatusSummaryRepository repository;
   private final ProjectStatusSummaryService service;
+  private final AiAgentProperties aiAgentProperties;
 
   /**
    * 한 회차에 처리하는 프로젝트 수 상한(모든 테넌트 합계). 첫 배포 때는 모든 프로젝트가 한꺼번에 대상이 되는데, 한 건마다 AI 호출(최대 수십 초)이 이어져 한 회차가
@@ -100,6 +102,8 @@ public class ProjectStatusSummaryScheduler {
    * @param limit 이번 회차에 처리할 최대 프로젝트 수
    */
   Summary runOnce(Clock runClock, int limit) {
+    // AI 연동이 꺼져 있으면 회차를 열지 않는다(WP-1640) — 점검 시각을 밀지 않아 다시 켜면 곧 점검된다.
+    if (!aiAgentProperties.enabled()) return new Summary(0, 0, 0, 0, 0, 0);
     OffsetDateTime now = OffsetDateTime.now(runClock);
     List<Target> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(

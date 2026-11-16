@@ -57,6 +57,27 @@ public record WorkProfileResponse(
         row.error());
   }
 
+  /**
+   * 분석을 시작할 수 없을 때(AI 연동 꺼짐, WP-1640) — 행을 만들지 않고 이번 응답에만 FAILED + 이유를 싣는다. 저장하지 않으므로 연동을 다시 켜면 다음
+   * 조회가 평소처럼 분석을 시작한다.
+   */
+  public static WorkProfileResponse unavailable(
+      MeOverviewPeriod period, MetricsPeriod range, String error) {
+    return new WorkProfileResponse(
+        period,
+        WorkProfileStatus.FAILED.name(),
+        range.from(),
+        range.to(),
+        null,
+        0,
+        0,
+        null,
+        List.of(),
+        List.of(),
+        List.of(),
+        error);
+  }
+
   /** 끝낸 이슈가 없어 행을 만들지 않았을 때 — 기간만 채우고 나머지는 빈 값. */
   public static WorkProfileResponse none(MeOverviewPeriod period, MetricsPeriod range) {
     return new WorkProfileResponse(

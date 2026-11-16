@@ -1,5 +1,6 @@
 package com.workplace.issue.profile;
 
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import java.util.ArrayList;
@@ -30,6 +31,7 @@ public class WorkProfileScheduler {
   private final TenantScopedRunner tenantRunner;
   private final WorkProfileRepository repository;
   private final WorkProfileService service;
+  private final AiAgentProperties aiAgentProperties;
 
   /** 한 테넌트의 저장 프로파일 하나 — 어느 테넌트의 누구·어느 기간인지. */
   private record Target(long tenantId, WorkProfileRepository.Key key) {}
@@ -68,6 +70,8 @@ public class WorkProfileScheduler {
    * TenantContext 를 세워 이 스레드에서 동기로 처리하고, 한 건의 실패는 경고만 남기고 다음으로 넘어간다.
    */
   public Summary refreshAllTenants() {
+    // AI 연동이 꺼져 있으면 회차를 열지 않는다(WP-1640) — 모든 프로파일을 매일 FAILED 로 덮지 않게(이전 분석 그대로).
+    if (!aiAgentProperties.enabled()) return new Summary(0, 0, 0, 0, 0);
     List<Target> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
         tenantId -> repository.findAllKeys().forEach(k -> targets.add(new Target(tenantId, k))));

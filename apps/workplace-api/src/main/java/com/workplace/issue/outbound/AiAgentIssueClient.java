@@ -43,11 +43,14 @@ public class AiAgentIssueClient {
   private final String internalToken;
 
   /**
-   * ai-agent 연동 전역 on/off({@code workplace.ai-agent.enabled}, WP-1639). 꺼져 있으면 보고 작성(개인·프로젝트)은
-   * ai-agent 를 부르지 않고 {@link #DISABLED_MESSAGE} 로 실패한다 — 격리 라이브 스택처럼 연동을 끈 API 가 baseUrl(local
-   * 6070)의 남의 ai-agent 로 요청을 보내지 않게.
+   * ai-agent 연동 전역 on/off({@code workplace.ai-agent.enabled}, WP-1639·1640). 꺼져 있으면 모든 요청이 ai-agent
+   * 를 부르지 않고 실패한다(보고는 {@link #DISABLED_MESSAGE}, 그 밖은 {@link #DISABLED_MESSAGE_GENERIC}) — 격리 라이브
+   * 스택처럼 연동을 끈 API 가 baseUrl(local 6070)의 남의 ai-agent 로 요청을 보내지 않게.
    */
   private final boolean enabled;
+
+  /** 보고 밖 요청(요약·분류·업무 프로필·상태 요약)이 연동 꺼짐으로 막혔을 때의 문구(WP-1640). */
+  public static final String DISABLED_MESSAGE_GENERIC = "AI 연동이 꺼져 있어 AI 요청을 보낼 수 없어요.";
 
   /** 연동이 꺼져 있을 때 보고 작성이 남기는 오류 문구(WP-1639) — 회차 오류로 화면에 보인다. */
   public static final String DISABLED_MESSAGE = "AI 연동이 꺼져 있어 보고를 만들 수 없어요.";
@@ -146,7 +149,7 @@ public class AiAgentIssueClient {
    * @return AI 가 쓴 리포트 본문 마크다운(후처리 전)
    */
   public ProjectReportAiResult writeProjectReport(ProjectReportAiRequest req) {
-    requireEnabled("project report");
+    requireEnabled("project report", DISABLED_MESSAGE);
     return post(
         reportRestClient,
         "/issue/project-report",
@@ -161,7 +164,7 @@ public class AiAgentIssueClient {
    * 시간 제한)로 보내고, 실행 예산도 {@link #PROJECT_REPORT_TIMEOUT_MS} 를 같이 쓴다.
    */
   public PersonalReportAiResult writePersonalReport(PersonalReportAiRequest req) {
-    requireEnabled("personal report");
+    requireEnabled("personal report", DISABLED_MESSAGE);
     return post(
         reportRestClient,
         "/issue/personal-report",
@@ -172,15 +175,17 @@ public class AiAgentIssueClient {
   }
 
   /**
-   * 보고 작성 전 연동 확인(WP-1639) — 꺼져 있으면 HTTP 요청 없이 {@link IssueAiException} 으로 끝낸다. 생성기들은 이 예외를 다른 AI
-   * 실패와 똑같이 회차 실패(오류 문구 {@link #DISABLED_MESSAGE})로 닫는다.
+   * 연동 확인(WP-1639·1640) — 꺼져 있으면 HTTP 요청 없이 {@link IssueAiException}(message) 으로 끝낸다. 호출부(실행기·서비스)가
+   * 먼저 연동을 보고 건너뛰거나 409 로 거절하므로, 이것은 새 호출부가 확인을 빠뜨려도 남의 ai-agent 로 요청이 새지 않게 하는 마지막 방어선이다. 보고 두
+   * 메서드는 보고 문구({@link #DISABLED_MESSAGE})로 먼저 부르고, 나머지는 {@link #post} 가 일반 문구로 부른다.
    *
    * @param logLabel 로그에 남길 호출 이름
+   * @param message 예외 문구
    */
-  private void requireEnabled(String logLabel) {
+  private void requireEnabled(String logLabel, String message) {
     if (!enabled) {
       log.warn("ai-agent 연동이 꺼져 있어 {} 를 보내지 않음", logLabel);
-      throw new IssueAiException(DISABLED_MESSAGE);
+      throw new IssueAiException(message);
     }
   }
 
@@ -198,6 +203,8 @@ public class AiAgentIssueClient {
       Class<T> type,
       String failMessage,
       String logLabel) {
+    // 마지막 방어선(WP-1640) — 연동이 꺼져 있으면 어느 메서드든 요청을 보내지 않는다.
+    requireEnabled(logLabel, DISABLED_MESSAGE_GENERIC);
     try {
       return client
           .post()

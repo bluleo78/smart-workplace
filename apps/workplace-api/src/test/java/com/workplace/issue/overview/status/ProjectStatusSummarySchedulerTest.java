@@ -12,6 +12,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.outbound.AiAgentIssueClient;
+import com.workplace.support.AiAgentSwitch;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -175,5 +176,16 @@ class ProjectStatusSummarySchedulerTest extends ExternalClientMockedTestBase {
     SchedulerLock lock = m.getAnnotation(SchedulerLock.class);
     assertThat(lock.name()).isEqualTo("ProjectStatusSummaryScheduler.runOnce");
     assertThat(lock.lockAtMostFor()).isEqualTo("PT30M");
+  }
+
+  /** AI 연동이 꺼져 있으면(WP-1640) 회차를 열지 않는다 — 점검 시각을 밀지 않고 ai-agent 도 부르지 않는다. */
+  @Test
+  void runOnce_aiDisabled_skipsRun() {
+    AiAgentSwitch.whileDisabled(
+        scheduler,
+        () ->
+            assertThat(scheduler.runOnce(Clock.systemUTC()))
+                .isEqualTo(new ProjectStatusSummaryScheduler.Summary(0, 0, 0, 0, 0, 0)));
+    verify(client, never()).summarizeProjectStatus(any());
   }
 }
