@@ -529,3 +529,182 @@ describe('Enter 로 생성 (WP-1624)', () => {
     await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(2))
   })
 })
+
+// WP-1625 — 만료일을 덜 넣은 채(예: '2026-12-' 까지만) 「링크 생성」을 누르면 만료 없는 링크가 만들어졌다.
+// <input type="date"> 는 덜 넣은 날짜를 값 '' 로 올려 「비움」과 같아 보이므로, 입력 요소의 validity.badInput 을 직접 읽어 막는다.
+// jsdom 은 덜 넣은 날짜를 칠 수 없어, 입력 요소의 validity 를 badInput: true 로 덮어 흉내 낸다(실제 Chromium 은 라이브 검증).
+describe('덜 넣은 만료일 (WP-1625)', () => {
+  const MESSAGE = '만료일을 끝까지 입력하거나 칸을 비워 주세요.'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // 링크가 없으면 폼이 바로 보인다.
+    api.listShareLinks.mockResolvedValue([])
+    clip.copyToClipboard.mockResolvedValue(true)
+  })
+
+  const expiresInput = () => screen.getByLabelText('만료일 (선택)') as HTMLInputElement
+  const passwordInput = () => screen.getByLabelText('비밀번호 (선택)') as HTMLInputElement
+
+  /** 입력 요소가 「덜 넣은 날짜」라고 답하게 덮는다 — 값은 건드리지 않는다(실제로도 '' 로 올라온다). */
+  function markIncomplete(input: HTMLInputElement) {
+    Object.defineProperty(input, 'validity', {
+      configurable: true,
+      value: { badInput: true, valid: false },
+    })
+  }
+
+  async function renderForm(target: ShareTargetRef) {
+    renderWithProviders(<ShareLinkModal target={target} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+  }
+
+  /** 안내가 서고 칸이 오류 표시이며 요청이 나가지 않았음을 본다. */
+  async function expectBlocked() {
+    expect(await screen.findByTestId('share-expires-error')).toHaveTextContent(MESSAGE)
+    expect(expiresInput()).toHaveAttribute('aria-invalid', 'true')
+    // 요청이 나갔다면 들어갈 만큼 한 틱 기다린 뒤 없음을 본다.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(api.createShareLink).not.toHaveBeenCalled()
+  }
+
+  // Review Focus 1 — 빈 칸에서 일부만 친 경우: 값은 '' 그대로라 change 이벤트가 없다.
+  it('빈 칸에서 덜 넣고(이벤트 없음) 생성을 누르면 안내를 보이고 요청을 보내지 않는다', async () => {
+    await renderForm(fileTarget)
+
+    markIncomplete(expiresInput())
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+
+    await expectBlocked()
+  })
+
+  // Review Focus 2 — 미리 채운 기본 만료(폴더 외부)를 고치다 덜 지운 경우: 값 '' + badInput.
+  it('미리 채운 만료일을 고치다 덜 지운 채 생성을 누르면 링크를 만들지 않는다', async () => {
+    await renderForm(folderTarget)
+    expect(expiresInput().value).not.toBe('')
+
+    fireEvent.change(expiresInput(), { target: { value: '' } })
+    markIncomplete(expiresInput())
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+
+    await expectBlocked()
+  })
+
+  // Review Focus 3 — 칸을 완전히 비운 경우(badInput 아님)는 지금처럼 만료 없이 만든다.
+  it('칸을 완전히 비우면 지금처럼 만료 없는 링크를 만든다', async () => {
+    api.createShareLink.mockResolvedValue({ ...activeLink, id: 9, token: 'sl_new' })
+    await renderForm(folderTarget)
+
+    fireEvent.change(expiresInput(), { target: { value: '' } })
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+
+    await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(1))
+    expect(api.createShareLink).toHaveBeenCalledWith({ kind: 'folder', id: 20 }, {
+      audience: 'EXTERNAL', password: undefined, expiresAt: undefined,
+    })
+    expect(screen.queryByTestId('share-expires-error')).toBeNull()
+  })
+
+  // Review Focus 4 — 비밀번호 오류와 함께: 두 안내가 함께 서고 요청은 없다(모든 칸을 함께 검사).
+  it('비밀번호 오류와 함께 있으면 두 안내가 함께 서고 요청은 없다', async () => {
+    await renderForm(fileTarget)
+
+    fireEvent.change(passwordInput(), { target: { value: '   ' } })
+    markIncomplete(expiresInput())
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+
+    expect(await screen.findByTestId('share-password-error')).toHaveTextContent('공백만 넣을 수 없어요')
+    expect(screen.getByTestId('share-expires-error')).toHaveTextContent(MESSAGE)
+    expect(api.createShareLink).not.toHaveBeenCalled()
+  })
+
+  // Review Focus 5 — 비밀번호 칸 Enter(WP-1624)도 onCreate 하나를 지나므로 같이 막힌다.
+  it('비밀번호 칸 Enter 로 생성할 때도 덜 넣은 만료일이면 만들지 않는다', async () => {
+    await renderForm(fileTarget)
+
+    fireEvent.change(passwordInput(), { target: { value: 'pw47Test!' } })
+    markIncomplete(expiresInput())
+    fireEvent.keyDown(passwordInput(), { key: 'Enter' })
+
+    await expectBlocked()
+  })
+
+  it('칸을 고치면 안내가 사라지고, 덜 넣은 상태가 풀리면 다시 눌러 만들 수 있다', async () => {
+    api.createShareLink.mockResolvedValue({ ...activeLink, id: 9, token: 'sl_new' })
+    await renderForm(fileTarget)
+
+    markIncomplete(expiresInput())
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+    expect(await screen.findByTestId('share-expires-error')).toBeInTheDocument()
+
+    // 날짜를 끝까지 넣어 고친다 — 안내가 사라지고, 다시 누르면 그 날짜로 요청이 나간다.
+    Object.defineProperty(expiresInput(), 'validity', { configurable: true, value: { badInput: false, valid: true } })
+    fireEvent.change(expiresInput(), { target: { value: '2099-12-31' } })
+    expect(screen.queryByTestId('share-expires-error')).toBeNull()
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+
+    await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(1))
+    expect(api.createShareLink.mock.calls[0][1].expiresAt).toBe(new Date('2099-12-31T23:59:59').toISOString())
+  })
+
+  /** 덜 넣은 상태를 풀어 「비움」으로 되돌린다 — 값은 계속 '' 라 change 이벤트가 없다. */
+  function clearIncomplete(input: HTMLInputElement) {
+    Object.defineProperty(input, 'validity', { configurable: true, value: { badInput: false, valid: true } })
+  }
+
+  // 안내대로 덜 넣은 날짜를 지워 칸을 비우면 값은 '' 그대로라 change 가 오지 않는다 — keyUp 에서 다시 확인해 안내를 거둔다.
+  it('덜 넣은 날짜를 지워 비우면(change 없음) keyUp 에서 안내와 오류 표시가 사라진다', async () => {
+    await renderForm(fileTarget)
+    markIncomplete(expiresInput())
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+    expect(await screen.findByTestId('share-expires-error')).toBeInTheDocument()
+
+    clearIncomplete(expiresInput())
+    fireEvent.keyUp(expiresInput(), { key: 'Backspace' })
+
+    expect(screen.queryByTestId('share-expires-error')).toBeNull()
+    expect(expiresInput()).not.toHaveAttribute('aria-invalid', 'true')
+  })
+
+  // 같은 확인을 칸을 벗어날 때(blur)도 한다 — 마우스로 지우고 다른 곳을 누른 경우.
+  it('덜 넣은 날짜를 지우고 칸을 벗어나면(blur) 안내가 사라지고, 아직 덜 넣었으면 남는다', async () => {
+    await renderForm(fileTarget)
+    markIncomplete(expiresInput())
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+    expect(await screen.findByTestId('share-expires-error')).toBeInTheDocument()
+
+    // 아직 덜 넣은 채 벗어나면 안내는 남는다
+    fireEvent.blur(expiresInput())
+    expect(screen.getByTestId('share-expires-error')).toBeInTheDocument()
+
+    clearIncomplete(expiresInput())
+    fireEvent.blur(expiresInput())
+    expect(screen.queryByTestId('share-expires-error')).toBeNull()
+  })
+
+  // 다른 안내(지난 날짜 등)는 keyUp·blur 가 건드리지 않는다 — 덜 넣은 안내만 거둔다.
+  it('지난 만료일 안내는 keyUp 으로 지워지지 않는다', async () => {
+    await renderForm(fileTarget)
+    fireEvent.change(expiresInput(), { target: { value: '2020-01-01' } })
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+    expect(await screen.findByTestId('share-expires-error')).toHaveTextContent('오늘 이후')
+
+    fireEvent.keyUp(expiresInput(), { key: 'Shift' })
+    expect(screen.getByTestId('share-expires-error')).toHaveTextContent('오늘 이후')
+  })
+
+  // 사내 전용 폴더는 기본값이 '' 이고 덜 넣으면 change 가 없어 touched 가 false 로 남는다 — 키를 누른 것을 사용자의 손길로 센다.
+  it('사내 전용 폴더에서 덜 넣은 뒤 외부로 바꿔도 만료일 칸을 기본값으로 덮지 않는다', async () => {
+    await renderForm(folderTarget)
+    fireEvent.click(screen.getByLabelText('사내 전용'))
+    expect(expiresInput().value).toBe('')
+
+    fireEvent.keyDown(expiresInput(), { key: '1' })
+    markIncomplete(expiresInput())
+    fireEvent.click(screen.getByLabelText(/^외부/))
+
+    expect(expiresInput().value).toBe('')
+    // 만졌으니 기본값 안내도 보이지 않는다
+    expect(screen.queryByText('외부 폴더 링크는 30일 뒤로 미리 채웁니다.')).toBeNull()
+  })
+})
