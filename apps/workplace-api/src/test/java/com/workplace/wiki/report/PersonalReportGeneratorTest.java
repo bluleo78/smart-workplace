@@ -177,23 +177,27 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
 
         </div>
 
-        ## 한 줄
+        ## 요약
 
         어제는 로그인 오류를 고쳤습니다.
-
-        ## 어제 숫자
-
-        | 끝냄 | 새로 만듦 | 상태 바꿈 | 기한 지남 |
-        |---|---|---|---|
-        | 9 | 9 | 9 | 9 |
 
         ## 어제 한 일
 
         - 로그인 오류 — 완료
 
+        ## 오늘 할 일
+
+        없음
+
         ## 막힌 것
 
         없음
+
+        ## 어제 숫자
+
+        | 끝냄 | 새로 만듦 | 상태 바꿈 | 기한 지남 |
+        | --- | --- | --- | --- |
+        | 9 | 9 | 9 | 9 |
         """);
   }
 
@@ -551,6 +555,24 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(req.tableRows()).isEmpty();
     assertThat(req.issues()).extracting("reason").containsExactly("DONE");
     assertThat(req.assistantAgentId()).isEqualTo(ai);
+    // 끝낸 일 AI와 함께/직접 건수(WP-1632) — AI 담당이 없는 1건은 직접.
+    assertThat(req.completedSplit()).isEqualTo(new PersonalReportAiRequest.CompletedSplit(1, 0, 1));
+  }
+
+  /** AI 와 함께 끝낸 일이 섞이면 completedSplit 에 끝냄 n · AI와 함께 a · 직접 n−a 로 실린다(WP-1632). */
+  @Test
+  void generate_sendsCompletedSplitWithAi() {
+    long withAi = closedYesterday("DONE");
+    assign(withAi, ai);
+    closedYesterday("DONE");
+
+    generator.runDaily(me, NOW);
+
+    ArgumentCaptor<PersonalReportAiRequest> captor =
+        ArgumentCaptor.forClass(PersonalReportAiRequest.class);
+    verify(client).writePersonalReport(captor.capture());
+    assertThat(captor.getValue().completedSplit())
+        .isEqualTo(new PersonalReportAiRequest.CompletedSplit(2, 1, 1));
   }
 
   // ───────────── 후처리 ─────────────
@@ -595,6 +617,41 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
         .doesNotContain("99")
         .contains("| 지난달 대비 | 이번 달 | 변화 |")
         .doesNotContain("지난주 대비 |");
+  }
+
+  /**
+   * 기본 템플릿(WP-1632 새 순서 — 요약 → 어제 한 일 → 오늘 할 일 → 막힌 것 → 어제 숫자)인데 AI 가 숫자 표를 빠뜨리면, 「막힌 것」 뒤(맨 끝)에
+   * 「어제 숫자」 표를 넣는다. 「오늘 할 일」 표는 숫자 표로 보지 않는다.
+   */
+  @Test
+  void generated_defaultTemplate_missingTable_insertedAfterBlockedAtEnd() {
+    aiReturns(
+        """
+        ## 요약
+
+        어제는 로그인 오류를 고쳤습니다.
+
+        ## 오늘 할 일
+
+        | | 할 일 | 이유 |
+        | --- | --- | --- |
+        | 1 | 로그인 | 기한 지남 |
+
+        ## 막힌 것
+
+        없음
+        """);
+    closedYesterday("DONE");
+
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.GENERATED);
+
+    String body = yesterdayPage().body();
+    assertThat(body).contains("| 1 | 로그인 | 기한 지남 |");
+    int blocked = body.indexOf("## 막힌 것");
+    int numbers = body.indexOf("## 어제 숫자");
+    assertThat(blocked).isPositive();
+    assertThat(numbers).isGreaterThan(blocked);
+    assertThat(body.substring(numbers)).contains("| 1 | 0 | 0 | 0 |");
   }
 
   /** 사람이 템플릿에서 「어제 숫자」 표를 뺐으면, AI 결과에 표가 없을 때 넣지 않는다. */

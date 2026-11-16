@@ -12,21 +12,44 @@ export const PERSONAL_REPORT_MAX = 20000
 
 // 개인 보고 이슈 한 건 — 공용 바탕에 개인 이유(상태 바꿈·답 기다림·오늘 마감·진행 중)와 개인 전용 값을 더한다.
 // project: 에픽이 없을 때 묶을 프로젝트 이름, lateDays: 늦게 끝낸 날수, withAi: AI 와 함께한 일 여부.
+// assigneesDetail(WP-1632): 담당자 이름과 사람/AI 구분 — 「오늘 할 일」에서 AI 가 진행하는 일을 가려 쓰게 한다.
+// 롤링 배포 호환(자세한 까닭은 API 의 ReportAssignee 주석): 구 API 는 보내지 않아 선택(nullish)이고,
+// kind 는 HUMAN·AGENT 밖의 새 종류가 와도 요청을 거절하지 않게 enum 이 아닌 문자열로 받는다.
 const personalIssueSchema = reportIssueSchema.extend({
   reason: z.enum(['OVERDUE', 'DONE', 'CREATED', 'STATUS_CHANGED', 'WAITING', 'DUE_TODAY', 'OPEN']),
   project: z.string().nullish(),
   lateDays: z.number().nullish(),
   withAi: z.boolean().nullish(),
+  assigneesDetail: z.array(z.object({ name: z.string(), kind: z.string() })).nullish(),
 })
 type PersonalIssue = z.infer<typeof personalIssueSchema>
+// 이슈 한 건의 요청 모양(파싱 전) — 테스트 픽스처가 스키마와 어긋나지 않게 타입을 맞추는 데 쓴다.
+export type PersonalIssueInput = z.input<typeof personalIssueSchema>
 
-// 개인 이슈 한 줄 — 공용 줄의 선정 이유 뒤에 개인 값(프로젝트·늦음·AI와 함께)을 있을 때만 덧붙인다.
+// 담당자 종류 → 담당 칸 꼬리표. 모르는 종류(새로 생긴 값)는 꼬리표 없이 이름만 쓴다.
+// 객체 리터럴 조회는 「constructor」·「toString」 같은 기본 키에 걸리므로 Map 으로 정확히 있는 키만 찾는다.
+const KIND_LABEL = new Map<string, string>([
+  ['HUMAN', '사람'],
+  ['AGENT', 'AI'],
+])
+
+// 담당 이름 목록 — assigneesDetail 이 있으면 이름마다 「(사람)」·「(AI)」 꼬리표를 붙이고, 없으면(구 API) assignees 그대로.
+// 한 줄 정리·빈 목록의 「(없음)」 은 공용 formatIssue 가 하므로 여기서는 이름만 만든다.
+function personalAssignees(i: PersonalIssue): string[] {
+  if (!i.assigneesDetail) return i.assignees
+  return i.assigneesDetail.map((a) => {
+    const label = KIND_LABEL.get(a.kind)
+    return label ? `${a.name}(${label})` : a.name
+  })
+}
+
+// 개인 이슈 한 줄 — 공용 줄의 선정 이유 뒤에 개인 값(프로젝트·늦음·AI와 함께)을 있을 때만 덧붙이고, 담당은 사람/AI 를 밝혀 쓴다.
 function formatPersonalIssue(i: PersonalIssue): string {
   const extras: string[] = []
   if (i.project) extras.push(`프로젝트: ${sanitizeInline(i.project)}`)
   if (i.lateDays && i.lateDays > 0) extras.push(`늦음: ${i.lateDays}일`)
   if (i.withAi) extras.push('AI와 함께')
-  return formatIssue(i, extras)
+  return formatIssue({ ...i, assignees: personalAssignees(i) }, extras)
 }
 
 // 요청 바디 스키마 — Spring 의 PersonalReportAiRequest 와 1:1. 일일은 numbersLine(표 행 빈 목록), 주간·월간은 tableRows(numbersLine null).
@@ -41,6 +64,8 @@ export const personalReportInputSchema = z.object({
   numbersLine: z.string().nullish(),
   issues: z.array(personalIssueSchema),
   omittedByEpic: z.record(z.string(), z.number()).nullish(),
+  // 끝낸 일 나눔(WP-1632) — 요약 고정 줄 「끝낸 일 n건 (AI와 함께 a, 직접 b)」 재료. 구 API 는 보내지 않아 선택이다.
+  completedSplit: z.object({ completed: z.number(), withAi: z.number(), direct: z.number() }).nullish(),
   assistantAgentId: z.number(),
   model: z.string(),
   maxTurns: z.number(),
@@ -58,13 +83,31 @@ function buildSystemPrompt(input: PersonalReportInput): string {
   const rules = [
     '- 템플릿에 있는 지시 상자(작성 방법을 안내하는 인용·콜아웃 상자)는 따르되, 지시 상자 자체는 출력하지 않는다.',
     '- 제목(h1)은 쓰지 않는다("# " 로 시작하는 줄 금지). 시스템이 제목을 따로 붙인다. 본문은 "## " 절부터 시작한다.',
-    '- 숫자는 숫자 표(「어제 숫자」·「지난주 대비」·「지난달 대비」)에만 쓰고, 받은 값을 그대로 옮긴다. 본문 문장에서 숫자를 새로 계산하거나 지어내지 않는다.',
-    '- 이슈를 언급할 때는 받은 목록의 url 을 그대로 한 칸에 맨 주소로 쓴다. 글자를 붙인 [글](url) 링크로 바꾸지 않는다.',
-    '- 받은 목록에 없는 이슈를 지어내지 않는다. 목록에 담지 못한 이슈가 있다고 알려주면 건수만 한 줄로 언급할 수 있다.',
-    '- AI 와 함께한 일도 이 사람의 「내 일」로 쓴다. AI 를 주어로 세우지 않는다(예: 「AI 가 고쳤다」 대신 「고쳤다 · AI와 함께」).',
+    '- 숫자는 받은 값만 쓴다. 새로 계산하는 것은 받은 목록의 개수 세기(예: 「결함 수정 8건」)뿐이고, 합·차·비율을 새로 만들거나 지어내지 않는다. ' +
+      '숫자 표(「어제 숫자」·「지난주 대비」·「지난달 대비」)는 받은 값을 그대로 옮긴다.',
+    '- 이슈 주소는 문장 안에 넣지 않는다. 주소는 받은 목록의 url 을 맨 주소로 두고, 글자를 붙인 [글](url) 링크로 바꾸지 않는다.',
+    '- 받은 목록에 없는 이슈를 지어내지 않는다. 목록에 담지 못한 이슈의 건수는 본문에 쓰지 않는다 — 목록 밖 이슈가 있다는 사실은 참고로만 쓴다.',
+    '- AI 와 함께한 일도 이 사람의 「내 일」로 쓴다. AI 를 주어로 세우지 않는다. 줄마다 「· AI와 함께」를 붙이지 않는다. ' +
+      'AI와 함께한 건수는 요약의 받은 값으로만 보여 준다.',
+    '- 판단은 「~습니다」 문장으로, 근거는 명사형 개조식(명사형 끝맺음, 한 줄 40자 안팎)으로 쓴다.',
     '- 「막힌 것」은 받은 이슈의 마지막 댓글·답을 기다리는 이슈에서만 찾아 쓴다. 근거가 없으면 「막힌 것」에 「없음」 한 줄만 쓴다.',
-    '- 말투는 템플릿 샘플을 따른다 — 샘플 문장의 끝맺음(예: ~합니다)을 그대로 쓰고 다른 말투로 바꾸지 않는다.',
+    '- 말투는 템플릿 샘플을 따른다 — 샘플 문장의 끝맺음(예: ~습니다)을 그대로 쓰고 다른 말투로 바꾸지 않는다.',
+    // 구조 규칙(WP-1632) — 이미 있는 템플릿 페이지는 바꾸지 않아 옛 템플릿을 쓰는 사람이 있으므로 조건부로 둔다.
+    '- 아래 구조 규칙은 템플릿에 해당 표·줄·절이 있을 때만 따른다. 템플릿에 그 모양이 없으면 템플릿 모양을 따른다.',
+    '  - 템플릿에 「오늘 할 일」·「다음 주 할 일」·「다음 달 할 일」 표가 있으면, 그 표에는 내가 직접 움직여야 하는 일만 넣는다. ' +
+      '이유가 「내 답을 기다림」인 일은 담당에 AI 가 있어도 늘 표에 넣는다(AI·사람이 내 답을 기다리는 일이라 먼저 움직일 일이다). ' +
+      '그 밖에 담당에 AI 가 있는(담당 칸에 「(AI)」 가 있는) 일은 표에 넣지 않고 표 아래 한 줄로 묶는다.',
+    '  - 템플릿에 「관련」 줄이 있으면 이슈 주소는 「관련」 줄이나 표 칸에만 두고, 한 「관련」 줄에는 3개까지만 둔다.',
+    '  - 템플릿 요약에 「끝낸 일」 줄이 있으면 받은 「끝낸 일」 값을 그대로 옮긴다.',
   ]
+  // 구 API(completedSplit 없음) 대비 — 직접 건수를 받지 못했을 때 AI 가 끝냄 − AI와 함께를 스스로 계산하지 않게 막는다.
+  // TODO(WP-1632): 롤링 배포 동안만 필요한 규칙 — api·ai-agent 가 둘 다 WP-1632 로 배포되면 지운다(completedSplit 을 늘 받게 됨).
+  if (!input.completedSplit) {
+    rules.push(
+      '  - 이번에는 「끝낸 일: …」 줄을 받지 못했으므로, 「끝낸 일」 줄에는 숫자 표 끝냄 칸의 합계(그 칸에 AI와 함께 건수가 있으면 그 값도)만 쓰고 ' +
+        '직접 건수는 계산하지 않는다.',
+    )
+  }
   if (input.kind === 'MONTHLY') {
     rules.push(
       '- 이번 보고는 월간이다. 샘플의 「주」를 「달」로 바꿔 쓴다(예: 「다음 주 할 일」 → 「다음 달 할 일」, 「지난주 대비」 → 「지난달 대비」).',
@@ -91,6 +134,11 @@ function buildUserMessage(input: PersonalReportInput): string {
     `기간: ${sanitizeInline(input.periodLabel)} (${sanitizeInline(input.kindLabel)})`,
     '',
   ]
+  // 끝낸 일 나눔(WP-1632) — 새 API 만 보낸다. 옮기는 법은 시스템 규칙(요약 「끝낸 일」 줄)이 정한다.
+  if (input.completedSplit) {
+    const s = input.completedSplit
+    lines.push(`끝낸 일: ${s.completed}건 (AI와 함께 ${s.withAi}, 직접 ${s.direct})`)
+  }
   if (input.numbersLine) {
     lines.push('「어제 숫자」 표 한 줄(칸은 「|」 로 나뉨, 값 그대로 옮기세요):', sanitizeInline(input.numbersLine))
   } else {

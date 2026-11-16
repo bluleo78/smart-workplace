@@ -517,6 +517,8 @@ class ProjectReportFactsServiceTest extends ExternalClientMockedTestBase {
     assertThat(i.statusName()).isNotBlank();
     assertThat(i.title()).hasSize(80);
     assertThat(i.assignees()).containsExactly("김담당");
+    // 담당 사람/AI 구분은 개인 보고 전용(WP-1632) — 프로젝트 요청에는 이름을 두 번 싣지 않게 비운다.
+    assertThat(i.assigneesDetail()).isNull();
     assertThat(i.lastComment()).hasSize(120).startsWith("나");
     assertThat(i.epic()).isNull();
   }

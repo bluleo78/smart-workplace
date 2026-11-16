@@ -220,7 +220,7 @@ class PersonalReportFactsServiceTest extends ExternalClientMockedTestBase {
     assertThat(f.table().body()).hasSize(1);
     assertThat(f.table().body().get(0).get(0)).isEqualTo("2");
     assertThat(f.table().insertSectionTitle()).isEqualTo("어제 숫자");
-    assertThat(f.table().insertAfterSection()).isEqualTo("한 줄");
+    assertThat(f.table().insertAfterSections()).containsExactly("한 줄", "막힌 것");
     assertThat(f.table().headFirstCell().test("끝냄")).isTrue();
 
     due(a, LocalDate.parse("2026-11-20"));
@@ -234,6 +234,46 @@ class PersonalReportFactsServiceTest extends ExternalClientMockedTestBase {
     due(a, LocalDate.parse("2026-11-20"));
 
     assertThat(daily().table().body().get(0).get(0)).isEqualTo("1 · 기한 내 1 · AI와 함께 1");
+  }
+
+  /**
+   * 끝낸 일 중 AI와 함께 건수(WP-1632) — 끝냄 3 중 AI 담당이 낀 1건만 AI와 함께. 직접 건수(끝냄 − AI와 함께)는 요청을 만들 때 {@code
+   * CompletedSplit.of} 가 정한다.
+   */
+  @Test
+  void completedWithAi_countsOnlyAiAssignedDone() {
+    long a = closedMine("DONE", kst("2026-11-11T10:00:00"));
+    assign(a, ai);
+    closedMine("DONE", kst("2026-11-11T12:00:00"));
+    closedMine("DONE", kst("2026-11-11T14:00:00"));
+
+    PersonalReportFacts f = daily();
+
+    assertThat(f.completed()).isEqualTo(3);
+    assertThat(f.completedWithAi()).isEqualTo(1);
+  }
+
+  /**
+   * 이슈 담당 kind(WP-1632) — 사람·AI 가 함께 담당한 이슈는 assigneesDetail 에 이름순으로 kind 와 함께 실린다(기존 assignees 도
+   * 그대로).
+   */
+  @Test
+  void issues_assigneesDetail_carriesHumanAndAgentKind() {
+    long id = closedMine("DONE", kst("2026-11-11T10:00:00"));
+    assign(id, ai);
+
+    ReportIssue issue = daily().issues().get(0);
+
+    assertThat(issue.assigneesDetail())
+        .extracting(ReportAssignee::name)
+        .containsExactlyElementsOf(issue.assignees());
+    assertThat(issue.assigneesDetail())
+        .extracting(ReportAssignee::kind)
+        .containsExactlyInAnyOrder("HUMAN", "AGENT");
+    assertThat(issue.assigneesDetail())
+        .filteredOn(a -> a.kind().equals("AGENT"))
+        .extracting(ReportAssignee::name)
+        .containsExactly("pr-ai");
   }
 
   @Test
@@ -405,7 +445,7 @@ class PersonalReportFactsServiceTest extends ExternalClientMockedTestBase {
 
     assertThat(f.table().headCells()).containsExactly("지난주 대비", "이번 주", "변화");
     assertThat(f.table().insertSectionTitle()).isEqualTo("지난주 대비");
-    assertThat(f.table().insertAfterSection()).isEqualTo("한 줄");
+    assertThat(f.table().insertAfterSections()).containsExactly("한 줄", "막힌 것");
     assertThat(f.table().body())
         .extracting(r -> r.get(0))
         .containsExactly("끝냄", "그중 AI와 함께", "기한 내", "기한 초과", "새로 만듦", "평균 소요", "기한 지남(지금)");

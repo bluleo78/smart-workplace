@@ -227,7 +227,7 @@ public final class ReportMarkdown {
    * 리포트 표를 시스템 값으로 다시 쓴다(WP-1486 에서 표 모양을 {@link ReportTableSpec} 으로 뺐다). 머리 첫 칸이 {@code spec} 판정을
    * 통과하는 펜스 밖 첫 표를 찾아 — {@code headCells} 가 null 이면 머리·구분 줄은 그대로 두고, 아니면 머리·구분 줄도 시스템 값으로 바꾼 뒤 —
    * 몸통을 시스템 행만으로 다시 쓴다(AI 가 뺀 행은 다시 넣고 모르는 행은 버린다). 표가 없고 템플릿에 있었으면 {@code insertSectionTitle} 제목과
-   * 표를 {@code insertAfterSection} 섹션 뒤(섹션이 없으면 첫 문단 뒤)에 넣는다 — 팀이 템플릿에서 표를 뺐으면 넣지 않는다.
+   * 표를 {@code insertAfterSections} 중 처음 찾은 섹션 뒤(하나도 없으면 첫 문단 뒤)에 넣는다 — 팀이 템플릿에서 표를 뺐으면 넣지 않는다.
    *
    * @param lines 고칠 줄 목록({@link #clean} 결과)
    * @param spec 표 모양
@@ -269,7 +269,12 @@ public final class ReportMarkdown {
     block.add("");
 
     int at;
-    int h = findSection(lines, fenced, spec.insertAfterSection());
+    // 후보를 앞에서부터 찾는다 — 옛 템플릿 순서의 섹션이 있으면 그 자리를 지키고, 없으면 다음 후보(새 순서)로.
+    int h = -1;
+    for (String title : spec.insertAfterSections()) {
+      h = findSection(lines, fenced, title);
+      if (h >= 0) break;
+    }
     if (h >= 0) {
       at = sectionEnd(lines, fenced, h);
     } else {

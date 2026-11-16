@@ -15,6 +15,8 @@ import java.util.Map;
  * @param completed 기간 안 끝냄(개요 「어제」 칸과 같은 정의)
  * @param created 기간 안 새로 만듦(내가 보고자)
  * @param statusChanged 기간 안 상태를 바꾼 이슈 수(내가 바꿨거나 지금 내 담당)
+ * @param completedWithAi 끝냄 중 「AI와 함께」(WP-1632, 개요·지표와 같은 정의) — 요약의 「끝낸 일 n건 (AI와 함께 a, 직접 b)」 재료.
+ *     지표 값 그대로이고, 끝냄 이하로 깎는 것은 요청을 만들 때({@code PersonalReportAiRequest.CompletedSplit#of}) 한다
  */
 public record PersonalReportFacts(
     PersonalReportPeriod period,
@@ -23,7 +25,8 @@ public record PersonalReportFacts(
     Map<String, Integer> omittedByGroup,
     int completed,
     int created,
-    int statusChanged) {
+    int statusChanged,
+    int completedWithAi) {
 
   /** 한 일 없음(끝냄·새로 만듦·상태 바꿈 셋 다 0) — 「한 일이 없는 날은 건너뜀」 판정. */
   public boolean isEmpty() {

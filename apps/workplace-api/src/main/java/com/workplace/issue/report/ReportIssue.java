@@ -23,6 +23,8 @@ import java.util.List;
  * @param project 프로젝트 이름 — 에픽이 없을 때 「프로젝트별」로 묶는 데 쓴다
  * @param lateDays 기간 안에 끝냈는데 마감을 넘겼으면 늦은 날수(개인 보고 DONE 만), 아니면 null
  * @param withAi 「AI와 함께」 끝냈는가(개인 보고 DONE 만, 그 밖 false)
+ * @param assigneesDetail 담당자 이름과 사람/AI 구분(WP-1632, {@link #assignees} 와 같은 순서). 개인 보고가 AI 가 진행하는 일을
+ *     가리는 데 쓴다. assignees 를 그대로 둔 새 필드인 까닭(롤링 배포 호환)은 {@link ReportAssignee} 참고
  */
 public record ReportIssue(
     String key,
@@ -38,4 +40,5 @@ public record ReportIssue(
     String reason,
     String project,
     Integer lateDays,
-    boolean withAi) {}
+    boolean withAi,
+    List<ReportAssignee> assigneesDetail) {}

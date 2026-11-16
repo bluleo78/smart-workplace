@@ -52,7 +52,8 @@ class AiAgentIssueClientProjectReportTest {
             "DONE",
             "WP",
             null,
-            false);
+            false,
+            List.of());
     return new ProjectReportAiRequest(
         "WP",
         "11월 2주차 주간 리포트",

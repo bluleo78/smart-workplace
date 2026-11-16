@@ -86,7 +86,7 @@ class PersonalReportTemplateConcurrencyTest extends ExternalClientMockedTestBase
     assertThat(titles)
         .containsExactly(PersonalReportTemplate.DAILY_TITLE, PersonalReportTemplate.WEEKLY_TITLE);
     long daily = writer.childIdsOrdered(home.reportsPageId()).get(0);
-    assertThat(writer.readBody(daily).orElse("")).contains("## 한 줄");
+    assertThat(writer.readBody(daily).orElse("")).contains("## 요약");
   }
 
   /** 같은 일을 두 스레드에서 한꺼번에 시작해 결과 둘을 모은다. */
