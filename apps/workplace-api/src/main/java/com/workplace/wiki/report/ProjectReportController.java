@@ -2,6 +2,7 @@ package com.workplace.wiki.report;
 
 import com.workplace.global.security.RequirePermission;
 import com.workplace.wiki.report.dto.ProjectReportCardResponse;
+import com.workplace.wiki.report.dto.ProjectReportGenerateResponse;
 import com.workplace.wiki.report.dto.ProjectReportSettingsResponse;
 import com.workplace.wiki.report.dto.UpdateProjectReportSettingsRequest;
 import jakarta.validation.Valid;
@@ -17,7 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 프로젝트 리포트 API(WP-1483) — 설정 읽기·저장, 템플릿 기본으로 되돌리기, 개요 카드 리포트 줄. 권한 판정은 서비스가 한다(읽기 = 프로젝트 읽기,
- * 저장·되돌리기 = OWNER·ADMIN, 개인 프로젝트 400). 리포지토리를 직접 쓰지 않는다 — 트랜잭션은 서비스가 나눈다(템플릿 본문 쓰기가 트랜잭션 밖이어야 해서).
+ * 저장·되돌리기·지금 생성 = OWNER·ADMIN, 개인 프로젝트 400). 리포지토리를 직접 쓰지 않는다 — 트랜잭션은 서비스가 나눈다(템플릿 본문 쓰기가 트랜잭션 밖이어야
+ * 해서).
  */
 @RestController
 @RequiredArgsConstructor
@@ -53,6 +55,18 @@ public class ProjectReportController {
       @PathVariable String key,
       @Valid @RequestBody UpdateProjectReportSettingsRequest req) {
     return ResponseEntity.ok(settingsService.update((Long) auth.getPrincipal(), key, req));
+  }
+
+  /**
+   * POST /api/v1/projects/{key}/reports/generate — 「지금 생성」(WP-1630). 직전에 끝난 회차 리포트를 정기 실행과 같은 생성기로
+   * 바로 만들고(같은 회차가 있으면 새 판) 만든 페이지를 돌려준다. 생성(AI)이 끝날 때까지 기다리는 동기 요청이다. 권한은 설정 저장과 같고, 만드는 중·비서 없음
+   * 409, 생성 실패 502(이유 문구).
+   */
+  @PostMapping("/api/v1/projects/{key}/reports/generate")
+  @RequirePermission("project:write")
+  public ResponseEntity<ProjectReportGenerateResponse> generateNow(
+      Authentication auth, @PathVariable String key) {
+    return ResponseEntity.ok(settingsService.generateNow((Long) auth.getPrincipal(), key));
   }
 
   /** POST /api/v1/projects/{key}/report-settings/template/reset — 템플릿 본문을 기본으로(직전 판은 수정 기록에). */

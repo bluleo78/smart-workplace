@@ -61,3 +61,12 @@ export interface ProjectReportSettings extends UpdateProjectReportSettingsReques
   /** 이 사용자가 고칠 수 있는지(OWNER·ADMIN, 개인 프로젝트는 false) */
   canManage: boolean
 }
+
+/** POST /projects/{key}/reports/generate 응답(WP-1630) — 「지금 생성」으로 만든(또는 새 판을 쓴) 리포트 페이지. */
+export interface ProjectReportGenerateResult {
+  pageId: number
+  /** 「11월 3주차 주간 리포트」 */
+  title: string
+  /** 같은 회차 리포트가 있어 그 페이지에 새 판을 썼으면 true(직전 판은 노트 수정 기록에) */
+  replaced: boolean
+}

@@ -4,6 +4,8 @@ export const wikiKeys = {
   all: ['wiki'] as const,
   spaces: () => ['wiki', 'spaces'] as const,
   tree: (spaceId: number) => ['wiki', 'tree', spaceId] as const,
+  // 모든 공간의 트리 — 어느 공간이 바뀌었는지 모를 때(프로젝트 노트 공간 연결·리포트 「지금 생성」) 한꺼번에 무효화한다.
+  trees: () => ['wiki', 'tree'] as const,
   page: (pageId: number) => ['wiki', 'page', pageId] as const,
   // 공유 링크로 받은 페이지 상세(WP-579) — 토큰을 넣어 멤버 캐시·다른 링크 캐시와 나눈다(멘션·이미지 blob 과 같은 방식). page(id) 가 접두라
   // page(id) 로 무효화하면 함께 무효화된다.

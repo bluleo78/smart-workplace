@@ -2,6 +2,9 @@ package com.workplace.wiki.report;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.jooq.impl.DSL.field;
+import static org.jooq.impl.DSL.name;
+import static org.jooq.impl.DSL.table;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.report.ReportCadence;
@@ -121,5 +124,58 @@ class ProjectReportRepositoryTest extends ExternalClientMockedTestBase {
         .containsExactly(tuple(pageId, "WARN"));
     assertThat(repository.lastGeneratedBadge(projectId, PERIOD.start().plusDays(7)))
         .contains("WARN");
+  }
+
+  // ───────────── 「지금 생성」(WP-1630) ─────────────
+
+  /**
+   * 새로 넣은 행에서 페이지를 만든 뒤 실패하면 한 번 실패로 회차를 닫지 않는다 — 곧바로 이어받을 수 있는 PENDING 으로 남아 정기 실행이 그 페이지를 다시
+   * 쓴다(코드 리뷰: 첫 실패에 FAILED 로 닫아 정기 재시도가 막히던 것).
+   */
+  @Test
+  void restoreNow_newRowWithPage_leavesTakeoverablePending() {
+    var takeover = repository.reserveNow(projectId, PERIOD, NOW).orElseThrow();
+    repository.attachPage(projectId, PERIOD, pageId);
+
+    repository.restoreNow(projectId, PERIOD, takeover);
+
+    assertThat(repository.inProgress(projectId, PERIOD, NOW)).isFalse();
+    assertThat(repository.reserve(projectId, PERIOD, NOW.plusMinutes(1)))
+        .isEqualTo(Reserve.RESERVED);
+    assertThat(repository.pendingPageId(projectId, PERIOD)).contains(pageId);
+  }
+
+  /**
+   * 리포트 페이지가 지워졌던 GENERATED 회차는 실패 뒤 페이지 id 까지 되돌린다 — 이번에 만든 빈 페이지가 개요 카드의 최신 리포트로 보이지 않게(코드 리뷰).
+   */
+  @Test
+  void restoreNow_generated_restoresStatusAndPage() {
+    repository.reserve(projectId, PERIOD, NOW);
+    repository.markGenerated(
+        projectId, PERIOD, pageId, "ON_TRACK", new ReportSnapshot(1, 2, 3, 0, "ON_TRACK"), NOW);
+    // 페이지를 지운 것처럼(외래 키 ON DELETE SET NULL 과 같은 상태).
+    dsl.update(table(name("project_report")))
+        .setNull(field(name("page_id")))
+        .where(field(name("project_id"), Long.class).eq(projectId))
+        .execute();
+    var takeover = repository.reserveNow(projectId, PERIOD, NOW.plusHours(1)).orElseThrow();
+    assertThat(takeover.previousStatus()).isEqualTo("GENERATED");
+    assertThat(repository.inProgress(projectId, PERIOD, NOW.plusHours(1))).isTrue();
+    repository.attachPage(projectId, PERIOD, pageId);
+
+    repository.restoreNow(projectId, PERIOD, takeover);
+
+    assertThat(repository.recentGenerated(projectId, 10)).isEmpty();
+    assertThat(repository.reserve(projectId, PERIOD, NOW.plusHours(2)))
+        .isEqualTo(Reserve.DUPLICATE);
+  }
+
+  /** 만드는 중 판정은 30분 안의 PENDING 만 — 묵은 예약은 만드는 중이 아니다. */
+  @Test
+  void inProgress_onlyFreshPending() {
+    repository.reserveNow(projectId, PERIOD, NOW);
+    assertThat(repository.inProgress(projectId, PERIOD, NOW.plusMinutes(29))).isTrue();
+    assertThat(repository.inProgress(projectId, PERIOD, NOW.plusMinutes(31))).isFalse();
+    assertThat(repository.reserveNow(projectId, PERIOD, NOW.plusMinutes(5))).isEmpty();
   }
 }

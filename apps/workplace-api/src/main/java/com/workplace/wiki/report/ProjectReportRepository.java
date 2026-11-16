@@ -89,13 +89,7 @@ public class ProjectReportRepository {
    * 이어받는다. 둘 다 한 SQL 의 조건부 쓰기라 동시에 불러도 한 쪽만 RESERVED 다.
    */
   public Reserve reserve(long projectId, ReportPeriod p, OffsetDateTime now) {
-    int inserted =
-        dsl.insertInto(T)
-            .columns(PROJECT_ID, PERIOD_START, PERIOD_END, STATUS, RESERVED_AT, CREATED_AT)
-            .values(projectId, p.start(), p.end(), PENDING, now, now)
-            .onConflictDoNothing()
-            .execute();
-    if (inserted == 1) return Reserve.RESERVED;
+    if (insertPending(projectId, p, now)) return Reserve.RESERVED;
     int takenOver =
         dsl.update(T)
             .set(RESERVED_AT, now)
@@ -105,6 +99,93 @@ public class ProjectReportRepository {
             .and(RESERVED_AT.lt(now.minusMinutes(STALE_PENDING_MINUTES)))
             .execute();
     return takenOver == 1 ? Reserve.RESERVED : Reserve.DUPLICATE;
+  }
+
+  /** 회차 행이 없으면 PENDING 으로 넣는다(ON CONFLICT DO NOTHING) — 넣었으면 true. 정기·「지금 생성」 예약이 같이 쓴다. */
+  private boolean insertPending(long projectId, ReportPeriod p, OffsetDateTime now) {
+    return dsl.insertInto(T)
+            .columns(PROJECT_ID, PERIOD_START, PERIOD_END, STATUS, RESERVED_AT, CREATED_AT)
+            .values(projectId, p.start(), p.end(), PENDING, now, now)
+            .onConflictDoNothing()
+            .execute()
+        == 1;
+  }
+
+  /**
+   * 「지금 생성」의 이어받기 결과(WP-1630) — 이 실행이 그 회차를 맡았다.
+   *
+   * @param previousStatus 맡기 전 상태(GENERATED·SKIPPED·FAILED·PENDING). 새로 넣은 행이면 null — 실패하면 이 상태로
+   *     되돌린다
+   * @param previousPageId 맡기 전 페이지 id(없으면 null) — GENERATED 를 되돌릴 때 함께 되돌린다
+   */
+  public record Takeover(String previousStatus, Long previousPageId) {}
+
+  /**
+   * 「지금 생성」 예약(WP-1630) — 정기 실행과 같은 회차 행을 실행권으로 쓴다. 행이 없으면 PENDING 으로 넣고, 있으면 행을 잠가(FOR UPDATE) 30분
+   * 안의 PENDING(정기 실행·다른 「지금 생성」이 만드는 중)이 아닐 때만 PENDING 으로 바꿔 맡는다 — 페이지 id 는 그대로 두어 생성기가 그 페이지에 새 판을
+   * 쓴다. 동시에 불러도 행 잠금으로 한 쪽만 맡는다. 트랜잭션 안에서 부른다.
+   *
+   * @return 맡았으면 이전 상태, 만드는 중이면 empty
+   */
+  public Optional<Takeover> reserveNow(long projectId, ReportPeriod p, OffsetDateTime now) {
+    if (insertPending(projectId, p, now)) return Optional.of(new Takeover(null, null));
+    var row =
+        dsl.select(STATUS, RESERVED_AT, PAGE_ID)
+            .from(T)
+            .where(PROJECT_ID.eq(projectId))
+            .and(isPeriod(p))
+            .forUpdate()
+            .fetchOne();
+    // 넣기와 읽기 사이에 지워졌으면(정기 실행의 실패 풀기) 지금은 맡지 못한다 — 다시 누르면 새로 넣는다.
+    if (row == null) return Optional.empty();
+    String status = row.get(STATUS);
+    OffsetDateTime reservedAt = row.get(RESERVED_AT);
+    boolean running =
+        PENDING.equals(status)
+            && reservedAt != null
+            && !reservedAt.isBefore(now.minusMinutes(STALE_PENDING_MINUTES));
+    if (running) return Optional.empty();
+    dsl.update(T)
+        .set(STATUS, PENDING)
+        .set(RESERVED_AT, now)
+        .where(PROJECT_ID.eq(projectId))
+        .and(isPeriod(p))
+        .execute();
+    return Optional.of(new Takeover(status, row.get(PAGE_ID)));
+  }
+
+  /**
+   * 「지금 생성」 실패 뒤 되돌리기(WP-1630) — 맡기 전 상태로 돌려 있던 리포트·기록을 그대로 남긴다.
+   *
+   * <ul>
+   *   <li>새로 넣은 행·묵은 PENDING: 정기 실행의 실패처럼 예약만 푼다({@link #release}) — 페이지가 없으면 행을 지우고, 만들다 만 페이지가
+   *       있으면 곧바로 이어받을 수 있는 PENDING 으로 남겨 정기 재시도·다음 「지금 생성」이 그 페이지를 다시 쓴다(한 번 실패로 회차를 닫지 않는다).
+   *   <li>GENERATED: 상태와 페이지 id 를 함께 되돌린다 — 지워졌던 리포트 자리에 이번에 만든 빈 페이지가 개요 카드의 최신 리포트로 보이지 않게.
+   *   <li>SKIPPED·FAILED: 상태만 되돌린다 — 이번에 만든 페이지는 행에 남아 다음 「지금 생성」이 다시 쓴다(카드는 GENERATED 만 본다).
+   * </ul>
+   */
+  public void restoreNow(long projectId, ReportPeriod p, Takeover takeover) {
+    String previous = takeover.previousStatus();
+    if (previous == null || PENDING.equals(previous)) {
+      release(projectId, p);
+      return;
+    }
+    var update = dsl.update(T).set(STATUS, previous);
+    if (GENERATED.equals(previous)) {
+      update = update.set(PAGE_ID, takeover.previousPageId());
+    }
+    update.where(PROJECT_ID.eq(projectId)).and(isPeriod(p)).and(STATUS.eq(PENDING)).execute();
+  }
+
+  /** 그 회차를 지금 누가 만드는 중인가 — 30분 안에 예약한 PENDING 행(「지금 생성」 또는 다른 실행). */
+  public boolean inProgress(long projectId, ReportPeriod p, OffsetDateTime now) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(T)
+            .where(PROJECT_ID.eq(projectId))
+            .and(isPeriod(p))
+            .and(STATUS.eq(PENDING))
+            .and(RESERVED_AT.ge(now.minusMinutes(STALE_PENDING_MINUTES))));
   }
 
   /**

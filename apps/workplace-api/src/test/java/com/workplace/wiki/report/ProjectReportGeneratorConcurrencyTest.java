@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.jooq.impl.DSL.field;
 import static org.jooq.impl.DSL.name;
 import static org.jooq.impl.DSL.table;
@@ -24,6 +25,7 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.report.ProjectReportGenerator.Outcome;
+import com.workplace.wiki.report.dto.ProjectReportGenerateResponse;
 import com.workplace.wiki.report.dto.UpdateProjectReportSettingsRequest;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -40,6 +42,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 
 /**
  * 프로젝트 리포트 생성기 동시 점유(WP-1483) — 두 실행(여러 파드)이 같은 프로젝트를 동시에 돌려도 실행권(next_run_at 조건부 갱신)은 하나만 잡아 리포트는
@@ -61,6 +64,7 @@ class ProjectReportGeneratorConcurrencyTest extends ExternalClientMockedTestBase
 
   private long owner;
   private long projectId;
+  private String projectKey;
 
   @BeforeEach
   void seed() {
@@ -72,6 +76,7 @@ class ProjectReportGeneratorConcurrencyTest extends ExternalClientMockedTestBase
     var project =
         projectService.create(owner, new CreateProjectRequest(key, "동시-" + key, null, "TEAM"));
     projectId = project.id();
+    projectKey = key;
     when(assistantResolver.resolveWorkspaceOrEmpty())
         .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000)));
     when(client.writeProjectReport(any()))
@@ -140,6 +145,67 @@ class ProjectReportGeneratorConcurrencyTest extends ExternalClientMockedTestBase
     pool.shutdown();
 
     assertThat(outcomes).containsExactlyInAnyOrder(Outcome.GENERATED, Outcome.NOT_DUE);
+    int rows =
+        callInTenant(
+            1L,
+            () ->
+                dsl.fetchCount(
+                    table(name("project_report")),
+                    field(name("project_id"), Long.class).eq(projectId)));
+    assertThat(rows).isEqualTo(1);
+  }
+
+  /**
+   * 「지금 생성」(WP-1630)이 AI 를 기다리는 동안 — 두 번째 「지금 생성」은 409(만드는 중), 같은 회차의 정기 실행은 DUPLICATE 로 비켜 가고, 리포트
+   * 페이지는 하나만 생긴다. 실행권은 정기 실행과 같은 회차 행이다.
+   */
+  @Test
+  void runNow_whileGenerating_blocksSecondRequestAndScheduledRun() throws Exception {
+    CountDownLatch inAi = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    when(client.writeProjectReport(any()))
+        .thenAnswer(
+            inv -> {
+              inAi.countDown();
+              release.await(30, TimeUnit.SECONDS);
+              return new ProjectReportAiResult("## 상태와 한 줄\n\n**순조로움**\n\n잘 됐어요.\n");
+            });
+    ExecutorService pool = Executors.newSingleThreadExecutor();
+    Future<ProjectReportGenerateResponse> first =
+        pool.submit(
+            () -> {
+              TenantContext.set(1L);
+              try {
+                return settingsService.generateNow(owner, projectKey, NOW);
+              } finally {
+                TenantContext.clear();
+              }
+            });
+    try {
+      assertThat(inAi.await(30, TimeUnit.SECONDS)).isTrue();
+
+      assertThatThrownBy(() -> settingsService.generateNow(owner, projectKey, NOW))
+          .isInstanceOfSatisfying(
+              ProjectReportGenerateException.class,
+              e -> assertThat(e.status()).isEqualTo(HttpStatus.CONFLICT));
+      assertThat(generator.run(projectId, NOW)).isEqualTo(Outcome.DUPLICATE);
+      // 비켜 간 정기 실행은 다음 예정이 아니라 30분 뒤 재시도로 — 「지금 생성」이 실패해도 그 회차를 잃지 않는다(코드 리뷰).
+      OffsetDateTime next =
+          callInTenant(
+              1L,
+              () ->
+                  dsl.select(field(name("next_run_at"), OffsetDateTime.class))
+                      .from(table(name("project_report_setting")))
+                      .where(field(name("project_id"), Long.class).eq(projectId))
+                      .fetchOne(0, OffsetDateTime.class));
+      assertThat(next.toInstant()).isEqualTo(NOW.plusMinutes(30).toInstant());
+    } finally {
+      release.countDown();
+    }
+    ProjectReportGenerateResponse done = first.get(60, TimeUnit.SECONDS);
+    pool.shutdown();
+
+    assertThat(done.replaced()).isFalse();
     int rows =
         callInTenant(
             1L,

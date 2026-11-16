@@ -31,8 +31,25 @@ public class ReportPageWriter {
       long parentId,
       int position,
       OffsetDateTime now) {
+    writeAndMark(authorId, page, body, parentId, position, now, false);
+  }
+
+  /**
+   * {@link #writeAndMark(long, WikiPageDetail, String, long, int, OffsetDateTime)} 에 직전 판 남기기를 고를 수
+   * 있게 한 것 — 이미 있는 리포트를 다시 쓸 때(「지금 생성」 덮어쓰기, WP-1630) 직전 본문을 수정 기록에 남긴다.
+   *
+   * @param snapshot 직전 판을 수정 기록으로 남길지
+   */
+  public void writeAndMark(
+      long authorId,
+      WikiPageDetail page,
+      String body,
+      long parentId,
+      int position,
+      OffsetDateTime now,
+      boolean snapshot) {
     long pageId = page.id();
-    writer.writeBody(authorId, pageId, page.version(), body, true, false);
+    writer.writeBody(authorId, pageId, page.version(), body, true, snapshot);
     writer.moveTo(pageId, parentId, position);
     writer.markAiReport(pageId, markTime(pageId, now));
   }

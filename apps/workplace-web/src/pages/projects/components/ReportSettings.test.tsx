@@ -205,3 +205,96 @@ test('saveError_showsToastAndRestores — 저장이 실패하면 오류 토스�
   expect(await screen.findByText('저장할 수 없어요')).toBeInTheDocument()
   await waitFor(() => expect(toggle()).not.toBeChecked())
 })
+
+// ───────────── 「지금 생성」(WP-1630) ─────────────
+
+const GENERATE = `/api/v1/projects/${KEY}/reports/generate`
+
+/**
+ * 「지금 생성」 줄을 띄운다 — POST 횟수를 센다. respond 가 그 회차의 응답을 정한다(기본 성공).
+ * gate 를 주면 그 약속이 풀릴 때까지 응답을 미룬다(진행 중 상태를 보려고).
+ */
+function openGenerate({
+  canManage = true,
+  respond = () => HttpResponse.json({ pageId: 900, title: '11월 3주차 주간 리포트', replaced: false }),
+  gate,
+}: { canManage?: boolean; respond?: (n: number) => Response; gate?: Promise<void> } = {}) {
+  let posts = 0
+  const view = renderScreen(<ReportSettings projectKey={KEY} canManage={canManage} />, {
+    path: `/projects/${KEY}/settings`,
+    handlers: [
+      http.get(BASE, () => HttpResponse.json(settings())),
+      http.post(GENERATE, async () => {
+        posts += 1
+        const n = posts
+        if (gate) await gate
+        return respond(n)
+      }),
+    ],
+  })
+  return { ...view, postCount: () => posts }
+}
+
+test('generate_success — 「지금 생성」을 누르면 POST 하고, 만든 리포트로 가는 링크와 완료 토스트를 보인다', async () => {
+  const { user, postCount } = openGenerate()
+  await user.click(await screen.findByRole('button', { name: '지금 생성' }))
+  expect(await screen.findByText('리포트를 만들었어요')).toBeInTheDocument()
+  expect(postCount()).toBe(1)
+  expect(screen.getByRole('link', { name: '11월 3주차 주간 리포트' })).toHaveAttribute('href', `/projects/${KEY}/notes/900`)
+})
+
+test('generate_replaced — 같은 회차를 다시 만들면 「새 판으로 바꿨어요」 토스트', async () => {
+  const { user } = openGenerate({
+    respond: () => HttpResponse.json({ pageId: 900, title: '11월 3주차 주간 리포트', replaced: true }),
+  })
+  await user.click(await screen.findByRole('button', { name: '지금 생성' }))
+  expect(await screen.findByText('리포트를 새 판으로 바꿨어요')).toBeInTheDocument()
+})
+
+test('generate_inProgress — 만드는 동안 「만드는 중…」·aria-busy 이고 다시 눌러도 요청이 하나뿐', async () => {
+  let open!: () => void
+  const gate = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  const { user, postCount } = openGenerate({ gate })
+  await user.click(await screen.findByRole('button', { name: '지금 생성' }))
+  const busy = await screen.findByRole('button', { name: '만드는 중…' })
+  expect(busy).toHaveAttribute('aria-busy', 'true')
+  await user.click(busy)
+  expect(postCount()).toBe(1)
+  open()
+  expect(await screen.findByText('리포트를 만들었어요')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '지금 생성' })).not.toHaveAttribute('aria-busy')
+})
+
+test('generate_failure_showsReason_andRetry — 실패하면 이유를 줄 아래 보이고, 「다시 시도」로 다시 만든다', async () => {
+  const { user, postCount } = openGenerate({
+    respond: (n) =>
+      n === 1
+        ? HttpResponse.json(
+            { message: '리포트를 만들지 못했어요 — AI 리포트 작성 요청에 실패했어요.', errors: { code: 'REPORT_FAILED' } },
+            { status: 502 },
+          )
+        : HttpResponse.json({ pageId: 900, title: '11월 3주차 주간 리포트', replaced: false }),
+  })
+  await user.click(await screen.findByRole('button', { name: '지금 생성' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('리포트를 만들지 못했어요 — AI 리포트 작성 요청에 실패했어요.')
+  await user.click(screen.getByRole('button', { name: '다시 시도' }))
+  expect(await screen.findByText('리포트를 만들었어요')).toBeInTheDocument()
+  expect(postCount()).toBe(2)
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('generate_busy — 이미 만드는 중(409)이면 그 문구를 보인다', async () => {
+  const { user } = openGenerate({
+    respond: () => HttpResponse.json({ message: '이미 리포트를 만드는 중이에요', errors: { code: 'REPORT_BUSY' } }, { status: 409 }),
+  })
+  await user.click(await screen.findByRole('button', { name: '지금 생성' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('이미 리포트를 만드는 중이에요')
+})
+
+test('generate_hiddenWithoutManage — 관리 권한이 없으면 「지금 생성」이 없다', async () => {
+  openGenerate({ canManage: false })
+  expect(await screen.findByText('프로젝트 노트 › 리포트')).toBeInTheDocument()
+  expect(screen.queryByTestId('settings-report-generate')).not.toBeInTheDocument()
+})

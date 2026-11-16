@@ -204,6 +204,18 @@ public class ProjectReportSettingRepository {
         .execute();
   }
 
+  /**
+   * 다음 실행만 at 으로 당긴다(WP-1630) — 실패 수·오류는 그대로. 「지금 생성」이 같은 회차를 만드는 중이라 비켜 간 정기 실행을 재시도로 되돌린다. 그 사이
+   * 꺼졌으면 되살리지 않는다.
+   */
+  public void retryAt(long projectId, OffsetDateTime at) {
+    dsl.update(T)
+        .set(NEXT_RUN_AT, at)
+        .where(PROJECT_ID.eq(projectId))
+        .and(ENABLED.isTrue())
+        .execute();
+  }
+
   /** 성공(또는 회차를 넘김) — 연속 실패 수와 오류를 지운다. */
   public void resetFailures(long projectId) {
     dsl.update(T)

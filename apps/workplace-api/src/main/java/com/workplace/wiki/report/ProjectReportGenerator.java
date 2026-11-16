@@ -3,6 +3,7 @@ package com.workplace.wiki.report;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.util.CapabilityTokens;
+import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.dto.ProjectReportAiRequest;
 import com.workplace.issue.outbound.dto.ProjectReportAiResult;
@@ -15,8 +16,10 @@ import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.report.ProjectReportRepository.Reserve;
+import com.workplace.wiki.report.ProjectReportRepository.Takeover;
 import com.workplace.wiki.report.ProjectReportSettingRepository.SettingRow;
 import com.workplace.wiki.report.ReportErrors.ReportFailure;
+import com.workplace.wiki.report.dto.ProjectReportGenerateResponse;
 import com.workplace.wiki.repository.ProjectNoteSpaceRepository;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
@@ -96,6 +99,9 @@ public class ProjectReportGenerator {
   /** 잡은 실행권 — 그때의 설정과, 점유가 밀어 둔 다음 예정 시각(3회째 실패 때 그리로 넘긴다). */
   private record Claim(SettingRow setting, OffsetDateTime next) {}
 
+  /** 한 회차를 만든 결과 — 리포트 페이지를 썼으면 그 id(건너뛰었으면 null), 이미 있던 페이지를 다시 썼는지. */
+  private record Written(Outcome outcome, Long pageId, boolean replaced) {}
+
   private final ProjectRepository projectRepository;
   private final ProjectReportSettingRepository settings;
   private final ProjectReportRepository reports;
@@ -163,14 +169,107 @@ public class ProjectReportGenerator {
 
     ReportPeriod period = ReportPeriod.lastComplete(claim.get().setting().cadence(), now);
     Reserve reserved = tx.execute(s -> reports.reserve(projectId, period, now));
-    if (reserved != Reserve.RESERVED) return Outcome.DUPLICATE;
+    if (reserved != Reserve.RESERVED) {
+      // 「지금 생성」이 그 회차를 만드는 중이면 점유가 다음 예정으로 민 것을 30분 뒤 재시도로 되돌린다 — 그 실행이 실패해 행을 풀어도 이 회차를
+      // 잃지 않게(만들었으면 재시도는 DUPLICATE 로 끝나고 다음 예정으로 간다).
+      tx.executeWithoutResult(
+          s -> {
+            if (reports.inProgress(projectId, period, now)) {
+              settings.retryAt(projectId, now.plus(RETRY_DELAY));
+            }
+          });
+      return Outcome.DUPLICATE;
+    }
 
     try {
-      return generate(project, period, now);
+      Optional<AssistantSpec> spec = workspaceAssistant();
+      if (spec.isEmpty()) {
+        log.debug("공통 비서가 없어 프로젝트 리포트를 건너뜀 projectId={}", projectId);
+        tx.executeWithoutResult(s -> reports.release(projectId, period));
+        return Outcome.SKIPPED_NO_ASSISTANT;
+      }
+      return generate(project, period, now, spec.get(), false).outcome();
     } catch (RuntimeException e) {
       fail(projectId, claim.get(), period, now, e);
       return Outcome.FAILED;
     }
+  }
+
+  /**
+   * 「지금 생성」(WP-1630) — 다음 회차를 기다리지 않고 직전에 끝난 회차 하나를 지금 만든다. 정기 실행과 같은 생성 단계(계산값 → 템플릿 → AI → 후처리 →
+   * 페이지)를 쓰되 셋이 다르다:
+   *
+   * <ul>
+   *   <li>실행권은 next_run_at 점유가 아니라 회차 행 예약({@link ProjectReportRepository#reserveNow}) — 정기 일정·실패
+   *       수를 건드리지 않고, 꺼져 있어도 만든다. 정기 실행이 그 회차를 만드는 중이면 409. 회차는 {@link #manualPeriod} 로 정한다.
+   *   <li>같은 회차 리포트가 있으면 그 페이지에 새 판을 쓰고 직전 본문은 수정 기록에 남긴다. 「변화 없음」이어도 만든다(사람이 눌렀으니).
+   *   <li>실패는 재시도로 미루지 않고 맡기 전 상태로 되돌린 뒤 이유와 함께 알린다 — 있던 리포트는 그대로다.
+   * </ul>
+   *
+   * <p>호출자가 권한·개인 프로젝트를 걸렀고 TenantContext 를 세웠다. 트랜잭션 밖에서 부른다(본문 쓰기).
+   *
+   * @param setting 설정(행이 없으면 기본값) — 회차를 정한다
+   * @throws ProjectReportGenerateException 비서 없음·만드는 중(409), 생성 실패(502)
+   */
+  public ProjectReportGenerateResponse runNow(
+      ProjectRow project, SettingRow setting, OffsetDateTime now) {
+    long projectId = project.id();
+    AssistantSpec spec =
+        workspaceAssistant().orElseThrow(ProjectReportGenerateException::noAssistant);
+    ReportPeriod period = manualPeriod(setting, now);
+    Optional<Takeover> reserved = tx.execute(s -> reports.reserveNow(projectId, period, now));
+    if (reserved == null || reserved.isEmpty()) throw ProjectReportGenerateException.busy();
+    Takeover takeover = reserved.get();
+    Written written;
+    try {
+      written = generate(project, period, now, spec, true);
+    } catch (RuntimeException e) {
+      try {
+        tx.executeWithoutResult(s -> reports.restoreNow(projectId, period, takeover));
+      } catch (RuntimeException restoreError) {
+        // 되돌리기마저 실패해도 원래 실패 이유를 알린다 — 행은 PENDING 으로 남아 30분 뒤 묵은 예약으로 이어받힌다.
+        log.warn("프로젝트 리포트 지금 생성 되돌리기 실패 projectId={}: {}", projectId, restoreError.toString());
+      }
+      log.warn(
+          "프로젝트 리포트 지금 생성 실패 projectId={} period={}~{}: {}",
+          projectId,
+          period.start(),
+          period.end(),
+          e.toString());
+      throw ProjectReportGenerateException.failed(failureReason(e));
+    }
+    return new ProjectReportGenerateResponse(written.pageId(), period.title(), written.replaced());
+  }
+
+  /**
+   * 「지금 생성」의 회차 — 직전에 끝난 완전 회차. 격주는 정기 회차와 칸이 어긋나지 않게(쉬는 주에 눌러 두 회차에 걸친 14일이 생기지 않게) 지금 이하의 가장 최근
+   * 정기 예정 칸을 기준으로 잡는다 — 켜져 있고 다음 예정이 있을 때만 칸을 안다(꺼져 있으면 지금 기준). 매주·매월은 실행 날짜만으로 정해져 지금 기준과 같다.
+   */
+  static ReportPeriod manualPeriod(SettingRow s, OffsetDateTime now) {
+    OffsetDateTime base = now;
+    if (s.cadence() == ReportCadence.BIWEEKLY && s.enabled() && s.nextRunAt() != null) {
+      OffsetDateTime slot = slotAtOrBefore(s.weekday(), s.timeOfDay(), s.nextRunAt());
+      while (slot.isAfter(now)) slot = slot.minusWeeks(2);
+      base = slot;
+    }
+    return ReportPeriod.lastComplete(s.cadence(), base);
+  }
+
+  /**
+   * 화면에 보일 실패 이유 — 생성 단계가 사람이 읽을 문구로 던진 실패(상한·빈 글·자리 없음·AI 요청 실패)는 그대로, 그 밖(예상 못 한 예외)은 내부 문구를 드러내지
+   * 않고 다시 시도를 권한다.
+   */
+  static String failureReason(RuntimeException e) {
+    if (e instanceof ReportFailure || e instanceof IssueAiException) {
+      return ReportErrors.message(e);
+    }
+    return "예상하지 못한 오류가 났어요. 잠시 뒤 다시 시도해 주세요.";
+  }
+
+  /** 워크스페이스 공통 비서(없으면 empty) — 짧은 tx 로 읽는다. */
+  private Optional<AssistantSpec> workspaceAssistant() {
+    Optional<AssistantSpec> spec = tx.execute(s -> assistantResolver.resolveWorkspaceOrEmpty());
+    return spec == null ? Optional.empty() : spec;
   }
 
   /**
@@ -200,28 +299,31 @@ public class ProjectReportGenerator {
     return slot.toOffsetDateTime();
   }
 
-  /** 예약한 회차를 만든다 — 비서 확인 → 계산값 → 노트 자리·템플릿 → AI → 후처리 → 페이지. 실패는 예외로 알린다. */
-  private Outcome generate(ProjectRow project, ReportPeriod period, OffsetDateTime now) {
+  /**
+   * 예약한 회차를 만든다 — 계산값 → 노트 자리·템플릿 → AI → 후처리 → 페이지. 실패는 예외로 알린다.
+   *
+   * @param spec 공통 비서(호출자가 확인했다)
+   * @param manual 「지금 생성」 — 「변화 없음」이어도 만들고, 다시 쓰는 페이지의 직전 본문을 수정 기록에 남기고, 정기 일정의 실패 수는 건드리지 않는다
+   */
+  private Written generate(
+      ProjectRow project,
+      ReportPeriod period,
+      OffsetDateTime now,
+      AssistantSpec spec,
+      boolean manual) {
     long projectId = project.id();
-    Optional<AssistantSpec> spec = tx.execute(s -> assistantResolver.resolveWorkspaceOrEmpty());
-    if (spec == null || spec.isEmpty()) {
-      log.debug("공통 비서가 없어 프로젝트 리포트를 건너뜀 projectId={}", projectId);
-      tx.executeWithoutResult(s -> reports.release(projectId, period));
-      return Outcome.SKIPPED_NO_ASSISTANT;
-    }
-
     ProjectReportFacts facts = tx.execute(s -> computeFacts(project, period, now));
     // 앞선 시도가 이미 페이지를 만들었으면(재시도) 「변화 없음」이어도 건너뛰지 않고 그 페이지에 이어 쓴다 — 건너뛰면 쓰던 페이지가 회차와 끊긴 채
     // 남는다(코드 리뷰 #1).
     Optional<Long> pendingPageId = tx.execute(s -> reports.pendingPageId(projectId, period));
-    if (facts.noChange() && pendingPageId.isEmpty()) {
+    if (!manual && facts.noChange() && pendingPageId.isEmpty()) {
       // 변화 없는 기간은 노트를 건드리지 않고 스냅숏만 남긴다(다음 회차 「변화」 기준).
       tx.executeWithoutResult(
           s -> {
             reports.markSkipped(projectId, period, facts.snapshot(), now);
             settings.resetFailures(projectId);
           });
-      return Outcome.SKIPPED_NO_CHANGE;
+      return new Written(Outcome.SKIPPED_NO_CHANGE, null, false);
     }
 
     // 노트 자리 — 지워졌거나 이름이 바뀐 「리포트」·템플릿은 다시 만든다(본문 쓰기라 tx 밖).
@@ -238,7 +340,7 @@ public class ProjectReportGenerator {
 
     // tx 밖 AI — 커넥션을 붙잡지 않는다.
     ProjectReportAiResult result =
-        client.writeProjectReport(request(project, period, facts, templateMarkdown, spec.get()));
+        client.writeProjectReport(request(project, period, facts, templateMarkdown, spec));
     String markdown = result == null || result.markdown() == null ? "" : result.markdown().strip();
     if (markdown.isEmpty()) throw new ReportFailure("AI 가 빈 리포트를 돌려줬어요.");
     if (ReportPageWriter.codePoints(markdown) > OUTPUT_MAX) {
@@ -248,7 +350,8 @@ public class ProjectReportGenerator {
         ReportMarkdown.finish(
             markdown, facts, ReportMarkdown.hasReportTable(templateMarkdown), issueUrlPrefix);
 
-    return writePage(projectId, author, home, templateId, period, facts, body, pendingPageId, now);
+    return writePage(
+        projectId, author, home, templateId, period, facts, body, pendingPageId, manual, now);
   }
 
   /**
@@ -307,8 +410,10 @@ public class ProjectReportGenerator {
    *
    * <p>앞선 시도가 페이지를 만든 뒤 실패했으면({@code pendingPageId} — 회차에 적힌 페이지가 아직 있음) 새로 만들지 않고 그 페이지를 다시 쓴다 —
    * 회차당 페이지는 하나. 이 안의 실패는 다른 실패와 같이 호출자({@link #run})가 기록하고 재시도한다(회차 행은 지우지 않는다).
+   *
+   * @param manual 「지금 생성」 — 다시 쓰는 페이지의 직전 본문을 수정 기록에 남기고, 정기 일정의 실패 수는 건드리지 않는다
    */
-  private Outcome writePage(
+  private Written writePage(
       long projectId,
       long author,
       ReportsHome home,
@@ -317,6 +422,7 @@ public class ProjectReportGenerator {
       ProjectReportFacts facts,
       String body,
       Optional<Long> pendingPageId,
+      boolean manual,
       OffsetDateTime now) {
     Optional<WikiPageDetail> reused = pendingPageId.flatMap(writer::findPage);
     WikiPageDetail page;
@@ -333,14 +439,15 @@ public class ProjectReportGenerator {
         writer.childIdsOrdered(home.reportsPageId()).stream().filter(id -> id != pageId).toList();
     int position = !others.isEmpty() && others.get(0) == templateId ? 1 : 0;
     // 본문(AI) → 자리 → 「AI 작성」 표지 — 개인 보고와 나눠 쓰는 쓰기 뼈대(WP-1486).
-    pageWriter.writeAndMark(author, page, body, home.reportsPageId(), position, now);
+    pageWriter.writeAndMark(
+        author, page, body, home.reportsPageId(), position, now, manual && reused.isPresent());
     tx.executeWithoutResult(
         s -> {
           reports.markGenerated(
               projectId, period, pageId, facts.badge().name(), facts.snapshot(), now);
-          settings.resetFailures(projectId);
+          if (!manual) settings.resetFailures(projectId);
         });
-    return Outcome.GENERATED;
+    return new Written(Outcome.GENERATED, pageId, reused.isPresent());
   }
 
   /**
