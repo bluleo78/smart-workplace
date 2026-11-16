@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * 프로젝트 리포트의 에픽 집계(WP-1629) — 이슈 60건 대신 기간의 이슈 전부를 에픽 단위로 묶은 계산값. AI 는 이 묶음으로 「주요 성과·일정·진행 중인 에픽·결정
@@ -204,9 +205,29 @@ public record ProjectReportEpics(
 
   /** 제목 목록을 {@link #TITLE_LIMIT} 건까지 자르고 넘친 수를 「외 N건」 한 줄로 붙인다 — 하위가 수백 건인 에픽에서도 입력이 한없이 커지지 않게. */
   public static List<String> capTitles(List<String> titles) {
-    if (titles.size() <= TITLE_LIMIT) return List.copyOf(titles);
-    List<String> out = new ArrayList<>(titles.subList(0, TITLE_LIMIT));
-    out.add("외 " + (titles.size() - TITLE_LIMIT) + "건");
+    return capTitles(titles, TITLE_LIMIT);
+  }
+
+  /**
+   * 제목 목록을 {@code limit} 건까지 자르고 넘치면 「외 N건」 한 줄을 붙인다(WP-1632 — 개인 보고 전체 제목 예산이 에픽마다 더 작은 상한을 쓴다).
+   *
+   * @param limit 남길 제목 수(1 이상)
+   */
+  public static List<String> capTitles(List<String> titles, int limit) {
+    return capTitles(titles, Function.identity(), limit);
+  }
+
+  /**
+   * 항목 목록을 {@code limit} 건까지 제목으로 바꾸고 넘치면 「외 N건」 한 줄을 붙인다 — 남길 항목만 제목으로 바꿔 버릴 제목을 만들지 않는다(WP-1632).
+   *
+   * @param title 항목 → 제목
+   * @param limit 남길 제목 수(1 이상)
+   */
+  public static <T> List<String> capTitles(
+      List<T> items, Function<? super T, String> title, int limit) {
+    int kept = Math.min(limit, items.size());
+    List<String> out = new ArrayList<>(items.subList(0, kept).stream().map(title).toList());
+    if (items.size() > kept) out.add("외 " + (items.size() - kept) + "건");
     return List.copyOf(out);
   }
 

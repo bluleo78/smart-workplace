@@ -557,6 +557,9 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(req.assistantAgentId()).isEqualTo(ai);
     // 끝낸 일 AI와 함께/직접 건수(WP-1632) — AI 담당이 없는 1건은 직접.
     assertThat(req.completedSplit()).isEqualTo(new PersonalReportAiRequest.CompletedSplit(1, 0, 1));
+    // 일일은 끝낸 일 프로젝트 집계를 보내지 않는다(WP-1632).
+    assertThat(req.doneByProject()).isNull();
+    assertThat(req.workTableInTemplate()).isFalse();
   }
 
   /** AI 와 함께 끝낸 일이 섞이면 completedSplit 에 끝냄 n · AI와 함께 a · 직접 n−a 로 실린다(WP-1632). */
@@ -617,6 +620,83 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
         .doesNotContain("99")
         .contains("| 지난달 대비 | 이번 달 | 변화 |")
         .doesNotContain("지난주 대비 |");
+  }
+
+  /**
+   * 주간 프로젝트 표(WP-1632) — AI 가 틀린 건수(99건)를 쓴 「이번 주 한 일」 표는 페이지에서 시스템 건수로 바뀌고 「주요 내용」 은 남는다. 요청에는
+   * 프로젝트 → 에픽 집계(doneByProject)가 실린다.
+   */
+  @Test
+  void generated_weeklyProjectTable_countsFixed_requestCarriesDoneByProject() {
+    aiReturns(
+        """
+        ## 요약
+
+        이번 주는 로그인 오류를 끝냈습니다.
+
+        ## 이번 주 한 일
+
+        | 프로젝트 | 끝낸 일 | 주요 내용 |
+        | --- | --- | --- |
+        | %s | 99건 | 로그인 오류 수정 |
+
+        로그인 오류를 끝냈습니다.
+        """
+            .formatted(project.name()));
+    for (int i = 0; i < 2; i++) {
+      long id = issue("DONE", OLD, kst("2026-11-04T10:00:00").plusHours(i));
+      assign(id, me);
+    }
+    PersonalReportPeriod week = PersonalReportPeriod.weekly(LocalDate.parse("2026-11-02"));
+
+    assertThat(generator.runManual(reserveManual(week), NOW)).isEqualTo(Outcome.GENERATED);
+
+    String body = page(reports.findById(lastId()).orElseThrow().pageId()).body();
+    assertThat(body).contains("| " + project.name() + " | 2건 | 로그인 오류 수정 |").doesNotContain("99건");
+    ArgumentCaptor<PersonalReportAiRequest> captor =
+        ArgumentCaptor.forClass(PersonalReportAiRequest.class);
+    verify(client).writePersonalReport(captor.capture());
+    assertThat(captor.getValue().doneByProject())
+        .singleElement()
+        .satisfies(
+            p -> {
+              assertThat(p.projectKey()).isEqualTo(project.key());
+              assertThat(p.done()).isEqualTo(2);
+            });
+    // 기본 주간 템플릿에는 프로젝트 표가 있다 — 프롬프트의 표 규칙과 후처리가 같은 판정을 쓴다.
+    assertThat(captor.getValue().workTableInTemplate()).isTrue();
+  }
+
+  /**
+   * 끝낸 일이 없는 주(WP-1632 리뷰) — AI 가 템플릿 예시 표(「Gen:iA Works | 112건」)를 그대로 베껴도 페이지에는 가짜 건수가 남지 않고 시스템 한
+   * 행 「— | 0건 | 끝낸 일 없음」 만 남는다.
+   */
+  @Test
+  void generated_weeklyNoFinishedWork_exampleTableReplacedBySystemRow() {
+    aiReturns(
+        """
+        ## 요약
+
+        이번 주는 끝낸 일이 없습니다.
+
+        ## 이번 주 한 일
+
+        | 프로젝트 | 끝낸 일 | 주요 내용 |
+        | --- | --- | --- |
+        | Gen:iA Works | 112건 | 통합 검색 1단계·결함 수정 |
+        | 고객 포털 | 6건 | 로그인 화면 개편 |
+
+        끝낸 일이 없습니다.
+        """);
+    PersonalReportPeriod week = PersonalReportPeriod.weekly(LocalDate.parse("2026-11-02"));
+
+    assertThat(generator.runManual(reserveManual(week), NOW)).isEqualTo(Outcome.GENERATED);
+
+    String body = page(reports.findById(lastId()).orElseThrow().pageId()).body();
+    assertThat(body)
+        .contains("| — | 0건 | 끝낸 일 없음 |")
+        .doesNotContain("112건")
+        .doesNotContain("| 고객 포털 |");
   }
 
   /**

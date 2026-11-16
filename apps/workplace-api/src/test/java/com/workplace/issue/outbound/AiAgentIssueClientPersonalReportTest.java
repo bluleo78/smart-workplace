@@ -11,6 +11,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.dto.PersonalReportAiRequest;
+import com.workplace.issue.report.PersonalReportWork;
 import com.workplace.issue.report.ReportAssignee;
 import com.workplace.issue.report.ReportIssue;
 import java.time.LocalDate;
@@ -67,6 +68,8 @@ class AiAgentIssueClientPersonalReportTest {
         List.of(issue),
         Map.of("WP", 2),
         new PersonalReportAiRequest.CompletedSplit(4, 1, 3),
+        null,
+        false,
         7L,
         "m",
         4,
@@ -100,6 +103,67 @@ class AiAgentIssueClientPersonalReportTest {
         .andRespond(withSuccess("{\"markdown\":\"## 한 줄\\n\"}", MediaType.APPLICATION_JSON));
 
     assertThat(client.writePersonalReport(request()).markdown()).isEqualTo("## 한 줄\n");
+    server.verify();
+  }
+
+  /**
+   * 주간 요청 — 끝낸 일 프로젝트 → 에픽 집계가 camelCase doneByProject 로 실리고, 「에픽 없음」 은 key·url 이 null(WP-1632).
+   */
+  @Test
+  void writePersonalReport_주간_doneByProject_요청모양() {
+    PersonalReportAiRequest daily = request();
+    PersonalReportWork.ProjectWork wp =
+        new PersonalReportWork.ProjectWork(
+            "WP",
+            "Gen:iA Works",
+            3,
+            1,
+            List.of(
+                new PersonalReportWork.EpicWork(
+                    "WP-10",
+                    "https://app.test/projects/WP/issues/10",
+                    "통합 검색",
+                    false,
+                    true,
+                    2,
+                    0,
+                    List.of("색인", "결과 화면")),
+                new PersonalReportWork.EpicWork(
+                    null, null, PersonalReportWork.NO_EPIC, false, false, 1, 1, List.of("버그"))));
+    PersonalReportAiRequest weekly =
+        new PersonalReportAiRequest(
+            daily.userName(),
+            "WEEKLY",
+            "주간",
+            "11월 2주 주간 보고",
+            "11월 9일 ~ 15일",
+            daily.templateMarkdown(),
+            List.of(),
+            null,
+            List.of(),
+            Map.of(),
+            new PersonalReportAiRequest.CompletedSplit(3, 1, 2),
+            List.of(wp),
+            true,
+            7L,
+            "m",
+            4,
+            AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS);
+    server
+        .expect(requestTo("http://ai-agent.test/issue/personal-report"))
+        .andExpect(jsonPath("$.doneByProject[0].projectKey").value("WP"))
+        .andExpect(jsonPath("$.doneByProject[0].projectName").value("Gen:iA Works"))
+        .andExpect(jsonPath("$.doneByProject[0].done").value(3))
+        .andExpect(jsonPath("$.doneByProject[0].foundByAiTester").value(1))
+        .andExpect(jsonPath("$.doneByProject[0].epics[0].key").value("WP-10"))
+        .andExpect(jsonPath("$.doneByProject[0].epics[0].epicDone").value(true))
+        .andExpect(jsonPath("$.doneByProject[0].epics[0].doneTitles[1]").value("결과 화면"))
+        .andExpect(jsonPath("$.doneByProject[0].epics[1].title").value("에픽 없음"))
+        .andExpect(jsonPath("$.doneByProject[0].epics[1].key").doesNotExist())
+        .andExpect(jsonPath("$.workTableInTemplate").value(true))
+        .andRespond(withSuccess("{\"markdown\":\"## 요약\"}", MediaType.APPLICATION_JSON));
+
+    assertThat(client.writePersonalReport(weekly).markdown()).isEqualTo("## 요약");
     server.verify();
   }
 

@@ -2,7 +2,6 @@ package com.workplace.issue.report;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
-import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.LABEL;
 import static com.workplace.jooq.Tables.PROJECT_STATUS;
@@ -145,35 +144,19 @@ public class ProjectReportEpicRepository {
 
     String owner = ownerOrFallback(project);
 
-    // ① 라벨 — 상시·AI 탐색 라벨이 붙은 이슈 id(프로젝트 라벨만).
-    Set<Long> ongoingLabeled = new HashSet<>();
-    Set<Long> aiTesterLabeled = new HashSet<>();
-    dsl.select(ISSUE_LABEL.ISSUE_ID, LABEL.NAME)
-        .from(ISSUE_LABEL)
-        .join(LABEL)
-        .on(LABEL.ID.eq(ISSUE_LABEL.LABEL_ID))
-        .join(ISSUE)
-        .on(ISSUE.ID.eq(ISSUE_LABEL.ISSUE_ID))
-        .where(LABEL.PROJECT_ID.eq(pid))
-        // 「AI 탐색」 은 이번 기간 DONE 으로 닫힌 이슈만 쓰므로 그 밖은 읽지 않는다. 「상시」 는 에픽 판정에 쓰여 제한하지 않는다.
-        .and(
-            LABEL
-                .NAME
-                .eq(ProjectReportEpics.ONGOING_LABEL)
-                .or(
-                    LABEL
-                        .NAME
-                        .eq(ProjectReportEpics.AI_TESTER_LABEL)
-                        .and(closedDoneCondition(from, to))))
-        .fetch()
-        .forEach(
-            r -> {
-              if (ProjectReportEpics.ONGOING_LABEL.equals(r.value2())) {
-                ongoingLabeled.add(r.value1());
-              } else {
-                aiTesterLabeled.add(r.value1());
-              }
-            });
+    // ① 라벨 — 상시·AI 탐색 라벨이 붙은 이슈 id(프로젝트 라벨만). 개인 보고와 같은 조회 규칙(ReportLabels), 한 쿼리.
+    // 「AI 탐색」 은 이번 기간 DONE 으로 닫힌 이슈만 쓰므로 그 밖은 읽지 않는다. 「상시」 는 에픽 판정에 쓰여 제한하지 않는다.
+    Map<String, Set<Long>> labeled =
+        ReportLabels.issueIdsWithLabels(
+            dsl,
+            LABEL.PROJECT_ID.eq(pid),
+            Map.of(
+                ProjectReportEpics.ONGOING_LABEL,
+                DSL.noCondition(),
+                ProjectReportEpics.AI_TESTER_LABEL,
+                closedDoneCondition(from, to)));
+    Set<Long> ongoingLabeled = labeled.get(ProjectReportEpics.ONGOING_LABEL);
+    Set<Long> aiTesterLabeled = labeled.get(ProjectReportEpics.AI_TESTER_LABEL);
 
     // ② 에픽 목록(삭제 제외, 번호 순) — 보고에 나올 수 있는 것만(열림·지난 기간 시작 뒤 닫힘·상시).
     List<Epic> epics = epics(pid, ongoingLabeled, prevFrom);
@@ -528,17 +511,9 @@ public class ProjectReportEpicRepository {
   private List<Child> children(
       long pid, Set<Long> fullChildren, OffsetDateTime from, OffsetDateTime to) {
     var ownType = ISSUE_TYPE_DEF.as("rpe_own_type");
-    var p1 = ISSUE.as("rpe_p1");
-    var p2 = ISSUE.as("rpe_p2");
-    var p3 = ISSUE.as("rpe_p3");
-    var t1 = ISSUE_TYPE_DEF.as("rpe_t1");
-    var t2 = ISSUE_TYPE_DEF.as("rpe_t2");
-    var t3 = ISSUE_TYPE_DEF.as("rpe_t3");
-    // 가까운 조상부터 — 부모가 에픽이면 부모, 아니면 조부모, 아니면 증조부모(최대 3단계).
-    Field<Long> epicExpr =
-        DSL.when(t1.NAME.eq(EPIC_TYPE), p1.ID)
-            .when(t2.NAME.eq(EPIC_TYPE), p2.ID)
-            .when(t3.NAME.eq(EPIC_TYPE), p3.ID);
+    // 가장 가까운 에픽 조상 — 개인 보고 끝낸 일 집계와 같은 규칙(NearestEpic).
+    NearestEpic ne = NearestEpic.of("rpe_");
+    Field<Long> epicExpr = ne.epicId();
     Field<Long> epicId = epicExpr.as("rpe_epic_id");
     Condition doneInPeriod = closedDoneCondition(from, to);
     return dsl.select(
@@ -551,23 +526,11 @@ public class ProjectReportEpicRepository {
             ISSUE.CREATED_AT,
             ISSUE.CLOSED_AT,
             epicId)
-        .from(ISSUE)
+        .from(ne.table())
         .join(ownType)
         .on(ownType.ID.eq(ISSUE.TYPE_ID))
         .leftJoin(PROJECT_STATUS)
         .on(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID))
-        .leftJoin(p1)
-        .on(p1.ID.eq(ISSUE.PARENT_ISSUE_ID).and(p1.DELETED_AT.isNull()))
-        .leftJoin(t1)
-        .on(t1.ID.eq(p1.TYPE_ID))
-        .leftJoin(p2)
-        .on(p2.ID.eq(p1.PARENT_ISSUE_ID).and(p2.DELETED_AT.isNull()))
-        .leftJoin(t2)
-        .on(t2.ID.eq(p2.TYPE_ID))
-        .leftJoin(p3)
-        .on(p3.ID.eq(p2.PARENT_ISSUE_ID).and(p3.DELETED_AT.isNull()))
-        .leftJoin(t3)
-        .on(t3.ID.eq(p3.TYPE_ID))
         .where(ISSUE.PROJECT_ID.eq(pid))
         .and(ISSUE.DELETED_AT.isNull())
         // 에픽 자신은 에픽에 속하지 않는다.

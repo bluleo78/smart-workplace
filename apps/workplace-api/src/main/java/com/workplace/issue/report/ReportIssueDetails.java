@@ -187,13 +187,13 @@ public class ReportIssueDetails {
     return out;
   }
 
-  /** 줄바꿈·연속 공백을 한 칸으로 — AI 입력 한 줄로 만든다. */
-  static String oneLine(String s) {
+  /** 줄바꿈·연속 공백을 한 칸으로 — AI 입력 한 줄로 만든다(리포트 후처리 ReportMarkdown 도 표 칸 정리에 쓴다, WP-1632). */
+  public static String oneLine(String s) {
     return s == null ? null : s.strip().replaceAll("\\s+", " ");
   }
 
   /** 코드포인트 기준 {@code max} 자로 자른다(넘치면 마지막 자리에 「…」). */
-  static String cut(String s, int max) {
+  public static String cut(String s, int max) {
     if (s == null || s.codePointCount(0, s.length()) <= max) return s;
     return s.substring(0, s.offsetByCodePoints(0, max - 1)) + "…";
   }

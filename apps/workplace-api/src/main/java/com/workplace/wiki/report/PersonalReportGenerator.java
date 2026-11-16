@@ -283,9 +283,18 @@ public class PersonalReportGenerator {
       throw new ReportFailure("보고 템플릿이 " + TEMPLATE_MAX + "자를 넘어요.");
     }
 
+    // 주간·월간 「이번 주 한 일」 프로젝트 표(WP-1632) — 템플릿 판정을 한 번만 해 프롬프트(표 규칙)와 후처리가 같은 값을 쓴다.
+    ReportTableSpec workTable =
+        facts.work() == null
+            ? null
+            : ReportTableSpec.personalWork(facts.work().projects(), period.kind());
+    boolean workTableInTemplate =
+        workTable != null && ReportMarkdown.hasTable(templateMarkdown, workTable);
+
     // tx 밖 AI — 커넥션을 붙잡지 않는다.
     PersonalReportAiResult result =
-        client.writePersonalReport(request(userName, period, facts, templateMarkdown, spec));
+        client.writePersonalReport(
+            request(userName, period, facts, templateMarkdown, workTableInTemplate, spec));
     String markdown = result == null || result.markdown() == null ? "" : result.markdown().strip();
     if (markdown.isEmpty()) throw new ReportFailure("AI 가 빈 보고를 돌려줬어요.");
     if (ReportPageWriter.codePoints(markdown) > OUTPUT_MAX) {
@@ -298,6 +307,8 @@ public class PersonalReportGenerator {
         lines,
         facts.table(),
         ReportMarkdown.hasTable(templateMarkdown, facts.table().headFirstCell()));
+    // 프로젝트 표 — 건수는 시스템 값, 「주요 내용」 은 AI 글. 끝낸 일이 없어도 고쳐 AI 가 베낀 예시 표의 가짜 건수를 지운다.
+    if (workTable != null) ReportMarkdown.fixTable(lines, workTable, workTableInTemplate);
     String body = ReportMarkdown.render(lines);
 
     writePage(userId, home, period, reportId, facts, body, pendingPageId, auto, now);
@@ -313,6 +324,7 @@ public class PersonalReportGenerator {
       PersonalReportPeriod period,
       PersonalReportFacts facts,
       String templateMarkdown,
+      boolean workTableInTemplate,
       AssistantSpec spec) {
     boolean daily = period.kind() == PersonalReportKind.DAILY;
     ReportTableSpec table = facts.table();
@@ -335,6 +347,9 @@ public class PersonalReportGenerator {
         facts.omittedByGroup(),
         // 끝낸 일 AI와 함께/직접(WP-1632) — 요약 고정 줄을 AI 가 계산 없이 옮기게 직접 건수까지 넣어 보낸다.
         PersonalReportAiRequest.CompletedSplit.of(facts.completed(), facts.completedWithAi()),
+        // 끝낸 일 프로젝트 → 에픽(WP-1632) — 주간·월간만, 일일은 null(필드를 보내지 않아 옛 규칙으로 돈다).
+        facts.work() == null ? null : facts.work().projects(),
+        workTableInTemplate,
         spec.agentUserId(),
         spec.model(),
         spec.maxTurns(),
