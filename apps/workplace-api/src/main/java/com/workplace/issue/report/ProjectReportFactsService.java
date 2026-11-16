@@ -23,9 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 리포트 계산값(WP-1483) — 표의 숫자·배지·기간 이슈 목록을 시스템이 정한다. 숫자는 새로 세지 않고 기존 정의를 그대로 쓴다: 완료·새로 생김은 지표 모듈
- * ({@link IssueMetricsService#countsForProject}), 열린 이슈·기한 지남·진행 중은 개요({@link
+ * ({@link IssueMetricsService#countsForProject}), 열린 이슈·기한 지남은 개요({@link
  * ProjectOverviewService#computeWithoutAccessCheck}), 배지는 {@link ProjectStatusRule} — 개요 화면·상태 요약과
- * 같은 숫자가 나오게. 숫자·변화 표기는 개인 보고와 나눠 쓰는 {@link ReportNumbers}(WP-1486).
+ * 같은 숫자가 나오게. 배지·사이클/버전 행의 진행 중 위젯만은 생성 시각이 아니라 기간 끝날 기준({@link
+ * ProjectOverviewService#progressAsOf}, WP-1631)이다 — 다음 회차 첫날 시작한 사이클이 이번 회차 상태를 정하지 않게. 숫자·변화 표기는
+ * 개인 보고와 나눠 쓰는 {@link ReportNumbers}(WP-1486).
  */
 @Service
 @RequiredArgsConstructor
@@ -45,7 +47,7 @@ public class ProjectReportFactsService {
    * @param period 회차
    * @param last 지난 리포트(GENERATED/SKIPPED 중 최신) 스냅숏 — 열린 이슈·기한 지남 변화와 지난 배지에 쓴다. 없으면 변화 「—」, 지난 배지
    *     null
-   * @param now 「지금」 — 열린 이슈·기한 지남·진행 중은 이 시각 기준
+   * @param now 「지금」 — 열린 이슈·기한 지남·기간 이슈 목록은 이 시각 기준. 배지·사이클/버전 행은 기간 끝날 기준(WP-1631)
    */
   @Transactional(readOnly = true)
   public ProjectReportFacts compute(
@@ -63,7 +65,10 @@ public class ProjectReportFactsService {
     ProjectOverviewResponse overview = overviewService.computeWithoutAccessCheck(project, now);
     int open = overview.openIssues().total();
     int overdue = overview.cards().overdue().count();
-    StatusBadge badge = ProjectStatusRule.badge(overview.progress(), overview.today());
+    // 배지·사이클 행은 기간 끝날 기준 진행 중 위젯으로 정한다(WP-1631) — 생성 시각(다음 월요일 새벽)에 막 시작한 새 사이클(0건 완료)이
+    // 아니라 그 기간에 진행 중이던 사이클로 보게. 열린 이슈·기한 지남·이슈 목록은 지금 기준 그대로.
+    Progress progress = overviewService.progressAsOf(project, period.end());
+    StatusBadge badge = ProjectStatusRule.badge(progress, period.end());
 
     List<ReportTableRow> rows = new ArrayList<>();
     rows.add(
@@ -76,7 +81,7 @@ public class ProjectReportFactsService {
     rows.add(
         new ReportTableRow(
             "기한 지남", num(overdue), last.map(s -> diff(overdue, s.overdue())).orElse(DASH)));
-    progressRow(overview.progress()).ifPresent(rows::add);
+    progressRow(progress).ifPresent(rows::add);
 
     ProjectReportIssueRepository.Selection sel =
         issueRepository.select(project.id(), period, overview.today(), ISSUE_LIMIT);
