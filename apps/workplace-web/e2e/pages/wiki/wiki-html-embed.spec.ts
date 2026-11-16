@@ -138,9 +138,8 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
     await expect(sourceBox).toBeVisible()
     await expect(sourceBox).toHaveText(source)
 
-    // 소스 한 줄 끝에 이어 쓴다.
-    await sourceBox.locator('code').click()
-    await page.keyboard.press('End')
+    // 소스 한 줄 끝에 이어 쓴다 — 「소스 편집」 단추가 캐럿을 소스 끝에 두고 포커스를 준다(toggleSource 계약, WP-1300).
+    // 누름·End 로 옮기지 않는다: 키·누름으로 옮긴 DOM 선택은 selectionchange 로 늦게 읽혀 부하에서 입력이 옛 자리에 들어갔다(WP-1636).
     await page.keyboard.insertText('<p id="w">two</p>')
     await expect(sourceBox).toHaveText(`${source}<p id="w">two</p>`)
     // 미리보기는 디바운스 뒤 새 소스로 다시 그린다.
@@ -294,9 +293,8 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
       await expect(code).toBeVisible()
       // 색 구분 — 태그·속성 이름·값이 칠해진다(노드 글자는 그대로).
       await expect(code.locator('.wiki-html-tok--attr')).toHaveText('id')
-      // 끝에 한 줄 더 — 소스 안 Enter 는 코드 줄바꿈이다(블록 밖으로 나가지 않는다).
-      await code.click()
-      await page.keyboard.press('End')
+      // 끝에 한 줄 더 — 소스 안 Enter 는 코드 줄바꿈이다(블록 밖으로 나가지 않는다). 「소스 편집」 단추가 캐럿을 소스 끝에 두고 포커스를 준다(toggleSource 계약, WP-1300).
+      // 누름·End 로 옮기지 않는다: 키·누름으로 옮긴 DOM 선택은 selectionchange 로 늦게 읽혀 부하에서 Enter·입력이 옛 자리에 들어갔다(WP-1636).
       await page.keyboard.press('Enter')
       await page.keyboard.insertText('<p id="w">two</p>')
       await expect(block.getByTestId('wiki-html-embed-source')).toHaveText('<p id="v">one</p>\n<p id="w">two</p>')
