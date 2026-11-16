@@ -3,8 +3,12 @@ package com.workplace.issue.service;
 import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.ImageSniffer;
+import com.workplace.file.api.StagedFile;
+import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.global.util.SafeFileNames;
 import com.workplace.issue.dto.IssueBodyImageResponse;
+import com.workplace.issue.dto.IssueTextLimits;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.IssueBodyImageLimitException;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
@@ -13,9 +17,14 @@ import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,6 +51,8 @@ public class IssueBodyImageService {
   private final DriveQuotaService quota;
   // 드라이브로 가져간 본문 이미지(WP-1392)는 drive_file 이 같은 file 행을 쓴다 — 강등에서 빼려고 묻는다(WP-722 와 같은 포트).
   private final DriveFileUsage driveFileUsage;
+  // 본문 자리표시(WP-1634) — upload_file 로 올린 스테이징 파일의 소유·만료·미바인딩을 검사하고 잠근다.
+  private final StagedFileClaimer stagedFileClaimer;
 
   @Value("${workplace.storage.issue-image.max-file-size-bytes:10485760}")
   private long maxFileSizeBytes;
@@ -85,6 +96,123 @@ public class IssueBodyImageService {
     List<Long> dropped =
         repo.fileIdsOfIssue(issueId).stream().filter(id -> !referenced.contains(id)).toList();
     demote(dropped);
+  }
+
+  /**
+   * 본문 자리표시 해석 결과(WP-1634).
+   *
+   * @param body 자리표시를 실제 주소·표기로 바꾼 본문 — 저장·이벤트·이미지 연결에 이 값을 쓴다
+   * @param attachmentFileIds 이미지가 아니라 이슈 첨부로 붙여야 할 스테이징 파일 id(본문 순서, 중복 없음) — 이슈 행이 있어야 붙일 수 있어
+   *     호출자가 저장 뒤 같은 트랜잭션에서 {@link IssueAttachmentService#attachStaged} 로 붙인다
+   */
+  public record ResolvedBody(String body, List<Long> attachmentFileIds) {}
+
+  /**
+   * 본문·댓글의 스테이징 파일 자리표시({@code ![설명](file:123)}, {@code [이름](file:123)})를 해석한다(WP-1634).
+   *
+   * <p>왜: MCP(외부 AI)는 이미지 바이트를 본문에 넣을 수 없어 upload_file 로 올린 fileId 를 원하는 자리에 적는다. 이미지는 그 파일을 이
+   * 프로젝트의 본문 이미지(미연결 임시 매핑, 업로더=호출자)로 넘겨받고 웹과 같은 {@code /issue-images/{fileId}} 주소로 바꾼다 — 이어지는
+   * {@link #syncIssueImages} 가 이슈에 연결·만료 해제한다. 이미지가 아닌 파일은 이슈 첨부로 붙이도록 돌려주고, 그 자리는 굵은 파일 이름 + 「(첨부
+   * 파일)」로 바꾼다 (웹에 첨부 하나를 여는 주소가 없고, API 주소 링크는 인증 헤더가 없어 열리지 않는다).
+   *
+   * <p>파일을 복사하지 않고 같은 file 행을 넘겨받는다 — 저장소 객체가 하나라 지우는 경로도 만료 스윕 하나다. 클레임은 KEEP_TEMPORARY(만료 유지)로
+   * file 행을 잠근 채 소유(호출자)·범주(ATTACHMENT)·만료 전·어디에도 묶이지 않음을 검사한다. 남의 파일 번호를 적어도 가져갈 수 없다.
+   *
+   * <p>같은 번호가 여러 번 나오면 한 번만 옮기고 모두 같은 주소로 바꾼다. 코드 블록·인라인 코드 안은 건드리지 않는다({@link
+   * IssueBodyFilePlaceholders}). 자리표시가 없으면(웹 편집기 저장 등) 쿼리 없이 그대로 돌려준다.
+   *
+   * <p>호출자 계약: 인가하지 않는다 — 이슈 만들기·고치기·댓글 쓰기의 가드를 통과한 뒤, 글을 저장하기 전에 같은 쓰기 트랜잭션에서 부른다. 어느 번호든 못 쓰면 예외로
+   * 트랜잭션이 롤백돼 글도 파일 이동도 남지 않는다.
+   *
+   * @throws IssueBodyImageRejectedException 쓸 수 없는 번호(남의·없는·만료·이미 붙인 파일)·크기 상한을 넘는 이미지·바꾼 본문이 길이
+   *     상한을 넘음(400)
+   */
+  public ResolvedBody resolveStagedPlaceholders(ProjectRow project, long callerId, String body) {
+    List<IssueBodyFilePlaceholders.Placeholder> found = IssueBodyFilePlaceholders.find(body);
+    if (found.isEmpty()) return new ResolvedBody(body, List.of());
+
+    Set<Long> ids = new LinkedHashSet<>();
+    for (var p : found) {
+      ids.add(parseId(p.rawId()));
+    }
+    List<StagedFile> staged;
+    try {
+      staged =
+          stagedFileClaimer.claim(
+              callerId, List.copyOf(ids), StagedFileClaimer.Retention.KEEP_TEMPORARY);
+    } catch (StagedFileUnusableException e) {
+      // 클레임 공용 처리기는 번호를 응답에서 숨기지만(남의 id 떠보기 방지), 여기 번호는 호출자가 본문에 직접 적은 값이라 알려 줘도 새는 것이 없다 —
+      // 원인은 하나의 문구로 묶어 남의 파일·없는 파일·만료를 가르지 않는다.
+      throw unusable(String.valueOf(e.fileId()));
+    }
+
+    // 파일마다 바꿔 넣을 글 — 이미지는 본문 이미지 주소, 그 밖은 굵은 이름.
+    Map<Long, String> images = new HashMap<>();
+    Map<Long, String> others = new HashMap<>();
+    List<Long> attachments = new ArrayList<>();
+    for (StagedFile f : staged) {
+      byte[] head = storage.readHead(f.fileId(), f.storagePath(), ImageSniffer.HEAD_BYTES);
+      Optional<String> mime = ImageSniffer.detect(head);
+      if (mime.isPresent()) {
+        if (f.sizeBytes() > maxFileSizeBytes) {
+          throw new IssueBodyImageRejectedException(
+              "본문의 file:"
+                  + f.fileId()
+                  + "("
+                  + f.originalName()
+                  + ") 이미지는 "
+                  + maxFileSizeBytes / (1024 * 1024)
+                  + "MB 까지 넣을 수 있어요.");
+        }
+        // 웹 업로드 본문 이미지와 같은 모양으로 바꾸고 미연결 임시 매핑을 단다 — 이 뒤로는 웹에서 올린 이미지와 똑같이 연결·강등·수거된다.
+        storage.adoptStagedAsImage(f.fileId(), mime.get());
+        repo.insertPending(f.fileId(), project.id(), callerId);
+        images.put(f.fileId(), IssueBodyImageResponse.urlOf(project.key(), f.fileId()));
+      } else {
+        attachments.add(f.fileId());
+        others.put(f.fileId(), "**" + escapeMarkdown(f.originalName()) + "** (첨부 파일)");
+      }
+    }
+
+    StringBuilder out = new StringBuilder(body.length() + found.size() * 48);
+    int cursor = 0;
+    for (var p : found) {
+      long id = Long.parseLong(p.rawId());
+      out.append(body, cursor, p.start());
+      String url = images.get(id);
+      // 링크 꼴로 적은 이미지도 본문 이미지로 넣는다 — issue-images 주소는 인증 헤더가 있어야 열려 링크로는 쓸 수 없다.
+      out.append(url != null ? "![" + p.alt() + "](" + url + ")" : others.get(id));
+      cursor = p.end();
+    }
+    out.append(body, cursor, body.length());
+
+    // 주소가 자리표시보다 길어 요청 검증(BODY_MAX)을 지난 본문이 상한을 넘을 수 있다 — 저장 전에 다시 본다.
+    if (out.length() > IssueTextLimits.BODY_MAX) {
+      throw new IssueBodyImageRejectedException(
+          "파일 자리표시를 주소로 바꾸면 본문이 " + IssueTextLimits.BODY_MAX + "자를 넘어요. 본문을 줄여 주세요.");
+    }
+    return new ResolvedBody(out.toString(), List.copyOf(attachments));
+  }
+
+  /** 자리표시 번호 해석 — 19자리지만 Long 범위를 넘는 값은 있을 수 없는 파일이라 같은 거절 문구로 알린다. */
+  private static long parseId(String rawId) {
+    try {
+      return Long.parseLong(rawId);
+    } catch (NumberFormatException e) {
+      throw unusable(rawId);
+    }
+  }
+
+  private static IssueBodyImageRejectedException unusable(String id) {
+    return new IssueBodyImageRejectedException(
+        "본문의 file:"
+            + id
+            + " 은 넣을 수 없어요 — 내가 올렸고 아직 어디에도 붙이지 않은, 24시간이 지나지 않은 파일만 넣을 수 있어요. 파일을 다시 올려 주세요.");
+  }
+
+  /** 파일 이름의 마크다운 특수 문자를 이스케이프한다 — 이름의 *·_·[ 등이 굵게·링크를 깨지 않게. */
+  private static String escapeMarkdown(String name) {
+    return name.replaceAll("([\\\\`*_\\[\\]<>#~|])", "\\\\$1");
   }
 
   /**

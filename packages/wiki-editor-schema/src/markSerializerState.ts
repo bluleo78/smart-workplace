@@ -18,11 +18,15 @@ import { type MarkdownSerializer, MarkdownSerializerState } from '@tiptap/pm/mar
 import type { Mark as PMMark, Node as PMNode } from '@tiptap/pm/model'
 import markdownit from 'markdown-it'
 
+import { applyCjkFriendly } from './cjkEmphasis'
+
 /** HTML 태그로 바꿔 쓸 수 있는 마크 — expelEnclosingWhitespace 를 쓰는 셋이다. */
 const HTML_TAG: Record<string, string> = { bold: 'strong', italic: 'em', strike: 's' }
 
 // ---- tiptap-markdown 0.8.10 의 표시 밀기(trimInline) — 겹치지 않은 마크 결과를 같게 두려고 그대로 옮겼다 ----
-const md = markdownit()
+// 읽기와 같은 CJK 친화 판정을 쓴다(WP-1638) — 그래야 `**설정(A)**을` 을 `**설정(A**)을` 로 옮기지 않는다.
+// 플러그인이 md.inline.State 를 바꿔 끼우므로 아래 scanDelims 의 new md.inline.State 가 그대로 고친 판정을 쓴다.
+const md = applyCjkFriendly(markdownit())
 function scanDelims(text: string, pos: number) {
   const state = new md.inline.State(text, md, {}, [])
   return state.scanDelims(pos, true)

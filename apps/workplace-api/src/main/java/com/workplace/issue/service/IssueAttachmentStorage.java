@@ -2,12 +2,16 @@ package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.FILE;
 
+import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
 import com.workplace.global.util.SafeFileNames;
 import com.workplace.issue.exception.AttachmentNotFoundException;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import org.jooq.DSLContext;
@@ -105,6 +109,37 @@ public class IssueAttachmentStorage {
         .returning(FILE.ID)
         .fetchOne()
         .getId();
+  }
+
+  /**
+   * 저장된 파일의 앞 {@code n}바이트 — 본문 자리표시로 넘어온 스테이징 파일이 이미지인지 매직바이트로 판정하는 용도(WP-1634). 전체를 읽지 않는다. blob
+   * 이 없으면 {@link FileBlobMissingException}(노트 WikiAttachmentStorage.readHead 와 같은 규칙).
+   */
+  public byte[] readHead(long fileId, String storagePath, int n) {
+    if (!fileStore.exists(storagePath)) {
+      throw new FileBlobMissingException(fileId);
+    }
+    try (var in = Files.newInputStream(fileStore.resolve(storagePath))) {
+      return in.readNBytes(n);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  /**
+   * 스테이징 파일(WP-421)을 본문 이미지로 넘겨받는다(WP-1634) — 같은 file 행을 웹 업로드 본문 이미지와 같은 모양(범주 IMAGE·판정 MIME)으로
+   * 바꾼다.
+   *
+   * <p>왜 복사가 아니라 행을 그대로 쓰나: 저장소 객체가 하나뿐이라 지우는 경로도 만료 스윕(FileCleanupService) 하나다 — 복사하면 스테이징 원본과 사본의
+   * 수명을 따로 챙겨야 한다. 범주를 ATTACHMENT 에서 바꾸면 StagedFileClaimer 가 이 파일을 다시 다른 도메인 첨부로 가져갈 수 없다(본문 이미지 정션
+   * 묶임 검사와 이중 방어). 만료는 그대로 두고, 이어지는 연결(syncIssueImages)이 해제한다.
+   */
+  public void adoptStagedAsImage(long fileId, String detectedMime) {
+    dsl.update(FILE)
+        .set(FILE.CATEGORY, "IMAGE")
+        .set(FILE.MIME_TYPE, detectedMime)
+        .where(FILE.ID.eq(fileId))
+        .execute();
   }
 
   /**

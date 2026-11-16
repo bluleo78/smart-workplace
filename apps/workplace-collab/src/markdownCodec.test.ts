@@ -332,3 +332,17 @@ describe('keepLive plan (merge apply)', () => {
     expect(yDocToMarkdown(doc)).toBe('첫 문단')
   })
 })
+
+// WP-1638 — 서버 변환기(AI 적용·판 복원·저장)도 웹과 같은 CJK 친화 규칙으로 읽어야 한다.
+// 그러지 않으면 `**설정(A)**을` 이 서버를 거치며 별표 글자로 남거나 `**설정(A**)을` 로 바뀐다.
+describe('CJK-friendly emphasis on the server path', () => {
+  it('reads bold ending in punctuation followed by a particle and keeps the markdown', () => {
+    const md = '**설정(A)**을 바꾼다'
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, markdownToYUpdate(md))
+    const para = yUpdateToRoot(Y.encodeStateAsUpdate(doc)).child(0)
+    expect(para.child(0).text).toBe('설정(A)')
+    expect(para.child(0).marks.map((m) => m.type.name)).toEqual(['bold'])
+    expect(viaYjs(md)).toBe(md)
+  })
+})

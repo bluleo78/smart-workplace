@@ -46,6 +46,8 @@ public class IssueCommentService {
   private final ApplicationEventPublisher publisher;
   // 코멘트에 넣은 이미지(WP-362)를 본문 이미지와 같은 이슈 단위로 연결·강등한다.
   private final IssueBodyImageService bodyImageService;
+  // 댓글 본문 자리표시의 이미지가 아닌 파일(WP-1634)을 이슈 첨부로 붙인다.
+  private final IssueAttachmentService attachmentService;
   // 코멘트 응답에 보는 사람별 반응 집계를 싣는다(WP-504).
   private final IssueCommentReactionService reactionService;
   private final IssueCommentMentionService mentionService;
@@ -160,9 +162,14 @@ public class IssueCommentService {
     if (!actorCanWrite) {
       accessGuard.assertCommentable(project, issue.reporterId(), callerId);
     }
-    var resp = commentRepository.insert(issueId, callerId, req.body());
+    // WP-1634 스테이징 파일 자리표시(![설명](file:N))를 실제 주소로 바꾼 본문으로 저장·알린다. 못 쓰는 번호면 예외로 댓글이 남지 않는다.
+    var resolved = bodyImageService.resolveStagedPlaceholders(project, callerId, req.body());
+    requireAttachable(resolved, actorCanWrite);
+    String body = resolved.body();
+    var resp = commentRepository.insert(issueId, callerId, body);
     // 코멘트 이미지 연결(WP-362) — 이미지 참조가 없는 코멘트(대부분)는 syncIssueImages 가 쿼리 없이 돌아간다.
-    bodyImageService.syncIssueImages(project, issueId, callerId, null, req.body());
+    bodyImageService.syncIssueImages(project, issueId, callerId, null, body);
+    attachNonImages(project, issueId, callerId, resolved);
     watcherAutoEnroller.enroll(project, issueId, callerId, callerId);
 
     // 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보) — issue 는 위에서 이미 로드해 재사용.
@@ -183,7 +190,7 @@ public class IssueCommentService {
             actor,
             assignees,
             resp.id(),
-            req.body(),
+            body,
             Instant.now(),
             actorCanWrite));
     // MCP(수행 도구 헤더) 경유 코멘트면 이미 있는 AI 작업을 터치한다(WP-377) — 새로 시작하지는 않는다(WP-1365). 코멘트 작성은 이슈 updated
@@ -204,10 +211,17 @@ public class IssueCommentService {
     var mutable = checkCommentMutable(callerId, issueId, commentId, false, "본인 코멘트만 수정할 수 있습니다");
     var issue = mutable.target().issue();
     var project = mutable.target().project();
-    commentRepository.update(commentId, req.body());
+    // WP-1634 자리표시를 실제 주소로 바꾼 본문으로 고친다 — 작성과 같은 규칙.
+    var resolved = bodyImageService.resolveStagedPlaceholders(project, callerId, req.body());
+    requireAttachable(
+        resolved,
+        resolved.attachmentFileIds().isEmpty()
+            || accessGuard.canWriteContent(project, issue.reporterId(), callerId));
+    String body = resolved.body();
+    commentRepository.update(commentId, body);
     // 새 글·이전 글 모두 이미지 참조가 없으면 syncIssueImages 가 추가 쿼리 없이 돌아간다(WP-362).
-    bodyImageService.syncIssueImages(
-        project, issueId, callerId, mutable.comment().body(), req.body());
+    bodyImageService.syncIssueImages(project, issueId, callerId, mutable.comment().body(), body);
+    attachNonImages(project, issueId, callerId, resolved);
     // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
     var updated =
         commentRepository
@@ -232,11 +246,36 @@ public class IssueCommentService {
             actor,
             assignees,
             commentId,
-            req.body(),
+            body,
             Instant.now()));
 
     // 수정 응답으로 캐시를 덮어써도 반응이 사라져 보이지 않게 집계를 싣는다(WP-504).
     return mentionService.enrich(reactionService.enrich(List.of(updated), callerId).getFirst());
+  }
+
+  /**
+   * 댓글 자리표시의 이미지가 아닌 파일은 이슈 첨부가 되므로 첨부 자격(내용 쓰기 — 첨부 클레임 API 와 같은 규칙)이 있어야 한다(WP-1634). 「비멤버 댓글」
+   * 설정으로만 댓글을 다는 사람(WP-1495)은 이미지는 넣을 수 있지만(웹 댓글 이미지와 같음) 이슈 첨부는 늘릴 수 없다.
+   */
+  private static void requireAttachable(
+      IssueBodyImageService.ResolvedBody resolved, boolean canWriteContent) {
+    if (!resolved.attachmentFileIds().isEmpty() && !canWriteContent) {
+      throw new ProjectAccessDeniedException(
+          "이미지가 아닌 파일(file:"
+              + resolved.attachmentFileIds().getFirst()
+              + ")은 이 이슈에 파일을 첨부할 수 있는 사람만 댓글에 넣을 수 있습니다");
+    }
+  }
+
+  /** 댓글 자리표시의 이미지가 아닌 파일을 이슈 첨부로 붙인다(WP-1634) — 댓글을 저장한 같은 트랜잭션에서, 이력은 첨부 클레임과 같게 남는다. */
+  private void attachNonImages(
+      ProjectRow project,
+      long issueId,
+      long callerId,
+      IssueBodyImageService.ResolvedBody resolved) {
+    if (!resolved.attachmentFileIds().isEmpty()) {
+      attachmentService.attachStaged(project, issueId, callerId, resolved.attachmentFileIds());
+    }
   }
 
   /** 코멘트 soft-delete (본인 또는 프로젝트 OWNER). */

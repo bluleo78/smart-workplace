@@ -252,8 +252,15 @@ public class IssueService {
     List<Long> assigneeIds = auto == null ? plan.assigneeIds() : List.of(auto.assignee().id());
     List<AssigneeInfo> assignees = auto == null ? plan.assignees() : List.of(auto.assignee());
 
+    // WP-1634 본문의 스테이징 파일 자리표시(![설명](file:N))를 실제 주소로 바꾼다 — 생성 권한(planCreate)을 지난 뒤, 저장 전에. 이미지는 본문
+    // 이미지로 넘겨받아 아래 syncIssueImages 가 연결하고, 이미지가 아닌 파일은 이슈 행이 생긴 뒤 첨부로 붙인다. 어느 번호든 못 쓰면 예외로 이슈도
+    // 생기지 않는다. 자리표시가 없으면 쿼리 없이 요청 그대로다.
+    IssueBodyImageService.ResolvedBody resolvedBody =
+        bodyImageService.resolveStagedPlaceholders(project, callerId, req.body());
+    CreateIssueRequest saved = req.withBody(resolvedBody.body());
+
     int number = sequenceRepository.allocateNext(project.id());
-    IssueRow row = insertFromPlan(plan, number, req, callerId, null);
+    IssueRow row = insertFromPlan(plan, number, saved, callerId, null);
     linkLabelsAndCycles(callerId, row.id(), plan);
     if (auto != null) {
       // 지금은 생성 때 담당자 이력을 남기지 않지만, 자동 지정은 사람이 고른 게 아니라 이유를 남긴다(설계 §4.3).
@@ -266,15 +273,29 @@ public class IssueService {
     }
     // WP-199 본문 이미지 연결 — 생성 권한(planCreate)을 통과한 뒤라 별도 가드 없이 같은 트랜잭션에서 연결한다.
     // 이미지 참조가 없는 본문(대부분)은 syncIssueImages 가 쿼리 없이 돌아간다.
-    bodyImageService.syncIssueImages(project, row.id(), callerId, null, req.body());
+    bodyImageService.syncIssueImages(project, row.id(), callerId, null, saved.body());
     // WP-422 스테이징 첨부 — 같은 트랜잭션에서 묶는다(실패하면 이슈도 롤백). 작업 쓰기 알림(updated)은 내지 않고 아래 finishCreate 의
     // 생성 알림(created)만 나가므로, 수행 도구(MCP) 경유 생성이 첨부 때문에 담당 AI 작업을 시작하지 않는다.
-    if (req.fileIds() != null && !req.fileIds().isEmpty()) {
-      issueAttachmentService.attachStaged(project, row.id(), callerId, req.fileIds());
+    // WP-1634 본문 자리표시의 이미지가 아닌 파일도 함께 — fileIds 에도 같은 번호가 있으면 한 번만 붙인다.
+    List<Long> stagedFileIds = mergeFileIds(req.fileIds(), resolvedBody.attachmentFileIds());
+    if (!stagedFileIds.isEmpty()) {
+      issueAttachmentService.attachStaged(project, row.id(), callerId, stagedFileIds);
     }
     // WP-1038 다른 프로젝트 에픽 아래에 만들었으면 그 에픽 프로젝트도 갱신한다(에픽 하위 수·진행률).
     notifyParentProject(project, parent, callerId);
     return finishCreate(callerId, project, row, number, assigneeIds, assignees, plan.components());
+  }
+
+  /**
+   * 요청의 첨부 fileIds 와 본문 자리표시의 이미지가 아닌 파일(WP-1634)을 순서대로 합친다 — 같은 번호는 한 번만(클레임이 중복 id 를 형태 오류로
+   * 거절한다).
+   */
+  private static List<Long> mergeFileIds(List<Long> requested, List<Long> fromBody) {
+    if (fromBody.isEmpty()) return requested == null ? List.of() : requested;
+    var merged = new LinkedHashSet<Long>();
+    if (requested != null) merged.addAll(requested);
+    merged.addAll(fromBody);
+    return List.copyOf(merged);
   }
 
   /** 구성요소 자동 지정 결과 — 붙일 담당자와, 그 담당자를 준 구성요소(이력의 이유). */
@@ -1021,7 +1042,12 @@ public class IssueService {
     }
 
     String newTitle = req.title() != null ? normalizeTitle(req.title()) : before.title();
-    String newBody = req.body() != null ? req.body() : before.body();
+    // WP-1634 본문의 스테이징 파일 자리표시를 실제 주소로 바꾼다 — 권한·충돌 검사를 지난 뒤, 저장 전에(못 쓰는 번호면 예외로 아무것도 바뀌지 않는다).
+    IssueBodyImageService.ResolvedBody resolvedBody =
+        req.body() != null
+            ? bodyImageService.resolveStagedPlaceholders(project, callerId, req.body())
+            : null;
+    String newBody = resolvedBody != null ? resolvedBody.body() : before.body();
     // WP-807 상태 — statusId 우선, 범주만 오면 이미 그 범주면 유지·아니면 범주 기본 상태. 이하 종료 시각·에픽 차단·AI 작업 종료는 범주로 판정한다.
     ResolvedStatus resolved =
         resolveStatus(project, req.statusId(), requestedStatus, req.status(), before);
@@ -1098,6 +1124,11 @@ public class IssueService {
     // 새 본문·이전 본문 모두 이미지 참조가 없으면 syncIssueImages 가 추가 쿼리 없이 돌아간다.
     if (req.body() != null) {
       bodyImageService.syncIssueImages(project, before.id(), callerId, before.body(), newBody);
+      // WP-1634 본문 자리표시의 이미지가 아닌 파일은 이슈 첨부로 — 내용 편집 권한(위 가드)을 지났으므로 첨부 클레임 API 와 같은 자격이다.
+      if (!resolvedBody.attachmentFileIds().isEmpty()) {
+        issueAttachmentService.attachStaged(
+            project, before.id(), callerId, resolvedBody.attachmentFileIds());
+      }
     }
     var after = issueRepository.findById(before.id()).orElseThrow();
 

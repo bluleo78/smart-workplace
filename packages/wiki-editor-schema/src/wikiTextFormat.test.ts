@@ -173,3 +173,46 @@ describe('문단·제목 정렬 — textAlign + <div align> 감싸개 (WP-1305)'
     expect(stable(md)).toBe(md)
   })
 })
+
+// WP-1638 — CommonMark 은 닫는 ** 앞이 문장부호이고 뒤가 글자면 닫지 못해, 한국어 조사가 바로 붙은
+// `**설정(A)**을` 이 굵게가 되지 않고 별표가 글자로 남았다. CJK 친화 강조 규칙(markdown-it-cjk-friendly)으로 읽는다.
+describe('CJK 친화 굵게 — 문장부호로 끝나는 굵게 뒤 조사 (WP-1638)', () => {
+  /** 문서의 [글자, 마크 이름들] 목록. */
+  function runs(md: string): [string, string[]][] {
+    const out: [string, string[]][] = []
+    markdownToDoc(md).descendants((n) => {
+      if (n.isText) out.push([n.text!, n.marks.map((m) => m.type.name).sort()])
+    })
+    return out
+  }
+
+  it.each([
+    ['**설정(A)**을 바꾼다', [['설정(A)', ['bold']], ['을 바꾼다', []]]],
+    ['**"허용"**으로 둔다', [['"허용"', ['bold']], ['으로 둔다', []]]],
+  ] as [string, [string, string[]][]][])('%s 가 굵게로 읽히고 저장이 그대로다', (md, expected) => {
+    expect(runs(md)).toEqual(expected)
+    expect(stable(md)).toBe(md)
+  })
+
+  // 굵게 안 인라인 코드 — 별표가 글자로 남지 않고 강조로 읽힌다. 다만 WikiCode 가 bold 를 배제(codeMark.ts, WP-300)해
+  // 코드에는 굵게가 붙지 않는다 — 공백이 있는 `**`VBR`** 켠다` 도 원래 그렇다(이 이슈 범위 밖).
+  it('**`VBR`**을 켠다 는 별표가 글자로 남지 않는다', () => {
+    expect(runs('**`VBR`**을 켠다')).toEqual([['VBR', ['code']], ['을 켠다', []]])
+    expect(runs('**`VBR`** 켠다')).toEqual([['VBR', ['code']], [' 켠다', []]])
+  })
+
+  // 이미 옮겨 저장된 노트(`**설정(A**)을`)도 여전히 굵게로 읽힌다.
+  it('표지를 옮겨 저장한 예전 형태도 굵게로 읽힌다', () => {
+    expect(runs('**설정(A**)을')).toEqual([['설정(A', ['bold']], [')을', []]])
+  })
+
+  // 라틴 문자끼리는 CommonMark 그대로 — 규칙은 CJK 글자가 맞닿을 때만 완화한다.
+  it.each([
+    ['**foo**bar', [['foo', ['bold']], ['bar', []]]],
+    ['a**b**c', [['a', []], ['b', ['bold']], ['c', []]]],
+    ['**foo(a)**bar', [['**foo(a)**bar', []]]],
+    ['a__b__c', [['a__b__c', []]]],
+  ] as [string, [string, string[]][]][])('라틴 %s 는 CommonMark 대로 읽힌다', (md, expected) => {
+    expect(runs(md)).toEqual(expected)
+  })
+})

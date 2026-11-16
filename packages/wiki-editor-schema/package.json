@@ -17,7 +17,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "diff-match-patch": "1.0.5"
+    "diff-match-patch": "1.0.5",
+    "markdown-it-cjk-friendly": "3.0.0"
   },
   "peerDependencies": {
     "@tiptap/core": "2.27.2",

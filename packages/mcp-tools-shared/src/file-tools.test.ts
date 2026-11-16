@@ -29,6 +29,8 @@ describe('buildFileTools (WP-421)', () => {
     // 설명은 content 모드 부분(AI Chat 판이 그대로 쓴다) + 링크 부분이다.
     expect(t.description.startsWith(UPLOAD_FILE_CONTENT_DESCRIPTION)).toBe(true);
     expect(t.description).toContain('curl -T <file> "<uploadUrl>"');
+    // WP-1634: 이슈 본문·댓글에는 자리표시로 원하는 자리에 넣을 수 있다고 알린다(AI Chat 판도 같은 content 부분을 쓴다).
+    expect(UPLOAD_FILE_CONTENT_DESCRIPTION).toContain('![alt](file:<fileId>) in issue/comment body');
   });
 
   it('upload_file: content 가 있으면(빈 문자열 포함) 텍스트로 만든다 — 링크는 만들지 않는다', async () => {
@@ -63,6 +65,8 @@ describe('buildFileTools (WP-421)', () => {
     expect(out.note).toMatch(/fileId/);
     expect(out.note).toMatch(/24시간/);
     expect(out.note).toMatch(/새 링크/);
+    // WP-1634: 이슈 본문·댓글 자리표시 안내.
+    expect(out.note).toContain('![설명](file:<fileId>)');
   });
 
   it('upload_file: content: null 도 생략으로 본다(링크 모드)', async () => {

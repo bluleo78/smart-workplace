@@ -76,3 +76,21 @@ describe('overlapping bold/italic/strike (WP-1318)', () => {
     expect(later).toBe(`가\n\n${first}`)
   })
 })
+
+// WP-1638 — 읽기를 CJK 친화 규칙으로 바꿨으니 저장 판정도 같은 규칙이어야 한다. 그대로 두면 문장부호로 끝나는 굵게 뒤에
+// 조사가 오면 닫는 표시를 안쪽으로 밀어 `**설정(A**)을` 로 저장했다(다시 읽으면 굵게 범위에서 `)` 가 빠진다).
+describe('CJK 친화 판정으로 표시를 옮기지 않는다 (WP-1638)', () => {
+  it.each([
+    [para(text('설정(A)', 'bold'), text('을')), '**설정(A)**을'],
+    [para(text('"허용"', 'bold'), text('으로')), '**"허용"**으로'],
+    [para(text('가'), text('(나)', 'italic'), text('다')), '가*(나)*다'],
+  ])('%#: saves without shifting markers', (doc, expected) => {
+    expect(docToMarkdown(doc)).toBe(expected)
+    expect(markdownToDoc(expected).eq(doc)).toBe(true)
+  })
+
+  // 라틴 글자 사이는 CommonMark 대로 표시를 민다(수정 전과 같음).
+  it('still shifts markers between Latin letters', () => {
+    expect(docToMarkdown(para(text('foo(a)', 'bold'), text('bar')))).toBe('**foo(a**)bar')
+  })
+})
