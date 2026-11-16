@@ -2,6 +2,7 @@ package com.workplace.wiki.report;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
@@ -113,6 +114,7 @@ public class ProjectReportGenerator {
   private final ReportPageWriter pageWriter;
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient client;
+  private final AiAgentProperties aiAgentProperties;
   private final TransactionTemplate tx;
   private final String issueUrlPrefix;
 
@@ -126,6 +128,7 @@ public class ProjectReportGenerator {
       ProjectReportTemplate template,
       AssistantResolver assistantResolver,
       AiAgentIssueClient client,
+      AiAgentProperties aiAgentProperties,
       PlatformTransactionManager txManager,
       @Value("${workplace.public-base-url:}") String publicBaseUrl) {
     this.projectRepository = projectRepository;
@@ -139,6 +142,7 @@ public class ProjectReportGenerator {
     this.pageWriter = new ReportPageWriter(writer);
     this.assistantResolver = assistantResolver;
     this.client = client;
+    this.aiAgentProperties = aiAgentProperties;
     this.tx = new TransactionTemplate(txManager);
     this.issueUrlPrefix = issueUrlPrefix(publicBaseUrl);
     if (this.issueUrlPrefix.isEmpty()) {
@@ -210,11 +214,13 @@ public class ProjectReportGenerator {
    * <p>호출자가 권한·개인 프로젝트를 걸렀고 TenantContext 를 세웠다. 트랜잭션 밖에서 부른다(본문 쓰기).
    *
    * @param setting 설정(행이 없으면 기본값) — 회차를 정한다
-   * @throws ProjectReportGenerateException 비서 없음·만드는 중(409), 생성 실패(502)
+   * @throws ProjectReportGenerateException AI 연동 꺼짐·비서 없음·만드는 중(409), 생성 실패(502)
    */
   public ProjectReportGenerateResponse runNow(
       ProjectRow project, SettingRow setting, OffsetDateTime now) {
     long projectId = project.id();
+    // AI 연동이 꺼져 있으면 예약·계산·노트 쓰기 전에 거절한다(WP-1639).
+    if (!aiAgentProperties.enabled()) throw ProjectReportGenerateException.aiDisabled();
     AssistantSpec spec =
         workspaceAssistant().orElseThrow(ProjectReportGenerateException::noAssistant);
     ReportPeriod period = manualPeriod(setting, now);

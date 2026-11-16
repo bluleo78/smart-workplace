@@ -13,7 +13,9 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.time.Clock;
@@ -28,6 +30,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -52,6 +55,9 @@ class ProjectReportSchedulerTest extends ExternalClientMockedTestBase {
   @Autowired ProjectReportScheduler scheduler;
   @Autowired AssistantResolver assistantResolver;
   @Autowired AiAgentIssueClient client;
+  @Autowired TenantScopedRunner tenantRunner;
+  @Autowired ProjectReportSettingRepository settingRepository;
+  @Autowired ProjectReportGenerator generator;
 
   private long fixtureTenant;
   private long owner;
@@ -192,5 +198,21 @@ class ProjectReportSchedulerTest extends ExternalClientMockedTestBase {
     SchedulerLock lock = m.getAnnotation(SchedulerLock.class);
     assertThat(lock.name()).isEqualTo("ProjectReportScheduler.runOnce");
     assertThat(lock.lockAtMostFor()).isEqualTo("PT40M");
+  }
+
+  /** AI 연동이 꺼져 있으면(WP-1639) 회차를 열지 않는다 — 재시도·다음 예정으로 건너뛰기 없이 그대로 둬, 다시 켜면 그 회차를 만든다. */
+  @Test
+  void runOnce_aiDisabled_skipsWithoutFailure() {
+    long due = project(fixtureTenant, true, NOW.minusMinutes(1));
+    AiAgentProperties off = Mockito.mock(AiAgentProperties.class); // enabled() == false
+    ProjectReportScheduler offScheduler =
+        new ProjectReportScheduler(
+            tenantRunner, assistantResolver, settingRepository, generator, off);
+
+    assertThat(offScheduler.runOnce(CLOCK)).isEqualTo(new ProjectReportScheduler.Summary(0, 0, 0));
+    assertThat(nextRunAt(fixtureTenant, due).toInstant())
+        .isEqualTo(NOW.minusMinutes(1).toInstant());
+    assertThat(reports(fixtureTenant, due)).isZero();
+    verify(client, never()).writeProjectReport(any());
   }
 }

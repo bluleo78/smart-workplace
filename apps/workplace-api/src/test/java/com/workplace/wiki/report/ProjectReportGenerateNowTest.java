@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
@@ -42,8 +43,11 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -69,6 +73,7 @@ class ProjectReportGenerateNowTest extends ExternalClientMockedTestBase {
   @Autowired ProjectReportGenerator generator;
   @Autowired AiAgentIssueClient client;
   @Autowired AssistantResolver assistantResolver;
+  @Autowired AiAgentProperties aiAgentProperties;
 
   private long owner;
   private ProjectResponse project;
@@ -286,6 +291,31 @@ class ProjectReportGenerateNowTest extends ExternalClientMockedTestBase {
             ProjectReportGenerateException.class,
             e -> assertThat(e.status()).isEqualTo(HttpStatus.CONFLICT));
     assertThat(rowStatus()).isNull();
+  }
+
+  /**
+   * AI 연동이 꺼져 있으면(WP-1639) 409 AI_DISABLED — 설정 상태라 502 가 아니고, 예약·AI 호출 없이 거절한다. 공유 빈의 설정만 잠시 꺼진
+   * 값으로 바꾸고 끝나면 되돌린다.
+   */
+  @Test
+  void generateNow_aiDisabled_conflict() {
+    Object target = AopTestUtils.getUltimateTargetObject(generator);
+    ReflectionTestUtils.setField(
+        target, "aiAgentProperties", Mockito.mock(AiAgentProperties.class)); // enabled() == false
+    try {
+      assertThatThrownBy(() -> settingsService.generateNow(owner, project.key(), NOW))
+          .isInstanceOfSatisfying(
+              ProjectReportGenerateException.class,
+              e -> {
+                assertThat(e.status()).isEqualTo(HttpStatus.CONFLICT);
+                assertThat(e.errors()).containsEntry("code", "AI_DISABLED");
+                assertThat(e.getMessage()).isEqualTo("AI 연동이 꺼져 있어 보고를 만들 수 없어요.");
+              });
+      assertThat(rowStatus()).isNull();
+      verify(client, never()).writeProjectReport(any());
+    } finally {
+      ReflectionTestUtils.setField(target, "aiAgentProperties", aiAgentProperties);
+    }
   }
 
   /** MEMBER 는 만들 수 없다(설정 저장과 같은 권한) — AI 를 부르지 않는다. */
