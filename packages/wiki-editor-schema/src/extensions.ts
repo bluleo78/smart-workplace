@@ -3,6 +3,7 @@ import { TableRow } from '@tiptap/extension-table-row'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
 
+import { WikiCjkEmphasis } from './cjkEmphasis'
 import { WikiCode } from './codeMark'
 import { WikiHtmlEmbedSchema } from './htmlEmbedNode'
 import { WikiHtmlBox, WikiHtmlSpan, WikiStyleSchema } from './htmlNodes'
@@ -44,6 +45,8 @@ export function wikiSchemaExtensions(
     // html 옵션은 기본값 true 를 유지해야 한다 — 기존 페이지에 raw HTML 로 직렬화돼 저장된
     // 표(#742 폴백 경로)를 파싱하는 것이 이 옵션이라, 끄면 로드가 깨진다.
     Markdown.configure({ transformPastedText: true }),
+    // 조사가 바로 붙은 `**설정(A)**을` 도 굵게로 읽게 CJK 친화 강조 규칙을 단다(WP-1638). cjkEmphasis.ts 참조.
+    WikiCjkEmphasis,
     // 겹친 굵게·기울임·취소선 저장이 깨지지 않게 직렬화 상태를 바꿔 끼운다(WP-1318). markSerializerState.ts 참조.
     WikiMarkdownSerializer,
     opts.mention ?? WikiMention,

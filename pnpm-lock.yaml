@@ -865,6 +865,9 @@ importers:
       diff-match-patch:
         specifier: 1.0.5
         version: 1.0.5
+      markdown-it-cjk-friendly:
+        specifier: 3.0.0
+        version: 3.0.0(@types/markdown-it@13.0.9)(markdown-it@14.3.3)
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.4
@@ -5891,6 +5894,16 @@ packages:
   make-dir@4.0.0:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
+
+  markdown-it-cjk-friendly@3.0.0:
+    resolution: {integrity: sha512-y4OkqwenFXmb1i3w7qfh9E60qNX6U4KzECke8N/7io9SARFSvbR/wde0q/l6/Az9doieLOIw7ZsbDSgl27DR4g==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/markdown-it': '>=14.2.0'
+      markdown-it: '*'
+    peerDependenciesMeta:
+      '@types/markdown-it':
+        optional: true
 
   markdown-it-task-lists@2.1.1:
     resolution: {integrity: sha512-TxFAc76Jnhb2OUu+n3yz9RMu4CwGfaT788br6HhEDlvWfdeJcLUsxk1Hgw2yJio0OXsxv7pyIPmvECY7bMbluA==}
@@ -13067,6 +13080,13 @@ snapshots:
   make-dir@4.0.0:
     dependencies:
       semver: 7.8.0
+
+  markdown-it-cjk-friendly@3.0.0(@types/markdown-it@13.0.9)(markdown-it@14.3.3):
+    dependencies:
+      get-east-asian-width: 1.6.0
+      markdown-it: 14.3.3
+    optionalDependencies:
+      '@types/markdown-it': 13.0.9
 
   markdown-it-task-lists@2.1.1: {}
 
