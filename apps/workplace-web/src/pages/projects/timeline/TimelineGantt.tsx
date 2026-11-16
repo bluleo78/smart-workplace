@@ -115,13 +115,17 @@ const NO_VERSIONS: TimelineVersionMarker[] = []
 // 레인 칩을 따로 둘 최소 날짜 간격(px, WP-1047) — 이보다 가까운 날짜의 칩은 하나로 묶는다. 짧은 버전 칩 한 개 폭 안팎이고,
 // 실제 칩이 더 넓으면 그려진 칩 폭으로 늘린다(laneGaps).
 const LANE_CHIP_MIN_GAP_PX = 96
-// 겹치는 사이클 이름표 한 줄 높이(text-xs 줄 높이 16px) — 줄을 나눌 때 아래로 내리는 간격(WP-489).
-const CYCLE_LABEL_LANE_PX = 16
+// 사이클 칸(WP-1642) 띠 한 줄 간격(px) — 띠 높이 18px(h-4.5) + 줄 사이 2px. 겹치는 사이클은 이 간격만큼 아래 줄로 내린다(WP-489).
+const CYCLE_LANE_LINE_PX = 20
+// 사이클 칸 위아래 여백(px) — 칸 높이 = 여백*2 + 줄 수 * 줄 간격(WP-1642).
+const CYCLE_LANE_PAD_PX = 4
+// 이어지는 사이클 띠 사이 틈(px, WP-1642) — 띠 너비에서 오른쪽을 이만큼 덜어 바로 붙은 주간 사이클도 띠가 나뉘어 보이게 한다.
+const CYCLE_BAND_GAP_PX = 2
+// 사이클 띠 최대 줄 수(WP-1439) — 사이클 칸이 간트 세로 공간을 너무 먹지 않게 칸 높이를 2줄(48px)로 묶는 상한이다(WP-1642).
+// 넘치는 사이클은 마지막 줄 띠의 「+N」 으로 접는다.
+const CYCLE_LABEL_MAX_LANES = 2
 // 간트 행 높이(px) — SVAR cellHeight 와 timeline-gantt.css 의 40px 행(#646)과 같은 값.
 const ROW_HEIGHT_PX = 40
-// 사이클 이름표 최대 줄 수(WP-1439) — 첫 행 높이에 들어가는 줄 수만큼만 쌓아야 둘째 행 이슈 막대를 가리지 않는다.
-// 행 높이에서 끌어내 두어, 행 높이나 줄 높이를 바꿔도 상한이 따라온다(40/16 → 2줄). 넘치는 사이클은 마지막 줄 이름표의 「+N」 으로 접는다.
-const CYCLE_LABEL_MAX_LANES = Math.max(1, Math.floor(ROW_HEIGHT_PX / CYCLE_LABEL_LANE_PX))
 
 const GROUP_ID_PREFIX = 'group-'
 const groupTaskId = (key: string) => `${GROUP_ID_PREFIX}${key}`
@@ -336,6 +340,8 @@ export function TimelineGantt({
   const versionChipRefs = useRef(new Map<string, HTMLButtonElement>())
   const versionDotRefs = useRef(new Map<number, HTMLDivElement>())
   const versionDividerRef = useRef<HTMLDivElement | null>(null)
+  // 사이클 칸(WP-1642) 의 그리드/차트 경계 구분선 — 마일스톤·버전 칸과 같은 이유로 baseLeft 에 맞춰 둔다.
+  const cycleDividerRef = useRef<HTMLDivElement | null>(null)
   // 같은 날짜 칩 묶음(WP-1027) — 같은 날짜를 옆으로 밀면 뒤 칩이 다른 날짜로 읽히므로 날짜마다 칩 하나로 그린다.
   // 입력은 milestonesToMarkers·versionsToMarkers 가 이미 날짜 → 이름 → id 순으로 준다.
   const milestoneGroups = useMemo(() => groupLaneChipsByDate(milestones, milestoneDate), [milestones])
@@ -525,6 +531,11 @@ export function TimelineGantt({
 
   // 사이클 이름표 줄 배정(WP-1439) — 줄 수 상한 안에서 그릴 이름표와 접힌 사이클. 날짜만 보므로 스크롤·보기와 무관하다.
   const cycleLabelSlots = useMemo(() => layoutCycleLabelLanes(cycles, CYCLE_LABEL_MAX_LANES), [cycles])
+  // 사이클 칸 높이(WP-1642) — 실제로 쓰는 줄 수만큼만 키운다(겹치는 사이클이 없으면 한 줄).
+  const cycleLaneCount = useMemo(
+    () => Math.max(1, ...[...cycleLabelSlots.values()].map((slot) => slot.lane + 1)),
+    [cycleLabelSlots],
+  )
 
   // 사이클 구간에 속한 날짜는 highlightTime 이 반환하는 CSS 클래스로 셀 배경을 물들인다.
   const highlightTime = useMemo(() => {
@@ -659,10 +670,9 @@ export function TimelineGantt({
       if (versionDividerRef.current) {
         versionDividerRef.current.style.left = `${baseLeft}px`
       }
-      // 사이클 밴드 라벨은 스케일 헤더(월/주 눈금, `.wx-scale`) 아래 차트 바디 상단에 붙여야
-      // 헤더 눈금 텍스트와 겹치지 않는다 — `.wx-chart` 자체는 헤더까지 포함해 top 이 0이라 헤더 높이를 더한다.
-      const scaleHeader = scroller.querySelector<HTMLElement>('.wx-scale')
-      const baseTop = scaleHeader ? scaleHeader.getBoundingClientRect().height : 0
+      if (cycleDividerRef.current) {
+        cycleDividerRef.current.style.left = `${baseLeft}px`
+      }
       chartLeft = baseLeft
       todayLeft = baseLeft + toOffset(new Date())
       // 기간이 겹치는 사이클은 이름표 줄을 나눈다(WP-489) — 줄 배정은 cycleLabelSlots(최대 CYCLE_LABEL_MAX_LANES 줄, WP-1439).
@@ -672,7 +682,8 @@ export function TimelineGantt({
       bandLefts.clear()
       for (const { cycle, lane, endDate } of cycleLabelSlots.values()) {
         const el = cycleBandLabelRefs.current.get(cycle.id)
-        if (el) el.style.top = `${baseTop + lane * CYCLE_LABEL_LANE_PX}px`
+        // 띠는 사이클 칸(WP-1642) 기준 — 위 여백 아래에 줄마다 줄 간격만큼 내려 놓는다.
+        if (el) el.style.top = `${CYCLE_LANE_PAD_PX + lane * CYCLE_LANE_LINE_PX}px`
         const left = baseLeft + toOffset(parseISO(cycle.startDate))
         const width = baseLeft + toOffset(parseISO(endDate)) - left
         bandLefts.set(cycle.id, { left, width })
@@ -713,7 +724,8 @@ export function TimelineGantt({
         const visibleWidth = start + width - visibleLeft
         el.style.visibility = visibleWidth > 0 ? '' : 'hidden'
         el.style.transform = `translateX(${visibleLeft}px)`
-        el.style.width = `${Math.max(visibleWidth, 0)}px`
+        // 오른쪽 틈(CYCLE_BAND_GAP_PX, WP-1642)을 덜되, 아주 짧게 남은 띠도 1px 은 보이게 한다.
+        el.style.width = `${visibleWidth > 0 ? Math.max(visibleWidth - CYCLE_BAND_GAP_PX, 1) : 0}px`
       }
       // 마일스톤은 사이클 이름표처럼 차트 영역 안에만 그린다(WP-861) — 마감일이 차트 왼쪽 밖으로 스크롤되면
       // 칩·점선을 숨겨 왼쪽 그리드 표 위에 겹치지 않게 하고, 마감일은 보이는데 칩만 걸치면 차트 왼쪽 끝에 붙인다.
@@ -993,6 +1005,40 @@ export function TimelineGantt({
           ))}
         </div>
       )}
+      {/* 사이클 칸(WP-1642) — 마일스톤·(버전) 칸 아래, 간트 위 별도 스트립. 사이클마다 기간만큼 늘어나는 띠로 이름을 보인다.
+          예전에는 이름표를 간트 첫 행 위에 겹쳐 그려, 겹치는 사이클의 둘째 줄이 첫 행 에픽 막대를 덮었다. 사이클이 없으면 칸을 그리지 않는다.
+          띠 가로 위치·폭·좌측 끝 자르기는 위 effect 가 `.wx-chart` 스크롤에 맞춰 갱신하고, 날짜 배경(highlightTime)은 차트 본문에 그대로 둔다. */}
+      {cycles.length > 0 && (
+        <div
+          data-testid="cycle-lane"
+          className="relative shrink-0 overflow-hidden border-b"
+          style={{ height: CYCLE_LANE_PAD_PX * 2 + cycleLaneCount * CYCLE_LANE_LINE_PX }}
+        >
+          <span className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2 text-xs font-semibold tracking-wider uppercase">
+            사이클
+          </span>
+          <div
+            ref={cycleDividerRef}
+            data-testid="cycle-lane-divider"
+            className="border-border pointer-events-none absolute inset-y-0 w-0 border-l"
+          />
+          {/* 사이클 띠 — 줄이 모자라 접힌 사이클(WP-1439)은 그리지 않고, 접혀 들어온 띠 뒤에 「+N」 을 붙인다. 이름이 길면 말줄임. */}
+          {[...cycleLabelSlots.values()].map(({ cycle, folded }) => (
+            <div
+              key={cycle.id}
+              ref={(el) => {
+                if (el) cycleBandLabelRefs.current.set(cycle.id, el)
+                else cycleBandLabelRefs.current.delete(cycle.id)
+              }}
+              data-testid="timeline-cycle-band"
+              className="border-border bg-muted/60 text-foreground/80 pointer-events-none absolute left-0 flex h-4.5 items-center gap-1 overflow-hidden rounded-sm border px-1.5 text-xs"
+            >
+              <span className="min-w-0 truncate">{cycle.name}</span>
+              {folded.length > 0 && <CycleFoldedMore folded={folded} />}
+            </div>
+          ))}
+        </div>
+      )}
       {/* timeline-gantt-root 는 timeline-gantt.css 오버라이드의 스코프 앵커(#646) */}
       <div ref={containerRef} className="timeline-gantt-root relative min-h-0 flex-1 overflow-hidden">
         {/* 오늘 세로선 — `.wx-chart` 스크롤에 맞춰 위 effect 가 transform 을 직접 갱신한다. */}
@@ -1001,22 +1047,6 @@ export function TimelineGantt({
           data-testid="timeline-today-line"
           className="pointer-events-none absolute inset-y-0 left-0 z-10 w-px bg-destructive"
         />
-        {/* 사이클 밴드 라벨 — highlightTime 이 칠한 배경 위에 이름을 표시한다. 줄이 모자라 접힌 사이클(WP-1439)은 그리지 않고,
-            접혀 들어온 이름표 뒤에 「+N」 을 붙인다. */}
-        {[...cycleLabelSlots.values()].map(({ cycle, folded }) => (
-          <div
-            key={cycle.id}
-            ref={(el) => {
-              if (el) cycleBandLabelRefs.current.set(cycle.id, el)
-              else cycleBandLabelRefs.current.delete(cycle.id)
-            }}
-            data-testid="timeline-cycle-band"
-            className="pointer-events-none absolute top-0 left-0 z-10 flex items-center gap-1 overflow-hidden px-1 text-xs text-muted-foreground"
-          >
-            <span className="min-w-0 truncate">{cycle.name}</span>
-            {folded.length > 0 && <CycleFoldedMore folded={folded} />}
-          </div>
-        ))}
         {/* 마일스톤 마감일 세로 점선(#648) — 칩이 충돌로 밀려도 실제 마감 위치는 이 점선이 정확히 보장한다. */}
         {milestones.map((m) => (
           <div
@@ -1242,8 +1272,8 @@ function CycleFoldedMore({ folded }: { folded: TimelineCycleBand[] }) {
   const names = folded.map((c) => c.name).join(', ')
   return (
     <IconHint label={names}>
-      {/* 이름표 본문은 막대 클릭을 막지 않게 포인터를 통과시키고 「+N」 만 받는다(pointer-events-auto) — 일부러 정한 맞바꿈:
-          첫 행 막대 클릭을 이 칸(약 20px) 안에서만 막는 대신, 접힌 사이클 이름을 호버·키보드·탭으로 볼 수 있다.
+      {/* 띠 본문은 포인터를 통과시키고 「+N」 만 받는다(pointer-events-auto) — 접힌 사이클 이름을 호버·키보드·탭으로 볼 수 있게.
+          띠는 간트 위 사이클 칸에 있어(WP-1642) 이슈 막대와 겹치지 않으므로 막대 클릭을 가리지 않는다.
           포인터 이벤트는 이 칸에서 IconHint 의 트리거로 올라가 툴팁·팝오버를 연다. */}
       <span
         data-testid="timeline-cycle-band-more"

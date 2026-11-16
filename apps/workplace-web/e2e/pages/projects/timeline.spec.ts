@@ -9,7 +9,9 @@ import { trackRequests } from '../../fixtures/requests';
 import { afterScroll, gotoTimeline } from '../../fixtures/timeline';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
+import { makeEpicType } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
+import { createVersion } from '../../factories/version.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 import { expectToggle } from '../../fixtures/selection';
@@ -439,7 +441,7 @@ test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크�
 });
 
 // WP-489 — 기간이 겹치는 사이클 이름표가 서로 겹치고, 차트 왼쪽으로 지난 사이클 이름표가 왼쪽 표 위까지 그려지던 문제.
-// 겹치는 사이클은 줄을 나눠 쌓고, 이름표는 차트 영역 안에서만 그린다(차트 왼쪽 끝에 붙고 잘린다).
+// 겹치는 사이클은 줄을 나눠 쌓고, 이름표는 차트 영역 안에서만 그린다(차트 왼쪽 끝에 붙고 잘린다). 이름표는 사이클 칸 안에 있다(WP-1642).
 test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 왼쪽 밖(표 영역)으로 넘지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-10-19T03:00:00Z'));
   await setupTimelineStubs(page);
@@ -480,8 +482,11 @@ test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 �
         }),
       );
       const shown = boxes.filter((b) => b.shown && b.w > 0);
-      // 차트 왼쪽 밖(표 영역)으로 넘지 않는다.
-      const inside = shown.every((b) => b.x >= chart.x - 0.5);
+      // 차트 왼쪽 밖(표 영역)으로 넘지 않고, 간트 위 사이클 칸 안에 든다(WP-1642).
+      const lane = (await page.getByTestId('cycle-lane').boundingBox())!;
+      const inside = shown.every(
+        (b) => b.x >= chart.x - 0.5 && b.y >= lane.y - 0.5 && b.bottom <= lane.y + lane.height + 0.5,
+      );
       // 서로 겹치지 않는다(가로·세로 모두 겹치는 쌍이 없다).
       const overlap = shown.some((a, i) =>
         shown.some((b, j) => j > i && a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom),
@@ -492,7 +497,7 @@ test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 �
 });
 
 // WP-1439 — 같은 기간 사이클이 6~7개면 이름표가 줄 수 제한 없이 쌓여(16px 씩) 첫 행(40px)을 넘어 이슈 막대 위로 내려왔다.
-// 이름표는 2줄까지만 그리고 나머지는 마지막 줄 이름표의 「+N」 으로 접는다 — 모든 이름표가 둘째 행 막대 위에 머문다.
+// 이름표는 2줄까지만 그리고 나머지는 마지막 줄 이름표의 「+N」 으로 접는다 — 모든 이름표가 간트 위 사이클 칸(WP-1642) 안에 머문다.
 test('같은 기간 사이클이 많으면 이름표는 2줄까지만 쌓이고 나머지는 「+N」 으로 접혀 이슈 막대를 덮지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-10-19T03:00:00Z'));
   await setupTimelineStubs(page);
@@ -531,14 +536,16 @@ test('같은 기간 사이클이 많으면 이름표는 2줄까지만 쌓이고 
   // 여러 번에 나눠 옮긴다 — Radix 툴팁은 트리거를 떠난 뒤 내용 쪽 유예 영역 밖의 pointermove 가 와야 닫혀, 한 번에 뛰면 열린 채 남는다.
   await page.mouse.move(0, 0, { steps: 5 });
   await expect(page.getByRole('tooltip')).toHaveCount(0);
-  // 둘째 행(첫 이슈) 막대 위쪽보다 모든 이름표의 아래쪽이 위에 있다 — 이름표가 막대를 덮지 않는다.
+  // 모든 이름표가 간트 위 사이클 칸(WP-1642) 안에 들고, 칸은 간트 컨테이너보다 위에 있다 — 이름표가 막대를 덮지 않는다.
   const bar = page.locator('.timeline-gantt-root .wx-bar[data-task-id="1"]');
   await expect(bar).toBeVisible();
+  const lane = (await page.getByTestId('cycle-lane').boundingBox())!;
+  const rootTop = (await page.locator('.timeline-gantt-root').boundingBox())!.y;
+  expect(lane.y + lane.height).toBeLessThanOrEqual(rootTop + 0.5);
   await expect
     .poll(async () => {
-      const barTop = (await bar.boundingBox())!.y;
-      const bottoms = await labels.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom));
-      return bottoms.every((b) => b <= barTop + 0.5);
+      const rects = await labels.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ y: r.y, bottom: r.bottom })));
+      return rects.every((r) => r.y >= lane.y - 0.5 && r.bottom <= lane.y + lane.height + 0.5);
     })
     .toBe(true);
   // 둘째 이슈 막대(10/20 시작)를 차트 왼쪽 끝 근처로 스크롤 — 주인 기간(10/15~10/17)은 왼쪽 밖, 접힌 사이클(~10/28)은 화면 안.
@@ -551,6 +558,104 @@ test('같은 기간 사이클이 많으면 이름표는 2줄까지만 쌓이고 
   await expect.poll(async () => Math.abs((await bar2.boundingBox())!.x - chart.x - 4)).toBeLessThan(6);
   await expect(more).toBeVisible();
   await expect.poll(async () => (await more.boundingBox())!.x - chart.x).toBeLessThan(200);
+});
+
+// WP-1642 — 사이클 이름표가 간트 안 첫 행 위에 그려져, 둘째 줄(겹치는 사이클) 이름표가 첫 행 에픽 묶음 막대를 덮었다.
+// 이름표는 간트 위 「사이클」 칸(마일스톤·버전 칸 아래)에 기간 띠로 그린다 — 어떤 띠도 막대와 겹치지 않고, 띠는 칸 안에 들며,
+// 이어지는 주간 사이클 띠 사이에는 틈이 보인다.
+test('사이클 띠는 간트 위 사이클 칸에 그려져 첫 행 에픽 막대를 덮지 않고, 이어지는 띠 사이에 틈이 있다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-19T03:00:00Z'));
+  await setupTimelineStubs(page);
+  const now = new Date().toISOString();
+  const cyc = (id: number, name: string, startDate: string, endDate: string): CycleResponse => ({
+    id, projectId: 1, name, goal: null, startDate, endDate, status: 'ACTIVE', createdAt: now, updatedAt: now,
+  });
+  // 월~일 주간 사이클 5개(한 줄에 이어진다) + 그 기간과 겹치는 긴 사이클 1개(둘째 줄).
+  const weekly = [
+    cyc(1, 'GW-1', '2026-10-05', '2026-10-11'),
+    cyc(2, 'GW-2', '2026-10-12', '2026-10-18'),
+    cyc(3, 'GW-3', '2026-10-19', '2026-10-25'),
+    cyc(4, 'GW-4', '2026-10-26', '2026-11-01'),
+    cyc(5, 'GW-5', '2026-11-02', '2026-11-08'),
+  ];
+  await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const body = [...weekly, cyc(9, '분기 안정화', '2026-10-12', '2026-11-08')];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  // 첫 행은 사이클 기간 전체에 걸친 에픽 묶음 막대다.
+  const epicType = makeEpicType();
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [
+      createIssue({ number: 40, title: '안정화 에픽', type: epicType, startDate: '2026-10-05', dueDate: '2026-11-08', childCount: 1 }),
+      createIssue({ number: 41, title: '하위 이슈', parent: { number: 40, title: '안정화 에픽', type: epicType }, startDate: '2026-10-13', dueDate: '2026-10-20' }),
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  // 버전 칸도 함께 띄워 칸 순서(마일스톤 → 버전 → 사이클 → 간트)와 경계 구분선 정렬을 본다.
+  await page.route(`**/api/v1/projects/${KEY}/versions`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const body = [createVersion({ id: 1, name: '1.0.0', releaseDate: '2026-10-30' })];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await gotoTimeline(page, `/projects/${KEY}/timeline?period=all`);
+  const bands = page.getByTestId('timeline-cycle-band');
+  await expect(bands).toHaveCount(6);
+  await expect(page.getByTestId('version-lane')).toBeVisible();
+  const epicBar = page.locator('.timeline-gantt-root .wx-bar.wx-summary[data-task-id$="group-epic-40"]');
+  await expect(epicBar).toBeVisible();
+  type Box = { x: number; y: number; right: number; bottom: number; w: number; h: number };
+  const rectsOf = (selector: string) =>
+    page.locator(selector).evaluateAll((els) =>
+      els
+        .filter((e) => getComputedStyle(e).visibility !== 'hidden')
+        .map((e) => {
+          const r = e.getBoundingClientRect();
+          return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, w: r.width, h: r.height, text: e.textContent ?? '' };
+        })
+        .filter((b) => b.w > 0 && b.h > 0),
+    );
+  const intersects = (a: Box, b: Box) => a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom;
+  // 1) 어떤 띠도 어떤 막대(에픽 묶음 막대 포함)와 겹치지 않는다 — 옛 배치(간트 첫 행 위)에서는 둘째 줄 띠가 에픽 막대를 덮었다.
+  await expect
+    .poll(async () => {
+      const bandRects = await rectsOf('[data-testid="timeline-cycle-band"]');
+      const barRects = await rectsOf('.timeline-gantt-root .wx-bar');
+      return bandRects.filter((b) => barRects.some((bar) => intersects(b, bar))).map((b) => b.text);
+    })
+    .toEqual([]);
+  // 2) 보이는 띠는 모두 사이클 칸 안에 든다.
+  const lane = page.getByTestId('cycle-lane');
+  await expect(lane).toBeVisible();
+  const laneBox = (await lane.boundingBox())!;
+  const bandRects = await rectsOf('[data-testid="timeline-cycle-band"]');
+  expect(bandRects.length).toBeGreaterThan(0);
+  for (const b of bandRects) {
+    expect(b.x).toBeGreaterThanOrEqual(laneBox.x - 0.5);
+    expect(b.right).toBeLessThanOrEqual(laneBox.x + laneBox.width + 0.5);
+    expect(b.y).toBeGreaterThanOrEqual(laneBox.y - 0.5);
+    expect(b.bottom).toBeLessThanOrEqual(laneBox.y + laneBox.height + 0.5);
+  }
+  // 3) 같은 줄에 이어지는 주간 띠 사이에 1px 이상 틈이 있다.
+  const weeklyRects = bandRects.filter((b) => b.text.startsWith('GW-')).sort((a, b) => a.x - b.x);
+  expect(weeklyRects.length).toBeGreaterThan(1);
+  for (let i = 1; i < weeklyRects.length; i++) {
+    expect(Math.abs(weeklyRects[i].y - weeklyRects[i - 1].y)).toBeLessThan(0.5);
+    expect(weeklyRects[i].x - weeklyRects[i - 1].right).toBeGreaterThanOrEqual(1);
+  }
+  // 칸 순서는 마일스톤 → 버전 → 사이클 → 간트다 — 사이클 칸 아래쪽이 간트 컨테이너 위쪽보다 아래로 내려가지 않는다.
+  const rootBox = (await page.locator('.timeline-gantt-root').boundingBox())!;
+  const milestoneBox = (await page.getByTestId('milestone-lane').boundingBox())!;
+  const versionBox = (await page.getByTestId('version-lane').boundingBox())!;
+  expect(milestoneBox.y).toBeLessThan(versionBox.y);
+  expect(versionBox.y + versionBox.height).toBeLessThanOrEqual(laneBox.y + 0.5);
+  expect(laneBox.y + laneBox.height).toBeLessThanOrEqual(rootBox.y + 0.5);
+  // 세 칸의 표/차트 경계 구분선이 같은 x 에 선다.
+  const dividerX = async (id: string) => (await page.getByTestId(id).boundingBox())!.x;
+  const milestoneX = await dividerX('milestone-lane-divider');
+  await expect.poll(() => dividerX('version-lane-divider')).toBeCloseTo(milestoneX, 0);
+  await expect.poll(() => dividerX('cycle-lane-divider')).toBeCloseTo(milestoneX, 0);
 });
 
 // WP-595 — 기간이 아주 긴 이슈(1900~2099) 하나가 간트 축을 200년으로 늘려, 처음 열 때도 「오늘」을 눌러도 2005년 근처가 보였다.
