@@ -8,11 +8,12 @@
 #
 # 종료 코드: 0 = 성공(status 는 상태와 상관없이 0) · 1 = 이미 실행 중 · 2 = 사용법 오류·파일을 못 씀·띄우지 못함·(stop) 끝내지 못함
 #
-# 파일은 MAIN/.work-loop/state/jobs/<이슈 키>.{log,exit,pid}:
+# 파일은 MAIN/.work-loop/state/jobs/<이슈 키>.{log,exit,pid,dir}:
 # - log  : 명령의 표준 출력·오류(띄울 때마다 새로 쓴다)
 # - exit : 명령이 끝나면 종료 코드 한 줄 — 임시 파일에 쓰고 mv 해 반쯤 쓴 값을 읽지 않게 한다
 # - pid  : 띄운 셸의 "<pid>-<시작 시각>"(gw_proc_key). pid 는 다시 쓰이므로 시작 시각까지 맞아야 같은 작업으로 본다.
 #          띄울 때 시작 시각을 못 읽었으면 "<pid>-" 로 남기고, 그때는 pid 가 살아 있는지만 본다
+# - dir  : 작업 폴더의 실제 경로(gw_real_dir) 한 줄 — 워크트리 정리(worktree-sweep ws_any_running)가 작업을 폴더로 가른다(WP-1637)
 # 작업은 새 세션(setsid — macOS 는 perl POSIX::setsid)으로 띄운다. 부른 Bash 도구·claude 세션의 프로세스 그룹과 떨어져
 # 그쪽이 끝나도 같이 죽지 않고, 띄운 셸이 그룹 대표라 stop 이 명령의 자식(E2E·gradle)까지 함께 끝낸다.
 # exit 가 없고 pid 의 프로세스도 없으면(세션 종료·재부팅으로 죽음) lost 다 — 부르는 쪽이 다시 띄운다.
@@ -38,6 +39,11 @@ bj_say() { _bj_state=$1; echo "$1"; }
 # 그 프로세스 그룹에 프로세스가 남아 있으면 0. kill -0 은 권한 없음(EPERM)도 실패라 「끝남」으로 잘못 보므로 ps 로 본다.
 bj_group_alive() {
   ps -axo pgid= 2>/dev/null | awk -v g="$1" '$1 == g { f = 1 } END { exit !f }'
+}
+
+# 이 키의 작업 파일(log·exit·pid·dir)을 모두 지운다 — stop·clear 가 같이 쓴다.
+bj_remove_files() {
+  rm -f "$_bj_base.log" "$_bj_base.exit" "$_bj_base.pid" "$_bj_base.dir"
 }
 
 # 지금 상태 한 단어(failed 는 코드 포함)를 낸다.
@@ -92,13 +98,13 @@ case "$_bj_cmd" in
         exit 2
       fi
     fi
-    rm -f "$_bj_base.log" "$_bj_base.exit" "$_bj_base.pid"
+    bj_remove_files
     echo ok
     ;;
   clear)
     [ $# -eq 0 ] || usage
     [ "$(bj_status)" = running ] && { echo running; exit 1; }
-    rm -f "$_bj_base.log" "$_bj_base.exit" "$_bj_base.pid"
+    bj_remove_files
     echo ok
     ;;
   start)
@@ -109,6 +115,8 @@ case "$_bj_cmd" in
     [ "$(bj_status)" = running ] && { echo running; exit 1; }
     mkdir -p "$_bj_dir" || exit 2
     rm -f "$_bj_base.exit" "$_bj_base.pid"
+    # 띄우기 전에 작업 폴더를 남긴다 — 도는 동안 늘 있어야 워크트리 정리가 그 폴더의 작업을 놓치지 않는다.
+    _bj_real=$(gw_real_dir "$_bj_work") && gw_write_atomic "$_bj_base.dir" "$_bj_real" || exit 2
     # nohup + 표준 입력 끊기로 부른 세션(Bash 도구의 셸)이 끝나도 살아남게 한다.
     # 끝나면 종료 코드를 임시 파일에 쓰고 mv — status 가 빈 exit 파일을 읽지 않게.
     # 작업 폴더로 못 들어가도 종료 코드(2)를 남긴다 — lost 가 아니라 failed 로 보이게.

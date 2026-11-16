@@ -50,6 +50,8 @@ note 는 모두 work-on 4번 「note 쓰는 법」대로다.
 
 이 이슈를 하려고 만든 것만 지운다. 지우기 전에 목록(무엇을 지우고 무엇을 남기는지와 이유)을 사용자에게 보여 준다.
 
+사람이 마무리를 부른 때라 아래 기준(main 에 들어갔는지)으로 바로 정리한다. 사람 없이 도는 work-loop 는 기준이 다르다 — 머지만으로는 지우지 않고 이슈가 DONE·CANCELED 가 된 뒤 스스로 정리한다(work-loop `SKILL.md` 2-1번, WP-1637).
+
 **찾기**
 - 워크트리·브랜치: `git for-each-ref --format='%(refname:short) %(upstream:short) %(worktreepath)' refs/heads` 한 번으로 브랜치·upstream·워크트리 경로를 함께 보고, main 에 들어갔는지는 `git cherry main <브랜치>` 로 본다(`+` 로 시작하는 줄이 없으면 들어갔다 — main 이 rebase 로 펴져 SHA 가 바뀌어도 맞다. 스쿼시 머지라 `+` 가 남으면 `git diff --quiet <브랜치> main -- $(git diff --name-only main...<브랜치>)` 로 내용이 main 과 같은지 본다). 대상은 이 세션이 만든 것이다.
   - 이름에 이슈 키가 들었지만(대소문자 무시, 예: `.claude/worktrees/WP-377`, `ai/WP-377`, `wp-377-…`) 이 세션이 만들지 않은 것은 다른 세션(사람·work-loop)이 같은 이슈로 쓰는 중일 수 있다. 새 세션이라 누가 만들었는지 모를 때도 같다. 이것들은 목록으로 한 번에 묻고, 사용자가 지우라고 한 것만 지운다. `git worktree list --porcelain` 에 `locked` 인 워크트리는 지우지 않는다.
