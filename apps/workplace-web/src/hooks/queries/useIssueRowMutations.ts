@@ -14,6 +14,7 @@ import { chatKeys } from './chatKeys';
 import { patchIssueInSearchCache } from './issueSearchCache';
 import { invalidateIssueCaches } from './useBulkIssueActions';
 import { issueKeys } from './useIssues';
+import { projectOverviewKey } from './useProjectOverview';
 
 
 /** 우선순위 변경 — 낙관적 패치. version 은 보내지 않는다(목록 행은 최신 version 을 보장하지 않음, 일괄 변경과 같은 정책). */
@@ -69,6 +70,8 @@ export function useRemoveIssue(projectKey: string) {
     mutationFn: (number: number) => issuesApi.remove(projectKey, number),
     onSuccess: (_data, number) => {
       qc.removeQueries({ queryKey: issueKeys.detail(projectKey, number) });
+      // 지운 뒤 개요의 열린 이슈 수·활동이 바로 바뀌게 개요도 무효화한다(WP-1652).
+      qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
       toast.success('태스크를 삭제했습니다');
     },
     onError: (e) => handleApiError(e, '태스크 삭제에 실패했습니다'),

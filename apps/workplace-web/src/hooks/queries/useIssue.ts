@@ -7,6 +7,7 @@ import { issuesApi } from '../../api/issues';
 import { handleApiError } from '../../lib/api-error';
 import type { IssueDetailResponse, UpdateIssueRequest } from '../../types/issue';
 import { issueKeys } from './useIssues';
+import { projectOverviewKey } from './useProjectOverview';
 import { refreshStatusesIfGone } from './useProjectStatuses';
 
 export function useIssue(projectKey: string, number: number) {
@@ -42,6 +43,8 @@ export function useUpdateIssue(projectKey: string, number: number) {
       // 홈 합성 위젯의 마감 마커(useMyIssueDues, ['my-issue-dues', from, to])도 무효화 —
       // 마감일 변경이 홈 "오늘 마감" 카운트·주의 항목에 즉시 반영되도록 prefix 로 모든 날짜범위를 무효화한다.
       qc.invalidateQueries({ queryKey: ['my-issue-dues'] });
+      // 상태·닫기·다시 열기는 개요의 열린 이슈 수·활동을 바꾸므로 개요도 무효화한다(WP-1652).
+      qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
     },
     onError: (error) => {
       // 실패 안내는 훅이 한 번 띄운다 — 개인 작업 패널처럼 mutate 만 부르는 호출부도 실패를 알 수 있게.

@@ -27,6 +27,7 @@ import { issuesApi, searchIssues } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { issueKeys } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { projectOverviewKey } from '../../../hooks/queries/useProjectOverview';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { handleApiError } from '../../../lib/api-error';
@@ -153,6 +154,8 @@ export function IssueChildrenSection({
       // 자식 목록, 검색 캐시, 부모 detail 의 childCount 모두 갱신.
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
+      // 하위 이슈도 개요의 열린 이슈 수·생성 수에 들어가므로 개요도 무효화한다(WP-1652).
+      qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
       toast.success(isEpicParent ? '하위 이슈를 추가했습니다' : '하위 태스크를 추가했습니다');
     } catch (e) {
       // 실패한 제목을 되돌려 다시 보낼 수 있게 한다 — 그 사이 다음 제목을 치고 있었다면 그것을 지우지 않는다.
