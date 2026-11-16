@@ -8,7 +8,9 @@ WORKDIR /app
 
 # 의존성 캐싱을 위해 wrapper와 빌드 파일 먼저 복사
 COPY gradle/ gradle/
-COPY gradlew build.gradle.kts settings.gradle.kts ./
+# lombok.config 도 함께 — 없으면 @RequiredArgsConstructor 생성자에 필드의 @Value·@Qualifier 가 옮겨지지 않아
+# 이미지에서만 기동이 깨진다(v0.9.69 SmtpMailTransport 「bean of type 'int'」).
+COPY gradlew build.gradle.kts settings.gradle.kts lombok.config ./
 RUN chmod +x gradlew && ./gradlew dependencies --no-daemon || true
 
 COPY src/ src/
