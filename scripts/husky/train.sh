@@ -12,7 +12,8 @@
 #
 # - 「출발」 = 기차 브랜치를 origin 에 push 한 것(origin/<기차> 가 있음). 출발한 기차에는 새 이슈를 쌓지 않는다 — 다음 번호로 새 기차를 만든다.
 # - 기차마다 워크트리 MAIN/.claude/worktrees/integ-<AI 이름>-<번호> 를 둔다. 게이트·수정 커밋·push 는 그 안에서 한다.
-# - 쌓기는 feature 의 마지막 커밋 메시지(제목 끝 `(<이슈 키>)`)와 작성자를 그대로 쓴다. 쌓는 커밋은 커밋 훅을 다시 돌지 않는다 —
+# - 쌓기는 feature 의 마지막 커밋 메시지(제목 끝 `(<이슈 키>)`)와 작성자를 그대로 쓰고, 끝에 `Stacked-From: <feature 커밋 SHA>` 트레일러를 단다
+#   (끝난 이슈 정리 worktree-sweep 이 feature 커밋이 들어갔는지 가리는 데 쓴다 — WP-1643). 쌓는 커밋은 커밋 훅을 다시 돌지 않는다 —
 #   같은 변경을 feature 커밋 때 훅이 이미 봤고, 쌓은 결과 전체는 출발 때 push 게이트가 본다.
 # - 마이그레이션 번호가 origin/main·앞서 쌓은 이슈와 겹치면 쌓지 않고 멈춘다(번호를 feature 에서 옮긴 뒤 다시 쌓는다).
 # git 은 origin 에서 한 번 fetch 한다(TRAIN_NO_FETCH=1 이면 건너뜀). 커밋 신원은 호출한 환경의 것을 쓴다(rebase 가 committer 를 쓴다).
@@ -144,6 +145,13 @@ cmd_stack() {
   # 커밋 하나 — feature 의 메시지·작성자를 그대로(쌓는 사람은 committer). 번호가 겹치면 브랜치를 옮기지 않고 되돌린다.
   tree=$(git -C "$wt" write-tree)
   msg=$(mktemp); git log -1 --format=%B "$fsha" > "$msg"
+  # 옮긴 커밋에 원래 feature 끝 커밋 SHA(40자)를 트레일러로 남긴다 — 끝난 이슈 정리(worktree-sweep ws_unpushed)가 patch 가 바뀐
+  # feature 커밋이 들어갔는지 이 SHA 로 정확히 가린다(그 앞 커밋도 함께 들어간 것으로 본다). 작성자 정보만으로는 쌓은 뒤 amend 한
+  # feature 커밋(작성자 정보 그대로·SHA 다름)을 들어간 것으로 잘못 봐 고친 내용을 잃는다 — 그래서 정리는 트레일러가 있는 main
+  # 커밋을 작성자 정보로 견주지 않는다(WP-1643).
+  git interpret-trailers --in-place --trailer "Stacked-From: $fsha" "$msg" || {
+    rm -f "$msg"; git -C "$wt" reset --hard --quiet HEAD; die "Stacked-From 트레일러를 달지 못했습니다"
+  }
   commit=$(GIT_AUTHOR_NAME=$(git log -1 --format=%an "$fsha") GIT_AUTHOR_EMAIL=$(git log -1 --format=%ae "$fsha") \
     GIT_AUTHOR_DATE=$(git log -1 --format=%aI "$fsha") git -C "$wt" commit-tree "$tree" -p HEAD -F "$msg") || {
     rm -f "$msg"; git -C "$wt" reset --hard --quiet HEAD; die "커밋을 만들지 못했습니다(커밋 신원 확인)"

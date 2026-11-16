@@ -925,7 +925,11 @@ test('끝난 이슈 정리: 잠금 뒤 부를 때마다 worktree-sweep 으로 DO
   assert.ok(sweep.includes('`integ-<내 AI 이름>-<번호>`'));
   // 돌고 있는 작업은 끄지 않고 기다린다. 올리지 않은 커밋·커밋 안 한 변경·잠김은 지우지 않고 이유를 남긴다(DONE 이슈라 report_agent_work 는 409 — add_issue_chat).
   assert.ok(sweep.includes('- `running`: 지우지 않고 알리지도 않는다'));
-  assert.ok(sweep.includes('`unpushed`·`dirty`·`locked`'));
+  // 아직 열린 통합 PR 의 검토자 워크트리(in-review)는 running 처럼 알리지 않고 넘긴다(WP-1643).
+  assert.ok(sweep.includes('\n   - `in-review`(검토자가 받은 통합 PR 이 첫 이슈만 끝나고 아직 열려 있다): `running` 처럼 지우지 않고 알리지도 않는다'));
+  assert.ok(sweep.includes('\n     - `kept …: 통합 PR 리뷰 중`: 아래 `in-review` 와 같다 — 알리지 않고'));
+  // PR 목록을 받지 못한 것(pr-unknown)은 리뷰 중과 달리 사람이 고쳐야 풀리니 「남길 때」대로 알린다.
+  assert.ok(sweep.includes('\n   - `unpushed`·`dirty`·`locked`·`pr-unknown`: 지우지 않고 아래 「남길 때」대로 한다'));
   assert.ok(!sweep.includes('bg-job stop'), '정리 단계가 돌고 있는 작업을 끈다');
   assert.ok(sweep.includes('add_issue_chat'));
   // 정리 보류 표시는 이유를 담고, 이유가 바뀌었을 때만 다시 알린다.

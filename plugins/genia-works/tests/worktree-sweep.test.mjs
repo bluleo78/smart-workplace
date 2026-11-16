@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readFileSync, symlinkSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readFileSync, symlinkSync, realpathSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,6 +77,24 @@ function commit(dir, file, subject) {
   git(dir, 'commit', '-qm', subject);
 }
 
+/** MAIN 에서 origin/main 으로 브랜치 name 을 만들어 커밋 하나를 두고 main 으로 돌아온다(워크트리 없는 브랜치). */
+function branchWithCommit(main, name, file, msg) {
+  git(main, 'switch', '-q', '-c', name, 'origin/main');
+  commit(main, file, msg);
+  git(main, 'switch', '-q', 'main');
+}
+
+/** 로컬 브랜치 name 이 있으면 true. */
+function branchExists(main, name) {
+  return spawnSync('git', ['-C', main, 'rev-parse', '-q', '--verify', `refs/heads/${name}`]).status === 0;
+}
+
+/** 키 key 의 백그라운드 작업을 폴더 dir 에서 띄우고(sleep 30) 테스트가 끝나면 끈다. */
+function startJob(t, main, key, dir) {
+  assert.match(bg(main, 'start', key, dir, '--', 'sleep', '30').stdout, /^started \d+/);
+  t.after(() => bg(main, 'stop', key));
+}
+
 function state(main, ...parts) {
   return join(main, '.work-loop', 'state', ...parts);
 }
@@ -86,9 +104,40 @@ function put(path, text = 'x') {
   writeFileSync(path, text);
 }
 
+/**
+ * 가짜 gh(tests/fake-cli)로 gw-repo pr-list 응답을 정한다 — origin 주소를 GitHub 모양으로 바꾸고(insteadOf 로 실제로는 bare origin 을 쓴다)
+ * PATH 앞에 가짜 gh 를 둔다. 돌려준 env 를 sweep·rows 에 넘기고, reply(map) 으로 응답을, calls() 로 불린 인자를 본다.
+ */
+function fakeGh(main) {
+  const root = dirname(main);
+  const bin = join(root, 'fake-bin');
+  mkdirSync(bin, { recursive: true });
+  chmodSync(join(here, 'fake-cli'), 0o755);
+  if (!existsSync(join(bin, 'gh'))) symlinkSync(join(here, 'fake-cli'), join(bin, 'gh'));
+  const url = 'https://github.com/a/wp.git';
+  git(main, 'config', `url.${join(root, 'origin.git')}.insteadOf`, url);
+  git(main, 'remote', 'set-url', 'origin', url);
+  const log = join(root, 'fake-cli.log');
+  const replies = join(root, 'fake-cli.json');
+  writeFileSync(log, '');
+  writeFileSync(replies, '{}');
+  mkdirSync(join(root, 'run'), { recursive: true });
+  return {
+    env: { PATH: `${bin}:${process.env.PATH}`, FAKE_CLI_LOG: log, FAKE_CLI_REPLIES: replies, GENIA_RUN_DIR: join(root, 'run'), TMPDIR: root },
+    reply: (map) => writeFileSync(replies, JSON.stringify(map)),
+    calls: () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)),
+    clear: () => writeFileSync(log, ''),
+  };
+}
+
+/** gh pr list 응답 — PR 하나는 {headRefName, state} 만 있으면 된다(gw-repo 가 나머지를 빈 값으로 채운다). */
+function prs(...list) {
+  return { 'gh pr list': { out: list.map(([headRefName, state], i) => ({ number: i + 1, title: 't', headRefName, state })) } };
+}
+
 /** list 출력(프로젝트 키 WP·AI 이름 dev) → 줄마다 [키, 경로 끝 이름, 브랜치, 상태] (경로는 끝 이름만 — 임시 폴더 이름에 기대지 않게). */
-function rows(main) {
-  const r = sweep(['list', main, 'WP', 'dev']);
+function rows(main, extra = {}) {
+  const r = sweep(['list', main, 'WP', 'dev'], extra);
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.split('\n').filter(Boolean).map((l) => {
     const [keys, path, branch, st] = l.split('\t');
@@ -253,14 +302,70 @@ test('worktree-sweep list·remove: 검토자가 통합 PR 을 받은 이슈 워�
   commit(w, 'a.txt', 'feat: a (WP-9)');
   git(w, 'push', '-q', 'origin', 'integ/other-3');
   put(state(main, 'sweep', 'WP-9'), '커밋 안 한 변경\n');
-  assert.deepEqual(rows(main), [['WP-9', 'WP-9', 'integ/other-3', 'ok']]);
-  const r = sweep(['remove', main, w, 'WP-9']);
+  // 그 통합 PR 은 닫혔다(첫 이슈가 취소돼 기차를 접었다) — 열린 PR 목록에 없으니 지금처럼 판정한다(열려 있으면 in-review — WP-1643).
+  const gh = fakeGh(main);
+  gh.reply(prs());
+  assert.deepEqual(rows(main, gh.env), [['WP-9', 'WP-9', 'integ/other-3', 'ok']]);
+  const r = sweep(['remove', main, w, 'WP-9'], gh.env);
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.equal(existsSync(w), false);
-  assert.equal(spawnSync('git', ['-C', main, 'rev-parse', '-q', '--verify', 'refs/heads/integ/other-3']).status, 1);
+  assert.equal(branchExists(main, 'integ/other-3'), false);
   assert.match(git(main, 'ls-remote', 'origin', 'integ/other-3'), /refs\/heads\/integ\/other-3/);
   assert.equal(existsSync(state(main, 'notes', 'WP-9.md')), false);
   assert.equal(existsSync(state(main, 'sweep', 'WP-9')), false);
+});
+
+test('worktree-sweep list·remove: 들어가지 않은 통합 PR(브랜치 integ/…)의 이슈 워크트리는 열린 PR 의 머리 브랜치면 in-review, PR 목록을 받지 못하면 pr-unknown 으로 남긴다 (WP-1643)', (t) => {
+  const main = repo(t);
+  // 검토자가 받은 통합 PR — 첫 이슈(WP-5)만 취소돼도 PR 은 다른 이슈로 아직 리뷰 중일 수 있다.
+  const w5 = addWorktree(main, 'WP-5', 'integ/other-9');
+  commit(w5, 'a.txt', 'feat: a (WP-5)');
+  git(w5, 'push', '-q', 'origin', 'integ/other-9');
+  // 이미 main 에 들어간 통합 PR — PR 을 묻지 않고 지금처럼 판정한다.
+  const w6 = addWorktree(main, 'WP-6', 'integ/other-8');
+  commit(w6, 'b.txt', 'feat: b (WP-6)');
+  git(w6, 'push', '-q', 'origin', 'integ/other-8');
+  git(main, 'merge', '-q', '--no-ff', '-m', 'merge: 통합 WP-6', 'integ/other-8');
+  git(main, 'push', '-q', 'origin', 'main');
+  // integ/… 가 아닌 브랜치는 PR 을 묻지 않는다.
+  addWorktree(main, 'WP-7', 'fix/wp-7');
+  const gh = fakeGh(main);
+  // 열린 PR 의 제목·본문에 폴더 키(WP-5)가 없어도(제목 `통합 WP-11·WP-12` 같은) 머리 브랜치로 찾는다.
+  // 들어간 integ/other-8 의 PR 이 열려 있다고 해도(묻지 않으니) ok 다.
+  gh.reply(prs(['integ/other-9', 'OPEN'], ['integ/other-8', 'OPEN']));
+  assert.deepEqual(rows(main, gh.env), [
+    ['WP-5', 'WP-5', 'integ/other-9', 'in-review'],
+    ['WP-6', 'WP-6', 'integ/other-8', 'ok'],
+    ['WP-7', 'WP-7', 'fix/wp-7', 'ok'],
+  ]);
+  // 열린 PR 목록만 묻는다 — 검색(--search)·닫힌 PR(--state all)은 쓰지 않는다.
+  const c = gh.calls();
+  assert.equal(c.length, 1, JSON.stringify(c));
+  assert.deepEqual(c[0].args.slice(0, 4), ['pr', 'list', '--state', 'open']);
+  assert.equal(c[0].args.includes('--search'), false, JSON.stringify(c[0].args));
+  const r = sweep(['remove', main, w5, 'WP-5'], gh.env);
+  assert.equal(r.status, 3, r.stderr + r.stdout);
+  assert.equal(r.stdout, `kept ${w5}: 통합 PR 리뷰 중\n`);
+  assert.equal(existsSync(w5), true);
+  assert.equal(existsSync(state(main, 'notes', 'WP-5.md')), true);
+
+  // 머리 브랜치가 정확히 같은 PR 만 본다 — 이름이 비슷한 다른 PR 만 열려 있거나 열린 PR 이 없으면 ok.
+  gh.reply(prs(['integ/other-90', 'OPEN']));
+  assert.deepEqual(rows(main, gh.env)[0], ['WP-5', 'WP-5', 'integ/other-9', 'ok']);
+  gh.reply(prs());
+  assert.deepEqual(rows(main, gh.env)[0], ['WP-5', 'WP-5', 'integ/other-9', 'ok']);
+  // PR 목록을 받지 못하면(로그인 안 됨·CLI 실패) 열렸는지 모른다 — 리뷰 중과 갈라 pr-unknown 으로 남긴다(사람에게 알릴 이유).
+  gh.reply({ 'gh pr list': { code: 1, err: 'not logged in' } });
+  assert.deepEqual(rows(main, gh.env)[0], ['WP-5', 'WP-5', 'integ/other-9', 'pr-unknown']);
+  const f = sweep(['remove', main, w5, 'WP-5'], gh.env);
+  assert.equal(f.status, 3, f.stderr + f.stdout);
+  assert.equal(f.stdout, `kept ${w5}: 통합 PR 상태를 확인하지 못함\n`);
+  assert.equal(existsSync(w5), true);
+  // 열린 PR 이 없어 ok 면 지운다.
+  gh.reply(prs());
+  const d = sweep(['remove', main, w5, 'WP-5'], gh.env);
+  assert.equal(d.status, 0, d.stderr + d.stdout);
+  assert.equal(existsSync(w5), false);
 });
 
 test('worktree-sweep list: 먼저 origin 을 fetch 해 그 뒤의 origin/main 으로 판정하고, fetch 가 실패하면 판정하지 않고 exit 2 (WP-1637)', (t) => {
@@ -328,13 +433,74 @@ test('worktree-sweep list: 기차 rebase·충돌 풀기로 patch 가 바뀌어�
   ]);
 });
 
+test('worktree-sweep list: 기차 쌓기 트레일러(Stacked-From: <feature SHA>)로 들어간 커밋을 정확히 가린다 — amend 한 커밋은 작성자 정보가 같아도 올리지 않은 것이다 (WP-1643)', (t) => {
+  const main = repo(t);
+  const tw = addWorktree(main, 'integ-dev-1', 'integ/dev-1');
+  /** 기차에 옮긴 커밋을 흉내 낸다 — 내용(patch)은 다르게, 작성 시각은 authorDate, 메시지 끝에 트레일러를 단다. */
+  const stacked = (file, subject, { authorDate, committerDate, trailer }) => {
+    writeFileSync(join(tw, file), `stacked ${subject}`);
+    git(tw, 'add', file);
+    const extra = { GIT_AUTHOR_DATE: authorDate };
+    if (committerDate) extra.GIT_COMMITTER_DATE = committerDate;
+    gitEnv(tw, extra, 'commit', '-qm', subject, ...(trailer ? ['-m', `Stacked-From: ${trailer}`] : []));
+  };
+  const authorDate = (w) => git(w, 'log', '-1', '--format=%aI');
+  // (a) 트레일러가 그 커밋 SHA 인 커밋이 main 에 있으면 작성자 정보가 달라도 들어간 것이다.
+  const a = addWorktree(main, 'WP-1', 'fix/wp-1');
+  commit(a, 'a.txt', 'fix: a (WP-1)');
+  stacked('a.txt', 'fix: a (WP-1)', { authorDate: '2021-01-01T00:00:00Z', trailer: git(a, 'rev-parse', 'HEAD') });
+  // (b) 쌓은 뒤 feature 를 amend 했다 — 작성자 시각·제목이 같고, 들어간 사본(트레일러는 amend 전 SHA)이 더 나중에 커밋됐다.
+  const b = addWorktree(main, 'WP-2', 'fix/wp-2');
+  commit(b, 'b.txt', 'fix: b (WP-2)');
+  const before = git(b, 'rev-parse', 'HEAD');
+  writeFileSync(join(b, 'b.txt'), 'amended');
+  git(b, 'commit', '-q', '-a', '--amend', '--no-edit');
+  const later = new Date(Date.now() + 3600e3).toISOString();
+  stacked('b.txt', 'fix: b (WP-2)', { authorDate: authorDate(b), committerDate: later, trailer: before });
+  // (c) 트레일러 없는 옛 기차 커밋 — 작성자 정보가 같으면 지금처럼 들어간 것이다.
+  const c = addWorktree(main, 'WP-3', 'fix/wp-3');
+  commit(c, 'c.txt', 'fix: c (WP-3)');
+  stacked('c.txt', 'fix: c (WP-3)', { authorDate: authorDate(c) });
+  // (d) 트레일러가 SHA 앞부분만 같으면 그 커밋이 아니다(작성자 정보도 다르다).
+  const d = addWorktree(main, 'WP-4', 'fix/wp-4');
+  commit(d, 'd.txt', 'fix: d (WP-4)');
+  stacked('d.txt', 'fix: d (WP-4)', { authorDate: '2021-01-01T00:00:00Z', trailer: git(d, 'rev-parse', 'HEAD').slice(0, 12) });
+  // (e) 커밋 여럿인 feature(C1→C2) — 쌓기는 끝 커밋(C2)만 트레일러로 남기니, C2 와 그 앞 커밋(C1)이 모두 들어간 것이다.
+  const e = addWorktree(main, 'WP-5', 'fix/wp-5');
+  commit(e, 'e1.txt', 'wip: e 앞 (WP-5)');
+  commit(e, 'e2.txt', 'fix: e (WP-5)');
+  stacked('e.txt', 'fix: e (WP-5)', { authorDate: authorDate(e), trailer: git(e, 'rev-parse', 'HEAD') });
+  // (f) 트레일러 블록이 아닌 본문 줄(뒤에 다른 문단이 이어진다)은 트레일러가 아니다 — 작성자 정보도 다르니 올리지 않은 것이다.
+  const f = addWorktree(main, 'WP-6', 'fix/wp-6');
+  commit(f, 'f.txt', 'fix: f (WP-6)');
+  writeFileSync(join(tw, 'f.txt'), 'quoted');
+  git(tw, 'add', 'f.txt');
+  gitEnv(tw, { GIT_AUTHOR_DATE: '2021-01-01T00:00:00Z' }, 'commit', '-qm', 'docs: 인용', '-m', `Stacked-From: ${git(f, 'rev-parse', 'HEAD')}`, '-m', '끝 문단');
+  // (g) merge 커밋의 트레일러는 보지 않는다(옮긴 커밋은 merge 가 아니다).
+  const g = addWorktree(main, 'WP-7', 'fix/wp-7');
+  commit(g, 'g.txt', 'fix: g (WP-7)');
+  // grep 설정(grep.patternType)이 판정을 바꾸지 않는다 — 메시지 검색(--grep)이 아니라 트레일러를 읽는다.
+  git(main, 'config', 'grep.patternType', 'fixed');
+  git(main, 'merge', '-q', '--no-ff', '-m', 'merge: 통합 WP-1·WP-2·WP-3·WP-4', '-m', `Stacked-From: ${git(g, 'rev-parse', 'HEAD')}`, 'integ/dev-1');
+  git(main, 'push', '-q', 'origin', 'main');
+  assert.deepEqual(rows(main), [
+    ['integ-dev-1', 'integ-dev-1', 'integ/dev-1', 'ok'],
+    ['WP-1', 'WP-1', 'fix/wp-1', 'ok'],
+    ['WP-2', 'WP-2', 'fix/wp-2', 'unpushed'],
+    ['WP-3', 'WP-3', 'fix/wp-3', 'ok'],
+    ['WP-4', 'WP-4', 'fix/wp-4', 'unpushed'],
+    ['WP-5', 'WP-5', 'fix/wp-5', 'ok'],
+    ['WP-6', 'WP-6', 'fix/wp-6', 'unpushed'],
+    ['WP-7', 'WP-7', 'fix/wp-7', 'unpushed'],
+  ]);
+});
+
 test('worktree-sweep list·remove: 같은 키라도 <키>.dir 가 다른 폴더를 가리키는 작업은 이 워크트리 것이 아니다 — running 으로 보지 않고 결과도 지우지 않는다 (WP-1637)', (t) => {
   const main = repo(t);
   const w = addWorktree(main, 'WP-10', 'fix/wp-10');
   // 아직 안 들어간 기차 — WP-10 이 첫 이슈라 기차 게이트를 키 WP-10 으로 띄웠다.
   const tw = addWorktree(main, 'integ-dev-1', 'integ/dev-1');
-  assert.match(bg(main, 'start', 'WP-10', tw, '--', 'sleep', '30').stdout, /^started \d+/);
-  t.after(() => bg(main, 'stop', 'WP-10'));
+  startJob(t, main, 'WP-10', tw);
   assert.deepEqual(rows(main), [['WP-10', 'WP-10', 'fix/wp-10', 'ok']]);
   assert.equal(bg(main, 'stop', 'WP-10').stdout, 'ok\n');
 
@@ -367,14 +533,113 @@ test('worktree-sweep list·remove: 다른 키로 띄운 백그라운드 작업�
   git(main, 'merge', '-q', '--no-ff', '-m', 'merge: 통합 WP-5', 'integ/dev-1');
   git(main, 'push', '-q', 'origin', 'main');
   // 기차 게이트는 첫 이슈 키로 띄운다.
-  assert.match(bg(main, 'start', 'WP-5', w, '--', 'sleep', '30').stdout, /^started \d+/);
-  t.after(() => bg(main, 'stop', 'WP-5'));
+  startJob(t, main, 'WP-5', w);
   assert.deepEqual(rows(main), [['integ-dev-1', 'integ-dev-1', 'integ/dev-1', 'running']]);
   const r = sweep(['remove', main, w, 'integ-dev-1']);
   assert.equal(r.status, 3, r.stderr + r.stdout);
   assert.equal(r.stdout, `kept ${w}: 백그라운드 작업 도는 중\n`);
   assert.equal(existsSync(w), true);
   assert.equal(bg(main, 'status', 'WP-5').stdout, 'running\n');
+});
+
+test('worktree-sweep list·remove: 워크트리의 하위 폴더에서 띄운 작업도 그 워크트리의 것이다 — 이웃 워크트리(WP-3 과 WP-30)는 섞지 않는다 (WP-1643)', (t) => {
+  const main = repo(t);
+  const sub = (w, ...p) => {
+    const d = join(w, ...p);
+    mkdirSync(d, { recursive: true });
+    return d;
+  };
+  // 같은 키(WP-1) 작업을 하위 폴더에서 띄웠다.
+  const w1 = addWorktree(main, 'WP-1', 'fix/wp-1');
+  startJob(t, main, 'WP-1', sub(w1, 'apps', 'x'));
+  // 다른 키(WP-77 — 기차 게이트처럼) 작업을 하위 폴더에서 띄웠다.
+  const w2 = addWorktree(main, 'WP-2', 'fix/wp-2');
+  startJob(t, main, 'WP-77', sub(w2, 'apps', 'y'));
+  // 이웃 WP-30 의 작업은 WP-3 의 것이 아니다(경로 앞부분만 같다).
+  addWorktree(main, 'WP-3', 'fix/wp-3');
+  const w30 = addWorktree(main, 'WP-30', 'fix/wp-30');
+  startJob(t, main, 'WP-88', sub(w30, 'apps'));
+  assert.deepEqual(rows(main), [
+    ['WP-1', 'WP-1', 'fix/wp-1', 'running'],
+    ['WP-2', 'WP-2', 'fix/wp-2', 'running'],
+    ['WP-3', 'WP-3', 'fix/wp-3', 'ok'],
+    ['WP-30', 'WP-30', 'fix/wp-30', 'running'],
+  ]);
+  const r = sweep(['remove', main, w1, 'WP-1']);
+  assert.equal(r.status, 3, r.stderr + r.stdout);
+  assert.equal(r.stdout, `kept ${w1}: 백그라운드 작업 도는 중\n`);
+  assert.equal(bg(main, 'status', 'WP-1').stdout, 'running\n');
+});
+
+test('worktree-sweep remove -: notes 만 남은 이슈·기차의 로컬 브랜치도 지운다 — 올리지 않은 커밋이 있으면 아무것도 지우지 않고, 다른 워크트리에 체크아웃된 브랜치는 건드리지 않는다 (WP-1643)', (t) => {
+  const main = repo(t);
+  // WP-6: 들어간 브랜치(fix/wp-6)·다시 시작한 브랜치(fix/wp-6-2)는 지우고, WP-60 의 브랜치(fix/wp-60)는 남긴다.
+  branchWithCommit(main, 'fix/wp-6', 'a.txt', 'fix: a (WP-6)');
+  git(main, 'cherry-pick', 'fix/wp-6');
+  git(main, 'push', '-q', 'origin', 'main');
+  git(main, 'branch', 'fix/wp-6-2', 'origin/main');
+  branchWithCommit(main, 'fix/wp-60', 'b.txt', 'fix: b (WP-60)');
+  put(state(main, 'notes', 'WP-6.md'));
+  put(state(main, 'jobs', 'WP-6.exit'), '0\n');
+  const r = sweep(['remove', main, '-', 'WP-6']);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.equal(r.stdout, 'removed - WP-6\n');
+  assert.equal(branchExists(main, 'fix/wp-6'), false);
+  assert.equal(branchExists(main, 'fix/wp-6-2'), false);
+  assert.equal(branchExists(main, 'fix/wp-60'), true);
+  assert.equal(existsSync(state(main, 'notes', 'WP-6.md')), false);
+  assert.equal(existsSync(state(main, 'jobs', 'WP-6.exit')), false);
+
+  // WP-7: 올리지 않은 커밋이 있는 브랜치가 하나라도 있으면 notes·작업 파일·다른 브랜치도 지우지 않고 exit 3.
+  git(main, 'branch', 'fix/wp-7', 'origin/main');
+  branchWithCommit(main, 'feat/wp-7-2', 'c.txt', 'fix: c (WP-7)');
+  put(state(main, 'notes', 'WP-7.md'));
+  put(state(main, 'jobs', 'WP-7.exit'), '0\n');
+  const k = sweep(['remove', main, '-', 'WP-7']);
+  assert.equal(k.status, 3, k.stderr + k.stdout);
+  assert.equal(k.stdout, 'kept - WP-7: 올리지 않은 커밋 1개(feat/wp-7-2)\n');
+  assert.equal(branchExists(main, 'fix/wp-7'), true);
+  assert.equal(branchExists(main, 'feat/wp-7-2'), true);
+  assert.equal(existsSync(state(main, 'notes', 'WP-7.md')), true);
+  assert.equal(existsSync(state(main, 'jobs', 'WP-7.exit')), true);
+
+  // WP-8: .claude/worktrees 밖 다른 워크트리에 체크아웃된 브랜치는 올리지 않은 커밋이 있어도 보지도 지우지도 않는다.
+  const other = join(main, '..', 'elsewhere-8');
+  git(main, 'worktree', 'add', '-q', other, '-b', 'fix/wp-8', 'origin/main');
+  commit(other, 'd.txt', 'fix: d (WP-8)');
+  put(state(main, 'notes', 'WP-8.md'));
+  const o = sweep(['remove', main, '-', 'WP-8']);
+  assert.equal(o.status, 0, o.stderr + o.stdout);
+  assert.equal(o.stdout, 'removed - WP-8\n');
+  assert.equal(branchExists(main, 'fix/wp-8'), true);
+  assert.equal(existsSync(state(main, 'notes', 'WP-8.md')), false);
+
+  // 들어간 기차의 notes-only(integ-dev-2) — 로컬 기차 브랜치 integ/dev-2 를 지운다.
+  branchWithCommit(main, 'integ/dev-2', 'e.txt', 'feat: e (WP-20)');
+  git(main, 'merge', '-q', '--no-ff', '-m', 'merge: 통합 WP-20', 'integ/dev-2');
+  git(main, 'push', '-q', 'origin', 'main');
+  put(state(main, 'notes', 'integ-dev-2.md'));
+  // WP-7 notes 는 위에서 남겼다.
+  assert.deepEqual(rows(main), [['integ-dev-2', '-', '-', 'notes-only'], ['WP-7', '-', '-', 'notes-only']]);
+  const g = sweep(['remove', main, '-', 'integ-dev-2']);
+  assert.equal(g.status, 0, g.stderr + g.stdout);
+  assert.equal(branchExists(main, 'integ/dev-2'), false);
+  assert.equal(existsSync(state(main, 'notes', 'integ-dev-2.md')), false);
+
+  // 들어가지 않은 기차의 notes-only — list 뒤에 바뀌었거나 직접 불러도 remove 가 다시 보고 아무것도 지우지 않는다.
+  // push 한(올리지 않은 커밋이 없는) 기차 integ/dev-3 과 브랜치가 아예 없는 integ-dev-4(확인할 수 없음).
+  branchWithCommit(main, 'integ/dev-3', 'h.txt', 'feat: h (WP-30)');
+  git(main, 'push', '-q', 'origin', 'integ/dev-3');
+  for (const n of ['integ-dev-3', 'integ-dev-4']) {
+    put(state(main, 'notes', `${n}.md`));
+    put(state(main, 'jobs', `${n}.exit`), '0\n');
+    const u = sweep(['remove', main, '-', n]);
+    assert.equal(u.status, 3, u.stderr + u.stdout);
+    assert.equal(u.stdout, `kept - ${n}: 기차가 아직 main 에 들어가지 않았다\n`);
+    assert.equal(existsSync(state(main, 'notes', `${n}.md`)), true, n);
+    assert.equal(existsSync(state(main, 'jobs', `${n}.exit`)), true, n);
+  }
+  assert.equal(branchExists(main, 'integ/dev-3'), true);
 });
 
 test('worktree-sweep remove -: 그 키의 워크트리가 생겼으면 notes 를 지우지 않고 exit 3 (WP-1637)', (t) => {
@@ -409,7 +674,7 @@ test('worktree-sweep remove: 워크트리·로컬 브랜치·notes·evidence·jo
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, `removed ${w}\n`);
   assert.equal(existsSync(w), false);
-  assert.equal(spawnSync('git', ['-C', main, 'rev-parse', '-q', '--verify', 'refs/heads/fix/wp-1']).status, 1);
+  assert.equal(branchExists(main, 'fix/wp-1'), false);
   assert.match(git(main, 'ls-remote', 'origin', 'fix/wp-1'), /refs\/heads\/fix\/wp-1/);
   for (const p of [['notes', 'WP-1.md'], ['evidence', 'WP-1'], ['jobs', 'WP-1.exit'], ['seen', 'WP-1'], ['sweep', 'WP-1']]) {
     assert.equal(existsSync(state(main, ...p)), false, p.join('/'));
@@ -475,9 +740,7 @@ test('worktree-sweep remove: 백그라운드 작업이 돌고 있으면 끝내�
   const main = repo(t);
   const w = addWorktree(main, 'WP-5', 'fix/wp-5');
   // 기차는 첫 키로 작업을 띄우므로 키 중 하나라도 돌면 남긴다.
-  const started = bg(main, 'start', 'WP-5', w, '--', 'sleep', '30');
-  assert.match(started.stdout, /^started \d+/);
-  t.after(() => bg(main, 'stop', 'WP-5'));
+  startJob(t, main, 'WP-5', w);
   const r = sweep(['remove', main, w, 'WP-4,WP-5']);
   assert.equal(r.status, 3, r.stderr + r.stdout);
   assert.equal(r.stdout, `kept ${w}: 백그라운드 작업 도는 중\n`);
@@ -504,7 +767,7 @@ test('worktree-sweep remove: 들어간 기차 워크트리는 기차 이름 하�
   const r = sweep(['remove', main, w, 'integ-dev-1']);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(existsSync(w), false);
-  assert.equal(spawnSync('git', ['-C', main, 'rev-parse', '-q', '--verify', 'refs/heads/integ/dev-1']).status, 1);
+  assert.equal(branchExists(main, 'integ/dev-1'), false);
   assert.match(git(main, 'ls-remote', 'origin', 'integ/dev-1'), /refs\/heads\/integ\/dev-1/);
   assert.equal(existsSync(state(main, 'notes', 'integ-dev-1.md')), false);
   for (const n of ['WP-12', 'integ-dev-2']) assert.equal(existsSync(state(main, 'notes', `${n}.md`)), true, n);
@@ -522,7 +785,7 @@ test('worktree-sweep remove: 손으로 지운 워크트리 폴더도 등록을 �
   assert.equal(r.status, 0, r.stderr);
   assert.doesNotMatch(git(main, 'worktree', 'list', '--porcelain'), /WP-7\n/);
   assert.match(git(main, 'worktree', 'list', '--porcelain'), /WP-70/);
-  assert.equal(spawnSync('git', ['-C', main, 'rev-parse', '-q', '--verify', 'refs/heads/fix/wp-7']).status, 1);
+  assert.equal(branchExists(main, 'fix/wp-7'), false);
 
   put(state(main, 'notes', 'WP-8.md'));
   put(state(main, 'notes', 'WP-80.md'));
