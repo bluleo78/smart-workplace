@@ -13,6 +13,11 @@ const KEY = 'WP';
 
 test.use({ timezoneId: 'Asia/Seoul' });
 
+// 첫 목록 그리기 대기 — 워커마다 처음 여는 화면은 dev 서버의 첫 변환을 기다려, 부하 속 커밋 훅에서 기본 10초를 넘겼다(WP-1648).
+// 판정은 그대로 두고 첫 로드 대기와 테스트 한도만 늘린다.
+const FIRST_LOAD = { timeout: 30_000 };
+test.describe.configure({ timeout: 60_000 });
+
 // 프로젝트 메타·이슈 검색 스텁 + 검색 요청 기록기를 돌려준다.
 async function setup(page: import('@playwright/test').Page) {
   await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
@@ -60,12 +65,13 @@ async function expectApplyFullyVisible(page: import('@playwright/test').Page) {
 }
 
 test.describe('이슈 목록 — 완료일 기간 필터', () => {
-  test('「기간 직접 지정」 달력은 팝오버 안에 다 들어간다 — 「더 보기」와 칩 편집 모두 취소·적용이 잘리지 않는다', { tag: '@layout' }, async ({
+  // 「더 보기」 와 칩 편집을 테스트 하나씩으로 둔다 — 한 테스트에서 goto 를 되풀이하면 부하 속 커밋 훅에서 30초 한도를 넘었다(WP-1648).
+  test('「기간 직접 지정」 달력은 팝오버 안에 다 들어간다 — 「더 보기」에서 취소·적용이 잘리지 않는다', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await setup(page);
     await page.goto(`/projects/${KEY}`);
-    await expect(page.getByTestId('issue-row-7')).toBeVisible();
+    await expect(page.getByTestId('issue-row-7')).toBeVisible(FIRST_LOAD);
 
     await openClosedFacet(page);
     await page.getByTestId('closed-range-open').click();
@@ -76,10 +82,15 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
     await expect(page.getByTestId('facet-value-closedIn-last-week')).toHaveCount(0);
     await page.getByTestId('date-range-cancel').click();
     await expect(page.getByTestId('facet-value-closedIn-last-week')).toBeVisible();
-    await page.keyboard.press('Escape');
+  });
 
-    // 칩 편집 팝오버 — 같은 목록·달력을 쓴다.
+  test('「기간 직접 지정」 달력은 팝오버 안에 다 들어간다 — 칩 편집에서 취소·적용이 잘리지 않는다', { tag: '@layout' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await setup(page);
+    // 칩 편집 팝오버 — 「더 보기」 와 같은 목록·달력을 쓴다.
     await page.goto(`/projects/${KEY}?closedIn=2026-10-01~2026-10-10`);
+    await expect(page.getByTestId('issue-row-7')).toBeVisible(FIRST_LOAD);
     await page.getByTestId('quick-filter-closedIn-trigger').click();
     await page.getByTestId('closed-range-open').click();
     await expect(page.getByTestId('date-range-panel')).toBeVisible();
@@ -90,19 +101,20 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
   // 왜: 「초기화」 가 막대 맨 끝(뷰 전환 뒤)에 있어, 1280 폭에서 완료일 칩만 걸어도 줄이 넘쳐 그것만 아랫줄 왼쪽으로 떨어졌다(WP-931).
   //     빠른 필터 칩(WP-1020)은 기본 칩이 다섯 개라 좁은 폭에선 넘친다 — 꺾지 않고 칩 묶음만 가로 스크롤하며(WP-1355),
   //     「필터 지우기」 는 칩 스크롤 밖(clear 슬롯)에 고정돼 늘 보이고, 넘친 칩은 오른쪽 페이드가 알린다.
-  test('필터 줄 — 긴 칩·키워드를 걸어도 「필터 지우기」 는 줄 안에 보이고 칩 묶음은 한 줄이다(1440·1280·1024)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
-    await setup(page);
-    const main = page.getByTestId('issue-filter-main');
-    for (const [width, query] of [
-      [1440, 'closedIn=last-week&q=abc'],
-      [1280, 'closedIn=last-week'],
-      [1280, 'priority=HIGH&closedIn=2026-10-01~2026-10-23&q=abc'],
-      [1024, 'closedIn=last-week'],
-      [1024, 'priority=HIGH&closedIn=2026-10-01~2026-10-23&q=abc'],
-    ] as const) {
+  //     경우마다 테스트 하나 — 한 테스트에서 다섯 번 goto 하면 부하 속 커밋 훅에서 30초 한도를 넘었다(WP-1648).
+  for (const [width, query] of [
+    [1440, 'closedIn=last-week&q=abc'],
+    [1280, 'closedIn=last-week'],
+    [1280, 'priority=HIGH&closedIn=2026-10-01~2026-10-23&q=abc'],
+    [1024, 'closedIn=last-week'],
+    [1024, 'priority=HIGH&closedIn=2026-10-01~2026-10-23&q=abc'],
+  ] as const) {
+    test(`필터 줄 — 긴 칩·키워드를 걸어도 「필터 지우기」 는 줄 안에 보이고 칩 묶음은 한 줄이다(${width} · ${query})`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+      await setup(page);
+      const main = page.getByTestId('issue-filter-main');
       await page.setViewportSize({ width, height: 800 });
       await page.goto(`/projects/${KEY}?${query}`);
-      await expect(page.getByTestId('issue-row-7')).toBeVisible();
+      await expect(page.getByTestId('issue-row-7')).toBeVisible(FIRST_LOAD);
       const r = await main.getByRole('button', { name: '필터 지우기' }).boundingBox();
       const line = await main.boundingBox();
       // 「필터 지우기」 는 줄 폭 안에 완전히 들어온다(스크롤에 잘리지 않는다)
@@ -117,17 +129,18 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
         return sc.scrollWidth > sc.clientWidth + 1;
       });
       await expect(main.getByTestId('filter-line-chips-fade')).toHaveCount(overflow ? 1 : 0);
-    }
-  });
+    });
+  }
   // 무엇을: 줄이 모자라도 칩은 늘 다 보이고, 끝 묶음만 둘째 줄 오른쪽으로 내려가는지 — 1440·1024 는 내려가고 1920 은 한 줄(WP-1355 결정).
   // 왜: 끝 묶음(완료 모두 보기·그룹·정렬·열·보기)이 넓어 칩 스크롤 영역이 짓눌려 「우선순위」·「더 보기」가 흐림 뒤로 숨었다.
-  test('필터 줄 — 칩은 늘 다 보이고 줄이 모자라면 끝 묶음만 둘째 줄 오른쪽으로 내려간다(1440·1024·1920)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
-    await setup(page);
-    const main = page.getByTestId('issue-filter-main');
-    for (const width of [1440, 1024, 1920] as const) {
+  //     폭마다 테스트 하나(WP-1648 — 위와 같은 이유).
+  for (const width of [1440, 1024, 1920] as const) {
+    test(`필터 줄 — 칩은 늘 다 보이고 줄이 모자라면 끝 묶음만 둘째 줄 오른쪽으로 내려간다(${width})`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+      await setup(page);
+      const main = page.getByTestId('issue-filter-main');
       await page.setViewportSize({ width, height: 800 });
       await page.goto(`/projects/${KEY}?q=abc`);
-      await expect(page.getByTestId('issue-row-7')).toBeVisible();
+      await expect(page.getByTestId('issue-row-7')).toBeVisible(FIRST_LOAD);
       // 칩 묶음의 모든 칩(「더 보기」 포함)이 칩 스크롤 영역의 보이는 사각형 안에 있다
       const bar = main.getByTestId('quick-filter-bar');
       await expect(main.getByTestId('quick-filter-more')).toBeVisible();
@@ -155,6 +168,6 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
       if (width === 1920) expect(wrapped).toBe(false);
       else expect(clear!.x + clear!.width).toBeGreaterThan(line!.x + line!.width - 40);
       if (wrapped) expect(clear!.x + clear!.width).toBeGreaterThan(line!.x + line!.width - 40);
-    }
-  });
+    });
+  }
 });
