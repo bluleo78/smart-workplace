@@ -255,17 +255,69 @@ public class ProjectOverviewService {
       TargetRow c = cycle.get();
       return scoped("CYCLE", c, c.start(), repository.cycleScope(pid, c.id()), today, epics);
     }
-    var version = repository.findUpcomingVersion(pid, today);
+    // 지금 미출시인 버전 — 그날 끝 기준 조회에 오늘을 넘기면 지금 상태와 같다(출시·보관 시각이 아직 오지 않은 행은 없다).
+    var version = repository.findVersionAt(pid, today);
     if (version.isPresent()) {
       TargetRow v = version.get();
-      LocalDate start = v.start();
-      // 시작일이 없거나 출시일보다 늦으면(잘못 넣은 값) 출시일 포함 4주를 기간으로 본다.
-      if (start == null || start.isAfter(v.end())) {
-        start = v.end().minusDays(VERSION_DEFAULT_SPAN_DAYS);
-      }
-      return scoped("VERSION", v, start, repository.versionScope(pid, v.id()), today, epics);
+      return scoped(
+          "VERSION", v, versionStart(v), repository.versionScope(pid, v.id()), today, epics);
     }
     return trend(pid, today, openTotal, epics);
+  }
+
+  /** 버전 기간의 시작일 — 시작일이 없거나 출시일보다 늦으면(잘못 넣은 값) 출시일 포함 4주를 기간으로 본다. 개요·리포트(기간 끝 기준) 공용. */
+  private static LocalDate versionStart(TargetRow v) {
+    LocalDate start = v.start();
+    if (start == null || start.isAfter(v.end())) {
+      return v.end().minusDays(VERSION_DEFAULT_SPAN_DAYS);
+    }
+    return start;
+  }
+
+  /**
+   * 그날(서울) 끝 시점의 진행 중 위젯 — 리포트 배지·사이클 행 전용(WP-1631). <b>권한 검사 없음 — 시스템(리포트 실행기) 전용</b>이다. 호출자가 삭제되지
+   * 않은 프로젝트 행을 골랐어야 한다. 개요 화면의 {@link #progress} 와 같은 순서(사이클 → 버전 → 전체 추이)로 고르되, 리포트를 만드는 「지금」 대신
+   * 기간 끝날을 기준으로 삼는다 — 기간이 끝난 다음 날 새로 시작한 사이클이 아니라 그 기간에 진행 중이던 사이클로 상태를 보게.
+   *
+   * <p>사이클은 그날 진행 중이던 것({@link ProjectOverviewRepository#findCycleAt}), 버전은 그날 끝에 미출시였던 것({@link
+   * ProjectOverviewRepository#findVersionAt}), 범위·완료는 그날 끝 시점으로 되돌려 본다({@link #asOfRows}). 리포트가 쓰지
+   * 않는 에픽 요약은 계산하지 않고(null), 전체 추이는 배지(늘 순조로움)·행(없음)에만 쓰여 점 없이 종류만 싣는다.
+   *
+   * @param project 계산할 프로젝트
+   * @param asOf 기준 날짜(서울) — 리포트 기간 끝날
+   */
+  @Transactional(readOnly = true)
+  public Progress progressAsOf(ProjectRow project, LocalDate asOf) {
+    long pid = project.id();
+    var cycle = repository.findCycleAt(pid, asOf);
+    if (cycle.isPresent()) {
+      TargetRow c = cycle.get();
+      List<ScopeRow> rows = asOfRows(repository.cycleScope(pid, c.id()), asOf);
+      return scoped("CYCLE", c, c.start(), rows, asOf, null);
+    }
+    // 버전도 그날 끝 시점에 미출시였던 것 — 기간 끝 뒤에 출시·보관한 버전을 놓치지 않게(WP-1631).
+    var version = repository.findVersionAt(pid, asOf);
+    if (version.isPresent()) {
+      TargetRow v = version.get();
+      List<ScopeRow> rows = asOfRows(repository.versionScope(pid, v.id()), asOf);
+      return scoped("VERSION", v, versionStart(v), rows, asOf, null);
+    }
+    return new Progress("TREND", null, 0, null, List.of(), null, null, null, null);
+  }
+
+  /**
+   * 범위 행을 그날(서울) 끝 시점으로 되돌린다 — 그날 뒤에 범위에 들어온 이슈는 빼고, 그날 뒤에 닫힌 이슈는 아직 끝나지 않은 것(TODO)으로 바꾼다. 과거 상태
+   * 기록을 읽지 않으므로 끝나지 않은 이슈의 진행 중 여부는 지금 범주로 근사한다(예상 완료의 진행 중 몫에만 쓰인다).
+   */
+  static List<ScopeRow> asOfRows(List<ScopeRow> rows, LocalDate asOf) {
+    return rows.stream()
+        .filter(r -> addedBy(r, asOf))
+        .map(
+            r ->
+                r.closedAt() != null && IssueMetricsCalculator.seoulDate(r.closedAt()).isAfter(asOf)
+                    ? new ScopeRow(r.addedAt(), IssueStatuses.TODO, null)
+                    : r)
+        .toList();
   }
 
   /** 사이클·버전 범위의 그래프·예상 완료. */

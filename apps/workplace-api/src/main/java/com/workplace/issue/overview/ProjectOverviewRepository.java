@@ -231,41 +231,83 @@ public class ProjectOverviewRepository {
         .and(CYCLE.STATUS.eq("ACTIVE"))
         .orderBy(CYCLE.END_DATE.asc().nullsLast(), CYCLE.ID.asc())
         .limit(1)
-        .fetchOptional(
-            r -> {
-              LocalDate start = r.get(CYCLE.START_DATE);
-              if (start == null) {
-                start =
-                    r.get(CYCLE.CREATED_AT).atZoneSameInstant(IssueDueWindow.ZONE).toLocalDate();
-              }
-              return new TargetRow(
-                  r.get(CYCLE.ID), r.get(CYCLE.NAME), start, r.get(CYCLE.END_DATE));
-            });
+        .fetchOptional(ProjectOverviewRepository::cycleTarget);
   }
 
   /**
-   * 미출시 버전 하나 — 출시·보관되지 않았고 출시일이 있는 버전 중 출시일이 오늘 이후로 가장 가까운 것, 없으면 지난 것 중 가장 가까운 것. 출시일 없는 버전은 기간을
-   * 정할 수 없어 후보에서 뺀다. start 는 버전 시작일 그대로(없으면 null — 서비스가 출시일 − 27일로 채운다).
+   * 그날(서울) 진행 중이던 사이클 하나 — 리포트가 기간 끝 시점 진행 중 위젯을 다시 계산할 때 쓴다(WP-1631).
+   *
+   * <p>후보: 시작한 사이클(ACTIVE·COMPLETED — PLANNED 는 아직 시작하지 않았다) 중 시작일(없으면 만든 날, 서울)이 그날 이전이고, 종료일이 그날
+   * 이후거나 지금도 ACTIVE 인 것(종료일을 넘겨 아직 진행 중인 사이클은 그날에도 진행 중이었다). 종료일 없는 COMPLETED 는 언제 끝났는지 알 수 없어 후보에서
+   * 뺀다 — 넣으면 오래전에 끝낸 사이클이 이후 모든 날에 진행 중으로 잡힌다. 종료일 없는 ACTIVE 는 ACTIVE 조건으로 들어온다.
+   *
+   * <p>정렬은 {@link #findActiveCycle}(종료일 가까운 순)과 다르다 — 가장 최근에 시작한 것(시작일, 없으면 만든 날(서울)이 늦은 순, 같으면 id
+   * 큰 순). 완료 시각 컬럼이 없어, 종료일 전에 일찍 끝낸(COMPLETED) 사이클의 종료일이 그 뒤를 이어받은 사이클보다 가까우면 종료일 순으로는 이미 끝난 사이클이
+   * 뽑힌다. 이어받은 사이클은 늘 나중에 시작하므로 최근 시작 순이 그날 실제로 진행 중이던 사이클을 고른다. 시작일 보정은 {@link #cycleTarget} 과 같다.
+   *
+   * @param asOf 기준 날짜(서울)
    */
-  public Optional<TargetRow> findUpcomingVersion(long projectId, LocalDate today) {
+  public Optional<TargetRow> findCycleAt(long projectId, LocalDate asOf) {
+    // 실제 시작일 — 시작일이 없으면 만든 날(서울). 시작 여부와 최근 시작 순 정렬에 함께 쓴다(cycleTarget 의 보정과 같은 기준).
+    // 시간대는 하루 경계 상수(IssueDueWindow.ZONE)에서 가져와 자바 쪽 서울 날짜 변환과 어긋나지 않게 한다.
+    Field<LocalDate> effectiveStart =
+        DSL.coalesce(
+            CYCLE.START_DATE,
+            DSL.field(
+                "({0} AT TIME ZONE {1})::date",
+                LocalDate.class, CYCLE.CREATED_AT, DSL.inline(IssueDueWindow.ZONE.getId())));
+    // 종료일이 그날 이후거나 지금도 ACTIVE — 종료일 없는 COMPLETED 는 끝난 때를 몰라 뺀다(종료일 없는 ACTIVE 는 ACTIVE 로 들어온다).
+    Condition notEnded = CYCLE.END_DATE.ge(asOf).or(CYCLE.STATUS.eq("ACTIVE"));
+    return dsl.select(CYCLE.ID, CYCLE.NAME, CYCLE.START_DATE, CYCLE.END_DATE, CYCLE.CREATED_AT)
+        .from(CYCLE)
+        .where(CYCLE.PROJECT_ID.eq(projectId))
+        .and(CYCLE.STATUS.in("ACTIVE", "COMPLETED"))
+        .and(effectiveStart.le(asOf))
+        .and(notEnded)
+        .orderBy(effectiveStart.desc(), CYCLE.ID.desc())
+        .limit(1)
+        .fetchOptional(ProjectOverviewRepository::cycleTarget);
+  }
+
+  /** 사이클 행 → 대상 — 시작일이 없으면 만든 날(서울)을 시작으로 본다. */
+  private static TargetRow cycleTarget(Record r) {
+    LocalDate start = r.get(CYCLE.START_DATE);
+    if (start == null) {
+      start = IssueDueWindow.seoulDate(r.get(CYCLE.CREATED_AT));
+    }
+    return new TargetRow(r.get(CYCLE.ID), r.get(CYCLE.NAME), start, r.get(CYCLE.END_DATE));
+  }
+
+  /**
+   * 그날(서울) 끝 시점에 미출시였던 버전 하나. 개요 화면은 오늘을 넘겨 지금 미출시인 버전을 고르고(출시·보관 시각이 아직 오지 않은 행은 없으므로 「출시·보관 안 됨」과
+   * 같다), 리포트는 기간 끝날을 넘겨 그 시점 진행 중 위젯을 다시 계산한다(WP-1631).
+   *
+   * <p>후보: 출시일이 있고, 출시 처리·보관이 없거나 그날 끝(다음 날 00:00 서울) 이후인 버전 — 기간 끝 다음 날 새벽에 출시·보관한 버전도 그날엔 아직
+   * 미출시였다. 출시일 없는 버전은 기간을 정할 수 없어 후보에서 뺀다. 그날 이후로 출시일이 가장 가까운 것, 없으면 지난 것 중 가장 가까운 것(같으면 id 순).
+   * start 는 버전 시작일 그대로(없으면 null — 서비스가 출시일 − 27일로 채운다).
+   *
+   * @param asOf 기준 날짜(서울) — 개요는 오늘, 리포트는 기간 끝날
+   */
+  public Optional<TargetRow> findVersionAt(long projectId, LocalDate asOf) {
+    // released_at·archived_at 은 timestamptz 라 그날 끝 시각과 비교한다.
+    OffsetDateTime endOfDay = IssueDueWindow.endOfDayExclusive(asOf);
     Condition candidate =
         PROJECT_VERSION
             .PROJECT_ID
             .eq(projectId)
-            .and(PROJECT_VERSION.RELEASED_AT.isNull())
-            .and(PROJECT_VERSION.ARCHIVED_AT.isNull())
-            .and(PROJECT_VERSION.RELEASE_DATE.isNotNull());
-    // 오늘 이후로 가장 가까운 것, 없으면 지난 것 중 가장 가까운 것.
+            .and(PROJECT_VERSION.RELEASE_DATE.isNotNull())
+            .and(PROJECT_VERSION.RELEASED_AT.isNull().or(PROJECT_VERSION.RELEASED_AT.ge(endOfDay)))
+            .and(PROJECT_VERSION.ARCHIVED_AT.isNull().or(PROJECT_VERSION.ARCHIVED_AT.ge(endOfDay)));
     Optional<TargetRow> upcoming =
         firstVersion(
-            candidate.and(PROJECT_VERSION.RELEASE_DATE.ge(today)),
+            candidate.and(PROJECT_VERSION.RELEASE_DATE.ge(asOf)),
             PROJECT_VERSION.RELEASE_DATE.asc());
     if (upcoming.isPresent()) return upcoming;
     return firstVersion(
-        candidate.and(PROJECT_VERSION.RELEASE_DATE.lt(today)), PROJECT_VERSION.RELEASE_DATE.desc());
+        candidate.and(PROJECT_VERSION.RELEASE_DATE.lt(asOf)), PROJECT_VERSION.RELEASE_DATE.desc());
   }
 
-  /** 조건에 맞는 버전 중 정렬 첫 번째(같으면 id 순) — {@link #findUpcomingVersion} 의 두 후보 조회 공용. */
+  /** 조건에 맞는 버전 중 정렬 첫 번째(같으면 id 순) — {@link #findVersionAt} 의 두 후보 조회 공용. */
   private Optional<TargetRow> firstVersion(Condition condition, SortField<LocalDate> order) {
     return dsl.select(
             PROJECT_VERSION.ID,
