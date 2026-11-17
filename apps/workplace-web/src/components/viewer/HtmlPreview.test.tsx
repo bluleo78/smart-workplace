@@ -35,6 +35,8 @@ describe('HtmlPreview 보안 점검 줄', () => {
     const calls = mockApi(() => view())
     renderWithProviders(<HtmlPreview html="<p>hi</p>" title="t" securityCheckPath={PATH} />)
     expect(screen.queryByTestId('html-script-notice')).not.toBeInTheDocument()
+    // 흰 종이 바탕(WP-1661) — 드라이브·첨부 HTML 미리보기도 브라우저처럼 흰 바탕에 그린다.
+    expect(screen.getByTestId('html-document')).toHaveClass('bg-white')
     await new Promise((r) => setTimeout(r, 30))
     expect(calls).toEqual({ get: 0, post: 0 })
   })

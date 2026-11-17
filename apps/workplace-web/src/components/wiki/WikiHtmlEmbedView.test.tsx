@@ -94,6 +94,8 @@ describe('HTML 블록 NodeView', () => {
     expect(srcdoc).toContain(SOURCE)
     expect(srcdoc.endsWith(HTML_EMBED_HEIGHT_SCRIPT)).toBe(true)
     expect(iframe.style.height).toBe(`${HTML_EMBED_DEFAULT_HEIGHT}px`)
+    // 흰 종이 바탕(WP-1661) — 배경 없는 문서가 다크 테마에서 어두운 바탕에 묻히지 않게.
+    expect(iframe).toHaveClass('bg-white')
   })
 
   it('그 iframe 이 보낸 높이만 받아 범위로 자르고, 다른 창이 보낸 메시지는 무시한다', async () => {
@@ -474,6 +476,8 @@ describe('HTML 블록 NodeView', () => {
       expect(big.getAttribute('srcdoc')).toContain(SOURCE)
       expect(big.getAttribute('sandbox')).toContain('allow-scripts')
       expect(big.getAttribute('sandbox')).not.toContain('allow-same-origin')
+      // 크게 보기도 블록과 같은 흰 종이 바탕(WP-1661).
+      expect(big).toHaveClass('bg-white')
     })
 
     it('「삭제」는 그 블록만 지우고 선택은 문서 안 유효한 자리에 남는다', async () => {
@@ -1116,6 +1120,9 @@ describe('HTML 블록 AI로 고치기', () => {
     expect(ai.onResult).toHaveBeenCalled()
     const before = screen.getByTestId('wiki-html-embed-ai-before-frame')
     const after = screen.getByTestId('wiki-html-embed-ai-after-frame')
+    // 전·후 비교도 흰 종이 바탕(WP-1661) — 블록 CSS 가 닿지 않는 자리다.
+    expect(before).toHaveClass('bg-white')
+    expect(after).toHaveClass('bg-white')
     expect(within(screen.getByTestId('wiki-html-embed-ai-before')).getByText('지금')).toBeInTheDocument()
     expect(within(screen.getByTestId('wiki-html-embed-ai-after')).getByText('바뀐 뒤')).toBeInTheDocument()
     for (const f of [before, after]) {

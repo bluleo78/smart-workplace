@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -13,7 +14,6 @@ import { wikiKeys } from '../../../hooks/queries/wikiKeys'
 import type { WikiPageDetail, WikiRevisionItem, WikiRevisionList } from '../../../types/wiki'
 import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../wikiHtmlBlockSecurity'
 import { groupRevisionsByDay, revisionEditorsLabel, revisionTime, revisionVersionLabel } from '../wikiRevisionFormat'
-import { HTML_DOCUMENT_CANVAS_CLASS } from './wikiHtmlDocument'
 
 /** 목록 한 줄 — 지금 판 또는 저장된 판. */
 type Entry = { kind: 'current'; editedAt: string } | { kind: 'revision'; item: WikiRevisionItem }

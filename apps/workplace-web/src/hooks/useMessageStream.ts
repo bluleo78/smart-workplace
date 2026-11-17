@@ -8,7 +8,7 @@ import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { keyedSubscribe } from '../lib/aiWorkingProgress';
 import { applyReaction } from '../lib/reactions';
 import { applyReadEvent } from '../lib/readReceipts';
-import type { ChannelReadState, DmResponse, LinkPreview, MessagePage, MessageResponse } from '../types/messaging';
+import type { ChannelReadState, ChannelResponse, DmResponse, LinkPreview, MessagePage, MessageResponse } from '../types/messaging';
 import { messagingKeys } from './queries/messagingKeys';
 import { bumpReplyCount, bumpUnreadReplyCount, isParentFollowed } from './queries/useCreateReply';
 import { patchReactionEverywhere } from './queries/useToggleReaction';
@@ -82,9 +82,16 @@ export function patchMessage(
 
 // 사이드바 unread 배지는 서버 재계산이 진실원 — created/read 이벤트에 채널·DM 목록 키를
 // invalidate 하면 REST 가 최신 unreadCount 를 다시 가져온다(낙관적 ±1 금지, 스펙 결정).
-function invalidateLists(qc: QueryClient) {
-  qc.invalidateQueries({ queryKey: messagingKeys.channels() });
-  qc.invalidateQueries({ queryKey: messagingKeys.dms() });
+// 다만 그 대화가 속한 목록만 다시 받는다(WP-1663) — 메시지마다 채널·DM 목록을 모두 다시 받으면 활발한 대화에서
+// 요청이 이벤트 수만큼 두 배로 는다. 이벤트에는 대화 종류가 없어 받아 둔 목록에서 그 id 를 찾는다. 어느 목록에도 없으면
+// (새 DM·막 들어간 채널·목록을 아직 안 받음) 어느 쪽인지 모르므로 둘 다 다시 받는다.
+function invalidateLists(qc: QueryClient, channelId: number) {
+  const inChannels = qc.getQueryData<ChannelResponse[]>(messagingKeys.channels())?.some((c) => c.id === channelId) ?? false;
+  // 채널 목록에서 찾았으면 DM 목록은 볼 필요가 없다(흔한 경우).
+  const inDms = !inChannels && (qc.getQueryData<DmResponse[]>(messagingKeys.dms())?.some((x) => x.id === channelId) ?? false);
+  // DM 이라고 확인된 때만 채널 목록을, 채널이라고 확인된 때만 DM 목록을 건너뛴다.
+  if (!inDms) qc.invalidateQueries({ queryKey: messagingKeys.channels() });
+  if (!inChannels) qc.invalidateQueries({ queryKey: messagingKeys.dms() });
 }
 
 // 스레드 답글을 thread 캐시 끝(ASC)에 append. 미오픈 스레드면 no-op(열 때 refetch).
@@ -122,7 +129,7 @@ export function handleMessagingEvent(
   if (eventName === 'messaging.message.read') {
     const userId = Number(d.userId);
     if (userId === currentUserId) {
-      invalidateLists(qc);
+      invalidateLists(qc, Number(d.channelId));
       return;
     }
     const key = messagingKeys.readStates(Number(d.channelId));
@@ -163,7 +170,7 @@ export function handleMessagingEvent(
       upsertMessage(qc, channelId, msg);
     }
     // 미오픈 채널 포함 사이드바 배지 갱신.
-    invalidateLists(qc);
+    invalidateLists(qc, channelId);
     // 인박스(크로스채널 미읽음 스레드)도 답글 생성 시 갱신.
     qc.invalidateQueries({ queryKey: messagingKeys.threadsInbox() });
     qc.invalidateQueries({ queryKey: messagingKeys.threadsInboxUnreadCount() });
@@ -178,7 +185,7 @@ export function handleMessagingEvent(
       editedAt: d.editedAt as string | null,
     });
     // 목록 행 미리보기(WP-135)가 이 메시지일 수 있으므로 채널·DM 목록 재조회.
-    invalidateLists(qc);
+    invalidateLists(qc, channelId);
   } else if (eventName === 'messaging.message.link-previews') {
     // payload: {channelId,id,linkPreviews} — 보낸 뒤 서버가 비동기로 가져온 미리보기, 또는 작성자가 지운 뒤의 빈 배열(WP-874).
     // 목록 행 미리보기(WP-135)는 본문만 보이므로 채널·DM 목록은 다시 부르지 않는다.
@@ -196,7 +203,7 @@ export function handleMessagingEvent(
     if (!id) return;
     patchMessage(qc, channelId, id, { deleted: true, body: '(삭제됨)' });
     // 목록 행 미리보기(WP-135)가 이 메시지일 수 있으므로 채널·DM 목록 재조회.
-    invalidateLists(qc);
+    invalidateLists(qc, channelId);
     // 인박스(크로스채널 미읽음 스레드)도 답글 삭제 시 갱신.
     qc.invalidateQueries({ queryKey: messagingKeys.threadsInbox() });
     qc.invalidateQueries({ queryKey: messagingKeys.threadsInboxUnreadCount() });

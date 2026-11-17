@@ -16,6 +16,8 @@ import type { HtmlPicker } from '@/hooks/useHtmlPicker'
 import { pickedLabel } from '@/lib/htmlPicker'
 import type { HtmlTextEdit } from '@/lib/htmlTextEditSource'
 import { isMacLike } from '@/lib/platform'
+import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
+import { cn } from '@/lib/utils'
 
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { useEmbedFrame } from './useEmbedFrame'
@@ -479,7 +481,8 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
             html={frameSource}
             ownScript={ownScript}
             title="HTML 블록"
-            className="wiki-html-embed__frame"
+            // 흰 종이 바탕(WP-1661) — 배경은 이 클래스 하나가 정한다(블록 CSS 는 배경을 두지 않는다).
+            className={cn('wiki-html-embed__frame', HTML_DOCUMENT_CANVAS_CLASS)}
             data-testid="wiki-html-embed-frame"
             style={{ height }}
           />

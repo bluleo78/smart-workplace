@@ -60,6 +60,19 @@ test('process-issue.md 에서 「브랜치 라이브 검증」이 「PR」보다
   assertBefore(workLoop('process-issue.md'), '\n### 8. 브랜치 라이브 검증\n', '\n### 9. PR\n');
 });
 
+// WP-1659 반영 근거 — 빠지면 요청자(VOC)에게 옮길 보고에 바뀐 화면·확인 위치가 없다.
+test('process-issue.md: 검토 대기 보고는 반영 근거(전·후 나란히·단계별·확인 방법·메뉴 경로)를 맨 앞 요약과 함께 낸다 (WP-1659)', () => {
+  const text = workLoop('process-issue.md');
+  assertBefore(text, '**반영 근거**', '\n### 9. PR\n');
+  assert.ok(text.includes('한 장에 좌우로 나란히'));
+  assert.ok(text.includes('**동작·흐름이 바뀜**'));
+  assert.ok(text.includes('**화면 변화 없음**'));
+  assert.ok(text.includes('**어디서 보나**'));
+  assert.ok(text.includes('**새 화면**'));
+  // 11번 보고의 맨 앞 요약과 첫 글 규칙
+  assert.match(text, /보고는 맨 앞에 \*\*사용자에게 보이는 변화\*\*[^\n]*\*\*확인 위치\*\*[^\n]*\*\*첫 글\*\*/);
+});
+
 test('SKILL.md 의 후보 표에 PAUSED 행이 「고르지 않는다」로 있다', () => {
   // 사람이 멈춘 작업을 AI 가 다시 집어 들면 안 된다.
   assert.match(workLoop('SKILL.md'), /^\|[^\n]*PAUSED[^\n]*\|[^\n]*고르지 않는다[^\n]*\|\s*$/m);
