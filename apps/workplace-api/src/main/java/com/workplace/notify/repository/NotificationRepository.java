@@ -28,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.OrderField;
 import org.jooq.Query;
 import org.jooq.Record1;
 import org.jooq.Select;
@@ -210,6 +211,41 @@ public class NotificationRepository {
    */
   public List<NotificationResponse> listRecent(
       long recipientId, boolean recipientIsAdmin, int limit, long offset) {
+    // 보관한 알림은 목록에서 뺀다(WP-1689) — 보관함은 따로 본다.
+    return listVisible(
+        recipientId,
+        recipientIsAdmin,
+        NOTIFICATION.ARCHIVED_AT.isNull(),
+        limit,
+        offset,
+        NOTIFICATION.CREATED_AT.desc(),
+        NOTIFICATION.ID.desc());
+  }
+
+  /**
+   * 보관함(WP-1690) — 보관한 본인 알림을 최근 보관순(archived_at desc, id desc)으로. select·조인·보이기 조건은 목록과 같다(지운 이슈
+   * 제외, 지금 볼 수 있는 프로젝트·일정·노트만) — 보관함에서 목록과 다른 알림이 보이면 안 된다.
+   */
+  public List<NotificationResponse> listArchived(
+      long recipientId, boolean recipientIsAdmin, int limit, long offset) {
+    return listVisible(
+        recipientId,
+        recipientIsAdmin,
+        NOTIFICATION.ARCHIVED_AT.isNotNull(),
+        limit,
+        offset,
+        NOTIFICATION.ARCHIVED_AT.desc(),
+        NOTIFICATION.ID.desc());
+  }
+
+  /** 목록·보관함 공용 조회 — 보관 여부 조건과 정렬만 호출측이 정하고, 나머지(조인·보이기 조건·매핑)는 한 곳에 둔다. */
+  private List<NotificationResponse> listVisible(
+      long recipientId,
+      boolean recipientIsAdmin,
+      Condition archivedCondition,
+      int limit,
+      long offset,
+      OrderField<?>... order) {
     return dsl.select(
             NOTIFICATION.ID,
             NOTIFICATION.TYPE,
@@ -246,11 +282,10 @@ public class NotificationRepository {
             NOTIFICATION
                 .RECIPIENT_ID
                 .eq(recipientId)
-                // 보관한 알림은 목록에서 뺀다(WP-1689) — 보관함은 따로 본다.
-                .and(NOTIFICATION.ARCHIVED_AT.isNull())
+                .and(archivedCondition)
                 .and(ISSUE.DELETED_AT.isNull())
                 .and(readableByRecipient(recipientId, recipientIsAdmin)))
-        .orderBy(NOTIFICATION.CREATED_AT.desc(), NOTIFICATION.ID.desc())
+        .orderBy(order)
         .limit(limit)
         .offset(offset)
         .fetch(
@@ -558,11 +593,17 @@ public class NotificationRepository {
   /**
    * 보관 되돌리기(WP-1689) — 주어진 id 중 본인 것이면서 보관된 것만 목록으로 돌려놓고 그 id 를 돌려준다. 남의 id·보관 안 된 id 는 조건에서 걸러져 소리
    * 없이 무시된다(남의 알림이 있는지 알려 주지 않게). 개수 상한은 컨트롤러가 건다.
+   *
+   * <p>WP-1690: read_at 도 지금으로 바꾼다. 그대로 두면 읽은 지 7일 넘은 알림은 되돌리자마자 다음 자동 보관 작업({@link
+   * #autoArchiveReadBefore})이 다시 골라 보관함으로 돌려보낸다. 읽은 상태는 유지되고(「읽은 상태로 목록에 돌아감」), 자동 보관 시계만 되돌린 때부터
+   * 다시 7일이 된다. 시각은 archiveRead 와 같은 이유로 JVM 시각 한 번을 쓴다.
    */
   public List<Long> unarchive(long recipientId, Collection<Long> ids) {
     if (ids.isEmpty()) return List.of();
+    OffsetDateTime now = OffsetDateTime.now();
     return dsl.update(NOTIFICATION)
         .setNull(NOTIFICATION.ARCHIVED_AT)
+        .set(NOTIFICATION.READ_AT, now)
         .where(
             NOTIFICATION
                 .RECIPIENT_ID
@@ -571,5 +612,38 @@ public class NotificationRepository {
                 .and(NOTIFICATION.ARCHIVED_AT.isNotNull()))
         .returning(NOTIFICATION.ID)
         .fetch(NOTIFICATION.ID);
+  }
+
+  /**
+   * 자동 보관(WP-1690) — 읽은 지 오래된(read_at &lt; cutoff) 미보관 알림을 최대 batch 개 골라 보관하고 바꾼 수를 돌려준다. 안 읽은
+   * 알림(read_at null)은 조건에서 빠져 보관되지 않는다. 시스템 잡이 쓰므로 수신자 조건이 없고 테넌트 범위는 RLS 가 정한다. 한 번에 바꾸는 행 수를 묶음으로
+   * 끊어 긴 락·트랜잭션을 피한다(호출자가 0 이 될 때까지 반복). 보관 시각은 archiveRead 와 같이 JVM 시각이다.
+   */
+  public int autoArchiveReadBefore(OffsetDateTime cutoff, int batch) {
+    return dsl.update(NOTIFICATION)
+        .set(NOTIFICATION.ARCHIVED_AT, OffsetDateTime.now())
+        .where(
+            NOTIFICATION.ID.in(
+                DSL.select(NOTIFICATION.ID)
+                    .from(NOTIFICATION)
+                    .where(NOTIFICATION.ARCHIVED_AT.isNull().and(NOTIFICATION.READ_AT.lt(cutoff)))
+                    .limit(batch)))
+        .execute();
+  }
+
+  /**
+   * 보관 알림 정리(WP-1690) — 보관한 지 오래된(archived_at &lt; cutoff) 알림을 최대 batch 개 지우고 지운 수를 돌려준다. 보관되지 않은
+   * 알림은 아무리 오래돼도 남는다. 수신자 조건 없음(RLS 테넌트 범위), 묶음 단위 반복은 호출자가 한다. 고르기는 V302 의
+   * idx_notification_archived_at 을 탄다.
+   */
+  public int deleteArchivedBefore(OffsetDateTime cutoff, int batch) {
+    return dsl.deleteFrom(NOTIFICATION)
+        .where(
+            NOTIFICATION.ID.in(
+                DSL.select(NOTIFICATION.ID)
+                    .from(NOTIFICATION)
+                    .where(NOTIFICATION.ARCHIVED_AT.lt(cutoff))
+                    .limit(batch)))
+        .execute();
   }
 }

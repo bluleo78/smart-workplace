@@ -746,6 +746,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async listNotifications(params) {
       return (await http.get('/notifications', { params })).data ?? [];
     },
+    // 보관함 목록(WP-1690) — GET /notifications/archived, 최근 보관순.
+    async listArchivedNotifications(params) {
+      return (await http.get('/notifications/archived', { params })).data ?? [];
+    },
     async countUnreadNotifications() {
       return (await http.get('/notifications/unread-count')).data?.count ?? 0;
     },

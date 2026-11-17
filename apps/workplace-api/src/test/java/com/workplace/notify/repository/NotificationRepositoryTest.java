@@ -545,4 +545,178 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     // ADMIN 갈래는 팀 프로젝트 알림도 보이므로 보관된다. 지운 이슈 알림은 여전히 남는다.
     assertThat(repo.archiveRead(a, true)).containsExactly(ids.get(2));
   }
+
+  /** 보관 시각을 직접 정한다 — 보관함 정렬(최근 보관순) 검증용. */
+  private void archiveAt(long id, int minutesAgo) {
+    dsl.update(NOTIFICATION)
+        .set(NOTIFICATION.ARCHIVED_AT, java.time.OffsetDateTime.now().minusMinutes(minutesAgo))
+        .where(NOTIFICATION.ID.eq(id))
+        .execute();
+  }
+
+  /** WP-1690: 보관함은 최근 보관순이다(만든 순서와 무관) — 보관 안 된 알림은 없다. */
+  @Test
+  void listArchived_newestArchivedFirst() {
+    long a = seedUser("HUMAN");
+    long issueId = seedIssue(a, "이슈");
+    repo.insertBatch(List.of(a, a, a, a), NotificationType.ASSIGNED, null, issueId, null);
+    List<Long> ids = idsOf(a);
+    archiveAt(ids.get(0), 30);
+    archiveAt(ids.get(1), 10);
+    archiveAt(ids.get(2), 20);
+
+    assertThat(repo.listArchived(a, false, 20, 0))
+        .extracting(NotificationResponse::id)
+        .containsExactly(ids.get(1), ids.get(2), ids.get(0));
+  }
+
+  /** WP-1690: 남의 보관 알림·지운 이슈·빠진 프로젝트의 보관 알림은 보관함에 없다(목록과 같은 보이기 조건). */
+  @Test
+  void listArchived_onlyMineAndReadable() {
+    long a = seedUser("HUMAN");
+    long b = seedUser("HUMAN");
+    long actor = seedUser("HUMAN");
+    long visibleIssue = seedIssue(actor, "보이는 이슈");
+    long deletedIssue = seedIssue(actor, "지운 이슈");
+    long teamIssue = seedIssue(actor, "멤버 아닌 팀 이슈", "TEAM");
+    repo.insertBatch(List.of(a, b), NotificationType.ASSIGNED, actor, visibleIssue, null);
+    repo.insertBatch(List.of(a), NotificationType.ASSIGNED, actor, deletedIssue, null);
+    repo.insertBatch(List.of(a), NotificationType.ASSIGNED, actor, teamIssue, null);
+    List<Long> aIds = idsOf(a);
+    long bId = idsOf(b).get(0);
+    aIds.forEach(id -> archiveAt(id, 5));
+    archiveAt(bId, 5);
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(ISSUE.ID.eq(deletedIssue))
+        .execute();
+
+    assertThat(repo.listArchived(a, false, 20, 0))
+        .extracting(NotificationResponse::id)
+        .containsExactly(aIds.get(0));
+    // ADMIN 갈래는 팀 프로젝트 알림도 보인다.
+    assertThat(repo.listArchived(a, true, 20, 0))
+        .extracting(NotificationResponse::id)
+        .containsExactlyInAnyOrder(aIds.get(0), aIds.get(2));
+  }
+
+  /** WP-1690: limit·offset 페이지네이션 — 경계에서 겹치거나 빠지지 않는다. */
+  @Test
+  void listArchived_pagesWithOffset() {
+    long a = seedUser("HUMAN");
+    long issueId = seedIssue(a, "이슈");
+    repo.insertBatch(List.of(a, a, a), NotificationType.ASSIGNED, null, issueId, null);
+    List<Long> ids = idsOf(a);
+    archiveAt(ids.get(0), 3);
+    archiveAt(ids.get(1), 2);
+    archiveAt(ids.get(2), 1);
+
+    var first = repo.listArchived(a, false, 2, 0);
+    var second = repo.listArchived(a, false, 2, 2);
+
+    assertThat(first).hasSize(2);
+    assertThat(second).hasSize(1);
+    assertThat(first.get(0).id()).isEqualTo(ids.get(2));
+    assertThat(second.get(0).id()).isEqualTo(ids.get(0));
+  }
+
+  /** 알림 1건을 insert 하고 read_at·archived_at 을 지금 기준 일수 전으로 직접 정한다(null 이면 비움). id 반환. */
+  private long seedAged(long recipient, Integer readHoursAgo, Integer archivedHoursAgo) {
+    repo.insertAccountNotice(recipient, NotificationType.PERSONAL_ASSISTANT_REVOKED, recipient);
+    long id = idsOf(recipient).get(idsOf(recipient).size() - 1);
+    var now = java.time.OffsetDateTime.now();
+    dsl.update(NOTIFICATION)
+        .set(NOTIFICATION.READ_AT, readHoursAgo == null ? null : now.minusHours(readHoursAgo))
+        .set(
+            NOTIFICATION.ARCHIVED_AT,
+            archivedHoursAgo == null ? null : now.minusHours(archivedHoursAgo))
+        .where(NOTIFICATION.ID.eq(id))
+        .execute();
+    return id;
+  }
+
+  private java.time.OffsetDateTime archivedAtOf(long id) {
+    return dsl.select(NOTIFICATION.ARCHIVED_AT)
+        .from(NOTIFICATION)
+        .where(NOTIFICATION.ID.eq(id))
+        .fetchOne(NOTIFICATION.ARCHIVED_AT);
+  }
+
+  /** WP-1690: 읽은 지 7일(cutoff = now-7일)을 넘은 알림만 자동 보관 — 7일+1시간 전은 보관, 6일 23시간 전은 그대로. */
+  @Test
+  void autoArchive_respectsSevenDayBoundary() {
+    long a = seedUser("HUMAN");
+    long old = seedAged(a, 7 * 24 + 1, null);
+    long recent = seedAged(a, 6 * 24 + 23, null);
+
+    int n = repo.autoArchiveReadBefore(java.time.OffsetDateTime.now().minusDays(7), 1000);
+
+    assertThat(n).isEqualTo(1);
+    assertThat(archivedAtOf(old)).isNotNull();
+    assertThat(archivedAtOf(recent)).isNull();
+  }
+
+  /** WP-1690: 안 읽은 알림·이미 보관된 알림은 건드리지 않고 반환 수에도 안 든다(보관 시각 불변). */
+  @Test
+  void autoArchive_skipsUnreadAndAlreadyArchived() {
+    long a = seedUser("HUMAN");
+    long unread = seedAged(a, null, null);
+    long already = seedAged(a, 9 * 24, 8 * 24);
+    var before = archivedAtOf(already);
+
+    int n = repo.autoArchiveReadBefore(java.time.OffsetDateTime.now().minusDays(7), 1000);
+
+    assertThat(n).isZero();
+    assertThat(archivedAtOf(unread)).isNull();
+    assertThat(archivedAtOf(already)).isEqualTo(before);
+  }
+
+  /** WP-1690: 보관 90일 경계 — 91일 전 보관은 지우고 89일 전 보관·보관 안 된 오래된 알림은 남긴다. */
+  @Test
+  void deleteArchived_respectsNinetyDayBoundary() {
+    long a = seedUser("HUMAN");
+    long gone = seedAged(a, 100 * 24, 91 * 24);
+    long kept = seedAged(a, 100 * 24, 89 * 24);
+    long oldUnarchived = seedAged(a, 200 * 24, null);
+
+    int n = repo.deleteArchivedBefore(java.time.OffsetDateTime.now().minusDays(90), 1000);
+
+    assertThat(n).isEqualTo(1);
+    assertThat(idsOf(a)).containsExactlyInAnyOrder(kept, oldUnarchived).doesNotContain(gone);
+  }
+
+  /**
+   * WP-1690: 읽은 지 7일 넘은 알림을 되돌리면 read_at 이 되돌린 시각으로 바뀌어 다음 자동 보관이 곧바로 다시 고르지 않는다. 읽은 상태는 그대로다(안 읽음이
+   * 되지 않음).
+   */
+  @Test
+  void unarchive_resetsReadAt_soAutoArchiveDoesNotRepickIt() {
+    long a = seedUser("HUMAN");
+    long id = seedAged(a, 30 * 24, 20 * 24);
+
+    assertThat(repo.unarchive(a, List.of(id))).containsExactly(id);
+
+    var row = dsl.selectFrom(NOTIFICATION).where(NOTIFICATION.ID.eq(id)).fetchOne();
+    assertThat(row.getArchivedAt()).isNull();
+    assertThat(row.getReadAt()).isNotNull();
+    assertThat(row.getReadAt()).isAfter(java.time.OffsetDateTime.now().minusMinutes(1));
+    assertThat(repo.countUnread(a)).isZero();
+    assertThat(repo.autoArchiveReadBefore(java.time.OffsetDateTime.now().minusDays(7), 1000))
+        .isZero();
+    assertThat(archivedAtOf(id)).isNull();
+  }
+
+  /** WP-1690: batch 는 한 번에 바꾸는 행 수 상한이다 — 5행 대상에 batch 2 면 2. */
+  @Test
+  void batchLimitsRowCount() {
+    long a = seedUser("HUMAN");
+    for (int i = 0; i < 5; i++) seedAged(a, 8 * 24, null);
+    assertThat(repo.autoArchiveReadBefore(java.time.OffsetDateTime.now().minusDays(7), 2))
+        .isEqualTo(2);
+
+    long b = seedUser("HUMAN");
+    for (int i = 0; i < 5; i++) seedAged(b, 100 * 24, 91 * 24);
+    assertThat(repo.deleteArchivedBefore(java.time.OffsetDateTime.now().minusDays(90), 2))
+        .isEqualTo(2);
+  }
 }

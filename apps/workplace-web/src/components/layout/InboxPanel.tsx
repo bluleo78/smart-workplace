@@ -2,14 +2,24 @@
 // 인박스 — AppRail 하단 종 아이콘 + 안읽음 배지 + Popover 평면 목록.
 // 행 클릭 → 이슈 상세 이동 + 읽음 처리. 헤더 "모두 읽음". 무한스크롤(#610)로 20건 상한 해소.
 import { Bell } from 'lucide-react'
+import { useState } from 'react'
 
 import { CountBadge } from '@/components/CountBadge'
 import { useInboxPanel } from '@/components/layout/InboxContext'
-import { InboxList } from '@/components/layout/InboxList'
+import { InboxList, type InboxView } from '@/components/layout/InboxList'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
 import { cn } from '@/lib/utils'
+
+/**
+ * 팝오버 본문 — 보기(알림|보관함) 상태를 들고 InboxList 에 내려준다(WP-1690).
+ * PopoverContent 가 닫히면 언마운트되므로 다시 열면 늘 '알림' 에서 시작한다(기존 동작 유지).
+ */
+function InboxPopoverBody({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
+  const [view, setView] = useState<InboxView>('inbox')
+  return <InboxList enabled={open} onNavigate={onNavigate} view={view} onViewChange={setView} />
+}
 
 export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
   // 오픈 상태는 컨텍스트 공유 — 합성 레이어 '멘션' 셀 등 외부에서도 패널을 열 수 있다.
@@ -60,7 +70,7 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
       {/* Radix PopoverContent는 role=dialog를 부여하지만 accessible name은 직접 지정해야 함(#698). */}
       <PopoverContent side="right" align="end" className="w-80 p-0" data-testid="inbox-panel" aria-label="알림">
         {/* 목록부는 모바일 /notifications 와 공유(InboxList) — open 일 때만 조회. */}
-        <InboxList enabled={open} onNavigate={() => setOpen(false)} />
+        <InboxPopoverBody open={open} onNavigate={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
   )

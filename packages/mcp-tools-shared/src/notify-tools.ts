@@ -13,12 +13,21 @@ const PAGE_SIZE = 100;
 /** unreadOnly 로 넘겨 읽을 최대 페이지 — 오래된 알림이 매우 많아도 요청이 끝없이 늘지 않게 막는다. */
 const MAX_PAGES = 10;
 
-export const listNotificationsInput = z.object({
-  unreadOnly: z.boolean().default(false),
-  limit: z.number().int().min(1).max(PAGE_SIZE).default(20),
-  // WP-352: 서버 GET /notifications 의 offset(NotificationController). 이전 호출이 돌려준 nextOffset 을 그대로 넘긴다.
-  offset: z.number().int().min(0).default(0).describe('nextOffset; do not compute it'),
-});
+export const listNotificationsInput = z
+  .object({
+    unreadOnly: z.boolean().default(false),
+    // WP-1690: true 면 보관함(자동·수동 보관한 알림)을 최근 보관순으로 본다. 보관함 알림은 모두 읽은 것이라 unreadOnly 와 뜻이 겹쳐 함께 못 준다.
+    archived: z.boolean().optional(),
+    limit: z.number().int().min(1).max(PAGE_SIZE).default(20),
+    // WP-352: 서버 GET /notifications 의 offset(NotificationController). 이전 호출이 돌려준 nextOffset 을 그대로 넘긴다.
+    offset: z.number().int().min(0).default(0).describe('nextOffset; do not compute it'),
+  })
+  .superRefine((v, ctx) => {
+    // 보관함은 전부 읽은 알림이라 unreadOnly 와 함께면 항상 빈 결과 — 조용히 비우지 않고 거절한다.
+    if (v.archived && v.unreadOnly) {
+      ctx.addIssue({ code: 'custom', message: 'archived 와 unreadOnly 는 함께 쓸 수 없습니다.' });
+    }
+  });
 /**
  * 읽음 처리 입력 — 알림 하나(notificationId) 또는 한 이슈의 내 알림 전부(issueKey, WP-720: AI 가 그 이슈를 처리한 뒤 한 번에) 중 하나만.
  * 서버 레이어가 shape 를 등록하므로 superRefine 뒤에도 z.object 다(attachment-tools 와 같음).
@@ -89,11 +98,12 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       app: 'notify',
       kind: 'read',
       description:
-        'Lists my notification inbox (인박스) newest first as {unreadCount (total), items, hasMore?, nextOffset?}; issue items carry issueKey, event ' +
-        'items eventId. If hasMore, pass nextOffset as offset with the same unreadOnly and limit, or say the list is partial; that page may be empty.',
+        'Lists my inbox (인박스) newest first: {unreadCount (total), items, hasMore?, nextOffset?}; items carry issueKey or eventId. ' +
+        'archived=true: archive (보관함) by archive time; auto-archived 7d after read, deleted 90d later. ' +
+        'If hasMore, pass nextOffset as offset with the same archived/unreadOnly/limit, or say partial.',
       inputSchema: listNotificationsInput,
       async handler(args) {
-        const { unreadOnly, limit, offset } = listNotificationsInput.parse(args);
+        const { unreadOnly, archived, limit, offset } = listNotificationsInput.parse(args);
         // unreadOnly 는 모을 목표치(unreadCount)가 먼저 필요하고, 아니면 두 조회가 독립이라 병렬로 부른다.
         let unreadCount: number;
         let rows: NotificationRow[];
@@ -102,9 +112,13 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
           unreadCount = await client.countUnreadNotifications();
           ({ items: rows, nextOffset } = await collectUnread(client, limit, unreadCount, offset));
         } else {
+          // 인박스·보관함(WP-1690)은 가져오는 함수만 다르다 — 보관함은 서버가 최근 보관순으로 한 페이지를 준다.
+          // 안 읽은 수는 어느 쪽이든 인박스 기준으로 함께 돌려준다(archived 와 unreadOnly 동시 입력은 스키마가 거절).
           [unreadCount, rows] = await Promise.all([
             client.countUnreadNotifications(),
-            client.listNotifications({ limit, offset }),
+            archived
+              ? client.listArchivedNotifications({ limit, offset })
+              : client.listNotifications({ limit, offset }),
           ]);
           // 서버는 총 개수·마지막 페이지 여부를 주지 않는다 — 한 페이지가 꽉 찼으면 더 있을 수 있다고 본다.
           if (rows.length >= limit) nextOffset = offset + rows.length;
@@ -122,7 +136,7 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Marks notifications read: one by notificationId (from list_notifications), or all of an issue by issueKey; already read is fine.',
+        'Marks notifications read: one by notificationId, or all of an issue by issueKey; already read is fine.',
       inputSchema: markNotificationReadInput,
       async handler(args) {
         const { notificationId, issueKey } = markNotificationReadInput.parse(args);
@@ -138,7 +152,7 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Marks all my notifications read; only when the user asks for all of them.',
+        'Marks all my notifications read; only if the user asks for all.',
       inputSchema: z.object({}),
       async handler() {
         await client.markAllNotificationsRead();

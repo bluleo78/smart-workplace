@@ -873,6 +873,8 @@ export interface NotificationRow {
 export interface NotificationToolClient {
   /** 최신순 페이지. offset 으로 이어 읽는다(서버에 안 읽음 필터가 없어 unreadOnly 는 핸들러가 넘겨 가며 모은다). */
   listNotifications(params: { limit: number; offset: number }): Promise<NotificationRow[]>;
+  /** 보관함 목록(WP-1690) — 최근 보관순. 행 모양은 listNotifications 와 같다. */
+  listArchivedNotifications(params: { limit: number; offset: number }): Promise<NotificationRow[]>;
   countUnreadNotifications(): Promise<number>;
   /** 멱등 — 이미 읽었거나 남의 알림이면 서버가 0행 처리한다. */
   markNotificationRead(notificationId: number): Promise<void>;

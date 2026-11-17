@@ -412,6 +412,9 @@ describe('createSharedToolClient 경로 매핑', () => {
     const { http, client } = mockHttp();
     await client.listNotifications({ limit: 20, offset: 100 });
     expect(http.get).toHaveBeenCalledWith('/notifications', { params: { limit: 20, offset: 100 } });
+    // WP-1690: 보관함 목록
+    await client.listArchivedNotifications({ limit: 20, offset: 40 });
+    expect(http.get).toHaveBeenCalledWith('/notifications/archived', { params: { limit: 20, offset: 40 } });
     http.get.mockResolvedValueOnce({ data: { count: 4 } });
     expect(await client.countUnreadNotifications()).toBe(4);
     expect(http.get).toHaveBeenCalledWith('/notifications/unread-count');

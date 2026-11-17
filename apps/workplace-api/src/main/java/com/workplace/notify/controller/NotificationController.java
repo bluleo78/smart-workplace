@@ -34,8 +34,27 @@ public class NotificationController {
       @AuthenticationPrincipal Long callerId,
       @RequestParam(name = "limit", defaultValue = "20") int limit,
       @RequestParam(name = "offset", defaultValue = "0") long offset) {
+    return ResponseEntity.ok(service.listRecent(callerId, clampLimit(limit), clampOffset(offset)));
+  }
+
+  /** 보관함(WP-1690) — 보관한 내 알림을 최근 보관순으로. 응답 모양·limit(1~100)·offset(음수 0) 클램프는 목록과 같다. */
+  @GetMapping("/archived")
+  public ResponseEntity<List<NotificationResponse>> archived(
+      @AuthenticationPrincipal Long callerId,
+      @RequestParam(name = "limit", defaultValue = "20") int limit,
+      @RequestParam(name = "offset", defaultValue = "0") long offset) {
     return ResponseEntity.ok(
-        service.listRecent(callerId, Math.min(Math.max(limit, 1), 100), Math.max(offset, 0)));
+        service.listArchived(callerId, clampLimit(limit), clampOffset(offset)));
+  }
+
+  /** 목록·보관함 공용 limit 클램프 — 1~100. */
+  private static int clampLimit(int limit) {
+    return Math.min(Math.max(limit, 1), 100);
+  }
+
+  /** 목록·보관함 공용 offset 클램프 — 음수는 0. */
+  private static long clampOffset(long offset) {
+    return Math.max(offset, 0);
   }
 
   /** 안읽음 수. */

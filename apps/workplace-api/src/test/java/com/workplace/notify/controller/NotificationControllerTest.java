@@ -220,4 +220,52 @@ class NotificationControllerTest extends WebMvcSliceTestBase {
   void list_unauthenticated_returns401() throws Exception {
     mockMvc.perform(get("/api/v1/notifications")).andExpect(status().isUnauthorized());
   }
+
+  /** WP-1690: 보관함 — 호출자 범위로 서비스에 넘기고 목록과 같은 모양으로 돌려준다. */
+  @Test
+  void archived_returnsOnlyMyArchived() throws Exception {
+    var n =
+        new NotificationResponse(
+            8L,
+            "ASSIGNED",
+            null,
+            null,
+            null,
+            7L,
+            "WP",
+            3,
+            "제목",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            true,
+            Instant.now());
+    when(service.listArchived(eq(1L), eq(20), eq(0L))).thenReturn(List.of(n));
+
+    mockMvc
+        .perform(get("/api/v1/notifications/archived").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].id").value(8))
+        .andExpect(jsonPath("$[0].read").value(true));
+    verify(service).listArchived(eq(1L), eq(20), eq(0L));
+  }
+
+  /** WP-1690: limit 은 1~100 으로, 음수 offset 은 0 으로 클램프한다. */
+  @Test
+  void archived_clampsLimit() throws Exception {
+    when(service.listArchived(eq(1L), eq(100), eq(0L))).thenReturn(List.of());
+
+    mockMvc
+        .perform(
+            get("/api/v1/notifications/archived?limit=500&offset=-5")
+                .header("Authorization", "Bearer v"))
+        .andExpect(status().isOk());
+    verify(service).listArchived(eq(1L), eq(100), eq(0L));
+  }
 }

@@ -18,8 +18,10 @@ import { useMarkAllNotificationsRead } from "@/hooks/queries/useMarkAllNotificat
 import { useMarkNotificationRead } from "@/hooks/queries/useMarkNotificationRead";
 import {
   flattenNotificationPages,
+  useArchivedNotifications,
   useNotifications,
 } from "@/hooks/queries/useNotifications";
+import { useUnarchiveNotification } from "@/hooks/queries/useUnarchiveNotification";
 import { useUnreadCount } from "@/hooks/queries/useUnreadCount";
 import { formatDateTimeMinute, formatRelativeTime } from "@/lib/formatters";
 import {
@@ -54,6 +56,52 @@ function hasReadNotification(items: NotificationResponse[]): boolean {
   return items.some((n) => n.read);
 }
 
+/** 알림 창 보기 — 받은 알림(inbox) 또는 보관함(archive)(WP-1690). */
+export type InboxView = "inbox" | "archive";
+
+/**
+ * 「알림 | 보관함」 전환 탭(WP-1690) — 데스크톱 제목 줄과 모바일 /notifications 가 함께 쓴다.
+ * 선택 탭은 굵게·밑줄로 구분하고 aria-selected 로 알린다.
+ */
+export function InboxViewTabs({
+  view,
+  onChange,
+}: {
+  view: InboxView;
+  onChange: (v: InboxView) => void;
+}) {
+  const tabs: { id: InboxView; label: string }[] = [
+    { id: "inbox", label: "알림" },
+    { id: "archive", label: "보관함" },
+  ];
+  return (
+    <div
+      role="tablist"
+      aria-label="알림 보기"
+      className="flex items-center gap-3"
+    >
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          aria-selected={view === t.id}
+          data-testid={`inbox-tab-${t.id}`}
+          onClick={() => onChange(t.id)}
+          className={cn(
+            "shrink-0 whitespace-nowrap border-b-2 pb-0.5 text-sm",
+            view === t.id
+              ? "border-foreground font-semibold text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
  * 인박스 목록 본체.
  * @param enabled 조회 활성 여부(Popover 는 열렸을 때만 조회)
@@ -62,6 +110,8 @@ function hasReadNotification(items: NotificationResponse[]): boolean {
  * @param hideHeader 자체 제목 행('알림' + 모두 읽음 + 읽은 알림 보관) 숨김 — 모바일 /notifications 는 화면 헤더가 제목을 갖고
  *   '모두 읽음'·'읽은 알림 보관' 은 헤더 액션 자리(MarkAllReadButton·ArchiveReadButton)로 옮겨 별도 한 줄을 쓰지 않는다(U1-7).
  * @param screenEmpty 빈 상태를 전체 화면 규격으로(모바일 /notifications, U3-R11)
+ * @param view 보기(알림|보관함) — 항상 바깥이 들고 내려준다(WP-1690)
+ * @param onViewChange 보기 전환 알림
  */
 export function InboxList({
   enabled,
@@ -69,6 +119,8 @@ export function InboxList({
   scrollClassName = "max-h-96 overflow-y-auto",
   hideHeader = false,
   screenEmpty = false,
+  view,
+  onViewChange,
 }: {
   enabled: boolean;
   onNavigate?: () => void;
@@ -76,12 +128,24 @@ export function InboxList({
   hideHeader?: boolean;
   /** 빈 상태를 전체 화면 규격(MobileEmptyState)으로 — 모바일 /notifications 전용. 데스크톱 Popover 는 기존 작은 빈 상태. */
   screenEmpty?: boolean;
+  view: InboxView;
+  onViewChange: (v: InboxView) => void;
 }) {
+  const isArchive = view === "archive";
+  // 빈 상태 문구 — 보기에 따라 한 번만 정한다(전체 화면·팝오버 두 모양이 함께 쓴다).
+  const emptyTitle = isArchive ? "보관한 알림이 없습니다" : "새 알림이 없습니다";
+  const emptyDesc = isArchive
+    ? "보관한 알림이 여기에 표시됩니다."
+    : "이슈 배정, 코멘트, 상태 변경 알림이 여기에 표시됩니다.";
   const navigate = useNavigate();
   const { data: unread = 0 } = useUnreadCount();
+  // 두 목록 모두 훅은 늘 부르되 보고 있는 쪽만 조회한다(enabled).
+  const inboxQuery = useNotifications(enabled && !isArchive);
+  const archiveQuery = useArchivedNotifications(enabled && isArchive);
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useNotifications(enabled);
+    isArchive ? archiveQuery : inboxQuery;
   const items = flattenNotificationPages(data?.pages);
+  const unarchive = useUnarchiveNotification();
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const archiveRead = useArchiveReadNotifications();
@@ -99,10 +163,10 @@ export function InboxList({
     }
   };
 
-  // 행 클릭: 안읽음이면 읽음 처리 → onNavigate(패널 닫기 등) → 대상으로 이동.
+  // 행 클릭: (보관함이 아니고) 안읽음이면 읽음 처리 → onNavigate(패널 닫기 등) → 대상으로 이동.
   // 딥링크 규칙은 notifTarget() 공용 유틸과 동일(캘린더 알림→캘린더, 식별정보 없으면 인박스 대용 폴백).
   const onRowClick = (n: NotificationResponse) => {
-    if (!n.read) markRead.mutate(n.id);
+    if (!isArchive && !n.read) markRead.mutate(n.id);
     onNavigate?.();
     navigate(notifTarget(n));
   };
@@ -111,33 +175,39 @@ export function InboxList({
     <>
       {!hideHeader && (
         <div className="flex items-center border-b px-3 py-2 justify-between">
-          <span className="text-sm font-semibold">알림</span>
-          {/* 오른쪽 묶음: 모두 읽음 · 읽은 알림 보관(WP-1689). 줄마다 보관 단추는 두지 않는다. */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              data-testid="inbox-mark-all"
-              onClick={() => markAll.mutate()}
-              // 알림 없거나 모두 읽음 상태이거나 처리 중이면 비활성화
-              disabled={items.length === 0 || unread === 0 || markAll.isPending}
-              className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              모두 읽음
-            </button>
-            <button
-              type="button"
-              data-testid="inbox-archive-read"
-              onClick={() => archiveRead.mutate()}
-              // 받은 목록에 읽은 알림이 하나도 없거나 처리 중이면 비활성화(서버는 목록 밖의 읽은 알림까지 모두 보관한다)
-              disabled={!hasReadNotification(items) || archiveRead.isPending}
-              className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              읽은 알림 보관
-            </button>
-          </div>
+          {/* 제목 자리는 「알림 | 보관함」 전환(WP-1690) — 선택 탭이 제목 역할을 한다. */}
+          <InboxViewTabs view={view} onChange={onViewChange} />
+          {/* 오른쪽 묶음: 모두 읽음 · 읽은 알림 보관(WP-1689). 보관함에서는 대상이 없어 숨긴다. 줄마다 보관 단추는 두지 않는다. */}
+          {!isArchive && (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                data-testid="inbox-mark-all"
+                onClick={() => markAll.mutate()}
+                // 알림 없거나 모두 읽음 상태이거나 처리 중이면 비활성화
+                disabled={
+                  items.length === 0 || unread === 0 || markAll.isPending
+                }
+                className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                모두 읽음
+              </button>
+              <button
+                type="button"
+                data-testid="inbox-archive-read"
+                onClick={() => archiveRead.mutate()}
+                // 받은 목록에 읽은 알림이 하나도 없거나 처리 중이면 비활성화(서버는 목록 밖의 읽은 알림까지 모두 보관한다)
+                disabled={!hasReadNotification(items) || archiveRead.isPending}
+                className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                읽은 알림 보관
+              </button>
+            </div>
+          )}
         </div>
       )}
-      <PushPromptBanner />
+      {/* 푸시 유도 배너는 받은 알림 보기에서만 */}
+      {!isArchive && <PushPromptBanner />}
       <div
         onScroll={onScroll}
         data-testid="inbox-scroll-area"
@@ -153,8 +223,8 @@ export function InboxList({
             data-testid="inbox-empty"
             className="h-full"
             icon={Bell}
-            title="새 알림이 없습니다"
-            description="이슈 배정, 코멘트, 상태 변경 알림이 여기에 표시됩니다."
+            title={emptyTitle}
+            description={emptyDesc}
           />
         ) : items.length === 0 ? (
           // 빈 상태: 아이콘 + 제목 + 설명 (디자인 시스템 §2.5 Empty State 4요소)
@@ -163,21 +233,19 @@ export function InboxList({
             className="flex flex-col items-center gap-2 px-3 py-8 text-center text-muted-foreground"
           >
             <Bell className="h-8 w-8 opacity-30" />
-            <p className="text-sm font-medium">새 알림이 없습니다</p>
-            <p className="text-xs">
-              이슈 배정, 코멘트, 상태 변경 알림이 여기에 표시됩니다.
-            </p>
+            <p className="text-sm font-medium">{emptyTitle}</p>
+            <p className="text-xs">{emptyDesc}</p>
           </div>
         ) : (
           <ul>
             {items.map((n) => (
-              <li key={n.id}>
+              <li key={n.id} className={cn(isArchive && "flex items-stretch")}>
                 <button
                   type="button"
                   data-testid="inbox-item"
                   onClick={() => onRowClick(n)}
                   className={cn(
-                    "flex w-full items-start gap-2 row-divider px-3 py-2 text-left text-sm hover:bg-accent/50",
+                    "flex w-full min-w-0 items-start gap-2 row-divider px-3 py-2 text-left text-sm hover:bg-accent/50",
                     !n.read && "bg-accent/20",
                   )}
                 >
@@ -197,7 +265,10 @@ export function InboxList({
                       n.actorName ? (
                         <>
                           <span className="font-medium">{n.actorName}</span>
-                          <AgentActorBadge kind={n.actorKind} className="ml-1 align-middle" />
+                          <AgentActorBadge
+                            kind={n.actorKind}
+                            className="ml-1 align-middle"
+                          />
                           <span className="text-muted-foreground">
                             {notificationAction(n)}
                           </span>
@@ -219,7 +290,10 @@ export function InboxList({
                             <span className="font-medium">
                               {n.actorName ?? "시스템"}
                             </span>
-                            <AgentActorBadge kind={n.actorKind} className="ml-1 align-middle" />
+                            <AgentActorBadge
+                              kind={n.actorKind}
+                              className="ml-1 align-middle"
+                            />
                             <span className="text-muted-foreground">
                               {wikiShareText(n)}
                             </span>
@@ -240,7 +314,10 @@ export function InboxList({
                         <span className="font-medium">
                           {n.actorName ?? "시스템"}
                         </span>
-                        <AgentActorBadge kind={n.actorKind} className="ml-1 align-middle" />
+                        <AgentActorBadge
+                          kind={n.actorKind}
+                          className="ml-1 align-middle"
+                        />
                         <span className="text-muted-foreground">
                           {notificationAction(n)}
                         </span>
@@ -254,7 +331,10 @@ export function InboxList({
                         <span className="font-medium">
                           {n.actorName ?? "시스템"}
                         </span>
-                        <AgentActorBadge kind={n.actorKind} className="ml-1 align-middle" />
+                        <AgentActorBadge
+                          kind={n.actorKind}
+                          className="ml-1 align-middle"
+                        />
                         <span className="text-muted-foreground">
                           {notificationAction(n)}
                         </span>
@@ -271,6 +351,22 @@ export function InboxList({
                     <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
                   )}
                 </button>
+                {isArchive && (
+                  // 보관함 줄 단추 — 줄 버튼 안에 넣을 수 없어 형제로 둔다(버튼 안 버튼 금지). 이동 없이 그 id 만 되돌린다.
+                  <button
+                    type="button"
+                    data-testid="inbox-unarchive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      unarchive.mutate(n.id);
+                    }}
+                    // 처리 중인 그 줄만 막는다 — 전체를 막으면 한 줄 되돌리는 동안 다른 줄 클릭이 소리 없이 무시된다.
+                    disabled={unarchive.isPending && unarchive.variables === n.id}
+                    className="shrink-0 row-divider px-3 text-xs text-primary hover:bg-accent/50 disabled:opacity-50"
+                  >
+                    되돌리기
+                  </button>
+                )}
               </li>
             ))}
             {isFetchingNextPage && (
