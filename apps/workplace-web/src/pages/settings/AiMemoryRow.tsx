@@ -9,6 +9,7 @@
 // 한 단계 옅은 색 + not-allowed 커서로 보통 핀과 구분하면서도 눌러 볼 수 있어 보이게 한다.
 // WP-380: 메타 끝에 기한("10월 24일까지"), 고치기에서 기한도 고른다. 만료 행(서버 expired)은 흐리게 + "만료됨 · …까지 · …에 지워져요" + 기한 연장·계속 기억.
 // WP-1691: memo 로 감싸 30행을 더 그리거나 목록을 다시 받을 때 바뀌지 않은 행은 다시 렌더하지 않는다(props 안정은 카드가 맡는다).
+// WP-1696: 행에 content-visibility:auto — 1,800행에서 지운 뒤 전체 행을 다시 배치하느라 멈추던 것을 화면 밖 행의 배치·그리기를 건너뛰어 줄인다.
 import { Pencil, Pin, Trash2 } from 'lucide-react';
 import { memo, useState } from 'react';
 import { toast } from 'sonner';
@@ -94,12 +95,13 @@ export const AiMemoryRow = memo(function AiMemoryRow({
     }
     pin.mutate({ id: item.id, pinned: !pinned });
   };
+  // 터치에선 포커스 링을 버튼 안쪽에 그린다(pointer-coarse:focus-visible:ring-inset, WP-1696) — 행의 paint containment 가 바깥 링을 자르기 때문(li 주석).
   const pinButton = (
     <Button
       variant="ghost"
       size="icon"
       className={cn(
-        'size-7 pointer-coarse:size-11',
+        'size-7 pointer-coarse:size-11 pointer-coarse:focus-visible:ring-inset',
         pinned
           ? 'text-primary hover:text-primary'
           : pinBlocked
@@ -123,7 +125,15 @@ export const AiMemoryRow = memo(function AiMemoryRow({
       data-id={item.id}
       data-expired={expired ? 'true' : undefined}
       // 3열 격자(배지·내용·아이콘). 터치는 2열로 접고 내용(p)이 아이콘 열까지 가로지르며, 아이콘은 메타 줄(2행)로 내려온다.
-      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-2 pointer-coarse:py-3.5"
+      // WP-1696: 1,800행을 그린 채 지우면 맨 위 행이 빠지며 1,800개 격자 행을 다시 배치하느라 메인 스레드가 500ms 넘게 멈췄다(React 렌더는 작고
+      // 비용 대부분이 브라우저 레이아웃·스타일). content-visibility:auto 로 화면 밖 행은 배치·그리기를 건너뛴다. contain-intrinsic-size 의 auto 는
+      // 한 번 그린 행의 실제 높이를 기억해 화면 밖으로 나간 행이 줄어들어 스크롤이 튀지 않게 한다. 숫자는 한 번도 그리지 않은 행의 자리값 —
+      // 데스크톱 한 줄 행은 약 53px 이라 56px, 터치 행은 더 높아(iPhone 13 폭 실측: 한 줄 69px · 두 줄 85px) 80px 로 어림한다.
+      // 측정(1280×900, 2,100개 시드): 지우기 뒤 long task 519·392ms → 80·51ms.
+      // content-visibility:auto 는 화면 안 행에 paint containment 를 걸어 행 밖 그림을 자른다 — 터치는 44px 아이콘이 음수 마진으로 행 끝까지 닿아
+      // 바깥 포커스 링(3px)이 아래로 2px 잘렸다. 그래서 터치에선 아이콘 버튼의 포커스 링을 안쪽(ring-inset)으로 그린다(아래 버튼들) — 이것이 고침이다.
+      // overflow-clip-margin(자르는 선을 4px 밖으로)은 Chromium 에서만 듣는 덤이다(Safari/iOS WebKit 은 무시).
+      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-2 [content-visibility:auto] [contain-intrinsic-size:auto_56px] [overflow-clip-margin:4px] pointer-coarse:py-3.5 pointer-coarse:[contain-intrinsic-size:auto_80px]"
     >
       <Badge
         variant={badge.variant}
@@ -217,7 +227,7 @@ export const AiMemoryRow = memo(function AiMemoryRow({
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 pointer-coarse:size-11"
+              className="size-7 pointer-coarse:size-11 pointer-coarse:focus-visible:ring-inset"
               aria-label={itemActionLabel(item.content, '메모리', '수정')}
               data-testid="ai-memory-edit"
               onClick={startEdit}
@@ -227,7 +237,7 @@ export const AiMemoryRow = memo(function AiMemoryRow({
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 text-muted-foreground hover:text-destructive pointer-coarse:size-11"
+              className="size-7 text-muted-foreground hover:text-destructive pointer-coarse:size-11 pointer-coarse:focus-visible:ring-inset"
               aria-label={itemActionLabel(item.content, '메모리', '삭제')}
               data-testid="ai-memory-delete"
               disabled={remove.isPending}
