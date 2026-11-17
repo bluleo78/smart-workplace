@@ -24,6 +24,7 @@ import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses'
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { useScrollTopWhenSettled } from '../../../hooks/useScrollTopWhenSettled';
 import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
+import { issueEpicOf } from '../../../lib/epicGroup';
 import { filterOnlyKey, filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupCountsByKey, groupIssues } from '../../../lib/issueGrouping';
 import { DEFAULT_COLUMNS, type IssueListColumnKey } from '../../../lib/issueListColumns';
@@ -41,9 +42,9 @@ import { ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
 import { SortableTh } from './IssueSortHeader';
 
-/** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 부모(=그 에픽) 유형 색 토큰(배경 없는 글자용 fg). */
+/** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 에픽(직계 부모 또는 하위 태스크의 할아버지 에픽, WP-1692) 유형 색 토큰(배경 없는 글자용 fg). */
 function epicGroupColor(first: IssueResponse | undefined): string {
-  return labelFg(first?.parent?.type?.colorToken);
+  return labelFg(first ? issueEpicOf(first)?.type?.colorToken : undefined);
 }
 
 export function IssueListView({

@@ -34,6 +34,9 @@ export interface ParentRef {
   projectKey?: string | null;
   // 조회자가 읽을 수 없는 프로젝트의 부모(WP-1038) — 번호 0·제목 없음으로 존재만 알린다. 링크·키를 만들지 않는다.
   hidden?: boolean;
+  // 부모가 에픽이 아닐 때(=하위 태스크의 스토리 부모) 그 부모의 에픽(할아버지) 요약(WP-1692) — 같은 ParentRef 모양, 가려질 수 있다.
+  // 없으면 키 자체가 없고, 구 서버 응답에도 없어 선택.
+  epic?: ParentRef | null;
 }
 
 // 이슈(주로 에픽)의 활성 하위 목록 응답(WP-1038) — 다른 프로젝트 하위는 각자 projectKey 를 싣는다.

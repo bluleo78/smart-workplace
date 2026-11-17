@@ -5,12 +5,12 @@ import { addDays, addMonths, differenceInCalendarDays, differenceInCalendarMonth
 
 import { CLOSED_ISSUE_STATUSES } from '@/lib/closedHiding';
 import { epicColorToken } from '@/lib/epicColor';
-import { compareEpicGroups, epicGroupKey, epicGroupOf,type EpicGroupRef } from '@/lib/epicGroup';
+import { compareEpicGroups, epicGroupKey, epicGroupOf, type EpicGroupRef, issueEpicOf } from '@/lib/epicGroup';
 import { formatDateOnlyMonthDay, kstDayRelative } from '@/lib/formatters';
 import { formatIssueKey } from '@/lib/issueKey';
 import { isHiddenParent } from '@/lib/parentRef';
 import type { CycleResponse } from '@/types/cycle';
-import type { IssueResponse, IssueStatus } from '@/types/issue';
+import type { IssueResponse, IssueStatus, ParentRef } from '@/types/issue';
 import type { MilestoneResponse } from '@/types/milestone';
 import type { VersionResponse } from '@/types/version';
 
@@ -263,12 +263,16 @@ const NO_EPIC_KEY = 'no-epic';
 
 /**
  * 이슈의 부모 에픽 묶음(WP-1039) — 같은 프로젝트 에픽은 번호로, 다른 프로젝트 에픽은 (키, 번호)로 묶는다(이슈 목록 에픽 그룹과 같은 키·순서, epicGroup).
- * 가려진 부모(볼 수 없는 에픽)는 번호·키가 없어 타임라인에선 묶지 않으므로 null(「에픽 없음」), 에픽이 아닌 부모도 null.
+ * 「이 이슈의 에픽」은 목록과 같은 issueEpicOf 로 판단한다(WP-1692). 가려진 에픽(볼 수 없는 에픽)은 번호·키가 없어 타임라인에선 묶지 않으므로 null(「에픽 없음」), 에픽이 없어도 null.
  */
 function timelineEpicOf(i: Pick<IssueResponse, 'parent' | 'projectKey'>): EpicGroupRef | null {
-  const p = i.parent;
-  if (p == null || isHiddenParent(p) || p.type?.name !== 'EPIC') return null;
-  return epicGroupOf(p, i.projectKey);
+  return epicGroupRefOf(issueEpicOf(i), i.projectKey);
+}
+
+/** 이미 구한 에픽(issueEpicOf)을 타임라인 묶음 ref 로 — 가려진 에픽·에픽 없음은 null. */
+function epicGroupRefOf(epic: ParentRef | null, projectKey: string): EpicGroupRef | null {
+  if (epic == null || isHiddenParent(epic)) return null;
+  return epicGroupOf(epic, projectKey);
 }
 
 /** 그룹 제목 — 다른 프로젝트 에픽은 어느 프로젝트 에픽인지 알 수 있게 키를 앞에 붙인다(WP-1039). */
@@ -467,12 +471,14 @@ export function prepareTimelineIssues(
   );
   const byStatus: TimelineIssue[] = [];
   for (const i of issues) {
+    // WP-1692: 하위 태스크는 parent.epic 이 있어도 타임라인에서 제외한다.
     if (i.type?.name === 'SUBTASK') continue;
-    // 취소 에픽 하위 판정 — 응답의 취소 에픽 우선, 필터로 에픽 행이 빠졌으면(다른 프로젝트 에픽은 늘) 하위의 parent.status 로 판단한다(WP-247).
-    const ref = timelineEpicOf(i);
+    // 취소 에픽 하위 판정 — 응답의 취소 에픽 우선, 필터로 에픽 행이 빠졌으면(다른 프로젝트 에픽은 늘) 하위의 에픽 요약 status 로 판단한다(WP-247).
+    const epic = issueEpicOf(i);
+    const ref = epicGroupRefOf(epic, i.projectKey);
     const canceledParent =
-      ref && i.parent
-        ? (canceledEpics.get(ref.key) ?? (i.parent.status === 'CANCELED' ? i.parent.title : undefined))
+      ref && epic
+        ? (canceledEpics.get(ref.key) ?? (epic.status === 'CANCELED' ? epic.title : undefined))
         : undefined;
     if (canceledParent !== undefined) {
       if (i.status === 'TODO' || i.status === 'IN_PROGRESS') byStatus.push({ ...i, parent: null, formerEpicTitle: canceledParent });

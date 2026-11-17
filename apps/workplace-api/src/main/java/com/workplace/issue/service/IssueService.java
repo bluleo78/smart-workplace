@@ -753,6 +753,7 @@ public class IssueService {
     //    새 이슈라 첨부·커스텀 필드는 없다.
     // MCP 쓰기는 AI 작업을 시작하지 않아(WP-1365) 생성 뒤 상태가 바뀌지 않으므로 INSERT 결과 행을 그대로 쓴다.
     return newIssueSummary(
+        callerId,
         project,
         row,
         assigneeSummaries,
@@ -767,6 +768,7 @@ public class IssueService {
    * 행(잠가서 읽은 계획의 구성요소)으로 넘겨 다시 읽지 않는다.
    */
   IssueResponse newIssueSummary(
+      Long callerId,
       ProjectRow project,
       IssueRow row,
       List<UserSummary> assignees,
@@ -777,7 +779,12 @@ public class IssueService {
     var parentRef =
         row.parentIssueId() == null
             ? null
-            : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
+            // 생성 응답도 조회 응답처럼 가린다 — 하위 태스크의 할아버지 에픽이 읽을 수 없는 프로젝트일 수 있다(WP-1692)
+            : parentRefReader
+                .forViewer(callerId)
+                .redact(
+                    issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id()),
+                    row.projectId());
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
     return IssueResponse.fromWithCustomFields(
             project.key(),
@@ -1967,6 +1974,7 @@ public class IssueService {
         parent.statusColor(),
         projectKey,
         false,
-        parent.projectId());
+        parent.projectId(),
+        null);
   }
 }

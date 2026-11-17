@@ -682,6 +682,8 @@ public class IssueSearchService {
         // 잘못된 값은 필터 미적용
       }
     }
+    // WP-1692 — descendants=true 면 parent 필터가 손자(스토리 아래 하위 태스크)까지 넓어진다. 웹 에픽 필터만 보내는 옵트인.
+    Boolean parentDescendants = "true".equalsIgnoreCase(p.get("descendants")) ? Boolean.TRUE : null;
     Boolean topLevel = "true".equalsIgnoreCase(p.get("topLevel"));
     // Phase 4b — blocked 파싱. "true" 만 활성화, 그 외는 null (필터 미적용).
     Boolean blocked = "true".equalsIgnoreCase(p.get("blocked")) ? Boolean.TRUE : null;
@@ -768,7 +770,8 @@ public class IssueSearchService {
         startFrom,
         startTo,
         staleCutoff,
-        waiting);
+        waiting,
+        parentDescendants);
   }
 
   /** 날짜 필터 값을 LocalDate 로 읽는다. 비었으면 null(필터 없음), 형식이 틀리거나 지원 범위 밖이면 InvalidCursorException(400). */

@@ -225,6 +225,62 @@ describe('groupIssues - epic', () => {
     ]);
   });
 
+  // WP-1692 하위 태스크(부모 스토리)는 서버가 실은 parent.epic(할아버지 에픽)의 묶음에 든다.
+  describe('하위 태스크 — 할아버지 에픽(parent.epic)', () => {
+    const epicRef = { ...ep(1, '결제 개편 에픽') };
+    const storyRef = { number: 2, title: '스토리', type: STORY_TYPE, epic: epicRef };
+    const subtask = (n: number) => mk({ id: n, number: n, projectKey: 'WP', parent: storyRef });
+    const summarize = (groups: ReturnType<typeof groupIssues>) => groups.map((g) => ({ key: g.key, label: g.label, issues: g.issues.map((i) => i.number) }));
+
+    it('하위 태스크는 스토리의 에픽 묶음에 든다', () => {
+      const groups = groupIssues(
+        [
+          mk({ id: 5, number: 5, projectKey: 'WP', parent: epicRef }),
+          mk({ id: 2, number: 2, projectKey: 'WP', parent: epicRef }),
+          subtask(3),
+          subtask(4),
+          mk({ id: 6, number: 6, projectKey: 'WP', parent: null }),
+        ],
+        'epic',
+      );
+      expect(summarize(groups)).toEqual([
+        { key: 'epic-1', label: '결제 개편 에픽', issues: [5, 2, 3, 4] },
+        { key: 'no-epic', label: '에픽 없음', issues: [6] },
+      ]);
+    });
+
+    it('스토리 행이 응답에 없어도 하위 태스크만으로 에픽 묶음에 든다', () => {
+      const groups = groupIssues([mk({ id: 5, number: 5, projectKey: 'WP', parent: epicRef }), subtask(3), subtask(4)], 'epic');
+      expect(summarize(groups)).toEqual([{ key: 'epic-1', label: '결제 개편 에픽', issues: [5, 3, 4] }]);
+    });
+
+    it('하위 태스크만 있는 묶음의 라벨은 에픽 제목', () => {
+      const groups = groupIssues([subtask(3)], 'epic');
+      expect(groups[0].label).toBe('결제 개편 에픽');
+    });
+
+    it('다른 프로젝트 에픽은 epic-PLAN-3, 가려진 에픽은 epic-hidden(볼 수 없는 에픽)', () => {
+      const other = { ...ep(3, '기획 에픽'), projectKey: 'PLAN' };
+      const hidden = { number: 0, title: '', type: null, hidden: true } as never;
+      const groups = groupIssues(
+        [
+          mk({ id: 3, number: 3, projectKey: 'WP', parent: { ...storyRef, epic: other } }),
+          mk({ id: 4, number: 4, projectKey: 'WP', parent: { ...storyRef, epic: hidden } }),
+        ],
+        'epic',
+      );
+      expect(summarize(groups)).toEqual([
+        { key: 'epic-PLAN-3', label: '기획 에픽', issues: [3] },
+        { key: 'epic-hidden', label: '볼 수 없는 에픽', issues: [4] },
+      ]);
+    });
+
+    it('에픽 없는 스토리의 하위 태스크는 「에픽 없음」', () => {
+      const groups = groupIssues([mk({ id: 3, number: 3, projectKey: 'WP', parent: { number: 2, title: '스토리', type: STORY_TYPE } })], 'epic');
+      expect(summarize(groups)).toEqual([{ key: 'no-epic', label: '에픽 없음', issues: [3] }]);
+    });
+  });
+
   it('에픽 없는 이슈가 없으면 「에픽 없음」 버킷을 만들지 않는다', () => {
     const groups = groupIssues([mk({ id: 1, number: 1, parent: ep(3, 'A') })], 'epic');
     expect(groups.map((g) => g.key)).toEqual(['epic-3']);

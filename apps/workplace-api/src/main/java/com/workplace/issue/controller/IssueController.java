@@ -52,6 +52,9 @@ public class IssueController {
    * <p>정렬(WP-1238): {@code sort}=dueDate·priority·createdAt·updatedAt·status·assignee 쉼표 목록, {@code
    * direction}=asc·desc 쉼표 목록(하나면 모든 키에, 생략하면 desc). 없으면 기존 수정 시각 desc. 범위: startFrom·startTo(시작일),
    * updatedFrom·updatedTo(수정일, KST) — 모두 yyyy-MM-dd, 양끝 포함. 상세는 {@link IssueSearchService#search}.
+   *
+   * <p>WP-1692: {@code parent}=N 은 바로 아래 자식만이지만 {@code descendants=true} 를 함께 보내면 손자(스토리 아래 하위
+   * 태스크)까지.
    */
   @GetMapping
   @RequirePermission("project:read")
@@ -60,7 +63,10 @@ public class IssueController {
     return ResponseEntity.ok(issueSearchService.search((Long) auth.getPrincipal(), key, params));
   }
 
-  /** 목록 그룹별 총계(WP-472) — 검색과 같은 필터 params + groupBy(status·statusId·priority·assignee). */
+  /**
+   * 목록 그룹별 총계(WP-472) — 검색과 같은 필터 params + groupBy(status·statusId·priority·assignee). {@code
+   * descendants} 도 검색과 같이 따른다(WP-1692).
+   */
   @GetMapping("/group-counts")
   @RequirePermission("project:read")
   public ResponseEntity<IssueGroupCountsResponse> groupCounts(

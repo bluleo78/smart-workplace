@@ -73,8 +73,13 @@ public class ParentRefReader {
     public ParentRef redact(ParentRef ref, long childProjectId) {
       if (ref == null || ref.hidden()) return ref;
       if (ref.projectId() == null) return ParentRef.hiddenRef();
-      if (ref.projectId() == childProjectId || canRead(ref.projectId())) return ref;
-      return ParentRef.hiddenRef();
+      if (ref.projectId() != childProjectId && !canRead(ref.projectId())) {
+        return ParentRef.hiddenRef();
+      }
+      // WP-1692: 할아버지 에픽도 같은 규칙으로 가린다. 기준은 하위 태스크(자식)의 프로젝트 — 직계 부모(스토리)가 읽히더라도 그 위 에픽이 다른 프로젝트라
+      // 비공개일 수 있다.
+      if (ref.epic() != null) return ref.withEpic(redact(ref.epic(), childProjectId));
+      return ref;
     }
   }
 }

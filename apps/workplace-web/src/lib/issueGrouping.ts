@@ -11,9 +11,9 @@ import {
   type IssueStatus,
 } from '../types/issue';
 import type { ProjectStatus } from '../types/projectStatus';
-import { compareEpicGroups, epicGroupOf,type EpicGroupRef } from './epicGroup';
+import { compareEpicGroups, epicGroupOf, type EpicGroupRef, issueEpicOf } from './epicGroup';
 import { ownLookup } from './ownLookup';
-import { HIDDEN_PARENT_LABEL, isHiddenParent } from './parentRef';
+import { isEpicOrHiddenRef, parentTitleLabel } from './parentRef';
 
 // 하나의 그룹 — key 는 React key·data-testid·droppable id 에 사용, label 은 헤더 표시.
 export interface IssueGroup {
@@ -107,11 +107,10 @@ export function isClosedStatus(status: string): boolean {
 // 우선순위 버킷: 매우 높음→매우 낮음 고정 순서(ISSUE_PRIORITY_LABEL 키 순서, WP-886).
 const PRIORITY_ORDER: { key: string; label: string }[] = toOrder(ISSUE_PRIORITY_LABEL);
 
-// 부모가 에픽인지 — 에픽은 별도 플래그가 없고 유형 이름이 'EPIC' 인 이슈다(useProjectEpics 와 같은 기준).
-// SUBTASK 의 부모(STORY 등)는 에픽이 아니므로 그룹·행 메타의 ◆ 에픽 표시에서 제외한다.
-// WP-1038 조회자가 읽을 수 없는 부모(hidden)는 유형이 없지만, 다른 프로젝트 부모는 에픽만 될 수 있어 에픽으로 본다.
-export function isEpicParent(issue: IssueResponse): boolean {
-  return issue.parent?.type?.name === 'EPIC' || isHiddenParent(issue.parent);
+// 직계 부모가 에픽인지만 본다(에픽은 유형 이름이 'EPIC' 인 이슈 — useProjectEpics 와 같은 기준). 하위 태스크의 에픽(할아버지)은
+// issueEpicOf 로 읽는다(WP-1692). 데스크톱 부모 칩 숨김 판정 등 직계 기준에 쓴다. 가려진 부모(WP-1038)도 에픽으로 본다.
+export function isDirectEpicParent(issue: IssueResponse): boolean {
+  return isEpicOrHiddenRef(issue.parent);
 }
 
 /**
@@ -152,14 +151,16 @@ export function groupIssues(
     const byEpic = new Map<string, { ref: EpicGroupRef; group: IssueGroup }>();
     const none: IssueResponse[] = [];
     for (const it of issues) {
-      if (!it.parent || !isEpicParent(it)) {
+      // WP-1692 하위 태스크는 스토리의 에픽(parent.epic) 묶음에 든다 — issueEpicOf 가 직계·할아버지를 한 규칙으로 판단.
+      const epic = issueEpicOf(it);
+      if (!epic) {
         none.push(it);
         continue;
       }
-      const ref = epicGroupOf(it.parent, it.projectKey);
+      const ref = epicGroupOf(epic, it.projectKey);
       let entry = byEpic.get(ref.key);
       if (!entry) {
-        entry = { ref, group: { key: ref.key, label: ref.hidden ? HIDDEN_PARENT_LABEL : it.parent.title, issues: [] } };
+        entry = { ref, group: { key: ref.key, label: parentTitleLabel(epic), issues: [] } };
         byEpic.set(ref.key, entry);
       }
       entry.group.issues.push(it);

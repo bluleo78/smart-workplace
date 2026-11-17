@@ -261,6 +261,7 @@ public class IssueImportService {
             .getOrDefault(row.id(), VersionRepository.IssueVersionSummaries.EMPTY);
     return issueService
         .newIssueSummary(
+            callerId,
             project,
             row,
             assignees,

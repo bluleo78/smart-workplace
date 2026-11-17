@@ -14,7 +14,7 @@ import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
-import { isEpicParent } from '../../../lib/issueGrouping';
+import { isDirectEpicParent } from '../../../lib/issueGrouping';
 import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
@@ -74,7 +74,7 @@ export const IssueRow = memo(function IssueRow({
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
   // 행에 그릴 소속 칩 — 에픽 그룹·에픽 필터 안에선 에픽이 중복이라 숨긴다(상위 이슈는 그대로).
-  const shownParent = it.parent && !(hideEpic && isEpicParent(it)) ? it.parent : null;
+  const shownParent = it.parent && !(hideEpic && isDirectEpicParent(it)) ? it.parent : null;
   const isMobile = useIsMobile();
   // 모바일: 체크박스 대신 길게 누르기 → 액션 시트, 선택 모드에선 탭=선택 토글(이동 없음).
   // onLongPress 는 모바일에서만 호출처(useIssueRowActions)가 넘기고, selectionMode 도 모바일에서만 켜진다.

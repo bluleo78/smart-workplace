@@ -351,6 +351,30 @@ describe('groupTimelineIssues', () => {
   });
 });
 
+// WP-1692 — 하위 태스크는 할아버지 에픽(parent.epic)이 있어도 타임라인에 오르지 않는다(계획 단위가 아님).
+describe('타임라인 — 하위 태스크 제외 (WP-1692)', () => {
+  const SUBTASK_TYPE: IssueTypeSummary = { id: 3, name: 'SUBTASK', colorToken: 'GRAY', icon: 'CornerDownRight' };
+  const STORY_TYPE: IssueTypeSummary = { id: 2, name: 'STORY', colorToken: 'BLUE', icon: 'Flag' };
+
+  it('하위 태스크는 할아버지 에픽이 있어도 타임라인에 오르지 않는다', () => {
+    const epic = issue({ number: 1, type: EPIC_TYPE, startDate: '2026-07-01', dueDate: '2026-07-20' });
+    const story = issue({ number: 2, type: STORY_TYPE, parent: parentRef(1, '에픽'), startDate: '2026-07-02', dueDate: '2026-07-10' });
+    const sub = issue({
+      number: 3,
+      type: SUBTASK_TYPE,
+      parent: { number: 2, title: '스토리', type: STORY_TYPE, epic: parentRef(1, '에픽') },
+      startDate: '2026-07-03',
+      dueDate: '2026-07-05',
+    });
+    const prepared = prepareTimelineIssues([epic, story, sub]);
+    expect(prepared.map((i) => i.number)).toEqual([1, 2]);
+    const { groups, unscheduled } = groupTimelineIssues(prepared);
+    expect(groups.map((g) => g.key)).toEqual(['epic-1']);
+    expect(groups[0].bars.map((b) => b.issueNumber)).toEqual([2]);
+    expect(unscheduled.map((i) => i.number)).not.toContain(3);
+  });
+});
+
 describe('rollupOverlay', () => {
   // 에픽 막대(10/1~10/31, 31일) 기준 얇은 막대의 위치·폭과 기간 안쪽 구간을 % 로 계산한다 (WP-249).
   const epic = { start: '2026-10-01', due: '2026-10-31' };

@@ -262,7 +262,8 @@ class IssueCrossProjectParentTest extends IntegrationTestBase {
   void 부모_프로젝트_id_를_모르는_요약은_닫힌_쪽으로_가린다() {
     var visibility = parentRefReader.forViewer(owner);
     var unknown =
-        new ParentRef(epicB.number(), "B 에픽", null, "TODO", null, null, null, b.key(), false, null);
+        new ParentRef(
+            epicB.number(), "B 에픽", null, "TODO", null, null, null, b.key(), false, null, null);
     var redacted = visibility.redact(unknown, a.id());
     assertThat(redacted.hidden()).isTrue();
     assertThat(redacted.number()).isZero();
@@ -272,7 +273,7 @@ class IssueCrossProjectParentTest extends IntegrationTestBase {
     // 같은 요약에 부모 프로젝트 id 가 있으면 그 프로젝트를 읽을 수 있는 소유자에게는 가리지 않는다.
     var known =
         new ParentRef(
-            epicB.number(), "B 에픽", null, "TODO", null, null, null, b.key(), false, b.id());
+            epicB.number(), "B 에픽", null, "TODO", null, null, null, b.key(), false, b.id(), null);
     assertThat(visibility.redact(known, a.id())).isSameAs(known);
   }
 
@@ -410,5 +411,43 @@ class IssueCrossProjectParentTest extends IntegrationTestBase {
         .hasMessageContaining("완료된 에픽");
     // 아무것도 바뀌지 않았다.
     assertThat(issueService.get(owner, a.key(), child.number()).summary().parent()).isNull();
+  }
+
+  @Test
+  void 에픽_프로젝트를_읽을_수_없는_조회자에게는_하위_태스크의_할아버지_에픽을_가린다() {
+    // A 프로젝트 스토리가 B 프로젝트 에픽 아래, 그 스토리 아래 하위 태스크.
+    var story =
+        issueService.create(owner, a.key(), req("스토리", typeId(a, "STORY"), null, key(b, epicB)));
+    var sub =
+        issueService.create(owner, a.key(), req("하위", typeId(a, "SUBTASK"), story.number(), null));
+
+    var listed =
+        issueSearchService.search(memberA, a.key(), Map.of()).items().stream()
+            .filter(i -> i.id().equals(sub.id()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(listed.parent().hidden()).isFalse();
+    assertThat(listed.parent().number()).isEqualTo(story.number());
+    var epic = listed.parent().epic();
+    assertThat(epic.hidden()).isTrue();
+    assertThat(epic.number()).isZero();
+    assertThat(epic.title()).isNull();
+    assertThat(epic.projectKey()).isNull();
+
+    // 읽을 수 있는 소유자에게는 그대로 — 에픽 프로젝트 키가 실린다.
+    var ownerView =
+        issueSearchService.search(owner, a.key(), Map.of()).items().stream()
+            .filter(i -> i.id().equals(sub.id()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(ownerView.parent().epic().projectKey()).isEqualTo(b.key());
+    assertThat(ownerView.parent().epic().title()).isEqualTo("B 에픽");
+
+    // 생성 응답 경로 — memberA 가 그 스토리 아래 하위 태스크를 만들어도 가려진다.
+    var created =
+        issueService.create(
+            memberA, a.key(), req("하위2", typeId(a, "SUBTASK"), story.number(), null));
+    assertThat(created.parent().epic().hidden()).isTrue();
+    assertThat(created.parent().epic().title()).isNull();
   }
 }
