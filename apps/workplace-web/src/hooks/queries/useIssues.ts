@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { issuesApi } from '../../api/issues';
 import { handleApiError } from '../../lib/api-error';
 import type { CreateIssueRequest } from '../../types/issue';
+import { projectOverviewKey } from './useProjectOverview';
 import { refreshStatusesIfGone } from './useProjectStatuses';
 
 export const issueKeys = {
@@ -29,6 +30,8 @@ export function useCreateIssue(projectKey: string) {
       issuesApi.create(projectKey, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
+      // 개요 화면에 머문 채 만들어도 열린 이슈 수·활동이 바로 바뀌게 개요도 무효화한다(WP-1652).
+      qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
     },
     // 처음 상태가 삭제돼 없으면(WP-936) 상태 목록을 다시 받는다 — 실패 토스트는 호출부(생성 폼)가 서버 문구로 띄운다.
     onError: (e) => {
@@ -46,6 +49,8 @@ export function useDeleteIssue(projectKey: string, number: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
       qc.invalidateQueries({ queryKey: issueKeys.detail(projectKey, number) });
+      // 지운 뒤 개요의 열린 이슈 수·활동이 바로 바뀌게 개요도 무효화한다(WP-1652).
+      qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
       toast.success('태스크를 삭제했습니다');
     },
     onError: (e) => handleApiError(e, '태스크 삭제에 실패했습니다'),

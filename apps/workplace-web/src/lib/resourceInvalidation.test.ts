@@ -53,6 +53,19 @@ describe('invalidationTargets', () => {
     expect(qc.getQueryState(todayKey)?.isInvalidated).toBe(true);
   });
 
+  it('issue 변경 → 그 프로젝트의 개요만 다시 받는다 — 다른 프로젝트 개요는 그대로(WP-1652)', async () => {
+    const { QueryClient: RealQueryClient } = await import('@tanstack/react-query');
+    const qc = new RealQueryClient();
+    qc.setQueryData(['projectOverview', 'P'], 1);
+    qc.setQueryData(['projectOverview', 'Q'], 1);
+    const targets = invalidationTargets({ resource: 'issue', op: 'created', projectKey: 'P', issueNumber: 1 });
+    expect(targets).toContainEqual({ queryKey: ['projectOverview', 'P'] });
+    expect(targets).not.toContainEqual({ queryKey: ['projectOverview', 'Q'] });
+    await Promise.all(targets.map((t) => qc.invalidateQueries({ queryKey: t.queryKey, exact: t.exact ?? false })));
+    expect(qc.getQueryState(['projectOverview', 'P'])?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(['projectOverview', 'Q'])?.isInvalidated).toBe(false);
+  });
+
   it('projectKey 없는 issue 이벤트 · 모르는 resource → 빈 목록', () => {
     expect(invalidationTargets({ resource: 'issue', op: 'updated' } as never)).toEqual([]);
     expect(invalidationTargets({ resource: 'nope', op: 'updated' } as never)).toEqual([]);

@@ -12,6 +12,7 @@ import type { IssueResponse, IssueStatus } from '../../types/issue';
 import type { ProjectStatus } from '../../types/projectStatus';
 import { toastStatusChange } from './closedHidingToast';
 import { copyIssueIntoStatusColumn, findIssueInSearchCache, patchIssueInSearchCache } from './issueSearchCache';
+import { projectOverviewKey } from './useProjectOverview';
 import { refreshStatusesIfGone } from './useProjectStatuses';
 
 /** 상태 변경 변수 — 옮겨 갈 프로젝트 상태(WP-808). 호출부(보드 드롭·행 메뉴)는 늘 고른 상태 전체를 안다. */
@@ -77,6 +78,8 @@ export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHi
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
+      // 상태 변경이 개요의 열린 이슈 수·활동을 바꾸므로 개요도 무효화한다(WP-1652).
+      qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
     },
     onSuccess: (_res, { number, to }) => {
       void toastStatusChange(projectKey, [number], to.category, closedHiding, 'success', '상태를 변경했습니다');

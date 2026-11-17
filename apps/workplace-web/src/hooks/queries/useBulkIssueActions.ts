@@ -14,6 +14,7 @@ import type { IssuePriority, IssueStatus } from '../../types/issue';
 import { chatKeys } from './chatKeys';
 import { toastStatusChange } from './closedHidingToast';
 import { issueKeys } from './useIssues';
+import { projectOverviewKey } from './useProjectOverview';
 import { statusRequestBody } from './useUpdateIssueStatus';
 
 // 성공/실패 건수를 세어 결과 토스트를 띄우는 공통 헬퍼 — 문구·종류 판단은 bulkResultToast(실패 사유 노출, #710).
@@ -32,6 +33,8 @@ export function invalidateIssueCaches(qc: ReturnType<typeof useQueryClient>, pro
   qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
   qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
   qc.invalidateQueries({ queryKey: ['cycleProgress', projectKey] });
+  // 일괄 삭제·상태 변경이 개요의 열린 이슈 수·활동을 바꾸므로 개요도 무효화한다(WP-1652).
+  qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
 }
 
 // closedHiding — 종료 이슈를 숨기는 화면이면, 바뀐 이슈 중 숨겨지는 것이 있을 때 결과 토스트에 이유와 「모두 보기」를 붙인다(WP-606).
