@@ -6,6 +6,7 @@ import { type Ref, useCallback, useEffect, useImperativeHandle, useMemo, useRef,
 import { AiLabel } from '@/components/ai/AiLabel'
 import { Button } from '@/components/ui/button'
 import { useHtmlEditFrame } from '@/hooks/useHtmlEditFrame'
+import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
 import { cn } from '@/lib/utils'
 
 import { SandboxedHtmlFrame } from '../../SandboxedHtmlFrame'
@@ -14,7 +15,6 @@ import type { WikiHtmlEmbedAi } from '../WikiHtmlEmbedAiContext'
 import { WikiHtmlEmbedAiPanel } from '../WikiHtmlEmbedAiPanel'
 import { VISUAL_EDIT_HINT, VISUAL_EDIT_HINT_NONE } from '../wikiHtmlEmbedHint'
 import { HtmlBlockPicks } from '../WikiHtmlEmbedView'
-import { HTML_DOCUMENT_CANVAS_CLASS } from './wikiHtmlDocument'
 
 /** 보이는 화면 편집을 부르는 화면이 쓰는 손잡이 — 「저장」·「소스」 전환 전에 iframe 에 남은 입력까지 받아 원본에 되돌린 HTML 을 얻는다. */
 export interface WikiHtmlVisualEditorHandle {

@@ -5,7 +5,8 @@ import { type KeyboardEvent, memo, type ReactNode, useCallback, useEffect, useMe
 import { toast } from 'sonner'
 
 import type { PickedElement } from '@/lib/htmlPicker'
-import { eulReul } from '@/lib/utils'
+import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
+import { cn, eulReul } from '@/lib/utils'
 
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import { useEmbedFrame } from './useEmbedFrame'
@@ -410,7 +411,8 @@ function ComparePreview({ label, html, testId }: { label: string; html: string; 
           html={doc}
           scriptSource={html}
           title={`HTML 블록 ${label}`}
-          className="wiki-html-embed__frame"
+          // 블록 본체와 같은 흰 종이 바탕(WP-1661) — 배경은 이 클래스가 정한다(블록 CSS 는 배경을 두지 않는다).
+          className={cn('wiki-html-embed__frame', HTML_DOCUMENT_CANVAS_CLASS)}
           data-testid={`${testId}-frame`}
           style={{ height }}
         />

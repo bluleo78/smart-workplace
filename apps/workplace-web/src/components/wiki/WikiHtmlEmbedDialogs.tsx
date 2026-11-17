@@ -6,6 +6,7 @@ import { type DragEvent, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
 import { cn } from '@/lib/utils'
 
 import { NoteScriptFrame } from './wikiHtmlBlockSecurity'
@@ -149,7 +150,7 @@ export function WikiHtmlEmbedExpandDialog({
           scriptSource={source}
           title="HTML 블록 크게 보기"
           data-testid="wiki-html-embed-expand-frame"
-          className="block h-[80vh] w-full rounded-md border"
+          className={cn('block h-[80vh] w-full rounded-md border', HTML_DOCUMENT_CANVAS_CLASS)}
         />
       </DialogContent>
     </Dialog>

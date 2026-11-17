@@ -19,6 +19,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { isConflictError } from '@/lib/api-error'
+import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
 import { cn } from '@/lib/utils'
 
 import { useSaveHtml, useSaveTitle } from '../../../hooks/queries/useWikiMutations'
@@ -37,7 +38,6 @@ import { useHtmlEditSession, useWikiHtmlLock } from './useHtmlEditSession'
 import {
   downloadHtmlSource,
   holderLabel,
-  HTML_DOCUMENT_CANVAS_CLASS,
   htmlLockBannerText,
   rejectOversizedHtmlSource,
 } from './wikiHtmlDocument'

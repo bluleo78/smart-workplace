@@ -16,7 +16,7 @@ import { savePendingPushTarget } from '@/lib/push/openTarget'
 import { cn } from '@/lib/utils'
 
 import { fetchPublicWikiShare, WikiPublicShareError } from '../../api/wikiPublic'
-import { HTML_DOCUMENT_CANVAS_CLASS, isHtmlPage } from '../../components/wiki/html-document/wikiHtmlDocument'
+import { isHtmlPage } from '../../components/wiki/html-document/wikiHtmlDocument'
 import { useWikiAttachmentViewer } from '../../components/wiki/useWikiAttachmentViewer'
 import { wikiBodyColumnClass } from '../../components/wiki/wikiBodyWidth'
 import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../../components/wiki/wikiHtmlBlockSecurity'
@@ -25,6 +25,7 @@ import { wikiRenderExtensions } from '../../components/wiki/wikiRenderExtensions
 import { WikiSharePageSelect } from '../../components/wiki/WikiSharePageSelect'
 import { WikiShareLoadError, WikiShareTreeNav } from '../../components/wiki/WikiShareViewParts'
 import { wikiKeys } from '../../hooks/queries/wikiKeys'
+import { HTML_DOCUMENT_CANVAS_CLASS } from '../../lib/sandboxedHtml'
 import type { WikiPublicShare } from '../../types/wiki'
 
 /** 노트 제목을 아직 모르는 상태(불러오는 중)의 화면 대표 제목 — 주소 기본 탭 제목(/wiki → 「노트」)과 같게 둔다(WP-1429). */

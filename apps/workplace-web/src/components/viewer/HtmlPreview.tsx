@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom'
 
 import { useSecurityCheck } from '../../hooks/queries/useSecurityCheck'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
-import { htmlHasScripts } from '../../lib/sandboxedHtml'
+import { HTML_DOCUMENT_CANVAS_CLASS, htmlHasScripts } from '../../lib/sandboxedHtml'
 import { type SecurityChip, securityChip } from '../../lib/securityCheck'
+import { cn } from '../../lib/utils'
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { HighRiskScriptConfirm, ScriptControls, SecurityChipView } from './ScriptControls'
 
@@ -102,7 +103,8 @@ export function HtmlPreview({
         title={title}
         html={html}
         allowScripts={scriptsAllowed}
-        className="block min-h-0 w-full flex-1 border-0"
+        // 흰 종이 바탕(WP-1661) — 배경을 정하지 않은 문서도 다크 테마에서 브라우저처럼 흰 바탕에 그린다.
+        className={cn('block min-h-0 w-full flex-1 border-0', HTML_DOCUMENT_CANVAS_CLASS)}
       />
       {/* 위험 문서 확인 — 미리보기와 노트 블록 공용 창(WP-1290). */}
       <HighRiskScriptConfirm

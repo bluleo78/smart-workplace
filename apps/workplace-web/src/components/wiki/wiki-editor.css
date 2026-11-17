@@ -796,7 +796,8 @@
   width: 100%;
   border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
   border-radius: var(--radius-md);
-  background: transparent;
+  /* 배경은 여기서 정하지 않는다(WP-1661) — 요소의 흰 종이 클래스(HTML_DOCUMENT_CANVAS_CLASS)가 정한다.
+     이 규칙이 명시도가 더 높아 배경을 두면 그 클래스를 덮는다. */
 }
 /* 블록 「스크립트 멈춤」 표시(WP-1290) — 위험도·실행 여부는 노트 위 줄 하나로 정하고, 멈춘 블록에만 오른쪽 위에 작게 얹는다. */
 .wiki-editor .ProseMirror .wiki-html-embed__preview {
