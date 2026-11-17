@@ -7,7 +7,11 @@ import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.DmResponse;
 import com.workplace.messaging.exception.ChannelNotFoundException;
@@ -21,6 +25,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** DM find-or-create·검증 통합 테스트(실제 DB). */
@@ -32,6 +37,8 @@ class DmServiceTest extends IntegrationTestBase {
   @Autowired ChannelMemberService memberService;
   @Autowired com.workplace.messaging.repository.ChannelMemberRepository memberRepo;
   @Autowired ChannelService channelService;
+  @Autowired MockMvc mvc;
+  @Autowired JwtTokenProvider jwt;
 
   /** 각 테스트 전 TenantContext 를 tenant#1 로 설정 — 멤버십 검증 통과를 위한 전제 조건. */
   @BeforeEach
@@ -183,13 +190,16 @@ class DmServiceTest extends IntegrationTestBase {
         .hasMessageContaining("멤버가 아닌 사용자");
   }
 
-  /** WP-507: 1:1 DM 을 나간 사람이 같은 상대와 다시 DM 을 열면 500 대신 같은 DM 에 다시 참여한다. */
+  /**
+   * WP-507: 1:1 DM 을 나간 사람이 같은 상대와 다시 DM 을 열면 500 대신 같은 DM 에 다시 참여한다. WP-1677 부터 1:1 은 나갈 수 없으므로, 그
+   * 전에 나가 둔 기존 데이터를 멤버 행 삭제로 흉내 낸다.
+   */
   @Test
   void createOrGet_afterLeavingOneToOne_rejoinsSameDm() {
     long a = seedUser();
     long b = seedUser();
     var dm = dmService.createOrGet(a, List.of(b));
-    memberService.leave(a, dm.dm().id());
+    memberRepo.remove(dm.dm().id(), a);
     assertThat(memberRepo.isMember(dm.dm().id(), a)).isFalse();
 
     var reopened = dmService.createOrGet(a, List.of(b));
@@ -213,6 +223,115 @@ class DmServiceTest extends IntegrationTestBase {
 
     assertThat(reopened.dm().id()).isEqualTo(group.dm().id());
     assertThat(memberRepo.isMember(group.dm().id(), c)).isTrue();
+  }
+
+  // ── WP-1677 그룹 DM 나가기 ──────────────────────────────────────────
+
+  /** 1:1 DM 은 나갈 수 없다 — 400(InvalidDmRequestException) 이고 두 사람 모두 그대로 구성원이다. */
+  @Test
+  void leave_oneToOneDm_rejected() {
+    long a = seedUser();
+    long b = seedUser();
+    long dm = dmService.createOrGet(a, List.of(b)).dm().id();
+
+    assertThatThrownBy(() -> memberService.leave(a, dm))
+        .isInstanceOf(InvalidDmRequestException.class)
+        .hasMessage("1:1 대화는 나갈 수 없습니다");
+    // 확인 카드 dry-run(사전검증)도 같은 사유로 막힌다.
+    assertThatThrownBy(() -> memberService.validateLeavable(a, dm))
+        .isInstanceOf(InvalidDmRequestException.class);
+    assertThat(memberRepo.isMember(dm, a)).isTrue();
+    assertThat(memberRepo.isMember(dm, b)).isTrue();
+  }
+
+  /** 나 혼자 DM(나에게)도 나갈 수 없다. */
+  @Test
+  void leave_selfDm_rejected() {
+    long a = seedUser();
+    long self = dmService.createOrGet(a, List.of(a)).dm().id();
+
+    assertThatThrownBy(() -> memberService.leave(a, self))
+        .isInstanceOf(InvalidDmRequestException.class)
+        .hasMessage("1:1 대화는 나갈 수 없습니다");
+    assertThat(memberRepo.isMember(self, a)).isTrue();
+  }
+
+  /** 3명 그룹 DM 은 나갈 수 있다 — 나간 사람만 구성원에서 빠지고 목록에서도 사라진다. */
+  @Test
+  void leave_groupDm_succeeds() {
+    long a = seedUser();
+    long b = seedUser();
+    long c = seedUser();
+    long group = dmService.createOrGet(a, List.of(b, c)).dm().id();
+
+    memberService.leave(c, group);
+
+    assertThat(memberRepo.isMember(group, c)).isFalse();
+    assertThat(memberRepo.isMember(group, a)).isTrue();
+    assertThat(memberRepo.isMember(group, b)).isTrue();
+    assertThat(myDmIds(c)).doesNotContain(group);
+    assertThat(myDmIds(a)).contains(group);
+  }
+
+  /** 3명 그룹에서 한 명이 나가 2명만 남으면 남은 두 사람은 더 나갈 수 없다(1:1 과 같다). */
+  @Test
+  void leave_groupDmDownToTwo_rejected() {
+    long a = seedUser();
+    long b = seedUser();
+    long c = seedUser();
+    long group = dmService.createOrGet(a, List.of(b, c)).dm().id();
+    memberService.leave(c, group);
+
+    assertThatThrownBy(() -> memberService.leave(a, group))
+        .isInstanceOf(InvalidDmRequestException.class);
+    assertThat(memberRepo.isMember(group, a)).isTrue();
+  }
+
+  /** 나간 뒤 남은 사람이 같은 구성으로 DM 을 열면 그 그룹 DM 이 열리고, 나간 사람은 다시 들어오지 않는다. */
+  @Test
+  void leave_groupDm_remainingReopen_doesNotRestoreLeaver() {
+    long a = seedUser();
+    long b = seedUser();
+    long c = seedUser();
+    long group = dmService.createOrGet(a, List.of(b, c)).dm().id();
+    memberService.leave(c, group);
+
+    var reopened = dmService.createOrGet(a, List.of(b, c));
+
+    assertThat(reopened.dm().id()).isEqualTo(group);
+    assertThat(reopened.created()).isFalse();
+    assertThat(memberRepo.isMember(group, c)).isFalse();
+    assertThat(myDmIds(c)).doesNotContain(group);
+  }
+
+  /** 나간 사람이 같은 구성으로 다시 열면 그 그룹 DM 에 다시 참여한다(WP-507 유지). */
+  @Test
+  void leave_groupDm_leaverReopen_rejoins() {
+    long a = seedUser();
+    long b = seedUser();
+    long c = seedUser();
+    long group = dmService.createOrGet(a, List.of(b, c)).dm().id();
+    memberService.leave(c, group);
+
+    var reopened = dmService.createOrGet(c, List.of(a, b));
+
+    assertThat(reopened.dm().id()).isEqualTo(group);
+    assertThat(memberRepo.isMember(group, c)).isTrue();
+    assertThat(myDmIds(c)).contains(group);
+  }
+
+  /** HTTP 수준 — 1:1 DM 의 POST /leave 는 400 이고 본문 message 가 사유다. */
+  @Test
+  void leaveEndpoint_oneToOneDm_is400() throws Exception {
+    long a = seedUser();
+    long b = seedUser();
+    grantUserRole(a);
+    long dm = dmService.createOrGet(a, List.of(b)).dm().id();
+    String token = "Bearer " + jwt.generateAccessToken(a, "u-" + a, 1L);
+
+    mvc.perform(post("/api/v1/messaging/channels/{id}/leave", dm).header("Authorization", token))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("1:1 대화는 나갈 수 없습니다"));
   }
 
   // ── WP-1676 DM 숨기기 ──────────────────────────────────────────────

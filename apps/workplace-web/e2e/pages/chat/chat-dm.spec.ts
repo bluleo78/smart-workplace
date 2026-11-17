@@ -572,4 +572,44 @@ test.describe('messaging DM', () => {
       await expectStartAligned(title, page.getByTestId('message-composer-input-wrap'))
     })
   }
+
+  // WP-1677: 휴대폰 폭(390px) 그룹 DM 헤더 ⋯ 메뉴의 「대화 나가기」와 그 확인 창 「나가기」가 화면 안에 잘리지 않고 놓인다 — jsdom 은 메뉴·창 위치를 잴 수 없다.
+  test('휴대폰 390px — 그룹 DM ⋯ 의 대화 나가기와 확인 창 단추가 화면 안에 있다 (WP-1677)', { tag: '@layout' }, async ({
+    authenticatedPage: page,
+  }) => {
+    const viewport = { width: 390, height: 844 }
+    await page.setViewportSize(viewport)
+    const dm = createDm({
+      id: 105,
+      participants: [
+        createDmParticipant({ userId: 1, name: '나' }),
+        createDmParticipant({ userId: 2, name: '밥' }),
+        createDmParticipant({ userId: 3, name: '앨리스' }),
+      ],
+    })
+    await stubLists(page, [dm])
+    await stubMessages(page, 105, [])
+    await stubMarkRead(page, 105)
+    await page.goto('/chat/dms/105')
+
+    /** 요소가 화면 안에 통째로 들어오는지 — 좌우·위아래 어느 쪽으로도 넘치지 않는다. */
+    const expectInsideViewport = async (locator: ReturnType<Page['getByTestId']>) => {
+      await expect(locator).toBeVisible()
+      const box = (await locator.boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.y).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+    }
+
+    await page.getByTestId('dm-header').getByRole('button', { name: '대화 메뉴' }).click()
+    const leave = page.getByTestId('dm-leave-action')
+    await expectInsideViewport(leave)
+    // 숨기기 아래에 놓인다(구분선으로 떨어진 위험 항목).
+    const hideBox = (await page.getByTestId('dm-hide-action').boundingBox())!
+    expect((await leave.boundingBox())!.y).toBeGreaterThan(hideBox.y + hideBox.height)
+
+    await leave.click()
+    await expectInsideViewport(page.getByTestId('dm-leave-confirm'))
+  })
 })

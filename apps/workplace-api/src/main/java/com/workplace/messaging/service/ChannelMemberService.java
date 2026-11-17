@@ -8,6 +8,7 @@ import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.InactiveMemberException;
+import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.repository.ChannelMemberGroupRepository;
@@ -129,8 +130,8 @@ public class ChannelMemberService {
   }
 
   /**
-   * 나가기 — 본인. OWNER 는 소유권 이전 전엔 나갈 수 없음. 나간 사람이 여전히 멤버 부서로 걸리면 개인 제외를 남긴다(WP-1058) — 부서 변화로 다시 끌려
-   * 들어오지 않게.
+   * 나가기 — 본인. OWNER 는 소유권 이전 전엔 나갈 수 없음. DM 은 3명 이상 그룹 DM 만 나갈 수 있다(1:1·나 혼자 DM 은 400, WP-1677). 나간
+   * 사람이 여전히 멤버 부서로 걸리면 개인 제외를 남긴다(WP-1058) — 부서 변화로 다시 끌려 들어오지 않게.
    */
   @Transactional
   public void leave(long callerId, long channelId) {
@@ -147,6 +148,10 @@ public class ChannelMemberService {
     excludeIfCovered(channelId, callerId);
     rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, List.of(callerId));
+    // 그룹 DM 나가기(WP-1677) — 남은 참여자의 DM 헤더(인원수·참여자)와 나간 사람의 다른 탭 사이드바는 DM 목록에서 오므로 dm 변경도 알린다.
+    if ("DM".equals(channelRepo.findKind(channelId))) {
+      changeNotifier.dmMembershipChanged(channelId, callerId, List.of(callerId));
+    }
   }
 
   /**
@@ -161,7 +166,7 @@ public class ChannelMemberService {
     }
   }
 
-  /** 나가기 술어 — 채널 존재·OWNER 아님. 호출자가 현재 멤버인지 돌려준다. */
+  /** 나가기 술어 — 채널 존재·OWNER 아님·1:1/나 혼자 DM 아님(WP-1677). 호출자가 현재 멤버인지 돌려준다. */
   private boolean checkLeave(long callerId, long channelId) {
     ensureExists(channelId);
     String role = memberRepo.findRole(channelId, callerId).orElse(null);
@@ -169,6 +174,14 @@ public class ChannelMemberService {
     perms.hideIfInvisibleNonMember(channelId, callerId, role);
     if ("OWNER".equals(role)) {
       throw new OwnershipTransferRequiredException(channelId);
+    }
+    // WP-1677: DM 은 남은 구성원이 3명 이상(그룹 DM)일 때만 나갈 수 있다. 1:1·나 혼자 DM 에서 나가면 상대만 남은 빈 대화가 되고, 다시 열면 같은
+    // DM 으로 되돌아올 뿐(WP-507)이라 나가기의 뜻이 없다 — 목록에서 치우는 건 숨기기(WP-1676)가 맡는다. 그룹이 2명까지 줄어도 같다. 수는 웹이
+    // 그룹 DM 을 가르는 참여자 수(현재 멤버 행)와 같다.
+    if (role != null
+        && "DM".equals(channelRepo.findKind(channelId))
+        && memberRepo.countMembers(channelId) <= 2) {
+      throw new InvalidDmRequestException("1:1 대화는 나갈 수 없습니다");
     }
     return role != null;
   }

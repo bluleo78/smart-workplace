@@ -483,6 +483,11 @@ describe('채널·DM 쓰기 (#855)', () => {
     await expect(tool(c, 'leave_channel').handler({ channelId: 4 })).rejects.toThrow("'secret' 은(는) 공개 채널이 아니어서");
     expect(c.leaveChannel).not.toHaveBeenCalled();
   });
+
+  // WP-1677: 서버가 1:1·나 혼자 DM 나가기를 400 으로 막는다 — 모델이 1:1 DM 나가기 카드를 제안하지 않게 설명이 그룹 DM 만 된다고 알린다.
+  it('leave_channel 설명은 DM 중 그룹 DM 만 나갈 수 있다고 알린다', () => {
+    expect(tool(mockClient(), 'leave_channel').description).toContain('DM: group only.');
+  });
 });
 
 describe('add_channel_member (WP-349)', () => {

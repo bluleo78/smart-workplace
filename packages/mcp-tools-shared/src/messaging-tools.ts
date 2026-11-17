@@ -535,9 +535,11 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
+      // 「DM: group only.」 — 그룹 DM(3명+)은 (비공개라 확인 카드로) 나갈 수 있고 1:1·나 혼자 DM 은 서버가 400 으로 막는다(WP-1677).
+      // 기본 연결 정의 크기 상한(tool-naming.test.ts)이 꽉 차 이 길이로 맞췄다 — WP-1679 와 합쳐도 넘지 않게 「OWNERs:」 로 줄였다.
       description:
         'Leaves a public channel (join_channel rejoins). Private ones are refused as irreversible: ' +
-        'offer propose_leave_channel if available, else ask the user. OWNERs must hand over ownership first.',
+        'offer propose_leave_channel if available, else ask the user. OWNERs: hand over ownership first. DM: group only.',
       inputSchema: leaveChannelInput,
       async handler(args) {
         const { channelId } = leaveChannelInput.parse(args);
