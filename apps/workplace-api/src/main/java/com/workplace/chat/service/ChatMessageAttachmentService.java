@@ -157,6 +157,9 @@ public class ChatMessageAttachmentService {
    * <p>STORAGE_PATH 는 상대경로이므로 FileStore.resolve() 로 절대경로를 복원한다. 컨트롤러가 path() 를 FileSystemResource 에
    * 그대로 넘기므로 절대경로여야 한다.
    *
+   * <p>거절: 메시지가 이 스레드 소속이 아니면 400(InvalidChatAttachmentException), 그 메시지에 붙지 않은 파일(수정으로 뺀 것 포함)이면
+   * 404(ChatAttachmentNotFoundException, WP-1680).
+   *
    * @return 다운로드용 파일 메타(절대 경로·이름·MIME·크기)
    */
   @Transactional(readOnly = true)
@@ -207,7 +210,8 @@ public class ChatMessageAttachmentService {
 
   /**
    * 문서 미리보기용 파일 id 확인(WP-1457) — {@link #download} 와 같은 가드(스레드 읽기 + 메시지가 이 스레드 소속 + 그 메시지에 붙은 첨부,
-   * 삭제된 메시지 제외)를 거쳐 core file.id 만 돌려준다. 거절 예외도 download 와 같다.
+   * 삭제된 메시지 제외)를 거쳐 core file.id 만 돌려준다. 거절 예외도 download 와 같다(남의 스레드 메시지 400, 붙지 않은 파일 404 —
+   * WP-1680).
    *
    * <p>{@link #resolveViewFileId} 를 쓰지 않는 이유: 그 가드는 msgId·메시지 삭제를 보지 않아 /content 와 거절 범위가 다르다. 변환은
    * 이 읽기 전용 트랜잭션이 끝난 뒤 컨트롤러가 미리보기 서비스로 연다.
@@ -220,7 +224,9 @@ public class ChatMessageAttachmentService {
 
   /**
    * /content(download)와 /preview(resolveContentFileId)가 함께 쓰는 첨부 가드 — 스레드 읽기 권한 + 메시지가 이 스레드 소속 + 그
-   * 메시지에 붙은 첨부(삭제된 메시지 제외)를 확인하고 저장 행(상대 경로)을 돌려준다.
+   * 메시지에 붙은 첨부(삭제된 메시지 제외)를 확인하고 저장 행(상대 경로)을 돌려준다. 메시지가 이 스레드 소속이 아니면 400
+   * (InvalidChatAttachmentException), 그 메시지에 붙지 않은 파일이면 404(ChatAttachmentNotFoundException,
+   * WP-1680).
    *
    * <p>왜 한 곳에: "/preview 는 /content 와 같은 가드" 규칙(WP-1457)을 코드로 묶어 한쪽만 고쳐 거절 범위가 달라지는 일을 막는다. 호출자의
    * 트랜잭션(readOnly) 안에서 실행된다.
@@ -232,7 +238,10 @@ public class ChatMessageAttachmentService {
     if (!messageRepo.belongsToThread(messageId, threadId)) {
       throw new InvalidChatAttachmentException();
     }
-    return repo.findStoredFile(fileId, messageId).orElseThrow(InvalidChatAttachmentException::new);
+    // 그 메시지에 붙지 않은 파일(메시지 수정에서 뺀 파일·삭제된 메시지의 첨부 포함)은 404 — 뺀 파일은 그 메시지 주소로 열면 「없는 첨부」여야
+    // 한다(WP-1680). 다른 스레드의 메시지(위 400)와 달리 읽기 쪽 「없음」은 요청이 잘못된 게 아니라 대상이 없는 것이다.
+    return repo.findStoredFile(fileId, messageId)
+        .orElseThrow(() -> new ChatAttachmentNotFoundException(fileId));
   }
 
   /** 선업로드 응답 한 건. messageId 에 바인딩하기 전까지는 임시 상태. */

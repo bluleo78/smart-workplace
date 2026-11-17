@@ -218,6 +218,24 @@ class ChatMessageServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void update_removeAttachments_afterIssueSoftDeleted_throws() {
+    // WP-1680: 첨부를 빼는 수정은 연결을 지우고 만료를 거는 파괴적 쓰기라, 작성과 같이 삭제된 이슈의 스레드에서는 막는다.
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    ChatMessageResponse msg =
+        messageService.create(
+            s.reporterId(), thread.threadId(), new CreateChatMessageRequest("first"));
+
+    issueRepository.softDelete(s.issueId(), Instant.now());
+
+    assertThatThrownBy(
+            () ->
+                messageService.update(
+                    s.reporterId(), msg.id(), new UpdateChatMessageRequest("edited", List.of())))
+        .isInstanceOf(ChatThreadIssueDeletedException.class);
+  }
+
+  @Test
   void notifyTyping_publishesTypingEvent() {
     ChatFixtures.Setup s = fx.setup();
     var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());

@@ -164,6 +164,41 @@ test.describe('H2·M5 이슈 채팅', () => {
     await expect(page.getByTestId('issue-chat-open')).toHaveCount(1)
   })
 
+  // WP-1680: 이슈 챗 수정 중 입력창 위 첨부 칩(×) — 드로워 안에서 긴 이름 두 개가 줄바꿈되고 가로로 넘치지 않는다.
+  // 칩 기하는 jsdom 이 잴 수 없고, 드로워 컨테이너 폭이 팀 채팅(WP-1679 케이스)과 달라 따로 본다.
+  test('H1(이슈 채팅) 본인 메시지 수정: 첨부 칩 두 개가 390px 드로워 안에서 줄바꿈되고 가로로 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    const file = (fileId: number, originalName: string) => ({
+      fileId, messageId: 502, originalName, mimeType: 'application/pdf', sizeBytes: 2048,
+      attachedById: 1, attachedByName: 'me', attachedAt: '2026-09-30T03:10:00Z',
+    })
+    await stubIssue(page, {
+      ownAttachments: [
+        file(1, '2026년_4분기_사업계획_최종본_검토의견_반영_v3.pdf'),
+        file(2, '고객사_요구사항_정리_회의록_첨부자료_전체.pdf'),
+      ],
+    })
+    await page.goto(`/projects/${KEY}/issues/1?chat=1`)
+
+    await longPress(page, page.getByTestId('chat-message-body-502'))
+    await page.getByTestId('message-action-sheet').getByTestId('message-action-edit').tap()
+    const chips = page.getByTestId('chat-message-editor-attachments').locator('li')
+    await expect(chips).toHaveCount(2)
+    const width = page.viewportSize()!.width
+    const boxes = [(await chips.nth(0).boundingBox())!, (await chips.nth(1).boundingBox())!]
+    for (const b of boxes) {
+      expect(b.x).toBeGreaterThanOrEqual(0)
+      expect(b.x + b.width).toBeLessThanOrEqual(width)
+    }
+    // 한 줄에 둘이 들어가지 않으면 다음 줄로 내려간다(옆으로 밀려 넘치지 않는다).
+    expect(boxes[1].y).toBeGreaterThan(boxes[0].y)
+    await expectNoHorizontalOverflow(page)
+
+    // × 는 터치로 누를 수 있고, 누르면 칩 하나가 남는다.
+    await chips.nth(1).getByRole('button', { name: '첨부 제거' }).tap()
+    await expect(chips).toHaveCount(1)
+    await expectNoHorizontalOverflow(page)
+  })
+
   test('H2: 열면 ?chat=1, 시스템 뒤로가기는 드로워만 닫고 상세에 머문다. 헤더는 ‹ + MOB-1 채팅(기본 X 없음)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubIssue(page)
     await page.goto(`/projects/${KEY}/issues/1`)

@@ -9,6 +9,7 @@ import com.workplace.chat.exception.ChatMessageNotFoundException;
 import com.workplace.chat.exception.ChatThreadIssueDeletedException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
+import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.outbound.ChatAgentWake;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
@@ -18,9 +19,11 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadProgressEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.outbound.ChatMessageOrigin;
+import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
+import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.UserSummary;
@@ -35,8 +38,10 @@ import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -72,6 +77,19 @@ public class ChatMessageService {
 
   /** WP-1375: 반복 요약을 읽을지 — dispatcher 와 같은 실행 AI(INTERNAL·활성) 선택에 쓴다. */
   private final ServerAgentResolver agentResolver;
+
+  /** WP-1680: 수정에서 첨부를 뺄 때 지금 붙은 첨부 조회·연결 삭제·만료 재설정. */
+  private final ChatMessageAttachmentRepository attachmentRepo;
+
+  /** WP-1680: 수정에서 뺀 첨부 중 드라이브(휴지통 포함)가 쓰는 file 은 만료를 걸지 않는다 — 그 수명은 드라이브가 맡는다. */
+  private final DriveFileUsage driveFileUsage;
+
+  /**
+   * 수정에서 뺀 첨부에 다시 거는 만료(시, WP-1680). 업로드 임시 파일과 같은 값(기본 24h) — 메시지 첨부엔 「되돌리기」 경로가 없어 길게 둘 이유가 없다.
+   * lombok.config 가 @Value 를 생성자 인자로 옮긴다.
+   */
+  @Value("${workplace.storage.attachment.temp-expiry-hours:24}")
+  private final int tempExpiryHours;
 
   /** 메시지 작성(화면·일반 API). 질문 표시는 받지 않는다 — 질문은 report_agent_work 만 만든다(스펙 §3.1). */
   @Transactional
@@ -210,7 +228,13 @@ public class ChatMessageService {
     return saved;
   }
 
-  /** 본인만 수정. mention 재파싱. edited_at 갱신. 삭제된 메시지는 404. */
+  /**
+   * 본인만 수정. mention 재파싱. edited_at 갱신. 삭제된 메시지는 404.
+   *
+   * <p>{@code keepFileIds} 가 있으면(WP-1680) 목록에 없는 첨부를 뺀다 — 검사 순서는 볼 수 없음 404 → 작성자 아님 403 → 쓰기 권한
+   * 403 → 메시지 행 잠금(없거나 삭제됨 404) → keep 검증 400 → 빈 결과 400 이라 앞선 거절에서는 아무것도 지우지 않는다. 수정 이벤트는 늘 수정 뒤
+   * 첨부 전체 목록을 싣는다.
+   */
   @Transactional
   public ChatMessageResponse update(long callerId, long messageId, UpdateChatMessageRequest req) {
     long threadId = visibleThreadOf(callerId, messageId);
@@ -221,12 +245,27 @@ public class ChatMessageService {
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
     // 작성자여도 지금 쓰기 권한이 있어야 한다 — 프로젝트에서 빠진 뒤 옛 글을 고치지 못하게(WP-475).
     threadAccess.ensureCanWrite(threadId, callerId);
+    List<Long> keep = req.keepFileIdsDistinct();
+    List<Long> removed = List.of();
+    String body = req.body();
+    if (keep != null) {
+      // 첨부 빼기는 연결을 지우고 만료를 거는 파괴적 쓰기 — 작성처럼 삭제된 이슈의 스레드에서는 막는다(#621, WP-1680).
+      // 본문만 고치는 수정은 예전 그대로 둔다(동작 바꾸지 않음).
+      if (issueLookup.isIssueDeletedByThreadId(threadId)) {
+        throw new ChatThreadIssueDeletedException(threadId);
+      }
+      removed = checkKeepFileIds(messageId, keep, body);
+      // 보이는 글자가 없는 본문은 NULL 로 둔다 — 첨부만 있는 메시지를 보낼 때와 같은 꼴(응답 본문은 "", WP-717).
+      if (!PersonNames.hasVisibleChar(body)) body = null;
+    }
+    // body 가 null 일 수 있어(첨부만 남긴 수정) 멘션 파싱은 빈 문자열로 방어한다(WP-1680).
     List<Long> mentionUserIds =
-        userMentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
+        userMentionHydrator.filterExistingUserIds(MentionParser.parse(body == null ? "" : body));
     // 삭제된 메시지는 수정 대상이 아니다 — 없는 메시지와 같게 404(WP-680, 팀 채팅 WP-509 와 같은 규칙).
-    if (messageRepo.update(messageId, req.body(), mentionUserIds) == 0) {
+    if (messageRepo.update(messageId, body, mentionUserIds) == 0) {
       throw new ChatMessageNotFoundException(messageId);
     }
+    removeAttachments(messageId, removed);
     // WP-1569: 고친 질문 글의 답 선택지는 지운다(다시 뽑지 않음) — 옛 본문에서 나온 칩이 남지 않게.
     boolean optionsCleared = messageRepo.clearOptions(messageId) == 1;
     ChatMessageResponse saved = findOne(messageId);
@@ -237,7 +276,8 @@ public class ChatMessageService {
             messageId,
             saved.body(),
             hydrator.summariesOf(mentionUserIds),
-            saved.editedAt()));
+            saved.editedAt(),
+            saved.attachments()));
     // WP-1569: chat.message.updated 웹 처리기는 options 를 건드리지 않으므로, 지웠으면 options 만 고치는
     // chat.message.options(null)로
     // 따로 알린다.
@@ -245,6 +285,38 @@ public class ChatMessageService {
       publisher.publishEvent(new ChatMessageOptionsEvent(saved.threadId(), messageId, null));
     }
     return saved;
+  }
+
+  /**
+   * 수정의 keepFileIds 를 검증하고 뺄 첨부 file id 를 돌려준다(WP-1680). 메시지 행을 먼저 잠가 「지금 첨부 읽기 → 비교 → 연결 삭제」를 같은
+   * 트랜잭션에서 직렬화한다 — 다른 요청이 먼저 뺀 첨부를 옛 화면 상태로 남기라고 하면 잠금 뒤 다시 읽은 목록에 없어 400 이 난다(조용히 되살리지 않는다).
+   *
+   * <p>거절: 없거나 삭제된 메시지 404, 지금 붙지 않은 id 400, 본문(보이는 글자)·남길 첨부·드라이브 링크가 모두 비면 400 — 드라이브 링크가 남으면 빈
+   * 메시지가 아니다(작성의 빈 메시지 판정과 같다).
+   */
+  private List<Long> checkKeepFileIds(long messageId, List<Long> keep, String body) {
+    if (!messageRepo.lockActive(messageId)) throw new ChatMessageNotFoundException(messageId);
+    List<Long> current = attachmentRepo.fileIdsOfMessage(messageId);
+    if (!current.containsAll(keep)) throw InvalidChatAttachmentException.notOnMessage();
+    // 드라이브 링크는 있는지만 본다 — 메시지 전체 조회 대신 링크 존재 쿼리 하나로.
+    if (!PersonNames.hasVisibleChar(body)
+        && keep.isEmpty()
+        && !driveLinkService.hasLinks(ChatMessageHydrator.SOURCE_TYPE, messageId)) {
+      throw new EmptyChatMessageException();
+    }
+    return current.stream().filter(id -> !keep.contains(id)).toList();
+  }
+
+  /**
+   * 뺀 첨부의 연결만 지우고, 드라이브(휴지통 포함)도 다른 「보이는 첨부」 정션도 쓰지 않는 file 에만 만료를 다시 건다(WP-1680 — 정션 판정은 {@link
+   * ChatMessageAttachmentRepository#rearmExpiry}). file 행·원본은 지우지 않는다 — 만료 스윕이 회수하고, 그사이 드라이브로 옮겨지는
+   * 경합은 스윕 보존 정책(DriveReferencedFileRetentionPolicy)이 받친다.
+   */
+  private void removeAttachments(long messageId, List<Long> removed) {
+    if (removed.isEmpty()) return;
+    List<Long> unbound = attachmentRepo.unbind(messageId, removed);
+    attachmentRepo.rearmExpiry(
+        driveFileUsage.withoutReferenced(unbound), OffsetDateTime.now().plusHours(tempExpiryHours));
   }
 
   /** 본인만 soft-delete. */

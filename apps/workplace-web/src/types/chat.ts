@@ -86,6 +86,8 @@ export interface CreateChatMessageRequest {
 
 export interface UpdateChatMessageRequest {
   body: string;
+  // WP-1680: 남길 첨부 파일 id — 파일을 뺐거나 본문이 비었을 때만 싣는다(없으면 본문만 수정). 지금 붙은 것의 부분집합이어야 한다.
+  keepFileIds?: number[];
 }
 
 export interface MarkChatReadRequest {

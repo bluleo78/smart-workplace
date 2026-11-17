@@ -15,4 +15,12 @@ public class InvalidChatAttachmentException extends RuntimeException {
   public static InvalidChatAttachmentException tooMany(int max) {
     return new InvalidChatAttachmentException("메시지당 첨부 한도(" + max + "개)를 초과합니다");
   }
+
+  /**
+   * 메시지 수정의 keepFileIds 에 그 메시지에 지금 붙어 있지 않은 파일 id 가 있다(WP-1680) — 다른 메시지의 첨부를 끌어오거나, 다른 기기에서 이미 뺀
+   * 첨부를 옛 화면 상태로 조용히 되살리지 않게 거절한다. 문구는 채널(WP-1679)과 같다.
+   */
+  public static InvalidChatAttachmentException notOnMessage() {
+    return new InvalidChatAttachmentException("이 메시지에 붙은 첨부가 아닙니다");
+  }
 }

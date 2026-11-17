@@ -2,6 +2,7 @@
 // U4·U5 spec 이 함께 쓴다(spec 끼리 import 하면 테스트가 두 번 등록되므로 fixture 로 둔다).
 import type { Locator, Page } from '@playwright/test'
 
+import type { MessageAttachment } from '../../src/types/messaging'
 import { createChatMember, createChatMessage, createChatThread } from '../factories/chat.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../factories/issue.factory'
 import { createChannelMember, createMessage } from '../factories/messaging.factory'
@@ -63,7 +64,8 @@ export async function stubChannelMessages(page: Page) {
 // ── 이슈 상세·이슈 채팅 ───────────────────────────────────────────────────────────
 export const KEY = 'MOB'
 export const DETAIL = new RegExp(`/projects/${KEY}/issues/1$`)
-export async function stubIssue(page: Page, opts: { unread?: boolean } = {}) {
+// ownAttachments(WP-1680): 본인 메시지(502)에 붙은 파일 — 이슈 챗 수정 화면의 첨부 칩 레이아웃을 본다.
+export async function stubIssue(page: Page, opts: { unread?: boolean; ownAttachments?: MessageAttachment[] } = {}) {
   const issue = createIssue({ id: 1, number: 1, projectKey: KEY, title: '하단 탭바' })
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY }))))
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) =>
@@ -76,7 +78,7 @@ export async function stubIssue(page: Page, opts: { unread?: boolean } = {}) {
     await page.route((u) => u.pathname === p, (r) => r.fulfill(json([])))
   }
   const peerMsg = createChatMessage({ id: 501, threadId: 100, authorId: 20, authorName: '동료', body: '확인했습니다' })
-  const ownMsg = createChatMessage({ id: 502, threadId: 100, authorId: 1, authorName: 'me', body: '내 메시지' })
+  const ownMsg = createChatMessage({ id: 502, threadId: 100, authorId: 1, authorName: 'me', body: '내 메시지', attachments: opts.ownAttachments ?? [] })
   const thread = createChatThread({
     threadId: 100,
     members: [createChatMember({ userId: 1, lastReadMessageId: opts.unread ? 0 : 502 }), createChatMember({ userId: 20, name: '동료' })],
