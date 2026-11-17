@@ -16,7 +16,7 @@ import { savePendingPushTarget } from '@/lib/push/openTarget'
 import { cn } from '@/lib/utils'
 
 import { fetchPublicWikiShare, WikiPublicShareError } from '../../api/wikiPublic'
-import { isHtmlPage } from '../../components/wiki/html-document/wikiHtmlDocument'
+import { HTML_DOCUMENT_CANVAS_CLASS, isHtmlPage } from '../../components/wiki/html-document/wikiHtmlDocument'
 import { useWikiAttachmentViewer } from '../../components/wiki/useWikiAttachmentViewer'
 import { wikiBodyColumnClass } from '../../components/wiki/wikiBodyWidth'
 import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../../components/wiki/wikiHtmlBlockSecurity'
@@ -190,7 +190,7 @@ export function WikiPublicSharePage() {
                   html={data.page.html ?? ''}
                   title={data.page.title || '제목 없음'}
                   data-testid="wiki-public-html-frame"
-                  className="min-h-0 w-full flex-1 border-0 bg-background"
+                  className={cn('min-h-0 w-full flex-1 border-0', HTML_DOCUMENT_CANVAS_CLASS)}
                 />
               </article>
             </WikiHtmlBlockScopeProvider>
