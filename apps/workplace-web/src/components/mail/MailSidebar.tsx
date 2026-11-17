@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { hasOpenMark } from '@/lib/historyParam'
-import { mailViewHref, resolveMailView } from '@/lib/mailView'
+import { mailClassificationActive, mailViewHref, resolveMailView } from '@/lib/mailView'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import { MAIL_CATEGORIES } from '@/types/mailMessage'
@@ -47,7 +47,9 @@ export function MailSidebar() {
   const archive = folders?.find((f) => f.role === 'ARCHIVE') ?? null
   // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 페이지와 같은 판정이라 활성 표시가 어긋나지 않는다(WP-218).
   const location = useLocation()
-  const view = resolveMailView(params, counts?.classificationActive ?? true, {
+  // 분류 상태는 메일함 화면과 같은 판정 — 계수가 오기 전에는 계정 목록 값(WP-1674).
+  const classificationActive = mailClassificationActive(counts, current)
+  const view = resolveMailView(params, classificationActive, {
     inAppSelection: hasOpenMark(location.state, 'messageId'),
     folders,
   })
@@ -165,7 +167,7 @@ export function MailSidebar() {
                 <Inbox className="h-4 w-4 shrink-0" /> 받은편지함
                 {count(counts?.inbox, 'mail-count-inbox', view.kind === 'all')}
               </Link>
-              {counts?.classificationActive !== false && (
+              {classificationActive && (
                 // WP-186: 분류는 받은편지함의 하위 보기 — 들여 쓰고 안 읽은 수를 붙인다. 업무 = 업무 + 미분류(기본 보기).
                 <div className="space-y-1" data-testid="mail-inbox-categories">
                   {MAIL_CATEGORIES.map((cat) => {

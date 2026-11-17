@@ -144,6 +144,40 @@ class MailUnreadCountsTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.classificationActive").value(true));
   }
 
+  /**
+   * WP-1674: 계정 목록의 classificationActive 는 안 읽은 수와 같은 규칙이다 — 메일함 화면이 계정 목록만 보고 첫 목록 요청의 보기를 정한다(분류가
+   * 꺼진 계정에 쓰지 않을 업무 목록을 먼저 부르지 않게).
+   */
+  @Test
+  void accountList_classificationActive_matchesUnreadCounts() throws Exception {
+    long[] box = TestFixtures.seedMailbox(dsl, "lst-" + System.nanoTime() + "@test.local");
+    when(assistantResolver.resolvePersonalOrEmpty(box[0]))
+        .thenReturn(Optional.of(new AssistantSpec(9L, "m", "NORMAL", 8, 60_000)));
+
+    // 개인 비서는 있지만 계정 AI 꺼짐 → 목록·안 읽은 수 모두 false
+    expectListClassificationActive(box[0], box[1], false);
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/unread-counts", box[1])
+                .header("Authorization", token(box[0])))
+        .andExpect(jsonPath("$.classificationActive").value(false));
+
+    setAiEnabled(box[1], true);
+    expectListClassificationActive(box[0], box[1], true);
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/unread-counts", box[1])
+                .header("Authorization", token(box[0])))
+        .andExpect(jsonPath("$.classificationActive").value(true));
+  }
+
+  private void expectListClassificationActive(long userId, long accountId, boolean expected)
+      throws Exception {
+    mvc.perform(get("/api/v1/mail/accounts").header("Authorization", token(userId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].id").value(accountId))
+        .andExpect(jsonPath("$[0].classificationActive").value(expected));
+  }
+
   @Test
   void counts_otherUsersAccount_404() throws Exception {
     long[] box = TestFixtures.seedMailbox(dsl, "cnt3-" + System.nanoTime() + "@test.local");

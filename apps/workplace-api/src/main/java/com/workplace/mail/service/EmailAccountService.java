@@ -1,8 +1,10 @@
 package com.workplace.mail.service;
 
+import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.ConnectionTestResult;
+import com.workplace.mail.dto.EmailAccountListItem;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.exception.DuplicateEmailAccountException;
@@ -41,10 +43,19 @@ public class EmailAccountService {
   /** WP-64: 계정 변경 resource.changed 발행기. */
   private final MailChangeNotifier notifier;
 
-  /** 본인 계정 목록. */
+  /** WP-1674: 계정 목록에 싣는 AI 분류 활성 판정용 비서 조회. */
+  private final AssistantResolver assistantResolver;
+
+  /**
+   * 본인 계정 목록 + 계정별 AI 분류 활성 여부(WP-1674). 판정은 안 읽은 수와 같은 {@link MailClassifierProbe} — 한 요청 안에서 비서
+   * 조회는 공통 1회·개인 1회로 끝난다.
+   */
   @Transactional(readOnly = true)
-  public List<EmailAccountResponse> list(long userId) {
-    return repo.listByUser(userId);
+  public List<EmailAccountListItem> list(long userId) {
+    MailClassifierProbe probe = new MailClassifierProbe(assistantResolver, userId);
+    return repo.listByUser(userId).stream()
+        .map(a -> new EmailAccountListItem(a, probe.active(a.aiEnabled())))
+        .toList();
   }
 
   /** 저장 없이 연결만 테스트(등록 폼의 [연결 테스트] 버튼). 비밀번호는 요청 본문 값을 그대로 사용한다. */

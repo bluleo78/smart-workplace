@@ -20,6 +20,11 @@ export interface MailAccountResponse {
   smtpUsername: string;
   /** AI 비서 기능 활성화 여부 */
   aiEnabled: boolean;
+  /**
+   * AI 분류 활성 여부(WP-1674) — 계정 목록 응답에만 있다(등록·수정 응답엔 없음). 안 읽은 수의 classificationActive 와 같은 판정이라
+   * 메일함이 안 읽은 수 응답 전에도 첫 목록을 맞는 보기로 부른다(lib/mailView 의 mailClassificationActive).
+   */
+  classificationActive?: boolean;
   lastTestedAt: string | null;
   lastSyncedAt: string | null; // 마지막 성공 동기화 시각(미동기화면 null)
   createdAt: string;

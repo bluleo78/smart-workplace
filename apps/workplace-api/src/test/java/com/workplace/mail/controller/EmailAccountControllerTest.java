@@ -15,6 +15,7 @@ import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.mail.dto.ConnectionTestResult;
+import com.workplace.mail.dto.EmailAccountListItem;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
@@ -107,12 +108,15 @@ class EmailAccountControllerTest extends WebMvcSliceTestBase {
 
   @Test
   void list_returnsCallerScoped() throws Exception {
-    when(service.list(1L)).thenReturn(List.of(sampleResponse()));
+    when(service.list(1L)).thenReturn(List.of(new EmailAccountListItem(sampleResponse(), false)));
     mockMvc
         .perform(get("/api/v1/mail/accounts").header("Authorization", "Bearer v"))
         .andExpect(status().isOk())
+        // WP-1674: 계정 필드는 펼친 그대로, 분류 활성 여부만 늘어난다.
         .andExpect(jsonPath("$[0].id").value(10))
         .andExpect(jsonPath("$[0].emailAddress").value("box@test.local"))
+        .andExpect(jsonPath("$[0].classificationActive").value(false))
+        .andExpect(jsonPath("$[0].account").doesNotExist())
         .andExpect(jsonPath("$[0].password").doesNotExist())
         .andExpect(jsonPath("$[0].encryptedPassword").doesNotExist());
     verify(service).list(1L);

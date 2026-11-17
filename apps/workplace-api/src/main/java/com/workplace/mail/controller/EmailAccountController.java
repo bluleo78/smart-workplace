@@ -1,6 +1,7 @@
 package com.workplace.mail.controller;
 
 import com.workplace.mail.dto.ConnectionTestResult;
+import com.workplace.mail.dto.EmailAccountListItem;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.service.EmailAccountService;
@@ -28,9 +29,9 @@ public class EmailAccountController {
 
   private final EmailAccountService service;
 
-  /** 내 메일 계정 목록(비밀번호 제외). */
+  /** 내 메일 계정 목록(비밀번호 제외) — 계정마다 AI 분류 활성 여부를 함께 준다(WP-1674). */
   @GetMapping
-  public List<EmailAccountResponse> list(@AuthenticationPrincipal Long callerId) {
+  public List<EmailAccountListItem> list(@AuthenticationPrincipal Long callerId) {
     return service.list(callerId);
   }
 
