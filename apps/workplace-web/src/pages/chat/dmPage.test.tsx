@@ -161,6 +161,156 @@ describe('DM 숨기기(WP-1676)', () => {
   })
 })
 
+describe('그룹 DM 나가기(WP-1677)', () => {
+  const GROUP = createDm({
+    id: 940,
+    participants: [
+      createDmParticipant({ userId: 1, name: MY_NAME }),
+      createDmParticipant({ userId: 2, name: '김민준' }),
+      createDmParticipant({ userId: 3, name: '이서연' }),
+    ],
+  })
+
+  /** 대화 메뉴(⋯)를 연다. */
+  async function openMenu(user: ReturnType<typeof openDm>['user']) {
+    await user.click(within(await screen.findByTestId('dm-header')).getByRole('button', { name: '대화 메뉴' }))
+  }
+
+  // 그룹 DM 메뉴에는 숨기기 아래 구분선과 위험 글자색의 「대화 나가기」가 붙는다.
+  test('그룹 DM 메뉴에 구분선과 위험 글자색의 대화 나가기가 있다', async () => {
+    const { user } = openDm(GROUP)
+    await openMenu(user)
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map((i) => i.textContent)).toEqual(['대화 숨기기', '대화 나가기'])
+    expect(screen.getByRole('separator')).toBeInTheDocument()
+    expect(screen.getByTestId('dm-leave-action')).toHaveAttribute('data-variant', 'destructive')
+  })
+
+  // 1:1·나 혼자 DM 은 나갈 수 없다(서버도 400) — 메뉴에 항목이 없다.
+  test('1:1 DM·셀프 DM 메뉴에는 대화 나가기가 없다', async () => {
+    const one = createDm({ id: 941, participants: [createDmParticipant({ userId: 1, name: MY_NAME }), createDmParticipant({ userId: 2, name: '김민준' })] })
+    const { user, unmount } = openDm(one)
+    await openMenu(user)
+    expect((await screen.findAllByRole('menuitem')).map((i) => i.textContent)).toEqual(['대화 숨기기'])
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    unmount()
+
+    const self = createDm({ id: 942, participants: [createDmParticipant({ userId: 1, name: MY_NAME })] })
+    const second = openDm(self)
+    await openMenu(second.user)
+    expect((await screen.findAllByRole('menuitem')).map((i) => i.textContent)).toEqual(['대화 숨기기'])
+  })
+
+  // 확인 창에서 「나가기」를 누르면 leave 를 보내고 대화 첫 화면(/chat — 숨기기와 같은 곳)으로 간다.
+  test('대화 나가기 → 확인 창 → 나가기를 누르면 leave 를 보내고 /chat 으로 간다', async () => {
+    const left: string[] = []
+    let dms = [GROUP]
+    const { user, location } = renderChat(`/chat/dms/${GROUP.id}`, {
+      auth,
+      channels: [],
+      handlers: [
+        http.get(`${API}/messaging/dms`, () => HttpResponse.json(dms)),
+        http.get(`${API}/messaging/channels/${GROUP.id}`, () => HttpResponse.json(createChannel({ id: GROUP.id, kind: 'DM', member: true }))),
+        http.post(`${API}/messaging/channels/:id/leave`, ({ params }) => {
+          left.push(String(params.id))
+          dms = []
+          return new HttpResponse(null, { status: 204 })
+        }),
+      ],
+      messages: { [GROUP.id]: [] },
+    })
+    await openMenu(user)
+    await user.click(await screen.findByTestId('dm-leave-action'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByRole('heading', { name: '대화 나가기' })).toBeInTheDocument()
+    expect(within(dialog).getByText('나가면 새 메시지·알림을 받지 않고 참여자 목록에서 빠집니다')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: '취소' })).toBeInTheDocument()
+    const confirm = within(dialog).getByRole('button', { name: '나가기' })
+    // 채널 나가기 확인 창과 같은 위험 단추 모양.
+    expect(confirm).toHaveAttribute('data-variant', 'destructive')
+    await user.click(confirm)
+    await waitFor(() => expect(location()).toBe('/chat'))
+    expect(left).toEqual([String(GROUP.id)])
+    expect(screen.queryByTestId('dm-not-found')).not.toBeInTheDocument()
+  })
+
+  // 채널 목록 재조회가 느려도 DM 목록이 먼저 와 「대화를 찾을 수 없습니다」가 잠깐이라도 뜨면 안 된다 — 이동은 무효화(재조회)를 기다리지 않는다.
+  test('채널 목록 재조회가 늦어도 /chat 으로 갈 때까지 대화 없음이 한 번도 보이지 않는다', async () => {
+    let dms = [GROUP]
+    let left = false
+    // 나간 뒤의 채널 목록 응답은 테스트가 풀어 줄 때까지 멈춘다.
+    let releaseChannels: () => void = () => {}
+    const channelsHeld = new Promise<void>((resolve) => {
+      releaseChannels = resolve
+    })
+    // dm-not-found 가 DOM 에 한 번이라도 붙었는지 기록한다(잠깐 떴다 사라지는 것까지).
+    let sawNotFound = false
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('[data-testid="dm-not-found"]')) sawNotFound = true
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    try {
+      const { user, location } = renderChat(`/chat/dms/${GROUP.id}`, {
+        auth,
+        channels: [],
+        handlers: [
+          http.get(`${API}/messaging/dms`, () => HttpResponse.json(dms)),
+          http.get(`${API}/messaging/channels`, async () => {
+            if (left) await channelsHeld
+            return HttpResponse.json([])
+          }),
+          http.get(`${API}/messaging/channels/${GROUP.id}`, () => HttpResponse.json(createChannel({ id: GROUP.id, kind: 'DM', member: true }))),
+          http.post(`${API}/messaging/channels/:id/leave`, () => {
+            left = true
+            dms = []
+            return new HttpResponse(null, { status: 204 })
+          }),
+        ],
+        messages: { [GROUP.id]: [] },
+      })
+      await openMenu(user)
+      await user.click(await screen.findByTestId('dm-leave-action'))
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '나가기' }))
+      await waitFor(() => expect(location()).toBe('/chat'))
+      expect(sawNotFound).toBe(false)
+    } finally {
+      releaseChannels()
+      observer.disconnect()
+    }
+  })
+
+  // 취소하면 아무 요청 없이 그 DM 에 머문다.
+  test('확인 창에서 취소하면 leave 를 보내지 않는다', async () => {
+    const left: string[] = []
+    const { user, location } = openDm(GROUP, [], [
+      http.post(`${API}/messaging/channels/:id/leave`, ({ params }) => {
+        left.push(String(params.id))
+        return new HttpResponse(null, { status: 204 })
+      }),
+    ])
+    await openMenu(user)
+    await user.click(await screen.findByTestId('dm-leave-action'))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(left).toEqual([])
+    expect(location()).toBe(`/chat/dms/${GROUP.id}`)
+  })
+
+  // 서버가 거절하면(예: 그사이 2명만 남아 400) 사유를 토스트로 보이고 그 DM 에 머문다.
+  test('나가기가 400 이면 사유 토스트를 보이고 DM 화면에 머문다', async () => {
+    const { user, location } = openDm(GROUP, [], [
+      http.post(`${API}/messaging/channels/:id/leave`, () =>
+        HttpResponse.json({ status: 400, message: '1:1 대화는 나갈 수 없습니다' }, { status: 400 }),
+      ),
+    ])
+    await openMenu(user)
+    await user.click(await screen.findByTestId('dm-leave-action'))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '나가기' }))
+    expect(await screen.findByText('1:1 대화는 나갈 수 없습니다')).toBeInTheDocument()
+    expect(location()).toBe(`/chat/dms/${GROUP.id}`)
+  })
+})
+
 describe('새 메시지 — 받는 사람', () => {
   /** /chat/new 를 열고 받는 사람 입력에 검색어를 붙여 넣는다. */
   async function search(view: ReturnType<typeof renderChat>, q: string) {

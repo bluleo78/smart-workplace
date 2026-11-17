@@ -364,11 +364,23 @@ const messageIdField = z.number().int().positive().describe('from list_channel_m
  * 내 메시지 수정 입력(WP-355). 길이 상한(4000자)은 서버 UpdateMessageRequest 가 판정한다(WP-435, add_channel_message 와 같은 꼴).
  * 서버가 재는 것은 멘션 변환(@username → <@id>) 뒤 본문이라, 변환 전 본문을 여기서 재면 변환으로 길이가 달라지는 한도 근처 수정을
  * 서버와 다르게 판정한다(변환 뒤엔 맞는 수정을 거절하거나, 통과시켜 놓고 서버 400). 빈 본문만 여기서 막는다.
+ *
+ * keepFileIds(WP-1679, 선택): 수정 뒤에도 남길 첨부 fileId 목록 — 목록에 없는 첨부는 메시지에서 빠진다. 없으면 첨부는 그대로다.
+ * 빈 본문은 keepFileIds 가 있을 때만 통과시킨다 — 첨부만 남은 메시지가 될 수 있어서다. 「본문도 남길 첨부도 비었다」·「붙지 않은 id」 는
+ * 메시지의 지금 첨부를 봐야 알 수 있어 서버(UpdateMessageRequest·MessageService)가 400 으로 판정한다. 양수·상한 50 도 서버(@Size·원소 검사)가
+ * 판정한다 — 여기서 다시 적으면 외부 MCP 정의 토큰 상한(tool-naming.test)을 넘는다.
  */
-export const updateChannelMessageInput = z.object({
-  messageId: messageIdField,
-  body: z.string().min(1),
-});
+export const updateChannelMessageInput = z
+  .object({
+    messageId: messageIdField,
+    body: z.string(),
+    // 쓰임새는 도구 description 이 한 번만 말한다 — 필드 describe 까지 두면 외부 MCP 정의 토큰 상한(tool-naming.test)을 넘는다.
+    keepFileIds: z.array(z.number().int()).optional(),
+  })
+  .refine((v) => v.keepFileIds !== undefined || v.body.length > 0, {
+    message: 'body must not be empty unless keepFileIds is given',
+    path: ['body'],
+  });
 /** 채널 초대 입력(WP-349) — add_channel_member 와 확인 카드 propose_add_channel_member(이 스키마 + summary)가 같이 쓴다. */
 export const addChannelMemberInput = z.object({
   channelId: z.number().int().positive(),
@@ -523,9 +535,11 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
+      // 「DM: group only.」 — 그룹 DM(3명+)은 (비공개라 확인 카드로) 나갈 수 있고 1:1·나 혼자 DM 은 서버가 400 으로 막는다(WP-1677).
+      // 기본 연결 정의 크기 상한(tool-naming.test.ts)이 꽉 차 이 길이로 맞췄다 — WP-1679 와 합쳐도 넘지 않게 「OWNERs:」 로 줄였다.
       description:
         'Leaves a public channel (join_channel rejoins). Private ones are refused as irreversible: ' +
-        'offer propose_leave_channel if available, else ask the user. OWNERs must hand over ownership first.',
+        'offer propose_leave_channel if available, else ask the user. OWNERs: hand over ownership first. DM: group only.',
       inputSchema: leaveChannelInput,
       async handler(args) {
         const { channelId } = leaveChannelInput.parse(args);
@@ -562,15 +576,19 @@ export function buildMessagingTools(
       kind: 'write',
       // 본문을 덮어쓴다(이전 본문은 남지 않는다)라 destructive. 같은 본문으로 다시 불러도 저장 내용은 같고 알림이 없다(MessageUpdatedEvent 는 SSE 만) — 멱등.
       hints: { destructive: true, idempotent: true },
+      // 외부 MCP 정의 토큰 상한(tool-naming.test, 17550)에 맞추려 「답글도」·「기간 무관」·「Markdown」 은 뺐다 — 답글은 messageId 설명(list_thread_replies)이,
+      // Markdown 은 add_channel_message 가 이미 말한다. 지키는 뜻: 내 메시지만·이전 글 사라짐·수정 표시·@username 멘션·알림 없음·keepFileIds(남길 파일만, 생략=모두 그대로).
       description:
-        'Replaces the body of my own message (any age, replies too) with new Markdown; shown as edited, old text lost. Mention with ' +
-        '@username as in add_channel_message; no notification.' +
+        'Edits my message (old body lost, shown edited, not notified; @username mentions). ' +
+        'keepFileIds: files to keep (omit: all).' +
         LINK_RULE_AUTOLINK,
       inputSchema: updateChannelMessageInput,
       async handler(args) {
-        const { messageId, body } = updateChannelMessageInput.parse(args);
+        const { messageId, body, keepFileIds } = updateChannelMessageInput.parse(args);
         // 서버가 수정 때 본문의 <@id> 토큰을 다시 해석하므로 작성과 같이 @username 을 토큰으로 바꿔 보낸다 — 안 바꾸면 멘션이 조용히 사라진다.
-        const saved = await client.updateChannelMessage(messageId, await linkMentions(client, body));
+        const linked = await linkMentions(client, body);
+        // keepFileIds 가 없으면 undefined 그대로 넘겨 rest-client 가 키를 빼게 한다 — 첨부를 건드리지 않는 지금 요청과 같다(WP-1679).
+        const saved = await client.updateChannelMessage(messageId, linked, keepFileIds);
         // 응답은 서버 MessageResponse 원형(authorId 포함) — 읽기 도구와 같은 뷰로 가공해 숫자 사용자 ID 를 내보내지 않는다.
         return JSON.stringify(toMessageView(saved as Raw, (saved as Raw).parentMessageId != null));
       },

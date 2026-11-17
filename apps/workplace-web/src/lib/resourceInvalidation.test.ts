@@ -335,6 +335,14 @@ describe('규칙 키 값 고정', () => {
     ]);
   });
 
+  // 그룹 DM 나가기(WP-1677) — 서버가 남은 참여자·나간 사람에게 dm/updated 를 보낸다. DM 헤더 인원수·참여자와 사이드바가 DM 목록에서 오므로 DM 목록을 다시 받는다.
+  it('dm/updated(그룹 DM 나가기) → DM 목록·요약', () => {
+    expect(keys({ resource: 'dm', op: 'updated', channelId: 4 })).toEqual([
+      { queryKey: ['messaging', 'dms'] },
+      { queryKey: ['messaging-summary'] },
+    ]);
+  });
+
   it('drive → 공간 prefix(items·trash) + quota·첨부·백링크', () => {
     expect(keys({ resource: 'drive', op: 'updated', spaceId: 2 })).toEqual([
       { queryKey: ['drive', 'items', 2] },

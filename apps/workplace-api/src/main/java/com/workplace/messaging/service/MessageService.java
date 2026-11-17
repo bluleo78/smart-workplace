@@ -1,5 +1,6 @@
 package com.workplace.messaging.service;
 
+import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.dto.AiProgressStep;
@@ -23,6 +24,7 @@ import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.EmptyMessageException;
 import com.workplace.messaging.exception.InactiveMemberException;
+import com.workplace.messaging.exception.InvalidKeepFileIdsException;
 import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
@@ -47,10 +49,13 @@ import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.io.IOException;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -82,6 +87,15 @@ public class MessageService {
   private final ObjectMapper objectMapper;
   // 링크 미리보기 카드 batch enrich(WP-874)
   private final LinkPreviewRepository linkPreviewRepo;
+  // 수정에서 뺀 첨부 중 드라이브(휴지통 포함)가 쓰는 file 은 만료를 걸지 않는다 — 그 수명은 드라이브가 맡는다(WP-1679, WP-722 와 같은 규칙).
+  private final DriveFileUsage driveFileUsage;
+
+  /**
+   * 수정에서 뺀 첨부에 다시 거는 만료(시, WP-1679). 업로드 임시 파일과 같은 값(기본 24h) — 메시지 첨부엔 「되돌리기」 경로가 없어 노트·이슈 본문 이미지의
+   * 강등(168h)처럼 길게 둘 이유가 없다. lombok.config 가 @Value 를 생성자 인자로 옮긴다.
+   */
+  @Value("${workplace.storage.attachment.temp-expiry-hours:24}")
+  private final int tempExpiryHours;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -250,6 +264,9 @@ public class MessageService {
   /**
    * 작성자만 자신의 메시지 수정. 본문 @멘션 재파싱, AFTER_COMMIT SSE 발행. 작성자라도 지금 채널 멤버여야 한다(WP-493 — 내보낸 뒤에도 고치고 응답으로
    * 그 뒤의 답글·리액션을 받았다).
+   *
+   * <p>{@code keepFileIds} 가 있으면(WP-1679) 목록에 없는 첨부를 뺀다 — 검사 순서는 볼 수 없음 404 → 작성자 아님 403 → 보관 409 →
+   * keep 검증 400 이라 앞선 거절에서는 아무것도 지우지 않는다. 수정 이벤트는 늘 수정 뒤 첨부 전체 목록을 싣는다.
    */
   @Transactional
   public MessageResponse update(long callerId, long messageId, UpdateMessageRequest req) {
@@ -262,11 +279,22 @@ public class MessageService {
     if (authorId != callerId) throw new MessageAuthorMismatchException(messageId, callerId);
     // 보관된 채널은 읽기 전용 — 새 메시지와 같이 수정도 막는다(WP-508).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
-    List<Long> mentionIds = mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
+    List<Long> keep = req.keepFileIdsDistinct();
+    List<Long> removed = List.of();
+    String body = req.body();
+    if (keep != null) {
+      removed = checkKeepFileIds(messageId, keep, body);
+      // 보이는 글자가 없는 본문은 NULL 로 둔다 — 첨부만 있는 메시지를 보낼 때와 같은 꼴(응답 본문은 "", WP-717).
+      if (!PersonNames.hasVisibleChar(body)) body = null;
+    }
+    // body 가 null 일 수 있어(첨부만 남긴 수정) 멘션 파싱은 빈 문자열로 방어한다.
+    List<Long> mentionIds =
+        mentionHydrator.filterExistingUserIds(MentionParser.parse(body == null ? "" : body));
     // 삭제된 메시지는 수정 대상이 아니다 — 없는 메시지와 같게 404(WP-509).
-    if (messageRepo.update(messageId, req.body(), mentionIds) == 0) {
+    if (messageRepo.update(messageId, body, mentionIds) == 0) {
       throw new MessageNotFoundException(messageId);
     }
+    removeAttachments(messageId, removed);
     MessageResponse saved = findOne(messageId, callerId);
     publisher.publishEvent(
         new MessageUpdatedEvent(
@@ -274,8 +302,42 @@ public class MessageService {
             messageId,
             saved.body(),
             mentionHydrator.asMentionResponses(mentionIds),
-            saved.editedAt()));
+            saved.editedAt(),
+            saved.attachments()));
     return saved;
+  }
+
+  /**
+   * 수정의 keepFileIds 를 검증하고 뺄 첨부 file id 를 돌려준다(WP-1679). 메시지 행을 먼저 잠가 「지금 첨부 읽기 → 비교 → 연결 삭제」를 같은
+   * 트랜잭션에서 직렬화한다 — 다른 요청이 먼저 뺀 첨부를 옛 화면 상태로 남기라고 하면 잠금 뒤 다시 읽은 목록에 없어 400 이 난다(조용히 되살리지 않는다).
+   *
+   * <p>거절: 없거나 삭제된 메시지 404, 지금 붙지 않은 id 400, 본문(보이는 글자)·남길 첨부·드라이브 링크가 모두 비면 400 — 드라이브 링크가 남으면 빈
+   * 메시지가 아니다(작성 {@link #create} 의 빈 메시지 판정과 같다).
+   */
+  private List<Long> checkKeepFileIds(long messageId, List<Long> keep, String body) {
+    if (!messageRepo.lockActive(messageId)) throw new MessageNotFoundException(messageId);
+    List<Long> current = attachmentRepo.fileIdsOfMessage(messageId);
+    if (!new HashSet<>(current).containsAll(keep)) throw new InvalidKeepFileIdsException();
+    // 드라이브 링크는 있는지만 본다 — 메시지 전체 조회(findOne) 대신 링크 존재 쿼리 하나로.
+    if (!PersonNames.hasVisibleChar(body)
+        && keep.isEmpty()
+        && !driveLinkService.hasLinks("MESSAGE", messageId)) {
+      throw new EmptyMessageException();
+    }
+    var keepSet = new HashSet<>(keep);
+    return current.stream().filter(id -> !keepSet.contains(id)).toList();
+  }
+
+  /**
+   * 뺀 첨부의 연결만 지우고, 드라이브(휴지통 포함)도 다른 「보이는 첨부」 정션도 쓰지 않는 file 에만 만료를 다시 건다(WP-1679 — 정션 판정은 {@link
+   * MessageAttachmentRepository#rearmExpiry}). file 행·원본은 지우지 않는다 — 만료 스윕이 회수하고, 그사이 드라이브로 옮겨지는 경합은
+   * 스윕 보존 정책(DriveReferencedFileRetentionPolicy)이 받친다.
+   */
+  private void removeAttachments(long messageId, List<Long> removed) {
+    if (removed.isEmpty()) return;
+    List<Long> unbound = attachmentRepo.unbind(messageId, removed);
+    attachmentRepo.rearmExpiry(
+        driveFileUsage.withoutReferenced(unbound), OffsetDateTime.now().plusHours(tempExpiryHours));
   }
 
   /** 작성자만 자신의 메시지 soft-delete. 작성자라도 지금 채널 멤버여야 한다(WP-493). AFTER_COMMIT SSE 발행. */

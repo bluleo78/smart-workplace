@@ -47,6 +47,41 @@ describe('handleMessagingEvent — messaging.message.link-previews', () => {
   })
 })
 
+// WP-1679: 수정 이벤트는 수정 뒤 첨부 전체 목록을 싣는다 — 키가 있으면 통째로 바꾸고, 없으면(옛 서버 payload) 첨부를 건드리지 않는다.
+// 링크 미리보기는 link-previews 이벤트가 진실원이라(WP-874) 수정 이벤트로 바뀌지 않는다.
+describe('handleMessagingEvent — messaging.message.updated 의 attachments (WP-1679)', () => {
+  const page = (items: MessageResponse[]) => ({ pages: [{ items, nextCursor: null, hasMore: false }], pageParams: [null] })
+  const att = (fileId: number) => ({
+    fileId, messageId: 5, originalName: `f${fileId}.pdf`, mimeType: 'application/pdf', sizeBytes: 1,
+    attachedById: 1, attachedByName: 'me', attachedAt: '2026-11-17T00:00:00Z',
+  })
+  const preview = { position: 0, url: 'https://a.com', title: 'A', description: null, siteName: null, hasImage: false }
+  const cached = () => ({ id: 5, channelId: 1, body: '옛', attachments: [att(1), att(2)], linkPreviews: [preview] }) as unknown as MessageResponse
+  const itemOf = (qc: QueryClient, key: readonly unknown[]) =>
+    qc.getQueryData<{ pages: { items: MessageResponse[] }[] }>(key)!.pages[0].items[0]
+
+  it('messaging.message.updated 에 attachments 키가 있으면 첨부를 통째로 바꾼다(빈 배열 포함)', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(messagingKeys.messages(1), page([cached()]))
+    qc.setQueryData(messagingKeys.thread(9), page([cached()]))
+    handleMessagingEvent(qc, 'messaging.message.updated', { channelId: 1, id: 5, body: '새', mentions: [], editedAt: 'x', attachments: [att(1)] }, 1)
+    expect(itemOf(qc, messagingKeys.messages(1)).attachments.map((a) => a.fileId)).toEqual([1])
+    expect(itemOf(qc, messagingKeys.thread(9)).attachments.map((a) => a.fileId)).toEqual([1])
+    handleMessagingEvent(qc, 'messaging.message.updated', { channelId: 1, id: 5, body: '새', mentions: [], editedAt: 'x', attachments: [] }, 1)
+    expect(itemOf(qc, messagingKeys.messages(1)).attachments).toEqual([])
+    expect(itemOf(qc, messagingKeys.messages(1)).linkPreviews).toEqual([preview])
+  })
+
+  it('attachments 키가 없으면 첨부·linkPreviews 를 건드리지 않는다(옛 서버 payload)', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(messagingKeys.messages(1), page([cached()]))
+    handleMessagingEvent(qc, 'messaging.message.updated', { channelId: 1, id: 5, body: '새', mentions: [], editedAt: 'x' }, 1)
+    const item = itemOf(qc, messagingKeys.messages(1))
+    expect(item.body).toBe('새')
+    expect(item.attachments.map((a) => a.fileId)).toEqual([1, 2])
+    expect(item.linkPreviews).toEqual([preview])
+  })
+})
 
 // WP-1176: 다른 사람의 읽음 이벤트는 받아 둔 DM 읽음 목록을 고치고, 본인 읽음은 배지(목록)만 다시 계산한다.
 describe('handleMessagingEvent — messaging.message.read (DM 읽음 표시)', () => {

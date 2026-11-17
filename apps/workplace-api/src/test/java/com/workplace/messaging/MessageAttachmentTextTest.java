@@ -22,7 +22,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.exception.ChannelNotMemberException;
-import com.workplace.messaging.exception.InvalidMessageAttachmentException;
+import com.workplace.messaging.exception.MessageAttachmentNotFoundException;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageAttachmentService;
@@ -169,14 +169,15 @@ class MessageAttachmentTextTest extends ExternalClientMockedTestBase {
   }
 
   @Test
-  void 채널_비멤버는_403_다른_메시지의_파일은_400() throws Exception {
+  void 채널_비멤버는_403_다른_메시지의_파일은_404() throws Exception {
     long[] ids = sendPdf();
     assertThatThrownBy(
             () -> attachmentService.readText(outsiderId, channelId, ids[0], ids[1], 0, 10))
         .isInstanceOf(ChannelNotMemberException.class);
     long[] other = sendPdf();
+    // 그 메시지에 붙지 않은 파일은 없는 첨부 — 404(WP-1679, 메시지 수정에서 뺀 파일과 같은 거절).
     assertThatThrownBy(() -> attachmentService.readText(userId, channelId, ids[0], other[1], 0, 10))
-        .isInstanceOf(InvalidMessageAttachmentException.class);
+        .isInstanceOf(MessageAttachmentNotFoundException.class);
   }
 
   @Test
@@ -243,14 +244,14 @@ class MessageAttachmentTextTest extends ExternalClientMockedTestBase {
   }
 
   @Test
-  void view_는_다른_메시지의_fileId_를_400_으로_막는다() throws Exception {
+  void view_는_다른_메시지의_fileId_를_404_으로_막는다() throws Exception {
     long[] ids = sendPdf();
     long[] other = sendPdf();
     mvc.perform(
             get(viewUrl(new long[] {ids[0], other[1]}))
                 .param("page", "1")
                 .header("Authorization", "Bearer " + tokenFor(userId)))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isNotFound());
     verifyNoInteractions(worker);
   }
 

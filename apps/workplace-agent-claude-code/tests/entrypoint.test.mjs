@@ -1,11 +1,11 @@
 // 작업 공간 엔트리포인트 테스트(WP-1252) — bin/lib.sh 의 함수를 하나씩, 그리고 bin/entrypoint 전체를 돌려 본다.
-// claude·gh·npx 는 PATH 앞의 가짜로 바꾸고, tmux 는 진짜를 테스트마다 격리한 서버(-L)로 쓴다(칸 되살리기·SIGTERM 정리는 tmux 의 실제 동작이라).
+// claude·gh·npm 은 PATH 앞의 가짜로 바꾸고, tmux 는 진짜를 테스트마다 격리한 서버(-L)로 쓴다(칸 되살리기·SIGTERM 정리는 tmux 의 실제 동작이라).
 // 플러그인 스크립트는 저장소의 plugins/genia-works/scripts 를 그대로 쓴다(서버를 부르는 gw-agent-projects 만 가짜) —
 // 엔트리포인트가 플러그인과 실제로 맞물리는지, 칸 안의 claude 가 워크스페이스·generation 을 받는지를 진짜로 확인하려는 것이다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, lutimesSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -19,6 +19,7 @@ const lib = join(appDir, 'bin', 'lib.sh');
 const entrypoint = join(appDir, 'bin', 'entrypoint');
 const pluginScripts = join(appDir, '..', '..', 'plugins', 'genia-works', 'scripts');
 const lockFile = join(appDir, 'plugins.lock');
+const gwLib = join(pluginScripts, 'gw-lib.sh');
 
 
 /** plugins.lock 의 「이름@마켓 버전」 — 가짜 `claude plugin list --json` 이 같은 버전을 내게 한다. */
@@ -79,33 +80,83 @@ printf 'args %s\\n' "$*" >> "$FAKE_OUT/gh.log"
 [ "$1 $2" = "auth login" ] && { printf 'stdin %s %s\\n' "$4" "$(cat)" >> "$FAKE_OUT/gh.stdin"; }
 exit 0
 `);
-  // 가짜 npx — 받은 인자를 기록하고, 버전마다 시작 표시를 남긴다. FAKE_NPX_RENDEZVOUS=n 이면 n 개가 시작될 때까지 기다린 결과(npx-seen-<버전>)를
-  // 남긴다 — 브라우저 받기가 동시에 도는지(순서대로면 기다리다 시간이 지난다). FAKE_NPX_HANG 이면 오래 붙잡는다(SIGTERM 테스트).
-  exe(d('bin', 'npx'), `#!/bin/sh
-printf '%s\\n' "$*" >> "$FAKE_OUT/npx.log"
-v=$(printf '%s' "$2" | sed 's/^playwright@//')
-: > "$FAKE_OUT/npx-started-$v"
-if [ -n "\${FAKE_NPX_RENDEZVOUS:-}" ]; then
+  // 가짜 npm(WP-1683) — 엔트리포인트는 저장소 Playwright 를 `npm install --prefix <브라우저 폴더>/.genia-installs/<버전> playwright-core@<버전>` 로 받는다.
+  // 받은 버전을 npm.log 에 「install <버전>」 으로 남기고, --prefix 폴더에 가짜 playwright-core(package.json·browsers.json·cli.js)를 만든다.
+  // revision 은 버전의 숫자를 이은 것(1.60.0 → 1600). FAKE_NPM_FAIL=<버전> 이면 그 버전은 실패(종료 1)한다.
+  // FAKE_NPM_RENDEZVOUS=n 이면 n 개가 시작될 때까지 기다린 결과(npm-seen-<버전>)를 남긴다 — 브라우저 받기가 동시에 도는지(순서대로면 기다리다 시간이 지난다).
+  // FAKE_NPM_HANG 이면 오래 붙잡는다(SIGTERM 테스트). FAKE_NPM_LEGACY=<버전> 이면 그 버전의 browsers.json 에 chromium 만 둔다
+  // (Playwright 1.48 이하 — chromium-headless-shell 항목은 1.49 부터 있다).
+  exe(d('bin', 'npm'), `#!/bin/sh
+prefix=""
+pkg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prefix) prefix=$2; shift 2 ;;
+    playwright-core@*) pkg=$1; shift ;;
+    *) shift ;;
+  esac
+done
+v=\${pkg#playwright-core@}
+printf 'install %s\\n' "$v" >> "$FAKE_OUT/npm.log"
+: > "$FAKE_OUT/npm-started-$v"
+if [ -n "\${FAKE_NPM_RENDEZVOUS:-}" ]; then
   n=100
-  while [ "$(ls "$FAKE_OUT" | grep -c '^npx-started-')" -lt "$FAKE_NPX_RENDEZVOUS" ] && [ $n -gt 0 ]; do sleep 0.1; n=$((n - 1)); done
-  [ $n -gt 0 ] && : > "$FAKE_OUT/npx-seen-$v"
+  while [ "$(ls "$FAKE_OUT" | grep -c '^npm-started-')" -lt "$FAKE_NPM_RENDEZVOUS" ] && [ $n -gt 0 ]; do sleep 0.1; n=$((n - 1)); done
+  [ $n -gt 0 ] && : > "$FAKE_OUT/npm-seen-$v"
 fi
-if [ -n "\${FAKE_NPX_HANG:-}" ]; then
-  # 손자 프로세스(npx 와 그 자식 sleep)의 pid 를 남긴다 — SIGTERM 뒤 둘 다 없어졌는지 본다.
-  echo $$ >> "$FAKE_OUT/npx-pids"
+if [ -n "\${FAKE_NPM_HANG:-}" ]; then
+  # 손자 프로세스(npm 과 그 자식 sleep)의 pid 를 남긴다 — SIGTERM 뒤 둘 다 없어졌는지 본다.
+  echo $$ >> "$FAKE_OUT/npm-pids"
   sleep 15 &
-  echo $! >> "$FAKE_OUT/npx-pids"
+  echo $! >> "$FAKE_OUT/npm-pids"
   wait
 fi
+[ "$v" = "\${FAKE_NPM_FAIL:-@@none@@}" ] && exit 1
+rev=$(printf '%s' "$v" | tr -d .)
+core="$prefix/node_modules/playwright-core"
+mkdir -p "$core"
+printf '{"name":"playwright-core","version":"%s"}' "$v" > "$core/package.json"
+if [ "$v" = "\${FAKE_NPM_LEGACY:-@@none@@}" ]; then
+  printf '{"browsers":[{"name":"chromium","revision":"%s"}]}' "$rev" > "$core/browsers.json"
+else
+  printf '{"browsers":[{"name":"chromium","revision":"%s"},{"name":"chromium-headless-shell","revision":"%s"}]}' "$rev" "$rev" > "$core/browsers.json"
+fi
+cp "$FAKE_PW_CLI" "$core/cli.js"
 exit 0
 `);
-  // 가짜 curl — 맡는 프로젝트 조회(…/agent-runtime/me/projects)만 FAKE_OUT/projects.json 으로 답하고, 나머지는 진짜 curl 로 보낸다.
+  // 가짜 playwright-core cli.js — 진짜 node 로 돈다. install chromium 이면 browsers.json 의 브라우저 폴더(이름의 - 는 _ 로)에 INSTALLATION_COMPLETE 를 만들고
+  // 설치 기록(.links/<버전>)에 core 경로를 적고, pw-install.log 에 「<버전> skip-gc=<PLAYWRIGHT_SKIP_BROWSER_GC>」 를 남긴다.
+  writeFileSync(d('bin', 'fake-pw-cli.js'), `const fs = require('fs');
+const path = require('path');
+if (process.argv[2] !== 'install' || process.argv[3] !== 'chromium') process.exit(2);
+const dir = process.env.PLAYWRIGHT_BROWSERS_PATH;
+const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+for (const b of JSON.parse(fs.readFileSync(path.join(__dirname, 'browsers.json'), 'utf8')).browsers) {
+  const p = path.join(dir, b.name.replace(/-/g, '_') + '-' + b.revision);
+  fs.mkdirSync(p, { recursive: true });
+  fs.writeFileSync(path.join(p, 'INSTALLATION_COMPLETE'), '');
+}
+fs.mkdirSync(path.join(dir, '.links'), { recursive: true });
+fs.writeFileSync(path.join(dir, '.links', version), __dirname);
+fs.appendFileSync(path.join(process.env.FAKE_OUT, 'pw-install.log'), version + ' skip-gc=' + (process.env.PLAYWRIGHT_SKIP_BROWSER_GC || '') + '\\n');
+`);
+  // 가짜 curl — 맡는 프로젝트 조회(…/agent-runtime/me/projects)는 FAKE_OUT/projects.json 으로 답하고,
+  // 이슈 조회(…/projects/<키>/issues/<번호> — 부팅 워크트리 정리의 gw-issue-status, WP-1683)는 FAKE_OUT/issues.json({"WP-1":"DONE"} 꼴)의
+  // 상태로 답한다(없는 이슈는 404). 묻은 이슈는 issues.log 에 남긴다. 나머지는 진짜 curl 로 보낸다.
   const realCurl = spawnSync('sh', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim();
   exe(d('bin', 'curl'), `#!/bin/sh
 for a in "$@"; do
   case "$a" in
     */agent-runtime/me/projects)
       cat "$FAKE_OUT/projects.json"; printf '\\n200'
+      exit 0 ;;
+    */projects/*/issues/*)
+      n=\${a##*/}
+      p=\${a%/issues/*}
+      p=\${p##*/}
+      printf '%s-%s\\n' "$p" "$n" >> "$FAKE_OUT/issues.log"
+      s=$(jq -r --arg k "$p-$n" '.[$k] // empty' "$FAKE_OUT/issues.json" 2>/dev/null)
+      if [ -n "$s" ]; then printf '{"summary":{"status":"%s"}}\\n200' "$s"; else printf '{}\\n404'; fi
       exit 0 ;;
   esac
 done
@@ -156,6 +207,7 @@ exec ${realCurl} "$@"
     GW_TMUX: wrapper,
     FAKE_OUT: d('out'),
     FAKE_PLUGIN_LIST: d('out', 'plugins.json'),
+    FAKE_PW_CLI: d('bin', 'fake-pw-cli.js'),
     ...extra,
   };
   return { root, d, env, tmux, read: (...p) => readFileSync(d(...p), 'utf8') };
@@ -424,8 +476,90 @@ test('listsAssignedProjectsFromServer', (t) => {
   assert.deepEqual(r.stdout.split('\n').filter(Boolean), ['WP\thttps://g/wp.git\t', 'WD\thttps://g/wd.git\tdevelop', 'ZZ\thttps://g/zz.git\t']);
 });
 
-test('readsPlaywrightVersionFromLockfile', (t) => {
+/** 브라우저 폴더(PVC) 안의 경로. */
+const pwPath = (f, ...p) => f.d('work', '.cache', 'ms-playwright', ...p);
+const npmLog = (f) => (existsSync(f.d('out', 'npm.log')) ? f.read('out', 'npm.log').split('\n').filter(Boolean) : []);
+
+test('ensurePlaywrightInstallsUnderStableFolder', (t) => {
+  // 휘발 홈의 npx 캐시 대신 PVC 의 고정 폴더에 받아 설치 기록(.links)이 재시작 뒤에도 STALE 이 되지 않는다(WP-1683).
   const f = fixture(t);
+  mkdirSync(f.d('work', 'tmp'), { recursive: true });
+  const r = callLib(f.env, 'ensure_playwright 1.60.0');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(npmLog(f), ['install 1.60.0']);
+  assert.ok(existsSync(pwPath(f, '.genia-installs', '1.60.0', 'node_modules', 'playwright-core', 'browsers.json')));
+  for (const n of ['chromium-1600', 'chromium_headless_shell-1600']) assert.ok(existsSync(pwPath(f, n, 'INSTALLATION_COMPLETE')), n);
+  // 받을 때는 Playwright 의 GC 를 끈다 — 지우기는 browser-prune 하나가 한다
+  assert.equal(f.read('out', 'pw-install.log'), '1.60.0 skip-gc=1\n');
+  assert.equal(f.read('work', '.cache', 'ms-playwright', '.links', '1.60.0'), pwPath(f, '.genia-installs', '1.60.0', 'node_modules', 'playwright-core'));
+  assert.ok(!existsSync(pwPath(f, '.genia-chromium-1.60.0')));
+  // 다 받았으면 다시 받지 않는다
+  assert.equal(callLib(f.env, 'ensure_playwright 1.60.0').status, 0);
+  assert.deepEqual(npmLog(f), ['install 1.60.0']);
+});
+
+test('ensurePlaywrightReinstallsWhenBrowserIncomplete', (t) => {
+  // 「받았는지」는 표시 파일이 아니라 그 버전 browsers.json 의 chromium·headless shell 폴더의 INSTALLATION_COMPLETE 로 본다.
+  const f = fixture(t);
+  mkdirSync(f.d('work', 'tmp'), { recursive: true });
+  assert.equal(callLib(f.env, 'ensure_playwright 1.60.0').status, 0);
+  rmSync(pwPath(f, 'chromium_headless_shell-1600', 'INSTALLATION_COMPLETE'));
+  assert.equal(callLib(f.env, 'ensure_playwright 1.60.0').status, 0);
+  assert.deepEqual(npmLog(f), ['install 1.60.0', 'install 1.60.0']);
+  assert.ok(existsSync(pwPath(f, 'chromium_headless_shell-1600', 'INSTALLATION_COMPLETE')));
+  // 옛 표시만 있고 폴더가 없는 버전도 받는다(옛 이미지의 표시를 믿지 않는다)
+  writeFileSync(pwPath(f, '.genia-chromium-1.61.0'), '');
+  assert.equal(callLib(f.env, 'ensure_playwright 1.61.0').status, 0);
+  assert.deepEqual(npmLog(f), ['install 1.60.0', 'install 1.60.0', 'install 1.61.0']);
+});
+
+test('ensurePlaywrightTrustsSeededSymlink', (t) => {
+  // 베이스 이미지의 브라우저(/ms-playwright)를 건 심볼릭 링크 폴더에 INSTALLATION_COMPLETE 가 있으면 그 버전은 받지 않는다.
+  const f = fixture(t);
+  const base = f.d('base');
+  for (const n of ['chromium-1600', 'chromium_headless_shell-1600']) {
+    mkdirSync(join(base, n), { recursive: true });
+    writeFileSync(join(base, n, 'INSTALLATION_COMPLETE'), '');
+  }
+  const core = pwPath(f, '.genia-installs', '1.60.0', 'node_modules', 'playwright-core');
+  mkdirSync(core, { recursive: true });
+  writeFileSync(join(core, 'browsers.json'), JSON.stringify({ browsers: [{ name: 'chromium', revision: '1600' }, { name: 'chromium-headless-shell', revision: '1600' }] }));
+  mkdirSync(f.d('work', 'tmp'), { recursive: true });
+  const r = callLib({ ...f.env, GENIA_BASE_BROWSERS: base }, 'seed_browsers && ensure_playwright 1.60.0');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(npmLog(f), []);
+  assert.ok(lstatSync(pwPath(f, 'chromium-1600')).isSymbolicLink());
+});
+
+test('ensurePlaywrightAcceptsLegacyBrowsersJsonWithoutHeadlessShell', (t) => {
+  // Playwright 1.48 이하의 browsers.json 에는 chromium-headless-shell 항목이 없다(1.49 부터) — 그때는 chromium 만 보고 「받음」으로 본다.
+  // 아니면 받기 뒤에도 늘 실패(1)로 보여 다음 부팅마다 다시 받고, 브라우저 정리도 영영 건너뛴다.
+  const f = fixture(t, { env: { FAKE_NPM_LEGACY: '1.48.2' } });
+  mkdirSync(f.d('work', 'tmp'), { recursive: true });
+  const r = callLib(f.env, 'ensure_playwright 1.48.2');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(existsSync(pwPath(f, 'chromium-1482', 'INSTALLATION_COMPLETE')));
+  assert.equal(callLib(f.env, 'ensure_playwright 1.48.2').status, 0);
+  assert.deepEqual(npmLog(f), ['install 1.48.2']);
+  // chromium 자체가 덜 받아졌으면 옛 형식이어도 다시 받는다
+  rmSync(pwPath(f, 'chromium-1482', 'INSTALLATION_COMPLETE'));
+  assert.equal(callLib(f.env, 'ensure_playwright 1.48.2').status, 0);
+  assert.deepEqual(npmLog(f), ['install 1.48.2', 'install 1.48.2']);
+});
+
+test('ensurePlaywrightFailsWhenInstallFails', (t) => {
+  // 받지 못하면 경고와 함께 1 — start_projects 가 이것을 보고 이번 부팅에서는 브라우저를 정리하지 않는다.
+  const f = fixture(t, { env: { FAKE_NPM_FAIL: '1.60.0' } });
+  mkdirSync(f.d('work', 'tmp'), { recursive: true });
+  const r = callLib(f.env, 'ensure_playwright 1.60.0');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Playwright 1\.60\.0 의 chromium 을 받지 못했습니다/);
+});
+
+test('readsPlaywrightVersionFromLockfile', (t) => {
+  // 규칙은 플러그인 gw-lib 의 gw_playwright_version 에 있다(WP-1683) — 엔트리포인트처럼 gw-lib 를 먼저 읽고 부른다.
+  const f = fixture(t);
+  const callLib = (env, script) => h.callLib([gwLib, lib], env, script);
   const lock = f.d('a');
   mkdirSync(lock);
   writeFileSync(join(lock, 'pnpm-lock.yaml'), "importers:\n  .:\n    devDependencies:\n      '@playwright/test':\n        specifier: ^1.58.0\n\npackages:\n\n  playwright-core@1.58.2:\n    resolution: {}\n  '@playwright/test@1.58.2':\n    resolution: {}\n");
@@ -585,7 +719,7 @@ tmuxTest('panesReceiveTenantAndGenerationEnv', async (t) => {
   const trust = JSON.parse(f.read('home', '.claude.json')).projects;
   assert.equal(trust[aiDir].hasTrustDialogAccepted, true);
   assert.equal(trust[join(aiDir, 'repos', 'WP')].hasTrustDialogAccepted, true);
-  assert.match(f.read('out', 'npx.log'), /-y playwright@1\.60\.0 install chromium/);
+  assert.deepEqual(f.read('out', 'npm.log').split('\n').filter(Boolean), ['install 1.60.0']);
   assert.doesNotMatch(e.log(), /oauth-secret-value|ghp_secrettoken|ak_testkey123/);
   e.child.kill('SIGTERM');
   assert.equal((await e.exited).code, 0);
@@ -694,7 +828,7 @@ function severalProjects(f, specs) {
 
 tmuxTest('startsSeveralProjectsSkipsFailedCloneAndInstallsSharedPlaywrightOnce', async (t) => {
   // AA·BB 는 Playwright 1.60.0 을 같이 쓰고, CC 는 1.61.0, DD 는 clone 이 실패한다. 브라우저는 버전마다 한 번씩만, 서로 동시에(WP-1267).
-  const f = fixture(t, { env: { FAKE_NPX_RENDEZVOUS: '2' } });
+  const f = fixture(t, { env: { FAKE_NPM_RENDEZVOUS: '2' } });
   severalProjects(f, [{ key: 'AA' }, { key: 'BB' }, { key: 'CC', pw: '1.61.0' }, { key: 'DD', broken: true }]);
   const e = startEntrypoint(t, f.env);
   const aiDir = f.d('work', 'agents', 'kodi');
@@ -707,11 +841,14 @@ tmuxTest('startsSeveralProjectsSkipsFailedCloneAndInstallsSharedPlaywrightOnce',
   assert.match(e.log(), /AA: cloned/);
   assert.match(e.log(), /BB: cloned/);
   for (const k of ['AA', 'BB', 'CC']) assert.ok(existsSync(join(aiDir, 'repos', k, 'pnpm-lock.yaml')), k);
-  // 버전별 한 번 — 같은 버전을 쓰는 프로젝트가 둘이어도 npx 는 한 번, 두 버전은 서로 기다리지 않고 함께 돌았다
-  assert.deepEqual(f.read('out', 'npx.log').split('\n').filter(Boolean).sort(), ['-y playwright@1.60.0 install chromium', '-y playwright@1.61.0 install chromium']);
-  assert.ok(existsSync(f.d('out', 'npx-seen-1.60.0')) && existsSync(f.d('out', 'npx-seen-1.61.0')), '두 버전이 동시에 돌지 않았습니다');
-  assert.ok(existsSync(f.d('work', '.cache', 'ms-playwright', '.genia-chromium-1.60.0')));
-  assert.ok(existsSync(f.d('work', '.cache', 'ms-playwright', '.genia-chromium-1.61.0')));
+  // 버전별 한 번 — 같은 버전을 쓰는 프로젝트가 둘이어도 npm 은 한 번, 두 버전은 서로 기다리지 않고 함께 돌았다
+  assert.deepEqual(f.read('out', 'npm.log').split('\n').filter(Boolean).sort(), ['install 1.60.0', 'install 1.61.0']);
+  assert.ok(existsSync(f.d('out', 'npm-seen-1.60.0')) && existsSync(f.d('out', 'npm-seen-1.61.0')), '두 버전이 동시에 돌지 않았습니다');
+  // PVC 의 고정 폴더에 받았다(WP-1683) — 옛 받기 표시는 더는 만들지 않는다
+  for (const v of ['1.60.0', '1.61.0']) {
+    assert.ok(existsSync(f.d('work', '.cache', 'ms-playwright', '.genia-installs', v, 'node_modules', 'playwright-core', 'browsers.json')), v);
+    assert.ok(!existsSync(f.d('work', '.cache', 'ms-playwright', `.genia-chromium-${v}`)), v);
+  }
   // 폴더 신뢰는 칸을 띄우기 전에 한 번에 적었다
   const trust = JSON.parse(f.read('home', '.claude.json')).projects;
   for (const k of ['AA', 'BB', 'CC']) assert.equal(trust[join(aiDir, 'repos', k)].hasTrustDialogAccepted, true);
@@ -722,21 +859,325 @@ tmuxTest('startsSeveralProjectsSkipsFailedCloneAndInstallsSharedPlaywrightOnce',
 });
 
 tmuxTest('sigtermDuringParallelBootExitsZeroWithoutWaiting', async (t) => {
-  // 브라우저를 받는 중(npx 가 15초 붙잡힘)에 SIGTERM — 뒤에서 도는 일들이 on_term 을 막지 않고 바로 정리·종료한다.
-  const f = fixture(t, { env: { FAKE_NPX_HANG: '1' } });
+  // 브라우저를 받는 중(npm 이 15초 붙잡힘)에 SIGTERM — 뒤에서 도는 일들이 on_term 을 막지 않고 바로 정리·종료한다.
+  const f = fixture(t, { env: { FAKE_NPM_HANG: '1' } });
   severalProjects(f, [{ key: 'AA' }, { key: 'BB', pw: '1.61.0' }]);
   const e = startEntrypoint(t, f.env);
-  await until(() => existsSync(f.d('out', 'npx-started-1.60.0')) && existsSync(f.d('out', 'npx-started-1.61.0')), '브라우저 받기 시작', 30000, e.log);
+  await until(() => existsSync(f.d('out', 'npm-started-1.60.0')) && existsSync(f.d('out', 'npm-started-1.61.0')), '브라우저 받기 시작', 30000, e.log);
   const t0 = Date.now();
   e.child.kill('SIGTERM');
   assert.equal((await e.exited).code, 0);
   assert.ok(Date.now() - t0 < 10000, 'SIGTERM 이 뒤에서 도는 일을 기다렸습니다');
   assert.ok(!existsSync(f.d('out', 'pane-AA.env')), '종료 신호를 받은 뒤에는 칸을 띄우지 않는다');
-  // 서브셸뿐 아니라 실제 일을 하는 손자(npx·그 자식)까지 끝났고, 부팅 임시 폴더도 치웠다
-  const pids = f.read('out', 'npx-pids').split('\n').filter(Boolean).map(Number);
-  assert.equal(pids.length, 4); // 버전 둘 × (npx, sleep)
+  // 서브셸뿐 아니라 실제 일을 하는 손자(npm·그 자식)까지 끝났고, 부팅 임시 폴더도 치웠다
+  const pids = f.read('out', 'npm-pids').split('\n').filter(Boolean).map(Number);
+  assert.equal(pids.length, 4); // 버전 둘 × (npm, sleep)
   for (const pid of pids) assert.throws(() => process.kill(pid, 0), `pid ${pid} 가 아직 살아 있습니다`);
   assert.deepEqual(readdirSync(f.d('work', 'tmp')).filter((n) => n.startsWith('boot.')), []);
+});
+
+/**
+ * AA(1.60.0)·BB(1.61.0) 로 한 번 부팅해 칸이 뜨면 끈다 — 재부팅 테스트의 첫 부팅. playwright-cli 의 core(rev 1700)를 이미지처럼 두고
+ * (GENIA_PLAYWRIGHT_CLI_CORE — seed_browsers 가 설치 기록에 올린다) 그 chromium 은 PVC 에 진짜 폴더로 둔다(호스트에서 받은 모양).
+ */
+async function bootTwoVersionsThenStop(t) {
+  const cli = mkdtempSync(join(tmpdir(), 'gw-pwcli-'));
+  t.after(() => rmSync(cli, { recursive: true, force: true }));
+  writeFileSync(join(cli, 'browsers.json'), JSON.stringify({ browsers: [{ name: 'chromium', revision: '1700' }] }));
+  const f = fixture(t, { env: { GENIA_PLAYWRIGHT_CLI_CORE: cli } });
+  mkdirSync(pwPath(f, 'chromium-1700'), { recursive: true });
+  writeFileSync(pwPath(f, 'chromium-1700', 'INSTALLATION_COMPLETE'), '');
+  severalProjects(f, [{ key: 'AA' }, { key: 'BB', pw: '1.61.0' }]);
+  const e = startEntrypoint(t, f.env);
+  await until(() => ['AA', 'BB'].every((k) => existsSync(f.d('out', `pane-${k}.env`))), 'AA·BB 칸의 claude', 40000, e.log);
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+  // AA 의 저장소가 Playwright 를 1.62.0 으로 올렸다 — work-loop 가 MAIN 을 새 main 으로 옮긴 모양(엔트리포인트의 fetch 는 작업 트리를 옮기지 않는다).
+  writeFileSync(f.d('work', 'agents', 'kodi', 'repos', 'AA', 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n\npackages:\n\n  '@playwright/test@1.62.0':\n    resolution: {}\n");
+  for (const k of ['AA', 'BB']) rmSync(f.d('out', `pane-${k}.env`));
+  return f;
+}
+
+tmuxTest('rebootAfterVersionChangeDropsOnlyOldBrowsers', async (t) => {
+  // 다른 저장소(BB)가 아직 쓰는 1.61 과 playwright-cli 의 chromium 은 남고, 아무도 쓰지 않게 된 1.60 만 사라진다(WP-1683).
+  const f = await bootTwoVersionsThenStop(t);
+  const e = startEntrypoint(t, f.env);
+  await until(() => ['AA', 'BB'].every((k) => existsSync(f.d('out', `pane-${k}.env`))), '다시 띄운 AA·BB 칸', 40000, e.log);
+  for (const n of ['chromium-1600', 'chromium_headless_shell-1600', join('.genia-installs', '1.60.0'), join('.links', '1.60.0')]) {
+    assert.ok(!existsSync(pwPath(f, n)), `${n} 가 남았습니다\n${e.log()}`);
+  }
+  for (const n of ['chromium-1610', 'chromium_headless_shell-1610', 'chromium-1620', 'chromium_headless_shell-1620', join('.genia-installs', '1.61.0'), join('.genia-installs', '1.62.0'), 'chromium-1700']) {
+    assert.ok(existsSync(pwPath(f, n)), `${n} 가 사라졌습니다\n${e.log()}`);
+  }
+  assert.match(e.log(), /브라우저 정리: removed chromium-1600/);
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
+tmuxTest('skipsPruneWhenAnyInstallFails', async (t) => {
+  // 받기가 하나라도 실패하면 정리하지 않는다 — 실패한 버전 대신 쓸 수 있는 옛 브라우저를 지우지 않게. 칸은 그대로 띄운다.
+  const f = await bootTwoVersionsThenStop(t);
+  mkdirSync(pwPath(f, 'chromium-1500'), { recursive: true });
+  const e = startEntrypoint(t, { ...f.env, FAKE_NPM_FAIL: '1.62.0' });
+  await until(() => ['AA', 'BB'].every((k) => existsSync(f.d('out', `pane-${k}.env`))), '다시 띄운 AA·BB 칸', 40000, e.log);
+  assert.ok(existsSync(pwPath(f, 'chromium-1500')));
+  assert.ok(existsSync(pwPath(f, 'chromium-1600')));
+  assert.match(e.log(), /브라우저 받기에 실패한 버전이 있어 이번에는 브라우저를 정리하지 않습니다/);
+  assert.doesNotMatch(e.log(), /브라우저 정리: removed/);
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
+tmuxTest('legacyPlaywrightVersionStillPrunesBrowsers', async (t) => {
+  // 1.48 형식(chromium-headless-shell 없음) 저장소만 있어도 받기가 성공으로 보여 안 쓰는 브라우저 정리가 돈다.
+  const f = fixture(t, { env: { FAKE_NPM_LEGACY: '1.48.2' } });
+  mkdirSync(pwPath(f, 'chromium-1500'), { recursive: true });
+  writeFileSync(pwPath(f, 'chromium-1500', 'INSTALLATION_COMPLETE'), '');
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git'), '1.48.2'))));
+  const e = startEntrypoint(t, f.env);
+  await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, e.log);
+  assert.ok(!existsSync(pwPath(f, 'chromium-1500')), `chromium-1500 이 남았습니다\n${e.log()}`);
+  assert.ok(existsSync(pwPath(f, 'chromium-1482', 'INSTALLATION_COMPLETE')));
+  assert.match(e.log(), /브라우저 정리: removed chromium-1500/);
+  assert.doesNotMatch(e.log(), /받지 못했습니다|정리하지 않습니다/);
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
+// ---------------------------------------------------------------- 부팅 때 워크트리 정리(WP-1683)
+
+/** 테스트용 git — 커밋 신원·전역 설정에 기대지 않는다. */
+function gitIn(cwd, ...args) {
+  const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8', env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', HOME: cwd } });
+  assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+}
+
+/** MAIN/.claude/worktrees/<이슈 키> 워크트리(origin/main 에서 새 브랜치)와 work-loop 가 남기는 notes 파일 — 정리 후보가 되는 모양. */
+function issueWorktree(main, key) {
+  gitIn(main, 'worktree', 'add', '-q', `.claude/worktrees/${key}`, '-b', `fix/${key.toLowerCase()}`, 'origin/main');
+  mkdirSync(join(main, '.work-loop', 'state', 'notes'), { recursive: true });
+  writeFileSync(join(main, '.work-loop', 'state', 'notes', `${key}.md`), 'x');
+  return join(main, '.claude', 'worktrees', key);
+}
+
+tmuxTest('bootSweepsFinishedIssueWorktreesBeforePanes', async (t) => {
+  // Pod 가 뜰 때 칸을 띄우기 전에 모든 저장소(목록에 없는 OLD 포함)의 끝난 이슈 워크트리를 서버 상태로 지운다.
+  // DONE 인 WP-1 만 사라지고, 진행 중인 WP-2 와 서버가 모르는(404 — 더는 소속이 아님) OLD-1 은 남는다.
+  const f = fixture(t);
+  const bare = h.bareRepo(f.d('git'), { '.gitignore': '.claude/worktrees/\n.work-loop/state/\n', 'README.md': 'repo\n' });
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bare)));
+  const first = startEntrypoint(t, f.env);
+  await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, first.log);
+  first.child.kill('SIGTERM');
+  assert.equal((await first.exited).code, 0);
+  rmSync(f.d('out', 'pane-WP.env'));
+
+  const repos = f.d('work', 'agents', 'kodi', 'repos');
+  const wp1 = issueWorktree(join(repos, 'WP'), 'WP-1');
+  const wp2 = issueWorktree(join(repos, 'WP'), 'WP-2');
+  gitIn(repos, 'clone', '-q', bare, 'OLD');
+  const old1 = issueWorktree(join(repos, 'OLD'), 'OLD-1');
+  writeFileSync(f.d('out', 'issues.json'), JSON.stringify({ 'WP-1': 'DONE', 'WP-2': 'IN_PROGRESS' }));
+
+  const e = startEntrypoint(t, f.env);
+  await until(() => existsSync(f.d('out', 'pane-WP.env')), '다시 띄운 WP 칸', 40000, e.log);
+  assert.ok(!existsSync(wp1), `WP-1 이 남았습니다\n${e.log()}`);
+  assert.ok(existsSync(wp2), 'WP-2 가 사라졌습니다');
+  assert.ok(existsSync(old1), 'OLD-1 이 사라졌습니다');
+  assert.match(e.log(), /워크트리 정리: WP\tremoved /);
+  assert.match(e.log(), /워크트리 정리: OLD\tkept OLD-1: 상태 확인 실패\(8\)/);
+  assert.ok(existsSync(f.d('work', 'agents', 'kodi', 'state', 'boot-sweep.log')));
+  assert.deepEqual(f.read('out', 'issues.log').split('\n').filter(Boolean).sort(), ['OLD-1', 'WP-1', 'WP-2']);
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
+test('sweepWorktreesRunsOncePerPod', (t) => {
+  // 한 Pod 에 한 번만 — 서버에 닿지 못해 남긴 것은 칸의 work-loop(2-1)가 맡는다. 플러그인에 agent-sweep 이 없으면 경고만.
+  const f = fixture(t);
+  const fake = f.d('fake-scripts');
+  mkdirSync(fake);
+  exe(join(fake, 'agent-sweep'), `#!/bin/sh
+printf '%s\\n' "$1" >> "$FAKE_OUT/agent-sweep.log"
+printf 'WP\\tremoved /x/WP-1\\n'
+`);
+  mkdirSync(f.d('work', 'agents', 'kodi', 'state'), { recursive: true });
+  const calls = () => (existsSync(f.d('out', 'agent-sweep.log')) ? f.read('out', 'agent-sweep.log').split('\n').filter(Boolean) : []);
+  const skipped = callLib(f.env, `check_required && GW_SCRIPTS="${fake}" && WORKTREES_SWEPT=1 && sweep_worktrees`);
+  assert.equal(skipped.status, 0, skipped.stderr);
+  assert.deepEqual(calls(), []);
+  const twice = callLib(f.env, `check_required && GW_SCRIPTS="${fake}" && sweep_worktrees && sweep_worktrees && echo "swept=$WORKTREES_SWEPT"`);
+  assert.equal(twice.status, 0, twice.stderr);
+  assert.deepEqual(calls(), [f.d('work', 'agents', 'kodi')]);
+  assert.match(twice.stderr, /워크트리 정리: WP\tremoved \/x\/WP-1/);
+  assert.match(twice.stdout, /swept=1/);
+  const none = callLib(f.env, `check_required && GW_SCRIPTS="${f.d('none')}" && sweep_worktrees && echo ok`);
+  assert.equal(none.status, 0, none.stderr);
+  assert.match(none.stderr, /agent-sweep 이 없습니다/);
+  assert.match(none.stdout, /^ok$/m);
+});
+
+// ---------------------------------------------------------------- /work/tmp 정리(WP-1683)
+
+/** 파일·폴더의 수정 시각을 days 일 전으로 맞춘다(음수면 앞으로). 심볼릭 링크는 링크 자신(lutimes). */
+const age = (path, days) => {
+  const at = new Date(Date.now() - days * 24 * 3600 * 1000);
+  (lstatSync(path).isSymbolicLink() ? lutimesSync : utimesSync)(path, at, at);
+};
+/**
+ * 도는 동안의 tmp 정리는 수정 시각(mtime)과 상태 변경 시각(ctime)이 둘 다 오래되어야 지운다 — 테스트는 ctime 을 되돌릴 수 없으므로,
+ * 「지워져야 하는 것」을 보는 테스트는 나이 기준을 0분(GENIA_TMP_MAX_AGE_MIN=0 — ctime 조건은 바로 맞는다)으로 두고 mtime 만으로 가른다.
+ * 그때 「최근에 바뀐 것」은 mtime 을 앞으로(미래) 맞춰 나타낸다.
+ */
+const SWEEP_NOW = { GENIA_TMP_MAX_AGE_MIN: '0' };
+
+test('prepareDirsEmptiesTmpAtBoot', (t) => {
+  // 부팅 때는 이 컨테이너의 어느 프로세스도 아직 /work/tmp 를 쓰지 않는다 — 지난 Pod 가 남긴 것을 모두 지운다.
+  const f = fixture(t);
+  const tmp = f.d('work', 'tmp');
+  mkdirSync(join(tmp, 'dir'), { recursive: true });
+  writeFileSync(join(tmp, 'file'), 'x');
+  writeFileSync(join(tmp, 'dir', 'inner'), 'x');
+  symlinkSync(join(tmp, 'file'), join(tmp, 'link'));
+  mkdirSync(join(tmp, 'claude-1001', 'x'), { recursive: true });
+  const r = callLib(f.env, 'check_required && prepare_dirs');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readdirSync(tmp), []);
+});
+
+test('cleanTmpWarnsButContinuesOnUndeletable', (t) => {
+  // dind 가 bind mount 로 만든 root 소유 파일처럼 지우지 못하는 것이 있어도 경고만 남기고 부팅을 계속한다.
+  if (process.getuid?.() === 0) return t.skip('root 는 권한과 상관없이 지운다');
+  const f = fixture(t);
+  const locked = f.d('work', 'tmp', 'locked');
+  mkdirSync(locked, { recursive: true });
+  writeFileSync(join(locked, 'f'), 'x');
+  chmodSync(locked, 0o500);
+  let r;
+  try {
+    r = callLib(f.env, 'check_required && prepare_dirs && echo after');
+  } finally {
+    chmodSync(locked, 0o700); // fixture 의 정리(t.after)가 지울 수 있게 바로 되돌린다
+  }
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /\/work\/tmp 를 다 비우지 못했습니다 — 1개 남음/);
+  assert.match(r.stdout, /^after$/m);
+});
+
+test('sweepTmpDeletesOnlyOldFilesAndKeepsSocketsAndClaudeDirs', (t) => {
+  const f = fixture(t, { env: SWEEP_NOW });
+  const tmp = f.d('work', 'tmp');
+  const p = (...x) => join(tmp, ...x);
+  mkdirSync(p('gwA'), { recursive: true });
+  mkdirSync(p('gwB'));
+  mkdirSync(p('claude-1001', 's', 'scratchpad'), { recursive: true });
+  for (const x of ['old.txt', 'new.txt', join('gwA', 'old'), join('gwA', 'new')]) writeFileSync(p(x), 'x');
+  assert.equal(spawnSync('mkfifo', [p('old.fifo')]).status, 0);
+  // 4일 전 — 폴더 mtime 은 안을 다 만든 뒤 맞춘다(안에 만들면 다시 바뀐다).
+  for (const x of ['old.txt', join('gwA', 'old'), 'old.fifo', 'gwB', join('claude-1001', 's', 'scratchpad'), join('claude-1001', 's'), 'claude-1001']) age(p(x), 4);
+  // 「최근에 바뀐 것」 — 나이 기준 0분에서는 mtime 을 앞으로 맞춰야 오래되지 않은 것이 된다(위 SWEEP_NOW).
+  for (const x of ['new.txt', join('gwA', 'new')]) age(p(x), -1);
+  const r = callLib(f.env, 'sweep_tmp');
+  assert.equal(r.status, 0, r.stderr);
+  for (const x of ['new.txt', join('gwA', 'new'), join('claude-1001', 's', 'scratchpad'), 'old.fifo']) assert.ok(existsSync(p(x)), `${x} 가 사라졌습니다`);
+  for (const x of ['old.txt', join('gwA', 'old'), 'gwB']) assert.ok(!existsSync(p(x)), `${x} 가 남았습니다`);
+});
+
+test('sweepTmpKeepsJustCreatedFilesWithRestoredOldMtime', (t) => {
+  // tar·npm 은 받은 파일의 mtime 을 원래 값(1985 등)으로 되살린다 — 방금 만든 파일이어도 mtime 만 보면 지운다.
+  // 상태 변경 시각(ctime — 만든·바꾼 때, 되돌릴 수 없다)도 기준을 넘어야 지운다(코드 리뷰). 기본 3일 기준으로 돈다.
+  const f = fixture(t);
+  const tmp = f.d('work', 'tmp');
+  mkdirSync(join(tmp, 'pkg'), { recursive: true });
+  writeFileSync(join(tmp, 'pkg', 'index.js'), 'x');
+  symlinkSync('index.js', join(tmp, 'pkg', 'main.js'));
+  for (const x of ['index.js', 'main.js']) {
+    assert.equal(spawnSync('touch', ['-h', '-d', '1985-10-26 01:21', join(tmp, 'pkg', x)]).status, 0);
+  }
+  const r = callLib(f.env, 'sweep_tmp');
+  assert.equal(r.status, 0, r.stderr);
+  for (const x of ['index.js', 'main.js']) assert.ok(lstatSync(join(tmp, 'pkg', x), { throwIfNoEntry: false }), `${x} 가 사라졌습니다`);
+});
+
+test('sweepTmpKeepsChromeSingletonLinks', (t) => {
+  // Chrome 프로필의 잠금(SingletonLock·SingletonSocket·SingletonCookie)은 심볼릭 링크다 — 오래 도는 브라우저의 것은 mtime 이 오래되어도
+  // 지우면 다른 Chrome 이 같은 프로필을 열어 깨진다. 이름이 Singleton* 인 링크는 두고, 다른 오래된 링크는 지운다.
+  const f = fixture(t, { env: SWEEP_NOW });
+  const prof = f.d('work', 'tmp', 'playwright_chromiumdev_profile-x');
+  mkdirSync(prof, { recursive: true });
+  for (const n of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'old.link']) {
+    symlinkSync(`target-${n}`, join(prof, n));
+    age(join(prof, n), 4);
+  }
+  const r = callLib(f.env, 'sweep_tmp');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(readdirSync(prof).sort(), ['SingletonCookie', 'SingletonLock', 'SingletonSocket']);
+});
+
+test('sweepTmpDueRunsAtMostOncePerInterval', (t) => {
+  // 감독 회차마다 부르지만 GENIA_TMP_SWEEP_EVERY(운영 1시간)에 한 번만 돈다 — 기록은 AI 폴더의 state/tmp-swept(에포크 초).
+  const f = fixture(t, { env: { ...SWEEP_NOW, GENIA_TMP_SWEEP_EVERY: '3600' } });
+  const tmp = f.d('work', 'tmp');
+  const aiDir = f.d('work', 'agents', 'kodi');
+  mkdirSync(tmp, { recursive: true });
+  mkdirSync(join(aiDir, 'state'), { recursive: true });
+  const due = () => callLib(f.env, `check_required && adopt_plugin_scripts "${f.d('plugin', 'scripts')}" && sweep_tmp_due`);
+  const old = (name) => {
+    writeFileSync(join(tmp, name), 'x');
+    age(join(tmp, name), 4);
+  };
+  old('a');
+  assert.equal(due().status, 0);
+  assert.ok(!existsSync(join(tmp, 'a')));
+  assert.ok(existsSync(join(aiDir, 'state', 'tmp-swept')));
+  old('b');
+  assert.equal(due().status, 0);
+  assert.ok(existsSync(join(tmp, 'b')), '한 시간 안에 다시 돌았습니다');
+  writeFileSync(join(aiDir, 'state', 'tmp-swept'), `${Math.floor(Date.now() / 1000) - 7200}\n`);
+  assert.equal(due().status, 0);
+  assert.ok(!existsSync(join(tmp, 'b')));
+});
+
+tmuxTest('supervisorSweepsTmpWhileRunning', async (t) => {
+  // 도는 동안에도 감독 회차가 3일 지난 tmp 를 지운다(Claude 는 boot 모드 감독 루프가 회차마다 sweep_tmp_due 를 부른다).
+  const f = fixture(t, { env: { ...SWEEP_NOW, GENIA_TMP_SWEEP_EVERY: '0' } });
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))));
+  const e = startEntrypoint(t, f.env);
+  await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, e.log);
+  const stale = f.d('work', 'tmp', 'stale.bin');
+  writeFileSync(stale, 'x');
+  age(stale, 4);
+  await until(() => !existsSync(stale), '감독 회차의 tmp 정리', 15000, e.log);
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
+test('tickSweepsTmpOnceEvenWhenItCannotLaunch', (t) => {
+  // tick 모드(Gen:iA·Codex·OpenCode)는 로그인 전(can_launch 실패)에도 회차마다 tmp 정리를 부른다 — 로그인을 오래 기다리는 Pod 도 tmp 가 찬다.
+  // 띄울 수 있을 때도 한 회차에 한 번만(supervise_once 가 따로 부르지 않는다).
+  const f = fixture(t);
+  const fake = f.d('fake-scripts');
+  mkdirSync(fake);
+  exe(join(fake, 'agent-window'), '#!/bin/sh\nexit 0\n');
+  mkdirSync(f.d('work', 'agents', 'kodi', 'state'), { recursive: true });
+  const run = (launch) =>
+    callLib(f.env, `check_required && GW_SCRIPTS="${fake}" && PROJECTS_READY=1 && EVENTS_WARNED=1 && sweep_tmp_due() { echo swept; } && can_launch() { return ${launch}; } && tick && tick`);
+  for (const launch of [1, 0]) {
+    const r = run(launch);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.stdout.split('\n').filter(Boolean), ['swept', 'swept'], `can_launch=${launch}`);
+  }
+});
+
+test('bootSupervisorSweepsTmpEveryRound', (t) => {
+  // boot 모드(Claude)는 회차마다 supervise_once 뒤에 tmp 정리를 한 번 부른다(supervise_nap 을 세 번째에 끝내 두 회차만 본다).
+  const f = fixture(t);
+  const r = callLib(
+    f.env,
+    'n=0; supervise_nap() { n=$((n + 1)); [ "$n" -le 2 ] || exit 0; }; start_projects() { echo boot; }; ensure_events() { :; }; supervise_once() { echo once; }; sweep_tmp_due() { echo swept; }; run_supervisor boot',
+  );
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.split('\n').filter(Boolean), ['boot', 'once', 'swept', 'once', 'swept']);
 });
 
 test('bgWaitTimeout_killsCommandAndWatchdogOnAbortBoot', async (t) => {

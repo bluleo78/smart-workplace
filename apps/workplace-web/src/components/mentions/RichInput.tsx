@@ -71,6 +71,8 @@ interface RichInputProps {
   allowEmptySubmit?: boolean;
   // true 일 때만 빈 입력에서 전송 버튼 비활성화(opt-in). 미전달 시 기존 동작 유지.
   disableWhenEmpty?: boolean;
+  // 본문 밖에 바뀐 것이 있음(WP-1679, 메시지 수정에서 첨부를 뺌) — true 면 본문이 처음과 같아도 「변경 없음 → onCancel」로 닫지 않고 onSubmit 한다.
+  changedOutsideBody?: boolean;
   // 외부 상태(예: 파일 업로드 중)로 전송 버튼을 강제 비활성화. Enter 키 경로도 함께 차단.
   submitDisabled?: boolean;
   // 직렬화 본문(serializeToBody) 기준 최대 글자 수. 초과 시 전송 버튼 비활성화 + 카운터 빨간 표시.
@@ -165,6 +167,7 @@ export function RichInput({
   clearOnSubmit = false,
   allowEmptySubmit = false,
   disableWhenEmpty = false,
+  changedOutsideBody = false,
   submitDisabled = false,
   maxLength,
   overLimitMessage,
@@ -240,6 +243,12 @@ export function RichInput({
   const allowEmptyRef = useRef(allowEmptySubmit);
   useEffect(() => {
     allowEmptyRef.current = allowEmptySubmit;
+  });
+
+  // changedOutsideBody 최신값도 submit()(Enter 경로 포함)에서 참조 — 위 패턴 동일.
+  const changedOutsideBodyRef = useRef(changedOutsideBody);
+  useEffect(() => {
+    changedOutsideBodyRef.current = changedOutsideBody;
   });
 
   // submitDisabled 최신값을 submit()(Enter 경로 포함)에서 참조. 외부 비활성 상태(업로드 중 등)를
@@ -688,7 +697,8 @@ export function RichInput({
     if (maxLengthRef.current != null && body.length > maxLengthRef.current) return;
     // 변경 없는 저장은 no-op — onCancel 로 닫아 불필요한 update 호출을 막는다 (#44).
     // composer 는 initialBody='' + body 비어있지 않음이라 절대 매칭되지 않는다.
-    if (body === initialCompare && onCancel) {
+    // 본문 밖 변경(첨부 빼기 등)이 있으면 본문이 같아도 저장한다.
+    if (body === initialCompare && onCancel && !changedOutsideBodyRef.current) {
       onCancel();
       return;
     }

@@ -82,6 +82,15 @@ public class DriveFileRefRepository {
         .execute();
   }
 
+  /** 소스 엔티티에 드라이브 링크가 하나라도 있는가 — 목록·메타를 읽지 않는 존재 확인(WP-1679 메시지 수정의 빈 메시지 판정). */
+  public boolean existsForSource(String sourceType, long sourceId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(DRIVE_FILE_REF)
+            .where(DRIVE_FILE_REF.SOURCE_TYPE.eq(sourceType))
+            .and(DRIVE_FILE_REF.SOURCE_ID.eq(sourceId)));
+  }
+
   /** 특정 소스 엔티티에 연결된 파일 링크 목록 조회 (생성 시각 오름차순). */
   public List<RefRow> findBySource(String sourceType, long sourceId) {
     return dsl.select(

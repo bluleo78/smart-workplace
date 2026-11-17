@@ -8,6 +8,8 @@ import { messagingKeys } from './messagingKeys';
 export function useHideDm() {
   const qc = useQueryClient();
   return useMutation<void, unknown, number>({
+    // 떠나는 DM 표시 — DmPage 가 이 키로 「숨기는 중/숨김」을 알아 /chat 이동 전 「대화 없음」을 그리지 않는다(WP-1677).
+    mutationKey: [...messagingKeys.dmDeparture(), 'hide'],
     mutationFn: async (channelId) => {
       try {
         await messagingApi.hideDm(channelId);

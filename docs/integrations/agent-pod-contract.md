@@ -201,9 +201,9 @@ AI Pod 는 Deployment 없는 맨 Pod(`restartPolicy: Always`)다. 떠 있어야 
 
 | 경로 | 용도 |
 |---|---|
-| `/work/agents/<username>/` | AI 폴더(start-agent 의 「홈/AI 이름」) — `agent.conf`, `state/`, `repos/<프로젝트 키>` |
-| `/work/tmp` | `TMPDIR` |
-| `/work/.cache` | `XDG_CACHE_HOME`, `PLAYWRIGHT_BROWSERS_PATH=/work/.cache/ms-playwright` |
+| `/work/agents/<username>/` | AI 폴더(start-agent 의 「홈/AI 이름」) — `agent.conf`, `state/`, `repos/<프로젝트 키>`. 끝난(완료·취소) 이슈의 워크트리는 부팅 때 모든 저장소에서 지운다(`agent-sweep`, WP-1683) |
+| `/work/tmp` | `TMPDIR` — 부팅 때 안을 모두 비우고, 도는 동안 1시간에 한 번 3일 넘게 안 바뀐(mtime·ctime 둘 다) 것을 지운다(소켓·FIFO·Chrome 잠금 `Singleton*` 링크·`claude-*` 폴더는 남김, WP-1683) |
+| `/work/.cache` | `XDG_CACHE_HOME`, `PLAYWRIGHT_BROWSERS_PATH=/work/.cache/ms-playwright` — 저장소 Playwright 는 버전마다 `ms-playwright/.genia-installs/<버전>` 에 받아 설치 기록(`.links`)이 재시작 뒤에도 유효하다. 어느 저장소도 쓰지 않는 브라우저는 부팅 때 지운다(`browser-prune`, WP-1683) |
 | `/work/.gradle` | `GRADLE_USER_HOME` |
 | `/work/.pnpm-store` | `npm_config_store_dir` |
 | `/work/.genia-app` | Gen:iA Code 이미지만 — 받은 genia(버전 폴더 + `current` 링크) |

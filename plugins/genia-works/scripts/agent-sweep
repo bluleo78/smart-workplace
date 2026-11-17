@@ -1,0 +1,126 @@
+#!/bin/sh
+# agent-sweep <AI 폴더> — 그 AI 의 모든 저장소(<AI 폴더>/repos/<프로젝트 키>)에서 끝난 이슈의 워크트리·브랜치·실행 상태 파일을 지운다(WP-1683).
+# AI 작업 공간 이미지가 Pod 가 뜰 때(칸을 띄우기 전) 한 번 부른다. 칸이 없는 프로젝트(소속에서 빠진 것 포함)의 저장소도 본다 —
+# work-loop 의 정리(2-1)는 칸이 도는 프로젝트만 보므로, 그 밖의 저장소에 쌓인 워크트리는 여기서만 정리된다.
+#
+# worktree-sweep 은 서버를 묻지 않는다 — 이슈가 끝났는지 묻는 일은 여기서 한다(부팅 때는 MCP 가 없어 REST 로 묻는다, gw-issue-status).
+#   1. 저장소마다 `worktree-sweep list <저장소> <프로젝트 키> <AI 이름>` (AI 이름은 폴더 이름).
+#   2. 상태가 ok·notes-only 가 아닌 줄(dirty·unpushed·locked·running·in-review·pr-unknown)은 묻지도 지우지도 않는다.
+#   3. 이슈 키는 gw-issue-status 로 물어 DONE·CANCELED 일 때만 `worktree-sweep remove` 한다. 403·404(더는 멤버가 아님·지워짐)와
+#      그 밖의 실패는 남긴다(지우지 않는 쪽으로). 서버에 닿지 못하거나 키·jq 가 없어(모든 이슈에 같다) 한 번 실패하면 그 뒤로는 묻지 않고
+#      남긴다 — 부팅이 서버 시간 제한 × 이슈 수만큼 늘지 않게.
+#   4. 기차 키(integ-<AI 이름>-<n>)는 list 가 「main 에 들어갔다」고 판정한 것만 내므로 묻지 않고 지운다.
+# 이슈 챗 알림은 하지 않는다(MCP 가 없다) — 남긴 이슈는 칸의 work-loop 2-1 이 맡아 알린다. 정리 보류 기록(state/sweep/<키>)은 쓰지 않는다.
+#
+# stdout 한 줄씩 `<프로젝트 키>\t<결과>` — 결과는 worktree-sweep remove 의 출력(removed …·kept …) 그대로이거나:
+#   kept <이슈 키>: <상태>(list 의 ok 아닌 상태, 또는 서버의 끝나지 않은 상태) · kept <이슈 키>: 상태 확인 실패(<gw-issue-status 종료 코드>) ·
+#   kept <이슈 키>: 서버에 닿지 못함 · kept <키>: 지우기 실패(<종료 코드>) · skip fetch-failed(list 가 fetch 에 실패) · skip list-failed(<종료 코드>)
+# 실패한 조회·지우기의 이유 한 줄은 stderr 로 그대로 흘린다. 종료 코드: 0(남긴 것이 있어도) · 2 사용법(AI 폴더가 아님).
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+if [ $# -ne 1 ] || ! _as_ai=$(gw_ai_dir "$1" 2>/dev/null); then
+  echo "사용법: agent-sweep <AI 폴더> — 이름이 AI 이름인 폴더여야 합니다" >&2
+  exit 2
+fi
+_as_name=$(basename "$_as_ai")
+_as_tab=$(printf '\t')
+# 모든 이슈에 같은 이유로 실패했으면(서버 불통·키 없음 등) 그 이유 — 이것이 있으면 더 묻지 않는다.
+_as_down=""
+
+# 한 줄 내기 — as_out <프로젝트 키> <결과>.
+as_out() {
+  printf '%s\t%s\n' "$1" "$2"
+}
+
+# 지우기 — as_remove <저장소> <프로젝트 키> <워크트리 경로 또는 -> <키>. worktree-sweep remove 의 출력 줄마다 프로젝트 키를 붙인다.
+as_remove() {
+  _as_ro=$("$here/worktree-sweep" remove "$1" "$3" "$4" </dev/null)
+  _as_rc=$?
+  if [ -z "$_as_ro" ]; then
+    [ "$_as_rc" = 0 ] || as_out "$2" "kept $4: 지우기 실패($_as_rc)"
+    return 0
+  fi
+  while IFS= read -r _as_rl; do
+    [ -n "$_as_rl" ] && as_out "$2" "$_as_rl"
+  done <<REMOVE_EOF
+$_as_ro
+REMOVE_EOF
+  return 0
+}
+
+# 이슈 키 줄 하나 — 서버에 상태를 묻고 끝났으면 지운다. as_issue <저장소> <프로젝트 키> <경로> <이슈 키>.
+as_issue() {
+  if [ -n "$_as_down" ]; then
+    as_out "$2" "kept $4: $_as_down"
+    return 0
+  fi
+  _as_st=$("$here/gw-issue-status" "$_as_name" "$4" </dev/null)
+  _as_sc=$?
+  case $_as_sc in
+    0)
+      case "$_as_st" in
+        DONE | CANCELED) as_remove "$1" "$2" "$3" "$4" ;;
+        *) as_out "$2" "kept $4: $_as_st" ;;
+      esac
+      ;;
+    5)
+      _as_down="서버에 닿지 못함"
+      as_out "$2" "kept $4: $_as_down"
+      ;;
+    1 | 4 | 7)
+      # 키 없음·키 거절·jq 없음은 어느 이슈를 물어도 같다 — 이 이유로 나머지도 남긴다.
+      _as_down="상태 확인 실패($_as_sc)"
+      as_out "$2" "kept $4: $_as_down"
+      ;;
+    *) as_out "$2" "kept $4: 상태 확인 실패($_as_sc)" ;;
+  esac
+  return 0
+}
+
+# 저장소 하나 — as_repo <저장소> <프로젝트 키>.
+as_repo() {
+  _as_list=$("$here/worktree-sweep" list "$1" "$2" "$_as_name" </dev/null)
+  _as_lc=$?
+  case $_as_lc in
+    0) ;;
+    2)
+      as_out "$2" "skip fetch-failed"
+      return 0
+      ;;
+    *)
+      as_out "$2" "skip list-failed($_as_lc)"
+      return 0
+      ;;
+  esac
+  # 줄마다 `<키>\t<경로|->\t<브랜치|->\t<상태>`. 루프 안에서 _as_down 을 바꾸므로 파이프(하위 셸)가 아니라 here-document 로 읽는다.
+  while IFS="$_as_tab" read -r _as_k _as_p _as_b _as_s; do
+    [ -n "$_as_k" ] || continue
+    case "$_as_s" in
+      ok | notes-only) ;;
+      *)
+        as_out "$2" "kept $_as_k: $_as_s"
+        continue
+        ;;
+    esac
+    if gw_valid_issue_key "$_as_k"; then
+      as_issue "$1" "$2" "$_as_p" "$_as_k"
+    else
+      # list 는 이슈 키가 아니면 「main 에 들어간」 내 기차만 낸다 — 묻지 않고 지운다.
+      as_remove "$1" "$2" "$_as_p" "$_as_k"
+    fi
+  done <<LIST_EOF
+$_as_list
+LIST_EOF
+  return 0
+}
+
+for _as_r in "$_as_ai"/repos/*; do
+  [ -d "$_as_r" ] || continue
+  _as_key=$(basename "$_as_r")
+  # 키는 폴더·칸 이름 규칙(gw_valid_project_key)이어야 하고, git 저장소(MAIN 이면 .git 폴더)여야 한다 — 그 밖의 폴더는 사람이 둔 것이다.
+  gw_valid_project_key "$_as_key" || continue
+  [ -e "$_as_r/.git" ] || continue
+  as_repo "$_as_r" "$_as_key"
+done
+exit 0

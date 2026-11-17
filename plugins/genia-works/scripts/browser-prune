@@ -1,0 +1,223 @@
+#!/bin/sh
+# 안 쓰는 Playwright 브라우저 정리(WP-1683) — AI 작업 공간 Pod 의 PVC(/work/.cache/ms-playwright)와 외부 호스트(start-agent)의 브라우저 폴더가
+# 저장소 Playwright 버전이 바뀔 때마다 옛 chromium(수백 MB)으로 차는 것을 막는다.
+#
+#   browser-prune [--host] [--dir <브라우저 폴더>] <홈>
+#
+# <홈> — AI 폴더들의 부모(<홈>/<AI 이름>/repos/<키>). 지키는 Playwright 버전은 그 아래 모든 저장소(<홈>/*/repos/*)의 버전이다
+#   (같은 AI 의 다른 저장소, 호스트에선 다른 AI 의 저장소도 지킨다 — 버전 읽기는 gw_playwright_version).
+# --dir — 브라우저 폴더. 없으면 gw_browsers_dir(PLAYWRIGHT_BROWSERS_PATH → macOS ~/Library/Caches → ${XDG_CACHE_HOME:-~/.cache}/ms-playwright).
+#
+# 기본(Pod) 모드 — 이미지 엔트리포인트가 브라우저를 다 받은 뒤 부른다:
+#   1. .links/* 중 대상 폴더에 browsers.json 이 없는 것(STALE — 휘발 홈의 npx 캐시가 사라진 기록 등)을 지운다.
+#   2. 「임시 설치」(대상 경로에 /_npx/ 가 있거나 <브라우저 폴더>/.genia-installs/ 아래) 중 버전(.genia-installs 는 <버전> 폴더 이름, _npx 는
+#      package.json 의 version)이 지키는 버전이 아닌 것은 기록을
+#      지운다. .genia-installs/<버전> 은 폴더도 지운다(이미지가 받은 것이라 우리 것). _npx 폴더는 npm 의 캐시라 건드리지 않는다.
+#      예외: playwright-cli 를 품은 임시 설치(대상 경로에 /node_modules/@playwright/cli/ 가 있거나 <_npx/해시>/node_modules/@playwright/cli 가
+#      있음)는 기록 파일이 가장 최근인 것 하나를 버전과 상관없이 남긴다(호스트의 화면 탐색용 cli).
+#   3. 남은 기록들의 browsers.json 이 가리키는 모든 폴더가 「쓰는 것」이다.
+#   4. 브라우저 폴더 바로 아래의 진짜 폴더 중 이름이 Playwright 브라우저 폴더 규칙에 맞고 「쓰는 것」이 아닌 것을 지운다.
+#      심볼릭 링크(이미지가 /ms-playwright 에 건 것)와 그 밖의 이름(daemon·b·cli-update-check.json 등)은 건드리지 않는다.
+#   5. 옛 받기 표시(.genia-chromium-*)를 지운다 — 지금 이미지는 「받았는지」를 브라우저 폴더의 INSTALLATION_COMPLETE 로 본다.
+# 호스트 모드(--host, start-agent 가 부른다) — 사람이 npx 로 쓴 Playwright 의 브라우저를 지우지 않도록 1 과 5 만 한다(STALE 기록·옛 표시).
+#   임시 설치 기록·.genia-installs·브라우저 폴더는 두고, 남는 정리는 Playwright 자신의 install GC 가 STALE 이 빠진 기록을 기준으로 한다.
+#   (STALE 기록은 Playwright GC 도 「깨진 기록」으로 빼므로 지워도 GC 결과는 같다 — 기록 폴더를 깔끔하게 둘 뿐이다.)
+#
+# 브라우저 폴더 이름 규칙(근거: playwright-core lib/server/registry/index.js 의 readDescriptors·allDownloadableDirectoriesThatEverExisted):
+#   <browsers.json 의 name 에서 - 를 _ 로>-<revision>. revisionOverrides 가 이 컴퓨터 플랫폼에 걸리면 <name>_<플랫폼>_special-<rev> 인데,
+#   그 이름은 4 의 정규식에 맞지 않아 지우는 대상이 아니다(「쓰는 것」에는 override 값을 <name>-<rev> 로도 넣어 둔다 — 남기는 쪽으로만 틀린다).
+#
+# stdout 한 줄씩: removed-link <기록 파일 이름> · removed-install <버전> · removed <폴더 이름> · removed-marker <파일 이름>.
+# 개별 지우기 실패(권한 등)는 stderr 경고 한 줄 후 계속한다(종료 0) — 정리 실패가 부팅·띄우기를 막지 않게.
+# 종료 코드: 0 = 성공(지운 것이 없어도) · 2 = 사용법 오류(홈이 폴더가 아님 등) ·
+#   3 = 건너뜀 — 이유 한 줄을 stderr 에: 설치 중(__dirlock 이 10분 안에 바뀜 — 아무것도 지우지 않음) · jq 없음(Pod 모드만 — 아무것도 지우지 않음) ·
+#       브라우저 폴더 없음 · 유효한 설치 기록 없음(Pod 모드 — 1~2 뒤 남은 기록이 없으면 「쓰는 것」을 알 수 없어 브라우저 폴더는 지우지 않는다).
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+usage() {
+  echo "사용법: browser-prune [--host] [--dir <브라우저 폴더>] <홈>" >&2
+  exit 2
+}
+
+# 건너뛰기 — 이유 한 줄을 남기고 종료 3(부르는 쪽은 알리기만 한다).
+bp_skip() {
+  echo "browser-prune: 건너뜀 — $1" >&2
+  exit 3
+}
+
+# 하나를 지우고 지웠으면 결과 줄을 낸다 — bp_rm <경로> <stdout 줄>. 다 지우지 못하면(권한 등) 경고만 남기고 계속한다.
+bp_rm() {
+  if rm -rf "$1" 2>/dev/null && [ ! -e "$1" ] && [ ! -L "$1" ]; then
+    printf '%s\n' "$2"
+  else
+    echo "browser-prune: 경고 — 지우지 못했습니다: $1" >&2
+  fi
+}
+
+# 설치 기록 파일 하나의 대상 경로(playwright-core 폴더)를 _bp_t 에 둔다. Playwright 는 줄바꿈 없이 경로만 적는다(read 가 1 이어도 값은 읽힌다).
+bp_target() {
+  _bp_t=""
+  { IFS= read -r _bp_t || true; } 2>/dev/null < "$1"
+}
+
+_bp_host=0
+_bp_dir=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --host)
+      _bp_host=1
+      shift
+      ;;
+    --dir)
+      [ $# -ge 2 ] && [ -n "$2" ] || usage
+      _bp_dir=$2
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*) usage ;;
+    *) break ;;
+  esac
+done
+[ $# -eq 1 ] || usage
+# 홈은 호스트 모드에서는 보지 않지만 같은 모양으로 부르게(start-agent·이미지) 늘 받고 검사한다.
+[ -d "$1" ] || {
+  echo "홈 폴더가 없습니다: $1" >&2
+  exit 2
+}
+_bp_home=$1
+
+if [ -z "$_bp_dir" ]; then
+  _bp_dir=$(gw_browsers_dir) || bp_skip "브라우저 폴더 없음(PLAYWRIGHT_BROWSERS_PATH=0)"
+fi
+[ -d "$_bp_dir" ] || bp_skip "브라우저 폴더 없음($_bp_dir)"
+unset CDPATH
+# 기록 파일의 경로는 Playwright(node)가 심볼릭 링크를 푼 모양으로 적을 수 있다 — 부른 모양과 실제 경로 둘 다로 맞춰 본다.
+_bp_real=$(cd "$_bp_dir" && pwd -P) || bp_skip "브라우저 폴더 없음($_bp_dir)"
+_bp_links="$_bp_dir/.links"
+
+# Playwright 가 받는 중이면(proper-lockfile 의 __dirlock 폴더 — 도는 동안 계속 mtime 을 갱신한다) 받다 만 폴더·막 쓴 기록을 지우지 않게 손대지 않는다.
+# 10분 넘게 안 바뀐 잠금은 죽은 설치가 남긴 것으로 본다(Playwright 자신도 잠금을 10분까지만 기다린다).
+if [ -e "$_bp_dir/__dirlock" ] && [ -n "$(find "$_bp_dir/__dirlock" -maxdepth 0 -mmin -10 2>/dev/null)" ]; then
+  bp_skip "설치 중(__dirlock)"
+fi
+# Pod 모드는 버전·「쓰는 것」을 JSON 에서 읽는다 — jq 없이 짐작해 지우지 않는다. 호스트 모드는 JSON 을 읽지 않는다.
+if [ "$_bp_host" = 0 ] && ! command -v jq >/dev/null 2>&1; then
+  bp_skip "jq 없음"
+fi
+
+# 1. STALE 기록 — 대상 폴더나 그 browsers.json 이 사라진 것(예: 휘발 홈의 npx 캐시, 지운 프로젝트).
+for _bp_l in "$_bp_links"/*; do
+  [ -f "$_bp_l" ] || continue
+  bp_target "$_bp_l"
+  if [ -z "$_bp_t" ] || [ ! -f "$_bp_t/browsers.json" ]; then
+    bp_rm "$_bp_l" "removed-link ${_bp_l##*/}"
+  fi
+done
+
+# 5. 옛 받기 표시 — 예전 이미지가 「이 버전은 받았다」로 남긴 빈 파일. 실제 폴더와 어긋나 다시 받지 않는 원인이었다.
+#    (규칙 번호는 계획의 것 — 1 바로 뒤에 해 두어 Pod 모드가 3 으로 건너뛰는 때에도 치운다.)
+for _bp_m in "$_bp_dir"/.genia-chromium-*; do
+  [ -e "$_bp_m" ] || continue
+  bp_rm "$_bp_m" "removed-marker ${_bp_m##*/}"
+done
+
+# 호스트 모드는 여기까지 — 사람이 npx 로 쓴 Playwright 의 브라우저를 AI 저장소 버전으로 판단해 지우지 않는다(WP-1683 결정).
+[ "$_bp_host" = 1 ] && exit 0
+
+# 지키는 버전 — 홈 아래 모든 저장소의 Playwright 버전(공백으로 감싼 목록 — case 로 찾는다).
+_bp_versions=" "
+for _bp_r in "$_bp_home"/*/repos/*; do
+  [ -d "$_bp_r" ] || continue
+  _bp_v=$(gw_playwright_version "$_bp_r") || continue
+  case "$_bp_versions" in *" $_bp_v "*) ;; *) _bp_versions="$_bp_versions$_bp_v " ;; esac
+done
+
+# 2. 임시 설치 기록 — 최근 것부터 본다(ls -t: 기록 파일 mtime) — 처음 만난 cli 설치가 「가장 최근 cli」라 남긴다.
+#    기록 파일 이름은 Playwright 가 정한 해시나 엔트리포인트가 정한 이름이라 줄바꿈이 없다.
+_bp_cli_kept=0
+_bp_valid=0
+while IFS= read -r _bp_n; do
+  [ -n "$_bp_n" ] || continue
+  _bp_l="$_bp_links/$_bp_n"
+  [ -f "$_bp_l" ] || continue
+  bp_target "$_bp_l"
+  [ -f "$_bp_t/browsers.json" ] || continue
+  # .genia-installs/<버전>/… 이면 그 버전 폴더 이름.
+  case "$_bp_t" in
+    "$_bp_dir/.genia-installs/"*) _bp_rest=${_bp_t#"$_bp_dir/.genia-installs/"} ;;
+    "$_bp_real/.genia-installs/"*) _bp_rest=${_bp_t#"$_bp_real/.genia-installs/"} ;;
+    *) _bp_rest="" ;;
+  esac
+  _bp_inst=${_bp_rest%%/*}
+  case "$_bp_inst" in . | ..) _bp_inst="" ;; esac
+  # …/_npx/<해시>/… 이면 그 npx 설치 폴더.
+  _bp_npx=""
+  case "$_bp_t" in
+    */_npx/*)
+      _bp_rest=${_bp_t#*/_npx/}
+      _bp_npx="${_bp_t%%/_npx/*}/_npx/${_bp_rest%%/*}"
+      ;;
+  esac
+  # 임시 설치가 아니면(사람 프로젝트의 node_modules, 이미지의 cli core 등) 그 브라우저는 늘 지킨다.
+  if [ -z "$_bp_inst" ] && [ -z "$_bp_npx" ]; then
+    _bp_valid=1
+    continue
+  fi
+  _bp_cli=0
+  case "$_bp_t" in */node_modules/@playwright/cli/*) _bp_cli=1 ;; esac
+  if [ -n "$_bp_npx" ] && [ -d "$_bp_npx/node_modules/@playwright/cli" ]; then _bp_cli=1; fi
+  if [ "$_bp_cli" = 1 ] && [ "$_bp_cli_kept" = 0 ]; then
+    _bp_cli_kept=1
+    _bp_valid=1
+    continue
+  fi
+  # 버전 — .genia-installs/<버전> 은 폴더 이름(이미지가 받을 때 쓴 이름 = 지키는 버전과 같은 규칙으로 읽은 값)으로 본다. 안의 package.json 버전은
+  # npm 이 범위를 풀어 다른 패치를 받았으면 폴더 이름과 달라, 방금 받은 설치를 지울 수 있다. _npx 설치는 폴더 이름이 해시라 package.json 으로 본다.
+  if [ -n "$_bp_inst" ]; then
+    _bp_v=$_bp_inst
+  else
+    _bp_v=$(jq -r '.version // empty' "$_bp_t/package.json" 2>/dev/null)
+  fi
+  if [ -n "$_bp_v" ]; then
+    case "$_bp_versions" in
+      *" $_bp_v "*)
+        _bp_valid=1
+        continue
+        ;;
+    esac
+  fi
+  bp_rm "$_bp_l" "removed-link $_bp_n"
+  [ -z "$_bp_inst" ] || bp_rm "$_bp_dir/.genia-installs/$_bp_inst" "removed-install $_bp_inst"
+done <<LINKS_EOF
+$(ls -t "$_bp_links" 2>/dev/null)
+LINKS_EOF
+
+[ "$_bp_valid" = 1 ] || bp_skip "유효한 설치 기록 없음"
+
+# 3. 「쓰는 것」 — 남은 기록들의 browsers.json 이 가리키는 폴더 이름. 하나라도 읽지 못하면 그 기록의 브라우저를 모르니 지우지 않고 건너뛴다.
+_bp_used=$(
+  for _bp_l in "$_bp_links"/*; do
+    [ -f "$_bp_l" ] || continue
+    bp_target "$_bp_l"
+    [ -f "$_bp_t/browsers.json" ] || continue
+    jq -r '.browsers[] | (.name | gsub("-";"_")) as $n | ([.revision] + ((.revisionOverrides // {}) | [.[]]))[] | "\($n)-\(.)"' \
+      "$_bp_t/browsers.json" 2>/dev/null || exit 1
+  done
+) || bp_skip "설치 기록(browsers.json)을 읽지 못함"
+
+# 4. 안 쓰는 브라우저 폴더 — 진짜 폴더만, Playwright 브라우저 이름 규칙에 맞는 것만.
+for _bp_p in "$_bp_dir"/*; do
+  [ -L "$_bp_p" ] && continue
+  [ -d "$_bp_p" ] || continue
+  _bp_n=${_bp_p##*/}
+  printf '%s\n' "$_bp_n" |
+    grep -Eq '^(chromium|chromium_headless_shell|chromium_tip_of_tree|chromium_tip_of_tree_headless_shell|firefox|firefox_beta|webkit|ffmpeg|winldd|android)-[0-9]+$' ||
+    continue
+  printf '%s\n' "$_bp_used" | grep -qxF "$_bp_n" && continue
+  bp_rm "$_bp_p" "removed $_bp_n"
+done
+exit 0

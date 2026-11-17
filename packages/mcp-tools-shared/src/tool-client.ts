@@ -617,8 +617,11 @@ export interface MessagingToolClient {
   addReaction(messageId: number, emoji: string): Promise<void>;
   /** DELETE /messaging/messages/{id}/reactions?emoji= — 누른 적 없으면 no-op(멱등)(WP-355). */
   removeReaction(messageId: number, emoji: string): Promise<void>;
-  /** PATCH /messaging/messages/{id} — 작성자만(403), 본문 4000자 이하. 저장된 메시지 행(MessageResponse) 원형을 돌려준다(WP-355). */
-  updateChannelMessage(messageId: number, body: string): Promise<unknown>;
+  /**
+   * PATCH /messaging/messages/{id} — 작성자만(403), 본문 4000자 이하. 저장된 메시지 행(MessageResponse) 원형을 돌려준다(WP-355).
+   * keepFileIds(WP-1679): 남길 첨부 fileId — 지금 붙은 첨부의 부분집합이어야 하고(아니면 400) 나머지 첨부는 빠진다. undefined 면 첨부 그대로.
+   */
+  updateChannelMessage(messageId: number, body: string, keepFileIds?: number[]): Promise<unknown>;
   /** POST /messaging/channels/{id}/read — 채널 멤버만. 읽음 위치를 max(기존, uptoMessageId) 로 올린다(WP-355). */
   markChannelRead(channelId: number, uptoMessageId: number): Promise<void>;
   /** GET /messaging/channels/discover — 공개·비아카이브 채널을 이름·키워드로 검색한 배열(비배열 응답은 빈 배열). */

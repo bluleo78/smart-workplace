@@ -100,6 +100,47 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     await page.clock.fastForward(5500)
     await expectStays(page, deletes.count, 0, { ms: 200 })
   })
+
+  // WP-1679: 수정 중 입력창 위 첨부 칩(×) — 긴 이름 두 개가 390px 안에서 줄바꿈되고 가로로 넘치지 않는다(칩 기하는 jsdom 이 잴 수 없다).
+  test('본인 메시지 수정: 첨부 칩 두 개가 390px 안에서 줄바꿈되고 가로로 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await stubChannelMessages(page)
+    const file = (fileId: number, originalName: string) => ({
+      fileId, messageId: 11, originalName, mimeType: 'application/pdf', sizeBytes: 2048,
+      attachedById: 1, attachedByName: 'me', attachedAt: '2026-09-30T03:10:00Z',
+    })
+    const own = createMessage({
+      id: 11, channelId: 1, authorId: 1, authorName: 'me', body: '보고서 공유드립니다.', createdAt: '2026-09-30T03:10:00Z',
+      attachments: [
+        file(1, '2026년_4분기_사업계획_최종본_검토의견_반영_v3.pdf'),
+        file(2, '고객사_요구사항_정리_회의록_첨부자료_전체.pdf'),
+      ],
+    })
+    // stubChannelMessages 보다 나중에 건 route 가 먼저다 — 메시지 목록만 첨부 달린 본인 메시지로 바꾼다.
+    await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) =>
+      r.request().method() === 'GET' ? r.fulfill(json({ items: [own], nextCursor: null, hasMore: false })) : r.fallback())
+    await page.goto('/chat/channels/1')
+
+    await longPress(page, page.getByTestId('message-body-11'))
+    await page.getByTestId('message-action-sheet').getByTestId('message-action-edit').tap()
+    const chips = page.getByTestId('message-editor-attachments').locator('li')
+    await expect(chips).toHaveCount(2)
+    const width = page.viewportSize()!.width
+    const boxes = [(await chips.nth(0).boundingBox())!, (await chips.nth(1).boundingBox())!]
+    for (const b of boxes) {
+      expect(b.x).toBeGreaterThanOrEqual(0)
+      expect(b.x + b.width).toBeLessThanOrEqual(width)
+    }
+    // 한 줄에 둘이 들어가지 않으면 다음 줄로 내려간다(옆으로 밀려 넘치지 않는다).
+    expect(boxes[1].y).toBeGreaterThan(boxes[0].y)
+    await expectNoHorizontalOverflow(page)
+    // 수정 중엔 아래 첨부 목록의 파일 카드를 숨긴다(칩과 중복되지 않게).
+    await expect(page.getByTestId('attachment-card-1')).toHaveCount(0)
+
+    // × 는 터치로 누를 수 있고, 누르면 칩 하나가 남는다.
+    await chips.nth(1).getByRole('button', { name: '첨부 제거' }).tap()
+    await expect(chips).toHaveCount(1)
+    await expectNoHorizontalOverflow(page)
+  })
 })
 
 test.describe('H2·M5 이슈 채팅', () => {

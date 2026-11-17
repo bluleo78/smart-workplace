@@ -15,6 +15,11 @@ export const messagingKeys = {
   threads: () => [...messagingKeys.all, 'thread'] as const,
   thread: (parentMessageId: number) => [...messagingKeys.all, 'thread', parentMessageId] as const,
   dms: () => [...messagingKeys.all, 'dms'] as const,
+  /**
+   * 대화를 내 목록에서 빼는 mutation 키(WP-1677) — 숨기기·나가기. 쿼리 키가 아니라 mutationKey 다.
+   * DmPage 가 useMutationState 로 「지금 이 DM 에서 떠나는 중/떠났다」를 알아 「대화 없음」 대신 빈 화면을 그리는 데 쓴다.
+   */
+  dmDeparture: () => [...messagingKeys.all, 'dm-departure'] as const,
   threadsInbox: () => [...messagingKeys.all, 'threads-inbox'] as const,
   threadsInboxUnreadCount: () => [...messagingKeys.all, 'threads-inbox-unread'] as const,
   /** 메시지의 반응자 캐시 전체 prefix — 반응 변경 시 무효화용. 'thread' 접두와 겹치지 않게 별도 네임스페이스. */

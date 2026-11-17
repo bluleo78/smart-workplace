@@ -103,6 +103,26 @@ public class MessageRepository {
     dsl.select(MESSAGE.ID).from(MESSAGE).where(MESSAGE.ID.eq(id)).forNoKeyUpdate().fetch();
   }
 
+  /**
+   * 살아 있는 메시지 행을 잠근다(SELECT … FOR NO KEY UPDATE, WP-1679) — 수정에서 첨부를 뺄 때 「지금 첨부 읽기 → keep 비교 → 연결
+   * 삭제」를 트랜잭션 끝까지 직렬화한다. 잠그지 않으면 같은 메시지를 동시에 고치는 두 요청이 같은 옛 첨부 목록과 비교해, 이미 빠진 첨부를 남기라는 요청이 통과한다.
+   *
+   * <p>FOR UPDATE 가 아니라 NO KEY UPDATE 인 이유: FOR UPDATE 는 이 메시지를 FK 로 가리키는 반응·답글·첨부 행 삽입이 거는 KEY
+   * SHARE 잠금과도 충돌해, 수정 트랜잭션이 끝날 때까지 남의 반응·답글이 막힌다. NO KEY UPDATE 는 KEY SHARE 와는 충돌하지 않고 같은 행의 NO
+   * KEY UPDATE·UPDATE 와는 충돌하므로, 동시 수정끼리의 직렬화는 그대로 지킨다({@link #lockForReaction} 과 같은 잠금 수준).
+   *
+   * @return 잠갔으면 true, 없거나 삭제된 메시지면 false
+   */
+  public boolean lockActive(long id) {
+    return !dsl.select(MESSAGE.ID)
+        .from(MESSAGE)
+        .where(MESSAGE.ID.eq(id))
+        .and(MESSAGE.DELETED_AT.isNull())
+        .forNoKeyUpdate()
+        .fetch()
+        .isEmpty();
+  }
+
   /** soft-delete 된 메시지인가(없는 메시지는 false). */
   public boolean isDeleted(long id) {
     return dsl.fetchExists(MESSAGE, MESSAGE.ID.eq(id).and(MESSAGE.DELETED_AT.isNotNull()));

@@ -669,6 +669,19 @@ test('work-loop: 잠금이 ok 면 start-agent 칸에서 agent-project sync 로 M
   assert.ok(line.includes('사람이 띄운 세션(그 변수가 없다)은 하지 않는다'));
 });
 
+// WP-1683 호스트 브라우저 정리 — start-agent 는 저장소 준비(5번) 뒤 browser-prune 의 호스트 모드로 깨진 설치 기록·옛 표시만 치우고,
+// 정리가 건너뛰거나 실패해도 띄우기(6번)는 계속하며, 치운 수는 7번 표 뒤 한 줄로 알린다.
+test('start-agent: 저장소 준비 뒤 브라우저 폴더를 browser-prune 으로 정리하고 실패해도 띄우기를 계속한다 (WP-1683)', () => {
+  const text = readFileSync(new URL('start-agent/SKILL.md', skillsDir), 'utf8');
+  assert.ok(text.includes('`"<이 스킬 폴더>/../../scripts/browser-prune" --host "<홈>"`'));
+  // 종료 3(건너뜀)과 그 밖의 실패는 알리기만 하고 6번으로 간다.
+  assert.ok(text.includes('종료 3(건너뜀 — 설치 중·브라우저 폴더 없음)과 그 밖의 실패는 알리기만 하고 6번으로 간다'));
+  // 정리 결과는 7번 표 뒤 한 줄.
+  assert.ok(text.includes('「브라우저 정리: 깨진 설치 기록·옛 표시 <n>개를 지웠습니다」'));
+  assertBefore(text, '## 5. 저장소 준비', 'scripts/browser-prune" --host');
+  assertBefore(text, 'scripts/browser-prune" --host', '## 대기열 라벨');
+});
+
 // WP-1053 새 프로젝트 확인 — start-agent 칸이 깨어날 때마다(5분에 칸 하나) 소속 프로젝트를 읽어, 칸이 없으면 start-agent 와 같은 스크립트로 스스로 띄운다.
 test('work-loop: 새 프로젝트 확인은 start-agent 칸에서만, 칸 없는 프로젝트를 agent-project 로 스스로 준비해 띄운다 (WP-1053)', () => {
   const text = readFileSync(new URL('work-loop/SKILL.md', skillsDir), 'utf8');

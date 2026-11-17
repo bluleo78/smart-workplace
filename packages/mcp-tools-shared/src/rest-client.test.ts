@@ -646,6 +646,13 @@ describe('createSharedToolClient 경로 매핑', () => {
     http.patch.mockResolvedValueOnce({ data: { id: 40, body: '수정' } });
     expect(await client.updateChannelMessage(40, '수정')).toEqual({ id: 40, body: '수정' });
     expect(http.patch).toHaveBeenLastCalledWith('/messaging/messages/40', { body: '수정' });
+    // WP-1679: keepFileIds 가 있으면 함께 보내고(빈 배열도 그대로), 없으면 키 자체를 빼 첨부를 건드리지 않는 옛 요청과 같게 한다.
+    await client.updateChannelMessage(40, '수정', [7]);
+    expect(http.patch).toHaveBeenLastCalledWith('/messaging/messages/40', { body: '수정', keepFileIds: [7] });
+    await client.updateChannelMessage(40, '', []);
+    expect(http.patch).toHaveBeenLastCalledWith('/messaging/messages/40', { body: '', keepFileIds: [] });
+    await client.updateChannelMessage(40, '수정', undefined);
+    expect(http.patch.mock.lastCall?.[1]).not.toHaveProperty('keepFileIds');
     await client.markChannelRead(9, 99);
     expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/read', { uptoMessageId: 99 });
     http.get.mockResolvedValueOnce({ data: [{ userId: 1, username: 'a', name: 'A' }] });

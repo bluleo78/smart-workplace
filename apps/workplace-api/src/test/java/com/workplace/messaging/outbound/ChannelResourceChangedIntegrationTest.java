@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.clearInvocations;
@@ -22,6 +23,7 @@ import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -181,6 +183,36 @@ class ChannelResourceChangedIntegrationTest extends ExternalClientMockedTestBase
     dmService.createOrGet(owner, List.of(member));
     var rec = capture("dm", "updated").recipients();
     assertThat(rec).contains(owner).doesNotContain(member, outsider);
+  }
+
+  @Test
+  @DisplayName("그룹 DM 나가기는 남은 참여자와 나간 사람 모두에게 dm/updated (WP-1677)")
+  void groupDmLeave_reachesRemainingAndLeaver() {
+    // DM 목록(참여자·인원수)은 dm 리소스로 무효화된다 — channel/updated 만으로는 남은 사람의 DM 헤더와 나간 사람의 다른 탭 사이드바가 그대로다.
+    Long third = createHuman("third");
+    long dm = dmService.createOrGet(owner, List.of(member, third)).dm().id();
+    clearInvocations(registry);
+    channelMemberService.leave(member, dm);
+    var rec = capture("dm", "updated").recipients();
+    assertThat(rec).contains(owner, third, member).doesNotContain(outsider);
+  }
+
+  @Test
+  @DisplayName("일반 채널 나가기는 dm/updated 를 보내지 않는다")
+  void channelLeave_publishesNoDmEvent() {
+    var ch = newChannel("PRIVATE");
+    channelMemberService.add(owner, ch.id(), member);
+    clearInvocations(registry);
+    channelMemberService.leave(member, ch.id());
+    capture("channel", "updated");
+    verify(registry, after(500).never())
+        .fanOut(
+            any(), eq("resource.changed"), argThat(ChannelResourceChangedIntegrationTest::isDm));
+  }
+
+  /** resource 가 dm 인 resource.changed payload 인가. */
+  private static boolean isDm(Object payload) {
+    return payload instanceof Map<?, ?> m && "dm".equals(m.get("resource"));
   }
 
   @Test

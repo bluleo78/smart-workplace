@@ -8,8 +8,9 @@
 // 핀 이름은 늘 "고정"이고 상태는 aria-pressed 가 말한다. 막힌 핀은 disabled 가 아닌 aria-disabled 버튼 — 포커스·탭을 받아 이유를 알리고, 흐림(opacity) 대신
 // 한 단계 옅은 색 + not-allowed 커서로 보통 핀과 구분하면서도 눌러 볼 수 있어 보이게 한다.
 // WP-380: 메타 끝에 기한("10월 24일까지"), 고치기에서 기한도 고른다. 만료 행(서버 expired)은 흐리게 + "만료됨 · …까지 · …에 지워져요" + 기한 연장·계속 기억.
+// WP-1691: memo 로 감싸 30행을 더 그리거나 목록을 다시 받을 때 바뀌지 않은 행은 다시 렌더하지 않는다(props 안정은 카드가 맡는다).
 import { Pencil, Pin, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -32,7 +33,14 @@ export const KIND_BADGE = {
   CONTEXT: { label: '맥락', variant: 'info' },
 } as const;
 
-export function AiMemoryRow({
+/**
+ * 메모리 한 줄. memo 로 감싼 이유(WP-1691): 30행을 더 그릴 때마다 이미 그린 행 전체가 다시 렌더되어(행마다 mutation 훅 3개·포인터 구독·Tooltip)
+ * 1,800행에서 배치마다 500ms 넘게 메인 스레드가 멈췄다. props 가 그대로면 건너뛴다 — 카드(AiMemoryCard)가 다음을 지킨다:
+ * item 은 목록을 다시 받아도 id 로 이전 객체를 되살린다(reuseUnchangedById — 순번이 밀려도 필드가 같으면 같은 객체, 고치기·고정 등으로
+ * 필드가 바뀐 항목만 새 객체). fullScopes 는 값(가득 찬 범위 키)이 바뀔 때만 새 Set. pinFullHint 는 문자열|null 이라 값으로 비교된다.
+ * 고치는 중(editing)·초안 상태는 행 자신의 state 라 memo 와 무관하게 유지된다.
+ */
+export const AiMemoryRow = memo(function AiMemoryRow({
   item,
   fullScopes,
   pinFullHint,
@@ -232,4 +240,4 @@ export function AiMemoryRow({
       )}
     </li>
   );
-}
+});

@@ -8,7 +8,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.exception.EmptyMessageException;
-import com.workplace.messaging.exception.InvalidMessageAttachmentException;
+import com.workplace.messaging.exception.MessageAttachmentNotFoundException;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageAttachmentService;
@@ -182,8 +182,8 @@ class MessageServiceAttachmentTest extends IntegrationTestBase {
             .orElseThrow();
     assertThat(fromThread.deleted()).isTrue();
     assertThat(fromThread.attachments()).isEmpty();
-    // 파일 id 를 알아도 삭제된 메시지의 첨부는 내려받을 수 없다.
+    // 파일 id 를 알아도 삭제된 메시지의 첨부는 내려받을 수 없다 — 없는 첨부와 같은 404(WP-1679).
     assertThatThrownBy(() -> attachmentService.download(userId, channelId, root.id(), rootFile))
-        .isInstanceOf(InvalidMessageAttachmentException.class);
+        .isInstanceOf(MessageAttachmentNotFoundException.class);
   }
 }

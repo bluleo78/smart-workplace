@@ -226,8 +226,9 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 onStartEdit={() => setEditingId(m.id)}
                 onCancelEdit={() => setEditingId(null)}
                 // #124 수정: 성공 시에만 에디터 닫기. 실패 시 에디터는 입력 내용을 유지한 채 열려 있다.
-                onSaveEdit={(next) =>
-                  update.mutate({ messageId: m.id, body: next }, { onSuccess: () => setEditingId(null) })
+                // keepFileIds(WP-1679): 에디터가 칩 × 결과로 넘긴 남길 첨부 — 없으면 본문만 수정.
+                onSaveEdit={(next, keepFileIds) =>
+                  update.mutate({ messageId: m.id, body: next, keepFileIds }, { onSuccess: () => setEditingId(null) })
                 }
                 onDelete={() => startDelete(m)}
                 onDismissPreviews={() => dismissPreviews.mutate(m)}

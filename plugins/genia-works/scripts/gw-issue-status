@@ -1,0 +1,74 @@
+#!/bin/sh
+# gw-issue-status <AI 이름> <이슈 키> — 등록한 AI 키로 이슈 하나(GET /projects/<프로젝트 키>/issues/<번호>)를 읽어 상태 범주
+# (summary.status — TODO·IN_PROGRESS·DONE·CANCELED)를 한 줄 낸다(WP-1683). 부팅 때 워크트리 정리(agent-sweep)가 MCP 없이 이슈가
+# 끝났는지 묻는 길이다 — 칸 안의 work-loop 는 MCP(get_issue_detail)로 읽는다.
+# 실패는 「gw-issue-status: …」 한 줄을 표준 오류로 내고 끝낸다:
+#   1 키 없음·키 파일 깨짐 · 2 사용법(이슈 키 형식 아님) · 4 키 거절(401) · 5 닿지 못함·그 밖 HTTP·응답을 읽지 못함 ·
+#   6 권한 없음(403 — 더는 그 프로젝트 멤버가 아님 등) · 7 jq 없음 · 8 이슈 없음(404 — 지워졌거나 볼 수 없음)
+# 키는 명령줄 인자로 넘기지 않고(ps 에 보인다) 표준 입력으로 curl 설정에 넣으며(gw_api_request), 어디에도 출력하지 않는다.
+# 워크스페이스 헤더(GENIA_WORKS_TENANT)는 gw_curl_auth 가 붙인다. 서버 주소: GENIA_WORKS_API_URL, 없으면 운영 주소(gw_api_url).
+# 닿지 않는 서버에 부팅이 오래 매달리지 않게 연결 5초·전체 15초로 묶는다.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+if [ $# -ne 2 ] || ! gw_valid_issue_key "$2"; then
+  echo "gw-issue-status: 사용법 — gw-issue-status <AI 이름> <이슈 키(예: WP-12)>" >&2
+  exit 2
+fi
+_is_name=$1
+_is_key=$2
+_is_api=$(gw_api_url)
+
+_is_k=$(gw_read_key "$_is_name")
+case $? in
+  0) ;;
+  2)
+    echo "gw-issue-status: $_is_name 키 파일이 키 형식이 아닙니다 — /genia-works:login 에서 그 AI 의 키를 바꾸세요" >&2
+    exit 1
+    ;;
+  *)
+    echo "gw-issue-status: $_is_name 키가 이 컴퓨터에 없습니다 — /genia-works:login 으로 넣으세요" >&2
+    exit 1
+    ;;
+esac
+
+command -v jq >/dev/null 2>&1 || {
+  echo "gw-issue-status: jq 가 없습니다 — 이슈 응답을 읽으려면 jq 가 필요합니다" >&2
+  exit 7
+}
+
+# 키 앞(프로젝트 키)과 뒤(번호) — gw_valid_issue_key 가 모양을 확인했다(주소에 그대로 넣어도 된다).
+gw_api_request "$_is_k" 5 15 "$_is_api/projects/${_is_key%-*}/issues/${_is_key##*-}"
+case $GW_CODE in
+  200) ;;
+  401)
+    echo "gw-issue-status: $_is_name 키가 거절됐습니다(HTTP 401) — 관리자 › 에이전트에서 다시 발급해 /genia-works:login 으로 바꾸세요" >&2
+    exit 4
+    ;;
+  403)
+    echo "gw-issue-status: $_is_name 에게 $_is_key 를 볼 권한이 없습니다(HTTP 403)" >&2
+    exit 6
+    ;;
+  404)
+    echo "gw-issue-status: $_is_key 이슈를 찾지 못했습니다(HTTP 404)" >&2
+    exit 8
+    ;;
+  000 | '')
+    echo "gw-issue-status: 서버에 닿지 못했습니다($_is_api) — 주소·네트워크를 확인하세요(운영이 아니면 GENIA_WORKS_API_URL)" >&2
+    exit 5
+    ;;
+  *)
+    echo "gw-issue-status: $_is_key 를 읽지 못했습니다(HTTP $GW_CODE, $_is_api)" >&2
+    exit 5
+    ;;
+esac
+
+# 응답은 서버가 준 데이터일 뿐이라 jq 로만 읽고, 범주 모양(대문자·밑줄)이 아니면 읽지 못한 것으로 본다.
+_is_st=$(printf '%s' "$GW_BODY" | jq -r '.summary.status // empty' 2>/dev/null)
+case "$_is_st" in
+  '' | *[!A-Z_]*)
+    echo "gw-issue-status: $_is_key 응답에서 상태를 읽지 못했습니다($_is_api)" >&2
+    exit 5
+    ;;
+esac
+printf '%s\n' "$_is_st"

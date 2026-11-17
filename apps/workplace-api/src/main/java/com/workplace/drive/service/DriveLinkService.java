@@ -115,6 +115,15 @@ public class DriveLinkService {
     refRepo.delete(driveFileId, sourceType, sourceId);
   }
 
+  /**
+   * 소스(이슈/메시지)에 드라이브 링크가 하나라도 있는가(WP-1679). 휴지통 파일 링크도 남은 링크로 센다 — {@link #listLinks} 가 TRASHED 로
+   * 함께 내주는 것과 같다(드라이브 파일이 영구 삭제되면 ref 가 CASCADE 로 지워진다).
+   */
+  @Transactional(readOnly = true)
+  public boolean hasLinks(String sourceType, long sourceId) {
+    return refRepo.existsForSource(sourceType, sourceId);
+  }
+
   /** 소스(이슈/메시지)에 걸린 링크 목록 + 가용성(ACTIVE|TRASHED). */
   @Transactional(readOnly = true)
   public List<DriveLinkResponse> listLinks(String sourceType, long sourceId) {

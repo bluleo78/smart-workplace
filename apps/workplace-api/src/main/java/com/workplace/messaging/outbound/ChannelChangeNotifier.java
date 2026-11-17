@@ -95,6 +95,22 @@ public class ChannelChangeNotifier {
   }
 
   /**
+   * 그룹 DM 참여자 변경(WP-1677 나가기) — 남은 멤버 + extra(나간 사람)에게 dm/updated. DM 헤더의 참여자·인원수와 사이드바 DM 목록은 DM
+   * 목록 응답에서 오므로 channel/updated(채널 목록·멤버 무효화)만으로는 갱신되지 않는다. 웹의 channel 규칙에 DM 목록을 더하지 않은 이유: 공개 채널
+   * 변경은 테넌트 전원에게 가므로 그 때마다 모두가 DM 목록을 다시 받게 된다.
+   */
+  public void dmMembershipChanged(long channelId, Long actorId, Collection<Long> extra) {
+    publish(
+        RESOURCE_DM,
+        ResourceChangedEvent.OP_UPDATED,
+        ChannelAudienceResolver.SCOPE,
+        channelId,
+        channelId,
+        actorId,
+        extra);
+  }
+
+  /**
    * 한 사람의 DM 목록만 바뀜(WP-1676 숨기기·숨김 풀기) — 그 사용자 한 명에게만 dm/updated. 숨김은 멤버별 상태라 다른 멤버의 목록은 그대로다
    * (CHANNEL scope 로 보내면 상대도 불필요하게 다시 불러온다). scopeId 가 사용자 id 인 USER scope 를 쓴다.
    */

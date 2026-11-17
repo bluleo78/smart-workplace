@@ -2,6 +2,7 @@
 // 스레드도 채널처럼 URL ?thread 로 우측 칸(모바일 전체폭)에 연다 — 스레드 인박스의 DM 스레드가 여기로 온다(WP-1083).
 // #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
 // onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
+import { useMutationState } from '@tanstack/react-query'
 import { MessageSquare } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -19,6 +20,7 @@ import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
+import { messagingKeys } from '@/hooks/queries/messagingKeys'
 import { useChannelCatchup } from '@/hooks/queries/useChannelCatchup'
 import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
@@ -60,11 +62,37 @@ function dmTitleOf(dm: DmResponse, myId: number | undefined): string {
   return (others.length > 0 ? others : dm.participants).map((p) => p.name).join(', ')
 }
 
+/**
+ * 이 화면을 연 뒤 이 DM 을 숨기거나 나가는 중이거나 그렇게 끝냈는지(WP-1677).
+ * 숨기기·나가기가 성공하면 DmHeader 가 /chat 으로 가는데, 라우터(BrowserRouter)는 이동을 startTransition 으로 그려 새 화면이 커밋되기
+ * 전까지 이 화면이 남는다. 그 사이 무효화·SSE(dm/updated)로 다시 받은 DM 목록(이 DM 이 빠진)이 오면 급한 업데이트라 전환을 앞질러
+ * 이 화면을 다시 그리므로, 이것이 참이면 「대화를 찾을 수 없습니다」 대신 마지막으로 본 대화를 그대로 그린다.
+ * 화면을 연 뒤에 보낸 요청만 본다 — 예전에 숨긴/나간 DM 을 다시 연 경우(정말 없는 대화)는 그대로 「대화 없음」이다.
+ * 실패(400·500)는 보지 않는다 — 토스트를 띄우고 이 화면에 머무는 흐름은 그대로다.
+ */
+function useDepartingDm(dmId: number | undefined): boolean {
+  // KeyedByParam 이 DM 마다 다시 마운트하므로 이 값은 「이 DM 화면을 연 시각」이다.
+  const [enteredAt] = useState(() => Date.now())
+  const departures = useMutationState({
+    filters: {
+      mutationKey: messagingKeys.dmDeparture(),
+      predicate: (m) =>
+        dmId != null &&
+        m.state.variables === dmId &&
+        m.state.submittedAt >= enteredAt &&
+        (m.state.status === 'pending' || m.state.status === 'success'),
+    },
+    select: (m) => m.mutationId,
+  })
+  return departures.length > 0
+}
+
 export default function DmPage() {
   const { id } = useParams()
   const dmId = id ? Number(id) : undefined
   const { user } = useAuth()
   const { data: dms, isLoading, isError, refetch } = useMyDms()
+  const departing = useDepartingDm(dmId)
   const messagesQuery = useChannelMessages(dmId)
   const { data } = messagesQuery
   const messages = data?.pages.flatMap((p) => p.items) ?? []
@@ -132,7 +160,14 @@ export default function DmPage() {
     : { id: 0, name: '', kind: 'HUMAN' as UserKind }
   const create = useCreateMessage(dmId ?? 0, me)
 
-  const dm = dms?.find((d) => d.id === dmId)
+  const listedDm = dms?.find((d) => d.id === dmId)
+  // 마지막으로 목록에서 본 이 DM — 숨기기·나가기로 목록에서 빠진 뒤 /chat 으로 옮겨 가는 동안 이 화면을 그대로 그리는 데 쓴다(WP-1677).
+  // 렌더 중 상태 맞추기(이전 값 기억) 패턴 — 목록에 있을 때만 갱신한다.
+  const [lastDm, setLastDm] = useState(listedDm)
+  if (listedDm && listedDm !== lastDm) setLastDm(listedDm)
+  // 떠나는 중이면 목록에서 빠져도 마지막 모습을 유지한다 — 「대화 없음」이 비치지 않고, 헤더(DmHeader)가 남아 이동 콜백(onSuccess → /chat)도
+  // 끊기지 않는다(헤더가 언마운트되면 mutate 의 onSuccess 가 불리지 않는다). 그 밖에는 목록 기준 그대로(정말 없는 DM 은 「대화 없음」).
+  const dm = listedDm ?? (departing ? lastDm : undefined)
   // DM 읽음 표시(WP-1176) — 상대들의 읽음 위치. 나·AI 를 빼는 것은 서버가 한다(나만 있는 DM 은 빈 목록) — DM 목록에 아직 없는
   // 대화(바로 연 링크 등)에서도 표시가 빠지지 않게 화면에서 거르지 않는다.
   const readStates = useChannelReadStates(dmId ?? 0).data

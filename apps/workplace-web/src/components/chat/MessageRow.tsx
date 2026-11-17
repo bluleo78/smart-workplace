@@ -11,6 +11,7 @@ import { ChatMarkdownText } from '@/components/chat/ChatMarkdownText'
 import { LinkPreviewList } from '@/components/chat/LinkPreviewCard'
 import { MessageActionsButton } from '@/components/chat/MessageActionsButton'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
+import { MessageEditor } from '@/components/chat/MessageEditor'
 import { MessageImage } from '@/components/chat/MessageImage'
 import {
   HOVER_TIME_REVEAL_CLASS,
@@ -24,7 +25,6 @@ import { ReadReceipts } from '@/components/chat/ReadReceipts'
 import { renderIssueKeyRef } from '@/components/issues/renderIssueKeyRef'
 import { stripChatMarkdown } from '@/components/mentions/chatMarkdown'
 import type { RenderMention } from '@/components/mentions/parseMessageSegments'
-import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { EmojiPicker } from '@/components/reactions/EmojiPicker'
 import { ReactionBar } from '@/components/reactions/ReactionBar'
@@ -72,7 +72,8 @@ interface MessageRowProps {
   onOpenThread?: (messageId: number) => void
   onStartEdit: () => void
   onCancelEdit: () => void
-  onSaveEdit: (body: string) => void
+  // keepFileIds(WP-1679): 남길 첨부 id — 파일을 뺐거나 본문이 비었을 때만 온다(없으면 본문만 수정).
+  onSaveEdit: (body: string, keepFileIds?: number[]) => void
   onDelete: () => void
   // 링크 미리보기 지우기(WP-874). 작성자 본인 확정 메시지에만 쓴다 — 데스크톱은 카드 ✕, 터치 셸은 작업 시트가 맡는다.
   onDismissPreviews: () => void
@@ -280,27 +281,8 @@ export function MessageRow({
   )
 
   const body = isEditing ? (
-    // 인라인 수정 — RichInput 재사용. 저장 시 useUpdateMessage, 닫으면 편집 종료.
-    <div data-testid={`message-editor-${m.id}`}>
-      <RichInput
-        ariaLabel="메시지 수정"
-        members={members}
-        initialBody={m.body}
-        initialMentions={m.mentions}
-        onSubmit={onSaveEdit}
-        onCancel={onCancelEdit}
-        submitLabel="저장"
-        autoFocus
-        disableWhenEmpty
-        // 서식 입력(WP-101) — 작성창과 같은 서식 도구·단축키. 본문 마크다운을 서식으로 복원해 편집한다.
-        formatting
-        // 작성 입력창과 같은 서버 상한(4000자) — 넘으면 카운터를 보이고 저장을 막는다(WP-513).
-        maxLength={4000}
-        inputTestId={`message-editor-input-${m.id}`}
-        submitTestId={`message-editor-save-${m.id}`}
-        cancelTestId={`message-editor-cancel-${m.id}`}
-      />
-    </div>
+    // 인라인 수정 — 본문 + 붙인 파일 칩(×, WP-1679). 저장 시 useUpdateMessage, 닫으면 편집 종료.
+    <MessageEditor message={m} members={members} onSubmit={onSaveEdit} onCancel={onCancelEdit} />
   ) : m.proposal ? (
     // L3 위임 제안이 있는 메시지 — 본문 대신 확인 카드 렌더.
     <ProposalCard
@@ -357,10 +339,12 @@ export function MessageRow({
 
   // #80: driveLinks 도 MessageAttachmentList 에서 함께 렌더. 팀 채팅 뷰어 어댑터·이미지 렌더 주입(WP-279).
   // 미확정 메시지(id<0)는 서버 경로가 없어 열지 않는다(어댑터를 넘기지 않음).
+  // 수정 중엔 파일을 에디터의 칩(×)이 대신 보이므로 아래 목록에서 파일만 숨긴다 — 드라이브 링크는 칩으로 고치지 않아 그대로 둔다(WP-1679).
+  const shownFiles = isEditing ? [] : (m.attachments ?? [])
   const attachments = !m.deleted &&
-    ((m.attachments?.length ?? 0) > 0 || (m.driveLinks?.length ?? 0) > 0) && (
+    (shownFiles.length > 0 || (m.driveLinks?.length ?? 0) > 0) && (
       <MessageAttachmentList
-        attachments={m.attachments ?? []}
+        attachments={shownFiles}
         driveLinks={m.driveLinks ?? []}
         bundle={isPending ? undefined : () => teamChatBundle(channelId, m)}
         renderImage={(a, onOpen) => <MessageImage channelId={channelId} attachment={a} onOpen={onOpen} />}
