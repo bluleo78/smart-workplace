@@ -4,9 +4,9 @@
 // 저장·취소·초안·업로드 흐름 자체는 이슈 상세 페이지 테스트(issueDetailEdit·issueBodyImages)가 본다.
 import { act, fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { Editor } from '@tiptap/core'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
+import { editorOf } from '@/test/kits/richEditor'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { InlineEditableBody } from './InlineEditableBody'
@@ -39,13 +39,6 @@ function renderBody(props: Partial<Props> = {}) {
   }
   const view = renderWithProviders(<InlineEditableBody {...base} />)
   return { ...view, base }
-}
-
-/** 편집칸 DOM 에서 TipTap 편집기를 꺼낸다(TipTap 이 view.dom.editor 에 걸어 둔다). */
-function editorOf(el: HTMLElement): Editor {
-  const editor = (el as HTMLElement & { editor?: Editor }).editor
-  if (!editor) throw new Error('TipTap 편집기를 찾지 못했다')
-  return editor
 }
 
 /** 이 이슈(WP-1)의 로컬 초안 — 키의 사용자·워크스페이스 부분은 테스트 인증에 따르므로 끝(프로젝트·번호)으로 찾는다. */

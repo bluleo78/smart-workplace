@@ -87,13 +87,14 @@ test('제목 입력 후 Escape는 폐기 확인을 띄우고 계속 작성하면
   await user.click(screen.getByRole('button', { name: '계속 작성' }))
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   expect(screen.getByLabelText(/^제목/)).toHaveValue('테스트 제목')
-  expect(screen.getByLabelText('본문')).toHaveValue('작성 중인 본문')
+  // 본문 칸은 본문 모드 편집칸(contenteditable, WP-1657)이라 값 대신 글자를 본다.
+  expect(screen.getByLabelText('본문')).toHaveTextContent(/^작성 중인 본문$/)
   await user.keyboard('{Escape}')
   await user.click(await screen.findByRole('button', { name: '버리기' }))
   await closed()
   await reopen(user)
   expect(screen.getByLabelText(/^제목/)).toHaveValue('')
-  expect(screen.getByLabelText('본문')).toHaveValue('')
+  expect(screen.getByLabelText('본문')).toHaveTextContent(/^$/)
 })
 
 test('본문만 입력한 뒤 취소하면 폐기 확인을 띄우고 버린 뒤 다시 열면 입력이 비어 있다', async () => {
@@ -104,13 +105,13 @@ test('본문만 입력한 뒤 취소하면 폐기 확인을 띄우고 버린 뒤
   expect(await screen.findByRole('alertdialog', { name: '작성 중인 내용을 버릴까요?' })).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '계속 작성' }))
   expect(screen.getByLabelText(/^제목/)).toHaveValue('')
-  expect(screen.getByLabelText('본문')).toHaveValue('본문만 있는 초안')
+  expect(screen.getByLabelText('본문')).toHaveTextContent(/^본문만 있는 초안$/)
   await user.click(screen.getByRole('button', { name: '취소' }))
   await user.click(await screen.findByRole('button', { name: '버리기' }))
   await closed()
   await reopen(user)
   expect(screen.getByLabelText(/^제목/)).toHaveValue('')
-  expect(screen.getByLabelText('본문')).toHaveValue('')
+  expect(screen.getByLabelText('본문')).toHaveTextContent(/^$/)
 })
 
 // #178 — 빈 폼과 오류만 있는 폼은 확인 없이 닫히고 다시 열면 오류가 사라진다.

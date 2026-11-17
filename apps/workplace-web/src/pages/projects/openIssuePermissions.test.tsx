@@ -4,13 +4,14 @@
 // 그 spec 에는 실제 파일 선택 업로드의 multipart 파일 이름(jsdom File 은 이름·내용이 실리지 않는다)·본문 이미지 붙여넣기(@input)와
 // 인증 blob 이미지 열람(@platform)이 남는다.
 // 판정 자체(OPEN·TEAM × 멤버 여부, 잠김 문구)는 src/lib/projectPermissions.test.ts 가 맡는다.
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers, issueListHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { editorOf } from '@/test/kits/richEditor'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 
@@ -98,7 +99,10 @@ describe('보드 — OPEN 비멤버·멤버', () => {
     expect(within(dialog).queryByLabelText('시작일')).not.toBeInTheDocument()
     expect(within(dialog).queryByTestId('create-type-select')).not.toBeInTheDocument()
     fireEvent.change(document.getElementById('issue-title')!, { target: { value: '접수 건의' } })
-    fireEvent.change(document.getElementById('issue-body')!, { target: { value: '내용' } })
+    // 본문 칸은 본문 모드 편집칸(WP-1657) — 편집기에 원문을 넣는다.
+    act(() => {
+      editorOf(within(dialog).getByTestId('issue-body')).commands.insertContentAt(1, '내용')
+    })
     await user.click(within(dialog).getByRole('button', { name: '생성' }))
     await waitFor(() => expect(posted).toEqual([{ title: '접수 건의', body: '내용' }]))
   })

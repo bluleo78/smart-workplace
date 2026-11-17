@@ -117,8 +117,10 @@ interface RichInputProps {
    *  ② 원문 ↔ 문서는 줄 = 문단 그대로이고 projectKey 의 이슈 이미지만 노드(보기 화면 크기) — 다른 프로젝트·외부 이미지는 글자
    *  ③ Enter=줄바꿈, Cmd/Ctrl+Enter=onSubmit(지금 원문 — trim·변경 없음 비교·비우기 없이 바깥이 판단, 업로드 중엔 부르지 않음), Esc=onCancel
    *  ④ 붙여넣기는 일반 글자를 줄 단위 그대로(HTML 이 함께 와도 서식 없이), 복사는 문단 사이 줄바꿈 하나, 실행 취소 기록
+   *  ⑤ frame — 'boxed'(생략·기본)는 테두리·안쪽 여백이 있는 지금 모양, 'bare' 는 테두리·배경·안쪽 여백·포커스 링 없이 글자만
+   *     (모바일 이슈 만들기 시트처럼 바깥이 이미 칸을 그려 둔 곳). 마운트 때 한 번만 읽는다(bodySetup).
    *  이미지 업로드는 imageUpload 로 한다(본문 모드에서 필요). */
-  bodyMode?: { projectKey: string };
+  bodyMode?: { projectKey: string; frame?: 'boxed' | 'bare' };
   /** 본문 모드 — 내용이 바뀔 때마다 다듬지 않은 원문(serializeToBody). 바깥 draft 를 이것으로 맞춘다. */
   onBodyChange?: (body: string) => void;
   /** 본문 모드 — 업로드 중 이미지(자리표시)가 있는지가 바뀔 때. 바깥이 저장 버튼·단축키·모바일 바를 막는 데 쓴다. */
@@ -143,6 +145,8 @@ function editorAriaAttributes(aria: RichInputProps['editorAria']): Record<string
 export interface RichInputHandle {
   /** 이미지 파일을 현재 커서 자리에 넣고 업로드한다(자리표시 → 이미지). 형식·크기가 틀린 파일은 걸러 한 번 안내한다. */
   insertImages: (files: File[]) => void;
+  /** 편집칸 끝(본문 끝)으로 포커스를 옮긴다 — 폼 검사 실패 때 바깥이 오류 난 본문 칸으로 포커스를 보내는 데 쓴다. */
+  focus: () => void;
 }
 
 /** 서식 도구 줄 열림 상태 저장 키 — 채팅 입력창 전체가 하나를 공유한다(한 번 열어 두면 어느 채팅에서나 열려 있게). */
@@ -272,7 +276,9 @@ export function RichInput({
   // 본문 모드(WP-1656)도 스키마·키 처리가 에디터 생성 시 정해지므로 마운트 시점 값으로 고정한다. image 는 이 프로젝트 경로만 받고
   // 보기 화면 크기로 그리는 이미지 확장 — 렌더마다 새로 만들지 않게 한 번만. 본문 모드 여부는 모두 이것 하나로 가른다.
   const [bodySetup] = useState(() =>
-    bodyMode ? { projectKey: bodyMode.projectKey, image: createRichBodyImage(bodyMode.projectKey) } : null,
+    bodyMode
+      ? { projectKey: bodyMode.projectKey, bare: bodyMode.frame === 'bare', image: createRichBodyImage(bodyMode.projectKey) }
+      : null,
   );
   const bodyModeEnabled = bodySetup != null;
   // 이미지 스키마는 에디터 생성 시 1회만 정해진다 — 마운트 시점 값으로 고정. 업로드 함수는 insertImages 가 매 렌더 최신 prop 을 읽는다.
@@ -455,7 +461,11 @@ export function RichInput({
         // 본문 모드는 role 도 여기서 단다. 코멘트·채팅은 그대로(editorAria 없음).
         ...(bodyModeEnabled ? { role: 'textbox' } : {}),
         ...editorAriaAttributes(editorAria),
-        class: `chat-rich-input ${bodyModeEnabled ? 'min-h-40' : inlineSubmit ? 'min-h-11 max-lg:rounded-2xl lg:min-h-9 lg:py-1.5' : 'min-h-[44px]'} ${editorMaxHeightClass} overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`,
+        // 본문 모드 frame='bare'(WP-1657): 테두리·rounded·배경·px/py·포커스 링 없이 글자만 — 최소 3줄(4.5rem)·모바일 입력 확대 방지로 text-base(16px).
+        // 'boxed'(기본)는 아래 기존 class 그대로.
+        class: bodySetup?.bare
+          ? `chat-rich-input min-h-[4.5rem] ${editorMaxHeightClass} overflow-auto bg-transparent text-base leading-6 focus-visible:outline-none`
+          : `chat-rich-input ${bodyModeEnabled ? 'min-h-40' : inlineSubmit ? 'min-h-11 max-lg:rounded-2xl lg:min-h-9 lg:py-1.5' : 'min-h-[44px]'} ${editorMaxHeightClass} overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`,
       },
       // 클립보드 파일(스크린샷 등)은 본문에 넣지 않고 첨부로 넘긴다. 텍스트가 함께 있으면 텍스트 붙여넣기(filesFromPaste).
       handlePaste: (view, event) => {
@@ -547,6 +557,8 @@ export function RichInput({
         .then((res) => finish(uploadId, { src: res.url, alt: res.name }))
         .catch((e) => {
           finish(uploadId, null);
+          // 편집기가 이미 없어졌으면(창을 버림·입력칸이 사라짐) 알릴 곳이 없으니 실패 토스트도 띄우지 않는다(WP-1657).
+          if (editor.isDestroyed) return;
           toast.error(extractApiError(e, '이미지를 올리지 못했습니다'));
         });
     }
@@ -556,8 +568,18 @@ export function RichInput({
     insertImagesRef.current = insertImages;
   });
 
-  // 바깥 조작 핸들 — 본문 모드 바깥 「이미지」 버튼이 커서 자리에 넣는다. insertImagesRef 로 늘 최신 업로드 함수를 쓴다.
-  useImperativeHandle(ref, () => ({ insertImages: (files: File[]) => insertImagesRef.current(files) }), []);
+  // 바깥 조작 핸들 — 본문 모드 바깥 「이미지」 버튼이 커서 자리에 넣고(insertImagesRef 로 늘 최신 업로드 함수), 바깥이 본문 끝으로 포커스한다.
+  // editor 는 비동기로 만들어지므로 editor 가 바뀔 때(처음 만들어질 때 한 번) 핸들을 다시 만든다. 아직 없거나 파괴됐으면 포커스하지 않는다.
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertImages: (files: File[]) => insertImagesRef.current(files),
+      focus: () => {
+        if (editor && !editor.isDestroyed) editor.commands.focus('end');
+      },
+    }),
+    [editor],
+  );
 
   /** 붙여넣은 <@id> 를 멘션 노드로 읽을 때 쓸 이름 목록 — 처음 본문의 멘션과 지금 후보(멤버). */
   function mentionUsers(): MentionUser[] {

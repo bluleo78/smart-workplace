@@ -80,7 +80,8 @@ test('이슈 초안을 닫는 모든 경로에서 계속 작성하거나 버릴 
       await expect(confirmation).toBeHidden()
       await expect(dialog).toBeVisible()
       await expect(dialog.getByLabel(/^제목/)).toHaveValue('작성 중인 제목')
-      await expect(dialog.getByLabel('본문', { exact: true })).toHaveValue('작성 중인 본문')
+      // 본문 칸은 본문 모드 편집칸(contenteditable, WP-1657)이라 값 대신 글자를 본다.
+      await expect(dialog.getByLabel('본문', { exact: true })).toHaveText('작성 중인 본문')
       await request.close()
       await expect(confirmation).toBeVisible()
       await confirmation.getByRole('button', { name: '버리기' }).click()
@@ -88,7 +89,7 @@ test('이슈 초안을 닫는 모든 경로에서 계속 작성하거나 버릴 
       await expect(dialog).toBeHidden()
       await openButton.click()
       await expect(dialog.getByLabel(/^제목/)).toHaveValue('')
-      await expect(dialog.getByLabel('본문', { exact: true })).toHaveValue('')
+      await expect(dialog.getByLabel('본문', { exact: true })).toHaveText('')
     })
   }
 })

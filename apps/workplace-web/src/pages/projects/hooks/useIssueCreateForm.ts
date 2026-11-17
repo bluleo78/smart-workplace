@@ -1,15 +1,18 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type FocusEvent, useEffect, useRef, useState } from 'react';
-import { type Resolver, useForm } from 'react-hook-form';
+import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type FieldErrors, type Resolver, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { uploadIssueImage } from '../../../api/issueImages';
+import type { RichInputHandle } from '../../../components/mentions/RichInput';
+import type { MentionCandidate } from '../../../components/mentions/types';
 import { useComponents } from '../../../hooks/queries/useComponents';
 import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { isStatusGoneError, useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
-import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { extractApiError, handleApiError } from '../../../lib/api-error';
 import { INCOMPLETE_DATE_MESSAGE, isIncompleteDateInput } from '../../../lib/dateInput';
@@ -23,6 +26,10 @@ import { type CreateMode, useCreateAiHandoff } from './useCreateAiHandoff';
 
 const zodIssueCreateResolver = zodResolver(createIssueSchema);
 const DATE_FIELDS = ['startDate', 'dueDate'] as const;
+// 검사 실패 때 포커스를 옮길 칸 — 화면 위에서 아래 순서(두 화면 모두 이 순서로 그린다).
+const ERROR_FOCUS_ORDER = ['title', 'body', 'startDate', 'dueDate', 'parentNumber'] as const;
+// 멘션 후보를 아직 받지 못했을 때 — 렌더마다 새 빈 배열을 만들지 않게 하나를 쓴다.
+const NO_MEMBERS: MentionCandidate[] = [];
 
 /**
  * 이슈 만들기 폼 검사 — zod 검사에 「덜 넣은 날짜」 판정을 더한다(WP-1644, 이유는 lib/dateInput).
@@ -77,24 +84,43 @@ export function useIssueCreateForm({
   const form = useForm<CreateIssueFormData>({
     resolver: issueCreateResolver,
     defaultValues: { priority: 'MID' },
+    // 첫 오류 칸 포커스는 아래 focusFirstError 가 화면 순서대로 직접 한다 — 본문 칸은 DOM 입력이 아닌 편집칸이라
+    // react-hook-form 의 등록 순서 포커스로는 본문을 화면 순서에 끼울 수 없다.
+    shouldFocusError: false,
   });
-  const { register, handleSubmit, reset, getValues, setValue, watch, getFieldState, trigger } = form;
+  const { register, handleSubmit, reset, setValue, watch, getFieldState, trigger, setFocus } = form;
 
-  // 본문 이미지 업로드(WP-199) — register 의 ref 와 우리 ref 를 함께 쓰기 위해 bodyField.ref 를 감싼다.
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
-  const bodyField = register('body');
-  const images = useIssueImageUpload({
-    projectKey,
-    textareaRef: bodyRef,
-    getValue: () => getValues('body') ?? '',
-    setValue: (v) => setValue('body', v, { shouldDirty: true }),
-  });
+  // 본문 칸(WP-1657) — 본문 모드 RichInput(칸 안 이미지). 편집칸은 비제어(마운트 때 원문을 한 번 읽음)라 DOM ref 를 react-hook-form 에 걸 수 없다.
+  // 그래서 register('body') 는 ref 없이 검사 대상(5만 자 상한)으로만 두고, 값은 편집칸이 알리는 원문(onBodyChange)으로 넣는다.
+  // (ref 에 오래 사는 가짜 객체를 걸면 react-hook-form 이 그 객체에 값을 써 두었다가 reset 뒤 다시 등록할 때 지난 본문을 읽어 온다.)
+  // 편집칸 핸들 — 데스크톱 「이미지」 버튼이 커서 자리에 이미지를 넣고(insertImages), 검사 실패 때 본문 끝으로 포커스한다(focus).
+  const bodyEditorRef = useRef<RichInputHandle | null>(null);
+  register('body');
+  // 편집칸 안에 업로드 중 이미지(자리표시)가 있는가. 자리표시는 원문에 실리지 않으므로(빈 글자) 토큰 검사 대신 이 상태로 생성을 막는다.
+  // ref 로도 들고 있어 같은 틱의 제출(onUploadingChange 직후 Enter 등)도 다시 그리기 전 최신 값을 읽는다.
+  const [uploading, setUploading] = useState(false);
+  const uploadingRef = useRef(false);
+  const onUploadingChange = useCallback((next: boolean) => {
+    uploadingRef.current = next;
+    setUploading(next);
+  }, []);
+  // 편집칸 원문 → 폼 값. 다듬지 않는다(앞뒤 공백·빈 줄 그대로 보낸다). 제출한 뒤에는 바로 다시 검사해 줄이면 5만 자 오류가 걷힌다
+  // (예전 Textarea 는 react-hook-form 의 onChange 재검사가 했다). form 은 렌더마다 같은 객체라 지금 제출 상태를 읽는다.
+  const onBodyChange = useCallback(
+    (next: string) => setValue('body', next, { shouldDirty: true, shouldValidate: form.formState.isSubmitted }),
+    [form, setValue],
+  );
+  // 본문 모드 설정·이미지 업로드 함수 — 편집칸이 마운트 때 읽거나 ref 로 최신 값을 읽지만, 렌더마다 새로 만들지 않게 메모한다.
+  const bodyMode = useMemo(() => ({ projectKey }), [projectKey]);
+  const imageUpload = useCallback((file: File) => uploadIssueImage(projectKey, file), [projectKey]);
+  // 멘션 후보(@) — 프로젝트 구성원.
+  const members = useProjectMembers(projectKey).data ?? NO_MEMBERS;
 
   /**
    * 시작일·마감일 칸(WP-1644) — 덜 넣은 날짜 판정은 위 resolver 가 하고, 여기서는 안내를 거두는 때만 더한다.
    * 칸을 비우면 값이 '' 그대로라 change 가 오지 않고, 제출 뒤 react-hook-form 은 blur 에서 다시 검사하지 않으므로
    * 오류가 서 있을 때 keyUp·blur 에서 그 칸을 다시 검사한다. 달력으로 고르는 change 는 react-hook-form 이 다시 검사한다.
-   * 화면(JSX)에서 그 칸을 그릴 때 부른다 — 등록 순서가 화면 순서와 같아야 첫 오류 칸 포커스가 위 칸(제목 등)부터 간다.
+   * 화면(JSX)에서 그 칸을 그릴 때 부른다(입력 요소 ref 를 react-hook-form 에 건다 — 덜 넣은 날짜 판정·오류 칸 포커스가 읽는다).
    */
   const dateField = (name: 'startDate' | 'dueDate') => {
     const field = register(name);
@@ -113,6 +139,10 @@ export function useIssueCreateForm({
 
   // dialog가 열릴 때 폼 상태 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
   useEffect(() => {
+    // 업로드 상태는 열 때·닫힐 때 모두 거둔다 — 편집칸은 닫히면서 버려져(올리던 이미지도 함께) 알림이 오지 않고, 열 때마다 새로 만들어진다.
+    // 닫힐 때 거두지 않으면 다시 열린 첫 렌더에 옛 값(true)이 남아 잠깐 hasContent·isSubmitting 이 true 가 된다.
+    uploadingRef.current = false;
+    setUploading(false);
     if (!open) return;
     reset({ priority: 'MID' });
     setClassifyReason(null); // AI 제안 이유 초기화
@@ -150,8 +180,8 @@ export function useIssueCreateForm({
   // 입력되어 있으면 beforeunload 확인 다이얼로그를 띄운다.
   const titleValue = watch('title');
   const bodyValue = watch('body');
-  // hasContent 는 모바일 시트의 버림 확인에도 쓰인다.
-  const hasContent = hasIssueDraftContent(titleValue, bodyValue);
+  // hasContent 는 버림 확인에도 쓰인다. 글자 없이 이미지만 올리는 중이어도(원문은 아직 빈 글자) 버리면 아까운 입력으로 본다.
+  const hasContent = hasIssueDraftContent(titleValue, bodyValue) || uploading;
   useUnsavedChangesWarning(open && hasContent);
 
   // AI 제안 핸들러 — 현재 폼 제목·본문으로 분류 요청.
@@ -180,11 +210,25 @@ export function useIssueCreateForm({
     );
   };
 
+  /**
+   * 검사 실패 때 화면 위에서부터 첫 오류 칸으로 포커스한다(제목 → 본문 → 시작일 → 마감일 → 상위 이슈 번호) — 두 제출 경로가 함께 쓴다.
+   * 본문은 편집칸 핸들(본문 끝으로 포커스), 나머지는 react-hook-form 이 쥔 입력 요소 ref(setFocus).
+   * 모바일 시트의 날짜는 달력 칩이라 입력 요소가 없어 setFocus 가 아무것도 하지 않는다.
+   */
+  const focusFirstError = (errors: FieldErrors<CreateIssueFormData>) => {
+    for (const name of ERROR_FOCUS_ORDER) {
+      if (!errors[name]) continue;
+      if (name === 'body') bodyEditorRef.current?.focus();
+      else setFocus(name);
+      return;
+    }
+  };
+
   const submit = async (data: CreateIssueFormData, mode: CreateMode) => {
     // 맡기기 일정이 틀리면(요일 없음·시각 형식) 만들지 않고 문구를 보인다 — 작업만 만들어지고 일정이 빠지지 않게 먼저 막는다.
     if (!intakeOnly && !ai.check()) return;
-    // 업로드가 끝나지 않은 자리표시 토큰이 저장되지 않게 마지막으로 막는다(버튼 비활성의 우회 경로 — Enter 제출 등).
-    if (images.pendingBlock(data.body ?? '')) {
+    // 업로드 중 이미지는 원문에 실리지 않아 그대로 만들면 이미지가 빠진다 — 마지막으로 막는다(버튼 비활성의 우회 경로 — 폼 제출 등).
+    if (uploadingRef.current) {
       toast.error('이미지 업로드가 끝난 뒤 등록해 주세요');
       return;
     }
@@ -238,19 +282,21 @@ export function useIssueCreateForm({
     // 할 일 범주의 기본 상태(새 이슈 기본값)면 안내하지 않는다 — 「검토 중」처럼 다른 상태에서 연 경우만.
     statusNote: !intakeOnly && initialStatus && initialStatus.id !== defaultStatusOf(statuses, 'TODO')?.id ? initialStatus.name : null,
     form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
-    classify, classifyReason, handleClassify, images, bodyRef, bodyField,
+    classify, classifyReason, handleClassify,
+    // 본문 칸(본문 모드 RichInput)에 넘길 것 — 두 화면이 같이 쓴다. bodyMode·imageUpload·두 콜백은 렌더마다 같은 참조.
+    bodyEditor: { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange },
     // 시작일·마감일 칸에 펼치는 register 결과 — 덜 넣은 날짜 안내를 거두는 keyUp·blur 가 얹혀 있다(WP-1644).
     dateField,
-    // 폼 제출(Enter·주 버튼) — 맡기기가 켜져 있으면 「만들고 지금 실행」, 아니면 만들기.
-    onSubmit: handleSubmit((d) => submit(d, 'run')),
+    // 폼 제출(Enter·주 버튼) — 맡기기가 켜져 있으면 「만들고 지금 실행」, 아니면 만들기. 검사 실패면 첫 오류 칸으로 포커스.
+    onSubmit: handleSubmit((d) => submit(d, 'run'), focusFirstError),
     // 「만들기만」 — 맡기기 일정은 저장하되 지금 실행하지 않는다.
-    onSubmitOnly: handleSubmit((d) => submit(d, 'only')),
+    onSubmitOnly: handleSubmit((d) => submit(d, 'only'), focusFirstError),
     ai,
     // 버튼을 맡기기용(「만들고 지금 실행」/「만들기만」)으로 그릴지 — 맡겼거나 담당 AI 후보를 받는 중(그때는 잠가 둔다). 접수 전용은 맡기지 않는다.
     aiActions: !intakeOnly && (ai.active || ai.loading),
     // 버튼 비활성 = 생성 요청 중 또는 이미지 업로드 중. 「생성 중…」 문구는 실제 생성 요청 중일 때만(isCreating) — 업로드 중엔 「생성」 유지.
     // submitting 이 만들기 요청(create)부터 일정 저장·지금 실행까지 덮는다.
-    isSubmitting: images.isUploading || submitting,
+    isSubmitting: uploading || submitting,
     isCreating: submitting,
     hasContent, epic, setEpic,
     // 구성요소(WP-933) — 칸 노출 여부·목록(보관 포함)·고른 id.

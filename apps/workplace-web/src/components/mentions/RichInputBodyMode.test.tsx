@@ -4,8 +4,10 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
 import { createRef } from 'react'
+import { toast } from 'sonner'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
+import { editorOf } from '@/test/kits/richEditor'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { OTHER_PROJECT_IMAGE, WP_IMAGE } from './__fixtures__/issueBodySamples'
@@ -45,13 +47,6 @@ function renderBody(props: Props = {}) {
     />,
   )
   return { ...handlers, ref, el: screen.getByTestId(INPUT), unmount: view.unmount }
-}
-
-/** 편집칸 DOM 에서 TipTap 편집기를 꺼낸다(TipTap 이 view.dom.editor 에 걸어 둔다). */
-function editorOf(el: HTMLElement): Editor {
-  const editor = (el as HTMLElement & { editor?: Editor }).editor
-  if (!editor) throw new Error('TipTap 편집기를 찾지 못했다')
-  return editor
 }
 
 /** 마지막 호출 인자. */
@@ -97,6 +92,24 @@ describe('RichInput 본문 모드', () => {
     expect(screen.queryByTestId(`${INPUT}-image`)).toBeNull()
     expect(screen.queryByTestId('char-count')).toBeNull()
     expect(screen.queryAllByRole('button')).toHaveLength(0)
+  })
+
+  it('frame bare 면 테두리·안쪽 여백·최소 160px 없이 3줄 높이(min-h-[4.5rem])·text-base', () => {
+    const { el } = renderBody({ bodyMode: { projectKey: 'WP', frame: 'bare' } })
+    const cls = el.className.split(/\s+/)
+    expect(cls).toContain('min-h-[4.5rem]')
+    expect(cls).toContain('text-base')
+    expect(cls).not.toContain('border')
+    expect(cls).not.toContain('min-h-40')
+    expect(cls).not.toContain('px-3')
+  })
+
+  it('frame 을 주지 않으면 지금 모양(min-h-40·border)', () => {
+    const { el } = renderBody()
+    const cls = el.className.split(/\s+/)
+    expect(cls).toContain('min-h-40')
+    expect(cls).toContain('border-input')
+    expect(cls).toContain('px-3')
   })
 
   it('이 프로젝트 이미지 줄은 보기 화면과 같은 크기 클래스의 이미지(썸네일 아님)', async () => {
@@ -426,6 +439,28 @@ describe('RichInput 본문 모드 — 업로드 실패는 넣기 전 원문으�
     await act(async () => fail())
     expect(imageCount(editor)).toBe(0)
     expect(lastArg(onBodyChange)).toBe(body)
+  })
+
+  it('편집칸이 있으면 업로드 실패를 토스트로 알린다', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    onTestFinished(() => toastError.mockRestore())
+    const { ref, fail } = renderFailing('재현 화면', 5)
+    act(() => ref.current?.insertImages([png()]))
+    await act(async () => fail())
+    expect(toastError).toHaveBeenCalledWith('이미지를 올리지 못했습니다')
+  })
+
+  // WP-1657 리뷰: 창을 버려 편집칸이 사라진 뒤 끝난 실패는 알릴 곳(입력칸)이 없으니 토스트도 띄우지 않는다.
+  it('업로드 중 편집칸이 사라진 뒤 실패하면 토스트를 띄우지 않는다', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    onTestFinished(() => toastError.mockRestore())
+    const { ref, fail, unmount, editor } = renderFailing('재현 화면', 5)
+    act(() => ref.current?.insertImages([png()]))
+    unmount()
+    // TipTap 은 언마운트 뒤 타이머 한 번 지나 편집기를 없앤다 — 실제 업로드는 그보다 늦게 끝난다.
+    await waitFor(() => expect(editor.isDestroyed).toBe(true))
+    await act(async () => fail())
+    expect(toastError).not.toHaveBeenCalled()
   })
 
   // 리뷰(PR #1413): 넣을 때 만든 빈 줄에 친 글자는 앞 줄에 붙이지 않는다 — 자리표시 줄만 걷고 친 줄은 그대로 둔다.
