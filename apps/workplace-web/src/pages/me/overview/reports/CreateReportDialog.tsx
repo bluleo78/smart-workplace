@@ -212,7 +212,8 @@ export function CreateReportDialog({ open, onOpenChange, onOpenSettings }: Creat
 
           <Field label="저장 위치">
             <span className="text-sm" data-testid="me-report-location">
-              {monthFolderLabel(kind, periodValue)}
+              {/* 바탕 경로는 설정의 저장 위치(WP-1655) — 설정을 받기 전에는 기본 「보고」. */}
+              {monthFolderLabel(kind, periodValue, settings.data?.reportLocationPath)}
             </span>
           </Field>
 

@@ -27,7 +27,12 @@ function settings(over: Partial<MeReportSettings> = {}): MeReportSettings {
     skipEmpty: true,
     dailyTemplatePageId: 501,
     weeklyTemplatePageId: 502,
+    dailyTemplatePath: ['템플릿', '일일 보고'],
+    weeklyTemplatePath: ['템플릿', '주간·월간 보고'],
+    templateRootPageId: 520,
+    templateRecreatedAt: null,
     reportsPageId: 500,
+    reportLocationPath: ['보고'],
     spaceId: 7,
     nextRunAt: null,
     assistantAvailable: true,
@@ -191,6 +196,12 @@ test('saveLocation_readOnlyMonthFolder — 저장 위치는 읽기 전용 달 �
   expect(where).toHaveTextContent('내 노트 › 보고 › 2026년 10월')
   await user.click(within(d).getByRole('button', { name: '월간' }))
   expect(where).toHaveTextContent('내 노트 › 보고 › 2026년 10월')
+})
+
+test('saveLocation_followsChosenPath — 저장 위치를 골라 뒀으면(WP-1655) 그 경로 아래 달 폴더', async () => {
+  open({ settings: settings({ reportsPageId: 531, reportLocationPath: ['업무 일지', '팀'] }) })
+  const d = await dialog()
+  await waitFor(() => expect(within(d).getByTestId('me-report-location')).toHaveTextContent('내 노트 › 업무 일지 › 팀 › 2026년 11월'))
 })
 
 test('settingsLink — 아래쪽 「보고서 설정」은 설정 창을 연다(P1)', async () => {

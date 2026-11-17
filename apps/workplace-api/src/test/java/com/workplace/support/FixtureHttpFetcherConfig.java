@@ -4,6 +4,8 @@ import com.workplace.global.net.SafeHttpFetcher;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -36,6 +38,32 @@ public class FixtureHttpFetcherConfig {
     'G', 'I', 'F', '8', '9', 'a', 1, 0, 1, 0, (byte) 0x80, 0, 0, 0, 0, 0
   };
 
+  /**
+   * OAuth CIMD 클라이언트 메타데이터 문서(WP-1685). 호스트는 문서용 공인 대역(203.0.113.0/24, TEST-NET-3) IP 리터럴이다 — CIMD
+   * 는 가져오기 전에 호스트를 실제로 풀어 내부 대역을 거르는데, 이름이면 테스트 환경 DNS 에 기대게 되므로 DNS 없이 풀리는 IP 리터럴을 쓴다.
+   */
+  public static final String CIMD_CLIENT = "https://203.0.113.50/oauth/client.json";
+
+  /** CIMD_CLIENT 문서의 redirect_uris. */
+  public static final String CIMD_REDIRECT = "https://cimd.example/callback";
+
+  /** 문서 안 client_id 가 문서 URL 과 다른 CIMD 문서(WP-1685) — 거절돼야 한다. */
+  public static final String CIMD_MISMATCH = "https://203.0.113.50/oauth/mismatch.json";
+
+  /** URL 별 fetch 호출 수(WP-1685) — CIMD 캐시가 다시 가져오지 않는지 테스트가 센다. */
+  private static final Map<String, AtomicInteger> FETCH_COUNTS = new ConcurrentHashMap<>();
+
+  /** 지금까지 그 URL 을 가져오려 한 횟수(픽스처에 없는 URL·실패 포함). */
+  public static int fetchCount(String url) {
+    AtomicInteger n = FETCH_COUNTS.get(url);
+    return n == null ? 0 : n.get();
+  }
+
+  /** 그 URL 의 호출 수를 0 으로 — 테스트 시작 때 앞 테스트의 호출을 지운다. */
+  public static void resetFetchCount(String url) {
+    FETCH_COUNTS.remove(url);
+  }
+
   @Bean
   @Primary
   public SafeHttpFetcher fixtureSafeHttpFetcher() {
@@ -60,11 +88,35 @@ public class FixtureHttpFetcherConfig {
             OG_IMAGE,
             new Fetched(URI.create(OG_IMAGE), "image/png", null, PNG),
             SIGNATURE_GIF,
-            new Fetched(URI.create(SIGNATURE_GIF), "image/gif", null, GIF));
+            new Fetched(URI.create(SIGNATURE_GIF), "image/gif", null, GIF),
+            CIMD_CLIENT,
+            json(
+                CIMD_CLIENT,
+                "{\"client_id\":\""
+                    + CIMD_CLIENT
+                    + "\",\"client_name\":\"픽스처 CIMD 앱\",\"redirect_uris\":[\""
+                    + CIMD_REDIRECT
+                    + "\"],\"client_uri\":\"https://cimd.example\","
+                    + "\"logo_uri\":\"https://cimd.example/logo.png\","
+                    + "\"token_endpoint_auth_method\":\"none\"}"),
+            CIMD_MISMATCH,
+            json(
+                CIMD_MISMATCH,
+                "{\"client_id\":\"https://203.0.113.50/oauth/other.json\","
+                    + "\"client_name\":\"다른 앱\",\"redirect_uris\":[\""
+                    + CIMD_REDIRECT
+                    + "\"]}"));
+
+    /** application/json 고정 응답. */
+    private static Fetched json(String url, String body) {
+      return new Fetched(
+          URI.create(url), "application/json", "utf-8", body.getBytes(StandardCharsets.UTF_8));
+    }
 
     @Override
     public Fetched fetch(String url, String accept, Predicate<String> mimeAllowed, int maxBytes)
         throws FetchException {
+      FETCH_COUNTS.computeIfAbsent(url, k -> new AtomicInteger()).incrementAndGet();
       Fetched f = FIXTURES.get(url);
       if (f == null || !mimeAllowed.test(f.mimeType())) {
         throw new FetchException("테스트 픽스처 없음: " + url);

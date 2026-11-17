@@ -74,6 +74,7 @@ import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.NotificationAppSetting.NotificationAppSettingPath;
 import com.workplace.jooq.tables.NotificationSetting.NotificationSettingPath;
+import com.workplace.jooq.tables.OauthConnection.OauthConnectionPath;
 import com.workplace.jooq.tables.PersonalReport.PersonalReportPath;
 import com.workplace.jooq.tables.PersonalReportSetting.PersonalReportSettingPath;
 import com.workplace.jooq.tables.PlatformRole.PlatformRolePath;
@@ -1403,6 +1404,19 @@ public class User extends TableImpl<UserRecord> {
             _notificationSetting = new NotificationSettingPath(this, null, Keys.NOTIFICATION_SETTING__NOTIFICATION_SETTING_USER_ID_FKEY.getInverseKey());
 
         return _notificationSetting;
+    }
+
+    private transient OauthConnectionPath _oauthConnection;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.oauth_connection</code> table
+     */
+    public OauthConnectionPath oauthConnection() {
+        if (_oauthConnection == null)
+            _oauthConnection = new OauthConnectionPath(this, null, Keys.OAUTH_CONNECTION__OAUTH_CONNECTION_USER_ID_FKEY.getInverseKey());
+
+        return _oauthConnection;
     }
 
     private transient PersonalReportSettingPath _personalReportSetting;

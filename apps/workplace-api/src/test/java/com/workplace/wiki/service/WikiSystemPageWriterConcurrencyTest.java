@@ -8,7 +8,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
-import com.workplace.wiki.service.WikiSystemPageWriter.PersonalReportsHome;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -33,20 +32,22 @@ class WikiSystemPageWriterConcurrencyTest extends ExternalClientMockedTestBase {
   @Autowired WikiSystemPageWriter writer;
 
   private long userId;
-  private PersonalReportsHome home;
+  private long spaceId;
+  private long reportsPageId;
 
   @BeforeEach
   void seed() {
     TenantContext.set(1L);
     userId = withMembership(TestFixtures.createHuman(dsl));
     grantUserRole(userId);
-    home = writer.ensurePersonalReportsHome(userId);
+    spaceId = writer.ensurePersonalSpace(userId);
+    reportsPageId = writer.ensurePersonalReportsPage(spaceId, userId);
   }
 
   @AfterEach
   void cleanup() {
     cleanupInTenant(
-        1L, () -> dsl.deleteFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(home.spaceId())).execute());
+        1L, () -> dsl.deleteFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(spaceId)).execute());
     cleanupInTenant(
         1L,
         () -> {
@@ -69,7 +70,7 @@ class WikiSystemPageWriterConcurrencyTest extends ExternalClientMockedTestBase {
                 try {
                   start.await();
                   return writer.ensureChildFolder(
-                      home.spaceId(), home.reportsPageId(), "2026년 11월", userId, s -> 0);
+                      spaceId, reportsPageId, "2026년 11월", userId, s -> 0);
                 } finally {
                   TenantContext.clear();
                 }
@@ -81,6 +82,6 @@ class WikiSystemPageWriterConcurrencyTest extends ExternalClientMockedTestBase {
     pool.shutdown();
 
     assertThat(first).isEqualTo(second);
-    assertThat(writer.childIdsOrdered(home.reportsPageId())).containsExactly(first);
+    assertThat(writer.childIdsOrdered(reportsPageId)).containsExactly(first);
   }
 }

@@ -18,7 +18,6 @@ import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.report.PersonalReportRepository.Reservation;
 import com.workplace.wiki.service.WikiSystemPageWriter;
-import com.workplace.wiki.service.WikiSystemPageWriter.PersonalReportsHome;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -87,7 +86,13 @@ class PersonalReportControllerTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.skipEmpty").value(false))
         .andExpect(jsonPath("$.dailyTemplatePageId").isNumber())
         .andExpect(jsonPath("$.weeklyTemplatePageId").isNumber())
-        .andExpect(jsonPath("$.reportsPageId").isNumber())
+        .andExpect(jsonPath("$.dailyTemplatePath[0]").value("템플릿"))
+        .andExpect(jsonPath("$.dailyTemplatePath[1]").value("일일 보고"))
+        .andExpect(jsonPath("$.weeklyTemplatePath[1]").value("주간·월간 보고"))
+        .andExpect(jsonPath("$.templateRootPageId").isNumber())
+        // 켜기는 「템플릿」 아래 템플릿만 갖추고 「보고」는 첫 보고 때 만든다(WP-1655) — 공간 id 만 있다.
+        .andExpect(jsonPath("$.reportsPageId").doesNotExist())
+        .andExpect(jsonPath("$.spaceId").isNumber())
         .andExpect(jsonPath("$.nextRunAt").isNotEmpty());
     // 남의 설정에는 영향이 없다.
     call(get("/api/v1/me/report-settings"), other)
@@ -103,6 +108,47 @@ class PersonalReportControllerTest extends ExternalClientMockedTestBase {
                 .content("{\"dailyEnabled\":true,\"timeOfDay\":\"09:30\"}"),
             me)
         .andExpect(status().isBadRequest());
+  }
+
+  /** PUT location — 고른 내 노트 페이지가 응답의 reportsPageId·경로가 된다(WP-1655). */
+  @Test
+  void putLocation_200() throws Exception {
+    long space = writer.ensurePersonalSpace(me);
+    long notes = writer.createPage(me, space, null, "회의록").id();
+    long weekly = writer.createPage(me, space, notes, "주간 보고").id();
+
+    call(locationPut("{\"pageId\":" + weekly + "}"), me)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.reportsPageId").value(weekly))
+        .andExpect(jsonPath("$.reportLocationPath[0]").value("회의록"))
+        .andExpect(jsonPath("$.reportLocationPath[1]").value("주간 보고"))
+        .andExpect(jsonPath("$.spaceId").value(space))
+        .andExpect(jsonPath("$.dailyTemplatePath").doesNotExist());
+    call(get("/api/v1/me/report-settings"), me)
+        .andExpect(jsonPath("$.reportsPageId").value(weekly));
+  }
+
+  /** PUT location — pageId 가 없으면 400. */
+  @Test
+  void putLocation_missingPageId_400() throws Exception {
+    call(locationPut("{}"), me).andExpect(status().isBadRequest());
+  }
+
+  /** PUT location — 다른 사람의 내 노트 페이지는 400 검증 문구. */
+  @Test
+  void putLocation_otherUsersPage_400Message() throws Exception {
+    long otherSpace = writer.ensurePersonalSpace(other);
+    long theirs = writer.createPage(other, otherSpace, null, "남의 노트").id();
+
+    call(locationPut("{\"pageId\":" + theirs + "}"), me)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("내 노트의 페이지만 고를 수 있어요."));
+  }
+
+  private MockHttpServletRequestBuilder locationPut(String json) {
+    return put("/api/v1/me/report-settings/location")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(json);
   }
 
   @Test
@@ -205,8 +251,9 @@ class PersonalReportControllerTest extends ExternalClientMockedTestBase {
 
   /** 그 날 일일 회차를 페이지(제목 「기존 보고」)까지 만든 상태로 둔다. */
   private long generated(long userId, LocalDate day) {
-    PersonalReportsHome home = writer.ensurePersonalReportsHome(userId);
-    long pageId = writer.createPage(userId, home.spaceId(), home.reportsPageId(), "기존 보고").id();
+    long spaceId = writer.ensurePersonalSpace(userId);
+    long reportsPage = writer.ensurePersonalReportsPage(spaceId, userId);
+    long pageId = writer.createPage(userId, spaceId, reportsPage, "기존 보고").id();
     Reservation r = reports.reserve(userId, PersonalReportPeriod.daily(day), "MANUAL", now());
     reports.markGenerated(r.id(), pageId, 1, 0, 0, now());
     return pageId;

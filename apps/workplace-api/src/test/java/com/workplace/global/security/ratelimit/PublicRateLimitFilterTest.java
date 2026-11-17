@@ -1,5 +1,6 @@
 package com.workplace.global.security.ratelimit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -283,5 +285,55 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
                   throw new AssertionError("세지 않아야 할 경로가 제한됨: " + path);
               });
     }
+  }
+
+  /**
+   * OAuth 공개 엔드포인트(WP-1685) — 동적 등록(POST register)은 {@code OAUTH_REGISTER}, 토큰 교환(POST token)은
+   * {@code OAUTH_TOKEN} 으로 따로 센다. 다른 메서드·아래 경로는 세지 않는다. 기본 한도는 분당 10·60.
+   */
+  @Test
+  void OAuth_등록과_토큰_엔드포인트는_각자_정책으로_센다() {
+    assertThat(
+            PublicRateLimitFilter.policyOf(
+                new MockHttpServletRequest("POST", "/api/v1/oauth/register")))
+        .isEqualTo(PublicRateLimitFilter.Policy.OAUTH_REGISTER);
+    assertThat(
+            PublicRateLimitFilter.policyOf(
+                new MockHttpServletRequest("POST", "/api/v1/oauth/token")))
+        .isEqualTo(PublicRateLimitFilter.Policy.OAUTH_TOKEN);
+    assertThat(
+            PublicRateLimitFilter.policyOf(
+                new MockHttpServletRequest("GET", "/api/v1/oauth/register")))
+        .isNull();
+    assertThat(
+            PublicRateLimitFilter.policyOf(
+                new MockHttpServletRequest("GET", "/api/v1/oauth/authorize/validate")))
+        .isNull();
+    RateLimitProperties defaults =
+        new RateLimitProperties(null, null, null, null, null, null, null);
+    assertThat(defaults.oauthRegisterPerMinute()).isEqualTo(10);
+    assertThat(defaults.oauthTokenPerMinute()).isEqualTo(60);
+  }
+
+  /** 등록 엔드포인트는 같은 IP 에서 한도(기본 10)를 넘기면 429 — 필터 배선 확인. 등록 본문은 잘못돼 400 이어도 센다. */
+  @Test
+  void OAuth_등록은_같은_IP_에서_한도를_넘기면_429() throws Exception {
+    String ip = uniqueIp();
+    Callable<ResultActions> register =
+        () ->
+            mvc.perform(
+                post("/api/v1/oauth/register")
+                    .header("X-Forwarded-For", ip)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"redirect_uris\":[]}"));
+    for (int i = 0; i < 10; i++) {
+      register
+          .call()
+          .andExpect(
+              result -> {
+                if (result.getResponse().getStatus() == 429) throw new AssertionError("한도 전 429");
+              });
+    }
+    untilLimited(register, 10).andExpect(content().string(containsString("요청이 너무 많습니다")));
   }
 }

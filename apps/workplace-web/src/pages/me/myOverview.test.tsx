@@ -464,7 +464,9 @@ describe('개인 보고', () => {
     const { user } = renderTasks('/me/tasks/overview')
     server.use(
       http.get('/api/v1/me/report-settings', () =>
-        HttpResponse.json({ dailyEnabled: false, timeOfDay: '09:00', skipEmpty: true, dailyTemplatePageId: null, weeklyTemplatePageId: null, reportsPageId: null, spaceId: null, nextRunAt: null, assistantAvailable: true, lastError: null }),
+        HttpResponse.json({ dailyEnabled: false, timeOfDay: '09:00', skipEmpty: true, dailyTemplatePageId: null, weeklyTemplatePageId: null,
+          dailyTemplatePath: null, weeklyTemplatePath: null, templateRootPageId: null, templateRecreatedAt: null,
+          reportsPageId: null, reportLocationPath: ['보고'], spaceId: null, nextRunAt: null, assistantAvailable: true, lastError: null }),
       ),
     )
     const card = await screen.findByTestId('overview-work-profile')

@@ -22,6 +22,17 @@ export interface McpRoute {
   readOnly: boolean;
 }
 
+/**
+ * MCP 연결 경로 네 가지(WP-350)와 각 경로의 읽기 전용 여부 — POST 등록·GET/DELETE 405·보호 리소스 메타데이터(WP-1685)가 모두 이 표에서
+ * 경로를 얻는다. 경로를 더하거나 바꾸면 세 곳이 함께 따라간다. `:apps` 는 쉼표로 고른 앱 이름(Express 경로 파라미터)이다.
+ */
+export const MCP_ROUTES: readonly { path: string; readOnly: boolean }[] = [
+  { path: '/mcp', readOnly: false },
+  { path: '/mcp/readonly', readOnly: true },
+  { path: '/mcp/x/:apps', readOnly: false },
+  { path: '/mcp/x/:apps/readonly', readOnly: true },
+];
+
 /** 앱 이름이 잘못되었을 때 — HTTP 400 으로 바꿔 사용 가능한 목록과 함께 돌려준다. */
 export class InvalidScopeError extends Error {
   constructor(

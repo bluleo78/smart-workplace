@@ -16,6 +16,7 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.Table;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -52,6 +53,16 @@ public class PersonalReportSettingRepository {
   private static final Field<String> LAST_ERROR = field(name(TBL, "last_error"), String.class);
   private static final Field<OffsetDateTime> UPDATED_AT =
       field(name(TBL, "updated_at"), OffsetDateTime.class);
+  private static final Field<Long> REPORT_LOCATION =
+      field(name(TBL, "report_location_page_id"), Long.class);
+  private static final Field<Boolean> TEMPLATE_INITIALIZED =
+      field(name(TBL, "template_initialized"), Boolean.class);
+  private static final Field<Boolean> DAILY_TEMPLATE_MADE =
+      field(name(TBL, "daily_template_made"), Boolean.class);
+  private static final Field<Boolean> WEEKLY_TEMPLATE_MADE =
+      field(name(TBL, "weekly_template_made"), Boolean.class);
+  private static final Field<OffsetDateTime> TEMPLATE_RECREATED_AT =
+      field(name(TBL, "template_recreated_at"), OffsetDateTime.class);
 
   private final DSLContext dsl;
 
@@ -61,6 +72,11 @@ public class PersonalReportSettingRepository {
    * @param dailyTemplatePageId 일일 템플릿 노트(없으면 null)
    * @param weeklyTemplatePageId 주간·월간 공용 템플릿 노트(없으면 null)
    * @param nextRunAt 다음 자동 일일 생성 시각(null = 꺼짐)
+   * @param reportLocationPageId 사용자가 고른 보고 저장 위치(WP-1655, null = 기본 「보고」)
+   * @param templateInitialized 「보고」 아래 옛 템플릿을 「템플릿」 으로 옮기는 판정을 마쳤는가(WP-1655)
+   * @param dailyTemplateMade 일일 템플릿을 한 번이라도 만들었는가 — 지워져 id 가 비었을 때 「다시 만듦」 판정(WP-1655)
+   * @param weeklyTemplateMade 주간·월간 템플릿을 한 번이라도 만들었는가(WP-1655)
+   * @param templateRecreatedAt 없어진 템플릿을 다시 만든 시각 — 설정 화면 한 줄 알림(WP-1655, null = 알림 없음)
    */
   public record SettingRow(
       long userId,
@@ -71,11 +87,30 @@ public class PersonalReportSettingRepository {
       Long weeklyTemplatePageId,
       OffsetDateTime nextRunAt,
       int consecutiveFailures,
-      String lastError) {
+      String lastError,
+      Long reportLocationPageId,
+      boolean templateInitialized,
+      boolean dailyTemplateMade,
+      boolean weeklyTemplateMade,
+      OffsetDateTime templateRecreatedAt) {
 
     /** 행이 없을 때의 기본값 — 꺼짐·09:00·한 일이 없는 날은 건너뜀. */
     public static SettingRow defaults(long userId) {
-      return new SettingRow(userId, false, LocalTime.of(9, 0), true, null, null, null, 0, null);
+      return new SettingRow(
+          userId,
+          false,
+          LocalTime.of(9, 0),
+          true,
+          null,
+          null,
+          null,
+          0,
+          null,
+          null,
+          false,
+          false,
+          false,
+          null);
     }
   }
 
@@ -90,7 +125,12 @@ public class PersonalReportSettingRepository {
             WEEKLY_TEMPLATE,
             NEXT_RUN_AT,
             FAILURES,
-            LAST_ERROR)
+            LAST_ERROR,
+            REPORT_LOCATION,
+            TEMPLATE_INITIALIZED,
+            DAILY_TEMPLATE_MADE,
+            WEEKLY_TEMPLATE_MADE,
+            TEMPLATE_RECREATED_AT)
         .from(T)
         .where(USER_ID.eq(userId))
         .fetchOptional(PersonalReportSettingRepository::toRow);
@@ -121,17 +161,73 @@ public class PersonalReportSettingRepository {
   }
 
   /**
-   * 템플릿 노트를 적는다 — DAILY 는 일일 칸, WEEKLY·MONTHLY 는 주간 칸. 행이 없으면 기본값으로 만든다(충돌 대상 tenant_id, user_id).
+   * 템플릿 노트를 적는다(WP-1655) — DAILY 는 일일 칸, WEEKLY·MONTHLY 는 주간 칸. 그 종류의 「만든 적 있음」(*_template_made)도
+   * 함께 켠다(id 가 지워져 NULL 이 돼도 다시 만들 때 알림을 띄우려고). recreated 면 「템플릿을 다시 만들었어요」 알림 시각을 지금으로 적고, 아니면 이미
+   * 있던 알림 시각은 건드리지 않는다(다른 종류를 다시 만든 알림을 지우지 않게). 행이 없으면 기본값으로 만든다(충돌 대상 tenant_id, user_id).
    */
-  public void setTemplate(long userId, PersonalReportKind kind, long pageId) {
-    Field<Long> col = kind == PersonalReportKind.DAILY ? DAILY_TEMPLATE : WEEKLY_TEMPLATE;
+  public void setTemplate(long userId, PersonalReportKind kind, long pageId, boolean recreated) {
+    boolean daily = kind == PersonalReportKind.DAILY;
+    Field<Long> col = daily ? DAILY_TEMPLATE : WEEKLY_TEMPLATE;
+    Field<Boolean> made = daily ? DAILY_TEMPLATE_MADE : WEEKLY_TEMPLATE_MADE;
+    // 다시 만든 것이면 지금, 아니면 null — null 이면 충돌 갱신에서 coalesce 로 기존 알림 시각을 그대로 둔다.
+    OffsetDateTime now = OffsetDateTime.now();
+    OffsetDateTime recreatedAt = recreated ? now : null;
     dsl.insertInto(T)
-        .columns(USER_ID, col)
-        .values(userId, pageId)
+        .columns(USER_ID, col, made, TEMPLATE_RECREATED_AT)
+        .values(userId, pageId, true, recreatedAt)
         .onConflict(TENANT_ID, USER_ID)
         .doUpdate()
         .set(col, pageId)
-        .set(UPDATED_AT, OffsetDateTime.now())
+        .set(made, true)
+        .set(
+            TEMPLATE_RECREATED_AT,
+            DSL.coalesce(DSL.val(recreatedAt, OffsetDateTime.class), TEMPLATE_RECREATED_AT))
+        .set(UPDATED_AT, now)
+        .execute();
+  }
+
+  /** 「보고」 아래 옛 템플릿을 「템플릿」 으로 옮기는 판정을 마쳤다고 적는다(WP-1655) — 한 번만 옮기게. 행이 없으면 기본값으로 만든다. */
+  public void markTemplateInitialized(long userId) {
+    dsl.insertInto(T)
+        .columns(USER_ID, TEMPLATE_INITIALIZED)
+        .values(userId, true)
+        .onConflict(TENANT_ID, USER_ID)
+        .doUpdate()
+        .set(TEMPLATE_INITIALIZED, true)
+        .set(UPDATED_AT, DSL.currentOffsetDateTime())
+        .execute();
+  }
+
+  /** 「템플릿을 다시 만들었어요」 알림을 지운다(WP-1655) — 사용자가 설정을 다시 쓸 때. 값이 있을 때만 바꾸고, 행이 없으면 아무것도 하지 않는다. */
+  public void clearTemplateRecreated(long userId) {
+    dsl.update(T)
+        .setNull(TEMPLATE_RECREATED_AT)
+        .where(USER_ID.eq(userId))
+        .and(TEMPLATE_RECREATED_AT.isNotNull())
+        .execute();
+  }
+
+  /** 보고 저장 위치를 적는다(WP-1655, null 이면 기본 「보고」) — 행이 없으면 기본 설정으로 만든다. */
+  public void setLocation(long userId, Long pageId) {
+    dsl.insertInto(T)
+        .columns(USER_ID, REPORT_LOCATION)
+        .values(userId, pageId)
+        .onConflict(TENANT_ID, USER_ID)
+        .doUpdate()
+        .set(REPORT_LOCATION, pageId)
+        .set(UPDATED_AT, DSL.currentOffsetDateTime())
+        .execute();
+  }
+
+  /**
+   * 저장 위치가 아직 expectedPageId 일 때만 지운다(WP-1655) — 생성기가 무효(다른 공간으로 옮겨짐)로 본 위치를 기본으로 되돌릴 때, 그사이 사용자가
+   * 새로 고른 값을 지우지 않게 조건부로 한다.
+   */
+  public void clearLocationIf(long userId, long expectedPageId) {
+    dsl.update(T)
+        .setNull(REPORT_LOCATION)
+        .where(USER_ID.eq(userId))
+        .and(REPORT_LOCATION.eq(expectedPageId))
         .execute();
   }
 
@@ -216,6 +312,11 @@ public class PersonalReportSettingRepository {
         r.get(WEEKLY_TEMPLATE),
         r.get(NEXT_RUN_AT),
         r.get(FAILURES),
-        r.get(LAST_ERROR));
+        r.get(LAST_ERROR),
+        r.get(REPORT_LOCATION),
+        r.get(TEMPLATE_INITIALIZED),
+        r.get(DAILY_TEMPLATE_MADE),
+        r.get(WEEKLY_TEMPLATE_MADE),
+        r.get(TEMPLATE_RECREATED_AT));
   }
 }

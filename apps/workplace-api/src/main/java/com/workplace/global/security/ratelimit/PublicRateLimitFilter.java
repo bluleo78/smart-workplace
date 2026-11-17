@@ -29,8 +29,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * 로그인·가입·운영자 로그인({@link Policy#LOGIN})과 비밀번호를 실은 공유 링크 다운로드·비밀번호 확인({@link Policy#SHARE_PASSWORD}),
  * 공유 링크 미리보기 변환 시작({@link Policy#SHARE_PREVIEW}, WP-1227 — 익명이 변환 작업을 거듭 띄우지 못하게)이다. 인증 없이 요청마다
  * 디스크를 읽는 공개 아바타 이미지({@link Policy#AVATAR}, WP-1222)와 드라이브 재생 주소({@link Policy#DRIVE_PLAYBACK},
- * WP-1532)도 넉넉한 한도로 함께 센다. 넘치면 429 + Retry-After 와 한국어 안내를 돌려준다. CORS 필터 뒤에 두어 브라우저가 응답을 읽을 수 있게
- * 한다.
+ * WP-1532)도 넉넉한 한도로 함께 센다. 인증 없는 OAuth 동적 등록({@link Policy#OAUTH_REGISTER})·토큰 엔드포인트({@link
+ * Policy#OAUTH_TOKEN}, WP-1685)도 각자 버킷으로 센다. 넘치면 429 + Retry-After 와 한국어 안내를 돌려준다. CORS 필터 뒤에 두어
+ * 브라우저가 응답을 읽을 수 있게 한다.
  *
  * <p>클라이언트 IP: 감사 로그와 같은 {@link ClientIpExtractor} 판정을 쓴다(WP-1317) — 믿는 프록시에서 온 요청이면
  * X-Forwarded-For 를 오른쪽부터 걷어 믿는 프록시가 아닌 첫 주소. 예전에는 마지막 값을 써 web nginx 가 붙인 ingress 파드 주소 하나로 전 사용자가
@@ -70,8 +71,21 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
     /** 공개 공유 미리보기 변환 시작(WP-1227) — 비밀번호 버킷과 따로 센다(키 접두가 다름), 한도는 같은 값. */
     SHARE_PREVIEW,
     /** 드라이브 재생 주소(WP-1532) — IP + 주소(토큰 해시)마다 센다. 탐색의 범위 요청은 넉넉히 받고 주소 하나로 두드리는 요청만 막는다. */
-    DRIVE_PLAYBACK
+    DRIVE_PLAYBACK,
+    /** OAuth 동적 클라이언트 등록(WP-1685) — 인증 없이 행을 만드는 경로. */
+    OAUTH_REGISTER,
+    /** OAuth 토큰 엔드포인트(WP-1685) — code 교환·refresh 회전. */
+    OAUTH_TOKEN
   }
+
+  /**
+   * OAuth 동적 클라이언트 등록 경로(WP-1685). 인증 없이 여는 OAuth 공개 경로 두 개를 이 필터 한 곳에 둔다 — 컨트롤러 매핑·SecurityConfig
+   * permitAll·CORS·속도 제한이 모두 이 상수를 읽어 한쪽만 바뀌지 않게 한다.
+   */
+  public static final String OAUTH_REGISTER_PATH = "/api/v1/oauth/register";
+
+  /** OAuth 토큰 엔드포인트 경로(WP-1685) — {@link #OAUTH_REGISTER_PATH} 와 같은 이유로 여기 둔다. */
+  public static final String OAUTH_TOKEN_PATH = "/api/v1/oauth/token";
 
   /** 드라이브 재생 공개 경로 — 컨트롤러 매핑·SecurityConfig 와 같은 상수. */
   private static final String DRIVE_PLAYBACK_PREFIX = DrivePlaybackService.PUBLIC_PATH;
@@ -102,6 +116,8 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
           case SHARE_PASSWORD, SHARE_PREVIEW -> properties.sharePasswordPerMinute();
           case AVATAR -> properties.avatarPerMinute();
           case DRIVE_PLAYBACK -> properties.drivePlaybackPerMinute();
+          case OAUTH_REGISTER -> properties.oauthRegisterPerMinute();
+          case OAUTH_TOKEN -> properties.oauthTokenPerMinute();
         };
     long retryAfter = limiter.tryConsume(bucketKey(policy, ip, request), capacity);
     if (retryAfter == 0) {
@@ -146,6 +162,12 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
     }
     if (("GET".equals(method) || "HEAD".equals(method)) && uri.startsWith(DRIVE_PLAYBACK_PREFIX)) {
       return Policy.DRIVE_PLAYBACK;
+    }
+    if ("POST".equals(method) && uri.equals(OAUTH_REGISTER_PATH)) {
+      return Policy.OAUTH_REGISTER;
+    }
+    if ("POST".equals(method) && uri.equals(OAUTH_TOKEN_PATH)) {
+      return Policy.OAUTH_TOKEN;
     }
     return null;
   }

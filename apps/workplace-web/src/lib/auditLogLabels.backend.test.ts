@@ -19,6 +19,9 @@ const BACKEND_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../wor
  * 넘어오는 값을 확인해 라벨을 채우고 이 목록을 고친다. 항목마다 어떤 값이 어디서 오는지 적는다.
  */
 const EXPECTED_UNRESOLVED: string[] = [
+  // OAuth 앱 연결 감사(OAuthAudit.connectionEvent, WP-1685) — 액션은 OAuthAuthorizationService·OAuthConnectionService·
+  // OAuthTokenService 가 OAUTH_CONNECTION_CREATED/OAUTH_CONNECTION_REVOKED/OAUTH_REFRESH_REUSE_DETECTED 로 넘긴다. 전부 라벨이 있다.
+  'com/workplace/auth/oauth/service/OAuthAudit.java: action action',
   // 노트 공유 감사(WikiShareAudit.log) — 액션은 다른 파일(WikiShareService·WikiShareAccessRequestService)이 이 클래스의 상수
   // (WIKI_SHARE_CREATED/UPDATED/PEOPLE_CHANGED/REGENERATED/REVOKED/ACCESS_DENIED/POLICY_CHANGED)로 넘긴다. 전부 라벨이 있다.
   'com/workplace/wiki/service/WikiShareAudit.java: action actionType',
@@ -56,9 +59,11 @@ function scanBackend(): Found {
 
 describe('감사 로그 라벨 ↔ 백엔드 값 대조 (WP-1560)', () => {
   let found: Found;
+  // 자바 소스 2천여 개를 동기로 훑는다 — 혼자 돌면 1초 안팎이지만 push 게이트처럼 모든 테스트가 함께 돌 때는 기본 10초 훅 제한을
+  // 넘긴 적이 있어(12.7초) 넉넉히 준다.
   beforeAll(() => {
     found = scanBackend();
-  });
+  }, 60_000);
 
   it('호출부를 실제로 읽었다(경로가 틀려 빈 통과가 되지 않게)', () => {
     expect(found.calls).toBeGreaterThan(20);

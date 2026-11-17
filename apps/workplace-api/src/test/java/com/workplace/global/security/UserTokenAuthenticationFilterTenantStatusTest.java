@@ -55,10 +55,9 @@ class UserTokenAuthenticationFilterTenantStatusTest {
     filter =
         new UserTokenAuthenticationFilter(
             userApiTokenRepository,
-            userRepository,
-            permissionService,
-            membershipRepository,
-            tenantStatusChecker);
+            // 사람·멤버십·테넌트 판정은 공통 컴포넌트(WP-1685)로 옮겨졌다 — 실제 구현에 같은 목을 넘겨 PAT 동작을 그대로 검증한다.
+            new HumanTokenAuthenticator(
+                userRepository, permissionService, membershipRepository, tenantStatusChecker));
     lenient()
         .when(userApiTokenRepository.findActiveByHash(anyString()))
         .thenReturn(Optional.of(new UserApiTokenRepository.ActiveToken(7L, USER_ID, TENANT_ID)));

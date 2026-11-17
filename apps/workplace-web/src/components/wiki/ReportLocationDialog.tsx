@@ -18,6 +18,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import { isImeComposing } from '@/lib/imeKey'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
+import type { WikiPageSummary } from '@/types/wiki'
 
 import { useCreatePage, useMovePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
@@ -53,6 +54,13 @@ type Props = {
   /** 기본 저장 위치 이름 — 위치가 아직 없을 때의 안내 등에 쓴다(WP-1655 에서 「보고」). */
   home?: string
   description?: string
+  /**
+   * 목록에서 뺄 페이지 판정 — 참이면 그 페이지와 하위를 뺀다(개인 보고의 달 폴더 등, 제목·속성으로 갈래가 정해질 때).
+   * 지금 위치와 그 조상은 AI 보고 규칙처럼 남긴다 — 빼면 「지금 위치」가 사라진다. 없으면 `blockedRootIds`·AI 보고 갈래만 뺀다.
+   */
+  isBlockedPage?: (page: WikiPageSummary) => boolean
+  /** 고를 페이지가 하나도 없을 때의 안내 — 없으면 「고를 페이지가 없으면 다음 리포트 때 「{home}」을 만들어요.」. */
+  emptyText?: string
   /** 저장 요청 중 — 「저장」을 잠근다. */
   saving?: boolean
   /** 매뉴얼 도움말 짝 id(data-help) — 공용 컴포넌트라 부르는 화면이 정한다. */
@@ -78,6 +86,8 @@ function ReportLocationBody({
   title = '리포트 저장 위치',
   home = '리포트',
   description = '새 리포트를 고른 페이지 아래에 만들어요. 이미 만든 리포트는 그대로 둬요.',
+  isBlockedPage,
+  emptyText = `고를 페이지가 없으면 다음 리포트 때 「${home}」을 만들어요.`,
   saving = false,
   helpId,
   onClose,
@@ -100,8 +110,10 @@ function ReportLocationBody({
     // AI 가 쓴 리포트 페이지(aiLastAction='report', 서버 검증과 같은 기준)만 갈래째 뺀다 — 들여쓰기가 어긋나지 않게.
     // 트리의 「AI」 배지(aiLastUsedAt)는 AI 로 다듬기만 해도 붙으니 기준으로 쓰지 않는다.
     const aiIds = pages.filter((pg) => pg.aiLastAction === REPORT_ACTION && !keep.has(pg.id)).map((pg) => pg.id)
-    return pickTargets(pages, [...blockedRootIds, ...aiIds])
-  }, [tree.data, blockedRootIds, currentPageId])
+    // 부르는 쪽이 정한 막을 페이지 — 같은 기준(지금 위치·조상은 남김)으로 갈래째 뺀다.
+    const blockedIds = isBlockedPage ? pages.filter((pg) => isBlockedPage(pg) && !keep.has(pg.id)).map((pg) => pg.id) : []
+    return pickTargets(pages, [...blockedRootIds, ...aiIds, ...blockedIds])
+  }, [tree.data, blockedRootIds, currentPageId, isBlockedPage])
 
   const keyword = q.trim().toLowerCase()
   // 검색하면 제목이 맞는 페이지만 남긴다 — 깊이 들여쓰기는 그대로 둬 어느 갈래인지 보이게.
@@ -260,9 +272,9 @@ function ReportLocationBody({
           options.length === 0 &&
           draft == null && <p className="py-6 text-center text-sm text-muted-foreground">맞는 페이지가 없습니다</p>
         )}
-        {/* 아직 아무 페이지도 없을 때 — 다음 리포트 때 기본 위치를 만든다는 안내. */}
+        {/* 아직 아무 페이지도 없을 때 — 다음 리포트 때 기본 위치를 만든다는 안내(문구는 emptyText). */}
         {!tree.isLoading && !treeBlocked && rows.length === 0 && !keyword && (
-          <p className="px-2 py-2 text-xs text-muted-foreground">고를 페이지가 없으면 다음 리포트 때 「{home}」을 만들어요.</p>
+          <p className="px-2 py-2 text-xs text-muted-foreground">{emptyText}</p>
         )}
       </div>
       <DialogFooter className="sm:justify-between">

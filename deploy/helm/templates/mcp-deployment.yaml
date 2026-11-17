@@ -34,6 +34,9 @@ spec:
             # ai-agent와 동일 형태 (/api/v1 포함)
             - name: WORKPLACE_API_BASE_URL
               value: http://api:9090/api/v1
+            # WP-1685: 보호 리소스 메타데이터의 authorization_servers — api 인가 서버의 issuer(public-base-url)와 같은 값이어야 한다.
+            - name: WORKPLACE_OAUTH_ISSUER
+              value: {{ .Values.config.webBaseUrl | quote }}
           readinessProbe:
             httpGet:
               path: /health

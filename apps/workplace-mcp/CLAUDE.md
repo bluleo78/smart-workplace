@@ -17,7 +17,7 @@ workplace-mcp 자신은 토큰을 저장·검증하지 않고 그대로 전달(�
 검증에 **성공한** 토큰의 해시를 60초 기억하는 것(`src/mcp/auth-cache.ts`, WP-1013)이다 — 판정은 여전히 workplace-api 가 하고,
 원문 토큰·실패 결과는 쥐지 않는다.
 
-- 필요 env 는 `PORT`, `WORKPLACE_API_BASE_URL` 뿐 (`.env.example` 참고).
+- 필요 env 는 `PORT`, `WORKPLACE_API_BASE_URL`, 그리고 비밀값이 아닌 `WORKPLACE_OAUTH_ISSUER`(인가 서버 주소, helm `config.webBaseUrl` — 없으면 요청의 공개 원점) 뿐 (`.env.example` 참고).
 - 새 기능이 "서비스 간 신뢰"를 요구하는 것처럼 보이면, workplace-mcp 에 시크릿을 추가하지 말고
   workplace-api 쪽 권한 모델(PAT 스코프 등)로 해결한다. 이 앱이 시크릿을 들고 있으면 탈취 시
   전체 사용자 계정이 위험해지는 단일 실패점이 된다.
@@ -49,6 +49,9 @@ workplace-mcp 자신은 토큰을 저장·검증하지 않고 그대로 전달(�
   요청 헤더 `X-On-Behalf-Of-Tenant` 는 **`ak_` 일 때만**
   `/auth/me` 토큰 검증과 모든 도구 호출에 그대로 전달한다(AI 키엔 테넌트가 없어 다중 멤버십 AI 는 이 헤더로 고르고,
   서버가 멤버십을 검증한다. 사람 PAT 의 테넌트는 토큰이 정한다). `/auth/me` 는 AGENT 키도 통과한다.
+- OAuth(WP-1685, Claude 앱 커넥터): `swo_`(workplace-api 인가 서버가 발급한 access 토큰)도 PAT 처럼 패스스루한다. 토큰이 없거나 API 가 401 이면
+  401 에 `WWW-Authenticate: Bearer resource_metadata="<공개 원점>/.well-known/oauth-protected-resource<MCP 경로>"` 를 단다.
+  `src/routes/oauthMetadata.ts` 가 그 보호 리소스 메타데이터(RFC 9728)를 낸다 — 공개 원점은 X-Forwarded-Proto/Host(`trust proxy`)로 만든다.
 - 401 은 그대로 클라이언트에 요약 전달(`summarizeError`) — "토큰 만료·폐기" 를 사용자가 바로 알 수
   있게 한다.
 

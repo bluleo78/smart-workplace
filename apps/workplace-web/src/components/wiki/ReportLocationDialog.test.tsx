@@ -2,6 +2,7 @@
 // 검색, 「새 페이지」 입력 줄(Enter·Esc·IME·빈 제목·실패), 트리 403 안내를 MSW 로 본다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import type { ComponentProps } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
@@ -52,7 +53,15 @@ function open({
   createStatus = 200,
   currentPageId = 10,
   pages = tree(),
-}: { treeStatus?: number; createStatus?: number; currentPageId?: number; pages?: WikiPageSummary[] } = {}) {
+  dialogProps = {},
+}: {
+  treeStatus?: number
+  createStatus?: number
+  currentPageId?: number
+  pages?: WikiPageSummary[]
+  /** 새 선택 props(isBlockedPage·emptyText) — 기본 동작은 프로젝트 쪽 호출과 같다. */
+  dialogProps?: Partial<ComponentProps<typeof ReportLocationDialog>>
+} = {}) {
   const creates: unknown[] = []
   const moves: unknown[] = []
   const onSave = vi.fn()
@@ -65,6 +74,7 @@ function open({
       blockedRootIds={[20, 32]}
       onClose={onClose}
       onSave={onSave}
+      {...dialogProps}
     />,
     {
       handlers: [
@@ -255,5 +265,59 @@ describe('ReportLocationDialog', () => {
     open({ treeStatus: 403 })
     expect(await screen.findByText('노트 공간 구성원만 저장 위치를 고를 수 있어요.')).toBeInTheDocument()
     expect(saveButton()).toBeDisabled()
+  })
+
+  describe('isBlockedPage·emptyText (개인 보고)', () => {
+    // 내 노트 — 보고(10) ─ 2026년 11월(11) ─ 사람 페이지(12) / 2026년 10월(13) ─ 지난 메모(14), 회의록(30)
+    const monthTree = () => [
+      p(10, null, '보고', 0),
+      p(11, 10, '2026년 11월', 0),
+      p(12, 11, '사람이 만든 페이지', 0),
+      p(13, 10, '2026년 10월', 1),
+      p(14, 13, '지난 메모', 0),
+      p(30, null, '회의록', 1),
+    ]
+    const isMonth = (pg: WikiPageSummary) => /^\d{4}년 \d{1,2}월$/.test(pg.title)
+
+    test('달 폴더와 그 아래를 뺀다 — 다른 페이지는 남는다', async () => {
+      open({ pages: monthTree(), currentPageId: 30, dialogProps: { blockedRootIds: [], isBlockedPage: isMonth } })
+      await screen.findByRole('option', { name: /회의록/ })
+      const names = within(list())
+        .getAllByRole('option')
+        .map((o) => o.textContent)
+      expect(names).toEqual(['최상위', '보고', '회의록지금 위치'])
+    })
+
+    test('지금 위치와 그 조상은 막힌 페이지여도 남긴다 — AI 보고 규칙과 같다', async () => {
+      // 지금 위치(12)가 달 폴더(11) 아래 — 서버가 거절 못 하는 옛 데이터. 「지금 위치」가 사라지면 안 된다.
+      open({ pages: monthTree(), currentPageId: 12, dialogProps: { blockedRootIds: [], isBlockedPage: isMonth } })
+      await screen.findByRole('option', { name: /사람이 만든 페이지/ })
+      const names = within(list())
+        .getAllByRole('option')
+        .map((o) => o.textContent)
+      // 2026년 10월 갈래만 빠지고, 11월(조상)·그 아래 지금 위치는 남는다.
+      expect(names).toEqual(['최상위', '보고', '2026년 11월', '사람이 만든 페이지지금 위치', '회의록'])
+    })
+
+    test('isBlockedPage 가 없으면 기존처럼 아무것도 더 빼지 않는다', async () => {
+      open({ pages: monthTree(), currentPageId: 30, dialogProps: { blockedRootIds: [] } })
+      await screen.findByRole('option', { name: /회의록/ })
+      expect(within(list()).getAllByRole('option')).toHaveLength(7)
+    })
+
+    test('빈 트리의 안내는 기본으로 「다음 리포트 때 「리포트」를 만들어요」', async () => {
+      open({ pages: [], currentPageId: 0, dialogProps: { blockedRootIds: [] } })
+      expect(await screen.findByText('고를 페이지가 없으면 다음 리포트 때 「리포트」을 만들어요.')).toBeInTheDocument()
+    })
+
+    test('emptyText 를 쓴다', async () => {
+      open({
+        pages: [],
+        currentPageId: 0,
+        dialogProps: { blockedRootIds: [], emptyText: '고를 페이지가 없으면 다음 보고 때 「보고」를 만들어요.' },
+      })
+      expect(await screen.findByText('고를 페이지가 없으면 다음 보고 때 「보고」를 만들어요.')).toBeInTheDocument()
+      expect(screen.queryByText(/다음 리포트 때/)).not.toBeInTheDocument()
+    })
   })
 })

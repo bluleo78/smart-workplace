@@ -19,16 +19,12 @@ import com.workplace.wiki.report.PersonalReportRepository.ReserveStatus;
 import com.workplace.wiki.report.PersonalReportSettingRepository.SettingRow;
 import com.workplace.wiki.report.ReportErrors.ReportFailure;
 import com.workplace.wiki.service.WikiSystemPageWriter;
-import com.workplace.wiki.service.WikiSystemPageWriter.PersonalReportsHome;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -36,10 +32,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 개인 보고 한 편(WP-1486) — 계산값과 내 노트의 템플릿으로 AI 에게 일일·주간·월간 보고를 받아 내 노트 › 「보고」 › 「2026년 11월」 아래 새 페이지로
- * 남긴다. 프로젝트 리포트 생성기(WP-1483)와 같은 순서(계산값 → 템플릿 → AI → 지시 상자·h1·링크 정리 → 표 숫자 대조 → 페이지 → 「AI 작성」 표지)를
- * 따르되, 작성자는 언제나 본인이고(개인 공간은 소유자 한 명뿐이라 AI 계정을 넣지 않는다) 저장 위치는 입력으로 받지 않는다 — 공간은 언제나 본인의 PERSONAL
- * 공간이다.
+ * 개인 보고 한 편(WP-1486) — 계산값과 내 노트의 템플릿으로 AI 에게 일일·주간·월간 보고를 받아 내 노트 › 저장 위치 › 「2026년 11월」 아래 새 페이지로
+ * 남긴다. 저장 위치는 설정에서 고른 페이지이고, 고르지 않았거나 쓸 수 없으면 맨 위 「보고」다({@link PersonalReportLocation}, WP-1655).
+ * 템플릿은 「템플릿」 아래에 있어 저장 위치에는 달 폴더와 보고만 놓인다. 프로젝트 리포트 생성기(WP-1483)와 같은 순서(계산값 → 템플릿 → AI → 지시
+ * 상자·h1·링크 정리 → 표 숫자 대조 → 페이지 → 「AI 작성」 표지)를 따르되, 작성자는 언제나 본인이고(개인 공간은 소유자 한 명뿐이라 AI 계정을 넣지 않는다)
+ * 공간은 언제나 본인의 PERSONAL 공간이다.
  *
  * <p>두 입구:
  *
@@ -76,9 +73,6 @@ public class PersonalReportGenerator {
 
   private static final String AUTO = "AUTO";
 
-  /** 월 폴더 제목 꼴 — 「2026년 11월」. */
-  private static final Pattern MONTH_FOLDER = Pattern.compile("(\\d{4})년 (\\d{1,2})월");
-
   /** 한 회의 결과 — 실행기가 회차 로그에 센다. */
   public enum Outcome {
     /** 보고 페이지를 새로 만들었다. */
@@ -102,6 +96,7 @@ public class PersonalReportGenerator {
   private final PersonalReportRepository reports;
   private final PersonalReportFactsService factsService;
   private final WikiSystemPageWriter writer;
+  private final PersonalReportLocation location;
   private final PersonalReportTemplate template;
   private final ReportPageWriter pageWriter;
   private final AssistantResolver assistantResolver;
@@ -115,6 +110,7 @@ public class PersonalReportGenerator {
       PersonalReportRepository reports,
       PersonalReportFactsService factsService,
       WikiSystemPageWriter writer,
+      PersonalReportLocation location,
       PersonalReportTemplate template,
       ReportPageWriter pageWriter,
       AssistantResolver assistantResolver,
@@ -126,6 +122,7 @@ public class PersonalReportGenerator {
     this.reports = reports;
     this.factsService = factsService;
     this.writer = writer;
+    this.location = location;
     this.template = template;
     this.pageWriter = pageWriter;
     this.assistantResolver = assistantResolver;
@@ -245,7 +242,7 @@ public class PersonalReportGenerator {
   }
 
   /**
-   * 예약한 회차를 만든다(스펙 8절) — 계산값 → (건너뜀) → 「보고」·템플릿 → 템플릿 본문 → AI(tx 밖) → 정리·표 대조 → 월 폴더 → 페이지 → 표지 →
+   * 예약한 회차를 만든다(스펙 8절) — 계산값 → (건너뜀) → 저장 위치·템플릿 → 템플릿 본문 → AI(tx 밖) → 정리·표 대조 → 달 폴더 → 페이지 → 표지 →
    * GENERATED. 실패는 예외로 알린다.
    *
    * @param pendingPageId 앞선 시도가 이미 만든 페이지(있으면 새로 만들지 않고 다시 쓴다)
@@ -275,9 +272,10 @@ public class PersonalReportGenerator {
 
     String userName = tx.execute(s -> users.findById(userId).map(UserResponse::name).orElse(""));
 
-    // 노트 자리 — 공간·「보고」·템플릿은 지워졌거나 옮겨졌으면 다시 만든다(본문 쓰기라 tx 밖).
-    PersonalReportsHome home = writer.ensurePersonalReportsHome(userId);
-    long templateId = template.ensure(userId, home, period.kind());
+    // 노트 자리(WP-1655) — 공간은 없으면 만들고, 저장 위치는 고른 페이지가 유효하면 그것(「보고」를 만들지 않음), 아니면 「보고」(필요할 때만 만듦).
+    // 템플릿은 「템플릿」 아래 id 로 따라가며(처음이면 옛 「보고」 안 템플릿을 옮김) 지워졌거나 다른 공간이면 다시 만든다(본문 쓰기라 tx 밖).
+    PersonalReportLocation.Resolved target = location.resolveForWrite(userId);
+    long templateId = template.ensure(userId, target.spaceId(), period.kind());
     String templateMarkdown = template.readBodyOrDefault(templateId, period.kind());
     if (ReportPageWriter.codePoints(templateMarkdown) > TEMPLATE_MAX) {
       throw new ReportFailure("보고 템플릿이 " + TEMPLATE_MAX + "자를 넘어요.");
@@ -311,7 +309,7 @@ public class PersonalReportGenerator {
     if (workTable != null) ReportMarkdown.fixTable(lines, workTable, workTableInTemplate);
     String body = ReportMarkdown.render(lines);
 
-    writePage(userId, home, period, reportId, facts, body, pendingPageId, auto, now);
+    writePage(userId, target, period, reportId, facts, body, pendingPageId, auto, now);
     return Outcome.GENERATED;
   }
 
@@ -369,12 +367,16 @@ public class PersonalReportGenerator {
   }
 
   /**
-   * tx 밖 페이지 쓰기 — 월 폴더(「보고」 안 템플릿 다음 자리, 최신 달이 위)를 보장하고, 새 페이지를 만들어 곧바로 회차에 적은 뒤(짧은 tx) 본문을 AI 글로
-   * 쓰고 폴더 맨 위로 옮겨 「AI 작성」 표지를 남긴다. 작성자는 본인이다. 앞선 시도가 만든 페이지가 남아 있으면 새로 만들지 않고 그 페이지를 다시 쓴다.
+   * tx 밖 페이지 쓰기 — 저장 위치 아래 달 폴더(최신 달이 위)를 보장하고, 새 페이지를 만들어 곧바로 회차에 적은 뒤(짧은 tx) 본문을 AI 글로 쓰고 폴더 맨 위로
+   * 옮겨 「AI 작성」 표지를 남긴다. 작성자는 본인이다.
+   *
+   * <p>앞선 시도가 만든 페이지가 남아 있으면({@code pendingPageId}) 새로 만들지 않고 그 페이지를 다시 쓴다 — 회차당 페이지는 하나. 그 페이지가 지금
+   * 저장 위치의 이 달 폴더 바로 아래면 맨 위로 정리하고, 아니면(그사이 저장 위치를 바꿨거나 사람이 옮김) 옮기지 않고 그 자리에서 쓴다(WP-1655 — 이미 만든
+   * 보고는 옮기지 않는다). 이때는 새 위치에 빈 달 폴더도 만들지 않는다.
    */
   private void writePage(
       long userId,
-      PersonalReportsHome home,
+      PersonalReportLocation.Resolved target,
       PersonalReportPeriod period,
       long reportId,
       PersonalReportFacts facts,
@@ -383,27 +385,26 @@ public class PersonalReportGenerator {
       boolean auto,
       OffsetDateTime now) {
     String folderTitle = period.monthFolderTitle();
-    int templates = templatesUnder(userId, home);
-    long folderId =
-        writer.ensureChildFolder(
-            home.spaceId(),
-            home.reportsPageId(),
-            folderTitle,
-            userId,
-            siblings -> monthFolderPosition(siblings, folderTitle, templates));
     Optional<WikiPageDetail> reused = pendingPageId.flatMap(writer::findPage);
+    // 다시 쓸 페이지가 있고 지금 저장 위치의 이 달 폴더 밖이면 그 자리에서 쓴다(폴더도 만들지 않는다).
+    boolean inPlace = reused.isPresent() && !inMonthFolder(reused.get(), target, folderTitle);
     WikiPageDetail page;
-    if (reused.isPresent()) {
+    if (inPlace) {
+      // 옮기지 않고 그 자리에서 본문 → 「AI 작성」 표지(직전 판은 남기지 않는다, 지금과 같음).
       page = reused.get();
+      pageWriter.writeAndMarkInPlace(userId, page, body, now, false);
     } else {
-      // 같은 회차 두 번째(「새로 만들기」)부터는 제목 끝에 「(n)」 — 앞 보고는 덮지 않는다.
-      int n = tx.execute(s -> reports.countGenerated(userId, period)) + 1;
-      page = writer.createPage(userId, home.spaceId(), folderId, period.titleWithCopy(n));
-      long createdId = page.id();
-      tx.executeWithoutResult(s -> reports.attachPage(reportId, createdId));
+      long folderId =
+          writer.ensureChildFolder(
+              target.spaceId(),
+              target.parentPageId(),
+              folderTitle,
+              userId,
+              siblings -> monthFolderPosition(siblings, folderTitle));
+      page = reused.orElseGet(() -> createReportPage(userId, target, period, reportId, folderId));
+      pageWriter.writeAndMark(userId, page, body, folderId, 0, now);
     }
     long pageId = page.id();
-    pageWriter.writeAndMark(userId, page, body, folderId, 0, now);
     tx.executeWithoutResult(
         s -> {
           reports.markGenerated(
@@ -412,46 +413,52 @@ public class PersonalReportGenerator {
         });
   }
 
+  /** 새 보고 페이지를 달 폴더 아래에 만들어 곧바로 회차에 적는다 — 같은 회차 두 번째(「새로 만들기」)부터는 제목 끝에 「(n)」 을 붙여 앞 보고를 덮지 않는다. */
+  private WikiPageDetail createReportPage(
+      long userId,
+      PersonalReportLocation.Resolved target,
+      PersonalReportPeriod period,
+      long reportId,
+      long folderId) {
+    int n = tx.execute(s -> reports.countGenerated(userId, period)) + 1;
+    WikiPageDetail page =
+        writer.createPage(userId, target.spaceId(), folderId, period.titleWithCopy(n));
+    long createdId = page.id();
+    tx.executeWithoutResult(s -> reports.attachPage(reportId, createdId));
+    return page;
+  }
+
   /**
-   * 새 월 폴더 자리 — 「보고」 아래는 템플릿 다음에 월 폴더가 최신 달부터 놓인다(스펙 8절 6단계). 형제 중 이 달보다 오래된 첫 월 폴더 바로 앞에 두고, 오래된
-   * 달이 없으면 마지막 더 최신 월 폴더 바로 뒤, 월 폴더가 하나도 없으면 템플릿 바로 다음(templates)에 둔다. 월 폴더가 아닌 형제(사람이 만든 페이지)는
-   * 건드리지 않는다.
-   *
-   * @param siblings 「보고」 의 기존 자식 제목(화면 순서)
-   * @param title 새 월 폴더 제목(「2026년 11월」)
-   * @param templates 「보고」 바로 아래 남아 있는 템플릿 수
+   * 다시 쓰는 페이지가 지금 저장 위치 바로 아래의 이 달 폴더(제목 「2026년 11월」) 안에 있는가 — 아니면 옛 위치(또는 사람이 옮긴 자리)의 페이지라 옮기지
+   * 않는다. 폴더를 만들지 않고 부모의 제목·자리만 본다(본문은 읽지 않는다).
    */
-  static int monthFolderPosition(List<String> siblings, String title, int templates) {
-    Optional<YearMonth> mine = parseMonthFolder(title);
-    if (mine.isEmpty()) return templates;
+  private boolean inMonthFolder(
+      WikiPageDetail page, PersonalReportLocation.Resolved target, String folderTitle) {
+    Long parentId = page.parentId();
+    if (parentId == null) return false;
+    return writer.findTitle(parentId).filter(folderTitle::equals).isPresent()
+        && writer.existsUnder(parentId, target.parentPageId());
+  }
+
+  /**
+   * 새 달 폴더 자리(WP-1655) — 저장 위치 아래는 달 폴더가 최신 달부터 놓인다. 형제 중 이 달보다 오래된 첫 달 폴더 바로 앞에 두고, 오래된 달이 없으면 마지막
+   * 더 최신 달 폴더 바로 뒤, 달 폴더가 하나도 없으면 맨 위(0)에 둔다. 템플릿은 「템플릿」 아래에 있어 자리 계산에 넣지 않는다. 달 폴더가 아닌 형제(사람이 만든
+   * 페이지)는 건드리지 않는다.
+   *
+   * @param siblings 저장 위치의 기존 자식 제목(화면 순서)
+   * @param title 새 달 폴더 제목(「2026년 11월」)
+   */
+  static int monthFolderPosition(List<String> siblings, String title) {
+    Optional<YearMonth> mine = PersonalReportMonthFolder.parse(title);
+    if (mine.isEmpty()) return 0;
     int afterNewer = -1;
     for (int i = 0; i < siblings.size(); i++) {
-      Optional<YearMonth> other = parseMonthFolder(siblings.get(i));
+      Optional<YearMonth> other = PersonalReportMonthFolder.parse(siblings.get(i));
       if (other.isEmpty()) continue;
       if (other.get().isBefore(mine.get())) return i;
       afterNewer = i + 1;
     }
-    return afterNewer >= 0 ? afterNewer : templates;
-  }
-
-  /** 「2026년 11월」 꼴 제목을 연월로 읽는다(PersonalReportPeriod.monthFolderTitle 의 역). 다른 제목이면 empty. */
-  static Optional<YearMonth> parseMonthFolder(String title) {
-    if (title == null) return Optional.empty();
-    Matcher m = MONTH_FOLDER.matcher(title);
-    if (!m.matches()) return Optional.empty();
-    int month = Integer.parseInt(m.group(2));
-    if (month < 1 || month > 12) return Optional.empty();
-    return Optional.of(YearMonth.of(Integer.parseInt(m.group(1)), month));
-  }
-
-  /** 「보고」 바로 아래 남아 있는 템플릿 수(0~2) — 새 월 폴더를 템플릿 다음 자리에 두려고 센다. */
-  private int templatesUnder(long userId, PersonalReportsHome home) {
-    Optional<SettingRow> row = tx.execute(s -> settings.find(userId));
-    if (row == null || row.isEmpty()) return 0;
-    return (int)
-        Stream.of(row.get().dailyTemplatePageId(), row.get().weeklyTemplatePageId())
-            .filter(id -> id != null && writer.existsUnder(id, home.reportsPageId()))
-            .count();
+    return afterNewer >= 0 ? afterNewer : 0;
   }
 
   /**

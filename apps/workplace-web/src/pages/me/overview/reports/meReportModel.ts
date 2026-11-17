@@ -75,12 +75,21 @@ export function defaultMonth(today: string): string {
   return recentMonths(today, 2)[1].month
 }
 
+/** 저장 위치를 고르지 않았을 때의 경로 — 내 노트 최상위 「보고」(서버 기본값과 같다). */
+const DEFAULT_LOCATION_PATH = ['보고']
+
+/** 저장 위치 경로 표시 — 「내 노트 › 업무 일지 › 팀」. 경로가 없거나 비면 기본 「내 노트 › 보고」. */
+export function locationBaseLabel(path?: string[]): string {
+  return `내 노트 › ${(path && path.length > 0 ? path : DEFAULT_LOCATION_PATH).join(' › ')}`
+}
+
 /**
  * 저장 위치(읽기 전용) — 「내 노트 › 보고 › 2026년 11월」. 월 폴더는 일일은 그날의 달, 주간은 기간 끝(일요일)의 달, 월간은 그 달(P7).
- * 값이 비면(날짜를 지운 순간) 「내 노트 › 보고」까지만.
+ * basePath 는 설정의 저장 위치 경로(WP-1655, 예 ["업무 일지","팀"] → 「내 노트 › 업무 일지 › 팀 › 2026년 11월」) — 없거나 비면 「보고」.
+ * 값이 비면(날짜를 지운 순간) 저장 위치까지만.
  */
-export function monthFolderLabel(kind: MeReportKind, value: string): string {
-  const base = '내 노트 › 보고'
+export function monthFolderLabel(kind: MeReportKind, value: string, basePath: string[] = DEFAULT_LOCATION_PATH): string {
+  const base = locationBaseLabel(basePath)
   if (!value) return base
   const end = kind === 'WEEKLY' ? addDays(value, 6) : kind === 'MONTHLY' ? `${value}-01` : value
   const [y, m] = end.split('-').map(Number)

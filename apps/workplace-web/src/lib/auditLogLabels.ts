@@ -77,6 +77,10 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'WIKI_SHARE_POLICY_CHANGED', label: '노트 외부 공유 설정 변경' },
   // WP-1560: 라벨이 빠져 영문 코드로 보이던 액션 — 메일 연결·이슈 가져오기/변환·임시 업로드 링크·AI 실행/계정/저장소/위치/작업 화면·관계 유형.
   { value: 'MAIL_OAUTH_STATE_MISMATCH', label: '메일 연결 인증 상태 불일치' },
+  // WP-1685: Claude 앱 커넥터 등 OAuth 앱 연결(OAuthAudit) — 새 연결·끊기(직접·비밀번호 변경)·refresh/code 재사용 감지(연결 토큰 전체 폐기).
+  { value: 'OAUTH_CONNECTION_CREATED', label: '앱 연결' },
+  { value: 'OAUTH_CONNECTION_REVOKED', label: '앱 연결 끊기' },
+  { value: 'OAUTH_REFRESH_REUSE_DETECTED', label: '앱 연결 토큰 재사용 감지' },
   { value: 'ISSUE_IMPORTED', label: '이슈 가져오기' },
   { value: 'ISSUE_RELATIONS_IMPORTED', label: '이슈 관계 가져오기' },
   { value: 'ISSUE_PARENT_EPIC_LINKS_CONVERTED', label: '상위 에픽 연결 변환' },
@@ -124,6 +128,7 @@ export const AUDIT_RESOURCES = [
   { value: 'api_connection', label: 'API 연결' },
   { value: 'system', label: '시스템' },
   { value: 'user_api_token', label: 'API 토큰' },
+  { value: 'oauth_connection', label: '연결된 앱' },
   { value: 'agent_api_key', label: 'AGENT API 키' },
   { value: 'ai_agent_credential', label: 'AGENT 자격증명' },
   { value: 'platform', label: '플랫폼' },

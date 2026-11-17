@@ -25,7 +25,7 @@ class PublicRateLimitFilterDrivePlaybackTest {
       new PublicRateLimitFilter(
           new TokenBucketLimiter(
               Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC)),
-          new RateLimitProperties(true, null, null, null, LIMIT));
+          new RateLimitProperties(true, null, null, null, LIMIT, null, null));
 
   private int send(String method, String uri, String forwardedFor) throws Exception {
     MockHttpServletRequest req = new MockHttpServletRequest(method, uri);
@@ -51,7 +51,9 @@ class PublicRateLimitFilterDrivePlaybackTest {
 
   @Test
   void 기본_한도는_탐색의_범위_요청을_넉넉히_받는다() {
-    assertThat(new RateLimitProperties(null, null, null, null, null).drivePlaybackPerMinute())
+    assertThat(
+            new RateLimitProperties(null, null, null, null, null, null, null)
+                .drivePlaybackPerMinute())
         .isEqualTo(300);
   }
 

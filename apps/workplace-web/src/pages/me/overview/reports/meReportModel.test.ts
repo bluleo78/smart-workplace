@@ -76,6 +76,15 @@ describe('monthFolderLabel', () => {
   test('값이 비면 「내 노트 › 보고」까지만', () => {
     expect(monthFolderLabel('DAILY', '')).toBe('내 노트 › 보고')
   })
+
+  test('고른 저장 위치(WP-1655)가 있으면 그 경로 아래 달 폴더', () => {
+    expect(monthFolderLabel('DAILY', '2026-11-11', ['업무 일지', '팀'])).toBe('내 노트 › 업무 일지 › 팀 › 2026년 11월')
+    expect(monthFolderLabel('MONTHLY', '', ['업무 일지', '팀'])).toBe('내 노트 › 업무 일지 › 팀')
+  })
+
+  test('경로가 비면(드문 응답) 기본 「보고」', () => {
+    expect(monthFolderLabel('DAILY', '2026-11-11', [])).toBe('내 노트 › 보고 › 2026년 11월')
+  })
 })
 
 test('hourOptions — 00:00 부터 23:00 까지 정시 24개', () => {

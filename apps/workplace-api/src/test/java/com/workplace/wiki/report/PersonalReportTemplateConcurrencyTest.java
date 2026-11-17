@@ -13,7 +13,6 @@ import com.workplace.issue.report.PersonalReportKind;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.service.WikiSystemPageWriter;
-import com.workplace.wiki.service.WikiSystemPageWriter.PersonalReportsHome;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -28,8 +27,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * 개인 보고 템플릿 동시 보장(WP-1486) — 같은 사람의 생성 둘이 동시에 {@link PersonalReportTemplate#ensure} 를 불러도 「보고」 아래
- * 템플릿은 종류마다 한 장이다(공간 트리 잠금 아래에서 설정을 다시 읽는다). 둘 다 같은 id 를 돌려받고, 그 페이지에는 기본 본문이 쓰여 있다.
+ * 개인 보고 템플릿 동시 보장(WP-1486, WP-1655 「템플릿」 아래로) — 같은 사람의 생성 둘이 동시에 {@link
+ * PersonalReportTemplate#ensure} 를 불러도 「템플릿」 아래 템플릿은 종류마다 한 장이고 옛 이전 판정도 한 번이다(공간 트리 잠금 아래에서 설정을 다시
+ * 읽는다). 둘 다 같은 id 를 돌려받고, 그 페이지에는 기본 본문이 쓰여 있다.
  *
  * <p>두 스레드가 커밋된 데이터를 봐야 해서 비-@Transactional 이다. 테넌트 1 에 커밋하고 끝나면 지운다.
  */
@@ -72,20 +72,21 @@ class PersonalReportTemplateConcurrencyTest extends ExternalClientMockedTestBase
 
   @Test
   void ensure_concurrent_oneTemplatePerKind() throws Exception {
-    // 「보고」 자리는 미리 — 이 테스트는 템플릿 복사 경합만 본다(「보고」 만들기는 따로 트리 잠금을 쓴다).
-    PersonalReportsHome home = writer.ensurePersonalReportsHome(me);
+    // 공간은 미리 — 이 테스트는 템플릿 복사 경합만 본다(공간 만들기는 따로 잠금을 쓴다).
+    long spaceId = writer.ensurePersonalSpace(me);
     for (PersonalReportKind kind : List.of(PersonalReportKind.DAILY, PersonalReportKind.WEEKLY)) {
-      List<Long> ids = runTwice(() -> template.ensure(me, home, kind));
+      List<Long> ids = runTwice(() -> template.ensure(me, spaceId, kind));
       assertThat(ids.get(0)).isEqualTo(ids.get(1));
     }
 
+    long templatesRoot = writer.findTemplatesPage(spaceId).orElseThrow();
     List<String> titles =
-        writer.childIdsOrdered(home.reportsPageId()).stream()
+        writer.childIdsOrdered(templatesRoot).stream()
             .map(id -> writer.findPage(id).orElseThrow().title())
             .toList();
     assertThat(titles)
         .containsExactly(PersonalReportTemplate.DAILY_TITLE, PersonalReportTemplate.WEEKLY_TITLE);
-    long daily = writer.childIdsOrdered(home.reportsPageId()).get(0);
+    long daily = writer.childIdsOrdered(templatesRoot).get(0);
     assertThat(writer.readBody(daily).orElse("")).contains("## 요약");
   }
 
