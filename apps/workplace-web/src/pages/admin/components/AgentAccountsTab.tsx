@@ -2,9 +2,12 @@
 // 넓은 화면은 칸 너비를 고정 비율로 둔 표, 좁은 화면(md 미만)은 계정 칸 하나에 나머지 값을 쌓아 줄마다 카드처럼 보인다(실행 환경 탭과 같은 방식).
 // 목록은 60초마다 다시 받고(useAgentAccounts), 「N분 전」·「N시간 M분 뒤 초기화」는 1분마다 도는 화면 시계(useMinuteNow)로 계산한다. 표시 규칙은 lib/agentAccountUsage.
 // 추가 창은 머리 「+ 계정 추가」(createOpen)가, 수정 창·삭제 확인은 줄 끝 ⋯ 메뉴가 연다(좁은 폭도 같은 메뉴 칸). 쓰는 AI 가 있는 계정 삭제는 서버가 409 로 막는다.
+// 다시 그리기 비용(WP-1693) — 300줄이면 60초 다시 받기·1분 시계마다 표 전체를 다시 그려 메인 스레드가 200ms 넘게 멈췄다. 줄은 메모해
+// 바뀐 계정(구조 공유로 그대로면 같은 참조)·시계가 바뀐 때만 다시 그리고, 시계와 무관한 무거운 조각(⋯ 메뉴·쓰는 AI 칩·상태 배지)도 메모해
+// 시계가 돌 때는 시각 글자만 새로 그린다.
 
 import { MoreHorizontal } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -116,9 +119,8 @@ export function AgentAccountsTab({ createOpen, onCreateOpenChange }: Props) {
             ) : rows.length === 0 ? (
               <TableEmptyRow colSpan={COLUMNS} message="아직 계정이 없어요. 「+ 계정 추가」로 AI 가 쓸 계정을 넣으세요." />
             ) : (
-              rows.map((a) => (
-                <AccountRow key={a.id} account={a} now={now} onEdit={() => setEditing(a)} onDelete={() => setDeleting(a)} />
-              ))
+              // 처리기는 setState 그대로 넘긴다(참조 고정) — 줄마다 새 함수를 만들면 메모한 줄이 늘 다시 그려진다(WP-1693).
+              rows.map((a) => <AccountRow key={a.id} account={a} now={now} onEdit={setEditing} onDelete={setDeleting} />)
             )}
           </TableBody>
         </Table>
@@ -150,8 +152,18 @@ export function AgentAccountsTab({ createOpen, onCreateOpenChange }: Props) {
   );
 }
 
-/** 계정 한 줄 — 넓은 화면은 칸마다, 좁은 화면은 계정 칸 안에 같은 값을 쌓는다. 끝 칸의 ⋯ 메뉴(수정·삭제)는 두 폭 모두 보인다. */
-function AccountRow({
+/** 줄 메뉴 처리기 — 고를 계정을 받는다. 화면의 setState 를 그대로 받아 참조가 고정된다(메모가 깨지지 않게). */
+type AccountAction = (account: AgentAccountResponse) => void;
+
+/** 상태 칸 — 시계와 무관하고 줄마다 두 벌(넓은 칸·좁은 카드) 그려져, 시계가 돌 때 다시 그리지 않게 메모한다(WP-1693). */
+const MemoStatusCell = memo(AccountStatusCell);
+
+/**
+ * 계정 한 줄 — 넓은 화면은 칸마다, 좁은 화면은 계정 칸 안에 같은 값을 쌓는다. 끝 칸의 ⋯ 메뉴(수정·삭제)는 두 폭 모두 보인다.
+ * 메모한다(WP-1693) — 계정(참조)·시계·처리기가 그대로면 다시 받기에도 그리지 않는다. 시계가 돌면 줄은 다시 그리지만
+ * 메뉴·칩·상태 배지는 메모한 조각이라 시각 글자(초기화·사용량 확인·마지막 사용)만 새로 그린다.
+ */
+const AccountRow = memo(function AccountRow({
   account: a,
   now,
   onEdit,
@@ -159,8 +171,8 @@ function AccountRow({
 }: {
   account: AgentAccountResponse;
   now: Date;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit: AccountAction;
+  onDelete: AccountAction;
 }) {
   // 사용량 확인 — 한도 없는 줄(조회하지 않음)·조회 전이면 null. 넓은 표는 「—」, 좁은 카드는 줄을 생략한다.
   const checked = checkedText(a, now);
@@ -169,7 +181,7 @@ function AccountRow({
   const typeBadge = <Badge variant="secondary">{accountLabel(a.provider)}</Badge>;
 
   // 상태 칸 — 넓은 표의 칸과 좁은 폭 카드가 같은 것을 쓴다(실패 이유 한 줄까지).
-  const status = <AccountStatusCell account={a} />;
+  const status = <MemoStatusCell account={a} />;
 
   return (
     <TableRow data-testid={`agent-account-row-${a.id}`} className="align-top">
@@ -206,33 +218,48 @@ function AccountRow({
         {checked ?? EMPTY_GLYPH}
       </TableCell>
       <TableCell>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`${a.label} 메뉴`}
-              data-testid={`agent-account-menu-${a.id}`}
-              data-help="agents.accounts.menu"
-            >
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          {/* 메뉴는 포털로 그려져 줄 밖에 있다 — 열린 메뉴 항목을 만질 때도 같은 절이 보이게 메뉴에도 단다(WP-1507). */}
-          <DropdownMenuContent align="end" data-help="agents.accounts.menu">
-            <DropdownMenuItem onSelect={onEdit} data-testid={`agent-account-edit-${a.id}`}>
-              수정
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={onDelete} data-testid={`agent-account-delete-${a.id}`}>
-              삭제
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AccountMenu account={a} onEdit={onEdit} onDelete={onDelete} />
       </TableCell>
     </TableRow>
   );
-}
+});
+
+/** 줄 끝 ⋯ 메뉴(수정·삭제) — 시계와 무관해 메모한다(WP-1693). 줄마다 Radix 메뉴가 있어 300줄을 함께 다시 그리면 비싸다. */
+const AccountMenu = memo(function AccountMenu({
+  account: a,
+  onEdit,
+  onDelete,
+}: {
+  account: AgentAccountResponse;
+  onEdit: AccountAction;
+  onDelete: AccountAction;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`${a.label} 메뉴`}
+          data-testid={`agent-account-menu-${a.id}`}
+          data-help="agents.accounts.menu"
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      {/* 메뉴는 포털로 그려져 줄 밖에 있다 — 열린 메뉴 항목을 만질 때도 같은 절이 보이게 메뉴에도 단다(WP-1507). */}
+      <DropdownMenuContent align="end" data-help="agents.accounts.menu">
+        <DropdownMenuItem onSelect={() => onEdit(a)} data-testid={`agent-account-edit-${a.id}`}>
+          수정
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => onDelete(a)} data-testid={`agent-account-delete-${a.id}`}>
+          삭제
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+});
 
 /**
  * 쓰는 AI 칸 — 이름 칩(없으면 emptyText), 그 아래 「마지막 사용 N분 전」(기록이 없으면 줄 생략). 모든 종류에 같은 모양.
@@ -262,8 +289,11 @@ function AgentsSummary({
   );
 }
 
-/** 쓰는 AI — 이름 칩(상세로 가는 링크). 셋이 넘으면 「외 N명」. 칩은 줄을 넘기고 긴 이름은 자른다. */
-function AgentChips({ agents }: { agents: AgentAccountBoundAgent[] }) {
+/**
+ * 쓰는 AI — 이름 칩(상세로 가는 링크). 셋이 넘으면 「외 N명」. 칩은 줄을 넘기고 긴 이름은 자른다.
+ * 메모한다(WP-1693) — 시계와 무관하고(agents 는 구조 공유로 그대로면 같은 참조) 줄마다 두 벌(넓은 칸·좁은 카드) 그려진다.
+ */
+const AgentChips = memo(function AgentChips({ agents }: { agents: AgentAccountBoundAgent[] }) {
   const shown = agents.slice(0, MAX_AGENT_CHIPS);
   const rest = agents.length - shown.length;
   return (
@@ -281,4 +311,4 @@ function AgentChips({ agents }: { agents: AgentAccountBoundAgent[] }) {
       {rest > 0 && <span className="text-xs text-muted-foreground">외 {rest}명</span>}
     </div>
   );
-}
+});
