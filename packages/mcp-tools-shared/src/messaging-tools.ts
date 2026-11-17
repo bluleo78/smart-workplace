@@ -622,7 +622,7 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Invites an active member (username from search_members) to a channel as MEMBER; channel OWNER/ADMIN only, not DMs. Not ' +
-        'notified. Also joins its drive space, if any.',
+        'notified. Also joins its drive space if any.',
       inputSchema: addChannelMemberInput,
       async handler(args) {
         const { channelId, username } = addChannelMemberInput.parse(args);

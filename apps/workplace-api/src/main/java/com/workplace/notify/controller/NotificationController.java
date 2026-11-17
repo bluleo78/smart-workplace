@@ -1,7 +1,9 @@
 package com.workplace.notify.controller;
 
 import com.workplace.notify.dto.NotificationResponse;
+import com.workplace.notify.dto.UnarchiveNotificationsRequest;
 import com.workplace.notify.service.NotificationService;
+import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +12,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -62,5 +65,26 @@ public class NotificationController {
   public ResponseEntity<Void> markAllRead(@AuthenticationPrincipal Long callerId) {
     service.markAllRead(callerId);
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 읽은 알림 모두 보관(WP-1689) — 본인의 읽은 알림을 목록에서 치우고 실제 보관한 id 를 돌려준다(웹 「되돌리기」가 그 묶음만 되돌린다). 보관할 것이 없으면 빈
+   * 목록. 안 읽은 알림은 그대로라 안 읽은 수는 바뀌지 않는다.
+   */
+  @PostMapping("/archive-read")
+  public ResponseEntity<Map<String, List<Long>>> archiveRead(
+      @AuthenticationPrincipal Long callerId) {
+    return ResponseEntity.ok(Map.of("archivedIds", service.archiveRead(callerId)));
+  }
+
+  /**
+   * 보관 되돌리기(WP-1689) — 받은 id 중 본인 것이면서 보관된 것만 목록으로 돌려놓고 그 id 를 돌려준다. 남의 id 는 소리 없이 무시한다. 늘 200 이라
+   * 웹이 한 응답 모양만 다룬다.
+   */
+  @PostMapping("/unarchive")
+  public ResponseEntity<Map<String, List<Long>>> unarchive(
+      @AuthenticationPrincipal Long callerId,
+      @Valid @RequestBody UnarchiveNotificationsRequest req) {
+    return ResponseEntity.ok(Map.of("restoredIds", service.unarchive(callerId, req.ids())));
   }
 }

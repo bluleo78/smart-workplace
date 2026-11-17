@@ -27,7 +27,7 @@ export const mailCategoryInput = z.enum(MAIL_CATEGORIES);
 export type MailCategory = (typeof MAIL_CATEGORIES)[number];
 
 /** upload_file 로 스테이징한 파일 id 목록(WP-422) — 이슈·메시지 쓰기 도구가 첨부 입력(fileIds)으로 같이 쓴다. 한 요청 10개는 서버 상한과 같다. */
-export const stagedFileIdsInput = z.array(z.number().int().positive()).max(10).describe('Staged upload_file ids to attach');
+export const stagedFileIdsInput = z.array(z.number().int().positive()).max(10).describe('upload_file ids to attach');
 
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });

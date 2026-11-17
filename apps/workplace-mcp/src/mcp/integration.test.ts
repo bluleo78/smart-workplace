@@ -471,6 +471,7 @@ describe('/mcp 연결 범위 (WP-350)', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, 
 
   it('X-MCP-Toolsets 헤더는 경로에 앱 선택이 없을 때 앱 선택으로 쓰이고, /readonly 와도 합쳐진다', async () => {
     expect([...(await open('/mcp', { 'X-MCP-Toolsets': 'notify' })).names].sort()).toEqual([
+      'archive_read_notifications',
       'get_home_overview',
       'list_notifications',
       'mark_all_notifications_read',

@@ -877,6 +877,8 @@ export interface NotificationToolClient {
   /** 한 이슈의 내 알림을 모두 읽음으로(WP-720). */
   markIssueNotificationsRead(issueKey: string): Promise<void>;
   markAllNotificationsRead(): Promise<void>;
+  /** 내 읽은 알림을 모두 보관한다(WP-1689) — 실제로 보관된 알림 id 목록. 안 읽은 알림은 그대로 둔다. */
+  archiveReadNotifications(): Promise<number[]>;
 }
 
 /**

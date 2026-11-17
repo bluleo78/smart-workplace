@@ -139,6 +139,8 @@ describe('탭바·탭 루트', () => {
     const header = screen.getByTestId('mobile-list-header')
     expect(within(header).getByRole('heading', { level: 1 })).toHaveTextContent('알림')
     expect(within(header).getByTestId('inbox-mark-all')).toBeInTheDocument()
+    // WP-1689 — 머리 액션에 「읽은 알림 보관」도 함께.
+    expect(within(header).getByTestId('inbox-archive-read')).toHaveTextContent('읽은 알림 보관')
     expect(screen.queryByTestId('mobile-back')).not.toBeInTheDocument()
   })
 

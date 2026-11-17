@@ -123,6 +123,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_notifications: { label: '알림 조회', icon: '🔔' },
   mark_notification_read: { label: '알림 읽음 처리', icon: '🔔' },
   mark_all_notifications_read: { label: '알림 모두 읽음', icon: '🔔' },
+  archive_read_notifications: { label: '읽은 알림 보관', icon: '🔔' },
   // 홈 개요(WP-357)
   get_home_overview: { label: '홈 현황 조회', icon: '🏠' },
 };

@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
@@ -356,5 +357,192 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     assertThat(repo.listRecent(organizer, false, 20, 0))
         .extracting(NotificationResponse::eventTitle)
         .containsExactly("SECRET 바뀐 제목");
+  }
+
+  // ── WP-1689 읽은 알림 보관 ──────────────────────────────────────────────
+
+  /** 받는 사람의 알림 id 를 오래된 것부터(insertBatch 순서). */
+  private List<Long> idsOf(long recipient) {
+    return dsl.select(NOTIFICATION.ID)
+        .from(NOTIFICATION)
+        .where(NOTIFICATION.RECIPIENT_ID.eq(recipient))
+        .orderBy(NOTIFICATION.ID)
+        .fetch(NOTIFICATION.ID);
+  }
+
+  /** 알림 하나를 1분 전에 읽은 것으로 — 같은 트랜잭션 안의 시각 차이에 기대지 않게 과거 시각을 직접 넣는다. */
+  private java.time.OffsetDateTime readMinuteAgo(long id) {
+    var at = java.time.OffsetDateTime.now().minusMinutes(1).withNano(0);
+    dsl.update(NOTIFICATION).set(NOTIFICATION.READ_AT, at).where(NOTIFICATION.ID.eq(id)).execute();
+    return at;
+  }
+
+  /** 읽은 알림만 보관한다 — 안 읽은 알림·남의 알림은 그대로, read_at 은 바뀌지 않고 목록에서 빠진다. 안 읽은 수는 그대로다. */
+  @Test
+  void archiveRead_archivesOnlyCallersReadNotifications() {
+    long a = seedUser("HUMAN");
+    long b = seedUser("HUMAN");
+    long issueId = seedIssue(a, "이슈");
+    repo.insertBatch(List.of(a, a, b), NotificationType.ASSIGNED, null, issueId, null);
+    List<Long> aIds = idsOf(a);
+    long bId = idsOf(b).get(0);
+    var readAt = readMinuteAgo(aIds.get(0));
+    readMinuteAgo(bId);
+
+    List<Long> archived = repo.archiveRead(a, false);
+
+    assertThat(archived).containsExactly(aIds.get(0));
+    assertThat(repo.listRecent(a, 20, 0))
+        .extracting(NotificationResponse::id)
+        .containsExactly(aIds.get(1));
+    assertThat(repo.countUnread(a)).isEqualTo(1);
+    var row = dsl.selectFrom(NOTIFICATION).where(NOTIFICATION.ID.eq(aIds.get(0))).fetchOne();
+    assertThat(row.getReadAt().toInstant()).isEqualTo(readAt.toInstant());
+    assertThat(row.getArchivedAt()).isNotNull();
+    // 남의 읽은 알림은 그대로 목록에 있다.
+    assertThat(repo.listRecent(b, 20, 0)).extracting(NotificationResponse::id).containsExactly(bId);
+    // 다시 불러도 보관할 것이 없다.
+    assertThat(repo.archiveRead(a, false)).isEmpty();
+  }
+
+  /** 「모두 읽음」 직후 「읽은 알림 보관」 — 같은 트랜잭션 안에서 이어 불러도 방금 읽은 알림까지 보관돼 목록이 빈다. */
+  @Test
+  void markAllRead_then_archiveRead_emptiesList() {
+    long a = seedUser("HUMAN");
+    long issueId = seedIssue(a, "이슈");
+    repo.insertBatch(List.of(a, a), NotificationType.ASSIGNED, null, issueId, null);
+
+    repo.markAllRead(a);
+    assertThat(repo.archiveRead(a, false)).hasSize(2);
+
+    assertThat(repo.listRecent(a, 20, 0)).isEmpty();
+    assertThat(repo.countUnread(a)).isZero();
+  }
+
+  /** 되돌리기 — 내 것이면서 보관된 것만 되돌리고, 남의 id·보관 안 된 id 는 소리 없이 무시한다. */
+  @Test
+  void unarchive_restoresOnlyCallersArchived_andIgnoresOthers() {
+    long a = seedUser("HUMAN");
+    long b = seedUser("HUMAN");
+    long issueId = seedIssue(a, "이슈");
+    repo.insertBatch(List.of(a, a, b), NotificationType.ASSIGNED, null, issueId, null);
+    List<Long> aIds = idsOf(a);
+    long bId = idsOf(b).get(0);
+    readMinuteAgo(aIds.get(0));
+    readMinuteAgo(bId);
+    repo.archiveRead(a, false);
+    repo.archiveRead(b, false);
+
+    // b 가 a 의 보관 알림 id 로 되돌리기 → 아무것도 바뀌지 않는다.
+    assertThat(repo.unarchive(b, List.of(aIds.get(0)))).isEmpty();
+    assertThat(repo.listRecent(a, 20, 0))
+        .extracting(NotificationResponse::id)
+        .containsExactly(aIds.get(1));
+
+    // a 가 자기 보관 알림 + 보관 안 된 자기 알림 + 남의 보관 알림 → 자기 보관 알림만 돌아온다.
+    assertThat(repo.unarchive(a, List.of(aIds.get(0), aIds.get(1), bId)))
+        .containsExactly(aIds.get(0));
+    assertThat(repo.listRecent(a, 20, 0))
+        .extracting(NotificationResponse::id)
+        .containsExactlyInAnyOrder(aIds.get(0), aIds.get(1));
+    var restored =
+        repo.listRecent(a, 20, 0).stream()
+            .filter(n -> n.id() == aIds.get(0))
+            .findFirst()
+            .orElseThrow();
+    assertThat(restored.read()).isTrue();
+    assertThat(repo.listRecent(b, 20, 0)).isEmpty();
+  }
+
+  /** 보관 뒤 같은 이슈에 새 활동이 생기면 새 알림은 늘 새 행이라 목록에 온다. */
+  @Test
+  void newNotificationAfterArchive_appearsInList() {
+    long a = seedUser("HUMAN");
+    long issueId = seedIssue(a, "이슈");
+    repo.insertBatch(List.of(a), NotificationType.ASSIGNED, null, issueId, null);
+    readMinuteAgo(idsOf(a).get(0));
+    repo.archiveRead(a, false);
+    assertThat(repo.listRecent(a, 20, 0)).isEmpty();
+
+    repo.insertBatch(List.of(a), NotificationType.COMMENTED, null, issueId, 1L);
+
+    assertThat(repo.listRecent(a, 20, 0))
+        .extracting(NotificationResponse::type)
+        .containsExactly("COMMENTED");
+    assertThat(repo.countUnread(a)).isEqualTo(1);
+  }
+
+  /**
+   * 목록·안 읽은 수는 보관되지 않은 알림만 — countUnread 의 두 갈래(recipientIsAdmin false·true) 모두. 정상 흐름에서는 읽은 알림만
+   * 보관되지만 쿼리가 archived_at 을 직접 거르는지 고정하려고 안 읽은 채 보관된 행을 직접 만든다. 보관된 알림은 읽음 처리도 다시 건드리지 않는다.
+   */
+  @Test
+  void archivedRows_excludedFromListAndBothUnreadBranches_andNotReRead() {
+    long a = seedUser("HUMAN");
+    long issueId = seedIssue(a, "이슈");
+    repo.insertBatch(List.of(a, a), NotificationType.ASSIGNED, null, issueId, null);
+    List<Long> ids = idsOf(a);
+    dsl.update(NOTIFICATION)
+        .set(NOTIFICATION.ARCHIVED_AT, java.time.OffsetDateTime.now())
+        .where(NOTIFICATION.ID.eq(ids.get(0)))
+        .execute();
+
+    assertThat(repo.listRecent(a, false, 20, 0))
+        .extracting(NotificationResponse::id)
+        .containsExactly(ids.get(1));
+    assertThat(repo.listRecent(a, true, 20, 0))
+        .extracting(NotificationResponse::id)
+        .containsExactly(ids.get(1));
+    assertThat(repo.countUnread(a, false)).isEqualTo(1);
+    assertThat(repo.countUnread(a, true)).isEqualTo(1);
+
+    assertThat(repo.markRead(a, ids.get(0))).isZero();
+    assertThat(repo.markReadByIssue(a, issueId)).containsExactly(ids.get(1));
+    assertThat(
+            dsl.select(NOTIFICATION.READ_AT)
+                .from(NOTIFICATION)
+                .where(NOTIFICATION.ID.eq(ids.get(0)))
+                .fetchOne(NOTIFICATION.READ_AT))
+        .isNull();
+  }
+
+  /** 모두 읽음도 보관된 알림은 건드리지 않는다. */
+  @Test
+  void markAllRead_skipsArchived() {
+    long a = seedUser("HUMAN");
+    long issueId = seedIssue(a, "이슈");
+    repo.insertBatch(List.of(a, a), NotificationType.ASSIGNED, null, issueId, null);
+    dsl.update(NOTIFICATION)
+        .set(NOTIFICATION.ARCHIVED_AT, java.time.OffsetDateTime.now())
+        .where(NOTIFICATION.ID.eq(idsOf(a).get(0)))
+        .execute();
+
+    assertThat(repo.markAllRead(a)).isEqualTo(1);
+  }
+
+  /**
+   * 목록에 보이지 않는 읽은 알림(지운 이슈·볼 수 없는 프로젝트)은 보관하지 않는다 — 「N개 보관」이 사용자가 본 것과 같게. ADMIN 은 비개인(TEAM) 프로젝트를
+   * 볼 수 있으므로 그 알림은 보관된다(목록과 같은 갈래).
+   */
+  @Test
+  void archiveRead_skipsReadNotificationsHiddenFromList() {
+    long a = seedUser("HUMAN");
+    long actor = seedUser("HUMAN");
+    long visibleIssue = seedIssue(actor, "보이는 이슈");
+    long deletedIssue = seedIssue(actor, "지운 이슈");
+    long teamIssue = seedIssue(actor, "멤버 아닌 팀 이슈", "TEAM");
+    repo.insertBatch(List.of(a), NotificationType.ASSIGNED, actor, visibleIssue, null);
+    repo.insertBatch(List.of(a), NotificationType.ASSIGNED, actor, deletedIssue, null);
+    repo.insertBatch(List.of(a), NotificationType.ASSIGNED, actor, teamIssue, null);
+    List<Long> ids = idsOf(a);
+    ids.forEach(this::readMinuteAgo);
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(ISSUE.ID.eq(deletedIssue))
+        .execute();
+
+    assertThat(repo.archiveRead(a, false)).containsExactly(ids.get(0));
+    // ADMIN 갈래는 팀 프로젝트 알림도 보이므로 보관된다. 지운 이슈 알림은 여전히 남는다.
+    assertThat(repo.archiveRead(a, true)).containsExactly(ids.get(2));
   }
 }

@@ -310,9 +310,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels, cycles, components replace the set ([] clears). ' +
-        'reporter (username, humans only; open projects: non-members too): project OWNER/ADMIN or current reporter only. ' +
+        'reporter (username, humans only; open projects: non-members too): OWNER/ADMIN or current reporter only. ' +
         'Names (type, milestone, cycles, components, fields) from get_project; unknown fail before any write. Unknown labels are created ' +
-        '(gray; createdLabels). Parts save separately: {ok, results, createdLabels?}; unknown status fails results.content, writes nothing else. ' +
+        '(gray). Parts save separately: {ok, results, createdLabels?}; unknown status fails results.content, writes nothing else. ' +
         'Status/priority changes notify assignees, watchers, new assignees. agentRuntime INTERNAL AIs ignore other AIs\' assigning, comments, status.' +
         LINK_RULE_AUTOLINK,
       inputSchema: updateIssueInput,
@@ -425,9 +425,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED asking/awaiting a person, AUTH_REQUIRED if you need ' +
+        'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED asking/awaiting a person, AUTH_REQUIRED needing ' +
         'credentials/permission, REVIEW done awaiting review, BLOCKED + why, WAITING on another AI (note what), SCHEDULED yield until nextRunAt (none = after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
-        'work. message posts to issue chat (@username mentions and notifies).',
+        'work. message posts to issue chat (@username mentions notify).',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
         const { issueKey, nextRunAt, ...rest } = reportAgentWorkInput.parse(args);
@@ -499,7 +499,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: false },
       description:
         'Adds a Markdown comment to an issue (이슈); the caller starts watching it. Assignees and watchers are notified, @username mentions ' +
-        'too; an assigned AI agent may reply.' +
+        'too; an assigned AI may reply.' +
         LINK_RULE_AUTOLINK,
       inputSchema: addCommentInput,
       async handler(args) {
@@ -515,8 +515,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        `Replaces an issue comment body (its author only; a project OWNER can delete but not edit others' comments). commentId: comments[].id from get_issue_detail ` +
-        `(latest ${ISSUE_DETAIL_COMMENT_LIMIT}; allComments:true: up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}).` +
+        `Replaces an issue comment body (author only, not even project OWNER). commentId: comments[].id from get_issue_detail ` +
+        `(allComments:true for older ones).` +
         LINK_RULE_AUTOLINK,
       inputSchema: editCommentInput,
       async handler(args) {
@@ -628,8 +628,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       // 같은 호출을 되풀이하면 대기열 라벨이 이미 없어 NOT_IN_QUEUE 로 거절된다 — 멱등이 아니다. 라벨을 떼지만 되돌릴 수 있어 destructive 도 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Takes a queued issue for you: if it carries queueLabel and has no AI assignee, adds you as assignee (people stay) and removes that label, ' +
-        'atomically. Refused (code NOT_IN_QUEUE / AI_ALREADY_ASSIGNED) if another AI got it first, or NEW_WORK_PAUSED if you are set not to accept new work.',
+        'Takes a queued issue: if it carries queueLabel and has no AI assignee, adds you as assignee (people stay) and removes that label, ' +
+        'atomically. Refused (code NOT_IN_QUEUE / AI_ALREADY_ASSIGNED) if another AI got it first, or NEW_WORK_PAUSED if you are not accepting new work.',
       inputSchema: claimIssueInput,
       async handler(args) {
         const { issueKey, queueLabel } = claimIssueInput.parse(args);

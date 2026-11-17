@@ -407,8 +407,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
         'Saves a wiki page title and/or body; omitted fields stay. body replaces the whole Markdown document: ' +
         'for a partial edit send it all, copying untouched blocks and HTML byte-for-byte from get_wiki_page (no rewording; ' +
         'see its bodyFormat). version: from ' +
-        "get_wiki_page or the last save; others' later edits merge in (this request wins on overlap). 409: version unusable (over 1 " +
-        'hour old, unknown or newer): re-read and reapply. fileIds: files staged by upload_file; put each result url in body: ' +
+        "get_wiki_page or the last save; others' later edits merge in (this request wins on overlap). 409: version unusable (over 1h " +
+        'old, unknown or newer): re-read and reapply. fileIds: files staged by upload_file; put each result url in body: ' +
         'images ![alt](url), others [file name](url) (files[].isImage).' +
         LINK_RULE_WIKI,
       inputSchema: updateWikiPageInput,

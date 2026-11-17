@@ -244,6 +244,20 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         return (String) get(15);
     }
 
+    /**
+     * Setter for <code>public.notification.archived_at</code>.
+     */
+    public void setArchivedAt(OffsetDateTime value) {
+        set(16, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.archived_at</code>.
+     */
+    public OffsetDateTime getArchivedAt() {
+        return (OffsetDateTime) get(16);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -267,7 +281,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
     /**
      * Create a detached, initialised NotificationRecord
      */
-    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt, String statusName, String agentWorkState) {
+    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt, String statusName, String agentWorkState, OffsetDateTime archivedAt) {
         super(Notification.NOTIFICATION);
 
         setId(id);
@@ -286,6 +300,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         setEventStartsAt(eventStartsAt);
         setStatusName(statusName);
         setAgentWorkState(agentWorkState);
+        setArchivedAt(archivedAt);
         resetTouchedOnNotNull();
     }
 }
