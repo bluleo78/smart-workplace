@@ -3,7 +3,7 @@
 // 미리보기를 닫는 키·클릭이 편집으로 번지지 않음(@input).
 // 이미지 버튼 업로드 → 본문 끝 마크다운, 지워진 이미지(404) 대체 문구, 복원된 초안의 업로드 중 토큰 저장 안내는
 // 페이지 테스트 src/pages/projects/issueBodyImages.test.tsx 가 지킨다(WP-980).
-// 상세 편집칸은 본문 모드 RichInput(WP-1656) — 이미지는 칸 안 그림이고 원문 마크다운은 저장 요청에서 본다. 생성 다이얼로그는 아직 Textarea(WP-1657).
+// 상세 편집칸(WP-1656)·생성 다이얼로그 본문 칸(WP-1657)은 본문 모드 RichInput — 이미지는 칸 안 그림이고 원문 마크다운은 저장·생성 요청에서 본다.
 import type { Page } from '@playwright/test'
 
 import { mockApi } from '../../fixtures/api-mock'
@@ -121,16 +121,43 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
     const dialog = page.getByRole('dialog', { name: '새 이슈' })
     await dialog.getByLabel('제목').fill('로그인 버튼 깨짐')
-    await pasteImage(page, '#issue-body')
+    // 본문 칸은 본문 모드 편집칸(WP-1657) — 붙여넣은 이미지는 칸 안에 자리표시 → 그림으로 보인다.
+    const editor = dialog.getByTestId('issue-body')
+    await pasteImage(page, '[data-testid="issue-body"]')
 
-    await expect(page.locator('#issue-body')).toHaveValue(/!\[업로드 중… #1\]\(\)/)
+    await expect(editor.getByTestId('rich-image')).toHaveText('업로드 중…')
     await expect(dialog.getByRole('button', { name: /^생성$/ })).toBeDisabled()
 
     upload.release()
-    await expect(page.locator('#issue-body')).toHaveValue(`![bug.png](${IMG_URL})\n`)
+    await expect(editor.getByTestId('rich-image').locator('img')).toHaveAttribute('src', /^blob:/)
 
     await dialog.getByRole('button', { name: /^생성$/ }).click()
+    // 보내는 본문은 다듬지 않은 원문 그대로(정확히 일치) — 이미지 줄과, 이미지 뒤에 커서가 놓이도록 본문 모드가 붙인 빈 줄의 줄바꿈 하나.
     await expect.poll(() => creates.lastBody<{ body: string }>()?.body).toBe(`![bug.png](${IMG_URL})\n`)
+  })
+
+  // 본문 모드 붙여넣기는 일반 글자를 줄 단위 그대로 넣는다 — 빈 줄이 사라지거나 한 줄로 합쳐지면 보내는 원문이 달라진다.
+  test('여러 줄 글자 붙여넣기는 빈 줄까지 그대로 보낸다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await stubProjectList(page)
+    const creates = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/issues`)
+    await page.route(`**/api/v1/projects/${KEY}/issues`, async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createIssue({ number: 9 })) })
+    })
+
+    await page.goto(`/projects/${KEY}`)
+    await page.getByRole('button', { name: '+ 새 태스크' }).click()
+    const dialog = page.getByRole('dialog', { name: '새 이슈' })
+    await dialog.getByLabel('제목').fill('여러 줄 본문')
+    await page.getByTestId('issue-body').evaluate((el) => {
+      const dt = new DataTransfer()
+      dt.setData('text/plain', 'a\n\nb')
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
+    })
+    await expect(page.getByTestId('issue-body').locator('p')).toHaveCount(3)
+
+    await dialog.getByRole('button', { name: /^생성$/ }).click()
+    await expect.poll(() => creates.lastBody<{ body: string }>()?.body).toBe('a\n\nb')
   })
 
   test('엑셀처럼 텍스트와 이미지가 함께 붙여넣어지면 텍스트만 들어가고 업로드하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
@@ -139,13 +166,15 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
     await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) => r.fulfill({ status: 500 }))
     await page.goto(`/projects/${KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await page.locator('#issue-body').evaluate((el) => {
+    const editor = page.getByTestId('issue-body')
+    await editor.evaluate((el) => {
       const dt = new DataTransfer()
       dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'cells.png', { type: 'image/png' }))
       dt.setData('text/plain', 'A\tB')
       el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
     })
-    await expect(page.locator('#issue-body')).not.toHaveValue(/업로드 중/)
+    await expect(editor).toHaveText('A\tB')
+    await expect(editor.getByTestId('rich-image')).toHaveCount(0)
     expect(uploads.count()).toBe(0)
   })
 })

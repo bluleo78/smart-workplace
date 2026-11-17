@@ -3,12 +3,13 @@
 // 브라우저 없이 판정되므로 e2e/pages/mobile/issue-create.spec.ts 에서 옮겼다.
 // 전체 화면 크기·자라는 입력칸·칩 줄 스크롤(@layout), IME·포커스 복귀·스와이프(@input), 시스템 back(@platform)은 E2E 에 남는다.
 // 앱 셸을 보지 않으므로 이슈 목록 화면(ProjectDetailPage)만 renderScreen 으로 띄운다(WP-1002).
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
+import { editorOf } from '@/test/kits/richEditor'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
@@ -19,6 +20,7 @@ import { createProject } from '../../../e2e/factories/project.factory'
 mockViewport()
 
 const KEY = 'WP'
+
 const EPIC = createIssue({ id: 50, number: 50, projectKey: KEY, type: makeEpicType(), title: '결제 개편 에픽' })
 const MEMBERS = [
   { userId: 1, name: '양동희', username: 'dh.yang@iacloud.kr', kind: 'HUMAN' },
@@ -63,7 +65,10 @@ describe('모바일 이슈 생성 시트', () => {
     // WP-929: 상한 초과 시 아무 반응 없이 멈추던 회귀 — zod 오류가 설명 아래에 그려지고 POST 는 막힌다.
     const { user, api } = await openSheet()
     fireEvent.change(screen.getByTestId('issue-create-title'), { target: { value: '긴 설명' } })
-    fireEvent.change(screen.getByTestId('issue-create-body'), { target: { value: '가'.repeat(50001) } })
+    // 설명 칸은 본문 모드 편집칸(WP-1657) — 편집기에 원문을 넣는다. 오류 id·aria-invalid 는 편집칸에 달린다.
+    act(() => {
+      editorOf(screen.getByTestId('issue-create-body')).commands.insertContentAt(1, '가'.repeat(50001))
+    })
     await user.click(screen.getByTestId('issue-create-submit'))
     expect(await screen.findByText('본문은 50000자 이하여야 합니다')).toHaveAttribute('id', 'issue-create-body-error')
     expect(screen.getByTestId('issue-create-body')).toHaveAttribute('aria-invalid', 'true')

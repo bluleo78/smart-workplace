@@ -2,9 +2,11 @@
 // 높이 = 보이는 뷰포트(--vvh), 위치 = --vv-top(키보드 열림 시 iOS 팬 보정). 헤더 [취소 · 새 이슈 · 생성] 은 맨 위,
 // 속성 칩 줄은 맨 아래 = 키보드 바로 위(키보드 원칙 ①②). 내용이 있으면 닫기 전에 버림 확인.
 // DialogContent 대신 원시 Content — index.css 의 [data-slot=dialog-content] 키보드 규칙(가운데 정렬·max-height)을 피한다.
+// 설명 칸(WP-1657)은 테두리 없는 본문 모드 RichInput — 붙여넣은 이미지를 칸 안에 그림으로 보이고 원문은 그대로 보낸다.
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useRef, useState } from 'react';
 
+import { RichInput } from '@/components/mentions/RichInput';
 import { RawSheetContent } from '@/components/mobile/RawSheetContent';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -15,6 +17,7 @@ import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { useFocusReturn } from '@/hooks/useFocusReturn';
 import { useSheetHistory } from '@/hooks/useSheetHistory';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
+import { isRichBodyTarget } from '@/lib/richBodyTarget';
 import { normalizeSingleLineInput } from '@/lib/singleLine';
 
 import { ComponentAutoAssignHint } from '../../../../components/components/CreateComponentsField';
@@ -30,7 +33,8 @@ type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => 
 export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId }: Props) {
   const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId });
   const { register, watch, formState: { errors } } = f.form;
-  const { bodyRef, bodyField } = f;
+  // 설명 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
+  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange } = f.bodyEditor;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 칩 → 시트 → 직전 입력칸 포커스 복귀(키보드 원칙 ③). 칩 줄과 본문 인라인 입력이 함께 쓴다.
   const focusReturn = useFocusReturn();
@@ -41,7 +45,6 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const focusParent = () => requestAnimationFrame(() => f.form.setFocus('parentNumber'));
   const startDate = watch('startDate');
   const title = watch('title') ?? '';
-  const body = watch('body') ?? '';
   // 시스템 back 으로 닫기(WP-222) — 빈 시트는 시트만 닫고, 내용이 있으면 버림 확인을 띄운다(항목은 훅이 다시 심는다).
   useSheetHistory({
     historyKey: 'issueCreate', open, hasContent: f.hasContent,
@@ -52,9 +55,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
     if (f.hasContent) setConfirmDiscard(true);
     else onOpenChange(false);
   };
-  // 설명 자동 확장 — 내용 높이에 맞춰 늘린다(최소 3줄은 rows=3).
-  useAutoGrowTextarea(bodyRef, body, open);
-  // 제목도 자동 확장 textarea — 한 줄 input 은 긴 제목이 오른쪽에서 잘려 끝을 볼 수 없었다(디자인 리뷰). 설명과 같은 방식.
+  // 제목은 자동 확장 textarea — 한 줄 input 은 긴 제목이 오른쪽에서 잘려 끝을 볼 수 없었다(디자인 리뷰). 설명 칸(편집칸)은 내용 높이로 스스로 자란다.
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const titleField = register('title');
   useAutoGrowTextarea(titleRef, title, open);
@@ -67,7 +68,9 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
         <RawSheetContent
           data-testid="issue-create-sheet"
           aria-describedby={undefined}
-          onEscapeKeyDown={(e) => { e.preventDefault(); requestClose(); }}
+          // Esc — 시트는 늘 스스로 닫지 않는다(내용이 있으면 버림 확인). 설명 칸 안의 Esc 는 칸(RichInput)에 맡긴다 —
+          // 멘션 팝업이 열려 있으면 팝업만 닫고, 아니면 onCancel(=requestClose). 칸 밖 Esc 는 바로 닫기 요청.
+          onEscapeKeyDown={(e) => { e.preventDefault(); if (!isRichBodyTarget(e.target)) requestClose(); }}
           onOpenAutoFocus={(e) => e.preventDefault()}
           className="fixed inset-x-0 top-[var(--vv-top,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none [:root[data-keyboard-open]_&]:pb-0"
         >
@@ -110,7 +113,8 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 }}
                 onCompositionEnd={titleEnter.onCompositionEnd}
                 onKeyDown={(e) => {
-                  titleEnter.handleEnter(e, () => bodyRef.current?.focus());
+                  // 설명 칸 끝으로 바로 포커스 — 키 처리(사용자 제스처) 안에서 옮겨야 iOS 가 키보드를 내리지 않고 유지한다.
+                  titleEnter.handleEnter(e, () => bodyEditorRef.current?.focus());
                 }}
                 className="block w-full resize-none overflow-hidden bg-transparent text-xl! leading-7 font-semibold outline-none placeholder:text-muted-foreground"
               />
@@ -119,17 +123,26 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                   {errors.title.message}
                 </p>
               )}
-              <textarea
-                {...bodyField}
-                ref={(el) => { bodyField.ref(el); bodyRef.current = el; }}
-                rows={3}
-                aria-label="설명"
+              {/* 설명 — 본문 모드 RichInput(테두리 없음, 최소 3줄, 최대 높이 없음 — 시트 본문이 스크롤한다). 붙여넣은 이미지는 칸 안 그림.
+                  이미지 버튼은 지금처럼 없다(붙여넣기만). 시트가 열릴 때마다 새로 마운트돼 빈 칸으로 시작한다. */}
+              <RichInput
+                ref={bodyEditorRef}
+                // 설명 칸 모양 — 테두리 없이 글자만(bare). 바깥 시트가 이미 칸을 그려 둔다(편집칸은 마운트 때 한 번만 읽는다).
+                bodyMode={{ ...bodyMode, frame: 'bare' }}
+                imageUpload={imageUpload}
+                members={members}
+                initialBody=""
+                ariaLabel="설명"
                 placeholder="설명 (선택)"
-                data-testid="issue-create-body"
-                aria-invalid={!!errors.body || undefined}
-                aria-describedby={errors.body ? 'issue-create-body-error' : undefined}
-                onPaste={f.images.onPaste}
-                className="w-full resize-none overflow-hidden bg-transparent text-base leading-6 outline-none placeholder:text-muted-foreground"
+                inputTestId="issue-create-body"
+                submitTestId="issue-create-body-submit"
+                editorAria={{ invalid: !!errors.body, describedBy: errors.body ? 'issue-create-body-error' : undefined }}
+                editorMaxHeightClass=""
+                onBodyChange={onBodyChange}
+                onUploadingChange={onUploadingChange}
+                // Cmd/Ctrl+Enter — 헤더 「생성」과 같은 폼 제출 경로(제목 검사·업로드 중 막기).
+                onSubmit={() => void f.onSubmit()}
+                onCancel={requestClose}
               />
               {/* 본문 상한(5만자) 초과 검증 실패를 그리지 않으면 「만들기」가 아무 반응 없이 멈춘다(WP-929·WP-885). */}
               {errors.body && (

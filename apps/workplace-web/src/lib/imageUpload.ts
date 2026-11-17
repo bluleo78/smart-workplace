@@ -1,4 +1,4 @@
-// 본문 이미지 업로드 공용 규칙 — 위키(useWikiImageUpload)와 이슈(useIssueImageUpload, WP-199)가 같은 기준으로 사전 검사하도록 한 곳에 둔다.
+// 본문 이미지 업로드 공용 규칙 — 위키(useWikiImageUpload)와 이슈 본문 편집칸(RichInput 본문 모드)이 같은 기준으로 사전 검사하도록 한 곳에 둔다.
 // 클라이언트 검사는 UX 용이고 최종 판정은 서버 매직바이트가 한다.
 
 /** 허용 이미지 MIME — 서버 ImageSniffer 화이트리스트와 같다(SVG 는 스크립트 벡터라 제외). */

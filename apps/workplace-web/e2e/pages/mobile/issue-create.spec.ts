@@ -10,9 +10,11 @@ import { createProject } from '../../factories/project.factory';
 import { pressEnterAfterComposition, pressMacChromeImeEnter } from '../../fixtures/ime';
 import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
+import { solidPng } from '../../fixtures/png';
 import { trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
+const WIDE_IMG_URL = `/api/v1/projects/${KEY}/issue-images/77`;
 const json = (b: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
 const EPIC = createIssue({ id: 50, number: 50, projectKey: KEY, type: makeEpicType(), title: '결제 개편 에픽' });
 
@@ -63,14 +65,40 @@ test.describe('생성 시트', () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  // 설명 칸은 본문 모드 편집칸(contenteditable, WP-1657) — 빈 칸도 3줄 높이를 두고, Enter 로 줄을 늘리면 칸이 따라 자란다.
   test('설명은 내용에 따라 자라고 최소 3줄', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     const body = page.getByTestId('issue-create-body');
     const h0 = (await body.boundingBox())!.height;
-    expect(h0).toBeGreaterThanOrEqual(3 * 24 - 1);
-    await body.fill(Array.from({ length: 8 }, (_, i) => `줄 ${i + 1}`).join('\n'));
+    expect(h0).toBeGreaterThanOrEqual(72);
+    await body.click();
+    for (let i = 1; i <= 8; i++) {
+      await page.keyboard.type(`줄 ${i}`);
+      if (i < 8) await page.keyboard.press('Enter');
+    }
     await expect.poll(async () => (await body.boundingBox())!.height).toBeGreaterThan(h0 + 48);
+  });
+
+  // 본문에 붙여넣은 이미지는 칸 안에 그림으로 보인다 — 넓은 이미지가 시트를 가로로 밀어내지 않고 칸 폭에 맞게 줄어야 한다(브라우저 레이아웃만 아는 일).
+  test('390px 에서 본문에 넓은 이미지를 붙여도 시트가 가로로 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) =>
+      r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ fileId: 77, url: WIDE_IMG_URL, name: 'wide.png', mimeType: 'image/png', size: 70 }) }));
+    await page.route(`**${WIDE_IMG_URL}`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: solidPng(1600, 400) }));
+    await openSheet(page);
+    await page.getByTestId('issue-create-body').evaluate((el) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'wide.png', { type: 'image/png' }));
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+    });
+    const img = page.getByTestId('issue-create-body').getByTestId('rich-image').locator('img');
+    await expect(img).toHaveAttribute('src', /^blob:/);
+    // 실제로 디코딩돼 그려진 뒤에 폭을 잰다(자리 크기 0 일 때의 거짓 통과를 막는다).
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1600);
+    await expect.poll(async () => (await img.boundingBox())!.width).toBeLessThanOrEqual(390 - 32);
+    expect((await img.boundingBox())!.width).toBeGreaterThan(100);
+    await expectNoHorizontalOverflow(page, 390);
   });
 
   test('제목은 길면 줄바꿈되며 자라고, Enter 는 줄바꿈 대신 설명으로 이동', { tag: '@input' }, async ({ authenticatedPage: page }) => {

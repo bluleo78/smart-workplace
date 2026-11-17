@@ -13,12 +13,13 @@ import {
 } from '@/components/ui/dialog';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { isRichBodyTarget } from '@/lib/richBodyTarget';
 
 import { CreateComponentsField } from '../../../components/components/CreateComponentsField';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageButton';
+import { RichInput } from '../../../components/mentions/RichInput';
 import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import { SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN } from '../../../lib/supportedDate';
@@ -55,7 +56,9 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
   };
   const f = useIssueCreateForm({ projectKey, open, onOpenChange: handleOpenChange, initialTypeId, initialStatusId });
   const { register, watch, setValue, formState: { errors } } = f.form;
-  const { types, images, bodyField, bodyRef, classify, classifyReason, isSubtaskSelected, intakeOnly } = f;
+  const { types, classify, classifyReason, isSubtaskSelected, intakeOnly } = f;
+  // 본문 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
+  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange } = f.bodyEditor;
   const currentTypeId = watch('typeId');
   // 닫기 요청 공통 경로 — 제목·본문이 있으면 확인하고, 빈 폼은 바로 닫는다.
   const requestClose = () => {
@@ -65,7 +68,9 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (o) onOpenChange(true); else requestClose(); }}>
-      <DialogContent>
+      {/* 본문 칸 안의 Esc 는 창을 닫지 않고 칸(RichInput)에 맡긴다 — 멘션 팝업이 열려 있으면 팝업만 닫고, 아니면 onCancel(=닫기 요청).
+          바로 닫으면 Esc 한 번에 팝업과 창이 함께 닫힌다. 칸 밖 Esc 는 지금처럼 닫기 요청. */}
+      <DialogContent onEscapeKeyDown={(e) => { if (isRichBodyTarget(e.target)) e.preventDefault(); }}>
         {/* 유형 드롭다운(에픽/버그/스토리 등)과 무관한 중립 문구로 통일 — 유형별 동적 제목보다 단순하고 확장에 안전 (#641) */}
         <DialogHeader><DialogTitle>새 이슈</DialogTitle><DialogDescription className="sr-only">새 이슈</DialogDescription></DialogHeader>
         {/* noValidate — 날짜 칸 min/max·부모 번호 칸 min/step 을 넘는 값이면 브라우저 기본 검증(영문 말풍선)이 제출을 먼저
@@ -81,22 +86,30 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
           </FormField>
           <div className="space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
-              <IssueBodyImageButton onFiles={images.uploadFiles} />
+              {/* 편집칸은 contenteditable 이라 <label htmlFor> 로 이어지지 않는다 — 이름은 편집칸의 ariaLabel 로 준다. */}
+              <span className="text-sm font-medium">본문</span>
+              <IssueBodyImageButton onFiles={(files) => bodyEditorRef.current?.insertImages(files)} />
             </div>
-            <Textarea
-              id="issue-body"
-              aria-invalid={!!errors.body || undefined}
-              aria-describedby={errors.body ? 'issue-body-error' : undefined}
-              {...bodyField}
-              ref={(el) => {
-                bodyField.ref(el);
-                bodyRef.current = el;
-              }}
-              rows={6}
-              onPaste={images.onPaste}
-              onDrop={images.onDrop}
-              onDragOver={images.onDragOver}
+            {/* 본문 칸(WP-1657) — 본문 모드 RichInput: 원문(마크다운)을 그대로 두면서 붙여넣기·드롭·버튼으로 넣은 이미지를 칸 안에 그림으로 보인다.
+                Enter 는 줄바꿈, Cmd/Ctrl+Enter 는 폼 제출(업로드 중엔 RichInput 이 부르지 않는다). 창이 열릴 때마다 새로 마운트돼 빈 칸으로 시작한다.
+                최대 40vh 에서 멈추고 안에서 스크롤 — 아래 칸·버튼이 밀려나지 않게. */}
+            <RichInput
+              ref={bodyEditorRef}
+              bodyMode={bodyMode}
+              imageUpload={imageUpload}
+              members={members}
+              initialBody=""
+              ariaLabel="본문"
+              placeholder=""
+              inputTestId="issue-body"
+              submitTestId="issue-body-submit"
+              editorAria={{ invalid: !!errors.body, describedBy: errors.body ? 'issue-body-error' : undefined }}
+              editorMaxHeightClass="max-h-[40vh]"
+              onBodyChange={onBodyChange}
+              onUploadingChange={onUploadingChange}
+              // Cmd/Ctrl+Enter — 「생성」 버튼과 같은 폼 제출 경로(제목 검사·업로드 중 막기).
+              onSubmit={() => void f.onSubmit()}
+              onCancel={requestClose}
             />
             {/* 본문 상한(5만자) 초과 검증 실패를 그리지 않으면 「생성」이 아무 반응 없이 멈춘다(WP-929·WP-885). */}
             {errors.body && (

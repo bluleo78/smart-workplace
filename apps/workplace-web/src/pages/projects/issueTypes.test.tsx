@@ -10,6 +10,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { IssueCreateDialog } from '@/pages/projects/components/IssueCreateDialog'
 import { IssueTypeManagement } from '@/pages/projects/components/IssueTypeManagement'
 import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import { editorOf } from '@/test/kits/richEditor'
 import type { ScreenUser } from '@/test/renderScreen'
 import { renderScreen } from '@/test/renderScreen'
 
@@ -28,8 +29,8 @@ function renderCreateDialog(handlers: RequestHandler[]) {
 const dialogLookups = [
   http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY }))),
   http.get(`/api/v1/projects/${KEY}/statuses`, () => HttpResponse.json(seedStatuses())),
-  // 선택 칸 후보(구성요소 등) — 이 테스트에선 비어 있다.
-  ...['components'].map((sub) => http.get(`/api/v1/projects/${KEY}/${sub}`, () => HttpResponse.json([]))),
+  // 선택 칸 후보(구성요소 등)·본문 칸 멘션 후보(구성원, WP-1657) — 이 테스트에선 비어 있다.
+  ...['components', 'members'].map((sub) => http.get(`/api/v1/projects/${KEY}/${sub}`, () => HttpResponse.json([]))),
 ]
 
 /** 새 이슈 다이얼로그를 띄우고 그 dialog 요소를 돌려준다. */
@@ -107,11 +108,22 @@ describe('새 이슈 다이얼로그 — 유형', () => {
   test('본문이 50000자를 넘으면 오류 문구·aria-invalid 가 보이고 생성 요청은 나가지 않는다 (WP-929)', async () => {
     const { user, requests } = await openCreateDialog()
     fireEvent.change(document.getElementById('issue-title')!, { target: { value: '긴 본문' } })
-    fireEvent.change(document.getElementById('issue-body')!, { target: { value: '가'.repeat(50001) } })
+    // 본문 칸은 본문 모드 편집칸(WP-1657) — 편집기에 원문을 넣는다. 오류 id·aria-invalid 는 편집칸에 달린다.
+    const body = screen.getByTestId('issue-body')
+    act(() => {
+      editorOf(body).commands.insertContentAt(1, '가'.repeat(50001))
+    })
     await user.click(screen.getByRole('button', { name: '생성' }))
     await waitFor(() => expect(document.getElementById('issue-body-error')).toHaveTextContent('본문은 50000자 이하여야 합니다'))
-    expect(document.getElementById('issue-body')).toHaveAttribute('aria-invalid', 'true')
+    expect(body).toHaveAttribute('aria-invalid', 'true')
+    expect(body).toHaveAttribute('aria-describedby', 'issue-body-error')
     expect(createPosts(requests)).toBe(0)
+    // 제출한 뒤 본문을 줄이면 바로 다시 검사해 오류가 걷힌다(편집칸 원문 → setValue shouldValidate).
+    act(() => {
+      editorOf(body).commands.deleteRange({ from: 1, to: 3 })
+    })
+    await waitFor(() => expect(document.getElementById('issue-body-error')).not.toBeInTheDocument())
+    expect(body).not.toHaveAttribute('aria-invalid')
   })
 
   // #364: types 가 아직 pending 일 때 다이얼로그를 열면 Select 가 uncontrolled 로 마운트됐다가 controlled 로 바뀌며 경고를 냈다.
