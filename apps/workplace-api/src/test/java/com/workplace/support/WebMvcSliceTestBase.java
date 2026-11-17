@@ -3,6 +3,8 @@ package com.workplace.support;
 import com.workplace.audit.controller.AuditLogController;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.controller.AuthController;
+import com.workplace.auth.oauth.repository.OAuthConnectionRepository;
+import com.workplace.auth.oauth.repository.OAuthTokenRepository;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.auth.service.AuthService;
@@ -51,6 +53,7 @@ import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.realtime.EventStreamController;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
+import com.workplace.global.security.HumanTokenAuthenticator;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
@@ -189,6 +192,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
   // 화면 주소(WP-1523) — 이슈·노트·일정 컨트롤러가 응답 url 을 만든다. 설정값만 읽는 빈이라 목 대신 실제로 올린다.
   AppWebLinks.class,
   ApiKeyAuthenticationFilter.class,
+  // PAT·OAuth access 필터가 함께 쓰는 사람 토큰 인증 단계(WP-1685) — Filter 가 아니라 슬라이스에 자동으로 오르지 않는다.
+  HumanTokenAuthenticator.class,
   JwtAuthenticationFilter.class,
   MailExceptionHandler.class,
   RefreshTokenCookies.class,
@@ -249,6 +254,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       MembershipRepository.class,
       MessageService.class,
       NotificationService.class,
+      // OAuth access 인증 필터(WP-1685)는 Filter 라 슬라이스에 함께 올라온다 — 저장소만 목으로 둔다.
+      OAuthConnectionRepository.class,
+      OAuthTokenRepository.class,
       PermissionService.class,
       ProjectService.class,
       ReactionService.class,

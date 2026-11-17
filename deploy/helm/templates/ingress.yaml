@@ -48,6 +48,17 @@ spec:
       http:
         paths:
           {{- /*
+            WP-1685: Claude 앱 커넥터의 OAuth 발견 경로. 인가 서버 메타데이터(RFC 8414)는 api 가 내고 issuer 는 늘 webBaseUrl 이라
+            webHost·mcpHost 어느 쪽으로 연결해도 같은 api 로 보낸다. ingress-nginx 는 긴 경로를 먼저 맞추므로 아래 `/`(web) 보다 앞선다.
+          */}}
+          - path: /.well-known/oauth-authorization-server
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 9090
+          {{- /*
             mcpPathOnWeb 이면 공개 web 호스트의 /mcp 를 mcp 서비스로 보낸다. 앱이 이미 /mcp 로 받으므로 rewrite 불필요.
             공개 인증서(Let's Encrypt)를 그대로 쓰므로 클라이언트에 자체서명 CA(NODE_EXTRA_CA_CERTS) 가 필요 없다.
             인증은 PAT Bearer — 외부 노출을 감수할 때만 켠다. 기존 mcpHost 는 병행 유지(전환 기간 호환).
@@ -77,6 +88,14 @@ spec:
                 name: mcp
                 port:
                   number: 7090
+          {{- /* WP-1685: 보호 리소스 메타데이터(RFC 9728)는 MCP 가 낸다 — web 호스트로 MCP 를 열 때(/mcp 와 같은 조건)만 둔다. */}}
+          - path: /.well-known/oauth-protected-resource
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp
+                port:
+                  number: 7090
           {{- end }}
           - path: /
             pathType: Prefix
@@ -98,6 +117,21 @@ spec:
     - host: {{ .Values.ingress.mcpHost | quote }}
       http:
         paths:
+          {{- /* WP-1685: mcpHost 로 연결해도 인가 서버 메타데이터는 api 로(나머지 `/` 는 보호 리소스 메타데이터까지 mcp). 보호 리소스는 명시해 둔다. */}}
+          - path: /.well-known/oauth-authorization-server
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 9090
+          - path: /.well-known/oauth-protected-resource
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp
+                port:
+                  number: 7090
           - path: /
             pathType: Prefix
             backend:

@@ -2,32 +2,22 @@ package com.workplace.global.security;
 
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.global.util.CapabilityTokens;
-import com.workplace.permission.service.PermissionService;
-import com.workplace.tenant.repository.MembershipRepository;
-import com.workplace.user.dto.UserKind;
-import com.workplace.user.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.lang.NonNull;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * 사용자 PAT(`Bearer swp_...`) 인증 필터. SHA-256 해시로 매칭하고 활성(미회수·미만료) 토큰만 통과시킨다. 토큰에 바인딩된 테넌트가 사용자의
  * ACTIVE 멤버십에 있을 때만 TenantContext 를 설정한다(불일치 → 미인증, fail-closed). ApiKeyAuthenticationFilter(ak_)
- * 미러 — AGENT 전용 kind 체크 대신 HUMAN(비 AGENT)만 허용한다. JWT 필터보다 먼저 등록된다.
+ * 미러 — AGENT 전용 kind 체크 대신 HUMAN(비 AGENT)만 허용한다. JWT 필터보다 먼저 등록된다. 사람·멤버십·테넌트 판정과 인증 주체 설정은 OAuth
+ * access 필터와 같은 {@link HumanTokenAuthenticator} 를 쓴다(WP-1685).
  */
 @Component
 @Slf4j
@@ -36,23 +26,13 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
   private static final String SWP_PREFIX = "swp_";
 
   private final UserApiTokenRepository userApiTokenRepository;
-  private final UserRepository userRepository;
-  private final PermissionService permissionService;
-  private final MembershipRepository membershipRepository;
-  // 정지·삭제된 테넌트로는 키/토큰이 유효해도 인증하지 않는다(WP-341) — JwtAuthenticationFilter 와 같은 기준.
-  private final TenantStatusChecker tenantStatusChecker;
+  private final HumanTokenAuthenticator humanTokenAuthenticator;
 
   public UserTokenAuthenticationFilter(
       UserApiTokenRepository userApiTokenRepository,
-      UserRepository userRepository,
-      @Lazy PermissionService permissionService,
-      MembershipRepository membershipRepository,
-      TenantStatusChecker tenantStatusChecker) {
+      HumanTokenAuthenticator humanTokenAuthenticator) {
     this.userApiTokenRepository = userApiTokenRepository;
-    this.userRepository = userRepository;
-    this.permissionService = permissionService;
-    this.membershipRepository = membershipRepository;
-    this.tenantStatusChecker = tenantStatusChecker;
+    this.humanTokenAuthenticator = humanTokenAuthenticator;
   }
 
   @Override
@@ -71,39 +51,12 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
         userApiTokenRepository
             .findActiveByHash(hash)
             .ifPresent(
-                tok ->
-                    userRepository
-                        .findById(tok.userId())
-                        .filter(u -> !UserKind.isAgent(u.kind())) // PAT 는 사람 전용
-                        .ifPresent(
-                            user -> {
-                              // 토큰의 테넌트가 실제 ACTIVE 멤버십에 있을 때만 채택 — 멤버십 해지 시
-                              // 즉시 무효.
-                              var memberships = membershipRepository.findActiveByUser(user.id());
-                              boolean member =
-                                  memberships.stream()
-                                      .anyMatch(m -> m.tenantId().equals(tok.tenantId()));
-                              if (!member) return; // fail-closed: 인증 미설정 → 401
-                              // 토큰의 테넌트가 비활성(정지·삭제·영구 삭제 중)이어도 인증하지 않는다.
-                              if (!tenantStatusChecker.isActive(tok.tenantId())) return;
-
-                              // 반드시 getUserPermissions 전에 설정 — GUC 주입 후 권한 조회.
-                              TenantContext.set(tok.tenantId());
-
-                              List<SimpleGrantedAuthority> authorities = new ArrayList<>();
-                              permissionService
-                                  .getUserPermissions(user.id())
-                                  .forEach(p -> authorities.add(new SimpleGrantedAuthority(p)));
-                              UsernamePasswordAuthenticationToken token =
-                                  new UsernamePasswordAuthenticationToken(
-                                      user.id(), null, authorities);
-                              SecurityContextHolder.getContext().setAuthentication(token);
-                              // WP-377: MCP 가 실은 수행 도구 — PAT·AI 키 요청에서만 채택(브라우저·Internal 은 무시).
-                              AgentToolContext.set(
-                                  AgentToolContext.normalize(
-                                      request.getHeader(AgentToolContext.HEADER)));
-                              userApiTokenRepository.touchLastUsed(tok.id());
-                            }));
+                tok -> {
+                  // 사람 전용·ACTIVE 멤버십·활성 테넌트를 모두 만족할 때만 인증되고, 그때만 사용 시각을 남긴다.
+                  if (humanTokenAuthenticator.authenticate(request, tok.userId(), tok.tenantId())) {
+                    userApiTokenRepository.touchLastUsed(tok.id());
+                  }
+                });
       }
       chain.doFilter(request, response);
     } finally {

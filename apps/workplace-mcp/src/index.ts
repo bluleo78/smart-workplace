@@ -6,10 +6,11 @@ import dotenv from 'dotenv';
 import express from 'express';
 
 import { DEFAULT_API_BASE_URL, DEFAULT_PORT } from './constants.js';
-import type { McpRoute } from './mcp/scope.js';
+import { MCP_ROUTES, type McpRoute } from './mcp/scope.js';
 import { createAuthCache } from './mcp/auth-cache.js';
 import { handleMcpPost } from './mcp/server.js';
 import { healthRouter } from './routes/health.js';
+import { oauthMetadataRouter } from './routes/oauthMetadata.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -21,11 +22,17 @@ export interface AppDeps {
 /** Express 앱 팩토리 — 테스트에서 listen 없이 supertest 로 검증하기 위해 분리. */
 export function createApp(deps: AppDeps): express.Express {
   const app = express();
+  // WP-1685: 앞단 ingress-nginx 가 넘긴 X-Forwarded-Proto/Host 로 공개 주소를 만든다(보호 리소스 메타데이터·401 안내의 URL).
+  // 파드는 ingress 뒤에서만 받는다 — 서비스는 클러스터 내부용이라 forwarded 헤더를 위조해도 그 요청자 자신의 응답 URL 만 바뀐다.
+  // 주의(리뷰 D7.2): trust proxy=true 는 X-Forwarded-For·Proto 를 누구에게서 왔든 믿는다 — req.ip·req.ips·req.secure·req.protocol 은
+  // 요청자가 바꿀 수 있는 값이라 보안 판단(접근 허용·속도 제한 키·https 강제 등)에 쓰면 안 된다. 응답에 되비추는 공개 주소에만 쓴다.
+  app.set('trust proxy', true);
   // 토큰 검증 성공 기억(WP-1013) — 앱마다 하나라 테스트도 앱을 새로 만들면 비어 있다.
   const authCache = createAuthCache();
   // WP-1307: HTML 문서 원본(최대 5MB, UTF-8)을 create_wiki_page·update_wiki_page 로 보낼 수 있게 — JSON 이스케이프로 커지는 몫까지 여유를 둔다.
   app.use(express.json({ limit: '8mb' }));
   app.use(healthRouter); // 인증 앞 — 무인증
+  app.use(oauthMetadataRouter); // 보호 리소스 메타데이터(WP-1685) — 무인증 공개 문서
   // 연결 범위(WP-350): /mcp(전체) · /mcp/readonly · /mcp/x/{apps} · /mcp/x/{apps}/readonly. 헤더 X-MCP-Toolsets 는 핸들러가 읽는다.
   // 라우트별로 읽은 범위만 넘기고, 검증(앱 이름)과 도구 선택은 handleMcpPost 가 한다.
   const post = (route: McpRoute): express.RequestHandler<{ apps?: string }> => (req, res) => {
@@ -35,15 +42,14 @@ export function createApp(deps: AppDeps): express.Express {
       if (!res.headersSent) res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: 'internal error' }, id: null });
     });
   };
-  app.post('/mcp', post({ readOnly: false }));
-  app.post('/mcp/readonly', post({ readOnly: true }));
-  app.post('/mcp/x/:apps', post({ readOnly: false }));
-  app.post('/mcp/x/:apps/readonly', post({ readOnly: true }));
+  for (const { path, readOnly } of MCP_ROUTES) {
+    app.post(path, post({ readOnly }));
+  }
   // stateless 모드 — 세션 스트림/종료 미지원을 명시(범위 경로도 같다).
   const notAllowed: express.RequestHandler = (_req, res) => {
     res.status(405).set('Allow', 'POST').end();
   };
-  for (const path of ['/mcp', '/mcp/readonly', '/mcp/x/:apps', '/mcp/x/:apps/readonly']) {
+  for (const { path } of MCP_ROUTES) {
     app.get(path, notAllowed);
     app.delete(path, notAllowed);
   }

@@ -116,6 +116,10 @@ import com.workplace.jooq.tables.Milestone;
 import com.workplace.jooq.tables.Notification;
 import com.workplace.jooq.tables.NotificationAppSetting;
 import com.workplace.jooq.tables.NotificationSetting;
+import com.workplace.jooq.tables.OauthAuthorizationCode;
+import com.workplace.jooq.tables.OauthClient;
+import com.workplace.jooq.tables.OauthConnection;
+import com.workplace.jooq.tables.OauthToken;
 import com.workplace.jooq.tables.Permission;
 import com.workplace.jooq.tables.PersonalReport;
 import com.workplace.jooq.tables.PersonalReportSetting;
@@ -745,6 +749,26 @@ public class Tables {
      * The table <code>public.notification_setting</code>.
      */
     public static final NotificationSetting NOTIFICATION_SETTING = NotificationSetting.NOTIFICATION_SETTING;
+
+    /**
+     * The table <code>public.oauth_authorization_code</code>.
+     */
+    public static final OauthAuthorizationCode OAUTH_AUTHORIZATION_CODE = OauthAuthorizationCode.OAUTH_AUTHORIZATION_CODE;
+
+    /**
+     * The table <code>public.oauth_client</code>.
+     */
+    public static final OauthClient OAUTH_CLIENT = OauthClient.OAUTH_CLIENT;
+
+    /**
+     * The table <code>public.oauth_connection</code>.
+     */
+    public static final OauthConnection OAUTH_CONNECTION = OauthConnection.OAUTH_CONNECTION;
+
+    /**
+     * The table <code>public.oauth_token</code>.
+     */
+    public static final OauthToken OAUTH_TOKEN = OauthToken.OAUTH_TOKEN;
 
     /**
      * The table <code>public.permission</code>.

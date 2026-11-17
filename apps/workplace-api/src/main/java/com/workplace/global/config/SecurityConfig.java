@@ -1,11 +1,13 @@
 package com.workplace.global.config;
 
+import com.workplace.auth.oauth.controller.OAuthMetadataController;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.BcryptLimitPasswordEncoder;
 import com.workplace.global.security.DbBusyResponseFilter;
 import com.workplace.global.security.JsonAuthenticationEntryPoint;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
+import com.workplace.global.security.OAuthAccessTokenAuthenticationFilter;
 import com.workplace.global.security.RunnerTokenAuthenticationFilter;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.global.security.ratelimit.PublicRateLimitFilter;
@@ -46,6 +48,8 @@ public class SecurityConfig {
   private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
   // 사용자 PAT 인증 (Bearer swp_...) 도 JWT 보다 먼저 시도 (ak_/swp_/JWT 는 prefix 로 상호 배타)
   private final UserTokenAuthenticationFilter userTokenAuthenticationFilter;
+  // OAuth access 토큰(swo_) 인증 — Claude 앱 커넥터 등 OAuth 클라이언트용(WP-1685).
+  private final OAuthAccessTokenAuthenticationFilter oauthAccessTokenAuthenticationFilter;
   // runner 토큰(Bearer rt_...) 인증 — runner 전용 경로에서만(WP-1249). 다른 토큰과 prefix 로 상호 배타
   private final RunnerTokenAuthenticationFilter runnerTokenAuthenticationFilter;
   private final CorsProperties corsProperties;
@@ -96,6 +100,15 @@ public class SecurityConfig {
                     .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/health")
                     .permitAll()
                     .requestMatchers(org.springframework.http.HttpMethod.HEAD, "/api/v1/health")
+                    .permitAll()
+                    // OAuth 인가 서버의 공개 엔드포인트(WP-1685) — 동적 클라이언트 등록과 토큰 교환은 로그인 전 커넥터가 부른다.
+                    // 등록은 공개 클라이언트 행만 만들고, 토큰은 code·refresh 자체가 자격이다. 둘 다 IP 속도 제한을 받는다.
+                    // (메타데이터 /.well-known/oauth-authorization-server 는 /api 밖이라
+                    // anyRequest().permitAll() 로 열린다.)
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.POST,
+                        PublicRateLimitFilter.OAUTH_REGISTER_PATH,
+                        PublicRateLimitFilter.OAUTH_TOKEN_PATH)
                     .permitAll()
                     // M365 메일 연결 완료(POST /mail/oauth/m365/complete)는 공개하지 않는다(WP-1289).
                     // state 만 믿으면 남이 받은 연결 링크로 내 메일함이 그 사람 계정에 연결됐다.
@@ -187,6 +200,8 @@ public class SecurityConfig {
         .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class)
         // swp_ 토큰도 JWT 보다 먼저 시도 (ak_/swp_/JWT 상호 배타)
         .addFilterBefore(userTokenAuthenticationFilter, JwtAuthenticationFilter.class)
+        // swo_(OAuth access) 토큰도 JWT 보다 먼저 시도 — 접두사로 상호 배타, swr_(refresh)는 어느 필터도 받지 않는다
+        .addFilterBefore(oauthAccessTokenAuthenticationFilter, JwtAuthenticationFilter.class)
         // rt_ 토큰도 JWT 보다 먼저 — runner 경로에서만 동작한다
         .addFilterBefore(runnerTokenAuthenticationFilter, JwtAuthenticationFilter.class);
 
@@ -208,6 +223,17 @@ public class SecurityConfig {
     config.setAllowCredentials(true);
     config.setMaxAge(3600L);
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    // OAuth 공개 엔드포인트(WP-1685) — 브라우저 기반 MCP 클라이언트도 메타데이터·등록·토큰을 부르므로 모든 원점을 받되 자격 증명(쿠키)은
+    // 싣지 않는다. 쿠키·세션을 쓰지 않는 경로라 안전하다. 원본은 먼저 맞는 패턴의 설정을 쓰므로 /api/** 보다 먼저 등록한다.
+    CorsConfiguration oauthPublic = new CorsConfiguration();
+    oauthPublic.setAllowedOrigins(List.of("*"));
+    oauthPublic.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+    oauthPublic.setAllowedHeaders(List.of("*"));
+    oauthPublic.setAllowCredentials(false);
+    oauthPublic.setMaxAge(3600L);
+    source.registerCorsConfiguration(OAuthMetadataController.PATH, oauthPublic);
+    source.registerCorsConfiguration(PublicRateLimitFilter.OAUTH_REGISTER_PATH, oauthPublic);
+    source.registerCorsConfiguration(PublicRateLimitFilter.OAUTH_TOKEN_PATH, oauthPublic);
     source.registerCorsConfiguration("/api/**", config);
     return source;
   }

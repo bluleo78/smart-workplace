@@ -18,6 +18,7 @@ import type { AuthCache } from './auth-cache.js';
 import { createPatApiClient, verifyToken } from '../clients/workplace-api.js';
 import { buildUserTools } from '../tools/index.js';
 import { buildInstructions } from './instructions.js';
+import { protectedResourceMetadataUrl } from '../routes/oauthMetadata.js';
 import { FULL_SCOPE, InvalidScopeError, resolveScope, type McpRoute, type McpScope } from './scope.js';
 
 /**
@@ -25,12 +26,15 @@ import { FULL_SCOPE, InvalidScopeError, resolveScope, type McpRoute, type McpSco
  * scheme 뒤 공백은 정확히 하나다(api 의 BearerTokens 와 같은 규칙).
  */
 const BEARER_SCHEME = /^bearer /i;
-/** 접속 토큰 형식 — 사람 PAT(swp_) 또는 AI 키(ak_). 토큰 접두사는 대소문자를 구분한다(api 필터와 같게). */
-const TOKEN_PREFIX = /^(swp_|ak_)/;
+/**
+ * 접속 토큰 형식 — 사람 PAT(swp_), AI 키(ak_), OAuth access 토큰(swo_ — Claude 앱 커넥터, WP-1685).
+ * 토큰 접두사는 대소문자를 구분한다(api 필터와 같게). refresh 토큰(swr_)은 받지 않는다 — Bearer 로 쓰는 토큰이 아니다.
+ */
+const TOKEN_PREFIX = /^(swp_|ak_|swo_)/;
 const AGENT_KEY_PREFIX = 'ak_';
 
 /**
- * Authorization 헤더에서 접속 토큰을 꺼낸다 — scheme(대소문자 무관)+공백 하나 뒤의 나머지. Bearer 가 아니거나 swp_/ak_ 토큰이 아니면
+ * Authorization 헤더에서 접속 토큰을 꺼낸다 — scheme(대소문자 무관)+공백 하나 뒤의 나머지. Bearer 가 아니거나 swp_/ak_/swo_ 토큰이 아니면
  * undefined. 꺼낸 토큰은 workplace-api 로 `Bearer <토큰>` 표준 표기로 다시 실어 보낸다.
  */
 function bearerToken(auth: string | undefined): string | undefined {
@@ -126,6 +130,18 @@ function summarizeError(e: unknown): string {
   }
   return e instanceof Error ? e.message : String(e);
 }
+/**
+ * 401 응답에 OAuth 안내를 단다(RFC 9728 §5.1, WP-1685) — Claude 앱 커넥터는 이 헤더의 resource_metadata 를 따라 로그인을 시작한다.
+ * 요청한 MCP 경로(`/mcp/readonly` 등)의 메타데이터를 가리켜 resource 가 사용자가 입력한 주소와 같게 한다.
+ * 본문은 기존 JSON-RPC 오류 그대로 두고 헤더만 더한다(PAT·AI 키 클라이언트는 헤더를 보지 않는다).
+ * 헤더 값의 호스트·경로는 허용 글자만 쓴다(protectedResourceMetadataUrl) — quoted-string 을 깨는 따옴표가 섞이지 않게.
+ */
+function setOAuthChallenge(req: Request, res: Response): void {
+  // 요청 호스트가 올바르지 않고 WORKPLACE_OAUTH_ISSUER 도 없으면 안내 URL 을 만들 수 없다 — 그때는 scheme 만 알린다(리뷰 D7.1).
+  const metadataUrl = protectedResourceMetadataUrl(req, req.path);
+  res.set('WWW-Authenticate', metadataUrl ? `Bearer resource_metadata="${metadataUrl}"` : 'Bearer');
+}
+
 /** 토큰 검증(/auth/me) 시간 제한. */
 const AUTH_CHECK_TIMEOUT_MS = 5_000;
 
@@ -150,7 +166,7 @@ function axiosLike(e: unknown): e is { response?: { status?: number; data?: unkn
 }
 
 /**
- * POST /mcp 계열 핸들러 — Bearer swp_(사람 PAT) 또는 ak_(AI 키) 추출 → 연결 범위 검증 → /auth/me 로 토큰 검증(성공은 authCache 가 잠깐 기억) → stateless 처리.
+ * POST /mcp 계열 핸들러 — Bearer swp_(사람 PAT)·ak_(AI 키)·swo_(OAuth access 토큰) 추출 → 연결 범위 검증 → /auth/me 로 토큰 검증(성공은 authCache 가 잠깐 기억) → stateless 처리.
  * route 는 라우터가 URL 에서 읽은 범위(WP-350)이고, 기본 `/mcp` 는 생략한다(= 전체 노출, 헤더 없으면 기존과 동일).
  */
 export async function handleMcpPost(
@@ -162,9 +178,14 @@ export async function handleMcpPost(
 ): Promise<void> {
   const token = bearerToken(req.headers.authorization);
   if (!token) {
+    // 토큰 없음·접두어 불일치 — OAuth 클라이언트는 여기서 안내를 받아 로그인을 시작한다.
+    setOAuthChallenge(req, res);
     res.status(401).json({
       jsonrpc: '2.0',
-      error: { code: -32001, message: 'PAT(Bearer swp_...) 또는 AI 키(Bearer ak_...) 가 필요합니다' },
+      error: {
+        code: -32001,
+        message: 'PAT(Bearer swp_...)·AI 키(Bearer ak_...) 또는 Claude 앱 커넥터 OAuth 연결(Bearer swo_...)이 필요합니다',
+      },
       id: null,
     });
     return;
@@ -193,6 +214,8 @@ export async function handleMcpPost(
     );
   } catch (e) {
     const [status, error] = authFailure(e);
+    // 토큰이 만료·폐기된 401 에만 안내를 단다 — 다시 로그인하면 풀린다. 403·429·503 은 재로그인으로 풀리지 않는다.
+    if (status === 401) setOAuthChallenge(req, res);
     res.status(status).json({ jsonrpc: '2.0', error, id: null });
     return;
   }

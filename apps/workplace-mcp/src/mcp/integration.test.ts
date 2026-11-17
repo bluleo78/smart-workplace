@@ -294,7 +294,7 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
       expect(res.status).toBe(401);
     });
 
-    it('swp_·ak_ 어느 접두사도 아니면 401 이고 안내 문구가 둘 다 언급한다', async () => {
+    it('swp_·ak_ 어느 접두사도 아니면 401 이고 안내 문구가 PAT·AI 키·OAuth 를 모두 언급한다', async () => {
       const res = await fetch(baseUrl, {
         method: 'POST',
         headers: { Authorization: 'Bearer xyz_nope', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
@@ -304,6 +304,8 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
       const body = (await res.json()) as { error: { message: string } };
       expect(body.error.message).toContain('swp_');
       expect(body.error.message).toContain('ak_');
+      // 리뷰 F10 — OAuth(Claude 앱 커넥터 연결, swo_)도 받는다는 것을 안내한다.
+      expect(body.error.message).toContain('swo_');
     });
 
     it('X-On-Behalf-Of-Tenant 를 /auth/me 와 도구 호출 모두에 전달한다', async () => {
@@ -538,5 +540,73 @@ describe('/mcp 연결 범위 (WP-350)', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, 
         expect(res.headers.get('allow')).toBe('POST');
       }
     }
+  });
+});
+
+// WP-1685: Claude 앱 커넥터는 401 의 WWW-Authenticate 에 실린 resource_metadata 를 따라 OAuth 로그인을 시작한다(RFC 9728).
+// 그 URL 은 사용자가 입력한 주소(앞단 프록시가 넘긴 X-Forwarded-*)의 원점 + 요청한 MCP 경로로 만든다. OAuth access 토큰(swo_)도 받는다.
+describe('OAuth 안내 401·swo_ 토큰 (WP-1685)', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
+  const origin = () => baseUrl.replace(/\/mcp$/, '');
+  const FORWARDED = { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'genia-works.iacloud.kr' };
+  const metadataHeader = (mcpPath: string) =>
+    `Bearer resource_metadata="https://genia-works.iacloud.kr/.well-known/oauth-protected-resource${mcpPath}"`;
+  /** tools/list 한 번 — 인증 헤더(있으면)와 forwarded 헤더를 실어 보낸다. */
+  const listTools = (path: string, authorization?: string) =>
+    fetch(origin() + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        ...FORWARDED,
+        ...(authorization ? { Authorization: authorization } : {}),
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    });
+
+  it('토큰 없이 /mcp 를 부르면 401 + resource_metadata 안내(완료 기준 1), 본문은 기존 JSON-RPC 오류 그대로', async () => {
+    const res = await listTools('/mcp');
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe(metadataHeader('/mcp'));
+    const body = (await res.json()) as { jsonrpc: string; error: { code: number; message: string }; id: null };
+    expect(body).toMatchObject({ jsonrpc: '2.0', error: { code: -32001 }, id: null });
+    expect(body.error.message).toContain('swp_');
+    // 리뷰 F10 — OAuth 클라이언트에게도 맞는 안내(Claude 앱 커넥터 연결, swo_).
+    expect(body.error.message).toContain('swo_');
+    expect(body.error.message).toContain('Claude 앱 커넥터');
+  });
+
+  it.each(['/mcp/readonly', '/mcp/x/issue', '/mcp/x/issue/readonly'])('%s 면 그 경로의 메타데이터 URL 을 안내한다', async (path) => {
+    const res = await listTools(path);
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe(metadataHeader(path));
+  });
+
+  it('접두어가 맞지 않는 토큰도 401 + 같은 안내', async () => {
+    const res = await listTools('/mcp', 'Bearer xyz_nope');
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe(metadataHeader('/mcp'));
+  });
+
+  it('API 가 401 을 주는 swo_ 토큰은 401 + 같은 안내', async () => {
+    nock(API, { reqheaders: { authorization: 'Bearer swo_expired' } }).get('/auth/me').reply(401);
+    const res = await listTools('/mcp', 'Bearer swo_expired');
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe(metadataHeader('/mcp'));
+  });
+
+  it('API 가 받는 swo_ 토큰이면 401 이 아니고 같은 Bearer 로 패스스루한다', async () => {
+    const me = nock(API, { reqheaders: { authorization: 'Bearer swo_valid' } }).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+    const res = await listTools('/mcp', 'Bearer swo_valid');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('www-authenticate')).toBeNull();
+    expect(await res.text()).toContain('create_issue');
+    expect(me.isDone()).toBe(true);
+  });
+
+  it('토큰 외 이유의 거절(403)에는 안내 헤더를 달지 않는다 — 재로그인으로 풀리지 않는다', async () => {
+    nock(API).get('/auth/me').reply(403, { message: '이 테넌트의 구성원이 아닙니다' });
+    const res = await listTools('/mcp', 'Bearer swo_valid');
+    expect(res.status).toBe(403);
+    expect(res.headers.get('www-authenticate')).toBeNull();
   });
 });

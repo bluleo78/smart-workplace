@@ -1,5 +1,6 @@
 package com.workplace.auth.sso;
 
+import com.workplace.auth.oauth.service.Pkce;
 import com.workplace.global.json.JsonMappers;
 import com.workplace.global.security.JwtProperties;
 import java.nio.charset.StandardCharsets;
@@ -110,15 +111,12 @@ public class SsoTransactionCookie {
     return base("").maxAge(Duration.ZERO).build();
   }
 
-  /** PKCE S256 challenge — base64url(SHA-256(verifier)). */
+  /**
+   * PKCE S256 challenge — base64url(SHA-256(verifier)). 계산은 OAuth 인가 서버와 같은 {@link Pkce#s256} 한 곳에
+   * 둔다.
+   */
   public static String challenge(String verifier) {
-    try {
-      return B64.encodeToString(
-          MessageDigest.getInstance("SHA-256")
-              .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-    } catch (GeneralSecurityException e) {
-      throw new IllegalStateException(e);
-    }
+    return Pkce.s256(verifier);
   }
 
   private ResponseCookie.ResponseCookieBuilder base(String value) {

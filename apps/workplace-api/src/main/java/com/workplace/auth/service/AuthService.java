@@ -9,6 +9,7 @@ import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.RefreshTokenReuseException;
 import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.auth.oauth.service.OAuthConnectionService;
 import com.workplace.auth.repository.RefreshTokenRepository;
 import com.workplace.global.exception.CryptoException;
 import com.workplace.global.security.AuthDetails;
@@ -60,6 +61,9 @@ public class AuthService {
   // 최초 가입자 부트스트랩용 플랫폼 RBAC 저장소. platform 모듈 의존이지만 DSLContext 만 참조하므로
   // 순환 빈 의존이 없다(AuthService → PlatformRoleRepository → DSLContext).
   private final com.workplace.platform.repository.PlatformRoleRepository platformRoleRepository;
+
+  // 비밀번호 변경 때 OAuth 앱 연결도 끊는다(WP-1685). OAuthConnectionService 는 AuthService 에 기대지 않아 순환이 없다.
+  private final OAuthConnectionService oauthConnectionService;
 
   /** 로그인의 발급 단계만 트랜잭션으로 묶는다(WP-752 — 자격 검증은 트랜잭션 밖). */
   private final TransactionTemplate tx;
@@ -303,8 +307,13 @@ public class AuthService {
    * 이 세션(인증 수단 amr)이 해당 테넌트를 계속 쓸 수 있는가 — 멤버십 ACTIVE({@code hasActiveMembership})·테넌트 ACTIVE({@code
    * isActive}), SSO 세션이면 SSO 도 켜져 있어야 한다({@code isSsoEnabled}). selectTenant 가 거절하는 경우(예외)와 같은 술어를
    * 불리언으로 판정하며, 통과하는 테넌트는 membershipsOf 목록에도 들어 있다.
+   *
+   * <p>OAuth 인가 서버(WP-1685)도 같은 술어를 쓴다 — 앱 연결 승인은 웹 세션의 인증 수단으로(SSO 세션이면 SSO 켜진 워크스페이스만), 토큰
+   * 발급(code 교환·refresh)은 PAT 와 같은 기준으로({@code authMethod} null — 멤버십·테넌트 상태만) 판정한다.
+   *
+   * @param authMethod 세션 인증 수단({@link AuthDetails#SSO} 이면 SSO 규칙까지), null·그 밖이면 멤버십·테넌트 상태만
    */
-  private boolean isTenantUsable(Long userId, Long tenantId, String authMethod) {
+  public boolean isTenantUsable(Long userId, Long tenantId, String authMethod) {
     if (!membershipRepository.hasActiveMembership(userId, tenantId)
         || !tenantRepository.isActive(tenantId)) {
       return false;
@@ -342,12 +351,15 @@ public class AuthService {
    * 비밀번호를 바꾼 뒤 세션 정리(WP-566). 이 사용자의 refresh 토큰을 모두 폐기해 다른 기기·브라우저 세션이 더는 연장되지 않게 한다 — 비밀번호가 새어 바꾼
    * 경우 침입자 세션을 끊기 위해서다. 바꾼 브라우저 세션에는 같은 테넌트·인증 수단으로 새 refresh 토큰을 발급해 돌려준다(새 family — 폐기된 옛 토큰의
    * grace 재발급이 이 토큰의 family 에 기대지 못하게). PAT·API 키·Internal 호출(authMethod null)은 이어 줄 세션이 없어 null.
+   * OAuth 앱 연결(WP-1685)도 모두 끊는다(연결·토큰 폐기, 연결 워크스페이스마다 감사) — PAT 는 사용자가 직접 관리하는 자격이라 그대로 둔다.
    *
    * @param tenantId 바꾸는 요청의 active-tenant(없으면 null — tenant-less 토큰으로 이어진다)
    */
   @Transactional
   public String revokeSessionsAfterPasswordChange(Long userId, Long tenantId, String authMethod) {
     refreshTokenRepository.revokeAllByUserId(userId);
+    // OAuth 앱 연결(WP-1685)도 30일씩 굴러가는 세션이라 함께 끊는다 — 연결·토큰 폐기 + 연결마다 감사. PAT 는 그대로 둔다.
+    oauthConnectionService.revokeAllAfterPasswordChange(userId);
     if (authMethod == null) {
       return null;
     }

@@ -187,3 +187,41 @@ test('반복 상한·결과 대기 값을 바꾸면 env 가 따라간다', () =>
   assert.match(changed.get('Deployment/ai-agent'), /- name: WORKPLACE_AI_RECURRING_MAX_TURNS\n\s+value: "40"\n/);
   assert.match(changed.get('Deployment/api'), /- name: WORKPLACE_RECURRENCE_PENDING_TIMEOUT\n\s+value: "PT15M"\n/);
 });
+
+/** 인그레스의 호스트 규칙 하나를 `경로 → 서비스:포트` 목록으로 읽는다(렌더 YAML 을 그대로 줄 단위로 따라간다). */
+function ingressPaths(out, host) {
+  const ingress = docs(out).get('Ingress/smart-workplace');
+  const rule = ingress.split(/\n    - host: /).find((r) => r.startsWith(`"${host}"`));
+  assert.ok(rule, `호스트 ${host} 규칙이 없다`);
+  return [...rule.matchAll(/- path: (\S+)\n\s+pathType: (\S+)\n\s+backend:\n\s+service:\n\s+name: (\S+)\n\s+port:\n\s+number: (\d+)/g)].map(
+    ([, path, type, name, port]) => ({ path, type, backend: `${name}:${port}` }),
+  );
+}
+const WEB_HOST = 'genia-works.iacloud.kr';
+const MCP_HOST = 'genia-works-mcp.192.168.100.72.nip.io';
+const AS_PATH = { path: '/.well-known/oauth-authorization-server', type: 'Prefix', backend: 'api:9090' };
+const PR_PATH = { path: '/.well-known/oauth-protected-resource', type: 'Prefix', backend: 'mcp:7090' };
+
+test('OAuth well-known 경로 — webHost·mcpHost 둘 다 인가 서버 메타데이터는 api, 보호 리소스 메타데이터는 mcp(WP-1685)', () => {
+  for (const host of [WEB_HOST, MCP_HOST]) {
+    const paths = ingressPaths(BASE.out, host);
+    assert.deepEqual(paths.find((p) => p.path === AS_PATH.path), AS_PATH, host);
+    assert.deepEqual(paths.find((p) => p.path === PR_PATH.path), PR_PATH, host);
+  }
+});
+
+test('mcpPathOnWeb=false 면 webHost 에 보호 리소스 메타데이터는 없고 인가 서버 메타데이터는 남는다(WP-1685)', () => {
+  const r = render('-f', IMAGES, '--set', 'ingress.mcpPathOnWeb=false');
+  assert.ok(r.ok, r.err);
+  const web = ingressPaths(r.out, WEB_HOST);
+  assert.deepEqual(web.find((p) => p.path === AS_PATH.path), AS_PATH);
+  assert.equal(web.find((p) => p.path === PR_PATH.path), undefined);
+  assert.equal(web.find((p) => p.path === '/mcp'), undefined);
+  const mcp = ingressPaths(r.out, MCP_HOST);
+  assert.deepEqual(mcp.find((p) => p.path === PR_PATH.path), PR_PATH);
+  assert.deepEqual(mcp.find((p) => p.path === AS_PATH.path), AS_PATH);
+});
+
+test('mcp 는 인가 서버 주소(WORKPLACE_OAUTH_ISSUER)로 config.webBaseUrl 을 받는다(WP-1685)', () => {
+  assert.match(BASE_DOCS.get('Deployment/mcp'), /- name: WORKPLACE_OAUTH_ISSUER\n\s+value: "https:\/\/genia-works\.iacloud\.kr"\n/);
+});

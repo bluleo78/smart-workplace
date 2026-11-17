@@ -38,6 +38,17 @@ class TextsTest {
     assertThat(Texts.headUtf16(null, 3)).isNull();
   }
 
+  /** 앞 max 코드 포인트만 남긴다 — 서로게이트 쌍(이모지)을 반으로 가르지 않고, 짧으면 같은 객체 그대로(OAuth CIMD 이름 자르기, 리뷰 D3.2). */
+  @Test
+  void headCodePoints_서로게이트_쌍을_가르지_않고_짧으면_그대로() {
+    // 이모지 하나 = UTF-16 두 단위. 99자 + 이모지 2개(101 코드 포인트) → 100 코드 포인트(마지막 이모지 하나만 빠짐).
+    String cut = Texts.headCodePoints("a".repeat(99) + "😀😀", 100);
+    assertThat(cut).isEqualTo("a".repeat(99) + "😀");
+    assertThat(Character.isHighSurrogate(cut.charAt(cut.length() - 1))).isFalse();
+    String name = "😀".repeat(100);
+    assertThat(Texts.headCodePoints(name, 100)).isSameAs(name);
+  }
+
   @Test
   void blankToNull_빈값과_공백만_null_그_밖은_그대로() {
     assertThat(Texts.blankToNull(null)).isNull();

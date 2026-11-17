@@ -14,6 +14,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param drivePlaybackPerMinute 드라이브 재생 주소(WP-1532) — 같은 IP·같은 재생 주소에서 1분에 받는 범위 요청 수(기본 300). 영상
  *     하나를 이리저리 탐색해도 범위 요청은 1분에 수십 번이라 넉넉하고, 주소 하나로 서버를 두드리는 요청만 막힌다. 주소별로 세어 회사 NAT 뒤 여러 사람이 각자 보는
  *     영상은 서로 한도를 나눠 쓰지 않는다.
+ * @param oauthRegisterPerMinute OAuth 동적 클라이언트 등록(WP-1685) — 같은 IP 에서 1분에 받는 횟수(기본 10). 인증 없이 표에 행을
+ *     만드는 경로라 낮게 둔다(커넥터는 연결할 때 한 번 등록한다).
+ * @param oauthTokenPerMinute OAuth 토큰 엔드포인트(WP-1685) — 같은 IP 에서 1분에 받는 횟수(기본 60). code 교환·refresh
+ *     회전이 1시간마다 일어나 정상 사용은 한참 밑이고, code·refresh 를 두드려 맞히려는 요청을 막는다.
  */
 @ConfigurationProperties(prefix = "app.rate-limit")
 public record RateLimitProperties(
@@ -21,7 +25,9 @@ public record RateLimitProperties(
     Integer loginPerMinute,
     Integer sharePasswordPerMinute,
     Integer avatarPerMinute,
-    Integer drivePlaybackPerMinute) {
+    Integer drivePlaybackPerMinute,
+    Integer oauthRegisterPerMinute,
+    Integer oauthTokenPerMinute) {
 
   /** 값이 비면 기본값으로 채운다 — application.yml 에 키가 없어도 켜진 채 기본 한도로 돈다. */
   public RateLimitProperties {
@@ -30,5 +36,7 @@ public record RateLimitProperties(
     if (sharePasswordPerMinute == null) sharePasswordPerMinute = 10;
     if (avatarPerMinute == null) avatarPerMinute = 1200;
     if (drivePlaybackPerMinute == null) drivePlaybackPerMinute = 300;
+    if (oauthRegisterPerMinute == null) oauthRegisterPerMinute = 10;
+    if (oauthTokenPerMinute == null) oauthTokenPerMinute = 60;
   }
 }
