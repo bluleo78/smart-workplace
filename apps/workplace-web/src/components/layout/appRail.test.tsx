@@ -427,6 +427,19 @@ describe('알림 인박스', () => {
     await waitFor(() => expect(unarchived).toEqual([[2, 3]]))
   })
 
+  // 서버의 되돌리기는 한 번에 1,000개까지라, 오래 쓴 사용자의 첫 보관(1,000개 넘음)도 되돌릴 수 있게 1,000개씩 차례로 나눠 보낸다.
+  test('1,000개 넘게 보관해도 「되돌리기」는 1,000개씩 나눠 모두 되살린다', async () => {
+    const many = Array.from({ length: 2345 }, (_, i) => i + 10)
+    const { user, archive, unarchived } = await openInbox([notif({ id: 2, read: true })], 0, many)
+    await screen.findAllByTestId('inbox-item')
+    await waitFor(() => expect(screen.getByTestId('inbox-archive-read')).toBeEnabled())
+    await user.click(screen.getByTestId('inbox-archive-read'))
+    await waitFor(() => expect(archive.count).toBe(1))
+    await user.click(await screen.findByRole('button', { name: '되돌리기' }))
+    await waitFor(() => expect(unarchived.map((ids) => ids.length)).toEqual([1000, 1000, 345]))
+    expect(unarchived.flat()).toEqual(many)
+  })
+
   // 그 사이 다른 탭이 이미 보관해 실제로 보관된 것이 없으면 되돌릴 것도 없어 토스트를 띄우지 않는다.
   test('보관된 것이 0개면 토스트를 띄우지 않는다', async () => {
     const { user, archive } = await openInbox([notif({ id: 2, read: true })], 0, [])
