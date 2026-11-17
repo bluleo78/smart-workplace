@@ -1,6 +1,6 @@
 // 설정 「상태」 섹션(WP-809)의 권한·비활성 경우의 수 — 멤버 읽기 전용, 상한 20 의 「+ 추가」, 범주 경계의 이동·삭제.
 // 실제 요청·끌기·스크롤 배선은 E2E(settings-statuses.spec).
-import { screen, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   statuses: [] as ProjectStatus[],
   counts: undefined as Record<number, number> | undefined,
   mutation: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  // 상태 생성 mutateAsync — 테스트마다 성공·실패를 바꾼다(WP-1658).
+  createAsync: vi.fn(),
 }))
 
 vi.mock('@/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
@@ -22,7 +24,7 @@ vi.mock('@/hooks/queries/useProjectStatuses', () => ({
   NO_STATUSES: [],
   useProjectStatuses: () => ({ data: h.statuses, isLoading: false }),
   useStatusIssueCounts: () => h.counts,
-  useCreateProjectStatus: h.mutation,
+  useCreateProjectStatus: () => ({ mutate: vi.fn(), mutateAsync: h.createAsync, isPending: false }),
   useUpdateProjectStatus: h.mutation,
   useReorderProjectStatuses: h.mutation,
   useDeleteProjectStatus: h.mutation,
@@ -41,10 +43,23 @@ function base(): ProjectStatus[] {
 
 const openMenu = (id: number) => userEvent.click(screen.getByTestId(`status-menu-${id}`))
 
+/** 할 일 범주에 더 붙일 상태 n개(id 는 startId 부터) — 상한(20) 경계를 만든다. */
+function extraTodo(n: number, startId = 100): ProjectStatus[] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: startId + i,
+    name: `추가 ${startId + i}`,
+    category: 'TODO' as const,
+    position: 10 + startId + i,
+    color: 'GRAY' as const,
+  }))
+}
+
 describe('StatusManagement', () => {
   beforeEach(() => {
     h.statuses = base()
     h.counts = undefined
+    h.createAsync.mockReset()
+    h.createAsync.mockResolvedValue(undefined)
   })
 
   it('멤버는 손잡이·⋯·추가가 없다', () => {
@@ -136,5 +151,96 @@ describe('StatusManagement', () => {
     rerender(<StatusManagement projectKey="WP" canEdit={false} />)
     expect(screen.getByTestId('status-row-2')).toHaveTextContent('1,204개')
     expect(screen.getByTestId('status-row-12')).toHaveTextContent('0개')
+  })
+
+  // 「+ 추가」 입력 줄을 닫으면(Esc·취소·저장 성공) 포커스가 BODY 로 떨어지지 않고 그 범주의 「추가」 버튼으로 돌아온다(WP-1658).
+  describe('추가 입력 줄을 닫은 뒤 포커스', () => {
+    it('입력에서 Esc 를 누르면 그 범주의 추가 버튼으로 돌아온다', async () => {
+      renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+      await userEvent.click(screen.getByTestId('status-add-TODO'))
+      expect(screen.getByLabelText('새 상태 이름')).toHaveFocus()
+      await userEvent.keyboard('{Escape}')
+      expect(screen.queryByTestId('status-add-form-TODO')).toBeNull()
+      expect(screen.getByTestId('status-add-TODO')).toHaveFocus()
+    })
+
+    it('「취소」 버튼을 누르면 그 범주의 추가 버튼으로 돌아온다', async () => {
+      renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+      await userEvent.click(screen.getByTestId('status-add-TODO'))
+      await userEvent.click(within(screen.getByTestId('status-add-form-TODO')).getByRole('button', { name: '취소' }))
+      expect(screen.queryByTestId('status-add-form-TODO')).toBeNull()
+      expect(screen.getByTestId('status-add-TODO')).toHaveFocus()
+    })
+
+    it('다른 범주(진행 중)에서 닫으면 그 범주의 버튼으로 돌아온다', async () => {
+      renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+      await userEvent.click(screen.getByTestId('status-add-IN_PROGRESS'))
+      await userEvent.keyboard('{Escape}')
+      expect(screen.queryByTestId('status-add-form-IN_PROGRESS')).toBeNull()
+      expect(screen.getByTestId('status-add-IN_PROGRESS')).toHaveFocus()
+    })
+
+    it('저장에 성공하면 그 범주의 추가 버튼으로 돌아온다', async () => {
+      renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+      await userEvent.click(screen.getByTestId('status-add-TODO'))
+      await userEvent.type(screen.getByLabelText('새 상태 이름'), '검토 대기{Enter}')
+      expect(h.createAsync).toHaveBeenCalledWith(expect.objectContaining({ name: '검토 대기', category: 'TODO' }))
+      await waitFor(() => expect(screen.queryByTestId('status-add-form-TODO')).toBeNull())
+      expect(screen.getByTestId('status-add-TODO')).toHaveFocus()
+    })
+
+    it('저장으로 상한(20)에 닿으면 막힌 버튼을 감싼 툴팁 칸으로 돌아온다', async () => {
+      h.statuses = [...base(), ...extraTodo(14)]
+      // 실제 훅처럼 목록 재조회가 끝난 뒤(20개) 저장이 끝난다.
+      h.createAsync.mockImplementation(async ({ name }: { name: string }) => {
+        h.statuses = [...h.statuses, { id: 999, name, category: 'TODO', position: 99, color: 'GRAY' }]
+      })
+      renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+      await userEvent.click(screen.getByTestId('status-add-TODO'))
+      await userEvent.type(screen.getByLabelText('새 상태 이름'), '검토 대기{Enter}')
+      await waitFor(() => expect(screen.queryByTestId('status-add-form-TODO')).toBeNull())
+      const button = screen.getByTestId('status-add-TODO')
+      expect(button).toBeDisabled()
+      expect(button.parentElement).toHaveFocus()
+    })
+
+    it('입력 줄을 연 사이 상한에 닿은 뒤 Esc 로 닫으면 툴팁 칸으로 돌아온다', async () => {
+      h.statuses = [...base(), ...extraTodo(14)]
+      const { rerender } = renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+      await userEvent.click(screen.getByTestId('status-add-TODO'))
+      h.statuses = [...h.statuses, ...extraTodo(1, 200)]
+      rerender(<StatusManagement projectKey="WP" canEdit />)
+      expect(screen.getByTestId('status-add-TODO')).toBeDisabled()
+      await userEvent.click(screen.getByLabelText('새 상태 이름'))
+      await userEvent.keyboard('{Escape}')
+      expect(screen.queryByTestId('status-add-form-TODO')).toBeNull()
+      expect(screen.getByTestId('status-add-TODO').parentElement).toHaveFocus()
+    })
+
+    it('늦게 끝난 저장은 그 사이 연 다른 범주 입력 줄을 닫거나 포커스를 뺏지 않는다', async () => {
+      let resolve!: () => void
+      h.createAsync.mockImplementation(() => new Promise<void>((r) => (resolve = r)))
+      renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+      await userEvent.click(screen.getByTestId('status-add-TODO'))
+      await userEvent.type(screen.getByLabelText('새 상태 이름'), '검토 대기{Enter}')
+      expect(h.createAsync).toHaveBeenCalled()
+      // 저장 대기 중에 진행 중 범주의 입력 줄을 연다.
+      await userEvent.click(screen.getByTestId('status-add-IN_PROGRESS'))
+      const input = within(screen.getByTestId('status-add-form-IN_PROGRESS')).getByLabelText('새 상태 이름')
+      expect(input).toHaveFocus()
+      await act(async () => resolve())
+      expect(screen.getByTestId('status-add-form-IN_PROGRESS')).toBeInTheDocument()
+      expect(input).toHaveFocus()
+      expect(screen.getByTestId('status-add-TODO')).not.toHaveFocus()
+    })
+
+    it('저장에 실패하면 입력 줄이 남고 포커스는 입력에 있다', async () => {
+      h.createAsync.mockRejectedValue(new Error('network'))
+      renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+      await userEvent.click(screen.getByTestId('status-add-TODO'))
+      await userEvent.type(screen.getByLabelText('새 상태 이름'), '검토 대기{Enter}')
+      expect(await screen.findByTestId('status-add-error')).toBeInTheDocument()
+      expect(screen.getByLabelText('새 상태 이름')).toHaveFocus()
+    })
   })
 })

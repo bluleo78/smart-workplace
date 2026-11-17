@@ -79,6 +79,31 @@ export function StatusManagement({ projectKey, canEdit }: { projectKey: string; 
   const byCategory = useMemo(() => statusesByCategory(statuses), [statuses])
   const addBlocked = statusAddBlockedReason(statuses)
 
+  // 입력 줄을 닫은 뒤 포커스를 돌려줄 범주(WP-1658) — 입력이 사라지며 포커스가 BODY 로 떨어지면 키보드 사용자가 자리를 잃는다.
+  // 닫는 순간이 아니라 커밋 뒤(effect)에 옮긴다: 저장으로 상한(20)에 닿으면 같은 커밋에서 「+ 추가」가
+  // 비활성 버튼 + 툴팁 칸으로 바뀌어, 닫기 전에 잡아 둔 버튼은 이미 사라졌거나 포커스를 받지 못한다.
+  const categoriesRef = useRef<HTMLDivElement>(null)
+  const pendingFocusRef = useRef<IssueStatus | null>(null)
+
+  /**
+   * 입력 줄 닫기(Esc·취소·저장 성공). 늦게 끝난 저장이 그 사이 연 다른 범주의 입력 줄을 닫지 않게 그 범주가 열려 있을 때만 닫고,
+   * 포커스도 그 입력 줄 안에 있었거나 갈 곳 없이(BODY) 떨어진 경우에만 되돌린다 — 사용자가 다른 곳으로 옮긴 포커스는 뺏지 않는다.
+   */
+  function closeAddForm(category: IssueStatus) {
+    const form = categoriesRef.current?.querySelector(`[data-testid="status-add-form-${category}"]`)
+    const active = document.activeElement
+    if (form && (!active || active === document.body || form.contains(active))) pendingFocusRef.current = category
+    setAddingTo((cur) => (cur === category ? null : cur))
+  }
+
+  // 커밋 뒤 그 범주의 포커스 가능한 「+ 추가」 자리로 옮긴다 — 활성 버튼, 상한으로 막혔으면 툴팁을 띄우는 감싼 칸(tabIndex 0).
+  useEffect(() => {
+    const category = pendingFocusRef.current
+    if (!category || addingTo === category) return
+    pendingFocusRef.current = null
+    categoriesRef.current?.querySelector<HTMLElement>(`[data-add-slot="${category}"]`)?.focus()
+  }, [addingTo, addBlocked])
+
   // #statuses 로 들어오면(보드 「상태 관리」 등) 목록이 그려진 뒤 한 번만 섹션으로 스크롤 — 재조회마다 다시 끌어오지 않는다.
   const scrolledRef = useRef(false)
   useEffect(() => {
@@ -174,7 +199,7 @@ export function StatusManagement({ projectKey, canEdit }: { projectKey: string; 
           onDragEnd={handleDragEnd}
           accessibility={accessibility}
         >
-          <div className="space-y-5">
+          <div ref={categoriesRef} className="space-y-5">
             {ISSUE_STATUSES.map((category) => (
               <div key={category} data-testid={`status-category-${category}`}>
                 <div className={cn('flex min-h-8 items-center gap-2 border-b-2 pb-1', CATEGORY_COLOR[category].band)}>
@@ -209,7 +234,7 @@ export function StatusManagement({ projectKey, canEdit }: { projectKey: string; 
                     projectKey={projectKey}
                     category={category}
                     statuses={statuses}
-                    onDone={() => setAddingTo(null)}
+                    onDone={() => closeAddForm(category)}
                   />
                 )}
               </div>
@@ -269,6 +294,8 @@ function AddButton({
       data-testid={`status-add-${category}`}
       aria-label={`${ISSUE_STATUS_LABEL[category]} 범주에 상태 추가`}
       disabled={!!blockedReason}
+      // 포커스를 받을 수 있는 「+ 추가」 자리 표시(WP-1658) — 막혔으면 버튼 대신 감싼 툴팁 칸이 받는다.
+      data-add-slot={blockedReason ? undefined : category}
       onClick={onClick}
     >
       <Plus className="h-3.5 w-3.5" />
@@ -277,7 +304,7 @@ function AddButton({
   )
   if (!blockedReason) return <div className="ml-auto">{button}</div>
   return (
-    <DisabledReasonTooltip reason={blockedReason} className="ml-auto">
+    <DisabledReasonTooltip reason={blockedReason} className="ml-auto" data-add-slot={category}>
       {button}
     </DisabledReasonTooltip>
   )
