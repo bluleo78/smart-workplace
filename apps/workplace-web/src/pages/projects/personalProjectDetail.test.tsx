@@ -12,6 +12,7 @@ import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { notifTarget } from '@/components/home/notifTarget'
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
 import { PersonalProjectDetail } from '@/pages/projects/personal/PersonalProjectDetail'
+import { richEditorOf, setRichBody } from '@/test/kits/projects/issueDetailRef'
 import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
@@ -491,16 +492,29 @@ describe('작업 상세 모달(?task=, WP-1374)', () => {
 
 describe('메모 편집(WP-1374)', () => {
   const memo = () => screen.getByTestId('personal-task-memo')
+  /** 메모 편집칸(본문 모드 RichInput, WP-1656). */
+  const memoEditor = () => within(memo()).getByTestId('issue-body-textarea')
+  /** 메모 편집칸 원문을 바꾼다 — 편집칸이 원문을 여는 규칙 그대로(줄 = 문단). */
+  const writeMemo = (text: string) => setRichBody(memoEditor(), text, KEY)
+  /**
+   * 메모 편집칸에서 Esc — 브라우저처럼 편집칸(contentEditable)에서 누른 키로 보낸다.
+   * jsdom 은 isContentEditable 을 계산하지 않아 모달의 「글 칸 Esc 는 모달을 닫지 않음」(isTextEntryTarget) 판정이 거짓이 되므로 브라우저 값을 준다.
+   */
+  const escapeInMemo = () => {
+    const el = memoEditor()
+    Object.defineProperty(el, 'isContentEditable', { value: true, configurable: true })
+    fireEvent.keyDown(el, { key: 'Escape' })
+  }
 
   // 메모를 누르면 원문 편집칸 → 저장하면 PATCH { body, version(편집 시작 때) } → 보기로 돌아와 새 메모(마크다운)가 보인다.
   test('메모 누르기 → 원문 편집 → 저장 → PATCH { body, version }, 새 메모가 마크다운으로 보인다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', version: 3 })])
     const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
-    const textarea = within(memo()).getByTestId('issue-body-textarea')
-    expect(textarea).toHaveValue('서론은 짧게')
-    await user.clear(textarea)
-    await user.paste('**결론** 먼저\n\n- 하나')
+    expect(memoEditor()).toHaveTextContent(/^서론은 짧게$/)
+    // 접근성 이름은 보기 영역 「메모 편집」에서 동작어를 뗀 「메모」.
+    expect(memoEditor()).toHaveAttribute('aria-label', '메모')
+    writeMemo('**결론** 먼저\n\n- 하나')
     await user.click(within(memo()).getByTestId('issue-body-save'))
     await waitFor(() => expect(api.patches.map((p) => p.body)).toEqual([{ body: '**결론** 먼저\n\n- 하나', version: 3 }]))
     const view = await within(memo()).findByRole('button', { name: '메모 편집' })
@@ -519,8 +533,7 @@ describe('메모 편집(WP-1374)', () => {
     await user.click(await screen.findByRole('option', { name: /진행 중/ }))
     await waitFor(() => expect(api.patches).toHaveLength(1))
     expect(api.patches[0].body).toMatchObject({ version: 3 })
-    const textarea = within(memo()).getByTestId('issue-body-textarea')
-    await user.type(textarea, ' 추가')
+    writeMemo('서론은 짧게 추가')
     await user.click(within(memo()).getByTestId('issue-body-save'))
     await waitFor(() => expect(api.patches).toHaveLength(2))
     expect(api.patches[1].body).toEqual({ body: '서론은 짧게 추가', version: 4 })
@@ -532,8 +545,8 @@ describe('메모 편집(WP-1374)', () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
-    await user.type(within(memo()).getByTestId('issue-body-textarea'), ' 고침')
-    await user.keyboard('{Escape}')
+    writeMemo('서론은 짧게 고침')
+    escapeInMemo()
     await waitFor(() => expect(within(memo()).queryByTestId('issue-body-textarea')).not.toBeInTheDocument())
     expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
     expect(paramsOf(location()).get('task')).toBe('1')
@@ -542,13 +555,38 @@ describe('메모 편집(WP-1374)', () => {
     await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
   })
 
+  // WP-1656 최종 검토: 모달이 막은 Esc 도 멘션 팝업이 먼저다 — 후보가 보이는 팝업에서 Esc 는 팝업만 닫고 편집·초안을 지킨다.
+  // 다음 Esc(팝업 없음)는 지금처럼 편집 취소. 맞는 멤버가 없는 @단어(보이는 팝업 없음)에서는 바로 취소다.
+  test('메모 편집칸에서 멘션 후보가 보일 때 Esc 는 팝업만 닫고 편집·초안을 지킨다, 다음 Esc 에 편집이 취소된다', async () => {
+    const me = createMember({ userId: 1, username: 'testuser', name: '테스트 사용자' })
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })], { members: [me] })
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    // 이 작업의 메모 초안(localStorage, #824) — 키는 사용자·워크스페이스·작업으로 정해진다(끝이 :PME:1).
+    const draft = () => Object.keys(window.localStorage).filter((k) => k.endsWith(`:${KEY}:1`)).map((k) => window.localStorage.getItem(k))[0] ?? null
+    const editor = richEditorOf(memoEditor())
+    await act(async () => {
+      editor.commands.focus('end')
+      editor.commands.insertContent(' @테스')
+    })
+    expect(await screen.findByTestId('chat-mention-popover')).toBeInTheDocument()
+    await waitFor(() => expect(draft()).toBe('서론은 짧게 @테스'), { timeout: 3000 })
+    escapeInMemo()
+    expect(memoEditor()).toHaveTextContent('서론은 짧게 @테스')
+    expect(draft()).toBe('서론은 짧게 @테스')
+    expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+    escapeInMemo()
+    await waitFor(() => expect(within(memo()).queryByTestId('issue-body-textarea')).not.toBeInTheDocument())
+    expect(api.patches).toEqual([])
+  })
+
   // 409 가 아닌 실패(500)는 편집 기준 version 을 지킨다(팀 이슈 상세와 같다). 편집하는 사이 다른 사람이 메모를 바꿔 화면이 version 4 를
   // 불러왔어도, 다시 저장은 편집 시작 때의 3 으로 보내 409 로 알게 한다 — 기준을 풀어 버리면 화면의 4 로 보내 그 변경을 덮어쓴다.
   test('메모 저장이 500 으로 실패해도 편집 기준 version 을 지켜, 그 사이 바뀐 메모를 덮어쓰지 않는다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', version: 3 })], { patchFailures: [500] })
     const { user, queryClient } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
-    await user.type(within(memo()).getByTestId('issue-body-textarea'), ' 추가')
+    writeMemo('서론은 짧게 추가')
     // 그 사이 다른 사람(AI)이 메모를 바꿔 version 4 — 화면이 다시 불러온다.
     const fetched = api.detailGets.length
     api.db.get(1)!.version = 4
@@ -556,7 +594,7 @@ describe('메모 편집(WP-1374)', () => {
     await waitFor(() => expect(api.detailGets.length).toBeGreaterThan(fetched))
     await user.click(within(memo()).getByTestId('issue-body-save'))
     await waitFor(() => expect(api.patches).toHaveLength(1))
-    expect(await within(memo()).findByTestId('issue-body-textarea')).toHaveValue('서론은 짧게 추가')
+    expect(await within(memo()).findByTestId('issue-body-textarea')).toHaveTextContent(/^서론은 짧게 추가$/)
     await user.click(within(memo()).getByTestId('issue-body-save'))
     await waitFor(() => expect(api.patches).toHaveLength(2))
     expect(api.patches.map((p) => p.body)).toEqual([
@@ -570,7 +608,7 @@ describe('메모 편집(WP-1374)', () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
-    await user.type(within(memo()).getByTestId('issue-body-textarea'), ' 고침')
+    writeMemo('서론은 짧게 고침')
     // ✕ — 확인 창, 모달·task 는 그대로.
     await user.click(screen.getByTestId('personal-task-close'))
     const confirm = await screen.findByTestId('personal-task-discard-dialog')
@@ -578,7 +616,7 @@ describe('메모 편집(WP-1374)', () => {
     expect(paramsOf(location()).get('task')).toBe('1')
     await user.click(within(confirm).getByTestId('personal-task-discard-keep'))
     await waitFor(() => expect(screen.queryByTestId('personal-task-discard-dialog')).not.toBeInTheDocument())
-    expect(within(memo()).getByTestId('issue-body-textarea')).toHaveValue('서론은 짧게 고침')
+    expect(memoEditor()).toHaveTextContent(/^서론은 짧게 고침$/)
     // 편집칸 밖(닫기 단추)에서 누른 Esc 도 같은 확인을 띄운다.
     act(() => screen.getByTestId('personal-task-close').focus())
     await user.keyboard('{Escape}')
@@ -593,12 +631,12 @@ describe('메모 편집(WP-1374)', () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
-    await user.type(within(memo()).getByTestId('issue-body-textarea'), ' 고침')
+    writeMemo('서론은 짧게 고침')
     fireEvent.pointerDown(document.querySelector('[data-slot="dialog-overlay"]')!)
     expect(await screen.findByTestId('personal-task-discard-dialog')).toBeInTheDocument()
     await user.click(screen.getByTestId('personal-task-discard-keep'))
     // 편집을 취소(Esc)해 고친 것이 없어지면 바깥 클릭은 묻지 않고 닫는다.
-    await user.keyboard('{Escape}')
+    escapeInMemo()
     await waitFor(() => expect(within(memo()).queryByTestId('issue-body-textarea')).not.toBeInTheDocument())
     fireEvent.pointerDown(document.querySelector('[data-slot="dialog-overlay"]')!)
     await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())

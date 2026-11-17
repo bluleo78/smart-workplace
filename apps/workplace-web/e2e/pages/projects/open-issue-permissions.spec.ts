@@ -190,7 +190,8 @@ test(
     });
     // multipart 본문에 붙여넣은 파일이 실려 간다.
     expect((await uploadReq).postData() ?? '').toContain('filename="bug.png"');
-    await expect(page.getByTestId('issue-body-textarea')).toHaveValue(new RegExp(`!\\[bug\\.png\\]\\(${IMG_URL.replace(/\//g, '\\/')}\\)`));
+    // 다 올린 이미지는 편집칸 안 그림이 된다(WP-1656 — 원문 마크다운은 저장할 때 실린다).
+    await expect(page.getByTestId('issue-body-textarea').getByTestId('rich-image').locator('img')).toHaveAttribute('src', /^blob:/);
   },
 );
 

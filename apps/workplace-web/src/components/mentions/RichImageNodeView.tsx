@@ -12,7 +12,21 @@ const THUMB = 'block h-14 lg:h-20 max-w-[12rem] rounded-md border border-border'
 // 이미지가 아직 없는 자리(업로드 중·불러오는 중·실패)의 고정 크기 상자.
 const BOX = `${THUMB} w-20 lg:w-32 flex items-center justify-center text-xs text-muted-foreground`
 
-export function RichImageNodeView({ node, selected }: ReactNodeViewProps) {
+/** 입력창 이미지 노드뷰 — 코멘트 입력창(썸네일)과 본문 모드(보기 크기, RichBodyImageNodeView)가 같이 쓴다. */
+export function RichImageNodeView(props: ReactNodeViewProps) {
+  return <UploadImageNodeView {...props} imgClassName={`${THUMB} w-auto object-cover`} />
+}
+
+/**
+ * 업로드 자리표시·실패·불러오는 중 상자는 공통이고(지금 상자 모양), 다 받은 이미지의 크기 클래스만 쓰는 곳이 정한다.
+ * wrapperClassName: 노드 감싸개에 더할 클래스(본문 모드는 큰 이미지가 칸 폭을 넘지 않게 max-w-full).
+ */
+export function UploadImageNodeView({
+  node,
+  selected,
+  imgClassName,
+  wrapperClassName,
+}: ReactNodeViewProps & { imgClassName: string; wrapperClassName?: string }) {
   const src = node.attrs.src ? String(node.attrs.src) : ''
   const alt = node.attrs.alt ? String(node.attrs.alt) : ''
   const pending = Boolean(node.attrs.uploadId)
@@ -26,7 +40,7 @@ export function RichImageNodeView({ node, selected }: ReactNodeViewProps) {
   return (
     <NodeViewWrapper
       as="span"
-      className={`my-1 inline-block align-bottom ${selected ? 'rounded-md ring-2 ring-ring' : ''}`}
+      className={`my-1 inline-block align-bottom${wrapperClassName ? ` ${wrapperClassName}` : ''} ${selected ? 'rounded-md ring-2 ring-ring' : ''}`}
       data-testid="rich-image"
       data-pending={pending ? 'true' : undefined}
     >
@@ -39,7 +53,7 @@ export function RichImageNodeView({ node, selected }: ReactNodeViewProps) {
           <ImageOff className="h-3.5 w-3.5" /> 불러올 수 없음
         </span>
       ) : url ? (
-        <img src={url} alt={alt} className={`${THUMB} w-auto object-cover`} draggable={false} />
+        <img src={url} alt={alt} className={imgClassName} draggable={false} />
       ) : (
         <span className={`${BOX} animate-pulse bg-muted`} />
       )}

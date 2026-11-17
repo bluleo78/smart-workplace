@@ -57,14 +57,24 @@ export function convertPlaintextMentions(
 // 본문 문자열 → TipTap JSON(doc). <@id> 는 mention 노드(label=이름)로 복원.
 // images 가 켜진 입력창(이슈 코멘트, WP-362)만 `![이름](/api/v1/...)` 을 image 노드로 복원한다 — 그 밖의 입력창은 스키마에 image 가 없다.
 // formatting 이 켜진 입력창(팀 채팅·이슈 채팅, WP-101)은 채팅 마크다운으로 읽어 굵게·목록 등을 복원한다(렌더러와 같은 파서).
+// imageProjectKey(본문 모드, WP-1656)가 있으면 그 프로젝트 이미지만 노드로 — 다른 프로젝트 경로는 보기 화면도 그리지 못해 글자로 둔다.
+// 또 저장 형식(imageMarkdown)과 다른 모양(alt 앞뒤 공백·`[`)은 노드로 만들면 저장할 때 모양이 바뀌므로 글자로 둔다 — 원문을 한 바이트도 바꾸지 않게.
+// 본문 모드(imageProjectKey 가 있을 때만)는 더:
+// - 줄바꿈 \r\n·\r 도 줄로 나눈다 — \n 으로만 나누면 문단 끝에 \r 이 남아, 그 줄을 고칠 때 편집기가 \r 을 공백으로 다시 읽어
+//   줄바꿈이 섞이고 공백이 끼었다. 고친 뒤 저장하면 \n 줄이 된다(옛 Textarea 와 같다). \n 만 쓴 원문은 지금처럼 바이트 그대로다.
+// - <@숫자> 는 숫자가 그대로 다시 써지는 모양(앞 0 없음·안전한 정수)일 때만 멘션 노드로 — `<@007>`·아주 큰 숫자는 Number() 를 거치면
+//   다른 글자로 저장되므로 글자로 둔다.
 export function bodyToDoc(
   body: string,
   mentions: MentionUser[],
-  options: { images?: boolean; formatting?: boolean } = {},
+  options: { images?: boolean; formatting?: boolean; imageProjectKey?: string } = {},
 ): JSONContent {
   if (options.formatting) return chatMarkdownToDoc(body, mentions);
   const nameById = new Map(mentions.map((m) => [m.id, m.name]));
-  const lines = body.split('\n');
+  // imageProjectKey 는 본문 모드(WP-1656)만 넘긴다 — 이것 하나로 본문 모드 규칙(이미지 고르기·줄바꿈·멘션 id)을 켠다.
+  const projectKey = options.imageProjectKey;
+  const bodyMode = projectKey != null;
+  const lines = bodyMode ? body.split(/\r\n|\r|\n/) : body.split('\n');
   // 멘션 토큰과 (켜져 있으면) 이미지 마크다운을 한 정규식으로 왼쪽부터 훑는다 — 줄마다 lastIndex 만 되돌려 재사용.
   const re = options.images ? new RegExp(`<@(\\d+)>|${API_IMAGE_MD.source}`, 'g') : /<@(\d+)>/g;
   const content: JSONContent[] = lines.map((line) => {
@@ -73,6 +83,10 @@ export function bodyToDoc(
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(line)) !== null) {
+      // 본문 모드에서 받지 않는 이미지(다른 프로젝트·저장 형식과 다른 모양)는 건너뛰어 앞뒤 글자와 함께 글자로 남긴다. group(4)=프로젝트 키.
+      if (m[1] === undefined && bodyMode && !isBodyModeImage(m, projectKey)) continue;
+      // 본문 모드에서 다시 쓰면 글자가 바뀌는 멘션 id 도 글자로 남긴다.
+      if (m[1] !== undefined && bodyMode && !isExactMentionId(m[1])) continue;
       if (m.index > last) inline.push({ type: 'text', text: line.slice(last, m.index) });
       if (m[1] !== undefined) {
         const id = Number(m[1]);
@@ -86,4 +100,15 @@ export function bodyToDoc(
     return inline.length > 0 ? { type: 'paragraph', content: inline } : { type: 'paragraph' };
   });
   return { type: 'doc', content };
+}
+
+/** 멘션 id 글자가 숫자로 읽었다가 다시 써도 같은가 — 앞 0(`007`)·안전한 정수 범위를 넘는 숫자는 아니다. */
+function isExactMentionId(digits: string): boolean {
+  const id = Number(digits);
+  return Number.isSafeInteger(id) && String(id) === digits;
+}
+
+/** 본문 모드에서 이미지 노드로 받을 이미지 마크다운인지 — 이 프로젝트 경로이고, 저장할 때 같은 글자로 다시 써지는 모양이어야 한다. */
+function isBodyModeImage(m: RegExpExecArray, projectKey: string): boolean {
+  return m[4] === projectKey && imageMarkdown(m[2], m[3]) === m[0];
 }

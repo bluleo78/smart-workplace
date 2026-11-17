@@ -3,6 +3,7 @@
 // 미리보기를 닫는 키·클릭이 편집으로 번지지 않음(@input).
 // 이미지 버튼 업로드 → 본문 끝 마크다운, 지워진 이미지(404) 대체 문구, 복원된 초안의 업로드 중 토큰 저장 안내는
 // 페이지 테스트 src/pages/projects/issueBodyImages.test.tsx 가 지킨다(WP-980).
+// 상세 편집칸은 본문 모드 RichInput(WP-1656) — 이미지는 칸 안 그림이고 원문 마크다운은 저장 요청에서 본다. 생성 다이얼로그는 아직 Textarea(WP-1657).
 import type { Page } from '@playwright/test'
 
 import { mockApi } from '../../fixtures/api-mock'
@@ -167,10 +168,14 @@ test.describe('이슈 본문 이미지 — 상세 편집', () => {
     await ta.evaluate((el) => {
       const dt = new DataTransfer()
       dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'bug.png', { type: 'image/png' }))
-      el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
+      // 편집칸 안 좌표로 떨어뜨린다 — 편집기는 놓은 자리(좌표)를 찾지 못한 드롭은 처리하지 않는다(실제 드롭은 늘 좌표가 있다).
+      const r = el.getBoundingClientRect()
+      el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.top + 12 }))
     })
+    // 떨어뜨린 자리에 업로드 중 자리표시가 들어간다.
+    await expect(ta.getByTestId('rich-image')).toHaveText('업로드 중…')
     await expect(page.getByTestId('issue-body-save')).toBeDisabled()
-    // 업로드 중 취소는 막혀야 한다 — 취소 버튼 비활성, Esc 는 편집창을 닫지 않는다(토큰 유실 방지).
+    // 업로드 중 취소는 막혀야 한다 — 취소 버튼 비활성, Esc 는 편집창을 닫지 않는다(올리던 이미지 유실 방지).
     await expect(page.getByTestId('issue-body-cancel')).toBeDisabled()
     await ta.press('Escape')
     await expect(ta).toBeVisible()
@@ -178,7 +183,7 @@ test.describe('이슈 본문 이미지 — 상세 편집', () => {
     expect(patches.count()).toBe(0)
 
     upload.release()
-    await expect(ta).toHaveValue(new RegExp(`!\\[bug\\.png\\]\\(${IMG_URL.replace(/\//g, '\\/')}\\)`))
+    await expect(ta.getByTestId('rich-image').locator('img')).toHaveAttribute('src', /^blob:/)
     await page.getByTestId('issue-body-save').click()
     await expect.poll(() => patches.lastBody<{ body: string }>()?.body).toContain(`![bug.png](${IMG_URL})`)
   })
@@ -188,14 +193,24 @@ test.describe('이슈 본문 이미지 — 편집 UX', () => {
   test('업로드가 실패하면 삽입했던 줄바꿈까지 되돌려 원문이 그대로 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, '기존 본문')
     await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{}' }))
+    const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`)
+    await page.route(
+      (u) => u.pathname === `/api/v1/projects/${KEY}/issues/1`,
+      (route) => (route.request().method() === 'PATCH' ? route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }) : route.fallback()),
+    )
     await page.goto(`/projects/${KEY}/issues/1`)
     await page.getByRole('button', { name: '본문 편집' }).click()
     const ta = page.getByTestId('issue-body-textarea')
     await ta.fill('재현 화면입니다')
-    await ta.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(3, 3))
+    // 줄 가운데(「재현 」 뒤)에 커서를 두고 붙여넣는다.
+    await page.keyboard.press('Home')
+    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight')
     await pasteImage(page, '[data-testid="issue-body-textarea"]')
     await expect(page.getByText('이미지를 올리지 못했습니다')).toBeVisible()
-    await expect(ta).toHaveValue('재현 화면입니다')
+    await expect(ta.getByTestId('rich-image')).toHaveCount(0)
+    await expect(ta.locator('p')).toHaveText(['재현 화면입니다'])
+    await page.getByTestId('issue-body-save').click()
+    await expect.poll(() => patches.lastBody<{ body: string }>()?.body).toBe('재현 화면입니다')
   })
 })
 
@@ -260,10 +275,12 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     const notPrevented = await ta.evaluate((el) => {
       const dt = new DataTransfer()
       dt.items.add(new File(['%PDF-1.4'], 'doc.pdf', { type: 'application/pdf' }))
-      return el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
+      const r = el.getBoundingClientRect()
+      return el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.top + 12 }))
     })
     expect(notPrevented).toBe(false)
     await expect(page.getByText('PNG·JPEG·GIF·WebP 이미지만 10MB 까지 올릴 수 있습니다.')).toBeVisible()
-    await expect(ta).toHaveValue('쓰던 내용')
+    await expect(ta).toHaveText('쓰던 내용')
+    await expect(ta.getByTestId('rich-image')).toHaveCount(0)
   })
 })

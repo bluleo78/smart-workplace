@@ -1,27 +1,28 @@
 // 이슈 본문 인라인 편집 — 팀 이슈 상세 본문과 개인 작업 상세 메모가 함께 쓴다(WP-1374 에서 IssueDetailPage 에서 꺼냄).
 // 왜 공용인가: 개인 작업 메모도 팀 이슈 본문과 같은 렌더(마크다운·멘션 칩·본문 이미지)와 같은 편집(원문 편집칸·저장/취소·초안 자동 저장)을
 // 써야 두 화면이 어긋나지 않는다. 동작은 옮기기 전과 같다.
+// WP-1656: 편집칸은 Textarea 대신 본문 모드 RichInput — 원문(마크다운)을 한 바이트도 바꾸지 않으면서 붙여넣은 이미지를 칸 안에 그림으로 보인다.
 import { type Ref, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { uploadIssueImage } from '@/api/issueImages';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
 import { IssueBodyImageButton } from '@/components/issue/IssueBodyImageButton';
 import { IssueMentionChip } from '@/components/mentions/IssueMentionChip';
 import type { RenderMention } from '@/components/mentions/parseMessageSegments';
-import type { MentionUser } from '@/components/mentions/types';
+import { RichInput, type RichInputHandle } from '@/components/mentions/RichInput';
+import { type MentionUser, toMentionUser } from '@/components/mentions/types';
 import type { EditBarControls } from '@/components/mobile/MobileEditBar';
 import { useEditBarControls } from '@/components/mobile/useEditBarControls';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers';
 import { useAuth } from '@/hooks/useAuth';
-import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
-import { useIssueImageUpload } from '@/hooks/useIssueImageUpload';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { clearIssueBodyDraft, issueBodyDraftKey, readIssueBodyDraft, writeIssueBodyDraft } from '@/lib/issueBodyDraft';
-import { isBodyDraftDirty } from '@/lib/issueDraft';
+import { isBodyDraftDirty, isSameBody } from '@/lib/issueDraft';
+import { hasPendingToken } from '@/lib/markdownImageInsert';
 import { cn } from '@/lib/utils';
 import { ISSUE_BODY_MAX_LENGTH, issueTextOverLimitMessage } from '@/lib/validations/issue';
 
@@ -82,8 +83,8 @@ export interface InlineEditableBodyHandle {
   discardDraft: () => void;
 }
 
-// 본문 인라인 편집 — 표시(prose)와 편집(textarea) 토글.
-// 무엇을: 본문 영역을 클릭해 textarea 로 전환, 저장 버튼·Cmd/Ctrl+Enter 저장(blur 저장 없음), Escape 취소.
+// 본문 인라인 편집 — 표시(prose)와 편집(원문 편집칸 — 본문 모드 RichInput, WP-1656) 토글.
+// 무엇을: 본문 영역을 클릭해 편집칸으로 전환, 저장 버튼·Cmd/Ctrl+Enter 저장(blur 저장 없음), Escape 취소. Enter 는 줄바꿈.
 // 모바일은 저장/취소 버튼 대신 하단 편집 바(onEditingChange)가 저장 경로(WP-196).
 // 빈 본문은 허용(스키마는 max 길이만 제약). 변화 없으면 PATCH 생략.
 export function InlineEditableBody({
@@ -136,29 +137,14 @@ export function InlineEditableBody({
   // 바깥 동작 — 초안 키를 감싼 화면이 다시 만들지 않게 여기서 지운다.
   useImperativeHandle(ref, () => ({ discardDraft: () => clearIssueBodyDraft(draftKey) }), [draftKey]);
 
-  // 이미지 붙여넣기·드롭·버튼 업로드(WP-199) — 업로드 중엔 본문에 자리표시 토큰이 들어가 있다.
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  // 편집 진입 후 캐럿 초기화(끝으로) 완료 여부 — 진입마다 한 번만.
-  const caretInit = useRef(false);
-  // 업로드 콜백은 비동기라 렌더 시점 draft 가 아니라 항상 최신 값을 봐야 한다 — ref 로 미러링.
-  const draftRef = useRef(draft);
-  // 렌더 중 ref 쓰기는 금지(react-hooks/refs) — 커밋 후 effect 로 동기화. 업로드 setValue 는 ref 를 즉시 갱신한다.
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
-  const images = useIssueImageUpload({
-    projectKey,
-    textareaRef,
-    getValue: () => draftRef.current,
-    setValue: (v) => {
-      draftRef.current = v;
-      setDraft(v);
-    },
-    enabled: !disabled,
-  });
-  const uploading = images.isUploading;
+  // 편집칸(본문 모드 RichInput) 핸들 — 「이미지」 버튼이 커서 자리에 이미지를 넣는다(insertImages).
+  const richRef = useRef<RichInputHandle | null>(null);
+  // 편집칸을 새로 만드는 번호 — RichInput 은 원문(initialBody)을 마운트 때 한 번만 읽으므로, 편집 진입·초안 불러오기마다 올려 새 원문으로 연다.
+  const [editorKey, setEditorKey] = useState(0);
+  // 편집칸 안에 업로드 중인 이미지(자리표시)가 있는가 — RichInput 이 바뀔 때만 알린다(onUploadingChange). 저장·취소·단축키·모바일 바를 막는다.
+  const [uploading, setUploading] = useState(false);
   // WP-885: 본문 상한(5만자) 초과 여부 — 넘으면 서버가 400 으로 돌려보내 토스트만 뜨므로 저장 전에 막고 입력창 아래에 안내한다.
-  // textarea maxLength 속성은 붙여넣기를 조용히 잘라 버려 쓰지 않는다(내용 유실 방지).
+  // 편집칸은 입력을 자르지 않는다(붙여넣기 내용 유실 방지) — 저장만 막는다.
   const overLimit = draft.length > ISSUE_BODY_MAX_LENGTH;
 
   // 저장 없이 새로고침/탭 닫기로 이탈 시 경고(#823) — 코멘트 작성창(#620)·이슈 생성
@@ -177,27 +163,38 @@ export function InlineEditableBody({
   // 주의: draft 가 서버 본문과 같아졌다고 여기서 즉시 지우면 안 된다 — 편집 진입 직후에는
   // draft 가 항상 body 로 초기화되므로, 아직 [불러오기]로 확인하지 않은 기존 초안(있다면)을
   // 이 렌더에서 곧바로 지워버려 복구 배너의 대상이 사라진다. 정리는 save/cancel/discard 시점에만.
+  // 업로드 중엔 쓰지 않는다(WP-1656) — 자리표시는 원문에 실리지 않아(빈 글자) 그대로 쓰면 이미지가 빠진 초안이 남고, 그 초안을 불러오면
+  // 이미지가 조용히 사라진다. 마지막 초안을 둔 채 기다렸다가 업로드가 끝나면(uploading=false) 이미지가 든 원문으로 다시 쓴다.
   useEffect(() => {
-    if (!editing) return;
-    if (draft === (body ?? '')) return;
+    if (!editing || uploading) return;
+    if (isSameBody(draft, body)) return;
     const timer = window.setTimeout(() => writeIssueBodyDraft(draftKey, draft), 600);
     return () => window.clearTimeout(timer);
-  }, [editing, draft, body, draftKey]);
+  }, [editing, uploading, draft, body, draftKey]);
 
   // 표시 → 편집 진입. 진입 시 최신 본문으로 draft 초기화하되, 저장된 초안이 서버 본문과
   // 다르면 조용히 덮어쓰지 않고 배너로 안내(다른 사람이 서버 본문을 바꿨을 수 있음).
+  // 편집칸을 지금 draft 로 새로 만든다(편집칸은 원문을 마운트 때만 읽는다). 새 편집칸은 업로드 중 이미지가 없으므로 업로드 상태도 푼다
+  // (옛 편집칸의 업로드는 그 편집칸과 함께 버려진다). 편집 진입·초안 불러오기가 같이 쓴다.
+  const remountEditor = () => {
+    setEditorKey((k) => k + 1);
+    setUploading(false);
+  };
   const enter = () => {
     setDraft(body ?? '');
     const stored = readIssueBodyDraft(draftKey);
-    setShowDraftBanner(stored != null && stored !== (body ?? ''));
-    caretInit.current = false;
+    setShowDraftBanner(stored != null && !isSameBody(stored, body));
+    remountEditor();
     setEditing(true);
     onEditStart?.();
   };
-  // 배너 [불러오기] — 저장된 초안을 draft 로 복원.
+  // 배너 [불러오기] — 저장된 초안을 draft 로 복원하고 편집칸을 그 원문으로 새로 연다.
   const restoreDraft = () => {
     const stored = readIssueBodyDraft(draftKey);
-    if (stored != null) setDraft(stored);
+    if (stored != null) {
+      setDraft(stored);
+      remountEditor();
+    }
     setShowDraftBanner(false);
   };
   // 배너 [버리기] — 초안 폐기, 현재(서버) draft 유지.
@@ -206,30 +203,31 @@ export function InlineEditableBody({
     setShowDraftBanner(false);
   };
   // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단. 저장 후 초안은 정리해 남기지 않는다.
-  const save = async () => {
-    // 업로드 중 자리표시 토큰이 서버에 저장되지 않도록 단축키·버튼 공통으로 막는다.
-    const block = images.pendingBlock(draft);
-    if (block === 'uploading') return;
+  // next: 저장할 원문 — 단축키(Cmd/Ctrl+Enter)는 편집칸이 지금 원문을 넘기고, 버튼·모바일 바는 draft(편집칸이 알린 원문)를 쓴다. 둘은 같다.
+  const save = async (next: string = draft) => {
+    // 업로드 중 이미지(자리표시)는 원문에 실리지 않으므로 그대로 저장하면 이미지가 빠진다 — 단축키·버튼·모바일 바 공통으로 막는다.
+    if (uploading) return;
     // 단축키(Cmd/Ctrl+Enter)·모바일 하단 바 저장도 같은 경로라 여기서 한 번에 막는다(WP-885).
-    if (overLimit) return;
-    if (block === 'stale-token') {
-      // 진행 중 업로드가 없는데 토큰이 남은 건 복원된 초안의 잔재 — 조용히 무시하면 저장이 안 되는 이유를 알 수 없다.
+    if (next.length > ISSUE_BODY_MAX_LENGTH) return;
+    if (hasPendingToken(next)) {
+      // 옛 Textarea 편집칸(WP-199)이 남긴 자리표시 토큰이 복원된 초안에 남아 있다 — 조용히 무시하면 저장이 안 되는 이유를 알 수 없다.
       toast.error('업로드가 끝나지 않은 이미지가 있습니다. 해당 줄을 지우고 다시 저장해 주세요');
       return;
     }
     setEditing(false);
     setShowDraftBanner(false);
-    if (draft === (body ?? '')) {
+    // 원문 그대로 비교(다듬지 않음) — 열고 그대로 저장하면 요청이 없다(WP-1656 원문 보존).
+    // \r\n 원문은 편집칸이 \n 줄로 읽으므로 \n 으로 바꾼 모양과 같으면 바뀌지 않은 것이다(isSameBody).
+    if (isSameBody(next, body)) {
       clearIssueBodyDraft(draftKey);
       return;
     }
     // #611 초안은 저장이 성공한 뒤에만 지운다 — 충돌(409)·오류로 실패하면 입력한 본문을 그대로 두고 편집을 다시 연다.
-    writeIssueBodyDraft(draftKey, draft);
-    if (await onSave(draft)) clearIssueBodyDraft(draftKey);
-    else {
-      caretInit.current = false;
-      setEditing(true);
-    }
+    // 다시 여는 편집칸은 draft(= 이 원문)로 새로 만들어진다.
+    setDraft(next);
+    writeIssueBodyDraft(draftKey, next);
+    if (await onSave(next)) clearIssueBodyDraft(draftKey);
+    else setEditing(true);
   };
   // 취소 — draft 폐기, 편집 종료. 초안도 함께 정리(#824 — 취소 시 남기지 않음).
   const cancel = () => {
@@ -237,13 +235,17 @@ export function InlineEditableBody({
     setShowDraftBanner(false);
     clearIssueBodyDraft(draftKey);
   };
+  // Esc 취소 — 업로드 중엔 무시한다(지금처럼). 취소하면 재진입 때 편집칸이 서버 본문으로 새로 열려 올리던 이미지를 잃는다.
+  const cancelByEscape = () => {
+    if (!uploading) cancel();
+  };
 
   // 본문의 멘션 토큰 <@id> → 코멘트와 같은 칩(WP-1134). 이름표는 프로젝트 멤버(코멘트 목록과 같은 쿼리라 다시 받지 않는다) — 멤버가 아니면
   // 「알 수 없음」. 코드(`…`·펜스) 안의 토큰은 MarkdownMessage 가 글자 그대로 둔다. 멤버가 바뀔 때만 새로 만든다 — mentions 가 바뀌면
   // MarkdownMessage 가 렌더러를 다시 만들어 본문 이미지가 다시 마운트된다.
   const members = useProjectMembers(projectKey);
   const mentionUsers: MentionUser[] = useMemo(
-    () => (members.data ?? []).map((m) => ({ id: m.userId, name: m.name, kind: m.kind })),
+    () => (members.data ?? []).map(toMentionUser),
     [members.data],
   );
   const renderMention = useCallback<RenderMention>(
@@ -255,7 +257,16 @@ export function InlineEditableBody({
     [projectKey],
   );
 
-  // 편집이 끝나면(Esc 취소·저장) textarea 가 사라져 포커스가 body 로 빠졌다 — 「본문 편집」 영역으로 돌린다(WP-813).
+  // 편집칸(본문 모드 RichInput)에 넘기는 객체·함수 — 키 입력마다 draft 가 바뀌어 다시 그려지므로, 값이 바뀔 때만 새로 만든다.
+  // 본문 모드 설정(이 프로젝트), 입력칸 접근성 상태(5만 자 초과면 오류 — 아래 안내 문구를 가리킨다, 권한이 없어지면 비활성), 이미지 업로드.
+  const bodyMode = useMemo(() => ({ projectKey }), [projectKey]);
+  const editorAria = useMemo(
+    () => ({ invalid: overLimit, describedBy: overLimit ? 'issue-body-limit-error' : undefined, disabled }),
+    [overLimit, disabled],
+  );
+  const imageUpload = useCallback((file: File) => uploadIssueImage(projectKey, file), [projectKey]);
+
+  // 편집이 끝나면(Esc 취소·저장) 편집칸이 사라져 포커스가 body 로 빠졌다 — 「본문 편집」 영역으로 돌린다(WP-813).
   const viewRef = useRef<HTMLDivElement | null>(null);
   useRestoreFocusOnExit(editing, viewRef);
   // 보기 영역을 누른 순간의 선택 — click 이 글자를 고른(바꾼) 끝인지 그냥 누름인지 가르는 데 쓴다(WP-1412). 누름이 없으면 null.
@@ -263,10 +274,6 @@ export function InlineEditableBody({
 
   // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
   useEditBarControls(editing, { save, cancel, disabled: disabled || uploading || overLimit }, onEditingChange);
-
-  // 본문 길이에 맞춰 편집 입력칸 높이를 늘린다(WP-1411) — 공용 훅이 JS 로 잰다(CSS field-sizing 은 iOS·Firefox 지원이 고르지 않다).
-  // 이른 return 앞에서 늘 부른다(훅 규칙). 편집이 열려 있을 때만 잰다.
-  useAutoGrowTextarea(textareaRef, draft, editing);
 
   if (!editing) {
     return (
@@ -300,11 +307,11 @@ export function InlineEditableBody({
             enter();
           }
         }}
-        // 호버 시 편집 모드(textarea)와 동일한 border-input 테두리 + 패딩으로 "편집 필드" 미리보기.
+        // 호버 시 편집 모드(편집칸)와 동일한 border-input 테두리 + 패딩으로 "편집 필드" 미리보기.
         // 평소 border-transparent 로 두어 호버 시 레이아웃 시프트 방지.
         className="-mx-3 cursor-pointer rounded-md border border-transparent px-3 py-2 transition-colors hover:border-input hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {/* 뷰 모드 = 마크다운 렌더(## 제목·**볼드**·- [ ] 체크박스). 편집 모드(textarea)는 raw — 대비 확보. */}
+        {/* 뷰 모드 = 마크다운 렌더(## 제목·**볼드**·- [ ] 체크박스). 편집 모드(편집칸)는 원문 — 대비 확보. */}
         {body ? (
           <MarkdownMessage renderImage={renderImage} mentions={mentionUsers} renderMention={renderMention}>
             {body}
@@ -346,43 +353,45 @@ export function InlineEditableBody({
           </div>
         </div>
       )}
-      <Textarea
-        autoFocus
-        // 편집 진입 시 캐럿을 끝으로 — 기본 0 이면 이미지 버튼이 본문 맨 앞에 삽입한다. 포커스 시 한 번만.
-        onFocus={(e) => {
-          if (caretInit.current) return;
-          caretInit.current = true;
-          const n = e.currentTarget.value.length;
-          e.currentTarget.setSelectionRange(n, n);
-        }}
-        data-testid="issue-body-textarea"
-        // 높이는 useAutoGrowTextarea 가 본문 길이에 맞춰 늘린다 — 긴 본문도 앞뒤 맥락을 보며 고칠 수 있게(WP-1411). 최소 160px.
-        // 데스크톱: 70vh 에서 멈추고 그 뒤는 안에서 스크롤 — 입력칸이 화면을 다 차지해 아래 저장·취소 버튼이 밀려나지 않게.
-        //   (훅이 넣는 인라인 height 보다 max-height 가 이기고, overflow 기본값 auto 라 상한에서 내부 스크롤이 생긴다.)
-        // 모바일: 상한 없음 — 저장·취소는 하단 편집 바(MobileEditBar)에 있고, vh 상한은 화면 아래를 덮는 키보드 뒤로
-        //   캐럿을 숨긴다. 대신 페이지가 스크롤한다(MobileIssueCreateSheet 와 같은 방식).
-        className={cn('min-h-[160px]', !mobile && 'max-h-[70vh]')}
-        ref={textareaRef}
-        value={draft}
-        disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
-        onPaste={images.onPaste}
-        onDrop={images.onDrop}
-        onDragOver={images.onDragOver}
-        onKeyDown={(e) => {
-          // 단축키: Cmd/Ctrl+Enter 저장 · Esc 취소. (blur 저장 없음 — 명시적 버튼 사용)
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            save();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            // 업로드 중 취소하면 재진입 시 draft 가 초기화돼 완료된 이미지 토큰이 유실된다 — 끝날 때까지 무시.
-            if (!uploading) cancel();
-          }
-        }}
-        aria-invalid={overLimit || undefined}
-        aria-describedby={overLimit ? 'issue-body-limit-error' : undefined}
-      />
+      {/* 편집칸(본문 모드 RichInput, WP-1656) — 원문 줄 = 문단, 이 프로젝트 이미지는 칸 안 그림(보기 화면 크기). 원문은 다듬지 않고 draft 로 받는다.
+          권한이 없어지면(disabled) inert 로 입력·포커스를 막고 Textarea 의 비활성 모양(흐리게·금지 커서)으로 보인다 — RichInput 에는 편집 끄기 속성이 없다.
+          바깥 모달이 막은 Esc 도 RichInput 본문 모드가 처리한다(멘션 팝업 우선 → 그 밖엔 onCancel). */}
+      <div
+        inert={disabled}
+        aria-disabled={disabled || undefined}
+        data-testid="issue-body-editor-frame"
+        className={cn(disabled && 'cursor-not-allowed opacity-50')}
+      >
+        <RichInput
+          key={editorKey}
+          ref={richRef}
+          bodyMode={bodyMode}
+          // 마운트 때 한 번 읽는다 — 편집 진입·불러오기·저장 실패 뒤 다시 열 때 그때의 draft 로 새로 만들어진다.
+          initialBody={draft}
+          initialMentions={mentionUsers}
+          members={members.data ?? []}
+          // 접근성 이름 — 「본문 편집」→「본문」, 개인 작업 「메모 편집」→「메모」(보기 영역 이름에서 동작어를 뗀다).
+          ariaLabel={editLabel.replace(/\s*편집$/, '')}
+          // 예전 편집칸(Textarea)처럼 안내 문구 없음 — 기본값(「메시지 입력…」)은 채팅용이다.
+          placeholder=""
+          autoFocus
+          inputTestId="issue-body-textarea"
+          submitTestId="issue-body-submit"
+          // 입력칸 자체의 접근성 상태 — 옛 Textarea 처럼 입력칸에 오류·비활성이 달린다.
+          editorAria={editorAria}
+          // 최대 높이만 넘긴다(최소 160px 는 본문 모드가 단다). 데스크톱: 70vh 에서 멈추고 그 뒤는 안에서 스크롤 — 편집칸이 화면을 다 차지해
+          // 아래 저장·취소 버튼이 밀려나지 않게(WP-1411). 모바일: 상한 없음 — 저장·취소는 하단 편집 바(MobileEditBar)에 있고,
+          // vh 상한은 화면 아래를 덮는 키보드 뒤로 캐럿을 숨긴다.
+          editorMaxHeightClass={mobile ? '' : 'max-h-[70vh]'}
+          imageUpload={imageUpload}
+          onBodyChange={setDraft}
+          onUploadingChange={setUploading}
+          onSubmit={(next) => {
+            void save(next);
+          }}
+          onCancel={cancelByEscape}
+        />
+      </div>
       {/* WP-885: 상한 초과 안내 — 저장 버튼은 비활성, 단축키·모바일 저장은 save() 가드가 막는다. */}
       {overLimit && (
         <p id="issue-body-limit-error" role="alert" data-testid="issue-body-limit-error" className="text-sm text-destructive">
@@ -395,7 +404,7 @@ export function InlineEditableBody({
           <>
             <Button
               size="sm"
-              onClick={save}
+              onClick={() => void save()}
               disabled={disabled || uploading || overLimit}
               data-testid="issue-body-save"
             >
@@ -413,7 +422,7 @@ export function InlineEditableBody({
           </>
         )}
         {/* 이미지 첨부 — 버튼 선택 외에 붙여넣기·드롭도 지원함을 안내(우측 정렬). */}
-        <IssueBodyImageButton className="ml-auto" onFiles={images.uploadFiles} disabled={disabled} />
+        <IssueBodyImageButton className="ml-auto" onFiles={(files) => richRef.current?.insertImages(files)} disabled={disabled} />
       </div>
     </div>
   );
