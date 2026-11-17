@@ -27,13 +27,14 @@ public enum PushCategory {
           AI_REVIEW_REQUESTED,
           AI_WORK_FAILED ->
           ISSUE;
-      // 노트 공유 알림(WP-579)·개인 비서 연결 회수(WP-1170)는 「나를 향한」 알림이라 MENTION 으로 묶는다.
+      // 노트 공유 알림(WP-579)·개인 비서 연결 회수(WP-1170)·새 앱 연결(WP-1686)은 「나를 향한」 알림이라 MENTION 으로 묶는다.
       case ISSUE_CHAT_MENTION,
           ISSUE_COMMENT_MENTION,
           WIKI_SHARED,
           WIKI_SHARE_ACCESS_REQUESTED,
           WIKI_SHARE_ACCESS_APPROVED,
-          PERSONAL_ASSISTANT_REVOKED ->
+          PERSONAL_ASSISTANT_REVOKED,
+          OAUTH_APP_CONNECTED ->
           MENTION;
       case REMINDER,
           CALENDAR_INVITED,

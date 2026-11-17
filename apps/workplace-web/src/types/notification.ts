@@ -29,7 +29,10 @@ export interface NotificationResponse {
     | "AI_WORK_FAILED"
     // WP-1170: 다른 사람(관리자)이 내 개인 비서의 AI 연결을 해제함 — 비서 주인이 받는다. 일회성 정리가 해제한 경우 actor 가 null.
     // 이슈·일정·노트 id 없이 온다. 클릭하면 다시 연결할 내 비서 설정(/settings/assistant)으로 간다.
-    | "PERSONAL_ASSISTANT_REVOKED";
+    | "PERSONAL_ASSISTANT_REVOKED"
+    // WP-1686: 내 계정에 새 앱(OAuth 클라이언트, 예: Claude 커넥터)이 연결됨 — 본인이 받는다. 행위자 없음(actorId null),
+    // 이슈·일정·노트 id 없이 온다. 앱 이름은 message. 클릭하면 끊을 수 있는 설정 › API 토큰(/settings/tokens)으로 간다.
+    | "OAUTH_APP_CONNECTED";
   actorId: number | null;
   actorName: string | null;
   actorKind: string | null; // 'HUMAN' | 'AGENT' | null
@@ -46,7 +49,7 @@ export interface NotificationResponse {
   // WP-579 노트 공유 알림 전용 — 그 외 타입에선 null. 이전 서버(롤링 배포 중)가 필드를 안 보내도 안전하도록 optional.
   wikiPageId?: number | null;
   wikiPageTitle?: string | null;
-  message?: string | null; // 공유한 사람이 덧붙인 메시지(WIKI_SHARED)
+  message?: string | null; // 공유한 사람이 덧붙인 메시지(WIKI_SHARED) / 연결된 앱 이름(OAUTH_APP_CONNECTED, WP-1686)
   // STATUS_CHANGED 알림의 새 상태 이름(WP-869) — 이름을 남기기 전 알림·그 외 유형·구 서버면 없다(기존 문구로 폴백).
   statusName?: string | null;
   // AI 작업 알림의 작업 상태(WP-913) — AI_QUESTION(INPUT_REQUIRED·AUTH_REQUIRED·BLOCKED)·AI_WORK_FAILED(FAILED·REJECTED)·

@@ -165,6 +165,9 @@ export default defineConfig({
         target: COLLAB_TARGET,
         ws: true,
       },
+      // OAuth 인가 서버 메타데이터(WP-1686) — 로컬에서 Claude Code 를 MCP 에 연결할 때 웹 주소(issuer)에서 이 문서를 찾는다.
+      // 운영은 인그레스가 이미 api 로 보내므로 로컬 dev 서버에만 필요하다.
+      '/.well-known/oauth-authorization-server': { target: API_TARGET, changeOrigin: true },
       '/api': {
         target: API_TARGET,
         changeOrigin: true,

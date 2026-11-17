@@ -67,3 +67,10 @@ describe('개인 비서 연결 해제 문구 (WP-1170)', () => {
     expect(PERSONAL_ASSISTANT_REVOKED_NO_ACTOR).toBe('내 개인 비서의 AI 연결이 해제됐어요 — 다시 연결해 주세요');
   });
 });
+
+// WP-1686 — 새 앱 연결: 행위자 없는 알림이라 종류 라벨만 있으면 된다(앱 이름은 InboxList 가 message 로 붙인다).
+describe('새 앱 연결 문구 (WP-1686)', () => {
+  it('종류 라벨은 「새 앱 연결」', () => {
+    expect(notificationAction(n({ type: 'OAUTH_APP_CONNECTED' }))).toBe('새 앱 연결');
+  });
+});

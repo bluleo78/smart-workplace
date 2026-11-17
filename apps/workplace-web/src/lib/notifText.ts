@@ -31,6 +31,8 @@ export const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   AI_WORK_FAILED: '님이 작업에 실패했습니다',
   // WP-1170 내 개인 비서 연결 해제 — 행위자(관리자)가 없으면(일회성 정리) InboxList 가 PERSONAL_ASSISTANT_REVOKED_NO_ACTOR 를 쓴다.
   PERSONAL_ASSISTANT_REVOKED: '님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요',
+  // WP-1686 새 앱 연결 — 행위자가 없어 이름 뒤에 붙지 않는다. InboxList 가 「새 앱 연결 — {앱 이름}」으로 그린다.
+  OAUTH_APP_CONNECTED: '새 앱 연결',
 };
 
 // 행위자 없는 개인 비서 연결 해제 문구(WP-1170) — 일회성 정리가 해제해 actor 가 null 인 알림.

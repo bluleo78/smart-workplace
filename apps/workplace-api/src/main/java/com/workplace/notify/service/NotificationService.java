@@ -312,7 +312,7 @@ public class NotificationService {
             n.agentWorkState()));
   }
 
-  /** 이슈 밖 알림(일정·노트·리마인더) 푸시 — eventId·wikiPageId 중 해당하는 것만 싣는다. 테넌트 없으면 건너뛴다(위와 같은 이유). */
+  /** 이슈 밖 알림(일정·노트·리마인더·계정) 푸시 — eventTitle 없이 보내는 대부분의 경로용으로, 아래 7인자에 null 을 넘긴다. */
   private void publishPush(
       NotificationType type,
       PushCategory category,
@@ -320,11 +320,26 @@ public class NotificationService {
       Long actorId,
       Long eventId,
       Long wikiPageId) {
+    publishPush(type, category, recipients, actorId, eventId, wikiPageId, null);
+  }
+
+  /**
+   * 이슈 밖 알림 푸시 — eventId·wikiPageId 중 해당하는 것만 싣고, 푸시 문구에 쓸 eventTitle 이 있으면 함께 싣는다(새 앱 연결은 앱 이름,
+   * WP-1686). 테넌트 없으면 건너뛴다(위와 같은 이유).
+   */
+  private void publishPush(
+      NotificationType type,
+      PushCategory category,
+      List<Long> recipients,
+      Long actorId,
+      Long eventId,
+      Long wikiPageId,
+      String eventTitle) {
     Long tenantId = TenantContext.get();
     if (tenantId == null) return;
     publisher.publishEvent(
         new InboxPushRequestedEvent(
-            tenantId, type, category, recipients, actorId, null, eventId, wikiPageId, null));
+            tenantId, type, category, recipients, actorId, null, eventId, wikiPageId, eventTitle));
   }
 
   /**
@@ -439,9 +454,22 @@ public class NotificationService {
   public void createPersonalAssistantRevokedAndFanOut(long ownerId, long actorId) {
     if (actorId == ownerId) return;
     NotificationType type = NotificationType.PERSONAL_ASSISTANT_REVOKED;
-    repo.insertAccountNotice(ownerId, type, actorId);
+    repo.insertAccountNotice(ownerId, type, actorId, null);
     registry.fanOut(List.of(ownerId), "notify.created", Map.of("type", type.name()));
     publishPush(type, PushCategory.of(type), List.of(ownerId), actorId, null, null);
+  }
+
+  /**
+   * 새 앱 연결 알림(WP-1686) — OAuth 로 앱이 새로 연결됐을 때 연결한 본인에게. 내가 하지 않은 연결을 알아채게 하는 계정 알림이라 알림 설정과 무관하게 늘
+   * 보낸다(설정 줄이 없다). 행위자는 없고 앱 이름은 message 에 싣는다. 푸시 문구에 앱 이름이 필요해 이벤트의 eventTitle 칸으로 넘긴다. insert 후
+   * SSE fan-out·푸시.
+   */
+  @Transactional
+  public void createOAuthAppConnectedAndFanOut(long userId, String clientName) {
+    NotificationType type = NotificationType.OAUTH_APP_CONNECTED;
+    repo.insertAccountNotice(userId, type, null, clientName);
+    registry.fanOut(List.of(userId), "notify.created", Map.of("type", type.name()));
+    publishPush(type, PushCategory.of(type), List.of(userId), null, null, null, clientName);
   }
 
   /**

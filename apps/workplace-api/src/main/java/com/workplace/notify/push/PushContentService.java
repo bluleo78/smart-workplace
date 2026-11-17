@@ -43,6 +43,21 @@ public class PushContentService {
           "normal",
           INBOX_TTL);
     }
+    // 새 앱 연결(WP-1686) — 행위자 없는 계정 알림. 앱 이름은 eventTitle 칸에 실려 온다(없으면 「앱」). 모르는 연결이면 바로 끊을 수 있게
+    // 설정 › API 토큰으로 보낸다(프론트 notifTarget 과 같은 경로). 앱 이름은 앱이 DCR 로 정한 값이라 길 수 있어 다른 푸시와 같은 상한(120)으로
+    // 자른다.
+    if (e.type() == NotificationType.OAUTH_APP_CONNECTED) {
+      String app = e.eventTitle() == null ? "앱" : Texts.truncateCodePoints(e.eventTitle(), 120);
+      return new PushMessage(
+          e.tenantId(),
+          category,
+          "새 앱 연결",
+          app + " — 내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요",
+          "/settings/tokens",
+          "oauth-app-connected",
+          "normal",
+          INBOX_TTL);
+    }
     if (PushCategory.of(e.type()) != PushCategory.CALENDAR) {
       if (e.issueId() == null) return null;
       return repo.findIssue(e.issueId())
@@ -211,6 +226,8 @@ public class PushContentService {
       case AI_REVIEW_REQUESTED -> "님이 검토를 요청했습니다";
       case AI_WORK_FAILED -> "님이 작업에 실패했습니다";
       case PERSONAL_ASSISTANT_REVOKED -> "님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요";
+      // 새 앱 연결(WP-1686)은 forInbox 가 전용 문구를 쓰고 이 문구는 쓰지 않는다 — switch 를 빠짐없이 두려고 채운다.
+      case OAUTH_APP_CONNECTED -> "새 앱이 연결됐어요";
     };
   }
 }

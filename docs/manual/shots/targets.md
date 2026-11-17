@@ -232,6 +232,7 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | my-settings-7 | `/settings/my-shares` | 김서연 | 연 그대로 | `filters+rows+unshare` | `filters,rows,unshare` | PRD·출시 체크리스트 링크 공유 |
 | my-settings-8 | `/settings/mail` | 김서연 | 폭 1024 로 연다(M365 연결 중에만) | `list+add` | `provider,status,add` | M365 연결 |
 | my-settings-9 | `/settings/notifications` | 김서연 | **AI 결과 — once**. 새 대화로 묻는다(POST /ai/chat 만 연다). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`. 「휴대폰으로 알림을 받으려면 어디서 켜?」 | `panel` | `answer` (`panel` 도 기록) | — |
+| my-settings-10 | `/oauth/authorize?…` | 김서연(워크스페이스 둘) | DCR 로 클라이언트를 등록하고 PKCE 쿼리로 연다, 허용은 누르지 않는다 | (전체) | `account,workspace,permission,allow` | OAuth 클라이언트(DCR) |
 
 ### 13 모바일에서 쓰기
 

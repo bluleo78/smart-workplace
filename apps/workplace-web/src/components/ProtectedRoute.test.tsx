@@ -66,6 +66,16 @@ describe('ProtectedRoute — 로그인 뒤 복귀 대상', () => {
       url: '/wiki/open/5?share=1',
     })
   })
+
+  // WP-1686: Claude 앱 연결 동의 화면 — 쿼리(OAuth 인가 요청)를 인코딩 그대로 남겨야 로그인 뒤 같은 요청으로 돌아온다.
+  it('동의 화면(/oauth/authorize)은 쿼리까지 남겨 로그인 뒤 돌아온다', () => {
+    openSignedOut('/oauth/authorize?client_id=swc_1&state=a%2Bb')
+    expect(screen.getByText('로그인 화면')).toBeInTheDocument()
+    expect(JSON.parse(sessionStorage.getItem(PENDING_PUSH_TARGET_KEY) ?? 'null')).toEqual({
+      tenantId: null,
+      url: '/oauth/authorize?client_id=swc_1&state=a%2Bb',
+    })
+  })
 })
 
 // WP-859: 세션 확인이 일시 오류로 실패하면 로그인으로 보내지 않고 연결 실패 안내 + 다시 시도.

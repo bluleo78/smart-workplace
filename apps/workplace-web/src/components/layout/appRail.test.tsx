@@ -580,6 +580,40 @@ describe('알림 인박스', () => {
     expect(location()).toBe('/settings/assistant')
   })
 
+  // WP-1686 — 새 앱 연결: 행위자가 없고 이슈 필드도 null. 앱 이름(message)과 끊기 안내를 보이고, 누르면 설정 › API 토큰으로 간다.
+  test('새 앱 연결 알림 — 앱 이름과 끊기 안내, 행위자·이슈 줄 없음, 토큰 설정으로 이동', async () => {
+    const { user, reads, location } = await openInbox(
+      [
+        notif({
+          id: 71,
+          type: 'OAUTH_APP_CONNECTED',
+          actorId: null,
+          actorName: null,
+          actorKind: null,
+          issueId: null as unknown as number,
+          projectKey: null as unknown as string,
+          issueNumber: null as unknown as number,
+          issueTitle: null as unknown as string,
+          commentId: null,
+          message: 'Claude',
+        }),
+      ],
+      1,
+    )
+    const item = (await screen.findAllByTestId('inbox-item'))[0]
+    expect(item).toHaveTextContent('새 앱 연결 — Claude')
+    expect(item).toHaveTextContent('내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요')
+    // 끊는 곳을 알려 주는 안내라 좁은 화면에서도 끝까지 보여야 한다 — 한 줄 말줄임(truncate) 대신 두 줄까지 감싼다.
+    const notice = within(item).getByText('내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요')
+    expect(notice).not.toHaveClass('truncate')
+    expect(notice).toHaveClass('line-clamp-2', 'break-words')
+    expect(item).not.toHaveTextContent('시스템')
+    expect(item).not.toHaveTextContent('null')
+    await user.click(item)
+    await waitFor(() => expect(reads).toEqual([71]))
+    expect(location()).toBe('/settings/tokens')
+  })
+
   test('바닥까지 스크롤하면 offset 다음 페이지를 요청해 이어 붙인다', async () => {
     const page1 = Array.from({ length: 20 }, (_, i) => notif({ id: 20 - i, issueNumber: 20 - i }))
     const page2 = Array.from({ length: 5 }, (_, i) => notif({ id: 100 - i, issueNumber: 100 - i }))

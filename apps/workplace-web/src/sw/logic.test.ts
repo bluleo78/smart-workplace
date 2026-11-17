@@ -157,6 +157,14 @@ describe('NAVIGATION_DENYLIST', () => {
     expect(denied('/helpdesk')).toBe(false)
   })
 
+  // WP-1686: 동의 화면은 nginx 가 frame-ancestors 'none' 을 붙여 내보낸다 — SW 가 캐시한 index.html('self')로 답하면 그 헤더가 빠진다.
+  it('동의 화면(/oauth/authorize)은 서버로 보낸다 — 다른 /oauth/ 경로는 그대로', () => {
+    expect(denied('/oauth/authorize')).toBe(true)
+    expect(denied('/oauth/authorize?client_id=x')).toBe(true)
+    expect(denied('/oauth/m365/callback')).toBe(false)
+    expect(isOutsideSpaPath('/oauth/authorize?x=1')).toBe(true)
+  })
+
   it('일반 앱 화면은 precache 앱 셸로 연다', () => {
     expect(denied('/')).toBe(false)
     expect(denied('/wiki/spaces/3/pages/12')).toBe(false)

@@ -15,6 +15,7 @@ import com.workplace.auth.oauth.repository.OAuthCodeRepository;
 import com.workplace.auth.oauth.repository.OAuthConnectionRepository;
 import com.workplace.auth.oauth.repository.OAuthConnectionRepository.Created;
 import com.workplace.auth.oauth.service.OAuthClientService.ResolvedClient;
+import com.workplace.auth.outbound.OAuthConnectionCreatedEvent;
 import com.workplace.auth.service.AuthService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.CapabilityTokens;
@@ -29,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -45,7 +47,8 @@ import org.springframework.web.util.UriComponentsBuilder;
  *
  * <p>승인(ALLOW)은 그 워크스페이스의 ACTIVE 멤버·ACTIVE 테넌트이고, SSO 로그인 세션이면 그 워크스페이스가 SSO 를 켰을 때만(WP-48 — 로그인
  * 세션과 같은 {@link AuthService#isTenantUsable}) 연결을 만들거나 다시 쓰고, 1회용 code(10분)를 해시로만 저장한다. 새 연결이면 그 테넌트
- * 감사에 {@code OAUTH_CONNECTION_CREATED} 를 남긴다.
+ * 감사에 {@code OAUTH_CONNECTION_CREATED} 를 남기고 {@link OAuthConnectionCreatedEvent} 를 낸다(WP-1686 — 커밋
+ * 뒤 notify 가 본인에게 「새 앱 연결」 알림을 넣는다).
  *
  * <p>클래스에 트랜잭션을 두지 않는다 — CIMD 클라이언트 해석이 외부 문서를 가져오는 동안(최대 5초) DB 커넥션을 잡지 않게. 연결·code·감사 쓰기만 {@link
  * TransactionTemplate} 로 한 트랜잭션에 묶는다(요청 트랜잭션이 이미 있으면 합류).
@@ -76,6 +79,7 @@ public class OAuthAuthorizationService {
   private final UserRepository users;
   private final OAuthAudit audit;
   private final TransactionTemplate tx;
+  private final ApplicationEventPublisher publisher;
 
   public OAuthAuthorizationService(
       OAuthClientService clientService,
@@ -85,7 +89,8 @@ public class OAuthAuthorizationService {
       AuthService authService,
       UserRepository users,
       OAuthAudit audit,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      ApplicationEventPublisher publisher) {
     this.clientService = clientService;
     this.connections = connections;
     this.codes = codes;
@@ -95,6 +100,7 @@ public class OAuthAuthorizationService {
     this.audit = audit;
     // 기본 전파(REQUIRED) — 요청 트랜잭션이 있으면 합류한다.
     this.tx = new TransactionTemplate(txManager);
+    this.publisher = publisher;
   }
 
   /**
@@ -170,7 +176,10 @@ public class OAuthAuthorizationService {
     return new AuthorizeRedirectResponse(appendQuery(p.redirectUri(), query));
   }
 
-  /** 연결을 만들거나 다시 쓰고(새 연결이면 감사), code 해시를 저장한다 — 한 트랜잭션. */
+  /**
+   * 연결을 만들거나 다시 쓰고(새 연결이면 감사·새 연결 이벤트), code 해시를 저장한다 — 한 트랜잭션. 이벤트는 이 트랜잭션이 커밋된 뒤에만 리스너가 받으므로 code
+   * 저장이 실패해 롤백되면 알림도 없다.
+   */
   private void issueCode(
       UserResponse user, long tenantId, ResolvedClient client, AuthorizeParams p, String code) {
     Created c = connections.findOrCreateActive(user.id(), tenantId, client.id());
@@ -186,6 +195,9 @@ public class OAuthAuthorizationService {
               "clientId", client.clientId(),
               "clientName", client.clientName(),
               "clientKind", client.kind()));
+      // 새 연결일 때만(감사와 같은 분기) — 같은 연결을 다시 허용하면 알리지 않는다. 앱 이름은 oauth_client.client_name(NOT NULL)이다.
+      publisher.publishEvent(
+          new OAuthConnectionCreatedEvent(tenantId, user.id(), client.clientName()));
     }
     codes.insert(
         CapabilityTokens.sha256Hex(code),

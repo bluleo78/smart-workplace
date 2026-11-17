@@ -30,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -81,6 +82,9 @@ class OAuthConnectionApiTest extends IntegrationTestBase {
 
   private final List<Long> clientPks = new ArrayList<>();
 
+  /** 정리 전에 비동기 풀(승인 커밋 뒤 「새 앱 연결」 알림 등, WP-1686)이 비기를 기다리려고 쓴다. */
+  @Autowired ApplicationContext asyncPoolContext;
+
   @BeforeEach
   void seed() {
     oauth = new OAuthTestSupport(mvc, objectMapper, port);
@@ -95,6 +99,9 @@ class OAuthConnectionApiTest extends IntegrationTestBase {
   void cleanup() {
     List<Long> users = new ArrayList<>(List.of(userId, otherUserId));
     if (loginableUserId != null) users.add(loginableUserId);
+    // 승인이 새 연결을 만들면 커밋 뒤 알림(WP-1686)이 승인한 기본 테넌트에 비동기로 들어온다 — 사용자 삭제 전에 지운다.
+    OAuthTestSupport.deleteAppConnectedNotices(
+        asyncPoolContext, dsl, this::cleanupInTenant, TENANT_ID, users);
     dsl.deleteFrom(AUDIT_LOG).where(AUDIT_LOG.USER_ID.in(users)).execute();
     // membership·oauth_connection·code·token 은 user 삭제 CASCADE.
     dsl.deleteFrom(USER).where(USER.ID.in(users)).execute();
