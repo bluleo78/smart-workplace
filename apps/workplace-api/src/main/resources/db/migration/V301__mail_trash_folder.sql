@@ -1,4 +1,4 @@
--- V300: 메일 휴지통 보기·되살리기(WP-1681) — 서버 휴지통을 email_folder 역할 'TRASH' 행으로 저장하고, 휴지통으로 옮긴 메일이 원래 있던
+-- V301: 메일 휴지통 보기·되살리기(WP-1681) — 서버 휴지통을 email_folder 역할 'TRASH' 행으로 저장하고, 휴지통으로 옮긴 메일이 원래 있던
 -- 메일함을 email_message.original_folder_id 에 남긴다(되살리기 대상).
 --
 -- 롤링 배포 판단(expand-only):
