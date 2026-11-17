@@ -168,6 +168,37 @@ describe('절 층', () => {
     expect(new Set(crumbs.map((c) => c.key)).size).toBe(crumbs.length)
   })
 
+  // WP-1678 — 장 제목이 앱 이름과 같은 장(메일·홈·캘린더 …)은 「메일 > 메일」 처럼 겹쳤다.
+  // 첫 절 칸 이름이 앱 이름과 같으면 누를 수 없는 앱 칸을 빼고, 눌러 장 처음으로 갈 수 있는 장 첫머리 칸을 남긴다.
+  const mail: HelpIndexChapter = {
+    chapter: 'mail',
+    number: 5,
+    title: '메일',
+    routes: ['/mail', '/mail/*'],
+    audience: ['member'],
+    sections: [sec('mail#_intro', 1, '메일', '메일', null), sec('mail.read', 2, '메일을 읽는다', '메일을 읽는다', null)],
+  }
+  const mailIndex = [...index, mail]
+
+  it('장 첫머리 이름이 앱 이름과 같으면 앱 칸을 빼고 장 첫머리 칸만 남긴다', () => {
+    const crumbs = helpBreadcrumb(mailIndex, { chapter: 'mail', sectionId: 'mail#_intro' }, '/mail')
+    expect(crumbs.map((c) => c.label)).toEqual(['메일'])
+    expect(crumbs[0].target).toEqual({ chapter: 'mail', sectionId: 'mail#_intro' })
+  })
+
+  it('같은 장의 하위 절도 앱 칸 없이 장 첫머리부터', () => {
+    const crumbs = helpBreadcrumb(mailIndex, { chapter: 'mail', sectionId: 'mail.read' }, '/mail/inbox')
+    expect(crumbs.map((c) => c.label)).toEqual(['메일', '메일을 읽는다'])
+    expect(crumbs[0].target).toEqual({ chapter: 'mail', sectionId: 'mail#_intro' })
+    expect(new Set(crumbs.map((c) => c.key)).size).toBe(crumbs.length)
+  })
+
+  it('홈 장도 「홈 > 홈」 이 되지 않는다', () => {
+    const crumbs = helpBreadcrumb(index, { chapter: 'home', sectionId: 'home.feed' }, '/')
+    expect(crumbs.map((c) => c.label)).toEqual(['홈', '피드'])
+    expect(crumbs[0].target).toEqual({ chapter: 'home', sectionId: 'home#_intro' })
+  })
+
   it('앱 이름이 없는 주소면 앱 칸을 뺀다', () => {
     const crumbs = helpBreadcrumb(index, { chapter: 'glossary', sectionId: 'glossary#_intro' }, '/nowhere')
     expect(crumbs.map((c) => c.label)).toEqual(['용어'])
