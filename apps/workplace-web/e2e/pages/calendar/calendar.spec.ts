@@ -1,6 +1,6 @@
 // 캘린더 E2E — 브라우저가 필요한 판정만 남겼다(WP-966).
 // - @wiring: /calendar 진입 → 일정 API → 월 보기 칩 + 보기 전환(화면당 1건)
-// - @layout: 상세 전 참석자 줄 자리(높이), 주 보기 종일 칸 정렬·날짜 열 높이·겹치는 일정 나란히(WP-1138)·좁은 칸 넘침과 빈 열 넓히기(WP-1154), 모바일 오늘 배지 넘침, lg 경계를 넘어도 그리드 유지(WP-1472)
+// - @layout: 데스크톱 목록 보기 세로 스크롤(WP-1662), 상세 전 참석자 줄 자리(높이),주 보기 종일 칸 정렬·날짜 열 높이·겹치는 일정 나란히(WP-1138)·좁은 칸 넘침과 빈 열 넓히기(WP-1154), 모바일 오늘 배지 넘침, lg 경계를 넘어도 그리드 유지(WP-1472)
 // - @input: 주 보기 시간 구간 끌어 만들기
 // - @platform: 다시 들어오면 마지막 보기(localStorage, 데스크톱·모바일 따로)
 // 헤더 접근성 이름·요일·오늘 강조·일정 색·반복 회차 표시, 만들기·수정·삭제·반복 범위 선택 payload, 일정 폼 입력·검증은
@@ -97,6 +97,44 @@ test(
     await expect(page.getByTestId('calendar-view-day')).toBeVisible()
   },
 )
+
+// WP-1662 데스크톱 목록 보기는 부모(페이지 본문)가 고정 높이에 overflow-hidden 이라, 목록 루트가 스스로 스크롤하지 않으면
+// 화면 아래 일정이 잘려 닿을 수 없었다. 휠만으로 끝까지 내려 마지막 일정이 화면 안에 들어오는지 본다 — scrollIntoView 는
+// 잘라 내는 조상도 코드로 스크롤해 수정 없이도 통과하므로 쓰지 않는다. 스크롤 기하는 jsdom 이 잴 수 없어 @layout.
+test('데스크톱 목록 보기 — 일정이 많으면 휠로 세로 스크롤해 마지막 일정까지 닿는다 (WP-1662)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  // 2026년 6월 1~30일에 하루 10건 — 목록 범위(이번 달) 안에 300건
+  const store = Array.from({ length: 300 }, (_, i) => {
+    const day = String(Math.floor(i / 10) + 1).padStart(2, '0')
+    const hour = String(i % 10).padStart(2, '0')
+    return calendarEvent({ id: 1000 + i, title: `목록 일정 ${i + 1}`, startsAt: `2026-06-${day}T${hour}:00:00Z`, endsAt: `2026-06-${day}T${hour}:30:00Z` })
+  })
+  await stubCalendarEvents(page, store)
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-view-agenda-btn').click()
+  const agenda = page.getByTestId('calendar-view-agenda')
+  const lastRow = page.getByTestId('calendar-event-1299')
+  await expect(lastRow).toBeAttached()
+  // 오류 띠 없이 정상 상태에서 잰다(이슈 마감·캘린더 조회는 fixture 가 빈 성공으로 깐다)
+  await expect(page.getByTestId('calendar-events-error')).toHaveCount(0)
+  // 목록 자체가 넘쳐 스크롤 영역이 되고, 처음엔 마지막 일정이 화면 밖이다
+  await expect.poll(() => agenda.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  await expect(lastRow).not.toBeInViewport()
+
+  // 목록 위에서 휠을 굴려 맨 아래까지 내린다
+  const box = await agenda.boundingBox()
+  if (!box) throw new Error('목록 보기 상자를 잴 수 없다')
+  await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 200))
+  await expect
+    .poll(async () => {
+      await page.mouse.wheel(0, 4000)
+      return agenda.evaluate((el) => el.scrollTop + el.clientHeight >= el.scrollHeight - 1)
+    })
+    .toBe(true)
+  await expect(lastRow).toBeInViewport()
+})
 
 // WP-801 편집 폼은 상세(주최자 여부·참석자)가 오기 전엔 참석자 줄을 판정할 수 없다 — 숨겼다가 뒤늦게 끼워 넣으면 아래 칸이 밀렸다.
 // 상세가 오기 전에도 같은 높이의 자리표시를 두어, 상세가 와 참석자 줄로 바뀌어도 아래 알림 칸이 제자리인지 본다.

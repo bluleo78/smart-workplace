@@ -29,7 +29,10 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
   ].sort((a, b) => a.sortKey - b.sortKey)
 
   return (
-    <div data-testid="calendar-view-agenda" className="flex flex-col divide-y">
+    // 루트가 스스로 세로 스크롤한다(WP-1662) — 부모(페이지 본문)가 고정 높이에 overflow-hidden 으로 잘라 내므로,
+    // 높이 제한 없이 행 전체만큼 늘어나면 화면 아래 일정에 닿을 수 없다. 모바일 목록(MobileAgendaView) 루트와 같은 방식 —
+    // flex-1 로 남은 높이만 차지해(오류 띠가 위에 떠도) min-h-0 로 줄어들 수 있게 하고 넘치는 만큼 스스로 스크롤한다.
+    <div data-testid="calendar-view-agenda" className="flex min-h-0 flex-1 flex-col divide-y overflow-y-auto">
       {rows.length === 0 ? (
         // 빈 상태
         <div className="text-center text-muted-foreground py-12">일정이 없습니다</div>
