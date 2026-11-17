@@ -61,6 +61,7 @@ export function issueTargets(pk: string): InvalidationTarget[] {
     { queryKey: ['versions', pk] }, // 버전 진행 막대·상세 이슈 목록(WP-888) — 이슈 상태·수정 버전이 바뀌면 달라진다
     // 내 작업 개요·홈 위젯 어제/오늘(WP-1484) — 닫기·마감·담당이 바뀌면 숫자와 목록이 달라진다. prefix 라 개요(기간·칸별)와 today 를 함께 다시 받는다.
     { queryKey: ['me-overview'] },
+    { queryKey: ['projectOverview', pk] }, // 프로젝트 개요 — 열린 이슈 수·새로 생김(WP-1652)
   ];
 }
 
