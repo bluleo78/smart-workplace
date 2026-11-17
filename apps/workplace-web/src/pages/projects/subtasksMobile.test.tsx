@@ -7,18 +7,18 @@ import { http, HttpResponse } from 'msw'
 import { test } from 'vitest'
 
 import { IssueChildrenSection } from '@/pages/projects/components/IssueChildrenSection'
+import { childrenResolver } from '@/test/kits/projects/children'
 import { expectSubtaskBadges, subtaskBadgeChildren } from '@/test/kits/projects/subtasks'
 import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
 
-import { createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 
 mockViewport()
 
 test('하위 태스크 행 — AI 관여 열린 행은 AI 배지, 그 외는 상태배지 (모바일)', async () => {
-  // 부모 TASK(1번, 하위 5개 중 1개 완료) 상세의 하위 섹션 — 하위 검색은 parent=1 일 때만 다섯 줄을 준다.
+  // 부모 TASK(1번, 하위 5개 중 1개 완료) 상세의 하위 섹션 — 하위 목록 API(/children, WP-1684)가 열린 넷·끝난 하나로 나눠 준다.
   renderScreen(
     <IssueChildrenSection projectKey="WP" parentNumber={1} parentTypeName="TASK" parentStatus="TODO" childCount={5} childDoneCount={1} />,
     {
@@ -26,9 +26,7 @@ test('하위 태스크 행 — AI 관여 열린 행은 AI 배지, 그 외는 상
       handlers: [
         http.get('/api/v1/projects/WP', () => HttpResponse.json(createProject({ key: 'WP' }))),
         http.get('/api/v1/projects/WP/types', () => HttpResponse.json(systemTypes())),
-        http.get('/api/v1/projects/WP/issues', ({ request }) =>
-          HttpResponse.json(createIssueSearchResponse(new URL(request.url).searchParams.get('parent') === '1' ? subtaskBadgeChildren() : [], null)),
-        ),
+        http.get('/api/v1/projects/WP/issues/1/children', childrenResolver(subtaskBadgeChildren)),
       ],
     },
   )

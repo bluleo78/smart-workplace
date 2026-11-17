@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 import { setAccessToken } from '@/api/client'
 import { useEventStream } from '@/hooks/useEventStream'
+import { emptyChildrenHandler } from '@/test/kits/projects/children'
 import { controllableEvents, resourceChangedFrame } from '@/test/kits/projects/issueDetailEvents'
 import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
@@ -35,6 +36,7 @@ function setup(initial: IssueResponse[]) {
     events.handler,
     http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
     http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json(createIssueSearchResponse(state.issues, null))),
+    emptyChildrenHandler,
     // 브라우저가 직접 쓰기 요청을 보내면 안 되는 시나리오 — 오면 404 로 드러난다.
     http.post(`/api/v1/projects/${KEY}/issues`, () => new HttpResponse(null, { status: 404 })),
     http.get(`/api/v1/projects/${KEY}/issues/:n`, ({ params }) => {

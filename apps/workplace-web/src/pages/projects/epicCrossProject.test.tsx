@@ -1,12 +1,14 @@
 // 다른 프로젝트 에픽(WP-1039) — 이슈 상세의 상위 에픽 고르기와 에픽 하위 목록을 화면 단위(renderScreen + MSW)로 본다.
 // 1) 상위 에픽 슬롯: 같은 프로젝트 에픽 아래 「다른 프로젝트」 묶음에 찾은 다른 프로젝트 에픽만 보이고, 고르면 PATCH /parent {parentKey}.
 // 2) 에픽 하위 목록: 하위 목록 API(/children)의 다른 프로젝트 하위는 자기 키·링크로, 읽을 수 없는 하위는 「볼 수 없는 하위 N건」 한 줄로.
+//    끝난 하위는 「완료 n건」 아래로 접혀 펼쳐야 보인다(WP-1684).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { IssueChildrenSection } from '@/pages/projects/components/IssueChildrenSection'
 import { IssueParentSlot } from '@/pages/projects/components/IssueParentSlot'
+import { childrenResolver } from '@/test/kits/projects/children'
 import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { renderScreen } from '@/test/renderScreen'
 
@@ -99,16 +101,17 @@ describe('에픽 하위 목록 — 다른 프로젝트 하위', () => {
   test('하위 목록 API 의 다른 프로젝트 하위는 자기 키·링크로, 읽을 수 없는 하위는 「볼 수 없는 하위 2건」으로 보인다', async () => {
     const requests = recordRequests()
     const epic = { number: 1, title: '분기 에픽', type: makeEpicType() }
-    renderScreen(
+    const { user } = renderScreen(
       <IssueChildrenSection projectKey="WP" parentNumber={1} parentTypeName="EPIC" parentStatus="TODO" childCount={4} childDoneCount={1} />,
       {
         path: '/projects/WP/issues/1',
         handlers: [
           http.get(`${API}/projects/WP`, () => HttpResponse.json(createProject({ key: 'WP' }))),
           http.get(`${API}/projects/WP/types`, () => HttpResponse.json(systemTypes())),
-          http.get(`${API}/projects/WP/issues/1/children`, () =>
-            HttpResponse.json({
-              items: [
+          http.get(
+            `${API}/projects/WP/issues/1/children`,
+            childrenResolver(
+              () => [
                 createIssue({ id: 2, number: 2, title: '같은 프로젝트 하위', createdAt: '2026-10-01T00:00:00Z', parent: epic }),
                 createIssue({
                   id: 70,
@@ -120,8 +123,8 @@ describe('에픽 하위 목록 — 다른 프로젝트 하위', () => {
                   parent: { ...epic, projectKey: 'WP' },
                 }),
               ],
-              hiddenCount: 2,
-            }),
+              2,
+            ),
           ),
         ],
       },
@@ -131,7 +134,9 @@ describe('에픽 하위 목록 — 다른 프로젝트 하위', () => {
     // 같은 프로젝트 하위도 키를 늘 보인다(WP-1635) — 제목만으로는 어느 이슈인지 바로 알 수 없다.
     expect(within(own).getByTestId('child-row-key')).toHaveTextContent('WP-2')
 
-    const other = screen.getByTestId('child-row-PLAN-7')
+    // 끝난 다른 프로젝트 하위는 「완료 1건」을 펼치면 보인다.
+    await user.click(screen.getByRole('button', { name: /완료 1건/ }))
+    const other = await screen.findByTestId('child-row-PLAN-7')
     expect(within(other).getByTestId('child-row-key')).toHaveTextContent('PLAN-7')
     expect(within(other).getByRole('link', { name: '다른 프로젝트 하위' })).toHaveAttribute('href', '/projects/PLAN/issues/7')
     // 같은 번호의 이 프로젝트 이슈 행으로 그리지 않는다.

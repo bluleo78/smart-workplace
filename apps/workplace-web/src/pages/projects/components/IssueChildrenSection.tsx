@@ -2,11 +2,12 @@
 // 진행률(완료/전체) + 자식 리스트 + 인라인 추가 폼.
 // parentTypeName === 'EPIC' 이면 추가 폼에 유형 선택(SUBTASK/EPIC 제외)이 노출되고,
 // 그 외(일반 이슈)는 기존처럼 SUBTASK 고정 추가 폼을 사용한다.
-// 자식 조회는 부모 number 필터로 별도 search 호출 (cache key 분리).
-// 에픽 하위는 다른 프로젝트에도 있을 수 있어(WP-1038) 하위 목록 API(/children)로 받는다 — 다른 프로젝트 하위는 그 프로젝트로 이어지며, 조회자가 읽을 수 없는 하위는 「볼 수 없는 하위 N건」 한 줄로만 센다(WP-1039). 일반 이슈의 하위 태스크는 같은 프로젝트라 예전 검색 그대로.
+// 하위는 에픽·일반 이슈 모두 하위 목록 API(/children)로 받는다(WP-1684 — 예전 하위 태스크의 검색 100건 한계를 함께 푼다).
+// 에픽 하위는 다른 프로젝트에도 있을 수 있어(WP-1038) 다른 프로젝트 하위는 그 프로젝트로 이어지며, 조회자가 읽을 수 없는 하위는 「볼 수 없는 하위 N건」 한 줄로만 센다(WP-1039).
+// 하위가 많으면 남은 일이 끝에 묻혀(WP-1684) 열린 하위만 기본으로 보이고, 끝난 하위(완료·취소 범주)는 「완료 n건」 한 줄로 접어 누를 때 받는다. 둘 다 100건씩 「더 보기」.
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -23,7 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { keepFocusProps } from '@/lib/keepFocus';
 
-import { issuesApi, searchIssues } from '../../../api/issues';
+import { issuesApi } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { issueKeys } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
@@ -35,9 +36,81 @@ import { isClosedStatus } from '../../../lib/issueGrouping';
 import { formatIssueKey } from '../../../lib/issueKey';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import { isIntakeOnly } from '../../../lib/projectPermissions';
-import type { IssueResponse } from '../../../types/issue';
-import { sortChildrenByCreatedAt } from './childOrder';
+import type { ChildrenState, IssueResponse } from '../../../types/issue';
 import { IssueStatusBadge } from './IssueStatusBadge';
+
+/** 하위 목록 한 페이지 크기 — 예전 하위 태스크 검색과 같은 100건(WP-1684). */
+const CHILDREN_PAGE_SIZE = 100;
+
+/**
+ * 하위 목록 한 갈래(열린/끝난)를 100건씩 받는 무한 조회(WP-1684).
+ * 키는 issueKeys.children 접두(검색 접두 아래) + state — 하위 추가·상태 변경·부모 변경이 쓰는 검색 접두 무효화에 열린·끝난 목록이 함께 갱신된다.
+ * 페이지 모양({ items, … })이 검색 응답과 같아, 검색 캐시를 훑는 낙관적 패치(상태 배지 등)도 그대로 닿는다.
+ */
+function useChildrenPages(projectKey: string, parentNumber: number, state: ChildrenState, enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: [...issueKeys.children(projectKey, parentNumber), state],
+    queryFn: ({ pageParam }) =>
+      issuesApi.children(projectKey, parentNumber, { state, cursor: pageParam, size: CHILDREN_PAGE_SIZE }),
+    initialPageParam: null as string | null,
+    // 구 응답(nextCursor 없음)·빈 응답이면 다음 페이지 없음.
+    getNextPageParam: (last) => last?.nextCursor ?? undefined,
+    enabled: enabled && !!projectKey && Number.isFinite(parentNumber),
+  });
+}
+
+/** 받은 페이지들을 서버 순서((created_at, id) 오름차순) 그대로 이어 붙인다. */
+function flattenPages(pages: { items?: IssueResponse[] }[] | undefined): IssueResponse[] {
+  return (pages ?? []).flatMap((p) => p?.items ?? []);
+}
+
+/** 하위 한 줄 — 유형·키·제목 링크·배지(행당 하나). 열린·끝난 목록이 같은 모양을 쓴다. */
+function ChildRow({ it, projectKey }: { it: IssueResponse; projectKey: string }) {
+  // 행당 배지는 최대 1개(WP-374) — 열린 행에 AI 배지(진행·시작 전·위임)가 있으면 상태배지 대신 그것,
+  // 그 외(끝난 행·AI 관여 없는 열린 행)는 상태배지. 할 일/진행 중 구분은 진행률 바로 알 수 없어 남긴다.
+  const showAi = !isClosedStatus(it.status) && delegationState(it) !== null;
+  // 키는 늘 제목 앞에 전체 키(WP-12)로 보인다(WP-1635) — 제목만으로는 어느 이슈인지 알 수 없고, 검색·비교에 쓰는 형태 그대로 보인다.
+  // 다른 프로젝트 하위(WP-1039)는 그 프로젝트 키로 보이고 그 프로젝트로 잇는다.
+  const childKey = it.projectKey || projectKey;
+  const otherProject = childKey !== projectKey;
+  const issueKey = formatIssueKey(childKey, it.number);
+  return (
+    <li
+      className="flex items-center gap-2 rounded px-1 text-sm hover:bg-accent/50"
+      data-testid={otherProject ? `child-row-${issueKey}` : `child-row-${it.number}`}
+    >
+      <span className="text-muted-foreground">└</span>
+      {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
+      {/* 키는 텍스트 — 행의 링크는 제목 하나만(탭 순서·스크린리더 중복 방지). */}
+      <span className="shrink-0 font-mono text-xs text-muted-foreground" data-testid="child-row-key">
+        {issueKey}
+      </span>
+      <Link
+        to={`/projects/${childKey}/issues/${it.number}`}
+        className="min-w-0 flex-1 truncate hover:underline"
+      >
+        {it.title}
+      </Link>
+      {showAi ? <AiDelegationBadge issue={it} /> : <IssueStatusBadge status={it.status} name={it.statusName} />}
+    </li>
+  );
+}
+
+/** 목록 끝 「더 보기」 — 다음 페이지가 있을 때만, 받는 동안은 잠근다. */
+function MoreButton({ onClick, loading }: { onClick: () => void; loading: boolean }) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={loading}
+        className="px-1 text-xs text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
+      >
+        {loading ? '불러오는 중…' : '더 보기'}
+      </button>
+    </li>
+  );
+}
 
 export function IssueChildrenSection({
   projectKey,
@@ -77,53 +150,23 @@ export function IssueChildrenSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEpicParent, epicChildTypes.length]);
 
-  // 자식 조회 — 에픽은 하위 목록 API(다른 프로젝트 하위 포함), 그 밖은 search API 의 parent 필터(페이지 사이즈 100, 1단계 트리 한계).
-  // 두 응답을 { items, hiddenCount } 한 모양으로 맞춘다. 키는 search 접두라 하위 추가·부모 변경의 검색 무효화에 함께 갱신된다.
-  const children = useQuery({
-    queryKey: [...issueKeys.children(projectKey, parentNumber), isEpicParent ? 'epic' : 'subtask'],
-    queryFn: async (): Promise<{ items: IssueResponse[]; hiddenCount: number }> => {
-      if (isEpicParent) return issuesApi.children(projectKey, parentNumber);
-      const res = await searchIssues(
-        projectKey,
-        {
-          q: '',
-          statuses: [],
-          statusIds: [],
-          priorities: [],
-          assigneeIds: [],
-          includeUnassigned: false,
-          dueFrom: null,
-          dueTo: null,
-          labelIds: [],
-          cycleIds: [],
-          componentIds: [],
-          componentNone: false,
-          fixVersionIds: [],
-          fixVersionNone: false,
-          affectsVersionIds: [],
-          affectsVersionNone: false,
-          milestoneIds: [],
-          typeIds: [],
-          parentNumber,
-          topLevel: false,
-          blocked: false,
-          // 부모 상세의 자식 섹션 — SUBTASK 를 포함해 전부 보여줘야 하므로 제외하지 않는다.
-          excludeSubtasks: false,
-          closedIn: null,
-          showAllClosed: false,
-        },
-        null,
-        100,
-      );
-      return { items: res.items ?? [], hiddenCount: 0 };
-    },
-    enabled: !!projectKey && Number.isFinite(parentNumber),
-  });
+  // 열린 하위 — 섹션을 열면 바로 받는다. closedCount·hiddenCount 는 페이지와 상관없이 전체 기준이라 첫 페이지 값을 쓴다.
+  const children = useChildrenPages(projectKey, parentNumber, 'open', true);
+  // 「완료 n건」 펼침 — 이 부모에서 펼쳤을 때만 참. 다른 이슈로 옮겨 가면(같은 섹션 인스턴스가 남아도) 다시 접힌다 — 접힘 상태는 기억하지 않는다.
+  const parentId = `${projectKey}-${parentNumber}`;
+  const [expandedFor, setExpandedFor] = useState<string | null>(null);
+  const closedExpanded = expandedFor === parentId;
+  // 끝난 하위 — 펼쳤을 때만 받는다(하위가 수백 건인 에픽도 상세가 빨리 열리게).
+  const closedChildren = useChildrenPages(projectKey, parentNumber, 'closed', closedExpanded);
 
-  // 생성 시간 오름차순 정렬 — 신규 항목이 최상단에 끼어드는 역방향 UX 방지 (refs #166).
-  const items: IssueResponse[] = sortChildrenByCreatedAt(children.data?.items ?? []);
+  // 서버가 (created_at, id) 오름차순으로 주므로 새 하위는 아래로 쌓인다(refs #166) — 다시 정렬하지 않는다.
+  const items: IssueResponse[] = flattenPages(children.data?.pages);
+  const closedItems: IssueResponse[] = flattenPages(closedChildren.data?.pages);
+  const firstPage = children.data?.pages[0];
   // 읽을 수 없는 프로젝트의 하위 수 — 진행률(childCount)은 이것까지 세므로 목록 아래 한 줄로 수를 맞춘다.
-  const hiddenCount = children.data?.hiddenCount ?? 0;
+  const hiddenCount = firstPage?.hiddenCount ?? 0;
+  // 볼 수 있는 끝난 하위 수 — 진행률과 달리 볼 수 없는 하위는 세지 않는다(차이는 「볼 수 없는 하위 N건」이 보인다).
+  const closedCount = firstPage?.closedCount ?? 0;
   const [newTitle, setNewTitle] = useState('');
   // 모바일(WP-196): 「＋ 하위 태스크 추가」 탭으로 입력칸을 펼치는 연속 입력 UX. 데스크톱은 입력칸이 항상 보인다.
   const isMobile = useIsMobile();
@@ -204,47 +247,68 @@ export function IssueChildrenSection({
             다시 시도
           </button>
         </p>
-      ) : items.length === 0 && hiddenCount === 0 ? null : (
-        <ul className="space-y-1">
-          {items.map((it) => {
-            // 행당 배지는 최대 1개(WP-374) — 열린 행에 AI 배지(진행·시작 전·위임)가 있으면 상태배지 대신 그것,
-            // 그 외(끝난 행·AI 관여 없는 열린 행)는 상태배지. 할 일/진행 중 구분은 진행률 바로 알 수 없어 남긴다.
-            const showAi = !isClosedStatus(it.status) && delegationState(it) !== null;
-            // 키는 늘 제목 앞에 전체 키(WP-12)로 보인다(WP-1635) — 제목만으로는 어느 이슈인지 알 수 없고, 검색·비교에 쓰는 형태 그대로 보인다.
-            // 다른 프로젝트 하위(WP-1039)는 그 프로젝트 키로 보이고 그 프로젝트로 잇는다.
-            const childKey = it.projectKey || projectKey;
-            const otherProject = childKey !== projectKey;
-            const issueKey = formatIssueKey(childKey, it.number);
-            return (
-              <li
-                key={it.id}
-                className="flex items-center gap-2 rounded px-1 text-sm hover:bg-accent/50"
-                data-testid={otherProject ? `child-row-${issueKey}` : `child-row-${it.number}`}
-              >
-                <span className="text-muted-foreground">└</span>
-                {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
-                {/* 키는 텍스트 — 행의 링크는 제목 하나만(탭 순서·스크린리더 중복 방지). */}
-                <span className="shrink-0 font-mono text-xs text-muted-foreground" data-testid="child-row-key">
-                  {issueKey}
-                </span>
-                <Link
-                  to={`/projects/${childKey}/issues/${it.number}`}
-                  className="min-w-0 flex-1 truncate hover:underline"
-                >
-                  {it.title}
-                </Link>
-                {showAi ? <AiDelegationBadge issue={it} /> : <IssueStatusBadge status={it.status} name={it.statusName} />}
-              </li>
-            );
-          })}
-          {/* 읽을 수 없는 프로젝트의 하위 — 제목·키 없이 수만(서버가 싣지 않는다). */}
-          {hiddenCount > 0 && (
-            <li className="flex items-center gap-2 px-1 text-sm text-muted-foreground" data-testid="child-hidden-count">
-              <span>└</span>
-              볼 수 없는 하위 {hiddenCount}건
-            </li>
+      ) : items.length === 0 && hiddenCount === 0 && closedCount === 0 ? null : (
+        <>
+          {(items.length > 0 || hiddenCount > 0) && (
+            <ul className="space-y-1">
+              {items.map((it) => (
+                <ChildRow key={it.id} it={it} projectKey={projectKey} />
+              ))}
+              {children.hasNextPage && (
+                <MoreButton onClick={() => void children.fetchNextPage()} loading={children.isFetchingNextPage} />
+              )}
+              {/* 읽을 수 없는 프로젝트의 하위 — 제목·키 없이 수만(서버가 싣지 않는다). */}
+              {hiddenCount > 0 && (
+                <li className="flex items-center gap-2 px-1 text-sm text-muted-foreground" data-testid="child-hidden-count">
+                  <span>└</span>
+                  볼 수 없는 하위 {hiddenCount}건
+                </li>
+              )}
+            </ul>
           )}
-        </ul>
+          {/* 끝난 하위(완료·취소) — 한 줄로 접어 두고 누르면 그 아래로 펼친다. 끝난 것이 없으면 줄이 없다. */}
+          {closedCount > 0 && (
+            <div className="space-y-1">
+              <button
+                type="button"
+                aria-expanded={closedExpanded}
+                data-testid="children-closed-toggle"
+                onClick={() => setExpandedFor(closedExpanded ? null : parentId)}
+                className="flex items-center gap-0.5 rounded px-0.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {closedExpanded ? (
+                  <ChevronDown className="size-3.5" aria-hidden />
+                ) : (
+                  <ChevronRight className="size-3.5" aria-hidden />
+                )}
+                완료 {closedCount}건
+              </button>
+              {closedExpanded &&
+                (closedChildren.isLoading ? (
+                  <p className="px-1 text-xs text-muted-foreground">로딩 중…</p>
+                ) : closedChildren.isLoadingError ? (
+                  <p role="alert" className="px-1 text-xs text-destructive" data-testid="children-closed-load-error">
+                    끝난 하위 이슈를 불러오지 못했습니다.{' '}
+                    <button type="button" className="underline" onClick={() => void closedChildren.refetch()}>
+                      다시 시도
+                    </button>
+                  </p>
+                ) : (
+                  <ul className="space-y-1" data-testid="children-closed-list">
+                    {closedItems.map((it) => (
+                      <ChildRow key={it.id} it={it} projectKey={projectKey} />
+                    ))}
+                    {closedChildren.hasNextPage && (
+                      <MoreButton
+                        onClick={() => void closedChildren.fetchNextPage()}
+                        loading={closedChildren.isFetchingNextPage}
+                      />
+                    )}
+                  </ul>
+                ))}
+            </div>
+          )}
+        </>
       )}
 
       {intakeOnly ? null : doneEpic ? (

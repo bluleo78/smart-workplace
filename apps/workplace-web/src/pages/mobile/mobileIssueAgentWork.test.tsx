@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { emptyChildrenHandler } from '@/test/kits/projects/children'
 import { mockViewport } from '@/test/viewport'
 
 import { agentWorker as aki, humanWorker as human, twoWorks } from '../../../e2e/factories/agentWork.factory'
@@ -30,6 +31,7 @@ async function open() {
       http.get('/api/v1/projects/WP', () => HttpResponse.json(createProject())),
       http.get(BASE, () => HttpResponse.json(createIssueDetail({ summary }))),
       http.get('/api/v1/projects/WP/issues', () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
+      emptyChildrenHandler,
       ...['watchers', 'labels', 'attachments', 'drive-links'].map((s) => http.get(`${BASE}/${s}`, () => HttpResponse.json([]))),
       http.get(`${BASE}/chat/thread`, () => HttpResponse.json(createChatThread({ threadId: 777, recentMessages: [] }))),
       http.get('/api/v1/chat/threads/777/messages', () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),

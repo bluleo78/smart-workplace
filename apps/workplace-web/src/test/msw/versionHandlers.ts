@@ -4,6 +4,7 @@
 // 「없다」 단언은 데이터가 오기 전에도 참이라, served 플래그로 버전 응답이 실제로 나간 뒤에 판정하게 한다.
 import { http, HttpResponse } from 'msw'
 
+import { emptyChildrenHandler } from '@/test/kits/projects/children'
 import type { IssueResponse } from '@/types/issue'
 import type { MemberResponse } from '@/types/project'
 import type { VersionIssueCount, VersionResponse } from '@/types/version'
@@ -53,6 +54,7 @@ export function versionApi(opts: VersionApiOptions = {}) {
     http.get(`${BASE}/versions/:id/issue-count`, () => HttpResponse.json(opts.count ?? { fix: 0, affects: 0, unresolvedFix: 0 })),
     // 상세의 이슈 탭(fixVersion/affectsVersion 검색)과 목록 — 이 테스트들은 이슈 한 건이면 된다.
     http.get(`${BASE}/issues`, () => HttpResponse.json(createIssueSearchResponse([issue], null))),
+    emptyChildrenHandler,
     http.post(`${BASE}/versions/:id/release`, async ({ request, params }) => {
       const id = Number(params.id)
       writes.push({ method: 'POST', path: new URL(request.url).pathname, body: await request.json() })

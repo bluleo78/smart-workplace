@@ -7,11 +7,12 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { childrenResolver } from '@/test/kits/projects/children'
 import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { openIssueDetail } from '@/test/kits/projects/openIssueDetail'
 import { expectSubtaskBadges, subtaskBadgeChildren, TASK_SUMMARY } from '@/test/kits/projects/subtasks'
 
-import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { makeSubtaskType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createMember } from '../../../e2e/factories/project.factory'
 
@@ -21,7 +22,7 @@ const OWNER = [createMember({ userId: 1, username: 'me', name: 'Me', role: 'OWNE
 const parentRef = { number: 1, title: '부모 TASK', type: TASK_SUMMARY }
 const asSubtask = (o: Parameters<typeof createIssue>[0]) => ({ ...createIssue(o), type: makeSubtaskType(), parent: parentRef })
 
-/** 부모 TASK(#1) 상세 — 하위 목록(parent=1)은 children() 이 준다. POST 는 onCreate 가 처리한다. */
+/** 부모 TASK(#1) 상세 — 하위 목록 API(/children, WP-1684)는 children() 을 열린/끝난으로 나눠 준다. POST 는 onCreate 가 처리한다. */
 function openParent(children: () => ReturnType<typeof createIssue>[], onCreate?: (title: string) => Promise<unknown> | unknown) {
   return openIssueDetail({
     members: OWNER,
@@ -29,9 +30,7 @@ function openParent(children: () => ReturnType<typeof createIssue>[], onCreate?:
       createIssueDetail({ summary: { ...createIssue({ id: 1, number: 1, title: '부모 TASK' }), type: TASK_SUMMARY, childCount: children().length } }),
     handlers: [
       http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
-      http.get(ISSUES, ({ request }) =>
-        HttpResponse.json(createIssueSearchResponse(new URL(request.url).searchParams.get('parent') === '1' ? children() : [], null)),
-      ),
+      http.get(`${ISSUES}/1/children`, childrenResolver(children)),
       http.post(ISSUES, async ({ request }) => {
         const { title } = (await request.json()) as { title: string }
         return HttpResponse.json((await onCreate?.(title)) as never)
