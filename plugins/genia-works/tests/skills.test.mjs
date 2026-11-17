@@ -619,7 +619,7 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   // 저장소 준비·칸 띄우기는 스크립트 하나(agent-project)로 — work-loop 가 새 프로젝트를 스스로 띄울 때도 같은 것을 쓴다(WP-1053).
   assert.ok(text.includes('`agent-project repo "<홈>/<AI 이름>" "<키>" "<repositoryUrl>"`'));
   assert.ok(text.includes('`agent-project start "<홈>/<AI 이름>" "<키>"` 를 하나씩 차례로'));
-  for (const out of ['`clone-failed`', '`url-changed`', '`busy`', '`branch-kept <브랜치>`', '`no-project-md`']) assert.ok(text.includes(out), out);
+  for (const out of ['`clone-failed`', '`url-changed`', '`busy`', '`branch-kept <브랜치>`', '`ff-kept <브랜치>`', '`no-project-md`']) assert.ok(text.includes(out), out);
   // 돌고 있는 칸이 스스로 띄우려다 실패한 기록은 start-agent 가 사람에게 보인다.
   assert.ok(text.includes('`agent-project failures "<홈>/<AI 이름>"`'));
   // 다른 폴더에서 불러도 홈이 바뀌지 않게 AI 마다 홈을 기억한다 — AI 폴더를 만들기 전에 정한다.
@@ -655,6 +655,18 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   assertBefore(text, 'scripts/gw-plugin-version"', 'git rev-parse --is-inside-work-tree');
   assertBefore(text, 'scripts/gw-agent-projects', 'set queue "<라벨>"');
   assertBefore(text, 'set queue "<라벨>"', '`agent-project start "<홈>/<AI 이름>" "<키>"`');
+});
+
+// WP-1566 MAIN 앞당기기 — 칸은 며칠씩 떠 있어, 잠금을 잡은 뒤 매번 sync 해야 main 에 넣은 project.md(역할·검증 방법)가 닿는다.
+test('work-loop: 잠금이 ok 면 start-agent 칸에서 agent-project sync 로 MAIN 을 앞당긴다 (WP-1566)', () => {
+  const text = readFileSync(new URL('work-loop/SKILL.md', skillsDir), 'utf8');
+  const lock = text.slice(text.indexOf('### 2. 잠금'), text.indexOf('### 2-1.'));
+  const line = lock.split('\n').find((l) => l.includes('scripts/agent-project\" sync'));
+  assert.ok(line, '2번 잠금 절에 sync 줄이 있어야 한다');
+  assert.ok(line.includes('`ok` 이고 start-agent 가 띄운 칸이면'));
+  assert.ok(line.includes('sync \"$GENIA_WORKS_AGENT_DIR\" <프로젝트 키>'));
+  assert.ok(line.includes('`busy`'));
+  assert.ok(line.includes('사람이 띄운 세션(그 변수가 없다)은 하지 않는다'));
 });
 
 // WP-1053 새 프로젝트 확인 — start-agent 칸이 깨어날 때마다(5분에 칸 하나) 소속 프로젝트를 읽어, 칸이 없으면 start-agent 와 같은 스크립트로 스스로 띄운다.

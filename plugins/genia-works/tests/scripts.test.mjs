@@ -1098,6 +1098,55 @@ test('agent-project repo: 없으면 clone(기본 브랜치로), 있으면 fetch 
   assert.equal(repo('dev').stdout, 'fetched\nbranch-kept dev\n');
 });
 
+test('agent-project repo·sync: 작업 폴더를 origin 의 같은 브랜치로 앞당기고, 바뀐 파일이 있거나 갈라졌으면 그대로 둔다 (WP-1566)', () => {
+  const d = aiDir();
+  const url = remoteRepo();
+  const folder = join(d, 'repos', 'WP');
+  const src = join(home, 'remote.git-src');
+  const sync = () => run('agent-project', ['sync', d, 'WP']);
+  // 원격 main 에 새 커밋을 올린다 — project.md 에 설정을 넣은 것처럼.
+  const pushRemote = (text) => {
+    writeFileSync(join(src, '.work-loop', 'project.md'), text);
+    git('-C', src, 'commit', '-qam', text);
+    git('-C', src, 'push', '-q', url, 'main');
+  };
+  assert.equal(sync().status, 2, '받은 저장소가 없으면 2');
+  run('agent-project', ['repo', d, 'WP', url]);
+  const fresh = sync();
+  assert.deepEqual([fresh.status, fresh.stdout], [0, ''], '뒤처지지 않았으면 아무것도 내지 않는다');
+
+  pushRemote('# 안내\n- username: `planner`\n');
+  assert.equal(run('agent-project', ['repo', d, 'WP', url]).stdout, 'fetched\nfast-forwarded main\n');
+  assert.match(readFileSync(join(folder, '.work-loop', 'project.md'), 'utf8'), /planner/);
+
+  pushRemote('# 안내 2\n');
+  assert.equal(sync().stdout, 'fast-forwarded main\n');
+  assert.equal(sync().stdout, '', '앞당긴 뒤에는 할 일이 없다');
+  assert.equal(readFileSync(join(folder, '.work-loop', 'project.md'), 'utf8'), '# 안내 2\n');
+
+  // 추적 파일이 바뀌었으면 앞당기지 않고 바뀐 것도 건드리지 않는다. 추적하지 않는 파일은 막지 않는다.
+  pushRemote('# 안내 3\n');
+  writeFileSync(join(folder, '.work-loop', 'project.md'), 'local edit\n');
+  assert.equal(sync().stdout, 'ff-kept main\n');
+  assert.equal(readFileSync(join(folder, '.work-loop', 'project.md'), 'utf8'), 'local edit\n');
+  git('-C', folder, 'checkout', '-q', '--', '.');
+  writeFileSync(join(folder, 'untracked.txt'), 'x');
+  assert.equal(sync().stdout, 'fast-forwarded main\n');
+
+  // 갈라졌으면(로컬에만 있는 커밋) 그대로 둔다 — reset 하지 않는다.
+  pushRemote('# 안내 4\n');
+  writeFileSync(join(folder, 'local.txt'), 'y');
+  git('-C', folder, 'add', 'local.txt');
+  git('-C', folder, 'commit', '-qm', 'local');
+  const head = git('-C', folder, 'rev-parse', 'HEAD');
+  assert.equal(sync().stdout, 'ff-kept main\n');
+  assert.equal(git('-C', folder, 'rev-parse', 'HEAD'), head);
+
+  // 브랜치가 아니면(detached) 손대지 않는다.
+  git('-C', folder, 'checkout', '-q', '--detach', 'origin/main~1');
+  assert.equal(sync().stdout, '');
+});
+
 test('agent-project repo: 폴더 주소가 설정과 다르면 건드리지 않고 url-changed(5), clone 실패는 clone-failed(4), 안내 파일이 없으면 알린다', () => {
   const d = aiDir();
   const url = remoteRepo();

@@ -5,11 +5,16 @@
 # agent-project repo <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] — <AI 폴더>/repos/<키> 에 clone 하거나, 있으면 fetch 한다.
 #   한 줄씩 낸다: cloned | fetched | fetch-failed(받기만 실패 — 띄우기는 한다),
 #     branch-switched <브랜치>(바뀐 것 없는 clone 을 새 기본 브랜치로 옮김) | branch-kept <브랜치>(바뀐 것이 있거나 실패해 그대로 둠),
+#     fast-forwarded <브랜치> | ff-kept <브랜치>(있던 clone 의 작업 폴더를 origin 의 같은 브랜치로 앞당김 / 바뀐 것이 있거나 갈라져 그대로 둠 — ff_main),
 #     no-project-md(.work-loop/project.md 가 없다).
 #   실패: clone-failed(종료 4 — 대개 git 자격 증명), url-changed(종료 5 — 폴더의 주소가 설정과 다르다, 건드리지 않음).
 #   clone 은 임시 폴더에 받은 뒤 옮긴다 — 도중에 끊겨도 반쯤 받은 폴더가 제자리에 남아 「있는 clone」으로 쓰이지 않게.
 #   키마다 잠근다 — 다른 쪽(돌고 있는 칸·start-agent)이 같은 키를 하고 있으면 busy(종료 6).
 #   사람이 없는 칸에서도 부르므로 git 이 자격 증명·호스트 키를 묻지 않게 한다(묻는 대신 실패).
+#
+# agent-project sync <AI 폴더> <프로젝트 키> — 이미 받은 저장소를 fetch 하고 작업 폴더를 origin 의 같은 브랜치로 앞당긴다(WP-1566).
+#   work-loop 가 부를 때마다 쓴다(칸은 며칠씩 떠 있어 repo 만으로는 main 에 넣은 .work-loop/project.md 가 닿지 않는다).
+#   낸다: (앞당길 것이 없으면 아무것도) | fast-forwarded <브랜치> | ff-kept <브랜치> | fetch-failed. 저장소 폴더가 없으면 종료 2, 잠겨 있으면 busy(종료 6).
 #
 # agent-project start [--restart] <AI 폴더> <프로젝트 키> — 그 AI 신원으로 work-loop 를 도는 실행기를 칸으로 띄운다(agent-window 결과를 그대로 낸다).
 #   실행기·대기열 라벨은 AI 폴더에 저장한 값(agent-home get cli·queue)을 쓴다 — 실행기별 명령·환경은 아래 cli_command 한곳에서 정한다(WP-1292).
@@ -50,7 +55,7 @@ agent_data_dir() {
 }
 
 usage() {
-  echo "사용: agent-project repo|add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] · start [--restart] <AI 폴더> <프로젝트 키> · failures|login <AI 폴더> · locate|cli <AI 이름> <지금 폴더>" >&2
+  echo "사용: agent-project repo|add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] · sync <AI 폴더> <프로젝트 키> · start [--restart] <AI 폴더> <프로젝트 키> · failures|login <AI 폴더> · locate|cli <AI 이름> <지금 폴더>" >&2
   exit 2
 }
 
@@ -180,16 +185,38 @@ do_repo() {
     fi
     if git -C "$folder" fetch -q --prune origin >&2; then echo fetched; else echo fetch-failed; fi
     # 작업 브랜치·워크트리는 그 프로젝트의 work-loop 가 다룬다 — 바뀐 것 없는 clone 만 새 기본 브랜치로 옮긴다.
+    # branch-kept 면 앞당기지 않는다 — 정리할 곳은 바뀐 기본 브랜치라 옛 브랜치를 앞당기라는 안내가 겹치면 헷갈린다.
     if [ -n "$branch" ] && [ "$(git -C "$folder" branch --show-current)" != "$branch" ]; then
       if [ -z "$(git -C "$folder" status --porcelain)" ] && git -C "$folder" checkout -q "$branch" >&2; then
         echo "branch-switched $branch"
+        ff_main
       else
         echo "branch-kept $branch"
       fi
+    else
+      ff_main
     fi
   fi
   [ -f "$folder/.work-loop/project.md" ] || echo no-project-md
   return 0
+}
+
+# MAIN(저장소 작업 폴더)을 origin 의 같은 브랜치로 앞당긴다(WP-1566). work-loop 는 역할·검증 방법을 MAIN 의 .work-loop/project.md 에서
+# 읽는데, fetch 만으로는 작업 폴더가 처음 clone 한 때에 멈춰 main 에 넣은 설정(기획 역할 AI 등)이 돌고 있는 AI 에게 닿지 않았다.
+# 앞당기기만 한다 — 브랜치가 아니거나(detached) origin 에 같은 브랜치가 없거나 뒤처지지 않았으면 아무것도 내지 않고,
+# 추적 파일이 바뀌었거나, 추적하지 않는 파일이 받을 파일과 겹치거나, 갈라져 앞당길 수 없으면 「ff-kept <브랜치>」만 내고 그대로 둔다
+# (reset·checkout 하지 않는다). 사람이 없는 칸이라 그 저장소의 git 훅(post-merge 등)은 돌리지 않는다.
+# 앞당겼으면 「fast-forwarded <브랜치>」.
+ff_main() {
+  cur=$(git -C "$folder" symbolic-ref -q --short HEAD) || return 0
+  git -C "$folder" rev-parse -q --verify "refs/remotes/origin/$cur" >/dev/null || return 0
+  [ "$(git -C "$folder" rev-list --count "HEAD..origin/$cur")" -gt 0 ] || return 0
+  if [ -z "$(git -C "$folder" status --porcelain --untracked-files=no)" ] &&
+    git -C "$folder" -c core.hooksPath=/dev/null merge -q --ff-only "origin/$cur" >&2; then
+    echo "fast-forwarded $cur"
+  else
+    echo "ff-kept $cur"
+  fi
 }
 
 # 키 잠금 — 같은 키를 칸 여럿이·start-agent 와 동시에 준비하거나 띄우지 않게. 잡혀 있으면 busy 로 끝낸다(종료 6).
@@ -265,6 +292,12 @@ case "$cmd" in
   repo)
     lock_key
     do_repo "${3:-}" "${4:-}"
+    ;;
+  sync)
+    # 돌고 있는 칸의 work-loop 가 부를 때마다 — 칸은 며칠씩 떠 있어 repo(띄울 때만)만으로는 MAIN 이 처음 받은 때에 멈춘다.
+    [ -d "$folder/.git" ] || { echo "저장소 폴더가 없습니다: $folder" >&2; exit 2; }
+    lock_key
+    if git -C "$folder" fetch -q --prune origin >&2; then ff_main; else echo fetch-failed; fi
     ;;
   start)
     do_start

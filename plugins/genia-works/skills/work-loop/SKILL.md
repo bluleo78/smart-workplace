@@ -85,6 +85,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 `"<이 스킬 폴더>/../../scripts/loop-lock" acquire "<MAIN>"` 을 실행한다. 이 저장소에 work-loop 하나만 돌게 하는 잠금(`MAIN/.work-loop/state/loop.lock`)이다 — 이 세션의 실행기 프로세스(claude·genia·codex·opencode)를 찾아 잡고, 잡은 프로세스가 끝났거나 pid 가 다른 프로세스에 다시 쓰였으면 넘겨받는다(규칙은 스크립트 머리 주석).
 
 - `ok`(종료 코드 0): 진행한다. 같은 세션의 앞선 반복이 남긴 잠금도 `ok` 다 — 풀지 않는다.
+  - `ok` 이고 start-agent 가 띄운 칸이면(`GENIA_WORKS_AGENT_DIR` 가 있으면) 이어서 `"<이 스킬 폴더>/../../scripts/agent-project" sync "$GENIA_WORKS_AGENT_DIR" <프로젝트 키>` 로 MAIN 을 origin 의 같은 브랜치로 앞당긴다(WP-1566) — 칸은 며칠씩 떠 있어 이것이 없으면 main 에 넣은 `.work-loop/project.md`(역할·검증 방법)가 처음 받은 때에 멈춘다. 앞당기기만 하고(바뀐 파일이 있거나 갈라졌으면 `ff-kept` 로 그대로 둔다) 결과·실패가 이번 부르기의 일을 막지 않는다 — `ff-kept`·`fetch-failed` 만 실행 끝 요약에 한 줄 남기고, `busy`(종료 6 — 칸을 띄우는 쪽이 그 키를 잡고 있다)는 조용히 넘어가 다음 부르기에 한다. 앞당긴 부르기에서는 `.work-loop/project.md` 를 그 뒤에 다시 읽는다(앞서 읽은 역할·설정이 낡았을 수 있다). 사람이 띄운 세션(그 변수가 없다)은 하지 않는다.
 - `held <pid>`(종료 코드 1): 「다른 work-loop(pid <번호>)가 이 저장소를 돌고 있습니다」 한 줄만 남기고 아무것도 하지 않고 끝낸다(다음 확인은 길게).
 - 그 밖(종료 코드 2): 스크립트가 낸 이유를 알리고 이번 부르기를 끝낸다.
 
