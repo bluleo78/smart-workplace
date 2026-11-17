@@ -65,9 +65,17 @@ public final class ChatDomainEvents {
    */
   public record ChatMessageOptionsEvent(long threadId, long messageId, List<String> options) {}
 
-  /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */
+  /**
+   * chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. attachments 는 수정 뒤 첨부 전체 목록(WP-1680 — 수정에서 첨부를 뺄 수 있어 다른
+   * 사람 화면도 통째로 바꾼다, 첨부가 없으면 빈 목록). 본문만 고친 수정도 늘 싣는다.
+   */
   public record ChatMessageUpdatedEvent(
-      long threadId, long messageId, String body, List<UserSummary> mentions, Instant editedAt) {}
+      long threadId,
+      long messageId,
+      String body,
+      List<UserSummary> mentions,
+      Instant editedAt,
+      List<ChatMessageAttachmentResponse> attachments) {}
 
   /** chat 메시지 soft-delete 직후. SSE fan-out 용. */
   public record ChatMessageDeletedEvent(long threadId, long messageId) {}

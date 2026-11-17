@@ -6,9 +6,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.chat.dto.ChatMessageAttachmentResponse;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageOptionsEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.global.dto.UserSummary;
@@ -87,6 +89,24 @@ class ChatSseDispatcherTest {
             Map.entry("threadId", 5L),
             Map.entry("messageId", 10L),
             Map.entry("options", List.of("예", "아니오")));
+  }
+
+  /** WP-1680: 수정 SSE 는 수정 뒤 첨부 전체 목록을 늘 싣는다 — 다른 사람 화면이 뺀 첨부를 바로 지우게. 첨부가 없으면 빈 목록(키는 늘 있다). */
+  @Test
+  void updated_carriesAttachmentsKey() {
+    var att =
+        new ChatMessageAttachmentResponse(
+            7L, 10L, "a.txt", "text/plain", 3L, 1L, "Alice", Instant.now(), null);
+    dispatcher.onUpdated(
+        new ChatMessageUpdatedEvent(5L, 10L, "본문", List.of(), Instant.now(), List.of(att)));
+    dispatcher.onUpdated(
+        new ChatMessageUpdatedEvent(5L, 11L, "본문", List.of(), Instant.now(), List.of()));
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
+    verify(registry, Mockito.times(2))
+        .fanOut(eq(List.of(1L, 2L)), eq("chat.message.updated"), payload.capture());
+    assertThat(payload.getAllValues().get(0)).containsEntry("attachments", List.of(att));
+    assertThat(payload.getAllValues().get(1)).containsEntry("attachments", List.of());
   }
 
   @Test

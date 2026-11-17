@@ -179,9 +179,10 @@ class ChatMessageAttachmentIntegrationTest extends ExternalClientMockedTestBase 
 
     chatMessageService.delete(callerId, sent.id());
 
+    // WP-1680: 그 메시지에 붙지 않은 것으로 보는 파일은 읽기 쪽 「없음」이라 404(ChatAttachmentNotFoundException).
     assertThatThrownBy(
             () -> attachmentService.download(callerId, sent.threadId(), sent.id(), fileId))
-        .isInstanceOf(InvalidChatAttachmentException.class);
+        .isInstanceOf(ChatAttachmentNotFoundException.class);
     assertThatThrownBy(() -> attachmentService.resolveViewFileId(callerId, sent.threadId(), fileId))
         .isInstanceOf(ChatAttachmentNotFoundException.class);
   }

@@ -6,6 +6,7 @@ import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
 
 import { keyedSubscribe } from '../lib/aiWorkingProgress';
 import type { ChatMessagePage, ChatMessageResponse } from '../types/chat';
+import type { MessageAttachment } from '../types/messaging';
 import { chatKeys } from './queries/chatKeys';
 
 // 타이핑 이벤트 버스 — SSE 훅(앱 1곳)에서 발행, IssueChatSection 에서 구독.
@@ -125,6 +126,8 @@ export function handleChatEvent(qc: QueryClient, eventName: string, data: unknow
         body: String(d.body),
         mentions: (d.mentions ?? []) as ChatMessageResponse['mentions'],
         editedAt: (d.editedAt as string | null) ?? null,
+        // WP-1680: 수정 뒤 첨부 전체 목록 — 키가 있을 때만 통째로 바꾼다(없으면 옛 서버 payload 라 첨부를 건드리지 않는다).
+        ...('attachments' in d ? { attachments: (d.attachments ?? []) as MessageAttachment[] } : {}),
       });
       break;
     case 'chat.message.options':

@@ -116,6 +116,26 @@ public class ChatMessageRepository {
   }
 
   /**
+   * 살아 있는 메시지 행을 잠근다(SELECT … FOR NO KEY UPDATE, WP-1680) — 수정에서 첨부를 뺄 때 「지금 첨부 읽기 → keep 비교 → 연결
+   * 삭제」를 트랜잭션 끝까지 직렬화한다. 잠그지 않으면 같은 메시지를 동시에 고치는 두 요청이 같은 옛 첨부 목록과 비교해, 이미 빠진 첨부를 남기라는 요청이 통과한다.
+   *
+   * <p>FOR UPDATE 가 아니라 NO KEY UPDATE 인 이유: FOR UPDATE 는 이 메시지를 FK 로 가리키는 첨부 행 삽입 등이 거는 KEY SHARE
+   * 잠금과도 충돌해 수정이 끝날 때까지 남의 쓰기가 막힌다. NO KEY UPDATE 는 KEY SHARE 와는 충돌하지 않고 같은 행의 NO KEY UPDATE·UPDATE
+   * 와는 충돌하므로 동시 수정끼리의 직렬화는 그대로 지킨다(팀 채팅 MessageRepository.lockActive 와 같은 잠금 수준).
+   *
+   * @return 잠갔으면 true, 없거나 삭제된 메시지면 false
+   */
+  public boolean lockActive(long id) {
+    return !dsl.select(CHAT_MESSAGE.ID)
+        .from(CHAT_MESSAGE)
+        .where(CHAT_MESSAGE.ID.eq(id))
+        .and(CHAT_MESSAGE.DELETED_AT.isNull())
+        .forNoKeyUpdate()
+        .fetch()
+        .isEmpty();
+  }
+
+  /**
    * 질문 글의 답 선택지를 지운다(WP-1569) — 본문을 고친 질문에 옛 본문에서 나온 칩이 남지 않게. 다시 뽑지는 않는다. 선택지가 있던 글만 바꾸고 바뀐 행 수를
    * 돌려준다(1 = 지움 → 호출자가 chat.message.options(null)을 알린다, 0 = 원래 없었음).
    */
