@@ -4,6 +4,7 @@
 import { useState } from 'react';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
+import { LoadErrorState } from '@/components/LoadErrorState';
 import {
   Select,
   SelectContent,
@@ -56,6 +57,9 @@ export function CustomFieldManagement({
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   // 이름·옵션 편집 대화상자 대상(WP-611).
   const [editing, setEditing] = useState<IssueFieldDef | null>(null);
+
+  // 목록은 한 번만 계산해 빈 판정과 렌더에 같이 쓴다(WP-1653).
+  const list = fields.data ?? [];
 
   const needsOptions = type === 'SELECT' || type === 'MULTI_SELECT';
 
@@ -155,9 +159,37 @@ export function CustomFieldManagement({
 
       {fields.isLoading ? (
         <p className="text-muted-foreground">로딩 중…</p>
+      ) : fields.isError && !fields.data ? (
+        // 목록 조회 실패(WP-1653) — data 가 없다고 「필드가 없습니다」로 보이면 있는 필드를 없다고 오해하므로
+        // 오류를 따로 알리고 다시 시도할 수 있게 한다. 이미 받은 목록이 있으면(재조회만 실패) 그 목록을 그대로 둔다.
+        <LoadErrorState variant="inline" title="프로젝트 필드를 불러오지 못했습니다." queries={[fields]} testId="custom-field-load-error" className="py-2" />
+      ) : list.length === 0 ? (
+        // 필드가 하나도 없을 때 빈 칸 대신 안내(WP-1653) — 무엇이 생기는지, 누가 추가하는지를 알린다.
+        // 소유자에게는 위 폼으로, 소유자가 아니면 소유자가 추가한다고 안내한다(폼이 없으므로).
+        <div className="py-2" data-testid="custom-field-empty">
+          <p className="text-sm font-medium">프로젝트 필드가 없습니다</p>
+          <p className="text-sm text-muted-foreground">
+            {isOwner
+              ? '위에서 이름과 타입을 정해 추가하면 모든 이슈 상세에 입력 칸이 생겨요.'
+              : '프로젝트 소유자가 필드를 추가하면 모든 이슈 상세에 입력 칸이 생겨요.'}
+          </p>
+          {/* 빈 상태는 행동을 하나 준다(WP-1653) — 소유자만 추가 폼 이름 칸으로 이동. 비소유자는 할 수 있는 행동이 없어 글만 둔다. */}
+          {isOwner && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              data-testid="custom-field-empty-add"
+              onClick={() => nameInputRef.current?.focus()}
+            >
+              필드 추가
+            </Button>
+          )}
+        </div>
       ) : (
         <ul className="space-y-1">
-          {(fields.data ?? []).map((f) => (
+          {list.map((f) => (
             // 줄 배치(WP-1124) — 옵션 칩이 많거나 길어도 이름·타입이 한 줄로 읽히게 한다. 예전엔 옵션 묶음이 칩 전부를
             // 한 줄에 놓을 폭을 가져가 이름이 한두 글자씩, 타입(「선택」)이 한 글자씩 세로로 꺾였다.
             // - 이름: 남는 폭에서 한 줄 말줄임(전체 이름은 title). 데스크톱은 줄 폭의 40% 까지만 써 옵션 자리를 남긴다.
