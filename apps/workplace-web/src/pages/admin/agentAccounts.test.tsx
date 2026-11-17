@@ -7,7 +7,14 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 
+// WP-1693: 상태 배지가 다시 그려지는지 보려고 그 판정(배지 안에서만 부른다)을 그대로 통과시키며 지켜본다.
+vi.mock('@/lib/agentAccountUsage', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/agentAccountUsage')>()
+  return { ...real, accountStatusPill: vi.fn(real.accountStatusPill) }
+})
+
 import { agentAccountKeys } from '@/hooks/queries/useAgentAccounts'
+import * as usageLib from '@/lib/agentAccountUsage'
 import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { AgentAccountResponse } from '@/types/agentAccount'
@@ -426,6 +433,42 @@ test('남은 시간·사용량 확인 시각은 1분마다 도는 화면 시계�
     })
     await waitFor(() => expect(fiveHour(1)).toHaveTextContent('39분 뒤 초기화'))
     expect(checked(1)).toHaveTextContent('31분 전')
+  } finally {
+    vi.useRealTimers()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+  }
+})
+
+test('60초 다시 받기·1분 시계에는 시각 글자만 새로 그리고, 시계와 무관한 상태 배지는 다시 그리지 않는다(WP-1693)', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  vi.setSystemTime(NOW)
+  try {
+    // 같은 본문을 매번 새로 만들어 보낸다 — 구조 공유로 바뀌지 않은 계정은 같은 참조로 남아야 한다.
+    const list = () => [
+      createAccount({
+        id: 1,
+        usage: createUsage({ status: 'OK', fiveHour: { usedPercent: 10, resetsAt: '2026-11-09T01:40:00Z', observedAt: null } }),
+      }),
+      createAccount({ id: 2, provider: 'opencode', label: 'OpenCode', agents: [], usage: createUsage({ status: 'UNLIMITED' }) }),
+    ]
+    const { queryClient } = renderScreen(<AgentManagementPage />, {
+      path: '/settings/agents/accounts',
+      handlers: [http.get(API, () => HttpResponse.json(list()))],
+    })
+    await screen.findByTestId('agent-account-row-2')
+    const firstUpdate = queryClient.getQueryState(agentAccountKeys.list())?.dataUpdatedAt
+    const pill = vi.mocked(usageLib.accountStatusPill)
+    const callsBefore = pill.mock.calls.length
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    // 다시 받은 응답이 캐시에 들어갈 때까지 기다린다(요청만 나간 때가 아니라).
+    await waitFor(() => expect(queryClient.getQueryState(agentAccountKeys.list())?.dataUpdatedAt).not.toBe(firstUpdate))
+    // 시계는 돌았다 — 시각 글자는 새로 그렸다.
+    await waitFor(() => expect(fiveHour(1)).toHaveTextContent('39분 뒤 초기화'))
+    // 상태 배지(줄마다 두 벌)는 계정이 그대로라 다시 그리지 않았다.
+    expect(pill.mock.calls.length).toBe(callsBefore)
   } finally {
     vi.useRealTimers()
     vi.useFakeTimers({ toFake: ['Date'] })
