@@ -81,7 +81,7 @@ async function collectUnread(client: NotificationToolClient, limit: number, unre
   return { items, nextOffset: pos };
 }
 
-/** 알림 도구(list_notifications/mark_notification_read/mark_all_notifications_read). */
+/** 알림 도구(list_notifications/mark_notification_read/mark_all_notifications_read/archive_read_notifications). */
 export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
   return [
     {
@@ -143,6 +143,20 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       async handler() {
         await client.markAllNotificationsRead();
         return 'ok';
+      },
+    },
+    {
+      // WP-1689: 읽은 알림을 목록에서 치운다. 지우지 않고 되돌릴 수 있어 비파괴(「지우기 없음」 원칙과 부딪히지 않음),
+      // 다시 불러도 보관된 상태 그대로라 멱등. AI 에게 id 는 쓸모가 없어 개수만 돌려준다.
+      name: 'archive_read_notifications',
+      app: 'notify',
+      kind: 'write',
+      hints: { destructive: false, idempotent: true },
+      description: 'Archives my read inbox notifications; unread stay. Returns {archived}.',
+      inputSchema: z.object({}),
+      async handler() {
+        const ids = await client.archiveReadNotifications();
+        return JSON.stringify({ archived: ids.length });
       },
     },
   ];

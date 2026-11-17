@@ -138,7 +138,7 @@ export function buildMailTools(
       kind: 'read',
       description:
         'Returns one mail by messageId (id from list_mail): plain-text bodyText (HTML-only mail converted, without formatting, link URLs or ' +
-        'images) and attachments. issueKey: the issue created from this mail, if any. Does not mark it read.',
+        'images) and attachments. issueKey: issue created from this mail, if any. Does not mark it read.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -194,9 +194,9 @@ export function buildMailTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Creates an issue (이슈) from a mail. assignees are project member usernames ("me" = caller) and are notified; type and labels are ' +
-        'project names (unknown labels are created, gray; createdLabels). reporter: me (default) or sender (the mail ' +
-        'sender, must be a workspace member who can see the project). Returns {issueKey, created}; created:false = the ' +
-        'issue the mail already had.',
+        'project names (unknown labels are created, gray; createdLabels). reporter: me (default) or sender (must be ' +
+        'a workspace member who can see the project). Returns {issueKey, created}; created:false = the ' +
+        'mail\'s existing issue.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
         const { messageId, assignees, type, labels, reporter, ...rest } = createIssueFromMailInput.parse(args);

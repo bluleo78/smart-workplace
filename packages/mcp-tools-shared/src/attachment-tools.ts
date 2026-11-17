@@ -161,7 +161,7 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
       // 메일 첫 호출 안내(응답 note 가 알린다)·출력 필드 나열(응답에 그대로 보인다)·"원본은 주지 않음"(원본은 create_drive_download_link) 문장을 뺐다.
       // WP-1510: manual 도구 자리를 내려고 앞머리의 대상 나열(source 목록과 같은 말)을 빼고 한국어 제품명은 source 갈래 쪽에 붙였다.
       description:
-        'Reads a drive file or an attachment by source: drive (드라이브) {driveFileId}; issue (이슈) {issueKey, attachmentId from get_issue_detail or ' +
+        'Reads a drive file or attachment by source: drive (드라이브) {driveFileId}; issue (이슈) {issueKey, attachmentId from get_issue_detail or ' +
         'body …/issue-images/{id}}; ' +
         (issueChatSource ? 'issue_chat {issueKey, messageId, attachmentId from get_issue_chat}; ' : '') +
         'wiki (노트) image {pageId, attachmentId in …/attachments/{id}/content}; message (메시지) {channelId, messageId, attachmentId = ' +

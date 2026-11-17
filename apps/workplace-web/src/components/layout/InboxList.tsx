@@ -1,6 +1,6 @@
 // src/components/layout/InboxList.tsx
 // 인박스 목록 — 데스크톱 Popover(InboxPanel)와 모바일 /notifications 화면이 공유한다(WP-126).
-// 헤더(모두 읽음) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
+// 헤더(모두 읽음·읽은 알림 보관) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
 import { Bell } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -13,6 +13,7 @@ import {
 import { PushPromptBanner } from "@/components/layout/PushPromptBanner";
 import { MobileEmptyState } from "@/components/mobile/MobileEmptyState";
 import { AgentActorBadge } from "@/components/users/AgentBadge";
+import { useArchiveReadNotifications } from "@/hooks/queries/useArchiveReadNotifications";
 import { useMarkAllNotificationsRead } from "@/hooks/queries/useMarkAllNotificationsRead";
 import { useMarkNotificationRead } from "@/hooks/queries/useMarkNotificationRead";
 import {
@@ -45,12 +46,21 @@ function wikiShareText(n: NotificationResponse): string {
 }
 
 /**
+ * 「읽은 알림 보관」 활성 판정(WP-1689) — 지금 받아 둔 목록(불러온 페이지들)에 읽은 알림이 하나라도 있는가.
+ * 안 읽은 수와는 무관하다(모두 읽음과 반대 조건). 목록 밖 페이지까지 세지 않는 것은 의도 — 맨 앞 페이지가 모두 안 읽음이면
+ * 그 뒤의 읽은 알림은 화면에 보이지 않으므로 치울 것이 눈에 띄지 않는다.
+ */
+function hasReadNotification(items: NotificationResponse[]): boolean {
+  return items.some((n) => n.read);
+}
+
+/**
  * 인박스 목록 본체.
  * @param enabled 조회 활성 여부(Popover 는 열렸을 때만 조회)
  * @param onNavigate 행 클릭 후 이동 직전에 호출(Popover 닫기 등). 닫을 것이 없는 화면(모바일 /notifications)은 생략
  * @param scrollClassName 스크롤 영역 클래스(모바일 페이지는 'min-h-0 flex-1 overflow-y-auto')
- * @param hideHeader 자체 제목 행('알림' + 모두 읽음) 숨김 — 모바일 /notifications 는 화면 헤더가 제목을 갖고
- *   '모두 읽음' 은 헤더 액션 자리(MarkAllReadButton)로 옮겨 별도 한 줄을 쓰지 않는다(U1-7).
+ * @param hideHeader 자체 제목 행('알림' + 모두 읽음 + 읽은 알림 보관) 숨김 — 모바일 /notifications 는 화면 헤더가 제목을 갖고
+ *   '모두 읽음'·'읽은 알림 보관' 은 헤더 액션 자리(MarkAllReadButton·ArchiveReadButton)로 옮겨 별도 한 줄을 쓰지 않는다(U1-7).
  * @param screenEmpty 빈 상태를 전체 화면 규격으로(모바일 /notifications, U3-R11)
  */
 export function InboxList({
@@ -74,6 +84,7 @@ export function InboxList({
   const items = flattenNotificationPages(data?.pages);
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
+  const archiveRead = useArchiveReadNotifications();
 
   // 스크롤 영역이 바닥 근처에 도달하면 다음 페이지 로드(#610 무한스크롤).
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -101,16 +112,29 @@ export function InboxList({
       {!hideHeader && (
         <div className="flex items-center border-b px-3 py-2 justify-between">
           <span className="text-sm font-semibold">알림</span>
-          <button
-            type="button"
-            data-testid="inbox-mark-all"
-            onClick={() => markAll.mutate()}
-            // 알림 없거나 모두 읽음 상태이거나 처리 중이면 비활성화
-            disabled={items.length === 0 || unread === 0 || markAll.isPending}
-            className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            모두 읽음
-          </button>
+          {/* 오른쪽 묶음: 모두 읽음 · 읽은 알림 보관(WP-1689). 줄마다 보관 단추는 두지 않는다. */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              data-testid="inbox-mark-all"
+              onClick={() => markAll.mutate()}
+              // 알림 없거나 모두 읽음 상태이거나 처리 중이면 비활성화
+              disabled={items.length === 0 || unread === 0 || markAll.isPending}
+              className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              모두 읽음
+            </button>
+            <button
+              type="button"
+              data-testid="inbox-archive-read"
+              onClick={() => archiveRead.mutate()}
+              // 받은 목록에 읽은 알림이 하나도 없거나 처리 중이면 비활성화(서버는 목록 밖의 읽은 알림까지 모두 보관한다)
+              disabled={!hasReadNotification(items) || archiveRead.isPending}
+              className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              읽은 알림 보관
+            </button>
+          </div>
         </div>
       )}
       <PushPromptBanner />
@@ -282,6 +306,27 @@ export function MarkAllReadButton() {
       className="flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60"
     >
       모두 읽음
+    </button>
+  );
+}
+
+/**
+ * 모바일 알림 화면 헤더용 '읽은 알림 보관'(WP-1689) — InboxList 제목 행의 버튼과 같은 규칙(읽은 알림 없음·처리 중이면 비활성)·testid.
+ * 누르면 확인 없이 보관하고 「보관했습니다 · 되돌리기」 토스트(훅이 띄운다). 목록과 같은 쿼리 키로 캐시를 공유한다.
+ */
+export function ArchiveReadButton() {
+  const { data } = useNotifications(true);
+  const items = flattenNotificationPages(data?.pages);
+  const archiveRead = useArchiveReadNotifications();
+  return (
+    <button
+      type="button"
+      data-testid="inbox-archive-read"
+      onClick={() => archiveRead.mutate()}
+      disabled={!hasReadNotification(items) || archiveRead.isPending}
+      className="flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60"
+    >
+      읽은 알림 보관
     </button>
   );
 }

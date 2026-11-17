@@ -300,10 +300,19 @@ function notif(over: Partial<NotificationResponse> = {}): NotificationResponse {
   }
 }
 
-/** 인박스를 열고 행이 그려질 때까지 기다린다. reads 는 읽음 POST 를 받은 알림 id 목록. */
-async function openInbox(list: NotificationResponse[] | ((offset: string | null) => NotificationResponse[]), unread = 1) {
+/**
+ * 인박스를 열고 행이 그려질 때까지 기다린다. reads 는 읽음 POST 를 받은 알림 id 목록.
+ * archive 는 「읽은 알림 보관」(WP-1689) 요청 횟수, unarchived 는 되돌리기 요청 바디의 ids 목록. archivedIds 는 보관 응답.
+ */
+async function openInbox(
+  list: NotificationResponse[] | ((offset: string | null) => NotificationResponse[]),
+  unread = 1,
+  archivedIds: number[] = [],
+) {
   const reads: number[] = []
   const readAll = { count: 0 }
+  const archive = { count: 0 }
+  const unarchived: number[][] = []
   const view = renderRail({
     inbox: unread,
     handlers: [
@@ -319,11 +328,20 @@ async function openInbox(list: NotificationResponse[] | ((offset: string | null)
         readAll.count++
         return new HttpResponse(null, { status: 204 })
       }),
+      http.post('/api/v1/notifications/archive-read', () => {
+        archive.count++
+        return HttpResponse.json({ archivedIds })
+      }),
+      http.post('/api/v1/notifications/unarchive', async ({ request }) => {
+        const body = (await request.json()) as { ids: number[] }
+        unarchived.push(body.ids)
+        return HttpResponse.json({ restoredIds: body.ids })
+      }),
     ],
   })
   await view.user.click(await screen.findByTestId('inbox-trigger'))
   const panel = await screen.findByTestId('inbox-panel')
-  return { ...view, panel, reads, readAll }
+  return { ...view, panel, reads, readAll, archive, unarchived }
 }
 
 describe('알림 인박스', () => {
@@ -375,6 +393,52 @@ describe('알림 인박스', () => {
     await waitFor(() => expect(screen.getByTestId('inbox-mark-all')).toBeEnabled())
     await user.click(screen.getByTestId('inbox-mark-all'))
     await waitFor(() => expect(readAll.count).toBe(1))
+  })
+
+  // WP-1689 — 제목 줄에 「모두 읽음」·「읽은 알림 보관」. 읽은 알림이 하나도 없으면 보관은 비활성(안 읽은 수와 무관).
+  test('제목 줄에 「읽은 알림 보관」이 있고, 목록에 읽은 알림이 없으면 비활성이다', async () => {
+    const { panel } = await openInbox([notif({ id: 1 }), notif({ id: 2 })], 2)
+    await screen.findAllByTestId('inbox-item')
+    const button = within(panel).getByTestId('inbox-archive-read')
+    expect(button).toHaveTextContent('읽은 알림 보관')
+    expect(button).toBeDisabled()
+    expect(within(panel).getByTestId('inbox-mark-all')).toBeInTheDocument()
+  })
+
+  test('빈 목록이면 「읽은 알림 보관」이 비활성이다', async () => {
+    await openInbox([], 0)
+    await screen.findByTestId('inbox-empty')
+    expect(screen.getByTestId('inbox-archive-read')).toBeDisabled()
+  })
+
+  // 누르면 확인 없이 바로 보관 → 「보관했습니다 · 되돌리기」 토스트. 되돌리기는 방금 받은 id 묶음만 되살린다.
+  test('읽은 알림이 있으면 눌러 바로 보관하고, 토스트의 「되돌리기」가 방금 보관한 id 만 되살린다', async () => {
+    const { user, archive, unarchived } = await openInbox(
+      [notif({ id: 1 }), notif({ id: 2, read: true }), notif({ id: 3, read: true })],
+      1,
+      [2, 3],
+    )
+    await screen.findAllByTestId('inbox-item')
+    await waitFor(() => expect(screen.getByTestId('inbox-archive-read')).toBeEnabled())
+    await user.click(screen.getByTestId('inbox-archive-read'))
+    await waitFor(() => expect(archive.count).toBe(1))
+    expect(await screen.findByText('보관했습니다')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '되돌리기' }))
+    await waitFor(() => expect(unarchived).toEqual([[2, 3]]))
+  })
+
+  // 그 사이 다른 탭이 이미 보관해 실제로 보관된 것이 없으면 되돌릴 것도 없어 토스트를 띄우지 않는다.
+  test('보관된 것이 0개면 토스트를 띄우지 않는다', async () => {
+    const { user, archive } = await openInbox([notif({ id: 2, read: true })], 0, [])
+    await screen.findAllByTestId('inbox-item')
+    await waitFor(() => expect(screen.getByTestId('inbox-archive-read')).toBeEnabled())
+    await user.click(screen.getByTestId('inbox-archive-read'))
+    await waitFor(() => expect(archive.count).toBe(1))
+    // 응답 처리(무효화·토스트 판단)가 끝날 틈을 준 뒤 확인한다.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+    expect(screen.queryByText('보관했습니다')).not.toBeInTheDocument()
   })
 
   // 행 클릭 → 그 알림만 읽음 처리하고 이슈 상세로 간다.

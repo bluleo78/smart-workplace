@@ -196,6 +196,7 @@ function sharedMock(): MockedShared {
     markNotificationRead: vi.fn().mockResolvedValue(undefined),
     markIssueNotificationsRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
+    archiveReadNotifications: vi.fn().mockResolvedValue([]),
     // 첨부·파일 내용 읽기(WP-346)
     readIssueAttachmentText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
     readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
@@ -429,7 +430,7 @@ describe('프로필 구성', () => {
       // 드라이브
       'list_drive_spaces', 'list_drive_items', 'search_drive', 'get_drive_file_summary', 'search_drive_content',
       // 알림(#850)
-      'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
+      'list_notifications', 'mark_notification_read', 'mark_all_notifications_read', 'archive_read_notifications',
       // 메인 AI 채팅 첨부(WP-234) + 이슈 첨부·드라이브 파일 읽기(WP-346)
       'read_chat_attachment', 'read_file',
       'create_drive_folder', 'rename_drive_item', 'move_drive_item', 'propose_delete_file', 'propose_delete_folder', // WP-369: 이름변경·이동 통합
@@ -454,14 +455,14 @@ describe('프로필 구성', () => {
   });
 
   // WP-351: 라우터(assistant 메인 스레드)는 직접 쓰는 도구만 싣는다 — 쓰기·확인 카드·답 제출은 서브에이전트에만.
-  it('assistant 라우터 도구: 읽기·표시·알림·첨부·메모리만 — 쓰기는 알림 읽음 처리와 메모리 도구뿐, propose_*·submit_response·unassign_self 없음', () => {
+  it('assistant 라우터 도구: 읽기·표시·알림·첨부·메모리만 — 쓰기는 알림 읽음·읽은 알림 보관과 메모리 도구뿐, propose_*·submit_response·unassign_self 없음', () => {
     const tools = buildTools(client(), AGENT_ID, 'assistant');
     const router = tools.filter((t) => ASSISTANT_ROUTER_TOOLS.includes(t.name));
     expect(router.map((t) => t.name).sort()).toEqual([...ASSISTANT_ROUTER_TOOLS].sort()); // 전부 프로필에 있다
     expect(new Set(ASSISTANT_ROUTER_TOOLS).size).toBe(ASSISTANT_ROUTER_TOOLS.length); // 중복 없음
     // 공유 도구는 kind 에서 계산한 readOnlyHint 를 싣는다(로컬 show_*·read_chat_attachment 는 힌트 없음 — 데이터를 바꾸지 않는다).
     const writes = router.filter((t) => t.annotations && t.annotations.readOnlyHint !== true).map((t) => t.name);
-    expect(writes.sort()).toEqual(['mark_all_notifications_read', 'mark_notification_read']);
+    expect(writes.sort()).toEqual(['archive_read_notifications', 'mark_all_notifications_read', 'mark_notification_read']);
     // 힌트 없는 로컬 도구는 정확히 표시 위젯(show_*)·세션 첨부 읽기·WP-55 메모리 도구(이름 붙은 쓰기 예외)다 — 다른 쓰기 도구가 힌트 없이 끼어들면 여기서 잡힌다.
     const unannotated = router.filter((t) => !t.annotations).map((t) => t.name);
     expect(unannotated.filter((n) => !n.startsWith('show_')).sort()).toEqual(['read_chat_attachment', ...MEMORY_TOOL_NAMES].sort());

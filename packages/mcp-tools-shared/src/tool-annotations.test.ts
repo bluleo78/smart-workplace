@@ -62,6 +62,8 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   list_wiki_spaces: ['read', R, R, R],
   manual: ['read', R, R, R], // WP-1510: 제품 매뉴얼 검색·절 읽기
   mark_all_notifications_read: ['write', true, true, false],
+  // WP-1689: 읽은 알림 보관은 되돌릴 수 있고(웹의 되돌리기) 지우지 않는다 — 비파괴. 다시 불러도 보관된 상태 그대로(멱등).
+  archive_read_notifications: ['write', false, true, false],
   mark_mail_read: ['write', true, true, true],
   mark_notification_read: ['write', true, true, false],
   // WP-354: 복사·첨부 가져오기는 새 항목을 만든다 — 같은 이름이 있으면 409 라 다시 부르면 오류(비멱등).

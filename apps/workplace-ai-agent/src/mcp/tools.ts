@@ -364,8 +364,8 @@ export const RECURRING_RUN_WRITE_TOOLS: readonly string[] = [
   // 드라이브
   'create_drive_folder', 'rename_drive_item', 'move_drive_item', 'copy_drive_item', 'import_attachment_to_drive',
   'restore_drive_item', 'create_drive_file', 'upload_file',
-  // 알림
-  'mark_notification_read', 'mark_all_notifications_read',
+  // 알림 — WP-1689 읽은 알림 보관(되돌릴 수 있는 쓰기)
+  'mark_notification_read', 'mark_all_notifications_read', 'archive_read_notifications',
 ];
 
 /**
@@ -422,8 +422,8 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   'list_projects', 'get_project',
   // 드라이브
   'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary',
-  // 알림 — 읽음 처리도 라우터가 직접 한다
-  'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
+  // 알림 — 읽음 처리·읽은 알림 보관(WP-1689)도 라우터가 직접 한다
+  'list_notifications', 'mark_notification_read', 'mark_all_notifications_read', 'archive_read_notifications',
   // 홈 현황(WP-357) — 우선순위·메일/메시징 요약·활동·스레드 인박스. 도메인 하나로 정해지지 않는 "오늘 뭐부터?" 질문을 라우터가 직접 읽는다(show_activity·show_my_tasks 는 화면 표시 전용)
   'get_home_overview',
   // WP-1511 사용법 질문은 라우터가 직접 — 제품 매뉴얼 검색(search)·절 읽기(get). 읽기 전용이고 서브에이전트 frontmatter 에는 두지 않는다.
@@ -1402,6 +1402,7 @@ export function buildTools(
       sharedTool('get_drive_file_summary'), sharedTool('search_drive_content'), // #850: 파일 요약·내용 검색
       // #850: 알림 인박스 — AI Chat 은 요청자(userId) 신원으로 호출하므로 사람의 알림을 본다(에이전트 신원 프로필엔 두지 않는다).
       sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
+      sharedTool('archive_read_notifications'), // WP-1689: 읽은 알림 모두 보관(되돌릴 수 있음)
       sharedTool('get_home_overview'), // WP-357: 홈 현황 읽기 — 라우터 직접 도구(ASSISTANT_ROUTER_TOOLS)
       sharedTool('manual'), // WP-1511: 제품 매뉴얼 검색·절 읽기 — 라우터 직접 도구(ASSISTANT_ROUTER_TOOLS), 읽기 전용
       // #333 M4: 드라이브 쓰기(직접 실행). WP-369: 파일·폴더 이름변경·이동은 rename_drive_item·move_drive_item 하나씩으로 합쳐졌다.

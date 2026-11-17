@@ -380,7 +380,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         'say the list is partial. due/start/closed/created/updated From-To: yyyy-MM-dd inclusive, closed/created/updated KST; ' +
         'default updatedAt desc, empty last; done work: ' +
         'status=DONE (closed ranges also hit CANCELED). Item keys: ' +
-        `${ISSUE_LIST_FIELDS.join(',')} (absent = none); empty omitted. fields: CSV subset (+issueKey). body/comments: get_issue_detail.`,
+        `${ISSUE_LIST_FIELDS.join(',')} (absent = none). fields: CSV subset (+issueKey). body/comments: get_issue_detail.`,
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, fixVersion: fixVersionCsv, affectsVersion: affectsVersionCsv, parent, field, watching, pendingForMe, mentionsMe, fields: fieldsCsv, ...p } = listIssuesInput.parse(args);
@@ -530,8 +530,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       hints: { destructive: true, idempotent: true },
       description:
         'Changes a label, milestone, cycle or version found by kind and current name (from get_project); newName renames. Only given fields change ' +
-        '(fields as in create_project_meta); "" clears description, goal or dates. Version: status RELEASED|UNRELEASED releases or cancels ' +
-        'the release (no-op if already), archived archives. Labels: project OWNER or the label\'s creator; others: as creating.',
+        '(fields as in create_project_meta); "" clears description, goal or dates. Version: status RELEASED|UNRELEASED (no-op if already), ' +
+        'archived archives. Labels: OWNER or the label\'s creator; others: as creating.',
       inputSchema: updateProjectMetaInput,
       async handler(args) {
         const { projectKey, kind, name, newName, color, ...rest } = omitNulls(updateProjectMetaInput.parse(args));

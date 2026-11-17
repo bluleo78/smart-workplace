@@ -10,6 +10,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_issue_relation": "write",
   "add_project_member": "write",
   "add_user_group_member": "write",
+  "archive_read_notifications": "write",
   "claim_issue": "write",
   "copy_drive_item": "write",
   "create_channel": "write",
@@ -166,7 +167,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "fileIds": {
           "anyOf": [
             {
-              "description": "Staged upload_file ids to attach",
+              "description": "upload_file ids to attach",
               "items": {
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991,
@@ -367,6 +368,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "groupId",
       ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "archive_read_notifications",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
       "type": "object",
     },
   },
@@ -739,7 +749,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "fileIds": {
-          "description": "Staged upload_file ids to attach",
+          "description": "upload_file ids to attach",
           "items": {
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,
@@ -2622,7 +2632,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "fileIds": {
-          "description": "Staged upload_file ids to attach",
+          "description": "upload_file ids to attach",
           "items": {
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,
@@ -3273,7 +3283,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "object",
         },
         "fileIds": {
-          "description": "Staged upload_file ids to attach",
+          "description": "upload_file ids to attach",
           "items": {
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,

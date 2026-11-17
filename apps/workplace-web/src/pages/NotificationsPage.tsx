@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
-import { InboxList, MarkAllReadButton } from '@/components/layout/InboxList'
+import { ArchiveReadButton, InboxList, MarkAllReadButton } from '@/components/layout/InboxList'
 import { useMobileChrome } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileListHeader } from '@/components/mobile/MobileListHeader'
@@ -26,14 +26,21 @@ export default function NotificationsPage() {
   }, [isMobile, navigate, openInbox])
   if (!isMobile) return null
   const tabRoot = isTabRoot(pathname, chrome?.slots)
+  // 머리 액션: 모두 읽음 · 읽은 알림 보관(WP-1689) — 탭 루트·푸시 화면 두 머리에 같은 묶음.
+  const headerActions = (
+    <>
+      <MarkAllReadButton />
+      <ArchiveReadButton />
+    </>
+  )
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* '모두 읽음' 은 헤더 액션 자리에(별도 한 줄 없이, U1-7). 벨은 이 화면 자체이므로 숨긴다. */}
+      {/* '모두 읽음'·'읽은 알림 보관' 은 헤더 액션 자리에(별도 한 줄 없이, U1-7). 벨은 이 화면 자체이므로 숨긴다. */}
       {tabRoot ? (
-        <MobileListHeader title="알림" hideBell actions={<MarkAllReadButton />} />
+        <MobileListHeader title="알림" hideBell actions={headerActions} />
       ) : (
         // 뒤로가기: 히스토리가 있으면 이전 화면, 딥링크면 홈(moduleRootFor('/notifications') = '/').
-        <MobileDetailBar data-testid="notifications-header" title="알림" trailing={<MarkAllReadButton />} />
+        <MobileDetailBar data-testid="notifications-header" title="알림" trailing={headerActions} />
       )}
       <InboxList enabled hideHeader screenEmpty scrollClassName="min-h-0 flex-1 overflow-y-auto" />
     </div>

@@ -245,7 +245,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        `Removes a member or external contact from a user group (the person or contact is kept). ${TARGET_HINT}`,
+        `Removes a member or external contact from a user group (not deleted). ${TARGET_HINT}`,
       inputSchema: userGroupMemberInput,
       async handler(args) {
         const { groupId, ...who } = userGroupMemberInput.parse(args);

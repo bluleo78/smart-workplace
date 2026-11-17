@@ -1,6 +1,8 @@
 package com.workplace.notify.controller;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -23,9 +25,12 @@ import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** NotificationController 라우팅·페이로드·인증 테스트. 서비스는 Mockito. */
@@ -142,6 +147,73 @@ class NotificationControllerTest extends WebMvcSliceTestBase {
         .perform(post("/api/v1/notifications/read-all").header("Authorization", "Bearer v"))
         .andExpect(status().isNoContent());
     verify(service).markAllRead(eq(1L));
+  }
+
+  /** WP-1689: 읽은 알림 보관 — 호출자 범위로 서비스에 넘기고 실제 보관한 id 를 돌려준다(웹이 그 묶음으로 되돌리기). */
+  @Test
+  void archiveRead_returnsArchivedIds() throws Exception {
+    when(service.archiveRead(1L)).thenReturn(List.of(5L, 7L));
+    mockMvc
+        .perform(post("/api/v1/notifications/archive-read").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.archivedIds[0]").value(5))
+        .andExpect(jsonPath("$.archivedIds[1]").value(7));
+  }
+
+  /** WP-1689: 되돌리기 — 받은 id 를 호출자 범위로 넘기고 실제 되돌린 id 를 돌려준다. */
+  @Test
+  void unarchive_returnsRestoredIds() throws Exception {
+    when(service.unarchive(eq(1L), eq(List.of(5L, 7L)))).thenReturn(List.of(5L));
+    mockMvc
+        .perform(
+            post("/api/v1/notifications/unarchive")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ids\":[5,7]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.restoredIds[0]").value(5))
+        .andExpect(jsonPath("$.restoredIds.length()").value(1));
+  }
+
+  /** WP-1689: 한 번에 최대 1000개 — 1001개는 400, 1000개는 통과. */
+  @Test
+  void unarchive_rejectsMoreThan1000Ids() throws Exception {
+    String over =
+        LongStream.rangeClosed(1, 1001).mapToObj(Long::toString).collect(Collectors.joining(","));
+    mockMvc
+        .perform(
+            post("/api/v1/notifications/unarchive")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ids\":[" + over + "]}"))
+        .andExpect(status().isBadRequest());
+    verify(service, never()).unarchive(eq(1L), any());
+
+    when(service.unarchive(eq(1L), any())).thenReturn(List.of());
+    String max =
+        LongStream.rangeClosed(1, 1000).mapToObj(Long::toString).collect(Collectors.joining(","));
+    mockMvc
+        .perform(
+            post("/api/v1/notifications/unarchive")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ids\":[" + max + "]}"))
+        .andExpect(status().isOk());
+  }
+
+  /** WP-1689: 빈 배열·ids 없음·null 원소는 400. */
+  @Test
+  void unarchive_rejectsEmptyOrMissingIds() throws Exception {
+    for (String body : List.of("{\"ids\":[]}", "{}", "{\"ids\":[1,null]}")) {
+      mockMvc
+          .perform(
+              post("/api/v1/notifications/unarchive")
+                  .header("Authorization", "Bearer v")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isBadRequest());
+    }
+    verify(service, never()).unarchive(eq(1L), any());
   }
 
   @Test

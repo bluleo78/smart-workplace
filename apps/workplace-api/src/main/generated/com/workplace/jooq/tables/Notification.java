@@ -145,6 +145,11 @@ public class Notification extends TableImpl<NotificationRecord> {
      */
     public final TableField<NotificationRecord, String> AGENT_WORK_STATE = createField(DSL.name("agent_work_state"), SQLDataType.VARCHAR(20), this, "");
 
+    /**
+     * The column <code>public.notification.archived_at</code>.
+     */
+    public final TableField<NotificationRecord, OffsetDateTime> ARCHIVED_AT = createField(DSL.name("archived_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private Notification(Name alias, Table<NotificationRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -214,7 +219,7 @@ public class Notification extends TableImpl<NotificationRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_NOTIFICATION_RECIPIENT_CREATED, Indexes.IDX_NOTIFICATION_TENANT, Indexes.IDX_NOTIFICATION_UNREAD, Indexes.IDX_NOTIFICATION_WIKI_PAGE);
+        return Arrays.asList(Indexes.IDX_NOTIFICATION_READ_UNARCHIVED, Indexes.IDX_NOTIFICATION_RECIPIENT_ARCHIVED, Indexes.IDX_NOTIFICATION_RECIPIENT_CREATED, Indexes.IDX_NOTIFICATION_RECIPIENT_CREATED_ACTIVE, Indexes.IDX_NOTIFICATION_TENANT, Indexes.IDX_NOTIFICATION_UNREAD, Indexes.IDX_NOTIFICATION_UNREAD_ACTIVE, Indexes.IDX_NOTIFICATION_WIKI_PAGE);
     }
 
     @Override

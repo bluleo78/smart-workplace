@@ -542,4 +542,23 @@ public class NotificationService {
     if (n > 0) changeNotifier.read(recipientId, List.of());
     return n;
   }
+
+  /**
+   * 읽은 알림 모두 보관(WP-1689) — 보관한 id 를 돌려준다. 보관한 것이 있을 때만 읽음과 같은 resource.changed 를 본인에게 보내 다른 탭·기기의
+   * 알림 창이 바로 줄게 한다.
+   */
+  @Transactional
+  public List<Long> archiveRead(long recipientId) {
+    List<Long> ids = repo.archiveRead(recipientId, isAdmin(recipientId));
+    if (!ids.isEmpty()) changeNotifier.archiveChanged(recipientId, ids);
+    return ids;
+  }
+
+  /** 보관 되돌리기(WP-1689) — 본인 것이면서 보관된 것만 되돌리고 그 id 를 돌려준다. 되돌린 것이 있을 때만 본인에게 알린다. */
+  @Transactional
+  public List<Long> unarchive(long recipientId, List<Long> ids) {
+    List<Long> restored = repo.unarchive(recipientId, ids.stream().distinct().toList());
+    if (!restored.isEmpty()) changeNotifier.archiveChanged(recipientId, restored);
+    return restored;
+  }
 }

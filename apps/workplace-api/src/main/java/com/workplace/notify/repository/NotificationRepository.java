@@ -29,6 +29,8 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Query;
+import org.jooq.Record1;
+import org.jooq.Select;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -244,6 +246,8 @@ public class NotificationRepository {
             NOTIFICATION
                 .RECIPIENT_ID
                 .eq(recipientId)
+                // 보관한 알림은 목록에서 뺀다(WP-1689) — 보관함은 따로 본다.
+                .and(NOTIFICATION.ARCHIVED_AT.isNull())
                 .and(ISSUE.DELETED_AT.isNull())
                 .and(readableByRecipient(recipientId, recipientIsAdmin)))
         .orderBy(NOTIFICATION.CREATED_AT.desc(), NOTIFICATION.ID.desc())
@@ -310,6 +314,8 @@ public class NotificationRepository {
                     .RECIPIENT_ID
                     .eq(recipientId)
                     .and(NOTIFICATION.READ_AT.isNull())
+                    // 목록과 같이 보관한 알림은 세지 않는다(WP-1689) — ADMIN 여부와 무관하게 두 갈래 모두.
+                    .and(NOTIFICATION.ARCHIVED_AT.isNull())
                     .and(ISSUE.DELETED_AT.isNull())
                     .and(readableByRecipient(recipientId, recipientIsAdmin))));
   }
@@ -464,7 +470,7 @@ public class NotificationRepository {
         .and(PROJECT.TYPE.eq("OPEN").or(PROJECT.TYPE.ne("PERSONAL").and(isAdmin)).or(member));
   }
 
-  /** 단건 읽음 — recipient 스코프 + 이미 읽은 건 제외. 영향 행 수 반환(타인 id 면 0). */
+  /** 단건 읽음 — recipient 스코프 + 이미 읽은 건·보관된 건(WP-1689) 제외. 영향 행 수 반환(타인 id 면 0). */
   public int markRead(long recipientId, long id) {
     return dsl.update(NOTIFICATION)
         .set(NOTIFICATION.READ_AT, OffsetDateTime.now())
@@ -473,7 +479,8 @@ public class NotificationRepository {
                 .ID
                 .eq(id)
                 .and(NOTIFICATION.RECIPIENT_ID.eq(recipientId))
-                .and(NOTIFICATION.READ_AT.isNull()))
+                .and(NOTIFICATION.READ_AT.isNull())
+                .and(NOTIFICATION.ARCHIVED_AT.isNull()))
         .execute();
   }
 
@@ -486,16 +493,83 @@ public class NotificationRepository {
                 .RECIPIENT_ID
                 .eq(recipientId)
                 .and(NOTIFICATION.ISSUE_ID.eq(issueId))
-                .and(NOTIFICATION.READ_AT.isNull()))
+                .and(NOTIFICATION.READ_AT.isNull())
+                .and(NOTIFICATION.ARCHIVED_AT.isNull()))
         .returning(NOTIFICATION.ID)
         .fetch(NOTIFICATION.ID);
   }
 
-  /** 본인 안읽음 전체 읽음. 영향 행 수 반환. */
+  /** 본인 안읽음 전체 읽음 — 보관된 알림(목록에 없는 것)은 건드리지 않는다(WP-1689). 영향 행 수 반환. */
   public int markAllRead(long recipientId) {
     return dsl.update(NOTIFICATION)
         .set(NOTIFICATION.READ_AT, OffsetDateTime.now())
-        .where(NOTIFICATION.RECIPIENT_ID.eq(recipientId).and(NOTIFICATION.READ_AT.isNull()))
+        .where(
+            NOTIFICATION
+                .RECIPIENT_ID
+                .eq(recipientId)
+                .and(NOTIFICATION.READ_AT.isNull())
+                .and(NOTIFICATION.ARCHIVED_AT.isNull()))
         .execute();
+  }
+
+  /**
+   * 본인의 읽은 알림을 모두 보관(WP-1689) — 보관한 알림 id 를 돌려준다(웹이 그 묶음만 되돌리기). 읽은 알림만 보관하므로 read_at 은 바꾸지 않는다.
+   * 목록에 보이는 알림만 보관한다({@link #visibleIds}) — recipientIsAdmin 은 listRecent 와 같은 ADMIN 갈래.
+   *
+   * <p>기준 시각은 JVM 시각 하나를 보관 시각과 「이때까지 읽은 것」 경계로 함께 쓴다 — read_at 을 쓰는 markRead* 가 JVM 시각을 쓰므로 같은 시계로
+   * 비교해야 「모두 읽음」 직후의 보관이 방금 읽은 알림을 놓치지 않는다(DB now() 는 트랜잭션 시작 시각이라 같은 트랜잭션에서 읽음 → 보관하면 빠진다).
+   */
+  public List<Long> archiveRead(long recipientId, boolean recipientIsAdmin) {
+    OffsetDateTime now = OffsetDateTime.now();
+    return dsl.update(NOTIFICATION)
+        .set(NOTIFICATION.ARCHIVED_AT, now)
+        .where(
+            NOTIFICATION
+                .RECIPIENT_ID
+                .eq(recipientId)
+                // read_at <= now — NULL(안 읽음)은 비교가 참이 아니라 읽은 알림만 남는다.
+                .and(NOTIFICATION.READ_AT.le(now))
+                .and(NOTIFICATION.ARCHIVED_AT.isNull())
+                .and(NOTIFICATION.ID.in(visibleIds(recipientId, recipientIsAdmin))))
+        .returning(NOTIFICATION.ID)
+        .fetch(NOTIFICATION.ID);
+  }
+
+  /**
+   * 목록(listRecent)에 지금 보이는 본인 알림 id — 같은 보이기 조건(지운 이슈 제외, 볼 수 있는 프로젝트·일정·노트만). 보관이 목록에 없는 행까지 치워
+   * 「N개 보관」이 사용자가 본 것보다 커지지 않게 한다. 보이기 조건이 ISSUE·PROJECT LEFT JOIN 을 요구하므로 UPDATE 에 바로 걸지 않고 부분 질의로
+   * 둔다 (조건이 별칭 없는 notification 을 가리키므로 부분 질의 안의 notification 으로 묶인다).
+   */
+  private Select<Record1<Long>> visibleIds(long recipientId, boolean recipientIsAdmin) {
+    return DSL.select(NOTIFICATION.ID)
+        .from(NOTIFICATION)
+        .leftJoin(ISSUE)
+        .on(ISSUE.ID.eq(NOTIFICATION.ISSUE_ID))
+        .leftJoin(PROJECT)
+        .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+        .where(
+            NOTIFICATION
+                .RECIPIENT_ID
+                .eq(recipientId)
+                .and(ISSUE.DELETED_AT.isNull())
+                .and(readableByRecipient(recipientId, recipientIsAdmin)));
+  }
+
+  /**
+   * 보관 되돌리기(WP-1689) — 주어진 id 중 본인 것이면서 보관된 것만 목록으로 돌려놓고 그 id 를 돌려준다. 남의 id·보관 안 된 id 는 조건에서 걸러져 소리
+   * 없이 무시된다(남의 알림이 있는지 알려 주지 않게). 개수 상한은 컨트롤러가 건다.
+   */
+  public List<Long> unarchive(long recipientId, Collection<Long> ids) {
+    if (ids.isEmpty()) return List.of();
+    return dsl.update(NOTIFICATION)
+        .setNull(NOTIFICATION.ARCHIVED_AT)
+        .where(
+            NOTIFICATION
+                .RECIPIENT_ID
+                .eq(recipientId)
+                .and(NOTIFICATION.ID.in(ids))
+                .and(NOTIFICATION.ARCHIVED_AT.isNotNull()))
+        .returning(NOTIFICATION.ID)
+        .fetch(NOTIFICATION.ID);
   }
 }

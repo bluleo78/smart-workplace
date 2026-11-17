@@ -11,6 +11,7 @@ function mockClient(): NotificationToolClient {
     markNotificationRead: vi.fn().mockResolvedValue(undefined),
     markIssueNotificationsRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
+    archiveReadNotifications: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -175,5 +176,13 @@ describe('buildNotifyTools', () => {
     const c = mockClient();
     expect(await tool(c, 'mark_all_notifications_read').handler({})).toBe('ok');
     expect(c.markAllNotificationsRead).toHaveBeenCalled();
+  });
+
+  // WP-1689: 읽은 알림 모두 보관 — 실제로 보관된 개수를 돌려준다(id 는 AI 에게 쓸모가 없어 싣지 않는다).
+  it('archive_read_notifications → client.archiveReadNotifications(), 보관한 개수를 돌려준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.archiveReadNotifications).mockResolvedValueOnce([3, 5, 8]);
+    expect(JSON.parse(resultText(await tool(c, 'archive_read_notifications').handler({})))).toEqual({ archived: 3 });
+    expect(c.archiveReadNotifications).toHaveBeenCalled();
   });
 });

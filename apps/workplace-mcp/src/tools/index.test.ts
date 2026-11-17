@@ -77,6 +77,7 @@ describe('selectTools (WP-350)', () => {
 
   it('앱을 고르면 그 앱 도구만 남는다 — 여러 앱이면 합집합', () => {
     expect(names(selectTools(all, { apps: ['notify'], readOnly: false })).sort()).toEqual([
+      'archive_read_notifications',
       'get_home_overview',
       'list_notifications',
       'mark_all_notifications_read',

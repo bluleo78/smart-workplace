@@ -754,5 +754,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async markAllNotificationsRead() {
       await http.post('/notifications/read-all');
     },
+    // 읽은 알림 모두 보관(WP-1689) — 서버가 실제로 보관한 id 목록을 돌려준다.
+    async archiveReadNotifications() {
+      return (await http.post('/notifications/archive-read')).data?.archivedIds ?? [];
+    },
   };
 }

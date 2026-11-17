@@ -410,6 +410,10 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/notifications/11/read');
     await client.markAllNotificationsRead();
     expect(http.post).toHaveBeenCalledWith('/notifications/read-all');
+    // WP-1689: 읽은 알림 모두 보관 — 응답의 archivedIds 를 돌려준다.
+    http.post.mockResolvedValueOnce({ data: { archivedIds: [4, 9] } });
+    expect(await client.archiveReadNotifications()).toEqual([4, 9]);
+    expect(http.post).toHaveBeenCalledWith('/notifications/archive-read');
     // WP-720: 이슈 단위 읽음 — 이슈 키를 숫자 id 로 바꿔 부른다.
     http.get.mockResolvedValueOnce({ data: { summary: { id: 77 } } });
     await client.markIssueNotificationsRead('WP-3');

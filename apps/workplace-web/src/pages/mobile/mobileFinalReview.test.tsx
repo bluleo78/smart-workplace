@@ -76,11 +76,14 @@ test('모바일에서 AI 를 열어도 ai-mode 를 영속하지 않는다', asyn
   expect(window.localStorage.getItem('ai-mode')).toBeNull()
 })
 
-// 알림 화면 머리에 「알림」 제목이 한 번만 — 헤더와 본문이 겹쳐 두 번 보이던 문제. 모두 읽음은 남는다.
-test('알림 화면: 제목 "알림" 은 한 번만 보이고 모두 읽음은 남는다', async () => {
+// 알림 화면 머리에 「알림」 제목이 한 번만 — 헤더와 본문이 겹쳐 두 번 보이던 문제. 모두 읽음·읽은 알림 보관(WP-1689)은 머리에 남는다.
+test('알림 화면: 제목 "알림" 은 한 번만 보이고 모두 읽음·읽은 알림 보관은 머리에 남는다', async () => {
   renderPage('/notifications', {
     handlers: [http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null }))],
   })
   expect(await screen.findByTestId('inbox-mark-all', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  const header = screen.getByTestId('notifications-header')
+  expect(within(header).getByTestId('inbox-mark-all')).toBeInTheDocument()
+  expect(within(header).getByTestId('inbox-archive-read')).toHaveTextContent('읽은 알림 보관')
   expect(screen.getAllByText('알림', { exact: true })).toHaveLength(1)
 })

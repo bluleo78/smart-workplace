@@ -130,7 +130,7 @@ export const restoreDriveItemInput = z
 
 // WP-369: 전송 도구 설명. 정의 크기 상한(15,000 근사 토큰) 안에 맞추려고 실패·재시도 절차는 응답(note·howTo)에도 싣는다.
 const DOWNLOAD_LINK_DESCRIPTION =
-  'Creates a download link for a drive file, valid 10 minutes with no login: show it only to the user. Works once; a failed or ' +
+  'Creates a download link for a drive file, valid 10 minutes, no login: show it only to the user. Works once; a failed or ' +
   'interrupted download needs a new link. Shell: curl -o "<name>" "<downloadUrl>". To read content, use read_file.';
 /**
  * create_drive_file 설명의 content 모드 부분(대상 고르기·텍스트 쓰기). AI Chat 판(ai-agent)은 업로드 링크를 쓸 수 없어 이 부분만 한국어 머리말 뒤에
@@ -190,8 +190,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        'Searches a drive space for folders and files by name substring: {folders, files, truncated?}, up to limit each. truncated:true means ' +
-        'more may exist and there is no next page: refine q, or say the result is partial.',
+        'Searches a drive space for folders and files by name substring: {folders, files, truncated?}, up to limit each. truncated:true = ' +
+        'more may exist, no next page: refine q, or say the result is partial.',
       inputSchema: searchDriveInput,
       async handler(args) {
         const { spaceId, q, limit } = searchDriveInput.parse(args);

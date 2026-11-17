@@ -9,8 +9,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 /**
- * 알림 읽음 처리 → {@link ResourceChangedEvent} 발행 헬퍼 (WP-64). 다른 탭·기기의 안읽음 배지와 목록을 맞추기 위해 수신자 본인에게만 보낸다.
- * 신규 알림은 기존 notify.created 가 담당한다. 반드시 쓰기 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT).
+ * 알림 읽음·보관(WP-1689) 처리 → {@link ResourceChangedEvent} 발행 헬퍼 (WP-64). 다른 탭·기기의 안읽음 배지와 목록을 맞추기 위해
+ * 수신자 본인에게만 보낸다. 신규 알림은 기존 notify.created 가 담당한다. 반드시 쓰기 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT).
  */
 @Component
 @RequiredArgsConstructor
@@ -23,6 +23,19 @@ public class NotificationChangeNotifier {
 
   /** 읽음 처리 — ids 는 읽음 처리한 알림 id(전체 읽음이면 알 수 없어 빈 목록). */
   public void read(long recipientId, Collection<Long> ids) {
+    changed(recipientId, ids);
+  }
+
+  /**
+   * 보관·되돌리기(WP-1689) — ids 는 보관(또는 되돌린) 알림 id. 읽음과 같은 이벤트(notification UPDATED)를 써서 웹의 기존 무효화 경로(알림
+   * 목록·안 읽은 수)를 그대로 타게 한다.
+   */
+  public void archiveChanged(long recipientId, Collection<Long> ids) {
+    changed(recipientId, ids);
+  }
+
+  /** 수신자 본인에게만 notification UPDATED 를 낸다. */
+  private void changed(long recipientId, Collection<Long> ids) {
     publisher.publishEvent(
         ResourceChangedEvent.of(
             RESOURCE_NOTIFICATION,
