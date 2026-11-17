@@ -115,7 +115,10 @@ class ImapFolderClassifierTest {
 
     Map<String, ServerFolder> kept = byKey(ImapFolderClassifier.classify(entries));
 
-    assertThat(kept).containsOnlyKeys("Receipts", "Receipts/2025");
+    // [Google Mail]/Bin(\Trash)은 휴지통 역할로 하나만 남는다(WP-1681). 그 밖의 Gmail 묶음은 숨김.
+    assertThat(kept).containsOnlyKeys("Receipts", "Receipts/2025", "[Google Mail]/Bin");
+    assertThat(kept.get("[Google Mail]/Bin").role()).isEqualTo(FolderRole.TRASH);
+    assertThat(kept.get("[Google Mail]/Bin").parentKey()).isNull();
     assertThat(kept.get("Receipts").role()).isEqualTo(FolderRole.USER);
     assertThat(kept.get("Receipts").parentKey()).isNull();
     assertThat(kept.get("Receipts/2025").parentKey()).isEqualTo("Receipts");
@@ -138,14 +141,15 @@ class ImapFolderClassifierTest {
     Map<String, ServerFolder> kept = byKey(ImapFolderClassifier.classify(entries));
 
     assertThat(kept)
-        .containsOnlyKeys(
-            "INBOX.팀 공지", "Archive", "Archive.2025 프로젝트", "Trash.복구할 것", "고객사", "고객사.A사");
+        .containsOnlyKeys("INBOX.팀 공지", "Archive", "Archive.2025 프로젝트", "Trash", "고객사", "고객사.A사");
     assertThat(kept.get("INBOX.팀 공지").parentKey()).isNull();
     assertThat(kept.get("INBOX.팀 공지").displayName()).isEqualTo("팀 공지");
     assertThat(kept.get("Archive").role()).isEqualTo(FolderRole.ARCHIVE);
     assertThat(kept.get("Archive.2025 프로젝트").role()).isEqualTo(FolderRole.USER);
     assertThat(kept.get("Archive.2025 프로젝트").parentKey()).isEqualTo("Archive");
-    assertThat(kept.get("Trash.복구할 것").parentKey()).isNull();
+    // 휴지통은 휴지통 역할 하나로, 그 하위 폴더는 숨긴다(WP-1681 — Graph 의 지운 편지함 하위 숨김과 같은 규칙).
+    assertThat(kept.get("Trash").role()).isEqualTo(FolderRole.TRASH);
+    assertThat(kept.get("Trash").parentKey()).isNull();
     assertThat(kept.get("고객사.A사").parentKey()).isEqualTo("고객사");
     assertThat(kept.values()).allMatch(ServerFolder::selectable);
     assertThat(kept.values()).allMatch(f -> f.unread() == null && f.total() == null);
@@ -203,5 +207,61 @@ class ImapFolderClassifierTest {
     assertThat(
             ImapFolderClassifier.findTrash(List.of(box("고객사/Trash", '/'), noselect("Trash", '/'))))
         .isNull();
+  }
+
+  /** WP-1681: 「삭제」가 옮기는 휴지통(findTrash)만 휴지통 역할로 목록에 남고, 스팸은 계속 숨긴다. */
+  @Test
+  void classify_trashChosenByFindTrash_isTrashRole_spamStaysHidden() {
+    List<Entry> entries =
+        List.of(
+            box("INBOX", '/'),
+            box("Trash", '/', "\\HasNoChildren", "\\Trash"),
+            box("Junk", '/', "\\Junk"));
+
+    List<ServerFolder> kept = ImapFolderClassifier.classify(entries);
+
+    assertThat(kept)
+        .singleElement()
+        .satisfies(
+            f -> {
+              assertThat(f.key()).isEqualTo("Trash");
+              assertThat(f.role()).isEqualTo(FolderRole.TRASH);
+              assertThat(f.selectable()).isTrue();
+              assertThat(f.parentKey()).isNull();
+            });
+  }
+
+  /** WP-1681: 휴지통처럼 보이는 이름이 둘이면 findTrash 가 고른 하나만 휴지통이고 다른 하나는 목록에 없다. */
+  @Test
+  void classify_twoTrashLikeNames_onlyFindTrashChoiceIsTrash() {
+    List<Entry> entries = List.of(box("INBOX", '/'), box("Deleted Items", '/'), box("Trash", '/'));
+    String chosen = ImapFolderClassifier.findTrash(entries);
+
+    List<ServerFolder> kept = ImapFolderClassifier.classify(entries);
+
+    assertThat(chosen).isEqualTo("Trash");
+    assertThat(kept)
+        .singleElement()
+        .satisfies(
+            f -> {
+              assertThat(f.key()).isEqualTo(chosen);
+              assertThat(f.role()).isEqualTo(FolderRole.TRASH);
+            });
+  }
+
+  /**
+   * WP-1681: 이름 판별로는 사용자 메일함인 「Bin」도 findTrash 가 고르면 사용자 메일함이 아니라 휴지통 하나로만 나온다. 휴지통이 없으면 휴지통 역할도
+   * 없다.
+   */
+  @Test
+  void classify_userKindTrashName_becomesTrashOnly_noTrashMeansNoTrashRole() {
+    Map<String, ServerFolder> kept =
+        byKey(ImapFolderClassifier.classify(List.of(box("INBOX", '/'), box("Bin", '/'))));
+    assertThat(kept).containsOnlyKeys("Bin");
+    assertThat(kept.get("Bin").role()).isEqualTo(FolderRole.TRASH);
+
+    assertThat(ImapFolderClassifier.classify(List.of(box("INBOX", '/'), box("고객사", '/'))))
+        .extracting(ServerFolder::role)
+        .containsExactly(FolderRole.USER);
   }
 }

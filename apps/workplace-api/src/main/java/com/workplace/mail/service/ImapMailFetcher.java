@@ -73,6 +73,12 @@ public class ImapMailFetcher implements MailFetcher {
   /** WP-959: 서버 삭제 대조를 한 번에 보낼 UID 수 — 명령 길이 한도를 넘지 않게 나눈다. */
   static final int REMOVAL_CHECK_CHUNK = 1000;
 
+  /**
+   * 휴지통 첫 동기화 상한(WP-1681) — 운영은 {@link MailFetcher#TRASH_MAX_MESSAGES} 고정. 테스트가 작은 값으로 바꿔 자르기를 확인할
+   * 수 있게 final 이 아닌 필드로 둔다(설정 키로 열 이유는 없다).
+   */
+  private int trashMaxMessages = TRASH_MAX_MESSAGES;
+
   private final EmailFolderRepository folderRepo;
   private final EmailMessageRepository messageRepo;
   private final EncryptionService encryption;
@@ -132,7 +138,7 @@ public class ImapMailFetcher implements MailFetcher {
           recordFirstSync(
               folder.id(),
               since,
-              fetchMetadata(account, accountId, password, folder, INBOX, since));
+              fetchMetadata(account, accountId, password, folder, INBOX, since, 0, false));
     } catch (MessagingException e) {
       throw new MailSyncException("받은편지함 동기화에 실패했습니다", e);
     }
@@ -181,7 +187,9 @@ public class ImapMailFetcher implements MailFetcher {
     }
     Instant since = Instant.now().minus(INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
     return recordFirstSync(
-        state.id(), since, fetchMetadata(account, accountId, password, state, name, since));
+        state.id(),
+        since,
+        fetchMetadata(account, accountId, password, state, name, since, 0, false));
   }
 
   /**
@@ -244,13 +252,25 @@ public class ImapMailFetcher implements MailFetcher {
         }
         // UIDVALIDITY 가 바뀌어 저장된 UID 를 믿을 수 없다 — 아래 일반 동기화가 폐기·다시 받기를 맡는다.
       }
-      // 경계는 초 단위로 맞춰 둔다(Graph 필터 값과 같은 표현 — 저장값으로 요청을 재현할 수 있게).
+      // 경계는 초 단위로 맞춰 둔다(Graph 필터 값과 같은 표현 — 저장값으로 요청을 재현할 수 있게). WP-1681: 휴지통은 30일·최근 상한까지만.
       Instant since =
           Instant.now()
-              .minus(FOLDER_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS)
+              .minus(MailFetcher.firstSyncWindowDays(folder), ChronoUnit.DAYS)
               .truncatedTo(ChronoUnit.SECONDS);
+      int firstSyncCap = MailFetcher.isTrash(folder) ? trashMaxMessages : 0;
+      // WP-1681: 가져오기 전에 「삭제」로 COPYUID 의 UIDVALIDITY 만 적힌 휴지통(경계 synced_since 없음)은 아직 첫 동기화다.
+      // 증분(커서 0 부터 전부)으로 받으면 30일·상한을 넘는다. 휴지통에만 적용한다(UIDVALIDITY 를 먼저 적는 경로는 휴지통뿐).
+      boolean forceFirstSync = MailFetcher.isTrash(folder) && folder.syncedSince() == null;
       FetchOutcome outcome =
-          fetchMetadata(account, accountId, password, folder.syncState(), folder.name(), since);
+          fetchMetadata(
+              account,
+              accountId,
+              password,
+              folder.syncState(),
+              folder.name(),
+              since,
+              firstSyncCap,
+              forceFirstSync);
       OffsetDateTime newSince = outcome.firstSync() ? since.atOffset(ZoneOffset.UTC) : null;
       txTemplate.executeWithoutResult(
           status -> folderRepo.markFolderSynced(folder.id(), newSince, OffsetDateTime.now()));
@@ -379,6 +399,10 @@ public class ImapMailFetcher implements MailFetcher {
    *
    * <p>WP-959: 같은 세션에서 로컬에 적재된 UID 가 서버에 아직 있는지 대조하고(1단계), 다른 앱에서 옮겼거나 지워 서버에 없는 메일을 로컬에서도
    * 지운다(2단계). 증분 동기화는 새 UID 만 받으므로 이 대조가 없으면 사라진 메일이 받은편지함에 영원히 남는다. 실패는 경고 로그만 남긴다.
+   *
+   * @param firstSyncCap 첫 동기화에서 넣을 최대 메일 수(가장 최근에 들어온 것부터, WP-1681 휴지통). 0 이면 상한 없음
+   * @param forceFirstSync UIDVALIDITY 가 기록돼 있어도 첫 동기화(기간 검색·상한)로 받는다(WP-1681 — 「삭제」가 먼저 UIDVALIDITY
+   *     를 적은 휴지통). 기록된 값이 서버와 다르면 지금처럼 폐기·다시 받기
    */
   private FetchOutcome fetchMetadata(
       EmailAccountResponse account,
@@ -386,7 +410,9 @@ public class ImapMailFetcher implements MailFetcher {
       String password,
       EmailFolderRepository.FolderSyncState folder,
       String folderName,
-      Instant initialSince)
+      Instant initialSince,
+      int firstSyncCap,
+      boolean forceFirstSync)
       throws MessagingException {
     // WP-148: 읽음 재조회 대상(로컬 기존 메일 중 최근 범위)을 IMAP 세션을 열기 전에 짧은 트랜잭션으로 고른다. 첫 동기화면 대상 없음.
     List<ImapSeenState> seenCandidates = loadSeenCandidates(accountId, folder);
@@ -412,9 +438,9 @@ public class ImapMailFetcher implements MailFetcher {
 
       uidValidity = uidFolder.getUIDValidity();
       long lastSeenUid = folder.lastSeenUid();
-      firstSync = folder.uidValidity() == null;
+      firstSync = folder.uidValidity() == null || forceFirstSync;
       // UIDVALIDITY 변경 → UID 재사용 가능 → 기존 메시지 폐기(2단계) + 첫 동기화처럼 재적재.
-      if (!firstSync && folder.uidValidity() != uidValidity) {
+      if (folder.uidValidity() != null && folder.uidValidity() != uidValidity) {
         uidValidityChanged = true;
         lastSeenUid = 0;
         firstSync = true;
@@ -422,7 +448,7 @@ public class ImapMailFetcher implements MailFetcher {
 
       Message[] messages =
           firstSync
-              ? searchRecent(inbox, initialSince)
+              ? newest(searchRecent(inbox, initialSince), firstSyncCap)
               : uidFolder.getMessagesByUID(lastSeenUid + 1, UIDFolder.LASTUID);
       prefetchMetadata(inbox, messages);
 
@@ -642,6 +668,17 @@ public class ImapMailFetcher implements MailFetcher {
       log.warn("IMAP UIDNEXT 조회 실패(커서는 창 안 최대 UID 유지): {}", e.toString());
       return 0;
     }
+  }
+
+  /**
+   * 첫 동기화 SEARCH 결과에서 가장 최근에 들어온(메시지 번호·UID 가 큰) cap 개만 남긴다(WP-1681 휴지통 상한). SEARCH 결과는 메시지 번호
+   * 오름차순이라 뒤쪽을 자른다. cap 이 0 이하이면 그대로. 버린 메일은 첫 동기화 뒤 커서가 UIDNEXT−1 로 올라가 증분으로도 다시 오지 않는다.
+   */
+  private static Message[] newest(Message[] messages, int cap) {
+    if (cap <= 0 || messages.length <= cap) {
+      return messages;
+    }
+    return Arrays.copyOfRange(messages, messages.length - cap, messages.length);
   }
 
   /** since 이후 수신 메시지 검색(첫 동기화 범위 한정 — 받은편지함 {@value #INITIAL_WINDOW_DAYS}일, 서버 메일함 90일). */

@@ -6,9 +6,10 @@ import { cn } from '@/lib/utils';
 
 import { ComponentChips } from '../../../components/components/ComponentChip';
 import { AssigneeAvatar } from '../../../components/users/UserAvatar';
+import { issueEpicOf } from '../../../lib/epicGroup';
 import { formatListDueDate } from '../../../lib/formatters';
 import { closedInfo } from '../../../lib/issueClosedInfo';
-import { isEpicParent, ISSUE_PRIORITY_LABEL } from '../../../lib/issueGrouping';
+import { ISSUE_PRIORITY_LABEL } from '../../../lib/issueGrouping';
 import { isOverdue } from '../../../lib/issueOverdue';
 import { labelFg } from '../../../lib/labelColors';
 import type { IssueResponse } from '../../../types/issue';
@@ -35,10 +36,10 @@ export function IssueMobileMeta({
   selected?: boolean;
   className?: string;
 }) {
-  // ◆ 에픽 메타 — 부모가 에픽일 때만. 특정 에픽 필터·에픽 그룹 안에선 중복이라 생략.
-  const epic = !hideEpic && it.parent && isEpicParent(it) ? it.parent : null;
+  // ◆ 에픽 메타 — 이 이슈의 에픽(직계 부모가 에픽이거나, 하위 태스크면 스토리의 에픽, WP-1692). 특정 에픽 필터·에픽 그룹 안에선 중복이라 생략.
+  const epic = !hideEpic ? issueEpicOf(it) : null;
   // 에픽 색은 ParentChip 과 같은 유형 색 토큰(하드코딩 색 금지). 배경 없는 글자라 칩용 text 가 아닌 fg 톤.
-  const epicColor = epic ? labelFg(epic.type.colorToken) : '';
+  const epicColor = epic ? labelFg(epic.type?.colorToken) : '';
   const firstLabel = it.labels[0];
   // 메타 꼬리 조각(높음·마감·하위·라벨) — 한 span 안에 인라인으로 이어 붙여, 넘치면 끝에서 「…」 로 말줄임된다.
   const tail: ReactNode[] = [];

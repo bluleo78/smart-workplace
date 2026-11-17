@@ -1,4 +1,5 @@
-import { Archive, Check, ChevronDown, FilePen, Inbox, Mail, PenSquare, Send, Settings, Tag } from 'lucide-react'
+import { Archive, Check, ChevronDown, FilePen, Inbox, Mail, PenSquare, Send, Settings, Tag, Trash2 } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -10,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { hasOpenMark } from '@/lib/historyParam'
+import { buildMailFolderTree, TRASH_LABEL } from '@/lib/mailFolders'
 import { mailClassificationActive, mailViewHref, resolveMailView } from '@/lib/mailView'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
@@ -23,7 +25,7 @@ import { MailFolderTree } from './MailFolderTree'
 
 /**
  * 메일 모듈 2차 사이드바 — 공유 셸(타이틀 헤더) 보존 + 계정 스위처 + 편지쓰기
- * + 폴더 nav(받은편지함 + 하위 분류 + 보낸편지함 + 임시보관함 + 보관) + 내 메일함 트리(WP-961) + 회신필요.
+ * + 폴더 nav(받은편지함 + 하위 분류 + 보낸편지함 + 임시보관함 + 보관 + 휴지통(WP-1681)) + 내 메일함 트리(WP-961) + 회신필요.
  * 폴더/계정 상태는 URL(:accountId, ?folder, ?box) 단일 소스. accountId 미지정 시 첫 계정을 현재로 본다.
  */
 export function MailSidebar() {
@@ -44,7 +46,8 @@ export function MailSidebar() {
   const { data: draftCount } = useMailDraftCount(current?.id)
   // WP-961 서버 메일함(보관·내 메일함) — 보관은 기본 메일함 줄, 나머지는 「내 메일함」 트리.
   const { data: folders } = useMailFolders(current?.id)
-  const archive = folders?.find((f) => f.role === 'ARCHIVE') ?? null
+  // WP-1681 서버 휴지통 — 「보관」 아래 기본 메일함 줄. 서버가 목록에 줄 때만 보인다. 보관·휴지통은 트리 빌더가 이미 가려 주므로 거기서 받는다.
+  const { archive, trash } = useMemo(() => buildMailFolderTree(folders ?? []), [folders])
   // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 페이지와 같은 판정이라 활성 표시가 어긋나지 않는다(WP-218).
   const location = useLocation()
   // 분류 상태는 메일함 화면과 같은 판정 — 계수가 오기 전에는 계정 목록 값(WP-1674).
@@ -215,6 +218,18 @@ export function MailSidebar() {
                 >
                   <Archive className="h-4 w-4 shrink-0" /> 보관
                   {count(archive.unreadCount ?? undefined, 'mail-count-archive', view.folderId === archive.id)}
+                </Link>
+              )}
+              {/* WP-1681 휴지통 — 이름은 서버 이름(Trash·Deleted Items 등)과 무관하게 「휴지통」. 지운 메일이라 안 읽은 수는 보이지 않는다.
+                  안 읽음 거르기도 이어 가지 않는다 — 지운 메일을 찾으러 가는 곳이라 늘 거르지 않은 목록으로 연다. */}
+              {trash && (
+                <Link
+                  to={mailViewHref(current!.id, { folderId: trash.id }, false)}
+                  data-testid="mail-folder-trash"
+                  aria-current={view.folderId === trash.id ? 'page' : undefined}
+                  className={folderClass(view.folderId === trash.id)}
+                >
+                  <Trash2 className="h-4 w-4 shrink-0" /> {TRASH_LABEL}
                 </Link>
               )}
             </nav>

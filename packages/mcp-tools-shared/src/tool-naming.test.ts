@@ -19,8 +19,9 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  *   상한 맞추려 줄였던 설명의 뜻 복원으로 상향했다(2026-11-11 사용자 승인).
  * 17,400 → 17,550: 2026-11-12 WP-1523 본문을 쓰는 도구 9종(create_issue·update_issue·add_comment·update_comment·add_issue_chat·
  *   create_wiki_page·update_wiki_page·add_channel_message·update_channel_message)의 링크 규칙 한 마디(link-rule.ts)로 상향했다(2026-11-12 dh.yang 승인).
+ * 17,550 → 17,700: 2026-11-17 WP-1681 휴지통 메일 되살리기 도구 restore_mail 과 list_mail folder 설명(TRASH)으로 상향했다(2026-11-17 dh.yang 승인).
  */
-const DEFINITION_TOKEN_CAP = 17_550;
+const DEFINITION_TOKEN_CAP = 17_700;
 /**
  * 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인).
  * 18 → 19: WP-719 add_issue_chat(2026-10-27 사용자 승인).

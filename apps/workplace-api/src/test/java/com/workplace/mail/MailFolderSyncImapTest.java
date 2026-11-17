@@ -1,18 +1,26 @@
 package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
+import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.icegreen.greenmail.store.MailFolder;
 import com.icegreen.greenmail.user.GreenMailUser;
 import com.workplace.global.security.EncryptionService;
+import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailFolderSyncResult;
+import com.workplace.mail.dto.MailMoveRequest;
 import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.dto.SeenSyncItem;
 import com.workplace.mail.exception.EmailFolderNotFoundException;
@@ -21,12 +29,15 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.ImapMailFetcher;
 import com.workplace.mail.service.ImapReadSyncer;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailReadSyncer;
+import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.folder.MailFolderSyncGuard;
+import com.workplace.mail.service.move.MailMoveService;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
@@ -45,6 +56,9 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -63,6 +77,9 @@ class MailFolderSyncImapTest extends MailSyncTestSupport {
 
   private static final String PROJECTS = "Projects";
 
+  /** 서버 휴지통 이름(WP-1681 — GreenMail 은 SPECIAL-USE 가 없어 이름으로 고른다). */
+  private static final String TRASH = "Trash";
+
   @Autowired DSLContext dsl;
   @Autowired MailSyncService syncService;
   @Autowired MailFolderService folderService;
@@ -76,6 +93,17 @@ class MailFolderSyncImapTest extends MailSyncTestSupport {
 
   @Autowired AiAgentMailClient mailClient;
 
+  /** 선제 요약(목) — 휴지통 동기화가 요약을 돌리지 않는지 본다(WP-1681). */
+  @Autowired MailSummaryBackfillService summaryBackfill;
+
+  @Autowired ImapMailFetcher imapMailFetcher;
+
+  /** 휴지통으로 「삭제」(WP-1681) — 가져오기 전 휴지통에 UIDVALIDITY 를 먼저 적는 경로를 만든다. */
+  @Autowired MailMoveService moveService;
+
+  @Autowired MockMvc mvc;
+  @Autowired JwtTokenProvider jwtTokenProvider;
+
   /** 계정·서버 폴더를 만들고 폴더 목록을 갱신(받은편지함 동기화)해 「Projects」 폴더 id 를 돌려준다. */
   private long[] setup() throws Exception {
     long user = TestFixtures.createHuman(dsl);
@@ -87,7 +115,13 @@ class MailFolderSyncImapTest extends MailSyncTestSupport {
 
   /** 서버 「Projects」에 수신 시각(INTERNALDATE)을 정해 메일을 넣는다. */
   private void appendDaysAgo(String subject, int daysAgo, boolean seen) throws Exception {
-    MailFolder folder = greenMail.getManagers().getImapHostManager().getFolder(boxUser(), PROJECTS);
+    appendDaysAgo(PROJECTS, subject, daysAgo, seen);
+  }
+
+  /** 서버 메일함 하나에 수신 시각(INTERNALDATE)을 정해 메일을 넣는다. */
+  private void appendDaysAgo(String box, String subject, int daysAgo, boolean seen)
+      throws Exception {
+    MailFolder folder = greenMail.getManagers().getImapHostManager().getFolder(boxUser(), box);
     Flags flags = new Flags();
     if (seen) {
       flags.add(Flags.Flag.SEEN);
@@ -366,6 +400,122 @@ class MailFolderSyncImapTest extends MailSyncTestSupport {
     EmailMessageDetail detail = messageService.get(s[0], id, false);
 
     assertThat(detail.bodyText()).contains("폴더 본문");
+  }
+
+  /** 계정·서버 휴지통을 만들고 폴더 목록을 갱신해 휴지통 행 id 를 돌려준다(WP-1681). [user, account, trashFolderId] */
+  private long[] setupTrash() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    greenMail.getManagers().getImapHostManager().createMailbox(boxUser(), TRASH);
+    syncService.sync(user, accountId);
+    long trash = folderRepo.findTrash(accountId).orElseThrow().id();
+    return new long[] {user, accountId, trash};
+  }
+
+  /** WP-1681: 휴지통 첫 동기화는 최근 30일만 받고, 요약·분류(AI)를 돌리지 않는다. */
+  @Test
+  void trashFirstSync_onlyLast30Days_noSummaryNoClassify() throws Exception {
+    long[] s = setupTrash();
+    appendDaysAgo(TRASH, "40일 전", 40, false);
+    appendDaysAgo(TRASH, "5일 전", 5, false);
+    clearInvocations(summaryBackfill, mailClient);
+
+    MailFolderSyncResult r = folderService.syncFolder(s[0], s[1], s[2], false);
+
+    assertThat(r.saved()).isEqualTo(1);
+    assertThat(r.syncedSince())
+        .isBetween(
+            Instant.now().minus(30, ChronoUnit.DAYS).minus(Duration.ofMinutes(1)),
+            Instant.now().minus(30, ChronoUnit.DAYS));
+    assertThat(subjects(messageService.list(s[0], s[1], null, s[2], null, false, null, false, 50)))
+        .containsExactly("5일 전");
+    verifyNoInteractions(summaryBackfill, mailClient);
+  }
+
+  /** WP-1681: 휴지통 첫 동기화는 상한(운영 500)만큼 가장 최근에 들어온 메일만 넣고, 뒤의 증분이 잘린 메일을 다시 끌어오지 않는다. */
+  @Test
+  void trashFirstSync_capsAt500Newest() throws Exception {
+    long[] s = setupTrash();
+    for (int i = 5; i >= 1; i--) {
+      appendDaysAgo(TRASH, i + "일 전", i, false);
+    }
+    ImapMailFetcher target = AopTestUtils.getTargetObject(imapMailFetcher);
+    ReflectionTestUtils.setField(target, "trashMaxMessages", 3);
+    try {
+      MailFolderSyncResult r = folderService.syncFolder(s[0], s[1], s[2], false);
+
+      assertThat(r.saved()).isEqualTo(3);
+      assertThat(
+              subjects(messageService.list(s[0], s[1], null, s[2], null, false, null, false, 50)))
+          .containsExactlyInAnyOrder("3일 전", "2일 전", "1일 전");
+      assertThat(folderService.syncFolder(s[0], s[1], s[2], false).saved()).isZero();
+    } finally {
+      ReflectionTestUtils.setField(target, "trashMaxMessages", ImapMailFetcher.TRASH_MAX_MESSAGES);
+    }
+  }
+
+  /**
+   * WP-1681: 가져온 적 없는 휴지통으로 「삭제」하면 COPYUID 의 UIDVALIDITY 만 휴지통 행에 적힌다. 그 뒤 첫 휴지통 동기화도 증분(UID 1 부터
+   * 전부)이 아니라 첫 동기화로 돌아 30일 기간과 상한을 지키고, 옮겨 둔 행은 한 번만 남는다.
+   */
+  @Test
+  void trashFirstSync_afterDeleteAdoptedUidValidity_keepsWindowAndCap() throws Exception {
+    long[] s = setupTrash();
+    appendDaysAgo(TRASH, "40일 전", 40, false);
+    for (int i = 3; i >= 1; i--) {
+      appendDaysAgo(TRASH, i + "일 전", i, false);
+    }
+    appendDaysAgo("INBOX", "지울 메일", 0, false);
+    syncService.sync(s[0], s[1]);
+    long id =
+        idOf(messageService.list(s[0], s[1], "INBOX", null, null, false, null, false, 50), "지울 메일");
+    assertThat(moveService.move(s[0], s[1], trashReq(id)).results().get(0).ok()).isTrue();
+    assertThat(folderRepo.findTrash(s[1]).orElseThrow().uidValidity()).isNotNull();
+    assertThat(folderRepo.findTrash(s[1]).orElseThrow().syncedSince()).isNull();
+    ImapMailFetcher target = AopTestUtils.getTargetObject(imapMailFetcher);
+    ReflectionTestUtils.setField(target, "trashMaxMessages", 3);
+    try {
+      folderService.syncFolder(s[0], s[1], s[2], false);
+
+      // 40일 전 메일은 들어오지 않고, 가장 최근 3통만(옮겨 둔 행 포함) — 옮겨 둔 행은 한 번만
+      assertThat(
+              subjects(messageService.list(s[0], s[1], null, s[2], null, false, null, false, 50)))
+          .containsExactlyInAnyOrder("지울 메일", "1일 전", "2일 전");
+      assertThat(
+              dsl.fetchCount(
+                  EMAIL_MESSAGE,
+                  EMAIL_MESSAGE.ACCOUNT_ID.eq(s[1]).and(EMAIL_MESSAGE.FOLDER_ID.eq(s[2]))))
+          .isEqualTo(3);
+      assertThat(
+              idOf(
+                  messageService.list(s[0], s[1], null, s[2], null, false, null, false, 50),
+                  "지울 메일"))
+          .isEqualTo(id);
+      assertThat(folderRepo.findTrash(s[1]).orElseThrow().syncedSince()).isNotNull();
+    } finally {
+      ReflectionTestUtils.setField(target, "trashMaxMessages", ImapMailFetcher.TRASH_MAX_MESSAGES);
+    }
+  }
+
+  /** 휴지통으로 「삭제」하는 요청(WP-1681). */
+  private static MailMoveRequest trashReq(long id) {
+    return new MailMoveRequest(
+        List.of(id), new MailMoveRequest.Target(MailMoveRequest.Kind.TRASH, null));
+  }
+
+  /** WP-1681: 휴지통은 「더 가져오기」를 받지 않는다 — 400 과 안내 문구. */
+  @Test
+  void trashOlder_is400() throws Exception {
+    long[] s = setupTrash();
+    folderService.syncFolder(s[0], s[1], s[2], false);
+    String token = jwtTokenProvider.generateAccessToken(s[0], "user-" + s[0]);
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/folders/{f}/sync", s[1], s[2])
+                .param("older", "true")
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("휴지통은 최근 30일만 가져옵니다"));
   }
 
   // ---- 헬퍼 ----

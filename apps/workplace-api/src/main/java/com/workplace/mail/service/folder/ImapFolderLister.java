@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 /**
  * IMAP 서버 메일함 목록 조회(WP-960). {@code LIST "" "*"} 한 번으로 전체 폴더와 속성·구분자를 받고, 역할 판별은 {@link
  * ImapFolderClassifier} 에 맡긴 뒤 저장 대상 중 메일을 담는 폴더에만 STATUS(MESSAGES UNSEEN)를 보낸다 — 시스템 폴더에는 보내지 않는다.
+ * 휴지통(WP-1681, 「삭제」가 옮기는 폴더 하나)은 저장 대상이라 STATUS 를 받는다.
  *
  * <p>비밀번호 조회만 짧은 읽기 트랜잭션({@link MailAccountCredentials})이고 IMAP 세션은 트랜잭션 밖에서 연다. 자격증명은 로그에 남기지 않는다.
  */

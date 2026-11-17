@@ -354,7 +354,7 @@ export const RECURRING_RUN_WRITE_TOOLS: readonly string[] = [
   // 캘린더
   'create_event', 'update_event', 'rsvp_event',
   // 메일 — 발송은 RECURRING_RUN_DIRECT_ACTIONS 의 send_mail
-  'sync_mail', 'mark_mail_read', 'update_mail_category', 'draft_mail_reply', 'draft_issue_from_mail', 'create_issue_from_mail',
+  'sync_mail', 'mark_mail_read', 'restore_mail', 'update_mail_category', 'draft_mail_reply', 'draft_issue_from_mail', 'create_issue_from_mail',
   // 연락처·사용자 그룹
   'create_external_contact', 'update_external_contact', 'add_contact_favorite', 'remove_contact_favorite',
   'create_user_group', 'update_user_group', 'add_user_group_member', 'remove_user_group_member',
@@ -1432,7 +1432,7 @@ export function buildTools(
       // WP-421: 첨부용 텍스트 파일 올려 두기(content 모드만) — 쓰기라 라우터가 아니라 issue-agent·messaging-agent 에만 둔다(wiki-agent 에는 아직 싣지 않는다 — WP-1545 부터 노트도 텍스트 파일 첨부를 받으므로 필요해지면 더한다).
       sharedTool('upload_file'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
-      sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
+      sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'), sharedTool('restore_mail'), // WP-1681: 휴지통 메일 되살리기(되돌릴 수 있는 쓰기)
       // WP-1341: 내 메일 분류 바꾸기 — 되돌릴 수 있는 쓰기라 mail-agent 가 직접 실행한다(라우터 목록에는 두지 않는다). 교정 기억은 라우터가 메모리 도구로 남긴다.
       sharedTool('update_mail_category'),
       buildReadChatAttachmentTool(client, agentId, homeSessionId, imageInput), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)

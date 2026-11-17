@@ -45,7 +45,12 @@ describe('buildMailFolderTree', () => {
     expect(tree.map((n) => n.folder.id)).toEqual([2, 3])
   })
   it('보관이 없으면 null, 빈 목록이면 빈 트리', () => {
-    expect(buildMailFolderTree([])).toEqual({ archive: null, tree: [] })
+    expect(buildMailFolderTree([])).toEqual({ archive: null, trash: null, tree: [] })
+  })
+  it('휴지통(TRASH)은 trash 로 따로 빼고 트리에 넣지 않는다(WP-1681)', () => {
+    const { trash, tree } = buildMailFolderTree([f({ id: 1, role: 'ARCHIVE' }), f({ id: 7, role: 'TRASH', displayName: 'Deleted Items' }), f({ id: 2 })])
+    expect(trash?.id).toBe(7)
+    expect(visibleFolderRows(tree, new Set()).map((r) => r.folder.id)).toEqual([2])
   })
   it('selectable=false 잎은 빼고, 하위가 있으면 묶음 노드로 남긴다', () => {
     const { tree } = buildMailFolderTree([f({ id: 2, selectable: false }), f({ id: 3, selectable: false }), f({ id: 4, parentId: 3 })])
@@ -73,10 +78,14 @@ describe('visibleFolderRows', () => {
 })
 
 describe('경로·조상·들여쓰기·기간', () => {
-  const list = [f({ id: 1, role: 'ARCHIVE', displayName: 'Archive' }), f({ id: 2, displayName: '회사' }), f({ id: 3, parentId: 2, displayName: '견적' })]
-  it('folderNamePath — 최상위부터, 보관은 「보관」, 없으면 빈 배열', () => {
+  const list = [
+    f({ id: 1, role: 'ARCHIVE', displayName: 'Archive' }), f({ id: 2, displayName: '회사' }), f({ id: 3, parentId: 2, displayName: '견적' }),
+    f({ id: 4, role: 'TRASH', displayName: 'Deleted Items' }),
+  ]
+  it('folderNamePath — 최상위부터, 보관은 「보관」, 휴지통은 「휴지통」, 없으면 빈 배열', () => {
     expect(folderNamePath(list, 3)).toEqual(['회사', '견적'])
     expect(folderNamePath(list, 1)).toEqual(['보관'])
+    expect(folderNamePath(list, 4)).toEqual(['휴지통'])
     expect(folderNamePath(list, 99)).toEqual([])
   })
   it('folderAncestorIds — 가까운 순, 고리에서 멈춤', () => {
@@ -88,9 +97,11 @@ describe('경로·조상·들여쓰기·기간', () => {
     expect(folderIndentPx(MAX_INDENT_DEPTH + 5)).toBe(folderIndentPx(MAX_INDENT_DEPTH))
   })
   it('folderRangeDays — 가져온 시각 - 경계(일), 없으면 null', () => {
-    expect(folderRangeDays({ syncedSince: '2026-07-27T00:00:00Z', folderSyncedAt: '2026-10-25T00:00:00Z' })).toBe(90)
-    expect(folderRangeDays({ syncedSince: null, folderSyncedAt: '2026-10-25T00:00:00Z' })).toBeNull()
-    expect(folderRangeDays({ syncedSince: '2026-10-26T00:00:00Z', folderSyncedAt: '2026-10-25T00:00:00Z' })).toBeNull()
+    expect(folderRangeDays({ role: 'USER', syncedSince: '2026-07-27T00:00:00Z', folderSyncedAt: '2026-10-25T00:00:00Z' })).toBe(90)
+    expect(folderRangeDays({ role: 'USER', syncedSince: null, folderSyncedAt: '2026-10-25T00:00:00Z' })).toBeNull()
+    expect(folderRangeDays({ role: 'USER', syncedSince: '2026-10-26T00:00:00Z', folderSyncedAt: '2026-10-25T00:00:00Z' })).toBeNull()
+    // WP-1681: 휴지통은 가져온 시각과 무관하게 최근 30일
+    expect(folderRangeDays({ role: 'TRASH', syncedSince: null, folderSyncedAt: null })).toBe(30)
   })
 })
 

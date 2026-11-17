@@ -113,6 +113,7 @@ function sharedMock(): MockedShared {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-1' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
+    restoreMail: vi.fn().mockResolvedValue({ results: [{ messageId: 7, ok: true }] }), // WP-1681
     markMailUnread: vi.fn().mockResolvedValue(undefined),
     setMailCategory: vi.fn().mockResolvedValue({ aiCategory: '업무', categoryByMe: true, learnable: false }), // WP-1341
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),

@@ -5,10 +5,10 @@ import type { BreadcrumbItem } from '@/components/layout/breadcrumb.helpers'
 import type { MailServerFolder } from '@/types/mailFolder'
 import { MAIL_CATEGORIES, type MailCategory, type MailUnreadCounts } from '@/types/mailMessage'
 
-import { ARCHIVE_LABEL, folderAncestorIds } from './mailFolders'
+import { folderAncestorIds, serverFolderLabel } from './mailFolders'
 
 // drafts(WP-577) — 앱 서버 임시보관함. IMAP 폴더가 아니라 메시지 목록 API 를 쓰지 않는다.
-// folder(WP-961) — 서버의 보관·내 메일함 하나(?box=<메일함 id>). 목록·안 읽은 수·모두 읽음 API 에 folderId 로 보낸다.
+// folder(WP-961) — 서버의 보관·휴지통(WP-1681)·내 메일함 하나(?box=<메일함 id>). 목록·안 읽은 수·모두 읽음 API 에 folderId 로 보낸다.
 export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent' | 'drafts' | 'folder'
 
 /** 서버 메일함 보기 URL 파라미터 — ?folder=sent|drafts(고정 메일함)와 겹치지 않게 따로 둔다. */
@@ -75,10 +75,11 @@ export function resolveMailView(
   if (Number.isInteger(boxId) && boxId > 0) {
     // 제목·경로는 메일함 목록이 오면 채운다. key 는 이름·목록 로딩과 무관하게 id 로만 — 바뀌면 유지 행이 비워진다.
     const f = opts.folders?.find((x) => x.id === boxId)
-    const title = f ? (f.role === 'ARCHIVE' ? ARCHIVE_LABEL : f.displayName) : '메일함'
+    // 보관·휴지통은 서버 이름과 무관하게 「보관」·「휴지통」(WP-1681).
+    const title = f ? serverFolderLabel(f) : '메일함'
     // 경로는 최상위 메일함부터(§B-1 「시작점」 = 메일함). 사이드바 구역 이름 「내 메일함」은 장소가 아니라 넣지 않는다(WP-979).
     // 조상 메일함은 그 메일함으로 가는 링크 — 열 수 없는 묶음(selectable=false)은 글자로만 둔다.
-    const ancestors: MailCrumb[] = f && f.role !== 'ARCHIVE' && opts.folders
+    const ancestors: MailCrumb[] = f && f.role === 'USER' && opts.folders
       ? [...folderAncestorIds(opts.folders, boxId)].reverse().map((id) => {
           const a = opts.folders!.find((x) => x.id === id)!
           return a.selectable ? { label: a.displayName, to: { folderId: id } } : { label: a.displayName }

@@ -17,6 +17,8 @@ const folders = [
   f({ id: 3, displayName: '2026', parentId: 2 }),
   f({ id: 4, displayName: '묶음', selectable: false }),
   f({ id: 5, displayName: '거래처', parentId: 4 }),
+  // WP-1681 휴지통 — 옮기기 메뉴에는 나오지 않는다.
+  f({ id: 9, role: 'TRASH', displayName: 'Trash' }),
 ]
 
 const keys = (view: Parameters<typeof mailMoveTargets>[0], fs = folders) => mailMoveTargets(view, fs).map((t) => t.key)
@@ -46,6 +48,11 @@ describe('mailMoveTargets', () => {
     expect(keys({ kind: 'drafts', folderId: null })).toEqual([])
   })
 
+  it('휴지통은 어느 보기에서도 옮길 곳이 아니다(WP-1681)', () => {
+    expect(keys({ kind: 'work', folderId: null })).not.toContain('folder-9')
+    expect(keys({ kind: 'folder', folderId: 1 })).not.toContain('folder-9')
+  })
+
   it('메일함 목록 전·보관 없는 계정', () => {
     expect(keys({ kind: 'work', folderId: null }, [])).toEqual([])
     expect(mailMoveTargets({ kind: 'folder', folderId: 9 }, undefined).map((t) => t.key)).toEqual(['inbox'])
@@ -54,18 +61,21 @@ describe('mailMoveTargets', () => {
 
 describe('mailMoveAvailability', () => {
   it('받은편지함: 보관·옮기기·삭제', () => {
-    expect(mailMoveAvailability({ kind: 'work', folderId: null }, folders)).toEqual({ archive: true, move: true, trash: true })
+    expect(mailMoveAvailability({ kind: 'work', folderId: null }, folders)).toEqual({ archive: true, move: true, trash: true, restore: false })
   })
   it('보관 보기: 보관 숨김', () => {
-    expect(mailMoveAvailability({ kind: 'folder', folderId: 1 }, folders)).toEqual({ archive: false, move: true, trash: true })
+    expect(mailMoveAvailability({ kind: 'folder', folderId: 1 }, folders)).toEqual({ archive: false, move: true, trash: true, restore: false })
+  })
+  it('휴지통 보기: 되살리기만(WP-1681)', () => {
+    expect(mailMoveAvailability({ kind: 'folder', folderId: 9 }, folders)).toEqual({ archive: false, move: false, trash: false, restore: true })
   })
   it('보관 메일함이 없으면 보관 숨김, 고를 메일함이 없으면 옮기기 숨김', () => {
-    expect(mailMoveAvailability({ kind: 'all', folderId: null }, [])).toEqual({ archive: false, move: false, trash: true })
+    expect(mailMoveAvailability({ kind: 'all', folderId: null }, [])).toEqual({ archive: false, move: false, trash: true, restore: false })
     expect(mailMoveAvailability({ kind: 'all', folderId: null }, [f({ id: 4, selectable: false })]).move).toBe(false)
   })
   it('보낸편지함·임시보관함: 아무것도 없음', () => {
-    expect(mailMoveAvailability({ kind: 'sent', folderId: null }, folders)).toEqual({ archive: false, move: false, trash: false })
-    expect(mailMoveAvailability({ kind: 'drafts', folderId: null }, folders)).toEqual({ archive: false, move: false, trash: false })
+    expect(mailMoveAvailability({ kind: 'sent', folderId: null }, folders)).toEqual({ archive: false, move: false, trash: false, restore: false })
+    expect(mailMoveAvailability({ kind: 'drafts', folderId: null }, folders)).toEqual({ archive: false, move: false, trash: false, restore: false })
   })
 })
 
@@ -77,6 +87,9 @@ describe('mailMoveToastMessage', () => {
     expect(mailMoveToastMessage({ kind: 'FOLDER', folderId: 2 }, folders)).toBe("'프로젝트' 메일함으로 옮겼습니다")
     expect(mailMoveToastMessage({ kind: 'FOLDER', folderId: 1 }, folders)).toBe('보관했습니다')
     expect(mailMoveToastMessage({ kind: 'TRASH' }, folders, 3)).toBe('3통을 삭제했습니다')
+    // WP-1681 되살리기 — 원래 메일함(없으면 받은편지함)으로 돌아간다.
+    expect(mailMoveToastMessage({ kind: 'RESTORE' }, folders)).toBe('되살렸습니다')
+    expect(mailMoveToastMessage({ kind: 'RESTORE' }, folders, 2)).toBe('2통을 되살렸습니다')
   })
 })
 

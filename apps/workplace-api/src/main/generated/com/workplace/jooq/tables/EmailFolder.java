@@ -233,7 +233,7 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_EMAIL_FOLDER_PARENT, Indexes.IDX_EMAIL_FOLDER_TENANT);
+        return Arrays.asList(Indexes.IDX_EMAIL_FOLDER_PARENT, Indexes.IDX_EMAIL_FOLDER_TENANT, Indexes.UQ_EMAIL_FOLDER_TRASH);
     }
 
     @Override
@@ -293,23 +293,38 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
         return _tenant;
     }
 
-    private transient EmailMessagePath _emailMessage;
+    private transient EmailMessagePath _emailMessageFolderIdFkey;
 
     /**
      * Get the implicit to-many join path to the
-     * <code>public.email_message</code> table
+     * <code>public.email_message</code> table, via the
+     * <code>email_message_folder_id_fkey</code> key
      */
-    public EmailMessagePath emailMessage() {
-        if (_emailMessage == null)
-            _emailMessage = new EmailMessagePath(this, null, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_FOLDER_ID_FKEY.getInverseKey());
+    public EmailMessagePath emailMessageFolderIdFkey() {
+        if (_emailMessageFolderIdFkey == null)
+            _emailMessageFolderIdFkey = new EmailMessagePath(this, null, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_FOLDER_ID_FKEY.getInverseKey());
 
-        return _emailMessage;
+        return _emailMessageFolderIdFkey;
+    }
+
+    private transient EmailMessagePath _emailMessageOriginalFolderIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.email_message</code> table, via the
+     * <code>email_message_original_folder_id_fkey</code> key
+     */
+    public EmailMessagePath emailMessageOriginalFolderIdFkey() {
+        if (_emailMessageOriginalFolderIdFkey == null)
+            _emailMessageOriginalFolderIdFkey = new EmailMessagePath(this, null, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_ORIGINAL_FOLDER_ID_FKEY.getInverseKey());
+
+        return _emailMessageOriginalFolderIdFkey;
     }
 
     @Override
     public List<Check<EmailFolderRecord>> getChecks() {
         return Arrays.asList(
-            Internal.createCheck(this, DSL.name("ck_email_folder_role"), "(((role IS NULL) OR ((role)::text = ANY ((ARRAY['ARCHIVE'::character varying, 'USER'::character varying])::text[]))))", true)
+            Internal.createCheck(this, DSL.name("ck_email_folder_role"), "(((role IS NULL) OR ((role)::text = ANY ((ARRAY['ARCHIVE'::character varying, 'USER'::character varying, 'TRASH'::character varying])::text[]))))", true)
         );
     }
 

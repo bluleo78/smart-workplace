@@ -23,6 +23,18 @@ public record ServerFolder(
     Integer unread,
     Integer total) {
 
+  /**
+   * 서버 휴지통 표현(WP-1681) — 역할 TRASH·최상위(부모 없음)·선택 가능. IMAP·Graph 목록이 같은 모양으로 만들도록 한 곳에 둔다.
+   *
+   * @param unread 서버 안 읽은 수 — 모르면 null
+   * @param total 서버 전체 메일 수 — 모르면 null
+   */
+  public static ServerFolder trash(
+      String key, String remoteId, String displayName, Integer unread, Integer total) {
+    return new ServerFolder(
+        key, remoteId, displayName, null, FolderRole.TRASH, true, unread, total);
+  }
+
   /** 안 읽은 수·전체 수만 바꾼 사본(IMAP STATUS 결과 반영용). */
   public ServerFolder withCounts(Integer unread, Integer total) {
     return new ServerFolder(key, remoteId, displayName, parentKey, role, selectable, unread, total);

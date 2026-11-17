@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -113,7 +114,7 @@ class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
                 ROOT_PAGE2,
                 folder("id-archive", "Archive", 1, 2, 10),
                 folder("id-convhist", "Conversation History", 1, 0, 3),
-                folder("id-deleted", "Deleted Items", 0, 1, 4),
+                folder("id-deleted", "Deleted Items", 1, 1, 4),
                 folder("id-drafts", "Drafts", 0, 0, 1),
                 folder("id-inbox", "Inbox", 1, 5, 50),
                 folder("id-junk", "Junk Email", 0, 3, 3)));
@@ -137,6 +138,8 @@ class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
                 folder("id-project", "프로젝트", withQuote ? 1 : 0, 1, 6)));
     children("id-archive", page(null, folder("id-arch-2024", "2024", 0, 0, 8)));
     children("id-inbox", page(null, folder("id-notice", "팀 공지", 0, 2, 9)));
+    // 지운 편지함 하위(WP-1681) — 휴지통 하위는 숨겨 요청하지 않아야 한다.
+    children("id-deleted", page(null, folder("id-deleted-sub", "복구할 것", 0, 0, 1)));
     if (withQuote) {
       children("id-project", page(null, folder("id-quote", "견적", 0, 1, 2)));
     }
@@ -162,7 +165,7 @@ class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
     Map<String, MailFolderResponse> byName =
         folders.stream()
             .collect(Collectors.toMap(MailFolderResponse::displayName, Function.identity()));
-    assertThat(byName).containsOnlyKeys("Archive", "2024", "팀 공지", "프로젝트", "견적");
+    assertThat(byName).containsOnlyKeys("Archive", "2024", "팀 공지", "프로젝트", "견적", "Deleted Items");
     assertThat(byName.get("Archive").role()).isEqualTo("ARCHIVE");
     assertThat(byName.get("Archive").unreadCount()).isEqualTo(2);
     assertThat(byName.get("Archive").totalCount()).isEqualTo(10);
@@ -183,7 +186,7 @@ class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
                 .and(EMAIL_FOLDER.REMOTE_ID.eq(EMAIL_FOLDER.NAME))
                 .fetch(EMAIL_FOLDER.NAME))
         .containsExactlyInAnyOrder(
-            "id-archive", "id-arch-2024", "id-notice", "id-project", "id-quote");
+            "id-archive", "id-arch-2024", "id-notice", "id-project", "id-quote", "id-deleted");
     assertThat(
             dsl.select(EMAIL_FOLDER.REMOTE_ID)
                 .from(EMAIL_FOLDER)
@@ -243,7 +246,7 @@ class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
     assertThat(folderService.refresh(user, accountId, account)).isTrue();
     assertThat(folderService.list(user, accountId))
         .extracting(MailFolderResponse::displayName)
-        .containsExactlyInAnyOrder("Archive", "2024", "팀 공지", "프로젝트");
+        .containsExactlyInAnyOrder("Archive", "2024", "팀 공지", "프로젝트", "Deleted Items");
   }
 
   @Test
@@ -262,7 +265,41 @@ class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
 
     assertThatThrownBy(() -> folderService.refresh(user, accountId, account))
         .isInstanceOf(MailSyncException.class);
-    assertThat(folderService.list(user, accountId)).hasSize(5);
+    assertThat(folderService.list(user, accountId)).hasSize(6);
+  }
+
+  /** WP-1681: well-known 지운 편지함은 휴지통 역할 하나로 남고 그 하위는 요청도 저장도 하지 않는다. well-known 조회 수는 그대로다. */
+  @Test
+  void refresh_deletedItemsIsTrashRole_childrenHidden() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, user);
+    when(graphTokenService.getAccessToken(anyLong(), anyLong())).thenReturn(TOKEN);
+    stubOutlookFolders(false);
+
+    folderService.refresh(user, accountId, account(user, accountId));
+
+    List<MailFolderResponse> folders = folderService.list(user, accountId);
+    assertThat(folders)
+        .filteredOn(f -> "TRASH".equals(f.role()))
+        .singleElement()
+        .satisfies(
+            f -> {
+              assertThat(f.displayName()).isEqualTo("Deleted Items");
+              assertThat(f.parentId()).isNull();
+              assertThat(f.selectable()).isTrue();
+              assertThat(f.unreadCount()).isEqualTo(1);
+              assertThat(f.totalCount()).isEqualTo(4);
+            });
+    assertThat(folders).extracting(MailFolderResponse::displayName).doesNotContain("복구할 것");
+    assertThat(folderRepo.findTrash(accountId))
+        .hasValueSatisfying(
+            t -> {
+              assertThat(t.name()).isEqualTo("id-deleted");
+              assertThat(t.remoteId()).isEqualTo("id-deleted");
+            });
+    verify(graphApiClient, never())
+        .get(TOKEN, "/me/mailFolders/id-deleted/childFolders?$top=100", GraphMailFolderPage.class);
+    verify(graphApiClient, times(14)).get(eq(TOKEN), anyString(), eq(GraphMailFolder.class));
   }
 
   /** JSON 매핑 — @odata.type·isHidden·@odata.nextLink 키가 레코드로 들어오는지. */
@@ -307,6 +344,6 @@ class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
     assertThat(folderService.list(user2, account2)).isEmpty();
     // 이미 해석이 캐시된 첫 계정은 영향 없이 그대로 갱신된다
     assertThat(folderService.refresh(user, accountId, account)).isFalse();
-    assertThat(folderService.list(user, accountId)).hasSize(5);
+    assertThat(folderService.list(user, accountId)).hasSize(6);
   }
 }

@@ -56,6 +56,32 @@ describe('issueFilterParams — 버전', () => {
 });
 
 // WP-1238: 정렬은 목록 검색(searchIssues)에만 실린다 — checklist 정렬(order)과는 함께 보내지 않고, 그룹 총계에도 보내지 않는다.
+// WP-1692 에픽 필터(parent) 요청 — descendants=true 로 손자 하위 태스크까지 거르고, 기본 범위 excludeSubtasks 는 따른다.
+describe('issueFilterParams — 에픽 필터 descendants', () => {
+  it('parentNumber 가 있으면 parent·descendants=true 를 싣고 topLevel·excludeEpics 는 싣지 않는다', () => {
+    const p = issueFilterParams({ ...EMPTY, parentNumber: 7, topLevel: true, excludeEpics: true });
+    expect(p.get('parent')).toBe('7');
+    expect(p.get('descendants')).toBe('true');
+    expect(p.has('topLevel')).toBe(false);
+    expect(p.has('excludeEpics')).toBe(false);
+    expect(p.has('excludeSubtasks')).toBe(false);
+  });
+
+  it('parentNumber 와 excludeSubtasks 면 excludeSubtasks=true 도 싣는다', () => {
+    const p = issueFilterParams({ ...EMPTY, parentNumber: 7, excludeSubtasks: true });
+    expect(p.get('parent')).toBe('7');
+    expect(p.get('descendants')).toBe('true');
+    expect(p.get('excludeSubtasks')).toBe('true');
+  });
+
+  it('parentNumber 가 없으면 예전 그대로 — excludeSubtasks 만 싣고 descendants 는 없다', () => {
+    const p = issueFilterParams({ ...EMPTY, parentNumber: null, excludeSubtasks: true });
+    expect(p.get('excludeSubtasks')).toBe('true');
+    expect(p.has('descendants')).toBe(false);
+    expect(p.has('parent')).toBe(false);
+  });
+});
+
 describe('searchIssues — 정렬', () => {
   afterEach(() => vi.restoreAllMocks());
   const sentQuery = () => {

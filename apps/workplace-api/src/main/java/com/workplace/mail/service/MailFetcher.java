@@ -4,6 +4,7 @@ import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.repository.EmailFolderRepository.FolderTarget;
+import com.workplace.mail.service.folder.FolderRole;
 import java.time.Instant;
 
 /** 공급자별 메일 동기화(신규 메시지 메타를 email_message 로 적재). 본문은 적재하지 않는다(on-demand). */
@@ -23,6 +24,9 @@ public interface MailFetcher {
    * 반영·서버 삭제 반영 포함). older=true 면 가져온 경계(synced_since) 바로 앞 {@link #FOLDER_INITIAL_WINDOW_DAYS}일만 더
    * 받아 경계를 뒤로 옮긴다 — IMAP 은 증분 커서를 건드리지 않고, Graph 는 delta 커서를 지워 다음 동기화가 새 경계로 delta 를 다시 시작한다. 아직 한
    * 번도 가져오지 않은 폴더면 older 를 무시하고 첫 동기화를 한다. 끝나면 folder_synced_at 을 기록한다.
+   *
+   * <p>WP-1681: 휴지통 행은 첫 동기화가 최근 {@link #TRASH_WINDOW_DAYS}일(IMAP 은 그중 최근 {@link
+   * #TRASH_MAX_MESSAGES}통)이다. older 는 호출자가 막는다.
    */
   MailSyncResult syncFolder(
       long userId,
@@ -72,4 +76,28 @@ public interface MailFetcher {
 
   /** 메일함 첫 동기화·이전 메일 더 가져오기 한 번의 기간(일). 받은편지함은 각 구현의 기존 기간(IMAP 7일)을 그대로 쓴다. */
   int FOLDER_INITIAL_WINDOW_DAYS = 90;
+
+  /**
+   * 휴지통 첫 동기화 기간(일, WP-1681). 휴지통은 지운 메일이 쌓이는 곳이라 최근 것만 본다 — 「더 가져오기」도 받지 않는다(MailFolderService 가
+   * 400).
+   */
+  int TRASH_WINDOW_DAYS = 30;
+
+  /**
+   * IMAP 휴지통 첫 동기화에서 넣는 최대 메일 수(WP-1681). 30일 안에 수천 통이 쌓인 휴지통도 한 번에 다 받지 않게 가장 최근에 들어온(UID 가 큰) 것만
+   * 넣는다. Graph 는 delta 페이지를 중간에 끊으면 deltaLink 를 잃어 상한을 두지 않는다(30일 필터가 경계).
+   */
+  int TRASH_MAX_MESSAGES = 500;
+
+  /** 휴지통 행인지(WP-1681) — role 은 문자열로 실려 온다. */
+  static boolean isTrash(FolderTarget folder) {
+    return FolderRole.TRASH.matches(folder.role());
+  }
+
+  /**
+   * 메일함 첫 동기화 기간(일) — 휴지통은 {@link #TRASH_WINDOW_DAYS}, 그 밖은 {@link #FOLDER_INITIAL_WINDOW_DAYS}.
+   */
+  static int firstSyncWindowDays(FolderTarget folder) {
+    return isTrash(folder) ? TRASH_WINDOW_DAYS : FOLDER_INITIAL_WINDOW_DAYS;
+  }
 }

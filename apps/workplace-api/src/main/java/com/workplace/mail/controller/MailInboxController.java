@@ -128,9 +128,10 @@ public class MailInboxController {
   }
 
   /**
-   * 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, #466 unread, P2 category/needsReply, limit).
-   * WP-965: beforeId(와 beforeAt)가 있으면 그 행 다음 페이지 — 앞 페이지 마지막 행의 id·receivedAt 을 그대로 넘긴다(receivedAt
-   * 이 없는 행이면 beforeAt 생략).
+   * 계정의 메시지 목록(폴더 INBOX/SENT/TRASH, 최신순, 선택 검색어 query, #466 unread, P2 category/needsReply, limit).
+   * WP-1681: TRASH 는 계정의 휴지통 메일함(서버 이름과 무관) — 휴지통을 아직 목록으로 받지 못했으면 빈 목록. WP-965: beforeId(와
+   * beforeAt)가 있으면 그 행 다음 페이지 — 앞 페이지 마지막 행의 id·receivedAt 을 그대로 넘긴다(receivedAt 이 없는 행이면 beforeAt
+   * 생략).
    */
   @GetMapping("/accounts/{accountId}/messages")
   public List<EmailMessageSummary> messages(

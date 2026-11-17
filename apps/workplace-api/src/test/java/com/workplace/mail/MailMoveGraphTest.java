@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.EMAIL_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -14,6 +15,7 @@ import com.workplace.mail.dto.MailMoveRequest;
 import com.workplace.mail.dto.MailMoveRequest.Kind;
 import com.workplace.mail.dto.MailMoveResponse;
 import com.workplace.mail.exception.MailSendException;
+import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
@@ -211,6 +213,117 @@ class MailMoveGraphTest extends ExternalClientMockedTestBase {
     assertThat(batches.get(1).get(0).url()).isEqualTo("/me/messages/T1/move");
     assertThat(batches.get(1).get(0).body()).isEqualTo(Map.of("destinationId", "deleteditems"));
     assertThat(dsl.fetchExists(EMAIL_MESSAGE, EMAIL_MESSAGE.ID.eq(toTrash))).isFalse();
+  }
+
+  @Test
+  void trash_keepsRow_andRestoreMovesBack() {
+    long[] s = setup();
+    long trash =
+        folderRepo
+            .upsertServerFolder(
+                s[1], "id-trash", "id-trash", "Deleted Items", "TRASH", true, null, null, null)
+            .orElseThrow();
+    long archived = seed(s[1], s[3], "A1", true, false);
+    long inboxed = seed(s[1], s[2], "I1", true, false);
+    stubBatch(MailMoveGraphTest::okReply);
+
+    // 삭제: 서버 휴지통(well-known)으로 옮기고 같은 행을 휴지통 행으로, 원래 메일함을 기억한다
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.TRASH, null, archived, inboxed));
+    assertThat(r.results()).allSatisfy(x -> assertThat(x.ok()).isTrue());
+    assertThat(batches.get(0))
+        .allSatisfy(q -> assertThat(q.body()).isEqualTo(Map.of("destinationId", "deleteditems")));
+    assertThat(row(archived).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trash);
+    assertThat(row(archived).get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID)).isEqualTo("NEW-A1");
+    assertThat(row(archived).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isEqualTo(s[3]);
+    assertThat(row(inboxed).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trash);
+    assertThat(row(inboxed).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isEqualTo(s[2]);
+
+    // 되살리기: 메일마다 원래 메일함으로 — 보관은 그 폴더 id, 받은편지함은 well-known inbox
+    MailMoveResponse back =
+        moveService.move(s[0], s[1], req(Kind.RESTORE, null, archived, inboxed));
+    assertThat(back.results())
+        .extracting(MailMoveResponse.Result::messageId, MailMoveResponse.Result::ok)
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple(archived, true),
+            org.assertj.core.groups.Tuple.tuple(inboxed, true));
+    List<Object> restoreBodies = new ArrayList<>();
+    batches.subList(1, batches.size()).forEach(b -> b.forEach(q -> restoreBodies.add(q.body())));
+    assertThat(restoreBodies)
+        .containsExactlyInAnyOrder(
+            Map.of("destinationId", "id-arch"), Map.of("destinationId", "inbox"));
+    assertThat(row(archived).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(s[3]);
+    assertThat(row(archived).get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID)).isEqualTo("NEW-NEW-A1");
+    assertThat(row(archived).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isNull();
+    assertThat(row(inboxed).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(s[2]);
+    assertThat(row(inboxed).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isNull();
+  }
+
+  /**
+   * WP-1681: 되살리기는 목적지별 묶음을 차례로 옮긴다. 앞 묶음이 이미 서버·로컬에 반영된 뒤 다음 묶음이 서버 접속에 실패하면 요청 전체를 502 로 돌리면 안
+   * 된다(앞 묶음은 이미 옮겼다) — 실패한 묶음의 메일만 ok=false 로 담고 200 으로 돌려준다.
+   */
+  @Test
+  void restore_laterGroupFails_keepsEarlierGroupAndReportsFailedMails() {
+    long[] s = setup();
+    long trash = trashRow(s[1]);
+    long archived = seedInTrash(s[1], trash, "A1", s[3]);
+    long inboxed = seedInTrash(s[1], trash, "I1", s[2]);
+    stubBatch(MailMoveGraphTest::okReply);
+    // 첫 묶음(보관)은 연결되고, 둘째 묶음(받은편지함)은 서버 접속부터 실패한다
+    when(graphTokenService.getAccessToken(anyLong(), anyLong()))
+        .thenReturn(TOKEN)
+        .thenThrow(new MailSyncException("메일 서버에 연결하지 못했습니다"));
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.RESTORE, null, archived, inboxed));
+
+    assertThat(r.results())
+        .extracting(
+            MailMoveResponse.Result::messageId,
+            MailMoveResponse.Result::ok,
+            MailMoveResponse.Result::error)
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple(archived, true, null),
+            org.assertj.core.groups.Tuple.tuple(inboxed, false, "메일 서버에 연결하지 못했습니다"));
+    assertThat(row(archived).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(s[3]);
+    assertThat(row(archived).get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID)).isEqualTo("NEW-A1");
+    // 실패한 메일은 휴지통에 그대로(원래 메일함 기록도 그대로)
+    assertThat(row(inboxed).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trash);
+    assertThat(row(inboxed).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isEqualTo(s[2]);
+  }
+
+  /** WP-1681: 되살리기 첫 묶음부터 서버 접속에 실패하면 아무것도 옮기지 않았으니 지금처럼 502(MailSyncException)다. */
+  @Test
+  void restore_firstGroupFails_is502() {
+    long[] s = setup();
+    long trash = trashRow(s[1]);
+    long archived = seedInTrash(s[1], trash, "A1", s[3]);
+    long inboxed = seedInTrash(s[1], trash, "I1", s[2]);
+    when(graphTokenService.getAccessToken(anyLong(), anyLong()))
+        .thenThrow(new MailSyncException("메일 서버에 연결하지 못했습니다"));
+
+    assertThatThrownBy(
+            () -> moveService.move(s[0], s[1], req(Kind.RESTORE, null, archived, inboxed)))
+        .isInstanceOf(MailSyncException.class);
+    assertThat(row(archived).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trash);
+    assertThat(row(inboxed).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trash);
+  }
+
+  /** 계정에 휴지통 행(role TRASH)을 넣는다(WP-1681). */
+  private long trashRow(long accountId) {
+    return folderRepo
+        .upsertServerFolder(
+            accountId, "id-trash", "id-trash", "Deleted Items", "TRASH", true, null, null, null)
+        .orElseThrow();
+  }
+
+  /** 휴지통에 원래 메일함을 기억한 메일을 넣는다(앱에서 지운 메일처럼, WP-1681). */
+  private long seedInTrash(long accountId, long trash, String providerId, long original) {
+    long id = seed(accountId, trash, providerId, true, false);
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID, original)
+        .where(EMAIL_MESSAGE.ID.eq(id))
+        .execute();
+    return id;
   }
 
   @Test

@@ -86,10 +86,14 @@ export function issueFilterParams(filters: IssueFilters): URLSearchParams {
   if (affectsVersion) params.set('affectsVersion', affectsVersion);
   if (filters.milestoneIds.length) params.set('milestone', filters.milestoneIds.join(','));
   if (filters.typeIds.length) params.set('type', filters.typeIds.join(','));
-  // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel·excludeSubtasks·excludeEpics 는
-  // 서버가 무시하므로 송신하지 않는다(서버 우선순위와 정합). false 는 미송신(백엔드 기본=전체). (#168)
+  // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel·excludeEpics 는 서버가 무시하므로 송신하지 않는다
+  // (서버 우선순위와 정합). false 는 미송신(백엔드 기본=전체). (#168)
+  // WP-1692: 에픽 필터(parent)는 descendants=true 로 그 에픽 스토리의 하위 태스크(손자)까지 거르고, 하위 태스크 노출은
+  // 기본 범위(excludeSubtasks)를 그대로 따른다 — 켜져 있으면 함께 보내 서버가 손자 하위 태스크를 가린다. URL(filtersToParams)에는 싣지 않는 API 전용 값.
   if (filters.parentNumber != null && filters.parentNumber > 0) {
     params.set('parent', String(filters.parentNumber));
+    params.set('descendants', 'true');
+    if (filters.excludeSubtasks) params.set('excludeSubtasks', 'true');
   } else {
     if (filters.topLevel) params.set('topLevel', 'true');
     // SUBTASK 제외(에픽 자식은 유지) / EPIC 제외 — 보드·목록 기본 범위(withDefaultIssueScope)가 주입.

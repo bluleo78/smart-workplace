@@ -19,6 +19,7 @@ function mockClient(): Client {
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
     markMailUnread: vi.fn().mockResolvedValue(undefined),
+    restoreMail: vi.fn().mockResolvedValue({ results: [{ messageId: 7, ok: true }] }),
     setMailCategory: vi.fn().mockResolvedValue({ aiCategory: '프로모션', categoryByMe: true, learnable: true }),
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
@@ -54,6 +55,35 @@ describe('buildMailTools', () => {
     const c = mockClient();
     await tool(c, 'list_mail').handler({ accountId: 2, folder: 'SENT', limit: 5, query: '검토' });
     expect(c.listMail).toHaveBeenCalledWith(2, { folder: 'SENT', limit: 5, query: '검토' });
+  });
+
+  it('WP-1681: list_mail folder:TRASH 는 휴지통 폴더로 client.listMail 을 부르고, 서버 메일함 이름도 그대로 넘긴다(자유 문자열)', async () => {
+    const c = mockClient();
+    await tool(c, 'list_mail').handler({ accountId: 2, folder: 'TRASH' });
+    expect(c.listMail).toHaveBeenCalledWith(2, { folder: 'TRASH', limit: 20 });
+    await tool(c, 'list_mail').handler({ accountId: 2, folder: 'Projects' });
+    expect(c.listMail).toHaveBeenLastCalledWith(2, { folder: 'Projects', limit: 20 });
+  });
+
+  it('WP-1681: restore_mail → client.restoreMail(accountId, messageIds) 결과(건별 ok·error)를 그대로 돌려준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.restoreMail).mockResolvedValue({ results: [{ messageId: 7, ok: true }, { messageId: 8, ok: false, error: 'x' }] });
+    const out = await tool(c, 'restore_mail').handler({ accountId: 2, messageIds: [7, 8] });
+    expect(c.restoreMail).toHaveBeenCalledWith(2, [7, 8]);
+    expect(JSON.parse(resultText(out))).toEqual({ results: [{ messageId: 7, ok: true }, { messageId: 8, ok: false, error: 'x' }] });
+  });
+
+  it('WP-1681: restore_mail 은 messageIds 가 비었거나 100 개를 넘으면 호출하지 않고 throw', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'restore_mail').handler({ accountId: 2, messageIds: [] })).rejects.toThrow();
+    await expect(tool(c, 'restore_mail').handler({ accountId: 2, messageIds: Array.from({ length: 101 }, (_, i) => i + 1) })).rejects.toThrow();
+    expect(c.restoreMail).not.toHaveBeenCalled();
+  });
+
+  it('WP-1681: restore_mail 은 되돌릴 수 있는 쓰기(destructive 아님)이며 메일 서버에 닿고, 완전 삭제 도구는 없다', () => {
+    expect(tool(mockClient(), 'restore_mail')).toMatchObject({ kind: 'write', hints: { destructive: false, idempotent: false, openWorld: true } });
+    const names = buildMailTools(mockClient()).map((t) => t.name);
+    expect(names.filter((n) => /delete|purge|trash|empty/.test(n))).toEqual([]);
   });
 
   it('list_mail → unreadOnly 를 클라이언트의 unread 로 관통한다 (#466)', async () => {

@@ -239,6 +239,11 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
      */
     public final TableField<EmailMessageRecord, String> AI_PERSONAL_CATEGORY = createField(DSL.name("ai_personal_category"), SQLDataType.VARCHAR(20), this, "");
 
+    /**
+     * The column <code>public.email_message.original_folder_id</code>.
+     */
+    public final TableField<EmailMessageRecord, Long> ORIGINAL_FOLDER_ID = createField(DSL.name("original_folder_id"), SQLDataType.BIGINT, this, "");
+
     private EmailMessage(Name alias, Table<EmailMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -308,7 +313,7 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.EMAIL_MESSAGE_CONTENT_ID_IDX, Indexes.IDX_EMAIL_MESSAGE_RECEIVED, Indexes.IDX_EMAIL_MESSAGE_SEEN_PUSH_PENDING, Indexes.IDX_EMAIL_MESSAGE_TENANT, Indexes.IDX_EMAIL_MESSAGE_THREAD, Indexes.UK_EMAIL_MESSAGE_PROVIDER_MSG);
+        return Arrays.asList(Indexes.EMAIL_MESSAGE_CONTENT_ID_IDX, Indexes.IDX_EMAIL_MESSAGE_ORIGINAL_FOLDER, Indexes.IDX_EMAIL_MESSAGE_RECEIVED, Indexes.IDX_EMAIL_MESSAGE_SEEN_PUSH_PENDING, Indexes.IDX_EMAIL_MESSAGE_TENANT, Indexes.IDX_EMAIL_MESSAGE_THREAD, Indexes.UK_EMAIL_MESSAGE_PROVIDER_MSG);
     }
 
     @Override
@@ -328,7 +333,7 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
 
     @Override
     public List<ForeignKey<EmailMessageRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_ACCOUNT_ID_FKEY, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_CONTENT_ID_FKEY, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_FOLDER_ID_FKEY, Keys.EMAIL_MESSAGE__FK_EMAIL_MESSAGE_TENANT);
+        return Arrays.asList(Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_ACCOUNT_ID_FKEY, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_CONTENT_ID_FKEY, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_FOLDER_ID_FKEY, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_ORIGINAL_FOLDER_ID_FKEY, Keys.EMAIL_MESSAGE__FK_EMAIL_MESSAGE_TENANT);
     }
 
     private transient EmailAccountPath _emailAccount;
@@ -357,16 +362,30 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
         return _emailContent;
     }
 
-    private transient EmailFolderPath _emailFolder;
+    private transient EmailFolderPath _emailMessageFolderIdFkey;
 
     /**
-     * Get the implicit join path to the <code>public.email_folder</code> table.
+     * Get the implicit join path to the <code>public.email_folder</code> table,
+     * via the <code>email_message_folder_id_fkey</code> key.
      */
-    public EmailFolderPath emailFolder() {
-        if (_emailFolder == null)
-            _emailFolder = new EmailFolderPath(this, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_FOLDER_ID_FKEY, null);
+    public EmailFolderPath emailMessageFolderIdFkey() {
+        if (_emailMessageFolderIdFkey == null)
+            _emailMessageFolderIdFkey = new EmailFolderPath(this, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_FOLDER_ID_FKEY, null);
 
-        return _emailFolder;
+        return _emailMessageFolderIdFkey;
+    }
+
+    private transient EmailFolderPath _emailMessageOriginalFolderIdFkey;
+
+    /**
+     * Get the implicit join path to the <code>public.email_folder</code> table,
+     * via the <code>email_message_original_folder_id_fkey</code> key.
+     */
+    public EmailFolderPath emailMessageOriginalFolderIdFkey() {
+        if (_emailMessageOriginalFolderIdFkey == null)
+            _emailMessageOriginalFolderIdFkey = new EmailFolderPath(this, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_ORIGINAL_FOLDER_ID_FKEY, null);
+
+        return _emailMessageOriginalFolderIdFkey;
     }
 
     private transient TenantPath _tenant;

@@ -111,6 +111,10 @@ describe('서버 메일함 보기', () => {
   it('보관은 서버 이름과 무관하게 「보관」', () => {
     expect(resolveMailView(p('box=1'), true, { folders })).toMatchObject({ kind: 'folder', title: '보관', breadcrumb: [{ label: '보관' }] })
   })
+  it('휴지통은 서버 이름(Deleted Items 등)과 무관하게 「휴지통」(WP-1681)', () => {
+    const withTrash = [...folders, mailServerFolder({ id: 20, displayName: 'Deleted Items', role: 'TRASH' })]
+    expect(resolveMailView(p('box=20'), true, { folders: withTrash })).toMatchObject({ kind: 'folder', title: '휴지통', breadcrumb: [{ label: '휴지통' }] })
+  })
   it('목록 로딩 전 — 자리표시 제목, key 는 목록과 무관(id 기반)', () => {
     const before = resolveMailView(p('box=6'), true)
     expect(before).toMatchObject({ kind: 'folder', folderId: 6, title: '메일함' })

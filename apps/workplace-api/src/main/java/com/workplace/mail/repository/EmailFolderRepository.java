@@ -3,6 +3,7 @@ package com.workplace.mail.repository;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
+import com.workplace.mail.service.folder.FolderRole;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -139,6 +140,24 @@ public class EmailFolderRepository {
         .set(EMAIL_FOLDER.UPDATED_AT, OffsetDateTime.now())
         .where(EMAIL_FOLDER.ID.eq(folderId))
         .execute();
+  }
+
+  /**
+   * 아직 한 번도 가져오지 않은 메일함(UIDVALIDITY 미기록)에 서버가 옮기기 응답(COPYUID)으로 알려 준 UIDVALIDITY 를 적고, 적힌 값을
+   * 돌려준다(WP-1681 — 가져오기 전 휴지통으로 지운 메일의 행을 지키기 위해). 이미 값이 있으면(그 사이 동기화가 적음) 바꾸지 않고 그 값을 돌려준다. 증분
+   * 커서(last_seen_uid)· 경계(synced_since)는 건드리지 않는다 — 뒤의 첫 동기화가 첫 동기화 범위로 받고 같은 UID 는 유니크로 다시 넣지 않는다.
+   */
+  public Long adoptUidValidity(long folderId, long uidValidity) {
+    dsl.update(EMAIL_FOLDER)
+        .set(EMAIL_FOLDER.UID_VALIDITY, uidValidity)
+        .set(EMAIL_FOLDER.UPDATED_AT, OffsetDateTime.now())
+        .where(EMAIL_FOLDER.ID.eq(folderId))
+        .and(EMAIL_FOLDER.UID_VALIDITY.isNull())
+        .execute();
+    return dsl.select(EMAIL_FOLDER.UID_VALIDITY)
+        .from(EMAIL_FOLDER)
+        .where(EMAIL_FOLDER.ID.eq(folderId))
+        .fetchOne(EMAIL_FOLDER.UID_VALIDITY);
   }
 
   /**
@@ -345,6 +364,28 @@ public class EmailFolderRepository {
         .filter(r -> "ARCHIVE".equals(r.role()))
         .findFirst()
         .flatMap(r -> findTarget(accountId, r.id()));
+  }
+
+  /**
+   * 계정의 휴지통 메일함(WP-1681 — 「삭제」로 옮길 곳이자 휴지통 보기 대상). 휴지통 행은 계정당 하나(부분 유니크 인덱스 uq_email_folder_trash)라
+   * 고를 것이 없다. 아직 목록 갱신 전이거나 서버에 휴지통이 없으면 empty.
+   */
+  public Optional<FolderTarget> findTrash(long accountId) {
+    return selectTarget(
+        EMAIL_FOLDER.ACCOUNT_ID.eq(accountId).and(EMAIL_FOLDER.ROLE.eq(FolderRole.TRASH.name())));
+  }
+
+  /**
+   * 휴지통 행 중 keepName 이 아닌 것을 사용자 메일함(USER)으로 내린다(WP-1681 — 휴지통으로 고른 폴더가 바뀔 때 계정당 하나 제약을 지키며 새 휴지통을
+   * 넣기 위해). keepName 이 null 이면 휴지통 행 전부. 목록 반영 트랜잭션 안에서 부르고, 내린 행은 같은 반영이 역할을 다시 쓰거나 지운다.
+   */
+  public void demoteTrashExcept(long accountId, String keepName) {
+    org.jooq.Condition which =
+        EMAIL_FOLDER.ACCOUNT_ID.eq(accountId).and(EMAIL_FOLDER.ROLE.eq(FolderRole.TRASH.name()));
+    if (keepName != null) {
+      which = which.and(EMAIL_FOLDER.NAME.ne(keepName));
+    }
+    dsl.update(EMAIL_FOLDER).set(EMAIL_FOLDER.ROLE, FolderRole.USER.name()).where(which).execute();
   }
 
   private Optional<FolderTarget> selectTarget(org.jooq.Condition where) {

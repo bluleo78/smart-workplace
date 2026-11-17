@@ -46,7 +46,8 @@ public interface MailMover {
    * 옮길 곳.
    *
    * @param kind 종류 — TRASH 면 공급자가 서버 휴지통을 찾는다
-   * @param imapName IMAP 폴더 이름(TRASH 면 null)
+   * @param imapName IMAP 폴더 이름. TRASH 면 휴지통 행 이름(기대 목적지 — 실제 목적지는 공급자가 찾고, 다르면 새 위치를 버린다, WP-1681).
+   *     휴지통 행이 없으면 null
    * @param graphId Graph 폴더 id 또는 well-known 이름(inbox·deleteditems)
    */
   record Destination(MailMoveRequest.Kind kind, String imapName, String graphId) {}
@@ -72,6 +73,14 @@ public interface MailMover {
 
     static Outcome failed(long messageId, String error) {
       return new Outcome(messageId, false, null, null, null, false, error, null);
+    }
+
+    /**
+     * 성공한 결과에서 새 서버 위치(COPYUID·Graph 새 id·첨부 id)를 지운다(WP-1681) — 로컬은 행을 옮기지 않고 지운다. 실패 결과는 그대로. 필드가
+     * 늘어도 호출 쪽이 위치 인자를 따로 세지 않게 레코드 안에 둔다.
+     */
+    Outcome withoutLocation() {
+      return ok ? new Outcome(messageId, true, null, null, null, seenPushed, null, null) : this;
     }
   }
 }

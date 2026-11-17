@@ -131,11 +131,15 @@ public final class ImapFolderClassifier {
   }
 
   /**
-   * LIST 결과 전체에서 저장 대상(ARCHIVE·USER)을 골라 계층을 붙인다. 개수(unread·total)는 비워 둔다 — STATUS 는 호출자가 고른 폴더에만
-   * 보낸다.
+   * LIST 결과 전체에서 저장 대상(ARCHIVE·USER·TRASH)을 골라 계층을 붙인다. 개수(unread·total)는 비워 둔다 — STATUS 는 호출자가 고른
+   * 폴더에만 보낸다.
    *
    * <p>메일을 담지 못하는 폴더(\Noselect)는 보이는 자식(메일을 담는 보관·사용자 폴더)이 하위 어딘가에 있을 때만 selectable=false 로 남긴다 —
    * 트리의 묶음 노드 역할만 한다. 부모가 받은편지함·시스템 폴더면 parentKey 를 null 로 둬 내 메일함 최상위로 올린다.
+   *
+   * <p>WP-1681: {@link #findTrash} 가 고른 폴더 하나(앱의 「삭제」가 옮기는 곳)를 휴지통 역할로 남긴다 — 최상위(parentKey null)이고
+   * 그 하위 폴더는 숨긴다(Graph 의 지운 편지함 하위 숨김과 같다). 다른 휴지통·스팸 이름 폴더는 지금처럼 시스템 폴더로 숨긴다. 이름 판별로는 사용자 폴더인
+   * 이름(예: 「Bin」)도 휴지통으로 골랐으면 사용자 폴더가 아니라 휴지통 하나로만 나온다.
    */
   public static List<ServerFolder> classify(List<Entry> entries) {
     Map<String, Entry> byName = new LinkedHashMap<>();
@@ -144,11 +148,15 @@ public final class ImapFolderClassifier {
       byName.put(e.fullName(), e);
       kinds.put(e.fullName(), kindOf(e));
     }
+    String trash = findTrash(entries);
 
-    // 1) 메일을 담는 보관·사용자 폴더는 그대로 남기고, 그 조상 중 보관·사용자 폴더(묶음 노드 포함)도 남긴다(하위에서 위로).
+    // 1) 메일을 담는 보관·사용자 폴더는 그대로 남기고, 그 조상 중 보관·사용자 폴더(묶음 노드 포함)도 남긴다(하위에서 위로). 휴지통과 그
+    // 하위는 이 규칙에서 빼고 휴지통만 따로 남긴다 — 하위에서 위로 올라가다 휴지통을 사용자 폴더로 남기지 않게.
     Set<String> kept = new HashSet<>();
     for (Entry e : entries) {
-      if (!isVisibleKind(kinds.get(e.fullName())) || !e.holdsMessages()) {
+      if (!isVisibleKind(kinds.get(e.fullName()))
+          || !e.holdsMessages()
+          || isTrashOrUnder(e, trash)) {
         continue;
       }
       kept.add(e.fullName());
@@ -161,9 +169,15 @@ public final class ImapFolderClassifier {
       }
     }
 
-    // 2) 남긴 폴더를 LIST 순서대로 공급자 중립 표현으로 바꾼다. 부모는 남긴 폴더일 때만 연결한다.
+    // 2) 남긴 폴더를 LIST 순서대로 공급자 중립 표현으로 바꾼다. 부모는 남긴 폴더일 때만 연결한다. 휴지통은 최상위 휴지통 역할로.
     List<ServerFolder> out = new ArrayList<>();
     for (Entry e : entries) {
+      if (e.fullName().equals(trash)) {
+        List<String> segs = segments(e);
+        out.add(
+            ServerFolder.trash(e.fullName(), e.fullName(), segs.get(segs.size() - 1), null, null));
+        continue;
+      }
       if (!kept.contains(e.fullName())) {
         continue;
       }
@@ -229,6 +243,17 @@ public final class ImapFolderClassifier {
       }
     }
     return best;
+  }
+
+  /** 휴지통 자신이거나 그 하위 폴더인지(WP-1681). 휴지통이 없으면(null) false. 평면 이름공간이면 하위가 없다. */
+  private static boolean isTrashOrUnder(Entry e, String trash) {
+    if (trash == null) {
+      return false;
+    }
+    if (e.fullName().equals(trash)) {
+      return true;
+    }
+    return e.separator() != '\0' && e.fullName().startsWith(trash + e.separator());
   }
 
   private static boolean isVisibleKind(Kind k) {

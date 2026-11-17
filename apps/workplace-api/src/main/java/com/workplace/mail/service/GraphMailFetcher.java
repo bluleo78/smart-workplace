@@ -179,8 +179,9 @@ public class GraphMailFetcher implements MailFetcher {
   }
 
   /**
-   * 서버 메일함 한 개 동기화(WP-960). 저장된 deltaLink 가 있으면 증분, 없으면 최근 90일 필터를 건 초기 delta 로 시작하고 그 시작 시각을
-   * synced_since 로 기록한다. older=true 이고 이미 가져온 폴더면 {@link #fetchOlder} 로 경계 앞 기간만 더 받는다.
+   * 서버 메일함 한 개 동기화(WP-960). 저장된 deltaLink 가 있으면 증분, 없으면 최근 90일(휴지통은 30일, WP-1681) 필터를 건 초기 delta 로
+   * 시작하고 그 시작 시각을 synced_since 로 기록한다. older=true 이고 이미 가져온 폴더면 {@link #fetchOlder} 로 경계 앞 기간만 더
+   * 받는다.
    */
   @Override
   public MailSyncResult syncFolder(
@@ -202,9 +203,10 @@ public class GraphMailFetcher implements MailFetcher {
       if (folder.syncedSince() != null) {
         start = folder.syncedSince().toInstant().truncatedTo(ChronoUnit.SECONDS);
       } else {
+        // WP-1681: 휴지통은 최근 30일만 — 개수 상한은 두지 않는다(delta 페이지를 끊으면 deltaLink 를 잃는다).
         start =
             Instant.now()
-                .minus(FOLDER_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS)
+                .minus(MailFetcher.firstSyncWindowDays(folder), ChronoUnit.DAYS)
                 .truncatedTo(ChronoUnit.SECONDS);
         since = start;
       }

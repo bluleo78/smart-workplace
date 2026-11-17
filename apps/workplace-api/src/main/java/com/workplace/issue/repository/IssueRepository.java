@@ -43,11 +43,13 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -811,7 +813,28 @@ public class IssueRepository {
                       .and(ISSUE.DELETED_AT.isNull()))
               .fetchOptional(0, Long.class)
               .orElse(-1L);
-      where = where.and(ISSUE.PARENT_ISSUE_ID.eq(parentId));
+      // WP-1692: descendants 는 옵트인(웹만 보냄)이라 MCP·플러그인의 parent=바로 아래 자식 의미는 그대로다.
+      // excludeSubtasks 와 함께면 예전 직계 자식 동작을 유지한다(기본 뷰는 하위 태스크를 숨긴다).
+      Condition parentCond;
+      if (Boolean.TRUE.equals(query.parentDescendants())
+          && !Boolean.TRUE.equals(query.excludeSubtasks())) {
+        // parent_issue_id IN (부모 자신, 부모의 살아 있는 자식들) — OR + 서브쿼리는 인덱스를 못 타므로 단일 IN 으로 만든다.
+        var child = ISSUE.as("desc_child");
+        parentCond =
+            ISSUE.PARENT_ISSUE_ID.in(
+                dsl.select(DSL.val(parentId))
+                    .unionAll(
+                        dsl.select(child.ID)
+                            .from(child)
+                            .where(
+                                child
+                                    .PARENT_ISSUE_ID
+                                    .eq(parentId)
+                                    .and(child.DELETED_AT.isNull()))));
+      } else {
+        parentCond = ISSUE.PARENT_ISSUE_ID.eq(parentId);
+      }
+      where = where.and(parentCond);
     } else {
       if (Boolean.TRUE.equals(query.topLevel())) {
         where = where.and(topLevelCondition());
@@ -1718,12 +1741,49 @@ public class IssueRepository {
    */
   public Map<Long, ParentRef> findParentRefsByIssueIds(List<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
+    Map<Long, DirectParent> direct = fetchDirectParentRefs(issueIds);
+    // WP-1692: 직계 부모가 에픽이 아닌 자식(스토리 아래 하위 태스크)은 부모의 부모(할아버지)가 에픽이면 그 요약을 parent.epic 에 싣는다.
+    // 스토리 id 를 모아 한 번에 읽어 N+1 이 없다(쿼리 최대 2회). 서버 불변식상 깊이는 최대 3 이라 더 올라가지 않는다.
+    Set<Long> storyIds = new HashSet<>();
+    direct.forEach(
+        (childId, d) -> {
+          if (!isEpic(d.ref()) && d.grandparentId() != null) storyIds.add(d.parentId());
+        });
+    Map<Long, ParentRef> grandByStory =
+        storyIds.isEmpty() ? Map.of() : fetchDirectParentRefsOf(List.copyOf(storyIds));
+    Map<Long, ParentRef> result = new HashMap<>(direct.size());
+    direct.forEach(
+        (childId, d) -> {
+          ParentRef grand = isEpic(d.ref()) ? null : grandByStory.get(d.parentId());
+          result.put(childId, grand != null && isEpic(grand) ? d.ref().withEpic(grand) : d.ref());
+        });
+    return result;
+  }
+
+  /** 부모 요약이 에픽 유형인지. */
+  private static boolean isEpic(ParentRef ref) {
+    return "EPIC".equals(ref.type().name());
+  }
+
+  /** 직계 부모 요약 + 그 부모 id + 부모의 부모 id(없으면 null) — 한 단계 더 올라갈지 호출부가 판단하는 재료(WP-1692). */
+  private record DirectParent(ParentRef ref, long parentId, Long grandparentId) {}
+
+  /** 조회 키 자리에 부모 id 를 넣어 부모 → 그 부모의 부모 요약만 돌려준다(WP-1692). */
+  private Map<Long, ParentRef> fetchDirectParentRefsOf(List<Long> ids) {
+    Map<Long, ParentRef> out = new HashMap<>();
+    fetchDirectParentRefs(ids).forEach((id, d) -> out.put(id, d.ref()));
+    return out;
+  }
+
+  /** 자식 id → 직계 부모 요약 한 쿼리({@link #findParentRefsByIssueIds} 의 본체). */
+  private Map<Long, DirectParent> fetchDirectParentRefs(List<Long> issueIds) {
     var p = ISSUE.as("p");
-    Map<Long, ParentRef> result = new HashMap<>();
+    Map<Long, DirectParent> result = new HashMap<>();
     dsl.select(
             IssueStatusProjection.withFields(
                 p,
                 ISSUE.ID,
+                p.ID,
                 p.NUMBER,
                 p.TITLE,
                 p.STATUS,
@@ -1733,6 +1793,7 @@ public class IssueRepository {
                 ISSUE_TYPE_DEF.ICON,
                 p.EPIC_COLOR,
                 p.PROJECT_ID,
+                p.PARENT_ISSUE_ID,
                 PROJECT.KEY))
         // 부모의 사용자 정의 상태 이름·색(WP-869) — 별칭 p 기준 공용 LEFT JOIN(WP-937)
         // 부모 프로젝트 키(WP-1038) — 에픽 부모는 다른 프로젝트에 있을 수 있어 키를 함께 읽는다. 삭제된 프로젝트도 키는 남아 있어 그냥 JOIN.
@@ -1749,28 +1810,31 @@ public class IssueRepository {
         .where(ISSUE.ID.in(issueIds).and(ISSUE.PARENT_ISSUE_ID.isNotNull()))
         .fetch()
         .forEach(
-            r ->
-                result.put(
-                    r.get(ISSUE.ID),
-                    new ParentRef(
-                        r.get(p.NUMBER),
-                        r.get(p.TITLE),
-                        new IssueTypeSummary(
-                            r.get(ISSUE_TYPE_DEF.ID),
-                            r.get(ISSUE_TYPE_DEF.NAME),
-                            parentTypeColor(
-                                r.get(ISSUE_TYPE_DEF.NAME),
-                                r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
-                                r.get(p.EPIC_COLOR)),
-                            r.get(ISSUE_TYPE_DEF.ICON)),
-                        // 부모 상태 — 부모 행이 응답에 없어도 하위만으로 부모 취소 여부를 판단하게(WP-247)
-                        r.get(p.STATUS),
-                        r.get(p.STATUS_ID),
-                        r.get(STATUS_NAME),
-                        r.get(STATUS_COLOR),
-                        r.get(PROJECT.KEY),
-                        false,
-                        r.get(p.PROJECT_ID))));
+            r -> {
+              var ref =
+                  new ParentRef(
+                      r.get(p.NUMBER),
+                      r.get(p.TITLE),
+                      new IssueTypeSummary(
+                          r.get(ISSUE_TYPE_DEF.ID),
+                          r.get(ISSUE_TYPE_DEF.NAME),
+                          parentTypeColor(
+                              r.get(ISSUE_TYPE_DEF.NAME),
+                              r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
+                              r.get(p.EPIC_COLOR)),
+                          r.get(ISSUE_TYPE_DEF.ICON)),
+                      // 부모 상태 — 부모 행이 응답에 없어도 하위만으로 부모 취소 여부를 판단하게(WP-247)
+                      r.get(p.STATUS),
+                      r.get(p.STATUS_ID),
+                      r.get(STATUS_NAME),
+                      r.get(STATUS_COLOR),
+                      r.get(PROJECT.KEY),
+                      false,
+                      r.get(p.PROJECT_ID),
+                      null);
+              result.put(
+                  r.get(ISSUE.ID), new DirectParent(ref, r.get(p.ID), r.get(p.PARENT_ISSUE_ID)));
+            });
     return result;
   }
 

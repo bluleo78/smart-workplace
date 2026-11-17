@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -347,5 +348,151 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
             .orElseThrow();
     assertThat(after.status()).isEqualTo("TODO");
     assertThat(after.parent().status()).isEqualTo("CANCELED");
+  }
+
+  // ---------------------------------------------------------------- WP-1692 할아버지 에픽 / descendants
+
+  /** 에픽 E › 스토리 S › 하위 태스크 T, 그리고 E 직계 태스크 K 를 한 프로젝트에 만든 픽스처(WP-1692). */
+  private record Tree(
+      Long owner,
+      ProjectResponse project,
+      IssueResponse epic,
+      IssueResponse story,
+      IssueResponse sub,
+      IssueResponse direct) {}
+
+  private CreateIssueRequest typed(String title, Long typeId, Integer parentNumber) {
+    return new CreateIssueRequest(title, null, null, null, null, typeId, parentNumber, null);
+  }
+
+  private Tree tree(String prefix) {
+    Long owner = createUser(prefix);
+    var p = newProject(owner, prefix);
+    Long epicType = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+    Long storyType = typeRepository.findByProjectAndName(p.id(), "STORY").orElseThrow().id();
+    Long subType = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    var epic = issueService.create(owner, p.key(), typed("E 제목", epicType, null));
+    var story = issueService.create(owner, p.key(), typed("S 제목", storyType, epic.number()));
+    var sub = issueService.create(owner, p.key(), typed("T 제목", subType, story.number()));
+    var direct = issueService.create(owner, p.key(), typed("K 제목", null, epic.number()));
+    return new Tree(owner, p, epic, story, sub, direct);
+  }
+
+  private java.util.Set<Integer> numbers(Tree t, Map<String, String> params) {
+    return searchService.search(t.owner(), t.project().key(), params).items().stream()
+        .map(i -> i.number())
+        .collect(java.util.stream.Collectors.toSet());
+  }
+
+  @Test
+  void 하위_태스크_응답에_할아버지_에픽을_싣는다() {
+    var t = tree("g1");
+    var items = searchService.search(t.owner(), t.project().key(), Map.of()).items();
+    var sub = items.stream().filter(i -> i.number() == t.sub().number()).findFirst().orElseThrow();
+    assertThat(sub.parent().number()).isEqualTo(t.story().number());
+    var epic = sub.parent().epic();
+    assertThat(epic).isNotNull();
+    assertThat(epic.number()).isEqualTo(t.epic().number());
+    assertThat(epic.title()).isEqualTo("E 제목");
+    assertThat(epic.type().name()).isEqualTo("EPIC");
+    assertThat(epic.hidden()).isFalse();
+    // 직계 부모가 에픽이면 싣지 않는다 — 스토리·직계 태스크 모두
+    var direct =
+        items.stream().filter(i -> i.number() == t.direct().number()).findFirst().orElseThrow();
+    assertThat(direct.parent().epic()).isNull();
+    var story =
+        items.stream().filter(i -> i.number() == t.story().number()).findFirst().orElseThrow();
+    assertThat(story.parent().epic()).isNull();
+  }
+
+  @Test
+  void 에픽_없는_스토리의_하위_태스크는_epic_이_없다() {
+    Long owner = createUser("g2");
+    var p = newProject(owner, "G2");
+    Long storyType = typeRepository.findByProjectAndName(p.id(), "STORY").orElseThrow().id();
+    Long subType = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    var story = issueService.create(owner, p.key(), typed("S", storyType, null));
+    var sub = issueService.create(owner, p.key(), typed("T", subType, story.number()));
+    var found =
+        searchService.search(owner, p.key(), Map.of()).items().stream()
+            .filter(i -> i.number() == sub.number())
+            .findFirst()
+            .orElseThrow();
+    assertThat(found.parent().number()).isEqualTo(story.number());
+    assertThat(found.parent().epic()).isNull();
+  }
+
+  @Test
+  void 상세_응답에도_할아버지_에픽을_싣는다() {
+    var t = tree("g3");
+    var detail = issueService.get(t.owner(), t.project().key(), t.sub().number());
+    assertThat(detail.summary().parent().epic().number()).isEqualTo(t.epic().number());
+  }
+
+  @Test
+  void 에픽이_없으면_epic_키가_직렬화되지_않는다() throws Exception {
+    var t = tree("g4");
+    var direct =
+        searchService.search(t.owner(), t.project().key(), Map.of()).items().stream()
+            .filter(i -> i.number() == t.direct().number())
+            .findFirst()
+            .orElseThrow();
+    var json = new tools.jackson.databind.ObjectMapper().writeValueAsString(direct.parent());
+    assertThat(json).doesNotContain("\"epic\"");
+  }
+
+  @Test
+  void 에픽_필터_descendants_는_손자_하위_태스크까지_포함한다() {
+    var t = tree("d1");
+    var got =
+        numbers(t, Map.of("parent", String.valueOf(t.epic().number()), "descendants", "true"));
+    assertThat(got)
+        .containsExactlyInAnyOrder(t.story().number(), t.direct().number(), t.sub().number());
+  }
+
+  @Test
+  void 에픽_필터_descendants_와_excludeSubtasks_면_바로_아래_자식만_보인다() {
+    var t = tree("d2");
+    var got =
+        numbers(
+            t,
+            Map.of(
+                "parent",
+                String.valueOf(t.epic().number()),
+                "descendants",
+                "true",
+                "excludeSubtasks",
+                "true"));
+    assertThat(got).containsExactlyInAnyOrder(t.story().number(), t.direct().number());
+  }
+
+  @Test
+  void descendants_없는_parent_는_바로_아래_자식만() {
+    var t = tree("d3");
+    String epicNo = String.valueOf(t.epic().number());
+    assertThat(numbers(t, Map.of("parent", epicNo)))
+        .containsExactlyInAnyOrder(t.story().number(), t.direct().number());
+    // 예전처럼 excludeSubtasks 는 parent 지정 시 무시된다
+    assertThat(numbers(t, Map.of("parent", epicNo, "excludeSubtasks", "true")))
+        .containsExactlyInAnyOrder(t.story().number(), t.direct().number());
+    assertThat(numbers(t, Map.of("parent", String.valueOf(t.story().number()))))
+        .containsExactly(t.sub().number());
+  }
+
+  @Test
+  void 그룹_총계도_descendants_를_따른다() {
+    var t = tree("d4");
+    var res =
+        searchService.groupCounts(
+            t.owner(),
+            t.project().key(),
+            Map.of(
+                "parent",
+                String.valueOf(t.epic().number()),
+                "descendants",
+                "true",
+                "groupBy",
+                "status"));
+    assertThat(res.groups().stream().mapToInt(g -> g.count()).sum()).isEqualTo(3);
   }
 }

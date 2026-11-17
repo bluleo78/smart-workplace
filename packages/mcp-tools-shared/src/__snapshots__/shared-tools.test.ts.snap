@@ -79,6 +79,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "rename_drive_item": "write",
   "report_agent_work": "write",
   "restore_drive_item": "write",
+  "restore_mail": "write",
   "restore_wiki_revision": "write",
   "rsvp_event": "write",
   "search_drive": "read",
@@ -1947,7 +1948,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "folder": {
           "default": "INBOX",
-          "description": "INBOX or SENT",
+          "description": "INBOX, SENT, TRASH",
           "type": "string",
         },
         "limit": {
@@ -2739,6 +2740,35 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           ],
         },
       },
+      "type": "object",
+    },
+  },
+  {
+    "name": "restore_mail",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "accountId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "messageIds": {
+          "items": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer",
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "accountId",
+        "messageIds",
+      ],
       "type": "object",
     },
   },

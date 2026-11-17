@@ -13,6 +13,14 @@ export function isHiddenParent(parent: Pick<ParentRef, 'hidden'> | null | undefi
   return parent?.hidden === true;
 }
 
+/**
+ * 직계 부모가 에픽이거나 가려진 부모인가(WP-1692) — 가려진 부모는 유형이 없지만 다른 프로젝트 부모는 에픽만 될 수 있어(WP-1038) 에픽으로 본다.
+ * issueEpicOf·isDirectEpicParent 가 같은 규칙을 쓰도록 한 곳에 둔다.
+ */
+export function isEpicOrHiddenRef(ref: Pick<ParentRef, 'hidden' | 'type'> | null | undefined): boolean {
+  return ref?.type?.name === 'EPIC' || isHiddenParent(ref);
+}
+
 /** 부모 제목 표시 — 가려진 부모면 「볼 수 없는 에픽」. */
 export function parentTitleLabel(parent: Pick<ParentRef, 'hidden' | 'title'>): string {
   return isHiddenParent(parent) ? HIDDEN_PARENT_LABEL : parent.title;
