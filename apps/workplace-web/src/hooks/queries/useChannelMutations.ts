@@ -83,6 +83,9 @@ export function useDeleteChannel() {
 export function useLeaveChannel({ awaitRefetch = true }: { awaitRefetch?: boolean } = {}) {
   const qc = useQueryClient();
   return useMutation<void, unknown, number>({
+    // 떠나는 DM 표시 — DmPage 가 이 키로 「나가는 중/나감」을 알아 /chat 이동 전 「대화 없음」을 그리지 않는다(WP-1677).
+    // 채널 나가기도 같은 키를 쓰지만 DmPage 는 자기 DM id 와 같은 변수만 보므로 영향이 없다.
+    mutationKey: [...messagingKeys.dmDeparture(), 'leave'],
     mutationFn: async (channelId) => {
       try {
         await messagingApi.leaveChannel(channelId);
