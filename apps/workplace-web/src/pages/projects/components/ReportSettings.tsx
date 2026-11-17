@@ -1,5 +1,5 @@
 import { ArrowUpRight, Loader2 } from 'lucide-react';
-import { type ReactNode, useRef, useState } from 'react';
+import { type ReactNode, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -85,6 +85,14 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
   // 저장 중 표시 — 선택 상자를 disabled 로 잠그면 초점이 body 로 떨어져(WP-847 과 같은 문제) 잠그지 않고 이 값으로 새 저장만 막는다.
   // ref 인 이유: 같은 틱의 두 번째 고르기는 다시 그리기 전이라 update.isPending 이 아직 false 다.
   const savingRef = useRef(false);
+  // 고르기 창에서 뺄 갈래 — 「템플릿」 갈래와, 그 밖으로 옮긴 템플릿 갈래는 리포트 자리가 아니다.
+  // 매번 새 배열을 넘기면 창의 목록 계산(useMemo)이 늘 다시 돌아 id 값으로 묶어 둔다. 훅이라 아래 이른 return 보다 위에 둔다.
+  const templateRootPageId = query.data?.templateRootPageId;
+  const templatePageId = query.data?.templatePageId;
+  const blockedRootIds = useMemo(
+    () => [templateRootPageId, templatePageId].filter((id): id is number => id != null),
+    [templateRootPageId, templatePageId],
+  );
 
   if (query.isPending) return null;
   if (query.isError || !query.data) {
@@ -247,8 +255,7 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
         open={locationOpen}
         spaceId={server.noteSpaceId}
         currentPageId={server.reportLocationPageId}
-        // 「템플릿」 갈래와, 그 밖으로 옮긴 템플릿 갈래는 리포트 자리가 아니다.
-        blockedRootIds={[server.templateRootPageId, server.templatePageId].filter((id): id is number => id != null)}
+        blockedRootIds={blockedRootIds}
         saving={updateLocation.isPending}
         helpId="project-settings.report.location"
         onClose={() => setLocationOpen(false)}

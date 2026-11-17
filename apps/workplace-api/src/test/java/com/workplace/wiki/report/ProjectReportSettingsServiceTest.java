@@ -393,6 +393,32 @@ class ProjectReportSettingsServiceTest extends ExternalClientMockedTestBase {
         .hasMessage("개인 프로젝트는 리포트를 만들지 않아요.");
   }
 
+  /**
+   * 거절된 요청은 아무것도 바꾸지 않는다(WP-1654 리뷰) — 잘못된 요일 저장·잘못된 위치 바꾸기 모두 옛 위치 템플릿을 옮기지 않고 「다시 만들었어요」 알림도 지우지
+   * 않는다.
+   */
+  @Test
+  void rejectedWrites_haveNoSideEffects() {
+    long legacy = legacyTemplate("옛 본문");
+    OffsetDateTime notice = OffsetDateTime.now().minusHours(1);
+    settingField("template_recreated_at", notice);
+
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    ownerId,
+                    project.key(),
+                    new UpdateProjectReportSettingsRequest(true, "WEEKLY", "FUNDAY", "09:00")))
+        .isInstanceOf(IllegalArgumentException.class);
+    long otherSpace = writer.ensureProjectSpace(project(ownerId, "TEAM").id()).orElseThrow();
+    long outside = writer.createPage(ownerId, otherSpace, null, "밖").id();
+    assertThatThrownBy(() -> service.updateLocation(ownerId, project.key(), outside))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    assertThat(pageService.get(ownerId, legacy).title()).isEqualTo("템플릿 · 주간 리포트");
+    assertThat(settings.find(project.id()).orElseThrow().templateRecreatedAt()).isNotNull();
+  }
+
   /** 고른 위치 페이지를 지우면 GET 이 「리포트」로 되돌아간다(WP-1654). */
   @Test
   void get_locationDeleted_fallsBackToReports() {

@@ -13,8 +13,16 @@ import { ReportLocationDialog } from './ReportLocationDialog'
 const SPACE = 7
 const API = `/api/v1/wiki/spaces/${SPACE}/pages`
 
+// ai=true 면 AI 가 쓴 리포트 페이지(aiLastAction='report') — 창이 갈래째 빼는 기준.
 const p = (id: number, parentId: number | null, title: string, position: number, ai = false): WikiPageSummary =>
-  wikiPageSummary({ id, parentId, title, position, aiLastUsedAt: ai ? '2026-11-10T09:00:00Z' : null })
+  wikiPageSummary({
+    id,
+    parentId,
+    title,
+    position,
+    aiLastUsedAt: ai ? '2026-11-10T09:00:00Z' : null,
+    aiLastAction: ai ? 'report' : null,
+  })
 
 /**
  * 리포트(10) ─ 11월 2주차(11, AI)
@@ -100,17 +108,26 @@ describe('ReportLocationDialog', () => {
     expect(screen.getByText('새 리포트를 고른 페이지 아래에 만들어요. 이미 만든 리포트는 그대로 둬요.')).toBeInTheDocument()
   })
 
-  test('사람이 AI 로 다듬어 AI 표시가 붙은 지금 위치와 그 조상은 빼지 않는다 — 다른 AI 갈래는 그대로 뺀다', async () => {
-    // 회의록(30)·주간 보고(31, 지금 위치) 둘 다 AI 로 다듬은 페이지
+  test('사람이 AI 로 다듬기만 한 페이지(report 가 아닌 AI 액션)는 빼지 않는다 — AI 리포트 갈래만 뺀다', async () => {
+    // 회의록(30)·주간 보고(31) 둘 다 AI 로 다듬은 페이지 — 트리에 「AI」 배지는 붙지만 리포트 페이지는 아니다.
     const pages = tree().map((pg) =>
-      pg.id === 30 || pg.id === 31 ? { ...pg, aiLastUsedAt: '2026-11-12T09:00:00Z' } : pg,
+      pg.id === 30 || pg.id === 31 ? { ...pg, aiLastUsedAt: '2026-11-12T09:00:00Z', aiLastAction: 'polish' } : pg,
     )
-    open({ currentPageId: 31, pages })
+    open({ pages })
     await screen.findByRole('option', { name: /회의록/ })
     const names = within(list())
       .getAllByRole('option')
       .map((o) => o.textContent)
-    expect(names).toEqual(['최상위', '리포트', '회의록', '주간 보고지금 위치'])
+    expect(names).toEqual(['최상위', '리포트지금 위치', '회의록', '주간 보고'])
+  })
+
+  test('지금 위치가 AI 리포트 갈래 안이면 지금 위치와 그 조상은 빼지 않는다', async () => {
+    open({ currentPageId: 41 })
+    await screen.findByRole('option', { name: /회의록/ })
+    const names = within(list())
+      .getAllByRole('option')
+      .map((o) => o.textContent)
+    expect(names).toEqual(['최상위', '리포트', '회의록', '주간 보고', 'AI 정리', 'AI 하위지금 위치'])
   })
 
   test('「최상위」를 고르면 저장이 잠기고, 처음엔 아무것도 고르지 않아 잠겨 있다', async () => {

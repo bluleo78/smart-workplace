@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 
 import { useCreatePage, useMovePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
+import { REPORT_ACTION } from './wikiAiAttribution'
 import { pickTargets } from './wikiMoveTargets'
 
 // 들여쓰기 1단계 폭(px) — 사이드바 트리·이동 창과 같은 값.
@@ -94,10 +95,11 @@ function ReportLocationBody({
 
   const rows = useMemo(() => {
     const pages = tree.data ?? []
-    // 지금 위치와 그 조상 — 사람이 AI 로 다듬기만 해도 「AI」 표시가 붙으니 AI 기준으로는 빼지 않는다(빼면 「지금 위치」가 사라진다).
+    // 지금 위치와 그 조상 — 서버는 리포트 페이지 자신만 거절하니 지금 위치가 AI 리포트 갈래 안일 수 있다. 빼면 「지금 위치」가 사라진다.
     const keep = ancestorPath(pages, currentPageId)
-    // AI 가 쓴 페이지(트리의 「AI」 배지와 같은 기준)는 리포트 자리가 아니라 갈래째 뺀다 — 들여쓰기가 어긋나지 않게.
-    const aiIds = pages.filter((pg) => pg.aiLastUsedAt != null && !keep.has(pg.id)).map((pg) => pg.id)
+    // AI 가 쓴 리포트 페이지(aiLastAction='report', 서버 검증과 같은 기준)만 갈래째 뺀다 — 들여쓰기가 어긋나지 않게.
+    // 트리의 「AI」 배지(aiLastUsedAt)는 AI 로 다듬기만 해도 붙으니 기준으로 쓰지 않는다.
+    const aiIds = pages.filter((pg) => pg.aiLastAction === REPORT_ACTION && !keep.has(pg.id)).map((pg) => pg.id)
     return pickTargets(pages, [...blockedRootIds, ...aiIds])
   }, [tree.data, blockedRootIds, currentPageId])
 

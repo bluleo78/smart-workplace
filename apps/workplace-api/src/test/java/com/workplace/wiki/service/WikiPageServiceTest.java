@@ -395,6 +395,26 @@ class WikiPageServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * WP-1654 리뷰: 트리 요약에도 AI 액션 종류(aiLastAction)를 싣는다 — 리포트 저장 위치 창이 AI 로 다듬기만 한 페이지는 두고 AI 가 쓴
+   * 리포트(report)만 빼게.
+   */
+  @Test
+  void listTree_carriesAiLastAction() {
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "다듬은 페이지"));
+    pageService.recordAiUsage(p.id(), WikiAiAction.DRAFT);
+
+    WikiPageSummary row =
+        pageService.listTree(u, sp.id()).stream()
+            .filter(s -> s.id() == p.id())
+            .findFirst()
+            .orElseThrow();
+    assertThat(row.aiLastUsedAt()).isNotNull();
+    assertThat(row.aiLastAction()).isEqualTo("draft");
+  }
+
+  /**
    * snapshot 플래그는 무시한다(판정 R8) — 빈 본문(막 만든 노트)에서의 첫 저장은 복원할 게 없어 명시 요청이 있어도 리비전을 남기지 않는다(판정 R6). 시간
    * 규칙 스냅샷은 WikiCollabInternalIntegrationTest 가 검증.
    */

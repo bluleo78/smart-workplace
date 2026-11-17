@@ -95,6 +95,35 @@ class ProjectReportLocationTest extends ExternalClientMockedTestBase {
     assertThat(settings.find(project.id()).orElseThrow().reportLocationPageId()).isNull();
   }
 
+  /**
+   * 고른 위치를 나중에 「템플릿」 아래나 템플릿 페이지 아래로 옮기면(WP-1654 리뷰) 설명·생성 모두 「리포트」로 되돌아간다. 설정값은 지우지 않아 다시 밖으로 옮기면
+   * 그 위치를 다시 쓴다.
+   */
+  @Test
+  void resolve_movedUnderTemplates_fallsBackToReports() {
+    long templates = writer.ensureTemplatesPage(spaceId, ownerId);
+    long template = writer.createPage(ownerId, spaceId, templates, "정기 리포트").id();
+    settings.setTemplate(project.id(), template, false);
+    long minutes = writer.createPage(ownerId, spaceId, null, "회의록").id();
+    settings.setLocation(project.id(), minutes);
+    writer.moveTo(minutes, templates, 0);
+
+    long reports = location.resolveForWrite(row, ownerId).parentPageId();
+    assertThat(reports).isEqualTo(writer.findReportsPage(spaceId).orElseThrow());
+    assertThat(location.describe(project.id()).locationPath()).containsExactly("리포트");
+    assertThat(location.describe(project.id()).locationPageId()).isEqualTo(reports);
+
+    // 템플릿을 「템플릿」 밖으로 옮긴 뒤 그 아래로 옮겨도 같다.
+    pageService.move(ownerId, template, new MovePageRequest(null, 0));
+    writer.moveTo(minutes, template, 0);
+    assertThat(location.resolveForWrite(row, ownerId).parentPageId()).isEqualTo(reports);
+    assertThat(location.describe(project.id()).locationPath()).containsExactly("리포트");
+
+    // 다시 밖으로 옮기면 고른 위치를 그대로 쓴다.
+    pageService.move(ownerId, minutes, new MovePageRequest(null, 0));
+    assertThat(location.resolveForWrite(row, ownerId).parentPageId()).isEqualTo(minutes);
+  }
+
   /** 공간이 없으면(읽기 전용) 모두 비고 경로는 기본 「리포트」. 「리포트」가 지워졌어도 경로는 「리포트」(다음 생성 때 만든다). */
   @Test
   void describe_reportsMissing_pathStillReports() {

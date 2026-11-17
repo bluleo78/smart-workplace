@@ -90,17 +90,18 @@ public class ProjectReportSettingsService {
   public ProjectReportSettingsResponse update(
       long callerId, String key, UpdateProjectReportSettingsRequest req) {
     ProjectRow project = tx.execute(s -> requireManageable(key, callerId));
+    // 잘못된 요청(→ 400)은 아무것도 바꾸지 않게 요청 값을 먼저 읽는다 — 앞단(알림 지우기·옛 템플릿 옮기기)보다 앞(WP-1654 리뷰).
+    ReportCadence reqCadence = req.cadence() != null ? ReportCadence.parse(req.cadence()) : null;
+    DayOfWeek reqWeekday = req.weekday() != null ? DayOfWeek.valueOf(req.weekday()) : null;
+    LocalTime reqTime = req.timeOfDay() != null ? LocalTime.parse(req.timeOfDay(), HH_MM) : null;
     long author = reportAuthor(project);
     beginWrite(project, author);
     SettingRow current =
         tx.execute(
             s -> settings.find(project.id()).orElseGet(() -> SettingRow.defaults(project.id())));
-    ReportCadence cadence =
-        req.cadence() != null ? ReportCadence.parse(req.cadence()) : current.cadence();
-    DayOfWeek weekday =
-        req.weekday() != null ? DayOfWeek.valueOf(req.weekday()) : current.weekday();
-    LocalTime time =
-        req.timeOfDay() != null ? LocalTime.parse(req.timeOfDay(), HH_MM) : current.timeOfDay();
+    ReportCadence cadence = reqCadence != null ? reqCadence : current.cadence();
+    DayOfWeek weekday = reqWeekday != null ? reqWeekday : current.weekday();
+    LocalTime time = reqTime != null ? reqTime : current.timeOfDay();
     boolean enabled = Boolean.TRUE.equals(req.enabled());
 
     // 켬·일정이 바뀌었을 때만 다음 실행 시각을 다시 정한다(실패 수·오류도 지움). 그대로면 실행기가 정한 다음 예정·재시도 시각을 덮지 않는다.
