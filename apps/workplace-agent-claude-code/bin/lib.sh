@@ -10,6 +10,9 @@
 #   다른 이미지가 덮어쓰는 지점: trust_folders(7 의 폴더 신뢰)·before_supervise·can_launch(감독 회차 tick). 함께 쓰는 것: adopt_plugin_scripts·
 #   use_baked_plugin·write_superpowers_agents_md·bg_wait·bg_wait_timeout·seed_login_file·login_file_ready·tick 과 필수 확인·CA·키·git·dind·프로젝트·
 #   감독·정리, 그리고 종료 신호 trap(install_term_trap)·감독 루프(run_supervisor) — 엔트리포인트는 부팅 단계만 적고 이 둘을 부른다.
+#   디스크 정리(WP-1683)도 함께 쓴다: clean_tmp(prepare_dirs — 부팅 때 /work/tmp 비우기)·sweep_tmp_due(감독 루프 회차마다 — 3일 지난 tmp)·
+#   sweep_worktrees·prune_browsers(start_projects — 끝난 이슈 워크트리·안 쓰는 Playwright 브라우저). 정리 규칙은 플러그인의
+#   agent-sweep·browser-prune 에 있고 여기서는 부르기만 한다.
 #   Claude Code 엔트리포인트는 tick 을 쓰지 않는다(run_supervisor boot — 부팅 때 start_projects 를 한 번 부르고 회차마다 supervise_once 를 부른다).
 #   Claude Code 전용(다른 이미지는 부르지 않는다): update_plugins·resolve_plugin_scripts·write_settings·mark_trust·install_plugins·verify_plugin_lock.
 
@@ -25,6 +28,8 @@ BROWSERS_DIR=${PLAYWRIGHT_BROWSERS_PATH:-$GENIA_WORK/.cache/ms-playwright} # PVC
 GENIA_PLAYWRIGHT_CLI_CORE=${GENIA_PLAYWRIGHT_CLI_CORE:-/opt/genia/playwright-cli-core} # playwright-cli 가 품은 playwright-core(이미지 빌드가 링크, WP-1404)
 GENIA_XVFB=${GENIA_XVFB:-Xvfb}                      # 가상 화면 서버(베이스 이미지에 있다)
 GENIA_DISPLAY=${GENIA_DISPLAY:-:99}
+GENIA_TMP_MAX_AGE_MIN=${GENIA_TMP_MAX_AGE_MIN:-4320} # 3일 — 도는 동안 /work/tmp 에서 이보다 오래 안 바뀐 파일을 지운다(WP-1683)
+GENIA_TMP_SWEEP_EVERY=${GENIA_TMP_SWEEP_EVERY:-3600} # 1시간 — 감독 회차 중 위 tmp 정리를 도는 간격(초)
 # 운영 Works origin — 빌드(install_plugins)와, 플러그인을 찾기 전이라 gw_api_url 을 쓸 수 없는 마켓플레이스 단계의 기본값.
 # runner 는 GENIA_WORKS_API_URL 을 늘 넣으므로 Pod 에서는 대개 쓰이지 않는다.
 GENIA_DEFAULT_ORIGIN=https://genia-works.iacloud.kr
@@ -55,10 +60,57 @@ check_required() {
 config_get() { jq -r "$1" "$CONFIG"; }
 
 # /work 아래 폴더 — TMPDIR 이 없으면 dpkg·npm·claude plugin 이 실패한다(PoC). 플러그인 명령보다 먼저 만든다.
+# 만든 바로 뒤 /work/tmp 를 비운다(clean_tmp) — 이 뒤로는 플러그인 명령·브라우저 받기·칸이 tmp 를 쓰기 시작한다.
 prepare_dirs() {
   mkdir -p "$GENIA_WORK/tmp" "$GENIA_WORK/.cache" "$GENIA_WORK/.gradle" "$GENIA_WORK/.pnpm-store" "$AI_DIR/state" ||
     die "$GENIA_WORK 에 폴더를 만들지 못했습니다 — PVC 와 fsGroup 1001 을 확인하세요"
+  clean_tmp
   seed_browsers
+}
+
+# /work/tmp(TMPDIR) 정리(WP-1683) — tmp 는 PVC 라 Pod 가 바뀌어도 남는데, 그 안에 Playwright transform 캐시·node compile 캐시,
+# Claude 세션 scratchpad(claude-<uid>/…), 스크립트·subagent 임시 폴더(gw*·subagent* 등)가 끝없이 쌓여 /work 를 채웠다.
+#
+# 부팅 때(prepare_dirs) 바로 아래를 모두 지운다 — 이 컨테이너의 어느 프로세스도 아직 tmp 를 쓰지 않으므로(칸·플러그인 명령은 이 뒤에 뜬다)
+# 지난 Pod 가 남긴 것뿐이다. 지우지 못한 것(dind 가 bind mount 로 만든 root 소유 파일 등)이 있으면 경고 한 줄만 — 부팅은 계속한다. 늘 0.
+# 큰 폴더를 지우는 동안에도 SIGTERM 을 바로 받게 bg_wait 로 돌린다.
+clean_tmp() {
+  local t="$GENIA_WORK/tmp" left
+  [ -d "$t" ] || return 0
+  bg_wait find "$t" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
+  left=$(find "$t" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+  [ "$left" = 0 ] || log "경고: /work/tmp 를 다 비우지 못했습니다 — ${left}개 남음"
+  return 0
+}
+
+# 도는 동안의 tmp 정리 — GENIA_TMP_MAX_AGE_MIN(3일)보다 오래된 일반 파일·심볼릭 링크를 지우고, 바로 아래(깊이 1)의 빈 폴더 중
+# 3일 넘은 것을 지운다. 「오래됨」은 수정 시각(mtime)과 상태 변경 시각(ctime)이 둘 다 기준을 넘은 것이다 — tar·npm 은 받은 파일의 mtime 을
+# 원래 값(1985 등)으로 되살리므로 mtime 만 보면 방금 푼 파일을 지운다. ctime 은 만들거나 바꾼 때로 정해지고 되돌릴 수 없다.
+# 지우지 않는 것: 소켓·FIFO(돌고 있는 프로세스가 열어 둔 통로일 수 있다 — 오래 안 바뀌어도 쓰는 중), 이름이 Singleton* 인 심볼릭 링크
+# (Chrome 프로필 잠금 SingletonLock·SingletonSocket·SingletonCookie — 며칠 도는 브라우저의 것을 지우면 다른 Chrome 이 같은 프로필을 열어 깨진다),
+# claude-* 아래 폴더(돌고 있는 Claude 세션의 scratchpad — 비어 있어도 세션이 다시 쓴다). 캐시(transform·compile)는 다른 곳으로 옮기지 않고
+# 이 나이 규칙으로 상한을 둔다 — 옮겨도 같은 크기가 PVC 에 쌓인다. 지우기 오류(권한 등)는 버린다. 늘 0.
+sweep_tmp() {
+  local t="$GENIA_WORK/tmp" n="$GENIA_TMP_MAX_AGE_MIN"
+  [ -d "$t" ] || return 0
+  find "$t" -mindepth 1 -type f -mmin +"$n" -cmin +"$n" -exec rm -f {} + 2>/dev/null
+  find "$t" -mindepth 1 -type l ! -name 'Singleton*' -mmin +"$n" -cmin +"$n" -exec rm -f {} + 2>/dev/null
+  find "$t" -mindepth 1 -maxdepth 1 -type d -empty -mmin +"$n" -cmin +"$n" ! -name 'claude-*' -exec rmdir {} + 2>/dev/null
+  return 0
+}
+
+# 감독 회차의 tmp 정리 — 마지막으로 돈 시각($AI_DIR/state/tmp-swept, 에포크 초)에서 GENIA_TMP_SWEEP_EVERY(1시간)가 지났거나 기록이 없으면
+# sweep_tmp 를 돌리고(5분에 끊는다 — 감독 회차가 큰 tmp 에 멈추지 않게) 지금 시각을 적는다. 회차마다 find 로 tmp 전체를 훑지 않으려는 것이다.
+# 감독 루프가 회차마다 부른다 — tick 모드는 tick 이(can_launch 와 상관없이), boot 모드는 run_supervisor 의 루프가 supervise_once 뒤에.
+# 모든 실행기 이미지가 둘 중 하나를 지난다. gw-lib 의 gw_stamp_age 를 쓰므로 플러그인을 찾은 뒤(감독 루프는 그 뒤에 돈다). 늘 0.
+sweep_tmp_due() {
+  local stamp="$AI_DIR/state/tmp-swept" age
+  if age=$(gw_stamp_age "$stamp") && [ "$age" -lt "$GENIA_TMP_SWEEP_EVERY" ]; then
+    return 0
+  fi
+  bg_wait_timeout 300 sweep_tmp
+  date +%s > "$stamp" 2>/dev/null
+  return 0
 }
 
 # 베이스 이미지의 Playwright 브라우저(/ms-playwright)를 PVC 의 브라우저 폴더에 링크한다 — 저장소가 같은 버전이면 받지 않아도 된다.
@@ -332,30 +384,93 @@ list_projects() {
   "$GW_SCRIPTS/gw-agent-projects" --assigned "$GENIA_AGENT_NAME" </dev/null
 }
 
-# 7b. 저장소의 Playwright 버전 — pnpm-lock.yaml 의 패키지 줄(정확한 버전)을 먼저, 없으면 package.json 의 고정 버전(^·~ 는 뗀다).
+# 7b. 저장소의 Playwright 버전 — 규칙(pnpm-lock.yaml 먼저, 없으면 package.json 고정 버전)은 플러그인의 gw_playwright_version 한 곳에 둔다(WP-1683):
+#     브라우저 정리(browser-prune)가 「지키는 버전」을 같은 규칙으로 읽어야 받은 버전과 지키는 버전이 어긋나지 않는다. gw-lib 를 읽은 뒤 부른다.
 playwright_version() {
-  v=""
-  if [ -f "$1/pnpm-lock.yaml" ]; then
-    v=$(grep -m 1 -oE "^  '?(@playwright/test|playwright)@[0-9]+\.[0-9]+\.[0-9]+" "$1/pnpm-lock.yaml" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
-  fi
-  if [ -z "$v" ] && [ -f "$1/package.json" ]; then
-    v=$(jq -r '((.devDependencies // {}) + (.dependencies // {})) | (.["@playwright/test"] // .playwright // empty)' "$1/package.json" 2>/dev/null |
-      sed -E 's/^[~^=v]+//')
-    case "$v" in *[!0-9.]* | '') v="" ;; esac
-  fi
-  [ -n "$v" ] || return 1
-  printf '%s\n' "$v"
+  gw_playwright_version "$1"
 }
 
-# 7c. 그 버전의 chromium — 저장소 Playwright 와 이미지 브라우저 버전이 달라 E2E 가 실패했다(PoC). 받은 버전은 표시를 남겨 다음엔 건너뛴다.
+# 7c. 그 버전의 브라우저가 다 받아져 있는지 — browsers_ready <playwright-core 폴더>. 그 core 의 browsers.json 이 있고, 그 chromium 과
+#     chromium-headless-shell 의 브라우저 폴더(<이름의 - 를 _ 로>-<revision> — Playwright 의 폴더 이름 규칙)에 INSTALLATION_COMPLETE 가 있으면 0.
+#     폴더가 베이스 이미지(/ms-playwright)로 건 심볼릭 링크여도 따라가 본다(seed_browsers). headless shell 도 보는 이유: 저장소 E2E 의 headless
+#     실행(channel 지정 없음)은 chromium_headless_shell-<rev> 를 쓴다. Playwright 가 다 받은 폴더에만 INSTALLATION_COMPLETE 를 남기므로
+#     반쯤 받다 끊긴 폴더는 「안 받음」으로 보고 다시 받는다.
+#     chromium 은 늘 있어야 한다. chromium-headless-shell 은 Playwright 1.49 부터 browsers.json 에 있다 — 항목이 없는(1.48 이하) core 는
+#     chromium 만 보고 「받음」으로 본다(아니면 받기 뒤에도 늘 실패로 보여 부팅마다 다시 받고 브라우저 정리도 건너뛴다).
+browsers_ready() {
+  local core=$1 n r
+  [ -f "$core/browsers.json" ] || return 1
+  for n in chromium chromium-headless-shell; do
+    r=$(jq -r --arg n "$n" '.browsers[] | select(.name == $n) | .revision' "$core/browsers.json" 2>/dev/null)
+    if [ -z "$r" ]; then
+      [ "$n" = chromium ] && return 1
+      continue
+    fi
+    [ -f "$BROWSERS_DIR/$(printf '%s' "$n" | tr - _)-$r/INSTALLATION_COMPLETE" ] || return 1
+  done
+  return 0
+}
+
+# 7d. 그 버전의 chromium — 저장소 Playwright 와 이미지 브라우저 버전이 달라 E2E 가 실패했다(PoC). 받았으면 0, 못 받았으면 경고 후 1.
+#     예전에는 npx 로 받았는데, npx 캐시가 휘발 홈(~/.npm/_npx)에 있어 Pod 가 다시 뜰 때마다 Playwright 의 설치 기록(.links)이 가리키는 core 가
+#     사라졌다(STALE) — Playwright GC 가 그 브라우저를 「안 쓰는 것」으로 보고, 옛 버전 브라우저가 PVC 에 그대로 쌓였다(WP-1683).
+#     그래서 playwright-core 를 PVC 의 고정 폴더(<브라우저 폴더>/.genia-installs/<버전>)에 npm 으로 받고 그 cli.js 로 브라우저를 받는다 — 기록이
+#     PVC 경로를 가리켜 재시작해도 살아 있다. 받을 때는 Playwright 의 GC 를 끈다(PLAYWRIGHT_SKIP_BROWSER_GC) — 지우기는 모든 버전을 다 받은 뒤
+#     browser-prune 하나가 한다(받는 도중 다른 버전의 GC 가 서로의 브라우저를 지우지 않게). 옛 받기 표시(.genia-chromium-*)는 쓰지 않는다.
 ensure_playwright() {
-  [ -f "$BROWSERS_DIR/.genia-chromium-$1" ] && return 0
-  mkdir -p "$BROWSERS_DIR"
-  if (cd "$GENIA_WORK/tmp" && npx -y "playwright@$1" install chromium) >&2 </dev/null; then
-    : > "$BROWSERS_DIR/.genia-chromium-$1"
-  else
-    log "경고: Playwright $1 의 chromium 을 받지 못했습니다 — E2E 가 실패할 수 있습니다"
+  local v=$1 prefix core
+  prefix="$BROWSERS_DIR/.genia-installs/$v"
+  core="$prefix/node_modules/playwright-core"
+  browsers_ready "$core" && return 0
+  mkdir -p "$prefix"
+  if (cd "$GENIA_WORK/tmp" && npm install --prefix "$prefix" --no-audit --no-fund --loglevel=error "playwright-core@$v") >&2 </dev/null; then
+    PLAYWRIGHT_BROWSERS_PATH="$BROWSERS_DIR" PLAYWRIGHT_SKIP_BROWSER_GC=1 node "$core/cli.js" install chromium >&2 </dev/null
   fi
+  browsers_ready "$core" && return 0
+  log "경고: Playwright $v 의 chromium 을 받지 못했습니다 — E2E 가 실패할 수 있습니다"
+  return 1
+}
+
+# 7e. 안 쓰는 브라우저 정리(WP-1683) — 플러그인의 browser-prune(Pod 모드)을 브라우저 폴더와 AI 홈(/work/agents — 그 아래 모든 저장소의 버전을
+#     지킨다)으로 부른다. 결과·경고 줄은 「브라우저 정리: …」 로그로 남긴다. 옛 플러그인에 browser-prune 이 없거나 정리가 실패·건너뛰어도
+#     경고만 남기고 0 — 정리가 칸 띄우기를 막지 않는다. 오래 걸리면(큰 폴더 rm) 5분에 끊고, SIGTERM 은 bg_wait_timeout 으로 바로 받는다.
+#     start_projects 가 부팅 임시 폴더(BOOT_DIR)를 지우기 전에 부른다(출력을 거기 받는다).
+prune_browsers() {
+  local out="$BOOT_DIR/prune.out" line
+  if [ ! -x "${GW_SCRIPTS:-}/browser-prune" ]; then
+    log "경고: 이 플러그인 버전에는 browser-prune 이 없습니다 — 안 쓰는 브라우저를 지우지 않습니다"
+    return 0
+  fi
+  bg_wait_timeout 300 "$GW_SCRIPTS/browser-prune" --dir "$BROWSERS_DIR" "$AI_HOME" > "$out" 2>&1 </dev/null
+  while IFS= read -r line; do
+    [ -n "$line" ] && log "브라우저 정리: $line"
+  done < "$out"
+  return 0
+}
+
+# 7a. 끝난 이슈의 워크트리 정리(WP-1683) — 플러그인의 agent-sweep 을 AI 폴더로 한 번 부른다. 그 AI 의 모든 저장소(repos/*)를 보고
+#     서버에 이슈 상태를 물어 DONE·CANCELED 인 것의 워크트리·브랜치·실행 상태 파일만 지운다. 칸 없는 프로젝트(소속에서 빠진 것 포함)의
+#     워크트리는 칸의 work-loop(2-1)가 보지 않아 여기서만 정리된다.
+#     칸을 띄우기 전(start_projects 맨 앞)에 한다 — 같은 MAIN 에서 work-loop·agent-project repo 의 fetch 와 겹치지 않게.
+#     한 Pod 에 한 번(WORKTREES_SWEPT — run_supervisor 가 비우지 않는다): start_projects 가 실패해 다음 회차에 다시 불려도 다시 돌지 않는다.
+#     서버에 닿지 못해 남긴 것은 칸의 work-loop 2-1 이 맡는다. 결과 줄은 $AI_DIR/state/boot-sweep.log 에 두고 「워크트리 정리: …」 로그로 남긴다.
+#     옛 플러그인에 agent-sweep 이 없거나 실패·시간 초과(GENIA_SWEEP_TIMEOUT, 기본 600초)여도 경고·로그만 남기고 0 — 칸 띄우기를 막지 않는다.
+#     오래 걸릴 수 있어(fetch·워크트리 지우기) bg_wait_timeout 으로 돌려 SIGTERM 을 바로 받는다.
+sweep_worktrees() {
+  local out="$AI_DIR/state/boot-sweep.log" line
+  [ "${WORKTREES_SWEPT:-0}" = 1 ] && return 0
+  WORKTREES_SWEPT=1
+  if [ ! -x "${GW_SCRIPTS:-}/agent-sweep" ]; then
+    log "경고: 이 플러그인 버전에는 agent-sweep 이 없습니다 — 끝난 이슈의 워크트리를 부팅 때 지우지 않습니다"
+    return 0
+  fi
+  mkdir -p "$AI_DIR/state"
+  bg_wait_timeout "${GENIA_SWEEP_TIMEOUT:-600}" "$GW_SCRIPTS/agent-sweep" "$AI_DIR" > "$out" 2>&1 </dev/null ||
+    log "경고: 워크트리 정리가 끝까지 돌지 못했습니다 — 남은 것은 칸의 work-loop 가 정리합니다"
+  while IFS= read -r line; do
+    [ -n "$line" ] && log "워크트리 정리: $line"
+  done < "$out"
+  return 0
 }
 
 # 칸을 띄운 결과를 기록 — 띄운 시각(6일 넘김 판정)과 로그 한 줄.
@@ -371,7 +486,7 @@ note_launch() {
   esac
 }
 
-# pid 들과 그 자손 전부를 끈다(WP-1267) — 뒤에서 도는 일(agent-project → git clone·npx)은 손자 프로세스가 실제 일을 하므로 서브셸만 끄면
+# pid 들과 그 자손 전부를 끈다(WP-1267) — 뒤에서 도는 일(agent-project → git clone·npm)은 손자 프로세스가 실제 일을 하므로 서브셸만 끄면
 # 정리 뒤에도 clone 이 영속 폴더에 쓰고 있다. ps 의 pid·ppid 표로 자손을 모은 뒤(끄기 전에 — 끄면 고아가 돼 부모를 잃는다) TERM, 3초 안에
 # 안 끝난 것은 KILL. ps 가 없으면 받은 pid 만 끈다.
 kill_tree() {
@@ -475,6 +590,8 @@ login_file_ready() { [ -s "$1" ]; }
 #    BOOT_KEYS 에 띄운 키를 모은다(감독이 살핀다). 프로젝트 목록을 못 읽으면 1(감독이 다음 회차에 다시 한다).
 #    알림 감시 창은 부르는 쪽이 칸을 다 띄운 뒤 한 번 챙긴다(ensure_events).
 start_projects() {
+  # 끝난 이슈의 워크트리를 칸을 띄우기 전에 한 번 지운다(WP-1683 — 한 Pod 에 한 번, 실패해도 계속).
+  sweep_worktrees
   list=$(list_projects) || {
     log "경고: 맡은 프로젝트를 읽지 못했습니다 — 잠시 뒤 다시 합니다"
     return 1
@@ -520,22 +637,38 @@ LIST_EOF
   while IFS="$tab" read -r key url branch; do
     out=$(cat "$BOOT_DIR/$key.out" 2>/dev/null)
     [ -n "$out" ] && log "$key: $(printf '%s' "$out" | tr '\n' ' ')"
-    [ "$(cat "$BOOT_DIR/$key.rc" 2>/dev/null)" = 0 ] || continue
-    ok_list="$ok_list $key"
-    if v=$(playwright_version "$AI_DIR/repos/$key"); then
+    [ "$(cat "$BOOT_DIR/$key.rc" 2>/dev/null)" = 0 ] && ok_list="$ok_list $key"
+    # 브라우저 버전은 칸을 띄울 저장소만이 아니라 폴더가 있는 모든 저장소에서 모은다(WP-1683) — 이번에 받기가 실패(fetch·url-changed·busy)한
+    # 저장소도 work-loop 가 그 폴더로 E2E 를 돌릴 수 있어, 그 버전을 빼면 아래 정리가 쓰는 브라우저를 지운다.
+    if [ -d "$AI_DIR/repos/$key" ] && v=$(playwright_version "$AI_DIR/repos/$key"); then
       case "$pw_versions" in *" $v "*) ;; *) pw_versions="$pw_versions$v " ;; esac
     fi
   done <<LIST_EOF
 $list
 LIST_EOF
+  # 버전마다 받기를 함께 돌리고, 각 결과(종료 코드)를 BOOT_DIR 의 pw-<버전>.rc 에 남긴다(백그라운드 일의 종료 코드를 모으려고).
   BG_PIDS=""
   for v in $pw_versions; do
-    ensure_playwright "$v" &
+    (
+      ensure_playwright "$v"
+      printf '%s' $? > "$BOOT_DIR/pw-$v.rc"
+    ) &
     BG_PIDS="$BG_PIDS $!"
   done
   # shellcheck disable=SC2086
   [ -z "$BG_PIDS" ] || wait $BG_PIDS
   BG_PIDS=""
+  # 모든 버전을 받았을 때만 안 쓰는 브라우저를 지운다 — 하나라도 실패하면 그 버전 대신 E2E 가 쓸 수 있는 옛 브라우저를 남긴다
+  # (다음 부팅에서 다시 받고 그때 정리한다). rc 파일이 없으면(받기가 끊김) 실패로 본다.
+  pw_ok=1
+  for v in $pw_versions; do
+    [ "$(cat "$BOOT_DIR/pw-$v.rc" 2>/dev/null)" = 0 ] || pw_ok=0
+  done
+  if [ "$pw_ok" = 1 ]; then
+    prune_browsers
+  else
+    log "경고: 브라우저 받기에 실패한 버전이 있어 이번에는 브라우저를 정리하지 않습니다"
+  fi
   rm -rf "$BOOT_DIR"
   BOOT_DIR=""
   for key in $ok_list; do
@@ -589,9 +722,10 @@ supervise_once() {
   ensure_events
 }
 
-# 감독 한 회차(Gen:iA Code·Codex 엔트리포인트 — 부팅 첫 회차 포함) — 이미지 훅 before_supervise(Gen:iA: 프로그램 받기, Codex: 모델 목록 보고)를
+# 감독 한 회차(Gen:iA Code·Codex·OpenCode 엔트리포인트 — 부팅 첫 회차 포함) — 이미지 훅 before_supervise(Gen:iA: 프로그램 받기, Codex: 모델 목록 보고)를
 # 돈 뒤, 칸을 띄울 수 있으면(이미지의 can_launch — 로그인 등) supervise_once(처음이면 start_projects, 그 뒤 칸 살피기·알림 감시 창). 못 띄우면
-# 아무것도 하지 않는다. 회차 번호를 $AI_DIR/state/supervise-ticks 에 적는다 — 감독이 도는지 밖에서(테스트·kubectl exec) 볼 수 있게.
+# 칸 일은 하지 않는다. 띄울 수 있든 없든 tmp 정리(sweep_tmp_due — 한 시간에 한 번)는 부른다(WP-1683) — 로그인을 오래 기다리는 Pod 도
+# tmp 가 찬다. 회차 번호를 $AI_DIR/state/supervise-ticks 에 적는다 — 감독이 도는지 밖에서(테스트·kubectl exec) 볼 수 있게.
 # 두 훅의 기본은 「할 일 없음」·「띄울 수 있음」이고 이미지가 trust_folders 처럼 덮어쓴다. 늘 0.
 before_supervise() { return 0; }
 can_launch() { return 0; }
@@ -600,13 +734,14 @@ tick() {
   SUPERVISE_TICKS=$((SUPERVISE_TICKS + 1))
   before_supervise
   if can_launch; then supervise_once; fi
+  sweep_tmp_due
   printf '%s\n' "$SUPERVISE_TICKS" > "$AI_DIR/state/supervise-ticks" 2>/dev/null
   return 0
 }
 
 # SIGTERM·SIGINT 처리(모든 엔트리포인트 공용) — 칸들을 정리하고 0 으로 끝낸다. 0 이 아니면 kubelet 이 실패로 본다.
 # 감독의 sleep 을 먼저 끄고(SLEEP_PID — supervise_nap 이 적는다), start_projects 가 저장소·브라우저를 받는 중이었거나(Codex: 모델 목록을
-# 묻는 중이었거나) 하면 그 일들을 자손(git·npx 등)까지 끄고 임시 폴더를 치운다(abort_boot) — 남기면 정리 뒤에도 clone 이 이어진다.
+# 묻는 중이었거나) 하면 그 일들을 자손(git·npm 등)까지 끄고 임시 폴더를 치운다(abort_boot) — 남기면 정리 뒤에도 clone 이 이어진다.
 # 끝에서 exit 하므로 trap 이 끊은 wait 로 감독 루프가 돌아가지 않는다.
 SLEEP_PID=""
 on_term() {
@@ -635,7 +770,8 @@ supervise_nap() {
 
 # 감독 루프(모든 엔트리포인트 공용) — run_supervisor <tick|boot>. 돌아오지 않는다(끝은 on_term 의 exit).
 #   tick(Gen:iA Code·Codex·OpenCode): 부팅 첫 회차부터 tick 하나로 — 회차마다 tick(이미지 훅 → 띄울 수 있으면 supervise_once) 뒤 쉰다.
-#   boot(Claude Code): 부팅 때 start_projects 를 한 번 부르고 알림 감시 창을 챙긴 뒤, 쉬고 나서 supervise_once 를 회차마다 부른다.
+#   boot(Claude Code): 부팅 때 start_projects 를 한 번 부르고 알림 감시 창을 챙긴 뒤, 쉬고 나서 supervise_once 와 tmp 정리(sweep_tmp_due)를
+#     회차마다 부른다.
 #     첫 supervise_once 전에 쉬는 것이 tick 과 다르다 — 부팅 직후 agent-window 를 한 번 더 부르지 않게(옛 동작 그대로).
 # PROJECTS_READY·BOOT_KEYS 는 start_projects·supervise_once 가 읽고 쓰는 전역이라 local 로 두지 않는다.
 run_supervisor() {
@@ -654,6 +790,7 @@ run_supervisor() {
       while :; do
         supervise_nap
         supervise_once
+        sweep_tmp_due
       done
       ;;
     *) die "run_supervisor: 알 수 없는 감독 모드입니다 — $1" ;;

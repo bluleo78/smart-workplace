@@ -311,3 +311,41 @@ gw_api_request() {
   GW_BODY=${_gw_out%
 *}
 }
+
+# 저장소의 Playwright 버전(WP-1683) — gw_playwright_version <저장소 폴더>. pnpm-lock.yaml 의 패키지 줄(정확한 버전)을 먼저, 없으면 package.json 의
+# 고정 버전(^·~·=·v 는 뗀다). 「x.y.z」 한 줄과 0, 못 찾으면 아무것도 내지 않고 1. 이미지 엔트리포인트(lib.sh playwright_version — 받을 브라우저 버전)와
+# browser-prune(지키는 버전 — 홈 아래 모든 저장소)이 같은 규칙으로 읽도록 한곳에 둔다.
+# 세 자리(x.y.z)가 아니면(^1.50·1 등) 못 읽은 것으로 본다 — 「1.50」 으로 받으면 npm 이 범위를 풀어 1.50.1 을 받아, 받은 것과 지키는 버전이 어긋난다.
+gw_playwright_version() {
+  _gw_pv=""
+  if [ -f "$1/pnpm-lock.yaml" ]; then
+    _gw_pv=$(grep -m 1 -oE "^  '?(@playwright/test|playwright)@[0-9]+\.[0-9]+\.[0-9]+" "$1/pnpm-lock.yaml" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
+  fi
+  if [ -z "$_gw_pv" ] && [ -f "$1/package.json" ]; then
+    _gw_pv=$(jq -r '((.devDependencies // {}) + (.dependencies // {})) | (.["@playwright/test"] // .playwright // empty)' "$1/package.json" 2>/dev/null |
+      sed -E 's/^[~^=v]+//')
+  fi
+  # 두 경로 모두 정확한 세 자리 버전만 받는다(lockfile 은 정규식이 이미 세 자리다).
+  printf '%s\n' "$_gw_pv" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' || _gw_pv=""
+  [ -n "$_gw_pv" ] || return 1
+  printf '%s\n' "$_gw_pv"
+}
+
+# 이 컴퓨터의 Playwright 브라우저 폴더(WP-1683) — Playwright 자신의 기본값과 같은 규칙: PLAYWRIGHT_BROWSERS_PATH, 없으면 macOS 는
+# ~/Library/Caches/ms-playwright, 그 밖은 ${XDG_CACHE_HOME:-~/.cache}/ms-playwright. 값이 0 이면 브라우저를 패키지 안(node_modules)에 두는
+# 설정이라 정리할 공용 폴더가 없다 — 아무것도 내지 않고 1. browser-prune 이 --dir 없이 불렸을 때(호스트의 start-agent) 쓴다.
+gw_browsers_dir() {
+  case "${PLAYWRIGHT_BROWSERS_PATH:-}" in
+    0) return 1 ;;
+    '') ;;
+    *)
+      printf '%s\n' "$PLAYWRIGHT_BROWSERS_PATH"
+      return 0
+      ;;
+  esac
+  if [ "$(uname -s)" = Darwin ]; then
+    printf '%s\n' "$HOME/Library/Caches/ms-playwright"
+  else
+    printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"
+  fi
+}
