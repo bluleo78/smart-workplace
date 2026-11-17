@@ -17,7 +17,9 @@ import type { MailToolClient } from './tool-client.js';
 
 export const listMailInput = z.object({
   accountId: z.number().int().positive(),
-  folder: z.string().default('INBOX').describe('INBOX or SENT'),
+  // WP-1681: TRASH = 메일 서버 휴지통(안 읽은 수·요약·AI 에서 빠진 메일). 서버 메일함 이름도 그대로 받으므로 자유 문자열이다 —
+  // 없는 이름은 서버가 빈 목록으로 돌려준다.
+  folder: z.string().default('INBOX').describe('INBOX, SENT, TRASH'),
   query: z.string().optional(),
   // #466: 안 읽은 메일만. 검색어("is:unread")로 흉내 내면 서버가 본문 검색으로 처리해 결과가 틀린다.
   unreadOnly: z.boolean().optional(),
@@ -44,6 +46,14 @@ export const createIssueFromMailInput = z.object({
 export const markMailReadInput = z.object({
   messageId: z.number().int().positive(),
   read: z.boolean().default(true),
+});
+// WP-1681: 한 번에 옮길 수 있는 메일 수 상한 — API MailMoveRequest 의 messageIds 상한과 같다(어긋나면 API 가 400 으로 거절한다).
+const MAIL_MOVE_MAX_MESSAGES = 100;
+
+// WP-1681: 휴지통 메일 되살리기 입력. 한 번에 최대 MAIL_MOVE_MAX_MESSAGES 통.
+export const restoreMailInput = z.object({
+  accountId: z.number().int().positive(),
+  messageIds: z.array(z.number().int().positive()).min(1).max(MAIL_MOVE_MAX_MESSAGES),
 });
 export const syncMailInput = z.object({ accountId: z.number().int().positive() });
 // WP-1341: 내 메일 분류 바꾸기 입력. null 은 「비우기」(AI 분류로 되돌리기) 뜻이라 nullAsOmitted 를 쓰지 않고 정의에 null 갈래를 그대로 보인다.
@@ -242,6 +252,21 @@ export function buildMailTools(
         const { messageId, read } = markMailReadInput.parse(args);
         await (read ? client.markMailRead(messageId) : client.markMailUnread(messageId));
         return 'ok';
+      },
+    },
+    {
+      name: 'restore_mail',
+      app: 'mail',
+      kind: 'write',
+      // WP-1681: 휴지통에서 원래 메일함(없으면 받은편지함)으로 옮긴다. 메일 서버에도 반영돼 openWorld. 메일을 지우지 않고 되돌릴 수 있어(다시 지우면 휴지통)
+      // destructive 가 아니며, 이미 되살린 메일은 서버가 400 으로 거절해 같은 인자를 다시 불러도 결과가 같지 않으므로 멱등이 아니다.
+      hints: { destructive: false, idempotent: false, openWorld: true },
+      description:
+        'Restores trashed mail (list_mail folder:TRASH) to its original folder or the inbox, also on the server. Returns {results:[{messageId, ok, error?}]}.',
+      inputSchema: restoreMailInput,
+      async handler(args) {
+        const { accountId, messageIds } = restoreMailInput.parse(args);
+        return JSON.stringify(await client.restoreMail(accountId, messageIds));
       },
     },
     {

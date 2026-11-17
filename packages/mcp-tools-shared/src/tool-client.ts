@@ -441,6 +441,8 @@ export interface MailToolClient {
   markMailRead(messageId: number): Promise<void>;
   /** POST /mail/messages/{id}/unread — 안 읽음으로 되돌린다(WP-187 서버 API, WP-357). 읽음 처리와 같이 원본 메일 서버로 역동기화된다. */
   markMailUnread(messageId: number): Promise<void>;
+  /** POST /mail/accounts/{id}/messages/move(target RESTORE) — 휴지통 메일을 원래 메일함(없으면 받은편지함)으로 되살린다(WP-1681). 건별 결과를 요청 순서로 준다. */
+  restoreMail(accountId: number, messageIds: number[]): Promise<{ results: { messageId: number; ok: boolean; error?: string }[] }>;
   /**
    * PUT /mail/messages/{id}/category — 내 메일 분류를 바꾼다(WP-1341, 내 사본만). null 이면 직접 정한 분류를 지워 AI 분류로 되돌린다.
    * 응답 aiCategory 는 바꾼 뒤의 유효 분류, categoryByMe 는 직접 정한 분류인지, learnable 은 웹이 교정 학습을 부를지 여부다. 5종 밖이면 400, 남의 메일이면 404.

@@ -473,6 +473,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async markMailUnread(messageId) {
       await http.post(`/mail/messages/${messageId}/unread`);
     },
+    // WP-1681: 휴지통 메일을 원래 메일함으로 — 이동 API 의 RESTORE 대상. 휴지통 밖 메일이 섞이면 서버가 400.
+    async restoreMail(accountId, messageIds) {
+      return (await http.post(`/mail/accounts/${accountId}/messages/move`, { messageIds, target: { kind: 'RESTORE' } })).data;
+    },
     // WP-1341: null 도 본문에 그대로 싣는다 — 서버는 category:null 을 「직접 정한 분류 지우기」로 읽는다.
     async setMailCategory(messageId, category) {
       return (await http.put(`/mail/messages/${messageId}/category`, { category })).data;

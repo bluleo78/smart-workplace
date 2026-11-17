@@ -30,8 +30,9 @@ const byFolderName = (a: MailServerFolder, b: MailServerFolder) =>
   folderNameCollator.compare(a.displayName, b.displayName) || a.id - b.id
 
 /**
- * 목록 → 보관 + 내 메일함 트리.
+ * 목록 → 보관 + 휴지통 + 내 메일함 트리.
  * - 보관은 기본 메일함 줄에 납작하게 그리므로 첫 ARCHIVE 하나만 따로 뺀다(서버는 계정당 하나를 준다 — 둘 이상이면 나머지는 보이지 않는다).
+ * - 휴지통(TRASH, WP-1681)도 기본 메일함 줄에 그리므로 따로 빼고 트리에는 넣지 않는다(서버가 계정당 하나만 준다).
  * - 부모가 USER 목록에 없으면(보관 아래·숨은 부모·지워진 부모) 최상위로 올린다 — 메일함이 트리에서 사라지지 않게.
  * - 메일을 담지 못하고 하위도 없는 메일함(selectable=false 잎)은 열 것이 없어 뺀다.
  * - 부모 고리가 꼬여 있어도(서버 데이터 이상) 각 메일함은 한 번만 붙는다.
@@ -39,9 +40,11 @@ const byFolderName = (a: MailServerFolder, b: MailServerFolder) =>
  */
 export function buildMailFolderTree(folders: readonly MailServerFolder[]): {
   archive: MailServerFolder | null
+  trash: MailServerFolder | null
   tree: MailFolderNode[]
 } {
   const archive = folders.find((f) => f.role === 'ARCHIVE') ?? null
+  const trash = folders.find((f) => f.role === 'TRASH') ?? null
   const users = folders.filter((f) => f.role === 'USER')
   const byId = new Map(users.map((f) => [f.id, f]))
   const childrenOf = new Map<number, MailServerFolder[]>()
@@ -73,7 +76,7 @@ export function buildMailFolderTree(folders: readonly MailServerFolder[]): {
       if (n) tree.push(n)
     }
   }
-  return { archive, tree }
+  return { archive, trash, tree }
 }
 
 /** 트리 → 화면 줄. 접힌 메일함의 하위는 건너뛴다(기본은 펼침 — collapsed 에 있는 것만 접힌다). */
@@ -103,11 +106,11 @@ export function folderAncestorIds(folders: readonly MailServerFolder[], id: numb
   return out
 }
 
-/** 메일함 이름 경로(최상위 → 자신). 보관은 「보관」 한 칸. 목록에 없으면 빈 배열. */
+/** 메일함 이름 경로(최상위 → 자신). 보관은 「보관」, 휴지통은 「휴지통」 한 칸. 목록에 없으면 빈 배열. */
 export function folderNamePath(folders: readonly MailServerFolder[], id: number): string[] {
   const f = folders.find((x) => x.id === id)
   if (!f) return []
-  if (f.role === 'ARCHIVE') return [ARCHIVE_LABEL]
+  if (f.role === 'ARCHIVE' || f.role === 'TRASH') return [serverFolderLabel(f)]
   const byId = new Map(folders.map((x) => [x.id, x]))
   return [...folderAncestorIds(folders, id)].reverse().map((a) => byId.get(a)!.displayName).concat(f.displayName)
 }
@@ -115,11 +118,26 @@ export function folderNamePath(folders: readonly MailServerFolder[], id: number)
 /** 보관 메일함의 화면 이름 — 서버 이름(Archive·보관함 등)과 무관하게 같은 이름으로 보인다. */
 export const ARCHIVE_LABEL = '보관'
 
+/** 서버 휴지통의 화면 이름(WP-1681) — 서버 이름(Trash·Deleted Items·지운 편지함 등)과 무관하게 같은 이름으로 보인다. */
+export const TRASH_LABEL = '휴지통'
+
+/** 휴지통 보기 상태 줄의 기간(일, WP-1681) — 서버 상수 MailFetcher.TRASH_WINDOW_DAYS 와 같은 값. 서버는 휴지통을 받은 날 기준 최근 30일만 가져오고 「더 가져오기」를 받지 않는다. */
+export const TRASH_WINDOW_DAYS = 30
+
+/** 메일함 화면 이름 — 보관·휴지통은 고정 이름, 그 밖은 서버 이름. 제목·경로가 같은 규칙을 쓰게 한 곳에 둔다. */
+export function serverFolderLabel(f: Pick<MailServerFolder, 'role' | 'displayName'>): string {
+  if (f.role === 'ARCHIVE') return ARCHIVE_LABEL
+  if (f.role === 'TRASH') return TRASH_LABEL
+  return f.displayName
+}
+
 /**
  * 가져온 기간(일) — 마지막으로 가져온 시각부터 가장 오래된 경계까지. 「더 가져오기」를 누를 때마다 늘어난다(90 → 180 …).
  * 지금 시각이 아니라 가져온 시각 기준이라 렌더마다 값이 흔들리지 않는다. 둘 중 하나라도 없으면 null.
+ * 휴지통은 경계를 늘리지 않고 늘 최근 {@link TRASH_WINDOW_DAYS}일만 둔다(WP-1681) — 시각과 무관하게 그 값.
  */
-export function folderRangeDays(f: Pick<MailServerFolder, 'syncedSince' | 'folderSyncedAt'>): number | null {
+export function folderRangeDays(f: Pick<MailServerFolder, 'role' | 'syncedSince' | 'folderSyncedAt'>): number | null {
+  if (f.role === 'TRASH') return TRASH_WINDOW_DAYS
   if (!f.syncedSince || !f.folderSyncedAt) return null
   const ms = Date.parse(f.folderSyncedAt) - Date.parse(f.syncedSince)
   if (!Number.isFinite(ms) || ms < 0) return null

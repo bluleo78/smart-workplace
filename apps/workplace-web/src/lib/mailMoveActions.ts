@@ -1,4 +1,4 @@
-// WP-962 메일 보관·옮기기·삭제 — 보기별로 어떤 작업을 보일지, 「옮기기」 메뉴에 어떤 메일함을 둘지 정하는 순수 판정.
+// WP-962 메일 보관·옮기기·삭제(+ WP-1681 휴지통 되살리기) — 보기별로 어떤 작업을 보일지, 「옮기기」 메뉴에 어떤 메일함을 둘지 정하는 순수 판정.
 // 목록 행 hover 버튼·상세 툴바·모바일 길게 누르기 시트·모바일 상세 ⋯ 메뉴가 모두 같은 판정을 쓴다(화면마다 규칙이 갈리지 않게).
 import type { MailMoveTarget, MailServerFolder } from '@/types/mailFolder'
 
@@ -24,15 +24,20 @@ export interface MailMoveTargetOption {
   section: 'base' | 'user'
 }
 
-/** 지금 보는 메일함이 보관인가. */
-function viewingArchive(view: Pick<MailView, 'kind' | 'folderId'>, folders: readonly MailServerFolder[] | undefined): boolean {
-  return view.kind === 'folder' && folders?.find((f) => f.id === view.folderId)?.role === 'ARCHIVE'
+/** 지금 보는 메일함이 주어진 역할(보관·휴지통)인가(WP-1681 — 보관·휴지통 판정을 한 함수로 합쳤다). */
+function viewingRole(
+  view: Pick<MailView, 'kind' | 'folderId'>,
+  folders: readonly MailServerFolder[] | undefined,
+  role: MailServerFolder['role'],
+): boolean {
+  return view.kind === 'folder' && folders?.find((f) => f.id === view.folderId)?.role === role
 }
 
 /**
  * 「옮기기」 메뉴 — 받은편지함 · 보관 · 내 메일함 트리(모두 펼침). 지금 보는 메일함은 뺀다:
  * 받은편지함 계열 보기에선 받은편지함, 보관 보기에선 보관, 내 메일함 보기에선 그 메일함(하위는 남긴다).
  * 보낸편지함·임시보관함은 옮길 수 없어 빈 목록. 메일함 목록을 아직 못 받았으면 받은편지함만.
+ * 휴지통은 넣지 않는다(WP-1681) — 휴지통으로 보내는 것은 「삭제」가 맡는다(buildMailFolderTree 가 트리에서 뺀다).
  */
 export function mailMoveTargets(
   view: Pick<MailView, 'kind' | 'folderId'>,
@@ -44,7 +49,7 @@ export function mailMoveTargets(
     out.push({ key: 'inbox', label: '받은편지함', target: { kind: 'INBOX' }, depth: 0, selectable: true, section: 'base' })
   }
   const { archive, tree } = buildMailFolderTree(folders ?? [])
-  if (archive && !viewingArchive(view, folders)) {
+  if (archive && !viewingRole(view, folders, 'ARCHIVE')) {
     out.push({ key: 'archive', label: ARCHIVE_LABEL, target: { kind: 'ARCHIVE' }, depth: 0, selectable: true, section: 'base' })
   }
   for (const row of visibleFolderRows(tree, new Set())) {
@@ -61,27 +66,33 @@ export function mailMoveTargets(
   return out
 }
 
-/** 보기에서 보일 작업 — 보관(보관 메일함이 있고 보관 보기가 아닐 때)·옮기기(고를 곳이 있을 때)·삭제. 보낸편지함·임시보관함은 없음. */
+/**
+ * 보기에서 보일 작업 — 보관(보관 메일함이 있고 보관 보기가 아닐 때)·옮기기(고를 곳이 있을 때)·삭제. 보낸편지함·임시보관함은 없음.
+ * 휴지통 보기(WP-1681)는 되살리기만 — 휴지통 메일을 다른 곳으로 옮기거나 다시 삭제하는 길은 두지 않고 원래 메일함으로 돌린다.
+ */
 export interface MailMoveAvailability {
   archive: boolean
   move: boolean
   trash: boolean
+  restore: boolean
 }
 
 export function mailMoveAvailability(
   view: Pick<MailView, 'kind' | 'folderId'>,
   folders: readonly MailServerFolder[] | undefined,
 ): MailMoveAvailability {
-  if (view.kind === 'sent' || view.kind === 'drafts') return { archive: false, move: false, trash: false }
+  if (view.kind === 'sent' || view.kind === 'drafts') return { archive: false, move: false, trash: false, restore: false }
+  if (viewingRole(view, folders, 'TRASH')) return { archive: false, move: false, trash: false, restore: true }
   const hasArchive = (folders ?? []).some((f) => f.role === 'ARCHIVE')
   return {
-    archive: hasArchive && !viewingArchive(view, folders),
+    archive: hasArchive && !viewingRole(view, folders, 'ARCHIVE'),
     move: mailMoveTargets(view, folders).some((t) => t.selectable),
     trash: true,
+    restore: false,
   }
 }
 
-/** 실행 취소 토스트 문구 — 「보관했습니다」·「삭제했습니다」·「받은편지함으로 옮겼습니다」·「'이름' 메일함으로 옮겼습니다」. 여러 통이면 앞에 통 수. */
+/** 실행 취소 토스트 문구 — 「보관했습니다」·「삭제했습니다」·「되살렸습니다」·「받은편지함으로 옮겼습니다」·「'이름' 메일함으로 옮겼습니다」. 여러 통이면 앞에 통 수. */
 export function mailMoveToastMessage(
   target: MailMoveTarget,
   folders: readonly MailServerFolder[] | undefined,
@@ -93,6 +104,9 @@ export function mailMoveToastMessage(
       return `${prefix}보관했습니다`
     case 'TRASH':
       return `${prefix}삭제했습니다`
+    case 'RESTORE':
+      // WP-1681 — 메일마다 돌아가는 곳(원래 메일함·받은편지함)이 달라 이름을 붙이지 않는다.
+      return `${prefix}되살렸습니다`
     case 'INBOX':
       return `${prefix}받은편지함으로 옮겼습니다`
     case 'FOLDER': {

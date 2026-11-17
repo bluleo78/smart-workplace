@@ -19,11 +19,14 @@ import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
+import com.workplace.mail.repository.EmailFolderRepository.FolderTarget;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.MailPeopleRepository;
+import com.workplace.mail.service.folder.FolderRole;
 import com.workplace.mail.service.invite.MailInviteService;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -42,6 +45,12 @@ public class MailMessageService {
 
   /** 목록 기본/최대 건수. */
   private static final int DEFAULT_LIMIT = 50;
+
+  /**
+   * 목록 folder 값 중 계정의 휴지통 행을 가리키는 예약 이름(WP-1681 — 서버 휴지통 이름과 무관하게 웹·MCP 가 같은 값으로 연다). 값은 휴지통 역할 이름을
+   * 그대로 쓰되, MCP list_mail 의 문서화된 계약(folder=TRASH)이라 역할 enum 이 바뀌어도 이 이름은 고정이다.
+   */
+  public static final String FOLDER_TRASH = FolderRole.TRASH.name();
 
   private static final int MAX_LIMIT = 200;
 
@@ -134,7 +143,8 @@ public class MailMessageService {
 
   /**
    * WP-960: folderId(서버 메일함)를 받는 목록. folderId 가 있으면 계정의 메일함인지 확인하고(아니면 404) 그 메일함 이름으로 같은 보기 조건을 쓴다
-   * — 분류·회신필요는 받은편지함 전용이라 무시한다. 없으면 folder 이름(기본 INBOX) 그대로. cursor 가 있으면 그 행 다음 페이지(WP-965).
+   * — 분류·회신필요는 받은편지함 전용이라 무시한다. 없으면 folder 이름(기본 INBOX) 그대로, 단 {@link #FOLDER_TRASH} 는 계정의 휴지통
+   * 행(없으면 빈 목록, WP-1681). cursor 가 있으면 그 행 다음 페이지(WP-965).
    */
   @Transactional(readOnly = true)
   public List<EmailMessageSummary> list(
@@ -164,6 +174,15 @@ public class MailMessageService {
               false,
               cursor,
               effective);
+    } else if (FOLDER_TRASH.equals(folder)) {
+      // WP-1681: folder=TRASH 는 계정의 휴지통 행으로 읽는다(서버 이름과 무관). 아직 휴지통 행이 없으면 빈 목록 — 오류가 아니다.
+      Optional<FolderTarget> trash = folderRepo.findTrash(accountId);
+      if (trash.isEmpty()) {
+        return List.of();
+      }
+      rows =
+          messageRepo.listByAccount(
+              accountId, trash.get().name(), query, unread, null, false, cursor, effective);
     } else {
       String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
       rows =

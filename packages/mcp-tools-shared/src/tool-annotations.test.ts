@@ -86,6 +86,8 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   // 같은 입력을 다시 보고해도 message 가 있으면 챗 글이 또 올라가므로 멱등이 아니다.
   report_agent_work: ['write', false, false, false],
   restore_drive_item: ['write', false, false, false],
+  // WP-1681: 휴지통 메일을 원래 메일함으로 옮긴다 — 되돌릴 수 있고(삭제 아님) 이미 되살린 메일은 400 이라 비멱등, 메일 서버에 닿는다.
+  restore_mail: ['write', false, false, true],
   rsvp_event: ['write', true, false, false],
   // WP-348: 생성은 추가만(로컬 기본 캘린더) — 다시 부르면 또 생겨 비멱등. 수정은 덮어쓰고 참석자를 빼며, M365 동기화 일정이면 그쪽으로 전송된다.
   create_event: ['write', false, false, false],
@@ -168,9 +170,9 @@ describe('toolAnnotations', () => {
     });
   });
 
-  it('워크스페이스 밖에 닿는 mark_mail_read·sync_mail(원본 메일 서버)·update_event(M365 동기화 일정)만 openWorld=true 다', () => {
+  it('워크스페이스 밖에 닿는 mark_mail_read·restore_mail·sync_mail(원본 메일 서버)·update_event(M365 동기화 일정)만 openWorld=true 다', () => {
     const open = tools.filter((t) => toolAnnotations(t).openWorldHint).map((t) => t.name);
-    expect(open.sort()).toEqual(['mark_mail_read', 'sync_mail', 'update_event']);
+    expect(open.sort()).toEqual(['mark_mail_read', 'restore_mail', 'sync_mail', 'update_event']);
   });
 
   it('모든 공유 도구가 title 을 가진다', () => {

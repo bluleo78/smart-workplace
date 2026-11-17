@@ -502,6 +502,20 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         return (String) get(33);
     }
 
+    /**
+     * Setter for <code>public.email_message.original_folder_id</code>.
+     */
+    public void setOriginalFolderId(Long value) {
+        set(34, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.original_folder_id</code>.
+     */
+    public Long getOriginalFolderId() {
+        return (Long) get(34);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -525,7 +539,7 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
     /**
      * Create a detached, initialised EmailMessageRecord
      */
-    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending, Boolean aiNeedsReplyRaw, OffsetDateTime aiAnalyzedAt, Boolean aiPersonalSummarySkipped, Integer seenPushAttempts, OffsetDateTime seenPushNextAt, String userCategory, String aiPersonalCategory) {
+    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending, Boolean aiNeedsReplyRaw, OffsetDateTime aiAnalyzedAt, Boolean aiPersonalSummarySkipped, Integer seenPushAttempts, OffsetDateTime seenPushNextAt, String userCategory, String aiPersonalCategory, Long originalFolderId) {
         super(EmailMessage.EMAIL_MESSAGE);
 
         setId(id);
@@ -562,6 +576,7 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         setSeenPushNextAt(seenPushNextAt);
         setUserCategory(userCategory);
         setAiPersonalCategory(aiPersonalCategory);
+        setOriginalFolderId(originalFolderId);
         resetTouchedOnNotNull();
     }
 }

@@ -1,8 +1,8 @@
 // 서버 메일함(보관·내 메일함) DTO — 백엔드 com.workplace.mail.dto.MailFolderResponse·MailFolderSyncResult 와 1:1(WP-960).
-// 받은편지함·보낸편지함은 기존 고정 항목(MailFolder 'INBOX'|'SENT')이 맡고, 여기엔 보관(ARCHIVE)과 사용자 메일함(USER)만 온다.
+// 받은편지함·보낸편지함은 기존 고정 항목(MailFolder 'INBOX'|'SENT')이 맡고, 여기엔 보관(ARCHIVE)·서버 휴지통(TRASH, WP-1681)·사용자 메일함(USER)만 온다.
 
-/** 서버 메일함 역할 — 보관 또는 사용자가 만든 메일함. */
-export type MailServerFolderRole = 'ARCHIVE' | 'USER';
+/** 서버 메일함 역할 — 보관, 서버 휴지통(계정당 하나, WP-1681), 또는 사용자가 만든 메일함. */
+export type MailServerFolderRole = 'ARCHIVE' | 'TRASH' | 'USER';
 
 /** 사이드바 트리용 서버 메일함 한 개. 트리는 parentId 로 웹이 조립한다(lib/mailFolders). */
 export interface MailServerFolder {
@@ -33,8 +33,11 @@ export interface MailFolderSyncResult {
   folderSyncedAt: string | null;
 }
 
-/** WP-962 메일 옮기기 대상 종류 — 받은편지함·보관·서버 휴지통(삭제)·저장된 서버 메일함(folderId). */
-export type MailMoveTargetKind = 'INBOX' | 'ARCHIVE' | 'TRASH' | 'FOLDER';
+/**
+ * WP-962 메일 옮기기 대상 종류 — 받은편지함·보관·서버 휴지통(삭제)·저장된 서버 메일함(folderId).
+ * RESTORE(WP-1681) — 휴지통 메일을 지우기 전 원래 메일함(모르거나 사라졌으면 받은편지함)으로 되살린다. 휴지통 메일만 받는다.
+ */
+export type MailMoveTargetKind = 'INBOX' | 'ARCHIVE' | 'TRASH' | 'FOLDER' | 'RESTORE';
 
 /** WP-962 메일 옮기기 대상 — 백엔드 MailMoveRequest.Target 과 1:1. FOLDER 일 때만 folderId. */
 export interface MailMoveTarget {

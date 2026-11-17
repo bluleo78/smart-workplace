@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Archive, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Sun, Tag, Trash2, User } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Sun, Tag, Trash2, User } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -111,13 +111,15 @@ import { useMailScreenContext } from './useMailScreenContext'
 // 목록 로딩 중 시트·길게 누르기에 넘길 빈 목록 — 렌더마다 새 배열을 만들지 않게 모듈에 하나만 둔다.
 const EMPTY_MESSAGES: EmailMessageSummary[] = []
 
-/** WP-962 한 메일에 대한 보관·옮기기·삭제 — 목록 행·상세가 같은 묶음을 받는다. */
+/** WP-962 한 메일에 대한 보관·옮기기·삭제(+ WP-1681 휴지통 보기의 되살리기) — 목록 행·상세가 같은 묶음을 받는다. */
 interface MailMoveActions {
   avail: MailMoveAvailability
   targets: readonly MailMoveTargetOption[]
   onArchive: () => void
   onTrash: () => void
   onMove: (target: MailMoveTarget) => void
+  /** WP-1681 원래 메일함(모르면 받은편지함)으로 되살리기 — 휴지통 보기에서만 보인다(avail.restore). */
+  onRestore: () => void
 }
 
 /** 행 hover 아이콘 버튼 공통 모양 — 읽음 전환 버튼과 같은 크기·테두리. */
@@ -130,7 +132,7 @@ function mailShareTarget(accountId: number, m: Pick<EmailMessageSummary, 'id' | 
 }
 
 /**
- * WP-962 목록 행 hover 작업(데스크톱) — 보관 · 옮기기(메뉴) · 삭제. 읽음 전환 버튼 왼쪽에 둔다. 평소에는 폭 0 으로 접어 자리를
+ * WP-962 목록 행 hover 작업(데스크톱) — 보관 · 옮기기(메뉴) · 삭제(휴지통 보기는 되살리기만, WP-1681). 읽음 전환 버튼 왼쪽에 둔다. 평소에는 폭 0 으로 접어 자리를
  * 차지하지 않고(보낸사람 이름이 줄지 않게), hover·키보드 포커스·메뉴가 열린 동안에만 펼친다. display 가 아니라 폭으로 접어 탭 순서에 남는다
  * (Tab 으로 들어오면 focus-within 으로 펼쳐진다).
  * 행 열기와 분리하려고 클릭을 멈춘다(행은 키를 받지 않는다 — WP-1550). 터치(coarse) 태블릿에선 숨은 채 탭이 닿지 않게 pointer-events 를 끈다(WP-237).
@@ -176,6 +178,19 @@ function MailRowMoveActions({ id, actions }: { id: number; actions: MailMoveActi
           className={cn(ROW_ICON_BUTTON_CLASS, 'text-destructive hover:text-destructive')}
         >
           <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {/* WP-1681 휴지통 보기 — 보관·옮기기·삭제 대신 원래 메일함으로 되살리기 하나. */}
+      {actions.avail.restore && (
+        <button
+          type="button"
+          data-testid={`mail-row-restore-${id}`}
+          aria-label="되살리기"
+          title="되살리기"
+          onClick={actions.onRestore}
+          className={ROW_ICON_BUTTON_CLASS}
+        >
+          <ArchiveRestore className="h-3.5 w-3.5" />
         </button>
       )}
     </span>
@@ -400,6 +415,7 @@ function MessageRow({
 
 /**
  * WP-961 서버 메일함 상태 줄 — 「최근 N일 · M분 전에 가져옴」 + 새로 고침 + 더 가져오기(앞의 90일).
+ * 휴지통(WP-1681)은 서버가 최근 30일만 가져오고 「더 가져오기」를 거절(400)하므로 기간을 「최근 30일」로 고정하고 그 버튼을 숨긴다.
  * 기간은 가져온 시각과 가장 오래된 경계의 차이라 더 가져올 때마다 늘어난다. 처음 가져오는 동안은 「메일함을 가져오는 중…」.
  * 메일함 목록을 아직 못 받았거나 열 수 없는 메일함이면 버튼을 끈다.
  */
@@ -420,6 +436,7 @@ function MailFolderStatusRow({
   onFetchOlder: () => void
 }) {
   const at = folder?.folderSyncedAt ?? null
+  const isTrash = folder?.role === 'TRASH' // 「더 가져오기」 숨김용 — 기간 계산은 folderRangeDays 가 맡는다
   const days = folder ? folderRangeDays(folder) : null
   const text = missing
     ? '메일함을 찾을 수 없어요'
@@ -445,16 +462,18 @@ function MailFolderStatusRow({
       >
         <RefreshCw className={cn('h-4 w-4', syncing && !olderSyncing && 'animate-spin')} />
       </button>
-      <button
-        type="button"
-        data-testid="mail-box-older"
-        onClick={onFetchOlder}
-        disabled={disabled}
-        className="relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-foreground outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50 max-lg:h-9 max-lg:px-4 max-lg:text-sm"
-      >
-        {olderSyncing && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
-        더 가져오기
-      </button>
+      {!isTrash && (
+        <button
+          type="button"
+          data-testid="mail-box-older"
+          onClick={onFetchOlder}
+          disabled={disabled}
+          className="relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-foreground outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50 max-lg:h-9 max-lg:px-4 max-lg:text-sm"
+        >
+          {olderSyncing && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+          더 가져오기
+        </button>
+      )}
     </div>
   )
 }
@@ -816,6 +835,13 @@ function MessageDetailPanel({
                 삭제
               </button>
             )}
+            {/* WP-1681 휴지통 보기 — 보관·옮기기·삭제 대신 되살리기(원래 메일함으로). */}
+            {moveActions?.avail.restore && (
+              <button type="button" data-testid="mail-restore" onClick={moveActions.onRestore}>
+                <ArchiveRestore aria-hidden className="h-4 w-4" />
+                되살리기
+              </button>
+            )}
           </>
         }
         summary={mobileSummary}
@@ -952,6 +978,12 @@ function MessageDetailPanel({
               onClick={moveActions.onTrash}
             >
               <Trash2 className="h-3.5 w-3.5" /> 삭제
+            </Button>
+          )}
+          {/* WP-1681 휴지통 보기 — 보관·옮기기·삭제 대신 되살리기. 누르면 상세가 닫히고 목록에서 빠진다(실행 취소 토스트). */}
+          {moveActions?.avail.restore && (
+            <Button variant="outline" size="sm" data-testid="mail-restore" onClick={moveActions.onRestore}>
+              <ArchiveRestore className="h-3.5 w-3.5" /> 되살리기
             </Button>
           )}
           {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 액션 트리거 버튼 — 일반 outline 버튼 + AiLabel(✨), 진행 중엔 스피너로 교체(디자인시스템 §7.2 「AI 액션 트리거 버튼」). */}
@@ -1366,7 +1398,7 @@ function MailInbox() {
   // WP-962 보관·옮기기·삭제 — 보기별 노출(보낸편지함 없음·보관 보기엔 보관 없음)과 「옮기기」 대상(지금 메일함 제외).
   const moveTargets = useMemo(() => mailMoveTargets(view, folders), [view, folders])
   const moveAvail = mailMoveAvailability(view, folders)
-  const canMove = moveAvail.archive || moveAvail.move || moveAvail.trash
+  const canMove = moveAvail.archive || moveAvail.move || moveAvail.trash || moveAvail.restore
   // 모바일 「옮기기」 바텀 시트의 대상 메일(길게 누르기 시트·상세 ⋯ 메뉴에서 연다).
   const [moveSheetIds, setMoveSheetIds] = useState<number[] | null>(null)
   /**
@@ -1392,6 +1424,8 @@ function MailInbox() {
           onArchive: () => startMove([id], { kind: 'ARCHIVE' }),
           onTrash: () => startMove([id], { kind: 'TRASH' }),
           onMove: (t) => startMove([id], t),
+          // WP-1681 되살리기도 같은 이동 대기열 — 실행 취소 토스트가 닫힐 때 RESTORE 로 나간다.
+          onRestore: () => startMove([id], { kind: 'RESTORE' }),
         }
       : null
   // 본문 보충(running)이 끝나는 순간 목록을 다시 불러와 snippet 등을 갱신.
@@ -1461,6 +1495,10 @@ function MailInbox() {
       : []),
     ...(moveAvail.trash
       ? [{ key: 'trash', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => startMove([m.id], { kind: 'TRASH' }) }]
+      : []),
+    // WP-1681 휴지통 보기 — 보관·옮기기·삭제 대신 되살리기 하나.
+    ...(moveAvail.restore
+      ? [{ key: 'restore', label: '되살리기', icon: <ArchiveRestore />, onSelect: () => startMove([m.id], { kind: 'RESTORE' }) }]
       : []),
   ]
 

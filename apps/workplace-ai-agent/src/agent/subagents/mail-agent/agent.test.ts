@@ -23,6 +23,8 @@ describe('mail-agent 정의', () => {
       'mcp__workplace__sync_mail',
       // #855 · WP-146: 읽음 처리 + 메일→이슈 초안·생성
       'mcp__workplace__mark_mail_read',
+      // WP-1681: 휴지통 메일 되살리기(되돌릴 수 있는 쓰기)
+      'mcp__workplace__restore_mail',
       // WP-1341: 내 메일 분류 바꾸기(나에게만, null = AI 분류로 되돌리기)
       'mcp__workplace__update_mail_category',
       'mcp__workplace__draft_issue_from_mail',

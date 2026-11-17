@@ -278,6 +278,15 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/calendar/events', { params: { from: 'a', to: 'b' } });
   });
 
+  it('WP-1681: listMail 은 folder:TRASH 를 쿼리로 보내고, restoreMail 은 move 에 RESTORE 대상을 POST 한다', async () => {
+    const { http, client } = mockHttp();
+    await client.listMail(2, { folder: 'TRASH', limit: 20 });
+    expect(http.get).toHaveBeenCalledWith('/mail/accounts/2/messages', { params: { folder: 'TRASH', limit: 20 } });
+    http.post.mockResolvedValueOnce({ data: { results: [{ messageId: 7, ok: true }] } });
+    expect(await client.restoreMail(2, [7])).toEqual({ results: [{ messageId: 7, ok: true }] });
+    expect(http.post).toHaveBeenCalledWith('/mail/accounts/2/messages/move', { messageIds: [7], target: { kind: 'RESTORE' } });
+  });
+
   it('listMail 은 query/unread 가 없으면 키를 넣지 않는다', async () => {
     const { http, client } = mockHttp();
     await client.listMail(2, { folder: 'INBOX', limit: 20 });

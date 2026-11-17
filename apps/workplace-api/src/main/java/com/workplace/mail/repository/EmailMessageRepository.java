@@ -2402,6 +2402,8 @@ public class EmailMessageRepository {
    * @param hasProviderAttachments Graph 첨부 id 를 저장한 첨부 행이 있는지 — 옮기면 첨부 id 도 바뀌어 다시 받아야 한다
    * @param folderUidValidity 지금 메일함에 기록된 IMAP UIDVALIDITY(아직 가져오지 않았으면 null) — 서버 값과 다르면 UID 를 믿을 수
    *     없다
+   * @param originalFolderId 휴지통에 있는 메일의 원래 메일함 id(WP-1681 — 되살리기 목적지). 휴지통 밖이거나 다른 앱에서 지운 메일·원래
+   *     메일함이 사라졌으면 null
    */
   public record MoveSource(
       long messageId,
@@ -2413,7 +2415,8 @@ public class EmailMessageRepository {
       boolean seen,
       boolean seenPushPending,
       boolean hasProviderAttachments,
-      Long folderUidValidity) {}
+      Long folderUidValidity,
+      Long originalFolderId) {}
 
   /** 계정의 메일들 현재 위치(WP-962). 다른 계정 메일·없는 id 는 빠진다 — 호출자가 개수로 404 를 판정한다. */
   public List<MoveSource> findMoveSources(long accountId, Collection<Long> messageIds) {
@@ -2432,7 +2435,8 @@ public class EmailMessageRepository {
                         .from(EMAIL_ATTACHMENT)
                         .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(EMAIL_MESSAGE.ID))
                         .and(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID.isNotNull()))),
-            EMAIL_FOLDER.UID_VALIDITY)
+            EMAIL_FOLDER.UID_VALIDITY,
+            EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -2451,7 +2455,8 @@ public class EmailMessageRepository {
                     Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
                     Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN_PUSH_PENDING)),
                     Boolean.TRUE.equals(r.get(8, Boolean.class)),
-                    r.get(EMAIL_FOLDER.UID_VALIDITY)));
+                    r.get(EMAIL_FOLDER.UID_VALIDITY),
+                    r.get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)));
   }
 
   /**
@@ -2463,6 +2468,8 @@ public class EmailMessageRepository {
    * @param providerMessageId 옮긴 뒤의 Graph 메시지 id — IMAP 이면 null
    * @param clearSeenPending 로컬 읽음을 옮기기 전에 서버에 반영했으면 true — 대기 표시를 푼다. false 면 대기를 남겨 재시도 배치가 새 위치로
    *     반영한다
+   * @param originalFolderId 휴지통으로 옮기면 옮기기 전 메일함 id(WP-1681 — 되살리기 목적지), 그 밖(휴지통에서 나가는 경우 포함)은 null
+   *     로 지운다
    * @return 바뀐 행 수(0|1)
    */
   public int relocate(
@@ -2470,12 +2477,14 @@ public class EmailMessageRepository {
       long folderId,
       Long imapUid,
       String providerMessageId,
-      boolean clearSeenPending) {
+      boolean clearSeenPending,
+      Long originalFolderId) {
     var update =
         dsl.update(EMAIL_MESSAGE)
             .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
             .set(EMAIL_MESSAGE.IMAP_UID, imapUid)
-            .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId);
+            .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId)
+            .set(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID, originalFolderId);
     if (clearSeenPending) {
       update =
           update

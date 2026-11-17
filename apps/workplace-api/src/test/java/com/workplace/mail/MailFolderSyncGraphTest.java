@@ -213,4 +213,34 @@ class MailFolderSyncGraphTest extends ExternalClientMockedTestBase {
     assertThat(folderRepo.getDeltaLink(s[2])).contains("DL-NEW");
     verify(graphApiClient).get(TOKEN, restart, GraphDeltaPage.class);
   }
+
+  /** WP-1681: 휴지통(지운 편지함) 첫 delta 는 최근 30일 필터로 시작하고 그 시작을 경계로 남긴다. */
+  @Test
+  void trashFirstSync_usesThirtyDayFilter() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, user);
+    long trash =
+        folderRepo
+            .upsertServerFolder(
+                accountId, "id-deleted", "id-deleted", "Deleted Items", "TRASH", true, 0, 1, null)
+            .orElseThrow();
+    when(graphTokenService.getAccessToken(anyLong(), anyLong())).thenReturn(TOKEN);
+    ArgumentCaptor<String> urls = ArgumentCaptor.forClass(String.class);
+    when(graphApiClient.get(eq(TOKEN), urls.capture(), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("T1", "지운 메일")), null, "DL-TRASH"));
+
+    MailFolderSyncResult r = folderService.syncFolder(user, accountId, trash, false);
+
+    assertThat(r.saved()).isEqualTo(1);
+    assertThat(r.syncedSince())
+        .isBetween(
+            Instant.now().minus(30, ChronoUnit.DAYS).minusSeconds(60),
+            Instant.now().minus(30, ChronoUnit.DAYS));
+    assertThat(urls.getValue())
+        .isEqualTo(
+            "/me/mailFolders/id-deleted/messages/delta?"
+                + SELECT
+                + "&$filter=receivedDateTime%20ge%20"
+                + r.syncedSince());
+  }
 }

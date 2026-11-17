@@ -109,6 +109,10 @@ public class MailFolderService {
     if (folder.role() == null || !folder.selectable()) {
       throw new MailValidationException("이 메일함은 따로 가져올 수 없습니다");
     }
+    // WP-1681: 휴지통은 최근 30일만 둔다 — 이전 메일 더 가져오기는 받지 않는다(웹은 그 단추를 숨긴다).
+    if (older && FolderRole.TRASH.matches(folder.role())) {
+      throw new MailValidationException("휴지통은 최근 30일만 가져옵니다");
+    }
     MailFetcher fetcher = fetchers.get(account.provider());
     if (fetcher == null) {
       throw new MailSyncException("지원하지 않는 메일 공급자: " + account.provider());
@@ -270,6 +274,22 @@ public class MailFolderService {
       }
       valid.put(f.key(), f);
     }
+    // WP-1681: 휴지통은 계정당 하나(uq_email_folder_trash)다. 휴지통으로 고른 폴더가 바뀌었으면(서버가 \Trash 를 다른 폴더에 붙임 등)
+    // 넣기 전에 옛 휴지통 행을 사용자 메일함으로 내려 둔다 — 아래 넣기·갱신이 그 행의 실제 역할을 다시 쓰고, 목록에서 사라졌으면 3) 이 지운다.
+    String trashKey =
+        valid.values().stream()
+            .filter(f -> f.role() == FolderRole.TRASH)
+            .map(ServerFolder::key)
+            .findFirst()
+            .orElse(null);
+    // 이미 읽어 둔 저장 행 기준으로 내릴 휴지통 행(고른 휴지통과 이름이 다른 것)이 있을 때만 UPDATE 를 낸다 — 대개는 바뀐 것이 없어 쿼리를 아낀다.
+    boolean staleTrash =
+        before.stream()
+            .anyMatch(r -> FolderRole.TRASH.matches(r.role()) && !r.name().equals(trashKey));
+    if (staleTrash) {
+      folderRepo.demoteTrashExcept(accountId, trashKey);
+    }
+
     Map<String, Long> idByKey = new HashMap<>();
     for (ServerFolder f : valid.values()) {
       folderRepo

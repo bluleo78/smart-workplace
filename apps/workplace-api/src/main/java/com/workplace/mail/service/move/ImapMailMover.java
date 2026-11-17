@@ -68,6 +68,15 @@ public class ImapMailMover implements MailMover {
       if (destName == null) {
         throw new MailValidationException("메일 서버에서 휴지통을 찾을 수 없습니다");
       }
+      // WP-1681: 휴지통 행(지난 목록 갱신 때 고름)과 지금 LIST 로 찾은 휴지통이 다르면 COPYUID 는 휴지통 행의 UID 가 아니다 —
+      // 옮기기는 지금처럼 서버 휴지통으로 하되 새 위치를 모르는 결과로 돌려 로컬 행을 지우게 한다(UIDVALIDITY 를 적지 않는다).
+      boolean trashMismatch =
+          dest.kind() == MailMoveRequest.Kind.TRASH
+              && dest.imapName() != null
+              && !dest.imapName().equals(destName);
+      if (trashMismatch) {
+        log.warn("IMAP 휴지통이 목록 갱신 뒤 바뀜 — 옮긴 메일 행은 지우고 동기화에 맡긴다");
+      }
       Capabilities caps = capabilities((IMAPStore) store);
       if (!caps.move() && !caps.uidPlus()) {
         // 일반 EXPUNGE 로 다른 메일까지 지울 수 없어 옮기지 않는다(클래스 주석).
@@ -83,7 +92,7 @@ public class ImapMailMover implements MailMover {
       for (Map.Entry<String, List<Item>> e : bySource.entrySet()) {
         out.addAll(moveFromFolder(store, e.getKey(), e.getValue(), destFolder, caps));
       }
-      return out;
+      return trashMismatch ? out.stream().map(Outcome::withoutLocation).toList() : out;
     } catch (MessagingException e) {
       throw new MailSyncException("메일 서버에 연결하지 못했습니다", e);
     } finally {

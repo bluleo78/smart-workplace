@@ -358,6 +358,8 @@ const FOLDERS: MailServerFolder[] = [
   mailServerFolder({ id: 1, displayName: 'Archive', role: 'ARCHIVE', unreadCount: 0 }),
   mailServerFolder({ id: 5, displayName: '프로젝트', unreadCount: 0 }),
   mailServerFolder({ id: 6, displayName: '견적', parentId: 5, unreadCount: 0 }),
+  // WP-1681 서버 휴지통 — 옮기기 메뉴에는 나오지 않고, 그 보기에서는 「되살리기」만.
+  mailServerFolder({ id: 9, displayName: 'Deleted Items', role: 'TRASH', unreadCount: 0 }),
 ]
 
 /**
@@ -454,6 +456,7 @@ test('옮기기 메뉴 — 받은편지함 보기엔 받은편지함이 없고 �
   expect(within(menu).getByTestId('mail-move-target-archive')).toHaveTextContent(/^보관$/)
   expect(within(menu).getByTestId('mail-move-target-folder-5')).toHaveTextContent(/^프로젝트$/)
   expect(within(menu).getByTestId('mail-move-target-folder-6')).toHaveTextContent(/^견적$/)
+  expect(within(menu).queryByTestId('mail-move-target-folder-9')).not.toBeInTheDocument()
   await user.click(within(menu).getByTestId('mail-move-target-folder-6'))
   expect(location()).not.toMatch(/messageId=/)
   expect(await screen.findByText("'견적' 메일함으로 옮겼습니다")).toBeInTheDocument()
@@ -521,6 +524,73 @@ test('보관 보기 — 보관 버튼이 없고, 옮기기 메뉴 맨 앞의 받
   await passUndoDelay()
   await waitFor(() => expect(moves.calls).toHaveLength(1))
   expect(moves.last().body).toEqual({ messageIds: [10], target: { kind: 'INBOX' } })
+})
+
+// ── 휴지통 보기·되살리기(WP-1681) ─────────────────────────────────────────────
+
+/** 휴지통(?box=9) 보기 — 열 때 가져오기 요청을 받아 준다. */
+function renderTrash(extra: Parameters<typeof renderMail>[1] = {}) {
+  return renderMove('/mail/1?box=9', {
+    extra: {
+      ...extra,
+      handlers: [
+        ...(extra.handlers ?? []),
+        http.post('/api/v1/mail/accounts/1/folders/9/sync', () =>
+          HttpResponse.json({ running: false, fetched: 0, saved: 0, seenChanged: 0, removed: 0, syncedSince: null, folderSyncedAt: null }),
+        ),
+      ],
+    },
+  })
+}
+
+test('휴지통 보기 — 머리말 「휴지통」, 행 hover 는 되살리기만, 누르면 빠지고 「되살렸습니다」, 5초 뒤 RESTORE 로 보낸다', async () => {
+  const { user, moves } = renderTrash()
+  const restore = await screen.findByTestId('mail-row-restore-10')
+  expect(restore).toHaveAttribute('aria-label', '되살리기')
+  expect(screen.getByTestId('page-header').querySelector('h1')).toHaveTextContent(/^휴지통$/)
+  for (const id of ['mail-row-archive-10', 'mail-row-move-10', 'mail-row-trash-10']) expect(screen.queryByTestId(id)).not.toBeInTheDocument()
+  await user.click(restore)
+  await waitFor(() => expect(screen.queryByTestId('mail-row-10')).not.toBeInTheDocument())
+  expect(await screen.findByText('되살렸습니다')).toBeInTheDocument()
+  expect(moves.calls).toHaveLength(0)
+  await passUndoDelay()
+  await waitFor(() => expect(moves.calls).toHaveLength(1))
+  expect(moves.last().body).toEqual({ messageIds: [10], target: { kind: 'RESTORE' } })
+  await wait(100)
+  expect(screen.queryByTestId('mail-row-10')).not.toBeInTheDocument()
+})
+
+test('휴지통 상세 — 보관·옮기기·삭제 대신 「되살리기」, 누르면 상세가 닫히고 실행 취소하면 요청이 없다', async () => {
+  const { user, moves } = renderTrash({
+    handlers: [http.get('/api/v1/mail/messages/10', () => HttpResponse.json({ ...detail({ id: 10 }), seen: true }))],
+  })
+  await user.click(await screen.findByTestId('mail-row-10'))
+  await screen.findByTestId('mail-detail')
+  for (const id of ['mail-archive', 'mail-move', 'mail-trash']) expect(screen.queryByTestId(id)).not.toBeInTheDocument()
+  const restore = screen.getByTestId('mail-restore')
+  expect(restore).toHaveTextContent('되살리기')
+  // 읽음 조작은 다른 메일함 보기처럼 그대로 남는다.
+  expect(screen.getByTestId('mail-mark-unread')).toBeInTheDocument()
+  await user.click(restore)
+  await waitFor(() => expect(screen.queryByTestId('mail-detail')).not.toBeInTheDocument())
+  expect(screen.queryByTestId('mail-row-10')).not.toBeInTheDocument()
+  expect(await screen.findByText('되살렸습니다')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '실행 취소' }))
+  expect(await screen.findByTestId('mail-row-10')).toBeInTheDocument()
+  await passUndoDelay(2)
+  await wait(50)
+  expect(moves.calls).toHaveLength(0)
+})
+
+test('휴지통이 아닌 메일함 보기엔 되살리기가 없다', async () => {
+  const { user } = renderMove('/mail/1', {
+    extra: { handlers: [http.get('/api/v1/mail/messages/10', () => HttpResponse.json({ ...detail({ id: 10 }), seen: true }))] },
+  })
+  await screen.findByTestId('mail-row-trash-10')
+  expect(screen.queryByTestId('mail-row-restore-10')).not.toBeInTheDocument()
+  await user.click(screen.getByTestId('mail-row-10'))
+  await screen.findByTestId('mail-detail')
+  expect(screen.queryByTestId('mail-restore')).not.toBeInTheDocument()
 })
 
 test('보낸편지함엔 행·상세 모두 보관·옮기기·삭제가 없다', async () => {

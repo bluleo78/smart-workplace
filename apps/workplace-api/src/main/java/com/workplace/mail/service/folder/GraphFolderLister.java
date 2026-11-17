@@ -25,7 +25,8 @@ import org.springframework.stereotype.Component;
  * <p>흐름: (1) well-known 이름({@code archive}, {@code inbox}, {@code sentitems} …)을 폴더 id 로 해석 (2)
  * {@code /me/mailFolders?$top=100} 부터 {@code childFolders} 를 재귀로 내려가며(각 단계 nextLink 페이징) 보관·사용자 폴더만
  * 고른다. 시스템 폴더(보낸편지함·휴지통·동기화 문제 등)는 그 하위 전체를 숨기므로 내려가지도 않는다. 받은편지함은 저장하지 않지만 그 아래 사용자 폴더는 최상위 사용자
- * 폴더로 올린다. 숨김 폴더({@code isHidden})와 검색 폴더({@code mailSearchFolder})는 뺀다.
+ * 폴더로 올린다. 숨김 폴더({@code isHidden})와 검색 폴더({@code mailSearchFolder})는 뺀다. 지운 편지함({@code
+ * deleteditems})은 휴지통 역할로 남기되 하위는 숨긴다(WP-1681).
  *
  * <p>목록·하위 목록 중 하나라도 실패하면 전체를 실패로 던진다 — 일부만 받은 목록으로는 저장된 폴더를 지우면 안 된다.
  *
@@ -40,7 +41,10 @@ public class GraphFolderLister implements MailFolderLister {
   /** 최상위 폴더 목록 URL(상대경로 — GraphApiClient 가 v1.0 접두를 붙인다). */
   static final String ROOT_URL = "/me/mailFolders?$top=100";
 
-  /** 해석할 well-known 이름. archive·inbox 외에는 모두 시스템 폴더(하위 포함 숨김). */
+  /** 휴지통 well-known 이름(WP-1681) — 휴지통 역할로 목록에 남긴다. */
+  private static final String DELETED_ITEMS = "deleteditems";
+
+  /** 해석할 well-known 이름. archive·inbox·deleteditems(휴지통, 하위 숨김) 외에는 모두 시스템 폴더(하위 포함 숨김). */
   static final List<String> WELL_KNOWN =
       List.of(
           "archive",
@@ -146,6 +150,13 @@ public class GraphFolderLister implements MailFolderLister {
         if ("inbox".equals(wellKnown)) {
           // 받은편지함은 저장하지 않고, 그 아래 사용자 폴더는 내 메일함 최상위로 올린다.
           childParent = null;
+        } else if (DELETED_ITEMS.equals(wellKnown)) {
+          // WP-1681: 지운 편지함은 휴지통 역할 하나로 남긴다(앱의 「삭제」가 옮기는 곳 — GraphMailMover 의 deleteditems). 하위는
+          // 다른 시스템 폴더처럼 숨겨 내려가지 않는다. 휴지통은 언제나 최상위다.
+          out.add(
+              ServerFolder.trash(
+                  f.id(), f.id(), f.displayName(), f.unreadItemCount(), f.totalItemCount()));
+          continue;
         } else if (wellKnown != null && !"archive".equals(wellKnown)) {
           continue; // 시스템 폴더 — 하위 전체 숨김, 내려가지 않는다
         } else {

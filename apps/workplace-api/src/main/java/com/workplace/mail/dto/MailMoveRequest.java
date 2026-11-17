@@ -28,7 +28,12 @@ public record MailMoveRequest(
     /** 서버 휴지통(영구 삭제 아님). */
     TRASH,
     /** 저장된 서버 메일함(보관·내 메일함) — folderId 필수. */
-    FOLDER
+    FOLDER,
+    /**
+     * 휴지통에서 되살리기(WP-1681) — folderId 없음. 서버가 메일마다 원래 메일함(없거나 옮길 수 없으면 받은편지함)을 목적지로 정한다. 휴지통에 있는 메일만
+     * 받는다.
+     */
+    RESTORE
   }
 
   /**

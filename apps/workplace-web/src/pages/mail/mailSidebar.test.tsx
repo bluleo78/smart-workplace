@@ -181,6 +181,8 @@ test('사용자 메일함이 없으면 구역을 숨기고, 보관도 없으면 
   expect(await screen.findByTestId('mail-folder-sent')).toBeInTheDocument()
   await act(() => new Promise((r) => setTimeout(r, 50)))
   expect(screen.queryByTestId('mail-folder-archive')).not.toBeInTheDocument()
+  // WP-1681 서버 휴지통이 목록에 없으면 휴지통 줄도 없다.
+  expect(screen.queryByTestId('mail-folder-trash')).not.toBeInTheDocument()
   expect(screen.queryByTestId('mail-user-folders')).not.toBeInTheDocument()
   expect(within(screen.getByTestId('mail-sidebar')).queryByText('내 메일함', { exact: true })).not.toBeInTheDocument()
 })
@@ -273,6 +275,51 @@ test('보관을 열면 제목 「보관」, 가져오기는 보관 id 로 — �
   await waitFor(() => expect(screen.getByTestId('mail-folder-inbox')).toHaveAttribute('aria-current', 'page'))
   await user.click(screen.getByTestId('mail-folder-archive'))
   await waitFor(() => expect(syncs.calls).toHaveLength(2))
+})
+
+// ── 휴지통(WP-1681) ─────────────────────────────────────────────
+
+/** 기본 목록 + 서버 휴지통(이름은 Deleted Items, 안 읽은 3 — 사이드바에는 수를 보이지 않는다). */
+const withTrash = (over: Partial<MailServerFolder> = {}) => () => [
+  ...folderList(),
+  mailServerFolder({ id: 20, displayName: 'Deleted Items', role: 'TRASH', unreadCount: 3, ...over }),
+]
+
+test('휴지통은 「보관」 바로 다음 줄에 「휴지통」(서버 이름과 무관)·?box=20, 안 읽은 수 배지가 없고 내 메일함 트리에 없다', async () => {
+  const { handlers } = folderHandlers(withTrash())
+  renderMail('/mail/1', { handlers })
+  const nav = await screen.findByTestId('mail-folder-toggle')
+  const trash = await within(nav).findByTestId('mail-folder-trash')
+  expect(trash).toHaveTextContent(/^휴지통$/)
+  expect(trash).toHaveAttribute('href', '/mail/1?box=20')
+  const links = within(nav).getAllByRole('link').map((a) => a.getAttribute('data-testid'))
+  expect(links.indexOf('mail-folder-trash')).toBe(links.indexOf('mail-folder-archive') + 1)
+  expect(within(trash).queryByText('3')).not.toBeInTheDocument()
+  expect(within(screen.getByTestId('mail-user-folders')).queryByTestId('mail-box-20')).not.toBeInTheDocument()
+})
+
+test('WP-1681: 안 읽음만 보기 중에도 휴지통 링크는 안 읽음 거르기 없이 연다(보관 링크는 거르기를 이어 간다)', async () => {
+  const { handlers } = folderHandlers(withTrash())
+  renderMail('/mail/1?unread=true', { handlers })
+  const nav = await screen.findByTestId('mail-folder-toggle')
+  expect(await within(nav).findByTestId('mail-folder-archive')).toHaveAttribute('href', '/mail/1?box=1&unread=true')
+  expect(await within(nav).findByTestId('mail-folder-trash')).toHaveAttribute('href', '/mail/1?box=20')
+})
+
+test('휴지통 보기 — 제목 「휴지통」·활성, 상태 줄은 「최근 30일 · …에 가져옴」과 새로 고침만(더 가져오기 없음)', async () => {
+  const { list, handlers } = folderHandlers(withTrash({ folderSyncedAt: syncedAt(), syncedSince: since(45) }))
+  const syncs = record('post', '/api/v1/mail/accounts/1/folders/20/sync', () => HttpResponse.json(syncResult({ syncedSince: since(30) })))
+  const { user } = renderMail('/mail/1', { handlers: [syncs.handler, ...handlers] })
+  await user.click(await screen.findByTestId('mail-folder-trash'))
+  await waitFor(() => expect(screen.getByTestId('mail-folder-trash')).toHaveAttribute('aria-current', 'page'))
+  expect(screen.getByTestId('page-header').querySelector('h1')).toHaveTextContent(/^휴지통$/)
+  await waitFor(() => expect(list.last().url.searchParams.get('folderId')).toBe('20'))
+  await waitFor(() => expect(syncs.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.getByTestId('mail-box-status-text').textContent).toMatch(/^최근 30일 · .+에 가져옴$/))
+  expect(screen.queryByTestId('mail-box-older')).not.toBeInTheDocument()
+  await user.click(screen.getByTestId('mail-box-refresh'))
+  await waitFor(() => expect(syncs.calls).toHaveLength(2))
+  expect(syncs.last().url.searchParams.get('older')).toBe('false')
 })
 
 test('목록에 없는 메일함 id 는 「찾을 수 없어요」, 더 가져오기 비활성, 가져오기를 보내지 않는다', async () => {

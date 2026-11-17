@@ -1,5 +1,6 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.EMAIL_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
@@ -204,16 +205,246 @@ class MailMoveImapTest extends MailSyncTestSupport {
   }
 
   @Test
-  void trash_movesToServerTrash_andDeletesLocally() throws Exception {
+  void trash_keepsRow_inTrashFolder_withOriginal() throws Exception {
     long[] s = setup(true, "지울 메일");
     long id = messageId(s[1], "지울 메일");
+    long inboxId = folderId(s[1], "INBOX");
+    long trashId = trashId(s[1]);
+    // 휴지통을 한 번 가져온 상태(UIDVALIDITY 기록)
+    folderService.syncFolder(s[0], s[1], trashId, false);
+    Long contentBefore = row(id).get(EMAIL_MESSAGE.CONTENT_ID);
+    dsl.insertInto(EMAIL_ATTACHMENT)
+        .set(EMAIL_ATTACHMENT.MESSAGE_ID, id)
+        .set(EMAIL_ATTACHMENT.ORDINAL, 0)
+        .execute();
+    MailTestSupport.seedPersonalSummary(dsl, id, "개인 요약");
 
     MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.TRASH, null, id));
 
     assertThat(r.results().get(0).ok()).isTrue();
     assertThat(serverSubjects("Trash")).containsExactly("지울 메일"); // 영구 삭제가 아니다
     assertThat(serverSubjects("INBOX")).isEmpty();
+    // 같은 행이 휴지통으로 — 원래 메일함(받은편지함)을 기억하고, 첨부 행·개인 AI 판정·본문이 그대로
+    Record moved = row(id);
+    assertThat(moved.get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trashId);
+    assertThat(moved.get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isEqualTo(inboxId);
+    assertThat(moved.get(EMAIL_MESSAGE.IMAP_UID)).isEqualTo(serverUid("Trash", "지울 메일"));
+    assertThat(moved.get(EMAIL_MESSAGE.CONTENT_ID)).isEqualTo(contentBefore);
+    assertThat(moved.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY)).isEqualTo("개인 요약");
+    assertThat(dsl.fetchCount(EMAIL_ATTACHMENT, EMAIL_ATTACHMENT.MESSAGE_ID.eq(id))).isEqualTo(1);
+    // 휴지통 다음 동기화가 같은 메일을 다시 넣지 않는다
+    assertThat(folderService.syncFolder(s[0], s[1], trashId, false).saved()).isZero();
+    assertThat(countIn(s[1], trashId)).isEqualTo(1);
+  }
+
+  @Test
+  void trash_beforeTrashListed_deletesRowLikeBefore() throws Exception {
+    long[] s = setup(true, "지울 메일");
+    long id = messageId(s[1], "지울 메일");
+    // 아직 휴지통 행을 목록으로 받지 못한 계정
+    dsl.deleteFrom(EMAIL_FOLDER)
+        .where(EMAIL_FOLDER.ACCOUNT_ID.eq(s[1]))
+        .and(EMAIL_FOLDER.ROLE.eq("TRASH"))
+        .execute();
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.TRASH, null, id));
+
+    assertThat(r.results().get(0).ok()).isTrue();
+    assertThat(serverSubjects("Trash")).containsExactly("지울 메일");
     assertThat(dsl.fetchExists(EMAIL_MESSAGE, EMAIL_MESSAGE.ID.eq(id))).isFalse();
+  }
+
+  @Test
+  void trash_neverSyncedTrash_keepsRow_thenFirstSyncNoDuplicate() throws Exception {
+    long[] s = setup(true, "지울 메일");
+    long id = messageId(s[1], "지울 메일");
+    long trashId = trashId(s[1]);
+    assertThat(folderRepo.findTrash(s[1]).orElseThrow().uidValidity()).isNull();
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.TRASH, null, id));
+
+    assertThat(r.results().get(0).ok()).isTrue();
+    // COPYUID 의 UIDVALIDITY 를 휴지통 행에 적고 행을 지킨다
+    assertThat(row(id).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trashId);
+    assertThat(row(id).get(EMAIL_MESSAGE.IMAP_UID)).isEqualTo(serverUid("Trash", "지울 메일"));
+    assertThat(folderRepo.findTrash(s[1]).orElseThrow().uidValidity()).isNotNull();
+
+    // 뒤의 첫 휴지통 동기화: 같은 메일을 두 번 넣지 않고, 첫 동기화로 경계(synced_since)를 남긴다
+    folderService.syncFolder(s[0], s[1], trashId, false);
+    assertThat(countIn(s[1], trashId)).isEqualTo(1);
+    assertThat(row(id).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trashId);
+    assertThat(folderRepo.findTrash(s[1]).orElseThrow().syncedSince()).isNotNull();
+  }
+
+  /**
+   * WP-1681: 휴지통 행은 지난 목록 갱신 때 고른 것이고, 옮길 때 서버가 LIST 로 알려 주는 휴지통은 그 사이 다른 메일함으로 바뀌었을 수 있다. 그때
+   * COPYUID 는 다른 메일함의 UID·UIDVALIDITY 라 휴지통 행에 적거나 행을 옮기면 안 된다 — 예전처럼 행을 지우고 다음 동기화에 맡긴다.
+   */
+  @Test
+  void trash_serverTrashChangedSinceListing_deletesRowAndAdoptsNothing() throws Exception {
+    long[] s = setup(true, "지울 메일");
+    long id = messageId(s[1], "지울 메일");
+    long trashId = trashId(s[1]);
+    // 지난 목록 갱신 때의 휴지통 이름 — 지금 서버의 휴지통(\Trash·이름)은 「Trash」다
+    dsl.update(EMAIL_FOLDER)
+        .set(EMAIL_FOLDER.NAME, "Old Trash")
+        .where(EMAIL_FOLDER.ID.eq(trashId))
+        .execute();
+    assertThat(folderRepo.findTrash(s[1]).orElseThrow().uidValidity()).isNull();
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.TRASH, null, id));
+
+    assertThat(r.results().get(0).ok()).isTrue();
+    assertThat(serverSubjects("Trash")).containsExactly("지울 메일");
+    assertThat(dsl.fetchExists(EMAIL_MESSAGE, EMAIL_MESSAGE.ID.eq(id))).isFalse();
+    assertThat(folderRepo.findTrash(s[1]).orElseThrow().uidValidity()).isNull();
+  }
+
+  @Test
+  void trash_fromArchive_recordsArchiveAsOriginal() throws Exception {
+    long[] s = setup(true, "보관했다 지울 메일");
+    long id = messageId(s[1], "보관했다 지울 메일");
+    long archiveId = folderId(s[1], "Archive");
+    long trashId = trashId(s[1]);
+    folderService.syncFolder(s[0], s[1], trashId, false);
+    assertThat(moveService.move(s[0], s[1], req(Kind.ARCHIVE, null, id)).results().get(0).ok())
+        .isTrue();
+
+    assertThat(moveService.move(s[0], s[1], req(Kind.TRASH, null, id)).results().get(0).ok())
+        .isTrue();
+
+    assertThat(row(id).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trashId);
+    assertThat(row(id).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isEqualTo(archiveId);
+  }
+
+  @Test
+  void trash_whenAlreadyInTrash_is400() throws Exception {
+    long[] s = setup(true, "지울 메일");
+    long id = messageId(s[1], "지울 메일");
+    folderService.syncFolder(s[0], s[1], trashId(s[1]), false);
+    moveService.move(s[0], s[1], req(Kind.TRASH, null, id));
+
+    assertThatThrownBy(() -> moveService.move(s[0], s[1], req(Kind.TRASH, null, id)))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessage("이미 휴지통에 있는 메일입니다");
+    assertThat(serverSubjects("Trash")).containsExactly("지울 메일");
+  }
+
+  @Test
+  void folderKindWithTrashId_behavesLikeTrash() throws Exception {
+    long[] s = setup(true, "메일함으로 지울 메일");
+    long id = messageId(s[1], "메일함으로 지울 메일");
+    long inboxId = folderId(s[1], "INBOX");
+    long trashId = trashId(s[1]);
+    // 휴지통을 아직 가져오지 않은 상태 — TRASH 와 같이 COPYUID 의 UIDVALIDITY 를 받아 행을 지켜야 한다
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.FOLDER, trashId, id));
+
+    assertThat(r.results().get(0).ok()).isTrue();
+    assertThat(serverSubjects("Trash")).containsExactly("메일함으로 지울 메일");
+    assertThat(row(id).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trashId);
+    assertThat(row(id).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isEqualTo(inboxId);
+    // 이미 휴지통에 있는 메일을 휴지통 id 로 다시 옮기면 TRASH 와 같은 400
+    assertThatThrownBy(() -> moveService.move(s[0], s[1], req(Kind.FOLDER, trashId, id)))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessage("이미 휴지통에 있는 메일입니다");
+  }
+
+  @Test
+  void restore_returnsToOriginalFolder_andClearsOriginal() throws Exception {
+    long[] s = setup(true, "되살릴 메일");
+    long id = messageId(s[1], "되살릴 메일");
+    long archiveId = folderId(s[1], "Archive");
+    long trashId = trashId(s[1]);
+    folderService.syncFolder(s[0], s[1], trashId, false);
+    moveService.move(s[0], s[1], req(Kind.ARCHIVE, null, id));
+    moveService.move(s[0], s[1], req(Kind.TRASH, null, id));
+    assertThat(row(id).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trashId);
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.RESTORE, null, id));
+
+    assertThat(r.results()).singleElement().satisfies(x -> assertThat(x.ok()).isTrue());
+    assertThat(serverSubjects("Trash")).isEmpty();
+    assertThat(serverSubjects("Archive")).containsExactly("되살릴 메일");
+    Record back = row(id);
+    assertThat(back.get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(archiveId);
+    assertThat(back.get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isNull();
+    assertThat(back.get(EMAIL_MESSAGE.IMAP_UID)).isEqualTo(serverUid("Archive", "되살릴 메일"));
+  }
+
+  @Test
+  void restore_mixedOriginals_groupsByDestination_resultsInRequestOrder() throws Exception {
+    long[] s = setup(true, "보관 메일", "받은 메일");
+    long archived = messageId(s[1], "보관 메일");
+    long inboxed = messageId(s[1], "받은 메일");
+    long archiveId = folderId(s[1], "Archive");
+    long inboxId = folderId(s[1], "INBOX");
+    folderService.syncFolder(s[0], s[1], trashId(s[1]), false);
+    moveService.move(s[0], s[1], req(Kind.ARCHIVE, null, archived));
+    moveService.move(s[0], s[1], req(Kind.TRASH, null, inboxed, archived));
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.RESTORE, null, inboxed, archived));
+
+    assertThat(r.results())
+        .extracting(MailMoveResponse.Result::messageId, MailMoveResponse.Result::ok)
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple(inboxed, true),
+            org.assertj.core.groups.Tuple.tuple(archived, true));
+    assertThat(row(archived).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(archiveId);
+    assertThat(row(inboxed).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(inboxId);
+    assertThat(serverSubjects("Trash")).isEmpty();
+  }
+
+  @Test
+  void restore_originalFolderGone_goesToInbox() throws Exception {
+    long[] s = setup(true, "프로젝트 메일");
+    long id = messageId(s[1], "프로젝트 메일");
+    long projects = folderId(s[1], "Projects");
+    long inboxId = folderId(s[1], "INBOX");
+    folderService.syncFolder(s[0], s[1], projects, false);
+    folderService.syncFolder(s[0], s[1], trashId(s[1]), false);
+    moveService.move(s[0], s[1], req(Kind.FOLDER, projects, id));
+    moveService.move(s[0], s[1], req(Kind.TRASH, null, id));
+    assertThat(row(id).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isEqualTo(projects);
+    // 원래 메일함 행이 그 사이 사라졌다(FK SET NULL)
+    dsl.deleteFrom(EMAIL_FOLDER).where(EMAIL_FOLDER.ID.eq(projects)).execute();
+    assertThat(row(id).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isNull();
+
+    assertThat(moveService.move(s[0], s[1], req(Kind.RESTORE, null, id)).results().get(0).ok())
+        .isTrue();
+
+    assertThat(serverSubjects("INBOX")).containsExactly("프로젝트 메일");
+    assertThat(row(id).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(inboxId);
+  }
+
+  @Test
+  void restore_externalTrashMail_goesToInbox() throws Exception {
+    long[] s = setup(true);
+    long trashId = trashId(s[1]);
+    long inboxId = folderId(s[1], "INBOX");
+    appendToServer("Trash", "다른 앱에서 지운 메일");
+    folderService.syncFolder(s[0], s[1], trashId, false);
+    long id = messageId(s[1], "다른 앱에서 지운 메일");
+    assertThat(row(id).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(trashId);
+    assertThat(row(id).get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)).isNull();
+
+    assertThat(moveService.move(s[0], s[1], req(Kind.RESTORE, null, id)).results().get(0).ok())
+        .isTrue();
+
+    assertThat(serverSubjects("Trash")).isEmpty();
+    assertThat(serverSubjects("INBOX")).containsExactly("다른 앱에서 지운 메일");
+    assertThat(row(id).get(EMAIL_MESSAGE.FOLDER_ID)).isEqualTo(inboxId);
+  }
+
+  @Test
+  void restore_nonTrashSource_is400() throws Exception {
+    long[] s = setup(true, "받은 메일");
+    long id = messageId(s[1], "받은 메일");
+
+    assertThatThrownBy(() -> moveService.move(s[0], s[1], req(Kind.RESTORE, null, id)))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessage("휴지통에 있는 메일만 되살릴 수 있습니다");
+    assertThat(serverSubjects("INBOX")).containsExactly("받은 메일");
   }
 
   @Test
@@ -466,6 +697,27 @@ class MailMoveImapTest extends MailSyncTestSupport {
           f.close(false);
         });
     return uid[0];
+  }
+
+  /** 계정의 휴지통 행 id(WP-1681 — 목록 갱신이 role TRASH 로 넣는다). */
+  private long trashId(long accountId) {
+    return folderRepo.findTrash(accountId).orElseThrow().id();
+  }
+
+  /** 메일 서버의 메일함에 메일 한 통을 바로 넣는다(다른 앱에서 지운 메일처럼). */
+  private static void appendToServer(String folder, String subject) throws Exception {
+    withStore(
+        store -> {
+          jakarta.mail.internet.MimeMessage m =
+              new jakarta.mail.internet.MimeMessage(Session.getInstance(new Properties()));
+          m.setFrom("sender@test.local");
+          m.setRecipients(Message.RecipientType.TO, "box@test.local");
+          m.setSubject(subject, "UTF-8");
+          m.setText("본문 " + subject, "UTF-8");
+          m.setSentDate(new java.util.Date());
+          Folder f = store.getFolder(folder);
+          f.appendMessages(new Message[] {m});
+        });
   }
 
   private long folderId(long accountId, String name) {

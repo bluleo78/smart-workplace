@@ -97,11 +97,11 @@ class MailServerFoldersImapTest extends MailSyncTestSupport {
 
     assertThat(result.saved()).isZero(); // 받은편지함은 비어 있다 — 알림은 폴더 변화 때문
     List<MailFolderResponse> folders = folderService.list(user, accountId);
-    // 보관 먼저(이름 사이 순서는 DB 정렬 규칙을 따른다). Sent·Trash·INBOX 는 없다.
+    // 보관 먼저(이름 사이 순서는 DB 정렬 규칙을 따른다). Sent·INBOX 는 없다. Trash 는 휴지통 역할로 있다(WP-1681).
     assertThat(folders).first().extracting(MailFolderResponse::displayName).isEqualTo("Archive");
     assertThat(folders)
         .extracting(MailFolderResponse::displayName)
-        .containsExactlyInAnyOrder("Archive", "A사", "고객사");
+        .containsExactlyInAnyOrder("Archive", "A사", "고객사", "Trash");
     Map<String, MailFolderResponse> byName =
         folders.stream()
             .collect(Collectors.toMap(MailFolderResponse::displayName, Function.identity()));
@@ -111,6 +111,7 @@ class MailServerFoldersImapTest extends MailSyncTestSupport {
     assertThat(byName.get("Archive").parentId()).isNull();
     assertThat(byName.get("고객사").role()).isEqualTo("USER");
     assertThat(byName.get("고객사").unreadCount()).isZero();
+    assertThat(byName.get("Trash").role()).isEqualTo("TRASH");
     assertThat(byName.get("A사").parentId()).isEqualTo(byName.get("고객사").id());
     assertThat(byName.get("A사").unreadCount()).isEqualTo(1);
     assertThat(folders).allMatch(MailFolderResponse::selectable);
@@ -123,7 +124,7 @@ class MailServerFoldersImapTest extends MailSyncTestSupport {
                 .where(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId))
                 .and(EMAIL_FOLDER.ROLE.isNotNull())
                 .fetch(EMAIL_FOLDER.NAME))
-        .containsExactlyInAnyOrder("Archive", "고객사", "고객사.A사");
+        .containsExactlyInAnyOrder("Archive", "고객사", "고객사.A사", "Trash");
     var inbox =
         dsl.selectFrom(EMAIL_FOLDER)
             .where(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId))
@@ -188,7 +189,7 @@ class MailServerFoldersImapTest extends MailSyncTestSupport {
     assertThat(messageExists(sentMessage)).isTrue();
     assertThat(folderService.list(user, accountId))
         .extracting(MailFolderResponse::displayName)
-        .containsExactly("Archive", "고객사");
+        .containsExactlyInAnyOrder("Archive", "고객사", "Trash");
   }
 
   @Test
@@ -245,7 +246,74 @@ class MailServerFoldersImapTest extends MailSyncTestSupport {
 
     assertThatThrownBy(() -> folderService.refresh(user, accountId, dead))
         .isInstanceOf(MailSyncException.class);
-    assertThat(folderService.list(user, accountId)).hasSize(3);
+    assertThat(folderService.list(user, accountId)).hasSize(4);
+  }
+
+  /**
+   * WP-1681: 서버 휴지통(GreenMail 은 SPECIAL-USE 를 주지 않아 이름 판별)이 휴지통 역할 하나로 목록에 오르고, 스팸·휴지통 하위·두 번째 휴지통
+   * 이름 폴더는 숨긴다.
+   */
+  @Test
+  void refresh_listsTrashFolderWithTrashRole() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    withStore(
+        store -> {
+          append(create(store, "Trash"), "지운 메일", false);
+          create(store, "Trash.하위");
+          create(store, "Deleted Messages");
+          create(store, "Junk");
+          create(store, "Spam");
+          create(store, "고객사");
+        });
+
+    syncService.sync(user, accountId);
+
+    List<MailFolderResponse> folders = folderService.list(user, accountId);
+    assertThat(folders)
+        .extracting(MailFolderResponse::displayName)
+        .containsExactlyInAnyOrder("Trash", "고객사");
+    assertThat(folders)
+        .filteredOn(f -> "TRASH".equals(f.role()))
+        .singleElement()
+        .satisfies(
+            f -> {
+              assertThat(f.displayName()).isEqualTo("Trash");
+              assertThat(f.selectable()).isTrue();
+              assertThat(f.parentId()).isNull();
+              assertThat(f.unreadCount()).isEqualTo(1);
+              assertThat(f.totalCount()).isEqualTo(1);
+            });
+    assertThat(folderRepo.findTrash(accountId))
+        .hasValueSatisfying(t -> assertThat(t.name()).isEqualTo("Trash"));
+  }
+
+  /**
+   * WP-1681: 휴지통으로 고른 폴더가 바뀌면(「Bin」만 있다가 「Trash」가 생김) 휴지통 역할이 새 폴더로 옮겨 가고, 계정당 휴지통 하나 제약에 걸려 목록 반영이
+   * 실패하지 않는다. 휴지통이 없으면 findTrash 는 비어 있다.
+   */
+  @Test
+  void refresh_trashChoiceChanges_movesTrashRole() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    EmailAccountResponse account = accountRepo.findByIdAndUser(user, accountId).orElseThrow();
+    folderService.refresh(user, accountId, account);
+    assertThat(folderRepo.findTrash(accountId)).isEmpty();
+
+    withStore(store -> create(store, "Bin"));
+    folderService.refresh(user, accountId, account);
+    assertThat(folderRepo.findTrash(accountId))
+        .hasValueSatisfying(t -> assertThat(t.name()).isEqualTo("Bin"));
+
+    withStore(store -> create(store, "Trash"));
+    folderService.refresh(user, accountId, account);
+
+    Map<String, String> roleByName =
+        folderService.list(user, accountId).stream()
+            .collect(Collectors.toMap(MailFolderResponse::displayName, MailFolderResponse::role));
+    assertThat(roleByName).containsEntry("Trash", "TRASH").containsEntry("Bin", "USER");
+    assertThat(folderRepo.findTrash(accountId))
+        .hasValueSatisfying(t -> assertThat(t.name()).isEqualTo("Trash"));
   }
 
   // ---- 헬퍼 ----
