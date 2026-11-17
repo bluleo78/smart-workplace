@@ -58,9 +58,13 @@ export function useChatSession() {
     }
   }, []);
 
+  // 저장소 주인(사용자·워크스페이스)만 맞춘다 — 생성 중 대화 동기화는 여기서 하지 않는다(WP-1664: 첫 진입 GET /ai/chat/active 중복 제거).
+  // 첫 동기화는 SSE 첫 연결(useEventStream onOpen)이 한 번 맡고, 연결이 늦으면 같은 훅의 대체 타이머가 REST 로 한 번 맞춘다 —
+  // 구독이 살아난 뒤 받아야 그 사이 종결 이벤트를 놓치지 않는다(WP-190).
+  // owner 가 제자리에서 바뀌는 경로는 없다: 워크스페이스 전환은 전체 리로드(AuthContext.selectTenant), 로그아웃은 앱 셸을 떠난다 —
+  // 바뀐 owner 는 새로 마운트된 셸·새 SSE 연결이 다시 맞춘다.
   useEffect(() => {
     chatStreams.setOwner(ownerKey);
-    if (ownerKey) void resyncActiveChats();
   }, [ownerKey]);
   useEffect(() => {
     chatStreams.setEffects({
