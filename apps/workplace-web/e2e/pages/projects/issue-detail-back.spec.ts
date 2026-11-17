@@ -149,6 +149,8 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await view.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('button', { name: '본문 편집' })).toHaveCount(0);
+    // 본문 편집칸(RichInput)의 자동 포커스는 마운트 뒤 비동기로 온다 — 포커스가 오기 전 Esc 는 편집칸이 받지 못한다(빌드본에서 재현, WP-1656 뒤).
+    await expect(page.getByRole('textbox', { name: '본문' })).toBeFocused();
 
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: '본문 편집' })).toBeFocused();

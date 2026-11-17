@@ -132,6 +132,20 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
         return (OffsetDateTime) get(7);
     }
 
+    /**
+     * Setter for <code>public.channel_member.hidden_at</code>.
+     */
+    public void setHiddenAt(OffsetDateTime value) {
+        set(8, value);
+    }
+
+    /**
+     * Getter for <code>public.channel_member.hidden_at</code>.
+     */
+    public OffsetDateTime getHiddenAt() {
+        return (OffsetDateTime) get(8);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -155,7 +169,7 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
     /**
      * Create a detached, initialised ChannelMemberRecord
      */
-    public ChannelMemberRecord(Long channelId, Long userId, Long lastReadMessageId, OffsetDateTime joinedAt, String role, Long tenantId, Boolean direct, OffsetDateTime lastReadAt) {
+    public ChannelMemberRecord(Long channelId, Long userId, Long lastReadMessageId, OffsetDateTime joinedAt, String role, Long tenantId, Boolean direct, OffsetDateTime lastReadAt, OffsetDateTime hiddenAt) {
         super(ChannelMember.CHANNEL_MEMBER);
 
         setChannelId(channelId);
@@ -166,6 +180,7 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
         setTenantId(tenantId);
         setDirect(direct);
         setLastReadAt(lastReadAt);
+        setHiddenAt(hiddenAt);
         resetTouchedOnNotNull();
     }
 }

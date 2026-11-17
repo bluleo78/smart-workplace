@@ -19,6 +19,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** channel_member 리포지토리. */
@@ -39,6 +40,32 @@ public class ChannelMemberRepository {
         dsl.selectOne()
             .from(CHANNEL_MEMBER)
             .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(userId))));
+  }
+
+  /**
+   * DM 숨기기(WP-1676) — 이 멤버의 hidden_at 을 DB 의 실제 현재 시각(clock_timestamp())으로 쓴다. 이미 숨겼어도 다시 쓴다(멱등).
+   * DB 시각이라 메시지 created_at 과 앱·DB 시계 차이 없이 비교된다. now() 는 트랜잭션 시작 시각이라 쓰지 않는다 — 숨기기보다 먼저 시작해 나중에 커밋된
+   * 메시지(created_at = 그 트랜잭션의 now())가 hidden_at 보다 이르게 찍혀 대화를 되살리지 못하는 틈을 줄인다. 반환: 갱신 행 수(0 = 멤버
+   * 아님).
+   */
+  public int hide(long channelId, long userId) {
+    return dsl.update(CHANNEL_MEMBER)
+        .set(CHANNEL_MEMBER.HIDDEN_AT, DSL.field("clock_timestamp()", OffsetDateTime.class))
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(userId)))
+        .execute();
+  }
+
+  /** DM 숨김 풀기(WP-1676) — 숨겨져 있을 때만 hidden_at 을 지운다. 반환: 실제로 풀린 행 수(0 = 숨겨져 있지 않았음). */
+  public int unhide(long channelId, long userId) {
+    return dsl.update(CHANNEL_MEMBER)
+        .setNull(CHANNEL_MEMBER.HIDDEN_AT)
+        .where(
+            CHANNEL_MEMBER
+                .CHANNEL_ID
+                .eq(channelId)
+                .and(CHANNEL_MEMBER.USER_ID.eq(userId))
+                .and(CHANNEL_MEMBER.HIDDEN_AT.isNotNull()))
+        .execute();
   }
 
   /** 여러 채널의 멤버 user_id 를 한 번에(채널 id → 멤버 id, 멤버 없는 채널은 빠진다) — 조직도 변경 알림의 추가 수신자(WP-1058). */

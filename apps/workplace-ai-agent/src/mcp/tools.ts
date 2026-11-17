@@ -359,7 +359,7 @@ export const RECURRING_RUN_WRITE_TOOLS: readonly string[] = [
   'create_external_contact', 'update_external_contact', 'add_contact_favorite', 'remove_contact_favorite',
   'create_user_group', 'update_user_group', 'add_user_group_member', 'remove_user_group_member',
   // 메시징
-  'add_channel_message', 'update_channel_message', 'react', 'create_channel', 'open_dm', 'join_channel', 'leave_channel',
+  'add_channel_message', 'update_channel_message', 'react', 'create_channel', 'open_dm', 'hide_dm', 'join_channel', 'leave_channel',
   'add_channel_member', 'mark_channel_read',
   // 드라이브
   'create_drive_folder', 'rename_drive_item', 'move_drive_item', 'copy_drive_item', 'import_attachment_to_drive',
@@ -1422,6 +1422,8 @@ export function buildTools(
       sharedTool('create_project_meta'), sharedTool('update_project_meta'),
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
+      // WP-1676: DM 숨기기 — 내 목록에서만 빠지고 새 메시지·open_dm 으로 돌아오는 되돌릴 수 있는 쓰기라 직접 실행(messaging-agent).
+      sharedTool('hide_dm'),
       // WP-355: 채널 참여·리액션·내 메시지 수정·채널 읽음 처리 — 사용자 신원으로 하는 되돌릴 수 있는 쓰기(직접 실행, 확인 카드 없음). 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(확인 카드도 아직 없음).
       // 채널에서 멘션된 에이전트 신원의 messaging 프로필에는 싣지 않는다(에이전트가 사람 이름으로 리액션·수정하는 정책은 별도 결정).
       // WP-421: 리액션 추가·제거는 react(reacted) 하나로 합쳐졌다(WP-812: 이슈 코멘트 반응까지 같은 도구).

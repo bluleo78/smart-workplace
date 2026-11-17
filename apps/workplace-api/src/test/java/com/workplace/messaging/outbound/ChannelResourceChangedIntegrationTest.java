@@ -163,6 +163,27 @@ class ChannelResourceChangedIntegrationTest extends ExternalClientMockedTestBase
   }
 
   @Test
+  @DisplayName("DM 숨기기는 숨긴 사람 한 명에게만 dm/updated")
+  void dmHide_reachesOnlyCaller() {
+    long dm = dmService.createOrGet(owner, List.of(member)).dm().id();
+    clearInvocations(registry);
+    dmService.hide(owner, dm);
+    var rec = capture("dm", "updated").recipients();
+    assertThat(rec).contains(owner).doesNotContain(member, outsider);
+  }
+
+  @Test
+  @DisplayName("숨긴 DM 을 다시 열면 연 사람 한 명에게만 dm/updated")
+  void dmReopenHidden_reachesOnlyCaller() {
+    long dm = dmService.createOrGet(owner, List.of(member)).dm().id();
+    dmService.hide(owner, dm);
+    clearInvocations(registry);
+    dmService.createOrGet(owner, List.of(member));
+    var rec = capture("dm", "updated").recipients();
+    assertThat(rec).contains(owner).doesNotContain(member, outsider);
+  }
+
+  @Test
   @DisplayName("payload 에 채널명을 싣지 않는다")
   void payloadHasNoChannelName() {
     clearInvocations(registry);

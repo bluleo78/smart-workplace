@@ -353,6 +353,8 @@ export const createChannelInput = z.object({
 // 본인은 서버가 자동 포함한다. 본인 포함 최대 8명(서버 MAX_MEMBERS).
 export const openDmInput = z.object({ usernames: z.array(z.string().min(1)).min(1).max(7) });
 export const leaveChannelInput = z.object({ channelId: z.number().int().positive() });
+// WP-1676: DM 숨기기 — channelId 는 list_channels 의 DM 항목이나 open_dm 결과에서 온다.
+export const hideDmInput = z.object({ channelId: z.number().int().positive() });
 /** 채널 참여·읽음 처리 입력(WP-355) — 둘 다 channelId 하나다. */
 export const joinChannelInput = z.object({ channelId: z.number().int().positive() });
 export const markChannelReadInput = joinChannelInput;
@@ -389,12 +391,12 @@ export interface MessagingToolOptions {
  */
 export const ADD_CHANNEL_MESSAGE_DESCRIPTION =
   'Posts a Markdown message to a channel or DM I belong to; call it once. Mention with @username (from search_members), not the ' +
-  '"@name(username)" form shown when reading. Mentioned people and DM members get a push notification.';
+  'read-time "@name(username)" form. Mentioned people and DM members get a push.';
 /** add_channel_message 설명의 첨부 부분(fileIds·driveFileIds). */
 export const ADD_CHANNEL_MESSAGE_ATTACHMENTS_DESCRIPTION =
-  'fileIds: staged files from upload_file; driveFileIds: drive files to link (VIEWER needed). Body may be empty with attachments.';
+  'driveFileIds need VIEWER. Body may be empty with attachments.';
 
-/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/update_channel_message/mark_channel_read/add_channel_member). */
+/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/hide_dm/leave_channel/join_channel/update_channel_message/mark_channel_read/add_channel_member). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -405,8 +407,8 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}; unreadCount ' +
-        'and hasUnreadThreads only when set. q: search public channels by name substring instead, joined or not (member); join_channel to read or ' +
+        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}; unreadCount' +
+        '/hasUnreadThreads only when set. q: instead search public channels by name, joined or not (member); join_channel to read or ' +
         'post. If hasMore, pass nextOffset as offset, or say the list is partial.',
       inputSchema: listChannelsInput,
       async handler(args) {
@@ -423,9 +425,9 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Lists top-level messages of a channel or DM I belong to, newest first, as {items, hasMore?, nextCursor?}. Replies are omitted; ' +
-        'those with replies carry replyCount (see list_thread_replies). Markdown body, mentions as "@name(username)", reactions {emoji: ' +
-        'count}; deleted ones read "(삭제됨)". If hasMore, pass nextCursor as cursor for older messages, or say the list is partial.',
+        'Lists top-level messages of a channel or DM I belong to, newest first, as {items, hasMore?, nextCursor?}; replies omitted, ' +
+        'replyCount marks threads (list_thread_replies). Markdown body, mentions "@name(username)", reactions {emoji: count}, deleted read ' +
+        '"(삭제됨)". If hasMore, pass nextCursor as cursor for older ones, or say the list is partial.',
       inputSchema: listChannelMessagesInput,
       async handler(args) {
         const { channelId, limit, cursor } = listChannelMessagesInput.parse(args);
@@ -438,9 +440,8 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Returns all replies in the thread of a channel message, oldest first, as {items, truncated?}. messageId: id of a list_channel_messages ' +
-        'item with replyCount. Mentions read "@name(username)". truncated:true = only the first 500 replies: say the rest is ' +
-        'missing.',
+        'Returns all replies in a channel message\'s thread, oldest first, as {items, truncated?}. messageId: a list_channel_messages item ' +
+        'with replyCount. Mentions read "@name(username)". truncated:true = first 500 only: say the rest is missing.',
       inputSchema: getThreadRepliesInput,
       async handler(args) {
         const { messageId } = getThreadRepliesInput.parse(args);
@@ -473,8 +474,7 @@ export function buildMessagingTools(
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates a channel (채널) with me as OWNER. visibility PUBLIC (default, anyone can join) or PRIVATE (invited people only). A name in use ' +
-        'is a conflict.',
+        'Creates a channel (채널) with me as OWNER. visibility PUBLIC (default, anyone joins) or PRIVATE (invite only).',
       inputSchema: createChannelInput,
       async handler(args) {
         return JSON.stringify(toChannelView((await client.createChannel(createChannelInput.parse(args))) as Raw));
@@ -487,8 +487,8 @@ export function buildMessagingTools(
       // 같은 참여자 DM 이 있으면 그것을 돌려준다(find-or-create) — 추가만 하고 멱등.
       hints: { destructive: false, idempotent: true },
       description:
-        'Opens a DM with up to 7 active members by username (from search_members); I am included, and an existing DM with the same people is ' +
-        'reused; returns the channelId to post with add_channel_message.',
+        'Opens a DM with up to 7 active members by username (search_members), me included; an existing DM with the same people is reused. ' +
+        'Returns channelId for add_channel_message.',
       inputSchema: openDmInput,
       async handler(args) {
         const { usernames } = openDmInput.parse(args);
@@ -505,13 +505,27 @@ export function buildMessagingTools(
       },
     },
     {
+      name: 'hide_dm',
+      app: 'messaging',
+      kind: 'write',
+      // 내 목록에서만 빠지고 기록·상대 화면은 그대로 — 새 메시지·open_dm 으로 돌아오니 되돌릴 수 있다(destructive 아님). 다시 숨겨도 같다(멱등).
+      hints: { destructive: false, idempotent: true },
+      description: 'Hides a DM from my list only; a new message or open_dm restores it.',
+      inputSchema: hideDmInput,
+      async handler(args) {
+        const { channelId } = hideDmInput.parse(args);
+        await client.hideDm(channelId);
+        return 'ok';
+      },
+    },
+    {
       name: 'leave_channel',
       app: 'messaging',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Leaves a public channel (join_channel rejoins). Private channels are refused as irreversible: ' +
-        'offer propose_leave_channel if available, else ask the user. An OWNER must hand over ownership first.',
+        'Leaves a public channel (join_channel rejoins). Private ones are refused as irreversible: ' +
+        'offer propose_leave_channel if available, else ask the user. OWNERs must hand over ownership first.',
       inputSchema: leaveChannelInput,
       async handler(args) {
         const { channelId } = leaveChannelInput.parse(args);
@@ -534,8 +548,8 @@ export function buildMessagingTools(
       // 이미 멤버면 아무것도 바꾸지 않고 성공한다(ChannelMemberRepository.add 의 ON CONFLICT DO NOTHING) — 멱등. 알림은 없고 목록 갱신 신호뿐이다.
       hints: { destructive: false, idempotent: true },
       description:
-        'Joins a public channel (채널) as MEMBER (channelId from list_channels with q); DMs and non-public channels are refused. Earlier messages do not ' +
-        'count as unread.',
+        'Joins a public channel (채널) as MEMBER (channelId from list_channels with q); DMs and non-public channels are refused. Earlier ' +
+        'messages are not unread.',
       inputSchema: joinChannelInput,
       async handler(args) {
         await client.joinChannel(joinChannelInput.parse(args).channelId);
@@ -549,8 +563,8 @@ export function buildMessagingTools(
       // 본문을 덮어쓴다(이전 본문은 남지 않는다)라 destructive. 같은 본문으로 다시 불러도 저장 내용은 같고 알림이 없다(MessageUpdatedEvent 는 SSE 만) — 멱등.
       hints: { destructive: true, idempotent: true },
       description:
-        'Replaces the body of my own message (any age, replies too) with new Markdown; it shows as edited and the old text is lost. Mention with ' +
-        '@username as in add_channel_message; edits send no notification.' +
+        'Replaces the body of my own message (any age, replies too) with new Markdown; shown as edited, old text lost. Mention with ' +
+        '@username as in add_channel_message; no notification.' +
         LINK_RULE_AUTOLINK,
       inputSchema: updateChannelMessageInput,
       async handler(args) {
@@ -568,7 +582,7 @@ export function buildMessagingTools(
       // 읽음 위치는 GREATEST 로만 올라가 되돌아가지 않는다(ChannelMemberRepository.markRead) — 같은 인자로 다시 불러도 같은 결과(멱등). 안 읽음 표시를 지우므로 destructive.
       hints: { destructive: true, idempotent: true },
       description:
-        'Marks a channel or DM I belong to as read up to its newest top-level message (clears unreadCount); thread replies are tracked separately.',
+        'Marks a channel or DM I belong to as read up to its newest top-level message (clears unreadCount); thread replies are separate.',
       inputSchema: markChannelReadInput,
       async handler(args) {
         const { channelId } = markChannelReadInput.parse(args);
@@ -589,8 +603,8 @@ export function buildMessagingTools(
       // 만들지 않으려는 것이고 직접 실행에는 해당하지 않는다(알림처럼 되풀이되는 부작용이 없다). 워크스페이스 밖에 닿지 않는다.
       hints: { destructive: false, idempotent: true },
       description:
-        'Invites an active member (username from search_members) to a channel as MEMBER; channel OWNER or ADMIN only, not DMs. Existing members ' +
-        'are left as is. Not notified. Also joins the channel drive space, if any.',
+        'Invites an active member (username from search_members) to a channel as MEMBER; channel OWNER/ADMIN only, not DMs. Not ' +
+        'notified. Also joins its drive space, if any.',
       inputSchema: addChannelMemberInput,
       async handler(args) {
         const { channelId, username } = addChannelMemberInput.parse(args);

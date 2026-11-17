@@ -607,6 +607,8 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/messaging/dms', { userIds: [5] });
     await client.leaveChannel(9);
     expect(http.post).toHaveBeenCalledWith('/messaging/channels/9/leave');
+    await client.hideDm(9);
+    expect(http.post).toHaveBeenCalledWith('/messaging/dms/9/hide');
     await client.getMailSummary(3);
     expect(http.get).toHaveBeenCalledWith('/mail/messages/3/summary');
     await client.draftMailReply(3);

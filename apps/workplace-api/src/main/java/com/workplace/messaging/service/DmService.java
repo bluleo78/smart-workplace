@@ -3,6 +3,7 @@ package com.workplace.messaging.service;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.messaging.dto.DmResponse;
+import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.InactiveMemberException;
 import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
@@ -17,7 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** DM(다이렉트 메시지) — find-or-create(멤버셋 dedup) + 내 DM 목록. */
+/** DM(다이렉트 메시지) — find-or-create(멤버셋 dedup) + 내 DM 목록 + 내 목록에서 숨기기(WP-1676). */
 @Service
 @RequiredArgsConstructor
 public class DmService {
@@ -103,16 +104,40 @@ public class DmService {
   }
 
   /**
+   * DM 을 호출자의 목록에서 숨긴다(WP-1676). 기록·멤버십은 그대로 두고 호출자 멤버 행의 hidden_at 만 지금으로 쓴다 — 그 뒤 새 최상위 메시지가 오거나
+   * 같은 구성으로 다시 열면(createOrGet) 목록에 돌아온다. 상대의 목록에는 영향이 없다.
+   *
+   * <p>검사 순서: 채널 없음·비멤버 → 404(남의 비공개 채널 존재를 드러내지 않도록 종류보다 먼저), DM 아님 → 400. 이미 숨겼어도 다시 쓴다(멱등).
+   */
+  @Transactional
+  public void hide(long callerId, long channelId) {
+    var state =
+        channelRepo.findState(channelId).orElseThrow(() -> new ChannelNotFoundException(channelId));
+    if (!memberRepo.isMember(channelId, callerId)) {
+      throw new ChannelNotFoundException(channelId);
+    }
+    if (!"DM".equals(state.kind())) {
+      throw new InvalidDmRequestException("DM 만 숨길 수 있습니다");
+    }
+    memberRepo.hide(channelId, callerId);
+    // 숨김은 호출자 한 사람의 상태 — 그 사람의 DM 목록만 다시 불러오게 한다.
+    changeNotifier.dmListChanged(channelId, callerId);
+  }
+
+  /**
    * 기존 DM 의 상세를 돌려준다. 호출자가 그 DM 을 나갔으면(member_key 에는 남아 있음) 다시 참여시킨다(WP-507).
    *
    * <p>나가도 member_key 는 그대로라 같은 구성으로 다시 열면 이 DM 이 찾아진다. 호출자는 원래 참여자이므로 다시 넣어도 새 사람에게 이력이 노출되지 않는다.
-   * 다시 넣지 않으면 상세 조회가 비어 500 이 나고 그 상대와 영영 DM 을 할 수 없다.
+   * 다시 넣지 않으면 상세 조회가 비어 500 이 나고 그 상대와 영영 DM 을 할 수 없다. 이미 멤버인데 숨겨 둔 상태면 숨김을 푼다(WP-1676).
    */
   private DmResponse rejoinIfLeft(long dmId, long callerId) {
     if (!memberRepo.isMember(dmId, callerId)) {
       memberRepo.add(dmId, callerId, "MEMBER");
       // 호출자의 DM 목록에 다시 나타나도록 생성과 같은 이벤트를 발행한다.
       changeNotifier.dmCreated(dmId, callerId);
+    } else if (memberRepo.unhide(dmId, callerId) > 0) {
+      // WP-1676: 숨겨 둔 DM 을 다시 열면 숨김을 풀어 호출자 목록에 돌려놓는다(기록은 그대로). 숨김은 본인만의 상태라 본인에게만 알린다.
+      changeNotifier.dmListChanged(dmId, callerId);
     }
     return channelRepo.findDmDetail(dmId, callerId).orElseThrow();
   }

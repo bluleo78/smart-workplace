@@ -2,6 +2,8 @@ package com.workplace.messaging.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,6 +17,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.messaging.dto.CreateDmRequest;
 import com.workplace.messaging.dto.DmParticipant;
 import com.workplace.messaging.dto.DmResponse;
+import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.messaging.service.DmService;
 import com.workplace.permission.service.PermissionService;
@@ -131,5 +134,32 @@ class DmControllerTest extends WebMvcSliceTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"userIds\":[]}"))
         .andExpect(status().isBadRequest()); // @NotEmpty
+  }
+
+  /** WP-1676: DM 숨기기 — 204, 서비스에 호출자·채널 id 전달. */
+  @Test
+  void hide_returns204() throws Exception {
+    mockMvc
+        .perform(post("/api/v1/messaging/dms/7/hide").header("Authorization", "Bearer v"))
+        .andExpect(status().isNoContent());
+    verify(dmService).hide(1L, 7L);
+  }
+
+  /** WP-1676: 없는 채널·비멤버는 404. */
+  @Test
+  void hide_notFound_returns404() throws Exception {
+    doThrow(new ChannelNotFoundException(8L)).when(dmService).hide(1L, 8L);
+    mockMvc
+        .perform(post("/api/v1/messaging/dms/8/hide").header("Authorization", "Bearer v"))
+        .andExpect(status().isNotFound());
+  }
+
+  /** WP-1676: DM 이 아닌 채널은 400. */
+  @Test
+  void hide_nonDm_returns400() throws Exception {
+    doThrow(new InvalidDmRequestException("DM 만 숨길 수 있습니다")).when(dmService).hide(1L, 9L);
+    mockMvc
+        .perform(post("/api/v1/messaging/dms/9/hide").header("Authorization", "Bearer v"))
+        .andExpect(status().isBadRequest());
   }
 }

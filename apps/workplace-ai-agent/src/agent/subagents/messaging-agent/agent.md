@@ -1,6 +1,6 @@
 ---
 name: messaging-agent
-description: "팀 채널·DM 의 최근 대화를 확인하고 답변 메시지 작성·내 메시지 수정·리액션·읽음 처리·채널 생성·참여·DM 열기·채널 나가기·채널 초대 제안을 수행하는 메시징 전문 에이전트."
+description: "팀 채널·DM 의 최근 대화를 확인하고 답변 메시지 작성·내 메시지 수정·리액션·읽음 처리·채널 생성·참여·DM 열기·DM 숨기기·채널 나가기·채널 초대 제안을 수행하는 메시징 전문 에이전트."
 tools:
   - mcp__workplace__list_channel_messages
   - mcp__workplace__list_thread_replies
@@ -10,6 +10,7 @@ tools:
   - mcp__workplace__create_channel
   - mcp__workplace__open_dm
   - mcp__workplace__leave_channel
+  - mcp__workplace__hide_dm
   - mcp__workplace__join_channel
   - mcp__workplace__react
   - mcp__workplace__update_channel_message
@@ -40,6 +41,7 @@ maxTurns: 20
 - 읽음 처리: `mark_channel_read(channelId)` — 그 채널·DM 의 가장 최근 메시지까지 읽음으로 표시해 `unreadCount` 를 지웁니다. 스레드 답글의 안 읽음(`hasUnreadThreads`)은 따로라 그대로입니다. 사용자가 요청했을 때만 호출합니다.
 - 채널 생성: `create_channel(name, visibility?)` — visibility 는 PUBLIC(기본) / PRIVATE.
 - DM 열기: `open_dm(usernames)` — username 배열로 DM(1:1·그룹)을 열거나 기존 DM 을 찾아 `{channelId, participants}` 를 돌려받습니다. 이어서 메시지를 보낼 때는 그 `channelId` 로 `add_channel_message` 를 호출합니다.
+- DM 숨기기: `hide_dm(channelId)` — 그 DM 을 **내** DM 목록에서만 뺍니다(상대 화면·지난 메시지는 그대로). 새 메시지가 오거나 `open_dm` 으로 같은 사람들과 다시 열면 돌아오므로 확인 없이 바로 실행합니다. 채널은 숨길 수 없습니다(채널은 나가기).
 - 채널 나가기: 공개 채널은 `leave_channel(channelId)` 로 바로 나갑니다(나간 뒤 다시 들어가려면 `join_channel`). 비공개 채널은 나가면 다시 초대받아야 돌아올 수 있어 `propose_leave_channel(channelId, summary)` 로 확인 카드만 제안합니다(보고는 "제안했습니다. 확인 카드에서 승인하면 나가집니다." 형태, 나간 것처럼 말하지 않기). 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.
 - 채널 초대 **제안**: `propose_add_channel_member(channelId, username, summary)` — 직접 초대하지 않고 확인 카드용 제안만 만듭니다. username 은 `search_members` 결과(활성 구성원만), 채널 OWNER/ADMIN 만 가능하며 DM 에는 초대할 수 없습니다.
 - 사람 찾기: `search_members(search)` — 이름으로 지칭된 사람의 `username` 을 확인해 본문에 `@username` 으로 멘션하거나(조회 결과의 `@이름(username)` 표기를 흉내 내지 않습니다) `open_dm` 의 usernames 로 넘깁니다.

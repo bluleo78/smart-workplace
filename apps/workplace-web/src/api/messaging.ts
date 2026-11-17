@@ -101,6 +101,10 @@ export const messagingApi = {
   createDm: (userIds: number[]) =>
     client.post<DmResponse>('/messaging/dms', { userIds }),
 
+  // DM 숨기기(WP-1676) — 내 목록에서만 빠진다(상대 화면·기록은 그대로). 새 메시지가 오거나 createDm 으로 다시 열면 돌아온다. 멱등.
+  hideDm: (channelId: number) =>
+    client.post<void>(`/messaging/dms/${channelId}/hide`),
+
   // 메시지 본문 수정.
   updateMessage: (messageId: number, body: string) =>
     client.patch<MessageResponse>(`/messaging/messages/${messageId}`, { body }).then((r) => r.data),

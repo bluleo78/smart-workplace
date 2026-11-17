@@ -40,6 +40,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "get_project:read",
   "get_user_group:read",
   "get_wiki_page:read",
+  "hide_dm:write",
   "import_attachment_to_drive:write",
   "join_channel:write",
   "leave_channel:write",

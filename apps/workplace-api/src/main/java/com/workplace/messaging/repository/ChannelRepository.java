@@ -424,6 +424,7 @@ public class ChannelRepository {
             .join(CHANNEL_MEMBER)
             .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
             .where(CHANNEL.KIND.eq("DM"))
+            .and(notHiddenDm())
             .fetch();
     List<Long> ids = rows.map(r -> r.get(CHANNEL.ID));
     if (ids.isEmpty()) return List.of();
@@ -456,6 +457,29 @@ public class ChannelRepository {
                     Comparator.nullsLast(Comparator.naturalOrder()))
                 .reversed())
         .toList();
+  }
+
+  /**
+   * 숨긴 DM 을 빼는 조건(WP-1676) — DM 목록(findMyDms)과 홈 대화 요약(MessagingSummaryRepository)이 같은 판정을 쓰도록 한 곳에
+   * 둔다. caller 의 CHANNEL_MEMBER 행이 조인된 쿼리에서만 쓴다. 채널(KIND≠DM)은 숨길 수 없으므로 늘 통과한다.
+   *
+   * <p>DM 은 hidden_at 이 없거나, 숨긴 뒤 「새 메시지」가 있을 때만 남는다. 「새 메시지」는 목록 미리보기(LastMessageLookup)·안 읽음
+   * 수(unreadCountField)와 같은 집합 — 삭제 안 된 최상위 메시지(스레드 답글 제외)다. 답글·삭제된 메시지로 되살아나면 미리보기는 숨기기 전 옛 글이고 안
+   * 읽음도 0 이라 어색하기 때문이다. 경계 시각이 같으면 숨김을 유지한다(&gt;). 정렬용 last_message_at 은 기존대로 둔다.
+   */
+  static Condition notHiddenDm() {
+    return CHANNEL
+        .KIND
+        .ne("DM")
+        .or(CHANNEL_MEMBER.HIDDEN_AT.isNull())
+        .or(
+            DSL.exists(
+                DSL.selectOne()
+                    .from(MESSAGE)
+                    .where(MESSAGE.CHANNEL_ID.eq(CHANNEL.ID))
+                    .and(MESSAGE.DELETED_AT.isNull())
+                    .and(MESSAGE.PARENT_MESSAGE_ID.isNull())
+                    .and(MESSAGE.CREATED_AT.gt(CHANNEL_MEMBER.HIDDEN_AT))));
   }
 
   /** 채널 참여자(user 조인) — DM 표시명 파생용. */

@@ -576,6 +576,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async leaveChannel(channelId) {
       await http.post(`/messaging/channels/${channelId}/leave`);
     },
+    async hideDm(channelId) {
+      await http.post(`/messaging/dms/${channelId}/hide`);
+    },
     async addChannelMember(channelId, userId) {
       await http.post(`/messaging/channels/${channelId}/members`, { userId });
     },

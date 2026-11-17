@@ -604,6 +604,8 @@ export interface MessagingToolClient {
   openDm(userIds: number[]): Promise<{ id: number; participants?: { name: string; [key: string]: unknown }[] }>;
   /** POST /messaging/channels/{id}/leave — 이미 비멤버면 no-op, OWNER 는 409. */
   leaveChannel(channelId: number): Promise<void>;
+  /** POST /messaging/dms/{id}/hide — 내 DM 목록에서만 숨긴다(WP-1676). 멱등. 새 메시지·openDm 이면 다시 보인다. DM 이 아니면 400, 비멤버·없음은 404. */
+  hideDm(channelId: number): Promise<void>;
   /**
    * POST /messaging/channels/{id}/members — MEMBER 로 추가(WP-349). 이미 멤버면 no-op(역할 유지, ON CONFLICT DO NOTHING).
    * 채널 OWNER·ADMIN 또는 시스템 ADMIN 만, DM 은 거부.

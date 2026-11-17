@@ -36,6 +36,18 @@ public class MessagingSummaryRepository {
     return unreadCountScalar(callerId).asField("unread_count");
   }
 
+  /**
+   * 홈 요약 대상 대화 — 보관 안 된 채널·DM 중 숨기지 않은 것. 숨긴 DM 은 DM 목록과 같은 판정(ChannelRepository.notHiddenDm)으로 빼고,
+   * 새 최상위 메시지가 오면 다시 센다(WP-1676). CHANNEL_MEMBER(caller)가 이미 조인된 쿼리에서만 호출.
+   */
+  private static org.jooq.Condition summaryConversation() {
+    return CHANNEL
+        .ARCHIVED_AT
+        .isNull()
+        .and(CHANNEL.KIND.in("CHANNEL", "DM"))
+        .and(ChannelRepository.notHiddenDm());
+  }
+
   /** 안읽음 수 스칼라 서브쿼리(alias 없음). WHERE/HAVING 절에서 alias 참조 오류 회피용. */
   private static org.jooq.SelectConditionStep<org.jooq.Record1<Integer>> unreadCountScalar(
       long callerId) {
@@ -71,8 +83,7 @@ public class MessagingSummaryRepository {
             .from(CHANNEL)
             .join(CHANNEL_MEMBER)
             .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
-            .where(CHANNEL.ARCHIVED_AT.isNull())
-            .and(CHANNEL.KIND.in("CHANNEL", "DM"))
+            .where(summaryConversation())
             .orderBy(DSL.field(DSL.name("last_message_id")).desc().nullsLast())
             .limit(candidateLimit)
             .fetch();
@@ -166,8 +177,7 @@ public class MessagingSummaryRepository {
             .from(CHANNEL)
             .join(CHANNEL_MEMBER)
             .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
-            .where(CHANNEL.ARCHIVED_AT.isNull())
-            .and(CHANNEL.KIND.in("CHANNEL", "DM"))
+            .where(summaryConversation())
             .and(unreadCountScalar(callerId).asField().gt(0)));
   }
 
@@ -198,8 +208,7 @@ public class MessagingSummaryRepository {
             .from(CHANNEL)
             .join(CHANNEL_MEMBER)
             .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
-            .where(CHANNEL.ARCHIVED_AT.isNull())
-            .and(CHANNEL.KIND.in("CHANNEL", "DM"))
+            .where(summaryConversation())
             .and(dmUnread.or(hasUnreadMention)));
   }
 
@@ -242,8 +251,7 @@ public class MessagingSummaryRepository {
             .from(CHANNEL)
             .join(CHANNEL_MEMBER)
             .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
-            .where(CHANNEL.ARCHIVED_AT.isNull())
-            .and(CHANNEL.KIND.in("CHANNEL", "DM"))
+            .where(summaryConversation())
             .and(dmUnread.or(hasUnreadMention).or(aiMarkUnread)));
   }
 
@@ -263,8 +271,7 @@ public class MessagingSummaryRepository {
                     .CHANNEL_ID
                     .eq(CHANNEL.ID)
                     .and(CONVERSATION_ATTENTION.USER_ID.eq(callerId)))
-            .where(CHANNEL.ARCHIVED_AT.isNull())
-            .and(CHANNEL.KIND.in("CHANNEL", "DM"))
+            .where(summaryConversation())
             .and(unreadCountScalar(callerId).asField().gt(0)));
   }
 }

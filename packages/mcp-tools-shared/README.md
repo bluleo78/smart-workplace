@@ -63,7 +63,7 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` `restore_wiki_revision` + 겹침: `read_file` `upload_file` |
 | `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_item` `move_drive_item` `copy_drive_item` `import_attachment_to_drive` `create_drive_download_link` `create_drive_file` + 겹침: `read_file` (15개 — 앱당 상한에 닿았다) |
 | `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `update_mail_category` `sync_mail` + 겹침: `read_file` |
-| `messaging` | `list_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` `read_file` `upload_file` `react` (15개 — 앱당 상한에 닿았다) |
+| `messaging` | `list_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `hide_dm` `leave_channel` `join_channel` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` `read_file` `upload_file` `react` (16개 — 앱당 상한 19) |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
 | `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` `get_home_overview` |
@@ -282,6 +282,19 @@ AI 가 `report_agent_work`(`INPUT_REQUIRED` + `message`)로 사람에게 물을 
 - `get_issue_chat` 메시지 뷰는 `options` 가 있을 때만 싣는다(삭제된 글·빈 배열·null 은 뺀다). `options` 가 없는 질문은 서버가 비동기로 ai-agent 에게 질문 글에서 선택지를 뽑게 해 나중에 채운다.
 - 플러그인 스킬(work-loop `process-issue.md` 4번·work-on)이 질문할 때 같은 선택지를 `options` 로도 보내게 했다(`plugin-skills.test.ts` 인자 목록에 `options`).
 - **크기**: 17,533 토큰(94개) → `options`(+51) 를 더하고 다른 설명을 줄여 **17,540 토큰(94개, 상한 17,550 그대로)**. 줄인 것(뜻·출력 모양·필수 인자·제약은 유지): 정의에 `idempotentHint:true` 가 같은 뜻으로 실리는 「반복해도 그대로」 문구 — `react`·`watch_issue`·`link_issues`·`add_issue_relation` 의 "repeating is a no-op", `add_contact_favorite`·`remove_contact_favorite`·`add_user_group_member` 의 "(no-op if …)" — 와 `options` 설명의 "2-4"(스키마 `minItems`·`maxItems` 가 알린다). 결과 모양(`update_issue` 의 `{ok, results, createdLabels?}`, `create_issue_from_mail` 의 `Returns {issueKey, created}`, `search_members` 의 `Returns {items, total, hasMore?, nextPage?}`)은 출력 계약이라 남긴다(리뷰에서 한때 뺀 것을 되살렸다).
+
+### DM 숨기기 (WP-1676)
+
+웹 DM 머리 「⋯ → 대화 숨기기」와 같은 일을 하는 `hide_dm` 을 messaging 앱에 둔다.
+
+| 동작 | 입력 | 출력 | 서버 |
+|---|---|---|---|
+| DM 숨기기 | `channelId`(`list_channels` 의 DM 항목·`open_dm` 결과) | `'ok'` | `POST /messaging/dms/{id}/hide` → 204. DM 이 아니면 400, 비멤버·없는 id 는 404(오류 그대로 모델에 간다) |
+
+- 내 DM 목록에서만 빠진다 — 상대 화면·지난 메시지는 그대로이고, 새 메시지가 오거나 `open_dm` 으로 같은 사람들과 다시 열면 돌아온다. 그래서 `kind: 'write'`, `destructive: false`·`idempotent: true`(다시 숨겨도 같다).
+- ai-agent 는 messaging-agent 와 반복 회차 쓰기 목록(`RECURRING_RUN_WRITE_TOOLS`)에 싣는다(확인 카드 없이 직접 실행).
+- 서버 `instructions` 의 messaging 쓰기 요약에는 넣지 않았다 — 「open/hide DMs」로 늘리면 2,048자 상한을 넘는다. 도구 정의로 충분히 보인다.
+- **크기**: 17,548 토큰(94개) → `hide_dm`(+92) 을 더하고 messaging 설명을 줄여 **17,546 토큰(95개, 상한 17,550 그대로)**. 줄인 것(뜻·출력 모양·필수 인자·제약은 유지): 입력 스키마 설명(`Staged upload_file ids to attach`·`Drive files to link`)과 겹치던 `add_channel_message` 의 "fileIds: staged files from upload_file; driveFileIds: drive files to link"(→ "driveFileIds need VIEWER"), 오류가 알려 주는 `create_channel` 의 이름 충돌 문장, `idempotentHint` 와 같은 뜻인 `add_channel_member` 의 "Existing members are left as is", 그리고 `list_channel_messages`·`list_thread_replies`·`open_dm`·`update_channel_message`·`mark_channel_read`·`join_channel`·`leave_channel`·`list_channels`·`add_channel_message`·`search_members`(channelId 갈래) 문장 압축.
 
 ### 응답 크기 — 정리 뷰
 
