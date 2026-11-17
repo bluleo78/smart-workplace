@@ -7,10 +7,11 @@
 // PDF 렌더·다운로드·새로고침(@platform)이 남는다.
 // 채팅 라우트만 renderScreen 으로 띄운다(testkit-b5).
 import { act, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, type HttpHandler, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { API, chatEvents, renderChat } from '@/test/kits/chat/testkit-b5'
+import { API, chatEvents, ME_ID, renderChat } from '@/test/kits/chat/testkit-b5'
+import { setRichText } from '@/test/kits/projects/issueDetailRef'
 import type { DriveLink } from '@/types/drive'
 import type { ChannelResponse, MessageAttachment, MessageResponse } from '@/types/messaging'
 
@@ -756,5 +757,162 @@ describe('메시지 링크로 열기 (WP-1236)', () => {
     const { location } = renderChat('/chat/channels/1?message=4', { channels: [channel], handlers: [pagedMessages([])] })
     expect(await screen.findByText(/메시지를 찾을 수 없어요/)).toBeInTheDocument()
     await waitFor(() => expect(location()).toBe('/chat/channels/1'))
+  })
+})
+
+describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
+  const CH = 1
+  const att = (fileId: number, originalName: string): MessageAttachment => ({
+    fileId, messageId: 11, originalName, mimeType: originalName.endsWith('.pdf') ? 'application/pdf' : 'text/plain', sizeBytes: 10,
+    attachedById: ME_ID, attachedByName: 'me', attachedAt: '2026-11-17T00:00:00Z',
+  })
+  const driveLink = (driveFileId: number, name: string): DriveLink => ({
+    driveFileId, fileId: 900 + driveFileId, name, mimeType: 'text/plain', sizeBytes: 64, hasThumbnail: false,
+    spaceId: 1, spaceName: '팀 공간', availability: 'ACTIVE', createdById: ME_ID, createdAt: '2026-11-17T00:00:00Z',
+  })
+  /** 본인 메시지 11 — 기본은 본문 「보고서」 + 첨부 a.pdf(1)·b.txt(2). */
+  const own = (overrides: Partial<MessageResponse> = {}) =>
+    createMessage({ id: 11, channelId: CH, authorId: ME_ID, authorName: 'me', body: '보고서', attachments: [att(1, 'a.pdf'), att(2, 'b.txt')], ...overrides })
+  /** PATCH 기록 — 응답은 서버처럼 남긴 첨부·수정 시각을 싣는다. */
+  const patch = (reply: () => Response) => record('patch', '/messaging/messages/11', reply)
+  const open = (message: MessageResponse, handlers: HttpHandler[] = [], events?: ReturnType<typeof chatEvents>) =>
+    openChannel(createChannel({ id: CH, member: true }), [message], { handlers, events: events?.handler })
+  /** 수정 중 입력창 위 칩 목록. */
+  const chips = () => screen.getByTestId('message-editor-attachments')
+  /** 칩 목록에서 이름이 name 인 칩의 × 버튼. */
+  const removeChip = (name: string) => within(within(chips()).getByText(name).closest('li')!).getByRole('button', { name: '첨부 제거' })
+
+  test('수정을 열면 입력창 위에 첨부 칩 두 개(×)가 보이고 아래 첨부 목록의 파일은 숨는다', async () => {
+    const { user } = open(own())
+    expect(await screen.findByTestId('attachment-card-1')).toBeInTheDocument()
+    await user.click(screen.getByTestId('message-edit-11'))
+    expect(await screen.findByTestId('message-editor-11')).toBeInTheDocument()
+    expect(within(chips()).getByText('a.pdf')).toBeInTheDocument()
+    expect(within(chips()).getByText('b.txt')).toBeInTheDocument()
+    expect(within(chips()).getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+    // 칩 목록은 에디터 안(입력창 위)에 있다.
+    expect(within(screen.getByTestId('message-editor-11')).getByTestId('message-editor-attachments')).toBeInTheDocument()
+    expect(screen.queryByTestId('attachment-card-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('attachment-card-2')).not.toBeInTheDocument()
+  })
+
+  test('× 후 저장하면 {body, keepFileIds:[1]} 을 보내고 파일 하나와 (수정됨)이 보인다', async () => {
+    const p = patch(() => HttpResponse.json(own({ attachments: [att(1, 'a.pdf')], editedAt: '2026-11-17T01:00:00Z' })))
+    const { user } = open(own(), [p.handler])
+    await user.click(await screen.findByTestId('message-edit-11'))
+    await user.click(removeChip('b.txt'))
+    expect(within(chips()).queryByText('b.txt')).not.toBeInTheDocument()
+    // 본문은 그대로여도 파일을 뺐으면 「변경 없음」으로 닫지 않고 저장한다.
+    await user.click(screen.getByTestId('message-editor-save-11'))
+    await waitFor(() => expect(p.calls).toHaveLength(1))
+    expect(p.calls[0]).toEqual({ body: '보고서', keepFileIds: [1] })
+    await waitFor(() => expect(screen.queryByTestId('message-editor-11')).not.toBeInTheDocument())
+    expect(screen.getByTestId('attachment-card-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('attachment-card-2')).not.toBeInTheDocument()
+    expect(screen.getByTestId('message-edited-11')).toBeInTheDocument()
+  })
+
+  test('× 후 취소하면 PATCH 없이 두 파일이 그대로다', async () => {
+    const p = patch(() => HttpResponse.json(own()))
+    const { user } = open(own(), [p.handler])
+    await user.click(await screen.findByTestId('message-edit-11'))
+    await user.click(removeChip('a.pdf'))
+    await user.click(screen.getByTestId('message-editor-cancel-11'))
+    await waitFor(() => expect(screen.queryByTestId('message-editor-11')).not.toBeInTheDocument())
+    expect(screen.getByTestId('attachment-card-1')).toBeInTheDocument()
+    expect(screen.getByTestId('attachment-card-2')).toBeInTheDocument()
+    expect(p.calls).toHaveLength(0)
+    // 다시 열면 칩 두 개로 처음부터 시작한다(취소한 × 가 남지 않는다).
+    await user.click(screen.getByTestId('message-edit-11'))
+    expect(within(chips()).getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+  })
+
+  test('첨부만 있는 메시지에서 파일을 모두 빼면 저장이 비활성이다', async () => {
+    const { user } = open(own({ body: '', attachments: [att(1, 'a.pdf')] }))
+    await user.click(await screen.findByTestId('message-edit-11'))
+    expect(screen.getByTestId('message-editor-save-11')).toBeEnabled()
+    await user.click(removeChip('a.pdf'))
+    expect(screen.queryByTestId('message-editor-attachments')).not.toBeInTheDocument()
+    expect(screen.getByTestId('message-editor-save-11')).toBeDisabled()
+  })
+
+  test('첨부 없는 메시지 수정은 지금처럼 {body} 만 보낸다', async () => {
+    const p = patch(() => HttpResponse.json(own({ body: '새 본문', attachments: [], editedAt: '2026-11-17T01:00:00Z' })))
+    const { user } = open(own({ attachments: [] }), [p.handler])
+    await user.click(await screen.findByTestId('message-edit-11'))
+    expect(screen.queryByTestId('message-editor-attachments')).not.toBeInTheDocument()
+    setRichText(screen.getByTestId('message-editor-input-11'), '새 본문')
+    await user.click(screen.getByTestId('message-editor-save-11'))
+    await waitFor(() => expect(p.calls).toHaveLength(1))
+    expect(p.calls[0]).toEqual({ body: '새 본문' })
+    expect(p.calls[0]).not.toHaveProperty('keepFileIds')
+  })
+
+  test('드라이브 링크만 남으면 본문이 비어도 저장할 수 있다', async () => {
+    const p = patch(() => HttpResponse.json(own({ body: '', attachments: [], driveLinks: [driveLink(70, '회의록.txt')], editedAt: '2026-11-17T01:00:00Z' })))
+    const { user } = open(own({ body: '', attachments: [att(1, 'a.pdf')], driveLinks: [driveLink(70, '회의록.txt')] }), [p.handler])
+    await user.click(await screen.findByTestId('message-edit-11'))
+    // 드라이브 링크는 칩으로 편집하지 않는다 — 수정 중에도 아래 목록에 그대로 보인다.
+    expect(screen.getByTestId('message-drive-link-70')).toBeInTheDocument()
+    await user.click(removeChip('a.pdf'))
+    expect(screen.getByTestId('message-editor-save-11')).toBeEnabled()
+    await user.click(screen.getByTestId('message-editor-save-11'))
+    await waitFor(() => expect(p.calls).toHaveLength(1))
+    expect(p.calls[0]).toEqual({ body: '', keepFileIds: [] })
+  })
+
+  test('첨부가 있어도 본문만 고치면 keepFileIds 없이 {body} 만 보낸다', async () => {
+    // 다른 기기가 막 뺀 파일이 캐시에 남아 있어도 순수 글 수정은 첨부 목록과 무관하게 통과해야 한다.
+    const p = patch(() => HttpResponse.json(own({ body: '보고서 v2', editedAt: '2026-11-17T01:00:00Z' })))
+    const { user } = open(own(), [p.handler])
+    await user.click(await screen.findByTestId('message-edit-11'))
+    setRichText(screen.getByTestId('message-editor-input-11'), '보고서 v2')
+    await user.click(screen.getByTestId('message-editor-save-11'))
+    await waitFor(() => expect(p.calls).toHaveLength(1))
+    expect(p.calls[0]).toEqual({ body: '보고서 v2' })
+    expect(p.calls[0]).not.toHaveProperty('keepFileIds')
+  })
+
+  test('파일 없이 드라이브 링크만 있는 메시지에서 본문을 비우면 keepFileIds:[] 를 함께 보낸다', async () => {
+    // 본문만 비운 {body:''} 는 서버가 빈 메시지로 400 — 링크로 남는 메시지라는 뜻으로 빈 keep 을 싣는다.
+    const p = patch(() => HttpResponse.json(own({ body: '', attachments: [], driveLinks: [driveLink(70, '회의록.txt')], editedAt: '2026-11-17T01:00:00Z' })))
+    const { user } = open(own({ body: '메모', attachments: [], driveLinks: [driveLink(70, '회의록.txt')] }), [p.handler])
+    await user.click(await screen.findByTestId('message-edit-11'))
+    setRichText(screen.getByTestId('message-editor-input-11'), '')
+    expect(screen.getByTestId('message-editor-save-11')).toBeEnabled()
+    await user.click(screen.getByTestId('message-editor-save-11'))
+    await waitFor(() => expect(p.calls).toHaveLength(1))
+    expect(p.calls[0]).toEqual({ body: '', keepFileIds: [] })
+  })
+
+  test('SSE 로 첨부가 줄면 편집 중 칩에서도 사라지고 저장 payload 에도 없다', async () => {
+    const events = chatEvents()
+    const p = patch(() => HttpResponse.json(own({ body: '보고서 수정', attachments: [att(1, 'a.pdf')], editedAt: '2026-11-17T01:00:00Z' })))
+    const { user } = open(own(), [p.handler], events)
+    await user.click(await screen.findByTestId('message-edit-11'))
+    expect(within(chips()).getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+    // 다른 기기에서 b.txt 를 뺀 수정이 SSE 로 온다.
+    await events.push('messaging.message.updated', {
+      channelId: CH, id: 11, body: '보고서', mentions: [], editedAt: '2026-11-17T00:30:00Z', attachments: [att(1, 'a.pdf')],
+    })
+    await waitFor(() => expect(within(chips()).queryByText('b.txt')).not.toBeInTheDocument())
+    expect(within(chips()).getByText('a.pdf')).toBeInTheDocument()
+    setRichText(screen.getByTestId('message-editor-input-11'), '보고서 수정')
+    await user.click(screen.getByTestId('message-editor-save-11'))
+    await waitFor(() => expect(p.calls).toHaveLength(1))
+    // 내가 뺀 파일이 없고 본문에 글자가 있으니 본문만 보낸다 — keepFileIds 를 싣지 않아 캐시가 늦어도 400 이 나지 않는다.
+    expect(p.calls[0]).toEqual({ body: '보고서 수정' })
+  })
+
+  test('저장이 400 이면 오류를 알리고 에디터와 칩 상태를 유지한다', async () => {
+    const p = patch(() => HttpResponse.json({ message: '이 메시지에 붙은 첨부가 아닙니다' }, { status: 400 }))
+    const { user } = open(own(), [p.handler])
+    await user.click(await screen.findByTestId('message-edit-11'))
+    await user.click(removeChip('b.txt'))
+    await user.click(screen.getByTestId('message-editor-save-11'))
+    expect(await screen.findByText('이 메시지에 붙은 첨부가 아닙니다')).toBeInTheDocument()
+    expect(screen.getByTestId('message-editor-11')).toBeInTheDocument()
+    expect(within(chips()).getByText('a.pdf')).toBeInTheDocument()
+    expect(within(chips()).queryByText('b.txt')).not.toBeInTheDocument()
   })
 })

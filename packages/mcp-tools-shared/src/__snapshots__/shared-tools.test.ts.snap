@@ -2936,8 +2936,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "body": {
-          "minLength": 1,
           "type": "string",
+        },
+        "keepFileIds": {
+          "items": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer",
+          },
+          "type": "array",
         },
         "messageId": {
           "description": "from list_channel_messages or list_thread_replies",

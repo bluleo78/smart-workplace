@@ -70,9 +70,11 @@ import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.EmptyMessageException;
 import com.workplace.messaging.exception.InvalidDmRequestException;
+import com.workplace.messaging.exception.InvalidKeepFileIdsException;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
 import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAttachmentLimitExceededException;
+import com.workplace.messaging.exception.MessageAttachmentNotFoundException;
 import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
@@ -1178,6 +1180,22 @@ public class GlobalExceptionHandler {
       InvalidMessageAttachmentException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  // 메시지 수정의 keepFileIds 에 그 메시지에 지금 붙지 않은 첨부 id → 400(WP-1679)
+  @ExceptionHandler(InvalidKeepFileIdsException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidKeepFileIds(
+      InvalidKeepFileIdsException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  // 메시지 첨부 읽기에서 그 메시지에 붙지 않은(수정으로 뺀 것 포함) 파일 → 404(WP-1679)
+  @ExceptionHandler(MessageAttachmentNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleMessageAttachmentNotFound(
+      MessageAttachmentNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
   }
 
   // 본문도 첨부도 없는 빈 메시지 → 400

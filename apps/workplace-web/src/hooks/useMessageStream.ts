@@ -8,7 +8,7 @@ import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { keyedSubscribe } from '../lib/aiWorkingProgress';
 import { applyReaction } from '../lib/reactions';
 import { applyReadEvent } from '../lib/readReceipts';
-import type { ChannelReadState, ChannelResponse, DmResponse, LinkPreview, MessagePage, MessageResponse } from '../types/messaging';
+import type { ChannelReadState, ChannelResponse, DmResponse, LinkPreview, MessageAttachment, MessagePage, MessageResponse } from '../types/messaging';
 import { messagingKeys } from './queries/messagingKeys';
 import { bumpReplyCount, bumpUnreadReplyCount, isParentFollowed } from './queries/useCreateReply';
 import { patchReactionEverywhere } from './queries/useToggleReaction';
@@ -176,13 +176,16 @@ export function handleMessagingEvent(
     qc.invalidateQueries({ queryKey: messagingKeys.threadsInboxUnreadCount() });
     return;
   } else if (eventName === 'messaging.message.updated') {
-    // payload: {channelId,id,body,mentions,editedAt}
+    // payload: {channelId,id,body,mentions,editedAt,attachments}
     const id = Number(d.id);
     if (!id) return;
     patchMessage(qc, channelId, id, {
       body: d.body as string,
       mentions: d.mentions as MessageResponse['mentions'],
       editedAt: d.editedAt as string | null,
+      // 수정 뒤 첨부 전체 목록(WP-1679) — 키가 있을 때만 통째로 바꾼다(빈 배열이면 모두 뺀 것).
+      // 키가 없는 옛 서버 payload 는 첨부를 건드리지 않는다. 링크 미리보기는 link-previews 이벤트가 진실원이라 여기서 바꾸지 않는다(WP-874).
+      ...('attachments' in d ? { attachments: (d.attachments ?? []) as MessageAttachment[] } : {}),
     });
     // 목록 행 미리보기(WP-135)가 이 메시지일 수 있으므로 채널·DM 목록 재조회.
     invalidateLists(qc, channelId);

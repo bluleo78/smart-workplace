@@ -14,6 +14,7 @@ import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
 import com.workplace.messaging.exception.MessageAttachmentLimitExceededException;
+import com.workplace.messaging.exception.MessageAttachmentNotFoundException;
 import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -173,8 +174,8 @@ public class MessageAttachmentService {
 
   /**
    * 첨부 추출 텍스트 구간 읽기(WP-358). 권한·소속 판정은 {@link #download} 와 같다 — 채널 비멤버는
-   * 403(ChannelNotMemberException), 다른 채널의 메시지·그 메시지에 붙지 않은 fileId 는
-   * 400(InvalidMessageAttachmentException). 상태·사유·자르기는 fileai 공용 서비스가 맡는다.
+   * 403(ChannelNotMemberException), 다른 채널의 메시지는 400(InvalidMessageAttachmentException), 그 메시지에 붙지
+   * 않은 fileId 는 404(MessageAttachmentNotFoundException, WP-1679). 상태·사유·자르기는 fileai 공용 서비스가 맡는다.
    */
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
@@ -207,8 +208,9 @@ public class MessageAttachmentService {
   }
 
   /**
-   * /content(download)·/preview 가 함께 쓰는 첨부 가드 — 읽기 권한(멤버 또는 보관된 공개 채널, 아니면 403) + 메시지가 이 채널 소속 + 그
-   * 메시지에 붙은 첨부(아니면 400 InvalidMessageAttachmentException)를 확인하고 저장 행(상대 경로)을 돌려준다.
+   * /content(download)·/preview 가 함께 쓰는 첨부 가드 — 읽기 권한(멤버 또는 보관된 공개 채널, 아니면 403) + 메시지가 이 채널 소속(아니면
+   * 400 InvalidMessageAttachmentException) + 그 메시지에 붙은 첨부(아니면 404
+   * MessageAttachmentNotFoundException)를 확인하고 저장 행(상대 경로)을 돌려준다.
    *
    * <p>왜 한 곳에: 경로마다 같은 검사를 복사해 두면 한쪽만 고쳐 거절 범위가 달라진다. 호출자의 readOnly 트랜잭션 안에서 실행된다.
    */
@@ -218,8 +220,10 @@ public class MessageAttachmentService {
     if (!messageRepo.belongsToChannel(messageId, channelId)) {
       throw new InvalidMessageAttachmentException(fileId);
     }
+    // 그 메시지에 붙지 않은 파일(메시지 수정에서 뺀 파일·삭제된 메시지의 첨부 포함)은 404 — 뺀 파일은 그 메시지 주소로 열면 「없는 첨부」여야
+    // 한다(WP-1679 완료 기준 5). 업로드 바인딩 검증의 400 과 달리 읽기 쪽은 대상이 없는 것이라 404 로 가른다.
     return repo.findStoredFile(fileId, messageId)
-        .orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
+        .orElseThrow(() -> new MessageAttachmentNotFoundException(fileId));
   }
 
   /** 읽기 검사 — 멤버 또는 보관된 공개 채널(WP-621). 그 밖의 비멤버는 ChannelNotMemberException(403). */

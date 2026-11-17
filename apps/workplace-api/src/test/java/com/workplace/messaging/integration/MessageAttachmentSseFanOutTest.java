@@ -12,7 +12,9 @@ import static org.mockito.Mockito.verify;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
+import com.workplace.messaging.dto.MessageAttachmentResponse;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageAttachmentStorage;
@@ -20,6 +22,7 @@ import com.workplace.messaging.service.MessageService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -101,5 +104,36 @@ class MessageAttachmentSseFanOutTest extends ExternalClientMockedTestBase {
     MessageResponse resp = (MessageResponse) payload.getValue();
     assertThat(resp.attachments()).hasSize(1);
     assertThat(resp.attachments().get(0).originalName()).isEqualTo("fan.txt");
+  }
+
+  /**
+   * 수정으로 첨부를 빼면(WP-1679) "messaging.message.updated" payload 에 남은 첨부 전체 목록이 실린다 — 다른 사람 화면이 새로고침 없이
+   * 뺀 파일을 지우는 근거다.
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  void updateRemovingAttachment_fansOutRemainingAttachments() throws Exception {
+    long uid = seedUser();
+    long channelId = channelRepo.insertPublic("att-upd-fan-out-" + UUID.randomUUID(), uid);
+    channelService.join(uid, channelId);
+    Long keep =
+        storage.storeTemporary(
+            new MockMultipartFile("files", "keep.txt", "text/plain", "k".getBytes()), uid);
+    Long drop =
+        storage.storeTemporary(
+            new MockMultipartFile("files", "drop.txt", "text/plain", "d".getBytes()), uid);
+    MessageResponse msg =
+        messageService.create(
+            uid, channelId, new CreateMessageRequest("첨부 둘", null, List.of(keep, drop)));
+
+    messageService.update(uid, msg.id(), new UpdateMessageRequest("첨부 하나", List.of(keep)));
+
+    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    verify(registry, timeout(2000))
+        .fanOut(any(), eq("messaging.message.updated"), payload.capture());
+    Map<String, Object> p = (Map<String, Object>) payload.getValue();
+    assertThat((List<MessageAttachmentResponse>) p.get("attachments"))
+        .extracting(MessageAttachmentResponse::fileId)
+        .containsExactly(keep);
   }
 }

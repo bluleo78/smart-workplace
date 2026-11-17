@@ -21,7 +21,9 @@ class MessagingErrorMessageTest {
             new AgentCannotOwnChannelException(18L, 4L),
             new InvalidThreadParentException(77L),
             new ChannelArchivedException(18L),
-            new InvalidMessageAttachmentException(55L));
+            new InvalidMessageAttachmentException(55L),
+            new MessageAttachmentNotFoundException(55L),
+            new InvalidKeepFileIdsException());
 
     for (RuntimeException e : errors) {
       assertThat(e.getMessage())

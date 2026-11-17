@@ -5,8 +5,10 @@ import static com.workplace.jooq.tables.Message.MESSAGE;
 import static com.workplace.jooq.tables.MessageAttachment.MESSAGE_ATTACHMENT;
 import static com.workplace.jooq.tables.User.USER;
 
+import com.workplace.file.api.AttachmentBindings;
 import com.workplace.messaging.dto.MessageAttachmentResponse;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,8 +22,12 @@ public class MessageAttachmentRepository {
 
   private final DSLContext dsl;
 
-  public MessageAttachmentRepository(DSLContext dsl) {
+  /** 다른 「보이는 첨부」 정션에 묶인 file 을 만료 재설정에서 거르는 공용 조건(WP-1399) — 수정에서 첨부를 뺄 때 쓴다(WP-1679). */
+  private final AttachmentBindings attachmentBindings;
+
+  public MessageAttachmentRepository(DSLContext dsl, AttachmentBindings attachmentBindings) {
     this.dsl = dsl;
+    this.attachmentBindings = attachmentBindings;
   }
 
   /**
@@ -37,6 +43,49 @@ public class MessageAttachmentRepository {
         .set(MESSAGE_ATTACHMENT.MESSAGE_ID, messageId)
         .set(MESSAGE_ATTACHMENT.ATTACHED_BY, attachedBy)
         .set(MESSAGE_ATTACHMENT.ATTACHED_AT, OffsetDateTime.now())
+        .execute();
+  }
+
+  /** 메시지에 지금 붙은 첨부 file id(붙인 순서). 수정에서 keep 과 비교하는 기준(WP-1679). */
+  public List<Long> fileIdsOfMessage(long messageId) {
+    return dsl.select(MESSAGE_ATTACHMENT.FILE_ID)
+        .from(MESSAGE_ATTACHMENT)
+        .where(MESSAGE_ATTACHMENT.MESSAGE_ID.eq(messageId))
+        .orderBy(MESSAGE_ATTACHMENT.ATTACHED_AT.asc(), MESSAGE_ATTACHMENT.FILE_ID.asc())
+        .fetch(MESSAGE_ATTACHMENT.FILE_ID);
+  }
+
+  /**
+   * 메시지에서 첨부 연결만 지운다(WP-1679) — file 행·원본은 남긴다(수명은 {@link #rearmExpiry} 의 만료 스윕이나 드라이브가 맡는다).
+   *
+   * @return 실제로 지운 file id
+   */
+  public List<Long> unbind(long messageId, Collection<Long> fileIds) {
+    if (fileIds.isEmpty()) return List.of();
+    return dsl.deleteFrom(MESSAGE_ATTACHMENT)
+        .where(MESSAGE_ATTACHMENT.MESSAGE_ID.eq(messageId))
+        .and(MESSAGE_ATTACHMENT.FILE_ID.in(fileIds))
+        .returning(MESSAGE_ATTACHMENT.FILE_ID)
+        .fetch(MESSAGE_ATTACHMENT.FILE_ID);
+  }
+
+  /**
+   * 메시지에서 뺀 file 에 만료를 다시 건다(WP-1679) — 아무도 쓰지 않는 원본이 영구로 남지 않게 만료 스윕에 맡긴다. 이미 만료가 걸린 것({@code
+   * expires_at} 이 있음)은 건드리지 않는다 — 걸린 만료를 늘리지 않는다.
+   *
+   * <p>다른 「보이는 첨부」 정션(이슈·이슈 채팅·홈 첨부, 강등 안 된 노트 첨부·이슈 본문 이미지)에 아직 묶인 file 도 건드리지 않는다 — 드라이브 영구 삭제의
+   * {@code expireFiles} 와 같은 판정({@link AttachmentBindings#notVisiblyBound})이다. 걸면 만료 스윕이 file 행을
+   * 지우고 그 정션 행이 CASCADE 로 함께 사라져 다른 곳의 첨부가 조용히 없어진다. 이 메시지의 연결은 호출 전에 이미 지웠으므로 조건에 걸리지 않는다. 드라이브가
+   * 쓰는 file 은 호출자가 미리 걸러 낸다(DriveFileUsage). 다른 이슈 본문에 붙여넣은 본문 이미지의 텍스트 참조는 만료 스윕의 보존
+   * 정책(IssueBodyImageRetentionPolicy.stillReferencedAnywhere)이 지울 때 한 번 더 본다.
+   */
+  public void rearmExpiry(Collection<Long> fileIds, OffsetDateTime expiresAt) {
+    if (fileIds.isEmpty()) return;
+    dsl.update(FILE)
+        .set(FILE.EXPIRES_AT, expiresAt)
+        .where(FILE.ID.in(fileIds))
+        .and(FILE.EXPIRES_AT.isNull())
+        .and(attachmentBindings.notVisiblyBound(FILE.ID))
         .execute();
   }
 

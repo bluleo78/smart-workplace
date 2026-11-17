@@ -411,7 +411,7 @@ describe('add_channel_message @username → <@userId> 멘션 변환', () => {
       const c = mockClient();
       c.searchMembers = searchLike([dev1, dev10]);
       await tool(c, 'update_channel_message').handler({ messageId: 40, body: '@AI 개발자10 확인' }).catch(() => undefined);
-      expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@20> 확인');
+      expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@20> 확인', undefined);
     });
   });
 });
@@ -532,7 +532,7 @@ describe('메시징 보강 (WP-355)', () => {
       unreadReplyCount: 0, followed: false, proposal: null,
     });
     const out = JSON.parse(resultText(await tool(c, 'update_channel_message').handler({ messageId: 40, body: '@minsu 확인 부탁' })));
-    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@5> 확인 부탁');
+    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@5> 확인 부탁', undefined);
     expect(out).toMatchObject({ id: 40, authorName: '앨리스', editedAt: '2026-10-13T00:00:00Z' });
     expect(out).not.toHaveProperty('authorId');
     expect(out.mentions).toEqual([{ username: 'minsu', name: '김민수' }]);
@@ -544,7 +544,7 @@ describe('메시징 보강 (WP-355)', () => {
     // 변환 전 4000자를 넘는 본문도 zod 에서 거절하지 않고, 멘션을 토큰으로 바꿔 서버로 보낸다.
     const long = '@minsu ' + 'x'.repeat(3995);
     await tool(c, 'update_channel_message').handler({ messageId: 40, body: long });
-    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@5> ' + 'x'.repeat(3995));
+    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@5> ' + 'x'.repeat(3995), undefined);
     // 서버의 400(변환 뒤 4000자 초과)을 핸들러가 삼키지 않고 도구 오류로 넘긴다(문구 요약은 rest-client·describeApiError 테스트 몫).
     vi.mocked(c.updateChannelMessage).mockRejectedValueOnce(new Error('API 오류 400: 입력값 검증에 실패했습니다. — body: 크기가 0에서 4000 사이여야 합니다'));
     await expect(tool(c, 'update_channel_message').handler({ messageId: 40, body: 'x'.repeat(4001) })).rejects.toThrow('API 오류 400');
@@ -556,6 +556,46 @@ describe('메시징 보강 (WP-355)', () => {
     vi.mocked(c.updateChannelMessage).mockResolvedValue({ id: 41, channelId: 5, authorId: 9, authorName: '앨리스', body: 'ok', parentMessageId: 40, replyCount: 0, followed: false });
     const out = JSON.parse(resultText(await tool(c, 'update_channel_message').handler({ messageId: 41, body: 'ok' })));
     expect(out).toEqual({ id: 41, authorName: '앨리스', body: 'ok' });
+  });
+
+  // WP-1679: 잘못 붙인 첨부를 수정으로 빼는 경로 — keepFileIds 를 서버까지 그대로 넘기고, 응답은 서버가 남긴 첨부만 보여 준다.
+  it('update_channel_message → keepFileIds 를 그대로 넘기고, 응답의 첨부는 남은 것만 보인다', async () => {
+    const c = mockClient();
+    vi.mocked(c.updateChannelMessage).mockResolvedValue({
+      id: 40, channelId: 5, authorId: 9, authorName: '앨리스', body: '보고서', parentMessageId: null, replyCount: 0, followed: false,
+      attachments: [{ fileId: 7, messageId: 40, originalName: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 3, attachedById: 9, attachedByName: '앨리스', attachedAt: 't' }],
+    });
+    const out = JSON.parse(resultText(await tool(c, 'update_channel_message').handler({ messageId: 40, body: '보고서', keepFileIds: [7] })));
+    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '보고서', [7]);
+    expect(out.attachments).toEqual([{ fileId: 7, originalName: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 3 }]);
+    // 모델이 「여기서 첨부를 뺄 수 있다」 를 알도록 description 에 keepFileIds 안내가 있어야 한다 —
+    // 남길 파일만 적고(files to keep — 목록에 없는 파일은 빠진다), 생략하면 첨부는 모두 그대로(omit: all)라는 두 뜻이 모두 보여야 한다.
+    // 정의 크기 상한(tool-naming.test) 때문에 더 줄인 문구다(WP-1679 — WP-1676·1677 과 함께 상한에 맞춤).
+    const d = tool(c, 'update_channel_message').description;
+    expect(d).toContain('keepFileIds: files to keep (omit: all)');
+    // 줄여도 지켜야 하는 뜻 — 내 메시지만·수정 표시·이전 글 사라짐·@username 멘션·알림 없음.
+    expect(d).toMatch(/my message/);
+    expect(d).toMatch(/edited/);
+    expect(d).toMatch(/old body lost/);
+    expect(d).toMatch(/@username/);
+    expect(d).toMatch(/not notified/);
+  });
+
+  it('update_channel_message → keepFileIds 가 없으면 세 번째 인자 없이 부른다(지금과 같은 요청)', async () => {
+    const c = mockClient();
+    await tool(c, 'update_channel_message').handler({ messageId: 40, body: '확인' }).catch(() => undefined);
+    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '확인', undefined);
+  });
+
+  it('update_channel_message → 빈 본문은 keepFileIds 가 있을 때만 서버로 간다', async () => {
+    const c = mockClient();
+    // keep 없이 빈 본문 — 본문만 고치는 수정이라 지금처럼 도구에서 거절한다(서버를 부르지 않는다).
+    await expect(tool(c, 'update_channel_message').handler({ messageId: 40, body: '' })).rejects.toThrow();
+    expect(c.updateChannelMessage).not.toHaveBeenCalled();
+    // keep 이 있으면 빈 본문도 통과 — 「본문도 첨부도 비었다」 판정은 서버 몫이고, 그 400 을 그대로 도구 오류로 넘긴다.
+    vi.mocked(c.updateChannelMessage).mockRejectedValueOnce(new Error('API 오류 400: 내용을 입력해 주세요'));
+    await expect(tool(c, 'update_channel_message').handler({ messageId: 40, body: '', keepFileIds: [] })).rejects.toThrow('API 오류 400');
+    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '', []);
   });
 
   it('mark_channel_read → 가장 최근 최상위 메시지 id 까지 읽음 처리하고, 메시지가 없으면 서버를 부르지 않는다', async () => {

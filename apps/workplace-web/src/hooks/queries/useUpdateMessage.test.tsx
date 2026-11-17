@@ -4,6 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { client } from '../../api/client'
 import { messagingApi } from '../../api/messaging'
 import type { LinkPreview, MessageResponse } from '../../types/messaging'
 import { messagingKeys } from './messagingKeys'
@@ -28,5 +29,20 @@ describe('useUpdateMessage', () => {
     const item = qc.getQueryData<{ pages: { items: MessageResponse[] }[] }>(messagingKeys.messages(1))!.pages[0].items[0]
     expect(item.body).toBe('새 본문')
     expect(item.linkPreviews).toEqual([fresh])
+  })
+
+  // WP-1679: 남길 첨부(keepFileIds)를 넘기면 PATCH 본문에 그대로 싣고, 안 넘기면 키 자체를 보내지 않는다(본문만 수정 — 지금 요청과 같은 모양).
+  it('keepFileIds 를 넘기면 PATCH 본문에 그대로, 안 넘기면 키가 없다', async () => {
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const saved = { id: 5, channelId: 1, body: 'x', linkPreviews: [] } as unknown as MessageResponse
+    const patch = vi.spyOn(client, 'patch').mockResolvedValue({ data: saved })
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    const { result } = renderHook(() => useUpdateMessage(1), { wrapper })
+
+    await result.current.mutateAsync({ messageId: 5, body: '보고서', keepFileIds: [7] })
+    await result.current.mutateAsync({ messageId: 5, body: '보고서' })
+    expect(patch.mock.calls[0]).toEqual(['/messaging/messages/5', { body: '보고서', keepFileIds: [7] }])
+    expect(patch.mock.calls[1]).toEqual(['/messaging/messages/5', { body: '보고서' }])
+    expect(patch.mock.calls[1][1]).not.toHaveProperty('keepFileIds')
   })
 })

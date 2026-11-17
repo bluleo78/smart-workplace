@@ -14,8 +14,9 @@ export function useUpdateMessage(channelId: number) {
 
   return useMutation({
     // messagingApi.updateMessage 는 이미 .data(MessageResponse) 를 반환한다.
-    mutationFn: ({ messageId, body }: { messageId: number; body: string }) =>
-      messagingApi.updateMessage(messageId, body),
+    // keepFileIds(WP-1679): 남길 첨부 id — 없으면 본문만 고친다(첨부 그대로).
+    mutationFn: ({ messageId, body, keepFileIds }: { messageId: number; body: string; keepFileIds?: number[] }) =>
+      messagingApi.updateMessage(messageId, body, keepFileIds),
 
     onSuccess: (saved) => {
       // PATCH 응답의 linkPreviews 는 다시 가져오기 전 값이다(WP-874) — 미리보기는 SSE 가 진실원이라 캐시 값을 남긴다.

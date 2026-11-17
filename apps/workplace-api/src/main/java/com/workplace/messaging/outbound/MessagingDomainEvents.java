@@ -3,6 +3,7 @@ package com.workplace.messaging.outbound;
 import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.MentionResponse;
 import com.workplace.messaging.dto.LinkPreviewResponse;
+import com.workplace.messaging.dto.MessageAttachmentResponse;
 import com.workplace.messaging.dto.MessageResponse;
 import java.time.Instant;
 import java.util.List;
@@ -14,13 +15,17 @@ public final class MessagingDomainEvents {
   /** 메시지 작성 직후. SSE fan-out 용 — 완성된 MessageResponse 를 그대로 싣는다. */
   public record MessageCreatedEvent(long channelId, MessageResponse message) {}
 
-  /** 메시지 수정 직후. SSE fan-out 용. */
+  /**
+   * 메시지 수정 직후. SSE fan-out 용. attachments 는 수정 뒤 첨부 전체 목록(WP-1679 — 수정에서 첨부를 뺄 수 있어 다른 사람 화면도 통째로
+   * 바꾼다, 첨부가 없으면 빈 목록). 본문만 고친 수정도 늘 싣는다.
+   */
   public record MessageUpdatedEvent(
       long channelId,
       long messageId,
       String body,
       List<MentionResponse> mentions,
-      Instant editedAt) {}
+      Instant editedAt,
+      List<MessageAttachmentResponse> attachments) {}
 
   /**
    * 메시지 링크 미리보기가 바뀐 직후(WP-874) — 비동기 가져오기 저장·보낸 사람의 지우기. linkPreviews 는 바뀐 뒤 전체 목록(지우면 빈 목록). SSE

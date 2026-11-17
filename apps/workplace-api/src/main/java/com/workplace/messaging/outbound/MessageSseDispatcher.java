@@ -59,6 +59,8 @@ public class MessageSseDispatcher {
     p.put("body", e.body());
     p.put("mentions", e.mentions());
     p.put("editedAt", e.editedAt() == null ? null : e.editedAt().toString());
+    // 수정 뒤 첨부 전체 목록(WP-1679) — 웹은 이 키가 있을 때만 첨부를 통째로 바꾼다(키 없는 옛 서버 payload 는 첨부를 건드리지 않음).
+    p.put("attachments", e.attachments());
     Collection<Long> to = memberRepo.findMemberIds(e.channelId());
     // 순서 보장(WP-874): onCreated 와 같다 — updated 를 보낸 다음에 미리보기 재계산을 제출한다.
     AfterCommit.run(

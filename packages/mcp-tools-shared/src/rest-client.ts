@@ -592,8 +592,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       // 서버가 이모지를 쿼리 파라미터로 받는다(DELETE 본문 없음) — axios 가 인코딩한다.
       await http.delete(`/messaging/messages/${messageId}/reactions`, { params: { emoji } });
     },
-    async updateChannelMessage(messageId, body) {
-      return (await http.patch(`/messaging/messages/${messageId}`, { body })).data;
+    async updateChannelMessage(messageId, body, keepFileIds) {
+      // keepFileIds 가 없으면 키를 아예 빼고 보낸다 — 서버는 null 을 「첨부 그대로, 본문만 수정」 으로 본다(WP-1679). 빈 배열은 「첨부 모두 빼기」 라 그대로 보낸다.
+      const payload = keepFileIds === undefined ? { body } : { body, keepFileIds };
+      return (await http.patch(`/messaging/messages/${messageId}`, payload)).data;
     },
     async markChannelRead(channelId, uptoMessageId) {
       await http.post(`/messaging/channels/${channelId}/read`, { uptoMessageId });

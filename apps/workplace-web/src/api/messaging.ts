@@ -105,9 +105,15 @@ export const messagingApi = {
   hideDm: (channelId: number) =>
     client.post<void>(`/messaging/dms/${channelId}/hide`),
 
-  // 메시지 본문 수정.
-  updateMessage: (messageId: number, body: string) =>
-    client.patch<MessageResponse>(`/messaging/messages/${messageId}`, { body }).then((r) => r.data),
+  // 메시지 본문 수정. keepFileIds(WP-1679)는 수정 뒤에도 남길 첨부 file id — 넘기면 목록에 없는 첨부를 뺀다.
+  // undefined 면 키를 아예 보내지 않는다(본문만 수정 — 첨부는 그대로, 예전 요청과 같은 모양).
+  updateMessage: (messageId: number, body: string, keepFileIds?: number[]) =>
+    client
+      .patch<MessageResponse>(
+        `/messaging/messages/${messageId}`,
+        keepFileIds === undefined ? { body } : { body, keepFileIds },
+      )
+      .then((r) => r.data),
 
   // 링크 미리보기 지우기(WP-874) — 작성자 본인만. 모두에게서 사라지고 이후 수정해도 다시 생기지 않는다.
   dismissLinkPreviews: (messageId: number) =>
