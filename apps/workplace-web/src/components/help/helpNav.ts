@@ -93,20 +93,26 @@ export type HelpCrumb = { key: string; label: string; target: HelpTarget | null 
 
 /**
  * 브레드크럼 — [앱 이름(레일 모듈, 누를 수 없음), …조상, 현재]. 앱 이름이 없는 주소면 그 칸을 뺀다.
+ * 첫 절 칸 이름이 앱 이름과 같으면 앱 칸을 뺀다 — 「메일 > 메일」 중복 방지(WP-1678).
  * 절을 찾지 못하면 앱 이름만 남는다(패널은 그 경우 목차를 보이므로 브레드크럼을 쓰지 않는다).
  * 장 보이기(관리자 장)는 보지 않는다 — 호출하는 쪽이 resolveHelpView 로 거른 target 을 넘긴다.
  */
 export function helpBreadcrumb(index: HelpIndexChapter[], target: HelpTarget, pathname: string): HelpCrumb[] {
-  const crumbs: HelpCrumb[] = []
   const app = appLabelForPath(pathname)
-  if (app !== null) crumbs.push({ key: 'app', label: app, target: null })
+  const appCrumbs: HelpCrumb[] = app !== null ? [{ key: 'app', label: app, target: null }] : []
   const chapter = index.find((ch) => ch.chapter === target.chapter)
   const section = chapter?.sections.find((s) => s.id === target.sectionId)
-  if (!chapter || !section) return crumbs
-  for (const s of [...sectionAncestors(chapter, section.id), section]) {
-    crumbs.push({ key: s.id, label: sectionName(s), target: { chapter: chapter.chapter, sectionId: s.id } })
-  }
-  return crumbs
+  if (!chapter || !section) return appCrumbs
+  const sectionCrumbs = [...sectionAncestors(chapter, section.id), section].map((s) => ({
+    key: s.id,
+    label: sectionName(s),
+    target: { chapter: chapter.chapter, sectionId: s.id },
+  }))
+  // 장 제목이 앱 이름과 같은 장(메일·홈·캘린더 …)은 첫 절 칸이 앱 칸과 같은 이름이라 「메일 > 메일」 로 겹친다(WP-1678).
+  // 그럴 때는 누를 수 없는 앱 칸을 빼고, 눌러 장 처음으로 갈 수 있는 절 칸을 남긴다.
+  // 화면에 보이는 글자가 겹치는 것이 문제라 글자로 비교한다 — 이름이 다르면(설정 > AI 에이전트 관리, 설정 > 내 설정) 그대로.
+  if (sectionCrumbs[0].label === app) return sectionCrumbs
+  return [...appCrumbs, ...sectionCrumbs]
 }
 
 /** 패널 본문에 보일 것 — 절 하나, 또는 목차. */
