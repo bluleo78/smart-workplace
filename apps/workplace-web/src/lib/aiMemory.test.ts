@@ -25,6 +25,7 @@ import {
   pinFullHint,
   pinnedCount,
   purgeDateKey,
+  reuseUnchangedById,
   ROWS_PAGE,
   SCOPE_LABEL,
   scopeDescription,
@@ -265,5 +266,46 @@ describe('memoryActionText', () => {
     expect(
       memoryBlockActionText({ kind: 'memory', action: 'shared', changeId: 1, memoryId: 2, spaceName: 'WP 프로젝트', content: 'x', undone: false }),
     ).toBe('WP 프로젝트 공용 메모리에 기억했어요');
+  });
+});
+
+// WP-1691: 목록을 다시 받아 순번이 밀려도 바뀌지 않은 항목은 이전 객체 그대로 — memo 한 행이 다시 렌더되지 않게.
+describe('reuseUnchangedById', () => {
+  const item = (id: number, over: Partial<AiMemoryItem> = {}): AiMemoryItem => ({
+    id, kind: 'PREFERENCE', content: `메모리 ${id}`, source: 'AI', createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-11T00:00:00Z', ...over,
+  });
+
+  it('처음엔(이전 없음) 받은 객체를 그대로 쓰고 id 표를 만든다', () => {
+    const next = [item(2), item(1)];
+    const r = reuseUnchangedById(new Map(), next);
+    expect(r.items[0]).toBe(next[0]);
+    expect(r.items[1]).toBe(next[1]);
+    expect([...r.byId.keys()]).toEqual([2, 1]);
+  });
+
+  it('순번이 밀려도(맨 앞 삭제) 필드가 같은 항목은 이전 객체를 돌려준다', () => {
+    const first = reuseUnchangedById(new Map(), [item(3), item(2), item(1)]);
+    const r = reuseUnchangedById(first.byId, [item(2), item(1)]);
+    expect(r.items[0]).toBe(first.items[1]);
+    expect(r.items[1]).toBe(first.items[2]);
+    expect(r.byId.has(3)).toBe(false);
+  });
+
+  it('필드가 하나라도 다르면(내용·고정·필드 추가) 새 객체를 쓴다', () => {
+    const first = reuseUnchangedById(new Map(), [item(3), item(2), item(1)]);
+    const changed = [item(2, { content: '고침' }), item(3, { pinned: true }), item(1, { cleanedAt: '2026-10-12T00:00:00Z' })];
+    const r = reuseUnchangedById(first.byId, changed);
+    expect(r.items[0]).toBe(changed[0]);
+    expect(r.items[1]).toBe(changed[1]);
+    expect(r.items[2]).toBe(changed[2]);
+    expect(r.byId.get(2)).toBe(changed[0]);
+  });
+
+  it('새로 들어온 id 는 받은 객체를 쓴다', () => {
+    const first = reuseUnchangedById(new Map(), [item(1)]);
+    const next = [item(5), item(1)];
+    const r = reuseUnchangedById(first.byId, next);
+    expect(r.items[0]).toBe(next[0]);
+    expect(r.items[1]).toBe(first.items[0]);
   });
 });

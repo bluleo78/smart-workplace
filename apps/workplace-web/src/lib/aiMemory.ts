@@ -255,3 +255,32 @@ export function defaultAddScope(full: ReadonlySet<AiMemoryScopeKey>): AiMemorySc
 export function scopeDescription(key: AiMemoryScopeKey): string {
   return key === 'COMMON' ? '모든 AI 대화에 반영돼요' : `${SCOPE_LABEL[key]} 화면의 AI 대화에만 반영돼요`;
 }
+
+/** 두 메모리 항목의 필드가 모두 같은가 — 항목은 원시값 필드뿐이라 키마다 Object.is 로 비교한다(WP-1691). */
+function sameMemoryItem(a: AiMemoryItem, b: AiMemoryItem): boolean {
+  const ka = Object.keys(a) as (keyof AiMemoryItem)[];
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => Object.is(a[k], b[k]));
+}
+
+/**
+ * 목록을 새로 받았을 때 바뀌지 않은 항목은 이전 객체를 그대로 쓴다(WP-1691).
+ * React Query 의 구조 공유는 배열을 순번끼리 비교해, 지우기·추가·고친 항목이 맨 위로 오르는 것처럼 순번이 밀리면 뒤 항목이 모두 새 객체가 된다 —
+ * 그러면 memo 한 행(AiMemoryRow)이 전부 다시 렌더된다. id 로 이전 객체를 찾아 필드가 같으면 그것을 돌려준다.
+ * @param prev 지난번 결과의 id → 항목
+ * @param next 새로 받은 목록
+ * @returns 이전 객체를 되살린 목록과 다음 비교용 id → 항목
+ */
+export function reuseUnchangedById(
+  prev: ReadonlyMap<number, AiMemoryItem>,
+  next: readonly AiMemoryItem[],
+): { items: AiMemoryItem[]; byId: Map<number, AiMemoryItem> } {
+  const byId = new Map<number, AiMemoryItem>();
+  const items = next.map((m) => {
+    const old = prev.get(m.id);
+    const kept = old && sameMemoryItem(old, m) ? old : m;
+    byId.set(kept.id, kept);
+    return kept;
+  });
+  return { items, byId };
+}

@@ -6,6 +6,7 @@
 // 묶음 카운트 n / 300 은 거르기 전 그대로(검색 중엔 앞에 "N개 일치"). 고정 상한(pinLimit)을 묶음에 넘기고, 툴팁(고정 막힘)용 Provider 를 목록에 둔다.
 // 직접 추가·모두 지우기는 목록 위 도구 줄(검색칸 오른쪽)에 둔다 — 인피니트 스크롤로 행이 늘 때마다 섹션 맨 아래 버튼이 밀려나지 않게.
 // WP-386: 탭 「내 메모리 · 공용 메모리」(?memoryTab=shared&space=PROJECT:12 로 열 수 있다). 스위치·WP-385 안내 줄·목록은 「내 메모리」 탭 안, 섹션 설명은 탭마다.
+// WP-1691: 행(memo)에 넘기는 값을 안정시킨다 — 항목은 id 로 이전 객체를 되살리고(순번이 밀려도), 가득 찬 범위 Set 은 값이 바뀔 때만 새로 만든다.
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -30,7 +31,18 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useAiMemories, useClearAiMemories } from '@/hooks/queries/useAiMemories';
 import { useAiPreferences, useUpdateAiPreferences } from '@/hooks/queries/useAiPreferences';
 import { useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel';
-import { fullScopeKeys, groupMemories, MEMORY_LIMIT, PIN_LIMIT, ROWS_PAGE, SCOPE_ORDER, SEARCH_OVER, visibleGroups } from '@/lib/aiMemory';
+import {
+  type AiMemoryScopeKey,
+  fullScopeKeys,
+  groupMemories,
+  MEMORY_LIMIT,
+  PIN_LIMIT,
+  reuseUnchangedById,
+  ROWS_PAGE,
+  SCOPE_ORDER,
+  SEARCH_OVER,
+  visibleGroups,
+} from '@/lib/aiMemory';
 import { MEMORY_TAB_PARAM, SPACE_PARAM } from '@/lib/sharedAiMemory';
 import { andParticle, cn } from '@/lib/utils';
 import { AiMemoryAddForm } from '@/pages/settings/AiMemoryAddForm';
@@ -41,6 +53,11 @@ import type { AiMemoryItem } from '@/types/aiMemory';
 
 /** 응답 전 빈 목록 — 렌더마다 새 배열을 만들지 않아 묶음 계산 memo 가 유지된다. */
 const NO_ITEMS: AiMemoryItem[] = [];
+
+/** WP-1691: 받은 목록(source)과 id 로 이전 객체를 되살린 목록·다음 비교용 id 표. */
+type StableItems = { source: AiMemoryItem[]; items: AiMemoryItem[]; byId: ReadonlyMap<number, AiMemoryItem> };
+/** 응답 전(빈 목록) 상태 — items 도 NO_ITEMS 라 묶음 계산 memo 가 유지된다. */
+const EMPTY_STABLE: StableItems = { source: NO_ITEMS, items: NO_ITEMS, byId: new Map() };
 
 export function AiMemoryCard() {
   const prefs = useAiPreferences();
@@ -72,11 +89,24 @@ export function AiMemoryCard() {
 
   // 응답 전·구 API(필드 없음)는 켜짐으로 그린다 — 서버 기본(NULL = 켜짐)과 같다.
   const enabled = prefs.data?.memoryEnabled ?? true;
-  const items = memories.data?.items ?? NO_ITEMS;
+  const fetched = memories.data?.items ?? NO_ITEMS;
+  // WP-1691: 쿼리의 구조 공유는 순번끼리 비교해 지우기·추가·고친 항목이 맨 위로 오르면 뒤 항목이 모두 새 객체가 된다 →
+  // id 로 지난번 객체를 찾아 필드가 같으면 그대로 써서 바뀌지 않은 행(memo)이 다시 렌더되지 않게 한다.
+  // 지난번 결과는 state 에 두고 받은 목록이 바뀐 렌더에서 고친다(아래 검색어처럼 React 권장 「이전 렌더 값에 맞춰 상태 고치기」 — ref 는 렌더 중 읽지 않는다).
+  const [stable, setStable] = useState<StableItems>(EMPTY_STABLE);
+  let current = stable;
+  if (stable.source !== fetched) {
+    current = fetched === NO_ITEMS ? EMPTY_STABLE : { source: fetched, ...reuseUnchangedById(stable.byId, fetched) };
+    setStable(current);
+  }
+  const items = current.items;
   const limit = memories.data?.limit ?? MEMORY_LIMIT;
   // 목록이 바뀔 때만 다시 묶는다 — 스위치·추가 폼 등 다른 상태로 다시 그릴 때 매번 나누지 않게.
   const groups = useMemo(() => groupMemories(items), [items]);
-  const fullScopes = useMemo(() => fullScopeKeys(groups, limit), [groups, limit]);
+  // WP-1691: 가득 찬 범위는 목록이 바뀔 때마다 다시 세지만 Set 은 값(범위 키 목록)이 바뀔 때만 새로 만든다 — 모든 행에 넘기는 prop 이라
+  // 새 Set 이면 memo 한 행이 전부 다시 렌더된다. 키는 SCOPE_ORDER 순서라 같은 값이면 같은 문자열이다.
+  const fullKey = useMemo(() => [...fullScopeKeys(groups, limit)].join(','), [groups, limit]);
+  const fullScopes = useMemo(() => new Set(fullKey === '' ? [] : (fullKey.split(',') as AiMemoryScopeKey[])), [fullKey]);
   // 모든 범위가 가득일 때만 추가를 막는다 — 하나라도 남으면 폼이 그 범위를 기본으로 고른다.
   const allFull = fullScopes.size === SCOPE_ORDER.length;
   const pinLimit = memories.data?.pinLimit ?? PIN_LIMIT;

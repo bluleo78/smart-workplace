@@ -5,8 +5,9 @@
 // 화면 배선(@wiring)·인피니트 스크롤·도구 줄 위치(@layout)·막힌 핀 툴팁 호버(@input)·기록 대화상자 캡처(@layout)는 E2E 에 남는다.
 // 카드만 renderScreen 으로 띄운다(두 스위치 경합만 추천 질문 카드를 함께). 서버는 상태 있는 MSW 목(memoryTestkit-b7)이다.
 import { act, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { controlIntersection } from '@/test/kits/layout'
 import { renderScreen } from '@/test/renderScreen'
 import type { AiMemoryItem } from '@/types/aiMemory'
 
@@ -22,6 +23,26 @@ import {
   memorySnap,
 } from './memoryTestkit-b7'
 import { SuggestionPreferenceCard } from './SuggestionPreferenceCard'
+
+// WP-1691: 행이 다시 렌더됐는지 세려고 행 본문이 렌더마다 부르는 itemActionLabel(수정·삭제 버튼 이름)을 감싼다 — 동작은 원본 그대로.
+// 첫 인자가 행 내용이라 「어느 행이 몇 번 그려졌나」를 행 컴포넌트에 테스트용 코드를 넣지 않고 셀 수 있다.
+const labelSpy = vi.hoisted(() => ({ calls: [] as string[] }))
+vi.mock('@/lib/itemActionLabel', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@/lib/itemActionLabel')>()
+  return {
+    ...mod,
+    itemActionLabel: (text: string | null | undefined, kind: string, action: string) => {
+      if (kind === '메모리' && action === '수정') labelSpy.calls.push(text ?? '')
+      return mod.itemActionLabel(text, kind, action)
+    },
+  }
+})
+/** 내용이 text 인 행이 지금까지 렌더된 횟수. */
+const rowRenders = (text: string) => labelSpy.calls.filter((t) => t === text).length
+// 테스트마다 렌더 기록을 비운다 — 앞 테스트의 같은 내용(「메모리 N」) 행이 섞이지 않게.
+beforeEach(() => {
+  labelSpy.calls.length = 0
+})
 
 type Opts = { changes?: ReturnType<typeof memoryChangesApi>; prefs?: ReturnType<typeof aiPreferencesApi>; withSuggestions?: boolean }
 
@@ -503,6 +524,65 @@ describe('고정·검색 (WP-383)', () => {
     expect(await screen.findByText('이슈 메모리 고정은 최대 10개예요. 다른 고정을 풀어 주세요')).toBeInTheDocument()
     expect(inRow(rows()[0]).getByTestId('ai-memory-pin')).toHaveAttribute('aria-pressed', 'false')
     await waitFor(() => expect(api.lists()).toBeGreaterThan(before))
+  })
+})
+
+// WP-1691: 인피니트 스크롤로 30행을 더 그릴 때 이미 그린 행은 다시 렌더하지 않는다(1,800행에서 배치마다 500ms 넘게 멈췄다).
+describe('행 다시 그리기 (WP-1691)', () => {
+  test('30행을 더 그려도 이미 그린 행은 다시 렌더하지 않고 새 행만 그린다', async () => {
+    const io = controlIntersection()
+    await openMemory(manyMemories(90))
+    expect(rows()).toHaveLength(30)
+    // 첫 화면이 자리 잡은 뒤의 렌더 횟수를 기준으로 삼는다.
+    const before = rowRenders('메모리 90')
+    const lastBefore = rowRenders('메모리 61')
+    expect(before).toBeGreaterThan(0)
+    io.set((el) => el.getAttribute('data-testid') === 'ai-memory-sentinel')
+    await waitFor(() => expect(rows()).toHaveLength(60))
+    expect(rowRenders('메모리 31')).toBeGreaterThan(0)
+    expect(rowRenders('메모리 90')).toBe(before)
+    expect(rowRenders('메모리 61')).toBe(lastBefore)
+  })
+
+  test('지워서 뒤 행들의 순번이 당겨져도 바뀌지 않은 행은 다시 렌더하지 않는다', async () => {
+    const { user, api } = await openMemory(manyMemories(40))
+    const lists = api.lists()
+    const before39 = rowRenders('메모리 39')
+    const before20 = rowRenders('메모리 20')
+    await user.click(inRow(row('메모리 40')).getByTestId('ai-memory-delete'))
+    // 지운 뒤 목록을 다시 읽어 맨 앞이 「메모리 39」가 되고, 30번째 자리에 새 행(메모리 10)이 들어온다.
+    await waitFor(() => expect(api.lists()).toBeGreaterThan(lists))
+    await waitFor(() => expect(contents()[0]).toBe('메모리 39'))
+    await waitFor(() => expect(contents()).toContain('메모리 10'))
+    expect(rowRenders('메모리 39')).toBe(before39)
+    expect(rowRenders('메모리 20')).toBe(before20)
+  })
+
+  test('고친 행이 맨 위로 옮겨도 그 행만 다시 그리고 나머지 행은 그대로 둔다', async () => {
+    const { user, api } = await openMemory(manyMemories(40))
+    const before40 = rowRenders('메모리 40')
+    const before36 = rowRenders('메모리 36')
+    const before20 = rowRenders('메모리 20')
+    await user.click(inRow(row('메모리 35')).getByTestId('ai-memory-edit'))
+    await fill(user, screen.getByTestId('ai-memory-edit-input'), '고친 메모리')
+    await user.click(screen.getByTestId('ai-memory-edit-submit'))
+    await waitFor(() => expect(api.updates()).toHaveLength(1))
+    await waitFor(() => expect(contents()[0]).toBe('고친 메모리'))
+    expect(rowRenders('고친 메모리')).toBeGreaterThan(0)
+    expect(rowRenders('메모리 40')).toBe(before40)
+    expect(rowRenders('메모리 36')).toBe(before36)
+    expect(rowRenders('메모리 20')).toBe(before20)
+  })
+
+  test('범위 고정이 가득 차면 고정 안 된 행의 핀이 막히고, 하나를 풀면 다시 열린다', async () => {
+    const pinned = Array.from({ length: 10 }, (_, i) => memoryItem(20 - i, { scope: 'ISSUE', pinned: true, content: `고정 ${20 - i}` }))
+    const { user } = await openMemory([...pinned, memoryItem(5, { scope: 'ISSUE', content: '안 고정' })])
+    const freePin = () => inRow(row('안 고정')).getByTestId('ai-memory-pin')
+    expect(freePin()).toHaveAttribute('aria-disabled', 'true')
+    await user.click(inRow(row('고정 20')).getByTestId('ai-memory-pin'))
+    await waitFor(() => expect(freePin()).not.toHaveAttribute('aria-disabled'))
+    // 고정을 푼 행은 새 객체로 와서 다시 그려진다(aria-pressed 반영).
+    expect(inRow(row('고정 20')).getByTestId('ai-memory-pin')).toHaveAttribute('aria-pressed', 'false')
   })
 })
 
