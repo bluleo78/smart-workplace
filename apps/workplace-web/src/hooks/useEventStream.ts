@@ -94,6 +94,13 @@ export function createCatchUp(
   };
 }
 
+/**
+ * WP-1664: SSE 첫 연결이 이 시간 안에 열리지 않으면 생성 중 대화를 REST 로 한 번 먼저 맞춘다.
+ * 평소 첫 동기화는 첫 onOpen 한 번뿐이지만, 첫 연결이 실패해 백오프(최대 60초)에 걸리면 그동안 생성 중 상태를 몰라
+ * 답변 중인 대화에 보내다 409 를 맞는다 — 그래서 늦을 때만 대체로 부른다(그 뒤 첫 onOpen 도 구독 기준으로 다시 맞춘다).
+ */
+export const INITIAL_SYNC_FALLBACK_MS = 5000;
+
 export function useEventStream(currentUserId: number): { isConnected: boolean } {
   const qc = useQueryClient();
   // 재연결(스트림 재구독) 없이 최신 userId 를 참조하기 위해 ref 로 보관.
@@ -105,6 +112,9 @@ export function useEventStream(currentUserId: number): { isConnected: boolean } 
 
   useEffect(() => {
     const catchUp = createCatchUp(qc);
+    // 첫 onOpen 이 먼저 오면 지우고(onOpen 이 맞춘다), 타이머가 먼저 울리면 REST 로 한 번 맞춘다.
+    // 이미 울린 타이머의 clearTimeout 은 아무 일도 하지 않아 상태 없이 지운다.
+    const fallbackTimer = setTimeout(() => void resyncActiveChats(), INITIAL_SYNC_FALLBACK_MS);
     const cleanup = subscribeEventStream({
       url: '/api/v1/events',
       onEvent: (name, data) =>
@@ -112,6 +122,7 @@ export function useEventStream(currentUserId: number): { isConnected: boolean } 
       // WP-190: 연결·재연결마다 생성 중 대화를 서버 기준으로 다시 맞춘다(끊긴 동안 놓친 종결을 따라잡는다).
       // WP-265: 재연결이면 끊긴 동안의 답변 조각은 다시 오지 않으므로 라이브 생성은 자리표시로 돌려 끝나면 서버 이력으로 바꾼다.
       onOpen: ({ reconnect }) => {
+        clearTimeout(fallbackTimer);
         catchUp.onOpen();
         if (reconnect) chatStreams.markReconnected();
         void resyncActiveChats();
@@ -119,6 +130,7 @@ export function useEventStream(currentUserId: number): { isConnected: boolean } 
       onConnectedChange: setIsConnected,
     });
     return () => {
+      clearTimeout(fallbackTimer);
       catchUp.dispose();
       cleanup();
     };

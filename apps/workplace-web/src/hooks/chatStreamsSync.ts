@@ -1,4 +1,4 @@
-// 서버 기준 생성 중 대화 재동기화(WP-190) — 앱 시작·SSE (재)연결·409/429 직후 호출한다.
+// 서버 기준 생성 중 대화 재동기화(WP-190) — SSE 첫 연결(앱 시작 동기화)·첫 연결이 늦을 때의 대체 타이머(WP-1664)·재연결·409/429 직후 호출한다.
 import { homeApi } from '@/api/home';
 import { type ChatStreams, chatStreams } from '@/lib/ai/chatStreams';
 
