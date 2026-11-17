@@ -19,6 +19,9 @@ const BACKEND_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../wor
  * 넘어오는 값을 확인해 라벨을 채우고 이 목록을 고친다. 항목마다 어떤 값이 어디서 오는지 적는다.
  */
 const EXPECTED_UNRESOLVED: string[] = [
+  // OAuth 앱 연결 감사(OAuthAudit.connectionEvent, WP-1685) — 액션은 OAuthAuthorizationService·OAuthConnectionService·
+  // OAuthTokenService 가 OAUTH_CONNECTION_CREATED/OAUTH_CONNECTION_REVOKED/OAUTH_REFRESH_REUSE_DETECTED 로 넘긴다. 전부 라벨이 있다.
+  'com/workplace/auth/oauth/service/OAuthAudit.java: action action',
   // 노트 공유 감사(WikiShareAudit.log) — 액션은 다른 파일(WikiShareService·WikiShareAccessRequestService)이 이 클래스의 상수
   // (WIKI_SHARE_CREATED/UPDATED/PEOPLE_CHANGED/REGENERATED/REVOKED/ACCESS_DENIED/POLICY_CHANGED)로 넘긴다. 전부 라벨이 있다.
   'com/workplace/wiki/service/WikiShareAudit.java: action actionType',
