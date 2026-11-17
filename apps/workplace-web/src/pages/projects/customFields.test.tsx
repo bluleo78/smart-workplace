@@ -80,6 +80,55 @@ async function openIssue(def: IssueFieldDef, initial: FieldValue[] = []) {
 }
 
 describe('커스텀 필드 — 설정 화면', () => {
+  // 빈 목록은 openSettings(첫 행 대기)를 쓸 수 없어 직접 렌더한다 (WP-1653).
+  function renderEmpty(isOwner: boolean) {
+    return renderScreen(<CustomFieldManagement projectKey={KEY} isOwner={isOwner} />, {
+      path: `/projects/${KEY}/settings`,
+      handlers: [http.get(FIELDS, () => HttpResponse.json([]))],
+    })
+  }
+
+  test('빈 목록 — 소유자는 「프로젝트 필드가 없습니다」와 위 폼으로 추가하라는 안내를 본다 (WP-1653)', async () => {
+    renderEmpty(true)
+    const empty = await screen.findByTestId('custom-field-empty', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    expect(within(empty).getByText('프로젝트 필드가 없습니다')).toBeInTheDocument()
+    expect(within(empty).getByText('위에서 이름과 타입을 정해 추가하면 모든 이슈 상세에 입력 칸이 생겨요.')).toBeInTheDocument()
+  })
+
+  test('빈 목록 — 소유자가 아니면 소유자가 추가한다는 안내를 보고 폼은 없다 (WP-1653)', async () => {
+    renderEmpty(false)
+    const empty = await screen.findByTestId('custom-field-empty', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    expect(within(empty).getByText('프로젝트 소유자가 필드를 추가하면 모든 이슈 상세에 입력 칸이 생겨요.')).toBeInTheDocument()
+    expect(screen.queryByText('위에서 이름과 타입을 정해 추가하면 모든 이슈 상세에 입력 칸이 생겨요.')).toBeNull()
+    expect(screen.queryByTestId('custom-field-create-form')).toBeNull()
+  })
+
+  test('목록 조회 실패 — 「없습니다」 대신 오류와 다시 시도를 보이고, 다시 시도하면 결과를 반영한다 (WP-1653)', async () => {
+    renderScreen(<CustomFieldManagement projectKey={KEY} isOwner />, {
+      path: `/projects/${KEY}/settings`,
+      handlers: [http.get(FIELDS, () => HttpResponse.json({}, { status: 500 }))],
+    })
+    await screen.findByTestId('custom-field-load-error', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    expect(screen.queryByTestId('custom-field-empty')).toBeNull()
+    const retry = screen.getByRole('button', { name: '다시 시도' })
+    server.use(http.get(FIELDS, () => HttpResponse.json([])))
+    fireEvent.click(retry)
+    await screen.findByTestId('custom-field-empty', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    expect(screen.queryByTestId('custom-field-load-error')).toBeNull()
+  })
+
+  test('빈 목록 — 소유자가 「필드 추가」를 누르면 이름 칸에 포커스가 간다 (WP-1653)', async () => {
+    renderEmpty(true)
+    const btn = await screen.findByTestId('custom-field-empty-add', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    fireEvent.click(btn)
+    expect(document.getElementById('cf-name')).toHaveFocus()
+  })
+
+  test('필드가 있으면 빈 상태 안내가 없다 (WP-1653)', async () => {
+    await openSettings({ current: [fieldDef({ id: 1, name: '고객사', type: 'TEXT' })] })
+    expect(screen.queryByTestId('custom-field-empty')).toBeNull()
+  })
+
   test('타입은 한국어 라벨로 보이고, 타입 고르기는 shadcn Select(combobox)로 한국어 옵션을 고른다 (#317)', async () => {
     const { user } = await openSettings({ current: [fieldDef({ id: 300, name: '텍스트필드', type: 'TEXT' })] })
     const row = screen.getByTestId('custom-field-row-300')
