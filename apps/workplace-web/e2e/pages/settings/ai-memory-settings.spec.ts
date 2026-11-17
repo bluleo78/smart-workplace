@@ -5,6 +5,7 @@
 // WP-383: 고정 토글(맨 위·메타·10개면 막힘 + 툴팁·409 토스트), 20개 초과 검색칸, 행 인피니트 스크롤(처음 30행, 끝에 닿으면 +30).
 // 여기엔 화면 배선(@wiring)·인피니트 스크롤·도구 줄 위치(@layout)·막힌 핀 툴팁 호버(@input)만 남는다. 편집·삭제·추가·스위치·빈 상태·가득 참·
 // 잠금·범위·기한·고정·검색은 src/pages/settings/aiMemoryCard.test.tsx(화면 컴포넌트 테스트)가 지킨다.
+// WP-1696: 행의 content-visibility:auto — 화면 안 행은 실제 높이, 휠로 내려 30행이 더 붙어도 이미 본 행의 자리가 그대로(@layout).
 import type { Page } from '@playwright/test'
 
 import { memoryItem, mockAiMemories, openMemorySettings } from '../../fixtures/ai-memory-mock'
@@ -65,6 +66,92 @@ test('270개면 묶음 카운트가 주황이고 추가는 된다 — 행은 처
     })
     .toBe(270)
   await expect(page.getByTestId('ai-memory-group-more')).toHaveCount(0)
+})
+
+test('행은 화면 밖이면 배치를 건너뛰되(content-visibility) 화면 안에선 실제 높이이고, 스크롤해 30행이 더 붙어도 이미 본 행의 자리가 그대로다 (WP-1696)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // 세 행마다 여러 줄로 접히는 긴 내용 — 자리값(56px)과 실제 높이가 달라야 「한 번 그린 높이 기억(auto)」이 깨진 것을 가릴 수 있다.
+  const items = Array.from({ length: 300 }, (_, i) =>
+    memoryItem(300 - i, i % 3 === 0 ? { content: `긴 메모리 ${300 - i} ` + '여러 줄로 접히는 아주 긴 내용입니다. '.repeat(12) } : {}),
+  )
+  await mockAiMemories(page, items)
+  await openMemorySettings(page)
+  await expect(rows(page)).toHaveCount(30)
+  // 행마다 content-visibility:auto — 화면 밖 행은 배치·그리기를 건너뛴다(1,800행에서 지운 뒤 멈춤을 줄이는 핵심).
+  expect(await rows(page).first().evaluate((el) => getComputedStyle(el).contentVisibility)).toBe('auto')
+
+  // 화면 안의 긴 행은 자리값(56px)이 아니라 내용대로 커진다 — 메타 줄까지 행 안에 들어간다.
+  const fits = await rows(page).first().evaluate((li) => {
+    const r = li.getBoundingClientRect()
+    const meta = li.querySelector('[data-testid="ai-memory-meta"]')!.getBoundingClientRect()
+    return { height: r.height, metaInside: meta.bottom <= r.bottom + 0.5 }
+  })
+  expect(fits.height).toBeGreaterThan(56)
+  expect(fits.metaInside).toBe(true)
+
+  // 목록 안에서의 행 위치(목록 위 끝 기준 — 스크롤과 무관). 보이는지는 설정 본문 스크롤 컨테이너(SettingsPage 의 page-body,
+  // useSettingsScrollRoot 가 sentinel root 로 쓰는 요소)의 사각형으로 가린다 — 창(window)은 스크롤하지 않는다.
+  const list = page.getByTestId('ai-memory-group-list')
+  const visibleOffsets = () =>
+    list.evaluate((ul) => {
+      const view = ul.closest('[data-testid="page-body"]')!.getBoundingClientRect()
+      const top = ul.getBoundingClientRect().top
+      const out: Record<string, number> = {}
+      ul.querySelectorAll('[data-testid="ai-memory-row"]').forEach((li, i) => {
+        const r = li.getBoundingClientRect()
+        if (r.bottom > view.top && r.top < view.bottom) out[i] = r.top - top
+      })
+      return out
+    })
+  // 휠 뒤 스크롤 컨테이너의 scrollTop 이 연달아 3프레임 그대로일 때까지 기다린다(휠 스크롤·스크롤 앵커링이 끝난 뒤 잰다).
+  const settle = () =>
+    list.evaluate(
+      (ul) =>
+        new Promise<void>((resolve) => {
+          const sc = ul.closest('[data-testid="page-body"]')!
+          let last = -1
+          let same = 0
+          const tick = () => {
+            same = sc.scrollTop === last ? same + 1 : 0
+            last = sc.scrollTop
+            if (same >= 3) resolve()
+            else requestAnimationFrame(tick)
+          }
+          requestAnimationFrame(tick)
+        }),
+    )
+  // sentinel 이 observer 의 선행 여유(rootMargin 200px) 안에 들어왔는가 — 들어왔으면 30행이 더 붙을 차례다.
+  const sentinelNear = () =>
+    page.getByTestId('ai-memory-sentinel').evaluate((s) => {
+      const view = s.closest('[data-testid="page-body"]')!.getBoundingClientRect()
+      return s.getBoundingClientRect().top < view.bottom + 200
+    })
+  // 휠 한 번 → 스크롤이 멈출 때까지 → (sentinel 이 닿았으면) 행이 늘 때까지 → 다시 멈출 때까지 기다린 뒤 보인 행의 자리를 처음 본 값으로 적는다.
+  const seen: Record<string, number> = {}
+  const wheelAndRecord = async () => {
+    const before = await rows(page).count()
+    await page.mouse.wheel(0, 300)
+    await settle()
+    if (before < 60 && (await sentinelNear())) {
+      await expect.poll(async () => await rows(page).count()).toBeGreaterThan(before)
+      await settle()
+    }
+    Object.assign(seen, { ...(await visibleOffsets()), ...seen })
+  }
+
+  // 사람처럼 휠로 조금씩 내린다 — sentinel 이 보여 30행이 더 붙을 때까지, 그 뒤로도 조금 더.
+  const body = await stableBox(page.getByTestId('page-body').filter({ has: list }))
+  await page.mouse.move(body.x + body.width / 2, body.y + body.height / 2)
+  for (let step = 0; step < 60 && (await rows(page).count()) < 60; step++) await wheelAndRecord()
+  await expect(rows(page)).toHaveCount(60)
+  for (let step = 0; step < 4; step++) await wheelAndRecord()
+  // 이미 본 행(지금은 대부분 화면 위로 나갔다)의 자리가 처음 본 그대로다 — 화면 밖으로 나간 행이 자리값으로 줄면 아래 행이 모두 끌려 올라간다.
+  const now = await list.evaluate((ul) => {
+    const top = ul.getBoundingClientRect().top
+    return Array.from(ul.querySelectorAll('[data-testid="ai-memory-row"]'), (li) => li.getBoundingClientRect().top - top)
+  })
+  expect(Object.keys(seen).length).toBeGreaterThan(30)
+  const moved = Object.entries(seen).filter(([i, offset]) => Math.abs(now[Number(i)] - offset) >= 1)
+  expect(moved).toEqual([])
 })
 
 test.describe('고정·검색 (WP-383)', () => {
