@@ -13,6 +13,7 @@ import { wikiKeys } from '../../../hooks/queries/wikiKeys'
 import type { WikiPageDetail, WikiRevisionItem, WikiRevisionList } from '../../../types/wiki'
 import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../wikiHtmlBlockSecurity'
 import { groupRevisionsByDay, revisionEditorsLabel, revisionTime, revisionVersionLabel } from '../wikiRevisionFormat'
+import { HTML_DOCUMENT_CANVAS_CLASS } from './wikiHtmlDocument'
 
 /** 목록 한 줄 — 지금 판 또는 저장된 판. */
 type Entry = { kind: 'current'; editedAt: string } | { kind: 'revision'; item: WikiRevisionItem }
@@ -143,7 +144,7 @@ export function WikiHtmlRevisionDialog({
                   html={previewHtml}
                   title={`${page.title || '제목 없음'} 버전 미리보기`}
                   data-testid="wiki-html-revision-frame"
-                  className="h-full min-h-[50dvh] w-full flex-1 border-0 bg-background"
+                  className={cn('h-full min-h-[50dvh] w-full flex-1 border-0', HTML_DOCUMENT_CANVAS_CLASS)}
                 />
               </WikiHtmlBlockScopeProvider>
             )}

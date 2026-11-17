@@ -34,7 +34,13 @@ import { useWikiRoutes } from '../WikiRoutesContext'
 import { canManageShare, countDescendants } from '../wikiShare'
 import { WikiShareDialog } from '../WikiShareDialog'
 import { useHtmlEditSession, useWikiHtmlLock } from './useHtmlEditSession'
-import { downloadHtmlSource, holderLabel, htmlLockBannerText, rejectOversizedHtmlSource } from './wikiHtmlDocument'
+import {
+  downloadHtmlSource,
+  holderLabel,
+  HTML_DOCUMENT_CANVAS_CLASS,
+  htmlLockBannerText,
+  rejectOversizedHtmlSource,
+} from './wikiHtmlDocument'
 import { WikiHtmlRevisionDialog } from './WikiHtmlRevisionDialog'
 import { WikiHtmlVisualEditor, type WikiHtmlVisualEditorHandle } from './WikiHtmlVisualEditor'
 
@@ -440,7 +446,7 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
               html={previewSource}
               title={`${page.title || '제목 없음'} 미리보기`}
               data-testid="wiki-html-preview"
-              className="h-full min-h-0 w-full border-0 bg-background"
+              className={cn('h-full min-h-0 w-full border-0', HTML_DOCUMENT_CANVAS_CLASS)}
             />
           </div>
         ) : mode === 'source' ? (
@@ -458,7 +464,7 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
             html={html}
             title={page.title || '제목 없음'}
             data-testid="wiki-html-frame"
-            className="min-h-0 w-full flex-1 border-0 bg-background"
+            className={cn('min-h-0 w-full flex-1 border-0', HTML_DOCUMENT_CANVAS_CLASS)}
           />
         )}
       </Page.Body>

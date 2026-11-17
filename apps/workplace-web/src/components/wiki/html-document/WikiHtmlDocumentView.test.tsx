@@ -78,6 +78,12 @@ async function toSource(user: ScreenUser) {
   return screen.findByTestId<HTMLTextAreaElement>('wiki-html-source')
 }
 
+/** 문서 iframe 이 테마와 무관한 흰 종이 캔버스인지(WP-1660) — 앱 테마색(bg-background)이 투명 캔버스 뒤로 비치면 다크 테마에서 글자가 묻힌다. */
+function expectPaperCanvas(frame: HTMLElement) {
+  expect(frame).toHaveClass('bg-white')
+  expect(frame).not.toHaveClass('bg-background')
+}
+
 test('kind=HTML 이면 편집기 대신 원본을 격리 iframe 으로 그린다 — 스크립트는 기본 멈춤이고 스위치로 켜도 allow-same-origin 은 없다(WP-1290)', async () => {
   open()
   const frame = await screen.findByTestId('wiki-html-frame')
@@ -92,6 +98,8 @@ test('kind=HTML 이면 편집기 대신 원본을 격리 iframe 으로 그린다
   expect(sandbox).not.toContain('allow-same-origin')
   expect(sandbox).not.toContain('allow-popups-to-escape-sandbox')
   expect(frame.getAttribute('srcdoc')).toContain('<h1>매출 차트</h1>')
+  // 다크 테마에서도 흰 종이 캔버스(WP-1660).
+  expectPaperCanvas(screen.getByTestId('wiki-html-frame'))
   // 블록 편집기(TipTap)는 뜨지 않는다.
   expect(document.querySelector('.wiki-editor')).toBeNull()
   await waitFor(() => expect(screen.getByTestId('wiki-breadcrumb')).toHaveTextContent('팀 노트분기 대시보드'))
@@ -141,6 +149,8 @@ test('편집 → 고쳐 저장하면 잠금을 얻고, 고치기 시작한 versi
   await user.paste('<p>새 원본</p>')
   // 미리보기는 늦춰 따라간다.
   await waitFor(() => expect(screen.getByTestId('wiki-html-preview').getAttribute('srcdoc')).toContain('<p>새 원본</p>'))
+  // 편집 미리보기도 보기와 같은 흰 종이 캔버스(WP-1660).
+  expectPaperCanvas(screen.getByTestId('wiki-html-preview'))
   await user.click(screen.getByTestId('wiki-html-source-save'))
   // 편집 「저장」은 이 세션의 표지를 싣는다 — 서버가 저장과 함께 잠금을 푼다.
   await waitFor(() => expect(saves).toEqual([{ html: '<p>새 원본</p>', version: 3, lockToken: TOKEN }]))
@@ -247,6 +257,8 @@ test('버전 기록 → 판을 고르면 그 원본을 격리 iframe 으로 미�
   const preview = await within(dialog).findByTestId('wiki-html-revision-frame')
   await waitFor(() => expect(preview.getAttribute('srcdoc')).toContain('<p>예전 원본</p>'))
   expect(preview.getAttribute('sandbox')).not.toContain('allow-same-origin')
+  // 이전 버전 미리보기도 흰 종이 캔버스(WP-1660).
+  expectPaperCanvas(preview)
   await user.click(within(dialog).getByTestId('wiki-html-revision-restore'))
   await waitFor(() => expect(restored).toEqual([2]))
   await waitFor(() => expect(screen.queryByTestId('wiki-html-revision-dialog')).not.toBeInTheDocument())
@@ -576,6 +588,8 @@ test('「편집」은 원본 화면 위에서 글자를 고치는 화면이다 �
   // 편집 도구 때문에 allow-scripts 로 띄우지만 allow-same-origin 은 없다.
   expect(sandbox.split(/\s+/)).toContain('allow-scripts')
   expect(sandbox).not.toContain('allow-same-origin')
+  // 보이는 화면 편집도 흰 종이 캔버스(WP-1660).
+  expectPaperCanvas(frame)
   // 원본 요소마다 번호, 고칠 수 있는 제목엔 글자 지문.
   expect(srcdoc).toMatch(/<h1 data-wp-src="\d+" data-wp-t="[0-9a-z]+">매출 차트<\/h1>/)
   // 스크립트가 멈춘 노트 — 문서 스크립트는 띄울 사본에서 빠지고, 맨 앞 CSP 가 nonce 없는 스크립트를 막는다. 우리 스크립트에만 같은 nonce.

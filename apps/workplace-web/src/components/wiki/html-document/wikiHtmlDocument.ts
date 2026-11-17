@@ -13,6 +13,16 @@ export const HTML_DOCUMENT_MAX_BYTES = HTML_IMPORT_MAX_BYTES
 /** 상한을 넘었을 때 알리는 문구 — 서버 413 메시지와 같다. */
 export const HTML_DOCUMENT_TOO_LARGE = 'HTML 문서는 5MB 까지 올릴 수 있습니다'
 
+/**
+ * 「HTML 문서」를 그리는 iframe 의 배경 클래스(WP-1660) — 테마와 무관하게 흰 종이 캔버스로 고정한다.
+ * 왜: srcdoc 문서는 배경을 정하지 않으면 캔버스가 투명이라 iframe 요소 배경이 비친다. `bg-background` 면
+ * 다크 테마에서 어두운 바탕 위에 문서가 정한 짙은 글자색이 그대로 남아 읽을 수 없다.
+ * 브라우저에서 같은 HTML 을 열면 기본 캔버스가 흰색이므로 작성자는 흰 바탕을 전제로 색을 고른다 —
+ * 메일 인용 원문(MailQuoteBlock)이 같은 이유로 `bg-white` 를 쓰는 선례를 따른다.
+ * 문서 안에 스타일을 넣지 않고 iframe 요소 배경만 바꾸므로, 문서가 html·body 배경을 직접 정했으면 그 색이 이긴다.
+ */
+export const HTML_DOCUMENT_CANVAS_CLASS = 'bg-white'
+
 /** 노트 제목 최대 길이 — 서버 요청의 @Size(max = 255). <title> 이 더 길면 잘라 400 을 피한다. */
 const TITLE_MAX = 255
 
