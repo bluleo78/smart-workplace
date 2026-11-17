@@ -59,9 +59,11 @@ function scanBackend(): Found {
 
 describe('감사 로그 라벨 ↔ 백엔드 값 대조 (WP-1560)', () => {
   let found: Found;
+  // 자바 소스 2천여 개를 동기로 훑는다 — 혼자 돌면 1초 안팎이지만 push 게이트처럼 모든 테스트가 함께 돌 때는 기본 10초 훅 제한을
+  // 넘긴 적이 있어(12.7초) 넉넉히 준다.
   beforeAll(() => {
     found = scanBackend();
-  });
+  }, 60_000);
 
   it('호출부를 실제로 읽었다(경로가 틀려 빈 통과가 되지 않게)', () => {
     expect(found.calls).toBeGreaterThan(20);
