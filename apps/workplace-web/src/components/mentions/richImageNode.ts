@@ -85,6 +85,30 @@ function tailKey(content: Fragment): string {
   return JSON.stringify(content.toJSON())
 }
 
+/**
+ * 문서의 index 번째 줄 뒤로 이어진 조각 — 그 줄 바로 뒤에 줄을 나눈 이미지 묶음(splitTail 을 든 이미지 줄)이 있고, 묶음 뒤 글 줄(과 그 뒤로 이어진 조각)이
+ * 그 묶음이 나눌 때 기록한 뒤쪽 내용과 같을 때만 그 내용을 돌려준다. 아니면 빈 조각.
+ * `abc def` 의 `abc|` 에 A, 뒤쪽 줄 ` d|ef` 에 B 를 따로 넣으면 ` d` 뒤로 `ef` 가 이어져 A 의 뒤쪽 줄은 ` def` 로 본다(PR #1413 2차 검토).
+ * 같은지 보지 않고 붙이면 문서 끝에서 넣은 이미지 아래 새로 친 줄(캡션)까지 붙어 잇지 말아야 할 비교가 된다(3차 검토).
+ */
+function chainAfter(doc: PMNode, index: number): Fragment {
+  let j = index + 1
+  let tail: string | null = null
+  while (j < doc.childCount && isImageLine(doc.child(j))) {
+    const recorded = doc.child(j).firstChild!.attrs.splitTail as string | null
+    if (recorded != null && tail == null) tail = recorded
+    j++
+  }
+  if (tail == null || j === index + 1 || j >= doc.childCount) return Fragment.empty
+  const rest = currentTail(doc, j)
+  return tailKey(rest) === tail ? rest : Fragment.empty
+}
+
+/** 문서의 index 번째 줄의 지금 내용 + 그 뒤로 이어진 조각(chainAfter) — 나눈 뒤쪽 줄이 나눌 때 그대로인지 이 값으로 본다. */
+function currentTail(doc: PMNode, index: number): Fragment {
+  return doc.child(index).content.append(chainAfter(doc, index))
+}
+
 /** 업로드 중 자리표시 하나만 담은 줄인가. */
 function isPendingImageLine(node: PMNode | null | undefined): boolean {
   return isImageLine(node) && Boolean(node?.firstChild?.attrs.uploadId)
@@ -109,8 +133,14 @@ export function insertBodyImagePlaceholders(editor: Editor, uploadIds: string[],
       const $pos = tr.doc.resolve(pos)
       // 어디에 넣고(insertAt), 줄을 나누는지(split), 커서가 넣은 줄들 뒤 몇 칸에 오는지(cursorExtra — 1 이면 다음 줄 처음)만 고른다.
       let place: { insertAt: number; split: boolean; cursorExtra: number }
-      // 나누면 뒤쪽 줄이 될 내용 — 실패 때 그 줄이 그대로인지 비교한다.
-      const splitTail = $pos.parent.isTextblock ? tailKey($pos.parent.content.cut($pos.parentOffset)) : null
+      // 나누면 뒤쪽 줄이 될 내용 — 실패 때 그 줄이 그대로인지 비교한다. 이 줄을 앞서 넣은 이미지가 이미 나눠 뒤로 조각이 이어져 있으면
+      // 그 조각까지 넣는다(chainAfter) — 그래야 앞서 넣은 이미지의 비교 값과 같은 기준이 된다.
+      const splitTail =
+        $pos.parent.isTextblock && $pos.depth === 1
+          ? tailKey($pos.parent.content.cut($pos.parentOffset).append(chainAfter(tr.doc, $pos.index(0))))
+          : $pos.parent.isTextblock
+            ? tailKey($pos.parent.content.cut($pos.parentOffset))
+            : null
       if (!$pos.parent.isTextblock) {
         // 문단 사이(드롭 좌표가 줄 경계) — 그 자리에 줄로 넣고 커서는 넣은 줄들 바로 뒤.
         place = { insertAt: pos, split: false, cursorExtra: 0 }
@@ -153,6 +183,7 @@ export function settleBodyImage(editor: Editor, uploadId: string, result: { src:
  * - 옆 줄이 다 올린 이미지면 버린다 — 그 이미지가 나눈 자리를 쓰므로 「그 이미지만 넣은 것」과 같은 모양이 된다.
  * - 둘 다 아니고 뒤쪽 줄이 나눌 때 그대로면 앞뒤 줄을 잇는다(나누기 전 한 줄).
  *   뒤쪽 줄을 고쳤으면(문서 끝에서 넣은 뒤 빈 줄에 글자를 침 등) 잇지 않는다 — 이으면 친 글자가 앞 줄에 붙어 원문이 바뀐다(PR #1413 리뷰).
+ *   뒤쪽 줄을 나중에 넣은 다른 이미지가 또 나눴으면 나뉜 조각을 이어 붙여 비교한다(currentTail).
  * 사용자가 자리표시 줄에 글자를 더 썼으면 노드만 지운다(쓴 글자를 지키려고).
  */
 export function failBodyPlaceholder(editor: Editor, uploadId: string): boolean {
@@ -184,7 +215,7 @@ export function failBodyPlaceholder(editor: Editor, uploadId: string): boolean {
         next?.isTextblock &&
         !isImageLine(prev) &&
         !isImageLine(next) &&
-        tailKey(next.content) === splitTail
+        tailKey(currentTail(tr.doc, $gap.index())) === splitTail
       ) {
         tr.join(lineStart)
       }

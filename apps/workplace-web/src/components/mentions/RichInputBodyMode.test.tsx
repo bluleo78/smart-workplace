@@ -543,6 +543,111 @@ describe('RichInput 본문 모드 — 함께 넣은 이미지의 일부 실패',
     expect(lastArg(onBodyChange)).toBe('abc\nxyz')
   })
 
+  // PR #1413 2차 검토: A 가 나눈 뒤쪽 줄을 나중에 따로 넣은 B 가 또 나눠도, 글자를 치지 않았으면 A 가 실패할 때 줄을 잇는다.
+  describe('따로 넣은 B 가 A 의 뒤쪽 줄을 다시 나눔', () => {
+    /** `abc def` 의 `abc|` 에 A, 그 뒤쪽 줄 ` d|ef` 에 B 를 따로 넣는다. pending[0] = A, pending[1] = B. */
+    function insertTwice() {
+      const r = insertAt('abc def', 3, [png('a.png')])
+      // A 를 넣은 뒤 커서는 뒤쪽 줄 ` def` 처음 — 두 글자(` d`) 뒤로 옮겨 B 를 넣는다.
+      act(() => {
+        r.editor.commands.setTextSelection(r.editor.state.selection.from + 2)
+      })
+      act(() => r.ref.current?.insertImages([png('b.png')]))
+      return r
+    }
+
+    it.each([
+      ['A → B', [0, 1]],
+      ['B → A', [1, 0]],
+    ])('둘 다 실패하면(%s) 넣기 전 원문이다', async (_name, order) => {
+      const { pending, onBodyChange, editor } = insertTwice()
+      for (const i of order) await act(async () => pending[i].reject(new Error('500')))
+      expect(imageCount(editor)).toBe(0)
+      expect(lastArg(onBodyChange)).toBe('abc def')
+    })
+
+    it('A 만 실패하고 B 는 성공하면 B 만 넣은 원문이다', async () => {
+      const { pending, onBodyChange } = insertTwice()
+      await act(async () => pending[0].reject(new Error('500')))
+      await act(async () => pending[1].resolve({ url: url(2), name: 'b.png' }))
+      expect(lastArg(onBodyChange)).toBe(`abc d\n![b.png](${url(2)})\nef`)
+    })
+
+    it('B 가 성공한 뒤 A 가 실패해도 B 만 넣은 원문이다', async () => {
+      const { pending, onBodyChange } = insertTwice()
+      await act(async () => pending[1].resolve({ url: url(2), name: 'b.png' }))
+      await act(async () => pending[0].reject(new Error('500')))
+      expect(lastArg(onBodyChange)).toBe(`abc d\n![b.png](${url(2)})\nef`)
+    })
+
+    it('B 뒤에 C 가 B 의 앞 조각(` d`)을 또 나눠도, 셋 다 실패하면(어느 순서든) 넣기 전 원문이다', async () => {
+      for (const order of [
+        [0, 1, 2],
+        [2, 1, 0],
+        [1, 0, 2],
+      ]) {
+        const { pending, onBodyChange, editor, ref, unmount } = insertTwice()
+        // ` d` 줄의 공백 뒤(` |d`)에 C 를 넣는다.
+        act(() => {
+          let at = -1
+          editor.state.doc.forEach((line, offset) => {
+            if (line.textContent === ' d') at = offset + 2
+          })
+          editor.commands.setTextSelection(at)
+        })
+        act(() => ref.current?.insertImages([png('c.png')]))
+        for (const i of order) await act(async () => pending[i].reject(new Error('500')))
+        expect(imageCount(editor)).toBe(0)
+        expect(lastArg(onBodyChange)).toBe('abc def')
+        unmount()
+      }
+    })
+
+    it('B 를 넣은 뒤 B 의 앞 조각을 고치고 A 가 실패하면 잇지 않는다', async () => {
+      const { pending, onBodyChange, editor } = insertTwice()
+      // B 를 넣은 뒤 커서는 `ef` 줄 처음 — A 의 뒤쪽 줄 ` d` 끝으로 옮겨 글자를 친다.
+      act(() => {
+        let at = -1
+        editor.state.doc.forEach((line, offset) => {
+          if (line.textContent === ' d') at = offset + 1 + line.content.size
+        })
+        editor.chain().setTextSelection(at).insertContent('X').run()
+      })
+      await act(async () => pending[0].reject(new Error('500')))
+      await act(async () => pending[1].reject(new Error('500')))
+      expect(lastArg(onBodyChange)).toBe('abc\n dXef')
+    })
+  })
+
+  // PR #1413 3차 검토: 줄을 나눈 이미지 묶음 뒤의 줄이 그 묶음이 떼어 온 조각이 아니면(문서 끝에서 넣은 뒤 새로 친 캡션 등) 이어 붙여 보지 않는다.
+  it('문서 끝에 넣어 성공한 이미지 아래에 캡션을 친 뒤, 앞 줄 가운데에 넣은 이미지가 실패하면 그 줄은 다시 이어진다', async () => {
+    const { pending, onBodyChange, editor, ref } = insertAt('abc', 3, [png('a.png')])
+    await act(async () => pending[0].resolve({ url: url(1), name: 'a.png' }))
+    act(() => {
+      editor.commands.insertContent('xyz')
+    })
+    act(() => {
+      editor.commands.setTextSelection(2) // `a|bc`
+    })
+    act(() => ref.current?.insertImages([png('z.png')]))
+    await act(async () => pending[1].reject(new Error('500')))
+    expect(lastArg(onBodyChange)).toBe(`abc\n![a.png](${url(1)})\nxyz`)
+  })
+
+  it('A 의 뒤쪽 줄 끝(문서 끝)에 따로 넣은 C 아래에 글자를 치고 A 가 실패하면 A 가 나눈 줄은 다시 이어진다', async () => {
+    const { pending, onBodyChange, editor, ref } = insertAt('abc def', 3, [png('a.png')])
+    act(() => {
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1) // ` def|`(문서 끝)
+    })
+    act(() => ref.current?.insertImages([png('c.png')]))
+    act(() => {
+      editor.commands.insertContent('xyz')
+    })
+    await act(async () => pending[1].resolve({ url: url(3), name: 'c.png' }))
+    await act(async () => pending[0].reject(new Error('500')))
+    expect(lastArg(onBodyChange)).toBe(`abc def\n![c.png](${url(3)})\nxyz`)
+  })
+
   it('지운 자리표시를 실행 취소로 되살렸는데 그 업로드가 실패였으면 나눈 줄까지 걷어 빈 줄이 남지 않는다', async () => {
     const { pending, onBodyChange, editor, el } = insertAt('재현 화면', 2, [png('a.png')])
     // 업로드 중 자리표시(노드만)를 지운다 — 따로 되돌릴 수 있게 실행 취소 묶음을 끊는다.
