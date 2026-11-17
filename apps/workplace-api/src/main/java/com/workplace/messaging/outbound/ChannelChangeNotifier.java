@@ -2,6 +2,7 @@ package com.workplace.messaging.outbound;
 
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.realtime.ResourceSseDispatcher;
+import com.workplace.global.realtime.UserAudienceResolver;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.tenant.outbound.TenantAudienceResolver;
 import java.util.Collection;
@@ -90,6 +91,21 @@ public class ChannelChangeNotifier {
         channelId,
         channelId,
         actorId,
+        List.of());
+  }
+
+  /**
+   * 한 사람의 DM 목록만 바뀜(WP-1676 숨기기·숨김 풀기) — 그 사용자 한 명에게만 dm/updated. 숨김은 멤버별 상태라 다른 멤버의 목록은 그대로다
+   * (CHANNEL scope 로 보내면 상대도 불필요하게 다시 불러온다). scopeId 가 사용자 id 인 USER scope 를 쓴다.
+   */
+  public void dmListChanged(long channelId, long userId) {
+    publish(
+        RESOURCE_DM,
+        ResourceChangedEvent.OP_UPDATED,
+        UserAudienceResolver.SCOPE,
+        userId,
+        channelId,
+        userId,
         List.of());
   }
 

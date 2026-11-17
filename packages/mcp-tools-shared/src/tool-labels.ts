@@ -65,6 +65,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   update_channel_message: { label: '채널 메시지 수정', icon: '✏️' },
   mark_channel_read: { label: '채널 읽음 처리', icon: '✅' },
   open_dm: { label: 'DM 열기', icon: '✉️' },
+  hide_dm: { label: 'DM 숨기기', icon: '🙈' }, // WP-1676
   // 첨부용 파일(이슈·메시지·노트 공용)
   upload_file: { label: '파일 올리기', icon: '📤' }, // WP-421
   // 캘린더

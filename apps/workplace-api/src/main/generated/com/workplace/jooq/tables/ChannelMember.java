@@ -102,6 +102,11 @@ public class ChannelMember extends TableImpl<ChannelMemberRecord> {
      */
     public final TableField<ChannelMemberRecord, OffsetDateTime> LAST_READ_AT = createField(DSL.name("last_read_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.channel_member.hidden_at</code>.
+     */
+    public final TableField<ChannelMemberRecord, OffsetDateTime> HIDDEN_AT = createField(DSL.name("hidden_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private ChannelMember(Name alias, Table<ChannelMemberRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

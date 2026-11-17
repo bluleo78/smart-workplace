@@ -145,6 +145,7 @@ function sharedMock(): MockedShared {
     createChannel: vi.fn().mockResolvedValue({}),
     openDm: vi.fn().mockResolvedValue({ id: 1, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
+    hideDm: vi.fn().mockResolvedValue(undefined),
     addChannelMember: vi.fn().mockResolvedValue(undefined),
     // WP-355
     listChannelMembers: vi.fn().mockResolvedValue([]),

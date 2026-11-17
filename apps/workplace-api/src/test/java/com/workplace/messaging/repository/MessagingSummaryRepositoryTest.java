@@ -1,5 +1,7 @@
 package com.workplace.messaging.repository;
 
+import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
+import static com.workplace.jooq.Tables.CONVERSATION_ATTENTION;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.USER;
@@ -10,6 +12,7 @@ import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.IntegrationTestBase;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -229,5 +232,69 @@ class MessagingSummaryRepositoryTest extends IntegrationTestBase {
 
     Map<Long, Integer> m = threadRepo.countUnreadThreadsByChannel(List.of(c), me);
     assertThat(m.getOrDefault(c, 0)).isEqualTo(2);
+  }
+
+  /**
+   * WP-1676: 숨긴 DM 은 안읽음이 남아 있어도 홈 요약(최근 대화·안읽음·회신 대기·확인 필요·AI 주목)에서 빠지고, 숨긴 뒤 새 최상위 메시지가 오면 다시
+   * 세진다. 채널(KIND=CHANNEL)은 숨김과 무관하게 그대로 세진다.
+   */
+  @Test
+  void hiddenDm_excludedFromSummaryUntilNewMessage() {
+    String dmKey = me < other ? me + ":" + other : other + ":" + me;
+    long d = channelRepo.insertDm(dmKey, me);
+    channelMemberRepo.add(d, me, "MEMBER");
+    channelMemberRepo.add(d, other, "MEMBER");
+    long dmMsg = messageService.create(other, d, new CreateMessageRequest("DM 안읽음")).id();
+    // AI 주목 마크도 걸어 둔다 — 숨기면 AI 주목 수에서도 빠져야 한다.
+    dsl.insertInto(CONVERSATION_ATTENTION)
+        .set(CONVERSATION_ATTENTION.CHANNEL_ID, d)
+        .set(CONVERSATION_ATTENTION.USER_ID, me)
+        .set(CONVERSATION_ATTENTION.REASON, "test")
+        .set(CONVERSATION_ATTENTION.CLASSIFIED_MESSAGE_ID, dmMsg)
+        .execute();
+
+    // 안읽은 멘션이 있는 채널 — 숨김과 무관하게 계속 세져야 한다.
+    long c = channelRepo.insertPublic("HideCh-" + UUID.randomUUID(), other);
+    channelService.join(other, c);
+    channelService.join(me, c);
+    long chMsg = messageService.create(other, c, new CreateMessageRequest("멘션")).id();
+    dsl.update(MESSAGE)
+        .set(MESSAGE.MENTIONS, JSONB.valueOf("[" + me + "]"))
+        .where(MESSAGE.ID.eq(chMsg))
+        .execute();
+
+    assertThat(repo.countUnreadConversations(me)).isEqualTo(2);
+    assertThat(repo.countAiAttentionUnread(me)).isEqualTo(1);
+
+    channelMemberRepo.hide(d, me);
+
+    assertThat(repo.recentConversationRows(me, 20))
+        .extracting(ConversationRow::channelId)
+        .contains(c)
+        .doesNotContain(d);
+    assertThat(repo.countUnreadConversations(me)).isEqualTo(1);
+    assertThat(repo.countNeedsReply(me)).isEqualTo(1);
+    assertThat(repo.countAttentionConversations(me)).isEqualTo(1);
+    assertThat(repo.countAiAttentionUnread(me)).isZero();
+
+    // 숨긴 뒤 상대가 새 최상위 메시지를 보내면 다시 세진다. 테스트 트랜잭션의 now() 는 시작 시각에 고정이라 시각을 숨긴 시각 뒤로 직접 준다.
+    OffsetDateTime hiddenAt =
+        dsl.select(CHANNEL_MEMBER.HIDDEN_AT)
+            .from(CHANNEL_MEMBER)
+            .where(CHANNEL_MEMBER.CHANNEL_ID.eq(d).and(CHANNEL_MEMBER.USER_ID.eq(me)))
+            .fetchOne(CHANNEL_MEMBER.HIDDEN_AT);
+    long newMsg = messageService.create(other, d, new CreateMessageRequest("새 메시지")).id();
+    dsl.update(MESSAGE)
+        .set(MESSAGE.CREATED_AT, hiddenAt.plusSeconds(1))
+        .where(MESSAGE.ID.eq(newMsg))
+        .execute();
+
+    assertThat(repo.recentConversationRows(me, 20))
+        .extracting(ConversationRow::channelId)
+        .contains(c, d);
+    assertThat(repo.countUnreadConversations(me)).isEqualTo(2);
+    assertThat(repo.countNeedsReply(me)).isEqualTo(2);
+    assertThat(repo.countAttentionConversations(me)).isEqualTo(2);
+    assertThat(repo.countAiAttentionUnread(me)).isEqualTo(1);
   }
 }

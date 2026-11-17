@@ -21,6 +21,7 @@ describe('messaging-agent 정의', () => {
       'mcp__workplace__create_channel',
       'mcp__workplace__open_dm',
       'mcp__workplace__leave_channel',
+      'mcp__workplace__hide_dm', // WP-1676: DM 을 내 목록에서 숨기기
       // WP-355: 채널 참여·리액션·내 메시지 수정·읽음 처리(사용자 신원, 직접 실행)
       'mcp__workplace__join_channel',
       'mcp__workplace__react', // WP-421: add_reaction·remove_reaction 통합, WP-812: 이슈 코멘트 반응까지 한 도구

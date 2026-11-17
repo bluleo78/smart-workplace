@@ -17,6 +17,7 @@ function mockClient(): Client {
     createChannel: vi.fn().mockResolvedValue({ id: 12, name: 'new', visibility: 'PUBLIC' }),
     openDm: vi.fn().mockResolvedValue({ id: 20, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
+    hideDm: vi.fn().mockResolvedValue(undefined),
     addChannelMember: vi.fn().mockResolvedValue(undefined),
     discoverChannels: vi.fn().mockResolvedValue([]),
     joinChannel: vi.fn().mockResolvedValue(undefined),
@@ -453,6 +454,21 @@ describe('채널·DM 쓰기 (#855)', () => {
     );
     await expect(tool(c, 'open_dm').handler({ usernames: ['kim', 'park', 'ghost'] })).rejects.toThrow('park, ghost');
     expect(c.openDm).not.toHaveBeenCalled();
+  });
+
+  // WP-1676: DM 숨기기 — 내 목록에서만 빠지고 되돌릴 수 있다(새 메시지·open_dm).
+  it('hide_dm → channelId 로 숨기고 ok 를 돌려준다', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'hide_dm').handler({ channelId: 20 })).toBe('ok');
+    expect(c.hideDm).toHaveBeenCalledWith(20);
+    expect(tool(c, 'hide_dm').description).toContain('open_dm');
+  });
+
+  it('hide_dm → channelId 가 없거나 양수가 아니면 숨기지 않는다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'hide_dm').handler({})).rejects.toThrow();
+    await expect(tool(c, 'hide_dm').handler({ channelId: 0 })).rejects.toThrow();
+    expect(c.hideDm).not.toHaveBeenCalled();
   });
 
   it('leave_channel → 공개 채널이면 나간다', async () => {

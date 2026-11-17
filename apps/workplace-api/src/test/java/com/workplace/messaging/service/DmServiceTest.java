@@ -1,14 +1,19 @@
 package com.workplace.messaging.service;
 
+import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.messaging.dto.DmResponse;
+import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.support.IntegrationTestBase;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -26,6 +31,7 @@ class DmServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired ChannelMemberService memberService;
   @Autowired com.workplace.messaging.repository.ChannelMemberRepository memberRepo;
+  @Autowired ChannelService channelService;
 
   /** 각 테스트 전 TenantContext 를 tenant#1 로 설정 — 멤버십 검증 통과를 위한 전제 조건. */
   @BeforeEach
@@ -207,5 +213,153 @@ class DmServiceTest extends IntegrationTestBase {
 
     assertThat(reopened.dm().id()).isEqualTo(group.dm().id());
     assertThat(memberRepo.isMember(group.dm().id(), c)).isTrue();
+  }
+
+  // ── WP-1676 DM 숨기기 ──────────────────────────────────────────────
+
+  /** 내 DM 목록의 id 들 — 숨김 여부 판정용. */
+  private List<Long> myDmIds(long userId) {
+    return dmService.listMyDms(userId).stream().map(DmResponse::id).toList();
+  }
+
+  /**
+   * 멤버의 hidden_at(clock_timestamp) — 테스트 트랜잭션 안의 기본 created_at(now())은 시작 시각에 고정이라 메시지 시각을 이 값 기준으로
+   * 앞뒤에 둔다.
+   */
+  private OffsetDateTime hiddenAt(long channelId, long userId) {
+    return dsl.select(CHANNEL_MEMBER.HIDDEN_AT)
+        .from(CHANNEL_MEMBER)
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(userId)))
+        .fetchOne(CHANNEL_MEMBER.HIDDEN_AT);
+  }
+
+  /** 메시지 1건을 지정 시각으로 넣는다(답글·삭제 여부 선택). 반환 id. */
+  private long seedMessage(
+      long channelId, long authorId, OffsetDateTime at, Long parentId, boolean deleted) {
+    return dsl.insertInto(MESSAGE)
+        .set(MESSAGE.CHANNEL_ID, channelId)
+        .set(MESSAGE.AUTHOR_ID, authorId)
+        .set(MESSAGE.BODY, "msg")
+        .set(MESSAGE.CREATED_AT, at)
+        .set(MESSAGE.PARENT_MESSAGE_ID, parentId)
+        .set(MESSAGE.DELETED_AT, deleted ? at : null)
+        .returning(MESSAGE.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 숨기면 내 목록에서만 빠지고 상대 목록에는 그대로 남는다. */
+  @Test
+  void hide_removesFromMyListOnly() {
+    long a = seedUser();
+    long b = seedUser();
+    long dm = dmService.createOrGet(a, List.of(b)).dm().id();
+
+    dmService.hide(a, dm);
+
+    assertThat(myDmIds(a)).doesNotContain(dm);
+    assertThat(myDmIds(b)).contains(dm);
+    assertThat(memberRepo.isMember(dm, a)).isTrue(); // 기록·멤버십은 유지
+  }
+
+  /** 숨긴 뒤 상대가 새 최상위 메시지를 보내면 다시 보인다. 숨기기 전 메시지만으로는 계속 숨겨진다. */
+  @Test
+  void hide_thenNewMessage_reappears() {
+    long a = seedUser();
+    long b = seedUser();
+    long dm = dmService.createOrGet(a, List.of(b)).dm().id();
+    dmService.hide(a, dm);
+    OffsetDateTime hidden = hiddenAt(dm, a);
+    seedMessage(dm, b, hidden.minusMinutes(1), null, false);
+    assertThat(myDmIds(a)).doesNotContain(dm);
+
+    seedMessage(dm, b, hidden.plusSeconds(1), null, false);
+
+    assertThat(myDmIds(a)).contains(dm);
+  }
+
+  /** 숨긴 뒤 스레드 답글이나 삭제된 메시지만 생기면 되살아나지 않는다(미리보기 기준과 같다). */
+  @Test
+  void hide_threadReplyOrDeletedMessage_staysHidden() {
+    long a = seedUser();
+    long b = seedUser();
+    long dm = dmService.createOrGet(a, List.of(b)).dm().id();
+    dmService.hide(a, dm);
+    OffsetDateTime hidden = hiddenAt(dm, a);
+    long root = seedMessage(dm, b, hidden.minusMinutes(1), null, false);
+
+    seedMessage(dm, b, hidden.plusSeconds(1), root, false); // 스레드 답글
+    seedMessage(dm, b, hidden.plusSeconds(2), null, true); // 삭제된 최상위
+
+    assertThat(myDmIds(a)).doesNotContain(dm);
+  }
+
+  /** 숨긴 DM 을 같은 상대로 다시 열면 숨김이 풀리고 같은 DM(기록 유지)이 보인다. */
+  @Test
+  void hide_thenCreateOrGet_unhides() {
+    long a = seedUser();
+    long b = seedUser();
+    long dm = dmService.createOrGet(a, List.of(b)).dm().id();
+    seedMessage(dm, b, OffsetDateTime.now().minusDays(1), null, false);
+    dmService.hide(a, dm);
+
+    var reopened = dmService.createOrGet(a, List.of(b));
+
+    assertThat(reopened.dm().id()).isEqualTo(dm);
+    assertThat(reopened.created()).isFalse();
+    assertThat(hiddenAt(dm, a)).isNull();
+    assertThat(myDmIds(a)).contains(dm);
+  }
+
+  /** 그룹 DM 과 나 혼자 DM 도 숨길 수 있다. */
+  @Test
+  void hide_groupAndSelfDm() {
+    long a = seedUser();
+    long b = seedUser();
+    long c = seedUser();
+    long group = dmService.createOrGet(a, List.of(b, c)).dm().id();
+    long self = dmService.createOrGet(a, List.of(a)).dm().id();
+
+    dmService.hide(a, group);
+    dmService.hide(a, self);
+
+    assertThat(myDmIds(a)).doesNotContain(group, self);
+    assertThat(myDmIds(b)).contains(group);
+  }
+
+  /** 이미 숨긴 DM 을 다시 숨겨도 오류 없이 숨겨진 채로 남는다(멱등). */
+  @Test
+  void hide_isIdempotent() {
+    long a = seedUser();
+    long b = seedUser();
+    long dm = dmService.createOrGet(a, List.of(b)).dm().id();
+
+    dmService.hide(a, dm);
+    dmService.hide(a, dm);
+
+    assertThat(myDmIds(a)).doesNotContain(dm);
+  }
+
+  /** DM 이 아닌 채널은 400(InvalidDmRequestException). */
+  @Test
+  void hide_nonDmChannel_rejected() {
+    long a = seedUser();
+    long ch = channelService.create(a, "hide-" + UUID.randomUUID(), "PUBLIC").id();
+
+    assertThatThrownBy(() -> dmService.hide(a, ch)).isInstanceOf(InvalidDmRequestException.class);
+  }
+
+  /** 없는 채널·내가 멤버가 아닌 DM 은 404(ChannelNotFoundException). */
+  @Test
+  void hide_missingOrNotMember_notFound() {
+    long a = seedUser();
+    long b = seedUser();
+    long c = seedUser();
+    long others = dmService.createOrGet(b, List.of(c)).dm().id();
+
+    assertThatThrownBy(() -> dmService.hide(a, others))
+        .isInstanceOf(ChannelNotFoundException.class);
+    assertThatThrownBy(() -> dmService.hide(a, 999_999_999L))
+        .isInstanceOf(ChannelNotFoundException.class);
   }
 }

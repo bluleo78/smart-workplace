@@ -41,6 +41,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   get_project: ['read', R, R, R],
   get_user_group: ['read', R, R, R],
   get_wiki_page: ['read', R, R, R],
+  hide_dm: ['write', false, true, false],
   leave_channel: ['write', true, true, false],
   list_channel_messages: ['read', R, R, R],
   list_channels: ['read', R, R, R],

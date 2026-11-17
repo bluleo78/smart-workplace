@@ -106,6 +106,61 @@ describe('DM 화면', () => {
   })
 })
 
+describe('DM 숨기기(WP-1676)', () => {
+  const ONE = createDm({ id: 920, participants: [createDmParticipant({ userId: 1, name: MY_NAME }), createDmParticipant({ userId: 2, name: '김민준' })] })
+
+  // 헤더 오른쪽 「⋯」(대화 메뉴)에는 「대화 숨기기」 하나만 있고, 누르면 그 DM 을 숨기고 대화 첫 화면으로 간다.
+  test('⋯ 메뉴의 대화 숨기기를 누르면 hide 를 보내고 /chat 으로 간다', async () => {
+    const hidden: string[] = []
+    // 숨긴 뒤 목록을 다시 받으면 그 DM 은 빠진다(서버와 같게).
+    let dms = [ONE]
+    const { user, location } = renderChat(`/chat/dms/${ONE.id}`, {
+      auth,
+      channels: [],
+      handlers: [
+        http.get(`${API}/messaging/dms`, () => HttpResponse.json(dms)),
+        http.get(`${API}/messaging/channels/${ONE.id}`, () => HttpResponse.json(createChannel({ id: ONE.id, kind: 'DM', member: true }))),
+        http.post(`${API}/messaging/dms/:id/hide`, ({ params }) => {
+          hidden.push(String(params.id))
+          dms = []
+          return new HttpResponse(null, { status: 204 })
+        }),
+      ],
+      messages: { [ONE.id]: [] },
+    })
+    const header = await screen.findByTestId('dm-header')
+    await user.click(within(header).getByRole('button', { name: '대화 메뉴' }))
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map((i) => i.textContent)).toEqual(['대화 숨기기'])
+    await user.click(screen.getByTestId('dm-hide-action'))
+    await waitFor(() => expect(location()).toBe('/chat'))
+    expect(hidden).toEqual([String(ONE.id)])
+    expect(screen.queryByTestId('dm-not-found')).not.toBeInTheDocument()
+  })
+
+  // 그룹 DM·나 혼자 DM 에도 같은 메뉴가 있다.
+  test('그룹 DM·셀프 DM 헤더에도 대화 메뉴가 있다', async () => {
+    openDm(createDm({ id: 921, participants: [createDmParticipant({ userId: 1, name: MY_NAME }), createDmParticipant({ userId: 2, name: '가' }), createDmParticipant({ userId: 3, name: '나' })] }))
+    expect(within(await screen.findByTestId('dm-header')).getByRole('button', { name: '대화 메뉴' })).toBeInTheDocument()
+  })
+
+  test('셀프 DM 헤더에도 대화 메뉴가 있다', async () => {
+    openDm(createDm({ id: 922, participants: [createDmParticipant({ userId: 1, name: MY_NAME })] }))
+    expect(within(await screen.findByTestId('dm-header')).getByRole('button', { name: '대화 메뉴' })).toBeInTheDocument()
+  })
+
+  // 서버 오류(500)면 오류 토스트를 띄우고 그 DM 에 머문다.
+  test('숨기기가 500 이면 DM 화면에 머문다', async () => {
+    const { user, location } = openDm(ONE, [], [
+      http.post(`${API}/messaging/dms/:id/hide`, () => HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 })),
+    ])
+    await user.click(within(await screen.findByTestId('dm-header')).getByRole('button', { name: '대화 메뉴' }))
+    await user.click(await screen.findByTestId('dm-hide-action'))
+    expect(await screen.findByText('서버 오류')).toBeInTheDocument()
+    expect(location()).toBe(`/chat/dms/${ONE.id}`)
+  })
+})
+
 describe('새 메시지 — 받는 사람', () => {
   /** /chat/new 를 열고 받는 사람 입력에 검색어를 붙여 넣는다. */
   async function search(view: ReturnType<typeof renderChat>, q: string) {
