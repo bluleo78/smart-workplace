@@ -19,7 +19,7 @@ import { countApiImages, withImagePlaceholders } from '@/components/mentions/api
 import { IssueMentionChip } from '@/components/mentions/IssueMentionChip';
 import { messagePlainText, type RenderMention } from '@/components/mentions/parseMessageSegments';
 import { RichInput } from '@/components/mentions/RichInput';
-import type { MentionCandidate, MentionUser } from '@/components/mentions/types';
+import { type MentionCandidate, type MentionUser, toMentionUser } from '@/components/mentions/types';
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu';
 import { ReactorsOverlay } from '@/components/reactions/ReactorsOverlay';
@@ -528,7 +528,7 @@ export function IssueCommentList({
   // 멤버가 바뀔 때만 새로 만든다 — MarkdownMessage 가 mentions 로 렌더러 묶음을 다시 만들면 코멘트 이미지가 다시 마운트돼
   // 열린 뷰어가 닫히고 썸네일이 깜빡인다(renderImage 를 memo 하는 이유와 같다).
   const mentionUsers: MentionUser[] = useMemo(
-    () => mentionCandidates.map((m) => ({ id: m.userId, name: m.name, kind: m.kind })),
+    () => mentionCandidates.map(toMentionUser),
     [mentionCandidates],
   );
 

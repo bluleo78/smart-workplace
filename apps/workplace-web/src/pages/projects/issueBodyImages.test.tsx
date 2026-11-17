@@ -1,9 +1,10 @@
 // 이슈 본문 이미지(WP-199) — 페이지 테스트(WP-980).
-// 이미지 버튼 업로드 → 본문 끝 마크다운, 지워진 이미지(404) 대체 문구, 복원된 초안의 「업로드 중」 토큰 저장 안내는
+// 이미지 버튼 업로드 → 편집칸 끝 이미지 → 저장 본문 마크다운, 지워진 이미지(404) 대체 문구, 복원된 초안의 「업로드 중」 토큰 저장 안내는
 // 브라우저 없이 판정되므로 e2e/pages/projects/issue-body-images.spec.ts 에서 옮겼다.
+// WP-1656: 편집칸(본문 모드 RichInput) 안 이미지 — 기존 본문의 이미지가 편집칸 안 그림으로 열리고, 업로드 중엔 저장·단축키·Esc 가 막힌다.
 // 붙여넣기·드롭(@input), 인증 blob 이미지 실제 디코딩·미리보기(@platform), 미리보기를 닫는 키·클릭이 편집으로 번지지 않음(@input)은 E2E 에 남는다.
 // 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, describe, expect, test } from 'vitest'
 
@@ -17,6 +18,17 @@ import { createIssue } from '../../../e2e/factories/issue.factory'
 import { createMember } from '../../../e2e/factories/project.factory'
 
 const IMG_URL = `/api/v1/projects/${KEY}/issue-images/77`
+const UPLOAD_API = `/api/v1/projects/${KEY}/issue-images`
+const PATCH_API = `/api/v1/projects/${KEY}/issues/1`
+/** 1x1 PNG 앞부분 — 인증 이미지 응답 본문(blob 으로 받아 objectURL 이 된다). */
+const PNG_BYTES = new Uint8Array([137, 80, 78, 71])
+const pngFile = () => new File([PNG_BYTES], 'bug.png', { type: 'image/png' })
+/** 업로드 응답 — 이 프로젝트 이미지 경로. */
+const uploaded = () => HttpResponse.json({ fileId: 77, url: IMG_URL, name: 'bug.png', mimeType: 'image/png', size: 70 }, { status: 201 })
+/** 인증 이미지 조회 — 편집칸 안 이미지가 blob 으로 받는다. */
+const imageGet = http.get(IMG_URL, () => new HttpResponse(PNG_BYTES, { headers: { 'Content-Type': 'image/png' } }))
+/** 「일어나지 않음」 확인용 짧은 대기. */
+const settle = (ms = 300) => act(() => new Promise((r) => setTimeout(r, ms)))
 
 /** 본문을 정해 상세를 연다. */
 function openDetail(body: string, handlers: RequestHandler[] = [], members: ReturnType<typeof createMember>[] = []) {
@@ -27,22 +39,82 @@ function openDetail(body: string, handlers: RequestHandler[] = [], members: Retu
 afterEach(() => window.localStorage.clear())
 
 describe('이슈 본문 이미지 — 편집 (WP-199)', () => {
-  test('편집 진입 후 이미지 버튼은 업로드한 이미지 마크다운을 본문 끝에 덧붙인다', async () => {
+  test('편집 진입 후 이미지 버튼은 업로드한 이미지를 편집칸 끝에 그림으로 넣고, 저장하면 본문 끝에 마크다운이 붙는다', async () => {
     const uploads: string[] = []
+    const patches: unknown[] = []
     const { user } = openDetail('기존 본문', [
-      http.post(`/api/v1/projects/${KEY}/issue-images`, async ({ request }) => {
+      http.post(UPLOAD_API, async ({ request }) => {
         // jsdom File 은 undici 로 넘어가며 이름을 잃어(filename="blob") 파일 필드가 실렸는지만 본다.
         uploads.push((await request.text()).match(/name="file"/)?.[0] ?? '')
-        return HttpResponse.json({ fileId: 77, url: IMG_URL, name: 'bug.png', mimeType: 'image/png', size: 70 }, { status: 201 })
+        return uploaded()
+      }),
+      imageGet,
+      http.patch(PATCH_API, async ({ request }) => {
+        patches.push(await request.json())
+        return HttpResponse.json(createIssue({ id: 1, number: 1 }))
       }),
     ])
     await user.click(await screen.findByRole('button', { name: '본문 편집' }, { timeout: SCREEN_LOAD_TIMEOUT }))
-    await user.upload(screen.getByTestId('issue-body-image-input'), new File([new Uint8Array([137, 80, 78, 71])], 'bug.png', { type: 'image/png' }))
-    await waitFor(() => expect(screen.getByTestId('issue-body-textarea')).toHaveValue(`기존 본문\n![bug.png](${IMG_URL})\n`))
+    await user.upload(screen.getByTestId('issue-body-image-input'), pngFile())
+    const editor = screen.getByTestId('issue-body-textarea')
+    // 편집칸 안 그림 — 업로드가 끝나면 자리표시가 실제 이미지(<img>)가 된다.
+    await waitFor(() => expect(editor.querySelector('[data-testid="rich-image"] img')).not.toBeNull())
     expect(uploads).toEqual(['name="file"'])
+    await user.click(screen.getByTestId('issue-body-save'))
+    await waitFor(() => expect(patches).toEqual([{ body: `기존 본문\n![bug.png](${IMG_URL})\n` }]))
+  })
+
+  // WP-1656 ③: 저장된 본문의 이 프로젝트 이미지는 편집칸을 열어도 글자가 아니라 그림(보기 화면과 같은 크기 클래스)이다.
+  test('이미지가 든 기존 본문을 열면 편집칸 안에 그 이미지가 그림으로 보인다', async () => {
+    const { user } = openDetail(`재현 화면\n![bug.png](${IMG_URL})\n끝`, [imageGet])
+    await user.click(await screen.findByRole('button', { name: '본문 편집' }, { timeout: SCREEN_LOAD_TIMEOUT }))
+    const editor = await screen.findByTestId('issue-body-textarea')
+    const img = await waitFor(() => {
+      const found = editor.querySelector<HTMLImageElement>('[data-testid="rich-image"] img')
+      if (!found) throw new Error('편집칸 안 이미지가 아직 없다')
+      return found
+    })
+    expect(img).toHaveAttribute('alt', 'bug.png')
+    expect(img).toHaveClass('max-h-[480px]', 'max-w-full')
+    expect(editor).not.toHaveTextContent('![bug.png]')
+  })
+
+  // WP-1656 ④: 업로드 중(응답을 붙잡아 둠)에는 저장 버튼·취소 버튼이 비활성이고, Ctrl+Enter 는 저장하지 않으며 Esc 는 편집을 닫지 않는다.
+  test('업로드 중에는 저장·취소가 비활성이고 Ctrl+Enter·Esc 가 무시되며, 끝나면 저장된다', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const patches: unknown[] = []
+    const { user } = openDetail('기존 본문', [
+      http.post(UPLOAD_API, async () => {
+        await gate
+        return uploaded()
+      }),
+      imageGet,
+      http.patch(PATCH_API, async ({ request }) => {
+        patches.push(await request.json())
+        return HttpResponse.json(createIssue({ id: 1, number: 1 }))
+      }),
+    ])
+    await user.click(await screen.findByRole('button', { name: '본문 편집' }, { timeout: SCREEN_LOAD_TIMEOUT }))
+    await user.upload(screen.getByTestId('issue-body-image-input'), pngFile())
+    const editor = screen.getByTestId('issue-body-textarea')
+    expect(await screen.findByText('업로드 중…')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('issue-body-save')).toBeDisabled())
+    expect(screen.getByTestId('issue-body-cancel')).toBeDisabled()
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true })
+    fireEvent.keyDown(editor, { key: 'Escape' })
+    await settle()
+    expect(patches).toEqual([])
+    expect(screen.getByTestId('issue-body-textarea')).toBeInTheDocument()
+
+    release()
+    await waitFor(() => expect(screen.getByTestId('issue-body-save')).toBeEnabled())
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(patches).toEqual([{ body: `기존 본문\n![bug.png](${IMG_URL})\n` }]))
   })
 
   test('복원된 초안에 업로드 중 토큰이 남아 있으면 저장하지 않고 안내 토스트를 띄운다', async () => {
+    // 옛 Textarea 가 남긴 자리표시 토큰(WP-199) — 편집칸에는 글자로 열린다.
     window.localStorage.setItem(issueBodyDraftKey({ userId: 1, tenantId: null }, KEY, 1), '남은 글\n![업로드 중… #1]()')
     const patches: unknown[] = []
     const { user } = openDetail('기존 본문', [

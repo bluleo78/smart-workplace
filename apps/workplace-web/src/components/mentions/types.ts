@@ -21,3 +21,8 @@ export interface MentionUser {
   name: string;
   kind: UserKind;
 }
+
+// 멤버(후보) → 본문 <@id> 이름표 정보. 이슈 본문·코멘트 목록·입력창 붙여넣기가 같은 변환을 쓴다.
+export function toMentionUser(member: { userId: number; name: string; kind: UserKind }): MentionUser {
+  return { id: member.userId, name: member.name, kind: member.kind };
+}

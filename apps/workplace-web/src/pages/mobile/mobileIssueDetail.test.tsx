@@ -8,6 +8,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { setRichBody } from '@/test/kits/projects/issueDetailRef'
 import { mockViewport } from '@/test/viewport'
 import type { IssueDetailResponse, IssueResponse } from '@/types/issue'
 
@@ -427,10 +428,11 @@ describe('하단 편집 바 — 저장·취소 요청', () => {
     const { user, patches } = await open()
     await user.click(screen.getByRole('button', { name: '본문 편집' }))
     expect(screen.queryByTestId('issue-body-save')).not.toBeInTheDocument()
-    const textarea = await screen.findByTestId('issue-body-textarea')
-    // 모바일 편집기는 높이 상한이 없다 — 저장은 하단 바에 있고, vh 상한은 키보드 뒤로 캐럿을 숨긴다(WP-1411).
-    expect(textarea).not.toHaveClass('max-h-[70vh]')
-    fireEvent.change(textarea, { target: { value: '바뀐 본문' } })
+    const editor = await screen.findByTestId('issue-body-textarea')
+    // 모바일 편집기는 높이 상한이 없다 — 저장은 하단 바에 있고, vh 상한은 키보드 뒤로 캐럿을 숨긴다(WP-1411). 최소 높이(160px = 본문 모드 min-h-40)만.
+    expect(editor).not.toHaveClass('max-h-[70vh]')
+    expect(editor).toHaveClass('min-h-40')
+    setRichBody(editor, '바뀐 본문')
     await user.click(screen.getByTestId('mobile-edit-save'))
     await waitFor(() => expect(patches()[0]?.body).toMatchObject({ body: '바뀐 본문' }))
     await waitFor(() => expect(screen.queryByTestId('mobile-edit-bar')).not.toBeInTheDocument())
@@ -448,7 +450,7 @@ describe('하단 편집 바 — 저장·취소 요청', () => {
       }
       const openBody = async () => {
         await user.click(screen.getByRole('button', { name: '본문 편집' }))
-        fireEvent.change(await screen.findByTestId('issue-body-textarea'), { target: { value: '동시 편집 본문' } })
+        setRichBody(await screen.findByTestId('issue-body-textarea'), '동시 편집 본문')
       }
       const [first, second] = order === 'title→body' ? [openTitle, openBody] : [openBody, openTitle]
       const [firstField, secondField] = order === 'title→body' ? ['title', 'body'] : ['body', 'title']

@@ -9,6 +9,7 @@ import { issueImageFileId } from '../../api/issueImages'
 import { useApiBlobUrl } from '../../hooks/queries/useApiBlobUrl'
 import { AttachmentViewer } from '../viewer/AttachmentViewer'
 import { issueBodyImageItem } from '../viewer/viewerItems'
+import { ISSUE_BODY_IMAGE_CLASS } from './issueBodyImageClass'
 
 export function IssueBodyImage({ projectKey, src, alt }: { projectKey: string; src?: string; alt?: string }) {
   const fileId = issueImageFileId(projectKey, src)
@@ -43,7 +44,7 @@ function AuthIssueImage({ src, fileId, alt }: { src: string; fileId: number; alt
       <img
         src={url}
         alt={alt}
-        className="my-2 block h-auto max-h-[480px] max-w-full cursor-zoom-in rounded-md border border-border"
+        className={`my-2 cursor-zoom-in ${ISSUE_BODY_IMAGE_CLASS}`}
         onClick={() => setOpen(true)}
       />
       {open && (

@@ -10,6 +10,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test } from 'vitest'
 
 import { issueBodyDraftKey } from '@/lib/issueBodyDraft'
+import { richEditorOf, setRichBody } from '@/test/kits/projects/issueDetailRef'
 import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { API, projectScreen } from '@/test/kits/projects/projectScreens'
@@ -30,8 +31,8 @@ const DRAFT_KEY = issueBodyDraftKey({ userId: 1, tenantId: null }, KEY, 1)
 const settle = (ms = 300) => act(() => new Promise((r) => setTimeout(r, ms)))
 
 /** 제목·본문이 가변인 이슈 1 상세 — PATCH 를 받아 반영하고 본문을 patches 에 쌓는다. */
-async function openEditable({ patchStatus = 200 }: { patchStatus?: number } = {}) {
-  const state = { title: '원본 제목', body: '원본 본문' }
+async function openEditable({ patchStatus = 200, body = '원본 본문' }: { patchStatus?: number; body?: string } = {}) {
+  const state = { title: '원본 제목', body }
   const patches: Record<string, unknown>[] = []
   const view = renderIssueDetailScreen(`/projects/${KEY}/issues/1`, {
     handlers: [
@@ -59,13 +60,16 @@ async function editTitle(user: ReturnType<typeof renderIssueDetailScreen>['user'
   return input
 }
 
-/** 본문 편집을 열고 값을 바꾼다. */
+/** 본문 편집을 열고 값을 바꾼다 — 편집칸(본문 모드 RichInput, WP-1656)은 원문 줄 단위로 채운다(setRichBody). */
 async function editBody(user: ReturnType<typeof renderIssueDetailScreen>['user'], value: string) {
   await user.click(await screen.findByRole('button', { name: '본문 편집' }))
-  const textarea = await screen.findByTestId('issue-body-textarea')
-  fireEvent.change(textarea, { target: { value } })
-  return textarea
+  const editor = await screen.findByTestId('issue-body-textarea')
+  setRichBody(editor, value)
+  return editor
 }
+
+/** 저장 단축키(Ctrl+Enter) — ProseMirror 가 편집칸의 keydown 으로 받는다. */
+const saveShortcut = (el: HTMLElement) => fireEvent.keyDown(el, { key: 'Enter', ctrlKey: true })
 
 /** 본문 글자('원본 본문')의 [start, end) 를 고른다(WP-1412) — 「본문 인라인 수정」 afterEach 가 지운다. */
 async function selectBody(start: number, end: number) {
@@ -201,9 +205,8 @@ describe('본문 인라인 수정 (#117)', () => {
 
   test('본문을 고쳐 Ctrl+Enter 하면 PATCH {body} 가 나가고 새 본문이 보인다', async () => {
     const { user, patches } = await openEditable()
-    const textarea = await editBody(user, '수정된 본문')
-    textarea.focus()
-    await user.keyboard('{Control>}{Enter}{/Control}')
+    const editor = await editBody(user, '수정된 본문')
+    saveShortcut(editor)
     await waitFor(() => expect(patches).toEqual([{ body: '수정된 본문' }]))
     expect(await screen.findByText('수정된 본문')).toBeInTheDocument()
   })
@@ -218,9 +221,8 @@ describe('본문 인라인 수정 (#117)', () => {
 
   test('본문 편집 중 Escape·「취소」는 PATCH 없이 원본으로 돌아간다', async () => {
     const { user, patches } = await openEditable()
-    const textarea = await editBody(user, '버려질 본문')
-    textarea.focus()
-    await user.keyboard('{Escape}')
+    const editor = await editBody(user, '버려질 본문')
+    fireEvent.keyDown(editor, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByTestId('issue-body-textarea')).not.toBeInTheDocument())
     expect(screen.getByText('원본 본문')).toBeInTheDocument()
 
@@ -232,19 +234,54 @@ describe('본문 인라인 수정 (#117)', () => {
     expect(screen.getByText('원본 본문')).toBeInTheDocument()
   })
 
+  // WP-1656: 편집칸은 원문을 한 바이트도 바꾸지 않는다 — 끝 줄바꿈·연속 빈 줄·앞 공백·탭·꺾쇠·표가 든 본문을 열고 그대로 저장하면 PATCH 가 없다.
+  const RAW = '# 제목\n\n\n  앞 공백\t탭 <div>꺾쇠</div> a<b\n| 가 | 나 |\n|---|---|\n| 1 | 2 |\n\n- [ ] 할 일\n'
+  test('끝 줄바꿈·빈 줄·꺾쇠·표가 든 본문을 열고 그대로 저장하면 PATCH 가 없다', async () => {
+    const { user, patches } = await openEditable({ body: RAW })
+    await user.click(await screen.findByRole('button', { name: '본문 편집' }))
+    const editor = await screen.findByTestId('issue-body-textarea')
+    // 원문 한 줄 = 문단 하나(빈 줄도) — 바뀌지 않은 채로 열렸다.
+    expect(editor.querySelectorAll('p')).toHaveLength(RAW.split('\n').length)
+    await user.click(screen.getByTestId('issue-body-save'))
+    await waitFor(() => expect(screen.queryByTestId('issue-body-textarea')).not.toBeInTheDocument())
+    // 단축키 저장도 같다.
+    await user.click(screen.getByRole('button', { name: '본문 편집' }))
+    saveShortcut(await screen.findByTestId('issue-body-textarea'))
+    await waitFor(() => expect(screen.queryByTestId('issue-body-textarea')).not.toBeInTheDocument())
+    await settle()
+    expect(patches).toEqual([])
+  })
+
+  // WP-1656: 한 줄 끝에 글자 하나를 더하면 PATCH 본문은 원문에 그 글자만 더한 것이다 — 다른 줄의 공백·빈 줄·꺾쇠는 그대로.
+  test('한 줄 끝에 글자 하나를 더해 저장하면 PATCH 본문은 원문 + 그 글자다', async () => {
+    const { user, patches } = await openEditable({ body: RAW })
+    await user.click(await screen.findByRole('button', { name: '본문 편집' }))
+    const editor = richEditorOf(await screen.findByTestId('issue-body-textarea'))
+    // 「앞 공백…」 줄(넷째 문단) 끝 — 사용자가 그 줄 끝에 커서를 두고 X 를 친 것과 같다.
+    let lineEnd = -1
+    editor.state.doc.forEach((node, offset, index) => {
+      if (index === 3) lineEnd = offset + node.nodeSize - 1
+    })
+    act(() => {
+      editor.commands.insertContentAt(lineEnd, 'X')
+    })
+    await user.click(screen.getByTestId('issue-body-save'))
+    await waitFor(() => expect(patches).toHaveLength(1))
+    expect(patches[0]).toEqual({ body: RAW.replace('a<b\n', 'a<bX\n') })
+  })
+
   // WP-885: 5만자 초과 — 서버 400 토스트 대신 입력창 아래 안내 + 저장(버튼·단축키) 막힘, 상한 이내로 줄이면 풀린다.
   test('본문이 5만자를 넘으면 안내를 보이고 저장을 막으며, 줄이면 저장할 수 있다', async () => {
     const { user, patches } = await openEditable()
-    const textarea = await editBody(user, '가'.repeat(50001))
+    const editor = await editBody(user, '가'.repeat(50001))
     expect(await screen.findByTestId('issue-body-limit-error')).toHaveTextContent('50000자 이하')
     expect(screen.getByTestId('issue-body-save')).toBeDisabled()
-    textarea.focus()
-    await user.keyboard('{Control>}{Enter}{/Control}')
+    saveShortcut(editor)
     await settle()
     expect(patches).toEqual([])
     expect(screen.getByTestId('issue-body-textarea')).toBeInTheDocument()
 
-    fireEvent.change(textarea, { target: { value: '가'.repeat(50000) } })
+    setRichBody(editor, '가'.repeat(50000))
     await waitFor(() => expect(screen.queryByTestId('issue-body-limit-error')).not.toBeInTheDocument())
     expect(screen.getByTestId('issue-body-save')).toBeEnabled()
   })
@@ -269,18 +306,24 @@ describe('본문 인라인 수정 (#117)', () => {
     window.localStorage.setItem(`issue-body-draft:${KEY}:1`, '예전 키에 남은 글')
     const { user } = await openEditable()
     await user.click(screen.getByRole('button', { name: '본문 편집' }))
-    expect(await screen.findByTestId('issue-body-textarea')).toHaveValue('원본 본문')
+    expect(await screen.findByTestId('issue-body-textarea')).toHaveTextContent(/^원본 본문$/)
     expect(screen.queryByTestId('issue-body-draft-banner')).not.toBeInTheDocument()
   })
 
   // #824 짝: 이 사용자 키에 서버 본문과 다른 초안이 있으면 배너 → [불러오기] 로 편집기에 복원된다.
-  test('내 초안이 서버 본문과 다르면 복구 배너가 뜨고 불러오면 편집기에 채워진다', async () => {
-    window.localStorage.setItem(DRAFT_KEY, '저장 안 하고 이탈할 초안')
-    const { user } = await openEditable()
+  // 편집칸은 불러온 초안 원문으로 새로 열리고(줄·끝 줄바꿈 그대로), 그대로 저장하면 그 원문이 PATCH 로 간다(WP-1656).
+  test('내 초안이 서버 본문과 다르면 복구 배너가 뜨고 불러오면 편집기에 채워지며, 저장하면 그 원문이 간다', async () => {
+    const DRAFT = '저장 안 하고 이탈할 초안\n\n  둘째 줄 <꺾쇠>\n'
+    window.localStorage.setItem(DRAFT_KEY, DRAFT)
+    const { user, patches } = await openEditable()
     await user.click(screen.getByRole('button', { name: '본문 편집' }))
     await user.click(await screen.findByTestId('issue-body-draft-restore'))
-    expect(screen.getByTestId('issue-body-textarea')).toHaveValue('저장 안 하고 이탈할 초안')
+    const editor = screen.getByTestId('issue-body-textarea')
+    expect(editor.querySelectorAll('p')).toHaveLength(4)
+    expect(editor).toHaveTextContent('저장 안 하고 이탈할 초안 둘째 줄 <꺾쇠>')
     expect(screen.queryByTestId('issue-body-draft-banner')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('issue-body-save'))
+    await waitFor(() => expect(patches).toEqual([{ body: DRAFT }]))
   })
 })
 

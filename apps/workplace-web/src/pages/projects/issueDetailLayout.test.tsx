@@ -6,6 +6,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { setRichBody } from '@/test/kits/projects/issueDetailRef'
 import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { openIssueDetail } from '@/test/kits/projects/openIssueDetail'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
@@ -206,9 +207,7 @@ describe('헤더·본문', () => {
     }
     const { user } = await openIssueDetail({ key: KEY, detail: detailWith() })
     await user.click(screen.getByRole('button', { name: '본문 편집' }))
-    const textarea = await screen.findByTestId('issue-body-textarea')
-    await user.clear(textarea)
-    await user.paste('취소될 변경사항')
+    setRichBody(await screen.findByTestId('issue-body-textarea'), '취소될 변경사항')
     await waitFor(() => expect(dispatchBeforeUnload()).toBe(true))
     await user.click(screen.getByTestId('issue-body-cancel'))
     await waitFor(() => expect(dispatchBeforeUnload()).toBe(false))

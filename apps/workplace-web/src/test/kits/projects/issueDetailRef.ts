@@ -3,6 +3,7 @@
 import { act } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
 
+import { bodyToDoc } from '@/components/mentions/mentionSerialize'
 import type { IssueDetailResponse } from '@/types/issue'
 
 import { createIssueDetail } from '../../../../e2e/factories/issue.factory'
@@ -28,9 +29,27 @@ export function detailRefOf(overrides: Partial<IssueDetailResponse> = {}): Detai
  * 편집기 명령으로 값을 채운다(일반 입력의 fireEvent.change 와 같은 역할). 키 입력 자체는 E2E(@input)가 본다.
  */
 export function setRichText(el: HTMLElement, text: string) {
-  const editor = (el.closest('.ProseMirror') ?? el.querySelector('.ProseMirror') ?? el) as HTMLElement & { editor?: Editor }
-  if (!editor.editor) throw new Error('TipTap 편집기를 찾지 못했다')
+  const editor = richEditorOf(el)
   act(() => {
-    editor.editor!.commands.setContent(text ? `<p>${text}</p>` : '', true)
+    editor.commands.setContent(text ? `<p>${text}</p>` : '', true)
   })
+}
+
+/**
+ * 이슈 본문 편집칸(본문 모드 RichInput, WP-1656) 내용을 원문 text 로 통째로 바꾼다 — 편집칸이 원문을 여는 것과 같은 규칙
+ * (줄 = 문단, 빈 줄 = 빈 문단, projectKey 의 이슈 이미지만 이미지 노드)으로 문서를 만들어 넣는다. Textarea 의 fireEvent.change 자리.
+ * setRichText 는 한 문단 HTML 이라 줄바꿈·꺾쇠를 원문 그대로 옮기지 못한다.
+ */
+export function setRichBody(el: HTMLElement, text: string, projectKey = KEY) {
+  const editor = richEditorOf(el)
+  act(() => {
+    editor.commands.setContent(bodyToDoc(text, [], { images: true, imageProjectKey: projectKey }), true)
+  })
+}
+
+/** 요소(편집칸 또는 그 안팎)에서 TipTap 편집기를 찾는다. */
+export function richEditorOf(el: HTMLElement): Editor {
+  const host = (el.closest('.ProseMirror') ?? el.querySelector('.ProseMirror') ?? el) as HTMLElement & { editor?: Editor }
+  if (!host.editor) throw new Error('TipTap 편집기를 찾지 못했다')
+  return host.editor
 }

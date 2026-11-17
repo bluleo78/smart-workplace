@@ -14,5 +14,16 @@ export function hasIssueDraftContent(title: string | null | undefined, body: str
  * 고치지 않았으면(draft === 원본) 경고하지 않는다. 원본이 없으면(null) 빈 문자열과 비교한다.
  */
 export function isBodyDraftDirty(editing: boolean, draft: string, body: string | null | undefined): boolean {
-  return editing && draft !== (body ?? '')
+  return editing && !isSameBody(draft, body)
+}
+
+/**
+ * 편집한 본문(draft)이 원본(body)과 같은가 — 바이트 그대로 같거나, 원본의 줄바꿈(\r\n·\r)을 \n 으로 바꾼 모양과 같으면 같다(WP-1656).
+ * 왜: 본문 편집칸(본문 모드 RichInput)은 \r\n 원문을 \n 줄로 읽으므로, 고치지 않고 저장해도 \n 모양이 온다 — 이를 「바뀜」으로 보면
+ * 열고 저장만 해도 PATCH 가 나가고 이탈 경고가 뜬다. 원본이 없으면(null) 빈 문자열과 비교한다.
+ */
+export function isSameBody(draft: string, body: string | null | undefined): boolean {
+  const original = body ?? ''
+  // \r 이 없는 원문(거의 전부)은 바꿔 볼 것이 없다 — 긴 본문을 키 입력마다 다시 만들지 않게.
+  return draft === original || (original.includes('\r') && draft === original.replace(/\r\n?/g, '\n'))
 }

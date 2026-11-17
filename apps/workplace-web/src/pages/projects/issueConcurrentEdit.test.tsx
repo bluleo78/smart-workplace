@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { DETAIL_API, DETAIL_PATH, detailRefOf, ISSUE_NUMBER, KEY } from '@/test/kits/projects/issueDetailRef'
+import { DETAIL_API, DETAIL_PATH, detailRefOf, ISSUE_NUMBER, KEY, setRichBody } from '@/test/kits/projects/issueDetailRef'
 import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { appEventStream, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
@@ -151,12 +151,12 @@ describe('이슈 동시 편집 충돌 감지 (#611) — 제목', () => {
 })
 
 describe('이슈 동시 편집 충돌 감지 (#611) — 본문', () => {
-  /** 본문 편집을 열고 textarea 에 값을 넣는다. */
+  /** 본문 편집을 열고 편집칸(본문 모드 RichInput, WP-1656)에 원문을 넣는다. */
   async function editBody(user: ReturnType<typeof renderIssueDetailScreen>['user'], text: string) {
     await user.click(await screen.findByRole('button', { name: '본문 편집' }))
-    const textarea = await screen.findByTestId('issue-body-textarea')
-    fireEvent.change(textarea, { target: { value: text } })
-    return textarea
+    const editor = await screen.findByTestId('issue-body-textarea')
+    setRichBody(editor, text)
+    return editor
   }
   const saveShortcut = () => fireEvent.keyDown(screen.getByTestId('issue-body-textarea'), { key: 'Enter', ctrlKey: true, metaKey: true })
 
@@ -186,7 +186,7 @@ describe('이슈 동시 편집 충돌 감지 (#611) — 본문', () => {
     saveShortcut()
 
     expect(await screen.findByText(CONFLICT, { exact: false })).toBeInTheDocument()
-    expect(screen.getByTestId('issue-body-textarea')).toHaveValue('공들여 쓴 본문')
+    expect(screen.getByTestId('issue-body-textarea')).toHaveTextContent(/^공들여 쓴 본문$/)
     // 최신 이슈가 다시 불러와진 뒤 다시 저장 → 최신 version 으로 성공.
     expect(await within(screen.getByTestId('issue-title-heading')).findByText('다른 탭 제목')).toBeInTheDocument()
     saveShortcut()
