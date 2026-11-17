@@ -3,7 +3,7 @@
 // 업로드 중·실패·불러오는 중 상자는 코멘트 입력창과 같은 모양(UploadImageNodeView)이고, 코멘트 입력창 썸네일(THUMB)은 그대로다.
 import type { ReactNodeViewProps } from '@tiptap/react'
 
-import { ISSUE_BODY_IMAGE_CLASS } from '../issue/IssueBodyImage'
+import { ISSUE_BODY_IMAGE_CLASS } from '../issue/issueBodyImageClass'
 import { UploadImageNodeView } from './RichImageNodeView'
 
 export function RichBodyImageNodeView(props: ReactNodeViewProps) {

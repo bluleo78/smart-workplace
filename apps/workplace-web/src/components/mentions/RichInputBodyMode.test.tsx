@@ -428,14 +428,16 @@ describe('RichInput 본문 모드 — 업로드 실패는 넣기 전 원문으�
     expect(lastArg(onBodyChange)).toBe(body)
   })
 
-  it('실패 전에 이미지 다음 줄에 친 글자는 남는다(줄 나눔만 걷는다)', async () => {
+  // 리뷰(PR #1413): 넣을 때 만든 빈 줄에 친 글자는 앞 줄에 붙이지 않는다 — 자리표시 줄만 걷고 친 줄은 그대로 둔다.
+  it('실패 전에 이미지 다음 줄에 친 글자는 그 줄에 남는다(앞 줄에 붙지 않는다)', async () => {
     const { ref, editor, fail, onBodyChange } = renderFailing('재현 화면', 5)
     act(() => ref.current?.insertImages([png()]))
     act(() => {
       editor.commands.insertContent('이어 씀')
     })
     await act(async () => fail())
-    expect(lastArg(onBodyChange)).toBe('재현 화면이어 씀')
+    expect(imageCount(editor)).toBe(0)
+    expect(lastArg(onBodyChange)).toBe('재현 화면\n이어 씀')
   })
 
   it('함께 넣은 이미지 중 하나만 실패하면 그 이미지만 빠지고 다른 이미지는 남는다', async () => {
@@ -454,7 +456,7 @@ describe('RichInput 본문 모드 — 업로드 실패는 넣기 전 원문으�
 })
 
 // 함께 넣은 이미지 중 일부만 실패(WP-1656 코드 리뷰) — 실패한 것의 줄만 걷고, 남은 것은 「그것만 넣은 것」과 같은 원문이 된다.
-// 자리표시가 「줄을 나눴는가」를 직접 들고 있어(splitLine) 마지막으로 실패한 자리표시가 나눈 줄을 다시 잇는다.
+// 자리표시가 「줄을 나눴는가」를 직접 들고 있어(splitTail) 마지막으로 실패한 자리표시가 나눈 줄을 다시 잇는다 — 나눈 뒤쪽 줄이 그대로일 때만.
 describe('RichInput 본문 모드 — 함께 넣은 이미지의 일부 실패', () => {
   const png = (name: string) => new File(['x'], name, { type: 'image/png' })
   const url = (id: number) => `/api/v1/projects/WP/issue-images/${id}`
@@ -517,6 +519,28 @@ describe('RichInput 본문 모드 — 함께 넣은 이미지의 일부 실패',
     for (const i of order) await act(async () => pending[i].reject(new Error('500')))
     expect(imageCount(editor)).toBe(0)
     expect(lastArg(onBodyChange)).toBe('재현 화면\n다음 줄')
+  })
+
+  // 리뷰(PR #1413): 나눈 뒤쪽 줄을 고쳤으면 실패해도 잇지 않는다 — 이으면 고친 줄이 앞 줄에 붙어 원문이 바뀐다.
+  it('줄 가운데에 넣고 나눈 뒤쪽 줄을 고친 뒤 실패하면 자리표시 줄만 지운다', async () => {
+    const { pending, onBodyChange, editor } = insertAt('재현 화면', 2, [png('a.png')])
+    act(() => {
+      editor.commands.insertContent('!')
+    })
+    await act(async () => pending[0].reject(new Error('500')))
+    expect(imageCount(editor)).toBe(0)
+    expect(lastArg(onBodyChange)).toBe('재현\n! 화면')
+  })
+
+  it('함께 넣은 A·B 중 A 가 실패한 뒤 나눈 뒤쪽 줄에 글자를 치고 B 도 실패하면 두 줄이 붙지 않는다', async () => {
+    const { pending, onBodyChange, editor } = insertAt('abc', 3, [png('a.png'), png('b.png')])
+    await act(async () => pending[0].reject(new Error('500')))
+    act(() => {
+      editor.commands.insertContent('xyz')
+    })
+    await act(async () => pending[1].reject(new Error('500')))
+    expect(imageCount(editor)).toBe(0)
+    expect(lastArg(onBodyChange)).toBe('abc\nxyz')
   })
 
   it('지운 자리표시를 실행 취소로 되살렸는데 그 업로드가 실패였으면 나눈 줄까지 걷어 빈 줄이 남지 않는다', async () => {

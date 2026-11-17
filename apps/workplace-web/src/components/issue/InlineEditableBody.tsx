@@ -139,8 +139,9 @@ export function InlineEditableBody({
 
   // 편집칸(본문 모드 RichInput) 핸들 — 「이미지」 버튼이 커서 자리에 이미지를 넣는다(insertImages).
   const richRef = useRef<RichInputHandle | null>(null);
-  // 편집칸을 새로 만드는 번호 — RichInput 은 원문(initialBody)을 마운트 때 한 번만 읽으므로, 편집 진입·초안 불러오기마다 올려 새 원문으로 연다.
-  const [editorKey, setEditorKey] = useState(0);
+  // 편집칸을 새로 만드는 번호와 그때 넘길 원문 — RichInput 은 원문(initialBody)을 마운트 때 한 번만 읽으므로, 편집 진입·초안 불러오기마다
+  // 번호를 올려 새 원문으로 연다. 원문을 draft 가 아니라 이 값으로 넘겨, 키를 누를 때마다 편집칸이 본문 전체를 다시 읽지 않게 한다(PR #1413 리뷰).
+  const [editorSeed, setEditorSeed] = useState({ key: 0, body: '' });
   // 편집칸 안에 업로드 중인 이미지(자리표시)가 있는가 — RichInput 이 바뀔 때만 알린다(onUploadingChange). 저장·취소·단축키·모바일 바를 막는다.
   const [uploading, setUploading] = useState(false);
   // WP-885: 본문 상한(5만자) 초과 여부 — 넘으면 서버가 400 으로 돌려보내 토스트만 뜨므로 저장 전에 막고 입력창 아래에 안내한다.
@@ -174,27 +175,26 @@ export function InlineEditableBody({
 
   // 표시 → 편집 진입. 진입 시 최신 본문으로 draft 초기화하되, 저장된 초안이 서버 본문과
   // 다르면 조용히 덮어쓰지 않고 배너로 안내(다른 사람이 서버 본문을 바꿨을 수 있음).
-  // 편집칸을 지금 draft 로 새로 만든다(편집칸은 원문을 마운트 때만 읽는다). 새 편집칸은 업로드 중 이미지가 없으므로 업로드 상태도 푼다
-  // (옛 편집칸의 업로드는 그 편집칸과 함께 버려진다). 편집 진입·초안 불러오기가 같이 쓴다.
-  const remountEditor = () => {
-    setEditorKey((k) => k + 1);
+  // 편집칸을 text 로 새로 만들고 draft 도 그 원문으로 둔다(편집칸은 원문을 마운트 때만 읽는다). 새 편집칸은 업로드 중 이미지가 없으므로
+  // 업로드 상태도 푼다(옛 편집칸의 업로드는 그 편집칸과 함께 버려진다). 편집 진입·초안 불러오기·저장 실패 뒤 다시 열기가 같이 쓴다.
+  const remountEditor = (text: string) => {
+    setDraft(text);
+    setEditorSeed((s) => ({ key: s.key + 1, body: text }));
     setUploading(false);
   };
   const enter = () => {
-    setDraft(body ?? '');
     const stored = readIssueBodyDraft(draftKey);
     setShowDraftBanner(stored != null && !isSameBody(stored, body));
-    remountEditor();
+    remountEditor(body ?? '');
     setEditing(true);
     onEditStart?.();
   };
   // 배너 [불러오기] — 저장된 초안을 draft 로 복원하고 편집칸을 그 원문으로 새로 연다.
+  // 업로드 중에는 막는다(저장·취소와 같다, PR #1413 리뷰) — 편집칸을 새로 만들면 올리던 이미지가 안내 없이 사라지고 올라간 파일은 어디서도 쓰이지 않는다.
   const restoreDraft = () => {
+    if (uploading) return;
     const stored = readIssueBodyDraft(draftKey);
-    if (stored != null) {
-      setDraft(stored);
-      remountEditor();
-    }
+    if (stored != null) remountEditor(stored);
     setShowDraftBanner(false);
   };
   // 배너 [버리기] — 초안 폐기, 현재(서버) draft 유지.
@@ -223,11 +223,15 @@ export function InlineEditableBody({
       return;
     }
     // #611 초안은 저장이 성공한 뒤에만 지운다 — 충돌(409)·오류로 실패하면 입력한 본문을 그대로 두고 편집을 다시 연다.
-    // 다시 여는 편집칸은 draft(= 이 원문)로 새로 만들어진다.
+    // 다시 여는 편집칸은 이 원문으로 새로 만들어진다(remountEditor).
     setDraft(next);
     writeIssueBodyDraft(draftKey, next);
-    if (await onSave(next)) clearIssueBodyDraft(draftKey);
-    else setEditing(true);
+    if (await onSave(next)) {
+      clearIssueBodyDraft(draftKey);
+    } else {
+      remountEditor(next);
+      setEditing(true);
+    }
   };
   // 취소 — draft 폐기, 편집 종료. 초안도 함께 정리(#824 — 취소 시 남기지 않음).
   const cancel = () => {
@@ -338,6 +342,7 @@ export function InlineEditableBody({
               size="sm"
               variant="outline"
               onClick={restoreDraft}
+              disabled={uploading}
               data-testid="issue-body-draft-restore"
             >
               불러오기
@@ -363,11 +368,11 @@ export function InlineEditableBody({
         className={cn(disabled && 'cursor-not-allowed opacity-50')}
       >
         <RichInput
-          key={editorKey}
+          key={editorSeed.key}
           ref={richRef}
           bodyMode={bodyMode}
-          // 마운트 때 한 번 읽는다 — 편집 진입·불러오기·저장 실패 뒤 다시 열 때 그때의 draft 로 새로 만들어진다.
-          initialBody={draft}
+          // 마운트 때 한 번 읽는다 — 편집 진입·불러오기 때 그 원문으로 새로 만들어진다(editorSeed).
+          initialBody={editorSeed.body}
           initialMentions={mentionUsers}
           members={members.data ?? []}
           // 접근성 이름 — 「본문 편집」→「본문」, 개인 작업 「메모 편집」→「메모」(보기 영역 이름에서 동작어를 뗀다).

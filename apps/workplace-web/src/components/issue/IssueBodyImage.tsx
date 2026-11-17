@@ -9,10 +9,7 @@ import { issueImageFileId } from '../../api/issueImages'
 import { useApiBlobUrl } from '../../hooks/queries/useApiBlobUrl'
 import { AttachmentViewer } from '../viewer/AttachmentViewer'
 import { issueBodyImageItem } from '../viewer/viewerItems'
-
-/** 본문 이미지 크기·테두리 — 본래 크기, 칸 폭·높이 480px 를 넘으면 비율 유지로 줄인다. 편집칸 이미지(RichBodyImageNodeView, WP-1656)도
- *  같은 크기로 그리도록 함께 쓴다(여백 my-2·확대 커서는 보기 화면만 더한다). */
-export const ISSUE_BODY_IMAGE_CLASS = 'block h-auto max-h-[480px] max-w-full rounded-md border border-border'
+import { ISSUE_BODY_IMAGE_CLASS } from './issueBodyImageClass'
 
 export function IssueBodyImage({ projectKey, src, alt }: { projectKey: string; src?: string; alt?: string }) {
   const fileId = issueImageFileId(projectKey, src)

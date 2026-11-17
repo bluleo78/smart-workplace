@@ -180,6 +180,46 @@ describe('InlineEditableBody 편집칸', () => {
     expect(storedDraft()).toBe('원본 본문 수정\n![a.png](/api/v1/projects/WP/issue-images/9)\n')
   })
 
+  // PR #1413 리뷰: 불러오기는 편집칸을 새로 만들어 올리던 이미지가 안내 없이 사라진다 — 저장·취소처럼 업로드 중엔 막는다.
+  it('업로드 중엔 초안 배너의 「불러오기」가 막히고 올리던 이미지가 그대로 남는다', async () => {
+    // 먼저 초안을 남겨 둔다(편집 → 고침 → 자동 저장 → 화면을 닫음).
+    const first = renderBody()
+    await userEvent.click(screen.getByRole('button', { name: '본문 편집' }))
+    const firstEditor = editorOf(screen.getByTestId('issue-body-textarea'))
+    act(() => {
+      firstEditor.commands.insertContentAt(firstEditor.state.doc.content.size - 1, ' 초안')
+    })
+    await passDraftDebounce()
+    expect(storedDraft()).toBe('원본 본문 초안')
+    first.unmount()
+
+    renderBody()
+    await userEvent.click(screen.getByRole('button', { name: '본문 편집' }))
+    const restore = screen.getByTestId('issue-body-draft-restore')
+    expect(restore).toBeEnabled()
+    await userEvent.upload(screen.getByTestId('issue-body-image-input'), new File(['x'], 'a.png', { type: 'image/png' }))
+    expect(await screen.findByText('업로드 중…')).toBeInTheDocument()
+    expect(restore).toBeDisabled()
+    act(() => {
+      fireEvent.click(restore)
+    })
+    expect(screen.getByText('업로드 중…')).toBeInTheDocument()
+    expect(screen.getByTestId('issue-body-draft-banner')).toBeInTheDocument()
+  })
+
+  it('저장이 실패하면 고친 원문 그대로 편집칸이 다시 열린다', async () => {
+    const { base } = renderBody({ onSave: vi.fn(async () => false) })
+    await userEvent.click(screen.getByRole('button', { name: '본문 편집' }))
+    const editor = editorOf(screen.getByTestId('issue-body-textarea'))
+    act(() => {
+      editor.commands.insertContentAt(editor.state.doc.content.size - 1, ' 수정')
+    })
+    await userEvent.click(screen.getByTestId('issue-body-save'))
+    expect(base.onSave).toHaveBeenCalledWith('원본 본문 수정')
+    const reopened = await screen.findByTestId('issue-body-textarea')
+    expect(editorOf(reopened).state.doc.textContent).toBe('원본 본문 수정')
+  })
+
   it('\\r\\n 원문을 열고 그대로 저장하면(버튼·Ctrl+Enter) 저장 요청이 없다', async () => {
     const { base } = renderBody({ body: '첫 줄\r\n둘째' })
     await userEvent.click(screen.getByRole('button', { name: '본문 편집' }))
