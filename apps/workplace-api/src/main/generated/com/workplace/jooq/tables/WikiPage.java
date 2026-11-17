@@ -371,17 +371,32 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
         return _projectReport;
     }
 
-    private transient ProjectReportSettingPath _projectReportSetting;
+    private transient ProjectReportSettingPath _projectReportSettingReportLocationPageIdFkey;
 
     /**
      * Get the implicit to-many join path to the
-     * <code>public.project_report_setting</code> table
+     * <code>public.project_report_setting</code> table, via the
+     * <code>project_report_setting_report_location_page_id_fkey</code> key
      */
-    public ProjectReportSettingPath projectReportSetting() {
-        if (_projectReportSetting == null)
-            _projectReportSetting = new ProjectReportSettingPath(this, null, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_TEMPLATE_PAGE_ID_FKEY.getInverseKey());
+    public ProjectReportSettingPath projectReportSettingReportLocationPageIdFkey() {
+        if (_projectReportSettingReportLocationPageIdFkey == null)
+            _projectReportSettingReportLocationPageIdFkey = new ProjectReportSettingPath(this, null, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_REPORT_LOCATION_PAGE_ID_FKEY.getInverseKey());
 
-        return _projectReportSetting;
+        return _projectReportSettingReportLocationPageIdFkey;
+    }
+
+    private transient ProjectReportSettingPath _projectReportSettingTemplatePageIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_report_setting</code> table, via the
+     * <code>project_report_setting_template_page_id_fkey</code> key
+     */
+    public ProjectReportSettingPath projectReportSettingTemplatePageIdFkey() {
+        if (_projectReportSettingTemplatePageIdFkey == null)
+            _projectReportSettingTemplatePageIdFkey = new ProjectReportSettingPath(this, null, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_TEMPLATE_PAGE_ID_FKEY.getInverseKey());
+
+        return _projectReportSettingTemplatePageIdFkey;
     }
 
     private transient WikiHtmlDraftPath _wikiHtmlDraft;

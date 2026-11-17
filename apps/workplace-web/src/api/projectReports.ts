@@ -3,6 +3,7 @@ import type {
   ProjectReportCardResponse,
   ProjectReportGenerateResult,
   ProjectReportSettings,
+  UpdateProjectReportLocationRequest,
   UpdateProjectReportSettingsRequest,
 } from '../types/projectReport'
 import { client } from './client'
@@ -25,6 +26,16 @@ export async function updateProjectReportSettings(
   body: UpdateProjectReportSettingsRequest,
 ): Promise<ProjectReportSettings> {
   const { data } = await client.put<ProjectReportSettings>(`/projects/${projectKey}/report-settings`, body)
+  return data
+}
+
+/**
+ * 리포트 저장 위치 바꾸기(WP-1654) — 새 리포트를 고른 페이지 아래 맨 위에 만든다. 이미 만든 리포트는 옮기지 않는다.
+ * 공간 밖·「템플릿」 갈래·AI 리포트 페이지는 400. OWNER·ADMIN 만. 응답은 설정 응답(바뀐 위치 경로 포함).
+ */
+export async function updateProjectReportLocation(projectKey: string, pageId: number): Promise<ProjectReportSettings> {
+  const body: UpdateProjectReportLocationRequest = { pageId }
+  const { data } = await client.put<ProjectReportSettings>(`/projects/${projectKey}/report-settings/location`, body)
   return data
 }
 

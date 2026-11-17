@@ -9,11 +9,11 @@ import com.workplace.wiki.report.dto.ProjectReportSettingsResponse;
 import com.workplace.wiki.report.dto.UpdateProjectReportSettingsRequest;
 import com.workplace.wiki.repository.ProjectNoteSpaceRepository;
 import com.workplace.wiki.service.WikiSystemPageWriter;
-import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -26,7 +26,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>저장·되돌리기: 프로젝트 OWNER·ADMIN(상태 요약 간격과 같은 판정 — {@code assertWithRole(OWNER)} 이 ADMIN 을 통과시킨다).
  *       개인 프로젝트는 400
  *   <li>「지금 생성」(WP-1630): 저장과 같은 권한으로 직전 회차 리포트를 바로 만든다
- *   <li>켤 때 템플릿이 없거나 지워졌으면 기본 템플릿을 복사하고, 다음 실행 시각을 다시 정한다(끄면 비운다)
+ *   <li>켤 때 템플릿이 없거나 지워졌으면 「템플릿」 아래 기본 템플릿을 복사하고, 다음 실행 시각을 다시 정한다(끄면 비운다)
+ *   <li>저장 위치 바꾸기(WP-1654): 같은 권한으로 새 리포트를 둘 프로젝트 노트 공간 페이지를 고른다(검증은 {@link ProjectReportLocation})
+ *   <li>모든 설정 쓰기(저장·되돌리기·위치 바꾸기)는 먼저 「템플릿을 다시 만들었어요」 알림을 지우고 옛 위치 템플릿을 한 번 옮긴다(WP-1654 — 스펙 「다음 설정
+ *       저장이나 생성 때」)
  * </ul>
  *
  * <p>쓰기 주체는 설정한 사람이 아니라 리포트 작성자(소유자가 멤버면 소유자, 아니면 가장 작은 OWNER id)다 — 설정한 ADMIN 이 노트 공간 멤버가 아닐 수
@@ -49,6 +52,7 @@ public class ProjectReportSettingsService {
   private final WikiSystemPageWriter writer;
   private final ProjectReportTemplate template;
   private final ProjectReportGenerator generator;
+  private final ProjectReportLocation location;
   private final TransactionTemplate tx;
 
   public ProjectReportSettingsService(
@@ -58,6 +62,7 @@ public class ProjectReportSettingsService {
       WikiSystemPageWriter writer,
       ProjectReportTemplate template,
       ProjectReportGenerator generator,
+      ProjectReportLocation location,
       PlatformTransactionManager txManager) {
     this.guard = guard;
     this.settings = settings;
@@ -65,6 +70,7 @@ public class ProjectReportSettingsService {
     this.writer = writer;
     this.template = template;
     this.generator = generator;
+    this.location = location;
     this.tx = new TransactionTemplate(txManager);
   }
 
@@ -84,6 +90,8 @@ public class ProjectReportSettingsService {
   public ProjectReportSettingsResponse update(
       long callerId, String key, UpdateProjectReportSettingsRequest req) {
     ProjectRow project = tx.execute(s -> requireManageable(key, callerId));
+    long author = reportAuthor(project);
+    beginWrite(project, author);
     SettingRow current =
         tx.execute(
             s -> settings.find(project.id()).orElseGet(() -> SettingRow.defaults(project.id())));
@@ -105,9 +113,7 @@ public class ProjectReportSettingsService {
     OffsetDateTime nextRunAt = null;
     if (enabled) {
       // 템플릿 복사는 트랜잭션 밖 — 본문 쓰기가 동기화 서버 위임 경로다. 복사하면 ensureTemplate 이 설정 행에 적는다.
-      long author = reportAuthor(project);
-      ReportsHome home = reportsHome(project, author);
-      template.ensureTemplate(project, home, author);
+      template.ensureTemplate(project, projectSpace(project), author);
       // 설정을 바꾸면 새 일정으로 본다 — 격주의 지난 예정 기준도 새로 잡는다.
       nextRunAt = cadence.nextRun(weekday, time, OffsetDateTime.now(), null);
     }
@@ -122,8 +128,34 @@ public class ProjectReportSettingsService {
   /** 템플릿을 기본으로 되돌린다(직전 판은 수정 기록에 남는다). 템플릿이 없으면 새로 복사한다. 켜짐·일정은 건드리지 않는다. */
   public ProjectReportSettingsResponse resetTemplate(long callerId, String key) {
     ProjectRow project = tx.execute(s -> requireManageable(key, callerId));
-    template.reset(project, reportAuthor(project));
+    long author = reportAuthor(project);
+    beginWrite(project, author);
+    template.reset(project, author);
     return tx.execute(s -> response(project, callerId));
+  }
+
+  /**
+   * 저장 위치 바꾸기(WP-1654) — 새 리포트를 pageId 아래에 만든다. 이미 만든 리포트는 옮기지 않는다. 권한은 저장과 같다(OWNER·ADMIN, 개인
+   * 400).
+   *
+   * @throws IllegalArgumentException 공간 밖·없는 페이지, 「템플릿」·템플릿 갈래, AI 리포트 페이지(→ 400)
+   */
+  public ProjectReportSettingsResponse updateLocation(long callerId, String key, long pageId) {
+    ProjectRow project = tx.execute(s -> requireManageable(key, callerId));
+    // 잘못된 요청은 아무것도 바꾸지 않게 검증을 먼저 한다.
+    location.validateChoice(project.id(), pageId);
+    beginWrite(project, reportAuthor(project));
+    tx.executeWithoutResult(s -> settings.setLocation(project.id(), pageId));
+    return tx.execute(s -> response(project, callerId));
+  }
+
+  /**
+   * 설정 쓰기 공통 앞단(WP-1654) — 「템플릿을 다시 만들었어요」 알림을 먼저 지우고(이 쓰기가 다시 만들면 다시 적힌다), 옛 위치 템플릿을 한 번 옮긴다(복사는
+   * 하지 않음). 트랜잭션 밖에서 부른다.
+   */
+  private void beginWrite(ProjectRow project, long author) {
+    tx.executeWithoutResult(s -> settings.clearTemplateRecreated(project.id()));
+    template.relocateLegacyIfNeeded(project, author);
   }
 
   /** 「지금 생성」(WP-1630) — 지금 시각 기준. */
@@ -166,25 +198,44 @@ public class ProjectReportSettingsService {
     return tx.execute(s -> projects.findReportAuthor(project.id(), project.ownerId()));
   }
 
-  /** 「리포트」 자리 보장 — TEAM·OPEN 이면 늘 있다(개인은 앞에서 걸렀다). */
-  private ReportsHome reportsHome(ProjectRow project, long author) {
+  /**
+   * 프로젝트 노트 공간 보장 — TEAM·OPEN 이면 늘 있다(개인은 앞에서 걸렀다). 「리포트」는 만들지 않는다 — 리포트 자리는 생성 때 저장 위치 해석기가
+   * 정한다(WP-1654).
+   */
+  private long projectSpace(ProjectRow project) {
     return writer
-        .ensureReportsHome(project.id(), author)
+        .ensureProjectSpace(project.id())
         .orElseThrow(() -> new IllegalArgumentException(PERSONAL_MESSAGE));
   }
 
-  /** 응답 — 행이 없으면 기본값. canManage 는 OWNER·ADMIN 이고 개인 프로젝트가 아닐 때. 트랜잭션 안에서 부른다. */
+  /**
+   * 응답 — 행이 없으면 기본값. canManage 는 OWNER·ADMIN 이고 개인 프로젝트가 아닐 때. 템플릿은 공간 안에 실제로 있을 때만 id·경로를 싣는다(지웠거나
+   * 다른 공간이면 비움). 저장 위치는 {@link ProjectReportLocation#describe} 로 읽는다. 아무 페이지도 만들지 않는다. 트랜잭션 안에서
+   * 부른다.
+   */
   private ProjectReportSettingsResponse response(ProjectRow project, long callerId) {
     SettingRow row = settings.find(project.id()).orElseGet(() -> SettingRow.defaults(project.id()));
     String role = guard.viewerRole(project, callerId);
     boolean canManage = !project.isPersonal() && ("OWNER".equals(role) || "ADMIN".equals(role));
+    ProjectReportLocation.Description where = location.describe(project.id());
+    Long templateId =
+        where.spaceId() != null && writer.existsInSpace(row.templatePageId(), where.spaceId())
+            ? row.templatePageId()
+            : null;
+    List<String> templatePath = templateId == null ? List.of() : writer.pathTitles(templateId);
     return new ProjectReportSettingsResponse(
         row.enabled(),
         row.cadence().name(),
         row.weekday().name(),
         row.timeOfDay().format(HH_MM),
-        row.templatePageId(),
+        templateId,
         row.nextRunAt(),
-        canManage);
+        canManage,
+        where.spaceId(),
+        where.templatesRootId(),
+        templatePath,
+        row.templateRecreatedAt(),
+        where.locationPageId(),
+        where.locationPath());
   }
 }

@@ -68,9 +68,10 @@ const projectHandlers = (
     // 라벨 삭제 확인창의 영향 안내가 부르는 조회.
     http.get(`${base}/labels/:id/issue-count`, () => HttpResponse.json({ count: 0 })),
     http.get(`${base}/issues`, () => HttpResponse.json({ content: [], page: 0, size: 1, totalElements: 0, totalPages: 0 })),
-    // 「리포트」의 주간 리포트 줄(WP-1483) — 템플릿이 있고 관리할 수 있어 「기본으로 되돌리기」 확인창을 열 수 있다.
+    // 「리포트」의 정기 리포트 줄(WP-1483) — 템플릿이 있고 관리할 수 있어 「기본으로 되돌리기」 확인창을 열 수 있다.
     http.get(`${base}/report-settings`, () =>
-      HttpResponse.json({ enabled: true, cadence: 'WEEKLY', weekday: 'MONDAY', timeOfDay: '09:00', templatePageId: 321, nextRunAt: null, canManage: true }),
+      HttpResponse.json({ enabled: true, cadence: 'WEEKLY', weekday: 'MONDAY', timeOfDay: '09:00', templatePageId: 321, nextRunAt: null, canManage: true,
+        noteSpaceId: 7, templateRootPageId: 320, templatePath: ['템플릿', '정기 리포트'], templateRecreatedAt: null, reportLocationPageId: 11, reportLocationPath: ['리포트'] }),
     ),
   ]
 }

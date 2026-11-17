@@ -191,6 +191,54 @@ public class ProjectReportSettingRecord extends UpdatableRecordImpl<ProjectRepor
         return (OffsetDateTime) get(11);
     }
 
+    /**
+     * Setter for
+     * <code>public.project_report_setting.report_location_page_id</code>.
+     */
+    public void setReportLocationPageId(Long value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.project_report_setting.report_location_page_id</code>.
+     */
+    public Long getReportLocationPageId() {
+        return (Long) get(12);
+    }
+
+    /**
+     * Setter for
+     * <code>public.project_report_setting.template_initialized</code>.
+     */
+    public void setTemplateInitialized(Boolean value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.project_report_setting.template_initialized</code>.
+     */
+    public Boolean getTemplateInitialized() {
+        return (Boolean) get(13);
+    }
+
+    /**
+     * Setter for
+     * <code>public.project_report_setting.template_recreated_at</code>.
+     */
+    public void setTemplateRecreatedAt(OffsetDateTime value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.project_report_setting.template_recreated_at</code>.
+     */
+    public OffsetDateTime getTemplateRecreatedAt() {
+        return (OffsetDateTime) get(14);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -214,7 +262,7 @@ public class ProjectReportSettingRecord extends UpdatableRecordImpl<ProjectRepor
     /**
      * Create a detached, initialised ProjectReportSettingRecord
      */
-    public ProjectReportSettingRecord(Long projectId, Long tenantId, Boolean enabled, String cadence, String weekday, LocalTime timeOfDay, Long templatePageId, OffsetDateTime nextRunAt, Integer consecutiveFailures, OffsetDateTime lastAttemptAt, String lastError, OffsetDateTime updatedAt) {
+    public ProjectReportSettingRecord(Long projectId, Long tenantId, Boolean enabled, String cadence, String weekday, LocalTime timeOfDay, Long templatePageId, OffsetDateTime nextRunAt, Integer consecutiveFailures, OffsetDateTime lastAttemptAt, String lastError, OffsetDateTime updatedAt, Long reportLocationPageId, Boolean templateInitialized, OffsetDateTime templateRecreatedAt) {
         super(ProjectReportSetting.PROJECT_REPORT_SETTING);
 
         setProjectId(projectId);
@@ -229,6 +277,9 @@ public class ProjectReportSettingRecord extends UpdatableRecordImpl<ProjectRepor
         setLastAttemptAt(lastAttemptAt);
         setLastError(lastError);
         setUpdatedAt(updatedAt);
+        setReportLocationPageId(reportLocationPageId);
+        setTemplateInitialized(templateInitialized);
+        setTemplateRecreatedAt(templateRecreatedAt);
         resetTouchedOnNotNull();
     }
 }

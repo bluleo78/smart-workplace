@@ -55,6 +55,19 @@ public class ReportPageWriter {
   }
 
   /**
+   * 본문을 AI 글로 쓰고 「AI 작성」 표지를 남긴다 — 자리는 옮기지 않는다(WP-1654). 프로젝트 리포트의 저장 위치를 바꾼 뒤 같은 회차를 다시 쓸 때, 옛
+   * 위치(또는 사람이 옮긴 자리)의 리포트를 그대로 두기 위해 쓴다.
+   *
+   * @param snapshot 직전 판을 수정 기록으로 남길지
+   */
+  public void writeAndMarkInPlace(
+      long authorId, WikiPageDetail page, String body, OffsetDateTime now, boolean snapshot) {
+    long pageId = page.id();
+    writer.writeBody(authorId, pageId, page.version(), body, true, snapshot);
+    writer.markAiReport(pageId, markTime(pageId, now));
+  }
+
+  /**
    * 「AI 작성」 표지 시각 — 페이지 마지막 수정 시각보다 이르지 않게(쓰기·옮기기가 DB 시각으로 updated_at 을 적으므로, 실행 시각만 쓰면 방금 만든 리포트가
    * 「수정됨」으로 보인다).
    */

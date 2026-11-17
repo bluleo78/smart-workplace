@@ -4,6 +4,7 @@ import com.workplace.global.security.RequirePermission;
 import com.workplace.wiki.report.dto.ProjectReportCardResponse;
 import com.workplace.wiki.report.dto.ProjectReportGenerateResponse;
 import com.workplace.wiki.report.dto.ProjectReportSettingsResponse;
+import com.workplace.wiki.report.dto.UpdateProjectReportLocationRequest;
 import com.workplace.wiki.report.dto.UpdateProjectReportSettingsRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -67,6 +68,20 @@ public class ProjectReportController {
   public ResponseEntity<ProjectReportGenerateResponse> generateNow(
       Authentication auth, @PathVariable String key) {
     return ResponseEntity.ok(settingsService.generateNow((Long) auth.getPrincipal(), key));
+  }
+
+  /**
+   * PUT /api/v1/projects/{key}/report-settings/location — 정기 리포트 저장 위치 바꾸기(WP-1654). 새 리포트를 고른 프로젝트
+   * 노트 공간 페이지 아래에 만든다(이미 만든 리포트는 그대로). 권한은 설정 저장과 같고, 공간 밖·템플릿 갈래·AI 리포트 페이지는 400.
+   */
+  @PutMapping("/api/v1/projects/{key}/report-settings/location")
+  @RequirePermission("project:write")
+  public ResponseEntity<ProjectReportSettingsResponse> updateLocation(
+      Authentication auth,
+      @PathVariable String key,
+      @Valid @RequestBody UpdateProjectReportLocationRequest req) {
+    return ResponseEntity.ok(
+        settingsService.updateLocation((Long) auth.getPrincipal(), key, req.pageId()));
   }
 
   /** POST /api/v1/projects/{key}/report-settings/template/reset — 템플릿 본문을 기본으로(직전 판은 수정 기록에). */

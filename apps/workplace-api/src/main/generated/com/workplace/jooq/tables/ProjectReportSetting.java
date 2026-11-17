@@ -125,6 +125,24 @@ public class ProjectReportSetting extends TableImpl<ProjectReportSettingRecord> 
      */
     public final TableField<ProjectReportSettingRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column
+     * <code>public.project_report_setting.report_location_page_id</code>.
+     */
+    public final TableField<ProjectReportSettingRecord, Long> REPORT_LOCATION_PAGE_ID = createField(DSL.name("report_location_page_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column
+     * <code>public.project_report_setting.template_initialized</code>.
+     */
+    public final TableField<ProjectReportSettingRecord, Boolean> TEMPLATE_INITIALIZED = createField(DSL.name("template_initialized"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * The column
+     * <code>public.project_report_setting.template_recreated_at</code>.
+     */
+    public final TableField<ProjectReportSettingRecord, OffsetDateTime> TEMPLATE_RECREATED_AT = createField(DSL.name("template_recreated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private ProjectReportSetting(Name alias, Table<ProjectReportSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -196,7 +214,7 @@ public class ProjectReportSetting extends TableImpl<ProjectReportSettingRecord> 
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_PROJECT_REPORT_SETTING_NEXT_RUN, Indexes.IDX_PROJECT_REPORT_SETTING_TEMPLATE, Indexes.IDX_PROJECT_REPORT_SETTING_TENANT);
+        return Arrays.asList(Indexes.IDX_PROJECT_REPORT_SETTING_LOCATION, Indexes.IDX_PROJECT_REPORT_SETTING_NEXT_RUN, Indexes.IDX_PROJECT_REPORT_SETTING_TEMPLATE, Indexes.IDX_PROJECT_REPORT_SETTING_TENANT);
     }
 
     @Override
@@ -206,7 +224,7 @@ public class ProjectReportSetting extends TableImpl<ProjectReportSettingRecord> 
 
     @Override
     public List<ForeignKey<ProjectReportSettingRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.PROJECT_REPORT_SETTING__FK_PROJECT_REPORT_SETTING_TENANT, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_PROJECT_ID_FKEY, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_TEMPLATE_PAGE_ID_FKEY);
+        return Arrays.asList(Keys.PROJECT_REPORT_SETTING__FK_PROJECT_REPORT_SETTING_TENANT, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_PROJECT_ID_FKEY, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_REPORT_LOCATION_PAGE_ID_FKEY, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_TEMPLATE_PAGE_ID_FKEY);
     }
 
     private transient TenantPath _tenant;
@@ -233,16 +251,31 @@ public class ProjectReportSetting extends TableImpl<ProjectReportSettingRecord> 
         return _project;
     }
 
-    private transient WikiPagePath _wikiPage;
+    private transient WikiPagePath _projectReportSettingReportLocationPageIdFkey;
 
     /**
-     * Get the implicit join path to the <code>public.wiki_page</code> table.
+     * Get the implicit join path to the <code>public.wiki_page</code> table,
+     * via the <code>project_report_setting_report_location_page_id_fkey</code>
+     * key.
      */
-    public WikiPagePath wikiPage() {
-        if (_wikiPage == null)
-            _wikiPage = new WikiPagePath(this, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_TEMPLATE_PAGE_ID_FKEY, null);
+    public WikiPagePath projectReportSettingReportLocationPageIdFkey() {
+        if (_projectReportSettingReportLocationPageIdFkey == null)
+            _projectReportSettingReportLocationPageIdFkey = new WikiPagePath(this, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_REPORT_LOCATION_PAGE_ID_FKEY, null);
 
-        return _wikiPage;
+        return _projectReportSettingReportLocationPageIdFkey;
+    }
+
+    private transient WikiPagePath _projectReportSettingTemplatePageIdFkey;
+
+    /**
+     * Get the implicit join path to the <code>public.wiki_page</code> table,
+     * via the <code>project_report_setting_template_page_id_fkey</code> key.
+     */
+    public WikiPagePath projectReportSettingTemplatePageIdFkey() {
+        if (_projectReportSettingTemplatePageIdFkey == null)
+            _projectReportSettingTemplatePageIdFkey = new WikiPagePath(this, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_TEMPLATE_PAGE_ID_FKEY, null);
+
+        return _projectReportSettingTemplatePageIdFkey;
     }
 
     @Override

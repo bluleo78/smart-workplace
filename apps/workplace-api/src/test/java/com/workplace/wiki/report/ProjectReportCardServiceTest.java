@@ -57,6 +57,7 @@ class ProjectReportCardServiceTest extends ExternalClientMockedTestBase {
   @Autowired WikiSystemPageWriter writer;
   @Autowired ProjectReportRepository reports;
   @Autowired ProjectReportCardService service;
+  @Autowired ProjectReportSettingRepository settings;
 
   private long ownerId;
   private ProjectResponse project;
@@ -188,6 +189,27 @@ class ProjectReportCardServiceTest extends ExternalClientMockedTestBase {
     long stranger = human();
     assertThatThrownBy(() -> service.card(stranger, project.key()))
         .isInstanceOf(ProjectNotFoundException.class);
+  }
+
+  /** 「노트에서 모두 보기」는 지금 저장 위치(WP-1654) — 고른 페이지 id. */
+  @Test
+  void card_reportsPageId_isChosenLocation() {
+    report(START, BODY, "ON_TRACK");
+    long minutes = writer.createPage(ownerId, home.spaceId(), null, "회의록").id();
+    settings.setLocation(project.id(), minutes);
+    assertThat(service.card(ownerId, project.key()).reportsPageId()).isEqualTo(minutes);
+    // 리포트가 없어도 같은 규칙.
+    assertThat(service.card(ownerId, project.key()).reportsPageId()).isEqualTo(minutes);
+  }
+
+  /** 고른 위치가 지워지면 「리포트」로 되돌아간다(WP-1654). */
+  @Test
+  void card_reportsPageId_fallsBackToReports() {
+    long minutes = writer.createPage(ownerId, home.spaceId(), null, "회의록").id();
+    settings.setLocation(project.id(), minutes);
+    pageService.delete(ownerId, minutes);
+    assertThat(service.card(ownerId, project.key()).reportsPageId())
+        .isEqualTo(home.reportsPageId());
   }
 
   /** 리포트가 하나도 없으면 빈 응답. */

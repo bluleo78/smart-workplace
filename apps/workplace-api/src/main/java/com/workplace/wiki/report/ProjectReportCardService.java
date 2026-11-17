@@ -44,6 +44,7 @@ public class ProjectReportCardService {
   private final WikiSpaceMemberRepository spaceMembers;
   private final WikiPageRepository pages;
   private final WikiSystemPageWriter writer;
+  private final ProjectReportLocation location;
 
   /** 개요 카드 리포트 줄 — 위 규칙. RLS 를 위해 한 읽기 트랜잭션 안에서 읽는다. */
   @Transactional(readOnly = true)
@@ -63,7 +64,8 @@ public class ProjectReportCardService {
             .filter(r -> marks.containsKey(r.pageId()))
             .filter(r -> marks.get(r.pageId()).spaceId() == spaceId)
             .toList();
-    Long reportsPageId = writer.findReportsPage(spaceId).orElse(null);
+    // 「노트에서 모두 보기」 = 지금 저장 위치(WP-1654 — 고른 페이지, 아니면 「리포트」). 읽기만 한다.
+    Long reportsPageId = location.describe(project.id()).locationPageId();
     if (visible.isEmpty()) {
       return new ProjectReportCardResponse(null, List.of(), reportsPageId, null);
     }

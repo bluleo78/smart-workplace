@@ -50,6 +50,12 @@ public class ProjectNoteSpaceService {
   /** 처음 만들 때 넣는 맨 위 페이지 제목 — 연결(link) 때 이 제목의 맨 위 페이지를 대상 공간으로 옮긴다. */
   static final String REPORT_TITLE = "리포트";
 
+  /**
+   * 프로젝트 정기 리포트 템플릿을 두는 맨 위 페이지 제목(WP-1654) — 리포트와 템플릿을 나눈다. 연결(link) 때 「리포트」와 함께 대상 공간으로 옮긴다(안 옮기면
+   * 템플릿이 「다른 공간」으로 판정돼 다시 만들어지고, 자동 공간이 비지 않아 남는다).
+   */
+  static final String TEMPLATES_TITLE = "템플릿";
+
   /** 같은 이름의 팀 공간이 있을 때 붙이는 말 — 「X」 → 「X 프로젝트」 → 「X 프로젝트 2」 …(설계 결정). */
   private static final String NAME_SUFFIX = " 프로젝트";
 
@@ -188,7 +194,8 @@ public class ProjectNoteSpaceService {
    * <p>처리 순서(프로젝트당 연결 공간 하나라는 부분 유일 인덱스 때문에 순서가 중요하다):
    *
    * <ol>
-   *   <li>자동 공간의 맨 위 「리포트」(하위 포함)를 대상 공간 맨 위 첫 자리로 옮긴다 — 기존 노트 옮기기 경로(공유·알림·연결 재검증 포함)
+   *   <li>자동 공간의 맨 위 「리포트」·「템플릿」(하위 포함, WP-1654)을 대상 공간 맨 위 첫 자리로 옮긴다 — 기존 노트 옮기기 경로(공유·알림·연결 재검증
+   *       포함)
    *   <li>자동 공간 연결을 끊는다. 남은 페이지가 없으면 공간을 지우고(삭제 정리 경로 재사용), 있으면 일반 팀 공간으로 남긴다
    *   <li>대상 공간을 프로젝트에 잇고 멤버를 맞춘다 — 프로젝트 밖 사람은 빠진다. 대상 이름은 바꾸지 않는다
    * </ol>
@@ -237,12 +244,18 @@ public class ProjectNoteSpaceService {
     return new WikiProjectSpaceResponse(targetSpaceId, name, project.key());
   }
 
-  /** 연결로 물러나는 자동 공간 정리 — 「리포트」를 대상으로 옮기고 연결을 끊은 뒤, 비었으면 지운다(아래 link 주석의 1·2단계). */
+  /**
+   * 연결로 물러나는 자동 공간 정리 — 「리포트」·「템플릿」(WP-1654)을 대상으로 옮기고 연결을 끊은 뒤, 비었으면 지운다(아래 link 주석의 1·2단계). 둘 다 맨
+   * 위 0번으로 옮기되 「리포트」를 먼저, 「템플릿」을 나중에 옮겨 대상 공간 맨 위가 「템플릿」·「리포트」 순이 되게 한다. 공간 간 이동은 페이지 id 를 유지하므로
+   * 설정의 템플릿 id 는 그대로 쓸 수 있다.
+   */
   private void retireAutoSpace(long callerId, long autoId, long targetSpaceId) {
-    findRootPage(autoId, REPORT_TITLE)
-        .ifPresent(
-            pageId ->
-                pageService.move(callerId, pageId, new MovePageRequest(null, 0, targetSpaceId)));
+    for (String title : List.of(REPORT_TITLE, TEMPLATES_TITLE)) {
+      findRootPage(autoId, title)
+          .ifPresent(
+              pageId ->
+                  pageService.move(callerId, pageId, new MovePageRequest(null, 0, targetSpaceId)));
+    }
     spaces.setLinkedProject(autoId, null);
     if (pages.listBySpace(autoId).isEmpty()) {
       spaceService.deleteSpace(callerId, autoId);

@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { ReportLocationDialog } from '@/components/wiki/ReportLocationDialog';
 import { formatKstMonthDayWeekdayClock } from '@/lib/formatters';
 import { HOUR_OPTIONS } from '@/lib/hourOptions';
 
@@ -24,6 +25,7 @@ import {
   useGenerateProjectReport,
   useProjectReportSettings,
   useResetProjectReportTemplate,
+  useUpdateProjectReportLocation,
   useUpdateProjectReportSettings,
 } from '../../../hooks/queries/useProjectReportSettings';
 import { extractApiError, handleApiError } from '../../../lib/api-error';
@@ -66,7 +68,7 @@ interface ReportSettingsProps {
 }
 
 /**
- * 프로젝트 설정 「리포트」 섹션의 주간 리포트 줄들(WP-1483) — 켬/끔·주기·요일·시각, 템플릿 링크·되돌리기, 저장 위치.
+ * 프로젝트 설정 「리포트」 섹션의 정기 리포트 줄들(WP-1483) — 켬/끔·주기·요일·시각, 템플릿 링크·되돌리기, 저장 위치.
  * 섹션 머리는 StatusSummarySettings 가 그리고 이 컴포넌트는 그 안(상태 요약 줄 아래)에 줄만 더한다 — 시안처럼 한 섹션에 둔다.
  * 저장은 상태 요약 간격과 같은 방식: 바꾸면 바로 PUT(네 값을 모두 싣는다), 낙관적으로 먼저 보이고 실패하면 서버 값으로 되돌린다.
  */
@@ -77,13 +79,16 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
   // 방금 고른 값(낙관적 표시) — 저장 응답이 캐시에 들어오면 놓고, 실패하면 비워 서버 값으로 되돌린다.
   const [pending, setPending] = useState<UpdateProjectReportSettingsRequest | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const updateLocation = useUpdateProjectReportLocation(projectKey);
+  // 「리포트 저장 위치」 고르기 창(WP-1654)
+  const [locationOpen, setLocationOpen] = useState(false);
   // 저장 중 표시 — 선택 상자를 disabled 로 잠그면 초점이 body 로 떨어져(WP-847 과 같은 문제) 잠그지 않고 이 값으로 새 저장만 막는다.
   // ref 인 이유: 같은 틱의 두 번째 고르기는 다시 그리기 전이라 update.isPending 이 아직 false 다.
   const savingRef = useRef(false);
 
   if (query.isPending) return null;
   if (query.isError || !query.data) {
-    return <p className="text-sm text-muted-foreground">주간 리포트 설정을 불러오지 못했어요.</p>;
+    return <p className="text-sm text-muted-foreground">정기 리포트 설정을 불러오지 못했어요.</p>;
   }
 
   const server = query.data;
@@ -115,6 +120,17 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
     }
   };
 
+  /** 저장 위치 바꾸기 — 성공하면 창을 닫고, 실패하면 이유를 알리고 창을 열어 둔다(다른 페이지를 다시 고르게). */
+  const onSaveLocation = async (pageId: number) => {
+    try {
+      await updateLocation.mutateAsync(pageId);
+      toast.success('저장 위치를 바꿨어요');
+      setLocationOpen(false);
+    } catch (e) {
+      handleApiError(e, '저장 위치를 바꾸지 못했습니다');
+    }
+  };
+
   const onConfirmReset = async () => {
     try {
       await reset.mutateAsync();
@@ -133,7 +149,7 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
     <>
       <SettingsToggleRow
         data-testid="settings-report-enabled-row"
-        label={<label htmlFor="settings-report-enabled">주간 리포트</label>}
+        label={<label htmlFor="settings-report-enabled">정기 리포트</label>}
         description={
           <>
             켜면 정한 때마다 지난 회차를 AI 가 노트에 리포트로 써요.
@@ -146,7 +162,7 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
             checked={value.enabled}
             busy={update.isPending}
             disabled={!editable}
-            onCheckedChange={(on) => void save({ enabled: on }, on ? '주간 리포트를 켰어요' : '주간 리포트를 껐어요')}
+            onCheckedChange={(on) => void save({ enabled: on }, on ? '정기 리포트를 켰어요' : '정기 리포트를 껐어요')}
           />
         }
       />
@@ -185,7 +201,8 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
         {templatePath ? (
           <>
             <Link to={templatePath} className="inline-flex items-center gap-0.5 rounded-sm text-sm font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
-              템플릿 · 주간 리포트
+              {/* 템플릿을 어디로 옮겨도 id 로 따라가므로(WP-1654) 글자는 지금 경로다. 경로가 비면(드문 응답) 기본 이름. */}
+              {server.templatePath.length > 0 ? server.templatePath.join(' › ') : '템플릿 › 정기 리포트'}
               <ArrowUpRight className="size-3.5" aria-hidden />
             </Link>
             <Link to={templatePath} className="rounded-sm text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
@@ -193,7 +210,8 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
             </Link>
           </>
         ) : (
-          <span className="text-xs text-muted-foreground">켜면 노트에 만들어요</span>
+          // 켜져 있는데 템플릿이 없으면 지워졌거나 다른 공간으로 옮겨진 것 — 다음 생성 때 「템플릿」 아래 다시 만든다.
+          <span className="text-xs text-muted-foreground">{value.enabled ? '다음 리포트 때 다시 만들어요' : '켜면 노트에 만들어요'}</span>
         )}
         {/* 되돌리기는 관리 권한이 있고 템플릿이 있을 때만 — 없으면 「켜면 노트에 만들어요」와 어긋나고, 켤 때 서버가 기본 템플릿을 복사한다. */}
         {editable && templatePath && (
@@ -208,10 +226,34 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
           </Button>
         )}
       </ReportRow>
+      {/* 없어진 템플릿을 서버가 다시 만들었을 때 한 번 알린다 — 관리자가 다음에 설정을 쓰면 서버가 지운다. */}
+      {server.templateRecreatedAt && (
+        <p className="-mt-1 text-right text-xs text-muted-foreground" data-testid="settings-report-template-recreated">
+          템플릿을 다시 만들었어요
+        </p>
+      )}
 
       <ReportRow label="저장 위치">
-        <span className="text-sm">프로젝트 노트 › 리포트</span>
+        <span className="text-sm">프로젝트 노트 › {server.reportLocationPath.join(' › ')}</span>
+        {/* 노트 공간이 아직 없으면 고를 트리가 없다 — 첫 생성 때 공간과 「리포트」를 만든다. */}
+        {editable && server.noteSpaceId != null && (
+          <Button variant="outline" size="sm" onClick={() => setLocationOpen(true)} data-testid="settings-report-location-change">
+            바꾸기
+          </Button>
+        )}
       </ReportRow>
+
+      <ReportLocationDialog
+        open={locationOpen}
+        spaceId={server.noteSpaceId}
+        currentPageId={server.reportLocationPageId}
+        // 「템플릿」 갈래와, 그 밖으로 옮긴 템플릿 갈래는 리포트 자리가 아니다.
+        blockedRootIds={[server.templateRootPageId, server.templatePageId].filter((id): id is number => id != null)}
+        saving={updateLocation.isPending}
+        helpId="project-settings.report.location"
+        onClose={() => setLocationOpen(false)}
+        onSave={(pageId) => void onSaveLocation(pageId)}
+      />
 
       {/* 「지금 생성」은 설정을 고칠 수 있는 사람만(서버도 같은 권한) — 꺼져 있어도 쓸 수 있다(정기 일정과 따로). */}
       {editable && <GenerateNowRow projectKey={projectKey} />}
