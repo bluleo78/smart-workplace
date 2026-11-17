@@ -117,6 +117,19 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
         ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
         : route.fallback(),
   )
+  // WP-1684: 이슈 상세의 하위 목록은 에픽·일반 이슈 모두 /children 으로 받는다(예전 일반 이슈는 목록 검색의 parent 필터라 목록 스텁이 받아 줬다).
+  // 미스텁이면 503 이 하위 섹션에 실패 안내·재시도를 띄워 화면을 다시 그리므로, 기본은 「하위 없음」. 하위를 보는 spec 이 나중에 등록하면 그쪽이 우선(LIFO).
+  await page.route(
+    (url) => /^\/api\/v1\/projects\/[^/]+\/issues\/\d+\/children$/.test(url.pathname),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ items: [], hiddenCount: 0, closedCount: 0, nextCursor: null }),
+          })
+        : route.fallback(),
+  )
   // WP-965: 메일 목록(받은편지함 전체·업무·보낸편지함)을 끝까지 내리면 서버에서 이전 메일을 더 가져온다 — 짧은 목록은 바로 끝이 보여 곧장 부른다.
   // 기본은 「더 없음」으로 응답해 목록 끝에 「더 이전 메일 없음」만 보이게 한다. 이어 받기를 검증하는 spec 은 나중에 등록(LIFO 우선).
   await page.route(

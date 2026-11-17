@@ -3,6 +3,7 @@
 import { resolveClosedRange } from '../lib/closedRange';
 import { componentTokens, versionTokens } from '../lib/issueFilters';
 import type {
+  ChildrenState,
   CreateIssueRequest,
   EpicChildrenResponse,
   IssueAiClassifyResponse,
@@ -32,8 +33,13 @@ export const issuesApi = {
    * 이슈의 활성 하위 목록(WP-1038) — 다른 프로젝트 하위까지 모은다. 조회자가 읽을 수 없는 프로젝트의 하위는 싣지 않고 hiddenCount 로만 센다.
    * 같은 프로젝트 검색(parent 필터)으로는 다른 프로젝트 하위가 보이지 않아 에픽 하위 목록이 쓴다.
    */
-  children: (key: string, number: number) =>
-    client.get<EpicChildrenResponse>(`/projects/${key}/issues/${number}/children`).then((r) => r.data),
+  // 하위 목록(WP-1684) — state(기본 open)로 열린/끝난 하위를 나눠, cursor·size 로 한 페이지씩 받는다.
+  children: (key: string, number: number, params: { state?: ChildrenState; cursor?: string | null; size?: number } = {}) =>
+    client
+      .get<EpicChildrenResponse>(`/projects/${key}/issues/${number}/children`, {
+        params: { state: params.state, cursor: params.cursor ?? undefined, size: params.size },
+      })
+      .then((r) => r.data),
   // AI 현황 요약 온디맨드 생성 — 성공 시 최신 IssueAiContext 반환.
   generateAiSummary: (key: string, number: number) =>
     client.post<IssueAiContext>(`/projects/${key}/issues/${number}/ai-summary`),

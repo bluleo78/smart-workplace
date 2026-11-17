@@ -8,6 +8,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { emptyChildrenHandler } from '@/test/kits/projects/children'
 import { setRichBody } from '@/test/kits/projects/issueDetailRef'
 import { mockViewport } from '@/test/viewport'
 import type { IssueDetailResponse, IssueResponse } from '@/types/issue'
@@ -68,11 +69,9 @@ function detailApi({ over = {}, detailOver = {}, epicList, extra = [] }: Opts = 
     http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY }))),
     http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
     http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json(MEMBERS)),
-    http.get(`/api/v1/projects/${KEY}/issues`, async ({ request }) => {
-      const isChildren = new URL(request.url).searchParams.has('parent')
-      if (isChildren) return HttpResponse.json(createIssueSearchResponse([], null))
-      return HttpResponse.json(createIssueSearchResponse(epicList ? await epicList() : [EPIC], null))
-    }),
+    http.get(`/api/v1/projects/${KEY}/issues`, async () =>
+      HttpResponse.json(createIssueSearchResponse(epicList ? await epicList() : [EPIC], null)),
+    ),
     http.post(`/api/v1/projects/${KEY}/issues`, async ({ request }) => {
       await record(request)
       return HttpResponse.json(createIssue({ id: 99, number: 99, projectKey: KEY, title: 'new' }))
@@ -96,8 +95,8 @@ function detailApi({ over = {}, detailOver = {}, epicList, extra = [] }: Opts = 
     }),
     http.get(`${BASE}/chat/thread`, () => HttpResponse.json(createChatThread({ threadId: 999, recentMessages: [] }))),
     ...['watchers', 'labels', 'attachments', 'drive-links'].map((s) => http.get(`${BASE}/${s}`, () => HttpResponse.json([]))),
-    // 에픽 하위 목록(WP-1038) — 에픽 이슈 상세가 부른다.
-    http.get(`${BASE}/children`, () => HttpResponse.json({ items: [], hiddenCount: 0 })),
+    // 하위 목록(WP-1038·WP-1684) — 이슈 상세의 하위 섹션이 부른다.
+    emptyChildrenHandler,
     http.get('/api/v1/issues/7/comments', () => HttpResponse.json([])),
     http.get('/api/v1/drive/spaces', () => HttpResponse.json([{ id: 1, type: 'PERSONAL', name: '내 드라이브' }])),
   ]

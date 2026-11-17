@@ -2,6 +2,7 @@
 // 네트워크 계층(MSW)으로 옮긴 것. 데이터는 E2E 와 같은 팩토리를 써서 두 쪽 테스트가 같은 화면 상태를 본다.
 import { http, HttpResponse } from 'msw'
 
+import { emptyChildrenHandler } from '@/test/kits/projects/children'
 import type { ChannelResponse, DmResponse } from '@/types/messaging'
 
 import { createChatMember, createChatMessage, createChatThread } from '../../../../e2e/factories/chat.factory'
@@ -53,6 +54,7 @@ export function issueChatHandlers() {
   return [
     http.get(`${API}/projects/${ISSUE_KEY}`, () => HttpResponse.json(createProject({ key: ISSUE_KEY }))),
     http.get(`${API}/projects/${ISSUE_KEY}/issues`, () => HttpResponse.json(createIssueSearchResponse([issue], null))),
+    emptyChildrenHandler,
     http.get(base, () => HttpResponse.json(createIssueDetail({ summary: issue }))),
     ...['watchers', 'labels', 'attachments'].map((s) => http.get(`${base}/${s}`, () => HttpResponse.json([]))),
     http.get(`${base}/chat/thread`, () => HttpResponse.json(thread)),

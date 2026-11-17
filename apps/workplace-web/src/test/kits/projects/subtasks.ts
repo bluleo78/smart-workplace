@@ -1,5 +1,5 @@
 // 하위 태스크 페이지 테스트 공용(WP-980) — 데스크톱(subtasks.test.tsx)·모바일(subtasksMobile.test.tsx)이 같은 데이터·판정을 쓴다.
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { expect } from 'vitest'
 
 import { agentWorker, createAgentWork } from '../../../../e2e/factories/agentWork.factory'
@@ -42,7 +42,12 @@ export async function expectSubtaskBadges() {
   const delegated = screen.getByTestId('child-row-50')
   expect(within(delegated).getByTestId('ai-delegation-badge-50')).toHaveTextContent('AI 위임')
   expect(delegated.querySelector('[data-status]')).toBeNull()
-  const done = screen.getByTestId('child-row-30')
+  // 끝난 행은 「완료 1건」 아래로 접혀 있다(WP-1684) — 펼쳐서 본다.
+  const toggle = screen.getByRole('button', { name: /완료 1건/ })
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByTestId('child-row-30')).not.toBeInTheDocument()
+  fireEvent.click(toggle)
+  const done = await screen.findByTestId('child-row-30')
   expect(done.querySelector('[data-status]')).toHaveAttribute('data-status', 'success')
   expect(done.querySelector('[data-testid^="ai-delegation-badge-"]')).toBeNull()
 }

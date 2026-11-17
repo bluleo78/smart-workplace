@@ -38,10 +38,19 @@ export interface ParentRef {
 
 // 이슈(주로 에픽)의 활성 하위 목록 응답(WP-1038) — 다른 프로젝트 하위는 각자 projectKey 를 싣는다.
 // 조회자가 읽을 수 없는 프로젝트의 하위는 items 에서 빠지고 hiddenCount 로만 센다(진행률 childCount 는 모두 센다).
+// WP-1684: 열린 것/끝난 것을 state 로 나눠 100건씩 받는다 — items 는 그 페이지(만든 순서), closedCount·hiddenCount 는 페이지와 상관없이 전체 기준.
+// closedCount·nextCursor 는 구 서버 응답엔 없어 선택(없으면 0·다음 없음).
 export interface EpicChildrenResponse {
   items: IssueResponse[];
   hiddenCount: number;
+  /** 조회자가 볼 수 있는 끝난(완료·취소 범주) 하위 수 — 「완료 n건」. */
+  closedCount?: number;
+  /** 다음 페이지 커서(불투명 문자열) — 없으면 null/생략. */
+  nextCursor?: string | null;
 }
+
+/** 하위 목록 조회 조건(WP-1684) — open = 할 일·진행 중 범주, closed = 완료·취소 범주. */
+export type ChildrenState = 'open' | 'closed';
 
 // 의존성 응답에 임베드되는 이슈 요약 (Phase 4b).
 // blockedBy/blocks 양쪽에서 동일 모양으로 사용된다.

@@ -348,7 +348,7 @@ class IssueCrossProjectParentTest extends IntegrationTestBase {
     issueService.create(owner, a.key(), req("A 하위", null, null, key(b, epicB)));
     issueService.create(owner, c.key(), req("C 하위", null, null, key(b, epicB)));
 
-    var children = issueSearchService.children(memberB, b.key(), epicB.number());
+    var children = issueSearchService.children(memberB, b.key(), epicB.number(), null, null, null);
 
     assertThat(children.items())
         .extracting(IssueResponse::title)
@@ -358,7 +358,7 @@ class IssueCrossProjectParentTest extends IntegrationTestBase {
     assertThat(issueService.get(memberB, b.key(), epicB.number()).summary().childCount())
         .isEqualTo(3);
     // 소유자는 모두 본다.
-    var all = issueSearchService.children(owner, b.key(), epicB.number());
+    var all = issueSearchService.children(owner, b.key(), epicB.number(), null, null, null);
     assertThat(all.items()).hasSize(3);
     assertThat(all.hiddenCount()).isZero();
   }

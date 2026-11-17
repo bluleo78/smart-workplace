@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { emptyChildrenHandler } from '@/test/kits/projects/children'
 import { mockViewport } from '@/test/viewport'
 import type { IssueCommentResponse } from '@/types/issue'
 
@@ -34,6 +35,7 @@ async function open(initial: IssueCommentResponse[]) {
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY }))),
       http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
       http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json(createIssueSearchResponse([], null))),
+      emptyChildrenHandler,
       http.get(BASE, () => HttpResponse.json(createIssueDetail({ summary: issue, body: '본문', comments }))),
       ...['watchers', 'labels', 'attachments', 'drive-links'].map((s) => http.get(`${BASE}/${s}`, () => HttpResponse.json([]))),
       http.get(`${BASE}/chat/thread`, () => HttpResponse.json(createChatThread({ threadId: 999, recentMessages: [] }))),

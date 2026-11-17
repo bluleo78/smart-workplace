@@ -17,6 +17,7 @@ import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.IssueSort;
 import com.workplace.issue.dto.IssueSortCursor;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.MeGroupedCursor;
 import com.workplace.issue.dto.MeIssueGrouping;
@@ -49,6 +50,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiFunction;
@@ -365,27 +367,97 @@ public class IssueSearchService {
    * 이슈의 활성 하위 목록(WP-1038) — 다른 프로젝트 하위까지. 이슈를 읽을 수 있어야 하고(없거나 못 읽으면 404), 하위는 조회자가 그 프로젝트를 읽을 수 있을
    * 때만 싣고 나머지는 hiddenCount 로 센다. 이 이슈와 같은 프로젝트 하위는 늘 읽을 수 있다. 항목 모양은 목록과 같다({@link
    * #assembleItems}).
+   *
+   * <p>WP-1684 — 상태 조건과 커서 페이징. 권한 거르기를 페이지 자르기 전에 해야 페이지마다 개수가 줄지 않고 수가 전체 기준이 되므로 네 단계로 처리한다:
+   *
+   * <ol>
+   *   <li>가벼운 조회 한 번으로 하위 전부의 (id, 프로젝트, 상태 범주, created_at) 를 받는다.
+   *   <li>읽을 수 있는지 거르며 hiddenCount·closedCount 를 센다 — 페이지와 상관없이 전체 기준.
+   *   <li>고른 상태의 읽을 수 있는 키를 (created_at, id) 순으로 커서 뒤부터 size 건 자른다(size+1 번째가 있으면 다음 커서).
+   *   <li>그 페이지 id 만 목록 행으로 다시 읽어 조립한다(순서 유지).
+   * </ol>
+   *
+   * @param state open(기본 — 할 일·진행 중 범주) 또는 closed(완료·취소 범주). 그 밖의 값은 400
+   * @param cursor 이전 응답의 nextCursor(불투명). 형식이 틀리면 400
+   * @param size 페이지 크기 — 없으면 100, 1~100 으로 맞춘다(이슈 목록과 같은 규칙)
    */
-  public EpicChildrenResponse children(Long callerId, String projectKey, int number) {
+  public EpicChildrenResponse children(
+      Long callerId, String projectKey, int number, String state, String cursor, Integer size) {
+    boolean wantClosed = parseChildState(state);
+    String trimmedCursor = cursor == null || cursor.isBlank() ? null : cursor.trim();
+    // 커서는 (created_at, id) — 목록 검색 커서(IssueCursor)와 같은 「시각:id」 base64url 형식을 그대로 쓴다(시각 자리가
+    // created_at).
+    IssueCursor after = trimmedCursor == null ? null : IssueCursor.decode(trimmedCursor);
+    int pageSize = size == null ? 100 : Math.max(1, Math.min(100, size));
+
     var project = accessGuard.assertReadable(projectKey, callerId);
     var parent =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     var visibility = parentRefReader.forViewer(callerId);
-    List<IssueRow> readable = new ArrayList<>();
+
+    // 1·2단계 — 전체 하위를 거르며 센다. 이 이슈와 같은 프로젝트 하위는 늘 읽을 수 있다.
+    List<IssueRepository.ChildOrderKey> selected = new ArrayList<>();
     int hidden = 0;
-    for (IssueRow child : issueRepository.findActiveChildren(parent.id())) {
-      if (child.projectId().equals(project.id()) || visibility.canRead(child.projectId())) {
-        readable.add(child);
-      } else {
+    int closed = 0;
+    for (var child : issueRepository.findActiveChildOrderKeys(parent.id())) {
+      boolean readable = child.projectId() == project.id() || visibility.canRead(child.projectId());
+      if (!readable) {
         hidden++;
+        continue;
       }
+      boolean isClosed = IssueStatuses.isClosed(child.category());
+      if (isClosed) closed++;
+      if (isClosed == wantClosed) selected.add(child);
     }
+
+    // 3단계 — 커서 뒤부터 자른다. 저장소(findActiveChildOrderKeys)가 이미 (created_at, id) 순으로 주므로 다시 정렬하지 않는다.
+    List<IssueRepository.ChildOrderKey> rest =
+        after == null
+            ? selected
+            : selected.stream()
+                .filter(
+                    k -> {
+                      int c = k.createdAt().compareTo(after.updatedAt());
+                      return c > 0 || (c == 0 && k.id() > after.id());
+                    })
+                .toList();
+    List<IssueRepository.ChildOrderKey> pageKeys = rest.subList(0, Math.min(pageSize, rest.size()));
+    String nextCursor = null;
+    if (rest.size() > pageSize) {
+      var last = pageKeys.get(pageKeys.size() - 1);
+      nextCursor = IssueCursor.encode(last.createdAt(), last.id());
+    }
+
+    // 4단계 — 페이지 id 만 목록 행으로 다시 읽는다. findByIds 는 순서를 정하지 않으므로 키 순서로 되돌린다.
+    Map<Long, IssueRow> rowById = new HashMap<>();
+    List<Long> pageIds = pageKeys.stream().map(IssueRepository.ChildOrderKey::id).toList();
+    for (IssueRow r : issueRepository.findByIds(pageIds)) {
+      rowById.put(r.id(), r);
+    }
+    List<IssueRow> rows =
+        pageKeys.stream().map(k -> rowById.get(k.id())).filter(Objects::nonNull).toList();
     var keyById =
-        projectRepository.keysByIds(readable.stream().map(IssueRow::projectId).distinct().toList());
+        projectRepository.keysByIds(rows.stream().map(IssueRow::projectId).distinct().toList());
     return new EpicChildrenResponse(
-        assembleItems(callerId, readable, pid -> keyById.getOrDefault(pid, "")), hidden);
+        assembleItems(callerId, rows, pid -> keyById.getOrDefault(pid, "")),
+        hidden,
+        closed,
+        nextCursor);
+  }
+
+  /**
+   * 하위 목록 state 값 → 끝난 하위를 원하나. 비었으면 open. open·closed 말고는 400(InvalidCursorException — 검색 입력 오류와
+   * 같은 응답).
+   */
+  private static boolean parseChildState(String state) {
+    if (state == null || state.isBlank()) return false;
+    return switch (state.trim().toLowerCase(Locale.ROOT)) {
+      case "open" -> false;
+      case "closed" -> true;
+      default -> throw new InvalidCursorException("state 는 open·closed 중 하나여야 합니다");
+    };
   }
 
   /** rows → IssueSearchResponse 조립. 항목 조립은 {@link #assembleItems} 에 맡기고 여기선 커서만 계산한다. */

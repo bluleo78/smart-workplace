@@ -91,12 +91,21 @@ public class IssueController {
   /**
    * 이슈의 활성 하위 목록(WP-1038) — 다른 프로젝트 하위까지 모은다. 조회자가 읽을 수 있는 하위만 싣고 나머지는 hiddenCount 로 센다. 같은 프로젝트
    * 목록(parentNumber 필터)으로는 다른 프로젝트 하위를 볼 수 없어 따로 둔다.
+   *
+   * <p>WP-1684 — state(open 기본·closed)로 열린/끝난 하위를 가르고 cursor·size(기본 100)로 페이지를 나눈다. 응답의
+   * closedCount 는 화면의 「완료 n건」, nextCursor 는 「더 보기」에 쓴다.
    */
   @GetMapping("/{number}/children")
   @RequirePermission("project:read")
   public ResponseEntity<EpicChildrenResponse> children(
-      Authentication auth, @PathVariable String key, @PathVariable int number) {
-    return ResponseEntity.ok(issueSearchService.children((Long) auth.getPrincipal(), key, number));
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @RequestParam(required = false) String state,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer size) {
+    return ResponseEntity.ok(
+        issueSearchService.children((Long) auth.getPrincipal(), key, number, state, cursor, size));
   }
 
   /** 이슈 부분 수정. */

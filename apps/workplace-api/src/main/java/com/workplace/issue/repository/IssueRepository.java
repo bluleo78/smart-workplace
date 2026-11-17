@@ -1483,14 +1483,26 @@ public class IssueRepository {
   }
 
   /**
-   * 부모의 활성 자식 행 전부(다른 프로젝트 자식 포함, WP-1038) — 프로젝트·번호 순. 에픽 하위 목록 화면이 조회자 권한으로 거른 뒤 목록 응답으로 조립한다.
+   * 하위 목록의 가벼운 키(WP-1684) — 권한 거르기·상태 가르기·정렬·커서 자르기에 필요한 열만.
+   *
+   * @param id 이슈 id
+   * @param projectId 하위가 속한 프로젝트(다른 프로젝트일 수 있다 — 읽기 판정용)
+   * @param category 상태 범주(TODO·IN_PROGRESS·DONE·CANCELED)
+   * @param createdAt 만든 시각 — (createdAt, id) 가 하위 목록의 정렬·커서 키
    */
-  public List<IssueRow> findActiveChildren(Long parentId) {
-    return dsl.select(ROW_FIELDS)
-        .from(ISSUE_WITH_STATUS)
+  public record ChildOrderKey(long id, long projectId, String category, Instant createdAt) {}
+
+  /**
+   * 부모의 활성 자식 전부의 가벼운 키(다른 프로젝트 자식 포함, WP-1038·WP-1684) — (created_at, id) 순. 하위 목록이 페이지를 자르기 전에
+   * 조회자 권한으로 거르고 끝난 하위·볼 수 없는 하위를 전체 기준으로 세려면 모든 하위를 봐야 하는데, 본문·조인 열까지 다 읽으면 하위가 수백 건인 에픽에서 무거워 키
+   * 열만 읽는다(페이지에 든 것만 {@link #findByIds} 로 다시 읽는다). idx_issue_parent 를 탄다.
+   */
+  public List<ChildOrderKey> findActiveChildOrderKeys(Long parentId) {
+    return dsl.select(ISSUE.ID, ISSUE.PROJECT_ID, ISSUE.STATUS, ISSUE.CREATED_AT)
+        .from(ISSUE)
         .where(ISSUE.PARENT_ISSUE_ID.eq(parentId).and(ISSUE.DELETED_AT.isNull()))
-        .orderBy(ISSUE.PROJECT_ID.asc(), ISSUE.NUMBER.asc())
-        .fetch(this::mapToRow);
+        .orderBy(ISSUE.CREATED_AT.asc(), ISSUE.ID.asc())
+        .fetch(r -> new ChildOrderKey(r.value1(), r.value2(), r.value3(), r.value4().toInstant()));
   }
 
   /** 미완료 하위 한 건의 위치(WP-1038) — 하위가 다른 프로젝트일 수 있어 키를 만들 프로젝트 키와 읽기 판정용 id 를 함께 싣는다. */
