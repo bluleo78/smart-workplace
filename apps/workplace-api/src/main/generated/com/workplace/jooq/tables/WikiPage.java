@@ -344,6 +344,20 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
         return _personalReportSettingDailyTemplatePageIdFkey;
     }
 
+    private transient PersonalReportSettingPath _personalReportSettingReportLocationPageIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.personal_report_setting</code> table, via the
+     * <code>personal_report_setting_report_location_page_id_fkey</code> key
+     */
+    public PersonalReportSettingPath personalReportSettingReportLocationPageIdFkey() {
+        if (_personalReportSettingReportLocationPageIdFkey == null)
+            _personalReportSettingReportLocationPageIdFkey = new PersonalReportSettingPath(this, null, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_REPORT_LOCATION_PAGE_ID_FKEY.getInverseKey());
+
+        return _personalReportSettingReportLocationPageIdFkey;
+    }
+
     private transient PersonalReportSettingPath _personalReportSettingWeeklyTemplatePageIdFkey;
 
     /**

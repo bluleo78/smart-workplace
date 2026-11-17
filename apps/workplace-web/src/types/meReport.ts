@@ -10,13 +10,23 @@ export interface MeReportSettings {
   timeOfDay: string
   /** 「한 일이 없는 날은 건너뜀」 */
   skipEmpty: boolean
-  /** 일일 템플릿 노트 — 「보고」 바로 아래에 있을 때만(없으면 null → 「켜면 노트에 만들어요」) */
+  /** 일일 템플릿 노트 — 내 노트 공간 안에 있을 때만(옮겨도 id 로 따라간다, WP-1655). 없으면 null → 「켜면 노트에 만들어요」 */
   dailyTemplatePageId: number | null
   /** 주간(·월간) 템플릿 노트 — 같은 규칙 */
   weeklyTemplatePageId: number | null
-  /** 내 노트 「보고」 페이지(없으면 null) */
+  /** 일일 템플릿의 지금 경로(공간 최상위부터 제목들, 예 ["템플릿","일일 보고"]) — 템플릿이 없으면 null */
+  dailyTemplatePath: string[] | null
+  /** 주간·월간 템플릿의 지금 경로 — 같은 규칙 */
+  weeklyTemplatePath: string[] | null
+  /** 내 노트 최상위 「템플릿」 페이지(없으면 null) — 저장 위치 고르기 창이 그 갈래를 뺀다 */
+  templateRootPageId: number | null
+  /** 없어진 템플릿을 서버가 다시 만든 시각(ISO) — 있으면 「템플릿을 다시 만들었어요」, 다음 설정 쓰기 때 서버가 지운다 */
+  templateRecreatedAt: string | null
+  /** 지금 쓰는 저장 위치 페이지 — 고른 페이지, 아니면 「보고」(없으면 null) */
   reportsPageId: number | null
-  /** 내 노트 공간(「보고」가 있을 때만) */
+  /** 저장 위치 경로(공간 최상위부터 제목들) — 기본 ["보고"] */
+  reportLocationPath: string[]
+  /** 내 노트 공간(있으면 — 「보고」 유무와 무관). null 이면 고를 트리가 없어 「바꾸기」를 숨긴다 */
   spaceId: number | null
   /** 다음 자동 일일 생성 시각(꺼짐이면 null) */
   nextRunAt: string | null
@@ -24,6 +34,11 @@ export interface MeReportSettings {
   assistantAvailable: boolean
   /** 자동 생성의 마지막 실패 한 줄(없으면 null) */
   lastError: string | null
+}
+
+/** 저장 위치 바꾸기(WP-1655) — 고른 내 노트 페이지 id. 막힌 자리(템플릿·달 폴더·AI 보고·공간 밖)면 서버가 400. */
+export interface UpdateMeReportLocationRequest {
+  pageId: number
 }
 
 /** 설정 저장 — 세 값을 모두 싣는다(바꾸는 즉시 저장). */

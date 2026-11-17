@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 개인 보고 설정 저장소(WP-1486) — 기본값, 점유(claim), 실패 기록, 실행 대상 조회. */
+/** 개인 보고 설정 저장소(WP-1486) — 기본값, 점유(claim), 실패 기록, 실행 대상 조회, 템플릿 표시·저장 위치(WP-1655). */
 @Transactional
 class PersonalReportSettingRepositoryTest extends ExternalClientMockedTestBase {
 
@@ -71,13 +71,80 @@ class PersonalReportSettingRepositoryTest extends ExternalClientMockedTestBase {
     long projectId =
         projectService.create(userA, new CreateProjectRequest(key, "설정-" + key, null, "TEAM")).id();
     long page = writer.ensureReportsHome(projectId, userA).orElseThrow().reportsPageId();
-    repository.setTemplate(userA, PersonalReportKind.DAILY, page);
+    repository.setTemplate(userA, PersonalReportKind.DAILY, page, false);
     SettingRow s = repository.find(userA).orElseThrow();
     assertThat(s.dailyTemplatePageId()).isEqualTo(page);
     assertThat(s.weeklyTemplatePageId()).isNull();
     assertThat(s.dailyEnabled()).isFalse();
-    repository.setTemplate(userA, PersonalReportKind.MONTHLY, page);
+    repository.setTemplate(userA, PersonalReportKind.MONTHLY, page, false);
     assertThat(repository.find(userA).orElseThrow().weeklyTemplatePageId()).isEqualTo(page);
+  }
+
+  /** 다시 만든 템플릿(WP-1655) — 그 종류 id·「만든 적 있음」을 적고 다시 만든 시각을 남긴다. 다른 종류의 표시는 그대로. */
+  @Test
+  void setTemplate_recreated_setsMadeAndRecreatedAt() {
+    long page = reportsPage();
+    repository.setTemplate(userA, PersonalReportKind.DAILY, page, true);
+    SettingRow s = repository.find(userA).orElseThrow();
+    assertThat(s.dailyTemplatePageId()).isEqualTo(page);
+    assertThat(s.dailyTemplateMade()).isTrue();
+    assertThat(s.weeklyTemplateMade()).isFalse();
+    assertThat(s.templateRecreatedAt()).isNotNull();
+    assertThat(s.templateInitialized()).isFalse();
+  }
+
+  /** 처음 만든 템플릿(WP-1655) — 「만든 적 있음」만 적고 다시 만든 시각은 비워 둔다. 월간은 주간 칸. */
+  @Test
+  void setTemplate_notRecreated_keepsRecreatedAtNull() {
+    long page = reportsPage();
+    repository.setTemplate(userA, PersonalReportKind.MONTHLY, page, false);
+    SettingRow s = repository.find(userA).orElseThrow();
+    assertThat(s.weeklyTemplatePageId()).isEqualTo(page);
+    assertThat(s.weeklyTemplateMade()).isTrue();
+    assertThat(s.dailyTemplateMade()).isFalse();
+    assertThat(s.templateRecreatedAt()).isNull();
+    // 이미 있는 행에 다시 적어도(recreated=false) 앞서 남은 알림 시각은 건드리지 않는다.
+    repository.setTemplate(userA, PersonalReportKind.DAILY, page, true);
+    repository.setTemplate(userA, PersonalReportKind.WEEKLY, page, false);
+    assertThat(repository.find(userA).orElseThrow().templateRecreatedAt()).isNotNull();
+  }
+
+  /** 「템플릿을 다시 만들었어요」 알림 지우기(WP-1655) — 값이 있으면 비우고, 행이 없어도 아무 일 없다. */
+  @Test
+  void clearTemplateRecreated_clears() {
+    repository.clearTemplateRecreated(userA);
+    assertThat(repository.find(userA)).isEmpty();
+    repository.setTemplate(userA, PersonalReportKind.DAILY, reportsPage(), true);
+    repository.clearTemplateRecreated(userA);
+    SettingRow s = repository.find(userA).orElseThrow();
+    assertThat(s.templateRecreatedAt()).isNull();
+    assertThat(s.dailyTemplateMade()).isTrue();
+  }
+
+  /** 옛 템플릿 옮기기를 마친 표시(WP-1655) — 행이 없어도 기본값 행을 만들어 적는다. */
+  @Test
+  void markTemplateInitialized_upsertsRow() {
+    repository.markTemplateInitialized(userA);
+    SettingRow s = repository.find(userA).orElseThrow();
+    assertThat(s.templateInitialized()).isTrue();
+    assertThat(s.dailyEnabled()).isFalse();
+    repository.markTemplateInitialized(userA);
+    assertThat(repository.find(userA).orElseThrow().templateInitialized()).isTrue();
+  }
+
+  /** 저장 위치(WP-1655) — upsert 로 적고, 조건부 지우기는 아직 그 값일 때만 비운다. */
+  @Test
+  void setLocation_andClearLocationIf_onlyWhenSameValue() {
+    long page = reportsPage();
+    repository.setLocation(userA, page);
+    assertThat(repository.find(userA).orElseThrow().reportLocationPageId()).isEqualTo(page);
+    repository.clearLocationIf(userA, page + 1);
+    assertThat(repository.find(userA).orElseThrow().reportLocationPageId()).isEqualTo(page);
+    repository.clearLocationIf(userA, page);
+    assertThat(repository.find(userA).orElseThrow().reportLocationPageId()).isNull();
+    repository.setLocation(userA, page);
+    repository.setLocation(userA, null);
+    assertThat(repository.find(userA).orElseThrow().reportLocationPageId()).isNull();
   }
 
   @Test
@@ -122,6 +189,15 @@ class PersonalReportSettingRepositoryTest extends ExternalClientMockedTestBase {
     assertThat(repository.dueUserIds(NOW, 1)).hasSize(1);
     List<Long> none = repository.dueUserIds(NOW.minusHours(1), 10);
     assertThat(none).doesNotContain(userA, userB);
+  }
+
+  /** FK 를 만족하는 아무 노트 페이지 — 새 프로젝트 노트 공간의 「리포트」. */
+  private long reportsPage() {
+    String key =
+        "PS" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    long projectId =
+        projectService.create(userA, new CreateProjectRequest(key, "설정-" + key, null, "TEAM")).id();
+    return writer.ensureReportsHome(projectId, userA).orElseThrow().reportsPageId();
   }
 
   /** 정지된 멤버(membership SUSPENDED)·비활성 계정(user.is_active=false)·이 워크스페이스 멤버가 아닌 사람은 실행 대상이 아니다. */

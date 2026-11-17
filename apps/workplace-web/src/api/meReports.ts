@@ -9,6 +9,7 @@ import type {
   MeReportLookup,
   MeReportSettings,
   MeReportStatus,
+  UpdateMeReportLocationRequest,
   UpdateMeReportSettingsRequest,
 } from '../types/meReport'
 import { client } from './client'
@@ -19,9 +20,16 @@ export async function fetchMeReportSettings(): Promise<MeReportSettings> {
   return data
 }
 
-/** 설정 저장 — 켤 때 「보고」·두 템플릿이 없으면 서버가 내 노트에 복사한다. 응답은 GET 과 같은 모양. */
+/** 설정 저장 — 켤 때 두 템플릿이 없으면 서버가 내 노트 「템플릿」 아래에 복사한다(WP-1655). 응답은 GET 과 같은 모양. */
 export async function updateMeReportSettings(body: UpdateMeReportSettingsRequest): Promise<MeReportSettings> {
   const { data } = await client.put<MeReportSettings>('/me/report-settings', body)
+  return data
+}
+
+/** 저장 위치 바꾸기(WP-1655) — 막힌 자리면 400(문구는 서버 message). 응답은 GET 과 같은 모양(새 경로가 들어 있다). */
+export async function updateMeReportLocation(pageId: number): Promise<MeReportSettings> {
+  const body: UpdateMeReportLocationRequest = { pageId }
+  const { data } = await client.put<MeReportSettings>('/me/report-settings/location', body)
   return data
 }
 

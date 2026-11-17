@@ -8,6 +8,7 @@ import com.workplace.wiki.report.dto.PersonalReportConflictResponse;
 import com.workplace.wiki.report.dto.PersonalReportLookupResponse;
 import com.workplace.wiki.report.dto.PersonalReportSettingsResponse;
 import com.workplace.wiki.report.dto.PersonalReportStatusResponse;
+import com.workplace.wiki.report.dto.UpdatePersonalReportLocationRequest;
 import com.workplace.wiki.report.dto.UpdatePersonalReportSettingsRequest;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
@@ -54,6 +55,16 @@ public class PersonalReportController {
   public ResponseEntity<PersonalReportSettingsResponse> updateSettings(
       Authentication auth, @Valid @RequestBody UpdatePersonalReportSettingsRequest req) {
     return ResponseEntity.ok(settingsService.update(userId(auth), req));
+  }
+
+  /**
+   * PUT /api/v1/me/report-settings/location — 개인 보고 저장 위치 바꾸기(WP-1655). 새 보고를 고른 내 노트 페이지 아래에 달별로
+   * 만든다(이미 만든 보고는 그대로). 다른 사람의 노트·공간 밖·「템플릿」 갈래·AI 보고 페이지·달 폴더 갈래는 400.
+   */
+  @PutMapping("/api/v1/me/report-settings/location")
+  public ResponseEntity<PersonalReportSettingsResponse> updateLocation(
+      Authentication auth, @Valid @RequestBody UpdatePersonalReportLocationRequest req) {
+    return ResponseEntity.ok(settingsService.updateLocation(userId(auth), req.pageId()));
   }
 
   /** POST /api/v1/me/report-settings/templates/{DAILY|WEEKLY}/reset — 템플릿을 기본으로(직전 판은 수정 기록에). */

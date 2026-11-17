@@ -24,6 +24,7 @@ import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.dto.PersonalReportAiRequest;
 import com.workplace.issue.outbound.dto.PersonalReportAiResult;
+import com.workplace.issue.report.PersonalReportKind;
 import com.workplace.issue.report.PersonalReportPeriod;
 import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -35,7 +36,6 @@ import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.report.PersonalReportGenerator.Outcome;
 import com.workplace.wiki.report.PersonalReportSettingRepository.SettingRow;
 import com.workplace.wiki.service.WikiSystemPageWriter;
-import com.workplace.wiki.service.WikiSystemPageWriter.PersonalReportsHome;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -53,7 +53,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 개인 보고 생성기(WP-1486) — 완료 기준과 1:1. 자동 일일의 건너뜀 조건(끝냄·새로 만듦·상태 바꿈, 「한 일이 없는 날은 건너뜀」, KST 자정 경계), 회차
  * 중복(같은 날 두 번·수동 뒤 자동·「새로 만들기」 (2)), 본인 PERSONAL 공간 › 「보고」 › 「2026년 11월」 에 본인 이름으로 「AI 작성」 표지, 템플릿
- * 복사·재복사·고친 템플릿 전달, 후처리(지시 상자·h1·표 숫자·월간 표 머리·뺀 표), 실패(30분 재시도·3회째 다음 날·비서 없음·수동 FAILED·상한)를 고정한다.
+ * 복사·재복사·옛 템플릿 옮기기·고친 템플릿 전달, 고른 저장 위치(그 아래 달 폴더·「보고」 안 만듦·지워지면 「보고」·재시도 페이지는 옮기지 않음, WP-1655),
+ * 후처리(지시 상자·h1·표 숫자·월간 표 머리·뺀 표), 실패(30분 재시도·3회째 다음 날·비서 없음·수동 FAILED·상한)를 고정한다.
  *
  * <p>「지금」은 2026-11-12(목) 09:00 KST — 자동 일일의 대상은 11/11(수). AI 클라이언트·비서 해석은 목이다. 이슈는 담당자·이력 없이 만든 뒤
  * 상태·시각을 직접 덮어쓴다({@code PersonalReportFactsServiceTest} 와 같은 방식).
@@ -392,7 +393,7 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
 
   // ───────────── 월 폴더 순서(최신 달이 위) ─────────────
 
-  /** 11월 → 9월 → 10월 순으로 만들어도 「보고」 아래는 템플릿 다음 11월·10월·9월(최신 달이 위). */
+  /** 11월 → 9월 → 10월 순으로 만들어도 「보고」 아래는 11월·10월·9월(최신 달이 위 — 템플릿은 「템플릿」 아래라 「보고」에 없다, WP-1655). */
   @Test
   void monthFolders_novemberThenOlder_latestMonthFirst() {
     template.ensureBoth(me);
@@ -421,29 +422,35 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
     assertReportsChildren("2026년 11월", "2026년 10월");
   }
 
-  /** 「보고」 자식이 템플릿 둘 다음 주어진 월 폴더 순서인지. */
+  /** 「보고」 자식이 주어진 달 폴더뿐이고 그 순서인지 — 템플릿은 「템플릿」 아래에 있다(WP-1655). */
   private void assertReportsChildren(String... monthFolders) {
-    long reportsPage = writer.findPersonalReportsHome(me).orElseThrow().reportsPageId();
+    long reportsPage = reportsPage();
     List<Long> children = writer.childIdsOrdered(reportsPage);
-    assertThat(children.subList(0, 2))
-        .containsExactlyInAnyOrder(
-            setting().dailyTemplatePageId(), setting().weeklyTemplatePageId());
-    assertThat(children.subList(2, children.size()).stream().map(id -> page(id).title()))
-        .containsExactly(monthFolders);
+    assertThat(children.stream().map(id -> page(id).title())).containsExactly(monthFolders);
+    long templatesRoot = writer.findTemplatesPage(mySpace()).orElseThrow();
+    assertThat(writer.childIdsOrdered(templatesRoot))
+        .containsExactly(setting().dailyTemplatePageId(), setting().weeklyTemplatePageId());
   }
 
-  /** 자리 계산 — 오래된 첫 월 폴더 앞, 없으면 마지막 최신 월 폴더 뒤, 월 폴더가 없으면 템플릿 다음. 다른 페이지는 월로 보지 않는다. */
+  /**
+   * 자리 계산(WP-1655) — 오래된 첫 달 폴더 앞, 없으면 마지막 최신 달 폴더 뒤, 달 폴더가 하나도 없으면 맨 위(0). 사람 페이지 사이에 끼어 있어도 최신 달이
+   * 첫 달 폴더 자리에 온다. 다른 페이지는 달로 보지 않는다.
+   */
   @Test
   void monthFolderPosition_ordersByMonthDescending() {
-    List<String> siblings = List.of("일일 템플릿", "주간 템플릿", "2026년 12월", "메모", "2026년 9월");
-    assertThat(PersonalReportGenerator.monthFolderPosition(siblings, "2026년 11월", 2)).isEqualTo(4);
-    assertThat(PersonalReportGenerator.monthFolderPosition(siblings, "2027년 1월", 2)).isEqualTo(2);
-    assertThat(PersonalReportGenerator.monthFolderPosition(siblings, "2026년 8월", 2)).isEqualTo(5);
-    assertThat(PersonalReportGenerator.monthFolderPosition(List.of("일일 템플릿"), "2026년 8월", 1))
-        .isEqualTo(1);
-    assertThat(PersonalReportGenerator.parseMonthFolder("2026년 13월")).isEmpty();
-    assertThat(PersonalReportGenerator.parseMonthFolder("2026년 1월"))
-        .hasValue(YearMonth.of(2026, 1));
+    assertThat(PersonalReportGenerator.monthFolderPosition(List.of(), "2026년 11월")).isZero();
+    assertThat(PersonalReportGenerator.monthFolderPosition(List.of("메모", "회의"), "2026년 11월"))
+        .isZero();
+    List<String> siblings = List.of("메모", "2026년 12월", "회의", "2026년 9월");
+    assertThat(PersonalReportGenerator.monthFolderPosition(siblings, "2026년 11월")).isEqualTo(3);
+    assertThat(PersonalReportGenerator.monthFolderPosition(siblings, "2027년 1월")).isEqualTo(1);
+    assertThat(PersonalReportGenerator.monthFolderPosition(siblings, "2026년 8월")).isEqualTo(4);
+    assertThat(PersonalReportMonthFolder.parse("2026년 13월")).isEmpty();
+    assertThat(PersonalReportMonthFolder.parse("2026년 1월")).hasValue(YearMonth.of(2026, 1));
+    assertThat(PersonalReportMonthFolder.isMonthFolder("2026년 11월")).isTrue();
+    assertThat(PersonalReportMonthFolder.isMonthFolder("2026년 0월")).isFalse();
+    assertThat(PersonalReportMonthFolder.isMonthFolder("보고 2026년 11월")).isFalse();
+    assertThat(PersonalReportMonthFolder.isMonthFolder(null)).isFalse();
   }
 
   // ───────────── 본인 공간에만 저장 ─────────────
@@ -492,23 +499,24 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
 
   // ───────────── 템플릿 복사 ─────────────
 
-  /** 템플릿이 없으면 생성 때 「보고」 맨 위에 복사하고, 월 폴더는 그 다음 자리. */
+  /** 템플릿이 없으면 생성 때 「템플릿」 아래에 복사하고(WP-1655), 「보고」 아래에는 달 폴더만 둔다. */
   @Test
   void generate_copiesTemplatesWhenMissing() {
-    assertThat(writer.findPersonalReportsHome(me)).isEmpty();
+    assertThat(writer.findPersonalSpace(me)).isEmpty();
     closedYesterday("DONE");
 
     generator.runDaily(me, NOW);
 
-    PersonalReportsHome home = writer.findPersonalReportsHome(me).orElseThrow();
     Long daily = setting().dailyTemplatePageId();
     assertThat(daily).isNotNull();
     assertThat(page(daily).title()).isEqualTo(PersonalReportTemplate.DAILY_TITLE);
+    long templatesRoot = writer.findTemplatesPage(mySpace()).orElseThrow();
+    assertThat(writer.childIdsOrdered(templatesRoot)).containsExactly(daily);
     long folder = yesterdayPage().parentId();
-    assertThat(writer.childIdsOrdered(home.reportsPageId())).containsExactly(daily, folder);
+    assertThat(writer.childIdsOrdered(reportsPage())).containsExactly(folder);
   }
 
-  /** 사람이 지운 템플릿은 다음 생성 때 다시 복사하고, 월 폴더는 템플릿 두 개 다음. */
+  /** 사람이 지운 템플릿은 다음 생성 때 「템플릿」 아래 다시 복사하고 알림 시각을 남긴다. 「보고」 아래에는 달 폴더만. */
   @Test
   void generate_recopiesDeletedTemplate() {
     template.ensureBoth(me);
@@ -518,13 +526,117 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
 
     assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.GENERATED);
 
-    PersonalReportsHome home = writer.findPersonalReportsHome(me).orElseThrow();
     long again = setting().dailyTemplatePageId();
     assertThat(again).isNotEqualTo(old);
-    assertThat(writer.existsUnder(again, home.reportsPageId())).isTrue();
-    List<Long> children = writer.childIdsOrdered(home.reportsPageId());
-    assertThat(children).hasSize(3);
-    assertThat(children.get(2)).isEqualTo(yesterdayPage().parentId());
+    assertThat(page(again).title()).isEqualTo(PersonalReportTemplate.DAILY_TITLE);
+    long templatesRoot = writer.findTemplatesPage(mySpace()).orElseThrow();
+    assertThat(writer.childIdsOrdered(templatesRoot))
+        .containsExactly(again, setting().weeklyTemplatePageId());
+    assertThat(setting().templateRecreatedAt()).isNotNull();
+    assertThat(writer.childIdsOrdered(reportsPage())).containsExactly(yesterdayPage().parentId());
+  }
+
+  /**
+   * 옛 사용자(WP-1655 전) — 「보고」 바로 아래의 옛 템플릿을 생성 때 한 번 「템플릿」 아래로 옮겨 그대로 쓴다(같은 id·이름만 바뀜·새로 복사하지 않음).
+   * 「보고」 아래에는 달 폴더만 남는다.
+   */
+  @Test
+  void generate_legacyTemplates_relocatedOnGenerate() {
+    long spaceId = writer.ensurePersonalSpace(me);
+    long reportsHome = writer.ensurePersonalReportsPage(spaceId, me);
+    long daily = writer.createPage(me, spaceId, reportsHome, "템플릿 · 일일 보고").id();
+    long weekly = writer.createPage(me, spaceId, reportsHome, "템플릿 · 주간 보고").id();
+    settings.setTemplate(me, PersonalReportKind.DAILY, daily, false);
+    settings.setTemplate(me, PersonalReportKind.WEEKLY, weekly, false);
+    closedYesterday("DONE");
+
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.GENERATED);
+
+    long templatesRoot = writer.findTemplatesPage(spaceId).orElseThrow();
+    assertThat(writer.childIdsOrdered(templatesRoot)).containsExactly(daily, weekly);
+    assertThat(page(daily).title()).isEqualTo(PersonalReportTemplate.DAILY_TITLE);
+    assertThat(page(weekly).title()).isEqualTo(PersonalReportTemplate.WEEKLY_TITLE);
+    assertThat(setting().dailyTemplatePageId()).isEqualTo(daily);
+    assertThat(setting().templateInitialized()).isTrue();
+    assertThat(setting().templateRecreatedAt()).isNull();
+    assertThat(writer.childIdsOrdered(reportsHome)).containsExactly(yesterdayPage().parentId());
+  }
+
+  // ───────────── 저장 위치 고르기(WP-1655) ─────────────
+
+  /** 내 노트 맨 위에 사람이 만든 「업무 일지」를 저장 위치로 고른다. */
+  private long chooseWorkLog() {
+    long spaceId = writer.ensurePersonalSpace(me);
+    long log = writer.createPage(me, spaceId, null, "업무 일지").id();
+    settings.setLocation(me, log);
+    return log;
+  }
+
+  /** 「업무 일지」를 고르면 「업무 일지 › 2026년 11월 › 보고 제목」 으로 만든다. */
+  @Test
+  void generate_chosenLocation_writesUnderItsMonthFolder() {
+    long log = chooseWorkLog();
+    closedYesterday("DONE");
+
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.GENERATED);
+
+    WikiPageDetail p = yesterdayPage();
+    assertThat(p.title()).isEqualTo(DAILY_TITLE);
+    WikiPageDetail folder = page(p.parentId());
+    assertThat(folder.title()).isEqualTo("2026년 11월");
+    assertThat(folder.parentId()).isEqualTo(log);
+    assertThat(writer.childIdsOrdered(log)).containsExactly(folder.id());
+    assertThat(p.aiLastAction()).isEqualTo("report");
+  }
+
+  /** 고른 위치가 유효하면 내 노트 맨 위에 「보고」를 만들지 않는다. */
+  @Test
+  void generate_chosenLocation_doesNotCreateReportsHome() {
+    chooseWorkLog();
+    closedYesterday("DONE");
+
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.GENERATED);
+
+    assertThat(writer.findPersonalReportsPage(mySpace())).isEmpty();
+  }
+
+  /** 고른 페이지가 지워지면(FK 가 NULL 로) 「보고 › 2026년 11월」 로 돌아간다. */
+  @Test
+  void generate_chosenDeleted_fallsBackToReports() {
+    long log = chooseWorkLog();
+    dsl.deleteFrom(WIKI_PAGE).where(WIKI_PAGE.ID.eq(log)).execute();
+    closedYesterday("DONE");
+
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.GENERATED);
+
+    WikiPageDetail folder = page(yesterdayPage().parentId());
+    assertThat(folder.title()).isEqualTo("2026년 11월");
+    assertThat(folder.parentId()).isEqualTo(reportsPage());
+    assertThat(setting().reportLocationPageId()).isNull();
+  }
+
+  /**
+   * 앞선 시도가 「보고 › 2026년 11월」 에 페이지를 만든 뒤 실패했고, 그사이 저장 위치를 「업무 일지」로 바꿨다 — 재시도는 그 페이지를 옛 자리에 둔 채 본문을
+   * 다시 쓰고 「AI 작성」 표지를 남긴다. 새 위치에는 빈 달 폴더도 만들지 않는다.
+   */
+  @Test
+  void generate_retryAfterLocationChange_keepsPendingPageInPlace() {
+    long spaceId = writer.ensurePersonalSpace(me);
+    long reportsHome = writer.ensurePersonalReportsPage(spaceId, me);
+    long oldFolder = writer.ensureChildFolder(spaceId, reportsHome, "2026년 11월", me, s -> 0);
+    long id = reserveManual(YESTERDAY);
+    long pending = writer.createPage(me, spaceId, oldFolder, DAILY_TITLE).id();
+    reports.attachPage(id, pending);
+    long log = chooseWorkLog();
+
+    assertThat(generator.runManual(id, NOW)).isEqualTo(Outcome.GENERATED);
+
+    WikiPageDetail p = page(pending);
+    assertThat(reports.findById(id).orElseThrow().pageId()).isEqualTo(pending);
+    assertThat(p.parentId()).isEqualTo(oldFolder);
+    assertThat(p.body()).contains("어제는 로그인 오류를 고쳤습니다.");
+    assertThat(p.aiLastAction()).isEqualTo("report");
+    assertThat(writer.childIdsOrdered(log)).isEmpty();
   }
 
   /** 사람이 고친 템플릿 본문이 AI 요청에 그대로 실린다. 요청 모양(이름·종류·숫자 줄)도 함께 본다. */
@@ -900,6 +1012,16 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
 
     assertThat(reportRows()).isZero();
     assertThat(setting().lastError()).contains("20000자");
+  }
+
+  /** 내 노트 공간 id(이미 있어야 한다). */
+  private long mySpace() {
+    return writer.findPersonalSpace(me).orElseThrow();
+  }
+
+  /** 내 노트 맨 위 「보고」 id(이미 있어야 한다). */
+  private long reportsPage() {
+    return writer.findPersonalReportsPage(mySpace()).orElseThrow();
   }
 
   /** 이 사용자의 가장 최근 회차 행 id. */

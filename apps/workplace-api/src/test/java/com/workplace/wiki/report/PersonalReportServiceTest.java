@@ -30,7 +30,6 @@ import com.workplace.wiki.report.dto.PersonalReportConflictResponse;
 import com.workplace.wiki.report.dto.PersonalReportLookupResponse;
 import com.workplace.wiki.report.dto.PersonalReportStatusResponse;
 import com.workplace.wiki.service.WikiSystemPageWriter;
-import com.workplace.wiki.service.WikiSystemPageWriter.PersonalReportsHome;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -94,8 +93,9 @@ class PersonalReportServiceTest extends ExternalClientMockedTestBase {
 
   /** 그 날 일일 회차를 페이지까지 만든(GENERATED) 상태로 둔다 — 페이지 id. */
   private long generated(long userId, LocalDate day) {
-    PersonalReportsHome home = writer.ensurePersonalReportsHome(userId);
-    long pageId = writer.createPage(userId, home.spaceId(), home.reportsPageId(), TITLE).id();
+    long spaceId = writer.ensurePersonalSpace(userId);
+    long reportsPage = writer.ensurePersonalReportsPage(spaceId, userId);
+    long pageId = writer.createPage(userId, spaceId, reportsPage, TITLE).id();
     Reservation r =
         reports.reserve(userId, PersonalReportPeriod.daily(day), "MANUAL", NOW.minusHours(1));
     reports.markGenerated(r.id(), pageId, 1, 0, 0, NOW);

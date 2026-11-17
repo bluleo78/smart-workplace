@@ -195,6 +195,86 @@ public class PersonalReportSettingRecord extends UpdatableRecordImpl<PersonalRep
         return (OffsetDateTime) get(11);
     }
 
+    /**
+     * Setter for
+     * <code>public.personal_report_setting.report_location_page_id</code>.
+     */
+    public void setReportLocationPageId(Long value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.personal_report_setting.report_location_page_id</code>.
+     */
+    public Long getReportLocationPageId() {
+        return (Long) get(12);
+    }
+
+    /**
+     * Setter for
+     * <code>public.personal_report_setting.template_initialized</code>.
+     */
+    public void setTemplateInitialized(Boolean value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.personal_report_setting.template_initialized</code>.
+     */
+    public Boolean getTemplateInitialized() {
+        return (Boolean) get(13);
+    }
+
+    /**
+     * Setter for
+     * <code>public.personal_report_setting.daily_template_made</code>.
+     */
+    public void setDailyTemplateMade(Boolean value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.personal_report_setting.daily_template_made</code>.
+     */
+    public Boolean getDailyTemplateMade() {
+        return (Boolean) get(14);
+    }
+
+    /**
+     * Setter for
+     * <code>public.personal_report_setting.weekly_template_made</code>.
+     */
+    public void setWeeklyTemplateMade(Boolean value) {
+        set(15, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.personal_report_setting.weekly_template_made</code>.
+     */
+    public Boolean getWeeklyTemplateMade() {
+        return (Boolean) get(15);
+    }
+
+    /**
+     * Setter for
+     * <code>public.personal_report_setting.template_recreated_at</code>.
+     */
+    public void setTemplateRecreatedAt(OffsetDateTime value) {
+        set(16, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.personal_report_setting.template_recreated_at</code>.
+     */
+    public OffsetDateTime getTemplateRecreatedAt() {
+        return (OffsetDateTime) get(16);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -218,7 +298,7 @@ public class PersonalReportSettingRecord extends UpdatableRecordImpl<PersonalRep
     /**
      * Create a detached, initialised PersonalReportSettingRecord
      */
-    public PersonalReportSettingRecord(Long userId, Long tenantId, Boolean dailyEnabled, LocalTime timeOfDay, Boolean skipEmpty, Long dailyTemplatePageId, Long weeklyTemplatePageId, OffsetDateTime nextRunAt, Integer consecutiveFailures, OffsetDateTime lastAttemptAt, String lastError, OffsetDateTime updatedAt) {
+    public PersonalReportSettingRecord(Long userId, Long tenantId, Boolean dailyEnabled, LocalTime timeOfDay, Boolean skipEmpty, Long dailyTemplatePageId, Long weeklyTemplatePageId, OffsetDateTime nextRunAt, Integer consecutiveFailures, OffsetDateTime lastAttemptAt, String lastError, OffsetDateTime updatedAt, Long reportLocationPageId, Boolean templateInitialized, Boolean dailyTemplateMade, Boolean weeklyTemplateMade, OffsetDateTime templateRecreatedAt) {
         super(PersonalReportSetting.PERSONAL_REPORT_SETTING);
 
         setUserId(userId);
@@ -233,6 +313,11 @@ public class PersonalReportSettingRecord extends UpdatableRecordImpl<PersonalRep
         setLastAttemptAt(lastAttemptAt);
         setLastError(lastError);
         setUpdatedAt(updatedAt);
+        setReportLocationPageId(reportLocationPageId);
+        setTemplateInitialized(templateInitialized);
+        setDailyTemplateMade(dailyTemplateMade);
+        setWeeklyTemplateMade(weeklyTemplateMade);
+        setTemplateRecreatedAt(templateRecreatedAt);
         resetTouchedOnNotNull();
     }
 }

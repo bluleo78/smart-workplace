@@ -1,8 +1,15 @@
-// 개인 보고(WP-1486) 훅 — 보고서 설정 조회·저장, 「일일 보고 보기」 조회, 보고 만들기와 회차 폴링.
+// 개인 보고(WP-1486) 훅 — 보고서 설정 조회·저장·저장 위치 바꾸기(WP-1655), 「일일 보고 보기」 조회, 보고 만들기와 회차 폴링.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
-import { createMeReport, fetchMeReport, fetchMeReportSettings, lookupMeReport, updateMeReportSettings } from '../../api/meReports'
+import {
+  createMeReport,
+  fetchMeReport,
+  fetchMeReportSettings,
+  lookupMeReport,
+  updateMeReportLocation,
+  updateMeReportSettings,
+} from '../../api/meReports'
 import type { CreateMeReportRequest, MeReportKind, UpdateMeReportSettingsRequest } from '../../types/meReport'
 import { wikiKeys } from './wikiKeys'
 
@@ -36,6 +43,15 @@ export function useUpdateMeReportSettings() {
   })
 }
 
+/** 저장 위치 바꾸기(WP-1655) — 응답(새 경로·지금 위치 id)을 그대로 설정 캐시에 넣는다. 오류(400) 처리는 화면이 한다. */
+export function useUpdateMeReportLocation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (pageId: number) => updateMeReportLocation(pageId),
+    onSuccess: (data) => qc.setQueryData(meReportKeys.settings, data),
+  })
+}
+
 /** 그 회차의 가장 최근 보고 노트(없으면 null) — 개요 「어제」 칸의 「일일 보고 보기」. 실패는 링크를 숨길 뿐이라 다시 시도하지 않는다. */
 export function useMeReportLookup(kind: MeReportKind, date: string | null | undefined) {
   return useQuery({
@@ -54,7 +70,8 @@ export function useCreateMeReport() {
 
 /**
  * 회차 상태 — id 가 있으면 읽고, PENDING 동안 3초마다 다시 읽는다. 만들어지면(GENERATED) 「일일 보고 보기」 조회와
- * 노트 트리를 무효화한다 — 새 노트가 「보고」 아래에 생겼기 때문이다(실패면 새 노트가 없어 그대로 둔다).
+ * 노트 트리를 무효화한다 — 새 노트가 저장 위치 아래에 생겼기 때문이다(실패면 새 노트가 없어 그대로 둔다).
+ * 설정도 무효화한다(WP-1655) — 생성이 없어진 템플릿을 다시 만들었거나 사라진 저장 위치를 「보고」로 되돌렸을 수 있다.
  */
 export function useMeReport(id: number | null) {
   const qc = useQueryClient()
@@ -70,6 +87,7 @@ export function useMeReport(id: number | null) {
     if (!generated) return
     void qc.invalidateQueries({ queryKey: ['meReportLookup'] })
     void qc.invalidateQueries({ queryKey: [...wikiKeys.all, 'tree'] })
+    void qc.invalidateQueries({ queryKey: meReportKeys.settings })
   }, [generated, id, qc])
   return query
 }

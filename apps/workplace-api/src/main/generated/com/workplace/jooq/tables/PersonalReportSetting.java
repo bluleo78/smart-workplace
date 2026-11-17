@@ -126,6 +126,36 @@ public class PersonalReportSetting extends TableImpl<PersonalReportSettingRecord
      */
     public final TableField<PersonalReportSettingRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column
+     * <code>public.personal_report_setting.report_location_page_id</code>.
+     */
+    public final TableField<PersonalReportSettingRecord, Long> REPORT_LOCATION_PAGE_ID = createField(DSL.name("report_location_page_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column
+     * <code>public.personal_report_setting.template_initialized</code>.
+     */
+    public final TableField<PersonalReportSettingRecord, Boolean> TEMPLATE_INITIALIZED = createField(DSL.name("template_initialized"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * The column
+     * <code>public.personal_report_setting.daily_template_made</code>.
+     */
+    public final TableField<PersonalReportSettingRecord, Boolean> DAILY_TEMPLATE_MADE = createField(DSL.name("daily_template_made"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * The column
+     * <code>public.personal_report_setting.weekly_template_made</code>.
+     */
+    public final TableField<PersonalReportSettingRecord, Boolean> WEEKLY_TEMPLATE_MADE = createField(DSL.name("weekly_template_made"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * The column
+     * <code>public.personal_report_setting.template_recreated_at</code>.
+     */
+    public final TableField<PersonalReportSettingRecord, OffsetDateTime> TEMPLATE_RECREATED_AT = createField(DSL.name("template_recreated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private PersonalReportSetting(Name alias, Table<PersonalReportSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -197,7 +227,7 @@ public class PersonalReportSetting extends TableImpl<PersonalReportSettingRecord
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_PERSONAL_REPORT_SETTING_DAILY_TEMPLATE, Indexes.IDX_PERSONAL_REPORT_SETTING_NEXT_RUN, Indexes.IDX_PERSONAL_REPORT_SETTING_USER, Indexes.IDX_PERSONAL_REPORT_SETTING_WEEKLY_TEMPLATE);
+        return Arrays.asList(Indexes.IDX_PERSONAL_REPORT_SETTING_DAILY_TEMPLATE, Indexes.IDX_PERSONAL_REPORT_SETTING_LOCATION, Indexes.IDX_PERSONAL_REPORT_SETTING_NEXT_RUN, Indexes.IDX_PERSONAL_REPORT_SETTING_USER, Indexes.IDX_PERSONAL_REPORT_SETTING_WEEKLY_TEMPLATE);
     }
 
     @Override
@@ -207,7 +237,7 @@ public class PersonalReportSetting extends TableImpl<PersonalReportSettingRecord
 
     @Override
     public List<ForeignKey<PersonalReportSettingRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.PERSONAL_REPORT_SETTING__FK_PERSONAL_REPORT_SETTING_TENANT, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_DAILY_TEMPLATE_PAGE_ID_FKEY, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_USER_ID_FKEY, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_WEEKLY_TEMPLATE_PAGE_ID_FKEY);
+        return Arrays.asList(Keys.PERSONAL_REPORT_SETTING__FK_PERSONAL_REPORT_SETTING_TENANT, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_DAILY_TEMPLATE_PAGE_ID_FKEY, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_REPORT_LOCATION_PAGE_ID_FKEY, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_USER_ID_FKEY, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_WEEKLY_TEMPLATE_PAGE_ID_FKEY);
     }
 
     private transient TenantPath _tenant;
@@ -234,6 +264,20 @@ public class PersonalReportSetting extends TableImpl<PersonalReportSettingRecord
             _personalReportSettingDailyTemplatePageIdFkey = new WikiPagePath(this, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_DAILY_TEMPLATE_PAGE_ID_FKEY, null);
 
         return _personalReportSettingDailyTemplatePageIdFkey;
+    }
+
+    private transient WikiPagePath _personalReportSettingReportLocationPageIdFkey;
+
+    /**
+     * Get the implicit join path to the <code>public.wiki_page</code> table,
+     * via the <code>personal_report_setting_report_location_page_id_fkey</code>
+     * key.
+     */
+    public WikiPagePath personalReportSettingReportLocationPageIdFkey() {
+        if (_personalReportSettingReportLocationPageIdFkey == null)
+            _personalReportSettingReportLocationPageIdFkey = new WikiPagePath(this, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_REPORT_LOCATION_PAGE_ID_FKEY, null);
+
+        return _personalReportSettingReportLocationPageIdFkey;
     }
 
     private transient UserPath _user;

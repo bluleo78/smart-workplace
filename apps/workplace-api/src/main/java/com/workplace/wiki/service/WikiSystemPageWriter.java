@@ -154,31 +154,32 @@ public class WikiSystemPageWriter {
         actorId, pageId, new SavePageRequest(title, null, null, false), false, false);
   }
 
-  /** 내 노트(PERSONAL) 공간과 그 「보고」 페이지. */
-  public record PersonalReportsHome(long spaceId, long reportsPageId) {}
-
-  /**
-   * 본인의 「내 노트」 PERSONAL 공간과 그 맨 위 「보고」를 보장한다(WP-1486) — 공간이 없으면 만들고, 「보고」가 없거나 이름이 바뀌었으면 맨 위에 새로
-   * 만든다. 공간은 언제나 {@code type='PERSONAL' AND owner=userId} 로 얻고 저장 위치를 입력으로 받지 않는다 — 사용자가 팀 공간 OWNER
-   * 여도 팀 공간에 두지 않으며, 다른 사람 id 를 받는 별도 공개 메서드도 두지 않는다.
-   */
-  @Transactional
-  public PersonalReportsHome ensurePersonalReportsHome(long userId) {
-    long spaceId = spaceService.ensurePersonalSpace(userId).id();
-    return new PersonalReportsHome(
-        spaceId, noteSpaces.ensureRootPage(spaceId, PERSONAL_REPORTS_TITLE, userId));
+  /** 본인의 「내 노트」 PERSONAL 공간 id(WP-1655, 만들지 않는다) — 설정 화면·저장 위치 검증처럼 읽기만 할 때. 없으면 empty. */
+  @Transactional(readOnly = true)
+  public Optional<Long> findPersonalSpace(long userId) {
+    return spaces.findPersonalSpaceId(userId);
   }
 
-  /** 본인의 PERSONAL 공간과 「보고」가 둘 다 이미 있을 때만 돌려준다 — 아무것도 만들지 않는다(설정 화면이 읽기만 할 때). 하나라도 없으면 empty. */
+  /**
+   * 본인의 「내 노트」 PERSONAL 공간만 보장한다(WP-1655) — 「보고」는 만들지 않는다(저장 위치를 고른 사람에게 「보고」를 되살리지 않게 — 필요할 때만
+   * {@link #ensurePersonalReportsPage} 로 만든다). 공간은 언제나 {@code type='PERSONAL' AND owner=userId} 로
+   * 얻는다.
+   */
+  @Transactional
+  public long ensurePersonalSpace(long userId) {
+    return spaceService.ensurePersonalSpace(userId).id();
+  }
+
+  /** 개인 공간의 맨 위 「보고」 id(WP-1655, 만들지 않는다). 지웠거나 이름을 바꿨으면 empty. */
   @Transactional(readOnly = true)
-  public Optional<PersonalReportsHome> findPersonalReportsHome(long userId) {
-    return spaces
-        .findPersonalSpaceId(userId)
-        .flatMap(
-            spaceId ->
-                noteSpaces
-                    .findRootPage(spaceId, PERSONAL_REPORTS_TITLE)
-                    .map(pageId -> new PersonalReportsHome(spaceId, pageId)));
+  public Optional<Long> findPersonalReportsPage(long spaceId) {
+    return noteSpaces.findRootPage(spaceId, PERSONAL_REPORTS_TITLE);
+  }
+
+  /** 개인 공간의 맨 위 「보고」를 보장한다(WP-1655) — 없거나 이름이 바뀌었으면 맨 위에 만든다(공간 트리 잠금 아래 — 동시에 불러도 하나). */
+  @Transactional
+  public long ensurePersonalReportsPage(long spaceId, long userId) {
+    return noteSpaces.ensureRootPage(spaceId, PERSONAL_REPORTS_TITLE, userId);
   }
 
   /**
