@@ -913,6 +913,21 @@ test('plan-issue.md: 커밋·push·PR 단계가 없고, 팀장 검토(WAITING)·
   assert.match(plan, /^\| 사람 확정 대기 \| 확정 \| `WORKING` \| 10번 넘기기/m);
 });
 
+// WP-361 — 하위마다 넘기면 부모를 맡은 AI 가 없어 하위가 다 끝나도 부모가 진행 중으로 남았다. 넘길 곳은 늘 부모, 하위는 사람 담당자만 두고
+// 부모를 맡은 개발 AI 가 묻지 않고 하위를 하나씩 차례로 맡은 뒤 부모를 검토 대기로 올린다(다음 부르기도 notes 로 기억).
+test('plan-issue.md 넘기기는 부모에 — 부모를 맡은 개발 AI 가 하위를 묻지 않고 하나씩 맡는다 (WP-361)', () => {
+  const handoff = section(workLoop('plan-issue.md'), '### 10. 넘기기', '### 11.');
+  assert.ok(handoff.includes('**넘길 곳은 늘 이 이슈다**'));
+  assert.ok(handoff.includes('`create_issue({ projectKey, title, body, priority, parent: <이 이슈 키>, assignees })`'));
+  assert.ok(!handoff.includes('하위가 있으면 하위마다'));
+  const skill = readFileSync(new URL('work-loop/SKILL.md', skillsDir), 'utf8');
+  const children = section(skill, '**하위 이슈가 있는 이슈**', '**대기열에서 가져오기**');
+  assertBefore(children, '**하위를 차례로 맡는 이슈**', '그 밖에는 처음 고르면 하위를 맡을지');
+  assert.ok(children.includes('**하나만**'));
+  assert.ok(children.includes('`하위 차례로 맡기: 예`'));
+  assert.ok(section(skill, '**대기열에서 가져오기**', '**할 일 없음**').includes('`하위 차례로 맡기: 예` 를 적고'));
+});
+
 test('.work-loop/project.md 에 「기획 역할 AI」 절이 있다 (WP-1564)', () => {
   const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
   const s = project.slice(project.indexOf('\n## 11. 기획 역할 AI'));
