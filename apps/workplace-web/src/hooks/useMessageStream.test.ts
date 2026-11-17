@@ -5,10 +5,11 @@ import type { MessageResponse } from '../types/messaging'
 import { messagingKeys } from './queries/messagingKeys'
 import { handleMessagingEvent } from './useMessageStream'
 
-// WP-135: 목록 행이 마지막 메시지 미리보기를 보여 주므로, 수정·삭제도 채널·DM 목록을 다시 불러와야 한다.
+// WP-135: 목록 행이 마지막 메시지 미리보기를 보여 주므로, 수정·삭제도 목록을 다시 불러와야 한다.
+// 여기서는 받아 둔 목록이 없어 어느 대화인지 모르는 경우 — 두 목록을 모두 다시 받는다(종류별로 고르는 것은 WP-1663 묶음).
 describe('handleMessagingEvent — 목록 미리보기 갱신', () => {
   for (const ev of ['messaging.message.updated', 'messaging.message.deleted']) {
-    it(`${ev} 는 채널·DM 목록을 invalidate 한다`, () => {
+    it(`${ev} 는 받아 둔 목록이 없으면 채널·DM 목록을 모두 invalidate 한다`, () => {
       const qc = new QueryClient()
       const spy = vi.spyOn(qc, 'invalidateQueries')
       handleMessagingEvent(qc, ev, { channelId: 1, id: 5, body: 'x', mentions: [], editedAt: null }, 1)
@@ -96,5 +97,56 @@ describe('handleMessagingEvent — messaging.message.read (DM 읽음 표시)', (
     expect(qc.getQueryData(messagingKeys.readStates(7))).toBe(states)
     const keys = spy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
     expect(keys).toContain(JSON.stringify(messagingKeys.dms()))
+  })
+})
+
+// WP-1663: 메시지 이벤트마다 채널·DM 목록을 모두 다시 받지 않는다 — 메시지가 속한 대화가 받아 둔 목록 중 어디에 있는지로
+// 그 목록만 다시 받는다. 어느 목록에도 없으면(새 DM·막 들어간 채널·목록을 아직 안 받음) 둘 다 다시 받는다.
+describe('handleMessagingEvent — 대화 종류에 맞는 목록만 다시 받기', () => {
+  const channel = { id: 3, kind: 'CHANNEL', name: 'general' }
+  const dm = { id: 9, participants: [], lastMessageAt: null, unreadCount: 0 }
+  const setup = () => {
+    const qc = new QueryClient()
+    qc.setQueryData(messagingKeys.channels(), [channel])
+    qc.setQueryData(messagingKeys.dms(), [dm])
+    const spy = vi.spyOn(qc, 'invalidateQueries')
+    const invalidated = () => spy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
+    return { qc, invalidated }
+  }
+  const created = (channelId: number) =>
+    ({ id: 100, channelId, parentMessageId: null, authorId: 2, body: 'hi' }) as unknown as MessageResponse
+
+  it('채널 메시지 생성은 채널 목록만 다시 받는다', () => {
+    const { qc, invalidated } = setup()
+    handleMessagingEvent(qc, 'messaging.message.created', created(3), 1)
+    expect(invalidated()).toContain(JSON.stringify(messagingKeys.channels()))
+    expect(invalidated()).not.toContain(JSON.stringify(messagingKeys.dms()))
+  })
+
+  it('DM 메시지 생성은 DM 목록만 다시 받는다', () => {
+    const { qc, invalidated } = setup()
+    handleMessagingEvent(qc, 'messaging.message.created', created(9), 1)
+    expect(invalidated()).toContain(JSON.stringify(messagingKeys.dms()))
+    expect(invalidated()).not.toContain(JSON.stringify(messagingKeys.channels()))
+  })
+
+  it('어느 목록에도 없는 대화(새 DM 등)의 메시지는 두 목록을 모두 다시 받는다', () => {
+    const { qc, invalidated } = setup()
+    handleMessagingEvent(qc, 'messaging.message.created', created(42), 1)
+    expect(invalidated()).toContain(JSON.stringify(messagingKeys.channels()))
+    expect(invalidated()).toContain(JSON.stringify(messagingKeys.dms()))
+  })
+
+  it('수정·삭제·본인 읽음도 그 대화의 목록만 다시 받는다', () => {
+    for (const [ev, payload] of [
+      ['messaging.message.updated', { channelId: 3, id: 5, body: 'x', mentions: [], editedAt: null }],
+      ['messaging.message.deleted', { channelId: 3, id: 5 }],
+      ['messaging.message.read', { channelId: 3, userId: 1, lastReadMessageId: 5 }],
+    ] as const) {
+      const { qc, invalidated } = setup()
+      handleMessagingEvent(qc, ev, payload, 1)
+      expect(invalidated(), ev).toContain(JSON.stringify(messagingKeys.channels()))
+      expect(invalidated(), ev).not.toContain(JSON.stringify(messagingKeys.dms()))
+    }
   })
 })
