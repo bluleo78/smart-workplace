@@ -43,6 +43,18 @@ function isCategory(v: string | null): v is MailCategory {
 }
 
 /**
+ * 계정의 AI 분류 활성 여부(WP-1674) — 안 읽은 수 응답이 기준이고(주기 재조회로 최신), 오기 전에는 계정 목록이 함께 준 값,
+ * 그것도 없으면(옛 서버) 활성으로 본다. 계정 목록 값을 쓰지 않으면 분류가 꺼진 계정도 첫 진입에 업무 목록을 먼저 받은 뒤
+ * 안 읽은 수가 오면 전체 목록을 또 받는다. 메일함 화면과 사이드바가 같은 값을 써야 보기 판정이 어긋나지 않는다.
+ */
+export function mailClassificationActive(
+  counts: Pick<MailUnreadCounts, 'classificationActive'> | undefined,
+  account: { classificationActive?: boolean } | null | undefined,
+): boolean {
+  return counts?.classificationActive ?? account?.classificationActive ?? true
+}
+
+/**
  * URL → 보기. classificationActive=false 면 분류 보기를 모두 전체로 접는다(옛 링크로도 메일이 숨지 않게).
  * inAppSelection — ?messageId 가 앱 안 행 열기(히스토리 열림 마크)로 붙은 것인가. 그렇다면 딥링크가 아니다.
  */

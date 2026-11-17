@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { MailServerFolder } from '@/types/mailFolder'
 import type { MailUnreadCounts } from '@/types/mailMessage'
 
-import { mailBreadcrumbItems, mailBreadcrumbText, mailViewHref, resolveMailView, unreadCountForView } from './mailView'
+import { mailBreadcrumbItems, mailBreadcrumbText, mailClassificationActive, mailViewHref, resolveMailView, unreadCountForView } from './mailView'
 
 const p = (q: string) => new URLSearchParams(q)
 /** 서버 메일함 한 개(기본: 열 수 있는 USER 최상위). */
@@ -178,5 +178,21 @@ describe('mailBreadcrumbItems', () => {
   })
   it('mailBreadcrumbText — 같은 순서의 한 줄 글자', () => {
     expect(mailBreadcrumbText(resolveMailView(p('box=6'), true, { folders }))).toBe('프로젝트 › 견적')
+  })
+})
+
+describe('mailClassificationActive (WP-1674)', () => {
+  it('안 읽은 수가 있으면 그 값이 기준이다 — 계정 목록 값보다 앞선다', () => {
+    expect(mailClassificationActive({ classificationActive: false }, { classificationActive: true })).toBe(false)
+    expect(mailClassificationActive({ classificationActive: true }, { classificationActive: false })).toBe(true)
+  })
+  it('안 읽은 수가 오기 전에는 계정 목록 값을 쓴다', () => {
+    expect(mailClassificationActive(undefined, { classificationActive: false })).toBe(false)
+    expect(mailClassificationActive(undefined, { classificationActive: true })).toBe(true)
+  })
+  it('둘 다 없으면(옛 서버·계정 없음) 활성으로 본다', () => {
+    expect(mailClassificationActive(undefined, {})).toBe(true)
+    expect(mailClassificationActive(undefined, null)).toBe(true)
+    expect(mailClassificationActive(undefined, undefined)).toBe(true)
   })
 })

@@ -390,6 +390,46 @@ const countsHandler = http.get('/api/v1/mail/accounts/1/unread-counts', () =>
   HttpResponse.json(unreadCounts({ inbox: 4, byCategory: { 업무: 2, 개인: 1, 알림: 1, 프로모션: 0, 뉴스레터: 0 } })),
 )
 
+// WP-1674: 안 읽은 수(분류 상태)가 오기 전에 업무 목록을 부르면, 분류가 꺼진 계정은 같은 첫 페이지를 두 번 받는다.
+// 계정 목록이 주는 분류 상태로 첫 요청부터 맞는 보기를 부른다 — 안 읽은 수 응답을 잡아 두어 「오기 전」을 만든다.
+function heldCounts(classificationActive: boolean) {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const handler = http.get('/api/v1/mail/accounts/1/unread-counts', async () => {
+    await gate
+    return HttpResponse.json(unreadCounts({ classificationActive, inbox: 2 }))
+  })
+  return { handler, release: () => release() }
+}
+
+test('분류가 꺼진 계정은 안 읽은 수가 오기 전에도 전체 받은편지함을 한 번만 부르고 업무 목록은 부르지 않는다(WP-1674)', async () => {
+  const counts = heldCounts(false)
+  const list = record('get', LIST, () => HttpResponse.json(twoRows()))
+  renderMail('/mail/1?unread=true', {
+    accounts: [mailAccount({ classificationActive: false })],
+    handlers: [counts.handler, list.handler],
+  })
+  // 안 읽은 수를 잡아 둔 채로 목록이 그려진다 — 기다리지 않는다.
+  expect(await screen.findByTestId('mail-row-10')).toBeInTheDocument()
+  expect(list.calls.map((c) => c.url.searchParams.get('category'))).toEqual([null])
+  expect(list.last().url.searchParams.get('unread')).toBe('true')
+  counts.release()
+  expect(await screen.findByTestId('mail-count-inbox')).toBeInTheDocument()
+  expect(list.calls.length).toBe(1)
+})
+
+test('분류가 켜진 계정은 안 읽은 수가 오기 전에 업무 목록을 부른다(WP-1674)', async () => {
+  const counts = heldCounts(true)
+  const list = record('get', LIST, () => HttpResponse.json(twoRows()))
+  renderMail('/mail/1', {
+    accounts: [mailAccount({ classificationActive: true })],
+    handlers: [counts.handler, list.handler],
+  })
+  expect(await screen.findByTestId('mail-row-10')).toBeInTheDocument()
+  expect(list.calls.map((c) => c.url.searchParams.get('category'))).toEqual(['업무'])
+  counts.release()
+})
+
 test('헤더는 받은편지함 › 업무, 분류 전 배지는 분류 대기 행에만, 토글을 켜면 unread=true 로 다시 받는다', async () => {
   const list = record('get', LIST, () =>
     HttpResponse.json([summary({ id: 10, categoryPending: true }), summary({ id: 11, aiCategory: '업무', seen: true })]),

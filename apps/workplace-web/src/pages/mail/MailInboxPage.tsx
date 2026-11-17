@@ -52,7 +52,7 @@ import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
 import { mailSubjectText } from '@/lib/mailSubject'
 import { firstSummaryLine } from '@/lib/mailSummary'
-import { mailBreadcrumbItems, mailBreadcrumbText, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
+import { mailBreadcrumbItems, mailBreadcrumbText, mailClassificationActive, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { SELECTED_BG_CLASS } from '@/lib/selectionStyles'
 import type { ShareTarget } from '@/lib/shareTarget'
@@ -1112,9 +1112,9 @@ function MailInbox() {
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
   const accountIdNum = accountId ? Number(accountId) : undefined
 
-  // WP-186: URL → 보기 해석(사이드바와 같은 규칙). 계수 로딩·실패 중에는 분류 활성으로 본다(사이드바와 동일).
+  // WP-186: URL → 보기 해석(사이드바와 같은 규칙). 계수 로딩·실패 중에는 계정 목록의 분류 상태로 본다(WP-1674, 사이드바와 동일).
   const { data: unreadCounts } = useUnreadCounts(accountIdNum)
-  const classificationActive = unreadCounts?.classificationActive ?? true
+  const classificationActive = mailClassificationActive(unreadCounts, accounts?.find((a) => a.id === accountIdNum))
   // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 사이드바도 같은 판정(WP-218).
   const location = useLocation()
   // WP-961 서버 메일함(보관·내 메일함) — ?box 보기의 제목·경로·안 읽은 수·가져온 시각.
