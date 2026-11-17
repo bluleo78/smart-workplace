@@ -212,4 +212,4 @@ PR 의 `verify` 는 「그 PR + 갈라진 시점의 main」만 본다 — 줄 �
 
 맡은 이슈를 구현하지 않고 기획해 개발 대기열로 넘기는 AI 기획자(`SKILL.md` 「역할별 처리 파일」, `plan-issue.md`). 비어 있으면 기획 역할 AI 가 없다 — 모든 AI 가 맡은 이슈를 지금처럼 `process-issue.md` 로 처리하고, 분류 역할 AI(10절)의 「기획 필요」는 「사람에게 질문」으로 간다.
 
-- username: (비어 있음 — AI 기획자 계정 등록 뒤(WP-1566) 채운다)
+- username: `planner@iacloud.kr`(AI 기획자)
