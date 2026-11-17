@@ -34,4 +34,13 @@ class ProjectReportTemplateTest {
     assertThat(ReportMarkdown.hasMetricsTable(md)).isTrue();
     assertThat(ReportMarkdown.hasReportTable(md)).isFalse();
   }
+
+  /** 정기 리포트(WP-1654) — 템플릿 원문 지표 표 머리는 주기 중립 「이번 회차 | 지난 회차」. 생성 리포트 머리는 후처리가 주기 낱말로 다시 쓴다. */
+  @Test
+  void defaultMarkdown_metricsHeaderIsCadenceNeutral() {
+    String md = defaultMarkdown();
+
+    assertThat(md).contains("| 지표 | 이번 회차 | 지난 회차 |").doesNotContain("| 지표 | 이번 주 | 지난주 |");
+    assertThat(ProjectReportTemplate.TEMPLATE_TITLE).isEqualTo("정기 리포트");
+  }
 }

@@ -1,10 +1,11 @@
-// 프로젝트 설정 「리포트」 주간 리포트 줄(WP-1483) — 설정 조회·저장·템플릿 되돌리기·지금 생성(WP-1630) 훅.
+// 프로젝트 설정 「리포트」 정기 리포트 줄(WP-1483) — 설정 조회·저장·템플릿 되돌리기·지금 생성(WP-1630)·저장 위치 바꾸기(WP-1654) 훅.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
   fetchProjectReportSettings,
   generateProjectReport,
   resetProjectReportTemplate,
+  updateProjectReportLocation,
   updateProjectReportSettings,
 } from '../../api/projectReports'
 import type { ProjectReportSettings, UpdateProjectReportSettingsRequest } from '../../types/projectReport'
@@ -53,8 +54,25 @@ export function useResetProjectReportTemplate(projectKey: string) {
 }
 
 /**
+ * 저장 위치 바꾸기(WP-1654) — 응답을 설정 캐시에 넣고, 개요 카드 리포트 줄을 무효화한다
+ * (「노트에서 모두 보기」가 지금 저장 위치를 가리키므로 바뀐다).
+ */
+export function useUpdateProjectReportLocation(projectKey: string) {
+  const qc = useQueryClient()
+  const writeCache = useWriteSettingsCache(projectKey)
+  return useMutation({
+    mutationFn: (pageId: number) => updateProjectReportLocation(projectKey, pageId),
+    onSuccess: (data) => {
+      writeCache(data)
+      void qc.invalidateQueries({ queryKey: projectReportsKey(projectKey) })
+    },
+  })
+}
+
+/**
  * 「지금 생성」(WP-1630) — 서버가 노트 페이지를 만들거나 새 판을 쓰므로, 개요 카드 리포트 줄·노트 트리·그 페이지 본문·수정 기록 캐시를 무효화한다
  * (방금 만든 링크를 따라가거나 「리포트」를 열 때 옛 캐시가 보이지 않게). 트리는 어느 공간인지 응답에 없어 모든 공간 트리를 무효화한다.
+ * 설정도 무효화한다(WP-1654) — 생성이 없어진 템플릿을 다시 만들었거나 사라진 저장 위치를 「리포트」로 되돌렸을 수 있다.
  */
 export function useGenerateProjectReport(projectKey: string) {
   const qc = useQueryClient()
@@ -62,6 +80,7 @@ export function useGenerateProjectReport(projectKey: string) {
     mutationFn: () => generateProjectReport(projectKey),
     onSuccess: (result) => {
       void qc.invalidateQueries({ queryKey: projectReportsKey(projectKey) })
+      void qc.invalidateQueries({ queryKey: projectReportSettingsKey(projectKey) })
       void qc.invalidateQueries({ queryKey: wikiKeys.trees() })
       void qc.invalidateQueries({ queryKey: wikiKeys.page(result.pageId) })
       void qc.invalidateQueries({ queryKey: wikiKeys.revisions(result.pageId) })

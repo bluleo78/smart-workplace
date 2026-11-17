@@ -211,6 +211,26 @@ class ProjectReportGenerateNowTest extends ExternalClientMockedTestBase {
         .isEqualTo(1);
   }
 
+  /** 저장 위치를 바꾼 뒤 같은 회차를 다시 만들면 옛 위치의 페이지를 옮기지 않고 그 자리에서 새 판을 쓴다 — 이미 만든 리포트는 그대로(WP-1654). */
+  @Test
+  void generateNow_samePeriod_afterLocationChange_keepsExistingPageInPlace() {
+    aiReturns("첫 번째 리포트");
+    long first = settingsService.generateNow(owner, project.key(), NOW).pageId();
+    long reports = page(first).parentId();
+    long minutes = writer.createPage(owner, page(first).spaceId(), null, "회의록").id();
+    settingsService.updateLocation(owner, project.key(), minutes);
+
+    aiReturns("두 번째 리포트");
+    ProjectReportGenerateResponse again =
+        settingsService.generateNow(owner, project.key(), NOW.plusHours(1));
+
+    assertThat(again.pageId()).isEqualTo(first);
+    assertThat(again.replaced()).isTrue();
+    assertThat(page(first).parentId()).isEqualTo(reports);
+    assertThat(page(first).body()).contains("두 번째 리포트");
+    assertThat(writer.childIdsOrdered(minutes)).isEmpty();
+  }
+
   /** 정기 실행이 같은 회차를 만드는 중이면 409 — AI 를 부르지 않고 예약 행도 건드리지 않는다. */
   @Test
   void generateNow_whileRunning_conflict() {
@@ -409,6 +429,9 @@ class ProjectReportGenerateNowTest extends ExternalClientMockedTestBase {
         LocalTime.of(9, 0),
         null,
         nextRunAt,
-        0);
+        0,
+        null,
+        false,
+        null);
   }
 }

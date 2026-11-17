@@ -1,4 +1,4 @@
-// 프로젝트 설정 「리포트」 주간 리포트 줄(WP-1483) — 켬/끔·주기·요일·시각을 바꾸면 바로 PUT, 템플릿 링크는 노트 탭,
+// 프로젝트 설정 「리포트」 정기 리포트 줄(WP-1483) — 켬/끔·주기·요일·시각을 바꾸면 바로 PUT, 템플릿 링크는 노트 탭,
 // 「기본으로 되돌리기」는 확인 창 뒤 POST, 관리 권한이 없으면 읽기 전용, 저장 실패면 토스트와 함께 이전 값으로 되돌림.
 import { screen, waitFor } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
@@ -8,6 +8,8 @@ import { expect, test } from 'vitest'
 import { ReportSettings } from '@/pages/projects/components/ReportSettings'
 import { renderScreen } from '@/test/renderScreen'
 import type { ProjectReportSettings } from '@/types/projectReport'
+
+import { wikiPageSummary } from '../../../../e2e/factories/wiki.factory'
 
 const KEY = 'WP'
 const BASE = `/api/v1/projects/${KEY}/report-settings`
@@ -22,13 +24,35 @@ function settings(over: Partial<ProjectReportSettings> = {}): ProjectReportSetti
     templatePageId: 321,
     nextRunAt: null,
     canManage: true,
+    noteSpaceId: 7,
+    templateRootPageId: 320,
+    templatePath: ['템플릿', '정기 리포트'],
+    templateRecreatedAt: null,
+    reportLocationPageId: 11,
+    reportLocationPath: ['리포트'],
     ...over,
   }
 }
 
-/** 줄을 띄운다 — PUT 바디·POST 횟수를 모아 돌려준다. putStatus 가 있으면 PUT 은 그 상태로 실패한다. */
-function open(initial: ProjectReportSettings, { canManage = true, putStatus }: { canManage?: boolean; putStatus?: number } = {}) {
+/** 저장 위치 고르기 창이 읽는 노트 공간(7) 트리 — 리포트(11), 템플릿(320) ─ 정기 리포트(321), 회의록(30) ─ 주간 보고(31). */
+const NOTE_TREE = [
+  wikiPageSummary({ id: 11, parentId: null, title: '리포트', position: 0 }),
+  wikiPageSummary({ id: 320, parentId: null, title: '템플릿', position: 1 }),
+  wikiPageSummary({ id: 321, parentId: 320, title: '정기 리포트', position: 0 }),
+  wikiPageSummary({ id: 30, parentId: null, title: '회의록', position: 2 }),
+  wikiPageSummary({ id: 31, parentId: 30, title: '주간 보고', position: 0 }),
+]
+
+/**
+ * 줄을 띄운다 — PUT 바디·POST 횟수·위치 PUT 바디를 모아 돌려준다. putStatus·locationStatus 가 있으면 그 PUT 은 그 상태로 실패한다.
+ * 위치 PUT 이 성공하면 고른 페이지 경로(회의록 › 주간 보고)로 응답한다.
+ */
+function open(
+  initial: ProjectReportSettings,
+  { canManage = true, putStatus, locationStatus }: { canManage?: boolean; putStatus?: number; locationStatus?: number } = {},
+) {
   const puts: unknown[] = []
+  const locationPuts: unknown[] = []
   let resets = 0
   const view = renderScreen(<ReportSettings projectKey={KEY} canManage={canManage} />, {
     path: `/projects/${KEY}/settings`,
@@ -44,12 +68,19 @@ function open(initial: ProjectReportSettings, { canManage = true, putStatus }: {
         resets += 1
         return HttpResponse.json(initial)
       }),
+      http.put(`${BASE}/location`, async ({ request }) => {
+        const body = (await request.json()) as { pageId: number }
+        locationPuts.push(body)
+        if (locationStatus) return HttpResponse.json({ message: '그 페이지에는 리포트를 둘 수 없어요' }, { status: locationStatus })
+        return HttpResponse.json({ ...initial, reportLocationPageId: body.pageId, reportLocationPath: ['회의록', '주간 보고'] })
+      }),
+      http.get('/api/v1/wiki/spaces/7/pages', () => HttpResponse.json(NOTE_TREE)),
     ],
   })
-  return { ...view, puts, resetCount: () => resets }
+  return { ...view, puts, locationPuts, resetCount: () => resets }
 }
 
-const toggle = () => screen.getByRole('switch', { name: '주간 리포트' })
+const toggle = () => screen.getByRole('switch', { name: '정기 리포트' })
 const combo = (name: string) => screen.getByRole('combobox', { name })
 
 /** 선택 상자를 열어 보기를 고른다(키보드 — jsdom 에서 포인터로 연 Radix 목록은 불안정). */
@@ -63,7 +94,7 @@ async function choose(user: UserEvent, comboName: string, option: string) {
 
 test('showsDefaults — 꺼짐, 매주·월요일·09:00, 저장 위치를 보인다', async () => {
   open(settings())
-  expect(await screen.findByRole('switch', { name: '주간 리포트' })).not.toBeChecked()
+  expect(await screen.findByRole('switch', { name: '정기 리포트' })).not.toBeChecked()
   expect(combo('리포트 주기')).toHaveTextContent('매주')
   expect(combo('리포트 요일')).toHaveTextContent('월요일')
   expect(combo('리포트 시각')).toHaveTextContent('09:00')
@@ -72,15 +103,16 @@ test('showsDefaults — 꺼짐, 매주·월요일·09:00, 저장 위치를 보�
 
 test('toggleOn_savesImmediately — 켜면 네 값을 모두 실어 PUT 하고 다음 리포트 시각을 보인다', async () => {
   const { user, puts } = open(settings())
-  await user.click(await screen.findByRole('switch', { name: '주간 리포트' }))
+  await user.click(await screen.findByRole('switch', { name: '정기 리포트' }))
   await waitFor(() => expect(puts).toEqual([{ enabled: true, cadence: 'WEEKLY', weekday: 'MONDAY', timeOfDay: '09:00' }]))
   await waitFor(() => expect(toggle()).toBeChecked())
   expect(await screen.findByText(/다음 리포트 .*11월 16일 \(월\) 09:00/)).toBeInTheDocument()
+  expect(await screen.findByText('정기 리포트를 켰어요')).toBeInTheDocument()
 })
 
 test('changeCadence_saves — 격주를 고르면 cadence BIWEEKLY 로 PUT 한다', async () => {
   const { user, puts } = open(settings({ enabled: true, nextRunAt: '2026-11-16T00:00:00Z' }))
-  await screen.findByRole('switch', { name: '주간 리포트' })
+  await screen.findByRole('switch', { name: '정기 리포트' })
   await choose(user, '리포트 주기', '격주')
   await waitFor(() => expect(puts).toEqual([{ enabled: true, cadence: 'BIWEEKLY', weekday: 'MONDAY', timeOfDay: '09:00' }]))
   await waitFor(() => expect(combo('리포트 주기')).toHaveTextContent('격주'))
@@ -88,7 +120,7 @@ test('changeCadence_saves — 격주를 고르면 cadence BIWEEKLY 로 PUT 한�
 
 test('요일·시각을 바꿔도 바로 PUT 한다', async () => {
   const { user, puts } = open(settings({ enabled: true }))
-  await screen.findByRole('switch', { name: '주간 리포트' })
+  await screen.findByRole('switch', { name: '정기 리포트' })
   await choose(user, '리포트 요일', '금요일')
   await waitFor(() => expect(puts).toHaveLength(1))
   await choose(user, '리포트 시각', '18:00')
@@ -104,7 +136,7 @@ test('templateLink_opensNotesTab — 템플릿 이름과 「노트에서 고치�
   open(settings())
   const edit = await screen.findByRole('link', { name: '노트에서 고치기' })
   expect(edit).toHaveAttribute('href', `/projects/${KEY}/notes/321`)
-  expect(screen.getByRole('link', { name: /템플릿 · 주간 리포트/ })).toHaveAttribute('href', `/projects/${KEY}/notes/321`)
+  expect(screen.getByRole('link', { name: /^템플릿 › 정기 리포트/ })).toHaveAttribute('href', `/projects/${KEY}/notes/321`)
 })
 
 test('템플릿이 아직 없으면 링크 대신 「켜면 노트에 만들어요」', async () => {
@@ -135,7 +167,7 @@ test('고른 뒤 저장하는 동안에도 키보드 초점이 그 선택 상자
       }),
     ],
   })
-  await screen.findByRole('switch', { name: '주간 리포트' })
+  await screen.findByRole('switch', { name: '정기 리포트' })
   await choose(user, '리포트 요일', '금요일')
   await waitFor(() => expect(puts).toHaveLength(1))
   expect(combo('리포트 요일')).toHaveFocus()
@@ -173,7 +205,7 @@ test('reset_confirmDialogCopy — 확인 창 문구, 「취소」는 요청 없�
 
 test('readOnly_whenCannotManage — 컨트롤이 비활성이고 되돌리기가 없다', async () => {
   const { user, puts } = open(settings({ canManage: false }), { canManage: false })
-  expect(await screen.findByRole('switch', { name: '주간 리포트' })).toBeDisabled()
+  expect(await screen.findByRole('switch', { name: '정기 리포트' })).toBeDisabled()
   expect(combo('리포트 주기')).toBeDisabled()
   expect(combo('리포트 요일')).toBeDisabled()
   expect(combo('리포트 시각')).toBeDisabled()
@@ -186,13 +218,13 @@ test('readOnly_whenCannotManage — 컨트롤이 비활성이고 되돌리기가
 
 test('서버가 canManage=false 로 주면(개인 프로젝트 등) 부모가 관리자라고 해도 읽기 전용', async () => {
   open(settings({ canManage: false }))
-  expect(await screen.findByRole('switch', { name: '주간 리포트' })).toBeDisabled()
+  expect(await screen.findByRole('switch', { name: '정기 리포트' })).toBeDisabled()
   expect(screen.queryByRole('button', { name: '기본으로 되돌리기' })).not.toBeInTheDocument()
 })
 
 test('controlsDisabledWhileOff — 꺼져 있으면 주기·요일·시각이 비활성', async () => {
   open(settings({ enabled: false }))
-  await screen.findByRole('switch', { name: '주간 리포트' })
+  await screen.findByRole('switch', { name: '정기 리포트' })
   expect(combo('리포트 주기')).toBeDisabled()
   expect(combo('리포트 요일')).toBeDisabled()
   expect(combo('리포트 시각')).toBeDisabled()
@@ -200,10 +232,84 @@ test('controlsDisabledWhileOff — 꺼져 있으면 주기·요일·시각이 �
 
 test('saveError_showsToastAndRestores — 저장이 실패하면 오류 토스트와 함께 꺼짐으로 되돌린다', async () => {
   const { user, puts } = open(settings(), { putStatus: 500 })
-  await user.click(await screen.findByRole('switch', { name: '주간 리포트' }))
+  await user.click(await screen.findByRole('switch', { name: '정기 리포트' }))
   await waitFor(() => expect(puts).toHaveLength(1))
   expect(await screen.findByText('저장할 수 없어요')).toBeInTheDocument()
   await waitFor(() => expect(toggle()).not.toBeChecked())
+})
+
+// ───────────── 템플릿 경로·저장 위치(WP-1654) ─────────────
+
+test('불러오기에 실패하면 「정기 리포트 설정을 불러오지 못했어요.」', async () => {
+  renderScreen(<ReportSettings projectKey={KEY} canManage />, {
+    path: `/projects/${KEY}/settings`,
+    handlers: [http.get(BASE, () => HttpResponse.json({ message: 'x' }, { status: 500 }))],
+  })
+  expect(await screen.findByText('정기 리포트 설정을 불러오지 못했어요.')).toBeInTheDocument()
+})
+
+test('옮긴 템플릿은 그 경로 글자로 링크하고, 다시 만들지 않았으면 재생성 알림이 없다', async () => {
+  open(settings({ templatePath: ['회의록', '양식', '정기 리포트'] }))
+  expect(await screen.findByRole('link', { name: /^회의록 › 양식 › 정기 리포트/ })).toHaveAttribute('href', `/projects/${KEY}/notes/321`)
+  expect(screen.queryByTestId('settings-report-template-recreated')).not.toBeInTheDocument()
+})
+
+test('없어진 템플릿을 다시 만들었으면 줄 아래 「템플릿을 다시 만들었어요」', async () => {
+  open(settings({ templateRecreatedAt: '2026-11-16T00:00:00Z' }))
+  expect(await screen.findByTestId('settings-report-template-recreated')).toHaveTextContent('템플릿을 다시 만들었어요')
+})
+
+test('켜져 있는데 템플릿이 없으면 「다음 리포트 때 다시 만들어요」', async () => {
+  open(settings({ enabled: true, templatePageId: null, templatePath: [] }))
+  expect(await screen.findByText('다음 리포트 때 다시 만들어요')).toBeInTheDocument()
+  expect(screen.queryByText('켜면 노트에 만들어요')).not.toBeInTheDocument()
+})
+
+test('저장 위치는 프로젝트 노트부터 경로 전체로 보인다', async () => {
+  open(settings({ reportLocationPageId: 31, reportLocationPath: ['회의록', '주간 보고'] }))
+  expect(await screen.findByText('프로젝트 노트 › 회의록 › 주간 보고')).toBeInTheDocument()
+})
+
+test('「바꾸기」는 고칠 수 있을 때만 보인다(읽기 전용·노트 공간 없음에선 없음)', async () => {
+  const first = open(settings({ canManage: false }), { canManage: false })
+  await screen.findByText('프로젝트 노트 › 리포트')
+  expect(screen.queryByTestId('settings-report-location-change')).not.toBeInTheDocument()
+  first.unmount()
+
+  const second = open(settings({ noteSpaceId: null }))
+  await screen.findByText('프로젝트 노트 › 리포트')
+  expect(screen.queryByTestId('settings-report-location-change')).not.toBeInTheDocument()
+  second.unmount()
+
+  open(settings())
+  expect(await screen.findByTestId('settings-report-location-change')).toHaveTextContent('바꾸기')
+})
+
+test('창에서 고르고 저장하면 위치 PUT 을 보내고 줄이 새 경로로 바뀐다 — 템플릿 갈래는 목록에 없다', async () => {
+  const { user, locationPuts } = open(settings())
+  await user.click(await screen.findByTestId('settings-report-location-change'))
+  const dialog = await screen.findByRole('dialog', { name: '리포트 저장 위치' })
+  expect(dialog).toHaveAttribute('data-help', 'project-settings.report.location')
+  await user.click(await screen.findByRole('option', { name: /주간 보고/ }))
+  expect(screen.queryByRole('option', { name: /^템플릿/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('option', { name: /^정기 리포트/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('option', { name: /리포트지금 위치|리포트 지금 위치/ })).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '저장' }))
+  await waitFor(() => expect(locationPuts).toEqual([{ pageId: 31 }]))
+  expect(await screen.findByText('저장 위치를 바꿨어요')).toBeInTheDocument()
+  expect(await screen.findByText('프로젝트 노트 › 회의록 › 주간 보고')).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '리포트 저장 위치' })).not.toBeInTheDocument())
+})
+
+test('위치 PUT 이 400 이면 오류 토스트를 보이고 창을 열어 둔다', async () => {
+  const { user, locationPuts } = open(settings(), { locationStatus: 400 })
+  await user.click(await screen.findByTestId('settings-report-location-change'))
+  await user.click(await screen.findByRole('option', { name: /주간 보고/ }))
+  await user.click(screen.getByRole('button', { name: '저장' }))
+  await waitFor(() => expect(locationPuts).toHaveLength(1))
+  expect(await screen.findByText('그 페이지에는 리포트를 둘 수 없어요')).toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: '리포트 저장 위치' })).toBeInTheDocument()
+  expect(screen.getByText('프로젝트 노트 › 리포트')).toBeInTheDocument()
 })
 
 // ───────────── 「지금 생성」(WP-1630) ─────────────

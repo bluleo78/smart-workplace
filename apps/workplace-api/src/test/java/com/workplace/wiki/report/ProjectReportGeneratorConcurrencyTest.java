@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -21,12 +22,15 @@ import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.dto.ProjectReportAiResult;
 import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
+import com.workplace.project.dto.ProjectRow;
+import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.report.ProjectReportGenerator.Outcome;
 import com.workplace.wiki.report.dto.ProjectReportGenerateResponse;
 import com.workplace.wiki.report.dto.UpdateProjectReportSettingsRequest;
+import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,6 +65,9 @@ class ProjectReportGeneratorConcurrencyTest extends ExternalClientMockedTestBase
   @Autowired ProjectReportGenerator generator;
   @Autowired AiAgentIssueClient client;
   @Autowired AssistantResolver assistantResolver;
+  @Autowired ProjectReportTemplate template;
+  @Autowired ProjectRepository projects;
+  @Autowired WikiSystemPageWriter writer;
 
   private long owner;
   private long projectId;
@@ -153,6 +160,69 @@ class ProjectReportGeneratorConcurrencyTest extends ExternalClientMockedTestBase
                     table(name("project_report")),
                     field(name("project_id"), Long.class).eq(projectId)));
     assertThat(rows).isEqualTo(1);
+  }
+
+  /**
+   * 템플릿이 없는 상태에서 두 호출(설정 저장·정기 실행·「지금 생성」)이 동시에 템플릿을 보장해도 템플릿은 한 장, 「템플릿」 루트도 한 장이고 둘은 같은 id 를
+   * 받는다(WP-1654 — 공간 트리 잠금 + 설정 재읽기).
+   */
+  @Test
+  void ensureTemplate_concurrent_createsOneTemplateAndOneRoot() throws Exception {
+    ProjectRow project = callInTenant(1L, () -> projects.findByKey(projectKey).orElseThrow());
+    long spaceId = callInTenant(1L, () -> writer.findLinkedSpace(projectId).orElseThrow());
+    callInTenant(
+        1L,
+        () ->
+            dsl.deleteFrom(WIKI_PAGE)
+                .where(WIKI_PAGE.SPACE_ID.eq(spaceId))
+                .and(WIKI_PAGE.TITLE.in("템플릿", ProjectReportTemplate.TEMPLATE_TITLE))
+                .execute());
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    CountDownLatch start = new CountDownLatch(1);
+    List<Future<Long>> futures = new ArrayList<>();
+    for (int i = 0; i < 2; i++) {
+      futures.add(
+          pool.submit(
+              () -> {
+                TenantContext.set(1L);
+                try {
+                  start.await();
+                  return template.ensureTemplate(project, spaceId, owner);
+                } finally {
+                  TenantContext.clear();
+                }
+              }));
+    }
+    start.countDown();
+    long a = futures.get(0).get(60, TimeUnit.SECONDS);
+    long b = futures.get(1).get(60, TimeUnit.SECONDS);
+    pool.shutdown();
+
+    assertThat(a).isEqualTo(b);
+    int templates =
+        callInTenant(
+            1L,
+            () ->
+                dsl.fetchCount(
+                    WIKI_PAGE,
+                    WIKI_PAGE
+                        .SPACE_ID
+                        .eq(spaceId)
+                        .and(WIKI_PAGE.TITLE.eq(ProjectReportTemplate.TEMPLATE_TITLE))));
+    int roots =
+        callInTenant(
+            1L,
+            () ->
+                dsl.fetchCount(
+                    WIKI_PAGE,
+                    WIKI_PAGE
+                        .SPACE_ID
+                        .eq(spaceId)
+                        .and(WIKI_PAGE.PARENT_ID.isNull())
+                        .and(WIKI_PAGE.TITLE.eq("템플릿"))));
+    assertThat(templates).isEqualTo(1);
+    assertThat(roots).isEqualTo(1);
   }
 
   /**

@@ -23,6 +23,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -49,6 +50,7 @@ class ProjectReportControllerTest extends ExternalClientMockedTestBase {
   @Autowired ProjectService projectService;
   @Autowired AiAgentIssueClient client;
   @Autowired AssistantResolver assistantResolver;
+  @Autowired WikiSystemPageWriter writer;
 
   private long ownerId;
   private ProjectResponse project;
@@ -156,6 +158,48 @@ class ProjectReportControllerTest extends ExternalClientMockedTestBase {
         .andExpect(status().isBadGateway())
         .andExpect(jsonPath("$.message").value("리포트를 만들지 못했어요 — AI 리포트 작성 요청에 실패했어요."))
         .andExpect(jsonPath("$.errors.code").value("REPORT_FAILED"));
+  }
+
+  /**
+   * 저장 위치(WP-1654) — PUT location {pageId} 는 위치·경로를 돌려주고 GET 도 같다. pageId 가 없으면 400, 다른 공간 페이지면 400
+   * 과 문구, MEMBER 는 403.
+   */
+  @Test
+  void putLocation_roundTrip_andValidation() throws Exception {
+    long spaceId = writer.ensureProjectSpace(project.id()).orElseThrow();
+    long minutes = writer.createPage(ownerId, spaceId, null, "회의록").id();
+    long weekly = writer.createPage(ownerId, spaceId, minutes, "주간 보고").id();
+    // 시드는 요청 전에 — MockMvc 요청이 끝나면 테넌트 문맥이 비워진다.
+    ProjectResponse other =
+        projectService.create(
+            ownerId, new CreateProjectRequest("O" + project.key(), "다른", null, "TEAM"));
+    long otherSpace = writer.ensureProjectSpace(other.id()).orElseThrow();
+    long outside = writer.createPage(ownerId, otherSpace, null, "밖").id();
+    long member = human();
+    projectService.addMember(ownerId, project.key(), new AddMemberRequest(member, "MEMBER"));
+
+    call(get(settingsUrl()), ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.noteSpaceId").value(spaceId))
+        .andExpect(jsonPath("$.reportLocationPath[0]").value("리포트"))
+        .andExpect(jsonPath("$.templatePath").isEmpty());
+    call(locationPut("{\"pageId\":" + weekly + "}"), ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.reportLocationPageId").value(weekly))
+        .andExpect(jsonPath("$.reportLocationPath[0]").value("회의록"))
+        .andExpect(jsonPath("$.reportLocationPath[1]").value("주간 보고"));
+    call(get(settingsUrl()), ownerId).andExpect(jsonPath("$.reportLocationPageId").value(weekly));
+
+    call(locationPut("{}"), ownerId).andExpect(status().isBadRequest());
+    call(locationPut("{\"pageId\":" + outside + "}"), ownerId)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("프로젝트 노트 공간의 페이지만 고를 수 있어요."));
+
+    call(locationPut("{\"pageId\":" + weekly + "}"), member).andExpect(status().isForbidden());
+  }
+
+  private MockHttpServletRequestBuilder locationPut(String body) {
+    return put(settingsUrl() + "/location").contentType(MediaType.APPLICATION_JSON).content(body);
   }
 
   private String generateUrl() {

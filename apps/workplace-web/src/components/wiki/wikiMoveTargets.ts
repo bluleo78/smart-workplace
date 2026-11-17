@@ -20,8 +20,17 @@ export function subtreeIds(pages: TreePage[], pageId: number): Set<number> {
 
 /** 고를 수 있는 자리 — 공간 트리를 깊이 우선으로 펴되 옮길 페이지와 그 하위는 뺀다. 「최상위」는 부르는 쪽이 맨 위에 둔다. */
 export function moveTargets<T extends TreePage>(pages: T[], pageId: number): { page: T; depth: number }[] {
-  const blocked = subtreeIds(pages, pageId)
-  // 막힌 페이지의 하위도 함께 빠지므로 깊이가 어긋나지 않는다(자기 하위만 빠지고 그 위 단계는 그대로).
+  // 갈래 하나를 빼는 pickTargets 와 같다 — 자기 하위만 빠지고 그 위 단계는 그대로.
+  return pickTargets(pages, [pageId])
+}
+
+/**
+ * 고를 수 있는 자리 — 여러 갈래(각 루트와 그 하위)를 함께 뺀다(WP-1654).
+ * 빼는 갈래가 없으면 트리 전체를 깊이 우선으로 편다. 막힌 페이지의 하위도 함께 빠져 남은 페이지의 깊이는 그대로다.
+ */
+export function pickTargets<T extends TreePage>(pages: T[], excludeRootIds: number[]): { page: T; depth: number }[] {
+  const blocked = new Set<number>()
+  excludeRootIds.forEach((id) => subtreeIds(pages, id).forEach((x) => blocked.add(x)))
   return flattenShareTree(pages).filter((r) => !blocked.has(r.page.id))
 }
 

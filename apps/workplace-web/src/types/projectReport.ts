@@ -52,14 +52,31 @@ export interface UpdateProjectReportSettingsRequest {
   timeOfDay: string
 }
 
-/** GET·PUT·되돌리기 공통 응답 — 프로젝트 설정 「리포트」 주간 리포트 줄. */
+/** GET·PUT·되돌리기·위치 바꾸기 공통 응답 — 프로젝트 설정 「리포트」 정기 리포트 줄. */
 export interface ProjectReportSettings extends UpdateProjectReportSettingsRequest {
-  /** 「템플릿 · 주간 리포트」 노트 페이지 — 한 번도 켠 적 없으면 null */
+  /** 「정기 리포트」 템플릿 노트 페이지 — 프로젝트 노트 공간 안에 실제로 있을 때만(아직 없거나 지워졌거나 다른 공간이면 null) */
   templatePageId: number | null
   /** 다음 실행 예정(꺼져 있으면 null) */
   nextRunAt: string | null
   /** 이 사용자가 고칠 수 있는지(OWNER·ADMIN, 개인 프로젝트는 false) */
   canManage: boolean
+  /** 프로젝트 노트 공간(WP-1654) — 저장 위치 고르기 창이 이 공간 트리를 읽는다. 없으면 null */
+  noteSpaceId: number | null
+  /** 맨 위 「템플릿」 페이지(WP-1654) — 고르기 창에서 그 갈래를 뺀다. 없으면 null */
+  templateRootPageId: number | null
+  /** 템플릿 경로 제목(예 ['템플릿', '정기 리포트']) — 템플릿 링크 글자. 템플릿이 없으면 빈 목록 */
+  templatePath: string[]
+  /** 없어진 템플릿을 다시 만든 시각 — 설정에 「템플릿을 다시 만들었어요」 한 줄. 없으면 null */
+  templateRecreatedAt: string | null
+  /** 지금 유효한 리포트 저장 위치(고른 페이지, 아니면 「리포트」, 그것도 없으면 null) */
+  reportLocationPageId: number | null
+  /** 저장 위치 경로 제목 — 기본 ['리포트'](「리포트」가 아직 없어도 다음 생성 때 만든다) */
+  reportLocationPath: string[]
+}
+
+/** PUT /projects/{key}/report-settings/location 바디(WP-1654) — 새 리포트를 둘 프로젝트 노트 페이지. 「최상위」는 위치가 될 수 없어 필수다. */
+export interface UpdateProjectReportLocationRequest {
+  pageId: number
 }
 
 /** POST /projects/{key}/reports/generate 응답(WP-1630) — 「지금 생성」으로 만든(또는 새 판을 쓴) 리포트 페이지. */

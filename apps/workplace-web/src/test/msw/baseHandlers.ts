@@ -97,10 +97,11 @@ export const shellHandlers = [
   ...['cycles', 'cycles/progress', 'types', 'milestones', 'labels', 'members', 'saved-views', 'components', 'versions'].map((sub) =>
     http.get(`${API}/projects/:key/${sub}`, () => HttpResponse.json([])),
   ),
-  // 프로젝트 설정 「리포트」의 주간 리포트 줄(WP-1483) — 서버 기본값(꺼짐·매주·월요일·09:00, 템플릿 없음, 읽기 전용).
+  // 프로젝트 설정 「리포트」의 정기 리포트 줄(WP-1483, WP-1654 위치 필드) — 서버 기본값(꺼짐·매주·월요일·09:00, 템플릿 없음, 기본 저장 위치 「리포트」, 읽기 전용).
   // 설정 화면을 띄우는 다른 테스트가 모킹 누락으로 깨지지 않게 깐다. 줄 자체의 판정은 ReportSettings.test.tsx.
   http.get(`${API}/projects/:key/report-settings`, () =>
-    HttpResponse.json({ enabled: false, cadence: 'WEEKLY', weekday: 'MONDAY', timeOfDay: '09:00', templatePageId: null, nextRunAt: null, canManage: false }),
+    HttpResponse.json({ enabled: false, cadence: 'WEEKLY', weekday: 'MONDAY', timeOfDay: '09:00', templatePageId: null, nextRunAt: null, canManage: false,
+      noteSpaceId: null, templateRootPageId: null, templatePath: [], templateRecreatedAt: null, reportLocationPageId: null, reportLocationPath: ['리포트'] }),
   ),
   http.get(`${API}/projects/:key/issues/:n/cycles`, () => HttpResponse.json([])),
   http.get(`${API}/projects/:key/issues/:n/drive-links`, () => HttpResponse.json([])),

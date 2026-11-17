@@ -6,10 +6,13 @@ import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiSpaceRepository;
 import java.time.OffsetDateTime;
+import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.ToIntFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -41,6 +44,9 @@ public class WikiSystemPageWriter {
   private final WikiSpaceRepository spaces;
   private final WikiSpaceService spaceService;
 
+  /** 경로 제목을 모을 때 올라가는 깊이 상한(WP-1654) — 깨진 부모 고리에서도 끝나게. */
+  private static final int PATH_DEPTH_MAX = 64;
+
   /** 개인 보고의 맨 위 페이지 제목(내 노트 › 보고). */
   public static final String PERSONAL_REPORTS_TITLE = "보고";
 
@@ -55,12 +61,97 @@ public class WikiSystemPageWriter {
    */
   @Transactional
   public Optional<ReportsHome> ensureReportsHome(long projectId, long authorId) {
-    Optional<Long> spaceId =
-        spaces.findIdByLinkedProject(projectId).or(() -> noteSpaces.ensureSpace(projectId, null));
-    return spaceId.map(
-        id ->
-            new ReportsHome(
-                id, noteSpaces.ensureRootPage(id, ProjectNoteSpaceService.REPORT_TITLE, authorId)));
+    return ensureProjectSpace(projectId)
+        .map(id -> new ReportsHome(id, ensureReportsPage(id, authorId)));
+  }
+
+  /**
+   * 프로젝트 노트 공간만 보장한다(WP-1654) — 이미 이어진 공간이 있으면 그것, 없으면 프로젝트 노트 공간 규칙대로 만든다. 「리포트」는 만들지 않는다(저장 위치를
+   * 고른 프로젝트에서 사람이 지운 「리포트」를 되살리지 않게 — 「리포트」가 필요할 때만 {@link #ensureReportsPage} 로 만든다). 이어진 공간이 있으면
+   * 프로젝트 잠금·멤버 맞추기를 거치지 않는다(생성마다 부르므로).
+   *
+   * @return 공간을 둘 수 없는 프로젝트(개인·지워짐·없음)면 empty
+   */
+  @Transactional
+  public Optional<Long> ensureProjectSpace(long projectId) {
+    return spaces
+        .findIdByLinkedProject(projectId)
+        .or(() -> noteSpaces.ensureSpace(projectId, null));
+  }
+
+  /** 공간의 맨 위 「리포트」를 보장한다(WP-1654) — 없거나 이름이 바뀌었으면 맨 위 0번에 만든다(공간 트리 잠금 아래). */
+  @Transactional
+  public long ensureReportsPage(long spaceId, long authorId) {
+    return noteSpaces.ensureRootPage(spaceId, ProjectNoteSpaceService.REPORT_TITLE, authorId);
+  }
+
+  /**
+   * 공간의 맨 위 「템플릿」을 보장한다(WP-1654) — 프로젝트 정기 리포트 템플릿을 리포트와 나눠 두는 자리. 없거나 이름이 바뀌었으면 맨 위 0번에 만든다(공간 트리
+   * 잠금 아래 — 동시에 불러도 하나).
+   */
+  @Transactional
+  public long ensureTemplatesPage(long spaceId, long authorId) {
+    return noteSpaces.ensureRootPage(spaceId, ProjectNoteSpaceService.TEMPLATES_TITLE, authorId);
+  }
+
+  /** 프로젝트에 이어진 노트 공간 id(WP-1654, 만들지 않는다) — 설정 화면·개요 카드처럼 읽기만 할 때. 없으면 empty. */
+  @Transactional(readOnly = true)
+  public Optional<Long> findLinkedSpace(long projectId) {
+    return spaces.findIdByLinkedProject(projectId);
+  }
+
+  /** 공간의 맨 위 「템플릿」 id(WP-1654, 만들지 않는다). 지웠거나 이름을 바꿨으면 empty. */
+  @Transactional(readOnly = true)
+  public Optional<Long> findTemplatesPage(long spaceId) {
+    return noteSpaces.findRootPage(spaceId, ProjectNoteSpaceService.TEMPLATES_TITLE);
+  }
+
+  /**
+   * 페이지가 있고 그 공간에 속하는가(WP-1654) — 템플릿·저장 위치가 지워졌거나 다른 공간으로 옮겨졌는지 본다. id 가 null 이면 false. 같은 공간이면
+   * 어디로 옮겼든 true(사람이 옮긴 자리를 따른다).
+   */
+  @Transactional(readOnly = true)
+  public boolean existsInSpace(Long pageId, long spaceId) {
+    return pageId != null && pages.findSpaceId(pageId).map(id -> id == spaceId).orElse(false);
+  }
+
+  /**
+   * 루트에서 그 페이지까지의 제목 경로(WP-1654) — 설정 화면의 「템플릿 › 정기 리포트」·저장 위치 표시. 없는 페이지면 빈 목록.
+   *
+   * <p>재귀 CTE({@code ancestorIdsInclusive})는 결과 순서를 보장하지 않으므로 부모를 하나씩 따라 올라가며 순서대로 모은다. 깨진 데이터로 부모가
+   * 돌고 돌아도 끝나도록 방문 집합과 깊이 상한을 둔다.
+   */
+  @Transactional(readOnly = true)
+  public List<String> pathTitles(long pageId) {
+    if (pages.findSpaceId(pageId).isEmpty()) {
+      // 없는 페이지 — findParentId 가 null(맨 위)과 구분되지 않으므로 먼저 거른다.
+      return List.of();
+    }
+    LinkedList<Long> chain = new LinkedList<>();
+    Set<Long> seen = new HashSet<>();
+    Long current = pageId;
+    while (current != null && seen.add(current) && chain.size() < PATH_DEPTH_MAX) {
+      chain.addFirst(current);
+      current = pages.findParentId(current);
+    }
+    Map<Long, String> titles = pages.findTitles(chain);
+    return chain.stream().map(id -> titles.getOrDefault(id, "")).toList();
+  }
+
+  /** pageId 가 ancestorId 자신이거나 그 갈래(하위) 안인가(WP-1654) — 저장 위치가 「템플릿」 갈래·템플릿 페이지 갈래인지 판정. */
+  @Transactional(readOnly = true)
+  public boolean isUnderOrSelf(long pageId, long ancestorId) {
+    return pages.ancestorIdsInclusive(pageId).contains(ancestorId);
+  }
+
+  /**
+   * 역할 검사 없이 제목만 바꾼다(WP-1654 — 옛 「템플릿 · 주간 리포트」를 「정기 리포트」로). 본문을 보내지 않으므로 동기화 서버 위임 없이 트랜잭션 안 경로를
+   * 탄다 — 공간 트리 잠금을 쥔 트랜잭션 안에서도 부를 수 있다. 본문은 그대로다.
+   */
+  @Transactional
+  public void renameTo(long pageId, String title, long actorId) {
+    pageService.saveAsSystem(
+        actorId, pageId, new SavePageRequest(title, null, null, false), false, false);
   }
 
   /** 내 노트(PERSONAL) 공간과 그 「보고」 페이지. */

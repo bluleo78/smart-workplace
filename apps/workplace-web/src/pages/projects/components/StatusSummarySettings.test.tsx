@@ -94,10 +94,11 @@ function renderSettings(project: ProjectResponse) {
 test('팀 프로젝트 설정에는 「리포트」 섹션이 있고, 개인 프로젝트에는 없다', async () => {
   const team = renderSettings(createProject({ type: 'TEAM' }))
   expect(await screen.findByRole('combobox', { name: '상태 요약 간격' })).toBeInTheDocument()
-  // 주간 리포트 줄(WP-1483)은 같은 「리포트」 섹션 안, 상태 요약 줄 아래에 있고 상태 요약은 리포트와 별개라고 알린다.
+  // 정기 리포트 줄(WP-1483)은 같은 「리포트」 섹션 안, 상태 요약 줄 아래에 있고 상태 요약은 리포트와 별개라고 알린다.
   const section = screen.getByTestId('project-report-settings')
   expect(within(section).getByText(/리포트와 별개, 개요 카드 전용/)).toBeInTheDocument()
-  expect(await within(section).findByRole('switch', { name: '주간 리포트' })).toBeInTheDocument()
+  expect(await within(section).findByRole('switch', { name: '정기 리포트' })).toBeInTheDocument()
+  expect(within(section).getByText('개요 맨 위 AI 상태 요약과, AI 가 노트에 쓰는 정기 리포트를 언제 쓸지 정해요.')).toBeInTheDocument()
   team.unmount()
 
   renderSettings(createProject({ type: 'PERSONAL' }))

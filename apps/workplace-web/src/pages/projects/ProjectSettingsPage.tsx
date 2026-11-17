@@ -242,7 +242,7 @@ export default function ProjectSettingsPage() {
               key 는 프로젝트마다 새로 띄우되(고르던 값이 넘어가지 않게) 형제 RepositorySettings 의 key(프로젝트 키)와 겹치지 않게 접두를 붙인다. */}
           {!isPersonal && project.data && (
             <StatusSummarySettings key={`status-summary-${project.data.key}`} project={project.data} canManage={canManage}>
-              {/* 주간 리포트(WP-1483) — 같은 「리포트」 섹션, 상태 요약 줄 아래. 권한은 상태 요약 간격과 같다(OWNER·ADMIN). */}
+              {/* 정기 리포트(WP-1483) — 같은 「리포트」 섹션, 상태 요약 줄 아래. 권한은 상태 요약 간격과 같다(OWNER·ADMIN). */}
               <ReportSettings projectKey={project.data.key} canManage={canManage} />
             </StatusSummarySettings>
           )}

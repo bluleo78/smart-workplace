@@ -88,6 +88,7 @@ public class WikiPageRepository {
             WIKI_PAGE.TITLE,
             WIKI_PAGE.POSITION,
             WIKI_PAGE.AI_LAST_USED_AT,
+            WIKI_PAGE.AI_LAST_ACTION,
             WIKI_PAGE_SHARE.AUDIENCE,
             WIKI_PAGE_SHARE.INCLUDE_CHILDREN,
             expired,
@@ -108,6 +109,7 @@ public class WikiPageRepository {
                     r.get(WIKI_PAGE.TITLE),
                     r.get(WIKI_PAGE.POSITION),
                     r.get(WIKI_PAGE.AI_LAST_USED_AT),
+                    r.get(WIKI_PAGE.AI_LAST_ACTION),
                     r.get(WIKI_PAGE_SHARE.AUDIENCE) == null
                         ? null
                         : new WikiTreeShare(

@@ -23,7 +23,6 @@ import com.workplace.wiki.report.ReportErrors.ReportFailure;
 import com.workplace.wiki.report.dto.ProjectReportGenerateResponse;
 import com.workplace.wiki.repository.ProjectNoteSpaceRepository;
 import com.workplace.wiki.service.WikiSystemPageWriter;
-import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
 import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -31,7 +30,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZonedDateTime;
 import java.time.temporal.TemporalAdjusters;
-import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,11 +50,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       켜져도 밀린 회차를 여러 편 만들지 않는다.
  *   <li>공통 비서가 없으면 예약을 풀고 {@link Outcome#SKIPPED_NO_ASSISTANT}. 계산값이 「변화 없음」이면 페이지 없이 SKIPPED 로
  *       기록({@link Outcome#SKIPPED_NO_CHANGE}) — 단 앞선 시도가 이미 페이지를 만든 재시도면 그 페이지에 이어 쓴다.
- *   <li>노트 자리 보장(공간·「리포트」·템플릿 — 지워졌으면 다시 만든다) → 템플릿 본문 읽기(20,000자 상한).
+ *   <li>노트 자리 보장(WP-1654) — 저장 위치({@link ProjectReportLocation}: 고른 페이지, 아니면 「리포트」 — 지워졌으면 다시 만든다)와
+ *       템플릿(「템플릿」 › 「정기 리포트」, id 로 따라가고 없으면 다시 만든다) → 템플릿 본문 읽기(20,000자 상한, 빈 본문이면 기본 원문).
  *   <li>tx 밖 AI → 출력 상한(20,000자) → {@link ReportMarkdown#finish} 로 지시 상자·h1·배지(진행 상태 줄)·표 숫자(참고 지표
  *       포함)·이슈 링크를 바로잡고 일정 도표를 넣는다(WP-1629).
  *   <li>tx 밖 페이지 쓰기(작성자 = 「리포트」와 같은 규칙 — 소유자가 멤버면 소유자, 아니면 가장 작은 OWNER id): createPage →
- *       writeBody(ai) → moveTo(템플릿 바로 아래 = 최신이 위) → markAiReport.
+ *       writeBody(ai) → moveTo(저장 위치 맨 위 = 최신이 위) → markAiReport. 다시 쓰는 페이지가 지금 저장 위치 밖이면(위치를 바꿨거나
+ *       사람이 옮김) 옮기지 않고 그 자리에서 다시 쓴다 — 이미 만든 리포트는 옮기지 않는다.
  *   <li>tx 저장: 회차 GENERATED(페이지·배지·스냅숏), 실패 수 0.
  * </ol>
  *
@@ -111,6 +112,7 @@ public class ProjectReportGenerator {
   private final ProjectNoteSpaceRepository noteSpaces;
   private final WikiSystemPageWriter writer;
   private final ProjectReportTemplate template;
+  private final ProjectReportLocation location;
   private final ReportPageWriter pageWriter;
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient client;
@@ -126,6 +128,7 @@ public class ProjectReportGenerator {
       ProjectNoteSpaceRepository noteSpaces,
       WikiSystemPageWriter writer,
       ProjectReportTemplate template,
+      ProjectReportLocation location,
       AssistantResolver assistantResolver,
       AiAgentIssueClient client,
       AiAgentProperties aiAgentProperties,
@@ -138,6 +141,7 @@ public class ProjectReportGenerator {
     this.noteSpaces = noteSpaces;
     this.writer = writer;
     this.template = template;
+    this.location = location;
     // 쓰기 뼈대는 받은 writer 로 만든다 — 테스트가 넘기는 스파이 writer 가 쓰기 단계에도 그대로 쓰이게(빈 주입이 아니라).
     this.pageWriter = new ReportPageWriter(writer);
     this.assistantResolver = assistantResolver;
@@ -333,14 +337,12 @@ public class ProjectReportGenerator {
       return new Written(Outcome.SKIPPED_NO_CHANGE, null, false);
     }
 
-    // 노트 자리 — 지워졌거나 이름이 바뀐 「리포트」·템플릿은 다시 만든다(본문 쓰기라 tx 밖).
+    // 노트 자리 — 저장 위치(고른 페이지, 아니면 「리포트」)와 템플릿. 지워졌거나 이름이 바뀐 「리포트」·템플릿은 다시 만든다(본문 쓰기라 tx 밖).
     long author = tx.execute(s -> noteSpaces.findReportAuthor(projectId, project.ownerId()));
-    ReportsHome home =
-        writer
-            .ensureReportsHome(projectId, author)
-            .orElseThrow(() -> new ReportFailure("리포트를 둘 노트 공간을 만들 수 없어요."));
-    long templateId = template.ensureTemplate(project, home, author);
-    String templateMarkdown = writer.readBody(templateId).orElse("");
+    ProjectReportLocation.Resolved target = location.resolveForWrite(project, author);
+    long templateId = template.ensureTemplate(project, target.spaceId(), author);
+    // 빈 본문(다른 호출이 템플릿을 막 만들고 본문을 아직 못 쓴 틈)이면 기본 원문으로 대신한다(WP-1654).
+    String templateMarkdown = template.readBodyOrDefault(templateId, project);
     if (ReportPageWriter.codePoints(templateMarkdown) > TEMPLATE_MAX) {
       throw new ReportFailure("리포트 템플릿이 " + TEMPLATE_MAX + "자를 넘어요.");
     }
@@ -361,8 +363,7 @@ public class ProjectReportGenerator {
             ReportMarkdown.hasMetricsTable(templateMarkdown),
             issueUrlPrefix);
 
-    return writePage(
-        projectId, author, home, templateId, period, facts, body, pendingPageId, manual, now);
+    return writePage(projectId, author, target, period, facts, body, pendingPageId, manual, now);
   }
 
   /**
@@ -423,19 +424,20 @@ public class ProjectReportGenerator {
   }
 
   /**
-   * tx 밖 페이지 쓰기 — 만들고(「리포트」 끝) 곧바로 회차에 페이지를 적은 뒤(짧은 tx), 본문을 AI 글로 쓰고, 템플릿 바로 아래(템플릿이 맨 위가 아니면 맨
-   * 위)로 옮기고, 마지막에 「AI 작성」 표지를 남긴다(그 뒤 수정 시각이 더 늦으면 사람이 고친 것).
+   * tx 밖 페이지 쓰기 — 저장 위치 아래에 만들고(끝) 곧바로 회차에 페이지를 적은 뒤(짧은 tx), 본문을 AI 글로 쓰고, 저장 위치 맨 위(0번 — 최신이 위)로
+   * 옮기고, 마지막에 「AI 작성」 표지를 남긴다(그 뒤 수정 시각이 더 늦으면 사람이 고친 것). 템플릿은 「템플릿」 아래라 자리 계산에 끼지 않는다(WP-1654).
    *
    * <p>앞선 시도가 페이지를 만든 뒤 실패했으면({@code pendingPageId} — 회차에 적힌 페이지가 아직 있음) 새로 만들지 않고 그 페이지를 다시 쓴다 —
-   * 회차당 페이지는 하나. 이 안의 실패는 다른 실패와 같이 호출자({@link #run})가 기록하고 재시도한다(회차 행은 지우지 않는다).
+   * 회차당 페이지는 하나. 다시 쓰는 페이지가 지금 저장 위치 바로 아래면 맨 위로 정리하고, 아니면(위치를 바꿨거나 사람이 옮김) 옮기지 않고 그 자리에서 쓴다
+   * (WP-1654 — 이미 만든 리포트는 옮기지 않는다). 이 안의 실패는 다른 실패와 같이 호출자({@link #run})가 기록하고 재시도한다(회차 행은 지우지
+   * 않는다).
    *
    * @param manual 「지금 생성」 — 다시 쓰는 페이지의 직전 본문을 수정 기록에 남기고, 정기 일정의 실패 수는 건드리지 않는다
    */
   private Written writePage(
       long projectId,
       long author,
-      ReportsHome home,
-      long templateId,
+      ProjectReportLocation.Resolved target,
       ReportPeriod period,
       ProjectReportFacts facts,
       String body,
@@ -447,18 +449,19 @@ public class ProjectReportGenerator {
     if (reused.isPresent()) {
       page = reused.get();
     } else {
-      page = writer.createPage(author, home.spaceId(), home.reportsPageId(), period.title());
+      page = writer.createPage(author, target.spaceId(), target.parentPageId(), period.title());
       long createdId = page.id();
       tx.executeWithoutResult(s -> reports.attachPage(projectId, period, createdId));
     }
     long pageId = page.id();
-    // 자리는 이 페이지를 뺀 형제 순서로 정한다(다시 쓰는 페이지가 이미 그 자리에 있어도 같은 답). 본문 쓰기는 형제 순서를 바꾸지 않아 쓰기 전에 정해도 같다.
-    List<Long> others =
-        writer.childIdsOrdered(home.reportsPageId()).stream().filter(id -> id != pageId).toList();
-    int position = !others.isEmpty() && others.get(0) == templateId ? 1 : 0;
-    // 본문(AI) → 자리 → 「AI 작성」 표지 — 개인 보고와 나눠 쓰는 쓰기 뼈대(WP-1486).
-    pageWriter.writeAndMark(
-        author, page, body, home.reportsPageId(), position, now, manual && reused.isPresent());
+    boolean snapshot = manual && reused.isPresent();
+    if (reused.isPresent() && !Objects.equals(page.parentId(), target.parentPageId())) {
+      // 지금 저장 위치 밖의 페이지 — 옮기지 않고 그 자리에서 본문 → 「AI 작성」 표지.
+      pageWriter.writeAndMarkInPlace(author, page, body, now, snapshot);
+    } else {
+      // 본문(AI) → 저장 위치 맨 위 → 「AI 작성」 표지 — 개인 보고와 나눠 쓰는 쓰기 뼈대(WP-1486).
+      pageWriter.writeAndMark(author, page, body, target.parentPageId(), 0, now, snapshot);
+    }
     tx.executeWithoutResult(
         s -> {
           reports.markGenerated(

@@ -805,6 +805,7 @@ public class WikiShareRepository {
             WIKI_PAGE.TITLE,
             WIKI_PAGE.POSITION,
             WIKI_PAGE.AI_LAST_USED_AT,
+            WIKI_PAGE.AI_LAST_ACTION,
             WIKI_PAGE.KIND)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.in(pageIds))
@@ -817,6 +818,7 @@ public class WikiShareRepository {
                     r.get(WIKI_PAGE.TITLE),
                     r.get(WIKI_PAGE.POSITION),
                     r.get(WIKI_PAGE.AI_LAST_USED_AT),
+                    r.get(WIKI_PAGE.AI_LAST_ACTION),
                     null,
                     false,
                     WikiPageKind.of(r.get(WIKI_PAGE.KIND))));

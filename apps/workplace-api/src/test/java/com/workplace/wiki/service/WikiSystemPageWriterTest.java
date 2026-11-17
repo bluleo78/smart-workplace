@@ -243,6 +243,81 @@ class WikiSystemPageWriterTest extends ExternalClientMockedTestBase {
     assertThat(writer.findPersonalReportsHome(ownerId)).hasValue(home);
   }
 
+  /** 공간만 보장한다(WP-1654) — 사람이 지운 「리포트」를 되살리지 않는다. 읽기 전용 찾기와 같은 공간. 개인 프로젝트는 비어 있다. */
+  @Test
+  void ensureProjectSpace_doesNotCreateReportsPage() {
+    ReportsHome home = writer.ensureReportsHome(project.id(), ownerId).orElseThrow();
+    pageService.delete(ownerId, home.reportsPageId());
+
+    assertThat(writer.ensureProjectSpace(project.id())).hasValue(home.spaceId());
+    assertThat(writer.findReportsPage(home.spaceId())).isEmpty();
+    assertThat(writer.findLinkedSpace(project.id())).hasValue(home.spaceId());
+
+    ProjectResponse personal =
+        projectService.create(ownerId, new CreateProjectRequest(null, "개인", null, "PERSONAL"));
+    assertThat(writer.ensureProjectSpace(personal.id())).isEmpty();
+    assertThat(writer.findLinkedSpace(personal.id())).isEmpty();
+  }
+
+  /** 「템플릿」 맨 위 페이지(WP-1654) — 맨 위 0번에 만들고, 두 번 불러도 하나. 찾기는 만들지 않는다. */
+  @Test
+  void ensureTemplatesPage_rootFirstAndIdempotent() {
+    long spaceId = writer.ensureProjectSpace(project.id()).orElseThrow();
+    assertThat(writer.findTemplatesPage(spaceId)).isEmpty();
+    long templates = writer.ensureTemplatesPage(spaceId, ownerId);
+    assertThat(writer.ensureTemplatesPage(spaceId, ownerId)).isEqualTo(templates);
+    assertThat(writer.findTemplatesPage(spaceId)).hasValue(templates);
+    assertThat(pageService.get(ownerId, templates).title()).isEqualTo("템플릿");
+    assertThat(rootIds(spaceId)).first().isEqualTo(templates);
+    assertThat(rootIds(spaceId).stream().filter(id -> id == templates)).hasSize(1);
+    long reports = writer.ensureReportsPage(spaceId, ownerId);
+    assertThat(writer.findReportsPage(spaceId)).hasValue(reports);
+  }
+
+  /** 경로 제목(WP-1654) — 루트 → 페이지 순. 없는 페이지는 빈 목록. 갈래 판정은 자기 포함. */
+  @Test
+  void pathTitles_rootToPage_andIsUnderOrSelf() {
+    long spaceId = writer.ensureProjectSpace(project.id()).orElseThrow();
+    long minutes = writer.createPage(ownerId, spaceId, null, "회의록").id();
+    long weekly = writer.createPage(ownerId, spaceId, minutes, "주간 보고").id();
+    long deep = writer.createPage(ownerId, spaceId, weekly, "11월").id();
+    assertThat(writer.pathTitles(deep)).containsExactly("회의록", "주간 보고", "11월");
+    assertThat(writer.pathTitles(minutes)).containsExactly("회의록");
+    assertThat(writer.pathTitles(Long.MAX_VALUE)).isEmpty();
+    assertThat(writer.isUnderOrSelf(deep, minutes)).isTrue();
+    assertThat(writer.isUnderOrSelf(minutes, minutes)).isTrue();
+    assertThat(writer.isUnderOrSelf(minutes, deep)).isFalse();
+  }
+
+  /** 같은 공간 판정(WP-1654) — 다른 공간 페이지·없는 페이지·null 은 false. */
+  @Test
+  void existsInSpace_falseForOtherSpaceOrMissing() {
+    long spaceId = writer.ensureProjectSpace(project.id()).orElseThrow();
+    long page = writer.createPage(ownerId, spaceId, null, "안").id();
+    ProjectResponse other =
+        projectService.create(
+            ownerId, new CreateProjectRequest("SX" + project.key(), "다른", null, "TEAM"));
+    long otherSpace = writer.ensureProjectSpace(other.id()).orElseThrow();
+    long outside = writer.createPage(ownerId, otherSpace, null, "밖").id();
+
+    assertThat(writer.existsInSpace(page, spaceId)).isTrue();
+    assertThat(writer.existsInSpace(outside, spaceId)).isFalse();
+    assertThat(writer.existsInSpace(null, spaceId)).isFalse();
+    assertThat(writer.existsInSpace(Long.MAX_VALUE, spaceId)).isFalse();
+  }
+
+  /** 제목만 바꾸기(WP-1654) — 본문은 그대로. */
+  @Test
+  void renameTo_keepsBody() {
+    long spaceId = writer.ensureProjectSpace(project.id()).orElseThrow();
+    WikiPageDetail page = writer.createPage(ownerId, spaceId, null, "템플릿 · 주간 리포트");
+    writer.writeBody(ownerId, page.id(), page.version(), "사람이 고친 템플릿", false, false);
+    writer.renameTo(page.id(), "정기 리포트", ownerId);
+    WikiPageDetail after = pageService.get(ownerId, page.id());
+    assertThat(after.title()).isEqualTo("정기 리포트");
+    assertThat(after.body()).isEqualTo("사람이 고친 템플릿");
+  }
+
   private List<Long> rootIds(long spaceId) {
     return dsl.select(WIKI_PAGE.ID)
         .from(WIKI_PAGE)

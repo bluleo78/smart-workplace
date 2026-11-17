@@ -37,6 +37,7 @@ import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.report.ProjectReportGenerator.Outcome;
 import com.workplace.wiki.report.ProjectReportSettingRepository.SettingRow;
@@ -226,7 +227,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
 
   // ───────────── 테스트 ─────────────
 
-  /** 「리포트」 아래 템플릿 바로 밑에 「11월 3주차 주간 리포트」, 다음 회차는 그보다 위. */
+  /** 「리포트」 맨 위에 「11월 3주차 주간 리포트」, 다음 회차는 그보다 위. 템플릿은 「템플릿」 아래라 「리포트」에는 리포트만(WP-1654). */
   @Test
   void run_createsReportPageUnderReports_newestOnTop() {
     aiReturnsMessy(activity());
@@ -239,7 +240,8 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(p.title()).isEqualTo("11월 3주차 주간 리포트");
     WikiPageDetail parent = page(p.parentId());
     assertThat(parent.title()).isEqualTo("리포트");
-    assertThat(writer.childIdsOrdered(parent.id())).containsExactly(template, first);
+    assertThat(writer.childIdsOrdered(parent.id())).containsExactly(first);
+    assertThat(page(page(template).parentId()).title()).isEqualTo("템플릿");
     assertThat(rowStatus(PERIOD_START)).isEqualTo("GENERATED");
 
     // 다음 주 — 새 회차(11/16~22)가 지난 것보다 위.
@@ -248,7 +250,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(generator.run(project.id(), NOW.plusDays(7))).isEqualTo(Outcome.GENERATED);
     long second = rowPageId(LocalDate.parse("2026-11-16"));
     assertThat(page(second).title()).isEqualTo("11월 4주차 주간 리포트");
-    assertThat(writer.childIdsOrdered(parent.id())).containsExactly(template, second, first);
+    assertThat(writer.childIdsOrdered(parent.id())).containsExactly(second, first);
   }
 
   @Test
@@ -352,7 +354,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     dueAt(NOW);
     assertThat(generator.run(project.id(), NOW.plusHours(1))).isEqualTo(Outcome.DUPLICATE);
     assertThat(reportRows()).isEqualTo(1);
-    assertThat(writer.childIdsOrdered(reportsPageId())).hasSize(2);
+    assertThat(writer.childIdsOrdered(reportsPageId())).hasSize(1);
     verify(client, times(1)).writeProjectReport(any());
   }
 
@@ -389,7 +391,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.SKIPPED_NO_CHANGE);
     assertThat(rowStatus(PERIOD_START)).isEqualTo("SKIPPED");
     assertThat(rowPageId(PERIOD_START)).isNull();
-    assertThat(writer.childIdsOrdered(reportsPageId())).containsExactly(setting().templatePageId());
+    assertThat(writer.childIdsOrdered(reportsPageId())).isEmpty();
     assertThat(setting().nextRunAt().toInstant()).isEqualTo(NOW.plusDays(7).toInstant());
     verify(client, never()).writeProjectReport(any());
   }
@@ -408,7 +410,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(s.nextRunAt().toInstant()).isEqualTo(NOW.plusMinutes(30).toInstant());
     assertThat(s.consecutiveFailures()).isEqualTo(1);
     assertThat(lastError()).contains("AI 리포트 작성 요청에 실패했어요.");
-    assertThat(writer.childIdsOrdered(reportsPageId())).containsExactly(s.templatePageId());
+    assertThat(writer.childIdsOrdered(reportsPageId())).isEmpty();
   }
 
   /** 연속 세 번째 실패면 그 회차를 버리고 다음 예정(다음 월요일 09:00)으로, 카운터 0. */
@@ -475,7 +477,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
   void run_recreatesReportsPageAndTemplate_whenDeleted() {
     aiReturnsMessy(activity());
     long oldTemplate = setting().templatePageId();
-    long oldReports = page(oldTemplate).parentId();
+    long oldReports = reportsPageId();
     pageService.delete(owner, oldTemplate);
     pageService.delete(owner, oldReports);
 
@@ -487,8 +489,102 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(page(reports).title()).isEqualTo("리포트");
     long template = setting().templatePageId();
     assertThat(template).isNotEqualTo(oldTemplate);
-    assertThat(page(template).title()).isEqualTo("템플릿 · 주간 리포트");
-    assertThat(writer.childIdsOrdered(reports)).containsExactly(template, report);
+    assertThat(page(template).title()).isEqualTo("정기 리포트");
+    assertThat(page(page(template).parentId()).title()).isEqualTo("템플릿");
+    assertThat(writer.childIdsOrdered(reports)).containsExactly(report);
+  }
+
+  /** 저장 위치를 「회의록」으로 바꾸면 새 리포트는 그 아래 맨 위, 「리포트」의 옛 리포트는 그대로(WP-1654). */
+  @Test
+  void run_writesUnderChosenLocation_newestOnTop() {
+    aiReturnsMessy(activity());
+    long reports = reportsPageId();
+    long spaceId = page(reports).spaceId();
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.GENERATED);
+    long first = rowPageId(PERIOD_START);
+    long minutes = writer.createPage(owner, spaceId, null, "회의록").id();
+    long existing = writer.createPage(owner, spaceId, minutes, "기존 노트").id();
+    settingsService.updateLocation(owner, project.key(), minutes);
+
+    activity(kst("2026-11-17T10:00:00"));
+    assertThat(generator.run(project.id(), NOW.plusDays(7))).isEqualTo(Outcome.GENERATED);
+    long second = rowPageId(LocalDate.parse("2026-11-16"));
+    assertThat(writer.childIdsOrdered(minutes)).containsExactly(second, existing);
+    assertThat(writer.childIdsOrdered(reports)).containsExactly(first);
+  }
+
+  /** 고른 위치가 다른 공간으로 옮겨졌으면 「리포트」에 쓰고 설정값을 지운다(WP-1654). */
+  @Test
+  void run_locationMovedToOtherSpace_fallsBackToReports_andClearsSetting() {
+    aiReturnsMessy(activity());
+    long reports = reportsPageId();
+    long minutes = writer.createPage(owner, page(reports).spaceId(), null, "회의록").id();
+    settingsService.updateLocation(owner, project.key(), minutes);
+    String key =
+        "RO" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    ProjectResponse other =
+        projectService.create(owner, new CreateProjectRequest(key, "다른-" + key, null, "TEAM"));
+    long otherSpace = writer.ensureProjectSpace(other.id()).orElseThrow();
+    pageService.move(owner, minutes, new MovePageRequest(null, 0, otherSpace));
+
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.GENERATED);
+    assertThat(page(rowPageId(PERIOD_START)).parentId()).isEqualTo(reports);
+    assertThat(setting().reportLocationPageId()).isNull();
+    assertThat(writer.childIdsOrdered(minutes)).isEmpty();
+  }
+
+  /** 고른 위치 페이지를 지웠으면 「리포트」에 쓴다(WP-1654). */
+  @Test
+  void run_locationDeleted_fallsBackToReports() {
+    aiReturnsMessy(activity());
+    long reports = reportsPageId();
+    long minutes = writer.createPage(owner, page(reports).spaceId(), null, "회의록").id();
+    settingsService.updateLocation(owner, project.key(), minutes);
+    pageService.delete(owner, minutes);
+
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.GENERATED);
+    assertThat(page(rowPageId(PERIOD_START)).parentId()).isEqualTo(reports);
+  }
+
+  /** 고른 위치가 유효하면 사람이 지운 「리포트」를 되살리지 않는다(WP-1654). */
+  @Test
+  void run_locationValid_reportsPageDeleted_notRecreated() {
+    aiReturnsMessy(activity());
+    long reports = reportsPageId();
+    long spaceId = page(reports).spaceId();
+    long minutes = writer.createPage(owner, spaceId, null, "회의록").id();
+    settingsService.updateLocation(owner, project.key(), minutes);
+    pageService.delete(owner, reports);
+
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.GENERATED);
+    assertThat(page(rowPageId(PERIOD_START)).parentId()).isEqualTo(minutes);
+    assertThat(writer.findReportsPage(spaceId)).isEmpty();
+  }
+
+  /**
+   * 옛 구조(「리포트」 바로 아래 「템플릿 · 주간 리포트」, 갖춤 표시 없음)에서 생성하면 템플릿이 같은 id 로 「템플릿 › 정기 리포트」가 되고(본문 유지), 리포트는
+   * 「리포트」 맨 위에 혼자 놓인다(WP-1654).
+   */
+  @Test
+  void run_migratesLegacyTemplate() {
+    aiReturnsMessy(activity());
+    long reports = reportsPageId();
+    long template = setting().templatePageId();
+    writer.moveTo(template, reports, 0);
+    writer.renameTo(template, "템플릿 · 주간 리포트", owner);
+    writer.writeBody(owner, template, page(template).version(), "사람이 고친 옛 템플릿", false, false);
+    dsl.update(table(name("project_report_setting")))
+        .set(field(name("template_initialized"), Boolean.class), false)
+        .where(field(name("project_id"), Long.class).eq(project.id()))
+        .execute();
+
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.GENERATED);
+    WikiPageDetail moved = page(template);
+    assertThat(setting().templatePageId()).isEqualTo(template);
+    assertThat(moved.title()).isEqualTo("정기 리포트");
+    assertThat(moved.body()).isEqualTo("사람이 고친 옛 템플릿");
+    assertThat(page(moved.parentId()).title()).isEqualTo("템플릿");
+    assertThat(writer.childIdsOrdered(reports)).containsExactly(rowPageId(PERIOD_START));
   }
 
   /** 3주 꺼졌다 켜져도 밀린 회차를 여러 편 만들지 않고 직전 완전 주 하나만. */
@@ -505,7 +601,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     LocalDate start = LocalDate.parse("2026-11-30");
     assertThat(rowStatus(start)).isEqualTo("GENERATED");
     assertThat(page(rowPageId(start)).title()).isEqualTo("12월 1주차 주간 리포트");
-    assertThat(writer.childIdsOrdered(reportsPageId())).hasSize(2);
+    assertThat(writer.childIdsOrdered(reportsPageId())).hasSize(1);
     assertThat(setting().nextRunAt().toInstant()).isEqualTo(later.plusWeeks(1).toInstant());
   }
 
@@ -570,7 +666,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
 
     assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.FAILED);
     assertThat(reportRows()).isZero();
-    assertThat(writer.childIdsOrdered(reportsPageId())).hasSize(1);
+    assertThat(writer.childIdsOrdered(reportsPageId())).isEmpty();
   }
 
   /** 지난 배지는 지난 GENERATED 회차의 배지 — 그 뒤 SKIPPED 회차가 있어도. */
@@ -636,6 +732,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
   @Autowired ProjectReportFactsService factsService;
   @Autowired ProjectNoteSpaceRepository noteSpaces;
   @Autowired ProjectReportTemplate reportTemplate;
+  @Autowired ProjectReportLocation reportLocation;
   @Autowired AiAgentProperties aiAgentProperties;
 
   /** 노트 쓰기·회차 저장소를 Mockito 스파이로 바꾼 생성기 — 페이지를 만든 뒤의 실패를 만든다(실제 빈의 대상 객체를 감싸 동작은 그대로). */
@@ -649,6 +746,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
         noteSpaces,
         spyWriter,
         reportTemplate,
+        reportLocation,
         assistantResolver,
         client,
         aiAgentProperties,
@@ -664,9 +762,9 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     return spy((ProjectReportRepository) AopTestUtils.getUltimateTargetObject(reportRepository));
   }
 
-  /** 템플릿 말고 「리포트」 아래 리포트 페이지 수. */
+  /** 「리포트」 아래 리포트 페이지 수(템플릿은 「템플릿」 아래라 세지 않는다 — WP-1654). */
   private int reportPages() {
-    return writer.childIdsOrdered(reportsPageId()).size() - 1;
+    return writer.childIdsOrdered(reportsPageId()).size();
   }
 
   /** 페이지를 만든 뒤 회차 저장(markGenerated)이 실패해도 회차 행을 지우지 않는다 — 30분 뒤 재시도는 그 페이지를 다시 써서 회차당 페이지는 하나. */
@@ -720,7 +818,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     WikiPageDetail p = page(page);
     assertThat(p.aiLastAction()).isEqualTo("report");
     assertThat(p.body()).contains("| 완료 | 1 | +1 |");
-    assertThat(writer.childIdsOrdered(reportsPageId()).get(1)).isEqualTo(page);
+    assertThat(writer.childIdsOrdered(reportsPageId()).get(0)).isEqualTo(page);
   }
 
   /**

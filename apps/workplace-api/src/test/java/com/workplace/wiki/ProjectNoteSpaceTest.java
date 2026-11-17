@@ -30,6 +30,7 @@ import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.exception.WikiProjectSpaceConflictException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageCreatedEvent;
+import com.workplace.wiki.report.ProjectReportSettingRepository;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import com.workplace.wiki.service.ProjectNoteSpaceBackfill;
 import com.workplace.wiki.service.WikiPageService;
@@ -77,6 +78,7 @@ class ProjectNoteSpaceTest extends IntegrationTestBase {
   @Autowired WikiPageService pageService;
   @Autowired ProjectNoteSpaceBackfill backfill;
   @Autowired ApplicationEvents appEvents;
+  @Autowired ProjectReportSettingRepository reportSettings;
 
   private long ownerId;
   private String suffix;
@@ -340,7 +342,13 @@ class ProjectNoteSpaceTest extends IntegrationTestBase {
     ProjectResponse p = project(ownerId, "S-" + suffix, "TEAM");
     long autoId = spaceIdOf(p);
     long reportId = reportPage(autoId);
+    // WP-1654: 「템플릿」 맨 위 페이지와 그 아래 템플릿 — 연결 때 「리포트」와 함께 옮겨져야 자동 공간이 비고 템플릿 id 가 그대로다.
+    long templatesId = pageService.create(ownerId, autoId, new CreatePageRequest(null, "템플릿")).id();
+    long templateId =
+        pageService.create(ownerId, autoId, new CreatePageRequest(templatesId, "정기 리포트")).id();
+    reportSettings.setTemplate(p.id(), templateId, false);
     long target = spaceService.createTeamSpace(ownerId, "기존공간-" + suffix).id();
+    pageService.create(ownerId, target, new CreatePageRequest(null, "원래 페이지"));
     long outsider = human();
     spaceService.addMember(ownerId, target, outsider, "EDITOR");
 
@@ -354,6 +362,20 @@ class ProjectNoteSpaceTest extends IntegrationTestBase {
     assertThat(dsl.select(WIKI_PAGE.SPACE_ID).from(WIKI_PAGE).where(WIKI_PAGE.ID.eq(reportId)))
         .extracting(r -> r.value1())
         .containsExactly(target);
+    // 「템플릿」 갈래도 대상 공간으로 — 맨 위는 「템플릿」, 그 다음 「리포트」. 설정의 템플릿 id 는 그대로(공간 간 이동이 id 를 유지).
+    assertThat(dsl.select(WIKI_PAGE.SPACE_ID).from(WIKI_PAGE).where(WIKI_PAGE.ID.eq(templateId)))
+        .extracting(r -> r.value1())
+        .containsExactly(target);
+    assertThat(
+            dsl.select(WIKI_PAGE.ID)
+                .from(WIKI_PAGE)
+                .where(WIKI_PAGE.SPACE_ID.eq(target))
+                .and(WIKI_PAGE.PARENT_ID.isNull())
+                .orderBy(WIKI_PAGE.POSITION, WIKI_PAGE.ID)
+                .limit(2)
+                .fetch(WIKI_PAGE.ID))
+        .containsExactly(templatesId, reportId);
+    assertThat(reportSettings.find(p.id()).orElseThrow().templatePageId()).isEqualTo(templateId);
     assertThat(spaceMembers.findDirectRole(target, outsider)).isEmpty();
     assertThat(spaceService.getSpace(ownerId, target).projectKey()).isEqualTo(p.key());
   }

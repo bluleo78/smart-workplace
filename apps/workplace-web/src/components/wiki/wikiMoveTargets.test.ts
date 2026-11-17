@@ -1,7 +1,7 @@
 // 「이동…」 위치 고르기(WP-839) — 고를 자리와 맨 아래 순서 계산.
 import { describe, expect, it } from 'vitest'
 
-import { lastChildPosition, moveTargets, subtreeIds } from './wikiMoveTargets'
+import { lastChildPosition, moveTargets, pickTargets, subtreeIds } from './wikiMoveTargets'
 
 // 1 회의록 ─ 2 10월 ─ 3 23일
 //          └ 4 11월
@@ -21,6 +21,15 @@ describe('wikiMoveTargets', () => {
       [4, 1],
       [5, 0],
     ])
+  })
+
+  it('pickTargets 는 여러 갈래(각 루트와 그 하위)를 함께 빼고 남은 페이지의 깊이를 지킨다(WP-1654)', () => {
+    expect(pickTargets(pages, [2, 5]).map((r) => [r.page.id, r.depth])).toEqual([
+      [1, 0],
+      [4, 1],
+    ])
+    // 뺄 갈래가 없으면 트리 전체
+    expect(pickTargets(pages, []).map((r) => r.page.id)).toEqual([1, 2, 3, 4, 5])
   })
 
   it('lastChildPosition 은 옮길 페이지를 빼고 새 부모의 자식 수를 센다', () => {

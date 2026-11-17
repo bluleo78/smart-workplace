@@ -4,7 +4,7 @@ import { formatKstDayClock, parseUtcDate } from '@/lib/formatters'
 import type { WikiPageDetail } from '@/types/wiki'
 
 /** 시스템이 리포트를 쓸 때 남기는 AI 액션 이름(서버 WikiSystemPageWriter.AI_ACTION_REPORT). */
-const REPORT_ACTION = 'report'
+export const REPORT_ACTION = 'report'
 
 /**
  * 「AI 작성」 표지 문구.

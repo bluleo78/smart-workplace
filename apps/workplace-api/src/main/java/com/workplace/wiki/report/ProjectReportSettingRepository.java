@@ -51,6 +51,12 @@ public class ProjectReportSettingRepository {
   private static final Field<String> LAST_ERROR = field(name(TBL, "last_error"), String.class);
   private static final Field<OffsetDateTime> UPDATED_AT =
       field(name(TBL, "updated_at"), OffsetDateTime.class);
+  private static final Field<Long> REPORT_LOCATION_PAGE_ID =
+      field(name(TBL, "report_location_page_id"), Long.class);
+  private static final Field<Boolean> TEMPLATE_INITIALIZED =
+      field(name(TBL, "template_initialized"), Boolean.class);
+  private static final Field<OffsetDateTime> TEMPLATE_RECREATED_AT =
+      field(name(TBL, "template_recreated_at"), OffsetDateTime.class);
 
   private final DSLContext dsl;
 
@@ -60,6 +66,10 @@ public class ProjectReportSettingRepository {
    * @param timeOfDay KST 정시
    * @param templatePageId 템플릿 노트(지워졌으면 null)
    * @param nextRunAt 다음 생성 시각(꺼졌으면 null)
+   * @param reportLocationPageId 새 리포트를 둘 페이지(WP-1654, null = 기본 「리포트」)
+   * @param templateInitialized 템플릿을 「템플릿」 체계로 갖췄는가(WP-1654) — 옛 위치 이전을 한 번만 하고, 지운 템플릿을 다시 만들 때 알리기
+   *     위한 표시
+   * @param templateRecreatedAt 없어진 템플릿을 다시 만든 시각(WP-1654, 설정 화면 한 줄 알림 — 없으면 null)
    */
   public record SettingRow(
       long projectId,
@@ -69,7 +79,10 @@ public class ProjectReportSettingRepository {
       LocalTime timeOfDay,
       Long templatePageId,
       OffsetDateTime nextRunAt,
-      int consecutiveFailures) {
+      int consecutiveFailures,
+      Long reportLocationPageId,
+      boolean templateInitialized,
+      OffsetDateTime templateRecreatedAt) {
 
     /** 행이 없는 프로젝트의 기본 설정 — 꺼짐·매주·월요일·09:00. */
     public static SettingRow defaults(long projectId) {
@@ -81,7 +94,10 @@ public class ProjectReportSettingRepository {
           LocalTime.of(9, 0),
           null,
           null,
-          0);
+          0,
+          null,
+          false,
+          null);
     }
   }
 
@@ -95,7 +111,10 @@ public class ProjectReportSettingRepository {
             TIME_OF_DAY,
             TEMPLATE_PAGE_ID,
             NEXT_RUN_AT,
-            CONSECUTIVE_FAILURES)
+            CONSECUTIVE_FAILURES,
+            REPORT_LOCATION_PAGE_ID,
+            TEMPLATE_INITIALIZED,
+            TEMPLATE_RECREATED_AT)
         .from(T)
         .where(PROJECT_ID.eq(projectId))
         .fetchOptional(ProjectReportSettingRepository::toRow);
@@ -110,7 +129,10 @@ public class ProjectReportSettingRepository {
         r.get(TIME_OF_DAY),
         r.get(TEMPLATE_PAGE_ID),
         r.get(NEXT_RUN_AT),
-        r.get(CONSECUTIVE_FAILURES));
+        r.get(CONSECUTIVE_FAILURES),
+        r.get(REPORT_LOCATION_PAGE_ID),
+        Boolean.TRUE.equals(r.get(TEMPLATE_INITIALIZED)),
+        r.get(TEMPLATE_RECREATED_AT));
   }
 
   /**
@@ -145,15 +167,79 @@ public class ProjectReportSettingRepository {
     }
   }
 
-  /** 템플릿 페이지를 적는다 — 행이 없으면 기본 설정으로 만든다(템플릿만 먼저 복사되는 경로). */
-  public void setTemplate(long projectId, long pageId) {
+  /**
+   * 템플릿 페이지를 적는다(WP-1654) — 행이 없으면 기본 설정으로 만든다(템플릿만 먼저 복사되는 경로). 적으면 「템플릿」 체계로 갖춘 것이므로
+   * template_initialized 를 true 로 한다.
+   *
+   * @param recreated 없어진 템플릿을 다시 만든 것이면 true — 설정 화면 알림 시각을 남긴다(아니면 이전 알림 시각을 그대로 둔다)
+   */
+  public void setTemplate(long projectId, long pageId, boolean recreated) {
+    var update =
+        dsl.insertInto(T)
+            .columns(PROJECT_ID, TEMPLATE_PAGE_ID, TEMPLATE_INITIALIZED, TEMPLATE_RECREATED_AT)
+            .values(
+                DSL.val(projectId),
+                DSL.val(pageId),
+                DSL.val(true),
+                recreated
+                    ? DSL.currentOffsetDateTime()
+                    : DSL.val((OffsetDateTime) null, OffsetDateTime.class))
+            .onConflict(PROJECT_ID)
+            .doUpdate()
+            .set(TEMPLATE_PAGE_ID, pageId)
+            .set(TEMPLATE_INITIALIZED, true)
+            .set(UPDATED_AT, DSL.currentOffsetDateTime());
+    if (recreated) {
+      update.set(TEMPLATE_RECREATED_AT, DSL.currentOffsetDateTime()).execute();
+    } else {
+      update.execute();
+    }
+  }
+
+  /**
+   * 템플릿을 「템플릿」 체계로 갖췄다고 표시한다(WP-1654) — 옛 위치 이전 판정을 마쳤을 때. 행이 없으면 기본 설정으로 만든다. 이 표시가 있어야 이전을 한 번만
+   * 하고, 나중에 템플릿이 없어지면 「다시 만들었어요」로 알린다.
+   */
+  public void markTemplateInitialized(long projectId) {
     dsl.insertInto(T)
-        .columns(PROJECT_ID, TEMPLATE_PAGE_ID)
+        .columns(PROJECT_ID, TEMPLATE_INITIALIZED)
+        .values(projectId, true)
+        .onConflict(PROJECT_ID)
+        .doUpdate()
+        .set(TEMPLATE_INITIALIZED, true)
+        .execute();
+  }
+
+  /** 「템플릿을 다시 만들었어요」 알림을 지운다(WP-1654) — 관리자가 설정을 다시 쓸 때. 행이 없으면 아무것도 하지 않는다. */
+  public void clearTemplateRecreated(long projectId) {
+    dsl.update(T)
+        .setNull(TEMPLATE_RECREATED_AT)
+        .where(PROJECT_ID.eq(projectId))
+        .and(TEMPLATE_RECREATED_AT.isNotNull())
+        .execute();
+  }
+
+  /** 리포트 저장 위치를 적는다(WP-1654, null 이면 기본 「리포트」) — 행이 없으면 기본 설정으로 만든다. */
+  public void setLocation(long projectId, Long pageId) {
+    dsl.insertInto(T)
+        .columns(PROJECT_ID, REPORT_LOCATION_PAGE_ID)
         .values(projectId, pageId)
         .onConflict(PROJECT_ID)
         .doUpdate()
-        .set(TEMPLATE_PAGE_ID, pageId)
+        .set(REPORT_LOCATION_PAGE_ID, pageId)
         .set(UPDATED_AT, DSL.currentOffsetDateTime())
+        .execute();
+  }
+
+  /**
+   * 저장 위치가 아직 expectedPageId 일 때만 지운다(WP-1654) — 생성기가 무효(다른 공간으로 옮겨짐)로 본 위치를 기본으로 되돌릴 때, 그사이 관리자가
+   * 새로 고른 값을 지우지 않게 조건부로 한다.
+   */
+  public void clearLocationIf(long projectId, long expectedPageId) {
+    dsl.update(T)
+        .setNull(REPORT_LOCATION_PAGE_ID)
+        .where(PROJECT_ID.eq(projectId))
+        .and(REPORT_LOCATION_PAGE_ID.eq(expectedPageId))
         .execute();
   }
 

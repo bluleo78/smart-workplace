@@ -55,6 +55,8 @@ export interface WikiPageSummary {
   kind?: WikiPageKind
   // #736: AI 생성 attribution — 값 존재 여부만으로 사이드바 트리 배지를 판단(null 이면 AI 이력 없음).
   aiLastUsedAt: string | null
+  // WP-1654: 마지막 AI 액션 종류(report·polish 등, 없으면 null) — 리포트 저장 위치 창이 AI 가 쓴 리포트(report)만 뺀다. 구버전 응답엔 없어 선택.
+  aiLastAction?: string | null
   // WP-579: 이 페이지 자신의 공유(없으면 null) — 사이드바 트리 공유 아이콘과, 하위 포함 공유 안팎으로 옮길 때 경고에 쓴다.
   share?: WikiTreeShare | null
   // WP-1031: 이 페이지에 상위 공유 제외 표시(WP-987)가 있는지 — 있으면 그 위의 하위 포함 공유로 열리지 않는다. 이동 경고가 상속을 여기서 멈춘다.

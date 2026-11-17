@@ -7,8 +7,10 @@ public record WikiPageSummary(
     Long parentId,
     String title,
     int position,
-    // #736: 사이드바 트리 AI 배지 판단용(값 유무만 사용, 액션 종류는 Detail 쪽에만 노출).
+    // #736: 사이드바 트리 AI 배지 판단용(값 유무만 사용).
     OffsetDateTime aiLastUsedAt,
+    // WP-1654: 마지막 AI 액션 종류(report·draft 등, 없으면 null) — 리포트 저장 위치 창이 AI 가 쓴 리포트 페이지(report)만 뺀다.
+    String aiLastAction,
     // WP-579: 이 페이지 자신의 공유(없으면 null) — 사이드바 트리 링크 아이콘과 이동 경고용. 공유 링크로 연 목록에는 싣지 않는다.
     WikiTreeShare share,
     // WP-1031: 이 페이지에 상위 공유 제외 표시(WP-987)가 있는지 — 이동 경고가 「새 위치의 공유 링크로 보이게 된다」고 잘못 말하지 않게.

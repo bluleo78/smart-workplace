@@ -1278,6 +1278,39 @@ class ReportMarkdownTest {
     }
   }
 
+  /**
+   * 정기 리포트 템플릿(WP-1654)의 주기 중립 머리 「이번 회차 | 지난 회차」도 생성 리포트에서는 주기 낱말로 다시 쓴다 — 템플릿 머리 변경이 리포트에 새지 않는다.
+   * 템플릿 원문으로도 지표 표를 알아본다.
+   */
+  @Test
+  void metrics_neutralTemplateHead_rewrittenToCadenceWords() {
+    assertThat(ReportMarkdown.hasMetricsTable("| 지표 | 이번 회차 | 지난 회차 |\n| --- | --- | --- |"))
+        .isTrue();
+    List<com.workplace.issue.report.ProjectReportEpics.ReportMetric> ms =
+        List.of(new com.workplace.issue.report.ProjectReportEpics.ReportMetric("완료한 에픽", "1", "2"));
+    for (String[] c :
+        new String[][] {
+          {"MONTHLY", "이번 달", "지난달"}, {"BIWEEKLY", "이번 기간", "지난 기간"}, {"WEEKLY", "이번 주", "지난주"}
+        }) {
+      List<String> lines =
+          new java.util.ArrayList<>(
+              List.of(
+                  "## 참고 지표",
+                  "",
+                  "| 지표 | 이번 회차 | 지난 회차 |",
+                  "| --- | --- | --- |",
+                  "| 아무 | 1 | 1 |"));
+
+      ReportMarkdown.fixTable(
+          lines,
+          com.workplace.wiki.report.ReportTableSpec.metrics(ms, ReportCadence.valueOf(c[0])),
+          true);
+
+      assertThat(lines).as(c[0]).contains("| 지표 | " + c[1] + " | " + c[2] + " |");
+      assertThat(String.join("\n", lines)).as(c[0]).doesNotContain("회차");
+    }
+  }
+
   /** 「**진행 상태가 늦은 에픽**」 같은 다른 굵은 글은 진행 상태 줄이 아니다 — 지우지 않고 상태 줄도 한 번만(WP-1629). */
   @Test
   void status_doesNotTreatOtherBoldStartingWithPhraseAsStatusLine() {
