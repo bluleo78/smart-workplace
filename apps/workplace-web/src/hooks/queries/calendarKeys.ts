@@ -11,5 +11,8 @@ export const calendarKeys = {
   tags: ['calendar', 'tags'] as const,
   // 일정(회차)의 회의록 노트(WP-1701) — all 접두라 일정 변경 무효화 때 함께 다시 읽는다
   eventNote: (id: number, occurrenceDate: string | null) => ['calendar', 'note', id, occurrenceDate] as const,
+  // 노트에 이어진 일정 목록(WP-1703) — all 접두라 일정 변경 무효화 때 함께 다시 읽는다
+  noteEventsAll: ['calendar', 'noteEvents'] as const,
+  noteEvents: (pageId: number) => ['calendar', 'noteEvents', pageId] as const,
   tagFeed: (id: number) => ['calendar', 'tags', id, 'feed'] as const,
 }

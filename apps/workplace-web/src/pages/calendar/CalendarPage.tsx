@@ -103,10 +103,12 @@ export function CalendarPage() {
   // 일정 상세 = URL ?eventId(상태의 단일 원천, WP-208). 일정 클릭은 push → 시스템 뒤로가기가 다이얼로그만 닫는다.
   // 알림·홈 딥링크(#659)와 같은 키 — 예전처럼 소비 후 replace 로 지우지 않는다(뒤로가기·forward 가 다이얼로그를 여닫는다).
   const [searchParams, setSearchParams] = useSearchParams()
-  const eventParam = useHistoryParam('eventId')
+  const eventParam = useHistoryParam('eventId', { clear: ['occurrence'] })
   const eventIdParam = parseId(eventParam.value)
   // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
   const deepLinkNew = searchParams.get('new') === 'true'
+  // 노트 하단 연결 일정 링크(WP-1703)가 싣는 회차 시작 시각 — 있으면 마스터 대신 그 회차를 연다.
+  const occurrenceParam = searchParams.get('occurrence')
   // 표시 설정·마지막 보기는 사용자·워크스페이스별 저장(WP-701). 캘린더 화면은 로그인 뒤에만 열리므로 user 가 있다.
   const { user, activeTenant } = useAuth()
   const storageOwner = { userId: user?.id ?? 0, tenantId: activeTenant?.tenantId ?? null }
@@ -410,33 +412,57 @@ export function CalendarPage() {
   }, [deepLinkNew])
 
   // URL 이 가리키는 일정이 스냅숏과 다르면(알림·홈 딥링크·새로고침) 단건 조회로 채운다 — 성공 시 그 날짜로 이동.
-  // (반복 회차를 가리켜도 GET /events/{id} 는 마스터를 반환 — 회차 특정 없이 마스터로 연다, #659 지침 4항.)
-  // 삭제됐거나 권한이 없으면(404/403) 토스트로 안내하고 eventId 만 replace 로 지운다(다른 쿼리·router state 유지).
+  // (반복 회차를 가리켜도 GET /events/{id} 는 마스터를 반환 — ?occurrence 가 없으면 회차 특정 없이 마스터로 연다, #659 지침 4항.
+  //  ?occurrence 가 있으면(WP-1703) 그 시각부터 24시간 목록에서 같은 마스터·같은 시각의 회차를 찾아 그 회차로 연다. 못 찾으면 마스터.)
+  // 삭제됐거나 권한이 없으면(404/403) 토스트로 안내하고 eventId(와 occurrence)만 replace 로 지운다(다른 쿼리·router state 유지).
   // 토스트가 곧 '없음' 상태라 닫을 다이얼로그가 없다 — 스펙 §6 '조용한 replace 금지'의 허용 예외(WP-208).
   // 남겨 두면 다음 일정 탭이 push 가 아닌 replace 가 되어(이미 열린 값으로 판정) 그 다이얼로그를 닫을 때 -1 로 캘린더를 떠난다.
   const needFetch = eventIdParam != null && editing?.id !== eventIdParam
   const { data: deepLinkEvent, isError: deepLinkFailed } = useCalendarEvent(needFetch ? eventIdParam : null)
   useEffect(() => {
     if (!needFetch) return
+    let cancelled = false
     if (deepLinkEvent && deepLinkEvent.id === eventIdParam) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 서버 응답(외부)으로 스냅숏을 채운다(MailInboxPage 와 같은 처리)
-      setAnchor(startOfDay(new Date(deepLinkEvent.startsAt)))
-      setCreating(false)
-      setEditing(deepLinkEvent)
+      // 그 일정(마스터 또는 찾은 회차)의 날짜로 이동해 상세를 연다.
+      const openEvent = (ev: CalendarEvent) => {
+        setAnchor(startOfDay(new Date(ev.startsAt)))
+        setCreating(false)
+        setEditing(ev)
+      }
+      const target = occurrenceParam ? new Date(occurrenceParam).getTime() : Number.NaN
+      if (Number.isNaN(target)) {
+        openEvent(deepLinkEvent)
+      } else {
+        // 회차 시각은 문자열이 아니라 순간(getTime)으로 비교한다 — 목록 API 는 0초를 줄여 '…T01:00Z' 로 쓸 수 있어 링크의 '…T01:00:00Z' 와 글자가 다르다.
+        calendarApi
+          .list(new Date(target).toISOString(), new Date(target + 24 * 60 * 60 * 1000).toISOString())
+          .then((r) => r.data.find((e) => e.masterEventId === eventIdParam && e.occurrenceDate != null && new Date(e.occurrenceDate).getTime() === target))
+          .catch(() => undefined)
+          .then((occ) => {
+            if (cancelled) return
+            // 못 찾거나 조회가 실패해도 빈 화면·오류 없이 마스터로 연다(기존 동작).
+            openEvent(occ ?? deepLinkEvent)
+          })
+      }
     } else if (deepLinkFailed) {
       toast.error('일정을 찾을 수 없거나 접근 권한이 없습니다')
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev)
           next.delete('eventId')
+          // 회차 인자(WP-1703)는 eventId 없이는 뜻이 없다 — 남기면 다음에 붙는 다른 eventId 에 잘못 붙는다.
+          next.delete('occurrence')
           return next
         },
         { replace: true, state: location.state },
       )
     }
+    return () => {
+      cancelled = true
+    }
     // location.state 는 실패 시점 값만 필요 — 의존성에 넣으면 무관한 state 변경마다 재평가된다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needFetch, deepLinkEvent, deepLinkFailed, eventIdParam])
+  }, [needFetch, deepLinkEvent, deepLinkFailed, eventIdParam, occurrenceParam])
 
   // 새로 만든 일정에 노트를 잇는다(WP-1701) — 고른 노트·만든 회의록(WP-1702)이 함께 쓴다. 반복이면 DTSTART 가 규칙에 안 맞을 수 있어
   // startsAt 이 아니라 목록 조회로 펼친 실제 첫 회차를 쓴다(서버 전개는 안 맞는 DTSTART 를 회차로 내지 않는다). 실패는 던진다.

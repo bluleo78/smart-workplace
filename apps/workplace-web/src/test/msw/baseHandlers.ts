@@ -149,6 +149,8 @@ export const shellHandlers = [
     HttpResponse.json({ summary: null, status: 'TOO_SHORT', summaryVersion: null, pageVersion: 1, summarizedAt: null }),
   ),
   http.get(`${API}/wiki/pages/:id/backlinks`, () => HttpResponse.json({ items: [] })),
+  // 노트 하단 연결된 일정 패널(WP-1703) — 기본은 이어진 일정 없음
+  http.get(`${API}/calendar/notes/:id/events`, () => HttpResponse.json({ items: [] })),
   http.get(`${API}/user-groups`, () => HttpResponse.json({ shared: [], personal: [] })),
   // 아바타 주소 표(WP-1222) — 앱 루트(AvatarsProvider)가 로그인하면 한 번 부른다. 기본은 아무도 아바타가 없다(모두 이니셜).
   http.get(`${API}/users/avatars`, () => HttpResponse.json([])),

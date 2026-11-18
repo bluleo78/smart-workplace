@@ -79,6 +79,7 @@ import { importHtmlIntoEditor, readHtmlFile } from './wikiHtmlImportInsert'
 import { WikiLinkActionSheet } from './WikiLinkActionSheet'
 import { focusLinkBubble, WikiLinkBubble } from './WikiLinkBubble'
 import { wikiLinkHrefToOpen } from './wikiLinkClick'
+import { WikiLinkedEventsPanel } from './WikiLinkedEventsPanel'
 import { WikiLinkInput } from './WikiLinkInput'
 import { wikiListPath } from './wikiListPath'
 import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
@@ -1318,8 +1319,14 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
               onCreated={onIssueCreated}
               onClose={() => setIssueDialog((s) => ({ ...s, open: false }))}
             />
-            {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
-            {features.backlinks && <WikiBacklinksPanel pageId={page.id} />}
+            {/* 연결된 일정 패널(WP-1703) — 백링크 위. 둘이 이어 나오면 구분선·큰 여백은 위 패널만 갖는다(sibling 선택자).
+                공유 페이지는 features.backlinks 가 꺼져 둘 다 숨는다. */}
+            {features.backlinks && (
+              <div className="[&>section+section]:mt-4 [&>section+section]:border-t-0 [&>section+section]:pt-0">
+                <WikiLinkedEventsPanel pageId={page.id} />
+                <WikiBacklinksPanel pageId={page.id} />
+              </div>
+            )}
             {/* 스크린리더용 라이브 리전 — 상시 렌더하고 내부 텍스트만 토글한다.
                 조건부로 노드째 삽입하면 라이브 리전이 등록되기 전에 내용이 들어가 공지가 누락된다. */}
             <div aria-live="polite" aria-atomic="true" className="sr-only">

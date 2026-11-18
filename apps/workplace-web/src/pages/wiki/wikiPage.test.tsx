@@ -384,6 +384,102 @@ describe('백링크 패널', () => {
   })
 })
 
+describe('연결된 일정 패널', () => {
+  const eventsUrl = '/api/v1/calendar/notes/1/events'
+  const item = {
+    eventId: 7,
+    occurrenceDate: null,
+    overrideEventId: null,
+    title: '주간 회의',
+    startsAt: '2026-11-18T01:00:00Z',
+    endsAt: '2026-11-18T02:00:00Z',
+    allDay: false,
+    attendeeCount: 5,
+  }
+
+  test('이어진 일정을 제목·보조 글로 보이고, 행을 누르면 캘린더 딥링크로 간다', async () => {
+    const { user, location } = open({
+      path: '/wiki/spaces/1/pages/1',
+      tree: () => HEADER_TREE,
+      detail: headerDetail(),
+      handlers: [http.get(eventsUrl, () => HttpResponse.json({ items: [item] }))],
+    })
+    const panel = await screen.findByTestId('wiki-linked-events-panel')
+    expect(panel).toHaveTextContent('연결된 일정')
+    const row = within(panel).getByTestId('wiki-linked-event-7-single')
+    expect(row).toHaveTextContent('주간 회의')
+    expect(row).toHaveTextContent('오전 10:00 · 참석 5명')
+    await user.click(row)
+    await waitFor(() => expect(location()).toBe('/calendar?eventId=7'))
+  })
+
+  test('반복 회차 행은 occurrence 를 붙여 이동한다', async () => {
+    const occ = '2026-11-25T01:00:00Z'
+    const { user, location } = open({
+      path: '/wiki/spaces/1/pages/1',
+      tree: () => HEADER_TREE,
+      detail: headerDetail(),
+      handlers: [http.get(eventsUrl, () => HttpResponse.json({ items: [{ ...item, occurrenceDate: occ }] }))],
+    })
+    await user.click(await screen.findByTestId(`wiki-linked-event-7-${occ}`))
+    await waitFor(() => expect(location()).toBe('/calendar?eventId=7&occurrence=2026-11-25T01%3A00%3A00Z'))
+  })
+
+  test('「이 회차만」 옮긴 회차 행은 testid 는 (마스터, 회차) 그대로, 이동은 override 일정으로(WP-1703)', async () => {
+    const occ = '2026-11-25T01:00:00Z'
+    const { user, location } = open({
+      path: '/wiki/spaces/1/pages/1',
+      tree: () => HEADER_TREE,
+      detail: headerDetail(),
+      handlers: [
+        http.get(eventsUrl, () => HttpResponse.json({ items: [{ ...item, occurrenceDate: occ, overrideEventId: 42 }] })),
+      ],
+    })
+    await user.click(await screen.findByTestId(`wiki-linked-event-7-${occ}`))
+    await waitFor(() => expect(location()).toBe('/calendar?eventId=42'))
+  })
+
+  test('이어진 일정이 없으면 패널을 그리지 않는다', async () => {
+    open({
+      path: '/wiki/spaces/1/pages/1',
+      tree: () => HEADER_TREE,
+      detail: headerDetail(),
+      handlers: [http.get(eventsUrl, () => HttpResponse.json({ items: [] }))],
+    })
+    await screen.findByTestId('wiki-page-header')
+    await act(() => new Promise((r) => setTimeout(r, 50)))
+    expect(screen.queryByTestId('wiki-linked-events-panel')).not.toBeInTheDocument()
+  })
+
+  test('조회가 404 여도 패널을 그리지 않는다', async () => {
+    open({
+      path: '/wiki/spaces/1/pages/1',
+      tree: () => HEADER_TREE,
+      detail: headerDetail(),
+      handlers: [http.get(eventsUrl, () => HttpResponse.json({ status: 404, message: '없음' }, { status: 404 }))],
+    })
+    await screen.findByTestId('wiki-page-header')
+    await act(() => new Promise((r) => setTimeout(r, 50)))
+    expect(screen.queryByTestId('wiki-linked-events-panel')).not.toBeInTheDocument()
+  })
+
+  test('백링크 패널과 함께 있으면 연결된 일정이 DOM 순서상 앞이다', async () => {
+    const backlinks: WikiBacklink[] = [{ pageId: 501, spaceId: 1, spaceName: '팀 위키', title: '회의록 2026', updatedAt: '2026-06-10T00:00:00Z' }]
+    open({
+      path: '/wiki/spaces/1/pages/1',
+      tree: () => HEADER_TREE,
+      detail: headerDetail(),
+      handlers: [
+        http.get(eventsUrl, () => HttpResponse.json({ items: [item] })),
+        http.get('/api/v1/wiki/pages/1/backlinks', () => HttpResponse.json({ items: backlinks })),
+      ],
+    })
+    const events = await screen.findByTestId('wiki-linked-events-panel')
+    const links = await screen.findByTestId('wiki-backlinks-panel')
+    expect(events.compareDocumentPosition(links) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
 // ── 공유하는 쪽(wiki-share-owner) ────────────────────────────────────────
 
 const SHARE_SPACE = 9

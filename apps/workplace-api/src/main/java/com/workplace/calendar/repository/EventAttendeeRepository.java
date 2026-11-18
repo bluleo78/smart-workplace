@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -202,6 +203,22 @@ public class EventAttendeeRepository {
                   r.get(EVENT_ATTENDEE.RESPONDED_AT),
                   r.get(EVENT_ATTENDEE.EXTERNAL_EMAIL));
             });
+  }
+
+  /**
+   * 일정 id 별 참석자 행 수(주최자·외부 참석자 포함)를 쿼리 한 번에 센다(WP-1703, N+1 금지) — 목록 응답의 attendeeCount 와 같은 셈. 행이
+   * 없는 일정은 결과에 없다(0 으로 본다). 빈 입력은 쿼리 없이 빈 맵.
+   */
+  public Map<Long, Integer> countByEvents(Collection<Long> eventIds) {
+    Map<Long, Integer> out = new HashMap<>();
+    if (eventIds == null || eventIds.isEmpty()) return out;
+    dsl.select(EVENT_ATTENDEE.EVENT_ID, DSL.count())
+        .from(EVENT_ATTENDEE)
+        .where(EVENT_ATTENDEE.EVENT_ID.in(eventIds))
+        .groupBy(EVENT_ATTENDEE.EVENT_ID)
+        .fetch()
+        .forEach(r -> out.put(r.value1(), r.value2()));
+    return out;
   }
 
   /** 이벤트에 특정 사용자가 참석자로 등록되어 있는지 확인. 권한 검사 등에 사용. */

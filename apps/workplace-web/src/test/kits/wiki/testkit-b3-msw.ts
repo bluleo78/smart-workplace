@@ -24,5 +24,7 @@ export const editorSideHandlers = [
   http.get('/api/v1/projects', () => HttpResponse.json({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })),
   http.post('/api/v1/auth/refresh', () => HttpResponse.json(createTokenResponse())),
   http.get('/api/v1/wiki/pages/:id/backlinks', () => HttpResponse.json({ items: [] })),
+  // 연결된 일정 패널(WP-1703) — 기본은 이어진 일정 없음
+  http.get('/api/v1/calendar/notes/:id/events', () => HttpResponse.json({ items: [] })),
   http.get('/api/v1/wiki/pages/:id/mentions', () => HttpResponse.json([])),
 ]

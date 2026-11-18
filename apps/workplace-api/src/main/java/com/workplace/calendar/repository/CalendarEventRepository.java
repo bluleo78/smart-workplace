@@ -312,6 +312,50 @@ public class CalendarEventRepository {
         .map(CalendarEventRepository::toResponse);
   }
 
+  /**
+   * 노트 「연결된 일정」용 일정 요약 한 줄(WP-1703).
+   *
+   * @param recurrenceRule 반복 마스터면 RRULE, 아니면 null
+   */
+  public record NoteEventRow(
+      long id,
+      String title,
+      OffsetDateTime startsAt,
+      OffsetDateTime endsAt,
+      boolean allDay,
+      String recurrenceRule) {}
+
+  /**
+   * id 들 중 callerId 가 볼 수 있는 일정의 요약을 쿼리 한 번에 읽는다(WP-1703, N+1 금지). 목록 조회와 같은 가시성 — {@link
+   * #accessibleBy(long)}(주인·참석자) + {@link #visibleExternalCondition()}(끊긴 외부 계정 달력 숨김). 볼 수 없거나 없는
+   * id 는 결과에 없다. 빈 입력은 쿼리 없이 빈 목록.
+   */
+  public List<NoteEventRow> findVisibleSummaries(long callerId, Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    return dsl.select(
+            CALENDAR_EVENT.ID,
+            CALENDAR_EVENT.TITLE,
+            CALENDAR_EVENT.STARTS_AT,
+            CALENDAR_EVENT.ENDS_AT,
+            CALENDAR_EVENT.ALL_DAY,
+            CALENDAR_EVENT.RECURRENCE_RULE)
+        .from(CALENDAR_EVENT)
+        .leftJoin(CALENDAR)
+        .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+        .where(CALENDAR_EVENT.ID.in(ids))
+        .and(accessibleBy(callerId))
+        .and(visibleExternalCondition())
+        .fetch(
+            r ->
+                new NoteEventRow(
+                    r.get(CALENDAR_EVENT.ID),
+                    r.get(CALENDAR_EVENT.TITLE),
+                    r.get(CALENDAR_EVENT.STARTS_AT),
+                    r.get(CALENDAR_EVENT.ENDS_AT),
+                    Boolean.TRUE.equals(r.get(CALENDAR_EVENT.ALL_DAY)),
+                    r.get(CALENDAR_EVENT.RECURRENCE_RULE)));
+  }
+
   /** 단건 owner 조회 — 권한 검증용. */
   public Optional<Long> findOwnerId(long id) {
     return dsl.select(CALENDAR_EVENT.OWNER_ID)
