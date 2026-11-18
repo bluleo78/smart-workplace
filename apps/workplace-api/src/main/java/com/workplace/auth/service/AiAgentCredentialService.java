@@ -123,10 +123,14 @@ public class AiAgentCredentialService {
       }
     } else if (AgentProviders.isLogin(provider)) {
       // WP-1296·1297: 로그인 정보는 그 프로그램이 읽는 키만 남겨 다듬은 JSON 을 저장한다(형식이 틀리면 400).
-      plaintextSecret = LoginInfoNormalizer.normalize(provider, plaintextSecret);
-    } else if (plaintextSecret == null || plaintextSecret.isBlank()) {
-      throw new InvalidProviderCredentialException("anthropic 등록에는 token 이 필수입니다");
+      plaintextSecret = ProviderSecrets.normalize(provider, plaintextSecret);
     } else {
+      // WP-1721: 붙여 넣기에서 묻은 앞뒤 공백·개행·보이지 않는 문자를 지운 토큰으로 시험·저장한다 — AI 계정(agentaccount)과 같은 규칙
+      // (ProviderSecrets)이라 두 저장소가 같은 깨끗한 토큰을 갖는다.
+      plaintextSecret = ProviderSecrets.normalize(provider, plaintextSecret);
+      if (plaintextSecret == null) {
+        throw new InvalidProviderCredentialException("anthropic 등록에는 token 이 필수입니다");
+      }
       // WP-1496: 워크스페이스 ID(선택)를 검증하고, 저장(기존 연결 회수) 전에 ai-agent 로 키를 시험한다 — 필요·거절이면 여기서 400.
       storedWorkspaceId = AnthropicKeys.normalizeWorkspaceId(workspaceId);
       anthropicVerifier.verify(AgentProviders.ANTHROPIC, plaintextSecret, storedWorkspaceId);

@@ -28,6 +28,18 @@ public final class TestFixtures {
   /** 테스트 전반에서 username/email 유니크를 보장하는 프로세스-와이드 카운터. */
   private static final AtomicLong SEQ = new AtomicLong();
 
+  /**
+   * 웹·채팅에서 복사하며 묻는 보이지 않는 문자(WP-1721) — 소스에 문자 그대로 두면 보이지 않으므로 코드값으로 만든다. NBSP(U+00A0)·좁은
+   * NBSP(U+202F)·폭 없는 공백(U+200B)·BOM(U+FEFF).
+   */
+  public static final String NBSP = String.valueOf((char) 0x00A0);
+
+  public static final String NNBSP = String.valueOf((char) 0x202F);
+
+  public static final String ZWSP = String.valueOf((char) 0x200B);
+
+  public static final String BOM = String.valueOf((char) 0xFEFF);
+
   private TestFixtures() {}
 
   /**

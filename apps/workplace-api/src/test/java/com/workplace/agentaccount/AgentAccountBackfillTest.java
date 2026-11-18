@@ -2,6 +2,7 @@ package com.workplace.agentaccount;
 
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -9,6 +10,7 @@ import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountResponse;
 import com.workplace.agentaccount.dto.AgentAccountRow;
 import com.workplace.agentaccount.dto.AgentAccountUpdateRequest;
+import com.workplace.agentaccount.exception.AgentAccountDuplicateException;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.agentaccount.service.AgentAccountBackfill;
@@ -227,6 +229,144 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
     assertThat(all.getFirst().agents()).hasSize(2);
     assertThat(boundAccount(a)).contains(all.getFirst().id());
     assertThat(boundAccount(b)).contains(all.getFirst().id());
+  }
+
+  /**
+   * WP-1721: 같은 setup-token 을 공백 붙은 채로 쓰던 AI 와 깨끗하게 쓰던 AI → 한 그룹·계정 하나. 계정 원문은 공백을 지운 토큰이다(등록 경로와
+   * 같은 정규화).
+   */
+  @Test
+  void backfillMergesPaddedAndCleanSetupToken() {
+    long padded = podAgentWithLegacy("claude-code", "anthropic", "  " + claudeToken('P') + "\n");
+    long clean = podAgentWithLegacy("claude-code", "anthropic", claudeToken('P'));
+
+    assertThat(runBackfill()).isEqualTo(2);
+
+    List<AgentAccountResponse> all = accountList();
+    assertThat(all).hasSize(1);
+    assertThat(boundAccount(padded)).contains(all.getFirst().id());
+    assertThat(boundAccount(clean)).contains(all.getFirst().id());
+    assertStoredClean(all.getFirst().id(), claudeToken('P'));
+  }
+
+  // ---- Claude 토큰 정리(WP-1721) ----
+
+  /**
+   * 수정 전처럼 원문 그대로 저장한 계정 행(지문 = 넣은 원문의 SHA-256)을 직접 만든다 — 공백 붙은 토큰을 넣으면 고치기 전의 행, 깨끗한 토큰을 넣으면 그대로
+   * 깨끗한 행이다.
+   */
+  private long rawAnthropicAccount(String stored) {
+    useTenant(TENANT);
+    return accounts.insert(
+        "anthropic",
+        "옛 계정",
+        encryption.encrypt(stored),
+        null,
+        null,
+        AgentAccountService.STATUS_ACTIVE,
+        AgentAccountService.fingerprint("anthropic", stored),
+        admin,
+        true,
+        null);
+  }
+
+  /** 계정 원문이 깨끗한 토큰이고, 깨끗한 토큰의 지문으로 그 계정이 찾아진다. */
+  private void assertStoredClean(long id, String token) {
+    assertThat(encryption.decrypt(accountRow(id).encryptedSecret())).isEqualTo(token);
+    assertThat(
+            accounts.findActiveByFingerprint(
+                "anthropic", AgentAccountService.fingerprint("anthropic", token)))
+        .map(AgentAccountRow::id)
+        .contains(id);
+  }
+
+  /** 계정 API 로 Claude 토큰을 등록한다. */
+  private void registerAnthropic(String token) {
+    useTenant(TENANT);
+    accountService.register(
+        admin, new AgentAccountRequest("anthropic", token, null, "다시", null, null));
+  }
+
+  /**
+   * 공백·보이지 않는 문자째 저장된 계정 → 기동 정리가 깨끗한 토큰으로 다시 저장하고 지문을 다시 매긴다. secret_version 은 그대로라 Pod 가 다시 만들어지지
+   * 않는다. 그 뒤로는 공백 붙은 토큰을 다시 넣어도, 깨끗한 토큰을 넣어도 같은 키라 409 다.
+   */
+  @Test
+  void renormalizeStoresPaddedAccountCleanAndDuplicatesConflict() {
+    String token = claudeToken('Q');
+    String padded = TestFixtures.BOM + "  " + token + "\n";
+    long id = rawAnthropicAccount(padded);
+    long version = accountRow(id).secretVersion();
+
+    assertThat(runBackfill()).isZero();
+
+    assertStoredClean(id, token);
+    assertThat(accountRow(id).secretVersion()).isEqualTo(version);
+    assertThatThrownBy(() -> registerAnthropic(padded))
+        .isInstanceOf(AgentAccountDuplicateException.class);
+    assertThatThrownBy(() -> registerAnthropic(token))
+        .isInstanceOf(AgentAccountDuplicateException.class);
+  }
+
+  /**
+   * 공백째 저장된 계정과 같은 토큰의 깨끗한 계정이 함께 있으면 → 합치거나 폐기하지 않고 건너뛴다(유일 인덱스 위반으로 기동이 깨지지도 않는다). 둘 다 그대로 남는다.
+   */
+  @Test
+  void renormalizeSkipsWhenCleanAccountAlreadyExists() {
+    String token = claudeToken('R');
+    String padded = "  " + token + "\n";
+    long paddedId = rawAnthropicAccount(padded);
+    long cleanId = rawAnthropicAccount(token);
+
+    assertThat(runBackfill()).isZero();
+
+    assertThat(encryption.decrypt(accountRow(paddedId).encryptedSecret())).isEqualTo(padded);
+    assertStoredClean(cleanId, token);
+    assertThat(accountList()).hasSize(2);
+  }
+
+  /** 정리는 두 번 돌려도 그대로다 — 두 번째는 이미 깨끗한 행이라 다시 쓰지 않는다(암호문이 같다 — 다시 암호화하면 IV 가 달라진다). */
+  @Test
+  void renormalizeTwiceIsNoop() {
+    long id = rawAnthropicAccount(claudeToken('S') + "\r\n");
+    runBackfill();
+    AgentAccountRow first = accountRow(id);
+
+    runBackfill();
+
+    AgentAccountRow second = accountRow(id);
+    assertThat(second.encryptedSecret()).isEqualTo(first.encryptedSecret());
+    assertStoredClean(id, claudeToken('S'));
+  }
+
+  /** 옛 연결(ai_agent_credential)에 공백째 저장된 Claude 토큰도 정리한다 — 개인 비서·다른 실행 방식 AI 가 아직 이 원문을 받아 쓴다. */
+  @Test
+  void renormalizeStoresLegacyCredentialClean() {
+    long agent = newAgent();
+    credentialRepo.insert(
+        agent, "anthropic", encryption.encrypt(" " + claudeToken('T') + "\n"), "legacy", admin);
+
+    runBackfill();
+
+    AiAgentCredentialRow credential = credentialRepo.findActive(agent).orElseThrow();
+    assertThat(encryption.decrypt(credential.encryptedToken())).isEqualTo(claudeToken('T'));
+  }
+
+  /** WP-1721: 관리 경로로 끝에 개행이 붙은 Claude 토큰을 등록하면 연결(ai_agent_credential)과 계정(다리) 모두 지운 토큰을 저장한다. */
+  @Test
+  void bridgeRegisterStoresStrippedToken() {
+    long agent = newAgent();
+    settingService.put(
+        admin, agent, new PutAgentRuntimeSettingRequest("claude-code", null, Map.of(), null));
+    useTenant(TENANT);
+
+    adminCredentials.register(admin, agent, "anthropic", claudeToken('U') + "\n", null, null, null);
+
+    useTenant(TENANT);
+    AiAgentCredentialRow credential = credentialRepo.findActive(agent).orElseThrow();
+    assertThat(encryption.decrypt(credential.encryptedToken())).isEqualTo(claudeToken('U'));
+    long account = boundAccount(agent).orElseThrow();
+    assertStoredClean(account, claudeToken('U'));
   }
 
   /**

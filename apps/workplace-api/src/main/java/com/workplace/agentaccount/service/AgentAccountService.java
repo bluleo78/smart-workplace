@@ -27,6 +27,7 @@ import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AnthropicCredentialVerifier;
 import com.workplace.auth.service.AnthropicKeys;
 import com.workplace.auth.service.LoginInfoNormalizer;
+import com.workplace.auth.service.ProviderSecrets;
 import com.workplace.global.json.JsonMappers;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.util.CapabilityTokens;
@@ -428,8 +429,11 @@ public class AgentAccountService {
    * @param workspaceId Anthropic 워크스페이스 ID(WP-1496, 선택) — anthropic 에서만 검증해 남기고(비면 null) 그 밖은 null
    */
   private SecretParts partsOf(String p, String raw, boolean podBound, String workspaceId) {
+    // WP-1721: 연결 등록과 같은 정규화 한 곳(ProviderSecrets) — Claude 토큰은 앞뒤 공백·보이지 않는 문자를 지운 값으로 검증·저장·지문을
+    // 만든다. 그러지 않으면 같은 토큰이 다른 지문을 얻어 중복 검사(지문 조회·유일 인덱스)를 지나가 같은 키의 계정이 둘 생긴다. 아래 분기는 종류별
+    // 메타·검증을 내는 것이라 정규화와 따로 둔다.
+    String normalized = ProviderSecrets.normalize(p, raw);
     if (AgentProviders.isLogin(p)) {
-      String normalized = LoginInfoNormalizer.normalize(p, raw);
       return new SecretParts(
           normalized,
           LoginInfoNormalizer.accountEmail(p, normalized),
@@ -438,18 +442,19 @@ public class AgentAccountService {
           null);
     }
     if (AgentProviders.OPENCODE.equals(p)) {
-      credentialService.validateOpencodePayload(raw, podBound);
-      return new SecretParts(raw, null, null, fingerprint(p, raw), null);
+      credentialService.validateOpencodePayload(normalized, podBound);
+      return new SecretParts(normalized, null, null, fingerprint(p, normalized), null);
     }
-    if (raw == null || raw.isBlank()) {
+    if (normalized == null) {
       throw new InvalidProviderCredentialException("Claude 구독 토큰을 넣어 주세요");
     }
-    if (raw.length() < 32 || raw.length() > 2048) {
+    // 길이는 지운 뒤에 잰다 — 공백으로 32자를 채운 짧은 토큰을 받지 않게(WP-1721).
+    if (normalized.length() < 32 || normalized.length() > 2048) {
       throw new InvalidProviderCredentialException("Claude 구독 토큰은 32~2048자여야 해요");
     }
     // WP-1496: 워크스페이스 ID 는 선택 — 형식이 틀리면 400, 비면 null. 지문은 토큰만으로 — 워크스페이스는 키 정체성이 아니다.
     String ws = AnthropicKeys.normalizeWorkspaceId(workspaceId);
-    return new SecretParts(raw, null, null, fingerprint(p, raw), ws);
+    return new SecretParts(normalized, null, null, fingerprint(p, normalized), ws);
   }
 
   /**

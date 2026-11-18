@@ -1,12 +1,13 @@
 package com.workplace.agentaccount.service;
 
+import com.workplace.agentaccount.dto.AgentAccountRow;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.service.AgentProviders;
-import com.workplace.auth.service.LoginInfoNormalizer;
+import com.workplace.auth.service.ProviderSecrets;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
@@ -46,11 +47,14 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       원천으로 남겨 runner 가 받는 claude/login 버전이 이관 전과 똑같다 — 일하던 Pod 가 서버 쪽 이관 때문에 다시 만들어지지 않는다. 합쳐진
  *       그룹의 AI 도 저마다 자기 옛 연결 id 를 이어받는다(실제 변경 — 원문 교체·다른 계정으로 옮기기 — 이 생길 때까지 Pod 는 가진 것을 쓴다). 버전이
  *       그대로이므로 runner 알림도 내지 않는다.
- *   <li><b>연결 행은 고치지 않는다</b> — 롤링 배포 중 옛 버전이 계속 읽는다. 정리는 다음 단계(contract).
+ *   <li><b>연결 행은 고치지 않는다</b> — 롤링 배포 중 옛 버전이 계속 읽는다. 정리는 다음 단계(contract). 예외는 아래 Claude 토큰 정리뿐이다 —
+ *       같은 토큰에서 앞뒤만 지우므로 옛 버전이 읽어도 그대로 쓸 수 있다.
  *   <li><b>AI 하나의 실패는 그 AI 만</b> — 원문을 읽지 못하면 경고 로그(원문·암호문은 싣지 않는다) 후 건너뛴다. 묶기 검사(템플릿 사라짐·맞지 않는
  *       종류)에 걸리면 그 AI 의 savepoint 만 되돌린다.
  *   <li><b>여러 대 동시 기동</b> — 테넌트마다 advisory xact lock 을 시도해 한 대만 처리한다. 묶인 AI 는 대상에서 빠지므로 다시 돌아도 계정이
  *       늘지 않는다(멱등).
+ *   <li><b>Claude 토큰 정리(WP-1721)</b> — 이관 전에 같은 잠금 안에서, 수정 전에 앞뒤 공백·보이지 않는 문자째 저장된 Claude 토큰을 정규화한
+ *       값으로 다시 저장한다(계정은 지문도 다시 매긴다). 이미 깨끗한 행은 건드리지 않으므로 다시 돌아도 바뀌는 것이 없다(멱등).
  * </ul>
  */
 @Slf4j
@@ -104,14 +108,15 @@ public class AgentAccountBackfill {
   }
 
   /**
-   * 옮길 AI 하나 — 원문은 평문이라 {@link #toString()} 에 싣지 않는다. workspaceId 는 옛 연결에 저장된 Anthropic 워크스페이스
+   * 옮길 AI 하나 — 원문은 평문이라 {@link #toString()} 에 싣지 않는다. normalizedPlaintext 는 등록 경로와 같은 규칙({@link
+   * ProviderSecrets})으로 정규화한 원문이고 fingerprint 는 그 지문이다. workspaceId 는 옛 연결에 저장된 Anthropic 워크스페이스
    * ID(WP-1496, 없으면 null) — 계정이 이어받는다.
    */
   private record Candidate(
       UserResponse agent,
       long credentialId,
       String provider,
-      String plaintext,
+      String normalizedPlaintext,
       String fingerprint,
       Instant lastRefresh,
       String workspaceId) {
@@ -147,12 +152,16 @@ public class AgentAccountBackfill {
     return n == null ? 0 : n;
   }
 
-  /** 테넌트 트랜잭션 안의 본체 — 잠금 → 대상 모으기 → 지문 그룹 → AI 마다 savepoint 에서 계정 찾기·만들기와 묶기. */
+  /**
+   * 테넌트 트랜잭션 안의 본체 — 잠금 → Claude 토큰 정리 → 대상 모으기 → 지문 그룹 → AI 마다 savepoint 에서 계정 찾기·만들기와 묶기. 정리를 먼저
+   * 하는 까닭은 이관이 정규화한 지문으로 기존 계정을 찾기 때문이다 — 공백째 저장된 계정의 옛 지문이 남아 있으면 같은 키의 계정을 하나 더 만든다.
+   */
   private int backfillInTx(long tenantId) {
     if (!accounts.tryLockBackfill(tenantId)) {
       log.info("AI 계정 이관 백필 — 다른 서버가 처리 중이라 건너뜀 tenant={}", tenantId);
       return 0;
     }
+    renormalizeClaudeTokens(tenantId);
     Map<String, List<Candidate>> groups = collectGroups();
     int bound = 0;
     for (List<Candidate> group : groups.values()) {
@@ -199,15 +208,15 @@ public class AgentAccountBackfill {
     }
     try {
       String plaintext = encryptionService.decrypt(row.encryptedToken());
-      boolean login = AgentProviders.isLogin(provider);
-      String normalized = login ? LoginInfoNormalizer.normalize(provider, plaintext) : plaintext;
+      // 등록 경로와 같은 정규화(ProviderSecrets)로 묶는다 — 공백 붙은 Claude 토큰과 깨끗한 토큰이 한 그룹·한 계정이 된다(WP-1721).
+      String normalized = ProviderSecrets.normalize(provider, plaintext);
       return new Candidate(
           agent,
           row.id(),
           provider,
           normalized,
           AgentAccountService.fingerprint(provider, normalized),
-          login ? AgentAccountService.lastRefreshOf(normalized) : null,
+          AgentProviders.isLogin(provider) ? AgentAccountService.lastRefreshOf(normalized) : null,
           row.workspaceId());
     } catch (RuntimeException e) {
       log.warn(
@@ -244,7 +253,7 @@ public class AgentAccountBackfill {
             long accountId =
                 accountService.findOrRegisterFromBackfill(
                     best.provider(),
-                    best.plaintext(),
+                    best.normalizedPlaintext(),
                     AgentAccountPodSource.defaultLabel(c.agent()),
                     // WP-1496: 살린 원문의 연결에 저장된 워크스페이스 ID — 원문과 한 짝이다.
                     best.workspaceId());
@@ -259,6 +268,67 @@ public class AgentAccountBackfill {
           c.provider(),
           e.getClass().getSimpleName());
       return false;
+    }
+  }
+
+  /**
+   * 수정 전에 앞뒤 공백·보이지 않는 문자째 저장된 Claude 토큰을 정리한다(WP-1721) — 그런 행은 지문도 공백 붙은 원문의 것이라, 깨끗한 토큰이든 같은 공백
+   * 붙은 토큰이든 다시 넣으면 같은 키로 잡히지 않는다. 암호문이라 SQL 마이그레이션으로는 못 고쳐 기동 때 여기서 한 번 고친다. 깨끗한 행은 건드리지 않으므로 매 기동
+   * 다시 돌아도 바뀌는 것이 없다.
+   */
+  private void renormalizeClaudeTokens(long tenantId) {
+    for (AgentAccountRow row :
+        accounts.findAllActiveByProviders(List.of(AgentProviders.ANTHROPIC))) {
+      renormalizeAccount(row);
+    }
+    // 옛 연결도 개인 비서·다른 실행 방식 AI 가 아직 읽어 쓴다(redeem) — 같은 깨끗한 토큰을 갖게 한다. 지문·유일 인덱스가 없어 충돌은 없다.
+    for (AiAgentCredentialRow row :
+        credentials.findActiveByProviderInTenant(AgentProviders.ANTHROPIC, tenantId)) {
+      renormalizeCredential(row);
+    }
+  }
+
+  /**
+   * 계정 하나의 원문을 정규화한 값으로 다시 저장하고 지문을 다시 매긴다. 원문이 이미 깨끗하면 아무것도 하지 않는다. 다시 매긴 지문의 살아 있는 계정이 따로 있으면(공백째
+   * 등록한 계정과 깨끗하게 등록한 계정이 함께 있음) 합치거나 폐기하지 않고 건너뛴다 — 둘 다 AI 가 묶여 쓰고 있을 수 있어 어느 쪽을 남길지는 사람이 정한다. 경고
+   * 로그에 두 id 를 남긴다. 실패는 이 계정만 건너뛴다(savepoint).
+   */
+  private void renormalizeAccount(AgentAccountRow row) {
+    try {
+      String stored = encryptionService.decrypt(row.encryptedSecret());
+      String clean = ProviderSecrets.normalize(AgentProviders.ANTHROPIC, stored);
+      if (clean == null || clean.equals(stored)) return; // 이미 깨끗함(또는 비어 고칠 것이 없음)
+      String fingerprint = AgentAccountService.fingerprint(AgentProviders.ANTHROPIC, clean);
+      Optional<AgentAccountRow> other =
+          accounts
+              .findActiveByFingerprint(AgentProviders.ANTHROPIC, fingerprint)
+              .filter(o -> o.id() != row.id());
+      if (other.isPresent()) {
+        log.warn(
+            "Claude 토큰 정리 건너뜀 — 같은 키의 계정이 이미 있음 account={} other={}", row.id(), other.get().id());
+        return;
+      }
+      savepoint.executeWithoutResult(
+          s -> accounts.renormalizeSecret(row.id(), encryptionService.encrypt(clean), fingerprint));
+    } catch (RuntimeException e) {
+      // 예외 메시지는 싣지 않는다 — DB 오류 메시지에 값이 섞일 수 있다.
+      log.warn("Claude 토큰 정리 건너뜀 — account={} ({})", row.id(), e.getClass().getSimpleName());
+    }
+  }
+
+  /**
+   * 옛 연결 하나의 토큰을 정규화한 값으로 다시 저장한다 — 이미 깨끗하면 그대로. 연결 id 는 그대로라 runner 가 받는 버전도 바뀌지 않는다. 실패는 이 연결만
+   * 건너뛴다(savepoint).
+   */
+  private void renormalizeCredential(AiAgentCredentialRow row) {
+    try {
+      String stored = encryptionService.decrypt(row.encryptedToken());
+      String clean = ProviderSecrets.normalize(AgentProviders.ANTHROPIC, stored);
+      if (clean == null || clean.equals(stored)) return;
+      savepoint.executeWithoutResult(
+          s -> credentials.updateEncryptedToken(row.id(), encryptionService.encrypt(clean)));
+    } catch (RuntimeException e) {
+      log.warn("Claude 토큰 정리 건너뜀 — credential={} ({})", row.id(), e.getClass().getSimpleName());
     }
   }
 }

@@ -195,6 +195,20 @@ public class AgentAccountRepository {
         .execute();
   }
 
+  /**
+   * 같은 키의 원문을 정규화한 값으로 다시 저장한다(WP-1721 지문 다시 매기기) — 암호문과 지문만 바꾸고 secret_version 은 그대로 둔다. 앞뒤 공백만 지운
+   * 같은 토큰이라 키가 바뀐 것이 아니다 — 버전을 새로 받으면 이 계정을 쓰는 AI 의 Pod 가 서버 쪽 정리 때문에 다시 만들어진다. 상태·서버 갱신 준비· 워크스페이스
+   * ID 도 건드리지 않는다.
+   */
+  public void renormalizeSecret(long id, String encryptedSecret, String fingerprint) {
+    dsl.update(AGENT_ACCOUNT)
+        .set(AGENT_ACCOUNT.ENCRYPTED_SECRET, encryptedSecret)
+        .set(AGENT_ACCOUNT.FINGERPRINT, fingerprint)
+        .set(AGENT_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
+        .where(activeById(id))
+        .execute();
+  }
+
   /** 서버 보관본이 신선하다고 확인된 계정으로 표시한다(Pod 가 더 새 로그인을 올렸을 때) — 이후 서버가 갱신을 맡는다. */
   public void markServerRefreshReady(long id) {
     dsl.update(AGENT_ACCOUNT)

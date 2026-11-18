@@ -1,5 +1,8 @@
 package com.workplace.agentaccount;
 
+import static com.workplace.support.TestFixtures.BOM;
+import static com.workplace.support.TestFixtures.NBSP;
+import static com.workplace.support.TestFixtures.ZWSP;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -13,7 +16,9 @@ import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountUpdateRequest;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
+import com.workplace.agentaccount.service.AgentAccountService;
 import com.workplace.auth.dto.ProviderConfig;
+import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -22,9 +27,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
@@ -51,6 +59,7 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired AgentAccountRepository accounts;
   @Autowired AgentAccountBindingRepository bindings;
+  @Autowired EncryptionService encryptionService;
 
   private long admin;
 
@@ -326,6 +335,59 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
 
     update(second, new AgentAccountUpdateRequest(null, TOKEN, null, null, null))
         .andExpect(status().isConflict());
+  }
+
+  /** 깨끗한 토큰을 감싼 꼴들 — 앞뒤 공백·개행, 웹·채팅에서 복사하며 묻는 NBSP·폭 없는 공백·BOM(WP-1721). */
+  static Stream<String> wrappedTokens() {
+    return Stream.of("  " + TOKEN + "\n", BOM + NBSP + TOKEN + ZWSP + NBSP);
+  }
+
+  /**
+   * WP-1721: 같은 토큰을 공백·보이지 않는 문자로 감싸 붙여 넣어도 같은 키다 — 깨끗한 토큰의 계정과 409. 지문이 달라져 중복 검사를 지나가면 같은 키의 계정이
+   * 둘 생긴다.
+   */
+  @ParameterizedTest
+  @MethodSource("wrappedTokens")
+  void registerWrappedDuplicateTokenIsConflict(String wrapped) throws Exception {
+    registerAnthropic(TOKEN, "첫째");
+
+    register(new AgentAccountRequest("anthropic", wrapped, null, "둘째", null, null))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("AGENT_ACCOUNT_DUPLICATE"));
+  }
+
+  /** WP-1721: 공백으로 감싼 토큰은 앞뒤 공백을 지운 값으로 저장되고(Pod 에도 그 값이 간다) 지문도 공백 없는 토큰과 같다. */
+  @Test
+  void registerWrappedTokenStoresStrippedSecretAndFingerprint() throws Exception {
+    long acc = registerAnthropic("  " + TOKEN + "\n", "감싼 토큰");
+
+    var row = accounts.findActive(acc).orElseThrow();
+    assertThat(encryptionService.decrypt(row.encryptedSecret())).isEqualTo(TOKEN);
+    assertThat(
+            accounts.findActiveByFingerprint(
+                "anthropic", AgentAccountService.fingerprint("anthropic", TOKEN)))
+        .map(r -> r.id())
+        .contains(acc);
+  }
+
+  /** WP-1721: 원문 교체에 다른 계정의 키를 공백으로 감싸 넣어도 같은 키라 409 다. */
+  @Test
+  void patchSecretToOtherAccountsWrappedKeyIsConflict() throws Exception {
+    registerAnthropic(TOKEN, "첫째");
+    long second = registerAnthropic("sk-ant-oat01-" + "H".repeat(40), "둘째");
+
+    update(second, new AgentAccountUpdateRequest(null, " \t" + TOKEN + " \r\n", null, null, null))
+        .andExpect(status().isConflict());
+  }
+
+  /** WP-1721: 길이는 앞뒤 공백을 지운 뒤에 잰다 — 공백으로 32자를 채운 짧은 토큰은 400 이다. */
+  @Test
+  void registerTokenShortAfterStripIsBadRequest() throws Exception {
+    String padded = "          " + "sk-ant-short-token" + "          \n";
+    assertThat(padded.length()).isGreaterThanOrEqualTo(32);
+
+    register(new AgentAccountRequest("anthropic", padded, null, "짧음", null, null))
+        .andExpect(status().isBadRequest());
   }
 
   @Test
