@@ -4,6 +4,7 @@ import {
   createEventInput,
   listConflicts,
   normalizeTimezone,
+  toEventNoteView,
   resolveAttendees,
   resolveAttendeeToRemove,
   type CalendarToolsClient,
@@ -30,6 +31,8 @@ function mockClient(): CalendarToolsClient {
     updateEvent: vi.fn().mockResolvedValue({ id: 7 }),
     addEventAttendees: vi.fn().mockResolvedValue(undefined),
     removeEventAttendee: vi.fn().mockResolvedValue(undefined),
+    linkEventNote: vi.fn().mockResolvedValue({}),
+    unlinkEventNote: vi.fn().mockResolvedValue(undefined),
     searchMembers: vi.fn(async ({ search }) => MEMBERS.filter((m) => m.username.includes(search ?? ''))),
     getMe: vi.fn().mockResolvedValue({ id: 1, username: 'me' }),
   };
@@ -101,7 +104,7 @@ describe('buildCalendarTools', () => {
     const c = mockClient();
     vi.mocked(c.getEvent).mockResolvedValue({ id: 1, title: '회의' });
     const out = await tool(c, 'get_event').handler({ eventId: 1 });
-    expect(c.getEvent).toHaveBeenCalledWith(1);
+    expect(c.getEvent).toHaveBeenCalledWith(1, undefined);
     expect(JSON.parse(resultText(out))).toEqual({ id: 1, title: '회의' });
   });
 
@@ -389,5 +392,107 @@ describe('일정 설명 길이 상한', () => {
     expect(createEventInput.safeParse({ ...base, description: '가'.repeat(10000) }).success).toBe(true);
     expect(createEventInput.safeParse({ ...base, description: '가'.repeat(10001) }).success).toBe(false);
     expect(updateEventInput.safeParse({ eventId: 1, description: '가'.repeat(10001) }).success).toBe(false);
+  });
+});
+
+// WP-1704: 일정에 이어진 회의록 노트 — 뷰 축약, get_event 회차, 잇기·끊기 도구.
+describe('일정 노트 (WP-1704)', () => {
+  /** 서버 EventNoteRef 원문(읽을 수 있는 노트). */
+  const card = {
+    restricted: false, pageId: 31, title: '주간 회의록', spaceId: 5, spaceName: '팀', updatedByName: '앨리스',
+    updatedAt: '2026-11-18T10:00:00+09:00', url: 'https://w.example/wiki/spaces/5/pages/31',
+  };
+
+  it('toEventNoteView 는 id·title·url 만 남기고, restricted 는 그것만, 없으면 undefined', () => {
+    expect(toEventNoteView(card)).toEqual({ id: 31, title: '주간 회의록', url: 'https://w.example/wiki/spaces/5/pages/31' });
+    expect(toEventNoteView({ restricted: true })).toEqual({ restricted: true });
+    expect(toEventNoteView(null)).toBeUndefined();
+    expect(toEventNoteView(undefined)).toBeUndefined();
+    // 공개 주소가 없어 서버가 url 을 싣지 않으면 지어내지 않고 뺀다.
+    expect(toEventNoteView({ ...card, url: undefined })).toEqual({ id: 31, title: '주간 회의록' });
+    // 칸이 하나도 없는 카드는 연결 없음으로 — `note: {}` 를 내보내지 않는다.
+    expect(toEventNoteView({ restricted: false })).toBeUndefined();
+  });
+
+  it('list_events 의 note 는 뷰로 줄이고(공간 등 원문 칸 없음), restricted 회차는 {restricted:true}, null 은 키를 지운다', async () => {
+    const c = mockClient();
+    const base = { startsAt: '2026-11-18T10:00:00+09:00', endsAt: '2026-11-18T11:00:00+09:00' };
+    vi.mocked(c.listEvents).mockResolvedValue([
+      { id: 1, title: 'a', ...base, note: card },
+      { id: 2, title: 'b', ...base, note: { restricted: true } },
+      { id: 3, title: 'c', ...base, note: null },
+      { id: 4, title: 'd', ...base },
+    ]);
+    const out = JSON.parse(resultText(await tool(c, 'list_events').handler({ from: '2026-11-18T00:00:00Z', to: '2026-11-19T00:00:00Z' })));
+    expect(out[0].note).toEqual({ id: 31, title: '주간 회의록', url: card.url });
+    expect(out[1].note).toEqual({ restricted: true });
+    expect('note' in out[2]).toBe(false);
+    expect('note' in out[3]).toBe(false);
+    expect(JSON.stringify(out)).not.toContain('spaceName');
+  });
+
+  it('get_event 는 note 를 뷰로 줄이고, occurrenceDate 없으면 회차 없이 부른다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getEvent).mockResolvedValue({ id: 7, title: 'x', note: card });
+    const out = JSON.parse(resultText(await tool(c, 'get_event').handler({ eventId: 7 })));
+    expect(c.getEvent).toHaveBeenCalledWith(7, undefined);
+    expect(out.note).toEqual({ id: 31, title: '주간 회의록', url: card.url });
+  });
+
+  it('get_event 의 occurrenceDate 는 오프셋이 없으면 +09:00 을 붙여 넘긴다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getEvent).mockResolvedValue({ id: 7, title: 'x', note: { restricted: true } });
+    const out = JSON.parse(resultText(await tool(c, 'get_event').handler({ eventId: 7, occurrenceDate: '2026-11-18T10:00:00' })));
+    expect(c.getEvent).toHaveBeenCalledWith(7, '2026-11-18T10:00:00+09:00');
+    expect(out.note).toEqual({ restricted: true });
+  });
+
+  it('get_event 설명이 반복 일정 회차의 노트는 occurrenceDate 로 본다고 안내한다', () => {
+    expect(tool(mockClient(), 'get_event').description).toMatch(/occurrenceDate.*note/);
+  });
+
+  it('link_event_note → linkEventNote(eventId, pageId, 보정된 회차) 후 {note: 뷰}', async () => {
+    const c = mockClient();
+    vi.mocked(c.linkEventNote).mockResolvedValue({ note: card });
+    const out = JSON.parse(resultText(await tool(c, 'link_event_note').handler({ eventId: 7, pageId: 31, occurrenceDate: '2026-11-18T10:00:00' })));
+    expect(c.linkEventNote).toHaveBeenCalledWith(7, 31, '2026-11-18T10:00:00+09:00');
+    expect(out).toEqual({ note: { id: 31, title: '주간 회의록', url: card.url } });
+  });
+
+  it('link_event_note 는 occurrenceDate 를 안 주면(또는 null) 회차 없이 부른다', async () => {
+    const c = mockClient();
+    await tool(c, 'link_event_note').handler({ eventId: 7, pageId: 31 });
+    expect(c.linkEventNote).toHaveBeenLastCalledWith(7, 31, undefined);
+    await tool(c, 'link_event_note').handler({ eventId: 7, pageId: 31, occurrenceDate: null });
+    expect(c.linkEventNote).toHaveBeenLastCalledWith(7, 31, undefined);
+  });
+
+  it('link_event_note 의 API 오류(못 읽는 노트 404·읽기 전용 409)는 그대로 올라간다', async () => {
+    const c = mockClient();
+    vi.mocked(c.linkEventNote).mockRejectedValue(new Error('노트를 찾을 수 없습니다'));
+    await expect(tool(c, 'link_event_note').handler({ eventId: 7, pageId: 999 })).rejects.toThrow('노트를 찾을 수 없습니다');
+  });
+
+  it('link_event_note 는 pageId 가 없으면 거부한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'link_event_note').handler({ eventId: 7 })).rejects.toThrow();
+    expect(c.linkEventNote).not.toHaveBeenCalled();
+  });
+
+  it('unlink_event_note → unlinkEventNote(eventId, 보정된 회차), ok', async () => {
+    const c = mockClient();
+    expect(resultText(await tool(c, 'unlink_event_note').handler({ eventId: 7 }))).toBe('ok');
+    expect(c.unlinkEventNote).toHaveBeenLastCalledWith(7, undefined);
+    await tool(c, 'unlink_event_note').handler({ eventId: 7, occurrenceDate: '2026-11-18T01:00:00Z' });
+    expect(c.unlinkEventNote).toHaveBeenLastCalledWith(7, '2026-11-18T01:00:00Z');
+  });
+
+  it('두 도구 모두 쓰기·destructive·idempotent 힌트를 단다', () => {
+    const tools = buildCalendarTools(mockClient());
+    for (const name of ['link_event_note', 'unlink_event_note']) {
+      const t = tools.find((x) => x.name === name)!;
+      expect(t.kind).toBe('write');
+      expect(t.hints).toMatchObject({ destructive: true, idempotent: true });
+    }
   });
 });

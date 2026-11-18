@@ -388,7 +388,11 @@ export type EventEditScope = 'THIS' | 'THIS_AND_FOLLOWING' | 'ALL';
 
 export interface CalendarToolClient {
   listEvents(from: string, to: string): Promise<EventRow[]>;
-  getEvent(eventId: number): Promise<unknown>;
+  /**
+   * GET /calendar/events/{id}?occurrenceDate= — 일정 상세. 반복 일정은 occurrenceDate(회차 원래 시작 시각)를 줘야 그 회차에 이어진
+   * 노트(note)가 실린다(WP-1704). 없으면 싣지 않는다.
+   */
+  getEvent(eventId: number, occurrenceDate?: string): Promise<unknown>;
   /** PATCH /calendar/events/{id}/rsvp — 내가 초대받은 일정에만 응답한다(아니면 404). */
   rsvpEvent(eventId: number, status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE'): Promise<void>;
   /** POST /calendar/events?notify= — 생성된 일정(CalendarEventResponse). notify=false 면 초대 알림을 보내지 않는다(WP-348). */
@@ -403,6 +407,13 @@ export interface CalendarToolClient {
   addEventAttendees(eventId: number, userIds: number[], opts: { notify: boolean }): Promise<void>;
   /** DELETE /calendar/events/{id}/attendees/{userId} — 주최자만. */
   removeEventAttendee(eventId: number, userId: number): Promise<void>;
+  /**
+   * PUT /calendar/events/{id}/note?occurrenceDate= — 일정(반복이면 그 회차)에 노트를 잇는다(WP-1704). 이미 이어진 노트는 바뀐다.
+   * 이어진 노트 카드({note})를 돌려준다. 못 읽는 노트는 없는 노트와 같은 404, 읽기 전용 일정 409, 취소된 회차 400.
+   */
+  linkEventNote(eventId: number, pageId: number, occurrenceDate?: string): Promise<{ note?: unknown }>;
+  /** DELETE /calendar/events/{id}/note?occurrenceDate= — 연결만 끊는다(노트는 남는다). 연결이 없어도 성공(WP-1704). */
+  unlinkEventNote(eventId: number, occurrenceDate?: string): Promise<void>;
 }
 
 export interface MailToolClient {

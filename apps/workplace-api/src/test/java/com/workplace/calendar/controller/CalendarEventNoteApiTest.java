@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -32,6 +33,10 @@ import tools.jackson.databind.node.ObjectNode;
 class CalendarEventNoteApiTest extends CalendarNoteTestBase {
   @Autowired MockMvc mvc;
   @Autowired ObjectMapper om;
+
+  /** 테스트 프로필의 공개 웹 주소 — 노트 url 기대값을 하드코딩하지 않고 설정에서 읽는다(WP-1704). */
+  @Value("${workplace.public-base-url}")
+  String publicBaseUrl;
 
   /** 사람 요청으로 꾸민다 — 요청마다 테넌트를 되돌려 놓는다. */
   private RequestPostProcessor as(long uid) {
@@ -65,6 +70,38 @@ class CalendarEventNoteApiTest extends CalendarNoteTestBase {
         .andExpect(jsonPath("$.note.title").value("A 만 보는 노트"))
         .andExpect(jsonPath("$.note.spaceName").exists())
         .andExpect(jsonPath("$.note.restricted").value(false));
+  }
+
+  /**
+   * 읽을 수 있는 노트 카드에는 노트 웹 절대 주소(url)가 실린다(WP-1704) — AI 도구가 주소를 지어내지 않고 이 값을 쓴다. 잇기 응답과 일정 상세·목록이 같은
+   * 카드를 쓴다.
+   */
+  @Test
+  void noteCard_carriesWikiPageUrl() throws Exception {
+    long e = singleEvent(ownerA);
+    MvcResult r =
+        mvc.perform(
+                put("/api/v1/calendar/events/{id}/note", e)
+                    .with(as(ownerA))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body(pA)))
+            .andExpect(status().isOk())
+            .andReturn();
+    JsonNode note =
+        om.readTree(r.getResponse().getContentAsString(StandardCharsets.UTF_8)).get("note");
+    long spaceId = note.get("spaceId").asLong();
+    String expected =
+        publicBaseUrl.replaceAll("/+$", "") + "/wiki/spaces/" + spaceId + "/pages/" + pA;
+    assertThat(note.get("url").asString()).isEqualTo(expected);
+
+    // 일정 상세 응답의 note 도 같은 url 을 싣는다.
+    MvcResult detail =
+        mvc.perform(get("/api/v1/calendar/events/{id}", e).with(as(ownerA)))
+            .andExpect(status().isOk())
+            .andReturn();
+    JsonNode detailNote =
+        om.readTree(detail.getResponse().getContentAsString(StandardCharsets.UTF_8)).get("note");
+    assertThat(detailNote.get("url").asString()).isEqualTo(expected);
   }
 
   /** 볼 수 없는 노트와 없는 노트는 상태·본문이 같다(타임스탬프·경로 칸 제외) — 응답 차이로 노트의 존재를 알아내지 못하게. */

@@ -2,6 +2,7 @@
 // 생성·수정(참석자 추가·제거 포함)은 외부 MCP 에 직접 실행 도구로 노출하고, AI Chat 은 같은 작업을 propose_* 확인 카드로 한다
 // (경로마다 도구 하나 — ai-agent 프로필에는 create_event·update_event 를 싣지 않는다). 두 경로가 참석자 해석·시간대 보정·충돌 계산을
 // 이 파일의 헬퍼(resolveAttendees·resolveAttendeeToRemove·normalizeTimezone·listConflicts)로 같이 쓴다. 일정 삭제는 계속 확인 카드만 한다.
+// 일정에 회의록 노트를 잇고 끊는 link_event_note·unlink_event_note(WP-1704)는 되돌릴 수 있는 쓰기라 두 경로 모두 직접 실행한다.
 import { z } from 'zod';
 import { dropEmpty, omitKeys } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
@@ -110,6 +111,37 @@ interface AttendeeRaw {
   [key: string]: unknown;
 }
 
+/** 서버 EventNoteRef(WP-1701) 중 뷰가 읽는 필드 — 공간·고친 사람·고친 때는 뷰에 싣지 않는다. */
+interface EventNoteRaw {
+  restricted?: boolean;
+  pageId?: number | null;
+  title?: string | null;
+  url?: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * 일정에 이어진 노트 카드 → LLM 뷰(WP-1704). 읽을 수 있으면 { id(pageId), title, url } 만 — get_wiki_page 로 이어 읽을 id 와
+ * 사람에게 보일 제목·주소면 충분하고, 공간·고친 사람·고친 때는 토큰만 쓴다. url 은 서버가 만든 값만 쓴다(공개 주소가 없으면 빠진다 —
+ * 주소를 지어내지 않는다). 읽을 수 없는 노트는 { restricted: true } 만. 연결이 없으면(null·undefined) undefined 라 키가 생기지 않는다.
+ */
+export function toEventNoteView(note: unknown): Record<string, unknown> | undefined {
+  if (note == null || typeof note !== 'object') return undefined;
+  const n = note as EventNoteRaw;
+  if (n.restricted) return { restricted: true };
+  // 칸이 하나도 없는 카드(부분 응답 등)는 연결이 없는 것으로 본다 — `note: {}` 를 내보내면 id 없는 연결로 읽힌다.
+  const view = dropEmpty({ id: n.pageId, title: n.title, url: n.url });
+  return Object.keys(view).length > 0 ? view : undefined;
+}
+
+/** 일정 행·상세의 note 칸을 뷰로 바꾼다 — 연결이 없으면 note 키를 지운다(WP-1704). list_events 와 toEventView 가 같이 쓴다. */
+function withNoteView<T extends Record<string, unknown>>(event: T): Record<string, unknown> {
+  if (!('note' in event)) return event;
+  const { note, ...rest } = event;
+  const view = toEventNoteView(note);
+  return view ? { ...rest, note: view } : rest;
+}
+
 /**
  * 일정 상세 응답 → LLM 뷰(#833, WP-353). 참석자의 숫자 userId·invitedByUserId 를 내보내지 않는다.
  * 초대한 사람(invitedByUserId)은 같은 응답의 참석자 목록에서 username·name 을 찾아 `invitedBy` 로 바꾼다 — 추가 조회 없이 풀린다
@@ -118,10 +150,13 @@ interface AttendeeRaw {
  * 크기 정리(WP-353): UI 표시용 색(color·effectiveColor)·캘린더 id(calendarId)·생성 시각·외부 동기화 식별자(iCalUid)와 참석자 총원
  * (attendees 로 센다)를 빼고 값이 없는 키(null 설명·장소·반복 규칙·참석자의 externalEmail 등)를 지운다. 키가 없으면 값이 없는 것이다.
  * 반복 일정 수정에 쓰는 masterEventId·occurrenceDate 와 myRsvpStatus·myRole·external 은 그대로 둔다.
+ * 이어진 노트(note)는 toEventNoteView 로 줄인다(WP-1704).
  */
 export function toEventView<T extends { attendees?: AttendeeRaw[] | null }>(input: T): Record<string, unknown> {
   const event = input as T & Record<string, unknown>;
-  const base = dropEmpty(omitKeys(event, 'color', 'effectiveColor', 'calendarId', 'createdAt', 'iCalUid', 'attendees', 'attendeeCount'));
+  const base = withNoteView(
+    dropEmpty(omitKeys(event, 'color', 'effectiveColor', 'calendarId', 'createdAt', 'iCalUid', 'attendees', 'attendeeCount')),
+  );
   if (!Array.isArray(event.attendees)) {
     // 참석자 목록이 없는 응답은 총원을 알려 주는 attendeeCount 가 유일한 단서라 되돌려 둔다.
     return event.attendeeCount !== undefined ? { ...base, attendeeCount: event.attendeeCount } : base;
@@ -155,7 +190,13 @@ interface EventDetail {
 }
 
 export const listEventsInput = z.object({ from: z.string().min(1), to: z.string().min(1) });
-export const getEventInput = z.object({ eventId: z.number().int().positive() });
+// occurrenceDate(WP-1704): 반복 일정 회차의 노트를 보려면 필요하다 — 서버는 회차 없이 마스터를 주면 note 를 싣지 않는다.
+// get_event·unlink_event_note 가 같이 쓰고 link_event_note 가 pageId 를 더한다.
+const eventOccurrenceInput = z.object({ eventId: z.number().int().positive(), occurrenceDate: nullAsOmitted(z.string().min(1)) });
+export const getEventInput = eventOccurrenceInput;
+// WP-1704: 일정(반복이면 그 회차)에 노트 잇기·끊기. occurrenceDate 는 update_event 와 같이 회차의 원래 시작 시각(list_events 값).
+export const linkEventNoteInput = eventOccurrenceInput.extend({ pageId: z.number().int().positive() });
+export const unlinkEventNoteInput = eventOccurrenceInput;
 // 서버 RsvpRequest.status 는 @NotNull 이 없어 null 이 통과한다 — 도구에서 필수 enum 으로 막는다.
 export const rsvpEventInput = z.object({
   eventId: z.number().int().positive(),
@@ -211,7 +252,12 @@ function shortenDescription(description: unknown): unknown {
   return description.slice(0, cut) + '…';
 }
 
-/** 캘린더 도구(list_events/get_event/rsvp_event/create_event/update_event). */
+/** 선택 회차 시각 보정 — 없거나 null 이면 undefined(쿼리에 싣지 않는다), 오프셋이 없으면 +09:00(WP-1704). */
+function occurrenceOf(v: string | null | undefined): string | undefined {
+  return v != null ? normalizeTimezone(v) : undefined;
+}
+
+/** 캘린더 도구(list_events/get_event/rsvp_event/create_event/update_event/link_event_note/unlink_event_note). */
 export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
   return [
     {
@@ -220,12 +266,15 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       kind: 'read',
       description:
         'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00; from ≤ to, at most 366 days — split longer spans). Recurring events appear per occurrence, with ' +
-        'masterEventId and occurrenceDate. id = eventId of other calendar tools. description cut to 300 chars (full: get_event).',
+        'masterEventId and occurrenceDate. id = eventId of other calendar tools. description cut to 300 chars (full: get_event). ' +
+        'note = linked meeting note (id = pageId).',
       inputSchema: listEventsInput,
       async handler(args) {
         const { from, to } = listEventsInput.parse(args);
         const events = await client.listEvents(normalizeTimezone(from), normalizeTimezone(to));
-        return JSON.stringify(events.map((e) => ('description' in e ? { ...e, description: shortenDescription(e.description) } : e)));
+        return JSON.stringify(
+          events.map((e) => withNoteView('description' in e ? { ...e, description: shortenDescription(e.description) } : e)),
+        );
       },
     },
     {
@@ -234,11 +283,13 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       kind: 'read',
       description:
         'Returns one event by eventId that I organize or am invited to (else not found), adding what list_events lacks: attendees, ' +
-        'myRsvpStatus, myRole, external (synced from an external calendar).',
+        'myRsvpStatus, myRole, external (synced from an external calendar). Recurring: occurrenceDate (from list_events) shows ' +
+        "that occurrence's note.",
       inputSchema: getEventInput,
       async handler(args) {
-        const { eventId } = getEventInput.parse(args);
-        return JSON.stringify(toEventView((await client.getEvent(eventId)) as EventDetail));
+        const { eventId, occurrenceDate } = getEventInput.parse(args);
+        const raw = await client.getEvent(eventId, occurrenceOf(occurrenceDate));
+        return JSON.stringify(toEventView(raw as EventDetail));
       },
     },
     {
@@ -378,7 +429,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
             reminderMinutes: pick('reminderMinutes'),
             recurrenceRule: pick('recurrenceRule'),
           };
-          const occurrenceDate = p.occurrenceDate != null ? normalizeTimezone(p.occurrenceDate) : undefined;
+          const occurrenceDate = occurrenceOf(p.occurrenceDate);
           await run('fields', () => client.updateEvent(eventId, body, { scope, occurrenceDate }));
         }
         // 필드 수정이 실패했으면 참석자 변경을 하지 않는다 — 초대 알림은 되돌릴 수 없어, 시각이 안 바뀐 일정의 초대가 나가면 안 된다.
@@ -391,6 +442,38 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
         }
         const ok = Object.values(results).every((v) => v === 'ok');
         return JSON.stringify({ ok, results });
+      },
+    },
+    {
+      name: 'link_event_note',
+      app: 'calendar',
+      kind: 'write',
+      // 이미 이어진 노트를 바꾸므로 destructive. 같은 인자로 다시 부르면 같은 상태라 멱등. 연결은 앱 안에만 저장된다(외부 캘린더에 안 간다).
+      hints: { destructive: true, idempotent: true, openWorld: false },
+      description:
+        "Sets a wiki page (pageId) as an event's meeting note, replacing any; recurring: per occurrence (occurrenceDate as in " +
+        'update_event). Unreadable page = not found. To write minutes: create the page, then link it.',
+      inputSchema: linkEventNoteInput,
+      async handler(args) {
+        const { eventId, occurrenceDate, pageId } = linkEventNoteInput.parse(args);
+        // 권한·404·409(읽기 전용 외부 일정)·400(취소된 회차)은 API 오류가 그대로 도구 오류로 올라간다.
+        const res = await client.linkEventNote(eventId, pageId, occurrenceOf(occurrenceDate));
+        return JSON.stringify(dropEmpty({ note: toEventNoteView(res?.note) }));
+      },
+    },
+    {
+      name: 'unlink_event_note',
+      app: 'calendar',
+      kind: 'write',
+      // 연결을 지우므로 destructive, 이미 끊긴 상태에서 다시 불러도 같은 결과라 멱등. 노트 자체는 지우지 않는다.
+      hints: { destructive: true, idempotent: true, openWorld: false },
+      description:
+        "Unlinks an event's meeting note (occurrenceDate as in link_event_note); the page is kept.",
+      inputSchema: unlinkEventNoteInput,
+      async handler(args) {
+        const { eventId, occurrenceDate } = unlinkEventNoteInput.parse(args);
+        await client.unlinkEventNote(eventId, occurrenceOf(occurrenceDate));
+        return 'ok';
       },
     },
   ];

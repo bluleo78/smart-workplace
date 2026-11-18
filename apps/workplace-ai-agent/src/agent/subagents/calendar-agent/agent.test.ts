@@ -10,7 +10,7 @@ describe('calendar-agent 정의', () => {
   it('loadSubagents 로 calendar-agent 가 로드된다', () => {
     expect(loaded['calendar-agent']).toBeDefined();
   });
-  it('tools 는 읽기(list/get) + 생성/수정/삭제 제안(#333 M4) + 참석자 추가/제거 제안(#856) + 참석 응답 rsvp_event(유일한 직접 쓰기)', () => {
+  it('tools 는 읽기(list/get) + 생성/수정/삭제 제안(#333 M4) + 참석자 추가/제거 제안(#856) + 직접 쓰기(참석 응답 rsvp_event·회의록 노트 잇기/끊기 WP-1704)', () => {
     expect(loaded['calendar-agent'].tools).toEqual([
       'mcp__workplace__list_events',
       'mcp__workplace__get_event',
@@ -21,6 +21,9 @@ describe('calendar-agent 정의', () => {
       'mcp__workplace__propose_add_attendees',
       'mcp__workplace__propose_remove_attendee',
       'mcp__workplace__rsvp_event', // #855: 내 참석 응답(직접 실행)
+      // WP-1704: 회의록 노트 잇기·끊기(직접 실행 — 되돌릴 수 있는 쓰기)
+      'mcp__workplace__link_event_note',
+      'mcp__workplace__unlink_event_note',
       // #844: 참석자·수신자 이메일 조달 — 구성원 + 외부 연락처
       'mcp__workplace__search_members',
       'mcp__workplace__list_contacts',
