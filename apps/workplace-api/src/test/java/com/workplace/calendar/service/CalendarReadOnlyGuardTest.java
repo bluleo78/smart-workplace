@@ -57,21 +57,23 @@ class CalendarReadOnlyGuardTest extends IntegrationTestBase {
                   extRepo.upsertExternalCalendar(
                       ownerId, accountId, "ext-cal-1", "업무", "blue", true, true);
               externalEventId =
-                  extRepo.upsertExternalEvent(
-                      ownerId,
-                      externalCalendarId,
-                      "ext-evt-1",
-                      new ExternalEventRow(
-                          "외부 회의",
-                          null,
-                          OffsetDateTime.parse("2026-07-10T09:00:00Z"),
-                          OffsetDateTime.parse("2026-07-10T10:00:00Z"),
-                          false,
-                          null,
-                          null,
-                          null,
-                          null,
-                          null));
+                  extRepo
+                      .upsertExternalEvent(
+                          ownerId,
+                          externalCalendarId,
+                          "ext-evt-1",
+                          new ExternalEventRow(
+                              "외부 회의",
+                              null,
+                              OffsetDateTime.parse("2026-07-10T09:00:00Z"),
+                              OffsetDateTime.parse("2026-07-10T10:00:00Z"),
+                              false,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null))
+                      .id();
               // 로컬 일정: 기본 캘린더(읽기전용 아님)에 생성 — 가드 오발동 회귀용
               long localCalId = calendarService.ensureDefault(ownerId);
               localEventId =

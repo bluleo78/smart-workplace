@@ -180,30 +180,32 @@ class CalendarEventNoteOccurrenceTest extends CalendarNoteTestBase {
         callInTenant(
             1L,
             () ->
-                extRepo.upsertExternalEvent(
-                    ownerA,
-                    calId,
-                    "ext-note-1",
-                    new ExternalEventRow(
-                        "제목 변경",
-                        null,
-                        START.plusWeeks(1),
-                        START.plusWeeks(1).plusHours(1),
-                        false,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null)));
+                extRepo
+                    .upsertExternalEvent(
+                        ownerA,
+                        calId,
+                        "ext-note-1",
+                        new ExternalEventRow(
+                            "제목 변경",
+                            null,
+                            START.plusWeeks(1),
+                            START.plusWeeks(1).plusHours(1),
+                            false,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null))
+                    .id());
     assertThat(again).isEqualTo(ext);
     assertThat(noteRows(ext)).isEqualTo(1);
 
-    int pruned =
+    List<Long> pruned =
         callInTenant(
             1L,
             () ->
                 extRepo.pruneEventsNotIn(calId, Set.of(), START.minusDays(1), START.plusMonths(1)));
-    assertThat(pruned).isEqualTo(1);
+    assertThat(pruned).containsExactly(ext);
     assertThat(noteRows(ext)).isZero();
   }
 }

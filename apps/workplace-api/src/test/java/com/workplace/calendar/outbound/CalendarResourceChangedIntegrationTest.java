@@ -65,7 +65,7 @@ class CalendarResourceChangedIntegrationTest extends ExternalClientMockedTestBas
               org.mockito.ArgumentMatchers.anyLong(),
               org.mockito.ArgumentMatchers.anyLong(),
               org.mockito.ArgumentMatchers.any()))
-          .thenReturn(0);
+          .thenReturn(CalendarFetcher.SyncResult.empty());
       return f;
     }
   }

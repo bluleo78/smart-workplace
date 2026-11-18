@@ -150,21 +150,23 @@ public abstract class CalendarNoteTestBase extends IntegrationTestBase {
           long calId =
               extRepo.upsertExternalCalendar(
                   ownerA, accountId, "cal-" + extId, "외부", "blue", readOnly, true);
-          return extRepo.upsertExternalEvent(
-              ownerA,
-              calId,
-              extId,
-              new ExternalEventRow(
-                  "외부 회의",
-                  null,
-                  START.plusWeeks(1),
-                  START.plusWeeks(1).plusHours(1),
-                  false,
-                  null,
-                  null,
-                  null,
-                  null,
-                  null));
+          return extRepo
+              .upsertExternalEvent(
+                  ownerA,
+                  calId,
+                  extId,
+                  new ExternalEventRow(
+                      "외부 회의",
+                      null,
+                      START.plusWeeks(1),
+                      START.plusWeeks(1).plusHours(1),
+                      false,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null))
+              .id();
         });
   }
 }
