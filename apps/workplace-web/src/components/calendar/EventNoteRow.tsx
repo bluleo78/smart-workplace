@@ -30,6 +30,8 @@ interface EventNoteRowProps {
   onUnlink?: () => void
   /** 「회의록 만들기」 — 넘기지 않으면 그리지 않는다(일정 창만 넘긴다, WP-1702) */
   onCreate?: () => void
+  /** 「회의록 만들기」를 잠근다 — 기존 일정의 상세(참석자)를 읽는 중엔 틀에 「참석」 줄이 빠지므로 막는다(WP-1748) */
+  createDisabled?: boolean
   /**
    * 실패한 노트 조회 — 넘기면 카드 대신 오류 문구와 「다시 시도」를 그린다(WP-1737). 다시 부르는 동안의 잠금(aria-busy)과 성공 뒤 초점
    * 옮기기(WP-881)는 LoadErrorState 가 이 쿼리로 맡는다. 다시 부르는 동안에도 계속 넘겨야 성공했을 때만 초점 정리가 돈다.
@@ -86,6 +88,7 @@ export function EventNoteRow({
   onPick,
   onUnlink,
   onCreate,
+  createDisabled = false,
   failedQuery,
 }: EventNoteRowProps) {
   // 읽기만 하는 사람에겐 X 를 주지 않는다(WP-1701)
@@ -131,7 +134,14 @@ export function EventNoteRow({
       // 시안 순서 — 「＋ 회의록 만들기」 다음 「노트 연결」(WP-1702)
       <div className="flex flex-wrap gap-2">
         {onCreate && (
-          <Button type="button" variant="outline" size="sm" data-testid="event-note-create" onClick={onCreate}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="event-note-create"
+            disabled={createDisabled}
+            onClick={onCreate}
+          >
             <Plus aria-hidden="true" />
             회의록 만들기
           </Button>

@@ -122,7 +122,7 @@ export function toUserGroupDetailView(g: UserGroupDetailRow) {
 }
 
 /** 대상 지정 설명(여러 도구 공통). */
-const TARGET_HINT = 'Exactly one of username (member, search_members) or externalId (list_contacts).';
+const TARGET_HINT = 'Exactly one of username (search_members) or externalId (list_contacts).';
 
 /** 연락처 facets·즐겨찾기·사용자 그룹 도구. */
 export function buildContactTools(client: ContactToolClient & Pick<MemberToolClient, 'searchMembers'>): SharedTool[] {

@@ -446,7 +446,7 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async listMailAccounts() {
       return (await http.get('/mail/accounts')).data ?? [];
     },
-    async listMail(accountId, { folder, limit, query, unread, category, needsReply }) {
+    async listMail(accountId, { folder, limit, query, unread, category, needsReply, flagged }) {
       const params = {
         folder,
         limit,
@@ -454,6 +454,8 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
         ...(unread ? { unread: true } : {}),
         ...(category ? { category } : {}),
         ...(needsReply ? { needsReply: true } : {}),
+        // WP-1742: 별표 메일 모아 보기 — 있을 때만 싣는다(서버는 이때 folder·category·needsReply 를 무시하고 모든 메일함을 본다).
+        ...(flagged ? { flagged: true } : {}),
       };
       return (await http.get(`/mail/accounts/${accountId}/messages`, { params })).data ?? [];
     },

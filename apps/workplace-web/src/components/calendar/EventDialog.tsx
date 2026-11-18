@@ -177,7 +177,8 @@ export function EventDialog({
   const timedRangeRef = useRef<{ start: string; end: string } | null>(null)
 
   // 편집 모드에서 상세 데이터(attendees 포함) 로드 — 목록 이벤트에는 attendees 가 없음 (이슈 #489)
-  const { data: detailEvent } = useCalendarEvent(isEdit && open ? event?.id : undefined)
+  const detailQuery = useCalendarEvent(isEdit && open ? event?.id : undefined)
+  const detailEvent = detailQuery.data
   // detailEvent 가 있으면 그것을, 없으면 prop event 를 사용 (생성 모드 / 로딩 중).
   // 시각은 누른 회차(목록 이벤트)에서 — 반복 일정의 상세는 시리즈 마스터라, 그대로 쓰면 11/6 회차를 눌러도 첫 회차 날짜가 보였다(WP-708).
   const eventWithDetail =
@@ -345,6 +346,9 @@ export function EventDialog({
   // 참석자 줄 — 기존 일정은 상세(주최자 여부·참석자)가 와야 판정된다. 그 전엔 자리표시(attendeesLoading),
   // 그 뒤엔 관리할 수 있거나(주최자) 참석자가 있을 때만 보인다(showAttendees)
   const attendeesLoading = isEdit && !detailEvent
+  // 「회의록 만들기」 잠금 — 상세(참석자)를 읽는 중일 때만 막는다. 상세 조회가 실패하면 영원히 잠기지 않게 풀어
+  // 예전처럼 참석자 없이 만들 수 있게 한다(WP-1748).
+  const meetingDetailLoading = isEdit && !detailEvent && !detailQuery.isError
   const showAttendees = !isEdit || canManageAttendees || (eventWithDetail?.attendees?.length ?? 0) > 0
 
   /**
@@ -390,6 +394,9 @@ export function EventDialog({
 
   /** 「회의록 만들기」 창을 연다 — 노트 연결 창(결과 없음에서 넘어온 경우)은 닫는다. */
   function openMeetingDialog() {
+    // 기존 일정은 상세(참석자)가 와야 틀을 만든다 — 그 전에 열면 「참석」 줄이 빠진 틀이 창을 연 때 굳는다(WP-1748).
+    // 단추도 잠가 두지만, 잠금이 풀리기 전 눌린 클릭이 들어와도 여기서 한 번 더 막는다.
+    if (meetingDetailLoading) return
     const values = meetingSourceValues()
     setNoteDialogTitle(null)
     setMeetingDialog({ title: meetingNoteTitle(values.title, new Date(values.start)), template: templateFrom(values) })
@@ -405,8 +412,9 @@ export function EventDialog({
       setPendingNote(null)
       return
     }
-    // 창이 열려 있을 때만(meetingDialog 가 있을 때만) 불린다 — 틀은 창을 연 때의 것
-    if (!meetingDialog) return
+    // 창이 열려 있을 때만(meetingDialog 가 있을 때만) 불린다 — 틀은 창을 연 때의 것.
+    // WP-1748: 만에 하나 틀이 없으면 조용히 돌아가 창이 성공으로 닫히지 않게 오류로 알린다(창이 오류를 보이고 열린 채 남는다).
+    if (!meetingDialog) throw new Error('회의록 틀을 찾지 못했습니다. 창을 닫고 다시 열어 주세요')
     const template = meetingDialog.template
     const page = await meetingNote.create({ ...input, markdown: template.markdown })
     await meetingNote.linkAndNotify(input.spaceId, page.id, () =>
@@ -875,6 +883,8 @@ export function EventDialog({
                   failedQuery={isEdit && noteQuery.isError && !noteQuery.data ? noteQuery : undefined}
                   onPick={() => setNoteDialogTitle(form.getValues('title'))}
                   onCreate={openMeetingDialog}
+                  // 상세(참석자)를 읽는 중엔 잠근다 — 틀에 「참석」 줄이 빠지지 않게(WP-1748)
+                  createDisabled={meetingDetailLoading}
                   onUnlink={() => {
                     if (event) {
                       unlinkNote.mutate({ id: event.id, occurrenceDate: event.occurrenceDate })
@@ -937,7 +947,15 @@ export function EventDialog({
               }}
               // 결과가 없으면 그 자리에서 회의록을 만들 수 있게 — 누르면 이 창을 닫고 만들기 창을 연다(WP-1702)
               emptyAction={
-                <Button type="button" variant="outline" size="sm" onClick={openMeetingDialog} data-testid="note-link-create">
+                // 상세(참석자)를 읽는 중엔 잠근다 — 일정 창의 「회의록 만들기」와 같은 이유(WP-1748)
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={meetingDetailLoading}
+                  onClick={openMeetingDialog}
+                  data-testid="note-link-create"
+                >
                   <NotebookText aria-hidden="true" />
                   회의록 만들기
                 </Button>

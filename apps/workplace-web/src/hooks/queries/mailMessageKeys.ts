@@ -6,9 +6,10 @@ export const mailMessageKeys = {
   // #469: unread 필터를 캐시 키에 포함(읽음 목록과 안읽음 목록 캐시 분리).
   // P2: category/needsReply 필터도 캐시 키에 포함.
   // WP-961: 서버 메일함 id 는 맨 뒤 — ['mail-messages', 계정]·['mail-messages', 계정, 'SENT'] prefix 무효화가 그대로 닿게.
+  // WP-1742: 별표 모아 보기 여부도 맨 뒤 — 별표 전환 뒤 별표 목록만 골라 다시 받을 때 이 자리(isFlaggedListKey)를 본다.
   list: (accountId: number, folder: MailFolder, query: string, unread = false,
-         category = '', needsReply = false, folderId: number | null = null) =>
-    ['mail-messages', accountId, folder, query, unread, category, needsReply, folderId] as const,
+         category = '', needsReply = false, folderId: number | null = null, flagged = false) =>
+    ['mail-messages', accountId, folder, query, unread, category, needsReply, folderId, flagged] as const,
   detail: (messageId: number) => ['mail-message', messageId] as const,
   summary: (messageId: number) => ['mail-summary', messageId] as const,
   // WP-186: 사이드바 안 읽은 수(계정별)·탭 배지 합계.
@@ -22,3 +23,8 @@ export const mailMessageKeys = {
   // WP-1682 휴지통 비우기 진행 상태(계정별, RUNNING 동안 1초 폴링).
   trashEmpty: (accountId: number) => ['mail-trash-empty', accountId] as const,
 };
+
+/** WP-1742 별표 모아 보기 목록 키인가 — list 키의 9번째(flagged)가 true. 최신 N건 키(useMailMessagesHead)는 늘 false 다. */
+export function isFlaggedListKey(key: readonly unknown[]): boolean {
+  return key[0] === 'mail-messages' && key[8] === true
+}

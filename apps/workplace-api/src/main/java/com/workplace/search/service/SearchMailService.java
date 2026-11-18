@@ -1,9 +1,9 @@
 package com.workplace.search.service;
 
 import com.workplace.mail.dto.MailListCursor;
-import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AllFolderSearchRow;
+import com.workplace.mail.service.folder.MailFolderLabels;
 import com.workplace.mail.util.MailAddresses;
 import com.workplace.mail.util.MailAddresses.Person;
 import com.workplace.search.dto.MailSearchHit;
@@ -28,9 +28,6 @@ public class SearchMailService {
   static final String KIND_INBOX = "INBOX";
   static final String KIND_SENT = "SENT";
   static final String KIND_OTHER = "OTHER";
-
-  /** 보관 메일함 이름 — 웹 메일 사이드바(lib/mailFolders.ts ARCHIVE_LABEL)와 같다. */
-  static final String ARCHIVE_LABEL = "보관";
 
   private final EmailMessageRepository messages;
 
@@ -71,37 +68,24 @@ public class SearchMailService {
         r.receivedAt(),
         kind,
         KIND_OTHER.equals(kind) ? r.folderId() : null,
-        folderName(kind, r),
+        // 메일함 표시 이름 — 메일 화면과 같은 규칙(WP-1742 에서 MailFolderLabels 로 모음)
+        MailFolderLabels.label(
+            r.folderName(), r.folderDisplayName(), r.folderRole(), r.serverSent()),
         firstRecipient,
         recipientCount);
   }
 
-  /** 메일함 종류 — 보낸편지함(앱 기록·서버 보낸편지함)을 먼저 본다. 서버 보낸편지함이 「보관함」 같은 기타로 새지 않게. */
+  /**
+   * 메일함 종류 — 보낸편지함(앱 기록·서버 보낸편지함)을 먼저 본다. 서버 보낸편지함이 「보관함」 같은 기타로 새지 않게. 판정은 별표 모아 보기(WP-1742)와 같은
+   * {@link MailFolderLabels} 규칙.
+   */
   private static String kindOf(AllFolderSearchRow r) {
-    if (r.serverSent() || EmailFolderRepository.LOCAL_SENT.equals(r.folderName())) {
+    if (MailFolderLabels.isSent(r.folderName(), r.serverSent())) {
       return KIND_SENT;
     }
-    if (r.folderRole() == null && "INBOX".equals(r.folderName())) {
+    if (MailFolderLabels.isInbox(r.folderName(), r.folderRole(), r.serverSent())) {
       return KIND_INBOX;
     }
     return KIND_OTHER;
-  }
-
-  /**
-   * 메일함 표시 이름 — 받은·보낸편지함은 고정 이름, 보관 메일함은 메일 사이드바와 같은 「보관」(서버 이름이 Archive 여도), 그 밖은 표시 이름(없으면 서버
-   * 이름).
-   */
-  private static String folderName(String kind, AllFolderSearchRow r) {
-    if (KIND_OTHER.equals(kind) && "ARCHIVE".equals(r.folderRole())) {
-      return ARCHIVE_LABEL;
-    }
-    return switch (kind) {
-      case KIND_INBOX -> "받은편지함";
-      case KIND_SENT -> "보낸편지함";
-      default ->
-          r.folderDisplayName() == null || r.folderDisplayName().isBlank()
-              ? r.folderName()
-              : r.folderDisplayName();
-    };
   }
 }

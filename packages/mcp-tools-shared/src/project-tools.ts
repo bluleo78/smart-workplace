@@ -322,7 +322,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       kind: 'read',
       description:
         'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, components, versions, milestones, cycles, ' +
-        'fields (custom, with options), statuses, members (username, role), relationTypes (issue link types).',
+        'fields (custom, with options), statuses, members (username, role), relationTypes (link types).',
       inputSchema: projectKeyInput,
       async handler(args) {
         const { projectKey } = projectKeyInput.parse(args);

@@ -37,6 +37,7 @@ import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { handleApiError } from '@/lib/api-error'
 import { appUrl, mailMessagePath } from '@/lib/appUrl'
+import { UNDO_DELETE_DELAY_MS } from '@/lib/deleteWithUndo'
 import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { forwardAttachments } from '@/lib/mailComposeAttachments'
@@ -45,8 +46,8 @@ import { folderRangeDays } from '@/lib/mailFolders'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { serverOlderFolder } from '@/lib/mailListPages'
 import { formatReceivedAt } from '@/lib/mailListTime'
-import { type MailMoveActions, mailMoveAvailability, mailMoveTargets, mailMoveToastMessage, toggleReadLabel } from '@/lib/mailMoveActions'
-import { scheduleMailMove, useMailMoveHidden } from '@/lib/mailMoveQueue'
+import { type MailMoveActions, mailMoveAvailability, mailMoveRowPatch, mailMoveTargets, mailMoveToastMessage, mailRowMoveScope, toggleReadLabel, withMovePatch } from '@/lib/mailMoveActions'
+import { scheduleMailMove, useMailMoveHidden, useMailMovePatches } from '@/lib/mailMoveQueue'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
@@ -238,6 +239,7 @@ function MessageRow({
   onToggleFlag,
   moveActions,
   menu,
+  showFolder = false,
 }: {
   m: EmailMessageSummary
   /** 읽기 창에 열린 메일인가 — 선택 배경 + aria-current. */
@@ -265,6 +267,8 @@ function MessageRow({
    * 핸들러 묶음 대신 만드는 함수를 받는다 — 행마다 렌더 때 묶음·클로저를 만들지 않고 메뉴가 열린 동안만 만든다.
    */
   menu?: () => MailRowMenuHandlers
+  /** WP-1742 별표 모아 보기 — 보낸 사람 옆에 원래 메일함 이름 배지(여러 메일함이 한 목록에 섞여 어디 있는 메일인지 보이게). */
+  showFolder?: boolean
 }) {
   const navigate = useNavigate()
   const [menuAt, setMenuAt] = useState<RowLinkMenuAnchor | null>(null)
@@ -338,6 +342,16 @@ function MessageRow({
             </span>
             {/* WP-1325: 외부 메일만 「외부」 태그 — Outlook·Gmail 처럼 내부 메일은 표시하지 않아 목록을 덜 시끄럽게 하고 외부를 눈에 띄게 한다.
                 외부 = 보낸 사람이 이 워크스페이스 구성원이 아님(서버 판정, 도메인 추정 없음). */}
+            {/* WP-1742 별표 모아 보기 — 원래 메일함 이름(받은편지함·보관·내 메일함 이름) 회색 작은 배지. 서버가 이름을 주지 않으면 없다. */}
+            {showFolder && m.folderName && (
+              <span
+                data-testid={`mail-row-folder-${m.id}`}
+                title={`${m.folderName} 메일함`}
+                className="max-w-28 shrink-0 truncate rounded-full bg-muted px-1.5 py-0.5 text-xs leading-4 text-muted-foreground"
+              >
+                {m.folderName}
+              </span>
+            )}
             {m.externalSender && (
               <span
                 data-testid={`mail-external-${m.id}`}
@@ -1245,6 +1259,8 @@ function MailInbox() {
   const view = resolveMailView(params, classificationActive, { inAppSelection: hasOpenMark(location.state, 'messageId'), folders })
   const crumbItems = mailBreadcrumbItems(view, Number(accountId), params, search !== '')
   const folderView = view.kind === 'folder'
+  // WP-1742 별표 모아 보기 — 모든 메일함(휴지통 제외)의 별표 메일. 행마다 원래 메일함이 달라 메일함 의존 판정은 행 단위로 한다.
+  const flaggedView = view.kind === 'flagged'
   const currentFolder = folderView ? folders?.find((f) => f.id === view.folderId) : undefined
   // WP-1682 휴지통 「완전히 삭제」 단추 상태(미지원 서버면 꺼짐). 메일함 목록 값에서 만든 객체가 행·상세 작업 묶음에 실리므로
   // useMemo 로 둔다 — 그냥 부르면 React Compiler 가 메일함 목록(아래 useMemo 의 의존값)이 바뀔 수 있다고 보고 최적화를 건너뛴다.
@@ -1257,7 +1273,7 @@ function MailInbox() {
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching,
   } = useMailMessages(
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
-    { folderId: view.folderId },
+    { folderId: view.folderId, flagged: flaggedView },
   )
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
@@ -1276,11 +1292,19 @@ function MailInbox() {
   }
   const openRow = selection.id === selectedId && selection.key === keepKey ? selection.row : undefined
   // WP-962 보관·옮기기·삭제 대기 중인 메일은 숨긴다 — 유지 스냅샷·열린 행이 되살리지 않게 합친 뒤에 거른다.
+  // (WP-1742 별표 보기의 보관·옮기기는 숨김 집합에 넣지 않는다 — startMove.)
   const movingIds = useMailMoveHidden()
+  // WP-1742 별표 보기의 보관·옮기기 대기 중(숨기지 않는) 행의 목적지 메일함 값 — 읽을 때 얹는다(아래 messages·rowMove).
+  // 서버 목록·유지 스냅샷·열린 행 스냅샷을 각각 고치지 않고 합친 행에 덮어써 세 곳 모두에 닿게 하고, 실행 취소·실패면 대기열이 값을 떼어
+  // 원래 메일함으로 돌아간다. 캐시를 고치면 대기 중 재조회가 옛 메일함 값으로 덮는다(lib/mailMoveQueue).
+  const movePatches = useMailMovePatches()
+  // WP-1742 별표 보기에서는 별을 끈 행(낙관 갱신으로 flagged=false)을 곧바로 뺀다 — 서버가 다시 준 목록을 기다리지 않는다.
   const messages = useMemo(() => {
     const merged = mergeKeptRows(fetchedMessages, withOpenRow(keptRows, openRow))
-    return movingIds.size === 0 ? merged : merged?.filter((m) => !movingIds.has(m.id))
-  }, [fetchedMessages, keptRows, openRow, movingIds])
+    const patched = movePatches.size === 0 ? merged : merged?.map((m) => withMovePatch(m, movePatches))
+    if (movingIds.size === 0 && !flaggedView) return patched
+    return patched?.filter((m) => !movingIds.has(m.id) && (!flaggedView || m.flagged))
+  }, [fetchedMessages, keptRows, openRow, movingIds, flaggedView, movePatches])
   // 유지 집합의 한 행을 넣거나 바꾼다(키가 바뀐 뒤 늦게 와도 새 보기에 새지 않게 현재 키로 쓴다).
   const putKept = (id: number, row: EmailMessageSummary) =>
     setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, row) }))
@@ -1290,6 +1314,15 @@ function MailInbox() {
   // 유지 스냅샷 → 서버 목록(최신) → 열린 행 스냅샷(서버가 이미 뺀 경우) 순으로 행을 찾는다.
   const findRow = (id: number) =>
     keptRows?.get(id) ?? fetchedMessages?.find((r) => r.id === id) ?? (openRow?.id === id ? openRow : undefined)
+  // 열린 메일의 마지막 목록 행(WP-54 화면 컨텍스트 · WP-1742 옮기기 판정).
+  // 회신필요 필터(?needsReply=true)에서는 메일을 열면 읽음 처리돼 다음 목록 refetch 에서 목록을 빠져나간다 —
+  // 상세 패널은 열려 있는데 AI 컨텍스트만 사라지지 않도록, 마지막으로 본 목록 행을 기억해 두었다가 쓴다.
+  // 별표 보기에서 별을 꺼 목록에서 빠진 열린 메일도 이 행으로 원래 메일함(folderId·folderRole)을 안다.
+  // ref 를 렌더 중에 읽지 않도록 state 로 두고, 행이 바뀐 경우에만 렌더 중 갱신한다(React 의 "이전 값 보관" 패턴).
+  const found = messages?.find((m) => m.id === selectedId) ?? null
+  const [remembered, setRemembered] = useState<EmailMessageSummary | null>(null)
+  if (found && found !== remembered) setRemembered(found)
+  const selectedSummary = found ?? (remembered?.id === selectedId ? remembered : null)
   // WP-187 읽음/안읽음 전환 — 새 훅은 모두 아래 !accountId 조기 return 보다 앞에 둔다(훅 순서).
   const toggleRead = useToggleRead()
   // WP-1741 별표 켜기/끄기 — 목록 행 별·읽기 창 단추·휴대폰 ⋯ 메뉴 공용.
@@ -1349,26 +1382,50 @@ function MailInbox() {
   /**
    * WP-1741 별표 켜기/끄기 — 목록·상세 캐시는 훅이 낙관적으로 바꾼다. 서버 목록에 없어 스냅샷(유지 집합·열린 행)으로 보이는 행은
    * 캐시 갱신이 닿지 않으므로 스냅샷도 바꾸고, 실패하면 스냅샷만 이전 값으로 되돌린다(applyToggle 과 같은 규칙).
+   * 요청 결과(성공 true·실패 false)를 돌려준다 — WP-1742 별표 해제 토스트가 실패하면 내려간다. 호출마다 제 결과를 받도록 mutateAsync 를 쓴다
+   * (mutate 의 호출별 onError 는 마지막 호출에만 불려, 빠르게 둘을 끄면 앞 것의 실패를 놓친다). 오류 토스트는 훅(onError)이 띄운다.
+   * WP-1742 스냅샷은 렌더 값(keepKey·keptRows·openRow)이 아니라 함수형 갱신으로 「지금」 상태를 고친다 — 별표 해제 토스트의 실행 취소는
+   * 토스트를 띄운 렌더의 이 함수를 부르는데, 옛 보기 키로 유지 집합을 쓰면(putKept) 보기를 바꾼 뒤 지금 보기의 유지 행이 지워졌다.
+   * 별표는 늘 지금 값의 반대로만 바꾸므로(행 별·단추·실행 취소) 실패하면 !flagged 로 되돌린다.
    */
-  const applyFlag = (id: number, flagged: boolean) => {
-    const prevKept = keptRows?.get(id)
-    // 유지 중인 행은 유지 스냅샷을 고친다. 서버 목록에 없고 열린 행으로만 보이는 행은 열린 행 스냅샷을 고친다 —
-    // 유지 집합에 넣으면 상세를 닫은 뒤에도 서버가 뺀 행이 목록에 남는다.
-    const prevOpen =
-      !prevKept && openRow?.id === id && !fetchedMessages?.some((r) => r.id === id) ? openRow : undefined
-    if (prevKept) putKept(id, { ...prevKept, flagged })
-    if (prevOpen) setSelection((s) => (s.row?.id === id ? { ...s, row: { ...s.row, flagged } } : s))
-    toggleFlag.mutate(
-      { id, flagged },
-      {
-        onError: () => {
-          if (prevKept) {
-            setKept((k) => (k.key !== keepKey ? k : { key: keepKey, rows: new Map(k.rows).set(id, prevKept) }))
-          }
-          if (prevOpen) setSelection((s) => (s.row?.id === id ? { ...s, row: prevOpen } : s))
-        },
+  const applyFlag = (id: number, flagged: boolean): Promise<boolean> => {
+    // 유지 중인 행은 유지 스냅샷을, 열린 행은 열린 행 스냅샷을 고친다(새로 넣지는 않는다 — 유지 집합에 넣으면 상세를 닫은 뒤에도 서버가 뺀 행이 남는다).
+    // WP-1742 열린 행 스냅샷은 목록 데이터에 행이 있든 없든 함께 고친다 — 안 읽은 메일만 + 별표 보기에서 별을 끈 뒤 서버 목록이 그 행을 빼면
+    // withOpenRow 가 별표 그대로인 옛 스냅샷을 되살려 별 꺼진 메일이 별표 목록에 다시 나타났다.
+    const setSnapshots = (value: boolean) => {
+      setKept((k) => {
+        const row = k.rows.get(id)
+        return row ? { key: k.key, rows: new Map(k.rows).set(id, { ...row, flagged: value }) } : k
+      })
+      setSelection((s) => (s.row?.id === id ? { ...s, row: { ...s.row, flagged: value } } : s))
+    }
+    setSnapshots(flagged)
+    return toggleFlag.mutateAsync({ id, flagged }).then(
+      () => true,
+      () => {
+        setSnapshots(!flagged)
+        return false
       },
     )
+  }
+  /**
+   * WP-1742 화면의 별표 전환 입구 — 목록 행 별·읽기 창 「별표 해제」·휴대폰 ⋯ 「별표 해제」가 모두 이 함수를 쓴다.
+   * 별표 보기에서 별을 끄면 행이 목록에서 빠지므로(messages 거르기) 「별표를 해제했습니다 · 실행 취소」 토스트를 띄운다.
+   * 실행 취소는 별을 다시 켠다(PUT flagged:true) — 옮기기처럼 요청을 미루지 않는 까닭은 별표가 메일 서버 플래그와 바로 맞아야 하고,
+   * 다시 켜는 것으로 완전히 되돌릴 수 있어서다. 다시 켜면 낙관 갱신·별표 목록 재조회로 행이 돌아온다.
+   */
+  const toggleFlagFromView = (id: number, flagged: boolean) => {
+    const done = applyFlag(id, flagged)
+    if (!flaggedView || flagged) return
+    const toastId = toast.success('별표를 해제했습니다', {
+      testId: 'mail-unflag-toast',
+      duration: UNDO_DELETE_DELAY_MS,
+      action: { label: '실행 취소', onClick: () => void applyFlag(id, true) },
+    })
+    // 별표 해제가 실패하면(PUT 오류) 해제하지 않았으니 「해제했습니다 · 실행 취소」를 내린다 — 오류 토스트는 훅이 띄운다.
+    void done.then((ok) => {
+      if (!ok) toast.dismiss(toastId)
+    })
   }
   // WP-187 모두 읽음 — 버튼 → 건수 조회(+asOf) → 확인 다이얼로그 → 실행.
   // asOf 는 서버(DB 시계)가 준 문자열을 그대로 되돌려 보낸다 — 확인 뒤 새로 들어온 메일은 읽음 처리하지 않게.
@@ -1513,15 +1570,33 @@ function MailInbox() {
   const syncBusy = sync.isPending || (syncStatus.data?.running ?? false)
   // 필터 줄(WP-1355) 슬롯 판정 — 보일 것이 없는 슬롯은 FilterLine 에 넘기지 않아 빈 둘째 줄이 생기지 않게 한다.
   // 동기화 버튼·상태(chips)는 계정 받은편지함만(서버 메일함 보기는 상태 줄이 맡는다), 안 읽은 메일만·모두 읽음(end)은 INBOX 계열만.
-  const showSyncControls = folderParam === 'INBOX' && !folderView
+  // WP-1742 별표 보기도 숨긴다 — 동기화는 받은편지함만 하므로 모든 메일함을 모은 보기에 두면 그 보기를 새로 받는 단추로 오해한다.
+  const showSyncControls = folderParam === 'INBOX' && !folderView && !flaggedView
   // 「모두 읽음」은 INBOX 이고 보낸편지함 보기가 아닐 때만. 「안 읽은 메일만」은 INBOX 에서만(showMarkAll 에 INBOX 가 이미 들어 있다).
-  const showMarkAll = folderParam === 'INBOX' && view.kind !== 'sent'
+  // WP-1742 별표 보기에도 두지 않는다 — 모두 읽음 API 가 별표 범위를 몰라 받은편지함 전체를 읽음 처리하게 된다.
+  const showMarkAll = folderParam === 'INBOX' && view.kind !== 'sent' && !flaggedView
   const showListActions = showMarkAll || (folderParam === 'INBOX' && view.unreadToggleVisible)
   const qc = useQueryClient()
   // WP-962 보관·옮기기·삭제 — 보기별 노출(보낸편지함 없음·보관 보기엔 보관 없음)과 「옮기기」 대상(지금 메일함 제외).
   const moveTargets = useMemo(() => mailMoveTargets(view, folders), [view, folders])
   const moveAvail = mailMoveAvailability(view, folders)
-  const canMove = moveAvail.archive || moveAvail.move || moveAvail.trash || moveAvail.restore
+  /**
+   * WP-1742 한 메일의 작업 판정 — 별표 보기는 메일마다 원래 메일함이 달라 그 메일함 보기로 판정한다(mailRowMoveScope, 행의 folderId·folderRole).
+   * 그 밖의 보기는 보기 판정(moveAvail·moveTargets)을 그대로 쓴다.
+   * 행은 서버 목록(옮긴 뒤 다시 받은 최신 메일함) → 유지 스냅샷 → 열린 행 스냅샷 → 열린 메일의 마지막 목록 행 순으로 찾는다 —
+   * 별을 꺼 목록에서 빠진 열린 메일도 원래 메일함을 안다. 그래도 모르면(딥링크로 연 목록 밖 메일) 보관·옮기기·삭제를 모두 숨긴다(보수적으로 —
+   * 보낸 메일일 수도 있어 삭제도 보이지 않는다).
+   */
+  const NO_MOVE: { avail: typeof moveAvail; targets: typeof moveTargets } = { avail: { archive: false, move: false, trash: false, restore: false }, targets: [] }
+  const rowMove = (id: number) => {
+    if (!flaggedView) return { avail: moveAvail, targets: moveTargets }
+    const found =
+      fetchedMessages?.find((r) => r.id === id) ?? findRow(id) ?? (selectedSummary?.id === id ? selectedSummary : undefined)
+    // 대기 중인 옮기기가 있으면 목적지 메일함으로 판정한다 — 옛 메일함 값이면 같은 「보관」이 다시 보이고 같은 이동이 또 쌓인다.
+    const row = found && withMovePatch(found, movePatches)
+    const scope = mailRowMoveScope(view, folders, row)
+    return scope ? { avail: mailMoveAvailability(scope, folders), targets: mailMoveTargets(scope, folders) } : NO_MOVE
+  }
   // 모바일 「옮기기」 바텀 시트의 대상 메일(길게 누르기 시트·상세 ⋯ 메뉴에서 연다).
   const [moveSheetIds, setMoveSheetIds] = useState<number[] | null>(null)
   /**
@@ -1530,13 +1605,36 @@ function MailInbox() {
    */
   const startMove = (ids: number[], target: MailMoveTarget) => {
     if (accountIdNum == null) return
-    if (selectedId != null && ids.includes(selectedId)) mailParam.close()
-    dropKept(ids)
-    scheduleMailMove({ qc, accountId: accountIdNum, messageIds: ids, target, message: mailMoveToastMessage(target, folders, ids.length) })
+    // WP-1742 별표 보기에서 휴지통이 아닌 곳(보관·받은편지함·내 메일함)으로 옮기면 별표는 그대로라 메일이 목록에 남는다 — 행을 숨기지 않고
+    // (사라졌다 다시 나타나는 깜박임 방지) 상세도 닫지 않으며, 옮긴 뒤 목록을 다시 받아 메일함 배지만 바뀐다. 토스트·실행 취소는 그대로.
+    const keepsRows = flaggedView && target.kind !== 'TRASH'
+    if (!keepsRows) {
+      if (selectedId != null && ids.includes(selectedId)) mailParam.close()
+      dropKept(ids)
+    }
+    // 숨기지 않는 행은 대기 중에 목적지 메일함으로 보이게 한다(배지·보관 단추 판정 — 대기열이 읽을 때 얹는다).
+    const rowPatch = keepsRows ? mailMoveRowPatch(target, folders) : null
+    scheduleMailMove({
+      qc, accountId: accountIdNum, messageIds: ids, target, message: mailMoveToastMessage(target, folders, ids.length), hideRows: !keepsRows,
+      rowPatch,
+      // 옮긴 뒤에는 스냅샷(유지 집합·열린 행)에도 목적지를 적는다 — 서버 목록에 없는 행(안 읽은 메일만 보기에서 연 메일)은 재조회가
+      // 고쳐 주지 않아, 얹은 값을 떼면 옛 메일함으로 돌아가 「보관」이 다시 보였다. 함수형 갱신이라 그 사이 보기를 바꾸거나 떠나도 안전하다.
+      onMoved: rowPatch
+        ? (okIds) => {
+            setKept((k) =>
+              okIds.some((id) => k.rows.has(id))
+                ? { key: k.key, rows: new Map([...k.rows].map(([id, r]) => [id, okIds.includes(id) ? { ...r, ...rowPatch } : r])) }
+                : k,
+            )
+            setSelection((s) => (s.row && okIds.includes(s.row.id) ? { ...s, row: { ...s.row, ...rowPatch } } : s))
+          }
+        : undefined,
+    })
   }
   // WP-1341 분류 바꾸기 — 보낸편지함·서버 메일함 보기(AI 배지를 끄는 보기)와 AI 분류가 꺼진 계정에는 없다.
   const changeCategory = useChangeMailCategory(accountIdNum)
-  const categoryEditable = view.kind !== 'sent' && !folderView && classificationActive
+  // WP-1742 별표 보기도 없다 — 받은편지함 밖 메일이 섞여 있어 분류(받은편지함 AI 분류)가 뜻이 없는 메일이 있다.
+  const categoryEditable = view.kind !== 'sent' && !folderView && !flaggedView && classificationActive
   // 모바일 분류 시트의 대상 메일과 그 메일의 바꾸기 전 분류(상세 ⋯ 메뉴·길게 누르기 시트에서 연다).
   const [categorySheet, setCategorySheet] = useState<{ id: number; current: MailCategoryState } | null>(null)
   // WP-1682 「완전히 삭제」 확인 창의 대상 메일(상세 단추·휴대폰 ⋯ 메뉴가 연다).
@@ -1569,18 +1667,19 @@ function MailInbox() {
       },
     })
   }
-  const moveActionsFor = (id: number): MailMoveActions | null =>
-    canMove
+  const moveActionsFor = (id: number): MailMoveActions | null => {
+    const { avail, targets } = rowMove(id)
+    return avail.archive || avail.move || avail.trash || avail.restore
       ? {
-          avail: moveAvail,
-          targets: moveTargets,
+          avail,
+          targets,
           onArchive: () => startMove([id], { kind: 'ARCHIVE' }),
           onTrash: () => startMove([id], { kind: 'TRASH' }),
           onMove: (t) => startMove([id], t),
           // WP-1681 되살리기도 같은 이동 대기열 — 실행 취소 토스트가 닫힐 때 RESTORE 로 나간다.
           onRestore: () => startMove([id], { kind: 'RESTORE' }),
           // WP-1682 휴지통 보기에서만 — 미지원 서버면 꺼지고, 처리 중엔 연타를 막는다.
-          permanentDelete: moveAvail.restore
+          permanentDelete: avail.restore
             ? {
                 state: permanentDeleteButton,
                 pending: permanentDelete.isPending,
@@ -1589,6 +1688,7 @@ function MailInbox() {
             : undefined,
         }
       : null
+  }
   // 본문 보충(running)이 끝나는 순간 목록을 다시 불러와 snippet 등을 갱신.
   const prevRunning = useRef(false)
   useEffect(() => {
@@ -1641,7 +1741,10 @@ function MailInbox() {
     onChangeCategory: categoryEditable ? (c) => void changeCategory(m.id, c, toCategoryState(m)) : null,
   })
   // 시트 작업 — 첫 항목(읽음 전환)이 primary.
-  const sheetActions = (m: EmailMessageSummary): MessageSheetAction[] => [
+  const sheetActions = (m: EmailMessageSummary): MessageSheetAction[] => {
+    // WP-1742 별표 보기는 이 메일의 원래 메일함으로 판정한다(rowMove).
+    const avail = rowMove(m.id).avail
+    return [
     {
       key: 'toggle-read',
       label: toggleReadLabel(m.seen),
@@ -1657,8 +1760,8 @@ function MailInbox() {
       ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <AiIcon />, onSelect: () => void withDetail(m, onAiIssue) }]
       : []),
     // WP-962 보관·옮기기·삭제 — 옮기기는 메일함 고르기 시트를 연다. 삭제는 파괴적 항목이라 맨 아래.
-    ...(moveAvail.archive ? [{ key: 'archive', label: '보관', icon: <Archive />, onSelect: () => startMove([m.id], { kind: 'ARCHIVE' }) }] : []),
-    ...(moveAvail.move ? [{ key: 'move', label: '옮기기', icon: <FolderInput />, onSelect: () => setMoveSheetIds([m.id]) }] : []),
+    ...(avail.archive ? [{ key: 'archive', label: '보관', icon: <Archive />, onSelect: () => startMove([m.id], { kind: 'ARCHIVE' }) }] : []),
+    ...(avail.move ? [{ key: 'move', label: '옮기기', icon: <FolderInput />, onSelect: () => setMoveSheetIds([m.id]) }] : []),
     // WP-1341 분류 바꾸기 — 분류 시트를 연다(목록 행의 분류 상태가 바꾸기 전 값).
     ...(categoryEditable
       ? [{
@@ -1668,24 +1771,18 @@ function MailInbox() {
           onSelect: () => setCategorySheet({ id: m.id, current: toCategoryState(m) }),
         }]
       : []),
-    ...(moveAvail.trash
+    ...(avail.trash
       ? [{ key: 'trash', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => startMove([m.id], { kind: 'TRASH' }) }]
       : []),
     // WP-1681 휴지통 보기 — 보관·옮기기·삭제 대신 되살리기 하나.
-    ...(moveAvail.restore
+    ...(avail.restore
       ? [{ key: 'restore', label: '되살리기', icon: <ArchiveRestore />, onSelect: () => startMove([m.id], { kind: 'RESTORE' }) }]
       : []),
-  ]
+    ]
+  }
 
   // WP-54: 메일함 화면 컨텍스트 — 계정·폴더·필터 + 열린 메일(목록 행 요약으로 라벨 구성).
   // 훅이므로 아래 !accountId 조기 return 보다 앞에 둔다. 목록에 없는 메일(딥링크 등)은 focus 없이 scope 만 싣는다.
-  // 회신필요 필터(?needsReply=true)에서는 메일을 열면 읽음 처리돼 다음 목록 refetch 에서 목록을 빠져나간다 —
-  // 상세 패널은 열려 있는데 AI 컨텍스트만 사라지지 않도록, 마지막으로 본 목록 행을 기억해 두었다가 쓴다.
-  // ref 를 렌더 중에 읽지 않도록 state 로 두고, 행이 바뀐 경우에만 렌더 중 갱신한다(React 의 "이전 값 보관" 패턴).
-  const found = messages?.find((m) => m.id === selectedId) ?? null
-  const [remembered, setRemembered] = useState<EmailMessageSummary | null>(null)
-  if (found && found !== remembered) setRemembered(found)
-  const selectedSummary = found ?? (remembered?.id === selectedId ? remembered : null)
   // 모바일에서 본문이 열리면 목록 헤더(폴더명·🔍·☰·🔔)·동기화 줄 대신 상세 헤더 한 줄만 둔다(U1-1).
   const showListChrome = !(isMobile && selectedId != null)
   useMailScreenContext({
@@ -1694,6 +1791,8 @@ function MailInbox() {
     folder: folderParam,
     // WP-961 서버 메일함 보기 — 경로 이름(보관·프로젝트 › 견적 — 사이드바 구역 이름 「내 메일함」은 넣지 않는다, WP-979). 메일함 목록 전이면 이름 없이 「메일함」(받은편지함으로 싣지 않게).
     serverFolder: folderView ? (currentFolder ? mailBreadcrumbText(view) : '메일함') : null,
+    // WP-1742 별표 모아 보기 — 받은편지함이 아니라 모든 메일함의 별표 메일(list_mail flagged)이라고 싣는다.
+    flagged: flaggedView,
     q: search,
     category: view.apiCategory || null,
     needsReply: view.kind === 'needsReply',
@@ -1797,7 +1896,21 @@ function MailInbox() {
           title={isMobile ? view.title : undefined}
           srTitle={isMobile ? undefined : view.title}
           leadingGrow={!isMobile}
-          leading={<Breadcrumb items={crumbItems} aria-label="메일함 경로" data-testid="mail-breadcrumb" />}
+          leading={
+            <>
+              {/* WP-1742 별표 보기는 경로가 「별표」 한 칸이라 접을 일이 없다 — 남는 폭을 차지하지 않게(flex-none) 해 「모든 메일함」이 제목 바로 옆에 붙는다. */}
+              <Breadcrumb
+                items={crumbItems}
+                aria-label="메일함 경로"
+                data-testid="mail-breadcrumb"
+                className={flaggedView && !isMobile ? 'flex-none' : undefined}
+              />
+              {/* WP-1742 별표 보기는 한 메일함이 아니라 모든 메일함의 별표 메일이다 — 제목 옆에 범위를 적는다(데스크톱만, 모바일은 제목 한 줄). */}
+              {flaggedView && !isMobile && (
+                <span data-testid="mail-flagged-scope" className="shrink-0 text-xs text-muted-foreground">모든 메일함</span>
+              )}
+            </>
+          }
         />
       )}
       {/* 본문 — 목록·상세 마스터-디테일이라 스크롤·여백은 각 칸이 소유(padded=false), 행은 px-4 페이지 여백. */}
@@ -1906,6 +2019,13 @@ function MailInbox() {
                   모든 메일 보기
                 </Button>
               </div>
+            ) : flaggedView && !search ? (
+              // WP-1742 별표 모아 보기 0건 — 별표를 다는 방법을 함께 알린다.
+              <div data-testid="mail-flagged-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                <Star className="h-8 w-8" />
+                <p className="text-sm font-medium">별표한 메일 없음</p>
+                <p className="text-xs">메일 목록의 별을 누르면 여기에 모여요.</p>
+              </div>
             ) : folderView && !search ? (
               // WP-961 서버 메일함 0건 — 처음 가져오는 중이면 그렇게, 아니면 중립 문구(「동기화를 눌러보세요」는 받은편지함 안내).
               <div data-testid="mail-box-empty" className="p-6 text-sm text-muted-foreground">
@@ -1939,14 +2059,16 @@ function MailInbox() {
                   open={selectedId === m.id}
                   sheetTarget={sheet.open && sheet.target?.id === m.id}
                   onSelect={() => mailParam.open(String(m.id))}
-                  pendingVisible={view.kind !== 'sent' && !folderView && classificationActive}
-                  aiSignalsVisible={!folderView}
+                  pendingVisible={view.kind !== 'sent' && !folderView && !flaggedView && classificationActive}
+                  // WP-1742 별표 보기는 받은편지함 메일에만 AI 배지 — 보관·내 메일함 메일의 분류 배지를 누르면 그 메일이 없는 받은편지함 분류 보기로 간다(WP-961 과 같은 까닭).
+                  aiSignalsVisible={!folderView && (!flaggedView || m.folderRole === 'INBOX')}
+                  showFolder={flaggedView}
                   // 분류 보기 안 검색도 서버가 그 분류로 좁히므로 검색 중에도 넘긴다(WP-1348).
                   viewCategory={view.activeCategory}
                   showToggle={!touchShell}
                   // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}
-                  onToggleFlag={() => applyFlag(m.id, !m.flagged)}
+                  onToggleFlag={() => toggleFlagFromView(m.id, !m.flagged)}
                   moveActions={touchShell ? null : moveActionsFor(m.id)}
                   menu={!touchShell && accountIdNum != null ? () => rowMenuHandlers(accountIdNum, m) : undefined}
                 />
@@ -1990,7 +2112,7 @@ function MailInbox() {
             onMarkUnread={() => {
               if (selectedId != null) markUnreadAndClose(selectedId)
             }}
-            onToggleFlag={applyFlag}
+            onToggleFlag={toggleFlagFromView}
             onBack={mailParam.close}
             moveActions={selectedId != null ? moveActionsFor(selectedId) : null}
             onOpenMoveSheet={() => selectedId != null && setMoveSheetIds([selectedId])}
@@ -2002,7 +2124,7 @@ function MailInbox() {
         <MailMoveTargetSheet
           open={moveSheetIds != null}
           onClose={() => setMoveSheetIds(null)}
-          targets={moveTargets}
+          targets={moveSheetIds?.length === 1 ? rowMove(moveSheetIds[0]).targets : moveTargets}
           onPick={(t) => moveSheetIds && startMove(moveSheetIds, t)}
         />
         {/* WP-1682 「완전히 삭제」 확인 — 상세 단추·휴대폰 ⋯ 메뉴가 연다. 처리 중엔 열린 채 「삭제」가 꺼진다. */}

@@ -265,8 +265,8 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       app: 'calendar',
       kind: 'read',
       description:
-        'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00; from ≤ to, at most 366 days — split longer spans). Recurring events appear per occurrence, with ' +
-        'masterEventId and occurrenceDate. id = eventId of other calendar tools. description cut to 300 chars (full: get_event). ' +
+        'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00; from ≤ to, at most 366 days — split longer spans). Recurring: one item per occurrence ' +
+        '(masterEventId, occurrenceDate). id = eventId of other calendar tools. description cut to 300 chars (full: get_event). ' +
         'note = linked meeting note (id = pageId).',
       inputSchema: listEventsInput,
       async handler(args) {

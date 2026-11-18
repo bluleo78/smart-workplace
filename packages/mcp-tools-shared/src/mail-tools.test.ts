@@ -99,6 +99,14 @@ describe('buildMailTools', () => {
     expect(c.listMail).toHaveBeenCalledWith(1, { folder: 'INBOX', limit: 20, category: '업무', needsReply: true });
   });
 
+  it('WP-1742: list_mail flagged:true → client.listMail 에 flagged 를 관통하고, 행의 folderName(원래 메일함)은 내되 folderId·folderRole(화면 판정용 내부 값)은 뺀다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listMail).mockResolvedValue([{ id: 1, subject: '메일', flagged: true, folderName: 'Projects', folderId: 5, folderRole: 'USER' }]);
+    const out = await tool(c, 'list_mail').handler({ accountId: 1, flagged: true });
+    expect(c.listMail).toHaveBeenCalledWith(1, { folder: 'INBOX', limit: 20, flagged: true });
+    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, subject: '메일', flagged: true, folderName: 'Projects' }]);
+  });
+
   it('WP-357: list_mail 은 분류 enum 밖의 값을 거부한다(서버는 검증하지 않아 오타가 조용히 빈 목록이 된다)', async () => {
     const c = mockClient();
     await expect(tool(c, 'list_mail').handler({ accountId: 1, category: '업무용' })).rejects.toThrow();

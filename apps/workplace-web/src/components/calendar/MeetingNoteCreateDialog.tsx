@@ -237,7 +237,8 @@ function MeetingNoteCreateBody({
         spaces={writable}
         onSpaceChange={setPickerSpaceId}
         allowRoot
-        currentPageId={current && pickerSpaceId === current.spaceId ? current.parentId : null}
+        // 상위 노트가 그사이 지워졌으면(parentMissing) 그 id 를 넘기지 않는다 — 지워진 자리가 골라진 채 열려 그 아래에 만들지 않게(WP-1748)
+        currentPageId={current && pickerSpaceId === current.spaceId && !parentMissing ? current.parentId : null}
         blockedRootIds={NO_BLOCKED_ROOTS}
         // 회의록은 리포트와 무관하다 — AI 리포트 페이지 아래에도 둘 수 있게 모두 보인다
         hideAiReports={false}

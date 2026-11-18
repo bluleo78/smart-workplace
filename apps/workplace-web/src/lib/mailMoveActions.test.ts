@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { MailServerFolder } from '@/types/mailFolder'
 
-import { isInboxView, mailMoveAvailability, mailMoveTargets, mailMoveToastMessage } from './mailMoveActions'
+import { isInboxView, mailMoveAvailability, mailMoveRowPatch, mailMoveTargets, mailMoveToastMessage, mailRowMoveScope } from './mailMoveActions'
 
 const f = (o: Partial<MailServerFolder> & { id: number }): MailServerFolder => ({
   displayName: `메일함${o.id}`, parentId: null, role: 'USER', selectable: true, unreadCount: 0, totalCount: 0,
@@ -98,5 +98,75 @@ describe('isInboxView', () => {
     expect(['work', 'all', 'category', 'needsReply', 'folder', 'sent', 'drafts'].map((k) => isInboxView(k as never))).toEqual([
       true, true, true, true, false, false, false,
     ])
+  })
+})
+
+describe('mailRowMoveScope (WP-1742 별표 보기의 메일별 판정 — 이름이 아니라 메일함 id·역할)', () => {
+  const flagged = { kind: 'flagged', folderId: null } as const
+  type Row = { folderId?: number | null; folderRole?: string | null } | null
+  const scopeOf = (row: Row, fs = folders) => mailRowMoveScope(flagged, fs, row)
+  const rowKeys = (row: Row) => {
+    const scope = scopeOf(row)
+    return scope ? mailMoveTargets(scope, folders).map((t) => t.key) : []
+  }
+  const rowAvail = (row: Row) => {
+    const scope = scopeOf(row)
+    return scope ? mailMoveAvailability(scope, folders) : null
+  }
+
+  it('받은편지함(INBOX) 메일 — 받은편지함으로 옮기기가 없다', () => {
+    expect(scopeOf({ folderId: 100, folderRole: 'INBOX' })).toEqual({ kind: 'all', folderId: null })
+    expect(rowKeys({ folderId: 100, folderRole: 'INBOX' })).not.toContain('inbox')
+    expect(rowAvail({ folderId: 100, folderRole: 'INBOX' })).toMatchObject({ archive: true, trash: true })
+  })
+  it('보관(ARCHIVE) 메일 — 보관이 없고 받은편지함으로는 옮길 수 있다', () => {
+    const row = { folderId: 1, folderRole: 'ARCHIVE' }
+    expect(scopeOf(row)).toEqual({ kind: 'folder', folderId: 1 })
+    expect(rowKeys(row)).toContain('inbox')
+    expect(rowKeys(row)).not.toContain('archive')
+    expect(rowAvail(row)?.archive).toBe(false)
+  })
+  it('내 메일함(USER) 메일 — 그 메일함만 빠진다(이름이 같은 메일함이 있어도 id 로 고른다)', () => {
+    const row = { folderId: 2, folderRole: 'USER' }
+    expect(rowKeys(row)).not.toContain('folder-2')
+    expect(rowKeys(row)).toContain('folder-3')
+    expect(scopeOf(row, [...folders, f({ id: 7, displayName: '프로젝트' })])).toEqual({ kind: 'folder', folderId: 2 })
+  })
+  it('보낸(SENT) 메일 — 앱 발송 기록(folderId 없음)이든 서버 보낸편지함이든 옮기기·보관·삭제가 없다', () => {
+    expect(rowAvail({ folderId: null, folderRole: 'SENT' })).toEqual({ archive: false, move: false, trash: false, restore: false })
+    expect(rowAvail({ folderId: 77, folderRole: 'SENT' })).toEqual({ archive: false, move: false, trash: false, restore: false })
+  })
+  it('행·메일함을 모르면 null — 호출 측이 옮기기·보관·삭제를 숨긴다(별표 보기 전체 범위로 떨어지지 않는다)', () => {
+    expect(scopeOf(null)).toBeNull()
+    expect(scopeOf(undefined as unknown as Row)).toBeNull()
+    expect(scopeOf({ folderId: null, folderRole: null })).toBeNull()
+    // 메일함 목록에 없는 id·메일함 목록을 아직 못 받음
+    expect(scopeOf({ folderId: 42, folderRole: 'USER' })).toBeNull()
+    expect(mailRowMoveScope(flagged, undefined, { folderId: 2, folderRole: 'USER' })).toBeNull()
+  })
+  it('별표 보기가 아니면 보기 그대로', () => {
+    const work = { kind: 'work', folderId: null } as const
+    expect(mailRowMoveScope(work, folders, { folderId: 1, folderRole: 'ARCHIVE' })).toBe(work)
+    expect(mailRowMoveScope(work, folders, null)).toBe(work)
+  })
+})
+
+// WP-1742 별표 보기의 보관·옮기기 대기 중 행을 목적지 메일함으로 보이게 하는 값 — 이름은 메일함 목록 규칙(보관은 「보관」)과 같다.
+describe('mailMoveRowPatch', () => {
+  it('보관 → 보관 메일함 id·ARCHIVE·「보관」', () => {
+    expect(mailMoveRowPatch({ kind: 'ARCHIVE' }, folders)).toEqual({ folderId: 1, folderRole: 'ARCHIVE', folderName: '보관' })
+  })
+  it('받은편지함 → INBOX·「받은편지함」(id 없음)', () => {
+    expect(mailMoveRowPatch({ kind: 'INBOX' }, folders)).toEqual({ folderId: null, folderRole: 'INBOX', folderName: '받은편지함' })
+  })
+  it('내 메일함 → 그 id·USER·표시 이름, 보관 메일함을 고르면 「보관」', () => {
+    expect(mailMoveRowPatch({ kind: 'FOLDER', folderId: 3 }, folders)).toEqual({ folderId: 3, folderRole: 'USER', folderName: '2026' })
+    expect(mailMoveRowPatch({ kind: 'FOLDER', folderId: 1 }, folders)).toEqual({ folderId: 1, folderRole: 'ARCHIVE', folderName: '보관' })
+  })
+  it('삭제·되살리기·모르는 메일함·보관 메일함 없음 → null', () => {
+    expect(mailMoveRowPatch({ kind: 'TRASH' }, folders)).toBeNull()
+    expect(mailMoveRowPatch({ kind: 'RESTORE' }, folders)).toBeNull()
+    expect(mailMoveRowPatch({ kind: 'FOLDER', folderId: 99 }, folders)).toBeNull()
+    expect(mailMoveRowPatch({ kind: 'ARCHIVE' }, [])).toBeNull()
   })
 })

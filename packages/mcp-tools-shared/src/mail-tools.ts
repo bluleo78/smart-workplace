@@ -26,6 +26,9 @@ export const listMailInput = z.object({
   // WP-357: 서버 category 는 값을 검증하지 않아 오타가 조용히 빈 목록이 된다 — enum 으로 막는다(값은 서버 EmailMessageRepository.CATEGORIES).
   category: mailCategoryInput.optional().describe('업무 includes unclassified'),
   needsReply: z.boolean().optional().describe('AI-marked, still unread'),
+  // WP-1742: 별표 메일 모아 보기. true 면 서버가 그 계정의 모든 메일함(휴지통 제외)에서 별표 메일을 모은다 — folder·category·needsReply 는
+  // 서버가 무시하고, 행마다 원래 메일함 이름(folderName)이 실린다(toMailListItem 은 제거 목록 방식이라 그대로 나간다).
+  flagged: z.boolean().optional().describe('starred, all folders; ignores folder/category/needsReply'),
   limit: z.number().int().min(1).max(100).default(20),
 });
 export const getMailInput = z.object({ messageId: z.number().int().positive() });
@@ -76,7 +79,8 @@ type Raw = Record<string, unknown>;
  * 회신 필요 = aiNeedsReply 가 true 이고 seen 이 false(서버 단일 술어).
  */
 export function toMailListItem(row: Raw): Raw {
-  const { categoryPending, flagged, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed');
+  // WP-1742: folderId·folderRole 은 웹 화면의 옮기기 판정용 내부 값이라 AI 에 내지 않는다 — 원래 메일함은 folderName(표시 이름)으로 충분하다.
+  const { categoryPending, flagged, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed', 'folderId', 'folderRole');
   return dropEmpty({
     ...rest,
     ...(categoryPending === true && { categoryPending: true }),
@@ -143,12 +147,12 @@ export function buildMailTools(
       kind: 'read',
       description:
         'Lists mail in an account folder, newest first, up to limit, no paging. id = messageId; ' +
-        'categoryPending:true = unclassified or failed; flagged:true = starred. query matches sender (substring), subject/body words; for unread use ' +
+        'categoryPending:true = unclassified or failed; flagged = starred. query matches sender (substring), subject/body words; for unread use ' +
         'unreadOnly, not "is:unread".',
       inputSchema: listMailInput,
       async handler(args) {
-        const { accountId, folder, limit, query, unreadOnly, category, needsReply } = listMailInput.parse(args);
-        const rows = (await client.listMail(accountId, { folder, limit, query, unread: unreadOnly, category, needsReply })) as Raw[];
+        const { accountId, folder, limit, query, unreadOnly, category, needsReply, flagged } = listMailInput.parse(args);
+        const rows = (await client.listMail(accountId, { folder, limit, query, unread: unreadOnly, category, needsReply, flagged })) as Raw[];
         return JSON.stringify(Array.isArray(rows) ? rows.map(toMailListItem) : rows);
       },
     },

@@ -2018,6 +2018,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           ],
           "type": "string",
         },
+        "flagged": {
+          "description": "starred, all folders; ignores folder/category/needsReply",
+          "type": "boolean",
+        },
         "folder": {
           "default": "INBOX",
           "description": "INBOX, SENT, TRASH",

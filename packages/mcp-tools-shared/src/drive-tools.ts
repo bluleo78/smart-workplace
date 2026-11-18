@@ -247,7 +247,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        "Lists a drive space's trash: originalPath, trashedAt, autoPurgeAt (permanent deletion time), driveFileId (file) or folderId (folder).",
+        "Lists a drive space's trash: originalPath, trashedAt, autoPurgeAt (permanent deletion time), driveFileId or folderId.",
       inputSchema: listDriveTrashInput,
       async handler(args) {
         const { spaceId } = listDriveTrashInput.parse(args);

@@ -169,7 +169,8 @@ public class MailInboxController {
    * 계정의 메시지 목록(폴더 INBOX/SENT/TRASH, 최신순, 선택 검색어 query, #466 unread, P2 category/needsReply, limit).
    * WP-1681: TRASH 는 계정의 휴지통 메일함(서버 이름과 무관) — 휴지통을 아직 목록으로 받지 못했으면 빈 목록. WP-965: beforeId(와
    * beforeAt)가 있으면 그 행 다음 페이지 — 앞 페이지 마지막 행의 id·receivedAt 을 그대로 넘긴다(receivedAt 이 없는 행이면 beforeAt
-   * 생략).
+   * 생략). WP-1742: flagged=true 면 별표 모아 보기 — folder·folderId·category·needsReply 를 무시하고 계정의 모든
+   * 메일함(휴지통 제외)의 별표 메일을 같은 정렬·커서로 돌려주며 행마다 원래 메일함 이름(folderName)을 채운다. query·unread 는 함께 적용.
    */
   @GetMapping("/accounts/{accountId}/messages")
   public List<EmailMessageSummary> messages(
@@ -184,8 +185,12 @@ public class MailInboxController {
       // WP-965: 다음 페이지 커서 — 마지막 행 수신 시각. WP-1584: 범위(1900~9999년) 밖이면 DB 409 대신 한국어 400.
       @RequestParam(required = false) @SupportedDateTime Instant beforeAt,
       @RequestParam(required = false) Long beforeId, // WP-965: 다음 페이지 커서 — 마지막 행 id
-      @RequestParam(required = false, defaultValue = "0") int limit) {
+      @RequestParam(required = false, defaultValue = "0") int limit,
+      @RequestParam(defaultValue = "false") boolean flagged) { // WP-1742: 별표 모아 보기
     MailListCursor cursor = beforeId == null ? null : new MailListCursor(beforeAt, beforeId);
+    if (flagged) {
+      return messageService.listFlagged(callerId, accountId, query, unread, cursor, limit);
+    }
     return messageService.list(
         callerId, accountId, folder, folderId, query, unread, category, needsReply, cursor, limit);
   }
@@ -210,7 +215,7 @@ public class MailInboxController {
     return new NeedsReplyCount(messageService.countNeedsReplyForAccount(callerId, accountId));
   }
 
-  /** WP-186 사이드바용 계정 안 읽은 수(분류 버킷·받은편지함·회신필요) + AI 분류 활성 여부. */
+  /** WP-186 사이드바용 계정 안 읽은 수(분류 버킷·받은편지함·회신필요) + AI 분류 활성 여부 + WP-1742 별표 메일 수. */
   @GetMapping("/accounts/{accountId}/unread-counts")
   public MailUnreadCounts unreadCounts(
       @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {

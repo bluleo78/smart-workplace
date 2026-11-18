@@ -129,6 +129,9 @@ function ReportLocationBody(props: Props) {
   const [selected, setSelected] = useState<string | null>(() =>
     allowRoot ? (currentPageId != null ? String(currentPageId) : ROOT) : null,
   )
+  // 열 때의 공간과 그 공간의 지금 위치 — 다른 공간에 갔다가 돌아오면 「최상위」가 아니라 이 자리를 다시 고른다(WP-1748).
+  // 공간을 바꾸는 순간엔 부르는 쪽이 아직 새 공간의 currentPageId 를 넘기기 전이라, 열 때 값을 기억해 두고 쓴다.
+  const [opened] = useState(() => ({ spaceId, pageId: currentPageId }))
   // 이 창에서 만든 페이지 — 「새로 만듦」 표시용. 저장하지 않고 닫아도 페이지는 남는다(되돌리지 않음).
   const [created, setCreated] = useState<Set<number>>(() => new Set())
   // 새 페이지 제목 입력 줄 — null 이면 입력 중이 아니다.
@@ -148,6 +151,19 @@ function ReportLocationBody(props: Props) {
     return pickTargets(pages, [...blockedRootIds, ...aiIds, ...blockedIds])
   }, [tree.data, blockedRootIds, currentPageId, isBlockedPage, hideAiReports])
 
+  // 유효 선택값 — 트리를 다 받았는데 고른 페이지가 트리에 없으면(그사이 지워졌거나 볼 수 없음) 「최상위」로 본다(최상위를 못 고르는
+  // 창은 고른 것 없음). 회의록 창의 「상위 노트를 찾을 수 없음」처럼 지워진 id 가 골라진 채 열리거나 공간 왕복으로 되살아나도,
+  // 강조 표시·「고르기」·「새 페이지」의 parent 가 모두 이 값을 써서 지워진 노트 아래에 만들려다 404 가 나지 않는다(WP-1748).
+  // 검색으로 가려진 줄도 있는 것으로 보려고 걸러진 목록이 아니라 rows 로, 방금 만든 페이지는 트리를 다시 받기 전일 수 있어
+  // created 로도 본다. 트리를 받는 중엔 아직 모르니 고른 값을 그대로 둔다(정상 위치인데 잠기지 않게).
+  const selectedMissing =
+    tree.data !== undefined &&
+    selected != null &&
+    selected !== ROOT &&
+    !created.has(Number(selected)) &&
+    !rows.some((r) => String(r.page.id) === selected)
+  const effectiveSelected = selectedMissing ? (allowRoot ? ROOT : null) : selected
+
   const keyword = q.trim().toLowerCase()
   // 검색하면 제목이 맞는 페이지만 남긴다 — 깊이 들여쓰기는 그대로 둬 어느 갈래인지 보이게.
   const shown = keyword ? rows.filter((r) => (r.page.title || '제목 없음').toLowerCase().includes(keyword)) : rows
@@ -164,19 +180,26 @@ function ReportLocationBody(props: Props) {
   ]
 
   // 입력 줄 자리 — 고른 페이지 바로 아래(한 단계 깊게). 고른 게 없거나 「최상위」면 「최상위」 아래 맨 위 단계.
-  const parentValue = selected != null && selected !== ROOT ? selected : null
+  const parentValue = effectiveSelected != null && effectiveSelected !== ROOT ? effectiveSelected : null
   const parentIndex = parentValue == null ? -1 : options.findIndex((o) => o.value === parentValue)
   const draftAfter = parentIndex >= 0 ? parentIndex : keyword ? -1 : 0
   const draftDepth = parentIndex >= 0 ? options[parentIndex].depth + 1 : base
 
   const treeBlocked = tree.isError
-  const canSave = selected != null && (allowRoot || selected !== ROOT) && draft == null && !treeBlocked && !saving
+  const canSave =
+    effectiveSelected != null &&
+    (allowRoot || effectiveSelected !== ROOT) &&
+    draft == null &&
+    !treeBlocked &&
+    !saving
 
   /** 공간을 바꾼다 — 고른 자리·검색어·입력 줄·「새로 만듦」은 앞 공간의 것이라 비우고, 트리는 부르는 쪽이 바꾼 spaceId 로 다시 받는다. */
   const changeSpace = (value: string) => {
     const id = Number(value)
     if (id === spaceId) return
-    setSelected(allowRoot ? ROOT : null)
+    // 열 때의 공간으로 돌아오면 그 공간의 지금 위치를 다시 고른다 — 다른 공간은 「최상위」(WP-1748).
+    // 그 위치가 그사이 지워졌으면 새 트리를 받은 뒤 유효 선택값이 「최상위」로 바꿔 본다.
+    setSelected(allowRoot ? (id === opened.spaceId && opened.pageId != null ? String(opened.pageId) : ROOT) : null)
     setQ('')
     setDraft(null)
     setCreated(new Set())
@@ -225,12 +248,13 @@ function ReportLocationBody(props: Props) {
    * 고른 값을 늘 돌려준다(부르는 쪽이 「지금 위치」와 같은지 판단).
    */
   const save = () => {
-    if (!canSave || selected == null) return
+    // 고른 값이 아니라 유효 선택값을 돌려준다 — 지워진 자리는 「최상위」로(WP-1748)
+    if (!canSave || effectiveSelected == null) return
     if (props.allowRoot) {
-      props.onSave(selected === ROOT ? null : Number(selected))
+      props.onSave(effectiveSelected === ROOT ? null : Number(effectiveSelected))
       return
     }
-    const id = Number(selected)
+    const id = Number(effectiveSelected)
     if (id === currentPageId) {
       onClose()
       return
@@ -306,12 +330,12 @@ function ReportLocationBody(props: Props) {
               key={o.value}
               type="button"
               role="option"
-              aria-selected={selected === o.value}
+              aria-selected={effectiveSelected === o.value}
               data-testid={`report-location-option-${o.value}`}
               onClick={() => setSelected(o.value)}
               className={cn(
                 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent',
-                selected === o.value && SELECTED_ROW_CLASS,
+                effectiveSelected === o.value && SELECTED_ROW_CLASS,
               )}
               style={{ paddingLeft: 8 + o.depth * INDENT }}
             >

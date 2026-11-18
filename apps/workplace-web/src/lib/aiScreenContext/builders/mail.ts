@@ -19,6 +19,11 @@ export interface MailContextInput {
    * — list_mail 은 서버 메일함 인자가 없어 INBOX 를 실으면 AI 가 받은편지함을 읽는다.
    */
   serverFolder?: string | null;
+  /**
+   * WP-1742 별표 모아 보기 — 계정의 모든 메일함(휴지통 제외)의 별표 메일. 있으면 이름표를 「별표(모든 메일함)」로 두고 refs 에 folder 대신
+   * flagged 를 싣는다(list_mail 의 flagged 인자 — folder:INBOX 를 실으면 AI 가 받은편지함을 읽는다).
+   */
+  flagged?: boolean;
   q: string;
   category: string | null;
   needsReply: boolean;
@@ -37,13 +42,19 @@ export interface MailContextInput {
 
 /** 메일함 화면 → AI 화면 컨텍스트. scope=계정·폴더·필터, focus=열린 메일. */
 export function buildMailContext(input: MailContextInput): AiScreenContext {
-  const folderLabel = input.serverFolder
+  const folderLabel = input.flagged
+    ? '별표(모든 메일함)'
+    : input.serverFolder
     ? input.serverFolder
     : input.folder === 'SENT' ? '보낸편지함' : input.folder === 'DRAFTS' ? '임시보관함' : '받은편지함';
   const scope = withListState(
     {
       label: clip(input.accountEmail ? `${input.accountEmail} · ${folderLabel}` : folderLabel, LIMITS.label),
-      refs: buildRefs({ accountId: input.accountId, folder: input.folder === 'DRAFTS' || input.serverFolder ? null : input.folder }),
+      refs: buildRefs(
+        input.flagged
+          ? { accountId: input.accountId, flagged: 'true' }
+          : { accountId: input.accountId, folder: input.folder === 'DRAFTS' || input.serverFolder ? null : input.folder },
+      ),
       facts: buildFacts([['검색어', input.q], ['분류', input.category], ['답장 필요만', input.needsReply]]),
     },
     { count: input.count },

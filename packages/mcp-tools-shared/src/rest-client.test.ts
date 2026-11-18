@@ -221,6 +221,9 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenLastCalledWith('/mail/accounts/2/messages', { params: { folder: 'INBOX', limit: 20 } });
     await client.listMail(2, { folder: 'INBOX', limit: 20, category: '업무', needsReply: true });
     expect(http.get).toHaveBeenLastCalledWith('/mail/accounts/2/messages', { params: { folder: 'INBOX', limit: 20, category: '업무', needsReply: true } });
+    // WP-1742: flagged 도 있을 때만 싣는다.
+    await client.listMail(2, { folder: 'INBOX', limit: 20, flagged: true });
+    expect(http.get).toHaveBeenLastCalledWith('/mail/accounts/2/messages', { params: { folder: 'INBOX', limit: 20, flagged: true } });
     await client.markMailUnread(9);
     expect(http.post).toHaveBeenCalledWith('/mail/messages/9/unread');
   });

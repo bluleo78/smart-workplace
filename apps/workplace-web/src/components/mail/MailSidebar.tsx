@@ -1,4 +1,4 @@
-import { Archive, Check, ChevronDown, FilePen, Inbox, Mail, PenSquare, Send, Settings, Tag, Trash2 } from 'lucide-react'
+import { Archive, Check, ChevronDown, FilePen, Inbox, Mail, PenSquare, Send, Settings, Star, Tag, Trash2 } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
@@ -12,7 +12,7 @@ import {
 } from '@/components/overlay/dropdown-menu'
 import { hasOpenMark } from '@/lib/historyParam'
 import { buildMailFolderTree, TRASH_LABEL } from '@/lib/mailFolders'
-import { mailClassificationActive, mailViewHref, resolveMailView } from '@/lib/mailView'
+import { FLAGGED_LABEL, mailClassificationActive, mailViewHref, resolveMailView } from '@/lib/mailView'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import { MAIL_CATEGORIES } from '@/types/mailMessage'
@@ -25,7 +25,7 @@ import { MailFolderTree } from './MailFolderTree'
 
 /**
  * 메일 모듈 2차 사이드바 — 공유 셸(타이틀 헤더) 보존 + 계정 스위처 + 편지쓰기
- * + 폴더 nav(받은편지함 + 하위 분류 + 보낸편지함 + 임시보관함 + 보관 + 휴지통(WP-1681)) + 내 메일함 트리(WP-961) + 회신필요.
+ * + 폴더 nav(받은편지함 + 하위 분류 + 별표(WP-1742) + 보낸편지함 + 임시보관함 + 보관 + 휴지통(WP-1681)) + 내 메일함 트리(WP-961) + 회신필요.
  * 폴더/계정 상태는 URL(:accountId, ?folder, ?box) 단일 소스. accountId 미지정 시 첫 계정을 현재로 본다.
  */
 export function MailSidebar() {
@@ -190,6 +190,17 @@ export function MailSidebar() {
                   })}
                 </div>
               )}
+              {/* WP-1742 별표 — 모든 메일함(휴지통 제외)의 별표 메일 모아 보기. 받은편지함 묶음 바로 아래, 보낸편지함 위.
+                  숫자는 안 읽은 수가 아니라 별표 메일 수라 이름표도 그렇게 읽힌다(0 이면 숨김). */}
+              <Link
+                to={mailViewHref(current!.id, 'flagged', view.unreadOnly)}
+                data-testid="mail-folder-flagged"
+                aria-current={view.kind === 'flagged' ? 'page' : undefined}
+                className={folderClass(view.kind === 'flagged')}
+              >
+                <Star className="h-4 w-4 shrink-0" /> {FLAGGED_LABEL}
+                {count(counts?.flagged, 'mail-count-flagged', view.kind === 'flagged', `별표한 메일 ${counts?.flagged}개`)}
+              </Link>
               <Link
                 to={`/mail/${current!.id}?folder=sent`}
                 data-testid="mail-folder-sent"

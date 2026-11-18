@@ -26,6 +26,7 @@ import com.workplace.mail.dto.ReplyContext;
 import com.workplace.mail.dto.SeenSyncItem;
 import com.workplace.mail.outbound.MailAiMessages;
 import com.workplace.mail.service.folder.ImapFolderClassifier;
+import com.workplace.mail.service.folder.MailFolderLabels;
 import com.workplace.mail.util.MailAttachmentSizes;
 import com.workplace.mail.util.MailBodyText;
 import com.workplace.mail.util.MessageIds;
@@ -47,6 +48,7 @@ import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.Record1;
 import org.jooq.Select;
+import org.jooq.SelectFieldOrAsterisk;
 import org.jooq.UpdateSetMoreStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -811,23 +813,105 @@ public class EmailMessageRepository {
     if (cursor != null) {
       where = where.and(afterCursor(cursor));
     }
-    return dsl.select(
-            EMAIL_MESSAGE.ID,
-            EMAIL_MESSAGE.ACCOUNT_ID,
-            EMAIL_MESSAGE.THREAD_ID,
-            EMAIL_MESSAGE.FROM_ADDRESS,
-            EMAIL_MESSAGE.FROM_NAME,
-            EMAIL_CONTENT.SUBJECT, // content 에서 읽음
-            verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
-            EMAIL_MESSAGE.RECEIVED_AT,
-            EMAIL_MESSAGE.SEEN,
-            EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
-            EMAIL_MESSAGE.HAS_ATTACHMENT,
-            effectiveCategoryField(), // WP-1341: 유효 분류(직접 > 개인 비서 > 검증된 공용)
-            EMAIL_MESSAGE.AI_NEEDS_REPLY,
-            categoryPendingField(), // WP-186: 분류 전 배지
-            categoryFailedField(), // WP-1347: 분류 최종 실패(배지 title)
-            categoryByMeField()) // WP-1341: 내가 정한 분류
+    return fetchSummaries(where, false, limit);
+  }
+
+  /**
+   * 별표 모아 보기 범위(WP-1742) — 계정 · 별표 · 「모든 메일함」({@link #allMailboxesScope()}: 받은편지함·보낸편지함 범위·보관·사용자
+   * 메일함). 휴지통(역할 TRASH)과 휴지통·스팸 이름의 메일함은 허용 목록에 없어 빠지고, 보낸편지함은 앱 발송본의 서버 사본이 겹치지 않는다(WP-950). 목록과
+   * 사이드바 수({@link #countFlagged})가 같은 술어를 써서 어긋나지 않게 한다. EMAIL_FOLDER 조인을 전제한다.
+   */
+  public static Condition flaggedScope(long accountId) {
+    return EMAIL_MESSAGE
+        .ACCOUNT_ID
+        .eq(accountId)
+        .and(EMAIL_MESSAGE.FLAGGED.isTrue())
+        .and(allMailboxesScope());
+  }
+
+  /**
+   * 별표 모아 보기 목록(WP-1742) — {@link #flaggedScope} 의 메일을 일반 목록과 같은 정렬(received_at DESC NULLS LAST, id
+   * DESC)·커서로 읽고, 메일마다 원래 메일함 이름(folderName)을 채운다. unreadOnly·query 는 일반 목록과 같은 술어. 소유 검증은 호출 측.
+   */
+  public List<EmailMessageSummary> listFlagged(
+      long accountId, String query, boolean unreadOnly, MailListCursor cursor, int limit) {
+    Condition where = flaggedScope(accountId);
+    if (unreadOnly) {
+      where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
+    }
+    if (query != null && !query.isBlank()) {
+      where = where.and(searchTermCondition(query));
+    }
+    if (cursor != null) {
+      where = where.and(afterCursor(cursor));
+    }
+    return fetchSummaries(where, true, limit);
+  }
+
+  /** 별표 모아 보기의 메일 수(WP-1742) — 목록과 같은 {@link #flaggedScope}, 읽음 여부 무관. 사이드바 「별표」 옆 숫자. */
+  public long countFlagged(long accountId) {
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+            .where(flaggedScope(accountId)));
+  }
+
+  /**
+   * 행에 원래 메일함(표시 이름·id·역할)을 붙인다(WP-1742). 앱 발송 기록(LOCAL_SENT)은 서버 메일함이 아니라 id 를 싣지 않는다 — 화면이 그 id 로
+   * 메일함 보기를 열거나 옮기기 대상을 고르지 않게. 역할은 받은·보낸편지함까지 채운 {@link MailFolderLabels#role}.
+   */
+  private static EmailMessageSummary withFolderOf(EmailMessageSummary row, Record r) {
+    String name = r.get(EMAIL_FOLDER.NAME);
+    String role = r.get(EMAIL_FOLDER.ROLE);
+    boolean serverSent = Boolean.TRUE.equals(r.get(EMAIL_FOLDER.SERVER_SENT));
+    Long folderId =
+        EmailFolderRepository.LOCAL_SENT.equals(name) && !serverSent
+            ? null
+            : r.get(EMAIL_FOLDER.ID);
+    return row.withFolder(
+        MailFolderLabels.label(name, r.get(EMAIL_FOLDER.DISPLAY_NAME), role, serverSent),
+        folderId,
+        MailFolderLabels.role(name, role, serverSent));
+  }
+
+  /**
+   * 목록 한 페이지 읽기(WP-1742 에서 listByAccount 본문을 추출) — 목록 행 컬럼·조인·정렬·limit 을 한 곳에 둔다. withFolderName 이면
+   * 메일함 컬럼을 함께 읽어 folderName·folderId·folderRole 을 채운다(여러 메일함을 섞는 목록만 — 일반 목록은 null).
+   */
+  private List<EmailMessageSummary> fetchSummaries(
+      Condition where, boolean withFolderName, int limit) {
+    List<SelectFieldOrAsterisk> fields =
+        new ArrayList<>(
+            List.of(
+                EMAIL_MESSAGE.ID,
+                EMAIL_MESSAGE.ACCOUNT_ID,
+                EMAIL_MESSAGE.THREAD_ID,
+                EMAIL_MESSAGE.FROM_ADDRESS,
+                EMAIL_MESSAGE.FROM_NAME,
+                EMAIL_CONTENT.SUBJECT, // content 에서 읽음
+                verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
+                EMAIL_MESSAGE.RECEIVED_AT,
+                EMAIL_MESSAGE.SEEN,
+                EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
+                EMAIL_MESSAGE.HAS_ATTACHMENT,
+                effectiveCategoryField(), // WP-1341: 유효 분류(직접 > 개인 비서 > 검증된 공용)
+                EMAIL_MESSAGE.AI_NEEDS_REPLY,
+                categoryPendingField(), // WP-186: 분류 전 배지
+                categoryFailedField(), // WP-1347: 분류 최종 실패(배지 title)
+                categoryByMeField())); // WP-1341: 내가 정한 분류
+    if (withFolderName) {
+      // WP-1742: 원래 메일함 이름 판정용 메일함 컬럼(이미 조인한 EMAIL_FOLDER 라 추가 비용 없음)
+      fields.addAll(
+          List.of(
+              EMAIL_FOLDER.ID,
+              EMAIL_FOLDER.NAME,
+              EMAIL_FOLDER.DISPLAY_NAME,
+              EMAIL_FOLDER.ROLE,
+              EMAIL_FOLDER.SERVER_SENT));
+    }
+    return dsl.select(fields)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -836,7 +920,11 @@ public class EmailMessageRepository {
         .where(where)
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
-        .fetch(this::toSummary);
+        .fetch(
+            r -> {
+              EmailMessageSummary row = toSummary(r);
+              return withFolderName ? withFolderOf(row, r) : row;
+            });
   }
 
   /**
@@ -2199,7 +2287,10 @@ public class EmailMessageRepository {
         Boolean.TRUE.equals(r.get("category_pending", Boolean.class)),
         Boolean.TRUE.equals(r.get("category_failed", Boolean.class)),
         null, // WP-1325 외부 메일 판정은 서비스가 일괄로 붙인다
-        Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class))); // WP-1341
+        Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class)), // WP-1341
+        null, // WP-1742 원래 메일함 이름·id·역할 — 여러 메일함을 섞는 목록만 fetchSummaries 가 붙인다
+        null,
+        null);
   }
 
   /**

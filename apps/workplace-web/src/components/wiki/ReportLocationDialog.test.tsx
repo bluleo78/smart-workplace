@@ -1,7 +1,7 @@
 // 리포트 저장 위치 고르기 창(WP-1654) — 제외 갈래(「템플릿」·옮긴 템플릿·AI 페이지), 「지금 위치」·「최상위」, 고르고 저장,
 // 검색, 「새 페이지」 입력 줄(Enter·Esc·IME·빈 제목·실패), 트리 403 안내를 MSW 로 본다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type RequestHandler } from 'msw'
 import { type ComponentProps, useState } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 
@@ -338,7 +338,8 @@ describe('ReportLocationDialog', () => {
           spaces={spaces}
           onSpaceChange={setSpaceId}
           allowRoot
-          currentPageId={currentPageId}
+          // 회의록 창처럼 지금 위치는 그 공간을 볼 때만 넘긴다(다른 공간이면 null)
+          currentPageId={spaceId === SPACE ? currentPageId : null}
           blockedRootIds={[]}
           title="회의록 위치"
           description="새 회의록을 고른 자리 아래에 만들어요."
@@ -349,10 +350,12 @@ describe('ReportLocationDialog', () => {
       )
     }
 
-    function openHarness(currentPageId: number | null = null) {
+    /** extra: 앞에 둬 기본 응답을 덮을 핸들러(트리 붙잡기·만들기 요청 받기 등, WP-1748) */
+    function openHarness(currentPageId: number | null = null, extra: RequestHandler[] = []) {
       const onSave = vi.fn()
       const view = renderScreen(<Harness onSave={onSave} currentPageId={currentPageId} />, {
         handlers: [
+          ...extra,
           http.get(API, () => HttpResponse.json(tree())),
           http.get(`/api/v1/wiki/spaces/${OTHER}/pages`, () =>
             HttpResponse.json([p(70, null, '회의록 모음', 0), p(71, 70, '2026 회의', 0)]),
@@ -398,6 +401,80 @@ describe('ReportLocationDialog', () => {
       await user.click(option(/2026 회의/))
       await user.click(screen.getByRole('button', { name: '고르기' }))
       expect(onSave).toHaveBeenCalledWith(71)
+    })
+
+    test('다른 공간에 갔다가 원래 공간으로 돌아오면 「최상위」가 아니라 지금 위치가 골라져 있다(WP-1748)', async () => {
+      const { user, onSave } = openHarness(30)
+      await screen.findByRole('option', { name: /^회의록/ })
+      fireEvent.keyDown(screen.getByRole('combobox', { name: '공간' }), { key: 'Enter' })
+      await user.click(await screen.findByRole('option', { name: '기획팀 공간' }))
+      await screen.findByRole('option', { name: /회의록 모음/ })
+      fireEvent.keyDown(screen.getByRole('combobox', { name: '공간' }), { key: 'Enter' })
+      await user.click(await screen.findByRole('option', { name: '내 노트' }))
+      await screen.findByRole('option', { name: /^회의록/ })
+      expect(option(/^회의록/)).toHaveAttribute('aria-selected', 'true')
+      expect(option('최상위')).toHaveAttribute('aria-selected', 'false')
+      await user.click(screen.getByRole('button', { name: '고르기' }))
+      expect(onSave).toHaveBeenCalledWith(30)
+    })
+
+    test('지금 위치(상위 노트)가 트리에 없으면(지워짐) 「최상위」로 보고 「고르기」로 onSave(null)(WP-1748)', async () => {
+      const { user, onSave } = openHarness(99)
+      await screen.findByRole('option', { name: /^회의록/ })
+      // 지워진 자리는 목록에 없다 — 트리를 다 받은 뒤엔 「최상위」가 골라진 것으로 보인다
+      await waitFor(() => expect(option('최상위')).toHaveAttribute('aria-selected', 'true'))
+      const pick = screen.getByRole('button', { name: '고르기' })
+      expect(pick).toBeEnabled()
+      await user.click(pick)
+      expect(onSave).toHaveBeenCalledWith(null)
+    })
+
+    test('지금 위치가 지워졌으면 「새 페이지」는 지워진 id 가 아니라 최상위에 만든다(WP-1748)', async () => {
+      const creates: unknown[] = []
+      const { user } = openHarness(99, [
+        http.post(API, async ({ request }) => {
+          const body = (await request.json()) as { parentId: number | null; title: string }
+          creates.push(body)
+          return HttpResponse.json(wikiPageDetail({ id: 50, spaceId: SPACE, parentId: body.parentId, title: body.title }))
+        }),
+        http.patch('/api/v1/wiki/pages/:id/move', () => new HttpResponse(null, { status: 204 })),
+      ])
+      await screen.findByRole('option', { name: /^회의록/ })
+      await user.click(screen.getByTestId('report-location-new'))
+      await user.type(screen.getByRole('textbox', { name: '새 페이지 제목' }), '회의록 모음{Enter}')
+      await waitFor(() => expect(creates).toEqual([{ parentId: null, title: '회의록 모음' }]))
+    })
+
+    test('트리를 받는 중에도 지금 위치로 「고르기」는 잠기지 않는다(WP-1748)', async () => {
+      let release!: () => void
+      const gate = new Promise<void>((r) => {
+        release = r
+      })
+      const { user, onSave } = openHarness(30, [
+        http.get(API, async () => {
+          await gate
+          return HttpResponse.json(tree())
+        }),
+      ])
+      const pick = await screen.findByRole('button', { name: '고르기' })
+      expect(pick).toBeEnabled()
+      await user.click(pick)
+      expect(onSave).toHaveBeenCalledWith(30)
+      release()
+    })
+
+    test('지금 위치가 지워졌으면 다른 공간에 갔다가 돌아와도 「최상위」다(WP-1748)', async () => {
+      const { user, onSave } = openHarness(99)
+      await screen.findByRole('option', { name: /^회의록/ })
+      fireEvent.keyDown(screen.getByRole('combobox', { name: '공간' }), { key: 'Enter' })
+      await user.click(await screen.findByRole('option', { name: '기획팀 공간' }))
+      await screen.findByRole('option', { name: /회의록 모음/ })
+      fireEvent.keyDown(screen.getByRole('combobox', { name: '공간' }), { key: 'Enter' })
+      await user.click(await screen.findByRole('option', { name: '내 노트' }))
+      await screen.findByRole('option', { name: /^회의록/ })
+      await waitFor(() => expect(option('최상위')).toHaveAttribute('aria-selected', 'true'))
+      await user.click(screen.getByRole('button', { name: '고르기' }))
+      expect(onSave).toHaveBeenCalledWith(null)
     })
 
     test('hideAiReports={false} 면 AI 리포트 갈래도 고를 수 있다 — 기본은 뺀다', async () => {

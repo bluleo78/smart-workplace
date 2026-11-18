@@ -420,7 +420,7 @@ export interface MailToolClient {
   listMailAccounts(): Promise<unknown>;
   listMail(
     accountId: number,
-    params: { folder: string; limit: number; query?: string; unread?: boolean; category?: string; needsReply?: boolean },
+    params: { folder: string; limit: number; query?: string; unread?: boolean; category?: string; needsReply?: boolean; flagged?: boolean },
   ): Promise<unknown>;
   getMail(messageId: number): Promise<unknown>;
   /** GET .../summary — 없으면 생성해 캐시한다(메일 원문은 바꾸지 않음). */

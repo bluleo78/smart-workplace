@@ -48,13 +48,24 @@ const SECTIONS = ['안건', '결정', '할 일'] as const
 /**
  * 회의록 제목 — `11/18 주간 기획 회의 회의록`. 월·일은 앞자리 0 없이, 일정(반복이면 그 회차) 시작의 로컬 날짜.
  * 일정 제목이 비면 `11/18 회의록`. 노트 제목 한도(255자)를 넘으면 일정 제목 쪽을 줄인다 — 날짜·「회의록」은 남긴다.
+ * 한도는 서버·입력칸(maxLength)처럼 UTF-16 단위로 센다. 줄일 때 이모지 같은 두 단위 글자를 반쪽 내지 않고, 잘린 끝 공백은 걷어
+ * 「회의록」 앞에 공백이 둘 생기지 않게 한다(WP-1748).
  */
 export function meetingNoteTitle(title: string, start: Date): string {
   const md = `${start.getMonth() + 1}/${start.getDate()}`
   const t = title.trim()
   if (!t) return `${md} 회의록`
   const room = WIKI_TITLE_MAX - `${md}  회의록`.length
-  return `${md} ${t.slice(0, room)} 회의록`
+  return `${md} ${cutUtf16(t, room).trimEnd()} 회의록`
+}
+
+/**
+ * 문자열을 UTF-16 단위 max 이하로 자른다 — 잘린 끝이 서로게이트 쌍의 앞쪽(high surrogate)이면 그 반쪽을 뺀다(WP-1748).
+ * 자모·ZWJ 로 이은 이모지 묶음은 코드 포인트 사이에서 잘릴 수 있지만 깨진 글자(외톨이 서로게이트)는 남지 않는다.
+ */
+function cutUtf16(s: string, max: number): string {
+  const out = s.slice(0, max)
+  return /[\uD800-\uDBFF]$/.test(out) ? out.slice(0, -1) : out
 }
 
 /**

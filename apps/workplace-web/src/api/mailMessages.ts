@@ -145,8 +145,12 @@ export async function listMessages(
   before?: MailListCursor | null,
   // 버려진 요청 취소(WP-1353 통합 검색) — 입력을 이어 쓰면 앞선 검색을 끊는다.
   signal?: AbortSignal,
+  // WP-1742 별표 모아 보기 — true 면 모든 메일함(휴지통 제외)의 별표 메일. 서버가 folder·folderId·분류·회신필요를 무시하므로 싣지 않는다.
+  flagged = false,
 ): Promise<EmailMessageSummary[]> {
-  const scope = folderId != null
+  const scope = flagged
+    ? { flagged: true }
+    : folderId != null
     ? { folderId }
     : {
         folder,
