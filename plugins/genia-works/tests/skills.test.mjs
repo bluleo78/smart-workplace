@@ -1257,3 +1257,20 @@ test('.work-loop/project.md 검토자 절에 같은 머지 조건이 있다 (WP-
   assert.ok(s8.includes('/code-review medium'));
   assert.ok(s8.includes('다시 부탁받으면 달라진 부분'));
 });
+
+// WP-1717 반려 수정 — 절차로 반려된 PR 의 복구 경로와 0.1.55 전 PR 의 전환 규칙
+test('process-issue.md: 절차 확인으로 반려되면 5번부터 다시 밟고 검토자는 새 「절차」 줄로 다시 확인한다 (WP-1717)', () => {
+  const p = workLoop('process-issue.md');
+  const start = section(p, '\n### 1. 시작\n', '\n### ');
+  assert.ok(start.includes('**절차 확인**으로 반려했으면') && start.includes('5번부터 다시 밟는다'));
+  const review = p.split('\n### PR 리뷰·머지 (검토자)\n')[1].split('\n### ')[0];
+  assert.ok(review.includes('그 새 줄로 절차 확인을 다시 한다'));
+  assert.ok(review.includes('줄이 그대로면 다시 반려한다'));
+});
+
+test('process-issue.md: 0.1.55 전에 시작한 PR 은 원장 줄을 요구하지 않는 전환 규칙이 있다 (WP-1717)', () => {
+  const p = workLoop('process-issue.md');
+  const review = p.split('\n### PR 리뷰·머지 (검토자)\n')[1].split('\n### ')[0];
+  assert.ok(review.includes('**전환**(WP-1717)') && review.includes('0.1.55 보다 낮거나'));
+  assert.ok(review.includes('원장 줄을 요구하지 않고') && review.includes('코드 리뷰·대조표는 그대로 한다'));
+});
