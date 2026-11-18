@@ -97,6 +97,38 @@ describe('mergeRunner', { timeout: WORKER_BOOT_LIMIT_MS }, () => {
     expect(t.workers).toHaveLength(1)
   })
 
+  it('keeps a slowly booting worker: the waiting job times out as queued and the next job runs on the same worker', async () => {
+    // WP-1709 — 부하로 기동이 기한보다 길면, 예전에는 보낸 작업의 계산 상한이 기동에 다 쓰여 워커를 버렸고 다음 작업이 또 기동을 치렀다.
+    const clock = manualClock()
+    const t = createTestMergeRunner({ clock, timeoutMs: 300, testBootHold: (n) => n === 0 })
+    runner = t
+    const first = track(t.merge(job()))
+    // 첫 워커가 기동 중(붙잡힘)이 된 뒤 기한을 흘린다.
+    await expect.poll(() => t.held(), { timeout: WORKER_BOOT_LIMIT_MS }).toBe(1)
+    clock.advance(300)
+    const err = await first.outcome
+    expect(err).toBeInstanceOf(MergeTimeoutError)
+    expect((err as Error).message).toMatch(/while queued/)
+    // 기동 중인 워커는 버리지 않는다.
+    expect(t.workers[0].terminated).toBeUndefined()
+    t.release()
+    // 다음 작업은 기동을 마친 같은 워커가 받는다 — 새 워커를 띄우지 않는다.
+    expect((await t.merge(job())).markdown).toBe('가 AI')
+    expect(t.workers).toHaveLength(1)
+  })
+
+  it('fails the waiting job when the worker dies while booting and serves the next job from a fresh worker', async () => {
+    const t = createTestMergeRunner({ clock: manualClock(), testBootHold: (n) => n === 0 })
+    runner = t
+    const first = track(t.merge(job()))
+    await expect.poll(() => t.held(), { timeout: WORKER_BOOT_LIMIT_MS }).toBe(1)
+    // 기동 중 스레드가 죽는다(보낸 작업 없음) — 기다리던 작업이 실패로 끝나야 한다(기한까지 붙잡히지 않는다).
+    await t.workers[0].terminate()
+    expect(await first.outcome).toBeInstanceOf(MergeFailedError)
+    expect((await t.merge(job())).markdown).toBe('가 AI')
+    expect(t.workers).toHaveLength(2)
+  })
+
   for (const fault of ['throw', 'exit'] as const) {
     it(`fails the job when the worker crashes (${fault}) and serves the next job from a fresh worker`, async () => {
       let jobs = 0

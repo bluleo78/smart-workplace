@@ -51,6 +51,12 @@ export type MergeJobMessage = { id: number } & (
 )
 export type WorkerValue = PrepareResult | LiveMergeResult
 export type MergeReply = { id: number; ok: true; value: WorkerValue } | { id: number; ok: false; error: string }
+/**
+ * 워커가 기동(무거운 모듈 싣기)을 마쳤다는 알림 — 실행기는 이것을 받은 뒤에야 작업을 보낸다(WP-1709).
+ * 기동은 부하에서 10초를 넘길 수 있어, 보낸 뒤 기동하면 계산 시간 상한이 기동에 다 쓰이고 워커가 버려졌다 — 다음 작업이 또 새 워커의
+ * 기동을 치르며 시간 초과가 이어졌다.
+ */
+export type WorkerReady = { ready: true }
 
 /**
  * 워커로 복사 없이 넘길 버퍼 — 병합 요청의 실시간 상태(Y.encodeStateAsUpdate 결과, 큰 노트에선 수 MB)는 보낸 뒤 다시 쓰지 않으므로 옮긴다.
@@ -108,7 +114,10 @@ interface Pending {
  * 워커 하나 + FIFO 대기열 — 한 번에 하나씩 보낸다.
  * 시간 제한은 기한(deadline, 요청 시각 + timeoutMs)으로 잰다 — 대기열에서 기한이 오면 보내지 않고 그 자리에서 시간 초과로 끝내,
  * 앞 문서의 느린 병합 뒤에 줄 선 요청도 응답 시간이 timeoutMs 를 넘지 않는다.
- * 시간 초과·비정상 종료면 워커를 종료하고(CPU 를 붙잡은 계산은 이 방법으로만 멈춘다) 다음 작업 때 새로 띄운다.
+ * 작업은 워커가 기동을 마쳤다고 알린 뒤(WorkerReady)에만 보낸다(WP-1709) — 기동을 기다리는 동안은 대기열에 있는 것이라, 기한이 오면 그
+ * 작업만 「대기 중 시간 초과」로 끝나고 기동 중인 워커는 그대로 둔다. 그래서 느린 기동이 워커를 버리게 하지 않고, 다음 작업은 기동을 마친
+ * 워커가 받는다.
+ * 계산 시간 초과·비정상 종료면 워커를 종료하고(CPU 를 붙잡은 계산은 이 방법으로만 멈춘다) 다음 작업 때 새로 띄운다.
  * 워커 파일: 번들(dist)에선 `dist/mergeWorker.js`(tsup 둘째 진입점), 소스 실행(vitest·tsx)에선 `src/mergeWorker.ts` 를 tsx 로더로.
  */
 export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
@@ -117,6 +126,8 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
   const workerUrl = new URL(fromSource ? './mergeWorker.ts' : './mergeWorker.js', import.meta.url)
   const queue: Pending[] = []
   let worker: Worker | null = null
+  /** 지금 워커가 기동을 마쳤는가(WorkerReady 를 받음) — 마치기 전에는 작업을 보내지 않는다. */
+  let ready = false
   let running: { p: Pending; timer: unknown } | null = null
   let nextId = 1
   let destroyed = false
@@ -134,7 +145,10 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
 
   /** 워커를 버린다 — 다음 작업 때 새로 띄운다. */
   function discard(w: Worker): void {
-    if (worker === w) worker = null
+    if (worker === w) {
+      worker = null
+      ready = false
+    }
     w.removeAllListeners()
     // 버린 워커의 늦은 error 를 삼킨다 — 듣는 이 없는 'error' 는 메인 프로세스를 죽인다.
     w.on('error', () => {})
@@ -146,23 +160,47 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
     const w = opts.spawnWorker?.(execArgv) ?? new Worker(workerUrl, { execArgv })
     // 대기 작업이 없을 때 프로세스 종료를 붙잡지 않게(테스트·종료 신호).
     w.unref()
-    w.on('message', (msg: MergeReply) => {
+    w.on('message', (msg: MergeReply | WorkerReady) => {
+      if ('ready' in msg) {
+        // 기동을 마쳤다 — 기다리던 작업을 보낸다.
+        if (worker === w) {
+          ready = true
+          pump()
+        }
+        return
+      }
       if (!running || msg.id !== running.p.msg.id) return
       finish(msg.ok ? { value: msg.value } : { error: new MergeFailedError(msg.error) })
     })
-    w.on('error', (e) => {
-      discard(w)
-      finish({ error: new MergeFailedError(`merge worker crashed: ${e.message}`) })
-    })
-    w.on('exit', (code) => {
-      discard(w)
-      finish({ error: new MergeFailedError(`merge worker exited (${code})`) })
-    })
+    w.on('error', (e) => lost(w, new MergeFailedError(`merge worker crashed: ${e.message}`)))
+    w.on('exit', (code) => lost(w, new MergeFailedError(`merge worker exited (${code})`)))
     return w
+  }
+
+  /**
+   * 워커가 죽었다 — 버리고, 계산 중이던 작업을 실패로 끝낸다. 기동 중에 죽었으면(보낸 작업이 없다) 맨 앞에 기다리던 작업을 실패로 끝내고
+   * 다음 작업은 새 워커로 넘긴다 — 기동이 거듭 죽어도 기다리는 작업마다 한 번만 다시 띄워 끝없이 띄우지 않는다.
+   */
+  function lost(w: Worker, error: Error): void {
+    const booting = worker === w && !ready
+    discard(w)
+    if (running) {
+      finish({ error })
+      return
+    }
+    if (booting && queue.length > 0) {
+      const p = queue.shift()!
+      clock.clearTimeout(p.queueTimer)
+      p.reject(error)
+      pump()
+    }
   }
 
   function pump(): void {
     while (!running && !destroyed && queue.length > 0) {
+      worker ??= spawn()
+      // 기동을 마칠 때까지 보내지 않는다 — 기동 시간은 계산 시간 상한에 넣지 않는다(기다리는 동안의 기한은 queueTimer 가 잰다).
+      if (!ready) return
       const p = queue.shift()!
       clock.clearTimeout(p.queueTimer)
       const left = p.deadline - clock.now()
@@ -171,7 +209,6 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
         p.reject(new MergeTimeoutError('merge timed out while queued'))
         continue
       }
-      worker ??= spawn()
       const w = worker
       const timer = clock.setTimeout(() => {
         // 계산 중인 스레드를 강제 종료한다 — 결과는 버려지고 아무것도 적용되지 않는다.

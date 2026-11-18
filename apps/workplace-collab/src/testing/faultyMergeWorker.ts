@@ -1,6 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads'
 
 import type { handleJob as HandleJob } from '../mergeJob'
+import type { WorkerReady } from '../mergeRunner'
 import type { TestJobMessage } from './testMergeRunner'
 
 /**
@@ -9,8 +10,12 @@ import type { TestJobMessage } from './testMergeRunner'
  * 기동이 늘지 않게 한다(부하에서 워커 기동이 수 초 — 테스트 하나에 기동이 쌓이면 테스트 시간 제한에 걸린다).
  */
 
-/** 실행기가 나눠 준 관문 — [0] 관문 세대(release 마다 1 증가), [1] 붙잡히기 시작한 작업 수. */
-const gate = new Int32Array((workerData as { gate: SharedArrayBuffer }).gate)
+/**
+ * 실행기가 나눠 준 관문 — [0] 관문 세대(release 마다 1 증가), [1] 붙잡히기 시작한 작업 수.
+ * bootHoldUntil: 있으면 기동을 그 관문 세대까지 붙잡는다(부하로 느린 기동 흉내 — release 로 푼다).
+ */
+const data = workerData as { gate: SharedArrayBuffer; bootHoldUntil?: number }
+const gate = new Int32Array(data.gate)
 let handle: typeof HandleJob | undefined
 
 /**
@@ -38,3 +43,7 @@ parentPort!.on('message', (job: TestJobMessage) => {
     parentPort!.postMessage(handle(job))
   })
 })
+
+// 기동을 마쳤다고 알린다(운영 워커와 같은 규약, WP-1709) — 느린 기동을 흉내 낼 때는 관문이 열릴 때까지 알림 전에 붙잡는다.
+if (data.bootHoldUntil != null) hold(data.bootHoldUntil)
+parentPort!.postMessage({ ready: true } satisfies WorkerReady)
