@@ -15,7 +15,7 @@ import { AuthContext, type AuthContextValue } from '@/hooks/auth-context-value'
 
 import { PAGE_ASYNC_TIMEOUT } from './asyncTimeout'
 import { trackLocation } from './locationProbe'
-import { helpMetricBaseHandlers } from './msw/baseHandlers'
+import { helpMetricBaseHandlers, mailSettingsBaseHandlers } from './msw/baseHandlers'
 import { server } from './msw/server'
 import { type RememberedProjectTabs, seedProjectTabs } from './projectTabMemory'
 import { testAuthValue } from './renderWithProviders'
@@ -43,7 +43,8 @@ export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth
   configure({ asyncUtilTimeout: PAGE_ASYNC_TIMEOUT })
   seedProjectTabs(projectTabs)
   // 도움말 열기 기록(WP-1512)은 도움말을 여는 어느 화면 테스트나 부른다 — 기본 204 를 맨 뒤에 깔아 테스트 핸들러가 먼저 걸리게 한다.
-  server.use(...handlers, ...helpMetricBaseHandlers)
+  // 메일 작성 방식 기본값(WP-1744)도 같다 — 작성 상태 공급자가 든 화면 키트마다 부르므로 기본(DOCK)을 맨 뒤에 깐다.
+  server.use(...handlers, ...helpMetricBaseHandlers, ...mailSettingsBaseHandlers)
   window.history.replaceState(null, '', path)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false }, mutations: { retry: false, networkMode: 'always' } },

@@ -102,6 +102,7 @@ import com.workplace.jooq.tables.MailDraftAttachment.MailDraftAttachmentPath;
 import com.workplace.jooq.tables.MailDraftForward.MailDraftForwardPath;
 import com.workplace.jooq.tables.MailSignature.MailSignaturePath;
 import com.workplace.jooq.tables.MailSignatureImage.MailSignatureImagePath;
+import com.workplace.jooq.tables.MailUserSetting.MailUserSettingPath;
 import com.workplace.jooq.tables.Membership.MembershipPath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
@@ -1474,6 +1475,19 @@ public class Tenant extends TableImpl<TenantRecord> {
         return _mailSignature;
     }
 
+    private transient MailUserSettingPath _mailUserSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_user_setting</code> table
+     */
+    public MailUserSettingPath mailUserSetting() {
+        if (_mailUserSetting == null)
+            _mailUserSetting = new MailUserSettingPath(this, null, Keys.MAIL_USER_SETTING__FK_MAIL_USER_SETTING_TENANT.getInverseKey());
+
+        return _mailUserSetting;
+    }
+
     private transient MessageAttachmentPath _messageAttachment;
 
     /**
@@ -2348,6 +2362,14 @@ public class Tenant extends TableImpl<TenantRecord> {
      */
     public UserPath mailSignatureUserIdFkey() {
         return mailSignature().user();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>mail_user_setting_user_id_fkey</code> key
+     */
+    public UserPath mailUserSettingUserIdFkey() {
+        return mailUserSetting().user();
     }
 
     /**

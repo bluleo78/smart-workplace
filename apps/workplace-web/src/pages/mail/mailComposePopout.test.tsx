@@ -18,17 +18,13 @@ import {
   rememberMailComposePopout,
 } from '@/lib/mailComposeChannel'
 import MailComposeWindowPage from '@/pages/mail/MailComposeWindowPage'
+import { fakeWindow } from '@/test/kits/mail/compose-default'
 import { mailBaseHandlers, record, renderMail } from '@/test/kits/mail/testkit-b4'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import { renderScreen } from '@/test/renderScreen'
 import type { MailDraftSaveRequest, MailDraftSummary } from '@/types/mailDraft'
 
 import { draftDetail, mailAccount } from '../../../e2e/factories/mail.factory'
-
-/** 가짜 새 창 — 주소 설정과 닫기만 본다. */
-function fakeWindow() {
-  return { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
-}
 
 /** 새 창이 보낸 알림 하나 — 테스트 새 창(/mail/compose?draftId=7)은 opener 가 없다. */
 const msg = (type: MailComposeWindowMessage['type'], over: Partial<MailComposeWindowMessage> = {}): MailComposeWindowMessage => ({

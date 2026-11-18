@@ -3,6 +3,7 @@
 // 그래서 새 창이 끝날 때 무슨 일이 있었는지(어느 계정·임시저장, 어느 창이 열었나) 알리고, 메인 창들이 그 목록을 다시 받는다.
 // 결과 토스트는 그 새 창을 연 창만 띄운다(다른 탭은 조용히 목록만 갱신).
 // 1차는 BroadcastChannel(같은 출처의 모든 창), 없는 브라우저면 window.opener.postMessage(같은 출처만)로 보낸다.
+import { toast } from 'sonner';
 
 /** 새 창이 끝난 이유 — sent(보냄) / saved(닫으며 임시저장) / discarded(버림) / closed(알릴 결과 없음 — OS 닫기·빈 작성 정리). */
 export const MAIL_COMPOSE_WINDOW_EVENTS = ['sent', 'saved', 'discarded', 'closed'] as const;
@@ -35,7 +36,25 @@ export function mailComposeWindowUrl(draftId: number, opts: { opener?: string; f
 }
 
 /** 새 창 크기 — 작성창 크게 보기(960px)와 비슷한 독립 창. */
-export const MAIL_COMPOSE_WINDOW_FEATURES = 'popup=yes,width=900,height=760';
+const MAIL_COMPOSE_WINDOW_FEATURES = 'popup=yes,width=900,height=760';
+
+/** 새 창 이름 — 열 때마다 다르게 해 이미 열린 다른 작성 창을 덮어쓰지 않는다(여러 창 동시 허용). */
+let popoutSeq = 0;
+const nextPopoutName = () => `mail-compose-${Date.now()}-${++popoutSeq}`;
+
+/**
+ * 작성용 새 창을 연다 — 팝업 차단을 피하려 사용자 클릭 처리 중에 불러야 한다. 막히면 null.
+ * url 을 비우면 빈 창 — 작성창 ↗(WP-1535)·작성 방식 기본값 「새 창」(WP-1744)이 먼저 열어 두고 임시저장 뒤 주소를 정한다.
+ * 이미 서버에 있는 임시저장(임시보관함에서 열기)은 그 주소로 바로 연다. 어느 길이든 같은 이름 규칙·크기로 연다.
+ */
+export function openMailComposeWindow(url = ''): Window | null {
+  return window.open(url, nextPopoutName(), MAIL_COMPOSE_WINDOW_FEATURES);
+}
+
+/** 팝업 차단 안내 — 새 창을 열지 못했을 때(↗·작성 방식 기본값 「새 창」·임시보관함에서 새 창으로 열기) 같은 문구로 알린다. */
+export function toastMailComposePopupBlocked(): void {
+  toast.error('팝업이 막혀 새 창으로 열지 못했어요', { description: '브라우저에서 이 사이트의 팝업을 허용해 주세요' });
+}
 
 /** 메시지 모양 확인 — 다른 postMessage(OAuth 콜백 등)와 섞이지 않게. */
 export function isMailComposeWindowMessage(data: unknown): data is MailComposeWindowMessage {

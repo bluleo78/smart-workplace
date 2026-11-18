@@ -3,13 +3,22 @@
 // 임시저장(WP-577): 다른 작성으로 바뀌기 전에 작성창이 등록한 저장(handlers.save)을 먼저 돌리고,
 // 같은 임시저장을 다시 열면 새로 열지 않고 지금 창을 앞으로 가져온다(handlers.raise). 임시보관함에서 지운 임시저장이
 // 열려 있으면 저장 없이 닫는다(closeDraft — 지운 임시저장을 다시 저장하지 않게).
+// 작성 방식 기본값(WP-1744): 내 메일 설정(composeMode)은 「새 작성」(openCompose 에 placement 를 넘긴 호출 — 새 메일·답장·전달·
+// 임시보관함에서 열기·AI 답장 초안)에만 쓴다. 저장 실패 「다시 열기」·「되돌리기」·충돌 「다시 불러오기」처럼 이미 쓰던 작성을 다시 여는 길은
+// placement 없이 불러 처음 배치 규칙(우측 하단, 창 미리 열지 않음 — WP-1743)대로 연다. 읽기 창은 도크 본체가 회차마다 initialPlacementFor 로
+// 정하고, 새 창은 팝업 차단을 피하려 openCompose(클릭 처리 중)가 빈 창을 미리 열어 두고 도크 본체가 작성기가 준비되면 그 창으로 옮긴다.
 
+import { useQueryClient } from '@tanstack/react-query';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
+import { mailSettingsKey, useMailSettings } from '@/hooks/queries/useMailSettings';
+import { getIsMobile } from '@/hooks/useIsMobile';
 import type { ComposeAttachment } from '@/lib/mailComposeAttachments';
+import { openMailComposeWindow } from '@/lib/mailComposeChannel';
 import type { MailQuote } from '@/lib/mailQuote';
 import type { ComposeMode } from '@/types/mailDraft';
+import type { MailComposeDefault, MailUserSettings } from '@/types/mailSettings';
 
 // 작성 종류는 임시저장 DTO 와 같은 값이라 types 에 두고 여기서 다시 내보낸다(기존 import 경로 호환).
 export type { ComposeMode };
@@ -61,10 +70,32 @@ export interface ComposeDraft {
   instanceId?: number;
 }
 
+/**
+ * 새 작성의 처음 배치를 작성 방식 기본값으로 정하는가(WP-1744) — openCompose 의 opts.placement.
+ * - 'default': 설정 그대로(읽기 창·우측 하단·새 창) — 새 메일·답장·전달·임시보관함에서 열기.
+ * - 'default-inline': 새 창을 우측 하단으로 본다(읽기 창은 그대로) — AI 답장 초안처럼 응답을 기다린 뒤 열려 클릭과 멀어 팝업이 늘 막히는 길.
+ * 넘기지 않으면 기본값을 쓰지 않는다(우측 하단, 창 미리 열지 않음) — 쓰던 작성을 다시 여는 길(다시 열기·되돌리기·다시 불러오기).
+ */
+export type ComposePlacement = 'default' | 'default-inline';
+
+/** openCompose 선택 사항. */
+export interface OpenComposeOptions {
+  /** 열린 작성의 저장을 건너뛴다 — 충돌 다시 불러오기. */
+  skipSave?: boolean;
+  /** 작성 방식 기본값을 쓸지(WP-1744). 없으면 쓰지 않는다. */
+  placement?: ComposePlacement;
+}
+
 interface MailComposeContextValue {
   draft: ComposeDraft | null;
   /** 작성창 열기. 다른 작성이 열려 있으면 그 작성의 저장을 먼저 돌린다(skipSave 면 건너뛴다 — 충돌 다시 불러오기). */
-  openCompose: (draft: ComposeDraft, opts?: { skipSave?: boolean }) => void;
+  openCompose: (draft: ComposeDraft, opts?: OpenComposeOptions) => void;
+  /**
+   * 지금 작성 방식 기본값(WP-1744) — 클릭 처리 중에 설정 캐시를 바로 읽는다(값을 구독하지 않아 설정이 도착해도 다시 그리지 않는다).
+   * 설정을 못 받았거나 실패했으면 DOCK. 새 창 페이지 공급자는 늘 DOCK, 모바일 셸(늘 화면 전체 작성)에서는 「새 창」을 DOCK 으로 본다 —
+   * 이 두 판정은 여기 한 곳에서만 해서, 이 값이 WINDOW 이면 곧 「데스크톱 앱 창에서 새 창으로 연다」는 뜻이다. 임시보관함 열기가 새 창으로 바로 열지 정할 때 쓴다.
+   */
+  getComposeDefault: () => MailComposeDefault;
   closeCompose: () => void;
   /** 그 작성이 아직 열려 있을 때만 닫는다 — 보내는 동안 다른 작성으로 바뀌었으면 그 작성을 닫지 않게. */
   closeInstance: (instanceId: number) => void;
@@ -87,7 +118,7 @@ interface MailComposeContextValue {
 interface MailComposeLayoutContextValue {
   /**
    * 지금 배치 — 도크 본체와 메일 읽기 자리(MailComposePaneSlot)가 같은 값을 봐야 호스트 이동과 접기가 어긋나지 않는다.
-   * 새 작성마다 dock 으로 되돌리는 규칙은 도크 본체의 instanceId 효과가 맡는다.
+   * 새 작성마다 처음 배치를 정하는 규칙(작성 방식 기본값 — 읽기 창 또는 dock, WP-1744)은 도크 본체의 instanceId 효과가 맡는다.
    */
   size: ComposeSize;
   /** 배치 바꾸기 — 값이나 다음 값을 고르는 함수를 받는다(setState 그대로). */
@@ -99,6 +130,31 @@ interface MailComposeLayoutContextValue {
   slotEl: HTMLElement | null;
   /** 슬롯 등록·해제 — 슬롯 div 의 ref 로 넘긴다(setState 그대로라 안정적이고, 같은 요소로 다시 불러도 리렌더가 없다). */
   registerSlot: Dispatch<SetStateAction<HTMLElement | null>>;
+  /**
+   * 그 회차에 적용할 작성 방식 기본값(WP-1744) — openCompose 가 placement 를 받아 정해 둔 값(default-inline 이면 새 창은 DOCK).
+   * placement 없이 연 회차(다시 열기·되돌리기·다시 불러오기)나 모르는 회차는 null — 도크 본체는 지금처럼 우측 하단으로 연다.
+   * 설정을 아직 못 받았거나 실패했으면 DOCK(작성창 열기를 설정 조회로 늦추지 않는다). 작성 초안(ComposeDraft)에 싣지 않는다 —
+   * 「다시 열기」가 초안을 펼쳐 다시 넘겨도 이 값이 따라가지 않고, 임시저장 payload 에도 섞이지 않게.
+   */
+  initialPlacementFor: (instanceId: number) => MailComposeDefault | null;
+}
+
+/**
+ * 기본값 「새 창」으로 옮기는 중 상태(WP-1744) — 배치 컨텍스트와 따로 둔다. 「새 창」 작성마다 바뀌는데, 배치 컨텍스트에 두면
+ * setSize 만 쓰는 메일 화면 전체(MailInboxPage)가 그때마다 다시 그려지기 때문이다. 도크 본체만 구독한다.
+ */
+interface MailComposeWindowMoveContextValue {
+  /**
+   * 새 창으로 옮기는 중인 작성 회차 — 기본값 「새 창」이 미리 연 창으로 옮기는 동안 도크 본체가 우측 하단 창을 감춘다(깜빡임 방지).
+   * 옮기지 못하면(차단·저장 실패) 도크 본체가 endWindowMove 로 풀어 우측 하단에 다시 보인다. 없으면 null.
+   */
+  windowMoveFor: number | null;
+  /**
+   * 그 회차를 위해 openCompose 가 미리 연 창을 한 번 꺼낸다 — Window(열림) / null(팝업 차단) / undefined(새 창 기본값이 아니었거나 이미 꺼냄).
+   */
+  takePendingWindow: (instanceId: number) => Window | null | undefined;
+  /** 새 창으로 옮기기를 그만둔다(우측 하단 창을 다시 보인다). 옮기는 중이 아니면 아무 일도 하지 않는다. */
+  endWindowMove: () => void;
 }
 
 /** 작성창(도크)이 컨텍스트에 맡기는 임시저장 동작. */
@@ -113,10 +169,32 @@ export interface ComposeHandlers {
 
 const MailComposeContext = createContext<MailComposeContextValue | null>(null);
 const MailComposeLayoutContext = createContext<MailComposeLayoutContextValue | null>(null);
+const MailComposeWindowMoveContext = createContext<MailComposeWindowMoveContextValue | null>(null);
 
-/** 도크 상태 provider. AppLayout 이 감싼다. */
-export function MailComposeProvider({ children }: { children: ReactNode }) {
+/**
+ * 한 작성 회차의 처음 배치 기록(WP-1744) — openCompose 가 placement 를 받아 정하고, 회차가 바뀌거나 공급자가 사라지면 지운다.
+ * mode 는 그 회차에 적용할 기본값(initialPlacementFor), win 은 기본값 「새 창」으로 미리 연 창(null 이면 팝업 차단, 없으면 미리 열지 않음).
+ * 회차 정보를 한 ref 에 두어 commit·정리·takePendingWindow·initialPlacementFor 가 한 곳에서 회차를 비교한다.
+ */
+interface PlacementRecord {
+  instanceId: number;
+  mode: MailComposeDefault;
+  win?: Window | null;
+}
+
+/**
+ * 도크 상태 provider. AppLayout 이 감싼다. popout 은 새 창 페이지(WP-1535)의 공급자 — 작성 방식 기본값을 읽지도 쓰지도 않는다.
+ */
+export function MailComposeProvider({ children, popout = false }: { children: ReactNode; popout?: boolean }) {
   const [draft, setDraft] = useState<ComposeDraft | null>(null);
+  // 작성 방식 기본값(WP-1744) — 조회만 여기서 띄운다(앱 셸이 늘 마운트하므로 클릭 전에 받아 둔다). 값은 클릭 처리 중 캐시에서 바로 읽는다
+  // (구독한 값으로 openCompose 를 다시 만들면 설정이 도착할 때 openCompose 만 쓰는 모든 소비자가 다시 그려진다).
+  useMailSettings({ enabled: !popout });
+  const qc = useQueryClient();
+  // 지금 회차의 처음 배치 기록 — 회차 하나만 기억하면 된다.
+  const placementRef = useRef<PlacementRecord | null>(null);
+  // 새 창으로 옮기는 중인 회차 — 그동안 우측 하단 창을 감춘다.
+  const [windowMoveFor, setWindowMoveFor] = useState<number | null>(null);
   // 지금 배치(WP-1743) — 도크 본체와 메일 읽기 자리 슬롯이 함께 보는 단일 값이라 컨텍스트(배치 컨텍스트)로 올렸다.
   const [size, setSize] = useState<ComposeSize>('dock');
   // 읽기 자리 슬롯 DOM — 메일 화면이 등록하고, 도크 호스트를 옮길 자리로 쓴다.
@@ -127,18 +205,64 @@ export function MailComposeProvider({ children }: { children: ReactNode }) {
   const draftRef = useRef<ComposeDraft | null>(null);
   const handlers = useRef<ComposeHandlers | null>(null);
 
+  // 지금 작성 방식 기본값 — 새 창 페이지는 늘 DOCK, 모바일 셸은 「새 창」을 DOCK 으로(늘 화면 전체 작성). 두 판정은 여기서만 한다.
+  const getComposeDefault = useCallback((): MailComposeDefault => {
+    if (popout) return 'DOCK';
+    const mode = qc.getQueryData<MailUserSettings>(mailSettingsKey)?.composeMode ?? 'DOCK';
+    return mode === 'WINDOW' && getIsMobile() ? 'DOCK' : mode;
+  }, [popout, qc]);
+
   const commit = useCallback((d: ComposeDraft | null) => {
     draftRef.current = d;
     setDraft(d);
+    // 다른 작성으로 바뀌었거나 닫혔다 — 그 회차의 기록을 지우고, 미리 열어 두고 아직 쓰지 않은 창은 닫고, 감춤도 푼다(빈 창이 남지 않게).
+    const record = placementRef.current;
+    if (record && record.instanceId !== d?.instanceId) {
+      record.win?.close();
+      placementRef.current = null;
+    }
+    setWindowMoveFor((v) => (v != null && v === d?.instanceId ? v : null));
   }, []);
 
   const openCompose = useCallback(
-    (d: ComposeDraft, opts?: { skipSave?: boolean }) => {
+    (d: ComposeDraft, opts?: OpenComposeOptions) => {
       // 열려 있는 작성이 있으면 그 내용을 먼저 저장한다 — 다른 메일에 답장을 눌러도 쓰던 것이 임시보관함에 남게.
       if (draftRef.current && !opts?.skipSave) handlers.current?.save();
-      commit({ ...d, instanceId: ++seq.current });
+      const instanceId = ++seq.current;
+      // 이 회차에 적용할 기본값(WP-1744) — placement 없이 연 작성은 기본값을 쓰지 않는다. default-inline 은 새 창을 우측 하단으로 본다.
+      let mode: MailComposeDefault | null = opts?.placement ? getComposeDefault() : null;
+      if (opts?.placement === 'default-inline' && mode === 'WINDOW') mode = 'DOCK';
+      // 기본값 「새 창」(WP-1744) — 클릭 처리 중인 지금 빈 창을 연다(효과에서 열면 클릭과 멀어져 팝업 차단을 더 받는다).
+      // 막히면 null 을 남겨 도크 본체가 차단 안내를 띄우게 한다. 새 창 페이지·모바일 셸은 getComposeDefault 가 WINDOW 를 돌려주지 않는다.
+      const win = mode === 'WINDOW' ? openMailComposeWindow() : undefined;
+      // 앞 회차 기록은 commit 이 정리하므로(미리 연 창 닫기) 새 기록은 그 뒤에 둔다.
+      commit({ ...d, instanceId });
+      placementRef.current = mode ? { instanceId, mode, win } : null;
+      // 창이 열렸을 때만 우측 하단 창을 감춘다 — 막혔으면 우측 하단에 그대로 보인다.
+      if (win) setWindowMoveFor(instanceId);
     },
-    [commit],
+    [commit, getComposeDefault],
+  );
+  const takePendingWindow = useCallback((instanceId: number) => {
+    const record = placementRef.current;
+    if (record?.instanceId !== instanceId || record.win === undefined) return undefined;
+    const { win } = record;
+    // 꺼낸 창은 도크 본체가 맡는다 — 회차가 바뀌어도 commit 이 다시 닫지 않게 기록에서 뺀다(처음 배치 mode 는 남긴다).
+    record.win = undefined;
+    return win;
+  }, []);
+  const endWindowMove = useCallback(() => setWindowMoveFor(null), []);
+  const initialPlacementFor = useCallback(
+    (instanceId: number) => (placementRef.current?.instanceId === instanceId ? placementRef.current.mode : null),
+    [],
+  );
+  // 공급자가 사라지면(로그아웃 등) 쓰이지 않은 미리 연 창을 닫는다.
+  useEffect(
+    () => () => {
+      placementRef.current?.win?.close();
+      placementRef.current = null;
+    },
+    [],
   );
   const closeCompose = useCallback(() => commit(null), [commit]);
   const closeInstance = useCallback(
@@ -178,15 +302,25 @@ export function MailComposeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, focusDraft, closeDraft, setComposeHandlers }),
-    [draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, focusDraft, closeDraft, setComposeHandlers],
+    () => ({ draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, focusDraft, closeDraft, setComposeHandlers }),
+    [draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, focusDraft, closeDraft, setComposeHandlers],
   );
   // 배치 상태 — setSize·setSlotEl 은 setState 라 안정적이고, size·slotEl 이 바뀔 때만 새 값이 된다.
-  const layout = useMemo(() => ({ size, setSize, slotEl, registerSlot: setSlotEl }), [size, slotEl]);
+  const layout = useMemo(
+    () => ({ size, setSize, slotEl, registerSlot: setSlotEl, initialPlacementFor }),
+    [size, slotEl, initialPlacementFor],
+  );
+  // 새 창으로 옮기는 중 상태 — 옮기는 회차가 바뀔 때만 새 값이 된다(도크 본체만 구독).
+  const windowMove = useMemo(
+    () => ({ windowMoveFor, takePendingWindow, endWindowMove }),
+    [windowMoveFor, takePendingWindow, endWindowMove],
+  );
 
   return (
     <MailComposeContext.Provider value={value}>
-      <MailComposeLayoutContext.Provider value={layout}>{children}</MailComposeLayoutContext.Provider>
+      <MailComposeLayoutContext.Provider value={layout}>
+        <MailComposeWindowMoveContext.Provider value={windowMove}>{children}</MailComposeWindowMoveContext.Provider>
+      </MailComposeLayoutContext.Provider>
     </MailComposeContext.Provider>
   );
 }
@@ -204,5 +338,13 @@ export function useMailCompose() {
 export function useMailComposeLayout() {
   const ctx = useContext(MailComposeLayoutContext);
   if (!ctx) throw new Error('useMailComposeLayout must be used within MailComposeProvider');
+  return ctx;
+}
+
+/** 새 창으로 옮기는 중 상태 훅(WP-1744) — 도크 본체만 구독한다(기본값 「새 창」으로 미리 연 창 꺼내기·옮기는 동안 감추기). */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useMailComposeWindowMove() {
+  const ctx = useContext(MailComposeWindowMoveContext);
+  if (!ctx) throw new Error('useMailComposeWindowMove must be used within MailComposeProvider');
   return ctx;
 }

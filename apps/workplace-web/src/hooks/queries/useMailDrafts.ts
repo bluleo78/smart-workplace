@@ -3,9 +3,16 @@
 import { type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { useMailCompose } from '@/components/mail/MailComposeContext';
+import { type ComposePlacement, useMailCompose } from '@/components/mail/MailComposeContext';
 import { handleApiError } from '@/lib/api-error';
-import { liveMailComposePopout } from '@/lib/mailComposeChannel';
+import {
+  liveMailComposePopout,
+  MAIL_COMPOSE_WINDOW_ID,
+  mailComposeWindowUrl,
+  openMailComposeWindow,
+  rememberMailComposePopout,
+  toastMailComposePopupBlocked,
+} from '@/lib/mailComposeChannel';
 import { composeFromDraft, draftPreview, savePayloadFromDetail } from '@/lib/mailDraftCompose';
 
 import { createMailDraft, deleteMailDraft, getMailDraft, getMailDraftCount, listMailDrafts } from '../../api/mailDrafts';
@@ -89,11 +96,16 @@ export function useMailDraftCount(accountId: number | undefined) {
  * - 같은 임시저장이 이미 열려 있으면 새로 열지 않고 그 창을 앞으로 가져온다(최소화 해제). force 면(충돌 「다시 불러오기」) 서버 내용으로 다시 연다.
  * - 받기에 실패하면 토스트로 알리고 지금 작성은 그대로 둔다.
  * - 답장·전달은 sourceMessageId 로 원본 상세를 받아 인용문을 다시 만든다. 원본을 받지 못하면(지워진 메일 등) 인용 없이 연다.
+ * - 작성 방식 기본값(WP-1744): placement 는 openCompose 와 같은 뜻이다 — 임시보관함 행 클릭(새 작성)은 'default' 를 넘겨 기본값대로 열고,
+ *   쓰던 작성을 다시 여는 길(보내기 실패 「다시 열기」·충돌 「다시 불러오기」·새 창 페이지)은 넘기지 않아 기본값을 쓰지 않는다.
+ *   'default' 이고 기본값이 「새 창」이면(공급자가 데스크톱 앱 창에서만 WINDOW 를 준다) 받기 전, 클릭 처리 중에 그 임시저장 주소로 새 창을 바로 연다
+ *   — 이미 서버에 있는 임시저장이라 작성창·저장 없이 새 창이 그것을 연다. 막히면 받아서 우측 하단에 열고 알린다.
+ * - force: 열린 작성의 저장을 건너뛰고 같은 임시저장도 서버 내용으로 다시 연다(충돌 「다시 불러오기」).
  */
 export function useOpenMailDraft() {
   const qc = useQueryClient();
-  const { openCompose, focusDraft } = useMailCompose();
-  return async (id: number, opts: { force?: boolean; beforeOpen?: () => void } = {}) => {
+  const { openCompose, focusDraft, getComposeDefault } = useMailCompose();
+  return async (id: number, opts: { force?: boolean; placement?: ComposePlacement; beforeOpen?: () => void } = {}) => {
     // 이 창이 새 창으로 옮긴 임시저장이 아직 그 창에서 쓰이고 있으면(WP-1535) 두 번째 편집기를 열지 않고 그 창을 앞으로 가져온다.
     // 브라우저가 창 전환을 막을 수 있어(성공 여부를 알 수 없다) 어디서 쓰는 중인지 토스트로도 알린다.
     const popout = liveMailComposePopout(id);
@@ -107,6 +119,20 @@ export function useOpenMailDraft() {
       return;
     }
     if (!opts.force && focusDraft(id)) return;
+    let { placement } = opts;
+    // 기본값 「새 창」 — 받기를 기다리면 클릭의 사용자 활성화가 지나 팝업이 막히므로 지금 그 임시저장 주소로 연다(이미 저장된 것이라 fresh 아님).
+    let blocked = false;
+    if (placement === 'default' && getComposeDefault() === 'WINDOW') {
+      const win = openMailComposeWindow(mailComposeWindowUrl(id, { opener: MAIL_COMPOSE_WINDOW_ID }));
+      if (win) {
+        // 그 창이 쓰는 동안 다시 열면 앞으로 가져오게 기억한다(↗ 로 옮긴 창과 같다).
+        rememberMailComposePopout(id, win);
+        return;
+      }
+      // 막혔으면 다시 창을 열지 않고 우측 하단으로(default-inline — 읽기 창 기본값이 아니니 곧 우측 하단).
+      blocked = true;
+      placement = 'default-inline';
+    }
     try {
       const detail = await qc.fetchQuery(mailDraftQuery(id));
       const needSource = detail.sourceMessageId != null && !detail.quoteRemoved;
@@ -114,7 +140,8 @@ export function useOpenMailDraft() {
       // 충돌 다시 불러오기는 지금 창의 내용을 버리고 서버 내용으로 바꾸는 것이라 앞 작성의 저장(flush)을 건너뛴다.
       // beforeOpen 은 받아 온 뒤 바꾸기 직전에 부른다 — 받지 못하면 지금 작성을 그대로 둔다(충돌 다시 불러오기가 세션을 끝내는 시점).
       opts.beforeOpen?.();
-      openCompose(composeFromDraft(detail, source), { skipSave: opts.force });
+      openCompose(composeFromDraft(detail, source), { skipSave: opts.force, placement });
+      if (blocked) toastMailComposePopupBlocked();
     } catch (e) {
       handleApiError(e, '임시저장을 불러오지 못했어요');
     }

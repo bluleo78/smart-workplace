@@ -7,6 +7,7 @@
 // - 서명(WP-1517): 처음 여는 작성은 설정(새 메일·답장·전달 스위치)대로 본문 끝에 빈 줄 + 서명을 넣는다. 본문은 서명 조회를 기다리지 않고 바로 그리고,
 //   서명이 늦게 오면 아직 손대지 않은 본문에만 넣는다(메일 화면이 미리 받아 두므로 보통은 처음 본문에 들어 있다).
 //   펜(✒, 데스크톱은 📎 왼쪽·모바일은 상단 바 🗑 와 📎 사이)으로 빼고 넣는다. 보낼 때 서명 이미지는 작성창 업로드 사본으로 바꿔 cid 로 보낸다.
+// - 작성 방식 기본값(WP-1744): 새 작성은 설정대로 읽기 창·우측 하단에 열리고, 「새 창」이면 openCompose 가 미리 연 창으로 옮긴다.
 // - 새 창으로 열기(WP-1535): 데스크톱 머리줄 ↗ 가 지금 작성을 임시저장한 뒤 독립 브라우저 창(/mail/compose?draftId=N)으로 옮긴다.
 //   그 창에서는 같은 작성창을 popout 모드로 그린다 — 창 전체를 채우고, 닫기·버리기·보내기는 서버 작업이 끝난 뒤 onDone 으로 페이지에 넘긴다(페이지가 창을 닫는다).
 
@@ -43,11 +44,12 @@ import { withComposerPreviewStyle } from '@/lib/composerPreviewHtml';
 import { hasLiveStateMark } from '@/lib/historyParam';
 import { type ComposeAttachment, quoteInlineBytes } from '@/lib/mailComposeAttachments';
 import {
-  MAIL_COMPOSE_WINDOW_FEATURES,
   MAIL_COMPOSE_WINDOW_ID,
   type MailComposeWindowEvent,
   mailComposeWindowUrl,
+  openMailComposeWindow,
   rememberMailComposePopout,
+  toastMailComposePopupBlocked,
 } from '@/lib/mailComposeChannel';
 import { buildDraftSavePayload } from '@/lib/mailDraftCompose';
 import { pastedImageSrc, toSendablePastedImages, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
@@ -68,7 +70,7 @@ import type { CoachingNote, MailSendRequest } from '../../types/mailMessage';
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame';
 import { AiDraftBar, AiDraftChip, AiDraftPanel, AiDraftSkeleton, AiDraftToolbarButton } from './MailAiDraft';
 import { MailComposeAttachmentChips } from './MailComposeAttachmentChips';
-import { type ComposeDraft, useMailCompose, useMailComposeLayout } from './MailComposeContext';
+import { type ComposeDraft, useMailCompose, useMailComposeLayout, useMailComposeWindowMove } from './MailComposeContext';
 import { MailComposeDropOverlay } from './MailComposeDropOverlay';
 import { MailComposer, type MailComposerHandle, type MailComposerLayout } from './MailComposer';
 import { MailDraftSaveStatus } from './MailDraftSaveStatus';
@@ -104,10 +106,6 @@ const PANEL_CLASS: Record<MailComposeFrameLayout, string> = {
   pane: 'relative flex h-full min-h-0 w-full flex-col bg-background outline-none',
   dock: 'fixed bottom-0 right-4 z-50 flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl',
 };
-
-/** 새 창 이름 — 열 때마다 다르게 해 이미 열린 다른 작성 창을 덮어쓰지 않는다(여러 창 동시 허용). */
-let popoutSeq = 0;
-const nextPopoutName = () => `mail-compose-${Date.now()}-${++popoutSeq}`;
 
 /**
  * 새 창 모드 손잡이 — 새 창 페이지가 넘긴다. 작성이 끝나면(보냄·닫으며 저장·버림) 서버 작업이 끝난 뒤 한 번 부른다.
@@ -270,7 +268,8 @@ export function MailComposeDock({ popout }: { popout?: MailComposePopout } = {})
 /** 작성창 본체. draft 없으면 렌더 안 함. popout 이면 새 창(WP-1535) 모드. */
 const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, popout }: { aiFullscreen: boolean; popout?: MailComposePopout }) {
   const { draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, setComposeHandlers } = useMailCompose();
-  const { size, setSize, slotEl } = useMailComposeLayout();
+  const { size, setSize, slotEl, initialPlacementFor } = useMailComposeLayout();
+  const { windowMoveFor, takePendingWindow, endWindowMove } = useMailComposeWindowMove();
   const send = useSendMail();
   const qc = useQueryClient();
   const openDraft = useOpenMailDraft();
@@ -309,7 +308,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   // 본문 끝 초점 요청 깨우기 — AI 초안을 넣은 뒤 요청(bodyFocusRef)을 걸고 이 값을 올려 아래 초점 효과를 다시 돌린다.
   const [bodyFocusNonce, setBodyFocusNonce] = useState(0);
   // 데스크톱 배치(size) — 작은 창 / 최소화 / 읽기 창. 컨텍스트 값(WP-1743)이라 메일 읽기 자리 슬롯이 함께 본다.
-  // 하나의 값이라 최소화와 읽기 창이 동시에 걸리지 않고, 새 작성마다 아래 instanceId 효과가 dock 으로 되돌린다(모바일은 항상 화면 전체라 이 값을 쓰지 않는다).
+  // 하나의 값이라 최소화와 읽기 창이 동시에 걸리지 않고, 새 작성마다 아래 instanceId 효과가 작성 방식 기본값(읽기 창 또는 dock, WP-1744)으로 처음 배치를 정한다(모바일은 항상 화면 전체라 이 값을 쓰지 않는다).
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
@@ -394,6 +393,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   useDocumentTitle(popout && draft ? [subject || '새 메일'] : []);
   // 떠나는 중 — 새 창으로 옮기는 저장(메인 창) 또는 새 창을 닫기 전 저장·삭제를 기다리는 동안 작성창을 잠근다(그사이 쓴 것이 빠지지 않게).
   const [leaving, setLeaving] = useState(false);
+  // 작성 방식 기본값 「새 창」으로 옮기는 중인 회차인가(WP-1744) — 그동안 우측 하단 창을 감춘다(새 창 페이지 공급자는 옮기지 않아 늘 거짓).
+  const movingToWindow = draft != null && windowMoveFor === draft.instanceId;
 
   // 임시저장(WP-577) 지금 내용 — 본문은 에디터 HTML 만(인용문은 다시 열 때 원본으로 다시 만든다), 첨부는 올라간 것만.
   const getSnapshot = (): DraftSnapshot => ({
@@ -447,8 +448,13 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     attachments.reset(draft?.attachments);
     doneAttachmentBase.current = (draft?.attachments ?? []).filter((a) => a.status === 'done').map((a) => a.key).join('|');
     ai.reset();
-    // 새 작성도, 닫힌 작성(보냄·✕·새 창으로 보냄)도 우측 하단 작은 창으로 — 읽기 창 상태가 남아 읽기 자리가 비어 있지 않게 한다(WP-1743).
-    setSize('dock');
+    // 새 작성의 처음 배치(작성 방식 기본값, WP-1744) — 이 회차에 적용할 기본값(openCompose 가 placement 로 정함)이 읽기 창이고
+    // 데스크톱·AI 전체 화면 아님·읽기 자리 슬롯 있음(메일 화면)이면 읽기 창, 그 밖(우측 하단·새 창 기본값, 설정 못 받음, 메일 화면 밖,
+    // placement 없이 다시 연 작성)은 우측 하단 작은 창. 새 창 기본값은 아래 「기본값 새 창」 효과가 옮긴다.
+    // 닫힌 작성(보냄·✕·새 창으로 보냄)은 우측 하단으로 — 읽기 창 상태가 남아 읽기 자리가 비어 있지 않게 한다(WP-1743).
+    // 새 창 페이지(popout)는 공급자가 늘 DOCK 이라 읽기 창이 되지 않는다(그 창의 배치는 늘 fill).
+    const initialPlacement = draft?.instanceId != null ? initialPlacementFor(draft.instanceId) : null;
+    setSize(draft && initialPlacement === 'PANE' && !isMobile && !aiFullscreen && slotEl ? 'pane' : 'dock');
     if (!draft) return;
     setTo(draft.to.join(', '));
     setCc(draft.cc.join(', '));
@@ -563,6 +569,71 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     void autosave.flush().then((r) => notifySaved(r, reopen));
   }
 
+  // ↗ 새 창으로 열기(WP-1535) — 팝업 차단을 피하려 클릭에서 바로 빈 창을 연 뒤, 지금 내용을 임시저장해(손대지 않은 작성도 만든다)
+  // 받은 id 로 그 창의 주소를 정한다. 저장하지 못하면 빈 창을 닫고 작성창은 그대로 둔다. 옮긴 뒤엔 이 창의 저장을 끝내고 알림 없이 닫는다
+  // — 두 창이 같은 임시저장을 번갈아 고쳐 충돌(409)하지 않게.
+  // preopened: 작성 방식 기본값 「새 창」(WP-1744)이 openCompose 클릭 처리 중에 미리 연 창(null 이면 팝업 차단). 넘기면 창을 새로 열지 않고
+  // 그 창으로 같은 흐름을 탄다. 그때 감춰 둔 우측 하단 창은 옮기지 못하면(차단·저장 실패·빈 창을 닫음) 다시 보인다(endWindowMove —
+  // ↗ 를 직접 누른 때는 옮기는 중인 회차가 없어 아무 일도 하지 않는다).
+  // 조기 return 앞에 둔다 — 아래 「기본값 새 창」 효과가 부른다(작성창이 없으면 그 효과가 부르지 않는다).
+  const popOut = (preopened?: Window | null) => {
+    // 붙여 넣은 그림은 올라가는 중이면 아직 본문 자리표시라 저장되지 않는다 — 다 올라간 뒤 옮긴다(보내기와 같은 규칙).
+    if (composerRef.current?.hasPendingImage()) {
+      preopened?.close();
+      endWindowMove();
+      toast.error('이미지를 올리는 중이에요. 다 올라간 뒤 새 창으로 열어 주세요');
+      return;
+    }
+    const win = preopened !== undefined ? preopened : openMailComposeWindow();
+    if (!win) {
+      endWindowMove();
+      toastMailComposePopupBlocked();
+      return;
+    }
+    const opened = instanceId as number;
+    // 아직 서버에 없고 손댄 것도 없는 작성 — 강제 저장으로 만드는 임시저장은 새 창에서도 손대지 않고 닫으면 지운다(fresh).
+    const fresh = autosave.currentDraftId() == null && getSnapshot().empty;
+    setLeaving(true);
+    void autosave.flush({ force: true }).then((r) => {
+      setLeaving(false);
+      // 저장하는 동안 사용자가 빈 창을 닫았다 — 여기서 이어 쓴다(작성창을 닫지 않고, 죽은 창은 건드리지 않는다).
+      // 저장은 끝났으니 이 작성은 그 임시저장에 이어 저장된다.
+      if (win.closed) {
+        endWindowMove();
+        return;
+      }
+      if (!r.ok || r.draftId == null) {
+        win.close();
+        endWindowMove();
+        toast.error('새 창으로 열지 못했어요', {
+          description: r.reason ?? '임시저장하지 못했어요. 잠시 뒤 다시 시도해 주세요',
+        });
+        return;
+      }
+      // 기다리는 동안 다른 작성(답장·편지쓰기)으로 바뀌었으면 그 작성의 저장을 끝내지 않는다 — 옮긴 작성의 세션은 바뀔 때 이미 떨어졌다.
+      if (liveInstanceRef.current === opened) autosave.end();
+      closeInstance(opened);
+      // 이 임시저장을 새 창이 쓰는 동안 임시보관함에서 다시 열면 그 창을 앞으로 가져오게 기억한다.
+      rememberMailComposePopout(r.draftId, win);
+      win.location.href = mailComposeWindowUrl(r.draftId, { opener: MAIL_COMPOSE_WINDOW_ID, fresh });
+    });
+  };
+
+  // 작성 방식 기본값 「새 창」(WP-1744) — 이 회차를 위해 openCompose 가 미리 연 창이 있으면, 작성기가 처음 본문을 알린 뒤(지금 내용을
+  // 임시저장할 수 있을 때) 한 번 꺼내 ↗ 와 같은 흐름으로 옮긴다. 꺼내면 비워지므로 다시 돌아도(StrictMode 등) 두 번 옮기지 않는다.
+  // 처음 본문에 서명이 아직 없으면(서명 조회 중에 열었다) 조회가 끝나고 위 늦은 서명 넣기 효과가 이 회차를 정한 뒤에 옮긴다 — 먼저 옮기면
+  // 서명 없는 본문이 임시저장돼 새 창에서 서명이 빠진다. 늦은 넣기 효과가 먼저 선언돼 같은 커밋에서 먼저 돈다.
+  // 새 창 페이지(popout)에서는 공급자가 창을 미리 열지 않아 takePendingWindow 가 늘 undefined 다.
+  useEffect(() => {
+    if (instanceId == null || composerReadyFor !== instanceId) return;
+    if (!composeInitial.signatureSettled && (signature.isPending || lateSignatureDoneRef.current !== instanceId)) return;
+    const preopened = takePendingWindow(instanceId);
+    if (preopened === undefined) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 작성기가 준비된 뒤(지금 내용을 임시저장할 수 있을 때)에야 옮길 수 있어 렌더 중으로 못 옮긴다(회차마다 한 번).
+    popOut(preopened);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composerReadyFor, instanceId, signature.isPending]);
+
   // 다른 작성으로 바뀌기 직전(다른 메일 답장·임시저장 열기) 이 작성을 저장하고, 같은 임시저장을 다시 열면 이 창을 앞으로 가져오고(최소화를 푼다),
   // 임시보관함에서 이 임시저장을 지우면 저장을 멈춘다. 매 렌더 최신 내용을 읽는 함수로 다시 건다.
   useEffect(() => {
@@ -605,45 +676,6 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     }
     saveAndNotify();
     closeCompose();
-  };
-
-  // ↗ 새 창으로 열기(WP-1535) — 팝업 차단을 피하려 클릭에서 바로 빈 창을 연 뒤, 지금 내용을 임시저장해(손대지 않은 작성도 만든다)
-  // 받은 id 로 그 창의 주소를 정한다. 저장하지 못하면 빈 창을 닫고 작성창은 그대로 둔다. 옮긴 뒤엔 이 창의 저장을 끝내고 알림 없이 닫는다
-  // — 두 창이 같은 임시저장을 번갈아 고쳐 충돌(409)하지 않게.
-  const popOut = () => {
-    // 붙여 넣은 그림은 올라가는 중이면 아직 본문 자리표시라 저장되지 않는다 — 다 올라간 뒤 옮긴다(보내기와 같은 규칙).
-    if (composerRef.current?.hasPendingImage()) {
-      toast.error('이미지를 올리는 중이에요. 다 올라간 뒤 새 창으로 열어 주세요');
-      return;
-    }
-    const win = window.open('', nextPopoutName(), MAIL_COMPOSE_WINDOW_FEATURES);
-    if (!win) {
-      toast.error('팝업이 막혀 새 창으로 열지 못했어요', { description: '브라우저에서 이 사이트의 팝업을 허용해 주세요' });
-      return;
-    }
-    const opened = instanceId as number;
-    // 아직 서버에 없고 손댄 것도 없는 작성 — 강제 저장으로 만드는 임시저장은 새 창에서도 손대지 않고 닫으면 지운다(fresh).
-    const fresh = autosave.currentDraftId() == null && getSnapshot().empty;
-    setLeaving(true);
-    void autosave.flush({ force: true }).then((r) => {
-      setLeaving(false);
-      // 저장하는 동안 사용자가 빈 창을 닫았다 — 여기서 이어 쓴다(작성창을 닫지 않고, 죽은 창은 건드리지 않는다).
-      // 저장은 끝났으니 이 작성은 그 임시저장에 이어 저장된다.
-      if (win.closed) return;
-      if (!r.ok || r.draftId == null) {
-        win.close();
-        toast.error('새 창으로 열지 못했어요', {
-          description: r.reason ?? '임시저장하지 못했어요. 잠시 뒤 다시 시도해 주세요',
-        });
-        return;
-      }
-      // 기다리는 동안 다른 작성(답장·편지쓰기)으로 바뀌었으면 그 작성의 저장을 끝내지 않는다 — 옮긴 작성의 세션은 바뀔 때 이미 떨어졌다.
-      if (liveInstanceRef.current === opened) autosave.end();
-      closeInstance(opened);
-      // 이 임시저장을 새 창이 쓰는 동안 임시보관함에서 다시 열면 그 창을 앞으로 가져오게 기억한다.
-      rememberMailComposePopout(r.draftId, win);
-      win.location.href = mailComposeWindowUrl(r.draftId, { opener: MAIL_COMPOSE_WINDOW_ID, fresh });
-    });
   };
 
   // 서명 설정으로 — 데스크톱은 작성창을 그대로 두고 옮긴다. 모바일은 화면 전체 작성창이 덮고 있으므로 저장하고 닫은 뒤 옮긴다.
@@ -937,6 +969,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
         const id = r.draftId;
         toast.error('보내지 못해 임시보관함에 저장했어요', {
           description: reason,
+          // 쓰던 작성을 다시 여는 길이라 작성 방식 기본값을 쓰지 않는다(WP-1744 — placement 없음, 새 창으로 튀지 않고 우측 하단).
           action: { label: '다시 열기', onClick: () => void openDraft(id) },
         });
       } else if (!r.ok) {
@@ -976,7 +1009,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
         // 패널에 아무 role/label 도 없어 스크린리더가 새 UI 등장을 안내하지 못하던 문제 수정 —
         // 헤더 텍스트를 프로그램적 이름으로 연결 (#802).
         aria-labelledby="mail-compose-dock-title"
-        className={PANEL_CLASS[layout]}
+        // 기본값 「새 창」으로 옮기는 중(WP-1744)엔 감춘다 — 우측 하단 창이 잠깐 보였다 사라지는 깜빡임을 막는다(편집기는 그대로 만들어진다).
+        className={cn(PANEL_CLASS[layout], movingToWindow && 'invisible')}
         // 떠나는 중(새 창으로 옮기는 저장·새 창을 닫기 전 저장)엔 손댈 수 없게 — 그사이 쓴 것이 저장에서 빠지지 않게.
         inert={leaving}
         aria-busy={leaving || undefined}
@@ -1097,7 +1131,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
                     title={popoutBlockedReason ?? '새 창으로 열기'}
                     disabled={popoutBlockedReason != null}
                     data-testid="mail-compose-popout"
-                    onClick={popOut}
+                    onClick={() => popOut()}
                     className="rounded p-1 hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent"
                   >
                     <ExternalLink className="h-4 w-4" />

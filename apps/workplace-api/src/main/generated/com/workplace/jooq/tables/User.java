@@ -72,6 +72,7 @@ import com.workplace.jooq.tables.Label.LabelPath;
 import com.workplace.jooq.tables.MailDraft.MailDraftPath;
 import com.workplace.jooq.tables.MailSignature.MailSignaturePath;
 import com.workplace.jooq.tables.MailSignatureImage.MailSignatureImagePath;
+import com.workplace.jooq.tables.MailUserSetting.MailUserSettingPath;
 import com.workplace.jooq.tables.Membership.MembershipPath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
@@ -1357,6 +1358,19 @@ public class User extends TableImpl<UserRecord> {
         return _mailSignature;
     }
 
+    private transient MailUserSettingPath _mailUserSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_user_setting</code> table
+     */
+    public MailUserSettingPath mailUserSetting() {
+        if (_mailUserSetting == null)
+            _mailUserSetting = new MailUserSettingPath(this, null, Keys.MAIL_USER_SETTING__MAIL_USER_SETTING_USER_ID_FKEY.getInverseKey());
+
+        return _mailUserSetting;
+    }
+
     private transient MembershipPath _membership;
 
     /**
@@ -2114,6 +2128,14 @@ public class User extends TableImpl<UserRecord> {
      */
     public TenantPath fkMailSignatureTenant() {
         return mailSignature().tenant();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.tenant</code>
+     * table, via the <code>fk_mail_user_setting_tenant</code> key
+     */
+    public TenantPath fkMailUserSettingTenant() {
+        return mailUserSetting().tenant();
     }
 
     /**

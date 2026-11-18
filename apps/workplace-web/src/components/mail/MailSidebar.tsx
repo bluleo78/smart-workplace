@@ -57,15 +57,18 @@ export function MailSidebar() {
     folders,
   })
 
-  // 빈 새 메일 작성 도크 오픈(현재 계정으로).
+  // 빈 새 메일 작성 도크 오픈(현재 계정으로). 새 작성이라 작성 방식 기본값(읽기 창·우측 하단·새 창, WP-1744)대로 연다.
   function onCompose() {
     if (!current) return
-    openCompose({
-      mode: 'new',
-      accountId: current!.id,
-      to: [], cc: [], bcc: [], subject: '', initialHtml: '', inReplyToMessageId: null,
-      quote: null,
-    })
+    openCompose(
+      {
+        mode: 'new',
+        accountId: current!.id,
+        to: [], cc: [], bcc: [], subject: '', initialHtml: '', inReplyToMessageId: null,
+        quote: null,
+      },
+      { placement: 'default' },
+    )
   }
 
   // WP-186: 안 읽은 수 pill(받은편지함·분류·회신필요 공용), 0 이면 숨김. 활성 항목은 primary 로 강조. label 은 스크린리더용.

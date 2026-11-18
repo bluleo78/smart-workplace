@@ -5,13 +5,19 @@
 // e2e/fixtures/mail-drafts-mock.ts 의 상태 있는 임시저장 모킹을 MSW 로 옮긴 draftServer 로 계약(201·409 DRAFT_CONFLICT·404·204)대로 응답한다.
 // 디바운스·토스트 타이머는 가짜 시계(setTimeout 만)로 넘긴다. 메일 모듈 + 작성 도크만 renderScreen 으로 띄운다(testkit-b4).
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { mailSettingsKey } from '@/hooks/queries/useMailSettings'
+import { forgetMailComposePopout, MAIL_COMPOSE_WINDOW_ID } from '@/lib/mailComposeChannel'
+import { composeSettingsHandler } from '@/test/kits/mail/compose-default'
+import { composeInPane } from '@/test/kits/mail/compose-pane'
 import { renderMail } from '@/test/kits/mail/testkit-b4'
 import type { MailDraftDetail, MailDraftSaveRequest, MailDraftSummary } from '@/types/mailDraft'
+import type { MailComposeDefault } from '@/types/mailSettings'
 
 import { detail, draftDetail, summary } from '../../../e2e/factories/mail.factory'
+import { createMailSettings } from '../../../e2e/factories/mailSettings.factory'
 
 const DEBOUNCE = 1500
 const SEND_PATH = '/api/v1/mail/accounts/1/send'
@@ -168,10 +174,11 @@ function draftServer(initial: MailDraftDetail[] = [], previews: Record<number, s
 type Server = ReturnType<typeof draftServer>
 
 /** 받은편지함(원본 메일 5 — 답장 임시저장의 인용문 원본) + 임시저장 서버로 메일 모듈을 띄운다. sourceGets 는 원본 상세 조회 수. */
-function renderDrafts(server: Server, path = '/mail/1?folder=drafts') {
+function renderDrafts(server: Server, path = '/mail/1?folder=drafts', extra: RequestHandler[] = []) {
   const sourceGets: string[] = []
   const view = renderMail(path, {
     handlers: [
+      ...extra,
       ...server.handlers,
       http.get('/api/v1/mail/accounts/1/messages', () => HttpResponse.json([summary({ id: 5, subject: '원문 회의', fromAddress: 'alice@example.com' })])),
       http.get('/api/v1/mail/messages/5', ({ request }) => {
@@ -1037,4 +1044,116 @@ test('⋯ 메뉴 버튼을 Enter 로 열어도 작성창은 열리지 않는다(
   await view.user.keyboard('{Enter}')
   expect(await screen.findByTestId('mail-draft-open-7')).toBeInTheDocument()
   expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+})
+
+// ── 작성 방식 기본값(WP-1744) — 새 작성(임시보관함에서 열기)에만 쓰고, 쓰던 작성을 다시 여는 길(다시 열기·되돌리기·다시 불러오기)엔 쓰지 않는다 ──
+
+/** 작성 방식 기본값을 바꾼다 — 작성창을 연 뒤 설정이 바뀐 것과 같다(다시 여는 길이 기본값을 쓰지 않는지 본다). */
+function switchComposeDefault(view: ReturnType<typeof renderDrafts>, composeMode: MailComposeDefault) {
+  act(() => view.queryClient.setQueryData(mailSettingsKey, createMailSettings({ composeMode })))
+}
+test('기본값_WINDOW_여도_충돌_다시_불러오기는_새_창을_열지_않는다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '처음 제목', version: 1 })])
+  const view = renderDrafts(server)
+  await openRow(view, 7)
+  await waitFor(() => expect(subject()).toHaveValue('처음 제목'))
+  switchComposeDefault(view, 'WINDOW')
+  const open = vi.spyOn(window, 'open')
+
+  server.bumpVersion(7, { subject: '다른 탭에서 고친 제목' })
+  setSubject('여기서 고친 제목')
+  await tick(DEBOUNCE)
+  await waitFor(() => expect(status()).toHaveAttribute('data-status', 'conflict'))
+  await view.user.click(screen.getByTestId('mail-compose-save-reload'))
+  await waitFor(() => expect(subject()).toHaveValue('다른 탭에서 고친 제목'))
+  // 서버 내용으로 다시 연 작성은 그 자리(우측 하단)에 그대로 — 새 창을 열지도, 감추지도 않는다.
+  expect(open).not.toHaveBeenCalled()
+  expect(screen.getByTestId('mail-compose-dock')).not.toHaveClass('invisible')
+  expect(server.posts).toHaveLength(0)
+})
+
+test('기본값_WINDOW_여도_버린_뒤_되돌리기는_새_창을_열지_않는다', async () => {
+  const server = draftServer()
+  const view = renderDrafts(server)
+  await openNew(view)
+  setSubject('버릴 메일')
+  await tick(DEBOUNCE)
+  await waitFor(() => expect(server.posts).toHaveLength(1))
+  await waitFor(() => expect(status()).toHaveTextContent('저장됨'))
+  await view.user.click(screen.getByTestId('mail-compose-discard'))
+  await waitFor(() => expect(server.deletes).toHaveLength(1))
+  switchComposeDefault(view, 'WINDOW')
+  const open = vi.spyOn(window, 'open')
+
+  await view.user.click(await screen.findByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(server.posts).toHaveLength(2))
+  await waitFor(() => expect(subject()).toHaveValue('버릴 메일'))
+  expect(open).not.toHaveBeenCalled()
+  expect(screen.getByTestId('mail-compose-dock')).not.toHaveClass('invisible')
+})
+
+test('기본값_PANE_이어도_저장_실패_다시_열기는_우측_하단에_연다', async () => {
+  // 읽기 자리 슬롯이 있는 받은편지함 화면에서 — 새 메일을 쓰다 닫았는데 저장(POST)이 실패한다.
+  const server = draftServer()
+  server.override.post = (_c, n) => (n === 1 ? HttpResponse.json({ status: 500, message: 'boom' }, { status: 500 }) : undefined)
+  const view = renderDrafts(server, '/mail/1')
+  await openNew(view)
+  setSubject('다시 열 메일')
+  await view.user.click(screen.getByTestId('mail-compose-close'))
+  await waitFor(() => expect(server.posts).toHaveLength(1))
+  switchComposeDefault(view, 'PANE')
+
+  await view.user.click(await screen.findByRole('button', { name: '다시 열기' }))
+  await waitFor(() => expect(subject()).toHaveValue('다시 열 메일'))
+  // 읽기 창 기본값이어도 우측 하단 작은 창 — 다시 여는 작성엔 기본값을 쓰지 않는다.
+  expect(screen.getByTestId('mail-compose-pane-slot')).toBeInTheDocument()
+  expect(composeInPane()).toBe(false)
+  expect(screen.getByTestId('mail-compose-dock')).toHaveClass('fixed')
+})
+
+test('기본값_WINDOW_이면_임시보관함_행을_누르면_그_임시저장_주소로_새_창을_바로_연다', async () => {
+  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '새 창에서 이어 쓸 메일', version: 1 })])
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  // 클릭 처리 중에 그 임시저장 주소로 연다 — 이미 서버에 있는 임시저장이라 fresh 가 아니다.
+  expect(open).toHaveBeenCalledTimes(1)
+  const [url, name, features] = open.mock.calls[0]
+  expect(url).toBe(`/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`)
+  expect(name).toMatch(/^mail-compose-/)
+  expect(features).toContain('width=900')
+  // 작성창도, 상세 조회도, 저장도 없다 — 새 창이 그 임시저장을 연다.
+  await tick(DEBOUNCE)
+  expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+  expect(server.details).toHaveLength(0)
+  expect(saves(server)).toBe(0)
+
+  // 그 창이 쓰는 동안 같은 행을 다시 누르면 새로 열지 않고 그 창을 앞으로 가져온다.
+  await view.user.click(screen.getByTestId('mail-draft-row-7'))
+  expect(win.focus).toHaveBeenCalled()
+  expect(open).toHaveBeenCalledTimes(1)
+  forgetMailComposePopout(7)
+})
+
+test('기본값_WINDOW_인데_팝업이_막히면_임시보관함_행은_우측_하단에_열고_안내', async () => {
+  const open = vi.spyOn(window, 'open').mockReturnValue(null)
+  const server = draftServer([draftDetail({ id: 7, subject: '막혀서 안에서 쓸 메일', version: 1 })])
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await openRow(view, 7)
+  await waitFor(() => expect(subject()).toHaveValue('막혀서 안에서 쓸 메일'))
+  expect(await screen.findByText('팝업이 막혀 새 창으로 열지 못했어요')).toBeInTheDocument()
+  expect(screen.getByText('브라우저에서 이 사이트의 팝업을 허용해 주세요')).toBeInTheDocument()
+  // 막힌 뒤 다시 창을 열려 하지 않고 우측 하단에 보인다(감추지 않는다).
+  expect(open).toHaveBeenCalledTimes(1)
+  const dock = screen.getByTestId('mail-compose-dock')
+  expect(dock).toHaveClass('fixed')
+  expect(dock).not.toHaveClass('invisible')
+  expect(composeInPane()).toBe(false)
+  await tick(DEBOUNCE)
+  expect(saves(server)).toBe(0)
 })
