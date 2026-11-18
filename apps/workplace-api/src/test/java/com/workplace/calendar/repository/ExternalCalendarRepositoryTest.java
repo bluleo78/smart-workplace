@@ -127,7 +127,10 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
                       null,
                       null,
                       null);
-              long first = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
+              var firstUpsert = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
+              long first = firstUpsert.id();
+              // 새로 넣은 행은 변경으로 본다(WP-1733).
+              assertThat(firstUpsert.changed()).isTrue();
 
               var row2 =
                   new ExternalCalendarRepository.ExternalEventRow(
@@ -141,12 +144,19 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
                       null,
                       null,
                       null);
-              long second = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row2);
+              var secondUpsert = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row2);
+              long second = secondUpsert.id();
 
               // 같은 행 갱신 — id 는 동일
               assertThat(second).isEqualTo(first);
+              assertThat(secondUpsert.changed()).isTrue();
               // 제목이 갱신됐는지 직접 확인
               assertThat(titleOf(first)).isEqualTo("회의(수정)");
+
+              // 같은 값으로 다시 upsert — 갱신을 건너뛰어도 같은 id 를 돌려주고 변화 없음으로 알린다(WP-1733).
+              var thirdUpsert = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row2);
+              assertThat(thirdUpsert.id()).isEqualTo(first);
+              assertThat(thirdUpsert.changed()).isFalse();
 
               status.setRollbackOnly();
               return null;
@@ -164,8 +174,8 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
 
               long calId =
                   repo.upsertExternalCalendar(ownerId, accountId, "c", "업무", "blue", true, true);
-              long keep = repo.upsertExternalEvent(ownerId, calId, "keep", sampleRow());
-              long gone = repo.upsertExternalEvent(ownerId, calId, "gone", sampleRow());
+              long keep = repo.upsertExternalEvent(ownerId, calId, "keep", sampleRow()).id();
+              long gone = repo.upsertExternalEvent(ownerId, calId, "gone", sampleRow()).id();
 
               // from/to 는 sampleRow 의 고정 starts_at 을 기준으로 잡는다.
               // ⚠️ now() 기준 상대 윈도우를 쓰면 실제 시각이 픽스처 날짜에서 멀어지는 순간
@@ -173,9 +183,10 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               OffsetDateTime anchor = sampleRow().startsAt();
               OffsetDateTime from = anchor.minusMonths(1);
               OffsetDateTime to = anchor.plusMonths(3);
-              int deleted = repo.pruneEventsNotIn(calId, Set.of("keep"), from, to);
+              var deleted = repo.pruneEventsNotIn(calId, Set.of("keep"), from, to);
 
-              assertThat(deleted).isEqualTo(1);
+              // 지운 일정 id 를 돌려준다(WP-1733 — 참석자 알림용).
+              assertThat(deleted).containsExactly(gone);
               assertThat(existsById(keep)).isTrue();
               assertThat(existsById(gone)).isFalse();
 
@@ -208,7 +219,7 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
                       null,
                       null,
                       null);
-              long id = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
+              long id = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row).id();
 
               String stored =
                   dsl.select(CALENDAR_EVENT.ICAL_UID)

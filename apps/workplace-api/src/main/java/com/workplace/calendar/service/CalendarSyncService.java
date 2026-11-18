@@ -9,6 +9,7 @@ import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.repository.EmailAccountRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -38,7 +39,7 @@ public class CalendarSyncService {
   /** 공급자 → fetcher 맵. Spring 이 CalendarFetcher 빈 목록을 자동 주입한다. */
   private final Map<MailProvider, CalendarFetcher> fetchers;
 
-  // 동기화 완료 → 계정 소유자에게 resource.changed 발행(WP-61).
+  // 동기화 완료 → 계정 소유자 + 바뀐 일정의 내부 참석자에게 resource.changed 발행(WP-61, WP-1733).
   private final CalendarChangeNotifier changeNotifier;
 
   public CalendarSyncService(
@@ -78,11 +79,16 @@ public class CalendarSyncService {
       return;
     }
 
-    fetcher.sync(userId, accountId, account);
+    CalendarFetcher.SyncResult result = fetcher.sync(userId, accountId, account);
+    Set<Long> attendees = result == null ? Set.of() : result.affectedAttendeeUserIds();
 
-    // 동기화 성공 후 소유자에게만 알린다(다른 내부 참석자는 알려진 한계). 백그라운드라 actor 는 null.
-    // AFTER_COMMIT 리스너가 발화하도록 짧은 트랜잭션 안에서 발행한다(fetcher 자체 tx 는 이미 커밋됨).
+    // 동기화 성공 후 소유자에게는 늘 알리고, 이번 동기화로 실제 생성·변경·삭제된 일정의 내부 참석자에게도 함께 알린다(WP-1733) — 같은
+    // 회의를 교차 출처 중복 제거로 자기 화면에서 보고 있어서다. 바뀐 것이 없으면 참석자 명단이 비어 소유자만 받는다. 한 이벤트에 실어 수신자는
+    // Set 으로 중복 제거된다. 백그라운드라 actor 는 null. AFTER_COMMIT 리스너가 발화하도록 짧은 트랜잭션 안에서 발행한다(fetcher 자체
+    // tx 는 이미 커밋됨).
     txTemplate.executeWithoutResult(
-        s -> changeNotifier.calendarChanged(ResourceChangedEvent.OP_UPDATED, 0L, userId, null));
+        s ->
+            changeNotifier.calendarChanged(
+                ResourceChangedEvent.OP_UPDATED, 0L, userId, attendees, null));
   }
 }

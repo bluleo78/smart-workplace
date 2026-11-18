@@ -117,10 +117,14 @@ public class GraphCalendarFetcher implements CalendarFetcher {
    * <p>1단계(HTTP, tx 밖): 토큰 획득 → 달력 목록 → 달력별 구간 일정 조회 → 메모리 수집. 2단계(DB, tx 안): 달력별 upsert/prune →
    * 사라진 컨테이너 reconcile(deleteExternalCalendar).
    *
-   * @return upsert 된 총 이벤트 수
+   * <p>DB 단계에서 실제로 새로 생기거나 바뀌거나 지워진 일정의 내부 참석자(소유자 제외)를 모은다(WP-1733) — 같은 회의를 자기 화면에서 보는 다른 사용자에게도
+   * 갱신 알림을 보내려고. 바뀐 일정은 변경 전·후 명단을 모두 넣어 참석자에서 빠진 사람도 화면이 갱신되게 하고, 지워질 일정·달력은 참석자 행이 cascade 로
+   * 사라지므로 삭제 전에 읽는다. 바뀐 것이 없으면 빈 집합이다.
+   *
+   * @return upsert 된 총 이벤트 수 + 알릴 내부 참석자
    */
   @Override
-  public int sync(long userId, long accountId, EmailAccountResponse account) {
+  public SyncResult sync(long userId, long accountId, EmailAccountResponse account) {
     // 수집 시작 시각 — Graph 를 읽기 전에 잡는다. 이보다 늦게 앱이 범주를 써 넣은 일정은 이번에 읽은 범주가 낡았으므로 연결을 건너뛴다(WP-716).
     // 써 넣기 표시(CalendarTagService)와 같은 앱 서버 시계를 쓴다.
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -144,6 +148,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     Set<Long> seenCalendarIds = new HashSet<>();
     // 계정 안의 캘린더끼리 색이 겹치지 않도록 이번 sync 호출 동안 배정된 색을 추적한다 (#825).
     Set<String> usedColorsForAccount = new HashSet<>();
+    // 실제로 바뀐(생성·변경·삭제) 일정의 내부 참석자 — 끝에서 소유자를 뺀다(WP-1733).
+    Set<Long> affectedAttendees = new HashSet<>();
 
     for (CalendarBatch batch : batches) {
       GraphCalendar cal = batch.calendar();
@@ -166,6 +172,10 @@ public class GraphCalendarFetcher implements CalendarFetcher {
                     userId, accountId, cal.id(), cal.name(), color, !cal.canEdit(), ownMailbox);
             calIdHolder[0] = calId;
 
+            // 변경 전 명단 — 일정별 내부 참석자. 바뀐 일정의 이전 참석자·지워질 일정의 참석자를 여기서 꺼낸다(삭제되면 cascade 로 사라짐).
+            Map<Long, Set<Long>> attendeesBefore =
+                attendeeRepo.findInternalUserIdsByEventInCalendar(calId, from, to);
+            Set<Long> changedEventIds = new HashSet<>();
             Set<String> keep = new HashSet<>();
             // 로컬 일정 id → Outlook 범주 이름(응답에 categories 가 있던 일정만) — 달력 단위로 모아 태그를 한 번에 맞춘다(WP-714).
             Map<Long, List<String>> categoriesByEvent = new HashMap<>();
@@ -175,10 +185,16 @@ public class GraphCalendarFetcher implements CalendarFetcher {
                 continue;
               }
               ExternalEventRow row = mapEvent(evt);
-              long localEventId = extRepo.upsertExternalEvent(userId, calId, evt.id(), row);
-              // writable 캘린더의 일정만 참석자 동기화(공휴일·생일 등 read-only 는 skip).
+              var upsert = extRepo.upsertExternalEvent(userId, calId, evt.id(), row);
+              long localEventId = upsert.id();
+              boolean changed = upsert.changed();
+              // writable 캘린더의 일정만 참석자 동기화(공휴일·생일 등 read-only 는 skip). 참석자·RSVP 가 바뀐 것도 변경으로 본다.
               if (cal.canEdit()) {
-                syncAttendees(localEventId, evt, userId, account.emailAddress());
+                changed |= syncAttendees(localEventId, evt, userId, account.emailAddress());
+              }
+              if (changed) {
+                changedEventIds.add(localEventId);
+                affectedAttendees.addAll(attendeesBefore.getOrDefault(localEventId, Set.of()));
               }
               // 범주 → 태그는 내 사서함의 쓸 수 있는 달력만(WP-714 리뷰·WP-716 리뷰) — 동료가 공유한 달력(읽기 전용이든 편집 권한이든)·
               // 공휴일·생일 달력의 범주는 남의 사서함 것이라, 내 태그로 만들면 지울 수도 Outlook 에 써 넣을 수도 없는 태그가 쌓인다.
@@ -194,7 +210,12 @@ public class GraphCalendarFetcher implements CalendarFetcher {
                 .removeAll(
                     extRepo.eventIdsWithCategoriesWrittenAfter(categoriesByEvent.keySet(), now));
             syncCategoryTags(userId, categoriesByEvent);
-            extRepo.pruneEventsNotIn(calId, keep, from, to);
+            // 바뀐 일정의 변경 후 명단 — 새로 초대된 사람도 갱신되게.
+            affectedAttendees.addAll(attendeeRepo.findInternalUserIdsByEvents(changedEventIds));
+            // 지워진 일정의 참석자 — 삭제 전에 읽어 둔 명단에서 꺼낸다.
+            for (long deletedId : extRepo.pruneEventsNotIn(calId, keep, from, to)) {
+              affectedAttendees.addAll(attendeesBefore.getOrDefault(deletedId, Set.of()));
+            }
             return null;
           });
 
@@ -211,6 +232,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
             List<Long> existing = extRepo.listExternalCalendarIds(accountId);
             for (long existingId : existing) {
               if (!seenCalendarIds.contains(existingId)) {
+                // 달력이 지워지면 소속 일정·참석자 행이 cascade 로 사라지므로 내부 참석자를 먼저 모은다(WP-1733).
+                affectedAttendees.addAll(attendeeRepo.findInternalUserIdsByCalendar(existingId));
                 extRepo.deleteExternalCalendar(existingId);
               }
             }
@@ -224,7 +247,9 @@ public class GraphCalendarFetcher implements CalendarFetcher {
         accountId,
         calendars.size(),
         totalUpserted);
-    return totalUpserted;
+    // 소유자는 동기화 완료 알림을 따로 늘 받으므로 참석자 명단에서 뺀다(동기화 계정 주소가 소유자로 매칭돼 참석자 행에 들어 있다).
+    affectedAttendees.remove(userId);
+    return new SyncResult(totalUpserted, affectedAttendees);
   }
 
   /**
@@ -350,15 +375,17 @@ public class GraphCalendarFetcher implements CalendarFetcher {
    * <p>이메일 매칭: ① 동기화 계정 이메일이면 동기화 user, ② findByEmailIgnoreCase, ③ 외부 행. organizer 는
    * ORGANIZER/ACCEPTED, attendees 는 ATTENDEE + responseStatus 매핑. target 에 없는 기존 행은 삭제(organizer 는
    * target 에 항상 포함돼 보존).
+   *
+   * @return 참석자 행을 넣거나 지우거나 RSVP 를 바꿨으면 true(WP-1733 — 참석자 변화도 일정 변경으로 알린다)
    */
-  private void syncAttendees(
+  private boolean syncAttendees(
       long eventId, GraphEvent evt, long syncUserId, String syncAccountEmail) {
     boolean hasAttendees = evt.attendees() != null && !evt.attendees().isEmpty();
     boolean hasOrganizer =
         evt.organizer() != null
             && evt.organizer().emailAddress() != null
             && evt.organizer().emailAddress().address() != null;
-    if (!hasAttendees && !hasOrganizer) return; // 참석자 정보 없음 — 건드리지 않음
+    if (!hasAttendees && !hasOrganizer) return false; // 참석자 정보 없음 — 건드리지 않음
 
     // 1) target 구성: identity(키) → 행 스펙.
     Map<String, Spec> target = new LinkedHashMap<>();
@@ -399,6 +426,7 @@ public class GraphCalendarFetcher implements CalendarFetcher {
       existingRsvp.put(key, r.rsvpStatus());
     }
 
+    boolean changed = false;
     // 3) 삭제: 기존에 있지만 target 에 없는 행.
     for (var r : existing) {
       // AGENT 는 Graph 에 전송하지 않는 로컬 전용 구성 — sync 가 지우면 안 됨.
@@ -407,6 +435,7 @@ public class GraphCalendarFetcher implements CalendarFetcher {
       if (!target.containsKey(id)) {
         if (r.userId() != null) attendeeRepo.deleteByEventAndUser(eventId, r.userId());
         else attendeeRepo.deleteByEventAndExternalEmail(eventId, r.externalEmail());
+        changed = true;
       }
     }
 
@@ -418,12 +447,15 @@ public class GraphCalendarFetcher implements CalendarFetcher {
         else
           attendeeRepo.insertExternal(
               eventId, s.externalEmail(), s.externalName(), s.role(), s.rsvp());
+        changed = true;
       } else if (!"ORGANIZER".equals(s.role()) && !s.rsvp().equals(existingRsvp.get(e.getKey()))) {
         // RSVP 변경 반영(조직자는 항상 ACCEPTED 고정 — 갱신 안 함).
         if (s.userId() != null) attendeeRepo.updateRsvp(eventId, s.userId(), s.rsvp());
         else attendeeRepo.updateRsvpByExternalEmail(eventId, s.externalEmail(), s.rsvp());
+        changed = true;
       }
     }
+    return changed;
   }
 
   /**

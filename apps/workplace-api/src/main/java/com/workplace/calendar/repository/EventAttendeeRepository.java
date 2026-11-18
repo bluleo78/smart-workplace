@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -120,6 +121,37 @@ public class EventAttendeeRepository {
         .where(CALENDAR_EVENT.CALENDAR_ID.eq(calendarId))
         .and(EVENT_ATTENDEE.USER_ID.isNotNull())
         .fetch(EVENT_ATTENDEE.USER_ID);
+  }
+
+  /**
+   * 한 캘린더 소속 일정별 내부 참석자 userId(외부 참석자 제외) — 외부 동기화가 바뀌거나 지워질 일정의 참석자에게 알리려고 변경 *전* 명단을 한 번에
+   * 읽는다(WP-1733). 동기화 구간 [from, to) 과 겹치는 일정만 읽는다 — 동기화가 고치거나(calendarView 는 구간과 겹치는 일정) 지우는(구간 안
+   * 시작) 일정은 모두 여기에 들고, 지난 일정 전부를 10분마다 읽지 않으려고. 참석자가 없는 일정은 맵에 없다.
+   */
+  public Map<Long, Set<Long>> findInternalUserIdsByEventInCalendar(
+      long calendarId, OffsetDateTime from, OffsetDateTime to) {
+    Map<Long, Set<Long>> out = new HashMap<>();
+    dsl.select(EVENT_ATTENDEE.EVENT_ID, EVENT_ATTENDEE.USER_ID)
+        .from(EVENT_ATTENDEE)
+        .join(CALENDAR_EVENT)
+        .on(CALENDAR_EVENT.ID.eq(EVENT_ATTENDEE.EVENT_ID))
+        .where(CALENDAR_EVENT.CALENDAR_ID.eq(calendarId))
+        .and(CALENDAR_EVENT.STARTS_AT.lt(to))
+        .and(CALENDAR_EVENT.ENDS_AT.ge(from))
+        .and(EVENT_ATTENDEE.USER_ID.isNotNull())
+        .forEach(r -> out.computeIfAbsent(r.value1(), k -> new HashSet<>()).add(r.value2()));
+    return out;
+  }
+
+  /** 주어진 일정들의 내부 참석자 userId(중복 제거, 외부 참석자 제외) — 동기화로 바뀐 일정의 변경 *후* 명단 수집용(WP-1733). */
+  public Set<Long> findInternalUserIdsByEvents(Collection<Long> eventIds) {
+    if (eventIds.isEmpty()) return Set.of();
+    return new HashSet<>(
+        dsl.selectDistinct(EVENT_ATTENDEE.USER_ID)
+            .from(EVENT_ATTENDEE)
+            .where(EVENT_ATTENDEE.EVENT_ID.in(eventIds))
+            .and(EVENT_ATTENDEE.USER_ID.isNotNull())
+            .fetch(EVENT_ATTENDEE.USER_ID));
   }
 
   /** 단일 이벤트의 참석자 목록 조회. findByEvents 위임으로 코드 중복 제거. */

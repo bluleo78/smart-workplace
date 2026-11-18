@@ -7,10 +7,12 @@ import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -75,52 +77,92 @@ public class ExternalCalendarRepository {
   }
 
   /**
-   * 외부 일정 upsert.
+   * 외부 일정 upsert — 실제로 바뀌었는지도 함께 돌려준다(WP-1733).
    *
-   * <p>(calendar_id, external_id) 충돌 시 변경 가능한 필드를 갱신. 신규이면 INSERT. recurrence_rule · color 는 항상
-   * null(외부 일정은 펼친 occurrence, 컨테이너 색 상속).
+   * <p>(calendar_id, external_id) 충돌 시 동기화 필드 중 하나라도 다를 때만 갱신한다({@code DO UPDATE ... WHERE (기존 값)
+   * IS DISTINCT FROM (새 값)}). 값이 모두 같으면 갱신하지 않아 RETURNING 이 비고, 이때는 기존 id 를 따로 읽어 changed=false 로
+   * 돌려준다 — 바뀐 일정의 내부 참석자에게만 동기화 알림을 보내려고. updated_at 은 비교하지 않고 실제 갱신 때만 바꾼다. recurrence_rule ·
+   * color 는 항상 null(외부 일정은 펼친 occurrence, 컨테이너 색 상속).
    *
    * @param ownerId 일정 소유자 user id
    * @param calendarId 소속 컨테이너 calendar.id
    * @param externalId 공급자 측 일정 식별자
    * @param row 일정 데이터
-   * @return calendar_event.id
+   * @return calendar_event.id 와 이번 호출로 새로 넣었거나 값이 바뀌었는지
    */
-  public long upsertExternalEvent(
+  public ExternalEventUpsert upsertExternalEvent(
       long ownerId, long calendarId, String externalId, ExternalEventRow row) {
-    return dsl.insertInto(CALENDAR_EVENT)
-        .set(CALENDAR_EVENT.OWNER_ID, ownerId)
-        .set(CALENDAR_EVENT.CALENDAR_ID, calendarId)
-        .set(CALENDAR_EVENT.EXTERNAL_ID, externalId)
-        .set(CALENDAR_EVENT.TITLE, row.title())
-        .set(CALENDAR_EVENT.DESCRIPTION, row.description())
-        .set(CALENDAR_EVENT.STARTS_AT, row.startsAt())
-        .set(CALENDAR_EVENT.ENDS_AT, row.endsAt())
-        .set(CALENDAR_EVENT.ALL_DAY, row.allDay())
-        .set(CALENDAR_EVENT.LOCATION, row.location())
-        .set(CALENDAR_EVENT.ICAL_UID, row.iCalUid())
-        .set(CALENDAR_EVENT.ONLINE_MEETING_URL, row.onlineMeetingUrl())
-        .set(CALENDAR_EVENT.SERIES_MASTER_ID, row.seriesMasterId())
-        .set(CALENDAR_EVENT.EXTERNAL_TYPE, row.externalType())
-        // 부분 유니크 인덱스(WHERE external_id IS NOT NULL) 기준 충돌
-        .onConflict(CALENDAR_EVENT.CALENDAR_ID, CALENDAR_EVENT.EXTERNAL_ID)
-        .where(CALENDAR_EVENT.EXTERNAL_ID.isNotNull())
-        .doUpdate()
-        .set(CALENDAR_EVENT.TITLE, row.title())
-        .set(CALENDAR_EVENT.DESCRIPTION, row.description())
-        .set(CALENDAR_EVENT.STARTS_AT, row.startsAt())
-        .set(CALENDAR_EVENT.ENDS_AT, row.endsAt())
-        .set(CALENDAR_EVENT.ALL_DAY, row.allDay())
-        .set(CALENDAR_EVENT.LOCATION, row.location())
-        .set(CALENDAR_EVENT.ICAL_UID, row.iCalUid())
-        .set(CALENDAR_EVENT.ONLINE_MEETING_URL, row.onlineMeetingUrl())
-        .set(CALENDAR_EVENT.SERIES_MASTER_ID, row.seriesMasterId())
-        .set(CALENDAR_EVENT.EXTERNAL_TYPE, row.externalType())
-        .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
-        .returning(CALENDAR_EVENT.ID)
-        .fetchOne()
-        .getId();
+    // 동기화가 덮어쓰는 필드 중 하나라도 새 값(EXCLUDED)과 다르면 갱신 대상 — NULL 끼리는 같다고 본다(IS DISTINCT FROM).
+    Condition differs =
+        DSL.or(
+            CALENDAR_EVENT.TITLE.isDistinctFrom(DSL.excluded(CALENDAR_EVENT.TITLE)),
+            CALENDAR_EVENT.DESCRIPTION.isDistinctFrom(DSL.excluded(CALENDAR_EVENT.DESCRIPTION)),
+            CALENDAR_EVENT.STARTS_AT.isDistinctFrom(DSL.excluded(CALENDAR_EVENT.STARTS_AT)),
+            CALENDAR_EVENT.ENDS_AT.isDistinctFrom(DSL.excluded(CALENDAR_EVENT.ENDS_AT)),
+            CALENDAR_EVENT.ALL_DAY.isDistinctFrom(DSL.excluded(CALENDAR_EVENT.ALL_DAY)),
+            CALENDAR_EVENT.LOCATION.isDistinctFrom(DSL.excluded(CALENDAR_EVENT.LOCATION)),
+            CALENDAR_EVENT.ICAL_UID.isDistinctFrom(DSL.excluded(CALENDAR_EVENT.ICAL_UID)),
+            CALENDAR_EVENT.ONLINE_MEETING_URL.isDistinctFrom(
+                DSL.excluded(CALENDAR_EVENT.ONLINE_MEETING_URL)),
+            CALENDAR_EVENT.SERIES_MASTER_ID.isDistinctFrom(
+                DSL.excluded(CALENDAR_EVENT.SERIES_MASTER_ID)),
+            CALENDAR_EVENT.EXTERNAL_TYPE.isDistinctFrom(
+                DSL.excluded(CALENDAR_EVENT.EXTERNAL_TYPE)));
+    Optional<Long> written =
+        dsl.insertInto(CALENDAR_EVENT)
+            .set(CALENDAR_EVENT.OWNER_ID, ownerId)
+            .set(CALENDAR_EVENT.CALENDAR_ID, calendarId)
+            .set(CALENDAR_EVENT.EXTERNAL_ID, externalId)
+            .set(CALENDAR_EVENT.TITLE, row.title())
+            .set(CALENDAR_EVENT.DESCRIPTION, row.description())
+            .set(CALENDAR_EVENT.STARTS_AT, row.startsAt())
+            .set(CALENDAR_EVENT.ENDS_AT, row.endsAt())
+            .set(CALENDAR_EVENT.ALL_DAY, row.allDay())
+            .set(CALENDAR_EVENT.LOCATION, row.location())
+            .set(CALENDAR_EVENT.ICAL_UID, row.iCalUid())
+            .set(CALENDAR_EVENT.ONLINE_MEETING_URL, row.onlineMeetingUrl())
+            .set(CALENDAR_EVENT.SERIES_MASTER_ID, row.seriesMasterId())
+            .set(CALENDAR_EVENT.EXTERNAL_TYPE, row.externalType())
+            // 부분 유니크 인덱스(WHERE external_id IS NOT NULL) 기준 충돌
+            .onConflict(CALENDAR_EVENT.CALENDAR_ID, CALENDAR_EVENT.EXTERNAL_ID)
+            .where(CALENDAR_EVENT.EXTERNAL_ID.isNotNull())
+            .doUpdate()
+            .set(CALENDAR_EVENT.TITLE, row.title())
+            .set(CALENDAR_EVENT.DESCRIPTION, row.description())
+            .set(CALENDAR_EVENT.STARTS_AT, row.startsAt())
+            .set(CALENDAR_EVENT.ENDS_AT, row.endsAt())
+            .set(CALENDAR_EVENT.ALL_DAY, row.allDay())
+            .set(CALENDAR_EVENT.LOCATION, row.location())
+            .set(CALENDAR_EVENT.ICAL_UID, row.iCalUid())
+            .set(CALENDAR_EVENT.ONLINE_MEETING_URL, row.onlineMeetingUrl())
+            .set(CALENDAR_EVENT.SERIES_MASTER_ID, row.seriesMasterId())
+            .set(CALENDAR_EVENT.EXTERNAL_TYPE, row.externalType())
+            .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
+            // 값이 모두 같으면 갱신하지 않는다 — 행이 돌아오지 않는 것으로 「변화 없음」을 안다.
+            .where(differs)
+            .returning(CALENDAR_EVENT.ID)
+            .fetchOptional()
+            .map(r -> r.getId());
+    if (written.isPresent()) {
+      return new ExternalEventUpsert(written.get(), true);
+    }
+    // 변화 없음 — 갱신을 건너뛰어 RETURNING 이 비었으니 기존 행 id 를 읽는다(같은 tx 안이라 충돌 행이 반드시 있다).
+    long id =
+        dsl.select(CALENDAR_EVENT.ID)
+            .from(CALENDAR_EVENT)
+            .where(CALENDAR_EVENT.CALENDAR_ID.eq(calendarId))
+            .and(CALENDAR_EVENT.EXTERNAL_ID.eq(externalId))
+            .fetchSingle(CALENDAR_EVENT.ID);
+    return new ExternalEventUpsert(id, false);
   }
+
+  /**
+   * 외부 일정 upsert 결과(WP-1733).
+   *
+   * @param id calendar_event.id
+   * @param changed 새로 넣었거나 동기화 필드가 실제로 바뀌었으면 true
+   */
+  public record ExternalEventUpsert(long id, boolean changed) {}
 
   /**
    * 동기 창에서 수신되지 않은 외부 일정 삭제 — 단, 동기화 윈도우 [from, to) 안의 일정만 prune 대상.
@@ -132,9 +174,10 @@ public class ExternalCalendarRepository {
    * @param keepExternalIds 유지할 external_id 집합
    * @param from 동기화 윈도우 시작(포함)
    * @param to 동기화 윈도우 끝(배타)
-   * @return 삭제된 행 수
+   * @return 삭제된 일정 id — 지워진 일정의 내부 참석자에게 알리려고 돌려준다(WP-1733, 참석자 행은 cascade 로 함께 사라지므로 명단은 호출자가 삭제
+   *     전에 읽어 둔다)
    */
-  public int pruneEventsNotIn(
+  public List<Long> pruneEventsNotIn(
       long calendarId, Set<String> keepExternalIds, OffsetDateTime from, OffsetDateTime to) {
     Condition cond =
         CALENDAR_EVENT
@@ -146,7 +189,10 @@ public class ExternalCalendarRepository {
     if (!keepExternalIds.isEmpty()) {
       cond = cond.and(CALENDAR_EVENT.EXTERNAL_ID.notIn(keepExternalIds));
     }
-    return dsl.deleteFrom(CALENDAR_EVENT).where(cond).execute();
+    return dsl.deleteFrom(CALENDAR_EVENT)
+        .where(cond)
+        .returning(CALENDAR_EVENT.ID)
+        .fetch(CALENDAR_EVENT.ID);
   }
 
   /**
