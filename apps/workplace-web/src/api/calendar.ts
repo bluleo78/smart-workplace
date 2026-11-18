@@ -1,4 +1,4 @@
-import type { CalendarEvent, CalendarEventRequest, CalendarEventSearchResponse, EditScope, EventNoteLink, RsvpStatus } from '../types/calendar'
+import type { CalendarEvent, CalendarEventRequest, CalendarEventSearchResponse, EditScope, EventNoteLink, NoteLinkedEventsResponse, RsvpStatus } from '../types/calendar'
 import { client } from './client'
 
 // 반복 일정 편집/삭제 시 적용 범위·회차 식별용 쿼리 파라미터 (이슈 #111)
@@ -41,6 +41,9 @@ export const calendarApi = {
     client.put<EventNoteLink>(`/calendar/events/${id}/note`, { pageId }, { params: noteParams(occurrenceDate) }),
   unlinkNote: (id: number, occurrenceDate?: string | null) =>
     client.delete<void>(`/calendar/events/${id}/note`, { params: noteParams(occurrenceDate) }),
+  // 노트에 이어진 일정 — 읽을 수 없는 노트는 404(WP-1703)
+  listNoteEvents: (pageId: number) =>
+    client.get<NoteLinkedEventsResponse>(`/calendar/notes/${pageId}/events`),
 }
 
 // occurrenceDate 는 값이 있을 때만 쿼리로 보낸다(반복 아님·override 행은 서버가 무시)

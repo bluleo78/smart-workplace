@@ -158,6 +158,16 @@ public class RecurrenceExpander {
     return result;
   }
 
+  /**
+   * 규칙 전개가 그 순간(occurrence)을 실제 회차로 내는가(WP-541·WP-1703). 전개는 밀리초 단위라 앞뒤 1초 창에서 같은 순간을 찾는다 — 회차
+   * 수정·삭제 검증과 노트 「연결된 일정」 거르기가 같은 판정을 쓰게 한 곳에 둔다.
+   */
+  public boolean producesOccurrence(String rrule, OffsetDateTime masterStart, Instant occurrence) {
+    OffsetDateTime occ = OffsetDateTime.ofInstant(occurrence, ZoneOffset.UTC);
+    return expand(rrule, masterStart, occ.minusSeconds(1), occ.plusSeconds(1)).stream()
+        .anyMatch(o -> o.toInstant().equals(occurrence));
+  }
+
   /** 리마인더 재무장(#705) 시 "다음 회차"를 찾는 탐색 상한 — 이 안에 미제외 회차가 없으면 시리즈가 사실상 끝난 것으로 본다. */
   private static final int NEXT_OCCURRENCE_SEARCH_HORIZON_YEARS = 2;
 

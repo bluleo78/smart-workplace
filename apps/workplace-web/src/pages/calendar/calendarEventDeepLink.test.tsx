@@ -38,3 +38,24 @@ test('존재하지 않는 eventId 딥링크는 다이얼로그 없이 월 보기
   expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument()
   await waitFor(() => expect(location()).toBe('/calendar'))
 })
+
+test('회차 딥링크(?occurrence)가 실패하면 occurrence 도 함께 지운다(WP-1703)', async () => {
+  // eventId 없이 남은 occurrence 는 다음에 붙는 다른 eventId 에 잘못 붙는다.
+  const { location } = renderScreen(
+    <AIAssistantProvider hotkeysEnabled={false}>
+      <CalendarPage />
+    </AIAssistantProvider>,
+    {
+      path: '/calendar?eventId=999&occurrence=2026-11-25T01%3A00%3A00Z',
+      handlers: [
+        http.get('/api/v1/calendar/events/999', () => HttpResponse.json({ message: '일정을 찾을 수 없습니다' }, { status: 404 })),
+        http.get('/api/v1/calendars', () => HttpResponse.json([])),
+        http.get('/api/v1/calendar/events', () => HttpResponse.json([])),
+        http.get('/api/v1/calendar/tags', () => HttpResponse.json([])),
+        http.get('/api/v1/me/issues', () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
+      ],
+    },
+  )
+  expect(await screen.findByText('일정을 찾을 수 없거나 접근 권한이 없습니다')).toBeInTheDocument()
+  await waitFor(() => expect(location()).toBe('/calendar'))
+})

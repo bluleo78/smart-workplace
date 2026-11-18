@@ -40,6 +40,24 @@ export type EventNoteRef = {
   updatedAt?: string
 }
 
+/** 노트에 이어진 일정 한 건(WP-1703) — occurrenceDate 는 반복 회차의 UTC ISO, 단일 일정이면 null */
+export interface NoteLinkedEvent {
+  eventId: number
+  occurrenceDate: string | null
+  /** 「이 회차만」 옮긴 회차면 그 override 일정 id(WP-1703) — 딥링크는 마스터 대신 이 id 로 그 회차를 연다. 아니면 null */
+  overrideEventId: number | null
+  title: string
+  startsAt: string
+  endsAt: string
+  allDay: boolean
+  attendeeCount: number
+}
+
+/** 노트에 이어진 일정 목록 응답(WP-1703) — 서버 NoteLinkedEventsResponse 와 같은 모양. */
+export interface NoteLinkedEventsResponse {
+  items: NoteLinkedEvent[]
+}
+
 /** 노트 연결 조회·잇기 응답 — note=null 은 연결 없음 */
 export type EventNoteLink = { note: EventNoteRef | null }
 

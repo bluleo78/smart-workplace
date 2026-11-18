@@ -102,6 +102,39 @@ public class CalendarEventExceptionRepository {
             .and(CALENDAR_EVENT_EXCEPTION.IS_CANCELLED.isTrue()));
   }
 
+  /** 예외 한 줄(WP-1703) — 회차 원래 시작 시각, 취소 여부, 「이 회차만」 고친 일정 id(취소면 null). */
+  public record ExceptionRow(
+      long eventId, Instant occurrenceDate, boolean cancelled, Long overrideEventId) {}
+
+  /**
+   * 마스터 id 들의 예외 줄을 쿼리 한 번에 (마스터 id → 원래 시작 Instant → 줄) 로 모은다(WP-1703, N+1 금지). 노트에 이어진 회차가
+   * 취소됐는지·옮겨졌는지 한꺼번에 가린다. 빈 입력은 쿼리 없이 빈 맵.
+   */
+  public Map<Long, Map<Instant, ExceptionRow>> findByEvents(Collection<Long> eventIds) {
+    Map<Long, Map<Instant, ExceptionRow>> out = new HashMap<>();
+    if (eventIds == null || eventIds.isEmpty()) return out;
+    dsl.select(
+            CALENDAR_EVENT_EXCEPTION.EVENT_ID,
+            CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE,
+            CALENDAR_EVENT_EXCEPTION.IS_CANCELLED,
+            CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID)
+        .from(CALENDAR_EVENT_EXCEPTION)
+        .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.in(eventIds))
+        .fetch()
+        .forEach(
+            r -> {
+              ExceptionRow row =
+                  new ExceptionRow(
+                      r.get(CALENDAR_EVENT_EXCEPTION.EVENT_ID),
+                      r.get(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE).toInstant(),
+                      Boolean.TRUE.equals(r.get(CALENDAR_EVENT_EXCEPTION.IS_CANCELLED)),
+                      r.get(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID));
+              out.computeIfAbsent(row.eventId(), k -> new HashMap<>())
+                  .put(row.occurrenceDate(), row);
+            });
+    return out;
+  }
+
   /** override_event_id 역조회 결과 — 마스터 event_id + 해당 회차의 occurrence_date. */
   public record MasterOccurrence(long eventId, OffsetDateTime occurrenceDate) {}
 

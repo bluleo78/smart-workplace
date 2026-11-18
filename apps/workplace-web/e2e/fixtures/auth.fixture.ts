@@ -238,6 +238,12 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
     (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }),
   )
+  // 노트 하단 연결된 일정 패널(WP-1703)도 빈 기본 스텁으로 누수 예방.
+  await page.route(
+    (url) => /^\/api\/v1\/calendar\/notes\/\d+\/events$/.test(url.pathname),
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }),
+  )
   // #93 그룹 트리가 마운트되므로 다른 authed 스펙 누수 방지용 기본 빈 트리
   await page.route(
     (url) => url.pathname === '/api/v1/user-groups',

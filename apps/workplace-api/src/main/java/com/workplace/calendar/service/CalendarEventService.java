@@ -2166,17 +2166,9 @@ public class CalendarEventService {
     }
     requireOccurrenceDate(scope, occurrenceDate);
     // 반복 규칙으로 실제 생기는 회차여야 한다(WP-541) — 아니면 수정은 엉뚱한 날짜에 독립 일정을, 삭제는 아무 회차에도 닿지 않는
-    // 예외 행을 만들었다. 전개는 밀리초 단위라 앞뒤 1초 창에서 같은 순간이 있는지 본다.
-    boolean real =
-        expander
-            .expand(
-                target.recurrenceRule(),
-                target.startsAt(),
-                occurrenceDate.minusSeconds(1),
-                occurrenceDate.plusSeconds(1))
-            .stream()
-            .anyMatch(o -> o.toInstant().equals(occurrenceDate.toInstant()));
-    if (!real) {
+    // 예외 행을 만들었다.
+    if (!expander.producesOccurrence(
+        target.recurrenceRule(), target.startsAt(), occurrenceDate.toInstant())) {
       throw new IllegalArgumentException("반복 일정에 없는 회차입니다. 회차 날짜(occurrenceDate)를 확인해 주세요");
     }
   }

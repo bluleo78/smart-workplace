@@ -10,6 +10,7 @@ import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -123,6 +124,16 @@ public class CalendarEventNoteRepository {
               }
             });
     return result;
+  }
+
+  /**
+   * 노트 한 개에 이어진 연결 줄 전부(WP-1703) — 노트 하단 「연결된 일정」용. 인덱스 {@code idx_calendar_event_note_page} 를 탄다.
+   * 일정 가시성·회차 유효성은 서비스가 거른다.
+   */
+  public List<NoteLinkRow> findByPageId(long wikiPageId) {
+    return dsl.selectFrom(CALENDAR_EVENT_NOTE)
+        .where(CALENDAR_EVENT_NOTE.WIKI_PAGE_ID.eq(wikiPageId))
+        .fetch(r -> toRow(r));
   }
 
   /** calendar_event_note.wiki_page_id 외래 키 제약 이름(V306 의 인라인 REFERENCES 기본 이름, WP-1701). */
