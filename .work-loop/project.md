@@ -71,7 +71,7 @@ pnpm test:full   # 이미지 입력 타입 검사 → web vitest → web E2E 전
 
 ```sh
 pnpm train stack <AI 이름> <feature 브랜치> <이슈 키>   # 다음 기차에 커밋 하나로 쌓는다(출발한 기차는 건너뛰고, 없으면 새 번호를 origin/main 에서)
-pnpm train rebase <기차 브랜치>                         # 출발 전 → 최신 origin/main 으로. 출발한 기차 → main 과 충돌할 때만
+pnpm train rebase <기차 브랜치>                         # 최신 origin/main 으로 rebase(출발한 기차는 아래 「게이트 실패·반려」)
 pnpm train next <AI 이름>                               # 아직 출발하지 않은 기차(없으면 빈 출력)
 pnpm train keys <기차 브랜치>                           # 실린 이슈 키 「K1·K2」 — PR 제목 `통합 K1·K2`
 ```
@@ -79,7 +79,7 @@ pnpm train keys <기차 브랜치>                           # 실린 이슈 키
 - 스크립트는 `scripts/husky/train.sh`(테스트 `train.test.sh`). 「출발」 = 기차 브랜치를 origin 에 push 한 것. 기차마다 워크트리 `MAIN/.claude/worktrees/integ-<AI 이름>-<번호>` 를 스크립트가 만든다 — 게이트·수정 커밋·push 는 그 안에서 한다. 처음 게이트를 돌기 전에 1절처럼 설치·빌드한다.
 - 쌓기는 feature 의 커밋 하나(제목 끝 `(<이슈 키>)`, 작성자 유지)를 그대로 옮긴다. 마이그레이션 번호가 origin/main·앞서 실린 이슈와 겹치거나 앞서 실린 이슈와 충돌하면 쌓지 않고 멈춘다 — feature 에서 고쳐 다시 쌓는다.
 - 출발: 내 앞 기차의 PR 이 main 에 머지됐거나 처음일 때만. 최신 origin/main 으로 rebase → 기차 워크트리에서 `pnpm test:full`(백그라운드) → `git push -u origin <기차>` → PR(제목 `통합 <키>·…`, 본문 첫 줄 `개발: <username>`, 이슈마다 요약·검증 근거·라이브 검증).
-- 게이트 실패·반려: 같은 기차에 수정 커밋(제목 끝에 고친 이슈 키)을 더해 다시 돈다. 출발한 기차는 main 과 충돌할 때만 rebase 한다(그때는 게이트를 다시 돌고 `--force-with-lease`).
+- 게이트 실패·반려: 같은 기차에 수정 커밋(제목 끝에 고친 이슈 키)을 더해 다시 돈다. 출발한 기차는 검토자의 「main 반영 필요」 요청 때만 반영한다 — 충돌이면 rebase(게이트를 다시 돌고 `--force-with-lease`), 마이그레이션 번호 겹침이면 번호 옮기기(7절 — 수정 커밋을 더하고 게이트를 다시 돌고 push).
 - 다른 AI 의 이슈는 내 기차에 싣지 않는다.
 
 ### 커밋 훅으로 충분한 것 (`process-issue.md` 9번 「돌릴지부터 판단」, WP-1209)
@@ -168,8 +168,8 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - 원격은 **origin**(`git@github.com:bluleo78/smart-workplace.git`), PR 대상 브랜치는 `main`, 도구는 `gh`(세션의 `GH_TOKEN` — 준비는 플러그인 README 「PR 흐름 준비」). gitlab 원격에는 push 하지 않는다 — 사람이 origin main 을 받아 맞춘다.
 - 브랜치: 이슈마다 feature `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123` — push 하지 않는다), PR 은 기차 `integ/<AI 이름>-<번호>`(3절 「기차」). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
 - PR 제목 `통합 <키1>·<키2>·…`, 머지 커밋 제목 `merge: 통합 <키1>·<키2>·…`(`gh pr merge --merge` — 지금 main 이력 모양을 지킨다). 기차가 생기기 전에 올린 이슈 PR(제목 `<이슈 키> <이슈 제목>`, 머지 커밋 `merge: <이슈 키> <이슈 제목>`)은 그대로 리뷰·머지한다.
-- **통합 PR 리뷰(WP-1216)**: 이슈 단위로 리뷰하고(이슈 하나 = 커밋 하나 + 그 키를 단 수정 커밋) 게이트 통과·마이그레이션 번호(아래 0번)·합친 상태 검사(아래 1번)를 확인한다. 하나라도 문제면 PR 전체를 반려하고 어느 이슈가 왜 문제인지 적는다 — 개발자는 같은 PR 에 수정 커밋을 더한다. 통과하면 머지하고 실린 이슈마다 검토 대기(REVIEW)로 올린다 — 머지 커밋은 `message` 에.
-- 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. 전체 E2E·api JUnit 은 이 게이트만 돌린다 — 검토자는 origin/main 과 **충돌하는** 브랜치만 개발자에게 rebase 를 요청하고(검토자는 push 하지 않는다), 충돌 없이 main 이 앞서 있기만 한 브랜치는 그대로 머지한다(WP-998 — 낡았다는 이유로 돌려보내면 rebase 마다 게이트를 다시 돌아 머지가 멈춘다). 다만 마이그레이션 번호와, main 이 같은 앱을 고친 경우는 아래 「검토자 머지 판단」대로 머지 전에 본다. 그 밖의 합친 결과의 회귀는 머지 뒤 아래 CI 와 다음 push 게이트가 잡는다.
+- **통합 PR 리뷰(WP-1216)**: 이슈 단위로 리뷰하고(이슈 하나 = 커밋 하나 + 그 키를 단 수정 커밋) 게이트 통과·마이그레이션 번호(아래 0번)·합친 상태 검사(아래 1번)를 확인한다. 하나라도 문제면 PR 전체를 반려하고 어느 이슈가 왜 문제인지 적는다 — 개발자는 같은 PR 에 수정 커밋을 더한다. 통과하면 머지하고(8절 순서 머지) 실린 이슈마다 검토 대기(REVIEW)로 올린다 — 머지 커밋은 `message` 에.
+- 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. 전체 E2E·api JUnit 은 이 게이트만 돌린다 — 검토자는 origin/main 과 **충돌하는** 브랜치만 개발자에게 rebase 를 요청하고(검토자는 push 하지 않는다), 충돌 없이 main 이 앞서 있기만 한 브랜치는 rebase 없이 머지한다 — 머지 순서는 8절 순서 머지(WP-998 — 낡았다는 이유로 돌려보내면 rebase 마다 게이트를 다시 돌아 머지가 멈춘다). 다만 마이그레이션 번호와, main 이 같은 앱을 고친 경우는 아래 「검토자 머지 판단」대로 머지 전에 본다. 그 밖의 합친 결과의 회귀는 머지 뒤 아래 CI 와 다음 push 게이트가 잡는다.
 - **CI(GitHub Actions, WP-993)**: PR(main 대상)·main push 마다 `.github/workflows/ci.yml` 의 `verify`(전체 `pnpm lint`·`pnpm typecheck`, 웹 vitest 는 main push 에서만 — WP-1218)가 돈다. `main` 브랜치 보호가 `verify` 를 required check 로 건다 — 최신 main 포함 요구(strict)는 끈다(충돌 없는 낡은 브랜치도 머지 — WP-998), PR 필수는 아니고 관리자 직접 push 는 막지 않는다.
   - 검토자는 머지 전에 `gh pr checks <번호>` 로 `verify` 통과를 확인한다(진행 중이면 기다리고, 실패면 실패한 단계·로그 요지를 적어 반려한다).
   - 머지는 **`--admin` 없이** `gh pr merge --merge …` 로만 한다. AI 들이 관리자 계정을 함께 쓰므로 `--admin` 을 붙이면 보호가 뚫린다 — 어떤 경우에도 붙이지 않는다(거절되면 이유를 보고 고치거나 BLOCKED).
@@ -186,7 +186,7 @@ PR 의 `verify` 는 「그 PR + 갈라진 시점의 main」만 본다 — 줄 �
    - **웹·admin(lint·typecheck — CI 가 도는 것)**: `verify` 는 pull_request 의 merge ref(그때 main 과 합친 상태)로 돌았으니 lint·typecheck 는 그 결과를 쓴다. 웹 vitest 는 PR `verify` 에서 돌지 않고 main push 에서만 돈다(WP-1218) — PR 의 웹 vitest 는 개발자 push 게이트 결과로 본다. **verify 이후** main 이 같은 앱을 고쳤을 때만(`git log --first-parent --since=<verify 시작 시각> --name-only origin/main -- apps/<앱>/`, 시각은 `gh pr checks <번호> --json name,startedAt`) 다시 돌린다 — 웹: `pnpm --filter @smart-workplace/workplace-web test` + `pnpm --filter @smart-workplace/workplace-web typecheck`.
    - **push 게이트를 건너뛴 PR(`--no-verify` — 사람 지시)**: 웹(`apps/workplace-web/`)을 바꿨으면 위 시점 조건과 상관없이 최신 main 과 합친 상태로 웹 vitest 전체(`pnpm --filter @smart-workplace/workplace-web test` — 바뀐 범위가 아니라 전체)를 돌린 뒤 머지한다. 지금까지 CI 의 웹 vitest 가 이런 PR 의 안전망이었는데 PR 에서 빠졌기 때문이다(WP-1218).
    - **API(CI 에 없고 개발자 push 게이트에서만 돈다 — 합친 검사의 주 대상)**: PR 이 **갈라진 뒤** main 이 api 를 고쳤으면(`git diff --name-only $(git merge-base origin/main <PR>) origin/main -- apps/workplace-api/`) 돌린다. 기본은 양쪽이 바꾼 패키지의 테스트만(`./gradlew test --tests 'com.workplace.<패키지>.*'`, `apps/workplace-api`), 공용 코드(`global`(보안 `global/security` 포함)·DB 스키마 — 마이그레이션·jOOQ)가 바뀌었을 때만 `./gradlew test` 전체.
-2. **묶음**: 비슷한 때 준비된 PR 들(그때 함께 준비된 2~4개 — 묶으려고 일부러 기다리지 않는다)이 같은 앱을 고치면, 머지할 순서대로 로컬에서 모두 합쳐 1번 검사를 한 번만 한다. 통과하면 같은 순서로 GitHub 에서 하나씩 머지하고, 실패하면 원인 PR 을 가려 그 PR 만 돌려보낸다.
+2. **묶음**: 비슷한 때 준비된 PR 들(그때 함께 준비된 2~4개 — 묶으려고 일부러 기다리지 않는다)이 같은 앱을 고치면, 머지할 순서대로 로컬에서 모두 합쳐 1번 검사를 한 번만 한다. 통과하면 같은 순서로 GitHub 에서 하나씩 머지하고(줄 맨 앞부터 — 8절 순서 머지), 실패하면 원인 PR 을 가려 그 PR 만 돌려보낸다.
 3. **하나씩**: 같은 파일·영역(DB 마이그레이션, 공통 토큰, 공통 유틸·테스트 헬퍼)을 고치는 PR 은 묶지 않고 하나씩 머지한다.
 4. **판단은 검토자 몫**: 1~3 은 기준이고, 바뀐 범위가 작거나 명백히 무관하면 검토자가 범위를 줄일 수 있다(0번은 줄이지 않는다). 무엇을 왜 돌렸는지(또는 건너뛰었는지)를 리뷰 보고에 한 줄 남긴다(예: 「main 이 web 을 고쳐 합친 상태로 web vitest·tsc 통과」, 「main 변경은 api 만 — 합친 검사 생략」).
 5. **불안정한 테스트**: 합친 검사에서 실패한 테스트가 해당 PR 들과 무관하고 다시 돌려 통과하면 반려 사유로 삼지 않고, 불안정 테스트 이슈로 등록한다(`SKILL.md` 「이슈 만들기·담당 바꾸기」).
@@ -201,6 +201,7 @@ PR 의 `verify` 는 「그 PR + 갈라진 시점의 main」만 본다 — 줄 �
   - 개발자 PR 본문의 「절차」 줄을 확인한다(`process-issue.md` 5번 형식, 흉내만 낸 줄이면 반려).
   - 브랜치 전체에 `/code-review medium` 을 실제로 돌리고(다시 부탁받으면 달라진 부분 — process-issue.md 「PR 리뷰·머지」 3번) 그 결과를 적는다.
   - 완료 기준 대조표를 적는다(미충족·확인 불가가 있으면 반려, 통합 PR 은 이슈마다).
+- **순서 머지(WP-1720)** — 열린 AI PR 은 번호 순으로 맨 앞만 머지한다(리뷰는 받는 대로, 막힘 풀기는 process-issue.md 「PR 리뷰·머지」 「머지 순서」).
 
 ## 9. 할 일 없을 때 (`SKILL.md` 3번 「할 일 없음」)
 
