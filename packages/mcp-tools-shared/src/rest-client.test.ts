@@ -593,6 +593,16 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenLastCalledWith('/staged-files/upload-link', { name: '보고서.pdf' });
   });
 
+  // WP-1705: 첨부 복사 — 요청 객체를 그대로 본문으로 보낸다(이슈 챗은 서버가 issueKey 로 스레드를 찾으므로 스레드 조회 GET 이 없다).
+  it('WP-1705 스테이징 복사 경로', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: { fileId: 77 } });
+    const req = { source: 'issue_chat' as const, issueKey: 'WP-1', messageId: 3, attachmentId: 5 };
+    expect(await client.copyToStagedFile(req)).toEqual({ fileId: 77 });
+    expect(http.post).toHaveBeenLastCalledWith('/staged-files/copy', req);
+    expect(http.get).not.toHaveBeenCalled();
+  });
+
   it('WP-147: getMail 은 AI 조회라 항상 markSeen=false 로 부른다(읽음 처리 안 함)', async () => {
     const { http, client } = mockHttp();
     await client.getMail(3);

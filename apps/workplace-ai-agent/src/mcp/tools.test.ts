@@ -185,6 +185,8 @@ function sharedMock(): MockedShared {
     // WP-421: 첨부용 파일 스테이징(텍스트·일회용 링크)
     createStagedTextFile: vi.fn().mockResolvedValue({ fileId: 950, name: '요약.md', sizeBytes: 8, mimeType: 'text/markdown', expiresAt: 't' }),
     createStagedUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/su', method: 'PUT', expiresAt: 't', maxBytes: 26214400, name: 'a.pdf', singleUse: true }),
+    // WP-1705: 읽을 수 있는 첨부를 서버 안에서 복사해 스테이징(같은 StagedFileResponse)
+    copyToStagedFile: vi.fn().mockResolvedValue({ fileId: 951, name: '화면.png', sizeBytes: 16, mimeType: 'image/png', expiresAt: 't' }),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     listArchivedNotifications: vi.fn().mockResolvedValue([]),
@@ -2112,6 +2114,25 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     expect(t.description).not.toMatch(/curl|uploadUrl|one-time upload link|maxBytes/);
     // 스키마·힌트는 공유본 그대로(패리티).
     expect(t.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: false });
+  });
+
+  // WP-1705: AI Chat 판도 source 갈래(읽을 수 있는 첨부 복사)는 셸 없이 되므로 허용한다 — 링크 거절은 content·source 가 둘 다 없을 때만.
+  it('assistant upload_file 은 source 로 읽을 수 있는 첨부를 복사한다(링크 거절 없음, WP-1705)', async () => {
+    const c = client();
+    const t = find(buildTools(c, 7, 'assistant'), 'upload_file');
+    const out = await t.handler({ source: 'issue_chat', issueKey: 'WP-1', messageId: 3, attachmentId: 5, name: '캡처.png' });
+    expect(c.toolClient).toHaveBeenCalledWith(7);
+    expect(c.sc.copyToStagedFile).toHaveBeenCalledWith({ source: 'issue_chat', issueKey: 'WP-1', messageId: 3, attachmentId: 5, name: '캡처.png' });
+    expect(JSON.parse(out as string)).toMatchObject({ fileId: 951 });
+    expect(c.sc.createStagedUploadLink).not.toHaveBeenCalled();
+  });
+
+  it('반복 회차(recurring) upload_file 은 source 로 읽을 수 있는 첨부를 복사한다(content 없이도 링크 거절 없음, WP-1705)', async () => {
+    const c = client();
+    const out = await find(buildTools(c, AGENT_ID, 'recurring'), 'upload_file').handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 5 });
+    expect(c.sc.copyToStagedFile).toHaveBeenCalledWith({ source: 'issue', issueKey: 'WP-1', attachmentId: 5 });
+    expect(JSON.parse(out as string)).toMatchObject({ fileId: 951 });
+    expect(c.sc.createStagedUploadLink).not.toHaveBeenCalled();
   });
 
   it('upload_file 은 에이전트 신원 issue·messaging·chat·home 프로필에는 없다(WP-421 결정 8)', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildFileTools, UPLOAD_FILE_CONTENT_DESCRIPTION } from './file-tools.js';
+import { buildFileTools, UPLOAD_FILE_CONTENT_DESCRIPTION, UPLOAD_FILE_SOURCE_DESCRIPTION } from './file-tools.js';
 import { resultText } from './mcp-content.js';
 import type { FileToolClient } from './tool-client.js';
 
@@ -13,6 +13,8 @@ function mockClient(): FileToolClient {
       url: 'https://w.example/api/v1/public/staged-files/su_abc', method: 'PUT', expiresAt: '2026-10-16T05:10:00Z',
       maxBytes: 26214400, name: '보고서.pdf', singleUse: true,
     }),
+    // WP-1705: 읽을 수 있는 첨부를 스테이징 파일로 복사 — 응답은 같은 StagedFileResponse.
+    copyToStagedFile: vi.fn().mockResolvedValue({ fileId: 77, name: '화면.png', sizeBytes: 16, mimeType: 'image/png', expiresAt: 't' }),
   };
 }
 
@@ -93,7 +95,72 @@ describe('buildFileTools (WP-421)', () => {
     await expect(t.handler({ name: '보고서.pdf', content: null })).rejects.toThrow(/AI Chat 에서는 업로드 링크를 만들 수 없습니다/);
     expect(c.createStagedUploadLink).not.toHaveBeenCalled();
     expect(t.description).toMatch(/^AI Chat 에서는/);
-    expect(t.description.endsWith(UPLOAD_FILE_CONTENT_DESCRIPTION)).toBe(true);
+    // WP-1705: content 부분 뒤에 source 부분이 붙는다(복사 갈래는 AI Chat 에서도 쓸 수 있다).
+    expect(t.description.endsWith(`${UPLOAD_FILE_CONTENT_DESCRIPTION} ${UPLOAD_FILE_SOURCE_DESCRIPTION}`)).toBe(true);
     expect(t.description).not.toMatch(/curl|uploadUrl|one-time upload link|maxBytes/);
+  });
+
+  // ── WP-1705: source 갈래 — 읽을 수 있는 첨부(이슈·이슈 챗·드라이브)를 서버에서 복사해 스테이징한다(read_file 과 같은 식별자). ──
+  it('upload_file source: issue 첨부를 복사한다 — name 생략 가능, 응답은 StagedFile 그대로', async () => {
+    const c = mockClient();
+    const out = await uploadFile(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 5 });
+    expect(c.copyToStagedFile).toHaveBeenCalledWith({ source: 'issue', issueKey: 'WP-1', attachmentId: 5 });
+    expect(JSON.parse(resultText(out))).toEqual({ fileId: 77, name: '화면.png', sizeBytes: 16, mimeType: 'image/png', expiresAt: 't' });
+    expect(c.createStagedTextFile).not.toHaveBeenCalled();
+    expect(c.createStagedUploadLink).not.toHaveBeenCalled();
+  });
+
+  it('upload_file source: name 을 주면 함께 보낸다(issue_chat·drive 도 같은 표로 필수 필드)', async () => {
+    const c = mockClient();
+    await uploadFile(c).handler({ source: 'issue_chat', issueKey: 'WP-1', messageId: 3, attachmentId: 5, name: '캡처.png' });
+    expect(c.copyToStagedFile).toHaveBeenLastCalledWith({ source: 'issue_chat', issueKey: 'WP-1', messageId: 3, attachmentId: 5, name: '캡처.png' });
+    await uploadFile(c).handler({ source: 'drive', driveFileId: 8, name: '캡처.png' });
+    expect(c.copyToStagedFile).toHaveBeenLastCalledWith({ source: 'drive', driveFileId: 8, name: '캡처.png' });
+  });
+
+  it('upload_file source: 필수 식별자가 빠지면 API 를 부르지 않고 거절', async () => {
+    const c = mockClient();
+    await expect(uploadFile(c).handler({ source: 'issue_chat', issueKey: 'WP-1', attachmentId: 5 })).rejects.toThrow(/messageId/);
+    await expect(uploadFile(c).handler({ source: 'drive' })).rejects.toThrow(/driveFileId/);
+    expect(c.copyToStagedFile).not.toHaveBeenCalled();
+  });
+
+  it('upload_file source: 다른 source 의 식별자·content 와 함께 주면 거절', async () => {
+    const c = mockClient();
+    await expect(uploadFile(c).handler({ source: 'drive', driveFileId: 1, issueKey: 'WP-1' })).rejects.toThrow(/issueKey/);
+    await expect(uploadFile(c).handler({ source: 'drive', driveFileId: 1, content: 'x' })).rejects.toThrow(/content/);
+    expect(c.copyToStagedFile).not.toHaveBeenCalled();
+    expect(c.createStagedTextFile).not.toHaveBeenCalled();
+  });
+
+  it('upload_file: source 없이 식별자만 주거나 name 이 없으면 거절', async () => {
+    const c = mockClient();
+    await expect(uploadFile(c).handler({ issueKey: 'WP-1', attachmentId: 5, name: 'a' })).rejects.toThrow(/source/);
+    await expect(uploadFile(c).handler({ content: 'x' })).rejects.toThrow(/name/);
+    expect(c.copyToStagedFile).not.toHaveBeenCalled();
+    expect(c.createStagedTextFile).not.toHaveBeenCalled();
+    expect(c.createStagedUploadLink).not.toHaveBeenCalled();
+  });
+
+  it('upload_file source: null 로 채운 쓰지 않는 인자는 생략으로 본다', async () => {
+    const c = mockClient();
+    await uploadFile(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 5, name: null, content: null, driveFileId: null, messageId: null });
+    expect(c.copyToStagedFile).toHaveBeenCalledWith({ source: 'issue', issueKey: 'WP-1', attachmentId: 5 });
+  });
+
+  it('upload_file(allowUploadLink: false): source 갈래는 허용하고, content·source 둘 다 없을 때만 링크 거절', async () => {
+    const c = mockClient();
+    const t = buildFileTools(c, { allowUploadLink: false })[0];
+    await t.handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 5 });
+    expect(c.copyToStagedFile).toHaveBeenCalledWith({ source: 'issue', issueKey: 'WP-1', attachmentId: 5 });
+    await expect(t.handler({ name: '보고서.pdf', source: null })).rejects.toThrow(/AI Chat 에서는 업로드 링크를 만들 수 없습니다.*source 로 복사/);
+    expect(c.createStagedUploadLink).not.toHaveBeenCalled();
+  });
+
+  it('upload_file 설명: 두 판 모두 source 문장이 한 번 있다', () => {
+    for (const allowUploadLink of [true, false]) {
+      const d = buildFileTools(mockClient(), { allowUploadLink })[0].description;
+      expect(d.split(UPLOAD_FILE_SOURCE_DESCRIPTION).length - 1).toBe(1);
+    }
   });
 });

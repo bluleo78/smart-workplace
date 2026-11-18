@@ -186,6 +186,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 | 나는 | 이슈 | 처리 파일 |
 |---|---|---|
+| 누구든 | `.work-loop/project.md` 「안내 자료 요청」 소절의 라벨이 붙고 PR 이 없는 이슈 | `process-issue.md` 「안내 자료 요청」 — 구현·커밋·PR 없이 확인해 검토 대기로 보고 |
 | 기획 역할 AI | 지시한 이슈와 그 하위(「본문 지시」) | `process-issue.md` 「본문 지시 회차」 — 코드를 바꾸지 않는 회차만 한다(코드를 바꿔야 하는 일은 개발 이슈로 만들어 넘긴다) |
 | 기획 역할 AI | 그 밖의 내 이슈 | `plan-issue.md` — 구현·커밋·PR 로 가지 않는다 |
 | 분류 역할 AI | PR 이 없고 「분류 (분류 역할 AI)」 1번 판별(분류 요청·보내는 중·진행 중인데 PR 없음)에 드는 이슈 | `process-issue.md` 「분류 (분류 역할 AI)」 — 구현하지 않는다(그 절이 판별·갈래를 정한다) |

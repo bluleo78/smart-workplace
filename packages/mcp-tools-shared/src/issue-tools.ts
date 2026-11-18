@@ -193,7 +193,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'read',
       description:
-        'One issue (이슈) by issueKey: Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
+        'One issue (이슈) by issueKey: Markdown body, all fields, cycles, parent, children, blockedBy/blocks, ' +
         'relations/externalLinks (ids for remove_issue_relation), ' +
         `custom fields, watchers, driveLinks, attachments (attachmentId for read_file), latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments/` +
         `${ISSUE_DETAIL_HISTORY_LIMIT} history; commentsOmitted/historyOmitted count older (absent = complete). ` +
