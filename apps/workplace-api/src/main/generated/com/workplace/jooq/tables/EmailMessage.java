@@ -244,6 +244,30 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
      */
     public final TableField<EmailMessageRecord, Long> ORIGINAL_FOLDER_ID = createField(DSL.name("original_folder_id"), SQLDataType.BIGINT, this, "");
 
+    /**
+     * The column <code>public.email_message.flagged</code>. 별표(서버 플래그 — IMAP
+     * \Flagged, Graph flag.flagStatus=flagged) (WP-1741)
+     */
+    public final TableField<EmailMessageRecord, Boolean> FLAGGED = createField(DSL.name("flagged"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "별표(서버 플래그 — IMAP \\Flagged, Graph flag.flagStatus=flagged) (WP-1741)");
+
+    /**
+     * The column <code>public.email_message.flagged_push_pending</code>. 로컬 별표
+     * 변경 후 원본 서버 반영 대기 — true 인 동안 동기화가 flagged 를 덮어쓰지 않음 (WP-1741)
+     */
+    public final TableField<EmailMessageRecord, Boolean> FLAGGED_PUSH_PENDING = createField(DSL.name("flagged_push_pending"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "로컬 별표 변경 후 원본 서버 반영 대기 — true 인 동안 동기화가 flagged 를 덮어쓰지 않음 (WP-1741)");
+
+    /**
+     * The column <code>public.email_message.flagged_push_attempts</code>. 별표
+     * 역동기화 연속 실패 횟수 — 상한에 닿으면 포기하고 서버 값을 따름 (WP-1741)
+     */
+    public final TableField<EmailMessageRecord, Integer> FLAGGED_PUSH_ATTEMPTS = createField(DSL.name("flagged_push_attempts"), SQLDataType.INTEGER.nullable(false).defaultValue(DSL.field(DSL.raw("0"), SQLDataType.INTEGER)), this, "별표 역동기화 연속 실패 횟수 — 상한에 닿으면 포기하고 서버 값을 따름 (WP-1741)");
+
+    /**
+     * The column <code>public.email_message.flagged_push_next_at</code>. 별표
+     * 역동기화 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-1741)
+     */
+    public final TableField<EmailMessageRecord, OffsetDateTime> FLAGGED_PUSH_NEXT_AT = createField(DSL.name("flagged_push_next_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "별표 역동기화 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-1741)");
+
     private EmailMessage(Name alias, Table<EmailMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -313,7 +337,7 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.EMAIL_MESSAGE_CONTENT_ID_IDX, Indexes.IDX_EMAIL_MESSAGE_ORIGINAL_FOLDER, Indexes.IDX_EMAIL_MESSAGE_RECEIVED, Indexes.IDX_EMAIL_MESSAGE_SEEN_PUSH_PENDING, Indexes.IDX_EMAIL_MESSAGE_TENANT, Indexes.IDX_EMAIL_MESSAGE_THREAD, Indexes.UK_EMAIL_MESSAGE_PROVIDER_MSG);
+        return Arrays.asList(Indexes.EMAIL_MESSAGE_CONTENT_ID_IDX, Indexes.IDX_EMAIL_MESSAGE_FLAGGED_IMAP, Indexes.IDX_EMAIL_MESSAGE_FLAGGED_PUSH_PENDING, Indexes.IDX_EMAIL_MESSAGE_ORIGINAL_FOLDER, Indexes.IDX_EMAIL_MESSAGE_RECEIVED, Indexes.IDX_EMAIL_MESSAGE_SEEN_PUSH_PENDING, Indexes.IDX_EMAIL_MESSAGE_TENANT, Indexes.IDX_EMAIL_MESSAGE_THREAD, Indexes.UK_EMAIL_MESSAGE_PROVIDER_MSG);
     }
 
     @Override

@@ -27,6 +27,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "create_wiki_page:write",
   "draft_issue_from_mail:read",
   "draft_mail_reply:read",
+  "flag_mail:write",
   "get_contact_facets:read",
   "get_drive_file_summary:read",
   "get_event:read",

@@ -68,7 +68,17 @@ public final class GraphMessageMapper {
         null /* bodyText — on-demand 적재 */,
         null /* bodyHtml — on-demand 적재 */,
         null /* snippet — on-demand 적재 */,
-        List.of() /* attachments — on-demand */);
+        List.of() /* attachments — on-demand */,
+        null /* structure — Graph 경로는 공유 지문 미사용 */,
+        isFlagged(m) /* WP-1741 별표 — 누락(null)은 신규 삽입 시 별표 없음 */);
+  }
+
+  /**
+   * Graph flag.flagStatus → 별표 여부(WP-1741). {@code flagged} 만 별표로 보고, {@code complete}(완료)·{@code
+   * notFlagged}·누락은 별표 아님으로 본다.
+   */
+  public static boolean isFlagged(GraphMessage m) {
+    return m.flag() != null && "flagged".equalsIgnoreCase(m.flag().flagStatus());
   }
 
   /** 수신자 목록을 "주소 <이름>, ..." 형식 문자열로 변환. 빈 리스트면 null. */

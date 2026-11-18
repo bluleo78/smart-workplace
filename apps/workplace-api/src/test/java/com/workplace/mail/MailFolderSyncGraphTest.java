@@ -44,7 +44,7 @@ class MailFolderSyncGraphTest extends ExternalClientMockedTestBase {
   private static final String TOKEN = "FAKE_TOKEN";
   private static final String SELECT =
       "$select=subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,isRead,"
-          + "hasAttachments,internetMessageId,conversationId";
+          + "hasAttachments,internetMessageId,conversationId,flag"; // WP-1741: flag(별표)
 
   @Autowired DSLContext dsl;
   @Autowired MailFolderService folderService;

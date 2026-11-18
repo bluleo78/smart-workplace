@@ -60,6 +60,7 @@ const source: EmailMessageDetail = {
   sentAt: '2026-10-20T01:00:00Z',
   receivedAt: '2026-10-20T01:00:00Z',
   seen: true,
+  flagged: false,
   bodyText: '원본 본문입니다',
   bodyHtml: null,
   attachments: [],

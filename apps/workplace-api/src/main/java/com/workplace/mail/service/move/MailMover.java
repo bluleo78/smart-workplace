@@ -15,8 +15,9 @@ public interface MailMover {
   MailProvider provider();
 
   /**
-   * 메일들을 서버에서 옮긴다. 로컬 읽음이 아직 서버에 반영되지 않은 메일(seenPushPending)은 옮기기 전에 그 값을 먼저 반영한다 — 옮기면 서버 위치가 바뀌어
-   * 대기 중인 반영이 옛 위치를 가리키게 되기 때문이다.
+   * 메일들을 서버에서 옮긴다. 로컬 읽음·별표가 아직 서버에 반영되지 않은 메일(seenPushPending·flaggedPushPending)은 옮기기 전에 그 값을 먼저
+   * 반영한다 — 옮기면 서버 위치가 바뀌어 대기 중인 반영이 옛 위치를 가리키게 되기 때문이다(옛 위치의 「메일 없음」을 성공으로 보고 대기를 풀면, 옮긴 곳 동기화가 서버
+   * 값으로 로컬 별표를 지운다 — WP-1741).
    *
    * @return 요청한 메일마다 결과 한 건(순서 무관)
    * @throws com.workplace.mail.exception.MailSyncException 서버 접속 자체가 실패(이때는 아무것도 옮기지 않았다)
@@ -29,6 +30,7 @@ public interface MailMover {
    *
    * @param sourceFolderName 지금 메일함 이름(IMAP 폴더를 여는 이름)
    * @param seen 로컬 읽음 상태(반영 대기면 이 값을 서버에 먼저 반영한다)
+   * @param flagged 로컬 별표(WP-1741 — 반영 대기면 이 값을 서버에 먼저 반영한다)
    * @param hasProviderAttachments Graph 첨부 id 를 저장한 첨부가 있는지 — 옮긴 뒤 새 첨부 id 를 다시 받는다
    * @param sourceUidValidity 지금 메일함에 기록된 IMAP UIDVALIDITY — 서버와 다르면(또는 없으면) 그 메일함 메일은 옮기지 않는다
    */
@@ -39,6 +41,8 @@ public interface MailMover {
       String providerMessageId,
       boolean seen,
       boolean seenPushPending,
+      boolean flagged,
+      boolean flaggedPushPending,
       boolean hasProviderAttachments,
       Long sourceUidValidity) {}
 
@@ -59,6 +63,7 @@ public interface MailMover {
    * @param newUidValidity 옮긴 곳의 UIDVALIDITY(newImapUid 와 함께)
    * @param newProviderId 옮긴 뒤의 Graph 메시지 id(Graph 는 옮기면 id 가 바뀐다)
    * @param seenPushed 반영 대기 읽음을 서버에 반영했는지(대기가 아니었으면 false)
+   * @param flaggedPushed 반영 대기 별표를 서버에 반영했는지(WP-1741, 대기가 아니었으면 false)
    * @param newAttachmentIds 옮긴 뒤의 Graph 첨부 id(목록 순서 = ordinal). 다시 받지 않았거나 실패했으면 null
    */
   record Outcome(
@@ -68,11 +73,12 @@ public interface MailMover {
       Long newUidValidity,
       String newProviderId,
       boolean seenPushed,
+      boolean flaggedPushed,
       String error,
       List<String> newAttachmentIds) {
 
     static Outcome failed(long messageId, String error) {
-      return new Outcome(messageId, false, null, null, null, false, error, null);
+      return new Outcome(messageId, false, null, null, null, false, false, error, null);
     }
 
     /**
@@ -80,7 +86,9 @@ public interface MailMover {
      * 늘어도 호출 쪽이 위치 인자를 따로 세지 않게 레코드 안에 둔다.
      */
     Outcome withoutLocation() {
-      return ok ? new Outcome(messageId, true, null, null, null, seenPushed, null, null) : this;
+      return ok
+          ? new Outcome(messageId, true, null, null, null, seenPushed, flaggedPushed, null, null)
+          : this;
     }
   }
 }

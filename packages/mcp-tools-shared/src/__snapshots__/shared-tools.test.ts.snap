@@ -27,6 +27,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "create_wiki_page": "write",
   "draft_issue_from_mail": "read",
   "draft_mail_reply": "read",
+  "flag_mail": "write",
   "get_contact_facets": "read",
   "get_drive_file_summary": "read",
   "get_event": "read",
@@ -1140,6 +1141,29 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "flag_mail",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "flagged": {
+          "default": true,
+          "type": "boolean",
+        },
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+        "flagged",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "get_contact_facets",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2006,7 +2030,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
         "needsReply": {
-          "description": "AI-flagged, still unread",
+          "description": "AI-marked, still unread",
           "type": "boolean",
         },
         "query": {

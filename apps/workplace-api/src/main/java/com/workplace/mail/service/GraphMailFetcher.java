@@ -27,8 +27,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Microsoft Graph API 공급자용 {@link MailFetcher} 구현(#499).
  *
  * <p>Graph messages/delta API 로 INBOX 증분 동기화를 수행한다. 신규 메시지를 {@code email_message} 테이블에 적재하고, {@code
- * @removed} 마커 항목은 행을 삭제한다. 증분 커서({@code @odata.deltaLink})는 {@code email_folder.delta_link} 에 보관해 다음
- * 동기화 시 재사용한다.
+ * @removed} 마커 항목은 행을 삭제한다. 증분 커서({@code @odata.deltaLink})는 {@code email_folder.graph_delta_link}
+ * (WP-1741 — 옛 delta_link 대체)에 보관해 다음 동기화 시 재사용한다.
  *
  * <p>{@link MailSyncService} 가 {@code account.provider() == M365_GRAPH} 일 때 이 구현을 자동 디스패치한다.
  *
@@ -54,7 +54,7 @@ public class GraphMailFetcher implements MailFetcher {
   static final String SELECT =
       "$select=subject,from,toRecipients,ccRecipients,"
           + "receivedDateTime,sentDateTime,isRead,hasAttachments,"
-          + "internetMessageId,conversationId";
+          + "internetMessageId,conversationId,flag"; // WP-1741: flag — 별표(flagStatus) 동기화
 
   /** Graph INBOX delta 초기 URL. */
   static final String INITIAL_DELTA_URL = "/me/mailFolders/inbox/messages/delta?" + SELECT;
@@ -338,14 +338,20 @@ public class GraphMailFetcher implements MailFetcher {
     return new OlderFetch(new MailSyncResult(fetched, saved, seenChanged, 0), from, false, true);
   }
 
-  /** 메시지 한 건 UPSERT — 기존 메시지는 seen 만 서버 isRead 로 갱신(WP-148). isRead 가 응답에 없으면 읽음 상태를 건드리지 않는다. */
+  /**
+   * 메시지 한 건 UPSERT — 기존 메시지는 seen 을 서버 isRead 로(WP-148), flagged 를 서버 flag.flagStatus 로(WP-1741)
+   * 갱신한다. 응답에 isRead·flag 가 없으면 그 상태를 건드리지 않는다.
+   */
   private EmailMessageRepository.UpsertOutcome upsert(
       long accountId, long folderId, GraphMessage m) {
     ParsedMessage parsed = GraphMessageMapper.toParsed(m);
     final String msgId = m.id();
     final boolean syncSeen = m.isRead() != null;
+    final boolean syncFlagged = m.flag() != null && m.flag().flagStatus() != null;
     return txTemplate.execute(
-        s -> messageRepo.upsertByProviderId(accountId, folderId, parsed, msgId, syncSeen));
+        s ->
+            messageRepo.upsertByProviderId(
+                accountId, folderId, parsed, msgId, syncSeen, syncFlagged));
   }
 
   /**

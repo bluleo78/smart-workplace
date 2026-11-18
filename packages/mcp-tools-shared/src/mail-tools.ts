@@ -25,7 +25,7 @@ export const listMailInput = z.object({
   unreadOnly: z.boolean().optional(),
   // WP-357: 서버 category 는 값을 검증하지 않아 오타가 조용히 빈 목록이 된다 — enum 으로 막는다(값은 서버 EmailMessageRepository.CATEGORIES).
   category: mailCategoryInput.optional().describe('업무 includes unclassified'),
-  needsReply: z.boolean().optional().describe('AI-flagged, still unread'),
+  needsReply: z.boolean().optional().describe('AI-marked, still unread'),
   limit: z.number().int().min(1).max(100).default(20),
 });
 export const getMailInput = z.object({ messageId: z.number().int().positive() });
@@ -46,6 +46,11 @@ export const createIssueFromMailInput = z.object({
 export const markMailReadInput = z.object({
   messageId: z.number().int().positive(),
   read: z.boolean().default(true),
+});
+// WP-1741: 별표 켜기/끄기 입력. mark_mail_read 처럼 짝 도구 대신 flagged:false 로 끈다(기본은 켜기 — 빠뜨려도 별표를 지우지 않는다).
+export const flagMailInput = z.object({
+  messageId: z.number().int().positive(),
+  flagged: z.boolean().default(true),
 });
 // WP-1681: 한 번에 옮길 수 있는 메일 수 상한 — API MailMoveRequest 의 messageIds 상한과 같다(어긋나면 API 가 400 으로 거절한다).
 const MAIL_MOVE_MAX_MESSAGES = 100;
@@ -71,8 +76,13 @@ type Raw = Record<string, unknown>;
  * 회신 필요 = aiNeedsReply 가 true 이고 seen 이 false(서버 단일 술어).
  */
 export function toMailListItem(row: Raw): Raw {
-  const { categoryPending, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed');
-  return dropEmpty({ ...rest, ...(categoryPending === true && { categoryPending: true }) });
+  const { categoryPending, flagged, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed');
+  return dropEmpty({
+    ...rest,
+    ...(categoryPending === true && { categoryPending: true }),
+    // WP-1741: 별표도 대부분 false 라 true 일 때만 싣는다(categoryPending 과 같은 이유).
+    ...(flagged === true && { flagged: true }),
+  });
 }
 
 /**
@@ -110,7 +120,7 @@ export function toSyncResultView(raw: unknown): { fetched: number; saved: number
 
 /**
  * 메일 도구(list_mail_accounts/list_mail/get_mail/get_mail_summary/draft_mail_reply/draft_issue_from_mail/
- * create_issue_from_mail/mark_mail_read/update_mail_category/sync_mail). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
+ * create_issue_from_mail/mark_mail_read/flag_mail/update_mail_category/sync_mail). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
  */
 export function buildMailTools(
   client: MailToolClient & AssigneeResolverClient & Pick<ProjectMetaClient, 'getProjectTypes' | 'getProjectLabels'>,
@@ -121,7 +131,7 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Lists my mail (메일) accounts; id is the accountId of other mail tools.',
+        'Lists my mail (메일) accounts; id = accountId of other mail tools.',
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.listMailAccounts());
@@ -132,9 +142,9 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Lists mail in an account folder (accountId from list_mail_accounts), newest first, up to limit, no paging. Item id = messageId; ' +
-        'categoryPending:true = not classified or failed. query matches sender (substring) and subject/body words; for unread mail use unreadOnly, ' +
-        'not "is:unread".',
+        'Lists mail in an account folder, newest first, up to limit, no paging. id = messageId; ' +
+        'categoryPending:true = unclassified or failed; flagged:true = starred. query matches sender (substring), subject/body words; for unread use ' +
+        'unreadOnly, not "is:unread".',
       inputSchema: listMailInput,
       async handler(args) {
         const { accountId, folder, limit, query, unreadOnly, category, needsReply } = listMailInput.parse(args);
@@ -147,8 +157,8 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Returns one mail by messageId (id from list_mail): plain-text bodyText (HTML-only mail converted, without formatting, link URLs or ' +
-        'images) and attachments. issueKey: issue created from this mail, if any. Does not mark it read.',
+        'One mail by messageId: plain-text bodyText (HTML-only mail converted, no formatting, link URLs, ' +
+        'images) and attachments. issueKey: issue made from it, if any. Does not mark it read.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -163,7 +173,7 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Returns an AI summary of one mail; quicker than get_mail for long mail.',
+        'AI summary of one mail; quicker than get_mail for long mail.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -175,7 +185,7 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Returns an AI-drafted reply body as {draftBody}. Nothing is saved or sent (no send tool here): show the draft to the user.',
+        'Returns an AI-drafted reply as {draftBody}. Saves or sends nothing (no send tool): show the draft to the user.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -188,8 +198,8 @@ export function buildMailTools(
       kind: 'read',
       description:
         'Drafts an issue from a mail: {title, body, priority, suggestedProjectKey, candidateProjects (senderSelectable, senderDefault), sender}. ' +
-        'Creates nothing; confirm with the user (reporter: me or sender, default per project = senderDefault), then ' +
-        'call create_issue_from_mail.',
+        'Creates nothing; confirm with the user (reporter: me or sender; per-project default senderDefault), then ' +
+        'create_issue_from_mail.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -203,10 +213,9 @@ export function buildMailTools(
       // 이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 기존 키를 돌려준다 — 멱등.
       hints: { destructive: false, idempotent: true },
       description:
-        'Creates an issue (이슈) from a mail. assignees are project member usernames ("me" = caller) and are notified; type and labels are ' +
-        'project names (unknown labels are created, gray; createdLabels). reporter: me (default) or sender (must be ' +
-        'a workspace member who can see the project). Returns {issueKey, created}; created:false = the ' +
-        'mail\'s existing issue.',
+        'Creates an issue (이슈) from a mail. assignees: project member usernames ("me" = caller), notified; type, labels: ' +
+        'project names (unknown labels created, gray; createdLabels). reporter: me (default) or sender (a workspace member ' +
+        'who can see the project). Returns {issueKey, created}; created:false = the mail\'s existing issue.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
         const { messageId, assignees, type, labels, reporter, ...rest } = createIssueFromMailInput.parse(args);
@@ -245,12 +254,26 @@ export function buildMailTools(
       // 읽음 상태가 원본 메일 서버(Graph/IMAP)로 역동기화된다 — 워크스페이스 밖에 닿으므로 openWorld.
       hints: { destructive: true, idempotent: true, openWorld: true },
       description:
-        'Marks a mail read, or unread with read:false, also on the mail server; only when the user asks. Read mail leaves the needs-reply list; ' +
-        'unread mail the AI flagged joins it.',
+        'Marks a mail read (read:false: unread), also on the server; only when asked. Read mail leaves needs-reply; ' +
+        'unread AI-marked mail joins it.',
       inputSchema: markMailReadInput,
       async handler(args) {
         const { messageId, read } = markMailReadInput.parse(args);
         await (read ? client.markMailRead(messageId) : client.markMailUnread(messageId));
+        return 'ok';
+      },
+    },
+    {
+      name: 'flag_mail',
+      app: 'mail',
+      kind: 'write',
+      // WP-1741: 별표가 원본 메일 서버(IMAP \Flagged·Graph flag)로 역동기화된다 — mark_mail_read 와 같은 이유로 openWorld·destructive(서버 값을 덮는다)·멱등.
+      hints: { destructive: true, idempotent: true, openWorld: true },
+      description: 'Stars a mail (flagged:false: unstars), also on the server; only when asked.',
+      inputSchema: flagMailInput,
+      async handler(args) {
+        const { messageId, flagged } = flagMailInput.parse(args);
+        await client.setMailFlagged(messageId, flagged);
         return 'ok';
       },
     },
@@ -262,7 +285,7 @@ export function buildMailTools(
       // destructive 가 아니며, 이미 되살린 메일은 서버가 400 으로 거절해 같은 인자를 다시 불러도 결과가 같지 않으므로 멱등이 아니다.
       hints: { destructive: false, idempotent: false, openWorld: true },
       description:
-        'Restores trashed mail (list_mail folder:TRASH) to its original folder or the inbox, also on the server. Returns {results:[{messageId, ok, error?}]}.',
+        'Restores trashed mail (list_mail folder:TRASH) to its original folder (else the inbox), also on the server. Returns {results:[{messageId, ok, error?}]}.',
       inputSchema: restoreMailInput,
       async handler(args) {
         const { accountId, messageIds } = restoreMailInput.parse(args);
@@ -276,7 +299,7 @@ export function buildMailTools(
       // WP-1341: 내 사본(email_message.user_category)만 바꾼다 — 같은 메일을 받은 동료의 분류는 그대로다. null 로 AI 분류에 되돌릴 수 있어
       // destructive 가 아니고, 같은 값을 다시 보내도 결과가 같아 멱등이다. 원본 메일 서버에는 닿지 않는다.
       hints: { destructive: false, idempotent: true, openWorld: false },
-      description: 'Sets my category for one mail (only for me); null returns it to the AI category.',
+      description: 'Sets my category for one mail; null = back to the AI category.',
       inputSchema: updateMailCategoryInput,
       async handler(args) {
         const { messageId, category } = updateMailCategoryInput.parse(args);
@@ -294,10 +317,9 @@ export function buildMailTools(
       // 호출마다 last_synced_at 이 갱신되고 그 사이 도착한 메일 때문에 같은 인자도 결과가 달라지므로 멱등이 아니다(true 는 자동 재시도를 부른다).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        'Syncs an account inbox with its server (M365 or IMAP): fetches new mail, overwrites read states from it (IMAP: ' +
-        'last 14 days, 500 items), and on M365 deletes mail removed there. Returns {fetched, saved (new), seenChanged}; all 0 = no change. If a ' +
-        'sync is already running: {alreadySyncing:true, phase, done, total}; retry later or use list_mail (best effort: all 0 may ' +
-        'also mean a sync just started).',
+        'Syncs an account inbox with its server (M365/IMAP): fetches new mail, overwrites read/star states (IMAP: last 14 days, 500 ' +
+        'items); M365 also deletes mail removed there. Returns {fetched, saved (new), seenChanged}; all 0 = no change (best effort: or a ' +
+        'sync just started). Already running: {alreadySyncing:true, phase, done, total}; retry later or use list_mail.',
       inputSchema: syncMailInput,
       async handler(args) {
         const { accountId } = syncMailInput.parse(args);

@@ -379,6 +379,79 @@ class MailMoveGraphTest extends ExternalClientMockedTestBase {
         .fetchSingle(EMAIL_FOLDER.SERVER_UNREAD);
   }
 
+  /**
+   * WP-1741: 별표를 바꾸고 바로 보관하면 반영 대기 별표를 옛 id 로 옮기기 전에 먼저 PATCH 한다(읽음도 대기면 한 본문에 함께). 보내지 않고 옮기면 나중
+   * 역동기화가 옛 id 에서 404 를 성공으로 보고 대기를 풀고, 보관함 동기화가 서버 flag(별표 없음)로 별표를 지운다. 켜기·끄기 둘 다 본다.
+   */
+  @Test
+  void archive_patchesPendingFlagFirst_starSurvivesDestinationSync() {
+    long[] s = setup();
+    long on = seed(s[1], s[2], "G1", true, false); // 읽음 대기 없음 — 별표만 켜는 중
+    long off = seed(s[1], s[2], "G2", true, true); // 읽음 대기 + 별표 끄는 중
+    setFlag(on, true);
+    setFlag(off, false);
+    stubBatch(MailMoveGraphTest::okReply);
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.ARCHIVE, null, on, off));
+
+    assertThat(r.results()).allSatisfy(x -> assertThat(x.ok()).isTrue());
+    // 1) 옛 id 로 대기 속성만 PATCH → 2) 옮기기
+    assertThat(batches).hasSize(2);
+    assertThat(batches.get(0))
+        .extracting(GraphBatchRequest::method, GraphBatchRequest::url, GraphBatchRequest::body)
+        .containsExactlyInAnyOrder(
+            org.assertj.core.groups.Tuple.tuple(
+                "PATCH", "/me/messages/G1", Map.of("flag", Map.of("flagStatus", "flagged"))),
+            org.assertj.core.groups.Tuple.tuple(
+                "PATCH",
+                "/me/messages/G2",
+                Map.of("isRead", true, "flag", Map.of("flagStatus", "notFlagged"))));
+    assertThat(batches.get(1)).allSatisfy(q -> assertThat(q.method()).isEqualTo("POST"));
+    // 보낸 별표 대기는 풀렸다
+    assertThat(row(on).get(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING)).isFalse();
+    assertThat(row(off).get(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING)).isFalse();
+    assertThat(row(off).get(EMAIL_MESSAGE.SEEN_PUSH_PENDING)).isFalse();
+
+    // 보관함 동기화: 서버 flag 가 이미 맞춰져 있어 별표가 그대로다
+    when(graphApiClient.get(eq(TOKEN), anyString(), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(
+                    flaggedMessage("NEW-G1", "flagged"), flaggedMessage("NEW-G2", "notFlagged")),
+                null,
+                "DL"));
+    folderService.syncFolder(s[0], s[1], s[3], false);
+    assertThat(row(on).get(EMAIL_MESSAGE.FLAGGED)).isTrue();
+    assertThat(row(off).get(EMAIL_MESSAGE.FLAGGED)).isFalse();
+  }
+
+  /** 로컬 별표를 바꾸고 서버 반영 대기로 둔다(WP-1741 — 사용자가 별표를 바꾼 직후). */
+  private void setFlag(long id, boolean flagged) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.FLAGGED, flagged)
+        .set(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING, true)
+        .where(EMAIL_MESSAGE.ID.eq(id))
+        .execute();
+  }
+
+  /** flagStatus 를 지정한 delta 항목(WP-1741). */
+  private static GraphMessage flaggedMessage(String id, String flagStatus) {
+    return new GraphMessage(
+        id,
+        "제목 " + id,
+        new Recipient(new EmailAddress("sender@example.com", "보낸사람")),
+        List.of(new Recipient(new EmailAddress("to@example.com", "받는사람"))),
+        List.of(),
+        "2026-10-01T10:00:00Z",
+        "2026-10-01T09:55:00Z",
+        true,
+        false,
+        "<msg-" + id + "@example.com>",
+        "conv-" + id,
+        null,
+        new GraphMessage.Flag(flagStatus));
+  }
+
   private static GraphMessage message(String id) {
     return new GraphMessage(
         id,

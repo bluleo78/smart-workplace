@@ -7,7 +7,7 @@ import { resolveMailView } from './mailView'
 
 const row = (id: number, receivedAt: string | null = '2026-10-20T10:00:00.123456Z'): EmailMessageSummary => ({
   id, accountId: 1, threadId: `t${id}`, fromAddress: null, fromName: null, subject: `메일 ${id}`, snippet: null,
-  receivedAt, seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: null, categoryPending: false,
+  receivedAt, seen: false, flagged: false, hasAttachment: false, aiCategory: null, aiNeedsReply: null, categoryPending: false,
 })
 const page = (n: number, from = 1) => Array.from({ length: n }, (_, i) => row(from + i))
 

@@ -13,6 +13,8 @@ export interface EmailMessageSummary {
   snippet: string | null;
   receivedAt: string | null;
   seen: boolean;
+  /** WP-1741 별표 — 메일 서버 플래그(IMAP \Flagged, Outlook flag)와 양방향으로 맞는다. */
+  flagged: boolean;
   hasAttachment: boolean;
   aiCategory: string | null;
   aiNeedsReply: boolean | null;
@@ -73,6 +75,8 @@ export interface EmailMessageDetail {
   sentAt: string | null;
   receivedAt: string | null;
   seen: boolean;
+  /** WP-1741 별표(목록 행과 같은 값) — 읽기 창 「별표」/「별표 해제」 단추가 이 값을 본다. */
+  flagged: boolean;
   bodyText: string | null;
   bodyHtml: string | null;
   attachments: EmailAttachmentMeta[];

@@ -1,7 +1,5 @@
 package com.workplace.mail.service;
 
-import static java.util.stream.Collectors.toMap;
-
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
@@ -31,6 +29,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -69,6 +68,12 @@ public class ImapMailFetcher implements MailFetcher {
 
   /** 읽음 상태 재조회 상한(건) — 기간과 건수 중 작은 쪽. 큰 메일함에서 FETCH 비용을 묶는다(WP-148). */
   static final int SEEN_SYNC_MAX = 500;
+
+  /**
+   * 로컬 별표 메일 재조회 상한(건, WP-1741 — 최근 범위와 별도) — 다른 앱에서 오래된 메일의 별표를 끈 것을 반영한다. 별표 메일은 대개 소수지만 FETCH
+   * 비용을 묶는다.
+   */
+  static final int FLAGGED_SYNC_MAX = 500;
 
   /** WP-959: 서버 삭제 대조를 한 번에 보낼 UID 수 — 명령 길이 한도를 넘지 않게 나눈다. */
   static final int REMOVAL_CHECK_CHUNK = 1000;
@@ -394,8 +399,8 @@ public class ImapMailFetcher implements MailFetcher {
    * <p>1단계(IMAP 네트워크 I/O, 트랜잭션 밖)에서 메타를 {@link ParsedMessage} DTO 로 수집만 하고, 2단계(DB 쓰기)에서 메시지별 짧은
    * 트랜잭션으로 저장한다 — IMAP 세션 동안 DB 커넥션을 점유하지 않으면서도 각 쓰기에 RLS GUC 를 주입한다(#232).
    *
-   * <p>WP-148: 같은 세션에서 최근 범위 기존 메일의 FLAGS 만 다시 읽고(1단계), 신규 저장 뒤 \Seen 차이를 반영한다(2단계). 이 단계의 실패는 경고
-   * 로그만 남기고 신규 적재·커서 전진을 막지 않는다.
+   * <p>WP-148: 같은 세션에서 최근 범위 기존 메일(WP-1741: + 로컬 별표 메일)의 FLAGS 만 다시 읽고(1단계), 신규 저장 뒤 \Seen·\Flagged
+   * 차이를 반영한다(2단계). 이 단계의 실패는 경고 로그만 남기고 신규 적재·커서 전진을 막지 않는다.
    *
    * <p>WP-959: 같은 세션에서 로컬에 적재된 UID 가 서버에 아직 있는지 대조하고(1단계), 다른 앱에서 옮겼거나 지워 서버에 없는 메일을 로컬에서도
    * 지운다(2단계). 증분 동기화는 새 UID 만 받으므로 이 대조가 없으면 사라진 메일이 받은편지함에 영원히 남는다. 실패는 경고 로그만 남긴다.
@@ -415,7 +420,7 @@ public class ImapMailFetcher implements MailFetcher {
       boolean forceFirstSync)
       throws MessagingException {
     // WP-148: 읽음 재조회 대상(로컬 기존 메일 중 최근 범위)을 IMAP 세션을 열기 전에 짧은 트랜잭션으로 고른다. 첫 동기화면 대상 없음.
-    List<ImapSeenState> seenCandidates = loadSeenCandidates(accountId, folder);
+    Map<Long, ImapSeenState> seenCandidates = loadSeenCandidates(accountId, folder);
     // WP-959: 서버에 아직 있는지 대조할 로컬 UID 전부. 첫 동기화면 대상 없음.
     List<Long> localUids = loadLocalUids(accountId, folder);
 
@@ -428,7 +433,7 @@ public class ImapMailFetcher implements MailFetcher {
     int fetched = 0;
     long maxUid;
     List<ParsedMessage> parsedList = new ArrayList<>();
-    List<ImapSeenState> seenChanges = List.of();
+    List<ImapStateChange> seenChanges = List.of();
     List<Long> removedUids = List.of();
     try {
       store = imapConnector.connect(account, password);
@@ -507,43 +512,62 @@ public class ImapMailFetcher implements MailFetcher {
     return new FetchOutcome(new MailSyncResult(fetched, saved, seenChanged, removed), firstSync);
   }
 
+  /** IMAP 상태 재조회로 찾은 한 통의 서버 값 변화(WP-1741). 바뀐 속성만 값을 싣고 나머지는 null — 반영 대기 중인 속성은 처음부터 싣지 않는다. */
+  record ImapStateChange(long imapUid, Boolean seen, Boolean flagged) {}
+
   /**
-   * 읽음 재조회 대상 로컬 메일(WP-148). 첫 동기화(uidValidity 미기록)면 비교할 기존 메일이 없어 빈 목록. 조회 실패는 경고 로그 후 빈 목록 — 신규
-   * 적재를 막지 않는다.
+   * 상태(읽음·별표) 재조회 대상 로컬 메일(WP-148, WP-1741)을 UID → 상태로 돌려준다. 첫 동기화(uidValidity 미기록)면 비교할 기존 메일이 없어
+   * 빈 맵. 조회 실패는 경고 로그 후 빈 맵 — 신규 적재를 막지 않는다.
    *
-   * <p>로컬 열람의 서버 반영 대기(seen_push_pending) 행은 제외된다. 반영이 계속 실패하면 재시도 배치가 상한에서 대기를 풀어 그 뒤부터 서버 값을
-   * 따른다(WP-188).
+   * <p>최근 범위(14일·500건) 행에 더해, 수신 시각과 무관하게 로컬에 별표가 켜진 행도 넣는다 — 다른 앱에서 오래된 메일의 별표를 끈 것을 반영하려면 필요하다.
+   * 속성별 반영 대기 여부를 함께 담아, 대기 중인 속성은 서버 값으로 덮지 않는다(반영이 계속 실패하면 재시도 배치가 상한에서 대기를 풀어 그 뒤부터 서버 값을 따른다 —
+   * WP-188).
    */
-  private List<ImapSeenState> loadSeenCandidates(
+  private Map<Long, ImapSeenState> loadSeenCandidates(
       long accountId, EmailFolderRepository.FolderSyncState folder) {
     if (folder.uidValidity() == null) {
-      return List.of();
+      return Map.of();
     }
     try {
       OffsetDateTime since = OffsetDateTime.now().minusDays(SEEN_SYNC_WINDOW_DAYS);
-      List<ImapSeenState> found =
+      Map<Long, ImapSeenState> found =
           txTemplate.execute(
-              status ->
-                  messageRepo.listRecentImapSeenStates(
-                      accountId, folder.id(), since, SEEN_SYNC_MAX));
-      return found == null ? List.of() : found;
+              status -> {
+                // UID 로 합친다 — 별표 메일이 최근 범위에도 들면 두 조회에 모두 나온다(최근 범위 행을 우선)
+                Map<Long, ImapSeenState> byUid = new LinkedHashMap<>();
+                for (ImapSeenState c :
+                    messageRepo.listRecentImapSeenStates(
+                        accountId, folder.id(), since, SEEN_SYNC_MAX)) {
+                  byUid.put(c.imapUid(), c);
+                }
+                for (ImapSeenState c :
+                    messageRepo.listFlaggedImapStates(accountId, folder.id(), FLAGGED_SYNC_MAX)) {
+                  byUid.putIfAbsent(c.imapUid(), c);
+                }
+                return byUid;
+              });
+      return found == null ? Map.of() : found;
     } catch (Exception e) {
       log.warn("IMAP 읽음 동기화 대상 조회 실패(신규 적재는 계속): accountId={} {}", accountId, e.toString());
-      return List.of();
+      return Map.of();
     }
   }
 
   /**
-   * 열린 세션에서 대상 UID 의 FLAGS 만 받아 로컬과 \Seen 이 다른 것만 돌려준다(WP-148). 서버에서 지워진 UID(null)는 건너뛴다 — 삭제 반영은
-   * {@link #findRemovedUids} 가 맡는다. 실패는 경고 로그 후 빈 목록.
+   * 열린 세션에서 대상 UID 의 FLAGS 만 받아 로컬과 \Seen·\Flagged 가 다른 것만 돌려준다(WP-148, WP-1741). 반영 대기 중인 속성은 비교하지
+   * 않는다. 서버에서 지워진 UID(null)는 건너뛴다 — 삭제 반영은 {@link #findRemovedUids} 가 맡는다. 대상은 최대 {@code
+   * SEEN_SYNC_MAX + FLAGGED_SYNC_MAX} 건이라 UID 명령 한 번(명령 길이 한도 {@link #REMOVAL_CHECK_CHUNK} 이하)으로
+   * 조회한다. 실패는 경고 로그 후 빈 목록.
+   *
+   * @param candidates UID → 로컬 상태({@link #loadSeenCandidates} 가 UID 로 합친 것)
    */
-  private List<ImapSeenState> fetchSeenChanges(
-      UIDFolder uidFolder, Folder inbox, List<ImapSeenState> candidates) {
+  private List<ImapStateChange> fetchSeenChanges(
+      UIDFolder uidFolder, Folder inbox, Map<Long, ImapSeenState> candidates) {
     if (candidates.isEmpty()) {
       return List.of();
     }
     try {
-      long[] uids = candidates.stream().mapToLong(ImapSeenState::imapUid).toArray();
+      long[] uids = candidates.keySet().stream().mapToLong(Long::longValue).toArray();
       Message[] present =
           Arrays.stream(uidFolder.getMessagesByUID(uids))
               .filter(Objects::nonNull)
@@ -556,17 +580,20 @@ public class ImapMailFetcher implements MailFetcher {
       fp.add(UIDFolder.FetchProfileItem.UID);
       fp.add(FetchProfile.Item.FLAGS);
       inbox.fetch(present, fp);
-
-      Map<Long, Boolean> localSeen =
-          candidates.stream().collect(toMap(ImapSeenState::imapUid, ImapSeenState::seen));
-      List<ImapSeenState> changes = new ArrayList<>();
+      List<ImapStateChange> changes = new ArrayList<>();
       for (Message msg : present) {
-        long uid = uidFolder.getUID(msg);
+        ImapSeenState c = candidates.get(uidFolder.getUID(msg));
+        if (c == null) {
+          continue;
+        }
+        // 서버 기준 — 로컬과 다르면 서버 값으로(안읽음·별표 해제 되돌림 포함). 반영 대기 중인 속성은 건너뛴다.
         boolean serverSeen = msg.isSet(Flags.Flag.SEEN);
-        Boolean local = localSeen.get(uid);
-        // 서버 기준 — 로컬과 다르면 서버 값으로(안읽음 되돌림 포함)
-        if (local != null && local != serverSeen) {
-          changes.add(new ImapSeenState(uid, serverSeen));
+        boolean serverFlagged = msg.isSet(Flags.Flag.FLAGGED);
+        Boolean seen = !c.seenPending() && c.seen() != serverSeen ? serverSeen : null;
+        Boolean flagged =
+            !c.flaggedPending() && c.flagged() != serverFlagged ? serverFlagged : null;
+        if (seen != null || flagged != null) {
+          changes.add(new ImapStateChange(c.imapUid(), seen, flagged));
         }
       }
       return changes;
@@ -576,8 +603,11 @@ public class ImapMailFetcher implements MailFetcher {
     }
   }
 
-  /** 읽음 변화를 한 트랜잭션으로 반영하고 실제 바뀐 건수를 돌려준다(WP-148). 실패는 경고 로그 후 0 — 동기화 성공은 유지. */
-  private int applySeenChanges(long accountId, long folderId, List<ImapSeenState> changes) {
+  /**
+   * 읽음·별표 변화를 한 트랜잭션으로 반영하고 실제 바뀐 건수를 돌려준다(WP-148, WP-1741). 각 UPDATE 는 저장소에서 다시 "값이 다르고 그 속성이 반영
+   * 대기가 아님"을 확인한다(읽는 사이 사용자가 바꾼 경우 보호). 실패는 경고 로그 후 0 — 동기화 성공은 유지.
+   */
+  private int applySeenChanges(long accountId, long folderId, List<ImapStateChange> changes) {
     if (changes.isEmpty()) {
       return 0;
     }
@@ -586,8 +616,19 @@ public class ImapMailFetcher implements MailFetcher {
           txTemplate.execute(
               status -> {
                 int n = 0;
-                for (ImapSeenState c : changes) {
-                  n += messageRepo.updateSeenByImapUid(accountId, folderId, c.imapUid(), c.seen());
+                for (ImapStateChange c : changes) {
+                  int touched = 0;
+                  if (c.seen() != null) {
+                    touched +=
+                        messageRepo.updateSeenByImapUid(accountId, folderId, c.imapUid(), c.seen());
+                  }
+                  if (c.flagged() != null) {
+                    touched +=
+                        messageRepo.updateFlaggedByImapUid(
+                            accountId, folderId, c.imapUid(), c.flagged());
+                  }
+                  // 한 통에서 두 속성이 바뀌어도 「바뀐 메일」은 한 통으로 센다
+                  n += touched > 0 ? 1 : 0;
                 }
                 return n;
               });

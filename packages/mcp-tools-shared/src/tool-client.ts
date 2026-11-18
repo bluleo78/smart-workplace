@@ -453,6 +453,8 @@ export interface MailToolClient {
   markMailRead(messageId: number): Promise<void>;
   /** POST /mail/messages/{id}/unread — 안 읽음으로 되돌린다(WP-187 서버 API, WP-357). 읽음 처리와 같이 원본 메일 서버로 역동기화된다. */
   markMailUnread(messageId: number): Promise<void>;
+  /** PUT /mail/messages/{id}/flag — 별표 켜기/끄기(WP-1741). 읽음처럼 원본 메일 서버(IMAP \Flagged·Graph flag)로 역동기화된다. 남의 메일이면 404. */
+  setMailFlagged(messageId: number, flagged: boolean): Promise<void>;
   /** POST /mail/accounts/{id}/messages/move(target RESTORE) — 휴지통 메일을 원래 메일함(없으면 받은편지함)으로 되살린다(WP-1681). 건별 결과를 요청 순서로 준다. */
   restoreMail(accountId: number, messageIds: number[]): Promise<{ results: { messageId: number; ok: boolean; error?: string }[] }>;
   /**

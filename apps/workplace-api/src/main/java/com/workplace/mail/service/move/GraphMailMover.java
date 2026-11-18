@@ -2,11 +2,13 @@ package com.workplace.mail.service.move;
 
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
+import com.workplace.mail.dto.SeenSyncItem;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
 import com.workplace.mail.service.GraphBodyLoader;
+import com.workplace.mail.service.GraphReadSyncer;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailServerErrors;
 import java.util.ArrayList;
@@ -25,8 +27,9 @@ import tools.jackson.databind.JsonNode;
  * 보낸다. 옮긴 메일은 새 id 로 돌아온다(ImmutableId 를 쓰지 않으므로 id 가 바뀐다) — 응답 본문의 id 를 결과에 싣는다. 휴지통은 well-known 이름
  * {@code deleteditems}.
  *
- * <p>반영 대기 읽음은 옮기기 전에 옛 id 로 {@code PATCH isRead} 를 먼저 보낸다. 그 반영이 실패해도 옮기기는 하고, 결과의
- * seenPushed=false 로 알려 로컬 대기 표시를 남긴다 — 재시도 배치가 새 id 로 다시 반영한다.
+ * <p>반영 대기 읽음·별표(WP-1741)는 옮기기 전에 옛 id 로 {@code PATCH}(대기 속성만 — {@link GraphReadSyncer#patchBody})
+ * 를 먼저 보낸다. 그 반영이 실패해도 옮기기는 하고, 결과의 seenPushed·flaggedPushed=false 로 알려 로컬 대기 표시를 남긴다 — 재시도 배치가 새
+ * id 로 다시 반영한다.
  */
 @Slf4j
 @Component
@@ -57,7 +60,7 @@ public class GraphMailMover implements MailMover {
         remote.add(it);
       }
     }
-    Set<Long> seenPushed = pushPendingSeen(token, remote);
+    Set<Long> pushed = pushPending(token, remote);
     for (int i = 0; i < remote.size(); i += BATCH) {
       List<Item> chunk = remote.subList(i, Math.min(i + BATCH, remote.size()));
       Map<String, Item> byReqId = new HashMap<>();
@@ -97,7 +100,8 @@ public class GraphMailMover implements MailMover {
                   null,
                   null,
                   newId,
-                  seenPushed.contains(it.messageId()),
+                  it.seenPushPending() && pushed.contains(it.messageId()),
+                  it.flaggedPushPending() && pushed.contains(it.messageId()),
                   null,
                   it.hasProviderAttachments() ? attachmentIds(token, newId) : null));
         } else if (r.status() == 404) {
@@ -139,10 +143,14 @@ public class GraphMailMover implements MailMover {
     return id == null || id.isNull() || id.asString("").isBlank() ? null : id.asString("");
   }
 
-  /** 반영 대기 읽음을 옛 id 로 먼저 PATCH 한다. 성공(2xx)한 메일 id 집합을 돌려준다 — 실패는 옮기기를 막지 않고 대기를 남긴다(클래스 주석). */
-  private Set<Long> pushPendingSeen(String token, List<Item> items) {
+  /**
+   * 반영 대기 읽음·별표를 옛 id 로 먼저 PATCH 한다 — 한 메일의 대기 속성을 한 본문에 담는다(대기가 아닌 속성은 보내지 않아 Outlook 「완료」 플래그를 덮지
+   * 않는다). 성공(2xx)한 메일 id 집합을 돌려준다 — 실패는 옮기기를 막지 않고 대기를 남긴다(클래스 주석).
+   */
+  private Set<Long> pushPending(String token, List<Item> items) {
     Set<Long> done = new HashSet<>();
-    List<Item> pending = items.stream().filter(Item::seenPushPending).toList();
+    List<Item> pending =
+        items.stream().filter(it -> it.seenPushPending() || it.flaggedPushPending()).toList();
     for (int i = 0; i < pending.size(); i += BATCH) {
       List<GraphBatchRequest> reqs =
           pending.subList(i, Math.min(i + BATCH, pending.size())).stream()
@@ -152,7 +160,12 @@ public class GraphMailMover implements MailMover {
                           String.valueOf(it.messageId()),
                           "PATCH",
                           "/me/messages/" + it.providerMessageId(),
-                          Map.<String, Object>of("isRead", it.seen())))
+                          GraphReadSyncer.patchBody(
+                              new SeenSyncItem(
+                                  it.messageId(),
+                                  null,
+                                  it.seenPushPending() ? it.seen() : null,
+                                  it.flaggedPushPending() ? it.flagged() : null))))
               .toList();
       try {
         for (GraphBatchResponse r : graphApiClient.batch(token, reqs)) {
@@ -161,7 +174,7 @@ public class GraphMailMover implements MailMover {
           }
         }
       } catch (MailSendException e) {
-        log.warn("Graph 옮기기 전 읽음 반영 실패(옮기기는 계속): {}", e.toString());
+        log.warn("Graph 옮기기 전 읽음·별표 반영 실패(옮기기는 계속): {}", e.toString());
       }
     }
     return done;

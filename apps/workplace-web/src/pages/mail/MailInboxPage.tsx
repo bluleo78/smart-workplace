@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Archive, ArchiveRestore, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Sun, Tag, Trash2, User } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Star, Sun, Tag, Trash2, User } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -95,6 +95,7 @@ import {
   useSyncMailbox,
   useSyncMailFolder,
   useSyncStatus,
+  useToggleFlag,
   useToggleRead,
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
@@ -195,6 +196,34 @@ function MailRowMoveActions({ id, actions }: { id: number; actions: MailMoveActi
   )
 }
 
+/**
+ * WP-1741 목록 행 별표 단추 — 행 맨 왼쪽에 늘 보인다(hover 단추가 아니다: 휴대폰·태블릿에서도 눌러야 한다).
+ * 드라이브 별표(WP-1698)와 같은 별 아이콘·토글 규칙 — 이름은 늘 「별표」, 상태는 aria-pressed. 별표면 노란(warning) 별로 채운다.
+ * 행 열기와 분리하려고 클릭을 멈춘다. 터치에서는 44px 로 키우되 음수 여백으로 행 높이는 그대로 둔다.
+ */
+function MailRowStar({ id, flagged, onToggle }: { id: number; flagged: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      data-testid={`mail-row-star-${id}`}
+      aria-label="별표"
+      aria-pressed={flagged}
+      title={flagged ? '별표 해제' : '별표'}
+      onClick={(e) => {
+        e.stopPropagation()
+        onToggle()
+      }}
+      className={cn(
+        'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+        'pointer-coarse:-my-2.5 pointer-coarse:-ml-2.5 pointer-coarse:size-11',
+        flagged ? 'text-warning' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      <Star className={cn('h-4 w-4', flagged && 'fill-current')} />
+    </button>
+  )
+}
+
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
 function MessageRow({
   m,
@@ -206,6 +235,7 @@ function MessageRow({
   viewCategory,
   showToggle,
   onToggleRead,
+  onToggleFlag,
   moveActions,
   menu,
 }: {
@@ -225,6 +255,8 @@ function MessageRow({
   showToggle: boolean
   /** WP-187 읽음↔안읽음 전환(행 열기와 별개). */
   onToggleRead: () => void
+  /** WP-1741 별표 켜기/끄기(행 열기와 별개) — 데스크톱·터치 모두. */
+  onToggleFlag: () => void
   /** WP-962 hover 보관·옮기기·삭제 — 터치 셸·보낸편지함에선 없다(null). 터치는 길게 누르기 시트가 맡는다. */
   moveActions: MailMoveActions | null
   /**
@@ -281,6 +313,8 @@ function MessageRow({
           />
         )}
         <span className="flex items-center gap-2">
+          {/* WP-1741 별표 — 열기 버튼 앞(형제). 안쪽에 넣으면 버튼 중첩이 된다(WP-1550). */}
+          <MailRowStar id={m.id} flagged={m.flagged} onToggle={onToggleFlag} />
           {/* WP-1325: 이름과 「외부」 태그를 한 묶음으로 — 태그가 이름 바로 뒤에 붙고, 긴 이름만 줄여 태그는 늘 보인다.
               WP-1550: 이 묶음이 키보드·스크린리더의 「열기」 버튼이다 — 옛 행의 aria-label(발신자 + 제목, 스니펫·날짜 제외 #699)과
               aria-current 를 가져온다. 자체 onClick 은 두지 않는다 — 클릭·Enter·Space 의 click 이 행 onClick 으로 올라가 한 번만 연다. */}
@@ -577,6 +611,7 @@ function MessageDetailPanel({
   onAiIssue,
   issueDraftPending,
   onMarkUnread,
+  onToggleFlag,
   onBack,
   moveActions,
   onOpenMoveSheet,
@@ -596,6 +631,8 @@ function MessageDetailPanel({
   issueDraftPending: boolean
   /** WP-187 열린 메일을 안읽음으로 표시하고 상세를 닫는다. */
   onMarkUnread: () => void
+  /** WP-1741 열린 메일 별표 켜기/끄기 — 목록 행 별과 같은 처리(같은 캐시를 바꿔 둘이 늘 같다). */
+  onToggleFlag: (id: number, flagged: boolean) => void
   /** 모바일 상단바 ‹ — 상세를 닫고 목록으로(WP-400 부터 상단바를 이 패널이 그린다: ⋯ 메뉴가 패널 상태를 쓴다). */
   onBack: () => void
   /** WP-962 열린 메일의 보관·옮기기·삭제 — 보낸편지함 등 옮길 수 없는 보기면 null. */
@@ -737,6 +774,8 @@ function MessageDetailPanel({
   // 수신 일시는 목록 행에만 있고 상세 머리엔 없었다(WP-1723) — 받은편지함은 receivedAt, 보냄·보관함 등
   // 수신 일시 없는 메일은 sentAt 로 대체하고, 둘 다 없으면 시간 줄 자체를 그리지 않는다.
   const headerTime = formatMailHeaderTime(detail.receivedAt ?? detail.sentAt)
+  // WP-1741 별표 켜기/끄기 — 모바일 ⋯ 메뉴·데스크톱 툴바 단추가 같은 전환을 쓴다.
+  const toggleFlag = () => onToggleFlag(detail.id, !detail.flagged)
 
   // WP-400 모바일 — 첫 화면에 본문이 보이게 메타를 접고, 액션은 하단 고정 바·⋯ 메뉴로 옮긴다(데스크톱은 아래 원래 마크업).
   if (isMobile) {
@@ -787,6 +826,11 @@ function MessageDetailPanel({
         onMarkUnread={onMarkUnread}
         menuItems={
           <>
+            {/* WP-1741 별표 — 메뉴 맨 위. 상태는 글자가 말한다(「별표」/「별표 해제」, aria-pressed 를 겹쳐 달지 않는다). */}
+            <button type="button" data-testid="mail-flag" onClick={toggleFlag}>
+              <Star aria-hidden className={cn('h-4 w-4', detail.flagged && 'fill-current text-warning')} />
+              {detail.flagged ? '별표 해제' : '별표'}
+            </button>
             {/* WP-962 보관·옮기기 — 하단 바(답장 계열)에 자리가 없어 ⋯ 메뉴로. 삭제는 메뉴 맨 아래(아래 참고). */}
             {moveActions?.avail.archive && (
               <button type="button" data-testid="mail-archive" onClick={moveActions.onArchive}>
@@ -974,6 +1018,16 @@ function MessageDetailPanel({
             onClick={onMarkUnread}
           >
             <Mail className="h-3.5 w-3.5" /> 안 읽음
+          </Button>
+          {/* WP-1741 별표 — 「안 읽음」 뒤. 글자가 상태를 말한다(「별표」/「별표 해제」). 상세는 닫지 않는다. */}
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="mail-flag"
+            onClick={toggleFlag}
+          >
+            <Star className={cn('h-3.5 w-3.5', detail.flagged && 'fill-current text-warning')} />
+            {detail.flagged ? '별표 해제' : '별표'}
           </Button>
           {/* WP-962 보관·옮기기·삭제 — 누르면 상세가 닫히고 목록에서 빠진다(실행 취소 토스트). 보낸편지함에선 없다. */}
           {moveActions?.avail.archive && (
@@ -1238,6 +1292,8 @@ function MailInbox() {
     keptRows?.get(id) ?? fetchedMessages?.find((r) => r.id === id) ?? (openRow?.id === id ? openRow : undefined)
   // WP-187 읽음/안읽음 전환 — 새 훅은 모두 아래 !accountId 조기 return 보다 앞에 둔다(훅 순서).
   const toggleRead = useToggleRead()
+  // WP-1741 별표 켜기/끄기 — 목록 행 별·읽기 창 단추·휴대폰 ⋯ 메뉴 공용.
+  const toggleFlag = useToggleFlag()
   // 터치 셸에는 hover 가 없어 행 전환 버튼을 렌더하지 않는다.
   const touchShell = useIsTouchShell()
   /**
@@ -1290,6 +1346,30 @@ function MailInbox() {
   }
   // 행 버튼·작업 시트 공통 읽음 전환.
   const toggleRow = (m: EmailMessageSummary) => applyToggle(m.id, !m.seen)
+  /**
+   * WP-1741 별표 켜기/끄기 — 목록·상세 캐시는 훅이 낙관적으로 바꾼다. 서버 목록에 없어 스냅샷(유지 집합·열린 행)으로 보이는 행은
+   * 캐시 갱신이 닿지 않으므로 스냅샷도 바꾸고, 실패하면 스냅샷만 이전 값으로 되돌린다(applyToggle 과 같은 규칙).
+   */
+  const applyFlag = (id: number, flagged: boolean) => {
+    const prevKept = keptRows?.get(id)
+    // 유지 중인 행은 유지 스냅샷을 고친다. 서버 목록에 없고 열린 행으로만 보이는 행은 열린 행 스냅샷을 고친다 —
+    // 유지 집합에 넣으면 상세를 닫은 뒤에도 서버가 뺀 행이 목록에 남는다.
+    const prevOpen =
+      !prevKept && openRow?.id === id && !fetchedMessages?.some((r) => r.id === id) ? openRow : undefined
+    if (prevKept) putKept(id, { ...prevKept, flagged })
+    if (prevOpen) setSelection((s) => (s.row?.id === id ? { ...s, row: { ...s.row, flagged } } : s))
+    toggleFlag.mutate(
+      { id, flagged },
+      {
+        onError: () => {
+          if (prevKept) {
+            setKept((k) => (k.key !== keepKey ? k : { key: keepKey, rows: new Map(k.rows).set(id, prevKept) }))
+          }
+          if (prevOpen) setSelection((s) => (s.row?.id === id ? { ...s, row: prevOpen } : s))
+        },
+      },
+    )
+  }
   // WP-187 모두 읽음 — 버튼 → 건수 조회(+asOf) → 확인 다이얼로그 → 실행.
   // asOf 는 서버(DB 시계)가 준 문자열을 그대로 되돌려 보낸다 — 확인 뒤 새로 들어온 메일은 읽음 처리하지 않게.
   const markAll = useMarkAllRead(accountIdNum)
@@ -1866,6 +1946,7 @@ function MailInbox() {
                   showToggle={!touchShell}
                   // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}
+                  onToggleFlag={() => applyFlag(m.id, !m.flagged)}
                   moveActions={touchShell ? null : moveActionsFor(m.id)}
                   menu={!touchShell && accountIdNum != null ? () => rowMenuHandlers(accountIdNum, m) : undefined}
                 />
@@ -1909,6 +1990,7 @@ function MailInbox() {
             onMarkUnread={() => {
               if (selectedId != null) markUnreadAndClose(selectedId)
             }}
+            onToggleFlag={applyFlag}
             onBack={mailParam.close}
             moveActions={selectedId != null ? moveActionsFor(selectedId) : null}
             onOpenMoveSheet={() => selectedId != null && setMoveSheetIds([selectedId])}

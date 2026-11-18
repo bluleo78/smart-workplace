@@ -13,6 +13,7 @@ public record EmailMessageSummary(
     String snippet,
     Instant receivedAt,
     boolean seen,
+    boolean flagged, // WP-1741: 별표(서버 플래그 — IMAP \Flagged, Graph flag)
     boolean hasAttachment,
     String aiCategory, // WP-1341: 유효 분류(직접 바꾼 분류 > 개인 비서 분류 > 공용 분류)
     Boolean aiNeedsReply, // 회신필요 = aiNeedsReply && !seen (WP-146 단일 술어)
@@ -35,6 +36,7 @@ public record EmailMessageSummary(
         snippet,
         receivedAt,
         seen,
+        flagged,
         hasAttachment,
         aiCategory,
         aiNeedsReply,

@@ -592,7 +592,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Removes a link made by add_issue_relation: exactly one of relationId or externalLinkId, from get_issue_detail. Not for blocking (link_issues).',
+        'Removes a link made by add_issue_relation: exactly one of relationId or externalLinkId, from get_issue_detail.',
       inputSchema: removeIssueRelationInput,
       async handler(args) {
         const { issueKey, relationId, externalLinkId } = removeIssueRelationInput.parse(args);

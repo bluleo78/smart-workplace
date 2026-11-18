@@ -27,6 +27,7 @@ exports[`도구 앱 태그 (WP-350) > 도구별 앱 스냅샷 1`] = `
   "create_wiki_page": "wiki",
   "draft_issue_from_mail": "mail",
   "draft_mail_reply": "mail",
+  "flag_mail": "mail",
   "get_contact_facets": "contacts",
   "get_drive_file_summary": "drive",
   "get_event": "calendar",

@@ -225,6 +225,14 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/mail/messages/9/unread');
   });
 
+  it('WP-1741: setMailFlagged 는 /mail/messages/{id}/flag 로 PUT 하고 본문에 flagged 를 싣는다', async () => {
+    const { http, client } = mockHttp();
+    await client.setMailFlagged(9, true);
+    expect(http.put).toHaveBeenLastCalledWith('/mail/messages/9/flag', { flagged: true });
+    await client.setMailFlagged(9, false);
+    expect(http.put).toHaveBeenLastCalledWith('/mail/messages/9/flag', { flagged: false });
+  });
+
   it('WP-1341: setMailCategory 는 /mail/messages/{id}/category 로 PUT 하고 null 도 그대로 싣는다', async () => {
     const { http, client } = mockHttp();
     http.put.mockResolvedValueOnce({ data: { aiCategory: '프로모션', categoryByMe: true, learnable: true } });

@@ -178,4 +178,54 @@ class GraphReadSyncerTest extends ExternalClientMockedTestBase {
     verify(graphTokenService, times(1)).getAccessToken(1L, 10L);
     verify(graphApiClient, times(2)).batch(eq("T"), anyList());
   }
+
+  /** WP-1741: 속성별 항목 — seen·flagged 중 반영 대기인 것만 값이 있다(null 은 보내지 않음). */
+  private static SeenSyncItem item(long id, Boolean seen, Boolean flagged) {
+    return new SeenSyncItem(
+        id,
+        new ReadSyncLocator(10L, MailProvider.M365_GRAPH, "G" + id, null, "INBOX"),
+        seen,
+        flagged);
+  }
+
+  /**
+   * WP-1741: PATCH 본문은 바뀐 속성만 담는다 — 별표만 바뀌면 flag 만, 둘 다 대기면 둘 다, 별표 해제는 notFlagged, 읽음만 바뀌면 flag 를
+   * 보내지 않는다 (Outlook 「완료」 플래그를 덮지 않게).
+   */
+  @SuppressWarnings("unchecked")
+  @Test
+  void patchBody_containsOnlyPendingAttributes() throws Exception {
+    when(graphTokenService.getAccessToken(1L, 10L)).thenReturn("T");
+    when(graphApiClient.batch(eq("T"), anyList()))
+        .thenAnswer(
+            inv ->
+                ((List<GraphBatchRequest>) inv.getArgument(1))
+                    .stream().map(rq -> new GraphBatchResponse(rq.id(), 200)).toList());
+
+    SeenSyncResult r =
+        syncer
+            .open(1L, ACCOUNT)
+            .push(
+                List.of(
+                    item(1, null, true), // 별표만
+                    item(2, false, true), // 둘 다
+                    item(3, null, false), // 별표 해제만
+                    item(4, true, null))); // 읽음만
+
+    ArgumentCaptor<List<GraphBatchRequest>> cap = ArgumentCaptor.forClass(List.class);
+    verify(graphApiClient).batch(eq("T"), cap.capture());
+    List<GraphBatchRequest> reqs = cap.getValue();
+    assertThat(reqs.get(0).body())
+        .containsOnlyKeys("flag")
+        .containsEntry("flag", java.util.Map.of("flagStatus", "flagged"));
+    assertThat(reqs.get(1).body())
+        .containsOnlyKeys("isRead", "flag")
+        .containsEntry("isRead", false)
+        .containsEntry("flag", java.util.Map.of("flagStatus", "flagged"));
+    assertThat(reqs.get(2).body())
+        .containsOnlyKeys("flag")
+        .containsEntry("flag", java.util.Map.of("flagStatus", "notFlagged"));
+    assertThat(reqs.get(3).body()).containsOnlyKeys("isRead").containsEntry("isRead", true);
+    assertThat(r.succeeded()).containsExactlyInAnyOrder(1L, 2L, 3L, 4L);
+  }
 }

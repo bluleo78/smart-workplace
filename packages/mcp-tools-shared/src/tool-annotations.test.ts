@@ -65,6 +65,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   // WP-1689: 읽은 알림 보관은 되돌릴 수 있고(웹의 되돌리기) 지우지 않는다 — 비파괴. 다시 불러도 보관된 상태 그대로(멱등).
   archive_read_notifications: ['write', false, true, false],
   mark_mail_read: ['write', true, true, true],
+  flag_mail: ['write', true, true, true],
   mark_notification_read: ['write', true, true, false],
   // WP-354: 복사·첨부 가져오기는 새 항목을 만든다 — 같은 이름이 있으면 409 라 다시 부르면 오류(비멱등).
   copy_drive_item: ['write', false, false, false],
@@ -172,9 +173,9 @@ describe('toolAnnotations', () => {
     });
   });
 
-  it('워크스페이스 밖에 닿는 mark_mail_read·restore_mail·sync_mail(원본 메일 서버)·update_event(M365 동기화 일정)만 openWorld=true 다', () => {
+  it('워크스페이스 밖에 닿는 mark_mail_read·flag_mail·restore_mail·sync_mail(원본 메일 서버)·update_event(M365 동기화 일정)만 openWorld=true 다', () => {
     const open = tools.filter((t) => toolAnnotations(t).openWorldHint).map((t) => t.name);
-    expect(open.sort()).toEqual(['mark_mail_read', 'restore_mail', 'sync_mail', 'update_event']);
+    expect(open.sort()).toEqual(['flag_mail', 'mark_mail_read', 'restore_mail', 'sync_mail', 'update_event']);
   });
 
   it('모든 공유 도구가 title 을 가진다', () => {

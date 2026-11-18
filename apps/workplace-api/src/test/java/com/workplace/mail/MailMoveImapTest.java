@@ -150,6 +150,44 @@ class MailMoveImapTest extends MailSyncTestSupport {
     assertThat(countIn(s[1], inboxId)).isEqualTo(1);
   }
 
+  /**
+   * WP-1741: 별표를 바꾸고 바로 보관하면 반영 대기 별표를 옮기기 전에 원래 위치에서 서버에 먼저 보낸다 — 플래그는 MOVE 로 함께 옮겨진다. 보내지 않고 옮기면
+   * 나중 역동기화가 옛 위치에서 「메일 없음」을 성공으로 보고 대기를 풀고, 보관함 동기화가 서버 값(별표 없음)으로 별표를 지운다. 켜기·끄기 둘 다 본다.
+   */
+  @Test
+  void archive_pushesPendingFlagFirst_starSurvivesDestinationSync() throws Exception {
+    long[] s = setup(false, "별표 켤 메일", "별표 끌 메일");
+    long archiveId = folderId(s[1], "Archive");
+    long on = messageId(s[1], "별표 켤 메일");
+    long off = messageId(s[1], "별표 끌 메일");
+    // 「별표 끌 메일」은 서버에 이미 별표가 있고 로컬도 별표 상태(동기화가 맞춰 둔 모양을 바로 둔다)
+    setServerFlagged("INBOX", "별표 끌 메일");
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.FLAGGED, true)
+        .where(EMAIL_MESSAGE.ID.eq(off))
+        .execute();
+    // 로컬에서 별표 켜기/끄기 → 서버 반영 대기(테스트 트랜잭션이 커밋되지 않아 역동기화가 돌지 않는다)
+    messageService.setFlagged(s[0], on, true);
+    messageService.setFlagged(s[0], off, false);
+    assertThat(row(on).get(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING)).isTrue();
+    assertThat(row(off).get(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING)).isTrue();
+
+    MailMoveResponse r = moveService.move(s[0], s[1], req(Kind.ARCHIVE, null, on, off));
+
+    assertThat(r.results()).allSatisfy(x -> assertThat(x.ok()).isTrue());
+    // 서버: 옮긴 보관함 메일에 로컬 별표가 반영됐다
+    assertThat(isServerFlagged("Archive", "별표 켤 메일")).isTrue();
+    assertThat(isServerFlagged("Archive", "별표 끌 메일")).isFalse();
+    // 로컬: 보낸 별표 대기는 풀렸다
+    assertThat(row(on).get(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING)).isFalse();
+    assertThat(row(off).get(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING)).isFalse();
+
+    // 보관함 동기화 뒤에도 별표가 그대로다(서버 값과 같다)
+    folderService.syncFolder(s[0], s[1], archiveId, false);
+    assertThat(row(on).get(EMAIL_MESSAGE.FLAGGED)).isTrue();
+    assertThat(row(off).get(EMAIL_MESSAGE.FLAGGED)).isFalse();
+  }
+
   @Test
   void moveToUserFolder_thenBackToInbox_adjustsUnreadCounts() throws Exception {
     long[] s = setup(false, "프로젝트 메일");
@@ -681,6 +719,38 @@ class MailMoveImapTest extends MailSyncTestSupport {
           f.close(false);
         });
     return seen[0];
+  }
+
+  /** 서버 메일의 {@code \Flagged} 여부(WP-1741). */
+  private static boolean isServerFlagged(String folder, String subject) throws Exception {
+    boolean[] flagged = {false};
+    withStore(
+        store -> {
+          Folder f = store.getFolder(folder);
+          f.open(Folder.READ_ONLY);
+          for (Message m : f.getMessages()) {
+            if (subject.equals(m.getSubject())) {
+              flagged[0] = m.isSet(Flags.Flag.FLAGGED);
+            }
+          }
+          f.close(false);
+        });
+    return flagged[0];
+  }
+
+  /** 서버 메일에 {@code \Flagged} 를 단다(WP-1741 — Outlook 등 다른 클라이언트에서 별표를 단 상태). */
+  private static void setServerFlagged(String folder, String subject) throws Exception {
+    withStore(
+        store -> {
+          Folder f = store.getFolder(folder);
+          f.open(Folder.READ_WRITE);
+          for (Message m : f.getMessages()) {
+            if (subject.equals(m.getSubject())) {
+              m.setFlag(Flags.Flag.FLAGGED, true);
+            }
+          }
+          f.close(false);
+        });
   }
 
   private static long serverUid(String folder, String subject) throws Exception {

@@ -136,7 +136,7 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Marks notifications read: one by notificationId, or all of an issue by issueKey; already read is fine.',
+        'Marks notifications read: one by notificationId, or all of an issue by issueKey.',
       inputSchema: markNotificationReadInput,
       async handler(args) {
         const { notificationId, issueKey } = markNotificationReadInput.parse(args);

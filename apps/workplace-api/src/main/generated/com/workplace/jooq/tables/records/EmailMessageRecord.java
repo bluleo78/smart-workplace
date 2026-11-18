@@ -516,6 +516,70 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         return (Long) get(34);
     }
 
+    /**
+     * Setter for <code>public.email_message.flagged</code>. 별표(서버 플래그 — IMAP
+     * \Flagged, Graph flag.flagStatus=flagged) (WP-1741)
+     */
+    public void setFlagged(Boolean value) {
+        set(35, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.flagged</code>. 별표(서버 플래그 — IMAP
+     * \Flagged, Graph flag.flagStatus=flagged) (WP-1741)
+     */
+    public Boolean getFlagged() {
+        return (Boolean) get(35);
+    }
+
+    /**
+     * Setter for <code>public.email_message.flagged_push_pending</code>. 로컬 별표
+     * 변경 후 원본 서버 반영 대기 — true 인 동안 동기화가 flagged 를 덮어쓰지 않음 (WP-1741)
+     */
+    public void setFlaggedPushPending(Boolean value) {
+        set(36, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.flagged_push_pending</code>. 로컬 별표
+     * 변경 후 원본 서버 반영 대기 — true 인 동안 동기화가 flagged 를 덮어쓰지 않음 (WP-1741)
+     */
+    public Boolean getFlaggedPushPending() {
+        return (Boolean) get(36);
+    }
+
+    /**
+     * Setter for <code>public.email_message.flagged_push_attempts</code>. 별표
+     * 역동기화 연속 실패 횟수 — 상한에 닿으면 포기하고 서버 값을 따름 (WP-1741)
+     */
+    public void setFlaggedPushAttempts(Integer value) {
+        set(37, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.flagged_push_attempts</code>. 별표
+     * 역동기화 연속 실패 횟수 — 상한에 닿으면 포기하고 서버 값을 따름 (WP-1741)
+     */
+    public Integer getFlaggedPushAttempts() {
+        return (Integer) get(37);
+    }
+
+    /**
+     * Setter for <code>public.email_message.flagged_push_next_at</code>. 별표
+     * 역동기화 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-1741)
+     */
+    public void setFlaggedPushNextAt(OffsetDateTime value) {
+        set(38, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.flagged_push_next_at</code>. 별표
+     * 역동기화 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-1741)
+     */
+    public OffsetDateTime getFlaggedPushNextAt() {
+        return (OffsetDateTime) get(38);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -539,7 +603,7 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
     /**
      * Create a detached, initialised EmailMessageRecord
      */
-    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending, Boolean aiNeedsReplyRaw, OffsetDateTime aiAnalyzedAt, Boolean aiPersonalSummarySkipped, Integer seenPushAttempts, OffsetDateTime seenPushNextAt, String userCategory, String aiPersonalCategory, Long originalFolderId) {
+    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending, Boolean aiNeedsReplyRaw, OffsetDateTime aiAnalyzedAt, Boolean aiPersonalSummarySkipped, Integer seenPushAttempts, OffsetDateTime seenPushNextAt, String userCategory, String aiPersonalCategory, Long originalFolderId, Boolean flagged, Boolean flaggedPushPending, Integer flaggedPushAttempts, OffsetDateTime flaggedPushNextAt) {
         super(EmailMessage.EMAIL_MESSAGE);
 
         setId(id);
@@ -577,6 +641,10 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         setUserCategory(userCategory);
         setAiPersonalCategory(aiPersonalCategory);
         setOriginalFolderId(originalFolderId);
+        setFlagged(flagged);
+        setFlaggedPushPending(flaggedPushPending);
+        setFlaggedPushAttempts(flaggedPushAttempts);
+        setFlaggedPushNextAt(flaggedPushNextAt);
         resetTouchedOnNotNull();
     }
 }

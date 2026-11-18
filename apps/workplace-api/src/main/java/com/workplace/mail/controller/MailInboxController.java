@@ -28,6 +28,7 @@ import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.dto.SaveAttachmentToDriveRequest;
 import com.workplace.mail.dto.SetMailCategoryRequest;
+import com.workplace.mail.dto.SetMailFlagRequest;
 import com.workplace.mail.service.MailAttachmentDriveSaveService;
 import com.workplace.mail.service.MailAttachmentMeteringService;
 import com.workplace.mail.service.MailAttachmentPreviewService;
@@ -261,6 +262,18 @@ public class MailInboxController {
   @PostMapping("/messages/{messageId}/unread")
   public void markUnread(@AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
     messageService.markUnread(callerId, messageId);
+  }
+
+  /**
+   * WP-1741: 별표 켜기/끄기(서버 플래그 — IMAP \Flagged, Graph flag 와 양방향). 읽음·안읽음 엔드포인트와 같은 경로·소유 규칙 — 본인 메일이
+   * 아니면 404, 이미 같은 값이면 그대로 200.
+   */
+  @PutMapping("/messages/{messageId}/flag")
+  public void setFlagged(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long messageId,
+      @Valid @RequestBody SetMailFlagRequest req) {
+    messageService.setFlagged(callerId, messageId, req.flagged());
   }
 
   /**

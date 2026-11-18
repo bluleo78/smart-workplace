@@ -6,7 +6,7 @@ import { markSeenInKept, mergeKeptRows, withOpenRow } from './mailKeepRows'
 
 const row = (id: number, receivedAt: string, seen = false): EmailMessageSummary => ({
   id, accountId: 1, threadId: `t${id}`, fromAddress: 'a@b', fromName: null, subject: `s${id}`, snippet: null,
-  receivedAt, seen, hasAttachment: false, aiCategory: null, aiNeedsReply: null, categoryPending: false,
+  receivedAt, seen, flagged: false, hasAttachment: false, aiCategory: null, aiNeedsReply: null, categoryPending: false,
 })
 
 describe('mergeKeptRows', () => {

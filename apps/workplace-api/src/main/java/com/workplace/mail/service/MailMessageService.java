@@ -395,6 +395,32 @@ public class MailMessageService {
   }
 
   /**
+   * WP-1741 별표 켜기/끄기 — 로컬 flagged 를 바꾸고 원본 서버(IMAP \Flagged·Graph flag) 반영 대기를 켠다. 읽음 전환({@link
+   * #changeSeen})과 같은 흐름이다: 소유 확인(없으면 404)·갱신·변경 알림(mail updated)을 한 트랜잭션에서 하고, 커밋 후 역동기화 이벤트를
+   * 발행한다. 이미 같은 값이면 아무것도 하지 않는다(멱등 — 알림·역동기화 없음). 서버 반영이 실패해도 로컬 별표는 남고 재시도 배치가 나중에 보낸다.
+   */
+  public void setFlagged(long userId, long messageId, boolean flagged) {
+    Long changedAccountId =
+        txTemplate.execute(
+            status -> {
+              BodyTarget target =
+                  messageRepo
+                      .findBodyTargetForUser(userId, messageId)
+                      .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+              if (messageRepo.markFlagged(messageId, flagged) <= 0) {
+                return null;
+              }
+              // 열린 웹 탭의 목록·상세가 새 별표를 다시 받도록 messageId 를 싣는다
+              notifier.mailChanged(userId, target.accountId(), messageId, userId);
+              return target.accountId();
+            });
+    if (changedAccountId != null) {
+      // 읽음과 같은 역동기화 이벤트·디스패처를 쓴다 — 디스패처는 계정의 대기 행(읽음·별표) 전체를 처리 시점 값으로 반영한다
+      publishSeenChanged(userId, changedAccountId, List.of(messageId));
+    }
+  }
+
+  /**
    * WP-187 모두 읽음 확인용 — 지금 보기의 안 읽은 메일 수와 기준 시각 asOf. asOf 는 앱 서버가 아니라 DB 시각(같은 트랜잭션의 now())으로 정한다:
    * 경계 비교 대상인 created_at 이 DB 시각이라 시계 오차가 끼지 않게 하려는 것이며, 클라이언트는 이 값을 실행 요청에 그대로 되돌려 보낸다.
    */

@@ -276,6 +276,56 @@ public final class MailTestPorts {
     }
   }
 
+  /**
+   * WP-1741: 외부 클라이언트(Outlook·모바일)가 별표를 바꾼 것처럼 GreenMail 서버 쪽 \Flagged 를 직접 바꾼다. 제목이 일치하는 INBOX
+   * 메시지만 대상이며 계정은 {@code box@test.local/pw} 로 고정이다.
+   */
+  public static void setServerFlagged(String subject, boolean flagged) throws Exception {
+    Properties props = new Properties();
+    props.put("mail.store.protocol", "imap");
+    Store store = Session.getInstance(props).getStore("imap");
+    store.connect("127.0.0.1", IMAP, "box@test.local", "pw");
+    try {
+      Folder inbox = store.getFolder("INBOX");
+      inbox.open(Folder.READ_WRITE);
+      try {
+        for (Message m : inbox.getMessages()) {
+          if (subject.equals(m.getSubject())) {
+            m.setFlag(Flags.Flag.FLAGGED, flagged);
+          }
+        }
+      } finally {
+        inbox.close(false);
+      }
+    } finally {
+      store.close();
+    }
+  }
+
+  /** WP-1741: GreenMail 서버 쪽 \Flagged 를 읽는다(제목 일치 INBOX 첫 메시지, 계정 box@test.local/pw 고정). */
+  public static boolean isServerFlagged(String subject) throws Exception {
+    Properties props = new Properties();
+    props.put("mail.store.protocol", "imap");
+    Store store = Session.getInstance(props).getStore("imap");
+    store.connect("127.0.0.1", IMAP, "box@test.local", "pw");
+    try {
+      Folder inbox = store.getFolder("INBOX");
+      inbox.open(Folder.READ_ONLY);
+      try {
+        for (Message m : inbox.getMessages()) {
+          if (subject.equals(m.getSubject())) {
+            return m.isSet(Flags.Flag.FLAGGED);
+          }
+        }
+        throw new IllegalStateException("no message: " + subject);
+      } finally {
+        inbox.close(false);
+      }
+    } finally {
+      store.close();
+    }
+  }
+
   /** 헤더 1개를 덧붙인 평문 메일 1통을 보낸다(WP-149 자동 발송 헤더 판정 테스트용). */
   public static void sendWithHeader(
       String to, String from, String subject, String body, String headerName, String headerValue) {

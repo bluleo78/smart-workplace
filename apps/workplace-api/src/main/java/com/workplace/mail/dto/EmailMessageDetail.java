@@ -9,6 +9,7 @@ import java.util.List;
  * @param calendarInvite WP-986 일정 초대·취소 카드(초대 메일이 아니면 null)
  * @param aiCategory WP-1341 유효 분류(직접 바꾼 분류 &gt; 개인 비서 분류 &gt; 검증된 공용 분류, 없으면 null)
  * @param categoryByMe WP-1341 사용자가 직접 바꾼 분류인지(분류 메뉴의 「AI 분류로 되돌리기」 표시)
+ * @param flagged WP-1741 별표(서버 플래그 — IMAP \Flagged, Graph flag)
  * @param sentByGeniaWorks WP-1364 받은 원본의 X-Mailer 가 Gen:iA Works 인지(본문 검증 전 사본은 false)
  */
 public record EmailMessageDetail(
@@ -24,6 +25,7 @@ public record EmailMessageDetail(
     Instant sentAt,
     Instant receivedAt,
     boolean seen,
+    boolean flagged,
     String bodyText,
     String bodyHtml,
     List<EmailAttachmentMeta> attachments,
@@ -47,6 +49,7 @@ public record EmailMessageDetail(
         sentAt,
         receivedAt,
         seen,
+        flagged,
         bodyText,
         bodyHtml,
         attachments,
@@ -71,6 +74,7 @@ public record EmailMessageDetail(
         sentAt,
         receivedAt,
         seen,
+        flagged,
         bodyText,
         bodyHtml,
         attachments,
@@ -95,6 +99,7 @@ public record EmailMessageDetail(
         sentAt,
         receivedAt,
         seen,
+        flagged,
         bodyText,
         bodyHtml,
         attachments,
