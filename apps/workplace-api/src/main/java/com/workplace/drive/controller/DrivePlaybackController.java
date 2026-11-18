@@ -1,6 +1,8 @@
 package com.workplace.drive.controller;
 
+import com.workplace.drive.domain.DriveFileAction;
 import com.workplace.drive.dto.DrivePlaybackUrlResponse;
+import com.workplace.drive.service.DriveFileActivityRecorder;
 import com.workplace.drive.service.DrivePlaybackService;
 import com.workplace.global.security.RequireWebSession;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class DrivePlaybackController {
   private final DrivePlaybackService playback;
 
+  /** 「최근」 기록(WP-1699) — 재생 주소를 받았으면 연 것으로 본다. */
+  private final DriveFileActivityRecorder activity;
+
   /**
    * 볼 수 있는 영상·오디오 파일의 봉인 재생 주소. 볼 수 없으면 404, 재생 목록 밖 형식이면 409.
    *
@@ -32,6 +37,8 @@ public class DrivePlaybackController {
   @PostMapping("/files/{id}/playback-url")
   public ResponseEntity<DrivePlaybackUrlResponse> issue(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
-    return ResponseEntity.ok(playback.issue(callerId, driveFileId));
+    DrivePlaybackUrlResponse issued = playback.issue(callerId, driveFileId);
+    activity.record(callerId, driveFileId, DriveFileAction.OPEN);
+    return ResponseEntity.ok(issued);
   }
 }

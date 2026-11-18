@@ -3,8 +3,9 @@ package com.workplace.drive.service;
 import java.util.Objects;
 
 /**
- * 목록 행에 보일 공간 이름 — 개인 공간은 저장된 이름이 누구에게나 「내 드라이브」라 남이 보면 헷갈린다. 「별표」({@link DriveStarService})와 「공유받은
- * 항목」({@link DriveSharedWithMeService})이 같은 규칙을 쓰도록 한 곳에 둔다.
+ * 목록 행에 보일 공간 이름 — 개인 공간은 저장된 이름이 누구에게나 「내 드라이브」라 남이 보면 헷갈린다. 「별표」({@link DriveStarService})·「공유받은
+ * 항목」({@link DriveSharedWithMeService})·「최근」({@link DriveRecentService}, WP-1699)이 같은 규칙을 쓰도록 한 곳에
+ * 둔다.
  */
 final class DriveSpaceNames {
   private DriveSpaceNames() {}

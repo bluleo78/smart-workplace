@@ -22,4 +22,6 @@ export const driveKeys = {
    * 바뀌면(이름·이동·휴지통·삭제·되살리기, resource.changed drive) 공간과 상관없이 함께 무효화한다.
    */
   starred: () => ['drive', 'starred'] as const,
+  /** 최근(WP-1699) — 파일을 열거나 올린 뒤 무효화해 다음에 보일 때 다시 받는다. */
+  recent: () => ['drive', 'recent'] as const,
 }

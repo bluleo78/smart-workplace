@@ -38,6 +38,8 @@ import com.workplace.jooq.tables.ChatThread.ChatThreadPath;
 import com.workplace.jooq.tables.ChatThreadMember.ChatThreadMemberPath;
 import com.workplace.jooq.tables.ContactEntry.ContactEntryPath;
 import com.workplace.jooq.tables.ContactFavorite.ContactFavoritePath;
+import com.workplace.jooq.tables.DriveFile.DriveFilePath;
+import com.workplace.jooq.tables.DriveFileActivity.DriveFileActivityPath;
 import com.workplace.jooq.tables.DriveFileRef.DriveFileRefPath;
 import com.workplace.jooq.tables.DriveFileVersion.DriveFileVersionPath;
 import com.workplace.jooq.tables.DriveShareLink.DriveShareLinkPath;
@@ -853,6 +855,19 @@ public class User extends TableImpl<UserRecord> {
             _contactFavorite = new ContactFavoritePath(this, null, Keys.CONTACT_FAVORITE__CONTACT_FAVORITE_OWNER_ID_FKEY.getInverseKey());
 
         return _contactFavorite;
+    }
+
+    private transient DriveFileActivityPath _driveFileActivity;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_file_activity</code> table
+     */
+    public DriveFileActivityPath driveFileActivity() {
+        if (_driveFileActivity == null)
+            _driveFileActivity = new DriveFileActivityPath(this, null, Keys.DRIVE_FILE_ACTIVITY__DRIVE_FILE_ACTIVITY_USER_ID_FKEY.getInverseKey());
+
+        return _driveFileActivity;
     }
 
     private transient DriveFileRefPath _driveFileRef;
@@ -2067,6 +2082,14 @@ public class User extends TableImpl<UserRecord> {
      */
     public ChatThreadPath chatThread() {
         return chatThreadMember().chatThread();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.drive_file</code> table
+     */
+    public DriveFilePath driveFile() {
+        return driveFileActivity().driveFile();
     }
 
     /**

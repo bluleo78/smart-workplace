@@ -3,6 +3,7 @@ package com.workplace.drive.controller;
 import com.workplace.drive.dto.BacklinkResponse;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.VirtualAttachmentPage;
+import com.workplace.drive.service.DriveFileActivityRecorder;
 import com.workplace.drive.service.DriveLinkService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class DriveLinkController {
 
   private final DriveLinkService service;
+
+  /** 「최근」 기록(WP-1699) — 첨부를 드라이브 파일로 가져왔으면 올린 것으로 본다. */
+  private final DriveFileActivityRecorder activity;
 
   /** 파일에 연결된 소스(이슈/메시지) 중 caller 가 접근 가능한 것만 반환. */
   @GetMapping("/files/{driveFileId}/backlinks")
@@ -60,8 +64,9 @@ public class DriveLinkController {
       @PathVariable long spaceId,
       @PathVariable Long folderId,
       @RequestBody ImportRequest req) {
-    return ResponseEntity.status(HttpStatus.CREATED)
-        .body(service.importAttachment(callerId, spaceId, folderId, req.fileId()));
+    DriveFileResponse saved = service.importAttachment(callerId, spaceId, folderId, req.fileId());
+    activity.recordSaved(callerId, saved);
+    return ResponseEntity.status(HttpStatus.CREATED).body(saved);
   }
 
   /** 루트 폴더에 첨부 import (folderId 생략). */
@@ -70,7 +75,8 @@ public class DriveLinkController {
       @AuthenticationPrincipal Long callerId,
       @PathVariable long spaceId,
       @RequestBody ImportRequest req) {
-    return ResponseEntity.status(HttpStatus.CREATED)
-        .body(service.importAttachment(callerId, spaceId, null, req.fileId()));
+    DriveFileResponse saved = service.importAttachment(callerId, spaceId, null, req.fileId());
+    activity.recordSaved(callerId, saved);
+    return ResponseEntity.status(HttpStatus.CREATED).body(saved);
   }
 }

@@ -191,6 +191,8 @@ public final class TenantPurgePlan {
           // 별표(WP-1698) — drive_file·drive_folder 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 파일·폴더보다 먼저 비운다.
           DRIVE_STAR,
           DRIVE_SHARE_LINK,
+          // 「최근」 기록(WP-1699) — drive_file 을 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 파일보다 먼저 비운다.
+          DRIVE_FILE_ACTIVITY,
           DRIVE_TRANSFER_LINK,
           DRIVE_FILE_REF,
           DRIVE_FILE_VERSION,

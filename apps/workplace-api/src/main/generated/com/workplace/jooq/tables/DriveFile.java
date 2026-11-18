@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.DriveFileActivity.DriveFileActivityPath;
 import com.workplace.jooq.tables.DriveFileRef.DriveFileRefPath;
 import com.workplace.jooq.tables.DriveFileVersion.DriveFileVersionPath;
 import com.workplace.jooq.tables.DriveFolder.DriveFolderPath;
@@ -16,6 +17,7 @@ import com.workplace.jooq.tables.DriveStar.DriveStarPath;
 import com.workplace.jooq.tables.DriveTransferLink.DriveTransferLinkPath;
 import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
+import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.DriveFileRecord;
 
 import java.time.OffsetDateTime;
@@ -264,6 +266,19 @@ public class DriveFile extends TableImpl<DriveFileRecord> {
         return _tenant;
     }
 
+    private transient DriveFileActivityPath _driveFileActivity;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_file_activity</code> table
+     */
+    public DriveFileActivityPath driveFileActivity() {
+        if (_driveFileActivity == null)
+            _driveFileActivity = new DriveFileActivityPath(this, null, Keys.DRIVE_FILE_ACTIVITY__DRIVE_FILE_ACTIVITY_DRIVE_FILE_ID_FKEY.getInverseKey());
+
+        return _driveFileActivity;
+    }
+
     private transient DriveFileRefPath _driveFileRef;
 
     /**
@@ -327,6 +342,14 @@ public class DriveFile extends TableImpl<DriveFileRecord> {
             _driveTransferLink = new DriveTransferLinkPath(this, null, Keys.DRIVE_TRANSFER_LINK__DRIVE_TRANSFER_LINK_DRIVE_FILE_ID_FKEY.getInverseKey());
 
         return _driveTransferLink;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table
+     */
+    public UserPath user() {
+        return driveFileActivity().user();
     }
 
     @Override

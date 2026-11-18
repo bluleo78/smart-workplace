@@ -138,7 +138,7 @@ export function formatListDueDate(dateStr: string | null | undefined, now: Date 
 }
 
 /** 두 자리 zero-pad. */
-function pad2(n: number): string {
+export function pad2(n: number): string {
   return n.toString().padStart(2, '0');
 }
 
