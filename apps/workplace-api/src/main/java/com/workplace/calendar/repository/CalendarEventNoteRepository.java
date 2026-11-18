@@ -92,7 +92,7 @@ public class CalendarEventNoteRepository {
     return result;
   }
 
-  /** calendar_event_note.wiki_page_id 외래 키 제약 이름(V304 의 인라인 REFERENCES 기본 이름, WP-1701). */
+  /** calendar_event_note.wiki_page_id 외래 키 제약 이름(V305 의 인라인 REFERENCES 기본 이름, WP-1701). */
   private static final String NOTE_WIKI_PAGE_FK = "calendar_event_note_wiki_page_id_fkey";
 
   /**
