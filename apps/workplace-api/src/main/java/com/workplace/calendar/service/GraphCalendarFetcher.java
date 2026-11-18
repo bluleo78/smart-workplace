@@ -14,6 +14,7 @@ import com.workplace.mail.outbound.GraphCalendarClient.GraphEvent;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.user.repository.UserRepository;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.Period;
@@ -30,6 +31,7 @@ import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -119,7 +121,7 @@ public class GraphCalendarFetcher implements CalendarFetcher {
    *
    * <p>DB 단계에서 실제로 새로 생기거나 바뀌거나 지워진 일정의 내부 참석자(소유자 제외)를 모은다(WP-1733) — 같은 회의를 자기 화면에서 보는 다른 사용자에게도
    * 갱신 알림을 보내려고. 바뀐 일정은 변경 전·후 명단을 모두 넣어 참석자에서 빠진 사람도 화면이 갱신되게 하고, 지워질 일정·달력은 참석자 행이 cascade 로
-   * 사라지므로 삭제 전에 읽는다. 바뀐 것이 없으면 빈 집합이다.
+   * 사라지므로 삭제 전에 읽는다. 바뀐 것이 없으면 빈 집합이다. 달력 저장이 실패해 롤백된 시도의 명단은 버리고 커밋된 시도의 명단만 합친다(WP-1710).
    *
    * @return upsert 된 총 이벤트 수 + 알릴 내부 참석자
    */
@@ -144,83 +146,45 @@ public class GraphCalendarFetcher implements CalendarFetcher {
 
     // ── 2단계: DB persist — 달력별 짧은 트랜잭션 ──────────────────────────────────
     String mailboxOwner = mailboxOwnerAddress(calendars);
+    SyncScope scope = new SyncScope(userId, accountId, account.emailAddress(), now, from, to);
     int totalUpserted = 0;
     Set<Long> seenCalendarIds = new HashSet<>();
     // 계정 안의 캘린더끼리 색이 겹치지 않도록 이번 sync 호출 동안 배정된 색을 추적한다 (#825).
     Set<String> usedColorsForAccount = new HashSet<>();
-    // 실제로 바뀐(생성·변경·삭제) 일정의 내부 참석자 — 끝에서 소유자를 뺀다(WP-1733).
+    // 이번 회차에 저장하지 못한 달력의 Graph id — reconcile 에서 기존 로컬 달력을 지우지 않게 seen 으로 넣는다(WP-1710).
+    List<String> failedExternalIds = new ArrayList<>();
+    RuntimeException lastCalendarFailure = null;
+    // 실제로 바뀐(생성·변경·삭제) 일정의 내부 참석자 — 커밋된 달력 저장의 명단만 합치고, 끝에서 소유자를 뺀다(WP-1733·WP-1710).
     Set<Long> affectedAttendees = new HashSet<>();
 
     for (CalendarBatch batch : batches) {
       GraphCalendar cal = batch.calendar();
-      List<GraphEvent> events = batch.events();
       String color = resolveColor(cal.color(), usedColorsForAccount);
       usedColorsForAccount.add(color);
 
-      int[] count = {0};
-      long[] calIdHolder = {0L};
-      // 내 사서함 달력인가(WP-716) — 편집 권한으로 공유받은 동료 달력(canEdit=true)은 아니다. 범주 ↔ 태그는 내 사서함의 쓸 수 있는 달력만
-      // 잇는다: 남의 사서함 범주로 태그를 만들면 지울 수도, 써 넣을 수도 없다.
-      boolean ownMailbox = isOwnMailbox(cal, mailboxOwner);
-      boolean categoryTags = cal.canEdit() && ownMailbox;
+      PersistResult result;
+      try {
+        result = persistCalendarWithFallback(scope, cal, batch.events(), color, mailboxOwner);
+      } catch (RuntimeException e) {
+        // 격리해도 달력 단위로 실패(트랜잭션 롤백) — 이 달력만 건너뛰고 다음 달력으로(WP-1710).
+        // 참석자 명단은 시도마다 따로 모아 성공한 결과로만 돌려받으므로, 롤백된 시도의 명단은 여기서 합쳐지지 않는다(WP-1733).
+        logCalendarFailure(scope, cal.id(), e, true);
+        failedExternalIds.add(cal.id());
+        lastCalendarFailure = e;
+        continue;
+      }
 
-      txTemplate.execute(
-          status -> {
-            // canEdit=false(공휴일·생일 등) → is_read_only=true, canEdit=true → is_read_only=false
-            long calId =
-                extRepo.upsertExternalCalendar(
-                    userId, accountId, cal.id(), cal.name(), color, !cal.canEdit(), ownMailbox);
-            calIdHolder[0] = calId;
+      seenCalendarIds.add(result.calendarId());
+      totalUpserted += result.upserted();
+      // 커밋된 시도의 명단만 합친다(WP-1710·WP-1733).
+      affectedAttendees.addAll(result.affectedAttendees());
+    }
 
-            // 변경 전 명단 — 일정별 내부 참석자. 바뀐 일정의 이전 참석자·지워질 일정의 참석자를 여기서 꺼낸다(삭제되면 cascade 로 사라짐).
-            Map<Long, Set<Long>> attendeesBefore =
-                attendeeRepo.findInternalUserIdsByEventInCalendar(calId, from, to);
-            Set<Long> changedEventIds = new HashSet<>();
-            Set<String> keep = new HashSet<>();
-            // 로컬 일정 id → Outlook 범주 이름(응답에 categories 가 있던 일정만) — 달력 단위로 모아 태그를 한 번에 맞춘다(WP-714).
-            Map<Long, List<String>> categoriesByEvent = new HashMap<>();
-            for (GraphEvent evt : events) {
-              if (evt.isCancelled()) {
-                // 취소된 이벤트는 upsert 생략 — keep 에도 미추가하여 prune 대상으로 처리
-                continue;
-              }
-              ExternalEventRow row = mapEvent(evt);
-              var upsert = extRepo.upsertExternalEvent(userId, calId, evt.id(), row);
-              long localEventId = upsert.id();
-              boolean changed = upsert.changed();
-              // writable 캘린더의 일정만 참석자 동기화(공휴일·생일 등 read-only 는 skip). 참석자·RSVP 가 바뀐 것도 변경으로 본다.
-              if (cal.canEdit()) {
-                changed |= syncAttendees(localEventId, evt, userId, account.emailAddress());
-              }
-              if (changed) {
-                changedEventIds.add(localEventId);
-                affectedAttendees.addAll(attendeesBefore.getOrDefault(localEventId, Set.of()));
-              }
-              // 범주 → 태그는 내 사서함의 쓸 수 있는 달력만(WP-714 리뷰·WP-716 리뷰) — 동료가 공유한 달력(읽기 전용이든 편집 권한이든)·
-              // 공휴일·생일 달력의 범주는 남의 사서함 것이라, 내 태그로 만들면 지울 수도 Outlook 에 써 넣을 수도 없는 태그가 쌓인다.
-              if (categoryTags && evt.categories() != null) {
-                categoriesByEvent.put(localEventId, evt.categories());
-              }
-              keep.add(evt.id());
-              count[0]++;
-            }
-            // 이번 수집 뒤에 앱이 범주를 써 넣은 일정은 건너뛴다(WP-716) — 써 넣기 전에 읽은 범주로 새 연결을 되돌리지 않게. 다음 동기화가 맞춘다.
-            categoriesByEvent
-                .keySet()
-                .removeAll(
-                    extRepo.eventIdsWithCategoriesWrittenAfter(categoriesByEvent.keySet(), now));
-            syncCategoryTags(userId, categoriesByEvent);
-            // 바뀐 일정의 변경 후 명단 — 새로 초대된 사람도 갱신되게.
-            affectedAttendees.addAll(attendeeRepo.findInternalUserIdsByEvents(changedEventIds));
-            // 지워진 일정의 참석자 — 삭제 전에 읽어 둔 명단에서 꺼낸다.
-            for (long deletedId : extRepo.pruneEventsNotIn(calId, keep, from, to)) {
-              affectedAttendees.addAll(attendeesBefore.getOrDefault(deletedId, Set.of()));
-            }
-            return null;
-          });
-
-      seenCalendarIds.add(calIdHolder[0]);
-      totalUpserted += count[0];
+    // 모든 달력이 실패했으면 성공으로 보이지 않게 던진다(WP-1710) — CalendarSyncService 가 calendarChanged 를 내지 않고
+    // 디스패처가 실패로 기록한다. 일부만 실패했으면 로그만 남기고 계속한다.
+    if (!calendars.isEmpty() && failedExternalIds.size() == calendars.size()) {
+      throw new IllegalStateException(
+          "Graph 달력 동기화가 모든 달력에서 실패: accountId=" + accountId, lastCalendarFailure);
     }
 
     // 컨테이너 reconcile: 공급자에서 사라진 달력(기존 컨테이너에서 이번 동기화에서 미수신) 삭제.
@@ -229,6 +193,11 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     if (!calendars.isEmpty()) {
       txTemplate.execute(
           status -> {
+            // 실패한 달력은 Graph 에는 있으므로 기존 로컬 달력을 seen 으로 친다(WP-1710) — 안 그러면 일정과 함께 지워진다.
+            // 정리 자체는 그대로 돌려, 계속 실패하는 달력이 Outlook 에서 정말 지운 달력의 정리를 막지 않게 한다.
+            for (String externalId : failedExternalIds) {
+              extRepo.findExternalCalendarId(accountId, externalId).ifPresent(seenCalendarIds::add);
+            }
             List<Long> existing = extRepo.listExternalCalendarIds(accountId);
             for (long existingId : existing) {
               if (!seenCalendarIds.contains(existingId)) {
@@ -250,6 +219,207 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     // 소유자는 동기화 완료 알림을 따로 늘 받으므로 참석자 명단에서 뺀다(동기화 계정 주소가 소유자로 매칭돼 참석자 행에 들어 있다).
     affectedAttendees.remove(userId);
     return new SyncResult(totalUpserted, affectedAttendees);
+  }
+
+  /**
+   * 빠른 길: 세이브포인트 없이 한 트랜잭션으로 저장한다(WP-1710). 일정마다 세이브포인트를 두면 64개를 넘는 순간 PostgreSQL 서브트랜잭션 캐시가 넘쳐
+   * SubtransSLRU 경합이 생기므로, 실패한 달력만 일정별 격리로 한 번 더 시도한다. 격리 재시도도 실패하면 그 예외를 던진다.
+   */
+  private PersistResult persistCalendarWithFallback(
+      SyncScope scope,
+      GraphCalendar cal,
+      List<GraphEvent> events,
+      String color,
+      String mailboxOwner) {
+    try {
+      return persistCalendar(scope, cal, events, color, mailboxOwner, false);
+    } catch (RuntimeException fastFailure) {
+      logCalendarFailure(scope, cal.id(), fastFailure, false);
+      return persistCalendar(scope, cal, events, color, mailboxOwner, true);
+    }
+  }
+
+  /**
+   * 달력 저장 실패를 로그로 남긴다 — finalFailure=false 는 빠른 길 실패(info, 격리 재시도 예정), true 는 격리 재시도까지 실패(warn,
+   * 건너뜀). 메시지에는 PostgreSQL 의 "Failing row contains (...)" 로 행 데이터가 실릴 수 있어 info/warn 에는
+   * 식별자·클래스명·SQLState 만 남기고 전체 예외는 debug 로만 남긴다.
+   */
+  private void logCalendarFailure(
+      SyncScope scope, String calendarId, RuntimeException e, boolean finalFailure) {
+    String error = e.getClass().getSimpleName();
+    String sqlState = sqlStateOf(e);
+    if (finalFailure) {
+      log.warn(
+          "Graph 달력 동기화 실패, 건너뜀: userId={} accountId={} calendarId={} error={} sqlState={}",
+          scope.userId(),
+          scope.accountId(),
+          calendarId,
+          error,
+          sqlState);
+      log.debug("Graph 달력 동기화 실패 상세: calendarId={}", calendarId, e);
+    } else {
+      log.info(
+          "Graph 달력 빠른 저장 실패, 일정별 격리로 다시 시도: userId={} accountId={} calendarId={} error={} sqlState={}",
+          scope.userId(),
+          scope.accountId(),
+          calendarId,
+          error,
+          sqlState);
+      log.debug("Graph 달력 빠른 저장 실패 상세: calendarId={}", calendarId, e);
+    }
+  }
+
+  /** 한 번의 sync 호출 동안 바뀌지 않는 값 — 달력 저장 메서드에 넘긴다(WP-1710). */
+  record SyncScope(
+      long userId,
+      long accountId,
+      String accountEmail,
+      OffsetDateTime now,
+      OffsetDateTime from,
+      OffsetDateTime to) {}
+
+  /**
+   * 달력 하나를 저장한 결과 — 로컬 calendar.id, 저장한 일정 수, 이 시도에서 실제로 바뀌거나 지워진 일정의 내부 참석자(WP-1733). 참석자 명단은
+   * 시도(트랜잭션)마다 새로 모으므로, 롤백된 시도의 명단은 결과로 나가지 않는다(WP-1710).
+   */
+  record PersistResult(long calendarId, int upserted, Set<Long> affectedAttendees) {}
+
+  /** 일정 하나를 저장한 결과 — 로컬 calendar_event.id 와 일정 필드·참석자가 실제로 바뀌었는지(WP-1733). */
+  record EventPersist(long eventId, boolean changed) {}
+
+  /**
+   * 달력 하나(컨테이너·일정·참석자·범주 태그·prune)를 한 트랜잭션으로 저장한다.
+   *
+   * <p>isolateEvents=false 는 빠른 길로, 어떤 오류든 트랜잭션 전체가 롤백되고 예외가 그대로 나간다. true 는 실패한 달력의 재시도로, 일정마다
+   * 세이브포인트를 두어 실패한 일정만 되돌리고 나머지를 저장한다(WP-1710). 테스트가 어느 길을 탔는지 확인할 수 있게 package-private 이다.
+   */
+  PersistResult persistCalendar(
+      SyncScope scope,
+      GraphCalendar cal,
+      List<GraphEvent> events,
+      String color,
+      String mailboxOwner,
+      boolean isolateEvents) {
+    // 내 사서함 달력인가(WP-716) — 편집 권한으로 공유받은 동료 달력(canEdit=true)은 아니다. 범주 ↔ 태그는 내 사서함의 쓸 수 있는 달력만
+    // 잇는다: 남의 사서함 범주로 태그를 만들면 지울 수도, 써 넣을 수도 없다.
+    boolean ownMailbox = isOwnMailbox(cal, mailboxOwner);
+    boolean categoryTags = cal.canEdit() && ownMailbox;
+
+    return txTemplate.execute(
+        status -> {
+          // canEdit=false(공휴일·생일 등) → is_read_only=true, canEdit=true → is_read_only=false
+          long calId =
+              extRepo.upsertExternalCalendar(
+                  scope.userId(),
+                  scope.accountId(),
+                  cal.id(),
+                  cal.name(),
+                  color,
+                  !cal.canEdit(),
+                  ownMailbox);
+
+          // 변경 전 명단 — 일정별 내부 참석자. 바뀐 일정의 이전 참석자·지워질 일정의 참석자를 여기서 꺼낸다(삭제되면 cascade 로 사라짐)(WP-1733).
+          Map<Long, Set<Long>> attendeesBefore =
+              attendeeRepo.findInternalUserIdsByEventInCalendar(calId, scope.from(), scope.to());
+          // 이 시도(트랜잭션)만의 버퍼 — 시도가 롤백되면 결과로 나가지 않아 함께 버려진다(WP-1710·WP-1733).
+          Set<Long> affected = new HashSet<>();
+          Set<Long> changedEventIds = new HashSet<>();
+          int count = 0;
+          Set<String> keep = new HashSet<>();
+          // 로컬 일정 id → Outlook 범주 이름(응답에 categories 가 있던 일정만) — 달력 단위로 모아 태그를 한 번에 맞춘다(WP-714).
+          Map<Long, List<String>> categoriesByEvent = new HashMap<>();
+          for (GraphEvent evt : events) {
+            if (evt.isCancelled()) {
+              // 취소된 이벤트는 upsert 생략 — keep 에도 미추가하여 prune 대상으로 처리
+              continue;
+            }
+            // 빠른 길은 실패하면 예외를 그대로 던지고, 격리 모드는 실패한 일정만 되돌린 뒤 null 을 돌려준다.
+            EventPersist persisted;
+            if (isolateEvents) {
+              persisted = persistEventIsolated(status, scope, calId, cal, evt);
+            } else {
+              persisted = persistEvent(scope, calId, cal, evt);
+            }
+            if (persisted == null) {
+              // 세지는 않지만 keep 에는 넣는다 — 빼면 pruneEventsNotIn 이 기존 행을 지우고 cascade 로 사용자가 앱에서 만든
+              // 알림·회의록 연결·앱 태그까지 사라진다. 낡은 값이 남더라도 다음 회차가 다시 시도한다.
+              // 세이브포인트로 되돌린 일정은 바뀐 것이 없으므로 참석자도 모으지 않는다(WP-1710·WP-1733).
+              keep.add(evt.id());
+              continue;
+            }
+            long localEventId = persisted.eventId();
+            // 실제로 바뀐 일정만 변경 전 명단을 모으고, 변경 후 명단은 루프 뒤 한 번에 읽는다(WP-1733).
+            if (persisted.changed()) {
+              changedEventIds.add(localEventId);
+              affected.addAll(attendeesBefore.getOrDefault(localEventId, Set.of()));
+            }
+            // 범주 → 태그는 내 사서함의 쓸 수 있는 달력만(WP-714 리뷰·WP-716 리뷰) — 동료가 공유한 달력(읽기 전용이든 편집 권한이든)·
+            // 공휴일·생일 달력의 범주는 남의 사서함 것이라, 내 태그로 만들면 지울 수도 Outlook 에 써 넣을 수도 없는 태그가 쌓인다.
+            if (categoryTags && evt.categories() != null) {
+              categoriesByEvent.put(localEventId, evt.categories());
+            }
+            keep.add(evt.id());
+            count++;
+          }
+          // 이번 수집 뒤에 앱이 범주를 써 넣은 일정은 건너뛴다(WP-716) — 써 넣기 전에 읽은 범주로 새 연결을 되돌리지 않게. 다음 동기화가 맞춘다.
+          categoriesByEvent
+              .keySet()
+              .removeAll(
+                  extRepo.eventIdsWithCategoriesWrittenAfter(
+                      categoriesByEvent.keySet(), scope.now()));
+          syncCategoryTags(scope.userId(), categoriesByEvent);
+          // 바뀐 일정의 변경 후 명단 — 새로 초대된 사람도 갱신되게(WP-1733).
+          affected.addAll(attendeeRepo.findInternalUserIdsByEvents(changedEventIds));
+          // 지워진 일정의 참석자 — 삭제 전에 읽어 둔 명단에서 꺼낸다(WP-1733).
+          for (long deletedId : extRepo.pruneEventsNotIn(calId, keep, scope.from(), scope.to())) {
+            affected.addAll(attendeesBefore.getOrDefault(deletedId, Set.of()));
+          }
+          return new PersistResult(calId, count, affected);
+        });
+  }
+
+  /**
+   * 일정 하나를 세이브포인트로 감싸 저장한다 — PostgreSQL 은 오류가 나면 트랜잭션 전체가 중단되므로, 그 일정만 되돌려야 뒤따르는 쿼리가 산다(WP-1710).
+   * 실패하면 그 일정만 롤백하고 null 을 돌려준다. 메시지에는 "Failing row contains (...)" 로 일정 제목·본문이 실릴 수 있어 클래스명과
+   * SQLState 만 남긴다.
+   *
+   * @return 로컬 calendar_event.id 와 변경 여부, 저장에 실패해 되돌렸으면 null
+   */
+  private EventPersist persistEventIsolated(
+      TransactionStatus status, SyncScope scope, long calId, GraphCalendar cal, GraphEvent evt) {
+    Object savepoint = status.createSavepoint();
+    try {
+      EventPersist persisted = persistEvent(scope, calId, cal, evt);
+      status.releaseSavepoint(savepoint);
+      return persisted;
+    } catch (RuntimeException e) {
+      status.rollbackToSavepoint(savepoint);
+      log.warn(
+          "Graph 일정 저장 실패, 건너뜀: userId={} accountId={} eventId={} error={} sqlState={}",
+          scope.userId(),
+          scope.accountId(),
+          evt.id(),
+          e.getClass().getSimpleName(),
+          sqlStateOf(e));
+      log.debug("Graph 일정 저장 실패 상세: eventId={}", evt.id(), e);
+      return null;
+    }
+  }
+
+  /**
+   * 일정 하나 upsert + (쓸 수 있는 달력이면) 참석자 동기화. 로컬 calendar_event.id 와, 일정 필드나 참석자·RSVP 가 실제로 바뀌었는지를
+   * 돌려준다(WP-1733 — 바뀐 일정의 내부 참석자에게만 알리려고).
+   */
+  private EventPersist persistEvent(
+      SyncScope scope, long calId, GraphCalendar cal, GraphEvent evt) {
+    ExternalEventRow row = mapEvent(evt);
+    var upsert = extRepo.upsertExternalEvent(scope.userId(), calId, evt.id(), row);
+    boolean changed = upsert.changed();
+    // writable 캘린더의 일정만 참석자 동기화(공휴일·생일 등 read-only 는 skip). 참석자·RSVP 가 바뀐 것도 변경으로 본다.
+    if (cal.canEdit()) {
+      changed |= syncAttendees(upsert.id(), evt, scope.userId(), scope.accountEmail());
+    }
+    return new EventPersist(upsert.id(), changed);
   }
 
   /**
@@ -337,6 +507,26 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     return raw.replace("\r\n", "\n").replace('\r', '\n').replace("\u0000", "").trim();
   }
 
+  /** 예외 원인 사슬에서 첫 SQLException 의 SQLState 를 찾는다(없으면 null) — 행 데이터가 섞인 메시지 대신 로그에 남긴다(WP-1710). */
+  private static String sqlStateOf(Throwable e) {
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      if (t instanceof SQLException sql) return sql.getSQLState();
+    }
+    return null;
+  }
+
+  /**
+   * 끝이 시작보다 이르거나 같은 일정의 끝을 보정한다(WP-1710).
+   *
+   * <p>Outlook 은 0분(시작=끝) 일정을 허용하지만 DB {@code calendar_event_time_check(ends_at > starts_at)} 는 이를
+   * 거부해 동기화가 통째로 실패한다. 그래서 시간 일정은 시작+1분, 종일 일정은 시작+1일(반개구간 규약)로 끝을 늘린다. 끝이 시작보다 늦으면 그대로 둔다.
+   */
+  static OffsetDateTime normalizedEnd(
+      OffsetDateTime startsAt, OffsetDateTime endsAt, boolean allDay) {
+    if (endsAt.isAfter(startsAt)) return endsAt;
+    return allDay ? startsAt.plusDays(1) : startsAt.plusMinutes(1);
+  }
+
   /**
    * GraphEvent → ExternalEventRow 매핑.
    *
@@ -350,11 +540,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     String location = (evt.location() != null) ? evt.location().displayName() : null;
 
     OffsetDateTime startsAt = parseDateTime(evt.start().dateTime());
-    OffsetDateTime endsAt = parseDateTime(evt.end().dateTime());
-
-    // 종일 이벤트: Graph end 는 배타적이나 minusDays(1) 하면 start == end 가 되어
-    // calendar_event_time_check(ends_at > starts_at) 위반 — DB 는 반개구간(exclusive end) 을 그대로 저장한다.
-    // 앱 내 all_day=true 이벤트는 일관되게 half-open [start, end) 으로 표현한다(CalendarEventService 기준).
+    OffsetDateTime endsAt =
+        normalizedEnd(startsAt, parseDateTime(evt.end().dateTime()), evt.isAllDay());
 
     return new ExternalEventRow(
         title,
