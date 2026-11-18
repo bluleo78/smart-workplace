@@ -219,4 +219,29 @@ class WikiSearchServiceTest extends IntegrationTestBase {
     assertThat(pageService.search(u, "처음 글", sp.id(), 50, 0)).isEmpty();
     assertThat(pageService.search(u, "나중 글", sp.id(), 50, 0)).hasSize(1);
   }
+
+  /** 검색 결과가 마지막으로 고친 사람 이름을 싣는다(WP-1701) — 고친 사람이 없으면 null. */
+  @Test
+  void search_returnsUpdatedByName() {
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    var created = pageService.create(u, sp.id(), new CreatePageRequest(null, "이름검색"));
+    String name = dsl.select(USER.NAME).from(USER).where(USER.ID.eq(u)).fetchOne(0, String.class);
+
+    dsl.update(WIKI_PAGE)
+        .set(WIKI_PAGE.UPDATED_BY, u)
+        .where(WIKI_PAGE.ID.eq(created.id()))
+        .execute();
+    assertThat(pageService.search(u, "이름검색", null, 50, 0))
+        .extracting(WikiSearchResult::updatedByName)
+        .containsExactly(name);
+
+    dsl.update(WIKI_PAGE)
+        .setNull(WIKI_PAGE.UPDATED_BY)
+        .where(WIKI_PAGE.ID.eq(created.id()))
+        .execute();
+    assertThat(pageService.search(u, "이름검색", null, 50, 0))
+        .extracting(WikiSearchResult::updatedByName)
+        .containsExactly((String) null);
+  }
 }

@@ -1,4 +1,4 @@
-import type { CalendarEvent, CalendarEventRequest, CalendarEventSearchResponse, EditScope, RsvpStatus } from '../types/calendar'
+import type { CalendarEvent, CalendarEventRequest, CalendarEventSearchResponse, EditScope, EventNoteLink, RsvpStatus } from '../types/calendar'
 import { client } from './client'
 
 // 반복 일정 편집/삭제 시 적용 범위·회차 식별용 쿼리 파라미터 (이슈 #111)
@@ -34,4 +34,16 @@ export const calendarApi = {
   // 내 RSVP 응답 — PATCH /calendar/events/{id}/rsvp (이슈 #489)
   rsvp: (id: number, status: RsvpStatus) =>
     client.patch<void>(`/calendar/events/${id}/rsvp`, { status }),
+  // 일정(회차)의 회의록 노트 — 반복 일정은 occurrenceDate 로 회차를 가른다(WP-1701)
+  getNote: (id: number, occurrenceDate?: string | null) =>
+    client.get<EventNoteLink>(`/calendar/events/${id}/note`, { params: noteParams(occurrenceDate) }),
+  linkNote: (id: number, occurrenceDate: string | null | undefined, pageId: number) =>
+    client.put<EventNoteLink>(`/calendar/events/${id}/note`, { pageId }, { params: noteParams(occurrenceDate) }),
+  unlinkNote: (id: number, occurrenceDate?: string | null) =>
+    client.delete<void>(`/calendar/events/${id}/note`, { params: noteParams(occurrenceDate) }),
+}
+
+// occurrenceDate 는 값이 있을 때만 쿼리로 보낸다(반복 아님·override 행은 서버가 무시)
+function noteParams(occurrenceDate?: string | null) {
+  return occurrenceDate ? { occurrenceDate } : undefined
 }

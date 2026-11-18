@@ -10,10 +10,10 @@ import { afterAll, beforeAll, beforeEach, vi } from 'vitest'
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { CalendarPage } from '@/pages/calendar/CalendarPage'
 import { renderScreen } from '@/test/renderScreen'
-import type { Calendar, CalendarEvent } from '@/types/calendar'
+import type { Calendar, CalendarEvent, EventNoteRef } from '@/types/calendar'
 import type { IssueResponse } from '@/types/issue'
 
-import { calendar, calendarEvent } from '../../../../e2e/factories/calendar.factory'
+import { calendar, calendarEvent, eventNote } from '../../../../e2e/factories/calendar.factory'
 import { createIssue, createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
 
 /** E2E 와 같은 「지금」 — 2026-06-10 12:00 KST(수). 월 보기가 2026년 6월을 그린다. */
@@ -41,6 +41,10 @@ type ApiOptions = {
   detail?: (id: number) => CalendarEvent | undefined | Promise<CalendarEvent | undefined>
   /** 새 일정 POST 응답을 늦춘다(저장 중 상태 관찰). 넘긴 promise 가 풀릴 때 응답한다. */
   holdPost?: () => Promise<void>
+  /** 회의록 노트(WP-1701) — 키 `${일정 id}|${occurrenceDate ?? ''}` 로 처음부터 이어 둔 카드. 없으면 연결 없음 */
+  notes?: Record<string, EventNoteRef>
+  /** 노트 잇기(PUT) 응답 카드 — 기본은 eventNote({ pageId }) */
+  linkedCard?: (pageId: number) => EventNoteRef
 }
 
 /**
@@ -52,6 +56,7 @@ export function calendarApi(opts: ApiOptions = {}) {
     events: [...(opts.events ?? [])],
     calendars: [...(opts.calendars ?? [calendar({ id: 1, name: '기본', color: 'blue', isDefault: true })])],
     issues: opts.issues ?? [],
+    notes: { ...(opts.notes ?? {}) } as Record<string, EventNoteRef>,
   }
   const requests = {
     posts: [] as Record<string, unknown>[],
@@ -61,7 +66,12 @@ export function calendarApi(opts: ApiOptions = {}) {
     meIssues: [] as URLSearchParams[],
     calendarPosts: [] as Record<string, unknown>[],
     resets: [] as number[],
+    // 노트 API 요청(WP-1701) — 쓰기는 본문·쿼리, 조회는 쿼리
+    noteGets: [] as URL[],
+    notePuts: [] as { url: URL; body: { pageId: number } }[],
+    noteDeletes: [] as URL[],
   }
+  const noteKey = (id: number | string, url: URL) => `${id}|${url.searchParams.get('occurrenceDate') ?? ''}`
   const handlers = [
     http.get('/api/v1/calendars', () => HttpResponse.json(state.calendars)),
     http.post('/api/v1/calendars', async ({ request }) => {
@@ -81,6 +91,26 @@ export function calendarApi(opts: ApiOptions = {}) {
     http.get('/api/v1/calendar/events', () => {
       requests.eventLists++
       return HttpResponse.json(state.events)
+    }),
+    // 일정(회차)의 회의록 노트 — 위 상세 GET 보다 구체적인 경로라 따로 둔다(WP-1701)
+    http.get('/api/v1/calendar/events/:id/note', ({ request, params }) => {
+      const url = new URL(request.url)
+      requests.noteGets.push(url)
+      return HttpResponse.json({ note: state.notes[noteKey(params.id as string, url)] ?? null })
+    }),
+    http.put('/api/v1/calendar/events/:id/note', async ({ request, params }) => {
+      const url = new URL(request.url)
+      const body = (await request.json()) as { pageId: number }
+      requests.notePuts.push({ url, body })
+      const note = opts.linkedCard ? opts.linkedCard(body.pageId) : eventNote({ pageId: body.pageId })
+      state.notes[noteKey(params.id as string, url)] = note
+      return HttpResponse.json({ note })
+    }),
+    http.delete('/api/v1/calendar/events/:id/note', ({ request, params }) => {
+      const url = new URL(request.url)
+      requests.noteDeletes.push(url)
+      delete state.notes[noteKey(params.id as string, url)]
+      return new HttpResponse(null, { status: 204 })
     }),
     http.get('/api/v1/calendar/events/:id', async ({ params }) => {
       const id = Number(params.id)

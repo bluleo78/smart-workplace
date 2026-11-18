@@ -9,5 +9,7 @@ export const calendarKeys = {
   calendars: ['calendar', 'calendars'] as const,
   // 태그 목록 — 구독 주소 키가 이 아래에 있어 tags 만 무효화해도 함께 갱신된다(WP-714·715)
   tags: ['calendar', 'tags'] as const,
+  // 일정(회차)의 회의록 노트(WP-1701) — all 접두라 일정 변경 무효화 때 함께 다시 읽는다
+  eventNote: (id: number, occurrenceDate: string | null) => ['calendar', 'note', id, occurrenceDate] as const,
   tagFeed: (id: number) => ['calendar', 'tags', id, 'feed'] as const,
 }

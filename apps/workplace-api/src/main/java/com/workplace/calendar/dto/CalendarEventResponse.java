@@ -26,6 +26,8 @@ import java.util.List;
  *     달력(공유받은 읽기 전용 달력이 아님)일 때만 true — 태그를 바꾸면 Outlook 범주에도 써 넣는다(WP-716).
  * @param outlookTagScope 이 일정의 태그가 Outlook 범주와 이어진 M365 일정이면 범주가 붙는 단위 — {@code EVENT}(이 일정) 또는
  *     {@code SERIES}(반복 회의 전체 — 회차에서 바꿔도 시리즈에 붙는다). 앱 일정은 null(WP-716).
+ * @param note 이 일정(회차)에 이어진 회의록 노트 카드(WP-1701). 연결이 없거나 서비스가 채우기 전이면 null. 읽을 수 없는 노트는 restricted
+ *     만.
  */
 public record CalendarEventResponse(
     long id,
@@ -54,7 +56,8 @@ public record CalendarEventResponse(
     OnlineMeeting onlineMeeting,
     List<CalendarTagRef> tags,
     boolean tagsEditable,
-    OutlookTagScope outlookTagScope) {
+    OutlookTagScope outlookTagScope,
+    EventNoteRef note) {
 
   /** 태그만 바꾼 복사본 — 서비스가 목록·상세 응답에 호출자 태그를 한 번에 채울 때 쓴다(WP-714). */
   public CalendarEventResponse withTags(List<CalendarTagRef> newTags) {
@@ -85,6 +88,40 @@ public record CalendarEventResponse(
         onlineMeeting,
         newTags,
         tagsEditable,
-        outlookTagScope);
+        outlookTagScope,
+        note);
+  }
+
+  /** 연결 노트만 바꾼 복사본 — 서비스가 목록·상세 응답에 노트 카드를 채울 때 쓴다(WP-1701). */
+  public CalendarEventResponse withNote(EventNoteRef newNote) {
+    return new CalendarEventResponse(
+        id,
+        title,
+        description,
+        startsAt,
+        endsAt,
+        allDay,
+        location,
+        color,
+        calendarId,
+        calendarName,
+        effectiveColor,
+        reminderMinutes,
+        recurrenceRule,
+        masterEventId,
+        occurrenceDate,
+        createdAt,
+        updatedAt,
+        attendeeCount,
+        myRsvpStatus,
+        attendees,
+        external,
+        myRole,
+        iCalUid,
+        onlineMeeting,
+        tags,
+        tagsEditable,
+        outlookTagScope,
+        newNote);
   }
 }

@@ -70,7 +70,7 @@ class CalendarEventControllerTest extends WebMvcSliceTestBase {
   private CalendarEventResponse sample() {
     return new CalendarEventResponse(
         1L, "회의", null, STARTS, ENDS, false, null, null, null, null, "blue", null, null, null, null,
-        STARTS, ENDS, 0, null, null, false, null, null, null, List.of(), true, null);
+        STARTS, ENDS, 0, null, null, false, null, null, null, List.of(), true, null, null);
   }
 
   @BeforeEach

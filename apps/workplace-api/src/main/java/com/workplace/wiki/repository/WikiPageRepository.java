@@ -1,5 +1,6 @@
 package com.workplace.wiki.repository;
 
+import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_BODY_HISTORY;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE;
@@ -8,8 +9,10 @@ import static com.workplace.jooq.Tables.WIKI_SPACE;
 
 import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.global.util.Texts;
+import com.workplace.jooq.tables.User;
 import com.workplace.wiki.dto.WikiBacklink;
 import com.workplace.wiki.dto.WikiMentionRef;
+import com.workplace.wiki.dto.WikiPageCard;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageKind;
 import com.workplace.wiki.dto.WikiPageSummary;
@@ -20,6 +23,7 @@ import com.workplace.wiki.service.WikiHtmlText;
 import com.workplace.wiki.service.WikiPlainText;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,6 +35,8 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.SelectOnConditionStep;
+import org.jooq.SelectSelectStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -737,6 +743,9 @@ public class WikiPageRepository {
    */
   private static final int RAW_SNIPPET_SOURCE_CHARS = 8000;
 
+  /** 마지막으로 고친 사람(user) 조인 별칭 — 검색 결과·읽기 카드가 이름을 싣는다(WP-1701). */
+  private static final User UPDATER = USER.as("wp_updater");
+
   /** 검색 결과 스니펫 열 별칭 — 평문 앞부분만 DB 에서 잘라 읽는다. */
   private static final String SNIPPET_TEXT = "snippet_text";
 
@@ -749,7 +758,7 @@ public class WikiPageRepository {
       long callerId, Long spaceId, String pattern, int limit, int offset) {
     // 실효 멤버(직접 또는 조직도 부서, WP-1052)인 스페이스만 — 조인이 아니라 EXISTS 라 양쪽에 걸려도 페이지가 한 번만 나온다.
     Condition cond =
-        WikiSpaceMembership.isMember(WIKI_PAGE.SPACE_ID, DSL.val(callerId))
+        isMember(callerId)
             .and(
                 WIKI_PAGE
                     .TITLE
@@ -758,22 +767,23 @@ public class WikiPageRepository {
     if (spaceId != null) {
       cond = cond.and(WIKI_PAGE.SPACE_ID.eq(spaceId));
     }
-    return dsl.select(
-            WIKI_PAGE.ID,
-            WIKI_PAGE.SPACE_ID,
-            WIKI_SPACE.NAME,
-            WIKI_PAGE.TITLE,
-            // 스니펫에 쓸 앞부분만 읽는다 — 평문·원문이 클 수 있어 행마다 통째로 싣지 않는다.
-            DSL.left(WIKI_PAGE.SEARCH_TEXT, SNIPPET_CHARS).as(SNIPPET_TEXT),
-            // 평문이 없는 행만 원문 앞부분을 싣는다.
-            DSL.when(
-                    WIKI_PAGE.SEARCH_TEXT.isNull(),
-                    DSL.left(WIKI_PAGE.BODY, RAW_SNIPPET_SOURCE_CHARS))
-                .as(RAW_BODY),
-            WIKI_PAGE.UPDATED_AT)
-        .from(WIKI_PAGE)
-        .join(WIKI_SPACE)
-        .on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID))
+    return withUpdater(
+            fromPageSpace(
+                dsl.select(
+                    WIKI_PAGE.ID,
+                    WIKI_PAGE.SPACE_ID,
+                    WIKI_SPACE.NAME,
+                    WIKI_PAGE.TITLE,
+                    // 스니펫에 쓸 앞부분만 읽는다 — 평문·원문이 클 수 있어 행마다 통째로 싣지 않는다.
+                    DSL.left(WIKI_PAGE.SEARCH_TEXT, SNIPPET_CHARS).as(SNIPPET_TEXT),
+                    // 평문이 없는 행만 원문 앞부분을 싣는다.
+                    DSL.when(
+                            WIKI_PAGE.SEARCH_TEXT.isNull(),
+                            DSL.left(WIKI_PAGE.BODY, RAW_SNIPPET_SOURCE_CHARS))
+                        .as(RAW_BODY),
+                    WIKI_PAGE.UPDATED_AT,
+                    // 마지막으로 고친 사람 이름(WP-1701) — 고친 사람이 없으면 NULL 이라 LEFT JOIN.
+                    UPDATER.NAME)))
         .where(cond)
         // 동률일 때 id 로 한 번 더 정렬 — offset 페이지 경계에서 행이 겹치거나 빠지지 않게(WP-1353).
         .orderBy(WIKI_PAGE.UPDATED_AT.desc(), WIKI_PAGE.ID.desc())
@@ -793,7 +803,8 @@ public class WikiPageRepository {
                   r.get(WIKI_SPACE.NAME),
                   r.get(WIKI_PAGE.TITLE),
                   snippet,
-                  r.get(WIKI_PAGE.UPDATED_AT));
+                  r.get(WIKI_PAGE.UPDATED_AT),
+                  r.get(UPDATER.NAME));
             });
   }
 
@@ -834,23 +845,72 @@ public class WikiPageRepository {
   }
 
   /**
+   * pageIds 중 호출자가 읽을 수 있는(실효 멤버, WP-1052) 노트의 카드를 쿼리 한 번에 id 키로 돌려준다(WP-1701). 멤버십 조건은 {@link
+   * #visiblePagesQuery} 와 같은 {@link WikiSpaceMembership#isMember} 이고, 마지막으로 고친 사람 이름만 {@code
+   * "user"} LEFT JOIN 으로 더한다(고친 사람이 없으면 null). 다른 테넌트의 노트는 RLS 로 보이지 않는다.
+   */
+  public Map<Long, WikiPageCard> findReadableCards(long callerId, Collection<Long> pageIds) {
+    Map<Long, WikiPageCard> result = new LinkedHashMap<>();
+    if (pageIds == null || pageIds.isEmpty()) return result;
+    withUpdater(
+            fromPageSpace(
+                dsl.select(
+                    WIKI_PAGE.ID,
+                    WIKI_PAGE.TITLE,
+                    WIKI_PAGE.SPACE_ID,
+                    WIKI_SPACE.NAME,
+                    UPDATER.NAME,
+                    WIKI_PAGE.UPDATED_AT)))
+        .where(isMember(callerId))
+        .and(WIKI_PAGE.ID.in(pageIds))
+        .fetch()
+        .forEach(
+            r ->
+                result.put(
+                    r.get(WIKI_PAGE.ID),
+                    new WikiPageCard(
+                        r.get(WIKI_PAGE.ID),
+                        r.get(WIKI_PAGE.TITLE),
+                        r.get(WIKI_PAGE.SPACE_ID),
+                        r.get(WIKI_SPACE.NAME),
+                        r.get(UPDATER.NAME),
+                        r.get(WIKI_PAGE.UPDATED_AT))));
+    return result;
+  }
+
+  /**
    * pageIds 중 호출자가 멤버인 스페이스의 페이지 행을 고르는 공통 가시성 쿼리(id/spaceId/spaceName/title/updatedAt 컬럼). 백링크·페이지
    * 멘션 하이드레이션이 같은 멤버십 조건을 재사용한다.
    */
   private org.jooq.SelectConditionStep<
           org.jooq.Record5<Long, Long, String, String, java.time.OffsetDateTime>>
       visiblePagesQuery(long callerId, List<Long> pageIds) {
-    return dsl.select(
-            WIKI_PAGE.ID,
-            WIKI_PAGE.SPACE_ID,
-            WIKI_SPACE.NAME,
-            WIKI_PAGE.TITLE,
-            WIKI_PAGE.UPDATED_AT)
-        .from(WIKI_PAGE)
-        .join(WIKI_SPACE)
-        .on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID))
+    return fromPageSpace(
+            dsl.select(
+                WIKI_PAGE.ID,
+                WIKI_PAGE.SPACE_ID,
+                WIKI_SPACE.NAME,
+                WIKI_PAGE.TITLE,
+                WIKI_PAGE.UPDATED_AT))
         // 실효 멤버(직접 또는 조직도 부서, WP-1052) — EXISTS 라 중복 행이 없다.
-        .where(WikiSpaceMembership.isMember(WIKI_PAGE.SPACE_ID, DSL.val(callerId)))
+        .where(isMember(callerId))
         .and(WIKI_PAGE.ID.in(pageIds));
+  }
+
+  /** 노트 → 스페이스 조인까지 붙인 FROM 절 — 가시성 쿼리·검색·읽기 카드가 공유한다(WP-1701). */
+  private static <R extends Record> SelectOnConditionStep<R> fromPageSpace(
+      SelectSelectStep<R> select) {
+    return select.from(WIKI_PAGE).join(WIKI_SPACE).on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID));
+  }
+
+  /** 마지막으로 고친 사람 LEFT JOIN(고친 사람이 없으면 이름 NULL) — 검색·읽기 카드가 공유한다(WP-1701). */
+  private static <R extends Record> SelectOnConditionStep<R> withUpdater(
+      SelectOnConditionStep<R> from) {
+    return from.leftJoin(UPDATER).on(UPDATER.ID.eq(WIKI_PAGE.UPDATED_BY));
+  }
+
+  /** 호출자가 그 페이지 스페이스의 실효 멤버(직접 또는 조직도 부서, WP-1052)인 조건(WP-1701). */
+  private static Condition isMember(long callerId) {
+    return WikiSpaceMembership.isMember(WIKI_PAGE.SPACE_ID, DSL.val(callerId));
   }
 }

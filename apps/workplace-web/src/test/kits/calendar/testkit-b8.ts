@@ -56,6 +56,8 @@ export function calendarHandlers({
       const found = events.find((e) => e.id === Number(params.id))
       return found ? HttpResponse.json(found) : HttpResponse.json({ message: '없음' }, { status: 404 })
     }),
+    // 일정 창이 읽는 회의록 노트(WP-1701) — 기본은 연결 없음. renderScreen 은 baseHandlers 를 깔지 않아 이 도구가 직접 준다
+    http.get(`${API}/calendar/events/:id/note`, () => HttpResponse.json({ note: null })),
     http.get(`${API}/me/issues`, () => HttpResponse.json([])),
     http.get(`${API}/calendar/tags`, () => HttpResponse.json(tags)),
     // 참석자 줄의 구성원 검색(GET /members?search=) — 참석자 테스트는 결과를 주는 핸들러로 덮는다

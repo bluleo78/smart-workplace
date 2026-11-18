@@ -136,6 +136,8 @@ export interface WikiSearchResult {
   title: string
   snippet: string
   updatedAt: string
+  // 마지막으로 고친 사람 이름 — 한 번도 고치지 않은 노트는 null(WP-1701)
+  updatedByName: string | null
 }
 
 // #751: 노트 본문 첨부 업로드 응답(이미지·파일, WP-1545). url 은 그대로 마크다운에 삽입한다(클라이언트가 경로를 조립하지 않는다).

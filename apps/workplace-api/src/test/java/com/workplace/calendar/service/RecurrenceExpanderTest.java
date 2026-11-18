@@ -28,6 +28,24 @@ class RecurrenceExpanderTest {
     assertThat(occ.get(0)).isEqualTo(OffsetDateTime.parse("2026-06-08T09:00:00Z"));
   }
 
+  /**
+   * RRULE 에 맞지 않는 DTSTART(월요일 시작, 화·목 반복)를 전개가 회차로 내는가(WP-1701) — 새 반복 일정에 노트를 이을 때 웹이 startsAt 을 첫
+   * 회차로 써도 되는지 가른다. 월요일 2026-11-16 은 화·목 규칙의 회차가 아니므로 첫 회차는 11-17(화) 이어야 한다.
+   */
+  @Test
+  void expand_nonMatchingDtstart_firstOccurrence() {
+    List<OffsetDateTime> occ =
+        expander.expand(
+            "FREQ=WEEKLY;BYDAY=TU,TH",
+            OffsetDateTime.parse("2026-11-16T09:00:00Z"),
+            OffsetDateTime.parse("2026-11-16T00:00:00Z"),
+            OffsetDateTime.parse("2026-11-23T00:00:00Z"));
+    assertThat(occ)
+        .containsExactly(
+            OffsetDateTime.parse("2026-11-17T09:00:00Z"),
+            OffsetDateTime.parse("2026-11-19T09:00:00Z"));
+  }
+
   /** COUNT 제한 — 4회만. */
   @Test
   void expand_weekly_count() {

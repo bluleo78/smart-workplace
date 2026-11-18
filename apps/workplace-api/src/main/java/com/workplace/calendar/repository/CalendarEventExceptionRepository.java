@@ -92,6 +92,16 @@ public class CalendarEventExceptionRepository {
         .map(r -> r.get(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID));
   }
 
+  /** 그 회차가 취소(THIS 삭제)됐는가(WP-1701) — 취소된 회차에는 노트를 잇지 않는다. 예외 행이 없거나 취소가 아니면 false. */
+  public boolean isCancelled(long eventId, OffsetDateTime occurrenceDate) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(CALENDAR_EVENT_EXCEPTION)
+            .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(eventId))
+            .and(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE.eq(occurrenceDate))
+            .and(CALENDAR_EVENT_EXCEPTION.IS_CANCELLED.isTrue()));
+  }
+
   /** override_event_id 역조회 결과 — 마스터 event_id + 해당 회차의 occurrence_date. */
   public record MasterOccurrence(long eventId, OffsetDateTime occurrenceDate) {}
 
