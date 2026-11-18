@@ -27,6 +27,7 @@ import com.workplace.jooq.tables.AiMemoryForgotten;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
+import com.workplace.jooq.tables.CalendarDeletedMeeting;
 import com.workplace.jooq.tables.CalendarEvent;
 import com.workplace.jooq.tables.CalendarEventException;
 import com.workplace.jooq.tables.CalendarEventNote;
@@ -321,6 +322,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.calendar</code>.
      */
     public final Calendar CALENDAR = Calendar.CALENDAR;
+
+    /**
+     * The table <code>public.calendar_deleted_meeting</code>.
+     */
+    public final CalendarDeletedMeeting CALENDAR_DELETED_MEETING = CalendarDeletedMeeting.CALENDAR_DELETED_MEETING;
 
     /**
      * The table <code>public.calendar_event</code>.
@@ -1145,6 +1151,7 @@ public class Public extends SchemaImpl {
             AssistantConfig.ASSISTANT_CONFIG,
             AuditLog.AUDIT_LOG,
             Calendar.CALENDAR,
+            CalendarDeletedMeeting.CALENDAR_DELETED_MEETING,
             CalendarEvent.CALENDAR_EVENT,
             CalendarEventException.CALENDAR_EVENT_EXCEPTION,
             CalendarEventNote.CALENDAR_EVENT_NOTE,

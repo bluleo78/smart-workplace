@@ -26,6 +26,7 @@ import com.workplace.jooq.tables.AiMemoryForgotten;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
+import com.workplace.jooq.tables.CalendarDeletedMeeting;
 import com.workplace.jooq.tables.CalendarEvent;
 import com.workplace.jooq.tables.CalendarEventException;
 import com.workplace.jooq.tables.CalendarEventNote;
@@ -238,6 +239,7 @@ public class Indexes {
     public static final Index IDX_AUDIT_LOG_RESOURCE = Internal.createIndex(DSL.name("idx_audit_log_resource"), AuditLog.AUDIT_LOG, new OrderField[] { AuditLog.AUDIT_LOG.RESOURCE, AuditLog.AUDIT_LOG.RESOURCE_ID }, false);
     public static final Index IDX_AUDIT_LOG_TENANT = Internal.createIndex(DSL.name("idx_audit_log_tenant"), AuditLog.AUDIT_LOG, new OrderField[] { AuditLog.AUDIT_LOG.TENANT_ID }, false);
     public static final Index IDX_AUDIT_LOG_USER = Internal.createIndex(DSL.name("idx_audit_log_user"), AuditLog.AUDIT_LOG, new OrderField[] { AuditLog.AUDIT_LOG.USER_ID }, false);
+    public static final Index IDX_CALENDAR_DELETED_MEETING_TENANT = Internal.createIndex(DSL.name("idx_calendar_deleted_meeting_tenant"), CalendarDeletedMeeting.CALENDAR_DELETED_MEETING, new OrderField[] { CalendarDeletedMeeting.CALENDAR_DELETED_MEETING.TENANT_ID }, false);
     public static final Index IDX_CALENDAR_EVENT_CALENDAR = Internal.createIndex(DSL.name("idx_calendar_event_calendar"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.CALENDAR_ID }, false);
     public static final Index IDX_CALENDAR_EVENT_EXCEPTION_EVENT = Internal.createIndex(DSL.name("idx_calendar_event_exception_event"), CalendarEventException.CALENDAR_EVENT_EXCEPTION, new OrderField[] { CalendarEventException.CALENDAR_EVENT_EXCEPTION.EVENT_ID }, false);
     public static final Index IDX_CALENDAR_EVENT_EXCEPTION_TENANT = Internal.createIndex(DSL.name("idx_calendar_event_exception_tenant"), CalendarEventException.CALENDAR_EVENT_EXCEPTION, new OrderField[] { CalendarEventException.CALENDAR_EVENT_EXCEPTION.TENANT_ID }, false);
@@ -554,6 +556,7 @@ public class Indexes {
     public static final Index UQ_AGENT_REPO_CREDENTIAL_ACTIVE = Internal.createIndex(DSL.name("uq_agent_repo_credential_active"), AgentRepoCredential.AGENT_REPO_CREDENTIAL, new OrderField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.TENANT_ID, AgentRepoCredential.AGENT_REPO_CREDENTIAL.AGENT_USER_ID, AgentRepoCredential.AGENT_REPO_CREDENTIAL.HOST }, true);
     public static final Index UQ_AGENT_RUNNER_TOKEN_ACTIVE = Internal.createIndex(DSL.name("uq_agent_runner_token_active"), AgentRunnerToken.AGENT_RUNNER_TOKEN, new OrderField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.LOCATION_ID }, true);
     public static final Index UQ_CALENDAR_DEFAULT = Internal.createIndex(DSL.name("uq_calendar_default"), Calendar.CALENDAR, new OrderField[] { Calendar.CALENDAR.OWNER_ID, Calendar.CALENDAR.TENANT_ID }, true);
+    public static final Index UQ_CALENDAR_DELETED_MEETING_USER_UID = Internal.createIndex(DSL.name("uq_calendar_deleted_meeting_user_uid"), CalendarDeletedMeeting.CALENDAR_DELETED_MEETING, new OrderField[] { CalendarDeletedMeeting.CALENDAR_DELETED_MEETING.TENANT_ID, CalendarDeletedMeeting.CALENDAR_DELETED_MEETING.USER_ID, CalendarDeletedMeeting.CALENDAR_DELETED_MEETING.ICAL_UID }, true);
     public static final Index UQ_CALENDAR_EVENT_NOTE_OCCURRENCE = Internal.createIndex(DSL.name("uq_calendar_event_note_occurrence"), CalendarEventNote.CALENDAR_EVENT_NOTE, new OrderField[] { CalendarEventNote.CALENDAR_EVENT_NOTE.EVENT_ID, CalendarEventNote.CALENDAR_EVENT_NOTE.OCCURRENCE_START }, true);
     public static final Index UQ_CALENDAR_EVENT_NOTE_SINGLE = Internal.createIndex(DSL.name("uq_calendar_event_note_single"), CalendarEventNote.CALENDAR_EVENT_NOTE, new OrderField[] { CalendarEventNote.CALENDAR_EVENT_NOTE.EVENT_ID }, true);
     public static final Index UQ_CALENDAR_EVENT_OWNER_ICAL_UID_LOCAL = Internal.createIndex(DSL.name("uq_calendar_event_owner_ical_uid_local"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.OWNER_ID, CalendarEvent.CALENDAR_EVENT.ICAL_UID }, true);

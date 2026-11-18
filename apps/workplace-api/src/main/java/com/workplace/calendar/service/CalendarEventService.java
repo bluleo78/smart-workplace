@@ -30,6 +30,7 @@ import com.workplace.calendar.repository.CalendarEventNoteRepository;
 import com.workplace.calendar.repository.CalendarEventRepository;
 import com.workplace.calendar.repository.CalendarEventRepository.CalendarEventSearchRow;
 import com.workplace.calendar.repository.CalendarRepository;
+import com.workplace.calendar.repository.DeletedMeetingRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
 import com.workplace.calendar.repository.EventReminderRepository;
@@ -104,6 +105,8 @@ public class CalendarEventService {
   private final CalendarEventNoteService noteService;
   // 노트 읽기 판정 포트(WP-1701) — 잇기 전에 호출자가 그 노트를 읽을 수 있는지 본다.
   private final WikiPageReadAccess wikiAccess;
+  // 내가 지운 동기화 미팅(iCalUID) 기억 — 크로스소스 정리가 그 미팅의 남의 사본을 되살리지 않게(WP-1734).
+  private final DeletedMeetingRepository deletedMeetingRepo;
 
   /**
    * 명시적 생성자 — TransactionTemplate 을 PlatformTransactionManager 로 구성해야 하므로 @RequiredArgsConstructor
@@ -127,7 +130,8 @@ public class CalendarEventService {
       CalendarTagService tagService,
       CalendarEventNoteRepository noteRepo,
       CalendarEventNoteService noteService,
-      WikiPageReadAccess wikiAccess) {
+      WikiPageReadAccess wikiAccess,
+      DeletedMeetingRepository deletedMeetingRepo) {
     this.repo = repo;
     this.reminderRepo = reminderRepo;
     this.exceptionRepo = exceptionRepo;
@@ -146,6 +150,7 @@ public class CalendarEventService {
     this.noteRepo = noteRepo;
     this.noteService = noteService;
     this.wikiAccess = wikiAccess;
+    this.deletedMeetingRepo = deletedMeetingRepo;
   }
 
   /**
@@ -934,7 +939,8 @@ public class CalendarEventService {
   /**
    * 크로스소스 중복 제거 — 같은 실제 미팅(동일 iCalUId)이 "내 소유 캘린더의 동기화 사본"과 "주최자 캘린더 크로스가시성 초대 사본"으로 두 번 나타나는 것을 조회
    * 시점에 제거한다. 승자=내 소유 사본, 제거=비소유(초대) 사본. 내 소유 사본이 없으면 비소유 사본 중 한 장(주최자 사본 우선)만 남긴다(WP-871). iCalUId
-   * 가 없는(순수 로컬) 이벤트는 무영향. 뷰어별 계산이므로 각 사용자에게 올바른 사본이 남는다. events 리스트를 제자리(in-place)에서 수정한다.
+   * 가 없는(순수 로컬) 이벤트는 무영향. 내가 지운 동기화 미팅은 내 사본이 있는 것으로 보아 남의 사본을 모두 지운다(WP-1734). 뷰어별 계산이므로 각 사용자에게
+   * 올바른 사본이 남는다. events 리스트를 제자리(in-place)에서 수정한다.
    */
   private void dedupeCrossSource(long callerId, List<CalendarEventResponse> events) {
     // 내 소유 캘린더 id 집합(로컬 + 내 외부 컨테이너)
@@ -944,7 +950,7 @@ public class CalendarEventService {
     }
     // 1차: iCalUId 별로 내 사본 유무와 남의 사본을 한 번에 모은다. 시작시각은 키에 넣지 않는다(WP-200) — 주최자가 시간을 옮기면 내 사본은 다음 동기화
     // 전까지 옛 시각에 남아 키가 어긋나 같은 미팅이 두 번 보였다. 제거 대상은 남의 사본뿐이라 내 반복 회차가 서로 병합될 일은 없다. iCalUId 는 동기화
-    // 일정에만 있고 동기화 일정은 회차별 단일 행(반복 마스터 아님)이다. 내가 지운 회차의 주최자 사본이 가려지는 것은 "지운 일정이 되살아나지 않음"으로 의도와 같다.
+    // 일정에만 있고 동기화 일정은 회차별 단일 행(반복 마스터 아님)이다.
     Set<String> ownedUids = new HashSet<>();
     Map<String, List<CalendarEventResponse>> othersByUid = new HashMap<>();
     for (CalendarEventResponse e : events) {
@@ -957,7 +963,13 @@ public class CalendarEventService {
         othersByUid.computeIfAbsent(e.iCalUid(), k -> new ArrayList<>()).add(e);
       }
     }
-    // 2차: 내 사본이 있는 미팅은 남의 사본을 모두 지운다 — 남길 사본 후보에서 뺀다.
+    // 1.5차(WP-1734): 내가 지운 동기화 미팅도 「내 사본이 있는」 미팅으로 본다. 지우면 내 사본 행이 없어져 아래 3차가 남의 사본을 한 장 보였다 —
+    // 주최자로 지운 회차는 동료 계정이 동기화될 때까지(~10분), 참석자로 지운 미팅은 주최자 Outlook 에 남는 한 계속. 남의 사본이 있는 iCalUID 만
+    // 한 번에 조회한다(목록당 한 쿼리). 다시 초대받아 내 사본이 동기화되면 그 사본은 내 소유라 아래에서 지워지지 않으므로 기억을 지울 필요가 없다.
+    if (!othersByUid.isEmpty()) {
+      ownedUids.addAll(deletedMeetingRepo.deletedAmong(callerId, othersByUid.keySet()));
+    }
+    // 2차: 내 사본이 있는(또는 내가 지운) 미팅은 남의 사본을 모두 지운다 — 남길 사본 후보에서 뺀다.
     othersByUid.keySet().removeAll(ownedUids);
     // 3차(WP-871): 내 사본이 없는 미팅은 남의 사본을 한 장만 남긴다. 동기화는 참석자 메일을 우리 사용자와 짝지어 사본마다 나를 참석자로 붙이므로,
     // Outlook 을 연동한 동료가 n 명이면 같은 미팅이 n 장 보였다(연동 없는 사용자에게 특히). 남길 사본: 주최자 달력의 사본(참석자·응답이 가장 정확하다)
@@ -1410,6 +1422,7 @@ public class CalendarEventService {
             List<Long> beforeAttendees = internalAttendeeIds(id);
             long ownerId = repo.findOwnerId(id).orElse(callerId);
             CancelNotice notice = cancelNotice(callerId, id, EditScope.ALL, null);
+            rememberDeletedMeeting(callerId, id);
             repo.delete(id);
             // 내부 참석자에게 「일정 취소」(WP-712) — 행이 사라졌으니 가리킬 일정 없이 제목·원래 시각만 담는다.
             publishNotice(
@@ -1445,6 +1458,17 @@ public class CalendarEventService {
   private void cancelOccurrence(long masterId, OffsetDateTime occurrenceDate) {
     exceptionRepo.insertCancellation(masterId, occurrenceDate);
     noteRepo.delete(NoteKey.of(masterId, occurrenceDate));
+  }
+
+  /**
+   * 지운 동기화 미팅 기억(WP-1734) — 행을 지우기 전에 iCalUID·끝 시각을 읽어 남긴다. 내 사본이 사라지면 크로스소스 정리가 같은 미팅의 동료·주최자 사본을
+   * 보여 주는데, 주최자로 지운 회차는 동료 계정이 동기화될 때까지, 참석자로 지운 미팅은 주최자 Outlook 에 남는 한 계속 보였다. 동기화 일정은 회차마다
+   * iCalUID 가 달라 지운 그 회차만 가린다. iCalUID 가 없으면(공휴일 등) 남길 것이 없다. delete 의 외부 경로 persist tx 안에서만 호출.
+   */
+  private void rememberDeletedMeeting(long callerId, long id) {
+    repo.findById(callerId, id)
+        .filter(e -> e.iCalUid() != null)
+        .ifPresent(e -> deletedMeetingRepo.remember(callerId, e.iCalUid(), e.endsAt()));
   }
 
   /**
