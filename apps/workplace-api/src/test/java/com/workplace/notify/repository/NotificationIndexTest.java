@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * 알림 표 인덱스(WP-1695) — 보관(V300, WP-1689) 뒤 옛 인덱스 두 개를 지우고(V306), 목록·안 읽은 수 조회가 새 부분 인덱스를 타는지 본다.
+ * 알림 표 인덱스(WP-1695) — 보관(V300, WP-1689) 뒤 옛 인덱스 두 개를 지우고(V307), 목록·안 읽은 수 조회가 새 부분 인덱스를 타는지 본다.
  *
  * <p>EXPLAIN 은 테스트 DB 의 행이 적어 플래너가 순차 탐색을 고르므로, 트랜잭션 안에서만 순차 탐색을 끄고(SET LOCAL) 어떤 인덱스를 고르는지 본다. 조건은
  * {@link NotificationRepository#countUnread}·{@link NotificationRepository#listRecent} 의 알림 표 조건과
