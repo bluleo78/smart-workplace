@@ -178,6 +178,9 @@ public class GraphMailTransport implements MailTransport {
       graphApiClient.sendDraft(token, draftId);
       return actual != null ? actual : mail.messageId();
     } catch (RuntimeException e) {
+      // 사용자 문구는 그대로 두고, 운영 진단용으로 예외와 원인 사슬(스택에 실패한 요청 메서드, cause 에 감싼 네트워크 오류)을 남긴다(WP-1728).
+      // 예외에는 토큰·본문을 싣지 않는다
+      log.warn("큰 메일 발송 실패", e);
       if (draftId != null) {
         deleteDraftQuietly(token, draftId);
       }

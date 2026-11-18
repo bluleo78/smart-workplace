@@ -29,18 +29,23 @@ import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailMimeBuilder;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.transaction.annotation.Transactional;
 
 /** GraphMailTransport — 토큰 획득 후 base64 MIME(스레딩 헤더 포함)을 sendMail 로 전달하는지 검증. */
 @Transactional
+@ExtendWith(OutputCaptureExtension.class)
 class GraphMailTransportTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
@@ -222,6 +227,39 @@ class GraphMailTransportTest extends ExternalClientMockedTestBase {
     verify(graphApiClient).delete("FAKE_TOKEN", "/me/messages/D2");
     verify(graphApiClient, never()).sendDraft(any(), any());
     verify(graphApiClient, never()).sendMail(any(), any());
+  }
+
+  /**
+   * WP-1728: 마지막 단계(초안 보내기)에서 실패하면 실패 로그에 실패한 요청(op)과 감싼 네트워크 오류의 근본 원인이 남는다 — 운영에서 큰 메일 실패가 어느
+   * 단계인지 바로 안다. 사용자 문구는 그대로다.
+   */
+  @Test
+  void transmit_largeMail_sendDraftFails_logsFailedRequestAndRootCause(CapturedOutput output)
+      throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(user, accountId)).thenReturn("FAKE_TOKEN");
+    when(graphApiClient.createDraftFromMime(eq("FAKE_TOKEN"), anyString()))
+        .thenReturn(new DraftRef("D5", null));
+    when(graphApiClient.createAttachmentUploadSession(any(), any(), any(), any(), anyLong(), any()))
+        .thenReturn("https://upload.example/s5");
+    doThrow(new MailSendException("Graph sendDraft 네트워크 오류", new IOException("connection reset")))
+        .when(graphApiClient)
+        .sendDraft("FAKE_TOKEN", "D5");
+    EmailAccountResponse account = accountRepo.findByIdAndUser(user, accountId).orElseThrow();
+    OutgoingMail mail =
+        mailWith(account, List.of(new AttachmentPart("큰.bin", null, bytes(5 * 1024 * 1024))));
+
+    assertThatThrownBy(
+            () -> transport.transmit(user, account, mimeBuilder.build(account, mail), mail))
+        .isInstanceOf(MailSendException.class)
+        .hasMessageContaining("큰 메일을 보내지 못했어요");
+
+    assertThat(output.getOut())
+        .contains("큰 메일 발송 실패")
+        .contains("Graph sendDraft 네트워크 오류")
+        .contains("connection reset");
+    verify(graphApiClient).delete("FAKE_TOKEN", "/me/messages/D5");
   }
 
   /** 초안 생성부터 실패하면 지울 초안이 없다 — delete 를 부르지 않는다. */

@@ -297,6 +297,9 @@ class GraphApiClientWriteTest {
     assertThat(req.method()).isEqualTo("POST");
     assertThat(req.uri().getPath()).isEqualTo("/v1.0/me/messages/D1/send");
     assertThat(req.headers().firstValue("Authorization")).hasValue("Bearer tok");
+    // WP-1728: 본문 없는 POST 를 HTTP/2 로 보내면 content-length 가 빠져 Graph 가 411 로 거절한다 — HTTP/1.1 이어야 한다
+    assertThat(req.version()).hasValue(HttpClient.Version.HTTP_1_1);
+    assertThat(req.bodyPublisher().orElseThrow().contentLength()).isZero();
   }
 
   /** 초안의 실제 internetMessageId 조회 — $select 로 그 필드만 읽는다(WP-574). */

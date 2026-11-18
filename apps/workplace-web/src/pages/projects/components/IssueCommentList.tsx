@@ -34,6 +34,8 @@ import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { appLinksOf, withoutMarkdownCode } from '@/lib/appLinks';
 import { appUrl } from '@/lib/appUrl';
+// 코멘트 행을 가운데로 — 상단 고정 헤더·하단 작성창에 가리지 않게(움직임 줄이기 설정이면 바로 옮긴다).
+import { scrollIntoViewCentered } from '@/lib/scrollIntoViewCentered';
 import { openSendToChat } from '@/lib/sendToChat';
 import type { ShareTarget } from '@/lib/shareTarget';
 import { cn } from '@/lib/utils';
@@ -419,12 +421,6 @@ function commentComposerInput(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-testid="issue-comment-input"]');
 }
 
-/** 코멘트 행을 가운데로 스크롤한다 — 상단 고정 헤더·하단 작성창에 가리지 않게. 움직임 줄이기 설정이면 바로 옮긴다. */
-function scrollRowToCenter(row: Element) {
-  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  row.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
-}
-
 /** 링크로 열어 온 코멘트를 강조해 두는 시간 — 스크롤이 끝나고 눈이 닿을 만큼. */
 export const LINKED_COMMENT_HIGHLIGHT_MS = 4000;
 
@@ -496,7 +492,7 @@ export function IssueCommentList({
   useEffect(() => {
     const row = scrollToCommentId == null ? null : rowOf(scrollToCommentId);
     if (!row) return;
-    scrollRowToCenter(row);
+    scrollIntoViewCentered(row);
     onScrolledToComment?.();
   }, [scrollToCommentId, comments, onScrolledToComment]);
 
@@ -508,7 +504,7 @@ export function IssueCommentList({
     if (linkedCommentId == null) return;
     const row = rowOf(linkedCommentId);
     if (row) {
-      scrollRowToCenter(row);
+      scrollIntoViewCentered(row);
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 행이 그려진 DOM 을 찾은 뒤에야 강조할지 알 수 있어 렌더 중으로 못 옮긴다(링크마다 한 번).
       setHighlightId(linkedCommentId);
     } else {

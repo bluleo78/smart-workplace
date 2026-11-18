@@ -107,6 +107,7 @@ import { useSetDriveStar } from '../../hooks/queries/useDriveStars'
 import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
 import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, DriveTrashItem } from '../../types/drive'
 import { readDroppedTree } from './folderUpload'
+import { DRIVE_ROW_HIGHLIGHT_CLASS, useDriveRowHighlight } from './useDriveRowHighlight'
 import { useFolderNavigation } from './useFolderNavigation'
 
 // 모바일 선택 막대(renderMobileBulkBar) 높이 — 위 테두리 1px + 위아래 여백 py-1.5(0.75rem) + 단추 min-h-11·size-11(2.75rem).
@@ -348,15 +349,27 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다 — 거르기로 숨은 항목이 일괄 이동·삭제에 섞이지 않게.
   const viewItems = useMemo(() => filterByName(actualItems, filterTerm), [actualItems, filterTerm])
   const previewId = parseId(previewParam.value)
+  // 지금 폴더 목록 조회가 끝났는가(실패 포함, placeholder 아님) — 미리보기 딥링크·도착 강조가 「목록에 없음」을 이 뒤에만 판정한다.
+  const listSettled = !itemsQuery.isPlaceholderData && (itemsQuery.isSuccess || itemsQuery.isError)
+  // 「드라이브에서 열기」 도착 강조(WP-1732) — ?highlight=<파일 id> 행을 잠시 강조하고 스크롤한 뒤 주소에서 지운다(뷰어는 열지 않는다).
+  // 판정은 화면에 실제로 그린 행(거르기 뒤)으로, 캐시된 목록이면 재조회가 끝난 뒤에 한다(낡은 목록에 방금 옮긴 파일이 없을 수 있다).
+  // 임베드(채널 파일 드로워)는 주소 규칙이 달라 판정하지 않는다(ready 거짓).
+  const highlightedFileId = useDriveRowHighlight({
+    ready: !embedded && listSettled,
+    query: itemsQuery,
+    files: viewItems.files,
+    scope: selLocation,
+  })
   // 묶음 = 지금 폴더의 파일(거르기 전) — 거르기로 숨은 파일의 ?preview 딥링크가 「찾을 수 없음」이 되지 않게. 열린 동안 재조회로 빠져도 스냅숏으로 유지(useViewerBundle).
-  // URL 값은 기존대로 숫자 id(`?preview=70`) — 다른 화면(검색·홈 위젯·백링크·뷰어 "드라이브에서 열기")이 만드는 딥링크와 호환.
+  // URL 값은 기존대로 숫자 id(`?preview=70`) — 다른 화면(검색·홈 위젯·백링크·앱 링크 카드)이 만드는 딥링크와 호환.
+  // 뷰어의 「드라이브에서 열기」는 뷰어 대신 ?highlight 로 목록 행을 강조한다(WP-1732, useDriveRowHighlight).
   // 묶음 키는 `drive:{id}` 이므로 읽을 때·쓸 때 변환한다. 목록이 실제로 로드됐는데도 없으면 not-found(missing).
   const viewer = useViewerBundle({
     list: actualItems.files,
     toItem: driveFileItem,
     currentKey: previewId != null ? driveViewerKey(previewId) : null,
     // 조회가 끝나면(실패 포함) 판정한다 — 실패 시 영영 판정하지 않으면 뷰어도 안내도 없이 낡은 ?preview 만 남는다.
-    ready: !itemsQuery.isPlaceholderData && (itemsQuery.isSuccess || itemsQuery.isError),
+    ready: listSettled,
     // 묶음 키는 언제나 driveFileItem 이 만든 `drive:{id}` — URL 에는 숫자 id 만 쓴다.
     openKey: (key) => {
       const parsed = parseViewerKey(key)
@@ -1526,8 +1539,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 {...rowPress('file', f.id)}
                 dragItem={driveDragItem('file', f)}
                 data-testid={`drive-row-file-${f.id}`}
+                data-highlighted={highlightedFileId === f.id ? 'true' : undefined}
                 className={cn(
                   'group flex items-center gap-2 rounded px-1 py-2 hover:bg-accent/40 max-lg:min-h-14',
+                  // 도착 강조(WP-1732) — data-highlighted="true" 동안만 켜지는 키프레임(움직임 줄이기면 고정 배경).
+                  DRIVE_ROW_HIGHLIGHT_CLASS,
                   rowSelectedClass('file', f.id),
                 )}
               >

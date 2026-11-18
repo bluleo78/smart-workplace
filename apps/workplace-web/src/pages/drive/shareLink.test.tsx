@@ -451,12 +451,12 @@ describe('공유 링크 화면', () => {
     expect(document.title).not.toContain('report.txt')
   })
 
-  // 공간 권한이 있으면 「드라이브에서 열기 →」 가 폴더·미리보기 경로로 간다(같은 창).
+  // 공간 권한이 있으면 「드라이브에서 열기 →」 가 그 폴더 목록에서 파일 행을 강조하는 경로로 간다(같은 창, 뷰어 아님 — WP-1732).
   test('드라이브 접근 권한이 있으면 드라이브에서 열기 링크를 보인다', async () => {
     renderLanding({ info: () => HttpResponse.json(fileInfo({ driveOpen: { spaceId: 3, folderId: 7, driveFileId: 42 } })) })
     const link = await screen.findByTestId('share-drive-open-link')
     expect(link).toHaveTextContent('드라이브에서 열기 →')
-    expect(link).toHaveAttribute('href', '/drive/spaces/3?folderId=7&preview=42')
+    expect(link).toHaveAttribute('href', '/drive/spaces/3?folderId=7&highlight=42')
     expect(link).not.toHaveAttribute('target')
   })
 

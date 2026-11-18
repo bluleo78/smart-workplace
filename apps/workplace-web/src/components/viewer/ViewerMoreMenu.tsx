@@ -54,7 +54,7 @@ export function ViewerMoreMenu({
         )}
         {linkItems && <LinkMenuItems target={shareTarget} itemClassName={ITEM_CLASS} />}
         {item.driveOpen && (
-          // 파일이 있는 폴더를 찾아 연다 — 공간 루트로만 열면 하위 폴더 파일이 "찾을 수 없음"이 된다.
+          // 파일이 있는 폴더를 찾아 그 목록에서 파일 행을 강조한다(WP-1732, 뷰어 아님) — 공간 루트로만 열면 하위 폴더 파일을 가리킬 수 없다.
           <DropdownMenuItem className={ITEM_CLASS} onSelect={() => void resolveDriveOpenPath(item.driveOpen!).then((to) => navigate(to))}>
             드라이브에서 열기
           </DropdownMenuItem>

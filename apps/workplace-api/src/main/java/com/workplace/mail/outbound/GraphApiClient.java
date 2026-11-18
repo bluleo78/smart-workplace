@@ -394,12 +394,17 @@ public class GraphApiClient {
   /**
    * 초안을 보낸다(WP-574 큰 메일 경로 마지막 단계 — POST /me/messages/{id}/send, 빈 본문). 보낸편지함 저장은 Graph 가 한다.
    *
+   * <p>WP-1728: 이 요청만 HTTP/1.1 로 보낸다. 공용 HttpClient 는 HTTP/2 를 쓰는데, JDK 는 HTTP/2 의 빈 본문 POST 에
+   * content-length 를 싣지 않고 Graph 는 그런 요청을 411 Length Required 로 거절한다(큰 메일이 모두 실패했다). HTTP/1.1 은 빈
+   * 본문에 {@code Content-Length: 0} 을 붙여 통과한다. Graph 문서가 본문 없이 보내라고 하므로 본문은 그대로 비워 둔다.
+   *
    * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
    */
   public void sendDraft(String accessToken, String messageId) {
     HttpRequest req =
         HttpRequest.newBuilder()
             .uri(URI.create(GRAPH_BASE_URL + "/me/messages/" + messageId + "/send"))
+            .version(HttpClient.Version.HTTP_1_1)
             .header("Authorization", "Bearer " + accessToken)
             .POST(HttpRequest.BodyPublishers.noBody())
             .build();
@@ -493,8 +498,10 @@ public class GraphApiClient {
     try {
       HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
       if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+        // 경로를 함께 남겨 어느 요청(초안 생성·첨부·업로드 세션 등)이 실패했는지 로그로 알게 한다(WP-1728). 예외 문구는 응답으로 나갈 수 있어 그대로 둔다
         log.error(
-            "Graph post 오류: status={} errorCode={}",
+            "Graph post 오류: path={} status={} errorCode={}",
+            path,
             resp.statusCode(),
             extractErrorCode(resp.body()));
         throw new MailSendException("Graph post 실패: " + resp.statusCode());

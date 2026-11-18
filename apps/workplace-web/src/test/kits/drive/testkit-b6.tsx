@@ -4,6 +4,7 @@
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import type { ReactNode } from 'react'
 import { Route, Routes } from 'react-router-dom'
+import { vi } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
@@ -13,7 +14,7 @@ import { DrivePage } from '@/pages/drive/DrivePage'
 import { renderScreen } from '@/test/renderScreen'
 import type { DriveFile, DriveFolder, DriveSpace } from '@/types/drive'
 
-import { createSpace, personalSpace } from '../../../../e2e/factories/drive.factory'
+import { createFile, createSpace, personalSpace } from '../../../../e2e/factories/drive.factory'
 
 export const API = '/api/v1/drive'
 
@@ -92,4 +93,24 @@ export function renderDrivePage(
     </AIAssistantProvider>,
     { path: `/drive/spaces/${spaceId}${search}`, handlers, auth },
   )
+}
+
+/**
+ * 「드라이브에서 열기」 도착 강조(WP-1732) 테스트용 — 한 화면을 넘는 30개 파일(id 100~129, 이름 「01 회의록.md」~「30 회의록.md」).
+ * 마지막 파일(129)이 첫 화면 밖이라 그 행으로 스크롤하는지 볼 수 있다.
+ */
+export function manyMeetingNotes(): DriveFile[] {
+  return Array.from({ length: 30 }, (_, i) => createFile({ id: 100 + i, name: `${String(i + 1).padStart(2, '0')} 회의록.md` }))
+}
+
+/**
+ * Element.scrollIntoView 를 가로채 스크롤 대상 요소를 모은다(jsdom 은 스크롤하지 않는다) — 어느 행으로 스크롤했는지 단언할 때.
+ * 복원은 호출한 테스트 파일의 afterEach(vi.restoreAllMocks)가 한다.
+ */
+export function spyScrollIntoView(): Element[] {
+  const scrolled: Element[] = []
+  vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+    scrolled.push(this)
+  })
+  return scrolled
 }
