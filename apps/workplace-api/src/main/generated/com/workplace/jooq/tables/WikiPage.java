@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.CalendarEventNote.CalendarEventNotePath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.PersonalReport.PersonalReportPath;
 import com.workplace.jooq.tables.PersonalReportSetting.PersonalReportSettingPath;
@@ -302,6 +303,19 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
             _tenant = new TenantPath(this, Keys.WIKI_PAGE__WIKI_PAGE_TENANT_ID_FKEY, null);
 
         return _tenant;
+    }
+
+    private transient CalendarEventNotePath _calendarEventNote;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.calendar_event_note</code> table
+     */
+    public CalendarEventNotePath calendarEventNote() {
+        if (_calendarEventNote == null)
+            _calendarEventNote = new CalendarEventNotePath(this, null, Keys.CALENDAR_EVENT_NOTE__CALENDAR_EVENT_NOTE_WIKI_PAGE_ID_FKEY.getInverseKey());
+
+        return _calendarEventNote;
     }
 
     private transient NotificationPath _notification;

@@ -134,6 +134,8 @@ public final class TenantPurgePlan {
           USER_DASHBOARD,
           ASSISTANT_CONFIG,
           WORKSPACE_ASSISTANT,
+          // 일정 ↔ 회의록 노트 연결(WP-1701) — wiki_page·calendar_event 를 함께 참조하므로 위키·캘린더 묶음보다 먼저
+          CALENDAR_EVENT_NOTE,
           // 위키
           // 페이지 공유(WP-579) — 접근 요청·공유 기록·공유 대상이 wiki_page·wiki_page_share 를 참조하므로 페이지보다 먼저
           WIKI_SHARE_ACCESS_REQUEST,

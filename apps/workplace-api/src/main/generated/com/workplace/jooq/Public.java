@@ -29,6 +29,7 @@ import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
 import com.workplace.jooq.tables.CalendarEvent;
 import com.workplace.jooq.tables.CalendarEventException;
+import com.workplace.jooq.tables.CalendarEventNote;
 import com.workplace.jooq.tables.CalendarEventTag;
 import com.workplace.jooq.tables.CalendarTag;
 import com.workplace.jooq.tables.Channel;
@@ -330,6 +331,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.calendar_event_exception</code>.
      */
     public final CalendarEventException CALENDAR_EVENT_EXCEPTION = CalendarEventException.CALENDAR_EVENT_EXCEPTION;
+
+    /**
+     * The table <code>public.calendar_event_note</code>.
+     */
+    public final CalendarEventNote CALENDAR_EVENT_NOTE = CalendarEventNote.CALENDAR_EVENT_NOTE;
 
     /**
      * The table <code>public.calendar_event_tag</code>.
@@ -1141,6 +1147,7 @@ public class Public extends SchemaImpl {
             Calendar.CALENDAR,
             CalendarEvent.CALENDAR_EVENT,
             CalendarEventException.CALENDAR_EVENT_EXCEPTION,
+            CalendarEventNote.CALENDAR_EVENT_NOTE,
             CalendarEventTag.CALENDAR_EVENT_TAG,
             CalendarTag.CALENDAR_TAG,
             Channel.CHANNEL,

@@ -119,6 +119,8 @@ export const shellHandlers = [
   http.get(`${API}/me/priority-items`, () => HttpResponse.json({ items: [] })),
   http.get(`${API}/calendar/events`, () => HttpResponse.json([])),
   http.get(`${API}/calendar/tags`, () => HttpResponse.json([])),
+  // 일정 창·상세의 회의록 줄 조회 — 연결 없음이 기본(WP-1701)
+  http.get(`${API}/calendar/events/:id/note`, () => HttpResponse.json({ note: null })),
   http.get(`${API}/messaging/channels`, () => HttpResponse.json([])),
   http.get(`${API}/messaging/dms`, () => HttpResponse.json([])),
   http.get(`${API}/me/pinned-views`, () => HttpResponse.json([])),

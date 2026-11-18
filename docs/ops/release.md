@@ -53,7 +53,7 @@ git tag -a vX.Y.Z -m "vX.Y.Z" -m "rebuild-all" <노트 커밋>
 git tag -l 'v*' --sort=-v:refname --format='%(refname:short) %(contents)' | grep -m1 rebuild-all
 ```
 
-build-images 가 `--rebuild-all` 로 돌아 캐시 없이(`--pull --no-cache`) 모든 앱을 빌드하고, 사유에 `rebuild-all` 을 붙인다. 매니페스트·체크리스트의 기준 릴리스는 그대로 남는다. 모든 앱의 digest 가 바뀌므로 반영 때 모든 앱이 롤링 재시작된다. 작업 공간 이미지는 쉬는 AI Pod 부터 바뀌고, 계속 일하는 Pod 는 직접 교체해야 한다.
+build-images 가 `--rebuild-all` 로 돌아 캐시 없이(`--pull --no-cache`) 모든 앱을 빌드하고, 사유에 `rebuild-all` 을 붙인다. 매니페스트·체크리스트의 기준 릴리스는 그대로 남는다. 모든 앱의 digest 가 바뀌므로 반영 때 모든 앱이 롤링 재시작된다. 작업 공간 이미지는 반영 뒤 API 가 기동하고 약 2분 뒤 쉬는 AI Pod 부터 바뀌고, 일하는 Pod 는 하던 일을 마치고 쉴 때 바뀐다(WP-1706). 플러그인 버전 비교는 배포가 `AGENT_PLUGIN_VERSION` 을 넣을 때만 하고 비면 이미지 digest 만 비교한다(전달은 WP-1707).
 
 ## ③ 반영
 

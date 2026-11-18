@@ -28,6 +28,21 @@ export interface Attendee {
   externalEmail: string | null
 }
 
+// 일정(회차)에 이은 회의록 노트 카드(WP-1701). restricted=true 면 볼 수 없는 노트라 다른 필드가 없다(pageId 도 없음).
+export type EventNoteRef = {
+  restricted: boolean
+  pageId?: number
+  title?: string
+  spaceId?: number
+  spaceName?: string
+  /** 한 번도 고치지 않은 새 노트는 없다 */
+  updatedByName?: string | null
+  updatedAt?: string
+}
+
+/** 노트 연결 조회·잇기 응답 — note=null 은 연결 없음 */
+export type EventNoteLink = { note: EventNoteRef | null }
+
 export interface CalendarEvent {
   id: number
   title: string
@@ -48,6 +63,8 @@ export interface CalendarEvent {
   masterEventId?: number | null
   // 가상 occurrence 의 시작 시각(ISO, 불투명 문자열로 취급 — 가공 금지) (이슈 #111)
   occurrenceDate?: string | null
+  // 이은 회의록 노트(WP-1701) — 목록·단건 응답에 실리지만 웹 일정 창은 전용 GET 으로 읽는다
+  note?: EventNoteRef | null
   createdAt: string
   updatedAt: string
   // 참석자 카운트 (주최자 포함). 목록/상세 모두 반환. (이슈 #489)

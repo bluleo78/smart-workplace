@@ -1,5 +1,6 @@
 // 캘린더 E2E 팩토리 — 일정·캘린더 컨테이너 응답 모킹용.
-import type { Attendee, Calendar, CalendarEvent } from '../../src/types/calendar'
+import type { Attendee, Calendar, CalendarEvent, EventNoteRef } from '../../src/types/calendar'
+import type { WikiSearchResult } from '../../src/types/wiki'
 
 /** 참석자 행 팩토리 — userId 가 null 이면 외부 이메일 참석자. */
 export function attendee(
@@ -81,4 +82,37 @@ export function recurringCalendarEvent(
       ...over,
     }),
   )
+}
+
+/** 일정에 이은 노트 카드(WP-1701) — 기본은 읽을 수 있는 노트. restricted 카드는 eventNoteRestricted. */
+export function eventNote(over: Partial<EventNoteRef> = {}): EventNoteRef {
+  return {
+    restricted: false,
+    pageId: 11,
+    title: '주간 회의록',
+    spaceId: 3,
+    spaceName: '기획팀 공간',
+    updatedByName: '양동희',
+    updatedAt: '2026-06-10T02:50:00Z',
+    ...over,
+  }
+}
+
+/** 볼 수 없는 노트 카드 — 서버는 restricted 만 싣는다. */
+export function eventNoteRestricted(): EventNoteRef {
+  return { restricted: true }
+}
+
+/** 노트 연결 창 검색 결과 한 건(WP-1701) */
+export function noteSearchResult(over: Partial<WikiSearchResult> = {}): WikiSearchResult {
+  return {
+    id: 11,
+    spaceId: 3,
+    spaceName: '기획팀 공간',
+    title: '주간 회의록',
+    snippet: '',
+    updatedAt: '2026-06-10T02:50:00Z',
+    updatedByName: '양동희',
+    ...over,
+  }
 }

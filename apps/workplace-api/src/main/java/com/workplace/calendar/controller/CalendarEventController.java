@@ -4,7 +4,9 @@ import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.CalendarEventSearchResponse;
 import com.workplace.calendar.dto.EditScope;
+import com.workplace.calendar.dto.EventNoteLinkResponse;
 import com.workplace.calendar.dto.InviteAttendeesRequest;
+import com.workplace.calendar.dto.LinkEventNoteRequest;
 import com.workplace.calendar.dto.RsvpRequest;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.global.dto.WithWebUrl;
@@ -63,8 +65,53 @@ public class CalendarEventController {
   /** 단건 조회. */
   @GetMapping("/{id}")
   public ResponseEntity<WithWebUrl<CalendarEventResponse>> get(
-      @AuthenticationPrincipal Long callerId, @PathVariable long id) {
-    return ResponseEntity.ok(withUrl(service.get(callerId, id)));
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @RequestParam(required = false)
+          @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          @SupportedDateTime
+          OffsetDateTime occurrenceDate) {
+    return ResponseEntity.ok(withUrl(service.get(callerId, id, occurrenceDate)));
+  }
+
+  /** 일정(회차)에 이어진 회의록 노트 카드(WP-1701). 연결이 없으면 {@code {"note": null}}. */
+  @GetMapping("/{id}/note")
+  public ResponseEntity<EventNoteLinkResponse> getNote(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @RequestParam(required = false)
+          @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          @SupportedDateTime
+          OffsetDateTime occurrenceDate) {
+    return ResponseEntity.ok(service.getNote(callerId, id, occurrenceDate));
+  }
+
+  /** 일정(회차)에 노트를 잇는다(WP-1701) — 이미 이어져 있으면 바꾼다. 읽을 수 없는 노트는 없는 노트와 같은 404. */
+  @PutMapping("/{id}/note")
+  @RequirePermission("calendar:write")
+  public ResponseEntity<EventNoteLinkResponse> linkNote(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @Valid @RequestBody LinkEventNoteRequest req,
+      @RequestParam(required = false)
+          @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          @SupportedDateTime
+          OffsetDateTime occurrenceDate) {
+    return ResponseEntity.ok(service.linkNote(callerId, id, occurrenceDate, req.pageId()));
+  }
+
+  /** 일정(회차)의 노트 연결을 푼다(WP-1701) — 노트는 지우지 않는다. 연결이 없어도 204. */
+  @DeleteMapping("/{id}/note")
+  @RequirePermission("calendar:write")
+  public ResponseEntity<Void> unlinkNote(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @RequestParam(required = false)
+          @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          @SupportedDateTime
+          OffsetDateTime occurrenceDate) {
+    service.unlinkNote(callerId, id, occurrenceDate);
+    return ResponseEntity.noContent().build();
   }
 
   /**

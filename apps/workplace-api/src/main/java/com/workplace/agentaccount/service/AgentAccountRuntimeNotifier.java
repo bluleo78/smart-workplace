@@ -5,6 +5,7 @@ import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.service.AgentRuntimeImmediateInputs;
 import com.workplace.agentruntime.service.AgentRuntimeTransitions;
+import com.workplace.agentruntime.service.AgentRuntimeVersions;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -25,6 +26,7 @@ public class AgentAccountRuntimeNotifier {
 
   private final AgentRuntimeSettingRepository settings;
   private final AgentRuntimeTransitions transitions;
+  private final AgentRuntimeVersions versions;
 
   /**
    * 사람이 화면에서 AI 의 계정을 고르기·바꾸기·풀기 했다(WP-1515) — 켜져 있으면 실행 설정 저장과 같게 generation+1·쉴 때 적용(IDLE)으로 미룬다.
@@ -48,7 +50,8 @@ public class AgentAccountRuntimeNotifier {
           agentId, setting.map(AgentRuntimeTransitions.State::of).orElse(null), actorId);
       return;
     }
-    settings.bumpGenerationForRotation(agentId, ApplyMode.IDLE);
+    settings.bumpGenerationForRotation(
+        agentId, ApplyMode.IDLE, versions.current(setting.get().templateName()).orElse(null));
     transitions.inputsChanged(agentId, AgentRuntimeTransitions.State.of(setting.get()), actorId);
   }
 }

@@ -9,12 +9,14 @@ import { RsvpIcon } from '@/components/calendar/AttendeeSection'
 import { CalendarTagAddButton, CalendarTagChip } from '@/components/calendar/CalendarTagChip'
 import { CalendarTagPicker } from '@/components/calendar/CalendarTagPicker'
 import { EventLinkControl } from '@/components/calendar/EventLinkControl'
+import { EventNoteRow } from '@/components/calendar/EventNoteRow'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { RsvpControls } from '@/components/calendar/RsvpControls'
 import { LinkedText } from '@/components/LinkedText'
 import { DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
+import { useEventNote } from '@/hooks/queries/useEventNote'
 import { useShowMore } from '@/hooks/useShowMore'
 import { eventDisplayColor } from '@/lib/calendar'
 import type { ReadOnlyLabel } from '@/lib/calendarEventForm'
@@ -31,6 +33,7 @@ import {
 } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { eventTagHint } from '@/lib/calendarTag'
+import { canShowNoteRow } from '@/lib/eventNote'
 import { hashString } from '@/lib/project-color'
 import { CALENDAR_LINK_RULES } from '@/lib/textLinks'
 import type { Attendee, CalendarEvent } from '@/types/calendar'
@@ -119,6 +122,9 @@ function AttendeeRow({ attendee, isMe }: { attendee: Attendee; isMe: boolean }) 
 export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp, myUserId }: EventDetailViewProps) {
   // Teams 초대 안내문(밑줄 구분선 사이 덩어리) 펼침 — 기본은 접어 둔다
   const [showMeetingInfo, setShowMeetingInfo] = useState(false)
+
+  // 이은 회의록 — 읽기만 한다(카드만, 단추·X 없음). 연결이 없으면 줄째 숨는다(WP-1701)
+  const { data: noteLink } = useEventNote(canShowNoteRow(event) ? event.id : undefined, event.occurrenceDate)
 
   const time = eventTimeLines(event)
   const recurrence = recurrenceLabel(event)
@@ -246,6 +252,8 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
               {reminder}
             </DetailRow>
           )}
+
+          {canShowNoteRow(event) && <EventNoteRow note={noteLink?.note} editable={false} />}
 
           {description && (
             <DetailRow icon={<AlignLeft className="h-4 w-4" />} label="설명" testId="event-detail-description">

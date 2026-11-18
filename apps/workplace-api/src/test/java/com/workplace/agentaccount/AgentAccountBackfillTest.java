@@ -416,7 +416,7 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
     personalAssistants.registerCredential(admin, "anthropic", claudeToken('P'), "mine", null);
     useTenant(TENANT);
     long assistant = personalRepo.findAgentId(admin).orElseThrow();
-    settingRepo.insert(assistant, "claude-code", "1", null, Map.of(), admin);
+    settingRepo.insert(assistant, "claude-code", "1", null, Map.of(), null, admin);
     long assistantCred = credentialRepo.findActive(assistant).orElseThrow().id();
 
     assertThat(runBackfill()).isZero();

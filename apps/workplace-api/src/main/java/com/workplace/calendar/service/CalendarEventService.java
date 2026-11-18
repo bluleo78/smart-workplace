@@ -6,6 +6,9 @@ import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.CalendarEventSearchResponse;
 import com.workplace.calendar.dto.CalendarResponse;
 import com.workplace.calendar.dto.EditScope;
+import com.workplace.calendar.dto.EventNoteLinkResponse;
+import com.workplace.calendar.dto.EventNoteRef;
+import com.workplace.calendar.dto.NoteKey;
 import com.workplace.calendar.dto.OnlineMeeting;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.EventNotOrganizerException;
@@ -22,6 +25,8 @@ import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarEventNotic
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
 import com.workplace.calendar.outbound.CalendarChangeNotifier;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository;
+import com.workplace.calendar.repository.CalendarEventExceptionRepository.MasterOccurrence;
+import com.workplace.calendar.repository.CalendarEventNoteRepository;
 import com.workplace.calendar.repository.CalendarEventRepository;
 import com.workplace.calendar.repository.CalendarEventRepository.CalendarEventSearchRow;
 import com.workplace.calendar.repository.CalendarRepository;
@@ -41,6 +46,7 @@ import com.workplace.mail.outbound.GraphCalendarClient.GraphLocation;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import com.workplace.wiki.service.WikiPageReadAccess;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -93,6 +99,11 @@ public class CalendarEventService {
   private final CalendarChangeNotifier changeNotifier;
   // 일정 응답에 호출자 태그 채우기·반복 분할 시 태그 잇기(WP-714).
   private final CalendarTagService tagService;
+  // 일정·회차에 이은 회의록 노트 연결 저장소·카드 변환(WP-1701).
+  private final CalendarEventNoteRepository noteRepo;
+  private final CalendarEventNoteService noteService;
+  // 노트 읽기 판정 포트(WP-1701) — 잇기 전에 호출자가 그 노트를 읽을 수 있는지 본다.
+  private final WikiPageReadAccess wikiAccess;
 
   /**
    * 명시적 생성자 — TransactionTemplate 을 PlatformTransactionManager 로 구성해야 하므로 @RequiredArgsConstructor
@@ -113,7 +124,10 @@ public class CalendarEventService {
       CalendarTransports transports,
       PlatformTransactionManager txManager,
       CalendarChangeNotifier changeNotifier,
-      CalendarTagService tagService) {
+      CalendarTagService tagService,
+      CalendarEventNoteRepository noteRepo,
+      CalendarEventNoteService noteService,
+      WikiPageReadAccess wikiAccess) {
     this.repo = repo;
     this.reminderRepo = reminderRepo;
     this.exceptionRepo = exceptionRepo;
@@ -129,6 +143,9 @@ public class CalendarEventService {
     this.txTemplate = new TransactionTemplate(txManager);
     this.changeNotifier = changeNotifier;
     this.tagService = tagService;
+    this.noteRepo = noteRepo;
+    this.noteService = noteService;
+    this.wikiAccess = wikiAccess;
   }
 
   /**
@@ -507,9 +524,128 @@ public class CalendarEventService {
    */
   @Transactional(readOnly = true)
   public CalendarEventResponse get(long callerId, long id) {
+    return get(callerId, id, null);
+  }
+
+  /**
+   * 단건 조회 + 그 회차의 연결 노트(WP-1701). 반복 마스터는 occurrenceDate 가 있어야 회차의 노트를 싣고, 없으면 note 는 null. 「이 회차만」
+   * 고친 일정 id 는 occurrenceDate 를 무시하고 예외 표의 (마스터, 원래 시작 시각) 로 찾는다.
+   */
+  @Transactional(readOnly = true)
+  public CalendarEventResponse get(long callerId, long id, OffsetDateTime occurrenceDate) {
     CalendarEventResponse e =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
-    return tagService.withCallerTags(callerId, List.of(enrichForGet(callerId, e))).get(0);
+    CalendarEventResponse full =
+        tagService.withCallerTags(callerId, List.of(enrichForGet(callerId, e))).get(0);
+    NoteKey key = readKey(e, occurrenceDate);
+    return key == null ? full : full.withNote(noteService.cardFor(callerId, key));
+  }
+
+  /** 일정 한 건(또는 회차)의 연결 노트 카드(WP-1701). 일정을 볼 수 있는(주인·참석자) 사람만 — 아니면 404. 연결이 없으면 note=null. */
+  @Transactional(readOnly = true)
+  public EventNoteLinkResponse getNote(long callerId, long id, OffsetDateTime occurrenceDate) {
+    CalendarEventResponse e =
+        repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+    NoteKey key = readKey(e, occurrenceDate);
+    return new EventNoteLinkResponse(key == null ? null : noteService.cardFor(callerId, key));
+  }
+
+  /**
+   * 읽기용 노트 키(WP-1701) — 요청 대상 → 키 표. override 일정은 예외 표 역조회로 (마스터, 원래 시각), 반복 마스터는 회차 날짜가 있어야 (마스터,
+   * 회차) 이고 없으면 null(연결 없음), 그 밖(반복 아님·M365 회차 행)은 (id, null) — occurrenceDate 는 무시.
+   */
+  private NoteKey readKey(CalendarEventResponse e, OffsetDateTime occurrenceDate) {
+    var master = exceptionRepo.findMasterOccurrenceByOverride(e.id());
+    if (master.isPresent())
+      return NoteKey.of(master.get().eventId(), master.get().occurrenceDate());
+    if (e.recurrenceRule() != null) {
+      return occurrenceDate == null ? null : NoteKey.of(e.id(), occurrenceDate);
+    }
+    return new NoteKey(e.id(), null);
+  }
+
+  /**
+   * 일정(회차)에 노트를 잇는다(WP-1701). 한 키에 한 줄 — 이미 있으면 바꾼다. 가드 순서는 일정 수정과 같다(소유자 404 → 주최자 403 → 읽기 전용
+   * 409) → 마스터 행 잠금 + 회차 재확인 → 노트 읽기 판정(읽을 수 없으면 없는 노트와 같은 404) → 줄 교체. 잠금이 같은 회차의 동시 잇기를 차례로 세워 나중
+   * 것이 남는다. 판정 뒤 노트가 동시에 지워져 외래 키가 깨지면 그것도 같은 404 로 돌려준다(500 금지).
+   */
+  public EventNoteLinkResponse linkNote(
+      long callerId, long id, OffsetDateTime occurrenceDate, long pageId) {
+    return txTemplate.execute(
+        s -> {
+          NoteKey key = noteKeyForWrite(callerId, id, occurrenceDate, true);
+          wikiAccess.requireReadable(callerId, pageId);
+          // 판정 뒤 노트가 지워져 외래 키가 깨지면 저장소가 WikiPageNotFoundException 으로 바꾼다(WP-1701).
+          noteRepo.replace(key, pageId, callerId);
+          return new EventNoteLinkResponse(noteService.cardFor(callerId, key));
+        });
+  }
+
+  /** 노트 연결을 푼다(WP-1701) — 노트는 그대로. 연결이 없어도 조용히 끝난다(멱등). 가드는 잇기와 같다. */
+  public void unlinkNote(long callerId, long id, OffsetDateTime occurrenceDate) {
+    txTemplate.executeWithoutResult(
+        s -> noteRepo.delete(noteKeyForWrite(callerId, id, occurrenceDate, false)));
+  }
+
+  /**
+   * 쓰기용 노트 키(WP-1701) — 가드(소유자·주최자·읽기 전용) → 마스터 행 {@code FOR UPDATE} → 회차 재확인 → 키. 반드시 쓰기 tx 안에서
+   * 부른다(저장소 replace 는 이 잠금을 전제한다). override 일정이면 마스터를 잠그고 (마스터, 원래 시작 시각), 반복 마스터는 회차 날짜가 필요하며(없으면
+   * 400) 실제 회차여야 하고, 잇는 경우 취소된 회차면 400. 반복이 아니거나 M365 회차 행은 (id, null).
+   */
+  private NoteKey noteKeyForWrite(
+      long callerId, long id, OffsetDateTime occurrenceDate, boolean forLink) {
+    requireOwner(callerId, id);
+    requireOrganizer(callerId, id);
+    requireWritableEvent(id);
+    // override 일정이면 그 마스터를, 아니면 자기 행을 잠근다 — 같은 시리즈의 잇기·자르기가 한 줄로 선다.
+    var master = exceptionRepo.findMasterOccurrenceByOverride(id);
+    repo.lockForUpdate(master.map(MasterOccurrence::eventId).orElse(id));
+    CalendarEventResponse cur =
+        repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+    // 잠금을 기다리는 사이 바뀌었을 수 있어 읽기용 키 규칙(readKey)으로 다시 역조회한다(WP-1701).
+    NoteKey key = readKey(cur, occurrenceDate);
+    // 반복 마스터 자신의 회차 키(또는 회차 날짜가 없어 키가 없는 경우)만 회차 검증 대상이다 — override·비반복은 그대로 통과.
+    boolean recurringMaster = key == null || (key.eventId() == id && key.occurrenceStart() != null);
+    if (recurringMaster) {
+      // 회차 날짜가 없거나 규칙에 없는 날짜면 400 — 키가 null 이면 여기서 반드시 던진다.
+      requireOccurrenceDateIfRecurring(cur, EditScope.THIS, occurrenceDate);
+      if (forLink && exceptionRepo.isCancelled(id, occurrenceDate)) {
+        throw new IllegalArgumentException("취소된 회차에는 노트를 이을 수 없습니다");
+      }
+    }
+    return key;
+  }
+
+  /**
+   * 목록 응답에 회차별 연결 노트를 채운다(WP-1701) — 키를 모아 연결 행 조회 1번 + 노트 판정 1번. 가상 회차는 (마스터, 그 회차 시작 시각), 고친 회차는
+   * 예외 표의 (마스터, 원래 시작 시각), 그 밖은 (id, null).
+   */
+  private List<CalendarEventResponse> withNotes(long callerId, List<CalendarEventResponse> events) {
+    if (events.isEmpty()) return events;
+    Set<Long> concreteIds = new HashSet<>();
+    for (CalendarEventResponse e : events) {
+      if (e.masterEventId() == null) concreteIds.add(e.id());
+    }
+    Map<Long, MasterOccurrence> overrides = exceptionRepo.mastersByOverrides(concreteIds);
+    List<NoteKey> keys = new ArrayList<>();
+    for (CalendarEventResponse e : events) keys.add(listKey(e, overrides));
+    Map<NoteKey, EventNoteRef> cards = noteService.cardsFor(callerId, new HashSet<>(keys));
+    List<CalendarEventResponse> out = new ArrayList<>(events.size());
+    for (int i = 0; i < events.size(); i++) {
+      EventNoteRef card = cards.get(keys.get(i));
+      out.add(card == null ? events.get(i) : events.get(i).withNote(card));
+    }
+    return out;
+  }
+
+  /** 목록 항목의 노트 키 — {@link #withNotes} 참고. */
+  private static NoteKey listKey(CalendarEventResponse e, Map<Long, MasterOccurrence> overrides) {
+    if (e.masterEventId() != null) {
+      return NoteKey.of(e.masterEventId(), OffsetDateTime.parse(e.occurrenceDate()));
+    }
+    MasterOccurrence m = overrides.get(e.id());
+    if (m != null) return NoteKey.of(m.eventId(), m.occurrenceDate());
+    return new NoteKey(e.id(), null);
   }
 
   /**
@@ -529,7 +665,8 @@ public class CalendarEventService {
     validateListRange(from, to);
     List<CalendarEventResponse> result = collect(callerId, from, to, null);
     // 배치로 참석자 count/myRsvpStatus 채움 — attendees 는 null(경량). 이어서 호출자 태그를 배치로 채운다(WP-714).
-    return tagService.withCallerTags(callerId, enrichForList(callerId, result));
+    return withNotes(
+        callerId, tagService.withCallerTags(callerId, enrichForList(callerId, result)));
   }
 
   /**
@@ -553,6 +690,7 @@ public class CalendarEventService {
   @Transactional(readOnly = true)
   public List<CalendarEventResponse> listTagged(
       long callerId, OffsetDateTime from, OffsetDateTime to, long tagId) {
+    // 노트는 채우지 않는다(WP-1701) — ICS 태그 피드 전용이라 노트 조회가 폴링마다 낭비 쿼리가 된다.
     return collect(callerId, from, to, tagId);
   }
 
@@ -877,7 +1015,8 @@ public class CalendarEventService {
         null, // onlineMeeting — 목록 응답에서는 판정하지 않는다(단건 get 에서만)
         m.tags(), // tags — 마스터 것을 따른다(applyTags 가 마스터 키로 다시 채움)
         m.tagsEditable(),
-        m.outlookTagScope());
+        m.outlookTagScope(),
+        null); // note — list/get 가 노트 카드를 따로 채운다(WP-1701)
   }
 
   /**
@@ -1222,6 +1361,9 @@ public class CalendarEventService {
     List<Long> orphanedOverrides = exceptionRepo.overrideEventIdsFrom(masterId, occurrenceDate);
     exceptionRepo.deleteFromOccurrence(masterId, occurrenceDate);
     repo.deleteAllById(orphanedOverrides);
+    // 잘려나가는 회차의 노트 연결도 지운다(WP-1701). 새 시리즈로 옮기지 않는 이유: 이 회차부터 수정하면 새 시리즈의 시작 시각이
+    // 바뀔 수 있어 옛 회차 키가 새 시리즈의 어느 회차와도 맞지 않을 수 있다. 맞는지 모를 연결을 잇느니 지운다.
+    noteRepo.deleteFrom(masterId, occurrenceDate);
   }
 
   /**
@@ -1297,6 +1439,15 @@ public class CalendarEventService {
   }
 
   /**
+   * 회차를 취소 예외로 기록하고 그 회차의 노트 연결을 지운다(WP-1701). 불변식: 취소된 회차에는 노트 연결이 없다 — 연결 키는 (마스터, 원래 시작 시각)이라
+   * override 로 옮겨졌던 회차도 같은 줄이다. 호출자는 마스터 행을 잠근 상태여야 동시 잇기와 한 줄로 선다.
+   */
+  private void cancelOccurrence(long masterId, OffsetDateTime occurrenceDate) {
+    exceptionRepo.insertCancellation(masterId, occurrenceDate);
+    noteRepo.delete(NoteKey.of(masterId, occurrenceDate));
+  }
+
+  /**
    * delete 의 로컬 경로 — 기존 delete 본문(반복 scope 분기 포함). txTemplate 안에서만 호출.
    *
    * <p>requireOwner/requireWritableEvent 는 resolve 단계의 validateDeletable 에서 이미 통과했으므로 재검증하지 않는다. 회차
@@ -1316,8 +1467,10 @@ public class CalendarEventService {
     if (occurrenceDate == null) {
       var masterOccurrence = exceptionRepo.findMasterOccurrenceByOverride(id);
       if (masterOccurrence.isPresent()) {
-        exceptionRepo.insertCancellation(
-            masterOccurrence.get().eventId(), masterOccurrence.get().occurrenceDate());
+        // 노트 잇기(noteKeyForWrite)는 마스터 행을 잠그므로 여기서도 마스터를 잠가, 취소 전환·노트 삭제와 동시 잇기가
+        // 한 줄로 서게 한다 — 안 그러면 취소된 회차에 노트가 남을 수 있다(WP-1701).
+        repo.lockForUpdate(masterOccurrence.get().eventId());
+        cancelOccurrence(masterOccurrence.get().eventId(), masterOccurrence.get().occurrenceDate());
         repo.delete(id);
         return;
       }
@@ -1331,7 +1484,7 @@ public class CalendarEventService {
     if (scope == EditScope.THIS) {
       // 이미 오버라이드가 있던 회차를 취소하면 예외 행은 cancel 로 repoint 되지만 오버라이드 별도 일정은 남는다 → 고아 ghost 방지로 먼저 삭제.
       exceptionRepo.findOverrideEventId(id, occurrenceDate).ifPresent(repo::delete);
-      exceptionRepo.insertCancellation(id, occurrenceDate);
+      cancelOccurrence(id, occurrenceDate);
       return;
     }
     // 첫 회차부터 지우면 남는 회차가 없다 — 회차 0개짜리 원본을 남기지 않고 시리즈째 지운다(WP-663).
@@ -1697,7 +1850,8 @@ public class CalendarEventService {
         onlineMeeting,
         e.tags(),
         e.tagsEditable(),
-        e.outlookTagScope());
+        e.outlookTagScope(),
+        e.note());
   }
 
   /**

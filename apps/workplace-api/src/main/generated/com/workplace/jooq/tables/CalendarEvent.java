@@ -9,6 +9,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
 import com.workplace.jooq.tables.CalendarEventException.CalendarEventExceptionPath;
+import com.workplace.jooq.tables.CalendarEventNote.CalendarEventNotePath;
 import com.workplace.jooq.tables.CalendarEventTag.CalendarEventTagPath;
 import com.workplace.jooq.tables.CalendarTag.CalendarTagPath;
 import com.workplace.jooq.tables.EventAttendee.EventAttendeePath;
@@ -329,6 +330,19 @@ public class CalendarEvent extends TableImpl<CalendarEventRecord> {
             _calendarEventExceptionOverrideEventIdFkey = new CalendarEventExceptionPath(this, null, Keys.CALENDAR_EVENT_EXCEPTION__CALENDAR_EVENT_EXCEPTION_OVERRIDE_EVENT_ID_FKEY.getInverseKey());
 
         return _calendarEventExceptionOverrideEventIdFkey;
+    }
+
+    private transient CalendarEventNotePath _calendarEventNote;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.calendar_event_note</code> table
+     */
+    public CalendarEventNotePath calendarEventNote() {
+        if (_calendarEventNote == null)
+            _calendarEventNote = new CalendarEventNotePath(this, null, Keys.CALENDAR_EVENT_NOTE__CALENDAR_EVENT_NOTE_EVENT_ID_FKEY.getInverseKey());
+
+        return _calendarEventNote;
     }
 
     private transient CalendarEventTagPath _calendarEventTag;

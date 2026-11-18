@@ -28,6 +28,7 @@ import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
 import com.workplace.jooq.tables.CalendarEvent;
 import com.workplace.jooq.tables.CalendarEventException;
+import com.workplace.jooq.tables.CalendarEventNote;
 import com.workplace.jooq.tables.CalendarEventTag;
 import com.workplace.jooq.tables.CalendarTag;
 import com.workplace.jooq.tables.Channel;
@@ -240,6 +241,8 @@ public class Indexes {
     public static final Index IDX_CALENDAR_EVENT_CALENDAR = Internal.createIndex(DSL.name("idx_calendar_event_calendar"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.CALENDAR_ID }, false);
     public static final Index IDX_CALENDAR_EVENT_EXCEPTION_EVENT = Internal.createIndex(DSL.name("idx_calendar_event_exception_event"), CalendarEventException.CALENDAR_EVENT_EXCEPTION, new OrderField[] { CalendarEventException.CALENDAR_EVENT_EXCEPTION.EVENT_ID }, false);
     public static final Index IDX_CALENDAR_EVENT_EXCEPTION_TENANT = Internal.createIndex(DSL.name("idx_calendar_event_exception_tenant"), CalendarEventException.CALENDAR_EVENT_EXCEPTION, new OrderField[] { CalendarEventException.CALENDAR_EVENT_EXCEPTION.TENANT_ID }, false);
+    public static final Index IDX_CALENDAR_EVENT_NOTE_PAGE = Internal.createIndex(DSL.name("idx_calendar_event_note_page"), CalendarEventNote.CALENDAR_EVENT_NOTE, new OrderField[] { CalendarEventNote.CALENDAR_EVENT_NOTE.WIKI_PAGE_ID }, false);
+    public static final Index IDX_CALENDAR_EVENT_NOTE_TENANT = Internal.createIndex(DSL.name("idx_calendar_event_note_tenant"), CalendarEventNote.CALENDAR_EVENT_NOTE, new OrderField[] { CalendarEventNote.CALENDAR_EVENT_NOTE.TENANT_ID }, false);
     public static final Index IDX_CALENDAR_EVENT_OWNER_RANGE = Internal.createIndex(DSL.name("idx_calendar_event_owner_range"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.OWNER_ID, CalendarEvent.CALENDAR_EVENT.STARTS_AT, CalendarEvent.CALENDAR_EVENT.ENDS_AT }, false);
     public static final Index IDX_CALENDAR_EVENT_SERIES_MASTER = Internal.createIndex(DSL.name("idx_calendar_event_series_master"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.CALENDAR_ID, CalendarEvent.CALENDAR_EVENT.SERIES_MASTER_ID }, false);
     public static final Index IDX_CALENDAR_EVENT_TAG_EVENT = Internal.createIndex(DSL.name("idx_calendar_event_tag_event"), CalendarEventTag.CALENDAR_EVENT_TAG, new OrderField[] { CalendarEventTag.CALENDAR_EVENT_TAG.EVENT_ID }, false);
@@ -551,6 +554,8 @@ public class Indexes {
     public static final Index UQ_AGENT_REPO_CREDENTIAL_ACTIVE = Internal.createIndex(DSL.name("uq_agent_repo_credential_active"), AgentRepoCredential.AGENT_REPO_CREDENTIAL, new OrderField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.TENANT_ID, AgentRepoCredential.AGENT_REPO_CREDENTIAL.AGENT_USER_ID, AgentRepoCredential.AGENT_REPO_CREDENTIAL.HOST }, true);
     public static final Index UQ_AGENT_RUNNER_TOKEN_ACTIVE = Internal.createIndex(DSL.name("uq_agent_runner_token_active"), AgentRunnerToken.AGENT_RUNNER_TOKEN, new OrderField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.LOCATION_ID }, true);
     public static final Index UQ_CALENDAR_DEFAULT = Internal.createIndex(DSL.name("uq_calendar_default"), Calendar.CALENDAR, new OrderField[] { Calendar.CALENDAR.OWNER_ID, Calendar.CALENDAR.TENANT_ID }, true);
+    public static final Index UQ_CALENDAR_EVENT_NOTE_OCCURRENCE = Internal.createIndex(DSL.name("uq_calendar_event_note_occurrence"), CalendarEventNote.CALENDAR_EVENT_NOTE, new OrderField[] { CalendarEventNote.CALENDAR_EVENT_NOTE.EVENT_ID, CalendarEventNote.CALENDAR_EVENT_NOTE.OCCURRENCE_START }, true);
+    public static final Index UQ_CALENDAR_EVENT_NOTE_SINGLE = Internal.createIndex(DSL.name("uq_calendar_event_note_single"), CalendarEventNote.CALENDAR_EVENT_NOTE, new OrderField[] { CalendarEventNote.CALENDAR_EVENT_NOTE.EVENT_ID }, true);
     public static final Index UQ_CALENDAR_EVENT_OWNER_ICAL_UID_LOCAL = Internal.createIndex(DSL.name("uq_calendar_event_owner_ical_uid_local"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.OWNER_ID, CalendarEvent.CALENDAR_EVENT.ICAL_UID }, true);
     public static final Index UQ_CALENDAR_EXTERNAL = Internal.createIndex(DSL.name("uq_calendar_external"), Calendar.CALENDAR, new OrderField[] { Calendar.CALENDAR.EXTERNAL_ACCOUNT_ID, Calendar.CALENDAR.EXTERNAL_ID }, true);
     public static final Index UQ_CHANNEL_DM_MEMBER_KEY = Internal.createIndex(DSL.name("uq_channel_dm_member_key"), Channel.CHANNEL, new OrderField[] { Channel.CHANNEL.TENANT_ID, Channel.CHANNEL.MEMBER_KEY }, true);

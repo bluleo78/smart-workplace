@@ -8,6 +8,7 @@ import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.agentruntime.service.AgentKeyRetirement.Placement;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -153,6 +154,26 @@ public class AgentRuntimeTransitions {
   public void keyRotated(long agentId, long runnerLocationId) {
     publish(runnerLocationId);
     changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, null);
+  }
+
+  /**
+   * 릴리스로 작업 공간 버전이 바뀌어 generation 을 올렸다(WP-1706) — 원하는 상태·위치는 그대로라 키는 정리하지 않는다. 실제 위치마다 한 번 runner
+   * 알림, 관리자 화면에 한 번 「바뀜」. 지정 위치가 없는 행은 기본 위치를 한 번만 읽어 묶는다.
+   *
+   * @param bumped 올린 행들(올린 뒤 모양)
+   */
+  public void runtimeVersionChanged(Collection<Row> bumped) {
+    if (bumped.isEmpty()) return;
+    Set<Long> locationIds = new LinkedHashSet<>();
+    boolean followsDefault = false;
+    for (Row row : bumped) {
+      if (row.locationId() == null) followsDefault = true;
+      else locationIds.add(row.locationId());
+    }
+    if (followsDefault) locationIds.add(locations.effectiveId(null));
+    publish(locationIds.toArray(new Long[0]));
+    changeNotifier.agentsChanged(
+        ResourceChangedEvent.OP_UPDATED, bumped.stream().map(Row::agentUserId).toList(), null);
   }
 
   /** 실제 위치마다(겹침·null 제외) 원하는 상태 변경 이벤트를 낸다 — 그 위치의 runner 가 다시 받아 간다. */

@@ -77,6 +77,7 @@ public class AgentRuntimeSettingService {
   private final AiAgentCredentialService credentials;
   private final PodAccountSource podAccounts;
   private final AgentRuntimeChangeNotifier changeNotifier;
+  private final AgentRuntimeVersions versions;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
@@ -126,7 +127,13 @@ public class AgentRuntimeSettingService {
       credentials.revoke(callerId, agentId);
       Row inserted =
           settings.insert(
-              agentId, template.name(), template.version(), req.locationId(), config, callerId);
+              agentId,
+              template.name(),
+              template.version(),
+              req.locationId(),
+              config,
+              versions.current(template.name()).orElse(null),
+              callerId);
       audit(callerId, "AGENT_RUNTIME_SETTING_CHANGED", agentId, "AI 실행 설정 저장", meta(template, req));
       // 새 행은 꺼진 채라 runner 에게 알릴 것이 없다 — 관리자 화면에만 「생김」.
       transitions.applyTransition(agentId, null, State.of(inserted), callerId);
@@ -177,7 +184,7 @@ public class AgentRuntimeSettingService {
     next =
         next.withApplyMode(req.applyMode() == null ? ApplyMode.IDLE : req.applyMode())
             .withGeneration(row.generation() + 1);
-    settings.update(next, callerId);
+    saveBumped(next, callerId);
     // 켜진 채 실제 위치가 바뀌면 옛 위치의 runner 가 Pod 를 바로 지운다(끄기와 같다) — 옛·새 위치 모두에 알리고 키를 정리한다.
     transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_SETTING_CHANGED", agentId, "AI 실행 설정 변경", meta(template, req));
@@ -216,7 +223,7 @@ public class AgentRuntimeSettingService {
             .withGeneration(row.generation() + 1)
             // 종료·시작 모두 새 출발 — 「새 작업 받기」 를 다시 켠다(WP-1514).
             .withAcceptNewWork(true);
-    settings.update(next, callerId);
+    saveBumped(next, callerId);
     transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_STARTED", agentId, "AI 켜기", Map.of("locationId", location.id()));
     return toResponse(next, location.id());
@@ -232,7 +239,7 @@ public class AgentRuntimeSettingService {
     if (row.desired() == Desired.STOP) return toResponse(row, effective);
     // 종료는 「새 작업 받기」 를 켜진 상태로 되돌린다(WP-1514) — 꺼 둔 채 종료해도 다음 시작은 새 출발.
     Row next = bumpDesired(row, Desired.STOP, row.applyMode()).withAcceptNewWork(true);
-    settings.update(next, callerId);
+    saveBumped(next, callerId);
     transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_STOPPED", agentId, "AI 끄기", Map.of());
     return toResponse(next, effective);
@@ -278,7 +285,7 @@ public class AgentRuntimeSettingService {
   private AgentRuntimeSettingResponse restartLocked(long callerId, long agentId, Row row) {
     Long effective = locationService.effectiveLocationId(row.locationId());
     Row next = bumpDesired(row, Desired.RUN, ApplyMode.NOW);
-    settings.update(next, callerId);
+    saveBumped(next, callerId);
     transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_RESTARTED", agentId, "AI 다시 시작", Map.of());
     return toResponse(next, effective);
@@ -328,7 +335,7 @@ public class AgentRuntimeSettingService {
     Row next = row;
     if (row.desired() == Desired.RUN) {
       next = bumpDesired(row, Desired.STOP, row.applyMode());
-      settings.update(next, actorId);
+      saveBumped(next, actorId);
     }
     transitions.applyTransition(
         agentId, State.of(row), deleted ? null : State.departing(next), actorId);
@@ -403,6 +410,14 @@ public class AgentRuntimeSettingService {
   private Row lockRow(long agentId) {
     memberGuard.require(agentId);
     return settings.findForUpdate(agentId).orElseThrow(AgentRuntimeSettingNotFoundException::new);
+  }
+
+  /**
+   * generation 을 올린 행을 저장한다(WP-1706) — 지금 템플릿 버전을 함께 적는 규칙을 한 곳에 둔다(새 경로가 빠뜨려 낡은 기록을 남기지 않게).
+   * generation 을 올리지 않는 저장은 {@code settings.update(…)} 로 기록을 그대로 둔다.
+   */
+  private void saveBumped(Row next, Long updatedBy) {
+    settings.update(next, updatedBy, versions.current(next.templateName()).orElse(null));
   }
 
   /** 원하는 상태만 바꾼 다음 행(템플릿·위치·설정은 그대로, generation +1). */

@@ -722,7 +722,8 @@ public class CalendarEventRepository {
         List.of(), // tags — 서비스 계층(호출자 기준)에서 채워짐(WP-714)
         // tagsEditable — 앱 일정은 늘, M365 일정은 내 사서함의 쓸 수 있는 달력 사본일 때만(WP-716, tagsEditable)
         Boolean.TRUE.equals(r.get("tags_editable", Boolean.class)),
-        outlookTagScope(r.get(CALENDAR_EVENT.EXTERNAL_ID), r.get(CALENDAR_EVENT.SERIES_MASTER_ID)));
+        outlookTagScope(r.get(CALENDAR_EVENT.EXTERNAL_ID), r.get(CALENDAR_EVENT.SERIES_MASTER_ID)),
+        null); // note — 서비스 계층이 연결 노트 카드를 채운다(WP-1701)
   }
 
   /**

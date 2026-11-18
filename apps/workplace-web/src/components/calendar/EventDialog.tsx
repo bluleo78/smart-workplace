@@ -12,9 +12,11 @@ import { AttendeeSection, type SelectedMember } from '@/components/calendar/Atte
 import { EventDetailView } from '@/components/calendar/EventDetailView'
 import { EventFormRow, FORM_CHIP_LINE_CLASS } from '@/components/calendar/EventFormRow'
 import { EventLinkControl } from '@/components/calendar/EventLinkControl'
+import { EventNoteRow } from '@/components/calendar/EventNoteRow'
 import { EventRangeInputs } from '@/components/calendar/EventRangeInputs'
 import { EventTagsField } from '@/components/calendar/EventTagsField'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
+import { NoteLinkDialog } from '@/components/calendar/NoteLinkDialog'
 import { PaletteSwatches } from '@/components/calendar/PaletteSwatches'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import {
@@ -42,6 +44,7 @@ import {
   useRemoveAttendee,
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars } from '@/hooks/queries/useCalendars'
+import { useEventNote, useLinkEventNote, useUnlinkEventNote } from '@/hooks/queries/useEventNote'
 import { useAuth } from '@/hooks/useAuth'
 import { INVITED_CALENDAR_LABEL } from '@/lib/calendar'
 // 폼 스키마·요청 조립·편집 가능 판정은 @/lib/calendarEventForm 의 순수 함수(WP-412)
@@ -60,10 +63,12 @@ import {
 import { reminderLabel } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { changedTagIds, eventTagHint } from '@/lib/calendarTag'
+import { canShowNoteRow } from '@/lib/eventNote'
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 import { isFormEditableRRule, parseRRule, recurrenceUnitLabel } from '@/lib/recurrence'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent, CalendarEventRequest, CalendarTagRef } from '@/types/calendar'
+import type { WikiSearchResult } from '@/types/wiki'
 
 // ────────────────────────────────────────────────────────────
 // ISO(UTC) ↔ datetime-local 변환 헬퍼
@@ -94,8 +99,9 @@ interface EventDialogProps {
   /**
    * 저장 — 폼에서 고른 태그가 처음과 달라졌을 때만 body.tagIds 가 실린다(아니면 빠져 서버가 태그를 건드리지 않는다).
    * 태그는 일정 저장과 한 요청이라 반복 범위(「이후 모든 일정」의 새 시리즈 등)를 서버가 맞춘다(WP-801).
+   * 새 일정에서 저장 전 노트를 골랐으면 extras.pendingNote 로 넘겨 만든 뒤 호출 쪽이 잇는다(WP-1701) — 안 골랐으면 두 번째 인자가 없다.
    */
-  onSubmit: (body: CalendarEventRequest) => void
+  onSubmit: (body: CalendarEventRequest, extras?: { pendingNote?: WikiSearchResult | null }) => void
   /** 편집 모드에서만 제공 — 삭제 버튼 표시 */
   onDelete?: () => void
   /** API 요청 진행 중 여부 — true 이면 저장 버튼 비활성화 + 로딩 텍스트 표시 (이슈 #130) */
@@ -131,6 +137,11 @@ export function EventDialog({
   // 상세가 늦게 오거나 다시 조회돼도 effect 로 옮겨 담지 않아, 사용자가 바꾼 선택을 덮지 않는다.
   const [touchedTags, setTouchedTags] = useState<CalendarTagRef[] | null>(null)
 
+  // 새 일정에서 저장 전 고른 회의록 노트 — 저장 성공 뒤 호출 쪽이 잇는다(열 때마다 비움). 기존 일정은 그 자리에서 바로 잇는다(WP-1701)
+  const [pendingNote, setPendingNote] = useState<WikiSearchResult | null>(null)
+  // 「노트 연결」 창 — 열 때의 일정 제목을 검색어로 한 번만 읽어 둔다(열린 동안 폼 제목이 바뀌어도 창은 그대로). null 이면 닫힘(WP-1701)
+  const [noteDialogTitle, setNoteDialogTitle] = useState<string | null>(null)
+
   // 색 팝오버(캘린더 칸의 점) 열림
   const [colorOpen, setColorOpen] = useState(false)
 
@@ -165,6 +176,12 @@ export function EventDialog({
     detailEvent,
   })
 
+  // 기존 일정(회차)의 회의록 노트 — 연결·해제는 일정 저장과 따로 즉시 반영한다(WP-1701).
+  // 회차 없이 열린 반복 마스터는 서버가 400 이라 줄을 숨기고 조회도 쉰다.
+  const noteRowAvailable = !isEdit || canShowNoteRow(event)
+  const noteQuery = useEventNote(isEdit && open && noteRowAvailable ? event?.id : undefined, event?.occurrenceDate)
+  const linkNote = useLinkEventNote()
+  const unlinkNote = useUnlinkEventNote()
   // 편집 모드 참석자 invite/remove 뮤테이션 — eventId 0 은 dummy(생성 모드에서 훅 호출 유지) (이슈 #489)
   const inviteAttendees = useInviteAttendees(event?.id ?? 0)
   const removeAttendee = useRemoveAttendee(event?.id ?? 0)
@@ -219,6 +236,8 @@ export function EventDialog({
     if (!event) setSelectedAttendees([])
     // 태그·색 팝오버도 열 때마다 처음부터 — 「취소」로 닫은 선택이 다음에 남지 않게
     setTouchedTags(null)
+    setPendingNote(null)
+    setNoteDialogTitle(null)
     setColorOpen(false)
 
     // 반복 규칙(RRULE) → 평탄한 폼 필드로 변환. 생성 모드(이벤트 없음)면 NONE 기본값.
@@ -332,7 +351,10 @@ export function EventDialog({
           formTags.map((t) => t.id),
         )
       : null
-    onSubmit(tagIds ? { ...body, tagIds } : body)
+    const finalBody = tagIds ? { ...body, tagIds } : body
+    // 새 일정에서 고른 노트는 호출 쪽이 만든 일정 id 로 잇는다 — 고르지 않았으면 인자를 늘리지 않는다(pendingNote 는 새 일정에서만 생긴다)
+    if (pendingNote) onSubmit(finalBody, { pendingNote })
+    else onSubmit(finalBody)
   }
 
   // 편집 모드에서 상세(주최자 여부)·캘린더 목록(초대 여부)이 오기 전엔 읽기 전용인지 아직 모른다 — 이때 폼 칸에 자동 포커스를 주면
@@ -746,6 +768,21 @@ export function EventDialog({
                 )}
               </EventFormRow>
 
+              {/* 회의록 — 새 일정은 고른 노트를 들고 있다 저장 뒤 잇고, 기존 일정은 연결·해제가 바로 반영된다. 기존 일정은 조회가 끝나야 그린다(「노트 연결」이 번쩍이지 않게) */}
+              {noteRowAvailable && (!isEdit || noteQuery.data) && (
+                <EventNoteRow
+                  note={isEdit ? noteQuery.data?.note : null}
+                  pending={pendingNote}
+                  editable
+                  onPick={() => setNoteDialogTitle(form.getValues('title'))}
+                  onUnlink={() =>
+                    event
+                      ? unlinkNote.mutate({ id: event.id, occurrenceDate: event.occurrenceDate })
+                      : setPendingNote(null)
+                  }
+                />
+              )}
+
               {/* 휴대폰에서도 한 줄 — 삭제는 왼쪽, 취소·저장은 오른쪽(공용 DialogFooter 의 세로 쌓기·전체 폭 삭제 대신, 이 폼에만) */}
               <DialogFooter className="flex-row items-center pt-2">
                 {/* 편집 모드에서 onDelete 제공 시 삭제 버튼 표시 — 읽기전용은 상세 보기라 여기 오지 않는다 (이슈 #501) */}
@@ -780,6 +817,21 @@ export function EventDialog({
                 </div>
               </DialogFooter>
             </form>
+            {/* 「노트 연결」 창 — form 밖에 둔다(포털의 Enter·제출이 일정 폼 React 트리로 번지지 않게) */}
+            <NoteLinkDialog
+              open={noteDialogTitle !== null}
+              onOpenChange={(o) => {
+                if (!o) setNoteDialogTitle(null)
+              }}
+              initialQuery={noteDialogTitle ?? ''}
+              onLink={async (page) => {
+                if (event) {
+                  await linkNote.mutateAsync({ id: event.id, occurrenceDate: event.occurrenceDate, pageId: page.id })
+                } else {
+                  setPendingNote(page)
+                }
+              }}
+            />
             {/* WP-1234 기존 일정을 고치는 폼에도 일정 링크(🔗/⬆︎) — 내 일정은 대개 상세 보기 대신 폼으로 열린다.
                 절대 배치라 보이는 자리는 ✕ 옆이지만 DOM 은 폼 뒤에 둔다 — 앞에 두면 자동 포커스(모달 복귀 등)가 🔗 로 가
                 툴팁이 열리고, 그 툴팁이 다음 Esc 를 먼저 먹어 다이얼로그가 닫히지 않았다. 탭 순서도 ✕ 바로 앞이 된다. */}

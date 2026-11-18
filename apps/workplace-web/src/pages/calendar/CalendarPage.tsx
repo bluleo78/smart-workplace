@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { calendarApi } from '@/api/calendar'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { CalendarEditDialog } from '@/components/calendar/CalendarEditDialog'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
@@ -45,6 +46,7 @@ import {
   useDeleteCalendarTag,
   useUpdateCalendarTag,
 } from '@/hooks/queries/useCalendarTags'
+import { useLinkEventNote } from '@/hooks/queries/useEventNote'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useAuth } from '@/hooks/useAuth'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
@@ -68,6 +70,7 @@ import {
 import { headerMonthLabel } from '@/lib/calendarAgenda'
 import { canMoveEvent, type MovedRange, moveRequestBody } from '@/lib/calendarMove'
 import { RECURRING_TAGS_NOTE } from '@/lib/calendarTag'
+import { firstOccurrenceDate } from '@/lib/eventNote'
 import { parseId } from '@/lib/historyParam'
 import { failedWithoutData } from '@/lib/queryFailure'
 import { cn } from '@/lib/utils'
@@ -82,7 +85,11 @@ import type {
   EditScope,
   IssueDueMarker,
 } from '@/types/calendar'
+import type { WikiSearchResult } from '@/types/wiki'
 
+
+// 반복 일정의 첫 회차를 찾으려고 DTSTART 부터 펼쳐 보는 구간(366일) — 연 1회 반복도 첫 회차가 들어온다(WP-1701)
+const FIRST_OCCURRENCE_WINDOW_MS = 366 * 24 * 60 * 60 * 1000
 
 // 월·주·일 보기 컴포넌트 — 목록(agenda)은 모바일·데스크톱이 따로 그린다.
 const GRID_VIEWS = { month: MonthView, week: WeekView, day: DayView }
@@ -292,6 +299,7 @@ export function CalendarPage() {
   )
 
   const create = useCreateEvent()
+  const linkNote = useLinkEventNote()
   const update = useUpdateEvent()
   const remove = useDeleteEvent()
 
@@ -427,9 +435,26 @@ export function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needFetch, deepLinkEvent, deepLinkFailed, eventIdParam])
 
+  // 새 일정을 만든 뒤 저장 전 고른 노트를 잇는다(WP-1701). 반복이면 DTSTART 가 규칙에 안 맞을 수 있어 startsAt 이 아니라
+  // 목록 조회로 펼친 실제 첫 회차를 쓴다(서버 전개는 안 맞는 DTSTART 를 회차로 내지 않는다). 실패는 토스트로만 알린다.
+  async function linkPendingNote(created: CalendarEvent, page: WikiSearchResult) {
+    try {
+      let occurrenceDate: string | null = null
+      if (created.recurrenceRule) {
+        const to = new Date(new Date(created.startsAt).getTime() + FIRST_OCCURRENCE_WINDOW_MS).toISOString()
+        const r = await calendarApi.list(created.startsAt, to)
+        occurrenceDate = firstOccurrenceDate(created.id, r.data)
+        if (!occurrenceDate) throw new Error('첫 회차를 찾지 못했습니다')
+      }
+      await linkNote.mutateAsync({ id: created.id, occurrenceDate, pageId: page.id })
+    } catch {
+      toast.error('일정은 저장했지만 노트를 연결하지 못했습니다')
+    }
+  }
+
   // 생성·수정 공용 submit 핸들러 — 폼에서 바꾼 태그는 body.tagIds 로 일정 저장과 한 요청에 실린다(WP-801).
   // 한 요청이라 서버가 반복 범위에 맞는 시리즈(「이후 모든 일정」이면 새로 나뉜 시리즈)에 붙이고, 실패하면 일정과 함께 실패해 폼이 남는다.
-  const submit = (body: CalendarEventRequest) => {
+  const submit = (body: CalendarEventRequest, extras?: { pendingNote?: WikiSearchResult | null }) => {
     // 새 일정 저장 중에 이전 스냅숏(editing)이 수정 대상으로 잡히지 않게 creating 을 먼저 본다.
     if (!creating && editing) {
       if (editing.occurrenceDate != null) {
@@ -441,7 +466,13 @@ export function CalendarPage() {
       }
       update.mutate({ id: editing.id, body }, { onSuccess: () => closeDialog() })
     } else {
-      create.mutate(body, { onSuccess: () => setCreating(false) })
+      create.mutate(body, {
+        onSuccess: (created) => {
+          setCreating(false)
+          // 저장 전 고른 회의록 노트는 만든 일정 id 로 잇는다 — 이것만 실패해도 일정은 그대로(WP-1701)
+          if (extras?.pendingNote) void linkPendingNote(created, extras.pendingNote)
+        },
+      })
     }
   }
 

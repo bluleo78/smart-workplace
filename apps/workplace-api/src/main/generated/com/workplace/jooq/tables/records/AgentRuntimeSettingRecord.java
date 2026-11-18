@@ -373,6 +373,36 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (Boolean) get(24);
     }
 
+    /**
+     * Setter for <code>public.agent_runtime_setting.runtime_image</code>.
+     */
+    public void setRuntimeImage(String value) {
+        set(25, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.runtime_image</code>.
+     */
+    public String getRuntimeImage() {
+        return (String) get(25);
+    }
+
+    /**
+     * Setter for
+     * <code>public.agent_runtime_setting.runtime_plugin_version</code>.
+     */
+    public void setRuntimePluginVersion(String value) {
+        set(26, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.agent_runtime_setting.runtime_plugin_version</code>.
+     */
+    public String getRuntimePluginVersion() {
+        return (String) get(26);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -396,7 +426,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -424,6 +454,8 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setUpdatedAt(updatedAt);
         setAgentIssueKeys(agentIssueKeys);
         setAcceptNewWork(acceptNewWork);
+        setRuntimeImage(runtimeImage);
+        setRuntimePluginVersion(runtimePluginVersion);
         resetTouchedOnNotNull();
     }
 }
