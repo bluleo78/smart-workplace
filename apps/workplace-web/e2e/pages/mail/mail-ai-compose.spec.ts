@@ -1,6 +1,6 @@
 // 새 메일 AI 초안(WP-576) E2E — 초점·IME 단축키(@input)와 버튼 배경색(@layout)만 남긴다. 백엔드 없이 page.route 모킹.
 // 진입점 조건·payload·본문/제목 반영·생성 중 잠금·중지/버리기(요청 끊김)·일시/영구 실패·되돌리기·다시 쓰기·✕ 저장·
-// 크게 보기 Esc·최소화 뒤 유지·보내기 잠금은 src/pages/mail/mailAiCompose.test.tsx(vitest, WP-984)가 지킨다.
+// 읽기 창 Esc·최소화 뒤 유지·보내기 잠금은 src/pages/mail/mailAiCompose.test.tsx(vitest, WP-984·WP-1743)가 지킨다.
 import type { Page, Route } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../../factories/mail.factory'

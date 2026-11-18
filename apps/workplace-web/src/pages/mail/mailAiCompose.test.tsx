@@ -1,12 +1,13 @@
 // 새 메일 AI 초안(WP-576) — 화면 테스트(WP-984, WP-995).
 // 진입점 조건(새 메일·AI 켠 계정)·compose-draft payload·본문/제목 반영·생성 중 잠금·중지/버리기(요청 끊김)·일시/영구 실패 안내·
-// 되돌리기·다시 쓰기·고친 뒤 ✕ 저장·크게 보기 Esc·최소화 뒤 본문 유지·보내기 잠금(AI+업로드)은 브라우저 없이 판정되므로
+// 되돌리기·다시 쓰기·고친 뒤 ✕ 저장·읽기 창 Esc·최소화 뒤 본문 유지·보내기 잠금(AI+업로드)은 브라우저 없이 판정되므로
 // e2e/pages/mail/mail-ai-compose.spec.ts 에서 옮겼다. 초점·IME·버튼 배경색은 그 E2E(@input·@layout)가 지킨다.
 // 훅 단위(늦게 온 응답 버림)는 src/components/mail/useMailAiDraft.test.tsx 가 본다. 메일 모듈 + 작성 도크만 renderScreen 으로 띄운다(testkit-b4).
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { composeInPane as inPane } from '@/test/kits/mail/compose-pane'
 import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 import type { ComposeDraftResult } from '@/types/mailMessage'
 
@@ -281,21 +282,23 @@ test('본문을 고치면 「AI 초안이에요」 줄이 사라지고, ✕ 는 
   expect(posts.last().body.bodyText).toContain('!')
 })
 
-test('크게 보기에서 지시 칸 Esc 는 패널만 닫고 크게 보기는 그대로, 한 번 더 Esc 는 작은 창으로', async () => {
+test('「읽기 창으로」에서 지시 칸 Esc 는 패널만 닫고 읽기 창은 그대로, 한 번 더 Esc 도 접히지 않는다', async () => {
   const view = renderAiCompose()
   const { user } = view
   await user.click(await screen.findByTestId('mail-compose-new'))
-  await user.click(await screen.findByTestId('mail-compose-expand'))
-  expect(screen.getByTestId('mail-compose-backdrop')).toBeInTheDocument()
+  await user.click(await screen.findByRole('button', { name: '읽기 창으로' }))
+  expect(inPane()).toBe(true)
   await user.click(screen.getByTestId('mail-ai-compose-open'))
   const input = await screen.findByTestId('mail-ai-compose-instruction')
   fireEvent.change(input, { target: { value: INSTRUCTION } })
   await user.click(input)
   await user.keyboard('{Escape}')
   await waitFor(() => expect(screen.queryByTestId('mail-ai-compose-panel')).not.toBeInTheDocument())
-  expect(screen.getByTestId('mail-compose-backdrop')).toBeInTheDocument()
+  // 지시 패널만 닫히고 읽기 창은 그대로다 — 호스트가 슬롯에 그대로 붙어 있다.
+  expect(inPane()).toBe(true)
+  // 한 번 더 Esc 도 접히지 않는다 — 접기는 「우측 하단으로」 단추로만 한다.
   fireEvent.keyDown(screen.getByTestId('mail-compose-dock'), { key: 'Escape' })
-  await waitFor(() => expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument())
+  expect(inPane()).toBe(true)
 })
 
 test('생성 중 작성창을 버리면(🗑) 요청이 끊기고, 다시 연 새 메일은 빈 상태(칩)다', async () => {

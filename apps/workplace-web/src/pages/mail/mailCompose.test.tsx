@@ -1,5 +1,5 @@
-// 메일 작성 도크(발송·답장·크게 보기 상태)·인용문 보존(#765·WP-69)·초안 코칭(AI 검토) — 화면 테스트(WP-984, WP-995).
-// 발송 payload(본문+인용문 순서·무손실·누출 차단·inlineImages)·답장 inReplyTo·크게 보기 상태 전환(배경·대화상자·inert)·
+// 메일 작성 도크(발송·답장·읽기 창 전환)·인용문 보존(#765·WP-69)·초안 코칭(AI 검토) — 화면 테스트(WP-984, WP-995).
+// 발송 payload(본문+인용문 순서·무손실·누출 차단·inlineImages)·답장 inReplyTo·읽기 창 전환(슬롯 이동·대화상자·배경·inert 없음)·
 // ✕ 임시저장·검토 탭 비활성·코칭 요청/교체/503 안내는 브라우저 없이 판정되므로
 // mail-compose.spec.ts·mail-quote.spec.ts·mail-coaching.spec.ts 에서 옮겼다.
 // 남은 E2E: 도크 배선(@wiring), IME·포커스·Tab·단축키(@input), 크기·스크롤·겹침·AI 패널 배치·다크 색·토스트 위치(@layout),
@@ -10,6 +10,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { SANDBOX_HEAD } from '@/lib/sandboxedHtml'
+import { composeInPane as hostInPane } from '@/test/kits/mail/compose-pane'
 import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
@@ -139,7 +140,7 @@ test('답장 본문 초점은 한 번만 — 사용자가 제목으로 옮긴 �
   expect(bodyFocused()).toBe(false)
 })
 
-test('인용문만 지워도 ✕ 는 임시저장(quoteRemoved)하고, 크게 보기에서 고친 제목·본문은 인용문을 지워도 그대로 발송된다', async () => {
+test('인용문만 지워도 ✕ 는 임시저장(quoteRemoved)하고, 읽기 창에서 고친 제목·본문은 인용문을 지워도 그대로 발송된다', async () => {
   const send = sendHandler()
   const drafts = draftPosts()
   const view = withSource({ bodyText: '기밀 원문' }, [send.handler, drafts.handler])
@@ -154,12 +155,13 @@ test('인용문만 지워도 ✕ 는 임시저장(quoteRemoved)하고, 크게 �
   expect(await screen.findByText('임시보관함에 저장했어요')).toBeInTheDocument()
 
   await user.click(screen.getByTestId('mail-reply'))
-  await user.click(await screen.findByRole('button', { name: '크게 보기' }))
+  await user.click(await screen.findByRole('button', { name: '읽기 창으로' }))
   fireEvent.change(screen.getByTestId('mail-compose-subject'), { target: { value: '고친 제목' } })
   await typeBody(user, '직접 쓴 회신')
   await user.click(screen.getByTestId('mail-compose-quote-remove'))
   expect(screen.queryByTestId('mail-compose-quote')).not.toBeInTheDocument()
-  expect(screen.getByTestId('mail-compose-backdrop')).toBeInTheDocument()
+  // 호스트가 읽기 자리 슬롯 안으로 옮겼다(재마운트 없이 — 편집기·본문은 그대로).
+  expect(hostInPane()).toBe(true)
   expect(screen.getByTestId('mail-compose-subject')).toHaveValue('고친 제목')
   await user.click(screen.getByTestId('mail-compose-send'))
   await waitFor(() => expect(send.calls).toHaveLength(1))
@@ -200,90 +202,93 @@ test('보낸편지함을 누르면 목록을 folder=SENT 로 받는다', async (
   await waitFor(() => expect(list.calls.map((c) => c.url.searchParams.get('folder'))).toContain('SENT'))
 })
 
-// ── 크게 보기 상태(mail-compose WP-575) ─────────────────────────────────────────────
+// ── 읽기 창 전환(mail-compose WP-1743) ─────────────────────────────────────────────
 
-async function openNewExpanded() {
+/** 새 메일을 읽기 창 상태로 연다(우측 하단에서 「읽기 창으로」 를 누른 상태). */
+async function openNewInPane() {
   const view = renderMail('/mail/1')
   await view.user.click(await screen.findByTestId('mail-compose-new'))
   await screen.findByTestId('mail-compose-dock')
+  await view.user.click(screen.getByRole('button', { name: '읽기 창으로' }))
   return view
 }
-const expandBtn = () => screen.getByRole('button', { name: '크게 보기' })
 const isPageInert = () => (screen.getByTestId('mail-compose-new').closest('[data-ai-page-root] > *') as HTMLElement).inert === true
 
-test('크게 보기는 대화상자(aria-modal 없음)이고 뒤 페이지를 inert 로, 작게 보면 region 으로 돌아가며 풀린다', async () => {
-  const { user } = await openNewExpanded()
+test('「읽기 창으로」는 대화상자·배경·inert 없이 region 이고, 「우측 하단으로」로 돌아와도 region 그대로다', async () => {
+  const { user } = renderMail('/mail/1')
+  await user.click(await screen.findByTestId('mail-compose-new'))
   const dock = screen.getByTestId('mail-compose-dock')
   expect(dock).toHaveAttribute('role', 'region')
   expect(isPageInert()).toBe(false)
-  await user.click(expandBtn())
-  await waitFor(() => expect(dock).toHaveAttribute('role', 'dialog'))
+  await user.click(screen.getByRole('button', { name: '읽기 창으로' }))
+  // 읽기 창은 페이지 일부 — 대화상자도 뒤 페이지 inert 도 없다.
+  expect(hostInPane()).toBe(true)
+  expect(dock).toHaveAttribute('role', 'region')
   expect(dock).not.toHaveAttribute('aria-modal')
-  expect(screen.getByTestId('mail-compose-backdrop')).toBeInTheDocument()
-  expect(isPageInert()).toBe(true)
-  await user.click(screen.getByRole('button', { name: '작게 보기' }))
-  await waitFor(() => expect(dock).toHaveAttribute('role', 'region'))
-  expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(isPageInert()).toBe(false)
+  await user.click(screen.getByRole('button', { name: '우측 하단으로' }))
+  await waitFor(() => expect(hostInPane()).toBe(false))
+  expect(dock).toHaveAttribute('role', 'region')
   expect(isPageInert()).toBe(false)
 })
 
-test('확대 중 Esc 는 닫지 않고 작은 창으로 돌아가며 쓰던 제목·본문을 유지한다', async () => {
-  const { user } = await openNewExpanded()
-  fireEvent.change(screen.getByTestId('mail-compose-subject'), { target: { value: '확대 중 제목' } })
-  await user.click(expandBtn())
-  await typeBody(user, '확대 본문')
+test('「읽기 창으로」 중 Esc 는 접지도 닫지도 하지 않고 쓰던 제목·본문을 유지한다', async () => {
+  const { user } = await openNewInPane()
+  fireEvent.change(screen.getByTestId('mail-compose-subject'), { target: { value: '읽기 창 제목' } })
+  await typeBody(user, '읽기 창 본문')
   await user.keyboard('{Escape}')
-  await waitFor(() => expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument())
+  // Esc 로는 접히지 않는다 — 접기는 「우측 하단으로」 단추로만 한다.
+  expect(hostInPane()).toBe(true)
   expect(screen.getByTestId('mail-compose-dock')).toHaveAttribute('role', 'region')
-  expect(screen.getByTestId('mail-compose-subject')).toHaveValue('확대 중 제목')
-  expect(screen.getByTestId('mail-composer-body')).toHaveTextContent('확대 본문')
+  expect(screen.getByTestId('mail-compose-subject')).toHaveValue('읽기 창 제목')
+  expect(screen.getByTestId('mail-composer-body')).toHaveTextContent('읽기 창 본문')
 })
 
-test('확대 중 배경을 누르면 닫지 않고 작은 창으로, 쓰던 주소는 칩으로 굳는다', async () => {
-  const { user } = await openNewExpanded()
+test('「우측 하단으로」를 누르면 작은 창으로 돌아가고 쓰던 주소는 칩으로 굳는다', async () => {
+  const { user } = renderMail('/mail/1')
+  await user.click(await screen.findByTestId('mail-compose-new'))
   await user.click(screen.getByTestId('mail-compose-to'))
   await user.paste('keep@test.local')
-  await user.click(expandBtn())
-  await user.click(screen.getByTestId('mail-compose-backdrop'))
-  await waitFor(() => expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument())
-  expect(screen.getByTestId('mail-compose-dock')).toHaveAttribute('role', 'region')
+  await user.click(screen.getByRole('button', { name: '읽기 창으로' }))
+  expect(hostInPane()).toBe(true)
+  await user.click(screen.getByRole('button', { name: '우측 하단으로' }))
+  await waitFor(() => expect(hostInPane()).toBe(false))
   await waitFor(() => expect(chips('to')).toEqual(['keep@test.local']))
 })
 
-test('확대 중 최소화하면 작은 창의 최소화(본문 숨김)가 되고, 다시 펼치면 작은 창이다', async () => {
-  const { user } = await openNewExpanded()
-  await user.click(expandBtn())
+test('최소화하면 본문이 숨겨지고(에디터 유지), 다시 누르면 작은 창으로 돌아온다', async () => {
+  const { user } = renderMail('/mail/1')
+  await user.click(await screen.findByTestId('mail-compose-new'))
   await user.click(screen.getByRole('button', { name: '최소화' }))
-  await waitFor(() => expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument())
   // 최소화는 본문 영역에 hidden 을 걸어 숨긴다(에디터는 다시 만들지 않는다).
   expect(screen.getByTestId('mail-compose-to').closest('.hidden')).not.toBeNull()
-  expect(expandBtn()).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '최소화' })).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '최소화' }))
-  await waitFor(() => expect(screen.getByTestId('mail-compose-to').closest('.hidden')).toBeNull())
-  expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument()
+  expect(screen.getByTestId('mail-compose-to').closest('.hidden')).toBeNull()
   expect(screen.getByTestId('mail-compose-dock')).toHaveAttribute('role', 'region')
 })
 
-test('확대한 채 닫았다 다시 열면 작은 창으로 열린다', async () => {
-  const { user } = await openNewExpanded()
-  await user.click(expandBtn())
+test('「읽기 창으로」에서 닫았다 다시 열면 우측 하단으로 열린다', async () => {
+  const { user } = await openNewInPane()
   await user.click(screen.getByTestId('mail-compose-close'))
   await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+  // 작성이 닫히면 읽기 자리가 다시 비워진다 — 호스트도 주차 칸으로 돌아오고 자리에 메일 상세가 돌아온다.
+  await waitFor(() => expect(hostInPane()).toBe(false))
   await user.click(screen.getByTestId('mail-compose-new'))
   expect(await screen.findByTestId('mail-compose-dock')).toHaveAttribute('role', 'region')
-  expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument()
+  expect(hostInPane()).toBe(false)
 })
 
-test('크게 보기에서도 ✕ 는 묻지 않고 임시저장한 뒤 닫고 배경도 걷힌다(WP-577)', async () => {
+test('「읽기 창으로」에서도 ✕ 는 묻지 않고 임시저장한 뒤 닫는다(WP-577)', async () => {
   const drafts = draftPosts()
   const view = renderMail('/mail/1', { handlers: [drafts.handler] })
   const { user } = view
   await user.click(await screen.findByTestId('mail-compose-new'))
-  await user.click(await screen.findByRole('button', { name: '크게 보기' }))
+  await user.click(await screen.findByRole('button', { name: '읽기 창으로' }))
   await typeBody(user, '지우면 안 되는 본문')
   await user.click(screen.getByTestId('mail-compose-close'))
   await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
-  expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument()
   await waitFor(() => expect(drafts.calls).toHaveLength(1))
   expect(drafts.last().body.bodyHtml).toContain('지우면 안 되는 본문')
   expect(await screen.findByText('임시보관함에 저장했어요')).toBeInTheDocument()
@@ -301,12 +306,12 @@ test('AI 검토 탭 ✨ 는 선택 전엔 ai-accent, 선택되면 탭 활성색�
   expect(tab.querySelector('svg.lucide-sparkles')).not.toHaveClass('text-ai-accent')
 })
 
-test('크게 보기에서 AI 검토 탭을 열면 에디터·서식 버튼은 숨고 검토 패널만 보인다', async () => {
+test('「읽기 창으로」에서 AI 검토 탭을 열면 에디터·서식 버튼은 숨고 검토 패널만 보인다', async () => {
   const coach = record('post', '/api/v1/mail/draft-coaching', () => HttpResponse.json({ notes: [], improvedBodyHtml: '<p>개선본</p>' }))
   const view = renderMail('/mail/1', { handlers: [coach.handler] })
   const { user } = view
   await user.click(await screen.findByTestId('mail-compose-new'))
-  await user.click(await screen.findByRole('button', { name: '크게 보기' }))
+  await user.click(await screen.findByRole('button', { name: '읽기 창으로' }))
   await typeBody(user, '검토할 본문')
   await user.click(screen.getByTestId('mail-review-tab'))
   expect(await screen.findByTestId('mail-coaching-panel')).toBeInTheDocument()

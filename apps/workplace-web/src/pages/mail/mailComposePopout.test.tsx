@@ -217,16 +217,17 @@ function renderWindow(extra: RequestHandler[] = [], path = '/mail/compose?draftI
   )
 }
 
-test('새 창은 그 임시저장을 작성창으로 열고, 최소화·크게 보기·새 창 단추 없이 창 제목을 메일 제목으로 둔다', async () => {
+test('새 창은 그 임시저장을 작성창으로 열고, 최소화·읽기 창으로·새 창 단추 없이 창 제목을 메일 제목으로 둔다', async () => {
   renderWindow()
   const subject = (await screen.findByTestId('mail-compose-subject')) as HTMLInputElement
   await waitFor(() => expect(subject).toHaveValue('새 창 메일'))
   expect(screen.getByTestId('mail-compose-to')).toBeInTheDocument()
+  // 새 창에는 최소화·읽기 창 전환 단추가 없다 — 창 크기는 브라우저 창이 정하고, 앱 안 읽기 자리(슬롯)는 이 창에 없다.
   expect(screen.queryByTestId('mail-compose-minimize')).not.toBeInTheDocument()
-  expect(screen.queryByTestId('mail-compose-expand')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('mail-compose-to-pane')).not.toBeInTheDocument()
   expect(screen.queryByTestId('mail-compose-popout')).not.toBeInTheDocument()
-  // 크게 보기 배경·대화상자가 아니라 창 전체를 채운다.
-  expect(screen.queryByTestId('mail-compose-backdrop')).not.toBeInTheDocument()
+  // 대화상자·배경이 아니라 창 전체를 채운다 — 새 창은 페이지와 겹칠 것이 없어 모달 처리가 없다.
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(screen.getByTestId('mail-compose-dock').className).toContain('inset-0')
   await waitFor(() => expect(document.title).toContain('새 창 메일'))
 })

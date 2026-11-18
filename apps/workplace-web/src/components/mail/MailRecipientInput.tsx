@@ -316,7 +316,7 @@ export function MailRecipientInput({
                 e.preventDefault();
               }
             } else if (e.key === 'Escape' && open) {
-              // 후보만 닫는다 — 크게 보기 창의 Esc(작은 창으로)까지 가지 않게 막는다.
+              // 후보만 닫는다 — 전역 Esc(AI 패널 닫기)까지 가지 않게 막는다.
               e.preventDefault();
               e.stopPropagation();
               setDismissed(true);
