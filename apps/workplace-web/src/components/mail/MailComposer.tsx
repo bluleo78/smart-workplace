@@ -53,7 +53,8 @@ import { useMailFormatRowOpen } from './useMailFormatRowOpen';
 /**
  * 에디터 배치 — 작성창 모양에 따라 본문 크기·툴바 위치가 달라진다.
  * - dock: 작은 작성창. 본문 높이 상한(40vh) + 세로 스크롤.
- * - fill: 데스크톱 크게 보기(WP-575). 상한을 풀고 남은 높이를 다 채운다.
+ * - fill: 남은 높이를 다 채우는 넓은 자리 — 새 창(WP-1535)과 메일 읽기 자리(WP-1743, 바깥 틀은 'pane' 이지만 편집기는 fill).
+ *   상한을 풀고 남은 높이를 다 채운다.
  * - mobile: 모바일 화면 전체 작성(WP-583). 테두리 없는 본문, 서식 버튼은 화면 맨 아래(키보드가 열리면 그 바로 위).
  */
 export type MailComposerLayout = 'dock' | 'fill' | 'mobile';
@@ -87,7 +88,7 @@ interface MailComposerProps {
 
 /**
  * 배치별 본문(ProseMirror) 클래스. editorProps 는 렌더마다 setOptions 로 다시 적용되므로
- * 같은 에디터 인스턴스로 작은 창 ↔ 크게 보기를 오가도 쓰던 내용을 잃지 않고 크기만 바뀐다.
+ * 같은 에디터 인스턴스로 작은 창(dock) ↔ 읽기 창(fill)을 오가도 쓰던 내용을 잃지 않고 크기만 바뀐다.
  */
 const BOXED_EDITOR_CLASS =
   'overflow-y-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -99,7 +100,7 @@ const EDITOR_CLASS: Record<MailComposerLayout, string> = {
 
 /**
  * 배치별 서식 툴바 클래스 — 모바일은 화면 하단 고정(키보드 높이 --kb-inset 만큼 띄움).
- * 크게 보기는 에디터가 끝없이 늘고 창 본문이 스크롤되므로 툴바를 위에 붙인다 — 비치지 않게 배경을 깔고 그 위에 같은 옅은 색을 겹친다.
+ * 넓은 자리(fill)는 에디터가 끝없이 늘고 창 본문이 스크롤되므로 툴바를 위에 붙인다 — 비치지 않게 배경을 깔고 그 위에 같은 옅은 색을 겹친다.
  */
 const BOXED_TOOLBAR_CLASS = MAIL_BOXED_ROW_CLASS;
 const TOOLBAR_CLASS: Record<MailComposerLayout, string> = {
@@ -405,7 +406,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
 
   return (
     <div className={cn('flex flex-col', !touch && 'gap-1.5', layout === 'fill' && 'flex-1')}>
-      {/* 두 줄 감싸개 — 크게 보기(fill)에서는 두 줄이 함께 위에 붙는다(sticky 는 여기가 진다). */}
+      {/* 두 줄 감싸개 — 넓은 자리(fill — 새 창·읽기 창)에서는 두 줄이 함께 위에 붙는다(sticky 는 여기가 진다). */}
       <div
         data-testid="mail-composer-toolbars"
         className={cn(!touch && 'flex flex-col gap-1.5', layout === 'fill' && 'sticky top-0 z-10 bg-background')}
@@ -513,7 +514,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
         </div>
       )}
       </div>
-      {/* 크게 보기는 본문이 남은 높이를 채우도록 래퍼도 세로 flex 로 늘린다. 겹침 자리의 기준이 되도록 relative. */}
+      {/* 넓은 자리(fill)는 본문이 남은 높이를 채우도록 래퍼도 세로 flex 로 늘린다. 겹침 자리의 기준이 되도록 relative. */}
       <div className={cn('relative', layout === 'fill' && 'flex flex-1 flex-col')}>
         {/* 표 막대(WP-1524) — 커서가 표 안이면 데스크톱은 표 위에 뜨고, 모바일은 서식 줄 위 고정 줄. EditorContent 앞에 둔다:
             BubbleMenu 는 마운트 때 자기 DOM 을 떼어 내므로, 그 앞에 조건부 형제가 있으면 언마운트 때 React 가 사라진 앵커에

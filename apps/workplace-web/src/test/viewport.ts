@@ -62,3 +62,42 @@ export function mockViewport(vp: Viewport = MOBILE_VIEWPORT) {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: vp.width })
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: vp.height })
 }
+
+/**
+ * 폭을 바꿀 수 있는 뷰포트(WP-1743) — 같은 파일 안에서 좁은 폭 ↔ 넓은 폭 전환을 볼 때 쓴다. 파일 맨 위에서 한 번 부른다.
+ * mediaQueryStore 가 MediaQueryList 를 파일당 한 번 캐시하므로, matches 를 getter 로 두어 지금 폭을 읽게 하고
+ * 돌려준 setWidth 가 폭을 바꾼 뒤 등록된 change 리스너를 모두 불러 구독(useIsMobile 등)이 다시 판정하게 한다.
+ */
+export function mockResizableViewport(initial: Viewport) {
+  let vp = initial
+  const lists: Array<{ media: string; listeners: Set<(e: unknown) => void> }> = []
+  vi.spyOn(window, 'matchMedia').mockImplementation((media: string) => {
+    const listeners = new Set<(e: unknown) => void>()
+    lists.push({ media, listeners })
+    return {
+      // getter — setWidth 가 폭만 바꾸면 캐시된 mql 도 새 결과를 돌려준다.
+      get matches() {
+        return matchesQuery(media, vp)
+      },
+      media,
+      onchange: null,
+      addEventListener: (_type: string, cb: (e: unknown) => void) => listeners.add(cb),
+      removeEventListener: (_type: string, cb: (e: unknown) => void) => listeners.delete(cb),
+      addListener: (cb: (e: unknown) => void) => listeners.add(cb),
+      removeListener: (cb: (e: unknown) => void) => listeners.delete(cb),
+      dispatchEvent: () => false,
+    } as unknown as MediaQueryList
+  })
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: vp.width })
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: vp.height })
+  /** 폭을 바꾸고 등록된 change 리스너를 전부 부른다. */
+  const setWidth = (width: number) => {
+    vp = { ...vp, width }
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    for (const { media, listeners } of lists) {
+      const event = { matches: matchesQuery(media, vp), media }
+      for (const listener of listeners) listener(event)
+    }
+  }
+  return { setWidth, width: () => vp.width }
+}

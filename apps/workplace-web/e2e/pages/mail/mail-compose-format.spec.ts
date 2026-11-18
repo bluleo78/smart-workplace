@@ -1,5 +1,5 @@
 // 메일 작성 서식(WP-1524) — 브라우저가 있어야 판정되는 것만 둔다(jsdom 은 레이아웃·포인터 끌기·실제 색을 못 잰다).
-// 512px 작성창의 둘째 줄 넘침·위치(@layout), 크게 보기에서 두 줄이 위에 붙는지(@layout), 표 격자 끌기(@input), 다크 대비(@layout).
+// 512px 작성창의 둘째 줄 넘침·위치(@layout), 읽기 창에서 두 줄이 위에 붙는지(@layout), 표 격자 끌기(@input), 다크 대비(@layout).
 // 서식 명령·HTML 출력·펼침 기억은 vitest(MailComposer.test.tsx 등)가 지킨다.
 import type { Locator, Page } from '@playwright/test'
 
@@ -32,6 +32,10 @@ async function expectNoOverflowX(el: Locator) {
   expect(sw, `scrollWidth ${sw} vs clientWidth ${cw}`).toBeLessThanOrEqual(cw)
 }
 
+/** 지금 작성창 호스트가 읽기 자리 슬롯 안에 있는가 — 「읽기 창으로」 전환 판정(WP-1743). */
+const hostInPane = (page: Page) =>
+  page.evaluate(() => document.querySelector('[data-compose-host]')?.closest('[data-testid="mail-compose-pane-slot"]') != null)
+
 test.describe('메일 작성 서식 (WP-1524)', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
     await mockMail(page)
@@ -55,10 +59,11 @@ test.describe('메일 작성 서식 (WP-1524)', () => {
     expect(Math.abs(b2.width - b1.width)).toBeLessThanOrEqual(1)
   })
 
-  test('크게 보기에서 두 줄이 함께 위에 붙어 본문을 스크롤해도 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  test('읽기 창으로 두 줄이 함께 위에 붙어 본문을 스크롤해도 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await openComposeWithFormatRow(page)
-    await page.getByRole('button', { name: '크게 보기' }).click()
-    await expect(page.getByTestId('mail-compose-backdrop')).toBeVisible()
+    // 옛 「크게 보기」(가운데 큰 모달) 대신 「읽기 창으로」 — 같은 레이아웃 단언을 읽기 창에서도 그대로 쓴다(WP-1743).
+    await page.getByTestId('mail-compose-to-pane').click()
+    await expect.poll(() => hostInPane(page)).toBe(true)
     const toolbars = page.getByTestId('mail-composer-toolbars')
     await expect(page.getByTestId('mail-composer-format-row')).toBeVisible()
 

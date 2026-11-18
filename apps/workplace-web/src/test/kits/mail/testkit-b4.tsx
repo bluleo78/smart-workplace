@@ -3,6 +3,7 @@
 // 작성 상태(MailComposeProvider)는 AppLayout 수준이라 여기서 감싸고, 도크가 AI 모드를 읽으므로 AIAssistantProvider 도 둔다.
 // 메일 기본 조회(계정·동기화 상태·목록·안 읽은 수·메일함·임시저장)는 빈 성공으로 깔고, 테스트가 handlers 로 덮는다(MSW 는 나중 등록 우선).
 import { http, HttpResponse, type RequestHandler } from 'msw'
+import type { ReactNode } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
@@ -81,16 +82,19 @@ export function mailBaseHandlers({
 type RenderMailOptions = NonNullable<Parameters<typeof renderScreen>[1]> & {
   accounts?: MailAccountResponse[]
   messages?: EmailMessageSummary[]
+  /** 공급자 안(페이지 영역 앞)에 더 그릴 것 — 예: AI 모드를 바꾸는 테스트 단추(메일 트리엔 AI 패널이 없다). */
+  extra?: ReactNode
 }
 
 /** 메일 화면을 path 로 띄운다. handlers 는 기본 조회보다 우선한다. */
-export function renderMail(path = '/mail/1', { handlers = [], accounts, messages, ...rest }: RenderMailOptions = {}) {
+export function renderMail(path = '/mail/1', { handlers = [], accounts, messages, extra, ...rest }: RenderMailOptions = {}) {
   // App 의 메일 라우트(MailModuleLayout + MailInboxPage)와 AppLayout 의 작성 상태·도크만 그린다.
   const ui = (
     <MailComposeProvider>
       <AIAssistantProvider hotkeysEnabled={false}>
         {/* WP-1505: 모바일 메일 목록 헤더의 「?」가 도움말 상태를 읽는다 — AppLayout 처럼 AI 공급자 안에 둔다. */}
         <HelpPanelProvider>
+        {extra}
         {/* AppLayout 처럼 페이지 영역 표식 — 크게 보기 작성창이 이 안을 inert 로 만든다. 도크는 이 바깥(앱 전역)에 둔다. */}
         <div data-ai-page-root>
           <main>

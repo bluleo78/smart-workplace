@@ -64,7 +64,8 @@ import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/ma
 import { FileTypeIcon } from '../../components/drive/FileTypeIcon'
 import { MailCalendarInviteCard } from '../../components/mail/MailCalendarInviteCard'
 import { MailCategoryMenu, MailCategorySheet, type MailCategoryState } from '../../components/mail/MailCategoryMenu'
-import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
+import { type ComposeDraft, useMailCompose, useMailComposeLayout } from '../../components/mail/MailComposeContext'
+import { MailComposePaneSlot } from '../../components/mail/MailComposePaneSlot'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { MailMoveMenu, MailMoveTargetSheet } from '../../components/mail/MailMoveMenu'
 import { MailRowContextMenu, type MailRowMenuHandlers } from '../../components/mail/MailRowContextMenu'
@@ -1555,6 +1556,17 @@ function MailInbox() {
     </>
   )
   const { openCompose } = useMailCompose()
+  // 작성 배치는 setter 만 쓴다 — size 를 읽지 않아야 크기 전환마다 이 큰 화면이 다시 그려지지 않는다(WP-1743).
+  const { setSize: setComposeSize } = useMailComposeLayout()
+  // 읽기 창 작성 중 다른 메일을 고르면 접는다 — 읽기 자리가 다른 메일로 바뀌어 쓰던 글과 어긋나지 않게(WP-1743, 접기 규칙 중 하나).
+  // 새 선택이 있을 때만 접는다 — 폴더 바꾸기·뒤로 가기·동기화로 사라짐처럼 선택이 풀리기만(null) 한 것은 「다른 메일을 고른」 것이 아니다.
+  // 읽기 창(pane)일 때만 접고 다른 배치는 그대로 둔다 — 함수형 갱신이라 지금 size 를 구독하지 않아도 된다.
+  const prevSelectedRef = useRef(selectedId)
+  useEffect(() => {
+    if (prevSelectedRef.current === selectedId) return
+    prevSelectedRef.current = selectedId
+    if (selectedId != null) setComposeSize((s) => (s === 'pane' ? 'min' : s))
+  }, [selectedId, setComposeSize])
   const replyDraft = useReplyDraft()
   // #520 AI 이슈 초안 — 버튼 클릭 시 모달 오픈 후 초안 로드.
   const issueDraft = useIssueDraft()
@@ -2097,28 +2109,31 @@ function MailInbox() {
           )}
           data-testid="mail-detail-pane"
         >
-          {/* 모바일 상세 헤더(‹·제목·⋯·✦)는 MessageDetailPanel 이 그린다 — ⋯ 메뉴(원본 배경·AI 이슈)가 패널 상태를 쓴다(WP-400). */}
-          <MessageDetailPanel
-            messageId={selectedId}
-            accountId={accountIdNum}
-            aiEnabled={aiEnabled}
-            aiDraftPending={replyDraft.isPending}
-            onReply={onReply}
-            onReplyAll={onReplyAll}
-            onForward={onForward}
-            onAiReplyDraft={onAiReplyDraft}
-            onAiIssue={onAiIssue}
-            issueDraftPending={issueDraft.isPending}
-            onMarkUnread={() => {
-              if (selectedId != null) markUnreadAndClose(selectedId)
-            }}
-            onToggleFlag={toggleFlagFromView}
-            onBack={mailParam.close}
-            moveActions={selectedId != null ? moveActionsFor(selectedId) : null}
-            onOpenMoveSheet={() => selectedId != null && setMoveSheetIds([selectedId])}
-            onChangeCategory={categoryEditable ? (id, c, before) => void changeCategory(id, c, before) : null}
-            onOpenCategorySheet={(id, current) => setCategorySheet({ id, current })}
-          />
+          {/* 읽기 자리 슬롯(WP-1743) — 작성창을 「읽기 창으로」 옮길 자리. 읽기 창 작성 중에는 상세를 감춘다(MailComposePaneSlot). */}
+          <MailComposePaneSlot>
+            {/* 모바일 상세 헤더(‹·제목·⋯·✦)는 MessageDetailPanel 이 그린다 — ⋯ 메뉴(원본 배경·AI 이슈)가 패널 상태를 쓴다(WP-400). */}
+            <MessageDetailPanel
+              messageId={selectedId}
+              accountId={accountIdNum}
+              aiEnabled={aiEnabled}
+              aiDraftPending={replyDraft.isPending}
+              onReply={onReply}
+              onReplyAll={onReplyAll}
+              onForward={onForward}
+              onAiReplyDraft={onAiReplyDraft}
+              onAiIssue={onAiIssue}
+              issueDraftPending={issueDraft.isPending}
+              onMarkUnread={() => {
+                if (selectedId != null) markUnreadAndClose(selectedId)
+              }}
+              onToggleFlag={toggleFlagFromView}
+              onBack={mailParam.close}
+              moveActions={selectedId != null ? moveActionsFor(selectedId) : null}
+              onOpenMoveSheet={() => selectedId != null && setMoveSheetIds([selectedId])}
+              onChangeCategory={categoryEditable ? (id, c, before) => void changeCategory(id, c, before) : null}
+              onOpenCategorySheet={(id, current) => setCategorySheet({ id, current })}
+            />
+          </MailComposePaneSlot>
         </div>
         {/* WP-962 모바일 「옮기기」 메일함 고르기 — 길게 누르기 시트·상세 ⋯ 메뉴에서 연다. */}
         <MailMoveTargetSheet

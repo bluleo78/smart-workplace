@@ -4,7 +4,7 @@
 // 같은 임시저장을 다시 열면 새로 열지 않고 지금 창을 앞으로 가져온다(handlers.raise). 임시보관함에서 지운 임시저장이
 // 열려 있으면 저장 없이 닫는다(closeDraft — 지운 임시저장을 다시 저장하지 않게).
 
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 
 import type { ComposeAttachment } from '@/lib/mailComposeAttachments';
@@ -13,6 +13,12 @@ import type { ComposeMode } from '@/types/mailDraft';
 
 // 작성 종류는 임시저장 DTO 와 같은 값이라 types 에 두고 여기서 다시 내보낸다(기존 import 경로 호환).
 export type { ComposeMode };
+
+/**
+ * 작성창 배치(WP-1743) — 우측 하단 작은 창(dock) / 최소화(min) / 메일 읽기 자리(pane).
+ * 옛 `fill`(가운데 큰 모달)은 `pane` 이 잇는다(확대 단추 = 「읽기 창으로」).
+ */
+export type ComposeSize = 'dock' | 'min' | 'pane';
 
 /** 작성 초기값(새/답장/전달·임시저장이 채워 보낸다). */
 export interface ComposeDraft {
@@ -74,6 +80,27 @@ interface MailComposeContextValue {
   setComposeHandlers: (h: ComposeHandlers | null) => void;
 }
 
+/**
+ * 작성창 배치 상태(WP-1743) — 도크 컨텍스트와 따로 둔다. 크기 전환·슬롯 등록은 자주 바뀌는데,
+ * 한 컨텍스트에 두면 그때마다 openCompose 만 쓰는 사이드바·임시보관함 같은 모든 소비자가 다시 그려지기 때문이다.
+ */
+interface MailComposeLayoutContextValue {
+  /**
+   * 지금 배치 — 도크 본체와 메일 읽기 자리(MailComposePaneSlot)가 같은 값을 봐야 호스트 이동과 접기가 어긋나지 않는다.
+   * 새 작성마다 dock 으로 되돌리는 규칙은 도크 본체의 instanceId 효과가 맡는다.
+   */
+  size: ComposeSize;
+  /** 배치 바꾸기 — 값이나 다음 값을 고르는 함수를 받는다(setState 그대로). */
+  setSize: Dispatch<SetStateAction<ComposeSize>>;
+  /**
+   * 읽기 자리 슬롯 — 메일 화면이 슬롯 DOM 을 등록하면, 도크는 그 안으로 호스트를 옮긴다(포털 없이 appendChild).
+   * 슬롯이 없으면(메일 화면 밖) null — 「읽기 창으로」 단추 비활성 판정이 이 값을 쓴다.
+   */
+  slotEl: HTMLElement | null;
+  /** 슬롯 등록·해제 — 슬롯 div 의 ref 로 넘긴다(setState 그대로라 안정적이고, 같은 요소로 다시 불러도 리렌더가 없다). */
+  registerSlot: Dispatch<SetStateAction<HTMLElement | null>>;
+}
+
 /** 작성창(도크)이 컨텍스트에 맡기는 임시저장 동작. */
 export interface ComposeHandlers {
   /** 남은 변경을 바로 저장(결과는 작성창이 토스트로 알린다). */
@@ -85,10 +112,15 @@ export interface ComposeHandlers {
 }
 
 const MailComposeContext = createContext<MailComposeContextValue | null>(null);
+const MailComposeLayoutContext = createContext<MailComposeLayoutContextValue | null>(null);
 
 /** 도크 상태 provider. AppLayout 이 감싼다. */
 export function MailComposeProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState<ComposeDraft | null>(null);
+  // 지금 배치(WP-1743) — 도크 본체와 메일 읽기 자리 슬롯이 함께 보는 단일 값이라 컨텍스트(배치 컨텍스트)로 올렸다.
+  const [size, setSize] = useState<ComposeSize>('dock');
+  // 읽기 자리 슬롯 DOM — 메일 화면이 등록하고, 도크 호스트를 옮길 자리로 쓴다.
+  const [slotEl, setSlotEl] = useState<HTMLElement | null>(null);
   // 같은 ms 충돌을 피하려 단조 증가 ref 카운터로 인스턴스 id 를 찍는다.
   const seq = useRef(0);
   // 지금 작성 — focusDraft·bindDraftId 가 렌더 클로저가 아니라 최신 값을 보게 ref 로도 둔다.
@@ -149,9 +181,13 @@ export function MailComposeProvider({ children }: { children: ReactNode }) {
     () => ({ draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, focusDraft, closeDraft, setComposeHandlers }),
     [draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, focusDraft, closeDraft, setComposeHandlers],
   );
+  // 배치 상태 — setSize·setSlotEl 은 setState 라 안정적이고, size·slotEl 이 바뀔 때만 새 값이 된다.
+  const layout = useMemo(() => ({ size, setSize, slotEl, registerSlot: setSlotEl }), [size, slotEl]);
 
   return (
-    <MailComposeContext.Provider value={value}>{children}</MailComposeContext.Provider>
+    <MailComposeContext.Provider value={value}>
+      <MailComposeLayoutContext.Provider value={layout}>{children}</MailComposeLayoutContext.Provider>
+    </MailComposeContext.Provider>
   );
 }
 
@@ -160,5 +196,13 @@ export function MailComposeProvider({ children }: { children: ReactNode }) {
 export function useMailCompose() {
   const ctx = useContext(MailComposeContext);
   if (!ctx) throw new Error('useMailCompose must be used within MailComposeProvider');
+  return ctx;
+}
+
+/** 작성창 배치 훅(WP-1743) — 크기(size)·읽기 자리 슬롯을 쓰는 곳(도크·읽기 자리 슬롯·메일 화면 접기)만 구독한다. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useMailComposeLayout() {
+  const ctx = useContext(MailComposeLayoutContext);
+  if (!ctx) throw new Error('useMailComposeLayout must be used within MailComposeProvider');
   return ctx;
 }

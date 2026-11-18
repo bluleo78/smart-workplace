@@ -215,7 +215,7 @@ export function AiDraftPanel({
         onKeyDown={(e) => {
           if (isImeComposing(e.nativeEvent)) return;
           if (e.key === 'Escape') {
-            // 크게 보기의 Esc(작은 창으로)까지 올라가지 않게 여기서 멈춘다 — 한 번에 하나만 닫힌다.
+            // 전역 Esc(AI 패널 닫기)까지 올라가지 않게 여기서 멈춘다 — 한 번에 하나만 닫힌다.
             e.preventDefault();
             e.stopPropagation();
             onCancel();

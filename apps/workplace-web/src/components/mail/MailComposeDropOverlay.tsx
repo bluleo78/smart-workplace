@@ -28,7 +28,7 @@ function DropCover() {
     <div
       aria-hidden
       data-testid="mail-compose-drop-overlay"
-      // rounded-[inherit] — 작은 창(위만 둥긂)·크게 보기(네 모서리)·모바일(각짐) 모양을 그대로 따른다.
+      // rounded-[inherit] — 도크(위만 둥긂)·읽기 창·새 창·모바일(각지게) 패널 모양을 그대로 따른다.
       // z-20 — 모바일 하단 서식 버튼(z-10)까지 덮는다.
       className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-[inherit] bg-background/90 ring-2 ring-primary ring-inset backdrop-blur-[2px]"
     >

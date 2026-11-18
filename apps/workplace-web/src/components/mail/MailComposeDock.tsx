@@ -1,5 +1,5 @@
 // 메일 작성창. 보내기 = useSendMail. MailComposeProvider 의 draft 가 있으면 렌더, 없으면 null.
-// - 데스크톱: Gmail식 우하단 작은 창. 최소화/크게 보기(WP-575)/닫기.
+// - 데스크톱: Gmail식 우하단 작은 창. 최소화·읽기 창 전환(WP-1743)/닫기 — 「읽기 창으로」를 누르면 메일 읽기 자리 슬롯 안에서 그려진다.
 // - 모바일: 다른 메일 앱처럼 처음부터 화면 전체 작성 화면(WP-583). 상단 바 [✕] 제목 … [📎 파일 첨부] [➤ 보내기].
 // - 첨부(WP-574): 📎(데스크톱은 보내기 옆, 모바일은 상단 바)·창 위로 끌어다 놓기 → 바로 올리고 본문 아래 칩으로 보인다.
 // - 임시저장(WP-577): 쓰는 동안 1.5초마다 자동 저장하고 상태를 제목 옆(모바일은 제목 아래)에 보인다. ✕·뒤로가기는 묻지 않고
@@ -12,7 +12,7 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Loader2, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Trash2, X } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -22,7 +22,7 @@ import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AiContent } from '@/components/ai/AiContent';
 import { AiIcon } from '@/components/ai/AiIcon';
 import { inertPageArea } from '@/components/ai/aiPanelSurface';
-import { AI_SIDE_CENTER_CLASS, AI_SIDE_OVERLAY_CLASS } from '@/components/ai/useAiPanelAwareDialog';
+import { captureScroll, restoreScroll } from '@/components/layout/scrollSnapshot';
 import { mobileBackButtonClass, mobileDetailBarClass } from '@/components/mobile/headerClass';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { isKeyboardEditable } from '@/components/mobile/useVisualViewport';
@@ -41,7 +41,6 @@ import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { extractApiError } from '@/lib/api-error';
 import { withComposerPreviewStyle } from '@/lib/composerPreviewHtml';
 import { hasLiveStateMark } from '@/lib/historyParam';
-import { isImeComposing } from '@/lib/imeKey';
 import { type ComposeAttachment, quoteInlineBytes } from '@/lib/mailComposeAttachments';
 import {
   MAIL_COMPOSE_WINDOW_FEATURES,
@@ -69,7 +68,7 @@ import type { CoachingNote, MailSendRequest } from '../../types/mailMessage';
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame';
 import { AiDraftBar, AiDraftChip, AiDraftPanel, AiDraftSkeleton, AiDraftToolbarButton } from './MailAiDraft';
 import { MailComposeAttachmentChips } from './MailComposeAttachmentChips';
-import { type ComposeDraft, useMailCompose } from './MailComposeContext';
+import { type ComposeDraft, useMailCompose, useMailComposeLayout } from './MailComposeContext';
 import { MailComposeDropOverlay } from './MailComposeDropOverlay';
 import { MailComposer, type MailComposerHandle, type MailComposerLayout } from './MailComposer';
 import { MailDraftSaveStatus } from './MailDraftSaveStatus';
@@ -78,23 +77,33 @@ import { MailRecipientInput } from './MailRecipientInput';
 import { useMailAiDraft } from './useMailAiDraft';
 
 /**
- * 작성창 껍데기 — 모바일 화면 전체 / 데스크톱 가운데 큰 창 / 데스크톱 우하단 작은 창. 에디터 배치(MailComposerLayout)와 같은 축.
+ * 작성창 바깥 틀 배치 — 에디터 배치(MailComposerLayout)에 메일 읽기 자리(pane, WP-1743)를 더한 것.
+ * pane 은 바깥 틀(패널·본문 칸·머리줄)만 다르고 편집기는 넓은 자리(fill) 규칙을 그대로 쓰므로, 편집기에는 fill 로 넘긴다.
+ */
+type MailComposeFrameLayout = MailComposerLayout | 'pane';
+
+/**
+ * 작성창 껍데기 — 모바일 화면 전체 / 데스크톱 우하단 작은 창 / 메일 읽기 자리(WP-1743). 배치는 MailComposeFrameLayout.
  * - mobile: 탭바도 덮는다. 가상 키보드가 열리면 보이는 영역(--vv-top ~ 아래 --kb-inset)만 차지해 상단 바(보내기)와
  *   하단 서식 버튼이 모두 키보드 밖에 남는다(WP-154 — iOS 는 키보드가 열리며 보이는 영역이 아래로 밀리기도 한다).
- * - fill·dock 은 데스크톱 셸 전용이라 키보드 변수(--vvh·--kb-inset — 모바일 셸만 쓴다)에 기대지 않는다.
- * - fill: 다른 다이얼로그(useAiPanelAwareDialog)처럼 AI 와 함께 쓴다 — 같은 z-50 이라 AI 칩(z-[70])이 위에 남고,
- *   AI 옆 패널·도움말 패널이 열려 있으면(--right-dock-width) 그 칸을 뺀 페이지 영역 가운데에 놓인다. 그 위에 여는 링크 창은 나중 포털이라 위에 뜬다.
- *   tabIndex=-1 이라 창 안 빈 곳을 눌러도 초점이 창에 남아 Esc 가 먹는다 — 그 초점 테두리는 숨긴다.
- *   (fill 은 데스크톱 전용이라 공용 클래스의 lg: 접두는 늘 적용된다.)
+ * - dock·pane 은 데스크톱 셸 전용이라 키보드 변수(--vvh·--kb-inset — 모바일 셸만 쓴다)에 기대지 않는다.
+ * - pane: 읽기 자리 슬롯(display:contents) 안에서 그려진다 — 패널만 읽기 자리 박스를 그대로 채우고, 테두리·모서리·그림자
+ *   없이 페이지 일부로 보인다. 뒤 목록을 잠그지 않으므로 배경·Esc·대화상자 처리가 없다(WP-1743).
+ * - fill: 새 창(popout, WP-1535) 전용 배치 — 브라우저 창 전체를 채운다(WINDOW_PANEL_CLASS). 앱 안에서는 fill 이 되지 않는다.
+ * 모든 배치가 위치 기준(fixed 또는 relative)을 가진다 — 끌어다 놓기 겹침(MailComposeDropOverlay, absolute inset-0)이 패널을 채운다.
  */
-const PANEL_CLASS: Record<MailComposerLayout, string> = {
+/** 새 창(popout, WP-1535) 껍데기 — 브라우저 창 전체를 채운다. */
+const WINDOW_PANEL_CLASS = 'fixed inset-0 flex flex-col bg-background';
+
+const PANEL_CLASS: Record<MailComposeFrameLayout, string> = {
   mobile: 'fixed inset-x-0 top-[var(--vv-top,0px)] bottom-[var(--kb-inset,0px)] z-50 flex flex-col bg-background pt-[env(safe-area-inset-top)]',
-  fill: `${AI_SIDE_CENTER_CLASS} fixed top-1/2 z-50 flex h-[min(85vh,calc(100vh-2rem))] w-[min(960px,92vw,calc(100%-var(--right-dock-width)-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border bg-background shadow-2xl outline-none`,
+  // 새 창 — 앱 셸이 없으니 겹칠 것도, 가릴 뒤 페이지도 없다.
+  fill: WINDOW_PANEL_CLASS,
+  // 읽기 창(WP-1743) — 읽기 자리 박스를 꽉 채운다(h-full·w-full). 포커스 링 없이 페이지 한 부분처럼 보이게 outline-none.
+  // relative — 드롭 겹침이 엉뚱한 조상이 아니라 이 패널을 기준으로 펼쳐지게 한다.
+  pane: 'relative flex h-full min-h-0 w-full flex-col bg-background outline-none',
   dock: 'fixed bottom-0 right-4 z-50 flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl',
 };
-
-/** 새 창(popout, WP-1535) 껍데기 — 브라우저 창 전체를 채운다. 앱 셸이 없으니 겹칠 것도, 가릴 뒤 페이지도 없다. */
-const WINDOW_PANEL_CLASS = 'fixed inset-0 flex flex-col bg-background';
 
 /** 새 창 이름 — 열 때마다 다르게 해 이미 열린 다른 작성 창을 덮어쓰지 않는다(여러 창 동시 허용). */
 let popoutSeq = 0;
@@ -113,11 +122,14 @@ export interface MailComposePopout {
   fresh?: boolean;
 }
 
-/** 본문 영역 — 모바일은 하단 고정 서식 버튼(44px+여백+홈 인디케이터 안전영역)만큼 아래 여백, 크게 보기는 남은 높이를 채움, 작은 창은 화면 높이 안으로 제한. */
-const BODY_CLASS: Record<MailComposerLayout, string> = {
+/** 본문 영역 — 모바일은 하단 고정 서식 버튼(44px+여백+홈 인디케이터 안전영역)만큼 아래 여백, 읽기 창·새 창은 남은 높이를 채움, 작은 창은 화면 높이 안으로 제한. */
+const FILL_BODY_CLASS = 'flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3';
+const BODY_CLASS: Record<MailComposeFrameLayout, string> = {
   // 모바일 아래 여백은 서식 줄 높이(3.5rem)에 0.5rem 을 더해 마지막 첨부 칩과 서식 줄 사이를 띄운다.
   mobile: 'flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 pb-[calc(4rem+env(safe-area-inset-bottom))]',
-  fill: 'flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3',
+  fill: FILL_BODY_CLASS,
+  // 읽기 창(WP-1743) — 새 창과 같은 값(남은 높이를 채운다). 한 곳(FILL_BODY_CLASS)만 고치면 둘 다 바뀐다.
+  pane: FILL_BODY_CLASS,
   dock: 'flex max-h-[min(75vh,calc(100vh-3rem))] flex-col gap-2 overflow-y-auto p-3',
 };
 
@@ -193,15 +205,72 @@ function MobileComposeHistory({ onClose }: { onClose: () => void }) {
 /**
  * 작성창 — AI 컨텍스트에서 "전체 화면인가" 하나만 읽어 본체에 넘긴다.
  * 컨텍스트는 옆 패널 폭(드래그 중 매 프레임)·프롬프트 등으로 자주 바뀌므로, 본체(에디터·코칭 미리보기)는 memo 로 그 값이 바뀔 때만 다시 그린다.
+ * 배치(size)·슬롯(slotEl)은 배치 컨텍스트(useMailComposeLayout)에서 직접 읽는다 — 호스트를 어디로 옮길지 여기서 정하기 때문이다(WP-1743).
+ *
+ * 호스트 이동(포털 금지) — React 트리에서는 호스트가 늘 주차 칸 안에 있고, DOM 만 슬롯(읽기 자리) 사이로 옮긴다.
+ * createPortal 을 쓰면 컨테이너가 바뀌는 순간 React 가 서브트리를 재마운트해 편집기·본문이 날아간다(설계 §접근 방식 A·B).
  */
 export function MailComposeDock({ popout }: { popout?: MailComposePopout } = {}) {
   const aiFullscreen = useAssistant().mode === 'fullscreen';
-  return <MailComposeDockBody aiFullscreen={aiFullscreen} popout={popout} />;
+  const { size, setSize, slotEl } = useMailComposeLayout();
+  // 좁은 폭(폭 < 1024) 판정 — 접기 효과가 쓴다(본체의 isMobile 은 새 창 제외 판정이라 여기서 따로 읽는다).
+  const isMobile = useIsMobile();
+  // 주차 칸(기본 자리)·호스트 — 둘 다 display: contents 라 레이아웃에 끼지 않고, 슬롯 안에서도 패널만 박스를 채운다.
+  const parkingRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  // 슬롯은 메일 화면에 있는 한 늘 등록돼 있다(「읽기 창으로」 단추가 슬롯 유무로 쓸 수 있음을 가르기 때문)라,
+  // 호스트는 「읽기 창」 상태일 때만 그 안으로 옮긴다. 이미 같은 부모면 옮기지 않는다(중복 이동 방지).
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    const parking = parkingRef.current;
+    if (!host || !parking) return;
+    const target = size === 'pane' && slotEl ? slotEl : parking;
+    if (host.parentNode !== target) {
+      // 옮기기 전 포커스가 호스트 안(예: 본문 편집기)에 있었으면 옮긴 뒤 되돌린다 — DOM 을 떼었다 붙이면 브라우저가 포커스를 body 로 풀기 때문.
+      // 옮긴 뒤에도 그 요소가 연결돼 있을 때만 돌린다(「읽기 창으로」 단추처럼 이동과 함께 사라지는 요소는 그냥 둔다).
+      // 스크롤도 같다 — 떼었다 붙이면 하위 스크롤 오프셋이 0 으로 돌아가므로 옮기기 전 잡아 두었다 되돌린다(WP-1488 셸 전환과 같은 도우미).
+      const active = document.activeElement;
+      const hadFocus = active instanceof HTMLElement && host.contains(active) ? active : null;
+      const scroll = captureScroll(host);
+      target.appendChild(host);
+      restoreScroll(scroll);
+      if (hadFocus?.isConnected && document.activeElement !== hadFocus) hadFocus.focus({ preventScroll: true });
+    }
+    // cleanup — 호스트를 주차 칸으로 되돌린다.
+    // React 은 호스트의 부모를 트리 기준(주차 칸)으로 보고 지우기 때문에, 슬롯에 있는 채로 이 컴포넌트가 사라지면
+    // removeChild(주차 칸, 호스트) 가 DOM 예외를 던진다. layout cleanup 은 자식 DOM 을 떼기 전에 돌기 때문에 이 자리가 유일한 안전 지점이다.
+    // 읽기 창 → 우측 하단처럼 슬롯을 떠나는 이동은 이 cleanup 이 하므로 여기서도 스크롤을 잡았다 되돌린다.
+    return () => {
+      if (host.parentNode === parking) return;
+      const scroll = captureScroll(host);
+      parking.appendChild(host);
+      restoreScroll(scroll);
+    };
+  }, [size, slotEl]);
+  // 접기 규칙(설계 결정 5) — 읽기 창(pane) 상태에서 조건이 맞으면 그 자리에서 접는다(우선순위 없음, 각 조건이 곧 접기).
+  // dock·min 은 이미 접힌 자리라 건드리지 않는다 — 우측 하단 작성까지 좁은 폭마다 최소화로 숨길 일은 없다.
+  // AI 전체 화면은 layout 만 바꾸고 size 를 pane 에 두면 MailInboxPage 가 읽기 자리 상세를 계속 감춰 빈 읽기 자리가 남고,
+  // 메일 화면 밖에서는 pane 패널이 주차 칸 자리에 그대로 남아(WP-1743 Task 1 리뷰 Important 1) — 두 경우 모두 size 레벨에서 접는다.
+  useEffect(() => {
+    if (size !== 'pane') return;
+    // 폭 < 1024(모바일 셸) · 슬롯 소실(메일 화면 밖) → 우측 하단 최소화
+    if (isMobile || slotEl == null) setSize('min');
+    // AI 전체 화면 → 우측 하단 작은 창(옛 fill 이 dock 으로 접히던 규칙을 이어받는다)
+    else if (aiFullscreen) setSize('dock');
+  }, [size, isMobile, slotEl, aiFullscreen, setSize]);
+  return (
+    <div ref={parkingRef} style={{ display: 'contents' }} data-compose-parking>
+      <div ref={hostRef} style={{ display: 'contents' }} data-compose-host>
+        <MailComposeDockBody aiFullscreen={aiFullscreen} popout={popout} />
+      </div>
+    </div>
+  );
 }
 
 /** 작성창 본체. draft 없으면 렌더 안 함. popout 이면 새 창(WP-1535) 모드. */
 const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, popout }: { aiFullscreen: boolean; popout?: MailComposePopout }) {
   const { draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, setComposeHandlers } = useMailCompose();
+  const { size, setSize, slotEl } = useMailComposeLayout();
   const send = useSendMail();
   const qc = useQueryClient();
   const openDraft = useOpenMailDraft();
@@ -239,9 +308,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const aiGenerating = ai.phase === 'generating';
   // 본문 끝 초점 요청 깨우기 — AI 초안을 넣은 뒤 요청(bodyFocusRef)을 걸고 이 값을 올려 아래 초점 효과를 다시 돌린다.
   const [bodyFocusNonce, setBodyFocusNonce] = useState(0);
-  // 데스크톱 창 크기 — 작은 창 / 최소화 / 크게 보기(WP-575). 하나의 상태라 최소화와 크게 보기가 동시에 걸리지 않는다.
-  // 새 작성마다 작은 창으로 시작한다("항상 크게" 설정 없음). 모바일은 항상 화면 전체라 이 값을 쓰지 않는다.
-  const [size, setSize] = useState<'dock' | 'min' | 'fill'>('dock');
+  // 데스크톱 배치(size) — 작은 창 / 최소화 / 읽기 창. 컨텍스트 값(WP-1743)이라 메일 읽기 자리 슬롯이 함께 본다.
+  // 하나의 값이라 최소화와 읽기 창이 동시에 걸리지 않고, 새 작성마다 아래 instanceId 효과가 dock 으로 되돌린다(모바일은 항상 화면 전체라 이 값을 쓰지 않는다).
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
@@ -287,23 +355,26 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     attachments.addFiles(files);
   });
 
-  // AI 전체화면은 페이지(main) 안에 그려져 크게 보기의 inert·배경에 함께 가려지므로, 그동안은 작은 창으로 보인다.
-  // AI 를 닫거나 옆 패널로 돌리면 다시 크게 보기로 돌아온다(크기 상태는 그대로). 그동안 크게 보기 버튼은 끈다.
-  // 새 창은 크게 보기와 같은 배치(남은 높이를 채우는 에디터)를 쓰되, 크게 보기의 배경·Esc·대화상자 처리는 하지 않는다.
-  const layout: MailComposerLayout = popout
+  // AI 전체 화면에서는 읽기 창이 되지 않는다 — 위 접기 효과가 size 를 dock 으로 접어 우측 하단 작은 창으로 비켜 주고,
+  // AI 를 닫거나 옆 패널로 돌려도 자동으로 되돌아가지 않는다(다시 「읽기 창으로」 를 눌러 들어간다).
+  // 여기 `!aiFullscreen` 은 접기 효과가 돌기 전 한 렌더 동안 pane 배치가 그려지지 않게 막는 가드다.
+  // 새 창(popout)은 창 전체를 채우는 배치를 쓰되, 새로 뜨는 창이라 페이지와 겹칠 것이 없어 배경·Esc·대화상자 처리는 하지 않는다.
+  const layout: MailComposeFrameLayout = popout
     ? 'fill'
     : isMobile
       ? 'mobile'
-      : size === 'fill' && !aiFullscreen
-        ? 'fill'
+      : size === 'pane' && !aiFullscreen
+        ? 'pane'
         : 'dock';
-  const isExpanded = !popout && layout === 'fill';
-  // 본문이 남은 높이를 채우는가 — 크게 보기와 새 창.
-  const fillsHeight = layout === 'fill';
-  // 모바일 화면 전체·데스크톱 크게 보기는 화면을 덮는 대화상자다 — 그동안 뒤 페이지를 inert 로 만들어
-  // Tab·보조기기가 가려진 페이지로 새지 않게 한다(useAiPanelAwareDialog 와 같은 공용 처리 — AI 표면은 그대로 쓸 수 있다).
+  // 편집기 배치 — 읽기 창(pane)은 편집기에서 보면 새 창과 같은 넓은 자리(fill)다.
+  const editorLayout: MailComposerLayout = layout === 'pane' ? 'fill' : layout;
+  // 본문이 남은 높이를 채우는가 — 읽기 창과 새 창.
+  const fillsHeight = editorLayout === 'fill';
+  // 모바일 화면 전체만 화면을 덮는 대화상자다 — 그동안 뒤 페이지를 inert 로 만들어 Tab·보조기기가 가려진 페이지로 새지 않게 한다
+  // (useAiPanelAwareDialog 와 같은 공용 처리 — AI 표면은 그대로 쓸 수 있다).
+  // 읽기 창(pane)은 페이지 일부라 뒤를 잠그지 않는다 — 대화상자·배경·inert 가 없다(WP-1743).
   // aria-modal 은 달지 않는다 — 보조기기가 대화상자 밖의 AI 까지 무시하게 되므로(useAiPanelAwareDialog 와 같은 이유).
-  const isModal = !!draft && (isMobile || isExpanded);
+  const isModal = !!draft && isMobile;
   // 대상은 켤 때 한 번 모으므로 셸이 바뀌면(lg 경계 리사이즈) 새 셸 DOM 에 다시 건다 — isMobile 도 deps.
   useEffect(() => (isModal ? inertPageArea() : undefined), [isModal, isMobile]);
 
@@ -376,8 +447,9 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     attachments.reset(draft?.attachments);
     doneAttachmentBase.current = (draft?.attachments ?? []).filter((a) => a.status === 'done').map((a) => a.key).join('|');
     ai.reset();
-    if (!draft) return;
+    // 새 작성도, 닫힌 작성(보냄·✕·새 창으로 보냄)도 우측 하단 작은 창으로 — 읽기 창 상태가 남아 읽기 자리가 비어 있지 않게 한다(WP-1743).
     setSize('dock');
+    if (!draft) return;
     setTo(draft.to.join(', '));
     setCc(draft.cc.join(', '));
     setBcc(draft.bcc.join(', '));
@@ -687,7 +759,14 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       mobile={isMobile}
     />
   );
-  const expandLabel = isExpanded ? '작게 보기' : '크게 보기';
+  // 「읽기 창으로」 를 쓸 수 없는 이유(툴팁) — 모바일 폭 / AI 전체 화면 / 메일 화면이 아닐 때(슬롯 없음).
+  const paneDisabledReason = isMobile
+    ? '화면이 좁아 읽기 창으로 쓸 수 없어요'
+    : aiFullscreen
+      ? 'AI 전체 화면에서는 읽기 창 대신 우측 하단을 씁니다'
+      : slotEl == null
+        ? '메일 화면이 아니면 읽기 창으로 쓸 수 없어요'
+        : null;
   // 올리는 중이거나 실패한 첨부가 있으면 보내지 않는다 — 빠진 채 나가지 않게. 이유는 칩 목록 위 한 줄(모바일 포함)과 데스크톱 보내기 툴팁으로 알린다.
   const { block } = attachments;
   const blockedReason = block?.reason ?? null;
@@ -890,36 +969,18 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   return (
     <>
       {isMobile && <MobileComposeHistory onClose={closeWithSave} />}
-      {/* 크게 보기 배경 — 누르면 닫지 않고 작은 창으로 돌아간다(쓰던 내용을 실수로 잃지 않게). */}
-      {isExpanded && (
-        <div
-          data-testid="mail-compose-backdrop"
-          aria-hidden
-          className={AI_SIDE_OVERLAY_CLASS}
-          onClick={() => setSize('dock')}
-        />
-      )}
       <div
         data-testid="mail-compose-dock"
-        // 작은 창은 페이지와 함께 쓰는 영역(region), 화면을 덮는 모양(모바일·크게 보기)은 대화상자로 알린다(aria-modal 없음 — 위 isModal 주석).
+        // 작은 창·읽기 창은 페이지와 함께 쓰는 영역(region), 화면을 덮는 모양(모바일)만 대화상자로 알린다(aria-modal 없음 — 위 isModal 주석).
         role={isModal ? 'dialog' : 'region'}
         // 패널에 아무 role/label 도 없어 스크린리더가 새 UI 등장을 안내하지 못하던 문제 수정 —
         // 헤더 텍스트를 프로그램적 이름으로 연결 (#802).
         aria-labelledby="mail-compose-dock-title"
-        tabIndex={isExpanded ? -1 : undefined}
-        className={popout ? WINDOW_PANEL_CLASS : PANEL_CLASS[layout]}
+        className={PANEL_CLASS[layout]}
         // 떠나는 중(새 창으로 옮기는 저장·새 창을 닫기 전 저장)엔 손댈 수 없게 — 그사이 쓴 것이 저장에서 빠지지 않게.
         inert={leaving}
         aria-busy={leaving || undefined}
         {...dropProps}
-        onKeyDown={(e) => {
-          // 크게 보기 중 Esc → 작은 창으로. 링크 삽입 창(포털)의 Esc 는 React 트리로 여기까지 올라오므로
-          // 실제 DOM 이 작성창 안일 때만 처리해 링크 창만 닫히게 한다. 한글 조합 중 Esc 는 조합 취소라 건드리지 않는다.
-          if (!isExpanded || e.key !== 'Escape' || isImeComposing(e.nativeEvent)) return;
-          if (!e.currentTarget.contains(e.target as Node)) return;
-          e.preventDefault();
-          setSize('dock');
-        }}
       >
         <MailComposeDropOverlay active={isDragging} />
         {/* 📎 이 여는 파일 선택 — 같은 파일을 다시 고를 수 있게 고른 뒤 값을 비운다. */}
@@ -978,7 +1039,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
             </HeaderIconAction>
           </div>
         ) : (
-          <div className={cn('flex items-center justify-between gap-2 bg-muted px-3 py-2', !popout && 'rounded-t-lg')}>
+          // 상단 모서리는 우측 하단 작은 창(dock)만 둥글린다 — 읽기 창(pane)은 모서리 없는 패널, 새 창(fill)은 창 전체라 둥글릴 모서리가 없다.
+          <div className={cn('flex items-center justify-between gap-2 bg-muted px-3 py-2', layout === 'dock' && 'rounded-t-lg')}>
             {/* 제목 + 임시저장 상태(WP-577) — 제목이 길면 제목만 말줄임하고 상태는 그대로 보인다. */}
             <div className="flex min-w-0 items-baseline gap-2">
               <span id="mail-compose-dock-title" className="truncate text-sm font-medium">
@@ -987,9 +1049,47 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
               {saveStatus}
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              {/* 새 창에는 최소화·크게 보기·새 창 단추가 없다 — 창 크기는 브라우저 창이 정한다. */}
+              {/* 새 창에는 최소화·읽기 창·새 창 단추가 없다 — 창 크기는 브라우저 창이 정한다. */}
               {!popout && (
                 <>
+                  {layout === 'pane' ? (
+                    // ↩ 우측 하단으로(WP-1743) — 읽기 창 자리를 내리고 주차 칸(우측 하단 작은 창)으로 되돌린다. 쓰던 본문은 남는다(숨김뿐, 언마운트 금지).
+                    <button
+                      type="button"
+                      aria-label="우측 하단으로"
+                      title="우측 하단으로"
+                      data-testid="mail-compose-to-dock"
+                      onClick={() => setSize('min')}
+                      className="rounded p-1 hover:bg-accent"
+                    >
+                      <Minimize2 className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <>
+                      {/* ⌄ 최소화 — 본문만 숨긴다(에디터를 다시 만들지 않는다, WP-576). 최소화 중 다시 누르면 작은 창으로. */}
+                      <button
+                        type="button"
+                        aria-label="최소화"
+                        data-testid="mail-compose-minimize"
+                        onClick={() => setSize((v) => (v === 'min' ? 'dock' : 'min'))}
+                        className="rounded p-1 hover:bg-accent"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      {/* ⤢ 읽기 창으로(WP-1743) — 호스트를 메일 읽기 자리 슬롯으로 옮긴다. 쓸 수 없는 이유는 툴팁(paneDisabledReason). */}
+                      <button
+                        type="button"
+                        aria-label="읽기 창으로"
+                        title={paneDisabledReason ?? '읽기 창으로'}
+                        disabled={paneDisabledReason != null}
+                        data-testid="mail-compose-to-pane"
+                        onClick={() => setSize('pane')}
+                        className="rounded p-1 hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent"
+                      >
+                        <Maximize2 className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
                   {/* ↗ 새 창으로 열기(WP-1535) — 다른 앱 화면을 보면서 쓸 수 있게 독립 창으로 옮긴다(데스크톱 전용). */}
                   <button
                     type="button"
@@ -1001,27 +1101,6 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
                     className="rounded p-1 hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent"
                   >
                     <ExternalLink className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="최소화"
-                    data-testid="mail-compose-minimize"
-                    // 크게 보기 중 최소화 → 최소화 상태로, 최소화 중 다시 누르면 작은 창으로.
-                    onClick={() => setSize((v) => (v === 'min' ? 'dock' : 'min'))}
-                    className="rounded p-1 hover:bg-accent"
-                  >
-                    <Minus className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={expandLabel}
-                    title={aiFullscreen ? 'AI 전체 화면에서는 크게 볼 수 없어요' : expandLabel}
-                    disabled={aiFullscreen}
-                    data-testid="mail-compose-expand"
-                    onClick={() => setSize(isExpanded ? 'dock' : 'fill')}
-                    className="rounded p-1 hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent"
-                  >
-                    {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                   </button>
                 </>
               )}
@@ -1098,7 +1177,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
             </button>
           </div>
 
-          {/* 본문(작성 탭) — review 일 때 숨김(언마운트 금지). 크게 보기는 에디터가 남은 높이를 채우도록 세로로 늘린다. */}
+          {/* 본문(작성 탭) — review 일 때 숨김(언마운트 금지). 읽기 창·새 창은 에디터가 남은 높이를 채우도록 세로로 늘린다. */}
           <div className={cn(fillsHeight && 'flex flex-1 flex-col', tab === 'review' && 'hidden')}>
             {/* AI 초안(WP-576) — 제목 줄 아래·본문 바로 위. 패널이 열려 있으면 패널, 끝난 뒤 손대지 않았으면 얇은 줄. */}
             {/* 실패 패널은 계정 AI 가 방금 꺼져 진입점이 사라져도(계정 목록 재조회) 문구를 읽고 닫을 수 있게 남긴다. */}
@@ -1131,7 +1210,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
               <MailComposer
                 key={`composer-${draft.instanceId}`}
                 ref={composerRef}
-                layout={layout}
+                layout={editorLayout}
                 initialHtml={composeInitialHtml}
                 imageUpload={uploadPastedImage}
                 onChange={(html, text, initial, info) => {
@@ -1273,7 +1352,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
             </AiContent>
           )}
 
-          {/* 아래 고정 줄(데스크톱) — 첨부 칩 + 📎·보내기. 작은 창·크게 보기 모두 본문(긴 전달 인용 등)이 스크롤돼도 창 아래에 남는다.
+          {/* 아래 고정 줄(데스크톱) — 첨부 칩 + 📎·보내기. 작은 창·읽기 창 모두 본문(긴 전달 인용 등)이 스크롤돼도 창 아래에 남는다.
               본문 영역 패딩(p-3) 아래까지 덮어 그 틈으로 스크롤되는 글이 비치지 않게 하고, 위 경계선으로 스크롤되는 본문과 나눈다. 모바일은 보내기가 상단 바에 있다. */}
           {!isMobile && (
             <div
