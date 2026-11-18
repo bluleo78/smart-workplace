@@ -705,6 +705,74 @@ describe('회의록 만들기 — 기존 일정', () => {
   })
 })
 
+describe('회의록 만들기 — 상세를 읽기 전(WP-1748)', () => {
+  /** 상세 조회(GET /events/:id)를 붙잡아 두는 목 — release() 전까지 응답하지 않는다. 목록 일정엔 참석자가 없다. */
+  function heldDetail(detail: typeof PLANNING) {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    return {
+      release,
+      detail: async () => {
+        await gate
+        return detail
+      },
+    }
+  }
+  /** 목록 응답의 일정 — 참석자는 상세에만 실린다(실제 API 와 같다) */
+  const LISTED = calendarEvent({ id: 1, title: '주간 기획 회의', location: '3층 회의실', myRole: 'ORGANIZER' })
+
+  test('상세를 읽는 중엔 「회의록 만들기」가 잠기고, 상세가 오면 풀려 만든 노트에 「참석」 줄이 있다', async () => {
+    const held = heldDetail(PLANNING)
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [LISTED], detail: held.detail }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    expect(await screen.findByTestId('event-note-create')).toBeDisabled()
+
+    held.release()
+    await waitFor(() => expect(screen.getByTestId('event-note-create')).toBeEnabled())
+    const dialog = await openCreate(user)
+    expect(within(dialog).getByTestId('meeting-note-template')).toHaveTextContent('참석 · Tester, 김민수')
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    await waitFor(() => expect(wiki.seeds).toHaveLength(1))
+    expect(wiki.seeds[0].body.body).toContain('- 참석: Tester, 김민수')
+  })
+
+  test('노트 연결 창의 결과 없음 「회의록 만들기」도 상세를 읽는 중엔 잠긴다', async () => {
+    const empty = http.get('/api/v1/wiki/search', () => HttpResponse.json([]))
+    const held = heldDetail(PLANNING)
+    const wiki = wikiMock()
+    const { user } = await renderCalendar(
+      { events: [LISTED], detail: held.detail },
+      { handlers: [empty, ...wiki.handlers] },
+    )
+    await openEvent(user, 'calendar-event-1')
+    await user.click(await screen.findByTestId('event-note-pick'))
+    const results = await screen.findByTestId('note-link-results')
+    await within(results).findByText('검색 결과 없음')
+    expect(within(results).getByRole('button', { name: '회의록 만들기' })).toBeDisabled()
+
+    held.release()
+    await waitFor(() => expect(within(results).getByRole('button', { name: '회의록 만들기' })).toBeEnabled())
+    await user.click(within(results).getByRole('button', { name: '회의록 만들기' }))
+    const dialog = await screen.findByTestId('meeting-note-dialog')
+    expect(within(dialog).getByTestId('meeting-note-template')).toHaveTextContent('참석 · Tester, 김민수')
+  })
+
+  test('상세 조회가 실패(500)하면 잠그지 않는다 — 참석자 없이 만들 수 있다', async () => {
+    const failed = http.get('/api/v1/calendar/events/:id', () => HttpResponse.json({ message: '실패' }, { status: 500 }))
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [LISTED] }, { handlers: [failed, ...wiki.handlers] })
+    await openEvent(user, 'calendar-event-1')
+    await waitFor(() => expect(screen.getByTestId('event-note-create')).toBeEnabled())
+    const dialog = await openCreate(user)
+    expect(within(dialog).getByTestId('meeting-note-template')).not.toHaveTextContent('참석 ·')
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    await waitFor(() => expect(wiki.seeds).toHaveLength(1))
+  })
+})
+
 describe('회의록 만들기 — 새 일정', () => {
   /** 새 일정 폼에 제목을 넣고 「회의록 만들기」 창에서 「만들기」까지 누른다. */
   async function createOnNewEvent(user: Parameters<typeof openCreate>[0] & { paste: (t: string) => Promise<void> }) {

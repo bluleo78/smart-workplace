@@ -36,6 +36,29 @@ describe('meetingNoteTitle', () => {
     expect(t.endsWith('가 회의록')).toBe(true)
   })
 
+  // 「11/18 」+「 회의록」 = 11자 — 일정 제목 몫은 244 UTF-16 단위(WP-1748)
+  const ROOM = WIKI_TITLE_MAX - '11/18  회의록'.length
+
+  test('줄이는 끝에 이모지가 걸리면 반쪽(외톨이 서로게이트)을 남기지 않고 통째로 뺀다(WP-1748)', () => {
+    // 한도 바로 앞 한 단위에 이모지(2단위)가 걸친다
+    const t = meetingNoteTitle(`${'가'.repeat(ROOM - 1)}😀끝`, new Date('2026-11-18T10:00'))
+    expect(t).toBe(`11/18 ${'가'.repeat(ROOM - 1)} 회의록`)
+    expect(t.length).toBeLessThanOrEqual(WIKI_TITLE_MAX)
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(t)).toBe(false)
+  })
+
+  test('한도 안에 이모지가 다 들어가면 그대로 둔다(WP-1748)', () => {
+    const t = meetingNoteTitle(`${'가'.repeat(ROOM - 2)}😀끝`, new Date('2026-11-18T10:00'))
+    expect(t).toBe(`11/18 ${'가'.repeat(ROOM - 2)}😀 회의록`)
+    expect(t).toHaveLength(WIKI_TITLE_MAX)
+  })
+
+  test('잘린 끝이 공백이면 「회의록」 앞에 공백이 둘 생기지 않는다(WP-1748)', () => {
+    const t = meetingNoteTitle(`${'가'.repeat(ROOM - 1)} 나나`, new Date('2026-11-18T10:00'))
+    expect(t).toBe(`11/18 ${'가'.repeat(ROOM - 1)} 회의록`)
+    expect(t).not.toMatch(/ {2}/)
+  })
+
   test('제목이 비면(공백 포함) 「M/D 회의록」', () => {
     expect(meetingNoteTitle('', new Date('2026-11-18T10:00'))).toBe('11/18 회의록')
     expect(meetingNoteTitle('   ', new Date('2026-11-18T10:00'))).toBe('11/18 회의록')
