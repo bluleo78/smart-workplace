@@ -10,3 +10,8 @@ export const mobileDetailTitleClass = 'min-w-0 flex-1 truncate text-[17px] font-
 export const mobileDetailBarClass = 'flex h-14 shrink-0 items-center gap-0.5 border-b px-1'
 /** 상세 헤더의 ‹ 버튼 — 44px 터치 타깃, 브랜드 색 글리프(ChevronLeft h-6 w-6). */
 export const mobileBackButtonClass = 'flex h-11 w-11 shrink-0 items-center justify-center text-primary'
+/**
+ * 360px 미만에서 머리 제목을 시각적으로만 숨긴다(sr-only — h1·접근 이름은 남는다). 알림 화면처럼 제목 뒤 전환 탭이 같은 말을 하고
+ * 액션이 아이콘으로 줄어드는 머리가 320px 한 줄에 들어가게 쓴다(WP-1731). 알림 머리 액션 버튼(InboxList)과 같은 breakpoint.
+ */
+export const narrowHeaderTitleHiddenClass = 'max-[360px]:sr-only'

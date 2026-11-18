@@ -1,7 +1,7 @@
 // src/components/layout/InboxList.tsx
 // 인박스 목록 — 데스크톱 Popover(InboxPanel)와 모바일 /notifications 화면이 공유한다(WP-126).
 // 헤더(모두 읽음·읽은 알림 보관) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
-import { Bell } from "lucide-react";
+import { Archive, Bell, CheckCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -399,6 +399,13 @@ export function InboxList({
 }
 
 /**
+ * 모바일 알림 머리 액션 버튼 공통 클래스(WP-1731) — 360px 이상은 글자 버튼 그대로, 360px 미만(Tailwind 4 의 max-[360px] = width < 360px)은
+ * 44px 정사각 아이콘 버튼이 된다. 두 버튼이 같은 규칙을 한 곳에서 쓰게 해 폭이 어긋나지 않게 한다.
+ */
+const narrowHeaderActionClass =
+  "flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60 max-[360px]:w-11 max-[360px]:justify-center max-[360px]:px-0";
+
+/**
  * 모바일 알림 화면 헤더용 '모두 읽음' — InboxList 제목 행의 버튼과 같은 규칙(알림 없음·모두 읽음·처리 중이면 비활성)·testid.
  * 목록과 같은 쿼리 키를 쓰므로 추가 요청 없이 캐시를 공유한다.
  */
@@ -413,9 +420,12 @@ export function MarkAllReadButton() {
       data-testid="inbox-mark-all"
       onClick={() => markAll.mutate()}
       disabled={items.length === 0 || unread === 0 || markAll.isPending}
-      className="flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60"
+      title="모두 읽음"
+      className={narrowHeaderActionClass}
     >
-      모두 읽음
+      {/* WP-1731: 360px 미만은 아이콘만 보이고 글자는 sr-only 로 남겨 접근 이름을 지킨다(aria-label 로 바꾸지 않음). */}
+      <CheckCheck aria-hidden className="hidden h-5 w-5 max-[360px]:block" />
+      <span className="max-[360px]:sr-only">모두 읽음</span>
     </button>
   );
 }
@@ -434,9 +444,12 @@ export function ArchiveReadButton() {
       data-testid="inbox-archive-read"
       onClick={() => archiveRead.mutate()}
       disabled={!hasReadNotification(items) || archiveRead.isPending}
-      className="flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60"
+      title="읽은 알림 보관"
+      className={narrowHeaderActionClass}
     >
-      읽은 알림 보관
+      {/* WP-1731: 위 '모두 읽음' 과 같은 규칙 — 좁은 폭에서만 아이콘. */}
+      <Archive aria-hidden className="hidden h-5 w-5 max-[360px]:block" />
+      <span className="max-[360px]:sr-only">읽은 알림 보관</span>
     </button>
   );
 }
