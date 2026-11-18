@@ -22,6 +22,9 @@ export const mailMessageKeys = {
   syncStatus: (accountId: number) => ['mail-sync-status', accountId] as const,
   // WP-1682 휴지통 비우기 진행 상태(계정별, RUNNING 동안 1초 폴링).
   trashEmpty: (accountId: number) => ['mail-trash-empty', accountId] as const,
+  // WP-1708 휴지통 메일 수(서버 실시간, 계정별) — 목록 캐시(['mail-messages']) 아래에 두면 읽음 전환의
+  // setQueriesData(목록 모양 가정)가 숫자 데이터를 망가뜨리므로 목록과 분리된 접두사를 쓴다.
+  trashCount: (accountId: number) => ['mail-trash-count', accountId] as const,
 };
 
 /** WP-1742 별표 모아 보기 목록 키인가 — list 키의 9번째(flagged)가 true. 최신 N건 키(useMailMessagesHead)는 늘 false 다. */

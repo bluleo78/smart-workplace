@@ -245,6 +245,8 @@ async function commitMove(qc: QueryClient, entry: PendingMove): Promise<void> {
 async function refreshThenUnhide(qc: QueryClient, accountId: number, okIds: number[], entry: PendingMove): Promise<void> {
   await Promise.allSettled([
     qc.invalidateQueries({ queryKey: ['mail-messages', accountId] }),
+    // WP-1708 휴지통으로 옮기거나 되살린 뒤 실시간 휴지통 수(확인 창·비우기 줄)가 낡지 않게 다시 받는다.
+    qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId) }),
     // 안 읽은 수 키 아래에 메일함 목록(보관·내 메일함 안 읽은 수)도 있다(mailMessageKeys.folders).
     qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() }),
     qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() }),

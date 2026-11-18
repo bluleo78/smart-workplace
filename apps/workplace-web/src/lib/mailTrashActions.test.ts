@@ -37,51 +37,62 @@ describe('permanentDeleteState', () => {
 
 describe('trashEmptyState', () => {
   it('미지원이면 비활성 + 긴 이유', () => {
-    const s = trashEmptyState(folder({ permanentDeleteUnsupported: true }), undefined, false)
+    const s = trashEmptyState(folder({ permanentDeleteUnsupported: true }), undefined, false, null)
     expect(s).toMatchObject({ enabled: false, reason: PERMANENT_DELETE_UNSUPPORTED_REASON, running: false, label: '휴지통 비우기' })
   })
   it('진행 중이면 비활성, 이유 없음, 라벨 비우는 중…', () => {
-    const s = trashEmptyState(folder(), status({ state: 'RUNNING' }), false)
+    const s = trashEmptyState(folder(), status({ state: 'RUNNING' }), false, null)
     expect(s).toEqual({ enabled: false, reason: null, running: true, label: '비우는 중…' })
   })
-  it('빈 휴지통(totalCount 0 && 목록 빔)은 비활성 + 빈 휴지통 이유', () => {
-    const s = trashEmptyState(folder({ totalCount: 0 }), undefined, true)
+  it('live count 를 모르는 동안(로딩·오류)은 기존 folder.totalCount 판정 그대로 — null + totalCount 0 + 목록 빔이면 비활성(회귀)', () => {
+    const s = trashEmptyState(folder({ totalCount: 0 }), undefined, true, null)
+    expect(s).toMatchObject({ enabled: false, reason: TRASH_EMPTY_REASON, running: false })
+  })
+  // WP-1708: emptiness 판정도 live count 가 먼저 — 다른 클라이언트가 302통을 넣어 로컬 목록이 0 이어도 단추는 켜 둔다(줄 글자 302통과 역설적이지 않게).
+  it('live count 가 있으면 빈 휴지통 판정도 live count 가 먼저다 — totalCount 0 + 목록 빔 + live 302 면 활성', () => {
+    const s = trashEmptyState(folder({ totalCount: 0 }), undefined, true, 302)
+    expect(s).toMatchObject({ enabled: true, reason: null, label: '휴지통 비우기' })
+  })
+  it('live count 0 + 목록 빔은 진짜 빈 휴지통 — 비활성', () => {
+    const s = trashEmptyState(folder({ totalCount: 132 }), undefined, true, 0)
     expect(s).toMatchObject({ enabled: false, reason: TRASH_EMPTY_REASON, running: false })
   })
   it('totalCount 0 이어도 목록에 메일이 있으면 활성', () => {
-    expect(trashEmptyState(folder({ totalCount: 0 }), undefined, false)).toMatchObject({ enabled: true, reason: null, label: '휴지통 비우기' })
+    expect(trashEmptyState(folder({ totalCount: 0 }), undefined, false, null)).toMatchObject({ enabled: true, reason: null, label: '휴지통 비우기' })
   })
   it('totalCount 를 모르거나 있으면 활성, 끝난 상태(DONE)도 활성', () => {
-    expect(trashEmptyState(folder({ totalCount: null }), undefined, true).enabled).toBe(true)
-    expect(trashEmptyState(folder(), status({ state: 'DONE', total: 3, deleted: 3 }), false).enabled).toBe(true)
+    expect(trashEmptyState(folder({ totalCount: null }), undefined, true, null).enabled).toBe(true)
+    expect(trashEmptyState(folder(), status({ state: 'DONE', total: 3, deleted: 3 }), false, null).enabled).toBe(true)
   })
   it('미지원이 진행 중보다 먼저 판정된다', () => {
-    const s = trashEmptyState(folder({ permanentDeleteUnsupported: true }), status({ state: 'RUNNING' }), false)
+    const s = trashEmptyState(folder({ permanentDeleteUnsupported: true }), status({ state: 'RUNNING' }), false, null)
     expect(s.reason).toBe(PERMANENT_DELETE_UNSUPPORTED_REASON)
   })
 })
 
 describe('trashEmptyRowText', () => {
-  it('평소 — N 있음·없음', () => {
-    expect(trashEmptyRowText(folder({ totalCount: 132 }), undefined)).toBe('메일 서버 휴지통 132통')
-    expect(trashEmptyRowText(folder({ totalCount: null }), undefined)).toBe('메일 서버 휴지통')
-    expect(trashEmptyRowText(undefined, undefined)).toBe('메일 서버 휴지통')
+  // WP-1708: live count(서버 실시간 수) 를 먼저 쓰고, 없으면 folder.totalCount 폴백, 둘 다 없으면 수 없는 문구.
+  it('평소 — live count 가 있으면 그걸 쓰고(폴더 낡은 수 132 말고 302), 없으면 folder.totalCount, 둘 다 없으면 수 없는 문구', () => {
+    expect(trashEmptyRowText(folder({ totalCount: 132 }), undefined, 302)).toBe('메일 서버 휴지통 302통')
+    expect(trashEmptyRowText(folder({ totalCount: 132 }), undefined, null)).toBe('메일 서버 휴지통 132통')
+    expect(trashEmptyRowText(folder({ totalCount: null }), undefined, null)).toBe('메일 서버 휴지통')
+    expect(trashEmptyRowText(undefined, undefined, null)).toBe('메일 서버 휴지통')
   })
-  it('진행 — total 있음·없음, 실패 0 이면 「· 실패」 생략', () => {
-    expect(trashEmptyRowText(folder(), status({ state: 'RUNNING', total: null }))).toBe('휴지통을 비우는 중…')
-    expect(trashEmptyRowText(folder(), status({ state: 'RUNNING', total: 100, deleted: 40 }))).toBe('휴지통을 비우는 중… 40/100통')
-    expect(trashEmptyRowText(folder(), status({ state: 'RUNNING', total: 100, deleted: 40, failed: 2 }))).toBe('휴지통을 비우는 중… 42/100통 · 실패 2')
+  it('진행 — live count 와 무관하게 진행 글이 먼저다, total 있음·없음, 실패 0 이면 「· 실패」 생략', () => {
+    expect(trashEmptyRowText(folder(), status({ state: 'RUNNING', total: null }), 302)).toBe('휴지통을 비우는 중…')
+    expect(trashEmptyRowText(folder(), status({ state: 'RUNNING', total: 100, deleted: 40 }), 302)).toBe('휴지통을 비우는 중… 40/100통')
+    expect(trashEmptyRowText(folder(), status({ state: 'RUNNING', total: 100, deleted: 40, failed: 2 }), 302)).toBe('휴지통을 비우는 중… 42/100통 · 실패 2')
   })
-  it('끝난 상태는 평소 문구', () => {
-    expect(trashEmptyRowText(folder({ totalCount: 7 }), status({ state: 'DONE', total: 3, deleted: 3 }))).toBe('메일 서버 휴지통 7통')
+  it('끝난 상태는 평소 문구(live 없으면 folder)', () => {
+    expect(trashEmptyRowText(folder({ totalCount: 7 }), status({ state: 'DONE', total: 3, deleted: 3 }), null)).toBe('메일 서버 휴지통 7통')
   })
-  it('미지원', () => {
-    expect(trashEmptyRowText(folder({ permanentDeleteUnsupported: true }), undefined)).toBe('이 메일 서버는 완전히 삭제를 지원하지 않아요')
+  it('미지원 — live count 보다 먼저 판정된다', () => {
+    expect(trashEmptyRowText(folder({ permanentDeleteUnsupported: true }), undefined, 302)).toBe('이 메일 서버는 완전히 삭제를 지원하지 않아요')
   })
 })
 
 describe('확인 창 문구', () => {
-  it('본문 — 제목 있음, 제목 없음은 "(제목 없음)", 비우기 N 있음/없음 글자 그대로', () => {
+  it('본문 — 제목 있음, 제목 없음은 "(제목 없음)", 비우기 N 있음/없음 글자 그대로, live 없을 때(로딩·실패) 수 없는 문구 회귀', () => {
     expect(permanentDeleteConfirmBody('11월 견적서')).toBe('"11월 견적서" 메일을 메일 서버에서도 지웁니다. 되돌릴 수 없습니다.')
     expect(permanentDeleteConfirmBody('')).toBe('"(제목 없음)" 메일을 메일 서버에서도 지웁니다. 되돌릴 수 없습니다.')
     expect(permanentDeleteConfirmBody(null)).toBe('"(제목 없음)" 메일을 메일 서버에서도 지웁니다. 되돌릴 수 없습니다.')

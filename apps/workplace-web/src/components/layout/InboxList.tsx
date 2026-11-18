@@ -1,7 +1,7 @@
 // src/components/layout/InboxList.tsx
 // 인박스 목록 — 데스크톱 Popover(InboxPanel)와 모바일 /notifications 화면이 공유한다(WP-126).
 // 헤더(모두 읽음·읽은 알림 보관) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
-import { Bell } from "lucide-react";
+import { Archive, Bell, CheckCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -12,6 +12,7 @@ import {
   notifTarget,
 } from "@/components/home/notifTarget";
 import { PushPromptBanner } from "@/components/layout/PushPromptBanner";
+import { narrowHeaderActionClass } from "@/components/mobile/headerClass";
 import { MobileEmptyState } from "@/components/mobile/MobileEmptyState";
 import { AgentActorBadge } from "@/components/users/AgentBadge";
 import { useArchiveReadNotifications } from "@/hooks/queries/useArchiveReadNotifications";
@@ -413,9 +414,12 @@ export function MarkAllReadButton() {
       data-testid="inbox-mark-all"
       onClick={() => markAll.mutate()}
       disabled={items.length === 0 || unread === 0 || markAll.isPending}
-      className="flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60"
+      title="모두 읽음"
+      className={narrowHeaderActionClass}
     >
-      모두 읽음
+      {/* WP-1731: 360px 미만은 아이콘만 보이고 글자는 sr-only 로 남겨 접근 이름을 지킨다(aria-label 로 바꾸지 않음). */}
+      <CheckCheck aria-hidden className="hidden h-5 w-5 max-[360px]:block" />
+      <span className="max-[360px]:sr-only">모두 읽음</span>
     </button>
   );
 }
@@ -434,9 +438,12 @@ export function ArchiveReadButton() {
       data-testid="inbox-archive-read"
       onClick={() => archiveRead.mutate()}
       disabled={!hasReadNotification(items) || archiveRead.isPending}
-      className="flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60"
+      title="읽은 알림 보관"
+      className={narrowHeaderActionClass}
     >
-      읽은 알림 보관
+      {/* WP-1731: 위 '모두 읽음' 과 같은 규칙 — 좁은 폭에서만 아이콘. */}
+      <Archive aria-hidden className="hidden h-5 w-5 max-[360px]:block" />
+      <span className="max-[360px]:sr-only">읽은 알림 보관</span>
     </button>
   );
 }

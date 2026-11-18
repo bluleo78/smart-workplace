@@ -4,7 +4,7 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
-import { getTrashEmptyStatus, permanentDeleteMessages, startTrashEmpty } from '@/api/mailMessages'
+import { getMailTrashCount, getTrashEmptyStatus, permanentDeleteMessages, startTrashEmpty } from '@/api/mailMessages'
 import { apiErrorResponse, extractApiError, extractApiErrorCode } from '@/lib/api-error'
 import { flushMailMoves } from '@/lib/mailMoveQueue'
 import {
@@ -27,11 +27,13 @@ function showToast({ kind, message }: TrashEmptyToast): void {
 }
 
 /**
- * 메일이 지워진 뒤(완전 삭제·비우기 끝) 메일 목록·안 읽은 수·홈 요약·메일함 목록(휴지통 수)을 다시 받는다 — 옮기기와 같은 무효화.
+ * 메일이 지워진 뒤(완전 삭제·비우기 끝) 메일 목록·안 읽은 수·홈 요약·메일함 목록(휴지통 수)·실시간 휴지통 수를 다시 받는다 — 옮기기와 같은 무효화.
  * 안 읽은 수 키 아래에 메일함 목록도 있다(mailMessageKeys.folders) — 휴지통 전체 수가 맞춰진다.
+ * 실시간 수(mailMessageKeys.trashCount)는 비운 뒤 확인 창·줄이 낡은 수를 계속 보여 주지 않게 따로 무효화한다(목록 캐시와 분리된 접두사).
  */
 function invalidateAfterErase(qc: QueryClient, accountId: number): void {
   void qc.invalidateQueries({ queryKey: ['mail-messages', accountId] })
+  void qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId) })
   invalidateMailCounts(qc)
 }
 
@@ -40,6 +42,21 @@ function refetchFoldersIfUnsupported(qc: QueryClient, accountId: number | undefi
   if (extractApiErrorCode(e) === UNSUPPORTED_CODE && accountId) {
     void qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId) })
   }
+}
+
+/**
+ * WP-1708 휴지통 메일 수(서버 실시간) — 확인 창 본문·비우기 줄 글자가 마지막 목록 동기화 값(folder.totalCount)이 아닌 서버 실제 수를 쓰게 한다.
+ * 실패(400·502)는 재시도하지 않고 오류로 남긴다 — 호출 측이 확인 창은 수 없는 문구로, 줄은 folder.totalCount 폴백으로 그려
+ * 낡은 숫자를 절대 보여 주지 않게 하기 위함이다.
+ */
+export function useTrashCount(accountId: number | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: mailMessageKeys.trashCount(accountId ?? 0),
+    queryFn: () => getMailTrashCount(accountId as number),
+    enabled: !!accountId && enabled,
+    // 실패 재시도 없음 — 재시도는 확인 창 본문의 수 없는 문구만 늦추고 성공 가능성을 바꾸지 못한다(오류는 서버가 확정한 상태).
+    retry: false,
+  })
 }
 
 /**

@@ -5,6 +5,7 @@ import static java.util.stream.Collectors.toMap;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailMoveResponse;
 import com.workplace.mail.dto.MailProvider;
+import com.workplace.mail.dto.MailTrashCountResponse;
 import com.workplace.mail.dto.MailTrashEmptyStatus;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
@@ -200,6 +201,30 @@ public class MailTrashService {
   public MailTrashEmptyStatus emptyStatus(long userId, long accountId) {
     readTx.executeWithoutResult(status -> ownedAccount(userId, accountId));
     return emptyProgress.snapshot(accountId);
+  }
+
+  /** 메일 수 조회 확인(트랜잭션 안) — 소유·휴지통 행·서버 지원 여부. 어긋나면 접속하지 않고 던진다. */
+  private record CountPlan(EmailAccountResponse account, TrashRef trash, MailEraser eraser) {}
+
+  /**
+   * 서버 휴지통의 실제 메일 수(WP-1708) — 휴지통 비우기 확인 창의 수를 로컬 폴더 목록의 낡은 값이 아니라 서버에서 실시간으로 받는다. 내 계정이 아니면 404,
+   * 휴지통 행이 없으면 400 {@code NO_TRASH}, 지원하지 않는 서버면 400 {@code PERMANENT_DELETE_UNSUPPORTED}, 서버 접속·조회
+   * 실패는 502({@code MailSyncException}) — 수를 얻지 못하면 로컬 값으로 대신하지 않는다.
+   *
+   * <p>모든 확인(소유·휴지통 행·서버 지원)은 읽기 전용 트랜잭션 안에서 끝내고 서버 조회는 트랜잭션 밖에서 한다 — 네트워크 I/O 동안 DB 연결을 잡지 않는다.
+   */
+  public MailTrashCountResponse trashCount(long userId, long accountId) {
+    CountPlan plan =
+        readTx.execute(
+            status -> {
+              EmailAccountResponse account = ownedAccount(userId, accountId);
+              return new CountPlan(account, trashRef(accountId), requireSupported(account));
+            });
+    Objects.requireNonNull(plan);
+
+    // 서버 I/O — 트랜잭션 밖
+    int count = plan.eraser().countTrash(userId, plan.account(), plan.trash());
+    return new MailTrashCountResponse(count);
   }
 
   /** 비우기 시작 확인(트랜잭션 안) — 소유·휴지통 행·서버 지원 여부. 어긋나면 아무것도 시작하지 않고 던진다. */

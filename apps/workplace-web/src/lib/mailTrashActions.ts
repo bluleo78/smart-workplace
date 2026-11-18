@@ -33,14 +33,16 @@ export function permanentDeleteState(folder: MailServerFolder | undefined): Tras
 
 /**
  * 목록 위 「휴지통 비우기」 단추 — 미지원 → 진행 중 → 빈 휴지통 순으로 판정한다.
- * 빈 휴지통은 서버 전체 수(totalCount, 마지막 목록 갱신 값)가 0 이고 보이는 목록도 비었을 때만이다
- * (수는 낡았을 수 있어 목록에 메일이 보이면 켠다).
+ * 빈 휴지통은 전체 수가 0 이고 보이는 목록도 비었을 때만이다. 전체 수는 liveCount(서버 실시간 수) 가 먼저고 모르는 동안(로딩·오류)은
+ * folder.totalCount(마지막 목록 갱신 값) 로 판정한다 — 줄 글자(trashEmptyRowText) 와 같은 폴백 패턴이라, live 302통인데 로컬 목록만
+ * 비어 있으면 줄은 「302통」인데 단추만 「비어 있어요」로 잠기지 않게 한다(새 정보를 모를 땐 기존 동작 유지).
  * 진행 중은 이유 없이 비활성이고 라벨만 「비우는 중…」으로 바뀐다.
  */
 export function trashEmptyState(
   folder: MailServerFolder | undefined,
   status: MailTrashEmptyStatus | undefined,
   listEmpty: boolean,
+  liveCount: number | null,
 ): TrashButtonState & { running: boolean; label: '휴지통 비우기' | '비우는 중…' } {
   if (folder?.permanentDeleteUnsupported) {
     return { enabled: false, reason: PERMANENT_DELETE_UNSUPPORTED_REASON, running: false, label: '휴지통 비우기' }
@@ -48,21 +50,34 @@ export function trashEmptyState(
   if (status?.state === 'RUNNING') {
     return { enabled: false, reason: null, running: true, label: '비우는 중…' }
   }
-  if (folder?.totalCount === 0 && listEmpty) {
+  // live count 를 먼저 쓴다 — folder.totalCount 는 마지막 목록 동기화 값이라 실제와 어긋날 수 있다(수는 낡았을 수 있어 목록에 메일이 보이면 켠다).
+  const total = liveCount ?? folder?.totalCount
+  if (total === 0 && listEmpty) {
     return { enabled: false, reason: TRASH_EMPTY_REASON, running: false, label: '휴지통 비우기' }
   }
   return { enabled: true, reason: null, running: false, label: '휴지통 비우기' }
 }
 
-/** 비우기 줄 왼쪽 글 — 미지원 → 진행(`처리/전체통 · 실패 n`) → 평소(서버 휴지통 수) 순. */
-export function trashEmptyRowText(folder: MailServerFolder | undefined, status: MailTrashEmptyStatus | undefined): string {
+/**
+ * 비우기 줄 왼쪽 글 — 미지원 → 진행(`처리/전체통 · 실패 n`) → 평소(서버 휴지통 수) 순.
+ * 평소 수는 liveCount(서버 실시간 수) 가 먼저고 없으면 folder.totalCount 로 폴백하며, 둘 다 없으면 수를 쓰지 않는다.
+ * 진행·미지원 판정은 liveCount 보다 먼저다 — 서버 수와 무관하게 지금 화면이 말해야 할 상태다.
+ */
+export function trashEmptyRowText(
+  folder: MailServerFolder | undefined,
+  status: MailTrashEmptyStatus | undefined,
+  liveCount: number | null,
+): string {
   if (folder?.permanentDeleteUnsupported) return '이 메일 서버는 완전히 삭제를 지원하지 않아요'
   if (status?.state === 'RUNNING') {
     if (status.total == null) return '휴지통을 비우는 중…'
     const failed = status.failed > 0 ? ` · 실패 ${status.failed}` : ''
     return `휴지통을 비우는 중… ${status.deleted + status.failed}/${status.total}통${failed}`
   }
-  return folder?.totalCount != null ? `메일 서버 휴지통 ${folder.totalCount}통` : '메일 서버 휴지통'
+  // live count 를 먼저 쓴다 — folder.totalCount 는 마지막 목록 동기화 값이라 실제와 어긋날 수 있다.
+  // 줄은 수 없는 글자("메일 서버 휴지통")가 어색해 폴더 값으로 폴백한다(확인 창은 폴백 없음 — trashEmptyConfirmBody 참고).
+  const total = liveCount ?? folder?.totalCount
+  return total != null ? `메일 서버 휴지통 ${total}통` : '메일 서버 휴지통'
 }
 
 /** 한 통 완전 삭제 확인 창 본문 — 제목이 비면 「(제목 없음)」. */
@@ -72,7 +87,8 @@ export function permanentDeleteConfirmBody(subject: string | null | undefined): 
 
 /**
  * 휴지통 비우기 확인 창 본문 — 서버 휴지통 전체(앱에 보이지 않는 30일 지난 메일 포함)를 지운다는 사실을 적는다.
- * total 은 마지막 목록 갱신 값이라 실제와 조금 다를 수 있다. 모르면(null) 수를 뺀다.
+ * total 은 서버 실시간 수(WP-1708). 없으면(null — 로딩·조회 실패) 수를 아예 쓰지 않는다 — 낡은 수를 보여 주지 않기 위함으로,
+ * 줄 글자와 달리 folder.totalCount 로는 폴백하지 않는다.
  */
 export function trashEmptyConfirmBody(total: number | null): string {
   const target = total != null ? `메일 서버 휴지통의 메일 ${total}통을` : '메일 서버 휴지통의 메일을'

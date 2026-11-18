@@ -25,6 +25,15 @@ public interface MailEraser {
   List<Outcome> erase(long userId, EmailAccountResponse account, TrashRef trash, List<Item> items);
 
   /**
+   * 서버 휴지통의 실제 메일 수(WP-1708) — 휴지통 비우기 확인 창이 로컬 목록의 낡은 수 대신 이 값을 보여 주게 한다. 앱이 가져오지 않은 옛 메일도 센다. 읽기만
+   * 하므로 아무것도 지우지 않는다. 네트워크 I/O 라 트랜잭션 밖에서 부른다.
+   *
+   * @throws com.workplace.mail.exception.MailSyncException 서버 접속·조회 실패 — 수를 얻지 못했으므로 호출자는 로컬 값으로
+   *     대신하지 않는다
+   */
+  int countTrash(long userId, EmailAccountResponse account, TrashRef trash);
+
+  /**
    * 서버 휴지통 바로 아래의 모든 메일(앱이 가져오지 않은 30일 지난 메일 포함)을 묶음씩 완전히 지운다(휴지통 비우기). 실행기 스레드에서 트랜잭션 밖으로 부른다.
    * 진행·로컬 반영은 묶음마다 sink 로 넘긴다 — 로컬 행 삭제는 sink(작업)가 짧은 트랜잭션으로 한다. 한 묶음의 명령 실패는 {@link
    * EmptySink#failed} 로 세고 다음 묶음으로 간다.

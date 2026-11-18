@@ -55,6 +55,15 @@ describe('scheduleMailMove', () => {
     expect(error).not.toHaveBeenCalled()
   })
 
+  it('WP-1708 옮기기가 끝나면 실시간 휴지통 수(trashCount)도 다시 받는다 — 휴지통으로 옮긴 직후 줄이 낡은 수를 보이지 않게', async () => {
+    moveMessages.mockResolvedValue({ results: [{ messageId: 11, ok: true, error: null }, { messageId: 12, ok: true, error: null }] })
+    const qc = schedule()
+    const inval = vi.spyOn(qc, 'invalidateQueries')
+    lastToast().onAutoClose!(fakeToast)
+    await vi.waitFor(() => expect(mailMoveHiddenSnapshot().size).toBe(0))
+    expect(inval).toHaveBeenCalledWith({ queryKey: ['mail-trash-count', 3] })
+  })
+
   it('WP-1742 hideRows:false — 숨기지 않지만 토스트가 닫히면 보내고 목록을 다시 받는다(별표 보기의 보관·옮기기)', async () => {
     moveMessages.mockResolvedValue({ results: [{ messageId: 11, ok: true, error: null }] })
     const qc = new QueryClient()

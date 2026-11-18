@@ -23,6 +23,7 @@ import com.workplace.mail.dto.MailOlderResult;
 import com.workplace.mail.dto.MailPermanentDeleteRequest;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
+import com.workplace.mail.dto.MailTrashCountResponse;
 import com.workplace.mail.dto.MailTrashEmptyStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.dto.MarkAllReadRequest;
@@ -163,6 +164,17 @@ public class MailInboxController {
   public MailTrashEmptyStatus trashEmptyStatus(
       @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
     return trashService.emptyStatus(callerId, accountId);
+  }
+
+  /**
+   * WP-1708 서버 휴지통 메일 수 — 휴지통 비우기 확인 창의 수를 로컬 폴더 목록의 낡은 값이 아니라 서버에서 실시간으로 받는다(앱이 가져오지 않은 옛 메일 포함).
+   * 남의 계정 404, 휴지통 없음 400 NO_TRASH, 지원하지 않는 서버 400 PERMANENT_DELETE_UNSUPPORTED, 서버 접속 실패 502. 서버
+   * I/O 동안 DB 연결을 잡지 않게 트랜잭션을 걸지 않는다(서비스가 짧은 읽기 트랜잭션으로 확인을 마친다).
+   */
+  @GetMapping("/accounts/{accountId}/trash/count")
+  public MailTrashCountResponse trashCount(
+      @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
+    return trashService.trashCount(callerId, accountId);
   }
 
   /**

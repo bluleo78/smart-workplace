@@ -72,6 +72,10 @@ public class GraphMailEraser implements MailEraser {
   /** 지운 편지함 폴더 id 조회 — 확인 GET 의 parentFolderId 와 견준다. */
   private static final String TRASH_FOLDER = "/me/mailFolders/deleteditems?$select=id";
 
+  /** 지운 편지함 메일 수 조회 — 확인 창 수(WP-1708)는 totalItemCount 가 함께 필요해 select 를 넓게 받는다. */
+  private static final String TRASH_COUNT_FOLDER =
+      "/me/mailFolders/deleteditems?$select=id,totalItemCount";
+
   /** 재시도 대기 — 테스트가 실제로 자지 않고 기록만 하는 것으로 바꾼다. */
   public interface Pauser {
 
@@ -209,6 +213,22 @@ public class GraphMailEraser implements MailEraser {
       throw new MailSyncException("Graph 지운 편지함 id 없음");
     }
     return folder.id();
+  }
+
+  /**
+   * 서버 휴지통의 실제 메일 수(WP-1708) — 지운 편지함의 {@code totalItemCount} 를 받는다(앱이 가져오지 않은 옛 메일 포함). 토큰· 클라이언트는
+   * 기존 주입 그대로 쓰고, 수 가 없는 응답은 수를 얻지 못한 일이라 {@link MailSyncException} 으로 멈춘다(로컬 값으로 대신하지 않는다). 읽기만
+   * 하므로 아무것도 지우지 않는다.
+   */
+  @Override
+  public int countTrash(long userId, EmailAccountResponse account, TrashRef trash) {
+    String token = tokenService.getAccessToken(userId, account.id());
+    GraphMailFolder folder = graphApiClient.get(token, TRASH_COUNT_FOLDER, GraphMailFolder.class);
+    if (folder == null || folder.totalItemCount() == null) {
+      log.warn("Graph 휴지통 메일 수 없음: accountId={}", account.id());
+      throw new MailSyncException("Graph 휴지통 메일 수 없음");
+    }
+    return folder.totalItemCount();
   }
 
   /**

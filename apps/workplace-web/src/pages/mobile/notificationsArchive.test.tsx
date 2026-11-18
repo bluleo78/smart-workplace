@@ -91,4 +91,34 @@ describe('모바일 알림 화면 보관함 전환', () => {
     await user.click(screen.getByTestId('inbox-unarchive'))
     await waitFor(() => expect(unarchived).toEqual([[5]]))
   })
+
+  // WP-1731 — 360px 미만에서 글자 버튼이 아이콘 버튼으로 바뀌어도 접근 이름·툴팁은 그대로여야 한다(jsdom 은 폭을 못 재므로 마크업만 본다).
+  test.each([
+    { label: '탭 루트', tabRoot: true, headerId: 'mobile-list-header' },
+    { label: '푸시 화면', tabRoot: false, headerId: 'notifications-header' },
+  ])('좁은 폭 대비: $label 머리 두 액션은 접근 이름·툴팁이 그대로이고 아이콘을 품는다', async ({ tabRoot, headerId }) => {
+    renderNotifications({ tabRoot })
+    await screen.findAllByTestId('inbox-item')
+    const header = screen.getByTestId(headerId)
+    expect(tabRoot ? screen.queryByTestId('notifications-header') : screen.queryByTestId('mobile-list-header')).toBeNull()
+    for (const name of ['모두 읽음', '읽은 알림 보관']) {
+      const button = screen.getByRole('button', { name })
+      expect(header).toContainElement(button)
+      expect(button).toHaveAttribute('title', name)
+      expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    }
+  })
+
+  // WP-1731 — 제목은 sr-only(시각적으로만 숨김)라 h1 과 접근 이름이 남는다. 액션이 없는 보관함 보기에서는 숨기지 않는다.
+  test.each([
+    { label: '탭 루트', tabRoot: true, title: () => screen.getByRole('heading', { name: '알림' }) },
+    { label: '푸시 화면', tabRoot: false, title: () => screen.getByTestId('mobile-back-title') },
+  ])('좁은 폭 대비: $label 제목은 360px 미만에 시각적으로만 숨고 보관함에서는 보인다', async ({ tabRoot, title }) => {
+    const { user } = renderNotifications({ tabRoot })
+    await screen.findAllByTestId('inbox-item')
+    expect(title().className).toContain('max-[360px]:sr-only')
+    await user.click(screen.getByTestId('inbox-tab-archive'))
+    await screen.findByText(/보관된 이슈/)
+    expect(title().className).not.toContain('sr-only')
+  })
 })
