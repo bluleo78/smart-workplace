@@ -24,6 +24,14 @@ describe('groupAiTasks', () => {
     const out = groupAiTasks([it_(421, g(420, 2), { parent } as never), it_(422, g(420, 2), { parent } as never)])
     expect(out[0]).toMatchObject({ kind: 'group', head: null, epic: { number: 420, title: '알림' } })
   })
+  it('첫 행이 하위 태스크(부모 = 스토리)면 머리 제목·색은 부모가 아니라 조부모 에픽 것(WP-1692)', () => {
+    const storyType = { id: 2, name: 'STORY', colorToken: 'GREEN', icon: 'Book' }
+    const epic = { number: 500, title: '온보딩', type: epicType, status: 'TODO' }
+    const story = { number: 501, title: '가입 화면', type: storyType, status: 'TODO', epic }
+    const sub = it_(502, g(500, 1), { parent: story } as never)
+    const out = groupAiTasks([sub])
+    expect(out[0]).toMatchObject({ kind: 'group', head: null, children: [sub], epic: { number: 500, title: '온보딩', type: epicType } })
+  })
   it('하위가 1개뿐인 에픽도 머리 + 하위 묶음(WP-1211)', () => {
     const parent = { number: 400, title: '검색', type: epicType, status: 'TODO' }
     const c = it_(431, g(400, 1), { parent } as never)

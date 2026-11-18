@@ -4,10 +4,11 @@
 // 페이지가 이어 붙어도 서버가 묶음을 연속으로 주므로 다음 페이지의 하위 행은 앞 묶음에 붙는다.
 // 프로젝트 구간 나누기(splitByProject)는 내 작업과 함께 쓰려고 lib/projectRuns 로 옮겼다(WP-919).
 import { epicTypeSummary } from '@/lib/epicColor'
+import { issueEpicOf } from '@/lib/epicGroup'
 import type { IssueResponse } from '@/types/issue'
 import type { IssueTypeSummary } from '@/types/issueType'
 
-/** 묶음 머리에 쓰는 에픽 요약 — 에픽 행이 있으면 그 행, 없으면 하위 행의 부모 참조에서. */
+/** 묶음 머리에 쓰는 에픽 요약 — 에픽 행이 있으면 그 행, 없으면 하위 행의 부모(또는 조부모 에픽, WP-1692) 참조에서. */
 export interface EpicHead {
   projectKey: string
   number: number
@@ -50,6 +51,8 @@ export function groupAiTasks(items: IssueResponse[]): AiTaskEntry[] {
     const isHead = it.number === g.epicNumber
     // 새 묶음의 첫 행 — 머리 항목을 만든다(같은 묶음의 연속 행은 아래에서 이어 붙는다).
     if (!cur || cur.key !== key || cur.kind !== 'group') {
+      // 하위 행이 머리를 만들 때 읽을 에픽 — 부모가 에픽이면 부모, 아니면(하위 태스크의 스토리 부모) 서버가 실은 조부모 에픽(WP-1692).
+      const epicRef = isHead ? null : issueEpicOf(it)
       cur = {
         kind: 'group',
         key,
@@ -58,9 +61,9 @@ export function groupAiTasks(items: IssueResponse[]): AiTaskEntry[] {
         epic: {
           projectKey: it.projectKey,
           number: g.epicNumber,
-          title: isHead ? it.title : (it.parent?.title ?? ''),
-          // 머리 아이콘 색 = 에픽 색(WP-1017) — 머리가 에픽 행이면 그 epicColor, 하위 행이면 서버가 부모 요약에 실은 에픽 색.
-          type: isHead ? epicTypeSummary(it) : (it.parent?.type ?? null),
+          title: isHead ? it.title : (epicRef?.title ?? ''),
+          // 머리 아이콘 색 = 에픽 색(WP-1017) — 머리가 에픽 행이면 그 epicColor, 하위 행이면 서버가 에픽 요약(부모 또는 조부모)에 실은 에픽 색.
+          type: isHead ? epicTypeSummary(it) : (epicRef?.type ?? null),
           childCount: g.epicChildCount,
           childDoneCount: g.epicChildDoneCount,
         },
