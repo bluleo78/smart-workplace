@@ -622,7 +622,8 @@ class NotificationRepositoryTest extends IntegrationTestBase {
 
   /** 알림 1건을 insert 하고 read_at·archived_at 을 지금 기준 일수 전으로 직접 정한다(null 이면 비움). id 반환. */
   private long seedAged(long recipient, Integer readHoursAgo, Integer archivedHoursAgo) {
-    repo.insertAccountNotice(recipient, NotificationType.PERSONAL_ASSISTANT_REVOKED, recipient);
+    repo.insertAccountNotice(
+        recipient, NotificationType.PERSONAL_ASSISTANT_REVOKED, recipient, null);
     long id = idsOf(recipient).get(idsOf(recipient).size() - 1);
     var now = java.time.OffsetDateTime.now();
     dsl.update(NOTIFICATION)
