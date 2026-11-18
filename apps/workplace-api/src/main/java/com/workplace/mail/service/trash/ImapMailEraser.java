@@ -77,6 +77,31 @@ public class ImapMailEraser implements MailEraser {
   }
 
   /**
+   * 서버 휴지통의 실제 메일 수(WP-1708) — 폴더를 여는 대신 {@code STATUS}(MESSAGES) 로만 읽는다(확인 창 한 번 조회에 메일함을 잠그지
+   * 않는다). 로컬 목록 수와 달리 앱이 가져오지 않은 옛 메일도 센다. 접속·조회 실패나 서버가 알려주지 않은 값(-1)은 수를 얻지 못한 일이라 {@link
+   * MailSyncException}(CONNECT_FAILED), 닫기는 언제나 finally 에서 조용히 한다({@link #erase} 와 같은 패턴).
+   */
+  @Override
+  public int countTrash(long userId, EmailAccountResponse account, TrashRef trash) {
+    String password = credentials.password(userId, account.id());
+    Store store = null;
+    try {
+      store = imapConnector.connect(account, password);
+      IMAPFolder folder = (IMAPFolder) store.getFolder(trash.name());
+      // getStatusItem 은 폴더를 열지 않고 STATUS 로 아이템 하나를 받는다 — 실패는 -1
+      long messages = folder.getStatusItem("MESSAGES");
+      if (messages < 0) {
+        throw new MailSyncException(MailServerErrors.CONNECT_FAILED);
+      }
+      return (int) messages;
+    } catch (MessagingException e) {
+      throw new MailSyncException(MailServerErrors.CONNECT_FAILED, e);
+    } finally {
+      closeQuietly(store);
+    }
+  }
+
+  /**
    * 휴지통 비우기 — 서버 휴지통 바로 아래의 모든 메일을 {@link #imapChunk} 개씩 지운다(WP-1682). 순서: 접속·UIDPLUS 확인 → 지금 휴지통이
    * 휴지통 행과 같은지(아니면 {@code TRASH_CHANGED}, 아무것도 지우지 않음) → 휴지통 READ_WRITE 열기, 서버 UIDVALIDITY 기억 → UID
    * 스냅샷(시작 순간의 전체 — 비우는 사이 새로 들어온 메일은 건드리지 않는다) → 묶음마다 서버에 남은 것만 {@code \Deleted} + {@code UID

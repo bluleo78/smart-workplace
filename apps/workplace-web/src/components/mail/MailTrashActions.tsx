@@ -6,7 +6,7 @@ import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
 import { DisabledReasonTooltip } from '@/components/ui/disabled-reason-tooltip'
-import { useStartTrashEmpty, useTrashEmptyStatus } from '@/hooks/queries/useMailTrash'
+import { useStartTrashEmpty, useTrashCount, useTrashEmptyStatus } from '@/hooks/queries/useMailTrash'
 import { mailSubjectText } from '@/lib/mailSubject'
 import {
   permanentDeleteConfirmBody,
@@ -41,11 +41,16 @@ export function MailTrashEmptyRow({
 }) {
   const status = useTrashEmptyStatus(accountId, true)
   const start = useStartTrashEmpty(accountId)
+  // WP-1708 서버 실시간 휴지통 수 — 확인 창·줄의 수는 마지막 목록 동기화 값(folder.totalCount)이 아니라 서버 실제 수가 먼저다.
+  // 수를 못 받는 동안(로딩·오류) 확인 창은 수 없는 문구로, 줄 글자만 folder.totalCount 로 폴백한다 — 낡은 숫자를 확인 창에 보여 주지 않는다.
+  const live = useTrashCount(accountId, true)
   const [confirmOpen, setConfirmOpen] = useState(false)
   // 같은 틱의 연타 막기 — mutation 의 isPending 은 다시 그린 뒤에야 바뀌어 두 번째 클릭을 막지 못한다.
   const busy = useRef(false)
-  const state = trashEmptyState(folder, status.data, listEmpty)
-  const text = trashEmptyRowText(folder, status.data)
+  // 실시간 수 — 로딩·오류 동안은 null(확인 창은 수 없는 문구, 줄 글자만 folder.totalCount 로 폴백).
+  const liveCount = live.data ?? null
+  const state = trashEmptyState(folder, status.data, listEmpty, liveCount)
+  const text = trashEmptyRowText(folder, status.data, liveCount)
   const disabled = !state.enabled || start.isPending
 
   const confirm = () => {
@@ -60,6 +65,16 @@ export function MailTrashEmptyRow({
     })
   }
 
+  // 확인 창을 여는 순간에만 실시간 수를 다시 받는다 — useTrashCount 는 비우기 줄 마운트 시 1회 조회뿐이고(전역 staleTime 30초 +
+  // refetchOnWindowFocus 없음) 이미 마운트된 query 는 staleTime 만료로 자동 재조회되지 않아, 휴지통 화면을 오래 열어 둔 뒤에는
+  // 수 분 전 서버 수가 남아 있었다. 스펙 문구는 "확인 창을 열 때" 수를 받는 것이므로 여는 쪽에서만 재조회하고(닫는 쪽은 아님 —
+  // 단추 클릭(onClick)과 창 자체의 열기(onOpenChange open===true) 모두 여기로 모은다), 재조회 중에는 react-query 가 기존 데이터를
+  // 유지하다가 도착하면 본문이 갱신된다.
+  const handleConfirmOpenChange = (open: boolean) => {
+    if (open) void live.refetch()
+    setConfirmOpen(open)
+  }
+
   const button = (
     <Button
       type="button"
@@ -67,7 +82,7 @@ export function MailTrashEmptyRow({
       size="sm"
       data-testid="mail-trash-empty"
       disabled={disabled}
-      onClick={() => setConfirmOpen(true)}
+      onClick={() => handleConfirmOpenChange(true)}
       className={`h-7 shrink-0 max-lg:h-9 ${DESTRUCTIVE_OUTLINE}`}
     >
       {state.running || start.isPending ? <Loader2 aria-hidden className="animate-spin" /> : <Trash2 aria-hidden />}
@@ -90,11 +105,11 @@ export function MailTrashEmptyRow({
       )}
       <DeleteConfirmDialog
         open={confirmOpen}
-        onOpenChange={setConfirmOpen}
+        onOpenChange={handleConfirmOpenChange}
         entityName="메일"
         itemName="휴지통"
         title="휴지통을 비울까요?"
-        description={trashEmptyConfirmBody(folder?.totalCount ?? null)}
+        description={trashEmptyConfirmBody(liveCount)}
         impact={TRASH_COPY_NOTE}
         actionLabel="비우기"
         pending={start.isPending}

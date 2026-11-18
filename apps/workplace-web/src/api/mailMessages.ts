@@ -90,6 +90,15 @@ export async function getTrashEmptyStatus(accountId: number): Promise<MailTrashE
   return data;
 }
 
+/**
+ * WP-1708 휴지통 메일 수(서버 실시간) — 앱 목록 동기화 값(folder.totalCount)과 어긋나는 수를 확인 창·비우기 줄이 이 값으로 쓴다.
+ * 실패(400·502)는 임의로 바꾸지 않고 그대로 오류로 올린다 — 호출 측(useTrashCount)이 수 없는 문구로 떨어뜨린다(낡은 수를 보여 주지 않음).
+ */
+export async function getMailTrashCount(accountId: number): Promise<number> {
+  const { data } = await client.get<{ count: number }>(`/mail/accounts/${accountId}/trash/count`);
+  return data.count;
+}
+
 /** 계정 동기화 진행 상태(폴링용). */
 export async function getSyncStatus(accountId: number): Promise<MailSyncStatus> {
   const { data } = await client.get<MailSyncStatus>(

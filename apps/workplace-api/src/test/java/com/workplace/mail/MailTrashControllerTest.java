@@ -167,4 +167,42 @@ class MailTrashControllerTest extends ExternalClientMockedTestBase {
     trashEmpty(other, accountId, false).andExpect(status().isNotFound());
     trashEmpty(other, accountId, true).andExpect(status().isNotFound());
   }
+
+  private ResultActions trashCount(long user, long accountId) throws Exception {
+    return mvc.perform(
+        get("/api/v1/mail/accounts/{a}/trash/count", accountId)
+            .header("Authorization", token(user)));
+  }
+
+  /**
+   * WP-1708 휴지통 메일 수 조회 — 서버에 접속하기 전에 끝나는 오류 경로만 본다(정상 경로·서버 실제 수는 {@link MailTrashCountImapTest}).
+   * 남의 계정 404, 휴지통 행 없음 400 NO_TRASH, 서버가 골라 지우기를 지원하지 않는다고 기록된 계정 400
+   * PERMANENT_DELETE_UNSUPPORTED.
+   */
+  @Test
+  void trashCount_noTrashRow400_noUidPlus400_othersAccount404() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    startedAccounts.add(accountId);
+
+    // 휴지통 행이 아직 없다 — 접속도 하지 않고 400 NO_TRASH
+    trashCount(user, accountId)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.code").value("NO_TRASH"))
+        .andExpect(jsonPath("$.message").value("메일 서버에 휴지통이 없습니다"));
+
+    long trash = folderRepo.ensureFolder(accountId, "Trash").id();
+    dsl.update(EMAIL_FOLDER)
+        .set(EMAIL_FOLDER.ROLE, FolderRole.TRASH.name())
+        .where(EMAIL_FOLDER.ID.eq(trash))
+        .execute();
+    // IMAP UIDPLUS 없음이 이미 기록된 계정 — 접속 없이 400 PERMANENT_DELETE_UNSUPPORTED
+    accountRepo.recordImapUidPlus(accountId, false);
+    trashCount(user, accountId)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.code").value("PERMANENT_DELETE_UNSUPPORTED"));
+
+    long other = TestFixtures.createHuman(dsl);
+    trashCount(other, accountId).andExpect(status().isNotFound());
+  }
 }

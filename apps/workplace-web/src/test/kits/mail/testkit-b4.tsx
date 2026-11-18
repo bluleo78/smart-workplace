@@ -55,6 +55,9 @@ export function mailBaseHandlers({
     http.get(`${API}/mail/accounts/:id/trash/empty`, () =>
       HttpResponse.json({ state: 'IDLE', total: null, deleted: 0, failed: 0, startedAt: null, finishedAt: null, errorCode: null, error: null }),
     ),
+    // 서버 실시간 휴지통 수(WP-1708) — 기본은 조회 실패로 두어, 세기를 지정하지 않는 테스트의 비우기 줄이 기존처럼
+    // folder.totalCount 폴백 글자를 쓰게 한다. 세기가 필요한 테스트(확인 창 문구 등)는 자기 handlers 로 덮어 쓴다.
+    http.get(`${API}/mail/accounts/:id/trash/count`, () => HttpResponse.json({ message: '메일 서버에 연결하지 못했습니다' }, { status: 502 })),
     // 목록 끝이 바로 보이면 서버 이전 메일을 부른다(WP-965) — 기본은 「더 없음」(E2E setupAuthMocks 와 같음).
     http.post(`${API}/mail/accounts/:id/messages/older`, () =>
       HttpResponse.json({ running: false, fetched: 0, saved: 0, syncedSince: null, hasMore: false }),
