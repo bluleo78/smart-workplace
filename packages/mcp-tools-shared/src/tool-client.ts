@@ -714,6 +714,48 @@ export interface DriveToolClient {
    * PUT 은 이름 검색 없이 그 파일의 새 버전이 되고, 이름·폴더는 그대로다(발급 뒤 이름이 바뀌어도 같은 파일).
    */
   createDriveVersionUploadLink(driveFileId: number): Promise<DriveUploadLink>;
+  /**
+   * GET /drive/recent — 내가 최근 열거나 올린 파일(최근 순, WP-1699). limit 은 서버 1~50(생략하면 50), cursor 는 앞 응답의 nextCursor.
+   * 둘 다 있을 때만 쿼리에 싣는다. 응답 { items, nextCursor } 원형(행 가공은 toDriveRecentView).
+   */
+  listRecentDriveFiles(params: { limit?: number; cursor?: string }): Promise<CursorPage<DriveRecentFileRow>>;
+  /** GET /drive/starred — 내 별표 항목(별표한 순, 한 쪽 50건 고정 — 서버에 limit 이 없다, WP-1698). cursor 는 앞 응답의 nextCursor. */
+  listStarredDriveItems(cursor?: string): Promise<CursorPage<DriveStarredItemRow>>;
+  /** PUT /drive/stars 본문 {kind, id} — 별표 넣기(멱등, 204). 볼 수 없거나 없는 항목·kind 와 어긋난 id 는 404. */
+  starDriveItem(target: DriveStarTarget): Promise<void>;
+  /** DELETE /drive/stars 본문 {kind, id} — 내 별표만 지운다(멱등, 204 — 별표가 없거나 볼 수 없어도 조용히 끝난다). */
+  unstarDriveItem(target: DriveStarTarget): Promise<void>;
+}
+
+/** 별표 대상(WP-1698 서버 계약 DriveStarRequest). id 는 kind 가 FILE 이면 드라이브 파일 id, FOLDER 면 폴더 id. */
+export interface DriveStarTarget {
+  kind: 'FILE' | 'FOLDER';
+  id: number;
+}
+
+/** 「최근」 한 줄(WP-1699 서버 계약 DriveRecentFileResponse). fileId 는 core file id 라 도구 응답에 내보내지 않는다(#840). */
+export interface DriveRecentFileRow {
+  driveFileId: number;
+  fileId: number;
+  name: string;
+  folderId: number | null;
+  folderPath: { id: number; name: string }[] | null;
+  lastAction: string;
+  lastAt: string | null;
+  starred: boolean;
+  [key: string]: unknown;
+}
+
+/** 「별표」 한 줄(WP-1698 서버 계약 DriveStarredItemResponse). 파일에만·폴더에만 있는 값은 다른 쪽에서 null 이다. */
+export interface DriveStarredItemRow {
+  kind: 'FILE' | 'FOLDER';
+  id: number;
+  name: string;
+  fileId: number | null;
+  path: string | null;
+  updatedAt: string | null;
+  starredAt: string | null;
+  [key: string]: unknown;
 }
 
 /**

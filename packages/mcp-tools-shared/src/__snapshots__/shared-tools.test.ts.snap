@@ -58,6 +58,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "list_issues": "read",
   "list_mail": "read",
   "list_mail_accounts": "read",
+  "list_my_drive_files": "read",
   "list_notifications": "read",
   "list_projects": "read",
   "list_thread_replies": "read",
@@ -88,6 +89,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "search_drive_content": "read",
   "search_members": "read",
   "search_wiki": "read",
+  "star_drive_item": "write",
   "sync_mail": "write",
   "unlink_event_note": "write",
   "update_channel_message": "write",
@@ -2062,6 +2064,49 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "list_my_drive_files",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "description": "recent only",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "view": {
+          "enum": [
+            "recent",
+            "starred",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "view",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "list_notifications",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3025,6 +3070,46 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "query",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "star_drive_item",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "folderId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "starred": {
+          "type": "boolean",
+        },
+      },
+      "required": [
+        "starred",
       ],
       "type": "object",
     },

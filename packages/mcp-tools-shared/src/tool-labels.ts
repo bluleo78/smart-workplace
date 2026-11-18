@@ -110,6 +110,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_drive_spaces: { label: '드라이브 공간 조회', icon: '🗂️' },
   list_drive_items: { label: '드라이브 항목 조회', icon: '🗂️' },
   list_drive_trash: { label: '드라이브 휴지통 조회', icon: '🗑️' },
+  list_my_drive_files: { label: '내 최근·별표 파일 조회', icon: '⭐' }, // WP-1700
   search_drive: { label: '드라이브 검색', icon: '🔍' },
   search_drive_content: { label: '드라이브 내용 검색', icon: '🔍' },
   get_drive_file_summary: { label: '파일 요약 조회', icon: '📄' },
@@ -119,6 +120,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   import_attachment_to_drive: { label: '첨부 가져오기', icon: '📥' },
   move_drive_item: { label: '항목 이동', icon: '📦' }, // WP-369: move_drive_file·move_drive_folder 통합
   restore_drive_item: { label: '휴지통에서 복원', icon: '♻️' },
+  star_drive_item: { label: '드라이브 별표', icon: '⭐' }, // WP-1700: 별표 넣기·빼기
   create_drive_download_link: { label: '다운로드 링크', icon: '🔗' }, // WP-369
   create_drive_file: { label: '파일 올리기', icon: '📤' }, // WP-369: 내용으로 만들기 또는 업로드 링크
   // 첨부·파일 내용 읽기(WP-346, WP-369 에서 read_attachment → read_file)

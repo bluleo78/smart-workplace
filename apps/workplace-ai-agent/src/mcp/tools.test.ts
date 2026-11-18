@@ -185,6 +185,11 @@ function sharedMock(): MockedShared {
     // WP-369 Task 3: 기존 파일의 새 버전(텍스트 갱신·파일에 묶인 업로드 링크)
     updateDriveTextFile: vi.fn().mockResolvedValue({ id: 8, fileId: 902, folderId: null, name: 'a.md', versionCount: 2 }),
     createDriveVersionUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul2', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
+    // WP-1700: 내 최근 파일·별표 목록과 별표 넣기·빼기
+    listRecentDriveFiles: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listStarredDriveItems: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    starDriveItem: vi.fn().mockResolvedValue(undefined),
+    unstarDriveItem: vi.fn().mockResolvedValue(undefined),
     // WP-421: 첨부용 파일 스테이징(텍스트·일회용 링크)
     createStagedTextFile: vi.fn().mockResolvedValue({ fileId: 950, name: '요약.md', sizeBytes: 8, mimeType: 'text/markdown', expiresAt: 't' }),
     createStagedUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/su', method: 'PUT', expiresAt: 't', maxBytes: 26214400, name: 'a.pdf', singleUse: true }),

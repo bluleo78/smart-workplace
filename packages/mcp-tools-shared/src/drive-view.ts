@@ -6,7 +6,8 @@
 // 허용 목록으로 고르면 서버에 새 필드(예: available)가 생길 때 조용히 누락된다.
 // 예외: 전송 링크 뷰(toDriveDownloadLinkView·toDriveUploadLinkView)는 로그인 없이 쓰는 링크라 허용 목록으로 고른다(WP-369, fail-closed).
 import { dropEmpty } from './compact.js';
-import type { DriveDownloadLink, DriveUploadLink } from './tool-client.js';
+import { toSeoulIso } from './issue-view.js';
+import type { DriveDownloadLink, DriveRecentFileRow, DriveStarredItemRow, DriveUploadLink } from './tool-client.js';
 
 /** 드라이브 파일 행 → LLM 뷰. core fileId 를 버리고 id 를 driveFileId 로 옮긴다. */
 export type DriveFileView<T extends { id: number; fileId: number }> = Omit<T, 'id' | 'fileId'> & { driveFileId: number };
@@ -104,4 +105,26 @@ export function toDriveUploadLinkView({ url, method, expiresAt, maxBytes, name, 
           `올린 파일은 이름·폴더 그대로 이 파일(driveFileId ${driveFileId})의 새 버전이 되니 같은 종류의 파일을 올리세요. ` +
           `전송이 실패하면 이 링크는 다시 쓸 수 없으니 create_drive_file 에 같은 driveFileId 로 새 링크를 만드세요.`,
   };
+}
+
+/**
+ * 「최근」 파일 행(DriveRecentFileResponse) → LLM 뷰(WP-1700). 다른 파일 행과 같이 core fileId 는 버린다(#840 — 이 응답은 이미 driveFileId 로 온다).
+ * folderPath(루트 → 부모 폴더 순 {id,name})는 이름만 「/」로 이은 path 로 바꾼다 — 폴더 id 는 folderId 하나로 충분하고 경로 배열은 토큰만 쓴다.
+ * 시각은 KST 오프셋으로 바꿔 「오늘 연 파일」을 날짜 경계에서 어긋나게 읽지 않게 하고, 값이 없는 키(루트의 folderId·빈 path)는 뺀다.
+ */
+export function toDriveRecentView({ fileId: _coreFileId, folderId, folderPath, lastAt, ...rest }: DriveRecentFileRow) {
+  const path = (folderPath ?? []).map((seg) => seg.name).join('/');
+  // 서버 folderId 는 파일이 든 상위 폴더다 — 별표 뷰처럼 parentFolderId 로 준다. folderId 로 두면 모델이 그 값을 star_drive_item 의
+  // folderId(별표할 폴더 자신)로 넘겨 파일 대신 상위 폴더에 별표한다.
+  return dropEmpty({ ...rest, parentFolderId: folderId, path: path || null, lastAt: toSeoulIso(lastAt) });
+}
+
+/**
+ * 「별표」 항목 행(DriveStarredItemResponse) → LLM 뷰(WP-1700). 서버는 파일·폴더 모두 id 하나로 주지만 둘은 다른 시퀀스라 휴지통 뷰
+ * (toDriveTrashView)처럼 kind 에 맞는 이름(driveFileId·folderId)으로만 준다. core fileId 는 버리고(#840), 다른 종류에만 있는 값(null)과
+ * 최상위의 빈 path 는 뺀다. 나머지 필드는 제거 목록 원칙대로 그대로 둔다. 시각은 KST 오프셋으로 바꾼다.
+ */
+export function toDriveStarredView({ id, fileId: _coreFileId, updatedAt, starredAt, ...rest }: DriveStarredItemRow) {
+  const ref = rest.kind === 'FOLDER' ? { folderId: id } : { driveFileId: id };
+  return dropEmpty({ ...rest, ...ref, path: rest.path || null, updatedAt: toSeoulIso(updatedAt), starredAt: toSeoulIso(starredAt) });
 }

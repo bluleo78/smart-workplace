@@ -10,7 +10,7 @@ describe('drive-agent 정의', () => {
   it('loadSubagents 로 drive-agent 가 로드된다', () => {
     expect(loaded['drive-agent']).toBeDefined();
   });
-  it('tools 는 읽기 7개 + 쓰기 8개 + 삭제제안 2개 + submit_response(총 18개)', () => {
+  it('tools 는 읽기 8개 + 쓰기 9개 + 삭제제안 2개 + submit_response(총 20개)', () => {
     expect(loaded['drive-agent'].tools).toEqual([
       'mcp__workplace__list_drive_spaces',
       'mcp__workplace__list_drive_items',
@@ -19,12 +19,14 @@ describe('drive-agent 정의', () => {
       'mcp__workplace__read_file', // WP-346: 파일 본문(추출 텍스트 구간)·이미지 읽기
       'mcp__workplace__search_drive_content',
       'mcp__workplace__list_drive_trash', // #855: 휴지통 조회
+      'mcp__workplace__list_my_drive_files', // WP-1700: 내 최근 파일·별표 목록
       'mcp__workplace__create_drive_folder',
       'mcp__workplace__rename_drive_item', // WP-369: 파일·폴더 이름 변경 통합
       'mcp__workplace__move_drive_item', // WP-369: 파일·폴더 이동 통합
       'mcp__workplace__copy_drive_item', // WP-354: 파일·폴더 복사
       'mcp__workplace__import_attachment_to_drive', // WP-354: 이슈·채팅 첨부 가져오기
       'mcp__workplace__restore_drive_item', // #855: 휴지통 복원
+      'mcp__workplace__star_drive_item', // WP-1700: 별표 넣기·빼기
       'mcp__workplace__create_drive_download_link', // WP-369: 다운로드 링크
       'mcp__workplace__create_drive_file', // WP-369: 파일 올리기(AI Chat 은 content 모드만)
       'mcp__workplace__propose_delete_file',
@@ -48,6 +50,15 @@ describe('drive-agent 정의', () => {
   it('maxTurns 설정 + 본문에 드라이브·읽기 안내', () => {
     expect(loaded['drive-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['drive-agent'].prompt).toMatch(/드라이브|파일/);
+  });
+
+  // WP-1700: 내 최근 파일·별표는 list_my_drive_files 의 view 로 가르고, 별표는 starred 최종 상태로 넣고 뺀다(id 는 이번 대화 결과에서).
+  it('내 최근 파일·별표 목록과 별표 넣기·빼기를 안내한다', () => {
+    const prompt = loaded['drive-agent'].prompt;
+    expect(prompt).toContain('list_my_drive_files(view, limit?, cursor?)');
+    expect(prompt).toContain('`nextCursor` 를 `cursor` 로 넘겨');
+    expect(prompt).toContain('star_drive_item(driveFileId | folderId, starred)');
+    expect(prompt).toContain('`list_my_drive_files` 결과에서 가져옵니다');
   });
 
   // WP-352: 목록·검색이 한 번에 일부만 줄 수 있으므로 이어 조회하거나 일부만 봤다고 밝히도록 안내한다.

@@ -49,6 +49,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   list_drive_items: ['read', R, R, R],
   list_drive_spaces: ['read', R, R, R],
   list_drive_trash: ['read', R, R, R],
+  list_my_drive_files: ['read', R, R, R],
   list_events: ['read', R, R, R],
   list_issues: ['read', R, R, R],
   list_mail: ['read', R, R, R],
@@ -87,6 +88,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   // 같은 입력을 다시 보고해도 message 가 있으면 챗 글이 또 올라가므로 멱등이 아니다.
   report_agent_work: ['write', false, false, false],
   restore_drive_item: ['write', false, false, false],
+  star_drive_item: ['write', true, true, false], // WP-1700: 빼기 갈래가 있어 destructive, starred 가 최종 상태라 멱등
   // WP-1681: 휴지통 메일을 원래 메일함으로 옮긴다 — 되돌릴 수 있고(삭제 아님) 이미 되살린 메일은 400 이라 비멱등, 메일 서버에 닿는다.
   restore_mail: ['write', false, false, true],
   rsvp_event: ['write', true, false, false],

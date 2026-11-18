@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildDriveTools } from './drive-tools.js';
 import type { DriveToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
+import { describeApiError } from './parse.js';
 
 /** 드라이브 클라이언트 mock. */
 function mockClient(): DriveToolClient {
@@ -39,6 +40,10 @@ function mockClient(): DriveToolClient {
       url: 'https://w.example/api/v1/public/drive/transfer/ul_def', method: 'PUT', expiresAt: '2026-10-13T06:10:00Z',
       maxBytes: 10485760, name: '회의록.md', singleUse: true,
     }),
+    listRecentDriveFiles: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listStarredDriveItems: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    starDriveItem: vi.fn().mockResolvedValue(undefined),
+    unstarDriveItem: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -565,5 +570,136 @@ describe('전송 링크·파일 올리기 (WP-369)', () => {
     for (const s of ['spaceId+name', 'new version of driveFileId', 'same name and folder', 'driveFileId must be a text file', 'for driveFileId, the same file type']) {
       expect(up).toContain(s);
     }
+  });
+});
+
+describe('내 최근 파일·별표 (WP-1700)', () => {
+  // 서버 DriveRecentFileResponse 모양 — fileId 는 core file id 라 응답에 남지 않아야 한다(#840).
+  const recentRow = {
+    driveFileId: 5, fileId: 812, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 1200, spaceId: 2, spaceName: '팀',
+    folderId: 9, folderPath: [{ id: 3, name: '2026' }, { id: 9, name: '분기' }], lastAction: 'OPEN', lastAt: '2026-11-17T15:30:00Z', starred: true,
+  };
+
+  it('recent → limit·cursor 를 그대로 넘기고 core fileId 를 빼고 상위 폴더는 parentFolderId·경로는 path 문자열로, 시각은 KST 로 준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listRecentDriveFiles).mockResolvedValue({ items: [recentRow], nextCursor: 'c2' });
+    const out = JSON.parse(resultText(await tool(c, 'list_my_drive_files').handler({ view: 'recent', limit: 20, cursor: 'c1' })));
+    expect(c.listRecentDriveFiles).toHaveBeenCalledWith({ limit: 20, cursor: 'c1' });
+    expect(c.listStarredDriveItems).not.toHaveBeenCalled();
+    expect(out).toEqual({
+      items: [{
+        driveFileId: 5, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 1200, spaceId: 2, spaceName: '팀', parentFolderId: 9,
+        path: '2026/분기', lastAction: 'OPEN', lastAt: '2026-11-18T00:30:00+09:00', starred: true,
+      }],
+      hasMore: true,
+      nextCursor: 'c2',
+    });
+    expect(JSON.stringify(out)).not.toContain('812');
+  });
+
+  it('recent → 루트 파일은 parentFolderId·path 키가 없고, 다음 쪽이 없으면 hasMore·nextCursor 도 없다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listRecentDriveFiles).mockResolvedValue({
+      items: [{ ...recentRow, folderId: null, folderPath: [], starred: false }],
+      nextCursor: null,
+    });
+    const out = JSON.parse(resultText(await tool(c, 'list_my_drive_files').handler({ view: 'recent' })));
+    expect(c.listRecentDriveFiles).toHaveBeenCalledWith({ limit: undefined, cursor: undefined });
+    expect(out).toEqual({
+      items: [{
+        driveFileId: 5, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 1200, spaceId: 2, spaceName: '팀',
+        lastAction: 'OPEN', lastAt: '2026-11-18T00:30:00+09:00', starred: false,
+      }],
+    });
+  });
+
+  it('starred → cursor 만 넘기고, 파일은 driveFileId·폴더는 folderId 로 준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listStarredDriveItems).mockResolvedValue({
+      items: [
+        {
+          kind: 'FILE', id: 5, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 1200, fileId: 812, category: 'DOCUMENT',
+          versionCount: 2, available: true, folderCount: null, fileCount: null, parentFolderId: 9, path: '2026/분기', spaceId: 2,
+          spaceName: '팀', updatedAt: '2026-11-17T01:00:00Z', starredAt: '2026-11-17T02:00:00Z',
+        },
+        {
+          kind: 'FOLDER', id: 5, name: '보관', mimeType: null, sizeBytes: null, fileId: null, category: null, versionCount: null,
+          available: null, folderCount: 1, fileCount: 3, parentFolderId: null, path: '', spaceId: 4, spaceName: '김하나의 드라이브',
+          updatedAt: '2026-11-16T01:00:00Z', starredAt: '2026-11-16T02:00:00Z',
+        },
+      ],
+      nextCursor: 'next~1',
+    });
+    const out = JSON.parse(resultText(await tool(c, 'list_my_drive_files').handler({ view: 'starred', cursor: 'c1' })));
+    expect(c.listStarredDriveItems).toHaveBeenCalledWith('c1');
+    expect(c.listRecentDriveFiles).not.toHaveBeenCalled();
+    expect(out).toEqual({
+      items: [
+        {
+          kind: 'FILE', driveFileId: 5, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 1200, category: 'DOCUMENT',
+          versionCount: 2, available: true, parentFolderId: 9, path: '2026/분기', spaceId: 2, spaceName: '팀',
+          updatedAt: '2026-11-17T10:00:00+09:00', starredAt: '2026-11-17T11:00:00+09:00',
+        },
+        {
+          kind: 'FOLDER', folderId: 5, name: '보관', folderCount: 1, fileCount: 3, spaceId: 4, spaceName: '김하나의 드라이브',
+          updatedAt: '2026-11-16T10:00:00+09:00', starredAt: '2026-11-16T11:00:00+09:00',
+        },
+      ],
+      hasMore: true,
+      nextCursor: 'next~1',
+    });
+    expect(JSON.stringify(out)).not.toContain('812');
+    expect(out.items[0]).not.toHaveProperty('id');
+  });
+
+  it('starred 에 limit 을 주면 오류 — 서버 고정 쪽이라 조용히 버리면 모델이 그만큼만 왔다고 오해한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'list_my_drive_files').handler({ view: 'starred', limit: 5 })).rejects.toThrow(/view: recent/);
+    expect(c.listStarredDriveItems).not.toHaveBeenCalled();
+  });
+
+  it('null 인자는 생략과 같다(모델이 쓰지 않는 인자를 null 로 채워 보낸다)', async () => {
+    const c = mockClient();
+    await tool(c, 'list_my_drive_files').handler({ view: 'starred', limit: null, cursor: null });
+    expect(c.listStarredDriveItems).toHaveBeenCalledWith(undefined);
+  });
+
+  it('잘못된 view·범위 밖 limit(0, 51)은 zod 가 거부한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'list_my_drive_files').handler({ view: 'all' })).rejects.toThrow();
+    await expect(tool(c, 'list_my_drive_files').handler({})).rejects.toThrow();
+    await expect(tool(c, 'list_my_drive_files').handler({ view: 'recent', limit: 0 })).rejects.toThrow();
+    await expect(tool(c, 'list_my_drive_files').handler({ view: 'recent', limit: 51 })).rejects.toThrow();
+    expect(c.listRecentDriveFiles).not.toHaveBeenCalled();
+  });
+
+  it('star_drive_item → starred true 면 넣기, false 면 빼기. 파일은 FILE·폴더는 FOLDER 로 옮겨 보낸다', async () => {
+    const c = mockClient();
+    expect(resultText(await tool(c, 'star_drive_item').handler({ driveFileId: 5, starred: true }))).toBe('ok');
+    expect(c.starDriveItem).toHaveBeenCalledWith({ kind: 'FILE', id: 5 });
+    expect(resultText(await tool(c, 'star_drive_item').handler({ folderId: 6, starred: false }))).toBe('ok');
+    expect(c.unstarDriveItem).toHaveBeenCalledWith({ kind: 'FOLDER', id: 6 });
+    // 쓰지 않는 id 를 null 로 보내도 생략과 같다.
+    await tool(c, 'star_drive_item').handler({ driveFileId: null, folderId: 7, starred: true });
+    expect(c.starDriveItem).toHaveBeenLastCalledWith({ kind: 'FOLDER', id: 7 });
+  });
+
+  it('star_drive_item → 둘 다·둘 다 없음·starred 없음은 거부하고 서버를 부르지 않는다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'star_drive_item').handler({ driveFileId: 5, folderId: 6, starred: true })).rejects.toThrow();
+    await expect(tool(c, 'star_drive_item').handler({ starred: true })).rejects.toThrow();
+    await expect(tool(c, 'star_drive_item').handler({ driveFileId: 5 })).rejects.toThrow();
+    expect(c.starDriveItem).not.toHaveBeenCalled();
+    expect(c.unstarDriveItem).not.toHaveBeenCalled();
+  });
+
+  it('star_drive_item → 볼 수 없거나 없는 항목의 서버 404 는 삼키지 않고 그대로 던진다(「찾을 수 없습니다」 사유가 남는다)', async () => {
+    const c = mockClient();
+    const notFound = Object.assign(new Error('Request failed with status code 404'), {
+      response: { status: 404, data: { message: '드라이브 폴더를 찾을 수 없습니다' } },
+    });
+    vi.mocked(c.starDriveItem).mockRejectedValue(notFound);
+    await expect(tool(c, 'star_drive_item').handler({ folderId: 999, starred: true })).rejects.toBe(notFound);
+    expect(describeApiError(notFound.response.status, notFound.response.data)).toBe('API 오류 404: 드라이브 폴더를 찾을 수 없습니다');
   });
 });
