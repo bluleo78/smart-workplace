@@ -8,8 +8,9 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { useOpenMailDraft } from '@/hooks/queries/useMailDrafts'
 import { mailSettingsKey } from '@/hooks/queries/useMailSettings'
-import { forgetMailComposePopout, MAIL_COMPOSE_WINDOW_ID } from '@/lib/mailComposeChannel'
+import { forgetMailComposePopout, MAIL_COMPOSE_WINDOW_ID, mailComposeWindowUrl } from '@/lib/mailComposeChannel'
 import { composeSettingsHandler } from '@/test/kits/mail/compose-default'
 import { composeInPane } from '@/test/kits/mail/compose-pane'
 import { renderMail } from '@/test/kits/mail/testkit-b4'
@@ -1111,7 +1112,7 @@ test('기본값_PANE_이어도_저장_실패_다시_열기는_우측_하단에_�
   expect(screen.getByTestId('mail-compose-dock')).toHaveClass('fixed')
 })
 
-test('기본값_WINDOW_이면_임시보관함_행을_누르면_그_임시저장_주소로_새_창을_바로_연다', async () => {
+test('기본값_WINDOW_이면_임시보관함_행을_누르면_빈_창을_먼저_열고_받은_뒤_그_임시저장_주소로_옮긴다', async () => {
   const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
   const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
   const server = draftServer([draftDetail({ id: 7, subject: '새 창에서 이어 쓸 메일', version: 1 })])
@@ -1119,16 +1120,17 @@ test('기본값_WINDOW_이면_임시보관함_행을_누르면_그_임시저장_
   await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
 
   await view.user.click(await screen.findByTestId('mail-draft-row-7'))
-  // 클릭 처리 중에 그 임시저장 주소로 연다 — 이미 서버에 있는 임시저장이라 fresh 가 아니다.
+  // 클릭 처리 중에는 빈 창만 연다(팝업 차단 회피) — 주소는 임시저장을 받은 뒤에 정한다.
   expect(open).toHaveBeenCalledTimes(1)
   const [url, name, features] = open.mock.calls[0]
-  expect(url).toBe(`/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`)
+  expect(url).toBe('')
   expect(name).toMatch(/^mail-compose-/)
   expect(features).toContain('width=900')
-  // 작성창도, 상세 조회도, 저장도 없다 — 새 창이 그 임시저장을 연다.
+  await waitFor(() => expect(win.location.href).toBe(`/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`))
+  // 작성창도, 저장도 없다 — 새 창이 그 임시저장을 연다.
   await tick(DEBOUNCE)
   expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
-  expect(server.details).toHaveLength(0)
+  expect(server.details).toHaveLength(1)
   expect(saves(server)).toBe(0)
 
   // 그 창이 쓰는 동안 같은 행을 다시 누르면 새로 열지 않고 그 창을 앞으로 가져온다.
@@ -1136,6 +1138,76 @@ test('기본값_WINDOW_이면_임시보관함_행을_누르면_그_임시저장_
   expect(win.focus).toHaveBeenCalled()
   expect(open).toHaveBeenCalledTimes(1)
   forgetMailComposePopout(7)
+})
+
+test('기본값_새_창에서_지워진_임시저장을_열면_빈_창을_닫고_메인_창에서_알린다', async () => {
+  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '지워질 메일', version: 1 })])
+  server.override.get = () => HttpResponse.json({ status: 404, message: '임시저장을 찾을 수 없어요', errors: { code: 'DRAFT_NOT_FOUND' } }, { status: 404 })
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  await waitFor(() => expect(win.close).toHaveBeenCalledTimes(1))
+  // 메인 창에서 서버가 준 사유로 알린다(새 창 안에서 실패하지 않는다).
+  expect(await screen.findByText('임시저장을 찾을 수 없어요')).toBeInTheDocument()
+  expect(win.location.href).toBe('')
+  // 그 창은 기억되지 않는다 — 같은 행을 다시 눌러도 focus 하지 않고 새로 연다.
+  await view.user.click(screen.getByTestId('mail-draft-row-7'))
+  expect(win.focus).not.toHaveBeenCalled()
+  await waitFor(() => expect(open).toHaveBeenCalledTimes(2))
+})
+
+/** useOpenMailDraft 의 beforeOpen 을 보려고 공급자 안에 두는 시험용 단추 — 기본값대로(default) 임시저장 7 을 연다. */
+function OpenProbe({ onBefore }: { onBefore: () => void }) {
+  const openDraft = useOpenMailDraft()
+  return (
+    <button data-testid="probe-open" onClick={() => void openDraft(7, { placement: 'default', beforeOpen: onBefore })}>
+      probe
+    </button>
+  )
+}
+
+test('기본값_새_창에서_받은_뒤_beforeOpen_을_부르고_그_주소로_창을_옮긴다', async () => {
+  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const before = vi.fn()
+  const server = draftServer([draftDetail({ id: 7, subject: '옮길 메일', version: 1 })])
+  const view = renderMail('/mail/1?folder=drafts', {
+    extra: <OpenProbe onBefore={before} />,
+    handlers: [...server.handlers, composeSettingsHandler('WINDOW')],
+  })
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('probe-open'))
+  await waitFor(() => expect(win.location.href).toBe(mailComposeWindowUrl(7, { opener: MAIL_COMPOSE_WINDOW_ID })))
+  expect(before).toHaveBeenCalledTimes(1)
+  forgetMailComposePopout(7)
+})
+
+test('기본값_새_창에서_받는_동안_빈_창을_닫으면_메인_창에_열지_않는다', async () => {
+  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const before = vi.fn()
+  const server = draftServer([draftDetail({ id: 7, subject: '닫힐 메일', version: 1 })])
+  // 받기 응답 직전에 사용자가 빈 창을 닫는다.
+  server.override.get = () => {
+    win.closed = true
+    return undefined
+  }
+  const view = renderMail('/mail/1?folder=drafts', {
+    extra: <OpenProbe onBefore={before} />,
+    handlers: [...server.handlers, composeSettingsHandler('WINDOW')],
+  })
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('probe-open'))
+  await waitFor(() => expect(server.details).toHaveLength(1))
+  await tick(DEBOUNCE)
+  expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+  expect(before).not.toHaveBeenCalled()
+  expect(win.location.href).toBe('')
 })
 
 test('기본값_WINDOW_인데_팝업이_막히면_임시보관함_행은_우측_하단에_열고_안내', async () => {

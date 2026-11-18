@@ -98,8 +98,9 @@ export function useMailDraftCount(accountId: number | undefined) {
  * - 답장·전달은 sourceMessageId 로 원본 상세를 받아 인용문을 다시 만든다. 원본을 받지 못하면(지워진 메일 등) 인용 없이 연다.
  * - 작성 방식 기본값(WP-1744): placement 는 openCompose 와 같은 뜻이다 — 임시보관함 행 클릭(새 작성)은 'default' 를 넘겨 기본값대로 열고,
  *   쓰던 작성을 다시 여는 길(보내기 실패 「다시 열기」·충돌 「다시 불러오기」·새 창 페이지)은 넘기지 않아 기본값을 쓰지 않는다.
- *   'default' 이고 기본값이 「새 창」이면(공급자가 데스크톱 앱 창에서만 WINDOW 를 준다) 받기 전, 클릭 처리 중에 그 임시저장 주소로 새 창을 바로 연다
- *   — 이미 서버에 있는 임시저장이라 작성창·저장 없이 새 창이 그것을 연다. 막히면 받아서 우측 하단에 열고 알린다.
+ *   'default' 이고 기본값이 「새 창」이면(공급자가 데스크톱 앱 창에서만 WINDOW 를 준다) 클릭 처리 중에 빈 창을 먼저 열고(팝업 차단 회피),
+ *   임시저장을 받아 존재를 확인한 뒤 beforeOpen 을 부르고 그 창 주소를 임시저장 주소로 옮긴다 — 작성창·저장 없이 새 창이 그것을 연다.
+ *   받기 실패면 빈 창을 닫고 메인 창에서 알리며, 받는 동안 사용자가 빈 창을 닫았으면 메인 창에 열지 않고 끝낸다. 빈 창이 막히면 받아서 우측 하단에 열고 알린다.
  * - force: 열린 작성의 저장을 건너뛰고 같은 임시저장도 서버 내용으로 다시 연다(충돌 「다시 불러오기」).
  */
 export function useOpenMailDraft() {
@@ -120,18 +121,34 @@ export function useOpenMailDraft() {
     }
     if (!opts.force && focusDraft(id)) return;
     let { placement } = opts;
-    // 기본값 「새 창」 — 받기를 기다리면 클릭의 사용자 활성화가 지나 팝업이 막히므로 지금 그 임시저장 주소로 연다(이미 저장된 것이라 fresh 아님).
+    // 기본값 「새 창」 — 받기를 기다리면 클릭의 사용자 활성화가 지나 팝업이 막히므로, 지금 빈 창만 먼저 연다(주소는 받은 뒤에 정한다).
     let blocked = false;
+    let blankWin: Window | null = null;
     if (placement === 'default' && getComposeDefault() === 'WINDOW') {
-      const win = openMailComposeWindow(mailComposeWindowUrl(id, { opener: MAIL_COMPOSE_WINDOW_ID }));
-      if (win) {
-        // 그 창이 쓰는 동안 다시 열면 앞으로 가져오게 기억한다(↗ 로 옮긴 창과 같다).
-        rememberMailComposePopout(id, win);
+      blankWin = openMailComposeWindow();
+      if (!blankWin) {
+        // 막혔으면 다시 창을 열지 않고 우측 하단으로(default-inline — 읽기 창 기본값이 아니니 곧 우측 하단).
+        blocked = true;
+        placement = 'default-inline';
+      }
+    }
+    if (blankWin) {
+      const win = blankWin;
+      try {
+        await qc.fetchQuery(mailDraftQuery(id));
+      } catch (e) {
+        // 지워진 임시저장 등 — 빈 창은 닫고 메인 창에서 알린다(새 창 안에서 실패하지 않게). 창은 기억하지 않았으니 다시 누르면 다시 연다.
+        win.close();
+        handleApiError(e, '임시저장을 불러오지 못했어요');
         return;
       }
-      // 막혔으면 다시 창을 열지 않고 우측 하단으로(default-inline — 읽기 창 기본값이 아니니 곧 우측 하단).
-      blocked = true;
-      placement = 'default-inline';
+      // 받는 동안 사용자가 빈 창을 닫았다 — 그만둔 것이라 메인 창에 열지 않는다(↗ 와 같은 규칙).
+      if (win.closed) return;
+      opts.beforeOpen?.();
+      // 그 창이 쓰는 동안 다시 열면 앞으로 가져오게 기억한다(↗ 로 옮긴 창과 같다).
+      rememberMailComposePopout(id, win);
+      win.location.href = mailComposeWindowUrl(id, { opener: MAIL_COMPOSE_WINDOW_ID });
+      return;
     }
     try {
       const detail = await qc.fetchQuery(mailDraftQuery(id));
