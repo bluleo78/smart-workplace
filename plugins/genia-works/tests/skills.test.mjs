@@ -1055,6 +1055,24 @@ test('process-issue.md: 반영 근거에 사용 가이드가 있고 11번 보고
   assert.match(pi, /보고는 맨 앞에 \*\*사용자에게 보이는 변화\*\*[^\n]*\*\*확인 위치\*\*[^\n]*\*\*사용 가이드\*\*[^\n]*\*\*첫 글\*\*/);
   assert.ok(section(pi, '\n### 기차 (저장소가 켰을 때)\n', '\n### 분류 (분류 역할 AI)\n').includes('사용 가이드'));
 });
+// WP-1705 보충 1 — 캡처가 머지할 HEAD 화면이 아니면 요청자에게 옮겨 쓰이는 반영 댓글에 낡은 화면이 간다.
+test('process-issue.md: 반영 근거 캡처는 머지할 HEAD 화면으로 찍고 rebase 로 화면이 바뀌면 다시 찍는다 (WP-1705)', () => {
+  const ground = section(pi, '\n- **반영 근거**(WP-1659)', '\n- 통과하면 notes 파일에 `검증한 HEAD SHA`');
+  const shot = lineWith(ground, '**캡처는 머지할 그 HEAD 화면**(WP-1705)');
+  for (const s of ['`검증한 HEAD SHA`', '7번 rebase', '다시 찍어 바꾼다', '같은 화면 크기·같은 자리', '「전」은 고치기 전에']) {
+    assert.ok(shot.includes(s), `캡처 시점 줄에 「${s}」 가 없다`);
+  }
+  assertBefore(pi, '**캡처는 머지할 그 HEAD 화면**', '- 통과하면 notes 파일에 `검증한 HEAD SHA`');
+});
+// WP-1705 보충 2 — 검토자가 보고 요소를 확인하지 않으면 빈 보고가 그대로 머지되고 요청자 반영 댓글도 비게 된다.
+test('process-issue.md: 검토자는 최종 보고의 바뀐 것·확인 위치·사용 가이드·캡처를 보고 없으면 보충을 요청한다 (WP-1705)', () => {
+  const reviewer = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업 (백그라운드)\n');
+  const check = lineWith(reviewer, '**최종 보고 확인**(WP-1705)');
+  for (const s of ['바뀐 것·확인 위치·사용 가이드·캡처', '4번처럼 반려', '머지한 뒤에 알게 됐으면', '보충을 요청']) {
+    assert.ok(check.includes(s), `검토자 기준 줄에 「${s}」 가 없다`);
+  }
+  assertBefore(reviewer, '**최종 보고 확인**', '6. **머지**:');
+});
 const guideReq = section(pi, '\n### 안내 자료 요청\n', '\n### 분류 (분류 역할 AI)\n');
 test('process-issue.md: 안내 자료 요청은 라벨로 분류보다 먼저 가르고, 구현 흐름 없이 확인해 REVIEW 로 보고한다 (WP-1705)', () => {
   const top = section(pi, '**먼저 갈래를 본다**', '\n**notes 파일**');
