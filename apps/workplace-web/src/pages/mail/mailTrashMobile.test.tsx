@@ -150,9 +150,11 @@ test('미지원 서버면 ⋯ 메뉴 「완전히 삭제」가 disabled + 아래
   expect(deletes.calls).toHaveLength(0)
 })
 
-test('목록 길게 누르기 시트에는 「완전히 삭제」가 없다', async () => {
+test('목록 길게 누르기 시트에는 「완전히 삭제」가 없고, 데스크톱 우클릭 메뉴(WP-1730)도 열리지 않는다', async () => {
   renderTrash('/mail/1?box=9')
   fireEvent.contextMenu(await screen.findByTestId('mail-row-10'))
   expect(await screen.findByRole('button', { name: '되살리기' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '완전히 삭제' })).not.toBeInTheDocument()
+  // 터치 셸은 길게 누르기 시트가 맡는다 — 행 우클릭 메뉴는 그리지 않는다.
+  expect(screen.queryByTestId('mail-row-menu-10')).not.toBeInTheDocument()
 })

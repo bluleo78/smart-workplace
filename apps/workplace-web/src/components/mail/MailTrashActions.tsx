@@ -1,7 +1,7 @@
 // WP-1682 휴지통 메일 「완전히 삭제」·「휴지통 비우기」 화면 조각 — 목록 위 비우기 줄, 두 확인 창, 상세 단추(데스크톱)·⋯ 메뉴 항목(휴대폰).
 // 메일함 화면(MailInboxPage)은 이 파일의 조각을 자리에 끼우고 상태만 넘긴다. 활성·이유·글자는 lib/mailTrashActions 의 순수 함수가 정한다.
 import { Loader2, Trash2 } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
@@ -9,7 +9,6 @@ import { DisabledReasonTooltip } from '@/components/ui/disabled-reason-tooltip'
 import { useStartTrashEmpty, useTrashEmptyStatus } from '@/hooks/queries/useMailTrash'
 import { mailSubjectText } from '@/lib/mailSubject'
 import {
-  PERMANENT_DELETE_UNSUPPORTED_SHORT,
   permanentDeleteConfirmBody,
   TRASH_COPY_NOTE,
   type TrashButtonState,
@@ -18,6 +17,8 @@ import {
   trashEmptyState,
 } from '@/lib/mailTrashActions'
 import type { MailServerFolder } from '@/types/mailFolder'
+
+import { usePermanentDeleteItem } from './usePermanentDeleteItem'
 
 /** 빨간 테두리 outline 단추 — 상세 「완전히 삭제」와 목록 위 「휴지통 비우기」가 같은 모양을 쓴다. */
 const DESTRUCTIVE_OUTLINE = 'text-destructive border-destructive/40 hover:text-destructive'
@@ -168,23 +169,25 @@ export function MailPermanentDeleteButton({ state, pending, onClick }: { state: 
  * 터치에는 툴팁이 없어 미지원이면 항목을 끄고 아래에 짧은 이유 글을 둔다 — 화면 낭독기도 꺼진 항목과 함께 읽게 aria-describedby 로 잇는다.
  */
 export function MailPermanentDeleteMenuItem({ state, pending, onClick }: { state: TrashButtonState; pending: boolean; onClick: () => void }) {
-  const reasonId = useId()
+  // 꺼짐·아이콘·이유 글은 행 우클릭 메뉴(MailRowContextMenu)와 같은 판정을 쓴다.
+  const item = usePermanentDeleteItem(state, pending)
   return (
     <>
       <button
         type="button"
         data-testid="mail-permanent-delete"
-        className="text-destructive disabled:opacity-50"
-        disabled={!state.enabled || pending}
-        aria-describedby={state.enabled ? undefined : reasonId}
+        // 아이콘 크기는 형제 항목(h-4 w-4)과 같게 단추에서 맞춘다 — 공통 훅은 크기를 정하지 않는다.
+        className="text-destructive disabled:opacity-50 [&_svg]:size-4"
+        disabled={item.disabled}
+        aria-describedby={item.reason ? item.reasonId : undefined}
         onClick={onClick}
       >
-        {pending ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : <Trash2 aria-hidden className="h-4 w-4" />}
+        {item.icon}
         완전히 삭제
       </button>
-      {!state.enabled && (
-        <p id={reasonId} data-testid="mail-permanent-delete-unsupported" className="px-3 pb-1.5 text-xs text-muted-foreground">
-          {PERMANENT_DELETE_UNSUPPORTED_SHORT}
+      {item.reason && (
+        <p id={item.reasonId} data-testid="mail-permanent-delete-unsupported" className="px-3 pb-1.5 text-xs text-muted-foreground">
+          {item.reason}
         </p>
       )}
     </>

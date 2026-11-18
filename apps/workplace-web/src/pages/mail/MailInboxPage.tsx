@@ -18,7 +18,6 @@ import { GeniaWorksSenderMark } from '@/components/mail/GeniaWorksSenderMark'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { CopyLinkButton } from '@/components/share/CopyLinkButton'
-import { RowLinkMenu } from '@/components/share/RowLinkMenu'
 import { type RowLinkMenuAnchor, rowLinkMenuAnchorFromContextMenu } from '@/components/share/rowLinkMenuAnchor'
 import { rowLinkActions } from '@/components/share/shareSheetActions'
 import { ShareSheetButton } from '@/components/share/ShareSheetButton'
@@ -46,14 +45,14 @@ import { folderRangeDays } from '@/lib/mailFolders'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { serverOlderFolder } from '@/lib/mailListPages'
 import { formatReceivedAt } from '@/lib/mailListTime'
-import { type MailMoveAvailability, mailMoveAvailability, type MailMoveTargetOption, mailMoveTargets, mailMoveToastMessage } from '@/lib/mailMoveActions'
+import { type MailMoveActions, mailMoveAvailability, mailMoveTargets, mailMoveToastMessage, toggleReadLabel } from '@/lib/mailMoveActions'
 import { scheduleMailMove, useMailMoveHidden } from '@/lib/mailMoveQueue'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
 import { mailSubjectText } from '@/lib/mailSubject'
 import { firstSummaryLine } from '@/lib/mailSummary'
-import { permanentDeleteState, type TrashButtonState } from '@/lib/mailTrashActions'
+import { permanentDeleteState } from '@/lib/mailTrashActions'
 import { mailBreadcrumbItems, mailBreadcrumbText, mailClassificationActive, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { SELECTED_BG_CLASS } from '@/lib/selectionStyles'
@@ -67,6 +66,7 @@ import { MailCategoryMenu, MailCategorySheet, type MailCategoryState } from '../
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { MailMoveMenu, MailMoveTargetSheet } from '../../components/mail/MailMoveMenu'
+import { MailRowContextMenu, type MailRowMenuHandlers } from '../../components/mail/MailRowContextMenu'
 import {
   MailPermanentDeleteButton,
   MailPermanentDeleteDialog,
@@ -120,27 +120,11 @@ import { useMailScreenContext } from './useMailScreenContext'
 // 목록 로딩 중 시트·길게 누르기에 넘길 빈 목록 — 렌더마다 새 배열을 만들지 않게 모듈에 하나만 둔다.
 const EMPTY_MESSAGES: EmailMessageSummary[] = []
 
-/** WP-962 한 메일에 대한 보관·옮기기·삭제(+ WP-1681 휴지통 보기의 되살리기) — 목록 행·상세가 같은 묶음을 받는다. */
-interface MailMoveActions {
-  avail: MailMoveAvailability
-  targets: readonly MailMoveTargetOption[]
-  onArchive: () => void
-  onTrash: () => void
-  onMove: (target: MailMoveTarget) => void
-  /** WP-1681 원래 메일함(모르면 받은편지함)으로 되살리기 — 휴지통 보기에서만 보인다(avail.restore). */
-  onRestore: () => void
-  /**
-   * WP-1682 휴지통 메일 「완전히 삭제」 — 휴지통 보기(avail.restore)에서만 채운다. 상세 작업 줄·휴대폰 ⋯ 메뉴만 쓰고
-   * 목록 행 hover·길게 누르기 시트에는 두지 않는다. onRequest 는 확인 창을 연다(제목은 확인 창 본문에 쓴다).
-   */
-  permanentDelete?: { state: TrashButtonState; pending: boolean; onRequest: (subject: string | null) => void }
-}
-
 /** 행 hover 아이콘 버튼 공통 모양 — 읽음 전환 버튼과 같은 크기·테두리. */
 const ROW_ICON_BUTTON_CLASS =
   'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40'
 
-/** 메일 한 통의 링크 대상(WP-1236) — 목록 줄 길게 누르기·우클릭이 쓴다. 상세의 대상(MailDetail)과 같은 주소·이름. */
+/** 메일 한 통의 링크 대상(WP-1236) — 목록 줄 길게 누르기·우클릭 메뉴가 쓴다. 상세의 대상(MailDetail)과 같은 주소·이름. */
 function mailShareTarget(accountId: number, m: Pick<EmailMessageSummary, 'id' | 'subject'>): ShareTarget {
   return { kind: 'mail', url: appUrl(mailMessagePath(accountId, m.id)), title: mailSubjectText(m.subject) }
 }
@@ -223,7 +207,7 @@ function MessageRow({
   showToggle,
   onToggleRead,
   moveActions,
-  linkTarget,
+  menu,
 }: {
   m: EmailMessageSummary
   /** 읽기 창에 열린 메일인가 — 선택 배경 + aria-current. */
@@ -243,11 +227,15 @@ function MessageRow({
   onToggleRead: () => void
   /** WP-962 hover 보관·옮기기·삭제 — 터치 셸·보낸편지함에선 없다(null). 터치는 길게 누르기 시트가 맡는다. */
   moveActions: MailMoveActions | null
-  /** 우클릭 링크 메뉴의 대상을 만든다(WP-1236) — 데스크톱만(터치 셸은 길게 누르기 시트가 맡는다). 메뉴를 열 때만 부른다. */
-  linkTarget?: () => ShareTarget
+  /**
+   * 우클릭 메뉴의 메일 동작·링크 대상(WP-1236 링크 → WP-1730 메일 동작 합침) — 데스크톱만(터치 셸은 길게 누르기 시트가 맡는다).
+   * 보관·옮기기·삭제·되살리기 항목은 moveActions 를 같이 쓰고, 읽음 전환은 묶음 안의 onToggleRead 로 받는다.
+   * 핸들러 묶음 대신 만드는 함수를 받는다 — 행마다 렌더 때 묶음·클로저를 만들지 않고 메뉴가 열린 동안만 만든다.
+   */
+  menu?: () => MailRowMenuHandlers
 }) {
   const navigate = useNavigate()
-  const [linkMenuAt, setLinkMenuAt] = useState<RowLinkMenuAnchor | null>(null)
+  const [menuAt, setMenuAt] = useState<RowLinkMenuAnchor | null>(null)
   // WP-146: 회신필요 판정은 행마다 한 번만 계산. 서버 메일함 보기에서는 AI 배지를 모두 끈다(WP-961).
   const needsReply = aiSignalsVisible && isNeedsReply(m)
   const aiCategory = aiSignalsVisible ? m.aiCategory : null
@@ -265,12 +253,12 @@ function MessageRow({
         data-message-id={m.id}
         onClick={onSelect}
         onContextMenu={
-          linkTarget
+          menu
             ? (e) => {
                 const at = rowLinkMenuAnchorFromContextMenu(e)
                 if (!at) return
                 e.preventDefault()
-                setLinkMenuAt(at)
+                setMenuAt(at)
               }
             : undefined
         }
@@ -336,8 +324,8 @@ function MessageRow({
             <button
               type="button"
               data-testid={`mail-row-toggle-read-${m.id}`}
-              aria-label={m.seen ? '안 읽음으로 표시' : '읽음으로 표시'}
-              title={m.seen ? '안 읽음으로 표시' : '읽음으로 표시'}
+              aria-label={toggleReadLabel(m.seen)}
+              title={toggleReadLabel(m.seen)}
               onClick={(e) => {
                 e.stopPropagation()
                 onToggleRead()
@@ -420,8 +408,8 @@ function MessageRow({
       </div>
       {/* 행 밖(형제)에 둔다 — 포털 안 클릭도 React 트리로는 행에 올라와 행 열기(onClick)가 함께 불린다. */}
       {/* 열린 동안만 그린다 — 줄마다 메뉴를 늘 마운트하지 않게. */}
-      {linkTarget && linkMenuAt && (
-        <RowLinkMenu target={linkTarget()} anchor={linkMenuAt} onClose={() => setLinkMenuAt(null)} testId={`mail-row-link-menu-${m.id}`} />
+      {menu && menuAt && (
+        <MailRowContextMenu m={m} anchor={menuAt} onClose={() => setMenuAt(null)} moveActions={moveActions} handlers={menu()} />
       )}
     </>
   )
@@ -1558,11 +1546,25 @@ function MailInbox() {
     if (!m.seen) applyToggle(m.id, true)
     fn(d)
   }
+  /**
+   * WP-1730 데스크톱 행 우클릭 메뉴의 메일 동작 — 답장류는 시트와 같은 withDetail 경로(상세 받기·안 읽은 메일 읽음 처리·실패 토스트),
+   * 분류 바꾸기는 시트와 같은 조건(categoryEditable)에서 행의 분류를 바꾸기 전 값으로 넘긴다.
+   * 행은 이 함수를 감싼 만드는 함수만 받아 메뉴가 열렸을 때만 부른다 — 그래서 링크 대상도 여기서 바로 값으로 만든다.
+   */
+  const rowMenuHandlers = (accountId: number, m: EmailMessageSummary): MailRowMenuHandlers => ({
+    linkTarget: mailShareTarget(accountId, m),
+    // 상태만 뒤집는다 — 행 hover ✉ 단추와 같은 동작(열린 상세는 그대로 둔다, WP-214).
+    onToggleRead: () => toggleRow(m),
+    onReply: () => void withDetail(m, onReply),
+    onReplyAll: () => void withDetail(m, onReplyAll),
+    onForward: () => void withDetail(m, onForward),
+    onChangeCategory: categoryEditable ? (c) => void changeCategory(m.id, c, toCategoryState(m)) : null,
+  })
   // 시트 작업 — 첫 항목(읽음 전환)이 primary.
   const sheetActions = (m: EmailMessageSummary): MessageSheetAction[] => [
     {
       key: 'toggle-read',
-      label: m.seen ? '안 읽음으로 표시' : '읽음으로 표시',
+      label: toggleReadLabel(m.seen),
       icon: m.seen ? <Mail /> : <MailOpen />,
       primary: true,
       onSelect: () => toggleRow(m),
@@ -1865,7 +1867,7 @@ function MailInbox() {
                   // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}
                   moveActions={touchShell ? null : moveActionsFor(m.id)}
-                  linkTarget={!touchShell && accountIdNum != null ? () => mailShareTarget(accountIdNum, m) : undefined}
+                  menu={!touchShell && accountIdNum != null ? () => rowMenuHandlers(accountIdNum, m) : undefined}
                 />
               ))}
               {listEnd}

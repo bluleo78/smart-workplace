@@ -3,6 +3,7 @@
 import type { MailMoveTarget, MailServerFolder } from '@/types/mailFolder'
 
 import { ARCHIVE_LABEL, buildMailFolderTree, visibleFolderRows } from './mailFolders'
+import type { TrashButtonState } from './mailTrashActions'
 import type { MailView } from './mailView'
 
 /** 받은편지함 계열 보기(업무·전체·분류·회신필요) — 모두 서버 받은편지함 메일을 보여 준다. */
@@ -115,4 +116,28 @@ export function mailMoveToastMessage(
       return f ? `${prefix}'${f.displayName}' 메일함으로 옮겼습니다` : `${prefix}메일함으로 옮겼습니다`
     }
   }
+}
+
+/** WP-962 한 메일에 대한 보관·옮기기·삭제(+ WP-1681 휴지통 보기의 되살리기) — 목록 행(hover·우클릭 메뉴)·상세가 같은 묶음을 받는다. */
+export interface MailMoveActions {
+  avail: MailMoveAvailability
+  targets: readonly MailMoveTargetOption[]
+  onArchive: () => void
+  onTrash: () => void
+  onMove: (target: MailMoveTarget) => void
+  /** WP-1681 원래 메일함(모르면 받은편지함)으로 되살리기 — 휴지통 보기에서만 보인다(avail.restore). */
+  onRestore: () => void
+  /**
+   * WP-1682 휴지통 메일 「완전히 삭제」 — 휴지통 보기(avail.restore)에서만 채운다. 상세 작업 줄·휴대폰 ⋯ 메뉴·목록 행 우클릭 메뉴(WP-1730)가
+   * 쓰고, 목록 행 hover·길게 누르기 시트에는 두지 않는다. onRequest 는 확인 창을 연다(제목은 확인 창 본문에 쓴다).
+   */
+  permanentDelete?: { state: TrashButtonState; pending: boolean; onRequest: (subject: string | null) => void }
+}
+
+/**
+ * 읽음 전환 항목의 글자 — 읽은 메일이면 「안 읽음으로 표시」, 아니면 「읽음으로 표시」.
+ * 행 hover ✉ 단추·행 우클릭 메뉴·길게 누르기 시트가 같은 글자를 쓰게 한 곳에서 정한다.
+ */
+export function toggleReadLabel(seen: boolean): string {
+  return seen ? '안 읽음으로 표시' : '읽음으로 표시'
 }
