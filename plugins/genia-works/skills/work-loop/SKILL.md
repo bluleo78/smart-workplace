@@ -12,7 +12,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 | 방식 | 누가 깨우나 | 알림 감시(`Monitor`) | 다음 확인 |
 |---|---|---|---|
 | `runner` | 실행기(genia 확장·Codex 구동기)가 반복·알림 깨우기를 맡는다 — 실행기가 같은 감시를 띄워 `wake` 줄마다 이 스킬을 부른다 | 걸지도 다시 걸지도 않는다(5번 「알림으로 깨우기」) | 깨우기 도구로 잡지 않는다 — 5번 규칙대로 시각을 정하고 `gw-status` 로 쉬는 중을 보고한 뒤, 부르기의 **마지막 줄**에 `GW-NEXT-CHECK <다음 확인 시각(ISO-8601)>` 을 쓴다. 어떻게 끝나든(2번 잠금 `held`·오류 포함) 늘 쓰고, 시각은 5번이 그 끝에 정한 간격으로 정한다. 잡지 않는 경우(1번에서 멈춤·`DRAIN`·`RESTART`)만 `GW-NEXT-CHECK none` 이다. (`none` 을 받으면 실행기가 신원·`gw-status` 를 다시 확인해, AI 키 신원이 아니거나 `DRAIN`·`RESTART` 일 때만 멈추고 `RUN`·`HOLD` 이면 20분 뒤 다시 부른다.) |
-| `pane` | start-agent·Pod 로 띄운 Claude Code 칸 — 그 AI 의 알림 감시 창이 `wake` 줄을 받을 때 쉬는 칸에 `/loop /genia-works:work-loop <인자>` 를 직접 넣어 깨운다 | 걸지도 다시 걸지도 않는다 | 지금처럼 `ScheduleWakeup` 으로 잡는다(5번) — `GW-NEXT-CHECK` 줄은 쓰지 않는다 |
+| `pane` | start-agent·Pod 로 띄운 Claude Code 칸 — 그 AI 의 알림 감시 창이 `wake` 줄을 받을 때 쉬는 칸에 `/loop /genia-works:work-loop <인자>` 를 직접 넣어 깨운다 | 걸지도 다시 걸지도 않는다 | 지금처럼 `ScheduleWakeup` 으로 잡는다(5번) — `GW-NEXT-CHECK` 줄은 쓰지 않는다. 부르기가 끝나면 감시 창이 대화를 비울 수 있다 — 이어 할 것은 notes·서버에 둔다 |
 | `self` | 이 세션이 스스로(사람이 직접 띄운 Claude Code `/loop`) | 5번대로 건다 | 지금처럼 `ScheduleWakeup` 으로 잡는다(5번) |
 
 - 다음 확인을 잡은 뒤에는 **스스로 확인한다**: `pane`·`self` 는 `ScheduleWakeup` 호출 결과(잡힌 시각)를 받았는지, `runner` 는 마지막 줄에 `GW-NEXT-CHECK` 를 썼는지. 빠졌으면 지금 바로 잡는다 — 다음 확인이 없으면 이 칸은 사람이 깨울 때까지 멈춘다.
@@ -125,7 +125,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 | 내 작업 상태 | 고르나 |
 |---|---|
 | 없음 / 시작 전(SUBMITTED) | 새 작업으로 고른다 |
-| 작업 중(WORKING) | 이전 실행이 끊긴 것으로 보고 이어 한다. 다만 **백그라운드 작업 중**(notes 파일의 `마지막 완료 단계` 가 「백그라운드: …」)이면 notes 의 `끝날 시각` 이 지났을 때만 고른다 — 새 글이 있으면 시각과 상관없이 고른다 |
+| 작업 중(WORKING) | 이전 실행이 끊긴 것으로 보고 이어 한다. 다만 **백그라운드 작업 중**(notes 파일의 `마지막 완료 단계` 가 「백그라운드: …」)이면 notes 의 `끝날 시각` 이 지났을 때만 고른다 — 새 글이 있으면 시각과 상관없이 고른다. 이어 하려는데 notes 파일을 못 찾으면 `"<이 스킬 폴더>/../../scripts/gw-clear-mark" miss <프로젝트 키> <이슈 키>` 를 한 번 부른다(WAITING 도 같다) |
 | 답변 필요(INPUT_REQUIRED)·인증 필요(AUTH_REQUIRED) | 그 이슈에 새 글이 있을 때만(`pendingForMe`) |
 | 차단됨(BLOCKED) | 새 글이 있을 때만 |
 | 검토 대기(REVIEW) | 새 글이 있을 때만 — 추가 요청으로 처리 |
@@ -237,3 +237,11 @@ start-agent 가 띄운 칸에서만, 다음 확인을 잡기 전에 한다. 내�
 | 30분 안, 대기열에 가져갈 일만 있음 | 같은 부르기에서 하나 가져와 처리(동시 진행 상한 안) |
 | 30분 안, 아무것도 없음(상한에 걸려 못 가져감 포함) | 「할 일 없음」 확인 뒤 끝냄 — 다음 확인 20~30분(더 이른 `nextRunAt`·`끝날 시각` 이 있으면 그 시각) |
 | 30분이 넘음 | 다음 후보를 고르지 않고 끝냄 — 다음 확인 1분 안팎 |
+
+#### 대화 비우기 표시
+
+다음 확인을 잡은 **뒤** `"<이 스킬 폴더>/../../scripts/gw-clear-mark" set <프로젝트 키> <idle|timeout|error>` 를 부른다(끝난 까닭 — 기록용이다: idle = 할 일 없음, timeout = 30분 넘김, error = 그 밖(잠금 오류 등)). `runner` 방식은 `ScheduleWakeup` 대신 마지막 줄 `GW-NEXT-CHECK` 를 쓰므로, 이 호출은 그 줄을 쓰기 **전에** 하고 `GW-NEXT-CHECK` 줄이 응답의 맨 마지막 줄로 남게 한다. 스크립트가 방식(`pane`)과 `GENIA_WORKS_AGENT_DIR` 를 스스로 가른다 — 방식과 상관없이 같은 자리에서 부른다. 감시 창이 이 표시를 보고 쉬는 칸의 대화를 비운다.
+
+- 부르는 조건(모두): 이 세션에서 띄운 백그라운드 작업이 모두 끝났다 — 하위 에이전트(`Agent` 의 `run_in_background`)·백그라운드 셸(`Bash` 의 `run_in_background`)·`Monitor` 중 완료 알림이 이 세션으로 오는 것은 다 센다(`bg-job` 은 세션 밖이라 세지 않는다) · `ScheduleWakeup` 결과를 받았다.
+- 부르지 않는 경우: 백그라운드 하위 에이전트를 기다리는 중 · 다음 확인을 잡지 않고 끝난 경우(1번 멈춤·`DRAIN`·`RESTART`·직접 부른 `/genia-works:work-loop`).
+- 실패해도 부르기를 막지 않는다. 출력은 없다.

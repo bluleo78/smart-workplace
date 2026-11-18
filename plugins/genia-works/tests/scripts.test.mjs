@@ -2140,8 +2140,9 @@ async function fakeClaudePane(wrapper, tmux, key, text, later) {
 
 // 다시 보기(WP-1403)는 테스트마다 정한다 — 기본은 기다리지 않고(MAX 0) 바로 판정한다.
 // 막 뜬 칸 보호(WP-1403)도 테스트마다 정한다 — 기본은 끈다(FRESH 0).
+// env(WP-1714) — poke 에 더 넘길 환경(GW_CLEAR_* 등). 안 주면 기존과 같다.
 // attachedIdleSec(WP-1459) — 보고 있는 칸을 입력 없은 지 몇 초부터 풀지. 안 주면 스크립트 기본(600초).
-function pokeSetup(t, { cli = 'claude', retrySec = '1', retryMax = '0', freshSec = '0', attachedIdleSec } = {}) {
+function pokeSetup(t, { cli = 'claude', retrySec = '1', retryMax = '0', freshSec = '0', attachedIdleSec, env = {} } = {}) {
   const { wrapper, tmux } = tmuxServer(t);
   const d = aiDir();
   run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
@@ -2151,6 +2152,7 @@ function pokeSetup(t, { cli = 'claude', retrySec = '1', retryMax = '0', freshSec
   const poke = (key, ...extra) => runAsync('agent-events', ['poke', d, key, ...extra], {
     GW_TMUX: wrapper, GW_POKE_RETRY_SEC: retrySec, GW_POKE_RETRY_MAX: retryMax, GW_POKE_FRESH_SEC: freshSec,
     ...(attachedIdleSec === undefined ? {} : { GW_ATTACHED_IDLE_SEC: attachedIdleSec }),
+    ...env,
   });
   return { wrapper, tmux, d, log, poke };
 }
@@ -2558,6 +2560,39 @@ tmuxTest('agentEvents_poke_ignoresNonClaudeRunner', async (t) => {
   assert.ok(!log().includes('sent'), log());
 });
 
+// ---------------------------------------------------------------- agent-events poke — /loop 전에 비우기 (WP-1714)
+// 비우기 표시가 있고 스위치가 on 이면 /loop 앞에 /clear 를 넣는다. 가짜 칸은 화면이 안 바뀌어도(지문 그대로) /loop 는 넣어야 한다 — 깨어남을 잃지 않는다.
+const clearPokeEnv = { GW_CLEAR_WAIT_SEC: '2', GW_CLEAR_MIN_AGE_SEC: '20' };
+
+tmuxTest('agentEvents_poke_clearsBeforeLoopWhenMarked', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { env: clearPokeEnv });
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMode(d, 'on');
+  clearMark(d, 'WP', 60);
+  const r = await poke('WP');
+  assert.equal(r.status, 0, r.stderr);
+  await until(() => wp.typed() === `/clear\n${LOOP}\n`);
+  assert.match(log(), /^clear WP sent$[\s\S]*^poke WP sent/m);
+});
+
+tmuxTest('agentEvents_poke_unmarkedPaneOnlyGetsLoop', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { env: clearPokeEnv });
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMode(d, 'on');
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n`);
+  assert.ok(!log().includes('clear WP'), log());
+});
+
+tmuxTest('agentEvents_poke_shadowDoesNotClear', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { env: clearPokeEnv });
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMark(d, 'WP', 60); // 스위치 파일 없음 = shadow
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n`);
+  assert.match(log(), /^clear WP would$/m);
+});
+
 // ---------------------------------------------------------------- agent-events sweep — 오래 쉬는 칸 안전장치 (WP-1427)
 // 알림이 없어도 칸이 1시간 넘게 쉬면 poke 경로로 /loop 를 넣는다. 일하는 칸·입력 중인 칸은 건드리지 않고, 같은 칸에 1시간에 한 번만 넣는다.
 const sweepEnv = (wrapper) => ({ GW_TMUX: wrapper, GW_POKE_FRESH_SEC: '0', GW_POKE_RETRY_MAX: '0', GW_IDLE_POKE_SECS: '3600' });
@@ -2733,6 +2768,128 @@ tmuxTest('agentEvents_sweep_ignoresNonClaudeRunner', async (t) => {
   assert.equal(wp.typed(), '');
 });
 
+// ---------------------------------------------------------------- agent-events sweep — 쉬는 칸 비우기 (WP-1714)
+// work-loop 이 남긴 「비워도 됨」 표시(clear-ok-<키>)가 있고 칸이 쉬고 사람이 최근 말을 걸지 않았을 때만 /clear 를 넣는다. 놓치면 실패이므로 의심되면 넣지 않는다.
+const clearMark = (d, key, secs) => {
+  mkdirSync(join(d, 'state'), { recursive: true });
+  writeFileSync(join(d, 'state', `clear-ok-${key}`), `${Math.floor(Date.now() / 1000) - secs} idle\n`);
+};
+const clearMode = (d, mode) => {
+  mkdirSync(join(d, 'state'), { recursive: true });
+  writeFileSync(join(d, 'state', 'clear-mode'), `${mode}\n`);
+};
+const clearEnv = (wrapper, extra = {}) => ({ ...sweepEnv(wrapper), GW_CLEAR_MIN_AGE_SEC: '20', GW_CLEAR_HUMAN_HOLD_SEC: '7200', ...extra });
+const clearOk = (d, key) => join(d, 'state', `clear-ok-${key}`);
+
+tmuxTest('agentEvents_sweep_clearsIdlePaneWithOldMarkWhenOn', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMode(d, 'on');
+  clearMark(d, 'WP', 60);
+  assert.equal((await runAsync('agent-events', ['sweep', d], clearEnv(wrapper))).status, 0);
+  await until(() => wp.typed() === '/clear\n');
+  assert.ok(!existsSync(clearOk(d, 'WP')));
+  assert.match(log(), /^clear WP sent$/m);
+  // 비운 칸의 1시간 기록은 지금부터 다시 센다(빈 지문).
+  assert.match(readFileSync(idleMark(d, 'WP'), 'utf8'), /^\d+ \n$/);
+});
+
+tmuxTest('agentEvents_sweep_shadowLogsWouldOnceAndTypesNothing', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMark(d, 'WP', 60); // 스위치 파일 없음 = shadow
+  const sweep = () => runAsync('agent-events', ['sweep', d], clearEnv(wrapper));
+  await sweep();
+  await sweep();
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.equal((log().match(/^clear WP would$/gm) || []).length, 1, log());
+  assert.ok(!existsSync(clearOk(d, 'WP')));
+});
+
+tmuxTest('agentEvents_sweep_offDropsMarkSilently', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMode(d, 'off');
+  clearMark(d, 'WP', 60);
+  await runAsync('agent-events', ['sweep', d], clearEnv(wrapper));
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.ok(!existsSync(clearOk(d, 'WP')));
+  assert.ok(!/^clear /m.test(log()), log());
+});
+
+tmuxTest('agentEvents_sweep_keepsMarkWhenPokeStampIsFresh', async (t) => {
+  const { wrapper, tmux, d } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMode(d, 'on');
+  clearMark(d, 'WP', 60);
+  // 같은 키 poke 가 방금 /loop 를 넣었다 — 비우면 /loop 와 섞이므로 넣지 않고 표시도 둔다.
+  writeFileSync(join(d, 'state', 'poke-WP'), '');
+  await runAsync('agent-events', ['sweep', d], clearEnv(wrapper));
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.ok(existsSync(clearOk(d, 'WP')));
+});
+
+tmuxTest('agentEvents_sweep_keepsFreshMark', async (t) => {
+  const { wrapper, tmux, d } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMode(d, 'on');
+  clearMark(d, 'WP', 5);
+  await runAsync('agent-events', ['sweep', d], clearEnv(wrapper));
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.ok(existsSync(clearOk(d, 'WP')));
+});
+
+tmuxTest('agentEvents_sweep_skipsWhenHumanSpokeRecently', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMode(d, 'on');
+  const sweep = () => runAsync('agent-events', ['sweep', d], clearEnv(wrapper));
+  // 표시보다 오래된 사람 글(부르기 도중 친 글)도 막는다.
+  clearMark(d, 'WP', 60);
+  writeFileSync(join(d, 'state', 'human-WP'), ago(3600));
+  await sweep();
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.ok(!existsSync(clearOk(d, 'WP')));
+  assert.match(log(), /^clear WP skipped-human$/m);
+  // 키를 못 찾은 사람 글(human-all)도 같다.
+  rmSync(join(d, 'state', 'human-WP'));
+  clearMark(d, 'WP', 60);
+  writeFileSync(join(d, 'state', 'human-all'), ago(10));
+  await sweep();
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.ok(!existsSync(clearOk(d, 'WP')));
+  assert.equal((log().match(/^clear WP skipped-human$/gm) || []).length, 2, log());
+});
+
+tmuxTest('agentEvents_sweep_clearsAfterHumanHoldExpires', async (t) => {
+  const { wrapper, tmux, d } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  clearMode(d, 'on');
+  clearMark(d, 'WP', 60);
+  writeFileSync(join(d, 'state', 'human-WP'), ago(7300));
+  await runAsync('agent-events', ['sweep', d], clearEnv(wrapper));
+  await until(() => wp.typed() === '/clear\n');
+});
+
+tmuxTest('agentEvents_sweep_keepsMarkOnBusyPane', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const busy = screen(['✻ Effecting… (8s · ↓ 81 tokens)'], [P]);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', `${busy}\nbypass permissions`);
+  clearMode(d, 'on');
+  clearMark(d, 'WP', 60);
+  await runAsync('agent-events', ['sweep', d], clearEnv(wrapper));
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.ok(existsSync(clearOk(d, 'WP')));
+  assert.ok(!/^clear /m.test(log()), log());
+});
+
 // ---------------------------------------------------------------- gw-wake-mode (WP-1427)
 test('gwWakeMode_priorityAndFallbackToSelf', () => {
   const mode = (env) => {
@@ -2821,4 +2978,55 @@ tmuxTest('agentWindow_keys_excludesEventsWindow', (t) => {
   assert.equal(agentWindow(wrapper, ['--restart', 'kodi', 'WP', home, 'sleep', '61']).stdout, 'restarted kodi\n');
   const [after] = eventWindows(tmux);
   assert.deepEqual([after.id, after.pid, after.dead], [before.id, before.pid, false]);
+});
+
+// ---- gw-clear-mark (WP-1714)
+
+test('gwClearMark_set_writesMarkOnlyInPaneMode', () => {
+  const d = aiDir();
+  const mark = join(d, 'state', 'clear-ok-WP');
+  rmSync(join(d, 'state'), { recursive: true, force: true });
+  run('gw-clear-mark', ['set', 'WP', 'timeout'], { env: { GENIA_WORKS_AGENT_DIR: d, GENIA_WORKS_WAKE_MODE: 'self' } });
+  assert.equal(existsSync(mark), false);
+  run('gw-clear-mark', ['set', 'WP', 'timeout'], { env: { GENIA_WORKS_WAKE_MODE: 'pane' } }); // 폴더 변수 없음
+  assert.equal(existsSync(mark), false);
+  const r = run('gw-clear-mark', ['set', 'WP', 'timeout'], { env: { GENIA_WORKS_AGENT_DIR: d, GENIA_WORKS_WAKE_MODE: 'pane' } });
+  assert.equal(r.status, 0); assert.equal(r.stdout, '');
+  assert.match(readFileSync(mark, 'utf8'), /^\d{10} timeout\n$/);
+  run('gw-clear-mark', ['set', 'WP', 'weird'], { env: { GENIA_WORKS_AGENT_DIR: d, GENIA_WORKS_WAKE_MODE: 'pane' } });
+  assert.match(readFileSync(mark, 'utf8'), / idle\n$/);
+});
+
+test('gwClearMark_seen_withoutTmuxDropsAllMarks', () => {
+  // tmux 를 못 읽으면 그 AI 의 표시를 모두 지우고, 사람 글이면 human-all 을 쓴다.
+  const d = aiDir();
+  mkdirSync(join(d, 'state'), { recursive: true });
+  writeFileSync(join(d, 'state', 'clear-ok-WP'), ago(100)); writeFileSync(join(d, 'state', 'clear-ok-WD'), ago(100));
+  run('gw-clear-mark', ['seen', d, '%9', 'human'], { env: { GW_TMUX: 'false' } });
+  assert.equal(existsSync(join(d, 'state', 'clear-ok-WP')), false);
+  assert.equal(existsSync(join(d, 'state', 'clear-ok-WD')), false);
+  assert.match(readFileSync(join(d, 'state', 'human-all'), 'utf8'), /^\d{10}\n$/);
+});
+
+tmuxTest('gwClearMark_seen_resolvesPaneKey', async (t) => {
+  // loop·notice 는 그 키 표시만 지우고, human 은 human-<키> 를 쓴다(다른 키 표시는 그대로).
+  const { wrapper, tmux, d } = pokeSetup(t);
+  mkdirSync(join(d, 'state'), { recursive: true });
+  await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  const id = panes(tmux, 'kodi').find((p) => p.key === 'WP').id;
+  for (const kind of ['loop', 'notice', 'human']) {
+    writeFileSync(join(d, 'state', 'clear-ok-WP'), ago(100)); writeFileSync(join(d, 'state', 'clear-ok-WD'), ago(100));
+    assert.equal(run('gw-clear-mark', ['seen', d, id, kind], { env: { GW_TMUX: wrapper } }).status, 0);
+    assert.equal(existsSync(join(d, 'state', 'clear-ok-WP')), false, kind);
+    assert.equal(existsSync(join(d, 'state', 'clear-ok-WD')), true, kind);
+  }
+  assert.ok(existsSync(join(d, 'state', 'human-WP')));
+  assert.equal(existsSync(join(d, 'state', 'human-all')), false);
+});
+
+test('gwClearMark_miss_logsResumeMissInPaneMode', () => {
+  const d = aiDir();
+  rmSync(join(d, 'state'), { recursive: true, force: true });
+  run('gw-clear-mark', ['miss', 'WP', 'WP-12'], { env: { GENIA_WORKS_AGENT_DIR: d, GENIA_WORKS_WAKE_MODE: 'pane' } });
+  assert.equal(readFileSync(join(d, 'state', 'events.log'), 'utf8'), 'clear WP resume-miss WP-12\n');
 });

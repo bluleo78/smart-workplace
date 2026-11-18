@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey, isRealAsk, isUnattendedLaunch, unattendedAskDeny, isShellSafetyAsk, isAiLaunch, UNATTENDED_SHELL_DENY, UNATTENDED_PERSON_DENY } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey, isRealAsk, isUnattendedLaunch, unattendedAskDeny, isShellSafetyAsk, isAiLaunch, UNATTENDED_SHELL_DENY, UNATTENDED_PERSON_DENY, promptKind } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -333,4 +333,12 @@ test('isShellSafetyAsk: Bash 의 출처 필드(rule·hook·plugin·setting) 없�
   assert.equal(isShellSafetyAsk({ tool: 'Write', verdict: SAFETY_ASK }), false);
   assert.equal(isShellSafetyAsk({ tool: 'Bash', verdict: { decision: 'allow' } }), false);
   assert.equal(isShellSafetyAsk({ tool: 'Bash', verdict: undefined }), false);
+});
+
+test('promptKind: work-loop 반복은 loop, 백그라운드 완료 알림은 notice, 그 밖은 human', () => {
+  assert.equal(promptKind('/loop /genia-works:work-loop WP --queue "AI 개발팀"'), 'loop');
+  assert.equal(promptKind('<task-notification>\n<task-id>b1</task-id>'), 'notice');
+  assert.equal(promptKind('[genia-works 알림] WP-1 ISSUE_CHAT_MENTION — 하던 일 사이에 확인해 주세요'), 'notice');
+  assert.equal(promptKind('/loop 5m 다른 일'), 'human');
+  assert.equal(promptKind('이거 먼저 해 줘'), 'human');
 });
