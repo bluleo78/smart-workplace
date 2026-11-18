@@ -5,7 +5,7 @@ import { isAxiosError } from 'axios';
 import { useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { coachDraft, fetchMailAttachmentDataUri, fetchOlderMail, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMailFolders, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, respondToInvite, sendMail, syncMailbox, syncMailFolder } from '../../api/mailMessages';
+import { coachDraft, fetchMailAttachmentDataUri, fetchOlderMail, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMailFolders, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, respondToInvite, sendMail, setMessageFlagged, syncMailbox, syncMailFolder } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import { MAIL_PAGE_SIZE, type MailListCache, mapMailListCache, nextMailCursor } from '../../lib/mailListPages';
@@ -214,7 +214,51 @@ export function useToggleRead() {
 }
 
 /**
- * 진행 중인 읽음 전환 수 — onMutate 에서 늘리고 onSettled 에서 줄인다(onMutate 가 실패해도 onSettled 는 불린다).
+ * WP-1741 한 통 별표 켜기/끄기 — 목록 캐시(페이지 묶음·최신 N건)와 열린 상세 캐시의 flagged 를 함께 낙관적으로 바꾼다.
+ * 목록 행 별과 읽기 창 「별표」/「별표 해제」가 같은 값을 보게 하려는 것(상세 단추는 상세 캐시를 본다). 실패하면 둘 다 되돌리고 토스트.
+ * 읽음 전환과 같이 데이터가 있는 조회만 취소한다 — 진행 중이던 재조회가 옛 값(flagged:false)으로 내려앉아 별이 도로 꺼지지 않게.
+ * 완료 뒤에는 보통 다시 받지 않는다 — 서버가 보내는 메일 변경 알림(mail updated, messageId 포함)이 목록·상세를 다시 받게 한다.
+ * 단 누른 순간 진행 중이던 목록 조회(새 메일이 실렸을 수 있다)를 취소했으면 끝난 뒤 한 번 다시 받는다 — 실패하면 알림이 오지 않아
+ * 60초 주기까지 새 메일이 늦어지기 때문이다. 읽음 전환과 같은 묶음(pendingToggles·listsNeedRefresh·refreshListsAfterToggle)에
+ * 참여해, 읽음·별표를 섞어 연달아 눌러도 마지막 전환이 끝난 뒤 한 번만 다시 받는다.
+ * 별표는 안 읽은 수와 무관해 계수 무효화도 하지 않는다.
+ */
+export function useToggleFlag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, flagged }: { id: number; flagged: boolean }) => setMessageFlagged(id, flagged),
+    onMutate: async ({ id, flagged }) => {
+      const detailKey = mailMessageKeys.detail(id);
+      pendingToggles += 1;
+      // 진행 중이던 목록 조회(취소할 재조회·첫 조회)가 있으면 완료 뒤 다시 받아야 한다(읽음 전환과 같은 묶음).
+      if (qc.isFetching({ queryKey: ['mail-messages'] }) > 0) listsNeedRefresh = true;
+      const hasData = (q: { state: { data: unknown } }) => q.state.data !== undefined;
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ['mail-messages'], predicate: hasData }),
+        qc.cancelQueries({ queryKey: detailKey, exact: true, predicate: hasData }),
+      ]);
+      const lists = qc.getQueriesData<MailListCache>({ queryKey: ['mail-messages'] });
+      const detail = qc.getQueryData<EmailMessageDetail>(detailKey);
+      qc.setQueriesData<MailListCache>({ queryKey: ['mail-messages'], exact: false }, (old) =>
+        mapMailListCache(old, (m) => (m.id === id ? { ...m, flagged } : m)),
+      );
+      if (detail) qc.setQueryData<EmailMessageDetail>(detailKey, { ...detail, flagged });
+      return { lists, detail, detailKey };
+    },
+    onError: (e, _v, ctx) => {
+      ctx?.lists.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (ctx?.detail) qc.setQueryData(ctx.detailKey, ctx.detail);
+      handleApiError(e, '별표를 바꾸지 못했어요');
+    },
+    onSettled: () => {
+      pendingToggles -= 1;
+      void refreshListsAfterToggle(qc);
+    },
+  });
+}
+
+/**
+ * 진행 중인 읽음·별표(WP-1741) 전환 수 — onMutate 에서 늘리고 onSettled 에서 줄인다(onMutate 가 실패해도 onSettled 는 불린다).
  * qc.isMutating 은 onSettled 안에선 자기 자신을 세지만, 진행 중 조회를 기다린 뒤의 재확인 시점엔 셀지가 타이밍에 달려 있어 직접 센다.
  */
 let pendingToggles = 0;
@@ -222,7 +266,7 @@ let pendingToggles = 0;
 let listsNeedRefresh = false;
 
 /**
- * WP-220 읽음 전환 완료 뒤 목록 재조회. 동시에 여러 통을 전환하면 마지막 하나만 다시 받는다 —
+ * WP-220 읽음(WP-1741 별표 포함) 전환 완료 뒤 목록 재조회. 동시에 여러 통을 전환하면 마지막 하나만 다시 받는다 —
  * 앞 전환의 재조회는 다음 전환의 cancelQueries 가 지워 버리므로, 진행 중 전환이 남아 있으면 그쪽 완료에 맡긴다.
  * 데이터 없는 목록은 invalidate 가 진행 중 조회를 끊지 않고 그 결과(읽음 처리 전 값)를 그대로 쓰므로,
  * 진행 중 조회가 끝나기(성공·실패 무관)를 기다린 뒤 다시 받는다.

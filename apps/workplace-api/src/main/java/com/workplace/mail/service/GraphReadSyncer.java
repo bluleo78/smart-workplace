@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,9 +23,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Graph 계정 읽음 역동기화(WP-187): $batch 로 PATCH /me/messages/{id} {"isRead": seen} 를 20건씩 보낸다. 항목별
- * 2xx·404 는 끝난 것으로 보고, 429·5xx 를 만나면 그 묶음의 성공분만 반영한 뒤 다음 묶음을 보내지 않고 멈춘다. batch 요청 자체가 실패해도 앞 묶음까지의
- * 성공분은 돌려주고 멈춘다. 토큰은 세션이 처음 필요할 때 받아 {@link #TOKEN_REUSE} 동안 조각끼리 재사용한다(WP-215).
+ * Graph 계정 읽음·별표 역동기화(WP-187, WP-1741 별표): $batch 로 PATCH /me/messages/{id} {"isRead": seen,
+ * "flag": {...}} 를 20건씩 보낸다(반영 대기 중인 속성만 담는다). 항목별 2xx·404 는 끝난 것으로 보고, 429·5xx 를 만나면 그 묶음의 성공분만
+ * 반영한 뒤 다음 묶음을 보내지 않고 멈춘다. batch 요청 자체가 실패해도 앞 묶음까지의 성공분은 돌려주고 멈춘다. 토큰은 세션이 처음 필요할 때 받아 {@link
+ * #TOKEN_REUSE} 동안 조각끼리 재사용한다(WP-215).
  */
 @Slf4j
 @Component
@@ -94,6 +96,21 @@ public class GraphReadSyncer implements MailReadSyncer {
     }
   }
 
+  /**
+   * PATCH 본문 — 반영 대기 중인 속성만 담는다(WP-1741). 읽음만 바뀌었으면 flag 를 보내지 않는다: 보내면 Outlook 에서 「완료」로 둔 플래그를
+   * 덮어쓴다. 별표를 끌 때는 {@code notFlagged} 를 보낸다(완료 표시도 함께 지워지지만 사용자가 앱에서 별표를 끈 결과와 같다).
+   */
+  static Map<String, Object> patchBody(SeenSyncItem it) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    if (it.seen() != null) {
+      body.put("isRead", it.seen());
+    }
+    if (it.flagged() != null) {
+      body.put("flag", Map.of("flagStatus", it.flagged() ? "flagged" : "notFlagged"));
+    }
+    return body;
+  }
+
   /** 한 조각을 20건씩 $batch 로 보낸다. batch 최상위 실패도 예외로 올리지 않고 앞 묶음까지의 성공분과 함께 멈춤을 돌려준다. */
   private SeenSyncResult push(Supplier<String> token, List<SeenSyncItem> items) {
     Set<Long> done = new HashSet<>();
@@ -119,7 +136,7 @@ public class GraphReadSyncer implements MailReadSyncer {
                           String.valueOf(it.messageId()),
                           "PATCH",
                           "/me/messages/" + it.locator().providerMessageId(),
-                          Map.<String, Object>of("isRead", it.seen())))
+                          patchBody(it)))
               .toList();
       List<GraphBatchResponse> responses;
       try {

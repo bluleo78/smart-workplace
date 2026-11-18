@@ -44,6 +44,7 @@ export function summary(overrides?: Partial<EmailMessageSummary>): EmailMessageS
     snippet: '내일 오후 2시에 회의를 진행합니다',
     receivedAt: '2026-06-03T01:00:00Z',
     seen: false,
+    flagged: false,
     hasAttachment: true,
     aiCategory: null,
     aiNeedsReply: null,
@@ -67,6 +68,7 @@ export function detail(overrides?: Partial<EmailMessageDetail>): EmailMessageDet
     sentAt: '2026-06-03T01:00:00Z',
     receivedAt: '2026-06-03T01:00:00Z',
     seen: false,
+    flagged: false,
     bodyText: '내일 오후 2시에 회의를 진행합니다. 참석 부탁드립니다.',
     bodyHtml: null,
     attachments: [

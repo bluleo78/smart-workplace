@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +19,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 읽음 역동기화 디스패처(WP-187 일반화, WP-188 순서 보장·재시도).
+ * 읽음 역동기화 디스패처(WP-187 일반화, WP-188 순서 보장·재시도). WP-1741 부터 별표(서버 플래그)도 같은 틀로 반영한다 — 항목은 반영 대기 중인
+ * 속성(읽음·별표)만 값을 싣고, 해제·실패 기록·포기는 속성마다 따로 한다(계정 리스는 공유해 한 계정의 반영은 여전히 하나씩).
  *
  * <p>한 계정의 원본 서버 반영은 <b>계정 리스</b>(email_account.seen_push_lease_*)를 쥔 실행 하나만 한다. 리스를 쥐면 그 계정의 "지금
  * 반영할" 대기 행을 {@link #CHUNK} 개씩 [짧은 트랜잭션: 리스 연장 + 처리 시점 seen 조회] → [트랜잭션 밖: 원본 서버 반영] → [짧은 트랜잭션:
@@ -214,39 +216,59 @@ public class MailReadSyncDispatcher {
   }
 
   /**
-   * 성공 항목을 보낸 값별로 나눠 한 번씩 해제(짧은 트랜잭션) — 보낸 값과 지금 seen 이 같을 때만 풀려, 그사이 사용자가 다시 바꿨다면 대기가 남아 다음 조각에서 새
-   * 값을 보낸다.
+   * 성공 항목을 속성(읽음·별표 — WP-1741)과 보낸 값별로 나눠 한 번씩 해제(짧은 트랜잭션) — 보낸 값과 지금 값이 같을 때만 풀려, 그사이 사용자가 다시 바꿨다면
+   * 대기가 남아 다음 조각에서 새 값을 보낸다. 보내지 않은 속성(null)은 건드리지 않는다.
    */
   private void clearPushed(List<SeenSyncItem> items, SeenSyncResult r) {
-    Map<Boolean, List<Long>> pushed = bySeen(items, it -> r.succeeded().contains(it.messageId()));
+    Predicate<SeenSyncItem> ok = it -> r.succeeded().contains(it.messageId());
+    // WP-1741: 별표를 서버에 보낼 수 없어 앱 안에만 둔 메일은 풀지 않고 보류한다(재시도 없음 + 동기화가 서버 값으로 덮지 않음)
+    Predicate<SeenSyncItem> localOnly = it -> r.flagLocalOnly().contains(it.messageId());
+    Map<Boolean, List<Long>> seen = byValue(items, ok, SeenSyncItem::seen);
+    Map<Boolean, List<Long>> flagged =
+        byValue(items, ok.and(localOnly.negate()), SeenSyncItem::flagged);
+    Map<Boolean, List<Long>> parked = byValue(items, ok.and(localOnly), SeenSyncItem::flagged);
     txTemplate.executeWithoutResult(
         s -> {
-          messageRepo.clearSeenPushPendingIn(pushed.get(true), true);
-          messageRepo.clearSeenPushPendingIn(pushed.get(false), false);
+          messageRepo.clearSeenPushPendingIn(seen.get(true), true);
+          messageRepo.clearSeenPushPendingIn(seen.get(false), false);
+          messageRepo.clearFlaggedPushPendingIn(flagged.get(true), true);
+          messageRepo.clearFlaggedPushPendingIn(flagged.get(false), false);
+          messageRepo.parkFlaggedPushIn(parked.get(true), true);
+          messageRepo.parkFlaggedPushIn(parked.get(false), false);
         });
   }
 
-  /** 실패 항목을 보낸 값별로 기록(짧은 트랜잭션)하고, 상한에 닿아 포기한 건수가 있으면 경고 로그(계정 id·건수만)를 남긴다. */
+  /**
+   * 실패 항목을 속성·보낸 값별로 기록(짧은 트랜잭션)하고, 상한에 닿아 포기한 건수가 있으면 경고 로그(계정 id·건수만)를 남긴다. 읽음·별표 재시도 상태는 따로라 한쪽
+   * 포기가 다른 쪽 대기를 풀지 않는다(WP-1741).
+   */
   private void recordFailure(long accountId, List<SeenSyncItem> items, Predicate<SeenSyncItem> f) {
-    Map<Boolean, List<Long>> failed = bySeen(items, f);
+    Map<Boolean, List<Long>> seen = byValue(items, f, SeenSyncItem::seen);
+    Map<Boolean, List<Long>> flagged = byValue(items, f, SeenSyncItem::flagged);
     Integer givenUp =
         txTemplate.execute(
             s ->
-                messageRepo.recordSeenPushFailure(failed.get(true), true, MAX_ATTEMPTS)
-                    + messageRepo.recordSeenPushFailure(failed.get(false), false, MAX_ATTEMPTS));
+                messageRepo.recordSeenPushFailure(seen.get(true), true, MAX_ATTEMPTS)
+                    + messageRepo.recordSeenPushFailure(seen.get(false), false, MAX_ATTEMPTS)
+                    + messageRepo.recordFlaggedPushFailure(flagged.get(true), true, MAX_ATTEMPTS)
+                    + messageRepo.recordFlaggedPushFailure(
+                        flagged.get(false), false, MAX_ATTEMPTS));
     if (givenUp != null && givenUp > 0) {
-      log.warn("읽음 역동기화 재시도 상한 도달 — 포기하고 서버 값을 따름: accountId={} count={}", accountId, givenUp);
+      log.warn("읽음·별표 역동기화 재시도 상한 도달 — 포기하고 서버 값을 따름: accountId={} count={}", accountId, givenUp);
     }
   }
 
-  /** 조건에 맞는 항목의 id 를 seen 값(true/false)별로 나눈다 — 해제·실패 기록은 "보낸 값" 조건으로 한 번씩 부른다. */
-  private static Map<Boolean, List<Long>> bySeen(
-      List<SeenSyncItem> items, Predicate<SeenSyncItem> f) {
+  /**
+   * 조건에 맞고 해당 속성 값이 있는(반영 대상인) 항목의 id 를 그 값(true/false)별로 나눈다 — 해제·실패 기록은 "보낸 값" 조건으로 한 번씩 부른다. 값이
+   * null(그 속성은 보내지 않음)인 항목은 빠진다.
+   */
+  private static Map<Boolean, List<Long>> byValue(
+      List<SeenSyncItem> items, Predicate<SeenSyncItem> f, Function<SeenSyncItem, Boolean> attr) {
     return items.stream()
         .filter(f)
+        .filter(it -> attr.apply(it) != null)
         .collect(
             Collectors.partitioningBy(
-                SeenSyncItem::seen,
-                Collectors.mapping(SeenSyncItem::messageId, Collectors.toList())));
+                attr::apply, Collectors.mapping(SeenSyncItem::messageId, Collectors.toList())));
   }
 }

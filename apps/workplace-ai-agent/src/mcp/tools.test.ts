@@ -117,6 +117,7 @@ function sharedMock(): MockedShared {
     markMailRead: vi.fn().mockResolvedValue(undefined),
     restoreMail: vi.fn().mockResolvedValue({ results: [{ messageId: 7, ok: true }] }), // WP-1681
     markMailUnread: vi.fn().mockResolvedValue(undefined),
+    setMailFlagged: vi.fn().mockResolvedValue(undefined), // WP-1741
     setMailCategory: vi.fn().mockResolvedValue({ aiCategory: '업무', categoryByMe: true, learnable: false }), // WP-1341
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
@@ -610,7 +611,7 @@ describe('프로필 구성', () => {
     // 이슈 본문이 시킨 쓰기 — 코멘트·이슈·일정·메시지·노트·드라이브, 카드 전용이던 일정·프로젝트·채널 초대와 메일 발송·지우기까지.
     for (const w of [
       'add_comment', 'update_issue', 'create_issue', 'add_channel_message', 'create_event', 'update_event', 'create_project',
-      'add_project_member', 'add_channel_member', 'create_wiki_page', 'create_drive_file', 'upload_file', 'mark_mail_read',
+      'add_project_member', 'add_channel_member', 'create_wiki_page', 'create_drive_file', 'upload_file', 'mark_mail_read', 'flag_mail',
       'send_mail', 'delete_event', 'delete_external_contact', 'delete_user_group',
     ]) {
       expect(names).toContain(w);

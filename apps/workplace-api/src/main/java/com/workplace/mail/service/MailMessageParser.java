@@ -74,7 +74,9 @@ public class MailMessageParser {
       receivedAt = sentAt; // IMAP 서버가 수신일을 안 주면 발신일로 대체
     }
 
-    boolean seen = msg.getFlags().contains(Flags.Flag.SEEN);
+    Flags flags = msg.getFlags();
+    boolean seen = flags.contains(Flags.Flag.SEEN);
+    boolean flagged = flags.contains(Flags.Flag.FLAGGED); // WP-1741: 서버 별표
 
     return new ParsedMessage(
         uid,
@@ -96,7 +98,8 @@ public class MailMessageParser {
         null, // snippet — 본문 적재 시 확정
         java.util.List.of(),
         // WP-130: 공유 지문 재료 — 선인출된 BODYSTRUCTURE 만 사용(본문 fetch 없음), 실패 시 null(공유 안 함)
-        MailStructureSignature.of(msg));
+        MailStructureSignature.of(msg),
+        flagged);
   }
 
   /** 본문/첨부만 파싱(OnDemand/백그라운드 본문 적재용). collectBody 로 IMAP 본문을 내려받아 text/html/스니펫/첨부를 수집한다. */

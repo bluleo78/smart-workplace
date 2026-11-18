@@ -54,7 +54,7 @@ public class GraphMailFetcher implements MailFetcher {
   static final String SELECT =
       "$select=subject,from,toRecipients,ccRecipients,"
           + "receivedDateTime,sentDateTime,isRead,hasAttachments,"
-          + "internetMessageId,conversationId";
+          + "internetMessageId,conversationId,flag"; // WP-1741: flag — 별표(flagStatus) 동기화
 
   /** Graph INBOX delta 초기 URL. */
   static final String INITIAL_DELTA_URL = "/me/mailFolders/inbox/messages/delta?" + SELECT;
@@ -338,14 +338,20 @@ public class GraphMailFetcher implements MailFetcher {
     return new OlderFetch(new MailSyncResult(fetched, saved, seenChanged, 0), from, false, true);
   }
 
-  /** 메시지 한 건 UPSERT — 기존 메시지는 seen 만 서버 isRead 로 갱신(WP-148). isRead 가 응답에 없으면 읽음 상태를 건드리지 않는다. */
+  /**
+   * 메시지 한 건 UPSERT — 기존 메시지는 seen 을 서버 isRead 로(WP-148), flagged 를 서버 flag.flagStatus 로(WP-1741)
+   * 갱신한다. 응답에 isRead·flag 가 없으면 그 상태를 건드리지 않는다.
+   */
   private EmailMessageRepository.UpsertOutcome upsert(
       long accountId, long folderId, GraphMessage m) {
     ParsedMessage parsed = GraphMessageMapper.toParsed(m);
     final String msgId = m.id();
     final boolean syncSeen = m.isRead() != null;
+    final boolean syncFlagged = m.flag() != null && m.flag().flagStatus() != null;
     return txTemplate.execute(
-        s -> messageRepo.upsertByProviderId(accountId, folderId, parsed, msgId, syncSeen));
+        s ->
+            messageRepo.upsertByProviderId(
+                accountId, folderId, parsed, msgId, syncSeen, syncFlagged));
   }
 
   /**

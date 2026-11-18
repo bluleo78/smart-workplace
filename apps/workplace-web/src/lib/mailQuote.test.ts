@@ -27,6 +27,7 @@ const detail = {
   sentAt: '2026-08-09T02:30:00Z',
   receivedAt: '2026-08-09T02:30:00Z',
   seen: true,
+  flagged: false,
   attachments: [],
   calendarInvite: null,
 };

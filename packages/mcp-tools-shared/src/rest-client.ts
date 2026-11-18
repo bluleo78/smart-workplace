@@ -484,6 +484,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async markMailUnread(messageId) {
       await http.post(`/mail/messages/${messageId}/unread`);
     },
+    // WP-1741: 별표는 읽음과 달리 PUT + 본문 { flagged } — 서버가 flagged 누락을 400 으로 막는다(기본값으로 별표를 지우는 실수 방지).
+    async setMailFlagged(messageId, flagged) {
+      await http.put(`/mail/messages/${messageId}/flag`, { flagged });
+    },
     // WP-1681: 휴지통 메일을 원래 메일함으로 — 이동 API 의 RESTORE 대상. 휴지통 밖 메일이 섞이면 서버가 400.
     async restoreMail(accountId, messageIds) {
       return (await http.post(`/mail/accounts/${accountId}/messages/move`, { messageIds, target: { kind: 'RESTORE' } })).data;

@@ -194,6 +194,14 @@ export async function markMessageUnread(messageId: number): Promise<void> {
   await client.post(`/mail/messages/${messageId}/unread`);
 }
 
+/**
+ * WP-1741 별표 켜기/끄기 — 메일 서버 플래그(IMAP \Flagged, Outlook flag)에도 반영된다(서버가 뒤에서 보낸다).
+ * 읽음 전환과 달리 PUT + 본문 { flagged } 다. 이미 같은 값이어도 200.
+ */
+export async function setMessageFlagged(messageId: number, flagged: boolean): Promise<void> {
+  await client.put(`/mail/messages/${messageId}/flag`, { flagged });
+}
+
 /** WP-187 보기 범위 필터 — 목록 API 와 같은 의미(category '' = 전체). folderId(WP-961)가 있으면 그 서버 메일함(분류·회신필요 무시). */
 export interface MailViewScope {
   category: string;

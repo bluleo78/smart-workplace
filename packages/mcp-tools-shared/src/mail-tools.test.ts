@@ -19,6 +19,7 @@ function mockClient(): Client {
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
     markMailUnread: vi.fn().mockResolvedValue(undefined),
+    setMailFlagged: vi.fn().mockResolvedValue(undefined),
     restoreMail: vi.fn().mockResolvedValue({ results: [{ messageId: 7, ok: true }] }),
     setMailCategory: vi.fn().mockResolvedValue({ aiCategory: '프로모션', categoryByMe: true, learnable: true }),
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
@@ -289,6 +290,28 @@ describe('메일 AI·처리 (#855)', () => {
     expect(await tool(c, 'mark_mail_read').handler({ messageId: 3, read: false })).toBe('ok');
     expect(c.markMailUnread).toHaveBeenCalledWith(3);
     expect(c.markMailRead).not.toHaveBeenCalled();
+  });
+
+  it('WP-1741: flag_mail → client.setMailFlagged(messageId, true) 후 ok, flagged 를 빠뜨려도 끄지 않는다(기본 켜기)', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'flag_mail').handler({ messageId: 3 })).toBe('ok');
+    expect(c.setMailFlagged).toHaveBeenLastCalledWith(3, true);
+  });
+
+  it('WP-1741: flag_mail flagged:false → 별표 해제', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'flag_mail').handler({ messageId: 3, flagged: false })).toBe('ok');
+    expect(c.setMailFlagged).toHaveBeenLastCalledWith(3, false);
+    await expect(tool(c, 'flag_mail').handler({ messageId: 0 })).rejects.toThrow();
+  });
+
+  it('WP-1741: list_mail 행의 flagged 는 true 일 때만 남긴다(categoryPending 과 같은 이유)', async () => {
+    const c = mockClient();
+    const row = { id: 1, accountId: 2, threadId: 't', subject: '견적', seen: true, flagged: false, hasAttachment: false, categoryPending: false };
+    vi.mocked(c.listMail).mockResolvedValue([row, { ...row, id: 2, flagged: true }]);
+    const out = JSON.parse(resultText(await tool(c, 'list_mail').handler({ accountId: 2 })));
+    expect(out[0]).not.toHaveProperty('flagged');
+    expect(out[1].flagged).toBe(true);
   });
 
   it('sync_mail → 서버 MailSyncResult 의 건수(fetched·saved·seenChanged)를 JSON 으로 돌려준다 (WP-353)', async () => {

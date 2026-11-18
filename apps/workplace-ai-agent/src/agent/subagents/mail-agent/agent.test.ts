@@ -23,6 +23,8 @@ describe('mail-agent 정의', () => {
       'mcp__workplace__sync_mail',
       // #855 · WP-146: 읽음 처리 + 메일→이슈 초안·생성
       'mcp__workplace__mark_mail_read',
+      // WP-1741: 별표 켜기/끄기(원본 메일 서버 플래그와 양방향)
+      'mcp__workplace__flag_mail',
       // WP-1681: 휴지통 메일 되살리기(되돌릴 수 있는 쓰기)
       'mcp__workplace__restore_mail',
       // WP-1341: 내 메일 분류 바꾸기(나에게만, null = AI 분류로 되돌리기)
@@ -52,6 +54,12 @@ describe('mail-agent 정의', () => {
     expect(prompt).toContain('`issueKey`');
     // 예전의 "안 읽음으로 되돌릴 수 없다" 안내가 남아 있으면 모델이 도구가 있어도 거절한다.
     expect(prompt).not.toContain('되돌릴 수 없어');
+  });
+  it('WP-1741: flag_mail(messageId, flagged?) 로 별표를 달고 flagged=false 로 빼며, 회신 필요 표시와 구분한다고 안내한다', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('flag_mail(messageId, flagged?)');
+    expect(prompt).toContain('`flagged=false`');
+    expect(prompt).toContain('`aiNeedsReply`');
   });
   it('maxTurns 설정 + 본문에 메일·발송 확인 안내', () => {
     expect(loaded['mail-agent'].maxTurns).toBeGreaterThan(0);

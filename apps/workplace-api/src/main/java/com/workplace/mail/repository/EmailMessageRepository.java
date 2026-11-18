@@ -235,6 +235,7 @@ public class EmailMessageRepository {
         .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
         .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
         .set(EMAIL_MESSAGE.SEEN, m.seen())
+        .set(EMAIL_MESSAGE.FLAGGED, m.flagged()) // WP-1741: 서버 \Flagged
         .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
         .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
         .onConflictDoNothing()
@@ -250,7 +251,7 @@ public class EmailMessageRepository {
   public enum UpsertOutcome {
     /** 새 envelope 삽입. */
     INSERTED,
-    /** 기존 envelope 의 seen 만 서버 값으로 바뀜. */
+    /** 기존 envelope 의 seen·flagged(WP-1741) 중 하나 이상이 서버 값으로 바뀜 — 새 메일이 아닌 상태 변화. */
     SEEN_CHANGED,
     /** 변화 없음(기존 행 · 같은 seen · 동시 삽입 충돌). */
     UNCHANGED
@@ -280,6 +281,22 @@ public class EmailMessageRepository {
    */
   public UpsertOutcome upsertByProviderId(
       long accountId, long folderId, ParsedMessage m, String providerMessageId, boolean syncSeen) {
+    return upsertByProviderId(accountId, folderId, m, providerMessageId, syncSeen, false);
+  }
+
+  /**
+   * {@link #upsertByProviderId(long, long, ParsedMessage, String, boolean)} 에 별표(WP-1741)를 더한 판. 기존
+   * 행이면 seen 과 flagged 를 <b>따로</b> 맞춘다 — 각자 자기 반영 대기만 보므로 읽음 반영 대기 중이어도 서버 별표는 들어오고, 그 반대도 같다.
+   *
+   * @param syncFlagged false 면 기존 행의 flagged 를 건드리지 않는다(delta 항목에 flag 가 없을 때)
+   */
+  public UpsertOutcome upsertByProviderId(
+      long accountId,
+      long folderId,
+      ParsedMessage m,
+      String providerMessageId,
+      boolean syncSeen,
+      boolean syncFlagged) {
     // 존재 확인은 계정 단위 — (account_id, provider_message_id) 유니크라 한 메일은 계정에 한 행뿐이다(폴더 무관).
     if (dsl.fetchExists(
         EMAIL_MESSAGE,
@@ -287,17 +304,27 @@ public class EmailMessageRepository {
             .ACCOUNT_ID
             .eq(accountId)
             .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId)))) {
-      // 기존 행 — 서버 읽음 상태만 반영(값이 같으면 0건이라 SSE·순환 없음)
-      if (!syncSeen) {
-        return UpsertOutcome.UNCHANGED;
+      // 기존 행 — 서버 읽음·별표 상태만 반영(값이 같으면 0건이라 SSE·순환 없음).
+      // 두 속성은 반영 대기가 따로라 UPDATE 도 따로 한다 — 한 문장으로 묶으면 한쪽 대기가 다른 쪽 갱신까지 막는다.
+      int changed = 0;
+      if (syncSeen) {
+        changed +=
+            dsl.update(EMAIL_MESSAGE)
+                .set(EMAIL_MESSAGE.SEEN, m.seen())
+                .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+                .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
+                .and(serverApplicable(SEEN_PUSH, m.seen()))
+                .execute();
       }
-      int changed =
-          dsl.update(EMAIL_MESSAGE)
-              .set(EMAIL_MESSAGE.SEEN, m.seen())
-              .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
-              .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
-              .and(serverSeenApplicable(m.seen()))
-              .execute();
+      if (syncFlagged) {
+        changed +=
+            dsl.update(EMAIL_MESSAGE)
+                .set(EMAIL_MESSAGE.FLAGGED, m.flagged())
+                .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+                .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
+                .and(serverApplicable(FLAGGED_PUSH, m.flagged()))
+                .execute();
+      }
       return changed > 0 ? UpsertOutcome.SEEN_CHANGED : UpsertOutcome.UNCHANGED;
     }
     // Graph 경로도 동일하게 email_content 공유(find-or-create).
@@ -321,6 +348,7 @@ public class EmailMessageRepository {
             .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
             .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
             .set(EMAIL_MESSAGE.SEEN, m.seen())
+            .set(EMAIL_MESSAGE.FLAGGED, m.flagged()) // WP-1741: 서버 flag.flagStatus
             .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
             .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
             .onConflictDoNothing() // 동시 삽입 경합 안전망 — 충돌이면 새 메일로 세지 않는다
@@ -458,40 +486,131 @@ public class EmailMessageRepository {
   }
 
   /**
-   * 서버 읽음 상태를 로컬에 반영해도 되는 행 조건(WP-148 단일 규칙): 값이 실제로 다르고({@code seen != 서버값}), 로컬 열람의 서버 반영 대기 중이
-   * 아니어야 한다. 대기 중인 행을 서버 상태로 덮으면 방금 로컬에서 읽은 메일이 안읽음으로 되돌아간다. 반영이 실패한 메일은 재시도 배치가 백오프로 다시 보내고, 상한에
-   * 닿으면 대기를 풀어 서버 상태를 따른다(WP-188).
+   * 속성(읽음·별표)별 서버 반영 컬럼 묶음(WP-1741). 읽음(WP-148·187·188)과 별표는 반영 대기·재시도 규칙이 같고 컬럼만 달라, 규칙은 한 번만 쓰고 이
+   * 묶음으로 컬럼을 고른다. 한 속성의 반영 실패·포기·해제가 다른 속성의 대기 표시를 건드리지 않도록 컬럼은 속성마다 따로다.
+   *
+   * @param value 속성 값(seen·flagged)
+   * @param pending 원본 서버 반영 대기
+   * @param attempts 반영 연속 실패 횟수
+   * @param nextAt 다음 시도 시각(NULL 이면 즉시 대상)
    */
-  private static Condition serverSeenApplicable(boolean serverSeen) {
-    return EMAIL_MESSAGE.SEEN.ne(serverSeen).and(seenPushNotPending());
+  private record PushColumns(
+      Field<Boolean> value,
+      Field<Boolean> pending,
+      Field<Integer> attempts,
+      Field<OffsetDateTime> nextAt) {}
+
+  /** 읽음 반영 컬럼(WP-148·188). */
+  private static final PushColumns SEEN_PUSH =
+      new PushColumns(
+          EMAIL_MESSAGE.SEEN,
+          EMAIL_MESSAGE.SEEN_PUSH_PENDING,
+          EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS,
+          EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT);
+
+  /** 별표 반영 컬럼(WP-1741). */
+  private static final PushColumns FLAGGED_PUSH =
+      new PushColumns(
+          EMAIL_MESSAGE.FLAGGED,
+          EMAIL_MESSAGE.FLAGGED_PUSH_PENDING,
+          EMAIL_MESSAGE.FLAGGED_PUSH_ATTEMPTS,
+          EMAIL_MESSAGE.FLAGGED_PUSH_NEXT_AT);
+
+  /**
+   * 서버 값을 로컬에 반영해도 되는 행 조건(WP-148 단일 규칙, WP-1741 별표도 같음): 값이 실제로 다르고, 그 속성의 로컬 변경이 서버 반영 대기 중이 아니어야
+   * 한다. 대기 중인 행을 서버 상태로 덮으면 방금 로컬에서 읽은(별표한) 메일이 되돌아간다. 반영이 실패한 메일은 재시도 배치가 백오프로 다시 보내고, 상한에 닿으면 대기를
+   * 풀어 서버 상태를 따른다(WP-188). 다른 속성의 반영 대기 여부는 보지 않는다(속성별로 독립).
+   */
+  private static Condition serverApplicable(PushColumns c, boolean serverValue) {
+    return c.value().ne(serverValue).and(c.pending().isFalse());
+  }
+
+  /** 두 속성(읽음·별표)이 모두 반영 대기인 행은 서버 값으로 바꿀 것이 없어 재조회에서 뺀다(WP-1741). */
+  private static Condition notBothPushPending() {
+    return EMAIL_MESSAGE
+        .SEEN_PUSH_PENDING
+        .isFalse()
+        .or(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING.isFalse());
   }
 
   /**
-   * 서버 반영 대기가 아닌 행 조건 — {@link #serverSeenApplicable} 과 {@link #listRecentImapSeenStates} 가 공유한다.
+   * IMAP 상태 동기화 대상 한 건(WP-148, WP-1741 별표 추가) — 로컬 envelope 의 UID 와 현재 seen·flagged, 속성별 서버 반영 대기
+   * 여부. 대기 중인 속성은 서버 값으로 덮어쓰지 않는다.
    */
-  private static Condition seenPushNotPending() {
-    return EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse();
+  public record ImapSeenState(
+      long imapUid, boolean seen, boolean flagged, boolean seenPending, boolean flaggedPending) {
+
+    /** 별표 없음·대기 없음 상태(테스트·기존 호출 호환). */
+    public ImapSeenState(long imapUid, boolean seen) {
+      this(imapUid, seen, false, false, false);
+    }
   }
 
-  /** IMAP 읽음 동기화 대상 한 건(WP-148) — 로컬 envelope 의 UID 와 현재 seen. */
-  public record ImapSeenState(long imapUid, boolean seen) {}
+  /** ImapSeenState 조회 컬럼. */
+  private static final List<Field<?>> IMAP_STATE_FIELDS =
+      List.of(
+          EMAIL_MESSAGE.IMAP_UID,
+          EMAIL_MESSAGE.SEEN,
+          EMAIL_MESSAGE.FLAGGED,
+          EMAIL_MESSAGE.SEEN_PUSH_PENDING,
+          EMAIL_MESSAGE.FLAGGED_PUSH_PENDING);
+
+  private static ImapSeenState toImapState(Record r) {
+    return new ImapSeenState(
+        r.get(EMAIL_MESSAGE.IMAP_UID),
+        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
+        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.FLAGGED)),
+        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN_PUSH_PENDING)),
+        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING)));
+  }
 
   /**
-   * IMAP 읽음 상태 재조회 대상(WP-148). 같은 계정·폴더에서 {@code received_at >= since} 인 행을 UID 큰 순으로 {@code limit}
-   * 건 — "최근 N일 또는 최근 M건 중 작은 쪽". 범위 밖 메일의 외부 열람은 반영하지 않는다(알려진 한계 — 서버 FETCH 비용 상한).
+   * IMAP 상태 재조회 대상(WP-148). 같은 계정·폴더에서 {@code received_at >= since} 인 행을 UID 큰 순으로 {@code limit} 건
+   * — "최근 N일 또는 최근 M건 중 작은 쪽". 범위 밖 메일의 외부 열람은 반영하지 않는다(알려진 한계 — 서버 FETCH 비용 상한).
+   *
+   * <p>WP-1741: 한 속성만 반영 대기인 행도 다른 속성은 서버 값을 따라야 하므로 대상에 넣는다(속성별 대기 여부를 함께 돌려준다). 두 속성 모두 대기인 행만
+   * 뺀다.
    */
   public List<ImapSeenState> listRecentImapSeenStates(
       long accountId, long folderId, OffsetDateTime since, int limit) {
-    return dsl.select(EMAIL_MESSAGE.IMAP_UID, EMAIL_MESSAGE.SEEN)
+    return dsl.select(IMAP_STATE_FIELDS)
         .from(EMAIL_MESSAGE)
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
         .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
-        .and(seenPushNotPending()) // 서버 반영 대기 행은 서버 상태로 덮어쓰지 않으므로 재조회 제외
+        .and(notBothPushPending())
         .and(EMAIL_MESSAGE.RECEIVED_AT.ge(since))
         .orderBy(EMAIL_MESSAGE.IMAP_UID.desc())
         .limit(limit)
-        .fetch(r -> new ImapSeenState(r.value1(), Boolean.TRUE.equals(r.value2())));
+        .fetch(EmailMessageRepository::toImapState);
+  }
+
+  /**
+   * 로컬에 별표가 켜진 IMAP 메일(WP-1741) — 수신 시각과 무관하게 UID 큰 순으로 {@code limit} 건. 다른 앱에서 오래된 메일(최근 범위 밖이거나
+   * 최근 범위 상한에 밀린 메일)의 별표를 끈 것을 반영하려면 최근 범위만으로는 부족하다. 별표 메일은 대개 소수라 따로 상한을 둔다. 별표 반영 대기 행은 서버 값으로 덮지
+   * 않으므로 뺀다. 최근 범위 조회와 겹칠 수 있어 호출 측이 UID 로 합친다.
+   */
+  public List<ImapSeenState> listFlaggedImapStates(long accountId, long folderId, int limit) {
+    return dsl.select(IMAP_STATE_FIELDS)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+        .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
+        .and(EMAIL_MESSAGE.FLAGGED.isTrue())
+        .and(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING.isFalse())
+        .orderBy(EMAIL_MESSAGE.IMAP_UID.desc())
+        .limit(limit)
+        .fetch(EmailMessageRepository::toImapState);
+  }
+
+  /**
+   * IMAP UID 로 flagged 를 서버 값으로 맞춘다(WP-1741 — {@link #updateSeenByImapUid} 와 같은 규칙). 값이 같거나 별표 반영
+   * 대기면 0.
+   *
+   * @return 실제 갱신 행 수(0|1)
+   */
+  public int updateFlaggedByImapUid(long accountId, long folderId, long imapUid, boolean flagged) {
+    return updateByImapUid(FLAGGED_PUSH, accountId, folderId, imapUid, flagged);
   }
 
   /**
@@ -501,12 +620,18 @@ public class EmailMessageRepository {
    * @return 실제 갱신 행 수(0|1)
    */
   public int updateSeenByImapUid(long accountId, long folderId, long imapUid, boolean seen) {
+    return updateByImapUid(SEEN_PUSH, accountId, folderId, imapUid, seen);
+  }
+
+  /** IMAP UID 로 한 속성을 서버 값으로 맞추는 공통 구현 — {@link #serverApplicable} 인 행만 바꾼다. */
+  private int updateByImapUid(
+      PushColumns c, long accountId, long folderId, long imapUid, boolean serverValue) {
     return dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.SEEN, seen)
+        .set(c.value(), serverValue)
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
         .and(EMAIL_MESSAGE.IMAP_UID.eq(imapUid))
-        .and(serverSeenApplicable(seen))
+        .and(serverApplicable(c, serverValue))
         .execute();
   }
 
@@ -696,6 +821,7 @@ public class EmailMessageRepository {
             verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
+            EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             effectiveCategoryField(), // WP-1341: 유효 분류(직접 > 개인 비서 > 검증된 공용)
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
@@ -878,6 +1004,7 @@ public class EmailMessageRepository {
             verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
+            EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             effectiveCategoryField(), // WP-1341: 유효 분류(직접 > 개인 비서 > 검증된 공용)
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
@@ -1066,6 +1193,7 @@ public class EmailMessageRepository {
                 EMAIL_MESSAGE.SENT_AT,
                 EMAIL_MESSAGE.RECEIVED_AT,
                 EMAIL_MESSAGE.SEEN,
+                EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
                 verified(EMAIL_CONTENT.BODY_TEXT),
                 verified(EMAIL_CONTENT.BODY_HTML),
                 effectiveCategoryField(), // WP-1341: 상세 분류 메뉴의 현재 분류
@@ -1168,13 +1296,13 @@ public class EmailMessageRepository {
   }
 
   /**
-   * WP-188 사용자가 읽음 상태를 바꿀 때 재시도 상태를 초기화하는 SET 묶음 — 실패 횟수 0, 다음 시도 = 지금(DB 시각). 새 사용자 조작은 지난 실패의
-   * 백오프를 기다리지 않고 바로 반영 대상이 되며, 이벤트가 큐 포화로 거절돼도 재시도 배치가 곧바로 줍는다.
+   * WP-188 사용자가 읽음(또는 WP-1741 별표) 상태를 바꿀 때 재시도 상태를 초기화하는 SET 묶음 — 실패 횟수 0, 다음 시도 = 지금(DB 시각). 새 사용자
+   * 조작은 지난 실패의 백오프를 기다리지 않고 바로 반영 대상이 되며, 이벤트가 큐 포화로 거절돼도 재시도 배치가 곧바로 줍는다.
    */
-  private static Map<Field<?>, Object> resetSeenPushRetry() {
+  private static Map<Field<?>, Object> resetPushRetry(PushColumns c) {
     Map<Field<?>, Object> m = new LinkedHashMap<>();
-    m.put(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, 0);
-    m.put(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT, DSL.currentOffsetDateTime());
+    m.put(c.attempts(), 0);
+    m.put(c.nextAt(), DSL.currentOffsetDateTime());
     return m;
   }
 
@@ -1187,7 +1315,7 @@ public class EmailMessageRepository {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, true)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
-        .set(resetSeenPushRetry())
+        .set(resetPushRetry(SEEN_PUSH))
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .execute();
@@ -1198,9 +1326,23 @@ public class EmailMessageRepository {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, false)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
-        .set(resetSeenPushRetry())
+        .set(resetPushRetry(SEEN_PUSH))
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_MESSAGE.SEEN.isTrue())
+        .execute();
+  }
+
+  /**
+   * WP-1741 별표 켜기/끄기 — flagged 와 원본 서버 반영 대기(flagged_push_pending)를 함께 켜고 재시도 상태를 초기화한다. 이미 같은 값이면
+   * 건너뛰고 갱신 행 수(0|1)를 돌려준다(멱등 — 알림·역동기화 없음).
+   */
+  public int markFlagged(long messageId, boolean flagged) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.FLAGGED, flagged)
+        .set(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING, true)
+        .set(resetPushRetry(FLAGGED_PUSH))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.FLAGGED.ne(flagged))
         .execute();
   }
 
@@ -1261,7 +1403,7 @@ public class EmailMessageRepository {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, true)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
-        .set(resetSeenPushRetry())
+        .set(resetPushRetry(SEEN_PUSH))
         .where(
             EMAIL_MESSAGE.ID.in(
                 unreadInView(accountId, folderName, category, needsReply, query, asOf)))
@@ -1270,23 +1412,21 @@ public class EmailMessageRepository {
         .fetch(EMAIL_MESSAGE.ID);
   }
 
-  /** WP-188 반영 대기이면서 백오프가 끝난(또는 처음인) 행 조건. 시각은 DB now() 로 비교한다. */
-  private static Condition seenPushDue() {
-    return EMAIL_MESSAGE
-        .SEEN_PUSH_PENDING
+  /** WP-188 반영 대기이면서 백오프가 끝난(또는 처음인) 행 조건. 시각은 DB now() 로 비교한다. 읽음·별표(WP-1741)를 속성별 컬럼으로 따로 센다. */
+  private static Condition pushDue(PushColumns c) {
+    return c.pending()
         .isTrue()
-        .and(
-            EMAIL_MESSAGE
-                .SEEN_PUSH_NEXT_AT
-                .isNull()
-                .or(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT.le(DSL.currentOffsetDateTime())));
+        .and(c.nextAt().isNull().or(c.nextAt().le(DSL.currentOffsetDateTime())));
   }
 
   /**
-   * WP-188 계정의 "지금 반영할" 대기 행 — 반영 대기 ∧ 다음 시도 시각이 됐거나 비어 있음, id 순 최대 limit 건. 메일·계정·폴더를 묶어 서버 식별자와
-   * 처리 시점의 seen 을 담는다 — 계정 리스를 쥔 뒤에 읽어야 늦게 도착한 옛 값이 최종값이 되지 않는다.
+   * WP-188 계정의 "지금 반영할" 대기 행 — 읽음 또는 별표(WP-1741)가 반영 대기 ∧ 다음 시도 시각이 됐거나 비어 있음, id 순 최대 limit 건.
+   * 메일·계정·폴더를 묶어 서버 식별자와 처리 시점의 값을 담는다 — 계정 리스를 쥔 뒤에 읽어야 늦게 도착한 옛 값이 최종값이 되지 않는다. 지금 반영할 속성만 값을 싣고
+   * 나머지는 null 로 둔다(처리기가 바뀌지 않은 속성을 서버에 보내지 않게).
    */
   public List<SeenSyncItem> findDueSeenSyncItems(long accountId, int limit) {
+    Field<Boolean> seenDue = DSL.field(pushDue(SEEN_PUSH)).as("seen_due");
+    Field<Boolean> flaggedDue = DSL.field(pushDue(FLAGGED_PUSH)).as("flagged_due");
     return dsl.select(
             EMAIL_MESSAGE.ID,
             EMAIL_MESSAGE.ACCOUNT_ID,
@@ -1294,14 +1434,17 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.PROVIDER_MESSAGE_ID,
             EMAIL_MESSAGE.IMAP_UID,
             EMAIL_FOLDER.NAME,
-            EMAIL_MESSAGE.SEEN)
+            EMAIL_MESSAGE.SEEN,
+            EMAIL_MESSAGE.FLAGGED,
+            seenDue,
+            flaggedDue)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
-        .and(seenPushDue())
+        .and(pushDue(SEEN_PUSH).or(pushDue(FLAGGED_PUSH)))
         .orderBy(EMAIL_MESSAGE.ID)
         .limit(limit)
         .fetch(
@@ -1314,7 +1457,12 @@ public class EmailMessageRepository {
                         r.get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID),
                         r.get(EMAIL_MESSAGE.IMAP_UID),
                         r.get(EMAIL_FOLDER.NAME)),
-                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN))));
+                    Boolean.TRUE.equals(r.get(seenDue))
+                        ? Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN))
+                        : null,
+                    Boolean.TRUE.equals(r.get(flaggedDue))
+                        ? Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.FLAGGED))
+                        : null));
   }
 
   /**
@@ -1323,17 +1471,7 @@ public class EmailMessageRepository {
    * 초기화한다. 보낸 값별로 한 번씩 호출한다. 빈 목록이면 쿼리 없이 0.
    */
   public int clearSeenPushPendingIn(Collection<Long> messageIds, boolean pushedSeen) {
-    if (messageIds.isEmpty()) {
-      return 0;
-    }
-    return dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
-        .set(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, 0)
-        .setNull(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT)
-        .where(EMAIL_MESSAGE.ID.in(messageIds))
-        .and(EMAIL_MESSAGE.SEEN.eq(pushedSeen))
-        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
-        .execute();
+    return clearPushPendingIn(SEEN_PUSH, messageIds, pushedSeen);
   }
 
   /**
@@ -1349,44 +1487,110 @@ public class EmailMessageRepository {
    */
   public int recordSeenPushFailure(
       Collection<Long> messageIds, boolean pushedSeen, int maxAttempts) {
+    return recordPushFailure(SEEN_PUSH, messageIds, pushedSeen, maxAttempts);
+  }
+
+  /**
+   * WP-1741 별표 조건부 대기 해제(묶음) — {@link #clearSeenPushPendingIn} 과 같은 규칙을 별표 컬럼에 적용한다. 서버에 보낸
+   * 값(pushedFlagged)과 지금 flagged 가 같은 행만 풀고 별표 재시도 상태를 초기화한다. 빈 목록이면 쿼리 없이 0.
+   */
+  public int clearFlaggedPushPendingIn(Collection<Long> messageIds, boolean pushedFlagged) {
+    return clearPushPendingIn(FLAGGED_PUSH, messageIds, pushedFlagged);
+  }
+
+  /**
+   * WP-1741 별표 대기 보류(묶음) — 메일함이 \Flagged 를 영구 저장하지 못해 별표를 앱 안에만 둘 때. 대기 표시는 남겨 동기화가 서버 값(별표 없음)으로
+   * 로컬 별표를 지우지 않게 하고, 다음 시도 시각을 아주 먼 미래로 미뤄 재시도하지 않는다. 사용자가 별표를 다시 바꾸면 {@link #markFlagged} 가 시각을
+   * 지금으로 되돌려 한 번 더 시도한다. 보낸 값(pushedFlagged)과 지금 값이 같은 대기 행만 대상이다. 빈 목록이면 쿼리 없이 0.
+   */
+  public int parkFlaggedPushIn(Collection<Long> messageIds, boolean pushedFlagged) {
     if (messageIds.isEmpty()) {
       return 0;
     }
-    Condition target =
-        EMAIL_MESSAGE
-            .ID
-            .in(messageIds)
-            .and(EMAIL_MESSAGE.SEEN.eq(pushedSeen))
-            .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue());
+    return dsl.update(EMAIL_MESSAGE)
+        .set(FLAGGED_PUSH.attempts(), 0)
+        // 'infinity' 는 JDBC → OffsetDateTime 변환이 불안정해 유한한 먼 미래(100년)로 둔다
+        .set(FLAGGED_PUSH.nextAt(), DSL.field("now() + interval '100 years'", OffsetDateTime.class))
+        .where(pushedPendingRows(FLAGGED_PUSH, messageIds, pushedFlagged))
+        .execute();
+  }
+
+  /**
+   * WP-1741 별표 반영 실패 기록(묶음) — {@link #recordSeenPushFailure} 와 같은 규칙(상한 도달 시 포기·그 밖은 지수 백오프)을 별표
+   * 컬럼에 적용한다. 읽음 재시도 상태와는 독립이다.
+   *
+   * @return 포기한(대기를 푼) 행 수
+   */
+  public int recordFlaggedPushFailure(
+      Collection<Long> messageIds, boolean pushedFlagged, int maxAttempts) {
+    return recordPushFailure(FLAGGED_PUSH, messageIds, pushedFlagged, maxAttempts);
+  }
+
+  /**
+   * 반영 결과를 적용할 행 조건 — 주어진 id 중 보낸 값(pushed)과 지금 값이 같고 아직 반영 대기인 행. 그 사이 사용자가 값을 바꿨다면 mark* 가 재시도
+   * 상태를 새로 잡았으므로 대상에서 뺀다(WP-187·188, 별표는 WP-1741).
+   */
+  private static Condition pushedPendingRows(
+      PushColumns c, Collection<Long> messageIds, boolean pushed) {
+    return EMAIL_MESSAGE.ID.in(messageIds).and(c.value().eq(pushed)).and(c.pending().isTrue());
+  }
+
+  /** 조건부 대기 해제 공통 구현 — {@link #clearSeenPushPendingIn}·{@link #clearFlaggedPushPendingIn} 참조. */
+  private int clearPushPendingIn(PushColumns c, Collection<Long> messageIds, boolean pushed) {
+    if (messageIds.isEmpty()) {
+      return 0;
+    }
+    return dsl.update(EMAIL_MESSAGE)
+        .set(c.pending(), false)
+        .set(c.attempts(), 0)
+        .setNull(c.nextAt())
+        .where(pushedPendingRows(c, messageIds, pushed))
+        .execute();
+  }
+
+  /**
+   * 반영 실패 기록 공통 구현 — {@link #recordSeenPushFailure} 참조. 상한에 닿는 행은 대기를 풀고(포기), 나머지는 지수 백오프로 다음 시도를
+   * 미룬다.
+   *
+   * @return 포기한(대기를 푼) 행 수
+   */
+  private int recordPushFailure(
+      PushColumns c, Collection<Long> messageIds, boolean pushed, int maxAttempts) {
+    if (messageIds.isEmpty()) {
+      return 0;
+    }
+    Condition target = pushedPendingRows(c, messageIds, pushed);
     int givenUp =
         dsl.update(EMAIL_MESSAGE)
-            .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
-            .set(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, 0)
-            .setNull(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT)
+            .set(c.pending(), false)
+            .set(c.attempts(), 0)
+            .setNull(c.nextAt())
             .where(target)
-            .and(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS.plus(1).ge(maxAttempts))
+            .and(c.attempts().plus(1).ge(maxAttempts))
             .execute();
     // 위에서 포기한 행은 pending=false 라 target 에서 빠진다
     dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS.plus(1))
+        .set(c.attempts(), c.attempts().plus(1))
         .set(
-            EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT,
+            c.nextAt(),
             DSL.field(
                 "now() + make_interval(mins => least(60, power(2, {0})::int))",
-                OffsetDateTime.class, EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS))
+                OffsetDateTime.class, c.attempts()))
         .where(target)
         .execute();
     return givenUp;
   }
 
-  /** WP-188 재시도 배치 대상 — 현재 테넌트(RLS)에서 지금 반영할 대기 행이 있는 활성 계정과 소유자. 부분 인덱스(반영 대기 행만)로 찾는다. */
+  /**
+   * WP-188 재시도 배치 대상 — 현재 테넌트(RLS)에서 지금 반영할 대기 행(읽음 또는 별표)이 있는 활성 계정과 소유자. 부분 인덱스(반영 대기 행만)로 찾는다.
+   */
   @org.springframework.transaction.annotation.Transactional(readOnly = true)
   public List<DueSeenPushAccount> findAccountsWithDueSeenPush() {
     return dsl.selectDistinct(EMAIL_ACCOUNT.ID, EMAIL_ACCOUNT.USER_ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
-        .where(seenPushDue())
+        .where(pushDue(SEEN_PUSH).or(pushDue(FLAGGED_PUSH))) // WP-1741: 별표 반영 대기도 대상
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
         .fetch(r -> new DueSeenPushAccount(r.get(EMAIL_ACCOUNT.ID), r.get(EMAIL_ACCOUNT.USER_ID)));
   }
@@ -1984,6 +2188,7 @@ public class EmailMessageRepository {
         r.get(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
         received == null ? null : received.toInstant(),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
+        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.FLAGGED)), // WP-1741 별표
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.HAS_ATTACHMENT)),
         r.get(EFFECTIVE_CATEGORY, String.class), // WP-1341: 유효 분류
         // 회신필요 기간 밖의 true 는 false 로 내보낸다 — 웹·홈 우선순위가 aiNeedsReply 만 보고도 집계(needsReplyCondition)와 같게
@@ -2017,6 +2222,7 @@ public class EmailMessageRepository {
         sent == null ? null : sent.toInstant(),
         received == null ? null : received.toInstant(),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
+        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.FLAGGED)), // WP-1741 별표
         r.get(EMAIL_CONTENT.BODY_TEXT),
         r.get(EMAIL_CONTENT.BODY_HTML),
         attachments,

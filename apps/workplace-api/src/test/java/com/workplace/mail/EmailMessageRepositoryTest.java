@@ -269,7 +269,10 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     assertThat(pending(id)).isFalse();
   }
 
-  /** WP-148: 서버 반영 대기 행은 IMAP 읽음 재조회 대상에서 빠지고 updateSeenByImapUid 가 덮어쓰지 않는다. */
+  /**
+   * WP-148: 읽음 반영 대기 행은 updateSeenByImapUid 가 덮어쓰지 않는다. WP-1741: 재조회 대상에는 남되(별표는 서버를 따라야 하므로) 읽음 대기
+   * 표시를 함께 돌려준다.
+   */
   @Test
   void pendingRow_excludedFromImapSeenSync() {
     long userId = TestFixtures.createHuman(dsl);
@@ -284,7 +287,8 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     messageRepo.markSeen(id); // seen=true + pending
     OffsetDateTime since = OffsetDateTime.now().minusDays(14);
 
-    assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 500)).isEmpty();
+    assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 500))
+        .containsExactly(new EmailMessageRepository.ImapSeenState(9, true, false, true, false));
     assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 9, false)).isZero();
 
     messageRepo.clearSeenPushPendingIn(List.of(id), true);
