@@ -193,6 +193,21 @@ public class MailMessageService {
   }
 
   /**
+   * WP-1742 별표 모아 보기 — 계정의 모든 메일함(받은편지함·보낸편지함·보관·사용자 메일함, 휴지통 제외)에서 별표한 메일을 일반 목록과 같은 정렬·커서·limit
+   * 규칙으로 읽는다. 메일마다 원래 메일함 이름(folderName)을 채운다. 검색어·안 읽음은 함께 적용한다. 계정이 본인 소유가 아니면 404.
+   */
+  @Transactional(readOnly = true)
+  public List<EmailMessageSummary> listFlagged(
+      long userId, long accountId, String query, boolean unread, MailListCursor cursor, int limit) {
+    accountRepo
+        .findByIdAndUser(userId, accountId)
+        .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+    int effective = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+    return markExternalSenders(
+        messageRepo.listFlagged(accountId, query, unread, cursor, effective));
+  }
+
+  /**
    * 목록 행마다 보낸 사람이 외부인지 붙인다(WP-1325). 내부 = 보낸 사람 주소가 이 워크스페이스 구성원(나 포함)의 로그인 이메일이나 메일 계정 주소와 같음 — 메일
    * 도메인으로 추정하지 않는다(기준 A, 이슈 챗 확정). 한 페이지의 주소를 모아 한 번에 판정하고, 보낸 사람 주소가 없으면 판정하지 않는다(null).
    */
@@ -238,7 +253,10 @@ public class MailMessageService {
     return new MailClassifierProbe(assistantResolver, userId);
   }
 
-  /** WP-186 사이드바 안 읽은 수. 계정이 본인 소유가 아니면 404. RLS GUC 주입을 위해 읽기 전용 트랜잭션 안에서 읽는다(#444). */
+  /**
+   * WP-186 사이드바 안 읽은 수(+ WP-1742 별표 메일 수). 계정이 본인 소유가 아니면 404. RLS GUC 주입을 위해 읽기 전용 트랜잭션 안에서
+   * 읽는다(#444).
+   */
   @Transactional(readOnly = true)
   public MailUnreadCounts unreadCounts(long userId, long accountId) {
     EmailAccountResponse account =
@@ -247,7 +265,11 @@ public class MailMessageService {
             .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     EmailMessageRepository.UnreadAggregate agg = messageRepo.countUnreadAggregate(accountId);
     return new MailUnreadCounts(
-        classificationActive(userId, account), agg.inbox(), agg.byCategory(), agg.needsReply());
+        classificationActive(userId, account),
+        agg.inbox(),
+        agg.byCategory(),
+        agg.needsReply(),
+        messageRepo.countFlagged(accountId)); // WP-1742: 별표 모아 보기 메일 수(읽음 무관)
   }
 
   /** WP-186 탭 배지 합계 — 활성(비활성 제외) 계정마다 업무(분류 꺼지면 받은편지함) 안 읽은 수를 더한다. */

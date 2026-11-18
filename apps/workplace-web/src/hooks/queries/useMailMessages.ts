@@ -12,7 +12,7 @@ import { MAIL_PAGE_SIZE, type MailListCache, mapMailListCache, nextMailCursor } 
 import type { CalendarInvite, DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, InviteResponseRequest, MailFolder, MailListCursor, MailOlderResult, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
 import { calendarKeys } from './calendarKeys';
 import { invalidateMailDrafts } from './mailDraftKeys';
-import { mailMessageKeys } from './mailMessageKeys';
+import { isFlaggedListKey, mailMessageKeys } from './mailMessageKeys';
 
 export { mailMessageKeys };
 
@@ -29,6 +29,7 @@ export function invalidateMailCounts(qc: QueryClient) {
 /**
  * 계정의 메시지 목록(폴더·검색어·unread·category·needsReply 필터). accountId 가 없으면 비활성.
  * options.folderId(WP-961) — 서버 메일함(보관·내 메일함) 보기. 있으면 서버가 folder·분류·회신필요를 무시한다.
+ * options.flagged(WP-1742) — 별표 모아 보기. true 면 서버가 folder·folderId·분류·회신필요를 무시한다.
  * WP-965: {@link MAIL_PAGE_SIZE}통씩 페이지로 받는다 — 끝까지 내리면 fetchNextPage 로 다음 페이지를 잇는다(커서 = 앞 페이지 마지막 행).
  * data 는 페이지를 이어 붙인 배열이라 쓰는 쪽은 예전처럼 한 목록으로 본다. 주기 재조회는 받은 페이지를 모두 차례로 다시 받으며 커서를 새로 잡는다.
  */
@@ -39,14 +40,16 @@ export function useMailMessages(
   unread = false,
   category = '',
   needsReply = false,
-  options?: { enabled?: boolean; folderId?: number | null },
+  options?: { enabled?: boolean; folderId?: number | null; flagged?: boolean },
 ) {
   const folderId = options?.folderId ?? null;
+  // WP-1742 별표 모아 보기 — 모든 메일함의 별표 메일(서버가 folder·folderId·분류·회신필요를 무시한다).
+  const flagged = options?.flagged ?? false;
   return useInfiniteQuery({
-    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread, category, needsReply, folderId),
+    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread, category, needsReply, folderId, flagged),
     queryFn: ({ pageParam }) =>
       listMessages(accountId as number, folder, query || undefined, unread,
-                   category || undefined, needsReply, MAIL_PAGE_SIZE, folderId, pageParam),
+                   category || undefined, needsReply, MAIL_PAGE_SIZE, folderId, pageParam, undefined, flagged),
     initialPageParam: null as MailListCursor | null,
     getNextPageParam: (lastPage) => nextMailCursor(lastPage),
     select: selectFlatPages,
@@ -221,7 +224,8 @@ export function useToggleRead() {
  * 단 누른 순간 진행 중이던 목록 조회(새 메일이 실렸을 수 있다)를 취소했으면 끝난 뒤 한 번 다시 받는다 — 실패하면 알림이 오지 않아
  * 60초 주기까지 새 메일이 늦어지기 때문이다. 읽음 전환과 같은 묶음(pendingToggles·listsNeedRefresh·refreshListsAfterToggle)에
  * 참여해, 읽음·별표를 섞어 연달아 눌러도 마지막 전환이 끝난 뒤 한 번만 다시 받는다.
- * 별표는 안 읽은 수와 무관해 계수 무효화도 하지 않는다.
+ * WP-1742: 별표 모아 보기 목록과 사이드바 별표 수(안 읽은 수 응답의 flagged)는 낙관 갱신만으로 맞지 않는다(목록에 행이 들고 나야 한다) —
+ * 마지막 전환이 끝나면 별표 목록·계정 계수를 다시 받는다(flaggedViewsStale). 메일함 목록(계수 키 아래)은 별표와 무관해 건드리지 않는다.
  */
 export function useToggleFlag() {
   const qc = useQueryClient();
@@ -230,6 +234,8 @@ export function useToggleFlag() {
     onMutate: async ({ id, flagged }) => {
       const detailKey = mailMessageKeys.detail(id);
       pendingToggles += 1;
+      // WP-1742 마지막 전환이 끝나면 별표 목록·별표 수를 다시 받는다(refreshListsAfterToggle).
+      flaggedViewsStale = true;
       // 진행 중이던 목록 조회(취소할 재조회·첫 조회)가 있으면 완료 뒤 다시 받아야 한다(읽음 전환과 같은 묶음).
       if (qc.isFetching({ queryKey: ['mail-messages'] }) > 0) listsNeedRefresh = true;
       const hasData = (q: { state: { data: unknown } }) => q.state.data !== undefined;
@@ -264,6 +270,8 @@ export function useToggleFlag() {
 let pendingToggles = 0;
 /** 어떤 전환이 진행 중이던 목록 조회와 겹쳤다 — 마지막 전환이 끝난 뒤 목록을 다시 받아야 한다. */
 let listsNeedRefresh = false;
+/** WP-1742 별표 전환이 있었다 — 마지막 전환이 끝난 뒤 별표 모아 보기 목록·계정 계수(별표 수)를 다시 받아야 한다. */
+let flaggedViewsStale = false;
 
 /**
  * WP-220 읽음(WP-1741 별표 포함) 전환 완료 뒤 목록 재조회. 동시에 여러 통을 전환하면 마지막 하나만 다시 받는다 —
@@ -272,7 +280,14 @@ let listsNeedRefresh = false;
  * 진행 중 조회가 끝나기(성공·실패 무관)를 기다린 뒤 다시 받는다.
  */
 async function refreshListsAfterToggle(qc: QueryClient) {
-  if (pendingToggles > 0 || !listsNeedRefresh) return;
+  if (pendingToggles > 0) return;
+  if (flaggedViewsStale) {
+    flaggedViewsStale = false;
+    // WP-1742 별표 목록(행이 빠지고 돌아온다)과 계정별 계수(사이드바 별표 수). 계수 키 아래 메일함 목록은 길이가 달라 빠진다.
+    void qc.invalidateQueries({ queryKey: ['mail-messages'], predicate: (q) => isFlaggedListKey(q.queryKey) });
+    void qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll(), predicate: (q) => q.queryKey.length === 2 });
+  }
+  if (!listsNeedRefresh) return;
   await Promise.allSettled(
     qc.getQueryCache().findAll({ queryKey: ['mail-messages'], fetchStatus: 'fetching' }).map((q) => q.promise),
   );

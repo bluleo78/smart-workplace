@@ -22,6 +22,18 @@ describe('buildMailContext', () => {
     });
   });
 
+  // WP-1742 별표 모아 보기 — 받은편지함이 아니라 모든 메일함의 별표 메일. refs 는 list_mail 인자명(flagged)과 맞추고 folder 는 싣지 않는다.
+  it('별표 보기 — 「별표(모든 메일함)」 라벨, refs 에 flagged·folder 없음', () => {
+    expect(buildMailContext({ ...base, flagged: true, q: '견적' }).scope).toEqual({
+      label: 'me@x.com · 별표(모든 메일함)',
+      refs: { accountId: '3', flagged: 'true' },
+      facts: [{ label: '검색어', value: '견적' }],
+      count: 12,
+    });
+    // flagged:false 는 지금과 같다(받은편지함).
+    expect(buildMailContext({ ...base, flagged: false }).scope!.refs).toEqual({ accountId: '3', folder: 'INBOX' });
+  });
+
   it('열린 메일 — 숫자 id 를 messageId 로, 필터 facts', () => {
     const ctx = buildMailContext({
       ...base,

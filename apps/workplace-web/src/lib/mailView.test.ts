@@ -13,6 +13,17 @@ const mailServerFolder = (o: Partial<MailServerFolder> & { id: number }): MailSe
 })
 
 describe('resolveMailView', () => {
+  it('?flagged=true = 별표 모아 보기(WP-1742) — 분류·회신필요 없이, 안 읽음 거르기는 이어 간다', () => {
+    expect(resolveMailView(p('flagged=true'), true)).toMatchObject({
+      kind: 'flagged', apiCategory: '', activeCategory: null, title: '별표', breadcrumb: [{ label: '별표' }],
+      unreadOnly: false, unreadToggleVisible: true, folderId: null, key: 'flagged:false',
+    })
+    expect(resolveMailView(p('flagged=true&unread=true'), false)).toMatchObject({ kind: 'flagged', unreadOnly: true, key: 'flagged:true' })
+  })
+  it('별표 보기의 messageId 는 딥링크로 보지 않는다 — 앱 안 선택이든 아니든 별표 보기 유지(WP-1742)', () => {
+    expect(resolveMailView(p('flagged=true&messageId=9'), true).kind).toBe('flagged')
+    expect(resolveMailView(p('flagged=true&messageId=9'), true, { inAppSelection: true }).kind).toBe('flagged')
+  })
   it('기본 = 업무(API 에 업무 전달)', () => {
     const v = resolveMailView(p(''), true)
     expect(v).toMatchObject({ kind: 'work', apiCategory: '업무', activeCategory: '업무', title: '업무', breadcrumb: [{ label: '받은편지함', to: 'all' }, { label: '업무' }], unreadToggleVisible: true })
@@ -69,6 +80,9 @@ describe('mailViewHref', () => {
   it('업무는 쿼리 없음, 전체는 all, 토글 유지', () => {
     expect(mailViewHref(3, 'work', false)).toBe('/mail/3')
     expect(mailViewHref(3, 'all', true)).toBe('/mail/3?category=all&unread=true')
+    // WP-1742 별표 모아 보기
+    expect(mailViewHref(3, 'flagged', false)).toBe('/mail/3?flagged=true')
+    expect(mailViewHref(3, 'flagged', true)).toBe('/mail/3?flagged=true&unread=true')
     expect(mailViewHref(3, '개인', false)).toBe('/mail/3?category=%EA%B0%9C%EC%9D%B8')
   })
 })
@@ -85,6 +99,8 @@ describe('unreadCountForView', () => {
   it('work = 업무 버킷', () => expect(unreadCountForView(view(''), counts)).toBe(7))
   it('all = 받은편지함 전체', () => expect(unreadCountForView(view('category=all'), counts)).toBe(40))
   it('category = 해당 분류', () => expect(unreadCountForView(view('category=개인'), counts)).toBe(3))
+  it('flagged = 모름(null) — 계수의 flagged 는 별표 수지 안 읽은 수가 아니다(WP-1742)', () =>
+    expect(unreadCountForView(view('flagged=true'), counts)).toBeNull())
   it('needsReply = 회신필요 수', () => expect(unreadCountForView(view('needsReply=true'), counts)).toBe(4))
   it('sent = 0', () => expect(unreadCountForView(view('folder=sent'), counts)).toBe(0))
   it('drafts = 0', () => expect(unreadCountForView(view('folder=drafts'), counts)).toBe(0))

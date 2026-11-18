@@ -55,6 +55,19 @@ describe('scheduleMailMove', () => {
     expect(error).not.toHaveBeenCalled()
   })
 
+  it('WP-1742 hideRows:false — 숨기지 않지만 토스트가 닫히면 보내고 목록을 다시 받는다(별표 보기의 보관·옮기기)', async () => {
+    moveMessages.mockResolvedValue({ results: [{ messageId: 11, ok: true, error: null }] })
+    const qc = new QueryClient()
+    const inval = vi.spyOn(qc, 'invalidateQueries')
+    scheduleMailMove({ qc, accountId: 3, messageIds: [11], target: { kind: 'ARCHIVE' }, message: '보관했습니다', hideRows: false })
+    expect(mailMoveHiddenSnapshot().size).toBe(0)
+    expect(success).toHaveBeenCalledWith('보관했습니다', expect.anything())
+    lastToast().onAutoClose!(fakeToast)
+    expect(moveMessages).toHaveBeenCalledWith(3, { messageIds: [11], target: { kind: 'ARCHIVE' } })
+    await vi.waitFor(() => expect(inval).toHaveBeenCalledWith({ queryKey: ['mail-messages', 3] }))
+    expect(mailMoveHiddenSnapshot().size).toBe(0)
+  })
+
   it('실행 취소면 보내지 않고 다시 보인다', () => {
     const onUndo = vi.fn()
     schedule(new QueryClient(), onUndo)

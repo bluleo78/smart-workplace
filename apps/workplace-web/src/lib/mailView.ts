@@ -9,7 +9,14 @@ import { folderAncestorIds, serverFolderLabel } from './mailFolders'
 
 // drafts(WP-577) — 앱 서버 임시보관함. IMAP 폴더가 아니라 메시지 목록 API 를 쓰지 않는다.
 // folder(WP-961) — 서버의 보관·휴지통(WP-1681)·내 메일함 하나(?box=<메일함 id>). 목록·안 읽은 수·모두 읽음 API 에 folderId 로 보낸다.
-export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent' | 'drafts' | 'folder'
+// flagged(WP-1742) — 별표 모아 보기(?flagged=true). 계정의 모든 메일함(휴지통 제외)의 별표 메일을 한 목록에 — 목록 API 에 flagged=true.
+export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent' | 'drafts' | 'folder' | 'flagged'
+
+/** 별표 모아 보기 URL 파라미터(WP-1742) — ?flagged=true. 회신필요(?needsReply=true)와 같은 모양. */
+export const MAIL_FLAGGED_PARAM = 'flagged'
+
+/** 별표 보기 이름(WP-1742) — 사이드바 항목·헤더 제목·탭 제목. */
+export const FLAGGED_LABEL = '별표'
 
 /** 서버 메일함 보기 URL 파라미터 — ?folder=sent|drafts(고정 메일함)와 겹치지 않게 따로 둔다. */
 export const MAIL_BOX_PARAM = 'box'
@@ -91,6 +98,14 @@ export function resolveMailView(
       title, breadcrumb, key: `folder:${boxId}:${unread}`, folderId: boxId,
     }
   }
+  // WP-1742 별표 모아 보기 — 딥링크 판정보다 먼저 본다(?flagged=true&messageId=9 는 별표 보기에서 연 메일). 분류·회신필요는 쓰지 않는다.
+  // 안 읽음 거르기는 서버가 함께 받으므로 이어 간다. 모두 읽음은 별표 범위를 모르는 API 라 화면이 보기 종류로 숨긴다.
+  if (params.get(MAIL_FLAGGED_PARAM) === 'true') {
+    return {
+      kind: 'flagged', apiCategory: '', activeCategory: null, unreadOnly: unread, unreadToggleVisible: true,
+      title: FLAGGED_LABEL, breadcrumb: [{ label: FLAGGED_LABEL }], key: `flagged:${unread}`, folderId: null,
+    }
+  }
   if (params.get('needsReply') === 'true') {
     return { kind: 'needsReply', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '회신필요', breadcrumb: [{ label: '회신필요' }], key: 'needsReply', folderId: null }
   }
@@ -141,14 +156,15 @@ export function mailBreadcrumbItems(
   return items
 }
 
-/** 보기 링크 — 업무(기본)는 쿼리 없이, 그 외는 category, 서버 메일함은 ?box=<id>. 토글 상태는 유지한다. */
+/** 보기 링크 — 업무(기본)는 쿼리 없이, 그 외는 category, 서버 메일함은 ?box=<id>, 별표(WP-1742)는 ?flagged=true. 토글 상태는 유지한다. */
 export function mailViewHref(
   accountId: number,
-  view: 'work' | 'all' | MailCategory | { folderId: number },
+  view: 'work' | 'all' | 'flagged' | MailCategory | { folderId: number },
   unreadOnly: boolean,
 ): string {
   const q = new URLSearchParams()
   if (typeof view === 'object') q.set(MAIL_BOX_PARAM, String(view.folderId))
+  else if (view === 'flagged') q.set(MAIL_FLAGGED_PARAM, 'true')
   else if (view !== 'work' && view !== '업무') q.set('category', view)
   if (unreadOnly) q.set('unread', 'true')
   const s = q.toString()
@@ -159,6 +175,7 @@ export function mailViewHref(
  * WP-187 보기에 해당하는 안 읽은 수 — 모두 읽음 버튼 비활성 판단용.
  * work=업무 버킷, all=받은편지함 전체, category=해당 분류, needsReply=회신필요. 보낸편지함·임시보관함은 안 읽음 개념이 없어 0.
  * folder=그 메일함의 서버 안 읽은 수 — 목록을 아직 못 받았거나 서버가 모르면(null) null(모름 — 0 으로 보고 버튼을 끄지 않는다).
+ * flagged(WP-1742)=모름(null) — 계수 응답의 flagged 는 별표 수지 안 읽은 수가 아니다(별표 보기는 모두 읽음을 두지 않는다).
  */
 export function unreadCountForView(
   view: MailView,
@@ -179,5 +196,7 @@ export function unreadCountForView(
     case 'sent':
     case 'drafts':
       return 0
+    case 'flagged':
+      return null
   }
 }

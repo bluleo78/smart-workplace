@@ -32,6 +32,18 @@ export interface EmailMessageSummary {
    * 개인 비서 분류·공용 분류면 false. 옛 응답·테스트 데이터에는 없을 수 있어 선택 필드다(없으면 false).
    */
   categoryByMe?: boolean;
+  /**
+   * WP-1742: 메일의 원래 메일함 표시 이름(받은편지함·보낸편지함·보관·내 메일함 이름) — 별표 모아 보기 목록만 채우고 그 밖은 null.
+   * 옛 응답·테스트 데이터에는 없을 수 있어 선택 필드다.
+   */
+  folderName?: string | null;
+  /**
+   * WP-1742: 메일의 원래 메일함 id(서버 메일함 목록 MailServerFolder.id 와 같은 공간) — 앱이 보낸 메일 기록처럼 서버 메일함이 아니면 null.
+   * 별표 모아 보기 목록만 채운다. 화면의 작업 판정(옮기기 대상)은 표시 이름이 아니라 이 값과 folderRole 로 한다.
+   */
+  folderId?: number | null;
+  /** WP-1742: 원래 메일함 역할 — 'INBOX'·'SENT'·'ARCHIVE'·'USER' 등(서버 email_folder.role, 받은·보낸편지함은 서버가 판정해 채움). 별표 목록만. */
+  folderRole?: string | null;
 }
 
 /** WP-965 목록 다음 페이지 커서 — 앞 페이지 마지막 행의 receivedAt·id(서버 정렬 키). */
@@ -155,6 +167,8 @@ export interface MailUnreadCounts {
   inbox: number;
   byCategory: Record<MailCategory, number>;
   needsReply: number;
+  /** WP-1742: 별표 메일 수(휴지통 제외 모든 메일함, 읽음 여부와 무관) — 사이드바 「별표」 숫자. 옛 서버 응답엔 없을 수 있다. */
+  flagged?: number;
 }
 
 /** 메일 발송 요청(새 메일·답장·전달 공용). 백엔드 MailSendRequest 와 1:1. */

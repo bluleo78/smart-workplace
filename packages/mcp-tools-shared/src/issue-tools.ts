@@ -515,7 +515,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        `Replaces an issue comment body (author only, not even project OWNER). commentId: comments[].id from get_issue_detail ` +
+        `Replaces an issue comment body (author only, not even OWNER). commentId: comments[].id from get_issue_detail ` +
         `(allComments:true for older ones).` +
         LINK_RULE_AUTOLINK,
       inputSchema: editCommentInput,

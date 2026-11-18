@@ -29,7 +29,7 @@ Range.prototype.getBoundingClientRect ??= () => new DOMRect()
 document.elementFromPoint ??= () => null
 
 /** 안 읽은 수(사이드바 하위 분류·회신필요) 기본값 — AI 분류가 켜진 계정의 0건. */
-export function unreadCounts(overrides: Partial<{ classificationActive: boolean; inbox: number; needsReply: number; byCategory: Record<string, number> }> = {}) {
+export function unreadCounts(overrides: Partial<{ classificationActive: boolean; inbox: number; needsReply: number; byCategory: Record<string, number>; flagged: number }> = {}) {
   return {
     classificationActive: true,
     inbox: 0,

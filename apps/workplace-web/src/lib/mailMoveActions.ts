@@ -34,6 +34,33 @@ function viewingRole(
   return view.kind === 'folder' && folders?.find((f) => f.id === view.folderId)?.role === role
 }
 
+/** WP-1742 별표 목록 행의 원래 메일함 — 서버가 채운 id·역할(EmailMessageSummary.folderId·folderRole). 표시 이름(folderName)은 쓰지 않는다. */
+export interface MailRowFolder {
+  folderId?: number | null
+  folderRole?: string | null
+}
+
+/**
+ * WP-1742 별표 모아 보기의 한 메일에 대한 작업 판정 범위 — 별표 보기는 여러 메일함의 메일이 섞여 보기 하나로는 「지금 메일함」을 알 수 없다.
+ * 메일의 원래 메일함(목록 행 folderRole·folderId)을 그 메일함 보기로 바꿔 기존 판정(mailMoveTargets·mailMoveAvailability)에 넘긴다 —
+ * 받은편지함(INBOX) 메일엔 「받은편지함으로 옮기기」가, 보관 메일엔 「보관」이 빠지고, 보낸(SENT) 메일은 옮길 수 없다(서버가 거절한다).
+ * 그 밖은 folderId 가 내 메일함 목록에 있으면 그 메일함 보기. 표시 이름으로 맞추지 않는다(이름이 겹치거나 바뀌어도 틀리지 않게).
+ * 별표 보기인데 행·메일함을 모르면(행 스냅샷 없음·메일함 목록 전·목록에 없는 id) null — 호출 측은 옮기기·보관·삭제를 모두 숨긴다
+ * (보수적으로: 모르는 메일에 받은편지함으로 옮기기·삭제를 보이면 보낸 메일·같은 메일함으로 옮기기 같은 틀린 작업이 열린다).
+ * 별표 보기가 아니면 보기를 그대로 돌려준다.
+ */
+export function mailRowMoveScope(
+  view: Pick<MailView, 'kind' | 'folderId'>,
+  folders: readonly MailServerFolder[] | undefined,
+  row: MailRowFolder | null | undefined,
+): Pick<MailView, 'kind' | 'folderId'> | null {
+  if (view.kind !== 'flagged') return view
+  if (row?.folderRole === 'INBOX') return { kind: 'all', folderId: null }
+  if (row?.folderRole === 'SENT') return { kind: 'sent', folderId: null }
+  const id = row?.folderId
+  return id != null && folders?.some((f) => f.id === id) ? { kind: 'folder', folderId: id } : null
+}
+
 /**
  * 「옮기기」 메뉴 — 받은편지함 · 보관 · 내 메일함 트리(모두 펼침). 지금 보는 메일함은 뺀다:
  * 받은편지함 계열 보기에선 받은편지함, 보관 보기에선 보관, 내 메일함 보기에선 그 메일함(하위는 남긴다).

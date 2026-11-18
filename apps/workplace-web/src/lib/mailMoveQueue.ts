@@ -95,6 +95,8 @@ function onVisibilityChange() {
  * 옮기기 예약 — 바로 숨기고 실행 취소 토스트를 띄운다. 토스트가 닫히면 서버에 보낸다.
  * @param message 토스트 문구(mailMoveToastMessage)
  * @param onUndo 실행 취소했을 때(호출 측 상태 되돌리기 — 없어도 숨김은 풀린다)
+ * @param hideRows false 면 목록에서 숨기지 않는다(WP-1742 별표 보기의 보관·옮기기 — 별표는 그대로라 옮긴 뒤에도 목록에 남는다). 옮긴 뒤 목록을
+ *   다시 받는 것(refreshThenUnhide)은 그대로라 메일함 배지가 바뀐다. 숨기지 않은 id 를 푸는 것은 아무 일도 하지 않는다. 기본 true.
  */
 export function scheduleMailMove(args: {
   qc: QueryClient
@@ -103,10 +105,11 @@ export function scheduleMailMove(args: {
   target: MailMoveRequest['target']
   message: string
   onUndo?: () => void
+  hideRows?: boolean
 }): void {
-  const { qc, accountId, messageIds, target, message } = args
+  const { qc, accountId, messageIds, target, message, hideRows = true } = args
   if (messageIds.length === 0) return
-  hide(messageIds)
+  if (hideRows) hide(messageIds)
   if (!listenersBound && typeof window !== 'undefined') {
     window.addEventListener('pagehide', flushPending)
     document.addEventListener('visibilitychange', onVisibilityChange)

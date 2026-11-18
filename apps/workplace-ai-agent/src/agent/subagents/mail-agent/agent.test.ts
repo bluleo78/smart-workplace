@@ -61,6 +61,12 @@ describe('mail-agent 정의', () => {
     expect(prompt).toContain('`flagged=false`');
     expect(prompt).toContain('`aiNeedsReply`');
   });
+  // WP-1742: 별표 메일 모아 보기는 메일함마다 list_mail 을 돌지 않고 flagged=true 한 번으로 한다.
+  it('WP-1742: 별표한 메일 목록은 list_mail flagged=true 로 모든 메일함에서 모으고 folderName 으로 메일함을 알린다고 안내한다', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('list_mail(accountId, flagged=true)');
+    expect(prompt).toContain('`folderName`');
+  });
   it('maxTurns 설정 + 본문에 메일·발송 확인 안내', () => {
     expect(loaded['mail-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['mail-agent'].prompt).toMatch(/메일|발송/);

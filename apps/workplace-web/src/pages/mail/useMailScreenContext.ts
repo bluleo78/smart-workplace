@@ -16,6 +16,7 @@ export function useMailScreenContext({
   accountEmail,
   folder,
   serverFolder,
+  flagged,
   q,
   category,
   needsReply,
@@ -30,6 +31,7 @@ export function useMailScreenContext({
             accountEmail,
             folder,
             serverFolder,
+            flagged,
             q,
             category,
             needsReply,
@@ -47,7 +49,7 @@ export function useMailScreenContext({
               : null,
           })
         : null,
-    [accountId, accountEmail, folder, serverFolder, q, category, needsReply, count, selected],
+    [accountId, accountEmail, folder, serverFolder, flagged, q, category, needsReply, count, selected],
   )
   useRegisterAiScreenContext(screenContext)
 }
