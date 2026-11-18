@@ -1112,6 +1112,19 @@ test('기본값_PANE_이어도_저장_실패_다시_열기는_우측_하단에_�
   expect(screen.getByTestId('mail-compose-dock')).toHaveClass('fixed')
 })
 
+test('임시보관함_화면에서_기본값_읽기_창이면_우측_하단에_연다', async () => {
+  // 임시보관함은 읽는 자리(슬롯)가 없는 화면이라 기본값 PANE 이어도 작성창은 우측 하단 도크로 열린다(WP-1744 반려 반영).
+  const server = draftServer([draftDetail({ id: 7, subject: '읽기 창으로 열 메일', version: 1 })])
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('PANE')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'PANE' }))
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  await waitFor(() => expect(subject()).toHaveValue('읽기 창으로 열 메일'))
+  expect(screen.queryByTestId('mail-compose-pane-slot')).not.toBeInTheDocument()
+  expect(composeInPane()).toBe(false)
+  expect(screen.getByTestId('mail-compose-dock')).toHaveClass('fixed')
+})
+
 test('기본값_WINDOW_이면_임시보관함_행을_누르면_빈_창을_먼저_열고_받은_뒤_그_임시저장_주소로_옮긴다', async () => {
   const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
   const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)

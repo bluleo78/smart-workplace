@@ -453,6 +453,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     // 데스크톱·AI 전체 화면 아님·읽기 자리 슬롯 있음(메일 화면)이면 읽기 창, 그 밖(우측 하단·새 창 기본값, 설정 못 받음, 메일 화면 밖,
     // placement 없이 다시 연 작성)은 우측 하단 작은 창. 새 창 기본값은 아래 「기본값 새 창」 효과가 옮긴다.
     // 닫힌 작성(보냄·✕·새 창으로 보냄)은 우측 하단으로 — 읽기 창 상태가 남아 읽기 자리가 비어 있지 않게 한다(WP-1743).
+    // 읽기 자리(slotEl)는 MailInboxPage 가 읽기 영역에만 그린다 — 임시보관함처럼 읽는 자리가 없는 메일 화면도 slotEl 이 없어 우측 하단이다.
     // 새 창 페이지(popout)는 공급자가 늘 DOCK 이라 읽기 창이 되지 않는다(그 창의 배치는 늘 fill).
     const initialPlacement = draft?.instanceId != null ? initialPlacementFor(draft.instanceId) : null;
     setSize(draft && initialPlacement === 'PANE' && !isMobile && !aiFullscreen && slotEl ? 'pane' : 'dock');
