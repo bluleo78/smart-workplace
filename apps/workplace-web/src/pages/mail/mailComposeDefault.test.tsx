@@ -9,7 +9,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
-import { useMailCompose } from '@/components/mail/MailComposeContext'
+import { MAIL_COMPOSE_PREOPEN_TIMEOUT_MS, useMailCompose } from '@/components/mail/MailComposeContext'
 import { mailSettingsKey } from '@/hooks/queries/useMailSettings'
 import { forgetMailComposePopout, MAIL_COMPOSE_WINDOW_ID } from '@/lib/mailComposeChannel'
 import { composeSettingsHandler, fakeWindow } from '@/test/kits/mail/compose-default'
@@ -290,4 +290,79 @@ test('기본값_WINDOW_로_새_메일을_열면_늦은_서명이_들어간_뒤�
   expect(post.calls[0].body.bodyHtml).toContain('홍길동 드림')
   await waitFor(() => expect(win.location.href).toMatch(/^\/mail\/compose\?draftId=104&/))
   forgetMailComposePopout(104)
+})
+
+// ── 새 창 옮기기 해제는 회차별로 — 앞 회차의 늦은 실패가 다음 회차의 감춤을 풀지 않는다 ──
+
+test('앞_회차_새_창_옮기기_실패가_다음_회차의_감춤을_풀지_않는다', async () => {
+  const first = fakeWindow()
+  const second = fakeWindow()
+  vi.spyOn(window, 'open')
+    .mockReturnValueOnce(first as unknown as Window)
+    .mockReturnValueOnce(second as unknown as Window)
+  // 첫 저장(회차 A)은 붙잡아 두었다가 실패로 돌려주고, 둘째 저장(회차 B)은 끝나지 않는다.
+  let failFirst!: () => void
+  const gate = new Promise<void>((r) => (failFirst = r))
+  let calls = 0
+  const post = record('post', '/api/v1/mail/drafts', async () => {
+    calls += 1
+    if (calls === 1) {
+      await gate
+      return HttpResponse.json({ message: 'server error' }, { status: 500 })
+    }
+    return new Promise<Response>(() => {})
+  })
+  const view = renderWith('WINDOW', { extra: [post.handler] })
+  await settingsLoaded(view, 'WINDOW')
+  await view.user.click(screen.getByTestId('open-compose'))
+  await waitFor(() => expect(post.calls).toHaveLength(1))
+  // A 의 저장이 끝나기 전에 B 를 연다.
+  await view.user.click(screen.getByTestId('open-compose'))
+  await waitFor(() => expect(post.calls).toHaveLength(2))
+  expect(screen.getByTestId('mail-compose-dock')).toHaveClass('invisible')
+
+  // A 의 저장 실패가 늦게 도착한다 — A 의 알림은 뜨지만 B 의 우측 하단 창은 여전히 감춰져 있다.
+  failFirst()
+  expect(await screen.findByText('새 창으로 열지 못했어요')).toBeInTheDocument()
+  expect(screen.getByTestId('mail-compose-dock')).toHaveClass('invisible')
+  expect(second.close).not.toHaveBeenCalled()
+})
+
+// ── 미리 연 빈 창 시한 — 작성기가 준비되지 않아 못 꺼내면 닫고 우측 하단에 보인다 ──
+
+test('미리_연_창을_10초_안에_꺼내지_않으면_닫고_우측_하단에_보인다', async () => {
+  const win = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  // 서명 응답이 오지 않는다 — 작성기는 준비돼도 옮기기(꺼내기)가 서명 조회를 기다려 시한까지 못 꺼낸다.
+  const signature = http.get('/api/v1/mail/signature', () => new Promise<Response>(() => {}))
+  const view = renderWith('WINDOW', { extra: [signature] })
+  await settingsLoaded(view, 'WINDOW')
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    await view.user.click(screen.getByTestId('open-compose'))
+    expect(win.close).not.toHaveBeenCalled()
+    await act(() => vi.advanceTimersByTimeAsync(MAIL_COMPOSE_PREOPEN_TIMEOUT_MS))
+    expect(win.close).toHaveBeenCalledTimes(1)
+    await expectDocked()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('미리_연_창을_꺼낸_뒤에는_시한이_창을_닫지_않는다', async () => {
+  const win = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  // 저장이 끝나지 않는다 — 창은 이미 꺼내 도크가 쓰는 중이다.
+  const post = record('post', '/api/v1/mail/drafts', () => new Promise<Response>(() => {}))
+  const view = renderWith('WINDOW', { extra: [post.handler] })
+  await settingsLoaded(view, 'WINDOW')
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    await view.user.click(screen.getByTestId('open-compose'))
+    await waitFor(() => expect(post.calls).toHaveLength(1))
+    await act(() => vi.advanceTimersByTimeAsync(MAIL_COMPOSE_PREOPEN_TIMEOUT_MS))
+    expect(win.close).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
 })

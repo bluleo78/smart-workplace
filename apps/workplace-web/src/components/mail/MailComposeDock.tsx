@@ -577,20 +577,21 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   // ↗ 를 직접 누른 때는 옮기는 중인 회차가 없어 아무 일도 하지 않는다).
   // 조기 return 앞에 둔다 — 아래 「기본값 새 창」 효과가 부른다(작성창이 없으면 그 효과가 부르지 않는다).
   const popOut = (preopened?: Window | null) => {
+    // 이 호출이 속한 회차 — 늦게 끝나는 저장 뒤의 해제가 그 사이 연 다음 회차를 건드리지 않게 endWindowMove 에 넘긴다.
+    const opened = instanceId as number;
     // 붙여 넣은 그림은 올라가는 중이면 아직 본문 자리표시라 저장되지 않는다 — 다 올라간 뒤 옮긴다(보내기와 같은 규칙).
     if (composerRef.current?.hasPendingImage()) {
       preopened?.close();
-      endWindowMove();
+      endWindowMove(opened);
       toast.error('이미지를 올리는 중이에요. 다 올라간 뒤 새 창으로 열어 주세요');
       return;
     }
     const win = preopened !== undefined ? preopened : openMailComposeWindow();
     if (!win) {
-      endWindowMove();
+      endWindowMove(opened);
       toastMailComposePopupBlocked();
       return;
     }
-    const opened = instanceId as number;
     // 아직 서버에 없고 손댄 것도 없는 작성 — 강제 저장으로 만드는 임시저장은 새 창에서도 손대지 않고 닫으면 지운다(fresh).
     const fresh = autosave.currentDraftId() == null && getSnapshot().empty;
     setLeaving(true);
@@ -599,12 +600,12 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       // 저장하는 동안 사용자가 빈 창을 닫았다 — 여기서 이어 쓴다(작성창을 닫지 않고, 죽은 창은 건드리지 않는다).
       // 저장은 끝났으니 이 작성은 그 임시저장에 이어 저장된다.
       if (win.closed) {
-        endWindowMove();
+        endWindowMove(opened);
         return;
       }
       if (!r.ok || r.draftId == null) {
         win.close();
-        endWindowMove();
+        endWindowMove(opened);
         toast.error('새 창으로 열지 못했어요', {
           description: r.reason ?? '임시저장하지 못했어요. 잠시 뒤 다시 시도해 주세요',
         });

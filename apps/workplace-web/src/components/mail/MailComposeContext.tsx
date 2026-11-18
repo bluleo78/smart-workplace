@@ -153,8 +153,11 @@ interface MailComposeWindowMoveContextValue {
    * 그 회차를 위해 openCompose 가 미리 연 창을 한 번 꺼낸다 — Window(열림) / null(팝업 차단) / undefined(새 창 기본값이 아니었거나 이미 꺼냄).
    */
   takePendingWindow: (instanceId: number) => Window | null | undefined;
-  /** 새 창으로 옮기기를 그만둔다(우측 하단 창을 다시 보인다). 옮기는 중이 아니면 아무 일도 하지 않는다. */
-  endWindowMove: () => void;
+  /**
+   * 새 창으로 옮기기를 그만둔다(우측 하단 창을 다시 보인다). 그 회차가 옮기는 중일 때만 푼다 — 앞 회차의 늦은 실패가
+   * 그 사이 연 다음 회차의 감춤까지 풀지 않게 회차를 가린다. 옮기는 중이 아니거나 다른 회차면 아무 일도 하지 않는다.
+   */
+  endWindowMove: (instanceId: number) => void;
 }
 
 /** 작성창(도크)이 컨텍스트에 맡기는 임시저장 동작. */
@@ -180,7 +183,15 @@ interface PlacementRecord {
   instanceId: number;
   mode: MailComposeDefault;
   win?: Window | null;
+  /** 미리 연 창의 시한 타이머 — 꺼내지 못한 빈 창이 남지 않게 한다. 회차 정리·언마운트에서 지운다. */
+  timer?: ReturnType<typeof setTimeout>;
 }
+
+/**
+ * 미리 연 빈 창의 시한(ms) — 이 안에 도크가 꺼내 가지 않으면(작성기 준비·서명 조회가 끝나지 않음) 창을 닫고
+ * 우측 하단 창을 다시 보인다. 빈 창과 감춘 작성창이 계속 남는 것을 막는다.
+ */
+export const MAIL_COMPOSE_PREOPEN_TIMEOUT_MS = 10_000;
 
 /**
  * 도크 상태 provider. AppLayout 이 감싼다. popout 은 새 창 페이지(WP-1535)의 공급자 — 작성 방식 기본값을 읽지도 쓰지도 않는다.
@@ -212,12 +223,16 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
     return mode === 'WINDOW' && getIsMobile() ? 'DOCK' : mode;
   }, [popout, qc]);
 
+  // 그 회차가 옮기는 중일 때만 푼다 — 함수형 갱신이라 늦게 도착한 앞 회차의 해제가 새 회차의 값을 건드리지 못한다.
+  const endWindowMove = useCallback((instanceId: number) => setWindowMoveFor((cur) => (cur === instanceId ? null : cur)), []);
+
   const commit = useCallback((d: ComposeDraft | null) => {
     draftRef.current = d;
     setDraft(d);
     // 다른 작성으로 바뀌었거나 닫혔다 — 그 회차의 기록을 지우고, 미리 열어 두고 아직 쓰지 않은 창은 닫고, 감춤도 푼다(빈 창이 남지 않게).
     const record = placementRef.current;
     if (record && record.instanceId !== d?.instanceId) {
+      clearTimeout(record.timer);
       record.win?.close();
       placementRef.current = null;
     }
@@ -237,21 +252,34 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
       const win = mode === 'WINDOW' ? openMailComposeWindow() : undefined;
       // 앞 회차 기록은 commit 이 정리하므로(미리 연 창 닫기) 새 기록은 그 뒤에 둔다.
       commit({ ...d, instanceId });
-      placementRef.current = mode ? { instanceId, mode, win } : null;
+      const record: PlacementRecord | null = mode ? { instanceId, mode, win } : null;
+      placementRef.current = record;
       // 창이 열렸을 때만 우측 하단 창을 감춘다 — 막혔으면 우측 하단에 그대로 보인다.
-      if (win) setWindowMoveFor(instanceId);
+      if (win && record) {
+        setWindowMoveFor(instanceId);
+        // 시한 — 그때까지 같은 회차의 창이 아직 꺼내지지 않았으면 닫고 우측 하단에 다시 보인다(꺼낸 뒤엔 도크가 맡아 닫지 않는다).
+        record.timer = setTimeout(() => {
+          record.timer = undefined;
+          if (placementRef.current !== record || !record.win) return;
+          record.win.close();
+          record.win = undefined;
+          endWindowMove(instanceId);
+        }, MAIL_COMPOSE_PREOPEN_TIMEOUT_MS);
+      }
     },
-    [commit, getComposeDefault],
+    [commit, getComposeDefault, endWindowMove],
   );
   const takePendingWindow = useCallback((instanceId: number) => {
     const record = placementRef.current;
     if (record?.instanceId !== instanceId || record.win === undefined) return undefined;
     const { win } = record;
+    // 꺼냈으니 시한은 필요 없다 — 이후 창은 도크 본체가 닫는다.
+    clearTimeout(record.timer);
+    record.timer = undefined;
     // 꺼낸 창은 도크 본체가 맡는다 — 회차가 바뀌어도 commit 이 다시 닫지 않게 기록에서 뺀다(처음 배치 mode 는 남긴다).
     record.win = undefined;
     return win;
   }, []);
-  const endWindowMove = useCallback(() => setWindowMoveFor(null), []);
   const initialPlacementFor = useCallback(
     (instanceId: number) => (placementRef.current?.instanceId === instanceId ? placementRef.current.mode : null),
     [],
@@ -259,6 +287,7 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
   // 공급자가 사라지면(로그아웃 등) 쓰이지 않은 미리 연 창을 닫는다.
   useEffect(
     () => () => {
+      clearTimeout(placementRef.current?.timer);
       placementRef.current?.win?.close();
       placementRef.current = null;
     },
