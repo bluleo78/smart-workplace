@@ -330,6 +330,123 @@ class RunnerApiTest extends IntegrationTestBase {
     assertThat(row.getPhase()).isNull();
   }
 
+  /** 관리 조회로 본 AI 의 상태(OFF·STOPPING·RUNNING 등). */
+  private String adminStatusOf(long agent) throws Exception {
+    TenantContext.set(1L);
+    MvcResult r =
+        mvc.perform(
+                get("/api/v1/admin/agents/" + agent + "/runtime-setting")
+                    .with(
+                        authentication(
+                            WebSessionAuth.of(
+                                admin, List.of(new SimpleGrantedAuthority("user:write"))))))
+            .andExpect(status().isOk())
+            .andReturn();
+    return om.readTree(r.getResponse().getContentAsString()).get("status").asText();
+  }
+
+  /** a2 를 끈 뒤 위치가 newLocationId 로 바뀌었으나 옛 위치 Pod 는 아직 도는 모양으로 행을 맞춘다(WP-1751). */
+  private void stoppedAgentMovedTo(Long newLocationId) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.DESIRED, "STOP")
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.LOCATION_ID, newLocationId)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a2))
+        .execute();
+  }
+
+  /** WP-1751: 꺼진 AI 의 위치가 바뀌어도 옛 위치 runner 의 정지 보고를 받는다. 켜진 AI 는 여전히 현재 위치 보고만 받는다. */
+  @Test
+  void observed_acceptsReportFromOldLocationForStoppedAgent() throws Exception {
+    stoppedAgentMovedTo(l1);
+
+    observed(
+            t2,
+            "{\"agents\":[{\"agentUserId\":"
+                + a2
+                + ",\"phase\":\"STOPPED\"},{\"agentUserId\":"
+                + a1
+                + ",\"phase\":\"RUNNING\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1))
+        .andExpect(jsonPath("$.ignored.length()").value(1))
+        .andExpect(jsonPath("$.ignored[0]").value(a1));
+
+    var row =
+        dsl.selectFrom(AGENT_RUNTIME_SETTING)
+            .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a2))
+            .fetchOne();
+    assertThat(row.getPhase()).isEqualTo("STOPPED");
+    assertThat(adminStatusOf(a2)).isEqualTo("OFF");
+  }
+
+  /**
+   * WP-1751: 옛 위치 Pod 가 아직 도는 동안은 「끄는 중」, 정지 보고가 오면 꺼짐. 다른 위치의 정지 보고가 아닌 phase(RUNNING)는 받지 않는다 —
+   * 옮기기 전 행의 RUNNING 이 남아 「끄는 중」으로 보인다.
+   */
+  @Test
+  void observed_keepsStoppingWhileOldLocationPodStillRunning() throws Exception {
+    stoppedAgentMovedTo(l1);
+
+    observed(t2, "{\"agents\":[{\"agentUserId\":" + a2 + ",\"phase\":\"RUNNING\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(0))
+        .andExpect(jsonPath("$.ignored[0]").value(a2));
+    assertThat(adminStatusOf(a2)).isEqualTo("STOPPING");
+
+    observed(t2, "{\"agents\":[{\"agentUserId\":" + a2 + ",\"phase\":\"STOPPING\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1));
+    assertThat(adminStatusOf(a2)).isEqualTo("STOPPING");
+
+    observed(t2, "{\"agents\":[{\"agentUserId\":" + a2 + ",\"phase\":\"STOPPED\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1));
+    assertThat(adminStatusOf(a2)).isEqualTo("OFF");
+  }
+
+  /**
+   * WP-1751: 옛 위치가 기본 위치(location_id NULL, t1)였던 꺼진 AI 가 명시 위치 l2 로 옮겨져도 t1 의 정지 보고를 받는다(isDefault
+   * 분기).
+   */
+  @Test
+  void observed_acceptsReportFromDefaultLocationForStoppedAgentMovedToExplicit() throws Exception {
+    stoppedAgentMovedTo(l2);
+
+    observed(t1, "{\"agents\":[{\"agentUserId\":" + a2 + ",\"phase\":\"STOPPED\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1))
+        .andExpect(jsonPath("$.ignored.length()").value(0));
+    assertThat(adminStatusOf(a2)).isEqualTo("OFF");
+  }
+
+  /** WP-1751: 켜진 채 다른 위치로 옮겨진 AI 에 대한 옛 위치의 보고는 여전히 무시한다. */
+  @Test
+  void observed_ignoresOldLocationReportForRunningAgentMovedElsewhere() throws Exception {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.LOCATION_ID, l1)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(
+            AGENT_RUNTIME_SETTING.OBSERVED_GENERATION,
+            dsl.select(AGENT_RUNTIME_SETTING.GENERATION)
+                .from(AGENT_RUNTIME_SETTING)
+                .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a2))
+                .asField())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a2))
+        .execute();
+
+    observed(t2, "{\"agents\":[{\"agentUserId\":" + a2 + ",\"phase\":\"STOPPED\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(0))
+        .andExpect(jsonPath("$.ignored[0]").value(a2));
+
+    var row =
+        dsl.selectFrom(AGENT_RUNTIME_SETTING)
+            .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a2))
+            .fetchOne();
+    assertThat(row.getPhase()).isEqualTo("RUNNING");
+  }
+
   /** phase 는 다섯 값만 — 틀린 값은 400(DB 제약 500 이 아니라). */
   @Test
   void observed_withUnknownPhase_returns400() throws Exception {

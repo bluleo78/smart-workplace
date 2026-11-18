@@ -204,7 +204,7 @@ function AgentDetailView({
       <AgentBasicInfoSection agent={agent} />
       {!personal && <AgentRolesSection agent={agent} />}
       <AgentDutySection agent={agent} />
-      <AgentRunSection agent={agent} templates={templates} worksRun={worksRun} savedTemplateName={saved?.templateName ?? null} />
+      <AgentRunSection agent={agent} templates={templates} worksRun={worksRun} savedTemplateName={saved?.templateName ?? null} savedLocationId={saved?.locationId ?? null} />
       {agent.runMode !== 'SERVER' && !personal && <AgentRepoSection agent={agent} />}
       {!personal && <AgentDangerSection agent={agent} />}
     </AgentDetailFrame>

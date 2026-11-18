@@ -159,7 +159,7 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
 ```
 
 - `phase`: `STARTING` · `RUNNING` · `STOPPING` · `STOPPED` · `FAILED` 중 하나(그 밖은 400). `observedGeneration` 은 그 Pod 가 반영한 generation 이다. `message` 500자, 한 번에 200명까지.
-- **이 위치의 AI 만** 반영한다(꺼진 AI 의 `STOPPING`·`STOPPED` 도 받는다 — 지운 뒤 `STOPPED` 를 보내야 관리자 화면이 「끄는 중」에서 「꺼짐」으로 바뀐다). 없는 AI·다른 위치의 AI 는 `ignored` 로 돌려준다. AI 를 다른 위치로 옮긴 뒤 옛 위치가 보낸 보고도 `ignored` 다.
+- **이 위치의 AI 만** 반영한다(꺼진 AI 의 `STOPPING`·`STOPPED` 도 받는다 — 지운 뒤 `STOPPED` 를 보내야 관리자 화면이 「끄는 중」에서 「꺼짐」으로 바뀐다). 없는 AI·다른 위치의 AI 는 `ignored` 로 돌려준다. AI 를 다른 위치로 옮긴 뒤 옛 위치가 보낸 보고는 `ignored` 다 — 예외는 꺼진 AI(desired `STOP`)의 `STOPPING`·`STOPPED` 보고 하나로, 어느 위치에서 와도 받는다(WP-1751). 그래서 꺼진 AI 를 옮긴 뒤에도 옛 위치 runner 가 Pod 를 지우고 `STOPPED` 를 보내면 「꺼짐」이 된다.
 - 응답: `{"updated": 1, "ignored": []}`. 보고는 generation 도, 원하는 상태도 바꾸지 않는다.
 - `observedGeneration` 은 줄지 않는다 — 늦게 도착한 옛 Pod 보고(더 작은 값)는 그 칸을 되돌리지 않고, 값이 없는 보고는 그대로 둔다.
 - 새 Pod 가 보이면(`phase=STARTING`, `startedAt` 이 바뀜, `observedGeneration` 이 오름) 옛 Pod 가 보고한 AI 상태(쉬는 중 등)를 지운다. 단 그 AI 보고가 새 Pod 의 `startedAt` 뒤에 왔으면 새 Pod 의 것이라 남긴다. `startedAt` 을 함께 보내야 이 판정이 정확하다.

@@ -12,11 +12,13 @@ import com.workplace.jooq.tables.records.AgentRuntimeSettingRecord;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.With;
 import org.jooq.Condition;
@@ -170,8 +172,14 @@ public class AgentRuntimeSettingRepository {
 
   /** 실제 위치가 그 위치인 설정 조건 — 위치를 직접 지정했거나, {@code isDefault} 면(그 위치가 기본일 때) 위치를 지정하지 않은 설정까지. */
   private static Condition locatedAt(long locationId, boolean isDefault) {
-    Condition at = AGENT_RUNTIME_SETTING.LOCATION_ID.eq(locationId);
-    return isDefault ? at.or(AGENT_RUNTIME_SETTING.LOCATION_ID.isNull()) : at;
+    return locatedAt(AGENT_RUNTIME_SETTING, locationId, isDefault);
+  }
+
+  /** {@link #locatedAt(long, boolean)} 를 별칭 테이블에 건다 — 한 문장 안의 부분 질의(별칭)가 같은 규칙을 쓰게. */
+  private static Condition locatedAt(
+      com.workplace.jooq.tables.AgentRuntimeSetting t, long locationId, boolean isDefault) {
+    Condition at = t.LOCATION_ID.eq(locationId);
+    return isDefault ? at.or(t.LOCATION_ID.isNull()) : at;
   }
 
   /**
@@ -224,7 +232,8 @@ public class AgentRuntimeSettingRepository {
 
   /**
    * runner 가 본 관찰 상태들을 한 문장(UPDATE … FROM (VALUES …) … RETURNING)으로 쓴다(WP-1249·1254) — 실제 위치가 그 위치인
-   * 행만 고친다(조건을 WHERE 에 두어 읽고 쓰는 사이 위치가 바뀌어도 남의 행을 고치지 않는다). desired 는 보지 않는다 — 꺼진 AI 의
+   * 행만 고친다(조건을 WHERE 에 두어 읽고 쓰는 사이 위치가 바뀌어도 남의 행을 고치지 않는다). 단 꺼진 AI(desired STOP)는 어느 위치의 보고든 받는다 —
+   * 위치가 바뀐 뒤 옛 위치 runner 의 정지 보고가 버려져 「종료 중」에 머물지 않게(WP-1751). 켜진 AI 는 현재 위치의 보고만 받는다. 꺼진 AI 의
    * STOPPING·STOPPED 보고도 받아야 상태가 「끄는 중」에 머물지 않는다. 원하는 상태 칸·generation·updated_at 은 건드리지 않는다.
    *
    * <p>WP-1253 보강:
@@ -238,10 +247,12 @@ public class AgentRuntimeSettingRepository {
    * </ul>
    *
    * <p>SET 의 오른쪽은 모두 고치기 전 값을 본다(Postgres UPDATE 규칙) — 새 Pod 판정이 옛 started_at·observed_generation 과
-   * 비교된다. 쓰기 전 화면용 칸은 이 위치의 행만 잠가 읽는 FROM 부분 질의(before)에서 받아 RETURNING 으로 돌려준다(WP-1254 — 전후를 다시 읽지
-   * 않는다). 한 문장 안에서 같은 행을 두 번 고칠 수 없으므로 같은 AI 의 보고가 여러 번 오면 마지막 것만 쓴다(예전 배치와 같이 뒤의 것이 이긴다).
+   * 비교된다. 쓰기 전 화면용 칸은 이 위치의 행(꺼진 AI 는 어느 위치든 — 정지 보고만 반영, WP-1751)만 잠가 읽는 FROM 부분 질의(before)에서 받아
+   * RETURNING 으로 돌려준다(WP-1254 — 전후를 다시 읽지 않는다). 한 문장 안에서 같은 행을 두 번 고칠 수 없으므로 같은 AI 의 보고가 여러 번 오면
+   * 마지막 것만 쓴다(예전 배치와 같이 뒤의 것이 이긴다).
    *
-   * @return 고친 AI id → 결과(없는 AI·다른 위치의 AI 는 빠진다)
+   * @return 고친 AI id → 결과(없는 AI·다른 위치의 AI 는 빠진다. 단 꺼진 AI 의 STOPPING·STOPPED 보고는 다른 위치에서 와도 들어간다 —
+   *     WP-1751)
    */
   public Map<Long, ObservedUpdate> updateObserved(
       long locationId, boolean isDefault, List<RunnerObservedAgent> reports) {
@@ -275,10 +286,20 @@ public class AgentRuntimeSettingRepository {
     Field<Long> vMem = v.field("mem", Long.class);
     Field<OffsetDateTime> vStart = v.field("started_at", OffsetDateTime.class);
 
-    // 쓰기 전 값 — 이 위치의 행만 잠가 읽는다(다른 위치의 AI 는 잠그지도 돌려주지도 않는다).
+    // 받을 행 — 이 위치의 AI, 그리고 정지 보고(STOPPING·STOPPED)를 보낸 꺼진 AI(desired STOP)는 위치와 무관하게(WP-1751). 위치가
+    // 바뀐 뒤
+    // 옛 위치 runner 의 정지 보고로 「꺼짐」이 되게 하되, 다른 위치의 그 밖의 phase 는 받지 않는다 — 새 Pod 판정·generation·키 정리·계정
+    // 사용 시각을 다른 위치 runner 가 흔들지 않게. 이 조건으로만 잠가 읽고(before), UPDATE 는 before 와 맞물려 같은 행만 고친다.
+    Set<Long> stopReports = new HashSet<>();
+    for (RunnerObservedAgent o : last.values()) {
+      if ("STOPPING".equals(o.phase()) || "STOPPED".equals(o.phase())) {
+        stopReports.add(o.agentUserId());
+      }
+    }
     var cur = s.as("cur");
-    Condition curAt = cur.LOCATION_ID.eq(locationId);
-    if (isDefault) curAt = curAt.or(cur.LOCATION_ID.isNull());
+    Condition curAt =
+        locatedAt(cur, locationId, isDefault)
+            .or(cur.DESIRED.eq(Desired.STOP.name()).and(cur.AGENT_USER_ID.in(stopReports)));
     Table<?> before =
         dsl.select(
                 cur.AGENT_USER_ID,
@@ -337,8 +358,8 @@ public class AgentRuntimeSettingRepository {
         .set(s.AGENT_REPORTED_AT, clearedIf(newPod, s.AGENT_REPORTED_AT))
         .from(v, before)
         .where(s.AGENT_USER_ID.eq(vId))
+        // 받을 행은 before(위 curAt 으로 잠가 읽은 행)가 정한다 — 잠근 행이라 그 사이 조건이 바뀌지 않는다.
         .and(s.AGENT_USER_ID.eq(beforeId))
-        .and(locatedAt(locationId, isDefault))
         .returningResult(returning)
         .fetch()
         .forEach(

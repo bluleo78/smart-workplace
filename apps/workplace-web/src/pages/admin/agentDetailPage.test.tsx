@@ -488,6 +488,34 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     expect(calls.runtimes).toEqual([])
   })
 
+  test('작업 공간끼리 실행 방식을 바꾸면 지금 저장된 실행 위치를 이어받아 저장한다 (WP-1751)', async () => {
+    const { user, calls } = await renderDetail(
+      works({ templates: [...TEMPLATES, CODEX_TEMPLATE], settings: { [id]: createSetting(id, { locationId: 5 }) } }),
+    )
+    await user.click(await screen.findByTestId('agent-run-mode-codex'))
+    await screen.findByTestId('agent-run-mode-pending')
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    await user.click(await screen.findByTestId('agent-run-mode-confirm-apply'))
+    await waitFor(() => expect(calls.saves).toHaveLength(1))
+    expect(calls.saves[0].templateName).toBe('codex')
+    expect(calls.saves[0].locationId).toBe(5)
+  })
+
+  test('외부 방식에서 작업 공간 방식으로 바꾸면 이어받을 위치가 없어 워크스페이스 기본(null)으로 저장한다 (WP-1751)', async () => {
+    const { user, calls } = await renderDetail({
+      agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'EXTERNAL' }),
+      templates: [...TEMPLATES, CODEX_TEMPLATE],
+      claudeFor: [id],
+    })
+    await user.click(await screen.findByTestId('agent-run-mode-codex'))
+    await screen.findByTestId('agent-run-mode-pending')
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    await user.click(await screen.findByTestId('agent-run-mode-confirm-apply'))
+    await waitFor(() => expect(calls.saves).toHaveLength(1))
+    expect(calls.saves[0].templateName).toBe('codex')
+    expect(calls.saves[0].locationId).toBeNull()
+  })
+
   test('자동 발급 키가 아직 없으면 다음 교체 안내를 그리지 않는다', async () => {
     await renderDetail(works())
     await screen.findByTestId('agent-managed-keys-group')
