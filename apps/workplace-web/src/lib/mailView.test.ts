@@ -9,7 +9,7 @@ const p = (q: string) => new URLSearchParams(q)
 /** 서버 메일함 한 개(기본: 열 수 있는 USER 최상위). */
 const mailServerFolder = (o: Partial<MailServerFolder> & { id: number }): MailServerFolder => ({
   displayName: `메일함${o.id}`, parentId: null, role: 'USER', selectable: true, unreadCount: 0, totalCount: 0,
-  syncedSince: null, folderSyncedAt: null, ...o,
+  syncedSince: null, folderSyncedAt: null, permanentDeleteUnsupported: false, ...o,
 })
 
 describe('resolveMailView', () => {

@@ -2,7 +2,7 @@
 import type { AxiosProgressEvent } from 'axios';
 
 import type { DriveFile } from '../types/drive';
-import type { MailFolderSyncResult, MailMoveRequest, MailMoveResponse, MailServerFolder } from '../types/mailFolder';
+import type { MailFolderSyncResult, MailMoveRequest, MailMoveResponse, MailServerFolder, MailTrashEmptyStatus } from '../types/mailFolder';
 import type {
   CalendarInvite,
   ComposeAttachmentUpload,
@@ -67,6 +67,27 @@ export function moveMessagesOnUnload(accountId: number, body: MailMoveRequest): 
   } catch {
     /* fetch 를 못 쓰는 환경 — 무시 */
   }
+}
+
+/**
+ * WP-1682 휴지통 메일 완전 삭제 — 메일 서버(IMAP·Outlook)에서도 그 메일만 지운다. 되돌릴 수 없다.
+ * 응답은 옮기기와 같은 메일별 결과(ok=false 면 서버·앱 모두 그대로). 휴지통 밖 메일·UIDPLUS 없는 서버는 400(errors.code).
+ */
+export async function permanentDeleteMessages(accountId: number, messageIds: number[]): Promise<MailMoveResponse> {
+  const { data } = await client.post<MailMoveResponse>(`/mail/accounts/${accountId}/messages/permanent-delete`, { messageIds });
+  return data;
+}
+
+/** WP-1682 휴지통 비우기 시작(202) — 서버가 백그라운드로 비운다. 이미 비우는 중이면 지금 상태를 그대로 돌려준다. */
+export async function startTrashEmpty(accountId: number): Promise<MailTrashEmptyStatus> {
+  const { data } = await client.post<MailTrashEmptyStatus>(`/mail/accounts/${accountId}/trash/empty`);
+  return data;
+}
+
+/** WP-1682 휴지통 비우기 진행 상태(폴링용) — 이 서버가 아는 작업이 없으면 IDLE. */
+export async function getTrashEmptyStatus(accountId: number): Promise<MailTrashEmptyStatus> {
+  const { data } = await client.get<MailTrashEmptyStatus>(`/mail/accounts/${accountId}/trash/empty`);
+  return data;
 }
 
 /** 계정 동기화 진행 상태(폴링용). */

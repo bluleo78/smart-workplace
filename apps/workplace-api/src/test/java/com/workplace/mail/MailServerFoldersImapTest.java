@@ -289,6 +289,45 @@ class MailServerFoldersImapTest extends MailSyncTestSupport {
   }
 
   /**
+   * WP-1682: 목록 갱신이 서버의 UIDPLUS 지원 여부를 계정에 적는다(GreenMail 은 지원). 지원하면 어느 행도 완전 삭제 불가로 표시되지 않고, 미지원으로
+   * 적히면 휴지통 행만 표시된다(보관 등 다른 행은 아님).
+   */
+  @Test
+  void refresh_recordsUidPlus_andOnlyImapTrashWithoutUidPlusIsFlagged() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    withStore(
+        store -> {
+          create(store, "Archive");
+          create(store, "Trash");
+        });
+    EmailAccountResponse account = accountRepo.findByIdAndUser(user, accountId).orElseThrow();
+
+    folderService.refresh(user, accountId, account);
+
+    assertThat(accountRepo.findImapUidPlus(accountId)).isTrue();
+    assertThat(folderService.list(user, accountId))
+        .allSatisfy(f -> assertThat(f.permanentDeleteUnsupported()).isFalse());
+
+    accountRepo.recordImapUidPlus(accountId, false);
+
+    List<MailFolderResponse> list = folderService.list(user, accountId);
+    assertThat(byRole(list, "TRASH").permanentDeleteUnsupported()).isTrue();
+    assertThat(byRole(list, "ARCHIVE").permanentDeleteUnsupported()).isFalse();
+
+    // 기록이 서버와 다르면(false 인데 서버는 지원) 다음 갱신이 고쳐 적고 「바뀜」을 돌려준다 — 메일함 변경 알림으로 다른 탭의 단추도 켜진다.
+    // 목록·기록이 그대로인 갱신은 바뀜이 아니다.
+    assertThat(folderService.refresh(user, accountId, account)).isTrue();
+    assertThat(accountRepo.findImapUidPlus(accountId)).isTrue();
+    assertThat(folderService.refresh(user, accountId, account)).isFalse();
+  }
+
+  /** 역할로 메일함 행 하나를 찾는다. */
+  private static MailFolderResponse byRole(List<MailFolderResponse> list, String role) {
+    return list.stream().filter(f -> role.equals(f.role())).findFirst().orElseThrow();
+  }
+
+  /**
    * WP-1681: 휴지통으로 고른 폴더가 바뀌면(「Bin」만 있다가 「Trash」가 생김) 휴지통 역할이 새 폴더로 옮겨 가고, 계정당 휴지통 하나 제약에 걸려 목록 반영이
    * 실패하지 않는다. 휴지통이 없으면 findTrash 는 비어 있다.
    */

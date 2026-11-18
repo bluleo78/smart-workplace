@@ -152,6 +152,30 @@ public class OutboundConfig {
   }
 
   /**
+   * 메일 휴지통 비우기(WP-1682 MailTrashEmptyJob) 전용 executor. 한 작업이 메일 서버 휴지통 전체를 묶음씩 지우느라(Outlook 은 수천
+   * 통이면 수 분) 스레드를 오래 점유하므로 다른 풀과 나눈다. 계정당 작업은 하나(진행 상태가 막는다)라 core/max 2·queue 10 이면 충분하고, 넘치면 기본
+   * AbortPolicy 가 TaskRejectedException 을 던져 호출부가 진행 상태를 풀고 503(TRASH_EMPTY_BUSY)으로 돌려준다.
+   *
+   * <p>종료 때 기다리지 않는다(wait=false) — 그래야 shutdownNow() 가 실행 중 작업에 인터럽트를 보내고, 작업은 묶음 사이에서 그것을 보고
+   * FAILED(INTERRUPTED)를 남긴 뒤 멈춘다(이미 지운 묶음은 로컬도 반영돼 있다). wait=true 면 인터럽트가 가지 않아 긴 비우기가 종료를 막는다.
+   * awaitTermination 20초 안에 지금 묶음을 마치고 끝난다. TenantContext 를 전파해 묶음마다의 로컬 반영 트랜잭션이 RLS GUC 를 받게 한다.
+   * 테스트가 TaskExecutor 주입 지점에 넣으므로 구체 타입으로 노출한다(homeSuggestionExecutor 와 같다).
+   */
+  @Bean(name = "mailTrashEmptyExecutor")
+  public ThreadPoolTaskExecutor mailTrashEmptyExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);
+    executor.setMaxPoolSize(2);
+    executor.setQueueCapacity(10);
+    executor.setThreadNamePrefix("mail-trash-empty-");
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.setWaitForTasksToCompleteOnShutdown(false);
+    executor.setAwaitTerminationSeconds(20);
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * 이슈 Instant Context 요약 생성 전용 executor (#517). 요약 HTTP(read 90s)는 스레드를 장시간 점유하므로 경량
    * aiAgentEventExecutor(이벤트 발사)와 공유 금지(공유 시 이벤트 디스패치 고갈). 데코레이터로 TenantContext 전파 → @Async
    * AFTER_COMMIT 핸들러가 워커 스레드에서 트랜잭션 시작 시 GUC 주입(issue_ai_summary RLS fail-closed 회피).

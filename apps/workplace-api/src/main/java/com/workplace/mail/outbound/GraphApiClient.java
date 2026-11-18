@@ -525,13 +525,16 @@ public class GraphApiClient {
         requests.stream()
             .map(
                 r -> {
-                  // 배치 규약: body 가 있으면 Content-Type 헤더가 필수
+                  // 배치 규약: body 가 있으면 Content-Type 헤더가 필수. 본문이 없는 요청(GET — WP-1682 휴지통 메일 위치 확인)은
+                  // body·headers 를 싣지 않는다.
                   Map<String, Object> m = new LinkedHashMap<>();
                   m.put("id", r.id());
                   m.put("method", r.method());
                   m.put("url", r.url());
-                  m.put("headers", Map.of("Content-Type", "application/json"));
-                  m.put("body", r.body());
+                  if (r.body() != null) {
+                    m.put("headers", Map.of("Content-Type", "application/json"));
+                    m.put("body", r.body());
+                  }
                   return m;
                 })
             .toList();
@@ -551,9 +554,31 @@ public class GraphApiClient {
           new GraphBatchResponse(
               n.path("id").asString(""),
               n.path("status").asInt(0),
-              body == null || body.isNull() ? null : body));
+              body == null || body.isNull() ? null : body,
+              retryAfterSeconds(n.path("headers"))));
     }
     return out;
+  }
+
+  /**
+   * 항목 응답 헤더의 {@code Retry-After}(초) — WP-1682 휴지통 비우기가 429·503·504 항목을 그만큼 기다려 다시 보낸다. HTTP 헤더 이름은
+   * 대소문자를 가리지 않으므로 이름을 무시하고 찾는다. 없거나 0 이상 정수가 아니면(HTTP 날짜 형식 포함) null — 호출 측이 기본 대기를 쓴다.
+   */
+  private static Integer retryAfterSeconds(JsonNode headers) {
+    if (!headers.isObject()) {
+      return null;
+    }
+    for (Map.Entry<String, JsonNode> h : headers.properties()) {
+      if ("Retry-After".equalsIgnoreCase(h.getKey())) {
+        try {
+          int sec = Integer.parseInt(h.getValue().asString("").trim());
+          return sec >= 0 ? sec : null;
+        } catch (NumberFormatException e) {
+          return null;
+        }
+      }
+    }
+    return null;
   }
 
   /**

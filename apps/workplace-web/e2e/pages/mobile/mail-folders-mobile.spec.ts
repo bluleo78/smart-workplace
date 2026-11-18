@@ -1,7 +1,8 @@
 // 모바일 메일 메뉴 시트 — 보관·내 메일함(WP-961). 시트 안 트리, 접기는 시트를 닫지 않고, 메일함을 누르면 시트가 닫히며 그 메일함이 열린다.
+// 휴지통 비우기 줄(WP-1682) — 390px 에서 긴 진행 글이 잘려도 단추가 한 줄 안에 온전히 보이는지(jsdom 은 폭을 잴 수 없다).
 import type { Page } from '@playwright/test'
 
-import type { MailFolderSyncResult } from '../../../src/types/mailFolder'
+import type { MailFolderSyncResult, MailTrashEmptyStatus } from '../../../src/types/mailFolder'
 import { mailAccount, mailServerFolder, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { trackRequests } from '../../fixtures/requests'
@@ -54,5 +55,37 @@ test('☰ 시트에 보관·내 메일함 트리 — 접기는 시트 유지, �
   expect(syncs.lastUrl()!.searchParams.get('older')).toBe('false')
   await expect(page.getByTestId('page-header').locator('h1')).toContainText('견적')
   await expect(page.getByTestId('mail-box-status-text')).toHaveText(/^최근 90일 · .+에 가져옴$/)
+  await expectNoHorizontalOverflow(page)
+})
+
+test('휴지통 비우기 줄 — 390px 에서 긴 진행 글이 잘려도 단추는 한 줄 안에 온전히 보이고 가로 스크롤이 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await stubMail(page)
+  // 큰 수의 진행 글(「휴지통을 비우는 중… 112344/123456통 · 실패 12345」)이 줄 폭을 넘게 한다.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/folders', [
+    mailServerFolder({ id: 9, displayName: 'Trash', role: 'TRASH', totalCount: 123456 }),
+  ])
+  const running: MailTrashEmptyStatus = {
+    state: 'RUNNING', total: 123456, deleted: 99999, failed: 12345,
+    startedAt: '2026-11-17T00:00:00Z', finishedAt: null, errorCode: null, error: null,
+  }
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/trash/empty', running)
+  await page.goto('/mail/1?box=9')
+
+  const row = page.getByTestId('mail-trash-empty-row')
+  const text = row.getByTestId('mail-trash-empty-text')
+  const button = row.getByTestId('mail-trash-empty')
+  await expect(text).toHaveText('휴지통을 비우는 중… 112344/123456통 · 실패 12345')
+  await expect(button).toHaveText('비우는 중…')
+  // 글은 잘리고(넘침) 단추는 줄어들지 않는다.
+  expect(await text.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  const r = (await row.boundingBox())!
+  const t = (await text.boundingBox())!
+  const b = (await button.boundingBox())!
+  // 단추가 화면 오른쪽 여백(pr-3 = 12px) 안에 온전히 있다.
+  expect(b.x).toBeGreaterThanOrEqual(t.x + t.width)
+  expect(b.x + b.width).toBeLessThanOrEqual(390 - 12 + 0.5)
+  // 줄 높이는 단추 한 줄(+ 위아래 여백 py-1.5) — 글이 두 줄로 내려가거나 단추가 다음 줄로 밀리지 않는다.
+  expect(r.height).toBeLessThanOrEqual(b.height + 12 + 1)
+  expect(Math.abs(t.y + t.height / 2 - (b.y + b.height / 2))).toBeLessThanOrEqual(1)
   await expectNoHorizontalOverflow(page)
 })

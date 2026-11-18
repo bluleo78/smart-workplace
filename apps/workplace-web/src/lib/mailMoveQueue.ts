@@ -61,6 +61,11 @@ interface PendingMove {
 
 /** 토스트가 아직 떠 있어 보내지 않은 옮기기. */
 const pending = new Set<PendingMove>()
+/**
+ * WP-1682 서버에 보내 응답을 기다리는 옮기기(토스트가 이미 닫혔다) — 계정별. 휴지통 비우기가 되살리기 응답을 기다린 뒤 시작하도록 flushMailMoves 가 함께 기다린다.
+ * 끝나면(성공·실패 모두) 빠진다.
+ */
+const inFlight = new Map<Promise<void>, number>()
 /** keepalive 로 보내 결과를 모르는 옮기기 — 화면이 다시 보이면 목록을 다시 받고 숨김을 푼다. */
 let flushed: PendingMove[] = []
 let listenersBound = false
@@ -113,7 +118,7 @@ export function scheduleMailMove(args: {
     message,
     () => {
       pending.delete(entry)
-      void commitMove(qc, entry)
+      void startCommit(qc, entry)
     },
     {
       onUndo: () => {
@@ -123,6 +128,34 @@ export function scheduleMailMove(args: {
       },
     },
   )
+}
+
+/**
+ * WP-1682 그 계정의 토스트 대기 중 옮기기를 지금 보내고(토스트는 settleNow(false)로 닫는다 — execute·onUndo 를 다시 부르지 않는다)
+ * 서버 반영·목록 갱신까지 끝나길 기다린다. 토스트가 이미 닫혀 응답을 기다리는 중인 옮기기(inFlight)도 함께 기다린다.
+ * 휴지통 비우기를 시작하기 전에 부른다 — 방금 되살린 메일이 아직 서버 휴지통에 남아 같이 지워지지 않게.
+ * 되살리기가 실패해도 기다림은 끝난다(오류 토스트가 떴고 메일은 휴지통에 다시 보인다 — 비우기를 막을 까닭이 아니다).
+ * 다른 계정의 옮기기는 건드리지도 기다리지도 않는다. 대기·진행이 없으면 곧바로 끝난다.
+ */
+export function flushMailMoves(accountId: number): Promise<void> {
+  for (const p of [...pending]) {
+    if (p.accountId !== accountId) continue
+    pending.delete(p)
+    p.handle?.settleNow(false)
+    void startCommit(p.qc, p)
+  }
+  // 거부돼도(있어선 안 되지만) 기다림만 끝낸다 — 옮기기 실패는 commitMove 가 이미 알렸다.
+  const mine = [...inFlight].filter(([, id]) => id === accountId).map(([promise]) => promise.catch(() => undefined))
+  return Promise.all(mine).then(() => undefined)
+}
+
+/** 옮기기를 서버에 보내고 끝날 때까지 inFlight 에 둔다(flushMailMoves 가 기다릴 수 있게). commitMove 는 실패해도 거부하지 않는다. */
+function startCommit(qc: QueryClient, entry: PendingMove): Promise<void> {
+  const promise = commitMove(qc, entry).finally(() => {
+    inFlight.delete(promise)
+  })
+  inFlight.set(promise, entry.accountId)
+  return promise
 }
 
 /**
@@ -167,6 +200,7 @@ async function refreshThenUnhide(qc: QueryClient, accountId: number, okIds: numb
 /** 테스트 전용 — 모듈 상태 초기화. */
 export function resetMailMoveQueueForTest() {
   pending.clear()
+  inFlight.clear()
   flushed = []
   setHidden(new Set())
 }

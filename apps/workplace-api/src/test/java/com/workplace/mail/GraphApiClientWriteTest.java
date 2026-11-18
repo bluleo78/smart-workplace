@@ -143,6 +143,77 @@ class GraphApiClientWriteTest {
         .satisfies(r -> assertThat(r.body()).isNull());
   }
 
+  /**
+   * WP-1682: 항목 응답의 {@code headers} 에서 Retry-After 를 이름 대소문자와 상관없이 정수 초로 읽는다 — 휴지통 비우기가 429 항목을 그만큼
+   * 기다려 다시 보낸다. 숫자가 아니거나 헤더가 없으면 null(호출 측이 기본 대기를 쓴다).
+   */
+  @Test
+  void batch_readsItemRetryAfter() throws Exception {
+    HttpClient http = mock(HttpClient.class);
+    @SuppressWarnings("unchecked")
+    HttpResponse<String> resp = mock(HttpResponse.class);
+    when(resp.statusCode()).thenReturn(200);
+    when(resp.body())
+        .thenReturn(
+            "{\"responses\":["
+                + "{\"id\":\"1\",\"status\":429,\"headers\":{\"Retry-After\":\"7\"}},"
+                + "{\"id\":\"2\",\"status\":429,\"headers\":{\"retry-after\":\"x\"}},"
+                + "{\"id\":\"3\",\"status\":204},"
+                + "{\"id\":\"4\",\"status\":503,\"headers\":{\"RETRY-AFTER\":\"12\"}}]}");
+    doReturn(resp).when(http).send(any(), any());
+    GraphApiClient client =
+        new GraphApiClient(http, JsonMapper.builderWithJackson2Defaults().build(), props);
+
+    List<GraphBatchResponse> out =
+        client.batch(
+            "TOKEN",
+            List.of(
+                new GraphBatchRequest("1", "POST", "/me/messages/A/permanentDelete", Map.of())));
+
+    assertThat(out)
+        .extracting(GraphBatchResponse::id, GraphBatchResponse::retryAfterSeconds)
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple("1", 7),
+            org.assertj.core.groups.Tuple.tuple("2", null),
+            org.assertj.core.groups.Tuple.tuple("3", null),
+            org.assertj.core.groups.Tuple.tuple("4", 12));
+    // 기존 2·3인자 생성자는 Retry-After 없음
+    assertThat(new GraphBatchResponse("9", 200).retryAfterSeconds()).isNull();
+    assertThat(new GraphBatchResponse("9", 200, null).retryAfterSeconds()).isNull();
+  }
+
+  /**
+   * WP-1682: 본문이 null 인 요청(휴지통 메일 위치 확인 GET)은 body·Content-Type 없이 싣고, 본문이 있는 요청은 그대로 둘 다 싣는다 — GET
+   * 에 본문을 붙여 보내지 않게.
+   */
+  @Test
+  void batch_omitsBodyAndContentType_whenBodyIsNull() throws Exception {
+    HttpClient http = mock(HttpClient.class);
+    @SuppressWarnings("unchecked")
+    HttpResponse<String> resp = mock(HttpResponse.class);
+    when(resp.statusCode()).thenReturn(200);
+    when(resp.body()).thenReturn("{\"responses\":[]}");
+    doReturn(resp).when(http).send(any(), any());
+    ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
+    GraphApiClient client = new GraphApiClient(http, mapper, props);
+
+    client.batch(
+        "TOKEN",
+        List.of(
+            new GraphBatchRequest("1", "GET", "/me/messages/A?$select=id,parentFolderId", null),
+            new GraphBatchRequest("2", "POST", "/me/messages/B/permanentDelete", Map.of())));
+
+    ArgumentCaptor<HttpRequest> cap = ArgumentCaptor.forClass(HttpRequest.class);
+    org.mockito.Mockito.verify(http).send(cap.capture(), any());
+    JsonNode reqs = mapper.readTree(bodyOf(cap.getValue())).path("requests");
+    assertThat(reqs.get(0).path("method").asString()).isEqualTo("GET");
+    assertThat(reqs.get(0).has("body")).isFalse();
+    assertThat(reqs.get(0).has("headers")).isFalse();
+    assertThat(reqs.get(1).has("body")).isTrue();
+    assertThat(reqs.get(1).path("headers").path("Content-Type").asString())
+        .isEqualTo("application/json");
+  }
+
   /** WP-187: $batch 최상위 응답이 2xx 가 아니면 예외 — 호출 측이 대기 표시를 유지한다. */
   @Test
   void batch_throwsOnNon2xx() throws Exception {

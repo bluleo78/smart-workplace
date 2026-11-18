@@ -106,6 +106,35 @@ public class EmailAccountRepository {
         .fetch(this::toResponse);
   }
 
+  /**
+   * IMAP 서버의 UIDPLUS 지원 여부를 기록한다(WP-1682). 값이 바뀔 때만 UPDATE 해(목록 갱신마다 쓰지 않는다) 바뀐 행 수(0 또는 1)를 돌려준다.
+   * 처음 기록(null → 값)도 바뀐 것으로 본다.
+   */
+  public int recordImapUidPlus(long accountId, boolean uidPlus) {
+    return dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.IMAP_UIDPLUS, uidPlus)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .and(EMAIL_ACCOUNT.IMAP_UIDPLUS.isDistinctFrom(uidPlus))
+        .execute();
+  }
+
+  /** 기록된 IMAP UIDPLUS 지원 여부. null = 모름(목록 갱신 전이거나 IMAP 이 아닌 공급자). 계정이 없어도 null. */
+  public Boolean findImapUidPlus(long accountId) {
+    return dsl.select(EMAIL_ACCOUNT.IMAP_UIDPLUS)
+        .from(EMAIL_ACCOUNT)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .fetchOne(EMAIL_ACCOUNT.IMAP_UIDPLUS);
+  }
+
+  /**
+   * IMAP 계정이 UIDPLUS 미지원(FALSE)으로 기록돼 있는지(WP-1682) — 그러면 휴지통 완전 삭제·비우기가 막힌다. null=모름은 막지 않는다. IMAP
+   * 이 아니면 조회하지 않고 false. 휴지통 확인(MailTrashService)과 메일함 목록(MailFolderService)이 같은 판정을 쓴다.
+   */
+  public boolean isImapUidPlusKnownMissing(EmailAccountResponse account) {
+    return account.provider() == MailProvider.IMAP
+        && Boolean.FALSE.equals(findImapUidPlus(account.id()));
+  }
+
   /** 본인 활성 계정의 암호화된 비밀번호. 수정 시 "비밀번호 유지" 경로와 소유 검증에 사용. */
   public Optional<String> findEncryptedPassword(long userId, long id) {
     return dsl.select(EMAIL_ACCOUNT.ENCRYPTED_PASSWORD)

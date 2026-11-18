@@ -71,6 +71,19 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
     assertThat(found.get().smtpSecurity()).isEqualTo(MailSecurity.STARTTLS);
   }
 
+  /** WP-1682: IMAP UIDPLUS 지원 여부는 값이 바뀔 때만 UPDATE 한다(목록 갱신마다 쓰지 않게). 새 계정은 모름(null). */
+  @Test
+  void recordImapUidPlus_updatesOnlyWhenChanged() {
+    long user = TestFixtures.createHuman(dsl);
+    long id = repo.insert(user, sampleReq("uidplus@example.com"), "ENC");
+
+    assertThat(repo.findImapUidPlus(id)).isNull();
+    assertThat(repo.recordImapUidPlus(id, true)).isEqualTo(1);
+    assertThat(repo.recordImapUidPlus(id, true)).isEqualTo(0); // 같은 값이면 UPDATE 하지 않는다
+    assertThat(repo.recordImapUidPlus(id, false)).isEqualTo(1);
+    assertThat(repo.findImapUidPlus(id)).isFalse();
+  }
+
   @Test
   void findByIdAndUser_otherUser_returnsEmpty() {
     long owner = TestFixtures.createHuman(dsl);

@@ -20,6 +20,11 @@ export interface MailServerFolder {
   syncedSince: string | null;
   /** 이 메일함을 마지막으로 가져온 시각 — 없으면 null. */
   folderSyncedAt: string | null;
+  /**
+   * WP-1682 서버 휴지통 행이고 IMAP 서버가 UIDPLUS(메일을 골라 지우는 기능)를 지원하지 않을 때만 true —
+   * 「완전히 삭제」·「휴지통 비우기」가 비활성이다. 모름(null 기록)·Graph·다른 메일함은 false.
+   */
+  permanentDeleteUnsupported: boolean;
 }
 
 /** 메일함 한 개 동기화 결과. running=true 면 이미 가져오는 중이라 이번 요청은 아무것도 하지 않았다(오류 아님). */
@@ -54,4 +59,21 @@ export interface MailMoveRequest {
 /** WP-962 메일 옮기기 결과 — 메일별 성공 여부. 실패한 메일은 서버·앱 모두 그대로다. */
 export interface MailMoveResponse {
   results: { messageId: number; ok: boolean; error: string | null }[];
+}
+
+/** WP-1682 휴지통 비우기 작업 상태 — IDLE(이 서버가 아는 작업 없음)·RUNNING·DONE(끝까지 돌았다)·FAILED(중간에 멈췄다). */
+export type MailTrashEmptyState = 'IDLE' | 'RUNNING' | 'DONE' | 'FAILED';
+
+/** WP-1682 휴지통 비우기 진행 상태 — 백엔드 MailTrashEmptyStatus 와 1:1. total 은 서버 휴지통 스냅샷 전에는 null. */
+export interface MailTrashEmptyStatus {
+  state: MailTrashEmptyState;
+  total: number | null;
+  deleted: number;
+  failed: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** FAILED 일 때 오류 코드(TRASH_CHANGED·SERVER_UNREACHABLE·INTERRUPTED 등). */
+  errorCode: string | null;
+  /** FAILED 일 때 사용자에게 보일 문구. */
+  error: string | null;
 }

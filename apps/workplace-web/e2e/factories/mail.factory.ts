@@ -131,6 +131,7 @@ export function mailServerFolder(overrides: Partial<MailServerFolder> & { id: nu
     totalCount: 0,
     syncedSince: null,
     folderSyncedAt: null,
+    permanentDeleteUnsupported: false,
     ...overrides,
   }
 }

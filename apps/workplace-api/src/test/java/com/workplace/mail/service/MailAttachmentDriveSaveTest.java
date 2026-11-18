@@ -36,6 +36,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository.AttachmentDownloadContext;
+import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.MailAttachmentBlobRepository;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
 import com.workplace.support.IntegrationTestBase;
@@ -43,6 +44,7 @@ import com.workplace.support.TestFixtures;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -75,6 +77,7 @@ class MailAttachmentDriveSaveTest extends IntegrationTestBase {
   @Autowired MailAttachmentBlobStore blobStore;
   @Autowired MailAttachmentBlobRepository blobRepo;
   @Autowired ContentAttachmentRepository contentAttachmentRepo;
+  @Autowired EmailMessageRepository messageRepo;
   @Autowired DriveSpaceService spaceService;
   @Autowired DriveFolderService folderService;
   @Autowired DriveFileService driveFileService;
@@ -430,6 +433,29 @@ class MailAttachmentDriveSaveTest extends IntegrationTestBase {
     verify(attachmentService, never()).downloadForPreview(anyLong(), any(), any());
     verify(imapConnector, never()).connect(any(), anyString());
     assertThat(driveFileCount()).isZero();
+  }
+
+  /**
+   * WP-1682: 드라이브로 가져간 첨부 사본은 메일과 따로 남는다 — 완전히 삭제가 로컬에서 쓰는 행 지우기({@code deleteByIds}, 첨부 행은 ON
+   * DELETE CASCADE)로 메일·첨부 행이 사라져도 드라이브 파일은 그대로 내려받아진다.
+   */
+  @Test
+  void 완전히_삭제한_메일의_첨부도_드라이브_사본은_내려받아진다() throws Exception {
+    long att = attachment("keep.pdf", "application/pdf", null);
+    givenDownload(PDF);
+    save(att, space.id(), null).andExpect(status().isCreated());
+    long driveFileId =
+        dsl.select(DRIVE_FILE.ID)
+            .from(DRIVE_FILE)
+            .where(DRIVE_FILE.SPACE_ID.eq(space.id()))
+            .fetchSingle(DRIVE_FILE.ID);
+
+    assertThat(messageRepo.deleteByIds(accA, List.of(msgA))).isEqualTo(1);
+    assertThat(dsl.fetchCount(EMAIL_ATTACHMENT, EMAIL_ATTACHMENT.ID.eq(att))).isZero();
+
+    try (var in = driveFileService.download(userA, driveFileId).resource().getInputStream()) {
+      assertThat(in.readAllBytes()).isEqualTo(PDF);
+    }
   }
 
   // ── 픽스처 ──

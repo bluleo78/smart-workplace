@@ -203,6 +203,11 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
      */
     public final TableField<EmailAccountRecord, OffsetDateTime> SEEN_PUSH_LEASE_UNTIL = createField(DSL.name("seen_push_lease_until"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "읽음 역동기화 리스 만료 시각(DB 시각) — 지나면 다른 실행이 가져갈 수 있음 (WP-188)");
 
+    /**
+     * The column <code>public.email_account.imap_uidplus</code>.
+     */
+    public final TableField<EmailAccountRecord, Boolean> IMAP_UIDPLUS = createField(DSL.name("imap_uidplus"), SQLDataType.BOOLEAN, this, "");
+
     private EmailAccount(Name alias, Table<EmailAccountRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

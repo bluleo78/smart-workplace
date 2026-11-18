@@ -15,6 +15,7 @@ import java.time.Instant;
  * @param totalCount 서버 전체 메일 수(모르면 null)
  * @param syncedSince 가져온 가장 오래된 수신일 경계(아직 안 가져왔으면 null)
  * @param folderSyncedAt 이 폴더 메일을 마지막으로 가져온 시각(없으면 null)
+ * @param permanentDeleteUnsupported 휴지통 행이고 IMAP 서버가 UIDPLUS 를 지원하지 않아 완전 삭제가 막혔으면 true(WP-1682)
  */
 public record MailFolderResponse(
     long id,
@@ -25,4 +26,5 @@ public record MailFolderResponse(
     Integer unreadCount,
     Integer totalCount,
     Instant syncedSince,
-    Instant folderSyncedAt) {}
+    Instant folderSyncedAt,
+    boolean permanentDeleteUnsupported) {}

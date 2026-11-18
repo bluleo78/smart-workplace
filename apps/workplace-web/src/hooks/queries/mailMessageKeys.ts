@@ -19,4 +19,6 @@ export const mailMessageKeys = {
   folders: (accountId: number) => ['mail-unread-counts', accountId, 'folders'] as const,
   unreadSummary: () => ['mail-unread-summary'] as const,
   syncStatus: (accountId: number) => ['mail-sync-status', accountId] as const,
+  // WP-1682 휴지통 비우기 진행 상태(계정별, RUNNING 동안 1초 폴링).
+  trashEmpty: (accountId: number) => ['mail-trash-empty', accountId] as const,
 };

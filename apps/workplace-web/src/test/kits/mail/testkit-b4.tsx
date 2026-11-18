@@ -50,6 +50,10 @@ export function mailBaseHandlers({
     http.get(`${API}/mail/accounts/:id/messages`, () => HttpResponse.json(messages)),
     http.get(`${API}/mail/accounts/:id/unread-counts`, () => HttpResponse.json(unreadCounts())),
     http.get(`${API}/mail/accounts/:id/folders`, () => HttpResponse.json([])),
+    // 휴지통 보기의 비우기 진행 상태(WP-1682) — 기본은 아는 작업 없음(IDLE).
+    http.get(`${API}/mail/accounts/:id/trash/empty`, () =>
+      HttpResponse.json({ state: 'IDLE', total: null, deleted: 0, failed: 0, startedAt: null, finishedAt: null, errorCode: null, error: null }),
+    ),
     // 목록 끝이 바로 보이면 서버 이전 메일을 부른다(WP-965) — 기본은 「더 없음」(E2E setupAuthMocks 와 같음).
     http.post(`${API}/mail/accounts/:id/messages/older`, () =>
       HttpResponse.json({ running: false, fetched: 0, saved: 0, syncedSince: null, hasMore: false }),
