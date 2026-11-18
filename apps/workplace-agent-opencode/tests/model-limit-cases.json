@@ -1,0 +1,89 @@
+{
+  "_comment": "WP-1735 — 모델 서버 /models 응답 → OpenCode 모델 limit 의 같은 입력·기대값. 칸 엔트리포인트(bin/model-limit.mjs)와 이슈 채팅(workplace-ai-agent opencode-vision.ts 의 resolveOpencodeModelSettings) 테스트가 함께 읽어 두 규칙이 어긋나지 않게 한다. limit null = 두지 않음(지금 동작 유지).",
+  "cases": [
+    {
+      "name": "vLLM max_model_len 만 — models.dev 에 없는 provider 는 output 0(모름)",
+      "providerId": "custom",
+      "model": "qwen3-27b",
+      "body": { "data": [{ "id": "qwen3-27b", "object": "model", "max_model_len": 131072 }] },
+      "limit": { "context": 131072, "output": 0 }
+    },
+    {
+      "name": "genia 도 models.dev 에 없는 provider",
+      "providerId": "genia",
+      "model": "m",
+      "body": { "data": [{ "id": "m", "max_model_len": 65536 }] },
+      "limit": { "context": 65536, "output": 0 }
+    },
+    {
+      "name": "models.dev 등록 provider 는 출력 한도를 모르면 두지 않는다",
+      "providerId": "openai",
+      "model": "m",
+      "body": { "data": [{ "id": "m", "max_model_len": 131072 }] },
+      "limit": null
+    },
+    {
+      "name": "metadata.limits 의 문맥·출력 한도",
+      "providerId": "neuralwatt",
+      "model": "qwen-3.8-27b",
+      "body": { "data": [{ "id": "qwen-3.8-27b", "metadata": { "capabilities": { "vision": true }, "limits": { "max_context_length": 262128, "max_output_tokens": 131072 } } }] },
+      "limit": { "context": 262128, "output": 131072 }
+    },
+    {
+      "name": "max_model_len 이 metadata.limits.max_context_length 보다 앞선다",
+      "providerId": "custom",
+      "model": "m",
+      "body": { "data": [{ "id": "m", "max_model_len": 100000, "metadata": { "limits": { "max_context_length": 200000, "max_output_tokens": 8000 } } }] },
+      "limit": { "context": 100000, "output": 8000 }
+    },
+    {
+      "name": "한도 필드가 없다",
+      "providerId": "custom",
+      "model": "m",
+      "body": { "data": [{ "id": "m", "object": "model", "metadata": { "capabilities": { "vision": true } } }] },
+      "limit": null
+    },
+    {
+      "name": "목록에 고른 모델이 없다",
+      "providerId": "custom",
+      "model": "missing",
+      "body": { "data": [{ "id": "m", "max_model_len": 131072 }] },
+      "limit": null
+    },
+    {
+      "name": "양의 정수가 아닌 한도(0·문자열·소수·음수)는 버린다",
+      "providerId": "custom",
+      "model": "m",
+      "body": { "data": [{ "id": "m", "max_model_len": "4096", "metadata": { "limits": { "max_context_length": 1.5, "max_output_tokens": -1 } } }] },
+      "limit": null
+    },
+    {
+      "name": "출력 몫(min(출력||32000, 32000))을 빼면 남는 길이가 없다 — 매 단계 압축 방지",
+      "providerId": "custom",
+      "model": "small",
+      "body": { "data": [{ "id": "small", "max_model_len": 32000 }] },
+      "limit": null
+    },
+    {
+      "name": "작은 문맥이라도 출력 한도가 작으면 둔다",
+      "providerId": "custom",
+      "model": "small-known-out",
+      "body": { "data": [{ "id": "small-known-out", "max_model_len": 20000, "metadata": { "limits": { "max_output_tokens": 4000 } } }] },
+      "limit": { "context": 20000, "output": 4000 }
+    },
+    {
+      "name": "문맥과 출력 한도가 같다",
+      "providerId": "custom",
+      "model": "tight",
+      "body": { "data": [{ "id": "tight", "max_model_len": 8192, "metadata": { "limits": { "max_output_tokens": 8192 } } }] },
+      "limit": null
+    },
+    {
+      "name": "OpenAI 호환 꼴이 아니다(data 가 배열이 아님)",
+      "providerId": "custom",
+      "model": "m",
+      "body": { "models": [{ "id": "m", "max_model_len": 131072 }] },
+      "limit": null
+    }
+  ]
+}
