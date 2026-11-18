@@ -1,20 +1,23 @@
 // @vitest-environment jsdom
 // 일정 회의록 노트 줄(WP-1701) — 「노트 연결」 → 고르기 → 카드, X 해제, 볼 수 없는 노트, 읽기 전용 상세, 반복 회차 쿼리,
 // 새 일정의 저장 뒤 잇기(대기·취소·잇기 실패 토스트). CalendarPage 를 renderScreen 으로 띄우고 노트 API 는 calendarPageKit 의 목이 받는다.
+// 「회의록 만들기」(WP-1702) — 창(제목·위치·틀), 만들기 → 틀 심기 → 잇기 순서, 위치 바꾸기·기억, 실패 처리, 새 일정의 저장 뒤 만들기.
 // 390px 레이아웃은 e2e(calendar-event-note.spec.ts @layout)가 지킨다. 지금 = 2026-06-10 12:00 KST.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
 
 import {
+  attendee,
   calendarEvent,
   eventNote,
   eventNoteRestricted,
   noteSearchResult,
   recurringCalendarEvent,
 } from '../../../e2e/factories/calendar.factory'
+import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../../e2e/factories/wiki.factory'
 
 fixClock()
 
@@ -36,11 +39,14 @@ async function pickFirstNote(user: { click: (el: Element) => Promise<void> }) {
 const MEETING = calendarEvent({ id: 1, title: '팀 회의' })
 
 describe('회의록 줄 — 내 일정(편집 폼)', () => {
-  test('연결이 없으면 「노트 연결」만 보이고 「회의록 만들기」는 없다', async () => {
+  test('연결이 없으면 「회의록 만들기」 다음 「노트 연결」 단추가 보인다', async () => {
     const { user } = await renderCalendar({ events: [MEETING] })
     await openEvent(user, 'calendar-event-1')
     expect(await screen.findByTestId('event-note-pick')).toHaveTextContent('노트 연결')
-    expect(screen.queryByText('회의록 만들기')).not.toBeInTheDocument()
+    const create = screen.getByTestId('event-note-create')
+    expect(create).toHaveTextContent('회의록 만들기')
+    // 시안 순서 — 만들기가 앞
+    expect(create.compareDocumentPosition(screen.getByTestId('event-note-pick')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   test('노트 연결 → 행 고르기 → 연결하면 PUT body 가 pageId 이고 카드에 제목·공간과 「열기」가 보인다', async () => {
@@ -277,6 +283,474 @@ describe('새 일정 — 저장 뒤 잇기', () => {
     await user.click(screen.getByTestId('calendar-form-submit'))
     expect(await screen.findByText('일정은 저장했지만 노트를 연결하지 못했습니다')).toBeInTheDocument()
     expect(requests.notePuts).toHaveLength(0)
+  })
+})
+
+// ────────────────────────────────────────────────────────────
+// 「회의록 만들기」(WP-1702)
+// ────────────────────────────────────────────────────────────
+
+/** 내 공간(id 1, 나=Tester id 1 소유) · 기획팀 공간(id 3, 편집자) · 보기 전용 공간(id 5) */
+const SPACES = [
+  wikiSpace({ id: 1, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER' }),
+  wikiSpace({ id: 3, type: 'TEAM', name: '기획팀 공간', ownerId: 2, role: 'EDITOR' }),
+  wikiSpace({ id: 5, type: 'TEAM', name: '보기 공간', ownerId: 2, role: 'VIEWER' }),
+]
+
+/**
+ * 위키 목 — 공간 목록·트리·노트 만들기(POST)·본문 심기(PUT)를 받고, 만들기·심기·잇기 순서를 order 에 남긴다.
+ * 잇기(PUT /note)는 순서만 적고 응답은 calendarPageKit 의 목에 넘긴다(리졸버가 아무것도 돌려주지 않으면 다음 핸들러로).
+ */
+function wikiMock(
+  opts: { createStatus?: number; seedStatus?: number; linkStatus?: number; spacesFailures?: number } = {},
+) {
+  const order: string[] = []
+  // 공간 목록이 처음 이만큼 실패한다(다시 시도 검사용)
+  let spacesFailures = opts.spacesFailures ?? 0
+  const creates: { spaceId: number; body: { parentId: number | null; title: string } }[] = []
+  const seeds: { pageId: number; body: { title: null; body: string; version: number } }[] = []
+  const handlers = [
+    http.get('/api/v1/wiki/spaces', () => {
+      if (spacesFailures > 0) {
+        spacesFailures--
+        return HttpResponse.json({ message: '실패' }, { status: 500 })
+      }
+      return HttpResponse.json(SPACES)
+    }),
+    http.get('/api/v1/wiki/spaces/:id/pages', ({ params }) =>
+      HttpResponse.json(
+        Number(params.id) === 3
+          ? [
+              wikiPageSummary({ id: 30, parentId: null, title: '회의록', position: 0 }),
+              // AI 가 쓴 리포트 페이지 — 리포트 위치 창은 빼지만 회의록 위치 창은 보인다
+              wikiPageSummary({ id: 31, parentId: null, title: 'AI 주간 리포트', position: 1, aiLastAction: 'report' }),
+            ]
+          : [],
+      ),
+    ),
+    http.post('/api/v1/wiki/spaces/:id/pages', async ({ params, request }) => {
+      const body = (await request.json()) as { parentId: number | null; title: string }
+      creates.push({ spaceId: Number(params.id), body })
+      order.push('create')
+      if (opts.createStatus) return HttpResponse.json({ message: '노트를 만들 수 없습니다' }, { status: opts.createStatus })
+      return HttpResponse.json(
+        wikiPageDetail({ id: 60, spaceId: Number(params.id), parentId: body.parentId, title: body.title, version: 4 }),
+      )
+    }),
+    http.put('/api/v1/wiki/pages/:id', async ({ params, request }) => {
+      seeds.push({ pageId: Number(params.id), body: (await request.json()) as never })
+      order.push('seed')
+      if (opts.seedStatus) return HttpResponse.json({ message: '실패' }, { status: opts.seedStatus })
+      return HttpResponse.json(wikiPageDetail({ id: Number(params.id), version: 5 }))
+    }),
+    http.put('/api/v1/calendar/events/:id/note', () => {
+      order.push('link')
+      if (opts.linkStatus) return HttpResponse.json({ message: '실패' }, { status: opts.linkStatus })
+      return undefined
+    }),
+  ]
+  return { order, creates, seeds, handlers }
+}
+
+/** 장소·참석자가 있는 내 일정 — 상세 응답에 참석자가 실린다(나 = 주최자). */
+const PLANNING = calendarEvent({
+  id: 1,
+  title: '주간 기획 회의',
+  location: '3층 회의실',
+  myRole: 'ORGANIZER',
+  attendees: [attendee('ORGANIZER', 1, { name: 'Tester' }), attendee('ATTENDEE', 2, { name: '김민수' })],
+})
+
+/** 일정 창의 「회의록 만들기」를 눌러 창이 열리고 위치가 풀릴 때까지 기다린다. */
+async function openCreate(user: { click: (el: Element) => Promise<void> }) {
+  await user.click(await screen.findByTestId('event-note-create'))
+  const dialog = await screen.findByTestId('meeting-note-dialog')
+  await waitFor(() => expect(within(dialog).getByTestId('meeting-note-location')).not.toHaveTextContent('불러오는 중'))
+  return dialog
+}
+
+describe('회의록 만들기 — 기존 일정', () => {
+  test('창: 제목이 채워져 전체 선택되고, 위치는 내 공간, 틀에 일시·장소·참석이 보인다', async () => {
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [PLANNING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    // 참석자 상세가 와야 틀에 참석이 실린다
+    await screen.findByText('김민수')
+    const dialog = await openCreate(user)
+
+    const title = within(dialog).getByTestId('meeting-note-title') as HTMLInputElement
+    expect(title).toHaveValue('6/10 주간 기획 회의 회의록')
+    await waitFor(() => expect(title).toHaveFocus())
+    expect([title.selectionStart, title.selectionEnd]).toEqual([0, title.value.length])
+
+    expect(within(dialog).getByTestId('meeting-note-location')).toHaveTextContent('내 노트')
+    expect(within(dialog).getByText('내 공간')).toBeInTheDocument()
+    const lines = within(within(dialog).getByTestId('meeting-note-template'))
+      .getAllByRole('listitem')
+      .map((li) => li.textContent)
+    expect(lines).toEqual([
+      '일시 · 6월 10일 (수) 10:00–11:00',
+      '장소 · 3층 회의실',
+      '참석 · Tester, 김민수',
+      '안건',
+      '결정',
+      '할 일',
+    ])
+  })
+
+  test('「만들기」 → 노트 POST → 틀 PUT → 잇기 PUT 순서, 카드·토스트, 일정 창은 열린 채, 위치를 기억한다', async () => {
+    const wiki = wikiMock()
+    const { user, requests } = await renderCalendar({ events: [PLANNING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    await screen.findByText('김민수')
+    const dialog = await openCreate(user)
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+
+    await waitFor(() => expect(requests.notePuts).toHaveLength(1))
+    expect(wiki.order).toEqual(['create', 'seed', 'link'])
+    expect(wiki.creates).toEqual([{ spaceId: 1, body: { parentId: null, title: '6/10 주간 기획 회의 회의록' } }])
+    expect(wiki.seeds[0].pageId).toBe(60)
+    // 만든 응답의 version 을 기준으로 심는다
+    expect(wiki.seeds[0].body).toEqual({
+      title: null,
+      version: 4,
+      body: [
+        '- 일시: 6월 10일 (수) 10:00–11:00',
+        '- 장소: 3층 회의실',
+        '- 참석: Tester, 김민수',
+        '',
+        '## 안건',
+        '',
+        '## 결정',
+        '',
+        '## 할 일',
+        '',
+      ].join('\n'),
+    })
+    expect(requests.notePuts[0].body).toEqual({ pageId: 60 })
+    expect(requests.notePuts[0].url.pathname).toBe('/api/v1/calendar/events/1/note')
+
+    expect(await screen.findByTestId('event-note-card')).toBeInTheDocument()
+    expect(await screen.findByText('회의록 만듦')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '열기' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('meeting-note-dialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('calendar-event-dialog')).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('calendar.meetingNoteLocation:1:1') ?? 'null')).toEqual({ spaceId: 1, parentId: null })
+  })
+
+  test('「바꾸기」로 다른 공간의 상위 노트를 고르면 그 아래에 만들고, 다음에 열면 그 자리가 「지난번 회의록 위치」다', async () => {
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [MEETING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    const dialog = await openCreate(user)
+
+    await user.click(within(dialog).getByTestId('meeting-note-location-change'))
+    const picker = await screen.findByTestId('report-location-dialog')
+    expect(within(picker).getByRole('heading', { name: '회의록 위치' })).toBeInTheDocument()
+    // 공간 고르기에는 쓸 수 있는 공간만(보기 공간 없음)
+    fireEvent.keyDown(within(picker).getByRole('combobox', { name: '공간' }), { key: 'Enter' })
+    expect(screen.queryByRole('option', { name: '보기 공간' })).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('option', { name: '기획팀 공간' }))
+    await user.click(await within(picker).findByRole('option', { name: /^회의록/ }))
+    expect(within(picker).getByRole('option', { name: 'AI 주간 리포트' })).toBeInTheDocument()
+    await user.click(within(picker).getByRole('button', { name: '고르기' }))
+
+    await waitFor(() => expect(screen.queryByTestId('report-location-dialog')).not.toBeInTheDocument())
+    expect(within(dialog).getByTestId('meeting-note-location')).toHaveTextContent('기획팀 공간 › 회의록')
+    expect(within(dialog).queryByText('내 공간')).not.toBeInTheDocument()
+    // 고르기만 해서는 기억하지 않는다
+    expect(localStorage.getItem('calendar.meetingNoteLocation:1:1')).toBeNull()
+
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    await waitFor(() => expect(wiki.creates).toHaveLength(1))
+    expect(wiki.creates[0]).toEqual({ spaceId: 3, body: { parentId: 30, title: '6/10 팀 회의 회의록' } })
+    await screen.findByTestId('event-note-card')
+
+    // 연결을 풀고 다시 열면 기억한 자리로 시작한다
+    await user.click(screen.getByRole('button', { name: '회의록 연결 해제' }))
+    const again = await openCreate(user)
+    await waitFor(() => expect(within(again).getByTestId('meeting-note-location')).toHaveTextContent('기획팀 공간 › 회의록'))
+    expect(within(again).getByText('지난번 회의록 위치')).toBeInTheDocument()
+  })
+
+  test('고치던(저장 안 한) 제목·장소가 아니라 저장된 일정 값으로 제목·틀을 만든다 — 노트는 바로 잇기 때문', async () => {
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [PLANNING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    await screen.findByText('김민수')
+    fireEvent.change(screen.getByTestId('calendar-form-title'), { target: { value: '아직 저장 안 한 제목' } })
+    fireEvent.change(screen.getByTestId('calendar-form-location'), { target: { value: '저장 안 한 장소' } })
+    fireEvent.change(screen.getByTestId('calendar-form-start'), { target: { value: '2026-06-12T15:00' } })
+    fireEvent.change(screen.getByTestId('calendar-form-end'), { target: { value: '2026-06-12T16:00' } })
+    const dialog = await openCreate(user)
+    expect(within(dialog).getByTestId('meeting-note-title')).toHaveValue('6/10 주간 기획 회의 회의록')
+    const template = within(dialog).getByTestId('meeting-note-template')
+    expect(template).toHaveTextContent('일시 · 6월 10일 (수) 10:00–11:00')
+    expect(template).toHaveTextContent('장소 · 3층 회의실')
+    expect(template).not.toHaveTextContent('저장 안 한')
+  })
+
+  test('이름이 같은 다른 참석자는 둘 다 틀에 들어간다', async () => {
+    const twins = calendarEvent({
+      ...PLANNING,
+      attendees: [
+        attendee('ORGANIZER', 1, { name: 'Tester' }),
+        attendee('ATTENDEE', 2, { name: '김민수' }),
+        attendee('ATTENDEE', 3, { name: '김민수' }),
+      ],
+    })
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [twins] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    await screen.findAllByText('김민수')
+    const dialog = await openCreate(user)
+    expect(within(dialog).getByTestId('meeting-note-template')).toHaveTextContent('참석 · Tester, 김민수, 김민수')
+  })
+
+  test('공간 목록을 못 읽으면 오류와 「다시 시도」, 다시 시도해 읽히면 위치가 보인다', async () => {
+    const wiki = wikiMock({ spacesFailures: 1 })
+    const { user } = await renderCalendar({ events: [MEETING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    await user.click(await screen.findByTestId('event-note-create'))
+    const dialog = await screen.findByTestId('meeting-note-dialog')
+    expect(await within(dialog).findByText('공간 목록을 불러오지 못했습니다')).toBeInTheDocument()
+    expect(within(dialog).queryByText('노트를 만들 수 있는 공간이 없습니다')).not.toBeInTheDocument()
+    expect(within(dialog).getByTestId('meeting-note-submit')).toBeDisabled()
+    await user.click(within(dialog).getByRole('button', { name: '다시 시도' }))
+    await waitFor(() => expect(within(dialog).getByTestId('meeting-note-location')).toHaveTextContent('내 노트'))
+    expect(within(dialog).getByTestId('meeting-note-submit')).toBeEnabled()
+  })
+
+  test('기억한 위치의 공간이 목록에 없으면(나감) 내 공간 최상위로 연다', async () => {
+    localStorage.setItem('calendar.meetingNoteLocation:1:1', JSON.stringify({ spaceId: 42, parentId: 7 }))
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [MEETING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    const dialog = await openCreate(user)
+    expect(within(dialog).getByTestId('meeting-note-location')).toHaveTextContent('내 노트')
+    expect(within(dialog).getByText('내 공간')).toBeInTheDocument()
+  })
+
+  test('제목을 비우면 「만들기」가 잠긴다', async () => {
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [MEETING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    const dialog = await openCreate(user)
+    fireEvent.change(within(dialog).getByTestId('meeting-note-title'), { target: { value: '   ' } })
+    expect(within(dialog).getByTestId('meeting-note-submit')).toBeDisabled()
+  })
+
+  test('만들기가 실패하면 창 안에 오류가 보이고 창은 열린 채, 잇지 않는다', async () => {
+    const wiki = wikiMock({ createStatus: 500 })
+    const { user, requests } = await renderCalendar({ events: [MEETING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    const dialog = await openCreate(user)
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('노트를 만들 수 없습니다')
+    expect(screen.getByTestId('meeting-note-dialog')).toBeInTheDocument()
+    expect(requests.notePuts).toHaveLength(0)
+    expect(localStorage.getItem('calendar.meetingNoteLocation:1:1')).toBeNull()
+  })
+
+  test('잇기만 실패하면 창을 닫고 「노트는 만들었지만 연결하지 못함」 토스트, 줄은 비어 있다', async () => {
+    const wiki = wikiMock({ linkStatus: 500 })
+    const { user } = await renderCalendar({ events: [MEETING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    const dialog = await openCreate(user)
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    expect(await screen.findByText('노트는 만들었지만 연결하지 못함')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('meeting-note-dialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('event-note-create')).toBeInTheDocument()
+    expect(screen.queryByTestId('event-note-card')).not.toBeInTheDocument()
+    expect(wiki.creates).toHaveLength(1)
+  })
+
+  test('틀 심기만 실패하면 경고하고 빈 노트로 계속 잇는다', async () => {
+    const wiki = wikiMock({ seedStatus: 500 })
+    const { user, requests } = await renderCalendar({ events: [MEETING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    const dialog = await openCreate(user)
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    await waitFor(() => expect(requests.notePuts).toHaveLength(1))
+    expect(await screen.findByText('회의록 틀을 넣지 못했습니다')).toBeInTheDocument()
+    expect(await screen.findByTestId('event-note-card')).toBeInTheDocument()
+  })
+
+  test('「만들기」를 같은 틱에 두 번 눌러도 노트는 하나', async () => {
+    const wiki = wikiMock()
+    const { user, requests } = await renderCalendar({ events: [MEETING] }, { handlers: wiki.handlers })
+    await openEvent(user, 'calendar-event-1')
+    const dialog = await openCreate(user)
+    const submit = within(dialog).getByTestId('meeting-note-submit')
+    act(() => {
+      submit.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      submit.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await waitFor(() => expect(requests.notePuts).toHaveLength(1))
+    expect(wiki.creates).toHaveLength(1)
+  })
+
+  test('반복 회차에서 만들면 제목 날짜가 그 회차, 잇기는 그 회차(occurrenceDate)', async () => {
+    const occ = ['2026-06-08T01:00:00Z', '2026-06-15T01:00:00Z']
+    const wiki = wikiMock()
+    const { user, requests } = await renderCalendar({ events: recurringCalendarEvent(5, occ) }, { handlers: wiki.handlers })
+    await openEvent(user, `calendar-event-5-${occ[1]}`)
+    const dialog = await openCreate(user)
+    expect(within(dialog).getByTestId('meeting-note-title')).toHaveValue('6/15 팀 회의 회의록')
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    await waitFor(() => expect(requests.notePuts).toHaveLength(1))
+    expect(requests.notePuts[0].url.searchParams.get('occurrenceDate')).toBe(occ[1])
+  })
+
+  test('노트 연결 창에서 결과가 없으면 「회의록 만들기」로 이 창을 닫고 만들기 창을 연다', async () => {
+    const empty = http.get('/api/v1/wiki/search', () => HttpResponse.json([]))
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({ events: [MEETING] }, { handlers: [empty, ...wiki.handlers] })
+    await openEvent(user, 'calendar-event-1')
+    await user.click(await screen.findByTestId('event-note-pick'))
+    const results = await screen.findByTestId('note-link-results')
+    await within(results).findByText('검색 결과 없음')
+    await user.click(within(results).getByRole('button', { name: '회의록 만들기' }))
+    expect(await screen.findByTestId('meeting-note-dialog')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('note-link-dialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('meeting-note-title')).toHaveValue('6/10 팀 회의 회의록')
+  })
+})
+
+describe('회의록 만들기 — 새 일정', () => {
+  /** 새 일정 폼에 제목을 넣고 「회의록 만들기」 창에서 「만들기」까지 누른다. */
+  async function createOnNewEvent(user: Parameters<typeof openCreate>[0] & { paste: (t: string) => Promise<void> }) {
+    await user.click(screen.getByTestId('calendar-new-event'))
+    await screen.findByTestId('calendar-event-dialog')
+    await user.click(screen.getByTestId('calendar-form-title'))
+    await user.paste('킥오프')
+    const dialog = await openCreate(user)
+    expect(within(dialog).getByTestId('meeting-note-title')).toHaveValue('6/10 킥오프 회의록')
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    await waitFor(() => expect(screen.queryByTestId('meeting-note-dialog')).not.toBeInTheDocument())
+  }
+
+  test('만들기는 서버를 부르지 않고 카드에 「저장하면 만듦」, 일정 창을 취소하면 아무것도 만들지 않는다', async () => {
+    const wiki = wikiMock()
+    const { user, requests } = await renderCalendar({}, { handlers: wiki.handlers })
+    await createOnNewEvent(user)
+    const card = await screen.findByTestId('event-note-card')
+    expect(card).toHaveTextContent('6/10 킥오프 회의록')
+    expect(card).toHaveTextContent('내 노트 · 저장하면 만듦')
+    expect(wiki.creates).toHaveLength(0)
+    // 아직 노트가 없으니 위치도 기억하지 않는다 — 저장해 만든 뒤에 기억한다
+    expect(localStorage.getItem('calendar.meetingNoteLocation:1:1')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument())
+    expect(requests.posts).toHaveLength(0)
+    expect(wiki.creates).toHaveLength(0)
+  })
+
+  test('X 로 버리면 저장해도 만들지 않는다', async () => {
+    const wiki = wikiMock()
+    const { user, requests } = await renderCalendar({}, { handlers: wiki.handlers })
+    await createOnNewEvent(user)
+    await user.click(await screen.findByRole('button', { name: '회의록 연결 해제' }))
+    expect(await screen.findByTestId('event-note-create')).toBeInTheDocument()
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(requests.posts).toHaveLength(1))
+    expect(wiki.creates).toHaveLength(0)
+  })
+
+  test('저장하면 일정 POST 뒤 노트를 만들고(틀은 저장 순간의 폼 값) 만든 일정에 잇는다', async () => {
+    const wiki = wikiMock()
+    const { user, requests } = await renderCalendar({}, { handlers: wiki.handlers })
+    await createOnNewEvent(user)
+    // 창을 닫은 뒤 장소를 넣었다 — 틀은 저장할 때의 값으로 만든다
+    await user.click(screen.getByTestId('calendar-form-location'))
+    await user.paste('2층 라운지')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+
+    await waitFor(() => expect(requests.notePuts).toHaveLength(1))
+    expect(requests.posts).toHaveLength(1)
+    expect(wiki.order).toEqual(['create', 'seed', 'link'])
+    expect(wiki.creates).toEqual([{ spaceId: 1, body: { parentId: null, title: '6/10 킥오프 회의록' } }])
+    expect(wiki.seeds[0].body.body).toContain('- 장소: 2층 라운지')
+    expect(wiki.seeds[0].body.body).toContain('- 참석: Tester')
+    expect(requests.notePuts[0].url.pathname).toBe('/api/v1/calendar/events/999/note')
+    expect(requests.notePuts[0].body).toEqual({ pageId: 60 })
+    expect(await screen.findByText('회의록 만듦')).toBeInTheDocument()
+    // 노트를 만든 뒤에야 위치를 기억한다
+    expect(JSON.parse(localStorage.getItem('calendar.meetingNoteLocation:1:1') ?? 'null')).toEqual({ spaceId: 1, parentId: null })
+  })
+
+  test('창을 연 뒤 날짜·제목을 고치면 카드와 만든 노트의 제목이 저장 순간의 값을 따른다', async () => {
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({}, { handlers: wiki.handlers })
+    await createOnNewEvent(user)
+    fireEvent.change(screen.getByTestId('calendar-form-start'), { target: { value: '2026-06-12T10:00' } })
+    fireEvent.change(screen.getByTestId('calendar-form-end'), { target: { value: '2026-06-12T11:00' } })
+    fireEvent.change(screen.getByTestId('calendar-form-title'), { target: { value: '킥오프 미팅' } })
+    expect(await screen.findByTestId('event-note-card')).toHaveTextContent('6/12 킥오프 미팅 회의록')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(wiki.creates).toHaveLength(1))
+    expect(wiki.creates[0].body.title).toBe('6/12 킥오프 미팅 회의록')
+    await waitFor(() => expect(wiki.seeds).toHaveLength(1))
+    expect(wiki.seeds[0].body.body).toContain('- 일시: 6월 12일 (금) 10:00–11:00')
+  })
+
+  test('창에서 제목을 직접 고쳤으면 날짜·일정 제목을 바꿔도 그 제목을 지킨다', async () => {
+    const wiki = wikiMock()
+    const { user } = await renderCalendar({}, { handlers: wiki.handlers })
+    await user.click(screen.getByTestId('calendar-new-event'))
+    await screen.findByTestId('calendar-event-dialog')
+    await user.click(screen.getByTestId('calendar-form-title'))
+    await user.paste('킥오프')
+    const dialog = await openCreate(user)
+    fireEvent.change(within(dialog).getByTestId('meeting-note-title'), { target: { value: '킥오프 메모' } })
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    await waitFor(() => expect(screen.queryByTestId('meeting-note-dialog')).not.toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('calendar-form-start'), { target: { value: '2026-06-12T10:00' } })
+    fireEvent.change(screen.getByTestId('calendar-form-end'), { target: { value: '2026-06-12T11:00' } })
+    expect(screen.getByTestId('event-note-card')).toHaveTextContent('킥오프 메모')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(wiki.creates).toHaveLength(1))
+    expect(wiki.creates[0].body.title).toBe('킥오프 메모')
+  })
+
+  test('저장 뒤 노트 만들기가 실패하면 「일정은 저장했지만 회의록을 만들지 못했습니다」', async () => {
+    const wiki = wikiMock({ createStatus: 500 })
+    const { user, requests } = await renderCalendar({}, { handlers: wiki.handlers })
+    await createOnNewEvent(user)
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    expect(await screen.findByText('일정은 저장했지만 회의록을 만들지 못했습니다')).toBeInTheDocument()
+    expect(requests.posts).toHaveLength(1)
+    expect(requests.notePuts).toHaveLength(0)
+  })
+
+  test('저장 뒤 잇기만 실패하면 「노트는 만들었지만 연결하지 못함」', async () => {
+    const wiki = wikiMock({ linkStatus: 500 })
+    const { user } = await renderCalendar({}, { handlers: wiki.handlers })
+    await createOnNewEvent(user)
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    expect(await screen.findByText('노트는 만들었지만 연결하지 못함')).toBeInTheDocument()
+    expect(wiki.creates).toHaveLength(1)
+  })
+
+  test('노트를 고른 뒤 회의록을 만들면 고른 노트는 버려진다(하나만)', async () => {
+    const wiki = wikiMock()
+    const { user, requests } = await renderCalendar({}, { handlers: [wikiSearch, ...wiki.handlers] })
+    await user.click(screen.getByTestId('calendar-new-event'))
+    await screen.findByTestId('calendar-event-dialog')
+    await user.click(screen.getByTestId('calendar-form-title'))
+    await user.paste('킥오프')
+    await user.click(await screen.findByTestId('event-note-pick'))
+    await pickFirstNote(user)
+    expect(await screen.findByTestId('event-note-card')).toHaveTextContent('저장하면 연결')
+    // 카드가 있으면 단추가 없다 — X 로 풀지 않고는 만들 수 없으니, 고른 노트를 버리고 만든다
+    await user.click(screen.getByRole('button', { name: '회의록 연결 해제' }))
+    const dialog = await openCreate(user)
+    await user.click(within(dialog).getByTestId('meeting-note-submit'))
+    expect(await screen.findByTestId('event-note-card')).toHaveTextContent('저장하면 만듦')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(requests.notePuts).toHaveLength(1))
+    expect(requests.notePuts[0].body).toEqual({ pageId: 60 })
   })
 })
 

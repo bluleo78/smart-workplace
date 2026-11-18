@@ -3,13 +3,12 @@ import { toast } from 'sonner'
 
 import { wikiApi } from '../../api/wiki'
 import { useCreateHtmlPage, useCreatePage } from '../../hooks/queries/useWikiMutations'
+import { WIKI_TITLE_MAX } from '../../lib/wikiLimits'
 import { htmlDocumentTitleForFile, rejectOversizedHtmlSource } from './html-document/wikiHtmlDocument'
 import { convertHtmlToWiki, htmlFileBaseName } from './wikiHtmlImport'
 import { htmlImportNotice, readHtmlFile } from './wikiHtmlImportInsert'
 import { useWikiRoutes } from './WikiRoutesContext'
 
-/** 노트 제목 최대 길이 — 서버 CreatePageRequest 의 @Size(max = 255). <title> 이 더 길면 잘라 400 을 피한다. */
-const TITLE_MAX = 255
 
 /**
  * 빈 페이지를 만들고 바로 연다 — 사이드바 ＋(루트·하위), 데스크톱 본문 빈 상태, 모바일 빈 목록(WP-179)이 공유.
@@ -40,7 +39,7 @@ export function useCreateWikiPageAndOpen(spaceId: number | null) {
     const html = await readHtmlFile(file)
     if (html == null) return
     const result = convertHtmlToWiki(html, { stripTitleHeading: true })
-    const title = (result.title ?? htmlFileBaseName(file.name)).slice(0, TITLE_MAX)
+    const title = (result.title ?? htmlFileBaseName(file.name)).slice(0, WIKI_TITLE_MAX) // <title> 이 더 길면 잘라 400 을 피한다
     // 만들기 실패는 useCreatePage 의 onError 가 알린다 — 여기서는 멈추기만 한다.
     const created = await createPage.mutateAsync({ parentId, title }).catch(() => null)
     if (!created) return

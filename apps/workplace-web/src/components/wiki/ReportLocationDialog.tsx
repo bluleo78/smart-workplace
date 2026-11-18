@@ -1,9 +1,12 @@
 // 리포트 저장 위치 고르기 창(WP-1654) — 노트 공간 트리에서 새 리포트를 둘 페이지를 고른다. 이동 창(WikiMovePageDialog)과 같은 모양(검색 + 트리)이다.
 // 프로젝트 정기 리포트 설정이 쓰고, 개인 보고(WP-1655)도 문구 prop 만 바꿔 다시 쓰도록 프로젝트 전용 글자는 prop 으로 받는다.
+// 일정 회의록 위치(WP-1702)도 이 창을 쓴다 — 공간 고르기(spaces)·「최상위」 저장(allowRoot)·단추 글자(saveLabel)는 모두 선택 prop 이고
+// 넘기지 않으면 리포트 창 동작 그대로다.
 
 import { FileText, Home, Plus } from 'lucide-react'
 import { type KeyboardEvent, useMemo, useState } from 'react'
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -18,7 +21,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import { isImeComposing } from '@/lib/imeKey'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
-import type { WikiPageSummary } from '@/types/wiki'
+import type { WikiPageSummary, WikiSpace } from '@/types/wiki'
 
 import { useCreatePage, useMovePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
@@ -42,7 +45,7 @@ function ancestorPath(pages: { id: number; parentId: number | null }[], pageId: 
   return out
 }
 
-type Props = {
+type BaseProps = {
   open: boolean
   /** 고를 노트 공간 — null 이면 트리를 받지 않는다. */
   spaceId: number | null
@@ -66,8 +69,28 @@ type Props = {
   /** 매뉴얼 도움말 짝 id(data-help) — 공용 컴포넌트라 부르는 화면이 정한다. */
   helpId?: string
   onClose: () => void
-  onSave: (pageId: number) => void
+  /** 고를 수 있는 공간들 — 넘기면 검색 위에 공간 고르기를 그린다(WP-1702 회의록 위치). 공간 id 는 부르는 쪽이 spaceId 로 들고 있다. */
+  spaces?: WikiSpace[]
+  /** 공간 고르기에서 다른 공간을 골랐다 — 부르는 쪽이 spaceId 를 바꾼다. */
+  onSpaceChange?: (spaceId: number) => void
+  /** 저장 단추 글자 — 기본 「저장」. */
+  saveLabel?: string
+  /**
+   * AI 가 쓴 리포트 페이지(aiLastAction='report')와 그 하위를 뺀다 — 기본 true(리포트를 리포트 아래 두지 않게).
+   * 리포트와 무관한 자리를 고르는 창(회의록 위치, WP-1702)은 false 로 모든 페이지를 보인다.
+   */
+  hideAiReports?: boolean
 }
+
+/**
+ * 「최상위」 저장 여부에 따라 onSave 의 인자가 갈린다 — 리포트 창(allowRoot 없음)은 늘 페이지 id 만 받아 기존 호출부가 null 을 다루지 않는다.
+ * allowRoot 면 「최상위」도 골라 저장할 수 있고(onSave(null)), 지금 위치(없으면 최상위)가 골라진 채 열린다.
+ */
+type Props = BaseProps &
+  (
+    | { allowRoot?: false; onSave: (pageId: number) => void }
+    | { allowRoot: true; onSave: (pageId: number | null) => void }
+  )
 
 /** 창 껍데기 — 열릴 때마다 본문을 새로 그려 고른 자리·검색어·입력 줄을 비운다. */
 export function ReportLocationDialog(props: Props) {
@@ -79,25 +102,33 @@ export function ReportLocationDialog(props: Props) {
 }
 
 /** 창 본문 — 검색 + 트리(하나 고르기) + 「새 페이지」 입력 줄 + 취소/저장. */
-function ReportLocationBody({
-  spaceId,
-  currentPageId,
-  blockedRootIds,
-  title = '리포트 저장 위치',
-  home = '리포트',
-  description = '새 리포트를 고른 페이지 아래에 만들어요. 이미 만든 리포트는 그대로 둬요.',
-  isBlockedPage,
-  emptyText = `고를 페이지가 없으면 다음 리포트 때 「${home}」을 만들어요.`,
-  saving = false,
-  helpId,
-  onClose,
-  onSave,
-}: Props) {
+function ReportLocationBody(props: Props) {
+  const {
+    spaceId,
+    currentPageId,
+    blockedRootIds,
+    title = '리포트 저장 위치',
+    home = '리포트',
+    description = '새 리포트를 고른 페이지 아래에 만들어요. 이미 만든 리포트는 그대로 둬요.',
+    isBlockedPage,
+    emptyText = `고를 페이지가 없으면 다음 리포트 때 「${home}」을 만들어요.`,
+    saving = false,
+    helpId,
+    onClose,
+    spaces,
+    onSpaceChange,
+    saveLabel = '저장',
+    hideAiReports = true,
+  } = props
+  const allowRoot = props.allowRoot === true
   const tree = useWikiTree(spaceId)
   const createPage = useCreatePage(spaceId ?? 0)
   const movePage = useMovePage(spaceId ?? 0)
   const [q, setQ] = useState('')
-  const [selected, setSelected] = useState<string | null>(null)
+  // 처음 고른 자리 — 리포트 창은 아무것도 고르지 않은 채, 「최상위」를 저장할 수 있는 창은 지금 위치(없으면 최상위)를 고른 채 연다.
+  const [selected, setSelected] = useState<string | null>(() =>
+    allowRoot ? (currentPageId != null ? String(currentPageId) : ROOT) : null,
+  )
   // 이 창에서 만든 페이지 — 「새로 만듦」 표시용. 저장하지 않고 닫아도 페이지는 남는다(되돌리지 않음).
   const [created, setCreated] = useState<Set<number>>(() => new Set())
   // 새 페이지 제목 입력 줄 — null 이면 입력 중이 아니다.
@@ -109,11 +140,13 @@ function ReportLocationBody({
     const keep = ancestorPath(pages, currentPageId)
     // AI 가 쓴 리포트 페이지(aiLastAction='report', 서버 검증과 같은 기준)만 갈래째 뺀다 — 들여쓰기가 어긋나지 않게.
     // 트리의 「AI」 배지(aiLastUsedAt)는 AI 로 다듬기만 해도 붙으니 기준으로 쓰지 않는다.
-    const aiIds = pages.filter((pg) => pg.aiLastAction === REPORT_ACTION && !keep.has(pg.id)).map((pg) => pg.id)
+    const aiIds = hideAiReports
+      ? pages.filter((pg) => pg.aiLastAction === REPORT_ACTION && !keep.has(pg.id)).map((pg) => pg.id)
+      : []
     // 부르는 쪽이 정한 막을 페이지 — 같은 기준(지금 위치·조상은 남김)으로 갈래째 뺀다.
     const blockedIds = isBlockedPage ? pages.filter((pg) => isBlockedPage(pg) && !keep.has(pg.id)).map((pg) => pg.id) : []
     return pickTargets(pages, [...blockedRootIds, ...aiIds, ...blockedIds])
-  }, [tree.data, blockedRootIds, currentPageId, isBlockedPage])
+  }, [tree.data, blockedRootIds, currentPageId, isBlockedPage, hideAiReports])
 
   const keyword = q.trim().toLowerCase()
   // 검색하면 제목이 맞는 페이지만 남긴다 — 깊이 들여쓰기는 그대로 둬 어느 갈래인지 보이게.
@@ -137,7 +170,18 @@ function ReportLocationBody({
   const draftDepth = parentIndex >= 0 ? options[parentIndex].depth + 1 : base
 
   const treeBlocked = tree.isError
-  const canSave = selected != null && selected !== ROOT && draft == null && !treeBlocked && !saving
+  const canSave = selected != null && (allowRoot || selected !== ROOT) && draft == null && !treeBlocked && !saving
+
+  /** 공간을 바꾼다 — 고른 자리·검색어·입력 줄·「새로 만듦」은 앞 공간의 것이라 비우고, 트리는 부르는 쪽이 바꾼 spaceId 로 다시 받는다. */
+  const changeSpace = (value: string) => {
+    const id = Number(value)
+    if (id === spaceId) return
+    setSelected(allowRoot ? ROOT : null)
+    setQ('')
+    setDraft(null)
+    setCreated(new Set())
+    onSpaceChange?.(id)
+  }
 
   /** 「＋ 새 페이지」 — 검색어를 비우고 고른 자리 아래에 제목 입력 줄을 연다. */
   const startDraft = () => {
@@ -176,15 +220,22 @@ function ReportLocationBody({
     void submitDraft()
   }
 
-  /** 「저장」 — 지금 위치를 그대로 고르면 요청 없이 닫는다. */
+  /**
+   * 「저장」 — 지금 위치를 그대로 고르면 요청 없이 닫는다(리포트 창). 「최상위」를 고를 수 있는 창은 공간까지 바뀔 수 있어
+   * 고른 값을 늘 돌려준다(부르는 쪽이 「지금 위치」와 같은지 판단).
+   */
   const save = () => {
     if (!canSave || selected == null) return
+    if (props.allowRoot) {
+      props.onSave(selected === ROOT ? null : Number(selected))
+      return
+    }
     const id = Number(selected)
     if (id === currentPageId) {
       onClose()
       return
     }
-    onSave(id)
+    props.onSave(id)
   }
 
   const draftRow = (
@@ -225,6 +276,20 @@ function ReportLocationBody({
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
+      {spaces && spaces.length > 0 && (
+        <Select value={spaceId != null ? String(spaceId) : undefined} onValueChange={changeSpace}>
+          <SelectTrigger aria-label="공간" className="w-full" data-testid="report-location-space">
+            <SelectValue placeholder="공간 고르기" />
+          </SelectTrigger>
+          <SelectContent>
+            {spaces.map((s) => (
+              <SelectItem key={s.id} value={String(s.id)}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
       <SearchInput value={q} onChange={setQ} placeholder="페이지 검색" className="max-w-none" />
       <div
         role="listbox"
@@ -292,7 +357,7 @@ function ReportLocationBody({
             취소
           </Button>
           <Button disabled={!canSave} onClick={save} data-testid="report-location-save">
-            저장
+            {saveLabel}
           </Button>
         </div>
       </DialogFooter>

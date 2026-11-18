@@ -1,7 +1,9 @@
 // 일정 회의록 노트 줄·「노트 연결」 창 390px 레이아웃 E2E(WP-1701). 백엔드 없이 page.route 모킹.
 // 긴 제목·긴 공간 이름 카드가 폭을 넘치지 않는지, 휴대폰에서 창이 화면 폭이고 「연결」이 「취소」 위인지는
 // 실제 레이아웃이 있어야 알 수 있어 @layout 으로 본다. 잇기·끊기 동작·문구는 vitest(Task 4)가 지킨다.
+// 「회의록 만들기」 창(WP-1702)도 390px 에서 화면을 넘치지 않고 「만들기」가 「취소」 위·가득 폭인지 여기서 본다.
 import { calendarEvent, eventNote, noteSearchResult } from '../../factories/calendar.factory'
+import { wikiSpace } from '../../factories/wiki.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf } from '../../fixtures/layout'
@@ -69,3 +71,43 @@ test('390px 「노트 연결」 창은 화면 폭이고 「연결」이 「취�
   ])
   expect(submit.y).toBeLessThan(cancel.y)
 })
+
+test('390px 「회의록 만들기」 창은 화면 안에 들고 「만들기」가 「취소」 위·가득 폭이다(WP-1702)', { tag: '@layout' }, async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await page.setViewportSize(VIEWPORT)
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  // 긴 공간 이름 — 위치 줄이 말줄임으로 접혀야 한다
+  await mockApi(page, 'GET', '/api/v1/wiki/spaces', [
+    wikiSpace({ id: 1, type: 'PERSONAL', name: '아주 긴 개인 공간 이름 '.repeat(5), ownerId: 1, role: 'OWNER' }),
+  ])
+
+  await page.goto('/calendar?new=true')
+  await page.getByTestId('calendar-form-title').fill('주간 기획 회의 '.repeat(4))
+  await page.getByTestId('calendar-form-location').fill('3층 대회의실 '.repeat(6))
+  await page.getByTestId('event-note-create').click()
+  const dialog = page.getByTestId('meeting-note-dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByTestId('meeting-note-location')).toContainText('아주 긴 개인 공간')
+
+  // 창이 화면 폭 안(좌우 16px 여백 기준)이고 가로로 넘치지 않는다
+  const box = await boxOf(dialog)
+  expect(box.width).toBeGreaterThanOrEqual(VIEWPORT.width - 2 * 16)
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(VIEWPORT.width)
+  expect(await dialog.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+  // 위치 줄의 「바꾸기」가 창 안에 남는다
+  const change = await boxOf(dialog.getByTestId('meeting-note-location-change'))
+  expect(change.x + change.width).toBeLessThanOrEqual(box.x + box.width)
+
+  // 단추가 세로로 쌓이고 「만들기」가 위, 둘 다 같은 가득 폭
+  const [submit, cancel] = await Promise.all([
+    boxOf(page.getByTestId('meeting-note-submit')),
+    boxOf(page.getByTestId('meeting-note-cancel')),
+  ])
+  expect(submit.y).toBeLessThan(cancel.y)
+  expect(Math.round(submit.width)).toBe(Math.round(cancel.width))
+  expect(submit.width).toBeGreaterThan(box.width / 2)
+})
+

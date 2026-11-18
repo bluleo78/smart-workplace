@@ -3,9 +3,9 @@
 // 폼은 이름표 대신 아이콘 줄(배치 B — Google·Outlook·Notion 방식)이고, 상세 보기(EventDetailView)와 같은 아이콘·순서다:
 // 제목 → 시간(종일·반복) → 장소 → 참석자 → 알림 → 캘린더(점을 눌러 색) → 태그 → 설명.
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AlignLeft, Bell, Calendar as CalendarIcon, Clock, MapPin, Repeat, Users } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { Controller, useForm, useWatch } from 'react-hook-form'
+import { AlignLeft, Bell, Calendar as CalendarIcon, Clock, MapPin, NotebookText, Repeat, Users } from 'lucide-react'
+import { type ComponentProps, useEffect, useRef, useState } from 'react'
+import { type Control, Controller, useForm, useWatch } from 'react-hook-form'
 
 import { useAiPanelAwareDialog } from '@/components/ai/useAiPanelAwareDialog'
 import { AttendeeSection, type SelectedMember } from '@/components/calendar/AttendeeSection'
@@ -16,6 +16,7 @@ import { EventNoteRow } from '@/components/calendar/EventNoteRow'
 import { EventRangeInputs } from '@/components/calendar/EventRangeInputs'
 import { EventTagsField } from '@/components/calendar/EventTagsField'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
+import { MeetingNoteCreateDialog, type MeetingNoteCreateInput } from '@/components/calendar/MeetingNoteCreateDialog'
 import { NoteLinkDialog } from '@/components/calendar/NoteLinkDialog'
 import { PaletteSwatches } from '@/components/calendar/PaletteSwatches'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
@@ -44,6 +45,7 @@ import {
   useRemoveAttendee,
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars } from '@/hooks/queries/useCalendars'
+import { useCreateMeetingNote } from '@/hooks/queries/useCreateMeetingNote'
 import { useEventNote, useLinkEventNote, useUnlinkEventNote } from '@/hooks/queries/useEventNote'
 import { useAuth } from '@/hooks/useAuth'
 import { INVITED_CALENDAR_LABEL } from '@/lib/calendar'
@@ -60,11 +62,19 @@ import {
   shouldShowRsvp,
   toEventRequest,
 } from '@/lib/calendarEventForm'
-import { reminderLabel } from '@/lib/calendarEventView'
+import { attendeeDisplayName, attendeeKey, reminderLabel, sortAttendeesForView } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { changedTagIds, eventTagHint } from '@/lib/calendarTag'
 import { canShowNoteRow } from '@/lib/eventNote'
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
+import {
+  draftMeetingNoteTitle,
+  type MeetingNoteDraft,
+  type MeetingNoteTemplate,
+  meetingNoteTemplate,
+  meetingNoteTitle,
+  uniqueAttendeeNames,
+} from '@/lib/meetingNote'
 import { isFormEditableRRule, parseRRule, recurrenceUnitLabel } from '@/lib/recurrence'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent, CalendarEventRequest, CalendarTagRef } from '@/types/calendar'
@@ -100,8 +110,12 @@ interface EventDialogProps {
    * 저장 — 폼에서 고른 태그가 처음과 달라졌을 때만 body.tagIds 가 실린다(아니면 빠져 서버가 태그를 건드리지 않는다).
    * 태그는 일정 저장과 한 요청이라 반복 범위(「이후 모든 일정」의 새 시리즈 등)를 서버가 맞춘다(WP-801).
    * 새 일정에서 저장 전 노트를 골랐으면 extras.pendingNote 로 넘겨 만든 뒤 호출 쪽이 잇는다(WP-1701) — 안 골랐으면 두 번째 인자가 없다.
+   * 저장 전 「회의록 만들기」로 정해 두었으면 extras.pendingCreate(틀은 저장 순간의 폼 값)로 넘겨 만든 뒤 호출 쪽이 노트를 만들어 잇는다(WP-1702).
    */
-  onSubmit: (body: CalendarEventRequest, extras?: { pendingNote?: WikiSearchResult | null }) => void
+  onSubmit: (
+    body: CalendarEventRequest,
+    extras?: { pendingNote?: WikiSearchResult | null; pendingCreate?: MeetingNoteDraft | null },
+  ) => void
   /** 편집 모드에서만 제공 — 삭제 버튼 표시 */
   onDelete?: () => void
   /** API 요청 진행 중 여부 — true 이면 저장 버튼 비활성화 + 로딩 텍스트 표시 (이슈 #130) */
@@ -141,6 +155,10 @@ export function EventDialog({
   const [pendingNote, setPendingNote] = useState<WikiSearchResult | null>(null)
   // 「노트 연결」 창 — 열 때의 일정 제목을 검색어로 한 번만 읽어 둔다(열린 동안 폼 제목이 바뀌어도 창은 그대로). null 이면 닫힘(WP-1701)
   const [noteDialogTitle, setNoteDialogTitle] = useState<string | null>(null)
+  // 「회의록 만들기」 창 — 열 때의 제목·틀을 한 번 만들어 둔다(열린 동안 폼을 고쳐도 창은 그대로, 다시 열면 새 값). null 이면 닫힘(WP-1702)
+  const [meetingDialog, setMeetingDialog] = useState<{ title: string; template: MeetingNoteTemplate } | null>(null)
+  // 새 일정에서 저장 전 만들기로 정해 둔 회의록 — 저장 성공 뒤 호출 쪽이 만들어 잇는다. pendingNote 와 둘 중 하나만(WP-1702)
+  const [pendingCreate, setPendingCreate] = useState<MeetingNoteCreateInput | null>(null)
 
   // 색 팝오버(캘린더 칸의 점) 열림
   const [colorOpen, setColorOpen] = useState(false)
@@ -182,6 +200,7 @@ export function EventDialog({
   const noteQuery = useEventNote(isEdit && open && noteRowAvailable ? event?.id : undefined, event?.occurrenceDate)
   const linkNote = useLinkEventNote()
   const unlinkNote = useUnlinkEventNote()
+  const meetingNote = useCreateMeetingNote()
   // 편집 모드 참석자 invite/remove 뮤테이션 — eventId 0 은 dummy(생성 모드에서 훅 호출 유지) (이슈 #489)
   const inviteAttendees = useInviteAttendees(event?.id ?? 0)
   const removeAttendee = useRemoveAttendee(event?.id ?? 0)
@@ -238,6 +257,8 @@ export function EventDialog({
     setTouchedTags(null)
     setPendingNote(null)
     setNoteDialogTitle(null)
+    setPendingCreate(null)
+    setMeetingDialog(null)
     setColorOpen(false)
 
     // 반복 규칙(RRULE) → 평탄한 폼 필드로 변환. 생성 모드(이벤트 없음)면 NONE 기본값.
@@ -326,6 +347,73 @@ export function EventDialog({
   const attendeesLoading = isEdit && !detailEvent
   const showAttendees = !isEdit || canManageAttendees || (eventWithDetail?.attendees?.length ?? 0) > 0
 
+  /**
+   * 회의록 틀의 참석자 이름 — 기존 일정은 저장된 상세 참석자(주최자·나 먼저, AI 포함), 새 일정은 나(주최자가 된다) + 고른 사람.
+   * 같은 사람(사용자 id·외부 이메일)만 한 번으로 줄인다 — 이름이 같은 다른 사람은 둘 다 남는다.
+   */
+  function meetingAttendeeNames(): string[] {
+    if (isEdit) {
+      return uniqueAttendeeNames(
+        sortAttendeesForView(eventWithDetail?.attendees ?? [], user?.id).map((a, i) => ({
+          key: attendeeKey(a, i),
+          name: attendeeDisplayName(a),
+        })),
+      )
+    }
+    return uniqueAttendeeNames([
+      ...(user ? [{ key: `u-${user.id}`, name: user.name }] : []),
+      ...selectedAttendees.map((m) => ({ key: `u-${m.id}`, name: m.name })),
+    ])
+  }
+
+  /** 시간·장소 값(폼 값 모양)으로 회의록 틀을 만든다. 종일의 end 는 마지막 날 다음 자정(폼 값과 같은 반열림). */
+  function templateFrom(values: Pick<FormValues, 'start' | 'end' | 'allDay' | 'location'>): MeetingNoteTemplate {
+    return meetingNoteTemplate({
+      start: new Date(values.start),
+      end: new Date(values.end),
+      allDay: values.allDay,
+      location: values.location,
+      attendeeNames: meetingAttendeeNames(),
+    })
+  }
+
+  /**
+   * 창에 채울 제목·틀의 근원. 기존 일정은 저장된 일정(누른 회차의 시작·끝)이다 — 노트를 바로 만들어 잇으므로 아직 저장하지 않은
+   * 폼 수정이 노트에 들어가면 안 된다. 새 일정은 지금 폼 값(저장 때 다시 만든다).
+   */
+  function meetingSourceValues(): Pick<FormValues, 'title' | 'start' | 'end' | 'allDay' | 'location'> {
+    if (!event) return form.getValues()
+    // 종일은 저장 규약(동기화 UTC 자정·로컬 자정)을 흡수한 폼 값으로 — 그대로 풀면 UTC 자정 종일이 하루 어긋난다(WP-1072)
+    const range = event.allDay ? allDayFormRange(event) : { start: event.startsAt, end: event.endsAt }
+    return { title: event.title, ...range, allDay: event.allDay, location: event.location ?? '' }
+  }
+
+  /** 「회의록 만들기」 창을 연다 — 노트 연결 창(결과 없음에서 넘어온 경우)은 닫는다. */
+  function openMeetingDialog() {
+    const values = meetingSourceValues()
+    setNoteDialogTitle(null)
+    setMeetingDialog({ title: meetingNoteTitle(values.title, new Date(values.start)), template: templateFrom(values) })
+  }
+
+  /**
+   * 창의 「만들기」 — 기존 일정은 바로 노트를 만들고(실패하면 창 안 오류) 그 회차에 잇는다(잇기 결과는 토스트, 일정 창은 그대로).
+   * 새 일정은 서버를 부르지 않고 정해 두기만 한다 — 저장해야 만든다(취소하면 아무것도 생기지 않는다).
+   */
+  async function createMeetingNote(input: MeetingNoteCreateInput) {
+    if (!event) {
+      setPendingCreate(input)
+      setPendingNote(null)
+      return
+    }
+    // 창이 열려 있을 때만(meetingDialog 가 있을 때만) 불린다 — 틀은 창을 연 때의 것
+    if (!meetingDialog) return
+    const template = meetingDialog.template
+    const page = await meetingNote.create({ ...input, markdown: template.markdown })
+    await meetingNote.linkAndNotify(input.spaceId, page.id, () =>
+      linkNote.mutateAsync({ id: event.id, occurrenceDate: event.occurrenceDate, pageId: page.id }),
+    )
+  }
+
   // 폼 제출 핸들러
   function handleSubmit(values: FormValues) {
     // 동기적 중복 제출 가드 — 이미 제출 중이면 no-op (dblclick 등으로 인한 중복 생성 방지, 이슈 #584)
@@ -353,7 +441,13 @@ export function EventDialog({
       : null
     const finalBody = tagIds ? { ...body, tagIds } : body
     // 새 일정에서 고른 노트는 호출 쪽이 만든 일정 id 로 잇는다 — 고르지 않았으면 인자를 늘리지 않는다(pendingNote 는 새 일정에서만 생긴다)
-    if (pendingNote) onSubmit(finalBody, { pendingNote })
+    // 만들기로 정해 둔 회의록은 저장 순간의 폼 값(시간·장소·참석자)으로 틀을 다시 만든다 — 창을 연 뒤 시간을 고칠 수 있다(WP-1702).
+    // 제목도 사람이 고치지 않았으면 저장 순간의 일정 제목·날짜로 다시 만든다.
+    if (pendingCreate) {
+      const { spaceId, parentId } = pendingCreate
+      const title = draftMeetingNoteTitle(pendingCreate, values.title, values.start)
+      onSubmit(finalBody, { pendingCreate: { title, spaceId, parentId, markdown: templateFrom(values).markdown } })
+    } else if (pendingNote) onSubmit(finalBody, { pendingNote })
     else onSubmit(finalBody)
   }
 
@@ -770,16 +864,22 @@ export function EventDialog({
 
               {/* 회의록 — 새 일정은 고른 노트를 들고 있다 저장 뒤 잇고, 기존 일정은 연결·해제가 바로 반영된다. 기존 일정은 조회가 끝나야 그린다(「노트 연결」이 번쩍이지 않게) */}
               {noteRowAvailable && (!isEdit || noteQuery.data) && (
-                <EventNoteRow
+                <LiveEventNoteRow
+                  control={form.control}
+                  draft={pendingCreate}
                   note={isEdit ? noteQuery.data?.note : null}
                   pending={pendingNote}
                   editable
                   onPick={() => setNoteDialogTitle(form.getValues('title'))}
-                  onUnlink={() =>
-                    event
-                      ? unlinkNote.mutate({ id: event.id, occurrenceDate: event.occurrenceDate })
-                      : setPendingNote(null)
-                  }
+                  onCreate={openMeetingDialog}
+                  onUnlink={() => {
+                    if (event) {
+                      unlinkNote.mutate({ id: event.id, occurrenceDate: event.occurrenceDate })
+                    } else {
+                      setPendingNote(null)
+                      setPendingCreate(null)
+                    }
+                  }}
                 />
               )}
 
@@ -829,8 +929,26 @@ export function EventDialog({
                   await linkNote.mutateAsync({ id: event.id, occurrenceDate: event.occurrenceDate, pageId: page.id })
                 } else {
                   setPendingNote(page)
+                  setPendingCreate(null)
                 }
               }}
+              // 결과가 없으면 그 자리에서 회의록을 만들 수 있게 — 누르면 이 창을 닫고 만들기 창을 연다(WP-1702)
+              emptyAction={
+                <Button type="button" variant="outline" size="sm" onClick={openMeetingDialog} data-testid="note-link-create">
+                  <NotebookText aria-hidden="true" />
+                  회의록 만들기
+                </Button>
+              }
+            />
+            {/* 「회의록 만들기」 창 — 노트 연결 창처럼 form 밖에 둔다 */}
+            <MeetingNoteCreateDialog
+              open={meetingDialog !== null}
+              onOpenChange={(o) => {
+                if (!o) setMeetingDialog(null)
+              }}
+              defaultTitle={meetingDialog?.title ?? ''}
+              templateLines={meetingDialog?.template.lines ?? []}
+              onCreate={createMeetingNote}
             />
             {/* WP-1234 기존 일정을 고치는 폼에도 일정 링크(🔗/⬆︎) — 내 일정은 대개 상세 보기 대신 폼으로 열린다.
                 절대 배치라 보이는 자리는 ✕ 옆이지만 DOM 은 폼 뒤에 둔다 — 앞에 두면 자동 포커스(모달 복귀 등)가 🔗 로 가
@@ -842,3 +960,23 @@ export function EventDialog({
     </Dialog>
   )
 }
+
+/**
+ * 회의록 줄 — 새 일정의 「저장하면 만듦」 카드 제목을 폼의 제목·시작에 맞춰 다시 그린다(WP-1702).
+ * 이 줄만 제목 칸을 구독해 다이얼로그 전체가 제목 한 글자마다 다시 그려지지 않게 한다(WP-801 과 같은 이유).
+ */
+function LiveEventNoteRow({
+  control,
+  draft,
+  ...rowProps
+}: Omit<ComponentProps<typeof EventNoteRow>, 'pendingCreate'> & {
+  control: Control<FormValues>
+  draft: MeetingNoteCreateInput | null
+}) {
+  const [title, start] = useWatch({ control, name: ['title', 'start'] })
+  const pendingCreate = draft
+    ? { title: draftMeetingNoteTitle(draft, title, start), locationLabel: draft.locationLabel }
+    : null
+  return <EventNoteRow {...rowProps} pendingCreate={pendingCreate} />
+}
+

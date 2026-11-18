@@ -46,6 +46,7 @@ import {
   useDeleteCalendarTag,
   useUpdateCalendarTag,
 } from '@/hooks/queries/useCalendarTags'
+import { useCreateMeetingNote } from '@/hooks/queries/useCreateMeetingNote'
 import { useLinkEventNote } from '@/hooks/queries/useEventNote'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useAuth } from '@/hooks/useAuth'
@@ -72,6 +73,7 @@ import { canMoveEvent, type MovedRange, moveRequestBody } from '@/lib/calendarMo
 import { RECURRING_TAGS_NOTE } from '@/lib/calendarTag'
 import { firstOccurrenceDate } from '@/lib/eventNote'
 import { parseId } from '@/lib/historyParam'
+import type { MeetingNoteDraft } from '@/lib/meetingNote'
 import { failedWithoutData } from '@/lib/queryFailure'
 import { cn } from '@/lib/utils'
 import type {
@@ -300,6 +302,7 @@ export function CalendarPage() {
 
   const create = useCreateEvent()
   const linkNote = useLinkEventNote()
+  const meetingNote = useCreateMeetingNote()
   const update = useUpdateEvent()
   const remove = useDeleteEvent()
 
@@ -435,26 +438,48 @@ export function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needFetch, deepLinkEvent, deepLinkFailed, eventIdParam])
 
-  // 새 일정을 만든 뒤 저장 전 고른 노트를 잇는다(WP-1701). 반복이면 DTSTART 가 규칙에 안 맞을 수 있어 startsAt 이 아니라
-  // 목록 조회로 펼친 실제 첫 회차를 쓴다(서버 전개는 안 맞는 DTSTART 를 회차로 내지 않는다). 실패는 토스트로만 알린다.
+  // 새로 만든 일정에 노트를 잇는다(WP-1701) — 고른 노트·만든 회의록(WP-1702)이 함께 쓴다. 반복이면 DTSTART 가 규칙에 안 맞을 수 있어
+  // startsAt 이 아니라 목록 조회로 펼친 실제 첫 회차를 쓴다(서버 전개는 안 맞는 DTSTART 를 회차로 내지 않는다). 실패는 던진다.
+  async function linkCreatedEvent(created: CalendarEvent, pageId: number) {
+    let occurrenceDate: string | null = null
+    if (created.recurrenceRule) {
+      const to = new Date(new Date(created.startsAt).getTime() + FIRST_OCCURRENCE_WINDOW_MS).toISOString()
+      const r = await calendarApi.list(created.startsAt, to)
+      occurrenceDate = firstOccurrenceDate(created.id, r.data)
+      if (!occurrenceDate) throw new Error('첫 회차를 찾지 못했습니다')
+    }
+    await linkNote.mutateAsync({ id: created.id, occurrenceDate, pageId })
+  }
+
+  // 저장 전 고른 노트를 잇는다 — 실패는 토스트로만 알린다(일정은 그대로).
   async function linkPendingNote(created: CalendarEvent, page: WikiSearchResult) {
     try {
-      let occurrenceDate: string | null = null
-      if (created.recurrenceRule) {
-        const to = new Date(new Date(created.startsAt).getTime() + FIRST_OCCURRENCE_WINDOW_MS).toISOString()
-        const r = await calendarApi.list(created.startsAt, to)
-        occurrenceDate = firstOccurrenceDate(created.id, r.data)
-        if (!occurrenceDate) throw new Error('첫 회차를 찾지 못했습니다')
-      }
-      await linkNote.mutateAsync({ id: created.id, occurrenceDate, pageId: page.id })
+      await linkCreatedEvent(created, page.id)
     } catch {
       toast.error('일정은 저장했지만 노트를 연결하지 못했습니다')
     }
   }
 
+  // 저장 전 「회의록 만들기」로 정해 둔 회의록을 만들어 잇는다(WP-1702) — 잇기 대상(첫 회차)은 고른 노트와 같은 규칙.
+  // 만들기 실패는 일정만 남았다고, 잇기만 실패는 노트가 남았다고(「열기」) 토스트로 알린다.
+  // 회의록 위치는 노트가 만들어진 이때 기억한다(meetingNote.create) — 창에서 정해 두기만 했을 땐 기억하지 않는다.
+  async function createPendingMeetingNote(created: CalendarEvent, draft: MeetingNoteDraft) {
+    let pageId: number
+    try {
+      pageId = (await meetingNote.create(draft)).id
+    } catch {
+      toast.error('일정은 저장했지만 회의록을 만들지 못했습니다')
+      return
+    }
+    await meetingNote.linkAndNotify(draft.spaceId, pageId, () => linkCreatedEvent(created, pageId))
+  }
+
   // 생성·수정 공용 submit 핸들러 — 폼에서 바꾼 태그는 body.tagIds 로 일정 저장과 한 요청에 실린다(WP-801).
   // 한 요청이라 서버가 반복 범위에 맞는 시리즈(「이후 모든 일정」이면 새로 나뉜 시리즈)에 붙이고, 실패하면 일정과 함께 실패해 폼이 남는다.
-  const submit = (body: CalendarEventRequest, extras?: { pendingNote?: WikiSearchResult | null }) => {
+  const submit = (
+    body: CalendarEventRequest,
+    extras?: { pendingNote?: WikiSearchResult | null; pendingCreate?: MeetingNoteDraft | null },
+  ) => {
     // 새 일정 저장 중에 이전 스냅숏(editing)이 수정 대상으로 잡히지 않게 creating 을 먼저 본다.
     if (!creating && editing) {
       if (editing.occurrenceDate != null) {
@@ -471,6 +496,8 @@ export function CalendarPage() {
           setCreating(false)
           // 저장 전 고른 회의록 노트는 만든 일정 id 로 잇는다 — 이것만 실패해도 일정은 그대로(WP-1701)
           if (extras?.pendingNote) void linkPendingNote(created, extras.pendingNote)
+          // 저장 전 만들기로 정해 둔 회의록은 이제 만들어 잇는다(WP-1702)
+          if (extras?.pendingCreate) void createPendingMeetingNote(created, extras.pendingCreate)
         },
       })
     }
