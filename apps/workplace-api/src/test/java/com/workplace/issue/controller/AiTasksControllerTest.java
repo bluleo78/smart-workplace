@@ -737,6 +737,77 @@ class AiTasksControllerTest extends IntegrationTestBase {
   }
 
   @Test
+  void 에픽_스토리_하위태스크면_하위태스크는_조부모_에픽_묶음에_든다_WP1692() throws Exception {
+    // 에픽 E › 스토리 St(TASK 유형, 비에픽) › 하위 태스크 K. K 는 부모가 에픽이 아니어도 조부모 E 가 같은 프로젝트 에픽이라 E 묶음에 든다.
+    // 스토리 St 자신도 부모가 에픽이라 E 묶음 — E·St·K 가 한 묶음으로 연속(머리 E 먼저).
+    long e = issue("E", me);
+    setType(e, epicTypeId());
+    long st = issue("St", me);
+    setParent(st, e);
+    long k = issue("K", me);
+    setParent(k, st);
+    for (long id : List.of(e, st, k)) assign(id, agent);
+    work(e, agent, "WORKING", REF.minus(Duration.ofMinutes(30)));
+    work(st, agent, "WORKING", REF.minus(Duration.ofMinutes(20)));
+    work(k, agent, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(10)));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactly("E", "K", "St");
+    body.get("items")
+        .forEach(
+            it -> {
+              assertThat(it.at("/aiGroup/epicNumber").asInt()).isEqualTo(number(e));
+              assertThat(it.at("/aiGroup/size").asInt()).isEqualTo(3);
+            });
+  }
+
+  @Test
+  void 스토리가_위임목록에_없어도_하위태스크는_조부모_에픽_묶음에_든다_WP1692() throws Exception {
+    // 스토리 St 는 AI 담당이 아니라 목록 밖 — 하위 태스크 K 만 보여도 조부모 E 의 묶음 정보를 싣는다(에픽 행도 목록 밖).
+    long e = issue("E", me);
+    setType(e, epicTypeId());
+    long st = issue("St", me);
+    setParent(st, e);
+    long k = issue("K", me);
+    setParent(k, st);
+    long s = issue("S", me);
+    for (long id : List.of(k, s)) assign(id, agent);
+    work(k, agent, "WORKING", REF.minus(Duration.ofMinutes(10)));
+    work(s, agent, "WORKING", REF.minus(Duration.ofMinutes(5)));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactlyInAnyOrder("K", "S");
+    for (JsonNode it : body.get("items")) {
+      JsonNode g = it.get("aiGroup");
+      if (it.get("title").asString().equals("K")) {
+        assertThat(g.get("epicNumber").asInt()).isEqualTo(number(e));
+        assertThat(g.get("size").asInt()).isEqualTo(1);
+      } else {
+        assertNoEpic(g);
+        assertThat(g.get("size").asInt()).isEqualTo(1);
+      }
+    }
+  }
+
+  @Test
+  void 조부모가_다른_프로젝트_에픽이면_에픽_없음_묶음에_든다_WP1692() throws Exception {
+    // 다른 프로젝트 에픽 X › 스토리 St › 하위 태스크 K — 에픽 번호를 같은 프로젝트로 읽으므로 X 로 묶지 않는다(WP-1038 과 같은 규칙).
+    long pb = otherProject("P-grand");
+    long x = issueIn(pb, "X", me);
+    setType(x, epicTypeIdIn(pb));
+    long st = issue("St", me);
+    setParent(st, x);
+    long k = issue("K", me);
+    setParent(k, st);
+    assign(k, agent);
+    work(k, agent, "WORKING", REF.minus(Duration.ofMinutes(5)));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactly("K");
+    assertNoEpic(body.get("items").get(0).get("aiGroup"));
+  }
+
+  @Test
   void 커서로_나눠_받아도_한번에_받은_순서와_같다() throws Exception {
     seedEpicGroup();
 
