@@ -283,3 +283,13 @@ export function agentRunArgs({ name, rest, changed }) {
   const hasRestart = /(^|\s)--restart(\s|$)/.test(rest)
   return [name, changed && !hasRestart ? '--restart' : '', rest].filter(Boolean).join(' ')
 }
+
+// 프롬프트가 어디서 왔는지 가른다(WP-1714) — work-loop 반복(loop)·백그라운드 완료 알림(notice)·그 밖은 사람이 쓴 글(human).
+// 화면으로는 사람 글을 알 수 없어 들어온 프롬프트 글로 판정한다. 앞 공백은 무시한다.
+export function promptKind(text) {
+  const t = String(text ?? '').trimStart();
+  if (t.startsWith('/loop /genia-works:work-loop')) return 'loop';
+  // agent-events 가 일하는 칸에 치는 안내(do_notice)도 사람 글이 아니다 — human 으로 세면 알림마다 2시간 동안 비우지 못한다.
+  if (t.startsWith('<task-notification>') || t.startsWith('[genia-works 알림]')) return 'notice';
+  return 'human';
+}

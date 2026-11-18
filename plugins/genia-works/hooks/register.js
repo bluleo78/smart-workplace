@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey, validClaudeToken, splitAgentArgs, agentRunArgs, isRealAsk, isUnattendedLaunch, unattendedAskDeny } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey, validClaudeToken, splitAgentArgs, agentRunArgs, isRealAsk, isUnattendedLaunch, unattendedAskDeny, promptKind } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -794,8 +794,16 @@ export function register(on, options) {
   // prompt.submit 이 오지 않아 이 검사가 닿지 않는다.
   // 키 값은 사유·로그 어디에도 싣지 않는다. 핸들러가 실패하면: 이미 next 를 불렀으면 그 결과를 그대로 잇고(다시 돌리지 않음),
   // 부르기 전이면 키 모양일 때만 막고 아니면 통과시킨다.
+  let agentEnv // [AI 폴더, tmux 칸 id] — 첫 프롬프트에서 읽어 캐시
   on('prompt.submit', async ($, e, next) => {
     if (containsSecretKey(e.text)) return { drop: PROMPT_KEY_DROP }
+    // 대화 비우기 표시 지우기(WP-1714): AI 칸(폴더·칸 id 둘 다 있을 때)에서 프롬프트가 들어올 때마다 종류와 함께 gw-clear-mark 에 알린다.
+    // 실측: 일하는 중 사람이 친 글도 친 순간 이 이벤트로 오고, /clear 는 오지 않는다. 화면으로는 사람 글을 알 수 없어 여기서 잡는다.
+    // 모델 입력은 바꾸지 않고 기다리지도 않는다 — 스크립트 실패는 삼킨다. 키·토큰은 인자에 싣지 않는다.
+    // 환경 변수는 세션 동안 안 바뀌므로 첫 프롬프트에서 한 번만 읽어 둔다(매 프롬프트마다 두 번 기다리지 않게).
+    agentEnv ??= Promise.all([$.env.get('GENIA_WORKS_AGENT_DIR'), $.env.get('TMUX_PANE')]).catch(() => [])
+    const [dir, pane] = await agentEnv
+    if (dir && pane) script($, 'gw-clear-mark', ['seen', dir, pane, promptKind(e.text)]).catch(() => {})
     return next(e)
   }).catch(($, e, next) => (next.called ? next(e) : containsSecretKey(e.text) ? { drop: PROMPT_KEY_DROP } : next(e)))
 }

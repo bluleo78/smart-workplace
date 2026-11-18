@@ -1003,6 +1003,30 @@ test('prompt.submit: 43자 ak_ 키가 든 프롬프트는 막고 키를 토스�
   expect(seen.some((s) => s.startsWith('REACHED'))).toBe(false)
 })
 
+test('prompt.submit: AI 칸이면 gw-clear-mark seen 을 종류와 함께 부르고 프롬프트는 그대로 넘긴다 (WP-1714)', async ($, on) => {
+  const w = loginWorld(on, {}, 200, { GENIA_WORKS_AGENT_DIR: '/h/kodi', TMUX_PANE: '%3' })
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  expect(((await $.prompt.submit({ text: '이거 해 줘' })) as any).text).toBe('이거 해 줘')
+  await w.clock.advance(10)
+  expect(w.scripts()).toContain('seen /h/kodi %3 human')
+})
+
+test('prompt.submit: 백그라운드 완료 알림(<task-notification>)은 seen … notice 로 알린다 (WP-1714)', async ($, on) => {
+  const w = loginWorld(on, {}, 200, { GENIA_WORKS_AGENT_DIR: '/h/kodi', TMUX_PANE: '%3' })
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  await $.prompt.submit({ text: '<task-notification>\n<task-id>b1</task-id>' })
+  await w.clock.advance(10)
+  expect(w.scripts()).toContain('seen /h/kodi %3 notice')
+})
+
+test('prompt.submit: AI 칸이 아니면(폴더·칸 변수 없음) 스크립트를 부르지 않는다 (WP-1714)', async ($, on) => {
+  const w = loginWorld(on, {}, 200, { TMUX_PANE: '%3' })
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  await $.prompt.submit({ text: 'hi' })
+  await w.clock.advance(10)
+  expect(w.scripts().some((s) => s.startsWith('seen'))).toBe(false)
+})
+
 test('prompt.submit: 보통 프롬프트와 짧은 가짜 키는 통과한다', async ($, on) => {
   on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
   expect(((await $.prompt.submit({ text: 'hi' })) as any).text).toBe('hi')

@@ -42,6 +42,8 @@
 #   단계 사이에 모델에 보여 주므로 안전하다. 안내는 /loop 를 대신하지 않는다 — 칸의 /loop 일정이 끊겼을 수 있어(11-09 사고) 안내 뒤에도 위처럼 쉬기를 기다려
 #   쉬게 되면 /loop 를 넣고(한도까지 못 쉬면 안내만 남고 busy 기록), 일하는 중에 /loop 를 겹쳐 넣지는 않는다. 같은 이슈 키는 GW_NOTICE_SEC(기본 300초)에 한 번만
 #   (<AI 폴더>/state/notice-<이슈 키> 에 넣은 초 — 넣었을 때만), 이슈 키가 다르면 따로 센다. /loop 의 60초 디바운스(poke-<키>)는 안내가 쓰지도 바꾸지도 않는다.
+#   쉬는 칸에 /loop 를 넣기 전에 비우기 표시가 있으면 먼저 /clear(WP-1714) — try_clear 가 넣으면 대화 영역 지문이 바뀔 때까지 1초씩 GW_CLEAR_WAIT_SEC(기본 15초)
+#   기다리고, 안 바뀌어도 칸을 다시 읽어 idle 이면 /loop 를 넣는다(깨어남을 잃지 않는다). 비우기는 poke 한 번에 한 번만 해 본다.
 #   이슈 키·종류가 없거나 그 모양이 아니면(다시 붙음 -·sweep) 안내 없이 위의 기다렸다 넣는 동작 그대로다.
 #   안내 결과는 안내를 정한 때 바로 「poke <키> noticed <이슈 키>」·「poke <키> notice-debounced <이슈 키>」 한 줄이고, 마지막 결과 줄은 따로 위와 같다.
 # agent-events sweep <AI 폴더> — 안전장치(WP-1427): 알림이 없어도 오래 쉬는 칸을 깨운다. 칸이 다음 확인을 못 잡아 멈추면(깨우기 판단 오류 등) 알림이
@@ -54,6 +56,11 @@
 #   같은 칸에 1시간에 한 번만. 일하는 중(busy)·입력 중(typing)·unknown·막 뜬 칸·사람이 보는 칸은 idle 이 아니므로 기록을 지우고 넣지 않는다.
 #   이제 없는 칸의 기록도 지운다. run 은 시작할 때 idle-* 기록을 모두 지운다 — 감시 창이 오래 죽었다 살아나도 지금부터 1시간을 센다(한꺼번에 깨우지 않는다).
 #   실행기가 claude 가 아니면 하지 않는다(poke 와 같다). poke 의 결과는 events.log 에 poke 줄로 남는다.
+#   비우기(WP-1714): 같은 칸 고리에서 idle 칸마다 idle 기록 처리 전에 try_clear 를 부른다. work-loop 이 부르기를 마치며 남긴 「비워도 됨」 표시
+#   (<AI 폴더>/state/clear-ok-<키> = 「<초> <까닭>」)가 있고, 칸이 idle 이고, 표시를 쓴 지 GW_CLEAR_MIN_AGE_SEC(기본 20초)가 지났고, 사람이 그 칸에
+#   GW_CLEAR_HUMAN_HOLD_SEC(기본 7200초) 안에 말을 걸지 않았을 때(human-<키>·human-all — 모드가 씀)만 「/clear」를 넣는다. 일을 놓치는 것이 실패라서
+#   조금이라도 의심되면 넣지 않는다. 스위치 <AI 폴더>/state/clear-mode = off(표시만 지움) | shadow(로그만 — 파일 없음·이상한 값 포함) | on(넣음).
+#   결과는 events.log 에 「clear <키> sent|would|failed|skipped-human」 한 줄. 넣었으면 그 칸의 idle 기록을 지금부터 다시 센다(화면이 바뀐다).
 # agent-events sweep-loop <AI 폴더> — run 이 뒤에서 띄우는 주기 점검(따로 된 프로세스). run 이 끝나며 신호를 보내면 자기가 띄운 sweep(과 그 poke)까지 끝낸다.
 # 키는 gw-events 가 키 파일에서 읽어 표준 입력으로만 쓴다 — 이 스크립트는 키를 읽지도, 인자·로그에 남기지도 않는다.
 here=$(cd "$(dirname "$0")" && pwd)
@@ -520,6 +527,15 @@ do_sweep() {
       rm -f "$mark"
       continue
     fi
+    # 비워도 되는 칸이면 비운다(WP-1714) — 화면이 바뀌므로 1시간 기록을 지금부터 다시 센다(지문은 비워 다음 표본에서 새로 잡는다).
+    # 같은 키로 poke 가 /loop 를 넣는 중이면(60초 안에 넣었거나 잠금이 잡혀 있음) 넣지 않는다 — /clear 가 /loop 와 섞여 깨어남을 잃지 않게.
+    # 잠금은 하위 셸에서 잡는다(gw_dir_lock 의 EXIT trap 이 kill_children_on_exit 의 trap 을 덮어쓰지 않게 — 하위 셸이 끝나면 잠금이 풀린다).
+    # 건너뛰어도 아래 idle 기록 처리는 그대로 이어진다.
+    if [ -f "$state/clear-ok-$k" ] && [ -z "$(find "$state/poke-$k" -mmin -1 2>/dev/null)" ] &&
+      (gw_dir_lock "$state/poke-$k.lock" && try_clear "$k"); then
+      printf '%s \n' "$now" > "$mark"
+      continue
+    fi
     # 기록은 「<처음 idle 로 본 시각> <화면 지문>」 한 줄이다.
     since= seen=
     read -r since seen 2>/dev/null < "$mark"
@@ -560,6 +576,54 @@ send_line() {
   "$tmux" send-keys -t "$pane" -l "$1" || return 1
   sleep 0.3
   "$tmux" send-keys -t "$pane" Enter || return 1
+}
+
+# clear_mode — 비우기 스위치(<AI 폴더>/state/clear-mode 한 줄)를 읽어 off·shadow·on 중 하나를 낸다. 파일이 없거나 값이 이상하면 shadow
+# (넣지 않고 로그만 — 안전한 쪽). 판정 때마다 읽으므로 감시 창을 다시 띄우지 않고 바꿀 수 있다.
+clear_mode() {
+  cm=
+  read -r cm 2>/dev/null < "$state/clear-mode"
+  case $cm in off | shadow | on) echo "$cm" ;; *) echo shadow ;; esac
+}
+
+# drop_mark [<기록할 결과>] — try_clear 의 「표시를 지우고 넣지 않음」 끝. 결과가 있으면 「clear <키> <결과>」 한 줄을 남긴다. 부르는 쪽이 이어서 return 한다.
+drop_mark() {
+  rm -f "$tc_mark"
+  [ -z "${1:-}" ] || note clear "$tc_key" "$1"
+}
+
+# try_clear <키> — 쉬는 칸의 대화를 비운다(WP-1714). 이미 pane_state <키> 를 불러 st·pane·shot 이 있는 상태에서 부른다.
+# 종료 0 = /clear 를 넣었다(sent), 1 = 넣지 않았다(그 밖 모두). 일을 놓치지 않는 것이 먼저라 어디든 의심스러우면 넣지 않는다.
+# 순서: 표시 없음 · 스위치 off → 표시 지움 · idle 아님(표시 둠 — 다음 회에 다시 봄) · 표시가 너무 새것(둠) · 사람이 최근에 말함 · shadow · on.
+try_clear() {
+  tc_key=$1
+  tc_mark="$state/clear-ok-$tc_key"
+  [ -f "$tc_mark" ] || return 1
+  tc_mode=$(clear_mode)
+  [ "$tc_mode" != off ] || { drop_mark; return 1; }
+  [ "$st" = idle ] || return 1
+  # 표시를 쓴 지 얼마 안 됐으면 둔다(모델이 표시를 쓴 뒤 마지막 글을 내는 사이에 넣지 않게). 나이를 못 읽으면 믿지 않고 지운다.
+  tc_age=$(gw_stamp_age "$tc_mark") || { drop_mark; return 1; }
+  tc_min=${GW_CLEAR_MIN_AGE_SEC:-20}
+  case "$tc_min" in '' | *[!0-9]*) tc_min=20 ;; esac
+  [ "$tc_age" -ge "$tc_min" ] || return 1
+  # 사람이 그 칸(또는 칸을 못 찾았을 때의 human-all)에 최근 말을 걸었으면 비우지 않는다. 시각을 못 읽는 기록이면 의심스러우니 최근으로 본다.
+  tc_hold=${GW_CLEAR_HUMAN_HOLD_SEC:-7200}
+  case "$tc_hold" in '' | *[!0-9]*) tc_hold=7200 ;; esac
+  for tc_h in "$state/human-$tc_key" "$state/human-all"; do
+    [ -f "$tc_h" ] || continue
+    if ! tc_hage=$(gw_stamp_age "$tc_h") || [ "$tc_hage" -lt "$tc_hold" ]; then
+      drop_mark skipped-human
+      return 1
+    fi
+  done
+  [ "$tc_mode" != shadow ] || { drop_mark would; return 1; }
+  if send_line /clear; then
+    drop_mark sent
+    return 0
+  fi
+  note clear "$tc_key" failed
+  return 1
 }
 
 # 일하는 칸에 안내 한 줄(WP-1459) — do_poke 가 busy 칸에서 poke 한 번에 한 번 부른다($key·$issue·$kind·$pane 을 쓴다). 같은 이슈 키는 GW_NOTICE_SEC(기본 300초)에 한 번.
@@ -618,7 +682,8 @@ do_poke() {
   mkdir -p "$state" || exit 1
   # 같은 키 알림 여럿이 함께 오면 하나만 — 잡지 못하면 다른 쪽이 넣는 중이다.
   # 잡지 못하면 다른 poke 가 넣는 중이거나 쉬기를 기다리는 중이다 — 그쪽이 맡으므로 남기지 않고 끝낸다.
-  gw_dir_lock "$state/poke-$key.lock" || exit 0
+  # sweep 도 /clear 를 넣는 잠깐(1초 안) 이 잠금을 쥔다(WP-1714) — 그 틈에 온 알림을 버리지 않게 3초(0.1초 × 30)까지 다시 잡아 본다.
+  gw_dir_lock "$state/poke-$key.lock" 30 || exit 0
   # 60초 안에 넣었으면 그 /loop 회차가 아직 돌고 있다 — 몰아친 알림마다 넣지 않는다.
   if [ -n "$(find "$stamp" -mmin -1 2>/dev/null)" ]; then
     note poke "$key" debounced
@@ -627,6 +692,7 @@ do_poke() {
   every=${GW_POKE_RETRY_SEC:-15}
   limit=${GW_POKE_RETRY_MAX:-300}
   waited=0
+  cleared_try=0
   # 안내는 이 poke 에서 한 번만(notice_ok) — 키가 있고 이슈 키·종류가 서버 모양일 때만 켠다. 들어가는 글이라 미리 한 번 검사한다.
   notice_ok=0
   if [ "$key" != - ] && gw_valid_issue_key "$issue" && gw_valid_event_kind "$kind"; then
@@ -646,7 +712,29 @@ do_poke() {
       note poke "$key" dead
       exit 0
     fi
-    [ "$st" = idle ] && break
+    if [ "$st" = idle ]; then
+      # 쉬는 칸 — 이 poke 에서 아직 비우기를 안 해 봤으면 /loop 앞에 한 번 시도한다(WP-1714). 이미 해 봤으면 곧장 /loop.
+      [ "$cleared_try" = 1 ] && break
+      cleared_try=1
+      try_clear "$key" || break
+      # 지문은 /clear 를 넣은 때만 잰다 — shot 은 try_clear 앞에 읽은 화면 그대로다.
+      pk_before=$(printf '%s\n' "$shot" | conversation_area | cksum)
+      # /clear 를 넣었다 — 대화 영역 지문이 달라질 때까지(= 화면이 비워질 때까지) 1초씩 GW_CLEAR_WAIT_SEC 까지 기다린다.
+      # 안 바뀌어도(칸이 /clear 를 안 먹었어도) 포기하지 않고 고리 처음으로 돌아가 다시 읽는다 — 그때 idle 이면 /loop 를 넣는다(깨어남을 잃지 않는다).
+      pk_wait=${GW_CLEAR_WAIT_SEC:-15}
+      case "$pk_wait" in '' | *[!0-9]*) pk_wait=15 ;; esac
+      pk_i=0
+      while [ "$pk_i" -lt "$pk_wait" ]; do
+        sleep 1
+        pk_i=$((pk_i + 1))
+        pane_state "$key" || break
+        [ "$(printf '%s\n' "$shot" | conversation_area | cksum)" != "$pk_before" ] && break
+      done
+      # 화면이 바뀐 뒤 /clear 가 가라앉도록 1초 더 쉬고, 기다린 시간(위 반복 + 이 1초)을 전체 기다림에 보탠다.
+      sleep 1
+      waited=$((waited + pk_i + 1))
+      continue
+    fi
     # 일하는 칸 — 이슈 키·종류가 있으면 기다리지 않고 안내 한 줄을 먼저 넣는다(WP-1459). busy 는 입력 상자가 빈 때뿐이라(친 글자는 typing) 글자가 섞이지 않는다.
     # 안내는 이 poke 에서 한 번만 하고(notice_ok 를 끈다) 끝내지 않는다 — 칸의 /loop 일정이 끊겼을 수 있어(11-09 사고) 안내만으로는 회차가 다시 돌지 않는다.
     # 그래서 아래 기다림을 이어 가 쉬게 되면 /loop 를 넣는다. 직전 /loop 60초 안에는 위의 디바운스가 먼저 끝내므로 안내도 가지 않는다.

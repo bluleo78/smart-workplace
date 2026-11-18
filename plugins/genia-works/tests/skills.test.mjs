@@ -1157,3 +1157,16 @@ test('process-issue.md: 안내 자료 요청 넘기기는 한 번뿐이고 받�
   assert.ok(line.includes('사람 담당자(없으면 작성자)를 `@username` 으로 멘션'));
   assert.ok(line.includes('`INPUT_REQUIRED`'));
 });
+
+// WP-1714 — 비우기 표시는 다음 확인을 잡은 뒤에만, 끝나지 않은 백그라운드 작업이 없을 때만 남긴다. 비운 뒤 이어 하기 놓침은 miss 로 남긴다.
+test('work-loop SKILL.md 는 다음 확인을 잡은 뒤에 gw-clear-mark set 을 부르고, 끝나지 않은 백그라운드 작업이 있으면 부르지 않는다 (WP-1714)', () => {
+  const text = body(workLoop('SKILL.md'));
+  assertBefore(text, '`ScheduleWakeup`', 'gw-clear-mark" set');
+  assert.match(text, /gw-clear-mark" set <프로젝트 키> <(idle\|timeout\|error|끝난 까닭)>/);
+  assert.match(text, /run_in_background/);
+  assert.match(text, /Monitor/);
+  assert.match(text, /gw-clear-mark" miss <프로젝트 키> <이슈 키>/);
+  assert.match(text, /bg-job/);
+  assert.match(text, /DRAIN/);
+  assert.match(text, /기다리는 중/);
+});
