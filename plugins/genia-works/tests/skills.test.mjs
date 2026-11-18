@@ -442,7 +442,7 @@ test('SKILL.md·process-issue.md: PR·MR 명령은 gw-repo 로만 — gh·glab �
     assert.ok(!/`glab /.test(text), 'glab 을 직접 부르는 문구가 남아 있다');
   }
   assert.ok(workLoop('SKILL.md').includes('scripts/gw-repo"'));
-  assert.ok(pi.includes('`gw-repo pr-merge <번호> --sha <리뷰한 HEAD>'));
+  assert.ok(pi.includes('`gw-repo pr-merge <번호> --sha <승인한 HEAD>'));
 });
 
 test('process-issue.md: 남이 만든 PR 이면 1번보다 먼저 검토자 절로 간다', () => {
@@ -1311,6 +1311,13 @@ test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 
     'PR HEAD 가 줄에 적힌 HEAD 와 다르면(새 커밋이 올라옴) 지금 시각·HEAD 로 새로 적는다',
     '`git merge-tree --write-tree origin/main origin/<headRefName>`',
     '늘 notes 에 `승인한 HEAD <sha>` 를 적은 뒤',
+    // 4회차 리뷰 — 반려하면 승인한 HEAD 를 지우고, 건너뛰는 머지도 승인한 HEAD 로, 다시 부탁 정의는 한 곳
+    'notes 의 `승인한 HEAD` 줄을 지운 뒤 끝낸다',
+    '바로 `pr-merge` 한다(`--sha <승인한 HEAD>`',
+    '`--sha <승인한 HEAD>` 로 머지한다',
+    '「머지 순서」의 정의 그대로 — main 쪽이 바뀌어 막힘이 사라진 예외까지',
+    '새로 적는 때는 아래 「막힘 확인」 한 곳을 따른다',
+    '그 커밋이 PR 의 `headRefOid` 와 다르면 이 예외를 쓰지 않는다',
     '리뷰 부탁을 처음 받았거나 내가 그 이슈 담당으로 지정됐을 때',
     '**다시 부탁**(위 「머지 순서」)을 받아 받기를 할 때만 지운다',
     'HEAD 가 그대로인 글은 다시 부탁이 아니다',
@@ -1334,7 +1341,8 @@ test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 
     assert.ok(wait.includes(anchor), anchor);
   }
   // 6번은 순서 대기로 이미 올린 글을 다시 올리지 않고 바로 머지
-  assert.ok(merge.includes('바로 `pr-merge` 한다. 그렇지 않으면 먼저'));
+  assert.ok(merge.includes('바로 `pr-merge` 한다(`--sha <승인한 HEAD>`'));
+  assert.ok(merge.includes('승인한 커밋을 머지한다). 그렇지 않으면 먼저'));
   // 줄 확인 — 맨 앞 정하기·막힘 확인·다음 후보 고르기
   for (const anchor of [
     '`main 반영 요청 <KST 시각>` 줄이 있으면',
