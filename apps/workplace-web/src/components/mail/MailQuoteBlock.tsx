@@ -7,16 +7,24 @@
 //
 // 원문은 신뢰 불가 HTML 이므로 공용 격리 iframe(SandboxedHtmlFrame — sandbox="" + srcDoc)으로만
 // 렌더한다. dangerouslySetInnerHTML 금지.
+//
+// 지난 원문 접기(WP-1747): 여러 번 오간 메일은 원문 블록에 지난 원문까지 길게 보여 바로 앞 원문을 찾기 어렵다.
+// 바로 앞 원문만 보이고 지난 원문은 「⋯ 이전 원문 n통」 단추로 펼친다. 보낼 때는 자르기 전 원문 전체
+// (draft.quote.html) 가 그대로 간다 — 이 블록은 표시만 한다.
 
 import { ChevronRight, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 
 import { SandboxedHtmlFrame } from '@/components/SandboxedHtmlFrame';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useInlineMailHtml } from '@/hooks/queries/useMailMessages';
 import type { QuoteInlineImage } from '@/lib/mailInlineImages';
+import { splitOlderQuotes } from '@/lib/mailQuoteSplit';
 import { cn } from '@/lib/utils';
+
+/** 원문 iframe 공통 모양 — 높이만 바로 앞 원문·지난 원문이 다르다. */
+const FRAME_CLASS = 'w-full rounded-md border-0 bg-white';
 
 interface MailQuoteBlockProps {
   /** 인용문 raw HTML(언랩 완료). */
@@ -47,13 +55,29 @@ export function MailQuoteBlock({
 }: MailQuoteBlockProps) {
   // 미리보기 전용 치환 — 발송 본문은 cid: 를 유지하고 서버가 원본 첨부를 인라인 파트로 다시 붙인다.
   const attachments = useMemo(() => inlineImages.map((i) => i.attachment), [inlineImages]);
-  const { html: previewHtml } = useInlineMailHtml(quoteHtml, attachments);
+  // 원본(raw) 원문을 바로 앞 원문·지난 원문으로 먼저 자른다. null 이면 지난 원문이 없어 전체를 그대로 보인다.
+  // 치환본(data URI 가 박힌 큰 HTML)을 자르면 이미지가 올 때마다 큰 문자열을 다시 파싱하므로, 자르기는 원문이 바뀔 때만 한다.
+  const split = useMemo(() => splitOlderQuotes(quoteHtml), [quoteHtml]);
+  // 지난 원문 펼침 — 기본은 접힘. 펼칠 때만 두 번째 iframe 을 마운트해 긴 스레드의 렌더 비용을 아낀다.
+  // 어느 원문에 대해 펼쳤는지를 들고 있어, 원문이 바뀌면(다른 메일에 답장 등) 저절로 접힘으로 돌아간다.
+  const [olderOpenFor, setOlderOpenFor] = useState<string | null>(null);
+  const olderOpen = split !== null && olderOpenFor === quoteHtml;
+  // 첫 iframe 에 그릴 원문 — 자른 경우 바로 앞 원문, 아니면 전체.
+  const recentHtml = split?.recent ?? quoteHtml;
+  // 미리보기 cid 치환은 조각마다 한다. 지난 원문은 펼쳤을 때만 치환·이미지 받기를 한다(접힌 채로는 보이지 않으므로).
+  const { html: recentPreview } = useInlineMailHtml(recentHtml, attachments);
+  const { html: olderPreview } = useInlineMailHtml(olderOpen ? split.older : null, attachments);
   // 펼친 원문 높이 2단계. 표가 든 원문은 기본 높이에서 거의 보이지 않는다.
   const [tall, setTall] = useState(false);
   // details 의 open 은 React 가 재조정하는 속성이다. open={true} 처럼 고정값으로 두면 사용자가
   // native 토글로 접은 뒤 tall 변경으로 리렌더될 때 React 가 open 을 되돌린다. 상태로 들고 onToggle 로 동기화한다.
   // 처음 값은 답장·전달 모두 펼침(WP-1746 — 이전엔 답장은 접힘).
   const [open, setOpen] = useState(true);
+  const frameHeight = tall ? 'h-64' : 'h-40';
+  // 지난 원문은 여러 통이 이어져 길다 — 바로 앞 원문보다 한 단계 높게 보인다.
+  const olderFrameHeight = tall ? 'h-96' : 'h-64';
+  // 지난 원문 단추가 여닫는 영역 — aria-controls 로 이어 보조 기술이 무엇을 펼치는지 알게 한다.
+  const olderRegionId = useId();
 
   return (
     <details
@@ -115,9 +139,34 @@ export function MailQuoteBlock({
         <SandboxedHtmlFrame
           data-testid="mail-compose-quote-frame"
           title="인용된 원문"
-          html={previewHtml ?? quoteHtml}
-          className={cn('w-full rounded-md border-0 bg-white', tall ? 'h-64' : 'h-40')}
+          html={recentPreview ?? recentHtml}
+          className={cn(FRAME_CLASS, frameHeight)}
         />
+        {split && (
+          <>
+            <Button
+              type="button"
+              variant="link"
+              size="xs"
+              aria-expanded={olderOpen}
+              aria-controls={olderRegionId}
+              data-testid="mail-compose-quote-older-toggle"
+              onClick={() => setOlderOpenFor(olderOpen ? null : quoteHtml)}
+            >
+              {olderOpen ? '⋯ 이전 원문 접기' : `⋯ 이전 원문 ${split.count}통`}
+            </Button>
+            {olderOpen && (
+              <div id={olderRegionId}>
+                <SandboxedHtmlFrame
+                  data-testid="mail-compose-quote-older-frame"
+                  title="이전 원문"
+                  html={olderPreview ?? split.older}
+                  className={cn(FRAME_CLASS, olderFrameHeight)}
+                />
+              </div>
+            )}
+          </>
+        )}
       </div>
       <div className="flex items-center gap-2 pt-1">
         <p className="text-xs text-muted-foreground">

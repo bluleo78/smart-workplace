@@ -430,6 +430,80 @@ test('인용문 있는 전달에서 형제 컴포넌트 key 중복 경고가 나
   expect(dup).toEqual([])
 })
 
+// ── 지난 원문 접기(WP-1747) ─────────────────────────────────────────────
+// 스레드가 길어진 원문은 바로 앞 원문만 보이고, 지난 원문은 단추로 펼친다. 보낼 때는 원문 전체가 그대로 간다.
+
+/** Gmail 이 만든 3통짜리 스레드 원문 — 단계마다 div.gmail_quote(머리 gmail_attr) 안에 blockquote.gmail_quote. */
+const GMAIL_THREAD_BODY = [
+  '<div dir="ltr">세 번째 답장 — 일정 확정했습니다.</div><br>',
+  '<div class="gmail_quote gmail_quote_container">',
+  '<div dir="ltr" class="gmail_attr">2026년 11월 17일 (화) 오후 3:00, Bob &lt;bob@test.local&gt;님이 작성:<br></div>',
+  '<blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">',
+  '<div dir="ltr">두 번째 메일 — 목요일 어떠세요?</div><br>',
+  '<div class="gmail_quote gmail_quote_container">',
+  '<div dir="ltr" class="gmail_attr">2026년 11월 16일 (월) 오전 10:00, Alice &lt;alice@test.local&gt;님이 작성:<br></div>',
+  '<blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">',
+  '<div dir="ltr">첫 번째 메일 — 회의 일정 잡아 주세요.</div>',
+  '</blockquote></div></blockquote></div>',
+].join('')
+
+async function openThreadMail(extra: NonNullable<Parameters<typeof renderMail>[1]>['handlers'] = []) {
+  const view = withSource({ subject: 'Re: Re: 회의 일정', fromName: '홍길동', fromAddress: 'gildong@test.local', bodyHtml: GMAIL_THREAD_BODY, bodyText: null }, extra)
+  await openSource(view)
+  return view
+}
+const olderToggle = () => screen.getByTestId('mail-compose-quote-older-toggle')
+
+test('지난 원문이 든 메일에 답장하면 바로 앞 원문만 보이고 「⋯ 이전 원문 2통」 단추는 접혀 있다', async () => {
+  const { user } = await openThreadMail()
+  await user.click(screen.getByTestId('mail-reply'))
+  await screen.findByTestId('mail-compose-quote-frame')
+  expect(olderToggle()).toHaveTextContent('⋯ 이전 원문 2통')
+  expect(olderToggle()).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByTestId('mail-compose-quote-older-frame')).not.toBeInTheDocument()
+  const recent = screen.getByTestId('mail-compose-quote-frame').getAttribute('srcdoc')!
+  expect(recent).toContain('세 번째 답장')
+  expect(recent).toContain('<b>보낸 사람:</b> 홍길동')
+  expect(recent).not.toContain('두 번째 메일')
+  expect(recent).not.toContain('첫 번째 메일')
+})
+
+test('「⋯ 이전 원문」 단추를 누르면 지난 원문 프레임이 펼쳐지고, 다시 누르면 사라진다', async () => {
+  const { user } = await openThreadMail()
+  await user.click(screen.getByTestId('mail-reply'))
+  await screen.findByTestId('mail-compose-quote-frame')
+  await user.click(olderToggle())
+  const older = await screen.findByTestId('mail-compose-quote-older-frame')
+  expect(olderToggle()).toHaveAttribute('aria-expanded', 'true')
+  expect(olderToggle()).toHaveTextContent('⋯ 이전 원문 접기')
+  expect(older.getAttribute('srcdoc')).toContain('두 번째 메일')
+  expect(older.getAttribute('srcdoc')).toContain('첫 번째 메일')
+  await user.click(olderToggle())
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-quote-older-frame')).not.toBeInTheDocument())
+  expect(olderToggle()).toHaveAttribute('aria-expanded', 'false')
+  expect(olderToggle()).toHaveTextContent('⋯ 이전 원문 2통')
+})
+
+test('지난 원문을 접어 둔 채 보내도 발송 본문에는 원문 전체(셋째 메일까지)가 실린다', async () => {
+  const send = sendHandler()
+  const { user } = await openThreadMail([send.handler])
+  await user.click(screen.getByTestId('mail-reply'))
+  await screen.findByTestId('mail-compose-quote-older-toggle')
+  await user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  const html = send.last().body.bodyHtml
+  expect(html).toContain('세 번째 답장')
+  expect(html).toContain('두 번째 메일')
+  expect(html).toContain('첫 번째 메일 — 회의 일정 잡아 주세요.')
+})
+
+test('지난 원문이 없는 메일에 답장하면 「⋯ 이전 원문」 단추가 없고 원문 프레임은 그대로 있다', async () => {
+  const { user } = await openQuoteMail()
+  await user.click(screen.getByTestId('mail-reply'))
+  expect(await screen.findByTestId('mail-compose-quote-frame')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-compose-quote-older-toggle')).not.toBeInTheDocument()
+})
+
 // 참조·숨은참조 입력은 같은 Fragment 아래 형제라 key 가 서로 달라야 한다(WP-1594). 둘 다 작성 회차(instanceId)만 key 로 쓰면
 // React 가 중복 key 경고를 내고 한쪽을 잘못 재사용·누락할 수 있다. 회차가 바뀌면 다시 그려 쓰던 조각을 버리는 의도(WP-945)도 함께 본다.
 test('참조/숨은참조를 펼쳐도 형제 key 중복 경고가 없고 칸이 하나씩 보이며, 새 작성에서는 쓰던 조각이 비워진다(WP-1594)', async () => {
