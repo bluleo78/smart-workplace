@@ -1,7 +1,9 @@
 // 일정의 「회의록」 줄(WP-1701) — 일정 창(편집 폼)·상세 보기가 함께 쓴다.
 // 연결이 없으면 「노트 연결」 단추, 있으면 카드(제목·공간 · 고친 사람 · 고친 때, 「열기」, X). 볼 수 없는 노트는 「볼 수 없는 노트」만.
 // 읽기만 하는 사람(editable=false)은 카드만 보고, 연결이 없으면 줄째 숨긴다. X 는 연결만 풀고 노트는 지우지 않는다.
-import { NotebookText, X } from 'lucide-react'
+// 「회의록 만들기」(WP-1702)는 onCreate 를 넘긴 곳(일정 창)에서만 「노트 연결」 앞에 그린다. 새 일정에서 만들기로 정해 둔 회의록은
+// 「저장하면 만듦」 카드로 보인다.
+import { Link2, NotebookText, Plus, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -18,11 +20,13 @@ interface EventNoteRowProps {
   note: EventNoteRef | null | undefined
   /** 새 일정에서 저장 전 고른 노트 — 카드에 「저장하면 연결」을 단다 */
   pending?: WikiSearchResult | null
+  /** 새 일정에서 저장 전 만들기로 정해 둔 회의록 — 제목과 `공간 › 상위` 를 받아 카드에 「저장하면 만듦」을 단다(WP-1702) */
+  pendingCreate?: { title: string; locationLabel: string } | null
   /** 잇고 끊을 수 있는 사람 */
   editable: boolean
   onPick?: () => void
   onUnlink?: () => void
-  /** 「회의록 만들기」 — 넘기지 않으면 그리지 않는다(WP-1702 가 넘긴다) */
+  /** 「회의록 만들기」 — 넘기지 않으면 그리지 않는다(일정 창만 넘긴다, WP-1702) */
   onCreate?: () => void
 }
 
@@ -67,11 +71,15 @@ function NoteCard({
   )
 }
 
-export function EventNoteRow({ note, pending, editable, onPick, onUnlink, onCreate }: EventNoteRowProps) {
+export function EventNoteRow({ note, pending, pendingCreate, editable, onPick, onUnlink, onCreate }: EventNoteRowProps) {
   // 읽기만 하는 사람에겐 X 를 주지 않는다(WP-1701)
   const unlink = editable ? onUnlink : undefined
   let content: ReactNode
-  if (pending) {
+  if (pendingCreate) {
+    content = (
+      <NoteCard title={pendingCreate.title} meta={pendingCreate.locationLabel} badge="저장하면 만듦" onUnlink={unlink} />
+    )
+  } else if (pending) {
     content = (
       <NoteCard
         title={pending.title}
@@ -93,15 +101,18 @@ export function EventNoteRow({ note, pending, editable, onPick, onUnlink, onCrea
     )
   } else if (editable) {
     content = (
+      // 시안 순서 — 「＋ 회의록 만들기」 다음 「노트 연결」(WP-1702)
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" data-testid="event-note-pick" onClick={onPick}>
-          노트 연결
-        </Button>
         {onCreate && (
           <Button type="button" variant="outline" size="sm" data-testid="event-note-create" onClick={onCreate}>
+            <Plus aria-hidden="true" />
             회의록 만들기
           </Button>
         )}
+        <Button type="button" variant="outline" size="sm" data-testid="event-note-pick" onClick={onPick}>
+          <Link2 aria-hidden="true" />
+          노트 연결
+        </Button>
       </div>
     )
   } else {

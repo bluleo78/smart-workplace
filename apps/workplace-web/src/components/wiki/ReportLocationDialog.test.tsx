@@ -2,13 +2,13 @@
 // 검색, 「새 페이지」 입력 줄(Enter·Esc·IME·빈 제목·실패), 트리 403 안내를 MSW 로 본다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import type { ComponentProps } from 'react'
+import { type ComponentProps, useState } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
 import type { WikiPageSummary } from '@/types/wiki'
 
-import { wikiPageDetail, wikiPageSummary } from '../../../e2e/factories/wiki.factory'
+import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../../e2e/factories/wiki.factory'
 import { ReportLocationDialog } from './ReportLocationDialog'
 
 const SPACE = 7
@@ -318,6 +318,101 @@ describe('ReportLocationDialog', () => {
       })
       expect(await screen.findByText('고를 페이지가 없으면 다음 보고 때 「보고」를 만들어요.')).toBeInTheDocument()
       expect(screen.queryByText(/다음 리포트 때/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('allowRoot·spaces·saveLabel (회의록 위치, WP-1702)', () => {
+    const OTHER = 8
+    const spaces = [
+      wikiSpace({ id: SPACE, type: 'PERSONAL', name: '내 노트', role: 'OWNER' }),
+      wikiSpace({ id: OTHER, type: 'TEAM', name: '기획팀 공간', role: 'EDITOR' }),
+    ]
+
+    /** 부모처럼 공간 id 를 들고 있다가 onSpaceChange 로 바꾼다 — 회의록 창이 쓰는 모양. */
+    function Harness({ onSave, currentPageId }: { onSave: (id: number | null) => void; currentPageId: number | null }) {
+      const [spaceId, setSpaceId] = useState(SPACE)
+      return (
+        <ReportLocationDialog
+          open
+          spaceId={spaceId}
+          spaces={spaces}
+          onSpaceChange={setSpaceId}
+          allowRoot
+          currentPageId={currentPageId}
+          blockedRootIds={[]}
+          title="회의록 위치"
+          description="새 회의록을 고른 자리 아래에 만들어요."
+          saveLabel="고르기"
+          onClose={() => {}}
+          onSave={onSave}
+        />
+      )
+    }
+
+    function openHarness(currentPageId: number | null = null) {
+      const onSave = vi.fn()
+      const view = renderScreen(<Harness onSave={onSave} currentPageId={currentPageId} />, {
+        handlers: [
+          http.get(API, () => HttpResponse.json(tree())),
+          http.get(`/api/v1/wiki/spaces/${OTHER}/pages`, () =>
+            HttpResponse.json([p(70, null, '회의록 모음', 0), p(71, 70, '2026 회의', 0)]),
+          ),
+        ],
+      })
+      return { ...view, onSave }
+    }
+
+    test('지금 위치가 최상위면 「최상위」가 골라진 채 열리고 「고르기」로 onSave(null)', async () => {
+      const { user, onSave } = openHarness(null)
+      await screen.findByRole('option', { name: /회의록/ })
+      expect(screen.getByRole('dialog', { name: '회의록 위치' })).toBeInTheDocument()
+      expect(option('최상위')).toHaveAttribute('aria-selected', 'true')
+      const pick = screen.getByRole('button', { name: '고르기' })
+      expect(pick).toBeEnabled()
+      expect(screen.queryByRole('button', { name: '저장' })).not.toBeInTheDocument()
+      // 같은 공간·같은 자리여도 allowRoot 창은 고른 값을 돌려준다(부르는 쪽이 「고른 자리」로 표시)
+      await user.click(pick)
+      expect(onSave).toHaveBeenCalledWith(null)
+    })
+
+    test('페이지에서 「최상위」로 바꿔 고르면 onSave(null)', async () => {
+      const { user, onSave } = openHarness(30)
+      await screen.findByRole('option', { name: /회의록/ })
+      expect(option(/^회의록/)).toHaveAttribute('aria-selected', 'true')
+      await user.click(option('최상위'))
+      await user.click(screen.getByRole('button', { name: '고르기' }))
+      expect(onSave).toHaveBeenCalledWith(null)
+    })
+
+    test('공간 고르기로 다른 공간 트리를 받아 그 페이지를 고른다 — 고른 자리는 비워진다', async () => {
+      const { user, onSave } = openHarness(30)
+      await screen.findByRole('option', { name: /^회의록/ })
+      const combo = screen.getByRole('combobox', { name: '공간' })
+      expect(combo).toHaveTextContent('내 노트')
+      fireEvent.keyDown(combo, { key: 'Enter' })
+      await user.click(await screen.findByRole('option', { name: '기획팀 공간' }))
+      expect(await screen.findByRole('option', { name: /회의록 모음/ })).toBeInTheDocument()
+      expect(screen.getByRole('combobox', { name: '공간' })).toHaveTextContent('기획팀 공간')
+      // 다른 공간이라 앞 공간의 「지금 위치」(30)는 없다 — 최상위가 골라져 있다
+      expect(option('최상위')).toHaveAttribute('aria-selected', 'true')
+      await user.click(option(/2026 회의/))
+      await user.click(screen.getByRole('button', { name: '고르기' }))
+      expect(onSave).toHaveBeenCalledWith(71)
+    })
+
+    test('hideAiReports={false} 면 AI 리포트 갈래도 고를 수 있다 — 기본은 뺀다', async () => {
+      open({ dialogProps: { hideAiReports: false } })
+      await screen.findByRole('option', { name: /회의록/ })
+      const names = within(list())
+        .getAllByRole('option')
+        .map((o) => o.textContent)
+      expect(names).toEqual(['최상위', '리포트지금 위치', '11월 2주차', '회의록', '주간 보고', 'AI 정리', 'AI 하위'])
+    })
+
+    test('spaces 를 넘기지 않으면 공간 고르기가 없다(리포트 창 그대로)', async () => {
+      open()
+      await screen.findByRole('option', { name: /회의록/ })
+      expect(screen.queryByRole('combobox', { name: '공간' })).not.toBeInTheDocument()
     })
   })
 })
