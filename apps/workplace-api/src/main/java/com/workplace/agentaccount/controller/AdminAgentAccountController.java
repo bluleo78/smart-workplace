@@ -70,7 +70,9 @@ public class AdminAgentAccountController {
     return service.update((Long) auth.getPrincipal(), id, req);
   }
 
-  /** 폐기(204) — 쓰는 AI 가 있으면 409. */
+  /**
+   * 폐기(204) — 쓰는 AI 가 있으면 409. 새 자격 증명을 만들지 않아 PAT 로도 된다({@link RequireWebSession} 대상 아님, WP-1718).
+   */
   @DeleteMapping("/{id}")
   @RequirePermission("user:write")
   public ResponseEntity<Void> revoke(Authentication auth, @PathVariable long id) {

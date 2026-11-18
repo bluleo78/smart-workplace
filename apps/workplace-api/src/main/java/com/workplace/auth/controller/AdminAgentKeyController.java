@@ -49,7 +49,7 @@ public class AdminAgentKeyController {
     return ResponseEntity.ok(service.issue(callerId, userId, req));
   }
 
-  /** 키 회수. */
+  /** 키 회수. 접근을 줄일 뿐이라 PAT 로도 된다({@link RequireWebSession} 대상 아님, WP-1718). */
   @DeleteMapping("/{keyId}")
   @RequirePermission("user:write")
   public ResponseEntity<Void> revoke(

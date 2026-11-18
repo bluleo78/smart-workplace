@@ -75,7 +75,7 @@ public class AdminAgentLocationController {
     return ResponseEntity.ok(service.rotateToken((Long) auth.getPrincipal(), id));
   }
 
-  /** 위치 삭제 — 기본 위치는 409. */
+  /** 위치 삭제 — 기본 위치는 409. PAT 로도 된다({@link RequireWebSession} 대상 아님, WP-1718). */
   @DeleteMapping("/{id}")
   @RequirePermission("user:write")
   public ResponseEntity<Void> delete(Authentication auth, @PathVariable long id) {
