@@ -3,7 +3,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync, utimesSync, rmSync, realpathSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync, utimesSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1586,6 +1586,93 @@ test('gw-status: 보고가 실패해도(서버 오류·닿지 못함·이상한 
   }
   const noKey = await runAsync('gw-status', ['IDLE'], { GENIA_AGENT_GENERATION: '7', GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
   assert.deepEqual([noKey.status, noKey.stdout], [0, 'RUN\n']);
+});
+
+// ---------------------------------------------------------------- 플러그인 버전 헤더 (WP-1707)
+
+/** 이 플러그인의 버전 — 서버가 「업데이트 필요」를 판정할 값(plugin.json 의 version). */
+const pluginVersion = JSON.parse(readFileSync(join(here, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version;
+
+test('gw_curl_auth: AI 키 요청에 X-Genia-Plugin-Version(plugin.json 의 version)을 싣는다 (WP-1707)', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '{"desired":"RUN"}' });
+  try {
+    const r = await runAsync('gw-status', ['IDLE'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' });
+    assert.equal(r.stdout, 'RUN\n');
+    assert.match(pluginVersion, /^[0-9]+(\.[0-9]+)*$/);
+    assert.equal(srv.reqs[0].headers['x-genia-plugin-version'], pluginVersion);
+  } finally {
+    srv.close();
+  }
+});
+
+/** 스크립트 폴더만 임시 플러그인 폴더로 복사하고 plugin.json 을 manifest 내용으로 둔다(null 이면 두지 않는다) — 버전을 못 읽는 경우를 만든다. */
+function copiedPlugin(manifest) {
+  const root = mkdtempSync(join(tmpdir(), 'gw-plugin-'));
+  cpSync(scripts, join(root, 'scripts'), { recursive: true });
+  if (manifest !== null) {
+    mkdirSync(join(root, '.claude-plugin'));
+    writeFileSync(join(root, '.claude-plugin', 'plugin.json'), manifest);
+  }
+  return join(root, 'scripts');
+}
+
+for (const [name, manifest] of [
+  ['plugin.json 이 없으면', null],
+  ['version 이 없으면', '{ "name": "genia-works" }\n'],
+  ['version 이 점·숫자가 아니면(주입 시도)', '{ "version": "0.1.53\\"\\nheader = X: y" }\n'],
+  ['version 이 32자를 넘으면', `{ "version": "${'1.'.repeat(20)}1" }\n`],
+  // 점·숫자만이어도 점으로 나눈 숫자 모양이 아니면 서버(API·릴리스 검사)가 버리므로 보내지 않는다.
+  ['version 이 「1..2」면', '{ "version": "1..2" }\n'],
+  ['version 이 「.1」이면', '{ "version": ".1" }\n'],
+  ['version 이 「1.」이면', '{ "version": "1." }\n'],
+]) {
+  test(`gw_curl_auth: ${name} 버전 헤더만 빼고 요청은 그대로 보낸다 (WP-1707)`, async () => {
+    run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+    const dir = copiedPlugin(manifest);
+    const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });
+    try {
+      const p = spawn(join(dir, 'gw-status'), ['IDLE'], {
+        env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' },
+      });
+      let stdout = '';
+      p.stdout.on('data', (d) => (stdout += d));
+      await new Promise((r) => p.on('close', r));
+      assert.equal(stdout, 'DRAIN\n');
+      assert.equal(srv.reqs.length, 1);
+      assert.equal(srv.reqs[0].headers.authorization, 'Bearer ak_FAKE_DEV');
+      assert.equal(srv.reqs[0].headers['x-genia-plugin-version'], undefined);
+      assert.equal(srv.reqs[0].headers.x, undefined);
+    } finally {
+      srv.close();
+    }
+  });
+}
+
+/** 플러그인 밖에서 gw-lib.sh 를 source 하고 gw_plugin_version 을 부른다 — $0 은 셸 이름(sh·bash)이라 scripts/ 가 아니다. */
+function sourcedPluginVersion(shell, env = {}) {
+  const outside = mkdtempSync(join(tmpdir(), 'gw-outside-'));
+  return spawnSync(shell, ['-c', '. "$1" && cd / && gw_plugin_version', shell, join(scripts, 'gw-lib.sh')], {
+    cwd: outside,
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, HOME: home, ...env },
+  });
+}
+
+test('gw_plugin_version: 플러그인 밖에서 source 해도 GW_SCRIPTS 로 gw-lib.sh 자신의 plugin.json 을 읽는다 (WP-1707)', () => {
+  // 작업 공간 lib.sh·lib-codex.sh 처럼 GW_SCRIPTS 를 정하고 source 하는 경우(sh = dash 라 BASH_SOURCE 가 없다).
+  const r = sourcedPluginVersion('sh', { GW_SCRIPTS: scripts });
+  assert.deepEqual([r.status, r.stdout], [0, `${pluginVersion}\n`]);
+});
+
+test('gw_plugin_version: bash 로 source 하면 GW_SCRIPTS 없이도 BASH_SOURCE 로 찾는다 (WP-1707)', () => {
+  const r = sourcedPluginVersion('bash');
+  assert.deepEqual([r.status, r.stdout], [0, `${pluginVersion}\n`]);
+});
+
+test('gw_plugin_version: sh 로 source 하고 위치를 알 길이 없으면 아무것도 내지 않는다(헤더 없음) (WP-1707)', () => {
+  const r = sourcedPluginVersion('sh');
+  assert.deepEqual([r.status, r.stdout], [1, '']);
 });
 
 // ---------------------------------------------------------------- gw-models — 로그인 계정 모델 목록 보고 (WP-1297)

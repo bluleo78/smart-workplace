@@ -1,6 +1,7 @@
 // 에이전트 상세 「상태」 섹션(WP-1281) — 이 AI 를 쓸 수 있는지(「사용」 스위치)와 지금 무엇을 하는지.
 // 말 구분: 워크스페이스에서 쓸 수 있는지는 「사용 / 사용 중지」, Works 가 띄운 AI 를 돌리는 것은 「시작 / 종료 / 재시작」(WP-1513 일반 용어).
-// Works 가 실행하는 AI 는 「실행」 묶음(상태 알약·이슈·경과·실행 환경·CPU/메모리·쉴 때 적용·실행 전 확인), 외부 AI 는 마지막 접속만 보인다.
+// Works 가 실행하는 AI 는 「실행」 묶음(상태 알약·이슈·경과·실행 환경·CPU/메모리·쉴 때 적용·실행 전 확인), 외부 AI 는 마지막 접속과
+// 보고한 플러그인 버전(옛 버전이면 「업데이트 필요」, WP-1707)을 보인다.
 // 도움말 문맥(WP-1507): 섹션·스위치·묶음·확인 창에 매뉴얼 15장 agent.status 층의 data-help 를 글자 그대로 단다.
 
 import { Check, Info, Minus, MonitorPlay, X } from 'lucide-react';
@@ -18,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Switch } from '@/components/ui/switch';
@@ -30,7 +32,7 @@ import {
   useSetAgentAcceptNewWork,
 } from '../../../../hooks/queries/useAgentRuntime';
 import { accountLabel } from '../../../../lib/agentAccount';
-import { externalKeyStatusText } from '../../../../lib/agentRuntime';
+import { externalKeyStatusText, pluginUpdateInfo } from '../../../../lib/agentRuntime';
 import {
   currentIssueKeys,
   formatCpu,
@@ -79,12 +81,35 @@ export function AgentStatusSection({ agent, worksRun }: Props) {
       <UseToggle agent={agent} running={worksRun?.saved?.desired === 'RUN'} />
       {agent.runMode === 'WORKSPACE' && worksRun && <RunGroup agent={agent} run={worksRun} />}
       {agent.runMode === 'EXTERNAL' && (
-        // 목록 「실행」 열과 같은 문구(마지막 접속 5분 전·아직 접속 안 함).
-        <div className="border-t pt-4 text-sm" data-testid="agent-last-access">
-          {externalKeyStatusText(agent.lastKeyUsedAt)}
+        <div className="space-y-1 border-t pt-4 text-sm">
+          {/* 목록 「실행」 열과 같은 문구(마지막 접속 5분 전·아직 접속 안 함). */}
+          <div data-testid="agent-last-access">{externalKeyStatusText(agent.lastKeyUsedAt)}</div>
+          <PluginVersionLine agent={agent} />
         </div>
       )}
     </SettingsSection>
+  );
+}
+
+/**
+ * 외부 AI 의 플러그인 버전 한 줄(WP-1707) — 보고가 있을 때만. 옛 버전이면 「플러그인 0.1.49 · 최신 0.1.51 [업데이트 필요]」,
+ * 최신이거나 최신을 모르면(로컬) 「플러그인 0.1.51」만. 판정은 목록과 같은 pluginUpdateInfo 한 곳.
+ */
+function PluginVersionLine({ agent }: { agent: AgentResponse }) {
+  const info = pluginUpdateInfo(agent);
+  if (!info) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground" data-testid="agent-plugin-version">
+      <span>
+        플러그인 {info.reported}
+        {info.updateNeeded && ` · 최신 ${info.latest}`}
+      </span>
+      {info.updateNeeded && (
+        <Badge variant="warning" data-testid="agent-plugin-update-needed">
+          업데이트 필요
+        </Badge>
+      )}
+    </div>
   );
 }
 

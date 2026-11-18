@@ -28,4 +28,10 @@ export interface AgentResponse {
   instructions: string | null;
   // 비회수 키의 마지막 사용 시각(ISO). 한 번도 안 썼으면 null.
   lastKeyUsedAt: string | null;
+  // WP-1707: 외부 AI 의 genia-works 플러그인이 보고한 버전과 그 버전이 처음 보고된 시각(ISO) — 보고가 없으면 null.
+  // 옛 서버 응답에는 칸이 없어 선택값으로 둔다(없으면 보고 없음과 같다).
+  pluginVersion?: string | null;
+  pluginVersionAt?: string | null;
+  // 이 릴리스의 플러그인 버전 — 운영 배포가 넣는다. 로컬처럼 모르면 null(판정하지 않는다).
+  latestPluginVersion?: string | null;
 }

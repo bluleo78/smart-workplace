@@ -290,10 +290,29 @@ public class AgentApiKeyRepository {
 
   /** 인증 성공 시 last_used_at 을 now() 로 갱신. 단순 update — async/throttle 미적용. */
   public void touchLastUsed(Long keyId) {
-    dsl.update(AGENT_API_KEY)
-        .set(AGENT_API_KEY.LAST_USED_AT, OffsetDateTime.now())
-        .where(AGENT_API_KEY.ID.eq(keyId))
-        .execute();
+    touchLastUsed(keyId, null);
+  }
+
+  /**
+   * 인증 성공 시 last_used_at 을 now() 로 갱신하고, 플러그인이 버전을 보고했으면(WP-1707) 같은 UPDATE 에서 plugin_version 도 적는다
+   * — 요청마다 문장을 하나 더 보내지 않게. plugin_version_at 은 값이 바뀔 때만 지금으로 옮기고 같으면 그대로 둔다(「언제부터 이 버전인지」).
+   * pluginVersion 이 null(보고 없음·형식 아님)이면 버전 칸은 건드리지 않는다. 값 검사는 호출자({@code
+   * AgentPluginVersionHeader})가 한다.
+   */
+  public void touchLastUsed(Long keyId, String pluginVersion) {
+    OffsetDateTime now = OffsetDateTime.now();
+    var update = dsl.update(AGENT_API_KEY).set(AGENT_API_KEY.LAST_USED_AT, now);
+    if (pluginVersion != null) {
+      // SET 의 오른쪽 칸 참조는 고치기 전 값이라, 시각 판정이 새 버전과 옛 버전을 견준다.
+      update =
+          update
+              .set(
+                  AGENT_API_KEY.PLUGIN_VERSION_AT,
+                  DSL.when(AGENT_API_KEY.PLUGIN_VERSION.isDistinctFrom(pluginVersion), DSL.val(now))
+                      .otherwise(AGENT_API_KEY.PLUGIN_VERSION_AT))
+              .set(AGENT_API_KEY.PLUGIN_VERSION, pluginVersion);
+    }
+    update.where(AGENT_API_KEY.ID.eq(keyId)).execute();
   }
 
   /** 활성 키만 회수 (이미 회수된 키·다른 워크스페이스의 managed 키는 영향 없음). 영향 받은 row 수 반환. */

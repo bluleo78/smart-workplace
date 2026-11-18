@@ -130,7 +130,11 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                               AgentToolContext.set(
                                   AgentToolContext.normalize(
                                       request.getHeader(AgentToolContext.HEADER)));
-                              agentApiKeyRepository.touchLastUsed(key.id());
+                              // WP-1707: 플러그인이 실은 버전을 마지막 접속과 같은 UPDATE 로 적는다(형식이 아니면 버린다).
+                              agentApiKeyRepository.touchLastUsed(
+                                  key.id(),
+                                  AgentPluginVersionHeader.normalize(
+                                      request.getHeader(AgentPluginVersionHeader.HEADER)));
                             }));
       }
       chain.doFilter(request, response);

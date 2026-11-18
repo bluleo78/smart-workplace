@@ -1,6 +1,8 @@
 // 빌드·태그·매니페스트 오케스트레이션 테스트 (WP-440) — git·docker 는 전부 가짜 exec 로 대체한다(실제 실행 없음).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runRelease, findBase, abandonedReleases, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs, assertNotShallow, nulSplit } from '../lib/build.mjs';
 import { REPO, SHA, catalog, deps, NOW, repoOf, fakeDigest, baseManifest, makeExec, buildCalls, createCalls } from './helpers.mjs';
@@ -104,6 +106,61 @@ test('매니페스트 메타: schemaVersion·version·commit·baseVersion·creat
   assert.deepEqual(Object.keys(manifest.images), catalog.images.map((i) => i.id));
   assert.equal(buildCalls(exec).length, 0);
   assert.equal(manifest.images.api.repository, repoOf('api'));
+});
+
+/** 임시 저장소 폴더에 마켓플레이스 파일(marketplace: 문자열 또는 null)과 plugin.json(pluginJson: 문자열 또는 null)을 둔다. */
+function pluginRepo({ marketplace = null, pluginJson = null } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'release-plugin-'));
+  if (marketplace !== null) {
+    mkdirSync(join(root, 'apps/workplace-web/public/claude'), { recursive: true });
+    writeFileSync(join(root, 'apps/workplace-web/public/claude/marketplace.json'), marketplace);
+  }
+  if (pluginJson !== null) {
+    mkdirSync(join(root, 'plugins/genia-works/.claude-plugin'), { recursive: true });
+    writeFileSync(join(root, 'plugins/genia-works/.claude-plugin/plugin.json'), pluginJson);
+  }
+  return root;
+}
+
+/** genia-works 플러그인 하나를 ref 로 가리키는 마켓플레이스 파일 내용. */
+const marketplaceWithRef = (ref) => JSON.stringify({ name: 'genia-works', plugins: [{ name: 'genia-works', source: { source: 'git-subdir', ref } }] });
+
+test('매니페스트 pluginVersion: 그 커밋의 마켓플레이스 ref(genia-works--v<버전>)의 버전을 담는다 (WP-1707)', () => {
+  const ref = JSON.parse(readFileSync(join(REPO, 'apps/workplace-web/public/claude/marketplace.json'), 'utf8')).plugins.find((p) => p.name === 'genia-works').source.ref;
+  const manifest = runRelease(opts(makeExec({ diff: [] })));
+  assert.equal(manifest.pluginVersion, ref.replace(/^genia-works--v/, ''));
+});
+
+test('매니페스트 pluginVersion: plugin.json 이 앞서 있어도 사용자가 설치하는 ref 의 버전을 쓴다 (WP-1707)', () => {
+  const logs = [];
+  const root = pluginRepo({ marketplace: marketplaceWithRef('genia-works--v0.1.52'), pluginJson: '{ "version": "0.1.53" }' });
+  const manifest = runRelease(opts(makeExec({ diff: [] }), { repoRoot: root, log: (m) => logs.push(m) }));
+  assert.equal(manifest.pluginVersion, '0.1.52');
+  assert.equal(logs.some((m) => /경고/.test(m)), false);
+});
+
+for (const [name, marketplace] of [
+  ['마켓플레이스 파일이 없으면', null],
+  ['ref 가 genia-works--v 모양이 아니면', marketplaceWithRef('main')],
+  ['ref 의 버전이 점으로 나눈 숫자가 아니면', marketplaceWithRef('genia-works--v1..2')],
+  ['JSON 이 깨졌으면', '{ not json'],
+]) {
+  test(`매니페스트 pluginVersion: ${name} 경고하고 plugin.json 의 version 으로 물러선다 (WP-1707)`, () => {
+    const logs = [];
+    const root = pluginRepo({ marketplace, pluginJson: '{ "version": "0.1.53" }' });
+    const manifest = runRelease(opts(makeExec({ diff: [] }), { repoRoot: root, log: (m) => logs.push(m) }));
+    assert.equal(manifest.pluginVersion, '0.1.53');
+    assert.ok(logs.some((m) => /marketplace\.json/.test(m) && /plugin\.json/.test(m)));
+  });
+}
+
+test('매니페스트 pluginVersion: ref·plugin.json 둘 다 못 읽거나 형식이 아니면 빼고 경고만 한다 (WP-1707)', () => {
+  const logs = [];
+  const missing = runRelease(opts(makeExec({ diff: [] }), { repoRoot: pluginRepo(), log: (m) => logs.push(m) }));
+  assert.equal('pluginVersion' in missing, false);
+  assert.ok(logs.some((m) => /매니페스트에 넣지 않는다/.test(m)));
+  const bad = pluginRepo({ marketplace: marketplaceWithRef('main'), pluginJson: '{ "version": "latest" }' });
+  assert.equal('pluginVersion' in runRelease(opts(makeExec({ diff: [] }), { repoRoot: bad, log: () => {} })), false);
 });
 
 test('자기 자신의 태그(v0.9.0)는 기준에서 제외되고, git diff 는 <기준>..HEAD', () => {

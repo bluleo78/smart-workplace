@@ -311,5 +311,54 @@ export function runRelease({ repoRoot, version, base, baseManifest = null, rebui
     if (!carried) images[id].buildArgs = byId.get(id).buildArgs ?? {};
     else if (carried.buildArgs !== undefined) images[id].buildArgs = { ...carried.buildArgs };
   }
-  return { schemaVersion: 1, version, commit: gitSha, baseVersion: useBase ? baseTag.slice(1) : null, createdAt: created, images };
+  const manifest = { schemaVersion: 1, version, commit: gitSha, baseVersion: useBase ? baseTag.slice(1) : null, createdAt: created, images };
+  // 이 커밋의 genia-works 플러그인 최신 버전(WP-1707) — 반영 때 API 의 AGENT_PLUGIN_VERSION 이 되어 외부 AI 의 「업데이트 필요」 판정 기준이 된다.
+  // 작업 트리가 깨끗하고 HEAD 가 태그 커밋이라(1번 검사) 지금 파일이 곧 그 커밋의 파일이다. 못 읽으면 빼고 알린다 — 릴리스를 막을 일은 아니다.
+  const pluginVersion = readLatestPluginVersion(repoRoot, log);
+  if (pluginVersion) manifest.pluginVersion = pluginVersion;
+  else log('경고: genia-works 플러그인 버전을 읽지 못해 매니페스트에 넣지 않는다 — 관리 화면의 「업데이트 필요」 판정이 꺼진다');
+  return manifest;
+}
+
+/** 플러그인 버전 모양 — 점으로 나눈 숫자, 32자 이하(API 의 X-Genia-Plugin-Version 검사와 같은 규칙). */
+export const PLUGIN_VERSION_RE = /^(?=.{1,32}$)[0-9]+(\.[0-9]+)*$/;
+
+/** 웹이 내는 마켓플레이스 파일 — 사람들이 실제로 설치하는 플러그인 버전(ref)을 가리킨다. */
+const MARKETPLACE_PATH = 'apps/workplace-web/public/claude/marketplace.json';
+/** 마켓플레이스 ref 모양 `genia-works--v<버전>` — gw-plugin-version 스크립트가 「최신」을 읽는 것과 같은 규칙. */
+const MARKETPLACE_REF_RE = /^genia-works--v(.+)$/;
+
+/**
+ * 「업데이트 필요」의 기준이 될 최신 플러그인 버전 — 사용자가 실제로 설치하는 것은 마켓플레이스 ref 가 가리키는 태그라서
+ * 그 ref(`genia-works--v<버전>`)의 버전을 쓴다(플러그인 쪽 gw-plugin-version 의 「최신」과 같은 출처). plugin.json 만 올리고
+ * ref 를 아직 안 올린 커밋이면 plugin.json 기준으로는 아무도 설치할 수 없는 버전을 요구하게 되기 때문이다.
+ * ref 를 못 읽거나 모양이 틀리면 경고를 남기고 plugin.json 의 version 으로 물러선다. 둘 다 못 읽으면 null.
+ */
+export function readLatestPluginVersion(repoRoot, log = console.error) {
+  const fromRef = readMarketplaceRefVersion(repoRoot);
+  if (fromRef) return fromRef;
+  log(`경고: ${MARKETPLACE_PATH} 의 genia-works ref 에서 플러그인 버전을 읽지 못해 plugin.json 의 version 을 쓴다`);
+  return readPluginVersion(repoRoot);
+}
+
+/** 마켓플레이스 파일의 genia-works 플러그인 ref 에서 버전을 꺼낸다 — 파일이 없거나 ref·버전 모양이 틀리면 null. */
+export function readMarketplaceRefVersion(repoRoot) {
+  try {
+    const { plugins } = JSON.parse(readFileSync(join(repoRoot, MARKETPLACE_PATH), 'utf8'));
+    const ref = Array.isArray(plugins) ? plugins.find((p) => p?.name === 'genia-works')?.source?.ref : undefined;
+    const version = typeof ref === 'string' ? MARKETPLACE_REF_RE.exec(ref)?.[1] : undefined;
+    return version && PLUGIN_VERSION_RE.test(version) ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `<저장소>/plugins/genia-works/.claude-plugin/plugin.json` 의 version — 없거나 모양이 틀리면 null. */
+export function readPluginVersion(repoRoot) {
+  try {
+    const { version } = JSON.parse(readFileSync(join(repoRoot, 'plugins/genia-works/.claude-plugin/plugin.json'), 'utf8'));
+    return typeof version === 'string' && PLUGIN_VERSION_RE.test(version) ? version : null;
+  } catch {
+    return null;
+  }
 }
