@@ -230,6 +230,34 @@ test('SKILL.md 3번: 고를 후보가 없을 때만 대기열에서 최대 하�
   assertBefore(s3, '`claim_issue(', '가져간 이슈가 없으면(동시 진행 상한에 걸린 때도) 「할 일 없음」이다');
 });
 
+// WP-1719 형제 진행 중 건너뛰기 — 다른 AI 가 형제를 진행 중이면 그 이슈는 가져가지 않고 라벨을 남긴다(WP-1697 사례).
+test('SKILL.md 대기열 가져오기: 다른 AI 가 형제를 진행 중이면 건너뛰고 라벨을 남긴다 (WP-1719)', () => {
+  const q = section(workLoopSkill, '**대기열에서 가져오기**', '**할 일 없음**');
+  assert.ok(q.includes("`list_issues({ projectKey, parent: <부모 키>, assignee: 'any', status: 'TODO,IN_PROGRESS' })`"));
+  assert.ok(q.includes('검토 대기(REVIEW)는 진행 중이 아니다'));
+  assert.ok(q.includes('내가 진행 중인 형제는 막지 않는다'));
+  assert.ok(q.includes('`assignees`'));
+  assert.ok(q.includes('`stale`'));
+  assert.ok(q.includes('24시간'));
+  assert.ok(q.includes('동시 진행: 형제와 따로 가져가도 된다'));
+  assert.ok(q.includes('「형제 진행 중이라 건너뜀 — <키>(<형제 키> <AI>)」'));
+  assert.ok(q.includes('라벨이 그대로 남는다'));
+  assertBefore(q, '**형제 확인**', '`claim_issue({ issueKey, queueLabel: <대기열 라벨> })`');
+  // 부모 진행 행(하위를 차례로 맡는 AI)과 출처(agentWork·worker.username)
+  assert.ok(q.includes('`get_issue_detail({ issueKey: <부모 키> })`'));
+  assert.ok(q.includes('`worker.username`'));
+  // 하위를 차례로 맡는 경로도 형제 확인을 이름으로 따른다
+  const chain = lineWith(workLoopSkill, '- **하위를 차례로 맡는 이슈**');
+  assert.ok(chain.includes('형제 확인'));
+  // 표시 줄이 붙은 형제는 막지 않고, 부모 키를 못 읽으면 부모 없음으로 본다
+  assert.ok(q.includes('그 형제는 막지 않는다'));
+  assert.ok(q.includes('hidden'));
+  // 라벨 붙은 독립 하위는 부모의 AI 가 차례로 맡지 않는다
+  assert.ok(chain.includes('표시 줄이 있는 대기열 라벨 하위'));
+  assert.ok(chain.includes('`claim_issue` (`issueKey` 는 그 하위 키, `queueLabel` 은 대기열 라벨'));
+  assert.ok(chain.includes('따로 진행'));
+});
+
 // WP-1040 동시 진행 상한 — AI 한 명당 맡은 프로젝트를 모두 합쳐 상한까지. 넘으면 새 작업·대기열 가져가기만 막는다.
 // WP-1205 뒤로 수는 서버(get_member 의 slots)가 센다 — 목록을 프로젝트 없이 읽어 세는 것은 slots 가 없는 옛 서버에서만.
 test('SKILL.md 3번: 후보는 이 프로젝트 목록으로 고르고, 동시 진행은 slots 로(없으면 프로젝트 없는 목록으로) 센다 (WP-1040·WP-1205)', () => {
@@ -930,7 +958,7 @@ test('plan-issue.md: 커밋·push·PR 단계가 없고, 팀장 검토(WAITING)·
 // 부모를 맡은 개발 AI 가 묻지 않고 하위를 하나씩 차례로 맡은 뒤 부모를 검토 대기로 올린다(다음 부르기도 notes 로 기억).
 test('plan-issue.md 넘기기는 부모에 — 부모를 맡은 개발 AI 가 하위를 묻지 않고 하나씩 맡는다 (WP-361)', () => {
   const handoff = section(workLoop('plan-issue.md'), '### 10. 넘기기', '### 11.');
-  assert.ok(handoff.includes('**넘길 곳은 늘 이 이슈다**'));
+  assert.ok(handoff.includes('**넘길 곳은 기본으로 이 이슈다**'));
   assert.ok(handoff.includes('`create_issue({ projectKey, title, body, priority, parent: <이 이슈 키>, assignees })`'));
   assert.ok(!handoff.includes('하위가 있으면 하위마다'));
   const skill = readFileSync(new URL('work-loop/SKILL.md', skillsDir), 'utf8');
@@ -939,6 +967,19 @@ test('plan-issue.md 넘기기는 부모에 — 부모를 맡은 개발 AI 가 �
   assert.ok(children.includes('**하나만**'));
   assert.ok(children.includes('`하위 차례로 맡기: 예`'));
   assert.ok(section(skill, '**대기열에서 가져오기**', '**할 일 없음**').includes('`하위 차례로 맡기: 예` 를 적고'));
+});
+
+// WP-1719 — 겹치는 하위를 따로 넣으면 다른 AI 가 동시에 가져가 충돌한다. 기본은 부모, 서로 독립인 하위만 본문에 표시해 따로 넘긴다.
+test('plan-issue.md 넘기기: 겹치는 하위는 부모로, 독립 하위만 따로 넣고 본문에 표시한다 (WP-1719)', () => {
+  const handoff = section(workLoop('plan-issue.md'), '### 10. 넘기기', '### 11.');
+  assert.ok(handoff.includes('**넘길 곳은 기본으로 이 이슈다**'));
+  assert.ok(handoff.includes('`동시 진행: 형제와 따로 가져가도 된다 — <근거>`'));
+  assert.ok(handoff.includes('같은 화면·표·마이그레이션·서비스 파일'));
+  assert.ok(handoff.includes('판단 근거'));
+  assert.ok(handoff.includes('`labels: [<대기열 라벨>]`'));
+  assert.ok(handoff.includes('하위가 모두 독립이라 따로 넘겼으면 이 이슈에는 붙이지 않고 나만 뺀다'));
+  assert.ok(handoff.includes('대기열 행이 없으면 이 예외는 쓰지 않는다'));
+  assert.ok(handoff.includes('사람 담당자가 있을 때만 쓴다'));
 });
 
 test('.work-loop/project.md 에 「기획 역할 AI」 절이 있다 (WP-1564)', () => {
