@@ -237,21 +237,23 @@ class CalendarDeletedMeetingDedupTest extends ExternalClientMockedTestBase {
         new TransactionTemplate(txManager)
             .execute(
                 s ->
-                    extRepo.upsertExternalEvent(
-                        me,
-                        extCalId,
-                        "graph-mtg-2-again",
-                        new ExternalEventRow(
-                            "주간 회의",
-                            null,
-                            T,
-                            T.plusHours(1),
-                            false,
-                            null,
-                            "UID-MTG-2",
-                            null,
-                            null,
-                            null)));
+                    extRepo
+                        .upsertExternalEvent(
+                            me,
+                            extCalId,
+                            "graph-mtg-2-again",
+                            new ExternalEventRow(
+                                "주간 회의",
+                                null,
+                                T,
+                                T.plusHours(1),
+                                false,
+                                null,
+                                "UID-MTG-2",
+                                null,
+                                null,
+                                null))
+                        .id());
 
     assertThat(listedIds()).contains(resynced).doesNotContain(organizerCopy);
   }
