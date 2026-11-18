@@ -138,9 +138,9 @@ describe('새 앱 연결 알림', () => {
       ...over,
     })
 
-  it('/settings/tokens 로 연다, 이슈 키가 남아 있어도 이슈 상세로 새지 않는다', () => {
-    expect(notifTarget(app())).toBe('/settings/tokens')
-    expect(notifTarget(app({ projectKey: 'WP', issueNumber: 3 }))).toBe('/settings/tokens')
+  it('/settings/tokens#connected-apps 로 연다, 이슈 키가 남아 있어도 이슈 상세로 새지 않는다', () => {
+    expect(notifTarget(app())).toBe('/settings/tokens#connected-apps')
+    expect(notifTarget(app({ projectKey: 'WP', issueNumber: 3 }))).toBe('/settings/tokens#connected-apps')
   })
 
   it('제목 라벨은 「앱 연결」, 종류 판정은 이 종류만 true', () => {

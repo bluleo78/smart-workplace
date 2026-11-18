@@ -43,9 +43,12 @@ public class PushContentService {
           "normal",
           INBOX_TTL);
     }
-    // 새 앱 연결(WP-1686) — 행위자 없는 계정 알림. 앱 이름은 eventTitle 칸에 실려 온다(없으면 「앱」). 모르는 연결이면 바로 끊을 수 있게
-    // 설정 › API 토큰으로 보낸다(프론트 notifTarget 과 같은 경로). 앱 이름은 앱이 DCR 로 정한 값이라 길 수 있어 다른 푸시와 같은 상한(120)으로
-    // 자른다.
+    // 새 앱 연결(WP-1686) — 행위자 없는 계정 알림. 앱 이름은 eventTitle 칸에 실려 온다(없으면 「앱」).
+    // 모르는 연결이면 바로 끊을 수 있게 설정 › API 토큰의 「연결된 앱」 절로 보낸다(WP-1687).
+    // 이동 주소는 웹 CONNECTED_APPS_PATH(apps/workplace-web/src/lib/connectedApps.ts)와 같은 글자여야 한다.
+    // tenantId 는 다른 푸시처럼 연결한 워크스페이스를 싣지만, 연결된 앱 목록은 사용자 단위라
+    // 웹(openPushTarget)이 이 주소로는 워크스페이스를 바꾸지 않는다.
+    // 앱 이름은 앱이 DCR 로 정한 값이라 길 수 있어 다른 푸시와 같은 상한(120)으로 자른다.
     if (e.type() == NotificationType.OAUTH_APP_CONNECTED) {
       String app = e.eventTitle() == null ? "앱" : Texts.truncateCodePoints(e.eventTitle(), 120);
       return new PushMessage(
@@ -53,7 +56,7 @@ public class PushContentService {
           category,
           "새 앱 연결",
           app + " — 내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요",
-          "/settings/tokens",
+          "/settings/tokens#connected-apps",
           "oauth-app-connected",
           "normal",
           INBOX_TTL);

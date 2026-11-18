@@ -31,7 +31,8 @@ export interface NotificationResponse {
     // 이슈·일정·노트 id 없이 온다. 클릭하면 다시 연결할 내 비서 설정(/settings/assistant)으로 간다.
     | "PERSONAL_ASSISTANT_REVOKED"
     // WP-1686: 내 계정에 새 앱(OAuth 클라이언트, 예: Claude 커넥터)이 연결됨 — 본인이 받는다. 행위자 없음(actorId null),
-    // 이슈·일정·노트 id 없이 온다. 앱 이름은 message. 클릭하면 끊을 수 있는 설정 › API 토큰(/settings/tokens)으로 간다.
+    // 이슈·일정·노트 id 없이 온다. 앱 이름은 message. 클릭하면 끊을 수 있는 설정 › API 토큰의 「연결된 앱」 절
+    // (/settings/tokens#connected-apps, WP-1687)로 간다.
     | "OAUTH_APP_CONNECTED";
   actorId: number | null;
   actorName: string | null;

@@ -303,7 +303,7 @@ describe('groupNotifications', () => {
     expect(mine).toHaveLength(1)
     expect(mine[0].title).toBe('앱 연결')
     expect(mine[0].label).toBe('앱 연결')
-    expect(mine[0].target).toBe('/settings/tokens')
+    expect(mine[0].target).toBe('/settings/tokens#connected-apps')
     expect(mine[0].deltaSummary).toBe('앱 연결 2건')
     expect(mine[0].repType).toBe('OAUTH_APP_CONNECTED')
   })

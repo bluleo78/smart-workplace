@@ -1,6 +1,6 @@
 // OAuth 동의 화면(/oauth/authorize, WP-1686) 모킹 팩토리 — 화면 테스트(src/pages/oauth/oauthConsent.test.tsx)와
 // E2E(e2e/pages/oauth/oauth-consent.spec.ts)가 같은 인가 요청 주소·validate 응답을 쓰게 한 곳에 둔다.
-import type { AuthorizeValidateResponse } from '../../src/types/oauth'
+import type { AuthorizeValidateResponse, OAuthConnection } from '../../src/types/oauth'
 
 /** 앱(Claude 커넥터)이 연 브라우저가 로그인 뒤 돌아오는 인가 요청 주소 — PKCE(RFC 7636 부록 B 값)·state·resource 를 모두 싣는다. */
 export const AUTH_PATH =
@@ -27,3 +27,18 @@ export const TWO_WORKSPACES = validated({
   ],
   currentTenantId: 2,
 })
+
+/** 내 앱 연결 한 줄(서버 OAuthConnectionResponse) — 「연결된 앱」 절 화면 테스트·E2E 가 같은 기본값을 쓴다(WP-1687). */
+export function oauthConnection(over: Partial<OAuthConnection> = {}): OAuthConnection {
+  return {
+    id: 1,
+    clientName: 'Claude',
+    unverified: false,
+    redirectHost: 'claude.ai',
+    tenantId: 1,
+    tenantName: 'Work Loop',
+    createdAt: '2026-11-12T03:00:00Z',
+    lastUsedAt: null,
+    ...over,
+  }
+}

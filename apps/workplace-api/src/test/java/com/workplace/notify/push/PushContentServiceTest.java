@@ -129,8 +129,8 @@ class PushContentServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 새 앱 연결(WP-1686) — 가리킬 이슈·일정이 없는 계정 알림. 앱 이름(eventTitle 칸)을 본문 앞에 두고 연결을 끊을 수 있는 설정 › API 토큰을
-   * 연다. 「나를 향한」 알림이라 MENTION 으로 묶인다.
+   * 새 앱 연결(WP-1686) — 가리킬 이슈·일정이 없는 계정 알림. 앱 이름(eventTitle 칸)을 본문 앞에 두고 연결을 끊을 수 있는 설정 › API 토큰의
+   * 「연결된 앱」 절을 연다(WP-1687). 「나를 향한」 알림이라 MENTION 으로 묶인다.
    */
   @Test
   void forInbox_oauthAppConnected_buildsTokenSettingsMessage() {
@@ -138,7 +138,7 @@ class PushContentServiceTest extends IntegrationTestBase {
 
     assertThat(m.title()).isEqualTo("새 앱 연결");
     assertThat(m.body()).isEqualTo("Claude — 내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요");
-    assertThat(m.url()).isEqualTo("/settings/tokens");
+    assertThat(m.url()).isEqualTo("/settings/tokens#connected-apps");
     assertThat(m.tag()).isEqualTo("oauth-app-connected");
     assertThat(m.category()).isEqualTo(PushCategory.MENTION);
     assertThat(m.urgency()).isEqualTo("normal");

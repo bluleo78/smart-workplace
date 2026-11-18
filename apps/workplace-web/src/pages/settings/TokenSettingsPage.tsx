@@ -5,6 +5,7 @@
 // 표 아래 「도구에 연결하기」 섹션은 발급 뒤에도 연결 방법을 다시 볼 수 있게 늘 보인다(WP-875, 발급 모달과 같은 TokenConnectGuide).
 // 도움말 문맥(WP-1506): 화면 칸·대화상자에 data-help 를 달아 도움말 패널이 매뉴얼 12장의 맞는 절(tokens 층)을 저절로 보이게 한다.
 // 값은 글자 그대로 둔다 — 매뉴얼 정적 검사(manual:check)가 화면 data-help ↔ 매뉴얼 {help=…} 짝을 소스에서 본다.
+// WP-1687: 표 아래 「연결된 앱」 — OAuth 앱 연결 목록·끊기, 연결이 없으면 숨김(ConnectedAppsSection).
 
 import { useState } from 'react';
 
@@ -35,6 +36,7 @@ import { API_TOKEN_STATUS_LABEL, apiTokenStatus } from '@/lib/apiTokenStatus';
 import { formatDateShort, formatDateTimeLocale } from '@/lib/formatters';
 
 import { useIssueMyToken, useMyTokens, useRevokeMyToken } from '../../hooks/queries/useUserTokens';
+import { ConnectedAppsSection } from './components/ConnectedAppsSection';
 import { TokenConnectGuide } from './components/TokenConnectGuide';
 import { TokenIssueDialog } from './components/TokenIssueDialog';
 import { TokenIssueFormDialog } from './components/TokenIssueFormDialog';
@@ -178,6 +180,11 @@ export default function TokenSettingsPage() {
           </Table>
         </div>
 
+        {/* 연결된 앱 — 같은 화면에서 앱(OAuth) 연결도 보고 끊게 한다. 연결이 없으면 스스로 숨는다(WP-1687).
+            토큰 표와 같은 풀폭이고 간격은 이 칸의 space-y-6 이 준다(숨어 있으면 null 이라 간격도 생기지 않는다). */}
+        {/* 앵커 스크롤은 토큰 표가 처음 불러오기를 마친 뒤에 — 절 위치가 표 높이에 달려 있다. */}
+        <ConnectedAppsSection scrollReady={!tokens.isPending} />
+
         {/* 도구에 연결하기 — 토큰 값은 다시 보이지 않으므로 2단계는 「발급 때 복사한 토큰」으로 안내한다(WP-875).
             긴 명령이 풀폭으로 늘어지지 않게 읽기 좋은 폭으로 묶는다. */}
         <section
@@ -195,7 +202,7 @@ export default function TokenSettingsPage() {
             </p>
           </div>
           <p className="text-sm font-medium">Claude Code 에 연결</p>
-          <TokenConnectGuide tokenSource="saved" testIdPrefix="connect-guide" />
+          <TokenConnectGuide tokenSource="saved" testIdPrefix="connect-guide" showClaudeApp />
         </section>
       </div>
 

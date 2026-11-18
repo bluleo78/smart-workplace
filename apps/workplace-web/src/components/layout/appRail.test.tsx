@@ -612,6 +612,8 @@ describe('알림 인박스', () => {
     await user.click(item)
     await waitFor(() => expect(reads).toEqual([71]))
     expect(location()).toBe('/settings/tokens')
+    // location() 은 pathname+search 만 돌려주므로 앵커는 BrowserRouter 가 반영한 jsdom 주소에서 본다(WP-1687).
+    expect(window.location.hash).toBe('#connected-apps')
   })
 
   test('바닥까지 스크롤하면 offset 다음 페이지를 요청해 이어 붙인다', async () => {

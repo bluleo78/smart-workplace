@@ -49,3 +49,18 @@ export interface OAuthAuthorizeError {
   errorDescription: string
   errorRedirectUrl?: string
 }
+
+/** 내가 연결해 둔 앱 한 줄(설정 › API 토큰 「연결된 앱」, WP-1687) — 서버 OAuthConnectionResponse(WP-1685)와 1:1. */
+export interface OAuthConnection {
+  id: number
+  clientName: string
+  /** DCR 로 등록된 앱이면 true(「확인되지 않은 앱」). */
+  unverified: boolean
+  /** 앱이 돌아오는 주소의 호스트(없으면 null). */
+  redirectHost: string | null
+  tenantId: number
+  tenantName: string
+  createdAt: string
+  /** 한 번도 쓰지 않았으면 null. */
+  lastUsedAt: string | null
+}

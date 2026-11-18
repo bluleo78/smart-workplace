@@ -3,6 +3,7 @@
 //          → 닫기 → 목록 반영(만료일 포함) → 폐기(@wiring), 휴대폰 폭 연결 안내 가로 넘침(@layout).
 // 무기한 표기·발급 상한 사유(WP-835)·만료됨(WP-702)·표 아래 연결 안내(WP-875)는 src/pages/settings/tokenSettings.test.tsx 가 지킨다.
 
+import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { expectedMcpEndpoint } from '../../fixtures/mcp';
 
@@ -22,6 +23,8 @@ async function setupTokensMock(page: import('@playwright/test').Page) {
   let tokens: UserApiTokenFixture[] = [];
   let nextId = 1;
 
+  // 「연결된 앱」 절(WP-1687)이 읽는 연결 목록 — 빈 목록(절 숨김). 목이 없으면 503 → 오류 줄이 섞인다.
+  await mockApi(page, 'GET', '/api/v1/users/me/oauth-connections', []);
   await page.route(/\/api\/v1\/users\/me\/api-tokens$/, (route) => {
     const method = route.request().method();
     if (method === 'GET') {
@@ -160,12 +163,15 @@ test.describe('/settings/tokens', () => {
   // WP-875 — 휴대폰 폭에서도 안내가 표 아래로 이어지고, 긴 명령 때문에 화면이 옆으로 밀리지 않는다.
   test('휴대폰 폭에서 연결 안내가 표 아래로 이어지고 가로로 넘치지 않는다 (WP-875)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    await mockApi(page, 'GET', '/api/v1/users/me/oauth-connections', []);
     await page.route(/\/api\/v1\/users\/me\/api-tokens$/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     );
     await page.goto('/settings/tokens');
     const guide = page.getByRole('region', { name: '도구에 연결하기' });
     await expect(guide.getByTestId('connect-guide-plugin-install-command')).toBeVisible();
+    // WP-1687 — 새 「Claude 앱에 연결」 블록의 긴 주소도 아래 가로 넘침 단언이 함께 잰다.
+    await expect(guide.getByTestId('connect-guide-claude-app-url')).toBeVisible();
     const table = await page.getByRole('table', { name: 'API 토큰 목록' }).boundingBox();
     const box = await guide.boundingBox();
     expect(box!.y).toBeGreaterThanOrEqual(table!.y + table!.height);

@@ -1,6 +1,7 @@
 // 알림 라우팅/표시 공용 유틸 — InboxPanel·알림 위젯·합성 레이어가 공유한다.
 // (NotificationsBody 의 로컬 함수를 추출해 규칙이 드리프트되지 않게 단일화.)
 import { issueChatPath } from '@/lib/agentWork'
+import { CONNECTED_APPS_PATH } from '@/lib/connectedApps'
 import type { NotificationResponse } from '@/types/notification'
 
 /**
@@ -51,7 +52,7 @@ export const PERSONAL_ASSISTANT_SETTINGS_PATH = '/settings/assistant'
 
 /**
  * 새 앱 연결 알림 판별(WP-1686) — 내 계정에 OAuth 앱(Claude 커넥터 등)이 연결됐다. 행위자·이슈·일정·노트 id 없이 온다.
- * 내가 한 일이 아니면 끊을 수 있도록 설정 › API 토큰으로 연다.
+ * 내가 한 일이 아니면 끊을 수 있도록 설정 › API 토큰의 「연결된 앱」 절로 연다(WP-1687).
  */
 export function isOAuthAppConnectedType(n: NotificationResponse): boolean {
   return n.type === 'OAUTH_APP_CONNECTED'
@@ -59,7 +60,7 @@ export function isOAuthAppConnectedType(n: NotificationResponse): boolean {
 
 /** 새 앱 연결 알림의 행 제목·이동 주소(WP-1686) — 대상 객체가 없어 고정값을 쓴다. */
 export const OAUTH_APP_LABEL = '앱 연결'
-export const TOKEN_SETTINGS_PATH = '/settings/tokens'
+// 새 앱 연결 알림의 이동 주소(CONNECTED_APPS_PATH)는 「연결된 앱」 절의 id 와 같은 앵커를 써야 해 lib/connectedApps.ts 한곳에 둔다(WP-1687).
 
 /**
  * 알림 대상 라우트 해소 — InboxPanel/알림 위젯과 동일 규칙.
@@ -76,12 +77,12 @@ export const TOKEN_SETTINGS_PATH = '/settings/tokens'
  * 공유 화면으로 보낸다. 접근 요청은 공유한 사람(스페이스 편집자)이 받으므로 공유 창을 연 채로(`?share=1`).
  *
  * 개인 비서 연결 해제 알림(WP-1170)은 다시 연결하는 곳인 내 비서 설정(`/settings/assistant`)으로 간다.
- * 새 앱 연결 알림(WP-1686)은 연결을 끊을 수 있는 설정 › API 토큰(`/settings/tokens`)으로 간다.
+ * 새 앱 연결 알림(WP-1686)은 연결을 끊을 수 있는 설정 › API 토큰의 「연결된 앱」 절(`/settings/tokens#connected-apps`, WP-1687)로 간다.
  */
 export function notifTarget(n: NotificationResponse): string {
   if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_SETTINGS_PATH
   // WP-1686: 이슈 키가 남아 있어도 이슈 상세로 새지 않게 이슈 분기보다 먼저 본다.
-  if (isOAuthAppConnectedType(n)) return TOKEN_SETTINGS_PATH
+  if (isOAuthAppConnectedType(n)) return CONNECTED_APPS_PATH
   if (isWikiShareType(n)) {
     if (n.wikiPageId == null) return '/me/tasks/assigned'
     const base = `/wiki/open/${n.wikiPageId}`
