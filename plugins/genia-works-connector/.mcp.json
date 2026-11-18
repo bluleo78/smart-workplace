@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "genia-works": {
+      "type": "http",
+      "url": "https://genia-works.iacloud.kr/mcp"
+    }
+  }
+}
