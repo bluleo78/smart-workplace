@@ -1,0 +1,9 @@
+{
+  "name": "genia-works-connector",
+  "version": "0.1.0",
+  "displayName": "Gen:iA Works 커넥터",
+  "description": "고정 MCP 주소(https://genia-works.iacloud.kr/mcp)만 제공하는 커넥터 플러그인. 토큰을 요구하지 않고 Claude 앱·Cowork 의 표준 OAuth 흐름으로 내 Gen:iA Works 계정을 연결한다.",
+  "author": { "name": "Gen:iA Works" },
+  "homepage": "https://genia-works.iacloud.kr",
+  "repository": "https://github.com/bluleo78/smart-workplace"
+}

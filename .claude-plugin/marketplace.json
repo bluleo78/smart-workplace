@@ -1,0 +1,17 @@
+{
+  "name": "smart-workplace",
+  "description": "Gen:iA Works — 스마트 워크플레이스 공식 플러그인 마켓플레이스",
+  "owner": { "name": "Gen:iA Works" },
+  "plugins": [
+    {
+      "name": "genia-works",
+      "description": "genia-works MCP 연결(PAT 토큰 헤더), 세션별 접속 신원 선택, 이슈 작업 보고·마무리·자동 이슈 처리 스킬 — Claude Code 전용",
+      "source": "./plugins/genia-works"
+    },
+    {
+      "name": "genia-works-connector",
+      "description": "Gen:iA Works 커넥터 — 고정 MCP 주소만 노출하고 표준 OAuth 로 내 계정을 연결하는 Claude 앱·Cowork 용 플러그인",
+      "source": "./plugins/genia-works-connector"
+    }
+  ]
+}
