@@ -134,6 +134,51 @@ describe('mergeRunner', { timeout: WORKER_BOOT_LIMIT_MS }, () => {
     expect(t.workers).toHaveLength(1)
   })
 
+  it('discards a worker that never finishes booting: the waiting job fails and the next job runs on a fresh worker', async () => {
+    // WP-1709 리뷰 — ready 전에는 계산 타이머가 없어, 기동 중 멈춘 워커(ready·exit·error 모두 없음)를 아무도 끝내지 않으면
+    // 그 뒤 병합이 모두 「대기 중 시간 초과」로 끝나고 회복되지 않았다. 기동 기한이 그 워커를 버린다.
+    const clock = manualClock()
+    const t = createTestMergeRunner({ clock, bootTimeoutMs: 1000, testBootHold: (n) => n === 0 })
+    runner = t
+    const first = track(t.merge(job()))
+    await expect.poll(() => t.held(), { timeout: WORKER_BOOT_LIMIT_MS }).toBe(1)
+    clock.advance(999)
+    expect(first.settled).toBe(false)
+    clock.advance(1)
+    const err = await first.outcome
+    expect(err).toBeInstanceOf(MergeFailedError)
+    expect((err as Error).message).toMatch(/did not boot within 1000ms/)
+    expect(t.workers[0].terminated).toBeDefined()
+    // 다음 작업은 새 워커가 받는다(붙잡지 않는 둘째 워커).
+    expect((await t.merge(job())).markdown).toBe('가 AI')
+    expect(t.workers).toHaveLength(2)
+  })
+
+  it('discards a warmed worker that never finishes booting so the first job boots a fresh one', async () => {
+    const clock = manualClock()
+    const t = createTestMergeRunner({ clock, bootTimeoutMs: 1000, testBootHold: (n) => n === 0 })
+    runner = t
+    t.warm()
+    await expect.poll(() => t.held(), { timeout: WORKER_BOOT_LIMIT_MS }).toBe(1)
+    // 기다리던 작업이 없어도 멈춘 워커는 버린다 — 첫 작업이 그 워커를 기다리다 시간 초과로 끝나지 않게.
+    clock.advance(1000)
+    expect(t.workers[0].terminated).toBeDefined()
+    expect((await t.merge(job())).markdown).toBe('가 AI')
+    expect(t.workers).toHaveLength(2)
+  })
+
+  it('does not discard a worker that boots within the deadline', async () => {
+    const clock = manualClock()
+    const t = createTestMergeRunner({ clock, bootTimeoutMs: 1000 })
+    runner = t
+    expect((await t.merge(job())).markdown).toBe('가 AI')
+    // 기동을 마친 뒤 기동 기한이 지나도 그대로다(타이머는 ready 때 풀렸다).
+    clock.advance(5000)
+    expect((await t.merge(job())).markdown).toBe('가 AI')
+    expect(t.workers).toHaveLength(1)
+    expect(t.workers[0].terminated).toBeUndefined()
+  })
+
   it('warm does nothing after destroy', async () => {
     const t = createTestMergeRunner({ clock: manualClock() })
     await t.destroy()

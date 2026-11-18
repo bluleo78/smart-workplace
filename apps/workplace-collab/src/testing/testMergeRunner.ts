@@ -15,6 +15,8 @@ export type TestJobMessage = MergeJobMessage & { holdUntil?: number; fault?: 'th
  */
 export interface TestMergeRunnerOptions {
   timeoutMs?: number
+  /** 워커 기동 상한(ms) — 기동 기한을 다루는 테스트만 넘긴다(WP-1709). */
+  bootTimeoutMs?: number
   clock?: Clock
   testHold?: (job: MergeJobMessage) => boolean
   testFault?: (job: MergeJobMessage) => 'throw' | 'exit' | undefined
@@ -71,6 +73,7 @@ export function createTestMergeRunner(opts: TestMergeRunnerOptions = {}): TestMe
   const workers: HookedWorker[] = []
   const runner = createMergeRunner({
     timeoutMs: opts.timeoutMs,
+    bootTimeoutMs: opts.bootTimeoutMs,
     clock: opts.clock,
     spawnWorker: (execArgv) => {
       // 기동을 붙잡을 워커는 지금 관문 세대보다 하나 위까지 — 다음 release 가 기동을 푼다.

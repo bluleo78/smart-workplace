@@ -14,6 +14,14 @@ import type { KeepLivePlan } from './markdownCodec'
  */
 export const MERGE_TIMEOUT_MS = 10_000
 
+/**
+ * 워커 기동(무거운 모듈 싣기)의 상한(ms) — 넘기도록 WorkerReady 가 없으면 기동 중 멈춘 것으로 보고 그 워커를 버린다(WP-1709 리뷰).
+ * 왜: 작업은 ready 뒤에만 보내므로 계산 시간 타이머가 걸리지 않는다 — 기동 중 멈춘 워커(ready·exit·error 모두 없음)는 아무도 끝내지 않아
+ * 그 뒤 병합이 모두 「대기 중 시간 초과」로 끝나고 파드를 다시 띄울 때까지 회복되지 않았다.
+ * 값: 부하 속 기동이 40초를 넘긴 적이 있어(push 게이트 E2E) 그보다 넉넉히 — 정상 기동을 버리지 않게.
+ */
+export const WORKER_BOOT_TIMEOUT_MS = 60_000
+
 /** 시간 상한을 넘겼다 — 결과 없음(부분 적용 금지). */
 export class MergeTimeoutError extends Error {}
 /** 계산 자체가 실패했다(워커 예외·비정상 종료·실행기 종료). */
@@ -91,6 +99,8 @@ export interface MergeRunner {
  */
 export interface MergeRunnerOptions {
   timeoutMs?: number
+  /** 워커 기동 상한(ms) — 기본 WORKER_BOOT_TIMEOUT_MS. */
+  bootTimeoutMs?: number
   spawnWorker?: (execArgv: string[] | undefined) => Worker
   clock?: Clock
 }
@@ -123,16 +133,20 @@ interface Pending {
  * 작업만 「대기 중 시간 초과」로 끝나고 기동 중인 워커는 그대로 둔다. 그래서 느린 기동이 워커를 버리게 하지 않고, 다음 작업은 기동을 마친
  * 워커가 받는다.
  * 계산 시간 초과·비정상 종료면 워커를 종료하고(CPU 를 붙잡은 계산은 이 방법으로만 멈춘다) 다음 작업 때 새로 띄운다.
+ * 기동이 WORKER_BOOT_TIMEOUT_MS 안에 끝나지 않으면(기동 중 멈춤) 그 워커도 버린다 — ready 전에는 계산 타이머가 없어 이것이 유일한 회복 경로다.
  * 워커 파일: 번들(dist)에선 `dist/mergeWorker.js`(tsup 둘째 진입점), 소스 실행(vitest·tsx)에선 `src/mergeWorker.ts` 를 tsx 로더로.
  */
 export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
   const timeoutMs = opts.timeoutMs ?? MERGE_TIMEOUT_MS
+  const bootTimeoutMs = opts.bootTimeoutMs ?? WORKER_BOOT_TIMEOUT_MS
   const clock = opts.clock ?? realClock
   const workerUrl = new URL(fromSource ? './mergeWorker.ts' : './mergeWorker.js', import.meta.url)
   const queue: Pending[] = []
   let worker: Worker | null = null
   /** 지금 워커가 기동을 마쳤는가(WorkerReady 를 받음) — 마치기 전에는 작업을 보내지 않는다. */
   let ready = false
+  /** 지금 워커의 기동 기한 타이머 — ready 를 받거나 워커를 버리면 해제한다. */
+  let bootTimer: unknown
   let running: { p: Pending; timer: unknown } | null = null
   let nextId = 1
   let destroyed = false
@@ -153,6 +167,8 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
     if (worker === w) {
       worker = null
       ready = false
+      clock.clearTimeout(bootTimer)
+      bootTimer = undefined
     }
     w.removeAllListeners()
     // 버린 워커의 늦은 error 를 삼킨다 — 듣는 이 없는 'error' 는 메인 프로세스를 죽인다.
@@ -170,6 +186,8 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
         // 기동을 마쳤다 — 기다리던 작업을 보낸다.
         if (worker === w) {
           ready = true
+          clock.clearTimeout(bootTimer)
+          bootTimer = undefined
           pump()
         }
         return
@@ -179,6 +197,11 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
     })
     w.on('error', (e) => lost(w, new MergeFailedError(`merge worker crashed: ${e.message}`)))
     w.on('exit', (code) => lost(w, new MergeFailedError(`merge worker exited (${code})`)))
+    // 기동 기한 — 넘기도록 ready 가 없으면 기동 중 죽은 것과 같게 다룬다(버리고, 기다리던 맨 앞 작업만 실패, 다음 작업은 새 워커).
+    // 기다리는 작업마다 한 번만 다시 띄우는 lost 의 규칙을 그대로 따라 끝없이 띄우지 않는다.
+    bootTimer = clock.setTimeout(() => {
+      if (worker === w && !ready) lost(w, new MergeFailedError(`merge worker did not boot within ${bootTimeoutMs}ms`))
+    }, bootTimeoutMs)
     return w
   }
 
