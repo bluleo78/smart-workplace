@@ -28,6 +28,7 @@ export function createAiAgentStatus(id: number, name: string, o: Partial<AiAgent
     lastEndedAt: null,
     hiddenWorks: 0,
     slotsUsed: works.length,
+    slotLimit: 5, // 서버는 AI 마다 상한을 항상 보낸다(WP-1754) — 기본은 5
     ...o,
     works,
   }

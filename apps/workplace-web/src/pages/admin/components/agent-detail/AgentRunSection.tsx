@@ -62,9 +62,11 @@ interface Props {
   worksRun: WorksRun | null;
   /** 저장된 작업 공간 방식 이름 — 그 정의가 목록에 없어 worksRun 이 비어도 지금 방식 카드를 그리는 데 쓴다. */
   savedTemplateName: string | null;
+  /** 저장된 작업 공간 설정의 실행 위치 — savedTemplateName 과 같은 저장 설정에서 온다. worksRun 이 비어도(정의가 목록에 없어도) 이어받는다(WP-1751). */
+  savedLocationId: number | null;
 }
 
-export function AgentRunSection({ agent, templates, worksRun, savedTemplateName }: Props) {
+export function AgentRunSection({ agent, templates, worksRun, savedTemplateName, savedLocationId }: Props) {
   const cards = withSavedWorkspaceCard(runModeCards(templates), agent.runMode, savedTemplateName, templates != null);
   const currentId = currentCardId(agent.runMode, savedTemplateName, cards);
   const current = cards.find((c) => c.id === currentId) ?? cards[0];
@@ -91,7 +93,7 @@ export function AgentRunSection({ agent, templates, worksRun, savedTemplateName 
       <ModeCards cards={cards} currentId={currentId} pendingId={pendingId} lockReason={cardsLock} onPick={(id) => setPendingId(id === currentId ? null : id)} />
 
       {pending ? (
-        <PendingSwitch agent={agent} from={current} to={pending} fromTemplate={worksRun?.template ?? null} onDone={() => setPendingId(null)} />
+        <PendingSwitch agent={agent} from={current} to={pending} fromTemplate={worksRun?.template ?? null} fromLocationId={current.mode === 'WORKSPACE' ? savedLocationId : null} onDone={() => setPendingId(null)} />
       ) : !agent.isActive ? (
         // 사용 중지된 AI(WP-705·WP-1075) — 연결·키는 보기·정리만. 실행 방식·작업 설정은 다시 사용으로 바꾼 뒤에 다룬다.
         <>
@@ -228,15 +230,19 @@ function PendingSwitch({
   from,
   to,
   fromTemplate,
+  fromLocationId,
   onDone,
 }: {
   agent: AgentResponse;
   from: RunModeCard;
   to: RunModeCard;
   fromTemplate: AgentTemplate | null;
+  /** 새 방식 초안이 이어받을 실행 위치 id — 출발이 작업 공간일 때만 지금 저장된 위치, 아니면 null(워크스페이스 기본). 부르는 쪽이 정한다. */
+  fromLocationId: number | null;
   onDone: () => void;
 }) {
-  const draft = useWorkSettingsDraft(to.template, null);
+  // 작업 공간끼리 바꿀 때는 지금 실행 위치를 이어받는다(WP-1751) — 서버·외부에서 오면 위치가 없으니 기본.
+  const draft = useWorkSettingsDraft(to.template, null, fromLocationId);
   const setRuntime = useSetAgentRuntime();
   const useServer = useUseServerTemplate(agent.id);
   const save = useSaveAgentRuntimeSetting(agent.id);

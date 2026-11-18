@@ -9,7 +9,7 @@ import java.util.List;
  * 수가 적어 한 번에 다 보낸다).
  *
  * @param agents AI 목록(이름순)
- * @param slotLimit 동시 진행 상한 — work-loop 스킬과 같은 값(WP-1040)
+ * @param slotLimit 동시 진행 기본 상한(5) — 하위 호환용으로 그대로 둔다. AI 마다의 상한은 {@code agents[].slotLimit}(WP-1754)
  */
 public record AiAgentStatusResponse(List<AiAgentStatus> agents, int slotLimit) {
 
@@ -23,6 +23,7 @@ public record AiAgentStatusResponse(List<AiAgentStatus> agents, int slotLimit) {
    * @param hiddenWorks 호출자가 볼 수 없는 프로젝트의 열린 작업 수
    * @param slotsUsed 동시 진행 상한에 세는 작업 수(볼 수 없는 것 포함) — 작업 중·답변 필요·인증 필요(대기 중은 세지 않는다 — WP-1216), 무소식
    *     아님, 작업 중인 하위가 있는 부모 아님
+   * @param slotLimit 이 AI 의 동시 진행 상한(WP-1754) — 덮어쓴 값 ?? 템플릿 기본 ?? 5
    */
   public record AiAgentStatus(
       UserSummary agent,
@@ -32,7 +33,8 @@ public record AiAgentStatusResponse(List<AiAgentStatus> agents, int slotLimit) {
       Instant lastEndedAt,
       List<AiAgentWork> works,
       int hiddenWorks,
-      int slotsUsed) {}
+      int slotsUsed,
+      int slotLimit) {}
 
   /**
    * 열린 작업 한 건.

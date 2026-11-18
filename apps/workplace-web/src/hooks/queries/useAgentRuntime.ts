@@ -16,6 +16,7 @@ import {
   listRepoCredentials,
   putAgentAcceptNewWork,
   putAgentRuntimeSetting,
+  putAgentSlotLimit,
   registerRepoCredential,
   revokeRepoCredential,
   rotateAgentLocationToken,
@@ -29,6 +30,7 @@ import type { PutAgentRuntimeSettingRequest, RepoKind } from '../../types/agentR
 import { agentRuntimeKeys, agentRuntimeLiveKeys } from './agentRuntimeKeys';
 import { agentAccountKeys } from './useAgentAccounts';
 import { agentKeys } from './useAgents';
+import { aiAgentsKeys } from './useAiAgents';
 
 export { agentRuntimeKeys };
 
@@ -95,6 +97,23 @@ export function useSetAgentAcceptNewWork(userId: number) {
       invalidate();
     },
     onError: (e) => handleApiError(e, '「새 작업 받기」를 바꾸지 못했습니다'),
+  });
+}
+
+// 「동시 진행」 선택(WP-1754) — 「새 작업 받기」 스위치와 같은 모양: 응답(바뀐 설정)을 상세 캐시에 바로 넣어 선택값이 깜박이지 않게 하고
+// 목록 요약도 다시 읽는다. 실패하면 오류 토스트 — 진행 중 값이 사라져 저장된 값으로 돌아간다.
+export function useSetAgentSlotLimit(userId: number) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateRuntime();
+  return useMutation({
+    mutationFn: (slotLimit: number | null) => putAgentSlotLimit(userId, slotLimit),
+    onSuccess: (data) => {
+      qc.setQueryData(agentRuntimeKeys.setting(userId), data);
+      invalidate();
+      // AI별 막대(aiAgentsKeys.all)가 AI 마다의 상한을 쓰므로 바뀐 상한이 바로 보이게 같이 다시 읽는다(WP-1754).
+      qc.invalidateQueries({ queryKey: aiAgentsKeys.all });
+    },
+    onError: (e) => handleApiError(e, '「동시 진행」을 바꾸지 못했습니다'),
   });
 }
 

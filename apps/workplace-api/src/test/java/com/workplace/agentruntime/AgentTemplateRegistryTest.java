@@ -98,6 +98,31 @@ class AgentTemplateRegistryTest {
     assertThat(t.plugins()).hasSize(8);
   }
 
+  /** 템플릿 slotLimit(WP-1754) — 1·2·3·5 와 생략(기본 5)은 읽히고, 0·음수·4 는 읽을 때 실패한다. */
+  @Test
+  void load_whenSlotLimit_acceptsOnlyAllowedValues() {
+    assertThat(
+            AgentTemplateRegistry.load(List.of(yaml("a", "SERVER", "")), ALLOWED, "dev")
+                .get(0)
+                .slotLimit())
+        .isEqualTo(5);
+    for (int ok : new int[] {1, 2, 3, 5}) {
+      AgentTemplate t =
+          AgentTemplateRegistry.load(
+                  List.of(yaml("a", "SERVER", "slotLimit: " + ok + "\n")), ALLOWED, "dev")
+              .get(0);
+      assertThat(t.slotLimit()).isEqualTo(ok);
+    }
+    for (int bad : new int[] {0, -1, 4, 6}) {
+      assertThatThrownBy(
+              () ->
+                  AgentTemplateRegistry.load(
+                      List.of(yaml("a", "SERVER", "slotLimit: " + bad + "\n")), ALLOWED, "dev"))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("slotLimit");
+    }
+  }
+
   /** 옛 요구 이름 github 는 repo 와 같은 뜻으로 읽고, 둘이 함께 있으면 하나로 합친다(WP-1268). */
   @Test
   void load_whenRequiresUsesLegacyGithub_normalizesToRepo() {

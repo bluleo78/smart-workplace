@@ -2,6 +2,7 @@
 // 실행 방식 섹션·에이전트 목록·실행 위치 화면 테스트가 같은 데이터 모양을 쓴다(시안 e2e 의 목 데이터와 같은 모양).
 import { http, HttpResponse } from 'msw'
 
+import type { AiAgentsResponse } from '@/api/aiAgents'
 import type { AgentResponse } from '@/types/agent'
 import type { AgentAccountResponse } from '@/types/agentAccount'
 import type {
@@ -128,6 +129,10 @@ export function createSetting(
     status: 'OFF',
     observed: null,
     acceptNewWork: true,
+    // 「동시 진행」(WP-1754) — 기본은 템플릿 기본값(1)을 따른다.
+    slotLimit: null,
+    defaultSlotLimit: 1,
+    effectiveSlotLimit: 1,
     ...overrides,
   }
 }
@@ -211,6 +216,8 @@ export interface RuntimeCalls {
   binds: { accountId: number }[]
   /** PUT /admin/agents/:id/runtime-setting/accept-new-work 본문(「새 작업 받기」 스위치, WP-1514) */
   acceptNewWorks: { acceptNewWork: boolean }[]
+  /** PUT /admin/agents/:id/runtime-setting/slot-limit 본문(「동시 진행」, WP-1754) */
+  slotLimits: { slotLimit: number | null }[]
   /** 호출 순서 — 「삭제 → 실행 방식 PUT」처럼 순서를 볼 때 */
   order: string[]
 }
@@ -219,6 +226,8 @@ export interface RuntimeApiOptions {
   /** 에이전트 id → 저장된 설정. 없으면 404(기본·외부). */
   settings?: Record<number, AgentRuntimeSetting>
   summaries?: AgentRuntimeSummary[]
+  /** GET /me/ai-agents 응답(WP-1754) — 상세 「지금 n개 진행 중」용. 없으면 빈 목록. */
+  aiAgents?: AiAgentsResponse
   locations?: AgentLocation[]
   templates?: AgentTemplate[]
   projects?: AgentRuntimeProject[]
@@ -255,7 +264,7 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
     ...Object.fromEntries((opts.claudeFor ?? []).map((id) => [id, 'anthropic' as const])),
     ...(opts.credentials ?? {}),
   }
-  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], binds: [], acceptNewWorks: [], order: [] }
+  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], binds: [], acceptNewWorks: [], slotLimits: [], order: [] }
   const accounts = opts.accounts ?? []
   const boundAccounts = { ...(opts.boundAccounts ?? {}) }
   let repoCredentials = [...(opts.repoCredentials ?? [])]
@@ -293,6 +302,19 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
       settings[id] = { ...(settings[id] ?? createSetting(id)), acceptNewWork: body.acceptNewWork }
       return HttpResponse.json(settings[id])
     }),
+    // 「동시 진행」(WP-1754) — 고른 값(null 이면 기본)을 설정에 반영하고 적용값(effective)을 다시 계산해 돌려준다.
+    http.put(`${API}/admin/agents/:id/runtime-setting/slot-limit`, async ({ params, request }) => {
+      const body = (await request.json()) as { slotLimit: number | null }
+      calls.slotLimits.push(body)
+      const err = fail()
+      if (err) return err
+      const id = Number(params.id)
+      const cur = settings[id] ?? createSetting(id)
+      settings[id] = { ...cur, slotLimit: body.slotLimit, effectiveSlotLimit: body.slotLimit ?? cur.defaultSlotLimit }
+      return HttpResponse.json(settings[id])
+    }),
+    // 관리 상세의 「지금 n개 진행 중」 — AI별 현황. 기본은 빈 목록(못 구하면 그 말을 뺀다).
+    http.get(`${API}/me/ai-agents`, () => HttpResponse.json(opts.aiAgents ?? { agents: [], slotLimit: 5 })),
     http.delete(`${API}/admin/agents/:id/runtime-setting`, ({ params }) => {
       calls.settingDeletes += 1
       calls.order.push('DELETE setting')

@@ -210,8 +210,9 @@ public class RunnerDesiredStateService {
   }
 
   /**
-   * 관찰 상태 저장 — 실제 위치가 이 위치인 AI 만 고치고, 없는 AI·다른 위치의 AI 는 {@code ignored} 로 돌려준다. generation·원하는 상태는
-   * 바꾸지 않고 runner 변경 이벤트도 내지 않는다(관찰은 원하는 상태가 아니다). 관찰 칸 쓰기는 보고 묶음 전체를 한 번에 보낸다.
+   * 관찰 상태 저장 — 실제 위치가 이 위치인 AI 만 고치고(단 꺼진 AI(desired STOP)의 STOPPING·STOPPED 보고는 어느 위치에서 와도 받는다 —
+   * WP-1751), 없는 AI·다른 위치의 AI 는 {@code ignored} 로 돌려준다. generation·원하는 상태는 바꾸지 않고 runner 변경 이벤트도 내지
+   * 않는다(관찰은 원하는 상태가 아니다). 관찰 칸 쓰기는 보고 묶음 전체를 한 번에 보낸다.
    *
    * <p>관리자 화면 실시간 갱신(WP-1254): 관찰 칸을 쓰는 한 문장이 쓰기 전 화면용 값({@code VisibleRuntimeState})도 돌려주므로, 그 값이
    * 달라진 AI 만 한 이벤트로 알린다 — 같은 상태의 거듭된 보고(60초마다)나 CPU·메모리만 바뀐 보고는 알리지 않는다. 다시 읽지 않는다.

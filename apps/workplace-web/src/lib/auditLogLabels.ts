@@ -97,6 +97,7 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'AGENT_RUNTIME_STOPPED', label: 'AGENT 끄기' },
   { value: 'AGENT_RUNTIME_RESTARTED', label: 'AGENT 다시 시작' },
   { value: 'AGENT_RUNTIME_ACCEPT_NEW_WORK_CHANGED', label: 'AGENT 새 작업 받기 변경' },
+  { value: 'AGENT_RUNTIME_SLOT_LIMIT_CHANGED', label: 'AI 동시 진행 변경' },
   { value: 'AGENT_LOCATION_CREATED', label: 'AGENT 실행 위치 등록' },
   { value: 'AGENT_LOCATION_DELETED', label: 'AGENT 실행 위치 삭제' },
   { value: 'AGENT_LOCATION_TOKEN_ROTATED', label: 'AGENT 실행 위치 토큰 재발급' },

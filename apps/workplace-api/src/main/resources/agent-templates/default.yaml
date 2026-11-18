@@ -9,3 +9,5 @@ card:
   skills: []
 requires: []
 config: []
+# 동시 진행 이슈 기본 상한(WP-1754) — AI 별로 관리 화면에서 덮어쓸 수 있다.
+slotLimit: 5

@@ -565,6 +565,21 @@ describe('AI 위임 작업 AI별 보기', () => {
     expect(within(idle).getByTestId('ai-agent-13-lead')).toHaveTextContent('맡은 일 없음')
   })
 
+  test('자리 막대는 AI 마다 slotLimit 칸을 쓴다 (WP-1754)', async () => {
+    renderAgents('/me/ai-tasks?view=agents&scope=all', [
+      createAiAgentStatus(31, 'AI 하나', { slotLimit: 1, slotsUsed: 1 }),
+      createAiAgentStatus(32, 'AI 다섯', { slotLimit: 5, slotsUsed: 2 }),
+    ])
+    const slots = (id: number) => screen.findByTestId(`ai-agent-${id}-slots`)
+    const cells = (el: HTMLElement) => el.querySelectorAll('[aria-hidden] > span').length
+    const one = await slots(31)
+    const five = await slots(32)
+    expect(one).toHaveTextContent('1/1')
+    expect(cells(one)).toBe(1)
+    expect(five).toHaveTextContent('2/5')
+    expect(cells(five)).toBe(5)
+  })
+
   test('상태 칩 건수와 누르면 그 상태만, 다시 누르면 해제(URL roster)', async () => {
     const { user, location } = renderAgents('/me/ai-tasks?view=agents&scope=all')
     await screen.findByTestId('ai-agent-11')

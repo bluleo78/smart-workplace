@@ -62,7 +62,7 @@ function WorkChip({ w, testId }: { w: AiAgentWork; testId: string }) {
   )
 }
 
-/** 자리 막대 — 상한(서버 slotLimit) 중 쓰는 자리를 칸으로. 빈 칸이 보이면 더 맡길 수 있다는 뜻. */
+/** 자리 막대 — 상한(AI 마다 agents[].slotLimit, WP-1754) 중 쓰는 자리를 칸으로. 빈 칸이 보이면 더 맡길 수 있다는 뜻. */
 function SlotMeter({ used, limit, testId }: { used: number; limit: number; testId: string }) {
   const full = used >= limit
   return (
@@ -162,7 +162,7 @@ function LastReport({ row, tid }: { row: RosterRow; tid: string }) {
 const rowTid = (row: RosterRow) => `ai-agent-${row.agent.agent.id}`
 
 /** 데스크톱 표 — 열: AI · 상태 · 지금 하는 일 · 맡은 일 · 자리 · 마지막 보고. */
-export function AiRosterTable({ rows, limit, now }: { rows: RosterRow[]; limit: number; now: number }) {
+export function AiRosterTable({ rows, now }: { rows: RosterRow[]; now: number }) {
   return (
     <div className="overflow-x-auto" data-testid="ai-roster-table">
       <table className="w-full min-w-[52rem] table-fixed text-sm">
@@ -185,7 +185,7 @@ export function AiRosterTable({ rows, limit, now }: { rows: RosterRow[]; limit: 
                 <td className="py-3 pr-3"><StateCell row={row} tid={tid} now={now} /></td>
                 <td className="overflow-hidden py-3 pr-4"><LeadWork row={row} tid={tid} /></td>
                 <td className="py-3 pr-3"><WorkChips row={row} tid={tid} /></td>
-                <td className="py-3"><SlotMeter used={row.agent.slotsUsed} limit={limit} testId={`${tid}-slots`} /></td>
+                <td className="py-3"><SlotMeter used={row.agent.slotsUsed} limit={row.agent.slotLimit} testId={`${tid}-slots`} /></td>
                 <td className="py-3"><LastReport row={row} tid={tid} /></td>
               </tr>
             )
@@ -197,7 +197,7 @@ export function AiRosterTable({ rows, limit, now }: { rows: RosterRow[]; limit: 
 }
 
 /** 모바일 카드 — 머리(이름·상태) · 지금 하는 일 · 맡은 일 + 자리 · 마지막 보고. */
-export function AiRosterMobileList({ rows, limit, now }: { rows: RosterRow[]; limit: number; now: number }) {
+export function AiRosterMobileList({ rows, now }: { rows: RosterRow[]; now: number }) {
   return (
     <ul className="divide-y rounded-lg border bg-card" data-testid="ai-roster-mobile">
       {rows.map((row) => {
@@ -212,7 +212,7 @@ export function AiRosterMobileList({ rows, limit, now }: { rows: RosterRow[]; li
             <div className="flex flex-wrap items-center justify-between gap-2">
               <WorkChips row={row} tid={tid} />
               <span className="flex items-center gap-3">
-                <SlotMeter used={row.agent.slotsUsed} limit={limit} testId={`${tid}-slots`} />
+                <SlotMeter used={row.agent.slotsUsed} limit={row.agent.slotLimit} testId={`${tid}-slots`} />
                 <LastReport row={row} tid={tid} />
               </span>
             </div>

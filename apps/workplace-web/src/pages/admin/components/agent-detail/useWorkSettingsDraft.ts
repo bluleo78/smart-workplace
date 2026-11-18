@@ -28,26 +28,35 @@ export interface WorkSettingsDraft {
   reset: () => void;
 }
 
-/** 저장된 설정(없으면 방식 기본값)으로 초안 시작 값을 만든다. */
-function initial(template: AgentTemplate, saved: AgentRuntimeSetting | null) {
+/**
+ * 저장된 설정(없으면 방식 기본값)으로 초안 시작 값을 만든다.
+ * 저장된 설정이 없을 때만 initialLocationId(작업 공간끼리 바꿀 때 이어받을 지금 실행 위치, WP-1751)를 시작 위치로 쓴다.
+ */
+function initial(template: AgentTemplate, saved: AgentRuntimeSetting | null, initialLocationId: number | null) {
+  const locationId = saved ? saved.locationId : initialLocationId;
   return {
     config: configWithDefaults(template, saved?.config),
-    locationValue: saved?.locationId != null ? String(saved.locationId) : DEFAULT_LOCATION,
+    locationValue: locationId != null ? String(locationId) : DEFAULT_LOCATION,
   };
 }
 
 /**
  * template 이 null 이면(작업 공간 방식이 아님) null. saved 는 이 방식으로 저장된 설정 — 아직 저장 전(방식 바꾸기 중)이면 null.
+ * initialLocationId 는 saved 가 없을 때만 쓰는 시작 실행 위치 — 작업 공간끼리 바꿀 때 지금 위치를 이어받는다(WP-1751).
  */
-export function useWorkSettingsDraft(template: AgentTemplate | null, saved: AgentRuntimeSetting | null): WorkSettingsDraft | null {
+export function useWorkSettingsDraft(
+  template: AgentTemplate | null,
+  saved: AgentRuntimeSetting | null,
+  initialLocationId: number | null = null,
+): WorkSettingsDraft | null {
   // 저장된 값이 바뀌었는지 알아보는 열쇠 — 저장하면 generation 이 오르고, 방식이 바뀌면 이름이 바뀐다.
   const baseKey = `${template?.name ?? ''}:${saved?.templateName ?? ''}:${saved?.generation ?? 'new'}`;
-  const [state, setState] = useState(() => (template ? initial(template, saved) : null));
+  const [state, setState] = useState(() => (template ? initial(template, saved, initialLocationId) : null));
   const [prevKey, setPrevKey] = useState(baseKey);
   // 렌더 중 상태 조정(React 공식 패턴) — 저장된 값이 바뀌면 초안을 새로 채운다.
   if (prevKey !== baseKey) {
     setPrevKey(baseKey);
-    setState(template ? initial(template, saved) : null);
+    setState(template ? initial(template, saved, initialLocationId) : null);
   }
   if (!template || !state) return null;
 
@@ -68,6 +77,6 @@ export function useWorkSettingsDraft(template: AgentTemplate | null, saved: Agen
     dirtyLabels,
     missingRequired: template.config.some((f) => f.required && !state.config[f.key]),
     body: (applyMode) => ({ templateName: template.name, locationId, config: state.config, applyMode }),
-    reset: () => setState(initial(template, saved)),
+    reset: () => setState(initial(template, saved, initialLocationId)),
   };
 }

@@ -2,6 +2,7 @@ package com.workplace.agentruntime.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.workplace.auth.service.AgentProviders;
+import com.workplace.global.ai.AgentSlotLimits;
 import java.util.List;
 
 /**
@@ -12,6 +13,7 @@ import java.util.List;
  * @param image WORKSPACE 일 때 메인 컨테이너 이미지(SERVER 는 없음)
  * @param requires 이 템플릿이 쓰려면 AI 에게 갖춰져야 하는 것(예: claude, repo — 옛 이름 github 는 레지스트리가 repo 로 읽는다)
  * @param config 관리자가 고르는 실행 설정 칸
+ * @param slotLimit AI 가 동시에 맡는 이슈 수의 기본 상한(WP-1754) — 없거나 null 이면 5
  */
 public record AgentTemplate(
     String name,
@@ -23,7 +25,8 @@ public record AgentTemplate(
     List<ConfigField> config,
     Resources resources,
     List<Sidecar> sidecars,
-    List<Plugin> plugins) {
+    List<Plugin> plugins,
+    Integer slotLimit) {
 
   /** 목록·누락 값을 null 대신 빈 목록으로 맞춘다 — 소비 쪽이 null 검사를 하지 않게. */
   public AgentTemplate {
@@ -31,6 +34,10 @@ public record AgentTemplate(
     config = config == null ? List.of() : List.copyOf(config);
     sidecars = sidecars == null ? List.of() : List.copyOf(sidecars);
     plugins = plugins == null ? List.of() : List.copyOf(plugins);
+    slotLimit =
+        slotLimit == null
+            ? AgentSlotLimits.DEFAULT
+            : slotLimit; // 기본값은 한 곳(AgentSlotLimits.DEFAULT, WP-1754)
   }
 
   /**

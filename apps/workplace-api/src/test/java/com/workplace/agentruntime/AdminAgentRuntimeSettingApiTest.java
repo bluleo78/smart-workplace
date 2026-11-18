@@ -573,6 +573,84 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
     putAcceptNewWork(agent, "{}").andExpect(status().isBadRequest());
   }
 
+  private ResultActions putSlotLimit(long agent, String body) throws Exception {
+    return call(
+        put(base(agent) + "/slot-limit").contentType(MediaType.APPLICATION_JSON).content(body));
+  }
+
+  /** 동시 진행 상한(WP-1754) — 덮어쓴 값이 없으면 템플릿 기본값(genia-code 1, claude-code 5)이 효과값이다. */
+  @Test
+  void slotLimit_defaultsFromTemplate() throws Exception {
+    long genia = newAgent();
+    putSetting(genia, "{\"templateName\":\"genia-code\",\"config\":{}}").andExpect(status().isOk());
+    call(get(base(genia)))
+        .andExpect(jsonPath("$.slotLimit").doesNotExist())
+        .andExpect(jsonPath("$.defaultSlotLimit").value(1))
+        .andExpect(jsonPath("$.effectiveSlotLimit").value(1));
+
+    long claude = newAgent();
+    putClaude(claude);
+    call(get(base(claude)))
+        .andExpect(jsonPath("$.defaultSlotLimit").value(5))
+        .andExpect(jsonPath("$.effectiveSlotLimit").value(5));
+  }
+
+  /** 상한 변경은 generation·runner 알림 없이 값만 바꾸고 감사 1건·관리자 알림 1건을 남긴다. null 은 기본으로 되돌린다. */
+  @Test
+  void slotLimit_putChangesWithoutGeneration() throws Exception {
+    newLocation("운영", 3);
+    long agent = newAgent();
+    putClaude(agent);
+    action(agent, "start");
+    var before = om.readTree(call(get(base(agent))).andReturn().getResponse().getContentAsString());
+    int eventsBefore = desiredEvents().size();
+    long adminEventsBefore = adminEvents();
+
+    putSlotLimit(agent, "{\"slotLimit\":2}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.slotLimit").value(2))
+        .andExpect(jsonPath("$.effectiveSlotLimit").value(2))
+        .andExpect(jsonPath("$.generation").value(before.get("generation").asLong()));
+
+    assertThat(desiredEvents()).hasSize(eventsBefore);
+    assertThat(adminEvents()).isEqualTo(adminEventsBefore + 1);
+    assertThat(
+            dsl.fetchCount(AUDIT_LOG, AUDIT_LOG.ACTION_TYPE.eq("AGENT_RUNTIME_SLOT_LIMIT_CHANGED")))
+        .isEqualTo(1);
+
+    putSlotLimit(agent, "{\"slotLimit\":null}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.slotLimit").doesNotExist())
+        .andExpect(jsonPath("$.effectiveSlotLimit").value(5));
+  }
+
+  /** 1·2·3·5 밖의 값은 400 이고 행은 그대로, 설정이 없는 AI 는 404. */
+  @Test
+  void slotLimit_rejectsOutOfRange() throws Exception {
+    long agent = newAgent();
+    putClaude(agent);
+
+    putSlotLimit(agent, "{\"slotLimit\":4}").andExpect(status().isBadRequest());
+    putSlotLimit(agent, "{\"slotLimit\":0}").andExpect(status().isBadRequest());
+    call(get(base(agent))).andExpect(jsonPath("$.slotLimit").doesNotExist());
+
+    putSlotLimit(newAgent(), "{\"slotLimit\":2}").andExpect(status().isNotFound());
+  }
+
+  /** 설정 PUT(템플릿 바꾸기)은 사람이 바꾼 상한을 건드리지 않는다. */
+  @Test
+  void slotLimit_survivesTemplateChange() throws Exception {
+    long agent = newAgent();
+    putClaude(agent);
+    putSlotLimit(agent, "{\"slotLimit\":3}").andExpect(status().isOk());
+
+    putSetting(agent, "{\"templateName\":\"genia-code\",\"config\":{}}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.slotLimit").value(3))
+        .andExpect(jsonPath("$.effectiveSlotLimit").value(3))
+        .andExpect(jsonPath("$.defaultSlotLimit").value(1));
+  }
+
   /** 켜져 있는 AI 의 실행 설정은 지울 수 없다 — 409. */
   @Test
   void delete_whenRunning_returns409() throws Exception {

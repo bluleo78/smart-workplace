@@ -33,11 +33,13 @@ export interface AiAgentStatus {
   hiddenWorks: number
   /** 동시 진행 상한에 세는 행 수(못 보는 프로젝트 포함) — work-loop 상한(WP-1040)과 같은 기준으로 서버가 센다. */
   slotsUsed: number
+  /** 이 AI 의 동시 진행 상한(WP-1754) — AI 마다 다르며 서버가 항상 보낸다. */
+  slotLimit: number
 }
 
 export interface AiAgentsResponse {
   agents: AiAgentStatus[]
-  /** 동시 진행 상한 — work-loop 와 같은 값. */
+  /** 동시 진행 상한 기본값(호환용) — AI 마다 값은 agents[].slotLimit. */
   slotLimit: number
 }
 

@@ -202,6 +202,11 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, String> RUNTIME_PLUGIN_VERSION = createField(DSL.name("runtime_plugin_version"), SQLDataType.CLOB, this, "");
 
+    /**
+     * The column <code>public.agent_runtime_setting.slot_limit</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, Short> SLOT_LIMIT = createField(DSL.name("slot_limit"), SQLDataType.SMALLINT, this, "");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -356,7 +361,8 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
             Internal.createCheck(this, DSL.name("agent_runtime_setting_agent_state_check"), "(((agent_state)::text = ANY ((ARRAY['IDLE'::character varying, 'WORKING'::character varying, 'BLOCKED'::character varying])::text[])))", true),
             Internal.createCheck(this, DSL.name("agent_runtime_setting_apply_mode_check"), "(((apply_mode)::text = ANY ((ARRAY['IDLE'::character varying, 'NOW'::character varying])::text[])))", true),
             Internal.createCheck(this, DSL.name("agent_runtime_setting_desired_check"), "(((desired)::text = ANY ((ARRAY['RUN'::character varying, 'STOP'::character varying])::text[])))", true),
-            Internal.createCheck(this, DSL.name("agent_runtime_setting_phase_check"), "(((phase)::text = ANY ((ARRAY['STARTING'::character varying, 'RUNNING'::character varying, 'STOPPING'::character varying, 'STOPPED'::character varying, 'FAILED'::character varying])::text[])))", true)
+            Internal.createCheck(this, DSL.name("agent_runtime_setting_phase_check"), "(((phase)::text = ANY ((ARRAY['STARTING'::character varying, 'RUNNING'::character varying, 'STOPPING'::character varying, 'STOPPED'::character varying, 'FAILED'::character varying])::text[])))", true),
+            Internal.createCheck(this, DSL.name("agent_runtime_setting_slot_limit_check"), "((slot_limit = ANY (ARRAY[1, 2, 3, 5])))", true)
         );
     }
 

@@ -23,6 +23,7 @@ import type { AgentResponse } from '@/types/agent'
 import type { AgentApiKey } from '@/types/agentKey'
 import type { AgentRepoCredential } from '@/types/agentRuntime'
 
+import { createAiAgentStatus } from '../../../e2e/factories/aiAgent.factory'
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
 import { createAccount, createUsage } from '../../test/kits/admin/agentAccounts'
 import {
@@ -394,6 +395,55 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     expect(screen.queryByRole('switch', { name: '새 작업 받기' })).not.toBeInTheDocument()
   })
 
+  // 「동시 진행」(WP-1754) — 한 번에 맡는 이슈 수. 템플릿 기본값을 고르면 null 을 보내 기본을 따른다.
+  describe('동시 진행', () => {
+    const running = () => createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'IDLE' }) })
+
+    test('실행 중이면 「동시 진행」 행에 「1개 (기본)」과 설명·지금 n개 진행 중이 보이고, 2개를 고르면 PUT {slotLimit:2}, 기본값을 다시 고르면 {slotLimit:null}', async () => {
+      const aiAgents = { slotLimit: 5, agents: [createAiAgentStatus(id, 'AI', { slotsUsed: 1 })] }
+      const { user, calls } = await renderDetail(works({ settings: { [id]: running() }, aiAgents }))
+      const row = await screen.findByTestId('agent-slot-limit')
+      expect(row).toHaveTextContent('동시 진행')
+      await waitFor(() => expect(row).toHaveTextContent('한 번에 맡는 이슈 수예요. 지금 1개 진행 중'))
+      const trigger = screen.getByRole('combobox', { name: '동시 진행' })
+      expect(trigger).toHaveTextContent('1개 (기본)')
+      await user.click(trigger)
+      expect(within(await screen.findByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['1개 (기본)', '2개', '3개', '5개'])
+      // 바꾼 뒤 AI별 막대용 ['ai-agents'] 조회를 다시 읽는다(WP-1754) — 선택 직전부터 /me/ai-agents 호출 수를 센다.
+      let rosterReads = 0
+      server.use(
+        http.get('*/me/ai-agents', () => {
+          rosterReads += 1
+          return HttpResponse.json(aiAgents)
+        }),
+      )
+      await user.click(screen.getByRole('option', { name: '2개' }))
+      await waitFor(() => expect(calls.slotLimits).toEqual([{ slotLimit: 2 }]))
+      await waitFor(() => expect(rosterReads).toBeGreaterThan(0))
+      await waitFor(() => expect(screen.getByRole('combobox', { name: '동시 진행' })).toHaveTextContent('2개'))
+      // 실행 요청은 가지 않는다 — 다시 띄우지 않는다.
+      expect(calls.actions).toEqual([])
+      await user.click(screen.getByRole('combobox', { name: '동시 진행' }))
+      await user.click(await screen.findByRole('option', { name: '1개 (기본)' }))
+      await waitFor(() => expect(calls.slotLimits).toEqual([{ slotLimit: 2 }, { slotLimit: null }]))
+    })
+
+    test('종료된 AI 에도 「동시 진행」 행이 보이고 「지금 n개」 말은 없다', async () => {
+      const aiAgents = { slotLimit: 5, agents: [createAiAgentStatus(id, 'AI', { slotsUsed: 2 })] }
+      await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'OFF', desired: 'STOP' }) }, aiAgents }))
+      const row = await screen.findByTestId('agent-slot-limit')
+      expect(row).toHaveTextContent('한 번에 맡는 이슈 수예요.')
+      expect(row).not.toHaveTextContent('지금')
+      expect(screen.getByRole('combobox', { name: '동시 진행' })).toHaveTextContent('1개 (기본)')
+    })
+
+    test('AI 에 고른 값이 있으면 그 값을, 템플릿 기본이 다르면 기본 옆에 「(기본)」을 보인다', async () => {
+      const setting = createSetting(id, { status: 'RUNNING', desired: 'RUN', slotLimit: 3, defaultSlotLimit: 2, effectiveSlotLimit: 3 })
+      await renderDetail(works({ settings: { [id]: setting } }))
+      expect(await screen.findByRole('combobox', { name: '동시 진행' })).toHaveTextContent('3개')
+    })
+  })
+
   test('일하는 중에 「종료」를 누르면 확인 창 — 취소면 요청 없음, 「종료」면 POST stop 한 번 (WP-1514)', async () => {
     const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WP-1489', agentIssueKeys: ['WP-1489', 'WP-12'] })
     const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
@@ -486,6 +536,34 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     // 작업 공간에서 떠나는 길 — 실행 방식 PUT(EXTERNAL, 이미 그 값이라 아무것도 안 바뀜)이 아니라 실행 설정 삭제.
     await waitFor(() => expect(calls.settingDeletes).toBe(1))
     expect(calls.runtimes).toEqual([])
+  })
+
+  test('작업 공간끼리 실행 방식을 바꾸면 지금 저장된 실행 위치를 이어받아 저장한다 (WP-1751)', async () => {
+    const { user, calls } = await renderDetail(
+      works({ templates: [...TEMPLATES, CODEX_TEMPLATE], settings: { [id]: createSetting(id, { locationId: 5 }) } }),
+    )
+    await user.click(await screen.findByTestId('agent-run-mode-codex'))
+    await screen.findByTestId('agent-run-mode-pending')
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    await user.click(await screen.findByTestId('agent-run-mode-confirm-apply'))
+    await waitFor(() => expect(calls.saves).toHaveLength(1))
+    expect(calls.saves[0].templateName).toBe('codex')
+    expect(calls.saves[0].locationId).toBe(5)
+  })
+
+  test('외부 방식에서 작업 공간 방식으로 바꾸면 이어받을 위치가 없어 워크스페이스 기본(null)으로 저장한다 (WP-1751)', async () => {
+    const { user, calls } = await renderDetail({
+      agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'EXTERNAL' }),
+      templates: [...TEMPLATES, CODEX_TEMPLATE],
+      claudeFor: [id],
+    })
+    await user.click(await screen.findByTestId('agent-run-mode-codex'))
+    await screen.findByTestId('agent-run-mode-pending')
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    await user.click(await screen.findByTestId('agent-run-mode-confirm-apply'))
+    await waitFor(() => expect(calls.saves).toHaveLength(1))
+    expect(calls.saves[0].templateName).toBe('codex')
+    expect(calls.saves[0].locationId).toBeNull()
   })
 
   test('자동 발급 키가 아직 없으면 다음 교체 안내를 그리지 않는다', async () => {
