@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -294,7 +296,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     // 본문 적재 대상(미적재)으로 잡힌다.
     assertThat(messageRepo.countMissingBody(accountId)).isEqualTo(1);
     // 미적재 본문이 있으므로 비동기 백필이 트리거된다.
-    verify(backfillService).backfill(user, accountId);
+    verify(backfillService).backfill(eq(user), eq(accountId), isNull()); // 첫 동기화라 발송 정보 없음(WP-1739)
   }
 
   @Test
@@ -325,7 +327,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     assertThat(r.fetched()).isZero();
     assertThat(r.saved()).isZero();
     // 가드로 즉시 반환 — 네트워크 동기화도 백필 트리거도 일어나지 않는다.
-    verify(backfillService, never()).backfill(anyLong(), anyLong());
+    verify(backfillService, never()).backfill(anyLong(), anyLong(), any());
     progress.finish(accountId);
   }
 

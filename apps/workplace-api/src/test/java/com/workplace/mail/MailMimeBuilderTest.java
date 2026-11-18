@@ -49,7 +49,8 @@ class MailMimeBuilderTest {
         null, // updatedAt
         false, // aiEnabled
         null, // lastSyncedAt
-        MailProvider.M365_GRAPH);
+        MailProvider.M365_GRAPH,
+        "WORK");
   }
 
   /** 테스트용 답장 메일 픽스처. OutgoingMail 실제 필드 순서(14개) 그대로 사용. */

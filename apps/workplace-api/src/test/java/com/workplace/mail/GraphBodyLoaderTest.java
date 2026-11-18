@@ -162,7 +162,8 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
                     null,
                     false,
                     null,
-                    com.workplace.mail.dto.MailProvider.M365_GRAPH));
+                    com.workplace.mail.dto.MailProvider.M365_GRAPH,
+                    "WORK"));
   }
 
   /**

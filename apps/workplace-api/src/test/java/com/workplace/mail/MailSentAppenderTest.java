@@ -82,7 +82,8 @@ class MailSentAppenderTest {
         null,
         false,
         null,
-        MailProvider.IMAP);
+        MailProvider.IMAP,
+        "WORK");
   }
 
   private MimeMessage simpleMessage() throws Exception {

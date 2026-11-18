@@ -242,7 +242,8 @@ class MailServerFoldersImapTest extends MailSyncTestSupport {
             account.updatedAt(),
             account.aiEnabled(),
             account.lastSyncedAt(),
-            account.provider());
+            account.provider(),
+            "WORK");
 
     assertThatThrownBy(() -> folderService.refresh(user, accountId, dead))
         .isInstanceOf(MailSyncException.class);

@@ -16,17 +16,17 @@ public record PushMessage(
     String urgency,
     int ttlSeconds) {
 
-  /** 미리보기 가림(workplace.push.preview=false) — 이동 정보는 유지하고 제목·본문만 고정 문구로. */
+  /** 미리보기 가림(workplace.push.preview=false) — 이동 정보는 유지하고 표시 내용만 고정 문구로. */
   public PushMessage redacted() {
-    boolean message = category == PushCategory.DM || category == PushCategory.MENTION;
-    return new PushMessage(
-        tenantId,
-        category,
-        message ? "새 메시지" : "새 알림",
-        message ? "새 메시지가 있습니다" : "새 알림이 있습니다",
-        url,
-        tag,
-        urgency,
-        ttlSeconds);
+    return switch (category) {
+      // 메일(WP-1739): 본문만 「새 메일」 로 고정 — 제목(보낸 사람)·url·tag·urgency·ttl 은 유지.
+      case MAIL ->
+          new PushMessage(tenantId, category, title, "새 메일", url, tag, urgency, ttlSeconds);
+      case DM, MENTION ->
+          new PushMessage(
+              tenantId, category, "새 메시지", "새 메시지가 있습니다", url, tag, urgency, ttlSeconds);
+      case ISSUE, CALENDAR ->
+          new PushMessage(tenantId, category, "새 알림", "새 알림이 있습니다", url, tag, urgency, ttlSeconds);
+    };
   }
 }

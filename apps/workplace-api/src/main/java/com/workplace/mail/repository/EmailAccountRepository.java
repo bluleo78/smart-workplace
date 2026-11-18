@@ -71,7 +71,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.UPDATED_AT,
             EMAIL_ACCOUNT.AI_ENABLED,
             EMAIL_ACCOUNT.LAST_SYNCED_AT,
-            EMAIL_ACCOUNT.PROVIDER) // V90: 공급자 필드
+            EMAIL_ACCOUNT.PROVIDER, // V90: 공급자 필드
+            EMAIL_ACCOUNT.NOTIFY_MODE) // WP-1739: 새 메일 알림 범위
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.ID.eq(id))
         .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
@@ -98,7 +99,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.UPDATED_AT,
             EMAIL_ACCOUNT.AI_ENABLED,
             EMAIL_ACCOUNT.LAST_SYNCED_AT,
-            EMAIL_ACCOUNT.PROVIDER) // V90: 공급자 필드
+            EMAIL_ACCOUNT.PROVIDER, // V90: 공급자 필드
+            EMAIL_ACCOUNT.NOTIFY_MODE) // WP-1739: 새 메일 알림 범위
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
@@ -303,7 +305,8 @@ public class EmailAccountRepository {
         r.get(EMAIL_ACCOUNT.LAST_SYNCED_AT) == null
             ? null
             : r.get(EMAIL_ACCOUNT.LAST_SYNCED_AT).toInstant(),
-        provider);
+        provider,
+        r.get(EMAIL_ACCOUNT.NOTIFY_MODE)); // WP-1739: 알림 범위(컬럼 NOT NULL — 항상 값 존재)
   }
 
   /**
@@ -433,7 +436,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.UPDATED_AT,
             EMAIL_ACCOUNT.AI_ENABLED,
             EMAIL_ACCOUNT.LAST_SYNCED_AT,
-            EMAIL_ACCOUNT.PROVIDER)
+            EMAIL_ACCOUNT.PROVIDER,
+            EMAIL_ACCOUNT.NOTIFY_MODE)
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
         .and(sameAddress(emailAddress))

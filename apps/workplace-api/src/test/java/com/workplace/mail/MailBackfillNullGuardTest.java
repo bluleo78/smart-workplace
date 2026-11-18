@@ -8,6 +8,8 @@ import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailAnalysisService;
 import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailBodyFetcher;
+import com.workplace.mail.service.MailPushService;
+import com.workplace.mail.service.MailPushService.NewMailPush;
 import com.workplace.mail.service.MailSyncProgress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +27,7 @@ class MailBackfillNullGuardTest {
   private MailBodyFetcher bodyFetcher;
   private MailSyncProgress progress;
   private MailAnalysisService analysis;
+  private MailPushService push;
   private MailBackfillService service;
 
   @BeforeEach
@@ -33,8 +36,10 @@ class MailBackfillNullGuardTest {
     bodyFetcher = Mockito.mock(MailBodyFetcher.class);
     progress = Mockito.mock(MailSyncProgress.class);
     analysis = Mockito.mock(MailAnalysisService.class);
+    push = Mockito.mock(MailPushService.class);
     PlatformTransactionManager txManager = Mockito.mock(PlatformTransactionManager.class);
-    service = new MailBackfillService(messageRepo, bodyFetcher, progress, analysis, txManager);
+    service =
+        new MailBackfillService(messageRepo, bodyFetcher, progress, analysis, txManager, push);
   }
 
   @AfterEach
@@ -46,7 +51,10 @@ class MailBackfillNullGuardTest {
   void backfill_withoutTenantContext_skips_andFinishes() {
     TenantContext.clear(); // 비테넌트 컨텍스트
 
-    service.backfill(7L, 42L);
+    service.backfill(
+        7L,
+        42L,
+        new NewMailPush(Mockito.mock(com.workplace.mail.dto.EmailAccountResponse.class), 3L));
 
     // RLS 테이블 접근(listMissingBody)과 본문 적재가 일어나지 않아야 한다.
     verify(messageRepo, never()).listMissingBody(Mockito.anyLong(), Mockito.anyInt());
@@ -54,5 +62,7 @@ class MailBackfillNullGuardTest {
     // 진행률은 정상 종료 처리(stuck 방지).
     verify(progress).finish(42L);
     verify(analysis, never()).analyzeAfterLoad(Mockito.anyLong(), Mockito.anyLong(), Mockito.any());
+    // 테넌트가 없으면 푸시도 싣지 못한다(RLS 후보 조회·발송 테넌트 모두 불가) — 발송하지 않는다(WP-1739).
+    verify(push, never()).sendNewMail(Mockito.anyLong(), Mockito.any(), Mockito.anyLong());
   }
 }

@@ -97,7 +97,8 @@ class GraphMailFetcherTest extends ExternalClientMockedTestBase {
         Instant.now(),
         false,
         null,
-        MailProvider.M365_GRAPH);
+        MailProvider.M365_GRAPH,
+        "WORK");
   }
 
   /** 헬퍼: 신규(삭제 아님) GraphMessage 생성 — 기본 보낸사람·안읽음. */

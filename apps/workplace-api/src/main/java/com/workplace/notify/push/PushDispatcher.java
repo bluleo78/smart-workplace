@@ -59,6 +59,19 @@ public class PushDispatcher {
     if (!mention.isEmpty()) sender.send(mention, message(e, PushCategory.MENTION, title, url));
   }
 
+  /**
+   * 메일 새 알림 → 푸시(WP-1739). 이벤트 리스너가 아니라 직접 호출용이다 — MAIL 은 NotificationType 이 없어 알림함 행으로 만들지 않으므로(설계
+   * 접근 1), 동기화 트랜잭션 커밋 뒤 호출자가 여기를 그대로 부른다(MailSyncService.sendNewMailQuietly — 동기화 스레드에서 실행,
+   * pushExecutor 아님). 모든 예외는 로그만 남긴다 — 푸시는 best-effort 라서 발송 실패가 호출자까지 전파되면 안 된다.
+   */
+  public void dispatchMail(List<Long> userIds, PushMessage message) {
+    try {
+      sender.send(userIds, message);
+    } catch (Exception ex) {
+      log.warn("[push] 메일 푸시 실패: {}", ex.getMessage());
+    }
+  }
+
   /** DM/MENTION 공통 PushMessage 조립 — 카테고리·제목·url 만 다르고 tag(대화 단위 교체)·urgency·TTL 은 동일. */
   private static PushMessage message(
       MessagePushRequest e, PushCategory c, String title, String url) {

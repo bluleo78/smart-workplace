@@ -111,6 +111,41 @@ describe('shouldSuppress', () => {
     expect(shouldSuppress(dmPayload, [{ url: `${ORIGIN}/chat/dms/42?x=1`, visible: true }], ORIGIN, false)).toBe(true)
     expect(shouldSuppress(dmPayload, [{ url: `${ORIGIN}/chat/dms/42`, visible: true }], ORIGIN, false)).toBe(false)
   })
+
+  // ——— MAIL(WP-1739): 그 계정 받은편지함을 보고 있으면 SSE 로 즉시 반영되므로 팝업을 생략한다. ———
+  const mailPayload = { ...payload, category: 'MAIL', url: '/mail/7', tag: 'mail-7' }
+
+  it('(a) tag mail-7 + 보이는 창 /mail/7 → 생략', () => {
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/7`, visible: true }], ORIGIN, false)).toBe(true)
+  })
+  it('(b) 다른 계정 창(/mail/8)·접두만 같은 창(/mail/70) → 생략 안 함', () => {
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/8`, visible: true }], ORIGIN, false)).toBe(false)
+    // pathname 은 정확 일치만 인정 — /mail/70 은 /mail/7 의 접두일 뿐 다른 계정이다.
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/70`, visible: true }], ORIGIN, false)).toBe(false)
+  })
+  it('(c) 받은편지함 보기의 검색·분류 쿼리(/mail/7?q=x 등) → 생략 (받은편지함을 보고 있는 것은 같다)', () => {
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/7?q=x`, visible: true }], ORIGIN, false)).toBe(true)
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/7?category=work`, visible: true }], ORIGIN, false)).toBe(true)
+  })
+  it('(c2) 같은 계정의 다른 폴더(?folder=sent·?folder=drafts·서버 메일함 ?box=) → 생략 안 함 (받은편지함이 아니라 새 메일이 안 보인다)', () => {
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/7?folder=sent`, visible: true }], ORIGIN, false)).toBe(false)
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/7?folder=drafts`, visible: true }], ORIGIN, false)).toBe(false)
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/7?box=5`, visible: true }], ORIGIN, false)).toBe(false)
+  })
+  it('(d) /mail (계정 없음) 창 → 생략 안 함', () => {
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail`, visible: true }], ORIGIN, false)).toBe(false)
+  })
+  it('(e) alwaysShow=true(Safari/iOS) → 생략 안 함', () => {
+    expect(shouldSuppress(mailPayload, [{ url: `${ORIGIN}/mail/7`, visible: true }], ORIGIN, true)).toBe(false)
+  })
+  it('(f) 태그 방어: tag 가 null 이거나 mail-숫자 형태가 아니면 생략 안 함', () => {
+    expect(shouldSuppress({ ...mailPayload, tag: null }, [{ url: `${ORIGIN}/mail/7`, visible: true }], ORIGIN, false)).toBe(
+      false,
+    )
+    expect(
+      shouldSuppress({ ...mailPayload, tag: 'mail-abc' }, [{ url: `${ORIGIN}/mail/7`, visible: true }], ORIGIN, false),
+    ).toBe(false)
+  })
 })
 
 describe('isAppRouteUrl', () => {
