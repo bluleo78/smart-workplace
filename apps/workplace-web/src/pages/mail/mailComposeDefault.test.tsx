@@ -19,6 +19,7 @@ import type { MailDraftSaveRequest } from '@/types/mailDraft'
 import type { MailComposeDefault } from '@/types/mailSettings'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
+import { createMailSettings } from '../../../e2e/factories/mailSettings.factory'
 import { createMailSignature } from '../../../e2e/factories/mailSignature.factory'
 
 afterEach(() => {
@@ -367,6 +368,7 @@ test('미리_연_창을_10초_안에_꺼내지_않으면_닫고_우측_하단에
     expect(win.close).not.toHaveBeenCalled()
     await act(() => vi.advanceTimersByTimeAsync(MAIL_COMPOSE_PREOPEN_TIMEOUT_MS))
     expect(win.close).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText('새 창을 준비하지 못해 우측 하단에 열었어요')).toBeInTheDocument()
     await expectDocked()
   } finally {
     vi.useRealTimers()
@@ -411,4 +413,46 @@ test('기본값_새_창이어도_첨부를_올리는_중이면_옮기지_않고_
   expect(post.calls).toHaveLength(0)
   expect(win.location.href).toBe('')
   expect(screen.getByTestId('mail-compose-dock')).not.toHaveClass('invisible')
+})
+
+// ── 새 창 옮기기 경계 — 앞 회차의 보내는 중·미리 연 창을 닫은 경우 ──
+
+test('앞_회차가_보내는_중이어도_새_회차는_새_창으로_옮긴다', async () => {
+  const win = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  // 앞 회차 A(우측 하단 답장)의 보내기 요청이 끝나지 않는다 — 도크 본체는 회차 사이에 다시 마운트되지 않아 보내는 중 상태가 남는다.
+  const send = record('post', '/api/v1/mail/accounts/1/send', () => new Promise<Response>(() => {}))
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', () =>
+    HttpResponse.json({ id: 105, version: 1, updatedAt: '2026-11-12T00:00:00Z' }, { status: 201 }),
+  )
+  const view = renderWith('DOCK', { extra: [send.handler, post.handler] })
+  await settingsLoaded(view, 'DOCK')
+  await openReplyWithBody(view, 'A 답장')
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  // 기본값을 새 창으로 바꾸고 새 회차 B 를 연다.
+  act(() => view.queryClient.setQueryData(mailSettingsKey, createMailSettings({ composeMode: 'WINDOW' })))
+  await view.user.click(screen.getByTestId('open-compose'))
+
+  await waitFor(() => expect(win.location.href).toContain('draftId=105'))
+  expect(screen.queryByText('보내는 중이에요')).not.toBeInTheDocument()
+  expect(win.close).not.toHaveBeenCalled()
+  forgetMailComposePopout(105)
+})
+
+test('미리_연_창을_닫았으면_저장하지_않고_우측_하단에_둔다', async () => {
+  // 작성기가 준비되기 전에 사용자가 빈 창을 이미 닫았다.
+  const win = { ...fakeWindow(), closed: true }
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', () =>
+    HttpResponse.json({ id: 105, version: 1, updatedAt: '2026-11-12T00:00:00Z' }, { status: 201 }),
+  )
+  const view = renderWith('WINDOW', { extra: [post.handler] })
+  await settingsLoaded(view, 'WINDOW')
+  await view.user.click(screen.getByTestId('open-compose'))
+  await expectDocked()
+  // 손대지 않은 작성으로 서버 임시저장을 만들지 않는다.
+  await act(() => new Promise((r) => setTimeout(r, 300)))
+  expect(post.calls).toHaveLength(0)
+  expect(win.location.href).toBe('')
 })

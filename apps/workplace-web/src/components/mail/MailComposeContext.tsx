@@ -11,6 +11,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { mailSettingsKey, useMailSettings } from '@/hooks/queries/useMailSettings';
 import { getIsMobile } from '@/hooks/useIsMobile';
@@ -264,6 +265,7 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
           record.win.close();
           record.win = undefined;
           endWindowMove(instanceId);
+          toast('새 창을 준비하지 못해 우측 하단에 열었어요');
         }, MAIL_COMPOSE_PREOPEN_TIMEOUT_MS);
       }
     },

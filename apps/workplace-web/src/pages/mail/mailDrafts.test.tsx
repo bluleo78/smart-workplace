@@ -1172,6 +1172,31 @@ test('기본값_새_창에서_지워진_임시저장을_열면_빈_창을_닫고
   await waitFor(() => expect(open).toHaveBeenCalledTimes(2))
 })
 
+test('기본값_새_창에서_받는_동안_다시_누르면_창을_하나만_연다', async () => {
+  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '두 번 누를 메일', version: 1 })])
+  // 임시저장 받기를 붙잡아 둔다 — 받는 중에 같은 행을 다시 누른다.
+  const held = gate()
+  server.override.get = async () => {
+    await held.held
+    return undefined
+  }
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  expect(open).toHaveBeenCalledTimes(1)
+  await view.user.click(screen.getByTestId('mail-draft-row-7'))
+  // 두 번째 클릭은 새 창을 열지 않고 첫 창을 앞으로 가져온다.
+  expect(open).toHaveBeenCalledTimes(1)
+  expect(win.focus).toHaveBeenCalled()
+  held.release()
+  await waitFor(() => expect(win.location.href).toBe(`/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`))
+  expect(open).toHaveBeenCalledTimes(1)
+  forgetMailComposePopout(7)
+})
+
 /** useOpenMailDraft 의 beforeOpen 을 보려고 공급자 안에 두는 시험용 단추 — 기본값대로(default) 임시저장 7 을 연다. */
 function OpenProbe({ onBefore }: { onBefore: () => void }) {
   const openDraft = useOpenMailDraft()

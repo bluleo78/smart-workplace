@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { type ComposePlacement, useMailCompose } from '@/components/mail/MailComposeContext';
 import { handleApiError } from '@/lib/api-error';
 import {
+  forgetMailComposePopout,
   liveMailComposePopout,
   MAIL_COMPOSE_WINDOW_ID,
   mailComposeWindowUrl,
@@ -130,6 +131,9 @@ export function useOpenMailDraft() {
         // 막혔으면 다시 창을 열지 않고 우측 하단으로(default-inline — 읽기 창 기본값이 아니니 곧 우측 하단).
         blocked = true;
         placement = 'default-inline';
+      } else {
+        // 받는 동안에도 같은 행을 다시 누르면 두 번째 창을 열지 않고 이 창을 앞으로 가져오게, 창을 연 바로 뒤에 기억한다.
+        rememberMailComposePopout(id, blankWin);
       }
     }
     if (blankWin) {
@@ -137,16 +141,18 @@ export function useOpenMailDraft() {
       try {
         await qc.fetchQuery(mailDraftQuery(id));
       } catch (e) {
-        // 지워진 임시저장 등 — 빈 창은 닫고 메인 창에서 알린다(새 창 안에서 실패하지 않게). 창은 기억하지 않았으니 다시 누르면 다시 연다.
+        // 지워진 임시저장 등 — 빈 창은 닫고 메인 창에서 알린다(새 창 안에서 실패하지 않게). 기억도 지워 다시 누르면 다시 연다.
+        forgetMailComposePopout(id);
         win.close();
         handleApiError(e, '임시저장을 불러오지 못했어요');
         return;
       }
       // 받는 동안 사용자가 빈 창을 닫았다 — 그만둔 것이라 메인 창에 열지 않는다(↗ 와 같은 규칙).
-      if (win.closed) return;
+      if (win.closed) {
+        forgetMailComposePopout(id);
+        return;
+      }
       opts.beforeOpen?.();
-      // 그 창이 쓰는 동안 다시 열면 앞으로 가져오게 기억한다(↗ 로 옮긴 창과 같다).
-      rememberMailComposePopout(id, win);
       win.location.href = mailComposeWindowUrl(id, { opener: MAIL_COMPOSE_WINDOW_ID });
       return;
     }

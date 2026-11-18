@@ -595,6 +595,11 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       toastMailComposePopupBlocked();
       return;
     }
+    // 미리 연 창을 사용자가 이미 닫았다 — 손대지 않은 작성으로 서버 임시저장을 만들지 않게 저장 전에 그만두고 우측 하단에 둔다.
+    if (preopened?.closed) {
+      endWindowMove(opened);
+      return;
+    }
     // 아직 서버에 없고 손댄 것도 없는 작성 — 강제 저장으로 만드는 임시저장은 새 창에서도 손대지 않고 닫으면 지운다(fresh).
     const fresh = autosave.currentDraftId() == null && getSnapshot().empty;
     setLeaving(true);
@@ -634,12 +639,12 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     blockedReason ??
     (autosave.status === 'gone'
       ? '다른 곳에서 보냈거나 버린 메일이라 새 창으로 열 수 없어요'
-      : send.isPending || preparingSend
-        ? '보내는 중이에요'
-        : aiGenerating
-          ? 'AI 초안을 만드는 중이에요'
-          : null);
-  const popoutBlockedReason = popoutBaseBlockedReason ?? (leaving ? '새 창을 여는 중이에요' : null);
+      : aiGenerating
+        ? 'AI 초안을 만드는 중이에요'
+        : null);
+  // 「보내는 중」도 따로 뺀다 — 도크 본체는 회차 사이에 다시 마운트되지 않아 앞 회차가 보내는 중이면 새 회차가 잘못 막힌다. ↗ 단추는 막는다.
+  const popoutBlockedReason =
+    popoutBaseBlockedReason ?? (send.isPending || preparingSend ? '보내는 중이에요' : leaving ? '새 창을 여는 중이에요' : null);
   // 작성 방식 기본값 「새 창」(WP-1744) — 이 회차를 위해 openCompose 가 미리 연 창이 있으면, 작성기가 처음 본문을 알린 뒤(지금 내용을
   // 임시저장할 수 있을 때) 한 번 꺼내 ↗ 와 같은 흐름으로 옮긴다. 꺼내면 비워지므로 다시 돌아도(StrictMode 등) 두 번 옮기지 않는다.
   // 처음 본문에 서명이 아직 없으면(서명 조회 중에 열었다) 조회가 끝나고 위 늦은 서명 넣기 효과가 이 회차를 정한 뒤(signatureDecidedFor)에
