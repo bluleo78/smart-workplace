@@ -176,7 +176,10 @@ public class MailSignatureService {
           if (html.getBytes(StandardCharsets.UTF_8).length > MAX_SAVED_HTML_BYTES) {
             throw new MailValidationException(TOO_LONG);
           }
-          SignatureRow row = repository.upsert(userId, html, req.autoNew(), req.autoReply());
+          // 빈 서명(「비우기」)은 편집기로 돌아가므로 원본 모드를 남기지 않는다. pasted 를 모르는 옛 웹(null)도 false.
+          boolean pasted = !html.isEmpty() && Boolean.TRUE.equals(req.pasted());
+          SignatureRow row =
+              repository.upsert(userId, html, req.autoNew(), req.autoReply(), pasted);
           return toResponse(row, dropped);
         });
   }
@@ -283,6 +286,7 @@ public class MailSignatureService {
   }
 
   private static MailSignatureResponse toResponse(SignatureRow r, int dropped) {
-    return new MailSignatureResponse(r.html(), r.autoNew(), r.autoReply(), r.updatedAt(), dropped);
+    return new MailSignatureResponse(
+        r.html(), r.autoNew(), r.autoReply(), r.pasted(), r.updatedAt(), dropped);
   }
 }

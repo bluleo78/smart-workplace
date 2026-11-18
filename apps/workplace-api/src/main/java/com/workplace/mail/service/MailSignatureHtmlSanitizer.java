@@ -51,14 +51,18 @@ public class MailSignatureHtmlSanitizer {
   static final double MAX_SIZE_PX = 800;
 
   static final double MAX_SIZE_EM = 50;
+
+  /** pt 크기 상한 — 600pt 는 800px 와 같다(1pt = 4/3px). Outlook 에서 붙여 넣은 서명은 표·칸 폭을 pt 로 준다(WP-1726). */
+  static final double MAX_SIZE_PT = 600;
+
   static final double MAX_SIZE_PERCENT = 100;
 
   /** 크기 CSS 속성 — 값이 {@link #SIZE_VALUE} 모양이고 상한 안일 때만 남긴다. */
   private static final Set<String> CSS_SIZE = Set.of("width", "height", "max-width");
 
-  /** 크기 값 — auto, 0, 또는 양수 + px·%·em(pt·vw·calc() 등은 보지 않고 뺀다). */
+  /** 크기 값 — auto, 0, 또는 양수 + px·%·em·pt(vw·calc() 등은 보지 않고 뺀다). */
   private static final Pattern SIZE_VALUE =
-      Pattern.compile("^(?:auto|0|(\\d+(?:\\.\\d+)?|\\.\\d+)(px|%|em))$");
+      Pattern.compile("^(?:auto|0|(\\d+(?:\\.\\d+)?|\\.\\d+)(px|%|em|pt))$");
 
   /** HTML width·height 속성 값 — 정수(px) 또는 정수%. */
   private static final Pattern SIZE_ATTR = Pattern.compile("^(\\d+(?:\\.\\d+)?)(%?)$");
@@ -134,7 +138,7 @@ public class MailSignatureHtmlSanitizer {
    * 이스케이프로 앞 검사를 피하는 것을 막는다)가 있으면 그 선언을 뺀다.
    *
    * <p>보내는 메일에 실리는 서명이 받는 쪽 화면을 망가뜨리지 않게, margin·padding·text-indent 의 음수 값(본문 위 글자를 덮거나 글자를 숨긴다)은
-   * 빼고, width·height·max-width 는 px·%·em 이고 상한(800px·100%·50em) 안일 때만 남긴다.
+   * 빼고, width·height·max-width 는 px·%·em·pt 이고 상한(800px·100%·50em·600pt) 안일 때만 남긴다.
    */
   static String filterStyle(String style) {
     List<String> kept = new ArrayList<>();
@@ -173,6 +177,7 @@ public class MailSignatureHtmlSanitizer {
     return switch (m.group(2)) {
       case "px" -> n <= MAX_SIZE_PX;
       case "%" -> n <= MAX_SIZE_PERCENT;
+      case "pt" -> n <= MAX_SIZE_PT;
       default -> n <= MAX_SIZE_EM;
     };
   }

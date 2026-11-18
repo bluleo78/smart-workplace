@@ -125,4 +125,31 @@ class MailSignatureHtmlSanitizerTest {
     assertThat(out).contains("<table width=\"100%\">");
     assertThat(out).contains("<td>y</td>");
   }
+
+  @Test
+  void 크기는_pt도_받고_600pt까지만_남긴다() {
+    // WP-1726: Outlook 붙여넣은 서명은 표·칸 폭을 pt 로 준다(600pt = 800px).
+    String out =
+        clean(
+            "<table style=\"width:600pt\"><tr><td style=\"width:120.5pt;height:12pt\">a</td>"
+                + "<td style=\"width:601pt\">b</td></tr></table>");
+
+    assertThat(out).contains("<table style=\"width:600pt\">");
+    assertThat(out).contains("<td style=\"width:120.5pt;height:12pt\">a</td>");
+    assertThat(out).contains("<td>b</td>");
+  }
+
+  @Test
+  void 붙여넣은_서명의_스크립트와_on속성은_남지_않는다() {
+    String out =
+        clean(
+            "<table onclick=\"x()\"><tr><td style=\"font-family:'Malgun Gothic';font-size:10pt\""
+                + " onmouseover=\"y()\">홍길동<script>alert(1)</script></td></tr></table>");
+
+    assertThat(out)
+        .doesNotContain("script")
+        .doesNotContain("onclick")
+        .doesNotContain("onmouseover");
+    assertThat(out).contains("font-family:'Malgun Gothic';font-size:10pt");
+  }
 }

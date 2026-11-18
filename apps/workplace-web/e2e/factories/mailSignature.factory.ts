@@ -3,5 +3,5 @@
 import type { MailSignature } from '../../src/types/mailSignature'
 
 export function createMailSignature(overrides: Partial<MailSignature> = {}): MailSignature {
-  return { html: '', autoNew: true, autoReply: false, updatedAt: null, droppedImageCount: 0, ...overrides }
+  return { html: '', autoNew: true, autoReply: false, pasted: false, updatedAt: null, droppedImageCount: 0, ...overrides }
 }

@@ -95,6 +95,11 @@ public class MailSignature extends TableImpl<MailSignatureRecord> {
      */
     public final TableField<MailSignatureRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.mail_signature.pasted</code>.
+     */
+    public final TableField<MailSignatureRecord, Boolean> PASTED = createField(DSL.name("pasted"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private MailSignature(Name alias, Table<MailSignatureRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

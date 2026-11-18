@@ -2,6 +2,7 @@
 // Outlook 에서 복사한 서명을 붙여 넣으면 글꼴·색·로고 이미지·링크를 그대로 남긴다(signatureEditorExtensions).
 // 작성창(MailComposer)과 같은 툴바 모양·링크 대화상자를 쓰고, 이미지는 파일 선택·이미지만 붙여넣기로 data: URI 를 넣는다 —
 // 저장(PUT)하면 서버가 data: 를 받아 서명 이미지로 저장하고 src 를 서명 이미지 경로로 바꾼다.
+import { AllSelection, Selection } from '@tiptap/pm/state';
 import { type Editor, EditorContent, useEditor } from '@tiptap/react';
 import { Bold, ImagePlus, Italic, Link2, Underline as UnderlineIcon } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
@@ -10,6 +11,7 @@ import { toast } from 'sonner';
 import { blobToDataUri } from '@/api/blobContent';
 import { filesFromPaste } from '@/lib/clipboardFiles';
 import { ACCEPTED_IMAGE_TYPES } from '@/lib/imageUpload';
+import { toPastedSignatureHtml } from '@/lib/mailSignaturePaste';
 
 import { LinkUrlDialog } from '../MailComposer';
 import { applyLink } from '../mailEditorLink';
@@ -28,6 +30,20 @@ const IMAGE_TYPE_MSG = 'PNG·JPEG·GIF·WebP 이미지만 넣을 수 있어요';
 const EDITOR_CLASS =
   'min-h-[8rem] overflow-y-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
+/**
+ * 이 붙여넣기가 서명을 통째로 바꾸는가(WP-1726 코드 리뷰 결정) — 편집기가 비었거나(글자도 이미지도 없음) 전체를 골랐을 때만 그렇다.
+ * 이때만 서식 있는 붙여넣기를 「붙여넣은 서명 · 원본 그대로」로 넘긴다. 쓰던 서명 중간에 붙이는 조각(웹 페이지에서 복사한 전화번호에
+ * 크롬이 <span style> 을 붙이는 등)은 묻지 않고 서명을 지우면 안 되므로 지금처럼 편집기에 넣는다.
+ */
+function replacesWholeSignature(editor: Editor): boolean {
+  // 「비었다」는 저장 값(editorValue)과 같은 정의 — 글자도 이미지도 없다.
+  if (editor.isEmpty) return true;
+  const { doc, selection } = editor.state;
+  // 전체 고르기(Ctrl+A 는 AllSelection)이거나, 선택이 문서 처음부터 끝까지를 덮는다.
+  if (selection instanceof AllSelection) return true;
+  return !selection.empty && selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to;
+}
+
 /** 편집기 내용 → 저장 값. 글자도 이미지도 없으면(빈 문단만) '' — 서버의 「빈 서명」과 같은 표현. */
 function editorValue(editor: Editor): string {
   return editor.isEmpty ? '' : editor.getHTML();
@@ -41,6 +57,11 @@ export interface MailSignatureEditorProps {
    * 서버 HTML 과 편집기 출력은 글자 단위로 다를 수 있으므로(속성 순서·빈 태그) 「바뀜」 판정의 기준은 이 값으로 잡는다.
    */
   onChange: (html: string, initial: boolean) => void;
+  /**
+   * 표·인라인 style·글꼴·클래스 서식이 든 서명을 붙여 넣었다(WP-1726) — 편집기는 그 붙여넣기를 받지 않고, 클래스 서식을 인라인으로 푼
+   * HTML 을 넘긴다. 카드가 「붙여넣은 서명 · 원본 그대로」 미리 보기로 바꾼다. 없으면 지금처럼 편집기가 받는다.
+   */
+  onRichPaste?: (html: string) => void;
 }
 
 /** 카드가 쓰는 손잡이. */
@@ -53,12 +74,15 @@ export interface MailSignatureEditorHandle {
 
 /** 서식 있는 서명 입력칸 — 툴바(굵게·기울임·밑줄·링크·이미지)와 본문. */
 export const MailSignatureEditor = forwardRef<MailSignatureEditorHandle, MailSignatureEditorProps>(
-  function MailSignatureEditor({ initialHtml, onChange }, ref) {
+  function MailSignatureEditor({ initialHtml, onChange, onRichPaste }, ref) {
     const [linkDialog, setLinkDialog] = useState(false);
     const [linkUrl, setLinkUrl] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
     // editorProps·onUpdate 는 에디터를 만들 때 한 번 정해지므로 최신 콜백을 ref 로 넘긴다.
     const onChangeRef = useRef(onChange);
+    const onRichPasteRef = useRef(onRichPaste);
+    // 붙여넣기 처리기(editorProps)가 「통째로 바꾸는가」를 볼 편집기 — useEditor 결과는 처리기를 만들 때 아직 없어 ref 로 넘긴다.
+    const liveEditorRef = useRef<Editor | null>(null);
     const insertImagesRef = useRef<(files: File[]) => void>(() => {});
 
     const editor = useEditor({
@@ -75,6 +99,22 @@ export const MailSignatureEditor = forwardRef<MailSignatureEditorHandle, MailSig
           insertImagesRef.current(images);
           return true;
         },
+        handleDOMEvents: {
+          // 표·인라인 style·글꼴·클래스 서식이 든 HTML 로 서명을 통째로 바꾸면(WP-1726) ProseMirror 가 클립보드를 스키마로 읽기
+          // (서식이 빠진다) 전에 가로채 카드로 넘긴다. 쓰던 서명 중간에 붙이는 조각은 편집기에 둔다(replacesWholeSignature).
+          // 이미지만 든 붙여넣기는 text/html 이 없어 여기서 걸리지 않고 위 handlePaste 로 간다.
+          // 「통째로 바꾸는가」를 먼저 본다 — 쓰던 서명 중간 붙여넣기는 클립보드 HTML 을 열지 않고 바로 편집기로 보낸다.
+          paste: (_view, event) => {
+            const onRich = onRichPasteRef.current;
+            const live = liveEditorRef.current;
+            if (!onRich || !live || !replacesWholeSignature(live)) return false;
+            const pasted = toPastedSignatureHtml(event.clipboardData?.getData('text/html') ?? '');
+            if (pasted === null) return false;
+            event.preventDefault();
+            onRich(pasted);
+            return true;
+          },
+        },
         attributes: {
           'data-testid': 'mail-signature-editor',
           'aria-label': '서명',
@@ -85,6 +125,8 @@ export const MailSignatureEditor = forwardRef<MailSignatureEditorHandle, MailSig
 
     useEffect(() => {
       onChangeRef.current = onChange;
+      onRichPasteRef.current = onRichPaste;
+      liveEditorRef.current = editor;
       insertImagesRef.current = insertImages;
     });
 

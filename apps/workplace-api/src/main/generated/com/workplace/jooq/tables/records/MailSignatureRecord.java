@@ -118,6 +118,20 @@ public class MailSignatureRecord extends UpdatableRecordImpl<MailSignatureRecord
         return (OffsetDateTime) get(6);
     }
 
+    /**
+     * Setter for <code>public.mail_signature.pasted</code>.
+     */
+    public void setPasted(Boolean value) {
+        set(7, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_signature.pasted</code>.
+     */
+    public Boolean getPasted() {
+        return (Boolean) get(7);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -141,7 +155,7 @@ public class MailSignatureRecord extends UpdatableRecordImpl<MailSignatureRecord
     /**
      * Create a detached, initialised MailSignatureRecord
      */
-    public MailSignatureRecord(Long id, Long tenantId, Long userId, String html, Boolean autoNew, Boolean autoReply, OffsetDateTime updatedAt) {
+    public MailSignatureRecord(Long id, Long tenantId, Long userId, String html, Boolean autoNew, Boolean autoReply, OffsetDateTime updatedAt, Boolean pasted) {
         super(MailSignature.MAIL_SIGNATURE);
 
         setId(id);
@@ -151,6 +165,7 @@ public class MailSignatureRecord extends UpdatableRecordImpl<MailSignatureRecord
         setAutoNew(autoNew);
         setAutoReply(autoReply);
         setUpdatedAt(updatedAt);
+        setPasted(pasted);
         resetTouchedOnNotNull();
     }
 }
