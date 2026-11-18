@@ -88,6 +88,57 @@ test('답장 → 받는사람은 발신자 칩, 제목 Re:, inReplyToMessageId �
   expect(send.last().body.to).toEqual(['alice@example.com'])
 })
 
+// ── 처음 초점(WP-1746) ─────────────────────────────────────────────
+// 답장은 받는 사람이 이미 채워져 있으니 본문 첫 줄에서, 전달·새 메일은 받는 사람부터(#802). 에디터가 비동기로 준비된 뒤 옮긴다.
+
+/** 지금 초점이 본문 에디터(ProseMirror contenteditable) 안에 있는가. */
+const bodyFocused = () => screen.getByTestId('mail-composer-body').contains(document.activeElement)
+
+test('답장을 열면 초점이 받는 사람이 아니라 본문 에디터에 있다', async () => {
+  const view = withSource()
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-reply'))
+  await screen.findByTestId('mail-compose-dock')
+  await waitFor(() => expect(bodyFocused()).toBe(true))
+  expect(screen.getByTestId('mail-compose-to')).not.toHaveFocus()
+})
+
+test('전체 답장도 본문 에디터에 초점이 간다', async () => {
+  const view = withSource()
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-reply-all'))
+  await screen.findByTestId('mail-compose-dock')
+  await waitFor(() => expect(bodyFocused()).toBe(true))
+})
+
+test('전달·새 메일은 지금처럼 받는 사람에 초점이 있고 본문으로 옮기지 않는다(#802)', async () => {
+  const view = withSource()
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-forward'))
+  await screen.findByTestId('mail-compose-quote')
+  await waitFor(() => expect(screen.getByTestId('mail-compose-to')).toHaveFocus())
+  // 에디터가 준비된 뒤에도(인용문까지 그려진 뒤) 초점이 본문으로 넘어가지 않는다.
+  await screen.findByTestId('mail-compose-quote-frame')
+  expect(bodyFocused()).toBe(false)
+  await view.user.click(screen.getByTestId('mail-compose-close'))
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+  await view.user.click(screen.getByTestId('mail-compose-new'))
+  await screen.findByTestId('mail-compose-dock')
+  await waitFor(() => expect(screen.getByTestId('mail-compose-to')).toHaveFocus())
+  expect(bodyFocused()).toBe(false)
+})
+
+test('답장 본문 초점은 한 번만 — 사용자가 제목으로 옮긴 뒤 다시 끌어오지 않는다', async () => {
+  const view = withSource()
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-reply'))
+  await waitFor(() => expect(bodyFocused()).toBe(true))
+  await view.user.click(screen.getByTestId('mail-compose-subject'))
+  await view.user.keyboard('x')
+  expect(screen.getByTestId('mail-compose-subject')).toHaveFocus()
+  expect(bodyFocused()).toBe(false)
+})
+
 test('인용문만 지워도 ✕ 는 임시저장(quoteRemoved)하고, 크게 보기에서 고친 제목·본문은 인용문을 지워도 그대로 발송된다', async () => {
   const send = sendHandler()
   const drafts = draftPosts()
@@ -284,18 +335,18 @@ async function openQuoteMail(extra: NonNullable<Parameters<typeof renderMail>[1]
   return view
 }
 
-test('답장 인용문은 기본 접힘, 펼치면 표·서식은 그대로이고 원문 스타일·문서 래퍼는 새지 않으며 격리 머리말이 붙는다', async () => {
+test('답장 인용문은 기본 펼침(WP-1746)이고 구분선·원문 머리와 함께 표·서식은 그대로, 원문 스타일·문서 래퍼는 새지 않으며 격리 머리말이 붙는다', async () => {
   const { user } = await openQuoteMail()
   await user.click(screen.getByTestId('mail-reply'))
   const quote = await screen.findByTestId('mail-compose-quote')
-  expect(quote).not.toHaveAttribute('open')
-  await user.click(screen.getByTestId('mail-compose-quote-toggle'))
-  await waitFor(() => expect(quote).toHaveAttribute('open'))
+  expect(quote).toHaveAttribute('open')
   const srcDoc = screen.getByTestId('mail-compose-quote-frame').getAttribute('srcdoc')!
   expect(srcDoc).toContain('<table>')
   expect(srcDoc).toContain('bgcolor="#eeeeee"')
   expect(srcDoc).toContain('style="color:#0000ff"')
   expect(srcDoc).toContain('<font color="red">')
+  expect(srcDoc).toContain('<hr>')
+  expect(srcDoc).toContain('<b>보낸 사람:</b> 박지원 &lt;jiwon.park@test.local&gt;')
   // 슬림 스크롤바·링크 base(WP-275·WP-427)를 담은 공용 머리말이 붙는다 — 그 문자열 하나만 빼고 누출을 본다.
   expect(srcDoc).toContain(SANDBOX_HEAD)
   const original = srcDoc.replace(SANDBOX_HEAD, '')
@@ -305,7 +356,7 @@ test('답장 인용문은 기본 접힘, 펼치면 표·서식은 그대로이�
 test('높이 토글(전체 높이)이 펼침 상태를 무너뜨리지 않는다', async () => {
   const { user } = await openQuoteMail()
   await user.click(screen.getByTestId('mail-reply'))
-  await user.click(await screen.findByTestId('mail-compose-quote-toggle'))
+  await screen.findByTestId('mail-compose-quote')
   await user.click(screen.getByText('전체 높이', { exact: true }))
   expect(screen.getByTestId('mail-compose-quote-frame').className).toMatch(/h-64/)
   expect(screen.getByTestId('mail-compose-quote')).toHaveAttribute('open')
@@ -323,7 +374,7 @@ test('전달 인용문은 기본 펼침이고 카드에 제목·발신자가 보
   await waitFor(() => expect(quote).not.toHaveAttribute('open'))
 })
 
-test('발송 payload 는 에디터 본문 + 인용문 순서이고 원문 무손실·누출 없음, 텍스트 대안에도 인용 머리가 실린다', async () => {
+test('발송 payload 는 에디터 본문 + 인용문(wp_quote 감싸기) 순서이고 원문 무손실·누출 없음, 텍스트 대안에도 원문 머리가 「> 」 없이 실린다', async () => {
   const send = sendHandler()
   const { user } = await openQuoteMail([send.handler])
   await user.click(screen.getByTestId('mail-reply'))
@@ -331,13 +382,16 @@ test('발송 payload 는 에디터 본문 + 인용문 순서이고 원문 무손
   await user.click(screen.getByTestId('mail-compose-send'))
   await waitFor(() => expect(send.calls).toHaveLength(1))
   const { bodyHtml: html, bodyText } = send.last().body
-  expect(html.indexOf('스토리지 항목만')).toBeLessThan(html.indexOf('<blockquote>'))
   expect(html.indexOf('스토리지 항목만')).toBeGreaterThanOrEqual(0)
+  expect(html.indexOf('스토리지 항목만')).toBeLessThan(html.indexOf('<div class="wp_quote gmail_quote"><hr>'))
+  expect(html).not.toContain('<blockquote')
   expect(html).toContain('<table>')
   expect(html).toContain('bgcolor="#eeeeee"')
   for (const leak of ['<style', 'Papyrus', '<html', '<head']) expect(html).not.toContain(leak)
-  expect(bodyText).toContain('박지원 님이 작성:')
-  expect(bodyText).toContain('>')
+  expect(bodyText).toContain('보낸 사람: 박지원 <jiwon.park@test.local>')
+  expect(bodyText).toContain('제목: 4분기 인프라 예산 재검토 요청')
+  expect(bodyText).not.toMatch(/^> /m)
+  expect(bodyText.indexOf('스토리지 항목만')).toBeLessThan(bodyText.indexOf('보낸 사람:'))
 })
 
 test('본문 없이도 답장은 보낼 수 있지만 AI 검토는 비활성, 새 메일엔 인용문이 없고 검토도 비활성', async () => {
@@ -362,7 +416,8 @@ test('인용문 제거 버튼으로 지우면 블록이 사라지고 발송 payl
   await typeBody(user, '기밀 문단 없이 회신합니다.')
   await user.click(screen.getByTestId('mail-compose-send'))
   await waitFor(() => expect(send.calls).toHaveLength(1))
-  expect(send.last().body.bodyHtml).not.toContain('<blockquote>')
+  expect(send.last().body.bodyHtml).not.toContain('wp_quote')
+  expect(send.last().body.bodyHtml).not.toContain('보낸 사람:')
   expect(send.last().body.bodyHtml).toContain('기밀 문단 없이 회신합니다.')
 })
 
@@ -428,7 +483,7 @@ test('답장은 cid: 를 유지한 본문과 재첨부 대상(inlineImages)을 �
   const send = sendHandler()
   const { user } = await openInlineMail([send.handler])
   await user.click(screen.getByTestId('mail-reply'))
-  await user.click(await screen.findByTestId('mail-compose-quote-toggle'))
+  await screen.findByTestId('mail-compose-quote')
   await waitFor(() => expect(screen.getByTestId('mail-compose-quote-frame').getAttribute('srcdoc')).toMatch(/id="q-inline" src="data:image\/png;base64,/))
   expect(screen.getByTestId('mail-compose-quote-frame').getAttribute('srcdoc')).not.toContain('q-gone')
   await user.click(screen.getByTestId('mail-compose-send'))
@@ -504,10 +559,10 @@ test('AI 검토 탭 → 노트·개선본(격리 프레임) → 개선본으로 
   // #765 — 코칭 요청에 남의 원문(인용문)이 실리지 않는다. 백엔드는 bodyText 만 읽으므로 그 필드가 실제 관문이다.
   const req = coach.last().body
   expect(req.bodyHtml).toContain('자료 빨리 보내주세요')
-  expect(req.bodyHtml).not.toContain('<blockquote>')
-  expect(req.bodyHtml).not.toContain('님이 작성')
+  expect(req.bodyHtml).not.toContain('wp_quote')
+  expect(req.bodyHtml).not.toContain('보낸 사람:')
   expect(req.bodyText).toContain('자료 빨리 보내주세요')
-  expect(req.bodyText).not.toContain('님이 작성')
+  expect(req.bodyText).not.toContain('보낸 사람:')
   expect(req.bodyText).not.toContain('원문')
   await user.click(screen.getByTestId('mail-coaching-apply'))
   await waitFor(() => expect(screen.getByTestId('mail-composer-body')).toHaveTextContent('다듬은 개선본입니다'))

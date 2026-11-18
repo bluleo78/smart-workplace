@@ -862,14 +862,17 @@ export function EventDialog({
                 )}
               </EventFormRow>
 
-              {/* 회의록 — 새 일정은 고른 노트를 들고 있다 저장 뒤 잇고, 기존 일정은 연결·해제가 바로 반영된다. 기존 일정은 조회가 끝나야 그린다(「노트 연결」이 번쩍이지 않게) */}
-              {noteRowAvailable && (!isEdit || noteQuery.data) && (
+              {/* 회의록 — 새 일정은 고른 노트를 들고 있다 저장 뒤 잇고, 기존 일정은 연결·해제가 바로 반영된다. 기존 일정은 조회가 끝나야 그린다(「노트 연결」이 번쩍이지 않게).
+                  조회가 실패하면 줄은 그리고 카드 자리에 오류·「다시 시도」를 둔다 — 줄째 숨기면 연결이 없다고 오해한다(WP-1737) */}
+              {noteRowAvailable && (!isEdit || noteQuery.data || noteQuery.isError) && (
                 <LiveEventNoteRow
                   control={form.control}
                   draft={pendingCreate}
                   note={isEdit ? noteQuery.data?.note : null}
                   pending={pendingNote}
                   editable
+                  // 다시 읽기만 실패하고 앞서 받은 카드가 있으면 그 카드를 그대로 둔다 — 멀쩡한 연결을 오류로 덮지 않게
+                  failedQuery={isEdit && noteQuery.isError && !noteQuery.data ? noteQuery : undefined}
                   onPick={() => setNoteDialogTitle(form.getValues('title'))}
                   onCreate={openMeetingDialog}
                   onUnlink={() => {

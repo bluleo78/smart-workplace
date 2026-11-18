@@ -183,6 +183,23 @@ test('AI 답장 초안의 HTML 특수문자는 이스케이프돼 글자 그대�
   await waitFor(() => expect(screen.getByTestId('mail-composer-body')).toHaveTextContent('조건은 a<b & c 입니다'))
 })
 
+// WP-1746 — AI 답장 초안이 채워진 답장은 초안 끝에 커서가 있어 클릭 없이 바로 덧붙인다(초안을 덮지 않는다).
+test('AI 답장 초안으로 연 답장은 본문 초안 끝에 초점이 있어 바로 친 글이 초안 뒤에 붙는다', async () => {
+  const send = record<{ bodyHtml: string }>('post', '/api/v1/mail/accounts/1/send', () =>
+    HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' }),
+  )
+  const { user } = renderAi(undefined, [send.handler, replyDraft('첫 줄\n둘째 줄')])
+  await user.click(await screen.findByTestId('mail-row-7'))
+  await user.click(await screen.findByTestId('mail-ai-reply-draft'))
+  const body = await screen.findByTestId('mail-composer-body')
+  await waitFor(() => expect(body).toHaveTextContent('둘째 줄'))
+  await waitFor(() => expect(body.contains(document.activeElement)).toBe(true))
+  await user.keyboard(' 덧붙임')
+  await user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  expect(send.last().body.bodyHtml.startsWith('<p>첫 줄</p><p>둘째 줄 덧붙임</p>')).toBe(true)
+})
+
 test('손대지 않은 AI 답장 초안은 ✕ 로 저장 없이 닫고, 고친 뒤엔 임시저장하고 닫는다(WP-577)', async () => {
   const drafts = record<{ bodyHtml: string }>('post', '/api/v1/mail/drafts', () =>
     HttpResponse.json({ id: 77, version: 1, updatedAt: '2026-10-21T01:00:00Z' }),

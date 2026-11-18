@@ -355,7 +355,7 @@ test.describe('받은편지함', () => {
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-10').click()
     await page.getByTestId('mail-reply').click()
-    await page.getByTestId('mail-compose-quote-toggle').click()
+    // 답장 인용문도 기본 펼침이다(WP-1746) — 토글 없이 액자가 보인다.
     const frame = page.getByTestId('mail-compose-quote-frame')
     await expect(frame).toBeVisible()
     const border = await frame.locator('..').evaluate((el) => getComputedStyle(el).borderWidth)

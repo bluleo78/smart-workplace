@@ -23,12 +23,21 @@ public final class NewContentExtractor {
   static final int TAIL_CHARS = 1_000;
   static final String ELLIPSIS = "…";
 
-  /** HTML 인용 블록 시작(Outlook divRplyFwdMsg · Gmail gmail_quote · Apple Mail blockquote type=cite). */
+  /**
+   * HTML 인용 블록 시작(Outlook divRplyFwdMsg · Gmail gmail_quote · 우리 앱 wp_quote · Apple Mail blockquote
+   * type=cite).
+   */
   private static final List<Pattern> HTML_QUOTE_STARTS =
       List.of(
           Pattern.compile("<div[^>]*\\bid\\s*=\\s*[\"']?divRplyFwdMsg", Pattern.CASE_INSENSITIVE),
+          // Gmail gmail_quote 와 우리 앱 답장·전달 감싸기 wp_quote(WP-1746)를 한 패턴으로 — 본문을 한 번만 훑는다.
+          // wp_quote 는 웹 mailQuote.ts buildQuote 의 <div class="wp_quote gmail_quote"> 와 같은 표시다.
+          // 구분선·머리·원문이
+          // 모두 이 안에 있어 여기서 자르면 머리까지 함께 빠진다. gmail_quote 를 빼더라도 wp_quote 로 잘리게 둘 다 둔다.
+          // 한쪽을 바꾸면 다른 쪽도 함께 바꾼다.
           Pattern.compile(
-              "<div[^>]*\\bclass\\s*=\\s*[\"'][^\"']*\\bgmail_quote", Pattern.CASE_INSENSITIVE),
+              "<div[^>]*\\bclass\\s*=\\s*[\"'][^\"']*\\b(?:gmail_quote|wp_quote)",
+              Pattern.CASE_INSENSITIVE),
           Pattern.compile("<blockquote[^>]*\\btype\\s*=\\s*[\"']?cite", Pattern.CASE_INSENSITIVE));
 
   private static final Pattern ORIGINAL_MESSAGE =

@@ -237,9 +237,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const aiDraftEnabled = draft?.mode === 'new' && aiAvailable && accountAiEnabled;
   const ai = useMailAiDraft(draft?.accountId);
   const aiGenerating = ai.phase === 'generating';
-  // AI 초안을 넣은 뒤 본문 초점 요청(회차) — 생성 중 inert 가 풀린 렌더 뒤에 처리한다. 처리한 회차는 ref 로 기억한다.
-  const [aiFocusRequest, setAiFocusRequest] = useState(0);
-  const aiFocusDoneRef = useRef(0);
+  // 본문 끝 초점 요청 깨우기 — AI 초안을 넣은 뒤 요청(bodyFocusRef)을 걸고 이 값을 올려 아래 초점 효과를 다시 돌린다.
+  const [bodyFocusNonce, setBodyFocusNonce] = useState(0);
   // 데스크톱 창 크기 — 작은 창 / 최소화 / 크게 보기(WP-575). 하나의 상태라 최소화와 크게 보기가 동시에 걸리지 않는다.
   // 새 작성마다 작은 창으로 시작한다("항상 크게" 설정 없음). 모바일은 항상 화면 전체라 이 값을 쓰지 않는다.
   const [size, setSize] = useState<'dock' | 'min' | 'fill'>('dock');
@@ -272,6 +271,10 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const [composerReadyFor, setComposerReadyFor] = useState<number | undefined>(undefined);
   // 늦은 서명 넣기를 이미 판단한 회차 — 한 회차에 한 번만(넣었든 안 넣었든) 정한다.
   const lateSignatureDoneRef = useRef<number | undefined>(undefined);
+  // 아직 주지 않은 본문 끝 초점 요청 하나 — 답장을 열 때(WP-1746)·AI 초안을 넣은 뒤(WP-576) 건다. 그 회차의 에디터가 준비되고
+  // 생성 중(inert)이 아닐 때 한 번 주고 비운다. dropIfMinimized: 최소화로 숨어 있으면 주지 않고 버린다(AI 초안 — 페이지에서 하던 일을
+  // 빼앗지 않게). false 면 펼칠 때까지 남겨 둔다(답장 — 처음 초점이라 펼친 뒤 받는 게 맞다).
+  const bodyFocusRef = useRef<{ instanceId: number | undefined; dropIfMinimized: boolean } | undefined>(undefined);
   // 인용문을 지웠는지 — 기밀 문단을 빼고 회신하는 것도 쓴 내용으로 본다.
   const [quoteRemoved, setQuoteRemoved] = useState(false);
   // 첨부(WP-574) — 📎·끌어다 놓기로 받은 파일을 바로 올린다. 창 전체가 놓을 자리라 패널에 dropProps 를 편다.
@@ -392,9 +395,17 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     setBodyEdited(false);
     // 임시보관함에서 연 작성은 지웠던 인용문 상태를 이어받는다 — 다음 저장이 quoteRemoved 를 false 로 되돌려 인용문이 되살아나지 않게.
     setQuoteRemoved(!!draft.quoteRemoved);
-    // 본문 리치텍스트 에디터가 자동으로 포커스를 가져가 수신자→제목→본문 순서를 건너뛰던
-    // 문제 수정 — 패널이 열리면 "받는사람"으로 초점을 명시적으로 이동 (#802).
-    toInputRef.current?.focus();
+    // 처음 초점 — 답장(전체 답장 포함)은 받는 사람이 이미 채워져 있으니 본문으로(WP-1746, Outlook 식). 에디터는 비동기로 준비되므로
+    // 여기서는 요청만 걸고 아래 「본문 끝 초점」 효과가 composerReadyFor 뒤에 준다. 늘 「내가 쓴 글 끝」(focusEnd — 서명과 그 앞 빈 줄 위)이라
+    // 빈 새 답장이면 첫 줄, 임시저장·AI 답장 초안처럼 쓴 글이 있으면 그 끝에서 이어 쓴다.
+    // 전달·새 메일은 받는 사람부터 채워야 하므로 "받는사람"으로 초점을 명시적으로 이동한다 — 본문 에디터가 자동으로 초점을 가져가
+    // 수신자→제목→본문 순서를 건너뛰던 문제(#802).
+    if (draft.mode === 'reply') {
+      bodyFocusRef.current = { instanceId: draft.instanceId, dropIfMinimized: false };
+    } else {
+      bodyFocusRef.current = undefined;
+      toInputRef.current?.focus();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.instanceId]);
 
@@ -420,14 +431,19 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   );
   const improvedPreviewHtml = useMailDarkHtml(styledImprovedHtml);
 
-  // AI 초안을 넣은 뒤 본문 끝에 초점(WP-576) — 렌더가 끝나 생성 중 inert 가 풀린 다음에 준다(그 전엔 focus 가 무시된다).
-  // 최소화로 숨어 있으면 옮기지 않는다 — 숨은 에디터는 초점을 받지 못하고, 페이지에서 하던 일을 빼앗지 않게. 요청은 처리한 것으로 친다.
+  // 본문 끝 초점(WP-576 AI 초안·WP-1746 답장) — 걸린 요청(bodyFocusRef)을 그 회차의 에디터가 처음 본문을 알린 뒤(composerReadyFor) 한 번 준다.
+  // 생성 중이면 래퍼가 inert 라 focus 가 무시되므로 끝날 때까지 기다린다. 최소화로 숨어 있으면 숨은 에디터는 초점을 받지 못한다 —
+  // AI 초안 요청은 버리고(페이지에서 하던 일을 빼앗지 않게), 답장 요청은 펼칠 때까지 남겨 둔다. 준 뒤 ref 를 비워
+  // 사용자가 다른 칸으로 옮긴 다음 다시 끌어오지 않는다. 늦게 온 서명은 문서 끝에 붙으므로(insertInitialSignature) 커서는 움직이지 않는다.
   const minimized = size === 'min' && !isMobile;
   useEffect(() => {
-    if (aiGenerating || aiFocusRequest === aiFocusDoneRef.current) return;
-    aiFocusDoneRef.current = aiFocusRequest;
+    const req = bodyFocusRef.current;
+    if (!req || composerReadyFor !== req.instanceId || aiGenerating) return;
+    if (minimized && !req.dropIfMinimized) return;
+    bodyFocusRef.current = undefined;
     if (!minimized) composerRef.current?.focusEnd();
-  }, [aiFocusRequest, aiGenerating, minimized]);
+    // 회차가 바뀐 렌더에서도 다시 본다 — 위 초기화 효과가 같은 커밋에서 ref 를 먼저 채운다(선언 순서).
+  }, [bodyFocusNonce, composerReadyFor, draft?.instanceId, minimized, aiGenerating]);
 
   /**
    * 지금 작성 내용을 작성창 초기값으로 — 닫은 뒤 저장이 실패했을 때 「다시 열기」, 버린 뒤 「되돌리기」로 같은 내용을 다시 연다.
@@ -740,11 +756,14 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     if (!result) return;
     // 같은 틱에 넣어야 useMailAiDraft 가 이 변경을 AI 본문으로 받아 둔다. 에디터를 다시 만들지 않으므로
     // 처음 본문(bodyBaselineRef)과 달라져 임시저장 대상이 된다(AI 가 채운 본문도 쓴 내용).
-    // 초점은 여기서 주지 않는다 — 아직 래퍼가 inert(생성 중)라 무시된다. 렌더가 끝난 뒤 초점 effect(aiFocusRequest)가 준다.
+    // 초점은 여기서 주지 않는다 — 아직 래퍼가 inert(생성 중)라 무시된다. 요청만 걸고 렌더가 끝난 뒤 「본문 끝 초점」 효과가 준다.
     // 지금 본문의 서명 블록은 초안 뒤에 그대로 다시 붙인다(WP-1517) — 초안이 서명을 지우지 않게.
     composerRef.current?.setContent(replaceBodyKeepingSignature(bodyHtmlRef.current, result.html), { focus: false });
     changeSubject(result.subject);
-    if (result.focusBody) setAiFocusRequest((n) => n + 1);
+    if (result.focusBody) {
+      bodyFocusRef.current = { instanceId: draft?.instanceId, dropIfMinimized: true };
+      setBodyFocusNonce((n) => n + 1);
+    }
   };
   // [되돌리기] — 생성 직전 본문으로, 제목은 AI 가 넣은 그대로일 때만 되돌린다.
   const undoAiDraft = () => {

@@ -5,16 +5,20 @@
 // 무가공 저장). 그대로 다른 본문에 끼우면 원문 스타일시트가 내가 쓴 문장까지 물들이므로
 // 삽입 전에 반드시 언랩한다(설계 §4.1).
 
-import { formatDateMonthDay, formatDateTimeMinute } from '@/lib/formatters';
+import { formatDateMonthDay, formatMailQuoteDate } from '@/lib/formatters';
 import { collectQuoteInlineImages, type QuoteInlineImage } from '@/lib/mailInlineImages';
+import { recipientFullLabel } from '@/lib/mailRecipients';
 import { escapeHtml } from '@/lib/utils';
 import type { EmailMessageDetail } from '@/types/mailMessage';
 
-/** 인용문 조립 결과 — html 은 발송 본문·프리뷰 공용, text 는 plain-text alternative 용. */
+/**
+ * 인용문 조립 결과 — html 은 발송 본문·프리뷰 공용, text 는 plain-text alternative 용.
+ * meta 는 작성창 원문 블록(MailQuoteBlock) 요약 줄용 — 발신 표시명·칩용 짧은 날짜(sentAt 없으면 '')·제목.
+ */
 export interface QuoteParts {
   html: string;
   text: string;
-  meta: { from: string; date: string; dateShort: string; subject: string };
+  meta: { from: string; dateShort: string; subject: string };
 }
 
 /**
@@ -142,21 +146,58 @@ function displayFrom(detail: EmailMessageDetail): string {
 }
 
 /**
- * 답장/전달 인용문을 조립한다.
- * - 답장: 작성자 헤더 + blockquote. text 는 각 줄 `> ` 접두(관례)
- * - 전달: `---------- 전달된 메일 ----------` 헤더 블록. text 에 접두를 쓰지 않는다(관례)
+ * 머리 값 한 줄로 — 접힌 메일 머리(받는 사람·참조의 CRLF + 탭 들여쓰기)나 이름·제목 안의 줄바꿈·탭을 공백 하나로 모은다.
+ * text 머리는 항목 하나가 정확히 한 줄이어야 서버 새 글 추출(HEADER_LOOKAHEAD = 4)이 다섯 줄 머리를 알아보고,
+ * html 에서도 값 안 줄바꿈이 머리 모양을 흐트러뜨리지 않는다.
+ */
+function oneLine(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 원문 머리 「보낸 사람」 값 — 이름이 있으면 `이름 <주소>`, 없으면 주소, 주소도 없으면 이름만(WP-1746, Outlook 식).
+ * 칩·meta 의 짧은 표시명(displayFrom)과 달리 받는 이가 주소까지 알 수 있게 한다.
+ */
+function headerFrom(detail: EmailMessageDetail): string {
+  const name = oneLine(detail.fromName);
+  const address = oneLine(detail.fromAddress);
+  // 주소가 없는 원문(이름만)은 `이름 <>` 가 되지 않게 이름만 쓴다. 나머지는 받는 사람 목록 표기와 같은 recipientFullLabel.
+  if (!address) return name;
+  return recipientFullLabel({ name: name || null, address });
+}
+
+/**
+ * 원문 머리 줄들 — [항목 이름, 값] 을 순서 고정(보낸 사람 → 보낸 날짜 → 받는 사람 → 참조 → 제목)으로 돌려준다.
+ * 이 순서가 서버 새 글 추출(NewContentExtractor, HEADER_LOOKAHEAD = 4)이 머리를 알아보는 규칙과 맞는다.
+ * 값이 빈 보낸 날짜·받는 사람·참조 줄은 뺀다 — 「참조: 」처럼 빈 값만 있는 줄을 발송하지 않게.
+ * 받는 사람·참조는 쉼표로 이은 한 줄 그대로 둔다(자르지 않는다 — 서버 추출이 줄 단위로 머리를 본다). 값 안 공백은 oneLine 으로 모은다.
+ */
+function headerLines(detail: EmailMessageDetail): Array<[string, string]> {
+  const lines: Array<[string, string]> = [['보낸 사람', headerFrom(detail)]];
+  const sentAt = formatMailQuoteDate(detail.sentAt);
+  if (sentAt) lines.push(['보낸 날짜', sentAt]);
+  const to = oneLine(detail.toAddresses);
+  if (to) lines.push(['받는 사람', to]);
+  const cc = oneLine(detail.ccAddresses);
+  if (cc) lines.push(['참조', cc]);
+  lines.push(['제목', oneLine(detail.subject)]);
+  return lines;
+}
+
+/**
+ * 답장/전달 인용문을 조립한다(WP-1746 — 답장·전달 같은 모양).
+ * - html: `<div class="wp_quote gmail_quote"><hr><div>머리 줄들</div><br>원문</div>`. 들여쓰기 blockquote 는 쓰지 않는다.
+ *   구분선·머리를 감싸기 **안**에 두어 서버가 `wp_quote`(또는 다른 메일 앱이 보는 `gmail_quote`)에서 자를 때 머리까지 함께 잘리게 한다.
+ * - text: 머리 줄들 + 빈 줄 + 원문. 「> 」 접두·구분선 줄은 넣지 않는다(서버 추출에서 새 글 쪽에 남는 잡음이 되므로).
+ *   맨 앞 빈 줄은 보낼 때 MailComposeDock 이 붙이므로 넣지 않는다.
  *
- * sentAt 이 null(원문에 발신 시각 정보가 없음)이면 date/dateShort 는 빈 문자열이고,
- * 전달 헤더에는 "날짜: " 줄 자체를 넣지 않는다(빈 값 발송 방지).
+ * sentAt 이 null(원문에 발신 시각 정보가 없음)이면 meta.dateShort 는 빈 문자열이고 머리에서 「보낸 날짜」 줄을 뺀다.
  */
 export function buildQuote(detail: EmailMessageDetail, mode: 'reply' | 'forward'): MailQuote {
-  const from = displayFrom(detail);
   const subject = detail.subject ?? '';
   const meta = {
-    from,
-    // formatDateTimeMinute 은 null 에 '-' 를 반환하므로(발송 헤더에 '날짜: -' 방지) 가드 유지.
-    // formatDateMonthDay 는 무효 입력에 '' 를 반환해 가드 불필요.
-    date: detail.sentAt ? formatDateTimeMinute(detail.sentAt) : '',
+    from: displayFrom(detail),
+    // 칩용 짧은 날짜 — formatDateMonthDay 는 무효 입력에 '' 를 반환해 가드 불필요(머리용 긴 날짜는 headerLines 가 따로 만든다).
     dateShort: formatDateMonthDay(detail.sentAt),
     subject,
   };
@@ -178,34 +219,12 @@ export function buildQuote(detail: EmailMessageDetail, mode: 'reply' | 'forward'
     innerText = detail.bodyText;
   }
 
-  if (mode === 'forward') {
-    const headerLines = [
-      '보낸사람: ' + from,
-      '받는사람: ' + (detail.toAddresses ?? ''),
-      ...(meta.date ? ['날짜: ' + meta.date] : []),
-      '제목: ' + subject,
-    ];
-    return {
-      html:
-        '<blockquote>---------- 전달된 메일 ----------<br/>' +
-        headerLines.map(escapeHtml).join('<br/>') +
-        '<br/><br/>' +
-        innerHtml +
-        '</blockquote>',
-      // 전달은 인용 접두(`> `)를 붙이지 않는다.
-      text: ['---------- 전달된 메일 ----------', ...headerLines, '', innerText].join('\n'),
-      meta,
-      variant: mode,
-      inlineImages,
-    };
-  }
-
+  const lines = headerLines(detail);
+  // 항목 이름은 굵게, 값은 escape(이름·주소·제목의 < & 가 태그로 읽히지 않게).
+  const headerHtml = lines.map(([label, value]) => `<b>${label}:</b> ${escapeHtml(value)}`).join('<br>');
   return {
-    html: `<blockquote>${escapeHtml(from)} 님이 작성:<br/>${innerHtml}</blockquote>`,
-    text: [
-      `${from} 님이 작성:`,
-      ...innerText.split('\n').map((line) => `> ${line}`),
-    ].join('\n'),
+    html: `<div class="wp_quote gmail_quote"><hr><div>${headerHtml}</div><br>${innerHtml}</div>`,
+    text: [...lines.map(([label, value]) => `${label}: ${value}`), '', innerText].join('\n'),
     meta,
     variant: mode,
     inlineImages,

@@ -274,8 +274,8 @@ test('상세의 답장·전체답장·전달은 버튼이고, 답장을 누르�
   }
   await user.click(screen.getByTestId('mail-reply'))
   expect(await screen.findByTestId('mail-compose-dock')).toBeInTheDocument()
-  expect(screen.getByTestId('mail-compose-quote')).toBeInTheDocument()
-  await user.click(screen.getByTestId('mail-compose-quote-toggle'))
+  // 답장 인용문도 기본 펼침(WP-1746) — 토글 없이 원문 액자가 보인다.
+  expect(screen.getByTestId('mail-compose-quote')).toHaveAttribute('open')
   expect(await screen.findByTestId('mail-compose-quote-frame')).toBeInTheDocument()
 })
 

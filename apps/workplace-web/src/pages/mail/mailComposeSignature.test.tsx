@@ -178,6 +178,31 @@ test('답장은_기본으로_넣지_않고_켜면_인용문_위에_넣는다', a
   expect(html.indexOf('data-mail-signature')).toBeLessThan(html.indexOf('원문 본문'))
 })
 
+// WP-1746 — 답장은 열자마자 본문 첫 줄(서명 위 빈 줄)에 커서가 있어 클릭 없이 바로 쓴다.
+test('답장을_열면_커서가_서명_위_첫_줄이라_바로_쓴_글이_서명_앞에_들어간다', async () => {
+  const view = renderWithSignature({ html: '<p>홍길동</p>', autoReply: true })
+  await view.user.click(await screen.findByTestId('mail-row-5'))
+  await view.user.click(await screen.findByTestId('mail-reply'))
+  await screen.findByTestId('mail-signature-block')
+  await waitFor(() => expect(screen.getByTestId('mail-composer-body').contains(document.activeElement)).toBe(true))
+  await view.user.keyboard('바로 쓴 답')
+  const html = (await sendNow(view)).bodyHtml
+  expect(html.startsWith('<p>바로 쓴 답</p><p></p><div data-mail-signature="">')).toBe(true)
+})
+
+test('답장에서_늦게_온_서명도_첫_줄_커서를_옮기지_않는다', async () => {
+  const sigGate = gatedSignature({ html: '<p>홍길동</p>', autoReply: true })
+  const view = renderWithSignature({}, [sigGate.handler])
+  await view.user.click(await screen.findByTestId('mail-row-5'))
+  await view.user.click(await screen.findByTestId('mail-reply'))
+  await waitFor(() => expect(screen.getByTestId('mail-composer-body').contains(document.activeElement)).toBe(true))
+  await sigGate.release()
+  expect(await screen.findByTestId('mail-signature-block')).toBeInTheDocument()
+  await view.user.keyboard('늦은 서명 뒤 답')
+  const html = (await sendNow(view)).bodyHtml
+  expect(html.startsWith('<p>늦은 서명 뒤 답</p><p></p><div data-mail-signature="">')).toBe(true)
+})
+
 test('임시저장을_다시_열면_서명을_다시_넣지_않는다', async () => {
   const d = draftDetail({ id: 7, bodyHtml: '<p>쓰다 만 본문</p>', to: ['rcpt@test.local'] })
   const view = renderMail('/mail/1?folder=drafts', { handlers: [signatureHandler({ html: '<p>홍길동</p>', autoNew: true }), ...draftHandlers(d)] })
