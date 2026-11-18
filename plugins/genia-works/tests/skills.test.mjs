@@ -770,7 +770,7 @@ test('기차: 저장소가 켜면 9~11번 대신 쌓기 → 출발 → 통합 PR
     '"통합 <키1>·<키2>·…"',
     '**수정 커밋을 더해**',
     '**그 기차를 다른 일보다 먼저** 처리한다(`SKILL.md` 3번 ⓪)',
-    '출발한 기차는 main 과 **충돌할 때만** rebase 한다',
+    '출발한 기차는 검토자의 「main 반영 필요」 요청 때만 rebase 한다',
     "note: '다음 기차 대기",
     "note: '<검토자 이름> 리뷰 — 통합 PR 에 실림",
   ]) assert.ok(train.includes(anchor), anchor);
@@ -1273,4 +1273,104 @@ test('process-issue.md: 0.1.55 전에 시작한 PR 은 원장 줄을 요구하�
   const review = p.split('\n### PR 리뷰·머지 (검토자)\n')[1].split('\n### ')[0];
   assert.ok(review.includes('**전환**(WP-1717)') && review.includes('0.1.55 보다 낮거나'));
   assert.ok(review.includes('원장 줄을 요구하지 않고') && review.includes('코드 리뷰·대조표는 그대로 한다'));
+});
+
+// WP-1720 — 검토자는 열린 AI PR 을 번호 순으로 맨 앞만 머지한다(리뷰는 받는 대로).
+const queueReview = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업');
+const queueTrain = section(pi, '### 기차 (저장소가 켰을 때)', '### 안내 자료 요청');
+
+test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 막히면 정해진 규칙으로 비킨다 (WP-1720)', () => {
+  const review = queueReview;
+  const merge = review.split('\n6. **머지**')[1].split('\n7. ')[0];
+  const wait = review.split('**순서 대기**(WP-1720)')[1].split('\n4. **반려**')[0];
+  const check = review.split('**줄 확인**(WP-1720')[1];
+  for (const anchor of [
+    // 줄·맨 앞 — 머지 게이트는 「머지 순서」 한 곳에 있다
+    '**머지 순서**(WP-1720)',
+    '번호 오름차순',
+    '매번 `gw-repo pr-list` 로 다시 읽는다',
+    '`개발:` 이 없는 PR 은 줄 밖',
+    '줄 밖 PR 은 맨 앞 조건 없이',
+    '5·6번 머지(통합 PR 포함)는 줄 맨 앞 PR 과 줄 밖 PR 만 한다',
+    '3번 「순서 대기」에서 끝난다',
+    // 비킨 PR — 사유별 적는 때·지우는 때
+    '`순서: 비킴 — 내용 반려 <KST 시각>`',
+    '`순서: 비킴 — main 반영 2시간 넘김 <KST 시각>`',
+    '`순서: 비킴 — 차단 <KST 시각>`',
+    '원래 자리',
+    '새 글이 왔다는 것만으로는 지우지 않는다',
+    '내가 1번/2번에서 그 PR 을 받을 때만 지운다',
+    '「main 반영 요청」 뒤 4시간이 넘으면 행과 상관없이 비킨다',
+    '`줄 맨 앞 처음 봄 <KST 시각>`',
+    // 맨 앞이 main 반영을 기다리는 동안 뒤 PR 도 머지하지 않는다
+    '`main 반영 요청 <KST 시각>`',
+    '뒤 PR 도 머지하지 않는다',
+    // 맨 앞이 아니어도 내용 반려면 비킴
+    '맨 앞이든 아니든',
+    // 통합 PR 도 같은 순서 규칙
+    '실린 이슈마다 `WAITING`(note 「순서 대기 — 앞 #<n>」)',
+    '리뷰 통과 — 순서 대기(앞 #<n>)',
+  ]) assert.ok(review.includes(anchor), anchor);
+  // 리뷰는 순서와 무관하게 바로 한다 — 머지 순서(줄 규칙)가 1번 시작보다 앞
+  assertBefore(review, '**머지 순서**(WP-1720)', '1. **시작**');
+  // 순서 대기는 3번의 마지막 확인 뒤에 오고, 리뷰 글·승인을 바로 남긴다
+  assertBefore(review, '개발자가 9번 판단으로 게이트를 돌리지 않고 올렸으면', '**순서 대기**(WP-1720): 위 확인을 모두 마친 뒤');
+  for (const anchor of ['--approve --sha <리뷰한 HEAD>', '--comment --body-file', '3번을 range-diff 규칙대로 다시 한다']) {
+    assert.ok(wait.includes(anchor), anchor);
+  }
+  // 6번은 순서 대기로 이미 올린 글을 다시 올리지 않고 바로 머지
+  assert.ok(merge.includes('바로 `pr-merge` 한다. 그렇지 않으면 먼저'));
+  // 줄 확인 — 맨 앞 정하기·막힘 확인·다음 후보 고르기
+  for (const anchor of [
+    '`main 반영 요청 <KST 시각>` 줄이 있으면',
+    '2시간이 넘었으면',
+    '2번(받기)부터',
+    '이번 이슈 다음 후보로 고른다',
+    '`SKILL.md` 4번대로',
+  ]) assert.ok(check.includes(anchor), anchor);
+  // 개발자 쪽 — 순서 대기 글에 rebase 하지 않고, 처음 시작 갈래에 순서 대기가 있다
+  for (const anchor of [
+    '「리뷰 통과 — 순서 대기」 → 고칠 것이 아니라',
+    '  - 「순서 대기」(검토자가',
+    '「PR 리뷰·머지」 5번부터, 다르면 「PR 리뷰·머지」 3번(range-diff)부터',
+  ]) assert.ok(pi.includes(anchor), anchor);
+});
+
+test('.work-loop/project.md 검토자 절에 순서 머지 한 줄이 있다 (WP-1720)', () => {
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  assert.ok(section(project, '\n## 8. 검토자\n', '\n## 9. ').includes('**순서 머지(WP-1720)**'));
+  assert.ok(project.includes('검토자의 「main 반영 필요」 요청 때만'));
+});
+
+// WP-1720 — 출발한 기차는 줄에서 기다리는 동안 스스로 rebase 하지 않고, 기차마다 측정을 남긴다.
+test('process-issue.md 기차: 출발한 기차는 검토자 요청 때만 rebase 하고 측정 줄을 남긴다 (WP-1720)', () => {
+  for (const anchor of [
+    '충돌을 봐도 스스로 rebase 하지 않는다',
+    '`측정: rebase <n> · 번호 옮기기 <n> · 게이트 <n> · 출발 <시각>`',
+    '측정 값을 적는다(3번 「측정」)',
+    '줄 대기(출발→머지)',
+    '줄 대기(출발→지금)',
+    '출발한 기차에서 `rebase` 는 아무것도 하지 않으므로',
+    'rebase 는 출발부터만 센다',
+  ]) assert.ok(queueTrain.includes(anchor), anchor);
+});
+
+test('SKILL.md 3번 할 일 없음: 출발한 내 통합 PR 이 CONFLICTING 이어도 스스로 고르지 않는다 (WP-1720)', () => {
+  const idle = s3.split('**할 일 없음**')[1];
+  for (const anchor of [
+    '`CONFLICTING` 이어도 스스로 고르지 않는다',
+    '통합 PR 이든 아니든',
+    '검토자가 없으면 위처럼 고른다',
+    '`CHANGES_REQUESTED` 여도 고르지 않는다',
+    '「main 반영 필요」 요청 없이 rebase 하지 않는다',
+    '`checks` 가 `FAIL`',
+    // 검토자는 할 일이 없을 때 줄 확인으로 맨 앞의 순서 대기 PR 을 머지한다
+    '**줄 확인**',
+    '「PR 리뷰·머지」',
+    '모두 할 것이 없으면',
+    '통합 PR 이 아닌 PR(제목이 `통합 ` 으로 시작하지 않음)',
+    '`main 반영 요청`',
+    '이 확인을 위해서만',
+  ]) assert.ok(idle.includes(anchor), anchor);
+  assert.ok(workLoopSkill.includes('검토자 줄 확인은 3번 「할 일 없음」 3 예외'));
 });
