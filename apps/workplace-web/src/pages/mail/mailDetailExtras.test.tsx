@@ -146,6 +146,15 @@ test('연결된 이슈가 있으면 상세에 키 배지가, 없으면 배지가
   expect(screen.queryByTestId('mail-linked-issue')).not.toBeInTheDocument()
 })
 
+// WP-1723 수신 일시는 목록 행에만 있고 상세 머리엔 없었다 — 열어 둔 메일의 수신 시각을 확인할 수 있게 한다.
+test('상세 머리 오른쪽에 수신 일시가 뜬다', async () => {
+  await openIssueDialog([])
+  const time = await screen.findByTestId('mail-detail-time')
+  // 테스트 데이터 receivedAt = 2026-06-03T01:00:00Z → KST 6/3 (수) 10:00 표기.
+  // 연도는 '올해' 판정에 따라 붙어 생략될 수 있어 선택적으로 matched 한다(연말 이후 회귀 방지).
+  expect(time).toHaveTextContent(/(?:2026\/)?6\/3 \(수\) 10:00/)
+})
+
 test('승격 대화상자의 취소는 대화상자를 닫는다', async () => {
   const { user } = await openIssueDialog([
     draftHandler({ title: '초안 제목', body: '초안 본문', priority: 'MID', suggestedProjectKey: 'FIN', candidateProjects: [{ key: 'FIN', name: '재무' }] }),

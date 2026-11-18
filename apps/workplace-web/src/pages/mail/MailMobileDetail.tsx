@@ -12,6 +12,7 @@ import { AI_CONTENT_CONTAINER_CLASS } from '@/components/ai/aiMarker'
 import { GeniaWorksSenderMark } from '@/components/mail/GeniaWorksSenderMark'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileHeaderMore } from '@/components/mobile/MobileHeaderMore'
+import { formatMailHeaderTime } from '@/lib/mailDetailTime'
 import {
   type MailRecipient,
   parseAddressList,
@@ -248,6 +249,9 @@ export function MailMobileDetail({
   const [titleEl, setTitleEl] = useState<HTMLHeadingElement | null>(null)
   const titleShown = useScrolledPast(scrollEl, titleEl)
   const subject = mailSubjectText(detail.subject)
+  // 수신 일시(WP-1723) — 390px 에서 줄바꿈·넘침 없이 제목 아래 자기 줄을 쓰도록 오른쪽 정렬 한 줄로 그린다.
+  // 받은편지함은 receivedAt, 수신 일시 없는 메일은 sentAt 로 대체하고, 없으면 줄 자체를 숨긴다.
+  const headerTime = formatMailHeaderTime(detail.receivedAt ?? detail.sentAt)
   return (
     <>
       <MailMobileDetailBar
@@ -275,6 +279,15 @@ export function MailMobileDetail({
             <h2 ref={setTitleEl} className="text-lg font-semibold leading-snug">
               {subject}
             </h2>
+            {headerTime && (
+              <time
+                data-testid="mail-detail-time"
+                dateTime={detail.receivedAt ?? detail.sentAt ?? undefined}
+                className="mt-1 flex justify-end text-xs text-muted-foreground"
+              >
+                {headerTime}
+              </time>
+            )}
             {linkedIssue}
             <div className="mt-1 flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
               <span className="min-w-0 truncate">

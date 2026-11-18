@@ -41,6 +41,7 @@ import { appUrl, mailMessagePath } from '@/lib/appUrl'
 import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { forwardAttachments } from '@/lib/mailComposeAttachments'
+import { formatMailHeaderTime } from '@/lib/mailDetailTime'
 import { folderRangeDays } from '@/lib/mailFolders'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { serverOlderFolder } from '@/lib/mailListPages'
@@ -743,6 +744,9 @@ function MessageDetailPanel({
   const inviteCard = detail.calendarInvite ? (
     <MailCalendarInviteCard messageId={detail.id} invite={detail.calendarInvite} />
   ) : null
+  // 수신 일시는 목록 행에만 있고 상세 머리엔 없었다(WP-1723) — 받은편지함은 receivedAt, 보냄·보관함 등
+  // 수신 일시 없는 메일은 sentAt 로 대체하고, 둘 다 없으면 시간 줄 자체를 그리지 않는다.
+  const headerTime = formatMailHeaderTime(detail.receivedAt ?? detail.sentAt)
 
   // WP-400 모바일 — 첫 화면에 본문이 보이게 메타를 접고, 액션은 하단 고정 바·⋯ 메뉴로 옮긴다(데스크톱은 아래 원래 마크업).
   if (isMobile) {
@@ -913,7 +917,19 @@ function MessageDetailPanel({
             <AiLabel>AI 요약</AiLabel>
           </Button>
         )}
-        <h2 className="text-lg font-semibold">{mailSubjectText(detail.subject)}</h2>
+        {/* 수신 일시는 목록에만 있고 상세엔 없었다 — WP-1723. 제목은 줄바꿈·찍어내기(긴 제목이 시간 칸을 못 밀게 min-w-0), 시간은 오른쪽 끝 고정. */}
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="min-w-0 break-words text-lg font-semibold">{mailSubjectText(detail.subject)}</h2>
+          {headerTime && (
+            <time
+              data-testid="mail-detail-time"
+              dateTime={detail.receivedAt ?? detail.sentAt ?? undefined}
+              className="mt-1 shrink-0 whitespace-nowrap text-xs text-muted-foreground"
+            >
+              {headerTime}
+            </time>
+          )}
+        </div>
         {linkedBadge}
         <div className="mt-1 flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
           <span className="min-w-0 break-words">
