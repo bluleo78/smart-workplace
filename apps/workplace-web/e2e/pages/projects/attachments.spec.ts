@@ -386,8 +386,8 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0);
   });
 
-  test('⋯ 드라이브에서 열기는 하위 폴더에 있는 링크 파일을 그 폴더에서 미리보기로 연다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
-    // 링크 응답에는 폴더 id 가 없다 — 공간 이름 검색으로 폴더(5)를 찾아 ?folderId=5&preview=605 로 가야 한다.
+  test('⋯ 드라이브에서 열기는 하위 폴더에 있는 링크 파일을 그 폴더 목록에서 강조한다(뷰어 아님)', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
+    // 링크 응답에는 폴더 id 가 없다 — 공간 이름 검색으로 폴더(5)를 찾아 ?folderId=5&highlight=605 로 가야 한다(WP-1732: 뷰어 대신 목록 강조).
     await stubBundle(page, [], [driveLink(605, { name: 'deep.txt' })]);
     const searches = trackRequests(page, 'GET', '/api/v1/drive/spaces/1/search');
     const deep = createFile({ id: 605, folderId: 5, fileId: 1605, name: 'deep.txt', sizeBytes: 4 });
@@ -395,7 +395,7 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
       (url) => url.pathname === '/api/v1/drive/spaces/1/search',
       (route) => route.fulfill({ json: { folders: [], files: [{ ...deep, folderPath: '하위' }] } }),
     );
-    // 공간 루트에는 이 파일이 없다 — 루트로 열면 "찾을 수 없음"이 된다(회귀 조건).
+    // 공간 루트에는 이 파일이 없다 — 루트로 열면 가리킬 행이 없다(회귀 조건).
     await page.route(
       (url) => url.pathname === '/api/v1/drive/spaces/1/items',
       (route) =>
@@ -409,9 +409,6 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await page.route((url) => url.pathname === '/api/v1/drive/spaces/1', (route) => route.fulfill({ json: createSpace({ id: 1 }) }));
     await page.route((url) => url.pathname === '/api/v1/drive/folders/5/path', (route) => route.fulfill({ json: [{ id: 5, name: '하위' }] }));
     await page.route((url) => url.pathname === '/api/v1/drive/quota', (route) => route.fulfill({ json: { usedBytes: 0, quotaBytes: 1024 } }));
-    await page.route((url) => url.pathname === '/api/v1/drive/files/605/content', (route) =>
-      route.fulfill({ status: 200, contentType: 'text/plain', body: 'DEEP' }),
-    );
     await page.route((url) => url.pathname === '/api/v1/drive/files/605/thumbnail', (route) => route.fulfill({ status: 404 }));
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
@@ -420,10 +417,16 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await page.getByRole('button', { name: '더 보기' }).click();
     await page.getByRole('menuitem', { name: '드라이브에서 열기' }).click();
 
-    await expect(page).toHaveURL(/\/drive\/spaces\/1\?folderId=5&preview=605$/);
+    // 하위 폴더 목록에서 그 행이 강조되고, 강조 뒤 주소에서 highlight 만 빠진다(replace).
+    const row = page.getByTestId('drive-row-file-605');
+    await expect(row).toHaveAttribute('data-highlighted', 'true');
+    // 강조는 속성에 걸린 CSS 키프레임(머문 뒤 흐려짐)이다 — Tailwind 임의 애니메이션 클래스가 실제로 만들어졌는지 본다.
+    await expect(row).toHaveCSS('animation-name', 'drive-row-arrival');
+    await expect(row).toBeInViewport();
+    await expect(page).toHaveURL(/\/drive\/spaces\/1\?folderId=5$/);
     expect(searches.lastUrl()?.searchParams.get('q')).toBe('deep.txt');
-    // 드라이브 쪽 콘텐츠 경로로 같은 파일이 열린다 — 찾을 수 없음 안내가 아니다.
-    await expect(page.getByTestId('preview-body')).toContainText('DEEP');
+    // 뷰어는 열리지 않는다.
+    await expect(page.getByTestId('preview-body')).toHaveCount(0);
     await expect(page.getByTestId('preview-not-found')).toHaveCount(0);
   });
 

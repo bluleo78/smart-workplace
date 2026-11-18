@@ -13,7 +13,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
 import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
 import { closeSearchPalette, searchPaletteSession } from '@/components/search/searchPaletteStore'
-import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from '@/test/kits/drive/testkit-b6'
+import { DRIVE_ROW_HIGHLIGHT_MS } from '@/pages/drive/useDriveRowHighlight'
+import { API, driveBaseHandlers, fileSideHandlers, manyMeetingNotes, renderDrivePage, spyScrollIntoView } from '@/test/kits/drive/testkit-b6'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
 import type { renderScreen } from '@/test/renderScreen'
 import type { DriveFile, DriveFolder } from '@/types/drive'
@@ -1333,5 +1334,167 @@ describe('미리보기', () => {
     await user.click(await screen.findByRole('button', { name: 'photo.png' }))
     const body = await screen.findByTestId('preview-body')
     await waitFor(() => expect(body.querySelector('img')).not.toBeNull())
+  })
+})
+
+// 「드라이브에서 열기」 도착(WP-1732) — ?highlight=<파일 id> 는 뷰어를 열지 않고 그 폴더 목록에서 행을 잠시 강조하고 보이게 스크롤한 뒤,
+// 주소에서 highlight 만 replace 로 지운다(새로고침·뒤로 가기에서 다시 강조하지 않게). 실제 스크롤 위치는 라이브 확인에서 본다.
+describe('드라이브에서 열기 도착 강조', () => {
+  const many: Items = { folders: [], files: manyMeetingNotes() }
+  // 하위 폴더(10) 목록 — 폴더 이동·하위 폴더 경로 판정이 함께 쓴다.
+  const inner = createFile({ id: 31, name: 'inner.txt', folderId: 10 })
+  const byFolder = (url: URL): Items => (url.searchParams.get('parentId') === '10' ? { folders: [], files: [inner] } : many)
+  const folder10Path = http.get(`${API}/folders/10/path`, () => HttpResponse.json([{ id: 10, name: '문서함' }]))
+  /** 강조한 행(data-highlighted="true") — 강조 여부는 이 속성 하나로 본다(색·애니메이션은 속성에 걸린 CSS). */
+  const highlightedRows = () => document.querySelectorAll('[data-highlighted="true"]')
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  test('목록에 있는 파일은 행을 강조하고 그 행으로 스크롤하며, 뷰어는 열지 않고 주소에서 highlight 만 지운다', async () => {
+    const scrolled = spyScrollIntoView()
+    const lengthBefore = window.history.length
+    const { location } = await openDrive(many, { search: '?highlight=129' })
+    const row = await screen.findByTestId('drive-row-file-129')
+    await waitFor(() => expect(row).toHaveAttribute('data-highlighted', 'true'))
+    // 다른 행은 강조하지 않는다
+    expect(highlightedRows()).toHaveLength(1)
+    await waitFor(() => expect(scrolled).toContain(row))
+    expect(scrolled.filter((el) => el === row)).toHaveLength(1)
+    // 뷰어 없음
+    expect(screen.queryByTestId('preview-body')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preview-not-found')).not.toBeInTheDocument()
+    // replace — 히스토리 항목이 늘지 않고 highlight 만 빠진다
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
+    expect(window.history.length).toBe(lengthBefore)
+  })
+
+  test('강조는 머문 뒤 흐려지는 시간까지 지나면 풀린다', async () => {
+    // 실제 시간도 흐르게 둔다(MSW·RTL 대기) — 강조를 푸는 타이머만 한 번에 넘긴다.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+    const { location } = await openDrive(many, { search: '?highlight=101' })
+    const row = await screen.findByTestId('drive-row-file-101')
+    await waitFor(() => expect(row).toHaveAttribute('data-highlighted', 'true'))
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
+    act(() => {
+      vi.advanceTimersByTime(DRIVE_ROW_HIGHLIGHT_MS)
+    })
+    expect(row).not.toHaveAttribute('data-highlighted')
+  })
+
+  // 다른 화면에 갔다가(목록은 캐시에 남고 낡음) 「드라이브에서 열기」로 돌아오면, 캐시 목록에는 방금 옮겨 온 파일이 없을 수 있다.
+  // 재조회가 끝난 뒤 판정해야 그 파일 행을 강조한다.
+  test('낡은 캐시 목록이면 재조회가 끝난 뒤 판정해 새로 생긴 파일 행을 강조한다', async () => {
+    let current: Items = { folders: [], files: many.files.slice(0, 29) }
+    const { user, queryClient, location } = await openDrive(many, {
+      extra: (
+        <>
+          <Link to="/projects">이슈로</Link>
+          <Link to={`/drive/spaces/${SPACE_ID}?highlight=129`}>드라이브에서 열기</Link>
+        </>
+      ),
+      handlers: [
+        http.get(`${API}/spaces/${SPACE_ID}/items`, async () => {
+          await delay(150)
+          return HttpResponse.json(current)
+        }),
+      ],
+    })
+    await screen.findByTestId('drive-row-file-128')
+    expect(screen.queryByTestId('drive-row-file-129')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: '이슈로' }))
+    await waitFor(() => expect(screen.queryByTestId('drive-page')).not.toBeInTheDocument())
+    // 그사이 파일이 이 폴더로 옮겨졌다 — 캐시 목록은 낡았다(돌아오면 캐시를 먼저 그리고 다시 조회한다).
+    current = many
+    await queryClient.invalidateQueries({ queryKey: ['drive', 'items'] })
+    await user.click(screen.getByRole('link', { name: '드라이브에서 열기' }))
+    const row = await screen.findByTestId('drive-row-file-129')
+    await waitFor(() => expect(row).toHaveAttribute('data-highlighted', 'true'))
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
+  })
+
+  // 판정은 화면에 그린 행으로 — 이름 거르기로 숨은 파일은 강조하지 않고(보이지 않는 행이 강조된 채 남지 않게) 주소만 정리한다.
+  test('이름 거르기로 숨은 파일은 강조하지 않고 주소에서 highlight 만 지운다', async () => {
+    const { user, location } = await openDrive(many, {
+      extra: <Link to={`/drive/spaces/${SPACE_ID}?highlight=129`}>드라이브에서 열기</Link>,
+    })
+    await screen.findByTestId('drive-row-file-129')
+    await user.click(screen.getByTestId('drive-filter-input'))
+    await user.paste('01 회의록')
+    await waitFor(() => expect(screen.queryByTestId('drive-row-file-129')).not.toBeInTheDocument())
+    await user.click(screen.getByRole('link', { name: '드라이브에서 열기' }))
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
+    // 거르기를 지워 행이 다시 보여도 강조돼 있지 않다.
+    await user.clear(screen.getByTestId('drive-filter-input'))
+    const row = await screen.findByTestId('drive-row-file-129')
+    expect(row).not.toHaveAttribute('data-highlighted')
+    expect(highlightedRows()).toHaveLength(0)
+  })
+
+  // 강조 중(몇 초 안)에 다른 폴더에 갔다 돌아와도 그 행이 다시 강조되지 않는다 — 폴더·공간이 바뀌면 강조를 끈다.
+  test('강조 중에 폴더를 옮기면 강조가 꺼진다', async () => {
+    const { user, location } = await openDrive(byFolder, {
+      search: '?highlight=101',
+      extra: (
+        <>
+          <Link to={`/drive/spaces/${SPACE_ID}?folderId=10`}>문서함으로</Link>
+          <Link to={`/drive/spaces/${SPACE_ID}`}>루트로</Link>
+        </>
+      ),
+      handlers: [folder10Path],
+    })
+    const row = await screen.findByTestId('drive-row-file-101')
+    await waitFor(() => expect(row).toHaveAttribute('data-highlighted', 'true'))
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
+    await user.click(screen.getByRole('link', { name: '문서함으로' }))
+    await screen.findByTestId('drive-row-file-31')
+    expect(highlightedRows()).toHaveLength(0)
+    await user.click(screen.getByRole('link', { name: '루트로' }))
+    const back = await screen.findByTestId('drive-row-file-101')
+    expect(back).not.toHaveAttribute('data-highlighted')
+  })
+
+  test('하위 폴더 경로는 folderId 를 남기고 highlight 만 지운다', async () => {
+    const { location } = await openDrive(byFolder, { search: '?folderId=10&highlight=31', handlers: [folder10Path] })
+    const row = await screen.findByTestId('drive-row-file-31')
+    await waitFor(() => expect(row).toHaveAttribute('data-highlighted', 'true'))
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}?folderId=10`))
+  })
+
+  test('목록에 없는 파일(옮김·삭제)이면 오류 없이 목록만 보이고 주소를 정리한다', async () => {
+    const { location } = await openDrive(many, { search: '?highlight=999' })
+    await screen.findByTestId('drive-row-file-100')
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
+    expect(highlightedRows()).toHaveLength(0)
+    expect(screen.queryByTestId('preview-not-found')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preview-body')).not.toBeInTheDocument()
+  })
+
+  test('숫자가 아닌 highlight 값도 강조 없이 주소에서 지운다', async () => {
+    const { location } = await openDrive(many, { search: '?highlight=abc' })
+    await screen.findByTestId('drive-row-file-100')
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
+    expect(highlightedRows()).toHaveLength(0)
+  })
+
+  test('목록 조회가 실패해도 주소에서 highlight 를 지운다', async () => {
+    const { location } = await openDrive(many, {
+      search: '?highlight=101',
+      handlers: [http.get(`${API}/spaces/${SPACE_ID}/items`, () => new HttpResponse(null, { status: 500 }))],
+    })
+    await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
+  })
+
+  // 「파일 자체를 여는」 링크(검색 결과·복사 링크·앱 링크 카드)는 그대로 ?preview 로 뷰어를 연다.
+  test('?preview 는 여전히 뷰어를 연다', async () => {
+    const f = createFile({ id: 70, name: 'memo.txt', mimeType: 'text/plain', category: 'TEXT' })
+    await openDrive({ folders: [], files: [f] }, {
+      search: '?preview=70',
+      handlers: [http.get(`${API}/files/70/content`, () => new HttpResponse('MEMO', { headers: { 'Content-Type': 'text/plain' } })), ...fileSideHandlers(70)],
+    })
+    const body = await screen.findByTestId('preview-body')
+    await waitFor(() => expect(body).toHaveTextContent('MEMO'))
   })
 })

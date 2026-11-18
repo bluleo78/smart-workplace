@@ -1069,6 +1069,17 @@ body:has([data-viewer-above-ai]) [data-sonner-toaster] {
   transition: box-shadow 0.3s;
 }
 
+/* 「드라이브에서 열기」로 도착한 파일 행(WP-1732) — 강조 배경(bg-primary/15 와 같은 색)으로 3초 머문 뒤 1초 동안 원래 배경으로 흐려진다.
+   100% 를 비워 두어 끝 색이 행의 지금 배경(호버·선택 색)이 된다 — 끝날 때 색이 툭 바뀌지 않는다.
+   행 클래스(DRIVE_ROW_HIGHLIGHT_CLASS)가 data-highlighted="true" 동안 motion-safe 일 때만 돌린다. 위 메시지 링크 강조는 테두리(box-shadow)
+   전환이라 배경 흐림과 모양이 달라 따로 둔다. */
+@keyframes drive-row-arrival {
+  0%,
+  75% {
+    background-color: color-mix(in oklab, var(--primary) 15%, transparent);
+  }
+}
+
 /* 도움말 본문의 굵은 화면 문구에 마우스를 올리면 같은 이름의 화면 버튼을 잠깐 강조한다(WP-1505, helpScreenControls 가 달았다 뗀다).
    outline 이라 버튼 크기·배치가 바뀌지 않고, 색은 포커스 링과 같은 --ring 토큰. 둥근 버튼은 outline 도 그 모서리를 따른다. */
 [data-help-highlight] {

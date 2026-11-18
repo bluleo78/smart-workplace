@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import type { EntryAnchor } from '@/lib/chatEntryAnchor'
 import { parseId } from '@/lib/historyParam'
 import { messageDomId, messageJumpStep } from '@/lib/messageLinkJump'
+import { scrollIntoViewCentered } from '@/lib/scrollIntoViewCentered'
 
 /** 강조를 남겨 두는 시간(ms) — 눈이 찾아갈 만큼만. */
 const HIGHLIGHT_MS = 2500
@@ -70,8 +71,9 @@ function findInMainList(messageId: number): HTMLElement | null {
   return Array.from(rows).find((r) => !r.closest('[data-testid="thread-panel"]')) ?? null
 }
 
+/** 메시지 행을 가운데로 옮기고(움직임 줄이기 설정이면 바로) 잠깐 테두리로 강조한다. */
 function highlight(el: HTMLElement): void {
-  el.scrollIntoView({ block: 'center' })
+  scrollIntoViewCentered(el)
   el.dataset.linkHighlight = 'true'
   window.setTimeout(() => delete el.dataset.linkHighlight, HIGHLIGHT_MS)
 }

@@ -30,7 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { PasswordInput } from '@/components/ui/password-input'
 import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
-import { driveFilePath } from '@/components/viewer/driveOpen'
+import { driveFileLocatePath } from '@/components/viewer/driveOpen'
 import type { ViewerItem } from '@/components/viewer/types'
 import { driveKeys } from '@/hooks/queries/driveKeys'
 import { useAuth } from '@/hooks/useAuth'
@@ -395,8 +395,9 @@ function DriveOpenLine({
   const linkClass = 'mt-4 text-sm font-medium text-primary underline-offset-4 hover:underline'
   if (file.driveOpen) {
     const { spaceId, folderId, driveFileId } = file.driveOpen
+    // 뷰어가 아니라 그 폴더 목록에서 파일 행을 강조한다(WP-1732) — 이 페이지에서 이미 파일을 봤고, 드라이브 어디에 있는지가 궁금한 것이다.
     return (
-      <Link to={driveFilePath(spaceId, folderId, driveFileId)} className={linkClass} data-testid="share-drive-open-link">
+      <Link to={driveFileLocatePath(spaceId, folderId, driveFileId)} className={linkClass} data-testid="share-drive-open-link">
         드라이브에서 열기 →
       </Link>
     )
