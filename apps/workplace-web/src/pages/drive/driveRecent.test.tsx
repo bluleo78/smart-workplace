@@ -2,7 +2,7 @@
 // 날짜 묶음·마지막 활동 문구·경로 줄, 빈 상태, 다음 쪽(cursor), 행 별표 단추(WP-1698 별표 API), ⋯ 「파일 위치 열기」 이동, 사이드바 입구 순서를 본다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
@@ -16,7 +16,18 @@ import { DriveRecentView } from './DriveRecentView'
 // 실제 a[download] 클릭은 happy-dom 주소를 blob: 으로 바꿔 뒤 테스트를 깨므로 끊는다 — 요청 여부만 본다.
 vi.mock('@/lib/download', () => ({ downloadBlob: vi.fn() }))
 
-/** 지금 기준 lastAt — 묶음·문구가 현재 시각에 맞게 나오도록 상대값으로 만든다. */
+// 지금 시각을 KST 낮 15시로 고정한다(WP-1759 — vitest 는 TZ=Asia/Seoul) — 「오늘/어제」 묶음은 달력 날짜로 가르므로, 자정 직후(00시대)에 돌면
+// 「1시간 전」이 어제로 넘어가 「어제 23:09 내가 올림」이 나와 깨졌다(push 게이트가 이 시간대에 늘 실패). Date 만 가짜로 둔다 —
+// 타이머는 진짜라 MSW·React Query·waitFor 는 그대로 돈다.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 5, 10, 15, 0, 0))
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+/** 고정한 지금 기준 lastAt — 묶음·문구가 시각에 맞게 나오도록 상대값으로 만든다. */
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
 
 function recent(id: number, patch: Partial<DriveRecentFile> = {}): DriveRecentFile {
