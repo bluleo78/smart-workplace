@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.workplace.calendar.CalendarPalette;
+import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.CalendarTagRef;
 import com.workplace.calendar.dto.CalendarTagRequest;
 import com.workplace.calendar.dto.CalendarTagResponse;
@@ -434,6 +435,64 @@ class GraphCalendarSyncTest extends ExternalClientMockedTestBase {
             OffsetDateTime.parse("2026-08-01T00:00:00Z"))
         .forEach(e -> map.put(e.title(), e));
     return map;
+  }
+
+  /** 끝이 시작과 같거나 이른 일정(WP-1710) — Outlook 은 0분 일정을 허용하나 DB 는 ends_at > starts_at 이라, 끝을 보정해 저장한다. */
+  @Test
+  void sync_zeroLengthAndInvertedEvents_areStoredWithCorrectedEnd() {
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(
+            List.of(new GraphCalendar("gcal-zero", "업무", "lightBlue", "", true, true, null)));
+
+    GraphEvent zero =
+        zeroLenEvent("zero", "2026-11-20T01:00:00.0000000", "2026-11-20T01:00:00.0000000", false);
+    GraphEvent inverted =
+        zeroLenEvent(
+            "inverted", "2026-11-20T03:00:00.0000000", "2026-11-20T02:00:00.0000000", false);
+    GraphEvent allDayZero =
+        zeroLenEvent("allday", "2026-11-21T00:00:00.0000000", "2026-11-21T00:00:00.0000000", true);
+    GraphEvent normal =
+        zeroLenEvent("normal", "2026-11-20T05:00:00.0000000", "2026-11-20T06:00:00.0000000", false);
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal-zero"), any(), any()))
+        .thenReturn(List.of(zero, inverted, allDayZero, normal));
+
+    syncService.sync(ownerId, accountId);
+
+    Map<String, OffsetDateTime> endsAtByTitle =
+        eventService
+            .list(
+                ownerId,
+                OffsetDateTime.parse("2026-11-01T00:00:00Z"),
+                OffsetDateTime.parse("2026-12-01T00:00:00Z"))
+            .stream()
+            .collect(Collectors.toMap(CalendarEventResponse::title, CalendarEventResponse::endsAt));
+    assertThat(endsAtByTitle)
+        .containsEntry("zero", OffsetDateTime.parse("2026-11-20T01:01:00Z"))
+        .containsEntry("inverted", OffsetDateTime.parse("2026-11-20T03:01:00Z"))
+        .containsEntry("allday", OffsetDateTime.parse("2026-11-22T00:00:00Z"))
+        .containsEntry("normal", OffsetDateTime.parse("2026-11-20T06:00:00Z"));
+  }
+
+  /** WP-1710 테스트용 — 제목=id 인 단순 일정(참석자·본문 없음). */
+  private static GraphEvent zeroLenEvent(String id, String start, String end, boolean allDay) {
+    return new GraphEvent(
+        id,
+        id,
+        null,
+        null,
+        gdt(start, "UTC"),
+        gdt(end, "UTC"),
+        allDay,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null,
+        null,
+        null,
+        null);
   }
 
   /** 온라인 회의 정보·설명을 지정한 Graph 이벤트 — 7월 20일 10~11시(UTC). */

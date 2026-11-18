@@ -228,6 +228,23 @@ public class ExternalCalendarRepository {
   }
 
   /**
+   * (계정, 공급자 달력 id) 로 기존 외부 컨테이너 id 를 찾는다.
+   *
+   * <p>동기화에 실패한 달력을 reconcile-delete 대상에서 빼는 데 쓴다(WP-1710) — 공급자에는 그대로 있는 달력이므로 지우면 안 된다.
+   *
+   * @param externalAccountId email_account.id
+   * @param externalId 공급자 측 달력 식별자
+   * @return calendar.id, 아직 로컬에 없으면 empty
+   */
+  public Optional<Long> findExternalCalendarId(long externalAccountId, String externalId) {
+    return dsl.select(CALENDAR.ID)
+        .from(CALENDAR)
+        .where(CALENDAR.EXTERNAL_ACCOUNT_ID.eq(externalAccountId))
+        .and(CALENDAR.EXTERNAL_ID.eq(externalId))
+        .fetchOptional(CALENDAR.ID);
+  }
+
+  /**
    * 외부 컨테이너 삭제.
    *
    * <p>calendar_event 는 calendar_id FK ON DELETE CASCADE 로 함께 삭제된다.
