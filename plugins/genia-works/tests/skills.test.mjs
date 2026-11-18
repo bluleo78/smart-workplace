@@ -1366,6 +1366,42 @@ test('.work-loop/project.md 검토자 절에 순서 머지 한 줄이 있다 (WP
   assert.ok(project.includes('검토자의 「main 반영 필요」 요청 때만'));
 });
 
+// WP-1763 — 머지 순서 경계 사례(차단 재발·승인 해제·줄 확인 fetch·순서 대기 문구).
+test('process-issue.md: 머지 순서 경계 사례 — 차단 재발·승인 해제·줄 확인 fetch·순서 대기 문구 (WP-1763)', () => {
+  const merge = queueReview.split('\n6. **머지**')[1].split('\n7. ')[0];
+  const check = queueReview.split('**줄 확인**(WP-1720')[1];
+  for (const anchor of [
+    '이미 `차단` 으로 비킨 PR',
+    '`줄 맨 앞 처음 봄` 도 지금 시각·HEAD 로 새로 적는다',
+  ]) assert.ok(queueReview.includes(anchor), anchor);
+  for (const anchor of [
+    '`reviewDecision`',
+    '`승인한 HEAD <sha> 글`',
+    '`APPROVED`',
+    '`CHANGES_REQUESTED` 가 아니어야',
+    '머지가 거절되면 notes 의 `승인한 HEAD` 줄을 지우고 2번부터 다시 한다',
+    // 사람의 변경 요청은 다시 승인으로 덮지 않고 반려한다 — 승인 해제의 안전 성질.
+    '`CHANGES_REQUESTED` 면 머지하지 않고 그 변경 요청을 읽어 4번처럼 반려한다',
+    // 체크 대기 같은 잠깐의 거절은 줄을 두어 같은 HEAD 에 글·승인을 되풀이하지 않는다.
+    'HEAD 가 그대로인 잠깐의 거절이면 줄을 두고',
+  ]) assert.ok(merge.includes(anchor), anchor);
+  assert.ok(check.includes('`git fetch origin` 도 먼저 한다'));
+  assert.ok(!merge.includes('(거절돼 글이 승인 기록인 때도) 늘 notes 에'));
+  const wait = queueReview.split('**순서 대기**(WP-1720)')[1].split('\n4. ')[0];
+  assert.ok(wait.includes('`승인한 HEAD <sha> 글`'));
+  assert.ok(queueReview.includes('끝의 ` 글` 은 빼고 sha 로 견준다'));
+  assert.ok(pi.includes('답은 아래 일반 규칙의 `WORKING` 보고 한 번에 싣는다'));
+  assert.ok(!pi.includes('먼저 답하고(상태는 바꾸지 않는다)'));
+});
+
+// WP-1763 — 묶음은 줄에서 이웃한 PR 만 묶고, 줄이 바뀌면 남은 묶음을 다시 검사한다.
+test('.work-loop/project.md 묶음은 줄에서 이웃한 PR 만 묶고 줄이 바뀌면 다시 검사한다 (WP-1763)', () => {
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  const sec = section(project, '\n### 검토자 머지 판단 (WP-1081)\n', '\n## 8. ');
+  assert.ok(sec.includes('줄에서 이웃한 PR 만 묶는다'));
+  assert.ok(sec.includes('남은 묶음은 다시 검사한다'));
+});
+
 // WP-1720 — 출발한 기차는 줄에서 기다리는 동안 스스로 rebase 하지 않고, 기차마다 측정을 남긴다.
 test('process-issue.md 기차: 출발한 기차는 검토자 요청 때만 rebase 하고 측정 줄을 남긴다 (WP-1720)', () => {
   for (const anchor of [
