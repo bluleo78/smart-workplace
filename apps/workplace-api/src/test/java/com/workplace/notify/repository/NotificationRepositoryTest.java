@@ -445,9 +445,10 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     assertThat(repo.listRecent(a, 20, 0))
         .extracting(NotificationResponse::id)
         .containsExactlyInAnyOrder(aIds.get(0), aIds.get(1));
+    // id 는 Long 이라 == 는 127 을 넘는 id 에서 참조 비교가 되어 틀린다 — equals 로 비교한다.
     var restored =
         repo.listRecent(a, 20, 0).stream()
-            .filter(n -> n.id() == aIds.get(0))
+            .filter(n -> aIds.get(0).equals(n.id()))
             .findFirst()
             .orElseThrow();
     assertThat(restored.read()).isTrue();
