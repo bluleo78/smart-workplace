@@ -2125,7 +2125,9 @@ public class CalendarEventService {
    * 잇기/풀기와 차례로 선다(동시성이 조금 줄지만 교착보다 낫다).
    *
    * <p>id 가 override 가 아니면(일반·마스터·마스터가 이미 지워진 고아 override) 자기 행만 잠근다 — 같은 행을 두 번 잠그지 않는다. 마스터 역조회는
-   * 잠그기 전에 하므로, 잠금을 기다리는 사이 바뀐 행 내용은 호출자가 잠근 뒤 다시 읽어 확인한다.
+   * 잠글 행을 정하려고 잠그기 전에 한 번 하고, 잠근 뒤 한 번 더 해 같은지 본다 — 잠금을 기다리는 사이 예외 행(override ↔ 회차 매핑)이 바뀌었으면 낡은
+   * 매핑으로 다른 날짜의 회차를 취소하지 않도록 409 로 끝낸다(다시 잠그면 이미 쥔 잠금과 순서가 꼬일 수 있어 다시 시도는 사용자에게 맡긴다). 바뀐 행 내용은 호출자가
+   * 잠근 뒤 다시 읽어 확인한다.
    *
    * @param id 수정·삭제·노트 대상 일정 id
    * @param lockOverrideRow override 일 때 마스터 다음에 id 행도 잠글지 — 노트 잇기는 마스터 키에만 쓰므로 false(마스터만 잠금), 일정
@@ -2141,6 +2143,11 @@ public class CalendarEventService {
     repo.lockForUpdate(master.get().eventId());
     if (lockOverrideRow) {
       repo.lockForUpdate(id);
+    }
+    // 잠근 뒤 역조회를 다시 한다 — 마스터 잠금을 기다리는 사이 앞선 요청이 이 override 의 회차 매핑을 바꾸거나 없앴으면(취소 전환·시리즈 자르기 등)
+    // 잠그기 전에 읽은 매핑은 낡았다. 호출자(#816 삭제 갈래)가 그 매핑으로 회차를 취소하므로 그대로 쓰지 않고 409 로 끝낸다.
+    if (!exceptionRepo.findMasterOccurrenceByOverride(id).equals(master)) {
+      throw new IllegalStateException("다른 요청과 동시에 일정이 바뀌어 처리하지 못했습니다. 다시 시도해 주세요");
     }
     return master;
   }

@@ -38,6 +38,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 기다림(A pid 로 관측) → 막는 tx 커밋. 행 잠금 대기열은 먼저 온 쪽이 먼저 얻으므로 B 가 마스터를 얻고 override 를 고치러 간다. 고치기 전에는 A 가
  * 이미 override 를 쥔 채 마스터를 기다려 교착이었고, 고친 뒤에는 A 도 마스터부터 기다리므로 차례로 끝난다. 결과가 커밋돼야 하는 흐름이라 @AfterEach 로
  * 정리한다.
+ *
+ * <p>잠그기 전에 읽은 마스터 역조회가 잠금을 기다리는 사이 낡을 수 있어, 잠근 뒤 다시 보고 달라졌으면 409 로 끝내는 것도 여기서 고정한다.
  */
 class CalendarOverrideLockOrderRaceTest extends IntegrationTestBase {
 
@@ -111,6 +113,60 @@ class CalendarOverrideLockOrderRaceTest extends IntegrationTestBase {
     assertThat(
             inTenant(() -> baseDsl.fetchExists(CALENDAR_EVENT, CALENDAR_EVENT.ID.eq(overrideId))))
         .isFalse();
+  }
+
+  @Test
+  void 마스터_잠금을_기다리는_사이_회차_매핑이_바뀌면_낡은_매핑으로_취소하지_않고_409() throws Exception {
+    long master = createSeries();
+    long overrideId = inTenant(() -> editOccurrence(master, "먼저 고친 회차").id());
+    OffsetDateTime occ4 = BASE.plusWeeks(3);
+
+    ExecutorService pool = Executors.newFixedThreadPool(1);
+    // 막는 tx — 마스터 행을 쥔 채 이 override 의 회차 매핑을 3번째 → 4번째 회차로 옮긴다(커밋 전이라 삭제 요청의 첫 역조회는 옛 매핑을 본다).
+    try (Connection blocker = ownerConnection()) {
+      blocker.setAutoCommit(false);
+      try (PreparedStatement ps =
+          blocker.prepareStatement("select id from calendar_event where id = ? for update")) {
+        ps.setLong(1, master);
+        assertThat(ps.executeQuery().next()).isTrue();
+      }
+      try (PreparedStatement ps =
+          blocker.prepareStatement(
+              "update calendar_event_exception set occurrence_date = ? where override_event_id = ?")) {
+        ps.setObject(1, occ4);
+        ps.setLong(2, overrideId);
+        assertThat(ps.executeUpdate()).isEqualTo(1);
+      }
+
+      // override id 를 회차 날짜 없이 삭제(#816 갈래) — 옛 매핑(3번째 회차)으로 마스터를 찾아 그 잠금을 기다린다.
+      CompletableFuture<Integer> deletePid = new CompletableFuture<>();
+      Future<Object> delete =
+          pool.submit(
+              () ->
+                  inTenant(
+                      deletePid,
+                      () -> {
+                        service.delete(userId, overrideId, EditScope.THIS, null);
+                        return null;
+                      }));
+      awaitLockWait(deletePid, delete);
+
+      blocker.commit();
+
+      // 잠근 뒤 다시 본 매핑이 달라 409(IllegalStateException) — 고치기 전에는 낡은 3번째 회차를 취소하고 override 를 지웠다.
+      assertThat(outcome(delete)).isInstanceOf(IllegalStateException.class);
+    } finally {
+      pool.shutdownNow();
+      pool.awaitTermination(20, TimeUnit.SECONDS);
+    }
+
+    // 아무것도 바뀌지 않았다 — 3번째 회차는 취소되지 않았고, override 일정과 4번째 회차 매핑이 그대로다.
+    assertThat(inTenant(() -> exceptionRepo.isCancelled(master, OCC3))).isFalse();
+    assertThat(inTenant(() -> exceptionRepo.findOverrideEventId(master, occ4)))
+        .contains(overrideId);
+    assertThat(
+            inTenant(() -> baseDsl.fetchExists(CALENDAR_EVENT, CALENDAR_EVENT.ID.eq(overrideId))))
+        .isTrue();
   }
 
   /** 매주 5회 반복 일정을 만들어 id 를 돌려준다. */
