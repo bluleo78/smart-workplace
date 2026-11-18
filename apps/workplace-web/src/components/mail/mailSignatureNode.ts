@@ -11,7 +11,7 @@
 //   화면 DOM 에 넣으려 하므로, 그동안은 빈 자리표시를 준다.
 import { type Editor, Node } from '@tiptap/core';
 import { DOMSerializer, type Node as PMNode } from '@tiptap/pm/model';
-import { Selection, type Transaction } from '@tiptap/pm/state';
+import { NodeSelection, Selection, TextSelection, type Transaction } from '@tiptap/pm/state';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 
 import { inertDocument } from '@/lib/htmlTextEditSource';
@@ -228,4 +228,23 @@ export function userContentEndSelection(doc: PMNode): Selection {
   for (let i = 0; i < end; i += 1) pos += doc.child(i).nodeSize;
   // 블록 경계 위치에서 뒤쪽(-1)으로 가장 가까운 선택 — 문단이면 그 글 끝, 표·그림이면 그 안 마지막 자리.
   return Selection.near(doc.resolve(pos), -1);
+}
+
+/**
+ * 커서를 「내가 쓴 본문의 끝」(userContentEndSelection)에 두는 트랜잭션 단계(WP-1746). 본문이 서명뿐이면(서명 앞에 블록이 하나도 없음 — 간격 줄까지
+ * 지운 채 저장한 임시보관함 등) 서명 앞에 글자를 받을 자리가 없어, 선택이 서명 블록을 통째로 고르고 첫 글자가 서명을 지웠다. 그때는 서명 앞에 빈 줄을
+ * 하나 넣고 그 줄에 커서를 둔다.
+ *
+ * @returns 빈 줄을 넣었는가 — 넣었으면 사용자 편집이 아니므로 호출자가 실행 취소 기록·처음 본문 처리를 정한다
+ */
+export function selectUserContentEnd(tr: Transaction): boolean {
+  const sel = userContentEndSelection(tr.doc);
+  // 글자 자리를 못 찾아 서명 노드를 고른 경우만 고친다 — 그 서명 바로 앞에 빈 줄을 넣고 그 안(+1)에 커서.
+  if (sel instanceof NodeSelection && sel.node.type.name === MAIL_SIGNATURE_NODE) {
+    tr.insert(sel.from, tr.doc.type.schema.nodes.paragraph.create());
+    tr.setSelection(TextSelection.create(tr.doc, sel.from + 1));
+    return true;
+  }
+  tr.setSelection(sel);
+  return false;
 }

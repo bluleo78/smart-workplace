@@ -42,7 +42,7 @@ import {
   MAIL_MOBILE_TABLE_ROW_ID,
   MAIL_MOBILE_TABLE_ROW_RESERVE_CLASS,
 } from './mailMobileBars';
-import { mailBodyInfo, mailComposerHtml, MailSignature, userContentEndSelection } from './mailSignatureNode';
+import { mailBodyInfo, mailComposerHtml, MailSignature, selectUserContentEnd } from './mailSignatureNode';
 import { insertMailTable, MAIL_TABLE_EXTENSIONS, MAIL_TABLE_GRID_MAX } from './mailTable';
 import { MailTableGridPicker } from './MailTableGridPicker';
 import { MailTableToolbar } from './MailTableToolbar';
@@ -215,7 +215,7 @@ export interface MailComposerHandle {
   insertInitialSignature: (html: string) => void
 }
 
-/** insertInitialSignature 트랜잭션 표식 — onUpdate 가 이것을 보고 onChange 의 initial 을 true 로 알린다. */
+/** 사용자 편집이 아닌 트랜잭션 표식(insertInitialSignature·서명뿐인 본문에 커서 줄 넣기) — onUpdate 가 이것을 보고 onChange 의 initial 을 true 로 알린다. */
 const INITIAL_SIGNATURE_META = 'mailInitialSignature';
 
 /** 메일 본문 작성 에디터. */
@@ -309,7 +309,10 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
           ?.chain()
           .focus()
           .command(({ tr }) => {
-            tr.setSelection(userContentEndSelection(tr.doc)).scrollIntoView()
+            // 본문이 서명뿐이면 서명 앞에 빈 줄을 넣는다(selectUserContentEnd) — 사용자 편집이 아니므로 실행 취소 기록에 쌓지 않고
+            // 처음 본문(initial)으로 알려, 열기만 한 임시저장이 바뀐 것으로 잡히지 않게 한다.
+            if (selectUserContentEnd(tr)) tr.setMeta('addToHistory', false).setMeta(INITIAL_SIGNATURE_META, true)
+            tr.scrollIntoView()
             return true
           })
           .run()

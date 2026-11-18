@@ -7,7 +7,7 @@ import { afterEach, expect, test } from 'vitest';
 
 import { appendSignature, signatureBlockHtml } from '@/lib/mailSignature';
 
-import { mailBodyInfo, mailComposerHtml, MailSignature, userContentEndSelection } from './mailSignatureNode';
+import { mailBodyInfo, mailComposerHtml, MailSignature, selectUserContentEnd, userContentEndSelection } from './mailSignatureNode';
 
 const S = '<p style="color:#1F4E79">홍길동</p>';
 const B = signatureBlockHtml(S);
@@ -83,6 +83,37 @@ test('서명이 없으면 문서 끝, 서명만 있는 빈 본문이면 첫 줄�
   plain.destroy();
   const empty = make(appendSignature('', S));
   expect(userContentEndSelection(empty.state.doc).from).toBe(1);
+});
+
+test('본문이 서명뿐이면 서명을 고르지 않고 서명 앞 새 줄에 커서를 둔다 — 첫 글자가 서명을 지우지 않는다', () => {
+  // 간격 줄까지 지운 채 저장한 답장 임시보관함 — 서명 앞에 글자 자리가 없다.
+  const ed = make(B);
+  let inserted = false;
+  ed.chain()
+    .command(({ tr }) => {
+      inserted = selectUserContentEnd(tr);
+      return true;
+    })
+    .run();
+  expect(inserted).toBe(true);
+  expect(ed.state.selection.empty).toBe(true);
+  ed.commands.insertContent('안녕');
+  expect(ed.getHTML()).toBe('<p>안녕</p>' + B);
+});
+
+test('서명 앞에 글자 자리가 있으면 줄을 넣지 않고 그 자리를 고른다', () => {
+  const ed = make(appendSignature('', S));
+  const before = ed.getHTML();
+  let inserted = true;
+  ed.chain()
+    .command(({ tr }) => {
+      inserted = selectUserContentEnd(tr);
+      return true;
+    })
+    .run();
+  expect(inserted).toBe(false);
+  expect(ed.getHTML()).toBe(before);
+  expect(ed.state.selection.from).toBe(1);
 });
 
 test('사용자가 띄운 빈 줄은 간격 줄 하나만 빼고 남긴다', () => {
