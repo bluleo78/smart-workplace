@@ -165,8 +165,8 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       app: ['member', 'calendar', 'project', 'messaging', 'contacts'],
       kind: 'read',
       description:
-        'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
-        '(default), AGENT (AI) or ALL; active only unless includeInactive. channelId (my channel) lists its members with ' +
+        'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind AGENT ' +
+        '= AI; active only unless includeInactive. channelId (my channel) lists its members with ' +
         'role (search by name/username; includeInactive ignored). Otherwise AI rows add description (its role, for ' +
         'handoffs) and agentRuntime (INTERNAL|EXTERNAL). Returns {items, total, hasMore?, nextPage?}; if hasMore, ' +
         'pass nextPage as page, narrow search, or say the list is partial.',

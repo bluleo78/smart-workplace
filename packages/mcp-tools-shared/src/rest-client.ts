@@ -694,6 +694,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async createStagedUploadLink(name) {
       return (await http.post('/staged-files/upload-link', { name })).data;
     },
+    // WP-1705: 읽을 수 있는 첨부를 서버 안에서 복사해 스테이징한다. 요청을 그대로 본문으로 보낸다 — 이슈 챗도 서버가 issueKey 로 스레드를 찾는다.
+    async copyToStagedFile(req) {
+      return (await http.post('/staged-files/copy', req)).data;
+    },
 
     // ── 첨부·파일 내용 읽기(WP-346) ── 이슈 첨부는 프로젝트 멤버, 드라이브는 스페이스 VIEWER 를 서버가 확인한다.
     async readIssueAttachmentText(issueKey, fileId, range) {

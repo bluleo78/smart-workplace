@@ -1,9 +1,11 @@
 package com.workplace.file.controller;
 
+import com.workplace.file.dto.CopyStagedFileRequest;
 import com.workplace.file.dto.CreateStagedLinkRequest;
 import com.workplace.file.dto.CreateStagedTextRequest;
 import com.workplace.file.dto.StagedFileResponse;
 import com.workplace.file.dto.StagedUploadLinkResponse;
+import com.workplace.file.service.StagedFileCopyService;
 import com.workplace.file.service.StagedUploadService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,13 +19,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 스테이징 파일 API(WP-421) — 이슈·메시지·노트 등에 붙일 파일을 먼저 올려 두는 임시 첨부. 인증만 요구하고 권한 어노테이션은 두지 않는다: 파일을 묶는 쪽
- * 도메인이 클레임 때 자기 권한을 본다. 서비스만 주입하므로 컨트롤러에 {@code @Transactional} 이 필요 없다.
+ * 도메인이 클레임 때 자기 권한을 본다(복사 경로의 읽기 권한은 출처 도메인 리졸버가 본다). 서비스만 주입하므로 컨트롤러에 {@code @Transactional} 이 필요
+ * 없다.
  */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/staged-files")
 public class StagedFileController {
   private final StagedUploadService service;
+  private final StagedFileCopyService copyService;
 
   /** 텍스트로 스테이징 파일 만들기 → 201 + fileId(24시간 안에 클레임하지 않으면 지워진다). */
   @PostMapping("/text")
@@ -38,5 +42,13 @@ public class StagedFileController {
   public ResponseEntity<StagedUploadLinkResponse> createUploadLink(
       @AuthenticationPrincipal Long callerId, @Valid @RequestBody CreateStagedLinkRequest req) {
     return ResponseEntity.status(HttpStatus.CREATED).body(service.issueLink(callerId, req.name()));
+  }
+
+  /** 읽을 수 있는 첨부를 스테이징 파일로 복사(WP-1705) → 201 + fileId. 읽기 권한은 source 의 도메인 리졸버가 본다. */
+  @PostMapping("/copy")
+  public ResponseEntity<StagedFileResponse> copy(
+      @AuthenticationPrincipal Long callerId, @Valid @RequestBody CopyStagedFileRequest req) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(copyService.copy(callerId, req.toSource(), req.name()));
   }
 }

@@ -126,7 +126,11 @@ public final class MimeNormalizer {
    * 없어 저장 MIME 그대로 렌더링되면 이 출처로 스크립트가 돌 수 있다.
    */
   public static String inertTextMimeOf(String name) {
-    String mime = textMimeOf(name);
+    return inertMimeOf(textMimeOf(name));
+  }
+
+  /** 문서로 렌더링될 수 있는 html·xml 계열({@link #isActiveDocumentMime})이면 text/plain, 아니면 받은 MIME 그대로. */
+  public static String inertMimeOf(String mime) {
     return isActiveDocumentMime(mime) ? "text/plain" : mime;
   }
 

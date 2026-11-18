@@ -108,4 +108,15 @@ class MimeNormalizerTest {
     assertThat(MimeNormalizer.inertTextMimeOf("a.md")).isEqualTo("text/markdown");
     assertThat(MimeNormalizer.inertTextMimeOf("a.yaml")).isEqualTo("application/x-yaml");
   }
+
+  @Test
+  @DisplayName("inertMimeOf 는 html·svg·xml 계열만 text/plain 으로 바꾸고 나머지는 그대로 둔다 (WP-1705)")
+  void inertMimeOfOnlyReplacesActiveDocuments() {
+    assertThat(MimeNormalizer.inertMimeOf("text/html")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.inertMimeOf("image/svg+xml")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.inertMimeOf("application/xml")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.inertMimeOf("application/pdf")).isEqualTo("application/pdf");
+    assertThat(MimeNormalizer.inertMimeOf("application/octet-stream"))
+        .isEqualTo("application/octet-stream");
+  }
 }

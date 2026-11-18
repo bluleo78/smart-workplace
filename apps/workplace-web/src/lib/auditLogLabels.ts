@@ -85,6 +85,7 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'ISSUE_RELATIONS_IMPORTED', label: '이슈 관계 가져오기' },
   { value: 'ISSUE_PARENT_EPIC_LINKS_CONVERTED', label: '상위 에픽 연결 변환' },
   { value: 'STAGED_LINK_USE', label: '임시 업로드 링크 사용' },
+  { value: 'STAGED_FILE_COPY', label: '임시 파일 복사' },
   { value: 'ISSUE_RELATION_TYPE_CREATED', label: '이슈 관계 유형 추가' },
   { value: 'ISSUE_RELATION_TYPE_UPDATED', label: '이슈 관계 유형 편집' },
   { value: 'ISSUE_RELATION_TYPE_HIDDEN', label: '이슈 관계 유형 숨김 변경' },

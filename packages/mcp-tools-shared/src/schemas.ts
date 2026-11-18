@@ -37,7 +37,8 @@ export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
  * 같은 값을 다시 보내도 결과가 같아 멱등).
  */
 export const watchIssueInput = issueKeyInput.extend({
-  watching: z.boolean().describe('true watches, false stops watching'),
+  // 뜻(true 구독·false 해제)은 도구 설명 「Watches or stops watching」과 이름이 이미 밝혀 인자 설명을 두지 않는다(정의 크기, WP-1705).
+  watching: z.boolean(),
 });
 
 /**
@@ -143,7 +144,7 @@ export const reportAgentWorkInput = z
         message: 'nextRunAt must be ISO 8601 date-time (offset optional, default +09:00)',
       })
       .optional()
-      .describe('SCHEDULED only; ISO 8601, offset optional (KST). Resend on every SCHEDULED report; omitted = no time'),
+      .describe('SCHEDULED only; ISO 8601, offset optional (KST). Resend on every SCHEDULED report'),
     fileIds: stagedFileIdsInput.optional(), // WP-515: message 챗 글에 붙인다 — 시안·검증 스크린샷을 질문·보고와 함께 보이게
     // WP-1569: 질문 글 아래 칩으로 보일 답 선택지(누르면 그 문구가 답으로 간다). 개수 2~4·각 40자는 서버(ReportAgentWorkRequest)와 같은 규칙.
     // 앞뒤 공백을 걷은 뒤 빈 칸을 거절한다. 길이는 서버처럼 코드 포인트로 센다(zod max 는 UTF-16 단위라 이모지 등이 2로 세어진다).

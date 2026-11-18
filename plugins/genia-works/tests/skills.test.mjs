@@ -1048,3 +1048,71 @@ test('끝난 이슈 정리: 잠금 뒤 부를 때마다 worktree-sweep 으로 DO
   const done = readFileSync(new URL('work-done/SKILL.md', skillsDir), 'utf8');
   assert.ok(section(done, '## 5. 리소스 정리', '## 6.').includes('DONE·CANCELED'));
 });
+
+// WP-1705 사용 가이드 — 요청자가 그대로 따라 할 순서가 반영 보고에 없으면 VOC 반영 댓글이 「바뀌었다」만 말한다.
+test('process-issue.md: 반영 근거에 사용 가이드가 있고 11번 보고 맨 앞에 들어간다 (WP-1705)', () => {
+  assert.ok(pi.includes('**사용 가이드**'));
+  assert.match(pi, /보고는 맨 앞에 \*\*사용자에게 보이는 변화\*\*[^\n]*\*\*확인 위치\*\*[^\n]*\*\*사용 가이드\*\*[^\n]*\*\*첫 글\*\*/);
+  assert.ok(section(pi, '\n### 기차 (저장소가 켰을 때)\n', '\n### 분류 (분류 역할 AI)\n').includes('사용 가이드'));
+});
+// WP-1705 보충 1 — 캡처가 머지할 HEAD 화면이 아니면 요청자에게 옮겨 쓰이는 반영 댓글에 낡은 화면이 간다.
+test('process-issue.md: 반영 근거 캡처는 머지할 HEAD 화면으로 찍고 rebase 로 화면이 바뀌면 다시 찍는다 (WP-1705)', () => {
+  const ground = section(pi, '\n- **반영 근거**(WP-1659)', '\n- 통과하면 notes 파일에 `검증한 HEAD SHA`');
+  const shot = lineWith(ground, '**캡처는 머지할 그 HEAD 화면**(WP-1705)');
+  for (const s of ['`검증한 HEAD SHA`', '7번 rebase', '다시 찍어 바꾼다', '같은 화면 크기·같은 자리', '「전」은 고치기 전에']) {
+    assert.ok(shot.includes(s), `캡처 시점 줄에 「${s}」 가 없다`);
+  }
+  assertBefore(pi, '**캡처는 머지할 그 HEAD 화면**', '- 통과하면 notes 파일에 `검증한 HEAD SHA`');
+});
+// WP-1705 보충 2 — 검토자가 보고 요소를 확인하지 않으면 빈 보고가 그대로 머지되고 요청자 반영 댓글도 비게 된다.
+test('process-issue.md: 검토자는 최종 보고의 바뀐 것·확인 위치·사용 가이드·캡처를 보고 없으면 보충을 요청한다 (WP-1705)', () => {
+  const reviewer = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업 (백그라운드)\n');
+  const check = lineWith(reviewer, '**최종 보고 확인**(WP-1705)');
+  for (const s of ['바뀐 것·확인 위치·사용 가이드·캡처', '4번처럼 반려', '머지한 뒤에 알게 됐으면', '보충을 요청']) {
+    assert.ok(check.includes(s), `검토자 기준 줄에 「${s}」 가 없다`);
+  }
+  assertBefore(reviewer, '**최종 보고 확인**', '6. **머지**:');
+});
+const guideReq = section(pi, '\n### 안내 자료 요청\n', '\n### 분류 (분류 역할 AI)\n');
+test('process-issue.md: 안내 자료 요청은 라벨로 분류보다 먼저 가르고, 구현 흐름 없이 확인해 REVIEW 로 보고한다 (WP-1705)', () => {
+  const top = section(pi, '**먼저 갈래를 본다**', '\n**notes 파일**');
+  assertBefore(top, '「안내 자료 요청」', '「분류 (분류 역할 AI)」');
+  for (const s of ['「안내 자료 요청」 소절의 라벨', '다른 프로젝트 이슈는 열지 않는다', '워크트리·브랜치·커밋·PR·게이트 없이',
+    "state: 'REVIEW'", '결함 이슈를 만들어', '개발 대기열 라벨을 붙여 넘기고 담당에서 빠진다', '받은 AI 도 이 절로 처리한다']) {
+    assert.ok(guideReq.includes(s), `「${s}」 가 없다`);
+  }
+  assert.ok(triage.includes('안내 자료 요청 라벨이 붙은 이슈는 분류 요청이 아니다'));
+});
+test('SKILL.md 4번: 안내 자료 요청 라벨 이슈는 역할과 상관없이 맨 위 행으로 process-issue.md 「안내 자료 요청」 (WP-1705)', () => {
+  const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
+  assert.match(s4, /^\| 누구든 \| [^\n]*「안내 자료 요청」[^\n]*\|$/m);
+  assertBefore(s4, '| 누구든 |', '| 기획 역할 AI |');
+});
+test('project.md: 안내 자료 요청 소절 — 라벨·제목·본문 머리·담당·분류 제외 (WP-1705)', () => {
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  const s = section(project, '\n### 안내 자료 요청 (WP-1705)\n', '\n## 11. 기획 역할 AI\n');
+  for (const t of ['`VOC 반영 안내`', '「VOC 반영 안내 — <VOC 키> <요약>」',
+    '이 이슈는 VOC 가 아니라 출시된 개발 이슈의 사용 안내 자료를 받는 WP 작업입니다. VOC(WPV)는 열어 보지 않아도 되도록 필요한 내용을 모두 아래에 적었습니다.',
+    'AI 팀장', '분류 대상이 아니다', '이 이슈의 검토 대기 보고(REVIEW)', '연결된 WPV 키는 열지 않는다']) {
+    assert.ok(s.includes(t), `「${t}」 가 없다`);
+  }
+});
+
+// WP-1705 넘기기 — 내 행을 끝내지 않고 빠지면 작업 중 행이 남아 팀장이 다시 집고, 라벨을 떼면 받은 AI 가 안내 자료로 알아보지 못한다.
+test('process-issue.md: 안내 자료 요청 넘기기는 내 행을 COMPLETED 로 끝내고 안내 라벨을 그대로 둔다 (WP-1705)', () => {
+  const line = lineWith(guideReq, '직접 하기 어려우면');
+  assert.ok(line.includes("state: 'COMPLETED', note: '안내 자료: 개발 대기열로 넘김'"));
+  assertBefore(line, "state: 'COMPLETED'", '담당에서 빠진다');
+  assert.ok(line.includes('이유 댓글'));
+  assert.ok(line.includes('안내 자료 요청 라벨은 떼지 않는다'));
+});
+
+// WP-1705 넘기기 순환 — 받은 AI 가 또 넘기면 대기열 사이를 돌기만 한다. 넘긴 이유 댓글 표지로 알아보고 사람에게 묻는다.
+test('process-issue.md: 안내 자료 요청 넘기기는 한 번뿐이고 받은 AI 는 사람에게 INPUT_REQUIRED 로 묻는다 (WP-1705)', () => {
+  const line = lineWith(guideReq, '직접 하기 어려우면');
+  assert.ok(line.includes('`[안내 자료 넘김]` 으로 시작하는 이유 댓글'));
+  assert.ok(line.includes('넘기기는 한 번뿐이다'));
+  assertBefore(line, '`[안내 자료 넘김]` 이 이미 있으면', '다시 넘기지 않고');
+  assert.ok(line.includes('사람 담당자(없으면 작성자)를 `@username` 으로 멘션'));
+  assert.ok(line.includes('`INPUT_REQUIRED`'));
+});

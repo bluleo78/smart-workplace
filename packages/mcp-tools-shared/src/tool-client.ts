@@ -6,6 +6,7 @@
 // 가공이 앱마다 클라이언트에 흩어져 있던 것이 드리프트의 원인이었다(연락처 id→userId 를 한쪽만 하던 식).
 import type { CurrentUserClient, ProjectMetaClient } from './resolve.js';
 import type { MAIL_CATEGORIES } from './schemas.js';
+import type { STAGED_COPY_SOURCES } from './source-fields.js';
 
 /** 구성원 디렉터리 행(GET /members). 핸들러가 username·userId·name 을 읽으므로 그 필드만 타입으로 고정한다. */
 export interface MemberRow {
@@ -711,6 +712,27 @@ export interface FileToolClient {
   createStagedTextFile(name: string, content: string): Promise<StagedFile>;
   /** POST /staged-files/upload-link — 201. 10분짜리 일회용 PUT 링크(평문 토큰은 이 응답에서만). StagedUploadLinkResponse 원형. */
   createStagedUploadLink(name: string): Promise<StagedUploadLink>;
+  /**
+   * POST /staged-files/copy — 201(WP-1705). 읽을 수 있는 첨부(이슈 첨부·본문 이미지, 이슈 챗 첨부, 드라이브 파일)를 서버 안에서 복사해 스테이징한다.
+   * 읽기 권한은 source 의 도메인이 보고(없으면 404/403), 25MB 를 넘거나 필드가 틀리면 400. name 을 주지 않으면 원본 이름. StagedFileResponse 원형.
+   */
+  copyToStagedFile(req: StagedCopyRequest): Promise<StagedFile>;
+}
+
+/** 스테이징 복사 출처(WP-1705) — read_file 의 source 중 서버가 복사를 지원하는 셋. */
+export type StagedCopySourceName = (typeof STAGED_COPY_SOURCES)[number];
+
+/**
+ * 스테이징 복사 요청(WP-1705 서버 계약 CopyStagedFileRequest). source 별 필수: issue → issueKey·attachmentId,
+ * issue_chat → issueKey·messageId·attachmentId, drive → driveFileId. 쓰지 않는 필드는 보내지 않는다.
+ */
+export interface StagedCopyRequest {
+  source: StagedCopySourceName;
+  issueKey?: string;
+  messageId?: number;
+  attachmentId?: number;
+  driveFileId?: number;
+  name?: string;
 }
 
 /** 스테이징 파일 응답(WP-421 서버 계약 StagedFileResponse) — 텍스트 만들기와 링크 PUT 이 같은 모양으로 준다. */

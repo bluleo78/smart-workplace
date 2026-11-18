@@ -302,7 +302,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
         'Updates an event I organize and/or its attendees; only given fields change; null clears (recurrenceRule:null ends ' +
-        'recurrence). Recurring: scope ALL (default); THIS/THIS_AND_FOLLOWING need occurrenceDate (from list_events) plus that ' +
+        'recurrence). Recurring: scope ALL; THIS/THIS_AND_FOLLOWING need occurrenceDate (from list_events) plus that ' +
         "occurrence's startsAt/endsAt for field changes. addAttendees/removeAttendees: member usernames (not the organizer, no emails), " +
         'whole series; notify:false skips in-app invitations (external calendars may still email). M365-synced events change there too. Steps ' +
         'save separately ({ok, results}); attendee steps skip if fields fail.',

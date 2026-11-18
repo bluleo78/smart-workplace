@@ -45,6 +45,11 @@ public final class IssueKeys {
         : Optional.of(new IssueKey(m.group(1).toUpperCase(Locale.ROOT), number));
   }
 
+  /** {@link #parse} 와 같되 키 꼴이 아니면 IllegalArgumentException(400 으로 매핑되는 입력 오류). */
+  public static IssueKey parseOrThrow(String text) {
+    return parse(text).orElseThrow(() -> new IllegalArgumentException("이슈 키 형식이 아닙니다: " + text));
+  }
+
   /** 숫자 문자열 → int. int 를 넘으면 null — 500 대신 「없음」으로 다루게 한다. */
   public static Integer parseNumber(String digits) {
     try {

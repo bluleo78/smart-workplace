@@ -7,6 +7,8 @@ import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.file.api.StorageQuotaGuard;
 import com.workplace.file.dto.StagedFileResponse;
 import com.workplace.file.dto.StagedUploadLinkResponse;
+import com.workplace.file.exception.FileBlobMissingException;
+import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.StagedUploadLinkForbiddenException;
 import com.workplace.file.exception.StagedUploadLinkGoneException;
@@ -23,6 +25,7 @@ import com.workplace.global.util.BoundedBody;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.ClientIpExtractor;
 import com.workplace.global.util.RawUploadContentTypes;
+import com.workplace.global.util.RequestInfo;
 import com.workplace.global.util.SafeFileNames;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
@@ -54,7 +57,7 @@ import org.springframework.web.multipart.MultipartFile;
  * </ul>
  *
  * <p>WP-574: 메일 작성창의 브라우저 멀티파트 업로드({@link #createFromMultipart})도 같은 행을 만든다. WP-1517: 메일 서명 이미지의
- * 발송용 사본({@link #createFromBytes})도 같다.
+ * 발송용 사본({@link #createFromBytes})도 같다. WP-1705: 읽을 수 있는 다른 첨부의 복사본({@link #createFromCopy})도 같다.
  *
  * <p>어느 길이든 결과는 같은 모양의 FILE 행이다: 업로더 = 호출자(링크는 발급자), category ATTACHMENT, 경로 {@code
  * tenant-*&#47;staged/…}, 만료 = 지금 + {@code temp-expiry-hours}(24). 그래야 {@link
@@ -83,6 +86,9 @@ public class StagedUploadService {
 
   /** 감사 action — 링크 사용 성공. 무인증 접근이라 요청 IP·User-Agent 를 함께 남긴다. */
   public static final String AUDIT_LINK_USE = "STAGED_LINK_USE";
+
+  /** 스테이징 복사 감사 actionType(WP-1705) — 링크 사용({@link #AUDIT_LINK_USE})처럼 남의 바이트가 내 임시 파일이 된 기록. */
+  public static final String AUDIT_COPY = "STAGED_FILE_COPY";
 
   private final StagedUploadLinkRepository links;
   private final DSLContext dsl;
@@ -196,6 +202,105 @@ public class StagedUploadService {
     fileStore.storeBytes(relativePath, bytes);
     fileStore.deleteOnRollback(relativePath);
     return insertStagedFile(callerId, safeName, mime, bytes.length, relativePath);
+  }
+
+  /**
+   * 이미 저장된 FILE(다른 도메인의 첨부 등)의 바이트를 복사해 스테이징 파일로 만든다(WP-1705). 읽기 권한은 호출자(StagedFileCopyService 의
+   * 출처 리졸버)가 이미 확인했다 — 여기서는 원본 행·크기·blob 만 본다. 원본은 건드리지 않는다.
+   *
+   * <p>크기 상한은 링크 모드와 같은 25MB({@code linkMaxBytes}) — 큰 드라이브 파일을 통째로 복사하지 않게 한다. 거절·유실은 모두 저장 전에
+   * 던지므로 행·blob 이 남지 않는다.
+   *
+   * <p>MIME 은 원본 값을 쓰되 html·xml 계열(svg 포함)은 text/plain 으로 둔다 — 텍스트 스테이징({@link
+   * MimeNormalizer#inertTextMimeOf})과 같은 규칙. 드라이브 원본은 CSP sandbox 로 서빙되지만 스테이징 파일이 붙는 이슈·챗·노트 첨부 원본
+   * 경로에는 그게 없어, 그대로 옮기면 이 출처에서 문서로 렌더링될 수 있다. 깨진·와일드카드 값은 octet-stream(멀티파트 경로와 같은 규칙).
+   *
+   * <p>링크 PUT 완료({@link #completeUpload})처럼 감사 로그를 같은 트랜잭션에 남긴다 — 누가 어느 출처의 어느 원본 FILE 을 복사했는지.
+   *
+   * @param name 복사본 이름(null·공백이면 원본 이름)
+   * @param source 출처 키(issue·issue_chat·drive — 감사 기록용)
+   * @throws com.workplace.file.exception.FileNotFoundException 원본 행이 없음(404)
+   * @throws FileSizeLimitExceededException 원본이 25MB 초과(400)
+   * @throws com.workplace.file.exception.FileBlobMissingException 원본 blob 유실
+   */
+  @Transactional
+  public StagedFileResponse createFromCopy(
+      long callerId, long srcFileId, String name, String source) {
+    var src =
+        dsl.select(
+                FILE.ORIGINAL_NAME,
+                FILE.STORED_NAME,
+                FILE.MIME_TYPE,
+                FILE.SIZE_BYTES,
+                FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(srcFileId))
+            .fetchOne();
+    if (src == null) {
+      throw new FileNotFoundException(srcFileId);
+    }
+    String safeName =
+        SafeFileNames.sanitize(
+            name != null && !name.isBlank() ? name : src.get(FILE.ORIGINAL_NAME), "file");
+    long size = src.get(FILE.SIZE_BYTES);
+    if (size > linkMaxBytes) {
+      throw new FileSizeLimitExceededException("ATTACHMENT", linkMaxBytes, safeName);
+    }
+    String srcPath = src.get(FILE.STORAGE_PATH);
+    if (!fileStore.exists(srcPath)) {
+      throw new FileBlobMissingException(srcFileId);
+    }
+    // 한도 검사는 바이트를 쓰기 전, 같은 트랜잭션 안에서 — 잠금이 file INSERT 커밋까지 유지된다.
+    quotaGuard.assertWithinQuotaLocked(size);
+    // 경로 확장자는 사용자가 준 이름이 아니라 원본 저장 이름 기준 — 이름을 바꿔도 blob 확장자는 원본을 따른다.
+    String relativePath =
+        pathBuilder.buildWithExtensionOf(StorageDomain.STAGED, src.get(FILE.STORED_NAME));
+    // 정리는 복사보다 먼저 등록한다 — 복사 도중 실패(디스크 부족 등)로 반쯤 쓴 파일도 롤백 때 지워진다(없는 경로 삭제는 no-op).
+    fileStore.deleteOnRollback(relativePath);
+    fileStore.copy(srcPath, relativePath);
+    StagedFileResponse saved =
+        insertStagedFile(
+            callerId,
+            safeName,
+            // 복사본 저장 MIME — 구체 타입만 남기고(깨진·와일드카드는 octet-stream) html·xml 계열은 text/plain
+            MimeNormalizer.inertMimeOf(
+                MimeNormalizer.concreteOrOctetStream(src.get(FILE.MIME_TYPE))),
+            size,
+            relativePath);
+    // IP·User-Agent 는 지금 처리 중인 인증 요청에서(요청 밖이면 null)
+    RequestInfo request = RequestInfo.current();
+    auditStaged(
+        callerId,
+        AUDIT_COPY,
+        saved,
+        "스테이징 파일 복사: ",
+        request.ip(),
+        request.userAgent(),
+        Map.of("source", source, "sourceFileId", srcFileId, "sizeBytes", saved.sizeBytes()));
+    return saved;
+  }
+
+  /** 스테이징 파일 생성 감사 로그 한 줄(같은 트랜잭션) — actor 는 callerId, 대상은 새 FILE 행. 복사·링크 업로드 완료가 함께 쓴다. */
+  private void auditStaged(
+      long actorId,
+      String action,
+      StagedFileResponse saved,
+      String descriptionPrefix,
+      String ip,
+      String userAgent,
+      Map<String, Object> detail) {
+    auditLogService.log(
+        actorId,
+        usernameOf(actorId),
+        action,
+        "file",
+        String.valueOf(saved.fileId()),
+        descriptionPrefix + saved.name(),
+        ip,
+        userAgent,
+        "SUCCESS",
+        null,
+        detail);
   }
 
   /**
@@ -318,17 +423,13 @@ public class StagedUploadService {
             MimeNormalizer.normalizeSniffing(link.fileName(), body.mimeType(), body.path()),
             body.size(),
             relativePath);
-    auditLogService.log(
+    auditStaged(
         link.userId(),
-        usernameOf(link.userId()),
         AUDIT_LINK_USE,
-        "file",
-        String.valueOf(saved.fileId()),
-        "스테이징 업로드 링크 사용: " + saved.name(),
+        saved,
+        "스테이징 업로드 링크 사용: ",
         ClientIpExtractor.forAudit(clientIp),
         userAgent,
-        "SUCCESS",
-        null,
         Map.of("stagedLinkId", link.id(), "sizeBytes", saved.sizeBytes()));
     return saved;
   }

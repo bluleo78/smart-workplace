@@ -7,23 +7,12 @@
 import { z } from 'zod';
 
 import { readRangeShape, resolveRange } from './attachment-read.js';
-import { imageViewBlocks, MAX_PAGES_PER_CALL, pageBlocks, withPages } from './attachment-view.js';
+import { imageViewBlocks, pageBlocks, withPages } from './attachment-view.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
+import { checkSourceFields } from './source-fields.js';
 import { nullAsOmitted } from './tool-definitions.js';
 import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
-
-/** source 별 필수 식별자 — 나머지 식별자는 줄 수 없다. 필드 이름은 입력 이름 그대로다(드라이브만 driveFileId, 나머지 첨부는 attachmentId 를 재사용). */
-const SOURCE_FIELDS = {
-  // WP-1331: 본문·댓글에 넣은 이미지는 attachments 에 없다 — 이미지 주소 .../issue-images/{id} 의 id 로 같은 source 를 읽는다.
-  issue: { required: ['issueKey', 'attachmentId'], from: 'get_issue_detail 의 attachments[].attachmentId 또는 본문 이미지 주소 .../issue-images/{id}' },
-  issue_chat: { required: ['issueKey', 'messageId', 'attachmentId'], from: 'get_issue_chat 의 messages[].id 와 attachments[].attachmentId' },
-  drive: { required: ['driveFileId'], from: 'list_drive_items·search_drive 결과의 driveFileId' },
-  wiki: { required: ['pageId', 'attachmentId'], from: '노트 본문 이미지 주소 .../attachments/{attachmentId}/content' },
-  message: { required: ['channelId', 'messageId', 'attachmentId'], from: 'list_channel_messages·list_thread_replies 항목의 id 와 attachments[].fileId, 그 채널의 channelId' },
-  mail: { required: ['attachmentId'], from: 'get_mail 의 attachments[].attachmentId' },
-} as const;
-const IDENTIFIER_FIELDS = ['issueKey', 'attachmentId', 'driveFileId', 'pageId', 'channelId', 'messageId'] as const;
 
 /**
  * read_file 입력 스키마를 만든다. 입력은 source 로 대상을 고르는 평평한 객체다. 판별 유니온(z.discriminatedUnion)을 쓰지 않는 이유: 두 앱 서버 레이어가
@@ -47,17 +36,7 @@ export function readFileInputFor(imageInput: boolean) {
     messageId: nullAsOmitted(z.number().int().positive()),
     ...readRangeShape,
   });
-  return withPages(base, imageInput).superRefine((v, ctx) => {
-    const { required, from } = SOURCE_FIELDS[v.source];
-    const missing = required.filter((f) => v[f] == null);
-    if (missing.length > 0) {
-      ctx.addIssue({ code: 'custom', message: `source '${v.source}' 는 ${required.join('·')} 가 필요합니다(${from}).` });
-    }
-    const extra = IDENTIFIER_FIELDS.filter((f) => v[f] != null && !(required as readonly string[]).includes(f));
-    if (extra.length > 0) {
-      ctx.addIssue({ code: 'custom', message: `source '${v.source}' 에는 ${extra.join('·')} 를 주지 마세요. 다른 첨부는 그 source 로 읽습니다.` });
-    }
-  });
+  return withPages(base, imageInput).superRefine(checkSourceFields);
 }
 
 /** 기본(이미지 입력 가능) 스키마 — 테스트·외부에서 스키마 모양을 볼 때 쓴다. */
@@ -171,7 +150,8 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
         // WP-250: 정의 크기 상한(16,000토큰) 때문에 한 문장씩만 — 이미지를 볼 수 없는 모델에는 pages 문장을 싣지 않는다.
         // WP-388: 메일 첨부도 변환본·pages 를 지원해 "not mail" 단서를 뺐다(모든 source 공통).
         'Images return as images (large/HEIC converted).' +
-        (imageInput ? ` PDF: pages:[n] (max ${MAX_PAGES_PER_CALL}) returns page images (figures, charts, scans).` : ''),
+        // WP-1705: 쪽 수 상한은 pages 스키마(maxItems)가 말해 설명에서 「(max 3)」을 뺐다(정의 크기).
+        (imageInput ? ' PDF: pages:[n] returns page images (figures, charts, scans).' : ''),
       inputSchema: input,
       async handler(args) {
         const p = input.parse(args);

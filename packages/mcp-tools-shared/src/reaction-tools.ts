@@ -16,9 +16,11 @@ export const reactInput = z
     emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍; to remove, the exact string shown in reactions'),
     // 뜻(true 추가·false 제거)은 도구 설명 첫머리 「Adds (reacted: true) or removes (false)」가 이미 밝혀 인자 설명을 두지 않는다(정의 크기, WP-1341).
     reacted: z.boolean(),
-    messageId: z.number().int().positive().optional().describe('Chat message id from channel or thread reads'),
-    issueKey: z.string().min(1).optional().describe('Issue comment: issue key, together with commentId'),
-    commentId: z.number().int().positive().optional().describe('Issue comment id from the issue detail'),
+    // 무엇의 id 인지(채팅 메시지·이슈 코멘트)는 도구 설명이 밝혀 출처만 남긴다(정의 크기, WP-1705).
+    messageId: z.number().int().positive().optional().describe('From channel or thread reads'),
+    // 이슈 코멘트 대상의 짝(issueKey + commentId)은 도구 설명이 이미 밝혀 인자 설명을 두지 않는다(정의 크기, WP-1705).
+    issueKey: z.string().min(1).optional(),
+    commentId: z.number().int().positive().optional().describe('From the issue detail'),
   })
   // 모델이 고칠 수 있게 어긋난 경우마다 다른 문장을 준다(한 문장이면 같은 실수를 되풀이한다).
   .superRefine((v, ctx) => {

@@ -2331,7 +2331,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "commentId": {
-          "description": "Issue comment id from the issue detail",
+          "description": "From the issue detail",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -2343,12 +2343,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "issueKey": {
-          "description": "Issue comment: issue key, together with commentId",
           "minLength": 1,
           "type": "string",
         },
         "messageId": {
-          "description": "Chat message id from channel or thread reads",
+          "description": "From channel or thread reads",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -2654,7 +2653,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "nextRunAt": {
-          "description": "SCHEDULED only; ISO 8601, offset optional (KST). Resend on every SCHEDULED report; omitted = no time",
+          "description": "SCHEDULED only; ISO 8601, offset optional (KST). Resend on every SCHEDULED report",
           "type": "string",
         },
         "note": {
@@ -3697,6 +3696,18 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "attachmentId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "content": {
           "anyOf": [
             {
@@ -3707,15 +3718,69 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
+        "driveFileId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "issueKey": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "messageId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "name": {
-          "maxLength": 255,
-          "minLength": 1,
-          "type": "string",
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "issue",
+                "issue_chat",
+                "drive",
+              ],
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
         },
       },
-      "required": [
-        "name",
-      ],
       "type": "object",
     },
   },
@@ -3730,7 +3795,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "watching": {
-          "description": "true watches, false stops watching",
           "type": "boolean",
         },
       },
