@@ -9,8 +9,10 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -75,19 +77,50 @@ public class CalendarEventNoteRepository {
         .map(r -> toRow(r));
   }
 
-  /** 일정 id 들의 연결을 쿼리 한 번에 키별로 모은다(목록 응답 채우기용, N+1 금지). 빈 입력은 쿼리 없이 빈 맵. */
-  public Map<NoteKey, NoteLinkRow> findByEventIds(Collection<Long> eventIds) {
+  /**
+   * 요청한 키들의 연결만 쿼리 한 번에 키별로 모은다(목록 응답 채우기용, N+1 금지, WP-1737). 돌려주는 맵에는 요청한 키만 든다.
+   *
+   * <p>키마다 바인드 값을 두는 {@code (event_id, occurrence_start) IN (..)} 은 쓰지 않는다 — 월·연 목록(최대 366일)은 반복 일정
+   * 회차 키가 수만 개라 PostgreSQL 바인드 값 한도(32767)를 넘겨 500 이 난다. 대신 바인드 값 수가 일정 수에만 비례하는 좁은 범위로 읽는다: {@code
+   * event_id IN (서로 다른 일정 id) AND (occurrence_start IS NULL OR occurrence_start BETWEEN 키 중 가장 이른
+   * 회차 AND 가장 늦은 회차)}(회차 키가 하나도 없으면 {@code occurrence_start IS NULL} 만). 범위 안의 다른 회차 줄이 조금 더 읽힐 수
+   * 있어, 요청한 키만 자바에서 남긴다 — 그래서 메서드 약속(「요청한 키만」)은 저장소 안에서 지켜진다. 시각은 keyCondition 과 같이 UTC
+   * OffsetDateTime 으로 바꿔 비교한다. 빈 입력은 쿼리 없이 빈 맵.
+   */
+  public Map<NoteKey, NoteLinkRow> findByKeys(Collection<NoteKey> keys) {
     Map<NoteKey, NoteLinkRow> result = new HashMap<>();
-    if (eventIds == null || eventIds.isEmpty()) {
+    if (keys == null || keys.isEmpty()) {
       return result;
+    }
+    // 정확히 맞춰 볼 키 집합(Instant 기준 — NoteKey 의 equals 가 그대로 쓰인다)과, 쿼리 범위를 정할 일정 id·회차 최소/최대
+    Set<NoteKey> wanted = new HashSet<>(keys);
+    Set<Long> eventIds = new HashSet<>();
+    Instant minOcc = null;
+    Instant maxOcc = null;
+    for (NoteKey k : wanted) {
+      eventIds.add(k.eventId());
+      Instant occ = k.occurrenceStart();
+      if (occ != null) {
+        if (minOcc == null || occ.isBefore(minOcc)) minOcc = occ;
+        if (maxOcc == null || occ.isAfter(maxOcc)) maxOcc = occ;
+      }
+    }
+    Condition slot = CALENDAR_EVENT_NOTE.OCCURRENCE_START.isNull();
+    if (minOcc != null) {
+      slot =
+          slot.or(CALENDAR_EVENT_NOTE.OCCURRENCE_START.between(toOffset(minOcc), toOffset(maxOcc)));
     }
     dsl.selectFrom(CALENDAR_EVENT_NOTE)
         .where(CALENDAR_EVENT_NOTE.EVENT_ID.in(eventIds))
+        .and(slot)
         .fetch()
         .forEach(
             r -> {
               NoteLinkRow row = toRow(r);
-              result.put(row.key(), row);
+              // 범위로 함께 읽힌 다른 회차·회차 없는 줄 중 요청하지 않은 것은 버린다
+              if (wanted.contains(row.key())) {
+                result.put(row.key(), row);
+              }
             });
     return result;
   }

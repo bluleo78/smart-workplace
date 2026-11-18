@@ -18,8 +18,8 @@ import { cn } from '@/lib/utils'
 /** 안내가 사라진 뒤 초점을 받을 수 있는 요소. */
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-/** 다시 부를 쿼리 — useQuery 결과 그대로 넘긴다. */
-type RetryableQuery = { isFetching: boolean; refetch: () => unknown }
+/** 다시 부를 쿼리 — useQuery 결과 그대로 넘긴다. 안내를 감싸 쓰는 컴포넌트(일정 회의록 줄 등)도 같은 모양으로 받는다. */
+export type RetryableQuery = { isFetching: boolean; refetch: () => unknown }
 
 /** 다시 시도 연결 — 쿼리를 넘기거나, 직접 onRetry·retrying 을 준다(쿼리가 아닌 곳: 홈 위젯 등). */
 type RetryProps =
@@ -76,8 +76,10 @@ export function LoadErrorState({
     }
   }, [testId])
   const retry = (
+    // type="button" — 폼 안(일정 창의 회의록 줄 등)에 놓여도 누를 때 폼을 제출하지 않게(WP-1737)
     <Button
       ref={retryRef}
+      type="button"
       variant="outline"
       size="sm"
       onClick={() => { if (!retrying) onRetry() }}

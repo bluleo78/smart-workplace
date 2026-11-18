@@ -124,7 +124,8 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
   const [showMeetingInfo, setShowMeetingInfo] = useState(false)
 
   // 이은 회의록 — 읽기만 한다(카드만, 단추·X 없음). 연결이 없으면 줄째 숨는다(WP-1701)
-  const { data: noteLink } = useEventNote(canShowNoteRow(event) ? event.id : undefined, event.occurrenceDate)
+  const noteQuery = useEventNote(canShowNoteRow(event) ? event.id : undefined, event.occurrenceDate)
+  const noteLink = noteQuery.data
 
   const time = eventTimeLines(event)
   const recurrence = recurrenceLabel(event)
@@ -253,7 +254,16 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
             </DetailRow>
           )}
 
-          {canShowNoteRow(event) && <EventNoteRow note={noteLink?.note} editable={false} />}
+          {/* 조회가 실패하면 줄째 숨기지 않고 오류·「다시 시도」를 보인다 — 숨기면 연결이 없다고 오해한다(WP-1737).
+              불러오는 중에는 지금처럼 아무것도 그리지 않는다(읽기 전용은 연결이 없으면 줄이 없으므로 번쩍이지 않게).
+              다시 읽기만 실패하고 앞서 받은 카드가 있으면 그 카드를 그대로 둔다 */}
+          {canShowNoteRow(event) && (
+            <EventNoteRow
+              note={noteLink?.note}
+              editable={false}
+              failedQuery={noteQuery.isError && !noteLink ? noteQuery : undefined}
+            />
+          )}
 
           {description && (
             <DetailRow icon={<AlignLeft className="h-4 w-4" />} label="설명" testId="event-detail-description">

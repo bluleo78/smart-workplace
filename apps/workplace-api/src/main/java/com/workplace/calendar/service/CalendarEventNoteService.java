@@ -39,11 +39,8 @@ public class CalendarEventNoteService {
   public Map<NoteKey, EventNoteRef> cardsFor(long callerId, Collection<NoteKey> keys) {
     Map<NoteKey, EventNoteRef> out = new HashMap<>();
     if (keys == null || keys.isEmpty()) return out;
-    Set<Long> eventIds = new HashSet<>();
-    for (NoteKey k : keys) eventIds.add(k.eventId());
-    Map<NoteKey, NoteLinkRow> links = noteRepo.findByEventIds(eventIds);
-    // 같은 일정의 다른 회차 줄까지 읽히므로 요청한 키만 남긴다(WP-1701).
-    links.keySet().retainAll(keys);
+    // 요청한 키의 연결만 받는다(WP-1737) — 저장소가 좁은 범위로 읽은 뒤 요청하지 않은 회차 줄은 버리고 돌려준다.
+    Map<NoteKey, NoteLinkRow> links = noteRepo.findByKeys(keys);
     if (links.isEmpty()) return out;
     Set<Long> pageIds = new HashSet<>();
     links.values().forEach(l -> pageIds.add(l.wikiPageId()));

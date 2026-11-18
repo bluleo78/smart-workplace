@@ -61,6 +61,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -602,9 +603,9 @@ public class CalendarEventService {
     requireOwner(callerId, id);
     requireOrganizer(callerId, id);
     requireWritableEvent(id);
-    // override 일정이면 그 마스터를, 아니면 자기 행을 잠근다 — 같은 시리즈의 잇기·자르기가 한 줄로 선다.
-    var master = exceptionRepo.findMasterOccurrenceByOverride(id);
-    repo.lockForUpdate(master.map(MasterOccurrence::eventId).orElse(id));
+    // override 일정이면 그 마스터만, 아니면 자기 행을 잠근다 — 같은 시리즈의 잇기·자르기가 한 줄로 선다. 노트 줄은 마스터 키로 쓰므로
+    // override 행 자체는 잠그지 않는다(WP-1701 그대로). 마스터 찾기·잠금 순서는 lockSeriesFor 한 곳에 둔다(WP-1737).
+    lockSeriesFor(id, false);
     CalendarEventResponse cur =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
     // 잠금을 기다리는 사이 바뀌었을 수 있어 읽기용 키 규칙(readKey)으로 다시 역조회한다(WP-1701).
@@ -1134,7 +1135,8 @@ public class CalendarEventService {
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate) {
-    CalendarEventResponse target = lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate);
+    CalendarEventResponse target =
+        lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate).target();
 
     // 단일 일정 또는 ALL → 마스터 행 전체 교체(RRULE 포함). 기존 예외는 유지(v1b 한계).
     if (target.recurrenceRule() == null || scope == EditScope.ALL) {
@@ -1481,7 +1483,8 @@ public class CalendarEventService {
    */
   private void doDeleteLocal(
       long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
-    CalendarEventResponse target = lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate);
+    LockedTarget locked = lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate);
+    CalendarEventResponse target = locked.target();
 
     // override 별도 일정 자신의 id 를 occurrenceDate 없이(=scope 인지 못하고 "독립 삭제"로) 요청받은 경우(#816).
     // override 이벤트 행 자체는 recurrenceRule=null 이라 바로 아래 분기로 빠지면 repo.delete(id) 가 실행되는데,
@@ -1489,11 +1492,11 @@ public class CalendarEventService {
     // 마스터가 다음 회차 전개 시 원래 날짜에 그 회차를 다시 만들어낸다. 역조회로 마스터/occurrence 를 찾아 먼저
     // "취소"로 전환한 뒤(THIS 삭제와 동일 패턴) override 행을 지워 부활을 막는다.
     if (occurrenceDate == null) {
-      var masterOccurrence = exceptionRepo.findMasterOccurrenceByOverride(id);
+      // 역조회는 잠금 단계(lockSeriesFor)에서 한 번만 한다 — 그 단계가 잠근 바로 그 마스터를 쓰므로 같은 조회를 잠금 밖에서 다시 하지 않는다.
+      Optional<MasterOccurrence> masterOccurrence = locked.master();
       if (masterOccurrence.isPresent()) {
-        // 노트 잇기(noteKeyForWrite)는 마스터 행을 잠그므로 여기서도 마스터를 잠가, 취소 전환·노트 삭제와 동시 잇기가
-        // 한 줄로 서게 한다 — 안 그러면 취소된 회차에 노트가 남을 수 있다(WP-1701).
-        repo.lockForUpdate(masterOccurrence.get().eventId());
+        // 마스터 행은 lockSeriesFor 가 override 행보다 먼저 이미 잠갔다(WP-1737) — 그래서 취소 전환·노트 삭제가
+        // 노트 잇기(noteKeyForWrite, 마스터 잠금)와 한 줄로 서고(WP-1701), 마스터 경유 「이 회차만 수정」과 역순 교착도 없다.
         cancelOccurrence(masterOccurrence.get().eventId(), masterOccurrence.get().occurrenceDate());
         repo.delete(id);
         return;
@@ -2090,14 +2093,56 @@ public class CalendarEventService {
    *
    * <p>사전검증(checkUpdatable/validateDeletable)은 잠금 없이 별도 tx 에서 돌아, 같은 회차를 동시에 나누거나 지우는 요청이 모두 통과했다.
    * 잠금으로 차례를 세우면 늦은 쪽은 앞선 쪽이 잘라 둔 RRULE 을 읽고, 차례로 보냈을 때처럼 「반복 일정에 없는 회차」 400 을 받는다.
+   *
+   * <p>잠금은 {@link #lockSeriesFor} 가 시리즈 순서 규칙(마스터 → override)대로 건다. 잠근 마스터 회차를 함께 돌려줘, 호출자(#816 삭제
+   * 갈래)가 같은 역조회를 잠금 밖에서 다시 하지 않게 한다.
    */
-  private CalendarEventResponse lockAndRecheckOccurrence(
+  private LockedTarget lockAndRecheckOccurrence(
       long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
-    repo.lockForUpdate(id);
+    Optional<MasterOccurrence> master = lockSeriesFor(id, true);
     CalendarEventResponse target =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
     requireOccurrenceDateIfRecurring(target, scope, occurrenceDate);
-    return target;
+    return new LockedTarget(target, master);
+  }
+
+  /**
+   * 잠그고 다시 읽은 대상 행과, 그 행이 override 일정이면 잠금 단계에서 찾아 잠근 마스터 회차(아니면 empty).
+   *
+   * @param target 잠금 뒤 다시 읽은 대상 일정
+   * @param master id 가 override 일정일 때의 (마스터 id, 원래 회차 시작) — 마스터 행은 이미 {@code FOR UPDATE} 로 잠겨 있다
+   */
+  private record LockedTarget(CalendarEventResponse target, Optional<MasterOccurrence> master) {}
+
+  /**
+   * 일정 id 가 속한 시리즈의 행을 <b>마스터 → override</b> 순으로 {@code FOR UPDATE} 잠그고, 잠근 마스터 회차를 돌려준다(WP-1737).
+   *
+   * <p>잠금 순서 규칙: 한 시리즈의 행은 어느 경로든 항상 마스터를 먼저, override(고친 회차) 행을 나중에 잠근다. 마스터 경유 「이 회차만 수정」·노트
+   * 잇기(noteKeyForWrite)는 마스터를 먼저 잡고 override 행을 나중에 고치므로, override id 로 들어온 수정·삭제가 override 를 먼저
+   * 잡으면 서로 역순으로 기다려 교착(40P01)이 났다. 이 규칙을 이 메서드 한 곳에만 두고, 시리즈 행을 잠그는 경로는 모두 여기를 거친다.
+   *
+   * <p>대가(의도한 것): override id 로 들어온 수정·삭제도 이제 시리즈 마스터에 {@code FOR UPDATE} 를 잡는다 — 같은 시리즈의 마스터 수정·노트
+   * 잇기/풀기와 차례로 선다(동시성이 조금 줄지만 교착보다 낫다).
+   *
+   * <p>id 가 override 가 아니면(일반·마스터·마스터가 이미 지워진 고아 override) 자기 행만 잠근다 — 같은 행을 두 번 잠그지 않는다. 마스터 역조회는
+   * 잠그기 전에 하므로, 잠금을 기다리는 사이 바뀐 행 내용은 호출자가 잠근 뒤 다시 읽어 확인한다.
+   *
+   * @param id 수정·삭제·노트 대상 일정 id
+   * @param lockOverrideRow override 일 때 마스터 다음에 id 행도 잠글지 — 노트 잇기는 마스터 키에만 쓰므로 false(마스터만 잠금), 일정
+   *     수정·삭제는 id 행을 고치므로 true. 어느 쪽이든 마스터 → override 순서는 지켜진다
+   * @return id 가 override 면 잠근 (마스터 id, 원래 회차 시작), 아니면 empty
+   */
+  private Optional<MasterOccurrence> lockSeriesFor(long id, boolean lockOverrideRow) {
+    Optional<MasterOccurrence> master = exceptionRepo.findMasterOccurrenceByOverride(id);
+    if (master.isEmpty()) {
+      repo.lockForUpdate(id);
+      return master;
+    }
+    repo.lockForUpdate(master.get().eventId());
+    if (lockOverrideRow) {
+      repo.lockForUpdate(id);
+    }
+    return master;
   }
 
   /**

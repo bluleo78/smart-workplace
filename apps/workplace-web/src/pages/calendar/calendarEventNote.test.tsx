@@ -5,7 +5,7 @@
 // 390px 레이아웃은 e2e(calendar-event-note.spec.ts @layout)가 지킨다. 지금 = 2026-06-10 12:00 KST.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
 
@@ -138,6 +138,73 @@ describe('회의록 줄 — 내 일정(편집 폼)', () => {
   })
 })
 
+/** 처음 failTimes 번은 500, 그 뒤로는 기본 목(calendarPageKit)으로 흘려보내는 노트 GET(WP-1737). */
+function failingNoteGet(failTimes: number) {
+  let calls = 0
+  return http.get('/api/v1/calendar/events/:id/note', () => {
+    calls += 1
+    if (calls <= failTimes) return HttpResponse.json({ message: '실패' }, { status: 500 })
+    // 반환하지 않으면 다음 핸들러(기본 목)가 받는다
+    return undefined
+  })
+}
+
+/**
+ * jsdom 은 레이아웃이 없어 모든 요소의 getClientRects 가 비어 「보이지 않음」이 된다 — LoadErrorState 는 보이는 요소에만 초점을 옮기므로,
+ * 초점 옮기기를 확인하는 테스트에서만 회의록 줄 안의 요소를 보이는 것으로 둔다(afterEach 에서 되돌린다). 줄 밖까지 보이게 하면 달력 쪽
+ * 측정이 바뀌어 다른 조회가 더 일어나므로 범위를 줄 안으로 좁힌다.
+ */
+function showNoteRowElements() {
+  const original = Element.prototype.getClientRects
+  vi.spyOn(Element.prototype, 'getClientRects').mockImplementation(function (this: Element) {
+    if (this.closest('[data-testid="event-note-row"]')) return [new DOMRect(0, 0, 1, 1)] as unknown as DOMRectList
+    return original.call(this)
+  })
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('회의록 줄 — 노트 조회 실패(WP-1737)', () => {
+
+  test('500 이면 줄은 그리고 카드 자리에 오류 문구와 「다시 시도」가 보인다 — 「노트 연결」은 없다', async () => {
+    const { user } = await renderCalendar({ events: [MEETING] }, { handlers: [failingNoteGet(Infinity)] })
+    await openEvent(user, 'calendar-event-1')
+    const error = await screen.findByTestId('event-note-error')
+    expect(error).toHaveTextContent('회의록을 불러오지 못했습니다')
+    expect(within(error).getByRole('button', { name: '다시 시도' })).toBeInTheDocument()
+    expect(screen.getByTestId('event-note-row')).toBeInTheDocument()
+    expect(screen.queryByTestId('event-note-pick')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('event-note-card')).not.toBeInTheDocument()
+  })
+
+  test('다시 시도가 성공하면 오류가 사라지고 카드가 보이며, 초점은 body 로 사라지지 않고 카드의 「열기」로 간다', async () => {
+    showNoteRowElements()
+    const { user, requests } = await renderCalendar(
+      { events: [MEETING], notes: { '1|': eventNote() } },
+      { handlers: [failingNoteGet(1)] },
+    )
+    await openEvent(user, 'calendar-event-1')
+    await user.click(await screen.findByTestId('event-note-error-retry'))
+    const card = await screen.findByTestId('event-note-card')
+    expect(card).toHaveTextContent('주간 회의록')
+    expect(screen.queryByTestId('event-note-error')).not.toBeInTheDocument()
+    // 기본 목은 성공한 다시 부르기만 기록한다
+    expect(requests.noteGets).toHaveLength(1)
+    // LoadErrorState 의 초점 옮기기(WP-881) — 눌렀던 「다시 시도」가 사라져도 초점이 body 로 떨어지지 않는다
+    await waitFor(() => expect(within(card).getByTestId('event-note-open')).toHaveFocus())
+  })
+
+  test('다시 시도가 성공했는데 연결이 없으면 「노트 연결」이 보인다', async () => {
+    const { user } = await renderCalendar({ events: [MEETING] }, { handlers: [failingNoteGet(1)] })
+    await openEvent(user, 'calendar-event-1')
+    await user.click(await screen.findByTestId('event-note-error-retry'))
+    expect(await screen.findByTestId('event-note-pick')).toHaveTextContent('노트 연결')
+    expect(screen.queryByTestId('event-note-error')).not.toBeInTheDocument()
+  })
+})
+
 describe('회의록 줄 — 읽기 전용 상세(초대받은 일정)', () => {
   // 내 캘린더(id 1)에 없는 calendarId 라 초대받은 일정 — 상세 보기로 열린다
   const INVITED = calendarEvent({ id: 2, title: '초대받은 회의', calendarId: 99, myRole: 'ATTENDEE' })
@@ -165,6 +232,27 @@ describe('회의록 줄 — 읽기 전용 상세(초대받은 일정)', () => {
     await openEvent(user, 'calendar-event-2')
     expect(await screen.findByTestId('event-note-card')).toHaveTextContent('볼 수 없는 노트')
     expect(screen.queryByRole('button', { name: '회의록 연결 해제' })).not.toBeInTheDocument()
+  })
+
+  test('노트 조회가 500 이면 줄을 숨기지 않고 오류·「다시 시도」를 보이고, 다시 시도가 성공하면 카드로 바뀐다(WP-1737)', async () => {
+    const { user, requests } = await renderCalendar(
+      { events: [INVITED], notes: { '2|': eventNote() } },
+      { handlers: [failingNoteGet(1)] },
+    )
+    await openEvent(user, 'calendar-event-2')
+    await screen.findByTestId('event-detail-view')
+    const error = await screen.findByTestId('event-note-error')
+    expect(error).toHaveTextContent('회의록을 불러오지 못했습니다')
+    expect(screen.getByTestId('event-note-row')).toBeInTheDocument()
+    expect(screen.queryByTestId('event-note-card')).not.toBeInTheDocument()
+
+    await user.click(within(error).getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByTestId('event-note-card')).toHaveTextContent('주간 회의록')
+    expect(screen.queryByTestId('event-note-error')).not.toBeInTheDocument()
+    // 읽기 전용이라 단추·X 는 여전히 없다
+    expect(screen.queryByTestId('event-note-pick')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '회의록 연결 해제' })).not.toBeInTheDocument()
+    expect(requests.noteGets).toHaveLength(1)
   })
 })
 
