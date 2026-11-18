@@ -14,7 +14,6 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
-import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -32,13 +31,6 @@ public class DriveShareLinkVisitRepository {
 
   /** 공간 주인 — 남의 개인 공간은 저장된 이름이 「내 드라이브」라 주인 이름으로 바꿔 보인다. */
   private static final com.workplace.jooq.tables.User SPACE_OWNER = USER.as("dslv_owner");
-
-  /** 공유 폴더 바로 아래 수를 세는 서브쿼리용 별칭. */
-  private static final com.workplace.jooq.tables.DriveFolder CHILD_FOLDER =
-      DRIVE_FOLDER.as("dslv_child_folder");
-
-  private static final com.workplace.jooq.tables.DriveFile CHILD_FILE =
-      DRIVE_FILE.as("dslv_child_file");
 
   /**
    * 열었음을 기록한다(upsert). 처음이면 행을 만들고, 이미 있으면 마지막으로 연 시각을 갱신하고 「목록에서 빼기」를 되돌린다(다시 열면 목록에 돌아온다는 제품 규칙).
@@ -111,11 +103,10 @@ public class DriveShareLinkVisitRepository {
     // 열 수 있는 폴더 행만 센다 — 폐기·만료·휴지통 뒤에는 폴더 안 변화를 계속 보여 주지 않는다(토큰을 풀지 않는 것과 같은 이유). 그 밖은 null.
     Condition openFolder = DRIVE_SHARE_LINK.DRIVE_FOLDER_ID.isNotNull().and(openableCondition);
     Field<Integer> folderCount =
-        liveChildCount(openFolder, CHILD_FOLDER, CHILD_FOLDER.PARENT_ID, CHILD_FOLDER.TRASHED_AT)
+        DriveChildCounts.liveFolders(openFolder, DRIVE_SHARE_LINK.DRIVE_FOLDER_ID)
             .as("folder_count");
     Field<Integer> fileCount =
-        liveChildCount(openFolder, CHILD_FILE, CHILD_FILE.FOLDER_ID, CHILD_FILE.TRASHED_AT)
-            .as("file_count");
+        DriveChildCounts.liveFiles(openFolder, DRIVE_SHARE_LINK.DRIVE_FOLDER_ID).as("file_count");
     return dsl.select(
             DRIVE_SHARE_LINK_VISIT.SHARE_LINK_ID,
             DRIVE_SHARE_LINK.DRIVE_FOLDER_ID,
@@ -179,20 +170,5 @@ public class DriveShareLinkVisitRepository {
                     r.get(DRIVE_SHARE_LINK_VISIT.TOKEN_ENCRYPTED),
                     r.get(DRIVE_SHARE_LINK.TOKEN_ENCRYPTED),
                     r.get(DRIVE_SHARE_LINK.TOKEN_HASH)));
-  }
-
-  /**
-   * 공유 폴더 바로 아래 살아 있는(휴지통 아님) 항목 수 — guard 가 참인 행만 세고 그 밖은 null.
-   * DriveSharedFolderRepository.countChildren 과 같은 기준이다.
-   */
-  private static Field<Integer> liveChildCount(
-      Condition guard, Table<?> children, Field<Long> parentId, Field<OffsetDateTime> trashedAt) {
-    return DSL.when(
-        guard,
-        DSL.field(
-            DSL.selectCount()
-                .from(children)
-                .where(parentId.eq(DRIVE_SHARE_LINK.DRIVE_FOLDER_ID))
-                .and(trashedAt.isNull())));
   }
 }

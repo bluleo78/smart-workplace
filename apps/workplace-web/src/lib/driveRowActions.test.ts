@@ -39,6 +39,11 @@ describe('visibleDriveRowActions', () => {
     expect(visibleDriveRowActions(file, true).map((a) => a.key)).toEqual(['download', 'versions'])
     expect(visibleDriveRowActions(folder, true)).toEqual([])
   })
+  // WP-1698 — 별표는 내 목록만 바꿔 VIEWER 에게도 남는다(파일·폴더 모두).
+  it('VIEWER 에게도 별표는 남는다', () => {
+    expect(visibleDriveRowActions([...file, { key: 'star' }], true).map((a) => a.key)).toEqual(['download', 'versions', 'star'])
+    expect(visibleDriveRowActions([...folder, { key: 'star' }], true).map((a) => a.key)).toEqual(['star'])
+  })
   it('편집 역할이면 그대로', () => {
     expect(visibleDriveRowActions(file, false)).toHaveLength(7)
     expect(visibleDriveRowActions(folder, false)).toHaveLength(4)

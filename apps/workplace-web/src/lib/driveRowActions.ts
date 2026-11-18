@@ -3,11 +3,22 @@
 import type { DriveSpace } from '../types/drive'
 import { isDriveSpaceReadOnly, isDriveSpaceViewer } from './driveSpaces'
 
+/** 원본 유실 파일(#739)을 열려 할 때의 안내 — 공간 화면과 「별표」 화면이 같은 문구를 쓴다. */
+export const DRIVE_MISSING_ORIGINAL_MESSAGE = '이 파일의 원본이 유실되어 열거나 내려받을 수 없습니다.'
+
+/** 원본 유실 파일인가(#739) — 서버가 available=false 로 알린 것만. 값이 없으면(옛 응답·폴더) 유실 아님으로 본다. */
+export function isDriveOriginalMissing(f: { available?: boolean | null }): boolean {
+  return f.available === false
+}
+
 /** 파일 행 작업 key. */
 export type DriveFileActionKey = 'download' | 'share' | 'rename' | 'move' | 'copy' | 'versions' | 'delete'
 
 /** 링크 작업 key(WP-1236) — 구성원용 앱 링크 복사·앱 안으로 보내기. 볼 수 있으면 누구나(VIEWER 포함) 쓴다. */
 export type DriveLinkActionKey = 'copy-link' | 'send-to-chat'
+
+/** 별표 작업 key(WP-1698) — 「별표」/「별표 빼기」. 내 목록에만 쓰고 공간 내용을 바꾸지 않아 볼 수 있으면 누구나(VIEWER·보관 공간 포함) 쓴다. */
+export type DriveStarActionKey = 'star'
 
 /**
  * 파일 행 작업별 비활성 여부.
@@ -51,13 +62,14 @@ export function driveFolderActionDisabled({
 
 /**
  * 읽기 권한만으로 되는 행 작업 — VIEWER 에게는 이것만 보인다(WP-602). 공유 링크·복사도 서버가 EDITOR 를 요구한다.
- * 링크 복사·채팅·이슈로 보내기(WP-1236)는 구성원용 앱 링크라 볼 수 있으면 된다(외부 공유 링크와 다르다).
+ * 링크 복사·채팅·이슈로 보내기(WP-1236)는 구성원용 앱 링크라 볼 수 있으면 된다(외부 공유 링크와 다르다). 별표(WP-1698)도 내 목록만 바꿔 같다.
  */
-const DRIVE_READ_ACTIONS: ReadonlySet<string> = new Set<DriveFileActionKey | DriveLinkActionKey>([
+const DRIVE_READ_ACTIONS: ReadonlySet<string> = new Set<DriveFileActionKey | DriveLinkActionKey | DriveStarActionKey>([
   'download',
   'copy-link',
   'send-to-chat',
   'versions',
+  'star',
 ])
 
 /**

@@ -16,6 +16,8 @@ import type {
   DriveRole,
   DriveSearchResult,
   DriveSpace,
+  DriveStarredPage,
+  DriveStarTarget,
   DriveTrashList,
   DriveUploadSession,
   DriveUploadSessionStartBody,
@@ -98,6 +100,22 @@ export async function listSharedWithMe(): Promise<SharedWithMeItem[]> {
 // 공유받은 항목에서 빼기(WP-1539) — 내 목록에서만 숨긴다. 링크 권한은 그대로이고 같은 링크를 다시 열면 돌아온다.
 export async function hideSharedWithMe(shareLinkId: number): Promise<void> {
   await client.delete<void>(`/drive/shared-with-me/${shareLinkId}`);
+}
+
+// 별표 넣기(WP-1698) — 이미 있어도 성공(멱등). 볼 수 없거나 없는 항목은 404.
+export async function starDriveItem(target: DriveStarTarget): Promise<void> {
+  await client.put<void>('/drive/stars', target)
+}
+
+// 별표 빼기(WP-1698) — 내 별표만 지운다. 없어도 성공(멱등). 본문은 넣기와 같은 {kind, id}.
+export async function unstarDriveItem(target: DriveStarTarget): Promise<void> {
+  await client.delete<void>('/drive/stars', { data: target })
+}
+
+// 「별표」 목록 한 페이지(WP-1698) — 별표한 순. cursor 는 앞 페이지의 nextCursor(첫 페이지는 생략).
+export async function listStarredDriveItems(cursor: string | null): Promise<DriveStarredPage> {
+  const { data } = await client.get<DriveStarredPage>('/drive/starred', { params: cursor ? { cursor } : undefined })
+  return data
 }
 
 // 공유 링크 랜딩 페이지 URL — 외부에 배포하는 URL. /s/:token 라우트.

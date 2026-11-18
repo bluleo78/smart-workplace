@@ -17,4 +17,9 @@ export const driveKeys = {
   quota: ['drive', 'quota'] as const,
   /** 공유받은 항목(WP-1539) — 사이드바 개수와 목록 화면이 같은 키를 쓴다. */
   sharedWithMe: () => ['drive', 'shared-with-me'] as const,
+  /**
+   * 「별표」 목록(WP-1698, 무한 목록) — 별표를 넣고 빼면 이 키와 폴더 목록을 무효화한다. 공간을 가리지 않는 목록이라 드라이브 항목이
+   * 바뀌면(이름·이동·휴지통·삭제·되살리기, resource.changed drive) 공간과 상관없이 함께 무효화한다.
+   */
+  starred: () => ['drive', 'starred'] as const,
 }

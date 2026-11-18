@@ -44,7 +44,8 @@ public class DriveSharedWithMeService {
         // 열 수 없는 폴더의 수는 저장소가 세지 않아 null 로 온다.
         r.folderCount(),
         r.fileCount(),
-        spaceName(r),
+        // 공유받은 항목은 내 개인 공간이라도 주인 이름으로 보인다(viewerId 없음).
+        DriveSpaceNames.displayName(r.spaceType(), r.spaceName(), null, r.spaceOwnerName(), null),
         r.sharedByName(),
         r.lastOpenedAt(),
         r.openable(),
@@ -58,15 +59,5 @@ public class DriveSharedWithMeService {
     return token != null
         ? token
         : tokenCodec.restore(r.linkTokenEncrypted(), r.tokenHash(), r.shareLinkId());
-  }
-
-  /**
-   * 공간 이름 — 개인 공간은 저장된 이름이 누구에게나 「내 드라이브」라 남이 보면 헷갈린다. 「{주인}의 드라이브」로 바꾸고, 주인을 찾을 수 없으면 「개인 드라이브」.
-   */
-  private static String spaceName(DriveShareLinkVisitRepository.VisitRow r) {
-    if (!"PERSONAL".equals(r.spaceType())) {
-      return r.spaceName();
-    }
-    return r.spaceOwnerName() != null ? r.spaceOwnerName() + "의 드라이브" : "개인 드라이브";
   }
 }

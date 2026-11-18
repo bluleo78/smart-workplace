@@ -45,6 +45,7 @@ import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { isControl, navState, resolvePending, routeKey } from './viewerNav'
 import { canShareFile, canShareFiles, shareFile } from './viewerShare'
 import { ViewerSidePanel, ViewerSummarySheet } from './ViewerSidePanel'
+import { type ViewerStar, ViewerStarButton } from './ViewerStarButton'
 
 /** 확대 단계(25%)와 범위. */
 const ZOOM_STEP = 0.25
@@ -84,6 +85,7 @@ export function AttachmentViewer({
   linkPath,
   onExternalShare,
   aboveAiSheet = false,
+  star,
 }: {
   items: ViewerItem[]
   index: number
@@ -106,6 +108,11 @@ export function AttachmentViewer({
    * 올린 동안 토스트·뷰어 안 포털(z-50)은 data-viewer-above-ai 표식의 index.css 규칙이 함께 올린다.
    */
   aboveAiSheet?: boolean
+  /**
+   * 있으면 머리줄에 별표 단추(WP-1698) — 항목마다 별표 상태와 바꾸는 함수를 돌려준다(별표할 수 없는 항목이면 null).
+   * 드라이브 화면과 「별표」 목록처럼 드라이브 파일을 보는 곳만 넘긴다.
+   */
+  star?: (item: ViewerItem) => ViewerStar | null
 }) {
   const aiAware = useAiPanelAwareDialog({ open: true, size: 'lightbox' })
   // 배치는 폭(모바일 셸 기준과 동일), 제스처는 coarse 포인터로 따로 판정한다(스펙 §3.2 — Task 5).
@@ -148,6 +155,8 @@ export function AttachmentViewer({
   // 형식(MIME)상 영상·오디오인가(WP-281). 실제 판정에 쓰는 media 는 재생 불가 보고를 반영해 아래에서 정한다.
   const mimeMedia = item.unavailable ? null : kind === 'VIDEO' ? 'video' : kind === 'AUDIO' ? 'audio' : null
   const itemKey = item.key
+  // 지금 항목의 별표 상태(WP-1698) — 넘기면 항목마다 다시 묻는다.
+  const itemStar = star?.(item) ?? null
   // WP-1234 지금 보는 파일 — 🔗(데스크톱)·⬆︎(모바일)·⇧⌘, 가 쓴다. 다시 열 수 없는 뷰어(shareable=false)·원본 유실 항목은 링크가 없다.
   // 뷰어는 목록 화면보다 나중에 등록하므로 열린 동안은 이 파일이, 닫히면 다시 아래 화면이 대상이 된다.
   const location = useLocation()
@@ -571,7 +580,12 @@ export function AttachmentViewer({
             meta={mobileMeta}
             hidden={barsHidden}
             barRef={topBarRef}
-            share={shareTarget && <ShareSheetButton target={shareTarget} aboveAiSheet={lifted} className="text-foreground" />}
+            share={
+              <>
+                {itemStar && <ViewerStarButton star={itemStar} className="size-11 text-foreground" />}
+                {shareTarget && <ShareSheetButton target={shareTarget} aboveAiSheet={lifted} className="text-foreground" />}
+              </>
+            }
             // 모바일 ⋯ 에는 링크 항목을 두지 않는다 — 링크는 ⬆︎ 시트에 모았다(WP-1234).
             more={<ViewerMoreMenu item={item} />}
           />
@@ -647,6 +661,8 @@ export function AttachmentViewer({
                   <AiIcon className={cn(!panelOpen && 'text-ai-accent')} />
                 </Button>
               )}
+              {/* WP-1698 ☆ 별표 — 드라이브 파일을 보는 곳만 넘긴다. */}
+              {itemStar && <ViewerStarButton star={itemStar} />}
               {/* WP-1234 🔗 — ⋯ 의 예전 「링크 복사」를 헤더로 꺼냈다. 툴팁은 body 포털이라 뷰어와 같은 다크 토큰을 단다. */}
               {shareTarget && <CopyLinkButton target={shareTarget} className="pointer-coarse:size-11" tooltipClassName="dark" />}
               <ViewerMoreMenu item={item} shareTarget={shareTarget} />

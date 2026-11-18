@@ -14,6 +14,7 @@ import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
+import com.workplace.drive.repository.DriveStarRepository;
 import com.workplace.global.util.SafeFileNames;
 import java.io.IOException;
 import java.util.ArrayDeque;
@@ -40,6 +41,9 @@ public class DriveFolderService {
   private final DriveBlobCopier blobCopier;
   private final DriveQuotaService quota;
   private final org.jooq.DSLContext dsl;
+
+  /** 폴더 목록 행에 내 별표 여부를 붙인다(WP-1698). */
+  private final DriveStarRepository stars;
 
   /** 드라이브 변경 resource.changed 발행(WP-63). */
   private final DriveChangeNotifier notifier;
@@ -161,8 +165,10 @@ public class DriveFolderService {
       long callerId, long spaceId, Long parentId, Integer limit, Integer offset) {
     perms.requireRole(spaceId, callerId, "VIEWER");
     if (limit == null) {
-      return new DriveItemListResponse(
-          folders.listChildFolders(spaceId, parentId), files.listInFolder(spaceId, parentId));
+      return withStars(
+          callerId,
+          folders.listChildFolders(spaceId, parentId),
+          files.listInFolder(spaceId, parentId));
     }
     int lim = Math.min(Math.max(limit, 1), MAX_ITEMS_PAGE);
     int off = offset == null ? 0 : Math.max(offset, 0);
@@ -174,7 +180,23 @@ public class DriveFolderService {
         rest > 0
             ? files.listInFolder(spaceId, parentId, rest, Math.max(off - folderCount, 0))
             : List.of();
-    return new DriveItemListResponse(fl, fi);
+    return withStars(callerId, fl, fi);
+  }
+
+  /**
+   * 목록 행마다 내가 별표했는지(starred)를 붙인다(WP-1698) — 이 페이지의 id 로 한 번만 묻는다(행마다 묻지 않는다). 공간 화면 행의 작은 별·메뉴 문구와
+   * 보기 창 별표 단추가 이 값을 쓴다.
+   */
+  private DriveItemListResponse withStars(
+      long callerId, List<DriveFolderResponse> fl, List<DriveFileResponse> fi) {
+    DriveStarRepository.Starred starred =
+        stars.starredAmong(
+            callerId,
+            fi.stream().map(DriveFileResponse::id).toList(),
+            fl.stream().map(DriveFolderResponse::id).toList());
+    return new DriveItemListResponse(
+        fl.stream().map(f -> f.withStarred(starred.folderIds().contains(f.id()))).toList(),
+        fi.stream().map(f -> f.withStarred(starred.fileIds().contains(f.id()))).toList());
   }
 
   /**

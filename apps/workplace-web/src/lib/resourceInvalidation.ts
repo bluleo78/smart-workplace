@@ -163,6 +163,7 @@ const RULES: Record<string, Rule> = {
     { queryKey: driveKeys.spaces() },
   ],
   // 콘텐츠(의미) 검색·파일 요약·썸네일은 재계산 비용이 커서 제외 — 목록·휴지통·용량·첨부 뷰만. spaceId 로만 무효화(ids 비의존).
+  // 「별표」 목록(WP-1698)은 공간을 가리지 않아 spaceId 와 상관없이 함께 — 이름·이동·휴지통·삭제·되살리기가 별표한 행을 바꾼다.
   drive: (p) => [
     ...(p.spaceId != null
       ? [
@@ -170,13 +171,16 @@ const RULES: Record<string, Rule> = {
           { queryKey: driveKeys.trash(p.spaceId) },
         ]
       : []),
+    { queryKey: driveKeys.starred() },
     { queryKey: driveKeys.quota },
     { queryKey: ['drive-attachments'] },
     { queryKey: ['drive-file-backlinks'] },
   ],
   // 멤버 목록도 함께(WP-582) — 다른 소유자가 멤버를 바꾸면 열어 둔 멤버 창에 바로 보이게(노트 wiki-space 와 같은 규칙).
+  // 「별표」 목록(WP-1698)도 — 구성원에서 빠지거나 공간이 지워지면 그 공간의 별표한 항목이 목록에서 빠진다.
   'drive-space': (p) => [
     { queryKey: driveKeys.spaces() },
+    { queryKey: driveKeys.starred() },
     ...(p.spaceId != null
       ? [
           { queryKey: driveKeys.space(p.spaceId) },
