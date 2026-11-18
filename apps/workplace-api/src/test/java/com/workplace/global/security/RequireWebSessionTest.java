@@ -35,6 +35,9 @@ class RequireWebSessionTest extends IntegrationTestBase {
   private static final long DEFAULT_TENANT_ID = 1L;
   private static final String DENIED = "웹 로그인 세션에서만 할 수 있습니다";
 
+  /** 어느 표에도 없는 id — 웹 세션 가드가 대상 조회보다 먼저인지, 지나면 「없음」으로 끝나는지만 본다. */
+  private static final long MISSING_ID = 987_654_321L;
+
   @Autowired private UserApiTokenService tokenService;
   @Autowired private DSLContext dsl;
   @Autowired private JwtTokenProvider jwt;
@@ -76,11 +79,42 @@ class RequireWebSessionTest extends IntegrationTestBase {
             new String[] {"PUT", "/api/v1/roles/" + roleId + "/permissions"},
             new String[] {"POST", "/api/v1/admin/agents"},
             new String[] {"POST", "/api/v1/admin/agents/" + targetId + "/keys"},
-            new String[] {"POST", "/api/v1/admin/agents/" + targetId + "/provider-credential"});
+            new String[] {"POST", "/api/v1/admin/agents/" + targetId + "/provider-credential"},
+            // AI 계정 등록·원문 교체, 실행 위치 등록·토큰 발급, 저장소 토큰 등록·폐기(WP-1718 에서 고정)
+            new String[] {"POST", "/api/v1/admin/agent-accounts"},
+            new String[] {"PATCH", "/api/v1/admin/agent-accounts/" + MISSING_ID},
+            new String[] {"POST", "/api/v1/admin/agent-locations"},
+            new String[] {"POST", "/api/v1/admin/agent-locations/" + MISSING_ID + "/token"},
+            new String[] {"POST", "/api/v1/admin/agents/" + targetId + "/repo-credentials"},
+            new String[] {
+              "DELETE", "/api/v1/admin/agents/" + targetId + "/repo-credentials/" + MISSING_ID
+            });
     for (String[] c : calls) {
       ResponseEntity<String> res = send(pat, HttpMethod.valueOf(c[0]), c[1], "{}");
       assertThat(res.getStatusCode()).as(c[0] + " " + c[1]).isEqualTo(HttpStatus.FORBIDDEN);
       assertThat(res.getBody()).as(c[0] + " " + c[1]).contains(DENIED);
+    }
+  }
+
+  /**
+   * WP-1718: 폐기·삭제는 새 접근을 만들지 않아 PAT 로도 된다 — 웹 세션 가드(403)를 지나 각 서비스의 판정(없는 대상 404 등)까지 간다. 사고 대응·정리
+   * 자동화에 PAT 를 쓸 수 있게 둔 기준이라, 여기에 웹 세션 가드를 붙이면 이 테스트가 깨져 기준을 다시 정하게 한다.
+   */
+  @Test
+  void adminPat_canRevokeAndDelete() {
+    String pat = patBearer(adminId);
+    List<String> paths =
+        List.of(
+            "/api/v1/admin/agent-accounts/" + MISSING_ID,
+            "/api/v1/admin/agents/" + targetId + "/keys/" + MISSING_ID,
+            "/api/v1/admin/agents/" + MISSING_ID,
+            "/api/v1/admin/agent-locations/" + MISSING_ID);
+    for (String path : paths) {
+      ResponseEntity<String> res = send(pat, HttpMethod.DELETE, path, null);
+      assertThat(res.getStatusCode()).as("DELETE " + path).isNotEqualTo(HttpStatus.FORBIDDEN);
+      assertThat(res.getStatusCode().is4xxClientError() || res.getStatusCode().is2xxSuccessful())
+          .as("DELETE " + path + " → " + res.getStatusCode())
+          .isTrue();
     }
   }
 

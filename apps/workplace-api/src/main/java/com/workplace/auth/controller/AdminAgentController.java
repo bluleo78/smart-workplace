@@ -81,7 +81,8 @@ public class AdminAgentController {
 
   /**
    * AGENT 삭제(WP-705). 기록이 없으면 완전히 지우고(키도 CASCADE), 기록이 남았거나 다른 워크스페이스에도 속해 있으면 이 워크스페이스에서 사용을 중지한다.
-   * 결과({@code DELETED}·{@code DEACTIVATED})를 돌려줘 화면이 알맞은 안내를 띄운다.
+   * 결과({@code DELETED}·{@code DEACTIVATED})를 돌려줘 화면이 알맞은 안내를 띄운다. 새 접근을 만들지 않아 PAT 로도 된다({@link
+   * RequireWebSession} 대상 아님, WP-1718).
    */
   @DeleteMapping("/{userId}")
   @RequirePermission("user:write")
