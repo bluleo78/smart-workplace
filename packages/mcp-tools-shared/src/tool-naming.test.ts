@@ -22,7 +22,7 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  * 17,550 → 17,700: 2026-11-17 WP-1681 휴지통 메일 되살리기 도구 restore_mail 과 list_mail folder 설명(TRASH)으로 상향했다(2026-11-17 dh.yang 승인).
  * 17,700 → 18,000: 2026-11-18 WP-1704 일정 회의록 노트 잇기·끊기 도구 2종(link_event_note·unlink_event_note)과 get_event occurrenceDate·
  *   list_events/get_event note 설명으로 늘었다(직전 17,699 로 여유가 없었다, 증가분 약 295). 기획 WP-1694 가 두 도구의 외부 MCP 노출을 정했다(2026-11-18 dh.yang 승인).
- * 18,000 → 18,300: 2026-11-18 WP-1700 드라이브 최근·별표 도구 2종(list_my_drive_files·star_drive_item)으로 늘었다(직전 약 17,993, 증가분 약 296).
+ * 18,000 → 18,300: 2026-11-18 WP-1700 드라이브 최근·별표 도구 2종(list_my_drive_files·star_drive_item)으로 늘었다(직전 18,000 — WP-1742 뒤, 늘어 18,296).
  *   기획 WP-1697 의 네 도구를 둘로 합치고 상한을 올리기로 정했다(2026-11-18 dh.yang 승인).
  */
 const DEFINITION_TOKEN_CAP = 18_300;
