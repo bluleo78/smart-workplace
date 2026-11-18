@@ -11,6 +11,11 @@ export const notificationsApi = {
     client
       .get<NotificationResponse[]>('/notifications', { params: { limit, offset } })
       .then((r) => r.data),
+  // 보관함 목록(WP-1690) — 응답 모양은 list 와 같고 최근 보관순. 무한스크롤용 offset.
+  listArchived: (limit = 20, offset = 0) =>
+    client
+      .get<NotificationResponse[]>('/notifications/archived', { params: { limit, offset } })
+      .then((r) => r.data),
   unreadCount: () =>
     client.get<{ count: number }>('/notifications/unread-count').then((r) => r.data.count),
   markRead: (id: number) => client.post(`/notifications/${id}/read`).then((r) => r.data),

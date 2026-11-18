@@ -85,5 +85,6 @@ test('알림 화면: 제목 "알림" 은 한 번만 보이고 모두 읽음·읽
   const header = screen.getByTestId('notifications-header')
   expect(within(header).getByTestId('inbox-mark-all')).toBeInTheDocument()
   expect(within(header).getByTestId('inbox-archive-read')).toHaveTextContent('읽은 알림 보관')
-  expect(screen.getAllByText('알림', { exact: true })).toHaveLength(1)
+  // 제목은 한 번만 — 「알림|보관함」 전환의 「알림」 탭(WP-1690)은 제목이 아니므로 제목 요소(h1)로 센다.
+  expect(screen.getAllByRole('heading', { name: '알림' })).toHaveLength(1)
 })

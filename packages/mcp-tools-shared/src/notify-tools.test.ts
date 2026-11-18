@@ -12,6 +12,7 @@ function mockClient(): NotificationToolClient {
     markIssueNotificationsRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
     archiveReadNotifications: vi.fn().mockResolvedValue([]),
+    listArchivedNotifications: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -179,6 +180,32 @@ describe('buildNotifyTools', () => {
   });
 
   // WP-1689: 읽은 알림 모두 보관 — 실제로 보관된 개수를 돌려준다(id 는 AI 에게 쓸모가 없어 싣지 않는다).
+  it('list_notifications archived:true → listArchivedNotifications 를 부르고 listNotifications 는 부르지 않는다(WP-1690)', async () => {
+    const c = mockClient();
+    vi.mocked(c.countUnreadNotifications).mockResolvedValue(3);
+    vi.mocked(c.listArchivedNotifications).mockResolvedValue([issueRow(7, true), issueRow(6, true)]);
+    const out = JSON.parse(resultText(await tool(c, 'list_notifications').handler({ archived: true, limit: 5, offset: 10 })));
+    expect(c.listArchivedNotifications).toHaveBeenCalledWith({ limit: 5, offset: 10 });
+    expect(c.listNotifications).not.toHaveBeenCalled();
+    expect(out.unreadCount).toBe(3);
+    expect(out.items.map((i: { notificationId: number }) => i.notificationId)).toEqual([7, 6]);
+    expect(out.hasMore).toBeUndefined(); // 페이지가 안 찼다
+  });
+
+  it('list_notifications archived:true 페이지가 꽉 차면 hasMore/nextOffset(WP-1690)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listArchivedNotifications).mockResolvedValue([issueRow(7, true), issueRow(6, true)]);
+    const out = JSON.parse(resultText(await tool(c, 'list_notifications').handler({ archived: true, limit: 2, offset: 4 })));
+    expect(out.hasMore).toBe(true);
+    expect(out.nextOffset).toBe(6);
+  });
+
+  it('list_notifications archived 와 unreadOnly 를 함께 주면 거절한다(WP-1690)', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'list_notifications').handler({ archived: true, unreadOnly: true })).rejects.toThrow();
+    expect(c.listArchivedNotifications).not.toHaveBeenCalled();
+  });
+
   it('archive_read_notifications → client.archiveReadNotifications(), 보관한 개수를 돌려준다', async () => {
     const c = mockClient();
     vi.mocked(c.archiveReadNotifications).mockResolvedValueOnce([3, 5, 8]);

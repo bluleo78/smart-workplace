@@ -2,5 +2,6 @@
 export const notificationKeys = {
   all: ['notifications'] as const,
   list: () => [...notificationKeys.all, 'list'] as const,
+  archived: () => [...notificationKeys.all, 'archived'] as const,
   unreadCount: () => [...notificationKeys.all, 'unread-count'] as const,
 }

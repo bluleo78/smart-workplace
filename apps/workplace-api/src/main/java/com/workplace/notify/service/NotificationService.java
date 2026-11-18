@@ -509,6 +509,12 @@ public class NotificationService {
     return repo.listRecent(recipientId, isAdmin(recipientId), limit, offset);
   }
 
+  /** 보관함(WP-1690) — 목록과 같은 보이기 조건(ADMIN 갈래 포함)으로 보관한 알림을 최근 보관순으로 준다. */
+  @Transactional(readOnly = true)
+  public List<NotificationResponse> listArchived(long recipientId, int limit, long offset) {
+    return repo.listArchived(recipientId, isAdmin(recipientId), limit, offset);
+  }
+
   @Transactional(readOnly = true)
   public long countUnread(long recipientId) {
     return repo.countUnread(recipientId, isAdmin(recipientId));

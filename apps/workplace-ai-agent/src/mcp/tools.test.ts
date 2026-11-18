@@ -187,6 +187,7 @@ function sharedMock(): MockedShared {
     createStagedUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/su', method: 'PUT', expiresAt: 't', maxBytes: 26214400, name: 'a.pdf', singleUse: true }),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
+    listArchivedNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
     // WP-357: 홈 개요
     getHomeActivity: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
