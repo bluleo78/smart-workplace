@@ -55,6 +55,11 @@ spec:
             - name: AGENT_RUNTIME_IMAGES
               value: {{ join "," . | quote }}
             {{- end }}
+            {{- with .Values.agentPluginVersion }}
+            # 이 릴리스의 genia-works 플러그인 버전 — values.yaml agentPluginVersion 참고(WP-1707)
+            - name: AGENT_PLUGIN_VERSION
+              value: {{ . | toString | quote }}
+            {{- end }}
             - name: WORKPLACE_AI_AGENT_URL
               value: http://ai-agent:7070
             - name: WORKPLACE_WORKER_URL

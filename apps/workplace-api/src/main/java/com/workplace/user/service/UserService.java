@@ -1,5 +1,6 @@
 package com.workplace.user.service;
 
+import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.AccountLockedException;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
@@ -84,6 +85,8 @@ public class UserService {
   private final ApplicationEventPublisher publisher;
   // WP-1222: AI 계정을 영구 삭제하면 커밋 뒤 그 아바타 폴더도 지운다(공개 주소는 이미 404 라 남겨 두면 디스크만 쓴다).
   private final AvatarService avatarService;
+  // WP-1707: 이 릴리스의 플러그인 버전 — AI 목록·상세 응답에 실어 웹이 「업데이트 필요」를 판정한다.
+  private final AgentRuntimeProperties agentRuntimeProperties;
 
   /** kind 미지정 호출부(설정 > 사용자 관리 등 기존 호출) — HUMAN 만 노출하는 기존 동작 유지. */
   @Transactional(readOnly = true)
@@ -194,14 +197,15 @@ public class UserService {
    */
   @Transactional(readOnly = true)
   public List<com.workplace.user.dto.AgentResponse> listAgents(boolean includePersonal) {
-    return userRepository.findAgents(requireTenant(), includePersonal);
+    return userRepository.findAgents(
+        requireTenant(), includePersonal, agentRuntimeProperties.pluginVersion());
   }
 
   /** AGENT 한 명 — 관리 상세 화면용(WP-1281). 개인 비서·사용 중지 AI 도 열린다. 이 워크스페이스의 AI 가 아니면 404. */
   @Transactional(readOnly = true)
   public com.workplace.user.dto.AgentResponse getAgent(long userId) {
     return userRepository
-        .findAgent(requireTenant(), userId)
+        .findAgent(requireTenant(), userId, agentRuntimeProperties.pluginVersion())
         .orElseThrow(() -> UserNotFoundException.ofId(userId));
   }
 

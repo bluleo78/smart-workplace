@@ -4,6 +4,20 @@ GW_HOME="${HOME}/.genia-works"
 GW_KEYS="$GW_HOME/keys"
 GW_SESSIONS="$GW_HOME/sessions"
 
+# 이 파일(gw-lib.sh)이 있는 폴더(WP-1707) — 플러그인 자기 파일(../.claude-plugin/plugin.json)을 찾는 기준.
+# POSIX sh 는 source 된 파일의 경로를 알려 주지 않으므로 차례로 본다: bash 면 BASH_SOURCE, 부른 스크립트($0) 폴더에
+# gw-lib.sh 가 있으면 그 폴더(플러그인 scripts/ 의 스크립트), 아니면 부른 쪽이 정해 둔 GW_SCRIPTS(작업 공간 lib.sh·lib-codex.sh 가
+# 플러그인 폴더를 찾아 정한 뒤 source 한다). 어느 것도 아니면 비워 둔다 — 그때는 플러그인 버전을 못 읽어 헤더만 빠진다.
+# 나중에 부른 쪽이 cd 해도 어긋나지 않게 source 할 때 한 번 절대 경로로 굳힌다.
+_GW_LIB_DIR=""
+if [ -n "${BASH_SOURCE:-}" ] && [ -f "$BASH_SOURCE" ]; then
+  _GW_LIB_DIR=$(cd "$(dirname "$BASH_SOURCE")" 2>/dev/null && pwd)
+elif [ -f "$(dirname "$0")/gw-lib.sh" ]; then
+  _GW_LIB_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+elif [ -n "${GW_SCRIPTS:-}" ] && [ -f "$GW_SCRIPTS/gw-lib.sh" ]; then
+  _GW_LIB_DIR=$(cd "$GW_SCRIPTS" 2>/dev/null && pwd)
+fi
+
 # 이름 검사 — 파일 이름으로 쓰므로 경로 조작(../, /)·공백·빈 값을 막는다.
 # me 는 "내 토큰" 선택값(gw-session select me)이라 키 이름으로 쓰면 선택할 수 없으므로 예약한다.
 gw_valid_name() {
@@ -293,7 +307,24 @@ gw_tenant() {
 gw_curl_auth() {
   printf 'header = "Authorization: Bearer %s"\n' "$1"
   _gw_t=$(gw_tenant) && printf 'header = "X-On-Behalf-Of-Tenant: %s"\n' "$_gw_t"
+  # 이 플러그인 버전(WP-1707) — 서버가 AI 마다 기록해 관리 화면에 「업데이트 필요」를 보인다. 못 읽으면 헤더만 뺀다(요청은 그대로).
+  _gw_pv=$(gw_plugin_version) && printf 'header = "X-Genia-Plugin-Version: %s"\n' "$_gw_pv"
   return 0
+}
+
+# 이 플러그인의 설치된 버전(WP-1707) — 이 파일 폴더(_GW_LIB_DIR, scripts/) 기준 ../.claude-plugin/plugin.json 의 version.
+# 부른 스크립트($0)가 아니라 gw-lib.sh 자신을 기준으로 해서, 플러그인 밖(작업 공간 lib.sh 등)에서 source 해도 같은 값을 낸다.
+# jq 없이 sed 로 읽는다(gw-plugin-version 과 같은 방식). 점으로 나눈 숫자(^[0-9]+(\.[0-9]+)*$ — API·릴리스 검사와 같은 규칙),
+# 32자 이하일 때만 한 줄을 내고 0 — 못 읽거나 형식이 아니면 아무것도 내지 않고 1.
+# 형식을 묶는 것은 curl 설정 줄(따옴표·줄바꿈)을 깨거나 다른 헤더를 끼워 넣지 못하게, 또 서버가 버리는 「1..2」 같은 값을 보내지 않게 하려는 것이다.
+gw_plugin_version() {
+  [ -n "$_GW_LIB_DIR" ] || return 1
+  _gw_pj="$_GW_LIB_DIR/../.claude-plugin/plugin.json"
+  [ -f "$_gw_pj" ] || return 1
+  _gw_v=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$_gw_pj" | head -n 1)
+  [ -n "$_gw_v" ] && [ "${#_gw_v}" -le 32 ] || return 1
+  printf '%s' "$_gw_v" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || return 1
+  printf '%s\n' "$_gw_v"
 }
 
 # REST 한 번 부르기 — 키를 gw_curl_auth 로 표준 입력에 넣고, 본문 뒤에 상태 코드를 한 줄 덧붙여 받아 나눈다.

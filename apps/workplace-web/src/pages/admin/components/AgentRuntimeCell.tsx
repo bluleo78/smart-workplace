@@ -1,6 +1,7 @@
 // 에이전트 목록의 실행 관련 세 열(WP-1255 → WP-1513 에서 「실행」 한 열을 셋으로 나눔) — 실행 방식 | 상태 | 실행 환경.
 // - 실행 방식: 배지(기본·Claude Code 등·외부, 서버가 판정한 runMode).
-// - 상태: Works 가 실행하는 AI 면 상태 알약 + 한 줄(이슈 키·다음 확인·오류 사유), 외부는 마지막 접속 시각, 기본은 「—」.
+// - 상태: Works 가 실행하는 AI 면 상태 알약 + 한 줄(이슈 키·다음 확인·오류 사유), 외부는 마지막 접속 시각(+ 옛 플러그인이면 「업데이트 필요」, WP-1707),
+//   기본은 「—」.
 // - 실행 환경: Works 가 실행하는 AI 면 기본 환경이어도 이름(서버가 실제 실행 위치 이름을 싣는다), 그 밖은 「—」.
 // 행 높이를 한 줄로 맞추려고 세 칸 모두 줄바꿈 없이 가로로 놓고, 긴 글은 잘라 title 로 전부 보인다.
 // 모바일은 이름 아래 줄에 배지·알약만(AgentRuntimeMetaBadge).
@@ -9,7 +10,7 @@
 import { Badge } from '@/components/ui/badge';
 import { StatusBadge } from '@/components/ui/status-badge';
 
-import { externalKeyStatusText } from '../../../lib/agentRuntime';
+import { externalKeyStatusText, pluginUpdateInfo } from '../../../lib/agentRuntime';
 import { statusDetail, statusPill } from '../../../lib/agentRuntimeStatus';
 import type { AgentResponse } from '../../../types/agent';
 import type { AgentAccountResponse } from '../../../types/agentAccount';
@@ -72,14 +73,34 @@ function newWorkPaused(summary: AgentRuntimeSummary): boolean {
   return summary.acceptNewWork === false;
 }
 
-/** 「상태」 칸 — Works 실행 AI 는 알약 + (「새 작업 받기」를 껐으면 「새 작업 안 받음」) + 한 줄 설명, 외부는 마지막 접속 시각, 기본은 「—」. */
+/**
+ * 「업데이트 필요」 배지(WP-1707) — 외부 AI 가 보고한 플러그인이 이 릴리스의 버전보다 낮을 때만(판정은 pluginUpdateInfo 한 곳).
+ * 목록 상태 칸과 모바일 이름 아래 줄이 같이 쓴다. title 로 「플러그인 0.1.49 → 0.1.51」을 보인다.
+ */
+export function PluginUpdateBadge({ agent, ...rest }: { agent: AgentResponse; 'data-testid'?: string }) {
+  const info = pluginUpdateInfo(agent);
+  if (!info?.updateNeeded) return null;
+  return (
+    <Badge variant="warning" className="shrink-0" title={info.title ?? undefined} {...rest}>
+      업데이트 필요
+    </Badge>
+  );
+}
+
+/**
+ * 「상태」 칸 — Works 실행 AI 는 알약 + (「새 작업 받기」를 껐으면 「새 작업 안 받음」) + 한 줄 설명,
+ * 외부는 마지막 접속 시각(+ 옛 플러그인이면 「업데이트 필요」 — 열을 늘리지 않고 같은 칸에), 기본은 「—」.
+ */
 export function AgentRunStateCell({ agent, summary }: Props) {
   if (!summary) {
     if (agent.runMode !== 'EXTERNAL') return <EmptyValue />;
     return (
-      <span className="text-xs text-muted-foreground" data-testid={`agent-key-status-${agent.id}`}>
-        {externalKeyStatusText(agent.lastKeyUsedAt)}
-      </span>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-muted-foreground" data-testid={`agent-key-status-${agent.id}`}>
+          {externalKeyStatusText(agent.lastKeyUsedAt)}
+        </span>
+        <PluginUpdateBadge agent={agent} data-testid={`agent-plugin-update-${agent.id}`} />
+      </div>
     );
   }
   const pill = statusPill(summary.status, summary.agentState);
@@ -118,9 +139,17 @@ export function AgentRunLocationCell({ agent, summary }: Props) {
   );
 }
 
-/** 모바일 이름 아래 줄 — 배지 + (작업 공간이면) 상태 알약과 「새 작업 안 받음」. */
+/** 모바일 이름 아래 줄 — 배지 + (작업 공간이면) 상태 알약과 「새 작업 안 받음」, (외부면) 「업데이트 필요」. */
 export function AgentRuntimeMetaBadge({ agent, summary }: Props) {
-  if (!summary) return <RuntimeBadge agent={agent} summary={null} />;
+  if (!summary) {
+    // 외부 AI 가 옛 플러그인이면 실행 방식 배지 옆에 「업데이트 필요」(WP-1707) — 목록 상태 칸과 같은 배지.
+    return (
+      <>
+        <RuntimeBadge agent={agent} summary={null} />
+        <PluginUpdateBadge agent={agent} />
+      </>
+    );
+  }
   const pill = statusPill(summary.status, summary.agentState);
   return (
     <>

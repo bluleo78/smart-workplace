@@ -133,6 +133,16 @@ public class AgentApiKey extends TableImpl<AgentApiKeyRecord> {
      */
     public final TableField<AgentApiKeyRecord, OffsetDateTime> RETIRING_AT = createField(DSL.name("retiring_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.agent_api_key.plugin_version</code>.
+     */
+    public final TableField<AgentApiKeyRecord, String> PLUGIN_VERSION = createField(DSL.name("plugin_version"), SQLDataType.VARCHAR(32), this, "");
+
+    /**
+     * The column <code>public.agent_api_key.plugin_version_at</code>.
+     */
+    public final TableField<AgentApiKeyRecord, OffsetDateTime> PLUGIN_VERSION_AT = createField(DSL.name("plugin_version_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private AgentApiKey(Name alias, Table<AgentApiKeyRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -8,7 +8,8 @@
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
 
-installed=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$here/../.claude-plugin/plugin.json" | head -n 1)
+# 설치된 버전은 요청 헤더(gw_curl_auth, WP-1707)와 같은 함수로 읽는다 — 형식이 아니면 「?」.
+installed=$(gw_plugin_version) || installed=""
 known="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/known_marketplaces.json"
 url=""
 [ -f "$known" ] && url=$(sed -n '/"genia-works":[[:space:]]*{/,/"installLocation"/ s/.*"url":[[:space:]]*"\([^"]*\)".*/\1/p' "$known" | head -n 1)

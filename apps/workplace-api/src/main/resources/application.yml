@@ -77,6 +77,9 @@ workplace:
     slot-stale-after: 6h
     # 릴리스가 고정한 작업 공간 이미지(저장소@sha256:…, 쉼표 구분) — 운영 배포가 매니페스트에서 넣는다. 비면 템플릿은 API 버전 태그를 쓴다.
     images: ${AGENT_RUNTIME_IMAGES:}
+    # 이 릴리스의 genia-works 플러그인 버전(WP-1707) — 운영 배포가 매니페스트에서 넣는다(helm agentPluginVersion).
+    # 외부 AI 가 보고한 버전이 이보다 낮으면 관리 화면에 「업데이트 필요」. 비면(로컬) 판정하지 않는다.
+    plugin-version: ${AGENT_PLUGIN_VERSION:}
   storage:
     root-dir: ${WORKPLACE_STORAGE_ROOT_DIR:./storage-data}
     max-files-per-request: 3

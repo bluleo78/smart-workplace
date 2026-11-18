@@ -31,6 +31,19 @@ test('imageValues: 작업 공간 이미지(workspace)만 agentImages 에 저장�
   assert.deepEqual(imageValues(m).agentImages, ids.map((id) => `${m.images[id].repository}@${m.images[id].digest}`));
 });
 
+test('imageValues: 매니페스트에 pluginVersion 이 있으면 agentPluginVersion 으로 넘긴다 (WP-1707)', () => {
+  const v = imageValues({ ...baseManifest(), pluginVersion: '0.1.53' });
+  assert.deepEqual(Object.keys(v), ['images', 'agentImages', 'release', 'agentPluginVersion']);
+  assert.equal(v.agentPluginVersion, '0.1.53');
+});
+
+test('imageValues: 옛 매니페스트(pluginVersion 없음)·이상한 값이면 agentPluginVersion 을 넣지 않는다 (WP-1707)', () => {
+  for (const pluginVersion of [undefined, null, '', 53, '0.1.53"\nx: y']) {
+    const v = imageValues({ ...baseManifest(), pluginVersion });
+    assert.equal('agentPluginVersion' in v, false, JSON.stringify(pluginVersion));
+  }
+});
+
 test('imageValues: JSON 직렬화가 helm -f 로 읽을 수 있는 모양이다', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(imageValues(baseManifest()))).release.version, '0.8.0');
 });

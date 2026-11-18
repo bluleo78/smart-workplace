@@ -195,6 +195,30 @@ describe('실행 방식별 섹션 구성', () => {
     expect(screen.queryByTestId('external-connect-help-open')).not.toBeInTheDocument()
   })
 
+  // WP-1707 — 「상태」 묶음의 마지막 접속 아래 플러그인 버전 한 줄. 판정은 lib pluginUpdateInfo 한 곳이고, 여기서는 줄 모양만 본다.
+  test('EXTERNAL 이 옛 플러그인을 보고했으면 「플러그인 보고 · 최신 x [업데이트 필요]」', async () => {
+    await renderDetail({ agent: createAgent(300, { runtime: 'EXTERNAL', runMode: 'EXTERNAL', pluginVersion: '0.1.49', latestPluginVersion: '0.1.51' }) })
+    const line = await screen.findByTestId('agent-plugin-version')
+    expect(line).toHaveTextContent('플러그인 0.1.49 · 최신 0.1.51')
+    expect(within(line).getByTestId('agent-plugin-update-needed')).toHaveTextContent('업데이트 필요')
+  })
+
+  test('EXTERNAL 이 최신이거나 최신을 모르면 「플러그인 보고」만 — 배지 없음', async () => {
+    const { unmount } = await renderDetail({ agent: createAgent(300, { runtime: 'EXTERNAL', runMode: 'EXTERNAL', pluginVersion: '0.1.51', latestPluginVersion: '0.1.51' }) })
+    expect(await screen.findByTestId('agent-plugin-version')).toHaveTextContent(/^플러그인 0\.1\.51$/)
+    expect(screen.queryByTestId('agent-plugin-update-needed')).not.toBeInTheDocument()
+    unmount()
+    await renderDetail({ agent: createAgent(301, { runtime: 'EXTERNAL', runMode: 'EXTERNAL', pluginVersion: '0.1.49', latestPluginVersion: null }) })
+    expect(await screen.findByTestId('agent-plugin-version')).toHaveTextContent(/^플러그인 0\.1\.49$/)
+    expect(screen.queryByTestId('agent-plugin-update-needed')).not.toBeInTheDocument()
+  })
+
+  test('EXTERNAL 이 버전을 보고한 적 없으면 플러그인 줄이 없다', async () => {
+    await renderDetail({ agent: createAgent(300, { runtime: 'EXTERNAL', runMode: 'EXTERNAL', latestPluginVersion: '0.1.51' }) })
+    await screen.findByTestId('agent-last-access')
+    expect(screen.queryByTestId('agent-plugin-version')).not.toBeInTheDocument()
+  })
+
   test('개인 비서 — 역할·저장소·위험 구역이 없고 사용 스위치는 「주인이 관리」로 막히며, 실행 카드는 기본으로 고정된다', async () => {
     await renderDetail({ agent: createAgent(400, { type: 'PERSONAL', ownerName: '홍길동', name: '홍길동의 비서' }) })
     await screen.findByTestId('agent-ai-account-group')

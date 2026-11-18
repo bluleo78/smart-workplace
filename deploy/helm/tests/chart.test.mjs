@@ -98,6 +98,14 @@ test('agentImages 는 api 의 AGENT_RUNTIME_IMAGES 로 쉼표로 이어 들어�
   assert.doesNotMatch(BASE_DOCS.get('Deployment/api'), /AGENT_RUNTIME_IMAGES/);
 });
 
+test('agentPluginVersion 은 api 의 AGENT_PLUGIN_VERSION 으로 들어가고, 비면 환경변수를 두지 않는다 (WP-1707)', () => {
+  const r = render('-f', IMAGES, '--set-string', 'agentPluginVersion=0.1.53');
+  assert.ok(r.ok, r.err);
+  assert.match(docs(r.out).get('Deployment/api'), /- name: AGENT_PLUGIN_VERSION\n\s+value: "0\.1\.53"/);
+  // 옛 매니페스트(플러그인 버전 없음)로 반영하면 값이 비어 env 가 없다 — API 는 최신을 모르는 것으로 보고 판정하지 않는다.
+  assert.doesNotMatch(BASE_DOCS.get('Deployment/api'), /AGENT_PLUGIN_VERSION/);
+});
+
 test('이미지 값이 없으면 렌더가 실패한다(:latest 로 새지 않는다)', () => {
   const { ok, err } = render();
   assert.equal(ok, false);

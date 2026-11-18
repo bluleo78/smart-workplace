@@ -216,6 +216,34 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
         return (OffsetDateTime) get(13);
     }
 
+    /**
+     * Setter for <code>public.agent_api_key.plugin_version</code>.
+     */
+    public void setPluginVersion(String value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_api_key.plugin_version</code>.
+     */
+    public String getPluginVersion() {
+        return (String) get(14);
+    }
+
+    /**
+     * Setter for <code>public.agent_api_key.plugin_version_at</code>.
+     */
+    public void setPluginVersionAt(OffsetDateTime value) {
+        set(15, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_api_key.plugin_version_at</code>.
+     */
+    public OffsetDateTime getPluginVersionAt() {
+        return (OffsetDateTime) get(15);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -239,7 +267,7 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
     /**
      * Create a detached, initialised AgentApiKeyRecord
      */
-    public AgentApiKeyRecord(Long id, Long userId, String keyPrefix, String keyHash, String label, Long createdBy, OffsetDateTime createdAt, OffsetDateTime lastUsedAt, OffsetDateTime revokedAt, Boolean managed, OffsetDateTime expiresAt, Long rotationGeneration, Long tenantId, OffsetDateTime retiringAt) {
+    public AgentApiKeyRecord(Long id, Long userId, String keyPrefix, String keyHash, String label, Long createdBy, OffsetDateTime createdAt, OffsetDateTime lastUsedAt, OffsetDateTime revokedAt, Boolean managed, OffsetDateTime expiresAt, Long rotationGeneration, Long tenantId, OffsetDateTime retiringAt, String pluginVersion, OffsetDateTime pluginVersionAt) {
         super(AgentApiKey.AGENT_API_KEY);
 
         setId(id);
@@ -256,6 +284,8 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
         setRotationGeneration(rotationGeneration);
         setTenantId(tenantId);
         setRetiringAt(retiringAt);
+        setPluginVersion(pluginVersion);
+        setPluginVersionAt(pluginVersionAt);
         resetTouchedOnNotNull();
     }
 }

@@ -1,6 +1,6 @@
 // 릴리스 반영·롤백·상태 확인의 순수 함수 (WP-443) — helm·kubectl·네트워크에 접근하지 않는다.
 // 호출자(CLI)가 매니페스트·`helm get values/history` 결과·파드 JSON·HTTP 응답 본문을 모아 넘기고, 여기서는 같은 입력이면 항상 같은 결과를 낸다.
-import { DIGEST_RE } from './build.mjs';
+import { DIGEST_RE, PLUGIN_VERSION_RE } from './build.mjs';
 import { deploysWithHelm, isPlainObject, isWorkspaceImage } from './catalog.mjs';
 
 /**
@@ -22,6 +22,7 @@ export function helmImages(manifest) {
  * images 는 repository·digest 만 — action·reasons 같은 빌드 메타는 차트가 쓰지 않는다. release 는 「지금 운영 릴리스」 표식(`helm get values` 로 되읽는다).
  * agentImages 는 작업 공간 이미지(카탈로그 workspace: true)의 `저장소@digest`(id 순) — API 가 실행 템플릿 이미지를 이것으로 고정한다
  * (이유는 AgentTemplateRegistry.APP_VERSION_TOKEN). runner 는 템플릿이 쓰지 않아 넣지 않는다 — runner 만 바뀐 릴리스에 API 가 다시 뜨지 않게.
+ * agentPluginVersion 은 그 릴리스의 genia-works 플러그인 버전(WP-1707) — 매니페스트에 있을 때만 넣는다.
  */
 export function imageValues(manifest) {
   const images = {};
@@ -30,7 +31,10 @@ export function imageValues(manifest) {
     .filter(([, img]) => isWorkspaceImage(img))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, img]) => `${img.repository}@${img.digest}`);
-  return { images, agentImages, release: { version: manifest.version, commit: manifest.commit } };
+  const values = { images, agentImages, release: { version: manifest.version, commit: manifest.commit } };
+  // 플러그인 버전(WP-1707) — 매니페스트에 있을 때만 넘긴다. 옛 매니페스트로 반영(롤백 포함)하면 값이 없어 API env 도 빠지고 판정하지 않는다.
+  if (typeof manifest.pluginVersion === 'string' && PLUGIN_VERSION_RE.test(manifest.pluginVersion)) values.agentPluginVersion = manifest.pluginVersion;
+  return values;
 }
 
 /**

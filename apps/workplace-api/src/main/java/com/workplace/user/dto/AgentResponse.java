@@ -20,6 +20,10 @@ import java.time.LocalDateTime;
  * <p>WP-1273: runMode 는 서버가 판정한 실제 실행 방식(SERVER|WORKSPACE|EXTERNAL). runtime(DB 값)만으로는 Works 가 작업
  * 공간을 띄우는 AI(EXTERNAL + 실행 설정)와 직접 띄운 도구가 접속하는 AI(EXTERNAL, 설정 없음)가 구분되지 않아, 화면이 다시 추론하지 않게 서버가 정해
  * 준다.
+ *
+ * <p>WP-1707: pluginVersion·pluginVersionAt 은 외부 AI 의 genia-works 플러그인이 AI 키 요청에 실어 보낸 버전과 그 버전이 처음
+ * 보고된 시각 — 활성 키 중 가장 최근에 쓰인 키의 값(지금 돌고 있는 쪽)이다. 보고가 없으면 null. latestPluginVersion 은 이 릴리스의 플러그인
+ * 버전(workplace.agent-runtime.plugin-version, 비면 null). 「업데이트 필요」 판정은 웹 한 곳(pluginUpdateInfo)에서만 한다.
  */
 public record AgentResponse(
     Long id,
@@ -34,7 +38,10 @@ public record AgentResponse(
     String runMode,
     Instant lastKeyUsedAt,
     String description,
-    String instructions) {
+    String instructions,
+    String pluginVersion,
+    Instant pluginVersionAt,
+    String latestPluginVersion) {
 
   public static final String TYPE_PERSONAL = "PERSONAL";
   public static final String TYPE_WORKSPACE = "WORKSPACE";

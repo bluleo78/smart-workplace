@@ -213,18 +213,29 @@ public class UserRepository {
                     r.get(USER.DESCRIPTION)));
   }
 
-  public List<AgentResponse> findAgents(Long tenantId, boolean includePersonal) {
-    return selectAgents(tenantId, workspaceAgents(tenantId, includePersonal));
+  /**
+   * 관리 목록용 AI 들. latestPluginVersion 은 이 릴리스의 플러그인 버전(설정값, WP-1707) — 조회는 설정을 모르므로 서비스가 넘겨 행을 만들 때
+   * 그대로 싣는다(행마다 사본을 다시 만들지 않게).
+   */
+  public List<AgentResponse> findAgents(
+      Long tenantId, boolean includePersonal, String latestPluginVersion) {
+    return selectAgents(tenantId, workspaceAgents(tenantId, includePersonal), latestPluginVersion);
   }
 
-  /** 이 테넌트의 AI 한 명 — 개인 비서·사용 중지 AI 포함(관리 상세 화면용, WP-1281). 사람이거나 다른 워크스페이스면 비어 있음. */
-  public Optional<AgentResponse> findAgent(Long tenantId, long userId) {
-    return selectAgents(tenantId, workspaceAgents(tenantId, true).and(USER.ID.eq(userId))).stream()
+  /**
+   * 이 테넌트의 AI 한 명 — 개인 비서·사용 중지 AI 포함(관리 상세 화면용, WP-1281). 사람이거나 다른 워크스페이스면 비어 있음.
+   * latestPluginVersion 은 findAgents 와 같다(WP-1707).
+   */
+  public Optional<AgentResponse> findAgent(Long tenantId, long userId, String latestPluginVersion) {
+    return selectAgents(
+            tenantId, workspaceAgents(tenantId, true).and(USER.ID.eq(userId)), latestPluginVersion)
+        .stream()
         .findFirst();
   }
 
   /** 관리 목록·상세가 같이 쓰는 AI 조회 — 조건만 다르다. */
-  private List<AgentResponse> selectAgents(Long tenantId, Condition where) {
+  private List<AgentResponse> selectAgents(
+      Long tenantId, Condition where, String latestPluginVersion) {
     // 개인 비서 소유자(사람) 이름을 얻기 위한 self-join: owner.personal_assistant_agent_id = agent.id.
     com.workplace.jooq.tables.User owner = USER.as("owner");
     // WP-1075: 사용을 중지한(멤버십 정지) AGENT 도 내려 준다 — 관리 화면이 「비활성」 배지로 구별하고 상세의 활성 상태로 다시 켠다.
@@ -238,6 +249,21 @@ public class UserRepository {
             .where(AGENT_API_KEY.USER_ID.eq(USER.ID))
             .and(AgentApiKeyRepository.activeAt(OffsetDateTime.now()))
             .asField("last_key_used_at");
+    // WP-1707: 플러그인 버전 — 버전을 보고한 활성 키 중 가장 최근에 쓰인 키의 값과 그 보고 시각. 한 AI 가 여러 컴퓨터(키)로 접속하면 지금 돌고 있는
+    // 쪽을 보인다(가장 최근에 보고한 키가 아니라). 두 값이 같은 키에서 나와야 하므로 LEFT JOIN LATERAL 한 번(최대 1행)으로 함께 읽는다 —
+    // 대상 AI 의 키만 읽고, 보고한 키가 없으면 null 로 남아 AI 행이 빠지지 않는다.
+    var pluginKey =
+        DSL.lateral(
+                DSL.select(AGENT_API_KEY.PLUGIN_VERSION, AGENT_API_KEY.PLUGIN_VERSION_AT)
+                    .from(AGENT_API_KEY)
+                    .where(AGENT_API_KEY.USER_ID.eq(USER.ID))
+                    .and(AgentApiKeyRepository.activeAt(OffsetDateTime.now()))
+                    .and(AGENT_API_KEY.PLUGIN_VERSION.isNotNull())
+                    .orderBy(AGENT_API_KEY.LAST_USED_AT.desc().nullsLast(), AGENT_API_KEY.ID.desc())
+                    .limit(1))
+            .as("plugin_key");
+    Field<String> pluginVersion = pluginKey.field(AGENT_API_KEY.PLUGIN_VERSION);
+    Field<OffsetDateTime> pluginVersionAt = pluginKey.field(AGENT_API_KEY.PLUGIN_VERSION_AT);
     return dsl.select(
             USER.ID,
             USER.USERNAME,
@@ -250,6 +276,8 @@ public class UserRepository {
             USER.DESCRIPTION,
             USER.INSTRUCTIONS,
             keyLastUsed,
+            pluginVersion,
+            pluginVersionAt,
             owner.NAME,
             WORKSPACE_ASSISTANT.AGENT_USER_ID,
             AGENT_RUNTIME_SETTING.AGENT_USER_ID)
@@ -269,6 +297,9 @@ public class UserRepository {
                 .AGENT_USER_ID
                 .eq(USER.ID)
                 .and(AGENT_RUNTIME_SETTING.TENANT_ID.eq(tenantId)))
+        // 플러그인 버전을 보고한 키(최대 1행, WP-1707) — 없어도 AI 는 나온다.
+        .leftJoin(pluginKey)
+        .on(trueCondition())
         .where(where)
         .orderBy(USER.NAME.asc(), USER.ID.asc())
         .fetch(
@@ -299,7 +330,11 @@ public class UserRepository {
                       r.get(AGENT_RUNTIME_SETTING.AGENT_USER_ID) != null),
                   r.get(keyLastUsed) != null ? r.get(keyLastUsed).toInstant() : null,
                   r.get(USER.DESCRIPTION),
-                  r.get(USER.INSTRUCTIONS));
+                  r.get(USER.INSTRUCTIONS),
+                  r.get(pluginVersion),
+                  r.get(pluginVersionAt) != null ? r.get(pluginVersionAt).toInstant() : null,
+                  // 최신 버전은 설정값이라 서비스가 넘겨준 값을 그대로 싣는다(UserService.listAgents·getAgent).
+                  latestPluginVersion);
             });
   }
 

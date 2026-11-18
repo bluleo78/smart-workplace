@@ -232,6 +232,29 @@ test('목록 — 생성일은 zero-pad 하이픈, 실행 배지는 기본/외부
   expect(screen.queryByTestId('agent-key-status-100')).not.toBeInTheDocument()
 })
 
+test('목록 — 외부 AI 가 옛 플러그인을 보고했으면 상태 칸·모바일 줄에 「업데이트 필요」, 최신·기본·보고 없음은 없다 (WP-1707)', async () => {
+  const minute = new Date(Date.now() - 3 * 60_000).toISOString()
+  await renderAgents({
+    extraAgents: [
+      { ...base, id: 110, username: 'ext_old', name: '옛플러그인', type: 'REGULAR', runtime: 'EXTERNAL', runMode: 'EXTERNAL', lastKeyUsedAt: minute, pluginVersion: '0.1.49', latestPluginVersion: '0.1.51' },
+      { ...base, id: 111, username: 'ext_ok', name: '최신플러그인', type: 'REGULAR', runtime: 'EXTERNAL', runMode: 'EXTERNAL', lastKeyUsedAt: minute, pluginVersion: '0.1.51', latestPluginVersion: '0.1.51' },
+      // 기본(서버) AI 는 보고가 남아 있어도 보이지 않는다.
+      { ...base, id: 112, username: 'srv', name: '서버봇', type: 'REGULAR', runtime: 'INTERNAL', runMode: 'SERVER', pluginVersion: '0.1.1', latestPluginVersion: '0.1.51' },
+    ],
+  })
+  const cell = screen.getByTestId('agent-runtime-state-cell-110')
+  expect(cell).toHaveTextContent('마지막 접속 3분 전')
+  const badge = within(cell).getByTestId('agent-plugin-update-110')
+  expect(badge).toHaveTextContent('업데이트 필요')
+  expect(badge).toHaveAttribute('title', '플러그인 0.1.49 → 0.1.51')
+  // 모바일 이름 아래 줄에도 같은 배지.
+  expect(within(screen.getByTestId('agent-meta-110')).getByText('업데이트 필요')).toBeInTheDocument()
+
+  for (const id of [111, 112, 101, 102]) {
+    expect(screen.getByTestId(`agent-row-${id}`)).not.toHaveTextContent('업데이트 필요')
+  }
+})
+
 test('목록 탭 — 칸과 대화상자가 맞는 도움말 절로 이어진다 (WP-1507)', async () => {
   const { user } = await renderAgents()
   expectHelpTarget(screen.getByRole('table', { name: '에이전트 목록' }), 'agents.list')

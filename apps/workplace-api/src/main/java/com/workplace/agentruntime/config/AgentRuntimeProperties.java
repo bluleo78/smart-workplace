@@ -18,6 +18,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param images 릴리스가 고정한 작업 공간 이미지({@code 저장소@sha256:…}) — 운영 배포가 매니페스트에서 넘긴다. 쓰임은 {@link
  *     com.workplace.agentruntime.service.AgentTemplateRegistry#APP_VERSION_TOKEN}. 비면(로컬·테스트) API
  *     버전 태그를 쓴다.
+ * @param pluginVersion 이 릴리스의 genia-works 플러그인 버전(WP-1707) — 운영 배포가 매니페스트에서 {@code
+ *     AGENT_PLUGIN_VERSION} 으로 넘긴다. 관리 화면이 외부 AI 가 보고한 버전과 견줘 「업데이트 필요」를 보인다. 비면(로컬·옛 매니페스트) null
+ *     이고 판정하지 않는다.
  */
 @ConfigurationProperties("workplace.agent-runtime")
 public record AgentRuntimeProperties(
@@ -25,7 +28,8 @@ public record AgentRuntimeProperties(
     String mcpUrl,
     String apiUrl,
     Duration slotStaleAfter,
-    List<String> images) {
+    List<String> images,
+    String pluginVersion) {
 
   /** 설정이 없을 때의 기본 허용 접두사. */
   public static final List<String> DEFAULT_ALLOWED_IMAGE_PREFIXES =
@@ -60,5 +64,7 @@ public record AgentRuntimeProperties(
         images == null
             ? List.of()
             : images.stream().map(String::strip).filter(v -> !v.isEmpty()).toList();
+    // 빈 값은 「모름」(null) — 웹이 최신 버전을 모르면 배지를 보이지 않는다.
+    pluginVersion = pluginVersion == null || pluginVersion.isBlank() ? null : pluginVersion.strip();
   }
 }
