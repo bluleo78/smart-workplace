@@ -103,6 +103,8 @@ export function HtmlPreview({
         title={title}
         html={html}
         allowScripts={scriptsAllowed}
+        // 고정 높이로 스스로 스크롤 — 스크롤바 칸이 문서 배경 위에 그려지게 body 가 스크롤을 맡는다(WP-1749).
+        scrollingDocument
         // 흰 종이 바탕(WP-1661) — 배경을 정하지 않은 문서도 다크 테마에서 브라우저처럼 흰 바탕에 그린다.
         className={cn('block min-h-0 w-full flex-1 border-0', HTML_DOCUMENT_CANVAS_CLASS)}
       />

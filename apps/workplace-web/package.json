@@ -24,7 +24,6 @@
     "@hocuspocus/provider": "4.7.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-collapsible": "^1.1.12",
-    "@radix-ui/react-scroll-area": "^1.2.10",
     "@smart-workplace/mcp-tools-shared": "workspace:*",
     "@smart-workplace/wiki-editor-schema": "workspace:*",
     "@svar-ui/react-gantt": "^2.7.1",

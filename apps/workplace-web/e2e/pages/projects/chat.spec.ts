@@ -508,7 +508,7 @@ test.describe('이슈 chat panel', () => {
           authorId: ME_ID,
           authorName: '테스트 사용자',
           authorKind: 'HUMAN',
-          // 공백 없는 긴 문자열 포함 — ScrollArea 안에서 말풍선이 패널을 옆으로 넓히지 않는지 확인.
+          // 공백 없는 긴 문자열 포함 — 스크롤 목록 안에서 말풍선이 패널을 옆으로 넓히지 않는지 확인.
           body: `확인했습니다 <@99> <@20> 참고: https://example.com/${'very-long-path-segment-'.repeat(12)}end`,
           mentions: hydrateMentions('<@99> <@20>', members),
           editedAt: '2026-01-01T10:00:00Z',
@@ -634,7 +634,7 @@ test.describe('이슈 chat panel', () => {
     // 타인 메시지에는 툴바가 없다(수정·삭제는 본인만).
     await expect(page.getByTestId('chat-message-toolbar-610')).toHaveCount(0);
 
-    // 긴 URL 이 있어도 목록과 그 조상(ScrollArea 뷰포트 포함) 어디에도 가로 넘침이 없다.
+    // 긴 URL 이 있어도 목록과 그 조상(스크롤 목록 포함) 어디에도 가로 넘침이 없다.
     const overflows = await page.getByTestId('chat-message-611').evaluate((el) => {
       for (let n: Element | null = el; n; n = n.parentElement) {
         if (n.scrollWidth > n.clientWidth + 1) return true;
@@ -811,7 +811,7 @@ test.describe('이슈 chat panel', () => {
       .toEqual([{ uptoMessageId: 700 }]);
   });
 
-  // #40-2 회귀 — 메시지가 많으면 로드 시 ScrollArea 뷰포트가 바닥으로 스크롤된다.
+  // #40-2 회귀 — 메시지가 많으면 로드 시 목록(스크롤 칸)이 바닥으로 스크롤된다.
   test('메시지가 많으면 로드 시 마지막 메시지로 스크롤된다', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
@@ -846,15 +846,56 @@ test.describe('이슈 chat panel', () => {
     // 뷰포트가 바닥에 도달했는지 직접 검증 (chat section 이 페이지 fold 아래라 toBeInViewport 는 혼동됨).
     await expect
       .poll(async () =>
+        // 목록 자신이 스크롤 칸이다(WP-1749 — Radix ScrollArea 뷰포트를 걷어냄). 넘치지 않으면 스크롤을 못 본 것이라 실패값.
         page.getByTestId('chat-message-list').evaluate((root) => {
-          const vp = root.querySelector<HTMLElement>(
-            '[data-radix-scroll-area-viewport]',
-          );
-          if (!vp) return -1; // 뷰포트 노드를 못 찾으면 명시적 실패값.
-          return vp.scrollHeight - vp.scrollTop - vp.clientHeight;
+          if (root.scrollHeight <= root.clientHeight) return -1;
+          return root.scrollHeight - root.scrollTop - root.clientHeight;
         }),
       )
       .toBeLessThan(4);
+  });
+
+  // WP-1749 — 목록을 일반 overflow 칸으로 바꾼 뒤에도 「이전 메시지 더 보기」(앞쪽 prepend)는 바닥으로 튀지 않는다
+  // (마지막 메시지가 그대로라 바닥 스크롤 effect 가 돌지 않는다). 보던 첫 메시지는 앞에 붙은 메시지 아래에 그대로 남는다.
+  test('이전 메시지를 더 불러와도 목록이 바닥으로 튀지 않는다', { tag: '@layout' }, async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'prepend' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    const at = (i: number) => new Date(Date.now() + i * 1000).toISOString();
+    const msg = (id: number, i: number) =>
+      createChatMessage({ id, threadId: THREAD_ID, authorId: 99, authorName: 'AI Agent', authorKind: 'AGENT', body: `메시지 ${id}`, createdAt: at(i) });
+    const recent = Array.from({ length: 30 }, (_, i) => msg(i + 1, i));
+    const older = Array.from({ length: 10 }, (_, i) => msg(500 + i, i - 100));
+    // 첫 화면은 스레드 응답의 최근 메시지 + 다음 커서(recentNextCursor)로 그린다 — 커서가 있어야 「이전 메시지 더 보기」가 뜬다.
+    stubs.thread = { ...stubs.thread, recentMessages: recent, recentNextCursor: 'older-1' };
+    stubs.messages = recent;
+    stubs.nextCursor = 'older-1';
+    stubs.olderPages = { 'older-1': older };
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+    const list = page.getByTestId('chat-message-list');
+    const fromBottom = () => list.evaluate((root) => root.scrollHeight - root.scrollTop - root.clientHeight);
+    await expect.poll(fromBottom).toBeLessThan(4);
+
+    // 맨 위로 올려 「이전 메시지 더 보기」를 누른다.
+    await list.evaluate((root) => {
+      root.scrollTop = 0;
+    });
+    await page.getByTestId('chat-load-more').click();
+    await expect(page.getByTestId('chat-message-500')).toBeAttached();
+    // 앞에 붙은 메시지가 있어도 바닥으로 내려가지 않고, 보던 첫 메시지(1)는 붙은 메시지(509) 아래에 있다.
+    expect(await fromBottom()).toBeGreaterThan(100);
+    const first = (await page.getByTestId('chat-message-1').boundingBox())!;
+    const lastOlder = (await page.getByTestId('chat-message-509').boundingBox())!;
+    expect(first.y).toBeGreaterThan(lastOlder.y);
   });
 
   // 전송 후에도 입력창에 포커스가 남아 마우스 클릭 없이 연속 입력 가능 (ProseMirror).

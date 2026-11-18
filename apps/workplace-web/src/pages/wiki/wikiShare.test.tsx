@@ -207,6 +207,8 @@ describe('노트 외부 보기(로그인 없음)', () => {
     const frame = await screen.findByTestId('wiki-public-html-frame')
     expect(frame.getAttribute('sandbox')).not.toContain('allow-scripts')
     expect(frame.getAttribute('srcdoc')).toContain('<canvas id="c"></canvas>')
+    // 고정 높이 문서라 body 가 스크롤을 맡는다(WP-1749 — 스크립트가 멈춘 동안).
+    expect(frame.getAttribute('srcdoc')).toContain('data-scrolling-document')
     // 공개 공유 HTML 문서도 다크 테마와 무관한 흰 종이 캔버스(WP-1660) — 투명 캔버스 뒤로 앱 테마색이 비치지 않게.
     expect(frame).toHaveClass('bg-white')
     expect(frame).not.toHaveClass('bg-background')

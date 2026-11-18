@@ -89,6 +89,8 @@ test('kind=HTML 이면 편집기 대신 원본을 격리 iframe 으로 그린다
   const frame = await screen.findByTestId('wiki-html-frame')
   // 스크립트가 든 문서라 제목 아래 스크립트 줄이 뜨고, 켜기 전에는 스크립트를 돌리지 않는다.
   expect(frame.getAttribute('sandbox')?.split(/\s+/)).not.toContain('allow-scripts')
+  // 고정 높이 문서라 body 가 스크롤을 맡는다(WP-1749) — 스크립트가 멈춘 동안은 창 스크롤에 기댈 스크립트가 없다.
+  expect(frame.getAttribute('srcdoc')).toContain('data-scrolling-document')
   const bar = await screen.findByTestId('wiki-html-script-bar')
   expect(bar).toHaveTextContent('스크립트가 있는 HTML 블록 1개')
   await userEvent.click(within(bar).getByRole('switch', { name: '스크립트 실행' }))
@@ -97,6 +99,8 @@ test('kind=HTML 이면 편집기 대신 원본을 격리 iframe 으로 그린다
   const sandbox = screen.getByTestId('wiki-html-frame').getAttribute('sandbox') ?? ''
   expect(sandbox).not.toContain('allow-same-origin')
   expect(sandbox).not.toContain('allow-popups-to-escape-sandbox')
+  // 문서 스크립트가 돌면 body 스크롤 스타일을 넣지 않는다(WP-1749) — window.scrollY·scroll 이벤트에 기대는 스크립트가 깨지지 않게.
+  expect(screen.getByTestId('wiki-html-frame').getAttribute('srcdoc')).not.toContain('data-scrolling-document')
   expect(frame.getAttribute('srcdoc')).toContain('<h1>매출 차트</h1>')
   // 다크 테마에서도 흰 종이 캔버스(WP-1660).
   expectPaperCanvas(screen.getByTestId('wiki-html-frame'))
@@ -151,6 +155,8 @@ test('편집 → 고쳐 저장하면 잠금을 얻고, 고치기 시작한 versi
   await waitFor(() => expect(screen.getByTestId('wiki-html-preview').getAttribute('srcdoc')).toContain('<p>새 원본</p>'))
   // 편집 미리보기도 보기와 같은 흰 종이 캔버스(WP-1660).
   expectPaperCanvas(screen.getByTestId('wiki-html-preview'))
+  // 편집 미리보기도 고정 높이로 스스로 스크롤 — body 가 스크롤을 맡는다(WP-1749).
+  expect(screen.getByTestId('wiki-html-preview').getAttribute('srcdoc')).toContain('data-scrolling-document')
   await user.click(screen.getByTestId('wiki-html-source-save'))
   // 편집 「저장」은 이 세션의 표지를 싣는다 — 서버가 저장과 함께 잠금을 푼다.
   await waitFor(() => expect(saves).toEqual([{ html: '<p>새 원본</p>', version: 3, lockToken: TOKEN }]))

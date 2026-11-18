@@ -142,6 +142,8 @@ export function WikiHtmlRevisionDialog({
                 <WikiHtmlScriptBar className="m-2" />
                 <NoteScriptFrame
                   html={previewHtml}
+                  // 고정 높이로 스스로 스크롤 — 스크롤바 칸이 문서 배경 위에 그려지게 body 가 스크롤을 맡는다(WP-1749).
+                  scrollingDocument
                   title={`${page.title || '제목 없음'} 버전 미리보기`}
                   data-testid="wiki-html-revision-frame"
                   className={cn('h-full min-h-[50dvh] w-full flex-1 border-0', HTML_DOCUMENT_CANVAS_CLASS)}

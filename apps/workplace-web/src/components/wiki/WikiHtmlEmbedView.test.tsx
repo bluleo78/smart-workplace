@@ -474,6 +474,8 @@ describe('HTML 블록 NodeView', () => {
       fireEvent.click(await screen.findByTestId('wiki-html-embed-expand'))
       const big = await screen.findByTestId('wiki-html-embed-expand-frame')
       expect(big.getAttribute('srcdoc')).toContain(SOURCE)
+      // 블록 스크립트가 도는 크게 보기는 창 스크롤 그대로(WP-1749) — 창 스크롤에 기대는 블록 스크립트가 깨지지 않게.
+      expect(big.getAttribute('srcdoc')).not.toContain('data-scrolling-document')
       expect(big.getAttribute('sandbox')).toContain('allow-scripts')
       expect(big.getAttribute('sandbox')).not.toContain('allow-same-origin')
       // 크게 보기도 블록과 같은 흰 종이 바탕(WP-1661).
@@ -927,6 +929,9 @@ describe('노트 HTML 블록 스크립트 스위치(WP-1290)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '크게 보기' }))
     const big = await screen.findByTestId('wiki-html-embed-expand-frame')
     expect(big.getAttribute('sandbox')).not.toContain('allow-scripts')
+    // 크게 보기는 높이 고정(80vh)이라 스크립트가 멈춘 동안 body 가 스크롤을 맡는다(WP-1749). 블록 본체는 높이를 문서에 맞춰 재므로 넣지 않는다.
+    expect(big.getAttribute('srcdoc')).toContain('data-scrolling-document')
+    expect(frame().getAttribute('srcdoc')).not.toContain('data-scrolling-document')
   })
 
   it('멈춘 블록에서도 「글자 고치기」는 우리 스크립트만(CSP nonce) 돌려 쓸 수 있고, 그동안 고르기도 켤 수 있다(WP-1309)', async () => {

@@ -127,14 +127,15 @@ export function htmlTextEditScript(token: string): string {
     'function schedule(){clearTimeout(timer);timer=setTimeout(send,300)}' +
     'function touched(){if(!active)return;mark(active);schedule();draw()}' +
     // 표시 — 점선(올린 것)·실선(고치는 것). 프레임당 한 번만 다시 그린다.
+    // 표시 층은 창에 고정(fixed)·넘침 자름, 상자는 창 좌표 — 스크롤마다 다시 그린다. body 가 스크롤하는 문서(WP-1749)에서 큰 상자가 창을 넘치게 하지 않게(htmlPicker 와 같다).
     "function mk(t){return document.createElement(t)}" +
     "function box(r,solid){var d=mk('div');d.style.cssText='position:absolute;box-sizing:border-box;pointer-events:none;border-radius:4px;'+" +
-    "'left:'+(r.left+(window.scrollX||0)-3)+'px;top:'+(r.top+(window.scrollY||0)-3)+'px;width:'+(r.width+6)+'px;height:'+(r.height+6)+'px;'+" +
+    "'left:'+(r.left-3)+'px;top:'+(r.top-3)+'px;width:'+(r.width+6)+'px;height:'+(r.height+6)+'px;'+" +
     "'border:'+(solid?'2px solid':'1.5px dashed')+' #6366f1';return d}" +
     'function draw(){if(queued)return;queued=true;(window.requestAnimationFrame||setTimeout)(paint)}' +
     'function paint(){queued=false;' +
     "if(!layer||!layer.isConnected){layer=mk('div');layer.setAttribute(UI,'');layer.setAttribute('data-wp-html-edit-layer','');" +
-    "layer.style.cssText='position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483646';document.documentElement.appendChild(layer)}" +
+    "layer.style.cssText='position:fixed;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none;z-index:2147483646';document.documentElement.appendChild(layer)}" +
     "layer.textContent='';if(!paused&&hover&&hover!==active&&hover.isConnected)layer.appendChild(box(hover.getBoundingClientRect(),false));" +
     "if(active&&active.isConnected){layer.appendChild(box(active.getBoundingClientRect(),true));placeBar()}else if(bar)bar.style.display='none'}" +
     // 서식 도구 — 어두운 막대(원본 배경과 상관없이 보이게). 단추 mousedown 은 막아 선택을 지킨다.
@@ -161,6 +162,9 @@ export function htmlTextEditScript(token: string): string {
     "COLORS.forEach(function(c){colorRow.appendChild(btn('',c[0],function(){color(c[1])},'width:20px;height:20px;padding:0;border-radius:10px;border:2px solid #fff;background:'+c[1],true))});" +
     'bar.appendChild(colorRow);document.documentElement.appendChild(bar)}' +
     // 자리 — 기억한 자리(문서 좌표 barAt)가 아직 맞으면(창 안·고치는 글자와 안 겹침) 그대로, 아니면 wpBarPos 로 새로 고른다(입력마다 뛰지 않게).
+    // body 가 스크롤을 맡는 문서(SCROLLING_DOCUMENT_STYLE, WP-1749)는 창 스크롤이 늘 0 이라 body 스크롤(ix·iy)도 문서 좌표에 더한다 —
+    // 도구는 <html> 에 붙어 body 와 함께 움직이지 않으므로, 놓을 때는 그만큼 빼 글자를 따라가게 한다. 보통 문서는 body.scrollTop 이 0 이라 그대로다.
+    // quirks 문서는 body 가 곧 창 스크롤(scrollingElement)이라 두 번 더하지 않게 뺀다.
     "function textBox(el,r){var g=document.createRange();g.selectNodeContents(el);var c=g.getBoundingClientRect();return c.width||c.height?c:r}" +
     // 가리는 남의 글자 넓이 — 후보 안 12점의 맨 위 요소(도구는 잠깐 숨긴다)마다 글자 줄 상자와 겹친 넓이를 더한다. 그림·svg 등은 요소 상자째.
     "function overlap(a,b){return Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top))}" +
@@ -170,10 +174,11 @@ export function htmlTextEditScript(token: string): string {
     "if(e.namespaceURI!=='http://www.w3.org/1999/xhtml'||/^(img|canvas|video|iframe|object|embed|input|button|select|textarea)$/.test(tagOf(e))){sum+=overlap(e.getBoundingClientRect(),rc);continue}" +
     'var tw=document.createTreeWalker(e,4),n,k=0,g=document.createRange();while((n=tw.nextNode())&&k++<200){if(!/\\S/.test(n.data))continue;' +
     "g.selectNodeContents(n);var ls=g.getClientRects();for(var q=0;q<ls.length;q++)sum+=overlap(ls[q],rc)}}bar.style.visibility='';return sum}" +
-    'function placeBar(){if(!bar)makeBar();bar.style.display=\'flex\';var r=active.getBoundingClientRect(),c=textBox(active,r),sx=window.scrollX||0,sy=window.scrollY||0;' +
+    'function placeBar(){if(!bar)makeBar();bar.style.display=\'flex\';var r=active.getBoundingClientRect(),c=textBox(active,r),' +
+    'b=document.body,own=b&&document.scrollingElement!==b,ix=own?b.scrollLeft:0,iy=own?b.scrollTop:0,sx=(window.scrollX||0)+ix,sy=(window.scrollY||0)+iy;' +
     'var h=bar.offsetHeight||32,w=bar.offsetWidth||200,vw=window.innerWidth||800,vh=window.innerHeight||600;' +
     'if(!barAt||!wpBarFits(barAt.x-sx,barAt.y-sy,c,w,h,vw,vh)){var p=wpBarPos(r,c,w,h,vw,vh,covers);barAt={x:p.left+sx,y:p.top+sy}}' +
-    "bar.style.top=barAt.y+'px';bar.style.left=barAt.x+'px';" +
+    "bar.style.top=(barAt.y-iy)+'px';bar.style.left=(barAt.x-ix)+'px';" +
     "var can=PARA.test(tagOf(active));paraBtn.disabled=!can;paraBtn.style.opacity=can?'1':'.4';paraBtn.style.cursor=can?'pointer':'default'}" +
     // 선택 저장·되돌리기 — 주소 칸으로 포커스가 옮겨 가도 고칠 자리를 잃지 않게.
     'function saveRange(){var s=window.getSelection();saved=s&&s.rangeCount&&active&&active.contains(s.getRangeAt(0).commonAncestorContainer)?s.getRangeAt(0).cloneRange():null}' +

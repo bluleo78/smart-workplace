@@ -20,7 +20,6 @@ import { useMessageSheet } from '@/hooks/useMessageSheet';
 
 import { DateDivider } from '../../../../components/chat/DateDivider';
 import { Button } from '../../../../components/ui/button';
-import { ScrollArea } from '../../../../components/ui/scroll-area';
 import { getDateKey } from '../../../../lib/formatters';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageRow } from './ChatMessageRow';
@@ -103,15 +102,13 @@ export function ChatMessageList({
     sheet.show,
   );
 
-  // 최신 메시지(lastId)가 바뀌면 ScrollArea 뷰포트를 바닥으로 스크롤.
+  // 최신 메시지(lastId)가 바뀌면 스크롤 목록을 바닥으로 스크롤.
   // 초기 로드/새 메시지에는 lastId 가 변하므로 스크롤, '이전 메시지 더 보기'(앞쪽 prepend)는
-  // lastId 가 그대로라 스크롤하지 않는다.
+  // lastId 가 그대로라 스크롤하지 않는다(Radix 뷰포트 때와 같은 동작 — 바닥으로 튀지 않는다).
   useEffect(() => {
     if (lastId === null) return;
-    const viewport = scrollRootRef.current?.querySelector<HTMLElement>(
-      '[data-radix-scroll-area-viewport]',
-    );
-    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    const root = scrollRootRef.current;
+    if (root) root.scrollTop = root.scrollHeight;
   }, [lastId]);
 
   // 마지막 메시지 IO — viewport 진입 시 mark-read.
@@ -149,11 +146,13 @@ export function ChatMessageList({
   }
 
   return (
-    // WP-279: 첨부 썸네일·카드 → 통합 뷰어. 뷰어는 ScrollArea 의 형제로 그려 길게 누르기 위임 핸들러로 이벤트가 새지 않게 한다.
+    // WP-279: 첨부 썸네일·카드 → 통합 뷰어. 뷰어는 스크롤 목록의 형제로 그려 길게 누르기 위임 핸들러로 이벤트가 새지 않게 한다.
     <ChatAttachmentViewerHost historyKey={ISSUE_CHAT_PREVIEW_KEY} resolve={resolveAttachment}>
-      <ScrollArea
+      {/* 일반 overflow 스크롤(WP-1749) — Radix ScrollArea 는 hover 때만 뜨는 10px 짙은 thumb 라 앱 전역 얇은 스크롤바(index.css)와 모양이 달랐다.
+          가로 넘침은 숨긴다(Radix 뷰포트도 가로 스크롤바가 없으면 overflow-x:hidden 이었다 — 긴 URL 이 목록을 옆으로 넓히지 않게). */}
+      <div
         ref={scrollRootRef}
-        className={`pr-2 ${fill ? 'h-full' : 'h-[min(60vh,480px)]'}`}
+        className={`overflow-y-auto overflow-x-hidden pr-2 ${fill ? 'h-full' : 'h-[min(60vh,480px)]'}`}
         data-testid="chat-message-list"
       >
         {/* 터치 셸이면 길게 누르기를 이 컨테이너가 위임으로 받는다(행은 data-message-id). 아니면 핸들러 없음. */}
@@ -227,7 +226,7 @@ export function ChatMessageList({
             preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
           />
         )}
-      </ScrollArea>
+      </div>
     </ChatAttachmentViewerHost>
   );
 }

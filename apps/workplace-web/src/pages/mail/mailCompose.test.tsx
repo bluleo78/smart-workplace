@@ -9,7 +9,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
-import { SANDBOX_HEAD } from '@/lib/sandboxedHtml'
+import { SANDBOX_HEAD, SCROLLING_DOCUMENT_STYLE } from '@/lib/sandboxedHtml'
 import { composeInPane as hostInPane } from '@/test/kits/mail/compose-pane'
 import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 
@@ -354,7 +354,9 @@ test('답장 인용문은 기본 펼침(WP-1746)이고 구분선·원문 머리�
   expect(srcDoc).toContain('<b>보낸 사람:</b> 박지원 &lt;jiwon.park@test.local&gt;')
   // 슬림 스크롤바·링크 base(WP-275·WP-427)를 담은 공용 머리말이 붙는다 — 그 문자열 하나만 빼고 누출을 본다.
   expect(srcDoc).toContain(SANDBOX_HEAD)
-  const original = srcDoc.replace(SANDBOX_HEAD, '')
+  // 고정 높이로 스스로 스크롤하는 인용 칸이라 body 가 스크롤을 맡는다(WP-1749) — 우리 스타일이므로 누출 검사에서 함께 뺀다.
+  expect(srcDoc).toContain(SCROLLING_DOCUMENT_STYLE)
+  const original = srcDoc.replace(SANDBOX_HEAD, '').replace(SCROLLING_DOCUMENT_STYLE, '')
   for (const leak of ['<style', 'Papyrus', '<html', '<head']) expect(original).not.toContain(leak)
 })
 

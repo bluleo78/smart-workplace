@@ -146,6 +146,8 @@ export function WikiHtmlVisualEditor({
         ref={frameRef}
         allowScripts
         pageScripts={pageScripts}
+        // 고정 높이로 스스로 스크롤 — 스크롤바 칸이 문서 배경 위에 그려지게 body 가 스크롤을 맡는다(WP-1749).
+        scrollingDocument
         html={prepared.html}
         ownScript={script}
         title={`${title || '제목 없음'} 편집`}

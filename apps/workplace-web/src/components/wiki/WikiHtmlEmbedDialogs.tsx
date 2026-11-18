@@ -1,7 +1,7 @@
 // 노트 HTML 블록 대화상자(WP-1300) — 「다시 올리기」(파일·붙여 넣은 소스로 이 블록 소스만 바꾸기)와 「크게 보기」(미리보기를 큰 창으로).
 // 블록 화면(WikiHtmlEmbedView)이 띄운다. 대화상자는 body 로 포털되어 편집기 키·붙여넣기 처리에 걸리지 않는다.
 import { FileUp } from 'lucide-react'
-import { type DragEvent, useMemo, useRef, useState } from 'react'
+import { type DragEvent, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -10,7 +10,6 @@ import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
 import { cn } from '@/lib/utils'
 
 import { NoteScriptFrame } from './wikiHtmlBlockSecurity'
-import { htmlEmbedDocument } from './wikiHtmlEmbedFrame'
 import { WikiHtmlFileInput } from './WikiHtmlFileInput'
 import { acceptHtmlFile, readHtmlFile } from './wikiHtmlImportInsert'
 
@@ -119,6 +118,8 @@ export function WikiHtmlEmbedReuploadDialog({
 /**
  * 「크게 보기」 — 블록 미리보기를 큰 창(화면 폭 95%·최대 1200px, 높이 80vh)으로 띄운다. 보기 전용이다.
  * 블록과 같은 격리 iframe(스크립트 허용·allow-same-origin 없음)이라 차트가 그대로 돈다. 높이는 창에 맞춰 고정하고 안에서 스크롤한다.
+ * 블록 소스를 그대로 띄운다 — 높이 보고 스크립트(htmlEmbedDocument)는 붙이지 않는다(높이가 고정이라 받는 쪽이 없다). 붙이면 스크립트 없는
+ * 블록도 「문서 스크립트가 도는」 문서로 보여 body 스크롤(scrollingDocument, WP-1749)을 받지 못한다.
  */
 export function WikiHtmlEmbedExpandDialog({
   open,
@@ -131,7 +132,6 @@ export function WikiHtmlEmbedExpandDialog({
   source: string
   closeFocus: CloseFocus
 }) {
-  const doc = useMemo(() => htmlEmbedDocument(source), [source])
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -146,8 +146,9 @@ export function WikiHtmlEmbedExpandDialog({
         {/* 블록과 같이 노트 스위치를 따른다(WP-1290) — 멈춘 블록을 크게 보기로 돌리지 않게. */}
         <NoteScriptFrame
           register={false}
-          html={doc}
-          scriptSource={source}
+          html={source}
+          // 높이 고정(80vh)으로 스스로 스크롤 — 스크롤바 칸이 문서 배경 위에 그려지게 body 가 스크롤을 맡는다(WP-1749).
+          scrollingDocument
           title="HTML 블록 크게 보기"
           data-testid="wiki-html-embed-expand-frame"
           className={cn('block h-[80vh] w-full rounded-md border', HTML_DOCUMENT_CANVAS_CLASS)}
