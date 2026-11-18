@@ -32,6 +32,54 @@ function splitIndex(targets: readonly MailMoveTargetOption[]): number {
 }
 
 /**
+ * 옮기기 메뉴 펼침(드롭다운·우클릭 하위 메뉴)의 크기 — 긴 메일함 트리도 화면 안에서 스크롤되게 높이를 24rem·남은 화면 높이 중 작은 쪽으로 막는다.
+ * 옮기기 드롭다운(MailMoveMenu)과 행 우클릭 메뉴의 「옮기기 ▸」(MailRowContextMenu)가 같은 높이 제한을 쓰게 한 곳에 둔다.
+ */
+export const MAIL_MOVE_MENU_CONTENT_CLASS =
+  'max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-56 overflow-y-auto'
+
+/**
+ * 「옮기기」 메뉴 항목 — 머리말 「옮길 메일함」, 기본 메일함, 구분선 아래 「내 메일함」 트리(깊이만큼 들여 씀).
+ * 상세·행 hover 의 드롭다운(MailMoveMenu)과 행 우클릭 메뉴의 「옮기기 ▸」 하위 메뉴(WP-1730)가 같은 목록을 그리게 나눠 둔다.
+ */
+export function MailMoveTargetItems({
+  targets,
+  onPick,
+  testIdPrefix = 'mail-move-target',
+}: {
+  targets: readonly MailMoveTargetOption[]
+  onPick: (target: MailMoveTarget) => void
+  testIdPrefix?: string
+}) {
+  const split = splitIndex(targets)
+  return (
+    <>
+      <DropdownMenuLabel className="text-xs text-muted-foreground">옮길 메일함</DropdownMenuLabel>
+      {targets.map((t, i) => (
+        <div key={t.key}>
+          {i === split && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs text-muted-foreground">내 메일함</DropdownMenuLabel>
+            </>
+          )}
+          <DropdownMenuItem
+            data-testid={`${testIdPrefix}-${t.key}`}
+            disabled={!t.selectable}
+            onSelect={() => onPick(t.target)}
+            style={t.section === 'user' ? { paddingLeft: folderIndentPx(t.depth) + 2 } : undefined}
+            className="[&_svg]:text-muted-foreground"
+          >
+            <TargetIcon option={t} />
+            <span className="min-w-0 truncate">{t.label}</span>
+          </DropdownMenuItem>
+        </div>
+      ))}
+    </>
+  )
+}
+
+/**
  * 데스크톱 「옮기기」 드롭다운. trigger 는 버튼 하나(asChild). 열고 닫을 때 행 클릭으로 번지지 않게 메뉴 안 이벤트는 호출 측 행 밖(portal)이다.
  */
 export function MailMoveMenu({
@@ -47,7 +95,6 @@ export function MailMoveMenu({
   align?: 'start' | 'end'
   testIdPrefix?: string
 }) {
-  const split = splitIndex(targets)
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
@@ -55,30 +102,10 @@ export function MailMoveMenu({
         align={align}
         data-testid="mail-move-menu"
         // 긴 트리도 화면 안에서 스크롤 — 메뉴가 화면 밖으로 넘치지 않게.
-        className="max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-56 overflow-y-auto"
+        className={MAIL_MOVE_MENU_CONTENT_CLASS}
         onClick={(e) => e.stopPropagation()}
       >
-        <DropdownMenuLabel className="text-xs text-muted-foreground">옮길 메일함</DropdownMenuLabel>
-        {targets.map((t, i) => (
-          <div key={t.key}>
-            {i === split && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs text-muted-foreground">내 메일함</DropdownMenuLabel>
-              </>
-            )}
-            <DropdownMenuItem
-              data-testid={`${testIdPrefix}-${t.key}`}
-              disabled={!t.selectable}
-              onSelect={() => onPick(t.target)}
-              style={t.section === 'user' ? { paddingLeft: folderIndentPx(t.depth) + 2 } : undefined}
-              className="[&_svg]:text-muted-foreground"
-            >
-              <TargetIcon option={t} />
-              <span className="min-w-0 truncate">{t.label}</span>
-            </DropdownMenuItem>
-          </div>
-        ))}
+        <MailMoveTargetItems targets={targets} onPick={onPick} testIdPrefix={testIdPrefix} />
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -4,6 +4,7 @@ import com.workplace.calendar.dto.EventNoteRef;
 import com.workplace.calendar.dto.NoteKey;
 import com.workplace.calendar.repository.CalendarEventNoteRepository;
 import com.workplace.calendar.repository.CalendarEventNoteRepository.NoteLinkRow;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.wiki.dto.WikiPageCard;
 import com.workplace.wiki.service.WikiPageReadAccess;
 import java.util.Collection;
@@ -19,13 +20,14 @@ import org.springframework.stereotype.Service;
  * {@link WikiPageReadAccess} 가 맡는다 — 목록에서도 연결 행 1번 + 판정 1번만 쓴다(N+1 금지).
  *
  * <p>카드 규칙: 읽을 수 있으면 제목·공간 등을 싣고, 읽을 수 없는 노트(없어진 것 제외 — 삭제는 CASCADE 로 연결도 사라진다)는 {@code restricted}
- * 만 싣는다.
+ * 만 싣는다. 읽을 수 있는 노트에는 웹 절대 주소({@link AppWebLinks#wikiPage}, WP-1704)를 싣는다 — AI 도구가 주소를 지어내지 않게.
  */
 @Service
 @RequiredArgsConstructor
 public class CalendarEventNoteService {
   private final CalendarEventNoteRepository noteRepo;
   private final WikiPageReadAccess wikiAccess;
+  private final AppWebLinks webLinks;
 
   /** 키 한 개의 카드. 연결이 없으면 null. 연결 한 줄만 읽는다(WP-1701). */
   public EventNoteRef cardFor(long callerId, NoteKey key) {
@@ -52,9 +54,10 @@ public class CalendarEventNoteService {
     return out;
   }
 
-  /** 읽을 수 있는 노트면 카드, 아니면 restricted 카드(WP-1701). */
-  private static EventNoteRef toCard(NoteLinkRow link, Map<Long, WikiPageCard> readable) {
+  /** 읽을 수 있는 노트면 카드(+ 노트 웹 주소, WP-1704), 아니면 restricted 카드(WP-1701). */
+  private EventNoteRef toCard(NoteLinkRow link, Map<Long, WikiPageCard> readable) {
     WikiPageCard c = readable.get(link.wikiPageId());
-    return c == null ? EventNoteRef.restrictedRef() : EventNoteRef.of(c);
+    if (c == null) return EventNoteRef.restrictedRef();
+    return EventNoteRef.of(c, webLinks.wikiPage(c.spaceId(), c.id()));
   }
 }

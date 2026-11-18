@@ -23,6 +23,45 @@ import { MAIL_CATEGORIES, type MailCategoryState } from '@/types/mailMessage'
 export type { MailCategoryState }
 
 /**
+ * 분류 바꾸기 메뉴 항목 — 머리말 「분류 바꾸기 · 나에게만 적용」, 5종(현재 ✓), 직접 바꾼 상태면 구분선 아래 「AI 분류로 되돌리기」.
+ * 상세 「분류 ▾」 드롭다운(MailCategoryMenu)과 행 우클릭 메뉴의 「분류 바꾸기 ▸」 하위 메뉴(WP-1730)가 같은 목록을 그리게 나눠 둔다.
+ * testid 는 `${testIdPrefix}-option-{분류}`·`${testIdPrefix}-revert`.
+ */
+export function MailCategoryItems({
+  current,
+  onPick,
+  testIdPrefix = 'mail-category',
+}: {
+  current: MailCategoryState
+  onPick: (category: string | null) => void
+  testIdPrefix?: string
+}) {
+  return (
+    <>
+      <DropdownMenuLabel className="text-xs text-muted-foreground">분류 바꾸기 · 나에게만 적용</DropdownMenuLabel>
+      {MAIL_CATEGORIES.map((c) => (
+        <DropdownMenuCheckboxItem
+          key={c}
+          data-testid={`${testIdPrefix}-option-${c}`}
+          checked={current.aiCategory === c}
+          onSelect={() => onPick(c)}
+        >
+          {c}
+        </DropdownMenuCheckboxItem>
+      ))}
+      {current.categoryByMe && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem data-testid={`${testIdPrefix}-revert`} onSelect={() => onPick(null)}>
+            AI 분류로 되돌리기
+          </DropdownMenuItem>
+        </>
+      )}
+    </>
+  )
+}
+
+/**
  * 데스크톱 상세 동작 줄 「분류: {분류} ▾」(분류가 없으면 「분류」) — 머리말 「분류 바꾸기 · 나에게만 적용」, 5종(현재 ✓),
  * 직접 바꾼 상태면 구분선 아래 「AI 분류로 되돌리기」. onPick(null) 이 되돌리기다. 지금 분류를 다시 고른 경우는 받는 쪽(useChangeMailCategory)이 무시한다.
  */
@@ -49,25 +88,7 @@ export function MailCategoryMenu({
         // 메뉴(포털) 안 클릭이 React 트리로 상세·행 클릭에 번지지 않게(MailMoveMenu 와 같은 이유).
         onClick={(e) => e.stopPropagation()}
       >
-        <DropdownMenuLabel className="text-xs text-muted-foreground">분류 바꾸기 · 나에게만 적용</DropdownMenuLabel>
-        {MAIL_CATEGORIES.map((c) => (
-          <DropdownMenuCheckboxItem
-            key={c}
-            data-testid={`mail-category-option-${c}`}
-            checked={current.aiCategory === c}
-            onSelect={() => onPick(c)}
-          >
-            {c}
-          </DropdownMenuCheckboxItem>
-        ))}
-        {current.categoryByMe && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem data-testid="mail-category-revert" onSelect={() => onPick(null)}>
-              AI 분류로 되돌리기
-            </DropdownMenuItem>
-          </>
-        )}
+        <MailCategoryItems current={current} onPick={onPick} />
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -2,6 +2,7 @@
 // 읽음/안읽음 요청·markSeen=false·안 읽은 수 재조회·롤백 토스트·모두 읽음 범위(asOf 그대로)·옛 응답 버림·
 // 옮기기 대상 메뉴·실행 취소·5초 뒤 요청 본문·화면 숨김 즉시 전송·실패 되돌림은 브라우저 없이 판정되므로
 // e2e/pages/mail/mail-read-actions.spec.ts·mail-move.spec.ts 에서 옮겼다.
+// 행 우클릭 메뉴(링크 항목 포함, WP-1236·WP-1730)는 mailRowContextMenu.test.tsx 가 본다.
 // 남은 E2E: 토글의 호버/포커스 투명도·터치 오탭(@input), 실제 SSE 변경 알림(@platform), 옮기기 메뉴 들여쓰기(@layout).
 // 메일 모듈만 renderScreen 으로 띄운다(testkit-b4). 행의 ✉·보관·옮기기 버튼은 호버로 드러나지만 DOM 에는 늘 있어 바로 누른다.
 import { act, screen, waitFor, within } from '@testing-library/react'
@@ -615,24 +616,4 @@ test('상세 동작 줄 끝 🔗 는 이 메일 링크(계정·messageId)를 복
   await user.click(within(panel).getByRole('button', { name: /^링크 복사 / }))
   await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/mail/1?messageId=10`))
   expect(await screen.findByText('링크를 복사했어요')).toBeInTheDocument()
-})
-
-// ── 줄 링크(WP-1236) ─────────────────────────────────────────────
-
-test('메일 줄 우클릭 → 「링크 복사·채팅·이슈로 보내기…」 메뉴, 보내기는 그 메일 링크로 열고 메일은 열지 않는다', async () => {
-  const { fireEvent } = await import('@testing-library/react')
-  const { closeSendToChat, sendToChatTarget } = await import('@/lib/sendToChat')
-  const { handlers } = readStub()
-  const { user, location } = renderMail('/mail/1', { handlers })
-  const row = await screen.findByTestId('mail-row-10')
-  fireEvent.contextMenu(row, { clientX: 0, clientY: 0 })
-  const menu = await screen.findByTestId('mail-row-link-menu-10')
-  expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['링크 복사', '채팅·이슈로 보내기…'])
-  await user.click(within(menu).getByTestId('menu-send-to-chat'))
-  await waitFor(() =>
-    expect(sendToChatTarget()).toMatchObject({ kind: 'mail', url: `${window.location.origin}/mail/1?messageId=10` }),
-  )
-  // 메뉴 누름이 행 열기로 번지지 않는다.
-  expect(location()).toBe('/mail/1')
-  act(() => closeSendToChat())
 })

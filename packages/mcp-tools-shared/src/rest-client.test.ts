@@ -609,6 +609,24 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/mail/messages/3', { params: { markSeen: false } });
   });
 
+  // WP-1704: 일정 노트 잇기·끊기와 회차 상세 — occurrenceDate 는 줄 때만 쿼리에 싣는다.
+  it('WP-1704 일정 노트 경로: getEvent occurrenceDate·잇기 PUT·끊기 DELETE', async () => {
+    const { http, client } = mockHttp();
+    await client.getEvent(7);
+    expect(http.get).toHaveBeenLastCalledWith('/calendar/events/7', { params: {} });
+    await client.getEvent(7, '2026-11-18T10:00:00+09:00');
+    expect(http.get).toHaveBeenLastCalledWith('/calendar/events/7', { params: { occurrenceDate: '2026-11-18T10:00:00+09:00' } });
+    http.put.mockResolvedValueOnce({ data: { note: { pageId: 3, title: '회의록' } } });
+    expect(await client.linkEventNote(7, 3)).toEqual({ note: { pageId: 3, title: '회의록' } });
+    expect(http.put).toHaveBeenLastCalledWith('/calendar/events/7/note', { pageId: 3 }, { params: {} });
+    await client.linkEventNote(7, 3, 'o');
+    expect(http.put).toHaveBeenLastCalledWith('/calendar/events/7/note', { pageId: 3 }, { params: { occurrenceDate: 'o' } });
+    await client.unlinkEventNote(7);
+    expect(http.delete).toHaveBeenLastCalledWith('/calendar/events/7/note', { params: {} });
+    await client.unlinkEventNote(7, 'o');
+    expect(http.delete).toHaveBeenLastCalledWith('/calendar/events/7/note', { params: { occurrenceDate: 'o' } });
+  });
+
   it('#855 소통 쓰기 경로: RSVP·채널·DM·메일 AI·회신필요', async () => {
     const { http, client } = mockHttp();
     await client.rsvpEvent(7, 'TENTATIVE');

@@ -393,8 +393,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async listEvents(from, to) {
       return (await http.get('/calendar/events', { params: { from, to } })).data ?? [];
     },
-    async getEvent(eventId) {
-      return (await http.get(`/calendar/events/${eventId}`)).data;
+    async getEvent(eventId, occurrenceDate) {
+      // occurrenceDate 는 반복 일정 회차의 노트를 볼 때만 싣는다(WP-1704) — linkEventNote 와 같은 모양.
+      const params = { ...(occurrenceDate !== undefined && { occurrenceDate }) };
+      return (await http.get(`/calendar/events/${eventId}`, { params })).data;
     },
     async rsvpEvent(eventId, status) {
       await http.patch(`/calendar/events/${eventId}/rsvp`, { status });
@@ -412,6 +414,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async removeEventAttendee(eventId, userId) {
       await http.delete(`/calendar/events/${eventId}/attendees/${userId}`);
+    },
+    async linkEventNote(eventId, pageId, occurrenceDate) {
+      // occurrenceDate 는 반복 일정 회차에만 — 없으면 싣지 않는다(updateEvent 와 같은 모양, WP-1704).
+      const params = { ...(occurrenceDate !== undefined && { occurrenceDate }) };
+      return (await http.put(`/calendar/events/${eventId}/note`, { pageId }, { params })).data ?? {};
+    },
+    async unlinkEventNote(eventId, occurrenceDate) {
+      const params = { ...(occurrenceDate !== undefined && { occurrenceDate }) };
+      await http.delete(`/calendar/events/${eventId}/note`, { params });
     },
 
     // ── 홈 개요(WP-357) ──

@@ -103,6 +103,8 @@ function sharedMock(): MockedShared {
     updateEvent: vi.fn().mockResolvedValue({ id: 100 }),
     addEventAttendees: vi.fn().mockResolvedValue(undefined),
     removeEventAttendee: vi.fn().mockResolvedValue(undefined),
+    linkEventNote: vi.fn().mockResolvedValue({}), // WP-1704
+    unlinkEventNote: vi.fn().mockResolvedValue(undefined),
     // 메일
     listMailAccounts: vi.fn().mockResolvedValue([]),
     listMail: vi.fn().mockResolvedValue([]),

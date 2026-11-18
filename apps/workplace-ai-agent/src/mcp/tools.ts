@@ -352,7 +352,7 @@ export const RECURRING_RUN_WRITE_TOOLS: readonly string[] = [
   // 노트
   'create_wiki_page', 'update_wiki_page', 'restore_wiki_revision', 'move_wiki_page',
   // 캘린더
-  'create_event', 'update_event', 'rsvp_event',
+  'create_event', 'update_event', 'rsvp_event', 'link_event_note', 'unlink_event_note', // WP-1704: 일정 회의록 노트 잇기·끊기
   // 메일 — 발송은 RECURRING_RUN_DIRECT_ACTIONS 의 send_mail
   'sync_mail', 'mark_mail_read', 'restore_mail', 'update_mail_category', 'draft_mail_reply', 'draft_issue_from_mail', 'create_issue_from_mail',
   // 연락처·사용자 그룹
@@ -1422,6 +1422,8 @@ export function buildTools(
       // WP-356: 라벨·마일스톤·사이클 생성·수정 — 대응 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(project-agent 전용). 삭제는 도구로 두지 않는다.
       sharedTool('create_project_meta'), sharedTool('update_project_meta'),
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
+      // WP-1704: 일정에 회의록 노트 잇기·끊기 — 노트를 지우지 않는 되돌릴 수 있는 쓰기라 확인 카드 없이 직접 실행(calendar-agent, create_wiki_page 와 같다).
+      sharedTool('link_event_note'), sharedTool('unlink_event_note'),
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
       // WP-1676: DM 숨기기 — 내 목록에서만 빠지고 새 메시지·open_dm 으로 돌아오는 되돌릴 수 있는 쓰기라 직접 실행(messaging-agent).
       sharedTool('hide_dm'),

@@ -45,6 +45,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "import_attachment_to_drive": "write",
   "join_channel": "write",
   "leave_channel": "write",
+  "link_event_note": "write",
   "link_issues": "write",
   "list_channel_messages": "read",
   "list_channels": "read",
@@ -87,6 +88,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "search_members": "read",
   "search_wiki": "read",
   "sync_mail": "write",
+  "unlink_event_note": "write",
   "update_channel_message": "write",
   "update_comment": "write",
   "update_event": "write",
@@ -1195,6 +1197,17 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "type": "integer",
         },
+        "occurrenceDate": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
       },
       "required": [
         "eventId",
@@ -1542,6 +1555,41 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "channelId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "link_event_note",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "eventId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "occurrenceDate": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "eventId",
+        "pageId",
       ],
       "type": "object",
     },
@@ -2967,6 +3015,35 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "accountId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "unlink_event_note",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "eventId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "occurrenceDate": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "eventId",
       ],
       "type": "object",
     },
