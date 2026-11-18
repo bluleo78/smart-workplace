@@ -243,6 +243,6 @@ start-agent 가 띄운 칸에서만, 다음 확인을 잡기 전에 한다. 내�
 
 다음 확인을 잡은 **뒤** `"<이 스킬 폴더>/../../scripts/gw-clear-mark" set <프로젝트 키> <idle|timeout|error>` 를 부른다(끝난 까닭 — 기록용이다: idle = 할 일 없음, timeout = 30분 넘김, error = 그 밖(잠금 오류 등)). `runner` 방식은 `ScheduleWakeup` 대신 마지막 줄 `GW-NEXT-CHECK` 를 쓰므로, 이 호출은 그 줄을 쓰기 **전에** 하고 `GW-NEXT-CHECK` 줄이 응답의 맨 마지막 줄로 남게 한다. 스크립트가 방식(`pane`)과 `GENIA_WORKS_AGENT_DIR` 를 스스로 가른다 — 방식과 상관없이 같은 자리에서 부른다. 감시 창이 이 표시를 보고 쉬는 칸의 대화를 비운다.
 
-- 부르는 조건(모두): 이 세션에서 띄운 백그라운드 작업이 모두 끝났다 — 하위 에이전트(`Agent` 의 `run_in_background`)·백그라운드 셸(`Bash` 의 `run_in_background`)·`Monitor` 중 완료 알림이 이 세션으로 오는 것은 다 센다(`bg-job` 은 세션 밖이라 세지 않는다) · `ScheduleWakeup` 결과를 받았다.
+- 부르는 조건(모두): 이 세션에서 띄운 백그라운드 작업이 모두 끝났다 — 하위 에이전트·백그라운드 셸(`Agent`·`Bash` 를 run_in_background 로 띄운 것)·`Monitor` 중 완료 알림이 이 세션으로 오는 것은 다 센다(`bg-job` 은 세션 밖이라 세지 않는다) · `ScheduleWakeup` 결과를 받았다.
 - 부르지 않는 경우: 백그라운드 하위 에이전트를 기다리는 중 · 다음 확인을 잡지 않고 끝난 경우(1번 멈춤·`DRAIN`·`RESTART`·직접 부른 `/genia-works:work-loop`).
 - 실패해도 부르기를 막지 않는다. 출력은 없다.
