@@ -24,8 +24,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ImapMailFetcher})로 위임한다(#499 seam 추출).
  *
  * <p>본 서비스는 (1) 계정 소유 검증 (2) 동시 동기화 가드 (3) 공급자 디스패치 (4) 본문 백필 트리거 (5) last_synced_at 갱신 (6) 선제 요약
- * 트리거 (7) 서버 메일함 목록 갱신(WP-960, best-effort) (8) 커밋 뒤 새 메일 OS 푸시 발송(WP-1739, best-effort) 을 담당한다.
- * 공급자별 자격증명 해석·네트워크 I/O 는 {@link MailFetcher#fetchNewMessages} 내부 책임이다.
+ * 트리거 (7) 서버 메일함 목록 갱신(WP-960, best-effort) (8) 커밋 뒤 새 메일 OS 푸시 발송(WP-1739, best-effort — 본문 보충을
+ * 띄웠으면 보충이 끝난 뒤 보충이 보낸다) 을 담당한다. 공급자별 자격증명 해석·네트워크 I/O 는 {@link MailFetcher#fetchNewMessages} 내부
+ * 책임이다.
  *
  * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬이라 소유 검증 SELECT·메시지 insert 등 DB 접근을 짧은 트랜잭션({@code
  * txTemplate})으로 감싼다.
@@ -124,7 +125,9 @@ public class MailSyncService {
         // 진행바가 "본문 200/250" 후 사라져 오해를 주지 않도록 total 을 상한으로 보정한다.
         int shown = Math.min(missing, MailBackfillService.BATCH_LIMIT);
         progress.startBodies(accountId, shown);
-        backfillService.backfill(userId, accountId);
+        // WP-1739: 보충을 띄우면 새 메일 푸시는 보충이 끝난 뒤 보충이 보낸다 — 자동 발송 판정(auto_generated)이 본문을 받을 때
+        // 헤더로 정해지므로, 지금 판정하면 대량·자동 발송 메일이 「업무 메일만」에서 걸러지지 않는다.
+        backfillService.backfill(userId, accountId, deferredPush(account, maxInboxId));
         triggeredBackfill = true;
       }
       // 동기화 성공 — 마지막 동기화 시각 기록(자동·수동 공통). tx-local GUC 위해 txTemplate 사용.
@@ -141,11 +144,14 @@ public class MailSyncService {
               notifier.mailChanged(userId, accountId, null, null);
             }
           });
-      // WP-1739: 새 메일 OS 푸시 발송 — 반드시 위 마지막 동기화 트랜잭션(last_synced_at 갱신)이 커밋된 '뒤' 호출한다.
+      // WP-1739: 새 메일 OS 푸시 발송 — 보충을 띄우지 않았을 때(본문이 이미 다 있음)만 여기서 바로 보낸다(띄웠으면 보충이 끝난 뒤 보낸다).
+      // 반드시 위 마지막 동기화 트랜잭션(last_synced_at 갱신)이 커밋된 '뒤' 호출한다.
       //  · 롤백 안전: executeWithoutResult 가 예외로 끝나면 여기까지 오지 않는다(롤백된 동기화가 잘못된 알림을 보내지 않는다).
       //    발송 자체도 try/catch 로 감싸 best-effort — 푸시 실패가 동기화 성공을 가리지 않는다(설계 지침, 내부 방어와 이중 방어).
       //  · 호출부(컨트롤러·자동 동기화 스케줄러·커밋 후 리스너)는 밖 트랜잭션이 없어 execute 반환 = 커밋 완료다.
-      sendNewMailQuietly(userId, account, maxInboxId);
+      if (!triggeredBackfill) {
+        sendNewMailQuietly(userId, account, maxInboxId);
+      }
       // 동기화로 적재된 새 메일을 선제 요약(@Async — 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행되어 새 메일이 가시). best-effort.
       // AI 게이트는 계정 단위(ai_enabled) — 호출자가 책임진다. 분석 서비스의 자체 게이트(비서 해석)는
       // 유저/비서 설정 단위라 계정 ai_enabled 와 어긋나므로, 여기서 OFF 계정을 미리 거른다(불필요한 IMAP fetch·요약 예외 스팸 방지).
@@ -159,6 +165,18 @@ public class MailSyncService {
         progress.finish(accountId);
       }
     }
+  }
+
+  /**
+   * 본문 보충에 넘길 새 메일 푸시 정보(WP-1739) — 첫 동기화(lastSyncedAt 없음)는 경계 이전 미읽음 전체가 후보가 되므로 넘기지 않는다(null,
+   * {@link #sendNewMailQuietly} 와 같은 제외 규칙).
+   */
+  private static MailPushService.NewMailPush deferredPush(
+      EmailAccountResponse account, long maxInboxId) {
+    if (account.lastSyncedAt() == null) {
+      return null;
+    }
+    return new MailPushService.NewMailPush(account, maxInboxId);
   }
 
   /**

@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -15,7 +18,9 @@ import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailPushService;
+import com.workplace.mail.service.MailPushService.NewMailPush;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.notify.push.PushCategory;
@@ -24,6 +29,7 @@ import com.workplace.notify.push.PushMessage;
 import com.workplace.support.TestFixtures;
 import java.util.List;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.mockito.ArgumentCaptor;
@@ -38,6 +44,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>MailSyncTestSupport 가 본문 보충·선제 요약을 목으로 바꾸므로 진행 상태는 테스트가 직접 끊는다(진행 중 가드 해제). 발송 단위는
  * PushDispatcher 목으로 잡아 수신자·태그·url 을 단언한다 — 실푸시(HTTP)는 나가지 않는다.
+ *
+ * <p>본문 보충을 띄우면 발송은 보충이 끝난 뒤로 미뤄진다(자동 발송 판정이 본문을 받을 때 정해지므로). IMAP 동기화는 본문을 받지 않아 늘 보충을 띄우므로, 동기화
+ * 직후 발송 경로(경계·형식·계정 격리·best-effort)를 보는 케이스는 「미적재 본문 0건」으로 고정한다({@link #noMissingBodies}). 보충 뒤로
+ * 미루는 경로는 아래 두 케이스가, 보충이 끝난 뒤의 실제 발송은 MailBackfillPushTest 가 본다.
  */
 @Transactional
 class MailSyncServicePushTest extends MailSyncTestSupport {
@@ -51,7 +61,13 @@ class MailSyncServicePushTest extends MailSyncTestSupport {
   @Autowired DSLContext dsl;
   @Autowired MailSyncService syncService;
   @Autowired EmailAccountRepository accountRepo;
-  @Autowired EmailMessageRepository messageRepo;
+
+  /** 미적재 본문 수(countMissingBody)만 바꿔 보충 유무를 고르는 스파이 — 나머지 조회는 실제 동작. */
+  @MockitoSpyBean EmailMessageRepository messageRepo;
+
+  /** 공통 기반(MailSyncTestSupport)의 목 — 보충에 넘긴 발송 정보(계정·경계)를 확인한다. */
+  @Autowired MailBackfillService backfillService;
+
   @Autowired EncryptionService encryption;
   @Autowired MailSyncProgress progress;
 
@@ -61,7 +77,21 @@ class MailSyncServicePushTest extends MailSyncTestSupport {
   /** 발송 콜백 예외 주입용 스팈 — 따로 스텁하지 않으면 실제 동작이라 나머지 케이스가 그대로 흐른다. */
   @MockitoSpyBean MailPushService mailPushService;
 
-  /** box@test.local 계정 삽입(연결 테스트 우회). 알림 범위는 DB 기본값 WORK 를 쓴다. */
+  /** 기본은 「본문이 이미 다 있음」 — 보충을 띄우지 않아 동기화 직후 바로 보내는 경로를 탄다. */
+  @BeforeEach
+  void noMissingBodies() {
+    doReturn(0).when(messageRepo).countMissingBody(anyLong());
+  }
+
+  /** 미적재 본문 수를 실제 값으로 되돌린다 — IMAP 동기화는 본문을 받지 않으므로 새 메일마다 보충이 뜬다. */
+  private void realMissingBodies() {
+    doCallRealMethod().when(messageRepo).countMissingBody(anyLong());
+  }
+
+  /**
+   * box@test.local 계정 삽입(연결 테스트 우회). 알림 범위는 DB 기본값 WORK, AI 분류는 꺼 둔다(꺼진 계정은 WORK 를 ALL 로 판정 — 보통
+   * 메일의 발송 경로만 보는 이 클래스엔 영향 없음).
+   */
   private long insertAccount(long userId) {
     return MailTestSupport.insertAccount(accountRepo, encryption, userId, false);
   }
@@ -199,6 +229,44 @@ class MailSyncServicePushTest extends MailSyncTestSupport {
     assertThat(sent.tag()).isEqualTo("mail-" + account1);
     assertThat(sent.url()).startsWith("/mail/" + account1 + "?messageId=");
     assertThat(sent.title()).isEqualTo("eve@example.com"); // 후보 1건 — 섞이면 「새 메일 2통」 요약이 된다
+  }
+
+  /**
+   * 본문 보충을 띄운 동기화는 그 자리에서 보내지 않고, 동기화 전 경계와 계정을 보충에 넘긴다 — 자동 발송 판정(auto_generated)이 본문을 받을 때 정해지므로
+   * 보충이 끝난 뒤 판정해야 대량·자동 발송이 업무 알림에서 빠진다.
+   */
+  @Test
+  void 본문_보충을_띄우면_발송을_보충_뒤로_미룬다() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = firstSyncWithOneMail(user);
+    long boundary = messageRepo.maxInboxId(accountId);
+    realMissingBodies();
+    MailTestPorts.sendText("box@test.local", "bob@example.com", "보충 뒤 새 메일", "본문");
+    greenMail.waitForIncomingEmail(2);
+
+    syncService.sync(user, accountId);
+
+    verify(pushDispatcher, never()).dispatchMail(any(), any());
+    verify(mailPushService, never()).sendNewMail(anyLong(), any(), anyLong());
+    ArgumentCaptor<NewMailPush> push = ArgumentCaptor.forClass(NewMailPush.class);
+    verify(backfillService).backfill(eq(user), eq(accountId), push.capture());
+    assertThat(push.getValue().maxInboxId()).isEqualTo(boundary);
+    assertThat(push.getValue().account().id()).isEqualTo(accountId);
+  }
+
+  /** 첫 동기화가 보충을 띄우면 발송 정보 없이 넘긴다 — 첫 동기화 제외 규칙이 보충 뒤에도 유지된다. */
+  @Test
+  void 첫_동기화의_본문_보충에는_발송_정보를_넘기지_않는다() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    realMissingBodies();
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "첫 메일", "본문");
+    greenMail.waitForIncomingEmail(1);
+
+    syncService.sync(user, accountId);
+
+    verify(backfillService).backfill(eq(user), eq(accountId), isNull());
+    verify(pushDispatcher, never()).dispatchMail(any(), any());
   }
 
   /** 발송 콜백이 예외를 던져도 sync 결과·예외에 영향 없음 — 연결부도 best-effort(예외 미전파)로 방어한다. */
