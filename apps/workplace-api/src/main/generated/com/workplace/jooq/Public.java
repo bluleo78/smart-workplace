@@ -47,6 +47,7 @@ import com.workplace.jooq.tables.ContentAttachment;
 import com.workplace.jooq.tables.ConversationAttention;
 import com.workplace.jooq.tables.Cycle;
 import com.workplace.jooq.tables.DriveFile;
+import com.workplace.jooq.tables.DriveFileActivity;
 import com.workplace.jooq.tables.DriveFileRef;
 import com.workplace.jooq.tables.DriveFileVersion;
 import com.workplace.jooq.tables.DriveFolder;
@@ -422,6 +423,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.drive_file</code>.
      */
     public final DriveFile DRIVE_FILE = DriveFile.DRIVE_FILE;
+
+    /**
+     * The table <code>public.drive_file_activity</code>.
+     */
+    public final DriveFileActivity DRIVE_FILE_ACTIVITY = DriveFileActivity.DRIVE_FILE_ACTIVITY;
 
     /**
      * The table <code>public.drive_file_ref</code>.
@@ -1171,6 +1177,7 @@ public class Public extends SchemaImpl {
             ConversationAttention.CONVERSATION_ATTENTION,
             Cycle.CYCLE,
             DriveFile.DRIVE_FILE,
+            DriveFileActivity.DRIVE_FILE_ACTIVITY,
             DriveFileRef.DRIVE_FILE_REF,
             DriveFileVersion.DRIVE_FILE_VERSION,
             DriveFolder.DRIVE_FOLDER,

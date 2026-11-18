@@ -36,6 +36,7 @@ import com.workplace.drive.controller.DriveShareLinkController;
 import com.workplace.drive.controller.DriveTrashController;
 import com.workplace.drive.controller.PublicDriveShareController;
 import com.workplace.drive.service.DriveBulkService;
+import com.workplace.drive.service.DriveFileActivityRecorder;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveQuotaService;
@@ -221,6 +222,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       ContactService.class,
       DmService.class,
       DriveBulkService.class,
+      DriveFileActivityRecorder.class,
       DriveFileService.class,
       DriveFolderService.class,
       DriveQuotaService.class,

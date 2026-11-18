@@ -46,6 +46,7 @@ import com.workplace.jooq.tables.ContentAttachment;
 import com.workplace.jooq.tables.ConversationAttention;
 import com.workplace.jooq.tables.Cycle;
 import com.workplace.jooq.tables.DriveFile;
+import com.workplace.jooq.tables.DriveFileActivity;
 import com.workplace.jooq.tables.DriveFileRef;
 import com.workplace.jooq.tables.DriveFileVersion;
 import com.workplace.jooq.tables.DriveFolder;
@@ -279,6 +280,8 @@ public class Indexes {
     public static final Index IDX_CONVERSATION_ATTENTION_USER = Internal.createIndex(DSL.name("idx_conversation_attention_user"), ConversationAttention.CONVERSATION_ATTENTION, new OrderField[] { ConversationAttention.CONVERSATION_ATTENTION.USER_ID, ConversationAttention.CONVERSATION_ATTENTION.TENANT_ID }, false);
     public static final Index IDX_CYCLE_PROJECT = Internal.createIndex(DSL.name("idx_cycle_project"), Cycle.CYCLE, new OrderField[] { Cycle.CYCLE.PROJECT_ID }, false);
     public static final Index IDX_CYCLE_TENANT = Internal.createIndex(DSL.name("idx_cycle_tenant"), Cycle.CYCLE, new OrderField[] { Cycle.CYCLE.TENANT_ID }, false);
+    public static final Index IDX_DRIVE_FILE_ACTIVITY_FILE = Internal.createIndex(DSL.name("idx_drive_file_activity_file"), DriveFileActivity.DRIVE_FILE_ACTIVITY, new OrderField[] { DriveFileActivity.DRIVE_FILE_ACTIVITY.DRIVE_FILE_ID }, false);
+    public static final Index IDX_DRIVE_FILE_ACTIVITY_USER_LAST = Internal.createIndex(DSL.name("idx_drive_file_activity_user_last"), DriveFileActivity.DRIVE_FILE_ACTIVITY, new OrderField[] { DriveFileActivity.DRIVE_FILE_ACTIVITY.USER_ID, DriveFileActivity.DRIVE_FILE_ACTIVITY.LAST_AT.desc(), DriveFileActivity.DRIVE_FILE_ACTIVITY.ID.desc() }, false);
     public static final Index IDX_DRIVE_FILE_FILE_ID = Internal.createIndex(DSL.name("idx_drive_file_file_id"), DriveFile.DRIVE_FILE, new OrderField[] { DriveFile.DRIVE_FILE.FILE_ID }, false);
     public static final Index IDX_DRIVE_FILE_FOLDER = Internal.createIndex(DSL.name("idx_drive_file_folder"), DriveFile.DRIVE_FILE, new OrderField[] { DriveFile.DRIVE_FILE.SPACE_ID, DriveFile.DRIVE_FILE.FOLDER_ID }, false);
     public static final Index IDX_DRIVE_FILE_REF_FILE = Internal.createIndex(DSL.name("idx_drive_file_ref_file"), DriveFileRef.DRIVE_FILE_REF, new OrderField[] { DriveFileRef.DRIVE_FILE_REF.DRIVE_FILE_ID }, false);
@@ -425,10 +428,8 @@ public class Indexes {
     public static final Index IDX_NOTIFICATION_ARCHIVED_AT = Internal.createIndex(DSL.name("idx_notification_archived_at"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.ARCHIVED_AT }, false);
     public static final Index IDX_NOTIFICATION_READ_UNARCHIVED = Internal.createIndex(DSL.name("idx_notification_read_unarchived"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.READ_AT }, false);
     public static final Index IDX_NOTIFICATION_RECIPIENT_ARCHIVED = Internal.createIndex(DSL.name("idx_notification_recipient_archived"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.RECIPIENT_ID, Notification.NOTIFICATION.ARCHIVED_AT.desc() }, false);
-    public static final Index IDX_NOTIFICATION_RECIPIENT_CREATED = Internal.createIndex(DSL.name("idx_notification_recipient_created"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.RECIPIENT_ID, Notification.NOTIFICATION.CREATED_AT.desc() }, false);
     public static final Index IDX_NOTIFICATION_RECIPIENT_CREATED_ACTIVE = Internal.createIndex(DSL.name("idx_notification_recipient_created_active"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.RECIPIENT_ID, Notification.NOTIFICATION.CREATED_AT.desc() }, false);
     public static final Index IDX_NOTIFICATION_TENANT = Internal.createIndex(DSL.name("idx_notification_tenant"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.TENANT_ID }, false);
-    public static final Index IDX_NOTIFICATION_UNREAD = Internal.createIndex(DSL.name("idx_notification_unread"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.RECIPIENT_ID }, false);
     public static final Index IDX_NOTIFICATION_UNREAD_ACTIVE = Internal.createIndex(DSL.name("idx_notification_unread_active"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.RECIPIENT_ID }, false);
     public static final Index IDX_NOTIFICATION_WIKI_PAGE = Internal.createIndex(DSL.name("idx_notification_wiki_page"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.WIKI_PAGE_ID }, false);
     public static final Index IDX_OAUTH_CLIENT_DCR_CREATED = Internal.createIndex(DSL.name("idx_oauth_client_dcr_created"), OauthClient.OAUTH_CLIENT, new OrderField[] { OauthClient.OAUTH_CLIENT.CREATED_AT }, false);

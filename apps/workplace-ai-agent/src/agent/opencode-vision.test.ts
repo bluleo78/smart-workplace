@@ -1,4 +1,7 @@
 // WP-241: opencode 모델 비전 판단 — 수동 설정 우선, provider /models 파싱, 캐시(성공/실패 TTL·동시 조회 1회).
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -345,5 +348,30 @@ describe('resolveOpencodeModelSettings', () => {
 
   it('모델 형식 오류는 던진다(러너가 실행 오류로 알린다)', async () => {
     await expect(resolveOpencodeModelSettings(payload(), 'no-slash-model')).rejects.toThrow();
+  });
+});
+
+// WP-1735: 칸 엔트리포인트(apps/workplace-agent-opencode/bin/model-limit.mjs)도 같은 규칙으로 opencode.json 의 limit 을 만든다 — 이미지가 달라
+// 코드를 함께 쓰지 못하므로 두 쪽 테스트가 같은 사례 파일을 읽어, 한쪽 규칙만 바뀌면 실패하게 한다.
+describe('resolveOpencodeModelSettings — 칸 엔트리포인트와 같은 사례(model-limit-cases.json)', () => {
+  const casesFile = fileURLToPath(new URL('../../../workplace-agent-opencode/tests/model-limit-cases.json', import.meta.url));
+  const { cases } = JSON.parse(readFileSync(casesFile, 'utf8')) as {
+    cases: { name: string; providerId: string; model: string; body: unknown; limit: { context: number; output: number } | null }[];
+  };
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    resetVisionCache();
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(cases)('$name', async (c) => {
+    fetchMock.mockImplementation(async () => okResponse(c.body));
+    const { limit } = await resolveOpencodeModelSettings(payload({ providerId: c.providerId }), `${c.providerId}/${c.model}`);
+    expect(limit ?? null).toEqual(c.limit);
+    // 응답을 실제로 읽었는지 — 조회 전 단계(호스트 확인 등)에서 실패해 limit 이 비어도 「없음」 사례가 통과하지 않게.
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

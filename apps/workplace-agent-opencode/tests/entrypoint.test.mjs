@@ -5,7 +5,7 @@
 // 연결 정보·키는 모두 가짜 값이다. 진짜 opencode 가 PATH 에 있으면 만든 opencode.json 을 `opencode debug config` 로 읽혀 본다(없으면 건너뜀).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -19,6 +19,7 @@ const repoRoot = join(appDir, '..', '..');
 const lib = join(repoRoot, 'apps', 'workplace-agent-claude-code', 'bin', 'lib.sh');
 const libOpencode = join(appDir, 'bin', 'lib-opencode.sh');
 const entrypoint = join(appDir, 'bin', 'entrypoint');
+const MODEL_LIMIT = join(appDir, 'bin', 'model-limit.mjs');
 const pluginRoot = join(repoRoot, 'plugins', 'genia-works');
 const pluginScripts = join(pluginRoot, 'scripts');
 
@@ -101,6 +102,7 @@ exec ${realCurl} "$@"
   for (const p of ['opencode', 'genia', 'hooks', 'skills', '.claude-plugin', 'package.json']) symlinkSync(join(pluginRoot, p), d('plugin', p));
   for (const f of readdirSync(pluginScripts)) symlinkSync(join(pluginScripts, f), d('plugin', 'scripts', f));
   writeFileSync(d('out', 'projects.json'), '[]');
+  writeFileSync(d('bin', 'model-limit-noop.mjs'), '');
 
   const { wrapper, tmux } = h.isolatedTmux(d('bin'), 'gwopencode');
   t.after(() => {
@@ -130,6 +132,9 @@ exec ${realCurl} "$@"
     GENIA_XVFB: d('no-xvfb'), // 시험 기계에 Xvfb 가 있어도 진짜 화면을 띄우지 않는다
     GENIA_DIND_WAIT: '0',
     GENIA_SUPERVISE_INTERVAL: '1',
+    // 문맥 한도 조회(WP-1735)는 기본으로 아무것도 하지 않는 가짜로 — 가짜 연결 주소로 밖에 묻지 않게. 한도 테스트만 진짜(MODEL_LIMIT)를 쓴다.
+    OPENCODE_MODEL_LIMIT: d('bin', 'model-limit-noop.mjs'),
+    GENIA_MODELS_TIMEOUT_MS: '1000',
     GW_TMUX: wrapper,
     FAKE_OUT: d('out'),
     ...extra,
@@ -382,6 +387,116 @@ test('writeOpencodeConfig_keepsProviderOverridesMergesModelsAndDeclaresVisionOnl
   f.withLogin({ ...login, models: ['x'], vision: undefined });
   assert.equal(callLib(f.env, `${BOOT} && write_opencode_config`).status, 0);
   assert.deepEqual(f.config().provider.genia.models, { 'm-b': {} });
+});
+
+/**
+ * 가짜 모델 서버를 다른 프로세스로 띄운다(WP-1735) — callLib 은 spawnSync 라 이 프로세스의 이벤트 루프가 멈춰, 같은 프로세스의 서버는 답하지 못한다.
+ * body 가 있으면 GET /v1/models 에 그 JSON 으로, 'hang' 이면 답하지 않는다. 받은 요청(경로·Authorization)은 seen() 으로 읽는다.
+ */
+async function childModelServer(t, f, body) {
+  const seenFile = f.d('out', `models-seen-${Math.random().toString(36).slice(2)}.log`);
+  const code = `
+    const { appendFileSync } = require('node:fs');
+    const body = process.env.BODY;
+    require('node:http').createServer((req, res) => {
+      appendFileSync(process.env.SEEN, JSON.stringify({ url: req.url, auth: req.headers.authorization ?? null }) + '\\n');
+      if (body === 'hang') return;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(body);
+    }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`;
+  const child = spawn(process.execPath, ['-e', code], { env: { ...process.env, BODY: body === 'hang' ? 'hang' : JSON.stringify(body), SEEN: seenFile }, stdio: ['ignore', 'pipe', 'inherit'] });
+  t.after(() => child.kill());
+  const port = await new Promise((resolve, reject) => {
+    child.stdout.once('data', (d) => resolve(Number(String(d).trim())));
+    child.once('exit', (c) => reject(new Error(`가짜 모델 서버가 끝났습니다(${c})`)));
+  });
+  return {
+    baseURL: `http://127.0.0.1:${port}/v1`,
+    seen: () => (existsSync(seenFile) ? readFileSync(seenFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),
+  };
+}
+
+test('writeOpencodeConfig_putsModelServerContextLimitIntoSelectedModel', async (t) => {
+  // vLLM 의 max_model_len — models.dev 에 없는 provider(custom)는 출력 한도를 모르면 output 0(모름)으로 둔다(ai-agent 와 같은 규칙, 사례 파일).
+  const f = fixture(t, { env: { OPENCODE_MODEL_LIMIT: MODEL_LIMIT } });
+  const s = await childModelServer(t, f, { data: [{ id: 'qwen3-27b', object: 'model', max_model_len: 131072 }, { id: 'other', max_model_len: 4096 }] });
+  f.withLogin({ ...LOGIN_OBJ, options: { baseURL: s.baseURL, apiKey: 'sk-fake-secret-value' } });
+  const r = callLib(f.env, `${BOOT} && write_opencode_config`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(f.config().provider.custom.models, { 'qwen3-27b': { limit: { context: 131072, output: 0 } } });
+  assert.deepEqual(s.seen(), [{ url: '/v1/models', auth: 'Bearer sk-fake-secret-value' }]);
+  assert.match(r.stderr, /모델 서버에서 문맥 한도를 읽었습니다\(모델 qwen3-27b, 문맥 131072 · 출력 0\)/);
+  assert.doesNotMatch(r.stdout + r.stderr, /sk-fake-secret-value/);
+
+  // metadata.limits(문맥·출력) — 이미지 입력 선언과 함께 놓인다.
+  const meta = await childModelServer(t, f, { data: [{ id: 'qwen3-vl', metadata: { limits: { max_context_length: 262128, max_output_tokens: 131072 } } }] });
+  f.withLogin({ ...LOGIN_OBJ, options: { baseURL: meta.baseURL }, defaultModel: 'custom/qwen3-vl' });
+  assert.equal(callLib(f.env, `${BOOT} && write_opencode_config`).status, 0);
+  assert.deepEqual(f.config().provider.custom.models['qwen3-vl'], {
+    modalities: { input: ['text', 'image'], output: ['text'] },
+    limit: { context: 262128, output: 131072 },
+  });
+});
+
+test('writeOpencodeConfig_withoutKnownLimitOrWhenModelServerFailsLaunchesWithoutLimit', async (t) => {
+  const f = fixture(t, { env: { OPENCODE_MODEL_LIMIT: MODEL_LIMIT } });
+  // 한도 필드가 없다 — 경고 없이 limit 을 두지 않는다(지금 동작).
+  const none = await childModelServer(t, f, { data: [{ id: 'qwen3-27b', object: 'model' }] });
+  f.withLogin({ ...LOGIN_OBJ, options: { baseURL: none.baseURL } });
+  let r = callLib(f.env, `${BOOT} && write_opencode_config`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(f.config().provider.custom.models, { 'qwen3-27b': {} });
+  assert.doesNotMatch(r.stderr, /경고/);
+  // 답이 없다(시간 초과) — 칸 띄우기를 막지 않고 경고만 남긴다.
+  const hang = await childModelServer(t, f, 'hang');
+  f.withLogin({ ...LOGIN_OBJ, options: { baseURL: hang.baseURL, apiKey: 'sk-fake-secret-value' } });
+  r = callLib(f.env, `${BOOT} && write_opencode_config`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(f.config().provider.custom.models, { 'qwen3-27b': {} });
+  assert.match(r.stderr, /\[entrypoint\] 경고: 모델 서버에서 문맥 한도를 읽지 못했습니다\(1000ms 안에 답이 없음\) — 한도 없이 띄웁니다/);
+  assert.doesNotMatch(r.stdout + r.stderr, /sk-fake-secret-value|127\.0\.0\.1/);
+  // 서버가 없다(연결 거절)도 같다.
+  f.withLogin({ ...LOGIN_OBJ, options: { baseURL: 'http://127.0.0.1:9/v1' } });
+  r = callLib(f.env, `${BOOT} && write_opencode_config`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(f.config().provider.custom.models, { 'qwen3-27b': {} });
+  assert.match(r.stderr, /경고: 모델 서버에서 문맥 한도를 읽지 못했습니다/);
+});
+
+test('writeOpencodeConfig_keepsLimitWrittenInConnectionWithoutAsking', async (t) => {
+  // 연결 정보에 사람이 적은 limit 이 있으면 그 값을 쓰고 모델 서버에 묻지 않는다.
+  const f = fixture(t, { env: { OPENCODE_MODEL_LIMIT: MODEL_LIMIT } });
+  const s = await childModelServer(t, f, { data: [{ id: 'qwen3-27b', max_model_len: 131072 }] });
+  f.withLogin({ ...LOGIN_OBJ, options: { baseURL: s.baseURL }, models: { 'qwen3-27b': { limit: { context: 50000, output: 4000 } } } });
+  let r = callLib(f.env, `${BOOT} && write_opencode_config`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(f.config().provider.custom.models, { 'qwen3-27b': { limit: { context: 50000, output: 4000 } } });
+  assert.deepEqual(s.seen(), []);
+  // 꼴이 틀린 limit(null·output 없음)은 OpenCode 가 설정을 거절하므로 경고하고 모델 서버 값으로 바꾼다.
+  for (const limit of [null, { context: 50000 }]) {
+    f.withLogin({ ...LOGIN_OBJ, options: { baseURL: s.baseURL }, models: { 'qwen3-27b': { name: 'Q', limit } } });
+    r = callLib(f.env, `${BOOT} && write_opencode_config`);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(f.config().provider.custom.models, { 'qwen3-27b': { name: 'Q', limit: { context: 131072, output: 0 } } }, JSON.stringify(limit));
+    assert.match(r.stderr, /경고: 연결 정보의 모델 qwen3-27b limit 꼴이 올바르지 않아/);
+  }
+  // 꼴이 틀렸는데 모델 서버도 모르면 limit 을 빼고 띄운다(틀린 값을 넘기지 않는다).
+  const none = await childModelServer(t, f, { data: [{ id: 'qwen3-27b' }] });
+  f.withLogin({ ...LOGIN_OBJ, options: { baseURL: none.baseURL }, models: { 'qwen3-27b': { limit: null } } });
+  r = callLib(f.env, `${BOOT} && write_opencode_config`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(f.config().provider.custom.models, { 'qwen3-27b': {} });
+});
+
+test('modelLimitScript_runsThroughSymlinkedPath', async (t) => {
+  // 경로에 심볼릭 링크가 있어도 명령으로 불린 것을 알아본다 — 못 알아보면 말없이 아무것도 내지 않아 한도가 빠진다(리뷰 지적).
+  const f = fixture(t);
+  const s = await childModelServer(t, f, { data: [{ id: 'm', max_model_len: 131072 }] });
+  writeFileSync(f.d('run', 'login-info'), JSON.stringify({ providerId: 'custom', options: { baseURL: s.baseURL } }));
+  symlinkSync(join(appDir, 'bin'), f.d('linked-bin'));
+  const r = spawnSync(process.execPath, [f.d('linked-bin', 'model-limit.mjs'), f.d('run', 'login-info'), 'm'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { context: 131072, output: 0 });
 });
 
 // 진짜 opencode 가 있으면 만든 설정이 설정 검증을 통과하고 구동기가 넘기는 설정과 병합되는지 본다(OpenCode 는 모르는 키가 있으면 시작하지 않는다).

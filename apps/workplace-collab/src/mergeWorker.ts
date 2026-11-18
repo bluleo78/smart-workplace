@@ -1,7 +1,7 @@
 import { parentPort } from 'node:worker_threads'
 
 import { handleJob } from './mergeJob'
-import type { MergeJobMessage } from './mergeRunner'
+import type { MergeJobMessage, WorkerReady } from './mergeRunner'
 
 /**
  * 3-way 병합 워커 스레드 진입점(WP-289) — 무거운 문자열 계산(처리는 mergeJob.handleJob)을 이벤트 루프 밖에서 한다.
@@ -9,3 +9,5 @@ import type { MergeJobMessage } from './mergeRunner'
  * 돌면 그동안 모든 문서의 실시간 동기화가 멈춘다. 시간 제한을 넘기면 실행기가 이 스레드를 강제 종료한다(부분 결과 없음).
  */
 parentPort!.on('message', (job: MergeJobMessage) => parentPort!.postMessage(handleJob(job)))
+// 무거운 모듈(handleJob 의 TipTap·DOM 전역)을 다 실었다 — 이제 작업을 받을 수 있다고 알린다(WP-1709, 실행기는 이 뒤에야 작업을 보낸다).
+parentPort!.postMessage({ ready: true } satisfies WorkerReady)

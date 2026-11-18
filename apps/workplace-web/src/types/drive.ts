@@ -335,3 +335,42 @@ export interface DriveUploadSessionStartBody {
   contentType?: string
   size: number
 }
+
+// ─── 최근(WP-1699) ──────────────────────────────────────────────────────────
+
+/** 「최근」 줄이 가리키는 마지막 행동 — 열기·올리기·새 판 올리기(서버 DriveFileAction 과 1:1). */
+export type DriveFileAction = 'OPEN' | 'UPLOAD' | 'NEW_VERSION'
+
+/** 폴더 경로의 한 칸(루트 → 현재 폴더 순). */
+export interface DriveRecentFolderCrumb {
+  id: number
+  name: string
+}
+
+/** 「최근」 한 줄(GET /drive/recent) — 내가 열거나 올린 파일 하나와 그 위치·마지막 행동. 루트 파일은 folderId null·folderPath []. */
+export interface DriveRecentFile {
+  driveFileId: number
+  /**
+   * 지금 버전의 core 파일 id(DriveFile.fileId 와 같은 뜻) — 뷰어의 재생 주소 캐시 키에 들어가 새 버전이면 키가 바뀐다(WP-1699 리뷰).
+   * 롤링 배포 중 옛 서버 응답에는 없을 수 있다(그때는 0).
+   */
+  fileId?: number
+  name: string
+  mimeType: string
+  sizeBytes: number
+  spaceId: number
+  spaceName: string
+  folderId: number | null
+  folderPath: DriveRecentFolderCrumb[]
+  lastAction: DriveFileAction
+  /** UTC ISO(마이크로초) — 시간대 표기가 없어도 UTC 로 읽는다(parseUtcDate). */
+  lastAt: string
+  /** 내가 이 파일에 별표했는지(WP-1698) — 행 별표 단추의 켜진 모양. 옛 응답에 없으면 별표 안 함으로 본다. */
+  starred?: boolean
+}
+
+/** 「최근」 한 쪽 — nextCursor 는 다음 쪽 요청에 그대로 돌려주는 불투명 값(없으면 끝). */
+export interface DriveRecentPage {
+  items: DriveRecentFile[]
+  nextCursor: string | null
+}

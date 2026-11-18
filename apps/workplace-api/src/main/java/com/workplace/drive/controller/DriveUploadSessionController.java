@@ -5,6 +5,7 @@ import com.workplace.drive.dto.StartUploadSessionRequest;
 import com.workplace.drive.dto.UploadChunkResponse;
 import com.workplace.drive.dto.UploadSessionResponse;
 import com.workplace.drive.exception.DriveUploadSessionNotFoundException;
+import com.workplace.drive.service.DriveFileActivityRecorder;
 import com.workplace.drive.service.DriveUploadSessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -35,6 +36,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/drive")
 public class DriveUploadSessionController {
   private final DriveUploadSessionService uploadSessions;
+
+  /** 「최근」 기록(WP-1699) — 올리기 완료 뒤 부른다. */
+  private final DriveFileActivityRecorder activity;
 
   /** 세션 시작 — 권한·폴더·범주 한도·회사 용량을 바이트 전에 본다. 201 + 세션 상태. */
   @PostMapping("/spaces/{spaceId}/upload-sessions")
@@ -75,8 +79,10 @@ public class DriveUploadSessionController {
   @PostMapping("/upload-sessions/{id}/complete")
   public ResponseEntity<DriveFileResponse> complete(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") String id) throws IOException {
-    return ResponseEntity.status(HttpStatus.CREATED)
-        .body(uploadSessions.complete(callerId, parseId(id)));
+    DriveFileResponse saved = uploadSessions.complete(callerId, parseId(id));
+    // 서비스 트랜잭션이 커밋된 뒤라 새 drive_file 이 보인다(FK 위반 없음).
+    activity.recordSaved(callerId, saved);
+    return ResponseEntity.status(HttpStatus.CREATED).body(saved);
   }
 
   /** 취소 — 세션과 받아 둔 바이트를 지운다. 204. */

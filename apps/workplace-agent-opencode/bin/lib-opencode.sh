@@ -11,6 +11,8 @@
 
 OPENCODE_PLUGIN_DIR=${OPENCODE_PLUGIN_DIR:-/opt/genia/plugin/genia-works} # 빌드 때 굳힌 genia-works 플러그인(opencode 구동기 포함)
 OPENCODE_CONFIG_FILE=${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json} # OpenCode 가 전역 설정으로 읽는 자리(XDG_CONFIG_HOME 기본값)
+# 모델 서버 /models 에서 고른 모델의 문맥 한도를 읽는 스크립트(WP-1735) — 이 파일 옆(이미지 /opt/genia/bin, 저장소 bin/)에 있다.
+OPENCODE_MODEL_LIMIT=${OPENCODE_MODEL_LIMIT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/model-limit.mjs}
 
 # 7 의 폴더 신뢰 훅(lib.sh) — OpenCode 는 폴더 신뢰 물음이 없다(구동기가 permission "allow" 로 돌린다). ~/.claude.json 은 쓰지 않는다.
 trust_folders() { return 0; }
@@ -59,6 +61,8 @@ opencode_login_ok() {
 #    - provider.<providerId>: npm(기본 @ai-sdk/openai-compatible)·name(기본 providerId)·options(baseURL·apiKey 등 그대로)·models(연결 정보에 있으면
 #      그것 + 고른 모델 한 항목). vision·defaultModel 등 OpenCode 가 모르는 키는 provider 에 넣지 않는다 — 모르는 키는 설정 검증에서 거절된다.
 #      vision 이 이 모델에 true 면 모델 항목에 이미지 입력(modalities)을 선언한다(선언이 없으면 OpenCode 가 이미지를 버린다 — ai-agent 의 opencode 러너와 같은 규칙).
+#      모델 항목에 문맥 한도(limit)가 없으면 연결의 `{baseURL}/models` 에서 읽어 넣는다(WP-1735, opencode_model_limit) — 한도가 없는 사설 모델은
+#      OpenCode 가 한도 0 으로 보고 미리 압축하지 않아, 칸 세션이 모델 서버가 거절할 때까지 쌓였다. 연결 정보에 사람이 적은 limit 이 있으면 그것을 쓴다.
 #    - model: "<providerId>/<모델 id>" — 템플릿 config.json 의 model 이 auto 가 아니고 이 providerId 로 시작하면 그것, 아니면(auto·비었음·다른
 #      연결의 값) 연결 정보의 defaultModel(「연결에 지정한 모델」 — 이 providerId 접두일 때만)이다. 둘 다 없거나 defaultModel 이 접두가 맞지
 #      않으면 만들지 않고 이유를 로그로 남겨 칸을 띄우지 않는다.
@@ -66,7 +70,7 @@ opencode_login_ok() {
 #    MCP·플러그인(키 보호)은 구동기가 OPENCODE_CONFIG_CONTENT 로 넘긴다 — 두 곳이 어긋나지 않게 여기 적지 않는다(설정은 병합된다).
 #    로그인 정보(연결)가 없거나 꼴이 이상하거나 모델을 정할 수 없으면 옛 설정을 지우고 1 을 돌려준다(can_launch 가 막는다).
 write_opencode_config() {
-  local src="$GENIA_RUN_DIR/login-info" dst="$OPENCODE_CONFIG_FILE" pid cfg_model def_model full mid out
+  local src="$GENIA_RUN_DIR/login-info" dst="$OPENCODE_CONFIG_FILE" pid cfg_model def_model full mid limit out
   if [ ! -s "$src" ]; then
     rm -f "$dst"
     log "경고: OpenAI 호환 연결 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
@@ -110,14 +114,16 @@ write_opencode_config() {
     log "오류: 모델 값의 꼴이 올바르지 않습니다 — 모델 id 는 영문·숫자와 . _ : / @ [ ] - 만 쓸 수 있습니다. 칸을 띄우지 않습니다"
     return 1
   fi
-  out=$(jq --arg full "$full" --arg mid "$mid" '
+  limit=$(opencode_model_limit "$src" "$mid")
+  out=$(jq --arg full "$full" --arg mid "$mid" --argjson limit "${limit:-null}" '
     . as $li
     | ($li.vision) as $v
     | (if ($v | type) == "boolean" then $v
        elif ($v | type) == "object" then (if $v | has($full) then $v[$full] elif $v | has($mid) then $v[$mid] else null end)
        else null end) as $vision
     | (($li.models | select(type == "object")) // {}) as $models
-    | (($models[$mid] | select(type == "object")) // {}) as $entry
+    | (($models[$mid] | select(type == "object")) // {}
+       | if has("limit") and (.limit | type == "object" and (.context | type == "number") and (.output | type == "number") | not) then del(.limit) else . end) as $entry
     | {
         "$schema": "https://opencode.ai/config.json",
         autoupdate: false,
@@ -128,7 +134,9 @@ write_opencode_config() {
             npm: (($li.npm | select(type == "string" and length > 0)) // "@ai-sdk/openai-compatible"),
             name: (($li.name | select(type == "string" and length > 0)) // $li.providerId),
             options: $li.options,
-            models: ($models + { ($mid): ($entry + (if $vision == true then { modalities: { input: ["text", "image"], output: ["text"] } } else {} end)) })
+            models: ($models + { ($mid): ($entry
+              + (if $vision == true then { modalities: { input: ["text", "image"], output: ["text"] } } else {} end)
+              + (if $limit == null then {} else { limit: $limit } end)) })
           }
         },
         model: $full
@@ -144,6 +152,40 @@ write_opencode_config() {
     return 1
   }
   log "OpenCode 설정을 썼습니다(연결 $pid, 모델 $full)"
+}
+
+# 5a. 고른 모델의 문맥 한도(WP-1735) — opencode.json 의 provider.<id>.models.<모델>.limit 에 넣을 JSON 한 줄을 낸다(모르면 아무것도 내지 않는다).
+#     연결 정보의 그 모델 항목에 limit 이 이미 있으면(사람이 적은 값) 묻지 않는다. 그 밖에는 model-limit.mjs 가 `{baseURL}/models` 를 읽는다 —
+#     규칙(문맥은 max_model_len → metadata.limits, 출력은 metadata.limits, 출력을 모르면 models.dev 에 없는 provider 만 output 0)은 이슈 채팅
+#     (workplace-ai-agent opencode-vision.ts)과 같고 두 쪽 테스트가 같은 사례(tests/model-limit-cases.json)를 읽는다.
+#     조회 실패·시간 초과·이상한 출력은 칸 띄우기를 막지 않는다 — 경고만 남기고 limit 없이(지금 동작) 간다.
+#     왜 엔트리포인트인가: 칸이 실제로 붙는 모델 서버를 Pod 의 망·CA(opencode_ca 의 NODE_EXTRA_CA_CERTS)로 그대로 묻는다. 서버가 연결 정보를 만들 때
+#     묻게 하면 API 서버가 사내 모델 서버에 닿아야 하고(망·CA 가 다를 수 있다), 연결 정보가 바뀌지 않으면 한도가 바뀐 모델도 옛 값에 머문다.
+opencode_model_limit() {
+  local src=$1 mid=$2 limit err line
+  # 사람이 적은 limit 은 꼴(숫자 context·output)이 맞을 때만 그대로 쓴다. 꼴이 틀리면 OpenCode 가 설정을 거절하므로 경고하고 모델 서버 값으로 바꾼다
+  # (write_opencode_config 의 jq 가 이 함수가 낸 값을 넣는다 — 낸 값이 없으면 연결 정보의 항목에서 limit 을 뺀다).
+  case $(jq -r --arg mid "$mid" '(.models | select(type == "object") | .[$mid] | select(type == "object")) as $e
+           | if $e == null or ($e | has("limit") | not) then "none"
+             elif ($e.limit | type == "object" and (.context | type == "number") and (.output | type == "number")) then "ok"
+             else "bad" end' "$src" 2>/dev/null) in
+    ok) return 0 ;;
+    bad) log "경고: 연결 정보의 모델 $mid limit 꼴이 올바르지 않아(숫자 context·output 이 필요합니다) 쓰지 않습니다 — 모델 서버에서 읽습니다" ;;
+  esac
+  # 스크립트의 경고(표준 오류)는 임시 파일로 받아 엔트리포인트 로그 꼴로 옮긴다. NODE_USE_ENV_PROXY: Pod 에 HTTP(S)_PROXY 가 있으면 OpenCode(Bun)처럼
+  # 그 프록시로 묻는다(Node 의 fetch 는 이 값이 없으면 프록시 env 를 보지 않는다).
+  err=$(mktemp) || return 0
+  limit=$(NODE_USE_ENV_PROXY=1 node "$OPENCODE_MODEL_LIMIT" "$src" "$mid" 2>"$err") || limit=""
+  while IFS= read -r line; do log "$line"; done <"$err"
+  rm -f "$err"
+  # 꼴을 확인하고 넘긴다 — 숫자 두 개(context·output)가 든 객체만. 그 밖에는 limit 없이.
+  if [ -n "$limit" ] && printf '%s' "$limit" | jq -e 'type == "object" and (.context | type == "number") and (.output | type == "number")' >/dev/null 2>&1; then
+    log "모델 서버에서 문맥 한도를 읽었습니다(모델 $mid, $(printf '%s' "$limit" | jq -r '"문맥 \(.context) · 출력 \(.output)"'))"
+    printf '%s' "$limit" | jq -c .
+  elif [ -n "$limit" ]; then
+    log "경고: 문맥 한도 응답의 꼴이 올바르지 않아 쓰지 않습니다 — 한도 없이 띄웁니다"
+  fi
+  return 0
 }
 
 # 5b. 전역 지시(AGENTS.md) — superpowers 의 세션 시작 안내(using-superpowers)를 OpenCode 에 싣는다. Claude 는 superpowers 의 SessionStart hook 이,

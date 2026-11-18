@@ -13,6 +13,7 @@ import type {
   DriveMemberGroup,
   DrivePlaybackUrl,
   DriveQuota,
+  DriveRecentPage,
   DriveRole,
   DriveSearchResult,
   DriveSpace,
@@ -89,6 +90,12 @@ export async function listShareLinks(target: Pick<ShareTargetRef, 'kind' | 'id'>
 // 공유 링크 폐기 — 이후 해당 토큰으로 다운로드 불가.
 export async function revokeShareLink(linkId: number): Promise<void> {
   await client.delete<void>(`/drive/share-links/${linkId}`);
+}
+
+/** 「최근」 한 쪽(WP-1699) — 내가 열거나 올린 파일을 최근 순으로. cursor 는 이전 쪽 nextCursor 를 그대로 넘긴다. */
+export async function listRecentDriveFiles(cursor?: string): Promise<DriveRecentPage> {
+  const { data } = await client.get<DriveRecentPage>('/drive/recent', { params: cursor ? { cursor } : undefined });
+  return data;
 }
 
 // 공유받은 항목(WP-1539) — 내가 연 사내 공유 링크 목록(마지막으로 연 순).

@@ -84,8 +84,9 @@ export function isSessionNotFound(text) {
  * 회차에서 본 세션 id, 그것도 없으면(설정·네트워크·플러그인 오류로 출력 없이 끝남) 앞의 세션을 그대로 둔다 — 잠깐의 장애로 맥락을 버리지 않게.
  */
 export function nextSession({ previous, seen, notFound, failed }) {
-  // 세션 안에서 오류(error 이벤트)로 끝난 회차도 새 세션으로 — 모델 칸에 문맥 한도(limit.context)가 없어 OpenCode 가 스스로 줄이지(compact)
-  // 않으므로, 문맥이 넘쳐 매 회차 같은 오류가 나는 세션을 계속 붙잡지 않게. work-loop 은 이슈 상태·챗에서 이어 받는다.
+  // 세션 안에서 오류(error 이벤트)로 끝난 회차도 새 세션으로 — 엔트리포인트가 모델 서버 /models 의 문맥 한도(limit)를 opencode.json 에 넣어
+  // OpenCode 가 다 차기 전에 압축하지만(WP-1735), 한도를 모르는 모델(서버가 알리지 않음·조회 실패)은 여전히 스스로 줄이지 않는다. 문맥이 넘쳐
+  // 매 회차 같은 오류가 나는 세션을 계속 붙잡지 않게 이 규칙은 둔다. work-loop 은 이슈 상태·챗에서 이어 받는다.
   if (notFound || failed) return undefined
   return seen ?? previous
 }

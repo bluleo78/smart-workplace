@@ -1,5 +1,6 @@
 package com.workplace.drive.controller;
 
+import com.workplace.drive.domain.DriveFileAction;
 import com.workplace.drive.dto.CreateTextFileRequest;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveFileVersionResponse;
@@ -7,6 +8,7 @@ import com.workplace.drive.dto.FileSummaryResponse;
 import com.workplace.drive.dto.RenameFileRequest;
 import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.dto.UpdateTextFileRequest;
+import com.workplace.drive.service.DriveFileActivityRecorder;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveStagedUpload;
 import com.workplace.file.service.FileUploadService.FileContentResult;
@@ -57,6 +59,9 @@ public class DriveFileController {
 
   private final FileSecurityCheckService securityChecks;
 
+  /** 「최근」 기록(WP-1699) — 서비스 호출이 성공한 뒤 컨트롤러에서 부른다(트랜잭션 밖이라 바로 쓴다). */
+  private final DriveFileActivityRecorder activity;
+
   @PostMapping(value = "/spaces/{id}/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public ResponseEntity<DriveFileResponse> upload(
       @AuthenticationPrincipal Long callerId,
@@ -70,6 +75,7 @@ public class DriveFileController {
         stagedUpload.run(
             UploadSource.of(file),
             staged -> fileService.upload(callerId, spaceId, folderId, staged));
+    activity.recordSaved(callerId, saved);
     return ResponseEntity.status(HttpStatus.CREATED).body(saved);
   }
 
@@ -83,10 +89,11 @@ public class DriveFileController {
       @PathVariable("id") long spaceId,
       @Valid @RequestBody CreateTextFileRequest req)
       throws IOException {
-    return ResponseEntity.status(HttpStatus.CREATED)
-        .body(
-            fileService.createTextFile(
-                callerId, spaceId, req.folderId(), req.name(), req.content(), req.mimeType()));
+    DriveFileResponse saved =
+        fileService.createTextFile(
+            callerId, spaceId, req.folderId(), req.name(), req.content(), req.mimeType());
+    activity.recordSaved(callerId, saved);
+    return ResponseEntity.status(HttpStatus.CREATED).body(saved);
   }
 
   /**
@@ -99,8 +106,10 @@ public class DriveFileController {
       @PathVariable("id") long driveFileId,
       @Valid @RequestBody UpdateTextFileRequest req)
       throws IOException {
-    return ResponseEntity.ok(
-        fileService.updateTextFile(callerId, driveFileId, req.content(), req.mimeType()));
+    DriveFileResponse saved =
+        fileService.updateTextFile(callerId, driveFileId, req.content(), req.mimeType());
+    activity.recordSaved(callerId, saved);
+    return ResponseEntity.ok(saved);
   }
 
   @GetMapping("/files/{id}/download")
@@ -108,6 +117,7 @@ public class DriveFileController {
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId)
       throws IOException {
     FileContentResult c = fileService.download(callerId, driveFileId);
+    activity.record(callerId, driveFileId, DriveFileAction.OPEN);
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.parseMediaType(c.mimeType()));
     headers.setContentDisposition(
@@ -128,6 +138,7 @@ public class DriveFileController {
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId)
       throws IOException {
     FileContentResult c = fileService.download(callerId, driveFileId);
+    activity.record(callerId, driveFileId, DriveFileAction.OPEN);
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.parseMediaType(c.mimeType()));
     headers.setContentDisposition(
@@ -197,7 +208,12 @@ public class DriveFileController {
       @RequestParam(defaultValue = "0") int offset,
       @RequestParam(defaultValue = "32000") int limit)
       throws IOException {
-    return ResponseEntity.ok(fileService.readText(callerId, driveFileId, offset, limit));
+    ExtractedTextSlice slice = fileService.readText(callerId, driveFileId, offset, limit);
+    // 긴 파일은 offset 을 올려 가며 여러 번 읽는다(AI·MCP). 첫 조각(offset 0)만 연 것으로 보아 조각마다 쓰기가 나가지 않게 한다.
+    if (offset == 0) {
+      activity.record(callerId, driveFileId, DriveFileAction.OPEN);
+    }
+    return ResponseEntity.ok(slice);
   }
 
   /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
@@ -206,8 +222,13 @@ public class DriveFileController {
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long driveFileId,
       @RequestParam(required = false) Integer page) {
-    return ViewImageResponses.of(
-        attachmentView.view(fileService.resolveViewFileId(callerId, driveFileId), page));
+    long fileId = fileService.resolveViewFileId(callerId, driveFileId);
+    // 권한 판정(resolveViewFileId)을 통과했으면 연 것으로 본다. 이미지 변환 결과와는 무관하다.
+    // 문서를 쪽 단위로 넘겨 보면 쪽마다 쓰기가 나가지 않게, 첫 쪽(page 없음·1)만 기록한다(/text 의 offset 0 규칙과 같다).
+    if (page == null || page <= 1) {
+      activity.record(callerId, driveFileId, DriveFileAction.OPEN);
+    }
+    return ViewImageResponses.of(attachmentView.view(fileId, page));
   }
 
   /**
@@ -226,6 +247,11 @@ public class DriveFileController {
       @PathVariable("id") long driveFileId,
       @RequestParam(defaultValue = "false") boolean start) {
     long fileId = fileService.resolveViewFileId(callerId, driveFileId);
+    // 변환 중에는 뷰어가 폴링으로 다시 부른다 — 시도의 첫 요청(start=true: 뷰어 열기·다시 시도)만 연 것으로 기록한다.
+    // 응답 코드(202·422 등)와 무관하게 권한 통과 시 기록한다.
+    if (start) {
+      activity.record(callerId, driveFileId, DriveFileAction.OPEN);
+    }
     return PreviewResponses.of(previewService.open(fileId, start));
   }
 
@@ -244,6 +270,7 @@ public class DriveFileController {
       @PathVariable("versionNo") int versionNo)
       throws IOException {
     FileContentResult c = fileService.downloadVersion(callerId, driveFileId, versionNo);
+    activity.record(callerId, driveFileId, DriveFileAction.OPEN);
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.parseMediaType(c.mimeType()));
     headers.setContentDisposition(
@@ -259,7 +286,9 @@ public class DriveFileController {
       @PathVariable("id") long driveFileId,
       @PathVariable("versionNo") int versionNo)
       throws IOException {
-    return ResponseEntity.ok(fileService.rollback(callerId, driveFileId, versionNo));
+    DriveFileResponse saved = fileService.rollback(callerId, driveFileId, versionNo);
+    activity.record(callerId, saved.id(), DriveFileAction.NEW_VERSION);
+    return ResponseEntity.ok(saved);
   }
 
   @PostMapping("/files/{id}/copy")
@@ -268,8 +297,10 @@ public class DriveFileController {
       @PathVariable("id") long driveFileId,
       @RequestBody TargetFolderRequest req)
       throws IOException {
-    return ResponseEntity.status(HttpStatus.CREATED)
-        .body(fileService.copy(callerId, driveFileId, req.targetFolderId()));
+    DriveFileResponse copied = fileService.copy(callerId, driveFileId, req.targetFolderId());
+    // 복사본은 내가 올린 것으로 본다 — 같은 이름 파일에 새 판으로 흡수됐으면 새 버전으로(업로드와 같은 규칙, WP-1699 리뷰).
+    activity.recordSaved(callerId, copied);
+    return ResponseEntity.status(HttpStatus.CREATED).body(copied);
   }
 
   /**

@@ -15,9 +15,13 @@ export type TestJobMessage = MergeJobMessage & { holdUntil?: number; fault?: 'th
  */
 export interface TestMergeRunnerOptions {
   timeoutMs?: number
+  /** 워커 기동 상한(ms) — 기동 기한을 다루는 테스트만 넘긴다(WP-1709). */
+  bootTimeoutMs?: number
   clock?: Clock
   testHold?: (job: MergeJobMessage) => boolean
   testFault?: (job: MergeJobMessage) => 'throw' | 'exit' | undefined
+  /** n 번째(0부터) 띄우는 워커의 기동을 붙잡을까 — 붙잡으면 다음 release 까지 기동을 마쳤다고 알리지 않는다(느린 기동 흉내, WP-1709). */
+  testBootHold?: (n: number) => boolean
 }
 
 /** 붙잡기를 풀고 관찰할 수 있는 테스트 실행기. */
@@ -44,8 +48,9 @@ export class HookedWorker extends Worker {
     options: WorkerOptions,
     private readonly hooks: TestMergeRunnerOptions,
     private readonly gate: Int32Array,
+    bootHoldUntil?: number,
   ) {
-    super(FAULTY_WORKER_URL, { ...options, workerData: { gate: gate.buffer } })
+    super(FAULTY_WORKER_URL, { ...options, workerData: { gate: gate.buffer, bootHoldUntil } })
   }
 
   // 실행기는 MergeJobMessage 만 보낸다 — 그래서 인자 타입을 좁혀 받아 붙잡기·고장 값을 덧붙인다.
@@ -68,9 +73,12 @@ export function createTestMergeRunner(opts: TestMergeRunnerOptions = {}): TestMe
   const workers: HookedWorker[] = []
   const runner = createMergeRunner({
     timeoutMs: opts.timeoutMs,
+    bootTimeoutMs: opts.bootTimeoutMs,
     clock: opts.clock,
     spawnWorker: (execArgv) => {
-      const w = new HookedWorker({ execArgv }, opts, gate)
+      // 기동을 붙잡을 워커는 지금 관문 세대보다 하나 위까지 — 다음 release 가 기동을 푼다.
+      const bootHoldUntil = opts.testBootHold?.(workers.length) ? Atomics.load(gate, 0) + 1 : undefined
+      const w = new HookedWorker({ execArgv }, opts, gate, bootHoldUntil)
       workers.push(w)
       return w
     },

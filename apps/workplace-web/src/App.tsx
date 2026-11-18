@@ -76,6 +76,10 @@ const DriveSharedWithMeView = lazy(() =>
 const DriveStarredView = lazy(() =>
   import('./pages/drive/DriveStarredView').then((m) => ({ default: m.DriveStarredView })),
 )
+// WP-1699: 최근 — 내가 열거나 올린 파일 목록.
+const DriveRecentView = lazy(() =>
+  import('./pages/drive/DriveRecentView').then((m) => ({ default: m.DriveRecentView })),
+)
 // #80: 가상 첨부 뷰 — 이슈/메시지 업로드 파일 크로스링크.
 const DriveAttachmentsView = lazy(() =>
   import('./pages/drive/DriveAttachmentsView').then((m) => ({ default: m.DriveAttachmentsView })),
@@ -279,6 +283,8 @@ export default function App() {
                   <Route path="drive/attachments" element={<DriveAttachmentsView />} />
                   {/* WP-1698: 별표 — 내가 별표한 파일·폴더를 공간과 상관없이 모아 본다 */}
                   <Route path="drive/starred" element={<DriveStarredView />} />
+                  {/* WP-1699: 최근 — 내가 열거나 올린 파일을 공간을 가로질러 최근 순으로 */}
+                  <Route path="drive/recent" element={<DriveRecentView />} />
                   {/* WP-1539: 공유받은 항목 — 사내 공유 링크로 연 파일을 다시 찾는다 */}
                   <Route path="drive/shared" element={<DriveSharedWithMeView />} />
                   <Route path="drive/shared/:shareLinkId" element={<DriveSharedFolderView />} />

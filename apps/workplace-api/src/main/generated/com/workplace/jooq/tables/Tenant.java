@@ -45,6 +45,7 @@ import com.workplace.jooq.tables.ContactEntry.ContactEntryPath;
 import com.workplace.jooq.tables.ContactFavorite.ContactFavoritePath;
 import com.workplace.jooq.tables.Cycle.CyclePath;
 import com.workplace.jooq.tables.DriveFile.DriveFilePath;
+import com.workplace.jooq.tables.DriveFileActivity.DriveFileActivityPath;
 import com.workplace.jooq.tables.DriveFileRef.DriveFileRefPath;
 import com.workplace.jooq.tables.DriveFileVersion.DriveFileVersionPath;
 import com.workplace.jooq.tables.DriveFolder.DriveFolderPath;
@@ -526,6 +527,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _chatMessageAttachment = new ChatMessageAttachmentPath(this, null, Keys.CHAT_MESSAGE_ATTACHMENT__CHAT_MESSAGE_ATTACHMENT_TENANT_ID_FKEY.getInverseKey());
 
         return _chatMessageAttachment;
+    }
+
+    private transient DriveFileActivityPath _driveFileActivity;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_file_activity</code> table
+     */
+    public DriveFileActivityPath driveFileActivity() {
+        if (_driveFileActivity == null)
+            _driveFileActivity = new DriveFileActivityPath(this, null, Keys.DRIVE_FILE_ACTIVITY__DRIVE_FILE_ACTIVITY_TENANT_ID_FKEY.getInverseKey());
+
+        return _driveFileActivity;
     }
 
     private transient DriveFileRefPath _driveFileRef;

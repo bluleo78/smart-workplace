@@ -1,8 +1,10 @@
 package com.workplace.drive.service;
 
+import com.workplace.drive.dto.DriveFolderPathSegment;
 import com.workplace.drive.dto.DriveFolderResponse;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -24,5 +26,22 @@ public final class DriveFolderPaths {
       cur = f.parentId();
     }
     return String.join("/", parts);
+  }
+
+  /**
+   * 공간 루트 → 부모 폴더 순의 (id, 이름) 목록. {@link #pathOf} 와 같은 규칙(맵에 없는 조상에서 멈추고 1000단계 순환 방어)으로 거슬러 오른다.
+   * 화면이 각 조각을 눌러 이동하게 id 를 함께 준다.
+   */
+  public static List<DriveFolderPathSegment> segmentsOf(
+      Long folderId, Map<Long, DriveFolderResponse> byId) {
+    Deque<DriveFolderPathSegment> parts = new ArrayDeque<>();
+    Long cur = folderId;
+    int guard = 0;
+    while (cur != null && byId.containsKey(cur) && guard++ < 1000) {
+      DriveFolderResponse f = byId.get(cur);
+      parts.addFirst(new DriveFolderPathSegment(f.id(), f.name()));
+      cur = f.parentId();
+    }
+    return List.copyOf(parts);
   }
 }

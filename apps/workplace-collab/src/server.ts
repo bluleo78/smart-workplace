@@ -272,6 +272,8 @@ export interface CollabDeps {
 export interface CollabServer {
   hocuspocus: Hocuspocus<CollabContext>
   listen(): Promise<void>
+  /** 병합 워커를 미리 띄운다 — 진입점이 listen 뒤에 부른다(테스트가 만든 서버는 부르지 않아 서버마다 워커가 뜨지 않는다). */
+  warmMerger(): void
   readonly address: AddressInfo
   /** API 위임 본문을 문서에 적용(replace 또는 3-way merge)하고 즉시 저장 — 그 저장의 version 과 저장된 body. */
   applyMarkdown(req: ApplyRequest): Promise<ApplyResult>
@@ -305,7 +307,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   // 닫혀 다시 걸지 않음(SHARE_CLOSED — 재판정이 API 를 기다리는 사이 닫히면 닫힌 연결에 타이머 고리가 남지 않게).
   const shareTimers = new WeakMap<Connection<CollabContext>, unknown>()
   const unloadWaiters = new Map<string, Array<() => void>>()
-  // 워커 스레드는 첫 병합 때 뜬다(replace 만 쓰거나 병합이 없으면 띄우지 않음).
+  // 워커 스레드는 진입점이 warmMerger 로 미리 띄우고(WP-1709 — 부하 속 첫 기동이 첫 병합들을 「대기 중 시간 초과」로 끝냈다), 그러지 않으면
+  // (테스트가 만든 서버) 첫 병합 때 뜬다.
   const merger = deps.merger ?? createMergeRunner()
   // AI 적용 위치 ✦ 표식(서버 awareness) — 스펙 §5.1-5. 문서가 내려가면 그 문서의 표식·타이머도 함께 정리된다.
   const markers = deps.markers ?? new AiMarkerBoard(cfg.aiMarkerMs ?? COLLAB_AI_MARKER_MS)
@@ -1134,6 +1137,9 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     hocuspocus,
     async listen() {
       await server.listen()
+    },
+    warmMerger() {
+      merger.warm()
     },
     get address() {
       return server.address

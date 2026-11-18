@@ -5,6 +5,7 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.drive.domain.DriveFileAction;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.FileSummaryResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
@@ -84,6 +85,9 @@ public class DriveFileService {
 
   /** 드라이브 변경 resource.changed 발행(WP-63). */
   private final DriveChangeNotifier notifier;
+
+  /** 드라이브 「최근」 기록(WP-1699) — {@link #uploadNew}(메일 첨부 저장)는 컨트롤러가 아니라 여기서 올린 것으로 남긴다. */
+  private final DriveFileActivityRecorder activity;
 
   /** 추출 텍스트 구간 읽기(WP-346) — 상태·사유·자르기는 fileai 공용 서비스가 맡는다. */
   private final ExtractedTextService extractedText;
@@ -453,7 +457,11 @@ public class DriveFileService {
   @Transactional
   public DriveFileResponse uploadNew(
       long callerId, long spaceId, Long folderId, UploadSource source) throws IOException {
-    return uploadInto(callerId, spaceId, folderId, source, null, true);
+    DriveFileResponse saved = uploadInto(callerId, spaceId, folderId, source, null, true);
+    // 새 파일로만 만들므로 항상 UPLOAD. 호출처(메일 첨부 저장)가 mail 모듈이라 컨트롤러에서 기록하면 mail→drive 의존이 늘어난다.
+    // 이 메서드는 @Transactional 이라 recorder 가 커밋 뒤(afterCommit)로 미루고, 실패는 삼킨다.
+    activity.record(callerId, saved.id(), DriveFileAction.UPLOAD);
+    return saved;
   }
 
   /**
