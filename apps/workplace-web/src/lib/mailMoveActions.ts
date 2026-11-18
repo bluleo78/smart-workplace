@@ -2,9 +2,12 @@
 // 목록 행 hover 버튼·상세 툴바·모바일 길게 누르기 시트·모바일 상세 ⋯ 메뉴가 모두 같은 판정을 쓴다(화면마다 규칙이 갈리지 않게).
 import type { MailMoveTarget, MailServerFolder } from '@/types/mailFolder'
 
-import { ARCHIVE_LABEL, buildMailFolderTree, visibleFolderRows } from './mailFolders'
+import { ARCHIVE_LABEL, buildMailFolderTree, serverFolderLabel, visibleFolderRows } from './mailFolders'
 import type { TrashButtonState } from './mailTrashActions'
 import type { MailView } from './mailView'
+
+/** 받은편지함의 화면 이름 — 「옮기기」 메뉴·별표 보기 대기 중 배지(mailMoveRowPatch)가 같은 이름을 쓴다. */
+export const INBOX_LABEL = '받은편지함'
 
 /** 받은편지함 계열 보기(업무·전체·분류·회신필요) — 모두 서버 받은편지함 메일을 보여 준다. */
 export function isInboxView(kind: MailView['kind']): boolean {
@@ -61,6 +64,39 @@ export function mailRowMoveScope(
   return id != null && folders?.some((f) => f.id === id) ? { kind: 'folder', folderId: id } : null
 }
 
+/** WP-1742 대기 중인 옮기기의 목적지 메일함 값 — 행의 원래 메일함 필드(MailRowFolder)에 표시 이름까지. */
+export interface MailRowFolderPatch {
+  folderId: number | null
+  folderRole: string
+  folderName: string
+}
+
+/**
+ * WP-1742 별표 보기에서 보관·옮기기를 누른 뒤 실행 취소 대기 중(약 5초)인 행에 얹을 목적지 메일함 값.
+ * 행을 숨기지 않으므로 옛 메일함 값이 남으면 같은 행·읽기 창에 「보관」이 또 보이고 같은 이동이 대기열에 한 번 더 들어간다 —
+ * 그래서 대기 중에는 목적지 메일함에 있는 것처럼 보이게 한다(배지·작업 판정 mailRowMoveScope 모두).
+ * 이름은 메일함 목록 규칙과 같다 — 보관은 「보관」(serverFolderLabel), 받은편지함은 「받은편지함」, 내 메일함은 표시 이름.
+ * 받은편지함은 서버 메일함 목록에 없어 id 를 모른다(null) — mailRowMoveScope 는 INBOX 를 역할로만 판정한다.
+ * 삭제(목록에서 숨긴다)·되살리기(휴지통 보기)·모르는 메일함이면 null — 얹지 않는다.
+ */
+export function mailMoveRowPatch(
+  target: MailMoveTarget,
+  folders: readonly MailServerFolder[] | undefined,
+): MailRowFolderPatch | null {
+  if (target.kind === 'INBOX') return { folderId: null, folderRole: 'INBOX', folderName: INBOX_LABEL }
+  const f =
+    target.kind === 'ARCHIVE' ? folders?.find((x) => x.role === 'ARCHIVE')
+    : target.kind === 'FOLDER' ? folders?.find((x) => x.id === target.folderId)
+    : undefined
+  return f ? { folderId: f.id, folderRole: f.role, folderName: serverFolderLabel(f) } : null
+}
+
+/** WP-1742 대기 중인 옮기기가 있으면 행의 메일함 값을 목적지로 바꾼 사본, 없으면 그 행 그대로(같은 객체 — 다시 그리기를 줄인다). */
+export function withMovePatch<T extends { id: number }>(row: T, patches: ReadonlyMap<number, MailRowFolderPatch>): T {
+  const p = patches.get(row.id)
+  return p ? { ...row, ...p } : row
+}
+
 /**
  * 「옮기기」 메뉴 — 받은편지함 · 보관 · 내 메일함 트리(모두 펼침). 지금 보는 메일함은 뺀다:
  * 받은편지함 계열 보기에선 받은편지함, 보관 보기에선 보관, 내 메일함 보기에선 그 메일함(하위는 남긴다).
@@ -74,7 +110,7 @@ export function mailMoveTargets(
   if (view.kind === 'sent' || view.kind === 'drafts') return []
   const out: MailMoveTargetOption[] = []
   if (!isInboxView(view.kind)) {
-    out.push({ key: 'inbox', label: '받은편지함', target: { kind: 'INBOX' }, depth: 0, selectable: true, section: 'base' })
+    out.push({ key: 'inbox', label: INBOX_LABEL, target: { kind: 'INBOX' }, depth: 0, selectable: true, section: 'base' })
   }
   const { archive, tree } = buildMailFolderTree(folders ?? [])
   if (archive && !viewingRole(view, folders, 'ARCHIVE')) {

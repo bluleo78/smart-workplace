@@ -46,8 +46,8 @@ import { folderRangeDays } from '@/lib/mailFolders'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { serverOlderFolder } from '@/lib/mailListPages'
 import { formatReceivedAt } from '@/lib/mailListTime'
-import { type MailMoveActions, mailMoveAvailability, mailMoveTargets, mailMoveToastMessage, mailRowMoveScope, toggleReadLabel } from '@/lib/mailMoveActions'
-import { scheduleMailMove, useMailMoveHidden } from '@/lib/mailMoveQueue'
+import { type MailMoveActions, mailMoveAvailability, mailMoveRowPatch, mailMoveTargets, mailMoveToastMessage, mailRowMoveScope, toggleReadLabel, withMovePatch } from '@/lib/mailMoveActions'
+import { scheduleMailMove, useMailMoveHidden, useMailMovePatches } from '@/lib/mailMoveQueue'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
@@ -1294,12 +1294,17 @@ function MailInbox() {
   // WP-962 보관·옮기기·삭제 대기 중인 메일은 숨긴다 — 유지 스냅샷·열린 행이 되살리지 않게 합친 뒤에 거른다.
   // (WP-1742 별표 보기의 보관·옮기기는 숨김 집합에 넣지 않는다 — startMove.)
   const movingIds = useMailMoveHidden()
+  // WP-1742 별표 보기의 보관·옮기기 대기 중(숨기지 않는) 행의 목적지 메일함 값 — 읽을 때 얹는다(아래 messages·rowMove).
+  // 서버 목록·유지 스냅샷·열린 행 스냅샷을 각각 고치지 않고 합친 행에 덮어써 세 곳 모두에 닿게 하고, 실행 취소·실패면 대기열이 값을 떼어
+  // 원래 메일함으로 돌아간다. 캐시를 고치면 대기 중 재조회가 옛 메일함 값으로 덮는다(lib/mailMoveQueue).
+  const movePatches = useMailMovePatches()
   // WP-1742 별표 보기에서는 별을 끈 행(낙관 갱신으로 flagged=false)을 곧바로 뺀다 — 서버가 다시 준 목록을 기다리지 않는다.
   const messages = useMemo(() => {
     const merged = mergeKeptRows(fetchedMessages, withOpenRow(keptRows, openRow))
-    if (movingIds.size === 0 && !flaggedView) return merged
-    return merged?.filter((m) => !movingIds.has(m.id) && (!flaggedView || m.flagged))
-  }, [fetchedMessages, keptRows, openRow, movingIds, flaggedView])
+    const patched = movePatches.size === 0 ? merged : merged?.map((m) => withMovePatch(m, movePatches))
+    if (movingIds.size === 0 && !flaggedView) return patched
+    return patched?.filter((m) => !movingIds.has(m.id) && (!flaggedView || m.flagged))
+  }, [fetchedMessages, keptRows, openRow, movingIds, flaggedView, movePatches])
   // 유지 집합의 한 행을 넣거나 바꾼다(키가 바뀐 뒤 늦게 와도 새 보기에 새지 않게 현재 키로 쓴다).
   const putKept = (id: number, row: EmailMessageSummary) =>
     setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, row) }))
@@ -1377,25 +1382,29 @@ function MailInbox() {
   /**
    * WP-1741 별표 켜기/끄기 — 목록·상세 캐시는 훅이 낙관적으로 바꾼다. 서버 목록에 없어 스냅샷(유지 집합·열린 행)으로 보이는 행은
    * 캐시 갱신이 닿지 않으므로 스냅샷도 바꾸고, 실패하면 스냅샷만 이전 값으로 되돌린다(applyToggle 과 같은 규칙).
+   * 요청 결과(성공 true·실패 false)를 돌려준다 — WP-1742 별표 해제 토스트가 실패하면 내려간다. 호출마다 제 결과를 받도록 mutateAsync 를 쓴다
+   * (mutate 의 호출별 onError 는 마지막 호출에만 불려, 빠르게 둘을 끄면 앞 것의 실패를 놓친다). 오류 토스트는 훅(onError)이 띄운다.
+   * WP-1742 스냅샷은 렌더 값(keepKey·keptRows·openRow)이 아니라 함수형 갱신으로 「지금」 상태를 고친다 — 별표 해제 토스트의 실행 취소는
+   * 토스트를 띄운 렌더의 이 함수를 부르는데, 옛 보기 키로 유지 집합을 쓰면(putKept) 보기를 바꾼 뒤 지금 보기의 유지 행이 지워졌다.
+   * 별표는 늘 지금 값의 반대로만 바꾸므로(행 별·단추·실행 취소) 실패하면 !flagged 로 되돌린다.
    */
-  const applyFlag = (id: number, flagged: boolean) => {
-    const prevKept = keptRows?.get(id)
-    // 유지 중인 행은 유지 스냅샷을 고친다. 열린 행은 열린 행 스냅샷을 고친다(아래) —
-    // 유지 집합에 넣으면 상세를 닫은 뒤에도 서버가 뺀 행이 목록에 남는다.
-    if (prevKept) putKept(id, { ...prevKept, flagged })
+  const applyFlag = (id: number, flagged: boolean): Promise<boolean> => {
+    // 유지 중인 행은 유지 스냅샷을, 열린 행은 열린 행 스냅샷을 고친다(새로 넣지는 않는다 — 유지 집합에 넣으면 상세를 닫은 뒤에도 서버가 뺀 행이 남는다).
     // WP-1742 열린 행 스냅샷은 목록 데이터에 행이 있든 없든 함께 고친다 — 안 읽은 메일만 + 별표 보기에서 별을 끈 뒤 서버 목록이 그 행을 빼면
-    // withOpenRow 가 별표 그대로인 옛 스냅샷을 되살려 별 꺼진 메일이 별표 목록에 다시 나타났다. 실패하면 이전 값으로 되돌린다.
-    const prevSnapshot = openRow?.id === id ? openRow : undefined
-    if (prevSnapshot) setSelection((s) => (s.row?.id === id ? { ...s, row: { ...s.row, flagged } } : s))
-    toggleFlag.mutate(
-      { id, flagged },
-      {
-        onError: () => {
-          if (prevKept) {
-            setKept((k) => (k.key !== keepKey ? k : { key: keepKey, rows: new Map(k.rows).set(id, prevKept) }))
-          }
-          if (prevSnapshot) setSelection((s) => (s.row?.id === id ? { ...s, row: prevSnapshot } : s))
-        },
+    // withOpenRow 가 별표 그대로인 옛 스냅샷을 되살려 별 꺼진 메일이 별표 목록에 다시 나타났다.
+    const setSnapshots = (value: boolean) => {
+      setKept((k) => {
+        const row = k.rows.get(id)
+        return row ? { key: k.key, rows: new Map(k.rows).set(id, { ...row, flagged: value }) } : k
+      })
+      setSelection((s) => (s.row?.id === id ? { ...s, row: { ...s.row, flagged: value } } : s))
+    }
+    setSnapshots(flagged)
+    return toggleFlag.mutateAsync({ id, flagged }).then(
+      () => true,
+      () => {
+        setSnapshots(!flagged)
+        return false
       },
     )
   }
@@ -1406,12 +1415,16 @@ function MailInbox() {
    * 다시 켜는 것으로 완전히 되돌릴 수 있어서다. 다시 켜면 낙관 갱신·별표 목록 재조회로 행이 돌아온다.
    */
   const toggleFlagFromView = (id: number, flagged: boolean) => {
-    applyFlag(id, flagged)
+    const done = applyFlag(id, flagged)
     if (!flaggedView || flagged) return
-    toast.success('별표를 해제했습니다', {
+    const toastId = toast.success('별표를 해제했습니다', {
       testId: 'mail-unflag-toast',
       duration: UNDO_DELETE_DELAY_MS,
-      action: { label: '실행 취소', onClick: () => applyFlag(id, true) },
+      action: { label: '실행 취소', onClick: () => void applyFlag(id, true) },
+    })
+    // 별표 해제가 실패하면(PUT 오류) 해제하지 않았으니 「해제했습니다 · 실행 취소」를 내린다 — 오류 토스트는 훅이 띄운다.
+    void done.then((ok) => {
+      if (!ok) toast.dismiss(toastId)
     })
   }
   // WP-187 모두 읽음 — 버튼 → 건수 조회(+asOf) → 확인 다이얼로그 → 실행.
@@ -1577,8 +1590,10 @@ function MailInbox() {
   const NO_MOVE: { avail: typeof moveAvail; targets: typeof moveTargets } = { avail: { archive: false, move: false, trash: false, restore: false }, targets: [] }
   const rowMove = (id: number) => {
     if (!flaggedView) return { avail: moveAvail, targets: moveTargets }
-    const row =
+    const found =
       fetchedMessages?.find((r) => r.id === id) ?? findRow(id) ?? (selectedSummary?.id === id ? selectedSummary : undefined)
+    // 대기 중인 옮기기가 있으면 목적지 메일함으로 판정한다 — 옛 메일함 값이면 같은 「보관」이 다시 보이고 같은 이동이 또 쌓인다.
+    const row = found && withMovePatch(found, movePatches)
     const scope = mailRowMoveScope(view, folders, row)
     return scope ? { avail: mailMoveAvailability(scope, folders), targets: mailMoveTargets(scope, folders) } : NO_MOVE
   }
@@ -1597,8 +1612,23 @@ function MailInbox() {
       if (selectedId != null && ids.includes(selectedId)) mailParam.close()
       dropKept(ids)
     }
+    // 숨기지 않는 행은 대기 중에 목적지 메일함으로 보이게 한다(배지·보관 단추 판정 — 대기열이 읽을 때 얹는다).
+    const rowPatch = keepsRows ? mailMoveRowPatch(target, folders) : null
     scheduleMailMove({
       qc, accountId: accountIdNum, messageIds: ids, target, message: mailMoveToastMessage(target, folders, ids.length), hideRows: !keepsRows,
+      rowPatch,
+      // 옮긴 뒤에는 스냅샷(유지 집합·열린 행)에도 목적지를 적는다 — 서버 목록에 없는 행(안 읽은 메일만 보기에서 연 메일)은 재조회가
+      // 고쳐 주지 않아, 얹은 값을 떼면 옛 메일함으로 돌아가 「보관」이 다시 보였다. 함수형 갱신이라 그 사이 보기를 바꾸거나 떠나도 안전하다.
+      onMoved: rowPatch
+        ? (okIds) => {
+            setKept((k) =>
+              okIds.some((id) => k.rows.has(id))
+                ? { key: k.key, rows: new Map([...k.rows].map(([id, r]) => [id, okIds.includes(id) ? { ...r, ...rowPatch } : r])) }
+                : k,
+            )
+            setSelection((s) => (s.row && okIds.includes(s.row.id) ? { ...s, row: { ...s.row, ...rowPatch } } : s))
+          }
+        : undefined,
     })
   }
   // WP-1341 분류 바꾸기 — 보낸편지함·서버 메일함 보기(AI 배지를 끄는 보기)와 AI 분류가 꺼진 계정에는 없다.

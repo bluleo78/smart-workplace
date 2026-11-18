@@ -177,9 +177,10 @@ test('archive in the flagged view keeps the row (no hide) and only the folder ba
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
   await user.click(await screen.findByTestId('mail-row-archive-10'))
   expect(await screen.findByText('보관했습니다')).toBeInTheDocument()
-  // 숨기지 않는다 — 토스트 동안에도 행이 그대로 있다.
+  // 숨기지 않는다 — 토스트 동안에도 행이 그대로 있고, 배지는 곧바로 목적지(보관)로 바뀌어 같은 행에 「보관」이 다시 보이지 않는다.
   expect(screen.getByTestId('mail-row-10')).toBeInTheDocument()
-  expect(screen.getByTestId('mail-row-folder-10')).toHaveTextContent('받은편지함')
+  expect(screen.getByTestId('mail-row-folder-10')).toHaveTextContent('보관')
+  expect(screen.queryByTestId('mail-row-archive-10')).not.toBeInTheDocument()
   await act(() => vi.advanceTimersByTimeAsync(UNDO_DELETE_DELAY_MS))
   await waitFor(() => expect(moves.calls).toHaveLength(1))
   expect(moves.last().body).toEqual({ messageIds: [10], target: { kind: 'ARCHIVE' } })
@@ -187,6 +188,162 @@ test('archive in the flagged view keeps the row (no hide) and only the folder ba
   await waitFor(() => expect(screen.getByTestId('mail-row-folder-10')).toHaveTextContent('보관'))
   expect(screen.getByTestId('mail-row-10')).toBeInTheDocument()
   expect(screen.queryByTestId('mail-row-archive-10')).not.toBeInTheDocument()
+})
+
+test('archive from the reading pane in the flagged view: pending row and pane show 보관 (no second 보관); 실행 취소 restores the original folder', async () => {
+  // WP-1742 반려 — 대기 중에 옛 메일함(받은편지함) 값이 남아 같은 행·읽기 창에 「보관」이 또 보이고, 누르면 같은 이동이 대기열에 하나 더 들어갔다.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  const server = flaggedServer(ROWS)
+  const moves = record<MailMoveRequest>('post', '/api/v1/mail/accounts/1/messages/move', () => HttpResponse.json({ results: [] }))
+  renderMail('/mail/1?flagged=true&messageId=10', {
+    handlers: [...server.handlers, moves.handler, http.get('/api/v1/mail/messages/10', () => HttpResponse.json(detail({ id: 10, seen: true, flagged: true })))],
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  await user.click(await screen.findByTestId('mail-archive'))
+  expect(await screen.findByText('보관했습니다')).toBeInTheDocument()
+  expect(screen.getByTestId('mail-row-folder-10')).toHaveTextContent('보관')
+  expect(screen.queryByTestId('mail-archive')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('mail-row-archive-10')).not.toBeInTheDocument()
+  // 보관 메일처럼 옮기기는 받은편지함으로 돌릴 수 있다.
+  expect(screen.getByTestId('mail-move')).toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: '실행 취소' }))
+  await waitFor(() => expect(screen.getByTestId('mail-row-folder-10')).toHaveTextContent('받은편지함'))
+  expect(screen.getByTestId('mail-archive')).toBeInTheDocument()
+  expect(screen.getByTestId('mail-row-archive-10')).toBeInTheDocument()
+  await act(() => vi.advanceTimersByTimeAsync(UNDO_DELETE_DELAY_MS))
+  expect(moves.calls).toHaveLength(0)
+})
+
+/**
+ * 안 읽은 메일만 + 별표 보기 — 연 메일은 읽음 처리돼 서버 목록에서 빠지고 유지 스냅샷·열린 행 스냅샷으로만 보인다.
+ * 보관한 뒤 목록을 다시 받아도 그 스냅샷이 옛 메일함(받은편지함)으로 돌아가 「보관」이 다시 보이면 안 된다.
+ */
+async function archiveSnapshotRow(closeDetail: boolean) {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  let row = summary({ id: 10, seen: false, flagged: true, subject: '견적 요청', folderName: '받은편지함', folderId: 100, folderRole: 'INBOX' })
+  const list = record('get', LIST, ({ url }) => HttpResponse.json(url.searchParams.get('unread') === 'true' && row.seen ? [] : [row]))
+  const read = record('post', '/api/v1/mail/messages/:id/read', () => {
+    row = { ...row, seen: true }
+    return new HttpResponse(null, { status: 200 })
+  })
+  const moves = record<MailMoveRequest>('post', '/api/v1/mail/accounts/1/messages/move', ({ body }) => {
+    row = { ...row, folderName: '보관', folderId: 1, folderRole: 'ARCHIVE' }
+    return HttpResponse.json({ results: body.messageIds.map((id) => ({ messageId: id, ok: true, error: null })) } satisfies MailMoveResponse)
+  })
+  renderMail('/mail/1?flagged=true&unread=true', {
+    handlers: [
+      list.handler, read.handler, moves.handler, FOLDERS,
+      http.get(COUNTS, () => HttpResponse.json(unreadCounts({ flagged: 1 }))),
+      http.get('/api/v1/mail/messages/10', () => HttpResponse.json(detail({ id: 10, seen: false, flagged: true }))),
+    ],
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  await user.click(await screen.findByTestId('mail-row-10'))
+  await waitFor(() => expect(read.calls).toHaveLength(1))
+  if (closeDetail) {
+    act(() => {
+      window.history.pushState(null, '', '/mail/1?flagged=true&unread=true')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await waitFor(() => expect(screen.queryByTestId('mail-archive')).not.toBeInTheDocument())
+  }
+  await user.click(await screen.findByTestId('mail-row-archive-10'))
+  expect(screen.getByTestId('mail-row-folder-10')).toHaveTextContent('보관')
+  const before = list.calls.length
+  await act(() => vi.advanceTimersByTimeAsync(UNDO_DELETE_DELAY_MS))
+  await waitFor(() => expect(moves.calls).toHaveLength(1))
+  await waitFor(() => expect(list.calls.length).toBeGreaterThan(before))
+  await wait(50)
+  // 서버 목록(안 읽은 메일만)엔 없고 스냅샷으로만 보이는 행 — 옮긴 뒤에도 목적지(보관)로 남는다.
+  expect(screen.getByTestId('mail-row-folder-10')).toHaveTextContent('보관')
+  expect(screen.queryByTestId('mail-row-archive-10')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('mail-archive')).not.toBeInTheDocument()
+}
+
+test('unread-only flagged view: archived open row (open-row/kept snapshot) stays 보관 after the move and refetch', async () => {
+  await archiveSnapshotRow(false)
+})
+
+test('unread-only flagged view: archived kept row (detail closed) stays 보관 after the move and refetch', async () => {
+  await archiveSnapshotRow(true)
+})
+
+test('unstar toast goes away when the PUT fails (the error toast still shows)', async () => {
+  const server = flaggedServer(ROWS)
+  const { user } = renderMail('/mail/1?flagged=true', {
+    handlers: [http.put('/api/v1/mail/messages/:id/flag', () => new HttpResponse(null, { status: 500 })), ...server.handlers],
+  })
+  await user.click(await screen.findByTestId('mail-row-star-10'))
+  expect(await screen.findByTestId('mail-unflag-toast')).toBeInTheDocument()
+  expect(await screen.findByText(/별표를 바꾸지 못했어요/)).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByTestId('mail-unflag-toast')).not.toBeInTheDocument())
+  // 실패라 행은 별표 그대로 돌아온다.
+  expect(await screen.findByTestId('mail-row-10')).toBeInTheDocument()
+})
+
+test('unstar 실행 취소 after switching views does not wipe the new view\'s kept rows (uses the latest state)', async () => {
+  // 안 읽은 메일만 + 별표 보기에서 연 메일(유지 집합)을 별 끄고, 안 읽은 받은편지함으로 옮겨 메일을 열어(새 보기의 유지 집합) 둔 채 실행 취소한다.
+  // 옛 렌더의 applyFlag 는 옛 보기 키로 유지 집합을 덮어써 새 보기에서 연 메일이 목록에서 사라졌다.
+  const flags = new Map([[10, true], [20, false]])
+  const seen = new Map([[10, false], [20, false]])
+  const base = [
+    summary({ id: 10, subject: '견적 요청', folderName: '받은편지함', folderId: 100, folderRole: 'INBOX' }),
+    summary({ id: 20, subject: '주간 보고' }),
+  ]
+  const current = () => base.map((r) => ({ ...r, flagged: flags.get(r.id)!, seen: seen.get(r.id)! }))
+  const list = record('get', LIST, ({ url }) => {
+    let rows = current()
+    if (url.searchParams.get('flagged') === 'true') rows = rows.filter((r) => r.flagged)
+    if (url.searchParams.get('unread') === 'true') rows = rows.filter((r) => !r.seen)
+    return HttpResponse.json(rows)
+  })
+  const id = (url: URL) => Number(url.pathname.split('/').at(-2))
+  const put = record<{ flagged: boolean }>('put', '/api/v1/mail/messages/:id/flag', ({ body, url }) => {
+    flags.set(id(url), body.flagged)
+    return new HttpResponse(null, { status: 200 })
+  })
+  // 첫 열람 읽음 처리 — POST /mail/messages/{id}/read.
+  const read = record('post', '/api/v1/mail/messages/:id/read', ({ url }) => {
+    seen.set(id(url), true)
+    return new HttpResponse(null, { status: 200 })
+  })
+  const { user, queryClient } = renderMail('/mail/1?flagged=true&unread=true', {
+    handlers: [
+      list.handler, put.handler, read.handler, FOLDERS,
+      http.get(COUNTS, () => HttpResponse.json(unreadCounts({ flagged: 1 }))),
+      http.get('/api/v1/mail/messages/:mid', ({ params }) => HttpResponse.json(detail({ id: Number(params.mid), seen: false }))),
+    ],
+  })
+  await user.click(await screen.findByTestId('mail-row-10'))
+  await waitFor(() => expect(read.calls.length).toBeGreaterThan(0))
+  await user.click(screen.getByTestId('mail-row-star-10'))
+  await waitFor(() => expect(put.last()?.body).toEqual({ flagged: false }))
+  expect(await screen.findByTestId('mail-unflag-toast')).toBeInTheDocument()
+
+  act(() => {
+    window.history.pushState(null, '', '/mail/1?category=all&unread=true')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  })
+  await user.click(await screen.findByTestId('mail-row-20'))
+  await waitFor(() => expect(seen.get(20)).toBe(true))
+  // 상세를 닫는다 — 이제 20 은 유지 집합으로만 보인다(서버의 안 읽은 메일만 목록엔 없다).
+  act(() => {
+    window.history.pushState(null, '', '/mail/1?category=all&unread=true')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  })
+  await wait(100)
+  expect(screen.getByTestId('mail-row-20')).toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: '실행 취소' }))
+  await waitFor(() => expect(put.last()?.body).toEqual({ flagged: true }))
+  // 주기 재조회처럼 목록을 다시 받는다 — 서버 목록엔 20 이 없어 유지 집합이 지워졌다면 행이 사라진다.
+  const before = list.calls.length
+  await act(() => queryClient.invalidateQueries({ queryKey: ['mail-messages'] }))
+  await waitFor(() => expect(list.calls.length).toBeGreaterThan(before))
+  await wait(50)
+  // 새 보기에서 연(읽음 처리한) 메일은 유지 집합으로 그대로 남는다.
+  expect(screen.getByTestId('mail-row-20')).toBeInTheDocument()
 })
 
 test('delete (trash) in the flagged view still removes the row', async () => {

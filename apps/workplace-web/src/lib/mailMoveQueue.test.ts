@@ -21,7 +21,7 @@ vi.mock('@/api/mailMessages', () => ({
   moveMessagesOnUnload: (...a: unknown[]) => moveMessagesOnUnload(...a),
 }))
 
-const { scheduleMailMove, flushMailMoves, mailMoveHiddenSnapshot, resetMailMoveQueueForTest } = await import('./mailMoveQueue')
+const { scheduleMailMove, flushMailMoves, mailMoveHiddenSnapshot, mailMovePatchSnapshot, resetMailMoveQueueForTest } = await import('./mailMoveQueue')
 
 const fakeToast = { id: 7 } as Parameters<NonNullable<ExternalToast['onDismiss']>>[0]
 const lastToast = () => success.mock.calls.at(-1)![1]!
@@ -183,5 +183,64 @@ describe('scheduleMailMove', () => {
     await flushing
     expect(error).toHaveBeenCalled()
     expect(mailMoveHiddenSnapshot().size).toBe(0)
+  })
+
+  // WP-1742 별표 보기의 보관·옮기기 — 대기 중에는 목적지 메일함 값(rowPatch)을 얹어 같은 행에 「보관」이 다시 보이지 않게 한다.
+  describe('rowPatch(대기 중 목적지 메일함)', () => {
+    const ARCH = { folderId: 1, folderRole: 'ARCHIVE', folderName: '보관' }
+    const PROJ = { folderId: 5, folderRole: 'USER', folderName: '프로젝트' }
+    const move = (patch: typeof ARCH, qc = new QueryClient()) =>
+      scheduleMailMove({ qc, accountId: 3, messageIds: [11], target: { kind: 'ARCHIVE' }, message: '보관했습니다', hideRows: false, rowPatch: patch })
+
+    it('예약하면 얹고, 실행 취소하면 뗀다', () => {
+      move(ARCH)
+      expect(mailMovePatchSnapshot().get(11)).toEqual(ARCH)
+      ;(lastToast().action as { onClick: (e: unknown) => void }).onClick({})
+      expect(mailMovePatchSnapshot().has(11)).toBe(false)
+    })
+
+    it('옮긴 뒤 목록을 다시 받은 다음에 뗀다(그 사이 옛 메일함으로 깜빡이지 않게)', async () => {
+      let release: () => void = () => {}
+      const qc = new QueryClient()
+      vi.spyOn(qc, 'invalidateQueries').mockReturnValue(new Promise<void>((r) => (release = r)))
+      moveMessages.mockResolvedValue({ results: [{ messageId: 11, ok: true, error: null }] })
+      move(ARCH, qc)
+      lastToast().onAutoClose!(fakeToast)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(mailMovePatchSnapshot().get(11)).toEqual(ARCH)
+      release()
+      await vi.waitFor(() => expect(mailMovePatchSnapshot().has(11)).toBe(false))
+    })
+
+    it('옮긴 뒤 onMoved 를 성공한 id 로, 목적지 값을 떼기 전에 부른다(스냅샷에 옮겨 적을 수 있게)', async () => {
+      moveMessages.mockResolvedValue({ results: [{ messageId: 11, ok: true, error: null }, { messageId: 12, ok: false, error: 'x' }] })
+      const seen: unknown[] = []
+      scheduleMailMove({
+        qc: new QueryClient(), accountId: 3, messageIds: [11, 12], target: { kind: 'ARCHIVE' }, message: '보관했습니다', hideRows: false, rowPatch: ARCH,
+        onMoved: (ids) => seen.push([ids, mailMovePatchSnapshot().get(11)]),
+      })
+      lastToast().onAutoClose!(fakeToast)
+      await vi.waitFor(() => expect(seen).toEqual([[[11], ARCH]]))
+      expect(mailMovePatchSnapshot().size).toBe(0)
+    })
+
+    it('옮기기에 실패하면 바로 뗀다(원래 메일함으로 돌아온다)', async () => {
+      moveMessages.mockResolvedValue({ results: [{ messageId: 11, ok: false, error: 'x' }] })
+      move(ARCH)
+      lastToast().onAutoClose!(fakeToast)
+      await vi.waitFor(() => expect(mailMovePatchSnapshot().has(11)).toBe(false))
+      expect(error).toHaveBeenCalled()
+    })
+
+    it('대기 중에 또 옮기면 나중 것이 보이고, 나중 것을 취소하면 앞의 목적지로 돌아간다', () => {
+      move(ARCH)
+      const first = lastToast()
+      move(PROJ)
+      expect(mailMovePatchSnapshot().get(11)).toEqual(PROJ)
+      ;(lastToast().action as { onClick: (e: unknown) => void }).onClick({})
+      expect(mailMovePatchSnapshot().get(11)).toEqual(ARCH)
+      ;(first.action as { onClick: (e: unknown) => void }).onClick({})
+      expect(mailMovePatchSnapshot().has(11)).toBe(false)
+    })
   })
 })

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { MailServerFolder } from '@/types/mailFolder'
 
-import { isInboxView, mailMoveAvailability, mailMoveTargets, mailMoveToastMessage, mailRowMoveScope } from './mailMoveActions'
+import { isInboxView, mailMoveAvailability, mailMoveRowPatch, mailMoveTargets, mailMoveToastMessage, mailRowMoveScope } from './mailMoveActions'
 
 const f = (o: Partial<MailServerFolder> & { id: number }): MailServerFolder => ({
   displayName: `메일함${o.id}`, parentId: null, role: 'USER', selectable: true, unreadCount: 0, totalCount: 0,
@@ -148,5 +148,25 @@ describe('mailRowMoveScope (WP-1742 별표 보기의 메일별 판정 — 이름
     const work = { kind: 'work', folderId: null } as const
     expect(mailRowMoveScope(work, folders, { folderId: 1, folderRole: 'ARCHIVE' })).toBe(work)
     expect(mailRowMoveScope(work, folders, null)).toBe(work)
+  })
+})
+
+// WP-1742 별표 보기의 보관·옮기기 대기 중 행을 목적지 메일함으로 보이게 하는 값 — 이름은 메일함 목록 규칙(보관은 「보관」)과 같다.
+describe('mailMoveRowPatch', () => {
+  it('보관 → 보관 메일함 id·ARCHIVE·「보관」', () => {
+    expect(mailMoveRowPatch({ kind: 'ARCHIVE' }, folders)).toEqual({ folderId: 1, folderRole: 'ARCHIVE', folderName: '보관' })
+  })
+  it('받은편지함 → INBOX·「받은편지함」(id 없음)', () => {
+    expect(mailMoveRowPatch({ kind: 'INBOX' }, folders)).toEqual({ folderId: null, folderRole: 'INBOX', folderName: '받은편지함' })
+  })
+  it('내 메일함 → 그 id·USER·표시 이름, 보관 메일함을 고르면 「보관」', () => {
+    expect(mailMoveRowPatch({ kind: 'FOLDER', folderId: 3 }, folders)).toEqual({ folderId: 3, folderRole: 'USER', folderName: '2026' })
+    expect(mailMoveRowPatch({ kind: 'FOLDER', folderId: 1 }, folders)).toEqual({ folderId: 1, folderRole: 'ARCHIVE', folderName: '보관' })
+  })
+  it('삭제·되살리기·모르는 메일함·보관 메일함 없음 → null', () => {
+    expect(mailMoveRowPatch({ kind: 'TRASH' }, folders)).toBeNull()
+    expect(mailMoveRowPatch({ kind: 'RESTORE' }, folders)).toBeNull()
+    expect(mailMoveRowPatch({ kind: 'FOLDER', folderId: 99 }, folders)).toBeNull()
+    expect(mailMoveRowPatch({ kind: 'ARCHIVE' }, [])).toBeNull()
   })
 })

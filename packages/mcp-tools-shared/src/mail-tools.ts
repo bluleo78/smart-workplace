@@ -79,7 +79,8 @@ type Raw = Record<string, unknown>;
  * 회신 필요 = aiNeedsReply 가 true 이고 seen 이 false(서버 단일 술어).
  */
 export function toMailListItem(row: Raw): Raw {
-  const { categoryPending, flagged, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed');
+  // WP-1742: folderId·folderRole 은 웹 화면의 옮기기 판정용 내부 값이라 AI 에 내지 않는다 — 원래 메일함은 folderName(표시 이름)으로 충분하다.
+  const { categoryPending, flagged, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed', 'folderId', 'folderRole');
   return dropEmpty({
     ...rest,
     ...(categoryPending === true && { categoryPending: true }),
