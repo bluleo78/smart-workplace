@@ -182,11 +182,59 @@ test('확인 창 — 실시간 수 조회 실패(502)면 수 없는 문구·재�
   // 줄 글자는 폴더 값(132)으로 폴백해 그대로 쓴다.
   await waitFor(() => expect(within(row).getByTestId('mail-trash-empty-text')).toHaveTextContent(/^메일 서버 휴지통 132통$/))
   // 재시도하지 않는다 — 확인 창을 열 때 재조회(마운트 1회 + 열기 1회 = 2회)한 뒤 1초가 지나도 요청은 더 늘지 않고 본문은 수 없는 문구 그대로.
+  // (메일함 동기화가 끝나면 WP-1708 로 수를 한 번 더 받을 수 있다 — 재시도로 계속 늘지 않는 것만 본다.)
   await tick()
-  expect(counts.calls).toHaveLength(2)
+  const settledCalls = counts.calls.length
+  await tick()
+  expect(counts.calls).toHaveLength(settledCalls)
   expect(dialog).toHaveTextContent(
     '메일 서버 휴지통의 메일을 모두 완전히 삭제합니다. 앱에 보이지 않는 30일 지난 메일도 함께 지워집니다. 되돌릴 수 없습니다.',
   )
+})
+
+const NO_COUNT_BODY =
+  '메일 서버 휴지통의 메일을 모두 완전히 삭제합니다. 앱에 보이지 않는 30일 지난 메일도 함께 지워집니다. 되돌릴 수 없습니다.'
+
+test('WP-1708 첫 조회 5통 성공 뒤 확인 창을 열 때 재조회가 502 → 낡은 「5통」을 보이지 않고 수 없는 문구', async () => {
+  // 메일함 동기화가 수를 한 번 더 받을 수 있어 호출 순서가 아니라 「확인 창을 열었는가」로 첫 성공·이후 실패를 가른다.
+  let opened = false
+  const { user, counts } = renderTrash({
+    count: () => (opened ? HttpResponse.json({ message: '메일 서버에 연결하지 못했습니다' }, { status: 502 }) : HttpResponse.json({ count: 5 })),
+  })
+  const row = await screen.findByTestId('mail-trash-empty-row')
+  // 첫 조회 5통이 줄에 보인 뒤(캐시에 5 가 남은 상태)에 연다.
+  await waitFor(() => expect(within(row).getByTestId('mail-trash-empty-text')).toHaveTextContent(/^메일 서버 휴지통 5통$/))
+  const before = counts.calls.length
+  opened = true
+  await user.click(within(row).getByTestId('mail-trash-empty'))
+  const dialog = await screen.findByTestId('mail-trash-empty-confirm')
+  await waitFor(() => expect(counts.calls.length).toBeGreaterThan(before))
+  await waitFor(() => expect(dialog).toHaveTextContent(NO_COUNT_BODY))
+  expect(dialog).not.toHaveTextContent('5통')
+})
+
+test('WP-1708 재조회가 응답 전(지연)인 동안 확인 창에 이전 수가 없고, 도착하면 새 수', async () => {
+  let opened = false
+  let release: () => void = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  const { user, counts } = renderTrash({
+    count: async () => {
+      if (!opened) return HttpResponse.json({ count: 5 })
+      await held
+      return HttpResponse.json({ count: 1234 })
+    },
+  })
+  const row = await screen.findByTestId('mail-trash-empty-row')
+  await waitFor(() => expect(within(row).getByTestId('mail-trash-empty-text')).toHaveTextContent(/^메일 서버 휴지통 5통$/))
+  const before = counts.calls.length
+  opened = true
+  await user.click(within(row).getByTestId('mail-trash-empty'))
+  const dialog = await screen.findByTestId('mail-trash-empty-confirm')
+  await waitFor(() => expect(counts.calls.length).toBeGreaterThan(before))
+  expect(dialog).toHaveTextContent(NO_COUNT_BODY)
+  expect(dialog).not.toHaveTextContent('5통')
+  release()
+  await waitFor(() => expect(dialog).toHaveTextContent('메일 1234통을'))
 })
 
 test('확인 창을 열 때 실시간 수를 다시 요청한다 — 오래 열어 둔 화면에서도 최신 수를 받는다, 닫을 때는 다시 요청하지 않는다', async () => {

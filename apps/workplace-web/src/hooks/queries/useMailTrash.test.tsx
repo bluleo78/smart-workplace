@@ -17,7 +17,11 @@ vi.mock('sonner', () => ({
 const permanentDeleteMessages = vi.fn()
 const startTrashEmpty = vi.fn()
 const getTrashEmptyStatus = vi.fn()
+const syncMailbox = vi.fn()
+const syncMailFolder = vi.fn()
 vi.mock('@/api/mailMessages', () => ({
+  syncMailbox: (...a: unknown[]) => syncMailbox(...a),
+  syncMailFolder: (...a: unknown[]) => syncMailFolder(...a),
   permanentDeleteMessages: (...a: unknown[]) => permanentDeleteMessages(...a),
   startTrashEmpty: (...a: unknown[]) => startTrashEmpty(...a),
   getTrashEmptyStatus: (...a: unknown[]) => getTrashEmptyStatus(...a),
@@ -25,6 +29,7 @@ vi.mock('@/api/mailMessages', () => ({
 const flushMailMoves = vi.fn()
 vi.mock('@/lib/mailMoveQueue', () => ({ flushMailMoves: (...a: unknown[]) => flushMailMoves(...a) }))
 
+const { useSyncMailbox, useSyncMailFolder } = await import('./useMailMessages')
 const { usePermanentDeleteMail, useStartTrashEmpty, useTrashEmptyStatus } = await import('./useMailTrash')
 
 const st = (over: Partial<MailTrashEmptyStatus> = {}): MailTrashEmptyStatus => ({
@@ -193,5 +198,26 @@ describe('useTrashEmptyStatus', () => {
     const { wrapper } = setup()
     renderHook(() => useTrashEmptyStatus(3, false), { wrapper })
     expect(getTrashEmptyStatus).not.toHaveBeenCalled()
+  })
+})
+
+// WP-1708 실시간 휴지통 수 — 메일이 휴지통으로 오는 경로(동기화)에서도 낡지 않게 무효화한다.
+describe('동기화 뒤 실시간 휴지통 수 무효화', () => {
+  it('계정 동기화(useSyncMailbox) 성공 — trashCount 무효화', async () => {
+    syncMailbox.mockResolvedValue({ saved: 0 })
+    const { qc, wrapper } = setup()
+    const inval = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useSyncMailbox(3), { wrapper })
+    await act(async () => { await result.current.mutateAsync() })
+    expect(inval).toHaveBeenCalledWith({ queryKey: ['mail-trash-count', 3] })
+  })
+
+  it('메일함 동기화(useSyncMailFolder) 성공 — trashCount 무효화', async () => {
+    syncMailFolder.mockResolvedValue({ running: false })
+    const { qc, wrapper } = setup()
+    const inval = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useSyncMailFolder(3), { wrapper })
+    await act(async () => { await result.current.mutateAsync({ folderId: 9, older: false }) })
+    expect(inval).toHaveBeenCalledWith({ queryKey: ['mail-trash-count', 3] })
   })
 })

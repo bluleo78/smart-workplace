@@ -49,6 +49,10 @@ export function MailTrashEmptyRow({
   const busy = useRef(false)
   // 실시간 수 — 로딩·오류 동안은 null(확인 창은 수 없는 문구, 줄 글자만 folder.totalCount 로 폴백).
   const liveCount = live.data ?? null
+  // WP-1708 확인 창 본문용 수 — 「지금 확정된 최신 값」(재조회 중 아님·오류 아님)일 때만 쓴다. react-query 는 재조회 중·실패 때도 이전 data 를
+  // 남겨 두므로, 그대로 쓰면 파괴적 확인 창에 낡은 수(예: 처음 5 → 서버 1234 → 재조회 실패 → 「5통」)가 보인다. 줄 글자·단추 판정은
+  // 위 liveCount 를 그대로 써(폴백 유지) 재조회 중에 단추가 잠기거나 줄이 깜빡이지 않는다.
+  const confirmCount = !live.isFetching && !live.isError ? liveCount : null
   const state = trashEmptyState(folder, status.data, listEmpty, liveCount)
   const text = trashEmptyRowText(folder, status.data, liveCount)
   const disabled = !state.enabled || start.isPending
@@ -109,7 +113,7 @@ export function MailTrashEmptyRow({
         entityName="메일"
         itemName="휴지통"
         title="휴지통을 비울까요?"
-        description={trashEmptyConfirmBody(liveCount)}
+        description={trashEmptyConfirmBody(confirmCount)}
         impact={TRASH_COPY_NOTE}
         actionLabel="비우기"
         pending={start.isPending}

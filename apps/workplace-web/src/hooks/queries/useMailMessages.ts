@@ -160,6 +160,8 @@ export function useSyncMailFolder(accountId: number | undefined) {
       const refresh = () => {
         qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
         qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0) });
+        // WP-1708 동기화로 휴지통 메일이 바뀔 수 있다 — 실시간 휴지통 수도 다시 받는다(30초 staleTime 안에 낡은 수를 보이지 않게).
+        qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0) });
       };
       refresh();
       if (result.running) setTimeout(refresh, FOLDER_SYNC_RETRY_MS);
@@ -441,6 +443,8 @@ export function useSyncMailbox(accountId: number | undefined) {
       qc.invalidateQueries({ queryKey: ['mail-accounts'] });
       // WP-961: 계정 동기화가 서버 메일함 목록(보관·내 메일함)도 새로 저장한다 — 사이드바 트리를 다시 받는다.
       qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0) });
+      // WP-1708 동기화가 휴지통 메일도 바꿀 수 있어 실시간 휴지통 수를 다시 받는다.
+      qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0) });
       // 홈 대시보드 안읽은 메일 위젯(useMailSummary, queryKey ['mail-summary'])도 갱신.
       // exact: true — 메시지별 AI 요약 ['mail-summary', messageId]까지 무효화해
       // 불필요한 AI 재생성이 일어나지 않도록 홈 요약 단건만 정확히 무효화한다.
