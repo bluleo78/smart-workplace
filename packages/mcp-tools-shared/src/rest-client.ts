@@ -703,6 +703,23 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async createDriveVersionUploadLink(driveFileId) {
       return (await http.post(`/drive/files/${driveFileId}/upload-link`)).data;
     },
+    async listRecentDriveFiles({ limit, cursor }) {
+      // 빈 cursor 는 첫 쪽과 같으므로 싣지 않는다 — 서버가 빈 문자열을 잘못된 위치로 읽지 않게.
+      const params = { ...(limit != null && { limit }), ...(cursor && { cursor }) };
+      const data = (await http.get('/drive/recent', { params: Object.keys(params).length ? params : undefined })).data;
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor ?? null };
+    },
+    async listStarredDriveItems(cursor) {
+      const data = (await http.get('/drive/starred', { params: cursor ? { cursor } : undefined })).data;
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor ?? null };
+    },
+    async starDriveItem(target) {
+      await http.put('/drive/stars', target);
+    },
+    async unstarDriveItem(target) {
+      // 서버가 DELETE 본문(@RequestBody)으로 대상을 받는다(연락처 즐겨찾기 해제와 같다).
+      await http.delete('/drive/stars', { data: target });
+    },
 
     // ── 스테이징 업로드(WP-421) ── 첨부용 파일을 먼저 올려 두고 도메인 쓰기의 fileIds 로 붙인다. 링크 바이트는 MCP 가 아니라 curl 이 공개 경로로 보낸다.
     async createStagedTextFile(name, content) {

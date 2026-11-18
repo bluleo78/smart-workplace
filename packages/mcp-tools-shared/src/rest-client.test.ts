@@ -542,6 +542,25 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/drive/folders/6/restore');
   });
 
+  // WP-1700: 최근·별표 목록과 별표 넣기·빼기 경로. 빈 cursor·생략한 limit 은 쿼리에 싣지 않고, 빼기는 DELETE 본문(config.data)으로 대상을 보낸다.
+  it('WP-1700 드라이브 최근·별표 경로', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { items: [{ driveFileId: 5 }], nextCursor: 'c2' } });
+    expect(await client.listRecentDriveFiles({ limit: 20, cursor: 'c1' })).toEqual({ items: [{ driveFileId: 5 }], nextCursor: 'c2' });
+    expect(http.get).toHaveBeenLastCalledWith('/drive/recent', { params: { limit: 20, cursor: 'c1' } });
+    expect(await client.listRecentDriveFiles({ cursor: '' })).toEqual({ items: [], nextCursor: null });
+    expect(http.get).toHaveBeenLastCalledWith('/drive/recent', { params: undefined });
+    http.get.mockResolvedValueOnce({ data: { items: [{ kind: 'FOLDER', id: 3 }], nextCursor: null } });
+    expect(await client.listStarredDriveItems('c1')).toEqual({ items: [{ kind: 'FOLDER', id: 3 }], nextCursor: null });
+    expect(http.get).toHaveBeenLastCalledWith('/drive/starred', { params: { cursor: 'c1' } });
+    await client.listStarredDriveItems('');
+    expect(http.get).toHaveBeenLastCalledWith('/drive/starred', { params: undefined });
+    await client.starDriveItem({ kind: 'FILE', id: 5 });
+    expect(http.put).toHaveBeenCalledWith('/drive/stars', { kind: 'FILE', id: 5 });
+    await client.unstarDriveItem({ kind: 'FOLDER', id: 6 });
+    expect(http.delete).toHaveBeenCalledWith('/drive/stars', { data: { kind: 'FOLDER', id: 6 } });
+  });
+
   // WP-354: 파일 이름변경·복사·백링크·첨부 가져오기 경로 — 첨부 가져오기는 폴더 유무로 경로가 갈린다.
   it('WP-354 드라이브 파일 이름변경·복사·백링크·첨부 가져오기 경로', async () => {
     const { http, client } = mockHttp();

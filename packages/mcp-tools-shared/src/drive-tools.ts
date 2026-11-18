@@ -2,8 +2,10 @@
 // WP-369: 파일·폴더 이름변경·이동을 rename_drive_item·move_drive_item 하나씩으로 합쳤고, 전송 링크(create_drive_download_link)와
 // 파일 올리기(create_drive_file: 내용으로 쓰기 또는 업로드 링크 — 새 파일(spaceId+name) 또는 기존 파일의 새 버전(driveFileId))를 더했다.
 // 파일 행은 toDriveItemsView 로 core fileId 를 지우고 driveFileId 로만 노출한다(#840).
+// WP-1700: 내 최근·별표 목록(list_my_drive_files — view 로 GET /drive/recent·/drive/starred)과 별표 넣기·빼기(star_drive_item — starred 최종 상태,
+// 입력 driveFileId·folderId 를 서버 PUT·DELETE /drive/stars 의 {kind, id} 로 옮긴다)를 더했다. 외부 MCP 정의 크기 상한 때문에 기획의 4개를 2개로 합쳤다.
 import { z } from 'zod';
-import { omitKeys } from './compact.js';
+import { cursorPageView, omitKeys } from './compact.js';
 import {
   toDriveBacklinksView,
   toDriveContentHitsView,
@@ -11,6 +13,8 @@ import {
   toDriveFileView,
   toDriveFolderView,
   toDriveItemsView,
+  toDriveRecentView,
+  toDriveStarredView,
   toDriveTrashView,
   toDriveUploadLinkView,
   toDriveVersionsView,
@@ -126,6 +130,27 @@ export const listDriveTrashInput = z.object({ spaceId: z.number().int().positive
 // 파일과 폴더는 id 시퀀스가 달라 한쪽만 받는다 — 둘 다 오면 어느 것을 복원할지 모호하다.
 export const restoreDriveItemInput = z
   .object({ driveFileId: nullAsOmitted(z.number().int().positive()), folderId: nullAsOmitted(z.number().int().positive()) })
+  .refine(exactlyOneItem, exactlyOneItemMessage);
+
+// WP-1700: 내 최근 파일·별표 목록을 한 도구로 본다(드라이브 앱 도구 상한 안에서 두 목록을 view 로 가른다).
+// cursor 는 앞 응답의 nextCursor 를 그대로 받는다. 빈 문자열은 첫 쪽과 같아 보내지 않는다(rest-client). 모두 null = 생략.
+export const listMyDriveFilesInput = z
+  .object({
+    view: z.enum(['recent', 'starred']),
+    limit: nullAsOmitted(z.number().int().min(1).max(50).describe('recent only')),
+    cursor: nullAsOmitted(z.string()),
+  })
+  // 별표 목록은 서버가 쪽 크기를 고정해(limit 인자 없음) 받은 limit 을 조용히 버리면 모델이 그만큼만 왔다고 오해한다 — 받지 않고 오류로 알린다.
+  // 잘라서 맞추면 nextCursor 와 어긋나 다음 쪽에서 항목이 빠진다.
+  .refine((v) => v.view === 'recent' || v.limit == null, { message: 'limit 은 view: recent 에서만 씁니다(별표 목록은 서버가 정한 쪽 크기)', path: ['limit'] });
+// WP-1700: 별표 넣기·빼기를 starred(최종 상태) 하나로 받는다(watch_issue·react 와 같은 상태 짝 규칙). 대상은 다른 파일·폴더 쓰기 도구와 같이
+// driveFileId·folderId 중 정확히 하나 — 맨 이름 id 는 입력으로 쓰지 않는다(README 파라미터 명명 규칙 1). 서버 {kind, id} 로는 핸들러가 옮긴다.
+export const starDriveItemInput = z
+  .object({
+    driveFileId: nullAsOmitted(z.number().int().positive()),
+    folderId: nullAsOmitted(z.number().int().positive()),
+    starred: z.boolean(),
+  })
   .refine(exactlyOneItem, exactlyOneItemMessage);
 
 // WP-369: 전송 도구 설명. 정의 크기 상한(15,000 근사 토큰) 안에 맞추려고 실패·재시도 절차는 응답(note·howTo)에도 싣는다.
@@ -252,6 +277,42 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       async handler(args) {
         const { spaceId } = listDriveTrashInput.parse(args);
         return JSON.stringify(toDriveTrashView(await client.listDriveTrash(spaceId)));
+      },
+    },
+    {
+      name: 'list_my_drive_files',
+      app: 'drive',
+      kind: 'read',
+      description:
+        'Lists my drive files across spaces: view recent (opened/uploaded by me, newest first: lastAction, lastAt) or starred ' +
+        '(files and folders, by starredAt) as {items, hasMore?, nextCursor?}. If hasMore, pass nextCursor as cursor, or say the list is partial.',
+      inputSchema: listMyDriveFilesInput,
+      async handler(args) {
+        const { view, limit, cursor } = listMyDriveFilesInput.parse(args);
+        // 서버 nextCursor 를 그대로 이어 읽기 값으로 싣는다(없으면 hasMore·nextCursor 키 없음 = 끝 — cursorPageView 규칙).
+        if (view === 'recent') {
+          const page = await client.listRecentDriveFiles({ limit: limit ?? undefined, cursor: cursor ?? undefined });
+          return JSON.stringify(cursorPageView(page.items.map(toDriveRecentView), page));
+        }
+        const page = await client.listStarredDriveItems(cursor ?? undefined);
+        return JSON.stringify(cursorPageView(page.items.map(toDriveStarredView), page));
+      },
+    },
+    {
+      name: 'star_drive_item',
+      app: 'drive',
+      kind: 'write',
+      // starred 가 최종 상태라 멱등이다(서버 PUT·DELETE 모두 이미 그 상태면 그대로). 빼기 갈래가 있어 destructive — watch_issue·react 와 같은 기준.
+      hints: { destructive: true, idempotent: true },
+      description: 'Stars (starred: true) or unstars a file (driveFileId) or folder (folderId), for me only; give exactly one.',
+      inputSchema: starDriveItemInput,
+      async handler(args) {
+        const { driveFileId, folderId, starred } = starDriveItemInput.parse(args);
+        // refine 이 정확히 하나를 보장한다 — 파일이 아니면 폴더다.
+        const target = driveFileId != null ? { kind: 'FILE' as const, id: driveFileId } : { kind: 'FOLDER' as const, id: folderId! };
+        if (starred) await client.starDriveItem(target);
+        else await client.unstarDriveItem(target);
+        return 'ok';
       },
     },
     {

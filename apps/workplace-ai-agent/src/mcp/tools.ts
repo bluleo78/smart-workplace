@@ -335,6 +335,7 @@ export const RECURRING_RUN_TOOLS: readonly string[] = [
   'list_channels', 'list_channel_messages', 'list_thread_replies',
   // 드라이브·파일 본문
   'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary', 'read_file', 'list_drive_trash',
+  'list_my_drive_files', // WP-1700: 소유자의 최근 파일·별표 목록
   // 알림·홈 현황
   'list_notifications', 'get_home_overview',
 ];
@@ -364,6 +365,7 @@ export const RECURRING_RUN_WRITE_TOOLS: readonly string[] = [
   // 드라이브
   'create_drive_folder', 'rename_drive_item', 'move_drive_item', 'copy_drive_item', 'import_attachment_to_drive',
   'restore_drive_item', 'create_drive_file', 'upload_file',
+  'star_drive_item', // WP-1700: 별표 넣기·빼기(소유자 본인 별표만 바뀌는 되돌릴 수 있는 쓰기)
   // 알림 — WP-1689 읽은 알림 보관(되돌릴 수 있는 쓰기)
   'mark_notification_read', 'mark_all_notifications_read', 'archive_read_notifications',
 ];
@@ -1422,6 +1424,8 @@ export function buildTools(
       // WP-356: 라벨·마일스톤·사이클 생성·수정 — 대응 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(project-agent 전용). 삭제는 도구로 두지 않는다.
       sharedTool('create_project_meta'), sharedTool('update_project_meta'),
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
+      // WP-1700: 내 최근 파일·별표 목록(읽기)과 별표 넣기·빼기(내 별표만 바뀌는 되돌릴 수 있는 쓰기라 확인 카드 없이 직접 실행) — drive-agent 전용.
+      sharedTool('list_my_drive_files'), sharedTool('star_drive_item'),
       // WP-1704: 일정에 회의록 노트 잇기·끊기 — 노트를 지우지 않는 되돌릴 수 있는 쓰기라 확인 카드 없이 직접 실행(calendar-agent, create_wiki_page 와 같다).
       sharedTool('link_event_note'), sharedTool('unlink_event_note'),
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
