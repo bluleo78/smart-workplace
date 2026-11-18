@@ -19,7 +19,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * V305 calendar_event_note RLS 격리(WP-1701): 테넌트 2 의 연결은 테넌트 1 컨텍스트에서 비가시이고, 다른 테넌트 id 로는 삽입할 수 없다.
+ * V306 calendar_event_note RLS 격리(WP-1701): 테넌트 2 의 연결은 테넌트 1 컨텍스트에서 비가시이고, 다른 테넌트 id 로는 삽입할 수 없다.
  * 롤백되는 단일 트랜잭션으로 수행(CalendarDomainRlsTest 패턴).
  */
 class CalendarEventNoteRlsTest extends IntegrationTestBase {
