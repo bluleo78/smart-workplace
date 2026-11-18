@@ -44,7 +44,8 @@ class GraphCalendarTransportTest {
         null,
         false,
         null,
-        MailProvider.M365_GRAPH);
+        MailProvider.M365_GRAPH,
+        "WORK");
   }
 
   private GraphEventWrite body() {

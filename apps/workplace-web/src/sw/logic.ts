@@ -79,13 +79,32 @@ export function parsePushPayload(raw: string | null): PushPayload {
  * 알림 생략 여부 — 사용자가 이미 그 화면을 보고 있으면(SSE 로 즉시 반영됨) 알림을 띄우지 않는다. 단 Safari/iOS 는 알림 없는 푸시가
  * 반복되면 구독을 취소하므로 항상 표시(alwaysShow).
  *
- * DM·MENTION 만 억제 대상이다 — ISSUE/CALENDAR 는 절대 억제하지 않는다: 캘린더 url 은 `/calendar?eventId=N` 형태라 같은
+ * DM·MENTION·MAIL 이 억제 대상이다 — ISSUE/CALENDAR 는 절대 억제하지 않는다: 캘린더 url 은 `/calendar?eventId=N` 형태라 같은
  * `/calendar` 화면을 보고 있으면(다른 일정이라도) pathname 만으로는 오탐하고, 이슈 경로(`/projects/:key/issues/:number`)는
  * 테넌트가 달라도 key 가 겹칠 수 있어 pathname 일치가 실제 동일 화면을 보장하지 못한다. 그래서 비교도 pathname 뿐 아니라
  * search(쿼리 파라미터)까지 완전히 같아야 억제한다(예: 채널 메인 화면과 `?thread=` 스레드는 다른 화면으로 취급).
+ * 단 MAIL 은 예외: 태그(`mail-<accountId>`)에서 계정 id 를 뽑아 pathname 정확 일치만 비교하고 쿼리는 무시한다(아래 MAIL 주석 참조).
  */
 export function shouldSuppress(p: PushPayload, clients: ClientView[], origin: string, alwaysShow: boolean): boolean {
   if (alwaysShow) return false
+  // MAIL: 그 계정 받은편지함(/mail/<id>)을 보고 있으면 SSE 로 새 메일이 화면에 즉시 반영되므로 팝업을 띄우지 않는다.
+  // 쿼리(?q= 검색·?folder=)는 보고 있는 화면을 바꾸지 않으므로 pathname 만 비교한다.
+  if (p.category === 'MAIL') {
+    // 태그가 mail-숫자 형태가 아니면(없음·불일치) 계정을 특정할 수 없다 — 방어적으로 생략하지 않는다(팝업이 새는 것보다 안전).
+    const mailAccount = p.tag != null ? /^mail-(\d+)$/.exec(p.tag) : null
+    if (!mailAccount) return false
+    const mailPath = `/mail/${mailAccount[1]}`
+    return clients.some((c) => {
+      if (!c.visible) return false
+      try {
+        const u = new URL(c.url)
+        // pathname 정확 일치 — `/mail/70` 처럼 접두만 같은 다른 계정 창과 오탐하지 않기 위해 === 로 비교한다.
+        return u.origin === origin && u.pathname === mailPath
+      } catch {
+        return false
+      }
+    })
+  }
   if (p.category !== 'DM' && p.category !== 'MENTION') return false
   const target = new URL(p.url, origin)
   return clients.some((c) => {

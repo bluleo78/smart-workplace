@@ -111,7 +111,8 @@ class GraphDraftPathDecisionTest {
             null,
             false,
             null,
-            com.workplace.mail.dto.MailProvider.M365_GRAPH);
+            com.workplace.mail.dto.MailProvider.M365_GRAPH,
+            "WORK");
     var out = new java.io.ByteArrayOutputStream();
     new MailMimeBuilder().build(account, m).writeTo(out);
     long actualBase64 = (out.size() + 2L) / 3 * 4;

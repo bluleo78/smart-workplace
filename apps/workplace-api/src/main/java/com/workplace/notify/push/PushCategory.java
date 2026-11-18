@@ -10,11 +10,14 @@ public enum PushCategory {
   DM,
   MENTION,
   ISSUE,
-  CALENDAR;
+  CALENDAR,
+  // 메일 새 알림(WP-1739) — 인박스 NotificationType 이 아니라 메일 수집부가 직접 호출로만 보내는 카테고리.
+  MAIL;
 
   /**
    * 인박스 알림 유형 → 기본 카테고리. 이슈 계열은 ISSUE, 일정 계열은 CALENDAR, 이슈 챗·코멘트 멘션은 MENTION. AI_QUESTION 은 기본
-   * ISSUE 이고 그 질문 글에서 멘션된 수신자만 NotificationService 가 MENTION 으로 따로 보낸다(WP-452).
+   * ISSUE 이고 그 질문 글에서 멘션된 수신자만 NotificationService 가 MENTION 으로 따로 보낸다(WP-452). MAIL 은
+   * NotificationType 에 없으므로 이 매핑에서는 나오지 않는다 — 메일 새 알림은 직접 호출로만 온다(WP-1739).
    */
   public static PushCategory of(NotificationType type) {
     return switch (type) {

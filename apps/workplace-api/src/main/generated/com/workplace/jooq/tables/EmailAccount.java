@@ -208,6 +208,11 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
      */
     public final TableField<EmailAccountRecord, Boolean> IMAP_UIDPLUS = createField(DSL.name("imap_uidplus"), SQLDataType.BOOLEAN, this, "");
 
+    /**
+     * The column <code>public.email_account.notify_mode</code>.
+     */
+    public final TableField<EmailAccountRecord, String> NOTIFY_MODE = createField(DSL.name("notify_mode"), SQLDataType.VARCHAR(4).nullable(false).defaultValue(DSL.field(DSL.raw("'WORK'::character varying"), SQLDataType.VARCHAR)), this, "");
+
     private EmailAccount(Name alias, Table<EmailAccountRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

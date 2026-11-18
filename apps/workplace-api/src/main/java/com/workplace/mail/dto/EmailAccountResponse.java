@@ -20,4 +20,5 @@ public record EmailAccountResponse(
     Instant updatedAt,
     boolean aiEnabled,
     Instant lastSyncedAt,
-    MailProvider provider) {} // provider: 메일 공급자(IMAP 기본값, M365_GRAPH 등)
+    MailProvider provider, // provider: 메일 공급자(IMAP 기본값, M365_GRAPH 등)
+    String notifyMode) {} // notifyMode: 새 메일 OS 푸시 알림 범위 ALL|WORK|OFF(WP-1739, 기본값 WORK)

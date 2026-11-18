@@ -87,7 +87,8 @@ class EmailAccountControllerTest extends WebMvcSliceTestBase {
         Instant.now(),
         false,
         null,
-        MailProvider.IMAP);
+        MailProvider.IMAP,
+        "WORK");
   }
 
   private EmailAccountRequest sampleRequest() {

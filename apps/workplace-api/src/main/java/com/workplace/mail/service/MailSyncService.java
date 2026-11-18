@@ -24,8 +24,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ImapMailFetcher})로 위임한다(#499 seam 추출).
  *
  * <p>본 서비스는 (1) 계정 소유 검증 (2) 동시 동기화 가드 (3) 공급자 디스패치 (4) 본문 백필 트리거 (5) last_synced_at 갱신 (6) 선제 요약
- * 트리거 (7) 서버 메일함 목록 갱신(WP-960, best-effort) 을 담당한다. 공급자별 자격증명 해석·네트워크 I/O 는 {@link
- * MailFetcher#fetchNewMessages} 내부 책임이다.
+ * 트리거 (7) 서버 메일함 목록 갱신(WP-960, best-effort) (8) 커밋 뒤 새 메일 OS 푸시 발송(WP-1739, best-effort) 을 담당한다.
+ * 공급자별 자격증명 해석·네트워크 I/O 는 {@link MailFetcher#fetchNewMessages} 내부 책임이다.
  *
  * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬이라 소유 검증 SELECT·메시지 insert 등 DB 접근을 짧은 트랜잭션({@code
  * txTemplate})으로 감싼다.
@@ -52,6 +52,9 @@ public class MailSyncService {
   /** 서버 메일함 목록 갱신(WP-960) — 받은편지함 동기화 뒤 best-effort 로 부른다. */
   private final MailFolderService folderService;
 
+  /** 새 메일 OS 푸시 발송(WP-1739) — 동기화 트랜잭션 커밋 뒤, 동기화 전 경계(maxInboxId)와 함께 부른다. */
+  private final MailPushService mailPushService;
+
   /** 공급자 → fetcher 맵. Spring 이 MailFetcher 빈 목록을 자동 주입한다. */
   private final Map<MailProvider, MailFetcher> fetchers;
 
@@ -64,7 +67,8 @@ public class MailSyncService {
       MailSummaryBackfillService summaryBackfillService,
       PlatformTransactionManager txManager,
       List<MailFetcher> fetchers,
-      MailFolderService folderService) {
+      MailFolderService folderService,
+      MailPushService mailPushService) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
     this.progress = progress;
@@ -74,19 +78,30 @@ public class MailSyncService {
     this.txTemplate = new TransactionTemplate(txManager);
     this.fetchers = fetchers.stream().collect(toMap(MailFetcher::provider, f -> f));
     this.folderService = folderService;
+    this.mailPushService = mailPushService;
   }
+
+  /** 동기화 시작 스냅샷(WP-1739) — 계정 정보와 동기화 <b>전</b> 받은편지함 최대 id(새 메일 판정 경계). 계정 조회와 같은 트랜잭션에서 함께 읽는다. */
+  private record SyncStart(EmailAccountResponse account, long maxInboxId) {}
 
   /**
    * 본인 계정 INBOX 의 목록 메타를 동기화(본문 제외). 소유 아니면 404, 메일 서버 오류면 502. 이미 진행 중이면 빈 결과 반환(가드 — 진행률은
    * sync-status 로 확인). 완료 후 미적재 본문이 있으면 비동기 백그라운드 보충을 트리거한다.
    */
   public MailSyncResult sync(long userId, long accountId) {
-    EmailAccountResponse account =
+    SyncStart start =
         txTemplate.execute(
-            status ->
-                accountRepo
-                    .findByIdAndUser(userId, accountId)
-                    .orElseThrow(() -> new EmailAccountNotFoundException(accountId)));
+            status -> {
+              EmailAccountResponse account =
+                  accountRepo
+                      .findByIdAndUser(userId, accountId)
+                      .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+              // WP-1739: 동기화 전 경계 id 를 계정 조회와 같은 트랜잭션에서 읽는다 — 뒤이은 fetch 가 행을 넣기
+              // 전 값이어야 그 뒤부터가 「새 메일」이 된다(파라미터는 읽기만 하고 발송은 커밋 뒤에 한다).
+              return new SyncStart(account, messageRepo.maxInboxId(accountId));
+            });
+    EmailAccountResponse account = start.account();
+    long maxInboxId = start.maxInboxId();
 
     // 계정당 동시 실행 가드 — try 진입 전에 점유 시도. 이미 진행 중이면 즉시 빈 결과.
     if (!progress.tryStart(accountId)) {
@@ -126,6 +141,11 @@ public class MailSyncService {
               notifier.mailChanged(userId, accountId, null, null);
             }
           });
+      // WP-1739: 새 메일 OS 푸시 발송 — 반드시 위 마지막 동기화 트랜잭션(last_synced_at 갱신)이 커밋된 '뒤' 호출한다.
+      //  · 롤백 안전: executeWithoutResult 가 예외로 끝나면 여기까지 오지 않는다(롤백된 동기화가 잘못된 알림을 보내지 않는다).
+      //    발송 자체도 try/catch 로 감싸 best-effort — 푸시 실패가 동기화 성공을 가리지 않는다(설계 지침, 내부 방어와 이중 방어).
+      //  · 호출부(컨트롤러·자동 동기화 스케줄러·커밋 후 리스너)는 밖 트랜잭션이 없어 execute 반환 = 커밋 완료다.
+      sendNewMailQuietly(userId, account, maxInboxId);
       // 동기화로 적재된 새 메일을 선제 요약(@Async — 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행되어 새 메일이 가시). best-effort.
       // AI 게이트는 계정 단위(ai_enabled) — 호출자가 책임진다. 분석 서비스의 자체 게이트(비서 해석)는
       // 유저/비서 설정 단위라 계정 ai_enabled 와 어긋나므로, 여기서 OFF 계정을 미리 거른다(불필요한 IMAP fetch·요약 예외 스팸 방지).
@@ -138,6 +158,35 @@ public class MailSyncService {
       if (!triggeredBackfill) {
         progress.finish(accountId);
       }
+    }
+  }
+
+  /**
+   * 커밋 뒤 새 메일 푸시(WP-1739) — 동기화 전에 읽어 둔 경계(maxInboxId) 이후로 들어온 안 읽은 메일을 판정해 발송한다.
+   *
+   * <p><b>왜 커밋 이후 지점인가:</b> 후보 메일이 DB 에 적재되는 것은 앞의 짧은 트랜잭션들이라, 발송은 마지막 동기화 트랜잭션이 커밋된 뒤에 해야 롤백된
+   * 동기화에서 알림이 나가지 않는다(afterCommit 콜백으로 등록할 수도 있지만, 그 시점엔 끝난 트랜잭션의 커넥션이 아직 스레드에 묶여 있어 두 번째 커넥션을 빌려야
+   * 하고 풀이 포화되면 서로를 기다린다 — execute 반환 후면 커넥션을 이미 반납한 뒤라 안전하다).
+   *
+   * <p><b>왜 읽기 트랜잭션인가:</b> 후보 조회(findNewUnreadInbox)는 RLS GUC(app.tenant_id, 트랜잭션-로컬)가 주입된 커넥션에서만
+   * 행을 본다 — 경계가 없으면 fail-closed 로 0행이 되어 알림이 조용히 사라진다(#444). 발송(HTTP) 구간에 커넥션을 잡지만 본문 적재의 IMAP 왕복도
+   * 짧은 트랜잭션으로 감싸는 현행 패턴과 같다.
+   *
+   * <p><b>왜 첫 동기화는 제외인가:</b> lastSyncedAt 이 null 이면(첫 동기화) 경계 이전의 기존 미읽음 받은편지함 전체가 후보가 되어 한꺼번에 올라온다
+   * — 발송을 생략해 스팸을 막는다(설계 지침). 경계는 다음 동기화부터 있어 그 뒤의 새 메일만 후보가 된다.
+   */
+  private void sendNewMailQuietly(long userId, EmailAccountResponse account, long maxInboxId) {
+    // 첫 동기화 제외 — 계정 조회 시점의 lastSyncedAt(갱신 전)이 곧 '이전에 동기화한 적이 있는가' 다.
+    if (account.lastSyncedAt() == null) {
+      return;
+    }
+    try {
+      // 읽기(경계 후보 조회)를 짧은 트랜잭션으로 감싼다 — 진입 시 TenantContext → RLS GUC 주입.
+      txTemplate.executeWithoutResult(
+          status -> mailPushService.sendNewMail(userId, account, maxInboxId));
+    } catch (Exception ex) {
+      // best-effort — 발송·조회·조립 어느 단계든 실패해도 동기화는 성공으로 끝난다(예외 미전파).
+      log.warn("[push] 새 메일 푸시 실패(동기화는 성공 유지) accountId={}: {}", account.id(), ex.toString());
     }
   }
 

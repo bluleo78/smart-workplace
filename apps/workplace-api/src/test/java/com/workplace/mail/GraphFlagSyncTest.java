@@ -85,7 +85,8 @@ class GraphFlagSyncTest extends ExternalClientMockedTestBase {
         Instant.now(),
         false,
         null,
-        MailProvider.M365_GRAPH);
+        MailProvider.M365_GRAPH,
+        "WORK");
   }
 
   /** 읽음·flagStatus 를 지정한 delta 항목. flagStatus 가 null 이면 flag 가 빠진 항목을 흉내 낸다. */

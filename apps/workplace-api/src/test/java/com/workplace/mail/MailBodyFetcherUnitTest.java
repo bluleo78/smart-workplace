@@ -51,7 +51,8 @@ class MailBodyFetcherUnitTest {
             null,
             true,
             null,
-            MailProvider.IMAP);
+            MailProvider.IMAP,
+            "WORK");
     EmailAccountRepository accountRepo = mock(EmailAccountRepository.class);
     when(accountRepo.findByIdAndUser(anyLong(), anyLong())).thenReturn(Optional.of(account));
     fetcher = new MailBodyFetcher(accountRepo, List.of(loader));

@@ -51,7 +51,8 @@ class GraphReadSyncerTest extends ExternalClientMockedTestBase {
           null,
           false,
           null,
-          MailProvider.M365_GRAPH);
+          MailProvider.M365_GRAPH,
+          "WORK");
 
   private static SeenSyncItem item(long id, boolean seen) {
     return new SeenSyncItem(

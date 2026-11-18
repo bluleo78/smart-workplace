@@ -112,8 +112,11 @@ public final class NeedsReplyRules {
     return in.fromAddress() != null && in.myAddresses().contains(in.fromAddress());
   }
 
-  /** 자동 발신자 로컬파트. */
-  static boolean isAutoSender(String from) {
+  /**
+   * 자동 발신자 로컬파트(WP-1739: 메일 푸시 판정이 주소 하나로도 같은 규칙을 쓰도록 공개). from 은 소문자화된 주소를 전제한다 ({@link
+   * MailAddresses#normalize}).
+   */
+  public static boolean isAutoSender(String from) {
     if (from == null) {
       return false;
     }
