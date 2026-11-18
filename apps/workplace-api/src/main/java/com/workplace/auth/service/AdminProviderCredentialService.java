@@ -42,11 +42,10 @@ public class AdminProviderCredentialService {
     OAuthTokenMetaResponse meta =
         credentials.register(
             callerId, agentUserId, provider, plaintextSecret, label, model, workspaceId);
-    // 연결 등록과 같은 정규화 — 로그인형은 그 프로그램이 읽는 키만 남긴 원문이 저장되므로 계정도 같은 원문을 받는다(등록이 이미 형식을 검증했다).
-    String normalized =
-        AgentProviders.isLogin(provider)
-            ? LoginInfoNormalizer.normalize(provider, plaintextSecret)
-            : plaintextSecret;
+    // 연결 등록과 같은 정규화(ProviderSecrets, WP-1721) — 연결에 저장된 원문과 같은 원문을 계정도 받는다(로그인형은 읽는 키만 남긴
+    // auth.json,
+    // Claude 토큰은 앞뒤 공백·보이지 않는 문자를 지운 값). 등록이 이미 형식을 검증했다.
+    String normalized = ProviderSecrets.normalize(provider, plaintextSecret);
     podAccounts.bindFromLegacy(callerId, agentUserId, provider, normalized, label, workspaceId);
     return meta;
   }

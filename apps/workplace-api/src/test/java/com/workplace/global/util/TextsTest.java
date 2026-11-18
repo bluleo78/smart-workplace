@@ -1,5 +1,9 @@
 package com.workplace.global.util;
 
+import static com.workplace.support.TestFixtures.BOM;
+import static com.workplace.support.TestFixtures.NBSP;
+import static com.workplace.support.TestFixtures.NNBSP;
+import static com.workplace.support.TestFixtures.ZWSP;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
@@ -55,6 +59,16 @@ class TextsTest {
     assertThat(Texts.blankToNull("")).isNull();
     assertThat(Texts.blankToNull("  ")).isNull();
     assertThat(Texts.blankToNull(" a ")).isEqualTo(" a ");
+  }
+
+  /** WP-1721: 앞뒤의 공백·NBSP·폭 없는 공백·BOM 을 떼고 가운데는 그대로, 남는 것이 없으면 null. */
+  @Test
+  void stripInvisibleToNull_앞뒤_보이지_않는_문자를_떼고_비면_null() {
+    assertThat(Texts.stripInvisibleToNull(null)).isNull();
+    assertThat(Texts.stripInvisibleToNull(" " + NBSP + ZWSP + BOM + "\n")).isNull();
+    assertThat(Texts.stripInvisibleToNull(BOM + NBSP + " tok en" + ZWSP + NNBSP + "\r\n"))
+        .isEqualTo("tok en");
+    assertThat(Texts.stripInvisibleToNull("a" + ZWSP + "b")).isEqualTo("a" + ZWSP + "b");
   }
 
   @Test

@@ -1,17 +1,20 @@
 package com.workplace.auth.repository;
 
 import static com.workplace.jooq.Tables.AI_AGENT_CREDENTIAL;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 
 import com.workplace.auth.dto.ActiveCredentialRef;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -108,6 +111,23 @@ public class AiAgentCredentialRepository {
         .and(AI_AGENT_CREDENTIAL.PROVIDER.eq(provider))
         .forEach(r -> out.put(r.get(AI_AGENT_CREDENTIAL.USER_ID), mapRow(r)));
     return out;
+  }
+
+  /**
+   * 이 테넌트 구성원(멤버십) AI 의 active 행 중 provider 가 같은 것 — id 순(WP-1721, 기동 때 Claude 토큰 정리). 연결 표에는 테넌트
+   * 열이 없으므로 멤버십으로 테넌트를 가른다. 암호문 그대로 — 평문은 다루지 않는다.
+   */
+  public List<AiAgentCredentialRow> findActiveByProviderInTenant(String provider, long tenantId) {
+    return dsl.selectFrom(AI_AGENT_CREDENTIAL)
+        .where(AI_AGENT_CREDENTIAL.REVOKED_AT.isNull())
+        .and(AI_AGENT_CREDENTIAL.PROVIDER.eq(provider))
+        .and(
+            AI_AGENT_CREDENTIAL.USER_ID.in(
+                DSL.select(MEMBERSHIP.USER_ID)
+                    .from(MEMBERSHIP)
+                    .where(MEMBERSHIP.TENANT_ID.eq(tenantId))))
+        .orderBy(AI_AGENT_CREDENTIAL.ID)
+        .fetch(this::mapRow);
   }
 
   /**
