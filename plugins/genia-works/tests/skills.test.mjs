@@ -846,6 +846,22 @@ test('process-issue.md: 작은 이슈도 계획 파일·SDD 하위 에이전트�
   assert.ok(text.includes('PR 본문 「절차」 줄에 남긴다'));
 });
 
+// WP-1717 — 실측에서 개발 AI 가 처리 파일을 읽지 않고 「읽습니다」라 하고, 세 스킬을 부르지 않고 흉내만 냈다 — 읽기 확인·Skill 호출·절차 줄 형식을 적는다.
+test('process-issue.md: 처리 파일을 실제로 읽고 세 스킬을 Skill 도구로 불러 「절차」 줄에 남긴다 (WP-1717)', () => {
+  const text = workLoop('process-issue.md');
+  const start = text.split('\n### 1. 시작\n')[1].split('\n### ')[0];
+  assert.ok(start.includes('처리 파일을 `Read` 로 다시 읽은 뒤'));
+  assert.ok(start.includes('대화 요약 뒤') && start.includes('`SKILL.md` 4번'));
+  assert.ok(text.includes('`처리 파일: <파일> (플러그인 <버전>) 읽음 <HH:MM>`'));
+  const s5 = text.split('\n### 5. 설계·구현\n')[1].split('\n### ')[0];
+  assert.ok(s5.includes('`Skill` 도구로 부른다'));
+  assert.ok(s5.includes('**밟지 않은 것**'));
+  assert.ok(s5.includes('`cat <<EOF`'));
+  assert.ok(s5.includes('Model Selection'));
+  assert.ok(s5.includes('절차: 처리 파일 <파일> (플러그인 <버전>) → brainstorming(Skill) → writing-plans(Skill, <계획 파일>) → subagent-driven-development(Skill, Task <n>개'));
+  assert.ok(s5.includes('PR 본문 「절차」 줄에 남긴다'));
+});
+
 // WP-1336 — 작업 공간 이미지에 superpowers·code-simplifier 가 늘 있어 Gen:iA Code 도 같은 리뷰 → 정리 두 단계를 한다.
 test('process-issue.md: /code-review·/simplify 가 없는 실행기는 superpowers 리뷰·code-simplifier 로 같은 두 단계를 한다 (WP-1293, WP-1336)', () => {
   const text = workLoop('process-issue.md');
@@ -1124,6 +1140,11 @@ test('process-issue.md: 안내 자료 요청은 라벨로 분류보다 먼저 �
   }
   assert.ok(triage.includes('안내 자료 요청 라벨이 붙은 이슈는 분류 요청이 아니다'));
 });
+test('SKILL.md 4번: 고른 처리 파일을 Read 로 읽고 notes 에 처리 파일 줄을 적는다 (WP-1717)', () => {
+  const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
+  assert.ok(s4.includes('`Read` 로 읽는다') && s4.includes('`처리 파일: <파일> (플러그인 <버전>) 읽음 <HH:MM>` 줄'));
+});
+
 test('SKILL.md 4번: 안내 자료 요청 라벨 이슈는 역할과 상관없이 맨 위 행으로 process-issue.md 「안내 자료 요청」 (WP-1705)', () => {
   const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
   assert.match(s4, /^\| 누구든 \| [^\n]*「안내 자료 요청」[^\n]*\|$/m);
@@ -1169,4 +1190,70 @@ test('work-loop SKILL.md 는 다음 확인을 잡은 뒤에 gw-clear-mark set �
   assert.match(text, /bg-job/);
   assert.match(text, /DRAIN/);
   assert.match(text, /기다리는 중/);
+});
+
+// WP-1717 — 검토자는 개발자의 「절차」 줄·/code-review 실제 실행·완료 기준 대조표가 리뷰 글에 있어야 머지한다.
+test('process-issue.md: 검토자는 절차 확인·/code-review medium 실행·완료 기준 대조표가 리뷰 글에 있어야 머지한다 (WP-1717)', () => {
+  const p = workLoop('process-issue.md');
+  const review = p.split('\n### PR 리뷰·머지 (검토자)\n')[1].split('\n### ')[0];
+  assert.ok(review.includes('**절차 확인**'));
+  assert.ok(review.includes('**밟지 않은 것**'));
+  assert.ok(review.includes('executing-plans'));
+  assert.ok(review.includes('`without-superpowers.md`'));
+  assert.ok(review.includes('`/code-review medium` 을 `Skill` 도구로 실제로 돌린다'));
+  assert.ok(review.includes('돌린 사실·지적 수·판단'));
+  assert.ok(review.includes('**완료 기준 대조표**'));
+  assert.ok(review.includes('충족 / 미충족 / 확인 불가'));
+  assert.ok(review.includes('완료 기준이 없으면 본문의 할 일·요구'));
+  assert.ok(review.includes('다시 부탁받은 PR 도 대조표는 모든 기준을 다시 적는다'));
+  const merge = review.split('\n6. **머지**')[1].split('\n7. ')[0];
+  assert.ok(merge.includes('대조표') && merge.includes('머지하지 않는다'));
+  // gw-repo pr-review --approve 는 --body-file 을 버리므로 글은 --comment 로 따로 올린다
+  assert.ok(merge.includes('--comment --body-file') && merge.includes('「검토자 <내 username> 승인 — 리뷰한 HEAD <sha>」'));
+  // 한 명령(백틱 안·한 줄)에 --approve 와 --body-file 이 함께 있으면 안 된다
+  assert.ok(!/--approve[^`\n]*--body-file/.test(merge));
+  assert.ok(merge.includes('리뷰한 HEAD <sha>」'));
+  assert.ok(review.includes('「절차」 줄을 새로 요구하지 않는다'));
+  const skill = workLoop('SKILL.md');
+  assert.ok(skill.includes('.claude-plugin/plugin.json') && p.includes('.claude-plugin/plugin.json'));
+  assert.ok(p.includes('자리 표시가 남지 않았는지'));
+  const integ = review.split('**통합 PR(기차')[1];
+  assert.ok(integ.includes('절차 확인·대조표는 이슈마다'));
+  assert.ok(integ.includes('`/code-review medium` 은 PR 전체에 한 번'));
+  // 5번 「절차」 줄 규칙 보충 — 실행기에 없는 리뷰 도구 대안·`<파일>` 예
+  const dev = p.split('\n### PR 리뷰·머지 (검토자)\n')[0];
+  const s5 = dev.split('\n### 5. 설계·구현\n')[1].split('\n### ')[0];
+  assert.ok(s5.includes('requesting-code-review') && s5.includes('그 자리에 실제로 쓴 리뷰'));
+  assert.ok(!s5.includes('줄에 그 자리에'));
+  assert.ok(s5.includes('`<파일>` 은 `process-issue.md`') && !s5.includes('기획 역할이면 `plan-issue.md`'));
+  // SDD 원장 Task 완료 줄을 「절차」 줄 아래에 붙이고 검토자 3번이 그 줄로 본다 (원장·계획 파일은 gitignore)
+  assert.ok(s5.includes('SDD 원장 줄을 붙인다') && s5.includes('Task 완료 줄') && s5.includes('gitignore'));
+  assert.ok(review.includes('SDD 원장 Task 완료 줄') && review.includes('최종 리뷰가 있었는지'));
+  // without-superpowers 경로도 「절차」 줄 지시를 받는다
+  assert.ok(s5.split('\n- 없으면')[1].includes('「절차」 줄은 위 형식으로'));
+  // 기차 통합 PR 머지 소항목은 6번처럼 리뷰 글(--comment)·승인 뒤 pr-merge
+  const trainMerge = integ.split('\n  - 통과하면')[1].split('\n  - ')[0].split('\n- ')[0];
+  assert.ok(trainMerge.includes('`--comment`') && trainMerge.includes('승인한 뒤'));
+  assert.ok(trainMerge.indexOf('`--comment`') < trainMerge.indexOf('gw-repo pr-merge'));
+  // 같은 계정 대안: 리뷰 글 첫 줄은 늘 승인 문구
+  assert.ok(merge.includes('첫 줄은 늘 「검토자 <내 username> 승인 — 리뷰한 HEAD <sha>」') && merge.includes('이 글이 승인 기록이다'));
+  // 「절차」 줄은 notes 의 `절차` 필드로 붙잡고 9번·기차 PR 본문에 싣는다
+  const notesList = dev.split('\n**notes 파일**')[1].split('\n### ')[0];
+  assert.ok(notesList.includes('- `절차: '));
+  const s9 = dev.split('\n### 9. PR\n')[1].split('\n### ')[0];
+  assert.ok(s9.includes('「절차」 줄') && s9.includes('SDD 원장 Task 완료 줄'));
+  const train3 = dev.split('\n### 기차 (저장소가 켰을 때)\n')[1].split('\n3. **출발**')[1].split('\n4. **게이트')[0];
+  assert.ok(train3.includes('「절차」 줄') && train3.includes('`절차`'));
+  // 플러그인 버전은 설치된 plugin.json 의 version 에서 네트워크 없이 읽는다
+  assert.ok(notesList.includes('.claude-plugin/plugin.json') && !notesList.includes('gw-plugin-version'));
+});
+
+test('.work-loop/project.md 검토자 절에 같은 머지 조건이 있다 (WP-1717)', () => {
+  const proj = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  const s8 = proj.split('\n## 8. 검토자\n')[1].split('\n## ')[0];
+  assert.ok(s8.includes('머지 조건'));
+  assert.ok(s8.includes('완료 기준 대조표'));
+  assert.ok(s8.includes('「절차」 줄'));
+  assert.ok(s8.includes('/code-review medium'));
+  assert.ok(s8.includes('다시 부탁받으면 달라진 부분'));
 });
