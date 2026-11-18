@@ -682,4 +682,101 @@ class MailComposeServiceTest extends ExternalClientMockedTestBase {
         .hasMessageContaining("원본 메일의 이미지를 가져오지 못했어요");
     verify(graphApiClient, never()).sendMail(any(), any());
   }
+
+  // ---- WP-1725: 서명 HTML 이 발송 MIME 의 text/html 파트와 로컬 보낸 메일 행에 그대로 실린다 ----
+
+  /** 작성창(mailComposerHtml)이 보내는 모양의 본문 — 본문 문단 + 빈 줄 + 서명 블록(서식 있는 HTML). */
+  private static final String SIGNATURE_HTML =
+      "<div data-mail-signature=\"\"><p><span style=\"color: #1f4e79\"><b>홍길동</b></span>"
+          + " | 개발팀</p></div>";
+
+  private static final String BODY_WITH_SIGNATURE = "<p>본문</p><p></p>" + SIGNATURE_HTML;
+
+  private static final String TEXT_WITH_SIGNATURE = "본문\n\n홍길동 | 개발팀";
+
+  /** MIME 을 훑어 첫 파트 중 주어진 타입(text/html·text/plain)의 내용을 찾는다(없으면 null). */
+  private static String firstPartContent(Part part, String mimeType) throws Exception {
+    if (part.isMimeType("multipart/*")) {
+      MimeMultipart mp = (MimeMultipart) part.getContent();
+      for (int i = 0; i < mp.getCount(); i++) {
+        String found = firstPartContent(mp.getBodyPart(i), mimeType);
+        if (found != null) {
+          return found;
+        }
+      }
+      return null;
+    }
+    return part.isMimeType(mimeType) ? (String) part.getContent() : null;
+  }
+
+  /** 로컬 보낸 메일 행의 본문 HTML 이 서명 HTML 을 원문 그대로 가진다 — 보낸편지함 화면이 이 HTML 을 그린다(WP-1725). */
+  private void assertLocalSentRowKeepsSignatureHtml(long user, long localId) {
+    var detail = messageRepo.findDetailByIdAndUser(user, localId).orElseThrow();
+    assertThat(detail.bodyHtml()).contains(SIGNATURE_HTML);
+    assertThat(detail.bodyText()).isEqualTo(TEXT_WITH_SIGNATURE);
+  }
+
+  /**
+   * SMTP 경로 — 수신 MIME 은 multipart/alternative 이고 text/html 파트에 서명 HTML 이, text/plain 파트에 서명 글자가 있다.
+   */
+  @Test
+  void send_smtp_signatureHtmlInHtmlPartAndLocalSentRow() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = account(user);
+
+    SendResult res =
+        composeService.send(
+            user,
+            accountId,
+            new MailSendRequest(
+                List.of("rcpt@test.local"),
+                List.of(),
+                List.of(),
+                "서명 메일",
+                BODY_WITH_SIGNATURE,
+                TEXT_WITH_SIGNATURE,
+                null));
+
+    MimeMessage[] received = greenMail.getReceivedMessages();
+    assertThat(received).hasSize(1);
+    assertThat(received[0].isMimeType("multipart/alternative")).isTrue();
+    assertThat(firstPartContent(received[0], "text/html")).contains(SIGNATURE_HTML);
+    assertThat(firstPartContent(received[0], "text/plain")).contains("홍길동 | 개발팀");
+    assertLocalSentRowKeepsSignatureHtml(user, res.localMessageId());
+  }
+
+  /**
+   * Graph 경로 — sendMail 에 넘긴 base64 MIME 의 text/html 파트에 서명 HTML 이 있다(Graph 가 이 MIME 으로 보낸편지함 사본도
+   * 만든다).
+   */
+  @Test
+  void send_graph_signatureHtmlInHtmlPartAndLocalSentRow() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(user, accountId)).thenReturn("FAKE_TOKEN");
+
+    SendResult res =
+        composeService.send(
+            user,
+            accountId,
+            new MailSendRequest(
+                List.of("peer@example.com"),
+                null,
+                null,
+                "서명 메일",
+                BODY_WITH_SIGNATURE,
+                TEXT_WITH_SIGNATURE,
+                null));
+
+    ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+    verify(graphApiClient).sendMail(eq("FAKE_TOKEN"), cap.capture());
+    MimeMessage sent =
+        new MimeMessage(
+            Session.getInstance(new Properties()),
+            new ByteArrayInputStream(Base64.getDecoder().decode(cap.getValue())));
+    assertThat(sent.isMimeType("multipart/alternative")).isTrue();
+    assertThat(firstPartContent(sent, "text/html")).contains(SIGNATURE_HTML);
+    assertThat(firstPartContent(sent, "text/plain")).contains("홍길동 | 개발팀");
+    assertLocalSentRowKeepsSignatureHtml(user, res.localMessageId());
+  }
 }
