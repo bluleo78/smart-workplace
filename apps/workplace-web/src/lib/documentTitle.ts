@@ -82,6 +82,9 @@ export function routeTitleParts(pathname: string): string[] {
       return ['노트']
     case 'contacts':
       return ['연락처']
+    case 'oauth':
+      // 앱 연결 동의 화면(/oauth/authorize, WP-1686). /oauth/m365/callback 같은 팝업 착지는 이름을 붙이지 않는다.
+      return second === 'authorize' ? ['앱 연결'] : []
     case 'settings': {
       const sub = second === 'apps' ? (third ? SETTINGS_APP_TITLES[third] : undefined) : second ? SETTINGS_TITLES[second] : undefined
       return sub ? [sub, '설정'] : ['설정']

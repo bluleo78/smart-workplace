@@ -134,6 +134,8 @@ const MailModuleLayout = lazy(() =>
 )
 // 메일 작성 새 창(WP-1535) — 앱 셸 없이 작성창만 그리는 독립 창.
 const MailComposeWindowPage = lazy(() => import('./pages/mail/MailComposeWindowPage'))
+// Claude 앱 연결 동의 화면(WP-1686) — ProtectedRoute 안·AppLayout 밖.
+const OAuthConsentPage = lazy(() => import('./pages/oauth/OAuthConsentPage'))
 const MailInboxPage = lazy(() =>
   import('./pages/mail/MailInboxPage').then((m) => ({ default: m.MailInboxPage })),
 )
@@ -218,6 +220,8 @@ export default function App() {
               {/* 메일 작성 새 창(WP-1535) — 작성창 ↗ 가 여는 독립 브라우저 창. 앱 셸(AppLayout) 밖이라 작성창만 창 전체에 그린다.
                   정적 경로라 mail/:accountId 보다 먼저 맞는다. */}
               <Route path="mail/compose" element={<MailComposeWindowPage />} />
+              {/* Claude 앱 연결 동의 화면(WP-1686) — 앱이 연 브라우저가 로그인 뒤 돌아오는 독립 화면이라 앱 셸(AppLayout) 밖에 둔다. */}
+              <Route path="oauth/authorize" element={<OAuthConsentPage />} />
               <Route element={<AppLayout />}>
                 <Route index element={<HomePage />} />
                 {/* 모바일 전용 화면(WP-126) — 알림은 데스크톱 접근 시 홈 + 인박스 Popover 로(페이지 자체 처리), 앱 목록류는 MobileOnly 가 홈으로. */}

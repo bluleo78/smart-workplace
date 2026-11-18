@@ -155,12 +155,17 @@ public class NotificationRepository {
         .execute();
   }
 
-  /** 개인 비서 연결 회수 알림 1건 insert(WP-1170) — 가리킬 이슈·일정·노트가 없는 계정 알림. 행위자는 회수한 사람이다. */
-  public void insertAccountNotice(long recipientId, NotificationType type, long actorId) {
+  /**
+   * 계정 알림 1건 insert — 가리킬 이슈·일정·노트가 없다. 개인 비서 연결 회수(WP-1170)는 행위자가 회수한 사람이고 message 가 없다. 새 앱
+   * 연결(WP-1686)은 행위자가 없고 message 에 앱 이름을 싣는다.
+   */
+  public void insertAccountNotice(
+      long recipientId, NotificationType type, Long actorId, String message) {
     dsl.insertInto(NOTIFICATION)
         .set(NOTIFICATION.RECIPIENT_ID, recipientId)
         .set(NOTIFICATION.ACTOR_ID, actorId)
         .set(NOTIFICATION.TYPE, type.name())
+        .set(NOTIFICATION.MESSAGE, message)
         .execute();
   }
 

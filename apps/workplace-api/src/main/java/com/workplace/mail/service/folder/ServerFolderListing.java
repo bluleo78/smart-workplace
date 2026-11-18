@@ -7,5 +7,13 @@ import java.util.List;
  *
  * @param folders 저장 대상(ARCHIVE·USER) 폴더 전부
  * @param inboxRemoteId 받은편지함의 서버 식별자(INBOX 행 remote_id 기록용) — 모르면 null
+ * @param uidPlus 서버가 UIDPLUS 를 지원하는지(WP-1682, 완전 삭제 가능 여부 안내용) — IMAP 만 알고 Graph 등은 null(모름)
  */
-public record ServerFolderListing(List<ServerFolder> folders, String inboxRemoteId) {}
+public record ServerFolderListing(
+    List<ServerFolder> folders, String inboxRemoteId, Boolean uidPlus) {
+
+  /** UIDPLUS 개념이 없는 공급자(Graph)용 — uidPlus 는 모름(null). */
+  public ServerFolderListing(List<ServerFolder> folders, String inboxRemoteId) {
+    this(folders, inboxRemoteId, null);
+  }
+}

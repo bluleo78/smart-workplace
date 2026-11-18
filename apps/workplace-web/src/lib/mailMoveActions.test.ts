@@ -7,7 +7,7 @@ import { isInboxView, mailMoveAvailability, mailMoveTargets, mailMoveToastMessag
 
 const f = (o: Partial<MailServerFolder> & { id: number }): MailServerFolder => ({
   displayName: `메일함${o.id}`, parentId: null, role: 'USER', selectable: true, unreadCount: 0, totalCount: 0,
-  syncedSince: null, folderSyncedAt: null, ...o,
+  syncedSince: null, folderSyncedAt: null, permanentDeleteUnsupported: false, ...o,
 })
 
 // 보관(1) · 프로젝트(2) ⊃ 2026(3) · 묶음(4, 메일 못 담음) ⊃ 거래처(5)

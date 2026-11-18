@@ -128,6 +128,58 @@ class PushContentServiceTest extends IntegrationTestBase {
     assertThat(m.body()).isEqualTo("시스템님이 상태를 변경했습니다");
   }
 
+  /**
+   * 새 앱 연결(WP-1686) — 가리킬 이슈·일정이 없는 계정 알림. 앱 이름(eventTitle 칸)을 본문 앞에 두고 연결을 끊을 수 있는 설정 › API 토큰의
+   * 「연결된 앱」 절을 연다(WP-1687). 「나를 향한」 알림이라 MENTION 으로 묶인다.
+   */
+  @Test
+  void forInbox_oauthAppConnected_buildsTokenSettingsMessage() {
+    PushMessage m = content.forInbox(appConnected("Claude"));
+
+    assertThat(m.title()).isEqualTo("새 앱 연결");
+    assertThat(m.body()).isEqualTo("Claude — 내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요");
+    assertThat(m.url()).isEqualTo("/settings/tokens#connected-apps");
+    assertThat(m.tag()).isEqualTo("oauth-app-connected");
+    assertThat(m.category()).isEqualTo(PushCategory.MENTION);
+    assertThat(m.urgency()).isEqualTo("normal");
+    assertThat(m.ttlSeconds()).isEqualTo(259200);
+    assertThat(PushCategory.of(NotificationType.OAUTH_APP_CONNECTED))
+        .isEqualTo(PushCategory.MENTION);
+  }
+
+  /**
+   * 새 앱 연결(WP-1686) — 앱 이름은 DCR 로 앱이 정한 값이라 길 수 있다. 다른 푸시의 제목 칸처럼 120 코드포인트로 자르고 말줄임표를 붙여 본문에
+   * 싣는다(보충 평면 글자를 반쪽으로 자르지 않게 코드포인트 단위).
+   */
+  @Test
+  void forInbox_oauthAppConnected_truncatesLongAppName() {
+    String longName = "😀" + "A".repeat(130);
+    PushMessage m = content.forInbox(appConnected(longName));
+
+    String expectedApp = "😀" + "A".repeat(119);
+    assertThat(expectedApp.codePointCount(0, expectedApp.length())).isEqualTo(120);
+    assertThat(m.body()).isEqualTo(expectedApp + "… — 내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요");
+    assertThat(m.tag()).isEqualTo("oauth-app-connected");
+  }
+
+  /**
+   * 새 앱 연결(WP-1686) 이벤트 — 새로 만든 사람 한 명에게, 행위자·이슈·일정·노트 없이 앱 이름만 eventTitle 칸에
+   * 싣는다(NotificationService 가 내는 모양 그대로, MENTION 분류).
+   */
+  private InboxPushRequestedEvent appConnected(String name) {
+    long u = TestFixtures.createHuman(dsl);
+    return new InboxPushRequestedEvent(
+        1L,
+        NotificationType.OAUTH_APP_CONNECTED,
+        PushCategory.MENTION,
+        List.of(u),
+        null,
+        null,
+        null,
+        null,
+        name);
+  }
+
   @Test
   void forInbox_deletedIssue_returnsNull() {
     PushMessage m =

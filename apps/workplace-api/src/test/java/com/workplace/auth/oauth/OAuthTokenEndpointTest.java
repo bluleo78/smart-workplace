@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -64,6 +65,9 @@ class OAuthTokenEndpointTest extends IntegrationTestBase {
   @Autowired OAuthCodeRepository codes;
   @LocalServerPort int port;
 
+  /** 정리 전에 비동기 풀(승인 커밋 뒤 「새 앱 연결」 알림 등, WP-1686)이 비기를 기다리려고 쓴다. */
+  @Autowired ApplicationContext asyncPoolContext;
+
   private OAuthTestSupport oauth;
 
   private long userId;
@@ -87,6 +91,9 @@ class OAuthTokenEndpointTest extends IntegrationTestBase {
   void cleanup() {
     // 이슈 목록 확인이 기본 개인 프로젝트를 지연 프로비저닝한다 — user 삭제 전에 지워야 FK 위반이 없다.
     dsl.deleteFrom(PROJECT).where(PROJECT.OWNER_ID.eq(userId)).execute();
+    // 승인이 새 연결을 만들면 커밋 뒤 알림(WP-1686)이 승인한 기본 테넌트에 비동기로 들어온다 — 사용자 삭제 전에 지운다.
+    OAuthTestSupport.deleteAppConnectedNotices(
+        asyncPoolContext, dsl, this::cleanupInTenant, TENANT_ID, List.of(userId));
     dsl.deleteFrom(AUDIT_LOG).where(AUDIT_LOG.USER_ID.eq(userId)).execute();
     // membership·oauth_connection·code·token 은 user 삭제 CASCADE.
     dsl.deleteFrom(USER).where(USER.ID.eq(userId)).execute();

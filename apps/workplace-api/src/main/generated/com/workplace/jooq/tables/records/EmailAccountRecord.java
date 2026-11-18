@@ -402,6 +402,20 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
         return (OffsetDateTime) get(26);
     }
 
+    /**
+     * Setter for <code>public.email_account.imap_uidplus</code>.
+     */
+    public void setImapUidplus(Boolean value) {
+        set(27, value);
+    }
+
+    /**
+     * Getter for <code>public.email_account.imap_uidplus</code>.
+     */
+    public Boolean getImapUidplus() {
+        return (Boolean) get(27);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -425,7 +439,7 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
     /**
      * Create a detached, initialised EmailAccountRecord
      */
-    public EmailAccountRecord(Long id, Long userId, String emailAddress, String displayName, String imapHost, Integer imapPort, String imapSecurity, String imapUsername, String smtpHost, Integer smtpPort, String smtpSecurity, String smtpUsername, String encryptedPassword, OffsetDateTime lastTestedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime disabledAt, Boolean aiEnabled, Long tenantId, OffsetDateTime lastSyncedAt, String provider, String oauthRefreshToken, String oauthAccessToken, OffsetDateTime oauthTokenExpiresAt, Integer aiClassifyVersion, String seenPushLeaseOwner, OffsetDateTime seenPushLeaseUntil) {
+    public EmailAccountRecord(Long id, Long userId, String emailAddress, String displayName, String imapHost, Integer imapPort, String imapSecurity, String imapUsername, String smtpHost, Integer smtpPort, String smtpSecurity, String smtpUsername, String encryptedPassword, OffsetDateTime lastTestedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime disabledAt, Boolean aiEnabled, Long tenantId, OffsetDateTime lastSyncedAt, String provider, String oauthRefreshToken, String oauthAccessToken, OffsetDateTime oauthTokenExpiresAt, Integer aiClassifyVersion, String seenPushLeaseOwner, OffsetDateTime seenPushLeaseUntil, Boolean imapUidplus) {
         super(EmailAccount.EMAIL_ACCOUNT);
 
         setId(id);
@@ -455,6 +469,7 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
         setAiClassifyVersion(aiClassifyVersion);
         setSeenPushLeaseOwner(seenPushLeaseOwner);
         setSeenPushLeaseUntil(seenPushLeaseUntil);
+        setImapUidplus(imapUidplus);
         resetTouchedOnNotNull();
     }
 }

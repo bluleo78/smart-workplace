@@ -242,8 +242,8 @@ public class MailFolderService {
   /**
    * 서버 메일함 목록을 받아 반영한다. 호출자는 DB 트랜잭션 밖에서 부른다(목록 조회는 네트워크 I/O).
    *
-   * @return 사용자에게 보이는 목록이 바뀌었으면 true(폴더 추가·삭제, 이름·부모·역할·선택 가능·개수 변화). INBOX remote_id 기록·listed_at
-   *     갱신만으로는 바뀐 것으로 보지 않는다 — 동기화마다 알림이 나가지 않게.
+   * @return 사용자에게 보이는 목록이 바뀌었으면 true(폴더 추가·삭제, 이름·부모·역할·선택 가능·개수 변화, 기록된 IMAP UIDPLUS 지원 여부 변화 —
+   *     휴지통 단추 켜짐이 바뀐다). INBOX remote_id 기록·listed_at 갱신만으로는 바뀐 것으로 보지 않는다 — 동기화마다 알림이 나가지 않게.
    * @throws MailSyncException 목록 조회 실패(이때는 아무것도 지우지 않았다)
    */
   public boolean refresh(long userId, long accountId, EmailAccountResponse account) {
@@ -263,6 +263,11 @@ public class MailFolderService {
     if (listing.inboxRemoteId() != null) {
       folderRepo.setInboxRemoteId(accountId, listing.inboxRemoteId());
     }
+    // WP-1682: 서버 UIDPLUS 지원 여부를 계정에 적는다(값이 바뀔 때만 UPDATE). 모르는 공급자(Graph, null)는 건드리지 않는다.
+    // 값이 바뀌었으면 휴지통 단추(완전히 삭제·비우기)의 켜짐이 바뀔 수 있어 「바뀜」으로 센다 — 다른 탭도 메일함 목록을 다시 받는다.
+    boolean uidPlusChanged =
+        listing.uidPlus() != null
+            && accountRepo.recordImapUidPlus(accountId, listing.uidPlus()) > 0;
 
     // 1) 넣기·갱신 — 이름이 너무 긴 폴더는 건너뛴다(그 하위는 부모 없이 최상위로 보인다).
     OffsetDateTime now = OffsetDateTime.now();
@@ -325,7 +330,7 @@ public class MailFolderService {
     folderRepo.deleteServerFolders(accountId, vanished);
 
     List<ServerFolderRow> after = folderRepo.listServerFolders(accountId);
-    return !snapshot(before).equals(snapshot(after));
+    return uidPlusChanged || !snapshot(before).equals(snapshot(after));
   }
 
   /** 사용자에게 보이는 속성만 모은 비교용 스냅샷(id 대신 이름으로 부모를 표현). */
@@ -362,9 +367,12 @@ public class MailFolderService {
    */
   @Transactional(readOnly = true)
   public List<MailFolderResponse> list(long userId, long accountId) {
-    accountRepo
-        .findByIdAndUser(userId, accountId)
-        .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+    EmailAccountResponse account =
+        accountRepo
+            .findByIdAndUser(userId, accountId)
+            .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+    // WP-1682: IMAP 계정이 UIDPLUS 미지원(FALSE)으로 기록돼 있으면 휴지통 행은 완전 삭제가 막힌다(null=모름은 막지 않는다).
+    boolean trashDeleteBlocked = accountRepo.isImapUidPlusKnownMissing(account);
     return folderRepo.listServerFolders(accountId).stream()
         .map(
             r ->
@@ -377,7 +385,8 @@ public class MailFolderService {
                     r.serverUnread(),
                     r.serverTotal(),
                     r.syncedSince() == null ? null : r.syncedSince().toInstant(),
-                    r.folderSyncedAt() == null ? null : r.folderSyncedAt().toInstant()))
+                    r.folderSyncedAt() == null ? null : r.folderSyncedAt().toInstant(),
+                    trashDeleteBlocked && FolderRole.TRASH.matches(r.role())))
         .toList();
   }
 }

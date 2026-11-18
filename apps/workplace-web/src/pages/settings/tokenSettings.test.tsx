@@ -4,12 +4,20 @@
 // 휴대폰 폭 가로 넘침(@layout)은 E2E 에 남는다. 설치 명령 복사는 userEvent 의 클립보드 대역으로 읽는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 
+import { oauthConnectionKeys } from '@/hooks/queries/useOAuthConnections'
 import { MCP_ENDPOINT } from '@/lib/mcpEndpoint'
 import { renderScreen } from '@/test/renderScreen'
+import type { OAuthConnection } from '@/types/oauth'
 
+import { oauthConnection } from '../../../e2e/factories/oauth.factory'
 import TokenSettingsPage from './TokenSettingsPage'
+
+// scrollIntoView 스파이를 되돌린다.
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 interface Token {
   id: number
@@ -25,14 +33,16 @@ interface Token {
 const base = { tenantId: 1, createdAt: '2026-09-01T00:00:00Z', lastUsedAt: null, revokedAt: null }
 const INSTALL = `/plugin marketplace add ${window.location.origin}/claude/marketplace.json\n/plugin install genia-works@genia-works`
 
-/** 토큰 화면을 띄운다 — 발급(POST)은 issue 가 응답을 정하고(기본: 받은 값으로 발급), 발급한 토큰은 다음 목록에 실린다. */
-async function openTokens(initial: Token[] = [], issue?: () => Response) {
+/** 토큰 화면을 띄운다 — 발급(POST)은 issue 가 응답을 정하고(기본: 받은 값으로 발급), 발급한 토큰은 다음 목록에 실린다.
+ *  connections 는 「연결된 앱」 절(WP-1687)이 읽는 내 앱 연결 목록(기본 빈 목록 — 절이 숨는다). 이 GET 이 없으면 처리 못 한 요청으로 실패한다. */
+async function openTokens(initial: Token[] = [], issue?: () => Response, connections: OAuthConnection[] = []) {
   let tokens = [...initial]
   const posts: unknown[] = []
   const view = renderScreen(<TokenSettingsPage />, {
     path: '/settings/tokens',
     handlers: [
       http.get('/api/v1/users/me/api-tokens', () => HttpResponse.json(tokens)),
+      http.get('/api/v1/users/me/oauth-connections', () => HttpResponse.json(connections)),
       http.post('/api/v1/users/me/api-tokens', async ({ request }) => {
         const body = (await request.json()) as { name: string; expiresAt: string | null }
         posts.push(body)
@@ -148,4 +158,82 @@ test('화면 칸과 발급·폐기 대화상자에 도움말 id(data-help)가 �
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   await user.click(screen.getByTestId('token-revoke-1'))
   expect(await screen.findByRole('alertdialog')).toHaveAttribute('data-help', 'tokens.list')
+})
+
+// WP-1687 — 「연결된 앱」 절은 토큰 표 아래·「도구에 연결하기」 위에 놓이고, 도움말 칸(tokens) 안에 든다. 연결이 없으면 절이 없다.
+test('연결이 있으면 「연결된 앱」 절이 토큰 표와 「도구에 연결하기」 사이에 있다 (WP-1687)', async () => {
+  await openTokens([], undefined, [oauthConnection()])
+  const apps = await screen.findByRole('region', { name: '연결된 앱' })
+  const tokens = screen.getByRole('table', { name: 'API 토큰 목록' })
+  const guide = screen.getByRole('region', { name: '도구에 연결하기' })
+  expect(tokens.compareDocumentPosition(apps) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(apps.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(document.querySelector('[data-help="tokens"]')).toContainElement(apps)
+})
+
+test('연결이 없으면 「연결된 앱」 절이 없다 (WP-1687)', async () => {
+  const { queryClient } = await openTokens()
+  // 연결 목록 응답이 쿼리에 실려 빈 목록으로 확정된 뒤에 본다 — 응답 전(로딩 중 숨김)에 보면 거짓으로 통과한다.
+  await waitFor(() => expect(queryClient.getQueryState(oauthConnectionKeys.mine)?.status).toBe('success'))
+  expect(screen.getByRole('region', { name: '도구에 연결하기' })).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: '연결된 앱' })).not.toBeInTheDocument()
+})
+
+// WP-1687 — 알림·푸시가 여는 #connected-apps 는 토큰 표가 처음 불러오기를 마친 뒤에 스크롤한다(표가 길어지며 절이 밀리지 않게).
+// 토큰 쿼리는 이 페이지가 가지고 절에는 scrollReady 로 넘기므로, 두 칸이 이어진 배선은 페이지에서 본다.
+test('#connected-apps 로 열면 토큰 목록이 늦게 와도 그 뒤에 절로 한 번 스크롤한다 (WP-1687)', async () => {
+  const spy = vi.spyOn(Element.prototype, 'scrollIntoView')
+  let release: () => void = () => {}
+  const opened = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  renderScreen(<TokenSettingsPage />, {
+    path: '/settings/tokens#connected-apps',
+    handlers: [
+      http.get('/api/v1/users/me/api-tokens', async () => {
+        await opened
+        return HttpResponse.json([])
+      }),
+      http.get('/api/v1/users/me/oauth-connections', () => HttpResponse.json([oauthConnection()])),
+    ],
+  })
+  await screen.findByTestId('oauth-connection-row-1')
+  expect(spy).not.toHaveBeenCalled()
+  release()
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+  expect(spy.mock.contexts[0]).toBe(screen.getByTestId('connected-apps'))
+})
+
+// WP-1687 — 토큰 없이 OAuth 로 연결하는 Claude 앱 커넥터 주소를 토큰 화면 「도구에 연결하기」에서 복사한다.
+test('「Claude 앱에 연결」이 Claude Code 안내 뒤·다른 도구 접힘 앞에 있고 커넥터 주소를 복사한다 (WP-1687)', async () => {
+  const { user } = await openTokens()
+  const guide = within(await screen.findByRole('region', { name: '도구에 연결하기' }))
+  const block = guide.getByTestId('connect-guide-claude-app')
+  expect(block).toHaveAttribute('data-help', 'tokens.claude-app')
+  expect(within(block).getByText('Claude 앱에 연결')).toBeInTheDocument()
+  expect(block).toHaveTextContent(
+    'Claude 앱(데스크톱·웹)의 커넥터 추가 화면에 아래 주소를 넣으세요. 토큰은 필요 없어요 — 로그인한 뒤 동의 화면에서 워크스페이스를 고르고 허용하면 연결됩니다.',
+  )
+  // 연결이 없으면 「연결된 앱」 절이 없으니 「위」라고 가리키지 않는다 — 늘 보여도 맞는 말(코드 리뷰 #5).
+  expect(block).toHaveTextContent('연결하면 이 화면의 「연결된 앱」에서 보고 끊을 수 있어요.')
+  expect(guide.getByTestId('connect-guide-claude-app-url')).toHaveTextContent(MCP_ENDPOINT)
+  // 순서: 3단계 확인 → Claude 앱 → 다른 도구 접힘
+  const step3 = guide.getByText('3. 확인')
+  const other = guide.getByTestId('connect-guide-other-tools')
+  expect(step3.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(block.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(other).toHaveTextContent('다른 도구로 연결 (ChatGPT 등)')
+  await user.click(guide.getByRole('button', { name: '커넥터 주소 복사' }))
+  await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(MCP_ENDPOINT))
+  expect(await screen.findByText('커넥터 주소를 복사했습니다')).toBeInTheDocument()
+})
+
+// 발급 결과 창은 토큰을 막 발급한 사람에게 토큰 없는 연결을 섞지 않으려 Claude 앱 블록을 두지 않는다.
+test('토큰 발급 결과 창에는 Claude 앱 블록이 없다 (WP-1687)', async () => {
+  const { user } = await openTokens()
+  const form = await fillIssueForm(user, 'for-modal')
+  await user.click(form.getByTestId('token-issue-submit'))
+  const dialog = within(await screen.findByTestId('token-issue-dialog'))
+  expect(dialog.queryByText('Claude 앱에 연결')).toBeNull()
+  expect(dialog.queryByTestId(/claude-app/)).toBeNull()
 })

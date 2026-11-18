@@ -20,8 +20,10 @@ import com.workplace.mail.dto.MailListCursor;
 import com.workplace.mail.dto.MailMoveRequest;
 import com.workplace.mail.dto.MailMoveResponse;
 import com.workplace.mail.dto.MailOlderResult;
+import com.workplace.mail.dto.MailPermanentDeleteRequest;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
+import com.workplace.mail.dto.MailTrashEmptyStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.dto.SaveAttachmentToDriveRequest;
@@ -39,6 +41,7 @@ import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.invite.MailInviteService;
 import com.workplace.mail.service.move.MailMoveService;
+import com.workplace.mail.service.trash.MailTrashService;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -58,6 +61,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -81,6 +85,7 @@ public class MailInboxController {
   private final MailAttachmentDriveSaveService attachmentDriveSaveService;
   private final MailFolderService folderService;
   private final MailMoveService moveService;
+  private final MailTrashService trashService;
   private final MailInviteService inviteService;
   private final MailCategoryService categoryService;
 
@@ -125,6 +130,38 @@ public class MailInboxController {
       @PathVariable long accountId,
       @Valid @RequestBody MailMoveRequest req) {
     return moveService.move(callerId, accountId, req);
+  }
+
+  /**
+   * WP-1682 휴지통 메일 완전히 삭제 — 영구 삭제(되돌릴 수 없다)로 메일 서버와 앱에서 함께 지운다. 휴지통 메일만 받는다(섞이면 400 NOT_IN_TRASH,
+   * 아무것도 지우지 않음). 1~100통, 모두 이 계정 메일이어야 한다(아니면 404). 서버가 골라 지우기(IMAP UIDPLUS)를 지원하지 않으면 400
+   * PERMANENT_DELETE_UNSUPPORTED. 메일별 결과를 돌려주며 실패한 메일은 그대로 남는다. 서버 I/O 동안 DB 연결을 잡지 않게 트랜잭션을 걸지
+   * 않는다(서비스가 짧은 트랜잭션으로 나눈다).
+   */
+  @PostMapping("/accounts/{accountId}/messages/permanent-delete")
+  public MailMoveResponse permanentDelete(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long accountId,
+      @Valid @RequestBody MailPermanentDeleteRequest req) {
+    return trashService.permanentDelete(callerId, accountId, req.messageIds());
+  }
+
+  /**
+   * WP-1682 휴지통 비우기 시작 — 메일 서버 휴지통 바로 아래의 모든 메일(앱에 보이지 않는 30일 지난 메일 포함)을 백그라운드로 완전히 지운다. 202 + 지금
+   * 상태(이미 비우는 중이면 그 작업 상태 그대로). 남의 계정 404, 휴지통 없음·지원하지 않는 서버 400, 실행기 포화 503 TRASH_EMPTY_BUSY.
+   */
+  @PostMapping("/accounts/{accountId}/trash/empty")
+  @ResponseStatus(HttpStatus.ACCEPTED)
+  public MailTrashEmptyStatus startTrashEmpty(
+      @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
+    return trashService.startEmpty(callerId, accountId);
+  }
+
+  /** WP-1682 휴지통 비우기 상태 — 웹이 RUNNING 동안 폴링한다. 남의 계정 404, 작업 기록이 없으면 IDLE. */
+  @GetMapping("/accounts/{accountId}/trash/empty")
+  public MailTrashEmptyStatus trashEmptyStatus(
+      @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
+    return trashService.emptyStatus(callerId, accountId);
   }
 
   /**

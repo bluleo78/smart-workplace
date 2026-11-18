@@ -21,7 +21,7 @@ vi.mock('@/api/mailMessages', () => ({
   moveMessagesOnUnload: (...a: unknown[]) => moveMessagesOnUnload(...a),
 }))
 
-const { scheduleMailMove, mailMoveHiddenSnapshot, resetMailMoveQueueForTest } = await import('./mailMoveQueue')
+const { scheduleMailMove, flushMailMoves, mailMoveHiddenSnapshot, resetMailMoveQueueForTest } = await import('./mailMoveQueue')
 
 const fakeToast = { id: 7 } as Parameters<NonNullable<ExternalToast['onDismiss']>>[0]
 const lastToast = () => success.mock.calls.at(-1)![1]!
@@ -108,5 +108,67 @@ describe('scheduleMailMove', () => {
     expect(dismiss).toHaveBeenCalledWith(7)
     lastToast().onAutoClose!(fakeToast)
     expect(moveMessages).not.toHaveBeenCalled()
+  })
+
+  // WP-1682 휴지통 비우기를 시작하기 전에 그 계정의 대기 중 옮기기(예: 방금 되살린 메일)를 먼저 보낸다.
+  it('flushMailMoves — 그 계정의 대기 옮기기만 바로 보내고 끝까지 기다린다, 다른 계정 대기는 남는다', async () => {
+    moveMessages.mockResolvedValue({ results: [{ messageId: 11, ok: true, error: null }, { messageId: 12, ok: true, error: null }] })
+    const qc = new QueryClient()
+    scheduleMailMove({ qc, accountId: 3, messageIds: [11, 12], target: { kind: 'RESTORE' }, message: '2통을 되살렸습니다' })
+    scheduleMailMove({ qc, accountId: 4, messageIds: [21], target: { kind: 'ARCHIVE' }, message: '1통을 보관했습니다' })
+    expect(moveMessages).not.toHaveBeenCalled()
+
+    await flushMailMoves(3)
+
+    // 보냈고(끝까지 기다렸으므로 숨김도 이미 풀렸다), 토스트는 닫혔고, 다른 계정 것은 그대로 숨은 채 대기한다.
+    expect(moveMessages).toHaveBeenCalledTimes(1)
+    expect(moveMessages).toHaveBeenCalledWith(3, { messageIds: [11, 12], target: { kind: 'RESTORE' } })
+    expect(dismiss).toHaveBeenCalledWith(7)
+    expect([...mailMoveHiddenSnapshot()]).toEqual([21])
+    // 이미 결론이 난 토스트가 나중에 닫혀도 두 번 보내지 않는다.
+    success.mock.calls[0][1]!.onAutoClose!(fakeToast)
+    expect(moveMessages).toHaveBeenCalledTimes(1)
+    // 그 계정에 대기가 없으면 아무 일도 없다.
+    await flushMailMoves(3)
+    expect(moveMessages).toHaveBeenCalledTimes(1)
+  })
+
+  // WP-1682 토스트가 이미 닫혀 응답을 기다리는 되살리기도 기다린다 — 비우기가 서버 휴지통을 스냅샷하는 사이 되살릴 메일이 지워지지 않게.
+  it('flushMailMoves — 부르기 전에 시작돼 응답을 기다리는 옮기기가 끝날 때까지 기다린다', async () => {
+    let release: (v: unknown) => void = () => {}
+    moveMessages.mockReturnValue(new Promise((r) => (release = r)))
+    const qc = new QueryClient()
+    scheduleMailMove({ qc, accountId: 3, messageIds: [11], target: { kind: 'RESTORE' }, message: '1통을 되살렸습니다' })
+    lastToast().onAutoClose!(fakeToast) // 토스트가 닫혀 요청이 나갔다(대기열에는 없다)
+    expect(moveMessages).toHaveBeenCalledTimes(1)
+
+    let done = false
+    const flushing = flushMailMoves(3).then(() => {
+      done = true
+    })
+    // 다른 계정의 기다림은 곧바로 끝난다.
+    await flushMailMoves(4)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(done).toBe(false)
+
+    release({ results: [{ messageId: 11, ok: true, error: null }] })
+    await flushing
+    expect(done).toBe(true)
+    expect(moveMessages).toHaveBeenCalledTimes(1) // 다시 보내지 않는다
+    expect(mailMoveHiddenSnapshot().size).toBe(0) // 목록 갱신·숨김 해제까지 끝났다
+  })
+
+  // 되살리기가 실패해도 비우기를 막지 않는다 — 오류 토스트가 떴고 메일은 휴지통에 다시 보인다.
+  it('flushMailMoves — 응답을 기다리던 옮기기가 실패해도 기다림은 끝난다', async () => {
+    let fail: (e: unknown) => void = () => {}
+    moveMessages.mockReturnValue(new Promise((_, rej) => (fail = rej)))
+    scheduleMailMove({ qc: new QueryClient(), accountId: 3, messageIds: [11], target: { kind: 'RESTORE' }, message: '1통을 되살렸습니다' })
+    lastToast().onAutoClose!(fakeToast)
+
+    const flushing = flushMailMoves(3)
+    fail(new Error('network'))
+    await flushing
+    expect(error).toHaveBeenCalled()
+    expect(mailMoveHiddenSnapshot().size).toBe(0)
   })
 })

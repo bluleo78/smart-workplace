@@ -1,5 +1,6 @@
 package com.workplace.notify.outbound;
 
+import com.workplace.auth.outbound.OAuthConnectionCreatedEvent;
 import com.workplace.auth.outbound.PersonalAssistantCredentialRevokedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarEventNoticeEvent;
@@ -351,6 +352,22 @@ public class NotificationDispatcher {
     } catch (Exception ex) {
       // 알림 실패로 이미 커밋된 회수를 되돌리지 않는다 — 로그만 남긴다.
       log.warn("[notify] 개인 비서 연결 회수 알림 실패 ownerId={}: {}", e.ownerId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * OAuth 로 앱이 새로 연결됨(WP-1686) → 연결한 본인에게 OAUTH_APP_CONNECTED(「새 앱 연결」). 연결한 워크스페이스(이벤트의 tenantId)의
+   * 인박스에 넣는다 — 커밋 뒤 비동기 스레드라 그 테넌트를 다시 세워 RLS 가 통하게 한다.
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onOAuthConnectionCreated(OAuthConnectionCreatedEvent e) {
+    try {
+      TenantContext.runAs(
+          e.tenantId(), () -> service.createOAuthAppConnectedAndFanOut(e.userId(), e.clientName()));
+    } catch (Exception ex) {
+      // 알림 실패로 이미 커밋된 연결을 되돌리지 않는다 — 로그만 남긴다.
+      log.warn("[notify] 새 앱 연결 알림 실패 userId={}: {}", e.userId(), ex.getMessage());
     }
   }
 

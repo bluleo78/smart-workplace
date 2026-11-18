@@ -43,6 +43,8 @@ describe('routeTitleParts', () => {
     ['/login', ['로그인']],
     // 드라이브 공유 링크(WP-1429) — 비로그인 화면도 화면 이름을 붙인다.
     ['/s/abc', ['공유 링크']],
+    // Claude 앱 연결 동의 화면(WP-1686).
+    ['/oauth/authorize', ['앱 연결']],
   ])('%s → %j', (path, parts) => {
     expect(routeTitleParts(path)).toEqual(parts)
   })

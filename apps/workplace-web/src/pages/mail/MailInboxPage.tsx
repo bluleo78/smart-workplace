@@ -52,6 +52,7 @@ import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
 import { mailSubjectText } from '@/lib/mailSubject'
 import { firstSummaryLine } from '@/lib/mailSummary'
+import { permanentDeleteState, type TrashButtonState } from '@/lib/mailTrashActions'
 import { mailBreadcrumbItems, mailBreadcrumbText, mailClassificationActive, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { SELECTED_BG_CLASS } from '@/lib/selectionStyles'
@@ -65,6 +66,12 @@ import { MailCategoryMenu, MailCategorySheet, type MailCategoryState } from '../
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { MailMoveMenu, MailMoveTargetSheet } from '../../components/mail/MailMoveMenu'
+import {
+  MailPermanentDeleteButton,
+  MailPermanentDeleteDialog,
+  MailPermanentDeleteMenuItem,
+  MailTrashEmptyRow,
+} from '../../components/mail/MailTrashActions'
 import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
 import { mailAttachmentMime, mailAttachmentName } from '../../components/viewer/viewerItems'
 import { splitName } from '../../components/viewer/viewerNav'
@@ -90,6 +97,7 @@ import {
   useToggleRead,
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
+import { usePermanentDeleteMail } from '../../hooks/queries/useMailTrash'
 import type { MailMoveTarget, MailServerFolder } from '../../types/mailFolder'
 import {
   type EmailAttachmentMeta,
@@ -120,6 +128,11 @@ interface MailMoveActions {
   onMove: (target: MailMoveTarget) => void
   /** WP-1681 원래 메일함(모르면 받은편지함)으로 되살리기 — 휴지통 보기에서만 보인다(avail.restore). */
   onRestore: () => void
+  /**
+   * WP-1682 휴지통 메일 「완전히 삭제」 — 휴지통 보기(avail.restore)에서만 채운다. 상세 작업 줄·휴대폰 ⋯ 메뉴만 쓰고
+   * 목록 행 hover·길게 누르기 시트에는 두지 않는다. onRequest 는 확인 창을 연다(제목은 확인 창 본문에 쓴다).
+   */
+  permanentDelete?: { state: TrashButtonState; pending: boolean; onRequest: (subject: string | null) => void }
 }
 
 /** 행 hover 아이콘 버튼 공통 모양 — 읽음 전환 버튼과 같은 크기·테두리. */
@@ -842,6 +855,14 @@ function MessageDetailPanel({
                 되살리기
               </button>
             )}
+            {/* WP-1682 완전히 삭제 — 되돌릴 수 없는 항목이라 되살리기 다음 맨 아래, 빨간 글자. 확인 창은 메일함 화면이 연다. */}
+            {moveActions?.permanentDelete && (
+              <MailPermanentDeleteMenuItem
+                state={moveActions.permanentDelete.state}
+                pending={moveActions.permanentDelete.pending}
+                onClick={() => moveActions.permanentDelete?.onRequest(detail.subject)}
+              />
+            )}
           </>
         }
         summary={mobileSummary}
@@ -985,6 +1006,14 @@ function MessageDetailPanel({
             <Button variant="outline" size="sm" data-testid="mail-restore" onClick={moveActions.onRestore}>
               <ArchiveRestore className="h-3.5 w-3.5" /> 되살리기
             </Button>
+          )}
+          {/* WP-1682 완전히 삭제 — 「되살리기」 바로 뒤, 빨간 outline. 확인 창을 거쳐 메일 서버에서도 지운다. */}
+          {moveActions?.permanentDelete && (
+            <MailPermanentDeleteButton
+              state={moveActions.permanentDelete.state}
+              pending={moveActions.permanentDelete.pending}
+              onClick={() => moveActions.permanentDelete?.onRequest(detail.subject)}
+            />
           )}
           {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 액션 트리거 버튼 — 일반 outline 버튼 + AiLabel(✨), 진행 중엔 스피너로 교체(디자인시스템 §7.2 「AI 액션 트리거 버튼」). */}
           {aiActions && (
@@ -1155,6 +1184,9 @@ function MailInbox() {
   const crumbItems = mailBreadcrumbItems(view, Number(accountId), params, search !== '')
   const folderView = view.kind === 'folder'
   const currentFolder = folderView ? folders?.find((f) => f.id === view.folderId) : undefined
+  // WP-1682 휴지통 「완전히 삭제」 단추 상태(미지원 서버면 꺼짐). 메일함 목록 값에서 만든 객체가 행·상세 작업 묶음에 실리므로
+  // useMemo 로 둔다 — 그냥 부르면 React Compiler 가 메일함 목록(아래 useMemo 의 의존값)이 바뀔 수 있다고 보고 최적화를 건너뛴다.
+  const permanentDeleteButton = useMemo(() => permanentDeleteState(currentFolder), [currentFolder])
   // 탭 제목 — 「{폴더} · 메일」(WP-814). 계정이 없으면(연결 안내 화면) 폴더가 없으니 「메일」만.
   useDocumentTitle([(accounts?.length ?? 0) > 0 && view.title, '메일'])
 
@@ -1190,6 +1222,9 @@ function MailInbox() {
   // 유지 집합의 한 행을 넣거나 바꾼다(키가 바뀐 뒤 늦게 와도 새 보기에 새지 않게 현재 키로 쓴다).
   const putKept = (id: number, row: EmailMessageSummary) =>
     setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, row) }))
+  // 유지 집합에서 행들을 뺀다(옮기기·완전 삭제 — 목록에서 사라진 행이 스냅샷으로 되살아나지 않게). 다른 보기의 집합이면 그대로 둔다.
+  const dropKept = (ids: readonly number[]) =>
+    setKept((k) => (k.key !== keepKey ? k : { key: keepKey, rows: new Map([...k.rows].filter(([id]) => !ids.includes(id))) }))
   // 유지 스냅샷 → 서버 목록(최신) → 열린 행 스냅샷(서버가 이미 뺀 경우) 순으로 행을 찾는다.
   const findRow = (id: number) =>
     keptRows?.get(id) ?? fetchedMessages?.find((r) => r.id === id) ?? (openRow?.id === id ? openRow : undefined)
@@ -1408,7 +1443,7 @@ function MailInbox() {
   const startMove = (ids: number[], target: MailMoveTarget) => {
     if (accountIdNum == null) return
     if (selectedId != null && ids.includes(selectedId)) mailParam.close()
-    setKept((k) => (k.key !== keepKey ? k : { key: keepKey, rows: new Map([...k.rows].filter(([id]) => !ids.includes(id))) }))
+    dropKept(ids)
     scheduleMailMove({ qc, accountId: accountIdNum, messageIds: ids, target, message: mailMoveToastMessage(target, folders, ids.length) })
   }
   // WP-1341 분류 바꾸기 — 보낸편지함·서버 메일함 보기(AI 배지를 끄는 보기)와 AI 분류가 꺼진 계정에는 없다.
@@ -1416,6 +1451,36 @@ function MailInbox() {
   const categoryEditable = view.kind !== 'sent' && !folderView && classificationActive
   // 모바일 분류 시트의 대상 메일과 그 메일의 바꾸기 전 분류(상세 ⋯ 메뉴·길게 누르기 시트에서 연다).
   const [categorySheet, setCategorySheet] = useState<{ id: number; current: MailCategoryState } | null>(null)
+  // WP-1682 「완전히 삭제」 확인 창의 대상 메일(상세 단추·휴대폰 ⋯ 메뉴가 연다).
+  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<{ id: number; subject: string | null } | null>(null)
+  // 같은 틱의 확인 연타 막기 — mutation 의 isPending 은 다시 그린 뒤에야 바뀐다.
+  const permanentDeleteBusy = useRef(false)
+  // 지금 열린 메일과 그 닫기 — 완전 삭제 응답은 누른 때의 렌더 값을 쥔 콜백으로 오므로, 그 사이 다른 메일을 열었으면 엉뚱한 상세를 닫지 않게
+  // 응답 시점의 값을 읽는다(ref 는 이펙트·콜백에서만 — React Compiler 린트).
+  const liveDetailRef = useRef({ selectedId, close: mailParam.close })
+  useEffect(() => {
+    liveDetailRef.current = { selectedId, close: mailParam.close }
+  }, [selectedId, mailParam.close])
+  // 지워지면 옮기기처럼 열린 상세를 닫고(지금도 그 메일이 열려 있을 때만) 유지 스냅샷에서도 빼 행이 되살아나지 않게 한다.
+  const permanentDelete = usePermanentDeleteMail(accountIdNum, {
+    onDeleted: (id) => {
+      const live = liveDetailRef.current
+      if (live.selectedId === id) live.close()
+      dropKept([id])
+    },
+  })
+  const confirmPermanentDelete = () => {
+    const target = permanentDeleteTarget
+    if (!target || accountIdNum == null || permanentDeleteBusy.current) return
+    permanentDeleteBusy.current = true
+    permanentDelete.mutate(target.id, {
+      // 결과(성공·실패 토스트)가 나올 때까지 확인 창을 열어 두고 끝나면 닫는다.
+      onSettled: () => {
+        permanentDeleteBusy.current = false
+        setPermanentDeleteTarget(null)
+      },
+    })
+  }
   const moveActionsFor = (id: number): MailMoveActions | null =>
     canMove
       ? {
@@ -1426,6 +1491,14 @@ function MailInbox() {
           onMove: (t) => startMove([id], t),
           // WP-1681 되살리기도 같은 이동 대기열 — 실행 취소 토스트가 닫힐 때 RESTORE 로 나간다.
           onRestore: () => startMove([id], { kind: 'RESTORE' }),
+          // WP-1682 휴지통 보기에서만 — 미지원 서버면 꺼지고, 처리 중엔 연타를 막는다.
+          permanentDelete: moveAvail.restore
+            ? {
+                state: permanentDeleteButton,
+                pending: permanentDelete.isPending,
+                onRequest: (subject) => setPermanentDeleteTarget({ id, subject }),
+              }
+            : undefined,
         }
       : null
   // 본문 보충(running)이 끝나는 순간 목록을 다시 불러와 snippet 등을 갱신.
@@ -1680,6 +1753,10 @@ function MailInbox() {
               }
             />
           )}
+          {/* WP-1682 휴지통 보기 — 메일함 상태 줄 위에 「휴지통 비우기」 줄(서버 휴지통 수·진행 + 단추). */}
+          {folderView && currentFolder?.role === 'TRASH' && accountIdNum != null && (
+            <MailTrashEmptyRow accountId={accountIdNum} folder={currentFolder} listEmpty={(messages?.length ?? 0) === 0} />
+          )}
           {folderView && (
             // WP-961 서버 메일함 상태 줄 — 가져온 기간·시각 + 새로 고침 + 더 가져오기. 목록이 비어 있어도 보인다.
             <MailFolderStatusRow
@@ -1823,6 +1900,16 @@ function MailInbox() {
           onClose={() => setMoveSheetIds(null)}
           targets={moveTargets}
           onPick={(t) => moveSheetIds && startMove(moveSheetIds, t)}
+        />
+        {/* WP-1682 「완전히 삭제」 확인 — 상세 단추·휴대폰 ⋯ 메뉴가 연다. 처리 중엔 열린 채 「삭제」가 꺼진다. */}
+        <MailPermanentDeleteDialog
+          open={permanentDeleteTarget != null}
+          onOpenChange={(open) => {
+            if (!open) setPermanentDeleteTarget(null)
+          }}
+          subject={permanentDeleteTarget?.subject ?? null}
+          pending={permanentDelete.isPending}
+          onConfirm={confirmPermanentDelete}
         />
         {/* WP-1341 모바일 「분류 바꾸기」 시트 — 길게 누르기 시트·상세 ⋯ 메뉴에서 연다. 닫을 때 대상을 지우므로 고른 순간의 대상을 잡아 둔다. */}
         <MailCategorySheet

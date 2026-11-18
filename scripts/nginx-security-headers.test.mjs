@@ -36,13 +36,29 @@ for (const confPath of CONFS) {
   const conf = readFileSync(path.join(root, confPath), 'utf8')
 
   test(`${confPath}: index.html 을 내보내는 location 마다 프레임 헤더가 있다`, () => {
-    const htmlLocations = topLevelLocations(conf).filter((l) => /try_files[^;]*\/index\.html/.test(l.body))
+    // 동의 화면 location(= /oauth/authorize)은 'none'·DENY 라 아래 별도 테스트가 따로 단언한다.
+    const htmlLocations = topLevelLocations(conf).filter(
+      (l) => /try_files[^;]*\/index\.html/.test(l.body) && l.head !== '= /oauth/authorize',
+    )
     assert.ok(htmlLocations.length > 0, 'index.html 을 내보내는 location 을 찾지 못했다')
     for (const l of htmlLocations) {
       assert.match(l.body, /add_header\s+Content-Security-Policy\s+"frame-ancestors 'self'"\s+always;/, `location ${l.head}`)
       assert.match(l.body, /add_header\s+X-Frame-Options\s+"SAMEORIGIN"\s+always;/, `location ${l.head}`)
     }
   })
+
+  if (confPath === 'apps/workplace-web/nginx.conf') {
+    // WP-1686: 동의 화면은 같은 출처 iframe 에도 넣을 이유가 없어 이 경로만 'none'·DENY 다. location 이 지워지면 실패해야 한다.
+    test('동의 화면 location 은 어떤 프레임에도 넣을 수 없다', () => {
+      const consent = topLevelLocations(conf).find((l) => l.head === '= /oauth/authorize')
+      assert.ok(consent, 'location = /oauth/authorize 가 없다')
+      assert.match(consent.body, /add_header\s+Content-Security-Policy\s+"frame-ancestors 'none'"\s+always;/)
+      assert.match(consent.body, /add_header\s+X-Frame-Options\s+"DENY"\s+always;/)
+      assert.match(consent.body, /try_files\s+\/index\.html\s+=404;/)
+      assert.doesNotMatch(consent.body, /'self'/)
+      assert.doesNotMatch(consent.body, /SAMEORIGIN/)
+    })
+  }
 
   test(`${confPath}: 리다이렉트가 내부 포트가 붙은 절대 주소로 나가지 않는다`, () => {
     // server 블록에 있어야 모든 location 에 걸린다 — location 안으로 옮기면 나머지는 다시 절대 주소로 나간다.

@@ -8,6 +8,7 @@ import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
 import com.workplace.mail.service.GraphBodyLoader;
 import com.workplace.mail.service.GraphTokenService;
+import com.workplace.mail.service.MailServerErrors;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -51,7 +52,7 @@ public class GraphMailMover implements MailMover {
     List<Item> remote = new ArrayList<>();
     for (Item it : items) {
       if (it.providerMessageId() == null) {
-        out.add(Outcome.failed(it.messageId(), "메일 서버에서 메일을 찾을 수 없습니다"));
+        out.add(Outcome.failed(it.messageId(), MailServerErrors.NOT_FOUND));
       } else {
         remote.add(it);
       }
@@ -88,7 +89,7 @@ public class GraphMailMover implements MailMover {
           continue;
         }
         String newId = newId(r.body());
-        if (r.status() >= 200 && r.status() < 300 && newId != null) {
+        if (r.ok() && newId != null) {
           out.add(
               new Outcome(
                   it.messageId(),
@@ -100,7 +101,7 @@ public class GraphMailMover implements MailMover {
                   null,
                   it.hasProviderAttachments() ? attachmentIds(token, newId) : null));
         } else if (r.status() == 404) {
-          out.add(Outcome.failed(it.messageId(), "메일 서버에서 메일을 찾을 수 없습니다"));
+          out.add(Outcome.failed(it.messageId(), MailServerErrors.NOT_FOUND));
         } else {
           out.add(Outcome.failed(it.messageId(), "메일 서버에서 옮기지 못했습니다"));
         }
@@ -155,7 +156,7 @@ public class GraphMailMover implements MailMover {
               .toList();
       try {
         for (GraphBatchResponse r : graphApiClient.batch(token, reqs)) {
-          if (r.status() >= 200 && r.status() < 300) {
+          if (r.ok()) {
             done.add(Long.parseLong(r.id()));
           }
         }

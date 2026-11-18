@@ -3,7 +3,14 @@ import { describe, expect, it } from 'vitest'
 
 import type { NotificationResponse } from '@/types/notification'
 
-import { isMentionLike, isPersonalAssistantRevokedType, isWikiShareType, notifLabel, notifTarget } from './notifTarget'
+import {
+  isMentionLike,
+  isOAuthAppConnectedType,
+  isPersonalAssistantRevokedType,
+  isWikiShareType,
+  notifLabel,
+  notifTarget,
+} from './notifTarget'
 
 // 테스트용 알림 한 건 — 필요한 필드만 덮어쓴다.
 function notif(over: Partial<NotificationResponse>): NotificationResponse {
@@ -113,5 +120,32 @@ describe('개인 비서 연결 해제 알림', () => {
     expect(notifLabel(revoked())).toBe('개인 비서')
     expect(isPersonalAssistantRevokedType(revoked())).toBe(true)
     expect(isPersonalAssistantRevokedType(notif({ type: 'WIKI_SHARE_ACCESS_APPROVED' }))).toBe(false)
+  })
+})
+
+// WP-1686 — 새 앱 연결은 행위자·이슈·일정·노트 없이 온다(앱 이름은 message). 끊을 수 있는 설정 › API 토큰으로 연다.
+describe('새 앱 연결 알림', () => {
+  const app = (over: Partial<NotificationResponse> = {}) =>
+    notif({
+      type: 'OAUTH_APP_CONNECTED',
+      actorId: null,
+      actorName: null,
+      actorKind: null,
+      projectKey: '',
+      issueNumber: 0,
+      issueTitle: '',
+      message: 'Claude',
+      ...over,
+    })
+
+  it('/settings/tokens#connected-apps 로 연다, 이슈 키가 남아 있어도 이슈 상세로 새지 않는다', () => {
+    expect(notifTarget(app())).toBe('/settings/tokens#connected-apps')
+    expect(notifTarget(app({ projectKey: 'WP', issueNumber: 3 }))).toBe('/settings/tokens#connected-apps')
+  })
+
+  it('제목 라벨은 「앱 연결」, 종류 판정은 이 종류만 true', () => {
+    expect(notifLabel(app())).toBe('앱 연결')
+    expect(isOAuthAppConnectedType(app())).toBe(true)
+    expect(isOAuthAppConnectedType(notif({ type: 'PERSONAL_ASSISTANT_REVOKED' }))).toBe(false)
   })
 })

@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 
 import {
   isCalendarType,
+  isOAuthAppConnectedType,
   isPersonalAssistantRevokedType,
   isWikiShareType,
   notifTarget,
@@ -278,6 +279,19 @@ export function InboxList({
                           {PERSONAL_ASSISTANT_REVOKED_NO_ACTOR}
                         </span>
                       )
+                    ) : isOAuthAppConnectedType(n) ? (
+                      // 새 앱 연결(WP-1686) — 행위자·이슈 줄 없이 앱 이름(message)과 끊기 안내만. 내가 한 일이 아니면 바로 끊게 한다.
+                      <>
+                        <span className="font-medium">
+                          {n.message
+                            ? `${notificationAction(n)} — ${n.message}`
+                            : notificationAction(n)}
+                        </span>
+                        {/* 끊는 곳을 알려 주는 안내라 좁은 화면에서도 끝까지 보이게 한 줄 말줄임 대신 두 줄까지 감싼다(line-clamp 가 블록 상자를 만든다). */}
+                        <span className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">
+                          내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요
+                        </span>
+                      </>
                     ) : isWikiShareType(n) ? (
                       // 노트 공유 알림(WP-579) — 문구에 노트 제목이 들어간다. 공유받음은 보낸 사람의 메시지를 한 줄 더 보인다.
                       <>

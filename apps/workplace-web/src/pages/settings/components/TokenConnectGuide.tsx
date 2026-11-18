@@ -12,6 +12,7 @@ import { MCP_ENDPOINT } from '@/lib/mcpEndpoint';
 import { buildPluginInstallCommands } from '@/lib/pluginGuide';
 
 import { PluginServerUrlStep } from '../../admin/components/PluginServerUrlStep';
+import { ClaudeAppConnect } from './ClaudeAppConnect';
 
 interface TokenConnectGuideProps {
   /**
@@ -22,9 +23,19 @@ interface TokenConnectGuideProps {
   testIdPrefix: string;
   /** 서버 주소 단계 testId — 기본은 `${testIdPrefix}-server-url`. 모달은 기존 plugin-server-url 을 이어 쓴다. */
   serverUrlTestId?: string;
+  /**
+   * 「Claude 앱에 연결」 블록을 보일지(WP-1687) — 토큰 화면만 true. 발급 모달은 토큰을 막 발급한 사람에게
+   * 토큰 없는 연결을 섞지 않으려 false(기본).
+   */
+  showClaudeApp?: boolean;
 }
 
-export function TokenConnectGuide({ tokenSource, testIdPrefix: p, serverUrlTestId = `${p}-server-url` }: TokenConnectGuideProps) {
+export function TokenConnectGuide({
+  tokenSource,
+  testIdPrefix: p,
+  serverUrlTestId = `${p}-server-url`,
+  showClaudeApp = false,
+}: TokenConnectGuideProps) {
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
@@ -50,13 +61,16 @@ export function TokenConnectGuide({ tokenSource, testIdPrefix: p, serverUrlTestI
         </p>
       </div>
 
-      {/* 플러그인을 못 쓰는 도구(Claude.ai·ChatGPT 등)용 — 기본은 접어 두어 Claude Code 안내가 먼저 보이게 한다. */}
+      {/* 토큰 없이 OAuth 로 연결하는 Claude 앱 — Claude Code 안내 다음, 다른 도구 접힘 앞(WP-1687). */}
+      {showClaudeApp && <ClaudeAppConnect testIdPrefix={p} />}
+
+      {/* 플러그인을 못 쓰는 도구(ChatGPT 등 — Claude 앱은 위 블록)용 — 기본은 접어 두어 Claude Code 안내가 먼저 보이게 한다. */}
       <Collapsible className="border-t pt-3">
         <CollapsibleTrigger
           className="group flex w-full items-center justify-between text-left text-sm text-muted-foreground hover:text-foreground"
           data-testid={`${p}-other-tools`}
         >
-          다른 도구로 연결 (Claude.ai, ChatGPT 등)
+          다른 도구로 연결 (ChatGPT 등)
           <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
         <CollapsibleContent className="space-y-2 pt-2">

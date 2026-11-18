@@ -1013,18 +1013,21 @@ export const scenes = [
   },
   {
     // 외부 AI 도구 연결 안내 — 「다른 도구로 연결」을 펼친다. 토큰 목록(앞자리)은 자르기 밖에 둔다.
+    // WP-1687 — 배포 뒤 다시 찍는다: 화면에 「Claude 앱에 연결」 블록이 생겼다. 그때 boxes.json 에 app 상자가 생기므로
+    //   본문 지시문 marks 를 claude,app,other,url 로, 목록을 넷으로 고친다. (연결 주소는 Claude 블록에도 있어 testid 로 찾는다.)
     id: 'my-settings-5',
     account: ACCOUNT,
     async run({ page, rec }) {
       await openSettings(page, '/settings/tokens', '도구에 연결하기');
-      await page.getByText('다른 도구로 연결 (Claude.ai, ChatGPT 등)').click();
-      const url = page.getByText('https://genia-works.iacloud.kr/mcp', { exact: true });
+      await page.getByText('다른 도구로 연결 (ChatGPT 등)').click();
+      const url = page.getByTestId('connect-guide-mcp-endpoint');
       await url.waitFor();
       await url.scrollIntoViewIfNeeded();
       await capture(page, rec, 'my-settings-5', {
-        claude: [page.getByText('Claude Code 에 연결', { exact: true }), page.getByRole('button', { name: '복사' }).first()],
-        other: page.getByText('다른 도구로 연결 (Claude.ai, ChatGPT 등)'),
-        url: [page.getByText('연결 주소', { exact: true }), page.getByRole('button', { name: '복사' }).nth(1)],
+        claude: [page.getByText('Claude Code 에 연결', { exact: true }), page.getByRole('button', { name: '설치 명령 복사' })],
+        app: [page.getByText('Claude 앱에 연결', { exact: true }), page.getByRole('button', { name: '커넥터 주소 복사' })],
+        other: page.getByText('다른 도구로 연결 (ChatGPT 등)'),
+        url: [page.getByText('연결 주소', { exact: true }), page.getByRole('button', { name: '연결 주소 복사' })],
       });
     },
   },

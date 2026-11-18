@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { authApi } from '../../api/auth'
 import type { AuthContextValue } from '../../hooks/auth-context-value'
 import { safeTarget } from '../../sw/logic'
+import { CONNECTED_APPS_PATH } from '../connectedApps'
 
 /** 알림 탭 목적지 — tenantId 는 알림이 속한 테넌트(없으면 null), url 은 safeTarget 을 거친 같은 origin 상대경로. */
 export interface PushTarget {
@@ -38,7 +39,16 @@ export function takePendingPushTarget(): PushTarget | null {
 }
 
 /**
- * 알림 탭 목적지로 실제 이동. 알림 없는 테넌트거나 현재 테넌트와 같으면 그대로 navigate 하고,
+ * 어느 워크스페이스에서 열어도 같은 내용을 보이는 사용자 단위 목적지 — 알림이 다른 테넌트 것이어도 전환하지 않는다.
+ * 「새 앱 연결」(WP-1686) 푸시는 연결한 워크스페이스의 tenantId 를 싣지만, 「연결된 앱」 절(WP-1687)은 모든 워크스페이스의 연결을
+ * 한 목록으로 보여 전환(전체 새로고침)이 필요 없다. 서버 푸시 계약(tenantId 는 늘 숫자)은 모든 종류가 같이 쓰므로 이 목적지만 여기서 거른다.
+ */
+function isUserScopedTarget(url: string): boolean {
+  return url === CONNECTED_APPS_PATH
+}
+
+/**
+ * 알림 탭 목적지로 실제 이동. 알림 없는 테넌트거나 현재 테넌트와 같거나 사용자 단위 목적지면 그대로 navigate 하고,
  * 다른 테넌트면 소속 확인 후 selectTenant(전체 리로드)로 전환하며 목적지를 함께 넘긴다.
  * 소속이 아니거나 전환 실패 시 토스트로 안내하고 홈으로 보낸다.
  */
@@ -51,7 +61,7 @@ export async function openPushTarget(
   },
 ): Promise<void> {
   const url = safeTarget(target.url)
-  if (target.tenantId == null || target.tenantId === deps.activeTenantId) {
+  if (target.tenantId == null || target.tenantId === deps.activeTenantId || isUserScopedTarget(url)) {
     deps.navigate(url)
     return
   }

@@ -302,6 +302,29 @@ class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
     verify(graphApiClient, times(14)).get(eq(TOKEN), anyString(), eq(GraphMailFolder.class));
   }
 
+  /**
+   * WP-1682: Graph 는 UIDPLUS 개념이 없다 — 목록 갱신이 imap_uidplus 를 적지 않고(null), 휴지통 행도 완전 삭제 불가로 표시하지 않는다.
+   */
+  @Test
+  void graphTrash_isNeverFlagged_andUidPlusStaysNull() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, user);
+    when(graphTokenService.getAccessToken(anyLong(), anyLong())).thenReturn(TOKEN);
+    stubOutlookFolders(false);
+
+    folderService.refresh(user, accountId, account(user, accountId));
+
+    assertThat(accountRepo.findImapUidPlus(accountId)).isNull();
+    List<MailFolderResponse> folders = folderService.list(user, accountId);
+    assertThat(folders).anyMatch(f -> "TRASH".equals(f.role()));
+    assertThat(folders).allSatisfy(f -> assertThat(f.permanentDeleteUnsupported()).isFalse());
+
+    // 열에 FALSE 가 있어도(공급자가 바뀐 계정 등) Graph 계정은 IMAP 이 아니라 표시하지 않는다.
+    accountRepo.recordImapUidPlus(accountId, false);
+    assertThat(folderService.list(user, accountId))
+        .allSatisfy(f -> assertThat(f.permanentDeleteUnsupported()).isFalse());
+  }
+
   /** JSON 매핑 — @odata.type·isHidden·@odata.nextLink 키가 레코드로 들어오는지. */
   @Test
   void graphFolderJson_mapsODataTypeHiddenAndNextLink() throws Exception {

@@ -79,6 +79,7 @@ const ALL_TYPES = Object.keys({
   AI_REVIEW_REQUESTED: true,
   AI_WORK_FAILED: true,
   PERSONAL_ASSISTANT_REVOKED: true,
+  OAUTH_APP_CONNECTED: true,
 } satisfies Record<NotificationResponse['type'], true>) as NotificationResponse['type'][]
 
 describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
@@ -92,6 +93,7 @@ describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
         'ASSIGNED',
         'ISSUE_CHAT_MENTION',
         'ISSUE_COMMENT_MENTION',
+        'OAUTH_APP_CONNECTED',
         'PERSONAL_ASSISTANT_REVOKED',
         'REPORTER_ASSIGNED',
         'WIKI_SHARE_ACCESS_REQUESTED',
@@ -278,6 +280,32 @@ describe('groupNotifications', () => {
     expect(mine[0].target).toBe('/settings/assistant')
     expect(mine[0].deltaSummary).toBe('개인 비서 연결 해제 2건')
     expect(mine[0].repType).toBe('PERSONAL_ASSISTANT_REVOKED')
+  })
+
+  it('새 앱 연결은 내 차례 한 줄로 묶고 토큰 설정으로 간다 (WP-1686)', () => {
+    const app = (over: Partial<NotificationResponse>) =>
+      notif({
+        type: 'OAUTH_APP_CONNECTED',
+        actorId: null,
+        actorName: null,
+        actorKind: null,
+        projectKey: '',
+        issueNumber: 0,
+        issueTitle: '',
+        message: 'Claude',
+        ...over,
+      })
+    const { mine, updates } = groupNotifications([
+      app({ id: 1, createdAt: '2026-06-16T01:00:00Z' }),
+      app({ id: 2, message: 'Cursor', createdAt: '2026-06-16T02:00:00Z' }),
+    ])
+    expect(updates).toHaveLength(0)
+    expect(mine).toHaveLength(1)
+    expect(mine[0].title).toBe('앱 연결')
+    expect(mine[0].label).toBe('앱 연결')
+    expect(mine[0].target).toBe('/settings/tokens#connected-apps')
+    expect(mine[0].deltaSummary).toBe('앱 연결 2건')
+    expect(mine[0].repType).toBe('OAUTH_APP_CONNECTED')
   })
 
   it('AI 검토 요청·실패는 내 차례로 묶고 델타를 따로 센다, 이슈 상세로 딥링크한다 (WP-913)', () => {

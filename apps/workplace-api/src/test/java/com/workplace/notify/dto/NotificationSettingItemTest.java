@@ -46,7 +46,9 @@ class NotificationSettingItemTest {
   void everyNotificationType_mapsToAnItem() {
     for (NotificationType t : NotificationType.values()) {
       // 개인 비서 연결 회수(WP-1170)는 설정 없이 늘 보내는 계정 알림이라 줄이 없다 — 아래 테스트가 따로 본다.
-      if (t == NotificationType.PERSONAL_ASSISTANT_REVOKED) continue;
+      // 새 앱 연결(WP-1686)도 같은 계정 알림이라 줄이 없다.
+      if (t == NotificationType.PERSONAL_ASSISTANT_REVOKED
+          || t == NotificationType.OAUTH_APP_CONNECTED) continue;
       assertThat(NotificationSettingItem.of(t)).isNotNull();
     }
   }
@@ -55,6 +57,13 @@ class NotificationSettingItemTest {
   void personalAssistantRevoked_hasNoSettingItem() {
     org.assertj.core.api.Assertions.assertThatThrownBy(
             () -> NotificationSettingItem.of(NotificationType.PERSONAL_ASSISTANT_REVOKED))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** 새 앱 연결(WP-1686)은 모르는 연결을 알아채게 하는 계정 알림이라 설정 줄이 없고 늘 보낸다. */
+  @Test
+  void oauthAppConnected_hasNoSettingItem() {
+    assertThatThrownBy(() -> NotificationSettingItem.of(NotificationType.OAUTH_APP_CONNECTED))
         .isInstanceOf(IllegalArgumentException.class);
   }
 

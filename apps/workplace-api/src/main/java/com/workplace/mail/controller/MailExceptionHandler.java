@@ -9,6 +9,7 @@ import com.workplace.mail.exception.MailDraftConflictException;
 import com.workplace.mail.exception.MailDraftNotFoundException;
 import com.workplace.mail.exception.MailInviteNotRespondableException;
 import com.workplace.mail.exception.MailSignatureImageNotFoundException;
+import com.workplace.mail.exception.MailTrashException;
 import com.workplace.mail.exception.MailValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -108,6 +109,16 @@ public class MailExceptionHandler {
         e.getMessage(),
         Map.of("code", MailSignatureImageNotFoundException.CODE),
         request);
+  }
+
+  /**
+   * 휴지통 완전히 삭제·비우기 실패(WP-1682) → 코드별 상태(400·404·502·503) + errors.code — 웹이 코드로 가려 「지원하지 않음」이면 메일함
+   * 목록을 다시 받는 등 다르게 다룬다.
+   */
+  @ExceptionHandler(MailTrashException.class)
+  public ResponseEntity<ErrorResponse> handleTrash(
+      MailTrashException e, HttpServletRequest request) {
+    return error(e.status(), e.getMessage(), Map.of("code", e.code()), request);
   }
 
   /** 표준 ErrorResponse 응답. */

@@ -9,14 +9,13 @@ import jakarta.mail.Folder;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Store;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.angus.mail.imap.IMAPFolder;
+import org.eclipse.angus.mail.imap.IMAPStore;
 import org.eclipse.angus.mail.imap.protocol.Status;
 import org.springframework.stereotype.Component;
 
@@ -61,7 +60,7 @@ public class ImapFolderLister implements MailFolderLister {
         if ("INBOX".equalsIgnoreCase(fullName)) {
           inboxRemoteId = fullName;
         }
-        entries.add(toEntry(f));
+        entries.add(ImapFolderEntries.toEntry(f));
       }
 
       List<ServerFolder> kept = ImapFolderClassifier.classify(entries);
@@ -70,7 +69,9 @@ public class ImapFolderLister implements MailFolderLister {
         // 묶음 노드(\Noselect)는 STATUS 를 받을 수 없다 — 개수 없이 둔다.
         withCounts.add(sf.selectable() ? withStatus(sf, byName.get(sf.key())) : sf);
       }
-      return new ServerFolderListing(withCounts, inboxRemoteId);
+      // WP-1682: 완전 삭제(UID EXPUNGE)가 가능한지 화면이 미리 알 수 있게 서버 UIDPLUS 지원 여부를 함께 돌려준다.
+      boolean uidPlus = store instanceof IMAPStore imapStore && imapStore.hasCapability("UIDPLUS");
+      return new ServerFolderListing(withCounts, inboxRemoteId, uidPlus);
     } catch (MessagingException e) {
       throw new MailSyncException("메일함 목록을 가져오지 못했습니다", e);
     } finally {
@@ -82,20 +83,6 @@ public class ImapFolderLister implements MailFolderLister {
         }
       }
     }
-  }
-
-  /** LIST 응답 한 항목을 판별기 입력으로 바꾼다. 속성·구분자·종류는 LIST 응답에 이미 담겨 있어 추가 왕복이 없다. */
-  private static ImapFolderClassifier.Entry toEntry(Folder f) throws MessagingException {
-    List<String> attrs =
-        f instanceof IMAPFolder imap && imap.getAttributes() != null
-            ? Arrays.asList(imap.getAttributes())
-            : List.of();
-    boolean noSelect =
-        attrs.stream()
-            .map(a -> a.toLowerCase(Locale.ROOT))
-            .anyMatch(a -> a.equals("\\noselect") || a.equals("\\nonexistent"));
-    boolean holdsMessages = !noSelect && (f.getType() & Folder.HOLDS_MESSAGES) != 0;
-    return new ImapFolderClassifier.Entry(f.getFullName(), f.getSeparator(), attrs, holdsMessages);
   }
 
   /**

@@ -227,11 +227,13 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | my-settings-2 | `/settings/notifications` | 김서연 | 폭 1024 로 연다(헤드리스 브라우저는 알림 권한 차단 안내가 보인다) | `head+device+row` | `device,app,cols,row` | — |
 | my-settings-3 | `/settings/assistant` | 김서연 | 폭 1024 로 연다(토큰 칸은 비어 있다) | `head+mode+memory` | `mode,token,suggest,memory` | — |
 | my-settings-4 | `/settings/tokens` | 김서연 | **토큰 발급** 으로 창을 연다(발급하지 않음) | `dialog` | `name,expiry,submit` | — |
-| my-settings-5 | 위와 같음 | 김서연 | **다른 도구로 연결 (Claude.ai, ChatGPT 등)** 을 펼친다 | `claude+url` | `claude,other,url` | — |
+| my-settings-5 | 위와 같음 | 김서연 | **다른 도구로 연결 (ChatGPT 등)** 을 펼친다(배포 뒤 재촬영 — 그때 본문 지시문 marks 를 `claude,app,other,url` 로, 목록을 넷으로) | `claude+url` | `claude,app,other,url` | — |
 | my-settings-6 | `/settings/mail` | 김서연 | **계정 추가** 로 창을 연다(공급자 목록은 열지 않음) | `dialog` | `provider,address,imap` | — |
 | my-settings-7 | `/settings/my-shares` | 김서연 | 연 그대로 | `filters+rows+unshare` | `filters,rows,unshare` | PRD·출시 체크리스트 링크 공유 |
 | my-settings-8 | `/settings/mail` | 김서연 | 폭 1024 로 연다(M365 연결 중에만) | `list+add` | `provider,status,add` | M365 연결 |
 | my-settings-9 | `/settings/notifications` | 김서연 | **AI 결과 — once**. 새 대화로 묻는다(POST /ai/chat 만 연다). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`. 「휴대폰으로 알림을 받으려면 어디서 켜?」 | `panel` | `answer` (`panel` 도 기록) | — |
+| my-settings-10 | `/oauth/authorize?…` | 김서연(워크스페이스 둘) | DCR 로 클라이언트를 등록하고 PKCE 쿼리로 연다, 허용은 누르지 않는다 | (전체) | `account,workspace,permission,allow` | OAuth 클라이언트(DCR) |
+| my-settings-11 | `/settings/tokens` | 김서연 | DCR 등록 → 김서연으로 승인 → 토큰 교환으로 연결 하나를 만들고 찍은 뒤 끊는다(my-settings-10 과 같은 준비, 운영에 쓰기 — 사람 확인 뒤, 끊긴 연결 행·감사가 남는다) | `apps` | `app,workspace,revoke` | OAuth 클라이언트(DCR)·연결 하나 |
 
 ### 13 모바일에서 쓰기
 

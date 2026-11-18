@@ -101,6 +101,8 @@ test.describe('@smoke 설정 레이아웃 일관성', () => {
   test('API 토큰 목록이 길어도 페이지가 가로로 넘치지 않고 폐기 버튼이 보인다', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
+    // 「연결된 앱」 절(WP-1687)이 읽는 연결 목록 — 빈 목록(절 숨김).
+    await mockApi(page, 'GET', '/api/v1/users/me/oauth-connections', [])
     await mockApi(page, 'GET', '/api/v1/users/me/api-tokens', [
       {
         id: 1,

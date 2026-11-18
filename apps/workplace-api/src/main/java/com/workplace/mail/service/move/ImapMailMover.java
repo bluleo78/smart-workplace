@@ -7,17 +7,16 @@ import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.service.ImapConnector;
 import com.workplace.mail.service.MailAccountCredentials;
-import com.workplace.mail.service.folder.ImapFolderClassifier;
+import com.workplace.mail.service.MailServerErrors;
+import com.workplace.mail.service.folder.ImapFolderEntries;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Store;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -36,15 +35,14 @@ import org.springframework.stereotype.Component;
  *       메일함의 다른 {@code \Deleted} 메일까지 지우므로 쓰지 않는다 — MOVE·UIDPLUS 가 둘 다 없는 서버는 옮기지 않고 실패로 알린다.
  * </ul>
  *
- * <p>휴지통은 LIST 의 SPECIAL-USE {@code \Trash} 또는 이름으로 찾는다({@link ImapFolderClassifier#findTrash}).
- * 비밀번호 조회만 짧은 읽기 트랜잭션이고 IMAP 세션은 트랜잭션 밖이다. 자격증명은 로그에 남기지 않는다.
+ * <p>휴지통은 LIST 의 SPECIAL-USE {@code \Trash} 또는 이름으로 찾는다({@link ImapFolderEntries#findTrash}). 비밀번호
+ * 조회만 짧은 읽기 트랜잭션이고 IMAP 세션은 트랜잭션 밖이다. 자격증명은 로그에 남기지 않는다.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ImapMailMover implements MailMover {
 
-  private static final String NOT_FOUND = "메일 서버에서 메일을 찾을 수 없습니다";
   private static final String MOVE_FAILED = "메일 서버에서 옮기지 못했습니다";
 
   private final MailAccountCredentials credentials;
@@ -64,7 +62,9 @@ public class ImapMailMover implements MailMover {
     try {
       store = imapConnector.connect(account, password);
       String destName =
-          dest.kind() == MailMoveRequest.Kind.TRASH ? findTrash(store) : dest.imapName();
+          dest.kind() == MailMoveRequest.Kind.TRASH
+              ? ImapFolderEntries.findTrash(store)
+              : dest.imapName();
       if (destName == null) {
         throw new MailValidationException("메일 서버에서 휴지통을 찾을 수 없습니다");
       }
@@ -94,7 +94,7 @@ public class ImapMailMover implements MailMover {
       }
       return trashMismatch ? out.stream().map(Outcome::withoutLocation).toList() : out;
     } catch (MessagingException e) {
-      throw new MailSyncException("메일 서버에 연결하지 못했습니다", e);
+      throw new MailSyncException(MailServerErrors.CONNECT_FAILED, e);
     } finally {
       if (store != null) {
         try {
@@ -114,24 +114,6 @@ public class ImapMailMover implements MailMover {
     return new Capabilities(store.hasCapability("MOVE"), store.hasCapability("UIDPLUS"));
   }
 
-  /** LIST 로 서버 휴지통 전체 경로를 찾는다. 없으면 null. */
-  private static String findTrash(Store store) throws MessagingException {
-    List<ImapFolderClassifier.Entry> entries = new ArrayList<>();
-    for (Folder f : store.getDefaultFolder().list("*")) {
-      List<String> attrs =
-          f instanceof IMAPFolder imap && imap.getAttributes() != null
-              ? Arrays.asList(imap.getAttributes())
-              : List.of();
-      boolean noSelect =
-          attrs.stream()
-              .map(a -> a.toLowerCase(Locale.ROOT))
-              .anyMatch(a -> a.equals("\\noselect") || a.equals("\\nonexistent"));
-      boolean holds = !noSelect && (f.getType() & Folder.HOLDS_MESSAGES) != 0;
-      entries.add(new ImapFolderClassifier.Entry(f.getFullName(), f.getSeparator(), attrs, holds));
-    }
-    return ImapFolderClassifier.findTrash(entries);
-  }
-
   /**
    * 원래 메일함 하나의 메일들을 옮긴다. 서버에 없는 UID 는 그 메일만 실패, 메일함 단위 명령(열기·플래그·MOVE)이 실패하면 이 메일함의 메일 전체가 실패다(다른
    * 메일함 묶음은 계속).
@@ -142,7 +124,7 @@ public class ImapMailMover implements MailMover {
     List<Item> withUid = new ArrayList<>();
     for (Item it : items) {
       if (it.imapUid() == null) {
-        out.add(Outcome.failed(it.messageId(), NOT_FOUND)); // 서버 위치를 모르는 로컬 행
+        out.add(Outcome.failed(it.messageId(), MailServerErrors.NOT_FOUND)); // 서버 위치를 모르는 로컬 행
       } else {
         withUid.add(it);
       }
@@ -160,7 +142,7 @@ public class ImapMailMover implements MailMover {
       if (localValidity == null || localValidity != source.getUIDValidity()) {
         log.warn("IMAP 메일 옮기기 건너뜀 — UIDVALIDITY 불일치: folder={}", sourceName);
         withUid.forEach(
-            it -> out.add(Outcome.failed(it.messageId(), "메일함이 바뀌었습니다 — 동기화 후 다시 시도해 주세요")));
+            it -> out.add(Outcome.failed(it.messageId(), MailServerErrors.MAILBOX_CHANGED)));
         return out;
       }
       long[] uids = withUid.stream().mapToLong(Item::imapUid).toArray();
@@ -169,7 +151,7 @@ public class ImapMailMover implements MailMover {
       List<Message> msgs = new ArrayList<>();
       for (int i = 0; i < uids.length; i++) {
         if (found[i] == null) {
-          out.add(Outcome.failed(withUid.get(i).messageId(), NOT_FOUND));
+          out.add(Outcome.failed(withUid.get(i).messageId(), MailServerErrors.NOT_FOUND));
         } else {
           present.add(withUid.get(i));
           msgs.add(found[i]);

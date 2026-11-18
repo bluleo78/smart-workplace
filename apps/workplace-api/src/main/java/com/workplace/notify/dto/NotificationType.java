@@ -30,5 +30,7 @@ public enum NotificationType {
   REPORTER_ASSIGNED,
   // 주인이 아닌 사람(관리자)이 내 개인 비서의 AI 연결을 회수함(WP-1170) — 주인 1명. 정리 마이그레이션이 넣은 행은 actor 가 없다.
   // 내 비서가 멈춘 것을 알리는 계정 알림이라 알림 설정과 무관하게 늘 보낸다(설정 줄 없음)
-  PERSONAL_ASSISTANT_REVOKED
+  PERSONAL_ASSISTANT_REVOKED,
+  // OAuth 앱 새 연결(WP-1686) — 본인 1명, 계정 알림이라 설정 없이 늘 보냄, message=앱 이름. 행위자는 없다(null)
+  OAUTH_APP_CONNECTED
 }

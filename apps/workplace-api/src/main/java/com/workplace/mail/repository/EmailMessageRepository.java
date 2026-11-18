@@ -392,13 +392,41 @@ public class EmailMessageRepository {
     if (imapUids.isEmpty()) {
       return 0;
     }
-    Condition target =
+    return deleteWithContentGc(
         EMAIL_MESSAGE
             .ACCOUNT_ID
             .eq(accountId)
             .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
-            .and(EMAIL_MESSAGE.IMAP_UID.in(imapUids));
-    // envelope 삭제 전 영향받을 content_id 를 수집 — FK ON DELETE RESTRICT 이므로 envelope 먼저 삭제한 뒤 GC
+            .and(EMAIL_MESSAGE.IMAP_UID.in(imapUids)));
+  }
+
+  /**
+   * 한 메일함의 Graph 메일들을 provider id 로 지운다(WP-1682 — Outlook 휴지통 비우기에서 서버에서 지운 메일의 로컬 행). {@link
+   * #deleteByImapUids} 와 같게 다른 envelope 가 참조하지 않게 된 content 도 함께 정리한다.
+   *
+   * @param accountId 계정 id(타 계정 메시지 차단)
+   * @param folderId 메일함 id(휴지통 — 같은 id 가 다른 메일함 행에 있어도 건드리지 않는다)
+   * @param providerMessageIds 지울 Graph 메시지 id
+   * @return 실제로 지운 행 수
+   */
+  public int deleteByProviderIds(
+      long accountId, long folderId, Collection<String> providerMessageIds) {
+    if (providerMessageIds.isEmpty()) {
+      return 0;
+    }
+    return deleteWithContentGc(
+        EMAIL_MESSAGE
+            .ACCOUNT_ID
+            .eq(accountId)
+            .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+            .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.in(providerMessageIds)));
+  }
+
+  /**
+   * 조건에 맞는 메일 행을 지우고 마지막 envelope 가 사라진 content 를 정리한다. content_id 는 지우기 전에 모은다 — FK ON DELETE
+   * RESTRICT 이므로 envelope 를 먼저 지운 뒤 GC 한다.
+   */
+  private int deleteWithContentGc(Condition target) {
     List<Long> affectedContentIds =
         dsl.selectDistinct(EMAIL_MESSAGE.CONTENT_ID)
             .from(EMAIL_MESSAGE)
@@ -2517,16 +2545,7 @@ public class EmailMessageRepository {
     if (messageIds.isEmpty()) {
       return 0;
     }
-    Condition target = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(EMAIL_MESSAGE.ID.in(messageIds));
-    // envelope 삭제 전 영향받을 content_id 를 수집 — FK ON DELETE RESTRICT 이므로 envelope 먼저 삭제한 뒤 GC
-    List<Long> affectedContentIds =
-        dsl.selectDistinct(EMAIL_MESSAGE.CONTENT_ID)
-            .from(EMAIL_MESSAGE)
-            .where(target)
-            .and(EMAIL_MESSAGE.CONTENT_ID.isNotNull())
-            .fetchInto(Long.class);
-    int deleted = dsl.deleteFrom(EMAIL_MESSAGE).where(target).execute();
-    contentRepo.deleteOrphans(affectedContentIds);
-    return deleted;
+    return deleteWithContentGc(
+        EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(EMAIL_MESSAGE.ID.in(messageIds)));
   }
 }

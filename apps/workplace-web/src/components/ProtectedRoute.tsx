@@ -2,6 +2,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
+import { CONSENT_PATH } from '@/lib/oauthConsent';
 
 import { useAuth } from '../hooks/useAuth';
 import { savePendingPushTarget } from '../lib/push/openTarget';
@@ -9,8 +10,10 @@ import { savePendingPushTarget } from '../lib/push/openTarget';
 /**
  * 로그인 뒤 돌아올 주소로 남기는 경로 — 공유 링크 진입(WP-579 설계 범위)만. /wiki/share/ 는 지금 이 라우트 밖(외부 보기 화면이 스스로 남김)이지만
  * 같은 규칙으로 둔다. 그 밖의 보호 경로는 남기지 않는다: 로그아웃·세션 만료 직후 같은 탭에서 다른 계정으로 로그인하면 이전 사용자의 화면으로 튀기 때문이다.
+ * /oauth/authorize(Claude 앱 연결 동의 화면, WP-1686)는 남긴다 — 앱이 연 브라우저가 로그인 뒤 같은 요청으로 돌아와야 연결이 끝나고,
+ * 그 화면은 로그인한 계정을 밝히고 사용자가 「허용」을 눌러야만 무엇이 생기므로 다른 계정으로 돌아와도 안전하다.
  */
-const LOGIN_RETURN_PREFIXES = ['/wiki/share/', '/wiki/open/']
+const LOGIN_RETURN_PREFIXES = ['/wiki/share/', '/wiki/open/', CONSENT_PATH]
 
 export function ProtectedRoute() {
   const { isLoading, isAuthenticated, connectionError, retryAuth, logout } = useAuth();

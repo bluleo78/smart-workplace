@@ -1,3 +1,4 @@
+import { Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { eulReul } from '../../lib/utils';
@@ -24,6 +25,16 @@ interface BaseProps {
    * (스스로 수를 받아 0건이면 아무것도 그리지 않는 컴포넌트용 — {@link DeleteImpactNote}).
    */
   impact?: ReactNode;
+  /** 확인창 제목 — 기본 `${entityName} 삭제`(WP-1682: 「메일을 완전히 삭제할까요?」처럼 문장형 제목이 필요한 곳). */
+  title?: ReactNode;
+  /** 확인(파괴) 버튼 글자 — 기본 「삭제」(WP-1682: 「비우기」). */
+  actionLabel?: string;
+  /**
+   * 확인 뒤 처리 중인지(WP-1682) — 이 prop 을 넘기면 확인을 눌러도 창을 닫지 않고(호출부가 처리가 끝나면 open 을 내린다),
+   * true 인 동안 확인 버튼을 끄고 스피너를 보인다. 되돌릴 수 없는 서버 작업이 연타로 두 번 나가지 않고 진행이 보이게 하려는 것.
+   * 넘기지 않으면 지금처럼 확인 즉시 닫힌다(기존 호출부 영향 없음).
+   */
+  pending?: boolean;
   /** 확인창 본문(AlertDialogContent)의 data-testid — E2E 가 특정 확인창을 집을 때 */
   contentTestId?: string;
   /** 확인(삭제) 버튼의 data-testid */
@@ -47,6 +58,9 @@ export function DeleteConfirmDialog({
   onOpenChange,
   description,
   impact,
+  title,
+  actionLabel = '삭제',
+  pending,
   contentTestId,
   confirmTestId,
   'data-help': dataHelp,
@@ -60,7 +74,7 @@ export function DeleteConfirmDialog({
       )}
       <AlertDialogContent onClick={(e) => e.stopPropagation()} data-testid={contentTestId} data-help={dataHelp}>
         <AlertDialogHeader>
-          <AlertDialogTitle>{entityName} 삭제</AlertDialogTitle>
+          <AlertDialogTitle>{title ?? `${entityName} 삭제`}</AlertDialogTitle>
           <AlertDialogDescription>
             {description ?? (
               <>&quot;{itemName}&quot; {entityName}{eulReul(entityName)} 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</>
@@ -71,7 +85,19 @@ export function DeleteConfirmDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
           {/* 파괴적 작업임을 시각적으로 표시 — 실수 클릭 방지 */}
-          <AlertDialogAction variant="destructive" onClick={onConfirm} data-testid={confirmTestId}>삭제</AlertDialogAction>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={pending === true}
+            onClick={(e) => {
+              // pending 을 넘긴 호출부는 끝날 때 스스로 닫는다 — Radix 의 기본 닫기를 막는다.
+              if (pending !== undefined) e.preventDefault();
+              onConfirm();
+            }}
+            data-testid={confirmTestId}
+          >
+            {pending && <Loader2 aria-hidden className="animate-spin" />}
+            {actionLabel}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -445,9 +445,10 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     assertThat(repo.listRecent(a, 20, 0))
         .extracting(NotificationResponse::id)
         .containsExactlyInAnyOrder(aIds.get(0), aIds.get(1));
+    // id 는 Long 이라 == 는 127 을 넘는 id 에서 참조 비교가 되어 틀린다 — equals 로 비교한다.
     var restored =
         repo.listRecent(a, 20, 0).stream()
-            .filter(n -> n.id() == aIds.get(0))
+            .filter(n -> aIds.get(0).equals(n.id()))
             .findFirst()
             .orElseThrow();
     assertThat(restored.read()).isTrue();
@@ -622,7 +623,8 @@ class NotificationRepositoryTest extends IntegrationTestBase {
 
   /** 알림 1건을 insert 하고 read_at·archived_at 을 지금 기준 일수 전으로 직접 정한다(null 이면 비움). id 반환. */
   private long seedAged(long recipient, Integer readHoursAgo, Integer archivedHoursAgo) {
-    repo.insertAccountNotice(recipient, NotificationType.PERSONAL_ASSISTANT_REVOKED, recipient);
+    repo.insertAccountNotice(
+        recipient, NotificationType.PERSONAL_ASSISTANT_REVOKED, recipient, null);
     long id = idsOf(recipient).get(idsOf(recipient).size() - 1);
     var now = java.time.OffsetDateTime.now();
     dsl.update(NOTIFICATION)

@@ -358,4 +358,20 @@ describe('알림 탭 진입점 /push-open', () => {
     await waitFor(() => expect(selected).toEqual([{ tenantId: 2 }]))
     expect(redirects).toEqual(['/chat/dms/42'])
   })
+
+  // WP-1687 — 「새 앱 연결」 푸시는 연결한 워크스페이스의 tenantId 를 싣지만, 연결된 앱 목록은 사용자 단위(모든 워크스페이스)라
+  // 다른 워크스페이스에서 일하던 사람을 전환(전체 새로고침)시킬 까닭이 없다 — 지금 워크스페이스에서 그 절로 바로 간다.
+  test('다른 테넌트의 「새 앱 연결」 푸시는 워크스페이스를 바꾸지 않고 연결된 앱 절로 간다', async () => {
+    const selectTenant = vi.fn()
+    let membershipCalls = 0
+    const { location } = renderScreen(pushRoutes, {
+      path: '/push-open?t=2&to=' + encodeURIComponent('/settings/tokens#connected-apps'),
+      handlers: [http.get(`${API}/auth/memberships`, () => (membershipCalls++, HttpResponse.json([T1, T2])))],
+      auth: { activeTenant: T1, selectTenant },
+    })
+    await waitFor(() => expect(location()).toBe('/settings/tokens'))
+    expect(window.location.hash).toBe('#connected-apps')
+    expect(selectTenant).not.toHaveBeenCalled()
+    expect(membershipCalls).toBe(0)
+  })
 })

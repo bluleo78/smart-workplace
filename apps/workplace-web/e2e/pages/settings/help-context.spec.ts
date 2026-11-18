@@ -9,6 +9,7 @@
 // 도움말 묶음은 작은 목(help-bundle-mock 의 「내 설정」 장), 토큰 API 는 목록만 주는 목이다.
 import type { Page } from '@playwright/test'
 
+import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockHelpBundle } from '../../fixtures/help-bundle-mock'
 import { expectStays, gate, nextFrame } from '../../fixtures/wait'
@@ -29,6 +30,8 @@ function token(id: number) {
 
 /** 토큰 목록 GET 을 count 개로 답한다 — 스크롤 테스트는 목록을 길게 해 본문이 스크롤되게 한다. */
 async function mockTokens(page: Page, count: number) {
+  // 「연결된 앱」 절(WP-1687)이 읽는 연결 목록 — 빈 목록이라 절이 숨고 스크롤 측정에 끼지 않는다(목이 없으면 503 → 오류 줄이 섞인다).
+  await mockApi(page, 'GET', '/api/v1/users/me/oauth-connections', [])
   await page.route(/\/api\/v1\/users\/me\/api-tokens$/, (route) =>
     route.request().method() === 'GET'
       ? route.fulfill({ json: Array.from({ length: count }, (_, i) => token(i + 1)) })
@@ -203,6 +206,7 @@ test.describe('도움말 문맥 따라가기 — API 토큰 화면', () => {
     await mockHelpBundle(page)
     // 토큰 목록 응답을 붙잡아 둔다 — 도움말이 먼저 열려 빈 화면을 재게.
     const rows = gate()
+    await mockApi(page, 'GET', '/api/v1/users/me/oauth-connections', [])
     await page.route(/\/api\/v1\/users\/me\/api-tokens$/, async (route) => {
       if (route.request().method() !== 'GET') return route.fallback()
       await rows.p

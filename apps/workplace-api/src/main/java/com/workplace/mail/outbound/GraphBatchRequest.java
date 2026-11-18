@@ -8,6 +8,6 @@ import java.util.Map;
  * @param id 배치 안에서 응답을 짝짓는 키(역동기화는 메일 id 문자열)
  * @param method HTTP 메서드(예: PATCH)
  * @param url Graph 상대경로(예: /me/messages/{id}) — 배치 규약상 /v1.0 접두 없이
- * @param body 요청 본문
+ * @param body 요청 본문 — null 이면 본문·Content-Type 없이 보낸다(GET 등, WP-1682)
  */
 public record GraphBatchRequest(String id, String method, String url, Map<String, Object> body) {}
