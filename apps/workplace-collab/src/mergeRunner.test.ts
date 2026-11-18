@@ -117,6 +117,30 @@ describe('mergeRunner', { timeout: WORKER_BOOT_LIMIT_MS }, () => {
     expect(t.workers).toHaveLength(1)
   })
 
+  it('warm boots the worker before any job so the first job does not wait for the boot', async () => {
+    // WP-1709 — 진입점이 서버를 띄운 직후 부른다. 기동을 마친 뒤 온 첫 작업은 짧은 기한이어도 같은 워커가 바로 받는다.
+    const clock = manualClock()
+    const t = createTestMergeRunner({ clock, timeoutMs: 300, testBootHold: (n) => n === 0 })
+    runner = t
+    t.warm()
+    t.warm() // 이미 띄웠으면 다시 띄우지 않는다
+    await expect.poll(() => t.held(), { timeout: WORKER_BOOT_LIMIT_MS }).toBe(1)
+    expect(t.workers).toHaveLength(1)
+    t.release()
+    // 기동 중에 기한을 흘려도 기다리던 작업이 없으니 아무것도 끝나지 않고 워커도 그대로다.
+    clock.advance(1000)
+    expect(t.workers[0].terminated).toBeUndefined()
+    expect((await t.merge(job())).markdown).toBe('가 AI')
+    expect(t.workers).toHaveLength(1)
+  })
+
+  it('warm does nothing after destroy', async () => {
+    const t = createTestMergeRunner({ clock: manualClock() })
+    await t.destroy()
+    t.warm()
+    expect(t.workers).toHaveLength(0)
+  })
+
   it('fails the waiting job when the worker dies while booting and serves the next job from a fresh worker', async () => {
     const t = createTestMergeRunner({ clock: manualClock(), testBootHold: (n) => n === 0 })
     runner = t

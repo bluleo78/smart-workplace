@@ -15,6 +15,8 @@ if (!cfg.internalToken && !cfg.testMode) {
 const app = buildCollabServer(cfg)
 await app.listen()
 console.log(`[collab] listening on ${app.address.port}${cfg.testMode ? ' (test mode)' : ''}`)
+// 병합 워커를 지금 띄운다 — 첫 AI 본문 병합이 워커 기동(부하에서 수십 초)을 기다리다 시간 초과로 끝나지 않게(WP-1709).
+app.warmMerger()
 
 // 종료 신호 — 남은 저장을 마치고(문서 언로드) 내려간다. 두 번째 신호는 destroy 가 같은 Promise 를 공유한다.
 const shutdown = async () => {

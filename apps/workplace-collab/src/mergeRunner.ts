@@ -76,6 +76,11 @@ export interface MergeRunner {
   prepare(job: PrepareJob, timeoutMs?: number): Promise<PrepareResult>
   /** 3-way 병합 + keepLive 적용 계획. */
   merge(job: MergeJob, timeoutMs?: number): Promise<LiveMergeResult>
+  /**
+   * 워커를 미리 띄운다(이미 있으면 그대로) — 첫 병합이 기동을 기다리지 않게 진입점이 서버를 띄운 직후 부른다(WP-1709).
+   * 부하 속 첫 기동은 수십 초가 걸린 적이 있어(게이트 E2E), 그동안 온 요청이 모두 「대기 중 시간 초과」로 끝났다.
+   */
+  warm(): void
   /** 워커 종료(서버 종료). 대기 중인 작업은 실패로 끝난다. */
   destroy(): Promise<void>
 }
@@ -243,6 +248,9 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
     },
     merge(job, limit = timeoutMs) {
       return run({ id: nextId++, kind: 'merge', ...job }, limit) as Promise<LiveMergeResult>
+    },
+    warm() {
+      if (!destroyed) worker ??= spawn()
     },
     async destroy() {
       destroyed = true
