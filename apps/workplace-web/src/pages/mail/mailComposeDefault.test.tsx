@@ -43,6 +43,30 @@ function Triggers() {
       >
         작성 열기
       </button>
+      <button
+        type="button"
+        data-testid="open-compose-uploading"
+        onClick={() =>
+          openCompose(
+            {
+              mode: 'forward',
+              accountId: 1,
+              to: [],
+              cc: [],
+              bcc: [],
+              subject: 'Fwd: 첨부',
+              initialHtml: '',
+              quote: null,
+              inReplyToMessageId: null,
+              // 올리는 중인 첨부 — 끝나지 않는 칩이라 새 창으로 옮기기가 막힌 채로 남는다.
+              attachments: [{ key: 'upload-1', name: 'a.pdf', size: 10, mimeType: 'application/pdf', status: 'uploading', progress: 0, source: 'upload' }],
+            },
+            { placement: 'default' },
+          )
+        }
+      >
+        첨부 올리는 중 작성 열기
+      </button>
       <button type="button" data-testid="ai-fullscreen-on" onClick={() => ai.open('fullscreen')}>
         AI 전체 화면으로
       </button>
@@ -365,4 +389,26 @@ test('미리_연_창을_꺼낸_뒤에는_시한이_창을_닫지_않는다', asy
   } finally {
     vi.useRealTimers()
   }
+})
+
+// ── 자동 옮기기도 새 창 열기 막힘(↗ 와 같은 규칙)을 따른다 — 첨부를 올리는 중이면 옮기지 않고 우측 하단에 둔다 ──
+
+test('기본값_새_창이어도_첨부를_올리는_중이면_옮기지_않고_우측_하단에_이유를_알린다', async () => {
+  const win = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', () =>
+    HttpResponse.json({ id: 105, version: 1, updatedAt: '2026-11-12T00:00:00Z' }, { status: 201 }),
+  )
+  const view = renderWith('WINDOW', { extra: [post.handler] })
+  await settingsLoaded(view, 'WINDOW')
+  await view.user.click(screen.getByTestId('open-compose-uploading'))
+
+  expect(await screen.findByText('새 창으로 열지 못해 우측 하단에 열었어요')).toBeInTheDocument()
+  // 이유는 알림 설명과 칩 목록 위 안내에 각각 보인다.
+  expect(screen.getAllByText('첨부를 올리는 중이에요. 다 올라가면 보낼 수 있어요.').length).toBeGreaterThanOrEqual(1)
+  expect(win.close).toHaveBeenCalledTimes(1)
+  // 임시저장하지도 주소를 옮기지도 않고, 우측 하단 창이 그대로 보인다.
+  expect(post.calls).toHaveLength(0)
+  expect(win.location.href).toBe('')
+  expect(screen.getByTestId('mail-compose-dock')).not.toHaveClass('invisible')
 })

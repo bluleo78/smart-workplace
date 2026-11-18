@@ -337,7 +337,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   // 에디터가 처음 본문을 알린 회차 — 늦게 온 서명은 에디터가 만들어진 뒤에만 넣을 수 있다.
   const [composerReadyFor, setComposerReadyFor] = useState<number | undefined>(undefined);
   // 늦은 서명 넣기를 이미 판단한 회차 — 한 회차에 한 번만(넣었든 안 넣었든) 정한다.
-  const lateSignatureDoneRef = useRef<number | undefined>(undefined);
+  // 늦은 서명 넣기를 이미 정한 회차 — 자동 옮기기 효과가 이 값을 조건·deps 로 읽어, 두 효과의 선언 순서에 기대지 않는다.
+  const [signatureDecidedFor, setSignatureDecidedFor] = useState<number | undefined>(undefined);
   // 아직 주지 않은 본문 끝 초점 요청 하나 — 답장을 열 때(WP-1746)·AI 초안을 넣은 뒤(WP-576) 건다. 그 회차의 에디터가 준비되고
   // 생성 중(inert)이 아닐 때 한 번 주고 비운다. dropIfMinimized: 최소화로 숨어 있으면 주지 않고 버린다(AI 초안 — 페이지에서 하던 일을
   // 빼앗지 않게). false 면 펼칠 때까지 남겨 둔다(답장 — 처음 초점이라 펼친 뒤 받는 게 맞다).
@@ -492,13 +493,14 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const instanceId = draft?.instanceId;
   useEffect(() => {
     if (!draft || composeInitial.signatureSettled || signature.isPending) return;
-    if (composerReadyFor !== instanceId || lateSignatureDoneRef.current === instanceId) return;
-    lateSignatureDoneRef.current = instanceId;
+    if (composerReadyFor !== instanceId || signatureDecidedFor === instanceId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 서명 조회가 끝난 뒤(비동기 결과)에야 정해지고 회차마다 한 번이라 렌더 중으로 못 옮긴다.
+    setSignatureDecidedFor(instanceId);
     if (!sig || !shouldAutoInsertSignature(draft, sig)) return;
     if (bodyHtmlRef.current !== bodyBaselineRef.current) return;
     composerRef.current?.insertInitialSignature(sig.html);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instanceId, composerReadyFor, signature.isPending, sig]);
+  }, [instanceId, composerReadyFor, signature.isPending, sig, signatureDecidedFor]);
 
   // 개선본 미리보기 문서(WP-404) — 에디터와 같은 문단·글자 규칙을 입히고, 다크 테마면 받은 메일 본문처럼 테마색으로 바꾼다.
   // 그래야 미리보기에서 본 모습이 "개선본으로 교체" 후 에디터 모습과 같다.
@@ -620,20 +622,46 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     });
   };
 
+  // 아래 「기본값 새 창」 자동 옮기기 효과도 이 이유를 보므로(조기 return 뒤에서는 효과를 못 건다) 효과보다 앞에서 계산한다.
+  // 올리는 중이거나 실패한 첨부가 있으면 보내지 않는다 — 빠진 채 나가지 않게. 이유는 칩 목록 위 한 줄(모바일 포함)과 데스크톱 보내기 툴팁으로 알린다.
+  const { block } = attachments;
+  const blockedReason = block?.reason ?? null;
+  // 새 창으로 열기를 막는 이유(WP-1535) — 업로드 중·실패한 첨부는 저장에 실리지 않아 새 창에서 빠지므로 기다리지 않고 막는다.
+  // 보내는 중·AI 초안 생성 중(반쯤 찬 본문)·옮기는 중에도 막는다. 이유는 툴팁으로 보인다.
+  // 「옮기는 중」(leaving)만 따로 뺀다 — 자동 옮기기는 앞 회차의 늦은 저장(leaving)이 남은 채 다음 회차를 열어도 그 회차를 막으면 안 되기 때문이다.
+  const popoutBaseBlockedReason =
+    blockedReason ??
+    (autosave.status === 'gone'
+      ? '다른 곳에서 보냈거나 버린 메일이라 새 창으로 열 수 없어요'
+      : send.isPending || preparingSend
+        ? '보내는 중이에요'
+        : aiGenerating
+          ? 'AI 초안을 만드는 중이에요'
+          : null);
+  const popoutBlockedReason = popoutBaseBlockedReason ?? (leaving ? '새 창을 여는 중이에요' : null);
   // 작성 방식 기본값 「새 창」(WP-1744) — 이 회차를 위해 openCompose 가 미리 연 창이 있으면, 작성기가 처음 본문을 알린 뒤(지금 내용을
   // 임시저장할 수 있을 때) 한 번 꺼내 ↗ 와 같은 흐름으로 옮긴다. 꺼내면 비워지므로 다시 돌아도(StrictMode 등) 두 번 옮기지 않는다.
-  // 처음 본문에 서명이 아직 없으면(서명 조회 중에 열었다) 조회가 끝나고 위 늦은 서명 넣기 효과가 이 회차를 정한 뒤에 옮긴다 — 먼저 옮기면
-  // 서명 없는 본문이 임시저장돼 새 창에서 서명이 빠진다. 늦은 넣기 효과가 먼저 선언돼 같은 커밋에서 먼저 돈다.
+  // 처음 본문에 서명이 아직 없으면(서명 조회 중에 열었다) 조회가 끝나고 위 늦은 서명 넣기 효과가 이 회차를 정한 뒤(signatureDecidedFor)에
+  // 옮긴다 — 먼저 옮기면 서명 없는 본문이 임시저장돼 새 창에서 서명이 빠진다. 효과 선언 순서가 아니라 그 상태값에 기댄다.
+  // ↗ 단추가 막히는 경우(올리는 중인 첨부 등, popoutBaseBlockedReason)에는 옮기지 않고 창을 닫아 우측 하단에 두며 이유를 알린다.
   // 새 창 페이지(popout)에서는 공급자가 창을 미리 열지 않아 takePendingWindow 가 늘 undefined 다.
   useEffect(() => {
     if (instanceId == null || composerReadyFor !== instanceId) return;
-    if (!composeInitial.signatureSettled && (signature.isPending || lateSignatureDoneRef.current !== instanceId)) return;
+    if (!composeInitial.signatureSettled && (signature.isPending || signatureDecidedFor !== instanceId)) return;
     const preopened = takePendingWindow(instanceId);
     if (preopened === undefined) return;
+    if (popoutBaseBlockedReason != null) {
+      // 미리 연 창이 null(팝업 차단)이면 닫을 것이 없다 — 어느 쪽이든 감춰 둔 우측 하단 창을 되돌린다.
+      preopened?.close();
+      endWindowMove(instanceId);
+      toast('새 창으로 열지 못해 우측 하단에 열었어요', { description: popoutBaseBlockedReason });
+      return;
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 작성기가 준비된 뒤(지금 내용을 임시저장할 수 있을 때)에야 옮길 수 있어 렌더 중으로 못 옮긴다(회차마다 한 번).
     popOut(preopened);
+    // popOut 은 매 렌더 새 함수라 deps 에서 뺀다 — 이 효과는 작성기 준비·서명 결정 같은 회차 전환 시점에만 돈다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [composerReadyFor, instanceId, signature.isPending]);
+  }, [composerReadyFor, instanceId, signature.isPending, signatureDecidedFor]);
 
   // 다른 작성으로 바뀌기 직전(다른 메일 답장·임시저장 열기) 이 작성을 저장하고, 같은 임시저장을 다시 열면 이 창을 앞으로 가져오고(최소화를 푼다),
   // 임시보관함에서 이 임시저장을 지우면 저장을 멈춘다. 매 렌더 최신 내용을 읽는 함수로 다시 건다.
@@ -800,24 +828,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       : slotEl == null
         ? '메일 화면이 아니면 읽기 창으로 쓸 수 없어요'
         : null;
-  // 올리는 중이거나 실패한 첨부가 있으면 보내지 않는다 — 빠진 채 나가지 않게. 이유는 칩 목록 위 한 줄(모바일 포함)과 데스크톱 보내기 툴팁으로 알린다.
-  const { block } = attachments;
-  const blockedReason = block?.reason ?? null;
   // 보내기 잠금 — 발송 중, AI 초안 생성 중(반쯤 찬 본문이 나가지 않게, WP-576), 첨부 업로드 중·실패(WP-574).
   const sendDisabled = send.isPending || preparingSend || aiGenerating || blockedReason != null;
-  // 새 창으로 열기를 막는 이유(WP-1535) — 업로드 중·실패한 첨부는 저장에 실리지 않아 새 창에서 빠지므로 기다리지 않고 막는다.
-  // 보내는 중·AI 초안 생성 중(반쯤 찬 본문)·옮기는 중에도 막는다. 이유는 툴팁으로 보인다.
-  const popoutBlockedReason =
-    blockedReason ??
-    (autosave.status === 'gone'
-      ? '다른 곳에서 보냈거나 버린 메일이라 새 창으로 열 수 없어요'
-      : send.isPending || preparingSend
-        ? '보내는 중이에요'
-        : aiGenerating
-          ? 'AI 초안을 만드는 중이에요'
-          : leaving
-            ? '새 창을 여는 중이에요'
-            : null);
   const openFilePicker = () => fileInputRef.current?.click();
   const attachmentChips = (
     <MailComposeAttachmentChips
