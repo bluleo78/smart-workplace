@@ -104,8 +104,11 @@ public class IssueBodyImageService {
    * @param body 자리표시를 실제 주소·표기로 바꾼 본문 — 저장·이벤트·이미지 연결에 이 값을 쓴다
    * @param attachmentFileIds 이미지가 아니라 이슈 첨부로 붙여야 할 스테이징 파일 id(본문 순서, 중복 없음) — 이슈 행이 있어야 붙일 수 있어
    *     호출자가 저장 뒤 같은 트랜잭션에서 {@link IssueAttachmentService#attachStaged} 로 붙인다
+   * @param placeholderFileIds 본문 자리표시에서 해석한 파일 id 전체(코드 표기 안 제외, 종류 무관, 자리표시가 없으면 빈 집합) — 이 번호는 본문
+   *     처리로 끝나므로 요청 fileIds 에서 빼야 한다(WP-1755: 이미지가 첨부로 다시 클레임되면 이미 묶인 파일이라 400)
    */
-  public record ResolvedBody(String body, List<Long> attachmentFileIds) {}
+  public record ResolvedBody(
+      String body, List<Long> attachmentFileIds, Set<Long> placeholderFileIds) {}
 
   /**
    * 본문·댓글의 스테이징 파일 자리표시({@code ![설명](file:123)}, {@code [이름](file:123)})를 해석한다(WP-1634).
@@ -129,7 +132,7 @@ public class IssueBodyImageService {
    */
   public ResolvedBody resolveStagedPlaceholders(ProjectRow project, long callerId, String body) {
     List<IssueBodyFilePlaceholders.Placeholder> found = IssueBodyFilePlaceholders.find(body);
-    if (found.isEmpty()) return new ResolvedBody(body, List.of());
+    if (found.isEmpty()) return new ResolvedBody(body, List.of(), Set.of());
 
     Set<Long> ids = new LinkedHashSet<>();
     for (var p : found) {
@@ -191,7 +194,7 @@ public class IssueBodyImageService {
       throw new IssueBodyImageRejectedException(
           "파일 자리표시를 주소로 바꾸면 본문이 " + IssueTextLimits.BODY_MAX + "자를 넘어요. 본문을 줄여 주세요.");
     }
-    return new ResolvedBody(out.toString(), List.copyOf(attachments));
+    return new ResolvedBody(out.toString(), List.copyOf(attachments), Set.copyOf(ids));
   }
 
   /** 자리표시 번호 해석 — 19자리지만 Long 범위를 넘는 값은 있을 수 없는 파일이라 같은 거절 문구로 알린다. */

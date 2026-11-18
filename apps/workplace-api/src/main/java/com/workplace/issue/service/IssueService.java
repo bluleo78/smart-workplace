@@ -77,6 +77,8 @@ import com.workplace.user.repository.UserRepository;
 import com.workplace.version.repository.VersionRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -276,8 +278,9 @@ public class IssueService {
     bodyImageService.syncIssueImages(project, row.id(), callerId, null, saved.body());
     // WP-422 스테이징 첨부 — 같은 트랜잭션에서 묶는다(실패하면 이슈도 롤백). 작업 쓰기 알림(updated)은 내지 않고 아래 finishCreate 의
     // 생성 알림(created)만 나가므로, 수행 도구(MCP) 경유 생성이 첨부 때문에 담당 AI 작업을 시작하지 않는다.
-    // WP-1634 본문 자리표시의 이미지가 아닌 파일도 함께 — fileIds 에도 같은 번호가 있으면 한 번만 붙인다.
-    List<Long> stagedFileIds = mergeFileIds(req.fileIds(), resolvedBody.attachmentFileIds());
+    // WP-1634 본문 자리표시의 이미지가 아닌 파일도 함께 붙인다. WP-1755 본문 자리표시에 쓴 번호는 종류와 상관없이 본문 처리로 끝나 fileIds 에서
+    // 뺀다 — 이미지가 첨부로 다시 클레임되면 이미 묶인 파일이라 400.
+    List<Long> stagedFileIds = mergeFileIds(req.fileIds(), resolvedBody);
     if (!stagedFileIds.isEmpty()) {
       issueAttachmentService.attachStaged(project, row.id(), callerId, stagedFileIds);
     }
@@ -287,14 +290,24 @@ public class IssueService {
   }
 
   /**
-   * 요청의 첨부 fileIds 와 본문 자리표시의 이미지가 아닌 파일(WP-1634)을 순서대로 합친다 — 같은 번호는 한 번만(클레임이 중복 id 를 형태 오류로
-   * 거절한다).
+   * 요청의 첨부 fileIds 에서 본문 자리표시에 쓴 번호를 빼고(WP-1755, 종류 무관 — 본문 처리로 이미 끝났다), 자리표시의 이미지가 아닌 파일(WP-1634)을
+   * 이어 붙인다. 요청 목록은 보낸 그대로(중복 포함) 두고 자리표시 번호만 뺀다 — 자리표시 유무와 상관없이 [7,7] 같은 중복은 클레임이 똑같이 형태 오류(400)로
+   * 거절하게 하려는 것이다. 본문에서 온 첨부 번호는 이미 목록에 없는 것만 덧붙인다.
    */
-  private static List<Long> mergeFileIds(List<Long> requested, List<Long> fromBody) {
-    if (fromBody.isEmpty()) return requested == null ? List.of() : requested;
-    var merged = new LinkedHashSet<Long>();
-    if (requested != null) merged.addAll(requested);
-    merged.addAll(fromBody);
+  private static List<Long> mergeFileIds(
+      List<Long> requested, IssueBodyImageService.ResolvedBody resolved) {
+    if (resolved.placeholderFileIds().isEmpty()) return requested == null ? List.of() : requested;
+    var merged = new ArrayList<Long>();
+    if (requested != null) {
+      for (Long id : requested) {
+        if (!resolved.placeholderFileIds().contains(id)) merged.add(id);
+      }
+    }
+    // 이미 목록에 있는지는 집합으로 본다(목록 contains 반복을 피한다).
+    var present = new HashSet<Long>(merged);
+    for (Long id : resolved.attachmentFileIds()) {
+      if (present.add(id)) merged.add(id);
+    }
     return List.copyOf(merged);
   }
 

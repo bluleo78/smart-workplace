@@ -47,7 +47,7 @@ export const uploadFileInput = z
  * 붙인다(CREATE_DRIVE_FILE_CONTENT_DESCRIPTION 과 같은 구조). 붙일 도구는 이름 대신 입력(fileIds)으로 가리킨다 — 도구 이름을 적으면
  * 앱 범위 교차 참조 규칙(tool-apps.test.ts)에 걸리고, 세 앱의 도구를 모두 나열하면 정의 크기만 커진다.
  * WP-1634: 이슈 본문·댓글에는 fileIds 대신 `![설명](file:<fileId>)` 자리표시로 원하는 자리에 넣을 수 있다(서버가 저장 때 이미지는 본문 이미지로,
- * 그 밖은 이슈 첨부로 옮긴다). 정의 크기 상한(tool-naming.test.ts) 여유가 10토큰뿐이라 본문 도구 4종 설명에는 싣지 않고 여기 한 곳에만 둔다.
+ * 그 밖은 이슈 첨부로 옮긴다). WP-1755: 같은 번호를 fileIds 와 자리표시에 함께 써도 한 번만 붙는다(생성·수정 모두 자리표시 번호는 fileIds 에서 뺀다). 정의 크기 상한(tool-naming.test.ts) 여유가 10토큰뿐이라 본문 도구 4종 설명에는 싣지 않고 여기 한 곳에만 둔다.
  */
 export const UPLOAD_FILE_CONTENT_DESCRIPTION =
   'Stages a file to attach within 24h (fileIds of issue, message, wiki tools; ![alt](file:<fileId>) in issue/comment body). With content: saves ' +
@@ -77,7 +77,7 @@ export function toStagedUploadLinkView({ url, method, expiresAt, maxBytes, name,
     howTo: curlPutHowTo(url),
     note:
       UPLOAD_LINK_NOTE_COMMON +
-      'PUT 응답 JSON 의 fileId 를 첨부 입력(fileIds)에 넘기세요. 이슈 본문·댓글에는 ![설명](file:<fileId>) 로 원하는 자리에 넣을 수 있습니다. ' +
+      '첨부 목록에 붙이려면 PUT 응답 JSON 의 fileId 를 첨부 입력(fileIds)에, 이슈 본문·댓글의 원하는 자리에 넣으려면 ![설명](file:<fileId>) 자리표시로 넘기세요 — 둘 중 하나만 쓰면 됩니다(이슈 만들기·고치기에서는 둘 다 써도 본문 처리로 한 번만 붙습니다 — 댓글에는 첨부 입력이 없습니다). ' +
       '24시간 안에 붙이지 않으면 파일이 사라집니다. ' +
       '전송이 실패하면 이 링크는 다시 쓸 수 없으니 upload_file 로 새 링크를 만드세요.',
   };
