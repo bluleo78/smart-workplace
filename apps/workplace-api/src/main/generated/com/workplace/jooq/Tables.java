@@ -27,6 +27,7 @@ import com.workplace.jooq.tables.AiMemoryForgotten;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
+import com.workplace.jooq.tables.CalendarDeletedMeeting;
 import com.workplace.jooq.tables.CalendarEvent;
 import com.workplace.jooq.tables.CalendarEventException;
 import com.workplace.jooq.tables.CalendarEventNote;
@@ -305,6 +306,11 @@ public class Tables {
      * The table <code>public.calendar</code>.
      */
     public static final Calendar CALENDAR = Calendar.CALENDAR;
+
+    /**
+     * The table <code>public.calendar_deleted_meeting</code>.
+     */
+    public static final CalendarDeletedMeeting CALENDAR_DELETED_MEETING = CalendarDeletedMeeting.CALENDAR_DELETED_MEETING;
 
     /**
      * The table <code>public.calendar_event</code>.

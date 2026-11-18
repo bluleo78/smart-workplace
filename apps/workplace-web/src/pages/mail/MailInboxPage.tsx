@@ -652,11 +652,13 @@ function MessageDetailPanel({
   if (summaryRequestedId != null && summaryRequestedId !== messageId) setSummaryRequestedId(null)
   // #520 연결된 이슈 키 조회 — issueKey 있으면 배지 표시.
   const linked = useLinkedIssue(messageId, aiEnabled)
-  // HTML 본문은 text 본문이 없을 때만 iframe 으로 보인다 — 다크 변환·인라인 치환·첨부 숨김 모두 이때만 적용.
+  // HTML 본문이 있으면 그것을 iframe 으로 보이고, text 본문은 HTML 이 없을 때만 보인다(WP-1725) — 다크 변환·인라인 치환·첨부 숨김은
+  // HTML 을 보일 때만 적용. 둘 다 가진 메일(이 앱이 보낸 메일의 보낸편지함 사본·IMAP multipart/alternative)을 text 로 보여
+  // 서명·서식이 평문으로 보이던 문제를 고친다 — 메일 클라이언트들처럼 HTML 을 우선한다.
   // 아래 훅들은 조기 return 이전에 호출(훅 순서 고정).
   const rawHtml = detail?.bodyHtml ?? null
   const attachments = detail?.attachments
-  const showsHtml = !!rawHtml && !detail?.bodyText
+  const showsHtml = !!rawHtml
   // WP-103·WP-159 다크 테마면 HTML 메일을 색 단위로 어둡게 변환 — base64 치환 전 원문에 적용해 파싱 비용을 줄인다.
   // 변환된 메일(다크 테마의 HTML 본문)에는 "원본 보기" 토글을 둔다(Outlook 의 배경 전환과 같은 역할).
   // 원본 보기는 해당 메시지에만 유효 — id 로 기억해 다른 메일을 열면 effect 없이 다크 기본값으로 돌아간다.
@@ -774,15 +776,16 @@ function MessageDetailPanel({
       />
     ) : null
     // HTML 본문 iframe 은 스크롤 영역 높이(100cqh, 위아래 여백 1rem 제외)를 차지한다 — MailMobileDetail 주석 참조.
-    const mobileBody = detail.bodyText ? (
-      <pre className="whitespace-pre-wrap break-words font-sans text-sm">{detail.bodyText}</pre>
-    ) : bodyHtml ? (
+    // HTML 우선(showsHtml), 없으면 text(WP-1725).
+    const mobileBody = showsHtml && bodyHtml ? (
       <SandboxedHtmlFrame
         data-testid="mail-body-html"
         title="메일 본문"
         html={bodyHtml}
         className="block h-[calc(100cqh-1rem)] min-h-[300px] w-full border-0"
       />
+    ) : detail.bodyText ? (
+      <pre className="whitespace-pre-wrap break-words font-sans text-sm">{detail.bodyText}</pre>
     ) : (
       <div className="text-sm text-muted-foreground">본문이 없습니다</div>
     )
@@ -1077,9 +1080,8 @@ function MessageDetailPanel({
       <div className="flex-1 p-4">
         {/* WP-986 일정 초대 카드 — 헤더와 본문 사이(초대 메일일 때만). */}
         {inviteCard && <div className="mb-4">{inviteCard}</div>}
-        {detail.bodyText ? (
-          <pre className="whitespace-pre-wrap break-words font-sans text-sm">{detail.bodyText}</pre>
-        ) : bodyHtml ? (
+        {/* HTML 우선(showsHtml), 없으면 text(WP-1725). */}
+        {showsHtml && bodyHtml ? (
           <div className="flex h-full flex-col gap-2">
             {darkened && (
               <Button
@@ -1101,6 +1103,8 @@ function MessageDetailPanel({
               className="min-h-[300px] w-full flex-1 border-0"
             />
           </div>
+        ) : detail.bodyText ? (
+          <pre className="whitespace-pre-wrap break-words font-sans text-sm">{detail.bodyText}</pre>
         ) : (
           <div className="text-sm text-muted-foreground">본문이 없습니다</div>
         )}

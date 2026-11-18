@@ -1,8 +1,8 @@
-// 이슈 상세 헤더 — 제목 대신 브레드크럼(프로젝트 / 부모이슈 / 현재이슈)만 노출 (Jira 스타일).
+// 이슈 상세 헤더 — 제목 대신 브레드크럼(프로젝트 / (에픽) / 부모이슈 / 현재이슈)만 노출 (Jira 스타일).
 // 왜: 제목을 헤더(h-14 고정폭)에 두면 가변 길이 제목이 우측 액션·전역 AI 런처와 부딪힌다(#558 회귀).
 // 제목은 본문 상단으로 내리고, 헤더는 위치 탐색(경로)에만 집중한다.
-// 하위 이슈(SUBTASK)면 부모 크럼이 한 단계 더 끼어든다 — 나중에 에픽 등 상위 레벨이 생기면
-// 이 nav 는 그대로 두고 크럼 배열 앞에 한 단계를 추가하면 된다.
+// 부모가 있으면 부모 크럼이 한 단계 끼어들고, 부모가 에픽이 아닌 하위 태스크(에픽 › 스토리 › 하위 태스크)면
+// 서버가 실은 할아버지 에픽(parent.epic, WP-1692)을 부모 앞에 한 단계 더 넣는다(WP-1736).
 
 import { ArrowLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -16,6 +16,7 @@ import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import {
   HIDDEN_PARENT_LABEL,
+  isEpicOrHiddenRef,
   isHiddenParent,
   parentIssueKey,
   parentIssuePath,
@@ -42,6 +43,22 @@ function IssueCrumbLabel({ type, projectKey, number }: { type: IssueTypeSummary 
       </span>
     </span>
   );
+}
+
+/**
+ * 경로의 상위 이슈 단계 하나(부모·에픽 공용, WP-1736) — 다른 프로젝트 이슈면 그 프로젝트 키로 키·경로를 만들고(WP-1038),
+ * 가려진 이슈는 링크 없이 「볼 수 없는 에픽」. testId 는 `breadcrumb-<kind>-<번호>` / `breadcrumb-<kind>-hidden`.
+ */
+function refCrumb(kind: 'parent' | 'epic', ref: ParentRef, projectKey: string): BreadcrumbItem {
+  if (isHiddenParent(ref)) {
+    return { key: `${kind}-hidden`, label: HIDDEN_PARENT_LABEL, testId: `breadcrumb-${kind}-hidden` };
+  }
+  return {
+    key: `${kind}-${parentIssueKey(ref, projectKey)}`,
+    label: <IssueCrumbLabel type={ref.type} projectKey={parentProjectKey(ref, projectKey)} number={ref.number} />,
+    to: parentIssuePath(ref, projectKey) ?? undefined,
+    testId: `breadcrumb-${kind}-${ref.number}`,
+  };
 }
 
 export function IssueBreadcrumbHeader({
@@ -95,20 +112,13 @@ export function IssueBreadcrumbHeader({
       />
     );
   }
-  // 경로 단계: 프로젝트 › (부모 이슈) › 현재 이슈. 이슈 단계는 타입 아이콘 + 키로 보인다.
+  // 경로 단계: 프로젝트 › (에픽) › (부모 이슈) › 현재 이슈. 이슈 단계는 타입 아이콘 + 키로 보인다.
+  // 에픽 단계는 부모가 보이는 비에픽 이슈이고 서버가 parent.epic 을 실었을 때만(WP-1736) — 부모가 에픽이면 중복하지 않는다.
+  const epic = parent && !isEpicOrHiddenRef(parent) ? parent.epic : null;
   const items: BreadcrumbItem[] = [
     { key: 'project', label: projectName, title: projectName, to: `/projects/${projectKey}` },
-    // WP-1038 부모는 다른 프로젝트 에픽일 수 있어 부모의 프로젝트 키로 키·경로를 만든다. 가려진 부모는 링크 없이 「볼 수 없는 에픽」.
-    ...(parent && isHiddenParent(parent)
-      ? [{ key: 'parent-hidden', label: HIDDEN_PARENT_LABEL, testId: 'breadcrumb-parent-hidden' }]
-      : parent
-        ? [{
-            key: `parent-${parentIssueKey(parent, projectKey)}`,
-            label: <IssueCrumbLabel type={parent.type} projectKey={parentProjectKey(parent, projectKey)} number={parent.number} />,
-            to: parentIssuePath(parent, projectKey) ?? undefined,
-            testId: `breadcrumb-parent-${parent.number}`,
-          }]
-        : []),
+    ...(epic ? [refCrumb('epic', epic, projectKey)] : []),
+    ...(parent ? [refCrumb('parent', parent, projectKey)] : []),
     {
       key: 'current',
       label: <IssueCrumbLabel type={type} projectKey={projectKey} number={number} />,

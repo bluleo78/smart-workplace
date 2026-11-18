@@ -300,7 +300,7 @@ test('인라인 이미지 조회가 실패하면 그 첨부는 목록에 남고 
   expect(contents.calls.length).toBeGreaterThanOrEqual(1)
 })
 
-test('text 본문을 보이면 인라인 이미지 첨부는 목록에 남고 조회하지 않는다(WP-70)', async () => {
+test('HTML 이 없어 text 본문을 보이면 이미지 첨부는 목록에 남고 조회하지 않는다(WP-70·WP-1725)', async () => {
   const contents = record('get', '/api/v1/mail/attachments/:id/content', () => new HttpResponse(''))
   const { user } = renderMail('/mail/1', {
     messages: twoRows(),
@@ -308,15 +308,37 @@ test('text 본문을 보이면 인라인 이미지 첨부는 목록에 남고 �
       contents.handler,
       detailHandler(10, {
         bodyText: '안내 본문',
-        bodyHtml: '<p>안내</p><img src="cid:7dc8b642.png">',
+        bodyHtml: null,
         attachments: [{ id: 5, filename: '7dc8b642.png', contentType: 'image/png', sizeBytes: 10, contentId: null }],
       }),
     ],
   })
   await user.click(await screen.findByTestId('mail-row-10'))
   expect(await screen.findByText('안내 본문')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-body-html')).not.toBeInTheDocument()
   expect(screen.getByTestId('mail-attachment-open-5')).toBeInTheDocument()
   expect(contents.calls).toHaveLength(0)
+})
+
+// WP-1725: 이 앱이 보낸 메일의 보낸편지함 사본은 text·HTML 을 모두 가진다 — text 를 먼저 보여 서명이 평문으로 보이던 회귀를 막는다.
+test('text·HTML 본문을 모두 가진 메일은 HTML(서명 포함)을 iframe 으로 보이고 text 를 보이지 않는다(WP-1725)', async () => {
+  const sig = '<div data-mail-signature=""><p><span style="color: #1f4e79"><b>홍길동</b></span> | 개발팀</p></div>'
+  const { user } = renderMail('/mail/1', {
+    messages: twoRows(),
+    handlers: [
+      detailHandler(10, {
+        bodyText: '안내 본문\n\n홍길동 | 개발팀',
+        bodyHtml: `<p>안내 본문</p><p></p>${sig}`,
+      }),
+    ],
+  })
+  await user.click(await screen.findByTestId('mail-row-10'))
+  const frame = await screen.findByTestId('mail-body-html')
+  const srcdoc = frame.getAttribute('srcdoc') ?? ''
+  expect(srcdoc).toContain('data-mail-signature')
+  expect(srcdoc).toContain('<b>홍길동</b>')
+  // 평문(<pre>) 본문은 그리지 않는다.
+  expect(within(screen.getByTestId('mail-detail')).queryByText(/홍길동 \| 개발팀/)).not.toBeInTheDocument()
 })
 
 // ── 동기화 ─────────────────────────────────────────────

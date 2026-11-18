@@ -27,6 +27,7 @@ import com.workplace.jooq.tables.AiMemoryForgotten.AiMemoryForgottenPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
+import com.workplace.jooq.tables.CalendarDeletedMeeting.CalendarDeletedMeetingPath;
 import com.workplace.jooq.tables.CalendarEvent.CalendarEventPath;
 import com.workplace.jooq.tables.CalendarEventException.CalendarEventExceptionPath;
 import com.workplace.jooq.tables.CalendarEventNote.CalendarEventNotePath;
@@ -434,6 +435,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _aiMemory = new AiMemoryPath(this, null, Keys.AI_MEMORY__AI_MEMORY_TENANT_ID_FKEY.getInverseKey());
 
         return _aiMemory;
+    }
+
+    private transient CalendarDeletedMeetingPath _calendarDeletedMeeting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.calendar_deleted_meeting</code> table
+     */
+    public CalendarDeletedMeetingPath calendarDeletedMeeting() {
+        if (_calendarDeletedMeeting == null)
+            _calendarDeletedMeeting = new CalendarDeletedMeetingPath(this, null, Keys.CALENDAR_DELETED_MEETING__CALENDAR_DELETED_MEETING_TENANT_ID_FKEY.getInverseKey());
+
+        return _calendarDeletedMeeting;
     }
 
     private transient CalendarEventNotePath _calendarEventNote;

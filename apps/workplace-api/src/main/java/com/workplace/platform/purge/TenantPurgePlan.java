@@ -161,6 +161,7 @@ public final class TenantPurgePlan {
           // 태그 연결은 태그·일정을 참조하므로 둘보다 먼저(WP-714)
           CALENDAR_EVENT_TAG,
           CALENDAR_TAG,
+          CALENDAR_DELETED_MEETING, // 지운 동기화 미팅 기억(WP-1734) — user·tenant 만 참조
           EVENT_ATTENDEE,
           EVENT_REMINDER,
           CALENDAR_EVENT_EXCEPTION,

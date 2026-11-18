@@ -144,7 +144,10 @@ class CalendarCrossSourceDedupTest extends IntegrationTestBase {
     assertThat(listedIds(me)).contains(owned).contains(invited);
   }
 
-  /** ⑤ 소유 동기화 사본을 삭제하면 초대 사본이 다시 노출된다(read-time 폴백). */
+  /**
+   * ⑤ 소유 동기화 사본 행이 사라지면(동기화 prune 등) 초대 사본이 다시 노출된다(read-time 폴백). 사용자가 앱에서 지운 동기화 일정은 기억해 두고 계속
+   * 가린다(WP-1734, CalendarDeletedMeetingDedupTest) — 여기서는 행만 직접 지워 그 기억이 없는 경우를 본다.
+   */
   @Test
   void deletingOwnedCopy_reexposesInvitedCopy() {
     long me = seedUser("me");
