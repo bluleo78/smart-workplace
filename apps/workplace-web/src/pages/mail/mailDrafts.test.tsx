@@ -491,6 +491,45 @@ test('인용문을 지운 답장 임시저장은 인용문 없이 열리고 원�
   expect(server.puts[0].body).toMatchObject({ mode: 'reply', sourceMessageId: 5, quoteRemoved: true, version: 1 })
 })
 
+// WP-1746 — 임시보관함에서 다시 연 답장은 이어 쓰도록 본문 끝에 커서, 인용문은 원본으로 다시 만들어 새 원문 머리(구분선 + 다섯 줄)로 펼쳐 보인다.
+test('임시보관함에서 다시 연 답장은 본문 끝에 초점이 있고 인용문은 새 원문 머리로 펼쳐진다', async () => {
+  const server = draftServer([draftDetail({ id: 9, mode: 'reply', subject: 'Re: 원문 회의', bodyHtml: '<p>쓰다 만 답</p>', sourceMessageId: 5 })])
+  const view = renderDrafts(server)
+  await openRow(view, 9)
+  const body = screen.getByTestId('mail-composer-body')
+  await waitFor(() => expect(body).toHaveTextContent('쓰다 만 답'))
+  await waitFor(() => expect(body.contains(document.activeElement)).toBe(true))
+  expect(screen.getByTestId('mail-compose-to')).not.toHaveFocus()
+  // 클릭 없이 친 글이 기존 본문 뒤에 붙는다 — 커서가 끝에 있다.
+  await view.user.keyboard(' 이어서')
+  await waitFor(() => expect(body).toHaveTextContent('쓰다 만 답 이어서'))
+
+  const quote = await screen.findByTestId('mail-compose-quote')
+  expect(quote).toHaveAttribute('open')
+  const srcDoc = screen.getByTestId('mail-compose-quote-frame').getAttribute('srcdoc')!
+  expect(srcDoc).toContain('wp_quote gmail_quote')
+  expect(srcDoc).toContain('<b>보낸 사람:</b>')
+  expect(srcDoc).toContain('<b>제목:</b> 원문 회의')
+  expect(srcDoc).not.toContain('님이 작성')
+})
+
+// WP-1746 — 서명이 있는 임시저장 답장을 다시 열면 커서는 서명 아래가 아니라 내가 쓴 글 끝(서명과 간격 줄 위)이다.
+test('서명이 든 답장 임시저장을 다시 열면 이어 쓴 글이 서명 위, 쓰던 글 뒤에 붙는다', async () => {
+  const sig = '<div data-mail-signature=""><p>홍길동</p></div>'
+  const server = draftServer([
+    draftDetail({ id: 9, mode: 'reply', subject: 'Re: 원문 회의', bodyHtml: `<p>쓰다 만 답</p><p></p>${sig}`, sourceMessageId: 5 }),
+  ])
+  const view = renderDrafts(server)
+  await openRow(view, 9)
+  const body = screen.getByTestId('mail-composer-body')
+  await waitFor(() => expect(body).toHaveTextContent('쓰다 만 답'))
+  await waitFor(() => expect(body.contains(document.activeElement)).toBe(true))
+  await view.user.keyboard(' 이어서')
+  await tick(DEBOUNCE)
+  await waitFor(() => expect(server.puts).toHaveLength(1))
+  expect(server.puts[0].body.bodyHtml).toBe(`<p>쓰다 만 답 이어서</p><p></p>${sig}`)
+})
+
 // 다시 연 임시저장은 고치기 전엔 저장할 것이 없다 — 다른 작성이 열린 채 열어도.
 test('다시 연 임시저장은 고치기 전에는 저장하지 않는다 — 다른 작성이 열린 채 열어도 마찬가지', async () => {
   const server = draftServer([

@@ -22,12 +22,11 @@ interface MailQuoteBlockProps {
   /** 인용문 raw HTML(언랩 완료). */
   quoteHtml: string;
   /**
-   * 접힘 상태 표시용 메타. date 는 blockquote 헤더용 전체 표기,
-   * dateShort 는 1줄 칩용 짧은 표기 — 칩에 전체 표기를 쓰면 발신자 이름이 길 때 넘친다.
-   * date/dateShort 가 빈 문자열이면(sentAt 없음) `· 날짜` 세그먼트를 렌더하지 않는다.
+   * 요약 줄(summary) 표시용 메타. dateShort 는 1줄 칩용 짧은 표기 — 시각까지 쓰면 발신자 이름이 길 때 넘친다.
+   * dateShort 가 빈 문자열이면(sentAt 없음) `· 날짜` 세그먼트를 렌더하지 않는다.
    */
-  meta: { from: string; date: string; dateShort: string; subject: string };
-  /** 답장은 맥락이라 1줄·접힘, 전달은 메시지 본체라 카드·펼침. */
+  meta: { from: string; dateShort: string; subject: string };
+  /** 요약 줄 모양 — 답장은 1줄 칩, 전달은 메시지 본체라 카드. 둘 다 기본 펼침이다(WP-1746). */
   variant: 'reply' | 'forward';
   /** 인용문 제거 — 기밀 문단을 빼고 회신하는 시나리오. */
   onRemove: () => void;
@@ -35,7 +34,10 @@ interface MailQuoteBlockProps {
   inlineImages: QuoteInlineImage[];
 }
 
-/** 인용문 표시 블록. 전달은 무엇을 보내는지 알 수 있어야 하므로 기본 펼침이다. */
+/**
+ * 인용문 표시 블록. 답장·전달 모두 기본 펼침이다 — 원문 머리(보낸 사람·보낸 날짜·받는 사람·참조·제목)와 원문이
+ * 그대로 함께 나간다는 것을 쓰는 동안 보이게 한다(WP-1746, Outlook 식). 접기는 사용자가 summary 로 한다.
+ */
 export function MailQuoteBlock({
   quoteHtml,
   meta,
@@ -48,10 +50,10 @@ export function MailQuoteBlock({
   const { html: previewHtml } = useInlineMailHtml(quoteHtml, attachments);
   // 펼친 원문 높이 2단계. 표가 든 원문은 기본 높이에서 거의 보이지 않는다.
   const [tall, setTall] = useState(false);
-  // details 의 open 은 React 가 재조정하는 속성이다. open={variant==='forward'} 처럼
-  // 파생값으로 두면 사용자가 native 토글로 펼친 뒤 tall 변경으로 리렌더될 때 React 가
-  // open 을 프롭 값으로 되돌려 인용문이 접힌다. 상태로 들고 onToggle 로 동기화한다.
-  const [open, setOpen] = useState(variant === 'forward');
+  // details 의 open 은 React 가 재조정하는 속성이다. open={true} 처럼 고정값으로 두면 사용자가
+  // native 토글로 접은 뒤 tall 변경으로 리렌더될 때 React 가 open 을 되돌린다. 상태로 들고 onToggle 로 동기화한다.
+  // 처음 값은 답장·전달 모두 펼침(WP-1746 — 이전엔 답장은 접힘).
+  const [open, setOpen] = useState(true);
 
   return (
     <details

@@ -76,7 +76,8 @@ test.describe('메일 인용문 인라인 이미지', () => {
     )
 
     await page.getByTestId('mail-reply').click()
-    await page.getByTestId('mail-compose-quote-toggle').click()
+    // 답장 인용문도 기본 펼침이다(WP-1746) — 토글을 누르면 도리어 접힌다.
+    await expect(page.getByTestId('mail-compose-quote')).toHaveAttribute('open', '')
 
     // 미리보기: cid → data URI 치환, 실제 디코딩(naturalWidth=1), 매칭 안 된 cid 이미지는 제거됨
     const frame = page.frameLocator('[data-testid="mail-compose-quote-frame"]')

@@ -614,6 +614,20 @@ export function formatMonthDayWeekdayClock(dateStr: string | null | undefined, n
 }
 
 /**
+ * 시각 값(ISO) → 「2026년 11월 18일 수요일 오전 10:42」 — 메일 답장·전달 원문 머리의 「보낸 날짜」(WP-1746, Outlook 식).
+ * 받는 이가 언제 받아 읽든 날짜가 분명하도록 연도·요일 전체를 늘 쓴다. 브라우저 로컬 타임존(쓰는 사람이 본 시각).
+ * 오전/오후는 Intl 대신 meridiemClock 로 만든다(ICU 에 따라 AM/PM 이 되는 문제 — WP-1029). 무효 입력이면 ''(호출부가 줄을 뺀다).
+ * formatLocalDateWithWeekday 를 쓰지 않는 까닭: 그쪽은 화면용이라 올해면 연도를 빼고 요일을 「(수)」로 줄인다 — 메일 머리는
+ * 받는 이의 「올해」를 알 수 없어 늘 연도를 쓰고 요일도 「수요일」로 쓴다. 같은 부품(WEEKDAY_KO·localClockParts)은 함께 쓴다.
+ */
+export function formatMailQuoteDate(dateStr: string | null | undefined): string {
+  const d = parseUtcDate(dateStr)
+  if (Number.isNaN(d.getTime())) return ''
+  const { meridiem, clock } = localClockParts(d)
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${WEEKDAY_KO[d.getDay()]}요일 ${meridiem} ${clock}`
+}
+
+/**
  * 서울 기준 「날짜 + 24시간 시각」 — 오늘이면 시각만(`14:00`, todayLabel 을 주면 `오늘 14:00`), 아니면 `11월 11일 14:00`.
  * 개요 「프로젝트 상태」 카드의 갱신·다음 시각(WP-1479). 무효 입력이면 ''(호출부가 세그먼트 생략).
  */

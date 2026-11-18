@@ -151,4 +151,53 @@ class NewContentExtractorTest {
   void html_headerTag_contentKept() {
     assertThat(html("<header>머리말 내용</header><p>본문</p>")).contains("머리말 내용").contains("본문");
   }
+
+  // ── WP-1746 우리 앱 답장·전달 감싸기(wp_quote) + 펼친 머리 ──
+
+  /** 웹 buildQuote 가 만드는 html 인용(구분선·다섯 줄 머리·원문을 wp_quote 로 감쌈). */
+  private static String wpQuoteHtml(String cls) {
+    return "<p>새로 쓴 답장</p><div class=\""
+        + cls
+        + "\"><hr><div><b>보낸 사람:</b> 정우석 &lt;pablo@x.kr&gt;<br>"
+        + "<b>보낸 날짜:</b> 2026년 11월 18일 수요일 오전 10:42<br><b>받는 사람:</b> a@x.kr<br>"
+        + "<b>제목:</b> 안건</div><br><p>원문</p></div>";
+  }
+
+  @Test
+  void html_wpQuote_cut_withHeader() {
+    assertThat(html(wpQuoteHtml("wp_quote"))).isEqualTo("새로 쓴 답장");
+    assertThat(html(wpQuoteHtml("wp_quote gmail_quote"))).isEqualTo("새로 쓴 답장");
+  }
+
+  @Test
+  void html_wpQuote_cut_evenWithoutHeaderLines() {
+    // 머리 줄 규칙에 기대지 않고 wp_quote 표시만으로 잘리는지(클래스 위치·대소문자 무관)
+    assertThat(html("<p>새 글</p><div class=\"x WP_Quote\"><hr><p>원문</p></div>")).isEqualTo("새 글");
+  }
+
+  @Test
+  void text_header_manyRecipientsOnOneLine_cut() {
+    // 받는 사람 40명이 한 줄(쉼표)로 와도 머리에서 잘려야 한다
+    StringBuilder to = new StringBuilder();
+    for (int i = 0; i < 40; i++) {
+      if (i > 0) {
+        to.append(", ");
+      }
+      to.append("사람").append(i).append(" <user").append(i).append("@x.kr>");
+    }
+    String body =
+        "새로 쓴 답장\n\n보낸 사람: 정우석 <pablo@x.kr>\n보낸 날짜: 2026년 11월 18일 수요일 오전 10:42\n"
+            + "받는 사람: "
+            + to
+            + "\n참조: c@x.kr\n제목: 안건\n\n원문";
+    assertThat(text(body)).isEqualTo("새로 쓴 답장");
+  }
+
+  @Test
+  void text_header_withoutSentDate_cut() {
+    // 보낸 시각을 모르면 「보낸 날짜」 줄이 빠진다 — 제목이 4줄 안에 있으니 그래도 잘린다
+    String body =
+        "새로 쓴 답장\n\n보낸 사람: 정우석 <pablo@x.kr>\n받는 사람: a@x.kr, b@x.kr\n" + "참조: c@x.kr\n제목: 안건\n\n원문";
+    assertThat(text(body)).isEqualTo("새로 쓴 답장");
+  }
 }

@@ -113,12 +113,95 @@ describe('unwrapMailHtml', () => {
 });
 
 describe('buildQuote — 답장', () => {
-  it('blockquote 로 감싸고 작성자 헤더를 붙인다', () => {
+  it('wp_quote gmail_quote 로 감싸고 구분선·머리를 감싸기 안에 넣는다 (WP-1746)', () => {
     const q = buildQuote({ ...detail, bodyHtml: '<html><body><p>원문</p></body></html>' }, 'reply');
-    expect(q.html.startsWith('<blockquote>')).toBe(true);
-    expect(q.html).toContain('박지원 님이 작성:');
+    expect(q.html.startsWith('<div class="wp_quote gmail_quote"><hr>')).toBe(true);
+    expect(q.html.endsWith('</div>')).toBe(true);
+    expect(q.html).not.toContain('<blockquote');
+    expect(q.html).toContain('<b>보낸 사람:</b> 박지원 &lt;jiwon.park@example.com&gt;');
     expect(q.html).toContain('<p>원문</p>');
     expect(q.html).not.toContain('<html');
+    expect(q.html).not.toContain('님이 작성');
+  });
+
+  it('머리는 보낸 사람 → 보낸 날짜 → 받는 사람 → 참조 → 제목 순서다', () => {
+    const q = buildQuote(
+      { ...detail, ccAddresses: 'cc@example.com', bodyText: '본문' },
+      'reply',
+    );
+    expect(q.text.split('\n').slice(0, 5)).toEqual([
+      '보낸 사람: 박지원 <jiwon.park@example.com>',
+      '보낸 날짜: 2026년 8월 9일 일요일 오전 11:30',
+      '받는 사람: me@example.com',
+      '참조: cc@example.com',
+      '제목: 4분기 인프라 예산 재검토 요청',
+    ]);
+    const order = ['보낸 사람:', '보낸 날짜:', '받는 사람:', '참조:', '제목:'].map((label) =>
+      q.html.indexOf(`<b>${label}</b>`),
+    );
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('참조가 없으면 참조 줄을 뺀다', () => {
+    const q = buildQuote({ ...detail, ccAddresses: null, bodyText: 'x' }, 'reply');
+    expect(q.text).not.toContain('참조:');
+    expect(q.html).not.toContain('참조:');
+    const blank = buildQuote({ ...detail, ccAddresses: '  ', bodyText: 'x' }, 'reply');
+    expect(blank.text).not.toContain('참조:');
+  });
+
+  it('받는 사람이 비면 받는 사람 줄을 뺀다', () => {
+    const q = buildQuote({ ...detail, toAddresses: null, bodyText: 'x' }, 'reply');
+    expect(q.text).not.toContain('받는 사람:');
+    expect(q.html).not.toContain('받는 사람:');
+  });
+
+  it('받는 사람이 여러 명이면 쉼표로 이은 한 줄 그대로 둔다', () => {
+    const to = 'a@example.com, b@example.com, c@example.com, d@example.com';
+    const q = buildQuote({ ...detail, toAddresses: to, bodyText: 'x' }, 'reply');
+    expect(q.text.split('\n')).toContain(`받는 사람: ${to}`);
+  });
+
+  it('접힌 머리의 줄바꿈·탭(\\r\\n\\t)은 공백 하나로 모아 머리 항목마다 정확히 한 줄이다', () => {
+    const q = buildQuote(
+      {
+        ...detail,
+        fromName: '박\r\n지원',
+        toAddresses: 'a@example.com,\r\n\tb@example.com,\r\n\t c@example.com',
+        ccAddresses: 'cc@example.com,\r\n\tdd@example.com',
+        subject: '4분기\r\n\t예산',
+        bodyText: '본문',
+      },
+      'reply',
+    );
+    expect(q.text.split('\n').slice(0, 6)).toEqual([
+      '보낸 사람: 박 지원 <jiwon.park@example.com>',
+      '보낸 날짜: 2026년 8월 9일 일요일 오전 11:30',
+      '받는 사람: a@example.com, b@example.com, c@example.com',
+      '참조: cc@example.com, dd@example.com',
+      '제목: 4분기 예산',
+      '',
+    ]);
+    expect(q.text).not.toMatch(/[\r\t]/);
+    expect(q.html).toContain('<b>받는 사람:</b> a@example.com, b@example.com, c@example.com<br>');
+  });
+
+  it('이름이 없으면 보낸 사람은 주소만, 주소도 없으면 이름만', () => {
+    const noName = buildQuote({ ...detail, fromName: '', bodyText: 'x' }, 'reply');
+    expect(noName.text.split('\n')[0]).toBe('보낸 사람: jiwon.park@example.com');
+    const noAddr = buildQuote({ ...detail, fromAddress: null, bodyText: 'x' }, 'reply');
+    expect(noAddr.text.split('\n')[0]).toBe('보낸 사람: 박지원');
+  });
+
+  it('이름·주소·제목의 < & 를 html 에서 escape 한다', () => {
+    const q = buildQuote(
+      { ...detail, fromName: 'A&B <팀>', subject: '<b>견적</b> & 일정', bodyText: 'x' },
+      'reply',
+    );
+    expect(q.html).toContain('A&amp;B &lt;팀&gt; &lt;jiwon.park@example.com&gt;');
+    expect(q.html).toContain('&lt;b&gt;견적&lt;/b&gt; &amp; 일정');
+    expect(q.html).not.toContain('<b>견적</b>');
   });
 
   it('앞에 빈 p 를 붙이지 않는다 (에디터 밖이므로 불필요)', () => {
@@ -126,16 +209,27 @@ describe('buildQuote — 답장', () => {
     expect(q.html).not.toContain('<p></p>');
   });
 
-  it('bodyHtml 이 없으면 bodyText 를 escape 해 pre 로 감싼다', () => {
+  it('bodyHtml 이 없으면 bodyText 를 escape 해 pre 로 감싸 머리 아래 둔다', () => {
     const q = buildQuote({ ...detail, bodyText: 'a < b & c' }, 'reply');
     expect(q.html).toContain('<pre>a &lt; b &amp; c</pre>');
+    expect(q.html.indexOf('<b>제목:</b>')).toBeLessThan(q.html.indexOf('<pre>'));
   });
 
-  it('text 는 각 줄에 > 접두를 붙인다', () => {
+  it('원문 본문이 아예 없으면 머리만 붙는다', () => {
+    const q = buildQuote({ ...detail }, 'reply');
+    expect(q.html).toContain('<b>제목:</b>');
+    expect(q.html.endsWith('<br></div>')).toBe(true);
+    expect(q.text.split('\n').at(-1)).toBe('');
+  });
+
+  it('text 는 머리 줄 + 빈 줄 + 원문이고 > 접두·구분선 줄이 없다', () => {
     const q = buildQuote({ ...detail, bodyText: '첫 줄\n둘째 줄' }, 'reply');
-    expect(q.text).toContain('박지원 님이 작성:');
-    expect(q.text).toContain('> 첫 줄');
-    expect(q.text).toContain('> 둘째 줄');
+    const lines = q.text.split('\n');
+    expect(lines[0]).toBe('보낸 사람: 박지원 <jiwon.park@example.com>');
+    expect(lines.slice(-3)).toEqual(['', '첫 줄', '둘째 줄']);
+    expect(q.text).not.toMatch(/^> /m);
+    expect(q.text).not.toMatch(/^[-_=]{5,}/m);
+    expect(q.text).not.toContain('님이 작성');
   });
 
   it('bodyText 가 없으면 bodyHtml 에서 텍스트를 추출한다', () => {
@@ -143,14 +237,14 @@ describe('buildQuote — 답장', () => {
     expect(q.text).toContain('추출된 문장');
   });
 
-  it('meta 에 발신자·제목·날짜 2종을 담는다', () => {
+  it('meta 에 발신자·제목·칩용 짧은 날짜를 담는다', () => {
     const q = buildQuote({ ...detail, bodyHtml: '<p>x</p>' }, 'reply');
-    expect(q.meta.from).toBe('박지원');
-    expect(q.meta.subject).toBe('4분기 인프라 예산 재검토 요청');
-    expect(q.meta.date).not.toBe('');
+    // 옛 meta.date(긴 날짜)는 없앴다 — 키는 이 셋뿐이다.
+    expect(Object.keys(q.meta).sort()).toEqual(['dateShort', 'from', 'subject']);
+    expect(q.meta).toMatchObject({ from: '박지원', subject: '4분기 인프라 예산 재검토 요청' });
     // 칩용 짧은 표기는 시:분을 포함하지 않는다(칩 오버플로 방지).
     expect(q.meta.dateShort).not.toBe('');
-    expect(q.meta.dateShort.length).toBeLessThan(q.meta.date.length);
+    expect(q.meta.dateShort).not.toMatch(/\d:\d/);
   });
 
   it('fromName 이 없으면 fromAddress 를 표시명으로 쓴다', () => {
@@ -187,30 +281,37 @@ describe('buildQuote — 답장', () => {
 });
 
 describe('buildQuote — sentAt null', () => {
-  it('date/dateShort 는 빈 문자열이다', () => {
+  it('dateShort 는 빈 문자열이다', () => {
     const q = buildQuote({ ...detail, sentAt: null, bodyHtml: '<p>x</p>' }, 'reply');
-    expect(q.meta.date).toBe('');
     expect(q.meta.dateShort).toBe('');
   });
 
-  it('전달 헤더에서 날짜 줄 자체를 생략한다', () => {
-    const q = buildQuote({ ...detail, sentAt: null, bodyHtml: '<p>x</p>' }, 'forward');
-    expect(q.html).not.toContain('날짜:');
-    expect(q.text).not.toContain('날짜:');
+  it('답장·전달 머리에서 보낸 날짜 줄 자체를 생략한다', () => {
+    for (const mode of ['reply', 'forward'] as const) {
+      const q = buildQuote({ ...detail, sentAt: null, bodyHtml: '<p>x</p>' }, mode);
+      expect(q.html).not.toContain('보낸 날짜:');
+      expect(q.text).not.toContain('보낸 날짜:');
+      expect(q.text.split('\n')[1]).toBe('받는 사람: me@example.com');
+    }
   });
 });
 
 describe('buildQuote — 전달', () => {
-  it('전달 헤더 블록을 쓰고 작성자 문구를 쓰지 않는다', () => {
+  it('답장과 같은 감싸기·머리를 쓰고 옛 「전달된 메일」 줄·옛 이름을 쓰지 않는다 (WP-1746)', () => {
     const q = buildQuote({ ...detail, bodyHtml: '<p>원문</p>' }, 'forward');
-    expect(q.html).toContain('---------- 전달된 메일 ----------');
-    expect(q.html).not.toContain('님이 작성:');
+    const reply = buildQuote({ ...detail, bodyHtml: '<p>원문</p>' }, 'reply');
+    expect(q.html).toBe(reply.html);
+    expect(q.text).toBe(reply.text);
+    expect(q.variant).toBe('forward');
+    expect(q.html).not.toContain('전달된 메일');
+    expect(q.html).not.toContain('보낸사람:');
+    expect(q.html).not.toContain('받는사람:');
     expect(q.html).toContain('4분기 인프라 예산 재검토 요청');
   });
 
   it('text 에 > 접두를 쓰지 않는다', () => {
     const q = buildQuote({ ...detail, bodyText: '첫 줄' }, 'forward');
-    expect(q.text).toContain('---------- 전달된 메일 ----------');
+    expect(q.text).not.toContain('전달된 메일');
     expect(q.text).not.toContain('> 첫 줄');
     expect(q.text).toContain('첫 줄');
   });

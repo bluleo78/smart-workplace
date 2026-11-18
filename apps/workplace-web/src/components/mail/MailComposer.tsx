@@ -42,7 +42,7 @@ import {
   MAIL_MOBILE_TABLE_ROW_ID,
   MAIL_MOBILE_TABLE_ROW_RESERVE_CLASS,
 } from './mailMobileBars';
-import { mailBodyInfo, mailComposerHtml, MailSignature } from './mailSignatureNode';
+import { mailBodyInfo, mailComposerHtml, MailSignature, userContentEndSelection } from './mailSignatureNode';
 import { insertMailTable, MAIL_TABLE_EXTENSIONS, MAIL_TABLE_GRID_MAX } from './mailTable';
 import { MailTableGridPicker } from './MailTableGridPicker';
 import { MailTableToolbar } from './MailTableToolbar';
@@ -196,7 +196,11 @@ export interface MailComposerHandle {
    * 그사이 제목 등을 쓰던 사용자의 초점을 빼앗지 않게. 기본 true(개선본으로 교체처럼 사용자가 누른 직후).
    */
   setContent: (html: string, opts?: { focus?: boolean }) => void
-  /** 본문 끝에 초점 — AI 초안을 넣은 뒤 렌더가 끝나(inert 해제) 바로 이어 쓸 수 있게(WP-576). */
+  /**
+   * 내가 쓴 본문의 끝에 초점 — AI 초안을 넣은 뒤(WP-576)·답장을 연 뒤(WP-1746) 바로 이어 쓸 수 있게.
+   * 본문 끝에 서명이 있으면 서명과 그 앞 간격 줄 위(userContentEndSelection)에 둔다 — 이어 쓴 글이 서명 아래로 가지 않게.
+   * 빈 본문(서명만 있어도)이면 첫 줄이다.
+   */
   focusEnd: () => void
   /** 붙여 넣은 이미지가 아직 올라가는 중인가(WP-947) — 그동안 보내면 빈 그림이 나가므로 보내기를 막는다. */
   hasPendingImage: () => boolean
@@ -300,7 +304,15 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
         chain.setContent(html, true).run()
       },
       focusEnd: () => {
-        editor?.commands.focus('end')
+        // focus(null) 은 선택을 바꾸지 않고 초점만 준다 — 그 뒤 같은 트랜잭션에서 서명 앞 끝으로 커서를 옮긴다.
+        editor
+          ?.chain()
+          .focus()
+          .command(({ tr }) => {
+            tr.setSelection(userContentEndSelection(tr.doc)).scrollIntoView()
+            return true
+          })
+          .run()
       },
       hasPendingImage: () => (editor ? hasPendingImage(editor) : false),
       // 펜 단추로 넣고 빼므로 초점을 옮기지 않는다 — 단추를 누른 자리(받는사람·제목 등)에서 계속 쓰게.

@@ -7,7 +7,7 @@ import { afterEach, expect, test } from 'vitest';
 
 import { appendSignature, signatureBlockHtml } from '@/lib/mailSignature';
 
-import { mailBodyInfo, mailComposerHtml, MailSignature } from './mailSignatureNode';
+import { mailBodyInfo, mailComposerHtml, MailSignature, userContentEndSelection } from './mailSignatureNode';
 
 const S = '<p style="color:#1F4E79">홍길동</p>';
 const B = signatureBlockHtml(S);
@@ -67,4 +67,27 @@ test('mailBodyInfo — 서명 유무와 서명 밖 본문이 비었는지', () =
   expect(mailBodyInfo(make(appendSignature('<p>안녕</p>', S)).state.doc)).toEqual({ hasSignature: true, bodyEmpty: false });
   editor?.destroy();
   expect(mailBodyInfo(make('<p> </p>').state.doc)).toEqual({ hasSignature: false, bodyEmpty: true });
+});
+
+// WP-1746 — 「내가 쓴 본문의 끝」: 서명과 그 앞 간격 줄 하나를 건너뛴 자리. 이어 쓴 글이 서명 아래로 가지 않게.
+test('본문 끝 선택은 서명과 간격 줄 위, 내가 쓴 마지막 글 끝이다', () => {
+  const ed = make(appendSignature('<p>쓰다 만 답</p>', S));
+  ed.commands.setTextSelection(userContentEndSelection(ed.state.doc).from);
+  ed.commands.insertContent(' 이어서');
+  expect(ed.getHTML()).toBe(appendSignature('<p>쓰다 만 답 이어서</p>', S));
+});
+
+test('서명이 없으면 문서 끝, 서명만 있는 빈 본문이면 첫 줄이다', () => {
+  const plain = make('<p>첫째</p><p>둘째</p>');
+  expect(userContentEndSelection(plain.state.doc).from).toBe(plain.state.doc.content.size - 1);
+  plain.destroy();
+  const empty = make(appendSignature('', S));
+  expect(userContentEndSelection(empty.state.doc).from).toBe(1);
+});
+
+test('사용자가 띄운 빈 줄은 간격 줄 하나만 빼고 남긴다', () => {
+  const ed = make('<p>본문</p><p></p>' + appendSignature('', S).replace(/^<p><\/p>/, ''));
+  // <p>본문</p><p></p><p></p>[서명] — 간격 줄 하나를 건너뛰면 사용자가 띄운 빈 줄(둘째 문단)에 선다.
+  const sel = userContentEndSelection(ed.state.doc);
+  expect(ed.state.doc.resolve(sel.from).index(0)).toBe(1);
 });

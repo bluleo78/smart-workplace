@@ -11,7 +11,7 @@
 //   화면 DOM 에 넣으려 하므로, 그동안은 빈 자리표시를 준다.
 import { type Editor, Node } from '@tiptap/core';
 import { DOMSerializer, type Node as PMNode } from '@tiptap/pm/model';
-import type { Transaction } from '@tiptap/pm/state';
+import { Selection, type Transaction } from '@tiptap/pm/state';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 
 import { inertDocument } from '@/lib/htmlTextEditSource';
@@ -208,4 +208,24 @@ export function mailBodyInfo(doc: PMNode): { hasSignature: boolean; bodyEmpty: b
     return true;
   });
   return { hasSignature, bodyEmpty };
+}
+
+/**
+ * 「내가 쓴 본문의 끝」 선택(WP-1746) — 본문 끝 서명 블록과 그 앞 간격용 빈 줄 하나(insertMailSignature·appendSignature 가 넣는 것)를 건너뛴
+ * 마지막 블록 끝. 서명이 있는 본문에 focus('end') 를 주면 커서가 서명 아래로 가서 이어 쓴 글이 서명 뒤에 붙기 때문이다.
+ * 서명이 없으면 문서 끝과 같고, 서명 앞이 간격 줄뿐인 빈 본문(빈 줄 + 빈 줄 + 서명)이면 첫 줄이다.
+ */
+export function userContentEndSelection(doc: PMNode): Selection {
+  let end = doc.childCount;
+  let signed = false;
+  while (end > 0 && doc.child(end - 1).type.name === MAIL_SIGNATURE_NODE) {
+    end -= 1;
+    signed = true;
+  }
+  // 서명 앞 간격 줄은 하나만 건너뛴다 — 사용자가 일부러 띄운 빈 줄은 그대로 둔다. 간격 줄 판정은 서명 빼기(removeSignatures)와 같은 isEmptyParagraph.
+  if (signed && end > 1 && isEmptyParagraph(doc.child(end - 1))) end -= 1;
+  let pos = 0;
+  for (let i = 0; i < end; i += 1) pos += doc.child(i).nodeSize;
+  // 블록 경계 위치에서 뒤쪽(-1)으로 가장 가까운 선택 — 문단이면 그 글 끝, 표·그림이면 그 안 마지막 자리.
+  return Selection.near(doc.resolve(pos), -1);
 }
