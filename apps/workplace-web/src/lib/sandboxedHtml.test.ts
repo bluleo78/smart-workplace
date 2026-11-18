@@ -10,6 +10,7 @@ import {
   rewriteInPageLinks,
   SANDBOX_HEAD,
   SCRIPT_SANDBOX_HEAD,
+  SCROLLING_DOCUMENT_STYLE,
   THIN_SCROLLBAR_STYLE,
   withSandboxHead,
   withScriptNonce,
@@ -180,6 +181,47 @@ describe('buildSandboxDoc', () => {
     expect(doc.endsWith('<script data-own nonce="abc123">ok()</script>')).toBe(true)
     // 문서 자신의 스크립트에는 nonce 를 달지 않는다.
     expect(doc).toContain('<script>evil()</script>')
+  })
+
+  // WP-1749: 고정 높이로 스스로 스크롤하는 표면만 body 가 스크롤을 맡는다 — 스크롤바 칸이 iframe 요소의 흰 배경 대신 문서 배경 위에 그려지게.
+  it('scrollingDocument 면 기본 머리말 뒤에 body 스크롤 스타일을 더하고, 아니면 넣지 않는다', () => {
+    expect(buildSandboxDoc(html, false, undefined, true)).toBe(
+      '<!doctype html>' + SANDBOX_HEAD + SCROLLING_DOCUMENT_STYLE + '<a target="_self" href="about:srcdoc#s">목차</a><h2 id="s">절</h2>',
+    )
+    expect(buildSandboxDoc(html, false)).not.toContain('data-scrolling-document')
+    expect(buildSandboxDoc(html, true)).not.toContain('data-scrolling-document')
+  })
+
+  it('공용 머리말(SANDBOX_HEAD·SCRIPT_SANDBOX_HEAD — 메일 본문·서명·자동 높이 블록)에는 body 스크롤 스타일이 없다', () => {
+    expect(SANDBOX_HEAD).not.toContain('data-scrolling-document')
+    expect(SCRIPT_SANDBOX_HEAD).not.toContain('data-scrolling-document')
+  })
+
+  it('body 스크롤 스타일은 명시도 0(:where) 이라 문서가 html·body 에 직접 준 값이 이긴다 — body min-height:0 만 !important', () => {
+    const rules = SCROLLING_DOCUMENT_STYLE.replace(/<\/?style[^>]*>/g, '')
+    for (const selector of rules.match(/[^{}]+(?=\{)/g) ?? []) expect(selector).toMatch(/^:where\((html|body)\)$/)
+    expect(SCROLLING_DOCUMENT_STYLE).toContain(':where(body){flex:1 1 auto;min-height:0!important;overflow:auto')
+    // !important 는 min-height:0 하나뿐이다(문서의 body{min-height:100vh} 가 스크롤바를 둘로 만들지 않게 — 나머지는 문서가 이긴다).
+    expect(SCROLLING_DOCUMENT_STYLE.match(/!important/g)).toHaveLength(1)
+    expect(SCROLLING_DOCUMENT_STYLE).not.toMatch(/<script/i)
+  })
+
+  it('문서 자신의 스크립트가 도는 문서에는 넣지 않는다 — 창 스크롤(scrollY·scroll 이벤트)에 기대는 스크립트가 깨지지 않게', () => {
+    const page = '<!doctype html><p>글</p><script>addEventListener("scroll",f)</script>'
+    expect(buildSandboxDoc(page, true, undefined, true)).not.toContain('data-scrolling-document')
+    // 스크립트 꺼짐이면 문서 스크립트가 돌지 않는다 — 넣는다.
+    expect(buildSandboxDoc(page, false, undefined, true)).toContain(SCROLLING_DOCUMENT_STYLE)
+    // 「우리 스크립트만」(CSP nonce)도 문서 스크립트를 막으니 넣는다 — CSP 가 맨 앞, 스타일은 문서 안 이동 처리기보다 앞.
+    const own = buildSandboxDoc(page, true, { script: '<script data-own>ok()</script>', nonce: 'n1' }, true)
+    expect(own.startsWith('<!doctype html>' + ownScriptsCsp('n1') + SANDBOX_HEAD + SCROLLING_DOCUMENT_STYLE + '<script data-in-page-links nonce="n1">')).toBe(true)
+    // 스크립트 허용이어도 문서에 스크립트가 없으면(우리 처리기만 돎) 넣는다.
+    expect(buildSandboxDoc(html, true, undefined, true)).toBe(
+      '<!doctype html>' + SANDBOX_HEAD + SCROLLING_DOCUMENT_STYLE + IN_PAGE_LINK_SCRIPT + '<a href="#s">목차</a><h2 id="s">절</h2>',
+    )
+  })
+
+  it('맨 위로(#top·#)는 창과 body 를 함께 맨 위로 보낸다 — body 가 스크롤을 맡는 문서는 창 스크롤이 늘 0', () => {
+    expect(IN_PAGE_LINK_SCRIPT).toContain('scrollTo(0,0);if(document.body)document.body.scrollTop=0')
   })
 
   it('withScriptNonce 는 여는 태그마다 nonce 를 끝에 단다', () => {

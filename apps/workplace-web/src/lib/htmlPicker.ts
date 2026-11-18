@@ -95,9 +95,10 @@ function htmlPickerHtml(el){
   for(var i=-1;i<all.length;i++){var n=i<0?c:all[i];for(var j=0;j<HTML_EDIT_MARKS.length;j++)n.removeAttribute(HTML_EDIT_MARKS[j])}
   return (c.outerHTML||'').slice(0,300);
 }
+// rect 는 문서 좌표 — body 가 스크롤을 맡는 문서(WP-1749 SCROLLING_DOCUMENT_STYLE)는 창 스크롤이 0 이라 body 스크롤도 더한다(quirks 문서는 body 가 곧 창 스크롤이라 빼고).
 function htmlPickerInfo(el){
-  var r=el.getBoundingClientRect();
-  var sx=window.scrollX||0,sy=window.scrollY||0;
+  var r=el.getBoundingClientRect(),b=document.body,own=b&&document.scrollingElement!==b;
+  var sx=(window.scrollX||0)+(own?b.scrollLeft:0),sy=(window.scrollY||0)+(own?b.scrollTop:0);
   return {
     path:htmlPickerPath(el),
     tag:el.tagName.toLowerCase(),
@@ -129,16 +130,19 @@ export function htmlPickerScript(token: string): string {
     'function indexOf(el){for(var i=0;i<picks.length;i++)if(picks[i].el===el)return i;return -1}' +
     "function box(r,solid){var d=document.createElement('div');" +
     "d.style.cssText='position:absolute;box-sizing:border-box;pointer-events:none;border-radius:4px;'+" +
-    "'left:'+(r.left+(window.scrollX||0)-2)+'px;top:'+(r.top+(window.scrollY||0)-2)+'px;width:'+(r.width+4)+'px;height:'+(r.height+4)+'px;'+" +
+    "'left:'+(r.left-2)+'px;top:'+(r.top-2)+'px;width:'+(r.width+4)+'px;height:'+(r.height+4)+'px;'+" +
     "'border:2px '+(solid?'solid':'dashed')+' #6366f1;';return d}" +
     "function tag(text,round){var s=document.createElement('span');" +
     "s.textContent=text;s.style.cssText='position:absolute;top:-11px;'+(round?'right:-11px;min-width:20px;height:20px;border-radius:10px;text-align:center;':'left:-2px;border-radius:4px;')+" +
     "'padding:0 6px;background:#6366f1;color:#fff;font:600 11px/20px system-ui,sans-serif;white-space:nowrap';return s}" +
+    // 덮개 층은 창에 고정(fixed)하고 넘침을 자른다 — 상자는 창 좌표(getBoundingClientRect)로 놓고 스크롤 때마다 다시 그린다(아래 scroll 처리기).
+    // 문서 좌표로 <html> 에 absolute 로 놓으면, body 가 스크롤을 맡는 문서(SCROLLING_DOCUMENT_STYLE, WP-1749)에서 창 아래로 뻗은 큰 상자가
+    // 창 자체를 넘치게 해 두 번째 스크롤바가 생겼다.
     // 다시 그리기는 프레임당 한 번으로 묶는다 — 스크롤·마우스 움직임마다 덮개를 새로 짓지 않게.
     'function draw(){if(queued)return;queued=true;(window.requestAnimationFrame||setTimeout)(paint)}' +
     'function paint(){queued=false;' +
     "if(!layer||!layer.isConnected){layer=document.createElement('div');layer.setAttribute('data-wp-html-picker-layer','');" +
-    "layer.style.cssText='position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483647';document.documentElement.appendChild(layer)}" +
+    "layer.style.cssText='position:fixed;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none;z-index:2147483647';document.documentElement.appendChild(layer)}" +
     "layer.textContent='';" +
     'picks.forEach(function(p,i){if(!p.el.isConnected)return;var b=box(p.el.getBoundingClientRect(),true);' +
     "if(i===flash)b.style.boxShadow='0 0 0 4px rgba(99,102,241,.35)';b.appendChild(tag(String(i+1),true));layer.appendChild(b)});" +

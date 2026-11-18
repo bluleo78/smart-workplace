@@ -297,6 +297,8 @@ test('인라인 이미지 조회가 실패하면 그 첨부는 목록에 남고 
   await user.click(await screen.findByTestId('mail-row-10'))
   expect(await screen.findByTestId('mail-attachment-open-5', {}, { timeout: 10_000 })).toBeInTheDocument()
   expect(screen.getByTestId('mail-body-html').getAttribute('srcdoc')).toContain('src="cid:7dc8b642.png"')
+  // 메일 본문은 body 스크롤 스타일(WP-1749)을 받지 않는다 — 공용 머리말(SANDBOX_HEAD)만.
+  expect(screen.getByTestId('mail-body-html').getAttribute('srcdoc')).not.toContain('data-scrolling-document')
   expect(contents.calls.length).toBeGreaterThanOrEqual(1)
 })
 

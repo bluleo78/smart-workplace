@@ -25,6 +25,7 @@ export function SandboxedHtmlFrame({
   allowScripts = false,
   ownScript,
   pageScripts = true,
+  scrollingDocument = false,
   ...props
 }: {
   html: string
@@ -44,12 +45,18 @@ export function SandboxedHtmlFrame({
    * CSP nonce 로 문서 자신의 스크립트·인라인 이벤트·javascript: 주소·하위 프레임을 막는다(buildSandboxDoc). allowScripts 일 때만 뜻이 있다.
    */
   pageScripts?: boolean
+  /**
+   * 고정 높이로 문서가 iframe 안에서 스스로 스크롤하는 표면이면 true(WP-1749) — body 가 스크롤을 맡게 해 스크롤바 칸이 iframe 요소의
+   * 흰 배경이 아니라 문서 배경 위에 그려진다(SCROLLING_DOCUMENT_STYLE). 높이를 문서에 맞춰 재는 iframe(노트 HTML 블록·메일 서명)은
+   * 켜지 않는다 — 잰 높이가 iframe 높이에 묶여 줄지 않는다. 메일 본문은 투명 iframe + 다크 변환이라 흰 띠가 없어 켜지 않는다.
+   */
+  scrollingDocument?: boolean
 } & Omit<ComponentProps<'iframe'>, 'srcDoc' | 'sandbox' | 'src'>) {
   const ownOnly = allowScripts && !pageScripts
   // nonce 는 문서를 만들 때마다 새로 — 같은 문서를 다시 그릴 때(렌더)는 그대로다.
   const doc = useMemo(
-    () => buildSandboxDoc(html, allowScripts, { script: ownScript, nonce: ownOnly ? newScriptNonce() : undefined }),
-    [html, allowScripts, ownScript, ownOnly],
+    () => buildSandboxDoc(html, allowScripts, { script: ownScript, nonce: ownOnly ? newScriptNonce() : undefined }, scrollingDocument),
+    [html, allowScripts, ownScript, ownOnly, scrollingDocument],
   )
   // 문서가 바뀔 때마다 올리는 세대 번호 — iframe key. 수 MB 문서 자체를 key 로 쓰지 않으려고 렌더 중에 번호만 갱신한다.
   const [frame, setFrame] = useState({ doc, generation: 0 })

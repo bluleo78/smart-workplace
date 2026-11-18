@@ -140,6 +140,8 @@ export function MailQuoteBlock({
           data-testid="mail-compose-quote-frame"
           title="인용된 원문"
           html={recentPreview ?? recentHtml}
+          // 고정 높이로 스스로 스크롤 — 스크롤바 칸이 문서 배경 위에 그려지게 body 가 스크롤을 맡는다(WP-1749).
+          scrollingDocument
           className={cn(FRAME_CLASS, frameHeight)}
         />
         {split && (
@@ -161,6 +163,7 @@ export function MailQuoteBlock({
                   data-testid="mail-compose-quote-older-frame"
                   title="이전 원문"
                   html={olderPreview ?? split.older}
+                  scrollingDocument
                   className={cn(FRAME_CLASS, olderFrameHeight)}
                 />
               </div>

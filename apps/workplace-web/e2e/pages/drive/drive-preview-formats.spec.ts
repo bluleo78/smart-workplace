@@ -272,7 +272,9 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByRole('button', { name: 'toc.html' }).click()
     const frame = page.frameLocator('[data-testid="html-document"]')
-    const scrollY = () => frame.locator('body').evaluate(() => window.scrollY)
+    // 스크롤 위치 — 스크립트 꺼짐이면 body 가 스크롤을 맡고(WP-1749 고정 높이 미리보기) 창 스크롤은 0 이라 둘 중 큰 값을 본다.
+    // 문서 스크립트가 도는 켜짐은 예전처럼 창이 스크롤한다.
+    const scrollY = () => frame.locator('body').evaluate((b) => Math.max(window.scrollY, b.scrollTop))
 
     // 스크립트 꺼짐 — 목차를 누르면 iframe 안에서 2절로 스크롤된다.
     await expect(frame.locator('#s2')).toBeAttached()
@@ -290,7 +292,10 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect.poll(scrollY).toBeGreaterThan(2000)
     // 조각 이동이라 해시가 바뀐다(hashchange·:target 에 기대는 문서용). 같은 링크를 다시 누르면 다시 그 절로 간다.
     expect(await frame.locator('body').evaluate(() => location.hash)).toBe('#s2')
-    await frame.locator('body').evaluate(() => window.scrollTo(0, 0))
+    await frame.locator('body').evaluate((b) => {
+      window.scrollTo(0, 0)
+      b.scrollTop = 0
+    })
     await expect.poll(scrollY).toBe(0)
     await frame.locator('#toc').click()
     await expect.poll(scrollY).toBeGreaterThan(2000)
