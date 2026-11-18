@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import com.workplace.global.ai.AgentSlotCounter;
+import com.workplace.global.ai.AgentSlotLimits;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
@@ -38,9 +39,6 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AiAgentStatusService implements AgentSlotCounter {
 
-  /** 동시 진행 상한(WP-1040). 3 이면 push 게이트·PR 리뷰 대기만으로 자리가 차 대기열이 멈춰 5 로 늘렸다(WP-1209). */
-  public static final int SLOT_LIMIT = 5;
-
   /**
    * 다시 붙는 사이의 끊김을 연결로 보는 시간 — work-loop 의 알림 구독(gw-events)은 서버 연결이 1시간마다 끝나 다시 붙고, 감시(Monitor)가
    * 30분마다 끝나면 AI 가 다시 건다. 그 틈에 「연결 끊김」이 깜빡이지 않게 한다.
@@ -58,6 +56,7 @@ public class AiAgentStatusService implements AgentSlotCounter {
   private final IssueRepository issueRepository;
   private final UserRepository userRepository;
   private final SseRegistry sseRegistry;
+  private final AgentSlotLimits agentSlotLimits;
 
   @Transactional(readOnly = true)
   public AiAgentStatusResponse list(long callerId, String scope) {
@@ -70,6 +69,8 @@ public class AiAgentStatusService implements AgentSlotCounter {
             .stream()
             .collect(Collectors.groupingBy(WorkRow::workerId));
     Map<Long, Instant> lastEnded = aiAgentRepository.findLastEndedAt(ids);
+    // AI 마다의 동시 진행 상한(WP-1754) — 한 번에 읽는다.
+    Map<Long, Integer> limits = agentSlotLimits.limitsOf(ids);
     Instant now = Instant.now();
 
     List<AiAgentStatus> result = new ArrayList<>();
@@ -77,9 +78,11 @@ public class AiAgentStatusService implements AgentSlotCounter {
       List<WorkRow> rows = worksByAgent.getOrDefault(a.id(), List.of());
       // 나와 관련 — 내가 볼 수 있는 내 관련 이슈를 진행 중인 AI 만.
       if (!all && rows.stream().noneMatch(r -> r.mine() && r.visible())) continue;
-      result.add(toStatus(a, rows, lastEnded.get(a.id()), now));
+      result.add(toStatus(a, rows, lastEnded.get(a.id()), now, limits.get(a.id())));
     }
-    return new AiAgentStatusResponse(result, SLOT_LIMIT);
+    // 최상위 slotLimit 은 하위 호환용 기본값(AgentSlotLimits.DEFAULT) 그대로 — 화면은 AI 별 agents[].slotLimit 을
+    // 쓴다(WP-1754).
+    return new AiAgentStatusResponse(result, AgentSlotLimits.DEFAULT);
   }
 
   /**
@@ -95,7 +98,7 @@ public class AiAgentStatusService implements AgentSlotCounter {
                 List.of(agentId), issueRepository.memberScopeCondition(agentId), agentId));
     return new AgentSlots(
         held.size(),
-        SLOT_LIMIT,
+        agentSlotLimits.limitsOf(List.of(agentId)).get(agentId),
         held.stream().filter(WorkRow::visible).map(WorkRow::issueKey).toList());
   }
 
@@ -119,7 +122,7 @@ public class AiAgentStatusService implements AgentSlotCounter {
   }
 
   private AiAgentStatus toStatus(
-      ActiveAgent a, List<WorkRow> rows, Instant lastEndedAt, Instant now) {
+      ActiveAgent a, List<WorkRow> rows, Instant lastEndedAt, Instant now, int slotLimit) {
     List<AiAgentWork> works = new ArrayList<>();
     int hidden = 0;
     for (WorkRow r : rows) {
@@ -154,7 +157,8 @@ public class AiAgentStatusService implements AgentSlotCounter {
         lastEndedAt,
         works,
         hidden,
-        slotRows(rows).size());
+        slotRows(rows).size(),
+        slotLimit);
   }
 
   /**

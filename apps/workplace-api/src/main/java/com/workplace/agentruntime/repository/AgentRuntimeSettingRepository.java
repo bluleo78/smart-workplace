@@ -83,7 +83,8 @@ public class AgentRuntimeSettingRepository {
       List<String> agentIssueKeys,
       OffsetDateTime agentNextCheckAt,
       OffsetDateTime agentReportedAt,
-      @With boolean acceptNewWork) {
+      @With boolean acceptNewWork,
+      @With Integer slotLimit) {
 
     /** 아직 반영하지 않은 generation 이 있는지 — generation ≠ 마지막 관찰 generation(뜬 적 없으면 늘 참). */
     public boolean hasUnappliedGeneration() {
@@ -120,7 +121,10 @@ public class AgentRuntimeSettingRepository {
             r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)),
         r.get(AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT),
         r.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT),
-        r.get(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK));
+        r.get(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK),
+        Optional.ofNullable(r.get(AGENT_RUNTIME_SETTING.SLOT_LIMIT))
+            .map(Short::intValue)
+            .orElse(null));
   }
 
   /**
@@ -141,6 +145,14 @@ public class AgentRuntimeSettingRepository {
     return dsl.selectFrom(AGENT_RUNTIME_SETTING)
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agentUserId))
         .fetchOptional(this::map);
+  }
+
+  /** 주어진 AI 들의 실행 설정(WP-1754 — 동시 진행 상한을 한 번에 읽는다). 설정이 없는 AI 는 빠진다. */
+  public List<Row> findByAgentIds(java.util.Collection<Long> agentUserIds) {
+    if (agentUserIds.isEmpty()) return List.of();
+    return dsl.selectFrom(AGENT_RUNTIME_SETTING)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.in(agentUserIds))
+        .fetch(this::map);
   }
 
   /** 이 워크스페이스의 모든 실행 설정 — AI id 순(WP-1254 — 관리자 AI 목록의 실행 상태 요약). 다른 워크스페이스의 행은 RLS 로 보이지 않는다. */
@@ -467,6 +479,9 @@ public class AgentRuntimeSettingRepository {
             .set(AGENT_RUNTIME_SETTING.APPLY_MODE, next.applyMode().name())
             .set(AGENT_RUNTIME_SETTING.GENERATION, next.generation())
             .set(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK, next.acceptNewWork())
+            .set(
+                AGENT_RUNTIME_SETTING.SLOT_LIMIT,
+                next.slotLimit() == null ? null : next.slotLimit().shortValue())
             .set(AGENT_RUNTIME_SETTING.UPDATED_BY, updatedBy)
             .set(AGENT_RUNTIME_SETTING.UPDATED_AT, OffsetDateTime.now());
     withLaunched(update, launched)

@@ -25,6 +25,7 @@ import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
 import com.workplace.auth.service.PodAccountSource;
+import com.workplace.global.ai.AgentSlotLimits;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
@@ -267,6 +268,43 @@ public class AgentRuntimeSettingService {
     return toResponse(next, effective);
   }
 
+  /**
+   * 「동시 진행」 상한 변경(WP-1754) — {@link #setAcceptNewWork} 와 같은 모양으로 값만 바꾼다. generation·runner 알림이 없어
+   * AI 를 다시 띄우지 않는다. null 은 덮어쓴 값을 지워 템플릿 기본을 따르게 하고, 1·2·3·5 밖이면 400.
+   */
+  public AgentRuntimeSettingResponse setSlotLimit(long callerId, long agentId, Integer slotLimit) {
+    if (slotLimit != null && !AgentSlotLimits.ALLOWED.contains(slotLimit)) {
+      throw new InvalidAgentConfigException("동시 진행은 1·2·3·5 중에서 고를 수 있습니다");
+    }
+    Row row = lockRow(agentId);
+    Long effective = locationService.effectiveLocationId(row.locationId());
+    if (Objects.equals(row.slotLimit(), slotLimit)) return toResponse(row, effective);
+    Row next = row.withSlotLimit(slotLimit);
+    settings.update(next, callerId);
+    audit(
+        callerId,
+        "AGENT_RUNTIME_SLOT_LIMIT_CHANGED",
+        agentId,
+        slotLimit == null ? "AI 동시 진행 기본값으로" : "AI 동시 진행 " + slotLimit + "개",
+        slotLimit == null ? Map.of() : Map.of("slotLimit", slotLimit));
+    // 값만 바뀌어도 관리자 화면이 새로 읽게 알린다(runner 알림·generation 은 없음).
+    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
+    return toResponse(next, effective);
+  }
+
+  /** 템플릿 기본 상한 — 템플릿을 레지스트리에서 못 찾으면 5. */
+  private int defaultSlotLimitOf(Row r) {
+    return registry
+        .find(r.templateName())
+        .map(AgentTemplate::slotLimit)
+        .orElse(AgentSlotLimits.DEFAULT);
+  }
+
+  /** 실제 적용 상한(WP-1754) — 행의 덮어쓴 값 ?? 템플릿 기본 ?? 5. 이슈 자리 계산이 쓴다. */
+  public int slotLimitOf(Row r) {
+    return r.slotLimit() != null ? r.slotLimit() : defaultSlotLimitOf(r);
+  }
+
   /** 「새 작업 받기」 여부 — 실행 설정 행이 없는 AI 는 true. 이슈 대기열 가져가기가 모듈 경계 너머로 묻는다(WP-1514). */
   public boolean acceptsNewWork(long agentUserId) {
     return settings.find(agentUserId).map(Row::acceptNewWork).orElse(true);
@@ -474,6 +512,8 @@ public class AgentRuntimeSettingService {
     boolean updateAvailable =
         template.map(t -> !t.version().equals(r.templateVersion())).orElse(false);
     AgentLocationResponse effective = effectiveId == null ? null : locationService.get(effectiveId);
+    // 템플릿 기본 상한은 한 번만 구해 실제 적용 값(덮어쓴 값 ?? 기본)에 다시 쓴다(WP-1754).
+    int def = defaultSlotLimitOf(r);
     return new AgentRuntimeSettingResponse(
         r.agentUserId(),
         r.templateName(),
@@ -499,7 +539,10 @@ public class AgentRuntimeSettingService {
             r.agentIssueKey(),
             r.agentIssueKeys(),
             r.agentNextCheckAt()),
-        r.acceptNewWork());
+        r.acceptNewWork(),
+        r.slotLimit(),
+        def,
+        r.slotLimit() != null ? r.slotLimit() : def);
   }
 
   private static Map<String, Object> meta(AgentTemplate t, PutAgentRuntimeSettingRequest req) {

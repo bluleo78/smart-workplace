@@ -119,6 +119,12 @@ export interface AgentRuntimeSetting {
   observed: AgentObservedState | null;
   /** 「새 작업 받기」(WP-1514) — false 면 하던 일은 마치고 대기열에서 새 이슈를 가져가지 않는다. 시작할 때 true 로 돌아간다. */
   acceptNewWork: boolean;
+  /** 「동시 진행」(WP-1754) — 이 AI 에 고른 값(1·2·3·5). null 이면 템플릿 기본값을 따른다. */
+  slotLimit: number | null;
+  /** 템플릿 기본 동시 진행 수 — 「n개 (기본)」 표시와 「기본으로 되돌림」 판정에 쓴다. */
+  defaultSlotLimit: number;
+  /** 실제 적용되는 동시 진행 수(고른 값, 없으면 기본값). */
+  effectiveSlotLimit: number;
 }
 
 export interface PutAgentRuntimeSettingRequest {

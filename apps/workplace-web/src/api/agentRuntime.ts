@@ -42,6 +42,12 @@ export async function putAgentAcceptNewWork(userId: number, acceptNewWork: boole
   return data;
 }
 
+// 「동시 진행」(WP-1754) — 한 번에 맡는 이슈 수(1·2·3·5). null 이면 템플릿 기본값으로 되돌린다. 다시 띄우지 않고 이미 맡은 이슈는 마친다.
+export async function putAgentSlotLimit(userId: number, slotLimit: number | null): Promise<AgentRuntimeSetting> {
+  const { data } = await client.put<AgentRuntimeSetting>(`/admin/agents/${userId}/runtime-setting/slot-limit`, { slotLimit });
+  return data;
+}
+
 // 실행 설정 삭제 — 꺼져 있을 때만(켜져 있으면 409). 실행 방식은 호출한 쪽이 이어서 바꾼다.
 export async function deleteAgentRuntimeSetting(userId: number): Promise<void> {
   await client.delete<void>(`/admin/agents/${userId}/runtime-setting`);

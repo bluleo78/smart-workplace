@@ -12,6 +12,9 @@ import java.util.Map;
  * @param desired 원하는 상태(켜 둠·꺼 둠)
  * @param generation 원하는 상태가 바뀔 때마다 1씩 오르는 번호
  * @param acceptNewWork 새 작업을 받는지(WP-1514) — false 면 하던 작업만 마친다. generation 과 무관
+ * @param slotLimit 동시 진행 상한을 덮어쓴 값(WP-1754) — null 이면 템플릿 기본을 따른다
+ * @param defaultSlotLimit 템플릿 기본 상한
+ * @param effectiveSlotLimit 실제 적용되는 상한(덮어쓴 값 ?? 템플릿 기본)
  */
 public record AgentRuntimeSettingResponse(
     long agentUserId,
@@ -27,4 +30,7 @@ public record AgentRuntimeSettingResponse(
     long generation,
     AgentRuntimeStatus status,
     ObservedState observed,
-    boolean acceptNewWork) {}
+    boolean acceptNewWork,
+    Integer slotLimit,
+    int defaultSlotLimit,
+    int effectiveSlotLimit) {}

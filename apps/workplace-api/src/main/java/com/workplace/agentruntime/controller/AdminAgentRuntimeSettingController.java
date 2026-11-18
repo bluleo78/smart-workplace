@@ -4,6 +4,7 @@ import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSettingResponse;
 import com.workplace.agentruntime.dto.PutAcceptNewWorkRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
+import com.workplace.agentruntime.dto.PutSlotLimitRequest;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.agentruntime.service.AgentRuntimeSummaryService;
 import com.workplace.global.security.RequireAdmin;
@@ -76,6 +77,15 @@ public class AdminAgentRuntimeSettingController {
       @Valid @RequestBody PutAcceptNewWorkRequest req) {
     return ResponseEntity.ok(
         service.setAcceptNewWork((Long) auth.getPrincipal(), userId, req.acceptNewWork()));
+  }
+
+  /** 「동시 진행」 상한 변경(WP-1754) — generation 을 올리지 않는다. null 이면 템플릿 기본으로. 행이 없으면 404. */
+  @PutMapping("/slot-limit")
+  @RequirePermission("user:write")
+  public ResponseEntity<AgentRuntimeSettingResponse> putSlotLimit(
+      Authentication auth, @PathVariable long userId, @RequestBody PutSlotLimitRequest req) {
+    return ResponseEntity.ok(
+        service.setSlotLimit((Long) auth.getPrincipal(), userId, req.slotLimit()));
   }
 
   /** 켜기. */

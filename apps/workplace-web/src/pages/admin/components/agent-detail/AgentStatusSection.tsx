@@ -9,6 +9,7 @@ import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +31,9 @@ import {
   useInvalidateRuntime,
   useSaveAgentRuntimeSetting,
   useSetAgentAcceptNewWork,
+  useSetAgentSlotLimit,
 } from '../../../../hooks/queries/useAgentRuntime';
+import { useAiAgents } from '../../../../hooks/queries/useAiAgents';
 import { accountLabel } from '../../../../lib/agentAccount';
 import { externalKeyStatusText, pluginUpdateInfo } from '../../../../lib/agentRuntime';
 import {
@@ -379,6 +382,9 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         </div>
       )}
 
+      {/* 「동시 진행」(WP-1754) — 한 번에 맡는 이슈 수. 실행 설정이 있으면 켜져 있든 종료됐든 고를 수 있다(종료된 AI 도 다음 시작부터 적용). */}
+      {saved != null && <SlotLimitRow agentId={agent.id} saved={saved} running={running} />}
+
       {status === 'APPLY_PENDING' && (
         <div
           className="flex max-w-2xl flex-wrap items-center gap-2 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-foreground"
@@ -551,6 +557,50 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+/** 「동시 진행」에서 고를 수 있는 값 — 서버(PUT slot-limit)가 받는 1·2·3·5 와 같다. */
+const SLOT_LIMIT_CHOICES = [1, 2, 3, 5];
+
+/**
+ * 「동시 진행」 행(WP-1754) — 이 AI 가 한 번에 맡는 이슈 수. 템플릿 기본값을 고르면 null 을 보내 「기본을 따름」으로 되돌린다.
+ * 바꿔도 다시 띄우지 않고, 이미 맡은 이슈는 마친 뒤 새 상한이 적용된다. 「지금 n개 진행 중」의 n 은 AI별 현황(/me/ai-agents?scope=ALL)의
+ * 이 AI 진행 자리(slotsUsed) — 실행 중일 때만 받고, 못 구하면 그 말을 뺀다.
+ */
+function SlotLimitRow({ agentId, saved, running }: { agentId: number; saved: AgentRuntimeSetting; running: boolean }) {
+  const mut = useSetAgentSlotLimit(agentId);
+  const roster = useAiAgents('ALL', running);
+  const slotsUsed = roster.data?.agents.find((a) => a.agent.id === agentId)?.slotsUsed;
+  // 요청 중이면 보낸 값을 바로 보인다(null 은 기본값). 실패하면 진행 중 값이 사라져 저장된 값으로 돌아간다.
+  const value = mut.isPending ? (mut.variables ?? saved.defaultSlotLimit) : saved.effectiveSlotLimit;
+  const choices = SLOT_LIMIT_CHOICES.includes(value) ? SLOT_LIMIT_CHOICES : [...SLOT_LIMIT_CHOICES, value].sort((a, b) => a - b);
+  const onChange = (next: string) => {
+    const n = Number(next);
+    mut.mutate(n === saved.defaultSlotLimit ? null : n);
+  };
+  return (
+    <div className="max-w-2xl">
+      <SettingsToggleRow
+        label="동시 진행"
+        description={`한 번에 맡는 이슈 수예요.${running && slotsUsed != null ? ` 지금 ${slotsUsed}개 진행 중` : ''}`}
+        data-testid="agent-slot-limit"
+        control={
+          <Select value={String(value)} onValueChange={onChange} disabled={mut.isPending}>
+            <SelectTrigger className="w-32" aria-label="동시 진행" data-testid="agent-slot-limit-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {choices.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n}개{n === saved.defaultSlotLimit ? ' (기본)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+      />
     </div>
   );
 }

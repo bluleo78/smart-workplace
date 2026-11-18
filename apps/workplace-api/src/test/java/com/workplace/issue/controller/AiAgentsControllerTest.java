@@ -1,5 +1,6 @@
 package com.workplace.issue.controller;
 
+import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
@@ -221,6 +222,46 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(slots.get("used").asInt()).isEqualTo(roster.get("slotsUsed").asInt()).isEqualTo(2);
     assertThat(slots.get("limit").asInt()).isEqualTo(5);
     assertThat(texts(slots.get("issues"))).containsExactly(issueKey(child));
+  }
+
+  /** 실행 설정 행을 만든다(WP-1754) — slotLimit 이 null 이면 덮어쓴 값 없음(템플릿 기본을 따른다). */
+  private void seedSetting(long agent, String template, Integer slotLimit) {
+    dsl.insertInto(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.AGENT_USER_ID, agent)
+        .set(AGENT_RUNTIME_SETTING.TEMPLATE_NAME, template)
+        .set(AGENT_RUNTIME_SETTING.TEMPLATE_VERSION, "1")
+        .set(AGENT_RUNTIME_SETTING.SLOT_LIMIT, slotLimit == null ? null : slotLimit.shortValue())
+        .execute();
+  }
+
+  /**
+   * AI 마다 동시 진행 상한(WP-1754) — genia-code 는 템플릿 기본 1, 설정 없는 AI 는 5, 덮어쓴 AI 는 그 값, 레지스트리에 없는 템플릿 이름은
+   * 5. 목록의 agents[].slotLimit 과 AI 본인 조회의 slots.limit 이 같은 값이고 최상위 slotLimit 은 하위 호환으로 5 그대로다.
+   */
+  @Test
+  void slotLimit_isPerAgent() throws Exception {
+    long genia = createAgentUserWithMembership("ag-lim1");
+    long none = createAgentUserWithMembership("ag-lim5");
+    long overridden = createAgentUserWithMembership("ag-lim3");
+    long unknown = createAgentUserWithMembership("ag-limx");
+    seedSetting(genia, "genia-code", null);
+    seedSetting(overridden, "genia-code", 3);
+    seedSetting(unknown, "no-such-template", null);
+
+    JsonNode body = getJson("/api/v1/me/ai-agents?scope=ALL");
+
+    assertThat(body.get("slotLimit").asInt()).isEqualTo(5);
+    assertThat(agent(body, genia).get("slotLimit").asInt()).isEqualTo(1);
+    assertThat(agent(body, none).get("slotLimit").asInt()).isEqualTo(5);
+    assertThat(agent(body, overridden).get("slotLimit").asInt()).isEqualTo(3);
+    assertThat(agent(body, unknown).get("slotLimit").asInt()).isEqualTo(5);
+    assertThat(getJson("/api/v1/members/" + genia, genia).get("slots").get("limit").asInt())
+        .isEqualTo(1);
+    assertThat(getJson("/api/v1/members/" + none, none).get("slots").get("limit").asInt())
+        .isEqualTo(5);
+    assertThat(
+            getJson("/api/v1/members/" + overridden, overridden).get("slots").get("limit").asInt())
+        .isEqualTo(3);
   }
 
   /** 자리는 AI 본인 조회에만 — 사람이 AI 를 조회하거나 사람이 자기를 조회하면 키째 없다. */

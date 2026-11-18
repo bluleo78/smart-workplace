@@ -1400,3 +1400,22 @@ test('SKILL.md 3번 할 일 없음: 출발한 내 통합 PR 이 CONFLICTING 이�
   ]) assert.ok(idle.includes(anchor), anchor);
   assert.ok(workLoopSkill.includes('검토자 줄 확인은 3번 「할 일 없음」 3 예외'));
 });
+
+// WP-1754 — 긴 작업 중 30분마다 진행 보고(2시간 무소식이면 자리에서 빠져 상한이 안 지켜진다), 끊긴 작업은 최근 손댄 것부터
+test('work-loop: 긴 작업은 30분마다 WORKING 으로 보고하고 끊긴 작업은 최근 손댄 것부터 잇는다 (WP-1754)', () => {
+  const wait = section(pi, '\n### 하위 에이전트 기다리기\n', '\n### ');
+  assert.ok(wait.includes('마지막 `report_agent_work` 뒤 30분이 넘었으면'));
+  assert.ok(wait.includes('Task 하나를 마칠 때마다'));
+  assert.ok(wait.includes('무소식'));
+  const bg = section(pi, '\n### 오래 걸리는 작업 (백그라운드)\n', '\n### ');
+  assert.ok(bg.includes('마지막 보고 뒤 30분이 넘었으면 같은 보고를 다시 남긴다'));
+  assert.ok(bg.includes('고르지 않을 때도'));
+  // 다시 보고는 bg-job status 가 running 일 때만 — 죽은 작업이 자리를 쥐지 않고 4번 이어 받기로 간다.
+  assert.ok(bg.includes('bg-job" status "<MAIN>" <이슈 키>` 로 보고 **`running` 일 때만** 남긴다'));
+  assert.ok(bg.includes('`passed`·`failed`·`lost`·`none` 이면 다시 보고하지 않는다'));
+  assert.ok(bg.includes('4번 「이어 받기」로 골라 이어 한다'));
+  assert.ok(s3.includes('`updatedAt` 이 가장 최근인 것부터'));
+  // 백그라운드 양보 이슈는 다시 보고로 updatedAt 이 갱신되므로 그렇지 않은 끊긴 작업을 먼저 잇는다.
+  assert.ok(s3.includes('백그라운드에 양보하지 않은 것(notes 의 `마지막 완료 단계` 가 「백그라운드: …」 가 아닌 것'));
+  assert.ok(s3.includes('`process-issue.md` 「오래 걸리는 작업」') && s3.includes('다시 보고'));
+});

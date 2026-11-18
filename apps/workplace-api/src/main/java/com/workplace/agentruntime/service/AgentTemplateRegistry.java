@@ -5,6 +5,7 @@ import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.dto.AgentTemplate.ConfigField;
 import com.workplace.agentruntime.exception.InvalidAgentConfigException;
 import com.workplace.auth.service.AgentProviders;
+import com.workplace.global.ai.AgentSlotLimits;
 import com.workplace.global.json.JsonMappers;
 import com.workplace.global.validation.ModelIds;
 import jakarta.annotation.PostConstruct;
@@ -44,6 +45,7 @@ public class AgentTemplateRegistry {
 
   private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
   private static final Set<String> KINDS = Set.of("SERVER", "WORKSPACE");
+
   private static final Set<String> FIELD_TYPES = Set.of("select", "text");
 
   /** select 칸의 optionsFrom 에 쓸 수 있는 값(WP-1405) — 지금은 「연결된 AI 계정의 모델 목록」 하나. */
@@ -213,7 +215,8 @@ public class AgentTemplateRegistry {
         t.config(),
         t.resources(),
         t.sidecars(),
-        t.plugins());
+        t.plugins(),
+        t.slotLimit());
   }
 
   /** 템플릿 한 개의 구조 검증 — 필수 값, 종류, 이미지 접두사, 설정 칸 규칙. */
@@ -227,6 +230,10 @@ public class AgentTemplateRegistry {
     }
     if (t.card() == null || isBlank(t.card().title())) {
       throw new IllegalStateException(who + " 에 카드 제목이 없습니다");
+    }
+    // 동시 진행 상한은 1·2·3·5 만 허용한다(WP-1754) — 0·음수·4 같은 값이 템플릿 기본으로 들어오면 자리 계산이 깨진다.
+    if (!AgentSlotLimits.ALLOWED.contains(t.slotLimit())) {
+      throw new IllegalStateException(who + " 의 slotLimit 은 1·2·3·5 중 하나여야 합니다");
     }
     for (String need : t.requires()) {
       if (!REQUIREMENTS.contains(need)) {
