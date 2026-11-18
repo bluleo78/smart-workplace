@@ -300,6 +300,24 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
         return (Boolean) get(19);
     }
 
+    /**
+     * Setter for <code>public.email_folder.graph_delta_link</code>. Graph 증분
+     * 커서(@odata.deltaLink) — $select 에 flag 를 더한 뒤 발급된 커서만 담는다. delta_link 를
+     * 대체(WP-1741)
+     */
+    public void setGraphDeltaLink(String value) {
+        set(20, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.graph_delta_link</code>. Graph 증분
+     * 커서(@odata.deltaLink) — $select 에 flag 를 더한 뒤 발급된 커서만 담는다. delta_link 를
+     * 대체(WP-1741)
+     */
+    public String getGraphDeltaLink() {
+        return (String) get(20);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -323,7 +341,7 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
     /**
      * Create a detached, initialised EmailFolderRecord
      */
-    public EmailFolderRecord(Long id, Long accountId, String name, Long uidValidity, Long lastSeenUid, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String deltaLink, String remoteId, String displayName, Long parentId, String role, Boolean selectable, Integer serverUnread, Integer serverTotal, OffsetDateTime listedAt, OffsetDateTime syncedSince, OffsetDateTime folderSyncedAt, Boolean serverSent) {
+    public EmailFolderRecord(Long id, Long accountId, String name, Long uidValidity, Long lastSeenUid, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String deltaLink, String remoteId, String displayName, Long parentId, String role, Boolean selectable, Integer serverUnread, Integer serverTotal, OffsetDateTime listedAt, OffsetDateTime syncedSince, OffsetDateTime folderSyncedAt, Boolean serverSent, String graphDeltaLink) {
         super(EmailFolder.EMAIL_FOLDER);
 
         setId(id);
@@ -346,6 +364,7 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
         setSyncedSince(syncedSince);
         setFolderSyncedAt(folderSyncedAt);
         setServerSent(serverSent);
+        setGraphDeltaLink(graphDeltaLink);
         resetTouchedOnNotNull();
     }
 }

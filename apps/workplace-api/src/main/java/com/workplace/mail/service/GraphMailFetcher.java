@@ -27,8 +27,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Microsoft Graph API 공급자용 {@link MailFetcher} 구현(#499).
  *
  * <p>Graph messages/delta API 로 INBOX 증분 동기화를 수행한다. 신규 메시지를 {@code email_message} 테이블에 적재하고, {@code
- * @removed} 마커 항목은 행을 삭제한다. 증분 커서({@code @odata.deltaLink})는 {@code email_folder.delta_link} 에 보관해 다음
- * 동기화 시 재사용한다.
+ * @removed} 마커 항목은 행을 삭제한다. 증분 커서({@code @odata.deltaLink})는 {@code email_folder.graph_delta_link}
+ * (WP-1741 — 옛 delta_link 대체)에 보관해 다음 동기화 시 재사용한다.
  *
  * <p>{@link MailSyncService} 가 {@code account.provider() == M365_GRAPH} 일 때 이 구현을 자동 디스패치한다.
  *

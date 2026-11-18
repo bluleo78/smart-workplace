@@ -2633,6 +2633,8 @@ public class EmailMessageRepository {
    * @param folderName email_folder.name — IMAP 은 폴더를 여는 이름, 로컬 보낸 기록은 {@code SENT}
    * @param folderRole 서버 폴더 역할(ARCHIVE·USER), INBOX·SENT 행이면 null
    * @param seenPushPending 로컬 읽음 변경이 아직 서버에 반영되지 않았는지(WP-187)
+   * @param flagged 로컬 별표(WP-1741)
+   * @param flaggedPushPending 로컬 별표 변경이 아직 서버에 반영되지 않았는지(WP-1741)
    * @param hasProviderAttachments Graph 첨부 id 를 저장한 첨부 행이 있는지 — 옮기면 첨부 id 도 바뀌어 다시 받아야 한다
    * @param folderUidValidity 지금 메일함에 기록된 IMAP UIDVALIDITY(아직 가져오지 않았으면 null) — 서버 값과 다르면 UID 를 믿을 수
    *     없다
@@ -2648,6 +2650,8 @@ public class EmailMessageRepository {
       String providerMessageId,
       boolean seen,
       boolean seenPushPending,
+      boolean flagged,
+      boolean flaggedPushPending,
       boolean hasProviderAttachments,
       Long folderUidValidity,
       Long originalFolderId) {}
@@ -2663,6 +2667,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.PROVIDER_MESSAGE_ID,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.SEEN_PUSH_PENDING,
+            EMAIL_MESSAGE.FLAGGED,
+            EMAIL_MESSAGE.FLAGGED_PUSH_PENDING,
             DSL.field(
                 DSL.exists(
                     DSL.selectOne()
@@ -2688,7 +2694,9 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID),
                     Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
                     Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN_PUSH_PENDING)),
-                    Boolean.TRUE.equals(r.get(8, Boolean.class)),
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.FLAGGED)),
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING)),
+                    Boolean.TRUE.equals(r.get(10, Boolean.class)),
                     r.get(EMAIL_FOLDER.UID_VALIDITY),
                     r.get(EMAIL_MESSAGE.ORIGINAL_FOLDER_ID)));
   }
@@ -2702,6 +2710,7 @@ public class EmailMessageRepository {
    * @param providerMessageId 옮긴 뒤의 Graph 메시지 id — IMAP 이면 null
    * @param clearSeenPending 로컬 읽음을 옮기기 전에 서버에 반영했으면 true — 대기 표시를 푼다. false 면 대기를 남겨 재시도 배치가 새 위치로
    *     반영한다
+   * @param clearFlaggedPending 로컬 별표를 옮기기 전에 서버에 반영했으면 true — 별표 대기 표시를 푼다(WP-1741, 읽음과 같다)
    * @param originalFolderId 휴지통으로 옮기면 옮기기 전 메일함 id(WP-1681 — 되살리기 목적지), 그 밖(휴지통에서 나가는 경우 포함)은 null
    *     로 지운다
    * @return 바뀐 행 수(0|1)
@@ -2712,6 +2721,7 @@ public class EmailMessageRepository {
       Long imapUid,
       String providerMessageId,
       boolean clearSeenPending,
+      boolean clearFlaggedPending,
       Long originalFolderId) {
     var update =
         dsl.update(EMAIL_MESSAGE)
@@ -2725,6 +2735,13 @@ public class EmailMessageRepository {
               .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
               .set(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, 0)
               .setNull(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT);
+    }
+    if (clearFlaggedPending) {
+      update =
+          update
+              .set(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING, false)
+              .set(EMAIL_MESSAGE.FLAGGED_PUSH_ATTEMPTS, 0)
+              .setNull(EMAIL_MESSAGE.FLAGGED_PUSH_NEXT_AT);
     }
     return update.where(EMAIL_MESSAGE.ID.eq(messageId)).execute();
   }

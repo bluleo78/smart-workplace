@@ -1,6 +1,7 @@
 package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -230,5 +231,66 @@ class GraphFlagSyncTest extends ExternalClientMockedTestBase {
     messageRepo.clearFlaggedPushPendingIn(List.of(p1), true);
     graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
     assertThat(flagged(p1)).isFalse();
+  }
+
+  /**
+   * 배포 전에 연결한 계정 — flag 없는 $select 로 받은 옛 deltaLink 가 email_folder.delta_link 에 남아 있다. Graph
+   * deltaLink 는 처음 요청의 $select 를 이어 가므로 그 커서로는 flag 가 영영 오지 않는다. 옛 커서를 쓰지 않고 flag 를 담은 초기 delta 로 한
+   * 번 다시 시작해 Outlook 별표가 들어오는지, 다시 받아도 행이 늘지 않고 별표 반영 대기 행은 로컬 값을 지키는지, 새 커서로 이어 가는지 본다.
+   */
+  @Test
+  void oldDeltaLinkWithoutFlag_restartsOnce_andOutlookFlagArrives() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+    long inbox = inboxId(accountId);
+    // 배포 전 상태: 옛 커서로 받은 두 메일(별표 정보 없음 → false) — O2 는 사용자가 막 별표를 꺼 반영 대기 중
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(message("O1", true, null), message("O2", true, null)), null, null));
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    long o1 = idOf(accountId, "O1");
+    long o2 = idOf(accountId, "O2");
+    dsl.update(EMAIL_FOLDER)
+        .set(EMAIL_FOLDER.DELTA_LINK, "OLD_DL")
+        .where(EMAIL_FOLDER.ID.eq(inbox))
+        .execute();
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.FLAGGED_PUSH_PENDING, true)
+        .where(EMAIL_MESSAGE.ID.eq(o2))
+        .execute();
+    org.mockito.Mockito.clearInvocations(graphApiClient);
+
+    // 옛 커서는 flag 를 주지 않고, 초기 delta(flag 포함 $select)는 Outlook 별표를 준다
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("OLD_DL"), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("O1", true, null)), null, "OLD_DL2"));
+    when(graphApiClient.get(
+            eq("FAKE_TOKEN"),
+            org.mockito.AdditionalMatchers.and(
+                org.mockito.ArgumentMatchers.startsWith("/me/mailFolders/inbox/messages/delta?"),
+                org.mockito.ArgumentMatchers.contains("conversationId,flag")),
+            eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(message("O1", true, "flagged"), message("O2", true, "flagged")),
+                null,
+                "NEW_DL"));
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("NEW_DL"), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(), null, "NEW_DL"));
+
+    MailSyncResult r = graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+
+    // 옛 커서는 쓰지 않았다 — flag 를 담은 초기 delta 로 다시 시작
+    verify(graphApiClient, org.mockito.Mockito.never())
+        .get(eq("FAKE_TOKEN"), eq("OLD_DL"), eq(GraphDeltaPage.class));
+    assertThat(flagged(o1)).isTrue(); // Outlook 별표가 들어왔다
+    assertThat(flagged(o2)).isFalse(); // 반영 대기 행은 로컬 값(별표 끔)을 지킨다
+    assertThat(r.saved()).isZero(); // 다시 받아도 새 행을 만들지 않는다
+    assertThat(dsl.fetchCount(EMAIL_MESSAGE, EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))).isEqualTo(2);
+
+    // 다음 동기화는 새 커서로 이어 간다(다시 처음부터 받지 않는다)
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    verify(graphApiClient).get(eq("FAKE_TOKEN"), eq("NEW_DL"), eq(GraphDeltaPage.class));
   }
 }

@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -160,9 +161,10 @@ public class ImapMailMover implements MailMover {
       if (present.isEmpty()) {
         return out;
       }
-      // 반영 대기 읽음을 먼저 서버에 — 플래그는 MOVE·COPY 로 함께 옮겨지므로 옮긴 뒤 로컬 대기를 풀 수 있다.
-      pushPendingSeen(source, present, msgs, true);
-      pushPendingSeen(source, present, msgs, false);
+      // 반영 대기 읽음·별표(WP-1741)를 먼저 서버에 — 플래그는 MOVE·COPY 로 함께 옮겨지므로 옮긴 뒤 로컬 대기를 풀 수 있다.
+      pushPending(source, present, msgs, Flags.Flag.SEEN, Item::seenPushPending, Item::seen);
+      pushPending(
+          source, present, msgs, Flags.Flag.FLAGGED, Item::flaggedPushPending, Item::flagged);
 
       Message[] arr = msgs.toArray(Message[]::new);
       AppendUID[] uidsAfter;
@@ -190,6 +192,7 @@ public class ImapMailMover implements MailMover {
                 au == null ? null : au.uidvalidity,
                 null,
                 it.seenPushPending(),
+                it.flaggedPushPending(),
                 null,
                 null));
       }
@@ -214,18 +217,31 @@ public class ImapMailMover implements MailMover {
     }
   }
 
-  /** 반영 대기 중이고 로컬 읽음이 seen 인 메일의 {@code \Seen} 을 서버에 맞춘다. */
-  private static void pushPendingSeen(
-      IMAPFolder folder, List<Item> items, List<Message> msgs, boolean seen)
+  /**
+   * 반영 대기 중인 메일의 서버 플래그(읽음 {@code \Seen}·별표 {@code \Flagged}, WP-1741)를 로컬 값에 맞춘다. 켤 메일과 끌 메일을 나눠 한
+   * 번씩 STORE 한다.
+   *
+   * @param pending 그 속성이 반영 대기인지
+   * @param value 로컬 값
+   */
+  private static void pushPending(
+      IMAPFolder folder,
+      List<Item> items,
+      List<Message> msgs,
+      Flags.Flag flag,
+      Predicate<Item> pending,
+      Predicate<Item> value)
       throws MessagingException {
-    List<Message> target = new ArrayList<>();
-    for (int i = 0; i < items.size(); i++) {
-      if (items.get(i).seenPushPending() && items.get(i).seen() == seen) {
-        target.add(msgs.get(i));
+    for (boolean on : new boolean[] {true, false}) {
+      List<Message> target = new ArrayList<>();
+      for (int i = 0; i < items.size(); i++) {
+        if (pending.test(items.get(i)) && value.test(items.get(i)) == on) {
+          target.add(msgs.get(i));
+        }
       }
-    }
-    if (!target.isEmpty()) {
-      folder.setFlags(target.toArray(Message[]::new), new Flags(Flags.Flag.SEEN), seen);
+      if (!target.isEmpty()) {
+        folder.setFlags(target.toArray(Message[]::new), new Flags(flag), on);
+      }
     }
   }
 }

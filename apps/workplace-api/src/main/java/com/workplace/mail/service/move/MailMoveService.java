@@ -148,7 +148,8 @@ public class MailMoveService {
     for (MoveSource s : plan.sources()) {
       if (plan.destFolderId() != null && s.folderId() == plan.destFolderId()) {
         outcomes.put(
-            s.messageId(), new Outcome(s.messageId(), true, null, null, null, false, null, null));
+            s.messageId(),
+            new Outcome(s.messageId(), true, null, null, null, false, false, null, null));
       } else {
         toMove.add(
             new Item(
@@ -158,6 +159,8 @@ public class MailMoveService {
                 s.providerMessageId(),
                 s.seen(),
                 s.seenPushPending(),
+                s.flagged(),
+                s.flaggedPushPending(),
                 s.hasProviderAttachments(),
                 s.folderUidValidity()));
       }
@@ -364,6 +367,8 @@ public class MailMoveService {
         continue;
       }
       boolean clearPending = !s.seenPushPending() || o.seenPushed();
+      // WP-1741: 별표도 같다 — 옮기기 전에 반영했으면 대기를 풀고, 못 했으면 남겨 재시도 배치가 새 위치로 보낸다
+      boolean clearFlaggedPending = !s.flaggedPushPending() || o.flaggedPushed();
       // WP-1681: 휴지통으로 가면 원래 메일함을 남기고(되살리기 목적지), 그 밖(휴지통에서 나가는 경우 포함)은 지운다.
       messageRepo.relocate(
           o.messageId(),
@@ -371,6 +376,7 @@ public class MailMoveService {
           o.newImapUid(),
           o.newProviderId(),
           clearPending,
+          clearFlaggedPending,
           plan.toTrash() ? s.folderId() : null);
       if (o.newAttachmentIds() != null) {
         // Graph: 옮기면 첨부 id 도 바뀐다 — 저장된 옛 id 로는 다운로드가 404 가 된다.

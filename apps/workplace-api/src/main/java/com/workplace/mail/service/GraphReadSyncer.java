@@ -98,9 +98,10 @@ public class GraphReadSyncer implements MailReadSyncer {
 
   /**
    * PATCH 본문 — 반영 대기 중인 속성만 담는다(WP-1741). 읽음만 바뀌었으면 flag 를 보내지 않는다: 보내면 Outlook 에서 「완료」로 둔 플래그를
-   * 덮어쓴다. 별표를 끌 때는 {@code notFlagged} 를 보낸다(완료 표시도 함께 지워지지만 사용자가 앱에서 별표를 끈 결과와 같다).
+   * 덮어쓴다. 별표를 끌 때는 {@code notFlagged} 를 보낸다(완료 표시도 함께 지워지지만 사용자가 앱에서 별표를 끈 결과와 같다). 메일 옮기기 전
+   * 반영({@code GraphMailMover})도 같은 규칙으로 보내려고 공개한다.
    */
-  static Map<String, Object> patchBody(SeenSyncItem it) {
+  public static Map<String, Object> patchBody(SeenSyncItem it) {
     Map<String, Object> body = new LinkedHashMap<>();
     if (it.seen() != null) {
       body.put("isRead", it.seen());

@@ -164,6 +164,13 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
      */
     public final TableField<EmailFolderRecord, Boolean> SERVER_SENT = createField(DSL.name("server_sent"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.email_folder.graph_delta_link</code>. Graph 증분
+     * 커서(@odata.deltaLink) — $select 에 flag 를 더한 뒤 발급된 커서만 담는다. delta_link 를
+     * 대체(WP-1741)
+     */
+    public final TableField<EmailFolderRecord, String> GRAPH_DELTA_LINK = createField(DSL.name("graph_delta_link"), SQLDataType.CLOB, this, "Graph 증분 커서(@odata.deltaLink) — $select 에 flag 를 더한 뒤 발급된 커서만 담는다. delta_link 를 대체(WP-1741)");
+
     private EmailFolder(Name alias, Table<EmailFolderRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

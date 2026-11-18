@@ -105,15 +105,19 @@ public class EmailFolderRepository {
   /**
    * Graph 증분 커서({@code @odata.deltaLink}) 조회. IMAP 폴더에는 null 이 저장되므로 empty 를 반환한다.
    *
+   * <p>WP-1741: {@code graph_delta_link} 만 읽는다. 옛 {@code delta_link} 커서는 flag 없는 $select 로
+   * 발급돼(deltaLink 는 처음 요청의 $select 를 이어 간다) 그 커서로는 별표가 오지 않는다 — 읽지 않아 모든 Graph 메일함이 flag 를 담은 초기
+   * delta 로 한 번 다시 시작한다(V310 주석: 롤링 배포 중 옛 파드가 옛 컬럼에 다시 적어도 영향이 없다).
+   *
    * @param folderId 대상 폴더 id
    * @return deltaLink Optional — 없으면 empty(첫 동기화 또는 IMAP 폴더)
    */
   public Optional<String> getDeltaLink(long folderId) {
     String link =
-        dsl.select(EMAIL_FOLDER.DELTA_LINK)
+        dsl.select(EMAIL_FOLDER.GRAPH_DELTA_LINK)
             .from(EMAIL_FOLDER)
             .where(EMAIL_FOLDER.ID.eq(folderId))
-            .fetchOne(EMAIL_FOLDER.DELTA_LINK);
+            .fetchOne(EMAIL_FOLDER.GRAPH_DELTA_LINK);
     return Optional.ofNullable(link);
   }
 
@@ -121,12 +125,14 @@ public class EmailFolderRepository {
    * Graph 증분 커서({@code @odata.deltaLink}) 저장. 동기화 마지막 페이지에서 수신한 deltaLink 를 보관해 다음 동기화 시 시작점으로
    * 사용한다.
    *
+   * <p>WP-1741: {@code graph_delta_link} 에 적는다({@link #getDeltaLink} 참고).
+   *
    * @param folderId 대상 폴더 id
    * @param deltaLink 저장할 deltaLink URL
    */
   public void setDeltaLink(long folderId, String deltaLink) {
     dsl.update(EMAIL_FOLDER)
-        .set(EMAIL_FOLDER.DELTA_LINK, deltaLink)
+        .set(EMAIL_FOLDER.GRAPH_DELTA_LINK, deltaLink)
         .set(EMAIL_FOLDER.UPDATED_AT, OffsetDateTime.now())
         .where(EMAIL_FOLDER.ID.eq(folderId))
         .execute();
