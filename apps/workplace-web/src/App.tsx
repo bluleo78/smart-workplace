@@ -72,6 +72,10 @@ const DriveSharedFolderView = lazy(() =>
 const DriveSharedWithMeView = lazy(() =>
   import('./pages/drive/DriveSharedWithMeView').then((m) => ({ default: m.DriveSharedWithMeView })),
 )
+// WP-1698: 드라이브 「별표」 — 내가 별표한 파일·폴더 모아 보기
+const DriveStarredView = lazy(() =>
+  import('./pages/drive/DriveStarredView').then((m) => ({ default: m.DriveStarredView })),
+)
 // #80: 가상 첨부 뷰 — 이슈/메시지 업로드 파일 크로스링크.
 const DriveAttachmentsView = lazy(() =>
   import('./pages/drive/DriveAttachmentsView').then((m) => ({ default: m.DriveAttachmentsView })),
@@ -269,6 +273,8 @@ export default function App() {
                   <Route path="drive/spaces/:spaceId" element={<DrivePage />} />
                   {/* #80: 가상 첨부 뷰 — 이슈/메시지 업로드 파일 크로스링크 */}
                   <Route path="drive/attachments" element={<DriveAttachmentsView />} />
+                  {/* WP-1698: 별표 — 내가 별표한 파일·폴더를 공간과 상관없이 모아 본다 */}
+                  <Route path="drive/starred" element={<DriveStarredView />} />
                   {/* WP-1539: 공유받은 항목 — 사내 공유 링크로 연 파일을 다시 찾는다 */}
                   <Route path="drive/shared" element={<DriveSharedWithMeView />} />
                   <Route path="drive/shared/:shareLinkId" element={<DriveSharedFolderView />} />

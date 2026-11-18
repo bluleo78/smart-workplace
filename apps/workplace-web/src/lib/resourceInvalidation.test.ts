@@ -343,19 +343,21 @@ describe('규칙 키 값 고정', () => {
     ]);
   });
 
-  it('drive → 공간 prefix(items·trash) + quota·첨부·백링크', () => {
+  it('drive → 공간 prefix(items·trash) + 별표 목록(WP-1698)·quota·첨부·백링크', () => {
     expect(keys({ resource: 'drive', op: 'updated', spaceId: 2 })).toEqual([
       { queryKey: ['drive', 'items', 2] },
       { queryKey: ['drive', 'trash', 2] },
+      { queryKey: ['drive', 'starred'] },
       { queryKey: ['drive', 'quota'] },
       { queryKey: ['drive-attachments'] },
       { queryKey: ['drive-file-backlinks'] },
     ]);
   });
 
-  it('drive-space → 공간 목록·단건·멤버·멤버 부서(WP-1056)·items prefix', () => {
+  it('drive-space → 공간 목록·별표 목록(WP-1698)·단건·멤버·멤버 부서(WP-1056)·items prefix', () => {
     expect(keys({ resource: 'drive-space', op: 'updated', spaceId: 2 })).toEqual([
       { queryKey: ['drive', 'spaces'] },
+      { queryKey: ['drive', 'starred'] },
       { queryKey: ['drive', 'space', 2] },
       { queryKey: ['drive', 'members', 2] },
       { queryKey: ['drive', 'member-groups', 2] },

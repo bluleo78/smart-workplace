@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, HardDrive, MoreHorizontal, Paperclip, Plus, UserRoundPlus } from 'lucide-react'
+import { ChevronDown, ChevronRight, HardDrive, MoreHorizontal, Paperclip, Plus, Star, UserRoundPlus } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
@@ -300,6 +300,11 @@ export function DriveSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
+        {/* 별표(WP-1698) — 내가 별표한 파일·폴더를 공간과 상관없이 모아 보는 입구. 「공유받은 항목」 위에 둔다. */}
+        <NavLink to="/drive/starred" data-testid="drive-nav-starred" className={sidebarLinkClass}>
+          <Star className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 truncate">별표</span>
+        </NavLink>
         {/* 공유받은 항목(WP-1539) — 남이 사내 링크로 준 파일·폴더를 다시 찾는 입구. 「공유 문서함」처럼 공간 목록 맨 위에 둔다. */}
         <NavLink
           to="/drive/shared"

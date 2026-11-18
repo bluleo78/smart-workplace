@@ -13,6 +13,8 @@ import {
   MoreVertical,
   Pencil,
   SearchX,
+  Star,
+  StarOff,
   Trash2,
   Upload,
   X,
@@ -62,7 +64,14 @@ import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { appUrl, driveFolderPath } from '@/lib/appUrl'
 import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
-import { driveFileActionDisabled, driveFolderActionDisabled, isDriveViewer, visibleDriveRowActions } from '@/lib/driveRowActions'
+import {
+  DRIVE_MISSING_ORIGINAL_MESSAGE,
+  driveFileActionDisabled,
+  driveFolderActionDisabled,
+  isDriveOriginalMissing,
+  isDriveViewer,
+  visibleDriveRowActions,
+} from '@/lib/driveRowActions'
 import { isDriveSpaceReadOnly,spaceDisplayName } from '@/lib/driveSpaces'
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
@@ -86,12 +95,15 @@ import { openSearchPalette } from '../../components/search/searchPaletteStore'
 import { FilterInput } from '../../components/ui/filter-input'
 import { AttachmentViewer } from '../../components/viewer/AttachmentViewer'
 import { driveFilePath } from '../../components/viewer/driveOpen'
+import type { ViewerItem } from '../../components/viewer/types'
 import { useViewerBundle } from '../../components/viewer/useViewerBundle'
 import { driveFileItem, driveViewerKey, parseViewerKey } from '../../components/viewer/viewerItems'
 import { ViewerNotFound } from '../../components/viewer/ViewerNotFound'
+import type { ViewerStar } from '../../components/viewer/ViewerStarButton'
 import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { useDriveSpace } from '../../hooks/queries/useDriveSpace'
+import { useSetDriveStar } from '../../hooks/queries/useDriveStars'
 import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
 import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, DriveTrashItem } from '../../types/drive'
 import { readDroppedTree } from './folderUpload'
@@ -353,6 +365,24 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   })
   // 미리보기 대상(AI 화면 컨텍스트용) — 뷰어 묶음이 해석한 현재 원본(목록 → 스냅숏)을 그대로 쓴다.
   const preview: DriveFile | null = viewer.current
+  // 별표(WP-1698) — 행 메뉴·보기 창 단추가 같은 뮤테이션을 쓴다.
+  const setDriveStar = useSetDriveStar()
+  // 이 폴더 목록의 파일(id → 행) — 보기 창 별표 단추가 렌더마다 목록을 훑지 않고 한 번에 찾는다.
+  const listedFiles = useMemo(() => new Map(actualItems.files.map((f) => [f.id, f] as const)), [actualItems.files])
+  // 이 화면에서 바꾼 파일 별표(파일 id → 바꾼 뒤 상태). 보기 창이 목록 밖 스냅숏(preview)을 보일 때는 뮤테이션이 그 스냅숏을 고치지 않아
+  // 단추가 옛 상태로 남으므로, 바꾼 값을 여기 따로 두고 스냅숏보다 먼저 본다(실패하면 되돌린다).
+  const [starOverrides, setStarOverrides] = useState<ReadonlyMap<number, boolean>>(() => new Map())
+  // 보기 창 별표 단추 — 지금 항목을 이 폴더 목록(별표 여부가 실린 행, 훅이 낙관적으로 고친다)에서 찾고,
+  // 목록에서 빠진 스냅숏이면 이 화면에서 바꾼 값 → 스냅숏 값 순으로 쓴다. 별표는 볼 수 있으면 되므로 역할·보관과 상관없이 단다.
+  function previewStar(vi: ViewerItem): ViewerStar | null {
+    const parsed = parseViewerKey(vi.key)
+    if (parsed?.kind !== 'drive') return null
+    const listed = listedFiles.get(parsed.id)
+    const f = listed ?? (preview?.id === parsed.id ? preview : null)
+    if (!f) return null
+    const starred = listed ? listed.starred === true : (starOverrides.get(f.id) ?? f.starred === true)
+    return { starred, onToggle: () => void setStar('FILE', f.id, !starred) }
+  }
   // 렌더마다 Set 을 새로 만들지 않도록 입력(뷰 목록·선택 집합)이 바뀔 때만 다시 계산한다.
   const visibleSelFiles = useMemo(() => {
     const ids = new Set(viewItems.files.map((f) => f.id))
@@ -452,6 +482,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // WP-63: 사용자 액션 후 목록 갱신 — 이 공간의 폴더 목록 캐시를 무효화한다.
   // 활성 쿼리의 재조회가 끝나야 resolve 하므로 호출측의 await 이후엔 기존처럼 최신 목록이 반영돼 있다.
   // 선택 해제는 여기서 하지 않는다(원격 무효화 재조회에서는 선택을 유지) — 액션 핸들러가 clearSel() 을 호출.
+  // 「별표」 목록(WP-1698)은 여기서 무효화하지 않는다 — 내 변경도 resource.changed(drive) 가 나에게 돌아와 그 규칙이 함께 무효화한다.
   async function reload() {
     await queryClient.invalidateQueries({ queryKey: driveKeys.itemsAll(sid) })
   }
@@ -525,19 +556,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const previewLinkPath = preview && validSid != null ? driveFilePath(validSid, preview.folderId, preview.id) : undefined
   // 뷰어의 shareTarget memo 가 렌더마다 흔들리지 않게 콜백은 preview 가 바뀔 때만 새로 만든다.
   const canSharePreview =
-    preview != null && !readOnlyRole && !driveFileActionDisabled({ space, missing: preview.available === false }).share
+    preview != null && !readOnlyRole && !driveFileActionDisabled({ space, missing: isDriveOriginalMissing(preview) }).share
   const sharePreview = useCallback(() => {
     if (preview) setShareTarget({ kind: 'file', id: preview.id, name: preview.name })
   }, [preview, setShareTarget])
   const openPreviewShare = canSharePreview ? sharePreview : undefined
 
-  // #739: 원본 blob 유실 여부 — undefined(구버전 스텁/폴백)는 유실 아님으로 취급(하위호환).
-  function isMissingBlob(f: DriveFile): boolean {
-    return f.available === false
-  }
-  // #739: 원본 blob 유실 파일 클릭 시 — 미리보기 대신 안내 토스트로 복구 불가를 명시.
+  // #739: 원본 blob 유실 파일 클릭 시 — 미리보기 대신 안내 토스트로 복구 불가를 명시(「별표」 화면과 같은 문구).
   function onUnavailableClick() {
-    toast.message('이 파일의 원본이 유실되어 열거나 내려받을 수 없습니다.')
+    toast.message(DRIVE_MISSING_ORIGINAL_MESSAGE)
   }
 
   function openFolder(id: number) {
@@ -766,6 +793,22 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     return linkActionsFor(target)
   }
 
+  // 별표 넣기·빼기(WP-1698) — 행 메뉴와 보기 창 단추가 함께 쓴다. 캐시는 훅이 낙관적으로 고치고 실패 토스트도 훅이 낸다.
+  // 여기서는 보기 창 스냅숏용 값만 실패 때 되돌린다.
+  async function setStar(kind: 'FILE' | 'FOLDER', id: number, starred: boolean) {
+    if (validSid == null) return
+    if (kind === 'FILE') setStarOverrides((m) => new Map(m).set(id, starred))
+    const ok = await setDriveStar({ target: { kind, id }, spaceId: validSid, starred })
+    if (!ok && kind === 'FILE') setStarOverrides((m) => new Map(m).set(id, !starred))
+  }
+
+  // 행 메뉴의 별표 항목(WP-1698) — 행의 starred 로 「별표」/「별표 빼기」를 고른다. 볼 수 있으면 누구나 쓴다(VIEWER·보관 공간 포함).
+  function starAction(kind: 'FILE' | 'FOLDER', id: number, starred: boolean | undefined): MobileSheetAction {
+    return starred
+      ? { key: 'star', label: '별표 빼기', icon: <StarOff />, onSelect: () => void setStar(kind, id, false) }
+      : { key: 'star', label: '별표', icon: <Star />, onSelect: () => void setStar(kind, id, true) }
+  }
+
   // 행 작업 목록 — 휴대폰 ⋮ 시트(WP-216)·터치 태블릿 ⋯(WP-237)·데스크톱 hover 묶음(WP-363)이 모두 이 목록 하나를 쓴다.
   // 읽기 전용 공간(보관·보기 전용, WP-582)은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
   function rowActionsFor(target: RowTarget): MobileSheetAction[] {
@@ -776,6 +819,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       const off = driveFolderActionDisabled({ space })
       return visibleDriveRowActions([
         ...rowLinkActions('folder', (sid) => driveFolderPath(sid, f.id), f.name),
+        starAction('FOLDER', f.id, f.starred),
         { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareTarget({ kind: 'folder', id: f.id, name: f.name }), disabled: off.share },
         { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: off.rename },
         { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: off.move },
@@ -784,11 +828,12 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       ], readOnlyRole)
     }
     const f = target.item
-    const off = driveFileActionDisabled({ space, missing: isMissingBlob(f) })
+    const off = driveFileActionDisabled({ space, missing: isDriveOriginalMissing(f) })
     // VIEWER 는 다운로드·버전 이력만(WP-602) — 순수 함수 visibleDriveRowActions 가 고른다.
     return visibleDriveRowActions([
       { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: off.download },
       ...rowLinkActions('file', (sid) => driveFilePath(sid, f.folderId, f.id), f.name),
+      starAction('FILE', f.id, f.starred),
       { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareTarget({ kind: 'file', id: f.id, name: f.name }), disabled: off.share },
       { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => setRenameFile(f), disabled: off.rename },
       { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }), disabled: off.move },
@@ -968,6 +1013,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     }
   }
   // WP-63: 휴지통 액션 후 갱신 — 휴지통 쿼리를 무효화(재조회 완료까지 대기).
+  // 되살리기가 「별표」 목록(WP-1698)에 행을 되돌리는 것은 resource.changed(drive) 규칙이 맞춘다(내 변경도 나에게 온다).
   async function reloadTrash() {
     await queryClient.invalidateQueries({ queryKey: driveKeys.trash(sid) })
   }
@@ -1458,6 +1504,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   <span className="block truncate">{f.name}</span>
                   {renderMetaLine(metaLine('폴더', null, f.updatedAt))}
                 </button>
+                {f.starred && <StarredMark testId={`drive-row-starred-folder-${f.id}`} />}
                 {/* #799: 폴더 행 — 크기 없음, 수정일만 표시. */}
                 <span className="w-20 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">—</span>
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
@@ -1486,20 +1533,21 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               >
                 {/* #82: 파일 행 체크박스 — 멀티셀렉트용. 모바일은 선택 모드에서만 보인다(WP-216). */}
                 {renderRowCheck('file', f.id, f.name)}
-                <DriveThumbnail fileId={f.id} category={f.category} mimeType={f.mimeType} name={f.name} available={!isMissingBlob(f)} />
+                <DriveThumbnail fileId={f.id} category={f.category} mimeType={f.mimeType} name={f.name} available={!isDriveOriginalMissing(f)} />
                 <button
                   type="button"
-                  onClick={() => (isMissingBlob(f) ? onUnavailableClick() : viewer.open(f))}
+                  onClick={() => (isDriveOriginalMissing(f) ? onUnavailableClick() : viewer.open(f))}
                   className={cn(
                     'min-w-0 flex-1 text-left text-sm',
-                    isMissingBlob(f) ? 'text-muted-foreground' : 'hover:underline',
+                    isDriveOriginalMissing(f) ? 'text-muted-foreground' : 'hover:underline',
                   )}
                 >
                   <span className="block truncate">{f.name}</span>
                   {renderMetaLine(metaLine(null, f.sizeBytes, f.updatedAt))}
                 </button>
+                {f.starred && <StarredMark testId={`drive-row-starred-file-${f.id}`} />}
                 {/* #739: 원본 유실 배지 — 중립 경고 스타일(StatusBadge warning), AI 마커 계열(AiSignalBadge) 아님. */}
-                {isMissingBlob(f) && (
+                {isDriveOriginalMissing(f) && (
                   <StatusBadge type="warning" data-testid="missing-blob-badge" className="shrink-0">
                     원본 유실
                   </StatusBadge>
@@ -1617,6 +1665,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             defaultPanelOpen
             linkPath={previewLinkPath}
             onExternalShare={openPreviewShare}
+            star={previewStar}
           />
         )}
         {/* 삭제·이동된 파일 딥링크 — 조용히 URL 을 고치지 않고 안내 후 닫기로 되돌린다(WP-208). */}
@@ -1747,5 +1796,12 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         </AlertDialogContent>
       </AlertDialog>
     </Page>
+  )
+}
+
+/** 별표한 행 이름 옆 작은 별(WP-1698) — 장식이지만 화면낭독기에도 「별표함」으로 읽힌다. */
+function StarredMark({ testId }: { testId: string }) {
+  return (
+    <Star role="img" aria-label="별표함" data-testid={testId} className="h-3.5 w-3.5 shrink-0 fill-current text-primary" />
   )
 }

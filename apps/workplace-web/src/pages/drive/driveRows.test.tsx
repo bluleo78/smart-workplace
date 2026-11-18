@@ -57,7 +57,7 @@ describe('행 ⋯ 메뉴', () => {
       ],
     })
     let menu = await openRowMenu(user, 'memo.txt')
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '이름 변경', '이동', '복사', '버전 이력', '삭제'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '별표', '이름 변경', '이동', '복사', '버전 이력', '삭제'])
     expect(within(menu).getAllByRole('separator')).toHaveLength(1)
     expect(within(menu).getByRole('separator').nextElementSibling).toHaveTextContent('삭제')
     expect(within(menu).getByRole('menuitem', { name: '삭제' })).toHaveAttribute('data-variant', 'destructive')
@@ -65,7 +65,7 @@ describe('행 ⋯ 메뉴', () => {
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
     menu = await openRowMenu(user, '문서')
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '공유 링크', '이름 변경', '복사', '삭제'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '별표', '공유 링크', '이름 변경', '복사', '삭제'])
     expect(within(menu).getByRole('separator').nextElementSibling).toHaveTextContent('삭제')
     await user.click(within(menu).getByRole('menuitem', { name: '삭제' }))
     expect(await screen.findByTestId('drive-confirm-dialog')).toHaveTextContent('폴더를 휴지통으로 보낼까요?')
@@ -123,13 +123,13 @@ describe('공간 권한', () => {
     const folderRow = await rowOf('문서')
     expect(within(folderRow).queryAllByRole('button', { name: /이동/ })).toHaveLength(0)
     const folderMenu = await openRowMenu(user, '문서')
-    expect(within(folderMenu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기'])
+    expect(within(folderMenu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '별표'])
     await user.keyboard('{Escape}')
     const fileRow = await rowOf('보고서.pdf')
     expect(within(fileRow).getByRole('button', { name: /다운로드/ })).toBeInTheDocument()
     expect(within(fileRow).queryByTestId('share-link-btn')).not.toBeInTheDocument()
     const menu = await openRowMenu(user, '보고서.pdf')
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '버전 이력'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '별표', '버전 이력'])
   })
 })
 

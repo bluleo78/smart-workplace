@@ -92,6 +92,8 @@ export interface DriveFolder {
   createdAt: string
   // #799: 목록 3열(이름/크기/수정일) — 이름변경/이동 시 갱신.
   updatedAt: string
+  /** 내가 별표했는지(WP-1698) — 공간 폴더 목록(GET /spaces/{id}/items)에만 온다. 그 밖 응답에는 없다. */
+  starred?: boolean
 }
 
 /** breadcrumb 세그먼트 — 백엔드 DriveFolderPathSegment 와 1:1. 루트→대상 순. */
@@ -115,6 +117,53 @@ export interface DriveFile {
   versionCount: number
   // #739: 디스크 원본(blob) 존재 여부 — 읽기 시점 판정. false = 유실(복구 불가).
   available: boolean
+  /** 내가 별표했는지(WP-1698) — 공간 폴더 목록(GET /spaces/{id}/items)에만 온다. 그 밖 응답에는 없다. */
+  starred?: boolean
+}
+
+/** 별표 대상 종류(WP-1698) — 서버 kind 값 그대로. */
+export type DriveStarKind = 'FILE' | 'FOLDER'
+
+/** 별표 대상(WP-1698) — PUT·DELETE /drive/stars 본문. */
+export interface DriveStarTarget {
+  kind: DriveStarKind
+  id: number
+}
+
+/**
+ * 「별표」 목록 한 줄(WP-1698, GET /drive/starred) — 지금 볼 수 있는(공간 구성원이고 휴지통에 없는) 항목만 온다.
+ * 폴더면 mimeType·sizeBytes·fileId·category 가 null 이고 folderCount·fileCount 가 온다(파일이면 둘 다 null).
+ */
+export interface DriveStarredItem {
+  kind: DriveStarKind
+  id: number
+  name: string
+  mimeType: string | null
+  sizeBytes: number | null
+  /** 파일의 현재 버전 core file id — 보기 창 재생 주소용. 폴더면 null. */
+  fileId: number | null
+  category: string | null
+  /** 파일의 총 버전 수 — 폴더면 null. */
+  versionCount: number | null
+  /** 파일 원본이 저장소에 있는지(공간 폴더 목록 available 과 같은 기준) — false 면 열기·다운로드를 막는다. 폴더면 null. */
+  available: boolean | null
+  folderCount: number | null
+  fileCount: number | null
+  /** 항목이 들어 있는 폴더 id — 공간 최상위면 null. 「파일 위치 열기」 주소에 쓴다. */
+  parentFolderId: number | null
+  /** 공간 안 상위 폴더 경로(「/」로 이음) — 최상위면 빈 문자열. */
+  path: string
+  spaceId: number
+  /** 공간 이름(남의 개인 공간은 「○○의 드라이브」). */
+  spaceName: string
+  updatedAt: string
+  starredAt: string
+}
+
+/** 「별표」 목록 한 페이지(WP-1698) — nextCursor 가 null 이면 마지막 페이지. */
+export interface DriveStarredPage {
+  items: DriveStarredItem[]
+  nextCursor: string | null
 }
 
 // #79: 드라이브 파일 버전 — 백엔드 DriveFileVersionResponse 와 1:1.
