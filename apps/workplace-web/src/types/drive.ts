@@ -350,6 +350,11 @@ export interface DriveRecentFolderCrumb {
 /** 「최근」 한 줄(GET /drive/recent) — 내가 열거나 올린 파일 하나와 그 위치·마지막 행동. 루트 파일은 folderId null·folderPath []. */
 export interface DriveRecentFile {
   driveFileId: number
+  /**
+   * 지금 버전의 core 파일 id(DriveFile.fileId 와 같은 뜻) — 뷰어의 재생 주소 캐시 키에 들어가 새 버전이면 키가 바뀐다(WP-1699 리뷰).
+   * 롤링 배포 중 옛 서버 응답에는 없을 수 있다(그때는 0).
+   */
+  fileId?: number
   name: string
   mimeType: string
   sizeBytes: number

@@ -58,15 +58,15 @@ function withRecentStar(data: InfiniteData<DriveRecentPage>, driveFileId: number
 const NO_ITEMS: DriveRecentFile[] = []
 
 /**
- * 「최근」 줄 → 뷰어 항목. 줄에는 버전 파일 id 가 없어 0 으로 둔다 — 영상 재생 주소 캐시 키에만 쓰이고,
- * 서버가 현재 버전으로 재생 주소를 만들어 주므로 동작에는 영향이 없다.
+ * 「최근」 줄 → 뷰어 항목. fileId 는 지금 버전의 core 파일 id — 영상·오디오 재생 주소 캐시 키(useDrivePlaybackUrl)에 들어가,
+ * 공간 화면(driveFileItem)과 같은 키가 되고 새 버전이 올라오면 옛 주소를 다시 쓰지 않는다(WP-1699 리뷰). 옛 서버 응답이면 0.
  * 모듈 함수라 useViewerBundle 의 목록 변환 memo 가 렌더마다 깨지지 않는다.
  */
 function recentViewerItem(r: DriveRecentFile) {
   const file: DriveFile = {
     id: r.driveFileId,
     folderId: r.folderId,
-    fileId: 0,
+    fileId: r.fileId ?? 0,
     name: r.name,
     mimeType: r.mimeType,
     sizeBytes: r.sizeBytes,

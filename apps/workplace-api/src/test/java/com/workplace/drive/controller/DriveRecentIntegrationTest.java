@@ -1,6 +1,7 @@
 package com.workplace.drive.controller;
 
 import static com.workplace.jooq.Tables.AUDIT_LOG;
+import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_FILE_ACTIVITY;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.FILE;
@@ -20,6 +21,7 @@ import com.workplace.drive.domain.DriveFileAction;
 import com.workplace.drive.repository.DriveFileActivityRepository;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveSpaceService;
+import com.workplace.file.service.UploadSource;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -203,6 +205,48 @@ class DriveRecentIntegrationTest extends IntegrationTestBase {
     assertThat(path.get(0).get("name").asString()).isEqualTo("위");
     assertThat(path.get(1).get("name").asString()).isEqualTo("아래");
     assertThat(path.get(1).get("id").asLong()).isEqualTo(inner);
+  }
+
+  /**
+   * fileId 는 지금 버전의 core 파일 id — 새 버전을 올리면 바뀐다(WP-1699 리뷰). 웹 뷰어가 재생 주소 캐시 키로 쓰므로, 늘 같으면 새 버전이 올라와도
+   * 옛 재생 주소를 다시 쓴다.
+   */
+  @Test
+  void recent_carriesCurrentVersionFileId() throws Exception {
+    long f = seedFile(spaceId, null, "판.txt");
+    record(owner, f, DriveFileAction.OPEN);
+    long v1 = recent(owner, "").get("items").get(0).get("fileId").asLong();
+    assertThat(v1).isEqualTo(currentFileId(f));
+
+    long v2 =
+        callInTenant(
+            1L,
+            () -> {
+              try {
+                return fileService
+                    .addVersion(
+                        owner,
+                        f,
+                        UploadSource.ofBytes(
+                            "판.txt", "text/plain", "둘째 판".getBytes(StandardCharsets.UTF_8)))
+                    .fileId();
+              } catch (Exception e) {
+                throw new IllegalStateException(e);
+              }
+            });
+    assertThat(v2).isNotEqualTo(v1);
+    assertThat(recent(owner, "").get("items").get(0).get("fileId").asLong()).isEqualTo(v2);
+  }
+
+  /** 드라이브 파일의 지금 버전 core 파일 id(drive_file.file_id). */
+  private long currentFileId(long driveFileId) {
+    return callInTenant(
+        1L,
+        () ->
+            dsl.select(DRIVE_FILE.FILE_ID)
+                .from(DRIVE_FILE)
+                .where(DRIVE_FILE.ID.eq(driveFileId))
+                .fetchOne(DRIVE_FILE.FILE_ID));
   }
 
   /** 별표(WP-1698) — 내가 별표한 파일만 starred=true, 별표를 빼면 다시 false. 행의 별표 단추가 이 값으로 켜진 모양을 정한다. */

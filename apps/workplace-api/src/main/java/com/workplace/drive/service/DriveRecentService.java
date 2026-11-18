@@ -80,6 +80,7 @@ public class DriveRecentService {
       ActivityRow r, long userId, Map<Long, DriveFolderResponse> chain, Set<Long> starred) {
     return new DriveRecentFileResponse(
         r.driveFileId(),
+        r.fileId(),
         r.name(),
         r.mimeType(),
         r.sizeBytes(),

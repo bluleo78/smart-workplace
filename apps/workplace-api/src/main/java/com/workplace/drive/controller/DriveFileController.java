@@ -298,8 +298,8 @@ public class DriveFileController {
       @RequestBody TargetFolderRequest req)
       throws IOException {
     DriveFileResponse copied = fileService.copy(callerId, driveFileId, req.targetFolderId());
-    // 복사본은 새 파일이다 — 내가 올린 것으로 본다.
-    activity.record(callerId, copied.id(), DriveFileAction.UPLOAD);
+    // 복사본은 내가 올린 것으로 본다 — 같은 이름 파일에 새 판으로 흡수됐으면 새 버전으로(업로드와 같은 규칙, WP-1699 리뷰).
+    activity.recordSaved(callerId, copied);
     return ResponseEntity.status(HttpStatus.CREATED).body(copied);
   }
 

@@ -76,12 +76,13 @@ public class DriveFileActivityRepository {
   public record Cursor(OffsetDateTime lastAt, long id) {}
 
   /**
-   * 목록 한 줄. spaceType·spaceOwnerName 은 개인 공간 이름(「내 드라이브」 → 주인 이름) 표시용(spaceOwnerId 로 내 공간인지 가른다),
-   * folderId 는 NULL 이면 공간 루트.
+   * 목록 한 줄. fileId 는 지금 버전의 core 파일 id(drive_file.file_id — 새 버전이면 바뀐다). spaceType·spaceOwnerName 은
+   * 개인 공간 이름(「내 드라이브」 → 주인 이름) 표시용(spaceOwnerId 로 내 공간인지 가른다), folderId 는 NULL 이면 공간 루트.
    */
   public record ActivityRow(
       long id,
       long driveFileId,
+      long fileId,
       String name,
       String mimeType,
       long sizeBytes,
@@ -117,6 +118,7 @@ public class DriveFileActivityRepository {
     return dsl.select(
             DRIVE_FILE_ACTIVITY.ID,
             DRIVE_FILE_ACTIVITY.DRIVE_FILE_ID,
+            DRIVE_FILE.FILE_ID,
             DRIVE_FILE.NAME,
             FILE.MIME_TYPE,
             FILE.SIZE_BYTES,
@@ -145,6 +147,7 @@ public class DriveFileActivityRepository {
                 new ActivityRow(
                     r.get(DRIVE_FILE_ACTIVITY.ID),
                     r.get(DRIVE_FILE_ACTIVITY.DRIVE_FILE_ID),
+                    r.get(DRIVE_FILE.FILE_ID),
                     r.get(DRIVE_FILE.NAME),
                     r.get(FILE.MIME_TYPE),
                     r.get(FILE.SIZE_BYTES),
