@@ -98,6 +98,46 @@ test('편집에서 창보다 긴 글자 상자에 마우스를 올려도 점선 
   ).toEqual({ htmlOverflows: false, bodyOverflows: true, boxTaller: true })
 })
 
+// 문서가 body 에 높이를 줘도 스크롤바는 하나(WP-1749 리뷰) — 「body{min-height:100vh}」(AI 가 만든 HTML 에 흔한 모양)가 주입 스타일의
+// min-height:0 을 이기면 body 가 100vh + margin·padding 이 되어 창과 body 가 둘 다 스크롤했고, 창 스크롤바 칸은 다시 흰 띠였다.
+// 창(html)은 넘치지 않고 body 만 넘쳐야 한다 — 리뷰가 실측한 다섯 모양을 고정한다.
+const LONG_BODY = Array.from({ length: 120 }, (_, i) => `<p>${i + 1}째 줄</p>`).join('')
+const BODY_HEIGHT_DOCS: [string, string][] = [
+  ['스타일 없음', ''],
+  ['body{min-height:100vh}(기본 margin)', 'body{min-height:100vh}'],
+  ['body{min-height:100vh;padding:24px}', 'body{min-height:100vh;padding:24px}'],
+  ['html,body{height:100%}', 'html,body{height:100%}'],
+  ['border-box 리셋 + body{margin:0;min-height:100vh;padding:24px}', '*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:24px}'],
+]
+for (const [name, css] of BODY_HEIGHT_DOCS) {
+  test(`문서가 ${name} 이면 창은 넘치지 않고 body 만 스크롤한다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    const html = `<!doctype html><html><head><style>${css}</style></head><body>${LONG_BODY}</body></html>`
+    const detail = wikiHtmlPageDetail({ id: 9, html })
+    await page.route('**/api/v1/wiki/spaces', (r) => r.fulfill(json([wikiSpace({ id: 1, name: '팀 노트', role: 'OWNER' })])))
+    await page.route('**/api/v1/wiki/spaces/1/pages', (r) => r.fulfill(json([wikiPageSummary({ id: 9, title: detail.title, kind: 'HTML' })])))
+    await page.route('**/api/v1/wiki/pages/9?*', (r) => r.fulfill(json(detail)))
+    await page.route('**/api/v1/wiki/pages/9/html-lock', (r) => r.fulfill(json(wikiHtmlLock())))
+    await page.goto('/wiki/spaces/1/pages/9')
+    const inner = page.getByTestId('wiki-html-frame').contentFrame()
+    await expect(inner.locator('p').first()).toHaveText('1째 줄')
+    await expect
+      .poll(() =>
+        inner.locator('body').evaluate((b) => {
+          const root = b.ownerDocument.documentElement
+          return { htmlOverflows: root.scrollHeight > root.clientHeight, bodyOverflows: b.scrollHeight > b.clientHeight }
+        }),
+      )
+      .toEqual({ htmlOverflows: false, bodyOverflows: true })
+    // 맨 아래까지 스크롤하면 마지막 줄이 창 안에 다 보인다(넘침을 숨겨 아래가 잘리는 방식이 아님).
+    const lastInView = await inner.locator('body').evaluate((b) => {
+      b.scrollTop = b.scrollHeight
+      const last = b.querySelector('p:last-of-type')!.getBoundingClientRect()
+      return last.bottom <= b.ownerDocument.documentElement.clientHeight
+    })
+    expect(lastInView).toBe(true)
+  })
+}
+
 // 가운데 칼럼 문서(WP-1749 리뷰) — html 을 세로 flex 로 둬도 「body{max-width;margin:0 auto}」 칼럼이 내용 폭으로 줄지 않고
 // 브라우저에서 따로 연 것처럼 max-width 를 채운다(flex 자식은 margin:auto 면 내용 폭이 되므로 body 에 width:stretch 를 준다).
 test('가운데 칼럼 문서는 내용이 짧아도 칼럼 폭(max-width)을 채운다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {

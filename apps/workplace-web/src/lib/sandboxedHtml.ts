@@ -65,8 +65,13 @@ export const SANDBOX_HEAD = LINK_TARGET_BASE + THIN_SCROLLBAR_STYLE
  *   칼럼 문서가 내용이 짧으면 칼럼이 좁아지지 않게, 블록 상자처럼 margin 을 뺀 폭을 채우게 한다(엔진별 접두 값을 함께 둔다).
  * - body 는 position:relative — 기준 상자 없는 absolute 요소가 창(초기 기준 상자) 대신 body 를 기준으로 삼아 내용과 함께 스크롤한다.
  *   body margin 이 있으면(스타일 없는 문서의 기본 8px 등) 그런 요소는 그 margin 만큼 안쪽에 놓인다 — 창 기준으로 두면 내용과 함께
- *   스크롤하지 않고 제자리에 떠 있게 되므로 이쪽을 고른다.
+ *   스크롤하지 않고 제자리에 떠 있게 되므로 이쪽을 고른다. 그래서 창 기준으로 쓴 「bottom:0」 바닥 띠·「height:100%」 히어로는
+ *   창이 아니라 body(긴 문서면 내용 전체 높이) 기준이 된다 — 바닥 띠가 맨 끝으로 가고 히어로가 길어진다(남은 위험).
  * - 모두 :where() 라 명시도 0 — 문서가 html·body 에 display·height·overflow·position 을 직접 주면 문서가 이기고 그 부분은 예전 동작이다.
+ * - 예외로 body 의 min-height:0 만 !important 다(WP-1749 리뷰) — AI 가 만든 HTML 에 흔한 「body{min-height:100vh}」가 이기면 body 가
+ *   100vh + margin·padding 이 되어 창과 body 가 둘 다 스크롤하고 창 스크롤바 칸이 다시 흰 띠가 된다. body 는 flex:1 로 이미 창 높이를
+ *   채우므로 「화면을 채워라」는 그 뜻은 그대로 지켜진다. 대가: 창보다 큰 min-height(예: 2000px)로 빈 공간을 일부러 둔 문서는 그 공간이 사라진다.
+ *   (html 넘침을 숨기는 방식은 body 아래쪽 margin·padding 만큼 마지막 내용이 잘려 고르지 않았다.)
  * - 자동 높이 iframe(노트 HTML 블록·AI 비교 — wikiHtmlEmbedFrame 이 <html> 상자 높이로 잰다)·메일 서명에는 넣지 않는다 —
  *   html 이 iframe 높이에 묶이면 잰 높이가 iframe 높이와 같아져 프레임이 줄지 않는다. 그래서 SANDBOX_HEAD 와 따로 둔다.
  * - 메일 본문도 넣지 않는다 — iframe 배경이 투명이고 다크 변환이 html·body 배경을 칠해 흰 띠가 서지 않는다(이슈 범위 밖).
@@ -78,7 +83,7 @@ export const SANDBOX_HEAD = LINK_TARGET_BASE + THIN_SCROLLBAR_STYLE
 export const SCROLLING_DOCUMENT_STYLE =
   '<style data-scrolling-document>' +
   ':where(html){height:100%;overflow:auto;display:flex;flex-direction:column}' +
-  ':where(body){flex:1 1 auto;min-height:0;overflow:auto;position:relative;' +
+  ':where(body){flex:1 1 auto;min-height:0!important;overflow:auto;position:relative;' +
   'width:-webkit-fill-available;width:-moz-available;width:stretch}' +
   '</style>'
 

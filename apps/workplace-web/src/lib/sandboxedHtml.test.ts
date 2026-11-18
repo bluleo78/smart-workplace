@@ -197,10 +197,12 @@ describe('buildSandboxDoc', () => {
     expect(SCRIPT_SANDBOX_HEAD).not.toContain('data-scrolling-document')
   })
 
-  it('body 스크롤 스타일은 명시도 0(:where) 이라 문서가 html·body 에 직접 준 값이 이긴다', () => {
+  it('body 스크롤 스타일은 명시도 0(:where) 이라 문서가 html·body 에 직접 준 값이 이긴다 — body min-height:0 만 !important', () => {
     const rules = SCROLLING_DOCUMENT_STYLE.replace(/<\/?style[^>]*>/g, '')
     for (const selector of rules.match(/[^{}]+(?=\{)/g) ?? []) expect(selector).toMatch(/^:where\((html|body)\)$/)
-    expect(SCROLLING_DOCUMENT_STYLE).toContain(':where(body){flex:1 1 auto;min-height:0;overflow:auto')
+    expect(SCROLLING_DOCUMENT_STYLE).toContain(':where(body){flex:1 1 auto;min-height:0!important;overflow:auto')
+    // !important 는 min-height:0 하나뿐이다(문서의 body{min-height:100vh} 가 스크롤바를 둘로 만들지 않게 — 나머지는 문서가 이긴다).
+    expect(SCROLLING_DOCUMENT_STYLE.match(/!important/g)).toHaveLength(1)
     expect(SCROLLING_DOCUMENT_STYLE).not.toMatch(/<script/i)
   })
 
