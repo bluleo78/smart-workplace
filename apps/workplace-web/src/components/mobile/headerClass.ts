@@ -15,3 +15,10 @@ export const mobileBackButtonClass = 'flex h-11 w-11 shrink-0 items-center justi
  * 액션이 아이콘으로 줄어드는 머리가 320px 한 줄에 들어가게 쓴다(WP-1731). 알림 머리 액션 버튼(InboxList)과 같은 breakpoint.
  */
 export const narrowHeaderTitleHiddenClass = 'max-[360px]:sr-only'
+/**
+ * 360px 미만에서 머리 액션 버튼을 글자 버튼에서 44px 정사각 아이콘 버튼으로 줄인다(WP-1731). 알림 머리의 두 액션(InboxList)이 같은 규칙을 쓴다.
+ * 경계(max-[360px] = width < 360px)는 바로 위 narrowHeaderTitleHiddenClass 와 같다 — Tailwind 는 클래스 문자열을 소스에서 그대로 찾으므로
+ * 템플릿으로 조합하지 않고 두 상수를 나란히 적어 경계를 한곳에서 보이게 한다. 바꿀 때는 두 상수의 360px 를 함께 고친다.
+ */
+export const narrowHeaderActionClass =
+  'flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60 max-[360px]:w-11 max-[360px]:justify-center max-[360px]:px-0'

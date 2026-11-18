@@ -12,6 +12,7 @@ import {
   notifTarget,
 } from "@/components/home/notifTarget";
 import { PushPromptBanner } from "@/components/layout/PushPromptBanner";
+import { narrowHeaderActionClass } from "@/components/mobile/headerClass";
 import { MobileEmptyState } from "@/components/mobile/MobileEmptyState";
 import { AgentActorBadge } from "@/components/users/AgentBadge";
 import { useArchiveReadNotifications } from "@/hooks/queries/useArchiveReadNotifications";
@@ -397,13 +398,6 @@ export function InboxList({
     </>
   );
 }
-
-/**
- * 모바일 알림 머리 액션 버튼 공통 클래스(WP-1731) — 360px 이상은 글자 버튼 그대로, 360px 미만(Tailwind 4 의 max-[360px] = width < 360px)은
- * 44px 정사각 아이콘 버튼이 된다. 두 버튼이 같은 규칙을 한 곳에서 쓰게 해 폭이 어긋나지 않게 한다.
- */
-const narrowHeaderActionClass =
-  "flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60 max-[360px]:w-11 max-[360px]:justify-center max-[360px]:px-0";
 
 /**
  * 모바일 알림 화면 헤더용 '모두 읽음' — InboxList 제목 행의 버튼과 같은 규칙(알림 없음·모두 읽음·처리 중이면 비활성)·testid.
