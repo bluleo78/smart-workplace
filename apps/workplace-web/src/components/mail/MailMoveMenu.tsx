@@ -32,16 +32,16 @@ function splitIndex(targets: readonly MailMoveTargetOption[]): number {
 }
 
 /**
- * 「옮기기」 메뉴 항목 — 머리말 「옮길 메일함」, 기본 메일함, 구분선 아래 「내 메일함」 트리(깊이만큼 들여 씀).
- * 상세·행 hover 의 드롭다운(MailMoveMenu)과 행 우클릭 메뉴의 「옮기기 ▸」 하위 메뉴(WP-1730)가 같은 목록을 그리게 나눠 둔다.
- */
-/**
  * 옮기기 메뉴 펼침(드롭다운·우클릭 하위 메뉴)의 크기 — 긴 메일함 트리도 화면 안에서 스크롤되게 높이를 24rem·남은 화면 높이 중 작은 쪽으로 막는다.
  * 옮기기 드롭다운(MailMoveMenu)과 행 우클릭 메뉴의 「옮기기 ▸」(MailRowContextMenu)가 같은 높이 제한을 쓰게 한 곳에 둔다.
  */
 export const MAIL_MOVE_MENU_CONTENT_CLASS =
   'max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-56 overflow-y-auto'
 
+/**
+ * 「옮기기」 메뉴 항목 — 머리말 「옮길 메일함」, 기본 메일함, 구분선 아래 「내 메일함」 트리(깊이만큼 들여 씀).
+ * 상세·행 hover 의 드롭다운(MailMoveMenu)과 행 우클릭 메뉴의 「옮기기 ▸」 하위 메뉴(WP-1730)가 같은 목록을 그리게 나눠 둔다.
+ */
 export function MailMoveTargetItems({
   targets,
   onPick,
