@@ -6,7 +6,9 @@ import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.dto.RunnerObservedAgent;
+import com.workplace.agentruntime.dto.RuntimeVersion;
 import com.workplace.global.json.JsonMappers;
+import com.workplace.jooq.tables.records.AgentRuntimeSettingRecord;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -24,6 +26,7 @@ import org.jooq.JSONB;
 import org.jooq.Record;
 import org.jooq.SelectField;
 import org.jooq.Table;
+import org.jooq.UpdateSetMoreStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import tools.jackson.core.JacksonException;
@@ -393,13 +396,18 @@ public class AgentRuntimeSettingRepository {
         .fetchOne(this::map);
   }
 
-  /** 새 설정 — generation 1·desired STOP·apply_mode IDLE(컬럼 기본값). 넣은 행을 돌려준다(전이 모양을 컬럼 기본값에서 읽게). */
+  /**
+   * 새 설정 — generation 1·desired STOP·apply_mode IDLE(컬럼 기본값). 넣은 행을 돌려준다(전이 모양을 컬럼 기본값에서 읽게).
+   *
+   * @param launched 지금 이 generation 을 띄울 버전(WP-1706). null 이면 기록 칸을 비워 둔다.
+   */
   public Row insert(
       long agentUserId,
       String templateName,
       String templateVersion,
       Long locationId,
       Map<String, String> config,
+      RuntimeVersion launched,
       long updatedBy) {
     return dsl.insertInto(AGENT_RUNTIME_SETTING)
         .set(AGENT_RUNTIME_SETTING.AGENT_USER_ID, agentUserId)
@@ -407,25 +415,135 @@ public class AgentRuntimeSettingRepository {
         .set(AGENT_RUNTIME_SETTING.TEMPLATE_VERSION, templateVersion)
         .set(AGENT_RUNTIME_SETTING.LOCATION_ID, locationId)
         .set(AGENT_RUNTIME_SETTING.CONFIG, writeConfig(config))
+        .set(AGENT_RUNTIME_SETTING.RUNTIME_IMAGE, launched == null ? null : launched.image())
+        .set(
+            AGENT_RUNTIME_SETTING.RUNTIME_PLUGIN_VERSION,
+            launched == null ? null : launched.pluginVersion())
         .set(AGENT_RUNTIME_SETTING.UPDATED_BY, updatedBy)
         .returning()
         .fetchOne(this::map);
   }
 
-  /** 원하는 상태 칸을 {@code next} 로 덮어쓴다(호출자가 바뀐 경우에만 부르고 generation 을 올려 넘긴다). 관찰 칸은 건드리지 않는다. */
+  /**
+   * 원하는 상태 칸을 {@code next} 로 덮어쓴다(호출자가 바뀐 경우에만 부르고 generation 을 올려 넘긴다). 관찰 칸은 건드리지 않는다.
+   *
+   * @param launched 이 generation 이 띄울 버전(WP-1706) — 있으면 기록 칸을 갱신한다(플러그인 버전을 모르면 기존 값을 지키고, 이미지는 늘
+   *     갱신). null 이면(generation 을 올리지 않는 변경) 두 칸 그대로.
+   */
   public void update(Row next, Long updatedBy) {
-    dsl.update(AGENT_RUNTIME_SETTING)
-        .set(AGENT_RUNTIME_SETTING.TEMPLATE_NAME, next.templateName())
-        .set(AGENT_RUNTIME_SETTING.TEMPLATE_VERSION, next.templateVersion())
-        .set(AGENT_RUNTIME_SETTING.LOCATION_ID, next.locationId())
-        .set(AGENT_RUNTIME_SETTING.CONFIG, writeConfig(next.config()))
-        .set(AGENT_RUNTIME_SETTING.DESIRED, next.desired().name())
-        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, next.applyMode().name())
-        .set(AGENT_RUNTIME_SETTING.GENERATION, next.generation())
-        .set(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK, next.acceptNewWork())
-        .set(AGENT_RUNTIME_SETTING.UPDATED_BY, updatedBy)
-        .set(AGENT_RUNTIME_SETTING.UPDATED_AT, OffsetDateTime.now())
+    update(next, updatedBy, null);
+  }
+
+  /** 위 {@link #update(Row, Long)} 에 이 generation 이 띄울 버전 기록을 더한 형태. */
+  public void update(Row next, Long updatedBy, RuntimeVersion launched) {
+    UpdateSetMoreStep<AgentRuntimeSettingRecord> update =
+        dsl.update(AGENT_RUNTIME_SETTING)
+            .set(AGENT_RUNTIME_SETTING.TEMPLATE_NAME, next.templateName())
+            .set(AGENT_RUNTIME_SETTING.TEMPLATE_VERSION, next.templateVersion())
+            .set(AGENT_RUNTIME_SETTING.LOCATION_ID, next.locationId())
+            .set(AGENT_RUNTIME_SETTING.CONFIG, writeConfig(next.config()))
+            .set(AGENT_RUNTIME_SETTING.DESIRED, next.desired().name())
+            .set(AGENT_RUNTIME_SETTING.APPLY_MODE, next.applyMode().name())
+            .set(AGENT_RUNTIME_SETTING.GENERATION, next.generation())
+            .set(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK, next.acceptNewWork())
+            .set(AGENT_RUNTIME_SETTING.UPDATED_BY, updatedBy)
+            .set(AGENT_RUNTIME_SETTING.UPDATED_AT, OffsetDateTime.now());
+    withLaunched(update, launched)
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(next.agentUserId()))
+        .execute();
+  }
+
+  /** 기록된 버전(WP-1706) — 테스트·로그용 읽기. 두 칸이 모두 null 이면(기록 없음) empty. */
+  public Optional<RuntimeVersion> findRuntimeVersion(long agentUserId) {
+    return dsl.select(
+            AGENT_RUNTIME_SETTING.RUNTIME_IMAGE, AGENT_RUNTIME_SETTING.RUNTIME_PLUGIN_VERSION)
+        .from(AGENT_RUNTIME_SETTING)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agentUserId))
+        .fetchOptional()
+        .filter(r -> r.value1() != null || r.value2() != null)
+        .map(r -> new RuntimeVersion(r.value1(), r.value2()));
+  }
+
+  /**
+   * 띄운 버전 기록 칸(이미지·플러그인 버전)의 UPDATE 값 모음(WP-1706) — 기록하는 모든 UPDATE 가 이 규칙 하나를 쓴다. 이미지는 늘 갱신, 플러그인
+   * 버전은 {@link #pluginVersionValue} 규칙.
+   */
+  private static Map<Field<?>, Object> launchedFields(RuntimeVersion v) {
+    return Map.of(
+        AGENT_RUNTIME_SETTING.RUNTIME_IMAGE, v.image(),
+        AGENT_RUNTIME_SETTING.RUNTIME_PLUGIN_VERSION, pluginVersionValue(v));
+  }
+
+  /** {@code launched} 가 있으면 기록 칸을 UPDATE 에 더하고, null 이면(generation 을 올리지 않는 변경) 그대로 돌려준다. */
+  private static UpdateSetMoreStep<AgentRuntimeSettingRecord> withLaunched(
+      UpdateSetMoreStep<AgentRuntimeSettingRecord> update, RuntimeVersion launched) {
+    return launched == null ? update : update.set(launchedFields(launched));
+  }
+
+  /** 기록할 플러그인 버전 값(WP-1706) — 모르면(null) 기존 값을 지킨다(coalesce). 기록하는 모든 UPDATE 가 같은 규칙을 쓰게 한 곳에 둔다. */
+  private static Field<String> pluginVersionValue(RuntimeVersion v) {
+    return DSL.coalesce(
+        DSL.val(v.pluginVersion(), AGENT_RUNTIME_SETTING.RUNTIME_PLUGIN_VERSION),
+        AGENT_RUNTIME_SETTING.RUNTIME_PLUGIN_VERSION);
+  }
+
+  /**
+   * 기록된 버전이 지금 버전과 다른 행 조건(WP-1706) — 기록이 없으면(null) 다르다고 본다. 플러그인 버전을 모르면(null) 이미지만 견준다 — 배포가 플러그인
+   * 버전을 안 넘길 때 기록된 값을 지우거나 헛되이 올리지 않게. 올리기·기록만 하기가 같은 판정을 쓰도록 한 곳에 둔다.
+   */
+  private static Condition differsFrom(RuntimeVersion current) {
+    Condition imageDiffers = AGENT_RUNTIME_SETTING.RUNTIME_IMAGE.isDistinctFrom(current.image());
+    if (current.pluginVersion() == null) return imageDiffers;
+    return imageDiffers.or(
+        AGENT_RUNTIME_SETTING.RUNTIME_PLUGIN_VERSION.isDistinctFrom(current.pluginVersion()));
+  }
+
+  /**
+   * 릴리스로 버전이 바뀐 켜진 AI 의 generation 을 올린다(WP-1706) — 한 문장 {@code UPDATE … RETURNING}. 그 템플릿에서 켜져
+   * 있고(desired RUN) 한 번이라도 떴으며(observed_generation 있음) 기록 버전이 지금과 다른 행만 올린다. apply_mode 는 {@link
+   * #bumpGenerationForRotation} 과 같게 대기 중 NOW 면 NOW 를 지키고 아니면 IDLE(쉴 때 적용).
+   * updated_by·updated_at·설정은 건드리지 않는다 — 시스템이 올린 변경이 「누가 언제 바꿨는지」를 지우지 않게.
+   *
+   * <p>기록 ≠ 지금을 WHERE 에 두어 파드 여럿이 동시에 불러도 한 번만 올린다 — 뒤 UPDATE 는 앞 트랜잭션의 행 잠금을 기다렸다가 커밋된 행으로 WHERE 를
+   * 다시 평가해 건너뛴다.
+   *
+   * @return 올린 행(올린 쪽만 알림을 내게)
+   */
+  public List<Row> bumpForRuntimeVersion(String templateName, RuntimeVersion current) {
+    var s = AGENT_RUNTIME_SETTING;
+    Condition pendingNow = s.APPLY_MODE.eq(ApplyMode.NOW.name()).and(UNAPPLIED_GENERATION);
+    Condition target =
+        s.TEMPLATE_NAME
+            .eq(templateName)
+            .and(s.DESIRED.eq(Desired.RUN.name()))
+            .and(s.OBSERVED_GENERATION.isNotNull())
+            .and(differsFrom(current));
+    // 대상 행을 id 순으로 먼저 잠근다(WP-1706) — 파드 여럿이 동시에 여러 행을 올릴 때 잠금 순서가 갈려 교착하지 않게. 같은 트랜잭션 안에서 부른다.
+    dsl.select(s.AGENT_USER_ID).from(s).where(target).orderBy(s.AGENT_USER_ID).forUpdate().fetch();
+    return dsl.update(s)
+        .set(s.GENERATION, s.GENERATION.plus(1))
+        .set(
+            s.APPLY_MODE,
+            DSL.when(pendingNow, ApplyMode.NOW.name()).otherwise(ApplyMode.IDLE.name()))
+        .set(launchedFields(current))
+        .where(target)
+        .returning()
+        .fetch(this::map);
+  }
+
+  /**
+   * 올리지 않을 행의 기록만 지금 버전으로 맞춘다(WP-1706) — 꺼졌거나 첫 기동 전인 행. Pod 가 없거나 막 지금 desired 로 뜨는 중이라 올릴 까닭이 없고,
+   * 켤 때·뜰 때 새 버전으로 뜨므로 기록만 따라간다. generation·apply_mode 는 그대로.
+   *
+   * @return 기록을 고친 행 수
+   */
+  public int recordRuntimeVersion(String templateName, RuntimeVersion current) {
+    var s = AGENT_RUNTIME_SETTING;
+    return dsl.update(s)
+        .set(launchedFields(current))
+        .where(s.TEMPLATE_NAME.eq(templateName))
+        .and(s.DESIRED.ne(Desired.RUN.name()).or(s.OBSERVED_GENERATION.isNull()))
+        .and(differsFrom(current))
         .execute();
   }
 
@@ -435,16 +553,21 @@ public class AgentRuntimeSettingRepository {
    * 걸려 있으면 NOW 를 지킨다. 호출자가 행을 잠근 뒤에 부른다.
    *
    * @param applyMode 걸 적용 시점(대기 중인 NOW 가 있으면 무시하고 NOW)
+   * @param launched 이 generation 이 띄울 버전(WP-1706) — null 이면 기록 칸 그대로
    * @return 올린 뒤 generation
    */
-  public long bumpGenerationForRotation(long agentUserId, ApplyMode applyMode) {
+  public long bumpGenerationForRotation(
+      long agentUserId, ApplyMode applyMode, RuntimeVersion launched) {
     Condition pendingNow =
         AGENT_RUNTIME_SETTING.APPLY_MODE.eq(ApplyMode.NOW.name()).and(UNAPPLIED_GENERATION);
-    return dsl.update(AGENT_RUNTIME_SETTING)
-        .set(AGENT_RUNTIME_SETTING.GENERATION, AGENT_RUNTIME_SETTING.GENERATION.plus(1))
-        .set(
-            AGENT_RUNTIME_SETTING.APPLY_MODE,
-            DSL.when(pendingNow, ApplyMode.NOW.name()).otherwise(applyMode.name()))
+    UpdateSetMoreStep<AgentRuntimeSettingRecord> update =
+        dsl.update(AGENT_RUNTIME_SETTING)
+            .set(AGENT_RUNTIME_SETTING.GENERATION, AGENT_RUNTIME_SETTING.GENERATION.plus(1))
+            .set(
+                AGENT_RUNTIME_SETTING.APPLY_MODE,
+                DSL.when(pendingNow, ApplyMode.NOW.name()).otherwise(applyMode.name()));
+    // generation 을 올리는 저장은 지금 버전을 함께 적는다(WP-1706) — 안 적으면 다음 기동 비교가 낡은 기록으로 또 올린다.
+    return withLaunched(update, launched)
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agentUserId))
         .returning(AGENT_RUNTIME_SETTING.GENERATION)
         .fetchOne(AGENT_RUNTIME_SETTING.GENERATION);

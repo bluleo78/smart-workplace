@@ -58,7 +58,7 @@ Works 가 관리하는 AI(실행 템플릿이 「작업 공간」인 AI)를 실�
 
 #### 언제 Pod 를 다시 만드나 — `generation` 과 `applyNow`
 
-- runner 는 Pod 에 `generation` 을 라벨로 붙여 두고, **목록의 generation 이 Pod 의 것과 다를 때만** 다시 만든다. 이미지·자원·설정 같은 값만 바뀌고 generation 이 그대로면(예: Works 배포로 템플릿 이미지가 바뀜) 지금 Pod 를 두고, 다음에 다시 만들 때 반영한다.
+- runner 는 Pod 에 `generation` 을 라벨로 붙여 두고, **목록의 generation 이 Pod 의 것과 다를 때만** 다시 만든다. Works 배포로 작업 공간 이미지나 genia-works 플러그인 버전이 바뀌면 Works 가 기동 때 켜져 있는(한 번이라도 뜬) AI 의 generation 을 올리고 쉴 때 적용을 건다(걸려 있는 바로 적용은 그대로) — 쉬는 AI 는 곧, 일하는 AI 는 `DRAIN` 뒤 쉴 때 새 버전으로 다시 뜬다. 플러그인 버전 비교는 배포가 `AGENT_PLUGIN_VERSION` 을 넣을 때만 한다(비면 이미지 digest 만 비교 — 전달은 WP-1707). 자원·보조 컨테이너 같은 그 밖의 템플릿 값만 바뀐 것은 여전히 다음에 다시 만들 때 반영한다.
 - `applyNow` 는 Works 가 계산한다: `generation ≠ 마지막 보고한 observedGeneration` 이면서 다음 중 하나일 때.
   - 바로 적용(관리자가 켜기·다시 시작, 죽은 키 교체)이거나, 한 번도 뜬 적이 없다.
   - AI 가 쉬는 중(IDLE)이라고 보고했다. 단 그 보고가 지금 Pod 의 `startedAt` 보다 먼저 왔으면 옛 Pod 의 보고라 쓰지 않는다.

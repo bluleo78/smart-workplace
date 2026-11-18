@@ -86,6 +86,7 @@ public class RunnerDesiredStateService {
   private final AgentTemplateRegistry registry;
   private final UserRepository userRepository;
   private final AgentRuntimeProperties properties;
+  private final AgentRuntimeVersions versions;
   private final ObjectMapper objectMapper;
   private final AgentApiKeyService agentKeys;
   private final AiAgentCredentialService credentials;
@@ -387,7 +388,9 @@ public class RunnerDesiredStateService {
     }
     long keyGeneration = row.generation();
     if (bump != null) {
-      keyGeneration = settings.bumpGenerationForRotation(agentUserId, bump);
+      keyGeneration =
+          settings.bumpGenerationForRotation(
+              agentUserId, bump, versions.current(row.templateName()).orElse(null));
       transitions.keyRotated(agentUserId, location.id());
     }
     Long replaceKeyId = undelivered ? live.current().orElseThrow().id() : null;

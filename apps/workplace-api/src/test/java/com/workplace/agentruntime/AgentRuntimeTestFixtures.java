@@ -34,6 +34,11 @@ final class AgentRuntimeTestFixtures {
     this.admin = admin;
   }
 
+  /** 실행 설정을 저장·켜는 관리자 id. */
+  long admin() {
+    return admin;
+  }
+
   /** 테넌트 1 에 AI 를 만들고 claude-code 실행 설정을 둔다(꺼진 채). {@code locationId} 가 null 이면 기본 위치를 따른다. */
   long newAgent(Long locationId) {
     TenantContext.set(1L);
@@ -57,6 +62,14 @@ final class AgentRuntimeTestFixtures {
         .from(AGENT_RUNTIME_SETTING)
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
         .fetchOne(AGENT_RUNTIME_SETTING.GENERATION);
+  }
+
+  /** 켜진 AI 가 지금 generation 을 반영한 상태(OBSERVED_GENERATION = GENERATION)로 만든다. */
+  void observeApplied(long agent) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, AGENT_RUNTIME_SETTING.GENERATION)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
   }
 
   /** 응답 본문 JSON. */

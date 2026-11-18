@@ -20,7 +20,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *     버전 태그를 쓴다.
  * @param pluginVersion 이 릴리스의 genia-works 플러그인 버전(WP-1707) — 운영 배포가 매니페스트에서 {@code
  *     AGENT_PLUGIN_VERSION} 으로 넘긴다. 관리 화면이 외부 AI 가 보고한 버전과 견줘 「업데이트 필요」를 보인다. 비면(로컬·옛 매니페스트) null
- *     이고 판정하지 않는다.
+ *     이고 판정하지 않는다. WP-1706 의 릴리스 버전 비교도 이 값을 쓴다(null 이면 플러그인 버전은 비교에서 빠진다).
  */
 @ConfigurationProperties("workplace.agent-runtime")
 public record AgentRuntimeProperties(

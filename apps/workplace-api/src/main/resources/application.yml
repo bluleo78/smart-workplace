@@ -78,8 +78,13 @@ workplace:
     # 릴리스가 고정한 작업 공간 이미지(저장소@sha256:…, 쉼표 구분) — 운영 배포가 매니페스트에서 넣는다. 비면 템플릿은 API 버전 태그를 쓴다.
     images: ${AGENT_RUNTIME_IMAGES:}
     # 이 릴리스의 genia-works 플러그인 버전(WP-1707) — 운영 배포가 매니페스트에서 넣는다(helm agentPluginVersion).
-    # 외부 AI 가 보고한 버전이 이보다 낮으면 관리 화면에 「업데이트 필요」. 비면(로컬) 판정하지 않는다.
+    # 외부 AI 가 보고한 버전이 이보다 낮으면 관리 화면에 「업데이트 필요」. 비면(로컬) 판정하지 않는다. 릴리스 버전 비교(WP-1706)도 이 값을 쓴다.
     plugin-version: ${AGENT_PLUGIN_VERSION:}
+  # 릴리스 버전 비교(WP-1706) — 기동 뒤 delay 만큼 기다렸다가(롤링 배포 중 옛 API 파드가 옛 이미지로 새 generation 을 띄우지 않게) 켜진 Pod AI 의
+  # 기록 버전과 지금 템플릿 이미지·플러그인 버전을 비교해 다르면 쉴 때 적용으로 generation 을 올린다.
+  agent-version-rollout:
+    on-startup: true
+    delay: 2m
   storage:
     root-dir: ${WORKPLACE_STORAGE_ROOT_DIR:./storage-data}
     max-files-per-request: 3

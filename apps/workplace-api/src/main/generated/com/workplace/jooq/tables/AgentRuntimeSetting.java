@@ -191,6 +191,17 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, Boolean> ACCEPT_NEW_WORK = createField(DSL.name("accept_new_work"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("true"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.agent_runtime_setting.runtime_image</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, String> RUNTIME_IMAGE = createField(DSL.name("runtime_image"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column
+     * <code>public.agent_runtime_setting.runtime_plugin_version</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, String> RUNTIME_PLUGIN_VERSION = createField(DSL.name("runtime_plugin_version"), SQLDataType.CLOB, this, "");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
