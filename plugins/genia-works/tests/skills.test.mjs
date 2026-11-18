@@ -1305,7 +1305,10 @@ test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 
     // 리뷰 지적 — 맨 앞 다시 확인·차단 해제·main 반영 요청 지우기·줄 상태 파일
     '**맨 앞 다시 확인**(WP-1720)',
     '리뷰 부탁을 처음 받았거나 내가 그 이슈 담당으로 지정됐을 때',
-    '줄 상태의 `main 반영 요청` 줄을 지운다',
+    '**다시 부탁**(위 「머지 순서」)을 받아 받기를 할 때만 지운다',
+    'HEAD 가 그대로인 글은 다시 부탁이 아니다',
+    '결과가 잘렸을 수 있으면',
+    '3번 「순서 대기」 전체',
     '`MAIN/.work-loop/state/queue/<PR 번호>`',
     // 맨 앞이 main 반영을 기다리는 동안 뒤 PR 도 머지하지 않는다
     '`main 반영 요청 <KST 시각>`',
@@ -1320,7 +1323,7 @@ test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 
   assertBefore(review, '**머지 순서**(WP-1720)', '1. **시작**');
   // 순서 대기는 3번의 마지막 확인 뒤에 오고, 리뷰 글·승인을 바로 남긴다
   assertBefore(review, '개발자가 9번 판단으로 게이트를 돌리지 않고 올렸으면', '**순서 대기**(WP-1720): 위 확인을 모두 마친 뒤');
-  for (const anchor of ['--approve --sha <리뷰한 HEAD>', '--comment --body-file', '3번을 range-diff 규칙대로 다시 한다', '머지 전 확인', '이 확인은 줄이지 않는다']) {
+  for (const anchor of ['--approve --sha <리뷰한 HEAD>', '--comment --body-file', '3번을 range-diff 규칙대로 다시 한다', '머지 전 확인']) {
     assert.ok(wait.includes(anchor), anchor);
   }
   // 6번은 순서 대기로 이미 올린 글을 다시 올리지 않고 바로 머지
@@ -1331,7 +1334,7 @@ test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 
     '2시간이 넘었으면',
     '2번(받기)부터',
     '이번 이슈 다음 후보로 고른다',
-    '그 시각 뒤에 개발자의 다시 부탁',
+    '그 시각 뒤에 **다시 부탁**',
     '`SKILL.md` 4번대로',
   ]) assert.ok(check.includes(anchor), anchor);
   // 개발자 쪽 — 순서 대기 글에 rebase 하지 않고, 처음 시작 갈래에 순서 대기가 있다
