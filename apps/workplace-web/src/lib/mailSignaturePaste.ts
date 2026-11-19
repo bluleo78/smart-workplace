@@ -13,7 +13,8 @@ function parseHtml(html: string): Document {
 
 /**
  * 붙여 넣은 HTML 을 「원본 그대로」 저장할 서명 HTML 로 — 서식 있는 서명이면 클래스 서식을 인라인으로 풀고 찌꺼기를 지운 HTML,
- * 글자·굵게·링크만이면(또는 비었으면) null(지금처럼 편집기가 받는다). 문서는 한 번만 연다.
+ * 편집기 스키마가 담는 서식만이면(또는 비었으면) null — style 없는 글자·굵게·링크, span·문단의 글자 서식(지금처럼 편집기가 받는다).
+ * 문서는 한 번만 연다.
  */
 export function toPastedSignatureHtml(html: string): string | null {
   if (!html) return null;
@@ -46,13 +47,17 @@ const BOX_STYLE_PROPERTY = /^(width|min-width|max-width|height|min-height|max-he
  * 효과 없는 선언인가 — 판정에서 세지 않는다(WP-1726 2차 리뷰).
  * - 크롬은 웹 글자를 복사할 때 글자 요소에 `display: inline !important; float: none;` 을 붙인다. 글자 요소는 원래 inline·float 없음이라
  *   배치를 바꾸지 않는다 — 세면 「글자 서식만 든 크롬 웹 글은 편집기」 결정이 가장 흔한 경우에 지켜지지 않는다.
- * - 굵게 요소(b·strong)의 `font-weight: normal|400` 은 Google 문서 복사가 전체를 감싸는 `<b style="font-weight:normal">` 이다.
- *   편집기의 굵게 규칙도 이 요소를 굵게로 읽지 않아 결과가 같다.
+ * - Google 문서 복사가 전체를 감싸는 `<b style="font-weight:normal">` 만 효과 없다. 편집기 Bold 규칙은 `b` 를 normal 일 때만
+ *   굵게에서 뺀다. `strong` 은 style 과 상관없이 굵게이므로 `strong`·`400` 은 효과가 있어 원본 모드로 본다(WP-1798).
+ * - 굵게 요소(b·strong)의 `font-weight: bold|700` 은 요소 기본 굵기를 되풀이할 뿐이라 편집기 굵게와 같다 — 굵은 이름만 든
+ *   서명이 원본 모드로 가지 않게 뺀다(WP-1798 코드 리뷰).
  */
 function isNeutralDeclaration(tagName: string, property: string, value: string): boolean {
   if (property === 'display') return value === 'inline';
   if (property === 'float') return value === 'none';
-  if (property === 'font-weight' && (tagName === 'B' || tagName === 'STRONG')) return value === 'normal' || value === '400';
+  if (property === 'font-weight' && (tagName === 'B' || tagName === 'STRONG')) {
+    return value === 'bold' || value === '700' || (tagName === 'B' && value === 'normal');
+  }
   return false;
 }
 
@@ -87,7 +92,7 @@ function hasStyleEditorLoses(el: Element): boolean {
  * - 서명 편집기에서 복사한 것(SIGNATURE_COPY_ATTR)이면 false — 직접 쓴 서명은 편집기에 남는다.
  * - 표·<font>·(class + <style>) 가 있으면 true.
  * - 편집기 스키마가 style 을 버리는 요소(div·td·a·b 등)에 효과 있는 style 이 있거나, 이미지가 아닌 요소의 style 에 상자 서식이 있으면 true.
- * - 그 밖(글자·굵게·링크, 크롬 웹 글 복사처럼 span·문단의 글자 서식 style 만)은 false — 편집기가 그 서식을 그대로 담는다.
+ * - 그 밖(style 없는 글자·굵게·링크, 크롬 웹 글 복사처럼 span·문단의 글자 서식 style 만)은 false — 편집기가 그 서식을 그대로 담는다.
  */
 function isRichSignature(doc: Document): boolean {
   if (doc.querySelector(`[${SIGNATURE_COPY_ATTR}]`)) return false;
