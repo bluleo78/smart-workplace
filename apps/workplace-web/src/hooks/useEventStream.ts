@@ -28,7 +28,7 @@ export function routeStreamEvent(
   if (name === 'resource.changed') handleResourceEvent(ctx.qc, data);
   else if (name.startsWith('chat.')) handleChatEvent(ctx.qc, name, data);
   else if (name.startsWith('messaging.')) handleMessagingEvent(ctx.qc, name, data, ctx.currentUserId);
-  else if (name.startsWith('notify.')) handleNotifyEvent(ctx.qc, name);
+  else if (name.startsWith('notify.')) handleNotifyEvent(ctx.qc, name, data);
   else if (name.startsWith('issue.')) handleIssueEvent(ctx.qc, name, data);
   else if (
     name.startsWith('wiki.ai.') ||

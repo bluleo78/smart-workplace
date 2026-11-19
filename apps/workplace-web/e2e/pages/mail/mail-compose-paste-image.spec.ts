@@ -60,7 +60,7 @@ test.describe('메일 작성창 화면 캡처 붙여넣기 (WP-947)', () => {
     const sends = trackRequests(page, 'POST', SEND_PATH)
     await page.route(
       (u) => u.pathname === SEND_PATH,
-      (route) => route.fulfill({ status: 200, json: { localMessageId: 10, messageId: 'x@test.local' } }),
+      (route) => route.fulfill({ status: 200, json: { draftId: 900, sendAt: '2026-11-19T00:00:10Z' } }),
     )
     await openNew(page)
     await page.getByTestId('mail-compose-to').fill('rcpt@test.local')
@@ -103,7 +103,7 @@ test.describe('메일 작성창 화면 캡처 붙여넣기 (WP-947)', () => {
     const sends = trackRequests(page, 'POST', SEND_PATH)
     await page.route(
       (u) => u.pathname === SEND_PATH,
-      (route) => route.fulfill({ status: 200, json: { localMessageId: 10, messageId: 'x@test.local' } }),
+      (route) => route.fulfill({ status: 200, json: { draftId: 900, sendAt: '2026-11-19T00:00:10Z' } }),
     )
     await openNew(page)
     await page.getByTestId('mail-compose-to').fill('rcpt@test.local')

@@ -4,9 +4,11 @@ import com.workplace.global.dto.ErrorResponse;
 import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
+import com.workplace.mail.exception.MailAlreadySendingException;
 import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailDraftConflictException;
 import com.workplace.mail.exception.MailDraftNotFoundException;
+import com.workplace.mail.exception.MailDraftSendingException;
 import com.workplace.mail.exception.MailInviteNotRespondableException;
 import com.workplace.mail.exception.MailSignatureImageNotFoundException;
 import com.workplace.mail.exception.MailTrashException;
@@ -86,6 +88,28 @@ public class MailExceptionHandler {
         HttpStatus.CONFLICT,
         e.getMessage(),
         Map.of("code", MailDraftConflictException.CODE),
+        request);
+  }
+
+  /** 보내는 중(대기·발송 중)인 임시보관 수정·삭제(WP-1786) → 409 + errors.code=DRAFT_SENDING. */
+  @ExceptionHandler(MailDraftSendingException.class)
+  public ResponseEntity<ErrorResponse> handleDraftSending(
+      MailDraftSendingException e, HttpServletRequest request) {
+    return error(
+        HttpStatus.CONFLICT,
+        e.getMessage(),
+        Map.of("code", MailDraftSendingException.CODE),
+        request);
+  }
+
+  /** 늦은 되돌리기(WP-1786) → 409 + errors.code=ALREADY_SENDING. */
+  @ExceptionHandler(MailAlreadySendingException.class)
+  public ResponseEntity<ErrorResponse> handleAlreadySending(
+      MailAlreadySendingException e, HttpServletRequest request) {
+    return error(
+        HttpStatus.CONFLICT,
+        e.getMessage(),
+        Map.of("code", MailAlreadySendingException.CODE),
         request);
   }
 

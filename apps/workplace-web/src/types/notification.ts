@@ -33,7 +33,10 @@ export interface NotificationResponse {
     // WP-1686: 내 계정에 새 앱(OAuth 클라이언트, 예: Claude 커넥터)이 연결됨 — 본인이 받는다. 행위자 없음(actorId null),
     // 이슈·일정·노트 id 없이 온다. 앱 이름은 message. 클릭하면 끊을 수 있는 설정 › API 토큰의 「연결된 앱」 절
     // (/settings/tokens#connected-apps, WP-1687)로 간다.
-    | "OAUTH_APP_CONNECTED";
+    | "OAUTH_APP_CONNECTED"
+    // WP-1786: 보내기 대기열에 올린 내 메일을 보내지 못함(mailSendUnknown=false) / 보내다 멈춰 결과를 모름(true) — 본인이 받는다.
+    // 행위자·이슈·일정·노트 id 없이 온다. 메일 제목은 message(없으면 null), 그 임시보관은 mailDraftId. 클릭하면 그 임시보관을 쓰기 창으로 연다.
+    | "MAIL_SEND_FAILED";
   actorId: number | null;
   actorName: string | null;
   actorKind: string | null; // 'HUMAN' | 'AGENT' | null
@@ -56,6 +59,10 @@ export interface NotificationResponse {
   // AI 작업 알림의 작업 상태(WP-913) — AI_QUESTION(INPUT_REQUIRED·AUTH_REQUIRED·BLOCKED)·AI_WORK_FAILED(FAILED·REJECTED)·
   // AI_REVIEW_REQUESTED(REVIEW) 가 문구를 고르는 데 쓴다. 이슈 챗 질문·그 외 유형·구 서버(롤링 배포 중)면 없다(기본 문구로 폴백).
   agentWorkState?: string | null;
+  // 메일 보내기 실패 알림(MAIL_SEND_FAILED, WP-1786) 전용 — 가리키는 임시보관 id(그 뒤 지워졌을 수 있다). 그 외 유형·구 서버면 없다.
+  mailDraftId?: number | null;
+  // 메일 보내기 실패 알림의 변형 — true 면 「보냈는지 확인하지 못함」, false·없음이면 「메일을 보내지 못함」.
+  mailSendUnknown?: boolean;
   read: boolean;
   createdAt: string;
 }

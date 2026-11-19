@@ -33,7 +33,7 @@ test('편지쓰기 → 화면 전체 새 메일 화면, 상단 보내기로 발�
   const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
   await page.route(
     (url) => url.pathname === '/api/v1/mail/accounts/1/send',
-    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ localMessageId: 10, messageId: 'x@test.local' }) }),
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }) }),
   )
   await openInbox(page)
   await page.getByTestId('mobile-sidebar-trigger').click()
@@ -141,7 +141,7 @@ test('상단 바 📎 로 첨부하면 칩이 본문 아래(서식 줄 위)에 �
   const sends = trackRequests(page, 'POST', '/api/v1/mail/accounts/1/send')
   await page.route(
     (url) => url.pathname === '/api/v1/mail/accounts/1/send',
-    (route) => route.fulfill({ status: 200, json: { localMessageId: 10, messageId: 'x@test.local' } }),
+    (route) => route.fulfill({ status: 200, json: { draftId: 900, sendAt: '2026-11-19T00:00:10Z' } }),
   )
   await openInbox(page)
   await page.getByTestId('mail-row-10').click()

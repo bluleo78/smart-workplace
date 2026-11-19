@@ -421,6 +421,34 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.count").value(2));
   }
 
+  /**
+   * 개수 응답의 queued(WP-1786) — 보내기 대기(send_at 있음) 행 수. 계정 삭제 확인창이 「보내기 대기 n건도 함께 삭제됩니다」에 쓴다. 대기 행은
+   * count(임시보관함 배지)에서는 빠지고 queued 에만 세진다. 다른 계정의 대기 행은 세지 않는다.
+   */
+  @Test
+  void count_includesQueuedSeparately() throws Exception {
+    long me = user();
+    long acc = account(me);
+    long acc2 = account2(me);
+    create(me, body(acc));
+    long q1 = create(me, body(acc)).get("id").asLong();
+    long q2 = create(me, body(acc)).get("id").asLong();
+    long other = create(me, body(acc2)).get("id").asLong();
+    // 보내기 대기로 올린 것처럼 send_at·send_state 를 채운다(대기열 진입 경로는 MailSendQueue* 테스트가 따로 본다).
+    dsl.update(MAIL_DRAFT)
+        .set(MAIL_DRAFT.SEND_AT, OffsetDateTime.now().plusSeconds(10))
+        .set(MAIL_DRAFT.SEND_STATE, "QUEUED")
+        .where(MAIL_DRAFT.ID.in(q1, q2, other))
+        .execute();
+
+    http(get("/api/v1/mail/drafts/count")
+            .param("accountId", String.valueOf(acc))
+            .header("Authorization", bearer(me)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.count").value(1))
+        .andExpect(jsonPath("$.queued").value(2));
+  }
+
   // ---- 소유 ----
 
   /** 남의 임시저장 id 는 상세·수정·삭제 모두 404, 남의 계정은 목록·개수·만들기 404. */
@@ -491,6 +519,232 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
     // version 없는 수정은 400
     Map<String, Object> noVersion = body(acc);
     putDraft(me, id, noVersion).andExpect(status().isBadRequest());
+  }
+
+  // ---- 보내기 대기열(WP-1786) ----
+
+  @Autowired com.workplace.mail.repository.MailDraftRepository draftRepo;
+  @Autowired com.workplace.mail.service.MailDraftService draftService;
+
+  /** 행의 발송 상태를 직접 바꾼다(스케줄러가 한 일을 흉내). */
+  void setState(long draftId, String state, String error) {
+    dsl.update(MAIL_DRAFT)
+        .set(MAIL_DRAFT.SEND_STATE, state)
+        .set(MAIL_DRAFT.SEND_ERROR, error)
+        .where(MAIL_DRAFT.ID.eq(draftId))
+        .execute();
+  }
+
+  @Test
+  void 저장_요청의_인라인_이미지와_업로드가_상세에_돌아온다() throws Exception {
+    long me = user();
+    long acc = account(me);
+    long fileId = upload(me, "p.pdf");
+    Map<String, Object> b = body(acc);
+    b.put("bodyText", "평문 본문");
+    b.put("inReplyToMessageId", 4242);
+    b.put("attachmentIds", List.of(fileId));
+    b.put("inlineImages", List.of(Map.of("attachmentId", 901, "contentId", "q1")));
+    b.put("inlineUploads", List.of(Map.of("attachmentId", fileId, "contentId", "p1")));
+    long id = create(me, b).get("id").asLong();
+
+    http(get("/api/v1/mail/drafts/" + id).header("Authorization", bearer(me)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.bodyText").value("평문 본문"))
+        .andExpect(jsonPath("$.inReplyToMessageId").value(4242))
+        .andExpect(jsonPath("$.inlineImages[0].attachmentId").value(901))
+        .andExpect(jsonPath("$.inlineImages[0].contentId").value("q1"))
+        .andExpect(jsonPath("$.inlineUploads[0].attachmentId").value(fileId))
+        .andExpect(jsonPath("$.inlineUploads[0].contentId").value("p1"))
+        .andExpect(jsonPath("$.sendState").doesNotExist());
+  }
+
+  @Test
+  void QUEUED_행의_자동저장은_409_DRAFT_SENDING() throws Exception {
+    long me = user();
+    long acc = account(me);
+    long id = create(me, body(acc)).get("id").asLong();
+    assertThat(
+            callInTenant(
+                1L, () -> draftRepo.markQueued(id, OffsetDateTime.now().plusSeconds(10), false)))
+        .isTrue();
+
+    Map<String, Object> b = body(acc);
+    b.put("subject", "바뀐 제목");
+    b.put("version", 1);
+    putDraft(me, id, b)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("DRAFT_SENDING"));
+
+    assertThat(
+            dsl.select(MAIL_DRAFT.SUBJECT)
+                .from(MAIL_DRAFT)
+                .where(MAIL_DRAFT.ID.eq(id))
+                .fetchOne(MAIL_DRAFT.SUBJECT))
+        .isEqualTo("제목");
+  }
+
+  @Test
+  void QUEUED_행_삭제는_409() throws Exception {
+    long me = user();
+    long acc = account(me);
+    long id = create(me, body(acc)).get("id").asLong();
+    callInTenant(1L, () -> draftRepo.markQueued(id, OffsetDateTime.now().plusSeconds(10), false));
+
+    http(delete("/api/v1/mail/drafts/" + id).header("Authorization", bearer(me)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("DRAFT_SENDING"));
+    assertThat(draftExists(id)).isTrue();
+  }
+
+  @Test
+  void FAILED_행을_저장하면_send_state_와_send_error_가_지워진다() throws Exception {
+    long me = user();
+    long acc = account(me);
+    long id = create(me, body(acc)).get("id").asLong();
+    setState(id, "FAILED", "SMTP 거절");
+
+    Map<String, Object> b = body(acc);
+    b.put("subject", "고친 제목");
+    b.put("version", 1);
+    putDraft(me, id, b).andExpect(status().isOk());
+
+    var row = dsl.selectFrom(MAIL_DRAFT).where(MAIL_DRAFT.ID.eq(id)).fetchOne();
+    assertThat(row.getSendState()).isNull();
+    assertThat(row.getSendError()).isNull();
+    assertThat(row.getSubject()).isEqualTo("고친 제목");
+  }
+
+  @Test
+  void deleteIfPresent_는_SENDING_행도_지운다() {
+    long me = user();
+    long acc = account(me);
+    long id =
+        callInTenant(
+            1L,
+            () ->
+                draftService
+                    .create(
+                        me,
+                        new com.workplace.mail.dto.MailDraftSaveRequest(
+                            acc,
+                            "new",
+                            List.of("a@x.com"),
+                            List.of(),
+                            List.of(),
+                            "s",
+                            "<p>b</p>",
+                            "b",
+                            null,
+                            false,
+                            List.of(),
+                            List.of(),
+                            null,
+                            null,
+                            null,
+                            null))
+                    .id());
+    setState(id, "SENDING", null);
+
+    callInTenant(
+        1L,
+        () -> {
+          draftService.deleteIfPresent(me, id);
+          return null;
+        });
+
+    assertThat(draftExists(id)).isFalse();
+  }
+
+  @Test
+  void upsertForSend_새로_만들고_내_임시보관은_갱신하고_대기_행은_거절한다() {
+    long me = user();
+    long acc = account(me);
+    MailSendRequest req =
+        new MailSendRequest(
+            List.of("p@x.com"),
+            List.of(),
+            List.of(),
+            "보냄",
+            "<p>본문</p>",
+            "본문",
+            55L,
+            List.of(new MailSendRequest.InlineImageRef(9L, "c9")),
+            List.of(),
+            List.of(),
+            null,
+            List.of());
+
+    long created =
+        callInTenant(1L, () -> draftService.upsertForSend(me, acc, req, "reply", 55L, false, 10))
+            .draftId();
+    var row = dsl.selectFrom(MAIL_DRAFT).where(MAIL_DRAFT.ID.eq(created)).fetchOne();
+    assertThat(row.getBodyText()).isEqualTo("본문");
+    assertThat(row.getInReplyToMessageId()).isEqualTo(55L);
+    assertThat(row.getMode()).isEqualTo("reply");
+    // 값과 대기 표시를 한 문장에 담는다 — 새 행은 곧바로 QUEUED, 보낼 시각이 있다.
+    assertThat(row.getSendState()).isEqualTo("QUEUED");
+    assertThat(row.getSendAt()).isNotNull();
+
+    // 실패 흔적이 있는 내 행을 이어받으면 같은 id 로 갱신(버전 +1)되고 흔적이 지워진다.
+    setState(created, "FAILED", "x");
+    MailSendRequest again =
+        new MailSendRequest(
+            List.of("p@x.com"),
+            List.of(),
+            List.of(),
+            "고침",
+            "<p>2</p>",
+            "2",
+            null,
+            null,
+            List.of(),
+            List.of(),
+            created,
+            null);
+    long same =
+        callInTenant(1L, () -> draftService.upsertForSend(me, acc, again, "new", null, false, 10))
+            .draftId();
+    assertThat(same).isEqualTo(created);
+    var after = dsl.selectFrom(MAIL_DRAFT).where(MAIL_DRAFT.ID.eq(created)).fetchOne();
+    assertThat(after.getSubject()).isEqualTo("고침");
+    assertThat(after.getVersion()).isEqualTo(2);
+    // 실패 흔적은 지워지고 같은 UPDATE 에서 다시 대기로 오른다.
+    assertThat(after.getSendState()).isEqualTo("QUEUED");
+    assertThat(after.getSendError()).isNull();
+    assertThat(after.getSendAt()).isNotNull();
+
+    // 대기 중인 행은 거절
+    setState(created, "QUEUED", null);
+    assertThatThrownBy(
+            () ->
+                callInTenant(
+                    1L, () -> draftService.upsertForSend(me, acc, again, "new", null, false, 10)))
+        .isInstanceOf(com.workplace.mail.exception.MailDraftSendingException.class);
+
+    // 남의 draftId 면 새로 만든다
+    long other = user();
+    long otherAcc = account(other);
+    MailSendRequest stolen =
+        new MailSendRequest(
+            List.of("p@x.com"),
+            List.of(),
+            List.of(),
+            "남",
+            "<p>3</p>",
+            "3",
+            null,
+            null,
+            List.of(),
+            List.of(),
+            created,
+            null);
+    long fresh =
+        callInTenant(
+                1L,
+                () -> draftService.upsertForSend(other, otherAcc, stolen, "new", null, false, 10))
+            .draftId();
+    assertThat(fresh).isNotEqualTo(created);
   }
 
   // ---- 상한 ----

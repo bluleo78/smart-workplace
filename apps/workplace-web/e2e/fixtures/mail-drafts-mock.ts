@@ -178,7 +178,7 @@ export async function mockSendWithDrafts(page: Page, server: Awaited<ReturnType<
     (route) => {
       const body = route.request().postDataJSON() as { draftId?: number }
       if (body.draftId != null) server.drafts.delete(body.draftId)
-      return route.fulfill({ json: { localMessageId: 10, messageId: 'x@test.local' } })
+      return route.fulfill({ json: { draftId: 900, sendAt: '2026-11-19T00:00:10Z' } })
     },
   )
   return sends

@@ -233,13 +233,14 @@ test('새 창은 그 임시저장을 작성창으로 열고, 최소화·읽기 �
 
 test('새 창에서 보내면 draftId 를 실어 보내고, 메인 창에 sent 를 알린 뒤 창을 닫는다', async () => {
   const close = vi.spyOn(window, 'close').mockImplementation(() => {})
-  const send = record<{ draftId?: number }>('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' }))
+  const send = record<{ draftId?: number }>('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
   const view = renderWindow([send.handler])
   await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
   await view.user.click(screen.getByTestId('mail-compose-send'))
   await waitFor(() => expect(send.calls).toHaveLength(1))
   expect(send.calls[0].body.draftId).toBe(7)
-  await waitFor(() => expect(heard).toContainEqual(msg('sent')))
+  // 대기열에 올린 행 id(보내기 응답)를 함께 싣는다 — 메인 창 「되돌리기」가 그 행을 되돌린다(WP-1786).
+  await waitFor(() => expect(heard).toContainEqual(msg('sent', { sentDraftId: 900 })))
   expect(close).toHaveBeenCalled()
   // 창이 스스로 닫히지 못하는 경우(직접 연 탭)엔 끝남 안내가 남는다.
   expect(screen.getByTestId('mail-compose-window-done')).toBeInTheDocument()
@@ -375,7 +376,7 @@ const unloadBlocked = () => {
 test('새 창에서 고친 뒤 보내도, 창을 닫는 순간엔 나가기 경고(beforeunload)가 걸려 있지 않다', async () => {
   const blockedAtClose: boolean[] = []
   vi.spyOn(window, 'close').mockImplementation(() => void blockedAtClose.push(unloadBlocked()))
-  const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' }))
+  const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
   const put = record('put', '/api/v1/mail/drafts/7', () => HttpResponse.json({ version: 2, updatedAt: '2026-11-12T00:00:01Z', attachmentCount: 0 }))
   const view = renderWindow([send.handler, put.handler])
   const subject = () => screen.getByTestId('mail-compose-subject')
@@ -412,7 +413,7 @@ test('/mail/compose 는 앱 셸(레일) 없이 작성창만 그린다', async ()
   expect(document.querySelector('[data-ai-page-root]')).toBeNull()
 })
 
-test('메인 창은 새 창의 sent 알림에 보낸편지함·임시보관함 개수를 다시 받고, 그 새 창을 연 창일 때만 「메일을 보냈습니다」를 띄운다', async () => {
+test('메인 창은 새 창의 sent 알림에 임시보관함 개수를 다시 받고, 그 새 창을 연 창일 때만 「메일 보냄 · 되돌리기」를 띄운다', async () => {
   const counts = record('get', '/api/v1/mail/drafts/count', () => HttpResponse.json({ count: 0 }))
   const lists = record('get', '/api/v1/mail/accounts/1/messages', () => HttpResponse.json([]))
   renderPage('/mail/1?folder=sent', { handlers: [counts.handler, lists.handler, ...mailBaseHandlers({ accounts: [mailAccount()] })] })
@@ -420,19 +421,37 @@ test('메인 창은 새 창의 sent 알림에 보낸편지함·임시보관함 �
   await waitFor(() => expect(counts.calls.length).toBeGreaterThan(0))
   await waitFor(() => expect(lists.calls.some((c) => c.url.searchParams.get('folder') === 'SENT')).toBe(true))
   const countsBefore = counts.calls.length
-  const sentBefore = lists.calls.filter((c) => c.url.searchParams.get('folder') === 'SENT').length
 
   const other = new BroadcastChannel(MAIL_COMPOSE_CHANNEL)
-  // 다른 탭이 연 새 창의 알림 — 목록만 조용히 다시 받는다.
+  // 다른 탭이 연 새 창의 알림 — 임시보관함만 조용히 다시 받는다(WP-1786: 메일은 아직 대기 중이라 보낸편지함은 대기열이 보낸 뒤
+  // mailChanged 이벤트·20초 뒤 다시 받기가 맡는다 — useSendMail.test 가 20초 뒤 다시 받기를 본다).
   other.postMessage(msg('sent', { opener: 'another-tab' }))
   await waitFor(() => expect(counts.calls.length).toBeGreaterThan(countsBefore))
-  await waitFor(() => expect(lists.calls.filter((c) => c.url.searchParams.get('folder') === 'SENT').length).toBeGreaterThan(sentBefore))
-  expect(screen.queryByText('메일을 보냈습니다')).not.toBeInTheDocument()
+  expect(screen.queryByText('메일 보냄')).not.toBeInTheDocument()
 
   // 이 창이 연 새 창의 알림 — 결과를 알리고, 「새 창에서 쓰는 중」 기억도 지운다.
   rememberMailComposePopout(7, fakeWindow() as unknown as Window)
   other.postMessage(msg('sent', { opener: MAIL_COMPOSE_WINDOW_ID }))
   other.close()
-  expect(await screen.findByText('메일을 보냈습니다')).toBeInTheDocument()
+  expect(await screen.findByText('메일 보냄')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '되돌리기' })).toBeInTheDocument()
   expect(liveMailComposePopout(7)).toBeNull()
+})
+
+// WP-1786 — 새 창은 보내자마자 닫히므로 되돌리기는 메인 창 토스트가 맡는다. 되돌리면 메인 창에 쓰기 창이 다시 열린다.
+test('새 창에서 보낸 메일도 메인 창 토스트의 「되돌리기」로 cancel-send 해 메인 창 쓰기 창으로 다시 연다', async () => {
+  const cancel = record('post', '/api/v1/mail/drafts/91/cancel-send', () =>
+    HttpResponse.json(draftDetail({ id: 91, to: ['rcpt@test.local'], subject: '새 창에서 보낸 메일', version: 3 })),
+  )
+  // 되돌린 작성은 저장 안 된 작성으로 열려 곧 쓰기 형태로 다시 저장한다(PUT).
+  const put = http.put('/api/v1/mail/drafts/91', () => HttpResponse.json({ version: 9, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))
+  renderPage('/mail/1', { handlers: [cancel.handler, put, ...mailBaseHandlers({ accounts: [mailAccount()] })] })
+  await screen.findByTestId('mail-compose-new', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const other = new BroadcastChannel(MAIL_COMPOSE_CHANNEL)
+  // 새 창이 쓰던 임시저장(7)이 없어져 새 행(91)으로 대기열에 올랐다 — 되돌리기는 대기 행 id 로 한다.
+  other.postMessage(msg('sent', { opener: MAIL_COMPOSE_WINDOW_ID, sentDraftId: 91 }))
+  other.close()
+  fireEvent.click(await screen.findByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(cancel.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창에서 보낸 메일'))
 })

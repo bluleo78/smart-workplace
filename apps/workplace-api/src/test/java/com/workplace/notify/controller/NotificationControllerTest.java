@@ -87,6 +87,9 @@ class NotificationControllerTest extends WebMvcSliceTestBase {
             // 상태 이름(WP-869)과 AI 작업 상태(WP-913)는 같은 String 자리라 뒤바뀌어도 컴파일된다 — 다른 값으로 두 필드를 함께 단언한다.
             "검토 중",
             "REVIEW",
+            // 메일 발송 실패(WP-1786) 필드 — 웹이 읽는 JSON 이름을 아래에서 단언한다
+            4242L,
+            true,
             false,
             Instant.now());
     when(service.listRecent(eq(1L), eq(20), eq(0L))).thenReturn(List.of(n));
@@ -99,7 +102,9 @@ class NotificationControllerTest extends WebMvcSliceTestBase {
         .andExpect(jsonPath("$[0].projectKey").value("WP"))
         .andExpect(jsonPath("$[0].issueNumber").value(3))
         .andExpect(jsonPath("$[0].statusName").value("검토 중"))
-        .andExpect(jsonPath("$[0].agentWorkState").value("REVIEW"));
+        .andExpect(jsonPath("$[0].agentWorkState").value("REVIEW"))
+        .andExpect(jsonPath("$[0].mailDraftId").value(4242))
+        .andExpect(jsonPath("$[0].mailSendUnknown").value(true));
     verify(service).listRecent(eq(1L), eq(20), eq(0L));
   }
 
@@ -244,6 +249,8 @@ class NotificationControllerTest extends WebMvcSliceTestBase {
             null,
             null,
             null,
+            null,
+            false,
             true,
             Instant.now());
     when(service.listArchived(eq(1L), eq(20), eq(0L))).thenReturn(List.of(n));

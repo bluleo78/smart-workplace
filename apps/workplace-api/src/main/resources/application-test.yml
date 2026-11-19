@@ -93,6 +93,9 @@ workplace:
     allowed-internal-hosts: 127.0.0.1,localhost
     # 메일 I/O 시간 제한을 2분으로(운영 기본 10초) — 테스트 JVM 이 10초 넘게 멈춰도 GreenMail 상대 메일 테스트가 시간 제한으로 깨지지 않게(WP-1641).
     io-timeout-ms: 120000
+    # 보낼 대기열 멈춤 정리(WP-1786)는 운영에서 1분에 한 번 — 테스트는 poll 을 직접 불러 바로 결과를 보므로 회차마다 정리한다.
+    send-queue:
+      stuck-sweep-interval: PT0S
     m365:
       # 메일용 M365 앱도 설정된 상태로 둔다(WP-879 기본 공급자 판단). 실제 AAD 호출은 테스트마다 GraphApiClient 를 목으로 바꾼다.
       client-id: test-mail-client

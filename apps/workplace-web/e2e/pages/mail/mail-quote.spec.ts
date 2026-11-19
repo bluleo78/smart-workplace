@@ -70,7 +70,7 @@ test.describe('메일 인용문 인라인 이미지', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ localMessageId: 10, messageId: 'x@test.local' }),
+          body: JSON.stringify({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }),
         })
       },
     )

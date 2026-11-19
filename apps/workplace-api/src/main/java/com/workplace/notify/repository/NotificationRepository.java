@@ -156,6 +156,21 @@ public class NotificationRepository {
   }
 
   /**
+   * 메일 발송 실패 알림 1건 insert(WP-1786) — 행위자 없는 계정 알림. message=메일 제목, mail_draft_id=그 임시보관. 발송 중 멈춰 결과를
+   * 모르는 변형(「보냈는지 확인하지 못함」)은 전용 칸 mail_send_unknown=true 로 가른다.
+   */
+  public void insertMailSendFailed(
+      long recipientId, long draftId, String subject, boolean unknown) {
+    dsl.insertInto(NOTIFICATION)
+        .set(NOTIFICATION.RECIPIENT_ID, recipientId)
+        .set(NOTIFICATION.TYPE, NotificationType.MAIL_SEND_FAILED.name())
+        .set(NOTIFICATION.MESSAGE, subject)
+        .set(NOTIFICATION.MAIL_DRAFT_ID, draftId)
+        .set(NOTIFICATION.MAIL_SEND_UNKNOWN, unknown)
+        .execute();
+  }
+
+  /**
    * 계정 알림 1건 insert — 가리킬 이슈·일정·노트가 없다. 개인 비서 연결 회수(WP-1170)는 행위자가 회수한 사람이고 message 가 없다. 새 앱
    * 연결(WP-1686)은 행위자가 없고 message 에 앱 이름을 싣는다.
    */
@@ -270,6 +285,8 @@ public class NotificationRepository {
             NOTIFICATION.MESSAGE,
             NOTIFICATION.STATUS_NAME,
             NOTIFICATION.AGENT_WORK_STATE,
+            NOTIFICATION.MAIL_DRAFT_ID,
+            NOTIFICATION.MAIL_SEND_UNKNOWN,
             NOTIFICATION.READ_AT,
             NOTIFICATION.CREATED_AT)
         .from(NOTIFICATION)
@@ -319,6 +336,8 @@ public class NotificationRepository {
                   r.get(NOTIFICATION.MESSAGE),
                   r.get(NOTIFICATION.STATUS_NAME),
                   r.get(NOTIFICATION.AGENT_WORK_STATE),
+                  r.get(NOTIFICATION.MAIL_DRAFT_ID),
+                  Boolean.TRUE.equals(r.get(NOTIFICATION.MAIL_SEND_UNKNOWN)),
                   r.get(NOTIFICATION.READ_AT) != null,
                   created == null ? null : created.toInstant());
             });

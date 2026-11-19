@@ -109,10 +109,10 @@ const PANEL_CLASS: Record<MailComposeFrameLayout, string> = {
 
 /**
  * 새 창 모드 손잡이 — 새 창 페이지가 넘긴다. 작성이 끝나면(보냄·닫으며 저장·버림) 서버 작업이 끝난 뒤 한 번 부른다.
- * kind 는 메인 창에 알릴 이유, accountId 는 다시 받을 목록의 계정.
+ * kind 는 메인 창에 알릴 이유, accountId 는 다시 받을 목록의 계정, sentDraftId 는 보냈을 때 대기열에 올라간 행 id(WP-1786 — 메인 창 「되돌리기」의 키).
  */
 export interface MailComposePopout {
-  onDone: (kind: MailComposeWindowEvent, accountId: number) => void;
+  onDone: (kind: MailComposeWindowEvent, accountId: number, sentDraftId?: number) => void;
   /**
    * 손대지 않은 작성을 새 창으로 옮기려 방금 만든 임시저장인가 — 새 창에서도 손대지 않고 닫으면 그 임시저장을 지운다
    * (앱 안 작성창은 빈 작성을 닫을 때 임시저장을 만들지 않으므로 같은 결과가 되게).
@@ -270,9 +270,10 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const { draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, unbindDraftId, setComposeHandlers } = useMailCompose();
   const { size, setSize, slotEl, initialPlacementFor } = useMailComposeLayout();
   const { windowMoveFor, takePendingWindow, rearmPendingWindow, endWindowMove } = useMailComposeWindowMove();
-  const send = useSendMail();
   const qc = useQueryClient();
   const openDraft = useOpenMailDraft();
+  // 「메일 보냄 · 되돌리기」(WP-1786) — 되돌리면 돌려받은 상세로 이 창에 다시 연다. 새 창은 보내자마자 닫히므로 토스트를 띄우지 않고 메인 창이 맡는다.
+  const send = useSendMail(popout ? null : (id, detail) => openDraft(id, { detail }));
 
   const composerRef = useRef<MailComposerHandle>(null);
   const toInputRef = useRef<HTMLInputElement>(null);
@@ -411,6 +412,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       bodyHtml: bodyHtmlRef.current,
       bodyText: bodyTextRef.current,
       quoteRemoved,
+      // 보내기 요청과 같은 인용 이미지 참조(WP-1786) — 인용문을 지웠으면 clearQuote 로 quote 가 비어 빠진다.
+      quoteInlineImages: draft?.quote?.inlineImages,
       attachments: attachments.items,
     }),
     // 「다시 열기」로 연 저장 안 된 내용은 처음 값과 같아도 저장 대상이다(새 메일도 POST 한다).
@@ -982,13 +985,17 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       ...uploadIdsWithBodyImages(attachments.items, bodyHtmlAtSend),
       inlineUploads: pasted.inlineUploads,
       draftId: ticket.draftId,
+      // 작성 문맥(WP-1786) — 대기 행이 그대로 남겨, 되돌리거나 임시보관함에서 다시 열어도 전달·답장의 인용문을 원본으로 다시 만든다.
+      mode: draft.mode,
+      sourceMessageId: draft.sourceMessageId ?? null,
+      quoteRemoved,
     };
     try {
-      await send.mutateAsync({ accountId: draft.accountId, body });
+      const queued = await send.mutateAsync({ accountId: draft.accountId, body });
       ticket.succeeded();
       closeInstance(instanceId as number);
-      // 새 창은 보낸 뒤 메인 창에 알리고 닫힌다(페이지가 처리).
-      popout?.onDone('sent', draft.accountId);
+      // 새 창은 보낸 뒤 메인 창에 알리고 닫힌다(페이지가 처리). 대기 행 id 를 실어 메인 창이 되돌릴 수 있게 한다(WP-1786).
+      popout?.onDone('sent', draft.accountId, queued.draftId);
     } catch (e) {
       notifySendFailed(e, ticket.failed(), reopen);
     } finally {

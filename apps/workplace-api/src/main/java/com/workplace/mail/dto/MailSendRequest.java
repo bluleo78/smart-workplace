@@ -1,5 +1,7 @@
 package com.workplace.mail.dto;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -28,6 +30,14 @@ import java.util.List;
  * <p>inlineUploads(WP-947, 선택): attachmentIds 가운데 본문에 붙여 넣은 이미지 — 본문 HTML 이 {@code cid:} 로 참조한다. 그
  * 업로드는 일반 첨부가 아니라 같은 Content-ID 의 인라인 파트로 붙는다(받는 메일 앱 본문에 그림이 보이게). 보관·클레임·소비는 attachmentIds 와 같다 —
  * 그래서 여기 id 는 attachmentIds 에도 있어야 한다. null/빈 목록이면 붙여 넣은 이미지 없음.
+ *
+ * <p>mode·sourceMessageId·quoteRemoved(WP-1786, 선택): 작성창의 작성 문맥 — 보내기 대기 행(임시보관)에 그대로 남겨, 10초 안에
+ * 되돌리거나 보내지 못해 다시 열 때 전달·답장이 원본 메일 연결(인용문 다시 만들기)을 잃지 않게 한다. mode 는 임시저장과 같은 new·reply·forward.
+ * 생략(null)하면 서버가 지금처럼 추정한다(답장 원본이 있으면 reply, 전달 첨부가 있으면 forward) — AI 확인카드 등 기존 호출처 호환. 발송
+ * 자체(MIME·스레딩)에는 쓰이지 않는다.
+ *
+ * <p>inlineImages·inlineUploads 는 요청 단계에서 100개 상한(임시저장 요청과 같다, 코드 리뷰) — 보내기 컨트롤러가 {@code @Valid} 로
+ * 건다. 실제 발송 상한(인라인 합쳐 20개)은 서비스 검증이 사용자 문구로 따로 본다.
  */
 public record MailSendRequest(
     List<String> to,
@@ -37,11 +47,20 @@ public record MailSendRequest(
     String bodyHtml,
     String bodyText,
     Long inReplyToMessageId,
-    List<InlineImageRef> inlineImages,
+    @Size(max = MailSendRequest.MAX_INLINE_REFS) @Valid List<InlineImageRef> inlineImages,
     List<Long> attachmentIds,
     List<Long> forwardAttachmentIds,
     Long draftId,
-    List<InlineUploadRef> inlineUploads) {
+    @Size(max = MailSendRequest.MAX_INLINE_REFS) @Valid List<InlineUploadRef> inlineUploads,
+    String mode,
+    Long sourceMessageId,
+    Boolean quoteRemoved) {
+
+  /**
+   * 인라인 참조(inlineImages·inlineUploads) 요청 단계 상한 — 보내기와 임시저장 요청({@link MailDraftSaveRequest})이 같은 값을
+   * 쓴다(코드 리뷰). 실제 발송 상한(인라인 합쳐 20개)은 서비스 검증이 따로 본다.
+   */
+  public static final int MAX_INLINE_REFS = 100;
 
   /**
    * 목록 필드 생략(null)은 빈 목록으로 정규화 — 소비처가 null 을 다루지 않게 한다. id 목록의 null 원소·중복은 그대로 둔다(발송 검증이 사용자 문구로
@@ -62,6 +81,38 @@ public record MailSendRequest(
         forwardAttachmentIds == null
             ? List.of()
             : Collections.unmodifiableList(new ArrayList<>(forwardAttachmentIds));
+  }
+
+  /** 작성 문맥 없는 발송(WP-947 호출처 호환) — 대기 행의 mode·원본은 서버가 추정한다. */
+  public MailSendRequest(
+      List<String> to,
+      List<String> cc,
+      List<String> bcc,
+      String subject,
+      String bodyHtml,
+      String bodyText,
+      Long inReplyToMessageId,
+      List<InlineImageRef> inlineImages,
+      List<Long> attachmentIds,
+      List<Long> forwardAttachmentIds,
+      Long draftId,
+      List<InlineUploadRef> inlineUploads) {
+    this(
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyHtml,
+        bodyText,
+        inReplyToMessageId,
+        inlineImages,
+        attachmentIds,
+        forwardAttachmentIds,
+        draftId,
+        inlineUploads,
+        null,
+        null,
+        null);
   }
 
   /** 붙여 넣은 본문 이미지 없는 발송(WP-577 호출처 호환). */
@@ -89,7 +140,7 @@ public record MailSendRequest(
         attachmentIds,
         forwardAttachmentIds,
         draftId,
-        null);
+        (List<InlineUploadRef>) null);
   }
 
   /** 임시저장 없는 발송(WP-574 호출처 호환). */

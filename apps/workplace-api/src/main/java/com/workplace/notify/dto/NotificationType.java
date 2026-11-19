@@ -32,5 +32,8 @@ public enum NotificationType {
   // 내 비서가 멈춘 것을 알리는 계정 알림이라 알림 설정과 무관하게 늘 보낸다(설정 줄 없음)
   PERSONAL_ASSISTANT_REVOKED,
   // OAuth 앱 새 연결(WP-1686) — 본인 1명, 계정 알림이라 설정 없이 늘 보냄, message=앱 이름. 행위자는 없다(null)
-  OAUTH_APP_CONNECTED
+  OAUTH_APP_CONNECTED,
+  // 보낼 대기열의 메일 발송 실패(WP-1786) — 보낸 본인 1명, 계정 알림이라 설정 없이 늘 보냄, message=메일 제목, mail_draft_id=그 임시보관.
+  // 행위자는 없다(null). 발송 중 멈춰 결과를 모르면 mail_send_unknown=true 로 「보냈는지 확인하지 못함」 변형을 표시한다
+  MAIL_SEND_FAILED
 }

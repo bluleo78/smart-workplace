@@ -102,6 +102,15 @@ public class MailComposeService {
 
   static final String FORWARD_MISSING_MESSAGE = "전달할 원본 첨부를 찾을 수 없어요";
 
+  // 아래 셋은 발송 실패(502) 중 사용자가 읽을 수 있게 쓴 문구다 — 보낼 대기열이 실패 사유(send_error)로 그대로 남길 수 있는 허용 목록에 든다
+  // (MailQueuedSender.userMessage, WP-1786). 문구를 바꾸면 허용 목록도 함께 따라간다.
+  static final String ATTACHMENT_READ_FAILED_MESSAGE = "첨부 파일을 읽지 못했어요. 파일을 다시 올려 주세요";
+
+  static final String FORWARD_FETCH_FAILED_MESSAGE = "전달할 원본 첨부를 가져오지 못했어요. 잠시 뒤 다시 보내 주세요";
+
+  static final String QUOTED_IMAGE_FETCH_FAILED_MESSAGE =
+      "원본 메일의 이미지를 가져오지 못했어요. 인용문을 제거하고 다시 보내 주세요";
+
   /**
    * 본문에 붙여 넣은 이미지(WP-947)로 받는 형식 — 웹 작성창이 받는 형식(PNG·JPEG·GIF·WebP)과 같다. SVG 처럼 활성 내용을 품을 수 있는 형식이
    * API 를 직접 부른 요청으로 받는 사람 본문에 실리지 않게 서버도 같은 목록으로 막는다(인용문 이미지는 받은 메일 원본이라 이 목록을 쓰지 않는다).
@@ -330,7 +339,7 @@ public class MailComposeService {
     try {
       return budget.add(fileStore.readAllBytes(f.storagePath()));
     } catch (UncheckedIOException e) {
-      throw new MailSendException("첨부 파일을 읽지 못했어요. 파일을 다시 올려 주세요", e);
+      throw MailSendException.userFacing(ATTACHMENT_READ_FAILED_MESSAGE, e);
     }
   }
 
@@ -348,7 +357,7 @@ public class MailComposeService {
               budget,
               false,
               FORWARD_MISSING_MESSAGE,
-              "전달할 원본 첨부를 가져오지 못했어요. 잠시 뒤 다시 보내 주세요");
+              FORWARD_FETCH_FAILED_MESSAGE);
       parts.add(
           new AttachmentPart(
               src.meta().filename(), src.meta().contentType(), dl.content(), dl.contentHash()));
@@ -362,6 +371,8 @@ public class MailComposeService {
    * 바이트로 센다. 상한 초과(400)는 그대로, 원본 없음은 notFoundMessage 가 있으면 400 으로, 나머지 실패는 failMessage 의 502 로 바꾼다.
    *
    * @param quoted 원본 메일 이미지(인용문 cid)면 true — 상한 초과 문구가 그 몫을 밝힌다(WP-1522)
+   * @param failMessage 사용자용 문구 — 보낼 대기열이 실패 사유로 그대로 남기도록 {@link MailSendException#userFacing} 으로
+   *     던진다(WP-1786)
    */
   private AttachmentDownload fetchOwnedAttachment(
       long userId,
@@ -390,9 +401,9 @@ public class MailComposeService {
       if (notFoundMessage != null) {
         throw new MailValidationException(notFoundMessage);
       }
-      throw new MailSendException(failMessage, e);
+      throw MailSendException.userFacing(failMessage, e);
     } catch (RuntimeException e) {
-      throw new MailSendException(failMessage, e);
+      throw MailSendException.userFacing(failMessage, e);
     }
   }
 
@@ -542,7 +553,7 @@ public class MailComposeService {
                 budget,
                 true,
                 null,
-                "원본 메일의 이미지를 가져오지 못했어요. 인용문을 제거하고 다시 보내 주세요");
+                QUOTED_IMAGE_FETCH_FAILED_MESSAGE);
         fetched.put(src.ref().attachmentId(), dl);
       } else {
         // 이미 받은 첨부의 다른 cid 파트 — 다시 받지 않지만 파트 하나가 더 나가므로 상한에는 더한다

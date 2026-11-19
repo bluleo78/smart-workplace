@@ -181,7 +181,7 @@ export interface MailSendRequest {
   bodyText: string;
   inReplyToMessageId: number | null;
   /** 인용문 cid 이미지 재첨부 대상(WP-69) — 생략하면 인라인 파트 없음. */
-  inlineImages?: { attachmentId: number; contentId: string }[];
+  inlineImages?: MailInlineRef[];
   /** 작성창에서 먼저 올린 첨부 id(WP-574, POST /mail/compose-attachments 응답 id). 생략·빈 목록이면 없음. */
   attachmentIds?: number[];
   /** 전달하며 함께 보낼 받은 메일 원본 첨부 id(WP-574, email_attachment.id). 생략·빈 목록이면 없음. */
@@ -189,7 +189,16 @@ export interface MailSendRequest {
   /** 이 작성의 임시저장 id(WP-577) — 보내면 서버가 그 임시저장을 지운다. 저장된 적 없으면 생략. */
   draftId?: number;
   /** 본문에 붙여 넣은 이미지(WP-947) — attachmentIds 가운데 본문이 cid: 로 참조하는 업로드. 그 업로드는 첨부가 아니라 인라인 파트로 간다. */
-  inlineUploads?: { attachmentId: number; contentId: string }[];
+  inlineUploads?: MailInlineRef[];
+  /**
+   * 작성 문맥(WP-1786) — 보내기 대기 행(임시보관)에 남겨, 되돌리거나 보내지 못해 다시 열 때 전달·답장이 원본 연결(인용문 다시 만들기)을 잃지 않게 한다.
+   * 생략하면 서버가 추정한다(답장 원본 → reply, 전달 첨부 → forward).
+   */
+  mode?: 'new' | 'reply' | 'forward';
+  /** 답장·전달의 원본 메일 id — 전달은 inReplyToMessageId 가 없어 이것으로만 원본을 안다. */
+  sourceMessageId?: number | null;
+  /** 작성 중 인용문을 지웠는가 — 되돌려 열 때 인용문을 되살리지 않는다. */
+  quoteRemoved?: boolean;
 }
 
 /**
@@ -213,10 +222,20 @@ export interface RecentRecipient {
   sentCount: number;
 }
 
-/** 발송 결과. */
-export interface SendResult {
-  localMessageId: number;
-  messageId: string;
+/**
+ * 보내기 결과(WP-1786) — 메일은 아직 나가지 않았다. 서버 대기열에 올라 sendAt(지금 + 10초)까지 되돌릴 수 있고, 그 뒤 스케줄러가 보낸다.
+ * draftId 는 대기 행이 된 임시보관 id — 되돌리기(POST /mail/drafts/{draftId}/cancel-send)의 키다.
+ */
+export interface QueuedSend {
+  draftId: number;
+  /** 보내기로 정한 시각(ISO-8601). */
+  sendAt: string;
+}
+
+/** 본문 인라인 이미지 참조 — 보내기·임시저장 요청 공용(inlineImages = 인용 원본 첨부, inlineUploads = 붙여 넣은 이미지 업로드). */
+export interface MailInlineRef {
+  attachmentId: number;
+  contentId: string;
 }
 
 /** 초안 코칭 노트 1건. */

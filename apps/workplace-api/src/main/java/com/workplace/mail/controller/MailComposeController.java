@@ -2,11 +2,12 @@ package com.workplace.mail.controller;
 
 import com.workplace.mail.dto.ComposeAttachmentResponse;
 import com.workplace.mail.dto.MailSendRequest;
+import com.workplace.mail.dto.QueuedSend;
 import com.workplace.mail.dto.RecentRecipient;
-import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.service.MailComposeAttachmentService;
-import com.workplace.mail.service.MailComposeService;
 import com.workplace.mail.service.MailRecentRecipientService;
+import com.workplace.mail.service.MailSendQueueService;
+import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,7 +32,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/v1/mail")
 public class MailComposeController {
 
-  private final MailComposeService composeService;
+  private final MailSendQueueService sendQueueService;
   private final MailComposeAttachmentService attachmentService;
   private final MailRecentRecipientService recentRecipientService;
 
@@ -45,13 +46,16 @@ public class MailComposeController {
     return ResponseEntity.status(HttpStatus.CREATED).body(attachmentService.upload(callerId, file));
   }
 
-  /** 메일 발송. inReplyToMessageId 가 있으면 답장으로 스레드 상속. */
+  /**
+   * 메일 보내기(WP-1786) — 바로 보내지 않고 대기열에 올려 10초 되돌릴 틈을 준다 → {draftId, sendAt}. inReplyToMessageId 가 있으면
+   * 답장으로 스레드 상속(실제 발송 때). 되돌리기는 {@code POST /drafts/{draftId}/cancel-send}.
+   */
   @PostMapping("/accounts/{accountId}/send")
-  public SendResult send(
+  public QueuedSend send(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long accountId,
-      @RequestBody MailSendRequest request) {
-    return composeService.send(callerId, accountId, request);
+      @Valid @RequestBody MailSendRequest request) {
+    return sendQueueService.enqueue(callerId, accountId, request);
   }
 
   /**

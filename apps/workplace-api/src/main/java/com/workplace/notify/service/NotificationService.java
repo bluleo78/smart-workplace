@@ -473,6 +473,39 @@ public class NotificationService {
   }
 
   /**
+   * 메일 발송 실패 알림(WP-1786) — 보낼 대기열의 메일이 나가지 못했거나(unknown=false, 「메일을 보내지 못함」) 발송 중 멈춰 결과를 모를
+   * 때(unknown=true, 「보냈는지 확인하지 못함 — 보낸편지함을 확인해 주세요」) 보낸 본인에게. 내 메일이 안 나간 것을 알리는 계정 알림이라 알림 설정과 무관하게
+   * 늘 보낸다(설정 줄이 없다). 행위자는 없고 message=메일 제목(비었으면 「(제목 없음)」), mail_draft_id=그 임시보관 — 웹이 눌러 그 임시보관을 쓰기
+   * 창으로 연다. insert 후 SSE fan-out·푸시(제목·변형·임시보관 id 를 이벤트에 싣는다).
+   */
+  @Transactional
+  public void createMailSendFailedAndFanOut(
+      long userId, long draftId, String subject, boolean unknown) {
+    NotificationType type = NotificationType.MAIL_SEND_FAILED;
+    String title = subject == null || subject.isBlank() ? "(제목 없음)" : subject;
+    repo.insertMailSendFailed(userId, draftId, title, unknown);
+    registry.fanOut(List.of(userId), "notify.created", Map.of("type", type.name()));
+    Long tenantId = TenantContext.get();
+    // 테넌트 없으면 푸시를 건너뛴다(다른 이슈 밖 알림 푸시와 같은 이유 — 어느 워크스페이스로 보낼지 모른다).
+    if (tenantId == null) return;
+    publisher.publishEvent(
+        new InboxPushRequestedEvent(
+            tenantId,
+            type,
+            PushCategory.of(type),
+            List.of(userId),
+            null,
+            null,
+            null,
+            null,
+            title,
+            null,
+            null,
+            draftId,
+            unknown));
+  }
+
+  /**
    * 일정 변경·취소 알림(WP-712) — 주최자가 시간·장소를 바꿨거나 일정을 지웠을 때 참석자에게. 알림 행에 그때의 제목·시작 시각을 남긴다(취소는 가리킬 일정이 없어
    * eventId=null). 행위자 본인은 받지 않는다. insert 후 SSE fan-out·푸시.
    */

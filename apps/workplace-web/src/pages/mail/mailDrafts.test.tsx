@@ -158,7 +158,7 @@ function draftServer(initial: MailDraftDetail[] = [], previews: Record<number, s
       const over = await override.send?.(c, log.sends.length)
       if (over) return over
       if (c.body.draftId != null) drafts.delete(c.body.draftId)
-      return HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' })
+      return HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' })
     }),
   ]
   return {
@@ -1460,4 +1460,33 @@ test('빈_창을_닫고_다시_누른_뒤_첫_조회가_실패해도_오류를_�
   expect(screen.queryByText('임시저장을 불러오지 못했어요')).not.toBeInTheDocument()
   expect(second.close).not.toHaveBeenCalled()
   forgetMailComposePopout(7)
+})
+
+// 보내지 못한 메일(WP-1786 최종 리뷰 I2) — 다시 열 때 서버가 남긴 이유를 한 번 알린다. 자동 저장이 FAILED 흔적을 지우기 전에 연 때의 값을 쓴다.
+test('보내지_못한_임시보관을_열면_보내지_못한_이유를_토스트로_알린다', async () => {
+  const server = draftServer([
+    draftDetail({ id: 9, subject: '못 보낸 메일', sendState: 'FAILED', sendError: '올바르지 않은 이메일 주소: kim@' }),
+  ])
+  const view = renderDrafts(server)
+  await openRow(view, 9)
+  await waitFor(() => expect(subject()).toHaveValue('못 보낸 메일'))
+  expect(await screen.findByText('보내지 못한 이유: 올바르지 않은 이메일 주소: kim@')).toBeInTheDocument()
+})
+
+test('보냈는지_모르는_임시보관은_보낸편지함을_확인하라고_알린다', async () => {
+  const server = draftServer([draftDetail({ id: 9, subject: '모르는 메일', sendState: 'FAILED', sendError: 'UNKNOWN' })])
+  const view = renderDrafts(server)
+  await openRow(view, 9)
+  await waitFor(() => expect(subject()).toHaveValue('모르는 메일'))
+  expect(await screen.findByText('보냈는지 확인하지 못함 — 보낸편지함을 확인해 주세요')).toBeInTheDocument()
+  expect(screen.queryByText(/보내지 못한 이유/)).not.toBeInTheDocument()
+})
+
+test('보내기_실패가_아닌_임시보관을_열면_이유_토스트가_없다', async () => {
+  const server = draftServer([draftDetail({ id: 9, subject: '평범한 메일' })])
+  const view = renderDrafts(server)
+  await openRow(view, 9)
+  await waitFor(() => expect(subject()).toHaveValue('평범한 메일'))
+  await tick(100)
+  expect(screen.queryByText(/보내지 못한 이유/)).not.toBeInTheDocument()
 })

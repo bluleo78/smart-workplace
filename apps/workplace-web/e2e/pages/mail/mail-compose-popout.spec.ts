@@ -1,6 +1,7 @@
 // 메일 작성 「새 창으로 열기」(WP-1535) E2E — 실제 브라우저 팝업 창(@platform).
 // 작성창 ↗ → 클릭에서 바로 연 창이 임시저장 id 로 /mail/compose?draftId=N 에 들어가 그 작성을 앱 셸 없이 그리고,
-// 거기서 보내면 창이 스스로 닫히며 메인 창이 BroadcastChannel 알림으로 보낸편지함을 다시 받고 「메일을 보냈습니다」를 띄운다.
+// 거기서 보내면 창이 스스로 닫히며 메인 창이 BroadcastChannel 알림으로 「메일 보냄」을 띄운다(WP-1786: 메일은 대기열에 올라 아직 나가지 않았으므로
+// 보낸편지함은 대기열이 보낸 뒤 mailChanged 이벤트·20초 뒤 다시 받기가 맡는다 — useSendMail.test 가 본다).
 // 단추 표시·차단·저장 실패·닫기/버리기 순서·무효화 규칙은 src/pages/mail/mailComposePopout.test.tsx(화면 테스트)가 지킨다.
 // 팝업은 새 page 라 메인 page 의 route 목이 닿지 않는다 — 메인 창의 첫 임시저장(POST) 응답을 잠시 붙잡아,
 // 팝업이 아직 빈 창(about:blank)일 때 팝업에도 인증·메일 목을 건 뒤 놓아준다(그 응답 뒤에야 팝업 주소가 정해진다).
@@ -26,7 +27,7 @@ async function countSentLists(page: Page) {
 }
 
 test.describe('메일 작성 새 창', { tag: '@platform' }, () => {
-  test('↗ 로 연 새 창에서 보내면 창이 닫히고 메인 창이 보낸편지함을 다시 받는다', async ({ authenticatedPage: page }) => {
+  test('↗ 로 연 새 창에서 보내면 창이 닫히고 메인 창이 「메일 보냄」을 띄운다', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     const sentLists = await countSentLists(page)
     const server = await mockDraftServer(page)
@@ -78,14 +79,12 @@ test.describe('메일 작성 새 창', { tag: '@platform' }, () => {
     // 새 창에서 이어 쓰고 곧바로 보낸다 — 저장이 끝나지 않은 채라도 창이 닫힐 때 나가기 경고(beforeunload)가 걸려 있으면
     // Playwright 가 대화상자를 「머무르기」로 닫아 창이 닫히지 않는다(close 대기가 시간 초과).
     await popup.getByTestId('mail-compose-subject').fill('새 창에서 보낼 메일 (수정)')
-    const sentBefore = sentLists()
     const closed = popup.waitForEvent('close')
     await popup.getByTestId('mail-compose-send').click()
     await closed
     expect(sends.lastBody()).toMatchObject({ to: ['rcpt@test.local'], subject: '새 창에서 보낼 메일 (수정)', draftId: id })
 
-    // 메인 창 — 새 창의 알림으로 결과를 띄우고 보낸편지함을 다시 받는다.
-    await expect(page.getByText('메일을 보냈습니다')).toBeVisible()
-    await expect.poll(sentLists).toBeGreaterThan(sentBefore)
+    // 메인 창 — 새 창의 알림으로 결과를 띄운다.
+    await expect(page.getByText('메일 보냄')).toBeVisible()
   })
 })

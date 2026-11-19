@@ -4,6 +4,7 @@ import axios, { type AxiosProgressEvent } from 'axios';
 import { sleep, waitForOnline } from '../lib/abortableWait';
 import { isTransientRequestError } from '../lib/api-error';
 import type { DriveFile } from '../types/drive';
+import type { MailDraftDetail } from '../types/mailDraft';
 import type { MailFolderSyncResult, MailMoveRequest, MailMoveResponse, MailServerFolder, MailTrashEmptyStatus } from '../types/mailFolder';
 import type {
   CalendarInvite,
@@ -27,8 +28,8 @@ import type {
   MailSyncStatus,
   MailUnreadCounts,
   PromoteToIssuePayload,
+  QueuedSend,
   RecentRecipient,
-  SendResult,
 } from '../types/mailMessage';
 import { blobToDataUri, fetchBlobByPath } from './blobContent';
 import { client, getAccessToken } from './client';
@@ -360,15 +361,27 @@ export async function coachDraft(req: DraftCoachingRequest): Promise<MailDraftCo
   return data
 }
 
-/** 메일 발송(새 메일·답장·전달). inReplyToMessageId 가 있으면 답장. */
+/**
+ * 메일 보내기(새 메일·답장·전달). inReplyToMessageId 가 있으면 답장.
+ * WP-1786 부터 바로 보내지 않고 서버 대기열에 올린다 — 돌려받은 draftId 로 10초 안에 되돌릴 수 있다(cancelMailSend).
+ */
 export async function sendMail(
   accountId: number,
   body: MailSendRequest,
-): Promise<SendResult> {
-  const { data } = await client.post<SendResult>(
+): Promise<QueuedSend> {
+  const { data } = await client.post<QueuedSend>(
     `/mail/accounts/${accountId}/send`,
     body,
   );
+  return data;
+}
+
+/**
+ * 보내기 되돌리기(WP-1786) — 아직 대기 중이면 서버가 대기를 풀고 그 임시보관 상세를 돌려준다(쓰기 창을 그 내용으로 다시 연다).
+ * 이미 보내는 중이면 409 ALREADY_SENDING, 이미 보내고 지워졌으면 404 — 호출부가 둘 다 「이미 보냄」으로 알린다.
+ */
+export async function cancelMailSend(draftId: number): Promise<MailDraftDetail> {
+  const { data } = await client.post<MailDraftDetail>(`/mail/drafts/${draftId}/cancel-send`);
   return data;
 }
 

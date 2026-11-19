@@ -78,9 +78,12 @@ function MailComposeWindow() {
 
   // 작성이 끝났다(서버 작업 완료) — 메인 창에 알리고 작성창을 내린다. 창 닫기는 아래 효과가 한다.
   const onDone = useCallback(
-    (kind: MailComposeWindowEvent, accountId: number) => {
+    (kind: MailComposeWindowEvent, accountId: number, sentDraftId?: number) => {
       notifiedRef.current = true;
-      if (draftId != null) postMailComposeWindowEvent({ type: kind, accountId, draftId, opener });
+      // 보냈으면 대기 행 id 를 함께 알린다(WP-1786) — 이 창은 곧 닫히므로 「되돌리기」는 메인 창 토스트가 한다.
+      if (draftId != null) {
+        postMailComposeWindowEvent({ type: kind, accountId, draftId, opener, ...(sentDraftId != null ? { sentDraftId } : {}) });
+      }
       closeCompose();
       setPhase('done');
     },

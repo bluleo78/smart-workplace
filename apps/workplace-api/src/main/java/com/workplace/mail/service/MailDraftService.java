@@ -8,9 +8,12 @@ import com.workplace.mail.dto.MailDraftSaveRequest;
 import com.workplace.mail.dto.MailDraftSaved;
 import com.workplace.mail.dto.MailDraftSummary;
 import com.workplace.mail.dto.MailDraftVersion;
+import com.workplace.mail.dto.MailSendRequest;
+import com.workplace.mail.dto.QueuedSend;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailDraftConflictException;
 import com.workplace.mail.exception.MailDraftNotFoundException;
+import com.workplace.mail.exception.MailDraftSendingException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository;
@@ -18,6 +21,8 @@ import com.workplace.mail.repository.EmailAttachmentRepository.InlineSourceMeta;
 import com.workplace.mail.repository.MailDraftRepository;
 import com.workplace.mail.repository.MailDraftRepository.DraftRow;
 import com.workplace.mail.repository.MailDraftRepository.Fields;
+import com.workplace.mail.repository.MailDraftRepository.QueueFields;
+import com.workplace.mail.repository.SendState;
 import com.workplace.mail.util.MailComposeLimits;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -28,9 +33,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -81,19 +88,37 @@ public class MailDraftService {
     return draftRepo.listByAccount(userId, accountId, LIST_LIMIT);
   }
 
-  /** 내 계정의 임시저장 개수(사이드바 배지). 남의·비활성 계정은 404. */
+  /** 내 계정의 임시저장 개수(사이드바 배지)와 보내기 대기 수(WP-1786). 남의·비활성 계정은 404. */
   @Transactional(readOnly = true)
   public MailDraftCount count(long userId, long accountId) {
     requireAccount(userId, accountId);
-    return new MailDraftCount(draftRepo.countByAccount(userId, accountId));
+    // 대기 수(WP-1786)는 계정 삭제 확인창이 함께 지워질 보내기 대기를 알리는 데 쓴다. 두 수를 한 쿼리로 센다.
+    return draftRepo.countByAccount(userId, accountId);
   }
 
   /** 임시저장 상세 — 전달 원본 첨부(남아 있는 것만) 다음 업로드 첨부. 없거나 남의 것이면 404. */
   @Transactional(readOnly = true)
   public MailDraftDetail get(long userId, long draftId) {
+    return detail(userId, draftId, false);
+  }
+
+  /**
+   * 되돌리기(WP-1786)가 방금 대기를 푼 행의 상세 — 계정이 비활성(삭제 대기)이어도 돌려준다. 호출자 트랜잭션에 합류하므로 여기서 404 를 내면 대기 풀기까지
+   * 롤백돼 행이 QUEUED 로 남고 곧 보내진다(코드 리뷰). 사용자는 되돌린 내용을 쓰기 창에서 다시 볼 수 있다.
+   */
+  @Transactional(readOnly = true)
+  public MailDraftDetail getIncludingDisabledAccount(long userId, long draftId) {
+    return detail(userId, draftId, true);
+  }
+
+  /**
+   * 상세 조립 공통 — includeDisabledAccount 는 {@link MailDraftRepository#findOwned(long, long, boolean)}
+   * 참조.
+   */
+  private MailDraftDetail detail(long userId, long draftId, boolean includeDisabledAccount) {
     DraftRow row =
         draftRepo
-            .findOwned(userId, draftId)
+            .findOwned(userId, draftId, includeDisabledAccount)
             .orElseThrow(() -> new MailDraftNotFoundException(draftId));
     List<Long> forwardIds = draftRepo.forwardIds(draftId);
     Map<Long, InlineSourceMeta> metas = attachmentRepo.findOwnedMetas(userId, forwardIds);
@@ -120,7 +145,13 @@ public class MailDraftService {
         row.quoteRemoved(),
         attachments,
         row.version(),
-        row.updatedAt());
+        row.updatedAt(),
+        row.bodyText(),
+        row.inlineImages(),
+        row.inlineUploads(),
+        row.inReplyToMessageId(),
+        row.sendState(),
+        row.sendError());
   }
 
   /**
@@ -132,7 +163,7 @@ public class MailDraftService {
   @Transactional
   public MailDraftSaved create(long userId, MailDraftSaveRequest req) {
     Fields fields = toFields(userId, req);
-    MailDraftSaved saved = draftRepo.insert(userId, fields);
+    MailDraftSaved saved = draftRepo.insert(userId, fields, toQueueFields(req));
     syncAttachments(userId, saved.id(), req);
     return saved;
   }
@@ -142,6 +173,8 @@ public class MailDraftService {
    *
    * @throws MailDraftNotFoundException 없거나 남의 것(404)
    * @throws MailDraftConflictException 다른 탭이 먼저 저장해 버전이 다름(409, DRAFT_CONFLICT)
+   * @throws MailDraftSendingException 보내는 중(QUEUED·SENDING)인 행(409, DRAFT_SENDING) — FAILED 는 저장하면
+   *     일반 임시보관으로 돌아간다
    */
   @Transactional
   public MailDraftVersion update(long userId, long draftId, MailDraftSaveRequest req) {
@@ -151,12 +184,8 @@ public class MailDraftService {
     Fields fields = toFields(userId, req);
     MailDraftVersion saved =
         draftRepo
-            .updateIfVersion(userId, draftId, req.version(), fields)
-            .orElseThrow(
-                () ->
-                    draftRepo.exists(userId, draftId)
-                        ? new MailDraftConflictException()
-                        : new MailDraftNotFoundException(draftId));
+            .updateIfVersion(userId, draftId, req.version(), fields, toQueueFields(req))
+            .orElseThrow(() -> updateRefusal(userId, draftId));
     return saved.withAttachmentCount(syncAttachments(userId, draftId, req));
   }
 
@@ -166,9 +195,96 @@ public class MailDraftService {
    */
   @Transactional
   public void delete(long userId, long draftId) {
-    if (!draftRepo.deleteOwned(userId, draftId, tempExpiry())) {
-      throw new MailDraftNotFoundException(draftId);
+    // 지우기가 행을 한 번 잠그며 상태도 본다 — 보내는 중(QUEUED·SENDING)인 행은 지우지 않는다(WP-1786). 되돌리기는 별도 취소 경로다.
+    switch (draftRepo.deleteOwnedIfIdle(userId, draftId, tempExpiry())) {
+      case NOT_FOUND -> throw new MailDraftNotFoundException(draftId);
+      case SENDING -> throw new MailDraftSendingException();
+      case DELETED -> {}
     }
+  }
+
+  /**
+   * 보내기 요청 전체를 임시보관 행에 담고 보내기 대기(QUEUED)로 올린다(WP-1786) — 대기열이 요청 없이 행만으로 보낼 수 있게. 호출자 트랜잭션에 합류한다(별도
+   * 트랜잭션을 열지 않는다).
+   *
+   * <p>draftId 가 내 일반·FAILED 임시보관이면 버전 검사 없이 갱신(버전 +1, FAILED 흔적 삭제)하고, 없거나 남의 것이면 새로 만든다. 값과 대기
+   * 표시(보낼 시각 = DB 지금 + delaySeconds)를 같은 UPDATE·INSERT 한 문장에 담는다. 행을 먼저 잠가 상태를 확인하므로 그 사이 스케줄러가 집을
+   * 수 없다(새 행은 커밋 전이라 보이지 않는다). 첨부 묶기는 {@link #create}·{@link #update} 와 같은 경로다.
+   *
+   * @param mode new·reply·forward
+   * @param delaySeconds 되돌릴 수 있는 시간(초) — 보낼 시각은 DB 시계로 정한다
+   * @return 대기 행이 된 임시보관 id 와 DB 가 정한 보낼 시각
+   * @throws MailDraftSendingException draftId 행이 이미 QUEUED·SENDING(409)
+   */
+  @Transactional(propagation = Propagation.REQUIRED)
+  public QueuedSend upsertForSend(
+      long userId,
+      long accountId,
+      MailSendRequest req,
+      String mode,
+      Long sourceMessageId,
+      Boolean quoteRemoved,
+      int delaySeconds) {
+    MailDraftSaveRequest save =
+        new MailDraftSaveRequest(
+            accountId,
+            mode,
+            req.to(),
+            req.cc(),
+            req.bcc(),
+            req.subject(),
+            req.bodyHtml(),
+            req.bodyText(),
+            sourceMessageId,
+            quoteRemoved,
+            req.attachmentIds(),
+            req.forwardAttachmentIds(),
+            null,
+            req.inlineImages(),
+            req.inlineUploads(),
+            req.inReplyToMessageId());
+    // 보내기에는 본문 상한이 없다(MailComposeService.prepare 와 같은 규칙) — 큰 HTML 메일에 답장·전달하면 인용한 원본이 붙어 임시저장
+    // 상한(2MB)을 넘을 수 있는데, 여기서 막으면 바로 보내던 시절엔 나가던 메일이 거절된다. 열은 TEXT 라 담을 수 있다.
+    Fields fields = toFields(userId, save, false);
+    QueueFields queue = toQueueFields(save);
+    Long draftId = req.draftId();
+    if (draftId != null) {
+      Optional<String> state = draftRepo.lockSendState(userId, draftId);
+      if (state.isPresent()) {
+        if (SendState.isInFlight(state.get())) {
+          throw new MailDraftSendingException();
+        }
+        OffsetDateTime sendAt =
+            draftRepo
+                .updateQueued(userId, draftId, fields, queue, delaySeconds)
+                .orElseThrow(() -> new MailDraftNotFoundException(draftId));
+        syncAttachments(userId, draftId, save);
+        return new QueuedSend(draftId, sendAt);
+      }
+    }
+    QueuedSend created = draftRepo.insertQueued(userId, fields, queue, delaySeconds);
+    syncAttachments(userId, created.draftId(), save);
+    return created;
+  }
+
+  /** 조건부 수정이 빈 값일 때 이유 — 없음 404, 보내는 중 409(DRAFT_SENDING), 그 밖(버전 다름) 409(DRAFT_CONFLICT). */
+  private RuntimeException updateRefusal(long userId, long draftId) {
+    Optional<String> state = draftRepo.sendState(userId, draftId);
+    if (state.isEmpty()) {
+      return new MailDraftNotFoundException(draftId);
+    }
+    return SendState.isInFlight(state.get())
+        ? new MailDraftSendingException()
+        : new MailDraftConflictException();
+  }
+
+  /** 저장 요청의 보내기 보조 값 — 본문 평문·답장 원본·인라인 참조(null 은 빈 목록). */
+  private static QueueFields toQueueFields(MailDraftSaveRequest req) {
+    return new QueueFields(
+        req.bodyText(),
+        req.inReplyToMessageId(),
+        req.inlineImages() == null ? List.of() : req.inlineImages(),
+        req.inlineUploads() == null ? List.of() : req.inlineUploads());
   }
 
   /**
@@ -177,6 +293,7 @@ public class MailDraftService {
    */
   @Transactional
   public void deleteIfPresent(long userId, long draftId) {
+    // 상태를 보지 않는다(WP-1786) — 대기열이 SENDING 으로 보낸 행도 성공 뒤 지워야 한다.
     // 보낸 뒤라 되돌릴 일이 없다 — 보내지 않은 묶인 업로드는 지금 만료시켜 바로 정리한다.
     draftRepo.deleteOwned(userId, draftId, OffsetDateTime.now());
   }
@@ -205,12 +322,23 @@ public class MailDraftService {
     }
   }
 
-  /** 요청을 저장 값으로 정규화한다 — 계정 소유·본문 상한 확인, 목록의 빈 값 제거, 미리보기 생성. */
+  /** 임시저장(자동 저장) 경로의 정규화 — 본문 상한(2MB)을 확인한다. */
   private Fields toFields(long userId, MailDraftSaveRequest req) {
+    return toFields(userId, req, true);
+  }
+
+  /**
+   * 요청을 저장 값으로 정규화한다 — 계정 소유·본문 상한 확인, 목록의 빈 값 제거, 미리보기 생성.
+   *
+   * @param limitBody 본문 상한(2MB)을 확인할지 — 임시저장은 true, 보내기 대기열에 담는 길({@link #upsertForSend})은
+   *     false(보내기에는 본문 상한이 없다)
+   */
+  private Fields toFields(long userId, MailDraftSaveRequest req, boolean limitBody) {
     requireAccount(userId, req.accountId());
     String bodyHtml = req.bodyHtml() == null ? "" : req.bodyHtml();
     // UTF-8 은 UTF-16 문자 하나당 3바이트를 넘지 않는다 — 문자 수 × 3 이 상한 안이면 바이트로 바꾸지 않는다(자동 저장마다 2MB 복사를 피한다).
-    if ((long) bodyHtml.length() * 3 > MailDraftSaveRequest.MAX_BODY_HTML_BYTES
+    if (limitBody
+        && (long) bodyHtml.length() * 3 > MailDraftSaveRequest.MAX_BODY_HTML_BYTES
         && bodyHtml.getBytes(StandardCharsets.UTF_8).length
             > MailDraftSaveRequest.MAX_BODY_HTML_BYTES) {
       throw new MailValidationException("본문이 너무 길어요. 임시저장은 2MB까지 할 수 있어요");

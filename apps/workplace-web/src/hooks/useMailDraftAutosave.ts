@@ -8,8 +8,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createMailDraft, deleteMailDraft, updateMailDraft } from '@/api/mailDrafts';
 import { invalidateMailDrafts } from '@/hooks/queries/mailDraftKeys';
 import { patchMailDraftRow } from '@/hooks/queries/useMailDrafts';
-import { extractApiError, extractApiErrorCode, isNotFoundError } from '@/lib/api-error';
-import { DRAFT_CONFLICT, DRAFT_NOT_FOUND, type MailDraftSaveRequest } from '@/types/mailDraft';
+import { extractApiError, extractApiErrorCode, isConflictError, isNotFoundError } from '@/lib/api-error';
+import { DRAFT_CONFLICT, DRAFT_NOT_FOUND, DRAFT_SENDING, type MailDraftSaveRequest } from '@/types/mailDraft';
 
 /** 내용이 바뀐 뒤 저장까지 기다리는 시간. */
 export const DRAFT_AUTOSAVE_DELAY_MS = 1500;
@@ -111,6 +111,14 @@ function isConflict(e: unknown): boolean {
  */
 function isDraftGone(e: unknown): boolean {
   return isNotFoundError(e) && extractApiErrorCode(e) === DRAFT_NOT_FOUND;
+}
+
+/**
+ * 409 DRAFT_SENDING(WP-1786) — 그 임시저장이 보내기 대기열에 올라 보내는 중이다(다른 탭·창에서 보냈다). 고치지 못하는 것이 맞으므로
+ * 오류로 다루지 않고 없어진 것(gone)처럼 조용히 멈춘다 — 「다른 곳에서 보냈거나 버린 메일」 표시와 같은 뜻이다.
+ */
+function isDraftSending(e: unknown): boolean {
+  return isConflictError(e) && extractApiErrorCode(e) === DRAFT_SENDING;
 }
 
 /** 400 — 요청 검증 실패(상한 초과·쓸 수 없는 첨부). 같은 내용으로 다시 보내도 같은 결과다. */
@@ -270,7 +278,7 @@ export function useMailDraftAutosave({ instanceId, initialDraftId, initialVersio
         } catch (e) {
           // 그사이 버렸으면(discard) 결과를 덮어쓰지 않는다.
           if (s.phase === 'ended') return;
-          if (isDraftGone(e) && s.id != null) {
+          if ((isDraftGone(e) || isDraftSending(e)) && s.id != null) {
             // 다른 곳에서 보냈거나 버렸다 — 되살리지 않는다. id 를 비워 보내기가 없는 draftId 를 싣지 않게 한다.
             s.id = null;
             s.version = null;

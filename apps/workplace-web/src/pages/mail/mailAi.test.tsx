@@ -186,7 +186,7 @@ test('AI 답장 초안의 HTML 특수문자는 이스케이프돼 글자 그대�
 // WP-1746 — AI 답장 초안이 채워진 답장은 초안 끝에 커서가 있어 클릭 없이 바로 덧붙인다(초안을 덮지 않는다).
 test('AI 답장 초안으로 연 답장은 본문 초안 끝에 초점이 있어 바로 친 글이 초안 뒤에 붙는다', async () => {
   const send = record<{ bodyHtml: string }>('post', '/api/v1/mail/accounts/1/send', () =>
-    HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' }),
+    HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }),
   )
   const { user } = renderAi(undefined, [send.handler, replyDraft('첫 줄\n둘째 줄')])
   await user.click(await screen.findByTestId('mail-row-7'))

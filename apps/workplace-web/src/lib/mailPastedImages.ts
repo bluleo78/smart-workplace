@@ -57,11 +57,30 @@ export function toSendablePastedImages(html: string): {
   html: string;
   inlineUploads: { attachmentId: number; contentId: string }[];
 } {
-  const ids = pastedImageIds(html);
   return {
     html: replaceImgSrcIds(PASTED_IMG_SRC_ATTR, html, (id) => `cid:${pastedContentId(id)}`),
-    inlineUploads: ids.map((id) => ({ attachmentId: id, contentId: pastedContentId(id) })),
+    inlineUploads: pastedInlineUploads(html),
   };
+}
+
+/**
+ * 본문이 참조하는 붙여 넣은 이미지의 인라인 업로드 참조 — 보내기(toSendablePastedImages)와 자동 저장(WP-1786)이 같은 Content-ID 를 쓴다.
+ * 자동 저장 본문은 업로드 경로 그대로 두고 이 참조만 함께 싣는다.
+ */
+export function pastedInlineUploads(html: string): { attachmentId: number; contentId: string }[] {
+  return pastedImageIds(html).map((id) => ({ attachmentId: id, contentId: pastedContentId(id) }));
+}
+
+/**
+ * 보내기 요청 형태 본문의 `cid:` 붙여 넣은 이미지를 업로드 경로로 되돌린다(WP-1786) — 대기열에서 되돌리거나 보내지 못한 임시보관을
+ * 쓰기 창으로 다시 열 때. 편집기는 업로드 경로의 <img> 만 받으므로 되돌리지 않으면 그림이 빠진다. 참조에 없는 cid 는 그대로 둔다.
+ */
+export function restorePastedImageSrcs(html: string, inlineUploads: { attachmentId: number; contentId: string }[]): string {
+  let out = html;
+  for (const { attachmentId, contentId } of inlineUploads) {
+    out = out.split(`"cid:${contentId}"`).join(`"${pastedImageSrc(attachmentId)}"`);
+  }
+  return out;
 }
 
 /**

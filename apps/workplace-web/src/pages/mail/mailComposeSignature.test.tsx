@@ -28,7 +28,7 @@ type SendBody = {
   inlineUploads?: { attachmentId: number; contentId: string }[]
 }
 const sendHandler = () =>
-  record<SendBody>('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' }))
+  record<SendBody>('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
 
 /** 임시보관함에 임시저장 하나(id 7)를 두는 조회 — 목록 행을 눌러 그 본문으로 작성창을 연다. */
 function draftHandlers(d: MailDraftDetail) {

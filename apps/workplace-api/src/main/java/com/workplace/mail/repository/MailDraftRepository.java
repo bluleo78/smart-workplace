@@ -7,20 +7,33 @@ import static com.workplace.jooq.Tables.MAIL_DRAFT_ATTACHMENT;
 import static com.workplace.jooq.Tables.MAIL_DRAFT_FORWARD;
 
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.jooq.tables.records.MailDraftRecord;
+import com.workplace.mail.dto.MailDraftCount;
 import com.workplace.mail.dto.MailDraftDetail;
 import com.workplace.mail.dto.MailDraftDetail.Attachment;
 import com.workplace.mail.dto.MailDraftSaved;
 import com.workplace.mail.dto.MailDraftSummary;
 import com.workplace.mail.dto.MailDraftVersion;
+import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
+import com.workplace.mail.dto.MailSendRequest.InlineUploadRef;
+import com.workplace.mail.dto.QueuedSend;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.InsertSetMoreStep;
+import org.jooq.JSONB;
+import org.jooq.UpdateSetMoreStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 메일 임시저장(WP-577) 저장소 — mail_draft 와 두 정션(업로드 mail_draft_attachment, 전달 원본 mail_draft_forward).
@@ -35,6 +48,7 @@ public class MailDraftRepository {
   public static final String UPLOAD_BINDING = MAIL_DRAFT_ATTACHMENT.getName();
 
   private final DSLContext dsl;
+  private final ObjectMapper objectMapper;
 
   /** 저장할 값(서비스가 정규화한 것). */
   public record Fields(
@@ -49,6 +63,38 @@ public class MailDraftRepository {
       Long sourceMessageId,
       boolean quoteRemoved) {}
 
+  /**
+   * 대기열(WP-1786)에서 보낼 때 필요한데 임시저장에는 없던 값 — 스케줄러가 요청 없이 행만으로 보낼 수 있게 {@link Fields} 와 함께 저장한다.
+   *
+   * @param bodyText 본문 평문(multipart 의 text 파트)
+   * @param inReplyToMessageId 답장 원본 메일 id(스레딩 헤더용)
+   */
+  public record QueueFields(
+      String bodyText,
+      Long inReplyToMessageId,
+      List<InlineImageRef> inlineImages,
+      List<InlineUploadRef> inlineUploads) {}
+
+  /** 스케줄러가 보낼 때 읽는 행 — 보내기에 필요한 모든 값(첨부는 묶인 업로드·전달 원본 id). */
+  public record QueuedRow(
+      long id,
+      long userId,
+      long accountId,
+      List<String> to,
+      List<String> cc,
+      List<String> bcc,
+      String subject,
+      String bodyHtml,
+      String bodyText,
+      Long inReplyToMessageId,
+      List<InlineImageRef> inlineImages,
+      List<InlineUploadRef> inlineUploads,
+      List<Long> boundFileIds,
+      List<Long> forwardAttachmentIds) {}
+
+  /** 오래 SENDING 에 머물러 실패로 돌린 행 — 알림을 만들 때 필요한 값만. */
+  public record StuckRow(long id, long userId, String subject) {}
+
   /** 상세 조회용 행 — 첨부는 서비스가 따로 붙인다. */
   public record DraftRow(
       long id,
@@ -62,35 +108,107 @@ public class MailDraftRepository {
       Long sourceMessageId,
       boolean quoteRemoved,
       int version,
-      OffsetDateTime updatedAt) {}
+      OffsetDateTime updatedAt,
+      String bodyText,
+      Long inReplyToMessageId,
+      List<InlineImageRef> inlineImages,
+      List<InlineUploadRef> inlineUploads,
+      String sendState,
+      String sendError) {}
 
-  /** 새 임시저장 — 버전 1. */
-  public MailDraftSaved insert(long userId, Fields f) {
+  /**
+   * 새 임시저장 — 버전 1. 본문 평문·답장 원본·인라인 참조(WP-1786 대기열 보조 값)도 같은 INSERT 한 문장에 담는다(코드 리뷰: 저장마다 UPDATE 를 한
+   * 번 더 하지 않게).
+   */
+  public MailDraftSaved insert(long userId, Fields f, QueueFields q) {
     var r =
-        dsl.insertInto(MAIL_DRAFT)
-            .set(MAIL_DRAFT.USER_ID, userId)
-            .set(MAIL_DRAFT.ACCOUNT_ID, f.accountId())
-            .set(MAIL_DRAFT.MODE, f.mode())
-            .set(MAIL_DRAFT.TO_ADDRS, f.to().toArray(String[]::new))
-            .set(MAIL_DRAFT.CC_ADDRS, f.cc().toArray(String[]::new))
-            .set(MAIL_DRAFT.BCC_ADDRS, f.bcc().toArray(String[]::new))
-            .set(MAIL_DRAFT.SUBJECT, f.subject())
-            .set(MAIL_DRAFT.BODY_HTML, f.bodyHtml())
-            .set(MAIL_DRAFT.PREVIEW, f.preview())
-            .set(MAIL_DRAFT.SOURCE_MESSAGE_ID, f.sourceMessageId())
-            .set(MAIL_DRAFT.QUOTE_REMOVED, f.quoteRemoved())
+        insertStep(userId, f, q)
             .returning(MAIL_DRAFT.ID, MAIL_DRAFT.VERSION, MAIL_DRAFT.UPDATED_AT)
             .fetchOne();
     return new MailDraftSaved(r.getId(), r.getVersion(), r.getUpdatedAt());
   }
 
   /**
-   * 버전이 맞을 때만 고친다(낙관적 잠금) — 버전 +1, 갱신 시각 지금. 행을 잠그므로 같은 임시저장의 동시 저장은 줄을 서고, 뒤 요청은 버전이 달라 빈 결과가 된다.
+   * 새 임시저장을 곧바로 보내기 대기(QUEUED)로 만든다(WP-1786 보내기) — 지금(DB 시계)부터 delaySeconds 초 뒤를 send_at 으로, 값과 대기
+   * 표시를 같은 INSERT 한 문장에 담는다(따로 UPDATE 하지 않는다).
    *
-   * @return 새 버전. 없거나 남의 것이거나 버전이 다르면 빈 값(서비스가 {@link #exists} 로 404·409 를 가른다)
+   * @return 새 id 와 DB 가 정한 보낼 시각
+   */
+  public QueuedSend insertQueued(long userId, Fields f, QueueFields q, int delaySeconds) {
+    var r =
+        insertStep(userId, f, q)
+            .set(MAIL_DRAFT.SEND_STATE, SendState.QUEUED)
+            .set(MAIL_DRAFT.SEND_AT, dbNowPlusSeconds(delaySeconds))
+            .set(MAIL_DRAFT.SENT_BY_SCHEDULE, false)
+            .returning(MAIL_DRAFT.ID, MAIL_DRAFT.SEND_AT)
+            .fetchOne();
+    return new QueuedSend(r.getId(), r.getSendAt());
+  }
+
+  /** INSERT 공통 — 저장 값과 대기열 보조 값. 발송 상태 열은 호출자가 정한다(안 정하면 기본값 = 일반 임시보관). */
+  private InsertSetMoreStep<MailDraftRecord> insertStep(long userId, Fields f, QueueFields q) {
+    return dsl.insertInto(MAIL_DRAFT)
+        .set(MAIL_DRAFT.USER_ID, userId)
+        .set(MAIL_DRAFT.ACCOUNT_ID, f.accountId())
+        .set(MAIL_DRAFT.MODE, f.mode())
+        .set(MAIL_DRAFT.TO_ADDRS, f.to().toArray(String[]::new))
+        .set(MAIL_DRAFT.CC_ADDRS, f.cc().toArray(String[]::new))
+        .set(MAIL_DRAFT.BCC_ADDRS, f.bcc().toArray(String[]::new))
+        .set(MAIL_DRAFT.SUBJECT, f.subject())
+        .set(MAIL_DRAFT.BODY_HTML, f.bodyHtml())
+        .set(MAIL_DRAFT.PREVIEW, f.preview())
+        .set(MAIL_DRAFT.SOURCE_MESSAGE_ID, f.sourceMessageId())
+        .set(MAIL_DRAFT.QUOTE_REMOVED, f.quoteRemoved())
+        .set(MAIL_DRAFT.BODY_TEXT, q.bodyText())
+        .set(MAIL_DRAFT.IN_REPLY_TO_MESSAGE_ID, q.inReplyToMessageId())
+        .set(MAIL_DRAFT.INLINE_IMAGES, toJsonb(q.inlineImages()))
+        .set(MAIL_DRAFT.INLINE_UPLOADS, toJsonb(q.inlineUploads()));
+  }
+
+  /**
+   * 버전이 맞을 때만 고친다(낙관적 잠금) — 버전 +1, 갱신 시각 지금, 대기열 보조 값도 같은 UPDATE 한 문장에서(코드 리뷰: 자동 저장마다 UPDATE 두 번을
+   * 하지 않게). 행을 잠그므로 같은 임시저장의 동시 저장은 줄을 서고, 뒤 요청은 버전이 달라 빈 결과가 된다. 대기(QUEUED)·발송 중(SENDING) 행은 고치지
+   * 않는다(WP-1786) — 일반·FAILED 만 고치고, FAILED 는 저장하면 실패 흔적을 지워 일반 임시보관으로 돌린다.
+   *
+   * @return 새 버전. 없거나 남의 것이거나 버전이 다르거나 대기·발송 중이면 빈 값(서비스가 {@link #sendState} 로 404·409 를 가른다)
    */
   public Optional<MailDraftVersion> updateIfVersion(
-      long userId, long draftId, int expectedVersion, Fields f) {
+      long userId, long draftId, int expectedVersion, Fields f, QueueFields q) {
+    return updateStep(f, q)
+        // 실패한 행을 저장하면 실패 흔적을 지워 일반 임시보관으로 돌린다.
+        .set(MAIL_DRAFT.SEND_STATE, (String) null)
+        .set(MAIL_DRAFT.SEND_ERROR, (String) null)
+        .where(idleOwned(userId, draftId))
+        .and(MAIL_DRAFT.VERSION.eq(expectedVersion))
+        .returning(MAIL_DRAFT.VERSION, MAIL_DRAFT.UPDATED_AT)
+        .fetchOptional()
+        .map(r -> MailDraftVersion.of(r.getVersion(), r.getUpdatedAt()));
+  }
+
+  /**
+   * 보내기가 내 일반·FAILED 임시보관을 이어받아 곧바로 보내기 대기(QUEUED)로 만든다(WP-1786) — 버전 검사 없이 값을 고치고(버전 +1) 이전 실패 흔적을
+   * 지우며, 지금(DB 시계)부터 delaySeconds 초 뒤를 send_at 으로 같은 UPDATE 한 문장에서 표시한다.
+   *
+   * <p>보낼 시각을 DB 시계로 계산하는 이유: 스케줄러의 잡기·멈춤 정리가 DB now() 와 비교하므로, 앱 서버와 DB 의 시계가 어긋나도 되돌리기 유예가 줄거나 늘지
+   * 않게(코드 리뷰).
+   *
+   * @return DB 가 정한 보낼 시각. 없거나 남의 것이거나 이미 대기·발송 중이면 빈 값
+   */
+  public Optional<OffsetDateTime> updateQueued(
+      long userId, long draftId, Fields f, QueueFields q, int delaySeconds) {
+    return updateStep(f, q)
+        .set(MAIL_DRAFT.SEND_STATE, SendState.QUEUED)
+        .set(MAIL_DRAFT.SEND_ERROR, (String) null)
+        .set(MAIL_DRAFT.SEND_AT, dbNowPlusSeconds(delaySeconds))
+        .set(MAIL_DRAFT.SENDING_STARTED_AT, (OffsetDateTime) null)
+        .set(MAIL_DRAFT.SENT_BY_SCHEDULE, false)
+        .where(idleOwned(userId, draftId))
+        .returning(MAIL_DRAFT.SEND_AT)
+        .fetchOptional(MAIL_DRAFT.SEND_AT);
+  }
+
+  /** UPDATE 공통 — 저장 값·대기열 보조 값·버전 +1·갱신 시각. 발송 상태 열과 조건은 호출자가 붙인다. */
+  private UpdateSetMoreStep<MailDraftRecord> updateStep(Fields f, QueueFields q) {
     return dsl.update(MAIL_DRAFT)
         .set(MAIL_DRAFT.ACCOUNT_ID, f.accountId())
         .set(MAIL_DRAFT.MODE, f.mode())
@@ -102,14 +220,211 @@ public class MailDraftRepository {
         .set(MAIL_DRAFT.PREVIEW, f.preview())
         .set(MAIL_DRAFT.SOURCE_MESSAGE_ID, f.sourceMessageId())
         .set(MAIL_DRAFT.QUOTE_REMOVED, f.quoteRemoved())
+        .set(MAIL_DRAFT.BODY_TEXT, q.bodyText())
+        .set(MAIL_DRAFT.IN_REPLY_TO_MESSAGE_ID, q.inReplyToMessageId())
+        .set(MAIL_DRAFT.INLINE_IMAGES, toJsonb(q.inlineImages()))
+        .set(MAIL_DRAFT.INLINE_UPLOADS, toJsonb(q.inlineUploads()))
         .set(MAIL_DRAFT.VERSION, MAIL_DRAFT.VERSION.plus(1))
-        .set(MAIL_DRAFT.UPDATED_AT, DSL.currentOffsetDateTime())
+        .set(MAIL_DRAFT.UPDATED_AT, DSL.currentOffsetDateTime());
+  }
+
+  /** 내 행이고 보내는 중이 아님(일반·FAILED) — 고치기·대기 올리기가 같은 조건을 쓴다. */
+  private static Condition idleOwned(long userId, long draftId) {
+    return MAIL_DRAFT.ID.eq(draftId).and(MAIL_DRAFT.USER_ID.eq(userId)).and(idle());
+  }
+
+  /** 보내는 중이 아님(send_state NULL·FAILED) — {@link SendState#isInFlight} 의 반대를 SQL 로. */
+  private static Condition idle() {
+    return MAIL_DRAFT.SEND_STATE.isNull().or(MAIL_DRAFT.SEND_STATE.eq(SendState.FAILED));
+  }
+
+  /** DB 시계 기준 지금 + seconds 초 — 보낼 시각을 앱 시계와 섞지 않는다. */
+  private static Field<OffsetDateTime> dbNowPlusSeconds(int seconds) {
+    return DSL.field("now() + make_interval(secs => {0})", OffsetDateTime.class, DSL.val(seconds));
+  }
+
+  /**
+   * 내 임시저장의 발송 상태를 행 잠금(FOR UPDATE)과 함께 읽는다 — 스케줄러 claimDue 는 SKIP LOCKED 라 잠긴 행을 건너뛰므로, 호출자 트랜잭션이
+   * 끝날 때까지 확인한 상태가 바뀌지 않는다. 반환 규칙은 {@link #sendState} 와 같다.
+   */
+  public Optional<String> lockSendState(long userId, long draftId) {
+    return readSendState(userId, draftId, true);
+  }
+
+  /** 목록을 JSONB 로 — null 은 빈 배열로 본다(NOT NULL 열). */
+  private JSONB toJsonb(List<?> list) {
+    return JSONB.valueOf(objectMapper.writeValueAsString(list == null ? List.of() : list));
+  }
+
+  /** JSONB 배열을 목록으로 — 값이 없으면 빈 목록. */
+  private <T> List<T> fromJsonb(JSONB json, TypeReference<List<T>> type) {
+    if (json == null) {
+      return List.of();
+    }
+    return objectMapper.readValue(json.data(), type);
+  }
+
+  /**
+   * 대기열에 올린다 — send_at 에 보낼 때가 되면 스케줄러가 집도록 QUEUED 로 바꾼다. 이전 실패 흔적(send_error)은 지운다. 보낼 시각을 앱이 정하는
+   * 길이다(예약 발송) — 보내기 직후 되돌리기 대기는 {@link #insertQueued}·{@link #updateQueued} 가 값과 함께 DB 시계로 올린다.
+   *
+   * <p>일반(send_state NULL)·FAILED 행만 올린다 — 이미 QUEUED·SENDING 인 행을 덮어쓰면 보내는 중인 행이 되돌려지므로 거절한다.
+   *
+   * @param bySchedule 예약 발송이면 true(완료 알림 문구가 달라진다), 즉시 보내기 후 되돌리기 대기면 false
+   * @return 올렸으면 true, 이미 대기·발송 중이거나 없으면 false
+   */
+  public boolean markQueued(long draftId, OffsetDateTime sendAt, boolean bySchedule) {
+    return dsl.update(MAIL_DRAFT)
+            .set(MAIL_DRAFT.SEND_AT, sendAt)
+            .set(MAIL_DRAFT.SEND_STATE, SendState.QUEUED)
+            .set(MAIL_DRAFT.SEND_ERROR, (String) null)
+            .set(MAIL_DRAFT.SENDING_STARTED_AT, (OffsetDateTime) null)
+            .set(MAIL_DRAFT.SENT_BY_SCHEDULE, bySchedule)
+            .where(MAIL_DRAFT.ID.eq(draftId))
+            .and(idle())
+            .execute()
+        > 0;
+  }
+
+  /**
+   * 되돌리기 — 아직 대기(QUEUED)일 때만 대기를 풀어 일반 임시저장으로 돌린다. 이미 스케줄러가 집었으면(SENDING) 늦은 것이라 건드리지 않는다.
+   *
+   * @return 풀었으면 true, 대기가 아니거나 남의 것이면 false
+   */
+  public boolean cancelQueued(long userId, long draftId) {
+    return dsl.update(MAIL_DRAFT)
+            .set(MAIL_DRAFT.SEND_AT, (OffsetDateTime) null)
+            .set(MAIL_DRAFT.SEND_STATE, (String) null)
+            .where(MAIL_DRAFT.ID.eq(draftId))
+            .and(MAIL_DRAFT.USER_ID.eq(userId))
+            .and(MAIL_DRAFT.SEND_STATE.eq(SendState.QUEUED))
+            .execute()
+        > 0;
+  }
+
+  /**
+   * 내 임시저장의 발송 상태 — 행이 없으면(남의 것 포함) empty, 일반 임시보관(send_state NULL)이면 빈 문자열, 아니면
+   * QUEUED·SENDING·FAILED.
+   */
+  public Optional<String> sendState(long userId, long draftId) {
+    return readSendState(userId, draftId, false);
+  }
+
+  /** 발송 상태 읽기 공통 — lock 이면 행을 FOR UPDATE 로 잠근다. NULL(일반)은 빈 문자열로. */
+  private Optional<String> readSendState(long userId, long draftId, boolean lock) {
+    var select =
+        dsl.select(MAIL_DRAFT.SEND_STATE)
+            .from(MAIL_DRAFT)
+            .where(MAIL_DRAFT.ID.eq(draftId))
+            .and(MAIL_DRAFT.USER_ID.eq(userId));
+    return (lock ? select.forUpdate().fetchOptional() : select.fetchOptional())
+        .map(r -> r.value1() == null ? "" : r.value1());
+  }
+
+  /**
+   * 때가 된 대기 행을 집는다 — send_at 순으로 limit 건을 FOR UPDATE SKIP LOCKED 로 잠가(여러 파드·틱이 겹쳐도 한 행은 한 곳만 집는다)
+   * SENDING·sending_started_at=지금 으로 바꾼다. 고르기와 바꾸기를 UPDATE … WHERE id IN (SELECT … SKIP LOCKED)
+   * RETURNING 한 문장으로 한다(왕복 한 번). 호출자의 트랜잭션 안에서 불러야 잠금이 유지된다.
+   *
+   * @return 집은 draft id(send_at 순 — RETURNING 은 순서를 보장하지 않아 받은 send_at 으로 다시 정렬한다)
+   */
+  public List<Long> claimDue(int limit) {
+    var due =
+        DSL.select(MAIL_DRAFT.ID)
+            .from(MAIL_DRAFT)
+            .where(MAIL_DRAFT.SEND_STATE.eq(SendState.QUEUED))
+            .and(MAIL_DRAFT.SEND_AT.le(DSL.currentOffsetDateTime()))
+            .orderBy(MAIL_DRAFT.SEND_AT, MAIL_DRAFT.ID)
+            .limit(limit)
+            .forUpdate()
+            .skipLocked();
+    return dsl
+        .update(MAIL_DRAFT)
+        .set(MAIL_DRAFT.SEND_STATE, SendState.SENDING)
+        .set(MAIL_DRAFT.SENDING_STARTED_AT, DSL.currentOffsetDateTime())
+        .where(MAIL_DRAFT.ID.in(due))
+        .returning(MAIL_DRAFT.ID, MAIL_DRAFT.SEND_AT)
+        .fetch()
+        .stream()
+        .sorted(
+            Comparator.comparing(MailDraftRecord::getSendAt).thenComparing(MailDraftRecord::getId))
+        .map(MailDraftRecord::getId)
+        .toList();
+  }
+
+  /**
+   * 이 행의 전송을 지금 시작한다 — sending_started_at 을 DB now() 로 다시 찍으며 보낼 값을 같은 UPDATE … RETURNING 으로 읽는다(왕복
+   * 한 번, 묶인 첨부 id 만 따로 읽는다). 소유 조건 없이 id 로 찾는다(스케줄러에는 사용자 문맥이 없다).
+   *
+   * <p>다시 찍는 이유(코드 리뷰): 잡기(claimDue)는 한 회차의 행을 한꺼번에 찍지만 전송은 하나씩 차례로 하므로, 앞 행들이 오래 걸리면 아직 손대지 않은 행이
+   * 멈춤 정리(10분)에 걸려 「확인하지 못함」으로 바뀔 수 있다. 전송 직전에 행마다 다시 찍어 멈춤 시계가 실제 전송 시작부터 돌게 한다(잡기 때 찍은 값은 그대로 두어,
+   * 보내기 전에 파드가 죽은 행도 멈춤 정리가 잡는다).
+   *
+   * <p>발송 중(SENDING)인 행만 — 잡지 않은 대기 행, 그 사이 멈춤 정리가 실패로 돌렸거나 지워진 행이면 빈 값이라 호출자가 보내지 않는다.
+   */
+  public Optional<QueuedRow> startSend(long draftId) {
+    return dsl.update(MAIL_DRAFT)
+        .set(MAIL_DRAFT.SENDING_STARTED_AT, DSL.currentOffsetDateTime())
         .where(MAIL_DRAFT.ID.eq(draftId))
-        .and(MAIL_DRAFT.USER_ID.eq(userId))
-        .and(MAIL_DRAFT.VERSION.eq(expectedVersion))
-        .returning(MAIL_DRAFT.VERSION, MAIL_DRAFT.UPDATED_AT)
+        .and(MAIL_DRAFT.SEND_STATE.eq(SendState.SENDING))
+        .returning()
         .fetchOptional()
-        .map(r -> MailDraftVersion.of(r.getVersion(), r.getUpdatedAt()));
+        .map(
+            r ->
+                new QueuedRow(
+                    r.getId(),
+                    r.getUserId(),
+                    r.getAccountId(),
+                    List.of(r.getToAddrs()),
+                    List.of(r.getCcAddrs()),
+                    List.of(r.getBccAddrs()),
+                    r.getSubject(),
+                    r.getBodyHtml(),
+                    r.getBodyText(),
+                    r.getInReplyToMessageId(),
+                    fromJsonb(r.getInlineImages(), new TypeReference<List<InlineImageRef>>() {}),
+                    fromJsonb(r.getInlineUploads(), new TypeReference<List<InlineUploadRef>>() {}),
+                    boundFileIds(r.getId()),
+                    forwardIds(r.getId())));
+  }
+
+  /**
+   * 너무 오래 SENDING 인 행을 실패로 돌린다 — 발송 중 프로세스가 죽으면 SENDING 에 영영 머문다. 실제로 갔는지 알 수 없어 재시도하지 않고(중복 발송 방지)
+   * FAILED·send_error='UNKNOWN' 으로 두어 사용자가 확인하게 한다.
+   *
+   * @return 실패로 돌린 행(알림용)
+   */
+  public List<StuckRow> failStuck(Duration olderThan) {
+    // Duration → 초 단위 interval. 앱 시각이 아니라 DB 시계 기준(sending_started_at 도 DB now() 로 찍는다).
+    return dsl.update(MAIL_DRAFT)
+        .set(MAIL_DRAFT.SEND_STATE, SendState.FAILED)
+        .set(MAIL_DRAFT.SEND_ERROR, SendState.UNKNOWN_ERROR)
+        .set(MAIL_DRAFT.SEND_AT, (OffsetDateTime) null)
+        .where(MAIL_DRAFT.SEND_STATE.eq(SendState.SENDING))
+        .and(
+            MAIL_DRAFT.SENDING_STARTED_AT.lt(
+                DSL.field(
+                    "now() - make_interval(secs => {0})",
+                    OffsetDateTime.class, DSL.val(olderThan.toMillis() / 1000.0))))
+        .returning(MAIL_DRAFT.ID, MAIL_DRAFT.USER_ID, MAIL_DRAFT.SUBJECT)
+        .fetch(r -> new StuckRow(r.getId(), r.getUserId(), r.getSubject()));
+  }
+
+  /**
+   * 발송 실패 기록 — 대기(send_at)를 풀고 FAILED·사유를 남긴다. 행은 임시저장으로 다시 보인다. 발송 중(SENDING)인 행만 바꾼다 — 그 사이 지워졌거나
+   * 다른 상태로 바뀐 행을 늦은 실패 기록이 덮어쓰지 않게.
+   *
+   * @return 바꿨으면 true
+   */
+  public boolean markFailed(long draftId, String error) {
+    return dsl.update(MAIL_DRAFT)
+            .set(MAIL_DRAFT.SEND_AT, (OffsetDateTime) null)
+            .set(MAIL_DRAFT.SEND_STATE, SendState.FAILED)
+            .set(MAIL_DRAFT.SEND_ERROR, error)
+            .where(MAIL_DRAFT.ID.eq(draftId))
+            .and(MAIL_DRAFT.SEND_STATE.eq(SendState.SENDING))
+            .execute()
+        > 0;
   }
 
   /** 내 임시저장이 있는가(계정 상태와 무관). */
@@ -143,6 +458,8 @@ public class MailDraftRepository {
         .from(MAIL_DRAFT)
         .where(MAIL_DRAFT.USER_ID.eq(userId))
         .and(MAIL_DRAFT.ACCOUNT_ID.eq(accountId))
+        // 대기 중(send_at 있음)인 행은 임시저장 목록에 보이지 않는다 — 일반·FAILED 만.
+        .and(MAIL_DRAFT.SEND_AT.isNull())
         .orderBy(MAIL_DRAFT.UPDATED_AT.desc(), MAIL_DRAFT.ID.desc())
         .limit(limit)
         .fetch(
@@ -158,21 +475,38 @@ public class MailDraftRepository {
                     r.get(MAIL_DRAFT.UPDATED_AT)));
   }
 
-  /** 내 계정의 임시저장 개수(배지). */
-  public long countByAccount(long userId, long accountId) {
-    return dsl.fetchCount(
-        MAIL_DRAFT, MAIL_DRAFT.USER_ID.eq(userId).and(MAIL_DRAFT.ACCOUNT_ID.eq(accountId)));
+  /**
+   * 내 계정의 임시저장 개수(배지)와 보내기 대기 수(WP-1786)를 한 쿼리로 — 대기 중(send_at 있음)인 행은 임시저장 수에 세지 않고(일반·FAILED 만)
+   * 대기 수로 센다(QUEUED·SENDING).
+   */
+  public MailDraftCount countByAccount(long userId, long accountId) {
+    Field<Integer> drafts = DSL.count().filterWhere(MAIL_DRAFT.SEND_AT.isNull());
+    Field<Integer> queued = DSL.count().filterWhere(MAIL_DRAFT.SEND_AT.isNotNull());
+    var r =
+        dsl.select(drafts, queued)
+            .from(MAIL_DRAFT)
+            .where(MAIL_DRAFT.USER_ID.eq(userId))
+            .and(MAIL_DRAFT.ACCOUNT_ID.eq(accountId))
+            .fetchOne();
+    return new MailDraftCount(r.value1(), r.value2());
   }
 
-  /** 내 임시저장 상세 — 계정이 비활성(삭제 대기)이면 없는 것으로 본다(목록과 같은 기준). */
-  public Optional<DraftRow> findOwned(long userId, long draftId) {
+  /**
+   * 내 임시저장 상세 — 보통은 계정이 비활성(삭제 대기)이면 없는 것으로 본다(목록과 같은 기준).
+   *
+   * @param includeDisabledAccount true 면 계정이 비활성(삭제 대기)이어도 읽는다 — 되돌리기(cancel)가 방금 대기를 푼 행을 돌려줄 때만
+   *     쓴다(코드 리뷰: 읽기가 404 로 실패해 대기 풀기까지 롤백되면 행이 QUEUED 로 남는다)
+   */
+  public Optional<DraftRow> findOwned(long userId, long draftId, boolean includeDisabledAccount) {
+    var cond = MAIL_DRAFT.ID.eq(draftId).and(MAIL_DRAFT.USER_ID.eq(userId));
+    if (!includeDisabledAccount) {
+      cond = cond.and(EMAIL_ACCOUNT.DISABLED_AT.isNull());
+    }
     return dsl.select(MAIL_DRAFT.fields())
         .from(MAIL_DRAFT)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(MAIL_DRAFT.ACCOUNT_ID))
-        .where(MAIL_DRAFT.ID.eq(draftId))
-        .and(MAIL_DRAFT.USER_ID.eq(userId))
-        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .where(cond)
         .fetchOptional(
             r ->
                 new DraftRow(
@@ -187,7 +521,17 @@ public class MailDraftRepository {
                     r.get(MAIL_DRAFT.SOURCE_MESSAGE_ID),
                     r.get(MAIL_DRAFT.QUOTE_REMOVED),
                     r.get(MAIL_DRAFT.VERSION),
-                    r.get(MAIL_DRAFT.UPDATED_AT)));
+                    r.get(MAIL_DRAFT.UPDATED_AT),
+                    r.get(MAIL_DRAFT.BODY_TEXT),
+                    r.get(MAIL_DRAFT.IN_REPLY_TO_MESSAGE_ID),
+                    fromJsonb(
+                        r.get(MAIL_DRAFT.INLINE_IMAGES),
+                        new TypeReference<List<InlineImageRef>>() {}),
+                    fromJsonb(
+                        r.get(MAIL_DRAFT.INLINE_UPLOADS),
+                        new TypeReference<List<InlineUploadRef>>() {}),
+                    r.get(MAIL_DRAFT.SEND_STATE),
+                    r.get(MAIL_DRAFT.SEND_ERROR)));
   }
 
   /** 임시저장에 묶인 업로드 file id — 묶은 순서. */
@@ -276,24 +620,44 @@ public class MailDraftRepository {
   }
 
   /**
-   * 내 임시저장을 지운다 — 묶인 업로드에 expiresAt 만료를 걸어 만료 스윕이 정리하게 하고(보류 중인 것은 그 발송이 정리한다), 정션은 CASCADE 로 사라진다.
-   * 사용자가 버린 것은 「되돌리기」가 같은 업로드로 다시 만들 수 있게 임시 수명(24시간)을, 발송 뒤 정리는 지금을 넘긴다.
+   * 내 임시저장을 상태와 상관없이 지운다(발송 성공 뒤 정리 — 대기열이 SENDING 으로 보낸 행도 지워야 한다). 지우는 방식은 {@link #deleteLocked}.
    *
    * @param expiresAt 묶였던 업로드에 걸 만료 시각
    * @return 지웠으면 true, 없거나 남의 것이면 false
    */
   public boolean deleteOwned(long userId, long draftId, OffsetDateTime expiresAt) {
-    // 행을 먼저 잠가 같은 임시저장의 동시 저장(새 업로드 묶기)과 엇갈리지 않게 한다.
-    Long locked =
-        dsl.select(MAIL_DRAFT.ID)
-            .from(MAIL_DRAFT)
-            .where(MAIL_DRAFT.ID.eq(draftId))
-            .and(MAIL_DRAFT.USER_ID.eq(userId))
-            .forUpdate()
-            .fetchOne(MAIL_DRAFT.ID);
-    if (locked == null) {
+    // 행을 먼저 잠가 같은 임시저장의 동시 저장(새 업로드 묶기)·스케줄러 잡기(SKIP LOCKED)와 엇갈리지 않게 한다.
+    if (lockSendState(userId, draftId).isEmpty()) {
       return false;
     }
+    deleteLocked(userId, draftId, expiresAt);
+    return true;
+  }
+
+  /**
+   * 내 임시저장을 보내는 중이 아닐 때만 지운다(사용자의 버리기) — 잠금은 한 번: 행을 FOR UPDATE 로 읽으며 발송 상태도 함께 본다(코드 리뷰: 상태용 잠금
+   * SELECT 를 따로 하지 않는다). 보내는 중(QUEUED·SENDING)인 행은 지우지 않는다 — 되돌리기는 별도 취소 경로다.
+   *
+   * @param expiresAt 묶였던 업로드에 걸 만료 시각
+   * @return 지웠으면 DELETED, 없거나 남의 것이면 NOT_FOUND, 보내는 중이라 거절했으면 SENDING
+   */
+  public DeleteResult deleteOwnedIfIdle(long userId, long draftId, OffsetDateTime expiresAt) {
+    Optional<String> state = lockSendState(userId, draftId);
+    if (state.isEmpty()) {
+      return DeleteResult.NOT_FOUND;
+    }
+    if (SendState.isInFlight(state.get())) {
+      return DeleteResult.SENDING;
+    }
+    deleteLocked(userId, draftId, expiresAt);
+    return DeleteResult.DELETED;
+  }
+
+  /**
+   * 잠근 행을 지운다 — 묶인 업로드에 expiresAt 만료를 걸어 만료 스윕이 정리하게 하고(보류 중인 것은 그 발송이 정리한다), 정션은 CASCADE 로 사라진다.
+   * 사용자가 버린 것은 「되돌리기」가 같은 업로드로 다시 만들 수 있게 임시 수명(24시간)을, 발송 뒤 정리는 지금을 넘긴다.
+   */
+  private void deleteLocked(long userId, long draftId, OffsetDateTime expiresAt) {
     dsl.update(FILE)
         // 앱 시각 기준 만료(호출자가 계산) — 만료 스윕·클레임 판정이 앱 시각(OffsetDateTime.now())과 비교하므로 DB 시계와 섞지 않는다.
         .set(FILE.EXPIRES_AT, expiresAt)
@@ -306,7 +670,16 @@ public class MailDraftRepository {
                     .where(MAIL_DRAFT_ATTACHMENT.DRAFT_ID.eq(draftId))))
         .execute();
     dsl.deleteFrom(MAIL_DRAFT).where(MAIL_DRAFT.ID.eq(draftId)).execute();
-    return true;
+  }
+
+  /** {@link #deleteOwnedIfIdle} 결과. */
+  public enum DeleteResult {
+    /** 지웠다. */
+    DELETED,
+    /** 없거나 남의 것. */
+    NOT_FOUND,
+    /** 보내는 중(QUEUED·SENDING)이라 지우지 않았다. */
+    SENDING
   }
 
   /**

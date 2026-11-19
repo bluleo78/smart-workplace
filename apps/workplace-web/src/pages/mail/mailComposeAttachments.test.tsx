@@ -85,7 +85,7 @@ async function failAllAttempts(uploads: ReturnType<typeof holdUploads>, from = 0
 }
 
 const sendHandler = (reply?: () => Response) =>
-  record<SendBody>('post', '/api/v1/mail/accounts/1/send', () => reply?.() ?? HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' }))
+  record<SendBody>('post', '/api/v1/mail/accounts/1/send', () => reply?.() ?? HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
 
 /** 크기만 큰 파일 — 앱은 한도·합계를 file.size 로만 판정하므로 내용은 몇 바이트로 둔다. */
 function bigFile(name: string, size: number, type = 'video/mp4') {
@@ -515,7 +515,7 @@ test('붙여 넣은 캡처의 업로드가 실패하면 자리표시를 지우�
 test('붙여 넣은 캡처는 올리는 동안 발송을 막고, 보낼 때 cid 인라인 이미지로 실린다(칩은 생기지 않는다)', async () => {
   const uploads = holdUploads()
   const send = record<{ bodyHtml: string; attachmentIds: number[]; inlineUploads: unknown[] }>('post', '/api/v1/mail/accounts/1/send', () =>
-    HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' }),
+    HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }),
   )
   const view = await openNew([
     uploads.handler,
@@ -562,4 +562,26 @@ test('붙여 넣은 캡처가 일시 실패(5xx)해도 자동으로 다시 올�
   await waitFor(() => expect(screen.getByTestId('mail-body-image')).not.toHaveAttribute('data-pending'))
   expect(screen.queryByText('올리지 못했어요')).not.toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+// WP-1786 — 자동 저장도 보내기 요청과 같은 이미지 참조를 담는다(대기열이 그 행만으로 보내고, 되돌리면 그 행으로 다시 연다).
+test('붙여 넣은 캡처가 올라가면 자동 저장 요청에 inlineUploads 로 실린다(본문은 업로드 경로 그대로)', async () => {
+  const uploads = holdUploads()
+  const posts = record<{ bodyHtml: string; attachmentIds: number[]; inlineUploads?: unknown[] }>('post', '/api/v1/mail/drafts', () =>
+    HttpResponse.json({ id: 77, version: 1, updatedAt: '2026-11-19T01:00:00Z' }, { status: 201 }),
+  )
+  const view = await openNew([
+    uploads.handler,
+    posts.handler,
+    http.get('/api/v1/files/702/content', () => new HttpResponse('PNG', { headers: { 'content-type': 'image/png' } })),
+  ])
+  await view.user.click(screen.getByTestId('mail-composer-body'))
+  pasteImage()
+  await uploads.respond(0, 201, { id: 702, name: 'image.png', size: 68, mimeType: 'image/png', expiresAt: '2026-10-26T10:00:00Z' })
+  await waitFor(() => expect(screen.getByTestId('mail-body-image')).not.toHaveAttribute('data-pending'))
+  await waitFor(() => expect(posts.calls.length).toBeGreaterThan(0), { timeout: 5000 })
+  const body = posts.last().body
+  expect(body.inlineUploads).toEqual([{ attachmentId: 702, contentId: 'pasted-702@genia-works' }])
+  expect(body.attachmentIds).toEqual([702])
+  expect(body.bodyHtml).toContain('/api/v1/files/702/content')
 })

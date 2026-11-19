@@ -14,9 +14,11 @@ export async function listMailDrafts(accountId: number): Promise<MailDraftSummar
   return data;
 }
 
-/** 계정의 임시저장 개수 — 사이드바 배지. */
-export async function getMailDraftCount(accountId: number): Promise<{ count: number }> {
-  const { data } = await client.get<{ count: number }>('/mail/drafts/count', { params: { accountId } });
+/**
+ * 계정의 임시저장 개수 — 사이드바 배지(count). queued 는 보내기 대기 수(WP-1786) — 계정 삭제 확인창이 함께 지워질 대기를 알린다.
+ */
+export async function getMailDraftCount(accountId: number): Promise<{ count: number; queued: number }> {
+  const { data } = await client.get<{ count: number; queued: number }>('/mail/drafts/count', { params: { accountId } });
   return data;
 }
 

@@ -41,7 +41,7 @@ async function mockSend(page: Page) {
   const sends = trackRequests(page, 'POST', SEND_PATH)
   await page.route(
     (u) => u.pathname === SEND_PATH,
-    (route) => route.fulfill({ status: 200, json: { localMessageId: 10, messageId: 'x@test.local' } }),
+    (route) => route.fulfill({ status: 200, json: { draftId: 900, sendAt: '2026-11-19T00:00:10Z' } }),
   )
   return sends
 }

@@ -150,6 +150,16 @@ public class Notification extends TableImpl<NotificationRecord> {
      */
     public final TableField<NotificationRecord, OffsetDateTime> ARCHIVED_AT = createField(DSL.name("archived_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.notification.mail_draft_id</code>.
+     */
+    public final TableField<NotificationRecord, Long> MAIL_DRAFT_ID = createField(DSL.name("mail_draft_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.notification.mail_send_unknown</code>.
+     */
+    public final TableField<NotificationRecord, Boolean> MAIL_SEND_UNKNOWN = createField(DSL.name("mail_send_unknown"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private Notification(Name alias, Table<NotificationRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

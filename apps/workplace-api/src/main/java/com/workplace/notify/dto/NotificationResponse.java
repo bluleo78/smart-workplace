@@ -20,6 +20,10 @@ import java.time.Instant;
  * @param agentWorkState AI 작업 상태로 생긴 알림의 원인 상태(WP-913) — AI_REVIEW_REQUESTED=REVIEW,
  *     AI_WORK_FAILED=FAILED|REJECTED, 상태 경로 AI_QUESTION=AUTH_REQUIRED|BLOCKED|INPUT_REQUIRED. 이슈 챗
  *     질문으로 생긴 AI_QUESTION·그 외 유형은 null — 프론트가 상태별 문구를 고른다
+ * @param mailDraftId 메일 발송 실패 알림(MAIL_SEND_FAILED, WP-1786)이 가리키는 임시보관 id — 누르면 그 임시보관을 쓰기 창으로 연다(그
+ *     외 유형은 null). 임시보관은 그 뒤 지워질 수 있어 가리키는 행이 없을 수 있다
+ * @param mailSendUnknown 메일 발송 실패 알림의 변형 — true 면 발송 중 멈춰 결과를 모르는 「보냈는지 확인하지 못함 — 보낸편지함을 확인해 주세요」,
+ *     false 면 「메일을 보내지 못함」. 다른 유형은 늘 false
  * @param read read_at 존재 여부(읽음)
  */
 public record NotificationResponse(
@@ -41,5 +45,7 @@ public record NotificationResponse(
     String message,
     String statusName,
     String agentWorkState,
+    Long mailDraftId,
+    boolean mailSendUnknown,
     boolean read,
     Instant createdAt) {}

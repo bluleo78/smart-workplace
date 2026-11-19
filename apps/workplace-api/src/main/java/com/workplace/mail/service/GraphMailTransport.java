@@ -184,7 +184,7 @@ public class GraphMailTransport implements MailTransport {
       if (draftId != null) {
         deleteDraftQuietly(token, draftId);
       }
-      throw new MailSendException(LARGE_SEND_FAILED, e);
+      throw MailSendException.userFacing(LARGE_SEND_FAILED, e);
     }
   }
 

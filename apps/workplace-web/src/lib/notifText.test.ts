@@ -74,3 +74,17 @@ describe('새 앱 연결 문구 (WP-1686)', () => {
     expect(notificationAction(n({ type: 'OAUTH_APP_CONNECTED' }))).toBe('새 앱 연결');
   });
 });
+
+// WP-1786 — 메일 보내기 실패: 행위자 없는 알림. 결과를 모르는 변형(mailSendUnknown)은 보낸편지함을 확인하라고 한다(서버 푸시와 같은 뜻).
+describe('메일 보내기 실패 문구 (WP-1786)', () => {
+  it('보내지 못했으면 「메일을 보내지 못함」', () => {
+    expect(notificationAction(n({ type: 'MAIL_SEND_FAILED', mailSendUnknown: false }))).toBe('메일을 보내지 못함');
+    expect(notificationAction(n({ type: 'MAIL_SEND_FAILED' }))).toBe('메일을 보내지 못함');
+  });
+
+  it('보냈는지 모르면 「보냈는지 확인하지 못함 — 보낸편지함을 확인해 주세요」', () => {
+    expect(notificationAction(n({ type: 'MAIL_SEND_FAILED', mailSendUnknown: true }))).toBe(
+      '보냈는지 확인하지 못함 — 보낸편지함을 확인해 주세요',
+    );
+  });
+});

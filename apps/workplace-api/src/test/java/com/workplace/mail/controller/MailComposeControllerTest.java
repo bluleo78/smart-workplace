@@ -18,12 +18,13 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.mail.dto.ComposeAttachmentResponse;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
+import com.workplace.mail.dto.QueuedSend;
 import com.workplace.mail.dto.RecentRecipient;
-import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.service.MailComposeAttachmentService;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.mail.service.MailRecentRecipientService;
+import com.workplace.mail.service.MailSendQueueService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.support.PermissionMocks;
 import com.workplace.support.WebMvcSliceTestBase;
@@ -49,6 +50,7 @@ class MailComposeControllerTest extends WebMvcSliceTestBase {
   @Autowired ObjectMapper objectMapper;
 
   @Autowired MailComposeService composeService;
+  @Autowired MailSendQueueService sendQueueService;
   @Autowired MailComposeAttachmentService attachmentService;
   @Autowired MailRecentRecipientService recentRecipientService;
   @Autowired JwtTokenProvider jwt;
@@ -95,9 +97,9 @@ class MailComposeControllerTest extends WebMvcSliceTestBase {
   }
 
   @Test
-  void send_returnsSendResult() throws Exception {
-    when(composeService.send(eq(1L), eq(10L), any()))
-        .thenReturn(new SendResult(100L, "gen@test.local"));
+  void send_returnsQueuedSend() throws Exception {
+    when(sendQueueService.enqueue(eq(1L), eq(10L), any()))
+        .thenReturn(new QueuedSend(100L, OffsetDateTime.parse("2026-11-19T10:00:10Z")));
     MailSendRequest body =
         new MailSendRequest(
             List.of("rcpt@test.local"), List.of(), List.of(), "안녕", "<p>본문</p>", "본문", null);
@@ -109,13 +111,13 @@ class MailComposeControllerTest extends WebMvcSliceTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(body)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.messageId").value("gen@test.local"))
-        .andExpect(jsonPath("$.localMessageId").value(100));
+        .andExpect(jsonPath("$.draftId").value(100))
+        .andExpect(jsonPath("$.sendAt").isNotEmpty());
   }
 
   @Test
   void send_validationError_returns400() throws Exception {
-    when(composeService.send(eq(1L), eq(10L), any()))
+    when(sendQueueService.enqueue(eq(1L), eq(10L), any()))
         .thenThrow(new MailValidationException("수신자를 한 명 이상 입력하세요"));
     MailSendRequest body =
         new MailSendRequest(List.of(), List.of(), List.of(), "x", "<p>x</p>", "x", null);
@@ -133,8 +135,8 @@ class MailComposeControllerTest extends WebMvcSliceTestBase {
   /** WP-69: 원시 JSON 의 inlineImages 가 요청 레코드로 바인딩된다(생략 시 null — 기존 호출처 호환). */
   @Test
   void send_bindsInlineImages() throws Exception {
-    when(composeService.send(eq(1L), eq(10L), any()))
-        .thenReturn(new SendResult(100L, "gen@test.local"));
+    when(sendQueueService.enqueue(eq(1L), eq(10L), any()))
+        .thenReturn(new QueuedSend(100L, OffsetDateTime.parse("2026-11-19T10:00:10Z")));
     String json =
         """
         {"to":["a@test.local"],"subject":"RE","bodyHtml":"<img src=\\"cid:x.png\\">","bodyText":"b",
@@ -150,15 +152,15 @@ class MailComposeControllerTest extends WebMvcSliceTestBase {
         .andExpect(status().isOk());
 
     ArgumentCaptor<MailSendRequest> cap = ArgumentCaptor.forClass(MailSendRequest.class);
-    verify(composeService).send(eq(1L), eq(10L), cap.capture());
+    verify(sendQueueService).enqueue(eq(1L), eq(10L), cap.capture());
     assertThat(cap.getValue().inlineImages()).containsExactly(new InlineImageRef(7L, "x.png"));
   }
 
   /** inlineImages 를 생략한 기존 호출처(AI 에이전트·확인카드 등) JSON 은 빈 목록으로 바인딩된다. */
   @Test
   void send_withoutInlineImagesField_bindsEmptyList() throws Exception {
-    when(composeService.send(eq(1L), eq(10L), any()))
-        .thenReturn(new SendResult(100L, "gen@test.local"));
+    when(sendQueueService.enqueue(eq(1L), eq(10L), any()))
+        .thenReturn(new QueuedSend(100L, OffsetDateTime.parse("2026-11-19T10:00:10Z")));
     String json =
         """
         {"to":["a@test.local"],"subject":"s","bodyHtml":"<p>b</p>","bodyText":"b"}
@@ -173,7 +175,7 @@ class MailComposeControllerTest extends WebMvcSliceTestBase {
         .andExpect(status().isOk());
 
     ArgumentCaptor<MailSendRequest> cap = ArgumentCaptor.forClass(MailSendRequest.class);
-    verify(composeService).send(eq(1L), eq(10L), cap.capture());
+    verify(sendQueueService).enqueue(eq(1L), eq(10L), cap.capture());
     assertThat(cap.getValue().inlineImages()).isEmpty();
     // WP-574 새 필드도 생략하면 빈 목록 — 첨부 없이 기존처럼 보낸다
     assertThat(cap.getValue().attachmentIds()).isEmpty();
@@ -183,8 +185,8 @@ class MailComposeControllerTest extends WebMvcSliceTestBase {
   /** WP-574: attachmentIds·forwardAttachmentIds 가 요청 레코드로 바인딩된다. */
   @Test
   void send_bindsAttachmentIds() throws Exception {
-    when(composeService.send(eq(1L), eq(10L), any()))
-        .thenReturn(new SendResult(100L, "gen@test.local"));
+    when(sendQueueService.enqueue(eq(1L), eq(10L), any()))
+        .thenReturn(new QueuedSend(100L, OffsetDateTime.parse("2026-11-19T10:00:10Z")));
     String json =
         """
         {"to":["a@test.local"],"subject":"s","bodyHtml":"<p>b</p>","bodyText":"b",
@@ -200,7 +202,7 @@ class MailComposeControllerTest extends WebMvcSliceTestBase {
         .andExpect(status().isOk());
 
     ArgumentCaptor<MailSendRequest> cap = ArgumentCaptor.forClass(MailSendRequest.class);
-    verify(composeService).send(eq(1L), eq(10L), cap.capture());
+    verify(sendQueueService).enqueue(eq(1L), eq(10L), cap.capture());
     assertThat(cap.getValue().attachmentIds()).containsExactly(31L, 32L);
     assertThat(cap.getValue().forwardAttachmentIds()).containsExactly(7L);
   }

@@ -47,8 +47,10 @@ class NotificationSettingItemTest {
     for (NotificationType t : NotificationType.values()) {
       // 개인 비서 연결 회수(WP-1170)는 설정 없이 늘 보내는 계정 알림이라 줄이 없다 — 아래 테스트가 따로 본다.
       // 새 앱 연결(WP-1686)도 같은 계정 알림이라 줄이 없다.
+      // 메일 발송 실패(WP-1786)도 같은 계정 알림이라 줄이 없다(MailSendFailedNotificationTest 가 따로 본다).
       if (t == NotificationType.PERSONAL_ASSISTANT_REVOKED
-          || t == NotificationType.OAUTH_APP_CONNECTED) continue;
+          || t == NotificationType.OAUTH_APP_CONNECTED
+          || t == NotificationType.MAIL_SEND_FAILED) continue;
       assertThat(NotificationSettingItem.of(t)).isNotNull();
     }
   }

@@ -28,7 +28,7 @@ test.describe('메일 작성·발송', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ localMessageId: 10, messageId: 'x@test.local' }),
+          body: JSON.stringify({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }),
         })
       },
     )
@@ -72,7 +72,7 @@ test.describe('메일 작성·발송', () => {
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/send',
       (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ localMessageId: 11, messageId: 'y@test.local' }) }),
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ draftId: 901, sendAt: '2026-11-19T00:00:10Z' }) }),
     )
 
     await page.goto('/mail/1')

@@ -14,9 +14,10 @@ import {
   toastMailComposePopupBlocked,
 } from '@/lib/mailComposeChannel';
 import { composeFromDraft, draftPreview, savePayloadFromDetail } from '@/lib/mailDraftCompose';
+import { MAIL_SEND_UNKNOWN } from '@/lib/notifText';
 
 import { createMailDraft, deleteMailDraft, getMailDraft, getMailDraftCount, listMailDrafts } from '../../api/mailDrafts';
-import type { MailDraftCreated, MailDraftSaveRequest, MailDraftSummary, MailDraftUpdated } from '../../types/mailDraft';
+import type { MailDraftCreated, MailDraftDetail, MailDraftSaveRequest, MailDraftSummary, MailDraftUpdated } from '../../types/mailDraft';
 import { invalidateMailDrafts, mailDraftKeys } from './mailDraftKeys';
 import { mailMessageQuery } from './useMailMessages';
 
@@ -82,6 +83,15 @@ export function toastDraftDiscarded(onUndo: () => void) {
   toast('임시저장을 버렸어요', { action: { label: '되돌리기', onClick: onUndo } });
 }
 
+/**
+ * 보내지 못한 임시보관을 다시 열 때 그 이유를 한 번 알린다(WP-1786). 연 순간의 상세 값을 쓴다 — 작성창의 자동 저장이 FAILED 흔적(sendState·sendError)을
+ * 지우므로 뒤에 다시 받으면 이유가 없다. 멈춰서 결과를 모르는 행(UNKNOWN)은 이유 대신 보낸편지함을 확인하라고 알린다(알림과 같은 문구).
+ */
+function toastSendFailure(detail: MailDraftDetail) {
+  if (detail.sendState !== 'FAILED' || !detail.sendError) return;
+  toast.error(detail.sendError === 'UNKNOWN' ? MAIL_SEND_UNKNOWN : `보내지 못한 이유: ${detail.sendError}`);
+}
+
 /** 사이드바 「임시보관함」 배지 개수. */
 export function useMailDraftCount(accountId: number | undefined) {
   return useQuery({
@@ -108,11 +118,18 @@ const fetchingDraftWindows = new Map<number, Window>();
  *   임시저장을 받아 존재를 확인한 뒤 beforeOpen 을 부르고 그 창 주소를 임시저장 주소로 옮긴다 — 작성창·저장 없이 새 창이 그것을 연다.
  *   받기 실패면 빈 창을 닫고 메인 창에서 알리며, 받는 동안 사용자가 빈 창을 닫았으면 메인 창에 열지 않고 끝낸다. 빈 창이 막히면 받아서 우측 하단에 열고 알린다.
  * - force: 열린 작성의 저장을 건너뛰고 같은 임시저장도 서버 내용으로 다시 연다(충돌 「다시 불러오기」).
+ * - detail(WP-1786): 「메일 보냄 · 되돌리기」가 cancel-send 로 돌려받은 상세 — 다시 받지 않고 그것으로 연다. 본문이 보내기 요청 형태라
+ *   composeFromDraft 가 인용문을 떼고 붙여 넣은 이미지를 업로드 경로로 되돌린다(sent). 쓰던 작성을 다시 여는 길이라 placement 는 넘기지 않는다.
+ * - 보내지 못한 임시보관(WP-1786, sendState FAILED)이면 연 뒤 그 이유를 토스트로 한 번 알린다(toastSendFailure). 새 창 기본값으로 여는 길은
+ *   새 창 페이지가 이 훅으로 다시 열며 그 창에서 알린다.
  */
 export function useOpenMailDraft() {
   const qc = useQueryClient();
   const { openCompose, focusDraft, isMovingToWindow, getComposeDefault } = useMailCompose();
-  return async (id: number, opts: { force?: boolean; placement?: ComposePlacement; beforeOpen?: () => void } = {}) => {
+  return async (
+    id: number,
+    opts: { force?: boolean; placement?: ComposePlacement; beforeOpen?: () => void; detail?: MailDraftDetail } = {},
+  ) => {
     // 빈 창을 열고 임시저장을 받는 중에 같은 행을 다시 눌렀다 — 아직 쓰는 중이 아니라 안내 없이 그 빈 창만 앞으로 가져온다(받기가 실패할 수 있다).
     // force(충돌 「다시 불러오기」)는 서버 내용으로 다시 여는 것이라 조회 중이라는 이유로 건너뛰지 않는다.
     const fetching = opts.force ? undefined : fetchingDraftWindows.get(id);
@@ -186,13 +203,16 @@ export function useOpenMailDraft() {
       return;
     }
     try {
-      const detail = await qc.fetchQuery(mailDraftQuery(id));
+      // 되돌리기가 넘긴 상세는 서버 최신이다 — 캐시에 두고 그대로 쓴다.
+      if (opts.detail) qc.setQueryData(mailDraftKeys.detail(id), opts.detail);
+      const detail = opts.detail ?? (await qc.fetchQuery(mailDraftQuery(id)));
       const needSource = detail.sourceMessageId != null && !detail.quoteRemoved;
       const source = needSource ? await qc.fetchQuery(mailMessageQuery(detail.sourceMessageId)).catch(() => null) : null;
       // 충돌 다시 불러오기는 지금 창의 내용을 버리고 서버 내용으로 바꾸는 것이라 앞 작성의 저장(flush)을 건너뛴다.
       // beforeOpen 은 받아 온 뒤 바꾸기 직전에 부른다 — 받지 못하면 지금 작성을 그대로 둔다(충돌 다시 불러오기가 세션을 끝내는 시점).
       opts.beforeOpen?.();
-      openCompose(composeFromDraft(detail, source), { skipSave: opts.force, placement });
+      openCompose(composeFromDraft(detail, source, { sent: !!opts.detail }), { skipSave: opts.force, placement });
+      toastSendFailure(detail);
       if (blocked) toastMailComposePopupBlocked();
     } catch (e) {
       handleApiError(e, '임시저장을 불러오지 못했어요');

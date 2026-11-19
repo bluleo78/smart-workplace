@@ -35,8 +35,8 @@ describe('routeStreamEvent', () => {
   });
 
   it('notify.* → handleNotifyEvent', () => {
-    routeStreamEvent('notify.created', undefined, { qc, currentUserId: 9 });
-    expect(handleNotifyEvent).toHaveBeenCalledWith(qc, 'notify.created');
+    routeStreamEvent('notify.created', { type: 'MAIL_SEND_FAILED' }, { qc, currentUserId: 9 });
+    expect(handleNotifyEvent).toHaveBeenCalledWith(qc, 'notify.created', { type: 'MAIL_SEND_FAILED' });
   });
 
   it('issue.* → handleIssueEvent', () => {

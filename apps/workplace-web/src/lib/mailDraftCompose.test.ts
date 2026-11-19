@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
 // 메일 임시저장(WP-577) ↔ 작성창 변환 규칙 — 저장 요청이 백엔드 계약(attachmentIds·forwardAttachmentIds·bodyText)에 맞고,
 // 다시 열 때 인용문·첨부·인용문 지움 상태가 그대로 돌아오는지 지킨다.
+// 되돌린 보내기(WP-1786)의 인용문 평문은 DOM(template)으로 뽑아 jsdom 에서 돈다.
 import { describe, expect, it } from 'vitest';
 
 import type { ComposeAttachment } from '@/lib/mailComposeAttachments';
@@ -93,6 +95,9 @@ describe('buildDraftSavePayload', () => {
       quoteRemoved: true,
       attachmentIds: [],
       forwardAttachmentIds: [],
+      inlineImages: [],
+      inlineUploads: [],
+      inReplyToMessageId: null,
     });
     expect(p).not.toHaveProperty('version');
   });
@@ -135,6 +140,42 @@ describe('buildDraftSavePayload', () => {
     expect(p.attachmentIds).toEqual([501, 601]);
     // 본문은 업로드 경로 그대로 저장한다 — cid 로 바꾸는 것은 보낼 때뿐
     expect(p.bodyHtml).toContain('/api/v1/files/601/content');
+  });
+
+  it('보내기 요청과 같은 이미지 참조를 싣는다(WP-1786) — 붙여 넣은 이미지는 inlineUploads, 인용 이미지는 inlineImages, 답장 대상', () => {
+    const p = buildDraftSavePayload({
+      draft: { accountId: 1, mode: 'reply', sourceMessageId: 10, inReplyToMessageId: 10 },
+      to: '',
+      cc: '',
+      bcc: '',
+      subject: '',
+      bodyHtml: '<p><img src="/api/v1/files/601/content"></p>',
+      bodyText: '',
+      quoteRemoved: false,
+      quoteInlineImages: [{ contentId: 'logo@x', attachment: { id: 41, filename: 'logo.png', contentType: 'image/png', sizeBytes: 10, contentId: 'logo@x' } }],
+      attachments: [],
+    });
+    expect(p.inlineUploads).toEqual([{ attachmentId: 601, contentId: 'pasted-601@genia-works' }]);
+    expect(p.inlineImages).toEqual([{ attachmentId: 41, contentId: 'logo@x' }]);
+    expect(p.inReplyToMessageId).toBe(10);
+    // 본문은 여전히 업로드 경로 — 쓰기 창 형태로 저장한다
+    expect(p.bodyHtml).toContain('/api/v1/files/601/content');
+  });
+
+  it('인용문을 지웠으면 인용 이미지를 싣지 않는다', () => {
+    const p = buildDraftSavePayload({
+      draft: { accountId: 1, mode: 'reply', sourceMessageId: 10, inReplyToMessageId: 10 },
+      to: '',
+      cc: '',
+      bcc: '',
+      subject: '',
+      bodyHtml: '',
+      bodyText: '',
+      quoteRemoved: true,
+      quoteInlineImages: [{ contentId: 'logo@x', attachment: { id: 41, filename: 'logo.png', contentType: 'image/png', sizeBytes: 10, contentId: 'logo@x' } }],
+      attachments: [],
+    });
+    expect(p.inlineImages).toEqual([]);
   });
 });
 
@@ -186,6 +227,9 @@ describe('savePayloadFromDetail', () => {
       quoteRemoved: false,
       attachmentIds: [501],
       forwardAttachmentIds: [31],
+      inlineImages: [],
+      inlineUploads: [],
+      inReplyToMessageId: null,
     });
   });
 });
@@ -243,6 +287,90 @@ describe('composeFromDraft', () => {
   it('새 메일 — 원본·인용문 없음', () => {
     const d = composeFromDraft(detail({ mode: 'new', sourceMessageId: null, attachments: [] }), null);
     expect(d).toMatchObject({ mode: 'new', inReplyToMessageId: null, sourceMessageId: null, quote: null, attachments: [] });
+  });
+});
+
+// WP-1786 — 보내기 대기열에서 되돌린(또는 보내지 못한) 임시보관은 보내기 요청 그대로다: 본문 뒤에 인용문(div.wp_quote)이 붙어 있고,
+// 붙여 넣은 이미지는 cid: 로 바뀌어 있다. 쓰기 창으로 다시 열 때 쓰기 창 형태(인용문은 밖, 이미지는 업로드 경로)로 되돌린다.
+describe('composeFromDraft — 보내기 요청 형태(되돌리기)', () => {
+  const quoteHtml = '<div class="wp_quote gmail_quote"><hr><div><b>보낸 사람:</b> 앨리스</div><br><p>원본 <img src="cid:logo@x"></p></div>';
+  const sent = (over: Partial<MailDraftDetail> = {}) =>
+    detail({
+      bodyHtml: '<p>답장 본문 <img src="cid:pasted-501@genia-works"></p>' + quoteHtml,
+      bodyText: '답장 본문',
+      inlineUploads: [{ attachmentId: 501, contentId: 'pasted-501@genia-works' }],
+      inlineImages: [{ attachmentId: 41, contentId: 'logo@x' }],
+      inReplyToMessageId: 10,
+      ...over,
+    });
+
+  it('본문 뒤 인용문을 떼고 원본으로 다시 만든다 — 두 번 붙지 않는다', () => {
+    const d = composeFromDraft(sent(), source, { sent: true });
+    expect(d.initialHtml).not.toContain('wp_quote');
+    expect(d.initialHtml).toContain('답장 본문');
+    expect(d.quote?.text).toContain('원본 본문입니다');
+    expect(d.quoteRemoved).toBe(false);
+    expect(d.inReplyToMessageId).toBe(10);
+  });
+
+  it('붙여 넣은 이미지의 cid 를 업로드 경로로 되돌리고, 그 업로드는 칩으로 보이지 않는다', () => {
+    const d = composeFromDraft(sent(), source, { sent: true });
+    expect(d.initialHtml).toContain('<img src="/api/v1/files/501/content">');
+    expect(d.initialHtml).not.toContain('cid:pasted-501');
+    expect(d.attachments?.map((a) => a.key)).toEqual(['forward-31']);
+  });
+
+  it('전달도 원본 id 가 남아 있으면(보내기 요청 작성 문맥) 원본으로 인용 블록을 만든다 — 머리(보낸 사람·날짜)가 채워진다', () => {
+    const d = composeFromDraft(sent({ mode: 'forward', inReplyToMessageId: null }), source, { sent: true });
+    expect(d.quote?.variant).toBe('forward');
+    expect(d.quote?.meta.from).toBe('앨리스');
+    expect(d.quote?.meta.dateShort).not.toBe('');
+    expect(d.sourceMessageId).toBe(10);
+    expect(d.inReplyToMessageId).toBeNull();
+    expect(d.initialHtml).not.toContain('wp_quote');
+  });
+
+  it('원본을 받지 못하면(전달 — 원본 id 가 없다) 떼어 낸 인용문을 그대로 쓰고 인용 이미지 참조를 잇는다', () => {
+    const d = composeFromDraft(sent({ mode: 'forward', sourceMessageId: null, inReplyToMessageId: null }), null, { sent: true });
+    expect(d.quote?.html).toBe(quoteHtml);
+    expect(d.quote?.variant).toBe('forward');
+    expect(d.quote?.inlineImages.map((i) => [i.attachment.id, i.contentId])).toEqual([[41, 'logo@x']]);
+    expect(d.quoteRemoved).toBe(false);
+    expect(d.initialHtml).not.toContain('wp_quote');
+  });
+
+  it('인용문 없이 보낸 답장은 인용문을 지운 것으로 연다 — 원본이 있어도 되살리지 않는다', () => {
+    const d = composeFromDraft(sent({ bodyHtml: '<p>답장 본문</p>' }), source, { sent: true });
+    expect(d.quote).toBeNull();
+    expect(d.quoteRemoved).toBe(true);
+  });
+
+  it('되돌리기로 열면 저장 안 된 작성으로 연다 — 고치지 않고 닫아도 쓰기 형태로 다시 저장되게', () => {
+    expect(composeFromDraft(sent(), source, { sent: true }).unsaved).toBe(true);
+    // 평범한 임시저장은 그대로 저장됨 상태로 연다.
+    expect(composeFromDraft(detail(), source).unsaved).toBeFalsy();
+  });
+
+  it('표시 없이 보내기 형태가 남은 행(되돌린 뒤 다시 저장하지 못함)도 본문으로 알아보고 되돌린다 — 인용문이 두 번 붙지 않는다', () => {
+    const d = composeFromDraft(sent(), source);
+    expect(d.initialHtml).not.toContain('wp_quote');
+    expect(d.initialHtml).toContain('<img src="/api/v1/files/501/content">');
+    expect(d.quote?.text).toContain('원본 본문입니다');
+    // 다시 쓰기 형태로 저장되도록 저장 안 된 작성으로 연다.
+    expect(d.unsaved).toBe(true);
+  });
+
+  it('인용문을 지운 채 보내 표시가 남지 않은 행은 서버가 남긴 quoteRemoved 로 인용문을 되살리지 않는다', () => {
+    const d = composeFromDraft(sent({ bodyHtml: '<p>답장 본문 <img src="cid:pasted-501@genia-works"></p>', quoteRemoved: true }), source);
+    expect(d.quote).toBeNull();
+    expect(d.quoteRemoved).toBe(true);
+    expect(d.initialHtml).toContain('/api/v1/files/501/content');
+  });
+
+  it('보내지 못한(FAILED) 행도 보내기 요청 형태로 다룬다', () => {
+    const d = composeFromDraft(sent({ sendState: 'FAILED', sendError: '연결 실패' }), source);
+    expect(d.initialHtml).not.toContain('wp_quote');
+    expect(d.quote?.text).toContain('원본 본문입니다');
   });
 });
 

@@ -27,6 +27,7 @@ import org.jooq.ForeignKey;
 import org.jooq.Identity;
 import org.jooq.Index;
 import org.jooq.InverseForeignKey;
+import org.jooq.JSONB;
 import org.jooq.Name;
 import org.jooq.Path;
 import org.jooq.PlainSQL;
@@ -147,6 +148,51 @@ public class MailDraft extends TableImpl<MailDraftRecord> {
      */
     public final TableField<MailDraftRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.mail_draft.send_at</code>.
+     */
+    public final TableField<MailDraftRecord, OffsetDateTime> SEND_AT = createField(DSL.name("send_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.mail_draft.send_state</code>.
+     */
+    public final TableField<MailDraftRecord, String> SEND_STATE = createField(DSL.name("send_state"), SQLDataType.VARCHAR(8), this, "");
+
+    /**
+     * The column <code>public.mail_draft.send_error</code>.
+     */
+    public final TableField<MailDraftRecord, String> SEND_ERROR = createField(DSL.name("send_error"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.mail_draft.sending_started_at</code>.
+     */
+    public final TableField<MailDraftRecord, OffsetDateTime> SENDING_STARTED_AT = createField(DSL.name("sending_started_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.mail_draft.sent_by_schedule</code>.
+     */
+    public final TableField<MailDraftRecord, Boolean> SENT_BY_SCHEDULE = createField(DSL.name("sent_by_schedule"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * The column <code>public.mail_draft.body_text</code>.
+     */
+    public final TableField<MailDraftRecord, String> BODY_TEXT = createField(DSL.name("body_text"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.mail_draft.in_reply_to_message_id</code>.
+     */
+    public final TableField<MailDraftRecord, Long> IN_REPLY_TO_MESSAGE_ID = createField(DSL.name("in_reply_to_message_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.mail_draft.inline_images</code>.
+     */
+    public final TableField<MailDraftRecord, JSONB> INLINE_IMAGES = createField(DSL.name("inline_images"), SQLDataType.JSONB.nullable(false).defaultValue(DSL.field(DSL.raw("'[]'::jsonb"), SQLDataType.JSONB)), this, "");
+
+    /**
+     * The column <code>public.mail_draft.inline_uploads</code>.
+     */
+    public final TableField<MailDraftRecord, JSONB> INLINE_UPLOADS = createField(DSL.name("inline_uploads"), SQLDataType.JSONB.nullable(false).defaultValue(DSL.field(DSL.raw("'[]'::jsonb"), SQLDataType.JSONB)), this, "");
+
     private MailDraft(Name alias, Table<MailDraftRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -216,7 +262,7 @@ public class MailDraft extends TableImpl<MailDraftRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_MAIL_DRAFT_ACCOUNT, Indexes.IDX_MAIL_DRAFT_TENANT, Indexes.IDX_MAIL_DRAFT_USER_ACCOUNT);
+        return Arrays.asList(Indexes.IDX_MAIL_DRAFT_ACCOUNT, Indexes.IDX_MAIL_DRAFT_QUEUED, Indexes.IDX_MAIL_DRAFT_SENDING, Indexes.IDX_MAIL_DRAFT_TENANT, Indexes.IDX_MAIL_DRAFT_USER_ACCOUNT);
     }
 
     @Override
@@ -308,7 +354,8 @@ public class MailDraft extends TableImpl<MailDraftRecord> {
     @Override
     public List<Check<MailDraftRecord>> getChecks() {
         return Arrays.asList(
-            Internal.createCheck(this, DSL.name("mail_draft_mode_check"), "(((mode)::text = ANY ((ARRAY['new'::character varying, 'reply'::character varying, 'forward'::character varying])::text[])))", true)
+            Internal.createCheck(this, DSL.name("mail_draft_mode_check"), "(((mode)::text = ANY ((ARRAY['new'::character varying, 'reply'::character varying, 'forward'::character varying])::text[])))", true),
+            Internal.createCheck(this, DSL.name("mail_draft_send_state_check"), "(((send_state)::text = ANY ((ARRAY['QUEUED'::character varying, 'SENDING'::character varying, 'FAILED'::character varying])::text[])))", true)
         );
     }
 

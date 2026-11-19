@@ -13,7 +13,7 @@ import { SANDBOX_HEAD, SCROLLING_DOCUMENT_STYLE } from '@/lib/sandboxedHtml'
 import { composeInPane as hostInPane } from '@/test/kits/mail/compose-pane'
 import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 
-import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
+import { detail, draftDetail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -26,9 +26,12 @@ type SendBody = {
   bodyText: string
   inReplyToMessageId: number | null
   inlineImages?: { attachmentId: number; contentId: string }[]
+  mode?: string
+  sourceMessageId?: number | null
+  quoteRemoved?: boolean
 }
 const sendHandler = (reply?: () => Response) =>
-  record<SendBody>('post', '/api/v1/mail/accounts/1/send', () => reply?.() ?? HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' }))
+  record<SendBody>('post', '/api/v1/mail/accounts/1/send', () => reply?.() ?? HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
 const draftPosts = () =>
   record<{ mode: string; sourceMessageId: number | null; quoteRemoved: boolean; bodyHtml: string }>('post', '/api/v1/mail/drafts', () =>
     HttpResponse.json({ id: 77, version: 1, updatedAt: '2026-10-21T01:00:00Z' }),
@@ -585,6 +588,8 @@ test('전달도 인라인 이미지를 재첨부 대상으로 싣는다', async 
   await user.click(screen.getByTestId('mail-compose-send'))
   await waitFor(() => expect(send.calls).toHaveLength(1))
   expect(send.last().body.inlineImages).toEqual([{ attachmentId: 21, contentId: '7dc8b642.png' }])
+  // 작성 문맥(WP-1786) — 대기 행이 전달·원본 연결을 남겨, 되돌리거나 임시보관함에서 다시 열어도 인용문을 다시 만든다.
+  expect(send.last().body).toMatchObject({ mode: 'forward', sourceMessageId: 5, quoteRemoved: false, inReplyToMessageId: null })
 })
 
 test('인용문을 제거하면 재첨부 대상도 보내지 않는다', async () => {
@@ -596,6 +601,8 @@ test('인용문을 제거하면 재첨부 대상도 보내지 않는다', async 
   await user.click(screen.getByTestId('mail-compose-send'))
   await waitFor(() => expect(send.calls).toHaveLength(1))
   expect(send.last().body.inlineImages).toBeUndefined()
+  // 인용문을 지운 답장 — 되돌려 열어도 인용문이 되살아나지 않게 지움 상태를 함께 싣는다(WP-1786).
+  expect(send.last().body).toMatchObject({ mode: 'reply', sourceMessageId: 5, quoteRemoved: true, inReplyToMessageId: 5 })
 })
 
 test('서버가 인라인 이미지 용량 초과(400)로 거부하면 그 문구를 보이고 도크를 유지한다', async () => {
@@ -683,4 +690,125 @@ test('서식을 넣고 보내면 bodyHtml 에 인라인 style 과 표가 실리�
   expect(html).toContain('<th ')
   expect(html).toContain('<table')
   expect(html).not.toContain('class=')
+})
+
+// ── 보내기 대기열 되돌리기(WP-1786) ─────────────────────────────────────
+// 보내기는 서버 대기열에 올라가고 10초 안에 되돌릴 수 있다 — 되돌리면 서버가 돌려준 임시보관으로 쓰기 창이 다시 열린다(완료 기준 1).
+
+test('보낸 뒤 「메일 보냄 · 되돌리기」 → cancel-send → 같은 받는사람·제목으로 쓰기 창이 다시 열린다', async () => {
+  const send = record<SendBody & { draftId?: number }>('post', '/api/v1/mail/accounts/1/send', () =>
+    HttpResponse.json({ draftId: 88, sendAt: '2026-11-19T00:00:10Z' }),
+  )
+  const cancel = record('post', '/api/v1/mail/drafts/88/cancel-send', () =>
+    HttpResponse.json(draftDetail({ id: 88, to: ['rcpt@test.local'], subject: '되돌릴 메일', bodyHtml: '<p>되돌릴 본문</p>', bodyText: '되돌릴 본문', version: 2 })),
+  )
+  // 되돌린 작성은 저장 안 된 작성으로 열려 곧 쓰기 형태로 다시 저장한다(PUT).
+  const view = renderMail('/mail/1', { handlers: [send.handler, cancel.handler, http.put('/api/v1/mail/drafts/88', () => HttpResponse.json({ version: 9, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))] })
+  await view.user.click(await screen.findByTestId('mail-compose-new'))
+  await view.user.click(screen.getByTestId('mail-compose-to'))
+  await view.user.paste('rcpt@test.local')
+  await view.user.click(screen.getByTestId('mail-compose-subject'))
+  await view.user.paste('되돌릴 메일')
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+  expect(await screen.findByText('메일 보냄')).toBeInTheDocument()
+
+  await view.user.click(screen.getByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(cancel.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('되돌릴 메일'))
+  expect(chips('to')).toEqual(['rcpt@test.local'])
+  expect(screen.getByTestId('mail-composer-body')).toHaveTextContent('되돌릴 본문')
+})
+
+test('되돌리기가 늦으면(409 ALREADY_SENDING) 「이미 보냄」을 알리고 쓰기 창을 열지 않는다', async () => {
+  const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 89, sendAt: '2026-11-19T00:00:10Z' }))
+  const cancel = record('post', '/api/v1/mail/drafts/89/cancel-send', () =>
+    HttpResponse.json({ status: 409, message: '이미 보내는 중이에요', errors: { code: 'ALREADY_SENDING' } }, { status: 409 }),
+  )
+  const view = renderMail('/mail/1', { handlers: [send.handler, cancel.handler] })
+  await view.user.click(await screen.findByTestId('mail-compose-new'))
+  await view.user.click(screen.getByTestId('mail-compose-to'))
+  await view.user.paste('rcpt@test.local')
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await view.user.click(await screen.findByRole('button', { name: '되돌리기' }))
+  expect(await screen.findByText('이미 보냄')).toBeInTheDocument()
+  expect(cancel.calls).toHaveLength(1)
+  expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+})
+
+test('되돌린 전달은 원본 메일로 인용 블록을 다시 만든다 — 본문에 인용문이 두 번 붙지 않는다(WP-1786)', async () => {
+  const send = record<SendBody>('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 92, sendAt: '2026-11-19T00:00:10Z' }))
+  const cancel = record('post', '/api/v1/mail/drafts/92/cancel-send', () =>
+    HttpResponse.json(
+      draftDetail({
+        id: 92,
+        mode: 'forward',
+        sourceMessageId: 5,
+        to: ['peer@test.local'],
+        subject: 'Fwd: 킥오프 참석자 조사',
+        bodyHtml: '<p>참고하세요</p><div class="wp_quote gmail_quote"><hr><p>회신 부탁드립니다.</p></div>',
+        inReplyToMessageId: null,
+      }),
+    ),
+  )
+  const { user } = await openInlineMail([send.handler, cancel.handler, http.put('/api/v1/mail/drafts/92', () => HttpResponse.json({ version: 9, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))])
+  await user.click(screen.getByTestId('mail-forward'))
+  await user.click(await screen.findByTestId('mail-compose-to'))
+  await user.paste('peer@test.local')
+  await user.click(screen.getByTestId('mail-compose-send'))
+  await user.click(await screen.findByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(cancel.calls).toHaveLength(1))
+  const quote = await screen.findByTestId('mail-compose-quote')
+  // 원본으로 다시 만든 전달 카드 — 제목·보낸 사람이 채워진다.
+  expect(quote).toHaveTextContent('킥오프 참석자 조사')
+  expect(quote).toHaveTextContent('남태현')
+  expect(screen.getByTestId('mail-composer-body')).toHaveTextContent('참고하세요')
+  expect(screen.getByTestId('mail-composer-body')).not.toHaveTextContent('회신 부탁드립니다')
+})
+
+test('되돌린 메일은 고치지 않고 닫아도 쓰기 형태로 다시 저장한다 — 인용문(wp_quote)·cid 이미지가 남지 않는다(WP-1786)', async () => {
+  const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 93, sendAt: '2026-11-19T00:00:10Z' }))
+  // 서버 행은 보내기 요청 형태 그대로다 — 본문 뒤 인용문, 붙여 넣은 이미지는 cid.
+  const cancel = record('post', '/api/v1/mail/drafts/93/cancel-send', () =>
+    HttpResponse.json(
+      draftDetail({
+        id: 93,
+        mode: 'forward',
+        sourceMessageId: null,
+        to: ['rcpt@test.local'],
+        subject: '되돌린 전달',
+        bodyHtml: '<p>참고 <img src="cid:pasted-701@genia-works"></p><div class="wp_quote gmail_quote"><hr><p>원문</p></div>',
+        inlineUploads: [{ attachmentId: 701, contentId: 'pasted-701@genia-works' }],
+        attachments: [{ id: 701, name: 'image.png', size: 68, mimeType: 'image/png', source: 'upload' }],
+        version: 4,
+      }),
+    ),
+  )
+  const put = record<{ bodyHtml: string; version: number; inlineUploads: unknown[] }>('put', '/api/v1/mail/drafts/93', () =>
+    HttpResponse.json({ version: 5, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 1 }),
+  )
+  const view = renderMail('/mail/1', {
+    handlers: [
+      send.handler,
+      cancel.handler,
+      put.handler,
+      http.get('/api/v1/files/701/content', () => new HttpResponse('PNG', { headers: { 'content-type': 'image/png' } })),
+    ],
+  })
+  await view.user.click(await screen.findByTestId('mail-compose-new'))
+  await view.user.click(screen.getByTestId('mail-compose-to'))
+  await view.user.paste('rcpt@test.local')
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await view.user.click(await screen.findByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('되돌린 전달'))
+  // 손대지 않고 바로 닫는다.
+  await view.user.click(screen.getByTestId('mail-compose-close'))
+  await waitFor(() => expect(put.calls).toHaveLength(1))
+  const body = put.last().body
+  expect(body.version).toBe(4)
+  expect(body.bodyHtml).not.toContain('wp_quote')
+  expect(body.bodyHtml).not.toContain('cid:pasted')
+  expect(body.bodyHtml).toContain('/api/v1/files/701/content')
+  expect(body.inlineUploads).toEqual([{ attachmentId: 701, contentId: 'pasted-701@genia-works' }])
 })

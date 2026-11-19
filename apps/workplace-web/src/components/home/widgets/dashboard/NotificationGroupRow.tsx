@@ -8,6 +8,7 @@ import {
   CircleAlert,
   ClipboardCheck,
   FileText,
+  MailX,
   MessageCircleQuestion,
   MessageSquare,
   Plug,
@@ -43,6 +44,7 @@ const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   AI_WORK_FAILED: CircleAlert, // AI 작업 실패·거절(WP-913)
   PERSONAL_ASSISTANT_REVOKED: Bot, // 내 개인 비서 AI 연결 해제(WP-1170)
   OAUTH_APP_CONNECTED: Plug, // 새 앱 연결(WP-1686)
+  MAIL_SEND_FAILED: MailX, // 메일 보내기 실패(WP-1786)
 };
 
 // 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.

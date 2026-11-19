@@ -90,6 +90,7 @@ import com.workplace.mail.service.MailComposeAttachmentService;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.mail.service.MailIssueService;
 import com.workplace.mail.service.MailRecentRecipientService;
+import com.workplace.mail.service.MailSendQueueService;
 import com.workplace.messaging.controller.ChannelController;
 import com.workplace.messaging.controller.ChannelMemberController;
 import com.workplace.messaging.controller.DmController;
@@ -256,6 +257,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       MailComposeService.class,
       MailIssueService.class,
       MailRecentRecipientService.class,
+      MailSendQueueService.class,
       MembershipRepository.class,
       MessageService.class,
       NotificationService.class,
