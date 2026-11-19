@@ -7,7 +7,7 @@ import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useRef, useState } from 'react';
 
 import { RichInput } from '@/components/mentions/RichInput';
-import { RawSheetContent } from '@/components/mobile/RawSheetContent';
+import { RawSheetContent, RawSheetRoot } from '@/components/mobile/RawSheetContent';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -63,7 +63,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const titleEnter = useSingleLineEnter();
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+    <RawSheetRoot open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogPrimitive.Portal>
         <RawSheetContent
           data-testid="issue-create-sheet"
@@ -230,6 +230,6 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </DialogPrimitive.Root>
+    </RawSheetRoot>
   );
 }

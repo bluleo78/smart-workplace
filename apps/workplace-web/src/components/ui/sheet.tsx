@@ -2,11 +2,20 @@ import * as React from "react"
 import { XIcon } from "lucide-react"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
+import { DialogModalContext, useAriaModal } from "@/components/ui/dialog-modal-context"
 import { preventDismissOnExtensionUi } from "@/lib/browserExtensionUi"
 import { cn } from "@/lib/utils"
 
-function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
-  return <SheetPrimitive.Root data-slot="sheet" {...props} />
+function Sheet({
+  modal = true,
+  ...props
+}: React.ComponentProps<typeof SheetPrimitive.Root>) {
+  // modal 을 SheetContent 에 전한다 — Dialog 와 같은 context(WP-1771).
+  return (
+    <DialogModalContext.Provider value={modal}>
+      <SheetPrimitive.Root data-slot="sheet" modal={modal} {...props} />
+    </DialogModalContext.Provider>
+  )
 }
 
 function SheetTrigger({
@@ -54,11 +63,14 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
 }) {
+  const ariaModal = useAriaModal()
   return (
     <SheetPortal>
       <SheetOverlay />
       <SheetPrimitive.Content
         data-slot="sheet-content"
+        // 모달일 때만 aria-modal (dialog-modal-context.ts 참고)
+        aria-modal={ariaModal}
         // 방향을 속성으로 공개 — index.css 의 키보드 대응 규칙이 레이아웃 클래스명 대신 이것으로 시트 방향을 가린다(WP-154).
         data-side={side}
         // 비밀번호 관리자(1Password 등) 자동완성 메뉴 클릭으로 시트가 닫히지 않도록 확장 UI 상호작용은 제외한다.

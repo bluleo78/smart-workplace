@@ -9,7 +9,7 @@
 //  - 페이지 영역만 덮는 dim 오버레이를 직접 렌더(non-modal 이면 Radix 가 Overlay 를 그리지 않으므로)하고,
 //  - 데스크톱(lg+)에서는 다이얼로그를 페이지 영역 중앙으로 옮기고 폭을 클램프해 패널을 가리지 않게 한다.
 // closed/fullscreen 에서는 기존 modal 동작(접근성) 그대로다 — 단 모바일 AI 시트는 side 와 같이 취급(모바일의 유일한 AI 표면).
-// shadcn primitive(components/ui/dialog.tsx)는 편집하지 않고 호출부 props/className 조합으로만 적용한다.
+// 호출부 props/className 으로 적용한다. aria-modal 은 Dialog 래퍼가 modal 값으로 단다(side 모드면 없음).
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { useOptionalAssistant } from '@/components/ai/AIAssistantContext';

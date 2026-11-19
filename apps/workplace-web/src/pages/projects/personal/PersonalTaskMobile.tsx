@@ -11,7 +11,7 @@ import { useState } from 'react';
 import { AgentWorkCard } from '@/components/issue/agentWork/AgentWorkCard';
 import { mobileBackButtonClass, mobileDetailBarClass, mobileDetailTitleClass } from '@/components/mobile/headerClass';
 import { type EditBarControls, MobileEditBar } from '@/components/mobile/MobileEditBar';
-import { RawSheetContent } from '@/components/mobile/RawSheetContent';
+import { RawSheetContent, RawSheetRoot } from '@/components/mobile/RawSheetContent';
 import { useProject } from '@/hooks/queries/useProjects';
 
 import { IssueChatButton } from '../components/chat/IssueChatButton';
@@ -37,12 +37,12 @@ export function PersonalTaskMobile({
 }) {
   return (
     // modal={false} — modal 이면 body 가 pointer-events:none 이 되어 body 아래 Sonner 토스트(되돌리기 등)를 누를 수 없다. 전체 화면이라 스크롤 락·딤은 불필요.
-    <DialogPrimitive.Root modal={false} open={number != null} onOpenChange={(o) => { if (!o) onClose(); }}>
+    <RawSheetRoot modal={false} open={number != null} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogPrimitive.Portal>
         {/* 작업이 바뀌면(같은 라우트에서 다른 task) 편집 상태·포털 대상을 새로 시작하도록 key 로 리마운트. */}
         {number != null && <PersonalTaskMobileContent key={number} projectKey={projectKey} number={number} onClose={onClose} />}
       </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+    </RawSheetRoot>
   );
 }
 
@@ -61,6 +61,7 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
 
   return (
     <RawSheetContent
+      // Root(RawSheetRoot)가 modal={false} 라 aria-modal 도 달지 않는다(WP-1771) — modal 은 Root 가 context 로 내린다.
       data-testid="personal-task-mobile"
       aria-describedby={undefined}
       onOpenAutoFocus={(e) => e.preventDefault()}

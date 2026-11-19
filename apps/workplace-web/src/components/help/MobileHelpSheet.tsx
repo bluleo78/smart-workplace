@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { AI_HISTORY_KEY, useAssistant } from '@/components/ai/AIAssistantContext'
-import { RawSheetContent } from '@/components/mobile/RawSheetContent'
+import { RawSheetContent, RawSheetRoot } from '@/components/mobile/RawSheetContent'
 import { useSheetHistory } from '@/hooks/useSheetHistory'
 import { hasLiveStateMark, isHistoryEntryWithdrawn } from '@/lib/historyParam'
 import type { AiHelpContext } from '@/types/aiScreenContext'
@@ -100,7 +100,7 @@ export function MobileHelpSheet() {
 
   if (!visible) return null
   return (
-    <DialogPrimitive.Root open onOpenChange={(next) => !next && setOpen(false)}>
+    <RawSheetRoot open onOpenChange={(next) => !next && setOpen(false)}>
       <DialogPrimitive.Portal>
         {/* 원시 Content — ui/DialogContent 의 휴대폰 대화상자 규칙(가운데·max-height)을 피하고, 보이는 뷰포트(--vv-top·--vvh)에 붙인다
             (통합 검색 휴대폰 화면 SearchPalette 와 같은 방식). 설명 글이 없어 aria-describedby 를 비운다.
@@ -117,6 +117,6 @@ export function MobileHelpSheet() {
           <LazyHelpPanel onAskAi={askAi} />
         </RawSheetContent>
       </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+    </RawSheetRoot>
   )
 }

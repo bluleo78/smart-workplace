@@ -65,6 +65,8 @@ function AlertDialogContent({
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         data-size={size}
+        // 확인창은 늘 모달이라 aria-modal 을 늘 단다(WP-1771)
+        aria-modal
         onOpenAutoFocus={focusRestore.onOpenAutoFocus}
         onCloseAutoFocus={focusRestore.onCloseAutoFocus}
         className={cn(

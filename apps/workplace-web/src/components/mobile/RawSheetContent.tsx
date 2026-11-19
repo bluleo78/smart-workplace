@@ -6,6 +6,8 @@
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import type { ComponentProps } from 'react'
 
+import { Dialog } from '@/components/ui/dialog'
+import { useAriaModal } from '@/components/ui/dialog-modal-context'
 import { DialogOpenerProbe, useDialogFocusRestore } from '@/hooks/useDialogFocusRestore'
 
 /** 지금 열려 있는 대화상자(대화상자·확인창). 닫히는 중(퇴장 애니메이션, data-state=closed)인 것은 뺀다. */
@@ -20,11 +22,15 @@ function noOtherDialogCovers(target: HTMLElement) {
   return Array.from(document.querySelectorAll(OPEN_DIALOGS)).every((dialog) => dialog.contains(target))
 }
 
-/** 원시 DialogPrimitive.Content 와 같은 props — 닫힐 때 연 요소로 포커스를 돌려주는 것만 더한다. */
+/** 원시 시트의 Root(WP-1771) — ui/Dialog 와 같다(modal 을 Radix Root 에 넘기고 context 로 내려 RawSheetContent 가 aria-modal 에 쓴다). */
+export const RawSheetRoot = Dialog
+
+/** 원시 DialogPrimitive.Content 와 같은 props — 닫힐 때 연 요소로 포커스를 돌려주는 것과 모달일 때의 aria-modal 만 더한다. */
 export function RawSheetContent({ onOpenAutoFocus, onCloseAutoFocus, children, ...props }: ComponentProps<typeof DialogPrimitive.Content>) {
+  const ariaModal = useAriaModal()
   const focusRestore = useDialogFocusRestore(onOpenAutoFocus, onCloseAutoFocus, noOtherDialogCovers)
   return (
-    <DialogPrimitive.Content {...props} onOpenAutoFocus={focusRestore.onOpenAutoFocus} onCloseAutoFocus={focusRestore.onCloseAutoFocus}>
+    <DialogPrimitive.Content aria-modal={ariaModal} {...props} onOpenAutoFocus={focusRestore.onOpenAutoFocus} onCloseAutoFocus={focusRestore.onCloseAutoFocus}>
       {/* 입력 칸 autoFocus 가 포커스를 옮기기 전에 연 요소를 잡는다(ui/DialogContent 와 같다). */}
       <DialogOpenerProbe onMount={focusRestore.captureOpener} />
       {children}
