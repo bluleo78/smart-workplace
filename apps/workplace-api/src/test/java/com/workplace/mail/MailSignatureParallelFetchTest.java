@@ -50,8 +50,9 @@ class MailSignatureParallelFetchTest {
     MailSignatureRepository repository = mock(MailSignatureRepository.class);
     MailSignatureImageStore imageStore = mock(MailSignatureImageStore.class);
     when(repository.findImagesById(anyLong(), anyCollection())).thenReturn(Map.of());
-    when(repository.upsert(anyLong(), anyString(), anyBoolean(), anyBoolean()))
-        .thenAnswer(inv -> new SignatureRow(inv.getArgument(1), true, false, OffsetDateTime.now()));
+    when(repository.upsert(anyLong(), anyString(), anyBoolean(), anyBoolean(), anyBoolean()))
+        .thenAnswer(
+            inv -> new SignatureRow(inv.getArgument(1), true, false, false, OffsetDateTime.now()));
     CountDownLatch bothStarted = new CountDownLatch(2);
     when(imageStore.load(anyString()))
         .thenAnswer(
@@ -87,7 +88,8 @@ class MailSignatureParallelFetchTest {
             new MailSignatureUpdateRequest(
                 "<p><img src=\"https://x.test/a.png\"><img src=\"https://x.test/b.png\"></p>",
                 true,
-                false));
+                false,
+                null));
 
     assertThat(res.droppedImageCount()).isZero();
     assertThat(res.html())

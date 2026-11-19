@@ -20,7 +20,7 @@ import {
 const S = '<p style="color: #1F4E79">홍길동</p>';
 
 function sig(over: Partial<MailSignature> = {}): MailSignature {
-  return { html: '<p>홍</p>', autoNew: true, autoReply: false, updatedAt: null, droppedImageCount: 0, ...over };
+  return { html: '<p>홍</p>', autoNew: true, autoReply: false, pasted: false, updatedAt: null, droppedImageCount: 0, ...over };
 }
 
 describe('appendSignature', () => {

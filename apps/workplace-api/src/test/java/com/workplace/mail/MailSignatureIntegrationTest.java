@@ -188,4 +188,49 @@ class MailSignatureIntegrationTest extends ExternalClientMockedTestBase {
     putSignature(me, body("<p>x</p>", true, null)).andExpect(status().isBadRequest());
     putSignature(me, body(null, true, false)).andExpect(status().isBadRequest());
   }
+
+  @Test
+  void 붙여넣은_서명은_pasted_true로_저장되고_다시_조회된다() throws Exception {
+    // WP-1726: 「원본 그대로」 모드로 저장하면 pasted 가 남아 설정 화면이 미리 보기로 다시 연다.
+    long me = user();
+    Map<String, Object> b =
+        body("<table><tr><td style=\"font-size:10pt\">홍길동</td></tr></table>", true, false);
+    b.put("pasted", true);
+
+    putSignature(me, b).andExpect(status().isOk()).andExpect(jsonPath("$.pasted").value(true));
+
+    getSignature(me).andExpect(jsonPath("$.pasted").value(true));
+  }
+
+  @Test
+  void 옛_요청은_pasted가_없어도_false로_저장한다() throws Exception {
+    // 롤링 배포 중 옛 웹은 pasted 를 보내지 않는다 — 400 이 아니라 편집기 서명(false)으로 본다.
+    long me = user();
+    Map<String, Object> pasted = body("<p>처음</p>", true, false);
+    pasted.put("pasted", true);
+    putSignature(me, pasted).andExpect(status().isOk());
+
+    putSignature(me, body("<p>나중</p>", true, false))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pasted").value(false));
+    getSignature(me).andExpect(jsonPath("$.pasted").value(false));
+  }
+
+  @Test
+  void 처음_조회의_pasted는_false() throws Exception {
+    getSignature(user()).andExpect(jsonPath("$.pasted").value(false));
+  }
+
+  @Test
+  void 빈_html은_pasted를_보내도_false() throws Exception {
+    // 「비우기」는 편집기로 돌아간다 — 빈 서명에 원본 모드가 남지 않게.
+    long me = user();
+    Map<String, Object> b = body("", true, false);
+    b.put("pasted", true);
+
+    putSignature(me, b)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.html").value(""))
+        .andExpect(jsonPath("$.pasted").value(false));
+  }
 }

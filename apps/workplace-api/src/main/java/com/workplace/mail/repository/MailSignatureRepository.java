@@ -27,9 +27,9 @@ public class MailSignatureRepository {
 
   private final DSLContext dsl;
 
-  /** 서명 행. */
+  /** 서명 행. pasted 는 붙여넣은 서명 「원본 그대로」 모드(WP-1726). */
   public record SignatureRow(
-      String html, boolean autoNew, boolean autoReply, OffsetDateTime updatedAt) {}
+      String html, boolean autoNew, boolean autoReply, boolean pasted, OffsetDateTime updatedAt) {}
 
   /** 서명 이미지 행 — 바이트는 storagePath(파일 저장소 상대경로)에 있다. */
   public record ImageRow(long id, String storagePath, String mimeType, int sizeBytes) {}
@@ -40,6 +40,7 @@ public class MailSignatureRepository {
           MAIL_SIGNATURE.HTML,
           MAIL_SIGNATURE.AUTO_NEW,
           MAIL_SIGNATURE.AUTO_REPLY,
+          MAIL_SIGNATURE.PASTED,
           MAIL_SIGNATURE.UPDATED_AT);
 
   /** {@link #SIGNATURE_FIELDS} 로 읽은 레코드를 서명 행으로 바꾼다. */
@@ -48,6 +49,7 @@ public class MailSignatureRepository {
         r.get(MAIL_SIGNATURE.HTML),
         r.get(MAIL_SIGNATURE.AUTO_NEW),
         r.get(MAIL_SIGNATURE.AUTO_REPLY),
+        r.get(MAIL_SIGNATURE.PASTED),
         r.get(MAIL_SIGNATURE.UPDATED_AT));
   }
 
@@ -60,17 +62,20 @@ public class MailSignatureRepository {
   }
 
   /** 서명을 넣거나 덮어쓴다(테넌트·사용자당 한 행). updated_at 은 지금으로 바꾼다. */
-  public SignatureRow upsert(long userId, String html, boolean autoNew, boolean autoReply) {
+  public SignatureRow upsert(
+      long userId, String html, boolean autoNew, boolean autoReply, boolean pasted) {
     return dsl.insertInto(MAIL_SIGNATURE)
         .set(MAIL_SIGNATURE.USER_ID, userId)
         .set(MAIL_SIGNATURE.HTML, html)
         .set(MAIL_SIGNATURE.AUTO_NEW, autoNew)
         .set(MAIL_SIGNATURE.AUTO_REPLY, autoReply)
+        .set(MAIL_SIGNATURE.PASTED, pasted)
         .onConflict(MAIL_SIGNATURE.TENANT_ID, MAIL_SIGNATURE.USER_ID)
         .doUpdate()
         .set(MAIL_SIGNATURE.HTML, html)
         .set(MAIL_SIGNATURE.AUTO_NEW, autoNew)
         .set(MAIL_SIGNATURE.AUTO_REPLY, autoReply)
+        .set(MAIL_SIGNATURE.PASTED, pasted)
         .set(MAIL_SIGNATURE.UPDATED_AT, DSL.currentOffsetDateTime())
         .returningResult(SIGNATURE_FIELDS)
         .fetchOne(MailSignatureRepository::toSignatureRow);

@@ -3,6 +3,8 @@ import { Extension } from '@tiptap/core'
 import { DOMSerializer, Fragment, type Node as PMNode, type Schema, Slice } from '@tiptap/pm/model'
 import { Plugin } from '@tiptap/pm/state'
 
+import { copyMarkerSerializer } from '@/lib/copyMarkerSerializer'
+
 import { stopUndoCaptureIn } from './wikiCollabPosition'
 import { type PasteChipMemory, pasteChipPlugin } from './wikiPasteChipPlugin'
 import { foreignShapeSlice, prepareForeignHtml } from './wikiPasteForeign'
@@ -44,19 +46,7 @@ export function isNoteCopyHtml(html: string): boolean {
  * 바깥 붙여넣기로 다뤄진다(모양만 빠진다 — 안전한 쪽).
  */
 export function noteClipboardSerializer(schema: Schema): DOMSerializer {
-  const base = DOMSerializer.fromSchema(schema)
-  return new (class extends DOMSerializer {
-    serializeFragment(...args: Parameters<DOMSerializer['serializeFragment']>) {
-      const frag = super.serializeFragment(...args)
-      for (let child = frag.firstChild; child; child = child.nextSibling) {
-        if (child.nodeType === 1) {
-          ;(child as HTMLElement).setAttribute(NOTE_COPY_ATTR, '')
-          break
-        }
-      }
-      return frag
-    }
-  })(base.nodes, base.marks)
+  return copyMarkerSerializer(schema, NOTE_COPY_ATTR)
 }
 
 // 「글만」 정리기는 붙여넣기 칩(wikiPasteChipPlugin)·노트 밖 정리기(wikiPasteForeign)와 걷기를 함께 쓰려고 wikiShapeNormalize 로 옮겼다 —

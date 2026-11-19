@@ -78,6 +78,9 @@ test('서명은_격리_프레임으로_그려지고_앱_문서에는_원문이_�
   // 스크립트는 우리 높이 보고만 — same-origin 은 주지 않는다(불투명 출처).
   expect(frame!.getAttribute('sandbox')).not.toContain('allow-same-origin')
   expect(frame!.getAttribute('srcdoc')).toContain('홍길동')
+  // 클릭을 막는 덮개 아래라 스크롤할 수 없다 — 설정 미리 보기(WP-1726)와 달리 가로 스크롤을 열지 않는다.
+  expect(frame!.getAttribute('srcdoc')).toContain('body{padding:0;overflow:hidden}')
+  expect(frame!.getAttribute('srcdoc')).not.toContain('data-mail-signature-preview')
   expect(appDocumentHtml()).not.toContain('홍길동')
 })
 
