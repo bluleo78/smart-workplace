@@ -39,7 +39,7 @@ export function useUpdateMailSettings() {
     },
     onError: (e) => {
       handleApiError(e, '작성 방식을 저장하지 못했어요');
-      return qc.invalidateQueries({ queryKey: mailSettingsKey });
+      void qc.invalidateQueries({ queryKey: mailSettingsKey });
     },
     onSettled: (data, err) => {
       if (!err && data && qc.isMutating({ mutationKey: UPDATE_MAIL_SETTINGS_KEY }) === 1) qc.setQueryData(mailSettingsKey, data);

@@ -199,6 +199,13 @@ interface PlacementRecord {
  */
 export const MAIL_COMPOSE_PREOPEN_TIMEOUT_MS = 10_000;
 
+/** 쓰이지 않은 미리 연 창 기록을 푼다 — 시한 타이머를 끄고 아직 안 꺼낸 빈 창을 닫는다(회차 전환·공급자 해제 공용). */
+function releasePendingWindow(record: PlacementRecord | null | undefined) {
+  if (!record) return;
+  clearTimeout(record.timer);
+  record.win?.close();
+}
+
 /**
  * 도크 상태 provider. AppLayout 이 감싼다. popout 은 새 창 페이지(WP-1535)의 공급자 — 작성 방식 기본값을 읽지도 쓰지도 않는다.
  */
@@ -243,8 +250,7 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
     // 다른 작성으로 바뀌었거나 닫혔다 — 그 회차의 기록을 지우고, 미리 열어 두고 아직 쓰지 않은 창은 닫고, 감춤도 푼다(빈 창이 남지 않게).
     const record = placementRef.current;
     if (record && record.instanceId !== d?.instanceId) {
-      clearTimeout(record.timer);
-      record.win?.close();
+      releasePendingWindow(record);
       placementRef.current = null;
     }
     setWindowMoveFor((v) => (v != null && v === d?.instanceId ? v : null));
@@ -256,8 +262,8 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
       if (draftRef.current && !opts?.skipSave) handlers.current?.save();
       const instanceId = ++seq.current;
       // 이 회차에 적용할 기본값(WP-1744) — placement 없이 연 작성은 기본값을 쓰지 않는다. default-inline 은 새 창을 우측 하단으로 본다.
-      let mode: MailComposeDefault | null = opts?.placement ? getComposeDefault() : null;
-      if (opts?.placement === 'default-inline' && mode === 'WINDOW') mode = 'DOCK';
+      const base = opts?.placement ? getComposeDefault() : null;
+      const mode: MailComposeDefault | null = opts?.placement === 'default-inline' && base === 'WINDOW' ? 'DOCK' : base;
       // 기본값 「새 창」(WP-1744) — 클릭 처리 중인 지금 빈 창을 연다(효과에서 열면 클릭과 멀어져 팝업 차단을 더 받는다).
       // 막히면 null 을 남겨 도크 본체가 차단 안내를 띄우게 한다. 새 창 페이지·모바일 셸은 getComposeDefault 가 WINDOW 를 돌려주지 않는다.
       const win = mode === 'WINDOW' ? openMailComposeWindow() : undefined;
@@ -301,8 +307,7 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
   // 공급자가 사라지면(로그아웃 등) 쓰이지 않은 미리 연 창을 닫는다.
   useEffect(
     () => () => {
-      clearTimeout(placementRef.current?.timer);
-      placementRef.current?.win?.close();
+      releasePendingWindow(placementRef.current);
       placementRef.current = null;
     },
     [],
