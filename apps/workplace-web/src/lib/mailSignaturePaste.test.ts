@@ -110,6 +110,21 @@ describe('toPastedSignatureHtml — 판정', () => {
   test('ProseMirror 조각 표시(data-pm-slice)만으로는 편집기로 보내지 않는다 — 노트·Notion·Confluence 의 표 서명', () => {
     expect(isRich('<table data-pm-slice="1 1 []"><tr><td>홍길동</td></tr></table>')).toBe(true);
   });
+
+  test('편집기가 굵게로 읽는 굵기 선언(strong 의 normal·400, b 의 400)은 원본 모드 — b + normal 만 효과 없음(WP-1798)', () => {
+    expect(isRich('<p><strong style="font-weight:normal">홍길동</strong></p>')).toBe(true);
+    expect(isRich('<b style="font-weight:400">x</b>')).toBe(true);
+    expect(isRich('<p><strong style="font-weight:400">홍길동</strong></p>')).toBe(true);
+    // 요소 기본 굵기를 되풀이하는 bold·700 은 편집기 굵게와 같아 편집기 그대로.
+    expect(isRich('<p><b style="font-weight:bold">홍길동</b></p>')).toBe(false);
+    expect(isRich('<p><strong style="font-weight:700">홍길동</strong></p>')).toBe(false);
+    // 다른 효과 있는 선언이 함께 있으면 원본 모드.
+    expect(isRich('<p><strong style="font-weight:700;color:#1F4E79">홍길동</strong></p>')).toBe(true);
+    // b + normal 은 대소문자·!important 와 상관없이 효과 없음 — 편집기.
+    expect(isRich('<p><b style="font-weight:NORMAL !important">홍길동</b></p>')).toBe(false);
+    expect(isRich('<b style="font-weight:normal" id="docs-internal-guid-2"><p><strong>홍길동</strong></p></b>')).toBe(false);
+    expect(isRich('<p><span style="font-weight:normal">홍길동</span></p>')).toBe(false);
+  });
 });
 
 describe('toPastedSignatureHtml — 클래스 서식 풀기', () => {
