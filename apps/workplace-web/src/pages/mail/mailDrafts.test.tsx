@@ -1674,3 +1674,138 @@ test('작성이 보내는 중으로 멈춰 있으면 다시 열 때 「되돌리
   // 멈춘 작성에 바뀐 것이 없었다 — 새 임시저장을 만들지 않는다
   expect(server.posts).toHaveLength(0)
 })
+
+// ── 보내기 대기 재열기·다른 곳에서 보냄·토스트 시간(WP-1786 리뷰 후속) ─────────────────
+
+/** 임시보관함에서 작성 7(제목 title)을 열고 보내기 409 DRAFT_SENDING 으로 멈춘다(pauseBySend) — 아래 테스트들의 같은 시작. */
+async function openPausedBySend(title: string) {
+  const server = draftServer([draftDetail({ id: 7, subject: title, to: ['rcpt@test.local'] })])
+  const view = renderDrafts(server)
+  await openRow(view, 7)
+  await waitFor(() => expect(subject()).toHaveValue(title))
+  await pauseBySend(view, server)
+  return server
+}
+
+/**
+ * 다음 다시 확인(GET)에서 대기가 풀린 것으로 답하고(released 로 다른 값도 바꾼다), 그다음 GET(곧이은 다시 불러오기)은 onReload 가 답한다.
+ * 풀림을 답하기 전의 GET 수(base)를 돌려준다.
+ */
+function releaseThenOnReload(server: Server, onReload: () => Response | undefined, released: Partial<MailDraftDetail> = {}) {
+  const base = server.details.length
+  server.override.get = (_c, n) => {
+    if (n === base + 1) {
+      server.bumpVersion(7, { sendState: null, ...released })
+      return undefined
+    }
+    return onReload()
+  }
+  return base
+}
+
+/** 다시 불러오기 받기의 404 가 아닌 실패(500). */
+const serverError = () => HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 })
+
+test('보내기가 풀려 다시 여는 사이 다시 QUEUED 면 inflight 로 돌아가 보내기가 잠긴다 — 보내기 POST 는 없다', async () => {
+  const server = await openPausedBySend('멈출 메일')
+  const sendsBefore = server.sends.length
+  // 다시 확인(첫 GET)은 풀림으로 보이지만, 곧이은 다시 열기 GET 은 그 사이 다시 대기열에 올라 QUEUED 다.
+  const base = releaseThenOnReload(server, () => {
+    server.bumpVersion(7, { sendState: 'QUEUED' })
+    return undefined
+  }, { subject: '풀린 메일' })
+  await tick(DRAFT_INFLIGHT_RECHECK_MS)
+  await waitFor(() => expect(server.details.length).toBeGreaterThan(base + 1))
+  await waitFor(() => expect(status()).toHaveAttribute('data-status', 'inflight'))
+  expect(screen.getByTestId('mail-compose-send')).toBeDisabled()
+  expect(server.sends).toHaveLength(sendsBefore)
+})
+
+test('재열기 받기가 실패하면 풀린 작성은 충돌 상태 그대로 둔다 — inflight 로 되돌리지 않는다', async () => {
+  const server = await openPausedBySend('멈출 메일')
+  const base = releaseThenOnReload(server, serverError)
+  await tick(DRAFT_INFLIGHT_RECHECK_MS)
+  // WP-1786 리뷰 후속 — 실패한 받기를 기다리고 마이크로태스크를 비운 뒤에도 충돌 그대로이고 보내기가 열려 있다
+  await waitFor(() => expect(server.details.length).toBeGreaterThan(base + 1))
+  await tick(100)
+  expect(status()).toHaveAttribute('data-status', 'conflict')
+  expect(screen.getByTestId('mail-compose-send')).toBeEnabled()
+})
+
+test('inflight 확인이 404 면 작성창이 닫히고 「이 메일은 다른 곳에서 보냈거나 지웠어요」 한 토스트 — 저장 못 한 변경은 새 임시저장 POST 로 남는다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '두 탭 메일', to: ['rcpt@test.local'] })])
+  server.override.put = () => draftSending()
+  const view = renderDrafts(server)
+  await openRow(view, 7)
+  await waitFor(() => expect(subject()).toHaveValue('두 탭 메일'))
+  server.bumpVersion(7, { sendState: 'QUEUED' })
+  setSubject('두 탭 메일 (고침)')
+  await tick(DEBOUNCE)
+  await waitFor(() => expect(status()).toHaveAttribute('data-status', 'inflight'))
+  // 다른 창이 보냈고 행이 지워졌다 — 다시 확인이 404
+  server.drafts.delete(7)
+  await tick(DRAFT_INFLIGHT_RECHECK_MS)
+  // WP-1786 리뷰 후속 — 안내와 저장 결과를 한 토스트로(새 창과 같은 덧붙임). 「임시보관함에 저장했어요」를 따로 띄우지 않는다.
+  expect(await screen.findByText('이 메일은 다른 곳에서 보냈거나 지웠어요')).toBeInTheDocument()
+  expect(await screen.findByText('쓰던 변경은 새 임시저장으로 남겼어요')).toBeInTheDocument()
+  expect(screen.queryByText('임시보관함에 저장했어요')).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+  await waitFor(() => expect(server.posts).toHaveLength(1))
+  expect(server.posts[0].body.subject).toBe('두 탭 메일 (고침)')
+})
+
+// WP-1786 리뷰 후속 — 보내기가 풀려 다시 불러오는 사이 그 행이 다른 곳에서 보내지고 지워졌다(404). 충돌 상태로 남으면 id 없이 보내기가 켜져
+// 같은 메일이 두 번 나간다 — inflight 404 와 같이 닫고 알린다(「불러오지 못했어요」 토스트는 띄우지 않는다).
+test('보내기가 풀려 다시 불러오기 받기가 404 면 작성창이 닫히고 「다른 곳에서 보냈거나 지웠어요」 — 두 번째 보내기 POST 는 없다', async () => {
+  const server = await openPausedBySend('멈출 메일')
+  const sendsBefore = server.sends.length
+  // 다시 확인(첫 GET)은 풀림, 곧이은 다시 불러오기 GET 은 그 사이 보내고 지워져 404 다.
+  releaseThenOnReload(server, () => {
+    server.drafts.delete(7)
+    return undefined
+  })
+  await tick(DRAFT_INFLIGHT_RECHECK_MS)
+  expect(await screen.findByText('이 메일은 다른 곳에서 보냈거나 지웠어요')).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+  expect(screen.queryByText('임시저장을 불러오지 못했어요')).not.toBeInTheDocument()
+  expect(server.sends).toHaveLength(sendsBefore)
+  // 바뀐 것이 없던 작성이라 새 임시저장도 만들지 않는다
+  expect(server.posts).toHaveLength(0)
+})
+
+// 다른 이유의 다시 불러오기 실패(500)는 그대로 — 충돌로 남고 실패 토스트(handleApiError — 서버 사유)를 알린다(위 '재열기 받기가 실패하면' 과 같은 길, 토스트 확인).
+test('다시 불러오기 받기가 404 가 아닌 실패면 닫지 않고 전처럼 실패 토스트(서버 사유)를 알린다', async () => {
+  const server = await openPausedBySend('멈출 메일')
+  releaseThenOnReload(server, serverError)
+  await tick(DRAFT_INFLIGHT_RECHECK_MS)
+  expect(await screen.findByText('서버 오류')).toBeInTheDocument()
+  expect(screen.getByTestId('mail-compose-dock')).toBeInTheDocument()
+  expect(screen.queryByText('이 메일은 다른 곳에서 보냈거나 지웠어요')).not.toBeInTheDocument()
+})
+
+// WP-1786 리뷰 후속 — 저장 못 한 변경이 없으면 닫기만 한다(새 임시저장 없음·저장 토스트 없음). 보낸 행이 목록에 남지 않게 임시보관함은 다시 받는다.
+test('inflight 확인이 404 이고 저장 못 한 변경이 없으면 닫히기만 하고 POST·저장 토스트 없이 임시보관함을 다시 받는다', async () => {
+  const server = await openPausedBySend('두 탭 메일')
+  const lists = server.lists.length
+  server.drafts.delete(7)
+  await tick(DRAFT_INFLIGHT_RECHECK_MS)
+  expect(await screen.findByText('이 메일은 다른 곳에서 보냈거나 지웠어요')).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+  await waitFor(() => expect(server.lists.length).toBeGreaterThan(lists))
+  expect(server.posts).toHaveLength(0)
+  expect(screen.queryByText('임시보관함에 저장했어요')).not.toBeInTheDocument()
+  // 저장한 변경이 없으면 덧붙임도 없다
+  expect(screen.queryByText('쓰던 변경은 새 임시저장으로 남겼어요')).not.toBeInTheDocument()
+})
+
+test('QUEUED 행 안내 토스트는 SEND_UNDO_MS(10초) 동안 떠 있다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '대기 중 메일', to: ['rcpt@test.local'], sendState: 'QUEUED' })])
+  const view = renderMail('/mail/1', { extra: <PlainOpenProbe />, handlers: server.handlers })
+  await view.user.click(await screen.findByTestId('probe-plain'))
+  expect(await screen.findByText('이 메일은 이미 보내는 중이에요')).toBeInTheDocument()
+  // 기본 4초가 지나도 남아 있고, 10초가 지나면 사라진다
+  await tick(9_000)
+  expect(screen.getByText('이 메일은 이미 보내는 중이에요')).toBeInTheDocument()
+  await tick(2_000)
+  await waitFor(() => expect(screen.queryByText('이 메일은 이미 보내는 중이에요')).not.toBeInTheDocument())
+})

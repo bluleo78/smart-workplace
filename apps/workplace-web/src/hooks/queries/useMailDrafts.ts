@@ -5,7 +5,7 @@ import { useCallback } from 'react';
 import { toast } from 'sonner';
 
 import { type ComposePlacement, useMailCompose } from '@/components/mail/MailComposeContext';
-import { handleApiError } from '@/lib/api-error';
+import { extractApiErrorCode, handleApiError, isNotFoundError } from '@/lib/api-error';
 import {
   liveMailComposePopout,
   MAIL_COMPOSE_WINDOW_ID,
@@ -26,9 +26,9 @@ import {
 import { MAIL_SEND_UNKNOWN } from '@/lib/notifText';
 
 import { createMailDraft, deleteMailDraft, getMailDraft, getMailDraftCount, listMailDrafts } from '../../api/mailDrafts';
-import type { MailDraftCreated, MailDraftDetail, MailDraftSaveRequest, MailDraftSummary, MailDraftUpdated } from '../../types/mailDraft';
+import { DRAFT_NOT_FOUND, type MailDraftCreated, type MailDraftDetail, type MailDraftSaveRequest, type MailDraftSummary, type MailDraftUpdated } from '../../types/mailDraft';
 import { invalidateMailDrafts, mailDraftKeys } from './mailDraftKeys';
-import { mailMessageQuery, type OpenSentDraft, toastSendUndo } from './useMailMessages';
+import { mailMessageQuery, type OpenSentDraft, SEND_UNDO_MS, toastSendUndo } from './useMailMessages';
 
 // 키·무효화는 순수 파일(mailDraftKeys)에 두고 여기서 다시 내보낸다 — 발송 훅이 이 파일의 무거운 의존 없이 쓰게.
 export { invalidateMailDrafts, mailDraftKeys };
@@ -115,6 +115,8 @@ function toastIfSending(qc: QueryClient, detail: MailDraftDetail, reopen: OpenSe
     toastSendUndo(qc, detail.accountId, detail.id, reopen, {
       message: MAIL_ALREADY_SENDING,
       description: MAIL_ALREADY_SENDING_UNDO_REOPENS,
+      // 「되돌리기」를 누를 시간을 「메일 보냄」 토스트와 같이 준다 — 기본 4초면 누르기 전에 사라진다(WP-1786 리뷰 후속).
+      duration: SEND_UNDO_MS,
     });
   } else {
     toast(MAIL_ALREADY_SENDING, { description: MAIL_ALREADY_SENDING_CHECK_SENT });
@@ -124,9 +126,19 @@ function toastIfSending(qc: QueryClient, detail: MailDraftDetail, reopen: OpenSe
 
 /**
  * 임시저장 열기 결과 — 'sending' 이면 보내는 중인 행이라 열지 않고 안내만 했다(WP-1786). 새 창 페이지가 「불러오지 못함」 대신
- * 「보내는 중」 안내를 보이는 데 쓴다. 그 밖(열었거나·앞으로 가져왔거나·실패를 알렸다)은 undefined.
+ * 「보내는 중」 안내를 보이는 데 쓴다. 'gone' 이면 받기가 404 DRAFT_NOT_FOUND 로 실패했다 — 그 임시저장이 없다(다른 곳에서 보냈거나 지웠다)
+ * (WP-1786 리뷰 후속 — 충돌 「다시 불러오기」가 이걸 보고 작성창을 닫는다. 그냥 실패로 두면 id 없이 보내기가 켜져 같은 메일이 두 번 나간다).
+ * 그 밖(열었거나·앞으로 가져왔거나·다른 이유의 실패를 알렸다)은 undefined.
  */
-export type OpenMailDraftResult = 'sending' | undefined;
+export type OpenMailDraftResult = 'sending' | 'gone' | undefined;
+
+/**
+ * 404 DRAFT_NOT_FOUND — 그 임시저장이 없어졌다(다른 탭·기기에서 버렸거나 보냈다)(WP-1786 리뷰 후속 — 열기와 자동 저장이 같은 판정을 쓴다).
+ * 계정이 비활성인 404 같은 다른 404 는 코드가 없어 해당하지 않는다.
+ */
+export function isMailDraftNotFound(e: unknown): boolean {
+  return isNotFoundError(e) && extractApiErrorCode(e) === DRAFT_NOT_FOUND;
+}
 
 /** 사이드바 「임시보관함」 배지 개수. */
 export function useMailDraftCount(accountId: number | undefined) {
@@ -162,6 +174,8 @@ const fetchingDraftWindows = new Map<number, Window>();
  * - 보내는 중인 행(WP-1786, QUEUED·SENDING — 실패 알림·딥링크·새 창 주소로 들어온 경우)은 쓰기 창으로 열지 않는다. 열어 다시 보내면
  *   같은 메일이 두 번 나갈 수 있다 — 「이 메일은 이미 보내는 중이에요」로 알리고(아직 대기면 「되돌리기」) 'sending' 을 돌려준다.
  *   되돌리기가 넘긴 detail 은 대기를 푼 뒤의 상세라 해당하지 않는다.
+ * - 받기가 404 DRAFT_NOT_FOUND 면 'gone' 을 돌려준다(WP-1786 리뷰 후속). quietGone 이면 그때 「불러오지 못했어요」 토스트를 띄우지 않는다
+ *   — 호출부(충돌 「다시 불러오기」)가 작성창을 닫으며 따로 알린다.
  */
 export function useOpenMailDraft() {
   const qc = useQueryClient();
@@ -171,7 +185,7 @@ export function useOpenMailDraft() {
   const open = useCallback(
     async function openDraft(
       id: number,
-      opts: { force?: boolean; placement?: ComposePlacement; beforeOpen?: () => void; detail?: MailDraftDetail } = {},
+      opts: { force?: boolean; placement?: ComposePlacement; beforeOpen?: () => void; detail?: MailDraftDetail; quietGone?: boolean } = {},
     ): Promise<OpenMailDraftResult> {
       // 보내는 중 안내의 「되돌리기」가 대기를 푼 상세로 다시 이 함수를 부른다(쓰던 작성을 다시 여는 길이라 placement 없음).
       const reopen: OpenSentDraft = (draftId, detail) => openDraft(draftId, { detail });
@@ -276,7 +290,11 @@ export function useOpenMailDraft() {
         toastSendFailure(detail);
         if (blocked) toastMailComposePopupBlocked();
       } catch (e) {
-        handleApiError(e, '임시저장을 불러오지 못했어요');
+        // 없어진 임시저장(404 DRAFT_NOT_FOUND)은 'gone' 으로 따로 알려 준다(WP-1786 리뷰 후속). quietGone 이면 토스트는 호출부가 띄운다
+        // (충돌 「다시 불러오기」 — 작성창을 닫으며 「다른 곳에서 보냈거나 지웠어요」로 알린다). 다른 실패와 그 밖의 호출부는 전처럼 알린다.
+        const gone = isMailDraftNotFound(e);
+        if (!(gone && opts.quietGone)) handleApiError(e, '임시저장을 불러오지 못했어요');
+        if (gone) return 'gone';
       }
     },
     [qc, openCompose, focusDraft, isDraftSendPaused, isMovingToWindow, getComposeDefault],

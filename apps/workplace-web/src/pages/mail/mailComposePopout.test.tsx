@@ -68,6 +68,11 @@ function setOpener(opener: 'listening' | Record<string, unknown>) {
 }
 
 const created = () => HttpResponse.json({ id: 101, version: 1, updatedAt: '2026-11-12T00:00:00Z' }, { status: 201 })
+/** 404 DRAFT_NOT_FOUND — 그 임시저장이 없다(다른 곳에서 보냈거나 지웠다). */
+const draftGoneResponse = () => HttpResponse.json({ status: 404, message: '없음', errors: { code: 'DRAFT_NOT_FOUND' } }, { status: 404 })
+/** 409 DRAFT_SENDING — 그 임시저장은 다른 곳에서 보내는 중이다(WP-1786). */
+const draftSendingResponse = () =>
+  HttpResponse.json({ status: 409, message: '이미 보내는 중인 메일이에요', errors: { code: 'DRAFT_SENDING' } }, { status: 409 })
 
 // ── 메인 창 ↗ ────────────────────────────────────────────────
 
@@ -178,9 +183,7 @@ test('다른 곳에서 보냈거나 버린 임시저장(gone)이면 ↗ 가 꺼�
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
   try {
     const post = record('post', '/api/v1/mail/drafts', created)
-    const put = record('put', '/api/v1/mail/drafts/101', () =>
-      HttpResponse.json({ status: 404, message: '없음', errors: { code: 'DRAFT_NOT_FOUND' } }, { status: 404 }),
-    )
+    const put = record('put', '/api/v1/mail/drafts/101', draftGoneResponse)
     const view = renderMail('/mail/1', { handlers: [post.handler, put.handler] })
     await view.user.click(await screen.findByTestId('mail-compose-new'))
     const subject = () => screen.getByTestId('mail-compose-subject')
@@ -315,7 +318,7 @@ test('새 창에서 버리면 지우기가 끝난 뒤 discarded 를 알리고 �
 
 test('없는 임시저장이면 빈 창 대신 안내를 보인다', async () => {
   renderWindow([
-    http.get('/api/v1/mail/drafts/7', () => HttpResponse.json({ status: 404, message: '없음', errors: { code: 'DRAFT_NOT_FOUND' } }, { status: 404 })),
+    http.get('/api/v1/mail/drafts/7', draftGoneResponse),
   ])
   expect(await screen.findByTestId('mail-compose-window-error')).toBeInTheDocument()
   expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
@@ -461,6 +464,20 @@ test('메인 창은 새 창의 sent 알림에 임시보관함 개수를 다시 �
   expect(await screen.findByText('메일 보냄')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '되돌리기' })).toBeInTheDocument()
   expect(liveMailComposePopout(7)).toBeNull()
+})
+
+// WP-1786 리뷰 후속 — 새 창이 다른 곳에서 보냈거나 지운 작성을 닫으면 그 안내는 연 메인 창이 띄운다(새 창은 곧 닫혀 못 본다). 다른 탭은 조용히 목록만.
+test('메인 창은 새 창의 sentElsewhere(Saved) 알림에 연 창일 때만 「이 메일은 다른 곳에서 보냈거나 지웠어요」를 띄운다', async () => {
+  renderPage('/mail/1?folder=sent', { handlers: mailBaseHandlers({ accounts: [mailAccount()] }) })
+  await screen.findByTestId('mail-compose-new', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const other = new BroadcastChannel(MAIL_COMPOSE_CHANNEL)
+  other.postMessage(msg('sentElsewhere', { opener: 'another-tab' }))
+  await new Promise((r) => setTimeout(r, 50))
+  expect(screen.queryByText('이 메일은 다른 곳에서 보냈거나 지웠어요')).not.toBeInTheDocument()
+  other.postMessage(msg('sentElsewhereSaved', { opener: MAIL_COMPOSE_WINDOW_ID }))
+  other.close()
+  expect(await screen.findByText('이 메일은 다른 곳에서 보냈거나 지웠어요')).toBeInTheDocument()
+  expect(screen.getByText('쓰던 변경은 새 임시저장으로 남겼어요')).toBeInTheDocument()
 })
 
 // WP-1786 — 새 창은 보내자마자 닫히므로 되돌리기는 메인 창 토스트가 맡는다. 되돌리면 메인 창에 쓰기 창이 다시 열린다.
@@ -649,3 +666,104 @@ test('되돌리기가 늦어 이미 보냈으면(409) 「이미 보냄」을 알
     vi.useRealTimers()
   }
 })
+
+// ── 다른 곳에서 보냄(WP-1786 리뷰 후속) ─────────────────────────────
+
+/**
+ * 새 창 작성을 다른 곳에서 보내는 중(inflight)으로 멈춘 뒤 그 행을 지운다(404) — 처음엔 평범한 임시저장으로 열리고, 고쳐 저장(PUT)하면
+ * 409 DRAFT_SENDING 으로 멈춘다(저장 못 한 변경이 남는다). deleted 뒤 다시 확인 GET 이 404 다. post 는 닫으며 새 임시저장으로 남기는 저장이다.
+ */
+async function pauseThenDelete(post: RequestHandler, path: string) {
+  const state = { phase: 'open' as 'open' | 'queued' | 'deleted' }
+  const put = http.put('/api/v1/mail/drafts/7', draftSendingResponse)
+  const get = http.get('/api/v1/mail/drafts/7', () =>
+    state.phase === 'deleted'
+      ? draftGoneResponse()
+      : HttpResponse.json(draftDetail({ id: 7, subject: '새 창 메일', ...(state.phase === 'queued' ? { sendState: 'QUEUED' as const } : {}) })),
+  )
+  const view = renderWindow([put, get, post], path)
+  const subject = () => screen.getByTestId('mail-compose-subject')
+  await waitFor(() => expect(subject()).toHaveValue('새 창 메일'))
+  state.phase = 'queued'
+  await view.user.type(subject(), '!')
+  await waitFor(() => expect(screen.getByTestId('mail-compose-save-status')).toHaveAttribute('data-status', 'inflight'), { timeout: 5000 })
+  state.phase = 'deleted'
+  return view
+}
+
+test('새 창 작성에서도 inflight 확인이 404 면 닫히고, 메인 창이 듣고 있으면 sentElsewhereSaved 로 넘겨 이 창은 안내 없이 닫힌다', async () => {
+  const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+  setOpener('listening')
+  // 저장 못 한 변경은 닫으며 새 임시저장 POST 로 남는다.
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', created)
+  await pauseThenDelete(post.handler, WITH_OPENER)
+  // 새 창은 곧 닫혀 토스트를 못 보므로 여기선 띄우지 않고, 메인 창이 받을 sentElsewhereSaved 로 알린다(저장 못 한 변경을 새 임시저장으로 남겼다).
+  await waitFor(() => expect(heard).toContainEqual(msg('sentElsewhereSaved', { opener: MAIL_COMPOSE_WINDOW_ID })), { timeout: 10000 })
+  expect(screen.queryByText('이 메일은 다른 곳에서 보냈거나 지웠어요')).not.toBeInTheDocument()
+  expect(post.calls).toHaveLength(1)
+  await waitFor(() => expect(close).toHaveBeenCalled())
+}, 20000)
+
+// WP-1786 리뷰 후속 — 연 메인 창이 없으면(주소로 바로 열었다·닫혔다·새로 고쳐졌다) 안내를 맡을 곳이 없다. 보냄과 같이 이 창이 안내를 보이고 열려 있다.
+test('메인 창이 듣고 있지 않으면 새 창이 「다른 곳에서 보냈거나 지웠어요」 안내를 보이고 닫히지 않는다 — 알림엔 연 창 id 를 싣지 않는다', async () => {
+  const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+  setOpener({ closed: true, __wpMailComposeListener: MAIL_COMPOSE_WINDOW_ID })
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', created)
+  await pauseThenDelete(post.handler, WITH_OPENER)
+  const notice = await screen.findByTestId('mail-compose-window-sent-elsewhere', {}, { timeout: 10000 })
+  expect(notice).toHaveTextContent('이 메일은 다른 곳에서 보냈거나 지웠어요')
+  expect(notice).toHaveTextContent('쓰던 변경은 새 임시저장으로 남겼어요')
+  expect(within(notice).getByRole('button', { name: '창 닫기' })).toBeInTheDocument()
+  await waitFor(() => expect(heard).toContainEqual(msg('sentElsewhereSaved', { opener: null })))
+  expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+  await new Promise((r) => setTimeout(r, 50))
+  expect(close).not.toHaveBeenCalled()
+}, 20000)
+
+// WP-1786 리뷰 후속 — 닫으며 남기는 저장이 실패하면 창이 남는다. 안내를 이 창에서 보이고, 나중의 ✕ 도 sentElsewhere(Saved) 로 끝나며 그 사이 보내기는 막힌다.
+test('다른 곳에서 보낸 작성을 닫다가 저장에 실패하면 이 창에 안내와 실패를 보이고, 다시 ✕ 하면 sentElsewhereSaved 로 끝난다', async () => {
+  const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+  setOpener('listening')
+  let fail = true
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', () =>
+    fail ? HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 }) : created(),
+  )
+  const view = await pauseThenDelete(post.handler, WITH_OPENER)
+  await waitFor(() => expect(post.calls).toHaveLength(1), { timeout: 10000 })
+  expect(await screen.findByText('이 메일은 다른 곳에서 보냈거나 지웠어요')).toBeInTheDocument()
+  expect(await screen.findByText('창을 닫지 않았어요. 고치거나 잠시 뒤 다시 닫아 주세요')).toBeInTheDocument()
+  expect(screen.getByTestId('mail-compose-dock')).toBeInTheDocument()
+  expect(heard.some((m) => m.type === 'sentElsewhere' || m.type === 'sentElsewhereSaved' || m.type === 'saved')).toBe(false)
+  // id 를 잃은 채 같은 메일을 또 보내지 않게 보내기를 막는다
+  await waitFor(() => expect(screen.getByTestId('mail-compose-send')).toBeDisabled())
+  fail = false
+  await view.user.click(screen.getByTestId('mail-compose-close'))
+  await waitFor(() => expect(heard).toContainEqual(msg('sentElsewhereSaved', { opener: MAIL_COMPOSE_WINDOW_ID })))
+  expect(heard.some((m) => m.type === 'saved' || m.type === 'closed')).toBe(false)
+  await waitFor(() => expect(close).toHaveBeenCalled())
+}, 20000)
+
+// WP-1786 리뷰 후속 — fresh 새 창이어도 다른 곳에서 보냈거나 지운 작성은 이미 없는 임시저장을 지우러(DELETE) 가지 않는다.
+test('fresh 새 창이 보내기 409 로 멈춘 뒤 404 면 DELETE 없이 sentElsewhere 로 끝난다', async () => {
+  const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+  setOpener('listening')
+  let deleted = false
+  const send = http.post('/api/v1/mail/accounts/1/send', () => {
+    deleted = true
+    return draftSendingResponse()
+  })
+  const get = http.get('/api/v1/mail/drafts/7', () =>
+    deleted
+      ? draftGoneResponse()
+      : HttpResponse.json(draftDetail({ id: 7, subject: '새 창 메일', to: ['rcpt@test.local'] })),
+  )
+  const del = record('delete', '/api/v1/mail/drafts/7')
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', created)
+  const view = renderWindow([send, get, del.handler, post.handler], `${WITH_OPENER}&fresh=1`)
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(heard).toContainEqual(msg('sentElsewhere', { opener: MAIL_COMPOSE_WINDOW_ID })), { timeout: 10000 })
+  expect(del.calls).toHaveLength(0)
+  expect(post.calls).toHaveLength(0)
+  await waitFor(() => expect(close).toHaveBeenCalled())
+}, 20000)

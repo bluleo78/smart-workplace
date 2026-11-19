@@ -5,8 +5,9 @@
 // 1차는 BroadcastChannel(같은 출처의 모든 창), 없는 브라우저면 window.opener.postMessage(같은 출처만)로 보낸다.
 import { toast } from 'sonner';
 
-/** 새 창이 끝난 이유 — sent(보냄) / saved(닫으며 임시저장) / discarded(버림) / closed(알릴 결과 없음 — OS 닫기·빈 작성 정리). */
-export const MAIL_COMPOSE_WINDOW_EVENTS = ['sent', 'saved', 'discarded', 'closed'] as const;
+/** 새 창이 끝난 이유 — sent(보냄) / saved(닫으며 임시저장) / discarded(버림) / closed(알릴 결과 없음 — OS 닫기·빈 작성 정리) /
+ * sentElsewhere(다른 곳에서 보냈거나 지운 작성이라 닫음 — WP-1786 리뷰 후속) / sentElsewhereSaved(그러면서 저장 못 한 변경을 새 임시저장으로 남김). */
+export const MAIL_COMPOSE_WINDOW_EVENTS = ['sent', 'saved', 'discarded', 'closed', 'sentElsewhere', 'sentElsewhereSaved'] as const;
 export type MailComposeWindowEvent = (typeof MAIL_COMPOSE_WINDOW_EVENTS)[number];
 
 /** BroadcastChannel 이름 겸 postMessage 표식. */

@@ -3,6 +3,7 @@
 // 다른 곳에서 보냈거나 버린 임시저장(gone)은 흐린 글씨 안내만 둔다 — 여기서 보내는 것은 그대로 된다.
 // 다른 탭·창에서 보내는 중인 임시저장(inflight, WP-1786)도 흐린 글씨 안내만 둔다 — 보내기는 작성창이 막는다(두 번 나가지 않게).
 // 그때 이 창에서 저장하지 못한 변경이 있으면(unsaved) 그것도 함께 알린다 — 닫으면 새 임시저장으로 남는다.
+// 다른 곳에서 보냈거나 지운 작성(sentElsewhere, WP-1786 리뷰 후속 — 보통은 곧 닫히고, 새 창이 닫다가 저장하지 못했을 때만 남는다)도 같은 모양이다.
 // 검증 오류(invalid)는 원인만 짧게 보인다 — 같은 내용으로 다시 시도해도 같으므로 「다시 시도」를 두지 않는다(고치면 다시 저장한다).
 import type { ReactNode } from 'react';
 
@@ -21,7 +22,7 @@ export function MailDraftSaveStatus({
   status: DraftSaveStatus;
   /** invalid 의 원인(서버 검증 문구의 첫 문장). */
   reason?: string;
-  /** inflight 로 멈추며 저장하지 못한 변경이 남았다(훅의 inflightUnsaved). */
+  /** inflight·sentElsewhere 로 멈추며 저장하지 못한 변경이 남았다(훅의 inflightUnsaved). */
   unsaved?: boolean;
   onRetry: () => void;
   onReload: () => void;
@@ -29,9 +30,9 @@ export function MailDraftSaveStatus({
 }) {
   if (status === 'idle') return null;
   const failed = status === 'error' || status === 'invalid' || status === 'conflict';
-  // 다른 곳의 일로 자동 저장을 멈춘 안내 — 다른 곳에서 보냈거나 버림(gone)·보내는 중(inflight). 실패가 아니라 알림이라 흐린 글씨로 두되,
-  // 한 번 바뀌는 상태라 읽어 준다.
-  const stoppedNotice = status === 'gone' || status === 'inflight';
+  // 다른 곳의 일로 자동 저장을 멈춘 안내 — 다른 곳에서 보냈거나 버림(gone)·보내는 중(inflight)·보냈거나 지움(sentElsewhere). 실패가 아니라
+  // 알림이라 흐린 글씨로 두되, 한 번 바뀌는 상태라 읽어 준다.
+  const stoppedNotice = status === 'gone' || status === 'inflight' || status === 'sentElsewhere';
   // 상태 글 옆 동작 — 모바일은 줄 높이를 그대로 두고 위아래 투명 영역으로 44px 터치를 맞춘다.
   const action = (label: string, onClick: () => void, testId: string) => (
     <button
@@ -65,6 +66,11 @@ export function MailDraftSaveStatus({
         return message(unsaved ? `${MAIL_ALREADY_SENDING} · ${INFLIGHT_UNSAVED_NOTE}` : MAIL_ALREADY_SENDING);
       case 'gone':
         return message('다른 곳에서 보냈거나 버린 메일이에요');
+      case 'sentElsewhere': {
+        // 토스트(「이 메일은 다른 곳에서 보냈거나 지웠어요」)와 같은 줄이 겹쳐 보이지 않게 짧은 꼴로 쓴다(WP-1786 리뷰 후속).
+        const text = '다른 곳에서 보냈거나 지운 메일이에요';
+        return message(unsaved ? `${text} · ${INFLIGHT_UNSAVED_NOTE}` : text);
+      }
       case 'invalid':
         return mobile ? (
           <>

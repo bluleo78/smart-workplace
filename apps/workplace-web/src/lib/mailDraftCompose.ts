@@ -1,6 +1,9 @@
 // 메일 임시저장(WP-577) ↔ 작성창 변환 — 순수 함수만 두어 vitest 로 규칙을 고정한다.
 // - 작성창 값 → 저장 요청(buildDraftSavePayload): 본문은 에디터 HTML 만(인용문 제외), 첨부는 올라간 것만.
 // - 임시저장 상세 → 작성창 초기값(composeFromDraft): 인용문은 원본 메일로 다시 만들고, 지웠으면 붙이지 않는다.
+// - 안내 문구와 그 문구를 띄우는 작은 도우미(notifySentElsewhere — 토스트, WP-1786 리뷰 후속)도 여기 둔다 — 여러 창이 같은 모양으로 알리게.
+
+import { toast } from 'sonner';
 
 import type { ComposeDraft } from '@/components/mail/MailComposeContext';
 import { type ComposeAttachment, sendAttachmentIds } from '@/lib/mailComposeAttachments';
@@ -215,6 +218,28 @@ export function composeFromDraft(
 
 /** 이미 보내는 중인 메일 안내(WP-1786) — 작성창 상태 줄·보내기 거절·보내는 중인 행 열기가 같은 문구를 쓴다. */
 export const MAIL_ALREADY_SENDING = '이 메일은 이미 보내는 중이에요';
+
+/**
+ * 보내는 중으로 멈춘 작성(또는 충돌 「다시 불러오기」)이 다시 확인하니 그 행이 없다(404)(WP-1786 리뷰 후속). 다른 창이 보냈을 수도,
+ * 보내기가 풀린 뒤 다른 곳에서 버렸을 수도 있어 둘 다 말한다. 작성창이 이 안내와 함께 닫힌다.
+ */
+export const MAIL_SENT_OR_DELETED_ELSEWHERE = '이 메일은 다른 곳에서 보냈거나 지웠어요';
+
+/** 위 안내의 덧붙임 — 닫으며 저장 못 한 변경을 새 임시저장으로 남겼을 때. 앱 안 작성창·새 창(메인 창 알림·새 창 안내)이 같은 문구를 쓴다(WP-1786 리뷰 후속). */
+export const MAIL_SENT_ELSEWHERE_SAVED_DESC = '쓰던 변경은 새 임시저장으로 남겼어요';
+
+/**
+ * 「다른 곳에서 보냈거나 지웠어요」 안내 토스트 하나(WP-1786 리뷰 후속) — saved 면 저장 못 한 변경을 새 임시저장으로 남겼다는 덧붙임을 단다.
+ * 앱 안 작성창(닫을 때)·메인 창(새 창의 알림을 받을 때)이 같은 모양으로 띄운다.
+ */
+export function notifySentElsewhere(saved: boolean): void {
+  toast(MAIL_SENT_OR_DELETED_ELSEWHERE, saved ? { description: MAIL_SENT_ELSEWHERE_SAVED_DESC } : undefined);
+}
+
+/** 같은 안내의 한 문단 — 안내를 맡을 메인 창이 없는 새 창이 화면 가운데 보인다(WP-1786 리뷰 후속). */
+export function sentElsewhereNotice(saved: boolean): string {
+  return saved ? `${MAIL_SENT_OR_DELETED_ELSEWHERE}. ${MAIL_SENT_ELSEWHERE_SAVED_DESC}` : MAIL_SENT_OR_DELETED_ELSEWHERE;
+}
 
 /** 보내는 중 안내의 덧붙임 — 되돌릴 수 없는(SENDING) 행을 열려 할 때 토스트 설명, 새 창 안내 문장에도 쓴다. */
 export const MAIL_ALREADY_SENDING_CHECK_SENT = '보낸편지함에서 확인해 주세요';
