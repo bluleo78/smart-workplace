@@ -388,6 +388,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async moveWikiPage(pageId, body) {
       await http.patch(`/wiki/pages/${pageId}/move`, body);
     },
+    // WP-1766: cursor 가 있을 때만 싣는다.
+    async listRecentWikiPages(cursor) {
+      const data = (await http.get('/wiki/recent', { params: cursor ? { cursor } : undefined })).data;
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor ?? null };
+    },
+    async listStarredWikiPages(cursor) {
+      const data = (await http.get('/wiki/starred', { params: cursor ? { cursor } : undefined })).data;
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor ?? null };
+    },
 
     // ── 캘린더 ──
     async listEvents(from, to) {

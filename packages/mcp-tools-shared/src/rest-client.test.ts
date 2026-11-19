@@ -561,6 +561,18 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.delete).toHaveBeenCalledWith('/drive/stars', { data: { kind: 'FOLDER', id: 6 } });
   });
 
+  // WP-1766: 내 최근·즐겨찾기 노트 경로 — cursor 가 있을 때만 쿼리에 싣고, 응답 래퍼를 {items, nextCursor} 로 낸다.
+  it('WP-1766 최근·즐겨찾기 노트 경로', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { items: [{ pageId: 1 }], nextCursor: 'n' } });
+    expect(await client.listRecentWikiPages('c1')).toEqual({ items: [{ pageId: 1 }], nextCursor: 'n' });
+    expect(http.get).toHaveBeenLastCalledWith('/wiki/recent', { params: { cursor: 'c1' } });
+    await client.listRecentWikiPages();
+    expect(http.get).toHaveBeenLastCalledWith('/wiki/recent', { params: undefined });
+    expect(await client.listStarredWikiPages('')).toEqual({ items: [], nextCursor: null });
+    expect(http.get).toHaveBeenLastCalledWith('/wiki/starred', { params: undefined });
+  });
+
   // WP-354: 파일 이름변경·복사·백링크·첨부 가져오기 경로 — 첨부 가져오기는 폴더 유무로 경로가 갈린다.
   it('WP-354 드라이브 파일 이름변경·복사·백링크·첨부 가져오기 경로', async () => {
     const { http, client } = mockHttp();

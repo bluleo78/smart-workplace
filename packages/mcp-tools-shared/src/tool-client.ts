@@ -310,6 +310,27 @@ export interface WikiClaimedAttachment {
   image?: boolean;
 }
 
+/** 노트 최근·즐겨찾기 행의 공통 필드(서버 DTO 그대로, WP-1766). */
+export interface WikiPageRowBase {
+  pageId: number;
+  title: string;
+  spaceId: number;
+  spaceName: string;
+  ancestorTitles: string[];
+  url: string;
+}
+
+/** GET /wiki/recent 의 행 — 최근 열람·편집한 노트. */
+export interface WikiRecentPageRow extends WikiPageRowBase {
+  lastAction: 'OPEN' | 'EDIT';
+  lastAt: string;
+}
+
+/** GET /wiki/starred 의 행 — 즐겨찾기한 노트. */
+export interface WikiStarredPageRow extends WikiPageRowBase {
+  starredAt: string;
+}
+
 export interface WikiToolClient {
   listWikiSpaces(): Promise<unknown>;
   /** GET /wiki/search — 서버가 최근 수정순 최대 50건으로 자른다(상한을 알리는 일은 핸들러). 배열 원형. spaceId 가 있으면 그 스페이스만(WP-357). */
@@ -340,6 +361,10 @@ export interface WikiToolClient {
   getWikiBacklinks(pageId: number): Promise<unknown>;
   /** PATCH /wiki/pages/{id}/move — parentId null=루트, position 은 서버가 0..형제수로 자른다. */
   moveWikiPage(pageId: number, body: { parentId: number | null; position: number }): Promise<void>;
+  /** GET /wiki/recent?cursor — 내가 최근 열람·편집한 노트(WP-1766). 읽기만 — /open 은 부르지 않는다. */
+  listRecentWikiPages(cursor?: string): Promise<CursorPage<WikiRecentPageRow>>;
+  /** GET /wiki/starred?cursor — 내 즐겨찾기 노트(WP-1766). */
+  listStarredWikiPages(cursor?: string): Promise<CursorPage<WikiStarredPageRow>>;
 }
 
 /** 도움말 검색 결과 한 건(GET /help/search 의 results[]) — manual 도구가 id·path·title·summary 로 줄인다(WP-1510). */

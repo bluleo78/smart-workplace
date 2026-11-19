@@ -58,6 +58,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   list_projects: ['read', R, R, R],
   list_thread_replies: ['read', R, R, R],
   list_user_groups: ['read', R, R, R],
+  list_my_wiki_pages: ['read', R, R, R],
   list_wiki_backlinks: ['read', R, R, R],
   list_wiki_pages: ['read', R, R, R],
   list_wiki_spaces: ['read', R, R, R],

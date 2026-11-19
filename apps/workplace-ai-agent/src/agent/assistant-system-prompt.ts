@@ -94,7 +94,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 |---|---|---|---|
 | 캘린더 | \`list_events\`, \`get_event\` | \`show_calendar\` | \`show_event\` |
 | 메시징 | \`list_channels\`(\`q\` 로 공개 채널 탐색), \`list_channel_messages\`, \`list_thread_replies\` | \`show_channels\` | (없음) |
-| 노트 | \`search_wiki\`, \`get_wiki_page\`(저장된 AI 요약·판 기록은 \`includeSummary\`·\`includeRevisions\` 옵션), \`list_wiki_pages\`, \`list_wiki_backlinks\` | \`show_wiki\` | \`show_wiki_page\` |
+| 노트 | \`search_wiki\`, \`get_wiki_page\`(저장된 AI 요약·판 기록은 \`includeSummary\`·\`includeRevisions\` 옵션), \`list_wiki_pages\`, \`list_wiki_backlinks\`, \`list_my_wiki_pages\`(내 최근·즐겨찾기 노트 — 어제 쓰던·최근 본·즐겨찾기한 노트처럼 내 활동으로 찾을 때는 이것을 먼저, 제목·내용으로 찾을 때는 \`search_wiki\`) | \`show_wiki\` | \`show_wiki_page\` |
 | 연락처(사외) | \`list_contacts\`, \`get_external_contact\`, \`get_contact_facets\` | \`show_contacts\` | \`show_contact\` |
 | 사용자 그룹(조직도·개인 그룹) | \`list_user_groups\`, \`get_user_group\` | (없음) | (없음) |
 | 구성원(사내) | \`search_members\`, \`get_member\`, \`get_member_contact\` | (없음) | (없음) |
@@ -124,7 +124,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 | 이슈 상태변경·코멘트·코멘트 리액션·이슈의 마일스톤/사이클 지정·워치·분석·검색, 이슈·코멘트 삭제(제안) | **issue-agent** | "이 이슈 진행중으로", "코멘트 남겨줘", "그 코멘트에 👍 달아줘", "이 이슈 워치해줘", "이 이슈 삭제해줘" |
 | 일정 생성·수정·삭제(제안), 기존 일정 참석자 추가·제거(제안), 충돌 검사, 참석 응답(RSVP), 회의록 노트 잇기·끊기 | **calendar-agent** | "다음주 팀미팅 잡아줘", "이 일정 옮겨줘", "그 회의에 김민수 추가해줘", "그 회의 참석한다고 해줘", "이 노트를 그 회의 회의록으로 이어줘" |
 | 메시지 작성·공지·대화 요약/정리, 내 메시지 수정, 리액션, 채널 읽음 처리, 채널 생성·참여·DM 열기·채널 나가기, 채널 초대(제안) | **messaging-agent** | "팀 채널에 공지", "이 채널 요약", "김민수한테 DM 보내줘", "방금 쓴 글 이렇게 고쳐줘", "그 메시지에 👍 달아줘", "이 채널 다 읽음 처리해줘", "공지 채널에 참여해줘", "김민수를 이 채널에 초대해줘" |
-| 노트 페이지 생성·수정·이동·삭제(제안), 이전 판으로 복원, 내용 종합 | **wiki-agent** | "회의록 노트로 정리", "이 페이지에 추가", "이 페이지를 기획 아래로 옮겨줘", "이 노트 지워줘", "어제 버전으로 되돌려줘" |
+| 노트 페이지 생성·수정·이동·삭제(제안), 이전 판으로 복원, 내용 종합 | **wiki-agent** | "회의록 노트로 정리", "이 페이지에 추가", "이 페이지를 기획 아래로 옮겨줘", "이 노트 지워줘", "어제 버전으로 되돌려줘", "어제 고친 회의록 찾아 줘" |
 | 메일 요약·정리·검색·발송·답장(초안)·특정 메일 읽기·계정 확인·이슈로 전환·읽음/안 읽음 처리·분류 바꾸기 | **mail-agent** | "안 읽은 메일 요약", "이 메일에 답장", "이 메일 이슈로 만들어줘", "이 메일 프로모션으로 바꿔줘" |
 | **외부** 연락처 생성·수정·삭제(제안), 연락처 즐겨찾기, 사용자 그룹(조직도·개인 그룹) 생성·수정·멤버 편입/제외·삭제(제안) | **contacts-agent** | "거래처 연락처 추가", "이 연락처 지워줘", "김민수 즐겨찾기 해줘", "영업팀 그룹에 거래처 넣어줘" |
 | **사내 구성원** 역할변경·활성화(제안) | **member-agent** | "김민수 관리자로", "퇴사자 계정 비활성화" |

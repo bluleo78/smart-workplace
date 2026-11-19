@@ -24,8 +24,9 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  *   list_events/get_event note 설명으로 늘었다(직전 17,699 로 여유가 없었다, 증가분 약 295). 기획 WP-1694 가 두 도구의 외부 MCP 노출을 정했다(2026-11-18 dh.yang 승인).
  * 18,000 → 18,300: 2026-11-18 WP-1700 드라이브 최근·별표 도구 2종(list_my_drive_files·star_drive_item)으로 늘었다(직전 18,000 — WP-1742 뒤, 늘어 18,296).
  *   기획 WP-1697 의 네 도구를 둘로 합치고 상한을 올리기로 정했다(2026-11-18 dh.yang 승인).
+ * 18,300 → 18,450: 2026-11-19 WP-1766 내 최근·즐겨찾기 노트 도구(list_my_wiki_pages)로 늘었다(직전 18,296, 늘어 18,444). 상한 맞추려 다른 도구 설명을 줄이지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
  */
-const DEFINITION_TOKEN_CAP = 18_300;
+const DEFINITION_TOKEN_CAP = 18_450;
 /**
  * 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인).
  * 18 → 19: WP-719 add_issue_chat(2026-10-27 사용자 승인).

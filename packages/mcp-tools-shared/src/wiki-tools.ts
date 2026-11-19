@@ -3,10 +3,12 @@
 // update_wiki_page 의 409(기준본 없음 — 만료·기록 없음·현재보다 새 version)는 그대로 throw — 자동 재시도는 하지 않는다. 동시 편집은 서버가 3-way 병합한다(WP-289).
 import { LINK_RULE_WIKI } from './link-rule.js';
 import { z } from 'zod';
-import { dropEmpty, omitKeys, truncatedView } from './compact.js';
+import { nullAsOmitted } from './tool-definitions.js';
+import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
 import { htmlToText } from './html-text.js';
+import { toSeoulIso } from './issue-view.js';
 import type { SharedTool } from './mcp-tool.js';
-import type { WikiClaimedAttachment, WikiPageRow, WikiToolClient } from './tool-client.js';
+import type { WikiClaimedAttachment, WikiPageRow, WikiPageRowBase, WikiToolClient } from './tool-client.js';
 
 // WP-357: spaceId 로 한 스페이스 안에서만 찾는다(서버 WikiSearchController 의 spaceId — 멤버가 아니면 서버가 requireRole(VIEWER) 로 404 를 던진다).
 export const searchWikiInput = z.object({
@@ -31,6 +33,25 @@ export const listWikiPagesInput = z.object({
   // WP-352: 큰 스페이스의 트리가 잘렸을 때 그 페이지의 하위만 따로 펼쳐 보는 용도.
   parentId: z.number().int().positive().optional(),
 });
+// WP-1766: 내 최근·즐겨찾기 노트 — 드라이브 list_my_drive_files 와 같은 모양. null = 생략. limit 은 받지 않는다 — 서버 기본 50(서버는 limit 1~50 을 받지만 화면처럼 보내지 않는다).
+export const listMyWikiPagesInput = z.object({
+  view: z.enum(['recent', 'starred']),
+  cursor: nullAsOmitted(z.string()),
+});
+
+/**
+ * 최근·즐겨찾기 행 → LLM 뷰(WP-1766). 공통 필드를 한곳에서 만든다: spaceName → space, 조상 제목은 ` › ` 로 이어 path(조상이 없으면 키 생략),
+ * url 은 서버 값 그대로(MCP 는 주소를 만들지 않는다). spaceId 는 내보내지 않는다.
+ */
+function wikiPageRowView(r: WikiPageRowBase) {
+  return {
+    pageId: r.pageId,
+    title: r.title,
+    space: r.spaceName,
+    ...(r.ancestorTitles.length > 0 && { path: r.ancestorTitles.join(' › ') }),
+    url: r.url,
+  };
+}
 
 /** 한 번에 돌려줄 트리 노드 수 상한 — 넘으면 위쪽 계층부터 이 수만큼만 담고 truncated 로 알린다(수천 페이지 스페이스의 토큰 폭주 방지). */
 const MAX_WIKI_TREE_NODES = 500;
@@ -355,6 +376,27 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       async handler(args) {
         const { pageId } = getWikiPageInput.parse(args);
         return JSON.stringify(await client.getWikiBacklinks(pageId));
+      },
+    },
+    {
+      name: 'list_my_wiki_pages',
+      app: 'wiki',
+      kind: 'read',
+      description:
+        'Lists wiki pages I recently opened/edited (view recent, newest first) or starred (view starred), across spaces, as {items, hasMore?, nextCursor?}. ' +
+        'If hasMore, pass nextCursor as cursor, or say the list is partial.',
+      inputSchema: listMyWikiPagesInput,
+      async handler(args) {
+        const { view, cursor } = listMyWikiPagesInput.parse(args);
+        // 서버 nextCursor 를 그대로 이어 읽기 값으로 싣는다(없으면 hasMore·nextCursor 키 없음 = 끝).
+        if (view === 'recent') {
+          const page = await client.listRecentWikiPages(cursor ?? undefined);
+          const items = page.items.map((r) => ({ ...wikiPageRowView(r), lastAction: r.lastAction, lastAt: toSeoulIso(r.lastAt) }));
+          return JSON.stringify(cursorPageView(items, page));
+        }
+        const page = await client.listStarredWikiPages(cursor ?? undefined);
+        const items = page.items.map((r) => ({ ...wikiPageRowView(r), starredAt: toSeoulIso(r.starredAt) }));
+        return JSON.stringify(cursorPageView(items, page));
       },
     },
     {

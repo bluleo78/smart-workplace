@@ -324,6 +324,7 @@ export const RECURRING_RUN_TOOLS: readonly string[] = [
   'list_issues', 'get_issue_detail', 'list_projects', 'get_project',
   // 노트
   'list_wiki_spaces', 'list_wiki_pages', 'search_wiki', 'get_wiki_page', 'list_wiki_backlinks',
+  'list_my_wiki_pages', // WP-1766: 내 최근·즐겨찾기 노트
   // 캘린더
   'list_events', 'get_event',
   // 메일
@@ -411,6 +412,7 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   'list_issues', 'get_issue_detail',
   // 노트
   'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'list_wiki_pages', 'list_wiki_backlinks',
+  'list_my_wiki_pages', // WP-1766: 내 최근·즐겨찾기 노트
   // 캘린더
   'list_events', 'get_event',
   // 메시징
@@ -1369,6 +1371,7 @@ export function buildTools(
       sharedTool('search_wiki'),
       sharedTool('get_wiki_page'),
       sharedTool('list_wiki_pages'), sharedTool('list_wiki_backlinks'), // #850: 페이지 트리·백링크
+      sharedTool('list_my_wiki_pages'),      // WP-1766: 내 최근·즐겨찾기 노트
       sharedTool('create_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('update_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('restore_wiki_revision'),   // WP-357: 이전 판 복원 — 확인 카드가 없어 직접 실행(wiki-agent)

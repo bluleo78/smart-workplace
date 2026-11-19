@@ -38,6 +38,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_wiki_spaces: { label: '노트 공간 조회', icon: '📚' },
   list_wiki_pages: { label: '노트 목록', icon: '📚' },
   get_wiki_page: { label: '노트 조회', icon: '📄' },
+  list_my_wiki_pages: { label: '내 최근·즐겨찾기 노트 조회', icon: '⭐' }, // WP-1766
   list_wiki_backlinks: { label: '노트 백링크 조회', icon: '🔗' },
   create_wiki_page: { label: '노트 생성', icon: '📝' },
   update_wiki_page: { label: '노트 수정', icon: '✏️' },

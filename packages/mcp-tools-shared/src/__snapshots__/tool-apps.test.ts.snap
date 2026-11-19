@@ -59,6 +59,7 @@ exports[`도구 앱 태그 (WP-350) > 도구별 앱 스냅샷 1`] = `
   "list_mail": "mail",
   "list_mail_accounts": "mail",
   "list_my_drive_files": "drive",
+  "list_my_wiki_pages": "wiki",
   "list_notifications": "notify",
   "list_projects": "project,issue",
   "list_thread_replies": "messaging",
