@@ -32,13 +32,15 @@ type RenderScreenOptions = {
    * 다른 키로 이슈 목록을 열면 그 키를 넘기고, 기본 탭(개요)을 보려면 {} 를 넘긴다. 이미 심은 키는 덮지 않는다.
    */
   projectTabs?: RememberedProjectTabs
+  /** 조회 재시도 횟수 기본값 — 기본은 끔(false). 훅이 스스로 재시도를 끄는지 볼 때만 켠다(WP-1781). */
+  queryRetry?: number | false
 }
 
 /**
  * ui 를 QueryClient(재시도 끔)·고정 AuthContext·BrowserRouter(jsdom 세션 히스토리)·툴팁·토스트로 감싸 그린다.
  * 반환값의 user 는 userEvent 인스턴스, location() 은 지금 주소다. 모듈을 정적으로 불러오므로 첫 findBy* 에 긴 timeout 이 필요 없다.
  */
-export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth, projectTabs }: RenderScreenOptions = {}) {
+export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth, projectTabs, queryRetry = false }: RenderScreenOptions = {}) {
   // 화면 테스트도 renderPage 처럼 비동기 대기를 늘린다(WP-1006) — 되돌리기는 setup.ts afterEach.
   configure({ asyncUtilTimeout: PAGE_ASYNC_TIMEOUT })
   seedProjectTabs(projectTabs)
@@ -47,7 +49,7 @@ export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth
   server.use(...handlers, ...helpMetricBaseHandlers, ...mailSettingsBaseHandlers)
   window.history.replaceState(null, '', path)
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false }, mutations: { retry: false, networkMode: 'always' } },
+    defaultOptions: { queries: { retry: queryRetry, staleTime: 30_000, refetchOnWindowFocus: false }, mutations: { retry: false, networkMode: 'always' } },
   })
   const { Tracked, location } = trackLocation(path)
   const view = render(

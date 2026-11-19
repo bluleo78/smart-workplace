@@ -131,7 +131,7 @@ export interface AgentRuntimeSetting {
 export interface AgentRuntimeSlots {
   /** 지금 쓰는 자리 수 */
   used: number
-  /** 실제 적용 상한 */
+  /** 서버가 계산한 적용 상한 — 웹 상세는 저장 설정의 `effectiveSlotLimit` 을 쓰고 이 값은 다른 소비자(MCP·운영 점검)용 계약으로 둔다(WP-1781). */
   limit: number
 }
 

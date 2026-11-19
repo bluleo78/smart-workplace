@@ -571,8 +571,8 @@ const SLOT_LIMIT_CHOICES = [1, 2, 3, 5];
  */
 function SlotLimitRow({ agentId, saved, running }: { agentId: number; saved: AgentRuntimeSetting; running: boolean }) {
   const mut = useSetAgentSlotLimit(agentId);
-  // 실행 중일 때만 30초마다 받는다 — 꺼졌거나 못 받으면 undefined 라 「지금 n개」 말을 뺀다.
-  const slots = useAgentRuntimeSlots(agentId, saved.generation, running);
+  // 실행 중일 때만 AI 진행 공용 주기마다 받는다(WP-1781) — 꺼졌거나 못 받으면 undefined 라 「지금 n개」 말을 뺀다.
+  const slots = useAgentRuntimeSlots(agentId, running);
   // 다시 읽기가 실패하면 낡은 수를 보이지 않고 문구를 뺀다.
   const slotsUsed = running && !slots.isError ? slots.data?.used : undefined;
   // 요청 중이면 보낸 값을 바로 보인다(null 은 기본값). 실패하면 진행 중 값이 사라져 저장된 값으로 돌아간다.
