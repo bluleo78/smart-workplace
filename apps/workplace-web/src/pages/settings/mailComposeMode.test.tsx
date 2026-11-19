@@ -4,6 +4,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { gate } from '@/test/kits/mail/compose-default'
 import { record } from '@/test/kits/mail/testkit-b4'
 import { renderScreen } from '@/test/renderScreen'
 import type { MailUserSettings } from '@/types/mailSettings'
@@ -113,6 +114,43 @@ describe('작성 방식 카드', () => {
     expect(radio('새 창')).toBeChecked()
     expect(radio('읽기 창')).not.toBeChecked()
     expect(screen.getAllByText('작성 방식을 저장하지 못했어요')).toHaveLength(1)
+  })
+
+  // 아래 두 테스트는 요청 순서가 아니라 사용자에게 보이는 결과만 고정한다(TanStack Query 5.100.11 은 onMutate 를 scope 대기보다 먼저 돌려
+  // 다음 저장의 cancelQueries 가 되돌리기 GET 을 취소할 수 있지만, 마지막 저장이 캐시를 정리해 화면 결과는 같다).
+  test('첫_저장이_실패하고_바로_다음_값을_골라_성공하면_그_값이_선택된다', async () => {
+    // 수동 게이트 — 첫 저장의 실패 응답을 두 번째 선택 뒤에 풀어, 실패 직전에 다음 값을 고른 상황을 만든다.
+    const hold = gate()
+    const { user, puts } = openCard({
+      reply: async (body) => {
+        if (body.composeMode === 'PANE') {
+          await hold.held
+          return HttpResponse.json({ status: 500 }, { status: 500 })
+        }
+        return HttpResponse.json(createMailSettings(body))
+      },
+    })
+    await screen.findByRole('radiogroup', { name: '작성 방식' })
+    await user.click(radio('읽기 창'))
+    await user.click(radio('새 창'))
+    hold.release()
+    await waitFor(() => expect(puts).toHaveLength(2))
+    expect(await screen.findByText('작성 방식을 저장하지 못했어요')).toBeInTheDocument()
+    await waitFor(() => expect(radio('새 창')).toBeChecked())
+    expect(radio('읽기 창')).not.toBeChecked()
+    expect(screen.getAllByText('작성 방식을 저장하지 못했어요')).toHaveLength(1)
+  })
+
+  test('연속_두_저장이_모두_실패하면_서버_값으로_돌아온다', async () => {
+    // 서버 값은 우측 하단(저장한 적 없음) — 두 번 모두 실패하면 화면도 그 값으로 돌아와야 한다.
+    const { user, puts } = openCard({ reply: () => HttpResponse.json({ status: 500 }, { status: 500 }) })
+    await screen.findByRole('radiogroup', { name: '작성 방식' })
+    await user.click(radio('읽기 창'))
+    await user.click(radio('새 창'))
+    await waitFor(() => expect(puts).toHaveLength(2))
+    await waitFor(() => expect(radio('우측 하단')).toBeChecked())
+    expect(radio('읽기 창')).not.toBeChecked()
+    expect(radio('새 창')).not.toBeChecked()
   })
 
   test('불러오지 못하면 다시 시도로 불러온다', async () => {

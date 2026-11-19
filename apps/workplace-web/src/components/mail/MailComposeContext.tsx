@@ -105,6 +105,11 @@ interface MailComposeContextValue {
   /** 첫 자동 저장으로 받은 id 를 지금 작성에 묶는다(instanceId 유지) — 같은 임시저장을 다시 열 때 알아보게. */
   bindDraftId: (instanceId: number, draftId: number) => void;
   /**
+   * 지운 임시저장 번호를 작성에서 푼다 — 지금 작성이 그 회차이고 draftId 가 같을 때만(다른 작성으로 바뀐 뒤면 건드리지 않는다).
+   * 서버에서 지운 번호를 작성이 계속 가리키면 임시보관함 행 눌림이 없는 임시저장을 앞으로 가져오거나 닫아 버리기 때문이다.
+   */
+  unbindDraftId: (instanceId: number, draftId: number) => void;
+  /**
    * 그 임시저장이 기본값 「새 창」으로 옮기는 중인 작성(우측 하단 창을 감춘 채 새 창으로 가는 길)인가 — 임시보관함에서 다시 누를 때 감춰진 창을
    * 올리는 대신 안내하려고 읽는다. ref 로 읽어 값을 구독하지 않는다(옮기는 회차가 바뀔 때마다 소비자가 다시 그려지지 않게).
    */
@@ -160,6 +165,11 @@ interface MailComposeWindowMoveContextValue {
    */
   takePendingWindow: (instanceId: number) => Window | null | undefined;
   /**
+   * 작성기가 준비된 때 그 회차 미리 연 창의 시한을 서명 기다림 시한(MAIL_COMPOSE_SIGNATURE_WAIT_MS)으로 다시 건다(창은 기록에 그대로).
+   * 회차마다 처음 한 번만 하며, 다른 회차이거나 창·타이머가 없으면 아무 일도 하지 않는다.
+   */
+  rearmPendingWindow: (instanceId: number) => void;
+  /**
    * 새 창으로 옮기기를 그만둔다(우측 하단 창을 다시 보인다). 그 회차가 옮기는 중일 때만 푼다 — 앞 회차의 늦은 실패가
    * 그 사이 연 다음 회차의 감춤까지 풀지 않게 회차를 가린다. 옮기는 중이 아니거나 다른 회차면 아무 일도 하지 않는다.
    */
@@ -191,6 +201,8 @@ interface PlacementRecord {
   win?: Window | null;
   /** 미리 연 창의 시한 타이머 — 꺼내지 못한 빈 창이 남지 않게 한다. 회차 정리·언마운트에서 지운다. */
   timer?: ReturnType<typeof setTimeout>;
+  /** 작성기가 준비돼 시한을 다시 걸었는가 — 회차마다 한 번만 건다. */
+  reArmed?: boolean;
 }
 
 /**
@@ -198,6 +210,12 @@ interface PlacementRecord {
  * 우측 하단 창을 다시 보인다. 빈 창과 감춘 작성창이 계속 남는 것을 막는다.
  */
 export const MAIL_COMPOSE_PREOPEN_TIMEOUT_MS = 10_000;
+
+/**
+ * 작성기가 준비된 뒤 미리 연 창을 기다리는 시한(ms) — 작성기 준비 시한(PREOPEN)은 거기서 끝나고, 서명 조회처럼 그 뒤의 늦음은
+ * 이 시한이 준비된 때부터 다시 센다(서명이 영영 안 와도 빈 창과 감춘 작성창이 남지 않게).
+ */
+export const MAIL_COMPOSE_SIGNATURE_WAIT_MS = 30_000;
 
 /** 쓰이지 않은 미리 연 창 기록을 푼다 — 시한 타이머를 끄고 아직 안 꺼낸 빈 창을 닫는다(회차 전환·공급자 해제 공용). */
 function releasePendingWindow(record: PlacementRecord | null | undefined) {
@@ -230,9 +248,11 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
   const handlers = useRef<ComposeHandlers | null>(null);
   // 옮기는 중인 회차의 최신 값 — isMovingToWindow 가 렌더 클로저가 아니라 지금 값을 읽게 ref 로도 둔다.
   const windowMoveRef = useRef<number | null>(null);
-  useEffect(() => {
-    windowMoveRef.current = windowMoveFor;
-  }, [windowMoveFor]);
+  // 상태와 ref 를 같은 값으로 바꾼다(효과 없이) — 효과로 맞추면 바꾼 같은 틱엔 ref 가 옛 값이라 isMovingToWindow 가 어긋난다.
+  const setMove = useCallback((v: number | null) => {
+    windowMoveRef.current = v;
+    setWindowMoveFor(v);
+  }, []);
 
   // 지금 작성 방식 기본값 — 새 창 페이지는 늘 DOCK, 모바일 셸은 「새 창」을 DOCK 으로(늘 화면 전체 작성). 두 판정은 여기서만 한다.
   const getComposeDefault = useCallback((): MailComposeDefault => {
@@ -241,8 +261,14 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
     return mode === 'WINDOW' && getIsMobile() ? 'DOCK' : mode;
   }, [popout, qc]);
 
-  // 그 회차가 옮기는 중일 때만 푼다 — 함수형 갱신이라 늦게 도착한 앞 회차의 해제가 새 회차의 값을 건드리지 못한다.
-  const endWindowMove = useCallback((instanceId: number) => setWindowMoveFor((cur) => (cur === instanceId ? null : cur)), []);
+  // 그 회차가 옮기는 중일 때만 푼다 — 지금 값(ref)을 읽어 견주므로 늦게 도착한 앞 회차의 해제가 새 회차의 값을 건드리지 못한다.
+  const endWindowMove = useCallback(
+    (instanceId: number) => {
+      const cur = windowMoveRef.current;
+      setMove(cur === instanceId ? null : cur);
+    },
+    [setMove],
+  );
 
   const commit = useCallback((d: ComposeDraft | null) => {
     draftRef.current = d;
@@ -253,9 +279,28 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
       releasePendingWindow(record);
       placementRef.current = null;
     }
-    setWindowMoveFor((v) => (v != null && v === d?.instanceId ? v : null));
-  }, []);
+    const cur = windowMoveRef.current;
+    setMove(cur != null && cur === d?.instanceId ? cur : null);
+  }, [setMove]);
 
+  // 미리 연 창의 시한을 건다 — 그때까지 같은 회차의 창이 아직 꺼내지지 않았으면 닫고 우측 하단에 다시 보인다(꺼낸 뒤엔 도크가 맡아 닫지 않는다).
+  // 처음(openCompose)과 작성기 준비 뒤 다시 걸 때(rearmPendingWindow) 같은 만료 동작을 쓴다.
+  const armPendingTimer = useCallback(
+    (record: PlacementRecord, ms: number) => {
+      clearTimeout(record.timer);
+      record.timer = setTimeout(() => {
+        record.timer = undefined;
+        if (placementRef.current !== record || !record.win) return;
+        // 사용자가 그 사이 빈 창을 닫았으면 그만둔 것이다 — 우측 하단에 되돌리기만 하고 준비 못 했다는 안내는 띄우지 않는다.
+        const userClosed = record.win.closed;
+        record.win.close();
+        record.win = undefined;
+        endWindowMove(record.instanceId);
+        if (!userClosed) toast('새 창을 준비하지 못해 우측 하단에 열었어요');
+      }, ms);
+    },
+    [endWindowMove],
+  );
   const openCompose = useCallback(
     (d: ComposeDraft, opts?: OpenComposeOptions) => {
       // 열려 있는 작성이 있으면 그 내용을 먼저 저장한다 — 다른 메일에 답장을 눌러도 쓰던 것이 임시보관함에 남게.
@@ -273,21 +318,11 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
       placementRef.current = record;
       // 창이 열렸을 때만 우측 하단 창을 감춘다 — 막혔으면 우측 하단에 그대로 보인다.
       if (win && record) {
-        setWindowMoveFor(instanceId);
-        // 시한 — 그때까지 같은 회차의 창이 아직 꺼내지지 않았으면 닫고 우측 하단에 다시 보인다(꺼낸 뒤엔 도크가 맡아 닫지 않는다).
-        record.timer = setTimeout(() => {
-          record.timer = undefined;
-          if (placementRef.current !== record || !record.win) return;
-          // 사용자가 그 사이 빈 창을 닫았으면 그만둔 것이다 — 우측 하단에 되돌리기만 하고 준비 못 했다는 안내는 띄우지 않는다.
-          const userClosed = record.win.closed;
-          record.win.close();
-          record.win = undefined;
-          endWindowMove(instanceId);
-          if (!userClosed) toast('새 창을 준비하지 못해 우측 하단에 열었어요');
-        }, MAIL_COMPOSE_PREOPEN_TIMEOUT_MS);
+        setMove(instanceId);
+        armPendingTimer(record, MAIL_COMPOSE_PREOPEN_TIMEOUT_MS);
       }
     },
-    [commit, getComposeDefault, endWindowMove],
+    [commit, getComposeDefault, armPendingTimer, setMove],
   );
   const takePendingWindow = useCallback((instanceId: number) => {
     const record = placementRef.current;
@@ -300,6 +335,16 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
     record.win = undefined;
     return win;
   }, []);
+  const rearmPendingWindow = useCallback(
+    (instanceId: number) => {
+      const record = placementRef.current;
+      // 창이 아직 기록에 있고(꺼내지 않음·시한에 닫히지 않음) 시한이 걸려 있을 때만 — 회차마다 처음 한 번만 다시 건다.
+      if (record?.instanceId !== instanceId || !record.win || record.timer === undefined || record.reArmed) return;
+      record.reArmed = true;
+      armPendingTimer(record, MAIL_COMPOSE_SIGNATURE_WAIT_MS);
+    },
+    [armPendingTimer],
+  );
   const initialPlacementFor = useCallback(
     (instanceId: number) => (placementRef.current?.instanceId === instanceId ? placementRef.current.mode : null),
     [],
@@ -330,6 +375,16 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
     },
     [commit],
   );
+  const unbindDraftId = useCallback(
+    (instanceId: number, draftId: number) => {
+      const d = draftRef.current;
+      if (d && d.instanceId === instanceId && d.draftId === draftId) {
+        // 지운 임시저장의 버전이 남지 않게 번호와 함께 비운다.
+        commit({ ...d, draftId: undefined, draftVersion: undefined });
+      }
+    },
+    [commit],
+  );
   const isMovingToWindow = useCallback((draftId: number) => {
     const d = draftRef.current;
     return windowMoveRef.current != null && d?.instanceId === windowMoveRef.current && d.draftId === draftId;
@@ -354,8 +409,8 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
   }, []);
 
   const value = useMemo(
-    () => ({ draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, isMovingToWindow, focusDraft, closeDraft, setComposeHandlers }),
-    [draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, isMovingToWindow, focusDraft, closeDraft, setComposeHandlers],
+    () => ({ draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, unbindDraftId, isMovingToWindow, focusDraft, closeDraft, setComposeHandlers }),
+    [draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, unbindDraftId, isMovingToWindow, focusDraft, closeDraft, setComposeHandlers],
   );
   // 배치 상태 — setSize·setSlotEl 은 setState 라 안정적이고, size·slotEl 이 바뀔 때만 새 값이 된다.
   const layout = useMemo(
@@ -364,8 +419,8 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
   );
   // 새 창으로 옮기는 중 상태 — 옮기는 회차가 바뀔 때만 새 값이 된다(도크 본체만 구독).
   const windowMove = useMemo(
-    () => ({ windowMoveFor, takePendingWindow, endWindowMove }),
-    [windowMoveFor, takePendingWindow, endWindowMove],
+    () => ({ windowMoveFor, takePendingWindow, rearmPendingWindow, endWindowMove }),
+    [windowMoveFor, takePendingWindow, rearmPendingWindow, endWindowMove],
   );
 
   return (

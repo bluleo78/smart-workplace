@@ -267,9 +267,9 @@ export function MailComposeDock({ popout }: { popout?: MailComposePopout } = {})
 
 /** 작성창 본체. draft 없으면 렌더 안 함. popout 이면 새 창(WP-1535) 모드. */
 const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, popout }: { aiFullscreen: boolean; popout?: MailComposePopout }) {
-  const { draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, setComposeHandlers } = useMailCompose();
+  const { draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, unbindDraftId, setComposeHandlers } = useMailCompose();
   const { size, setSize, slotEl, initialPlacementFor } = useMailComposeLayout();
-  const { windowMoveFor, takePendingWindow, endWindowMove } = useMailComposeWindowMove();
+  const { windowMoveFor, takePendingWindow, rearmPendingWindow, endWindowMove } = useMailComposeWindowMove();
   const send = useSendMail();
   const qc = useQueryClient();
   const openDraft = useOpenMailDraft();
@@ -415,6 +415,11 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     }),
     // 「다시 열기」로 연 저장 안 된 내용은 처음 값과 같아도 저장 대상이다(새 메일도 POST 한다).
     empty: !hasContent && !draft?.unsaved,
+  });
+  // 늦게 끝나는 저장 뒤(popOut 의 then)에서 「지금」 비었는지 보려면 그때의 최신 스냅샷이 필요하다 — 호출 시점의 클로저는 낡았다.
+  const getSnapshotRef = useRef(getSnapshot);
+  useLayoutEffect(() => {
+    getSnapshotRef.current = getSnapshot;
   });
   const autosave = useMailDraftAutosave({
     instanceId: draft?.instanceId,
@@ -582,7 +587,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   // 그 창으로 같은 흐름을 탄다. 그때 감춰 둔 우측 하단 창은 옮기지 못하면(차단·저장 실패·빈 창을 닫음) 다시 보인다(endWindowMove —
   // ↗ 를 직접 누른 때는 옮기는 중인 회차가 없어 아무 일도 하지 않는다).
   // 조기 return 앞에 둔다 — 아래 「기본값 새 창」 효과가 부른다(작성창이 없으면 그 효과가 부르지 않는다).
-  const popOut = (preopened?: Window | null) => {
+  const popOut = (preopened?: Window | null, opts?: { auto?: boolean }) => {
     // 이 호출이 속한 회차 — 늦게 끝나는 저장 뒤의 해제가 그 사이 연 다음 회차를 건드리지 않게 endWindowMove 에 넘긴다.
     const opened = instanceId as number;
     // 옮기기를 그만둔다 — 미리 연 창이 있으면 닫고 우측 하단 창을 되돌린다(닫힌 창·null 에는 close 가 아무 일도 하지 않는다).
@@ -591,22 +596,32 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       endWindowMove(opened);
     };
     // 붙여 넣은 그림은 올라가는 중이면 아직 본문 자리표시라 저장되지 않는다 — 다 올라간 뒤 옮긴다(보내기와 같은 규칙).
-    if (composerRef.current?.hasPendingImage()) {
+    const blockedByPendingImage = () => {
+      if (!composerRef.current?.hasPendingImage()) return false;
       giveUp(preopened);
       toast.error('이미지를 올리는 중이에요. 다 올라간 뒤 새 창으로 열어 주세요');
-      return;
-    }
+      return true;
+    };
+    // ↗ 를 직접 누른 경우는 창을 새로 열기 전에 막는다(열었다 닫는 깜빡임 방지). 미리 연 창은 아래에서 차례로 본다.
+    if (preopened === undefined && blockedByPendingImage()) return;
     const win = preopened !== undefined ? preopened : openMailComposeWindow();
     if (!win) {
       giveUp();
       toastMailComposePopupBlocked();
       return;
     }
-    // 미리 연 창을 사용자가 이미 닫았다 — 손대지 않은 작성으로 서버 임시저장을 만들지 않게 저장 전에 그만두고 우측 하단에 둔다.
+    // 미리 연 창을 사용자가 이미 닫았다 — 막힘 안내 없이(닫은 창에 이유를 알릴 일이 아니다), 손대지 않은 작성으로 서버 임시저장을 만들지 않게 저장 전에 그만두고 우측 하단에 둔다.
     if (preopened?.closed) {
       giveUp();
       return;
     }
+    // 자동 옮기기(기본값 「새 창」)는 ↗ 단추가 막히는 이유(올리는 중인 첨부 등)에도 옮기지 않고 창을 닫아 우측 하단에 두며 이유를 알린다.
+    if (opts?.auto && popoutBaseBlockedReason != null) {
+      giveUp(preopened);
+      toast('새 창으로 열지 못해 우측 하단에 열었어요', { description: popoutBaseBlockedReason });
+      return;
+    }
+    if (preopened !== undefined && blockedByPendingImage()) return;
     // 아직 서버에 없고 손댄 것도 없는 작성 — 강제 저장으로 만드는 임시저장은 새 창에서도 손대지 않고 닫으면 지운다(fresh).
     const fresh = autosave.currentDraftId() == null && getSnapshot().empty;
     setLeavingFor(opened);
@@ -617,7 +632,12 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       if (win.closed) {
         giveUp();
         // 손대지 않은 작성으로 새로 만든 임시저장이면 빈 채로 임시보관함에 남지 않게 지운다(작성창은 그대로 두고 다음 입력에 다시 만든다).
-        if (fresh && r.ok && r.draftId != null) void autosave.detach(r.draftId);
+        // 저장하는 동안 우측 하단 창에 입력했으면(지금은 비어 있지 않다) 지우지 않고 그 임시저장에 이어 쓴다.
+        if (fresh && r.ok && r.draftId != null && getSnapshotRef.current().empty) {
+          void autosave.detach(r.draftId);
+          // 작성이 지운 번호를 계속 가리키지 않게 푼다 — 임시보관함 행 눌림이 없는 임시저장을 앞으로 가져오거나 닫지 않게.
+          unbindDraftId(opened, r.draftId);
+        }
         return;
       }
       if (!r.ok || r.draftId == null) {
@@ -657,22 +677,17 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   // 임시저장할 수 있을 때) 한 번 꺼내 ↗ 와 같은 흐름으로 옮긴다. 꺼내면 비워지므로 다시 돌아도(StrictMode 등) 두 번 옮기지 않는다.
   // 처음 본문에 서명이 아직 없으면(서명 조회 중에 열었다) 조회가 끝나고 위 늦은 서명 넣기 효과가 이 회차를 정한 뒤(signatureDecidedFor)에
   // 옮긴다 — 먼저 옮기면 서명 없는 본문이 임시저장돼 새 창에서 서명이 빠진다. 효과 선언 순서가 아니라 그 상태값에 기댄다.
-  // ↗ 단추가 막히는 경우(올리는 중인 첨부 등, popoutBaseBlockedReason)에는 옮기지 않고 창을 닫아 우측 하단에 두며 이유를 알린다.
+  // ↗ 단추가 막히는 경우(올리는 중인 첨부 등, popoutBaseBlockedReason)에는 옮기지 않고 창을 닫아 우측 하단에 두며 이유를 알린다(popOut 의 auto).
   // 새 창 페이지(popout)에서는 공급자가 창을 미리 열지 않아 takePendingWindow 가 늘 undefined 다.
   useEffect(() => {
     if (instanceId == null || composerReadyFor !== instanceId) return;
+    // 작성기가 준비됐으니 미리 연 창의 시한을 서명 기다림 시한으로 다시 건다 — 서명 조회가 10초 넘게 걸려도 닫지 않되 영영 안 오면 닫는다.
+    rearmPendingWindow(instanceId);
     if (!composeInitial.signatureSettled && (signature.isPending || signatureDecidedFor !== instanceId)) return;
     const preopened = takePendingWindow(instanceId);
     if (preopened === undefined) return;
-    // 팝업이 막혀 창이 없으면(null) 막힘 이유보다 차단 안내가 먼저다 — popOut 이 안내하고 우측 하단 창을 되돌린다.
-    if (preopened != null && popoutBaseBlockedReason != null) {
-      preopened.close();
-      endWindowMove(instanceId);
-      toast('새 창으로 열지 못해 우측 하단에 열었어요', { description: popoutBaseBlockedReason });
-      return;
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 작성기가 준비된 뒤(지금 내용을 임시저장할 수 있을 때)에야 옮길 수 있어 렌더 중으로 못 옮긴다(회차마다 한 번).
-    popOut(preopened);
+    // 막힘(올리는 중인 첨부 등)·팝업 차단·닫힌 창은 popOut 이 한 곳에서 가려 우측 하단에 둔다(auto).
+    popOut(preopened, { auto: true });
     // popOut 은 매 렌더 새 함수라 deps 에서 뺀다 — 이 효과는 작성기 준비·서명 결정 같은 회차 전환 시점에만 돈다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [composerReadyFor, instanceId, signature.isPending, signatureDecidedFor]);

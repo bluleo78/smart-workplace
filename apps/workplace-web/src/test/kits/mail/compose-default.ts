@@ -14,3 +14,10 @@ export const composeSettingsHandler = (composeMode: MailComposeDefault) =>
 export function fakeWindow() {
   return { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
 }
+
+/** 붙잡아 두는 문 — release 전까지 핸들러가 `await held` 로 기다린다(테스트가 응답 시점을 직접 정한다). */
+export function gate() {
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r))
+  return { held, release }
+}
