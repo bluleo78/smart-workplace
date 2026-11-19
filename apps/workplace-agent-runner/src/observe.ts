@@ -44,11 +44,54 @@ export function podFinishReason(pod: V1Pod): string {
   return clip(join(status.reason ?? 'Pod 실패', status.message));
 }
 
+/** 컨테이너 재시작 알림을 관찰 보고에 싣는 기간 — 지나면 조용히 지운다(OOMKilled 재시작은 Pod 가 계속 Running 이라 흔적이 남지 않던 것을 보완). */
+export const RESTART_NOTICE_MS = 6 * 60 * 60_000;
+
+/** 알림 시각 포맷터 — 만드는 비용이 커서 모듈에서 한 번만 만든다. */
+const NOTICE_TIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Seoul',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** 알림 시각 — KST `MM-DD HH:mm`(0 채움). 실행 머신의 TZ 에 기대지 않으려 timeZone 을 명시한다. */
+export function formatNoticeTime(d: Date): string {
+  const parts = NOTICE_TIME_FORMAT.formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
+  return `${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
+/**
+ * 최근 6시간 안에 재시작된 컨테이너가 있으면 그 사유 한 줄, 없으면 null.
+ * 정상 종료(exit 0·Completed)는 알리지 않는다. init 컨테이너는 제외하고, 여러 컨테이너면 가장 늦게 끝난(finishedAt) 것을 고른다. finishedAt 이 없으면 시점을 몰라 무시.
+ */
+export function restartNotice(pod: V1Pod, now: Date): string | null {
+  const since = now.getTime() - RESTART_NOTICE_MS;
+  let best: { at: number; text: string } | null = null;
+  for (const c of pod.status?.containerStatuses ?? []) {
+    const t = c.lastState?.terminated;
+    if (!t?.finishedAt) continue;
+    const at = new Date(t.finishedAt).getTime();
+    if (Number.isNaN(at) || at < since) continue;
+    // 정상 종료(exit 0·Completed)로 끝난 재시작은 경고가 아니라 알리지 않는다 — OOMKilled 는 그대로 알린다
+    if (t.reason !== 'OOMKilled' && (t.exitCode === 0 || t.reason === 'Completed')) continue;
+    if (best && at <= best.at) continue;
+    // exitCode 가 없으면 `(exit …)` 를 빼고 사유만 싣는다
+    const code = t.exitCode === undefined || t.exitCode === null ? '' : `(exit ${t.exitCode})`;
+    const why = t.reason === 'OOMKilled' ? '메모리 한도 초과(OOMKilled)' : `${t.reason ?? '종료'}${code}`;
+    best = { at, text: `${c.name} 컨테이너가 다시 시작됐습니다 — ${why} · ${formatNoticeTime(new Date(at))}` };
+  }
+  return best ? clip(best.text) : null;
+}
+
 /**
  * Pod → phase. stopping 은 그 AI 가 desired 에서 빠졌는지(지우는 중) — Pod 가 없으면 STOPPED, 있으면 STARTING(아직 못 만듦).
- * 순서: 지우는 중 → 실패 → 준비 중 → 실행 중.
+ * 순서: 지우는 중 → 실패 → 준비 중 → 실행 중. 실행·준비 중엔 최근 컨테이너 재시작 알림을 message 로 싣는다(실패 message 는 가리지 않는다).
  */
-export function toObserved(pod: V1Pod | undefined, stopping: boolean): ObservedState {
+export function toObserved(pod: V1Pod | undefined, stopping: boolean, now: Date = new Date()): ObservedState {
   if (!pod) {
     return { observedGeneration: null, phase: stopping ? 'STOPPED' : 'STARTING', message: null, startedAt: null };
   }
@@ -66,7 +109,7 @@ export function toObserved(pod: V1Pod | undefined, stopping: boolean): ObservedS
 
   const containers = status.containerStatuses ?? [];
   const allReady = status.phase === 'Running' && containers.length > 0 && containers.every((c) => c.ready);
-  return { ...base, phase: allReady ? 'RUNNING' : 'STARTING', message: null };
+  return { ...base, phase: allReady ? 'RUNNING' : 'STARTING', message: restartNotice(pod, now) };
 }
 
 /** CPU 수량 → 밀리코어(반올림). 1, 250m, 250000000n, 1500u 모양. 모르면 undefined. */

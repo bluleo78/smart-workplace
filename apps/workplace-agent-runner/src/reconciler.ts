@@ -1,5 +1,5 @@
 // 조정 — desired 를 받아 planReconcile 대로 Pod·PVC·Secret·ConfigMap 을 맞추고, 관찰 상태를 보고한다.
-// 메모리에 들고 있는 것은 「마지막 desired」·「AI 별 실패 사유」·「AI 별 연속 끝남 기록(WP-1501)」뿐이다. 받은 키·STOPPED 미보고 같은 기록은
+// 메모리에 들고 있는 것은 「마지막 desired」·「AI 별 실패 사유」·「AI 별 연속 끝남 기록(WP-1501)」·「끝난 Pod 알림(WP-1794)」뿐이다. 받은 키·STOPPED 미보고 같은 기록은
 // 모두 클러스터(Secret 어노테이션·남은 ConfigMap)에 있어 runner 가 언제 다시 떠도 같은 판단을 한다(연속 끝남 기록만 재시작하면 0 부터).
 import type { V1Secret } from '@kubernetes/client-node';
 import type { RunnerConfig } from './config.js';
@@ -28,7 +28,7 @@ import {
   secretName,
   type AgentContext,
 } from './k8s/manifest.js';
-import { clip, toObserved } from './observe.js';
+import { clip, formatNoticeTime, RESTART_NOTICE_MS, toObserved } from './observe.js';
 import {
   checkImages,
   collectActual,
@@ -86,8 +86,16 @@ interface FinishLoop {
   generation: number;
   /** 마지막으로 끝난 Pod 의 사유(podFinishReason). */
   reason: string;
-  /** 사유를 아직 관찰 보고에 싣지 않았는지 — 끝난 Pod 는 30초 안에 지워져 60초 보고 사이에 FAILED 가 안 보일 수 있어 다음 보고에 한 번 싣는다. */
-  unreported: boolean;
+}
+
+/**
+ * 끝나 지우고 다시 띄운 Pod 의 알림(WP-1794) — reason: 끝난 사유, at: 알린 때(ms), generation: 그때의 desired generation.
+ * finishLoops 와 따로 둔다 — 새 Pod 가 안정돼 연속 끝남 기록이 지워져도 사람이 볼 수 있게 {@link RESTART_NOTICE_MS}(6시간) 동안 남긴다.
+ */
+interface FinishNotice {
+  reason: string;
+  at: number;
+  generation: number;
 }
 
 /** 두 재시도 중 더 빨리 다시 봐야 하는 쪽(없으면 다른 쪽). */
@@ -182,6 +190,8 @@ export class Reconciler {
   private readonly blocked = new Set<number>();
   /** AI 별 연속 끝남 기록(WP-1501) — failures 와 따로 둔다(reconcileDesired 가 할 일을 마치면 failures 를 지우므로). */
   private readonly finishLoops = new Map<number, FinishLoop>();
+  /** AI 별 「끝나 다시 띄운 Pod」 알림(WP-1794) — 관찰 보고 message 에 6시간 싣는다. 메모리뿐이라 runner 재시작 시 사라진다. */
+  private readonly finishNotices = new Map<number, FinishNotice>();
   /** 마지막으로 조정이 끝까지 돈 시각(/healthz). */
   lastSuccessAt: Date | undefined;
 
@@ -389,7 +399,7 @@ export class Reconciler {
       // Pod 만 지운다 — PVC·Secret 은 그대로. 사라지면 다음 회차에 create. 끝나 버린 Pod(WP-1501)도 같은 길로 갈아 끼운다
       const pod = current.pod;
       if (pod?.finished) {
-        // 끝난 사유(Evicted 등)는 지우면 사라지므로 지우기 전에 남기고, 연속 끝남 기록에 적어 다음 관찰 보고에 싣는다.
+        // 끝난 사유(Evicted 등)는 지우면 사라지므로 지우기 전에 남기고, 연속 끝남 기록에 적고 6시간 알림에도 남긴다.
         // generation 도 바뀐 Pod 면 두 까닭을 함께 남긴다(끝남이 먼저 고른 까닭이라 generation 만 보면 왜 다시 만들었는지 놓친다)
         const generationChanged = pod.generation !== agent.generation;
         const loop = this.noteFinished(id, agent.generation, pod.finishReason ?? 'Pod 가 끝났습니다');
@@ -694,14 +704,18 @@ export class Reconciler {
   }
 
   /**
-   * 연속 끝남 기록을 정리한다(조정 회차·클러스터 다시 보기마다). desired 에서 빠졌거나 generation 이 바뀐 AI(템플릿·설정이 바뀌어
-   * 다른 Pod 다), 새 Pod 가 Ready 로 {@link FINISH_STABLE_MS} 넘게 떠 있는 AI 는 지운다.
+   * 연속 끝남 기록·끝난 Pod 알림을 정리한다(조정 회차·클러스터 다시 보기마다). 둘 다 desired 에서 빠졌거나 generation 이 바뀐 AI(템플릿·설정이
+   * 바뀌어 다른 Pod 다)는 지운다. 연속 끝남 기록은 더해 새 Pod 가 Ready 로 {@link FINISH_STABLE_MS} 넘게 떠 있으면 지우고,
+   * 알림은 안정돼도 남겨 {@link RESTART_NOTICE_MS} 가 지나야 지운다.
    */
   private trackFinishLoops(desired: RunnerDesiredAgent[], actual: ActualAgent[]) {
-    if (this.finishLoops.size === 0) return;
+    if (this.finishLoops.size === 0 && this.finishNotices.size === 0) return;
     const generationById = new Map(desired.map((d) => [d.agentUserId, d.generation]));
     const actualById = new Map(actual.map((a) => [a.agentUserId, a]));
     const now = this.now().getTime();
+    for (const [id, notice] of [...this.finishNotices]) {
+      if (generationById.get(id) !== notice.generation || now - notice.at > RESTART_NOTICE_MS) this.finishNotices.delete(id);
+    }
     for (const [id, loop] of [...this.finishLoops]) {
       const readySince = actualById.get(id)?.pod?.readySince;
       const stable = readySince !== undefined && now - readySince.getTime() >= FINISH_STABLE_MS;
@@ -709,7 +723,7 @@ export class Reconciler {
     }
   }
 
-  /** 끝난 Pod 를 지우기 직전에 부른다 — 연속 횟수를 올리고 사유를 다음 관찰 보고에 싣게 표시한다. */
+  /** 끝난 Pod 를 지우기 직전에 부른다 — 연속 횟수를 올리고, 사유를 6시간 알림({@link finishNotices})에 적는다. */
   private noteFinished(id: number, generation: number, reason: string): FinishLoop {
     const prev = this.finishLoops.get(id);
     const loop: FinishLoop = {
@@ -717,9 +731,9 @@ export class Reconciler {
       lastAt: this.now().getTime(),
       generation,
       reason,
-      unreported: true,
     };
     this.finishLoops.set(id, loop);
+    this.finishNotices.set(id, { reason, at: loop.lastAt, generation });
     return loop;
   }
 
@@ -798,14 +812,19 @@ export class Reconciler {
     const report = (id: number, stopping: boolean): RunnerObservedAgent => {
       const name = podName(id);
       const pod = podsByName.get(name);
-      const state = toObserved(pod, stopping);
+      const state = toObserved(pod, stopping, this.now());
       // 실패 사유가 이기고, 없으면 연속 끝남(FINISH_FAIL_AFTER 번 이상) 실패
       const failure = stopping ? undefined : (this.failures.get(id) ?? this.finishFailure(id));
-      // 끝나 지운 Pod 의 사유는 다음 보고 한 번에 싣는다 — 그 사이 Pod 는 지워지는 중·없음·새로 뜨는 중이라 사유가 사라지기 때문.
-      // phase 는 지금 상태(STOPPING·STARTING·RUNNING) 그대로 두고 message 만 채운다(지금 상태가 이미 message 를 내면 그것을 둔다)
-      const loop = stopping ? undefined : this.finishLoops.get(id);
-      const lastFinish = loop?.unreported && !state.message ? `이전 Pod 가 끝나 다시 띄웠습니다 — ${loop.reason}` : undefined;
-      if (loop && !stopping) loop.unreported = false;
+      // 끝나 지운 Pod 의 사유는 6시간 싣는다 — 사람이 한참 뒤에 봐도 왜 다시 떴는지 알 수 있게. phase 는 지금 상태 그대로 두고
+      // message 만 채우며, 지금 상태가 이미 message 를 내면(컨테이너 재시작 알림) 버리지 않고 `재시작 알림 / 끝난 Pod 알림` 으로
+      // 이어 함께 싣는다(둘 다 사람이 알아야 할 사건). 실패 사유가 있으면 실패만 싣는다.
+      // 6시간을 정리 주기와 무관하게 정확히 지키려 보고 때에도 나이를 본다.
+      const found = stopping ? undefined : this.finishNotices.get(id);
+      const notice = found && this.now().getTime() - found.at <= RESTART_NOTICE_MS ? found : undefined;
+      const finishText = notice
+        ? `이전 Pod 가 끝나 다시 띄웠습니다 — ${notice.reason} · ${formatNoticeTime(new Date(notice.at))}`
+        : undefined;
+      const lastFinish = finishText ? (state.message ? `${state.message} / ${finishText}` : finishText) : undefined;
       const u = pod ? usage.get(name) : undefined;
       return {
         agentUserId: id,

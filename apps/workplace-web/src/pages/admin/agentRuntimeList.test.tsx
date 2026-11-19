@@ -245,3 +245,18 @@ test('종료됐거나 종료 중인 AI 는 「새 작업 받기」가 꺼져 있
   expect(within(stateCell(23)).queryByText('새 작업 안 받음')).not.toBeInTheDocument()
   expect(within(stateCell(24)).queryByText('새 작업 안 받음')).not.toBeInTheDocument()
 })
+
+test('실행 중인데 다시 시작된 적이 있으면 경고 아이콘에 사유를 title 로 보인다 (WP-1794)', async () => {
+  const message = 'agent 컨테이너가 다시 시작됐습니다 — 메모리 한도 초과(OOMKilled) · 11-19 11:43'
+  await renderList({ summaries: [createSummary(23, { status: 'RUNNING', agentState: 'WORKING', agentIssueKey: 'WP-9', locationName: 'PoC', message })] })
+  const notice = screen.getByTestId('agent-runtime-notice-23')
+  expect(notice).toHaveAttribute('title', message)
+  expect(notice).toHaveAttribute('aria-label', message)
+  // 기존 이슈 키 한 줄은 그대로.
+  expect(screen.getByTestId('agent-runtime-detail-23')).toHaveTextContent('WP-9')
+})
+
+test('message 가 없으면 경고 아이콘이 없다 (WP-1794)', async () => {
+  await renderList({ summaries: [createSummary(23, { status: 'RUNNING', agentState: 'IDLE', locationName: 'PoC', message: null })] })
+  expect(screen.queryByTestId('agent-runtime-notice-23')).not.toBeInTheDocument()
+})

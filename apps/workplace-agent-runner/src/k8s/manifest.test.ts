@@ -153,8 +153,11 @@ describe('buildAgentResources', () => {
     expect(env).toEqual({
       DOCKER_HOST: 'unix:///dind/docker.sock',
       DIND_GC_THRESHOLD_KIB: String(Math.floor(30 * 1024 * 1024 * 0.8)),
-      DIND_GC_INTERVAL_SECONDS: '300',
-      DIND_GC_IMAGE_COOLDOWN_SECONDS: '3600',
+      DIND_GC_CRITICAL_KIB: String(Math.floor(30 * 1024 * 1024 * 0.9)),
+      DIND_GC_INTERVAL_SECONDS: '60',
+      DIND_GC_FAST_INTERVAL_SECONDS: '15',
+      DIND_GC_IMAGE_COOLDOWN_SECONDS: '600',
+      DIND_GC_CRITICAL_COOLDOWN_SECONDS: '120',
     });
     // 사용량은 kubelet 처럼 저장 볼륨을 du 로 잰다 — 읽기만
     expect(mountTable(pod, 'dind-gc')).toEqual({
@@ -166,6 +169,13 @@ describe('buildAgentResources', () => {
     expect(mountedVolume('/dind')).toBe('dind-socket');
     // 쿼터(requests)에 걸리지 않게 작은 requests, 메모리는 묶는다
     expect(gc.resources).toEqual({ requests: { cpu: '10m', memory: '32Mi' }, limits: { memory: '128Mi' } });
+  });
+
+  it('criticalLineNeverBelowThreshold', () => {
+    const agent = desiredAgent({ sidecars: [{ name: 'dind', image: 'docker:29-dind', privileged: true }] });
+    const { pod } = buildAgentResources(agent, ctx, runnerConfig({ dindStorageLimit: '30Gi', dindStorageLimitKib: 30 * 1024 * 1024, dindGcThresholdPercent: 95 }));
+    const env = Object.fromEntries((container(pod, 'dind-gc').env ?? []).map((e) => [e.name, e.value]));
+    expect(env.DIND_GC_CRITICAL_KIB).toBe(env.DIND_GC_THRESHOLD_KIB);
   });
 
   it('keepsTemplateSidecarNamedDindGcInsteadOfAddingDuplicate', () => {

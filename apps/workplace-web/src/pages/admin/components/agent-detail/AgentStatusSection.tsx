@@ -4,7 +4,7 @@
 // 보고한 플러그인 버전(옛 버전이면 「업데이트 필요」, WP-1707)을 보인다.
 // 도움말 문맥(WP-1507): 섹션·스위치·묶음·확인 창에 매뉴얼 15장 agent.status 층의 data-help 를 글자 그대로 단다.
 
-import { Check, Info, Minus, MonitorPlay, X } from 'lucide-react';
+import { Check, Info, Minus, MonitorPlay, TriangleAlert, X } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -46,6 +46,7 @@ import {
   METRICS_UNAVAILABLE_REASON,
   metricsUnavailable,
   resourceLimitText,
+  runtimeNotice,
   statusDetail,
   statusPill,
 } from '../../../../lib/agentRuntimeStatus';
@@ -242,6 +243,8 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         message: observed?.message,
       })
     : null;
+  // 다시 시작된 사유 경고(WP-1794) — 실행 중일 때만. 오류는 위 detail 이 사유를 보인다.
+  const notice = runtimeNotice({ status, message: observed?.message });
   const working = running && observed?.agentState === 'WORKING';
   // 확인 창에 적을 현재 이슈 — 여러 칸이 일하면 모두(쉼표로 이음), 조사는 마지막 키 기준. 없으면 null.
   const issueKeys = currentIssueKeys(observed ?? {});
@@ -336,6 +339,12 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
           </Button>
         )}
       </div>
+      {notice && (
+        <div className="flex items-start gap-1.5 text-xs text-warning-text" data-testid="agent-runtime-notice">
+          <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+          <span>{notice}</span>
+        </div>
+      )}
       {screenOpen && <AgentScreenDialog agentUserId={agent.id} agentName={agent.name} open={screenOpen} onOpenChange={setScreenOpen} />}
 
       {running && observed && (

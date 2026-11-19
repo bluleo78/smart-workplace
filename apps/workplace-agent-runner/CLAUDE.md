@@ -40,7 +40,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 
 - desired 에 있고 Pod 없음 → 만든다(applyNow 무관). generation 이 다르면 `applyNow=true` 일 때만 Pod 를 지우고 다음 회차에 다시 만든다(PVC·Secret 유지).
 - Pod phase 가 `Succeeded`·`Failed`(노드 재시작 뒤 Completed·Error — 맨 Pod 라 아무도 다시 띄우지 않음)면 generation·applyNow 와 무관하게 지우고 다시 만든다(WP-1501). phase 만 본다 — 컨테이너 재시작은 kubelet 몫, `Unknown` 은 제외.
-  계속 끝나면 간격을 늘린다(`FINISH_BACKOFF_MS` — 첫 번째 바로, 이후 30초·1분·2분·5분). 기다리는 동안은 재시도 없이 두고 `ClusterCheck` 가 간격 뒤 깨운다. 지우기 전 `status.reason`·`message` 를 로그에 남기고 다음 관찰 보고 한 번에 message 로 싣는다.
+  계속 끝나면 간격을 늘린다(`FINISH_BACKOFF_MS` — 첫 번째 바로, 이후 30초·1분·2분·5분). 기다리는 동안은 재시도 없이 두고 `ClusterCheck` 가 간격 뒤 깨운다. 지우기 전 `status.reason`·`message` 를 로그에 남기고 6시간 동안(`finishNotices`, 컨테이너 재시작 알림이 있으면 `재시작 알림 / 끝난 Pod 알림` 으로 함께 싣는다) 관찰 보고 message 로 싣는다.
   연속 `FINISH_FAIL_AFTER`(3)번부터는 FAILED(끝난 사유)로 보고한다. Ready 로 `FINISH_STABLE_MS`(10분) 떠 있거나 generation 이 바뀌면 횟수를 지운다. 기록은 `failures` 와 따로 둔 메모리 맵(`finishLoops`)이라 runner 재시작 시 0 부터.
 - 조정은 시작·변경 스트림·재시도·desired 의 `pollIntervalSeconds`(300초)마다 돈다. 그와 따로 `ClusterCheck` 가 `CLUSTER_CHECK_SECONDS`(기본 30초)마다 마지막 desired 로
   Pod 목록만(`listManagedPods`) 보고 `planReconcile` 에 「Pod 없음(create)·Pod 끝남(recreate)」 할 일이 있으면 조정을 깨운다(WP-1501). Works 는 부르지 않는다 — 조정은 늘 desired 를 새로 받는 회차가 해서
