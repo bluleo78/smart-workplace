@@ -59,6 +59,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "list_mail": "read",
   "list_mail_accounts": "read",
   "list_my_drive_files": "read",
+  "list_my_wiki_pages": "read",
   "list_notifications": "read",
   "list_projects": "read",
   "list_thread_replies": "read",
@@ -2086,6 +2087,36 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
               "maximum": 50,
               "minimum": 1,
               "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "view": {
+          "enum": [
+            "recent",
+            "starred",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "view",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_my_wiki_pages",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string",
             },
             {
               "type": "null",

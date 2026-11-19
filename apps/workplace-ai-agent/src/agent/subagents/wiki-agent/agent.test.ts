@@ -18,6 +18,7 @@ describe('wiki-agent 정의', () => {
       'mcp__workplace__read_file', // WP-358: 본문 이미지 읽기
       'mcp__workplace__list_wiki_pages', // #850: 페이지 트리
       'mcp__workplace__list_wiki_backlinks', // #850: 백링크
+      'mcp__workplace__list_my_wiki_pages', // WP-1766: 내 최근·즐겨찾기 노트
       'mcp__workplace__create_wiki_page',
       'mcp__workplace__update_wiki_page',
       'mcp__workplace__move_wiki_page', // #855: 페이지 이동
@@ -31,6 +32,12 @@ describe('wiki-agent 정의', () => {
     const prompt = loaded['wiki-agent'].prompt;
     expect(prompt).toContain('바이트 단위 그대로');
     expect(prompt).toContain('정규화하지 마세요');
+  });
+  // WP-1766: 내 활동(최근·즐겨찾기)으로 찾는 요청은 list_my_wiki_pages 를 먼저, 제목·내용 검색일 때만 search_wiki.
+  it('내 최근·즐겨찾기 노트는 list_my_wiki_pages(view) 로 먼저 찾도록 안내한다 (WP-1766)', () => {
+    const prompt = loaded['wiki-agent'].prompt;
+    expect(prompt).toContain('list_my_wiki_pages(view, cursor?)');
+    expect(prompt).toContain('제목·내용으로 찾을 때만 `search_wiki`');
   });
   it('maxTurns 설정 + 본문에 노트·버전 안내', () => {
     expect(loaded['wiki-agent'].maxTurns).toBeGreaterThan(0);

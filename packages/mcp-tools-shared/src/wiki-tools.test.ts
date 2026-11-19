@@ -29,19 +29,22 @@ function mockClient(): WikiToolClient {
     listWikiPages: vi.fn().mockResolvedValue([]),
     getWikiBacklinks: vi.fn().mockResolvedValue([]),
     moveWikiPage: vi.fn().mockResolvedValue(undefined),
+    listRecentWikiPages: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listStarredWikiPages: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
   };
 }
 
 const tool = (c: WikiToolClient, name: string) => buildWikiTools(c).find((x) => x.name === name)!;
 
 describe('buildWikiTools', () => {
-  it('정확히 9종을 반환한다', () => {
+  it('정확히 10종을 반환한다', () => {
     expect(buildWikiTools(mockClient()).map((t) => t.name).sort()).toEqual(
       [
         'create_wiki_page',
         'list_wiki_backlinks',
         'get_wiki_page',
         'list_wiki_pages',
+        'list_my_wiki_pages',
         'list_wiki_spaces',
         'move_wiki_page',
         'restore_wiki_revision',
@@ -550,5 +553,64 @@ describe('move_wiki_page (#854)', () => {
     const c = mockClient();
     await expect(tool(c, 'move_wiki_page').handler({ pageId: 3, position: 1 })).rejects.toThrow();
     expect(c.moveWikiPage).not.toHaveBeenCalled();
+  });
+});
+
+// WP-1766: 내 최근·즐겨찾기 노트.
+describe('list_my_wiki_pages', () => {
+  const recentRow = {
+    pageId: 2, title: '회의록', spaceId: 1, spaceName: '기획팀', ancestorTitles: ['2026', '11월'],
+    lastAction: 'EDIT', lastAt: '2026-11-19T10:00:00Z', url: 'http://x/wiki/spaces/1/pages/2',
+  };
+  const rootRow = { ...recentRow, pageId: 5, ancestorTitles: [], lastAction: 'OPEN' };
+
+  it('recent — 최근 행을 화면 순서대로 줄인 모양으로 낸다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listRecentWikiPages).mockResolvedValue({ items: [recentRow, rootRow], nextCursor: 'c2' } as never);
+    const out = JSON.parse(resultText(await tool(c, 'list_my_wiki_pages').handler({ view: 'recent' })));
+    expect(c.listRecentWikiPages).toHaveBeenCalledWith(undefined);
+    expect(out.items[0]).toEqual({
+      pageId: 2, title: '회의록', space: '기획팀', path: '2026 › 11월',
+      lastAction: 'EDIT', lastAt: '2026-11-19T19:00:00+09:00', url: 'http://x/wiki/spaces/1/pages/2',
+    });
+    expect('path' in out.items[1]).toBe(false);
+    expect(out.items[1].pageId).toBe(5);
+    expect(out.hasMore).toBe(true);
+    expect(out.nextCursor).toBe('c2');
+  });
+
+  it('starred — 즐겨찾기 행은 starredAt 을 낸다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listStarredWikiPages).mockResolvedValue({
+      items: [{ pageId: 3, title: 'A', spaceId: 1, spaceName: '기획팀', ancestorTitles: [], starredAt: '2026-11-18T00:00:00Z', url: 'http://x/3' }],
+      nextCursor: null,
+    } as never);
+    const out = JSON.parse(resultText(await tool(c, 'list_my_wiki_pages').handler({ view: 'starred' })));
+    expect(out.items[0]).toEqual({ pageId: 3, title: 'A', space: '기획팀', starredAt: '2026-11-18T09:00:00+09:00', url: 'http://x/3' });
+    expect('lastAction' in out.items[0]).toBe(false);
+  });
+
+  it('cursor 를 그대로 넘긴다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_my_wiki_pages').handler({ view: 'starred', cursor: 'abc' });
+    expect(c.listStarredWikiPages).toHaveBeenCalledWith('abc');
+  });
+
+  it('끝 쪽이면 hasMore·nextCursor 가 없다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listRecentWikiPages).mockResolvedValue({ items: [recentRow], nextCursor: null } as never);
+    const out = JSON.parse(resultText(await tool(c, 'list_my_wiki_pages').handler({ view: 'recent' })));
+    expect('hasMore' in out).toBe(false);
+    expect('nextCursor' in out).toBe(false);
+  });
+
+  it('null 인자는 생략과 같다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_my_wiki_pages').handler({ view: 'recent', cursor: null });
+    expect(c.listRecentWikiPages).toHaveBeenCalledWith(undefined);
+  });
+
+  it('잘못된 view 는 거절한다', async () => {
+    await expect(tool(mockClient(), 'list_my_wiki_pages').handler({ view: 'trash' })).rejects.toThrow();
   });
 });

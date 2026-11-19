@@ -185,6 +185,9 @@ function sharedMock(): MockedShared {
     // WP-369 Task 3: 기존 파일의 새 버전(텍스트 갱신·파일에 묶인 업로드 링크)
     updateDriveTextFile: vi.fn().mockResolvedValue({ id: 8, fileId: 902, folderId: null, name: 'a.md', versionCount: 2 }),
     createDriveVersionUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul2', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
+    // WP-1766: 내 최근·즐겨찾기 노트
+    listRecentWikiPages: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listStarredWikiPages: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     // WP-1700: 내 최근 파일·별표 목록과 별표 넣기·빼기
     listRecentDriveFiles: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listStarredDriveItems: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
@@ -415,6 +418,12 @@ describe('프로필 구성', () => {
     expect(RECURRING_RUN_WRITE_TOOLS).toContain('update_mail_category');
   });
 
+  // WP-1766: 내 최근·즐겨찾기 노트는 읽기 도구라 비서 라우터와 반복 실행 허용 목록에 모두 든다.
+  it('list_my_wiki_pages 는 비서 라우터·반복 실행 목록에 든다 (WP-1766)', () => {
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('list_my_wiki_pages');
+    expect(RECURRING_RUN_TOOLS).toContain('list_my_wiki_pages');
+  });
+
   it('assistant 프로필: 전 앱 도구 union 을 노출한다', () => {
     const names = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
     for (const n of [
@@ -423,7 +432,7 @@ describe('프로필 구성', () => {
       'unassign_self', 'link_issues', 'react', 'add_issue_relation', 'remove_issue_relation',
       // 노트
       'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'create_wiki_page', 'update_wiki_page',
-      'list_wiki_pages', 'list_wiki_backlinks',
+      'list_wiki_pages', 'list_wiki_backlinks', 'list_my_wiki_pages', // WP-1766: 내 최근·즐겨찾기 노트
       // 캘린더
       'list_events', 'get_event', 'propose_create_event', 'propose_update_event', 'propose_delete_event',
       // 메시징
