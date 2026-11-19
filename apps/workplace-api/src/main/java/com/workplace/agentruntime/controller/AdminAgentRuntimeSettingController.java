@@ -2,10 +2,12 @@ package com.workplace.agentruntime.controller;
 
 import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSettingResponse;
+import com.workplace.agentruntime.dto.AgentRuntimeSlotsResponse;
 import com.workplace.agentruntime.dto.PutAcceptNewWorkRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.dto.PutSlotLimitRequest;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
+import com.workplace.agentruntime.service.AgentRuntimeSlotService;
 import com.workplace.agentruntime.service.AgentRuntimeSummaryService;
 import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
@@ -32,12 +34,23 @@ public class AdminAgentRuntimeSettingController {
 
   private final AgentRuntimeSettingService service;
   private final AgentRuntimeSummaryService summaryService;
+  private final AgentRuntimeSlotService slotService;
 
   /** 실행 설정 조회 — 없으면 404(=「기본」 템플릿으로 도는 AI). */
   @GetMapping
   @RequirePermission("user:write")
   public ResponseEntity<AgentRuntimeSettingResponse> get(@PathVariable long userId) {
     return ResponseEntity.ok(service.get(userId));
+  }
+
+  /**
+   * AI 한 명의 동시 진행 자리(WP-1775) — {@code {used, limit}}. 에이전트 상세가 실행 중인 AI 의 「지금 n개 진행 중」을 이것만 주기적으로
+   * 다시 읽는다(실행 설정 전체·전체 AI 목록을 다시 읽지 않게). 실행 설정이 없어도 200.
+   */
+  @GetMapping("/slots")
+  @RequirePermission("user:write")
+  public ResponseEntity<AgentRuntimeSlotsResponse> slots(@PathVariable long userId) {
+    return ResponseEntity.ok(slotService.slots(userId));
   }
 
   /**

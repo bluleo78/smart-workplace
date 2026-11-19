@@ -490,7 +490,8 @@ const ROSTER = [
   }),
 ]
 
-function renderAgents(path: string, agents = ROSTER, status = 200) {
+/** body — 응답 본문을 통째로 바꾼다(옛 API 모양처럼 필드가 빠진 응답을 줄 때, WP-1775). 없으면 agents 로 만든 기본 응답. */
+function renderAgents(path: string, agents = ROSTER, status = 200, body?: unknown) {
   const seen: URLSearchParams[] = []
   const { handlers: issueHandlers, seen: issueSeen } = aiHandlers()
   const handlers = [
@@ -498,7 +499,7 @@ function renderAgents(path: string, agents = ROSTER, status = 200) {
     http.get(AGENTS, ({ request }) => {
       seen.push(new URL(request.url).searchParams)
       return status === 200
-        ? HttpResponse.json(createAiAgentsResponse(agents))
+        ? HttpResponse.json((body ?? createAiAgentsResponse(agents)) as object)
         : HttpResponse.json({ message: 'boom' }, { status })
     }),
   ]
@@ -578,6 +579,26 @@ describe('AI 위임 작업 AI별 보기', () => {
     expect(cells(one)).toBe(1)
     expect(five).toHaveTextContent('2/5')
     expect(cells(five)).toBe(5)
+  })
+
+  // 옛 API 응답(WP-1754 전)에는 agents[].slotLimit 이 없다 — 최상위 slotLimit, 그것도 없으면 5 칸으로 그린다(WP-1775).
+  test('agents[].slotLimit 이 없으면 최상위 slotLimit, 그것도 없으면 5 칸을 쓴다 (WP-1775)', async () => {
+    const legacy = (id: number, name: string) => {
+      const status: Partial<ReturnType<typeof createAiAgentStatus>> = createAiAgentStatus(id, name, { slotsUsed: 1 })
+      delete status.slotLimit
+      return status
+    }
+    const cells = (el: HTMLElement) => el.querySelectorAll('[aria-hidden] > span').length
+    const first = renderAgents('/me/ai-tasks?view=agents&scope=all', [], 200, { agents: [legacy(41, 'AI 옛')], slotLimit: 3 })
+    const top = await screen.findByTestId('ai-agent-41-slots')
+    expect(top).toHaveTextContent('1/3')
+    expect(cells(top)).toBe(3)
+    first.unmount()
+
+    renderAgents('/me/ai-tasks?view=agents&scope=all', [], 200, { agents: [legacy(42, 'AI 옛2')] })
+    const none = await screen.findByTestId('ai-agent-42-slots')
+    expect(none).toHaveTextContent('1/5')
+    expect(cells(none)).toBe(5)
   })
 
   test('상태 칩 건수와 누르면 그 상태만, 다시 누르면 해제(URL roster)', async () => {

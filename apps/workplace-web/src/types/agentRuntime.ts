@@ -127,6 +127,14 @@ export interface AgentRuntimeSetting {
   effectiveSlotLimit: number;
 }
 
+/** AI 한 명의 동시 진행 자리(WP-1775) — GET /admin/agents/:id/runtime-setting/slots. AI별 현황과 같은 기준으로 서버가 센다. */
+export interface AgentRuntimeSlots {
+  /** 지금 쓰는 자리 수 */
+  used: number
+  /** 실제 적용 상한 */
+  limit: number
+}
+
 export interface PutAgentRuntimeSettingRequest {
   templateName: string;
   locationId: number | null;
