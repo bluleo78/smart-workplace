@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 
 import { invalidateMailDrafts } from '@/hooks/queries/mailDraftKeys';
 import { useOpenMailDraft } from '@/hooks/queries/useMailDrafts';
-import { scheduleSentRefresh, showSentToast } from '@/hooks/queries/useMailMessages';
+import { scheduleSentRefresh, showScheduledToast, showSentToast } from '@/hooks/queries/useMailMessages';
 import { useLatest } from '@/hooks/useLatest';
 import { forgetMailComposePopout, listenMailComposeWindowEvents, MAIL_COMPOSE_WINDOW_ID } from '@/lib/mailComposeChannel';
 import { notifySentElsewhere } from '@/lib/mailDraftCompose';
@@ -21,7 +21,7 @@ export function MailComposeWindowSync() {
   const openRef = useLatest(openDraft);
   useEffect(
     () =>
-      listenMailComposeWindowEvents(({ type, accountId, draftId, opener, sentDraftId }) => {
+      listenMailComposeWindowEvents(({ type, accountId, draftId, opener, sentDraftId, sendAt }) => {
         forgetMailComposePopout(draftId);
         // 어느 경우든 임시보관함은 바뀌었을 수 있다(저장·발송 뒤 삭제·버림).
         void invalidateMailDrafts(qc, accountId);
@@ -29,7 +29,9 @@ export function MailComposeWindowSync() {
         if (type === 'sent') {
           const queuedId = sentDraftId ?? draftId;
           // 연 창은 「메일 보냄 · 되돌리기」(지금·20초 뒤 다시 받기 포함), 다른 탭은 목록만 다시 받는다.
-          if (mine) showSentToast(qc, accountId, queuedId, (id, detail) => openRef.current(id, { detail }));
+          // 예약 보내기(WP-1787)면 「예약됨 · … · 예약 취소」, 아니면 「메일 보냄 · 되돌리기」.
+          if (mine && sendAt) showScheduledToast(qc, accountId, queuedId, new Date(sendAt), (id, detail) => openRef.current(id, { detail }));
+          else if (mine) showSentToast(qc, accountId, queuedId, (id, detail) => openRef.current(id, { detail }));
           else scheduleSentRefresh(qc, accountId);
           return;
         }

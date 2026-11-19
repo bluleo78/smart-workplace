@@ -109,10 +109,18 @@ test('저장 검증 오류는 모바일에선 원인만 빨간 글씨로 잘리�
   // 낭독(텍스트)·title 은 전체 문구
   await expect(status).toHaveText('저장하지 못했어요 · 받는사람이 너무 많아요')
   await expect(status).toHaveAttribute('title', '저장하지 못했어요 · 받는사람이 너무 많아요')
-  // 화면에 보이는 글은 원인만, 말줄임 없이
-  const visible = status.locator('span.truncate')
+  // 화면에 보이는 글은 원인만, 잘리지 않게 — 좁으면 2줄까지 줄바꿈한다(상단 바가 그만큼 높아진다, WP-1787 예약 ⋯ 추가 뒤)
+  const visible = status.locator('[data-part="message"]')
   await expect(visible).toHaveText('받는사람이 너무 많아요')
-  expect(await visible.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  expect(await visible.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight)).toBe(true)
+  // 버튼은 그대로 44px 이고, 높아진 상단 바 안에 상태 줄이 들어간다(본문 위로 넘치지 않는다)
+  const discard = (await page.getByTestId('mail-compose-discard').boundingBox())!
+  expect(discard.width).toBeGreaterThanOrEqual(44)
+  expect(discard.height).toBeGreaterThanOrEqual(44)
+  const s = (await status.boundingBox())!
+  expect(s.x + s.width).toBeLessThanOrEqual(discard.x)
+  const subject = (await page.getByTestId('mail-compose-subject').boundingBox())!
+  expect(s.y + s.height).toBeLessThanOrEqual(subject.y)
   await expect(status.locator('span.sr-only')).toHaveText(/저장하지 못했어요/)
 })
 

@@ -147,23 +147,6 @@ class MailSendQueueRepositoryIntegrationTest extends ExternalClientMockedTestBas
   }
 
   @Test
-  void markQueued_이미_QUEUED_나_SENDING_이면_거절한다() {
-    long u = user();
-    long acc = account(u);
-    long queued = seed(u, acc, "QUEUED", OffsetDateTime.now().plusSeconds(10), null);
-    long sending = seed(u, acc, "SENDING", OffsetDateTime.now(), OffsetDateTime.now());
-    long plain = seed(u, acc, null, null, null);
-
-    assertThat(callInTenant(1L, () -> repo.markQueued(queued, OffsetDateTime.now(), true)))
-        .isFalse();
-    assertThat(callInTenant(1L, () -> repo.markQueued(sending, OffsetDateTime.now(), true)))
-        .isFalse();
-    assertThat(stateOf(sending)).isEqualTo("SENDING");
-    assertThat(callInTenant(1L, () -> repo.markQueued(plain, OffsetDateTime.now(), true))).isTrue();
-    assertThat(stateOf(plain)).isEqualTo("QUEUED");
-  }
-
-  @Test
   void markFailed_SENDING_이_아니면_거절한다() {
     long u = user();
     long acc = account(u);

@@ -89,6 +89,14 @@ describe('buildMailContext', () => {
     });
   });
 
+  it('예약됨 — 이름표 「예약됨」, refs 에 folder 없음', () => {
+    expect(buildMailContext({ ...base, folder: 'SCHEDULED', count: 3 }).scope).toEqual({
+      label: 'me@x.com · 예약됨',
+      refs: { accountId: '3' },
+      count: 3,
+    });
+  });
+
   it('count 미제공이면 scope.count 없음', () => {
     expect(buildMailContext({ ...base, count: undefined }).scope).not.toHaveProperty('count');
   });

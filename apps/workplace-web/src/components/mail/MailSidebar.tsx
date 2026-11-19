@@ -1,4 +1,4 @@
-import { Archive, Check, ChevronDown, FilePen, Inbox, Mail, PenSquare, Send, Settings, Star, Tag, Trash2 } from 'lucide-react'
+import { Archive, Check, ChevronDown, Clock, FilePen, Inbox, Mail, PenSquare, Send, Settings, Star, Tag, Trash2 } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
@@ -231,6 +231,16 @@ export function MailSidebar() {
               >
                 <FilePen className="h-4 w-4 shrink-0" /> 임시보관함
                 {count(draftCount?.count, 'mail-count-drafts', view.kind === 'drafts', `임시저장 ${draftCount?.count}개`)}
+              </Link>
+              {/* WP-1787 예약됨 — 보낼 시각을 정해 둔 메일. 배지는 예약 개수. */}
+              <Link
+                to={`/mail/${current!.id}?folder=scheduled`}
+                data-testid="mail-folder-scheduled"
+                aria-current={view.kind === 'scheduled' ? 'page' : undefined}
+                className={folderClass(view.kind === 'scheduled')}
+              >
+                <Clock className="h-4 w-4 shrink-0" /> 예약됨
+                {count(draftCount?.scheduled, 'mail-count-scheduled', view.kind === 'scheduled', `예약 ${draftCount?.scheduled}개`)}
               </Link>
               {/* WP-961 보관 — 서버에 보관 메일함이 있을 때만. 이름은 서버 이름(Archive 등)과 무관하게 「보관」. */}
               {archive && (

@@ -56,6 +56,34 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('useSendMail — 예약 보내기 토스트(WP-1787)', () => {
+  it('sendAt 을 실어 보내면 「예약됨 · …」 토스트(「메일 보냄」 아님), 「예약 취소」 → cancel-send·쓰기 창 다시 열기', async () => {
+    const back = draftDetail({ id: 80, to: ['a@test.local'], subject: '안녕' })
+    server.use(
+      http.post('/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 80, sendAt: '2026-11-20T00:00:00Z' })),
+      http.post('/api/v1/mail/drafts/:id/cancel-send', ({ params }) => {
+        cancelCalls.push(Number(params.id))
+        return HttpResponse.json(back)
+      }),
+    )
+    const { wrapper } = setup()
+    const openDraft = vi.fn()
+    const { result } = renderHook(() => useSendMail(openDraft), { wrapper })
+    const at = new Date()
+    at.setDate(at.getDate() + 1)
+    at.setHours(9, 0, 0, 0)
+    await act(() => result.current.mutateAsync({ accountId: 1, body: { ...BODY, sendAt: at.toISOString() } }))
+    expect(success).toHaveBeenCalledTimes(1)
+    const [msg, opts] = success.mock.calls[0]
+    expect(msg).toBe('예약됨 · 내일 오전 9:00')
+    expect(opts?.duration).toBeUndefined()
+    expect(opts?.action?.label).toBe('예약 취소')
+    await clickUndo()
+    expect(cancelCalls).toEqual([80])
+    await vi.waitFor(() => expect(openDraft).toHaveBeenCalledWith(80, back))
+  })
+})
+
 describe('useSendMail — 되돌리기 토스트', () => {
   it('보내기 성공 → 「메일 보냄」 토스트에 「되돌리기」 동작, 10초 동안 보인다', async () => {
     server.use(http.post('/api/v1/mail/accounts/1/send', () => queued(55)))

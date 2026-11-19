@@ -92,6 +92,46 @@ test('답장 → 받는사람은 발신자 칩, 제목 Re:, inReplyToMessageId �
   expect(send.last().body.to).toEqual(['alice@example.com'])
 })
 
+// ── 예약 보내기(WP-1787) ─────────────────────────────────────────────
+// 보내기 옆 ▾ 의 프리셋은 보내기와 같은 정리(작성창 닫힘·draftId 등)를 거치고 요청에 sendAt(ISO)만 더한다.
+
+test('▾ 에서 「내일 오전 9:00」을 고르면 send 요청에 sendAt(ISO)이 실리고 작성창이 닫히며 예약 토스트가 뜬다', async () => {
+  const send = record<SendBody & { sendAt?: string }>('post', '/api/v1/mail/accounts/1/send', () =>
+    HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }),
+  )
+  const view = withSource({}, [send.handler])
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-reply'))
+  await waitFor(() => expect(chips('to')).toEqual(['alice@example.com']))
+  await view.user.click(screen.getByTestId('mail-compose-schedule-trigger'))
+  await view.user.click(await screen.findByTestId('mail-schedule-preset-tomorrow'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  const at = new Date(send.last().body.sendAt as string)
+  expect(at.getHours()).toBe(9)
+  expect(at.getMinutes()).toBe(0)
+  expect(at.getTime()).toBeGreaterThan(Date.now())
+  expect(send.last().body.to).toEqual(['alice@example.com'])
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+  expect(await screen.findByText(/^예약됨 · /)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '예약 취소' })).toBeInTheDocument()
+})
+
+// 이 앱은 받는 사람이 없어도 보내기를 막지 않는다(서버가 거절) — ▾ 는 보내기와 같은 sendDisabled 를 따른다(여기선 보내는 중).
+test('보내는 중에는 보내기와 ▾ 가 함께 disabled', async () => {
+  let release!: (r: Response) => void
+  const send = record('post', '/api/v1/mail/accounts/1/send', () => new Promise<Response>((r) => (release = r)))
+  const view = withSource({}, [send.handler])
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-reply'))
+  await waitFor(() => expect(chips('to')).toEqual(['alice@example.com']))
+  expect(screen.getByTestId('mail-compose-schedule-trigger')).toBeEnabled()
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  expect(screen.getByTestId('mail-compose-send')).toBeDisabled()
+  expect(screen.getByTestId('mail-compose-schedule-trigger')).toBeDisabled()
+  release(HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
+})
+
 // ── 처음 초점(WP-1746) ─────────────────────────────────────────────
 // 답장은 받는 사람이 이미 채워져 있으니 본문 첫 줄에서, 전달·새 메일은 받는 사람부터(#802). 에디터가 비동기로 준비된 뒤 옮긴다.
 

@@ -2,6 +2,7 @@ package com.workplace.mail.dto;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -36,6 +37,9 @@ import java.util.List;
  * 생략(null)하면 서버가 지금처럼 추정한다(답장 원본이 있으면 reply, 전달 첨부가 있으면 forward) — AI 확인카드 등 기존 호출처 호환. 발송
  * 자체(MIME·스레딩)에는 쓰이지 않는다.
  *
+ * <p>sendAt(WP-1787, 선택): 예약 보내기 시각(ISO). 있으면 되돌리기 유예(10초) 대신 이 시각에 보낸다 — 지금부터 1분 뒤 이후여야 하고 한 사용자당
+ * 100건까지다. 없으면(null) 지금처럼 즉시 보내기(10초 되돌리기).
+ *
  * <p>inlineImages·inlineUploads 는 요청 단계에서 100개 상한(임시저장 요청과 같다, 코드 리뷰) — 보내기 컨트롤러가 {@code @Valid} 로
  * 건다. 실제 발송 상한(인라인 합쳐 20개)은 서비스 검증이 사용자 문구로 따로 본다.
  */
@@ -54,7 +58,8 @@ public record MailSendRequest(
     @Size(max = MailSendRequest.MAX_INLINE_REFS) @Valid List<InlineUploadRef> inlineUploads,
     String mode,
     Long sourceMessageId,
-    Boolean quoteRemoved) {
+    Boolean quoteRemoved,
+    OffsetDateTime sendAt) {
 
   /**
    * 인라인 참조(inlineImages·inlineUploads) 요청 단계 상한 — 보내기와 임시저장 요청({@link MailDraftSaveRequest})이 같은 값을
@@ -110,6 +115,7 @@ public record MailSendRequest(
         forwardAttachmentIds,
         draftId,
         inlineUploads,
+        null,
         null,
         null,
         null);

@@ -118,6 +118,7 @@ import { MailDraftsPage } from './MailDraftsPage'
 import { MAIL_DETAIL_PARAM } from './mailHistory'
 import { MailListActions, MailSyncControls } from './MailInboxFilterControls'
 import { MailMobileDetail, MailMobileDetailBar, MailMobileSummaryButton } from './MailMobileDetail'
+import { MailScheduledPage } from './MailScheduledPage'
 import { MailToIssueDialog } from './MailToIssueDialog'
 import { useMailAttachmentViewer } from './useMailAttachmentViewer'
 import { useMailScreenContext } from './useMailScreenContext'
@@ -1173,7 +1174,7 @@ function MessageDetailPanel({
 }
 
 /**
- * 메일 라우트 — ?folder=drafts 면 임시보관함(WP-577, 앱 서버 임시저장 — 메시지 목록 API 를 쓰지 않는다)을, 그 밖에는 메일함을 그린다.
+ * 메일 라우트 — ?folder=drafts 면 임시보관함(WP-577, 앱 서버 임시저장 — 메시지 목록 API 를 쓰지 않는다)을, ?folder=scheduled 면 예약됨(WP-1787)을, 그 밖에는 메일함을 그린다.
  * 화면을 나눠 임시보관함에서는 메일함의 목록·동기화·읽음 훅이 돌지 않게 한다. 계정이 없으면 메일함이 첫 계정으로 보낸다.
  */
 export function MailInboxPage() {
@@ -1196,6 +1197,7 @@ export function MailInboxPage() {
     }
   }
   if (accountId && params.get('folder') === 'drafts') return <MailDraftsPage accountId={Number(accountId)} />
+  if (accountId && params.get('folder') === 'scheduled') return <MailScheduledPage accountId={Number(accountId)} />
   return <MailInbox />
 }
 

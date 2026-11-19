@@ -5,7 +5,7 @@ import { useCallback } from 'react';
 import { toast } from 'sonner';
 
 import { type ComposePlacement, useMailCompose } from '@/components/mail/MailComposeContext';
-import { extractApiErrorCode, handleApiError, isNotFoundError } from '@/lib/api-error';
+import { extractApiErrorCode, handleApiError, isConflictError, isNotFoundError } from '@/lib/api-error';
 import {
   liveMailComposePopout,
   MAIL_COMPOSE_WINDOW_ID,
@@ -23,12 +23,23 @@ import {
   MAIL_ALREADY_SENDING_UNDO_REOPENS,
   savePayloadFromDetail,
 } from '@/lib/mailDraftCompose';
+import { scheduledRefetchInterval } from '@/lib/mailSchedule';
 import { MAIL_SEND_UNKNOWN } from '@/lib/notifText';
 
-import { createMailDraft, deleteMailDraft, getMailDraft, getMailDraftCount, listMailDrafts } from '../../api/mailDrafts';
-import { DRAFT_NOT_FOUND, type MailDraftCreated, type MailDraftDetail, type MailDraftSaveRequest, type MailDraftSummary, type MailDraftUpdated } from '../../types/mailDraft';
+import { createMailDraft, deleteMailDraft, getMailDraft, getMailDraftCount, listMailDrafts, listScheduledMailDrafts, sendScheduledMailNow } from '../../api/mailDrafts';
+import { cancelMailSend } from '../../api/mailMessages';
+import {
+  DRAFT_NOT_FOUND,
+  type MailDraftCount,
+  type MailDraftCreated,
+  type MailDraftDetail,
+  type MailDraftSaveRequest,
+  type MailDraftSummary,
+  type MailDraftUpdated,
+  type MailScheduledSummary,
+} from '../../types/mailDraft';
 import { invalidateMailDrafts, mailDraftKeys } from './mailDraftKeys';
-import { mailMessageQuery, type OpenSentDraft, SEND_UNDO_MS, toastSendUndo } from './useMailMessages';
+import { mailMessageQuery, type OpenSentDraft, scheduleSentRefresh, SEND_UNDO_MS, toastSendUndo } from './useMailMessages';
 
 // 키·무효화는 순수 파일(mailDraftKeys)에 두고 여기서 다시 내보낸다 — 발송 훅이 이 파일의 무거운 의존 없이 쓰게.
 export { invalidateMailDrafts, mailDraftKeys };
@@ -146,6 +157,83 @@ export function useMailDraftCount(accountId: number | undefined) {
     queryKey: mailDraftKeys.count(accountId ?? 0),
     queryFn: () => getMailDraftCount(accountId as number),
     enabled: !!accountId,
+    // 예약이 있으면 예약 시각에 나가 배지가 줄어든다 — 가장 이른 예약이 다가왔을 때만 짧게 다시 받는다(WP-1787 코드 리뷰).
+    refetchInterval: (q) => scheduledRefetchInterval(q.state.data?.nextSendAt, Date.now()),
+  });
+}
+
+/** 예약 목록(WP-1787) — 가장 이른 예약(첫 행, 서버가 보낼 시각 순)이 다가왔을 때만 다시 받는다. enabled=false 면 요청하지 않는다. */
+export function useScheduledMailDrafts(accountId: number | undefined, enabled = true) {
+  return useQuery({
+    queryKey: mailDraftKeys.scheduled(accountId ?? 0),
+    queryFn: () => listScheduledMailDrafts(accountId as number),
+    enabled: enabled && !!accountId,
+    refetchInterval: (q) => scheduledRefetchInterval(q.state.data?.[0]?.sendAt, Date.now()),
+  });
+}
+
+/**
+ * 바로 보낸 예약 행을 캐시에서 곧바로 뺀다(WP-1787 코드 리뷰) — 서버에선 스케줄러가 집을 때까지 몇 초 QUEUED 로 남아, 다시 받으면 목록에
+ * 그대로 보이고 그 행을 열거나 「예약 취소」하면 방금 보낸 메일을 되돌리게 된다. 개수 배지도 하나 줄이고, 가장 이른 예약 시각은 남은 목록의 첫 행으로 맞춘다.
+ */
+function removeScheduledRow(qc: QueryClient, accountId: number, draftId: number) {
+  const rows = qc.setQueryData<MailScheduledSummary[]>(mailDraftKeys.scheduled(accountId), (old) => old?.filter((r) => r.id !== draftId));
+  qc.setQueryData<MailDraftCount>(mailDraftKeys.count(accountId), (old) =>
+    old
+      ? {
+          ...old,
+          scheduled: Math.max(0, old.scheduled - 1),
+          ...(rows ? { nextSendAt: rows[0]?.sendAt ?? null } : {}),
+        }
+      : old,
+  );
+}
+
+/** 예약 행을 건드리려다 늦었다 — 이미 보내는 중(409)이거나 나가서 사라졌다(404). 둘 다 「이미 보냄」으로 알린다. */
+function toastScheduledTooLate(e: unknown, fallback: string) {
+  if (isConflictError(e) || isNotFoundError(e)) toast('이미 보냄');
+  else handleApiError(e, fallback);
+}
+
+/** 예약 목록 「지금 보내기」(WP-1787) — 성공하면 목록·개수를 다시 받는다. 늦었으면(409·404) 「이미 보냄」. mutate(draftId). */
+export function useSendScheduledNow(accountId: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (draftId: number) => sendScheduledMailNow(draftId),
+    onSuccess: async (_res, draftId) => {
+      if (accountId == null) return;
+      // 진행 중인 예약 목록·개수 요청이 끝나며 뺀 행을 되살리지 않게 먼저 멈춘다. 지금 다시 받지도 않는다(아직 QUEUED 라 되살아난다).
+      await Promise.all([
+        qc.cancelQueries({ queryKey: mailDraftKeys.scheduled(accountId) }),
+        qc.cancelQueries({ queryKey: mailDraftKeys.count(accountId) }),
+      ]);
+      removeScheduledRow(qc, accountId, draftId);
+      // 바로 보내면 대기열이 곧 보낸다 — 나간 뒤(일정 시간 뒤) 보낸편지함·임시보관·예약을 다시 받는다.
+      scheduleSentRefresh(qc, accountId, { immediate: false });
+    },
+    onError: (e) => {
+      toastScheduledTooLate(e, '지금 보내지 못했어요');
+      // 이미 나갔다면 목록에 남은 행이 낡았다 — 다시 받는다.
+      if (accountId != null) void invalidateMailDrafts(qc, accountId);
+    },
+  });
+}
+
+/**
+ * 예약 목록 「예약 취소」(WP-1787) — cancel-send 로 예약을 풀고 임시보관 상세를 돌려준다(호출부가 쓰기 창으로 연다). mutate(draftId).
+ * 성공하면 목록·개수를 다시 받는다(임시보관함으로 돌아온다). 늦었으면(409·404) 「이미 보냄」.
+ */
+export function useCancelScheduledMail(accountId: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (draftId: number) => cancelMailSend(draftId),
+    onSuccess: () => {
+      if (accountId != null) void invalidateMailDrafts(qc, accountId);
+    },
+    onError: (e) => {
+      toastScheduledTooLate(e, '예약을 취소하지 못했어요');
+      if (accountId != null) void invalidateMailDrafts(qc, accountId);
+    },
   });
 }
 
