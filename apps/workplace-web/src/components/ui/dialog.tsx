@@ -5,14 +5,20 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
+import { DialogModalContext, useAriaModal } from "@/components/ui/dialog-modal-context"
 import { DialogOpenerProbe, useDialogFocusRestore } from "@/hooks/useDialogFocusRestore"
 import { preventDismissOnExtensionUi } from "@/lib/browserExtensionUi"
 import { cn } from "@/lib/utils"
 
 function Dialog({
+  modal = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+  return (
+    <DialogModalContext.Provider value={modal}>
+      <DialogPrimitive.Root data-slot="dialog" modal={modal} {...props} />
+    </DialogModalContext.Provider>
+  )
 }
 
 function DialogTrigger({
@@ -62,6 +68,7 @@ function DialogContent({
 }) {
   // 닫힐 때 연 요소(메뉴에서 열었으면 그 메뉴 트리거)로 포커스를 되돌린다(#708).
   const focusRestore = useDialogFocusRestore(onOpenAutoFocus, onCloseAutoFocus)
+  const ariaModal = useAriaModal()
 
   // 1Password 등 비밀번호 관리자가 body 에 주입한 자동완성 메뉴를 클릭하면 Radix 가 "바깥 클릭"으로 보고
   // 다이얼로그를 닫아 입력 중인 폼이 사라진다 — 확장 UI 상호작용은 닫힘 대상에서 제외한다(WP-96).
@@ -78,6 +85,8 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        // 모달일 때만 aria-modal (dialog-modal-context.ts 참고)
+        aria-modal={ariaModal}
         onOpenAutoFocus={focusRestore.onOpenAutoFocus}
         onCloseAutoFocus={focusRestore.onCloseAutoFocus}
         onInteractOutside={handleInteractOutside}

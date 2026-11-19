@@ -64,7 +64,7 @@ describe('isHelpShortcut', () => {
     dialog.setAttribute('aria-modal', 'true')
     document.body.appendChild(dialog)
     expect(isHelpShortcut(key({ key: '?', shiftKey: true }))).toBe(false)
-    // Radix 모달 대화상자는 aria-modal 을 달지 않고 바깥 형제를 숨긴다(aria-hidden 라이브러리의 data-aria-hidden 표식).
+    // 모달 대화상자는 바깥 형제를 숨기고(aria-hidden 라이브러리의 data-aria-hidden 표식) 우리 래퍼는 aria-modal 도 단다 — aria-modal 이 없어도 이 표식만으로 막는다.
     dialog.removeAttribute('aria-modal')
     const page = document.createElement('div')
     page.setAttribute('aria-hidden', 'true')

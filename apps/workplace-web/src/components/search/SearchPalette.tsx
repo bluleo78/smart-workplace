@@ -11,7 +11,7 @@ import { type KeyboardEvent, useContext, useEffect, useId, useLayoutEffect, useR
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useOptionalAssistant } from '@/components/ai/AIAssistantContext'
-import { RawSheetContent } from '@/components/mobile/RawSheetContent'
+import { RawSheetContent, RawSheetRoot } from '@/components/mobile/RawSheetContent'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { ChatSessionContext } from '@/hooks/chat-session-context'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
@@ -70,7 +70,7 @@ export function SearchPalette({ open, onOpenChange, session, afterClose }: Props
   )
   if (isMobile) {
     return (
-      <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <RawSheetRoot open={open} onOpenChange={onOpenChange}>
         <DialogPrimitive.Portal>
           {/* 원시 Content — ui/DialogContent 의 data-slot 이 붙으면 index.css 의 휴대폰 대화상자 규칙(탭바 위 가운데·키보드 열림 시 가운데·
               max-height·바깥 스크롤)이 전체 화면을 줄이고 옮긴다. 「채팅·이슈로 보내기」 전체 화면(SendToChatMobileFrame)과 같은 방식으로
@@ -83,7 +83,7 @@ export function SearchPalette({ open, onOpenChange, session, afterClose }: Props
             {body}
           </RawSheetContent>
         </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
+      </RawSheetRoot>
     )
   }
   return (

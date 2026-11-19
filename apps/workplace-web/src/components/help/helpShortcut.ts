@@ -8,8 +8,9 @@ import { isImeComposing } from '@/lib/imeKey'
 /**
  * 있기만 해도 `?` 를 막는 오버레이.
  * - aria-modal 대화상자, 경고 대화상자(Radix AlertDialog 는 늘 모달) — 포커스를 가둔다.
- * - data-aria-hidden — Radix 모달 레이어(Dialog·모달 Popover·DropdownMenu·Select)는 aria-modal 을 달지 않고
- *   aria-hidden 라이브러리로 바깥 형제를 숨기며 이 표식을 남긴다. 비모달(AI 옆 엔티티 대화상자)은 숨기지 않으므로 걸리지 않는다.
+ * - data-aria-hidden — Radix 모달 레이어(Dialog·모달 Popover·DropdownMenu·Select)는 aria-hidden 라이브러리로 바깥 형제를 숨기며
+ *   이 표식을 남긴다. 우리 Dialog 래퍼는 aria-modal 도 달지만 Popover 등은 이 표식으로만 잡힌다.
+ *   비모달(AI 옆 엔티티 대화상자)은 숨기지 않으므로 걸리지 않는다.
  * - 열린 메뉴·목록 — 화살표·글자 입력을 받는 팝업이다.
  */
 const BLOCKING_OVERLAY_SELECTOR = '[role="dialog"][aria-modal="true"], [role="alertdialog"], [data-aria-hidden], [role="menu"], [role="listbox"]'

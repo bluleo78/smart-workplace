@@ -3,7 +3,7 @@
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { type ReactNode, useState } from 'react'
 
-import { RawSheetContent } from '@/components/mobile/RawSheetContent'
+import { RawSheetContent, RawSheetRoot } from '@/components/mobile/RawSheetContent'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -27,7 +27,7 @@ export function SendToChatMobileFrame({ title, onClose, hasContent, canSend, sen
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   useSheetHistory({ historyKey: 'sendToChat', open: true, hasContent, onClose, onBlockedBack: () => setConfirmDiscard(true) })
   return (
-    <DialogPrimitive.Root open onOpenChange={(o) => !o && onClose()}>
+    <RawSheetRoot open onOpenChange={(o) => !o && onClose()}>
       <DialogPrimitive.Portal>
         {/* 원시 Content — index.css 의 [data-slot=dialog-content] 키보드 규칙(가운데 정렬·max-height)을 피한다.
             z-[80] — AI 시트(z-[60]) 안에서 연 뷰어에서 불러도 그 위에 뜨게(공유 시트 aboveAiSheet 와 같은 층). */}
@@ -72,6 +72,6 @@ export function SendToChatMobileFrame({ title, onClose, hasContent, canSend, sen
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </DialogPrimitive.Root>
+    </RawSheetRoot>
   )
 }

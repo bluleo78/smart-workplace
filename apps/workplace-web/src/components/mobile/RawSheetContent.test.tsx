@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 
-import { RawSheetContent } from './RawSheetContent'
+import { RawSheetContent, RawSheetRoot } from './RawSheetContent'
 
 /** Radix 가 미뤄 둔 닫힘 포커스 처리(setTimeout 0)를 흘린다. */
 const flushRadixFocus = () => act(() => vi.runOnlyPendingTimers())
@@ -114,5 +114,44 @@ describe('RawSheetContent — 닫히면 연 요소로 포커스를 돌려준다'
     act(() => screen.getByRole('button', { name: '닫기' }).click())
     await flushRadixFocus()
     expect(opener).toHaveFocus()
+  })
+})
+
+// WP-1771 — Radix Dialog 는 aria-modal 을 달지 않는다. 모달 시트만 달고, non-modal 루트는 속성 자체가 없어야 한다.
+// RawSheetRoot 가 Root 의 modal 을 Content 로 내리므로 호출부는 Root 에만 modal 을 넘긴다.
+describe('RawSheetContent — aria-modal', () => {
+  test.each([
+    ['기본은 aria-modal="true"', undefined, true],
+    ['modal={false} 면 aria-modal 이 없다', false, false],
+  ])('%s', (_name, modal, expected) => {
+    render(
+      <RawSheetRoot open modal={modal}>
+        <DialogPrimitive.Portal>
+          <RawSheetContent aria-describedby={undefined} data-testid="sheet">
+            <DialogPrimitive.Title>시트</DialogPrimitive.Title>
+          </RawSheetContent>
+        </DialogPrimitive.Portal>
+      </RawSheetRoot>,
+    )
+    if (expected) expect(screen.getByTestId('sheet')).toHaveAttribute('aria-modal', 'true')
+    else expect(screen.getByTestId('sheet')).not.toHaveAttribute('aria-modal')
+  })
+
+  test('non-modal Dialog 안의 모달 RawSheetRoot 는 바깥 값을 물려받지 않고 aria-modal="true"', () => {
+    render(
+      <Dialog open modal={false}>
+        <DialogContent aria-describedby={undefined}>
+          <DialogTitle>바깥</DialogTitle>
+          <RawSheetRoot open>
+            <DialogPrimitive.Portal>
+              <RawSheetContent aria-describedby={undefined} data-testid="sheet">
+                <DialogPrimitive.Title>시트</DialogPrimitive.Title>
+              </RawSheetContent>
+            </DialogPrimitive.Portal>
+          </RawSheetRoot>
+        </DialogContent>
+      </Dialog>,
+    )
+    expect(screen.getByTestId('sheet')).toHaveAttribute('aria-modal', 'true')
   })
 })
