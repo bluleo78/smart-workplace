@@ -1455,3 +1455,30 @@ test('work-loop: 긴 작업은 30분마다 WORKING 으로 보고하고 끊긴 �
   assert.ok(s3.includes('백그라운드에 양보하지 않은 것(notes 의 `마지막 완료 단계` 가 「백그라운드: …」 가 아닌 것'));
   assert.ok(s3.includes('`process-issue.md` 「오래 걸리는 작업」') && s3.includes('다시 보고'));
 });
+
+// WP-1793 — 이슈를 쥔 동안에도 3번 고르기를 다시 해 ⓪·①·② 면 양보한다(13:26 기차 반려를 17:44 까지 못 봄)
+test('work-loop: 이슈를 쥔 동안 사이 확인·단계 사이에 3번 고르기를 다시 해 양보한다 (WP-1793)', () => {
+  const intr = section(pi, '\n### 쥔 동안 끼어들 일 확인\n', '\n### ');
+  for (const anchor of [
+    '사이 확인과 `wake` 줄마다', '다시 시도하기 전', '10분이 지났을 때만', // 언제
+    '⓪(반려된 내 기차)', '①(새 글이 있는 내 이슈', '②(멘션받은 담당 밖 이슈)', '③ 이하는 끼어들지 않는다', // 무엇
+    '게이트가 `failed` 면',
+    '하위 에이전트는 끊지 않는다', '`양보: <끼어든 키> <KST 시각>`', '3번 조회를 새로 하지 않고 그 후보를 바로 처리한다', // 양보
+    '**끼어든 일에는 하지 않는다**', // 겹친 끼어들기 금지
+    '`양보:` 줄 갈래', '완료 알림', // 돌아오기
+  ]) assert.ok(intr.includes(anchor), anchor);
+  // 다시 고르면 처음부터(brainstorming) 다시 하지 않고 SDD 원장의 다음 Task 부터 잇는다.
+  const start = section(pi, '\n### 1. 시작\n', '\n### 2. ');
+  assert.ok(start.includes('`양보:` 줄이 있으면') && start.includes('다음 Task 부터 잇는다'));
+  // 기존 「끊지 않는다」·「다른 후보는 고르지 않는다」는 남기고 예외로 이 절을 가리킨다.
+  const wait = section(pi, '\n### 하위 에이전트 기다리기\n', '\n### ');
+  assert.ok(wait.includes('다른 후보는 고르지 않는다') && wait.includes('「쥔 동안 끼어들 일 확인」을 하고'));
+  assert.ok(wait.includes('다른 이슈의 글은 지금 이슈를 끊지 않는다') && wait.includes('「쥔 동안 끼어들 일 확인」의 끼어들 일은 예외다'));
+});
+
+test('work-loop SKILL.md: 4번이 끼어든 일에 양보를 멈출 지점으로 두고 30분 예외를 한 곳에 둔다 (WP-1793)', () => {
+  const s4 = section(workLoopSkill, '\n### 4. ', '\n### 5. ');
+  assert.ok(s4.includes('끼어든 일에 양보(작업 중 그대로'));
+  assert.ok(s4.includes('맨 앞이 ⓪·①·② 면 지금 이슈를 양보한다'));
+  assert.ok(s4.includes('끼어든 일 하나는 같은 부르기에서'));
+});
