@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 import { ISSUE_IMAGE_PATH_SOURCE, uploadIssueImage } from '../../../api/issueImages';
 import type { RichInputHandle } from '../../../components/mentions/RichInput';
-import type { MentionCandidate } from '../../../components/mentions/types';
+import type { MentionCandidate, MentionUser } from '../../../components/mentions/types';
 import { useComponents } from '../../../hooks/queries/useComponents';
 import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
@@ -40,6 +40,8 @@ const DATE_FIELDS = ['startDate', 'dueDate'] as const;
 const ERROR_FOCUS_ORDER = ['title', 'body', 'startDate', 'dueDate', 'parentNumber'] as const;
 // 멘션 후보를 아직 받지 못했을 때 — 렌더마다 새 빈 배열을 만들지 않게 하나를 쓴다.
 const NO_MEMBERS: MentionCandidate[] = [];
+// 다시 마운트할 본문 칸에 넘길 멘션 이름표가 없을 때 — 렌더마다 새 빈 배열을 만들지 않게 하나를 쓴다.
+const NO_MENTIONS: MentionUser[] = [];
 
 /**
  * 이슈 만들기 폼 검사 — zod 검사에 「덜 넣은 날짜」 판정을 더한다(WP-1644, 이유는 lib/dateInput).
@@ -127,14 +129,25 @@ export function useIssueCreateForm({
   const imageUpload = useCallback((file: File) => uploadIssueImage(projectKey, file), [projectKey]);
   // 멘션 후보(@) — 프로젝트 구성원.
   const members = useProjectMembers(projectKey).data ?? NO_MEMBERS;
-  // 본문 칸을 프로젝트마다 새로 마운트할 때 처음 원문(WP-1768) — 편집칸은 본문 모드 설정(이미지 노드·업로드 경로·붙여넣기 판정)을
+  // 본문 칸을 프로젝트마다 새로 마운트할 때 처음 원문·멘션 이름표(WP-1768) — 편집칸은 본문 모드 설정(이미지 노드·업로드 경로·붙여넣기 판정)을
   // 마운트 때 한 번만 정하므로, 창 안에서 프로젝트를 바꾸면 화면이 key={projectKey} 로 칸을 다시 마운트하고 지금 본문을 이 값으로 넘겨 글을 잇는다.
-  // 렌더 중에 맞춘다 — effect 로 하면 새 칸이 빈 값으로 먼저 마운트된다. 창을 다시 열거나 닫힌 동안 바뀐 키는 빈 칸으로 시작한다
-  // (닫힌 동안 폼 값엔 지난 본문이 남아 있다가 여는 effect 의 reset 이 지운다 — 그 값을 새 칸에 실으면 안 된다).
-  const [bodySeed, setBodySeed] = useState({ projectKey, open, body: '' });
+  // 멘션 이름표는 아직 마운트돼 있는 앞 칸에서 읽는다(칸이 아는 이름 — 앞 프로젝트 멤버 포함). 넘기지 않으면 새 칸의 <@id> 칩이 「알 수 없음」이 된다.
+  // 렌더 중에 맞춘다 — effect 로 하면 새 칸이 빈 값으로 먼저 마운트되고, 그때는 앞 칸이 이미 사라져 멘션 이름표도 못 읽는다.
+  // 창을 다시 열거나 닫힌 동안 바뀐 키는 빈 칸으로 시작한다(닫힌 동안 폼 값엔 지난 본문이 남아 있다가 여는 effect 의 reset 이 지운다).
+  // 아래 「프로젝트가 바뀌면 폼을 처음으로」 effect 와 감지를 합치지 않는다 — 그쪽 reset·setState 는 렌더 중에 부를 수 없고(react-hook-form 구독·
+  // 다른 상태를 그리는 중에 바꾸게 된다), 이쪽은 앞 칸이 살아 있는 렌더 중이어야 해서 시점이 서로 다르다.
+  const [bodySeed, setBodySeed] = useState<{ projectKey: string; open: boolean; body: string; mentions: MentionUser[] }>(
+    { projectKey, open, body: '', mentions: NO_MENTIONS },
+  );
   if (bodySeed.projectKey !== projectKey || bodySeed.open !== open) {
     const carry = open && bodySeed.open && bodySeed.projectKey !== projectKey;
-    setBodySeed({ projectKey, open, body: carry ? (form.getValues('body') ?? '') : '' });
+    setBodySeed({
+      projectKey,
+      open,
+      body: carry ? (form.getValues('body') ?? '') : '',
+      // 렌더 중 ref 읽기 — 앞 칸이 아직 마운트돼 있는 이 렌더에서만 읽을 수 있다(위 설명). 프로젝트가 바뀐 그 한 번만 읽는다.
+      mentions: carry ? (bodyEditorRef.current?.mentionUsers() ?? NO_MENTIONS) : NO_MENTIONS,
+    });
   }
 
   /**
@@ -181,9 +194,7 @@ export function useIssueCreateForm({
     if (!open) return;
     const { title, body } = form.getValues();
     reset({ priority: 'MID', title, body });
-    // 앞 프로젝트 칸은 버려지고(새 칸이 다시 마운트된다) 알림이 오지 않으므로 업로드 상태도 거둔다 — 올리는 중엔 프로젝트 칸이 잠겨 평소엔 이미 false 다.
-    uploadingRef.current = false;
-    setUploading(false);
+    // 업로드 상태는 거두지 않는다 — 올리는 중이면 프로젝트 칸이 잠겨(projectLocked) 여기 올 때는 늘 false 다.
     setClassifyReason(null);
     setEpic(null);
     setComponentIds([]);
@@ -328,10 +339,10 @@ export function useIssueCreateForm({
     form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify,
     // 본문 칸(본문 모드 RichInput)에 넘길 것 — 두 화면이 같이 쓴다. bodyMode·imageUpload·두 콜백은 렌더마다 같은 참조.
-    // key·initialBody — 프로젝트가 바뀌면 칸을 새 프로젝트 설정으로 다시 마운트하고 지금 본문을 잇는다(WP-1768).
+    // key·initialBody·initialMentions — 프로젝트가 바뀌면 칸을 새 프로젝트 설정으로 다시 마운트하고 지금 본문·멘션 이름을 잇는다(WP-1768).
     bodyEditor: {
       ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange,
-      key: projectKey, initialBody: bodySeed.body,
+      key: projectKey, initialBody: bodySeed.body, initialMentions: bodySeed.mentions,
     },
     // 시작일·마감일 칸에 펼치는 register 결과 — 덜 넣은 날짜 안내를 거두는 keyUp·blur 가 얹혀 있다(WP-1644).
     dateField,

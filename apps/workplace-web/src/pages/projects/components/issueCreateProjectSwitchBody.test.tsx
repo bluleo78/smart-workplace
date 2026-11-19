@@ -5,11 +5,12 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 
+import { memberKeys } from '@/hooks/queries/useProjectMembers'
+import { ALPHA_MEMBER, pasteInto, projectSwitchApi } from '@/test/kits/projects/issueCreateProjectSwitch'
 import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { renderScreen } from '@/test/renderScreen'
 
 import { IssueCreateDialog } from './IssueCreateDialog'
-import { pasteInto, projectSwitchApi } from './issueCreateProjectSwitchKit'
 
 // 칸 안 <img> 의 인증 요청은 끊고 고정 blob 주소를 준다 — 그림으로 그려졌는지만 본다.
 vi.mock('@/hooks/queries/useApiBlobUrl', () => ({
@@ -48,4 +49,30 @@ test('프로젝트를 바꾼 뒤 넣은 이미지는 새 프로젝트로 올라�
   expect(api.created[0].key).toBe('BETA')
   expect(api.created[0].body).toContain('메모')
   expect(api.created[0].body).toContain('![shot.png](/api/v1/projects/BETA/issue-images/8)')
+})
+
+test('앞 프로젝트에서 넣은 @멘션은 프로젝트를 바꿔 칸이 다시 마운트돼도 이름이 남고 원문 <@id> 로 간다', async () => {
+  const api = projectSwitchApi()
+  const { user, queryClient } = renderScreen(<IssueCreateDialog projectKey="" selectProject open onOpenChange={() => {}} />, {
+    handlers: api.handlers,
+  })
+  const title = await screen.findByLabelText(/제목/, {}, { timeout: SCREEN_LOAD_TIMEOUT })
+  const dialog = title.closest<HTMLElement>('[role="dialog"]')!
+  const body = () => within(dialog).getByTestId('issue-body')
+  await user.type(title, '멘션')
+  // 알파 구성원 목록을 받은 뒤 붙여넣어야 <@7> 이 이름 있는 멘션 칩이 된다.
+  await waitFor(() => expect(queryClient.getQueryData(memberKeys.all('ALPHA'))).toBeDefined())
+  pasteInto(body(), { text: `검토 <@${ALPHA_MEMBER.userId}> 부탁` })
+  await waitFor(() => expect(body().querySelector('.chat-mention')).toHaveTextContent(ALPHA_MEMBER.name))
+
+  await user.click(within(dialog).getByRole('combobox', { name: '프로젝트' }))
+  await user.click(await screen.findByRole('option', { name: '베타 팀' }))
+  await waitFor(() => expect(within(dialog).getByRole('combobox', { name: '프로젝트' })).toHaveTextContent('베타 팀'))
+  // 베타 구성원에는 없는 사람이지만 다시 마운트된 칸의 칩은 「알 수 없음」이 아니라 그 이름이다.
+  await waitFor(() => expect(body().querySelector('.chat-mention')).toHaveTextContent(ALPHA_MEMBER.name))
+  expect(body()).not.toHaveTextContent('알 수 없음')
+
+  await user.click(within(dialog).getByRole('button', { name: '생성' }))
+  await waitFor(() => expect(api.created).toHaveLength(1))
+  expect(api.created[0]).toEqual({ key: 'BETA', body: `검토 <@${ALPHA_MEMBER.userId}> 부탁` })
 })

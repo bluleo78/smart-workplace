@@ -409,6 +409,9 @@ export function MessageRow({
         onContextMenu={
           linkMenuTarget && !isEditing
             ? (e) => {
+                // 작성자 이름·아바타(사람 카드 트리거, WP-1768) 위 우클릭은 행 메뉴 대상이 아니다 — 길게 누르기 위임과 같은 표식으로 거른다.
+                // 브라우저 기본 메뉴는 그대로 뜬다(preventDefault 하지 않음).
+                if ((e.target as Element).closest?.('[data-person-card-trigger]')) return
                 const at = rowLinkMenuAnchorFromContextMenu(e)
                 if (!at) return
                 e.preventDefault()

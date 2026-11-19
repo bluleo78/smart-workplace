@@ -113,13 +113,20 @@ test('고르기 단추의 접근 설명에 편집자·꼬리말이 이어진다(
   expect(screen.getByTestId('wiki-revision-item-current')).toHaveAccessibleDescription('김철수 · 편집 중')
 })
 
-test('이름 트리거는 줄 폭 안에서 말줄임한다 — 긴 이름이 말줄임 없이 잘리지 않게(button 은 바깥 truncate 가 닿지 않는다)', () => {
+test('이름 칸만 줄어 말줄임하고 뒤 글자(쉼표·외 n명·(AI 수정))는 줄지 않는다 — 긴 이름 하나가 줄을 다 먹지 않게', () => {
   setup()
-  // 일반 판·AI 판(AiLabel 안) 모두 같은 트리거다.
-  for (const id of ['wiki-revision-item-5', 'wiki-revision-item-6']) {
+  // 일반 판(두 명·세 명)·AI 판(AiLabel 안) 모두 이름 트리거는 줄어드는 칸이다(button 은 바깥 truncate 가 닿지 않아 스스로 말줄임).
+  for (const id of ['wiki-revision-item-4', 'wiki-revision-item-5', 'wiki-revision-item-6']) {
     const row = screen.getByTestId(id).closest('li')!
     for (const trigger of within(row).getAllByTestId(/^person-card-trigger-/)) {
-      expect(trigger).toHaveClass('inline-block', 'max-w-full', 'min-w-0', 'truncate')
+      expect(trigger).toHaveClass('min-w-0', 'shrink', 'truncate')
+      expect(trigger).not.toHaveClass('max-w-full')
     }
   }
+  // 뒤 글자는 줄지 않는 칸(shrink-0) — 이름이 길어도 보인다.
+  const tail = (id: string, text: string) =>
+    within(screen.getByTestId(id).closest('li')!).getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === text)
+  expect(tail('wiki-revision-item-5', ', ')).toHaveClass('shrink-0')
+  expect(tail('wiki-revision-item-4', ' 외 2명')).toHaveClass('shrink-0')
+  expect(tail('wiki-revision-item-6', ' (AI 수정)')).toHaveClass('shrink-0')
 })

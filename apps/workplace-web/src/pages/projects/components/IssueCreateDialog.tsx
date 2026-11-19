@@ -117,7 +117,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
   const { register, watch, setValue, formState: { errors } } = f.form;
   const { types, classify, classifyReason, isSubtaskSelected, intakeOnly } = f;
   // 본문 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
-  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange, key: bodyKey, initialBody } = f.bodyEditor;
+  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange, key: bodyKey, initialBody, initialMentions } = f.bodyEditor;
   const currentTypeId = watch('typeId');
   // 닫기 요청 공통 경로 — 제목·본문이 있으면 확인하고, 빈 폼은 바로 닫는다.
   const requestClose = () => {
@@ -162,6 +162,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               imageUpload={imageUpload}
               members={members}
               initialBody={initialBody}
+              initialMentions={initialMentions}
               ariaLabel="본문"
               placeholder=""
               inputTestId="issue-body"

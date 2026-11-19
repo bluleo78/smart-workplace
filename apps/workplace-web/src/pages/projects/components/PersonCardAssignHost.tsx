@@ -37,31 +37,50 @@ function loadDialog(): DialogComponent {
 
 /** 창 묶음을 못 불러왔을 때 알릴 문구 — 배포 뒤 옛 묶음 이름(hash)을 찾는 경우가 대부분이라 새로고침을 권한다. */
 const ASSIGN_DIALOG_LOAD_ERROR = '새 이슈 창을 열지 못했습니다 — 새로고침해 주세요';
+/** 창 안에서 그리다 오류가 났을 때 알릴 문구 — 창만 닫고 앱 셸은 그대로 둔다. 새로고침이 아니라 다시 열기를 권한다. */
+const ASSIGN_DIALOG_RENDER_ERROR = '새 이슈 창에 문제가 생겨 닫았습니다 — 다시 열어 주세요';
+
+/** 브라우저·번들러가 지연 묶음을 못 받았을 때 내는 오류 문구(Chrome·Firefox·Safari·webpack 류). */
+const CHUNK_LOAD_MESSAGE = /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading (CSS )?chunk .* failed/i;
 
 /**
- * 지연 창 전용 오류 경계 — 창 묶음 로드 실패(오래된 hash 등)가 앱 전체 PageErrorBoundary 로 올라가 셸을 통째로 바꾸지 않게 여기서 멈춘다.
- * 로드 실패면 아무것도 그리지 않고 onError 로 호스트에 알린다(토스트·열림 상태 초기화). PageErrorBoundary 는 페이지 전체 안내 화면을 그려 여기 맞지 않는다.
- * 그 밖의 오류(창 안 렌더 오류 등)는 새로고침으로 낫지 않는 버그라 토스트로 덮지 않고 다시 던져 위 경계로 넘긴다.
+ * 창 묶음 로드 실패인가 — loadDialog 가 감싼 오류, 또는 감싸기 전에 경계로 온 청크 실패 모양(ChunkLoadError 이름·브라우저 문구).
+ * 이 경우만 새로고침을 권한다(새 배포의 묶음 이름을 받아야 낫는다).
  */
-class AssignDialogBoundary extends Component<{ onError: (error: Error) => void; children: ReactNode }, { error: unknown }> {
-  state: { error: unknown } = { error: null };
+function isDialogLoadError(error: unknown): boolean {
+  if (error instanceof AssignDialogLoadError) return true;
+  if (!(error instanceof Error)) return false;
+  return error.name === 'ChunkLoadError' || CHUNK_LOAD_MESSAGE.test(error.message);
+}
 
-  /** 오류를 기억한다 — 로드 실패면 창 자리를 비우고, 아니면 render 에서 다시 던진다. */
-  static getDerivedStateFromError(error: unknown) {
-    return { error };
+/**
+ * 지연 창 전용 오류 경계 — 창의 오류가 앱 전체 PageErrorBoundary 로 올라가 셸을 통째로 오류 화면으로 바꾸지 않게 여기서 멈춘다.
+ * 어떤 오류든 창 자리를 비우고(아무것도 그리지 않음) 호스트에 알린다 — 로드 실패면 onLoadError(새로고침 토스트·새 lazy),
+ * 그 밖의 렌더 오류면 onRenderError(창 닫힘 토스트). 렌더 오류는 버그라 console.error 로 남긴다(토스트만으로는 원인이 사라진다).
+ */
+class AssignDialogBoundary extends Component<
+  { onLoadError: () => void; onRenderError: () => void; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  /** 오류가 나면 창 자리를 비운다. */
+  static getDerivedStateFromError() {
+    return { failed: true };
   }
 
-  /** 로드 실패만 호스트에 알려 토스트를 띄우고 다음 클릭에서 다시 시도할 수 있게 상태를 되돌린다. */
-  componentDidCatch(error: Error) {
-    if (error instanceof AssignDialogLoadError) this.props.onError(error);
+  /** 오류 종류에 따라 호스트에 알린다 — 호스트가 창을 내리면(agentId 비움) 이 경계도 함께 걷혀 다음 클릭은 새로 시작한다. */
+  componentDidCatch(error: unknown) {
+    if (isDialogLoadError(error)) {
+      this.props.onLoadError();
+      return;
+    }
+    console.error('새 이슈 창 렌더 오류', error);
+    this.props.onRenderError();
   }
 
   render() {
-    const { error } = this.state;
-    if (error == null) return this.props.children;
-    if (error instanceof AssignDialogLoadError) return null;
-    // 로드 실패가 아니면 위 경계로 — render 에서 던지면 React 가 가장 가까운 바깥 경계로 넘긴다.
-    throw error;
+    return this.state.failed ? null : this.props.children;
   }
 }
 
@@ -87,13 +106,18 @@ export function PersonCardAssignHost({
     setDialog(() => loadDialog());
     setState({ open: false });
   }, []);
+  // 창 안 렌더 오류 — 창만 내리고(입력은 사라진다) 알린다. 묶음은 이미 받아 두었으니 lazy 는 그대로 쓴다.
+  const handleRenderError = useCallback(() => {
+    toast.error(ASSIGN_DIALOG_RENDER_ERROR);
+    setState({ open: false });
+  }, []);
 
   return (
     <PersonCardAssignContext.Provider value={assign}>
       {children}
       {/* 한 번도 맡기지 않았으면 창을 그리지 않는다 — 닫힌 창의 훅이 유형·멤버를 미리 받지 않게. */}
       {state.agentId !== undefined && (
-        <AssignDialogBoundary onError={handleLoadError}>
+        <AssignDialogBoundary onLoadError={handleLoadError} onRenderError={handleRenderError}>
           <Suspense fallback={null}>
             <Dialog
               projectKey={projectKey ?? hintProjectKey ?? ''}

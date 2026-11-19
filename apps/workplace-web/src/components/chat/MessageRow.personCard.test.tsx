@@ -129,9 +129,17 @@ describe('채널·DM 메시지 작성자 사람 카드 (WP-1768)', () => {
 
   test('데스크톱에서 작성자 이름·아바타를 우클릭해도 행의 링크 메뉴가 열리지 않는다 — 행 본문 우클릭은 연다', async () => {
     const { user } = renderRow()
-    for (const trigger of screen.getAllByTestId('person-card-trigger-7')) {
-      await user.pointer({ keys: '[MouseRight]', target: trigger })
+    // 행이 트리거 표식으로 거른다 — 트리거가 전파를 막지는 않는다(공용 트리거라 다른 조상의 우클릭 처리를 끊지 않게). 문서까지 올라오는지 본다.
+    const reached = vi.fn()
+    document.addEventListener('contextmenu', reached)
+    try {
+      for (const trigger of screen.getAllByTestId('person-card-trigger-7')) {
+        await user.pointer({ keys: '[MouseRight]', target: trigger })
+      }
+    } finally {
+      document.removeEventListener('contextmenu', reached)
     }
+    expect(reached).toHaveBeenCalledTimes(2)
     expect(screen.queryByTestId('message-link-menu-11')).not.toBeInTheDocument()
     // 같은 행의 본문 우클릭은 그대로 링크 메뉴를 연다(막은 것은 트리거 안 우클릭뿐).
     await user.pointer({ keys: '[MouseRight]', target: screen.getByText('안녕하세요') })

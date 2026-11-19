@@ -33,7 +33,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId, initialAgentId });
   const { register, watch, formState: { errors } } = f.form;
   // 설명 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
-  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange, key: bodyKey, initialBody } = f.bodyEditor;
+  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange, key: bodyKey, initialBody, initialMentions } = f.bodyEditor;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 칩 → 시트 → 직전 입력칸 포커스 복귀(키보드 원칙 ③). 칩 줄과 본문 인라인 입력이 함께 쓴다.
   const focusReturn = useFocusReturn();
@@ -135,6 +135,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 imageUpload={imageUpload}
                 members={members}
                 initialBody={initialBody}
+                initialMentions={initialMentions}
                 ariaLabel="설명"
                 placeholder="설명 (선택)"
                 inputTestId="issue-create-body"

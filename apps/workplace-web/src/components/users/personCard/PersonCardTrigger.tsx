@@ -48,6 +48,7 @@ export function PersonCardTrigger({
       aria-expanded={open}
       data-testid={`person-card-trigger-${person.id}`}
       // 목록 길게 누르기 위임(useMessageListLongPress)이 이 표식 안에서 시작한 누름을 무시한다 — 작성자 이름을 길게 눌러도 메시지 작업 시트가 뜨지 않게.
+      // 메시지 행의 우클릭 링크 메뉴도 이 표식으로 거른다(트리거 우클릭 전파는 막지 않는다 — 공용 트리거라 다른 조상의 우클릭 처리를 끊지 않게).
       // pointerdown 전파를 막는 대신 표식으로 거른다(전파 막기는 Radix 바깥 누르기 판정을 깨뜨린다 — 위 맨 앞 주석).
       data-person-card-trigger=""
       className={cn('cursor-pointer rounded-sm text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', className)}
@@ -55,9 +56,6 @@ export function PersonCardTrigger({
       // 트리거 pointerup 도 막는다 — 터치로 작성자를 눌렀을 때 행의 툴바 드러내기(useToolbarReveal 의 onPointerUp)가 같이 일어나지 않게.
       // pointerdown 은 위 맨 앞 주석과 같은 이유로 막지 않는다.
       onPointerUp={stop}
-      // 트리거 우클릭도 막는다 — 작성자 이름 우클릭이 메시지 행의 링크 메뉴(행 onContextMenu)를 열지 않게(카드 틀 STOP_PROPS 와 같은 방식).
-      // 막는 것은 전파뿐이라 브라우저 기본 메뉴는 그대로다.
-      onContextMenu={stop}
       onClick={(e) => {
         stop(e)
         if (isMobile) setOpen(true)

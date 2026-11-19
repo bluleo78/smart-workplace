@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { type ReactNode, useId, useMemo } from 'react'
+import { Fragment, type ReactNode, useId, useMemo } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { subPaneHeaderClass } from '@/components/layout/Page'
@@ -103,40 +103,43 @@ export function WikiRevisionList({ revisions, className }: { revisions: WikiRevi
  * 이름 하나 — 누르면 사람 카드(WP-1768). 고르기 단추 위(z-10)에 떠 있고 pointer-events 를 되살린다(행 내용 칸은 클릭을 단추로 통과시킨다).
  * person 은 { id, name } 만 준다 — 판 기록은 kind 를 모르므로 카드가 프로필로 정한다(PersonRef.kind 선택).
  * 막힌(blockedReason) 행에서도 열린다 — 막는 것은 「판 고르기」이지 사람 정보 보기가 아니다.
+ * 줄(flex)의 줄어드는 칸이다 — 트리거는 button 이라 바깥 span 의 truncate 가 안까지 닿지 않으므로(말줄임 없이 잘린다) 트리거 자신이
+ * min-w-0·shrink·truncate 로 줄면서 말줄임한다. 뒤의 쉼표·「외 n명」·「(AI 수정)」·꼬리말은 shrink-0 칸이라 긴 이름에 밀려 사라지지 않는다.
  */
 function EditorName({ person }: { person: WikiRevisionPerson }) {
   return (
-    // 트리거는 button 이라 바깥 줄의 truncate 가 안까지 닿지 않는다(말줄임 없이 잘린다) — 트리거 자신이 줄 폭(max-w-full) 안에서 말줄임한다.
-    // overflow 가 걸린 inline-block 은 기준선이 아래로 바뀌므로 align-bottom 으로 옆 글자와 줄을 맞춘다.
     <PersonCardTrigger
       person={{ id: person.id, name: person.name }}
-      className="pointer-events-auto relative z-10 inline-block max-w-full min-w-0 truncate align-bottom hover:underline"
+      className="pointer-events-auto relative z-10 block min-w-0 shrink truncate hover:underline"
     >
       {person.name}
     </PersonCardTrigger>
   )
 }
 
+/** 이름 뒤 글자(쉼표·「외 n명」·「(AI 수정)」·꼬리말) — 줄지 않고 앞뒤 공백을 그대로 둔다(flex 칸 사이 간격도 이 공백이 맡는다). */
+function Tail({ children }: { children: ReactNode }) {
+  return <span className="shrink-0 whitespace-pre">{children}</span>
+}
+
 /**
- * 사람 + 꼬리말 한 줄 — 긴 이름(또는 "외 n명")만 말줄임하고 꼬리말("편집 중"·"복원 전")은 늘 보인다(잘리면 그 판이 무엇인지 모른다).
+ * 사람 + 꼬리말 한 줄 — 이름 칸만 줄어 말줄임하고 쉼표·「외 n명」·꼬리말("편집 중"·"복원 전")은 늘 보인다(잘리면 그 판이 무엇인지 모른다).
  * 이름은 각각 사람 카드 트리거이고 쉼표·「외 n명」은 글자다(3명 이상은 첫 사람만 트리거 — 글자 표시 규칙과 같다).
- * 꼬리말 앞 " · " 는 글자에 둔다 — 화면 간격도 이 공백이 맡는다(바깥 줄은 gap 없음).
+ * 바깥 줄(RevisionRow 의 secondary)이 flex 라 여기서는 칸을 나란히 내놓는다(Fragment). 이름이 둘이면 둘이 나눠 줄어든다.
  */
 function WhoLine({ editors, suffix }: { editors: WikiRevisionPerson[]; suffix?: string | null }) {
   const { shown, more } = revisionEditorsShown(editors)
   if (shown.length === 0) return <span className="truncate">{suffix}</span>
   return (
     <>
-      <span className="min-w-0 truncate">
-        {shown.map((p, i) => (
-          <span key={p.id}>
-            {i > 0 && ', '}
-            <EditorName person={p} />
-          </span>
-        ))}
-        {more > 0 && ` 외 ${more}명`}
-      </span>
-      {suffix && <span className="shrink-0 whitespace-pre">{` · ${suffix}`}</span>}
+      {shown.map((p, i) => (
+        <Fragment key={p.id}>
+          {i > 0 && <Tail>{', '}</Tail>}
+          <EditorName person={p} />
+        </Fragment>
+      ))}
+      {more > 0 && <Tail>{` 외 ${more}명`}</Tail>}
+      {suffix && <Tail>{` · ${suffix}`}</Tail>}
     </>
   )
 }
@@ -144,17 +147,14 @@ function WhoLine({ editors, suffix }: { editors: WikiRevisionPerson[]; suffix?: 
 /**
  * 판의 편집자 줄 — AI 적용 직전 판은 ✦ "{이름} (AI 수정)", 복원 직전 판은 "복원 전" 을 덧붙인다.
  * AI 판은 요청자(aiActor) 이름이 사람 카드 트리거이고 「 (AI 수정)」 은 글자로 남는다.
- * AiLabel 은 inline-flex 라 바깥 truncate 가 닿지 않는다 — 안쪽 글자 칸이 직접 말줄임하고 ✦ 아이콘은 줄지 않게 둔다.
- * 이름이 아주 길면 "(AI 수정)" 까지 잘릴 수 있으나 AI 판이라는 신호는 ✦ 아이콘·ai-accent 색이 1차로 맡는다(07 §7.2).
+ * AiLabel 은 inline-flex 라 이름 트리거를 그 바로 아래 칸으로 두어 이름만 줄어든다 — ✦ 아이콘과 「(AI 수정)」은 줄지 않는다.
  */
 function RevisionWho({ item }: { item: WikiRevisionItem }) {
   if (item.aiActor) {
     return (
       <AiLabel className="min-w-0 max-w-full [&>svg]:shrink-0">
-        <span className="min-w-0 truncate">
-          <EditorName person={item.aiActor} />
-          {' (AI 수정)'}
-        </span>
+        <EditorName person={item.aiActor} />
+        <Tail>{' (AI 수정)'}</Tail>
       </AiLabel>
     )
   }

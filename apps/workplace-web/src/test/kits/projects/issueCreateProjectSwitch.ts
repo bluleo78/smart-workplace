@@ -1,4 +1,5 @@
-// 프로젝트를 고르는 새 이슈 창의 본문 칸 테스트(WP-1768) 공용 — 데스크톱·모바일 테스트 파일이 함께 쓴다.
+// 프로젝트를 고르는 새 이슈 창의 본문 칸 테스트(WP-1768) 공용 — 데스크톱·모바일 테스트 파일
+// (pages/projects/components/issueCreateProjectSwitchBody*.test.tsx)이 함께 쓴다.
 import { act, fireEvent } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 
@@ -12,6 +13,9 @@ const PROJECTS = [
   createProject({ id: 3, key: 'ALPHA', name: '알파 팀' }),
   createProject({ id: 4, key: 'BETA', name: '베타 팀' }),
 ]
+
+/** 알파 프로젝트에만 있는 구성원 — 멘션 이름표가 프로젝트를 바꾼 뒤에도 남는지 본다(베타 멤버 목록에는 없다). */
+export const ALPHA_MEMBER = { userId: 7, username: 'kim', name: '김개발', kind: 'HUMAN' as const }
 
 /** 창이 부르는 API — 이미지 업로드는 올린 프로젝트 키를 uploads 에, 만들기는 키·본문을 created 에 모은다. 업로드는 바로 끝난다. */
 export function projectSwitchApi() {
@@ -27,6 +31,7 @@ export function projectSwitchApi() {
       uploads.push(key)
       return HttpResponse.json({ fileId: 8, url: `/api/v1/projects/${key}/issue-images/8`, name: 'shot.png', mimeType: 'image/png', size: 1 })
     }),
+    http.get('/api/v1/projects/:key/members', ({ params }) => HttpResponse.json(params.key === 'ALPHA' ? [ALPHA_MEMBER] : [])),
     http.get('/api/v1/projects/:key/:sub', () => HttpResponse.json([])),
     http.get('/api/v1/projects/:key', ({ params }) => HttpResponse.json(PROJECTS.find((p) => p.key === params.key))),
     http.post('/api/v1/projects/:key/issues', async ({ params, request }) => {

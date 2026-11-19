@@ -3,12 +3,12 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 
+import { pasteInto, projectSwitchApi } from '@/test/kits/projects/issueCreateProjectSwitch'
 import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
 
 import { IssueCreateDialog } from './IssueCreateDialog'
-import { pasteInto, projectSwitchApi } from './issueCreateProjectSwitchKit'
 
 mockViewport()
 
