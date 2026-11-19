@@ -17,6 +17,7 @@ import {
 import { ProjectRunHead } from '@/components/issue/ProjectRunHead'
 import { RecurrenceMarker } from '@/components/issue/recurrence/RecurrenceMarker'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
+import { ParentChip } from '@/components/issues/ParentChip'
 import { displayState, issueChatPath, primaryWork } from '@/lib/agentWork'
 import { splitByProject } from '@/lib/projectRuns'
 import { cn } from '@/lib/utils'
@@ -26,8 +27,12 @@ import { type AiTaskEntry, familyLastReport, groupAiTasks } from './aiTaskGroups
 import { AiTaskAssignee } from './AiTasksTable'
 import { EpicHeadTitle, NoEpicHeadTitle } from './EpicHeadTitle'
 
-/** 기존 모바일 행 그대로(묶음 안에서도 같은 모양). */
-function MobileRow({ it, depth = 1 }: { it: IssueResponse; depth?: 1 | 2 }) {
+/**
+ * 기존 모바일 행 그대로(묶음 안에서도 같은 모양).
+ * showParent — 가족 하위(depth 2) 중 실제 부모가 가족 머리가 아닌 손자 행에만 켠다(WP-1800 리뷰 후속). 들여쓰기만으로는 머리의
+ * 직접 하위처럼 읽혀, 데스크톱 표처럼 실제 부모 칩을 제목 아래에 보인다.
+ */
+function MobileRow({ it, depth = 1, showParent = false }: { it: IssueResponse; depth?: 1 | 2; showParent?: boolean }) {
   const w = primaryWork(it.agentWork)
   const state = displayState(it)
   const tid = `ai-row-${it.id}`
@@ -42,6 +47,11 @@ function MobileRow({ it, depth = 1 }: { it: IssueResponse; depth?: 1 | 2 }) {
           >
             {it.title}
           </Link>
+          {showParent && it.parent && (
+            <div className="mt-1 flex min-w-0" data-testid={`${tid}-parent`}>
+              <ParentChip projectKey={it.projectKey} parent={it.parent} issueNumber={it.number} showKey />
+            </div>
+          )}
           <div className="mt-1 flex min-w-0 items-center gap-2">
             {/* 메타 줄 — 항목은 줄지 않고(shrink-0) 넘치면 줄바꿈(flex-wrap). overflow-hidden 으로 자르지 않는다. */}
             <div
@@ -126,7 +136,10 @@ export function AiTasksMobileList({ items }: { items: IssueResponse[] }) {
                   {e.children.map((c) => (
                     <Fragment key={c.id}>
                       <MobileRow it={c} />
-                      {e.subRows[c.id]?.map((s) => <MobileRow key={s.id} it={s} depth={2} />)}
+                      {/* 부모가 머리(c)면 바로 위라 칩을 숨기고, 손자는 실제 부모 칩을 남긴다(데스크톱 표와 같은 규칙). */}
+                      {e.subRows[c.id]?.map((s) => (
+                        <MobileRow key={s.id} it={s} depth={2} showParent={s.parent?.number !== c.number} />
+                      ))}
                     </Fragment>
                   ))}
                 </Fragment>

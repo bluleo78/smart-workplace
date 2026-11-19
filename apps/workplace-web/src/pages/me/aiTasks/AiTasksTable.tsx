@@ -187,9 +187,9 @@ export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; 
     <div className="@container/ai overflow-x-auto" data-testid="ai-tasks-table">
       {/* table-fixed — 제목·최근 보고 두 칸이 남는 폭을 나눠 갖고 말줄임한다(긴 글이 표를 밀어내지 않게). */}
       {/* min-w — 두 칸을 접고도 표가 좁으면(앱 레일을 펼친 1024 등) 제목이 8rem 아래로 줄어 옆 칸을 덮지 않게 가로 스크롤로 넘긴다(WP-917).
-          39rem = 3단계까지 접은 고정 칸 29.25rem + 묶음 하위 행 제목 최소 몫 9.75rem
-          (들여쓰기 pl-5 1.25 + 유형 아이콘 1 + gap 0.5 + 링크 min-w 6 + pr-4 1) — 이보다 좁으면 링크가 잘리지 않고 말줄임(…)으로 줄어든다. */}
-      <table className="w-full min-w-[39rem] table-fixed text-sm">
+          40.25rem = 3단계까지 접은 고정 칸 29.25rem + 가장 깊은 행(가족 하위, depth 2 — WP-1800) 제목 최소 몫 11rem
+          (들여쓰기 pl-10 2.5 + 유형 아이콘 1 + gap 0.5 + 링크 min-w 6 + pr-4 1) — 이보다 좁으면 링크가 잘리지 않고 말줄임(…)으로 줄어든다. */}
+      <table className="w-full min-w-[40.25rem] table-fixed text-sm">
         <thead>
           {/* 열 머리 모양은 공용 LIST_HEAD_CELL_CLASS(작은 회색·보통 굵기) — 다른 이슈 목록과 같게(WP-917). */}
           <tr className="border-b">

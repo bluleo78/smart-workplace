@@ -54,6 +54,15 @@ describe('모바일 AI 위임 작업', () => {
     expect(screen.getByTestId('ai-row-503')).not.toHaveClass('pl-10')
   })
 
+  // WP-1800 리뷰 후속: 손자 카드(부모가 머리가 아닌 하위)는 같은 들여쓰기라 실제 부모 칩을 보이고, 머리의 직접 하위는 칩이 없다.
+  test('손자 카드는 실제 부모 칩을 보이고 머리의 직접 하위는 칩이 없다', async () => {
+    renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(familyRows(false, true), { all: 4 }) })
+    const grand = await screen.findByTestId('ai-row-504')
+    expect(grand).toHaveClass('pl-10')
+    expect(screen.getByTestId('ai-row-504-parent')).toHaveTextContent('가족 하위 작업')
+    expect(screen.queryByTestId('ai-row-502-parent')).toBeNull()
+  })
+
   // 에픽 묶음 머리는 키·하위 진행(└ 완료/전체)을 보이고, 에픽 자신 작업이 있을 때만 머리 아래 메타 줄을 그린다.
   test('묶음 머리 — 키·하위 진행, 에픽 자신 작업이 있는 묶음만 메타 줄', async () => {
     renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(GROUPED_ROWS, { all: 8 }) })

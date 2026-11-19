@@ -1008,6 +1008,29 @@ class AiTasksControllerTest extends IntegrationTestBase {
   }
 
   @Test
+  void 완료_보기의_닫힌_가족은_남은_진행중_행을_가족_보고에_섞지_않는다_WP1800() throws Exception {
+    // 닫힌 부모 P·하위 C 모두 종료 작업이 있어 완료 보기에 한 가족으로 나온다. 둘 다 종료되지 않은 고아 행(P 는 오래된, C 는 최근)이
+    // 남아 있어도 이슈가 닫혀 살아 있는 작업이 아니므로 가족 최근 보고·무소식에 들어가면 안 된다(리뷰 후속 — hasLive() 조건).
+    long p = issue("P", me);
+    long c = issue("C", me);
+    setParent(c, p);
+    for (long id : List.of(p, c)) assign(id, agent);
+    endedWork(p, agent, "COMPLETED", REF.minus(Duration.ofHours(2)));
+    endedWork(c, agent, "COMPLETED", REF.minus(Duration.ofHours(3)));
+    work(p, agent, "WORKING", REF.minus(Duration.ofHours(15)));
+    work(c, agent, "WORKING", REF.minus(Duration.ofMinutes(10)));
+    setStatus(p, "DONE");
+    setStatus(c, "DONE");
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES + "&size=100");
+    assertThat(titles(body)).containsExactly("P", "C");
+    JsonNode f = rowOf(body, "P").at("/aiGroup/family");
+    assertThat(f.has("lastReportAt")).isFalse();
+    assertThat(f.path("stale").asBoolean(false)).isFalse();
+    assertThat(rowOf(body, "C").at("/aiGroup/family/headNumber").asInt()).isEqualTo(number(p));
+  }
+
+  @Test
   void 이전_10부분_커서도_다음_페이지를_준다_WP1800() throws Exception {
     for (String t : List.of("A", "B", "C")) {
       long id = issue(t, me);
