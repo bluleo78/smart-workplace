@@ -4,8 +4,11 @@ import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.dto.EmailAccountListItem;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailNotifyModes;
 import com.workplace.mail.service.EmailAccountService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -80,6 +83,22 @@ public class EmailAccountController {
 
   /** 전역 AI 설정 요청 DTO. */
   record AiEnabledRequest(boolean aiEnabled) {}
+
+  /**
+   * 한 계정의 새 메일 알림 범위 저장(WP-1740) — ALL(모든 메일)·WORK(업무 메일만)·OFF(끔). 본인 활성 계정이 아니면 404, 허용 값이 아니면
+   * 400.
+   */
+  @PatchMapping("/{id}/notify-mode")
+  public ResponseEntity<Void> setNotifyMode(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @Valid @RequestBody NotifyModeRequest req) {
+    service.setNotifyMode(callerId, id, req.notifyMode());
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 알림 범위 요청 DTO — 허용 값은 ALL|WORK|OFF(대소문자 구분). */
+  record NotifyModeRequest(@NotNull @Pattern(regexp = MailNotifyModes.REGEX) String notifyMode) {}
 
   /**
    * 기존 계정 연결 테스트(수정 폼) — 비밀번호 미입력 시 저장된 비밀번호로 폴백. 본인 소유 아니면 404. #448: 수정 폼은 비밀번호를 비워두므로 이 경로가 없으면

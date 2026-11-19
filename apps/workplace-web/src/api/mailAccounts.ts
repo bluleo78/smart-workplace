@@ -3,6 +3,7 @@ import type {
   ConnectionTestResult,
   MailAccountRequest,
   MailAccountResponse,
+  MailNotifyMode,
 } from '../types/mailAccount';
 import { client } from './client';
 
@@ -89,4 +90,9 @@ export async function testMailConnectionForAccount(
     body,
   );
   return data;
+}
+
+/** 한 계정의 새 메일 알림 범위를 바꾼다(WP-1740) — 서버는 204, 본인 활성 계정이 아니면 404. */
+export async function setMailNotifyMode(id: number, notifyMode: MailNotifyMode): Promise<void> {
+  await client.patch(`/mail/accounts/${id}/notify-mode`, { notifyMode });
 }

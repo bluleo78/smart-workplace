@@ -6,15 +6,17 @@
 // 서버 푸시는 끈 상태(enabled=false)로 띄운다 — 기기 구독 경로(서비스워커)를 타지 않고 매트릭스만 본다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { expect, test } from 'vitest'
+import { beforeEach, expect, test, vi } from 'vitest'
 
 import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
 import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
 import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
+import type { MailAccountResponse } from '@/types/mailAccount'
 import type { NotificationSettings, UpdateNotificationSettingsRequest } from '@/types/notificationSettings'
 
+import { mailAccount } from '../../../e2e/factories/mail.factory'
 import { defaultNotificationSettings } from '../../../e2e/factories/notificationSettings.factory'
 import NotificationSettingsPage from './NotificationSettingsPage'
 import { withAssistant } from './testkit-b7'
@@ -121,6 +123,7 @@ test('칸이 맞는 도움말 절로 이어진다 — 푸시가 꺼진 서버면
     path: '/settings/notifications',
     handlers: [
       http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: true, vapidPublicKey: 'key' })),
+      http.get('/api/v1/mail/accounts', () => HttpResponse.json([])),
       http.get('/api/v1/notification-settings', () => HttpResponse.json(defaultNotificationSettings())),
     ],
   })
@@ -141,6 +144,7 @@ test('가이드 없이 화면 참고에 「설정 · 알림」과 매뉴얼 설�
     handlers: [
       ...helpBundleHandlers(),
       http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: true, vapidPublicKey: 'key' })),
+      http.get('/api/v1/mail/accounts', () => HttpResponse.json([])),
       http.get('/api/v1/notification-settings', () => HttpResponse.json(defaultNotificationSettings())),
       ...shellHandlers,
     ],
@@ -151,4 +155,198 @@ test('가이드 없이 화면 참고에 「설정 · 알림」과 매뉴얼 설�
   const facts = currentScreenContext()!.scope!.facts!
   expect(facts).toContainEqual({ label: '이 기기', value: '이 기기 본문.' })
   expect(facts).toContainEqual({ label: '푸시 알림(서버)', value: '사용 가능' })
+})
+
+// WP-1740 — 「메일」 절: 계정마다 새 메일 알림 범위(모든 새 메일/업무 메일만/끔)를 고른다.
+// 이 기기 구독은 브라우저 API(SW)라 그 모듈만 목으로 갈아 subscribed 를 테스트마다 정한다.
+const push = vi.hoisted(() => ({ subscribed: true, gate: null as Promise<void> | null }))
+vi.mock('@/lib/push/subscription', async (orig) => {
+  const actual = await orig<typeof import('@/lib/push/subscription')>()
+  return { ...actual, currentSubscription: async () => {
+      // gate 가 있으면 풀릴 때까지 조회가 끝나지 않는다(조회 중 상태 재현).
+      if (push.gate) await push.gate
+      return push.subscribed ? ({ endpoint: 'e' } as PushSubscription) : null
+    },
+  }
+})
+
+beforeEach(() => {
+  push.subscribed = true
+  push.gate = null
+})
+
+/** 공용 mailAccount 팩토리에 이 화면 테스트의 기본(a@x.com·AI 분류 켜짐)만 얹는다 — 안내 문구가 AI 켜짐을 전제로 판정된다. */
+function account(over: Partial<MailAccountResponse>): MailAccountResponse {
+  return mailAccount({ emailAddress: 'a@x.com', aiEnabled: true, ...over })
+}
+
+/** 푸시 서버 켜짐 + 메일 계정 목록으로 알림 화면을 띄운다. PATCH 는 patches 에 쌓인다(patch 로 응답을 바꾼다). */
+function openMail(opts: { accounts: MailAccountResponse[]; pushEnabled?: boolean; patch?: (id: string) => Promise<Response> | Response }) {
+  const patches: { url: string; body: unknown }[] = []
+  // 서버처럼 PATCH 가 성공하면 목록 상태에 반영한다 — 저장 뒤 다시 불러온 목록이 새 값을 돌려준다.
+  let current = opts.accounts
+  let listGets = 0
+  const view = renderScreen(withScreenContextProbe(<NotificationSettingsPage />), {
+    path: '/settings/notifications',
+    handlers: [
+      ...helpBundleHandlers(),
+      http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: opts.pushEnabled ?? true, vapidPublicKey: 'k' })),
+      http.get('/api/v1/notification-settings', () => HttpResponse.json(defaultNotificationSettings())),
+      http.get('/api/v1/mail/accounts', () => { listGets += 1; return HttpResponse.json(current) }),
+      http.patch('/api/v1/mail/accounts/:id/notify-mode', async ({ request, params }) => {
+        const body = (await request.json()) as { notifyMode: MailAccountResponse['notifyMode'] }
+        patches.push({ url: new URL(request.url).pathname, body })
+        const res = opts.patch ? await opts.patch(String(params.id)) : new HttpResponse(null, { status: 204 })
+        if (res.ok) current = current.map((a) => (String(a.id) === params.id ? { ...a, notifyMode: body.notifyMode } : a))
+        return res
+      }),
+      ...shellHandlers,
+    ],
+  })
+  return { ...view, patches, listGets: () => listGets }
+}
+
+const radio = (id: number, mode: string) => screen.getByTestId(`mail-notify-${id}-${mode}`)
+
+test('메일 계정마다 알림 범위를 보여 주고 고르면 그 계정만 저장한다 (WP-1740)', async () => {
+  const { user, patches } = openMail({ accounts: [account({ id: 1, notifyMode: 'WORK' }), account({ id: 2, emailAddress: 'b@x.com', notifyMode: 'OFF' })] })
+  await screen.findByTestId('mail-notify-section')
+  expect(radio(1, 'WORK')).toHaveAttribute('aria-checked', 'true')
+  expect(radio(2, 'OFF')).toHaveAttribute('aria-checked', 'true')
+  await user.click(radio(1, 'ALL'))
+  await waitFor(() => expect(patches).toEqual([{ url: '/api/v1/mail/accounts/1/notify-mode', body: { notifyMode: 'ALL' } }]))
+  await waitFor(() => expect(radio(1, 'ALL')).toHaveAttribute('aria-checked', 'true'))
+})
+
+test('저장이 실패하면 이전 값으로 돌아간다 (WP-1740)', async () => {
+  const { user } = openMail({ accounts: [account({ id: 1, notifyMode: 'WORK' })], patch: () => new HttpResponse(null, { status: 500 }) })
+  await screen.findByTestId('mail-notify-section')
+  await user.click(radio(1, 'ALL'))
+  expect(await screen.findByText('메일 알림 범위를 바꾸지 못했어요')).toBeInTheDocument()
+  await waitFor(() => expect(radio(1, 'WORK')).toHaveAttribute('aria-checked', 'true'))
+})
+
+test('저장 중에는 그 계정 라디오를 잠근다 (WP-1740)', async () => {
+  let release!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  const { user } = openMail({
+    accounts: [account({ id: 1 }), account({ id: 2, emailAddress: 'b@x.com' })],
+    patch: async () => {
+      await gate
+      return new HttpResponse(null, { status: 204 })
+    },
+  })
+  await screen.findByTestId('mail-notify-section')
+  await user.click(radio(1, 'ALL'))
+  await waitFor(() => expect(radio(1, 'OFF')).toBeDisabled())
+  expect(radio(2, 'ALL')).toBeEnabled()
+  release()
+  await waitFor(() => expect(radio(1, 'OFF')).toBeEnabled())
+})
+
+test('한 계정을 저장하는 중에 다른 계정을 골라도 앞 계정은 계속 잠겨 있다 (WP-1740)', async () => {
+  let release!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  const { user } = openMail({
+    accounts: [account({ id: 1 }), account({ id: 2, emailAddress: 'b@x.com' })],
+    patch: async () => {
+      await gate
+      return new HttpResponse(null, { status: 204 })
+    },
+  })
+  await screen.findByTestId('mail-notify-section')
+  await user.click(radio(1, 'ALL'))
+  await waitFor(() => expect(radio(1, 'OFF')).toBeDisabled())
+  await user.click(radio(2, 'ALL'))
+  await waitFor(() => expect(radio(2, 'OFF')).toBeDisabled())
+  expect(radio(1, 'OFF')).toBeDisabled()
+  release()
+  await waitFor(() => expect(radio(1, 'OFF')).toBeEnabled())
+  await waitFor(() => expect(radio(2, 'OFF')).toBeEnabled())
+})
+
+// 겹친 저장 — A 가 먼저 끝나도 B 가 저장 중이면 목록을 다시 받지 않아 B 의 낙관적 값이 유지되고, 마지막이 끝나면 다시 받는다.
+test('두 계정 저장이 겹쳐 앞 계정이 먼저 끝나도 뒤 계정 선택은 유지되고 마지막에 목록을 다시 받는다 (WP-1740)', async () => {
+  const releases: Record<string, () => void> = {}
+  const gates: Record<string, Promise<void>> = {
+    '1': new Promise<void>((r) => (releases['1'] = r)),
+    '2': new Promise<void>((r) => (releases['2'] = r)),
+  }
+  const { user, listGets } = openMail({
+    accounts: [account({ id: 1 }), account({ id: 2, emailAddress: 'b@x.com' })],
+    patch: async (id) => {
+      await gates[id]
+      return new HttpResponse(null, { status: 204 })
+    },
+  })
+  await screen.findByTestId('mail-notify-section')
+  await waitFor(() => expect(listGets()).toBe(1))
+  await user.click(radio(1, 'ALL'))
+  await user.click(radio(2, 'ALL'))
+  await waitFor(() => expect(radio(2, 'OFF')).toBeDisabled())
+  // A 만 먼저 끝난다 — A 잠금이 풀린 뒤에도 B 는 저장 중이고 B 의 새 값(ALL)이 그대로 보여야 한다.
+  releases['1']()
+  await waitFor(() => expect(radio(1, 'OFF')).toBeEnabled())
+  expect(radio(2, 'OFF')).toBeDisabled()
+  expect(radio(2, 'ALL')).toHaveAttribute('aria-checked', 'true')
+  expect(listGets()).toBe(1)
+  // B 까지 끝나면 그제야 목록을 한 번 다시 받고 두 계정 모두 새 값이다.
+  releases['2']()
+  await waitFor(() => expect(listGets()).toBe(2))
+  await waitFor(() => expect(radio(2, 'OFF')).toBeEnabled())
+  expect(radio(1, 'ALL')).toHaveAttribute('aria-checked', 'true')
+  expect(radio(2, 'ALL')).toHaveAttribute('aria-checked', 'true')
+})
+
+test('AI 분류가 꺼진 계정의 업무 메일만에 안내가 보인다 (WP-1740)', async () => {
+  openMail({
+    accounts: [
+      account({ id: 1, aiEnabled: false, notifyMode: 'WORK' }),
+      account({ id: 2, emailAddress: 'b@x.com', aiEnabled: false, notifyMode: 'ALL' }),
+    ],
+  })
+  await screen.findByTestId('mail-notify-section')
+  expect(screen.getByTestId('mail-notify-ai-off-1')).toHaveTextContent('AI 분류가 꺼져 있어 모든 새 메일로 알려요.')
+  expect(screen.queryByTestId('mail-notify-ai-off-2')).not.toBeInTheDocument()
+})
+
+test('이 기기 푸시가 꺼져 있으면 켜기 안내가 보인다 (WP-1740)', async () => {
+  push.subscribed = false
+  const off = openMail({ accounts: [account({ id: 1 })] })
+  expect(await screen.findByTestId('mail-notify-push-off')).toBeInTheDocument()
+  expect(screen.getByTestId('mail-notify-enable-push')).toBeInTheDocument()
+  off.unmount()
+  push.subscribed = true
+  openMail({ accounts: [account({ id: 1 })] })
+  await screen.findByTestId('mail-notify-section')
+  // 기기 구독 조회가 끝나(스위치가 켜짐으로 바뀌어) 상태가 확정된 뒤에도 안내가 없어야 한다 — 조회 중 거짓 통과 방지.
+  await waitFor(() => expect(screen.getByTestId('push-device-toggle')).toHaveAttribute('aria-checked', 'true'))
+  expect(screen.queryByTestId('mail-notify-push-off')).not.toBeInTheDocument()
+})
+
+test('이 기기 구독 조회 중에는 켜기 안내를 보이지 않는다 (WP-1740)', async () => {
+  let release!: () => void
+  push.gate = new Promise<void>((r) => (release = r))
+  openMail({ accounts: [account({ id: 1 })] })
+  await screen.findByTestId('mail-notify-section')
+  expect(screen.queryByTestId('mail-notify-push-off')).not.toBeInTheDocument()
+  release()
+  await waitFor(() => expect(screen.getByTestId('push-device-toggle')).toHaveAttribute('aria-checked', 'true'))
+  expect(screen.queryByTestId('mail-notify-push-off')).not.toBeInTheDocument()
+})
+
+test('계정이 없거나 서버 푸시가 꺼져 있으면 메일 절이 없다 (WP-1740)', async () => {
+  const none = openMail({ accounts: [] })
+  await screen.findByRole('heading', { level: 2, name: '이 기기' })
+  await waitFor(() => expect(screen.queryByTestId('mail-notify-section')).not.toBeInTheDocument())
+  none.unmount()
+  openMail({ accounts: [account({ id: 1 })], pushEnabled: false })
+  await screen.findByTestId('push-disabled-notice')
+  expect(screen.queryByTestId('mail-notify-section')).not.toBeInTheDocument()
+})
+
+test('메일 절이 도움말 notifications.mail 을 가리킨다 (WP-1740)', async () => {
+  openMail({ accounts: [account({ id: 1 })] })
+  expectHelpTarget(await screen.findByRole('heading', { level: 2, name: '메일' }), 'notifications.mail')
+  expectHelpTarget(screen.getByTestId('mail-notify-1-ALL'), 'notifications.mail')
 })

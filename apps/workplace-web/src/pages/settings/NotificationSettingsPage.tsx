@@ -5,19 +5,24 @@ import { useState } from 'react'
 import { BusySwitch } from '@/components/BusySwitch'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection'
+import { MailNotifySection } from '@/components/settings/MailNotifySection'
 import { NotificationSettingsMatrix } from '@/components/settings/NotificationSettingsMatrix'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useMailAccounts } from '@/hooks/queries/useMailAccounts'
 import { useNotificationSettings, useUpdateNotificationSettings } from '@/hooks/queries/useNotificationSettings'
 import { useDevicePush, useDisablePush, useEnablePush, usePushConfig } from '@/hooks/queries/usePush'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { APP_LABEL, knownApps } from '@/lib/notificationSettingsMeta'
 import { requestPushPermission } from '@/lib/push/subscription'
 import { getPushSupport, type PushSupport } from '@/lib/push/support'
+import { MAIL_NOTIFY_MODE_LABEL, type MailAccountResponse } from '@/types/mailAccount'
 import type { NotificationAppSetting } from '@/types/notificationSettings'
 
 export default function NotificationSettingsPage() {
   const config = usePushConfig()
   const enabled = config.data?.enabled === true
+  // 메일 절이 서버 푸시가 켜졌을 때만 보이므로 화면 참고용 조회도 그때만 한다(같은 쿼리라 절과 캐시를 공유).
+  const mailAccounts = useMailAccounts({ enabled })
   // WP-913: 알림 종류 설정은 푸시가 아니라 알림 자체(목록·실시간·푸시)에 적용되므로 푸시 config 와 무관하게 늘 불러온다.
   const settings = useNotificationSettings()
   // 저장 뮤테이션 하나를 모든 스위치가 공유하고, 진행 중엔 매트릭스 전체를 busy 로 잠근다 — 응답 전에 다른 칸을 또 누르면
@@ -59,6 +64,8 @@ export default function NotificationSettingsPage() {
         facts: [
           ['푸시 알림(서버)', config.isSuccess ? (enabled ? '사용 가능' : '꺼져 있음') : null],
           ['이 기기 푸시', enabled && device.isSuccess ? (subscribed ? '켜짐' : '꺼짐') : null],
+          // WP-1740: 메일 알림 범위 — 계정별 현재 값(로드된 값만).
+          ['메일 알림 범위', mailAccounts.data ? mailModes(mailAccounts.data) : null],
           // WP-913: 앱 전체 스위치를 꺼 둔 앱(로드된 값만).
           ['꺼 둔 앱', settings.data ? offApps(settings.data.apps) : null],
         ],
@@ -109,6 +116,15 @@ export default function NotificationSettingsPage() {
         </SettingsSection>
       )}
 
+      {enabled && (
+        <MailNotifySection
+          // 기기 구독 조회가 끝나기 전에는 모르므로 undefined — 이미 켠 사용자에게 켜기 안내가 잠깐 보이지 않게 한다.
+          subscribed={device.isSuccess ? subscribed : undefined}
+          onEnableDevice={() => onToggleDevice(true)}
+          enableDisabled={busy || support === 'ios-needs-install' || support === 'unsupported'}
+        />
+      )}
+
       <SettingsSection
         data-help="notifications.types"
         title="알림 종류"
@@ -132,6 +148,12 @@ export default function NotificationSettingsPage() {
       </SettingsSection>
     </SettingsPage>
   )
+}
+
+/** AI 화면 맥락용 — 메일 계정별 알림 범위(「주소: 라벨」을 쉼표로 이음). 계정이 없으면 null. */
+function mailModes(accounts: MailAccountResponse[]): string | null {
+  if (accounts.length === 0) return null
+  return accounts.map((a) => `${a.emailAddress}: ${MAIL_NOTIFY_MODE_LABEL[a.notifyMode]}`).join(', ')
 }
 
 /** AI 화면 맥락용 — 앱 전체 스위치를 꺼 둔 앱 이름 목록(없으면 「없음」). 화면에 없는 모르는 앱은 맥락에서도 뺀다(knownApps). */

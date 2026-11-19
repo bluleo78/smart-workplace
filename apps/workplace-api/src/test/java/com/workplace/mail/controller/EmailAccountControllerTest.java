@@ -2,10 +2,13 @@ package com.workplace.mail.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -117,6 +120,8 @@ class EmailAccountControllerTest extends WebMvcSliceTestBase {
         .andExpect(jsonPath("$[0].id").value(10))
         .andExpect(jsonPath("$[0].emailAddress").value("box@test.local"))
         .andExpect(jsonPath("$[0].classificationActive").value(false))
+        // WP-1740: 새 메일 알림 범위가 목록 JSON 에 실린다.
+        .andExpect(jsonPath("$[0].notifyMode").value("WORK"))
         .andExpect(jsonPath("$[0].account").doesNotExist())
         .andExpect(jsonPath("$[0].password").doesNotExist())
         .andExpect(jsonPath("$[0].encryptedPassword").doesNotExist());
@@ -264,11 +269,57 @@ class EmailAccountControllerTest extends WebMvcSliceTestBase {
    */
   @Test
   void delete_notFound_returns404() throws Exception {
-    org.mockito.Mockito.doThrow(new EmailAccountNotFoundException(999L))
-        .when(service)
-        .delete(eq(1L), eq(999L));
+    doThrow(new EmailAccountNotFoundException(999L)).when(service).delete(eq(1L), eq(999L));
     mockMvc
         .perform(delete("/api/v1/mail/accounts/999").header("Authorization", "Bearer v"))
         .andExpect(status().isNotFound());
+  }
+
+  /** WP-1740 — 유효한 범위 값이면 204 로 응답하고 서비스에 (본인, 계정 id, 값)을 넘긴다. */
+  @Test
+  void patchNotifyMode_returns204AndDelegates() throws Exception {
+    mockMvc
+        .perform(
+            patch("/api/v1/mail/accounts/10/notify-mode")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"notifyMode\":\"OFF\"}"))
+        .andExpect(status().isNoContent());
+    verify(service).setNotifyMode(eq(1L), eq(10L), eq("OFF"));
+  }
+
+  /** WP-1740 — 본인 활성 계정이 아니면(서비스가 not-found 를 던지면) 404 여야 한다. */
+  @Test
+  void patchNotifyMode_notFound_returns404() throws Exception {
+    doThrow(new EmailAccountNotFoundException(999L))
+        .when(service)
+        .setNotifyMode(eq(1L), eq(999L), eq("ALL"));
+    mockMvc
+        .perform(
+            patch("/api/v1/mail/accounts/999/notify-mode")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"notifyMode\":\"ALL\"}"))
+        .andExpect(status().isNotFound());
+  }
+
+  /** WP-1740 — ALL|WORK|OFF 이외 값(소문자·빈 문자열·모르는 값·누락)은 400 이고 서비스는 호출되지 않는다. */
+  @Test
+  void patchNotifyMode_invalidValue_returns400() throws Exception {
+    for (String body :
+        List.of(
+            "{\"notifyMode\":\"all\"}",
+            "{\"notifyMode\":\"\"}",
+            "{\"notifyMode\":\"NONE\"}",
+            "{}")) {
+      mockMvc
+          .perform(
+              patch("/api/v1/mail/accounts/10/notify-mode")
+                  .header("Authorization", "Bearer v")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isBadRequest());
+    }
+    verify(service, never()).setNotifyMode(any(Long.class), any(Long.class), any());
   }
 }
