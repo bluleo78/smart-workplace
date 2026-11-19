@@ -58,7 +58,8 @@ export function WikiStarredView() {
     body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
   } else if (failedWithoutData(query)) {
     body = <LoadErrorState title="즐겨찾기를 불러오지 못했습니다" queries={[query]} testId="wiki-starred-error" />
-  } else if (items.length === 0) {
+  } else if (items.length === 0 && !query.hasNextPage) {
+    // 다음 쪽이 남았으면 빈 상태가 아니다 — 받아 둔 행을 다 뺐거나 첫 쪽이 비어도 뒤에 줄이 있을 수 있어, 목록 + 더 보기를 그린다.
     body = (
       <div data-testid="wiki-starred-empty" className="flex flex-col items-center gap-2 px-4 py-12 text-center">
         <Star aria-hidden className="h-10 w-10 text-muted-foreground" />
