@@ -355,6 +355,7 @@ describe('프로젝트 탭 — 마지막 탭으로 되돌리기', () => {
     const getItem = vi.spyOn(window.localStorage, 'getItem')
     const { location } = openLayout(`/projects/${KEY}`, 404)
     expect(await screen.findByRole('heading', { name: '프로젝트를 불러올 수 없습니다' }, { timeout: SCREEN_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('프로젝트를 불러올 수 없습니다')
     expect(location()).toBe(`/projects/${KEY}`)
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(getItem.mock.calls.filter(([k]) => k === STORE_KEY)).toEqual([])
