@@ -244,7 +244,7 @@ test('SKILL.md 대기열 가져오기: 다른 AI 가 형제를 진행 중이면 
   assert.ok(q.includes('라벨이 그대로 남는다'));
   assertBefore(q, '**형제 확인**', '`claim_issue({ issueKey, queueLabel: <대기열 라벨> })`');
   // 부모 진행 행(하위를 차례로 맡는 AI)과 출처(agentWork·worker.username)
-  assert.ok(q.includes('`get_issue_detail({ issueKey: <부모 키> })`'));
+  assert.ok(q.includes('`get_issue_detail({ issueKey: <부모 키>, comments: 0, history: false, bodyMaxChars: 1 })`'));
   assert.ok(q.includes('`worker.username`'));
   // 하위를 차례로 맡는 경로도 형제 확인을 이름으로 따른다
   const chain = lineWith(workLoopSkill, '- **하위를 차례로 맡는 이슈**');
@@ -256,6 +256,24 @@ test('SKILL.md 대기열 가져오기: 다른 AI 가 형제를 진행 중이면 
   assert.ok(chain.includes('표시 줄이 있는 대기열 라벨 하위'));
   assert.ok(chain.includes('`claim_issue` (`issueKey` 는 그 하위 키, `queueLabel` 은 대기열 라벨'));
   assert.ok(chain.includes('따로 진행'));
+});
+
+// WP-1803 — 하위가 서로 독립인 모음 에픽(WP-35) 아래 대기열이 형제 확인에 모두 막히지 않게, 부모가 EPIC 이면 형제 확인을 하지 않는다.
+test('SKILL.md 대기열 가져오기: 부모 type 이 EPIC 이면 형제 확인을 하지 않는다 (WP-1803)', () => {
+  const q = section(workLoopSkill, '**대기열에서 가져오기**', '**할 일 없음**');
+  assert.ok(q.includes('`type` 이 `EPIC`'));
+  assert.ok(q.includes('WP-1803'));
+  // 부모 상세를 형제 목록보다 먼저 읽는다(EPIC 이면 형제 목록을 읽지 않는다)
+  assertBefore(q, '`type` 이 `EPIC`', "`list_issues({ projectKey, parent: <부모 키>, assignee: 'any', status: 'TODO,IN_PROGRESS' })`");
+  // 부모 상세를 읽지 못하면 EPIC 으로 보지 않는다
+  assert.ok(q.includes('EPIC 으로 보지 않'));
+  // EPIC 이어도 부모 진행 행은 본다(형제 목록·표시 줄만 건너뜀)
+  assert.ok(q.includes('부모 진행 행만'));
+  // 부모 상세를 못 읽으면 부모 진행 행도 보지 않는다
+  assert.ok(q.includes('부모 진행 행은 보지 않는다'));
+  // 기획자 안내
+  const handoff = section(workLoop('plan-issue.md'), '### 10. 넘기기', '### 11.');
+  assert.ok(handoff.includes('EPIC'));
 });
 
 test('SKILL.md 하위를 차례로 맡기: 머지된(내 행 REVIEW) 형제 선행에만 막힌 하위는 「차례 막힘만」으로 막히지 않은 것으로 본다 (WP-1792)', () => {
