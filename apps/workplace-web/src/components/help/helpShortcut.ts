@@ -5,15 +5,30 @@
 import { isEditableTarget } from '@/lib/escapeOverlay'
 import { isImeComposing } from '@/lib/imeKey'
 
+/** 닫히는 중인 층을 빼는 꼬리 — 아래 hasBlockingOverlay 설명 참고. */
+const NOT_CLOSING = ':not([data-state="closed"])'
+
+/** 열려 있기만 해도 `?` 를 막는 층: aria-modal 대화상자·경고 대화상자(포커스를 가둔다), 메뉴·목록(화살표·글자 입력을 받는다). */
+const BLOCKING_OVERLAY_SELECTOR = ['[role="dialog"][aria-modal="true"]', '[role="alertdialog"]', '[role="menu"]', '[role="listbox"]']
+  .map((selector) => selector + NOT_CLOSING)
+  .join(', ')
+
+/** 닫히지 않은 대화상자 층 — aria-modal 이 없는 모달 Popover 도 여기 든다. */
+const OPEN_DIALOG_LAYER = `[role="dialog"]${NOT_CLOSING}`
+
 /**
- * 있기만 해도 `?` 를 막는 오버레이.
- * - aria-modal 대화상자, 경고 대화상자(Radix AlertDialog 는 늘 모달) — 포커스를 가둔다.
- * - data-aria-hidden — Radix 모달 레이어(Dialog·모달 Popover·DropdownMenu·Select)는 aria-hidden 라이브러리로 바깥 형제를 숨기며
- *   이 표식을 남긴다. 우리 Dialog 래퍼는 aria-modal 도 달지만 Popover 등은 이 표식으로만 잡힌다.
- *   비모달(AI 옆 엔티티 대화상자)은 숨기지 않으므로 걸리지 않는다.
- * - 열린 메뉴·목록 — 화살표·글자 입력을 받는 팝업이다.
+ * 포커스를 가두는 오버레이가 열려 있는가.
+ * - 닫히는 중(data-state=closed)인 층은 세지 않는다. Radix Presence 는 퇴장 애니메이션 동안 Content 를 남기고, hideOthers 가 바깥 형제에 단
+ *   data-aria-hidden 도 그 끝까지 남아, 모달을 막 닫은 직후의 `?` 가 무시됐다.
+ * - data-aria-hidden 은 그 자신이 숨겨지지 않은 열린 대화상자 층(모달 Popover 등)이 있을 때만 막는다 — hideOthers 는 지금 모달 층의 바깥을 숨기므로
+ *   남은 표식에 함께 숨겨진 층(AI 옆 비모달 대화상자·인물 카드·손수 만든 role=dialog 패널)은 포커스를 가두는 층이 아니다.
+ *   표식이 없으면 열린 비모달 대화상자만으로는 막지 않으므로 아래 조기 반환은 동작상 필요하다.
  */
-const BLOCKING_OVERLAY_SELECTOR = '[role="dialog"][aria-modal="true"], [role="alertdialog"], [data-aria-hidden], [role="menu"], [role="listbox"]'
+function hasBlockingOverlay(): boolean {
+  if (document.querySelector(BLOCKING_OVERLAY_SELECTOR) !== null) return true
+  if (document.querySelector('[data-aria-hidden]') === null) return false
+  return Array.from(document.querySelectorAll(OPEN_DIALOG_LAYER)).some((el) => el.closest('[data-aria-hidden]') === null)
+}
 
 /**
  * 포커스가 팝오버(Radix popper 안 — 비모달 Popover 등) 안에 있는가. 키 입력을 받는 작은 팝업이라 뒤에서 패널이 여닫히면 팝업이 닫히며 흔들린다.
@@ -37,5 +52,5 @@ export function isHelpShortcut(e: KeyboardEvent): boolean {
   if (e.defaultPrevented || isImeComposing(e)) return false
   if (isEditableTarget(e.target)) return false
   if (isInPopper(e.target)) return false
-  return document.querySelector(BLOCKING_OVERLAY_SELECTOR) === null
+  return !hasBlockingOverlay()
 }

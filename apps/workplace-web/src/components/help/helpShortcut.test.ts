@@ -110,4 +110,44 @@ describe('isHelpShortcut', () => {
     // 포커스가 바깥이면(비모달 팝오버) 받는다.
     expect(isHelpShortcut(key({ key: '?', shiftKey: true }))).toBe(true)
   })
+
+  /** role·속성을 가진 오버레이 요소를 만든다. */
+  function layer(role: string, attrs: Record<string, string>): HTMLElement {
+    const el = document.createElement('div')
+    el.setAttribute('role', role)
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v)
+    return el
+  }
+  /** Radix hideOthers 가 바깥 형제에 남기는 표식(aria-hidden·data-aria-hidden)을 붙인 속성. */
+  const HIDDEN = { 'aria-hidden': 'true', 'data-aria-hidden': 'true' }
+  /** 그 표식을 단 페이지 요소(모달 바깥 형제). */
+  function page(): HTMLElement {
+    const el = document.createElement('div')
+    for (const [k, v] of Object.entries(HIDDEN)) el.setAttribute(k, v)
+    return el
+  }
+
+  // 닫히는 층(퇴장 애니메이션 — data-state=closed)과 남은 숨김 표식 조합별 판정(WP-1771 리뷰 후속).
+  it.each<[string, () => HTMLElement[], boolean]>([
+    ['닫히는 모달 + 남은 바깥 표식 → 받는다', () => [layer('dialog', { 'aria-modal': 'true', 'data-state': 'closed' }), page()], true],
+    ['열린 모달 Popover(aria-modal 없음)가 바깥을 숨김 → 막는다', () => [layer('dialog', { 'data-state': 'open' }), page()], false],
+    ['닫히는 확인창 → 받는다', () => [layer('alertdialog', { 'data-state': 'closed' })], true],
+    ['닫히는 메뉴 → 받는다', () => [layer('menu', { 'data-state': 'closed' })], true],
+    ['닫히는 목록 → 받는다', () => [layer('listbox', { 'data-state': 'closed' })], true],
+    [
+      '닫히는 모달 아래 다른 모달이 열려 있음 → 막는다',
+      () => [layer('dialog', { 'aria-modal': 'true', 'data-state': 'closed' }), layer('dialog', { 'aria-modal': 'true', 'data-state': 'open' }), page()],
+      false,
+    ],
+    ['닫히는 메뉴 + 남은 표식에 함께 숨겨진 AI 옆 비모달 대화상자 → 받는다', () => [layer('menu', { 'data-state': 'closed' }), layer('dialog', { 'data-state': 'open', ...HIDDEN })], true],
+    ['숨겨진 손수 만든 role=dialog 패널(data-state 없음) + 닫히는 모달 → 받는다', () => [layer('dialog', HIDDEN), layer('dialog', { 'aria-modal': 'true', 'data-state': 'closed' })], true],
+    [
+      '숨겨지지 않은 열린 모달 Popover + 숨겨진 AI 옆 대화상자 → 막는다',
+      () => [layer('dialog', { 'data-state': 'open' }), page(), layer('dialog', { 'data-state': 'open', ...HIDDEN })],
+      false,
+    ],
+  ])('%s', (_name, build, expected) => {
+    document.body.append(...build())
+    expect(isHelpShortcut(key({ key: '?', shiftKey: true }))).toBe(expected)
+  })
 })

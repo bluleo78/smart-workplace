@@ -90,7 +90,7 @@ export function useAiPanelAwareDialog({ open, size = 'default', handlers }: Opti
 
   // side 모드에서 열린 동안 페이지 영역(AppRail·main)을 inert — 포커스 트랩 대신 Tab 이 흐린 페이지로 새지 않고
   // 보조기기에서도 페이지가 숨겨진다(AI 패널·다이얼로그 포털은 제외). 닫힘·모드 전환·언마운트 시 cleanup 으로 해제.
-  // aria-modal 은 달지 않는다 — 보조기기가 다이얼로그 밖(AI 패널)까지 무시하게 되어 "모달 위 AI 질문"이 막히므로.
+  // aria-modal 은 non-modal(side·모바일 fullscreen)에서만 달지 않는다 — 달면 보조기기가 AI 패널까지 무시해 "모달 위 AI 질문"이 막힌다. modal 이면 Dialog 래퍼가 단다.
   // WP-1468: 셸이 바뀌어도 다이얼로그가 남으므로 isMobile 이 바뀌면 새 셸 DOM 에 inert 를 다시 건다(MailComposeDock 과 같은 처리).
   useEffect(() => {
     if (!open || modal) return;
