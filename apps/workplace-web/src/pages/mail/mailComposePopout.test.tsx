@@ -4,13 +4,15 @@
 // 새 창: /mail/compose?draftId=N 이 앱 셸 없이 작성창만 그린다. 보내기·닫기·버리기는 서버 작업이 끝난 뒤 BroadcastChannel 로 알리고 창을 닫는다.
 // 메인 창 셸은 그 알림을 받아 보낸편지함·임시보관함을 다시 받는다. 모바일 숨김은 mailComposeSignatureMobile.test.tsx(한 파일 한 뷰포트).
 // window.open·window.close 는 jsdom 에 실제 창이 없어 가짜로 둔다 — 실제 팝업 창은 e2e/pages/mail/mail-compose-popout.spec.ts(@platform).
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import {
   forgetMailComposePopout,
+  isOpenerListening,
+  listenMailComposeWindowEvents,
   liveMailComposePopout,
   MAIL_COMPOSE_CHANNEL,
   MAIL_COMPOSE_WINDOW_ID,
@@ -47,7 +49,23 @@ beforeEach(() => {
 afterEach(() => {
   channel?.close()
   vi.restoreAllMocks()
+  restoreOpener?.()
+  restoreOpener = null
 })
+
+/**
+ * 새 창의 window.opener 를 바꾼다(jsdom 의 새 창은 opener 가 없다). 'listening' 은 같은 문서를 opener 로 두고 메인 창처럼 알림을 듣는다(듣는 표식이
+ * 이 문서 id 로 남는다). 그 밖은 주어진 가짜 창(닫힌 창·새로 고쳐진 창)을 쓴다. afterEach 가 되돌린다.
+ */
+let restoreOpener: (() => void) | null = null
+function setOpener(opener: 'listening' | Record<string, unknown>) {
+  const stop = opener === 'listening' ? listenMailComposeWindowEvents(() => {}) : () => {}
+  Object.defineProperty(window, 'opener', { value: opener === 'listening' ? window : opener, configurable: true, writable: true })
+  restoreOpener = () => {
+    stop()
+    Object.defineProperty(window, 'opener', { value: null, configurable: true, writable: true })
+  }
+}
 
 const created = () => HttpResponse.json({ id: 101, version: 1, updatedAt: '2026-11-12T00:00:00Z' }, { status: 201 })
 
@@ -203,6 +221,9 @@ test('새 창에서 쓰는 임시저장을 임시보관함에서 다시 열면 �
 
 // ── 새 창 ────────────────────────────────────────────────────
 
+/** 메인 창이 연 새 창의 주소 — opener 가 있으면 보낸 결과·되돌리기는 메인 창이 맡는다. */
+const WITH_OPENER = `/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`
+
 /** 새 창 페이지를 /mail/compose?draftId=7 로 띄운다 — 임시저장 7(받는사람·제목·본문 있음). */
 function renderWindow(extra: RequestHandler[] = [], path = '/mail/compose?draftId=7') {
   return renderScreen(
@@ -234,14 +255,17 @@ test('새 창은 그 임시저장을 작성창으로 열고, 최소화·읽기 �
 test('새 창에서 보내면 draftId 를 실어 보내고, 메인 창에 sent 를 알린 뒤 창을 닫는다', async () => {
   const close = vi.spyOn(window, 'close').mockImplementation(() => {})
   const send = record<{ draftId?: number }>('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
-  const view = renderWindow([send.handler])
+  // 메인 창이 연 새 창(opener) — 그 창이 열려 듣고 있으면 결과·되돌리기는 메인 창이 맡아 이 창은 곧 닫힌다.
+  setOpener('listening')
+  const view = renderWindow([send.handler], WITH_OPENER)
   await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
   await view.user.click(screen.getByTestId('mail-compose-send'))
   await waitFor(() => expect(send.calls).toHaveLength(1))
   expect(send.calls[0].body.draftId).toBe(7)
   // 대기열에 올린 행 id(보내기 응답)를 함께 싣는다 — 메인 창 「되돌리기」가 그 행을 되돌린다(WP-1786).
-  await waitFor(() => expect(heard).toContainEqual(msg('sent', { sentDraftId: 900 })))
+  await waitFor(() => expect(heard).toContainEqual(msg('sent', { sentDraftId: 900, opener: MAIL_COMPOSE_WINDOW_ID })))
   expect(close).toHaveBeenCalled()
+  expect(screen.queryByText('메일 보냄')).not.toBeInTheDocument()
   // 창이 스스로 닫히지 못하는 경우(직접 연 탭)엔 끝남 안내가 남는다.
   expect(screen.getByTestId('mail-compose-window-done')).toBeInTheDocument()
 })
@@ -378,7 +402,8 @@ test('새 창에서 고친 뒤 보내도, 창을 닫는 순간엔 나가기 경�
   vi.spyOn(window, 'close').mockImplementation(() => void blockedAtClose.push(unloadBlocked()))
   const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
   const put = record('put', '/api/v1/mail/drafts/7', () => HttpResponse.json({ version: 2, updatedAt: '2026-11-12T00:00:01Z', attachmentCount: 0 }))
-  const view = renderWindow([send.handler, put.handler])
+  setOpener('listening')
+  const view = renderWindow([send.handler, put.handler], WITH_OPENER)
   const subject = () => screen.getByTestId('mail-compose-subject')
   await waitFor(() => expect(subject()).toHaveValue('새 창 메일'))
   await view.user.type(subject(), '!')
@@ -454,4 +479,173 @@ test('새 창에서 보낸 메일도 메인 창 토스트의 「되돌리기」�
   fireEvent.click(await screen.findByRole('button', { name: '되돌리기' }))
   await waitFor(() => expect(cancel.calls).toHaveLength(1))
   await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창에서 보낸 메일'))
+})
+
+// ── 연 창이 없는 새 창(WP-1786 코드 리뷰) ───────────────────────────
+// 보내기 실패 푸시 알림처럼 /mail/compose?draftId=N 을 바로 연 창은 결과를 알릴 메인 창이 없다 — 보내자마자 닫히면 「되돌리기」가 어디에도 없었다.
+
+test('연 창이 없는 새 창은 보낸 뒤 그 창에 「메일 보냄 · 되돌리기」를 띄우고 10초 동안 열어 둔 뒤 닫는다', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  try {
+    const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+    const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
+    const view = renderWindow([send.handler])
+    await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
+    await view.user.click(screen.getByTestId('mail-compose-send'))
+    await waitFor(() => expect(send.calls).toHaveLength(1))
+    expect(await screen.findByText('메일 보냄')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '되돌리기' })).toBeInTheDocument()
+    expect(screen.getByTestId('mail-compose-window-sent')).toBeInTheDocument()
+    // 다른 탭은 목록만 다시 받게 sent 는 그대로 알린다(opener 없음).
+    await waitFor(() => expect(heard).toContainEqual(msg('sent', { sentDraftId: 900 })))
+    expect(close).not.toHaveBeenCalled()
+
+    await act(() => vi.advanceTimersByTimeAsync(9_000))
+    expect(close).not.toHaveBeenCalled()
+    await act(() => vi.advanceTimersByTimeAsync(1_100))
+    await waitFor(() => expect(close).toHaveBeenCalled())
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('연 창이 없는 새 창에서 보낸 뒤 「되돌리기」를 누르면 cancel-send 해 그 창에 다시 열고, 10초가 지나도 닫지 않는다', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  try {
+    const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+    const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
+    const cancel = record('post', '/api/v1/mail/drafts/900/cancel-send', () =>
+      HttpResponse.json(draftDetail({ id: 900, subject: '되돌린 메일', to: ['rcpt@test.local'], version: 3 })),
+    )
+    const put = http.put('/api/v1/mail/drafts/900', () => HttpResponse.json({ version: 4, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))
+    const view = renderWindow([send.handler, cancel.handler, put])
+    await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
+    await view.user.click(screen.getByTestId('mail-compose-send'))
+    fireEvent.click(await screen.findByRole('button', { name: '되돌리기' }))
+    await waitFor(() => expect(cancel.calls).toHaveLength(1))
+    await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('되돌린 메일'))
+    expect(screen.queryByTestId('mail-compose-window-sent')).not.toBeInTheDocument()
+    await act(() => vi.advanceTimersByTimeAsync(11_000))
+    expect(close).not.toHaveBeenCalled()
+    expect(screen.getByTestId('mail-compose-dock')).toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('새 창 주소로 이미 보내는 중(QUEUED)인 메일을 열면 쓰기 창 대신 「보내는 중」 안내와 「되돌리기」를 보인다', async () => {
+  const cancel = record('post', '/api/v1/mail/drafts/7/cancel-send', () =>
+    HttpResponse.json(draftDetail({ id: 7, subject: '대기 중 메일', to: ['rcpt@test.local'], version: 3 })),
+  )
+  const put = http.put('/api/v1/mail/drafts/7', () => HttpResponse.json({ version: 4, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))
+  const view = renderWindow([
+    cancel.handler,
+    put,
+    http.get('/api/v1/mail/drafts/7', () => HttpResponse.json(draftDetail({ id: 7, subject: '대기 중 메일', sendState: 'QUEUED' }))),
+  ])
+  expect(await screen.findByTestId('mail-compose-window-sending')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-compose-window-error')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+  await view.user.click(await screen.findByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(cancel.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('대기 중 메일'))
+  expect(screen.queryByTestId('mail-compose-window-sending')).not.toBeInTheDocument()
+})
+
+// ── 되돌리기와 닫기 시계, 보낸 순간에 정하는 「되돌리기」 자리(WP-1786 코드 리뷰) ───────────────────────
+
+test('보낸 순간 연 메인 창이 닫혔으면 이 창이 「메일 보냄 · 되돌리기」를 띄우고 열려 있으며, sent 알림엔 연 창 id 를 싣지 않는다', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  try {
+    const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+    const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
+    // 주소에는 연 창 id 가 있지만 그 메인 창은 이미 닫혔다 — 열 때 정해 두면 보내자마자 닫혀 어디서도 되돌릴 수 없었다.
+    setOpener({ closed: true, __wpMailComposeListener: MAIL_COMPOSE_WINDOW_ID })
+    const view = renderWindow([send.handler], WITH_OPENER)
+    await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
+    await view.user.click(screen.getByTestId('mail-compose-send'))
+    expect(await screen.findByText('메일 보냄')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '되돌리기' })).toBeInTheDocument()
+    expect(screen.getByTestId('mail-compose-window-sent')).toBeInTheDocument()
+    await waitFor(() => expect(heard).toContainEqual(msg('sent', { sentDraftId: 900, opener: null })))
+    await act(() => vi.advanceTimersByTimeAsync(9_000))
+    expect(close).not.toHaveBeenCalled()
+    await act(() => vi.advanceTimersByTimeAsync(1_100))
+    await waitFor(() => expect(close).toHaveBeenCalled())
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('연 메인 창이 듣고 있는지는 opener 가 있고·닫히지 않았고·그 창의 id 가 주소와 같을 때만이다(새로 고친 창은 id 가 바뀐다)', () => {
+  expect(isOpenerListening(MAIL_COMPOSE_WINDOW_ID)).toBe(false)
+  setOpener({ closed: false, __wpMailComposeListener: 'reloaded-main' })
+  expect(isOpenerListening(MAIL_COMPOSE_WINDOW_ID)).toBe(false)
+  restoreOpener?.()
+  setOpener({ closed: true, __wpMailComposeListener: MAIL_COMPOSE_WINDOW_ID })
+  expect(isOpenerListening(MAIL_COMPOSE_WINDOW_ID)).toBe(false)
+  restoreOpener?.()
+  setOpener('listening')
+  expect(isOpenerListening(MAIL_COMPOSE_WINDOW_ID)).toBe(true)
+  expect(isOpenerListening(null)).toBe(false)
+})
+
+/** 연 창이 없는 새 창에서 보내고 「되돌리기」 토스트가 뜰 때까지 — cancel-send 응답은 cancelGate 가 풀릴 때까지 붙잡는다. */
+async function sendAndHoldUndo(cancelResponse: () => Response) {
+  const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+  const send = record('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
+  let releaseCancel!: () => void
+  const held = new Promise<void>((r) => (releaseCancel = r))
+  const cancel = record('post', '/api/v1/mail/drafts/900/cancel-send', async () => {
+    await held
+    return cancelResponse()
+  })
+  const put = http.put('/api/v1/mail/drafts/900', () => HttpResponse.json({ version: 4, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))
+  const view = renderWindow([send.handler, cancel.handler, put])
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await screen.findByRole('button', { name: '되돌리기' })
+  return { close, cancel, releaseCancel }
+}
+
+test('10초가 다 되어(9.8초) 「되돌리기」를 눌러도 되돌리는 동안 창을 닫지 않고, 되돌리면 그 창에 다시 연다', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  try {
+    const { close, cancel, releaseCancel } = await sendAndHoldUndo(() =>
+      HttpResponse.json(draftDetail({ id: 900, subject: '늦게 되돌린 메일', to: ['rcpt@test.local'], version: 3 })),
+    )
+    await act(() => vi.advanceTimersByTimeAsync(9_800))
+    fireEvent.click(screen.getByRole('button', { name: '되돌리기' }))
+    await waitFor(() => expect(cancel.calls).toHaveLength(1))
+    // cancel-send 가 아직 끝나지 않았다 — 10초가 지나도 창을 닫지 않는다
+    await act(() => vi.advanceTimersByTimeAsync(1_000))
+    expect(close).not.toHaveBeenCalled()
+    expect(screen.getByTestId('mail-compose-window-sent')).toHaveTextContent('되돌리는 중…')
+    releaseCancel()
+    await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('늦게 되돌린 메일'))
+    await act(() => vi.advanceTimersByTimeAsync(11_000))
+    expect(close).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('되돌리기가 늦어 이미 보냈으면(409) 「이미 보냄」을 알리고 창을 남겨 닫기 단추를 보인다', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  try {
+    const { close, releaseCancel } = await sendAndHoldUndo(() =>
+      HttpResponse.json({ status: 409, message: '이미 보내는 중이에요', errors: { code: 'ALREADY_SENDING' } }, { status: 409 }),
+    )
+    await act(() => vi.advanceTimersByTimeAsync(9_800))
+    fireEvent.click(screen.getByRole('button', { name: '되돌리기' }))
+    releaseCancel()
+    expect(await screen.findByText('이미 보냄')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('mail-compose-window-sent')).toHaveTextContent('메일을 되돌리지 못했어요'))
+    await act(() => vi.advanceTimersByTimeAsync(11_000))
+    expect(close).not.toHaveBeenCalled()
+    fireEvent.click(within(screen.getByTestId('mail-compose-window-sent')).getByRole('button', { name: '창 닫기' }))
+    expect(close).toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
 })

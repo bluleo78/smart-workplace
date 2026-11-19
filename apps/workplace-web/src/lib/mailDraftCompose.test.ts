@@ -15,6 +15,7 @@ import {
   draftPreview,
   draftPreviewSource,
   draftRecipientsLabel,
+  isSendInFlight,
   savePayloadFromDetail,
 } from './mailDraftCompose';
 
@@ -378,5 +379,15 @@ describe('draftRecipientsLabel', () => {
   it('짧은 이름을 쉼표로 잇고, 없으면 빈 문자열', () => {
     expect(draftRecipientsLabel(['앨리스 <alice@example.com>', 'bob@example.com'])).toBe('앨리스, bob');
     expect(draftRecipientsLabel([])).toBe('');
+  });
+});
+
+describe('isSendInFlight (WP-1786)', () => {
+  it('보내는 중(QUEUED·SENDING)만 참 — 보내지 못함(FAILED)·일반 임시보관은 쓰기 창으로 연다', () => {
+    expect(isSendInFlight({ sendState: 'QUEUED' })).toBe(true);
+    expect(isSendInFlight({ sendState: 'SENDING' })).toBe(true);
+    expect(isSendInFlight({ sendState: 'FAILED' })).toBe(false);
+    expect(isSendInFlight({ sendState: null })).toBe(false);
+    expect(isSendInFlight({})).toBe(false);
   });
 });

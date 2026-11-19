@@ -513,7 +513,7 @@ export const SEND_UNDO_MS = 10_000;
 export const SENT_REFRESH_MS = 20_000;
 
 /** 되돌린 임시보관을 쓰기 창으로 연다 — 호출부가 useOpenMailDraft 로 만든다(이 파일이 작성 컨텍스트를 import 하지 않게 받아 쓴다). */
-export type OpenSentDraft = (draftId: number, detail: MailDraftDetail) => void | Promise<void>;
+export type OpenSentDraft = (draftId: number, detail: MailDraftDetail) => void | Promise<unknown>;
 
 /**
  * 보내기 뒤 목록 다시 받기(WP-1786) — 지금은 임시보관함만, 대기열이 보낸 뒤(20초) 보낸편지함·임시보관함을 한 번 더.
@@ -533,16 +533,69 @@ export function scheduleSentRefresh(qc: QueryClient, accountId: number) {
  * 「메일 보냄 · 되돌리기」 토스트(WP-1786) — 작성창(useSendMail)과 새 창 알림을 받은 메인 창(MailComposeWindowSync)이 같이 쓴다.
  * 10초 동안 떠 있고, 「되돌리기」는 서버 대기를 풀어 돌려받은 임시보관으로 쓰기 창을 다시 연다. 이미 나갔으면(409·404) 「이미 보냄」.
  */
-export function showSentToast(qc: QueryClient, accountId: number, draftId: number, openDraft: OpenSentDraft) {
+export function showSentToast(
+  qc: QueryClient,
+  accountId: number,
+  draftId: number,
+  openDraft: OpenSentDraft,
+  undo: SentUndoCallbacks = {},
+) {
   scheduleSentRefresh(qc, accountId);
-  toast.success('메일 보냄', {
-    duration: SEND_UNDO_MS,
-    action: { label: '되돌리기', onClick: () => void undoSend(qc, accountId, draftId, openDraft) },
-  });
+  toastSendUndo(qc, accountId, draftId, openDraft, { message: '메일 보냄', success: true, duration: SEND_UNDO_MS, undo });
 }
 
-/** 되돌리기 — 대기를 풀고 그 임시보관을 쓰기 창으로 연다. 풀었으면 임시보관함에 다시 보이므로 목록·개수도 다시 받는다. */
-async function undoSend(qc: QueryClient, accountId: number, draftId: number, openDraft: OpenSentDraft) {
+/** toastSendUndo 의 문구·모양 — 「메일 보냄」(성공 토스트, 10초)과 보내는 중인 행 안내(일반 토스트, 설명 덧붙임)가 다르게 준다. */
+export interface SendUndoToastOptions {
+  message: string;
+  description?: string;
+  /** 성공 토스트(toast.success)로 띄운다 — 아니면 일반 토스트. */
+  success?: boolean;
+  /** 떠 있는 시간 — 없으면 토스트 기본값. */
+  duration?: number;
+  undo?: SentUndoCallbacks;
+}
+
+/**
+ * 「되돌리기」 단추가 달린 토스트(WP-1786) — 누르면 서버 대기를 풀고(undoMailSend) 그 임시보관을 쓰기 창으로 다시 연다.
+ * 「메일 보냄」 토스트(showSentToast)와 보내는 중인 행을 열려 할 때의 안내(useOpenMailDraft)가 같은 되돌리기 동작을 쓰도록 한곳에 둔다.
+ */
+export function toastSendUndo(
+  qc: QueryClient,
+  accountId: number,
+  draftId: number,
+  openDraft: OpenSentDraft,
+  { message, description, success, duration, undo = {} }: SendUndoToastOptions,
+) {
+  const opts = {
+    ...(description != null ? { description } : {}),
+    ...(duration != null ? { duration } : {}),
+    action: {
+      label: '되돌리기',
+      onClick: () => {
+        undo.onStart?.();
+        void undoMailSend(qc, accountId, draftId, openDraft).then((ok) => undo.onSettled?.(ok));
+      },
+    },
+  };
+  if (success) toast.success(message, opts);
+  else toast(message, opts);
+}
+
+/**
+ * 「되돌리기」 진행 알림(WP-1786 코드 리뷰) — 새 창 페이지가 되돌리는 동안 10초 닫기 시계를 멈추고(onStart, 누른 즉시), 되돌리지 못하면 창을 남겨
+ * 안내를 볼 수 있게(onSettled(false)) 쓴다.
+ */
+export interface SentUndoCallbacks {
+  onStart?: () => void;
+  /** 끝났다 — ok 면 대기를 풀고 쓰기 창으로 다시 열었다. */
+  onSettled?: (ok: boolean) => void;
+}
+
+/**
+ * 되돌리기 — 대기를 풀고 그 임시보관을 쓰기 창으로 연다. 풀었으면 임시보관함에 다시 보이므로 목록·개수도 다시 받는다.
+ * 「메일 보냄」 토스트와 보내는 중인 행을 열려 할 때의 안내(useOpenMailDraft)가 같이 쓴다. 대기를 풀었으면 true(늦었거나 실패면 알리고 false).
+ */
+export async function undoMailSend(qc: QueryClient, accountId: number, draftId: number, openDraft: OpenSentDraft): Promise<boolean> {
   let detail: MailDraftDetail;
   try {
     detail = await cancelMailSend(draftId);
@@ -550,10 +603,11 @@ async function undoSend(qc: QueryClient, accountId: number, draftId: number, ope
     // 늦었다 — 이미 보내는 중(409 ALREADY_SENDING)이거나 보내고 지워졌다(404). 서버가 둘을 다 「이미 나감」으로 본다.
     if (isConflictError(e) || isNotFoundError(e)) toast('이미 보냄');
     else handleApiError(e, '되돌리지 못했어요');
-    return;
+    return false;
   }
   void invalidateMailDrafts(qc, accountId);
   await openDraft(draftId, detail);
+  return true;
 }
 
 /**

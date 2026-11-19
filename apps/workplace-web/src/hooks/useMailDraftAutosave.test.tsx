@@ -1,27 +1,39 @@
 // useMailDraftAutosave(WP-577) — 자동 저장 순서 규칙을 브라우저 없이 지킨다. 화면 배선(입력 → 저장 → 상태 표시)은 E2E(mail-drafts.spec)가 본다.
 // - 1.5초 디바운스, 첫 저장 POST → 이후 PUT+version, 저장은 차례로(첫 POST 가 끝나기 전 변경도 임시저장 하나로)
 // - 빈 새 메일은 저장하지 않음, 409 충돌은 멈춤 → 닫을 때 새 임시저장(업로드는 서버가 옮겨 묶는다), 404 는 되살리지 않고 멈춘다(gone)
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { notifyManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { AxiosError, type AxiosResponse } from 'axios';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createMailDraft, deleteMailDraft, updateMailDraft } from '@/api/mailDrafts';
-import type { MailDraftSaveRequest } from '@/types/mailDraft';
+import { createMailDraft, deleteMailDraft, getMailDraft, updateMailDraft } from '@/api/mailDrafts';
+import type { MailDraftDetail, MailDraftSaveRequest } from '@/types/mailDraft';
 
 import { mailDraftKeys } from './queries/mailDraftKeys';
-import { DRAFT_AUTOSAVE_DELAY_MS, type DraftSnapshot, hasUnsavedDraft, shortSaveReason, useMailDraftAutosave } from './useMailDraftAutosave';
+import {
+  DRAFT_AUTOSAVE_DELAY_MS,
+  DRAFT_INFLIGHT_RECHECK_MS,
+  type DraftSnapshot,
+  hasUnsavedDraft,
+  shortSaveReason,
+  useMailDraftAutosave,
+} from './useMailDraftAutosave';
 
 vi.mock('@/api/mailDrafts', () => ({
   createMailDraft: vi.fn(),
   updateMailDraft: vi.fn(),
   deleteMailDraft: vi.fn(),
+  getMailDraft: vi.fn(),
 }));
 
 const create = vi.mocked(createMailDraft);
 const update = vi.mocked(updateMailDraft);
 const remove = vi.mocked(deleteMailDraft);
+const getDetail = vi.mocked(getMailDraft);
+
+/** 다시 확인(inflight)에서 받는 임시저장 상세 — 보내기 상태만 본다. */
+const detailWith = (sendState: MailDraftDetail['sendState']) => ({ id: 9, version: 7, sendState }) as MailDraftDetail;
 
 /** 서버 오류 응답 — ErrorResponse 모양(errors.code). */
 function apiError(status: number, code?: string, errors?: Record<string, string>, message = 'x'): AxiosError {
@@ -65,12 +77,13 @@ function setup(initial: Props, snap: { current: DraftSnapshot }) {
   const qc = new QueryClient();
   const invalidate = vi.spyOn(qc, 'invalidateQueries');
   const onCreated = vi.fn();
+  const onSendReleased = vi.fn();
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
   const hook = renderHook(
-    (p: Props) => useMailDraftAutosave({ ...p, accountId: 1, getSnapshot: () => snap.current, onCreated }),
+    (p: Props) => useMailDraftAutosave({ ...p, accountId: 1, getSnapshot: () => snap.current, onCreated, onSendReleased }),
     { wrapper, initialProps: initial },
   );
-  return { hook, onCreated, invalidate, qc };
+  return { hook, onCreated, onSendReleased, invalidate, qc };
 }
 
 /** 디바운스를 지나 저장 사슬이 끝날 때까지 돌린다. */
@@ -82,11 +95,21 @@ async function elapse(ms = DRAFT_AUTOSAVE_DELAY_MS) {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // 다시 확인(inflight)은 TanStack Query 라 결과 알림을 setTimeout(0) 으로 묶어 보낸다 — 가짜 시계에서 그 시각에 끝난 결과가 훅에 닿게
+  // 마이크로태스크로 보낸다(advanceTimersByTimeAsync 가 마이크로태스크는 비운다).
+  notifyManager.setScheduler(queueMicrotask);
   create.mockReset();
   update.mockReset();
   remove.mockReset();
+  getDetail.mockReset();
+  // 다시 확인은 기본으로 「아직 대기 중」 — 시험이 풀린 상태를 따로 준다.
+  getDetail.mockResolvedValue(detailWith('QUEUED'));
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  // 기본 스케줄러(setTimeout 0)로 되돌린다.
+  notifyManager.setScheduler((cb) => setTimeout(cb, 0));
+  vi.useRealTimers();
+});
 
 describe('shortSaveReason', () => {
   it('서버 문구의 첫 문장만 — 마침표는 뗀다, 비면 일반 안내', () => {
@@ -102,6 +125,10 @@ describe('hasUnsavedDraft', () => {
     expect(hasUnsavedDraft('idle')).toBe(false);
     expect(hasUnsavedDraft('saved')).toBe(false);
     expect(hasUnsavedDraft('gone')).toBe(false);
+    // 보내는 중(inflight)은 저장할 것이 없다 — 단 멈추며 저장하지 못한 변경이 있으면 경고한다(WP-1786 코드 리뷰).
+    expect(hasUnsavedDraft('inflight')).toBe(false);
+    expect(hasUnsavedDraft('inflight', true)).toBe(true);
+    expect(hasUnsavedDraft('saved', true)).toBe(false);
     expect(hasUnsavedDraft('invalid')).toBe(true);
   });
 });
@@ -220,6 +247,163 @@ describe('useMailDraftAutosave', () => {
     // 보내기 — 없어진 draftId 를 싣지 않는다
     const ticket = await act(() => hook.result.current.beginSend());
     expect(ticket.draftId).toBeUndefined();
+  });
+
+  // WP-1786 코드 리뷰 — 409 DRAFT_SENDING 을 없어진 것(gone)처럼 다뤄 id 를 비우면, 이 창의 보내기가 draftId 없이 새 대기 행을 만들어 같은 메일이 두 번 나갔다.
+  it('PUT 409 DRAFT_SENDING(다른 곳에서 보내는 중)이면 inflight 로 멈추고 id 는 그대로 둔다 — 저장·버리기 없음, 보내기는 같은 draftId', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    update.mockRejectedValue(apiError(409, 'DRAFT_SENDING'));
+    const { hook, invalidate } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    act(() => hook.result.current.schedule());
+    await elapse();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.status).toBe('inflight');
+    expect(hook.result.current.currentDraftId()).toBe(9);
+    // 대기 행은 임시보관함에서 빠진다 — 목록·개수를 다시 받는다.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: mailDraftKeys.account(1) });
+
+    // 더 써도·다시 시도해도 저장하지 않는다
+    act(() => hook.result.current.schedule());
+    await elapse();
+    act(() => hook.result.current.retry());
+    await elapse();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
+    expect(hook.result.current.status).toBe('inflight');
+    // 보내기 — 새 행을 만들지 않게 같은 draftId 를 싣는다(서버가 409 로 거절한다)
+    const ticket = await act(() => hook.result.current.beginSend());
+    expect(ticket.draftId).toBe(9);
+    act(() => ticket.alreadySending());
+    // 버리기 — 보내는 중인 행은 지우지 않는다
+    await act(() => hook.result.current.discard());
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  // WP-1786 코드 리뷰 — inflight 로 넘어가며 저장하려던 변경을 dirty=false 로 조용히 버렸다(닫아도 경고·저장 없음).
+  it('409 DRAFT_SENDING 으로 멈추며 저장하지 못한 변경은 남겨 알리고, 닫으면 대기 행을 건드리지 않고 새 임시저장으로 남긴다', async () => {
+    const snap = { current: { payload: payload({ subject: '이 창에서 고침' }), empty: false } };
+    update.mockRejectedValue(apiError(409, 'DRAFT_SENDING'));
+    create.mockResolvedValue({ id: 70, version: 1, updatedAt: '' });
+    const { hook } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    act(() => hook.result.current.schedule());
+    await elapse();
+    expect(hook.result.current.status).toBe('inflight');
+    expect(hook.result.current.inflightUnsaved).toBe(true);
+    expect(hasUnsavedDraft(hook.result.current.status, hook.result.current.inflightUnsaved)).toBe(true);
+
+    const r = await act(() => hook.result.current.flush());
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].subject).toBe('이 창에서 고침');
+    expect(r).toMatchObject({ wrote: true, ok: true, draftId: 70 });
+  });
+
+  it('보내기가 409 DRAFT_SENDING 으로 거절되면(alreadySending) inflight 로 멈추고, 보내기 전 저장 못 한 변경은 닫을 때 새 임시저장으로 남긴다', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    create.mockResolvedValue({ id: 71, version: 1, updatedAt: '' });
+    const { hook } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    act(() => hook.result.current.schedule());
+    const ticket = await act(() => hook.result.current.beginSend());
+    expect(ticket.draftId).toBe(9);
+    act(() => ticket.alreadySending());
+    expect(hook.result.current.status).toBe('inflight');
+    expect(hook.result.current.inflightUnsaved).toBe(true);
+    act(() => hook.result.current.schedule());
+    await elapse(DRAFT_AUTOSAVE_DELAY_MS * 2);
+    // 멈춘 동안은 저장하지 않는다(대기 행을 고치려 하지 않는다)
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    const r = await act(() => hook.result.current.flush());
+    expect(update).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(r.draftId).toBe(71);
+  });
+
+  it('바뀐 것 없이 보내기가 409 DRAFT_SENDING 이면 닫아도 저장하지 않는다(같은 메일을 하나 더 만들지 않는다)', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    const { hook } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    const ticket = await act(() => hook.result.current.beginSend());
+    act(() => ticket.alreadySending());
+    expect(hook.result.current.status).toBe('inflight');
+    expect(hook.result.current.inflightUnsaved).toBe(false);
+    const r = await act(() => hook.result.current.flush());
+    expect(r).toEqual({ wrote: false, ok: true, draftId: null, version: null });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  // WP-1786 코드 리뷰 — inflight 가 끝나지 않아, 다른 탭이 「되돌리기」로 풀거나 대기열이 실패로 돌려놓아도 이 작성창이 영영 잠겨 있었다.
+  it('보내는 중(inflight)이면 서버를 다시 확인해, 대기가 풀렸고 바뀐 것이 없으면 충돌로 넘기고 서버 내용으로 다시 열게 한다', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    const { hook, onSendReleased } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    const ticket = await act(() => hook.result.current.beginSend());
+    act(() => ticket.alreadySending());
+    // 아직 대기 중이면 그대로
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS);
+    expect(getDetail).toHaveBeenCalledWith(9);
+    expect(hook.result.current.status).toBe('inflight');
+    // 다른 탭이 되돌렸다(보내기 상태가 비었다)
+    getDetail.mockResolvedValue(detailWith(null));
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS);
+    expect(hook.result.current.status).toBe('conflict');
+    expect(onSendReleased).toHaveBeenCalledWith(9);
+    // 더는 다시 확인하지 않는다
+    const calls = getDetail.mock.calls.length;
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS * 2);
+    expect(getDetail).toHaveBeenCalledTimes(calls);
+    // 다시 열지 못한 채 닫아도 바뀐 것이 없으니 새 임시저장을 만들지 않는다
+    const r = await act(() => hook.result.current.flush());
+    expect(r.wrote).toBe(false);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('보내기가 풀렸는데 이 창에 저장 못 한 변경이 있으면 덮지 않고 충돌로 두어 이어 쓴다 — 창으로 돌아올 때도 바로 확인한다', async () => {
+    const snap = { current: { payload: payload({ subject: '내 변경' }), empty: false } };
+    update.mockRejectedValueOnce(apiError(409, 'DRAFT_SENDING'));
+    const { hook, onSendReleased } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    act(() => hook.result.current.schedule());
+    await elapse();
+    expect(hook.result.current.status).toBe('inflight');
+    // 대기열이 보내지 못해 임시보관으로 돌려놓았다 — 창으로 돌아오자마자(탭이 다시 보일 때 — TanStack 의 창 포커스 다시 받기) 본다
+    getDetail.mockResolvedValue(detailWith('FAILED'));
+    await act(async () => {
+      window.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.status).toBe('conflict');
+    expect(onSendReleased).not.toHaveBeenCalled();
+    // 이어 써도 서버 내용을 덮지 않고, 닫으면 내 내용을 새 임시저장으로 남긴다
+    act(() => hook.result.current.schedule());
+    await elapse();
+    expect(update).toHaveBeenCalledTimes(1);
+    create.mockResolvedValue({ id: 72, version: 1, updatedAt: '' });
+    const r = await act(() => hook.result.current.flush());
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].subject).toBe('내 변경');
+    expect(r.draftId).toBe(72);
+  });
+
+  it('보내는 중이던 임시저장이 보내고 지워졌으면(404) gone 으로 넘어가고 id 를 비운다', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    const { hook } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    const ticket = await act(() => hook.result.current.beginSend());
+    act(() => ticket.alreadySending());
+    getDetail.mockRejectedValue(apiError(404, 'DRAFT_NOT_FOUND'));
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS);
+    expect(hook.result.current.status).toBe('gone');
+    expect(hook.result.current.currentDraftId()).toBeNull();
+  });
+
+  it('다시 확인이 네트워크 오류면 inflight 그대로 두고 다음 확인에서 다시 본다', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    const { hook } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    const ticket = await act(() => hook.result.current.beginSend());
+    act(() => ticket.alreadySending());
+    getDetail.mockRejectedValueOnce(apiError(500));
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS);
+    expect(hook.result.current.status).toBe('inflight');
+    getDetail.mockResolvedValue(detailWith(null));
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS);
+    expect(hook.result.current.status).toBe('conflict');
   });
 
   it('저장 실패는 「저장하지 못했어요」 — 다시 시도하면 같은 내용을 다시 보낸다', async () => {

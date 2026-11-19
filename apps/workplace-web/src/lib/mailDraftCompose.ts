@@ -147,7 +147,7 @@ function splitSentBody(d: MailDraftDetail): { bodyHtml: string; quoteHtml: strin
 }
 
 /**
- * 원본 메일을 받지 못할 때(전달 — 대기 행에는 원본 id 가 없다) 떼어 낸 인용문으로 인용 블록을 만든다. 보낼 때와 같은 HTML·cid 참조를 그대로 잇는다.
+ * 원본 메일을 받지 못할 때(원본이 지워졌거나 받기에 실패 — 대기 행도 sourceMessageId 를 남기지만 그 원본이 없을 수 있다) 떼어 낸 인용문으로 인용 블록을 만든다. 보낼 때와 같은 HTML·cid 참조를 그대로 잇는다.
  * 미리보기는 cid 참조만 알고 원본 첨부 메타가 없어 최소 메타(이미지·크기 0)로 채운다 — 서버 다시 붙이기에는 attachmentId·contentId 만 쓰인다.
  */
 function quoteFromSent(d: MailDraftDetail, quoteHtml: string): MailQuote {
@@ -211,6 +211,32 @@ export function composeFromDraft(
     // (인용문이 붙고 cid 이미지인 본문)가 남아 다음에 열거나 보낼 때 인용문이 두 번 붙거나 그림이 깨지지 않게 한다.
     ...(sentForm ? { unsaved: true } : {}),
   };
+}
+
+/** 이미 보내는 중인 메일 안내(WP-1786) — 작성창 상태 줄·보내기 거절·보내는 중인 행 열기가 같은 문구를 쓴다. */
+export const MAIL_ALREADY_SENDING = '이 메일은 이미 보내는 중이에요';
+
+/** 보내는 중 안내의 덧붙임 — 되돌릴 수 없는(SENDING) 행을 열려 할 때 토스트 설명, 새 창 안내 문장에도 쓴다. */
+export const MAIL_ALREADY_SENDING_CHECK_SENT = '보낸편지함에서 확인해 주세요';
+
+/** 보내는 중 안내의 덧붙임 — 아직 대기(QUEUED)라 「되돌리기」를 둘 때 토스트 설명. */
+export const MAIL_ALREADY_SENDING_UNDO_REOPENS = '되돌리면 쓰기 창으로 다시 열어요';
+
+/** 보내는 중 안내의 덧붙임 — 이 창의 보내기가 409 DRAFT_SENDING 으로 거절됐을 때 토스트 설명(작성창). */
+export const MAIL_ALREADY_SENDING_NOT_SENT_HERE = '다른 창에서 보낸 메일이라 여기서는 보내지 않았어요';
+
+/** 새 창 페이지가 보내는 중인 메일을 열지 않고 보이는 안내 한 문단 — 두 문장을 이어 쓴다. */
+export const MAIL_ALREADY_SENDING_NOTICE = `${MAIL_ALREADY_SENDING}. ${MAIL_ALREADY_SENDING_CHECK_SENT}.`;
+
+/** 보내는 중으로 멈춘 작성창에 이 창에서 저장하지 못한 변경이 남았을 때 상태 줄에 덧붙이는 안내(WP-1786 코드 리뷰) — 닫으면 새 임시저장으로 남는다. */
+export const INFLIGHT_UNSAVED_NOTE = '최근 변경은 저장하지 못했어요';
+
+/**
+ * 보내기 대기열에 올라 보내는 중인 행인가(WP-1786, QUEUED·SENDING). 이런 행은 쓰기 창으로 열지 않는다 — 열어 고치거나 다시 보내면
+ * 서버가 거절하거나(409) 같은 메일이 두 번 나갈 수 있다. FAILED 는 보내지 못한 것이라 쓰기 창으로 연다.
+ */
+export function isSendInFlight(d: Pick<MailDraftDetail, 'sendState'>): boolean {
+  return d.sendState === 'QUEUED' || d.sendState === 'SENDING';
 }
 
 /** 임시보관함 행의 받는사람 — 짧은 이름을 쉼표로 잇는다. 없으면 빈 문자열(행이 「받는사람 없음」으로 보인다). */

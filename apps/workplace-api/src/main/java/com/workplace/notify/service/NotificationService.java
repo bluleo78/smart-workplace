@@ -5,6 +5,7 @@ import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.AfterCommit;
 import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationSettingItem;
@@ -477,6 +478,10 @@ public class NotificationService {
    * 때(unknown=true, 「보냈는지 확인하지 못함 — 보낸편지함을 확인해 주세요」) 보낸 본인에게. 내 메일이 안 나간 것을 알리는 계정 알림이라 알림 설정과 무관하게
    * 늘 보낸다(설정 줄이 없다). 행위자는 없고 message=메일 제목(비었으면 「(제목 없음)」), mail_draft_id=그 임시보관 — 웹이 눌러 그 임시보관을 쓰기
    * 창으로 연다. insert 후 SSE fan-out·푸시(제목·변형·임시보관 id 를 이벤트에 싣는다).
+   *
+   * <p>이 메서드는 동기 리스너가 대기열의 상태 전환 트랜잭션 안에서 부른다(다른 알림처럼 AFTER_COMMIT 비동기가 아니다). 그래서 SSE {@code
+   * notify.created} 는 {@link AfterCommit} 으로 커밋 뒤에 보낸다(코드 리뷰) — 커밋 전에 보내면 웹이 아직 보이지 않는 알림을 다시 읽어
+   * 놓치거나, 롤백된 알림을 알린다. 푸시 이벤트는 받는 쪽(PushDispatcher)이 이미 AFTER_COMMIT 이다.
    */
   @Transactional
   public void createMailSendFailedAndFanOut(
@@ -484,7 +489,9 @@ public class NotificationService {
     NotificationType type = NotificationType.MAIL_SEND_FAILED;
     String title = subject == null || subject.isBlank() ? "(제목 없음)" : subject;
     repo.insertMailSendFailed(userId, draftId, title, unknown);
-    registry.fanOut(List.of(userId), "notify.created", Map.of("type", type.name()));
+    // 커밋 뒤에만 알린다 — 다른 알림이 AFTER_COMMIT 핸들러에서 insert 뒤 보내는 것과 같은 순서(커밋된 알림만 알린다).
+    AfterCommit.run(
+        () -> registry.fanOut(List.of(userId), "notify.created", Map.of("type", type.name())));
     Long tenantId = TenantContext.get();
     // 테넌트 없으면 푸시를 건너뛴다(다른 이슈 밖 알림 푸시와 같은 이유 — 어느 워크스페이스로 보낼지 모른다).
     if (tenantId == null) return;

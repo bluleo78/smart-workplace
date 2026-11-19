@@ -353,6 +353,25 @@ public class MailDraftRepository {
   }
 
   /**
+   * 잡았지만 아직 보내기 시작하지 않은 행을 대기(QUEUED)로 되돌린다(WP-1786 코드 리뷰) — 스케줄러가 한 회차의 시간 예산을 다 써 남은 행을 다음 회차로 넘길
+   * 때 쓴다. 잡기 때 찍은 sending_started_at 이 그대로 SENDING 에 남으면 멈춤 정리(10분)가 한 번도 보내지 않은 메일을 「보냈는지 확인하지
+   * 못함」으로 돌린다. send_at 은 그대로라 다음 회차가 가장 먼저 집는다. SENDING 인 행만 바꾼다(그 사이 다른 상태로 바뀐 행은 건드리지 않는다).
+   *
+   * @return 되돌린 행 수
+   */
+  public int releaseClaimed(Collection<Long> draftIds) {
+    if (draftIds.isEmpty()) {
+      return 0;
+    }
+    return dsl.update(MAIL_DRAFT)
+        .set(MAIL_DRAFT.SEND_STATE, SendState.QUEUED)
+        .set(MAIL_DRAFT.SENDING_STARTED_AT, (OffsetDateTime) null)
+        .where(MAIL_DRAFT.ID.in(draftIds))
+        .and(MAIL_DRAFT.SEND_STATE.eq(SendState.SENDING))
+        .execute();
+  }
+
+  /**
    * 이 행의 전송을 지금 시작한다 — sending_started_at 을 DB now() 로 다시 찍으며 보낼 값을 같은 UPDATE … RETURNING 으로 읽는다(왕복
    * 한 번, 묶인 첨부 id 만 따로 읽는다). 소유 조건 없이 id 로 찾는다(스케줄러에는 사용자 문맥이 없다).
    *
@@ -425,12 +444,6 @@ public class MailDraftRepository {
             .and(MAIL_DRAFT.SEND_STATE.eq(SendState.SENDING))
             .execute()
         > 0;
-  }
-
-  /** 내 임시저장이 있는가(계정 상태와 무관). */
-  public boolean exists(long userId, long draftId) {
-    return dsl.fetchExists(
-        MAIL_DRAFT, MAIL_DRAFT.ID.eq(draftId).and(MAIL_DRAFT.USER_ID.eq(userId)));
   }
 
   /** 내 계정의 임시저장 목록 — 갱신 최신순(같으면 id 큰 것 먼저), 최대 limit 건. 본문 HTML 은 읽지 않는다. */

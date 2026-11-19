@@ -202,6 +202,31 @@ class MailSendQueueRepositoryIntegrationTest extends ExternalClientMockedTestBas
         .containsExactly(id);
   }
 
+  /** 회차 시간 예산이 지나 못 보낸 잡은 행(WP-1786 코드 리뷰) — SENDING 만 QUEUED 로, 멈춤 시계를 비워 멈춤 정리에 걸리지 않게. */
+  @Test
+  void releaseClaimed_SENDING_만_QUEUED_로_되돌리고_다음_잡기가_다시_집는다() {
+    long u = user();
+    long acc = account(u);
+    OffsetDateTime now = OffsetDateTime.now();
+    long claimed = seed(u, acc, "QUEUED", now.minusSeconds(5), null);
+    long failed = seed(u, acc, "FAILED", null, null);
+    assertThat(callInTenant(1L, () -> repo.claimDue(20))).containsExactly(claimed);
+
+    assertThat(callInTenant(1L, () -> repo.releaseClaimed(java.util.List.of(claimed, failed))))
+        .isEqualTo(1);
+
+    assertThat(stateOf(claimed)).isEqualTo("QUEUED");
+    assertThat(stateOf(failed)).isEqualTo("FAILED");
+    var row =
+        callInTenant(
+            1L, () -> dsl.selectFrom(MAIL_DRAFT).where(MAIL_DRAFT.ID.eq(claimed)).fetchOne());
+    assertThat(row.getSendingStartedAt()).isNull();
+    assertThat(row.getSendAt()).isNotNull();
+    // 오래 기다려도 멈춤 정리에 걸리지 않고, 다음 회차가 다시 집는다.
+    assertThat(callInTenant(1L, () -> repo.failStuck(Duration.ZERO))).isEmpty();
+    assertThat(callInTenant(1L, () -> repo.claimDue(20))).containsExactly(claimed);
+  }
+
   @Test
   void failStuck_10분_지난_SENDING_만_FAILED() {
     long u = user();

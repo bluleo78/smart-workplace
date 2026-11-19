@@ -36,7 +36,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useMailComposeAttachments } from '@/hooks/useMailComposeAttachments';
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml';
-import { type DraftFlushResult, type DraftSnapshot, hasUnsavedDraft, useMailDraftAutosave } from '@/hooks/useMailDraftAutosave';
+import { type DraftFlushResult, type DraftSnapshot, hasUnsavedDraft, isDraftSending, useMailDraftAutosave } from '@/hooks/useMailDraftAutosave';
 import { useSheetHistory } from '@/hooks/useSheetHistory';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { extractApiError } from '@/lib/api-error';
@@ -51,7 +51,7 @@ import {
   rememberMailComposePopout,
   toastMailComposePopupBlocked,
 } from '@/lib/mailComposeChannel';
-import { buildDraftSavePayload } from '@/lib/mailDraftCompose';
+import { buildDraftSavePayload, MAIL_ALREADY_SENDING, MAIL_ALREADY_SENDING_NOT_SENT_HERE } from '@/lib/mailDraftCompose';
 import { pastedImageSrc, toSendablePastedImages, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
 import { parseRecipientInput } from '@/lib/mailRecipients';
 import {
@@ -272,8 +272,9 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const { windowMoveFor, takePendingWindow, rearmPendingWindow, endWindowMove } = useMailComposeWindowMove();
   const qc = useQueryClient();
   const openDraft = useOpenMailDraft();
-  // 「메일 보냄 · 되돌리기」(WP-1786) — 되돌리면 돌려받은 상세로 이 창에 다시 연다. 새 창은 보내자마자 닫히므로 토스트를 띄우지 않고 메인 창이 맡는다.
-  const send = useSendMail(popout ? null : (id, detail) => openDraft(id, { detail }));
+  // 「메일 보냄 · 되돌리기」(WP-1786) — 되돌리면 돌려받은 상세로 이 창에 다시 연다. 새 창은 토스트를 띄우지 않는다 — 보낸 뒤(onDone) 새 창
+  // 페이지가 그때 메인 창이 듣고 있으면 메인 창에 맡기고, 없으면(닫혔거나 새로 고쳐졌다) 그 창이 띄운다.
+  const send = useSendMail(popout ? null : (id, detail) => void openDraft(id, { detail }));
 
   const composerRef = useRef<MailComposerHandle>(null);
   const toInputRef = useRef<HTMLInputElement>(null);
@@ -432,13 +433,22 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     accountId: draft?.accountId,
     getSnapshot,
     onCreated: bindDraftId,
+    // 다른 곳에서 보내던 이 임시저장의 보내기가 풀렸고 이 창에 바뀐 것이 없다(WP-1786 코드 리뷰) — 서버 내용으로 다시 연다(충돌 「다시 불러오기」와 같다).
+    onSendReleased: () => reloadDraft(),
   });
+  // 충돌 「다시 불러오기」 — 내 변경은 저장하지 않고 서버의 최신 내용으로 작성창을 다시 연다.
+  // 세션은 서버 내용을 받아 와 바꾸기 직전에 끝낸다 — 받지 못하면 충돌 상태 그대로 두어 계속 쓰고 ✕ 로 새 임시저장에 남길 수 있게.
+  // 보내기가 풀린 작성(onSendReleased)도 같은 길로 다시 연다. 작성이 없을 때의 조기 return 앞에 둔다(훅이 비동기로 부른다).
+  const reloadDraft = () => {
+    const id = autosave.currentDraftId();
+    if (id != null) void openDraft(id, { force: true, beforeOpen: autosave.end });
+  };
   // 보내기 준비 중(진행 중인 임시저장을 기다리는 동안) — send.isPending 이 켜지기 전에도 보내기를 잠가 두 번 나가지 않게 한다.
   // 상태는 버튼 표시용, ref 는 같은 틱의 두 번째 클릭을 막는 동기 잠금.
   const [preparingSend, setPreparingSend] = useState(false);
   const sendLock = useRef(false);
-  // 저장하지 않은 변경(대기·저장 중·실패·충돌)이 있을 때만 새로고침·탭 닫기를 경고한다.
-  useUnsavedChangesWarning(!!draft && hasUnsavedDraft(autosave.status));
+  // 저장하지 않은 변경(대기·저장 중·실패·충돌, 보내는 중으로 멈추며 저장 못 한 변경)이 있을 때만 새로고침·탭 닫기를 경고한다.
+  useUnsavedChangesWarning(!!draft && hasUnsavedDraft(autosave.status, autosave.inflightUnsaved));
 
   // 첨부가 올라가 끝나거나 빠지면 저장한다 — 올리는 중인 칩은 저장에 싣지 않으므로 완료 목록이 바뀔 때만.
   // 새 작성의 처음 첨부(전달 원본·임시저장)는 아래 초기화가 기준값으로 맞춰 저장을 부르지 않는다.
@@ -670,6 +680,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     blockedReason ??
     (autosave.status === 'gone'
       ? '다른 곳에서 보냈거나 버린 메일이라 새 창으로 열 수 없어요'
+      : autosave.status === 'inflight'
+        ? '이미 보내는 중인 메일이라 새 창으로 열 수 없어요'
       : aiGenerating
         ? 'AI 초안을 만드는 중이에요'
         : null);
@@ -703,6 +715,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       save: saveAndNotify,
       raise: () => setSize((v) => (v === 'min' ? 'dock' : v)),
       abandon: autosave.end,
+      sendPaused: () => autosave.status === 'inflight',
     });
     return () => setComposeHandlers(null);
   });
@@ -801,7 +814,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     const reopen = snapshotDraft();
     const { payload } = getSnapshot();
     // 다른 곳에서 보냈거나 버린 임시저장(gone)이면 지울 것(id 가 이미 비었다)도 되살릴 것도 없다 — 조용히 닫는다.
-    const worth = autosave.status !== 'gone' && (hasContent || autosave.currentDraftId() != null);
+    // 다른 곳에서 보내는 중(inflight, WP-1786)이면 지우지 않고(훅이 건너뛴다) 이 창만 닫는다 — 되살릴 것도 없다.
+    const worth = autosave.status !== 'gone' && autosave.status !== 'inflight' && (hasContent || autosave.currentDraftId() != null);
     const deleting = autosave.discard();
     // 새 창 — 지우기가 끝난 뒤 닫는다(창을 먼저 닫으면 DELETE 가 끊긴다). 「되돌리기」는 닫힌 창에서 누를 수 없어 메인 창은 버림만 알린다.
     if (popout) {
@@ -832,13 +846,6 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     );
   };
 
-  // 충돌 「다시 불러오기」 — 내 변경은 저장하지 않고 서버의 최신 내용으로 작성창을 다시 연다.
-  // 세션은 서버 내용을 받아 와 바꾸기 직전에 끝낸다 — 받지 못하면 충돌 상태 그대로 두어 계속 쓰고 ✕ 로 새 임시저장에 남길 수 있게.
-  const reloadDraft = () => {
-    const id = autosave.currentDraftId();
-    if (id != null) void openDraft(id, { force: true, beforeOpen: autosave.end });
-  };
-
   // 입력 칸 변경 — 화면 값을 바꾸고 자동 저장을 예약한다.
   const edit = (set: (v: string) => void) => (v: string) => {
     set(v);
@@ -849,6 +856,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     <MailDraftSaveStatus
       status={autosave.status}
       reason={autosave.statusReason}
+      unsaved={autosave.inflightUnsaved}
       onRetry={autosave.retry}
       onReload={reloadDraft}
       mobile={isMobile}
@@ -863,7 +871,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
         ? '메일 화면이 아니면 읽기 창으로 쓸 수 없어요'
         : null;
   // 보내기 잠금 — 발송 중, AI 초안 생성 중(반쯤 찬 본문이 나가지 않게, WP-576), 첨부 업로드 중·실패(WP-574).
-  const sendDisabled = send.isPending || preparingSend || aiGenerating || blockedReason != null;
+  // 다른 곳에서 이미 보내는 중(inflight, WP-1786)이면 보내지 않는다 — 같은 메일이 두 번 나가지 않게(상태 줄이 이유를 보인다).
+  const sendDisabled = send.isPending || preparingSend || aiGenerating || blockedReason != null || autosave.status === 'inflight';
   const openFilePicker = () => fileInputRef.current?.click();
   const attachmentChips = (
     <MailComposeAttachmentChips
@@ -997,7 +1006,14 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       // 새 창은 보낸 뒤 메인 창에 알리고 닫힌다(페이지가 처리). 대기 행 id 를 실어 메인 창이 되돌릴 수 있게 한다(WP-1786).
       popout?.onDone('sent', draft.accountId, queued.draftId);
     } catch (e) {
-      notifySendFailed(e, ticket.failed(), reopen);
+      // 다른 탭·창에서 이미 보내는 중(409 DRAFT_SENDING, WP-1786) — 이 메일은 실제로 나가는 중이라 실패도 임시보관함 저장도 아니다.
+      // 이 작성의 저장·보내기를 멈추고(상태 줄 「이 메일은 이미 보내는 중이에요」) 그대로 알린다.
+      if (isDraftSending(e)) {
+        ticket.alreadySending();
+        toast(MAIL_ALREADY_SENDING, { description: MAIL_ALREADY_SENDING_NOT_SENT_HERE });
+      } else {
+        notifySendFailed(e, ticket.failed(), reopen);
+      }
     } finally {
       sendLock.current = false;
       setPreparingSend(false);

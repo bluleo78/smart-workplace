@@ -1,13 +1,19 @@
 // 작성창 임시저장 상태 한 줄(WP-577) — 데스크톱은 머리 제목 옆, 모바일은 상단 바 제목 아래.
 // 저장 중·저장됨은 흐린 글씨로 조용히, 실패·충돌은 무엇을 하면 되는지(다시 시도·다시 불러오기)를 바로 옆 버튼으로 둔다.
 // 다른 곳에서 보냈거나 버린 임시저장(gone)은 흐린 글씨 안내만 둔다 — 여기서 보내는 것은 그대로 된다.
+// 다른 탭·창에서 보내는 중인 임시저장(inflight, WP-1786)도 흐린 글씨 안내만 둔다 — 보내기는 작성창이 막는다(두 번 나가지 않게).
+// 그때 이 창에서 저장하지 못한 변경이 있으면(unsaved) 그것도 함께 알린다 — 닫으면 새 임시저장으로 남는다.
 // 검증 오류(invalid)는 원인만 짧게 보인다 — 같은 내용으로 다시 시도해도 같으므로 「다시 시도」를 두지 않는다(고치면 다시 저장한다).
+import type { ReactNode } from 'react';
+
 import type { DraftSaveStatus } from '@/hooks/useMailDraftAutosave';
+import { INFLIGHT_UNSAVED_NOTE, MAIL_ALREADY_SENDING } from '@/lib/mailDraftCompose';
 import { cn } from '@/lib/utils';
 
 export function MailDraftSaveStatus({
   status,
   reason,
+  unsaved,
   onRetry,
   onReload,
   mobile,
@@ -15,14 +21,17 @@ export function MailDraftSaveStatus({
   status: DraftSaveStatus;
   /** invalid 의 원인(서버 검증 문구의 첫 문장). */
   reason?: string;
+  /** inflight 로 멈추며 저장하지 못한 변경이 남았다(훅의 inflightUnsaved). */
+  unsaved?: boolean;
   onRetry: () => void;
   onReload: () => void;
   mobile: boolean;
 }) {
   if (status === 'idle') return null;
   const failed = status === 'error' || status === 'invalid' || status === 'conflict';
-  // 다른 곳에서 보냈거나 버림 — 실패가 아니라 알림이라 흐린 글씨로 두되, 한 번 바뀌는 상태라 읽어 준다.
-  const gone = status === 'gone';
+  // 다른 곳의 일로 자동 저장을 멈춘 안내 — 다른 곳에서 보냈거나 버림(gone)·보내는 중(inflight). 실패가 아니라 알림이라 흐린 글씨로 두되,
+  // 한 번 바뀌는 상태라 읽어 준다.
+  const stoppedNotice = status === 'gone' || status === 'inflight';
   // 상태 글 옆 동작 — 모바일은 줄 높이를 그대로 두고 위아래 투명 영역으로 44px 터치를 맞춘다.
   const action = (label: string, onClick: () => void, testId: string) => (
     <button
@@ -44,12 +53,51 @@ export function MailDraftSaveStatus({
   // 앞 문구는 화면에서만 감추고 낭독·title 에는 전체 문구를 남긴다.
   const invalidReason = reason ?? '내용을 확인해 주세요';
   const invalidFull = `저장하지 못했어요 · ${invalidReason}`;
+  /** 상태마다 보일 내용 — 상태 하나에 한 갈래라 순서에 기대지 않는다. */
+  const content = (): ReactNode => {
+    switch (status) {
+      case 'pending':
+      case 'saving':
+        return '저장 중…';
+      case 'saved':
+        return '저장됨';
+      case 'inflight':
+        return message(unsaved ? `${MAIL_ALREADY_SENDING} · ${INFLIGHT_UNSAVED_NOTE}` : MAIL_ALREADY_SENDING);
+      case 'gone':
+        return message('다른 곳에서 보냈거나 버린 메일이에요');
+      case 'invalid':
+        return mobile ? (
+          <>
+            <span className="sr-only">저장하지 못했어요 · </span>
+            {message(invalidReason)}
+          </>
+        ) : (
+          message(invalidFull)
+        );
+      case 'error':
+        return (
+          <>
+            {message('저장하지 못했어요 · ')}
+            {action('다시 시도', onRetry, 'mail-compose-save-retry')}
+          </>
+        );
+      case 'conflict':
+        return (
+          <>
+            {message('다른 곳에서 고친 내용이 있어요 · ')}
+            {action('다시 불러오기', onReload, 'mail-compose-save-reload')}
+          </>
+        );
+      default:
+        return null;
+    }
+  };
   return (
     <span
       data-testid="mail-compose-save-status"
       data-status={status}
       // 저장 중·저장됨은 입력마다 바뀌어 읽어 주면 시끄럽다 — 실패·충돌만 알린다.
-      role={failed || gone ? 'status' : undefined}
+      role={failed || stoppedNotice ? 'status' : undefined}
       title={status === 'invalid' ? invalidFull : undefined}
       className={cn(
         'flex items-baseline gap-1 whitespace-nowrap text-xs',
@@ -60,32 +108,7 @@ export function MailDraftSaveStatus({
         failed ? 'text-destructive-text' : 'text-muted-foreground',
       )}
     >
-      {status === 'pending' || status === 'saving' ? (
-        '저장 중…'
-      ) : status === 'saved' ? (
-        '저장됨'
-      ) : gone ? (
-        message('다른 곳에서 보냈거나 버린 메일이에요')
-      ) : status === 'invalid' ? (
-        mobile ? (
-          <>
-            <span className="sr-only">저장하지 못했어요 · </span>
-            {message(invalidReason)}
-          </>
-        ) : (
-          message(invalidFull)
-        )
-      ) : status === 'error' ? (
-        <>
-          {message('저장하지 못했어요 · ')}
-          {action('다시 시도', onRetry, 'mail-compose-save-retry')}
-        </>
-      ) : (
-        <>
-          {message('다른 곳에서 고친 내용이 있어요 · ')}
-          {action('다시 불러오기', onReload, 'mail-compose-save-reload')}
-        </>
-      )}
+      {content()}
     </span>
   );
 }
