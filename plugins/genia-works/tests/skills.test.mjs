@@ -1469,7 +1469,16 @@ test('work-loop: 이슈를 쥔 동안 사이 확인·단계 사이에 3번 고�
   ]) assert.ok(intr.includes(anchor), anchor);
   // 다시 고르면 처음부터(brainstorming) 다시 하지 않고 SDD 원장의 다음 Task 부터 잇는다.
   const start = section(pi, '\n### 1. 시작\n', '\n### 2. ');
-  assert.ok(start.includes('`양보:` 줄이 있으면') && start.includes('다음 Task 부터 잇는다'));
+  // 반려 1·2: 과제 검토 전 Task 부터 잇고, 작업 id 가 이 세션에 없는(사라진) 하위 에이전트의 Task 만 다시 맡긴다.
+  assert.ok(start.includes('과제 검토까지 끝나지 않은 첫 Task 부터 잇는다') && start.includes('결과만 적어 둔 Task 는 과제 검토부터'));
+  assert.ok(start.includes('작업 id 가 이 세션의 작업 목록에 있으면') && start.includes('그 Task 를 다시 맡긴다') && start.includes('결과 유무로 가르지 않는다'));
+  // 반려 3: 확인을 끄는 표지는 끼어든 일 쪽(`끼어듦:`)에 두고 끼어든 일이 멈추면 지운다 — 양보한 이슈 쪽 줄이 남아도 확인이 꺼지지 않는다.
+  assert.ok(intr.includes('`끼어듦: <양보한 키>`') && intr.includes('notes 에 `끼어듦:` 줄이 있으면 이 확인을 하지 않는다'));
+  assert.ok(intr.includes('그 줄을 지운다') && intr.includes('WP-1793 재발 방지'));
+  // 반려 4: 양보한 이슈도 30분 다시 보고하되, 내 담당·WORKING 일 때만(사람의 멈춤을 덮지 않게).
+  assert.ok(intr.includes('**양보한 이슈 다시 보고**') && intr.includes('WP-1754'));
+  assert.ok(intr.includes('아직 내 담당이고 내 행이 `WORKING` 인지 본다'));
+  assert.ok(intr.includes('과제 검토는 하지 않는다'));
   // 기존 「끊지 않는다」·「다른 후보는 고르지 않는다」는 남기고 예외로 이 절을 가리킨다.
   const wait = section(pi, '\n### 하위 에이전트 기다리기\n', '\n### ');
   assert.ok(wait.includes('다른 후보는 고르지 않는다') && wait.includes('「쥔 동안 끼어들 일 확인」을 하고'));
