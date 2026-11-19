@@ -117,7 +117,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
   const { register, watch, setValue, formState: { errors } } = f.form;
   const { types, classify, classifyReason, isSubtaskSelected, intakeOnly } = f;
   // 본문 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
-  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange } = f.bodyEditor;
+  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange, key: bodyKey, initialBody } = f.bodyEditor;
   const currentTypeId = watch('typeId');
   // 닫기 요청 공통 경로 — 제목·본문이 있으면 확인하고, 빈 폼은 바로 닫는다.
   const requestClose = () => {
@@ -153,13 +153,15 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
             </div>
             {/* 본문 칸(WP-1657) — 본문 모드 RichInput: 원문(마크다운)을 그대로 두면서 붙여넣기·드롭·버튼으로 넣은 이미지를 칸 안에 그림으로 보인다.
                 Enter 는 줄바꿈, Cmd/Ctrl+Enter 는 폼 제출(업로드 중엔 RichInput 이 부르지 않는다). 창이 열릴 때마다 새로 마운트돼 빈 칸으로 시작한다.
+                창 안에서 프로젝트를 바꾸면(WP-1768) key 가 바뀌어 새 프로젝트 설정으로 다시 마운트되고 지금 본문(initialBody)을 잇는다.
                 최대 40vh 에서 멈추고 안에서 스크롤 — 아래 칸·버튼이 밀려나지 않게. */}
             <RichInput
+              key={bodyKey}
               ref={bodyEditorRef}
               bodyMode={bodyMode}
               imageUpload={imageUpload}
               members={members}
-              initialBody=""
+              initialBody={initialBody}
               ariaLabel="본문"
               placeholder=""
               inputTestId="issue-body"

@@ -127,6 +127,17 @@ describe('채널·DM 메시지 작성자 사람 카드 (WP-1768)', () => {
     }
   })
 
+  test('데스크톱에서 작성자 이름·아바타를 우클릭해도 행의 링크 메뉴가 열리지 않는다 — 행 본문 우클릭은 연다', async () => {
+    const { user } = renderRow()
+    for (const trigger of screen.getAllByTestId('person-card-trigger-7')) {
+      await user.pointer({ keys: '[MouseRight]', target: trigger })
+    }
+    expect(screen.queryByTestId('message-link-menu-11')).not.toBeInTheDocument()
+    // 같은 행의 본문 우클릭은 그대로 링크 메뉴를 연다(막은 것은 트리거 안 우클릭뿐).
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByText('안녕하세요') })
+    expect(await screen.findByTestId('message-link-menu-11')).toBeInTheDocument()
+  })
+
   test('작성자 이름 위 우클릭(안드로이드 길게 터치)도 작업 시트를 열지 않는다', () => {
     const onOpenSheet = vi.fn()
     renderRow({ onOpenSheet })

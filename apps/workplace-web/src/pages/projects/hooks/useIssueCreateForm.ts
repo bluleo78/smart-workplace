@@ -127,6 +127,15 @@ export function useIssueCreateForm({
   const imageUpload = useCallback((file: File) => uploadIssueImage(projectKey, file), [projectKey]);
   // 멘션 후보(@) — 프로젝트 구성원.
   const members = useProjectMembers(projectKey).data ?? NO_MEMBERS;
+  // 본문 칸을 프로젝트마다 새로 마운트할 때 처음 원문(WP-1768) — 편집칸은 본문 모드 설정(이미지 노드·업로드 경로·붙여넣기 판정)을
+  // 마운트 때 한 번만 정하므로, 창 안에서 프로젝트를 바꾸면 화면이 key={projectKey} 로 칸을 다시 마운트하고 지금 본문을 이 값으로 넘겨 글을 잇는다.
+  // 렌더 중에 맞춘다 — effect 로 하면 새 칸이 빈 값으로 먼저 마운트된다. 창을 다시 열거나 닫힌 동안 바뀐 키는 빈 칸으로 시작한다
+  // (닫힌 동안 폼 값엔 지난 본문이 남아 있다가 여는 effect 의 reset 이 지운다 — 그 값을 새 칸에 실으면 안 된다).
+  const [bodySeed, setBodySeed] = useState({ projectKey, open, body: '' });
+  if (bodySeed.projectKey !== projectKey || bodySeed.open !== open) {
+    const carry = open && bodySeed.open && bodySeed.projectKey !== projectKey;
+    setBodySeed({ projectKey, open, body: carry ? (form.getValues('body') ?? '') : '' });
+  }
 
   /**
    * 시작일·마감일 칸(WP-1644) — 덜 넣은 날짜 판정은 위 resolver 가 하고, 여기서는 안내를 거두는 때만 더한다.
@@ -172,6 +181,9 @@ export function useIssueCreateForm({
     if (!open) return;
     const { title, body } = form.getValues();
     reset({ priority: 'MID', title, body });
+    // 앞 프로젝트 칸은 버려지고(새 칸이 다시 마운트된다) 알림이 오지 않으므로 업로드 상태도 거둔다 — 올리는 중엔 프로젝트 칸이 잠겨 평소엔 이미 false 다.
+    uploadingRef.current = false;
+    setUploading(false);
     setClassifyReason(null);
     setEpic(null);
     setComponentIds([]);
@@ -316,7 +328,11 @@ export function useIssueCreateForm({
     form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify,
     // 본문 칸(본문 모드 RichInput)에 넘길 것 — 두 화면이 같이 쓴다. bodyMode·imageUpload·두 콜백은 렌더마다 같은 참조.
-    bodyEditor: { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange },
+    // key·initialBody — 프로젝트가 바뀌면 칸을 새 프로젝트 설정으로 다시 마운트하고 지금 본문을 잇는다(WP-1768).
+    bodyEditor: {
+      ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange,
+      key: projectKey, initialBody: bodySeed.body,
+    },
     // 시작일·마감일 칸에 펼치는 register 결과 — 덜 넣은 날짜 안내를 거두는 keyUp·blur 가 얹혀 있다(WP-1644).
     dateField,
     // 폼 제출(Enter·주 버튼) — 맡기기가 켜져 있으면 「만들고 지금 실행」, 아니면 만들기. 검사 실패면 첫 오류 칸으로 포커스.

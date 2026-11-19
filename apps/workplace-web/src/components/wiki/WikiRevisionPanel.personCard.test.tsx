@@ -112,3 +112,14 @@ test('고르기 단추의 접근 설명에 편집자·꼬리말이 이어진다(
   expect(screen.getByTestId('wiki-revision-item-6')).toHaveAccessibleDescription('이영희 (AI 수정)')
   expect(screen.getByTestId('wiki-revision-item-current')).toHaveAccessibleDescription('김철수 · 편집 중')
 })
+
+test('이름 트리거는 줄 폭 안에서 말줄임한다 — 긴 이름이 말줄임 없이 잘리지 않게(button 은 바깥 truncate 가 닿지 않는다)', () => {
+  setup()
+  // 일반 판·AI 판(AiLabel 안) 모두 같은 트리거다.
+  for (const id of ['wiki-revision-item-5', 'wiki-revision-item-6']) {
+    const row = screen.getByTestId(id).closest('li')!
+    for (const trigger of within(row).getAllByTestId(/^person-card-trigger-/)) {
+      expect(trigger).toHaveClass('inline-block', 'max-w-full', 'min-w-0', 'truncate')
+    }
+  }
+})

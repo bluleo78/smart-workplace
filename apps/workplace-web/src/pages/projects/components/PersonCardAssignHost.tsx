@@ -13,10 +13,26 @@ import type { IssueCreateDialog as IssueCreateDialogType } from './IssueCreateDi
 
 type DialogComponent = ComponentType<Parameters<typeof IssueCreateDialogType>[0]>;
 
+/** 창 묶음(지연 import) 로드 실패 표시 — 이 오류만 아래 경계가 토스트로 바꾼다. 원래 오류는 cause 로 남긴다. */
+class AssignDialogLoadError extends Error {
+  constructor(cause: unknown) {
+    super('새 이슈 창 묶음을 불러오지 못했습니다', { cause });
+    this.name = 'AssignDialogLoadError';
+  }
+}
+
 // 창은 처음 맡길 때 불러온다 — 전역 호스트가 앱 셸(AppLayout)에 있어 정적으로 들이면 이슈 만들기 폼 전체가 셸 묶음에 실린다.
 // lazy 는 실패한 import 결과를 기억해 같은 오류를 계속 던지므로, 실패하면 새 lazy 를 만들어 다음 클릭이 다시 불러오게 한다.
+// import 실패만 AssignDialogLoadError 로 감싸 표시한다 — 오류 경계가 묶음 로드 실패와 창 안 렌더 오류를 가르는 표시다.
 function loadDialog(): DialogComponent {
-  return lazy(() => import('./IssueCreateDialog').then((m) => ({ default: m.IssueCreateDialog })));
+  return lazy(() =>
+    import('./IssueCreateDialog').then(
+      (m) => ({ default: m.IssueCreateDialog }),
+      (cause: unknown) => {
+        throw new AssignDialogLoadError(cause);
+      },
+    ),
+  );
 }
 
 /** 창 묶음을 못 불러왔을 때 알릴 문구 — 배포 뒤 옛 묶음 이름(hash)을 찾는 경우가 대부분이라 새로고침을 권한다. */
@@ -24,23 +40,28 @@ const ASSIGN_DIALOG_LOAD_ERROR = '새 이슈 창을 열지 못했습니다 — �
 
 /**
  * 지연 창 전용 오류 경계 — 창 묶음 로드 실패(오래된 hash 등)가 앱 전체 PageErrorBoundary 로 올라가 셸을 통째로 바꾸지 않게 여기서 멈춘다.
- * 실패하면 아무것도 그리지 않고 onError 로 호스트에 알린다(토스트·열림 상태 초기화). PageErrorBoundary 는 페이지 전체 안내 화면을 그려 여기 맞지 않는다.
+ * 로드 실패면 아무것도 그리지 않고 onError 로 호스트에 알린다(토스트·열림 상태 초기화). PageErrorBoundary 는 페이지 전체 안내 화면을 그려 여기 맞지 않는다.
+ * 그 밖의 오류(창 안 렌더 오류 등)는 새로고침으로 낫지 않는 버그라 토스트로 덮지 않고 다시 던져 위 경계로 넘긴다.
  */
-class AssignDialogBoundary extends Component<{ onError: (error: Error) => void; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+class AssignDialogBoundary extends Component<{ onError: (error: Error) => void; children: ReactNode }, { error: unknown }> {
+  state: { error: unknown } = { error: null };
 
-  /** 오류가 나면 창 자리를 비운다. */
-  static getDerivedStateFromError() {
-    return { failed: true };
+  /** 오류를 기억한다 — 로드 실패면 창 자리를 비우고, 아니면 render 에서 다시 던진다. */
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
   }
 
-  /** 호스트에 알려 토스트를 띄우고 다음 클릭에서 다시 시도할 수 있게 상태를 되돌린다. */
+  /** 로드 실패만 호스트에 알려 토스트를 띄우고 다음 클릭에서 다시 시도할 수 있게 상태를 되돌린다. */
   componentDidCatch(error: Error) {
-    this.props.onError(error);
+    if (error instanceof AssignDialogLoadError) this.props.onError(error);
   }
 
   render() {
-    return this.state.failed ? null : this.props.children;
+    const { error } = this.state;
+    if (error == null) return this.props.children;
+    if (error instanceof AssignDialogLoadError) return null;
+    // 로드 실패가 아니면 위 경계로 — render 에서 던지면 React 가 가장 가까운 바깥 경계로 넘긴다.
+    throw error;
   }
 }
 

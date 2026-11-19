@@ -55,6 +55,9 @@ export function PersonCardTrigger({
       // 트리거 pointerup 도 막는다 — 터치로 작성자를 눌렀을 때 행의 툴바 드러내기(useToolbarReveal 의 onPointerUp)가 같이 일어나지 않게.
       // pointerdown 은 위 맨 앞 주석과 같은 이유로 막지 않는다.
       onPointerUp={stop}
+      // 트리거 우클릭도 막는다 — 작성자 이름 우클릭이 메시지 행의 링크 메뉴(행 onContextMenu)를 열지 않게(카드 틀 STOP_PROPS 와 같은 방식).
+      // 막는 것은 전파뿐이라 브라우저 기본 메뉴는 그대로다.
+      onContextMenu={stop}
       onClick={(e) => {
         stop(e)
         if (isMobile) setOpen(true)

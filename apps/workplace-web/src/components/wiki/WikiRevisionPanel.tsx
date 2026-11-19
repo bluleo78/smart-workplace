@@ -106,7 +106,12 @@ export function WikiRevisionList({ revisions, className }: { revisions: WikiRevi
  */
 function EditorName({ person }: { person: WikiRevisionPerson }) {
   return (
-    <PersonCardTrigger person={{ id: person.id, name: person.name }} className="pointer-events-auto relative z-10 inline hover:underline">
+    // 트리거는 button 이라 바깥 줄의 truncate 가 안까지 닿지 않는다(말줄임 없이 잘린다) — 트리거 자신이 줄 폭(max-w-full) 안에서 말줄임한다.
+    // overflow 가 걸린 inline-block 은 기준선이 아래로 바뀌므로 align-bottom 으로 옆 글자와 줄을 맞춘다.
+    <PersonCardTrigger
+      person={{ id: person.id, name: person.name }}
+      className="pointer-events-auto relative z-10 inline-block max-w-full min-w-0 truncate align-bottom hover:underline"
+    >
       {person.name}
     </PersonCardTrigger>
   )

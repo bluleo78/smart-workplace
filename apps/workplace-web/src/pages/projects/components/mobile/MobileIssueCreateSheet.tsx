@@ -33,7 +33,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId, initialAgentId });
   const { register, watch, formState: { errors } } = f.form;
   // 설명 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
-  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange } = f.bodyEditor;
+  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange, key: bodyKey, initialBody } = f.bodyEditor;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 칩 → 시트 → 직전 입력칸 포커스 복귀(키보드 원칙 ③). 칩 줄과 본문 인라인 입력이 함께 쓴다.
   const focusReturn = useFocusReturn();
@@ -125,14 +125,16 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 </p>
               )}
               {/* 설명 — 본문 모드 RichInput(테두리 없음, 최소 3줄, 최대 높이 없음 — 시트 본문이 스크롤한다). 붙여넣은 이미지는 칸 안 그림.
-                  이미지 버튼은 지금처럼 없다(붙여넣기만). 시트가 열릴 때마다 새로 마운트돼 빈 칸으로 시작한다. */}
+                  이미지 버튼은 지금처럼 없다(붙여넣기만). 시트가 열릴 때마다 새로 마운트돼 빈 칸으로 시작한다.
+                  시트 안에서 프로젝트를 바꾸면(WP-1768) key 가 바뀌어 새 프로젝트 설정으로 다시 마운트되고 지금 설명(initialBody)을 잇는다. */}
               <RichInput
+                key={bodyKey}
                 ref={bodyEditorRef}
                 // 설명 칸 모양 — 테두리 없이 글자만(bare). 바깥 시트가 이미 칸을 그려 둔다(편집칸은 마운트 때 한 번만 읽는다).
                 bodyMode={{ ...bodyMode, frame: 'bare' }}
                 imageUpload={imageUpload}
                 members={members}
-                initialBody=""
+                initialBody={initialBody}
                 ariaLabel="설명"
                 placeholder="설명 (선택)"
                 inputTestId="issue-create-body"
