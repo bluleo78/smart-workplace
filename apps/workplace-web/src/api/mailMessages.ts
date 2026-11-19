@@ -1,6 +1,8 @@
 // 받은편지함/보낸편지함 동기화·읽기·발송 API. baseURL '/api/v1' 가 client 에 포함.
-import type { AxiosProgressEvent } from 'axios';
+import axios, { type AxiosProgressEvent } from 'axios';
 
+import { sleep, waitForOnline } from '../lib/abortableWait';
+import { isTransientRequestError } from '../lib/api-error';
 import type { DriveFile } from '../types/drive';
 import type { MailFolderSyncResult, MailMoveRequest, MailMoveResponse, MailServerFolder, MailTrashEmptyStatus } from '../types/mailFolder';
 import type {
@@ -380,7 +382,7 @@ export async function fetchRecentRecipients(limit: number): Promise<RecentRecipi
  * 작성창 첨부 1개 업로드(WP-574) — multipart 필드명 `file`. 파일마다 따로 올려 칩마다 진행률·실패를 따로 보여 준다.
  * onProgress 는 0~100 정수(%). signal 로 업로드 중 「첨부 빼기」·작성창 닫기를 취소한다.
  */
-export async function uploadComposeAttachment(
+async function uploadComposeAttachmentOnce(
   file: File,
   opts: { onProgress?: (percent: number) => void; signal?: AbortSignal } = {},
 ): Promise<ComposeAttachmentUpload> {
@@ -396,6 +398,36 @@ export async function uploadComposeAttachment(
     },
   });
   return data;
+}
+
+/**
+ * 일시 실패(네트워크·5xx·408·429)한 업로드를 사용자가 누르기 전에 자동으로 다시 올릴 때의 대기(ms) — 길이가 곧 자동 재시도 횟수.
+ * 순간적인 끊김·과부하는 잠깐 뒤 다시 하면 대개 되므로, 칩을 실패로 보이기 전에 두 번 더 시도한다(WP-1738).
+ */
+export const UPLOAD_AUTO_RETRY_DELAYS_MS: readonly number[] = [1000, 3000];
+
+/**
+ * 작성창 첨부 업로드 + 일시 실패 자동 재시도(WP-1738) — 일반 첨부(훅)와 붙여넣은 이미지가 함께 쓴다.
+ * 네트워크·5xx 등 일시 실패는 UPLOAD_AUTO_RETRY_DELAYS_MS 만큼 기다렸다 다시 올린다. 재시도 전에 오프라인이면 online 이 될 때까지 먼저 기다려
+ * 잠깐의 끊김이 재시도 횟수를 다 쓰지 않게 한다. 4xx·요청 오류가 아닌 예외·취소는 다시 올리지 않는다.
+ * 대기 중에도 signal 이 끊기면 즉시 멈추고 취소 오류(axios.isCancel)로 reject 한다. 시도마다 진행률은 0 부터 다시 시작한다.
+ * 주의: 서버가 파일을 저장한 뒤 502/504 가 나면 재시도로 임시 업로드가 하나 더 남지만, 작성용 업로드는 expiresAt 이 지나면 정리된다.
+ */
+export async function uploadComposeAttachment(
+  file: File,
+  opts: { onProgress?: (percent: number) => void; signal?: AbortSignal } = {},
+): Promise<ComposeAttachmentUpload> {
+  for (let n = 0; ; n++) {
+    try {
+      return await uploadComposeAttachmentOnce(file, opts);
+    } catch (err) {
+      // 취소(CanceledError 도 AxiosError 라 일시 실패로 오인되므로 먼저 거른다)·영구 실패·재시도 소진은 그대로 던진다.
+      if (axios.isCancel(err) || opts.signal?.aborted || !isTransientRequestError(err) || n >= UPLOAD_AUTO_RETRY_DELAYS_MS.length) throw err;
+      opts.onProgress?.(0);
+      await waitForOnline(opts.signal);
+      await sleep(UPLOAD_AUTO_RETRY_DELAYS_MS[n], opts.signal);
+    }
+  }
 }
 
 /**

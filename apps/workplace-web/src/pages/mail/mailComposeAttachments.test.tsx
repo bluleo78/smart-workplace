@@ -19,6 +19,7 @@ const MB = 1024 * 1024
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 type Handlers = NonNullable<NonNullable<Parameters<typeof renderMail>[1]>['handlers']>
@@ -61,6 +62,26 @@ function holdUploads() {
       held[i].resolve(HttpResponse.json(body as object, { status }))
     },
   }
+}
+
+/**
+ * 자동 재시도 대기(1초·3초)를 가짜 타이머로 넘겨 n 번째 요청이 올 때까지 기다린다.
+ * 실패 응답이 catch 에 닿아 타이머가 걸리기 전에 넘기면 헛돌 수 있어, 요청이 도착할 때까지 반복해 넘긴다.
+ */
+async function nextAttempt(uploads: ReturnType<typeof holdUploads>, count: number, ms: number) {
+  await waitFor(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+    expect(uploads.held.length).toBeGreaterThanOrEqual(count)
+  })
+}
+
+/** 첫 시도부터 자동 재시도 2번까지 모두 500 으로 실패시킨다(요청 3번) — 이어서 실패 칩이 된다. */
+async function failAllAttempts(uploads: ReturnType<typeof holdUploads>, from = 0) {
+  await uploads.respond(from, 500, { message: 'storage error' })
+  await nextAttempt(uploads, from + 2, 1000)
+  await uploads.respond(from + 1, 500, { message: 'storage error' })
+  await nextAttempt(uploads, from + 3, 3000)
+  await uploads.respond(from + 2, 500, { message: 'storage error' })
 }
 
 const sendHandler = (reply?: () => Response) =>
@@ -199,10 +220,12 @@ test('25MB 를 넘는 파일은 올리지 않고 실패 칩으로 보내기를 �
 
 // 서버 5xx — 실패 칩 + 다시 시도, 다시 시도 성공 → 완료·보내기 열림.
 test('서버가 실패하면 실패 칩에 다시 시도가 붙고, 다시 시도가 성공하면 보낼 수 있다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   const uploads = holdUploads()
   const view = await openNew([uploads.handler])
   await attach(view, new File(['DWG'], '도면.dwg', { type: 'application/octet-stream' }))
-  await uploads.respond(0, 500, { message: 'storage error' })
+  // 자동 재시도 2번까지 모두 실패해야 실패 칩이 된다.
+  await failAllAttempts(uploads)
 
   await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'error'))
   expect(chipEls()[0]).toHaveTextContent('올리지 못했어요')
@@ -210,20 +233,21 @@ test('서버가 실패하면 실패 칩에 다시 시도가 붙고, 다시 시�
 
   await view.user.click(within(chipEls()[0]).getByTestId('mail-compose-attachment-retry'))
   await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'uploading'))
-  await uploads.respond(1, 201, uploaded(801, '도면.dwg', 3, 'application/octet-stream'))
+  await uploads.respond(3, 201, uploaded(801, '도면.dwg', 3, 'application/octet-stream'))
   await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'done'))
   expect(screen.getByTestId('mail-compose-send')).toBeEnabled()
 })
 
 // 다시 시도도 합계 한도를 다시 잰다 — 실패한 동안 여유가 줄었으면 올리지 않고 한도 초과 칩, 실패는 합계 줄에서 따로 센다.
 test('실패한 동안 다른 파일이 붙어 합계 여유가 줄었으면, 다시 시도는 올리지 않고 한도 초과 칩이 된다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   const uploads = holdUploads()
   const view = await openNew([uploads.handler])
   await attach(view, bigFile('영상1.mp4', 10 * MB))
-  await uploads.respond(0, 500, { message: 'storage error' })
+  await failAllAttempts(uploads)
   await waitFor(() => expect(chipStatuses()).toEqual(['error']))
   await attach(view, bigFile('영상2.mp4', 20 * MB))
-  await uploads.respond(1, 201, uploaded(811, '영상2.mp4', 20 * MB, 'video/mp4'))
+  await uploads.respond(3, 201, uploaded(811, '영상2.mp4', 20 * MB, 'video/mp4'))
   await waitFor(() => expect(chipStatuses()).toEqual(['error', 'done']))
 
   const first = chipEls()[0]
@@ -231,8 +255,8 @@ test('실패한 동안 다른 파일이 붙어 합계 여유가 줄었으면, �
   await waitFor(() => expect(chipEls()[0]).toHaveTextContent('25MB를 넘어요'))
   expect(chipEls()[0]).toHaveAttribute('data-status', 'error')
   expect(within(chipEls()[0]).queryByTestId('mail-compose-attachment-retry')).not.toBeInTheDocument()
-  // 다시 올리지 않았다 — 업로드 요청은 처음 두 번뿐.
-  expect(uploads.held).toHaveLength(2)
+  // 다시 올리지 않았다 — 업로드 요청은 처음 3번(자동 재시도 포함)과 둘째 파일 1번뿐.
+  expect(uploads.held).toHaveLength(4)
   expect(screen.getByTestId('mail-compose-attachments-total')).toHaveTextContent('첨부 1개 · 실패 1 · 20.0 MB / 25 MB')
 })
 
@@ -271,6 +295,7 @@ test('전달 인용문의 본문 이미지도 합계에 들어가고, 인용문�
 
 // 서버 4xx 는 다시 올려도 같다 — 서버 문구를 칩에 보이고 다시 시도를 달지 않는다.
 test('서버가 4xx 로 거절한 업로드는 서버 문구를 보이고 다시 시도를 달지 않는다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   const uploads = holdUploads()
   const view = await openNew([uploads.handler])
   await attach(view, new File(['ZIP'], '큰파일.zip', { type: 'application/zip' }))
@@ -279,6 +304,101 @@ test('서버가 4xx 로 거절한 업로드는 서버 문구를 보이고 다시
   await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'error'))
   expect(chipEls()[0]).toHaveTextContent('파일 하나는 25MB까지 올릴 수 있어요')
   expect(within(chipEls()[0]).queryByTestId('mail-compose-attachment-retry')).not.toBeInTheDocument()
+  // 4xx 는 자동 재시도도 하지 않는다 — 한참 지나도 요청은 1번.
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(uploads.held).toHaveLength(1)
+})
+
+// 일시 실패(5xx·네트워크)는 사용자가 누르기 전에 자동으로 다시 올린다(WP-1738) — 대기 동안은 실패 칩 없이 올리는 중으로 둔다.
+test('일시 실패(5xx)한 업로드는 자동으로 다시 올려 성공하면 완료 칩이 된다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const uploads = holdUploads()
+  const view = await openNew([uploads.handler])
+  await attach(view, new File(['PDF'], '보고서.pdf', { type: 'application/pdf' }))
+  await uploads.respond(0, 500, { message: 'storage error' })
+  await nextAttempt(uploads, 2, 1000)
+  expect(uploads.held).toHaveLength(2)
+  expect(chipEls()[0]).toHaveAttribute('data-status', 'uploading')
+  expect(within(chipEls()[0]).queryByTestId('mail-compose-attachment-retry')).not.toBeInTheDocument()
+
+  await uploads.respond(1, 201, uploaded(821, '보고서.pdf', 3))
+  await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'done'))
+  expect(screen.getByTestId('mail-compose-send')).toBeEnabled()
+})
+
+test('자동 재시도 2번도 실패하면 실패 칩에 다시 시도가 붙는다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const uploads = holdUploads()
+  const view = await openNew([uploads.handler])
+  await attach(view, new File(['PDF'], '보고서.pdf', { type: 'application/pdf' }))
+  await failAllAttempts(uploads)
+  await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'error'))
+  expect(chipEls()[0]).toHaveTextContent('올리지 못했어요')
+  expect(within(chipEls()[0]).getByTestId('mail-compose-attachment-retry')).toBeInTheDocument()
+  // 더는 자동으로 올리지 않는다.
+  await vi.advanceTimersByTimeAsync(4000)
+  expect(uploads.held).toHaveLength(3)
+})
+
+// 보고된 모양 — 두 파일 중 두 번째만 일시 실패.
+test('두 파일 중 두 번째가 일시 실패해도 자동 재시도로 둘 다 올라간다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const uploads = holdUploads()
+  const view = await openNew([uploads.handler])
+  await attach(view, new File(['A'], 'a.pdf', { type: 'application/pdf' }), new File(['B'], 'b.pdf', { type: 'application/pdf' }))
+  await uploads.respond(0, 201, uploaded(831, 'a.pdf', 1))
+  await uploads.respond(1, 503, { message: 'unavailable' })
+  await nextAttempt(uploads, 3, 1000)
+  await uploads.respond(2, 201, uploaded(832, 'b.pdf', 1))
+  await waitFor(() => expect(chipStatuses()).toEqual(['done', 'done']))
+})
+
+test('자동 재시도를 기다리는 동안 ✕ 를 누르면 다시 올리지 않는다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const uploads = holdUploads()
+  const view = await openNew([uploads.handler])
+  await attach(view, new File(['PDF'], '보고서.pdf', { type: 'application/pdf' }))
+  await uploads.respond(0, 500, { message: 'storage error' })
+  await view.user.click(screen.getByRole('button', { name: '보고서.pdf 첨부 빼기' }))
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(uploads.held).toHaveLength(1)
+  expect(chipEls()).toHaveLength(0)
+})
+
+test('다시 시도가 또 일시 실패하면 다시 자동 재시도한다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const uploads = holdUploads()
+  const view = await openNew([uploads.handler])
+  await attach(view, new File(['PDF'], '보고서.pdf', { type: 'application/pdf' }))
+  await failAllAttempts(uploads)
+  await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'error'))
+  await view.user.click(within(chipEls()[0]).getByTestId('mail-compose-attachment-retry'))
+  await uploads.respond(3, 500, { message: 'storage error' })
+  await nextAttempt(uploads, 5, 1000)
+  expect(uploads.held).toHaveLength(5)
+  await uploads.respond(4, 201, uploaded(841, '보고서.pdf', 3))
+  await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'done'))
+})
+
+// 오프라인이면 재시도 횟수를 쓰지 않고 online 이 될 때까지 기다린다(WP-1738).
+test('오프라인이면 online 이 될 때까지 다시 올리지 않고, 돌아오면 이어서 올린다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const online = vi.spyOn(navigator, 'onLine', 'get')
+  const uploads = holdUploads()
+  const view = await openNew([uploads.handler])
+  await attach(view, new File(['PDF'], '보고서.pdf', { type: 'application/pdf' }))
+  online.mockReturnValue(false)
+  await uploads.respond(0, 500, { message: 'storage error' })
+  // 지연(1초)보다 한참 지나도 오프라인이라 요청은 1번 — 칩은 올리는 중.
+  await vi.advanceTimersByTimeAsync(10000)
+  expect(uploads.held).toHaveLength(1)
+  expect(chipEls()[0]).toHaveAttribute('data-status', 'uploading')
+
+  online.mockReturnValue(true)
+  window.dispatchEvent(new Event('online'))
+  await nextAttempt(uploads, 2, 1000)
+  await uploads.respond(1, 201, uploaded(851, '보고서.pdf', 3))
+  await waitFor(() => expect(chipEls()[0]).toHaveAttribute('data-status', 'done'))
 })
 
 // 올리는 중 ✕ — 업로드 요청을 실제로 끊고(XHR abort) 칩을 지우며 보내기를 푼다.
@@ -423,4 +543,23 @@ test('붙여 넣은 캡처는 올리는 동안 발송을 막고, 보낼 때 cid 
   expect(body.bodyHtml).not.toContain('/api/v1/files/701/content')
   expect(body.attachmentIds).toEqual([701])
   expect(body.inlineUploads).toEqual([{ attachmentId: 701, contentId: 'pasted-701@genia-works' }])
+})
+
+// 붙여 넣은 캡처도 일시 실패는 자동으로 다시 올린다(WP-1738) — 오류 알림 없이 그림이 올라간다.
+test('붙여 넣은 캡처가 일시 실패(5xx)해도 자동으로 다시 올려 성공한다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const uploads = holdUploads()
+  const view = await openNew([
+    uploads.handler,
+    http.get('/api/v1/files/702/content', () => new HttpResponse('PNG', { headers: { 'content-type': 'image/png' } })),
+  ])
+  await view.user.click(screen.getByTestId('mail-composer-body'))
+  pasteImage()
+  await screen.findByTestId('mail-body-image')
+  await uploads.respond(0, 500, { message: 'storage error' })
+  await nextAttempt(uploads, 2, 1000)
+  await uploads.respond(1, 201, { id: 702, name: 'image.png', size: 68, mimeType: 'image/png', expiresAt: '2026-10-26T10:00:00Z' })
+  await waitFor(() => expect(screen.getByTestId('mail-body-image')).not.toHaveAttribute('data-pending'))
+  expect(screen.queryByText('올리지 못했어요')).not.toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })

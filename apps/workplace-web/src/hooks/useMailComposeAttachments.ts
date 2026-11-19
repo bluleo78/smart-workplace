@@ -63,7 +63,11 @@ export function useMailComposeAttachments(reservedBytes = 0) {
     [update],
   );
 
-  /** 파일 하나 올리기 — 칩은 이미 uploading 으로 들어가 있다. */
+  /**
+   * 파일 하나 올리기 — 칩은 이미 uploading 으로 들어가 있다.
+   * 일시 실패의 자동 재시도·오프라인 대기는 uploadComposeAttachment 가 맡고, 그동안 칩은 올리는 중으로 남는다(진행률만 0 으로 돌아간다).
+   * 재시도 중에도 controller 가 aborts 에 남아 있어 ✕·reset·닫기가 대기와 재시도를 함께 멈춘다.
+   */
   const upload = useCallback(
     (key: string, file: File) => {
       const controller = new AbortController();
@@ -74,10 +78,10 @@ export function useMailComposeAttachments(reservedBytes = 0) {
       })
         .then((res) => patch(key, { status: 'done', progress: 100, id: res.id }))
         .catch((err) => {
-          // 빼기·닫기로 취소한 업로드는 칩이 이미 없으니 실패로 표시하지 않는다.
+          // 빼기·닫기로 취소한 업로드(재시도 대기 중 포함)는 칩이 이미 없으니 실패로 표시하지 않는다.
           if (axios.isCancel(err)) return;
           // 4xx(파일당 25MB 초과 등)는 다시 올려도 같으므로 서버 문구만 보이고 다시 시도를 달지 않는다.
-          // 네트워크·5xx 는 일시 실패라 짧은 문구 + 다시 시도.
+          // 자동 재시도까지 실패한 네트워크·5xx 는 짧은 문구 + 다시 시도.
           const permanent = isPermanentClientStatus(axios.isAxiosError(err) ? err.response?.status : undefined);
           patch(key, {
             status: 'error',
@@ -85,6 +89,7 @@ export function useMailComposeAttachments(reservedBytes = 0) {
             retryable: !permanent,
           });
         })
+        // 업로드(재시도 포함)가 끝났을 때만 취소기를 지운다.
         .finally(() => {
           if (aborts.current.get(key) === controller) aborts.current.delete(key);
         });

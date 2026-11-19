@@ -10,6 +10,7 @@ import axios, { CanceledError } from 'axios'
 
 import { driveApi } from '../../api/drive'
 import type { DriveFile, DriveUploadSession } from '../../types/drive'
+import { sleep, waitForOnline } from '../abortableWait'
 import { safeLocalStorage } from '../safeLocalStorage'
 
 /** 이 크기를 넘는 파일만 나눠 올린다 — 작은 파일은 왕복을 늘릴 이유가 없다. */
@@ -48,47 +49,12 @@ export interface UploadDriveFileOptions {
   onProgress?: (percent: number) => void
 }
 
-/** signal 이 끊기면 axios 취소 오류로 reject — 호출부(DrivePage)가 axios.isCancel 로 취소 안내를 고른다. */
-function abortable(signal: AbortSignal | undefined, register: (done: () => void) => () => void): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new CanceledError())
-      return
-    }
-    const onAbort = () => {
-      cleanup()
-      reject(new CanceledError())
-    }
-    const cleanup = register(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    })
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 const defaultDeps: ChunkedUploadDeps = {
   api: driveApi,
   // localStorage 접근 자체가 던질 수 있다(사파리 사생활 보호·저장소 차단) — 그땐(null) 이어 올리기 없이 올린다.
   storage: safeLocalStorage,
-  sleep: (ms, signal) =>
-    abortable(signal, (done) => {
-      const t = setTimeout(done, ms)
-      return () => clearTimeout(t)
-    }),
-  waitForOnline: (signal) => {
-    if (typeof navigator === 'undefined' || navigator.onLine !== false) {
-      return signal?.aborted ? Promise.reject(new CanceledError()) : Promise.resolve()
-    }
-    return abortable(signal, (done) => {
-      const onOnline = () => {
-        window.removeEventListener('online', onOnline)
-        done()
-      }
-      window.addEventListener('online', onOnline)
-      return () => window.removeEventListener('online', onOnline)
-    })
-  },
+  sleep,
+  waitForOnline,
 }
 
 /** 세션 id 를 남기는 키 — 같은 자리에 같은 파일을 다시 고를 때만 이어 올리도록 파일 지문을 넣는다. */
