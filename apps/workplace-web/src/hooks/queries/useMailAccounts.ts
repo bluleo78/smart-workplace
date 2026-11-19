@@ -84,6 +84,7 @@ export function useDeleteMailAccount() {
 export function useTestMailConnection() {
   return useMutation({
     mutationFn: (body: MailAccountRequest) => testMailConnection(body),
+    onError: (e) => handleApiError(e, '연결 테스트에 실패했습니다'),
   });
 }
 
@@ -105,6 +106,7 @@ export function useTestMailConnectionForAccount() {
   return useMutation({
     mutationFn: ({ id, body }: { id: number; body: MailAccountRequest }) =>
       testMailConnectionForAccount(id, body),
+    onError: (e) => handleApiError(e, '연결 테스트에 실패했습니다'),
   });
 }
 

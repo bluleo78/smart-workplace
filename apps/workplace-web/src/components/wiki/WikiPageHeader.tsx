@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils'
 import { isAccessLost, isTerminalStatus, type SyncStatus } from '../../lib/collab/collabStatus'
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
 import { shortAiAttributionLabel } from './wikiAiAttribution'
+import { WikiStarButton } from './WikiStarButton'
 import { WikiSyncStatusChip } from './WikiSyncStatusChip'
 
 /**
@@ -272,6 +273,9 @@ export function WikiPageHeader({
       {shareUi.button}
     </Button>
   )
+  // 즐겨찾기 별(WP-1765) — 현재 페이지(경로의 마지막) 기준. 공유 링크로 들어온 화면은 내 노트 접근이 아니라(서버가 멤버만 받는다)
+  // 두지 않고, 지워졌거나 접근을 잃은 노트도 별을 눌러도 404 뿐이라 감춘다.
+  const starButton = current && !sharedBy && !isAccessLost(syncStatus) ? <WikiStarButton pageId={current.id} /> : null
   // 공유 링크 화면 표시(WP-579) — 스페이스 화면이 아니라 누군가 링크로 보여 준 페이지라는 것.
   const sharedNote = sharedBy && (
     <span
@@ -438,6 +442,7 @@ export function WikiPageHeader({
             )}
             {presence}
             {syncChip}
+            {starButton}
             {shareTarget && <ShareSheetButton target={shareTarget} />}
             {pageMenu}
           </div>
@@ -482,6 +487,7 @@ export function WikiPageHeader({
           {presence}
           {syncChip}
           {shareButton}
+          {starButton}
           {/* WP-1234 🔗 — 지금 노트 링크를 바로 복사. 외부 공유(「공유」)와 다른 일이라 아이콘도 다르다(공유는 Share2). */}
           {shareTarget && <CopyLinkButton target={shareTarget} />}
           {!aiHidden && aiControl}

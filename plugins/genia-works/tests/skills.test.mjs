@@ -1555,3 +1555,35 @@ test('work-loop SKILL.md: 4번이 끼어든 일에 양보를 멈출 지점으로
   assert.ok(s4.includes('맨 앞이 ⓪·①·② 면 지금 이슈를 양보한다'));
   assert.ok(s4.includes('끼어든 일 하나는 같은 부르기에서'));
 });
+
+// WP-1801 — 머지를 막지 않는 지적은 같은 이슈에서 고치고(리뷰 후속), 새 이슈는 범위 밖일 때만, 리뷰 후속은 한 번만.
+const followReviewer = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업 (백그라운드)\n');
+const followReadme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+const includesAll = (text, anchors, label) => {
+  for (const a of anchors) assert.ok(text.includes(a), `${label}: 「${a}」 가 없다`);
+};
+test('process-issue.md: 검토자는 리뷰 지적을 네 갈래로 가르고 한 번만 리뷰 후속으로 돌린다 (WP-1801)', () => {
+  includesAll(followReviewer, ['「고침 요청」', '「리뷰 후속」', '「후속 이슈」', '「이슈 아님」', '`[리뷰 후속]`'], '검토자 절');
+  includesAll(lineWith(followReviewer, '**한 번만**'), ['검토자가 쓴', '사람의 새 요청', '범위 안의', '「이슈 아님('], '한 번만 줄');
+  includesAll(lineWith(followReviewer, '「리뷰 후속」= 이 이슈 범위 안'), ['파일·이유·고칠 방향', '`리뷰 후속: <이슈 키> — <지적 요약>`'], '리뷰 후속 갈래');
+  assert.match(lineWith(followReviewer, '「고침 요청」'), /4번/);
+});
+test('process-issue.md: 리뷰 후속이 남은 이슈는 7번에서 [리뷰 후속] WAITING 이고 통합 PR 은 7번을 가리킨다 — 절차 확인은 리뷰 후속 수정 PR 을 면제한다 (WP-1801)', () => {
+  const notify = lineWith(followReviewer, '7. **알림**');
+  includesAll(notify, ['`[리뷰 후속]`', "state: 'WAITING'", '기차를 켜지 않은 저장소면 `-2` 브랜치의 새 PR 로'], '7번 알림');
+  includesAll(lineWith(followReviewer, '통과하면 5번 확인 뒤'), ['7번의 `[리뷰 후속]` WAITING', '그 이슈마다'], '통합 PR 갈래');
+  assert.ok(lineWith(followReviewer, '**절차 확인**').includes('리뷰 후속 수정 — 앞 PR #'), '절차 확인 면제가 없다');
+  includesAll(lineWith(followReviewer, '다시 부탁받은 PR 이고'), ['처음부터 본다', '`승인한 HEAD` 줄을 지운다'], '새 PR 처음부터 리뷰');
+});
+test('process-issue.md: 개발자는 머지 뒤 [리뷰 후속] 글을 받으면 3번 「이해」 한 곳의 절차로 같은 이슈 키로 고치고 참조는 그곳을 가리킨다 (WP-1801)', () => {
+  const branch = lineWith(pi, 'PR 리뷰 대기 중에 검토자의 글이 왔으면');
+  includesAll(branch, ['`[리뷰 후속]` 글이 있는데', '아직 시작하지 않았으면', '-2', '6번부터', '리뷰 후속 수정 — 앞 PR #', '9번(새 PR', '차례 막힘만', '리뷰 후속이 머지된 뒤 한 번(11번)'], '3번 이해 갈래');
+  assert.ok(!branch.includes('검토자의 마지막 글이'), '마지막 글 기준이 남아 있다');
+  for (const anchor of ['「PR 리뷰 대기」: 새 글을 읽고', '  - 「리뷰 후속 수정」(WP-1801', '  - 「11. 검토 대기」(머지 뒤', '7. **머지 뒤**']) {
+    assert.ok(lineWith(pi, anchor).includes('리뷰 후속 수정'), `「${anchor}」 가 리뷰 후속 수정을 가리키지 않는다`);
+  }
+  assert.ok(lineWith(pi, '7. **머지 뒤**').includes('검토 대기로(리뷰 후속이 남은 이슈는 `[리뷰 후속]` 대기로) 올리면'), '기차 7번 발동 조건에 리뷰 후속 대기가 없다');
+});
+test('README: 리뷰 후속은 같은 이슈에서 한 번만 고친다 (WP-1801)', () => {
+  includesAll(lineWith(followReadme, '`[리뷰 후속]`'), ['같은 이슈', '한 번', '리뷰 후속이 머지된 뒤 검토 대기'], 'README');
+});

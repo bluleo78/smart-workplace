@@ -4,6 +4,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import { Check, Loader2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { type SubmitHandler, useForm } from 'react-hook-form';
@@ -84,6 +85,14 @@ export function MailAccountDialog({
   const testConnExisting = useTestMailConnectionForAccount();
   // 연결 테스트 결과 — 추가 모드에서 저장 가능 여부 판단에 사용
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  // 연결 테스트 진행 잠금(WP-1770) — onTest 는 유효성 검사(form.trigger)를 await 한 뒤에야 mutation 을 시작하므로
+  // 그 사이엔 isPending 이 false 라 두 번째 클릭이 통과했다. ref 는 같은 틱의 두 번째 클릭을 막고,
+  // state 는 검사 중에도 버튼을 비활성·「테스트 중…」으로 보이게 한다(EventDialog submittingRef 와 같은 패턴).
+  const testingRef = useRef(false);
+  const [testing, setTesting] = useState(false);
+  // 열림 세션 번호 — 다이얼로그를 닫았다 다시 열면 올린다. 이전 열림에서 아직 기다리던 onTest 가 늦게 끝나
+  // 새 열림의 잠금을 풀거나 옛 결과(검사 안 한 입력의 통과)를 새 화면에 쓰지 못하게 onTest 가 시작 때의 번호와 비교한다.
+  const testSessionRef = useRef(0);
   // 공급자 선택 — 추가 모드에서만 선택 가능(수정 모드는 기존 provider 고정). null = 아직 고르지 않음.
   const [chosenProvider, setChosenProvider] = useState<MailProvider | null>(null);
   // WP-879: Microsoft 로그인을 켠 워크스페이스는 추가 모드 기본 공급자를 Outlook 으로. 다이얼로그가 페이지에 늘 마운트돼 있어
@@ -197,6 +206,10 @@ export function MailAccountDialog({
   useEffect(() => {
     if (!open) return;
     setTestResult(null);
+    // 열 때마다 새 세션 — 이전 열림의 진행 중 테스트가 남긴 잠금을 끊고, 그 테스트의 늦은 결과·해제는 무시된다
+    testSessionRef.current += 1;
+    testingRef.current = false;
+    setTesting(false);
     // OAuth 팝업 상태도 재오픈 시 idle 로 복귀 — stale 한 error/cancelled 잔존 방지
     setOauthPhase('idle');
     popupRef.current = null;
@@ -239,17 +252,34 @@ export function MailAccountDialog({
 
   /** 연결 테스트 — 먼저 전체 유효성 검사 후 API 호출 */
   const onTest = async () => {
-    const valid = await form.trigger();
-    if (!valid) return;
-    setTestResult(null);
-    // getValues() 는 input 타입(coerce 전)이라 schema.parse 로 output 타입(number 포트) 변환
-    const body = mailAccountSchema.parse(form.getValues());
-    // 수정 모드: 비밀번호 빈 값이면 서버가 저장된 비밀번호로 폴백(#448). 추가 모드: 본문 비밀번호 사용.
-    const result =
-      isEdit && account
-        ? await testConnExisting.mutateAsync({ id: account.id, body })
-        : await testConn.mutateAsync(body);
-    setTestResult(result);
+    // 이미 검사·요청 중이면 무시 — 더블클릭으로 같은 요청이 두 번 나가는 것을 막는다(WP-1770)
+    if (testingRef.current) return;
+    testingRef.current = true;
+    setTesting(true);
+    // 이 호출이 속한 열림 세션 — await 뒤 다이얼로그가 다시 열렸다면(번호가 달라짐) 결과·잠금 해제를 건드리지 않는다
+    const session = testSessionRef.current;
+    try {
+      const valid = await form.trigger();
+      if (!valid) return;
+      setTestResult(null);
+      // getValues() 는 input 타입(coerce 전)이라 schema.parse 로 output 타입(number 포트) 변환
+      const body = mailAccountSchema.parse(form.getValues());
+      // 수정 모드: 비밀번호 빈 값이면 서버가 저장된 비밀번호로 폴백(#448). 추가 모드: 본문 비밀번호 사용.
+      const result =
+        isEdit && account
+          ? await testConnExisting.mutateAsync({ id: account.id, body })
+          : await testConn.mutateAsync(body);
+      if (session === testSessionRef.current) setTestResult(result);
+    } catch (e) {
+      // 요청 실패(axios 오류)는 mutation onError 가 이미 토스트로 알렸으니 삼킨다. 그 밖의 오류(schema.parse 등 코드 결함)는 숨기지 않고 다시 던진다.
+      if (!isAxiosError(e)) throw e;
+    } finally {
+      // 성공·검사 실패·오류 어느 쪽이든 잠금을 풀어 다시 누를 수 있게 한다 — 단 다시 열린 새 세션의 잠금은 건드리지 않는다
+      if (session === testSessionRef.current) {
+        testingRef.current = false;
+        setTesting(false);
+      }
+    }
   };
 
   /** 저장 제출 — 성공 시 다이얼로그 닫기 */
@@ -544,12 +574,10 @@ export function MailAccountDialog({
                   type="button"
                   variant="outline"
                   onClick={() => void onTest()}
-                  disabled={testConn.isPending || testConnExisting.isPending || saving}
+                  disabled={testing || saving}
                   data-testid="mail-test-button"
                 >
-                  {testConn.isPending || testConnExisting.isPending
-                    ? '테스트 중…'
-                    : '연결 테스트'}
+                  {testing ? '테스트 중…' : '연결 테스트'}
                 </Button>
                 <div className="flex gap-2">
                   <Button

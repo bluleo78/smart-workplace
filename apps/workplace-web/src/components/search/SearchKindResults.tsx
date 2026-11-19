@@ -5,12 +5,15 @@ import { Fragment, type UIEvent, useEffect, useRef } from 'react'
 
 import { SEARCH_TABS, type SearchAppId } from './searchApps'
 import type { SearchHit, SearchPage } from './searchProviders'
+import { emptyResultText, kindHasListbox, kindIsFailed, kindIsLoading } from './searchRules'
 import { RetryNotice, RowSkeletons } from './SearchStates'
 
 /** 스크롤 바닥까지 남은 거리(px)가 이보다 작으면 다음 쪽을 받는다. */
 const NEAR_BOTTOM_PX = 80
 
 interface Props {
+  /** 결과 listbox 의 id — 입력의 aria-controls 가 가리킨다(WP-1753). */
+  listboxId: string
   app: SearchAppId
   term: string
   /** 지금 화면이 속한 앱 — 같으면 끝에 「다른 앱에서도 찾기」를 보인다. */
@@ -21,7 +24,7 @@ interface Props {
   onGoAll: () => void
 }
 
-export function SearchKindResults({ app, term, current, query, hits, rowFor, onGoAll }: Props) {
+export function SearchKindResults({ listboxId, app, term, current, query, hits, rowFor, onGoAll }: Props) {
   const label = SEARCH_TABS.find((t) => t.id === app)?.label ?? ''
 
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -55,18 +58,16 @@ export function SearchKindResults({ app, term, current, query, hits, rowFor, onG
     }
   }
 
-  // 검색어가 짧아 조회하지 않는 앱(idle)은 로딩이 아니라 빈 결과로 보인다.
-  if (query.isPending && !query.isError && query.fetchStatus !== 'idle') return <RowSkeletons count={6} />
-  if (query.isError && hits.length === 0) return <RetryNotice testId="global-search-error" onRetry={() => void query.refetch()} />
-  if (hits.length === 0) {
+  // 로딩·실패·listbox 판정은 입력의 aria-controls 와 같은 searchRules 의 술어를 쓴다(판정이 갈라지지 않게).
+  if (kindIsLoading(query)) return <RowSkeletons count={6} />
+  if (kindIsFailed(query, hits.length)) return <RetryNotice testId="global-search-error" onRetry={() => void query.refetch()} />
+  if (!kindHasListbox(query, hits.length)) {
     return (
       <div
         className="flex flex-col items-center gap-2 px-2 py-8 text-center text-sm text-muted-foreground"
         data-testid="global-search-empty"
       >
-        <p>
-          {label}에 「{term}」와 맞는 것이 없어요
-        </p>
+        <p>{emptyResultText(false, label, term)}</p>
         <button
           type="button"
           data-testid="global-search-go-all"
@@ -80,7 +81,7 @@ export function SearchKindResults({ app, term, current, query, hits, rowFor, onG
   }
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-1" onScroll={onScroll} data-testid="global-search-scroll">
-      <div role="listbox" aria-label={`${label} 검색 결과`}>
+      <div id={listboxId} role="listbox" aria-label={`${label} 검색 결과`}>
         {hits.map((h, i) => (
           <Fragment key={h.key}>
             {/* 그룹이 바뀌는 자리(첫 줄 포함)에 소제목 — 캘린더의 「다가오는 일정」/「지난 일정」 */}

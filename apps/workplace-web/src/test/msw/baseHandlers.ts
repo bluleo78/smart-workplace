@@ -73,6 +73,13 @@ export const mailSettingsBaseHandlers = [http.get(`${API}/mail/settings`, () => 
 /** 노트를 열면 나가는 「최근」 기록(WP-1764) — 기본은 204. 호출을 검증하는 테스트는 자기 핸들러를 앞에 건다. shellHandlers 가 포함하며, 셸을 깔지 않는 화면 테스트는 이것만 펼친다. */
 export const wikiOpenHandlers = [http.post(`${API}/wiki/pages/:id/open`, () => new HttpResponse(null, { status: 204 }))]
 
+// 노트 즐겨찾기(WP-1765) — 머리줄·트리·최근 행의 별 단추가 id 집합을 부른다. 기본은 즐겨찾기 없음.
+// 별 단추·목록을 검증하는 테스트는 자기 응답을 앞에 건다. 노트 화면을 shellHandlers 없이 띄우는 테스트는 이걸 펼쳐 넣는다.
+export const wikiStarHandlers = [
+  http.get(`${API}/wiki/starred/ids`, () => HttpResponse.json({ pageIds: [] })),
+  http.get(`${API}/wiki/starred`, () => HttpResponse.json({ items: [], nextCursor: null })),
+]
+
 /** 앱 셸·공통 부가 조회 빈 기본값 — e2e/fixtures/auth.fixture.ts setupAuthMocks 와 같은 목록. */
 export const shellHandlers = [
   holdEventStream,
@@ -156,6 +163,7 @@ export const shellHandlers = [
   http.get(`${API}/wiki/project-spaces/:key`, () => HttpResponse.json({ message: '노트 공간이 없습니다' }, { status: 404 })),
   http.post(`${API}/ai/suggestions`, () => HttpResponse.json({ items: [], enabled: true })),
   ...wikiOpenHandlers,
+  ...wikiStarHandlers,
   http.get(`${API}/wiki/pages/:id/mentions`, () => HttpResponse.json([])),
   http.get(`${API}/wiki/pages/:id/summary`, () =>
     HttpResponse.json({ summary: null, status: 'TOO_SHORT', summaryVersion: null, pageVersion: 1, summarizedAt: null }),

@@ -31,7 +31,7 @@ import { SearchKindResults } from './SearchKindResults'
 import { SEARCH_PALETTE_HISTORY_KEY, type SearchPaletteSession } from './searchPaletteStore'
 import type { SearchHit } from './searchProviders'
 import { SearchResultRow } from './SearchResultRow'
-import { moveActive, newTabHint, SEARCH_DEBOUNCE_MS } from './searchRules'
+import { allHasListbox, kindHasListbox, moveActive, newTabHint, SEARCH_DEBOUNCE_MS, searchResultAnnouncement } from './searchRules'
 import { useSearchQueries } from './useSearchQueries'
 
 interface Props {
@@ -145,6 +145,33 @@ function PaletteBody({
   const settled = term === trimmed && !fetching
   const showResults = searchable && trimmed.length > 0
 
+  // 화면 읽기 프로그램용 결과 안내(WP-1753) — 보이는 결과·빈 문구와 같은 말을 sr-only status 로 알린다.
+  // 자리 잡기 전(타이핑·디바운스·로딩 중)에는 빈 문구라 이전 검색어의 건수를 읽지 않는다.
+  const isAll = tab === 'all'
+  const tabLabel = SEARCH_TABS.find((t) => t.id === tab)?.label ?? ''
+  const count = visible.length
+  // 처음 그릴 때 이미 문구가 들어 있으면 live region 이 마운트된 채 채워져 읽히지 않는 리더가 많다(검색어를 채워 연 경우, WP-1356) —
+  // 마운트 뒤에 채우도록 첫 렌더는 빈 문구로 둔다.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 0)
+    return () => clearTimeout(t)
+  }, [])
+  const announcement = searchResultAnnouncement({
+    showResults: showResults && mounted,
+    settled,
+    tabLabel,
+    isAll,
+    count,
+    more: !isAll && !!kind.hasNextPage,
+    failed: isAll ? groups.some((g) => g.isError) : kind.isError,
+    term,
+  })
+  // 결과 컴포넌트가 role=listbox 를 실제로 그리는 조건과 같은 판정을 쓴다(전체: 로딩·묶음 실패도 그림, 종류: 줄이 있을 때만) —
+  // 없는 id 를 aria-controls 로 가리키거나 팝업이 없는데 펼침으로 알리지 않게.
+  const listboxId = `${listId}-list`
+  const hasListbox = showResults && (isAll ? allHasListbox(groups) : kindHasListbox(kind, count))
+
   // 고른 줄이 보이게 스크롤(jsdom 에는 없어 optional).
   useEffect(() => {
     if (active >= 0) document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: 'nearest' })
@@ -257,9 +284,10 @@ function PaletteBody({
           data-testid="global-search-input"
           role="combobox"
           aria-label="통합 검색"
-          aria-expanded={showResults}
-          aria-controls={listId}
-          aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
+          aria-expanded={hasListbox}
+          aria-autocomplete="list"
+          aria-controls={hasListbox ? listboxId : undefined}
+          aria-activedescendant={hasListbox && active >= 0 ? `${listId}-${active}` : undefined}
           placeholder="모든 앱에서 찾기"
           // GET 요청 줄 길이 상한(WP-732) — 긴 본문을 붙여 넣어도 서버가 요청을 거절하지 않게 자른다.
           maxLength={SEARCH_QUERY_MAX_LENGTH}
@@ -309,8 +337,11 @@ function PaletteBody({
           </button>
         ))}
       </div>
+      {/* 결과 건수 안내 — 결과 영역 밖에 두어 탭을 바꿔도 같은 노드로 남는다(내용 변화만 읽힌다). */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="global-search-status">
+        {announcement}
+      </div>
       <div
-        id={listId}
         className="flex min-h-0 flex-1 flex-col"
         // 휴대폰 — 결과를 손가락으로 밀면 입력을 놓아 키보드를 내린다(안쪽 어느 스크롤 영역이든 여기까지 올라온다).
         // onScroll 이 아닌 이유: 무한 스크롤·고른 줄 scrollIntoView 도 스크롤을 일으켜 타이핑 중 키보드가 내려간다.
@@ -326,9 +357,10 @@ function PaletteBody({
             }}
           />
         ) : tab === 'all' ? (
-          <SearchAllResults order={order} groups={groups} term={term} rowFor={rowFor} onOpenTab={changeTab} />
+          <SearchAllResults listboxId={listboxId} order={order} groups={groups} term={term} rowFor={rowFor} onOpenTab={changeTab} />
         ) : (
           <SearchKindResults
+            listboxId={listboxId}
             app={tab}
             term={term}
             current={current}

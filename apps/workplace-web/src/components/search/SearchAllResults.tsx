@@ -5,10 +5,12 @@ import type { ReactNode } from 'react'
 
 import { SEARCH_TABS, type SearchAppId } from './searchApps'
 import { dedupeHits, pickGroupHits, type SearchHit, type SearchPage } from './searchProviders'
-import { GROUP_SIZE } from './searchRules'
+import { allHasListbox, emptyResultText, GROUP_SIZE, isSkippedQuery } from './searchRules'
 import { RetryNotice, RowSkeletons } from './SearchStates'
 
 interface Props {
+  /** 결과 listbox 의 id — 입력의 aria-controls 가 가리킨다(WP-1753). */
+  listboxId: string
   order: SearchAppId[]
   groups: UseQueryResult<SearchPage, Error>[]
   term: string
@@ -17,26 +19,23 @@ interface Props {
   onOpenTab: (app: SearchAppId) => void
 }
 
-export function SearchAllResults({ order, groups, term, rowFor, onOpenTab }: Props) {
-  // 모든 묶음이 끝났는데 한 건도 없고 실패도 없으면 빈 화면 문구.
-  // 검색어가 짧아 아직 조회하지 않는 앱(한 글자 번호는 이슈만)은 대기 중이 아니라 건너뛴 것으로 본다.
-  const skipped = (g: UseQueryResult<SearchPage, Error>) => g.isPending && g.fetchStatus === 'idle'
-  const allDone = groups.every((g) => !g.isPending || skipped(g))
-  const total = groups.reduce((n, g) => n + (g.data?.hits.length ?? 0), 0)
-  if (allDone && total === 0 && groups.every((g) => !g.isError)) {
+export function SearchAllResults({ listboxId, order, groups, term, rowFor, onOpenTab }: Props) {
+  // 모든 묶음이 끝났는데 한 건도 없고 실패도 없으면 빈 화면 문구(판정은 입력의 aria-controls 와 공유 — allHasListbox).
+  // 검색어가 짧아 아직 조회하지 않는 앱(한 글자 번호는 이슈만)은 대기 중이 아니라 건너뛴 것으로 본다(isSkippedQuery).
+  if (!allHasListbox(groups)) {
     return (
       <p className="px-2 py-8 text-center text-sm text-muted-foreground" data-testid="global-search-empty">
-        모든 앱에 「{term}」와 맞는 것이 없어요
+        {emptyResultText(true, '전체', term)}
       </p>
     )
   }
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-1" data-testid="global-search-scroll">
-      <div role="listbox" aria-label="전체 검색 결과">
+      <div id={listboxId} role="listbox" aria-label="전체 검색 결과">
         {order.map((app, i) => {
           const q = groups[i]
           const label = SEARCH_TABS.find((t) => t.id === app)?.label ?? ''
-          if (skipped(q)) return null
+          if (isSkippedQuery(q)) return null
           // 대화 묶음은 이름 2 + 메시지 1 로 나눈다(WP-1358). 묶음 안에서는 소제목 없이 줄만 — 줄 모양(보낸 사람·# 채널)으로 구분된다.
           const hits = pickGroupHits(app, dedupeHits(q.data?.hits ?? []))
           // 0건 묶음은 숨긴다(성공한 빈 응답만 — 로딩·실패는 자리를 보인다).

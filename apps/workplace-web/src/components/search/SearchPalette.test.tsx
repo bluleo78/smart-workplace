@@ -722,3 +722,66 @@ test('전체 탭 대화 묶음 — 메시지만 2건이면 1건만 보이고 「
   expect(within(group).getAllByRole('option')).toHaveLength(1)
   expect(screen.getByTestId('global-search-more-chat')).toBeInTheDocument()
 })
+
+// WP-1753: 입력은 자동완성 목록을 가진 combobox 로 읽히고, controls 는 실제로 그려진 listbox 만 가리킨다.
+test('입력은 aria-autocomplete="list" 이고 결과가 보이면 aria-controls 가 결과 listbox 를 가리킨다', async () => {
+  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: [wikiHandler([wikiRow(1), wikiRow(2)]), ...emptyApis()] })
+  const input = await openPalette(user)
+  expect(input).toHaveAttribute('aria-autocomplete', 'list')
+  fireEvent.change(input, { target: { value: '배포' } })
+  await screen.findByTestId('global-search-hit-wiki:1')
+  const controlsId = input.getAttribute('aria-controls')
+  expect(controlsId).toBeTruthy()
+  expect(document.getElementById(controlsId as string)).toHaveAttribute('role', 'listbox')
+  fireEvent.change(input, { target: { value: '' } })
+  expect(input).not.toHaveAttribute('aria-controls')
+})
+
+// WP-1753: 건수는 보이는 결과와 같은 말을 sr-only status 로 알린다. status 는 탭 전환에도 같은 노드라 새 탭 건수가 읽힌다.
+test('결과가 자리 잡으면 건수를 status 로 알리고 Tab 으로 탭을 바꾸면 새 탭 건수를 알린다', async () => {
+  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: [wikiHandler([wikiRow(1), wikiRow(2)]), ...emptyApis()] })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  const status = screen.getByTestId('global-search-status')
+  await waitFor(() => expect(status).toHaveTextContent(/^전체 결과 \d+건$/))
+  expect(status).toHaveAttribute('role', 'status')
+  expect(status).toHaveAttribute('aria-live', 'polite')
+  await user.keyboard('{Tab}')
+  await waitFor(() => expect(status).toHaveTextContent('AI 대화에 「배포」와 맞는 것이 없어요'))
+  expect(screen.getByTestId('global-search-status')).toBe(status)
+})
+
+test('결과가 없으면 status 가 보이는 빈 문구와 같은 말을 알리고 controls 를 걸지 않는다', async () => {
+  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: emptyApis() })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '없는말' } })
+  expect(await screen.findByTestId('global-search-empty')).toHaveTextContent('모든 앱에 「없는말」와 맞는 것이 없어요')
+  expect(screen.getByTestId('global-search-status')).toHaveTextContent('모든 앱에 「없는말」와 맞는 것이 없어요')
+  expect(input).not.toHaveAttribute('aria-controls')
+})
+
+test('입력 직후 디바운스 전에는 이전 결과 건수를 알리지 않는다', async () => {
+  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: [wikiHandler([wikiRow(1)]), ...emptyApis()] })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  const status = screen.getByTestId('global-search-status')
+  await waitFor(() => expect(status).toHaveTextContent(/^전체 결과 \d+건$/))
+  fireEvent.change(input, { target: { value: '배포 문서' } })
+  expect(status.textContent).toBe('')
+})
+
+// WP-1753: 검색어를 채워 연(WP-1356) 팔레트는 결과가 캐시에 있으면 첫 렌더부터 건수가 나올 수 있어, status 가 마운트된 채 채워지면 읽히지 않는다 — 첫 렌더는 빈 문구.
+test('캐시된 결과가 있는 검색어를 채워 다시 열면 status 는 처음엔 비어 있다가 마운트 뒤 건수를 알린다', async () => {
+  renderScreen(<SearchPaletteHost />, { path: '/', handlers: [wikiHandler([wikiRow(1)]), ...emptyApis()] })
+  // 처음 열어 결과를 받아 캐시를 데운다.
+  act(() => openSearchPalette({ q: '배포' }))
+  const first = await screen.findByTestId('global-search-status')
+  await waitFor(() => expect(first).toHaveTextContent(/^전체 결과 \d+건$/))
+  act(() => closeSearchPalette())
+  await waitFor(() => expect(screen.queryByTestId('global-search-status')).toBeNull())
+  // 같은 검색어로 다시 연다 — 결과는 캐시에 있어 settled 라도, 마운트 직후 첫 렌더의 status 는 비어 있어야 한다.
+  act(() => openSearchPalette({ q: '배포' }))
+  const status = screen.getByTestId('global-search-status')
+  expect(status.textContent).toBe('')
+  await waitFor(() => expect(status).toHaveTextContent(/^전체 결과 \d+건$/))
+})

@@ -488,3 +488,23 @@ export interface WikiRecentPage {
   items: WikiRecentItem[]
   nextCursor: string | null
 }
+
+/** 노트 「즐겨찾기」 한 줄(WP-1765) — 공간을 가로질러 내가 별표한 페이지. 서버 WikiStarredPageItem. */
+export interface WikiStarredItem {
+  pageId: number
+  title: string
+  spaceId: number
+  spaceName: string
+  /** 공간 루트 → 부모 순 조상 제목. 루트 직속이면 빈 배열. */
+  ancestorTitles: string[]
+  /** 즐겨찾기한 시각(UTC ISO). */
+  starredAt: string
+  /** 노트 화면 절대 주소 — 「링크 복사」가 그대로 쓴다. */
+  url: string
+}
+
+/** 「즐겨찾기」 한 쪽 — nextCursor 가 null 이면 끝. */
+export interface WikiStarredPage {
+  items: WikiStarredItem[]
+  nextCursor: string | null
+}

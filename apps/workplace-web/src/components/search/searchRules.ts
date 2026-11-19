@@ -90,3 +90,84 @@ export function stripHtmlTags(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, '&')
 }
+
+/** 결과 안내 문구를 만드는 입력 — 화면이 가진 탭·건수·실패 여부를 그대로 넘긴다. */
+export interface SearchAnnouncementInput {
+  /** 결과 목록을 보여 주는 중인가(검색어가 보낼 만하고 결과 화면일 때). */
+  showResults: boolean
+  /** 이번 검색 응답이 확정됐나(로딩 중 이전 결과로 안내하지 않도록). */
+  settled: boolean
+  /** 현재 탭 이름(「전체」·「작업」·「드라이브」 …). */
+  tabLabel: string
+  /** 「전체」 탭인가 — 없음 문구가 앱 전체를 가리키도록. */
+  isAll: boolean
+  /** 받은 건수. */
+  count: number
+  /** 건수 뒤에 더 있는가 — 있으면 「이상」을 붙인다. */
+  more: boolean
+  /** 검색 요청이 실패했나. */
+  failed: boolean
+  /** 검색어 — 없음 문구에 쓴다. */
+  term: string
+}
+
+/**
+ * 스크린 리더에 알릴 결과 안내 문구. 화면이 안 보이거나 응답이 아직 확정되지 않았으면 빈 문자열을 준다.
+ * 건수가 있으면 건수를 우선하고, 건수가 0일 때만 실패·없음 문구를 고른다 — 실패 때 이전 건수를 알리지 않으려고.
+ */
+export function searchResultAnnouncement(input: SearchAnnouncementInput): string {
+  const { showResults, settled, tabLabel, isAll, count, more, failed, term } = input
+  if (!showResults || !settled) return ''
+  if (count > 0) return `${tabLabel} 결과 ${count}건${more ? ' 이상' : ''}`
+  // 건수 0 이고 요청이 실패했으면 「없음」이 아니라 불러오지 못했다고 알린다(없는 것으로 오해하지 않게).
+  if (failed) return '검색 결과를 불러오지 못했어요'
+  return emptyResultText(isAll, tabLabel, term)
+}
+
+/**
+ * 결과가 없을 때의 문구 — 화면(전체·종류 결과 컴포넌트)과 스크린 리더 안내가 같은 말을 쓰도록 한 곳에 둔다.
+ * 전체 탭은 앱 전체, 종류 탭은 그 탭 안에서 맞는 것이 없다고 나눈다.
+ */
+export function emptyResultText(isAll: boolean, tabLabel: string, term: string): string {
+  return isAll ? `모든 앱에 「${term}」와 맞는 것이 없어요` : `${tabLabel}에 「${term}」와 맞는 것이 없어요`
+}
+
+/** 검색 질의 상태 중 listbox 판정에 필요한 부분 — UseQueryResult 가 구조적으로 만족한다. */
+export interface ListboxQueryState {
+  isPending: boolean
+  isError: boolean
+  fetchStatus: string
+}
+
+/** 검색어가 짧아 아직 조회하지 않는 앱 — 대기 중이 아니라 건너뛴 것으로 본다. */
+export function isSkippedQuery(g: Pick<ListboxQueryState, 'isPending' | 'fetchStatus'>): boolean {
+  return g.isPending && g.fetchStatus === 'idle'
+}
+
+/**
+ * 전체 탭이 role=listbox 를 그리는가 — 모든 묶음이 끝났는데 한 건도 없고 실패도 없으면 빈 문구만 그리고 listbox 는 없다.
+ * 로딩 skeleton·묶음 실패(다시 시도)는 listbox 안에 그려진다. 결과 컴포넌트와 입력의 aria-controls/expanded 가 같은 판정을 쓰게 한다.
+ */
+export function allHasListbox(groups: (ListboxQueryState & { data?: { hits: unknown[] } })[]): boolean {
+  const allDone = groups.every((g) => !g.isPending || isSkippedQuery(g))
+  const total = groups.reduce((n, g) => n + (g.data?.hits.length ?? 0), 0)
+  return !(allDone && total === 0 && groups.every((g) => !g.isError))
+}
+
+/** 종류 탭이 첫 응답을 기다리는 중인가 — 로딩 skeleton 을 그린다. 조회하지 않는 앱(idle)은 로딩이 아니라 빈 결과로 보인다. */
+export function kindIsLoading(query: ListboxQueryState): boolean {
+  return query.isPending && !query.isError && query.fetchStatus !== 'idle'
+}
+
+/** 종류 탭이 받은 줄 없이 실패했는가 — 다시 시도 안내를 그린다(이미 받은 줄이 있으면 목록을 유지). */
+export function kindIsFailed(query: ListboxQueryState, hitCount: number): boolean {
+  return query.isError && hitCount === 0
+}
+
+/**
+ * 종류 탭이 role=listbox 를 그리는가 — 로딩 skeleton·실패 안내·빈 문구가 아니라 줄이 있을 때만 그린다.
+ * 결과 컴포넌트의 분기도 같은 kindIsLoading·kindIsFailed 를 써서 판정이 갈라지지 않는다.
+ */
+export function kindHasListbox(query: ListboxQueryState, hitCount: number): boolean {
+  return !kindIsLoading(query) && !kindIsFailed(query, hitCount) && hitCount > 0
+}
