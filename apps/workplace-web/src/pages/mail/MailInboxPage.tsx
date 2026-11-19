@@ -14,6 +14,7 @@ import { FilterLine } from '@/components/filter/FilterLine'
 import { Breadcrumb } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { GeniaWorksSenderMark } from '@/components/mail/GeniaWorksSenderMark'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
@@ -55,6 +56,7 @@ import { mailSubjectText } from '@/lib/mailSubject'
 import { firstSummaryLine } from '@/lib/mailSummary'
 import { permanentDeleteState } from '@/lib/mailTrashActions'
 import { mailBreadcrumbItems, mailBreadcrumbText, mailClassificationActive, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { SELECTED_BG_CLASS } from '@/lib/selectionStyles'
 import type { ShareTarget } from '@/lib/shareTarget'
@@ -1177,11 +1179,16 @@ function MessageDetailPanel({
 export function MailInboxPage() {
   const { accountId } = useParams()
   const [params] = useSearchParams()
-  const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
+  const accountsQuery = useMailAccounts()
+  const { data: accounts, isLoading: accountsLoading } = accountsQuery
+  // WP-1761: 실패 뒤 재조회 중 TanStack Query 는 data 없는 쿼리를 pending 으로 되돌린다. failedWithoutData(data 없는 실패)면
+  // 로딩 자리표시를 쓰지 않는다 — 사이드바 다시 시도 중 이미 그려진 MailInbox 를 「불러오는 중…」으로 갈아 끼우면 안 된다.
+  // 이미 받은 목록이 있으면(백그라운드 재조회 실패) 화면을 덮지 않으므로 이 판정은 거짓이다. 실패 분기는 로딩 분기보다 먼저 둔다.
+  const accountsFailed = failedWithoutData(accountsQuery)
   // 주소의 계정이 내 계정 목록에 없으면(없는 번호·남의 계정·/mail/abc) 메일함을 열지 않는다 — 열면 빈 목록의
   // 「동기화를 눌러보세요」나 소용없는 「다시 시도」만 보인다(WP-926). 계정 목록을 못 불러온 경우는 판단하지 않고 그대로 둔다.
   if (accountId) {
-    if (accountsLoading) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
+    if (accountsLoading && !accountsFailed) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
     if (accounts && !accounts.some((a) => String(a.id) === accountId)) {
       // 연결된 계정이 하나도 없으면 /mail 의 「연결된 메일 계정이 없습니다」 안내로 보낸다.
       if (accounts.length === 0) return <Navigate to="/mail" replace />
@@ -1247,7 +1254,12 @@ function MailInbox() {
 
   // 계정·폴더 전환은 사이드바 navigate 가 search 를 새로 쓰며 messageId 를 함께 지운다 — 별도 리셋 이펙트 불요(WP-206).
 
-  const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
+  // WP-1761: 계정 목록 조회 실패를 첫 화면에서 「계정 없음」 빈 상태와 구분한다. 쿼리 결과를 통째로 둔다 —
+  // LoadErrorState 가 다시 시도·잠금을 여기서 꺼낸다(판정 설명은 위 MailInboxPage 의 같은 훅 주석 참고).
+  const accountsQuery = useMailAccounts()
+  const { data: accounts, isLoading: accountsLoading } = accountsQuery
+  // WP-1761: 한 번만 계산해 아래 첫 화면 분기에 쓴다.
+  const accountsFailed = failedWithoutData(accountsQuery)
   const accountIdNum = accountId ? Number(accountId) : undefined
 
   // WP-186: URL → 보기 해석(사이드바와 같은 규칙). 계수 로딩·실패 중에는 계정 목록의 분류 상태로 본다(WP-1674, 사이드바와 동일).
@@ -1860,6 +1872,34 @@ function MailInbox() {
   }
   // accountId 미지정 → 첫 계정으로 이동. 계정이 없으면 안내.
   if (!accountId) {
+    // WP-1761: 목록을 못 받았을 땐 「연결된 계정 없음」으로 오해하지 않게 공용 실패 안내 + 다시 시도(실패 분기가 로딩보다 먼저인 이유는 위 주석).
+    if (accountsFailed) {
+      // 숨은 h1(데스크톱)은 안내와 같은 부모 안에 둔다 — LoadErrorState 가 성공 뒤 초점을 부모 영역 안에서 옮기기 때문.
+      const errorState = (
+        <LoadErrorState
+          title="메일 계정을 불러오지 못했습니다"
+          queries={[accountsQuery]}
+          testId="mail-accounts-error"
+          className="flex-1"
+        />
+      )
+      if (isMobile) {
+        // 모바일: 탭 루트 헤더(「메일」)는 유지, ☰ 는 계정이 없어 시트에 볼 게 없으니 숨긴다.
+        return (
+          <Page>
+            <Page.Header title="메일" mobileHideSheetTrigger />
+            {errorState}
+          </Page>
+        )
+      }
+      return (
+        <div className="flex flex-1 flex-col">
+          {/* 헤더가 없어 화면 이름을 숨은 h1 로 둔다(WP-816 과 동일). */}
+          <h1 className="sr-only">메일</h1>
+          {errorState}
+        </div>
+      )
+    }
     if (accountsLoading) {
       return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
     }
