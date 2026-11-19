@@ -4,7 +4,7 @@
 
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Paperclip } from 'lucide-react';
-import { type MouseEvent, useContext } from 'react';
+import { type MouseEvent, useCallback, useContext } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -83,8 +83,18 @@ export function IssueCard({
     // IssueListRow(role=row) 선례와 같은 「드래그 가능한 이슈」 설명을 쓴다. tabIndex 는 키보드 끌기·드롭 뒤 포커스 잇기 때문에 그대로 둔다.
     attributes: { role: 'group', roleDescription: DRAGGABLE_ISSUE_ROLE_DESCRIPTION },
   });
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     sortable;
+  // 카드 루트를 드래그 시작 요소(activator node)로 지정한다(WP-1785, IssueListRow 와 같은 패턴).
+  // 왜: 지정이 없으면 자손(⋯ 메뉴 단추 등)에서 버블된 Space keydown 도 키보드 센서가 드래그 시작으로 받아
+  //     preventDefault 해, 단추의 기본 동작(메뉴 열기)이 막혔다. 지정하면 카드 자체에 초점이 있을 때만 시작한다.
+  const rootRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      setNodeRef(el);
+      setActivatorNodeRef(el);
+    },
+    [setNodeRef, setActivatorNodeRef],
+  );
 
   // 드래그 중 원본은 placeholder 만 남기고 visible 한 카드는 DragOverlay 가 그린다.
   const style = asOverlay
@@ -107,7 +117,7 @@ export function IssueCard({
 
   return (
     <div
-      ref={asOverlay ? undefined : setNodeRef}
+      ref={asOverlay ? undefined : rootRef}
       style={style}
       // 드래그 불가면 dnd-kit 속성(role·aria-roledescription·aria-disabled)도 붙이지 않는다 — 끌 수 없는 카드를
       // 정렬 가능으로 안내하지 않게(카드 이동은 오버레이 Link 가 담당). 데스크톱도 aria-disabled="true" 가 카드와 안의 「상세 보기」

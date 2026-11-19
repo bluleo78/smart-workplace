@@ -258,4 +258,20 @@ describe('이슈 카드 메뉴 — 보드', () => {
     await user.pointer({ keys: '[MouseRight]', target: screen.getByTestId('issue-card-7') })
     expect(await screen.findByTestId('row-menu-copy-key')).toHaveTextContent('WP-7')
   })
+
+  test('카드 ⋯ 에 초점을 두고 Space 를 누르면 메뉴가 열린다(WP-1785)', async () => {
+    const { user } = await open('board')
+    act(() => screen.getByTestId('issue-card-8-menu').focus())
+    await user.keyboard(' ')
+    expect(await screen.findByTestId('issue-row-menu')).toBeInTheDocument()
+  })
+
+  test('카드 자체에 초점을 두고 Space 를 누르면 여전히 집힌다', async () => {
+    const { user } = await open('board')
+    act(() => screen.getByTestId('issue-card-8').focus())
+    await user.keyboard(' ')
+    // 드래그 시작 판정 — 안내 live region 은 곧바로 onDragOver 문구로 덮이므로, 원본 카드가 placeholder(opacity 0.4)가 되는 것으로 본다.
+    await waitFor(() => expect(screen.getByTestId('issue-card-8')).toHaveStyle({ opacity: '0.4' }))
+    await user.keyboard('{Escape}')
+  })
 })
