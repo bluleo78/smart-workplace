@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import { type ComposePlacement, useMailCompose } from '@/components/mail/MailComposeContext';
 import { handleApiError } from '@/lib/api-error';
 import {
-  forgetMailComposePopout,
   liveMailComposePopout,
   MAIL_COMPOSE_WINDOW_ID,
   mailComposeWindowUrl,
@@ -93,6 +92,12 @@ export function useMailDraftCount(accountId: number | undefined) {
 }
 
 /**
+ * 새 창을 빈 채로 열어 두고 임시저장을 받는 중인 id → 그 빈 창. 훅 인스턴스(목록·도크 등)마다 따로 두면 다른 곳에서 누른 같은 행을
+ * 못 알아보므로, 같은 창 안에서 공유하게 모듈 수준에 둔다. 받기가 끝나 창 주소를 정하면 rememberMailComposePopout 으로 넘기고 여기서 뺀다.
+ */
+const fetchingDraftWindows = new Map<number, Window>();
+
+/**
  * 임시저장을 작성창으로 연다 — 상세 패널이 아니라 작성창이 그 내용으로 열린다.
  * - 같은 임시저장이 이미 열려 있으면 새로 열지 않고 그 창을 앞으로 가져온다(최소화 해제). force 면(충돌 「다시 불러오기」) 서버 내용으로 다시 연다.
  * - 받기에 실패하면 토스트로 알리고 지금 작성은 그대로 둔다.
@@ -108,6 +113,19 @@ export function useOpenMailDraft() {
   const qc = useQueryClient();
   const { openCompose, focusDraft, isMovingToWindow, getComposeDefault } = useMailCompose();
   return async (id: number, opts: { force?: boolean; placement?: ComposePlacement; beforeOpen?: () => void } = {}) => {
+    // 빈 창을 열고 임시저장을 받는 중에 같은 행을 다시 눌렀다 — 아직 쓰는 중이 아니라 안내 없이 그 빈 창만 앞으로 가져온다(받기가 실패할 수 있다).
+    // force(충돌 「다시 불러오기」)는 서버 내용으로 다시 여는 것이라 조회 중이라는 이유로 건너뛰지 않는다.
+    const fetching = opts.force ? undefined : fetchingDraftWindows.get(id);
+    if (fetching && !fetching.closed) {
+      try {
+        fetching.focus();
+      } catch {
+        /* 창 전환을 막았다 — 조용히 둔다 */
+      }
+      return;
+    }
+    // 받는 중 표시의 창이 이미 닫혔다 — 앞 호출은 닫힌 줄 알고 곧 그만둔다. 표시를 빼고 아래로 이어 새 빈 창을 연다.
+    if (fetching) fetchingDraftWindows.delete(id);
     // 이 창이 새 창으로 옮긴 임시저장이 아직 그 창에서 쓰이고 있으면(WP-1535) 두 번째 편집기를 열지 않고 그 창을 앞으로 가져온다.
     // 브라우저가 창 전환을 막을 수 있어(성공 여부를 알 수 없다) 어디서 쓰는 중인지 토스트로도 알린다.
     const popout = liveMailComposePopout(id);
@@ -137,28 +155,34 @@ export function useOpenMailDraft() {
         blocked = true;
         placement = 'default-inline';
       } else {
-        // 받는 동안에도 같은 행을 다시 누르면 두 번째 창을 열지 않고 이 창을 앞으로 가져오게, 창을 연 바로 뒤에 기억한다.
-        rememberMailComposePopout(id, blankWin);
+        // 받는 동안에도 같은 행을 다시 누르면 두 번째 창을 열지 않고 이 창을 앞으로 가져오게, 창을 연 바로 뒤에 받는 중으로 적어 둔다.
+        // 받기가 성공하기 전에는 「쓰는 중」으로 기억하지 않는다 — 실패하면 그 안내가 거짓이 된다.
+        fetchingDraftWindows.set(id, blankWin);
       }
     }
     if (blankWin) {
       const win = blankWin;
       try {
-        await qc.fetchQuery(mailDraftQuery(id));
-      } catch (e) {
-        // 지워진 임시저장 등 — 빈 창은 닫고 메인 창에서 알린다(새 창 안에서 실패하지 않게). 기억도 지워 다시 누르면 다시 연다.
-        forgetMailComposePopout(id);
-        win.close();
-        handleApiError(e, '임시저장을 불러오지 못했어요');
-        return;
+        try {
+          await qc.fetchQuery(mailDraftQuery(id));
+        } catch (e) {
+          // 지워진 임시저장 등 — 빈 창은 닫는다(새 창 안에서 실패하지 않게). 이 호출의 빈 창을 사용자가 이미 닫았거나 다른 호출이 그 자리를
+          // 넘겨받았으면(맵이 다른 창을 가리킨다) 그만둔 일의 늦은 실패라 알리지 않는다. 아니면 메인 창에서 알린다.
+          const superseded = win.closed || fetchingDraftWindows.get(id) !== win;
+          win.close();
+          if (!superseded) handleApiError(e, '임시저장을 불러오지 못했어요');
+          return;
+        }
+        // 받는 동안 사용자가 빈 창을 닫았다 — 그만둔 것이라 메인 창에 열지 않는다(↗ 와 같은 규칙).
+        if (win.closed) return;
+        // 받기가 끝났다 — 이제부터 그 창이 쓰는 중이다(받는 중 표시는 아래 finally 가 뺀다).
+        rememberMailComposePopout(id, win);
+        opts.beforeOpen?.();
+        win.location.href = mailComposeWindowUrl(id, { opener: MAIL_COMPOSE_WINDOW_ID });
+      } finally {
+        // 어느 길로 끝나든 받는 중 표시가 이 창 것이면 뺀다(실패 뒤 다시 누르면 다시 연다. 다른 호출이 넘겨받았으면 건드리지 않는다).
+        if (fetchingDraftWindows.get(id) === win) fetchingDraftWindows.delete(id);
       }
-      // 받는 동안 사용자가 빈 창을 닫았다 — 그만둔 것이라 메인 창에 열지 않는다(↗ 와 같은 규칙).
-      if (win.closed) {
-        forgetMailComposePopout(id);
-        return;
-      }
-      opts.beforeOpen?.();
-      win.location.href = mailComposeWindowUrl(id, { opener: MAIL_COMPOSE_WINDOW_ID });
       return;
     }
     try {

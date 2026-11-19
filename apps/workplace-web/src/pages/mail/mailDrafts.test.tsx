@@ -12,7 +12,7 @@ import { useMailCompose } from '@/components/mail/MailComposeContext'
 import { useOpenMailDraft } from '@/hooks/queries/useMailDrafts'
 import { mailSettingsKey } from '@/hooks/queries/useMailSettings'
 import { forgetMailComposePopout, MAIL_COMPOSE_WINDOW_ID, mailComposeWindowUrl } from '@/lib/mailComposeChannel'
-import { composeSettingsHandler } from '@/test/kits/mail/compose-default'
+import { composeSettingsHandler, fakeWindow, gate } from '@/test/kits/mail/compose-default'
 import { composeInPane } from '@/test/kits/mail/compose-pane'
 import { renderMail } from '@/test/kits/mail/testkit-b4'
 import type { MailDraftDetail, MailDraftSaveRequest, MailDraftSummary } from '@/types/mailDraft'
@@ -766,13 +766,6 @@ test('작성창 🗑 의 DELETE 가 실패하면 「되돌리기」 대신 「�
   expect(server.posts).toHaveLength(0)
 })
 
-/** 붙잡아 두는 문 — release 전까지 핸들러가 기다린다. */
-function gate() {
-  let release!: () => void
-  const held = new Promise<void>((r) => (release = r))
-  return { held, release }
-}
-
 // 보내기 두 번 — 진행 중인 임시저장을 기다리는 동안에도 잠겨 한 번만 나가고, 그 draftId 를 싣는다.
 test('보내기를 두 번 눌러도 한 번만 나간다 — 진행 중인 임시저장을 기다리는 동안에도 잠긴다', async () => {
   const server = draftServer([draftDetail({ id: 7, subject: '보낼 메일', to: ['rcpt@test.local'] })])
@@ -1127,7 +1120,7 @@ test('임시보관함_화면에서_기본값_읽기_창이면_우측_하단에_�
 })
 
 test('기본값_WINDOW_이면_임시보관함_행을_누르면_빈_창을_먼저_열고_받은_뒤_그_임시저장_주소로_옮긴다', async () => {
-  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const win = fakeWindow()
   const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
   const server = draftServer([draftDetail({ id: 7, subject: '새 창에서 이어 쓸 메일', version: 1 })])
   const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
@@ -1155,7 +1148,7 @@ test('기본값_WINDOW_이면_임시보관함_행을_누르면_빈_창을_먼저
 })
 
 test('기본값_새_창에서_지워진_임시저장을_열면_빈_창을_닫고_메인_창에서_알린다', async () => {
-  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const win = fakeWindow()
   const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
   const server = draftServer([draftDetail({ id: 7, subject: '지워질 메일', version: 1 })])
   server.override.get = () => HttpResponse.json({ status: 404, message: '임시저장을 찾을 수 없어요', errors: { code: 'DRAFT_NOT_FOUND' } }, { status: 404 })
@@ -1174,7 +1167,7 @@ test('기본값_새_창에서_지워진_임시저장을_열면_빈_창을_닫고
 })
 
 test('기본값_새_창에서_받는_동안_다시_누르면_창을_하나만_연다', async () => {
-  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const win = fakeWindow()
   const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
   const server = draftServer([draftDetail({ id: 7, subject: '두 번 누를 메일', version: 1 })])
   // 임시저장 받기를 붙잡아 둔다 — 받는 중에 같은 행을 다시 누른다.
@@ -1198,6 +1191,59 @@ test('기본값_새_창에서_받는_동안_다시_누르면_창을_하나만_�
   forgetMailComposePopout(7)
 })
 
+test('기본값_새_창_조회_중에_같은_행을_다시_누르면_안내_없이_그_빈_창만_앞으로', async () => {
+  const win = fakeWindow()
+  const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '두 번 누를 메일', version: 1 })])
+  const held = gate()
+  server.override.get = async () => {
+    await held.held
+    return undefined
+  }
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  await view.user.click(screen.getByTestId('mail-draft-row-7'))
+  expect(open).toHaveBeenCalledTimes(1)
+  expect(win.focus).toHaveBeenCalled()
+  // 조회가 끝나기 전에는 아직 쓰는 중이 아니다 — 거짓 안내를 띄우지 않는다.
+  expect(screen.queryByText('이 메일은 새 창에서 쓰는 중이에요')).not.toBeInTheDocument()
+  held.release()
+  await waitFor(() => expect(win.location.href).toBe(`/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`))
+  forgetMailComposePopout(7)
+})
+
+test('기본값_새_창_조회가_404_면_다시_누를_때_쓰는_중이라고_하지_않는다', async () => {
+  const win = fakeWindow()
+  const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '지워질 메일', version: 1 })])
+  server.override.get = () => HttpResponse.json({ status: 404, message: '임시저장을 찾을 수 없어요', errors: { code: 'DRAFT_NOT_FOUND' } }, { status: 404 })
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  await waitFor(() => expect(win.close).toHaveBeenCalledTimes(1))
+  await view.user.click(screen.getByTestId('mail-draft-row-7'))
+  await waitFor(() => expect(open).toHaveBeenCalledTimes(2))
+  expect(screen.queryByText('이 메일은 새 창에서 쓰는 중이에요')).not.toBeInTheDocument()
+})
+
+test('기본값_새_창_조회가_성공하면_그_뒤_다시_누를_때는_그_창을_앞으로', async () => {
+  const win = fakeWindow()
+  const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '쓰는 중 메일', version: 1 })])
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  await waitFor(() => expect(win.location.href).toBe(`/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`))
+  await view.user.click(screen.getByTestId('mail-draft-row-7'))
+  expect(open).toHaveBeenCalledTimes(1)
+  expect(await screen.findByText('이 메일은 새 창에서 쓰는 중이에요')).toBeInTheDocument()
+  forgetMailComposePopout(7)
+})
+
 /** useOpenMailDraft 의 beforeOpen 을 보려고 공급자 안에 두는 시험용 단추 — 기본값대로(default) 임시저장 7 을 연다. */
 function OpenProbe({ onBefore }: { onBefore: () => void }) {
   const openDraft = useOpenMailDraft()
@@ -1209,7 +1255,7 @@ function OpenProbe({ onBefore }: { onBefore: () => void }) {
 }
 
 test('기본값_새_창에서_받은_뒤_beforeOpen_을_부르고_그_주소로_창을_옮긴다', async () => {
-  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const win = fakeWindow()
   vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
   const before = vi.fn()
   const server = draftServer([draftDetail({ id: 7, subject: '옮길 메일', version: 1 })])
@@ -1226,7 +1272,7 @@ test('기본값_새_창에서_받은_뒤_beforeOpen_을_부르고_그_주소로_
 })
 
 test('기본값_새_창에서_받는_동안_빈_창을_닫으면_메인_창에_열지_않는다', async () => {
-  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const win = fakeWindow()
   vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
   const before = vi.fn()
   const server = draftServer([draftDetail({ id: 7, subject: '닫힐 메일', version: 1 })])
@@ -1288,7 +1334,7 @@ function MoveProbe() {
 }
 
 test('새_창으로_옮기는_중인_임시저장을_다시_누르면_안내한다', async () => {
-  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  const win = fakeWindow()
   vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
   const server = draftServer([draftDetail({ id: 7, subject: '옮기는 중', version: 1 })])
   // 옮기려는 저장(PUT)을 붙잡아 둔다 — 그동안 작성창은 감춰져 있다.
@@ -1312,5 +1358,106 @@ test('새_창으로_옮기는_중인_임시저장을_다시_누르면_안내한�
   expect(win.focus).not.toHaveBeenCalled()
   held.release()
   await waitFor(() => expect(win.location.href).toContain('draftId=7'))
+  forgetMailComposePopout(7)
+})
+
+test('조회_중_빈_창을_닫고_다시_누르면_새_창을_연다', async () => {
+  const first = fakeWindow()
+  const second = fakeWindow()
+  const open = vi.spyOn(window, 'open').mockReturnValueOnce(first as unknown as Window).mockReturnValueOnce(second as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '창을 닫고 다시 누를 메일', version: 1 })])
+  // 임시저장 받기를 붙잡아 둔다 — 받는 중에 사용자가 빈 창을 닫고 같은 행을 다시 누른다.
+  const held = gate()
+  server.override.get = async () => {
+    await held.held
+    return undefined
+  }
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  expect(open).toHaveBeenCalledTimes(1)
+  first.closed = true
+  await view.user.click(screen.getByTestId('mail-draft-row-7'))
+  // 닫힌 창을 앞으로 가져오고 끝내지 않고 새 빈 창을 연다.
+  expect(open).toHaveBeenCalledTimes(2)
+  expect(first.focus).not.toHaveBeenCalled()
+  held.release()
+  await waitFor(() => expect(second.location.href).toBe(`/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`))
+  expect(screen.queryByText('이 메일은 새 창에서 쓰는 중이에요')).not.toBeInTheDocument()
+  expect(first.location.href).toBe('')
+  forgetMailComposePopout(7)
+})
+
+/** 충돌 「다시 불러오기」처럼 force 로 임시저장 7 을 여는 시험용 단추 — 기본값(default) 배치로 beforeOpen 을 본다. */
+function ForceOpenProbe({ onBefore }: { onBefore: () => void }) {
+  const openDraft = useOpenMailDraft()
+  return (
+    <button data-testid="probe-force" onClick={() => void openDraft(7, { force: true, placement: 'default', beforeOpen: onBefore })}>
+      force
+    </button>
+  )
+}
+
+test('조회_중이어도_다시_불러오기는_건너뛰지_않는다', async () => {
+  const win = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const before = vi.fn()
+  const forceBefore = vi.fn()
+  const server = draftServer([draftDetail({ id: 7, subject: '다시 불러올 메일', version: 1 })])
+  const held = gate()
+  server.override.get = async () => {
+    await held.held
+    return undefined
+  }
+  const view = renderMail('/mail/1?folder=drafts', {
+    extra: (
+      <>
+        <OpenProbe onBefore={before} />
+        <ForceOpenProbe onBefore={forceBefore} />
+      </>
+    ),
+    handlers: [...server.handlers, composeSettingsHandler('WINDOW')],
+  })
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+
+  // 기본값 새 창으로 7번을 조회 중인 사이 force 로 7번을 연다 — 빈 창 앞으로 가져오고 끝내면 안 된다.
+  await view.user.click(await screen.findByTestId('probe-open'))
+  await view.user.click(screen.getByTestId('probe-force'))
+  expect(win.focus).not.toHaveBeenCalled()
+  held.release()
+  await waitFor(() => expect(forceBefore).toHaveBeenCalledTimes(1))
+  forgetMailComposePopout(7)
+})
+
+test('빈_창을_닫고_다시_누른_뒤_첫_조회가_실패해도_오류를_띄우지_않는다', async () => {
+  const first = fakeWindow()
+  const second = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValueOnce(first as unknown as Window).mockReturnValueOnce(second as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '늦게 실패할 메일', version: 1 })])
+  const view = renderDrafts(server, '/mail/1?folder=drafts', [composeSettingsHandler('WINDOW')])
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+  // 첫 조회만 붙잡았다가 실패시킨다(같은 키 조회는 하나로 합쳐지므로 첫 호출만 가로챈다). 두 번째 호출은 실제로 받는다.
+  const held = gate()
+  const real = view.queryClient.fetchQuery.bind(view.queryClient)
+  let intercepted = false
+  vi.spyOn(view.queryClient, 'fetchQuery').mockImplementation(((opts: { queryKey: readonly unknown[] }) => {
+    if (!intercepted && JSON.stringify(opts.queryKey).includes('7')) {
+      intercepted = true
+      return held.held.then(() => {
+        throw new Error('조회 실패')
+      })
+    }
+    return real(opts as never)
+  }) as unknown as typeof view.queryClient.fetchQuery)
+
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  first.closed = true
+  await view.user.click(screen.getByTestId('mail-draft-row-7'))
+  held.release()
+  await waitFor(() => expect(second.location.href).toBe(`/mail/compose?draftId=7&opener=${MAIL_COMPOSE_WINDOW_ID}`))
+  // 그만둔 첫 창의 늦은 실패는 알리지 않고, 두 번째 창은 그대로 둔다.
+  expect(screen.queryByText('임시저장을 불러오지 못했어요')).not.toBeInTheDocument()
+  expect(second.close).not.toHaveBeenCalled()
   forgetMailComposePopout(7)
 })
