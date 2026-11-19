@@ -103,6 +103,11 @@ RUN update-ca-certificates
 # Claude 이미지와 같은 플러그인 목록(WP-1336)을 Claude Code 로 홈(~/.claude/plugins — genia 가 여기서 읽는다)에 굳힌다. 버전이 lock 과 다르면 빌드 실패다.
 # genia-works 는 아래 genia 확장으로 따로 싣으므로 받지 않는다(두 번 실리지 않게). 네트워크로 오래 걸려 자주 바뀌는 COPY 보다 앞에 둔다(캐시).
 # 이 단계에 필요한 공용 함수(lib.sh — Claude Code 이미지의 것)만 먼저 COPY 한다. 작업 화면(agent-screen)은 뒤의 bin/ 과 함께(캐시).
+# CVE-2026-114938(Java4Shell) 완화: x86 AVX-512 VBMI 노드에서 java.util.Base64 디코드 인트린직이 힙 밖으로 쓴다.
+# 에이전트가 띄우는 모든 JVM(검증용 api, Gradle, 테스트)에 걸리도록 ENTRYPOINT 가 아니라 ENV 로 둔다.
+# Ubuntu 수정판 openjdk-21(21.0.13.1+) 로 바뀐 뒤에도 남겨 둬도 된다 — Base64 처리만 조금 느려진다.
+ENV JAVA_TOOL_OPTIONS=-XX:-UseBASE64Intrinsics
+
 COPY --chmod=755 apps/workplace-agent-claude-code/bin/lib.sh /opt/genia/bin/lib.sh
 COPY apps/workplace-agent-claude-code/plugins.lock /opt/genia/plugins.lock
 

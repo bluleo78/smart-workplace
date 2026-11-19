@@ -110,6 +110,11 @@ RUN set -eux; \
     mkdir -p /work/tmp /work/.cache /work/.gradle /work/.pnpm-store /work/agents /run/genia; \
     chown -R 1001:1001 /work
 
+# CVE-2026-114938(Java4Shell) 완화: x86 AVX-512 VBMI 노드에서 java.util.Base64 디코드 인트린직이 힙 밖으로 쓴다.
+# 에이전트가 띄우는 모든 JVM(검증용 api, Gradle, 테스트)에 걸리도록 ENTRYPOINT 가 아니라 ENV 로 둔다.
+# Ubuntu 수정판 openjdk-21(21.0.13.1+) 로 바뀐 뒤에도 남겨 둬도 된다 — Base64 처리만 조금 느려진다.
+ENV JAVA_TOOL_OPTIONS=-XX:-UseBASE64Intrinsics
+
 COPY bin/ /opt/genia/bin/
 COPY plugins.lock /opt/genia/plugins.lock
 RUN chmod 755 /opt/genia/bin/entrypoint /opt/genia/bin/agent-screen

@@ -100,6 +100,11 @@ RUN set -eux; \
 # 외부 스킬로 읽고, 링크 폴더 안의 스킬 폴더까지 찾는다 — superpowers·frontend-design). 명령(commands)·에이전트 형식은 스킬이 아니라 읽지 못한다. 버전이 lock 과 다르면 빌드 실패다.
 # genia-works 는 아래에서 구동기와 함께 따로 굳히므로 받지 않는다. 네트워크로 오래 걸리므로 자주 바뀌는 것(OpenCode 버전·COPY)보다 앞에 둔다(캐시) —
 # 그래서 이 단계에 필요한 공용 함수(lib.sh)·lock 만 먼저 COPY 한다.
+# CVE-2026-114938(Java4Shell) 완화: x86 AVX-512 VBMI 노드에서 java.util.Base64 디코드 인트린직이 힙 밖으로 쓴다.
+# 에이전트가 띄우는 모든 JVM(검증용 api, Gradle, 테스트)에 걸리도록 ENTRYPOINT 가 아니라 ENV 로 둔다.
+# Ubuntu 수정판 openjdk-21(21.0.13.1+) 로 바뀐 뒤에도 남겨 둬도 된다 — Base64 처리만 조금 느려진다.
+ENV JAVA_TOOL_OPTIONS=-XX:-UseBASE64Intrinsics
+
 COPY --chmod=755 apps/workplace-agent-claude-code/bin/lib.sh /opt/genia/bin/lib.sh
 COPY apps/workplace-agent-claude-code/plugins.lock /opt/genia/plugins.lock
 
