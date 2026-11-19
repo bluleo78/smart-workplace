@@ -6,6 +6,7 @@ import static com.workplace.issue.service.SearchParams.trimToNull;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiTaskCounts;
 import com.workplace.issue.dto.AiTaskCursor;
+import com.workplace.issue.dto.AiTaskFamily;
 import com.workplace.issue.dto.AiTaskGroup;
 import com.workplace.issue.dto.AiTaskProject;
 import com.workplace.issue.dto.IssueRecurrenceSummary;
@@ -80,14 +81,16 @@ public class AiTaskSearchService {
     for (int i = 0; i < items.size(); i++) {
       AiTaskRow r = rows.get(i);
       // 에픽 번호가 없으면 프로젝트의 「에픽 없음」 묶음(WP-1211) — 모든 행이 머리 줄 하나 아래에 놓인다.
+      AiTaskFamily family = familyOf(r);
       AiTaskGroup g =
           r.epicNumber() == null
-              ? AiTaskGroup.noEpic(r.groupSize())
+              ? AiTaskGroup.noEpic(r.groupSize(), family)
               : new AiTaskGroup(
                   r.epicNumber(),
                   r.groupSize(),
                   childCount.getOrDefault(r.groupKey(), 0),
-                  childDone.getOrDefault(r.groupKey(), 0));
+                  childDone.getOrDefault(r.groupKey(), 0),
+                  family);
       // 이름이 없으면(이론상 없음 — 활성 프로젝트만 조회됨) 키로 대신한다(웹 밖 소비자도 빈 머리를 받지 않게). size 는 필터 후 그 프로젝트 행 수.
       String pName =
           nameById.getOrDefault(r.row().projectId(), keyById.getOrDefault(r.row().projectId(), ""));
@@ -165,5 +168,20 @@ public class AiTaskSearchService {
         SearchParams.priorities(p.get("priority")),
         cursor,
         size);
+  }
+
+  /**
+   * 행의 가족 정보(WP-1800) — 머리(familyKey == 자기 id)이면서 하위가 있으면 가족 최근 보고·무소식, 머리가 결과에 있는 하위면 머리 번호, 그
+   * 밖(단독 행·머리 없는 깊은 사슬의 하위)은 null — 웹이 단독 행으로 그린다.
+   */
+  private static AiTaskFamily familyOf(AiTaskRow r) {
+    boolean isHead = r.familyKey() == r.row().id();
+    if (isHead && r.familySize() > 1) {
+      return new AiTaskFamily(null, r.familyLiveAt(), r.familyStale());
+    }
+    if (!isHead && r.familyHeadNumber() != null) {
+      return new AiTaskFamily(r.familyHeadNumber(), null, null);
+    }
+    return null;
   }
 }

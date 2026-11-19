@@ -23,6 +23,7 @@ import {
 } from '../../../e2e/factories/agentWork.factory'
 import { createAiAgentsResponse, createAiAgentStatus, createAiAgentWork } from '../../../e2e/factories/aiAgent.factory'
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { familyRows } from '../../../e2e/fixtures/ai-tasks-family'
 import { GROUPED_ROWS } from '../../../e2e/fixtures/ai-tasks-groups'
 import { projectRows } from '../../../e2e/fixtures/ai-tasks-projects'
 import AiDelegatedTasksPage from './AiDelegatedTasksPage'
@@ -377,6 +378,47 @@ describe('AI 위임 작업 빈·실패 상태', () => {
     await user.click(within(error).getByRole('button', { name: '다시 시도' }))
     await screen.findByTestId('ai-row-412')
     expect(screen.queryByTestId('ai-tasks-error')).not.toBeInTheDocument()
+  })
+})
+
+describe('AI 위임 작업 가족(WP-1800)', () => {
+  // 하위 행은 머리 행 바로 뒤에 한 단계 더 들여쓰고(pl-10) 부모 칩이 없다. 부모가 목록에 없는 하위는 단독 행 + 부모 칩.
+  test('하위 행은 머리 행 바로 다음에 더 들여쓰이고 부모 칩이 없다', async () => {
+    renderAiTasks('/me/ai-tasks', familyRows())
+    const head = await screen.findByTestId('ai-row-501')
+    const sub = screen.getByTestId('ai-row-502')
+    expect(head.nextElementSibling).toBe(sub)
+    expect(sub.querySelector('.pl-10')).not.toBeNull()
+    expect(head.querySelector('.pl-5')).not.toBeNull()
+    expect(screen.queryByTestId('issue-row-502-parent')).not.toBeInTheDocument()
+    expect(rowOrder()).toEqual(['ai-row-501', 'ai-row-502', 'ai-row-503'])
+    expect(screen.getByTestId('issue-row-503-parent')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-row-503').querySelector('.pl-10')).toBeNull()
+  })
+
+  // 손자(부모가 머리 아닌 하위)는 같은 들여쓰기라 실제 부모를 칩으로 남긴다.
+  test('손자 행은 머리 아래 들여쓰이되 실제 부모 칩을 남긴다', async () => {
+    renderAiTasks('/me/ai-tasks', familyRows(false, true))
+    await screen.findByTestId('ai-row-501')
+    expect(rowOrder()).toEqual(['ai-row-501', 'ai-row-502', 'ai-row-504', 'ai-row-503'])
+    expect(screen.getByTestId('ai-row-504').querySelector('.pl-10')).not.toBeNull()
+    expect(screen.getByTestId('issue-row-504-parent')).toHaveTextContent('502')
+    expect(screen.queryByTestId('issue-row-502-parent')).not.toBeInTheDocument()
+  })
+
+  // 머리의 마지막 보고는 가족 기준(30분 전), 정체가 아니면 경고 없음 / 정체면 경고.
+  test('머리의 마지막 보고는 가족 값이고 stale 에 따라 경고가 붙는다', async () => {
+    renderAiTasks('/me/ai-tasks', familyRows(false))
+    const last = await screen.findByTestId('ai-row-501-last')
+    expect(last).toHaveTextContent('30분 전')
+    expect(last).not.toHaveAttribute('title', STALE_TOOLTIP)
+  })
+
+  test('가족 stale 이면 머리의 마지막 보고에 경고가 붙는다', async () => {
+    renderAiTasks('/me/ai-tasks', familyRows(true))
+    const last = await screen.findByTestId('ai-row-501-last')
+    expect(last).toHaveTextContent('30분 전')
+    expect(last).toHaveAttribute('title', STALE_TOOLTIP)
   })
 })
 

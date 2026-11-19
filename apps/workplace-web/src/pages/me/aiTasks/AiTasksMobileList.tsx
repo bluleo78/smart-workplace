@@ -22,17 +22,17 @@ import { splitByProject } from '@/lib/projectRuns'
 import { cn } from '@/lib/utils'
 import type { IssueResponse } from '@/types/issue'
 
-import { type AiTaskEntry, groupAiTasks } from './aiTaskGroups'
+import { type AiTaskEntry, familyLastReport, groupAiTasks } from './aiTaskGroups'
 import { AiTaskAssignee } from './AiTasksTable'
 import { EpicHeadTitle, NoEpicHeadTitle } from './EpicHeadTitle'
 
 /** 기존 모바일 행 그대로(묶음 안에서도 같은 모양). */
-function MobileRow({ it }: { it: IssueResponse }) {
+function MobileRow({ it, depth = 1 }: { it: IssueResponse; depth?: 1 | 2 }) {
   const w = primaryWork(it.agentWork)
   const state = displayState(it)
   const tid = `ai-row-${it.id}`
   return (
-    <li className="border-b px-1 py-2.5" data-testid={tid}>
+    <li className={cn('border-b px-1 py-2.5', depth === 2 && 'pl-10')} data-testid={tid}>
       <div className="flex min-w-0 items-start gap-2">
         <span className="mt-0.5 shrink-0"><IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} /></span>
         <div className="min-w-0 flex-1">
@@ -61,7 +61,8 @@ function MobileRow({ it }: { it: IssueResponse }) {
               {it.recurrence && <RecurrenceMarker recurrence={it.recurrence} className="shrink-0" data-testid={`${tid}-recurrence`} />}
               {w && <AgentToolChip tool={w.tool} data-testid={`${tid}-tool`} />}
               {w && <AgentProgress w={w} variant="text" hideEmpty className="shrink-0" data-testid={`${tid}-progress`} />}
-              {w && <AgentLastReport w={w} className="shrink-0" endedLabel data-testid={`${tid}-last`} />}
+              {/* 가족 머리는 하위까지 본 최근 보고 기준(WP-1800). */}
+              {w && <AgentLastReport w={familyLastReport(it, w)} className="shrink-0" endedLabel data-testid={`${tid}-last`} />}
             </div>
             <AiTaskAssignee issue={it} work={w} />
           </div>
@@ -121,7 +122,13 @@ export function AiTasksMobileList({ items }: { items: IssueResponse[] }) {
               ) : (
                 <Fragment key={e.key}>
                   {mobileGroupHead(e)}
-                  {e.children.map((c) => <MobileRow key={c.id} it={c} />)}
+                  {/* 진행 중인 하위(WP-1800)는 머리 카드 바로 뒤에 들여써 잇는다. */}
+                  {e.children.map((c) => (
+                    <Fragment key={c.id}>
+                      <MobileRow it={c} />
+                      {e.subRows[c.id]?.map((s) => <MobileRow key={s.id} it={s} depth={2} />)}
+                    </Fragment>
+                  ))}
                 </Fragment>
               ),
             )}

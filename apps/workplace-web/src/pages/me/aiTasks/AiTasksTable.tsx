@@ -28,7 +28,7 @@ import { isInactiveUser, withInactiveSuffix } from '@/lib/userStatus'
 import { cn } from '@/lib/utils'
 import type { AgentWorkView, IssueResponse } from '@/types/issue'
 
-import { type AiTaskEntry, groupAiTasks } from './aiTaskGroups'
+import { type AiTaskEntry, familyLastReport, groupAiTasks } from './aiTaskGroups'
 import { EpicHeadTitle, NoEpicHeadTitle } from './EpicHeadTitle'
 
 const DASH = <span className="text-muted-foreground">—</span>
@@ -111,14 +111,15 @@ function AiCells({ it, tid }: { it: IssueResponse | null; tid: string }) {
       <td className={PROGRESS_COL_CLASS}>{w ? <AgentProgress w={w} data-testid={`${tid}-progress`} /> : DASH}</td>
       <td className="pr-2"><AiTaskAssignee issue={it} work={w} testId={`${tid}-assignee`} /></td>
       <td className={TOOL_COL_CLASS}>{w?.tool ? <AgentToolChip tool={w.tool} className="max-w-full" data-testid={`${tid}-tool`} /> : DASH}</td>
-      <td>{w && w.state !== 'SUBMITTED' ? <AgentLastReport w={w} data-testid={`${tid}-last`} /> : DASH}</td>
+      {/* 가족 머리 행은 하위까지 본 가장 최근 보고 시각·정체 여부로 보인다(WP-1800). */}
+      <td>{w && w.state !== 'SUBMITTED' ? <AgentLastReport w={familyLastReport(it, w)} data-testid={`${tid}-last`} /> : DASH}</td>
     </>
   )
 }
 
 /** 일반 행 — inGroup 이면 제목 칸만 들여쓴다. 에픽 묶음 하위는 부모 칩을 숨기고(이슈 목록 groupBy epic 의 hideEpic 과 같은 규칙),
  *  「에픽 없음」 묶음 하위(showParent — 다른 프로젝트 에픽·비에픽 부모, WP-1211)는 머리가 부모를 말하지 않으니 칩을 남긴다. */
-function AiTaskRow({ it, inGroup, showParent = !inGroup }: { it: IssueResponse; inGroup: boolean; showParent?: boolean }) {
+function AiTaskRow({ it, inGroup, showParent = !inGroup, depth = 1 }: { it: IssueResponse; inGroup: boolean; showParent?: boolean; depth?: 1 | 2 }) {
   const tid = `ai-row-${it.id}`
   return (
     <tr className="row-divider hover:bg-accent" data-testid={tid}>
@@ -127,7 +128,7 @@ function AiTaskRow({ it, inGroup, showParent = !inGroup }: { it: IssueResponse; 
       <td className="font-mono text-muted-foreground">{it.projectKey}-{it.number}</td>
       {/* overflow-hidden — 표 min-w 가 제목 최소 몫을 지키지만, 부모 칩·하위 진행 표시처럼 더 붙는 행이 옆 칸을 덮지 않게 안전망으로 자른다. */}
       <td className="overflow-hidden">
-        <div className={cn('flex min-w-0 items-center gap-2 pr-4', inGroup && 'pl-5')}>
+        <div className={cn('flex min-w-0 items-center gap-2 pr-4', inGroup && (depth === 2 ? 'pl-10' : 'pl-5'))}>
           {it.type && (
             <span className="shrink-0"><IssueTypeBadge type={it.type} size="sm" iconOnly /></span>
           )}
@@ -227,7 +228,14 @@ export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; 
                 ) : (
                   <Fragment key={e.key}>
                     {groupHead(e)}
-                    {e.children.map((c) => <AiTaskRow key={c.id} it={c} inGroup showParent={e.kind === 'noEpic'} />)}
+                    {/* 진행 중인 하위(WP-1800)는 머리 행 바로 뒤에 한 단계 더 들여써(depth 2) 잇는다. 부모가 머리면 바로 위라 칩을 숨기고,
+                        손자(부모가 머리 아닌 하위)는 같은 들여쓰기라 실제 부모를 칩으로 남긴다. */}
+                    {e.children.map((c) => (
+                      <Fragment key={c.id}>
+                        <AiTaskRow it={c} inGroup showParent={e.kind === 'noEpic'} />
+                        {e.subRows[c.id]?.map((s) => <AiTaskRow key={s.id} it={s} inGroup showParent={s.parent?.number !== c.number} depth={2} />)}
+                      </Fragment>
+                    ))}
                   </Fragment>
                 ),
               )}

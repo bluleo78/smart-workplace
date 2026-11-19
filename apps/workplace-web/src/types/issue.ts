@@ -117,6 +117,15 @@ export interface AiTaskGroup {
   size: number
   epicChildCount: number
   epicChildDoneCount: number
+  // 부모·하위 가족 정보(WP-1800) — 가족이 아닌 행은 생략.
+  family?: AiTaskFamily | null
+}
+
+/** AI 위임 작업 가족(WP-1800) — 머리 행은 lastReportAt·stale(가족 전체의 최근 보고), 하위·손자 행은 머리의 이슈 번호 headNumber. */
+export interface AiTaskFamily {
+  headNumber?: number | null
+  lastReportAt?: string | null
+  stale?: boolean | null
 }
 
 /** AI 위임 작업 행의 프로젝트 정보(WP-426) — /me/ai-tasks 만 싣는다. size 는 필터 적용 후 그 프로젝트의 전체 행 수(불러온 수가 아님). */

@@ -112,7 +112,11 @@ public class AgentWorkRepository {
         .and(AGENT_WORK.NEXT_RUN_AT.le(staleBefore()));
   }
 
-  private static Field<OffsetDateTime> staleBefore() {
+  /**
+   * 무소식 기준 시각 — DB 시계의 지금에서 {@link #STALE_AFTER} 를 뺀 값. WP-1800 부터 AI 위임 작업 목록이 가족(부모·하위) 최근 보고의
+   * 무소식 판정에 같은 기준을 쓰도록 공개한다.
+   */
+  public static Field<OffsetDateTime> staleBefore() {
     return DSL.field(
         "now() - make_interval(secs => {0})", OffsetDateTime.class, STALE_AFTER.toSeconds());
   }

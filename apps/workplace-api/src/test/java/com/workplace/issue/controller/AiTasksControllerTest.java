@@ -589,7 +589,8 @@ class AiTasksControllerTest extends IntegrationTestBase {
     Instant ok = Instant.parse("2026-05-22T03:14:00Z");
     for (String bad : new String[] {"+1000000000-01-01T00:00:00Z", "+10000-01-01T00:00:00Z"}) {
       String cursor =
-          new com.workplace.issue.dto.AiTaskCursor(0, ok, 1, 0, ok, 1, 0, 0, Instant.parse(bad), 9)
+          new com.workplace.issue.dto.AiTaskCursor(
+                  0, ok, 1, 0, ok, 1, 0, 0, ok, 1, 0, 0, Instant.parse(bad), 9)
               .encode();
       assertThat(status("/api/v1/me/ai-tasks?cursor=" + cursor)).isEqualTo(400);
     }
@@ -717,7 +718,8 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   @Test
   void 부모가_에픽이_아니면_에픽_없음_묶음에_든다() throws Exception {
-    // 비에픽(TASK) 부모 아래 하위 — 부모·하위 모두 프로젝트의 「에픽 없음」 묶음(WP-1211), 묶음 안은 급한 순.
+    // 비에픽(TASK) 부모 아래 하위 — 부모·하위 모두 프로젝트의 「에픽 없음」 묶음(WP-1211). WP-1800 부터 K 는 부모 P 의 가족이라 더 급해도
+    // 머리 P 바로 뒤에 온다(가족 자리는 가장 급한 K 의 순위로 잡힌다).
     long p = issue("P", me);
     long k = issue("K", me);
     setParent(k, p);
@@ -727,7 +729,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(k, agent, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(20)));
 
     JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
-    assertThat(titles(body)).containsExactly("K", "P");
+    assertThat(titles(body)).containsExactly("P", "K");
     body.get("items")
         .forEach(
             it -> {
@@ -739,7 +741,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
   @Test
   void 에픽_스토리_하위태스크면_하위태스크는_조부모_에픽_묶음에_든다_WP1692() throws Exception {
     // 에픽 E › 스토리 St(TASK 유형, 비에픽) › 하위 태스크 K. K 는 부모가 에픽이 아니어도 조부모 E 가 같은 프로젝트 에픽이라 E 묶음에 든다.
-    // 스토리 St 자신도 부모가 에픽이라 E 묶음 — E·St·K 가 한 묶음으로 연속(머리 E 먼저).
+    // 스토리 St 자신도 부모가 에픽이라 E 묶음 — E·St·K 가 한 묶음으로 연속(머리 E 먼저). WP-1800 부터 K 는 St 가족이라 St 바로 뒤.
     long e = issue("E", me);
     setType(e, epicTypeId());
     long st = issue("St", me);
@@ -752,7 +754,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(k, agent, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(10)));
 
     JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
-    assertThat(titles(body)).containsExactly("E", "K", "St");
+    assertThat(titles(body)).containsExactly("E", "St", "K");
     body.get("items")
         .forEach(
             it -> {
@@ -869,6 +871,171 @@ class AiTasksControllerTest extends IntegrationTestBase {
                 ("1|" + REF + "|5|0|1|" + REF + "|9")
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8));
     assertThat(status("/api/v1/me/ai-tasks?cursor=" + sevenParts)).isEqualTo(400);
+  }
+
+  // ---------------------------------------------------------------- 가족(WP-1800)
+
+  /**
+   * 가족 시드(WP-1800) — 부모 P1(작업 중, t-15시간)·P2(작업 중, t-8시간), P1 아래 C1(작업 중, t-30분), P2 아래 C2(작업 중,
+   * t-40분), C2 아래 손자 G2(작업 중, t-35분). 모두 에픽 없이 「에픽 없음」 묶음 하나이고 AI 담당. 만드는 순서가 id 순서라 기대 순서에 걸린다.
+   */
+  private record FamilySeed(long p1, long p2, long c1, long c2, long g2) {}
+
+  private FamilySeed seedFamily() {
+    long p1 = issue("P1", me);
+    long p2 = issue("P2", me);
+    long c1 = issue("C1", me);
+    setParent(c1, p1);
+    long c2 = issue("C2", me);
+    setParent(c2, p2);
+    long g2 = issue("G2", me);
+    setParent(g2, c2);
+    for (long id : List.of(p1, p2, c1, c2, g2)) assign(id, agent);
+    work(p1, agent, "WORKING", REF.minus(Duration.ofHours(15)));
+    work(c1, agent, "WORKING", REF.minus(Duration.ofMinutes(30)));
+    work(p2, agent, "WORKING", REF.minus(Duration.ofHours(8)));
+    work(c2, agent, "WORKING", REF.minus(Duration.ofMinutes(40)));
+    work(g2, agent, "WORKING", REF.minus(Duration.ofMinutes(35)));
+    return new FamilySeed(p1, p2, c1, c2, g2);
+  }
+
+  @Test
+  void 가족은_머리_바로_뒤에_연속으로_온다_WP1800() throws Exception {
+    seedFamily();
+    // 같은 순위(작업 중) → 가족 키(머리 id) 역순: P2 가족 먼저(P2 id > P1 id), 가족 안은 머리 먼저 → 순위 → id 역순.
+    // 손자 G2 는 조부모 P2 가 결과에 있어 P2 가족에 든다.
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?size=100")))
+        .containsExactly("P2", "G2", "C2", "P1", "C1");
+  }
+
+  /** 제목으로 행 찾기(WP-1800). */
+  private static JsonNode rowOf(JsonNode body, String title) {
+    for (JsonNode it : body.get("items")) if (title.equals(it.get("title").asString())) return it;
+    throw new AssertionError("행 없음: " + title);
+  }
+
+  @Test
+  void 가족_머리는_가족_최근_보고를_하위는_머리_번호를_싣는다_WP1800() throws Exception {
+    FamilySeed s = seedFamily();
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    // P2 가족의 최근 보고 = G2(REF-35m), REF 가 한참 과거라 무소식.
+    JsonNode p2 = rowOf(body, "P2").at("/aiGroup/family");
+    assertThat(Instant.parse(p2.get("lastReportAt").asString()))
+        .isEqualTo(REF.minus(Duration.ofMinutes(35)));
+    assertThat(p2.get("stale").asBoolean()).isTrue();
+    assertThat(p2.has("headNumber")).isFalse();
+    for (String t : List.of("G2", "C2")) {
+      JsonNode f = rowOf(body, t).at("/aiGroup/family");
+      assertThat(f.get("headNumber").asInt()).isEqualTo(number(s.p2()));
+      assertThat(f.has("lastReportAt")).isFalse();
+      assertThat(f.has("stale")).isFalse();
+    }
+    JsonNode p1 = rowOf(body, "P1").at("/aiGroup/family");
+    assertThat(Instant.parse(p1.get("lastReportAt").asString()))
+        .isEqualTo(REF.minus(Duration.ofMinutes(30)));
+    assertThat(rowOf(body, "C1").at("/aiGroup/family/headNumber").asInt())
+        .isEqualTo(number(s.p1()));
+  }
+
+  @Test
+  void 하위가_최근에_보고하면_부모는_무소식이_아니다_WP1800() throws Exception {
+    long p = issue("P", me);
+    long c = issue("C", me);
+    setParent(c, p);
+    for (long id : List.of(p, c)) assign(id, agent);
+    work(p, agent, "WORKING", REF.minus(Duration.ofHours(15)));
+    Instant now = Instant.now();
+    work(c, agent, "WORKING", now);
+    JsonNode f = rowOf(getJson("/api/v1/me/ai-tasks?size=100"), "P").at("/aiGroup/family");
+    assertThat(f.get("stale").asBoolean()).isFalse();
+    Instant last = Instant.parse(f.get("lastReportAt").asString());
+    assertThat(Duration.between(last, now).abs()).isLessThan(Duration.ofSeconds(5));
+  }
+
+  @Test
+  void 하위가_없는_행에는_family_가_없다_WP1800() throws Exception {
+    seedEpicGroup();
+    for (JsonNode it : getJson("/api/v1/me/ai-tasks?size=100").get("items"))
+      assertThat(it.get("aiGroup").has("family")).as(it.get("title").asString()).isFalse();
+  }
+
+  @Test
+  void 에픽_묶음_안의_스토리_가족도_붙는다_WP1800() throws Exception {
+    // 에픽 E(작업 없음 — 목록 밖) › 스토리 P › 하위 태스크 C(WP-1692 로 C 도 E 묶음). C 는 부모 P 가 같은 묶음 결과에 있어 P 가족.
+    long e = issue("E", me);
+    setType(e, epicTypeId());
+    long p = issue("P", me);
+    setParent(p, e);
+    long c = issue("C", me);
+    setParent(c, p);
+    for (long id : List.of(p, c)) assign(id, agent);
+    work(p, agent, "WORKING", REF.minus(Duration.ofHours(15)));
+    work(c, agent, "WORKING", REF.minus(Duration.ofMinutes(30)));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactly("P", "C");
+    body.get("items")
+        .forEach(it -> assertThat(it.at("/aiGroup/epicNumber").asInt()).isEqualTo(number(e)));
+  }
+
+  @Test
+  void 가족은_페이지_경계를_넘어도_한번에_받은_순서와_같다_WP1800() throws Exception {
+    seedFamily();
+    List<String> all = titles(getJson("/api/v1/me/ai-tasks?size=100"));
+    assertThat(all).hasSize(5);
+    // 크기 1·2 — 가족 안(머리↔하위)과 가족 사이 경계를 모두 자른다.
+    for (int size : List.of(1, 2)) {
+      List<String> paged = field(walk(size), "title");
+      assertThat(paged).as("size=" + size).doesNotHaveDuplicates().isEqualTo(all);
+    }
+  }
+
+  @Test
+  void 부모가_필터에_안_걸리면_하위는_단독_행이다_WP1800() throws Exception {
+    long p = issue("P", me);
+    long c = issue("C", me);
+    setParent(c, p);
+    for (long id : List.of(p, c)) assign(id, agent);
+    work(p, agent, "REVIEW", REF.minus(Duration.ofMinutes(20)));
+    work(c, agent, "WORKING", REF.minus(Duration.ofMinutes(10)));
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=WORKING&size=100")))
+        .containsExactly("C");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=REVIEW&size=100")))
+        .containsExactly("P");
+    // 필터가 없으면 한 가족 — 머리 P 먼저.
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?size=100"))).containsExactly("P", "C");
+  }
+
+  @Test
+  void 이전_10부분_커서도_다음_페이지를_준다_WP1800() throws Exception {
+    for (String t : List.of("A", "B", "C")) {
+      long id = issue(t, me);
+      assign(id, agent);
+      work(id, agent, "WORKING", REF.minus(Duration.ofMinutes(10)));
+    }
+    JsonNode first = getJson("/api/v1/me/ai-tasks?size=1");
+    String raw =
+        new String(
+            java.util.Base64.getUrlDecoder().decode(first.get("nextCursor").asString()),
+            java.nio.charset.StandardCharsets.UTF_8);
+    String[] parts = raw.split("\\|", -1);
+    assertThat(parts).hasSize(14);
+    // 가족 4키(인덱스 7·8·9·10 — 가족 순위·가족 최근 시각·가족 키·가족 머리)를 뺀 배포 전 10부분 커서.
+    List<String> old = new ArrayList<>();
+    for (int i = 0; i < parts.length; i++) {
+      if (i < 7 || i > 10) old.add(parts[i]);
+    }
+    assertThat(old).hasSize(10);
+    String oldCursor =
+        java.util.Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(
+                String.join("|", old).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+    JsonNode next = getJson("/api/v1/me/ai-tasks?size=1&cursor=" + oldCursor);
+    assertThat(next.get("items")).hasSize(1);
+    assertThat(titles(next)).doesNotContainAnyElementsOf(titles(first));
   }
 
   // ---------------------------------------------------------------- 프로젝트 묶음(WP-426)
