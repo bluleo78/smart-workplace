@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.jooq.CaseWhenStep;
+import org.jooq.CommonTableExpression;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
@@ -51,8 +52,10 @@ import org.springframework.stereotype.Repository;
  * IssueRepository#memberScopeCondition}) 안에서 "AI 에게 맡긴 이슈(DELEGATED) 또는 사람이 AI 도구로 작업 중인
  * 이슈(ASSISTED)" 로 좁히고, 사람이 할 일이 먼저 보이도록 급한 순(진행 중 작업 상태) → 마지막 보고 최근순 → id 로 정렬한다. WP-375 부터 이 정렬을
  * 에픽 묶음 단위로 감싸 한 에픽의 행이 연속으로 나오고, WP-426 부터 다시 프로젝트 단위로 감싸 한 프로젝트의 행이 페이지를 넘어서도 연속으로 나온다(가장 급한 행을
- * 가진 프로젝트가 먼저 — 그래서 뒤 프로젝트의 답변 필요 행은 앞 프로젝트의 작업 중 행 뒤에 온다) — 정렬 키 10개(프로젝트 순위, 프로젝트 최근 시각, 프로젝트 id,
- * 묶음 순위, 묶음 최근 시각, 묶음 키, 머리 순서, rank, sortAt, id)를 같은 10개로 된 복합 커서({@link AiTaskCursor})로 넘긴다.
+ * 가진 프로젝트가 먼저 — 그래서 뒤 프로젝트의 답변 필요 행은 앞 프로젝트의 작업 중 행 뒤에 온다). WP-1800 부터 묶음 안을 다시 「가족」(같은 묶음 결과에 든 가장
+ * 윗 조상, 두 단계까지 — 에픽 머리 제외) 단위로 감싸 부모 바로 뒤에 진행 중인 하위가 온다 — 정렬 키 14개(프로젝트 순위, 프로젝트 최근 시각, 프로젝트 id, 묶음
+ * 순위, 묶음 최근 시각, 묶음 키, 머리 순서, 가족 순위, 가족 최근 시각, 가족 키, 가족 머리, rank, sortAt, id)를 같은 14개로 된 복합
+ * 커서({@link AiTaskCursor})로 넘긴다.
  *
  * <p><b>미완료(live) 보기에서만</b> 최근 시각보다 id 를 먼저 비교해, 같은 순위 안에서는 불변 id 로 동률을 깬다(WP-690) — 미완료 보기의 최근
  * 시각(진행 중 작업의 마지막 보고 시각)은 보고가 올 때마다 바뀌어, 같은 순위 프로젝트/에픽/행 순서가 조회마다 흔들리는 원인이었다. 완료(done) 보기의 최근 시각(종료
@@ -83,9 +86,15 @@ public class AiTaskRepository {
       int size) {}
 
   /**
-   * 목록 행 — 다음 커서를 만들 수 있게 정렬 키 10개와 묶음 정보를 함께 싣는다. epicNumber 는 묶음 키가 에픽일 때만(그 밖은 null), groupSize
-   * 는 필터 적용 후 묶음 행 수, projectSize 는 필터 적용 후 그 프로젝트의 행 수(WP-426 — 페이지와 무관하게 같은 값). endedWorkId 는 완료
-   * 보기를 요청했을 때만 — 행의 대표 종료 작업 id(WP-396), 그 밖은 null.
+   * 목록 행 — 다음 커서를 만들 수 있게 정렬 키 14개와 묶음·가족 정보를 함께 싣는다. epicNumber 는 묶음 키가 에픽일 때만(그 밖은 null),
+   * groupSize 는 필터 적용 후 묶음 행 수, projectSize 는 필터 적용 후 그 프로젝트의 행 수(WP-426 — 페이지와 무관하게 같은 값).
+   * endedWorkId 는 완료 보기를 요청했을 때만 — 행의 대표 종료 작업 id(WP-396), 그 밖은 null.
+   *
+   * <p>가족 값(WP-1800) — familyKey 는 가족 머리 id(자기가 머리면 자기 id), familyHead 는 머리면 0·하위면 1,
+   * familyRank·familySortAt 은 가족 안 최소 순위·최근 정렬 시각, familySize 는 필터 적용 후 가족 행 수(1 이면 하위 없음),
+   * familyHeadNumber 는 가족 머리 이슈 번호, familyLiveAt 은 가족 안 살아 있는 작업의 마지막 보고 시각 최댓값(없으면 null),
+   * familyStale 은 머리 자신이 무소식이고 familyLiveAt 도 무소식 기준({@link AgentWorkRepository#STALE_AFTER})보다
+   * 오래됐을 때만 참.
    */
   public record AiTaskRow(
       IssueRow row,
@@ -101,9 +110,17 @@ public class AiTaskRepository {
       int headOrder,
       int groupSize,
       Integer epicNumber,
-      Long endedWorkId) {
+      Long endedWorkId,
+      int familyRank,
+      Instant familySortAt,
+      long familyKey,
+      int familyHead,
+      int familySize,
+      Integer familyHeadNumber,
+      Instant familyLiveAt,
+      boolean familyStale) {
 
-    /** 이 행 다음부터 이어 읽는 커서 — 정렬 키 10개를 그대로 옮긴다. */
+    /** 이 행 다음부터 이어 읽는 커서 — 정렬 키 14개를 그대로 옮긴다(WP-1800 가족 4키 포함). */
     public AiTaskCursor toCursor() {
       return new AiTaskCursor(
           projectRank,
@@ -113,6 +130,10 @@ public class AiTaskRepository {
           groupSortAt,
           groupKey,
           headOrder,
+          familyRank,
+          familySortAt,
+          familyKey,
+          familyHead,
           rank,
           sortAt,
           row.id());
@@ -166,6 +187,10 @@ public class AiTaskRepository {
     final Field<OffsetDateTime> liveAt;
     final Field<Boolean> humanLive;
     final Field<Boolean> myLive;
+
+    /** 살아 있는 작업 중 무소식이 있는지(WP-1800) — 목록에서만 집계, 건수 쿼리에서는 null. */
+    final Field<Boolean> liveStale;
+
     final Field<OffsetDateTime> allDoneAt;
     final Field<OffsetDateTime> humanDoneAt;
     final Field<OffsetDateTime> myDoneAt;
@@ -180,13 +205,15 @@ public class AiTaskRepository {
      * @param terminal 완료 판정에 쓰는 종료 상태 집합(요청한 것, 없으면 넷 모두)
      * @param liveStateSets 진행 중 상태 필터 묶음 — 키로 찾는다(목록은 요청 하나, 건수는 칩별)
      * @param withDoneIds 대표 종료 작업 id 를 집계할지 — 완료 보기 목록에서만(건수·미완료 목록은 정렬된 배열 집계가 필요 없다)
+     * @param withLiveStale 살아 있는 작업 중 무소식 여부를 집계할지 — 목록(가족 머리 무소식, WP-1800)에서만(건수는 쓰지 않는다)
      */
     WorkSummary(
         long callerId,
         boolean all,
         Collection<String> terminal,
         Map<String, List<String>> liveStateSets,
-        boolean withDoneIds) {
+        boolean withDoneIds,
+        boolean withLiveStale) {
       this.all = all;
       Condition live = AgentWorkRepository.liveRow();
       Condition ended = AGENT_WORK.ENDED_AT.isNotNull().and(AGENT_WORK.STATE.in(terminal));
@@ -205,6 +232,10 @@ public class AiTaskRepository {
       cols.add(max(AGENT_WORK.UPDATED_AT).filterWhere(live).as("w_live_at"));
       cols.add(DSL.boolOr(live.and(human)).as("w_human_live"));
       if (!all) cols.add(DSL.boolOr(live.and(mine)).as("w_my_live"));
+      // 살아 있는 작업 중 무소식(작업 중인데 마지막 보고가 2시간 넘게 지남)이 있는지 — 가족 머리의 무소식 판정에 쓴다(WP-1800).
+      if (withLiveStale) {
+        cols.add(DSL.boolOr(live.and(AgentWorkRepository.stale())).as("w_live_stale"));
+      }
       addDone(cols, "all", ended, withDoneIds);
       addDone(cols, "human", ended.and(human), withDoneIds);
       if (!all) addDone(cols, "my", ended.and(mine), withDoneIds);
@@ -230,6 +261,7 @@ public class AiTaskRepository {
       liveAt = table.field("w_live_at", OffsetDateTime.class);
       humanLive = table.field("w_human_live", Boolean.class);
       myLive = all ? null : table.field("w_my_live", Boolean.class);
+      liveStale = withLiveStale ? table.field("w_live_stale", Boolean.class) : null;
       allDoneAt = table.field("w_all_done_at", OffsetDateTime.class);
       humanDoneAt = table.field("w_human_done_at", OffsetDateTime.class);
       myDoneAt = all ? null : table.field("w_my_done_at", OffsetDateTime.class);
@@ -324,18 +356,19 @@ public class AiTaskRepository {
    * 프로젝트·에픽 묶음 단위 급한 순 한 페이지(WP-375 §3.6, WP-426 §4.1). 묶음 키 = 에픽이면 자기 id, 부모가 같은 프로젝트 에픽이면 부모 id,
    * 부모가 에픽이 아니고 조부모가 같은 프로젝트 에픽이면 조부모 id(WP-1692), 그 밖은 음수 프로젝트 id(프로젝트마다 하나인 「에픽 없음」 묶음 — WP-1211,
    * 이슈 id 가 아니다). 정렬: 프로젝트 순위 ASC → (최근 시각, id) 두 키(미완료면 id 가 먼저 — WP-690) → 묶음 안 최소 순위 ASC → (묶음
-   * 최근 보고, 묶음 키) 두 키(미완료면 묶음 키가 먼저) → 머리(에픽 행) 먼저 → 순위 ASC, (정렬 시각, id) 두 키(미완료면 id 가 먼저). 미완료 보기는
-   * 최근 시각이 보고마다 바뀌는 휘발성 값이라 id 를 먼저 비교해 같은 순위 동률을 고정하고, 완료 보기는 최근 시각(종료 시각)이 안정적이고 "최근 종료가 있는 프로젝트가
-   * 위"가 의도된 동작이라 그대로 최근 시각을 먼저 둔다(어느 쪽인지는 {@link #search} 의 {@code liveTieBreak}).
+   * 최근 보고, 묶음 키) 두 키(미완료면 묶음 키가 먼저) → 머리(에픽 행) 먼저 → 가족 순위 ASC → (가족 최근 시각, 가족 키) 두 키(미완료면 가족 키가 먼저)
+   * → 가족 머리 먼저(WP-1800) → 순위 ASC, (정렬 시각, id) 두 키(미완료면 id 가 먼저). 미완료 보기는 최근 시각이 보고마다 바뀌는 휘발성 값이라 id
+   * 를 먼저 비교해 같은 순위 동률을 고정하고, 완료 보기는 최근 시각(종료 시각)이 안정적이고 "최근 종료가 있는 프로젝트가 위"가 의도된 동작이라 그대로 최근 시각을 먼저
+   * 둔다(어느 쪽인지는 {@link #search} 의 {@code liveTieBreak}).
    *
    * <p>프로젝트 자리는 "그 프로젝트의 첫 행이 프로젝트 키 없는 정렬에서 서는 자리"다 — 프로젝트 순위 = 프로젝트 안 최소 묶음 순위, 프로젝트 최근 시각 = 그
    * 순위인 묶음들의 최근 시각 중 가장 최근((묶음 순위 ASC, 묶음 최근 시각 DESC) 첫 값). 프로젝트 전체의 최근 시각을 쓰면 덜 급한 최근 행이 프로젝트를 위로
    * 끌어올린다. 완료 보기는 순위가 모두 같아 "가장 최근 종료가 있는 프로젝트가 위"가 된다. 에픽 묶음은 프로젝트를 넘지 않는다(부모는 같은 프로젝트에서만 지정).
    *
-   * <p>파생 테이블 세 단(1단: 필터 통과 행의 기본 키·묶음 키·프로젝트, 2단: 묶음 창 함수, 3단: 프로젝트 순위·크기·최근 시각 창 함수 — 2단의 묶음 값에
-   * 기대므로 같은 단에서 못 구한다)으로 계산하고 바깥에서 seek 한다. 창 함수는 필터를 적용한 행만으로 커서 조건 <b>전</b>에 계산한다 — 빠른 필터를 켜면 걸러진
-   * 행끼리 묶이고, 페이지가 달라도 묶음·프로젝트 값이 같아 묶음·프로젝트가 페이지 경계를 넘어도 이어진다. 1단 안의 범위 조건·작업 요약(LATERAL)은 1단 FROM
-   * 의 ISSUE 를 참조한다(파생 테이블은 바깥 ISSUE 를 볼 수 없다).
+   * <p>단 넷(1단: 필터 통과 행의 기본 키·묶음 키·프로젝트 — 공통 테이블 식, 가족 단: 1단을 부모·조부모로 자기 조인해 가족 키(WP-1800), 2단:
+   * 묶음·가족 창 함수, 3단: 프로젝트 순위·크기·최근 시각 창 함수 — 2단의 묶음 값에 기대므로 같은 단에서 못 구한다)으로 계산하고 바깥에서 seek 한다. 창 함수는
+   * 필터를 적용한 행만으로 커서 조건 <b>전</b>에 계산한다 — 빠른 필터를 켜면 걸러진 행끼리 묶이고, 페이지가 달라도 묶음·프로젝트 값이 같아 묶음·프로젝트가 페이지
+   * 경계를 넘어도 이어진다. 1단 안의 범위 조건·작업 요약(LATERAL)은 1단 FROM 의 ISSUE 를 참조한다(파생 테이블은 바깥 ISSUE 를 볼 수 없다).
    */
   public List<AiTaskRow> search(long callerId, AiTaskQuery q) {
     List<String> active = activeStates(q.agentStates());
@@ -346,7 +379,8 @@ public class AiTaskRepository {
             q.all(),
             terminal.isEmpty() ? AgentWorkState.TERMINAL : terminal,
             active.isEmpty() ? Map.of() : Map.of(FILTER, active),
-            !terminal.isEmpty());
+            !terminal.isEmpty(),
+            true);
     Condition where = facetCondition(callerId, q).and(viewCondition(w, active, terminal));
 
     var selfType = ISSUE_TYPE_DEF.as("ai_self_type");
@@ -379,56 +413,110 @@ public class AiTaskRepository {
             .when(sameProjectEpicParent, parent.NUMBER)
             .when(sameProjectEpicGrand, grand.NUMBER);
 
-    // 1단: 필터를 통과한 행의 기본 정렬 키·묶음 키·프로젝트.
-    Table<?> base =
-        dsl.select(
-                ISSUE.ID.as("b_id"),
-                ISSUE.PROJECT_ID.as("b_project"),
-                w.rank().as("b_rank"),
-                w.sortAt().as("b_sort_at"),
-                groupKey.as("b_group"),
-                epicNumber.as("b_epic"),
-                // 완료 보기를 요청했을 때만 대표 종료 작업 id — 미완료 행은 어차피 NULL 이고, 요청 안 하면 계산·조회하지 않는다.
-                (terminal.isEmpty() ? inline((Long) null, Long.class) : w.endedWorkId())
-                    .as("b_ended_work"))
-            .from(ISSUE)
-            .crossJoin(w.table)
-            .join(selfType)
-            .on(selfType.ID.eq(ISSUE.TYPE_ID))
-            .leftJoin(parent)
-            .on(parent.ID.eq(ISSUE.PARENT_ISSUE_ID))
-            .leftJoin(parentType)
-            .on(parentType.ID.eq(parent.TYPE_ID))
-            // 조부모·조부모 유형 — 부모와 같이 id 1:1 left join 이라 행 수가 늘지 않는다(부모가 없으면 NULL).
-            .leftJoin(grand)
-            .on(grand.ID.eq(parent.PARENT_ISSUE_ID))
-            .leftJoin(grandType)
-            .on(grandType.ID.eq(grand.TYPE_ID))
-            .where(where)
-            .asTable("ai_base");
+    // 1단: 필터를 통과한 행의 기본 정렬 키·묶음 키·프로젝트. WP-1800 부터 공통 테이블 식(ai_base)이다 — 가족 단에서 이 결과를 부모·조부모로
+    // 두 번 더 참조해야 해서(파생 테이블은 한 번만 쓸 수 있다). 가족 판정에 쓸 번호·부모·조부모·살아 있는 작업 보고 시각·무소식도 여기서 꺼낸다.
+    CommonTableExpression<?> base =
+        DSL.name("ai_base")
+            .as(
+                select(
+                        ISSUE.ID.as("b_id"),
+                        ISSUE.PROJECT_ID.as("b_project"),
+                        w.rank().as("b_rank"),
+                        w.sortAt().as("b_sort_at"),
+                        groupKey.as("b_group"),
+                        epicNumber.as("b_epic"),
+                        // 완료 보기를 요청했을 때만 대표 종료 작업 id — 미완료 행은 어차피 NULL 이고, 요청 안 하면 계산·조회하지 않는다.
+                        (terminal.isEmpty() ? inline((Long) null, Long.class) : w.endedWorkId())
+                            .as("b_ended_work"),
+                        ISSUE.NUMBER.as("b_number"),
+                        ISSUE.PARENT_ISSUE_ID.as("b_parent"),
+                        parent.PARENT_ISSUE_ID.as("b_grand"),
+                        // 살아 있는 작업의 마지막 보고 시각(가족 최근 보고) — 살아 있는 작업이 없으면(완료 보기 행) 집계가 NULL.
+                        w.liveAt.as("b_live_at"),
+                        // 이 행의 살아 있는 작업 중 무소식이 있는지(가족 머리 무소식 판정).
+                        w.liveStale.as("b_stale_self"))
+                    .from(ISSUE)
+                    .crossJoin(w.table)
+                    .join(selfType)
+                    .on(selfType.ID.eq(ISSUE.TYPE_ID))
+                    .leftJoin(parent)
+                    .on(parent.ID.eq(ISSUE.PARENT_ISSUE_ID))
+                    .leftJoin(parentType)
+                    .on(parentType.ID.eq(parent.TYPE_ID))
+                    // 조부모·조부모 유형 — 부모와 같이 id 1:1 left join 이라 행 수가 늘지 않는다(부모가 없으면 NULL).
+                    .leftJoin(grand)
+                    .on(grand.ID.eq(parent.PARENT_ISSUE_ID))
+                    .leftJoin(grandType)
+                    .on(grandType.ID.eq(grand.TYPE_ID))
+                    .where(where));
     Field<Long> bId = base.field("b_id", Long.class);
-    Field<Long> bProject = base.field("b_project", Long.class);
-    Field<Integer> bRank = base.field("b_rank", Integer.class);
-    Field<OffsetDateTime> bSortAt = base.field("b_sort_at", OffsetDateTime.class);
-    Field<Long> bGroup = base.field("b_group", Long.class);
-    Field<Integer> bEpic = base.field("b_epic", Integer.class);
-    Field<Long> bEndedWork = base.field("b_ended_work", Long.class);
+    Field<Long> bParent = base.field("b_parent", Long.class);
+    Field<Long> bGrand = base.field("b_grand", Long.class);
+    Field<Long> bGroup0 = base.field("b_group", Long.class);
 
-    // 2단: 묶음 창 함수(묶음 순위·최근 시각·크기)와 머리 순서(에픽 자신 행이면 0).
-    Table<?> ranked =
-        dsl.select(
-                bId.as("r_id"),
-                bProject.as("r_project"),
-                bRank.as("r_rank"),
-                bSortAt.as("r_sort_at"),
-                bGroup.as("r_group"),
-                bEpic.as("r_epic"),
-                bEndedWork.as("r_ended_work"),
-                min(bRank).over(partitionBy(bGroup)).as("r_group_rank"),
-                max(bSortAt).over(partitionBy(bGroup)).as("r_group_sort_at"),
-                count().over(partitionBy(bGroup)).as("r_group_size"),
-                when(bGroup.eq(bId), inline(0)).otherwise(inline(1)).as("r_head"))
+    // 가족 단(WP-1800): 같은 묶음 결과에 든 가장 윗 조상(두 단계까지, 묶음 머리인 에픽 자신은 제외)을 가족 머리로 — 가족 키 = 조부모 → 부모 →
+    // 자기 id. 부모·조부모가 필터에 안 걸려 결과에 없으면 left join 이 NULL 이라 자기가 머리(단독 행). 에픽 머리 아래 직접 하위는 이미 묶음
+    // 머리 아래라 가족으로 묶지 않는다(b_id <> b_group). 결과 행 하나당 부모·조부모는 id 로 하나뿐이라 행 수가 늘지 않는다.
+    Table<?> fp = base.as("ai_fp");
+    Table<?> fg = base.as("ai_fg");
+    Field<Long> fpId = fp.field("b_id", Long.class);
+    Field<Long> fgId = fg.field("b_id", Long.class);
+    List<SelectField<?>> familyCols = new ArrayList<>(Arrays.asList(base.fields()));
+    familyCols.add(coalesce(fgId, fpId, bId).as("f_key"));
+    Table<?> family =
+        select(familyCols)
             .from(base)
+            .leftJoin(fp)
+            .on(
+                fpId.eq(bParent)
+                    .and(fp.field("b_group", Long.class).eq(bGroup0))
+                    .and(fpId.ne(bGroup0)))
+            .leftJoin(fg)
+            .on(
+                fgId.eq(bGrand)
+                    .and(fg.field("b_group", Long.class).eq(bGroup0))
+                    .and(fgId.ne(bGroup0)))
+            .asTable("ai_family");
+    Field<Long> fId = family.field("b_id", Long.class);
+    Field<Long> fProject = family.field("b_project", Long.class);
+    Field<Integer> fRank = family.field("b_rank", Integer.class);
+    Field<OffsetDateTime> fSortAt = family.field("b_sort_at", OffsetDateTime.class);
+    Field<Long> fGroup = family.field("b_group", Long.class);
+    Field<Integer> fEpic = family.field("b_epic", Integer.class);
+    Field<Long> fEndedWork = family.field("b_ended_work", Long.class);
+    Field<Integer> fNumber = family.field("b_number", Integer.class);
+    Field<OffsetDateTime> fLiveAt = family.field("b_live_at", OffsetDateTime.class);
+    Field<Boolean> fStaleSelf = family.field("b_stale_self", Boolean.class);
+    Field<Long> fKey = family.field("f_key", Long.class);
+    Condition isFamilyHead = fKey.eq(fId);
+
+    // 2단: 묶음 창 함수(묶음 순위·최근 시각·크기)와 머리 순서(에픽 자신 행이면 0). WP-1800 부터 가족 창 함수도 — 가족 순위(최소 순위)·최근
+    // 시각(최대 정렬 시각)·최근 보고(최대 살아 있는 작업 보고 시각)·크기·머리 번호·머리 무소식과 가족 머리 순서(머리면 0). 가족 키는 이슈 id 라
+    // 가족 키 하나로 나눠도 묶음을 넘지 않는다(가족 단의 같은 묶음 조건).
+    Table<?> ranked =
+        select(
+                fId.as("r_id"),
+                fProject.as("r_project"),
+                fRank.as("r_rank"),
+                fSortAt.as("r_sort_at"),
+                fGroup.as("r_group"),
+                fEpic.as("r_epic"),
+                fEndedWork.as("r_ended_work"),
+                min(fRank).over(partitionBy(fGroup)).as("r_group_rank"),
+                max(fSortAt).over(partitionBy(fGroup)).as("r_group_sort_at"),
+                count().over(partitionBy(fGroup)).as("r_group_size"),
+                when(fGroup.eq(fId), inline(0)).otherwise(inline(1)).as("r_head"),
+                fKey.as("f_key"),
+                min(fRank).over(partitionBy(fKey)).as("f_rank"),
+                max(fSortAt).over(partitionBy(fKey)).as("f_sort_at"),
+                max(fLiveAt).over(partitionBy(fKey)).as("f_live_at"),
+                count().over(partitionBy(fKey)).as("f_size"),
+                max(when(isFamilyHead, fNumber)).over(partitionBy(fKey)).as("f_head_number"),
+                DSL.boolOr(DSL.condition(when(isFamilyHead, fStaleSelf)))
+                    .over(partitionBy(fKey))
+                    .as("f_head_stale"),
+                when(isFamilyHead, inline(0)).otherwise(inline(1)).as("f_head"))
+            .from(family)
             .asTable("ai_ranked");
     Field<Long> rProject0 = ranked.field("r_project", Long.class);
 
@@ -444,7 +532,7 @@ public class AiTaskRepository {
         firstValue(rGroupSortAt0)
             .over(partitionBy(rProject0).orderBy(rGroupRank0.asc(), rGroupSortAt0.desc()))
             .as("p_sort_at"));
-    Table<?> sorted = dsl.select(projCols).from(ranked).asTable("ai_project");
+    Table<?> sorted = select(projCols).from(ranked).asTable("ai_project");
 
     // 바깥 select·seek·ORDER BY 는 가장 바깥 단(3단)의 열만 볼 수 있다.
     Field<Long> rId = sorted.field("r_id", Long.class);
@@ -458,9 +546,25 @@ public class AiTaskRepository {
     Field<Integer> rGroupSize = sorted.field("r_group_size", Integer.class);
     Field<Integer> rHead = sorted.field("r_head", Integer.class);
     Field<Long> rEndedWork = sorted.field("r_ended_work", Long.class);
+    Field<Long> rFamilyKey = sorted.field("f_key", Long.class);
+    Field<Integer> rFamilyRank = sorted.field("f_rank", Integer.class);
+    Field<OffsetDateTime> rFamilySortAt = sorted.field("f_sort_at", OffsetDateTime.class);
+    Field<OffsetDateTime> rFamilyLiveAt = sorted.field("f_live_at", OffsetDateTime.class);
+    Field<Integer> rFamilySize = sorted.field("f_size", Integer.class);
+    Field<Integer> rFamilyHeadNumber = sorted.field("f_head_number", Integer.class);
+    Field<Boolean> rFamilyHeadStale = sorted.field("f_head_stale", Boolean.class);
+    Field<Integer> rFamilyHead = sorted.field("f_head", Integer.class);
     Field<Integer> pRank = sorted.field("p_rank", Integer.class);
     Field<Integer> pSize = sorted.field("p_size", Integer.class);
     Field<OffsetDateTime> pSortAt = sorted.field("p_sort_at", OffsetDateTime.class);
+
+    // 가족 무소식(WP-1800) — 머리 자신이 무소식이고 가족 최근 보고도 무소식 기준(2시간, DB 시계)보다 오래됐을 때만 참. 하위가 최근에 보고했으면
+    // 머리가 멈춘 것처럼 보이지 않게 한다. 살아 있는 작업이 없으면(완료 보기) 거짓.
+    Field<Boolean> familyStale =
+        field(
+                DSL.condition(rFamilyHeadStale)
+                    .and(rFamilyLiveAt.le(AgentWorkRepository.staleBefore())))
+            .as("f_stale");
 
     List<SelectField<?>> fields = new ArrayList<>(Arrays.asList(IssueRepository.ROW_FIELDS));
     fields.addAll(
@@ -477,7 +581,15 @@ public class AiTaskRepository {
             rGroupSortAt,
             rGroupSize,
             rHead,
-            rEndedWork));
+            rEndedWork,
+            rFamilyRank,
+            rFamilySortAt,
+            rFamilyKey,
+            rFamilyHead,
+            rFamilySize,
+            rFamilyHeadNumber,
+            rFamilyLiveAt,
+            familyStale));
 
     // 미완료(live) 보기인지 — terminal 상태만 요청했으면(active 없음) 완료 보기(WP-396 두 보기는 배타적으로 요청된다).
     // 미완료 보기의 최근 시각은 보고마다 바뀌는 휘발성 값이라 id 를 먼저 비교해 동률을 고정하고(WP-690), 완료 보기의 최근
@@ -491,6 +603,8 @@ public class AiTaskRepository {
       SeekKey<?> projectSortAt = SeekKey.desc(pSortAt, utc(c.projectSortAt()));
       SeekKey<?> groupIdKey = SeekKey.desc(rGroup, c.groupKey());
       SeekKey<?> groupSortAt = SeekKey.desc(rGroupSortAt, utc(c.groupSortAt()));
+      SeekKey<?> familyIdKey = SeekKey.desc(rFamilyKey, c.familyKey());
+      SeekKey<?> familySortAt = SeekKey.desc(rFamilySortAt, utc(c.familySortAt()));
       SeekKey<?> id = SeekKey.desc(ISSUE.ID, c.id());
       SeekKey<?> rowSortAt = SeekKey.desc(rSortAt, utc(c.sortAt()));
       List<SeekKey<?>> keys = new ArrayList<>();
@@ -501,6 +615,11 @@ public class AiTaskRepository {
       keys.addAll(
           liveTieBreak ? List.of(groupIdKey, groupSortAt) : List.of(groupSortAt, groupIdKey));
       keys.add(SeekKey.asc(rHead, c.headOrder()));
+      // 가족 4키(WP-1800) — ORDER BY 와 같은 순서·방향.
+      keys.add(SeekKey.asc(rFamilyRank, c.familyRank()));
+      keys.addAll(
+          liveTieBreak ? List.of(familyIdKey, familySortAt) : List.of(familySortAt, familyIdKey));
+      keys.add(SeekKey.asc(rFamilyHead, c.familyHead()));
       keys.add(SeekKey.asc(rRank, c.rank()));
       keys.addAll(liveTieBreak ? List.of(id, rowSortAt) : List.of(rowSortAt, id));
       seek = after(keys);
@@ -518,14 +637,23 @@ public class AiTaskRepository {
             ? List.<SortField<?>>of(rGroup.desc(), rGroupSortAt.desc())
             : List.<SortField<?>>of(rGroupSortAt.desc(), rGroup.desc()));
     order.add(rHead.asc());
+    // 가족 단계(WP-1800) — 가족 순위 ASC → (가족 키, 가족 최근 시각) 두 키(미완료면 키 먼저 — WP-690 과 같은 이유) → 가족 머리 먼저. 그래서
+    // 부모 바로 뒤에 같은 가족의 하위가 연속으로 온다.
+    order.add(rFamilyRank.asc());
+    order.addAll(
+        liveTieBreak
+            ? List.<SortField<?>>of(rFamilyKey.desc(), rFamilySortAt.desc())
+            : List.<SortField<?>>of(rFamilySortAt.desc(), rFamilyKey.desc()));
+    order.add(rFamilyHead.asc());
     order.add(rRank.asc());
     order.addAll(
         liveTieBreak
             ? List.<SortField<?>>of(ISSUE.ID.desc(), rSortAt.desc())
             : List.<SortField<?>>of(rSortAt.desc(), ISSUE.ID.desc()));
 
-    // 이슈 행 컬럼(ROW_FIELDS)의 상태 이름·색은 상태 조인에서 읽는다(WP-870)
-    return dsl.select(fields)
+    // 이슈 행 컬럼(ROW_FIELDS)의 상태 이름·색은 상태 조인에서 읽는다(WP-870). 1단 공통 테이블 식은 바깥 쿼리의 WITH 로 붙인다.
+    return dsl.with(base)
+        .select(fields)
         .from(IssueRepository.ISSUE_WITH_STATUS)
         .join(sorted)
         .on(rId.eq(ISSUE.ID))
@@ -548,7 +676,16 @@ public class AiTaskRepository {
                     r.get(rHead),
                     r.get(rGroupSize),
                     r.get(rEpic),
-                    r.get(rEndedWork)));
+                    r.get(rEndedWork),
+                    r.get(rFamilyRank),
+                    r.get(rFamilySortAt).toInstant(),
+                    r.get(rFamilyKey),
+                    r.get(rFamilyHead),
+                    r.get(rFamilySize),
+                    r.get(rFamilyHeadNumber),
+                    // 가족 최근 보고 — 살아 있는 작업이 없으면 NULL.
+                    r.get(rFamilyLiveAt) == null ? null : r.get(rFamilyLiveAt).toInstant(),
+                    Boolean.TRUE.equals(r.get(familyStale))));
   }
 
   /** 건수 칩별 진행 중 상태 묶음 — 키로 집계 컬럼(w_live_<키>)을 찾는다(위치에 기대지 않게). */
@@ -574,7 +711,8 @@ public class AiTaskRepository {
    * 계산한다. 범위·이슈 상태·우선순위는 목록과 같고 agentState·커서는 무시한다. 한 이슈에 여러 작업이 있으면 해당 상태 작업이 하나라도 있는 칩마다 센다.
    */
   public AiTaskCounts counts(long callerId, AiTaskQuery q) {
-    WorkSummary w = new WorkSummary(callerId, q.all(), AgentWorkState.TERMINAL, CHIP_STATES, false);
+    WorkSummary w =
+        new WorkSummary(callerId, q.all(), AgentWorkState.TERMINAL, CHIP_STATES, false, false);
     Condition open = w.open();
     Condition done = w.done();
     var r =

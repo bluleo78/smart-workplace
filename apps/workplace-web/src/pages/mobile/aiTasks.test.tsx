@@ -21,6 +21,7 @@ import {
 } from '../../../e2e/factories/agentWork.factory'
 import { createAiAgentsResponse, createAiAgentStatus, createAiAgentWork } from '../../../e2e/factories/aiAgent.factory'
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { familyRows } from '../../../e2e/fixtures/ai-tasks-family'
 import { GROUPED_ROWS } from '../../../e2e/fixtures/ai-tasks-groups'
 import { projectRows } from '../../../e2e/fixtures/ai-tasks-projects'
 import AiDelegatedTasksPage from '../me/AiDelegatedTasksPage'
@@ -41,6 +42,18 @@ function aiTaskHandlers(rows: IssueResponse[], counts: Parameters<typeof createA
 }
 
 describe('모바일 AI 위임 작업', () => {
+  // WP-1800: 하위 카드는 머리 카드 바로 뒤에 두 배 들여쓰고, 머리의 마지막 보고는 가족 값(30분 전).
+  test('하위 카드는 머리 카드 뒤에 들여쓰이고 머리 마지막 보고는 가족 기준이다', async () => {
+    renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(familyRows(), { all: 3 }) })
+    const head = await screen.findByTestId('ai-row-501')
+    const sub = screen.getByTestId('ai-row-502')
+    expect(head.nextElementSibling).toBe(sub)
+    expect(sub).toHaveClass('pl-10')
+    expect(head).not.toHaveClass('pl-10')
+    expect(screen.getByTestId('ai-row-501-last')).toHaveTextContent('30분 전')
+    expect(screen.getByTestId('ai-row-503')).not.toHaveClass('pl-10')
+  })
+
   // 에픽 묶음 머리는 키·하위 진행(└ 완료/전체)을 보이고, 에픽 자신 작업이 있을 때만 머리 아래 메타 줄을 그린다.
   test('묶음 머리 — 키·하위 진행, 에픽 자신 작업이 있는 묶음만 메타 줄', async () => {
     renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(GROUPED_ROWS, { all: 8 }) })

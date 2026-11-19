@@ -6,13 +6,14 @@ import java.time.Instant;
 import java.util.Base64;
 
 /**
- * AI 위임 작업 목록의 복합 커서(WP-377, WP-375 에서 에픽 묶음 정렬로, WP-426 에서 프로젝트 묶음 정렬로 확장). 정렬 키 10개 (프로젝트 순위,
- * 프로젝트 최근 시각, 프로젝트 id, 묶음 순위, 묶음 최근 시각, 묶음 키, 머리 순서, 순위, 정렬 시각, 이슈 id) 를 그대로 담아 같은 값 행이 페이지 경계에 걸려도
- * 중복·누락이 없다.
+ * AI 위임 작업 목록의 복합 커서(WP-377, WP-375 에서 에픽 묶음 정렬로, WP-426 에서 프로젝트 묶음 정렬로, WP-1800 에서 가족 정렬로 확장). 정렬
+ * 키 14개 (프로젝트 순위, 프로젝트 최근 시각, 프로젝트 id, 묶음 순위, 묶음 최근 시각, 묶음 키, 머리 순서, 가족 순위, 가족 최근 시각, 가족 키, 가족 머리,
+ * 순위, 정렬 시각, 이슈 id) 를 그대로 담아 같은 값 행이 페이지 경계에 걸려도 중복·누락이 없다.
  *
- * <p>직렬화는 base64url(`10개를 |`). 시각은 {@link Instant#toString()} 으로 마이크로초(DB timestamptz 정밀도)까지 보존한다 —
+ * <p>직렬화는 base64url(`14개를 |`). 시각은 {@link Instant#toString()} 으로 마이크로초(DB timestamptz 정밀도)까지 보존한다 —
  * 기존 {@link IssueCursor} 처럼 밀리초로 자르면 같은 시각 행의 동률 비교가 어긋난다. WP-426 에서 프로젝트 3키를 앞에 더해 10개, 이전 7부분 커서는
- * 400 — 배포 직후 스크롤 중이던 화면은 다시 시도/새로고침으로 복구.
+ * 400 — 배포 직후 스크롤 중이던 화면은 다시 시도/새로고침으로 복구. WP-1800 에서 가족 4키를 머리 순서 뒤에 더해 14개 — 이전 10부분 커서는 가족 키를 그
+ * 행 자신 값으로 채워 받아들인다({@link #decode}).
  */
 public record AiTaskCursor(
     int projectRank,
@@ -22,6 +23,10 @@ public record AiTaskCursor(
     Instant groupSortAt,
     long groupKey,
     int headOrder,
+    int familyRank,
+    Instant familySortAt,
+    long familyKey,
+    int familyHead,
     int rank,
     Instant sortAt,
     long id) {
@@ -29,7 +34,10 @@ public record AiTaskCursor(
   private static final String SEP = "|";
 
   /** 커서를 이루는 부분 수 — 정렬 키 수와 같다. */
-  private static final int PARTS = 10;
+  private static final int PARTS = 14;
+
+  /** 가족 키가 붙기 전(WP-1800 이전) 커서의 부분 수 — 롤링 배포 동안만 받는다. */
+  private static final int LEGACY_PARTS = 10;
 
   /** 커서 문자열로 직렬화한다. 순서는 정렬 키(ORDER BY·seek)와 같다. */
   public String encode() {
@@ -43,6 +51,10 @@ public record AiTaskCursor(
             groupSortAt.toString(),
             String.valueOf(groupKey),
             String.valueOf(headOrder),
+            String.valueOf(familyRank),
+            familySortAt.toString(),
+            String.valueOf(familyKey),
+            String.valueOf(familyHead),
             String.valueOf(rank),
             sortAt.toString(),
             String.valueOf(id));
@@ -51,12 +63,18 @@ public record AiTaskCursor(
         .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
   }
 
-  /** 커서 문자열을 해석한다. 형식이 틀리면(이전 3부분·7부분 커서·다른 목록의 커서 포함) {@link InvalidCursorException}(400). */
+  /**
+   * 커서 문자열을 해석한다. 14부분(지금 형식)과 10부분(WP-1800 이전 형식)을 받고, 그 밖의 형식(이전 3부분·7부분 커서·다른 목록의 커서 포함)은 {@link
+   * InvalidCursorException}(400).
+   */
   public static AiTaskCursor decode(String cursor) {
     try {
       String raw = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
-      // 정확히 열 부분이어야 한다 — 임의 바이트로 풀린 문자열·기존 이슈 커서("ms:id")·이전 3부분·7부분 커서를 여기서 걸러낸다.
+      // 열네 부분 또는 열 부분이어야 한다 — 임의 바이트로 풀린 문자열·기존 이슈 커서("ms:id")·이전 3부분·7부분 커서를 여기서 걸러낸다.
       String[] p = raw.split("\\|", -1);
+      if (p.length == LEGACY_PARTS) {
+        p = padLegacy(p);
+      }
       if (p.length != PARTS) {
         throw new InvalidCursorException("cursor 형식 오류");
       }
@@ -70,11 +88,27 @@ public record AiTaskCursor(
           Integer.parseInt(p[6]),
           Integer.parseInt(p[7]),
           CursorTimes.instant(p[8]),
-          Long.parseLong(p[9]));
+          Long.parseLong(p[9]),
+          Integer.parseInt(p[10]),
+          Integer.parseInt(p[11]),
+          CursorTimes.instant(p[12]),
+          Long.parseLong(p[13]));
     } catch (InvalidCursorException e) {
       throw e;
     } catch (Exception e) {
       throw new InvalidCursorException("cursor 디코딩 실패");
     }
+  }
+
+  /**
+   * 가족 키가 없던 10부분 커서(WP-1800 이전) — 가족 4키를 그 행 자신 값(가족 순위 = 순위, 가족 최근 시각 = 정렬 시각, 가족 키 = id, 가족 머리 =
+   * 0)으로 채운다. 배포 직후 스크롤 중이던 화면이 400 을 받지 않게 하려는 것으로, 가족에 든 행 근처에서는 행이 겹치거나 빠질 수 있다(커서 행이 순위가 더 급한
+   * 가족에 들었으면 그 가족·사이 가족의 남은 행을 건너뛸 수 있음 — 새로고침이면 정상). 롤링 배포 동안만 필요, 다음 배포에서 지워도 됨(WP-1800).
+   */
+  private static String[] padLegacy(String[] p) {
+    // 앞 7개(프로젝트·묶음·머리 키)는 그대로, 가족 4키 = 순위·정렬 시각·id·머리 0, 뒤 3개 = 순위·정렬 시각·id.
+    return new String[] {
+      p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], "0", p[7], p[8], p[9]
+    };
   }
 }
