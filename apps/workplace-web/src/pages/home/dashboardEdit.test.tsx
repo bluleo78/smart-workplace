@@ -90,16 +90,62 @@ test('취소는 초안을 버리고 PUT 을 보내지 않으며 원래 순서를
   expect(order()).toEqual(['my_tasks', 'unread_mail'])
 })
 
-test('되돌리기는 마지막 액션 하나만 취소한다(단일 레벨)', async () => {
-  const view = await openEdit(['my_tasks', 'unread_mail'])
+test('되돌리기는 누를 때마다 한 단계씩 거슬러 편집 시작 상태까지 되돌린다 (WP-1762)', async () => {
+  const view = await openEdit(['my_tasks', 'unread_mail', 'notifications'])
   const undo = screen.getByTestId('dashboard-edit-undo')
   expect(undo).toBeDisabled()
-  await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down'))
-  expect(order()).toEqual(['unread_mail', 'my_tasks'])
-  expect(undo).toBeEnabled()
+  await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down')) // 1: unread, my, notif
+  await view.user.click(within(card('unread_mail')).getByTestId('widget-hide-toggle')) // 2: unread 숨김
+  await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down')) // 3: unread, notif, my
+  expect(order()).toEqual(['unread_mail', 'notifications', 'my_tasks'])
+  // 연달아 누른 되돌리기도 스크린리더가 매번 읽도록 공지 문구가 남은 단계 수로 달라진다.
+  const live = screen.getByTestId('dashboard-edit-live')
   await view.user.click(undo)
-  expect(order()).toEqual(['my_tasks', 'unread_mail'])
+  expect(order()).toEqual(['unread_mail', 'my_tasks', 'notifications'])
+  expect(card('unread_mail')).toHaveAttribute('data-hidden', 'true')
+  expect(undo).toBeEnabled()
+  expect(live).toHaveTextContent('마지막 편집을 되돌렸습니다. 2단계 더 되돌릴 수 있습니다')
+  await view.user.click(undo)
+  expect(card('unread_mail')).toHaveAttribute('data-hidden', 'false')
+  expect(undo).toBeEnabled()
+  expect(live).toHaveTextContent('마지막 편집을 되돌렸습니다. 1단계 더 되돌릴 수 있습니다')
+  await view.user.click(undo)
+  expect(order()).toEqual(['my_tasks', 'unread_mail', 'notifications'])
   expect(undo).toBeDisabled()
+  expect(live).toHaveTextContent('편집을 시작한 상태로 모두 되돌렸습니다')
+})
+
+test('되돌리기 중간에 새 편집을 하면 그 편집 뒤에 앞선 단계가 남는다', async () => {
+  const view = await openEdit(['my_tasks', 'unread_mail', 'notifications'])
+  const undo = screen.getByTestId('dashboard-edit-undo')
+  await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down')) // 1: unread, my, notif
+  await view.user.click(within(card('unread_mail')).getByTestId('widget-hide-toggle')) // 2: unread 숨김
+  await view.user.click(undo) // 숨김 취소
+  expect(card('unread_mail')).toHaveAttribute('data-hidden', 'false')
+  await view.user.click(within(card('notifications')).getByTestId('widget-hide-toggle')) // 다른 카드 숨김
+  expect(card('notifications')).toHaveAttribute('data-hidden', 'true')
+  await view.user.click(undo) // notifications 숨김 취소
+  expect(card('notifications')).toHaveAttribute('data-hidden', 'false')
+  expect(undo).toBeEnabled()
+  await view.user.click(undo) // 이동 취소 = 시작 상태
+  expect(order()).toEqual(['my_tasks', 'unread_mail', 'notifications'])
+  expect(undo).toBeDisabled()
+})
+
+test('취소·저장 뒤 다시 편집에 들어가면 되돌리기가 꺼져 있다', async () => {
+  const view = await openEdit(['my_tasks', 'unread_mail'])
+  await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down'))
+  expect(screen.getByTestId('dashboard-edit-undo')).toBeEnabled()
+  await view.user.click(screen.getByTestId('dashboard-edit-cancel'))
+  await view.user.click(await screen.findByTestId('dashboard-edit-toggle'))
+  await screen.findByTestId('dashboard-edit-banner')
+  expect(screen.getByTestId('dashboard-edit-undo')).toBeDisabled()
+  await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down'))
+  expect(screen.getByTestId('dashboard-edit-undo')).toBeEnabled()
+  await save(view)
+  await view.user.click(await screen.findByTestId('dashboard-edit-toggle'))
+  await screen.findByTestId('dashboard-edit-banner')
+  expect(screen.getByTestId('dashboard-edit-undo')).toBeDisabled()
 })
 
 // WP-520 — 위젯이 하나도 없으면 서버가 거부하므로 저장을 막고, 빈 상태 안내의 버튼이 위젯 추가를 연다.
@@ -216,4 +262,32 @@ test('위젯을 추가하면 새 카드가 강조되고 4초 뒤 강조가 풀�
   expect(card('unread_mail')).toHaveAttribute('data-just-added', 'true')
   act(() => vi.advanceTimersByTime(2))
   expect(card('unread_mail')).not.toHaveAttribute('data-just-added')
+})
+
+// 이미 고른 항목 수를 다시 눌러도 바뀐 게 없으므로 되돌리기 단계가 생기면 안 된다(키트 기본 count 는 5).
+test('이미 고른 항목 수를 다시 눌러도 되돌리기 단계가 생기지 않는다', async () => {
+  const view = await openEdit(['my_tasks'])
+  await view.user.click(within(within(card('my_tasks')).getByTestId('widget-count-select')).getByRole('button', { name: '5개' }))
+  expect(screen.getByTestId('dashboard-edit-undo')).toBeDisabled()
+})
+
+// WP-1762 — 바뀐 것 없이 설정 「적용」만 눌러도 되돌리기 단계가 생기지 않는다(눌러도 아무 일 없는 단계 방지).
+test('카탈로그 위젯 설정을 바꾸지 않고 적용하면 되돌리기 단계를 남기지 않는다 (WP-1762)', async () => {
+  const view = await openEdit([catalog('w-same', 'issue_list', { assignee: 'me' }, '내 이슈')])
+  await view.user.click(within(cardById('w-same')).getByTestId('widget-settings'))
+  await view.user.click(await screen.findByTestId('widget-settings-apply'))
+  expect(screen.getByTestId('dashboard-edit-undo')).toBeDisabled()
+})
+
+// WP-1762 — 저장본의 빈 이름은 없음(undefined)·빈 문자열 둘 다 올 수 있고 적용은 빈 이름을 null 로 보낸다 — 어느 쪽이든
+// 바뀐 것 없이 적용하면 되돌리기 단계를 남기지 않는다.
+test.each([
+  ['undefined', undefined],
+  ['빈 문자열', ''],
+])('이름 없는(%s) 카탈로그 위젯의 설정을 바꾸지 않고 적용하면 되돌리기 단계를 남기지 않는다 (WP-1762)', async (_, label) => {
+  const unlabeled = { ...catalog('w-bare', 'issue_list', { assignee: 'me' }), label }
+  const view = await openEdit([unlabeled])
+  await view.user.click(within(cardById('w-bare')).getByTestId('widget-settings'))
+  await view.user.click(await screen.findByTestId('widget-settings-apply'))
+  expect(screen.getByTestId('dashboard-edit-undo')).toBeDisabled()
 })

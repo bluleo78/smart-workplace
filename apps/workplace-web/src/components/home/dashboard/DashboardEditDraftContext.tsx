@@ -1,4 +1,4 @@
-// 홈 대시보드 편집 초안 저장소(WP-162) — 편집 시작 기기·초안·undo 스냅샷을 Dashboard 바깥(AppLayout 의 셸 분기 위)에 둔다.
+// 홈 대시보드 편집 초안 저장소(WP-162) — 편집 시작 기기·초안·undo 스택을 Dashboard 바깥(AppLayout 의 셸 분기 위)에 둔다.
 // 편집 중 창 폭이 lg(1024px) 경계를 넘으면 AppLayout 이 셸(MobileShell ↔ 데스크톱 레일)을 갈아 끼우며 Dashboard 가
 // 다시 마운트된다. 초안을 Dashboard 의 로컬 state 로 두면 그때 버려지므로, 셸 교체에도 살아 있는 이 provider 로 올린다.
 // 다른 기기 폭에서는 editing(= 시작 기기 === 현재 기기)이 false 라 초안이 보이지도 저장되지도 않고, 원래 폭으로 돌아오면 복원된다.
@@ -14,8 +14,8 @@ export interface DashboardEditDraftState {
   editDevice: DashboardDevice | null
   /** 저장 전 로컬 초안. */
   draft: DashboardWidgetConfig[]
-  /** 단일 레벨 undo 스냅샷(null = 되돌릴 것 없음). */
-  undoSnapshot: DashboardWidgetConfig[] | null
+  /** 여러 단계 undo 스택 — 끝이 가장 최근 스냅샷(빈 배열 = 되돌릴 것 없음). 상한은 MAX_UNDO. */
+  undoStack: DashboardWidgetConfig[][]
   /**
    * 편집 세션 번호(0 = 편집 시작 전) — 저장 완료는 자기 세션일 때만 편집을 끝낸다. 저장 중 lg 경계를 넘어 다른 기기
    * 폭에서 새 편집을 시작하면, 늦게 끝난 이전 저장이 그 새 편집을 닫아 버리지 않게 한다.
@@ -23,7 +23,7 @@ export interface DashboardEditDraftState {
   session: number
 }
 
-const EMPTY_EDIT_DRAFT: DashboardEditDraftState = { editDevice: null, draft: [], undoSnapshot: null, session: 0 }
+const EMPTY_EDIT_DRAFT: DashboardEditDraftState = { editDevice: null, draft: [], undoStack: [], session: 0 }
 
 type DraftStore = [DashboardEditDraftState, Dispatch<SetStateAction<DashboardEditDraftState>>]
 
