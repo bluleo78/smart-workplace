@@ -1167,53 +1167,43 @@ test('process-issue.md: 검토자는 최종 보고의 바뀐 것·확인 위치�
   }
   assertBefore(reviewer, '**최종 보고 확인**', '6. **머지**:');
 });
-const guideReq = section(pi, '\n### 안내 자료 요청\n', '\n### 분류 (분류 역할 AI)\n');
-test('process-issue.md: 안내 자료 요청은 라벨로 분류보다 먼저 가르고, 구현 흐름 없이 확인해 REVIEW 로 보고한다 (WP-1705)', () => {
-  const top = section(pi, '**먼저 갈래를 본다**', '\n**notes 파일**');
-  assertBefore(top, '「안내 자료 요청」', '「분류 (분류 역할 AI)」');
-  for (const s of ['「안내 자료 요청」 소절의 라벨', '다른 프로젝트 이슈는 열지 않는다', '워크트리·브랜치·커밋·PR·게이트 없이',
-    "state: 'REVIEW'", '결함 이슈를 만들어', '개발 대기열 라벨을 붙여 넘기고 담당에서 빠진다', '받은 AI 도 이 절로 처리한다']) {
+const guideReq = section(pi, '\n### 반영 안내 보충 (끝난 이슈)\n', '\n### 분류 (분류 역할 AI)\n');
+// 안내 자료가 모자랄 때 새 TASK 를 만들면 요청자 VOC 와 무관한 이슈가 쌓인다 — 끝난 개발 이슈의 이슈 챗 멘션으로 받고, 댓글로 보충한다.
+test('process-issue.md: 반영 안내 보충은 끝난 이슈에서 구현·새 이슈 없이 확인해 캡처를 넣은 댓글로 답한다', () => {
+  for (const s of ['`[반영 안내 보충]`', '구현하지 않는다', '새 이슈도 만들지 않는다', '「모자란 것」으로 적은 항목만',
+    '다른 프로젝트 이슈는 열지 않는다', '워크트리·브랜치·커밋·PR·게이트 없이', '`add_comment` **한 번**',
+    '`![설명](file:<fileId>)`', 'notes 파일을 만들지 않는다', '결함 이슈를 만들어']) {
     assert.ok(guideReq.includes(s), `「${s}」 가 없다`);
   }
-  assert.ok(triage.includes('안내 자료 요청 라벨이 붙은 이슈는 분류 요청이 아니다'));
+  assert.ok(!guideReq.includes("state: 'REVIEW'"), '끝난 이슈라 작업 보고를 쓰지 않는다');
+  assert.ok(!pi.includes('「안내 자료 요청」'), '옛 안내 자료 요청(TASK) 갈래가 남아 있다');
+  assert.ok(!triage.includes('안내 자료 요청'));
+  // 끝난 이슈에도 PR 이 있다 — PR 갈래(1번부터·PR 리뷰)보다 먼저 이 절로 보내야 한다.
+  const top = section(pi, '**먼저 갈래를 본다**', '\n**notes 파일**');
+  assertBefore(top, '「반영 안내 보충 (끝난 이슈)」 절만 따른다', '나는 그 PR 의 검토자다');
+  // 4번 공통 절차의 notes 줄·WORKING 보고는 끝난 이슈에 하지 않는다.
+  const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
+  assert.ok(s4.includes('끝난 이슈의 반영 안내 보충은 notes 를 만들지 않으니 적지 않고'));
+  assert.ok(s4.includes('끝난 이슈에 반영 안내 보충 댓글을 남김'));
 });
 test('SKILL.md 4번: 고른 처리 파일을 Read 로 읽고 notes 에 처리 파일 줄을 적는다 (WP-1717)', () => {
   const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
   assert.ok(s4.includes('`Read` 로 읽는다') && s4.includes('`처리 파일: <파일> (플러그인 <버전>) 읽음 <HH:MM>` 줄'));
 });
 
-test('SKILL.md 4번: 안내 자료 요청 라벨 이슈는 역할과 상관없이 맨 위 행으로 process-issue.md 「안내 자료 요청」 (WP-1705)', () => {
-  const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
-  assert.match(s4, /^\| 누구든 \| [^\n]*「안내 자료 요청」[^\n]*\|$/m);
-  assertBefore(s4, '| 누구든 |', '| 기획 역할 AI |');
-});
-test('project.md: 안내 자료 요청 소절 — 라벨·제목·본문 머리·담당·분류 제외 (WP-1705)', () => {
-  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
-  const s = section(project, '\n### 안내 자료 요청 (WP-1705)\n', '\n## 11. 기획 역할 AI\n');
-  for (const t of ['`VOC 반영 안내`', '「VOC 반영 안내 — <VOC 키> <요약>」',
-    '이 이슈는 VOC 가 아니라 출시된 개발 이슈의 사용 안내 자료를 받는 WP 작업입니다. VOC(WPV)는 열어 보지 않아도 되도록 필요한 내용을 모두 아래에 적었습니다.',
-    'AI 팀장', '분류 대상이 아니다', '이 이슈의 검토 대기 보고(REVIEW)', '연결된 WPV 키는 열지 않는다']) {
-    assert.ok(s.includes(t), `「${t}」 가 없다`);
+test('SKILL.md: 끝난 이슈의 [반영 안내 보충] 멘션을 DONE 조회로 따로 집어 맨 위 행으로 처리한다', () => {
+  const s3 = section(workLoopSkill, '\n### 3. 후보 고르기\n', '\n### 4. 이슈를 하나씩 처리\n');
+  const pick = lineWith(s3, '**끝난 이슈의 반영 안내 보충**');
+  for (const t of ["mentionsMe: true, status: 'DONE', closedFrom:", '`hasMore` 면 `nextCursor`', '`[반영 안내 보충]` 으로 시작하는 이슈만 후보', '「답하지 않고 넘긴 글」', '`HOLD` 에서도 고른다']) {
+    assert.ok(pick.includes(t), `「${t}」 가 없다`);
   }
-});
-
-// WP-1705 넘기기 — 내 행을 끝내지 않고 빠지면 작업 중 행이 남아 팀장이 다시 집고, 라벨을 떼면 받은 AI 가 안내 자료로 알아보지 못한다.
-test('process-issue.md: 안내 자료 요청 넘기기는 내 행을 COMPLETED 로 끝내고 안내 라벨을 그대로 둔다 (WP-1705)', () => {
-  const line = lineWith(guideReq, '직접 하기 어려우면');
-  assert.ok(line.includes("state: 'COMPLETED', note: '안내 자료: 개발 대기열로 넘김'"));
-  assertBefore(line, "state: 'COMPLETED'", '담당에서 빠진다');
-  assert.ok(line.includes('이유 댓글'));
-  assert.ok(line.includes('안내 자료 요청 라벨은 떼지 않는다'));
-});
-
-// WP-1705 넘기기 순환 — 받은 AI 가 또 넘기면 대기열 사이를 돌기만 한다. 넘긴 이유 댓글 표지로 알아보고 사람에게 묻는다.
-test('process-issue.md: 안내 자료 요청 넘기기는 한 번뿐이고 받은 AI 는 사람에게 INPUT_REQUIRED 로 묻는다 (WP-1705)', () => {
-  const line = lineWith(guideReq, '직접 하기 어려우면');
-  assert.ok(line.includes('`[안내 자료 넘김]` 으로 시작하는 이유 댓글'));
-  assert.ok(line.includes('넘기기는 한 번뿐이다'));
-  assertBefore(line, '`[안내 자료 넘김]` 이 이미 있으면', '다시 넘기지 않고');
-  assert.ok(line.includes('사람 담당자(없으면 작성자)를 `@username` 으로 멘션'));
-  assert.ok(line.includes('`INPUT_REQUIRED`'));
+  const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
+  assert.match(s4, /^\| 누구든 \| [^\n]*「끝난 이슈의 반영 안내 보충」[^\n]*「반영 안내 보충 \(끝난 이슈\)」[^\n]*\|$/m);
+  assertBefore(s4, '| 누구든 |', '| 기획 역할 AI |');
+  const reviewer = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업 (백그라운드)\n');
+  assert.ok(lineWith(reviewer, '**최종 보고 확인**(WP-1705)').includes('`[반영 안내 보충]` 으로 시작'));
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  assert.ok(!project.includes('VOC 반영 안내'), 'project.md 에 옛 안내 요청 TASK 라벨이 남아 있다');
 });
 
 // WP-1714 — 비우기 표시는 다음 확인을 잡은 뒤에만, 끝나지 않은 백그라운드 작업이 없을 때만 남긴다. 비운 뒤 이어 하기 놓침은 miss 로 남긴다.
@@ -1314,7 +1304,7 @@ test('process-issue.md: 0.1.55 전에 시작한 PR 은 원장 줄을 요구하�
 
 // WP-1720 — 검토자는 열린 AI PR 을 번호 순으로 맨 앞만 머지한다(리뷰는 받는 대로).
 const queueReview = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업');
-const queueTrain = section(pi, '### 기차 (저장소가 켰을 때)', '### 안내 자료 요청');
+const queueTrain = section(pi, '### 기차 (저장소가 켰을 때)', '### 반영 안내 보충 (끝난 이슈)');
 
 test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 막히면 정해진 규칙으로 비킨다 (WP-1720)', () => {
   const review = queueReview;
