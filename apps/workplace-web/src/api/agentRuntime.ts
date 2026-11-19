@@ -6,6 +6,7 @@ import type {
   AgentRepoCredential,
   AgentRuntimeProject,
   AgentRuntimeSetting,
+  AgentRuntimeSlots,
   AgentRuntimeSummary,
   AgentTemplate,
   PutAgentRuntimeSettingRequest,
@@ -16,6 +17,12 @@ import { client } from './client';
 // 실행 템플릿 목록 — 「기본」(SERVER)과 작업 공간 템플릿(WORKSPACE).
 export async function listAgentTemplates(): Promise<AgentTemplate[]> {
   const { data } = await client.get<AgentTemplate[]>('/admin/agent-templates');
+  return data;
+}
+
+// AI 한 명의 동시 진행 자리(WP-1775) — 상세 「지금 n개 진행 중」용. 실행 설정이 없어도 200(used 0).
+export async function getAgentRuntimeSlots(userId: number): Promise<AgentRuntimeSlots> {
+  const { data } = await client.get<AgentRuntimeSlots>(`/admin/agents/${userId}/runtime-setting/slots`);
   return data;
 }
 

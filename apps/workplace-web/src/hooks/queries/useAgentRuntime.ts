@@ -9,6 +9,7 @@ import {
   deleteAgentLocation,
   deleteAgentRuntimeSetting,
   getAgentRuntimeSetting,
+  getAgentRuntimeSlots,
   listAgentLocations,
   listAgentRuntimeProjects,
   listAgentRuntimeSummaries,
@@ -42,6 +43,23 @@ export function useAgentTemplates() {
 // enabled — 에이전트 상세는 실행 방식을 안 뒤에만 부른다(기본 방식 AI 는 실행 설정이 없어 404 를 부르지 않게).
 export function useAgentRuntimeSetting(userId: number, enabled = true) {
   return useQuery({ queryKey: agentRuntimeKeys.setting(userId), queryFn: () => getAgentRuntimeSetting(userId), enabled });
+}
+
+/**
+ * 자리 조회를 다시 읽는 주기(WP-1775) — 작업 상태 변화(이슈 모듈)는 실행 설정 변경 알림으로 오지 않으므로 「지금 n개 진행 중」을 새로
+ * 받으려면 주기 갱신이 필요하다. AI 한 명의 작은 응답이라 30초면 부담이 없다.
+ */
+export const AGENT_SLOTS_POLL_MS = 30_000;
+
+// AI 한 명의 동시 진행 자리(WP-1775) — 실행 중일 때만 읽고 주기 갱신한다(꺼진 AI 는 「지금 n개」를 보이지 않는다).
+// 키에 실행 세대(generation)를 넣어, 다시 시작하면 앞 실행의 수를 캐시에서 잠깐 보이지 않고 새로 읽는다.
+export function useAgentRuntimeSlots(userId: number, generation: number, running: boolean) {
+  return useQuery({
+    queryKey: agentRuntimeKeys.slots(userId, generation),
+    queryFn: () => getAgentRuntimeSlots(userId),
+    enabled: running,
+    refetchInterval: running ? AGENT_SLOTS_POLL_MS : false,
+  });
 }
 
 export function useAgentRuntimeProjects(userId: number, enabled = true) {

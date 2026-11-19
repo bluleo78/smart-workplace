@@ -28,12 +28,12 @@ import { Switch } from '@/components/ui/switch';
 import { usersApi } from '../../../../api/users';
 import {
   useAgentRuntimeAction,
+  useAgentRuntimeSlots,
   useInvalidateRuntime,
   useSaveAgentRuntimeSetting,
   useSetAgentAcceptNewWork,
   useSetAgentSlotLimit,
 } from '../../../../hooks/queries/useAgentRuntime';
-import { useAiAgents } from '../../../../hooks/queries/useAiAgents';
 import { accountLabel } from '../../../../lib/agentAccount';
 import { externalKeyStatusText, pluginUpdateInfo } from '../../../../lib/agentRuntime';
 import {
@@ -566,13 +566,15 @@ const SLOT_LIMIT_CHOICES = [1, 2, 3, 5];
 
 /**
  * 「동시 진행」 행(WP-1754) — 이 AI 가 한 번에 맡는 이슈 수. 템플릿 기본값을 고르면 null 을 보내 「기본을 따름」으로 되돌린다.
- * 바꿔도 다시 띄우지 않고, 이미 맡은 이슈는 마친 뒤 새 상한이 적용된다. 「지금 n개 진행 중」의 n 은 AI별 현황(/me/ai-agents?scope=ALL)의
- * 이 AI 진행 자리(slotsUsed) — 실행 중일 때만 받고, 못 구하면 그 말을 뺀다.
+ * 바꿔도 다시 띄우지 않고, 이미 맡은 이슈는 마친 뒤 새 상한이 적용된다. 「지금 n개 진행 중」의 n 은 AI 한 명의 자리 조회(WP-1775 —
+ * AI별 현황과 같은 기준) — 전체 AI 목록(/me/ai-agents?scope=ALL)을 읽지 않는다. 실행 중일 때만 읽고, 못 받으면 그 말을 뺀다.
  */
 function SlotLimitRow({ agentId, saved, running }: { agentId: number; saved: AgentRuntimeSetting; running: boolean }) {
   const mut = useSetAgentSlotLimit(agentId);
-  const roster = useAiAgents('ALL', running);
-  const slotsUsed = roster.data?.agents.find((a) => a.agent.id === agentId)?.slotsUsed;
+  // 실행 중일 때만 30초마다 받는다 — 꺼졌거나 못 받으면 undefined 라 「지금 n개」 말을 뺀다.
+  const slots = useAgentRuntimeSlots(agentId, saved.generation, running);
+  // 다시 읽기가 실패하면 낡은 수를 보이지 않고 문구를 뺀다.
+  const slotsUsed = running && !slots.isError ? slots.data?.used : undefined;
   // 요청 중이면 보낸 값을 바로 보인다(null 은 기본값). 실패하면 진행 중 값이 사라져 저장된 값으로 돌아간다.
   const value = mut.isPending ? (mut.variables ?? saved.defaultSlotLimit) : saved.effectiveSlotLimit;
   const choices = SLOT_LIMIT_CHOICES.includes(value) ? SLOT_LIMIT_CHOICES : [...SLOT_LIMIT_CHOICES, value].sort((a, b) => a - b);

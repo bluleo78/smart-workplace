@@ -2,7 +2,6 @@
 // 실행 방식 섹션·에이전트 목록·실행 위치 화면 테스트가 같은 데이터 모양을 쓴다(시안 e2e 의 목 데이터와 같은 모양).
 import { http, HttpResponse } from 'msw'
 
-import type { AiAgentsResponse } from '@/api/aiAgents'
 import type { AgentResponse } from '@/types/agent'
 import type { AgentAccountResponse } from '@/types/agentAccount'
 import type {
@@ -10,6 +9,7 @@ import type {
   AgentRepoCredential,
   AgentRuntimeProject,
   AgentRuntimeSetting,
+  AgentRuntimeSlots,
   AgentRuntimeSummary,
   AgentTemplate,
   PutAgentRuntimeSettingRequest,
@@ -218,6 +218,10 @@ export interface RuntimeCalls {
   acceptNewWorks: { acceptNewWork: boolean }[]
   /** PUT /admin/agents/:id/runtime-setting/slot-limit 본문(「동시 진행」, WP-1754) */
   slotLimits: { slotLimit: number | null }[]
+  /** GET /me/ai-agents 호출 수(WP-1775) — 에이전트 상세가 전체 AI 목록을 읽지 않는지(0) 본다. */
+  rosterReads: number
+  /** GET /admin/agents/:id/runtime-setting/slots 호출 수(WP-1775) — 실행 중일 때만 읽는지, 상한 변경 뒤 다시 읽는지 본다. */
+  slotsReads: number
   /** 호출 순서 — 「삭제 → 실행 방식 PUT」처럼 순서를 볼 때 */
   order: string[]
 }
@@ -226,8 +230,8 @@ export interface RuntimeApiOptions {
   /** 에이전트 id → 저장된 설정. 없으면 404(기본·외부). */
   settings?: Record<number, AgentRuntimeSetting>
   summaries?: AgentRuntimeSummary[]
-  /** GET /me/ai-agents 응답(WP-1754) — 상세 「지금 n개 진행 중」용. 없으면 빈 목록. */
-  aiAgents?: AiAgentsResponse
+  /** 에이전트 id → AI 한 명 자리 조회 응답(WP-1775). 'error' 면 500, 없으면 used 0·limit 5. */
+  slots?: Record<number, AgentRuntimeSlots | 'error'>
   locations?: AgentLocation[]
   templates?: AgentTemplate[]
   projects?: AgentRuntimeProject[]
@@ -264,7 +268,7 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
     ...Object.fromEntries((opts.claudeFor ?? []).map((id) => [id, 'anthropic' as const])),
     ...(opts.credentials ?? {}),
   }
-  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], binds: [], acceptNewWorks: [], slotLimits: [], order: [] }
+  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], binds: [], acceptNewWorks: [], slotLimits: [], rosterReads: 0, slotsReads: 0, order: [] }
   const accounts = opts.accounts ?? []
   const boundAccounts = { ...(opts.boundAccounts ?? {}) }
   let repoCredentials = [...(opts.repoCredentials ?? [])]
@@ -302,6 +306,13 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
       settings[id] = { ...(settings[id] ?? createSetting(id)), acceptNewWork: body.acceptNewWork }
       return HttpResponse.json(settings[id])
     }),
+    // AI 한 명의 자리(WP-1775) — 상세 「지금 n개 진행 중」.
+    http.get(`${API}/admin/agents/:id/runtime-setting/slots`, ({ params }) => {
+      calls.slotsReads += 1
+      const s = opts.slots?.[Number(params.id)]
+      if (s === 'error') return HttpResponse.json({ message: 'boom' }, { status: 500 })
+      return HttpResponse.json(s ?? { used: 0, limit: 5 })
+    }),
     // 「동시 진행」(WP-1754) — 고른 값(null 이면 기본)을 설정에 반영하고 적용값(effective)을 다시 계산해 돌려준다.
     http.put(`${API}/admin/agents/:id/runtime-setting/slot-limit`, async ({ params, request }) => {
       const body = (await request.json()) as { slotLimit: number | null }
@@ -313,8 +324,11 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
       settings[id] = { ...cur, slotLimit: body.slotLimit, effectiveSlotLimit: body.slotLimit ?? cur.defaultSlotLimit }
       return HttpResponse.json(settings[id])
     }),
-    // 관리 상세의 「지금 n개 진행 중」 — AI별 현황. 기본은 빈 목록(못 구하면 그 말을 뺀다).
-    http.get(`${API}/me/ai-agents`, () => HttpResponse.json(opts.aiAgents ?? { agents: [], slotLimit: 5 })),
+    // AI별 현황 — 상세는 부르지 않아야 한다(WP-1775, 「지금 n개」는 AI 한 명 자리 조회). 불리면 호출 수만 세고 빈 목록.
+    http.get(`${API}/me/ai-agents`, () => {
+      calls.rosterReads += 1
+      return HttpResponse.json({ agents: [], slotLimit: 5 })
+    }),
     http.delete(`${API}/admin/agents/:id/runtime-setting`, ({ params }) => {
       calls.settingDeletes += 1
       calls.order.push('DELETE setting')

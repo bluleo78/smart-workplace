@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { agentRuntimeKeys } from '@/hooks/queries/agentRuntimeKeys'
 import { agentAccountKeys } from '@/hooks/queries/useAgentAccounts'
+import { aiAgentsKeys } from '@/hooks/queries/useAiAgents'
 import { formatDateMonthDayPadded } from '@/lib/formatters'
 import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
 import { withAppProviders } from '@/test/kits/appProviders'
@@ -23,7 +24,6 @@ import type { AgentResponse } from '@/types/agent'
 import type { AgentApiKey } from '@/types/agentKey'
 import type { AgentRepoCredential } from '@/types/agentRuntime'
 
-import { createAiAgentStatus } from '../../../e2e/factories/aiAgent.factory'
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
 import { createAccount, createUsage } from '../../test/kits/admin/agentAccounts'
 import {
@@ -399,9 +399,11 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
   describe('동시 진행', () => {
     const running = () => createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'IDLE' }) })
 
-    test('실행 중이면 「동시 진행」 행에 「1개 (기본)」과 설명·지금 n개 진행 중이 보이고, 2개를 고르면 PUT {slotLimit:2}, 기본값을 다시 고르면 {slotLimit:null}', async () => {
-      const aiAgents = { slotLimit: 5, agents: [createAiAgentStatus(id, 'AI', { slotsUsed: 1 })] }
-      const { user, calls } = await renderDetail(works({ settings: { [id]: running() }, aiAgents }))
+    // 「지금 n개 진행 중」은 AI 한 명 자리 조회(/runtime-setting/slots, WP-1775) — 상세를 그려도 전체 AI 목록(/me/ai-agents)을 읽지 않는다.
+    test('실행 중이면 「동시 진행」 행에 「1개 (기본)」과 설명·지금 n개 진행 중이 보이고, 2개를 고르면 PUT {slotLimit:2}, 기본값을 다시 고르면 {slotLimit:null} — /me/ai-agents 는 부르지 않는다', async () => {
+      const { user, calls, queryClient } = await renderDetail(works({ settings: { [id]: running() }, slots: { [id]: { used: 1, limit: 1 } } }))
+      // AI별 막대용 캐시(WP-1754) — 상세는 구독하지 않지만, 상한을 바꾸면 무효화돼 AI별 화면이 다시 읽어야 한다.
+      queryClient.setQueryData(aiAgentsKeys.scope('ALL'), { agents: [], slotLimit: 5 })
       const row = await screen.findByTestId('agent-slot-limit')
       expect(row).toHaveTextContent('동시 진행')
       await waitFor(() => expect(row).toHaveTextContent('한 번에 맡는 이슈 수예요. 지금 1개 진행 중'))
@@ -409,32 +411,48 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
       expect(trigger).toHaveTextContent('1개 (기본)')
       await user.click(trigger)
       expect(within(await screen.findByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['1개 (기본)', '2개', '3개', '5개'])
-      // 바꾼 뒤 AI별 막대용 ['ai-agents'] 조회를 다시 읽는다(WP-1754) — 선택 직전부터 /me/ai-agents 호출 수를 센다.
-      let rosterReads = 0
-      server.use(
-        http.get('*/me/ai-agents', () => {
-          rosterReads += 1
-          return HttpResponse.json(aiAgents)
-        }),
-      )
       await user.click(screen.getByRole('option', { name: '2개' }))
       await waitFor(() => expect(calls.slotLimits).toEqual([{ slotLimit: 2 }]))
-      await waitFor(() => expect(rosterReads).toBeGreaterThan(0))
+      await waitFor(() => expect(queryClient.getQueryState(aiAgentsKeys.scope('ALL'))?.isInvalidated).toBe(true))
       await waitFor(() => expect(screen.getByRole('combobox', { name: '동시 진행' })).toHaveTextContent('2개'))
+      expect(screen.getByTestId('agent-slot-limit')).toHaveTextContent('지금 1개 진행 중')
       // 실행 요청은 가지 않는다 — 다시 띄우지 않는다.
       expect(calls.actions).toEqual([])
       await user.click(screen.getByRole('combobox', { name: '동시 진행' }))
       await user.click(await screen.findByRole('option', { name: '1개 (기본)' }))
       await waitFor(() => expect(calls.slotLimits).toEqual([{ slotLimit: 2 }, { slotLimit: null }]))
+      expect(calls.rosterReads).toBe(0)
     })
 
-    test('종료된 AI 에도 「동시 진행」 행이 보이고 「지금 n개」 말은 없다', async () => {
-      const aiAgents = { slotLimit: 5, agents: [createAiAgentStatus(id, 'AI', { slotsUsed: 2 })] }
-      await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'OFF', desired: 'STOP' }) }, aiAgents }))
+    test('종료된 AI 에도 「동시 진행」 행이 보이고 「지금 n개」 말은 없으며 자리 조회도 부르지 않는다', async () => {
+      const { calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'OFF', desired: 'STOP' }) }, slots: { [id]: { used: 2, limit: 1 } } }))
       const row = await screen.findByTestId('agent-slot-limit')
       expect(row).toHaveTextContent('한 번에 맡는 이슈 수예요.')
       expect(row).not.toHaveTextContent('지금')
       expect(screen.getByRole('combobox', { name: '동시 진행' })).toHaveTextContent('1개 (기본)')
+      expect(calls.slotsReads).toBe(0)
+      expect(calls.rosterReads).toBe(0)
+    })
+
+    test('자리 조회가 실패하면(500) 실행 중이어도 「지금 n개」 말 없이 행은 보인다', async () => {
+      const { calls } = await renderDetail(works({ settings: { [id]: running() }, slots: { [id]: 'error' } }))
+      const row = await screen.findByTestId('agent-slot-limit')
+      await waitFor(() => expect(calls.slotsReads).toBeGreaterThan(0))
+      expect(row).toHaveTextContent('한 번에 맡는 이슈 수예요.')
+      expect(row).not.toHaveTextContent('지금')
+      expect(screen.getByRole('combobox', { name: '동시 진행' })).toHaveTextContent('1개 (기본)')
+    })
+
+    test('보이던 「지금 n개」도 다시 읽기가 실패하면 낡은 수를 남기지 않고 뺀다', async () => {
+      const slots: Record<number, { used: number; limit: number } | 'error'> = { [id]: { used: 1, limit: 1 } }
+      const { calls, queryClient } = await renderDetail(works({ settings: { [id]: running() }, slots }))
+      const row = await screen.findByTestId('agent-slot-limit')
+      await waitFor(() => expect(row).toHaveTextContent('지금 1개 진행 중'))
+      slots[id] = 'error'
+      const readsBefore = calls.slotsReads
+      await queryClient.refetchQueries({ queryKey: ['agent-runtime', 'slots'] })
+      await waitFor(() => expect(calls.slotsReads).toBeGreaterThan(readsBefore))
+      await waitFor(() => expect(row).not.toHaveTextContent('지금'))
     })
 
     test('AI 에 고른 값이 있으면 그 값을, 템플릿 기본이 다르면 기본 옆에 「(기본)」을 보인다', async () => {

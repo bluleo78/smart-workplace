@@ -1,6 +1,7 @@
 package com.workplace.agentruntime;
 
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
+import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -21,10 +22,18 @@ import com.workplace.auth.service.AgentRemovalService;
 import com.workplace.auth.service.WorkspaceAssistantService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
+import com.workplace.project.dto.CreateProjectRequest;
+import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.support.WebSessionAuth;
+import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +47,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * WP-1247 AI 별 실행 설정·원하는 상태 API 통합 테스트 — 저장(실행 방식 EXTERNAL 전환·검증·generation), 켜기·끄기·다시 시작·삭제 규칙, 자리
@@ -55,6 +65,8 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
   @Autowired WorkspaceAssistantService workspaceAssistantService;
   @Autowired ApplicationEvents appEvents;
   @Autowired AgentRemovalService agentRemovalService;
+  @Autowired ProjectService projectService;
+  @Autowired IssueRepository issueRepository;
 
   private long admin;
   private AgentRuntimeTestFixtures fx;
@@ -649,6 +661,93 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.slotLimit").value(3))
         .andExpect(jsonPath("$.effectiveSlotLimit").value(3))
         .andExpect(jsonPath("$.defaultSlotLimit").value(1));
+  }
+
+  /** AI 에게 작업 중(WORKING) 작업 한 건을 지금 시각으로 만든다 — 무소식(stale)이 아니어야 자리로 센다(WP-1775). */
+  private void seedWorkingWork(long agent) {
+    TenantContext.set(1L);
+    String key = "SU" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 6);
+    long project = projectService.create(admin, new CreateProjectRequest(key, "P-su", "x")).id();
+    long issueId =
+        IssueSeeds.insert(issueRepository, baseDsl, project, 1, "작업", null, "MID", null, admin)
+            .id();
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    dsl.insertInto(AGENT_WORK)
+        .set(AGENT_WORK.ISSUE_ID, issueId)
+        .set(AGENT_WORK.WORKER_ID, agent)
+        .set(AGENT_WORK.TOOL, "claude-code")
+        .set(AGENT_WORK.STATE, "WORKING")
+        .set(AGENT_WORK.UPDATED_AT, now)
+        .set(AGENT_WORK.STATE_CHANGED_AT, now)
+        .execute();
+  }
+
+  /** AI별 현황(/me/ai-agents?scope=ALL)에서 이 AI 의 slotsUsed. */
+  private int rosterSlotsUsed(long agent) throws Exception {
+    String body =
+        call(get("/api/v1/me/ai-agents?scope=ALL"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString(StandardCharsets.UTF_8);
+    for (JsonNode a : om.readTree(body).get("agents")) {
+      if (a.get("agent").get("id").asLong() == agent) return a.get("slotsUsed").asInt();
+    }
+    throw new AssertionError("AI " + agent + " 가 AI별 현황에 없다: " + body);
+  }
+
+  /** AI 한 명의 자리 조회(WP-1775) 호출. */
+  private ResultActions getSlots(long agent) throws Exception {
+    return call(get(base(agent) + "/slots"));
+  }
+
+  /**
+   * AI 한 명의 자리 조회(WP-1775) — 에이전트 상세가 전체 AI 목록을 읽지 않고 이 값으로 「지금 n개 진행 중」을 그린다. used 는 AI별 현황
+   * slotsUsed 와, limit 은 실행 설정의 effectiveSlotLimit 과 같은 기준이어야 한다.
+   */
+  @Test
+  void slots_matchRosterAndEffectiveLimit() throws Exception {
+    long agent = newAgent();
+    putClaude(agent).andExpect(status().isOk());
+    getSlots(agent)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.used").value(0))
+        .andExpect(jsonPath("$.limit").value(5));
+    seedWorkingWork(agent);
+
+    int roster = rosterSlotsUsed(agent);
+    assertThat(roster).isEqualTo(1);
+    getSlots(agent).andExpect(jsonPath("$.used").value(roster));
+    // 상한을 바꾸면 limit 도 실행 설정의 effectiveSlotLimit 과 같이 바뀐다.
+    putSlotLimit(agent, "{\"slotLimit\":2}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.effectiveSlotLimit").value(2));
+    getSlots(agent)
+        .andExpect(jsonPath("$.used").value(roster))
+        .andExpect(jsonPath("$.limit").value(2));
+  }
+
+  /** 실행 설정 행이 없는 AI 도 200 — used 0, limit 기본(WP-1775). */
+  @Test
+  void slots_withoutSetting_returnsDefault() throws Exception {
+    getSlots(newAgent())
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.used").value(0))
+        .andExpect(jsonPath("$.limit").value(5));
+  }
+
+  /** 이 워크스페이스 구성원이 아닌 AI 는 기존 조회처럼 404(WP-1775). */
+  @Test
+  void slots_nonMember_returns404() throws Exception {
+    long outsider = TestFixtures.createAgentNoToken(dsl);
+    call(get(base(outsider))).andExpect(status().isNotFound());
+    getSlots(outsider).andExpect(status().isNotFound());
+  }
+
+  /** 구성원이어도 사람이면 자리가 없으니 404 — AI 에게만 답한다(WP-1775). */
+  @Test
+  void slots_human_returns404() throws Exception {
+    getSlots(admin).andExpect(status().isNotFound());
   }
 
   /** 켜져 있는 AI 의 실행 설정은 지울 수 없다 — 409. */
