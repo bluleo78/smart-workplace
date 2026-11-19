@@ -740,6 +740,8 @@ function openRevisions() {
   })
 }
 const revRow = (v: number | 'current') => screen.getByTestId(`wiki-revision-item-${v}`)
+// 글자는 고르기 단추 밖(li)에 있다 — 이름이 사람 카드 트리거라 단추 안에 둘 수 없다(WP-1768).
+const revText = (v: number | 'current') => revRow(v).closest('li')!
 
 describe('노트 버전 기록', () => {
   test('⋯ → 버전 기록은 날짜로 묶은 목록을 보이고, 맨 위는 현재 버전, AI 판은 ✦ 표식이며 고른 줄로 선택이 옮겨 가고 ✕ 로 닫는다', async () => {
@@ -749,15 +751,15 @@ describe('노트 버전 기록', () => {
     const panel = await screen.findByTestId('wiki-revision-panel')
     expect(location()).toMatch(/[?&]history=1/)
     await waitFor(() => expect([...panel.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['오늘', '어제', '10월 5일']))
-    expect(revRow('current')).toHaveTextContent('현재 버전')
-    expect(revRow('current')).toHaveTextContent('김철수 외 2명 · 편집 중')
+    expect(revText('current')).toHaveTextContent('현재 버전')
+    expect(revText('current')).toHaveTextContent('김철수 외 2명 · 편집 중')
     expect(revRow('current')).toHaveAttribute('aria-current', 'true')
-    expect(revRow(6)).toHaveTextContent('14:32')
-    expect(revRow(6)).toHaveTextContent('이영희 (AI 수정)')
-    expect(revRow(6).querySelector('svg.lucide-sparkles')).not.toBeNull()
-    expect(revRow(5)).toHaveTextContent('김철수, 박민수')
-    expect(revRow(3)).toHaveTextContent('17:48')
-    expect(revRow(2)).toHaveTextContent('09:12')
+    expect(revText(6)).toHaveTextContent('14:32')
+    expect(revText(6)).toHaveTextContent('이영희 (AI 수정)')
+    expect(revText(6).querySelector('svg.lucide-sparkles')).not.toBeNull()
+    expect(revText(5)).toHaveTextContent('김철수, 박민수')
+    expect(revText(3)).toHaveTextContent('17:48')
+    expect(revText(2)).toHaveTextContent('09:12')
     // 선택 줄(aria-current)만 선택 표시(막대 + bg-selected) — 판을 고르면 표시가 옮겨 간다(WP-368).
     expect(revRow('current').className).toMatch(/bg-selected/)
     expect(revRow(5).className).not.toMatch(/bg-selected/)

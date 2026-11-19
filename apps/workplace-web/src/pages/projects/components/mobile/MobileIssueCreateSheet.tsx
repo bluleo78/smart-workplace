@@ -25,16 +25,15 @@ import { formatDateMonthDay } from '../../../../lib/formatters';
 import { autoAssignHint } from '../../../../lib/issueComponents';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { CreateAiHandoffSection } from '../CreateAiHandoffSection';
+import type { IssueCreateFormProps } from '../IssueCreateDialog';
 import { HIT_EXPAND } from './chipStyles';
 import { CreateIssueChips } from './CreateIssueChips';
 
-type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number; initialStatusId?: number; initialAgentId?: number };
-
-export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId, initialAgentId }: Props) {
+export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId, initialAgentId, renderProjectField }: IssueCreateFormProps) {
   const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId, initialAgentId });
   const { register, watch, formState: { errors } } = f.form;
   // 설명 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
-  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange } = f.bodyEditor;
+  const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange, key: bodyKey, initialBody, initialMentions } = f.bodyEditor;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 칩 → 시트 → 직전 입력칸 포커스 복귀(키보드 원칙 ③). 칩 줄과 본문 인라인 입력이 함께 쓴다.
   const focusReturn = useFocusReturn();
@@ -93,6 +92,8 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
               </Button>
             </header>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+              {/* 프로젝트 고르기(WP-1768) — 프로젝트 없이 연 시트만. 유형·담당 AI 후보가 이 값에 따라 바뀌어 맨 위에 둔다. */}
+              {renderProjectField?.(f.projectLocked)}
               {/* 제목 — Enter 는 줄바꿈 대신 설명으로 이동(enterKeyHint=next). 한글 조합 중 Enter 는 조합 확정이라 무시.
                   제목은 한 줄 값이라 붙여넣은 줄바꿈은 공백으로. 글자 크기 20px 는 터치 16px 강제 규칙(index.css, 확대 방지)보다 커서 important 로 덮는다. */}
               <textarea
@@ -124,14 +125,17 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 </p>
               )}
               {/* 설명 — 본문 모드 RichInput(테두리 없음, 최소 3줄, 최대 높이 없음 — 시트 본문이 스크롤한다). 붙여넣은 이미지는 칸 안 그림.
-                  이미지 버튼은 지금처럼 없다(붙여넣기만). 시트가 열릴 때마다 새로 마운트돼 빈 칸으로 시작한다. */}
+                  이미지 버튼은 지금처럼 없다(붙여넣기만). 시트가 열릴 때마다 새로 마운트돼 빈 칸으로 시작한다.
+                  시트 안에서 프로젝트를 바꾸면(WP-1768) key 가 바뀌어 새 프로젝트 설정으로 다시 마운트되고 지금 설명(initialBody)을 잇는다. */}
               <RichInput
+                key={bodyKey}
                 ref={bodyEditorRef}
                 // 설명 칸 모양 — 테두리 없이 글자만(bare). 바깥 시트가 이미 칸을 그려 둔다(편집칸은 마운트 때 한 번만 읽는다).
                 bodyMode={{ ...bodyMode, frame: 'bare' }}
                 imageUpload={imageUpload}
                 members={members}
-                initialBody=""
+                initialBody={initialBody}
+                initialMentions={initialMentions}
                 ariaLabel="설명"
                 placeholder="설명 (선택)"
                 inputTestId="issue-create-body"

@@ -3,9 +3,9 @@ import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } fr
 import { type FieldErrors, type Resolver, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
-import { uploadIssueImage } from '../../../api/issueImages';
+import { ISSUE_IMAGE_PATH_SOURCE, uploadIssueImage } from '../../../api/issueImages';
 import type { RichInputHandle } from '../../../components/mentions/RichInput';
-import type { MentionCandidate } from '../../../components/mentions/types';
+import type { MentionCandidate, MentionUser } from '../../../components/mentions/types';
 import { useComponents } from '../../../hooks/queries/useComponents';
 import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
@@ -24,12 +24,24 @@ import { defaultStatusOf } from '../../../lib/projectStatuses';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
 import { type CreateMode, useCreateAiHandoff } from './useCreateAiHandoff';
 
+// 본문 속 이슈 이미지 주소 전부 — 첫 묶음이 프로젝트 키. 모듈에 한 번만 만든다(렌더마다 새로 만들지 않게).
+// g 플래그는 matchAll 용이다 — matchAll 은 정규식을 복제해 쓰므로 공유 lastIndex 상태가 남지 않는다(test()/exec() 로는 쓰지 않는다).
+const ISSUE_IMAGE_PATH_ALL = new RegExp(ISSUE_IMAGE_PATH_SOURCE, 'g');
+
+/** 본문에 projectKey 프로젝트의 이슈 이미지 주소가 하나라도 있는지 — 다른 프로젝트 이미지는 세지 않는다. */
+function bodyHasProjectImage(body: string, projectKey: string): boolean {
+  for (const m of body.matchAll(ISSUE_IMAGE_PATH_ALL)) if (m[1] === projectKey) return true;
+  return false;
+}
+
 const zodIssueCreateResolver = zodResolver(createIssueSchema);
 const DATE_FIELDS = ['startDate', 'dueDate'] as const;
 // 검사 실패 때 포커스를 옮길 칸 — 화면 위에서 아래 순서(두 화면 모두 이 순서로 그린다).
 const ERROR_FOCUS_ORDER = ['title', 'body', 'startDate', 'dueDate', 'parentNumber'] as const;
 // 멘션 후보를 아직 받지 못했을 때 — 렌더마다 새 빈 배열을 만들지 않게 하나를 쓴다.
 const NO_MEMBERS: MentionCandidate[] = [];
+// 다시 마운트할 본문 칸에 넘길 멘션 이름표가 없을 때 — 렌더마다 새 빈 배열을 만들지 않게 하나를 쓴다.
+const NO_MENTIONS: MentionUser[] = [];
 
 /**
  * 이슈 만들기 폼 검사 — zod 검사에 「덜 넣은 날짜」 판정을 더한다(WP-1644, 이유는 lib/dateInput).
@@ -117,6 +129,26 @@ export function useIssueCreateForm({
   const imageUpload = useCallback((file: File) => uploadIssueImage(projectKey, file), [projectKey]);
   // 멘션 후보(@) — 프로젝트 구성원.
   const members = useProjectMembers(projectKey).data ?? NO_MEMBERS;
+  // 본문 칸을 프로젝트마다 새로 마운트할 때 처음 원문·멘션 이름표(WP-1768) — 편집칸은 본문 모드 설정(이미지 노드·업로드 경로·붙여넣기 판정)을
+  // 마운트 때 한 번만 정하므로, 창 안에서 프로젝트를 바꾸면 화면이 key={projectKey} 로 칸을 다시 마운트하고 지금 본문을 이 값으로 넘겨 글을 잇는다.
+  // 멘션 이름표는 아직 마운트돼 있는 앞 칸에서 읽는다(칸이 아는 이름 — 앞 프로젝트 멤버 포함). 넘기지 않으면 새 칸의 <@id> 칩이 「알 수 없음」이 된다.
+  // 렌더 중에 맞춘다 — effect 로 하면 새 칸이 빈 값으로 먼저 마운트되고, 그때는 앞 칸이 이미 사라져 멘션 이름표도 못 읽는다.
+  // 창을 다시 열거나 닫힌 동안 바뀐 키는 빈 칸으로 시작한다(닫힌 동안 폼 값엔 지난 본문이 남아 있다가 여는 effect 의 reset 이 지운다).
+  // 아래 「프로젝트가 바뀌면 폼을 처음으로」 effect 와 감지를 합치지 않는다 — 그쪽 reset·setState 는 렌더 중에 부를 수 없고(react-hook-form 구독·
+  // 다른 상태를 그리는 중에 바꾸게 된다), 이쪽은 앞 칸이 살아 있는 렌더 중이어야 해서 시점이 서로 다르다.
+  const [bodySeed, setBodySeed] = useState<{ projectKey: string; open: boolean; body: string; mentions: MentionUser[] }>(
+    { projectKey, open, body: '', mentions: NO_MENTIONS },
+  );
+  if (bodySeed.projectKey !== projectKey || bodySeed.open !== open) {
+    const carry = open && bodySeed.open && bodySeed.projectKey !== projectKey;
+    setBodySeed({
+      projectKey,
+      open,
+      body: carry ? (form.getValues('body') ?? '') : '',
+      // 렌더 중 ref 읽기 — 앞 칸이 아직 마운트돼 있는 이 렌더에서만 읽을 수 있다(위 설명). 프로젝트가 바뀐 그 한 번만 읽는다.
+      mentions: carry ? (bodyEditorRef.current?.mentionUsers() ?? NO_MENTIONS) : NO_MENTIONS,
+    });
+  }
 
   /**
    * 시작일·마감일 칸(WP-1644) — 덜 넣은 날짜 판정은 위 resolver 가 하고, 여기서는 안내를 거두는 때만 더한다.
@@ -152,6 +184,22 @@ export function useIssueCreateForm({
     setComponentIds([]); // 구성요소 선택 초기화
   }, [open, reset]);
 
+  // 열린 채 프로젝트가 바뀌면(WP-1768 창 안 프로젝트 고르기) 제목·본문만 남기고 나머지를 처음으로 — 유형·구성요소·에픽·부모·담당자는
+  // 프로젝트마다 다른 값이라 앞 프로젝트의 것을 실으면 서버가 거절한다. 유형은 아래 effect 가 새 프로젝트 목록으로 다시 채운다
+  // (이 effect 가 먼저 선언돼 같은 커밋에서도 비운 뒤 채운다). AI 맡기기는 useCreateAiHandoff 가 projectKey 로 따로 돌린다.
+  const prevProjectKey = useRef(projectKey);
+  useEffect(() => {
+    if (prevProjectKey.current === projectKey) return;
+    prevProjectKey.current = projectKey;
+    if (!open) return;
+    const { title, body } = form.getValues();
+    reset({ priority: 'MID', title, body });
+    // 업로드 상태는 거두지 않는다 — 올리는 중이면 프로젝트 칸이 잠겨(projectLocked) 여기 올 때는 늘 false 다.
+    setClassifyReason(null);
+    setEpic(null);
+    setComponentIds([]);
+  }, [projectKey, open, form, reset]);
+
   // 유형 목록 로드 시 기본값 세팅 — name === 'TASK' 우선, 없으면 첫 항목.
   useEffect(() => {
     const list = types.data;
@@ -165,7 +213,7 @@ export function useIssueCreateForm({
     // open 의존: 다이얼로그 재오픈 시 reset 이 typeId 를 지운 뒤 이 effect 가 다시 TASK 기본값을 채우도록 한다.
     // (개인 프로젝트는 select 가 숨겨져 사용자 보정이 불가하므로 payload typeId 누락을 막는 것이 특히 중요.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [types.data, open]);
+  }, [types.data, open, projectKey]);
 
   const currentTypeId = watch('typeId');
   // 선택된 유형이 SUBTASK 인지 — parentNumber 입력 동적 노출 + 송신 분기에 사용 (Phase 4a).
@@ -184,6 +232,11 @@ export function useIssueCreateForm({
   const bodyValue = watch('body');
   // hasContent 는 버림 확인에도 쓰인다. 글자 없이 이미지만 올리는 중이어도(원문은 아직 빈 글자) 버리면 아까운 입력으로 본다.
   const hasContent = hasIssueDraftContent(titleValue, bodyValue) || uploading;
+  // 프로젝트 칸 잠금(WP-1768) — 본문 이미지는 그 프로젝트 키 주소로 올라가고 서버는 같은 프로젝트 이미지만 이슈에 잇는다(나머지는 하루 뒤 정리).
+  // 지금 프로젝트의 이미지를 넣었거나 올리는 중이면 프로젝트를 바꾸지 못하게 해 이미지가 조용히 사라지지 않게 한다.
+  // 다른 프로젝트 이미지(다른 이슈 본문에서 붙여넣은 주소 등)는 어차피 이 이슈에 이어지지 않으므로 잠그지 않는다.
+  const hasOwnImage = useMemo(() => bodyHasProjectImage(bodyValue ?? '', projectKey), [bodyValue, projectKey]);
+  const projectLocked = uploading || hasOwnImage;
   useUnsavedChangesWarning(open && hasContent);
 
   // AI 제안 핸들러 — 현재 폼 제목·본문으로 분류 요청.
@@ -286,7 +339,11 @@ export function useIssueCreateForm({
     form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify,
     // 본문 칸(본문 모드 RichInput)에 넘길 것 — 두 화면이 같이 쓴다. bodyMode·imageUpload·두 콜백은 렌더마다 같은 참조.
-    bodyEditor: { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange },
+    // key·initialBody·initialMentions — 프로젝트가 바뀌면 칸을 새 프로젝트 설정으로 다시 마운트하고 지금 본문·멘션 이름을 잇는다(WP-1768).
+    bodyEditor: {
+      ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange,
+      key: projectKey, initialBody: bodySeed.body, initialMentions: bodySeed.mentions,
+    },
     // 시작일·마감일 칸에 펼치는 register 결과 — 덜 넣은 날짜 안내를 거두는 keyUp·blur 가 얹혀 있다(WP-1644).
     dateField,
     // 폼 제출(Enter·주 버튼) — 맡기기가 켜져 있으면 「만들고 지금 실행」, 아니면 만들기. 검사 실패면 첫 오류 칸으로 포커스.
@@ -301,6 +358,8 @@ export function useIssueCreateForm({
     isSubmitting: uploading || submitting,
     isCreating: submitting,
     hasContent, epic, setEpic,
+    // 프로젝트 고르기 칸을 잠글지(WP-1768) — 본문에 이슈 이미지가 있거나 올리는 중.
+    projectLocked,
     // 구성요소(WP-933) — 칸 노출 여부·목록(보관 포함)·고른 id.
     showComponents, componentList, componentIds, setComponentIds,
   };

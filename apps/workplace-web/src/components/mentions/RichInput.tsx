@@ -149,6 +149,11 @@ export interface RichInputHandle {
   insertImages: (files: File[]) => void;
   /** 편집칸 끝(본문 끝)으로 포커스를 옮긴다 — 폼 검사 실패 때 바깥이 오류 난 본문 칸으로 포커스를 보내는 데 쓴다. */
   focus: () => void;
+  /**
+   * 지금 본문의 멘션 이름표(id → 이름·종류) — 칸을 다시 마운트할 때(WP-1768 새 이슈 창의 프로젝트 바꾸기) 새 칸의 initialMentions 로 넘겨
+   * <@id> 칩이 「알 수 없음」이 되지 않게 한다. 처음 멘션·지금 후보가 아는 이름을 먼저 쓰고, 모르는 id 는 칩에 보이는 이름으로 채운다.
+   */
+  mentionUsers: () => MentionUser[];
 }
 
 /** 서식 도구 줄 열림 상태 저장 키 — 채팅 입력창 전체가 하나를 공유한다(한 번 열어 두면 어느 채팅에서나 열려 있게). */
@@ -586,8 +591,23 @@ export function RichInput({
       focus: () => {
         if (editor && !editor.isDestroyed) editor.commands.focus('end');
       },
+      mentionUsers: () => {
+        // 아래 mentionUsers() 와 같은 목록 — 함수 선언보다 앞이라 직접 모은다(컴파일러가 선언 전 접근을 막는다).
+        const known = [...initialMentions, ...membersRef.current.map(toMentionUser)];
+        const byId = new Map(known.map((m) => [m.id, m]));
+        if (editor && !editor.isDestroyed) {
+          editor.state.doc.descendants((node) => {
+            if (node.type.name !== 'mention') return;
+            const id = Number(node.attrs.id);
+            const label = node.attrs.label as string | null | undefined;
+            // 후보에서 빠진 사람도 칩에 보이던 이름을 잇는다(종류는 모르면 사람으로 둔다 — bodyToDoc 은 이름만 쓴다).
+            if (!byId.has(id) && label) byId.set(id, { id, name: label, kind: 'HUMAN' });
+          });
+        }
+        return [...byId.values()];
+      },
     }),
-    [editor],
+    [editor, initialMentions],
   );
 
   /** 붙여넣은 <@id> 를 멘션 노드로 읽을 때 쓸 이름 목록 — 처음 본문의 멘션과 지금 후보(멤버). */

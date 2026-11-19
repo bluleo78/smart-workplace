@@ -1,5 +1,5 @@
 // 사람 카드(WP-1767) — 이름을 누르면 열리는 카드의 내용·단추 동작. 데스크톱(팝오버) 기준이며 모바일 시트는 PersonCardMobile.test.tsx.
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { expect, test, vi } from 'vitest'
 
@@ -322,4 +322,99 @@ test('카드 안 누르기는 부모 onPointerUp(행 툴바 드러내기)으로 
   // 안쪽 pointerdown 이 문서까지 가야 Radix 가 「안쪽 누름」 표식을 지운다 — 바깥을 한 번 누르면 바로 닫혀야 한다.
   await view.user.click(screen.getByTestId('outside'))
   await waitFor(() => expect(screen.queryByTestId('person-card')).not.toBeInTheDocument())
+})
+
+test('트리거 자체의 pointerup 도 부모 onPointerUp(터치 행 툴바 드러내기)으로 올라가지 않는다', () => {
+  const onParentPointerUp = vi.fn()
+  renderScreen(
+    <div onPointerUp={onParentPointerUp}>
+      <PersonCardTrigger person={human}>{human.name}</PersonCardTrigger>
+    </div>,
+  )
+  // pointerup 만 쏜다 — user.click 은 click 까지 이어져 카드가 열리고 요청이 나간다.
+  fireEvent.pointerUp(screen.getByTestId(`person-card-trigger-${human.id}`))
+  expect(onParentPointerUp).not.toHaveBeenCalled()
+})
+
+// kind 를 모르고 연 카드(노트 편집자·접속자) — 프로필의 kind 로 정한다(WP-1768).
+const unknownKind: PersonRef = { id: 9, name: '리뷰봇' }
+
+test('kind 없이 연 카드는 프로필 kind 가 AGENT 면 AI 표식과 「일 맡기기」를 보인다', async () => {
+  const onAssignWork = vi.fn()
+  const view = setup(unknownKind, [
+    http.get('/api/v1/members/:id', () => HttpResponse.json(profile({ userId: 9, username: 'reviewbot', name: '리뷰봇', kind: 'AGENT' }))),
+    http.get('/api/v1/me/ai-agents', () => HttpResponse.json({ slotLimit: 3, agents: [] })),
+  ], { onAssignWork })
+  const card = await openCard(unknownKind, view)
+  expect(within(card).getByText('AI')).toBeInTheDocument()
+  await view.user.click(within(card).getByRole('button', { name: '일 맡기기' }))
+  expect(onAssignWork).toHaveBeenCalledWith(9)
+  expect(within(card).queryByRole('link', { name: '연락처에서 보기' })).not.toBeInTheDocument()
+})
+
+test('kind 없이 연 카드는 프로필 kind 가 HUMAN 이면 「메시지」·「메일 쓰기」·「일정 잡기」를 보이고 연락처를 요청한다', async () => {
+  let contactRequested = false
+  const view = setup({ id: 7, name: '김민수' }, [
+    http.get('/api/v1/contacts/members/:id', () => {
+      contactRequested = true
+      return HttpResponse.json(detail)
+    }),
+  ])
+  const card = await openCard({ id: 7, name: '김민수' }, view)
+  for (const name of ['메시지', '메일 쓰기', '일정 잡기']) expect(within(card).getByRole('button', { name })).toBeInTheDocument()
+  expect(await within(card).findByText('개발팀, 보안TF')).toBeInTheDocument()
+  expect(contactRequested).toBe(true)
+})
+
+test('kind 없이 프로필 응답 전에는 행동 단추를 그리지 않는다', async () => {
+  const view = setup(unknownKind, [
+    http.get('/api/v1/members/:id', async () => {
+      await delay(300)
+      return HttpResponse.json(profile({ userId: 9, kind: 'AGENT' }))
+    }),
+  ])
+  await view.user.click(screen.getByTestId('person-card-trigger-9'))
+  const card = await screen.findByTestId('person-card')
+  expect(within(card).getByTestId('person-card-actions-pending')).toBeInTheDocument()
+  expect(within(card).queryByRole('button', { name: '메시지' })).not.toBeInTheDocument()
+})
+
+// 코드 리뷰 반영(WP-1768) — kind 를 모르는 카드의 사람 전용 칸·비활성·나 판정.
+const failingProfile = [http.get('/api/v1/members/:id', () => HttpResponse.json({ message: 'x' }, { status: 500 }))]
+
+test('kind 없이 연 카드는 프로필 응답 전에는 「연락처에서 보기」를 보이지 않는다 — AI 일 수도 있다', async () => {
+  const view = setup(unknownKind, [
+    http.get('/api/v1/members/:id', async () => {
+      await delay(300)
+      return HttpResponse.json(profile({ userId: 9, kind: 'AGENT' }))
+    }),
+  ])
+  await view.user.click(screen.getByTestId('person-card-trigger-9'))
+  const card = await screen.findByTestId('person-card')
+  expect(within(card).getByTestId('person-card-actions-pending')).toBeInTheDocument()
+  expect(within(card).queryByRole('link', { name: '연락처에서 보기' })).not.toBeInTheDocument()
+})
+
+test('kind 없이 연 카드는 프로필이 실패하면 단추도 「연락처에서 보기」도 없다', async () => {
+  const view = setup(unknownKind, failingProfile)
+  const card = await openCard(unknownKind, view)
+  expect(within(card).getByText('리뷰봇')).toBeInTheDocument()
+  expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+  expect(within(card).queryByRole('link', { name: '연락처에서 보기' })).not.toBeInTheDocument()
+})
+
+test('kind 없이 연 비활성 멤버(호출부 active=false)는 프로필이 실패해도 「비활성 멤버」를 보인다', async () => {
+  const person: PersonRef = { ...unknownKind, active: false }
+  const view = setup(person, failingProfile)
+  const card = await openCard(person, view)
+  expect(await within(card).findByText('비활성 멤버')).toBeInTheDocument()
+  expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+})
+
+test('kind 없이 연 내 카드는 프로필이 실패해도 「내 프로필」을 보인다', async () => {
+  const me: PersonRef = { id: 1, name: '나' }
+  const view = setup(me, failingProfile)
+  const card = await openCard(me, view)
+  expect(within(card).getByRole('link', { name: '내 프로필' })).toHaveAttribute('href', '/settings/profile')
+  expect(within(card).queryByRole('link', { name: '연락처에서 보기' })).not.toBeInTheDocument()
 })

@@ -4,6 +4,7 @@
 // pointer 이벤트를 받아 closest('[data-message-id]') 로 대상 행을 찾으면 타이머·발동 표식이 목록당 한 벌이다.
 // 우클릭·안드로이드 길게 터치(contextmenu)도 같은 시트로 연결하고, 발동 직후의 click 은 캡처 단계에서 삼킨다
 // (멘션 칩·링크·이미지·답글 링크 같은 자식 click 이 함께 실행되는 이중 동작 방지). 짧은 탭은 손대지 않는다.
+// WP-1768: 사람 카드 트리거(data-person-card-trigger) 안에서 시작한 누름·우클릭은 대상이 아니다 — 카드가 연다.
 // WP-106: 반응 칩(data-reaction-emoji) 위에서 발동하면 작업 시트 대신 반응자 시트(onOpenReactors)를 연다 — 타이머·click 억제는 같은 한 벌.
 import { type MouseEvent, type PointerEvent, type SyntheticEvent, useEffect, useMemo, useRef } from 'react'
 
@@ -64,6 +65,9 @@ export function useMessageListLongPress(
     const targetOf = (e: SyntheticEvent): { id: number; emoji: string | null } | null => {
       if (!inside(e)) return null
       const el = e.target as Element
+      // 사람 카드 트리거(작성자 이름·아바타) 위의 누름은 카드 몫이다 — 작업 시트 대상에서 뺀다(WP-1768).
+      // 트리거는 pointerup 을 막아 위 cancel 이 불리지 않으므로, 여기서 거르지 않으면 짧은 탭에도 타이머가 남아 시트가 뜬다.
+      if (el.closest?.('[data-person-card-trigger]')) return null
       const row = el.closest?.('[data-message-id]')
       if (!row || !e.currentTarget.contains(row)) return null
       const id = Number(row.getAttribute('data-message-id'))

@@ -81,6 +81,8 @@ export function revisionShot(p: Page, name: string): Promise<void> {
 export const revisionPreview = (p: Page) => p.getByTestId('wiki-revision-preview')
 /** 목록 한 줄 — 판 번호 또는 'current'(현재 버전). */
 export const revisionItem = (p: Page, v: number | 'current') => p.getByTestId(`wiki-revision-item-${v}`)
+/** 목록 한 줄의 li — 글자(이름 트리거 포함)는 고르기 단추 밖에 있어 글자·높이 단언은 이쪽을 쓴다(WP-1768). */
+export const revisionRow = (p: Page, v: number | 'current') => revisionItem(p, v).locator('xpath=..')
 
 /** 헤더 ⋯ → 버전 기록. 데스크톱은 클릭 → 오른쪽 패널, 모바일(mobile)은 탭 → 전체화면 목록이 보일 때까지. */
 export async function openRevisionHistory(p: Page, { mobile = false }: { mobile?: boolean } = {}) {

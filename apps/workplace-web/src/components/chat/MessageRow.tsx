@@ -36,6 +36,7 @@ import {
   rowLinkMenuAnchorFromContextMenu,
 } from '@/components/share/rowLinkMenuAnchor'
 import { Button } from '@/components/ui/button'
+import { PersonCardTrigger } from '@/components/users/personCard/PersonCardTrigger'
 import { teamChatBundle } from '@/components/viewer/viewerItems'
 import { messageReactorSource } from '@/hooks/queries/messageReactorSource'
 import { useAppHosts } from '@/hooks/queries/useAppLinks'
@@ -120,6 +121,9 @@ export function MessageRow({
   const isPending = m.id < 0
   // 본인 메시지 여부 — 정렬(우측 말풍선)과 편집/삭제 권한 판정에 쓴다.
   const isOwn = m.authorId === currentUserId
+  // 사람 카드 대상(WP-1768) — 남의 메시지 작성자. kind 를 그대로 넘겨 AI 카드(일 맡기기)가 맞게 그려진다.
+  const author = { id: m.authorId, name: m.authorName, kind: m.authorKind }
+  const authorLabel = m.authorKind === 'AGENT' ? `${m.authorName} (에이전트)` : m.authorName
   // 본인·미삭제·미전송중 메시지만 수정/삭제 노출.
   const canEdit = !readOnly && isOwn && !m.deleted && !isPending
   // 우리 앱 링크 카드(WP-896) — 보낸 사람이 미리보기를 지웠으면 함께 감춘다. 같은 본문은 appLinksOf 캐시가 같은 배열을 돌려준다.
@@ -405,6 +409,9 @@ export function MessageRow({
         onContextMenu={
           linkMenuTarget && !isEditing
             ? (e) => {
+                // 작성자 이름·아바타(사람 카드 트리거, WP-1768) 위 우클릭은 행 메뉴 대상이 아니다 — 길게 누르기 위임과 같은 표식으로 거른다.
+                // 브라우저 기본 메뉴는 그대로 뜬다(preventDefault 하지 않음).
+                if ((e.target as Element).closest?.('[data-person-card-trigger]')) return
                 const at = rowLinkMenuAnchorFromContextMenu(e)
                 if (!at) return
                 e.preventDefault()
@@ -461,7 +468,11 @@ export function MessageRow({
             {!isOwn && (
               <div className="w-10 shrink-0 pt-0.5">
                 {startsGroup ? (
-                  <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
+                  // 아바타도 사람 카드를 연다(WP-1768). 같은 사람의 이름 트리거가 탭 순서를 맡으므로 이쪽은 -1 이고, 접근 이름은 이름과 같게 둔다.
+                  // 버튼 기본 모양이 아바타 크기·위치를 바꾸지 않게 block 으로 둔다.
+                  <PersonCardTrigger person={author} label={authorLabel} tabIndex={-1} className="block rounded-full">
+                    <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
+                  </PersonCardTrigger>
                 ) : (
                   <span
                     className={`block pt-px text-right ${HOVER_TIME_REVEAL_CLASS}`}
@@ -479,11 +490,14 @@ export function MessageRow({
               {!isOwn && startsGroup && (
                 <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
                   <span className="font-semibold text-foreground">
-                    {m.authorName}
-                    {/* AI 에이전트 작성자 표시 — 이모지 대신 lucide Bot 아이콘(ai-accent 토큰). */}
-                    {m.authorKind === 'AGENT' && (
-                      <Bot className="ml-0.5 inline h-3 w-3 align-[-0.125em] text-ai-accent" aria-label="에이전트" />
-                    )}
+                    {/* 이름을 누르면 사람 카드(WP-1768). AGENT 는 Bot 아이콘이 접근 이름을 못 잇게 label 로 「이름 (에이전트)」를 준다. */}
+                    <PersonCardTrigger person={author} label={authorLabel} className="hover:underline">
+                      {m.authorName}
+                      {/* AI 에이전트 작성자 표시 — 이모지 대신 lucide Bot 아이콘(ai-accent 토큰). */}
+                      {m.authorKind === 'AGENT' && (
+                        <Bot className="ml-0.5 inline h-3 w-3 align-[-0.125em] text-ai-accent" aria-label="에이전트" />
+                      )}
+                    </PersonCardTrigger>
                   </span>
                   <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
                 </div>

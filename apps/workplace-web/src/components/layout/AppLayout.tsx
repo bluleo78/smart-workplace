@@ -42,6 +42,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIssueOriginTracker } from '@/hooks/useIssueOrigin'
 import { openPushTarget, takePendingPushTarget } from '@/lib/push/openTarget'
 import { syncPushOnLogin } from '@/lib/push/subscription'
+import { GlobalPersonCardAssignHost } from '@/pages/projects/components/PersonCardAssignHost'
 
 export function AppLayout() {
   const { user, activeTenant, selectTenant } = useAuth()
@@ -112,6 +113,10 @@ export function AppLayout() {
               <DashboardEditDraftProvider>
               {/* 메시징 SSE 연결 상태를 하위 채팅 UI(ChatModuleLayout 끊김 배너)로 전달 */}
               <MessagingConnectionContext.Provider value={messagingConn}>
+                {/* WP-1768: 사람 카드 「일 맡기기」 전역 처리기 — 채팅·노트처럼 프로젝트가 없는 곳의 AI 카드가 프로젝트를 고르는 새 이슈 창을 연다.
+                    두 셸(AI 패널·시트 포함)과 페이지(PageHost)를 함께 감싼다. 이슈 상세는 자기 프로젝트로 고정한 호스트로 덮는다.
+                    프로젝트 화면(/projects/:key/...) 안이면 그 프로젝트를 창의 처음 값으로 고른다(바꿀 수는 있다). */}
+                <GlobalPersonCardAssignHost>
                 {/* WP-121: 모바일(<lg)은 탭바 셸, 데스크톱은 기존 레일 레이아웃(DOM 불변). */}
                 {isMobile ? (
                   // WP-54 표식 유지 — display:contents 로 레이아웃 영향 없이 페이지 영역 컨테이너 역할.
@@ -151,6 +156,7 @@ export function AppLayout() {
                 )}
                 {/* WP-1468: 페이지는 셸 분기 뒤 형제 자리에서 한 번만 렌더 — 셸이 바뀌어도 다시 마운트되지 않고 각 셸의 NodeSlot 이 호스트 DOM 을 옮겨 붙인다(이유는 NodeSlot.tsx·useNodeBridge.ts). */}
                 <PageHost bridge={pageBridge}><Outlet /></PageHost>
+                </GlobalPersonCardAssignHost>
               </MessagingConnectionContext.Provider>
               </DashboardEditDraftProvider>
             </InboxProvider>

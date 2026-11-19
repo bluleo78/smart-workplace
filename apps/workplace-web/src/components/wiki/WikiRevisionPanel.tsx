@@ -1,16 +1,17 @@
 import { X } from 'lucide-react'
-import { type ReactNode, useMemo } from 'react'
+import { Fragment, type ReactNode, useId, useMemo } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { subPaneHeaderClass } from '@/components/layout/Page'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { PersonCardTrigger } from '@/components/users/personCard/PersonCardTrigger'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
-import type { WikiRevisionItem, WikiRevisionList as WikiRevisionListData } from '../../types/wiki'
+import type { WikiRevisionItem, WikiRevisionList as WikiRevisionListData, WikiRevisionPerson } from '../../types/wiki'
 import type { WikiRevisionHistory } from './useWikiRevisionHistory'
-import { groupRevisionsByDay, revisionEditorsLabel, revisionTime } from './wikiRevisionFormat'
+import { groupRevisionsByDay, revisionEditorsShown, revisionTime } from './wikiRevisionFormat'
 
 /** 목록 한 줄 — 현재 버전 또는 저장된 판. */
 type Entry = { kind: 'current'; editedAt: string } | { kind: 'revision'; item: WikiRevisionItem }
@@ -52,8 +53,6 @@ export function WikiRevisionList({ revisions, className }: { revisions: WikiRevi
     )
   }
 
-  const currentEditors = revisionEditorsLabel(data.current.editors)
-
   return (
     <div className={cn('flex flex-col pb-2', className)} data-testid="wiki-revision-list">
       {/* 막힌 사유는 툴팁 대신 글자로 — 비활성 버튼엔 hover 가 오지 않고 터치엔 툴팁이 없다. */}
@@ -68,17 +67,17 @@ export function WikiRevisionList({ revisions, className }: { revisions: WikiRevi
           <ul className="flex flex-col">
             {g.entries.map((e) =>
               e.kind === 'current' ? (
-                <li key="current">
+                <li key="current" className="relative">
                   <RevisionRow
                     testId="wiki-revision-item-current"
                     selected={selectedVersion == null}
                     onClick={revisions.clearSelection}
                     primary="현재 버전"
-                    secondary={<WhoLine names={currentEditors} suffix="편집 중" />}
+                    secondary={<WhoLine editors={data.current.editors} suffix="편집 중" />}
                   />
                 </li>
               ) : (
-                <li key={e.item.version}>
+                <li key={e.item.version} className="relative">
                   <RevisionRow
                     testId={`wiki-revision-item-${e.item.version}`}
                     selected={selectedVersion === e.item.version}
@@ -101,38 +100,74 @@ export function WikiRevisionList({ revisions, className }: { revisions: WikiRevi
 }
 
 /**
- * 사람 + 꼬리말 한 줄 — 긴 이름(또는 "외 n명")만 말줄임하고 꼬리말("편집 중"·"복원 전")은 늘 보인다(잘리면 그 판이 무엇인지 모른다).
- * 꼬리말 앞 " · " 는 글자에 둔다 — 화면 간격도 이 공백이 맡는다(바깥 줄은 gap 없음).
+ * 이름 하나 — 누르면 사람 카드(WP-1768). 고르기 단추 위(z-10)에 떠 있고 pointer-events 를 되살린다(행 내용 칸은 클릭을 단추로 통과시킨다).
+ * person 은 { id, name } 만 준다 — 판 기록은 kind 를 모르므로 카드가 프로필로 정한다(PersonRef.kind 선택).
+ * 막힌(blockedReason) 행에서도 열린다 — 막는 것은 「판 고르기」이지 사람 정보 보기가 아니다.
+ * 줄(flex)의 줄어드는 칸이다 — 트리거는 button 이라 바깥 span 의 truncate 가 안까지 닿지 않으므로(말줄임 없이 잘린다) 트리거 자신이
+ * min-w-0·shrink·truncate 로 줄면서 말줄임한다. 뒤의 쉼표·「외 n명」·「(AI 수정)」·꼬리말은 shrink-0 칸이라 긴 이름에 밀려 사라지지 않는다.
  */
-function WhoLine({ names, suffix }: { names: string; suffix?: string | null }) {
-  if (!names) return <span className="truncate">{suffix}</span>
+function EditorName({ person }: { person: WikiRevisionPerson }) {
+  return (
+    <PersonCardTrigger
+      person={{ id: person.id, name: person.name }}
+      className="pointer-events-auto relative z-10 block min-w-0 shrink truncate hover:underline"
+    >
+      {person.name}
+    </PersonCardTrigger>
+  )
+}
+
+/** 이름 뒤 글자(쉼표·「외 n명」·「(AI 수정)」·꼬리말) — 줄지 않고 앞뒤 공백을 그대로 둔다(flex 칸 사이 간격도 이 공백이 맡는다). */
+function Tail({ children }: { children: ReactNode }) {
+  return <span className="shrink-0 whitespace-pre">{children}</span>
+}
+
+/**
+ * 사람 + 꼬리말 한 줄 — 이름 칸만 줄어 말줄임하고 쉼표·「외 n명」·꼬리말("편집 중"·"복원 전")은 늘 보인다(잘리면 그 판이 무엇인지 모른다).
+ * 이름은 각각 사람 카드 트리거이고 쉼표·「외 n명」은 글자다(3명 이상은 첫 사람만 트리거 — 글자 표시 규칙과 같다).
+ * 바깥 줄(RevisionRow 의 secondary)이 flex 라 여기서는 칸을 나란히 내놓는다(Fragment). 이름이 둘이면 둘이 나눠 줄어든다.
+ */
+function WhoLine({ editors, suffix }: { editors: WikiRevisionPerson[]; suffix?: string | null }) {
+  const { shown, more } = revisionEditorsShown(editors)
+  if (shown.length === 0) return <span className="truncate">{suffix}</span>
   return (
     <>
-      <span className="min-w-0 truncate">{names}</span>
-      {suffix && <span className="shrink-0 whitespace-pre">{` · ${suffix}`}</span>}
+      {shown.map((p, i) => (
+        <Fragment key={p.id}>
+          {i > 0 && <Tail>{', '}</Tail>}
+          <EditorName person={p} />
+        </Fragment>
+      ))}
+      {more > 0 && <Tail>{` 외 ${more}명`}</Tail>}
+      {suffix && <Tail>{` · ${suffix}`}</Tail>}
     </>
   )
 }
 
 /**
  * 판의 편집자 줄 — AI 적용 직전 판은 ✦ "{이름} (AI 수정)", 복원 직전 판은 "복원 전" 을 덧붙인다.
- * AiLabel 은 inline-flex 라 바깥 truncate 가 닿지 않는다 — 안쪽 글자 칸이 직접 말줄임하고 ✦ 아이콘은 줄지 않게 둔다.
- * 이름이 아주 길면 "(AI 수정)" 까지 잘릴 수 있으나 AI 판이라는 신호는 ✦ 아이콘·ai-accent 색이 1차로 맡는다(07 §7.2).
+ * AI 판은 요청자(aiActor) 이름이 사람 카드 트리거이고 「 (AI 수정)」 은 글자로 남는다.
+ * AiLabel 은 inline-flex 라 이름 트리거를 그 바로 아래 칸으로 두어 이름만 줄어든다 — ✦ 아이콘과 「(AI 수정)」은 줄지 않는다.
  */
 function RevisionWho({ item }: { item: WikiRevisionItem }) {
   if (item.aiActor) {
     return (
       <AiLabel className="min-w-0 max-w-full [&>svg]:shrink-0">
-        <span className="min-w-0 truncate">{`${item.aiActor.name} (AI 수정)`}</span>
+        <EditorName person={item.aiActor} />
+        <Tail>{' (AI 수정)'}</Tail>
       </AiLabel>
     )
   }
-  return <WhoLine names={revisionEditorsLabel(item.editors)} suffix={item.reason === 'RESTORE' ? '복원 전' : null} />
+  return <WhoLine editors={item.editors} suffix={item.reason === 'RESTORE' ? '복원 전' : null} />
 }
 
 /**
- * 목록 한 줄 버튼 — 선택은 공용 선택 스타일(SELECTED_ROW_CLASS: 왼쪽 primary 막대 + bg-selected, WP-368) + aria-current.
- * 막대는 버튼 안쪽 왼쪽 가장자리에 그려지는 가상 요소라 레이아웃을 밀지 않는다(예전엔 모든 줄이 투명 border-l-2 로 자리를 비워 뒀다).
+ * 목록 한 줄 — 호출하는 li(relative) 안에서 「행 전체를 덮는 고르기 버튼」과 「그 위의 내용 칸」으로 나뉜다(WP-1768).
+ * 이름이 사람 카드 트리거(버튼)라 고르기 버튼 안에 둘 수 없다(버튼 안 버튼 금지) — 그래서 버튼은 absolute inset-0 로 뒤에서 행을 덮고,
+ * 내용 칸은 pointer-events-none 으로 이름 밖 클릭을 버튼에 통과시키며 이름(트리거)만 되살린다.
+ * 선택은 공용 선택 스타일(SELECTED_ROW_CLASS: 왼쪽 primary 막대 + bg-selected, WP-368) + aria-current — 버튼이 그대로 가진다.
+ * 버튼은 DOM 순서상 이름보다 앞이라 탭 순서는 「고르기 → 이름들」. 접근 이름용 시각(primary)은 sr-only 로 버튼 안에 둔다.
+ * 막대는 버튼 안쪽 왼쪽 가장자리에 그려지는 가상 요소라 레이아웃을 밀지 않는다.
  */
 function RevisionRow({
   testId,
@@ -146,27 +181,48 @@ function RevisionRow({
   selected: boolean
   onClick: () => void
   /** 있으면 비활성(사유는 aria-description 으로 읽힌다). */
-  blockedReason?: string
+  blockedReason?: string | null
   primary: string
   secondary: ReactNode
 }) {
+  const blocked = blockedReason != null
+  // 내용 칸(편집자·「외 n명」·「(AI 수정)」·「복원 전」·「편집 중」)을 버튼의 접근 설명으로 잇는다 — 버튼 이름은 sr-only 시각뿐이라
+  // 이 글자들이 컨트롤과 끊기지 않게 한다. 막힌 사유(aria-description)는 따로 그대로 읽힌다.
+  const secondaryId = useId()
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      aria-current={selected ? 'true' : undefined}
-      disabled={blockedReason != null}
-      aria-description={blockedReason}
-      onClick={onClick}
-      className={cn(
-        'flex w-full min-w-0 flex-col items-start gap-0.5 px-4 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset pointer-coarse:min-h-11',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-        selected ? SELECTED_ROW_CLASS : 'enabled:hover:bg-accent/50',
-      )}
-    >
-      <span className="text-sm font-medium leading-5">{primary}</span>
-      <span className="flex w-full min-w-0 text-xs leading-4 text-muted-foreground">{secondary}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        data-testid={testId}
+        aria-current={selected ? 'true' : undefined}
+        disabled={blocked}
+        aria-describedby={secondaryId}
+        aria-description={blockedReason ?? undefined}
+        onClick={onClick}
+        className={cn(
+          'absolute inset-0 block w-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          selected ? SELECTED_ROW_CLASS : 'enabled:hover:bg-accent/50',
+        )}
+      >
+        <span className="sr-only">{primary}</span>
+      </button>
+      {/* 내용 칸 — 버튼 위에 얹혀 높이를 정한다. 막힌 행은 버튼의 흐림과 맞춰 같이 흐리게 한다. */}
+      <div
+        className={cn(
+          'pointer-events-none relative flex min-w-0 flex-col items-start gap-0.5 px-4 py-2 text-left pointer-coarse:min-h-11',
+          selected && 'font-semibold text-foreground',
+          blocked && 'opacity-50',
+        )}
+      >
+        <span aria-hidden="true" className="text-sm font-medium leading-5">
+          {primary}
+        </span>
+        <span id={secondaryId} className="flex w-full min-w-0 text-xs leading-4 text-muted-foreground">
+          {secondary}
+        </span>
+      </div>
+    </>
   )
 }
 

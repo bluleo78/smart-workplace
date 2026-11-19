@@ -427,7 +427,7 @@ test.describe('노트 원격 커서', { tag: '@platform' }, () => {
     await expect(cur).not.toBeInViewport()
 
     await presence(a).click()
-    await a.getByTestId('wiki-presence-row-2').getByRole('button').click()
+    await a.getByTestId('wiki-presence-row-2').getByRole('button', { name: /커서로 이동/ }).click()
     await expect(cur).toBeInViewport()
     await expect(cur).toHaveAttribute('data-label-visible', '')
   })

@@ -7,6 +7,7 @@ import {
   canManageProject,
   isIntakeOnly,
   isProjectOwner,
+  selectableCreateProjects,
   workflowLockedNotice,
 } from './projectPermissions'
 
@@ -95,5 +96,20 @@ describe('workflowLockedNotice (WP-503)', () => {
 
   it('막혔고 코멘트도 못 쓰면(OPEN 열람자) 이유만 안내한다', () => {
     expect(workflowLockedNotice(false, false)).toBe('이슈 속성(유형·상태·일정 등)은 프로젝트 멤버만 바꿀 수 있어요.')
+  })
+})
+
+describe('selectableCreateProjects (WP-1768)', () => {
+  it('내가 멤버인 팀 프로젝트만 서버 순서대로 남긴다 — 개인·접수 전용·비멤버 팀은 뺀다', () => {
+    const list = [
+      { key: 'ME', type: 'PERSONAL' as const, viewerIsMember: true },
+      { key: 'DESK', type: 'OPEN' as const, viewerIsMember: false },
+      { key: 'OPEN_MEMBER', type: 'OPEN' as const, viewerIsMember: true },
+      { key: 'B', type: 'TEAM' as const, viewerIsMember: true },
+      { key: 'OUT', type: 'TEAM' as const, viewerIsMember: false },
+      { key: 'A', type: 'TEAM' as const, viewerIsMember: true },
+    ]
+    expect(selectableCreateProjects(list).map((p) => p.key)).toEqual(['OPEN_MEMBER', 'B', 'A'])
+    expect(selectableCreateProjects(undefined)).toEqual([])
   })
 })

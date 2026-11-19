@@ -9,7 +9,7 @@ import { KIM } from '../../fixtures/presence'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expectStays } from '../../fixtures/wait'
 import { mockWikiMentions, mockWikiPageEditor, mockWikiRevisions } from '../../fixtures/wiki-mock'
-import { CHOI, REVISION_DETAILS as DETAILS, REVISION_LIST as LIST, REVISION_LIVE as LIVE, REVISION_NOW as NOW, REVISION_PAGE_ID as PAGE_ID, REVISION_SPACE_ID as SPACE_ID, REVISION_TITLE as TITLE, openRevisionHistory as openHistory, revisionItem as revItem, revisionPagePath as pagePath, revisionPreview as preview, revisionShot as shot } from '../../fixtures/wiki-revisions'
+import { CHOI, REVISION_DETAILS as DETAILS, REVISION_LIST as LIST, REVISION_LIVE as LIVE, REVISION_NOW as NOW, REVISION_PAGE_ID as PAGE_ID, REVISION_SPACE_ID as SPACE_ID, REVISION_TITLE as TITLE, openRevisionHistory as openHistory, revisionItem as revItem, revisionRow as revRow, revisionPagePath as pagePath, revisionPreview as preview, revisionShot as shot } from '../../fixtures/wiki-revisions'
 
 // 노트 버전 기록(WP-282) 데스크톱 — 헤더 ⋯ → 버전 기록 패널, 판 미리보기(변경 표시), 복원, 복귀 토스트 "변경 보기".
 // 버전 기록 API 는 route 목(mockWikiRevisions), 본문 동기화는 테스트 모드 동기화 서버(실서버)다. 데이터는 fixtures/wiki-revisions(모바일 spec 과 공용).
@@ -21,6 +21,42 @@ const bar = (p: Page) => p.getByTestId('wiki-revision-bar')
 
 test.afterEach(() => leaveAllCollabPeers())
 
+// 버전 기록 행 안의 사람 카드(WP-1768) — 행 전체를 덮는 고르기 버튼 위에 이름 트리거가 떠 있는 겹침이 실제 레이아웃에서 맞는지(@wiring).
+// 이름을 누르면 카드만 열리고 판은 골라지지 않으며, 이름 밖(시각)을 누르면 그 판이 골라진다.
+test.describe('노트 버전 기록 — 사람 카드', { tag: '@wiring' }, () => {
+  test('편집자 이름을 누르면 카드만 열리고, 이름 밖(시각)을 누르면 판이 골라진다', async ({ authenticatedPage: a }) => {
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: LIVE })
+    await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: DETAILS })
+    // 사람 카드가 열릴 때 받는 프로필·연락처·메일 계정.
+    const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    await a.route((u) => u.pathname === `/api/v1/members/${KIM.id}`, (r) =>
+      r.fulfill(json({ userId: KIM.id, username: 'kim', name: KIM.name, email: 'kim@example.com', title: null, kind: 'HUMAN', active: true, membershipRole: 'MEMBER', membershipStatus: 'ACTIVE', department: null })))
+    await a.route((u) => u.pathname === `/api/v1/contacts/members/${KIM.id}`, (r) =>
+      r.fulfill(json({ userId: KIM.id, name: KIM.name, groups: [] })))
+    await a.route((u) => u.pathname === '/api/v1/mail/accounts', (r) => r.fulfill(json([])))
+    await a.clock.install({ time: NOW })
+    await a.goto(pagePath)
+    await openHistory(a)
+
+    // 1) 이름 클릭 → 카드가 열리고 그 판은 골라지지 않는다(뒤의 고르기 버튼이 클릭을 받지 않는다).
+    await revRow(a, 5).getByTestId(`person-card-trigger-${KIM.id}`).click()
+    await expect(a.getByTestId('person-card')).toBeVisible()
+    await expect(revItem(a, 5)).not.toHaveAttribute('aria-current', 'true')
+    await expect(bar(a)).toHaveCount(0)
+
+    // 2) Esc 로 카드를 닫는다.
+    await a.keyboard.press('Escape')
+    await expect(a.getByTestId('person-card')).toHaveCount(0)
+
+    // 3) 같은 행의 이름 밖(시각 글자)을 누르면 판이 골라진다. 내용 칸이 pointer-events-none 이라 Playwright 의 요소 클릭 대신 좌표로 누른다.
+    const time = revRow(a, 5).getByText('14:05').first()
+    const box = await time.boundingBox()
+    await a.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    await expect(revItem(a, 5)).toHaveAttribute('aria-current', 'true')
+    await expect(bar(a)).toContainText('14:05 버전 미리보기')
+  })
+})
+
 test.describe('노트 버전 기록', { tag: '@platform' }, () => {
 
   test('목록을 연 채 다른 사람이 고치거나 복원하면(wiki.page.updated) 새 판이 생기고 현재 버전이 바뀐다', async ({ authenticatedPage: a }) => {
@@ -30,7 +66,7 @@ test.describe('노트 버전 기록', { tag: '@platform' }, () => {
     await a.clock.install({ time: NOW })
     await a.goto(pagePath)
     await openHistory(a)
-    await expect(revItem(a, 'current')).toContainText('김철수 외 2명 · 편집 중')
+    await expect(revRow(a, 'current')).toContainText('김철수 외 2명 · 편집 중')
     await expect(revItem(a, 7)).toHaveCount(0)
 
     // 서버 쪽 새 판을 흉내 낸다 — 다른 사람의 복원으로 지금 판(v7)이 스냅샷이 되고 현재 버전은 최수진의 v8.
@@ -45,8 +81,8 @@ test.describe('노트 버전 기록', { tag: '@platform' }, () => {
     events.deliver(`event: wiki.page.updated\ndata: ${JSON.stringify({ spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, actorId: CHOI.id })}\n\n`)
     await refetch
     // 새로고침·재오픈 없이 열린 목록에 새 판이 생기고 현재 버전(편집자)이 바뀐다.
-    await expect(revItem(a, 7)).toContainText('14:50')
-    await expect(revItem(a, 'current')).toContainText('최수진')
+    await expect(revRow(a, 7)).toContainText('14:50')
+    await expect(revRow(a, 'current')).toContainText('최수진')
   })
 
   test('판을 고르면 읽기 전용 미리보기와 다음 판 대비 변경 표시가 보이고, 토글로 끄고 현재 버전으로 돌아간다', async ({ authenticatedPage: a }) => {
@@ -196,7 +232,7 @@ test.describe('노트 버전 기록', { tag: '@platform' }, () => {
     // 미리보기는 닫히고 패널은 남아, 새로 받은 목록에 "복원 전" 판이 보인다.
     await expect(bar(a)).toHaveCount(0)
     await expect(panel(a)).toBeVisible()
-    await expect(revItem(a, 7)).toContainText('복원 전')
+    await expect(revRow(a, 7)).toContainText('복원 전')
     await expect(revItem(a, 'current')).toHaveAttribute('aria-current', 'true')
     // 접속 중인 다른 화면과 내 에디터 모두 복원 본문.
     await expect(b.locator('.ProseMirror')).toContainText('아직 정하지 않았다.')
