@@ -98,6 +98,22 @@ test('발급이 상한에 걸리면 서버 사유를 발급 창 안에 보이고
   expect(document.querySelectorAll('[data-sonner-toast]')).toHaveLength(0)
 })
 
+// WP-1776 — 빈 이름으로 발급하면 안내를 화면 읽기가 바로 읽고(role=alert), 이름 칸이 그 안내와 이어진다(aria-invalid·aria-describedby).
+test('빈 이름으로 발급하면 안내가 role=alert 로 뜨고 이름 칸에 aria-invalid·aria-describedby 가 이어진다 (WP-1776)', async () => {
+  const { user, posts } = await openTokens()
+  await user.click(screen.getByTestId('token-issue-open'))
+  const form = within(await screen.findByTestId('token-issue-form-dialog'))
+  const input = form.getByLabelText('토큰 이름')
+  expect(input).not.toHaveAttribute('aria-invalid')
+  await user.click(form.getByTestId('token-issue-submit'))
+  const alert = await form.findByRole('alert')
+  expect(alert).toHaveTextContent('토큰 이름을 입력하세요')
+  expect(input).toHaveAttribute('aria-invalid', 'true')
+  expect(input).toHaveAttribute('aria-describedby', alert.id)
+  expect(input).toHaveAccessibleDescription('토큰 이름을 입력하세요')
+  expect(posts).toEqual([])
+})
+
 // WP-702 — 만료일이 지난 토큰은 서버가 거절하므로 「활성」이 아니라 「만료됨」으로 보이고, 폐기 버튼은 남는다.
 test('만료일이 지난 토큰은 「만료됨」으로 표시되고 폐기 버튼은 남는다 (WP-702)', async () => {
   await openTokens([

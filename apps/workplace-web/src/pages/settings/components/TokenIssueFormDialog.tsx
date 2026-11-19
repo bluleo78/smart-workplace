@@ -22,6 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { extractApiError } from '@/lib/api-error';
@@ -109,16 +110,20 @@ export function TokenIssueFormDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={(e) => void handleSubmit(submit)(e)} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="token-name">토큰 이름</Label>
+          {/* 공용 FormField 로 감싸 이름 오류를 화면 읽기가 읽게 한다 — 안내는 role=alert, 입력칸은 aria-invalid·aria-describedby 로 안내와 잇는다(WP-1776, 프로필 이름 칸과 같은 방식). */}
+          <FormField
+            label="토큰 이름"
+            htmlFor="token-name"
+            error={errors.name?.message}
+            className="space-y-1.5"
+          >
             <Input
               id="token-name"
               placeholder="예: claude-code-mcp"
               maxLength={80}
               {...register('name')}
             />
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-          </div>
+          </FormField>
 
           <div className="space-y-1.5">
             <Label htmlFor="token-expiry">유효기간</Label>
