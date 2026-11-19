@@ -9,6 +9,7 @@ import { audioFile, type DriveStubFile, isPlaybackPath, stubDriveFiles, videoFil
 import { expect, test } from '../../fixtures/auth.fixture'
 import { SAMPLE_WEBM } from '../../fixtures/samples'
 import { pausePageClock } from '../../fixtures/touch'
+import { gate } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 
@@ -78,55 +79,94 @@ test('넘기면 일시정지(위치 기억) — 넘겨 온 영상·되돌아온 
 
 test('큰 영상은 다 받기를 기다리지 않고 서명 재생 주소로 Range(206) 재생하고, 탐색해도 이어 재생된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // WP-1532 — 600MB 로 보이는 영상(실제 본문은 10초 webm 78KB). 10MB 확인·받는 중 % 없이 곧바로 재생 주소를 <video src> 에 넣는다.
-  // 목 서버는 범위 응답을 16KB 씩·요청마다 250ms 늦게 보내 영상을 여러 번에 나눠 받게 한다 — 다 받기 전에 재생이 시작되는지 본다.
+  // 목 서버는 범위 응답을 16KB 씩만 보내 영상을 여러 번에 나눠 받게 한다. 「다 받기 전에 재생이 시작되는지」는 시간(목 지연)이 아니라 사건으로 본다 —
+  // 파일 절반 이후를 가리키는 Range 요청은 재생이 시작될 때까지 붙잡아 두므로, 부하로 재생 시작이 늦어져도 그 구간은 재생 시작 전에 받을 수 없다.
   const total = SAMPLE_WEBM.length
+  // 목이 범위 응답을 한 번에 주는 크기 — 목 옵션과 아래 받은 바이트 상한 계산이 같은 값을 쓴다.
+  const CHUNK = 16 * 1024
   await stubDriveFiles(
     page,
-    [videoFile(80, 'big.webm', { sizeBytes: 600 * 1024 * 1024, rangeChunkBytes: 16 * 1024, delayMs: 250 })],
+    [videoFile(80, 'big.webm', { sizeBytes: 600 * 1024 * 1024, rangeChunkBytes: CHUNK })],
     { spaceId: SPACE_ID },
   )
-  const ranges: (string | undefined)[] = []
-  const served: [number, number][] = []
-  const statuses: number[] = []
-  const contentCalls: string[] = []
-  const issued: string[] = []
-  page.on('request', (r) => {
-    const u = new URL(r.url())
-    if (isPlaybackPath(u.pathname, 80)) ranges.push(r.headers()['range'])
-    if (u.pathname === '/api/v1/drive/files/80/content') contentCalls.push(r.url())
-    if (u.pathname === '/api/v1/drive/files/80/playback-url') issued.push(r.method())
-  })
-  page.on('response', (r) => {
-    if (!isPlaybackPath(new URL(r.url()).pathname, 80)) return
-    statuses.push(r.status())
-    const m = /bytes (\d+)-(\d+)\//.exec(r.headers()['content-range'] ?? '')
-    if (m) served.push([Number(m[1]), Number(m[2])])
-  })
-  const coveredBytes = () => {
-    const hit = new Set<number>()
-    for (const [a, b] of served) for (let i = a; i <= b; i++) hit.add(i)
-    return hit.size
+  // 뒤쪽 범위 붙잡기 — 나중에 건 route 가 먼저 받으므로 stubDriveFiles 의 목보다 앞서 본다. 붙잡을 요청이 아니면 fallback 으로 목에 넘긴다.
+  const HOLD_FROM = Math.floor(total / 2)
+  // 꼬리(1KB) 는 붙잡지 않는다 — 브라우저가 재생 전에 파일 끝의 Cues 를 따로 받으려 할 때 재생 시작이 막히는 교착을 피한다.
+  // 픽스처 의존: sample-10s.webm 은 Cues 가 파일 끝에서 약 186바이트 앞(마지막 1KB 안)에 있어 이 값으로 덮인다. 픽스처를 다시 인코딩하거나 바꾸면 다시 확인한다.
+  const TAIL_BYTES = 1024
+  // 재생 시작을 확인할 때까지 뒤쪽 범위 요청을 붙잡는 게이트(공용 gate).
+  const { p: released, release } = gate()
+  // 붙잡은 요청의 시작 바이트 — 단언 실패 때 붙잡기가 일했는지 보려는 진단용.
+  const held: number[] = []
+  await page.route(
+    (u) => isPlaybackPath(u.pathname, 80),
+    async (route) => {
+      // 목(fulfillRange)과 같은 방식으로 실제 시작 바이트를 구한다 — 접미 범위 bytes=-n 은 total-n 부터 준다.
+      const m = /^bytes=(\d*)-(\d*)$/.exec((route.request().headers()['range'] ?? '').trim())
+      const start = !m ? 0 : m[1] === '' ? Math.max(0, total - Number(m[2])) : Number(m[1])
+      if (start >= HOLD_FROM && start < total - TAIL_BYTES) {
+        held.push(start)
+        await released
+      }
+      // 페이지가 닫혀 요청이 이미 끊긴 경우의 fallback 실패는 무시한다.
+      await route.fallback().catch(() => {})
+    },
+  )
+  try {
+    const ranges: (string | undefined)[] = []
+    const served: [number, number][] = []
+    const statuses: number[] = []
+    const contentCalls: string[] = []
+    const issued: string[] = []
+    page.on('request', (r) => {
+      const u = new URL(r.url())
+      if (isPlaybackPath(u.pathname, 80)) ranges.push(r.headers()['range'])
+      if (u.pathname === '/api/v1/drive/files/80/content') contentCalls.push(r.url())
+      if (u.pathname === '/api/v1/drive/files/80/playback-url') issued.push(r.method())
+    })
+    page.on('response', (r) => {
+      if (!isPlaybackPath(new URL(r.url()).pathname, 80)) return
+      statuses.push(r.status())
+      const m = /bytes (\d+)-(\d+)\//.exec(r.headers()['content-range'] ?? '')
+      if (m) served.push([Number(m[1]), Number(m[2])])
+    })
+    const coveredBytes = () => {
+      const hit = new Set<number>()
+      for (const [a, b] of served) for (let i = a; i <= b; i++) hit.add(i)
+      return hit.size
+    }
+    await openViewer(page, 'big.webm')
+    const video = page.getByTestId('media-video')
+    await expect
+      .poll(async () => (await state(video)).time, {
+        message: '재생이 시작되지 않았다 — 붙잡은 범위가 브라우저가 재생 전에 필요로 하는 구간일 수 있다(픽스처에 맞춰 HOLD_FROM·TAIL_BYTES 를 확인).',
+      })
+      .toBeGreaterThan(0)
+    // 재생이 시작된 순간 아직 전부 받지 않았다(재생이 다 받기를 기다리지 않는다). blob 경로 회귀는 아래 src 경로·contentCalls 0건 단언이 따로 잡는다.
+    // 풀기 전에는 HOLD_FROM 미만에서 시작한 요청이 HOLD_FROM 을 넘어 최대 CHUNK 바이트까지만 주고, 그 너머는 꼬리(TAIL_BYTES)만 받을 수 있다.
+    // 상한 = HOLD_FROM + CHUNK + TAIL_BYTES — HOLD_FROM 이 전체의 절반이고 CHUNK + TAIL_BYTES 가 이 픽스처의 절반보다 한참 작아 전체보다 낮다. 붙잡기가 조용히 풀려도 실패하고, 재생이 얼마나 늦게 시작됐든 결정적이다.
+    expect(coveredBytes(), `held=${held}`).toBeLessThanOrEqual(HOLD_FROM + CHUNK + TAIL_BYTES)
+    // 이제 붙잡은 요청을 풀어 나머지 단언(탐색 이어 재생 포함)이 뒤쪽 범위를 받게 한다.
+    release()
+    expect(isPlaybackPath(new URL((await state(video)).src).pathname, 80)).toBe(true)
+    await expect(page.getByTestId('preview-size-confirm')).toHaveCount(0)
+    await expect(page.getByRole('progressbar')).toHaveCount(0)
+    // 브라우저가 범위 요청으로 받고 서버(목)가 206 으로 응답했다 — iOS Safari 는 영상에 206 을 요구한다.
+    expect(ranges.every((r) => r?.startsWith('bytes='))).toBe(true)
+    expect(statuses.length).toBeGreaterThan(1)
+    expect(statuses.every((st) => st === 206)).toBe(true)
+    // 탐색 — 뒤쪽(8초)으로 옮기면 그 구간을 범위 요청으로 받아 그 위치부터 이어 재생된다(같은 주소, 재발급 없음).
+    await pauseAt(video, 8)
+    await video.evaluate((m: HTMLMediaElement) => m.play())
+    await expect.poll(async () => (await state(video)).time).toBeGreaterThan(8)
+    expect(served.some(([a]) => a > total / 2)).toBe(true)
+    // 원본 blob 은 받지 않고, 발급(=열람 감사)은 한 번만.
+    expect(contentCalls).toHaveLength(0)
+    expect(issued).toEqual(['POST'])
+  } finally {
+    // 실패해도 붙잡힌 요청이 매달리지 않게 한다.
+    release()
   }
-  await openViewer(page, 'big.webm')
-  const video = page.getByTestId('media-video')
-  await expect.poll(async () => (await state(video)).time).toBeGreaterThan(0)
-  // 재생이 시작된 순간 아직 파일 전체를 받지 않았다(통째로 받는 blob 경로라면 불가능).
-  expect(coveredBytes()).toBeLessThan(total)
-  expect(isPlaybackPath(new URL((await state(video)).src).pathname, 80)).toBe(true)
-  await expect(page.getByTestId('preview-size-confirm')).toHaveCount(0)
-  await expect(page.getByRole('progressbar')).toHaveCount(0)
-  // 브라우저가 범위 요청으로 받고 서버(목)가 206 으로 응답했다 — iOS Safari 는 영상에 206 을 요구한다.
-  expect(ranges.every((r) => r?.startsWith('bytes='))).toBe(true)
-  expect(statuses.length).toBeGreaterThan(1)
-  expect(statuses.every((st) => st === 206)).toBe(true)
-  // 탐색 — 뒤쪽(8초)으로 옮기면 그 구간을 범위 요청으로 받아 그 위치부터 이어 재생된다(같은 주소, 재발급 없음).
-  await pauseAt(video, 8)
-  await video.evaluate((m: HTMLMediaElement) => m.play())
-  await expect.poll(async () => (await state(video)).time).toBeGreaterThan(8)
-  expect(served.some(([a]) => a > total / 2)).toBe(true)
-  // 원본 blob 은 받지 않고, 발급(=열람 감사)은 한 번만.
-  expect(contentCalls).toHaveLength(0)
-  expect(issued).toEqual(['POST'])
 })
 
 test('닫으면 미디어 요소가 정리되고 재생 주소 요청을 놓는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
