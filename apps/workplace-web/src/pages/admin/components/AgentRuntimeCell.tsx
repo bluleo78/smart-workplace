@@ -7,11 +7,13 @@
 // 모바일은 이름 아래 줄에 배지·알약만(AgentRuntimeMetaBadge).
 // 「실행 방식」 옆 「계정」 칸(AgentAccountCell, WP-1513)도 여기 둔다 — 같은 한 줄·「—」 규칙을 따른다.
 
+import { TriangleAlert } from 'lucide-react';
+
 import { Badge } from '@/components/ui/badge';
 import { StatusBadge } from '@/components/ui/status-badge';
 
 import { externalKeyStatusText, pluginUpdateInfo } from '../../../lib/agentRuntime';
-import { statusDetail, statusPill } from '../../../lib/agentRuntimeStatus';
+import { runtimeNotice, statusDetail, statusPill } from '../../../lib/agentRuntimeStatus';
 import type { AgentResponse } from '../../../types/agent';
 import type { AgentAccountResponse } from '../../../types/agentAccount';
 import type { AgentRuntimeSummary } from '../../../types/agentRuntime';
@@ -105,6 +107,8 @@ export function AgentRunStateCell({ agent, summary }: Props) {
   }
   const pill = statusPill(summary.status, summary.agentState);
   const detail = statusDetail(summary);
+  // 다시 시작된 사유(WP-1794) — 칸이 좁아 아이콘만 두고 글은 title·aria-label 로.
+  const notice = runtimeNotice(summary);
   return (
     // 알약과 설명을 한 줄로(칸의 줄바꿈 막기는 TableCell 이 한다) — 긴 오류 사유는 DETAIL_CLASS 가 잘라 title 로 보인다.
     <div className="flex items-center gap-1.5">
@@ -119,6 +123,11 @@ export function AgentRunStateCell({ agent, summary }: Props) {
           data-testid={`agent-runtime-detail-${agent.id}`}
         >
           {detail.text}
+        </span>
+      )}
+      {notice && (
+        <span className="shrink-0 text-warning-text" role="img" title={notice} aria-label={notice} data-testid={`agent-runtime-notice-${agent.id}`}>
+          <TriangleAlert className="size-3.5" aria-hidden />
         </span>
       )}
     </div>

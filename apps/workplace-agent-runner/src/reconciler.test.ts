@@ -4,6 +4,7 @@ import type { V1PersistentVolumeClaim, V1Pod, V1Secret } from '@kubernetes/clien
 import { ClusterCheck, ReconcileLoop, Reconciler, type ReconcileResult } from './reconciler.js';
 import { ClusterError } from './k8s/cluster.js';
 import { buildAgentResources, buildAgentSecret } from './k8s/manifest.js';
+import { formatNoticeTime, RESTART_NOTICE_MS } from './observe.js';
 import { FakeCluster, FakeWorks } from './testing/fakes.js';
 import { ctx, desiredAgent, runnerConfig } from './testing/fixtures.js';
 import type { RunnerDesired, RunnerDesiredAgent } from './works/client.js';
@@ -1271,8 +1272,9 @@ describe('계속 끝나는 Pod 의 간격·사유 보고(WP-1501)', () => {
     expect(cluster.calls).toEqual([`delete Pod/${name}`]);
   });
 
-  it('logsFinishReasonAndReportsItOnNextObserved', async () => {
-    const { cluster, works, r, logs, name, evict, lastObserved } = await loopSetup();
+  it('keepsFinishNoticeForSixHours', async () => {
+    const { cluster, works, r, clock, logs, name, evict, lastObserved } = await loopSetup();
+    const evictedAt = new Date(clock.t);
     evict();
     // generation 도 바뀐 Pod — 두 까닭을 함께 남긴다
     works.desired = desired([desiredAgent({ generation: 8 })]);
@@ -1284,11 +1286,122 @@ describe('계속 끝나는 Pod 의 간격·사유 보고(WP-1501)', () => {
       expect.objectContaining({ generation: 8, podGeneration: 7, reason: 'Evicted — low on ephemeral-storage', consecutive: 1 }),
     ]);
 
-    // Pod 는 이미 지워졌다 — 다음 보고 한 번에 끝난 사유를 싣고(phase 는 지금 상태), 그다음 보고에는 싣지 않는다
+    // 첫 보고·두 번째 보고 모두 끝난 사유와 쫓겨난 시각을 싣는다(phase 는 지금 상태)
+    const message = `이전 Pod 가 끝나 다시 띄웠습니다 — Evicted — low on ephemeral-storage · ${formatNoticeTime(evictedAt)}`;
+    clock.t += 60_000;
     await r.reportObserved();
-    expect(lastObserved()).toMatchObject({ phase: 'STARTING', message: '이전 Pod 가 끝나 다시 띄웠습니다 — Evicted — low on ephemeral-storage' });
+    expect(lastObserved()).toMatchObject({ phase: 'STARTING', message });
     await r.reportObserved();
-    expect(lastObserved()).toMatchObject({ phase: 'STARTING', message: null });
+    expect(lastObserved()).toMatchObject({ phase: 'STARTING', message });
+
+    // 6시간이 지나면 조용히 지운다
+    clock.t = evictedAt.getTime() + RESTART_NOTICE_MS + 1_000;
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(lastObserved()).toMatchObject({ message: null });
+  });
+
+  it('keepsFinishNoticeAfterPodBecomesStable', async () => {
+    const { cluster, r, clock, name, evict, lastObserved } = await loopSetup();
+    const evictedAt = new Date(clock.t);
+    evict();
+    await r.reconcileOnce();
+    await r.reconcileOnce();
+
+    // 새 Pod 가 Ready 로 10분 넘게 떠 finishLoops 가 지워져도 알림은 남는다
+    clock.t += 11 * 60_000;
+    cluster.get<V1Pod>('Pod', name)!.status = {
+      phase: 'Running',
+      conditions: [{ type: 'Ready', status: 'True', lastTransitionTime: new Date(clock.t - 10 * 60_000) }],
+      containerStatuses: [{ name: 'agent', ready: true, restartCount: 0, image: 'x', imageID: 'x' }],
+    };
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(lastObserved()).toMatchObject({
+      phase: 'RUNNING',
+      message: `이전 Pod 가 끝나 다시 띄웠습니다 — Evicted — low on ephemeral-storage · ${formatNoticeTime(evictedAt)}`,
+    });
+  });
+
+  it('dropsFinishNoticeWhenGenerationChanges', async () => {
+    const { works, r, evict, lastObserved } = await loopSetup();
+    evict();
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(lastObserved()?.message).toContain('이전 Pod 가 끝나');
+
+    // generation 이 바뀌면 다른 Pod 라 알림을 지운다
+    works.desired = desired([desiredAgent({ generation: 9 })]);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(lastObserved()?.message ?? '').not.toContain('이전 Pod 가 끝나');
+  });
+
+  it('dropsFinishNoticeWhenAgentLeavesDesired', async () => {
+    const { works, r, clock, evict, lastObserved } = await loopSetup();
+    evict();
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(lastObserved()?.message).toContain('이전 Pod 가 끝나');
+
+    // desired 에서 빠졌다 돌아와도 옛 알림은 없다
+    works.desired = desired([]);
+    await r.reconcileOnce();
+    clock.t += 1_000;
+    works.desired = desired([desiredAgent()]);
+    for (let i = 0; i < 3; i++) await r.reconcileOnce();
+    await r.reportObserved();
+    expect(lastObserved()?.message ?? '').not.toContain('이전 Pod 가 끝나');
+  });
+
+  it('stopsReportingFinishNoticeAfterSixHours_evenBeforeCleanup', async () => {
+    const { r, clock, evict, lastObserved } = await loopSetup();
+    const evictedAt = clock.t;
+    evict();
+    await r.reconcileOnce();
+    // 정리 회차(reconcileOnce) 없이 보고만 해도 6시간이 지나면 싣지 않는다
+    clock.t = evictedAt + RESTART_NOTICE_MS + 1_000;
+    await r.reportObserved();
+    expect(lastObserved()?.message ?? '').not.toContain('이전 Pod 가 끝나');
+  });
+
+  it('failureMessageWinsOverFinishNotice', async () => {
+    const { r, clock, evict, lastObserved } = await loopSetup();
+    for (const wait of [0, 30_000, 60_000]) {
+      clock.t += wait;
+      evict();
+      await r.reconcileOnce();
+      await r.reconcileOnce();
+    }
+    await r.reportObserved();
+    expect(lastObserved()).toMatchObject({ phase: 'FAILED', message: expect.stringContaining('연속 3번') });
+  });
+
+  it('containerRestartNoticeCarriesFinishNoticeToo', async () => {
+    const { cluster, r, clock, name, evict, lastObserved } = await loopSetup();
+    evict();
+    await r.reconcileOnce();
+    await r.reconcileOnce();
+    // 새 Pod 의 컨테이너가 OOM 으로 다시 시작됨 — 컨테이너 알림 뒤에 끝난 Pod 알림을 함께 싣는다
+    clock.t += 60_000;
+    cluster.get<V1Pod>('Pod', name)!.status = {
+      phase: 'Running',
+      containerStatuses: [
+        {
+          name: 'agent',
+          ready: true,
+          restartCount: 1,
+          image: 'x',
+          imageID: 'x',
+          lastState: { terminated: { reason: 'OOMKilled', exitCode: 137, finishedAt: new Date(clock.t - 1_000) } },
+        },
+      ],
+    };
+    await r.reportObserved();
+    expect(lastObserved()).toMatchObject({ phase: 'RUNNING', message: expect.stringContaining('agent 컨테이너가 다시 시작됐습니다') });
+    const msg = lastObserved()!.message as string;
+    expect(msg).toContain(' / 이전 Pod 가 끝나 다시 띄웠습니다');
+    expect(msg.indexOf('agent 컨테이너')).toBeLessThan(msg.indexOf('이전 Pod'));
   });
 });
 

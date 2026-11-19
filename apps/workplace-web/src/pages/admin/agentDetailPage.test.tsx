@@ -311,6 +311,20 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     expect(screen.getByTestId('agent-runtime-start')).toBeDisabled()
   })
 
+  test('실행 중 observed.message 가 있으면 「실행」 묶음에 경고 한 줄이 보인다 (WP-1794)', async () => {
+    const message = 'agent 컨테이너가 다시 시작됐습니다 — 메모리 한도 초과(OOMKilled) · 11-19 11:43'
+    const observed = createObserved({ agentState: 'IDLE', message })
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    expect(await screen.findByTestId('agent-runtime-notice')).toHaveTextContent(message)
+  })
+
+  test('오류면 경고 한 줄 없이 기존 오류 사유만 보인다 (WP-1794)', async () => {
+    const observed = createObserved({ message: '이미지를 받지 못했습니다 (ImagePullBackOff)' })
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'RUN', observed }) } }))
+    expect(await screen.findByTestId('agent-runtime-detail')).toHaveTextContent('ImagePullBackOff')
+    expect(screen.queryByTestId('agent-runtime-notice')).not.toBeInTheDocument()
+  })
+
   test('실행 중이면 시작 대신 재시작·종료가 보이고, 상태 알약은 AI 보고(작업 중)를 따른다', async () => {
     const setting = createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319' }) })
     await renderDetail(works({ settings: { [id]: setting } }))

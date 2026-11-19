@@ -15,6 +15,7 @@ import {
   locationOptionLabel,
   metricsUnavailable,
   parseMemoryQuantity,
+  runtimeNotice,
   statusDetail,
   statusPill,
   workResourceText,
@@ -221,5 +222,20 @@ describe('workResourceText — 평소·최대 자원 한 줄', () => {
     expect(workResourceText(DEFAULT_TEMPLATE)).toBeNull()
     const r = { cpuRequest: null, memoryRequest: null, cpuLimit: '8', memoryLimit: null, workDisk: null }
     expect(workResourceText({ ...CLAUDE_TEMPLATE, resources: r })).toBeNull()
+  })
+})
+
+describe('runtimeNotice — 다시 시작됐다는 경고 한 줄 (WP-1794)', () => {
+  const msg = 'agent 컨테이너가 다시 시작됐습니다 — 메모리 한도 초과(OOMKilled) · 11-19 11:43'
+  test.each(['RUNNING', 'STARTING', 'APPLY_PENDING'] as const)('%s 이고 message 가 있으면 그 글', (status) => {
+    expect(runtimeNotice({ status, message: msg })).toBe(msg)
+  })
+  test.each(['FAILED', 'OFF', 'STOPPING'] as const)('%s 는 message 가 있어도 null', (status) => {
+    expect(runtimeNotice({ status, message: msg })).toBeNull()
+  })
+  test('message 가 null·빈 글이면 null', () => {
+    expect(runtimeNotice({ status: 'RUNNING', message: null })).toBeNull()
+    expect(runtimeNotice({ status: 'RUNNING', message: '' })).toBeNull()
+    expect(runtimeNotice({ status: 'RUNNING', message: undefined })).toBeNull()
   })
 })

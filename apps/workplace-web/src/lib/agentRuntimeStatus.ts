@@ -91,6 +91,16 @@ export function statusDetail(s: {
   return null;
 }
 
+/**
+ * 실행 중에도 보여야 하는 경고 한 줄(WP-1794) — 작업 공간이 메모리 한도로 다시 시작됐거나 쫓겨나 다시 떴다는 글.
+ * agent-runner 가 최근 6시간 동안 observed message 에 싣는다. statusDetail 은 FAILED 에서만 message 를 보여 별도 함수로 둔다.
+ * 실행 중(RUNNING·APPLY_PENDING·STARTING)이고 글이 비어 있지 않을 때만 그 글, 아니면 null(FAILED 는 기존 오류 사유가 맡는다).
+ */
+export function runtimeNotice(s: { status: AgentRuntimeStatus; message: string | null | undefined }): string | null {
+  if (!isRunningStatus(s.status)) return null;
+  return s.message || null;
+}
+
 /** CPU 사용량 — 밀리코어 → 「1.2 코어」. 모르면 「-」. */
 export function formatCpu(millicores: number | null | undefined): string {
   if (millicores == null) return '-';

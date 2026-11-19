@@ -13,7 +13,14 @@ import type {
   V1VolumeMount,
 } from '@kubernetes/client-node';
 import type { RunnerConfig } from '../config.js';
-import { DIND_GC_IMAGE_COOLDOWN_SECONDS, DIND_GC_INTERVAL_SECONDS, DIND_GC_SCRIPT } from './dind-gc.js';
+import {
+  DIND_GC_CRITICAL_COOLDOWN_SECONDS,
+  DIND_GC_CRITICAL_PERCENT,
+  DIND_GC_FAST_INTERVAL_SECONDS,
+  DIND_GC_IMAGE_COOLDOWN_SECONDS,
+  DIND_GC_INTERVAL_SECONDS,
+  DIND_GC_SCRIPT,
+} from './dind-gc.js';
 import type { RunnerDesiredAgent, RunnerSidecar } from '../works/client.js';
 
 /** runner 가 만든 리소스 표시 — 이 라벨이 없는 리소스는 만지지도 지우지도 않는다. */
@@ -204,6 +211,7 @@ const DIND_GC_RESOURCES: V1ResourceRequirements = { requests: { cpu: '10m', memo
  * 사용량은 저장 볼륨을 읽기 전용으로 꽂아 du 로 잰다(스크립트·근거는 dind-gc.ts).
  */
 function dindGcContainer(dindImage: string, cfg: RunnerConfig): V1Container {
+  const thresholdKib = Math.floor((cfg.dindStorageLimitKib * cfg.dindGcThresholdPercent) / 100);
   return {
     name: DIND_GC_NAME,
     image: dindImage,
@@ -213,9 +221,13 @@ function dindGcContainer(dindImage: string, cfg: RunnerConfig): V1Container {
     securityContext: { privileged: false, runAsUser: 0, appArmorProfile: { type: 'Unconfined' } },
     env: [
       { name: 'DOCKER_HOST', value: `unix://${DIND_SOCKET_DIR}/docker.sock` },
-      { name: 'DIND_GC_THRESHOLD_KIB', value: String(Math.floor((cfg.dindStorageLimitKib * cfg.dindGcThresholdPercent) / 100)) },
+      { name: 'DIND_GC_THRESHOLD_KIB', value: String(thresholdKib) },
+      // 위급선 — 임계값보다 낮아지지 않게(임계 비율을 90 이상으로 둔 경우)
+      { name: 'DIND_GC_CRITICAL_KIB', value: String(Math.max(thresholdKib, Math.floor((cfg.dindStorageLimitKib * DIND_GC_CRITICAL_PERCENT) / 100))) },
       { name: 'DIND_GC_INTERVAL_SECONDS', value: String(DIND_GC_INTERVAL_SECONDS) },
+      { name: 'DIND_GC_FAST_INTERVAL_SECONDS', value: String(DIND_GC_FAST_INTERVAL_SECONDS) },
       { name: 'DIND_GC_IMAGE_COOLDOWN_SECONDS', value: String(DIND_GC_IMAGE_COOLDOWN_SECONDS) },
+      { name: 'DIND_GC_CRITICAL_COOLDOWN_SECONDS', value: String(DIND_GC_CRITICAL_COOLDOWN_SECONDS) },
     ],
     resources: structuredClone(DIND_GC_RESOURCES),
     volumeMounts: [
