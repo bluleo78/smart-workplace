@@ -801,6 +801,69 @@ describe('buildSharedIssueTools', () => {
     expect(out).toEqual({ ok: true, results: { content: 'ok' } });
   });
 
+  it('WP-1755: update_issue: 본문 자리표시에 쓴 번호는 fileIds 클레임에서 빠진다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', body: '시안 ![a](file:5)', fileIds: [5, 6] });
+    expect(c.claimIssueAttachments).toHaveBeenCalledTimes(1);
+    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [6]);
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ body: '시안 ![a](file:5)' }));
+  });
+
+  it('WP-1755: update_issue: fileIds 가 모두 자리표시면 클레임을 부르지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', body: '[x](file:5)', fileIds: [5] })));
+    expect(c.claimIssueAttachments).not.toHaveBeenCalled();
+    expect(out.ok).toBe(true);
+    expect(out.results).not.toHaveProperty('attachments');
+  });
+
+  it('WP-1755: update_issue: body 가 없으면 fileIds 를 그대로 클레임한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', fileIds: [5] });
+    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5]);
+  });
+
+  it('WP-1755: update_issue: 대체 글에 줄바꿈이 있으면 서버가 자리표시로 보지 않으니 fileIds 에서 빼지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', body: '![a\nb](file:5)', fileIds: [5] });
+    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5]);
+  });
+
+  it('WP-1755: update_issue: 인라인 코드 안의 자리표시 번호는 서버가 무시하므로 클레임에서 빼지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', body: '예: `![a](file:5)`', fileIds: [5] })));
+    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5]);
+    expect(out.results).not.toHaveProperty('bodyFiles');
+  });
+
+  it('WP-1755: update_issue: 펜스 코드 블록 안의 자리표시 번호도 클레임에서 빼지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', body: '예시\n```\n![a](file:5)\n```\n끝', fileIds: [5] });
+    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5]);
+  });
+
+  it('WP-1755: update_issue: 본문이 처리한 번호는 bodyFiles 로 알리고, 본문 저장이 실패하면 붙지 않았다고 알린다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const ok = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', body: '![a](file:5) [b](file:7)', fileIds: [5, 7, 9] })));
+    expect(ok.ok).toBe(true);
+    expect(ok.results).toEqual({ attachments: 'ok', content: 'ok', bodyFiles: 'ok' });
+
+    const c2 = mockClient();
+    vi.mocked(c2.updateIssueContent).mockRejectedValue(new Error('boom'));
+    const t2 = buildSharedIssueTools(c2).find((x) => x.name === 'update_issue')!;
+    const bad = JSON.parse(resultText(await t2.handler({ issueKey: 'WP-12', body: '![a](file:5)', fileIds: [5] })));
+    expect(bad.ok).toBe(false);
+    expect(bad.results.content).toMatch(/^failed:/);
+    expect(bad.results.bodyFiles).toBe('failed: 본문 저장 실패로 붙지 않음 — 5');
+  });
+
   it('WP-422: get_issue_detail 은 클레임된 첨부를 기존 attachments 뷰 그대로 보여 준다', async () => {
     const c = mockClient();
     vi.mocked(c.getIssueDetail).mockResolvedValue({

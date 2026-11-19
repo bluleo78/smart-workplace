@@ -251,6 +251,69 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
         .containsExactlyInAnyOrder(doc, other);
   }
 
+  /** WP-1755 fileIds 의 중복은 본문에 자리표시가 있어도 없을 때와 똑같이 형태 오류(400)로 거절된다. */
+  @Test
+  void 만들기_fileIds_중복은_다른_파일의_자리표시가_있어도_똑같이_거절된다() {
+    long doc = seedStaged(ownerId, "dup.txt", "hello".getBytes(), "text/plain", 5);
+    long other = seedStaged(ownerId, "dup2.txt", "world".getBytes(), "text/plain", 5);
+    var nested = nested();
+
+    assertThatThrownBy(
+            () ->
+                nested.executeWithoutResult(
+                    st ->
+                        issueService.create(
+                            ownerId,
+                            projectKey,
+                            createReqWithFiles("[x](file:" + other + ")", List.of(doc, doc)))))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("두 번");
+  }
+
+  /** WP-1755 같은 이미지 번호가 fileIds 와 자리표시에 함께 와도 본문 그림으로만 묶이고 첨부로 다시 클레임되지 않는다. */
+  @Test
+  void 만들기_같은_이미지_번호를_fileIds_와_자리표시에_함께_넣어도_본문_그림으로_한_번만_묶인다() {
+    long img = seedStaged(ownerId, "dup.png", PNG, "image/png", PNG.length);
+
+    var created =
+        issueService.create(
+            ownerId, projectKey, createReqWithFiles("시안 ![시안](file:" + img + ")", List.of(img)));
+
+    String body = bodyOf(created.id());
+    assertThat(body).contains("/issue-images/").doesNotContain("file:");
+    assertThat(dsl.fetchCount(ISSUE_BODY_IMAGE, ISSUE_BODY_IMAGE.FILE_ID.eq(img))).isEqualTo(1);
+    assertThat(attachmentService.listByIssueId(created.id())).isEmpty();
+  }
+
+  /** WP-1755 이미지는 본문 그림, fileIds 에만 있는 다른 파일은 첨부로 붙는다. */
+  @Test
+  void 만들기_이미지와_다른_첨부를_섞어도_이미지는_본문_다른_번호는_첨부로_붙는다() {
+    long img = seedStaged(ownerId, "mix.png", PNG, "image/png", PNG.length);
+    long doc = seedStaged(ownerId, "mix.txt", "hello".getBytes(), "text/plain", 5);
+
+    var created =
+        issueService.create(
+            ownerId, projectKey, createReqWithFiles("![시안](file:" + img + ")", List.of(img, doc)));
+
+    assertThat(attachmentService.listByIssueId(created.id()))
+        .extracting("fileId")
+        .containsExactly(doc);
+    assertThat(dsl.fetchCount(ISSUE_BODY_IMAGE, ISSUE_BODY_IMAGE.FILE_ID.eq(img))).isEqualTo(1);
+  }
+
+  /** WP-1755 자리표시 없이 fileIds 에만 넣은 이미지는 지금처럼 첨부로 붙는다(회귀 방지). */
+  @Test
+  void 만들기_fileIds_에만_넣은_이미지는_지금처럼_첨부로_붙는다() {
+    long img = seedStaged(ownerId, "only.png", PNG, "image/png", PNG.length);
+
+    var created = issueService.create(ownerId, projectKey, createReqWithFiles("본문", List.of(img)));
+
+    assertThat(attachmentService.listByIssueId(created.id()))
+        .extracting("fileId")
+        .containsExactly(img);
+    assertThat(dsl.fetchCount(ISSUE_BODY_IMAGE, ISSUE_BODY_IMAGE.FILE_ID.eq(img))).isZero();
+  }
+
   @Test
   void 댓글의_이미지가_아닌_파일도_이슈_첨부로_붙는다() {
     var issue = issueService.create(ownerId, projectKey, createReq("본문"));
@@ -316,6 +379,26 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
     // 남의 파일은 옮겨지지 않는다.
     assertThat(dsl.fetchCount(ISSUE_BODY_IMAGE, ISSUE_BODY_IMAGE.FILE_ID.eq(othersPng))).isZero();
     assertThat(categoryOf(othersPng)).isEqualTo("ATTACHMENT");
+  }
+
+  /** WP-1755 남의 파일 번호는 fileIds 와 자리표시에 함께 넣어도 똑같이 거절된다. */
+  @Test
+  void 남의_파일_번호를_fileIds_와_자리표시에_함께_넣어도_400_이고_이슈가_생기지_않는다() {
+    long othersPng = seedStaged(memberId, "theirs2.png", PNG, "image/png", PNG.length);
+    int before = dsl.fetchCount(ISSUE, ISSUE.PROJECT_ID.eq(projectId));
+    var nested = nested();
+
+    assertThatThrownBy(
+            () ->
+                nested.executeWithoutResult(
+                    st ->
+                        issueService.create(
+                            ownerId,
+                            projectKey,
+                            createReqWithFiles("![](file:" + othersPng + ")", List.of(othersPng)))))
+        .isInstanceOf(IssueBodyImageRejectedException.class)
+        .hasMessageContaining("file:" + othersPng);
+    assertThat(dsl.fetchCount(ISSUE, ISSUE.PROJECT_ID.eq(projectId))).isEqualTo(before);
   }
 
   @Test

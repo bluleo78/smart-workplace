@@ -69,6 +69,8 @@ describe('buildFileTools (WP-421)', () => {
     expect(out.note).toMatch(/새 링크/);
     // WP-1634: 이슈 본문·댓글 자리표시 안내.
     expect(out.note).toContain('![설명](file:<fileId>)');
+    expect(out.note).toContain('둘 중 하나만 쓰면 됩니다');
+    expect(out.note).toContain('이슈 만들기·고치기에서는 둘 다 써도 본문 처리로 한 번만 붙습니다');
   });
 
   it('upload_file: content: null 도 생략으로 본다(링크 모드)', async () => {
