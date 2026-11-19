@@ -431,10 +431,11 @@ public class AiTaskRepository {
                         ISSUE.NUMBER.as("b_number"),
                         ISSUE.PARENT_ISSUE_ID.as("b_parent"),
                         parent.PARENT_ISSUE_ID.as("b_grand"),
-                        // 살아 있는 작업의 마지막 보고 시각(가족 최근 보고) — 살아 있는 작업이 없으면(완료 보기 행) 집계가 NULL.
-                        w.liveAt.as("b_live_at"),
-                        // 이 행의 살아 있는 작업 중 무소식이 있는지(가족 머리 무소식 판정).
-                        w.liveStale.as("b_stale_self"))
+                        // 살아 있는 작업의 마지막 보고 시각(가족 최근 보고). sortAt()·rank() 처럼 hasLive() 로 감싼다 —
+                        // 완료 보기의 닫힌 하위에 종료되지 않은 작업 행이 남아 있어도 가족 lastReportAt 에 섞이지 않게.
+                        when(w.hasLive(), w.liveAt).as("b_live_at"),
+                        // 이 행의 살아 있는 작업 중 무소식이 있는지(가족 머리 무소식 판정) — 같은 이유로 살아 있을 때만.
+                        when(w.hasLive(), w.liveStale).as("b_stale_self"))
                     .from(ISSUE)
                     .crossJoin(w.table)
                     .join(selfType)
