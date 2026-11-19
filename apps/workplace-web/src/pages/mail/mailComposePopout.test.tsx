@@ -124,7 +124,9 @@ test('빈 창을 저장 중에 닫으면 작성창을 그대로 두고 죽은 �
   vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
   let release!: (r: Response) => void
   const post = record('post', '/api/v1/mail/drafts', () => new Promise<Response>((r) => (release = r)))
-  const view = renderMail('/mail/1', { handlers: [post.handler] })
+  // 손대지 않은 작성으로 만든 빈 임시저장은 빈 창을 닫으면 지운다.
+  const del = record('delete', '/api/v1/mail/drafts/101')
+  const view = renderMail('/mail/1', { handlers: [post.handler, del.handler] })
   await view.user.click(await screen.findByTestId('mail-compose-new'))
   await view.user.click(await screen.findByTestId('mail-compose-popout'))
   await waitFor(() => expect(post.calls).toHaveLength(1))
@@ -136,6 +138,7 @@ test('빈 창을 저장 중에 닫으면 작성창을 그대로 두고 죽은 �
   expect(win.location.href).toBe('')
   expect(win.close).not.toHaveBeenCalled()
   expect(liveMailComposePopout(101)).toBeNull()
+  await waitFor(() => expect(del.calls).toHaveLength(1))
 })
 
 test('검증 오류(400)로 저장하지 못하면 그 사유를 알린다', async () => {

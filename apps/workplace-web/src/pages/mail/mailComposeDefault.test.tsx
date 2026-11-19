@@ -456,3 +456,75 @@ test('미리_연_창을_닫았으면_저장하지_않고_우측_하단에_둔다
   expect(post.calls).toHaveLength(0)
   expect(win.location.href).toBe('')
 })
+
+// ── 코드 리뷰 반영(WP-1744) — 옮기는 중 잠금은 회차별, 시한·차단·빈 임시저장 경계 ──
+
+test('앞_회차_새_창_옮기기_저장_중에_연_새_작성은_잠기지_않는다', async () => {
+  vi.spyOn(window, 'open').mockReturnValue(fakeWindow() as unknown as Window)
+  // 앞 회차 A 의 ↗ 저장이 끝나지 않는다 — 그 사이 연 B 는 잠기지 않고 편집할 수 있어야 한다.
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', () => new Promise<Response>(() => {}))
+  const view = renderWith('DOCK', { extra: [post.handler] })
+  await settingsLoaded(view, 'DOCK')
+  await openReplyWithBody(view, 'A 답장')
+  await view.user.click(screen.getByTestId('mail-compose-popout'))
+  await waitFor(() => expect(post.calls).toHaveLength(1))
+  expect(screen.getByTestId('mail-compose-dock')).toHaveAttribute('aria-busy', 'true')
+
+  await view.user.click(screen.getByTestId('open-compose'))
+  await waitFor(() => expect(screen.getByTestId('mail-compose-dock')).not.toHaveAttribute('aria-busy'))
+  expect(screen.getByTestId('mail-compose-dock')).not.toHaveAttribute('inert')
+})
+
+test('미리_연_창을_사용자가_닫았으면_시한에_안내하지_않는다', async () => {
+  const win = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  // 서명 응답이 오지 않아 시한까지 못 꺼낸다 — 그 사이 사용자가 빈 창을 닫는다.
+  const signature = http.get('/api/v1/mail/signature', () => new Promise<Response>(() => {}))
+  const view = renderWith('WINDOW', { extra: [signature] })
+  await settingsLoaded(view, 'WINDOW')
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    await view.user.click(screen.getByTestId('open-compose'))
+    win.closed = true
+    await act(() => vi.advanceTimersByTimeAsync(MAIL_COMPOSE_PREOPEN_TIMEOUT_MS))
+    // 우측 하단엔 다시 보이지만 사용자가 닫은 것이라 안내하지 않는다.
+    await expectDocked()
+    expect(screen.queryByText('새 창을 준비하지 못해 우측 하단에 열었어요')).not.toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('팝업이_막히고_첨부도_막힌_상태면_팝업_차단_안내를_보인다', async () => {
+  vi.spyOn(window, 'open').mockReturnValue(null)
+  const view = renderWith('WINDOW')
+  await settingsLoaded(view, 'WINDOW')
+  await view.user.click(screen.getByTestId('open-compose-uploading'))
+  // 창이 없으면 막힘 이유가 아니라 팝업 차단 안내를 보인다.
+  expect(await screen.findByText('팝업이 막혀 새 창으로 열지 못했어요')).toBeInTheDocument()
+  expect(screen.queryByText('새 창으로 열지 못해 우측 하단에 열었어요')).not.toBeInTheDocument()
+})
+
+test('새_창_옮기기_저장_중에_빈_창을_닫으면_빈_임시저장을_남기지_않는다', async () => {
+  const win = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  let release!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  const post = record<MailDraftSaveRequest>('post', '/api/v1/mail/drafts', async () => {
+    await gate
+    return HttpResponse.json({ id: 111, version: 1, updatedAt: '2026-11-12T00:00:00Z' }, { status: 201 })
+  })
+  const del = record('delete', '/api/v1/mail/drafts/111')
+  const view = renderWith('WINDOW', { extra: [post.handler, del.handler] })
+  await settingsLoaded(view, 'WINDOW')
+  await view.user.click(await screen.findByTestId('mail-compose-new'))
+  await waitFor(() => expect(post.calls).toHaveLength(1))
+  // 저장하는 동안 사용자가 빈 창을 닫는다.
+  win.closed = true
+  release()
+
+  // 손대지 않은 작성으로 만든 빈 임시저장은 지우고, 작성창은 우측 하단에 둔다.
+  await waitFor(() => expect(del.calls).toHaveLength(1))
+  await expectDocked()
+  expect(win.location.href).toBe('')
+})

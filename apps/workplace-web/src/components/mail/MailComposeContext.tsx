@@ -104,6 +104,11 @@ interface MailComposeContextValue {
   clearQuote: () => void;
   /** 첫 자동 저장으로 받은 id 를 지금 작성에 묶는다(instanceId 유지) — 같은 임시저장을 다시 열 때 알아보게. */
   bindDraftId: (instanceId: number, draftId: number) => void;
+  /**
+   * 그 임시저장이 기본값 「새 창」으로 옮기는 중인 작성(우측 하단 창을 감춘 채 새 창으로 가는 길)인가 — 임시보관함에서 다시 누를 때 감춰진 창을
+   * 올리는 대신 안내하려고 읽는다. ref 로 읽어 값을 구독하지 않는다(옮기는 회차가 바뀔 때마다 소비자가 다시 그려지지 않게).
+   */
+  isMovingToWindow: (draftId: number) => boolean;
   /** 그 임시저장이 지금 열려 있으면 앞으로 가져오고(handlers.raise) true. */
   focusDraft: (draftId: number) => boolean;
   /** 그 임시저장이 지금 열려 있으면 저장하지 않고 닫고 true — 임시보관함에서 지울 때. */
@@ -216,6 +221,11 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
   // 지금 작성 — focusDraft·bindDraftId 가 렌더 클로저가 아니라 최신 값을 보게 ref 로도 둔다.
   const draftRef = useRef<ComposeDraft | null>(null);
   const handlers = useRef<ComposeHandlers | null>(null);
+  // 옮기는 중인 회차의 최신 값 — isMovingToWindow 가 렌더 클로저가 아니라 지금 값을 읽게 ref 로도 둔다.
+  const windowMoveRef = useRef<number | null>(null);
+  useEffect(() => {
+    windowMoveRef.current = windowMoveFor;
+  }, [windowMoveFor]);
 
   // 지금 작성 방식 기본값 — 새 창 페이지는 늘 DOCK, 모바일 셸은 「새 창」을 DOCK 으로(늘 화면 전체 작성). 두 판정은 여기서만 한다.
   const getComposeDefault = useCallback((): MailComposeDefault => {
@@ -262,10 +272,12 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
         record.timer = setTimeout(() => {
           record.timer = undefined;
           if (placementRef.current !== record || !record.win) return;
+          // 사용자가 그 사이 빈 창을 닫았으면 그만둔 것이다 — 우측 하단에 되돌리기만 하고 준비 못 했다는 안내는 띄우지 않는다.
+          const userClosed = record.win.closed;
           record.win.close();
           record.win = undefined;
           endWindowMove(instanceId);
-          toast('새 창을 준비하지 못해 우측 하단에 열었어요');
+          if (!userClosed) toast('새 창을 준비하지 못해 우측 하단에 열었어요');
         }, MAIL_COMPOSE_PREOPEN_TIMEOUT_MS);
       }
     },
@@ -313,6 +325,10 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
     },
     [commit],
   );
+  const isMovingToWindow = useCallback((draftId: number) => {
+    const d = draftRef.current;
+    return windowMoveRef.current != null && d?.instanceId === windowMoveRef.current && d.draftId === draftId;
+  }, []);
   const focusDraft = useCallback((draftId: number) => {
     if (draftRef.current?.draftId !== draftId) return false;
     handlers.current?.raise();
@@ -333,8 +349,8 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
   }, []);
 
   const value = useMemo(
-    () => ({ draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, focusDraft, closeDraft, setComposeHandlers }),
-    [draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, focusDraft, closeDraft, setComposeHandlers],
+    () => ({ draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, isMovingToWindow, focusDraft, closeDraft, setComposeHandlers }),
+    [draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, isMovingToWindow, focusDraft, closeDraft, setComposeHandlers],
   );
   // 배치 상태 — setSize·setSlotEl 은 setState 라 안정적이고, size·slotEl 이 바뀔 때만 새 값이 된다.
   const layout = useMemo(

@@ -106,7 +106,7 @@ export function useMailDraftCount(accountId: number | undefined) {
  */
 export function useOpenMailDraft() {
   const qc = useQueryClient();
-  const { openCompose, focusDraft, getComposeDefault } = useMailCompose();
+  const { openCompose, focusDraft, isMovingToWindow, getComposeDefault } = useMailCompose();
   return async (id: number, opts: { force?: boolean; placement?: ComposePlacement; beforeOpen?: () => void } = {}) => {
     // 이 창이 새 창으로 옮긴 임시저장이 아직 그 창에서 쓰이고 있으면(WP-1535) 두 번째 편집기를 열지 않고 그 창을 앞으로 가져온다.
     // 브라우저가 창 전환을 막을 수 있어(성공 여부를 알 수 없다) 어디서 쓰는 중인지 토스트로도 알린다.
@@ -118,6 +118,11 @@ export function useOpenMailDraft() {
         /* 창 전환을 막았다 — 아래 토스트가 알린다 */
       }
       toast('이 메일은 새 창에서 쓰는 중이에요');
+      return;
+    }
+    // 기본값 「새 창」으로 옮기는 중인 임시저장 — 감춰진 작성창을 올려 봐야 아무 일도 없어 보이므로 열고 있다고만 알린다.
+    if (!opts.force && isMovingToWindow(id)) {
+      toast('새 창을 여는 중이에요');
       return;
     }
     if (!opts.force && focusDraft(id)) return;

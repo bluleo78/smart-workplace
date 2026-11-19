@@ -43,12 +43,12 @@ let popoutSeq = 0;
 const nextPopoutName = () => `mail-compose-${Date.now()}-${++popoutSeq}`;
 
 /**
- * 작성용 새 창을 연다 — 팝업 차단을 피하려 사용자 클릭 처리 중에 불러야 한다. 막히면 null.
- * url 을 비우면 빈 창 — 작성창 ↗(WP-1535)·작성 방식 기본값 「새 창」(WP-1744)이 먼저 열어 두고 임시저장 뒤 주소를 정한다.
- * 이미 서버에 있는 임시저장(임시보관함에서 열기)은 그 주소로 바로 연다. 어느 길이든 같은 이름 규칙·크기로 연다.
+ * 작성용 빈 새 창을 연다 — 팝업 차단을 피하려 사용자 클릭 처리 중에 불러야 한다. 막히면 null.
+ * 주소는 정하지 않고 먼저 열어 두며, 호출부(작성창 ↗ WP-1535·작성 방식 기본값 「새 창」·임시보관함 열기 WP-1744)가
+ * 임시저장 id 를 알게 된 뒤 location.href 로 주소를 정한다. 어느 길이든 같은 이름 규칙·크기로 연다.
  */
-export function openMailComposeWindow(url = ''): Window | null {
-  return window.open(url, nextPopoutName(), MAIL_COMPOSE_WINDOW_FEATURES);
+export function openMailComposeWindow(): Window | null {
+  return window.open('', nextPopoutName(), MAIL_COMPOSE_WINDOW_FEATURES);
 }
 
 /** 팝업 차단 안내 — 새 창을 열지 못했을 때(↗·작성 방식 기본값 「새 창」·임시보관함에서 새 창으로 열기) 같은 문구로 알린다. */

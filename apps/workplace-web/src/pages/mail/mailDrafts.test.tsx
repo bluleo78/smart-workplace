@@ -8,6 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { useMailCompose } from '@/components/mail/MailComposeContext'
 import { useOpenMailDraft } from '@/hooks/queries/useMailDrafts'
 import { mailSettingsKey } from '@/hooks/queries/useMailSettings'
 import { forgetMailComposePopout, MAIL_COMPOSE_WINDOW_ID, mailComposeWindowUrl } from '@/lib/mailComposeChannel'
@@ -1266,4 +1267,50 @@ test('기본값_WINDOW_인데_팝업이_막히면_임시보관함_행은_우측_
   expect(composeInPane()).toBe(false)
   await tick(DEBOUNCE)
   expect(saves(server)).toBe(0)
+})
+
+/** 임시저장 7 이 붙은 작성을 기본값대로(default) 여는 시험용 단추 — 새 창으로 옮기는 중인 작성의 draftId 를 만든다. */
+function MoveProbe() {
+  const { openCompose } = useMailCompose()
+  return (
+    <button
+      data-testid="probe-compose"
+      onClick={() =>
+        openCompose(
+          { mode: 'new', accountId: 1, to: [], cc: [], bcc: [], subject: '옮기는 중', initialHtml: '', quote: null, inReplyToMessageId: null, draftId: 7, draftVersion: 1, unsaved: true },
+          { placement: 'default' },
+        )
+      }
+    >
+      probe
+    </button>
+  )
+}
+
+test('새_창으로_옮기는_중인_임시저장을_다시_누르면_안내한다', async () => {
+  const win = { location: { href: '' }, close: vi.fn(), closed: false, focus: vi.fn() }
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const server = draftServer([draftDetail({ id: 7, subject: '옮기는 중', version: 1 })])
+  // 옮기려는 저장(PUT)을 붙잡아 둔다 — 그동안 작성창은 감춰져 있다.
+  const held = gate()
+  server.override.put = async () => {
+    await held.held
+    return undefined
+  }
+  const view = renderMail('/mail/1?folder=drafts', {
+    extra: <MoveProbe />,
+    handlers: [...server.handlers, composeSettingsHandler('WINDOW')],
+  })
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+  await view.user.click(await screen.findByTestId('probe-compose'))
+  await waitFor(() => expect(server.puts).toHaveLength(1))
+  expect(screen.getByTestId('mail-compose-dock')).toHaveClass('invisible')
+
+  // 감춰진 작성창을 올리는 대신 열고 있다고 안내한다.
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  expect(await screen.findByText('새 창을 여는 중이에요')).toBeInTheDocument()
+  expect(win.focus).not.toHaveBeenCalled()
+  held.release()
+  await waitFor(() => expect(win.location.href).toContain('draftId=7'))
+  forgetMailComposePopout(7)
 })

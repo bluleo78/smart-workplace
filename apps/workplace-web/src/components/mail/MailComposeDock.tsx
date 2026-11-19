@@ -392,8 +392,11 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
 
   // 새 창 탭 제목(WP-1535) — 쓰는 제목, 없으면 「새 메일」(머리줄 제목과 같은 규칙). 앱 안 작성창은 탭 제목을 바꾸지 않는다.
   useDocumentTitle(popout && draft ? [subject || '새 메일'] : []);
-  // 떠나는 중 — 새 창으로 옮기는 저장(메인 창) 또는 새 창을 닫기 전 저장·삭제를 기다리는 동안 작성창을 잠근다(그사이 쓴 것이 빠지지 않게).
-  const [leaving, setLeaving] = useState(false);
+  // 떠나는 중인 회차 — 새 창으로 옮기는 저장(메인 창) 또는 새 창을 닫기 전 저장·삭제를 기다리는 동안 그 회차의 작성창을 잠근다(그사이 쓴 것이 빠지지 않게).
+  // 회차 id 로 가린다 — 도크 본체는 회차 사이에 다시 마운트되지 않아, 불리언이면 앞 회차의 늦은 저장이 끝날 때 지금 회차의 잠금을 풀거나
+  // 앞 회차가 옮기는 동안 연 새 회차를 잠그기 때문이다.
+  const [leavingFor, setLeavingFor] = useState<number | null>(null);
+  const leaving = draft != null && leavingFor === draft.instanceId;
   // 작성 방식 기본값 「새 창」으로 옮기는 중인 회차인가(WP-1744) — 그동안 우측 하단 창을 감춘다(새 창 페이지 공급자는 옮기지 않아 늘 거짓).
   const movingToWindow = draft != null && windowMoveFor === draft.instanceId;
 
@@ -602,13 +605,15 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     }
     // 아직 서버에 없고 손댄 것도 없는 작성 — 강제 저장으로 만드는 임시저장은 새 창에서도 손대지 않고 닫으면 지운다(fresh).
     const fresh = autosave.currentDraftId() == null && getSnapshot().empty;
-    setLeaving(true);
+    setLeavingFor(opened);
     void autosave.flush({ force: true }).then((r) => {
-      setLeaving(false);
+      setLeavingFor((cur) => (cur === opened ? null : cur));
       // 저장하는 동안 사용자가 빈 창을 닫았다 — 여기서 이어 쓴다(작성창을 닫지 않고, 죽은 창은 건드리지 않는다).
       // 저장은 끝났으니 이 작성은 그 임시저장에 이어 저장된다.
       if (win.closed) {
         endWindowMove(opened);
+        // 손대지 않은 작성으로 새로 만든 임시저장이면 빈 채로 임시보관함에 남지 않게 지운다(작성창은 그대로 두고 다음 입력에 다시 만든다).
+        if (fresh && r.ok && r.draftId != null) void autosave.detach(r.draftId);
         return;
       }
       if (!r.ok || r.draftId == null) {
@@ -656,9 +661,9 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     if (!composeInitial.signatureSettled && (signature.isPending || signatureDecidedFor !== instanceId)) return;
     const preopened = takePendingWindow(instanceId);
     if (preopened === undefined) return;
-    if (popoutBaseBlockedReason != null) {
-      // 미리 연 창이 null(팝업 차단)이면 닫을 것이 없다 — 어느 쪽이든 감춰 둔 우측 하단 창을 되돌린다.
-      preopened?.close();
+    // 팝업이 막혀 창이 없으면(null) 막힘 이유보다 차단 안내가 먼저다 — popOut 이 안내하고 우측 하단 창을 되돌린다.
+    if (preopened != null && popoutBaseBlockedReason != null) {
+      preopened.close();
       endWindowMove(instanceId);
       toast('새 창으로 열지 못해 우측 하단에 열었어요', { description: popoutBaseBlockedReason });
       return;
@@ -688,10 +693,11 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const closeWithSave = () => {
     if (popout) {
       const accountId = draft.accountId;
-      setLeaving(true);
+      const leavingId = draft.instanceId as number;
+      setLeavingFor(leavingId);
       void autosave.flush().then((r) => {
         if (!r.ok) {
-          setLeaving(false);
+          setLeavingFor((cur) => (cur === leavingId ? null : cur));
           // 검증 오류(400)면 실제 사유를, 그 밖이면 일반 안내를 보인다.
           toast.error(r.reason ?? '임시저장하지 못했어요', { description: '창을 닫지 않았어요. 고치거나 잠시 뒤 다시 닫아 주세요' });
           return;
@@ -779,11 +785,12 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     // 새 창 — 지우기가 끝난 뒤 닫는다(창을 먼저 닫으면 DELETE 가 끊긴다). 「되돌리기」는 닫힌 창에서 누를 수 없어 메인 창은 버림만 알린다.
     if (popout) {
       const accountId = draft.accountId;
-      setLeaving(true);
+      const leavingId = draft.instanceId as number;
+      setLeavingFor(leavingId);
       deleting.then(
         () => popout.onDone('discarded', accountId),
         () => {
-          setLeaving(false);
+          setLeavingFor((cur) => (cur === leavingId ? null : cur));
           toast.error('임시저장을 버리지 못했어요', { description: '임시보관함에 그대로 있어요' });
         },
       );
