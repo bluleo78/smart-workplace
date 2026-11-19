@@ -258,6 +258,27 @@ test('SKILL.md 대기열 가져오기: 다른 AI 가 형제를 진행 중이면 
   assert.ok(chain.includes('따로 진행'));
 });
 
+test('SKILL.md 하위를 차례로 맡기: 머지된(내 행 REVIEW) 형제 선행에만 막힌 하위는 「차례 막힘만」으로 막히지 않은 것으로 본다 (WP-1792)', () => {
+  const chain = lineWith(workLoopSkill, '- **하위를 차례로 맡는 이슈**');
+  const rule = lineWith(workLoopSkill, '  - **「차례 막힘만」**');
+  // 하위를 고르는 줄이 정의를 가리키고, 판정은 하나 맡기 전에 한다
+  assert.ok(chain.includes('아래 「차례 막힘만」인 것'));
+  assertBefore(chain, '「차례 막힘만」', '**하나만**');
+  // 1. 형제이고 그 선행의 내 행이 REVIEW(머지 뒤)면 풀린다 — 모든 닫히지 않은 선행이
+  assert.ok(rule.includes('닫히지 않은(DONE·CANCELED 아닌) 선행이 **모두** 같은 부모의 하위(형제)'));
+  assert.ok(rule.includes('`agentWork` 에서 내 행이 검토 대기(REVIEW)'));
+  // 2. 머지 전이면 막힌 채 — 검토자 없는 저장소는 REVIEW 가 머지 전에도 오르니 쓰지 않는다(맨 먼저 본다)
+  assert.ok(rule.includes('대기 중·작업 중 등 머지 전이면 막힌 채다'));
+  assert.ok(rule.includes('검토자가 없는 저장소에서는 REVIEW 가 머지 전에도 오르니 「차례 막힘만」을 쓰지 않는다'));
+  assertBefore(rule, '⓪ 검토자', '① ');
+  // 3. 사람이 건 차단은 풀지 않는다 — 차단 기록의 행위자, 못 찾으면 사람
+  assert.ok(rule.includes("`kind: 'AGENT'`"));
+  assert.ok(rule.includes('선행 `history` 에서 방향 `blocks`'));
+  assert.ok(rule.includes('둘 다 못 찾으면 사람이 건 것으로 본다'));
+  assert.ok(rule.includes('`history: false` 를 넘기지 않고'));
+  assert.ok(rule.includes('사람이 건 차단·다른 AI 가 한 선행·다른 부모의 선행은 지금처럼 완료를 기다린다'));
+});
+
 // WP-1040 동시 진행 상한 — AI 한 명당 맡은 프로젝트를 모두 합쳐 상한까지. 넘으면 새 작업·대기열 가져가기만 막는다.
 // WP-1205 뒤로 수는 서버(get_member 의 slots)가 센다 — 목록을 프로젝트 없이 읽어 세는 것은 slots 가 없는 옛 서버에서만.
 test('SKILL.md 3번: 후보는 이 프로젝트 목록으로 고르고, 동시 진행은 slots 로(없으면 프로젝트 없는 목록으로) 센다 (WP-1040·WP-1205)', () => {
