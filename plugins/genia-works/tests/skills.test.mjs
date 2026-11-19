@@ -1463,8 +1463,8 @@ test('work-loop: 이슈를 쥔 동안 사이 확인·단계 사이에 3번 고�
     '사이 확인과 `wake` 줄마다', '다시 시도하기 전', '10분이 지났을 때만', // 언제
     '⓪(반려된 내 기차)', '①(새 글이 있는 내 이슈', '②(멘션받은 담당 밖 이슈)', '③ 이하는 끼어들지 않는다', // 무엇
     '게이트가 `failed` 면',
-    '하위 에이전트는 끊지 않는다', '`양보: <끼어든 키> <KST 시각> <돌고 있는 Task> <그 하위 에이전트 작업 id>` 한 줄을 목록 기호 없이 줄 맨 앞에', '3번 조회를 새로 하지 않고 그 후보를 바로 처리한다', // 양보
-    '**양보 중이면 하지 않는다**', // 겹친 끼어들기 금지
+    '하위 에이전트는 끊지 않는다', '<돌고 있는 Task> <그 하위 에이전트 작업 id>` 한 줄을 목록 기호 없이 줄 맨 앞에', '3번 조회를 새로 하지 않고 그 후보를 바로 처리한다', // 양보
+    '**양보하는 때**', // 겹친 끼어들기 금지(⓪ 은 예외)
     '`양보:` 줄 갈래', '완료 알림', // 돌아오기
   ]) assert.ok(intr.includes(anchor), anchor);
   // 다시 고르면 처음부터(brainstorming) 다시 하지 않고 SDD 원장의 다음 Task 부터 잇는다.
@@ -1474,12 +1474,23 @@ test('work-loop: 이슈를 쥔 동안 사이 확인·단계 사이에 3번 고�
   // 2차 반려 1: 작업 목록에 있는지가 아니라 상태(도는 중·끝남·없음)로 가른다 — 끝난 작업도 목록에 남는다.
   assert.ok(start.includes('그 작업 id 의 **상태**로 가른다') && start.includes('도는 중이면 결과를 기다리고'));
   assert.ok(start.includes('끝났으면(Claude Code 는 끝난 작업도 목록에 남는다)') && start.includes('목록에 없으면') && start.includes('그 Task 를 다시 맡긴다'));
-  // 2차 반려 3·4·5: 표지는 양보한 이슈의 `양보:` 줄 하나 — 끼어든 일 쪽에는 notes 를 만들지 않고, 확인마다 유효성(내 담당·WORKING)을 물어 아니면 지운다.
+  // 2차 반려 3·4·5: 표지는 양보한 이슈의 `양보:` 줄 하나 — 끼어든 일 쪽에는 notes 를 만들지 않고, 확인마다 유효성(내 담당·WORKING)을 물어 아니면 무시한다(지우지 않음).
   assert.ok(!pi.includes('끼어듦:'), '끼어든 일 쪽 표지는 없앴다');
   assert.ok(intr.includes('표지는 이 줄 하나다') && intr.includes('notes 를 만들지 않게'));
-  assert.ok(intr.includes("`grep -l '^양보:'`") && intr.includes('내 행이 `WORKING` 이면 그 양보는 살아 있다'));
-  assert.ok(intr.includes('죽은 표지라 무시한다 — 지우지 않는다') && intr.includes('재시작·대화 요약 뒤에도') && intr.includes('WP-1793 재발 방지'));
-  assert.ok(intr.includes('살아 있는 양보가 있으면 이 확인을 하지 않는다') && intr.includes('C 가 아니라 A 로 돌아온다'));
+  assert.ok(intr.includes('정의는 `SKILL.md` 3번 「살아 있는 양보」(⓪-1) 한 곳이다') && intr.includes('WP-1793 재발 방지'));
+  assert.ok(intr.includes('C 가 아니라 A 로 돌아온다'));
+  // 3차 반려 1·3: 양보하는 때는 한 규칙 — 끼어든 일은 ⓪ 으로만 다시 양보, ⓪·② 일 때는 양보 안 함, 조회·다시 보고는 그대로.
+  assert.ok(!intr.includes('살아 있는 양보가 있으면 이 확인을 하지 않는다'), '조회까지 끄는 문구는 없앴다');
+  assert.ok(intr.includes('끼어든 일은 ⓪ 으로만 다시 양보한다') && intr.includes('⓪(반려된 내 기차·게이트 실패)은 양보 중이어도 늘 끼어든다'));
+  assert.ok(intr.includes('지금 일이 ⓪(내 기차)·②(담당 밖 답)이면 양보하지 않고'));
+  assert.ok(intr.includes('3번 조회·살아 있는 양보 판단·아래 「양보한 이슈 다시 보고」는 그대로 한다'));
+  assert.ok(intr.includes('YYYY-MM-DDTHH:MM'));
+  assert.ok(section(workLoopSkill, '\n### 4. ', '\n### 5. ').includes('그 절 「양보하는 때」 한 곳이다'));
+  // 3차 반려 2: 살아 있는 양보 정의는 처리 파일을 읽기 전인 SKILL.md 3번에 직접 있다(재시작·대화 요약 뒤에도 ⓪-1 적용).
+  const s3live = section(workLoopSkill, '\n### 3. ', '\n### 4. ');
+  assert.ok(s3live.includes('**살아 있는 양보**(⓪-1, WP-1793) — 처리 파일을 읽기 전인 이 고르기에서 쓰는 정의다'));
+  assert.ok(s3live.includes("줄 맨 앞이 `양보:` 인 notes(`grep -l '^양보:'`)의 이슈 중, 위 내 이슈 목록에 있고 내 행이 `WORKING` 인 것"));
+  assert.ok(s3live.includes('죽은 표지라 ⓪-1 로 고르지 않는다') && s3live.includes('`양보:` 줄의 시각이 늦은 것부터 고른다'));
   // 3차 리뷰: 살아 있는 양보 이슈는 3번 순서에서 ⓪ 바로 다음(① 앞)이라 굶지 않고, 재시작 뒤에도 먼저 돌아온다.
   assert.ok(intr.includes('⓪-1 로 ① 앞에 골라진다'));
   assert.ok(section(workLoopSkill, '\n### 3. ', '\n### 4. ').includes('⓪-1 살아 있는 양보 이슈'));
