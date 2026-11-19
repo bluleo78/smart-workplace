@@ -143,6 +143,7 @@ import com.workplace.jooq.tables.WikiHtmlDraft.WikiHtmlDraftPath;
 import com.workplace.jooq.tables.WikiHtmlEditLock.WikiHtmlEditLockPath;
 import com.workplace.jooq.tables.WikiHtmlScriptsCheck.WikiHtmlScriptsCheckPath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
+import com.workplace.jooq.tables.WikiPageActivity.WikiPageActivityPath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageBodyHistory.WikiPageBodyHistoryPath;
 import com.workplace.jooq.tables.WikiPageDoc.WikiPageDocPath;
@@ -2122,6 +2123,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _userDashboard = new UserDashboardPath(this, null, Keys.USER_DASHBOARD__USER_DASHBOARD_TENANT_ID_FKEY.getInverseKey());
 
         return _userDashboard;
+    }
+
+    private transient WikiPageActivityPath _wikiPageActivity;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_activity</code> table
+     */
+    public WikiPageActivityPath wikiPageActivity() {
+        if (_wikiPageActivity == null)
+            _wikiPageActivity = new WikiPageActivityPath(this, null, Keys.WIKI_PAGE_ACTIVITY__WIKI_PAGE_ACTIVITY_TENANT_ID_FKEY.getInverseKey());
+
+        return _wikiPageActivity;
     }
 
     private transient WikiPageAttachmentPath _wikiPageAttachment;

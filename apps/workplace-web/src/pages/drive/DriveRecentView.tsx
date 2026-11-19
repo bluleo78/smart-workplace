@@ -26,8 +26,7 @@ import { useDriveRecent } from '@/hooks/queries/useDriveRecent'
 import { useSetDriveStar } from '@/hooks/queries/useDriveStars'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { appUrl } from '@/lib/appUrl'
-import { groupRecent, RECENT_BUCKET_LABEL, recentActivityLabel, recentPathLine } from '@/lib/driveRecent'
-import { HIT_AREA_COARSE } from '@/lib/hitArea'
+import { groupRecent, RECENT_BUCKET_LABEL, recentActivityLabel, recentPathLine, ROW_ICON_BUTTON } from '@/lib/driveRecent'
 import { failedWithoutData } from '@/lib/queryFailure'
 import { cn } from '@/lib/utils'
 import type { DriveFile, DriveRecentFile, DriveRecentPage } from '@/types/drive'
@@ -39,9 +38,6 @@ import type { DriveFile, DriveRecentFile, DriveRecentPage } from '@/types/drive'
 // 좁은 폭의 칸 사이 24px — 「별표」 화면과 같은 규칙. 별표·⋯ 의 터치 확장(HIT_AREA_COARSE, 사방 10px)이 서로·이름 칸을 덮지 않고 각자 44px 로 눌리게 한다.
 const ROW_GRID =
   'grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-6 gap-y-2 sm:grid-cols-[minmax(0,1fr)_9rem_12rem_2rem_2rem] sm:gap-3'
-
-/** 행 단추(별표·⋯) 공통 모양 — 16px 아이콘만 있어 터치에서는 누름 영역만 넓힌다(HIT_AREA_COARSE, 「별표」 화면과 같다). */
-const ROW_ICON_BUTTON = cn('rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground', HIT_AREA_COARSE)
 
 /** 「최근」 캐시에서 한 파일의 starred 를 바꾼 사본 — 별표 단추가 서버 응답 전에 바로 켜지고 꺼지게 한다. */
 function withRecentStar(data: InfiniteData<DriveRecentPage>, driveFileId: number, starred: boolean): InfiniteData<DriveRecentPage> {

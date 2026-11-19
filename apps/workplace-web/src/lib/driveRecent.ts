@@ -1,8 +1,11 @@
 // 드라이브 「최근」(WP-1699) 순수 함수 — 날짜 묶음·마지막 활동 문구·경로 줄. 날짜 기준은 모두 KST.
 
 import type { DriveFileAction, DriveRecentFile } from '@/types/drive'
+import type { WikiRecentAction } from '@/types/wiki'
 
 import { formatDateOnlyMonthDay, formatFileSize, formatRelativeTime, kstDateKey, kstParts, pad2, parseUtcDate } from './formatters'
+import { HIT_AREA_COARSE } from './hitArea'
+import { cn } from './utils'
 
 /** 날짜 묶음 — 위에서 아래로 최근 → 오래된 순. */
 export type RecentBucket = 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'earlier'
@@ -19,8 +22,11 @@ export const RECENT_BUCKET_LABEL: Record<RecentBucket, string> = {
 }
 
 /** 마지막 행동 → 문구 동사. */
-const ACTION_VERB: Record<DriveFileAction, string> = {
+// 노트 「최근」(WP-1764)도 같은 함수를 쓴다 — EDIT(고침)만 노트 전용이다.
+// 키를 두 서버 enum 타입의 합집합으로 묶어, 행동이 늘면 여기서 컴파일 오류로 알린다.
+const ACTION_VERB: Record<DriveFileAction | WikiRecentAction, string> = {
   OPEN: '내가 열었음',
+  EDIT: '내가 고침',
   UPLOAD: '내가 올림',
   NEW_VERSION: '내가 새 판',
 }
@@ -50,8 +56,8 @@ export function recentBucket(lastAt: string, now: Date): RecentBucket {
 }
 
 /** 입력 순서를 지키며 묶음별로 나눈다 — 묶음은 오늘 → 이전 순, 줄이 없는 묶음은 만들지 않는다. */
-export function groupRecent(items: DriveRecentFile[], now: Date): { bucket: RecentBucket; items: DriveRecentFile[] }[] {
-  const by = new Map<RecentBucket, DriveRecentFile[]>()
+export function groupRecent<T extends { lastAt: string }>(items: T[], now: Date): { bucket: RecentBucket; items: T[] }[] {
+  const by = new Map<RecentBucket, T[]>()
   for (const item of items) {
     const b = recentBucket(item.lastAt, now)
     const list = by.get(b)
@@ -65,7 +71,7 @@ export function groupRecent(items: DriveRecentFile[], now: Date): { bucket: Rece
  * 마지막 활동 문구 — 오늘은 상대 시간(「방금 내가 열었음」·「10분 전 내가 올림」), 어제는 「어제 11:05 내가 새 판」,
  * 그 앞은 날짜만(「11월 16일 내가 열었음」, 다른 해는 연도까지).
  */
-export function recentActivityLabel(item: Pick<DriveRecentFile, 'lastAction' | 'lastAt'>, now: Date): string {
+export function recentActivityLabel(item: { lastAction: DriveFileAction | WikiRecentAction; lastAt: string }, now: Date): string {
   const verb = ACTION_VERB[item.lastAction]
   const bucket = recentBucket(item.lastAt, now)
   if (bucket === 'today') {
@@ -83,3 +89,6 @@ export function recentPathLine(item: Pick<DriveRecentFile, 'spaceName' | 'folder
   const path = [item.spaceName, ...item.folderPath.map((c) => c.name)].join(' › ')
   return `${path} · ${formatFileSize(item.sizeBytes)}`
 }
+
+/** 「최근」 행 단추(별표·⋯) 공통 모양 — 16px 아이콘만 있어 터치에서는 누름 영역만 넓힌다(HIT_AREA_COARSE). 드라이브·노트 「최근」이 함께 쓴다. */
+export const ROW_ICON_BUTTON = cn('rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground', HIT_AREA_COARSE)

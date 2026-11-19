@@ -49,6 +49,8 @@ function open({ path, spaces = () => [PERSONAL], tree = () => [], detail, handle
     handlers: [
       ...handlers,
       ...editorSideHandlers,
+      // 노트를 열면 「최근」 기록(WP-1764)이 나간다 — 기본은 204. 호출을 검증하는 테스트는 자기 핸들러를 앞에 건다.
+      http.post('/api/v1/wiki/pages/:id/open', () => new HttpResponse(null, { status: 204 })),
       http.get('/api/v1/wiki/spaces', () => HttpResponse.json(spaces())),
       http.get('/api/v1/wiki/spaces/:id/pages', ({ params }) => HttpResponse.json(tree(Number(params.id)))),
       http.get('/api/v1/wiki/spaces/:id/members', () => HttpResponse.json([])),
@@ -795,3 +797,103 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+
+// ── 「최근」 기록(WP-1764) ─────────────────────────────────────────────────────────
+
+describe('노트를 열면 「최근」에 기록한다', () => {
+  test('opensOncePerPageId — 같은 id 는 재조회돼도 1번, id 가 바뀌면 1번 더', async () => {
+    const opens: number[] = []
+    let gets = 0
+    const { user, queryClient } = open({
+      path: '/wiki/spaces/1/pages/10',
+      tree: () => [wikiPageSummary({ id: 10, title: '열 노트' }), wikiPageSummary({ id: 11, title: '다른 노트' })],
+      detail: (id) => wikiPageDetail({ id, spaceId: 1, title: id === 10 ? '열 노트' : '다른 노트' }),
+      handlers: [
+        http.post('/api/v1/wiki/pages/:id/open', ({ params }) => {
+          opens.push(Number(params.id))
+          return new HttpResponse(null, { status: 204 })
+        }),
+        http.get('/api/v1/wiki/pages/10', () => {
+          gets += 1
+          return HttpResponse.json(wikiPageDetail({ id: 10, spaceId: 1, title: '열 노트' }))
+        }),
+      ],
+    })
+    await screen.findByTestId('wiki-page-header')
+    await waitFor(() => expect(opens).toEqual([10]))
+    // 같은 노트를 다시 받아도(재조회) 다시 기록하지 않는다.
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['wiki', 'page', 10] })
+    })
+    await waitFor(() => expect(gets).toBeGreaterThanOrEqual(2))
+    expect(opens).toEqual([10])
+    // 다른 노트로 가면 한 번 더.
+    await user.click(await screen.findByText('다른 노트'))
+    await waitFor(() => expect(opens).toEqual([10, 11]))
+  })
+
+  test('재조회가 실패했다가 회복돼도(id → undefined → id) 다시 기록하지 않는다', async () => {
+    const opens: number[] = []
+    let fail = false
+    let gets = 0
+    const { queryClient } = open({
+      path: '/wiki/spaces/1/pages/10',
+      tree: () => [wikiPageSummary({ id: 10, title: '열 노트' })],
+      detail: (id) => wikiPageDetail({ id, spaceId: 1, title: '열 노트' }),
+      handlers: [
+        http.post('/api/v1/wiki/pages/:id/open', ({ params }) => {
+          opens.push(Number(params.id))
+          return new HttpResponse(null, { status: 204 })
+        }),
+        http.get('/api/v1/wiki/pages/10', () => {
+          gets += 1
+          return fail
+            ? HttpResponse.json({ message: 'x' }, { status: 500 })
+            : HttpResponse.json(wikiPageDetail({ id: 10, spaceId: 1, title: '열 노트' }))
+        }),
+      ],
+    })
+    await screen.findByTestId('wiki-page-header')
+    await waitFor(() => expect(opens).toEqual([10]))
+    // 재조회 실패 → 회복. 실패 중 loadedPageId 가 undefined 로 떨어졌다가 같은 id 로 돌아온다.
+    fail = true
+    const before = gets
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['wiki', 'page', 10] })
+    })
+    await waitFor(() => expect(gets).toBeGreaterThan(before))
+    fail = false
+    const mid = gets
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['wiki', 'page', 10] })
+    })
+    await waitFor(() => expect(gets).toBeGreaterThan(mid))
+    await new Promise((r) => setTimeout(r, 100))
+    expect(opens).toEqual([10])
+  })
+
+  test('열기 기록이 실패해도 노트는 그대로 보인다', async () => {
+    open({
+      path: '/wiki/spaces/1/pages/10',
+      detail: (id) => wikiPageDetail({ id, spaceId: 1, title: '열 노트' }),
+      handlers: [http.post('/api/v1/wiki/pages/:id/open', () => HttpResponse.json({ message: 'x' }, { status: 500 }))],
+    })
+    expect(await screen.findByTestId('wiki-page-header')).toBeInTheDocument()
+  })
+
+  test('못 읽는 노트(404)는 기록하지 않는다', async () => {
+    const opens: number[] = []
+    open({
+      path: '/wiki/spaces/1/pages/10',
+      handlers: [
+        http.post('/api/v1/wiki/pages/:id/open', ({ params }) => {
+          opens.push(Number(params.id))
+          return new HttpResponse(null, { status: 204 })
+        }),
+        http.get('/api/v1/wiki/pages/10/entry', () => HttpResponse.json({ message: 'x' }, { status: 404 })),
+      ],
+    })
+    await new Promise((r) => setTimeout(r, 300))
+    expect(opens).toEqual([])
+  })
+})

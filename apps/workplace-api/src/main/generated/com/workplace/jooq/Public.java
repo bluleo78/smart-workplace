@@ -168,6 +168,7 @@ import com.workplace.jooq.tables.WikiHtmlDraft;
 import com.workplace.jooq.tables.WikiHtmlEditLock;
 import com.workplace.jooq.tables.WikiHtmlScriptsCheck;
 import com.workplace.jooq.tables.WikiPage;
+import com.workplace.jooq.tables.WikiPageActivity;
 import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiPageBodyHistory;
 import com.workplace.jooq.tables.WikiPageDoc;
@@ -1032,6 +1033,11 @@ public class Public extends SchemaImpl {
     public final WikiPage WIKI_PAGE = WikiPage.WIKI_PAGE;
 
     /**
+     * The table <code>public.wiki_page_activity</code>.
+     */
+    public final WikiPageActivity WIKI_PAGE_ACTIVITY = WikiPageActivity.WIKI_PAGE_ACTIVITY;
+
+    /**
      * The table <code>public.wiki_page_attachment</code>.
      */
     public final WikiPageAttachment WIKI_PAGE_ATTACHMENT = WikiPageAttachment.WIKI_PAGE_ATTACHMENT;
@@ -1304,6 +1310,7 @@ public class Public extends SchemaImpl {
             WikiHtmlEditLock.WIKI_HTML_EDIT_LOCK,
             WikiHtmlScriptsCheck.WIKI_HTML_SCRIPTS_CHECK,
             WikiPage.WIKI_PAGE,
+            WikiPageActivity.WIKI_PAGE_ACTIVITY,
             WikiPageAttachment.WIKI_PAGE_ATTACHMENT,
             WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY,
             WikiPageDoc.WIKI_PAGE_DOC,

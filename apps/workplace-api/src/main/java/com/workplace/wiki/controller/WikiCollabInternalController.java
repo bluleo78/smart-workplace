@@ -6,10 +6,12 @@ import com.workplace.wiki.dto.CollabDocResponse;
 import com.workplace.wiki.dto.StoreCollabDocRequest;
 import com.workplace.wiki.outbound.CollabProperties;
 import com.workplace.wiki.service.WikiCollabDocService;
+import com.workplace.wiki.service.WikiPageActivityRecorder;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -43,6 +45,9 @@ public class WikiCollabInternalController {
   private final WikiCollabDocService service;
   private final TenantStatusChecker tenantStatusChecker;
 
+  /** 「최근」 기록(WP-1764) — 본문 저장이 성공하면 이번 구간의 편집자마다 EDIT 를 남긴다. */
+  private final WikiPageActivityRecorder activity;
+
   /** 문서 로드 — 저장된 Yjs 상태(있으면)와 현재 body·version. */
   @GetMapping("/{id}/doc")
   public ResponseEntity<CollabDocResponse> load(
@@ -63,7 +68,28 @@ public class WikiCollabInternalController {
       @PathVariable("id") long pageId,
       @Valid @RequestBody StoreCollabDocRequest req) {
     return withTenant(
-        auth, tenantId, () -> ResponseEntity.ok(Map.of("version", service.store(pageId, req))));
+        auth,
+        tenantId,
+        () -> {
+          int version = service.store(pageId, req);
+          recordEditors(pageId, req);
+          return ResponseEntity.ok(Map.of("version", version));
+        });
+  }
+
+  /**
+   * 본문이 있는(실제 편집 뒤) 저장이면 editorIds 를 중복 없이 각각 EDIT 로 기록한다. 상태만 저장(body 없음)이나 editorIds 가 빈 저장은 편집이
+   * 아니라 기록하지 않는다. 기록은 멤버 조회 실패까지 포함해 저장에 영향이 없다(Recorder 가 예외를 삼킨다).
+   */
+  private void recordEditors(long pageId, StoreCollabDocRequest req) {
+    if (req.stateOnly() || req.editorIds() == null) {
+      return;
+    }
+    // 멤버 확인(공유 링크 편집자 제외)·예외 삼킴은 Recorder 가 맡는다 — 이미 커밋된 저장이 기록 때문에 500 이 되면 안 된다.
+    req.editorIds().stream()
+        .filter(Objects::nonNull)
+        .distinct()
+        .forEach(editorId -> activity.recordEditIfMember(editorId, pageId));
   }
 
   /**

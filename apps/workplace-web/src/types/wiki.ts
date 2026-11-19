@@ -464,3 +464,27 @@ export interface WikiHtmlLockAcquired {
   lock: WikiHtmlLockStatus
   draft: WikiHtmlDraftInfo | null
 }
+
+/** 노트 「최근」 줄이 가리키는 마지막 행동(WP-1764) — 연 것·고친 것(서버 WikiRecentPageItem.lastAction). */
+export type WikiRecentAction = 'OPEN' | 'EDIT'
+
+/** 노트 「최근」 한 줄 — 공간을 가로질러 내가 열거나 고친 페이지. */
+export interface WikiRecentItem {
+  pageId: number
+  title: string
+  spaceId: number
+  spaceName: string
+  /** 공간 루트 → 부모 순 조상 제목. 루트 직속이면 빈 배열. */
+  ancestorTitles: string[]
+  lastAction: WikiRecentAction
+  /** UTC ISO — 시간대 표기가 없어도 UTC 로 읽는다. */
+  lastAt: string
+  /** 노트 화면 절대 주소 — 「링크 복사」가 그대로 쓴다. */
+  url: string
+}
+
+/** 「최근」 한 쪽(50개) — nextCursor 가 null 이면 끝. 쪽이 짧거나 비어도 nextCursor 가 있으면 더 있다. */
+export interface WikiRecentPage {
+  items: WikiRecentItem[]
+  nextCursor: string | null
+}

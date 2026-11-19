@@ -75,3 +75,10 @@ describe('recentPathLine', () => {
     expect(recentPathLine(file(1, '2026-11-18T00:00:00Z'))).toBe('기획팀 · 1 B')
   })
 })
+
+describe('recentActivityLabel — 노트 최근(WP-1764)', () => {
+  test('EDIT 은 「내가 고침」, OPEN 은 드라이브와 같은 「내가 열었음」', () => {
+    expect(recentActivityLabel({ lastAction: 'EDIT', lastAt: '2026-11-18T00:50:00Z' }, NOW)).toBe('10분 전 내가 고침')
+    expect(recentActivityLabel({ lastAction: 'OPEN', lastAt: '2026-11-18T00:50:00Z' }, NOW)).toBe('10분 전 내가 열었음')
+  })
+})

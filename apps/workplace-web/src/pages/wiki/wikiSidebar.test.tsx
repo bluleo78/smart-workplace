@@ -7,7 +7,9 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, onTestFinished, test } from 'vitest'
 
+import { WikiSidebar } from '@/components/wiki/WikiSidebar'
 import { DRAGGABLE_PAGE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
+import { wikiLastSpaceKey, writeWikiLastVisited } from '@/lib/wikiLastVisited'
 import { renderScreen } from '@/test/renderScreen'
 import type { WikiMember, WikiPageSummary, WikiSpace } from '@/types/wiki'
 
@@ -812,4 +814,61 @@ test('「이동…」 목록에는 자기 자신과 자기 하위 페이지가 �
     '노트 동시 편집 설계',
     '신규 입사자 온보딩 가이드',
   ])
+})
+
+// ── 「최근」 입구(WP-1764) ─────────────────────────────────────────────────────────
+
+test('showsRecentLinkAboveSpacePicker — 「최근」 링크가 공간 선택 상자보다 앞에 있고 /wiki/recent 로 간다', async () => {
+  open()
+  const link = await screen.findByTestId('wiki-nav-recent')
+  expect(link).toHaveAttribute('href', '/wiki/recent')
+  expect(link).toHaveTextContent('최근')
+  const combo = await screen.findByRole('combobox')
+  // 문서 순서상 링크가 선택 상자보다 먼저(compareDocumentPosition: FOLLOWING = 4).
+  expect(link.compareDocumentPosition(combo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('hidesRecentInEmbedded — 프로젝트 탭(embedded)에는 「최근」을 그리지 않는다', async () => {
+  renderScreen(<WikiSidebar spaceId={1} embedded />, {
+    path: '/projects/P/notes',
+    handlers: [
+      http.get('/api/v1/wiki/spaces', () => HttpResponse.json([PERSONAL])),
+      http.get('/api/v1/wiki/spaces/:id/pages', () => HttpResponse.json([])),
+    ],
+  })
+  await screen.findByTestId('wiki-new-menu')
+  expect(screen.queryByTestId('wiki-nav-recent')).not.toBeInTheDocument()
+})
+
+test('keepsRememberedSpaceOnRecentRoute — /wiki/recent 에서도 마지막으로 고른 공간과 그 트리를 보여 준다', async () => {
+  const TEAM = wikiSpace({ id: 7, type: 'TEAM', name: '팀 공간', role: 'OWNER' })
+  writeWikiLastVisited(wikiLastSpaceKey(1, 1), 7)
+  onTestFinished(() => localStorage.clear())
+  renderScreen(<WikiSidebar />, {
+    path: '/wiki/recent',
+    handlers: [
+      http.get('/api/v1/wiki/spaces', () => HttpResponse.json([PERSONAL, TEAM])),
+      http.get('/api/v1/wiki/spaces/:id/pages', ({ params }) =>
+        HttpResponse.json(Number(params.id) === 7 ? [wikiPageSummary({ id: 70, title: '팀 노트' })] : []),
+      ),
+    ],
+  })
+  expect(await screen.findByTestId('wiki-tree-row-70')).toBeInTheDocument()
+  expect(await screen.findByRole('combobox')).toHaveTextContent('팀 공간')
+})
+
+test('keepsRememberedSpaceOnRecentRouteWithTrailingSlash — 끝 슬래시가 붙은 /wiki/recent/ 에서도 같은 공간 트리를 보여 준다', async () => {
+  const TEAM = wikiSpace({ id: 7, type: 'TEAM', name: '팀 공간', role: 'OWNER' })
+  writeWikiLastVisited(wikiLastSpaceKey(1, 1), 7)
+  onTestFinished(() => localStorage.clear())
+  renderScreen(<WikiSidebar />, {
+    path: '/wiki/recent/',
+    handlers: [
+      http.get('/api/v1/wiki/spaces', () => HttpResponse.json([PERSONAL, TEAM])),
+      http.get('/api/v1/wiki/spaces/:id/pages', ({ params }) =>
+        HttpResponse.json(Number(params.id) === 7 ? [wikiPageSummary({ id: 70, title: '팀 노트' })] : []),
+      ),
+    ],
+  })
+  expect(await screen.findByTestId('wiki-tree-row-70')).toBeInTheDocument()
 })

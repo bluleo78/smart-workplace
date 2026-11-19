@@ -9,6 +9,7 @@ import { expect, test, vi } from 'vitest'
 
 import { emitAiStreamEvent } from '@/lib/aiEventBus'
 import { htmlScriptsCheckHandlers } from '@/test/kits/wiki/htmlScriptsCheck'
+import { wikiOpenHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { WikiHtmlDraftInfo, WikiHtmlLockStatus, WikiPageDetail, WikiRevisionDetail, WikiRevisionList, WikiRole } from '@/types/wiki'
 
@@ -56,6 +57,8 @@ function open({
       http.get('/api/v1/wiki/spaces/1/pages', () =>
         HttpResponse.json([wikiPageSummary({ id: PAGE_ID, title: '분기 대시보드', kind: 'HTML' })]),
       ),
+      // 노트를 열면 「최근」 기록(WP-1764)이 나간다 — 공용 204 핸들러.
+      ...wikiOpenHandlers,
       http.get(`/api/v1/wiki/pages/${PAGE_ID}`, () => HttpResponse.json(detail())),
       http.get(`/api/v1/wiki/pages/${PAGE_ID}/html-lock`, () => HttpResponse.json(lock())),
       http.post(`/api/v1/wiki/pages/${PAGE_ID}/html-lock`, () => {

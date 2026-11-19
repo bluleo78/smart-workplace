@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { BookOpen, FileQuestion } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -85,6 +85,17 @@ export function WikiPageView({
     if (loadedPageId != null) writeWikiLastVisited(lastVisitedKey, loadedPageId)
     else if (gone && pageId != null && readWikiLastVisited(lastVisitedKey) === pageId) clearWikiLastVisited(lastVisitedKey)
   }, [recordLastVisited, lastVisitedKey, loadedPageId, gone, pageId])
+
+  // 「최근」(WP-1764) — 불러온 노트를 연 것으로 서버에 기록한다. 노트가 바뀔 때(id)만 한 번 — 재조회·재렌더로는 다시 부르지 않는다.
+  // 이 화면은 공유 토큰으로 열지 않으므로(공유 화면은 WikiSharePage) 토큰 요청은 여기 오지 않는다. 실패는 무시(목록 기록일 뿐).
+  // 마지막으로 기록한 id 를 ref 로 기억한다 — 재조회 실패 뒤 회복(id → undefined → 같은 id)을 새 열기로 세지 않기 위해.
+  const recordedOpenIdRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (loadedPageId == null || recordedOpenIdRef.current === loadedPageId) return
+    recordedOpenIdRef.current = loadedPageId
+    // 「최근」 목록은 화면에 들어올 때마다 다시 받으므로(useWikiRecent refetchOnMount) 여기서 캐시를 무효화하지 않는다.
+    wikiApi.recordOpen(loadedPageId).catch(() => {})
+  }, [loadedPageId])
 
   // 본문 자리 분기 — 이 화면에서 불러온 노트는 재조회가 실패해도(삭제 SSE 뒤 404) 에디터를 유지한다(WP-296).
   const mode = wikiPageViewMode({ pageId, isLoading, isError, dataId: page?.id, loadedInThisView: nextConfirm.confirmed })

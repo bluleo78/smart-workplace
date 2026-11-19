@@ -3,6 +3,8 @@ import type { QueryClient } from '@tanstack/react-query'
 export const wikiKeys = {
   all: ['wiki'] as const,
   spaces: () => ['wiki', 'spaces'] as const,
+  // 노트 「최근」(WP-1764) — 열기·고치기를 기록한 뒤 무효화한다.
+  recent: () => ['wiki', 'recent'] as const,
   tree: (spaceId: number) => ['wiki', 'tree', spaceId] as const,
   // 모든 공간의 트리 — 어느 공간이 바뀌었는지 모를 때(프로젝트 노트 공간 연결·리포트 「지금 생성」) 한꺼번에 무효화한다.
   trees: () => ['wiki', 'tree'] as const,
