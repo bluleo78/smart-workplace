@@ -1,5 +1,7 @@
 package com.workplace.mail.dto;
 
+import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
+import com.workplace.mail.dto.MailSendRequest.InlineUploadRef;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -7,6 +9,12 @@ import java.util.List;
  * 임시저장 상세(WP-577) — 작성창을 다시 열 때 쓴다. 답장·전달 인용은 웹이 sourceMessageId 로 다시 만든다.
  *
  * @param attachments 전달 원본 첨부(원본이 지워져 가져올 수 없는 것은 빠진다) 다음 업로드 첨부
+ * @param bodyText 본문 평문(WP-1786)
+ * @param inlineImages 인용 인라인 이미지 참조(WP-1786)
+ * @param inlineUploads 붙여 넣은 이미지 참조(WP-1786)
+ * @param inReplyToMessageId 답장 원본 메일 id(WP-1786)
+ * @param sendState 발송 상태 — 일반이면 null, QUEUED·SENDING·FAILED(WP-1786)
+ * @param sendError FAILED 의 사유(WP-1786)
  * @param version 다음 수정(PUT)에 넘길 낙관적 잠금 버전
  */
 public record MailDraftDetail(
@@ -22,7 +30,13 @@ public record MailDraftDetail(
     boolean quoteRemoved,
     List<Attachment> attachments,
     int version,
-    OffsetDateTime updatedAt) {
+    OffsetDateTime updatedAt,
+    String bodyText,
+    List<InlineImageRef> inlineImages,
+    List<InlineUploadRef> inlineUploads,
+    Long inReplyToMessageId,
+    String sendState,
+    String sendError) {
 
   /** 업로드 첨부 출처. */
   public static final String SOURCE_UPLOAD = "upload";

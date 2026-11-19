@@ -116,6 +116,11 @@ interface MailComposeContextValue {
   isMovingToWindow: (draftId: number) => boolean;
   /** 그 임시저장이 지금 열려 있으면 앞으로 가져오고(handlers.raise) true. */
   focusDraft: (draftId: number) => boolean;
+  /**
+   * 그 임시저장이 지금 열려 있고, 다른 곳에서 보내는 중이라 그 작성창이 멈춰 있는가(WP-1786 코드 리뷰, handlers.sendPaused) — 임시보관함·알림에서 다시
+   * 열 때 앞으로 가져오기만 하지 않고 서버를 다시 받아 「되돌리기」 안내를 띄울지 정한다. 멈추지 않은 작성은 다시 받지 않는다.
+   */
+  isDraftSendPaused: (draftId: number) => boolean;
   /** 그 임시저장이 지금 열려 있으면 저장하지 않고 닫고 true — 임시보관함에서 지울 때. */
   closeDraft: (draftId: number) => boolean;
   /** 작성창이 등록하는 손잡이(닫히면 null) — 다른 작성으로 바뀌기 직전 save, 같은 임시저장을 다시 열 때 raise, 지운 임시저장을 닫을 때 abandon. */
@@ -184,6 +189,8 @@ export interface ComposeHandlers {
   raise: () => void;
   /** 이후 저장하지 않는다(기다리던 저장도 버린다). */
   abandon: () => void;
+  /** 다른 곳에서 보내는 중이라 자동 저장·보내기를 멈췄는가(WP-1786 — 자동 저장 inflight). */
+  sendPaused: () => boolean;
 }
 
 const MailComposeContext = createContext<MailComposeContextValue | null>(null);
@@ -394,6 +401,10 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
     handlers.current?.raise();
     return true;
   }, []);
+  const isDraftSendPaused = useCallback(
+    (draftId: number) => draftRef.current?.draftId === draftId && !!handlers.current?.sendPaused(),
+    [],
+  );
   const closeDraft = useCallback(
     (draftId: number) => {
       if (draftRef.current?.draftId !== draftId) return false;
@@ -409,8 +420,36 @@ export function MailComposeProvider({ children, popout = false }: { children: Re
   }, []);
 
   const value = useMemo(
-    () => ({ draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, unbindDraftId, isMovingToWindow, focusDraft, closeDraft, setComposeHandlers }),
-    [draft, openCompose, getComposeDefault, closeCompose, closeInstance, clearQuote, bindDraftId, unbindDraftId, isMovingToWindow, focusDraft, closeDraft, setComposeHandlers],
+    () => ({
+      draft,
+      openCompose,
+      getComposeDefault,
+      closeCompose,
+      closeInstance,
+      clearQuote,
+      bindDraftId,
+      unbindDraftId,
+      isMovingToWindow,
+      focusDraft,
+      isDraftSendPaused,
+      closeDraft,
+      setComposeHandlers,
+    }),
+    [
+      draft,
+      openCompose,
+      getComposeDefault,
+      closeCompose,
+      closeInstance,
+      clearQuote,
+      bindDraftId,
+      unbindDraftId,
+      isMovingToWindow,
+      focusDraft,
+      isDraftSendPaused,
+      closeDraft,
+      setComposeHandlers,
+    ],
   );
   // 배치 상태 — setSize·setSlotEl 은 setState 라 안정적이고, size·slotEl 이 바뀔 때만 새 값이 된다.
   const layout = useMemo(

@@ -6,9 +6,11 @@ import { useNavigate } from "react-router-dom";
 
 import {
   isCalendarType,
+  isMailSendFailedType,
   isOAuthAppConnectedType,
   isPersonalAssistantRevokedType,
   isWikiShareType,
+  mailSendFailedLabel,
   notifTarget,
 } from "@/components/home/notifTarget";
 import { PushPromptBanner } from "@/components/layout/PushPromptBanner";
@@ -291,6 +293,20 @@ export function InboxList({
                         {/* 끊는 곳을 알려 주는 안내라 좁은 화면에서도 끝까지 보이게 한 줄 말줄임 대신 두 줄까지 감싼다(line-clamp 가 블록 상자를 만든다). */}
                         <span className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">
                           내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요
+                        </span>
+                      </>
+                    ) : isMailSendFailedType(n) ? (
+                      // 메일 보내기 실패(WP-1786) — 행위자·이슈 줄 없이 상태 문구(보내지 못함 / 보냈는지 확인하지 못함)와 메일 제목만.
+                      // 누르면 그 임시보관을 쓰기 창으로 연다(notifTarget).
+                      <>
+                        <span
+                          data-testid="inbox-mail-send-failed"
+                          className="font-medium"
+                        >
+                          {notificationAction(n)}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {mailSendFailedLabel(n)}
                         </span>
                       </>
                     ) : isWikiShareType(n) ? (

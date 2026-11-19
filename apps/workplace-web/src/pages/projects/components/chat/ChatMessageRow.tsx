@@ -24,6 +24,7 @@ import {
 import { renderIssueKeyRef } from '@/components/issues/renderIssueKeyRef';
 import { stripChatMarkdown } from '@/components/mentions/chatMarkdown';
 import { messagePlainText, type RenderMention } from '@/components/mentions/parseMessageSegments';
+import { PersonCardTrigger } from '@/components/users/personCard/PersonCardTrigger';
 import { issueChatBundle } from '@/components/viewer/viewerItems';
 import { useAppHosts } from '@/hooks/queries/useAppLinks';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
@@ -86,6 +87,9 @@ export function ChatMessageRow({
   optionsDisabled = false,
 }: ChatMessageRowProps) {
   const isAgent = message.authorKind === 'AGENT';
+  // 사람 카드(WP-1767)가 가리키는 작성자 — 「일 맡기기」는 화면이 깐 컨텍스트가 있을 때만(이슈 상세) 보인다.
+  // 아이디를 함께 넘긴다 — 프로필 요청이 실패해도 카드가 아이디를 보이고 「일정 잡기」가 참석자로 넘길 수 있게(구 API 응답엔 없을 수 있다).
+  const author = { id: message.authorId, name: message.authorName, kind: message.authorKind, username: message.authorUsername };
   // WP-1569: 열린 질문의 답 선택지 — 보낼 처리기가 없으면(질문을 그리지 않는 곳) 목록도 없다.
   const quickAnswers = onPickOption ? openQuestionOptions(message, questionState) : null;
   // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
@@ -258,7 +262,10 @@ export function ChatMessageRow({
           />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 text-xs">
-              <span className="font-medium">{message.authorName}</span>
+              {/* 이름을 누르면 사람 카드(WP-1767). 아바타는 장식(aria-hidden)이라 이름 하나만 트리거로 둔다 — 탭 정지점이 둘 생기지 않게. */}
+              <PersonCardTrigger person={author} className="font-medium hover:underline">
+                {message.authorName}
+              </PersonCardTrigger>
               {isAgent && <AgentBadge size="xs" />}
               {questionState && (
                 <span

@@ -73,6 +73,7 @@ import { CommentLockedNotice } from './components/IssueCommentList';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 import { IssueReporterField } from './components/IssueReporterField';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
+import { PersonCardAssignHost } from './components/PersonCardAssignHost';
 import { WorkflowLockedHint } from './components/WorkflowLockedHint';
 import { useVersionedPatch } from './hooks/useVersionedPatch';
 import { ISSUES_TAB_STATE, projectTabPath } from './tabs/projectTabs';
@@ -417,6 +418,8 @@ export default function IssueDetailPage() {
   );
 
   return (
+    // 사람 카드의 「일 맡기기」가 이 프로젝트로 새 이슈 창을 연다(WP-1767) — 코멘트·담당자·보고자·이슈 챗 카드가 함께 쓴다.
+    <PersonCardAssignHost projectKey={key}>
     <Page>
       <IssueBreadcrumbHeader
         projectKey={key}
@@ -677,5 +680,6 @@ export default function IssueDetailPage() {
         onClose={closeChat}
       />
     </Page>
+    </PersonCardAssignHost>
   );
 }

@@ -17,6 +17,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueReporterChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.mail.outbound.MailSendFailedEvent;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessApprovedEvent;
@@ -25,6 +26,7 @@ import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiSharedWithPeopleEve
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -37,6 +39,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * <p>워처 조회(issue_watcher, RLS 보호)는 NotificationService.createWithWatchersAndFanOut 내부에서 트랜잭션 개시 후
  * 실행되어, TenantContextTaskDecorator 가 워커 스레드에 복원한 TenantContext 를 TenantAwareTransactionManager 가
  * GUC 로 주입한 뒤 조회한다. 핸들러 예외는 도메인 트랜잭션에 영향 없도록 자체 로깅(전파 안 함).
+ *
+ * <p>예외: 메일 발송 실패({@link MailSendFailedEvent}, WP-1786)는 상태 전환과 알림을 한 트랜잭션에 묶어야 해 동기·같은 트랜잭션으로 받는다.
  *
  * <p>"AI 담당자 활동"은 별도 트리거가 아니라 actor.kind=="AGENT" 인 활동 — actorId 를 그대로 실어 프론트가 AI 배지로 구분한다.
  */
@@ -369,6 +373,18 @@ public class NotificationDispatcher {
       // 알림 실패로 이미 커밋된 연결을 되돌리지 않는다 — 로그만 남긴다.
       log.warn("[notify] 새 앱 연결 알림 실패 userId={}: {}", e.userId(), ex.getMessage());
     }
+  }
+
+  /**
+   * 보낼 대기열 메일 발송 실패(WP-1786) → 보낸 본인에게 MAIL_SEND_FAILED. 다른 리스너와 달리 <b>동기
+   * {@code @EventListener}</b> 로 발행한 트랜잭션(임시보관을 FAILED 로 돌린 트랜잭션)에 그대로 합류한다 — 상태 전환과 알림을 한 번에
+   * 커밋·롤백해 「실패로 바뀌었는데 알림이 없는」 경우를 막으려는 것이다(AFTER_COMMIT·비동기면 커밋 뒤 알림 insert 가 실패할 때 알림이 영영 빠진다). 같은
+   * 이유로 예외를 삼키지 않는다 — 알림이 실패하면 상태 전환도 롤백되고, 행은 SENDING 에 남아 멈춤 정리가 다음 회차에 다시 시도한다. 발행한 스레드가 이미 테넌트
+   * 문맥·트랜잭션을 세워 두었으므로 테넌트를 다시 세우지 않는다.
+   */
+  @EventListener
+  public void onMailSendFailed(MailSendFailedEvent e) {
+    service.createMailSendFailedAndFanOut(e.userId(), e.draftId(), e.subject(), e.unknown());
   }
 
   /**

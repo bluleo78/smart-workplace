@@ -28,10 +28,10 @@ import { CreateAiHandoffSection } from '../CreateAiHandoffSection';
 import { HIT_EXPAND } from './chipStyles';
 import { CreateIssueChips } from './CreateIssueChips';
 
-type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number; initialStatusId?: number };
+type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number; initialStatusId?: number; initialAgentId?: number };
 
-export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId }: Props) {
-  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId });
+export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId, initialAgentId }: Props) {
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId, initialAgentId });
   const { register, watch, formState: { errors } } = f.form;
   // 설명 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
   const { ref: bodyEditorRef, bodyMode, imageUpload, members, onBodyChange, onUploadingChange } = f.bodyEditor;

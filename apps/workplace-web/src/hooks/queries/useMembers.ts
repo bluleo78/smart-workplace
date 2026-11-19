@@ -5,6 +5,8 @@ import { membersApi } from '../../api/members'
 import { nextOffsetPage } from '../../lib/offsetPaging'
 
 export const memberKeys = {
+  /** 구성원 한 명의 프로필(사람 카드, WP-1767) — 'members' 접두라 구성원 변경 무효화를 함께 받는다. */
+  detail: (userId: number) => ['members', 'detail', userId] as const,
   list: (params: Record<string, unknown>) => ['members', params] as const,
   /** 이어 받기 목록 키 — 설정 > 구성원 목록(WP-182). */
   infinite: (params: Record<string, unknown>, size: number) => ['members', 'infinite', params, size] as const,

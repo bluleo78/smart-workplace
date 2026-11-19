@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { useMailCompose } from '@/components/mail/MailComposeContext'
 import { useOpenMailDraft } from '@/hooks/queries/useMailDrafts'
 import { mailSettingsKey } from '@/hooks/queries/useMailSettings'
+import { DRAFT_INFLIGHT_RECHECK_MS } from '@/hooks/useMailDraftAutosave'
 import { forgetMailComposePopout, MAIL_COMPOSE_WINDOW_ID, mailComposeWindowUrl } from '@/lib/mailComposeChannel'
 import { composeSettingsHandler, fakeWindow, gate } from '@/test/kits/mail/compose-default'
 import { composeInPane } from '@/test/kits/mail/compose-pane'
@@ -158,7 +159,7 @@ function draftServer(initial: MailDraftDetail[] = [], previews: Record<number, s
       const over = await override.send?.(c, log.sends.length)
       if (over) return over
       if (c.body.draftId != null) drafts.delete(c.body.draftId)
-      return HttpResponse.json({ localMessageId: 10, messageId: 'x@test.local' })
+      return HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' })
     }),
   ]
   return {
@@ -1460,4 +1461,216 @@ test('빈_창을_닫고_다시_누른_뒤_첫_조회가_실패해도_오류를_�
   expect(screen.queryByText('임시저장을 불러오지 못했어요')).not.toBeInTheDocument()
   expect(second.close).not.toHaveBeenCalled()
   forgetMailComposePopout(7)
+})
+
+// 보내지 못한 메일(WP-1786 최종 리뷰 I2) — 다시 열 때 서버가 남긴 이유를 한 번 알린다. 자동 저장이 FAILED 흔적을 지우기 전에 연 때의 값을 쓴다.
+test('보내지_못한_임시보관을_열면_보내지_못한_이유를_토스트로_알린다', async () => {
+  const server = draftServer([
+    draftDetail({ id: 9, subject: '못 보낸 메일', sendState: 'FAILED', sendError: '올바르지 않은 이메일 주소: kim@' }),
+  ])
+  const view = renderDrafts(server)
+  await openRow(view, 9)
+  await waitFor(() => expect(subject()).toHaveValue('못 보낸 메일'))
+  expect(await screen.findByText('보내지 못한 이유: 올바르지 않은 이메일 주소: kim@')).toBeInTheDocument()
+})
+
+test('보냈는지_모르는_임시보관은_보낸편지함을_확인하라고_알린다', async () => {
+  const server = draftServer([draftDetail({ id: 9, subject: '모르는 메일', sendState: 'FAILED', sendError: 'UNKNOWN' })])
+  const view = renderDrafts(server)
+  await openRow(view, 9)
+  await waitFor(() => expect(subject()).toHaveValue('모르는 메일'))
+  expect(await screen.findByText('보냈는지 확인하지 못함 — 보낸편지함을 확인해 주세요')).toBeInTheDocument()
+  expect(screen.queryByText(/보내지 못한 이유/)).not.toBeInTheDocument()
+})
+
+test('보내기_실패가_아닌_임시보관을_열면_이유_토스트가_없다', async () => {
+  const server = draftServer([draftDetail({ id: 9, subject: '평범한 메일' })])
+  const view = renderDrafts(server)
+  await openRow(view, 9)
+  await waitFor(() => expect(subject()).toHaveValue('평범한 메일'))
+  await tick(100)
+  expect(screen.queryByText(/보내지 못한 이유/)).not.toBeInTheDocument()
+})
+
+// ── 이미 보내는 중인 메일(WP-1786 코드 리뷰) ─────────────────────────
+// 409 DRAFT_SENDING 을 「없어짐」처럼 다뤄 id 를 비우면 같은 창의 보내기가 draftId 없이 새 대기 행을 만들어 같은 메일이 두 번 나갔다.
+// 보내는 중(QUEUED·SENDING)인 행을 실패 알림·딥링크로 다시 열어도 쓰기 창으로 열지 않는다.
+
+const draftSending = () =>
+  HttpResponse.json({ status: 409, message: '이미 보내는 중인 메일이에요', errors: { code: 'DRAFT_SENDING' } }, { status: 409 })
+
+test('다른 곳에서 보내는 중이라 자동 저장이 409 DRAFT_SENDING 이면 「이 메일은 이미 보내는 중이에요」로 멈추고 보내기를 막는다 — 저장 못 한 변경은 알리고 닫을 때 새 임시저장으로 남긴다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '두 탭 메일', to: ['rcpt@test.local'] })])
+  server.override.put = () => draftSending()
+  const view = renderDrafts(server)
+  await openRow(view, 7)
+  await waitFor(() => expect(subject()).toHaveValue('두 탭 메일'))
+  // 다른 탭이 보냈다 — 서버 행은 대기 중이다(다시 확인해도 그대로).
+  server.bumpVersion(7, { sendState: 'QUEUED' })
+  setSubject('두 탭 메일 (고침)')
+  await tick(DEBOUNCE)
+  await waitFor(() => expect(status()).toHaveAttribute('data-status', 'inflight'))
+  // 저장하려던 변경을 조용히 버리지 않는다(WP-1786 코드 리뷰) — 알리고 나가기를 경고한다.
+  expect(status()).toHaveTextContent('이 메일은 이미 보내는 중이에요 · 최근 변경은 저장하지 못했어요')
+  expect(unloadBlocked()).toBe(true)
+  // 같은 메일을 또 보내지 않게 보내기를 막는다(새 대기 행이 생기지 않는다).
+  expect(screen.getByTestId('mail-compose-send')).toBeDisabled()
+  // 더 써도 대기 행을 고치려 하지 않는다
+  setSubject('또 고침')
+  await tick(DEBOUNCE * 2)
+  expect(server.puts).toHaveLength(1)
+  // 닫으면 대기 행은 그대로 두고 내 내용을 새 임시저장으로 남긴다
+  await view.user.click(screen.getByTestId('mail-compose-close'))
+  await waitFor(() => expect(server.posts).toHaveLength(1))
+  expect(server.posts[0].body.subject).toBe('또 고침')
+  expect(server.puts).toHaveLength(1)
+  expect(await screen.findByText('임시보관함에 저장했어요')).toBeInTheDocument()
+})
+
+test('보내기가 409 DRAFT_SENDING 이면 「보내지 못해 임시보관함에 저장했어요」 대신 「이미 보내는 중」을 알리고 다시 저장하지 않는다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '이미 나가는 메일', to: ['rcpt@test.local'] })])
+  const sending = gate()
+  server.override.send = async () => {
+    await sending.held
+    return draftSending()
+  }
+  const view = renderDrafts(server)
+  await openRow(view, 7)
+  await waitFor(() => expect(subject()).toHaveValue('이미 나가는 메일'))
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(server.sends).toHaveLength(1))
+  expect(server.sends[0].body.draftId).toBe(7)
+  // 보내는 동안 닫았다 — 실패였다면 이 작성의 내용을 임시보관함에 저장했을 경로다.
+  setSubject('이미 나가는 메일 (고침)')
+  await view.user.click(screen.getByTestId('mail-compose-close'))
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+
+  sending.release()
+  expect(await screen.findByText('이 메일은 이미 보내는 중이에요')).toBeInTheDocument()
+  await tick(DEBOUNCE * 2)
+  expect(screen.queryByText('보내지 못해 임시보관함에 저장했어요')).not.toBeInTheDocument()
+  expect(server.puts).toHaveLength(0)
+  expect(server.posts).toHaveLength(0)
+})
+
+test('작성창이 그대로일 때 보내기가 409 DRAFT_SENDING 이면 그 창을 「이미 보내는 중」으로 두고 보내기를 막는다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '두 번 누른 메일', to: ['rcpt@test.local'] })])
+  server.override.send = () => {
+    // 다른 창이 이미 대기열에 올린 행이다 — 서버의 그 행은 보내는 중(QUEUED)이라, 작성창이 inflight 가 되자마자 다시 확인해도 그대로 멈춰 있다.
+    const cur = server.drafts.get(7)!
+    server.drafts.set(7, { ...cur, detail: { ...cur.detail, sendState: 'QUEUED' } })
+    return draftSending()
+  }
+  const view = renderDrafts(server)
+  await openRow(view, 7)
+  await waitFor(() => expect(subject()).toHaveValue('두 번 누른 메일'))
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  expect(await screen.findByText('다른 창에서 보낸 메일이라 여기서는 보내지 않았어요')).toBeInTheDocument()
+  expect(status()).toHaveAttribute('data-status', 'inflight')
+  expect(screen.getByTestId('mail-compose-send')).toBeDisabled()
+  setSubject('고침')
+  await tick(DEBOUNCE * 2)
+  expect(server.puts).toHaveLength(0)
+  expect(server.sends).toHaveLength(1)
+})
+
+/** 딥링크·알림처럼 placement 없이 임시저장 7 을 여는 시험용 단추. */
+function PlainOpenProbe() {
+  const openDraft = useOpenMailDraft()
+  return (
+    <button data-testid="probe-plain" onClick={() => void openDraft(7)}>
+      plain
+    </button>
+  )
+}
+
+test('대기 중(QUEUED)인 행을 열면 쓰기 창 대신 「이미 보내는 중」 — 「되돌리기」로 대기를 풀면 그때 쓰기 창으로 연다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '대기 중 메일', to: ['rcpt@test.local'], sendState: 'QUEUED' })])
+  const cancel = http.post('/api/v1/mail/drafts/7/cancel-send', () =>
+    HttpResponse.json(draftDetail({ id: 7, subject: '대기 중 메일', to: ['rcpt@test.local'], version: 3 })),
+  )
+  const put = http.put('/api/v1/mail/drafts/7', () => HttpResponse.json({ version: 4, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))
+  const view = renderMail('/mail/1', { extra: <PlainOpenProbe />, handlers: [cancel, put, ...server.handlers] })
+  await view.user.click(await screen.findByTestId('probe-plain'))
+  expect(await screen.findByText('이 메일은 이미 보내는 중이에요')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+
+  await view.user.click(screen.getByRole('button', { name: '되돌리기' }))
+  await screen.findByTestId('mail-compose-dock')
+  await waitFor(() => expect(subject()).toHaveValue('대기 중 메일'))
+})
+
+test('이미 보내는 중(SENDING)인 행을 열면 되돌리기 없이 보낸편지함 확인을 안내하고 쓰기 창을 열지 않는다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '나가는 메일', sendState: 'SENDING' })])
+  const view = renderMail('/mail/1', { extra: <PlainOpenProbe />, handlers: server.handlers })
+  await view.user.click(await screen.findByTestId('probe-plain'))
+  expect(await screen.findByText('이 메일은 이미 보내는 중이에요')).toBeInTheDocument()
+  expect(screen.getByText('보낸편지함에서 확인해 주세요')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '되돌리기' })).not.toBeInTheDocument()
+  await tick(100)
+  expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+})
+
+test('기본값 새 창으로 보내는 중인 행을 열면 빈 창을 닫고 메인 창에서 「이미 보내는 중」을 알린다', async () => {
+  const win = fakeWindow()
+  vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+  const before = vi.fn()
+  const server = draftServer([draftDetail({ id: 7, subject: '대기 중 메일', sendState: 'QUEUED' })])
+  const view = renderMail('/mail/1?folder=drafts', {
+    extra: <OpenProbe onBefore={before} />,
+    handlers: [...server.handlers, composeSettingsHandler('WINDOW')],
+  })
+  await waitFor(() => expect(view.queryClient.getQueryData(mailSettingsKey)).toEqual({ composeMode: 'WINDOW' }))
+  await view.user.click(await screen.findByTestId('probe-open'))
+  await waitFor(() => expect(win.close).toHaveBeenCalled())
+  expect(win.location.href).toBe('')
+  expect(before).not.toHaveBeenCalled()
+  expect(await screen.findByText('이 메일은 이미 보내는 중이에요')).toBeInTheDocument()
+})
+
+// ── 보내는 중으로 멈춘 작성이 풀릴 때(WP-1786 코드 리뷰) ───────────────────────
+// inflight 가 끝나지 않아 다른 탭의 「되돌리기」·대기열 실패 뒤에도 작성창이 영영 잠겨 있었고, 열린 작성이 있으면 다시 열어도 앞으로 가져오기만 해
+// 「되돌리기」 안내도, 되돌린 내용도 보이지 않았다.
+
+/** 열린 작성 7 을 보내기 409 DRAFT_SENDING 으로 멈춘다(다른 곳에서 이미 대기열에 올렸다 — 서버 행은 QUEUED). */
+async function pauseBySend(view: { user: { click: (el: Element) => Promise<void> } }, server: Server) {
+  server.bumpVersion(7, { sendState: 'QUEUED' })
+  server.override.send = () => draftSending()
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(status()).toHaveAttribute('data-status', 'inflight'))
+  expect(screen.getByTestId('mail-compose-send')).toBeDisabled()
+}
+
+test('다른 탭이 되돌려 대기가 풀리면, 멈춘 작성창이 다시 확인해 서버 내용으로 다시 열리고 다시 보낼 수 있다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '멈출 메일', to: ['rcpt@test.local'] })])
+  const view = renderDrafts(server)
+  await openRow(view, 7)
+  await waitFor(() => expect(subject()).toHaveValue('멈출 메일'))
+  await pauseBySend(view, server)
+  // 다른 탭이 「되돌리기」로 대기를 풀고 고쳤다
+  server.bumpVersion(7, { sendState: null, subject: '되돌린 뒤 고친 메일' })
+  await tick(DRAFT_INFLIGHT_RECHECK_MS)
+  await waitFor(() => expect(subject()).toHaveValue('되돌린 뒤 고친 메일'))
+  expect(screen.getByTestId('mail-compose-save-status')).not.toHaveAttribute('data-status', 'inflight')
+  expect(screen.getByTestId('mail-compose-send')).toBeEnabled()
+})
+
+test('작성이 보내는 중으로 멈춰 있으면 다시 열 때 「되돌리기」 안내를 띄우고, 되돌리면 그 작성을 대기를 푼 내용으로 바꾼다', async () => {
+  const server = draftServer([draftDetail({ id: 7, subject: '대기 중 메일', to: ['rcpt@test.local'] })])
+  const cancel = http.post('/api/v1/mail/drafts/7/cancel-send', () =>
+    HttpResponse.json(draftDetail({ id: 7, subject: '되돌린 메일', to: ['rcpt@test.local'], version: 9 })),
+  )
+  const view = renderMail('/mail/1?folder=drafts', { extra: <PlainOpenProbe />, handlers: [cancel, ...server.handlers] })
+  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
+  await waitFor(() => expect(subject()).toHaveValue('대기 중 메일'))
+  await pauseBySend(view, server)
+
+  // 알림·딥링크처럼 다시 연다 — 앞으로 가져오기만 하지 않고 보내는 중임을 알리며 「되돌리기」를 둔다
+  await view.user.click(screen.getByTestId('probe-plain'))
+  await view.user.click(await screen.findByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(subject()).toHaveValue('되돌린 메일'))
+  expect(status()).not.toHaveAttribute('data-status', 'inflight')
+  expect(screen.getByTestId('mail-compose-send')).toBeEnabled()
+  // 멈춘 작성에 바뀐 것이 없었다 — 새 임시저장을 만들지 않는다
+  expect(server.posts).toHaveLength(0)
 })

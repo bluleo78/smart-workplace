@@ -2,6 +2,7 @@
 // (NotificationsBody 의 로컬 함수를 추출해 규칙이 드리프트되지 않게 단일화.)
 import { issueChatPath } from '@/lib/agentWork'
 import { CONNECTED_APPS_PATH } from '@/lib/connectedApps'
+import { mailDraftPath } from '@/lib/mailDraftLink'
 import type { NotificationResponse } from '@/types/notification'
 
 /**
@@ -63,6 +64,19 @@ export const OAUTH_APP_LABEL = '앱 연결'
 // 새 앱 연결 알림의 이동 주소(CONNECTED_APPS_PATH)는 「연결된 앱」 절의 id 와 같은 앵커를 써야 해 lib/connectedApps.ts 한곳에 둔다(WP-1687).
 
 /**
+ * 메일 보내기 실패 알림 판별(WP-1786) — 보내기 대기열의 내 메일이 나가지 못했거나 결과를 모른다. 행위자·이슈·일정·노트 id 없이
+ * 메일 제목(message)과 그 임시보관 id(mailDraftId)만 온다. 그 임시보관을 쓰기 창으로 열어 고치거나 다시 보내게 한다.
+ */
+export function isMailSendFailedType(n: NotificationResponse): boolean {
+  return n.type === 'MAIL_SEND_FAILED'
+}
+
+/** 메일 보내기 실패 알림의 행 제목 — 메일 제목. 비었으면 서버와 같은 「(제목 없음)」(WP-1786). */
+export function mailSendFailedLabel(n: NotificationResponse): string {
+  return n.message || '(제목 없음)'
+}
+
+/**
  * 알림 대상 라우트 해소 — InboxPanel/알림 위젯과 동일 규칙.
  * 캘린더 알림(REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED)은 캘린더로, 그 외 이슈 타입은 이슈 상세로.
  * 이슈 챗 알림(AI_QUESTION/ISSUE_CHAT_MENTION)은 이슈 상세 + 챗 드로워(`?chat=1`)로 — 상태 알림(권한 필요·차단됨)인 AI_QUESTION 도 같다.
@@ -78,11 +92,15 @@ export const OAUTH_APP_LABEL = '앱 연결'
  *
  * 개인 비서 연결 해제 알림(WP-1170)은 다시 연결하는 곳인 내 비서 설정(`/settings/assistant`)으로 간다.
  * 새 앱 연결 알림(WP-1686)은 연결을 끊을 수 있는 설정 › API 토큰의 「연결된 앱」 절(`/settings/tokens#connected-apps`, WP-1687)로 간다.
+ * 메일 보내기 실패 알림(WP-1786)은 그 임시보관을 메인 창 쓰기 창으로 여는 `/mail?draftId=N`(MailDraftDeepLink 가 받는다)으로,
+ * id 가 없으면 메일 첫 화면으로 간다.
  */
 export function notifTarget(n: NotificationResponse): string {
   if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_SETTINGS_PATH
   // WP-1686: 이슈 키가 남아 있어도 이슈 상세로 새지 않게 이슈 분기보다 먼저 본다.
   if (isOAuthAppConnectedType(n)) return CONNECTED_APPS_PATH
+  // WP-1786: 이슈 분기보다 먼저 — 계정 알림이라 이슈 키가 없다.
+  if (isMailSendFailedType(n)) return n.mailDraftId != null ? mailDraftPath(n.mailDraftId) : '/mail'
   if (isWikiShareType(n)) {
     if (n.wikiPageId == null) return '/me/tasks/assigned'
     const base = `/wiki/open/${n.wikiPageId}`
@@ -97,10 +115,11 @@ export function notifTarget(n: NotificationResponse): string {
   return '/me/tasks/assigned'
 }
 
-/** 행에 표시할 제목 — 캘린더 알림은 일정 제목, 노트 공유 알림은 노트 제목, 개인 비서 연결 해제는 「개인 비서」(WP-1170), 새 앱 연결은 「앱 연결」(WP-1686), 그 외는 이슈 제목. */
+/** 행에 표시할 제목 — 캘린더 알림은 일정 제목, 노트 공유 알림은 노트 제목, 개인 비서 연결 해제는 「개인 비서」(WP-1170), 새 앱 연결은 「앱 연결」(WP-1686), 메일 보내기 실패는 메일 제목(WP-1786), 그 외는 이슈 제목. */
 export function notifLabel(n: NotificationResponse): string {
   if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_LABEL
   if (isOAuthAppConnectedType(n)) return OAUTH_APP_LABEL // WP-1686
+  if (isMailSendFailedType(n)) return mailSendFailedLabel(n) // WP-1786
   if (isWikiShareType(n)) return n.wikiPageTitle ?? '노트'
   return isCalendarType(n) ? (n.eventTitle ?? '일정 알림') : n.issueTitle
 }

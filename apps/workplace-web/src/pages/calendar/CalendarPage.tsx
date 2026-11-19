@@ -5,7 +5,9 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { calendarApi } from '@/api/calendar'
+import { membersApi } from '@/api/members'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import type { SelectedMember } from '@/components/calendar/AttendeeSection'
 import { CalendarEditDialog } from '@/components/calendar/CalendarEditDialog'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
 import { CalendarTagDeleteDialog } from '@/components/calendar/CalendarTagDeleteDialog'
@@ -107,6 +109,8 @@ export function CalendarPage() {
   const eventIdParam = parseId(eventParam.value)
   // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
   const deepLinkNew = searchParams.get('new') === 'true'
+  // 새 일정 딥링크가 미리 담을 참석자의 username(WP-1767) — 사람 카드의 「일정 잡기」가 넘긴다.
+  const deepLinkAttendee = searchParams.get('attendee')
   // 노트 하단 연결 일정 링크(WP-1703)가 싣는 회차 시작 시각 — 있으면 마스터 대신 그 회차를 연다.
   const occurrenceParam = searchParams.get('occurrence')
   // 표시 설정·마지막 보기는 사용자·워크스페이스별 저장(WP-701). 캘린더 화면은 로그인 뒤에만 열리므로 user 가 있다.
@@ -160,6 +164,10 @@ export function CalendarPage() {
   const [defaultStart, setDefaultStart] = useState<Date | undefined>()
   // 주·일 보기에서 구간을 끌어 열면 그 종료 시각(WP-949) — 없으면 다이얼로그가 시작 + 1시간으로 둔다.
   const [defaultEnd, setDefaultEnd] = useState<Date | undefined>()
+  // 새 일정 창에 미리 담을 참석자 — 딥링크(?attendee)로 찾은 구성원. 일반 「새 일정」은 비운다.
+  const [defaultAttendees, setDefaultAttendees] = useState<SelectedMember[] | undefined>()
+  // 참석자 찾기의 차례표 — 새 일정을 열거나 창을 닫을 때마다 올린다. 늦게 온 찾기 결과가 그 사이 새로 연 창에 참석자를 넣지 않게(WP-1767).
+  const attendeeLookupRef = useRef(0)
   // 반복 회차 수정/삭제 시 scope 선택 다이얼로그 모드(null=닫힘)
   const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
   // scope 선택 전까지 보류하는 수정 body — 폼에서 태그를 바꿨으면 tagIds 도 여기 함께 실려 있다(WP-801)
@@ -380,6 +388,8 @@ export function CalendarPage() {
     setEditing(null)
     setDefaultStart(start)
     setDefaultEnd(end)
+    setDefaultAttendees(undefined)
+    attendeeLookupRef.current += 1
     setCreating(true)
   }
 
@@ -392,6 +402,8 @@ export function CalendarPage() {
 
   // 다이얼로그 닫기 — ‹·ESC·바깥 클릭·취소·저장 완료 공통. 새 일정은 상태만, 기존 일정은 연 히스토리 항목을 되돌린다.
   const closeDialog = () => {
+    // 닫으면 진행 중인 참석자 찾기 결과를 버린다.
+    attendeeLookupRef.current += 1
     if (creating) setCreating(false)
     else eventParam.close()
   }
@@ -400,14 +412,29 @@ export function CalendarPage() {
   useEffect(() => {
     if (!deepLinkNew) return
     openNew()
+    const attendee = deepLinkAttendee
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
         next.delete('new')
+        next.delete('attendee')
         return next
       },
       { replace: true },
     )
+    if (!attendee) return
+    // 참석자는 창이 먼저 뜬 뒤 비동기로 채운다 — username 이 정확히 같고 내가 아닌 구성원만. 못 찾거나 실패하면 빈 참석자로 둔다.
+    // 결과가 오기 전에 창을 닫았거나 새 일정을 다시 열었으면(차례표가 바뀜) 버린다 — 다른 창에 참석자가 붙지 않게.
+    // 한 쪽 100명 — 접두가 같은 사람이 많아도 정확히 같은 username 이 첫 쪽에 들게.
+    const token = attendeeLookupRef.current
+    membersApi
+      .getMembers({ search: attendee, size: 100 })
+      .then((res) => {
+        if (token !== attendeeLookupRef.current) return
+        const found = res.data.content.find((m) => m.username === attendee && m.userId !== user?.id)
+        if (found) setDefaultAttendees([{ id: found.userId, name: found.name }])
+      })
+      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkNew])
 
@@ -863,6 +890,7 @@ export function CalendarPage() {
         event={creating ? undefined : (editing ?? undefined)}
         defaultStart={defaultStart}
         defaultEnd={defaultEnd}
+        defaultAttendees={defaultAttendees}
         onSubmit={submit}
         onDelete={onDelete}
         isPending={create.isPending || update.isPending}

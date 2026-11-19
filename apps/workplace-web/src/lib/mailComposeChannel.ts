@@ -19,6 +19,8 @@ export interface MailComposeWindowMessage {
   accountId: number;
   draftId: number;
   opener: string | null;
+  /** sent 일 때 대기열에 올라간 행 id(WP-1786) — 메인 창 「되돌리기」가 되돌린다. 쓰던 임시저장이 없어졌으면 draftId 와 다르다. */
+  sentDraftId?: number;
 }
 
 /** 이 창(탭)의 id — 새 창 주소에 실어, 끝났다는 알림이 "내가 연 창"에서 왔는지 가린다. 문서마다 새로 정한다. */
@@ -65,7 +67,8 @@ export function isMailComposeWindowMessage(data: unknown): data is MailComposeWi
     (MAIL_COMPOSE_WINDOW_EVENTS as readonly unknown[]).includes(m.type) &&
     typeof m.accountId === 'number' &&
     typeof m.draftId === 'number' &&
-    (m.opener === null || typeof m.opener === 'string')
+    (m.opener === null || typeof m.opener === 'string') &&
+    (m.sentDraftId === undefined || typeof m.sentDraftId === 'number')
   );
 }
 
@@ -85,8 +88,34 @@ export function postMailComposeWindowEvent(message: Omit<MailComposeWindowMessag
   }
 }
 
-/** 메인 창이 새 창 알림을 듣는다. 돌려준 함수로 그만 듣는다. */
+/**
+ * 듣는 창 표식(WP-1786 코드 리뷰) — 메인 창이 새 창 알림을 듣는 동안 자기 window 에 자기 id 를 적어 둔다. 새 창이 보낸 뒤 「메일 보냄 · 되돌리기」를
+ * 맡길 메인 창이 아직 있는지(닫히지도 새로 고쳐지지도 않았는지) 같은 출처 opener 에서 바로 읽어 본다 — 알림 통로에는 받았다는 답(ack)이 없다.
+ */
+const MAIL_COMPOSE_LISTENER_KEY = '__wpMailComposeListener';
+/** 이 창에서 듣는 수 — StrictMode 의 두 번 걸기·여러 곳의 듣기에도 마지막 하나가 그만둘 때만 표식을 지운다. */
+let listenerCount = 0;
+
+/**
+ * 이 새 창을 연 메인 창이 지금도 이 창의 알림을 받아 토스트를 띄울 수 있는가 — opener 가 있고, 닫히지 않았고, 그 창이 듣는 id 가 주소의 opener 와
+ * 같다(새로 고쳐졌으면 id 가 바뀐다). 접근할 수 없으면(다른 출처로 이동 등) false.
+ */
+export function isOpenerListening(openerId: string | null): boolean {
+  if (!openerId) return false;
+  try {
+    const o = window.opener as (Window & Record<string, unknown>) | null;
+    if (!o || o.closed) return false;
+    return o[MAIL_COMPOSE_LISTENER_KEY] === openerId;
+  } catch {
+    return false;
+  }
+}
+
+/** 메인 창이 새 창 알림을 듣는다. 돌려준 함수로 그만 듣는다. 듣는 동안 이 창이 듣는다는 표식(id)을 남긴다(isOpenerListening). */
 export function listenMailComposeWindowEvents(onMessage: (m: MailComposeWindowMessage) => void): () => void {
+  const self = window as unknown as Record<string, unknown>;
+  listenerCount += 1;
+  self[MAIL_COMPOSE_LISTENER_KEY] = MAIL_COMPOSE_WINDOW_ID;
   const onWindowMessage = (e: MessageEvent) => {
     // postMessage 폴백은 같은 출처에서 온 것만 믿는다.
     if (e.origin !== window.location.origin || !isMailComposeWindowMessage(e.data)) return;
@@ -103,6 +132,8 @@ export function listenMailComposeWindowEvents(onMessage: (m: MailComposeWindowMe
   return () => {
     window.removeEventListener('message', onWindowMessage);
     ch?.close();
+    listenerCount -= 1;
+    if (listenerCount === 0) delete self[MAIL_COMPOSE_LISTENER_KEY];
   };
 }
 

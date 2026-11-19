@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { NotificationResponse } from '@/types/notification'
 
 import {
+  isMailSendFailedType,
   isMentionLike,
   isOAuthAppConnectedType,
   isPersonalAssistantRevokedType,
@@ -147,5 +148,40 @@ describe('새 앱 연결 알림', () => {
     expect(notifLabel(app())).toBe('앱 연결')
     expect(isOAuthAppConnectedType(app())).toBe(true)
     expect(isOAuthAppConnectedType(notif({ type: 'PERSONAL_ASSISTANT_REVOKED' }))).toBe(false)
+  })
+})
+
+// WP-1786 — 메일 보내기 실패: 그 임시보관을 메인 창의 쓰기 창으로 연다(/mail?draftId=N 을 MailDraftDeepLink 가 받는다).
+describe('메일 보내기 실패 알림', () => {
+  const failed = (over: Partial<NotificationResponse> = {}) =>
+    notif({
+      type: 'MAIL_SEND_FAILED',
+      actorId: null,
+      actorName: null,
+      actorKind: null,
+      projectKey: '',
+      issueNumber: 0,
+      issueTitle: '',
+      message: '주간 보고',
+      mailDraftId: 42,
+      mailSendUnknown: false,
+      ...over,
+    })
+
+  it('그 임시보관을 쓰기 창으로 여는 /mail?draftId=N 으로 간다, 이슈 키가 남아 있어도 이슈 상세로 새지 않는다', () => {
+    expect(notifTarget(failed())).toBe('/mail?draftId=42')
+    expect(notifTarget(failed({ projectKey: 'WP', issueNumber: 3 }))).toBe('/mail?draftId=42')
+  })
+
+  it('임시보관 id 가 없으면 메일 첫 화면으로 간다', () => {
+    expect(notifTarget(failed({ mailDraftId: null }))).toBe('/mail')
+  })
+
+  it('제목 라벨은 메일 제목, 제목이 없으면 「(제목 없음)」', () => {
+    expect(notifLabel(failed())).toBe('주간 보고')
+    expect(notifLabel(failed({ message: null }))).toBe('(제목 없음)')
+    expect(notifLabel(failed({ message: '' }))).toBe('(제목 없음)')
+    expect(isMailSendFailedType(failed())).toBe(true)
+    expect(isMailSendFailedType(notif({ type: 'OAUTH_APP_CONNECTED' }))).toBe(false)
   })
 })

@@ -33,7 +33,7 @@ test('편지쓰기 → 화면 전체 새 메일 화면, 상단 보내기로 발�
   const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
   await page.route(
     (url) => url.pathname === '/api/v1/mail/accounts/1/send',
-    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ localMessageId: 10, messageId: 'x@test.local' }) }),
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }) }),
   )
   await openInbox(page)
   await page.getByTestId('mobile-sidebar-trigger').click()
@@ -141,7 +141,7 @@ test('상단 바 📎 로 첨부하면 칩이 본문 아래(서식 줄 위)에 �
   const sends = trackRequests(page, 'POST', '/api/v1/mail/accounts/1/send')
   await page.route(
     (url) => url.pathname === '/api/v1/mail/accounts/1/send',
-    (route) => route.fulfill({ status: 200, json: { localMessageId: 10, messageId: 'x@test.local' } }),
+    (route) => route.fulfill({ status: 200, json: { draftId: 900, sendAt: '2026-11-19T00:00:10Z' } }),
   )
   await openInbox(page)
   await page.getByTestId('mail-row-10').click()
@@ -224,8 +224,13 @@ test('새 메일 AI 초안 — 하단 툴바에서 열어 생성하면 본문·�
 
 // UI 리뷰 — 모바일 잠금 이유는 보내기 가까이(상단 바 바로 아래) 한 줄, 꺼진 보내기는 켜진 색과 구분, 칩 ✕·다시 시도·참조/숨은참조·탭은 44px.
 test('첨부 때문에 보내기가 잠기면 상단 바 바로 아래 상태 줄로 알리고, 칩·탭·참조 버튼은 44px 터치 크기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // 자동 재시도 대기(1s·3s)는 앱 타이머라 실제 시간을 기다리지 않고 page.clock 으로 넘긴다(이동 전에 설치).
+  await page.clock.install()
   const held: import('@playwright/test').Route[] = []
+  // 도면.dwg 는 매번 500 — 자동 재시도(1s·3s)까지 3번 모두 실패해야 실패 칩이 뜬다. 사진.jpg 만 붙잡아 올리는 중으로 둔다.
   await page.route((u) => u.pathname === '/api/v1/mail/compose-attachments', (route) => {
+    const body = route.request().postDataBuffer()?.toString('utf8') ?? ''
+    if (body.includes('도면.dwg')) return route.fulfill({ status: 500, json: { message: 'x' } })
     held.push(route)
   })
   await openInbox(page)
@@ -240,11 +245,14 @@ test('첨부 때문에 보내기가 잠기면 상단 바 바로 아래 상태 �
     { name: '도면.dwg', mimeType: 'application/octet-stream', buffer: Buffer.from('D') },
     { name: '사진.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('J') },
   ])
-  await expect.poll(() => held.length).toBe(2)
-  await held[0].fulfill({ status: 500, json: { message: 'x' } })
+  await expect.poll(() => held.length).toBe(1)
 
   const statusBar = page.getByTestId('mail-compose-send-blocked')
-  await expect(statusBar).toHaveText(/빼거나 다시 시도/)
+  // 재시도 타이머는 앞 시도의 응답을 받은 뒤에 걸리므로, 한 번에 4s 를 건너뛰지 않고 걸릴 때마다 시계를 밀며 실패 칩이 뜰 때까지 본다.
+  await expect(async () => {
+    await page.clock.runFor(1000)
+    await expect(statusBar).toHaveText(/빼거나 다시 시도/, { timeout: 300 })
+  }).toPass({ timeout: 10_000 })
   await expect(statusBar).toHaveCount(1) // 본문 아래 칩 목록엔 같은 줄을 다시 두지 않는다.
   const header = (await page.locator('[data-testid="mail-compose-dock"] > div').filter({ has: send }).boundingBox())!
   const bar = (await statusBar.boundingBox())!
@@ -268,7 +276,7 @@ test('첨부 때문에 보내기가 잠기면 상단 바 바로 아래 상태 �
   }
   expect((await failedChip.getByTestId('mail-compose-attachment-remove').boundingBox())!.width).toBeGreaterThanOrEqual(44)
 
-  await held[1].fulfill({ status: 201, json: { id: 2, name: '사진.jpg', size: 1, mimeType: 'image/jpeg', expiresAt: '2026-10-22T00:00:00Z' } })
+  await held[0].fulfill({ status: 201, json: { id: 2, name: '사진.jpg', size: 1, mimeType: 'image/jpeg', expiresAt: '2026-10-22T00:00:00Z' } })
   await failedChip.getByTestId('mail-compose-attachment-remove').click()
   await expect(statusBar).toHaveCount(0)
   await expect(send).toBeEnabled()

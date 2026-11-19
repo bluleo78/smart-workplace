@@ -214,6 +214,8 @@ export function IssuePropertyRail({
               issueNumber={issueNumber}
               current={assignees}
               disabled={updatePending || !canEditWorkflow}
+              // 이름을 누르면 사람 카드(WP-1767) — 고르기는 이름 밖 빈 자리(겹 단추)로 연다.
+              personCard
             />
           </div>
           {/* 구성요소(WP-933) — 담당자 바로 아래. 사용 중 구성요소가 없는 프로젝트면 행이 스스로 숨는다. 붙이기는 라벨과 같은 워크플로 권한. */}

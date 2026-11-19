@@ -29,9 +29,13 @@ export type CreateMode = 'run' | 'only';
  * - loading: 켰는데 후보를 아직 받는 중 — 버튼은 「만들고 지금 실행」/「만들기만」으로 두되 잠그고, 만들기도 막는다(받기 전에 눌러 맡기기가 조용히
  *   빠진 채 만들어지지 않게). 받은 목록이 비면 active 가 아니라 평소 「생성」으로 돌아가고, 칸이 「맡길 수 있는 AI 가 없습니다」를 보인다.
  *
+ * initialAgentId(WP-1767): 사람 카드의 「일 맡기기」가 AI 를 골라 둔 채 창을 연다 — 열릴 때 맡기기를 켜고 펼치며 그 AI 를 고른다. 후보를 받았는데 그
+ * AI 가 없으면(이 프로젝트의 멤버가 아님) 첫 후보로 대신 고르지 않고 agent 를 비운다(notMember) — 엉뚱한 AI 에게 맡겨지지 않게.
+ * 그때도 칸은 다른 후보를 고를 수 있게 보이고, 사용자가 고르면 pickedAgentId 가 바뀌어 notMember 가 풀린다.
+ *
  * 만들기와 일정 저장은 화면이 차례로 부른다(afterCreate) — 작업 만들기는 성공했는데 일정 저장이 실패하면 작업은 남기고 이유를 알린다.
  */
-export function useCreateAiHandoff(projectKey: string, open: boolean) {
+export function useCreateAiHandoff(projectKey: string, open: boolean, initialAgentId?: number) {
   const qc = useQueryClient();
   const [on, setOn] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -42,20 +46,27 @@ export function useCreateAiHandoff(projectKey: string, open: boolean) {
   // 켜져 있는 동안 받는다 — 받는 사이 줄을 접어도 요청이 끊기지 않고, 접은 뒤에도 요약에 고른 AI 가 남는다.
   const agents = useProjectRecurrenceAgents(projectKey, open && on);
   const options = agents.data ?? [];
-  const agentId = pickedAgentId != null && options.some((o) => o.id === pickedAgentId) ? pickedAgentId : options[0]?.id ?? null;
+  const pickedInOptions = pickedAgentId != null && options.some((o) => o.id === pickedAgentId);
+  // 미리 채운 AI 를 아직 고른 채인데 후보에 없으면 첫 후보로 대신하지 않는다(받는 중이거나 멤버가 아님).
+  const keepInitial = initialAgentId != null && pickedAgentId === initialAgentId && !pickedInOptions;
+  const agentId = pickedInOptions ? pickedAgentId : keepInitial ? null : options[0]?.id ?? null;
+  const notMember = on && keepInitial && agents.isSuccess;
   const agent = options.find((o) => o.id === agentId) ?? null;
   const active = on && agent != null;
   const loading = on && agents.isPending;
   const error = active ? validateTaskRecurrence(form) : null;
 
-  // 창을 다시 열면 처음 상태로 — 지난번에 켜 둔 맡기기가 다음 작업에 남지 않게.
+  // 창을 다시 열면 처음 상태로 — 지난번에 켜 둔 맡기기가 다음 작업에 남지 않게. 미리 채운 AI 가 있으면 켜고 펼쳐 그 AI 를 고른다.
   useEffect(() => {
     if (!open) return;
-    setOn(false);
-    setExpanded(false);
+    const preset = initialAgentId != null;
+    setOn(preset);
+    setExpanded(preset);
     setForm(INITIAL_FORM);
-    setPickedAgentId(null);
+    setPickedAgentId(initialAgentId ?? null);
     setTouched(false);
+    // initialAgentId 는 열릴 때의 값만 쓴다 — 열린 채 바뀌어도 입력 중인 폼을 되돌리지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   /** 줄을 누른다 — 처음 펼치면 맡기기를 켠다. 펼친 채 누르면 접기만 한다(설정은 남는다). */
@@ -119,7 +130,7 @@ export function useCreateAiHandoff(projectKey: string, open: boolean) {
 
   return {
     expanded, toggle, turnOff, form, patch, agents, options, agentId, agent, setAgentId: setPickedAgentId,
-    active, loading, error: touched ? error : null, check, afterCreate,
+    active, loading, notMember, error: touched ? error : null, check, afterCreate,
   };
 }
 

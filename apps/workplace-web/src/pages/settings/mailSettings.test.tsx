@@ -55,10 +55,12 @@ type Opts = {
   startStatus?: number
   /** 연결 테스트 응답을 붙들 프라미스 — 부를 때마다 앞에서 하나씩 꺼내 그 값이 풀릴 때까지 응답을 미룬다(WP-1770). */
   testGates?: Array<Promise<void>>
+  /** 임시보관 개수 응답의 보내기 대기 수(WP-1786, 계정 삭제 확인창 안내). */
+  queued?: number
 }
 
 /** 메일 계정 화면을 띄운다 — 서버 목록은 상태로 들고 생성·삭제·AI 토글을 반영한다. 쓰기 요청은 calls 에 쌓인다. */
-async function openMail({ accounts = [], tests = [ok], testStatus = [], testGates = [], preferred = false, startStatus = 200 }: Opts = {}) {
+async function openMail({ accounts = [], tests = [ok], testStatus = [], testGates = [], preferred = false, startStatus = 200, queued = 0 }: Opts = {}) {
   let list = [...accounts]
   const calls: Call[] = []
   const record = async (request: Request) => {
@@ -83,6 +85,8 @@ async function openMail({ accounts = [], tests = [ok], testStatus = [], testGate
       // 「작성 방식」 카드(WP-1744)가 부른다 — 기본(우측 하단). 카드 판정은 mailComposeMode.test.tsx.
       http.get('/api/v1/mail/settings', () => HttpResponse.json(createMailSettings())),
       http.get('/api/v1/mail/accounts', () => HttpResponse.json(list)),
+      // 계정 삭제 확인창이 보내기 대기 수를 읽는다(WP-1786) — 읽기라 calls 에 쌓지 않는다.
+      http.get('/api/v1/mail/drafts/count', () => HttpResponse.json({ count: 0, queued })),
       http.post('/api/v1/mail/accounts/test', async ({ request }) => {
         await record(request)
         return testResponse()
@@ -376,6 +380,23 @@ describe('계정 목록', () => {
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '삭제' }))
     await waitFor(() => expect(screen.queryByTestId('mail-account-row-1')).not.toBeInTheDocument())
     expect(calls).toEqual([{ method: 'DELETE', path: '/api/v1/mail/accounts/1', body: null }])
+  })
+
+  test('보내기 대기가 있으면 계정 삭제 확인창이 대기 건수도 함께 지워진다고 알린다, 없으면 알리지 않는다 (WP-1786)', async () => {
+    const { user } = await openMail({ accounts: [account()], queued: 2 })
+    await user.click(await screen.findByTestId('mail-delete-1'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(await within(dialog).findByText('보내기 대기 2건도 함께 삭제됩니다')).toBeInTheDocument()
+  })
+
+  test('보내기 대기가 0건이면 대기 안내가 없다 (WP-1786)', async () => {
+    const { user } = await openMail({ accounts: [account()], queued: 0 })
+    await user.click(await screen.findByTestId('mail-delete-1'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('이 계정과 동기화된 메일·일정이 모두 영구 삭제됩니다.')
+    // 개수 응답을 받은 뒤에도 안내가 없다
+    await new Promise((r) => setTimeout(r, 50))
+    expect(within(dialog).queryByTestId('delete-impact')).not.toBeInTheDocument()
   })
 })
 

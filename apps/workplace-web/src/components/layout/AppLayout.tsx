@@ -25,6 +25,7 @@ import { useNodeBridge } from '@/components/layout/useNodeBridge'
 import { LazyMailComposeDock } from '@/components/mail/LazyMailComposeDock'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MailComposeWindowSync } from '@/components/mail/MailComposeWindowSync'
+import { MailDraftDeepLink } from '@/components/mail/MailDraftDeepLink'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
 import { MobileShell } from '@/components/mobile/MobileShell'
 import { SearchPaletteHost } from '@/components/search/SearchPaletteHost'
@@ -168,6 +169,8 @@ export function AppLayout() {
             <LazyMailComposeDock />
             {/* WP-1535: 메일 작성 새 창이 보내거나 닫으면 이 창의 보낸편지함·임시보관함을 다시 받는다. */}
             <MailComposeWindowSync />
+            {/* WP-1786: 메일 보내기 실패 알림이 보낸 /mail?draftId=N 을 받아 그 임시보관을 작성 창으로 연다. */}
+            <MailDraftDeepLink />
             {/* WP-1235 「채팅·이슈로 보내기」 — 🔗 토스트·⋯·⬆︎ 시트가 openSendToChat 으로 연다. 셸 분기(isMobile) 밖에 둬 어느 화면에서나 뜬다. */}
             <SendToChatHost />
             {/* WP-1534 드라이브 업로드 패널 — 셸 분기 밖이라 lg 경계로 셸이 바뀌어도 접힘 상태가 유지되고, 어느 메뉴에서나 보인다. */}

@@ -62,7 +62,7 @@ test.describe('메일 받는사람 자동완성 (WP-945)', () => {
   test('주소 일부로 최근·구성원·주소록 후보를 찾아 키보드·마우스로 고르면 칩이 되고, 발송에는 칩 순서대로 실린다', { tag: ['@input', '@smoke'] }, async ({ authenticatedPage: page }) => {
     const { recent, contacts } = await mockSuggestions(page)
     const sends = trackRequests(page, 'POST', '/api/v1/mail/accounts/1/send')
-    await mockApi(page, 'POST', '/api/v1/mail/accounts/1/send', { localMessageId: 10, messageId: 'x@test.local' })
+    await mockApi(page, 'POST', '/api/v1/mail/accounts/1/send', { draftId: 900, sendAt: '2026-11-19T00:00:10Z' })
     await openCompose(page)
     const to = page.getByTestId('mail-compose-to')
 

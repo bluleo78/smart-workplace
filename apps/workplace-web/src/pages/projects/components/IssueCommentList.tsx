@@ -27,6 +27,7 @@ import { useReactionFocusRestore } from '@/components/reactions/useReactionFocus
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
+import { PersonCardTrigger } from '@/components/users/personCard/PersonCardTrigger';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useListFocusRescue } from '@/hooks/useListFocusRescue';
@@ -230,9 +231,15 @@ function CommentItem({
         {/* 긴 작성자명이 날짜·⋯ 를 밀어내지 않게 — 래퍼가 남은 폭만 쓰고(min-w-0 flex-1) 이름만 말줄임,
             아바타·AI 배지·날짜는 줄지도 꺾이지도 않는다(WP-228). */}
         <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-          {/* 이슈 채팅 머리 줄과 같은 ChatAvatar — 이니셜·사람 색·AI 봇 표식, 이름이 옆에 있어 장식(aria-hidden)이다. */}
-          <ChatAvatar userId={comment.authorId} name={comment.authorName} kind={comment.authorKind} className="size-6 text-xs" />
-          <span className="min-w-0 truncate font-semibold text-foreground">{comment.authorName}</span>
+          {/* 이슈 채팅 머리 줄과 같은 ChatAvatar — 이니셜·사람 색·AI 봇 표식, 이름이 옆에 있어 장식(aria-hidden)이다.
+              아바타·이름을 누르면 사람 카드(WP-1767) — 이름만 말줄임되게 트리거가 남은 폭을 나눠 쓴다(min-w-0). */}
+          <PersonCardTrigger
+            person={{ id: comment.authorId, name: comment.authorName, kind: comment.authorKind }}
+            className="inline-flex min-w-0 items-center gap-2"
+          >
+            <ChatAvatar userId={comment.authorId} name={comment.authorName} kind={comment.authorKind} className="size-6 shrink-0 text-xs" />
+            <span className="min-w-0 truncate font-semibold text-foreground hover:underline">{comment.authorName}</span>
+          </PersonCardTrigger>
           {isAgent && (
             // AI 배지 변형(테두리 있음) + 카드 바탕 — AI 옅은 색 띠 위에서도 배지 모양이 묻히지 않는다.
             <Badge variant="ai" className="shrink-0 bg-card">

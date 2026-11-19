@@ -33,7 +33,12 @@ export const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   PERSONAL_ASSISTANT_REVOKED: '님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요',
   // WP-1686 새 앱 연결 — 행위자가 없어 이름 뒤에 붙지 않는다. InboxList 가 「새 앱 연결 — {앱 이름}」으로 그린다.
   OAUTH_APP_CONNECTED: '새 앱 연결',
+  // WP-1786 메일 보내기 실패 — 행위자 없는 알림. 결과를 모르는 변형은 notificationAction 이 MAIL_SEND_UNKNOWN 으로 바꾼다. 메일 제목은 InboxList 가 아래 줄에.
+  MAIL_SEND_FAILED: '메일을 보내지 못함',
 };
+
+// 메일 보내기 실패 중 결과를 모르는 변형(WP-1786, mailSendUnknown) — 보내다 멈춰 나갔는지 모르니 보낸편지함을 보게 한다.
+export const MAIL_SEND_UNKNOWN = '보냈는지 확인하지 못함 — 보낸편지함을 확인해 주세요';
 
 // 행위자 없는 개인 비서 연결 해제 문구(WP-1170) — 일회성 정리가 해제해 actor 가 null 인 알림.
 export const PERSONAL_ASSISTANT_REVOKED_NO_ACTOR = '내 개인 비서의 AI 연결이 해제됐어요 — 다시 연결해 주세요';
@@ -61,6 +66,8 @@ const STATE_LABEL_ALLOWED: Partial<Record<NotificationResponse['type'], readonly
  * 같은 알림이 화면마다 다르게 읽히지 않는다.
  */
 export function notificationAction(n: NotificationResponse): string {
+  // WP-1786: 메일 보내기 실패는 변형(mailSendUnknown)으로 문구를 고른다 — 서버 푸시(PushContentService)와 같은 뜻.
+  if (n.type === 'MAIL_SEND_FAILED' && n.mailSendUnknown) return MAIL_SEND_UNKNOWN;
   if (n.type === 'STATUS_CHANGED' && n.statusName) {
     return `님이 상태를 '${n.statusName}'${directionParticle(n.statusName)} 변경했습니다`;
   }

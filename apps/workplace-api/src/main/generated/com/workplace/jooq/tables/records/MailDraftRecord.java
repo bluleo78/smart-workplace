@@ -8,6 +8,7 @@ import com.workplace.jooq.tables.MailDraft;
 
 import java.time.OffsetDateTime;
 
+import org.jooq.JSONB;
 import org.jooq.Record1;
 import org.jooq.impl.UpdatableRecordImpl;
 
@@ -244,6 +245,132 @@ public class MailDraftRecord extends UpdatableRecordImpl<MailDraftRecord> {
         return (OffsetDateTime) get(15);
     }
 
+    /**
+     * Setter for <code>public.mail_draft.send_at</code>.
+     */
+    public void setSendAt(OffsetDateTime value) {
+        set(16, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.send_at</code>.
+     */
+    public OffsetDateTime getSendAt() {
+        return (OffsetDateTime) get(16);
+    }
+
+    /**
+     * Setter for <code>public.mail_draft.send_state</code>.
+     */
+    public void setSendState(String value) {
+        set(17, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.send_state</code>.
+     */
+    public String getSendState() {
+        return (String) get(17);
+    }
+
+    /**
+     * Setter for <code>public.mail_draft.send_error</code>.
+     */
+    public void setSendError(String value) {
+        set(18, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.send_error</code>.
+     */
+    public String getSendError() {
+        return (String) get(18);
+    }
+
+    /**
+     * Setter for <code>public.mail_draft.sending_started_at</code>.
+     */
+    public void setSendingStartedAt(OffsetDateTime value) {
+        set(19, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.sending_started_at</code>.
+     */
+    public OffsetDateTime getSendingStartedAt() {
+        return (OffsetDateTime) get(19);
+    }
+
+    /**
+     * Setter for <code>public.mail_draft.sent_by_schedule</code>.
+     */
+    public void setSentBySchedule(Boolean value) {
+        set(20, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.sent_by_schedule</code>.
+     */
+    public Boolean getSentBySchedule() {
+        return (Boolean) get(20);
+    }
+
+    /**
+     * Setter for <code>public.mail_draft.body_text</code>.
+     */
+    public void setBodyText(String value) {
+        set(21, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.body_text</code>.
+     */
+    public String getBodyText() {
+        return (String) get(21);
+    }
+
+    /**
+     * Setter for <code>public.mail_draft.in_reply_to_message_id</code>.
+     */
+    public void setInReplyToMessageId(Long value) {
+        set(22, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.in_reply_to_message_id</code>.
+     */
+    public Long getInReplyToMessageId() {
+        return (Long) get(22);
+    }
+
+    /**
+     * Setter for <code>public.mail_draft.inline_images</code>.
+     */
+    public void setInlineImages(JSONB value) {
+        set(23, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.inline_images</code>.
+     */
+    public JSONB getInlineImages() {
+        return (JSONB) get(23);
+    }
+
+    /**
+     * Setter for <code>public.mail_draft.inline_uploads</code>.
+     */
+    public void setInlineUploads(JSONB value) {
+        set(24, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.inline_uploads</code>.
+     */
+    public JSONB getInlineUploads() {
+        return (JSONB) get(24);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -267,7 +394,7 @@ public class MailDraftRecord extends UpdatableRecordImpl<MailDraftRecord> {
     /**
      * Create a detached, initialised MailDraftRecord
      */
-    public MailDraftRecord(Long id, Long tenantId, Long userId, Long accountId, String mode, String[] toAddrs, String[] ccAddrs, String[] bccAddrs, String subject, String bodyHtml, String preview, Long sourceMessageId, Boolean quoteRemoved, Integer version, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public MailDraftRecord(Long id, Long tenantId, Long userId, Long accountId, String mode, String[] toAddrs, String[] ccAddrs, String[] bccAddrs, String subject, String bodyHtml, String preview, Long sourceMessageId, Boolean quoteRemoved, Integer version, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime sendAt, String sendState, String sendError, OffsetDateTime sendingStartedAt, Boolean sentBySchedule, String bodyText, Long inReplyToMessageId, JSONB inlineImages, JSONB inlineUploads) {
         super(MailDraft.MAIL_DRAFT);
 
         setId(id);
@@ -286,6 +413,15 @@ public class MailDraftRecord extends UpdatableRecordImpl<MailDraftRecord> {
         setVersion(version);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setSendAt(sendAt);
+        setSendState(sendState);
+        setSendError(sendError);
+        setSendingStartedAt(sendingStartedAt);
+        setSentBySchedule(sentBySchedule);
+        setBodyText(bodyText);
+        setInReplyToMessageId(inReplyToMessageId);
+        setInlineImages(inlineImages);
+        setInlineUploads(inlineUploads);
         resetTouchedOnNotNull();
     }
 }

@@ -48,13 +48,15 @@ const issueCreateResolver: Resolver<CreateIssueFormData> = async (values, contex
 
 // 이슈 생성 폼 로직 — 데스크톱 다이얼로그와 모바일 시트가 공유한다(WP-196). 렌더링은 각 컴포넌트 몫.
 export function useIssueCreateForm({
-  projectKey, open, onOpenChange, initialTypeId, initialStatusId,
+  projectKey, open, onOpenChange, initialTypeId, initialStatusId, initialAgentId,
 }: {
   projectKey: string; open: boolean; onOpenChange: (v: boolean) => void;
   // 유형 기본값 오버라이드 — 에픽 패널 「＋ 에픽 만들기」가 EPIC id 를 넘긴다. 미지정 시 기존 TASK 기본.
   initialTypeId?: number;
   // 처음 프로젝트 상태 id(WP-464·WP-808) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태를 넘긴다. 미지정이면 할 일(범주 기본 상태).
   initialStatusId?: number;
+  // 맡길 AI 미리 채우기(WP-1767) — 사람 카드의 「일 맡기기」. 열리면 「AI 에게 맡기기」가 펼쳐져 그 AI 가 골라진다.
+  initialAgentId?: number;
 }) {
   const create = useCreateIssue(projectKey);
   const classify = useIssueAiClassify(projectKey);
@@ -74,7 +76,7 @@ export function useIssueCreateForm({
   const showComponents = !intakeOnly && hasActiveComponents(componentList);
   const [componentIds, setComponentIds] = useState<number[]>([]);
   // 「AI 에게 맡기기」(WP-1315) — 만든 뒤 실행 일정을 저장하고, 「만들고 지금 실행」이면 시험 실행을 보낸다.
-  const ai = useCreateAiHandoff(projectKey, open);
+  const ai = useCreateAiHandoff(projectKey, open, initialAgentId);
   // 만들기 뒤 일정 저장·지금 실행까지 도는 동안 버튼을 잠근다(만들기 요청만 끝나도 두 번 누를 수 없게).
   const [submitting, setSubmitting] = useState(false);
   // 같은 틱에 두 번 눌러도(버튼 비활성이 그려지기 전 — Enter 연타·더블클릭) 만들기·지금 실행이 두 번 나가지 않게 막는 동기 잠금.

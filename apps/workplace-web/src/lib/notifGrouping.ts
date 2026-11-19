@@ -2,10 +2,12 @@
 // 전부 순수 함수(클라이언트 파생) — 백엔드 변경 없음. (내 작업 위젯 myTasks.ts 선례)
 import {
   isCalendarType,
+  isMailSendFailedType,
   isMentionLike,
   isOAuthAppConnectedType,
   isPersonalAssistantRevokedType,
   isWikiShareType,
+  mailSendFailedLabel,
   notifLabel,
   notifTarget,
   OAUTH_APP_LABEL,
@@ -42,6 +44,7 @@ export interface GroupedNotifs {
 // AI 작업 검토 요청·실패(WP-913)도 내가 검토하거나 다시 맡겨야 하는 알림이라 행동 필요.
 // 개인 비서 연결 해제(WP-1170)는 내가 다시 연결해야 비서가 동작하므로 행동 필요.
 // 새 앱 연결(WP-1686)은 내가 한 일이 아니면 바로 끊어야 하므로 행동 필요.
+// 메일 보내기 실패(WP-1786)는 내 메일이 나가지 않았으니 고쳐 다시 보내거나 보낸편지함을 확인해야 하므로 행동 필요.
 // COMMENTED 는 담당자∪워처 공통 수신이라 "나를 멘션"인지 구분 불가 → 보수적으로 updates.
 export function notifSection(n: NotificationResponse): NotifSection {
   // 나를 호출한 알림(코멘트 멘션 WP-650·이슈 챗 멘션·AI 질문 WP-452)은 홈 「멘션」과 같은 판정(isMentionLike)을 쓴다 — 두 곳이 갈리지 않게(WP-1092).
@@ -53,6 +56,7 @@ export function notifSection(n: NotificationResponse): NotifSection {
     n.type === "AI_WORK_FAILED" ||
     isPersonalAssistantRevokedType(n) ||
     isOAuthAppConnectedType(n) || // WP-1686
+    isMailSendFailedType(n) || // WP-1786
     isMentionLike(n)
     ? "mine"
     : "updates";
@@ -65,6 +69,9 @@ function groupKey(n: NotificationResponse): string {
   if (isPersonalAssistantRevokedType(n)) return "assistant";
   // 새 앱 연결(WP-1686)도 이슈 키가 없어 한 줄로 묶는다 — 앱이 여러 번 연결돼도 「앱 연결 N건」 한 행.
   if (isOAuthAppConnectedType(n)) return "oauth-app";
+  // 메일 보내기 실패(WP-1786)는 임시보관마다 한 줄 — 같은 메일이 다시 실패하면 그 줄에 쌓이고, 다른 메일은 따로 보인다(푸시 태그와 같은 단위).
+  if (isMailSendFailedType(n))
+    return n.mailDraftId != null ? `mail-draft:${n.mailDraftId}` : `id:${n.id}`;
   // 노트 공유 알림(WP-579)은 같은 노트라도 유형별로 따로 둔다 — 접근 요청(행동 필요·공유 창을 여는 딥링크)이 공유받음과 한 줄로 섞이지 않게.
   if (isWikiShareType(n))
     return n.wikiPageId != null
@@ -81,6 +88,7 @@ function groupKey(n: NotificationResponse): string {
 function repTitle(n: NotificationResponse): string {
   if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_LABEL; // WP-1170
   if (isOAuthAppConnectedType(n)) return OAUTH_APP_LABEL; // WP-1686
+  if (isMailSendFailedType(n)) return mailSendFailedLabel(n); // WP-1786
   if (isWikiShareType(n)) return n.wikiPageTitle ?? "노트";
   if (isCalendarType(n)) return n.eventTitle ?? "일정 알림";
   return `${n.projectKey}-${n.issueNumber} · ${n.issueTitle}`;
@@ -108,10 +116,15 @@ const TYPE_ORDER: NotificationResponse["type"][] = [
   "WIKI_SHARE_ACCESS_APPROVED",
   "PERSONAL_ASSISTANT_REVOKED", // WP-1170
   "OAUTH_APP_CONNECTED", // WP-1686
+  "MAIL_SEND_FAILED", // WP-1786
 ];
 function deltaSummary(group: NotificationResponse[]): string {
   const counts = new Map<NotificationResponse["type"], number>();
   for (const n of group) counts.set(n.type, (counts.get(n.type) ?? 0) + 1);
+  // 메일 보내기 실패(WP-1786)는 변형별로 센다 — 「보내지 못함」과 「보냈는지 확인 필요」는 할 일이 달라 한 이름으로 합치지 않는다.
+  const mailUnknown = group.filter(
+    (n) => isMailSendFailedType(n) && n.mailSendUnknown,
+  ).length;
   const parts: string[] = [];
   for (const t of TYPE_ORDER) {
     const c = counts.get(t);
@@ -146,6 +159,18 @@ function deltaSummary(group: NotificationResponse[]): string {
       parts.push(c > 1 ? `개인 비서 연결 해제 ${c}건` : "개인 비서 연결 해제"); // WP-1170
     else if (t === "OAUTH_APP_CONNECTED")
       parts.push(c > 1 ? `앱 연결 ${c}건` : "앱 연결"); // WP-1686
+    else if (t === "MAIL_SEND_FAILED") {
+      // WP-1786 — 보내지 못함 n건 · 보냈는지 확인 필요 m건(0건인 쪽은 뺀다)
+      const failed = c - mailUnknown;
+      if (failed > 0)
+        parts.push(failed > 1 ? `보내지 못함 ${failed}건` : "보내지 못함");
+      if (mailUnknown > 0)
+        parts.push(
+          mailUnknown > 1
+            ? `보냈는지 확인 필요 ${mailUnknown}건`
+            : "보냈는지 확인 필요",
+        );
+    }
   }
   return parts.join(" · ");
 }

@@ -1,5 +1,7 @@
 // 메일 임시저장(WP-577) DTO — 백엔드 /api/v1/mail/drafts 계약과 1:1.
 // 임시저장은 앱 서버에만 둔다(IMAP Drafts 폴더와 동기화하지 않는다). 그래서 MailFolder 가 아니라 별도 리소스다.
+// WP-1786: 보내기 대기열도 같은 행이다 — 보내면 요청 전체가 이 행에 담겨 10초 뒤 서버가 보낸다(그동안 되돌릴 수 있다).
+import type { MailInlineRef } from './mailMessage';
 
 /**
  * 작성 종류 — 새 메일 / 회신 / 전달. 작성창 컨텍스트(MailComposeContext)도 이 타입을 그대로 쓴다.
@@ -52,6 +54,21 @@ export interface MailDraftDetail {
   /** 낙관적 잠금 버전 — PUT 에 그대로 실어 보낸다. 다르면 409 DRAFT_CONFLICT. */
   version: number;
   updatedAt: string;
+  /** 본문 평문(WP-1786) — 대기열이 보낼 때 평문 파트로 쓴다. 옛 응답엔 없을 수 있다. */
+  bodyText?: string | null;
+  /** 인용 원본 첨부의 cid 참조(WP-1786, 보내기 요청 inlineImages 와 같다). */
+  inlineImages?: MailInlineRef[];
+  /** 붙여 넣은 이미지 업로드 참조(WP-1786, 보내기 요청 inlineUploads 와 같다). */
+  inlineUploads?: MailInlineRef[];
+  /** 답장 원본 메일 id(WP-1786) — 스레딩 헤더용. */
+  inReplyToMessageId?: number | null;
+  /**
+   * 보내기 상태(WP-1786) — null = 일반 임시보관, QUEUED·SENDING = 보내는 중(임시보관함에 보이지 않는다), FAILED = 보내지 못함.
+   * QUEUED·SENDING·FAILED 행의 본문은 보내기 요청 그대로다(인용문이 붙고 붙여 넣은 이미지가 cid: 로 바뀐 형태) — composeFromDraft 가 되돌린다.
+   */
+  sendState?: 'QUEUED' | 'SENDING' | 'FAILED' | null;
+  /** FAILED 의 사유(사용자 문구). */
+  sendError?: string | null;
 }
 
 /**
@@ -74,6 +91,12 @@ export interface MailDraftSaveRequest {
   attachmentIds: number[];
   /** 전달 원본 메일 첨부 id(email_attachment). */
   forwardAttachmentIds: number[];
+  /** 인용 원본 첨부의 cid 참조(WP-1786) — 보내기 요청과 같은 모양으로 담아, 대기열이 그 행만으로 보낼 수 있게 한다. */
+  inlineImages?: MailInlineRef[];
+  /** 본문에 붙여 넣은 이미지 업로드 참조(WP-1786). */
+  inlineUploads?: MailInlineRef[];
+  /** 답장 원본 메일 id(WP-1786) — 답장이 아니면 null. */
+  inReplyToMessageId?: number | null;
   version?: number;
 }
 
@@ -100,3 +123,12 @@ export const DRAFT_CONFLICT = 'DRAFT_CONFLICT';
  * 계정이 비활성인 404 등 다른 404 에는 없다(일반 저장 실패로 다룬다).
  */
 export const DRAFT_NOT_FOUND = 'DRAFT_NOT_FOUND';
+
+/**
+ * 보내는 중(대기·발송 중)인 임시저장을 고치거나 지우려 할 때 서버가 주는 오류 코드(409, WP-1786).
+ * 그 쓰기 창은 보내기로 이미 닫혔으므로(다른 탭에 남은 같은 임시저장 등) 자동 저장은 조용히 멈춘다.
+ */
+export const DRAFT_SENDING = 'DRAFT_SENDING';
+
+/** 되돌리기가 늦었다 — 서버가 이미 보내는 중이다(409, WP-1786). 404(이미 보내고 지워짐)와 함께 「이미 보냄」으로 알린다. */
+export const ALREADY_SENDING = 'ALREADY_SENDING';

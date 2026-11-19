@@ -258,6 +258,34 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         return (OffsetDateTime) get(16);
     }
 
+    /**
+     * Setter for <code>public.notification.mail_draft_id</code>.
+     */
+    public void setMailDraftId(Long value) {
+        set(17, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.mail_draft_id</code>.
+     */
+    public Long getMailDraftId() {
+        return (Long) get(17);
+    }
+
+    /**
+     * Setter for <code>public.notification.mail_send_unknown</code>.
+     */
+    public void setMailSendUnknown(Boolean value) {
+        set(18, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.mail_send_unknown</code>.
+     */
+    public Boolean getMailSendUnknown() {
+        return (Boolean) get(18);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -281,7 +309,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
     /**
      * Create a detached, initialised NotificationRecord
      */
-    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt, String statusName, String agentWorkState, OffsetDateTime archivedAt) {
+    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt, String statusName, String agentWorkState, OffsetDateTime archivedAt, Long mailDraftId, Boolean mailSendUnknown) {
         super(Notification.NOTIFICATION);
 
         setId(id);
@@ -301,6 +329,8 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         setStatusName(statusName);
         setAgentWorkState(agentWorkState);
         setArchivedAt(archivedAt);
+        setMailDraftId(mailDraftId);
+        setMailSendUnknown(mailSendUnknown);
         resetTouchedOnNotNull();
     }
 }

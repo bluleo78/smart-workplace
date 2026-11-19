@@ -6,7 +6,7 @@ import { AiLabel } from '@/components/ai/AiLabel';
 import { BusySwitch } from '@/components/BusySwitch';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
+import { DeleteConfirmDialog, DeleteImpactNote } from '@/components/ui/delete-confirm-dialog';
 import {
   Table,
   TableBody,
@@ -22,6 +22,7 @@ import {
   useMailAccounts,
   useSetMailAiEnabled,
 } from '@/hooks/queries/useMailAccounts';
+import { useMailDraftCount } from '@/hooks/queries/useMailDrafts';
 import { formatRelativeTime } from '@/lib/formatters';
 import { mailAccountProviderLabel } from '@/lib/mailAccountProvider';
 import type { MailAccountResponse } from '@/types/mailAccount';
@@ -134,6 +135,8 @@ export function MailAccountsSection({ onEdit }: MailAccountsSectionProps) {
                       itemName={acc.emailAddress}
                       onConfirm={() => del.mutate(acc.id)}
                       description="이 계정과 동기화된 메일·일정이 모두 영구 삭제됩니다. 되돌릴 수 없습니다. 계속하시겠습니까?"
+                      // WP-1786: 아직 나가지 않은 보내기 대기도 계정과 함께 지워진다 — 확인창이 열릴 때만 개수를 받는다.
+                      impact={<MailQueuedDeleteNote accountId={acc.id} />}
                       trigger={
                         <Button
                           size="sm"
@@ -155,4 +158,14 @@ export function MailAccountsSection({ onEdit }: MailAccountsSectionProps) {
       </div>
     </div>
   );
+}
+
+/**
+ * 계정 삭제 확인창의 보내기 대기 안내(WP-1786) — 계정을 지우면 아직 나가지 않은 보내기 대기 메일도 함께 지워지므로 그 수를 알린다.
+ * 확인창 본문 안에서만 그려져(닫혀 있으면 마운트되지 않는다) 열 때만 임시보관 개수 API 를 부른다. 0건·모름이면 그리지 않는다.
+ */
+function MailQueuedDeleteNote({ accountId }: { accountId: number }) {
+  const { data } = useMailDraftCount(accountId);
+  const queued = data?.queued ?? 0;
+  return <DeleteImpactNote note={queued > 0 ? `보내기 대기 ${queued}건도 함께 삭제됩니다` : null} />;
 }

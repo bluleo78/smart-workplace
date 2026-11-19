@@ -80,6 +80,7 @@ const ALL_TYPES = Object.keys({
   AI_WORK_FAILED: true,
   PERSONAL_ASSISTANT_REVOKED: true,
   OAUTH_APP_CONNECTED: true,
+  MAIL_SEND_FAILED: true,
 } satisfies Record<NotificationResponse['type'], true>) as NotificationResponse['type'][]
 
 describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
@@ -93,6 +94,7 @@ describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
         'ASSIGNED',
         'ISSUE_CHAT_MENTION',
         'ISSUE_COMMENT_MENTION',
+        'MAIL_SEND_FAILED',
         'OAUTH_APP_CONNECTED',
         'PERSONAL_ASSISTANT_REVOKED',
         'REPORTER_ASSIGNED',
@@ -322,5 +324,36 @@ describe('groupNotifications', () => {
     ])
     expect(failed.mine).toHaveLength(1)
     expect(failed.mine[0].deltaSummary).toBe('AI 실패 2건')
+  })
+  it('메일 보내기 실패는 내 차례로 임시보관마다 한 줄, 그 임시보관 쓰기 창으로 간다 (WP-1786)', () => {
+    const failed = (over: Partial<NotificationResponse>) =>
+      notif({
+        type: 'MAIL_SEND_FAILED',
+        actorId: null,
+        actorName: null,
+        actorKind: null,
+        projectKey: '',
+        issueNumber: 0,
+        issueTitle: '',
+        message: '주간 보고',
+        mailDraftId: 42,
+        mailSendUnknown: false,
+        ...over,
+      })
+    const { mine, updates } = groupNotifications([
+      failed({ id: 1, createdAt: '2026-06-16T01:00:00Z' }),
+      failed({ id: 2, mailSendUnknown: true, createdAt: '2026-06-16T02:00:00Z' }),
+      failed({ id: 3, mailDraftId: 43, message: null, createdAt: '2026-06-16T03:00:00Z' }),
+    ])
+    expect(updates).toHaveLength(0)
+    expect(mine).toHaveLength(2)
+    expect(mine[0].title).toBe('(제목 없음)')
+    expect(mine[0].target).toBe('/mail?draftId=43')
+    expect(mine[0].deltaSummary).toBe('보내지 못함')
+    expect(mine[1].title).toBe('주간 보고')
+    expect(mine[1].label).toBe('주간 보고')
+    expect(mine[1].target).toBe('/mail?draftId=42')
+    expect(mine[1].deltaSummary).toBe('보내지 못함 · 보냈는지 확인 필요')
+    expect(mine[1].repType).toBe('MAIL_SEND_FAILED')
   })
 })

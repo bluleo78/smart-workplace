@@ -14,7 +14,8 @@ import java.util.List;
  *
  * <p>statusName 은 STATUS_CHANGED 알림의 새 상태 이름(WP-869, 그 외·이름 없으면 null). agentWorkState 는 AI 작업 상태로
  * 생긴 알림의 원인 상태(WP-913 — REVIEW·FAILED·REJECTED·INPUT_REQUIRED·AUTH_REQUIRED·BLOCKED, 그 외 null)로, 푸시
- * 문구를 인박스와 같은 상태별 문구로 만든다.
+ * 문구를 인박스와 같은 상태별 문구로 만든다. 메일 발송 실패(MAIL_SEND_FAILED, WP-1786)는 eventTitle 에 메일 제목, mailDraftId 에 그
+ * 임시보관 id, mailSendUnknown 에 변형(true = 보냈는지 확인하지 못함, false = 보내지 못함)을 싣는다.
  */
 public record InboxPushRequestedEvent(
     long tenantId,
@@ -27,7 +28,41 @@ public record InboxPushRequestedEvent(
     Long wikiPageId,
     String eventTitle,
     String statusName,
-    String agentWorkState) {
+    String agentWorkState,
+    Long mailDraftId,
+    boolean mailSendUnknown) {
+
+  /**
+   * mailDraftId·mailSendUnknown 없이 만드는 생성자 — 메일 발송 실패 알림(MAIL_SEND_FAILED, WP-1786)이 아닌 모든 알림용. 그
+   * 알림만 푸시 클릭 대상(그 임시보관 쓰기 창)과 문구 변형을 만들려고 임시보관 id 와 「확인하지 못함」 여부를 싣는다.
+   */
+  public InboxPushRequestedEvent(
+      long tenantId,
+      NotificationType type,
+      PushCategory category,
+      List<Long> recipientIds,
+      Long actorId,
+      Long issueId,
+      Long eventId,
+      Long wikiPageId,
+      String eventTitle,
+      String statusName,
+      String agentWorkState) {
+    this(
+        tenantId,
+        type,
+        category,
+        recipientIds,
+        actorId,
+        issueId,
+        eventId,
+        wikiPageId,
+        eventTitle,
+        statusName,
+        agentWorkState,
+        null,
+        false);
+  }
 
   /** agentWorkState 없이 만드는 생성자 — AI 작업 상태 알림(WP-913)이 아닌 모든 알림용. */
   public InboxPushRequestedEvent(

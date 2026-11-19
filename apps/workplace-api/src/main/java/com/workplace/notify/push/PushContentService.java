@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PushContentService {
 
   static final int INBOX_TTL = 259200;
+
   private final PushContentRepository repo;
 
   /** 인박스 이벤트 → PushMessage. 대상(이슈/일정)이 없거나 삭제됐으면 null. */
@@ -58,6 +59,23 @@ public class PushContentService {
           app + " — 내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요",
           "/settings/tokens#connected-apps",
           "oauth-app-connected",
+          "normal",
+          INBOX_TTL);
+    }
+    // 메일 발송 실패(WP-1786) — 행위자 없는 계정 알림. 메일 제목은 eventTitle 칸, 변형은 mailSendUnknown(true = 발송 중 멈춰
+    // 결과를 모름)으로 온다. 누르면 그 임시보관을 쓰기 창으로 연다(새 창 쓰기 화면 /mail/compose?draftId=N). 같은 임시보관의 알림끼리만
+    // 묶이게 태그에 id 를 붙인다 — 서로 다른 메일의 실패가 한 푸시로 덮이지 않게. 빈 제목은 NotificationService 가 이미 「(제목 없음)」으로
+    // 채워 보낸다.
+    if (e.type() == NotificationType.MAIL_SEND_FAILED) {
+      String subject = Texts.truncateCodePoints(e.eventTitle(), 120);
+      boolean unknown = e.mailSendUnknown();
+      return new PushMessage(
+          e.tenantId(),
+          category,
+          unknown ? "보냈는지 확인하지 못함" : "메일을 보내지 못함",
+          unknown ? subject + " — 보낸편지함을 확인해 주세요" : subject,
+          e.mailDraftId() == null ? "/mail" : "/mail/compose?draftId=" + e.mailDraftId(),
+          e.mailDraftId() == null ? "mail-send-failed" : "mail-send-failed-" + e.mailDraftId(),
           "normal",
           INBOX_TTL);
     }
@@ -231,6 +249,8 @@ public class PushContentService {
       case PERSONAL_ASSISTANT_REVOKED -> "님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요";
       // 새 앱 연결(WP-1686)은 forInbox 가 전용 문구를 쓰고 이 문구는 쓰지 않는다 — switch 를 빠짐없이 두려고 채운다.
       case OAUTH_APP_CONNECTED -> "새 앱이 연결됐어요";
+      // 메일 발송 실패(WP-1786)도 forInbox 가 전용 문구를 쓴다 — switch 를 빠짐없이 두려고 채운다.
+      case MAIL_SEND_FAILED -> "메일을 보내지 못했어요";
     };
   }
 }

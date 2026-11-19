@@ -49,7 +49,9 @@ describe('보고자 (WP-272·WP-944)', () => {
     const reporter = within(group).getByTestId('issue-reporter')
     expect(reporter).toHaveTextContent('김보고')
     expect(within(reporter).getByTestId('issue-reporter-created')).toHaveTextContent('· 10월 3일 생성')
-    expect(within(reporter).queryByRole('button')).not.toBeInTheDocument()
+    // 읽기 전용 — 고르기 단추가 없다. 이름은 사람 카드 단추(WP-1767)라 단추 자체는 있다.
+    expect(screen.queryByTestId('reporter-picker-trigger')).not.toBeInTheDocument()
+    expect(within(reporter).getAllByRole('button').map((b) => b.dataset.testid)).toEqual(['person-card-trigger-5'])
     // 담당자 필드 뒤(문서 순서)에 놓인다 — 실제 세로 좌표는 같은 순서의 블록 배치라 DOM 순서로 지킨다.
     const assignee = within(group).getByTestId('assignee-picker-trigger')
     expect(assignee.compareDocumentPosition(reporter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
