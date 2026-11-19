@@ -34,6 +34,8 @@ type Props = {
   initialTypeId?: number;
   // 처음 상태(WP-464·WP-808) — 보드 컬럼의 「이슈 추가」가 그 컬럼의 프로젝트 상태 id 를 넘긴다.
   initialStatusId?: number;
+  // 맡길 AI 미리 채우기(WP-1767) — 열리면 「AI 에게 맡기기」가 펼쳐져 그 AI 가 골라진다.
+  initialAgentId?: number;
 };
 
 // 새 이슈 생성 진입점 — 모바일(<1024px)은 전체 화면 시트(WP-196), 데스크톱은 기존 모달.
@@ -47,14 +49,14 @@ export function IssueCreateDialog(props: Props) {
 // 유형 select 의 기본값은 프로젝트 유형 목록에서 name === 'TASK' 인 id (없으면 첫 번째).
 // personal=true 면 개인 프로젝트(#226) — 유형 select 를 숨긴다. 기본값 effect 가 typeId 를 TASK 로
 // 채우므로 셀렉트가 없어도 payload 의 typeId 는 TASK 로 유지된다.
-function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId }: Props) {
+function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId, initialAgentId }: Props) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 저장 성공 등 부모가 창을 닫을 때 별도 확인 창 상태도 끝내 다시 열 때 남지 않게 한다.
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) setConfirmDiscard(false);
     onOpenChange(nextOpen);
   };
-  const f = useIssueCreateForm({ projectKey, open, onOpenChange: handleOpenChange, initialTypeId, initialStatusId });
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange: handleOpenChange, initialTypeId, initialStatusId, initialAgentId });
   const { register, watch, setValue, formState: { errors } } = f.form;
   const { types, classify, classifyReason, isSubtaskSelected, intakeOnly } = f;
   // 본문 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.

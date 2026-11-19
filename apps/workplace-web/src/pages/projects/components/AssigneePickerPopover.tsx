@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 
 import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
 import { AgentBadge } from '../../../components/users/AgentBadge';
+import { PersonCardTrigger } from '../../../components/users/personCard/PersonCardTrigger';
 import { AssigneeAvatar, CandidateAvatar } from '../../../components/users/UserAvatar';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../hooks/queries/useUpdateIssueAssignees';
@@ -25,12 +26,18 @@ export function AssigneePickerPopover({
   issueNumber,
   current,
   disabled = false,
+  personCard = false,
 }: {
   projectKey: string;
   issueNumber: number;
   current: UserSummary[];
   /** 워크플로 편집 권한 없을 때 트리거 비활성화 — IssuePropertyRail 과 동일 idiom. */
   disabled?: boolean;
+  /**
+   * 담당자 이름을 누르면 사람 카드를 연다(WP-1767, 이슈 상세 레일). 켜면 고르기 단추가 필드 전체를 덮는 겹 단추가 되고
+   * 이름(카드 단추)만 그 위에서 포인터를 받는다 — 단추 안에 단추를 둘 수 없어서다. 끄면 지금처럼 필드 전체가 한 단추.
+   */
+  personCard?: boolean;
 }) {
   const members = useProjectMembers(projectKey);
   const update = useUpdateIssueAssignees(projectKey, issueNumber);
@@ -70,50 +77,88 @@ export function AssigneePickerPopover({
     setOpen(next);
   }
 
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        {/* 담당자 필드 — 값(담당자/미지정)을 보여주는 풀폭 인라인 필드.
-            평소 borderless, 호버 시 보더+배경(편집 가능 신호). 클릭→팝오버, 외부클릭→닫힘(Radix).
-            이름에 보이는 값(담당자 이름들/미지정)을 붙인다 — aria-label 이 안쪽 글자를 덮어써 값을 못 읽었다(WP-853). */}
-        <button
-          type="button"
-          aria-label={labelWithValue('담당자 편집', current.length === 0 ? '미지정' : current.map(displayNameWithStatus).join(', '))}
-          data-testid="assignee-picker-trigger"
-          disabled={disabled}
-          className={cn(INLINE_FIELD_RAIL_CLASS, INLINE_FIELD_CLASS)}
-        >
-          <span className="flex flex-1 flex-wrap items-center gap-2" data-testid="issue-assignees">
-            {current.length === 0 ? (
-              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                <UserPlus className="h-4 w-4" />
-                미지정
-              </span>
+  // 담당자 칩 — 정지된 담당자는 흐린 이름 + 「비활성」 배지(WP-1080). AGENT 는 별도 칩 대신 아바타에 에이전트 표식(ring + Bot 마커).
+  const chips =
+    current.length === 0 ? (
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+        <UserPlus className="h-4 w-4" />
+        미지정
+      </span>
+    ) : (
+      current.map((u) => {
+        const inactive = isInactiveUser(u);
+        const person = (
+          <>
+            {/* 카드 단추 안에서는 아바타를 장식으로 — 이름이 바로 옆에 있어 두 번 읽히지 않게(AI 여부는 단추 이름이 알린다). */}
+            <AssigneeAvatar user={u} size="xs" decorative={personCard} />
+            <span className={cn(inactive && 'text-muted-foreground', personCard && 'hover:underline')}>{u.name}</span>
+          </>
+        );
+        return (
+          <span key={u.id} className="inline-flex items-center gap-1" data-testid={`issue-assignee-${u.id}`}>
+            {personCard ? (
+              // 이름·아바타를 누르면 사람 카드 — 겹 단추 위에서 포인터를 받는다(pointer-events-auto).
+              <PersonCardTrigger
+                person={u}
+                label={u.kind === 'AGENT' ? `${u.name} (에이전트)` : undefined}
+                className="pointer-events-auto inline-flex items-center gap-1"
+              >
+                {person}
+              </PersonCardTrigger>
             ) : (
-              current.map((u) => {
-                const inactive = isInactiveUser(u);
-                return (
-                  <span
-                    key={u.id}
-                    className="inline-flex items-center gap-1"
-                    data-testid={`issue-assignee-${u.id}`}
-                  >
-                    {/* AGENT 는 별도 칩 대신 아바타에 에이전트 표식(ring + Bot 마커). */}
-                    <AssigneeAvatar user={u} size="xs" />
-                    {/* 정지된 담당자는 흐린 이름 + 「비활성」 배지(WP-1080) */}
-                    <span className={cn(inactive && 'text-muted-foreground')}>{u.name}</span>
-                    {inactive && (
-                      <StatusBadge type="inactive" className="shrink-0" data-testid={`issue-assignee-${u.id}-inactive`}>
-                        비활성
-                      </StatusBadge>
-                    )}
-                  </span>
-                );
-              })
+              person
+            )}
+            {inactive && (
+              <StatusBadge type="inactive" className="shrink-0" data-testid={`issue-assignee-${u.id}-inactive`}>
+                비활성
+              </StatusBadge>
             )}
           </span>
-        </button>
-      </PopoverTrigger>
+        );
+      })
+    );
+  // 이름에 보이는 값(담당자 이름들/미지정)을 붙인다 — aria-label 이 안쪽 글자를 덮어써 값을 못 읽었다(WP-853).
+  const triggerLabel = labelWithValue('담당자 편집', current.length === 0 ? '미지정' : current.map(displayNameWithStatus).join(', '));
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      {personCard ? (
+        // 담당자 필드 — 고르기 단추가 필드 전체를 덮고(빈 자리를 누르면 고르기), 칩 줄은 그 위에 얹되 포인터를 통과시킨다.
+        <div className={cn('relative items-center border border-transparent text-left text-sm', INLINE_FIELD_RAIL_CLASS)}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={triggerLabel}
+              data-testid="assignee-picker-trigger"
+              disabled={disabled}
+              className={cn('absolute inset-0', INLINE_FIELD_CLASS)}
+            />
+          </PopoverTrigger>
+          {/* 고르기를 못 쓰면(권한 없음·저장 중) 값 줄을 예전처럼 흐린다 — 겹 단추의 disabled:opacity-50 이 위에 얹은 칩까지는 닿지 않는다. 이름은 그래도 카드를 연다. */}
+          <span
+            className={cn('pointer-events-none relative flex flex-1 flex-wrap items-center gap-2', disabled && 'opacity-50')}
+            data-testid="issue-assignees"
+          >
+            {chips}
+          </span>
+        </div>
+      ) : (
+        <PopoverTrigger asChild>
+          {/* 담당자 필드 — 값(담당자/미지정)을 보여주는 풀폭 인라인 필드.
+              평소 borderless, 호버 시 보더+배경(편집 가능 신호). 클릭→팝오버, 외부클릭→닫힘(Radix). */}
+          <button
+            type="button"
+            aria-label={triggerLabel}
+            data-testid="assignee-picker-trigger"
+            disabled={disabled}
+            className={cn(INLINE_FIELD_RAIL_CLASS, INLINE_FIELD_CLASS)}
+          >
+            <span className="flex flex-1 flex-wrap items-center gap-2" data-testid="issue-assignees">
+              {chips}
+            </span>
+          </button>
+        </PopoverTrigger>
+      )}
       <PopoverContent className="w-72 p-2" data-testid="assignee-picker">
         <Input
           placeholder="멤버 검색"

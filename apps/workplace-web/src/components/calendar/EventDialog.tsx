@@ -106,6 +106,8 @@ interface EventDialogProps {
   defaultStart?: Date
   /** 생성 모드: 기본 종료 시각 — 시간 그리드에서 구간을 끌어 열 때(WP-949). 없으면 시작 + 1시간 */
   defaultEnd?: Date
+  /** 생성 모드: 처음부터 참석자로 담아 둘 구성원(WP-1767 — 사람 카드의 「일정 잡기」 딥링크). 늦게 도착해도 열린 창에 칩이 붙는다. */
+  defaultAttendees?: SelectedMember[]
   /**
    * 저장 — 폼에서 고른 태그가 처음과 달라졌을 때만 body.tagIds 가 실린다(아니면 빠져 서버가 태그를 건드리지 않는다).
    * 태그는 일정 저장과 한 요청이라 반복 범위(「이후 모든 일정」의 새 시리즈 등)를 서버가 맞춘다(WP-801).
@@ -131,6 +133,7 @@ export function EventDialog({
   event,
   defaultStart,
   defaultEnd,
+  defaultAttendees,
   onSubmit,
   onDelete,
   isPending = false,
@@ -303,6 +306,13 @@ export function EventDialog({
       })
     }
   }, [open, event, defaultStart, defaultEnd, form])
+
+  // 기본 참석자(WP-1767) — 생성 모드에서 열려 있는 동안 도착한 것을 칩에 합친다. 폼 초기화 효과와 따로 둔 까닭:
+  // 구성원 조회가 창이 뜬 뒤 끝나므로, 같은 효과에 묶으면 도착 때 입력 중인 제목 등 폼이 통째로 비워진다. 이미 담긴 사람은 중복해 넣지 않는다.
+  useEffect(() => {
+    if (!open || event || !defaultAttendees?.length) return
+    setSelectedAttendees((prev) => [...prev, ...defaultAttendees.filter((d) => !prev.some((p) => p.id === d.id))])
+  }, [open, event, defaultAttendees])
 
   // mutation 이 끝나면(성공 또는 실패) in-flight 가드 해제 — 실패 시 다이얼로그가
   // 그대로 유지되므로 재시도가 가능해야 한다.

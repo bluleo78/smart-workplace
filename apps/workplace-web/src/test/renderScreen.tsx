@@ -10,6 +10,7 @@ import type { ReactElement } from 'react'
 import { BrowserRouter } from 'react-router-dom'
 
 import { AppToaster } from '@/components/AppToaster'
+import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthContext, type AuthContextValue } from '@/hooks/auth-context-value'
 
@@ -37,7 +38,7 @@ type RenderScreenOptions = {
 }
 
 /**
- * ui 를 QueryClient(재시도 끔)·고정 AuthContext·BrowserRouter(jsdom 세션 히스토리)·툴팁·토스트로 감싸 그린다.
+ * ui 를 QueryClient(재시도 끔)·고정 AuthContext·BrowserRouter(jsdom 세션 히스토리)·메일 쓰기 도크 상태·툴팁·토스트로 감싸 그린다.
  * 반환값의 user 는 userEvent 인스턴스, location() 은 지금 주소다. 모듈을 정적으로 불러오므로 첫 findBy* 에 긴 timeout 이 필요 없다.
  */
 export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth, projectTabs, queryRetry = false }: RenderScreenOptions = {}) {
@@ -57,7 +58,10 @@ export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth
       <AuthContext.Provider value={{ ...testAuthValue, ...auth }}>
         <BrowserRouter>
           <Tracked>
-            <TooltipProvider>{ui}</TooltipProvider>
+            {/* 앱 셸(AppLayout)이 까는 메일 쓰기 도크 상태 — 어느 화면의 사람 카드든 「메일 쓰기」가 이것을 쓴다(WP-1767). 상태만 든 공급자라 요청은 없다. */}
+            <MailComposeProvider>
+              <TooltipProvider>{ui}</TooltipProvider>
+            </MailComposeProvider>
             {/* 앱과 같은 토스트 영역(위치·접근성 이름) — WP-1428 */}
           <AppToaster />
           </Tracked>

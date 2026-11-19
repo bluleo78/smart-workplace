@@ -49,27 +49,39 @@ export function CreateAiHandoffSection({ ai, disabled = false }: { ai: CreateAiH
               <p role="alert" className="text-xs text-destructive">
                 맡길 수 있는 AI 를 불러오지 못했어요
               </p>
-            ) : noAgent ? (
-              <p className="text-xs text-muted-foreground" data-testid="create-ai-handoff-no-agent">
-                맡길 수 있는 AI 가 없습니다. 서버가 실행하는 AI 를 프로젝트 구성원으로 넣어 주세요.
-              </p>
             ) : (
-              <Select
-                value={ai.agentId == null ? '' : String(ai.agentId)}
-                onValueChange={(v) => ai.setAgentId(Number(v))}
-                disabled={disabled || ai.loading}
-              >
-                <SelectTrigger className="h-8 w-full" aria-label="담당 AI" aria-busy={ai.loading} data-testid="create-ai-handoff-agent">
-                  <SelectValue placeholder="불러오는 중…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ai.options.map((o) => (
-                    <SelectItem key={o.id} value={String(o.id)}>
-                      {agentOptionLabel(o)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                {ai.notMember && (
+                  // 미리 채운 AI 가 이 프로젝트 후보에 없다(WP-1767) — 다른 AI 로 대신하지 않고 알린다. 아래 칸에서 다른 후보를 고르면 안내가 사라진다.
+                  <p className="text-xs text-muted-foreground" data-testid="create-ai-handoff-not-member">
+                    이 프로젝트의 멤버가 아님
+                  </p>
+                )}
+                {noAgent ? (
+                  <p className="text-xs text-muted-foreground" data-testid="create-ai-handoff-no-agent">
+                    맡길 수 있는 AI 가 없습니다. 서버가 실행하는 AI 를 프로젝트 구성원으로 넣어 주세요.
+                  </p>
+                ) : (
+                  <Select
+                    value={ai.agentId == null ? '' : String(ai.agentId)}
+                    // 빈 값은 Radix 가 후보가 늘 때 내보내는 초기화 신호 — Number('') 가 0 이 되어 미리 채운 AI 를 지우지 않게 거른다(WP-1767).
+                    onValueChange={(v) => { if (v) ai.setAgentId(Number(v)); }}
+                    disabled={disabled || ai.loading}
+                  >
+                    <SelectTrigger className="h-8 w-full" aria-label="담당 AI" aria-busy={ai.loading} data-testid="create-ai-handoff-agent">
+                      {/* 멤버 아님이면 고른 AI 가 비어 있다 — 「불러오는 중…」 대신 고르라고 안내한다. */}
+                      <SelectValue placeholder={ai.notMember ? '다른 AI 고르기' : '불러오는 중…'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ai.options.map((o) => (
+                        <SelectItem key={o.id} value={String(o.id)}>
+                          {agentOptionLabel(o)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </>
             )}
           </div>
 

@@ -20,6 +20,7 @@ import { labelWithValue } from '@/lib/labelWithValue';
 import { cn } from '@/lib/utils';
 
 import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
+import { PersonCardTrigger } from '../../../components/users/personCard/PersonCardTrigger';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useChangeIssueReporter } from '../../../hooks/queries/useChangeIssueReporter';
 import { useReporterCandidates } from '../../../hooks/queries/useReporterCandidates';
@@ -64,9 +65,17 @@ export function IssueReporterField({
     <span className="inline-flex max-w-full min-w-0 items-center gap-1 text-sm" data-testid="issue-reporter">
       {reporter ? (
         <>
-          {/* AGENT 는 담당자 칩과 같은 아바타 표식(ring + Bot 마커)으로 사람과 구분한다. */}
-          <UserAvatar user={reporter} size="xs" agent={reporter.kind === 'AGENT'} />
-          <span className="truncate">{reporter.name}</span>
+          {/* AGENT 는 담당자 칩과 같은 아바타 표식(ring + Bot 마커)으로 사람과 구분한다.
+              아바타·이름을 누르면 사람 카드(WP-1767) — 고르기(편집) 단추와 따로 둔다(단추 안에 단추를 둘 수 없다). */}
+          <PersonCardTrigger
+            person={reporter}
+            // 아바타는 장식 — 단추 이름이 이름을 한 번만 읽고, AI 면 「(에이전트)」를 붙인다.
+            label={reporter.kind === 'AGENT' ? `${reporter.name} (에이전트)` : undefined}
+            className="pointer-events-auto inline-flex min-w-0 items-center gap-1"
+          >
+            <UserAvatar user={reporter} size="xs" agent={reporter.kind === 'AGENT'} decorative />
+            <span className="truncate hover:underline">{reporter.name}</span>
+          </PersonCardTrigger>
         </>
       ) : (
         <span className="text-muted-foreground">알 수 없음</span>
@@ -103,6 +112,8 @@ export function IssueReporterField({
 /**
  * 보고자 고르기 팝오버 — 담당자 픽커(AssigneePickerPopover)와 같은 트리거 모양(평소 테두리 없음, 호버 시 테두리)·검색·목록이되 한 명만 고른다.
  * 고르면 닫고 바로 바꾼다. 지금 보고자가 스스로 넘기면 권한이 함께 넘어가므로 확인창을 먼저 띄운다.
+ * 고르기 단추는 필드 전체를 덮는 겹 단추다(WP-1767) — 값(아바타·이름)은 그 위에 얹되 포인터를 통과시키고, 이름(사람 카드 단추)만 포인터를 받는다.
+ * 그래서 이름을 누르면 카드, 빈 자리·생성일을 누르면 지금처럼 고르기가 열린다.
  */
 function ReporterPicker({
   reporter,
@@ -149,21 +160,31 @@ function ReporterPicker({
           setOpen(next);
         }}
       >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label={labelWithValue('보고자 편집', reporter?.name ?? '알 수 없음')}
-            data-testid="reporter-picker-trigger"
-            disabled={change.isPending}
-            className={cn(
-              // 레일은 담당자 필드와 같은 풀폭 px-3 필드, 시트는 오른쪽 값 자리만 차지한다.
-              layout === 'rail' ? INLINE_FIELD_RAIL_CLASS : 'inline-flex min-w-0 max-w-[70%] px-2 py-1',
-              INLINE_FIELD_CLASS,
-            )}
+        <div
+          className={cn(
+            // 레일은 담당자 필드와 같은 풀폭 px-3 필드, 시트는 오른쪽 값 자리만 차지한다.
+            'relative items-center border border-transparent text-left text-sm',
+            layout === 'rail' ? INLINE_FIELD_RAIL_CLASS : 'inline-flex min-w-0 max-w-[70%] px-2 py-1',
+          )}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={labelWithValue('보고자 편집', reporter?.name ?? '알 수 없음')}
+              data-testid="reporter-picker-trigger"
+              disabled={change.isPending}
+              className={cn('absolute inset-0', INLINE_FIELD_CLASS)}
+            />
+          </PopoverTrigger>
+          {/* 값은 겹 단추 위 — 포인터는 통과시키고 사람 카드 단추만 받는다(pointer-events-auto).
+              바꾸는 중(고르기 단추가 막힘)에는 값을 예전처럼 흐린다 — 겹 단추의 disabled:opacity-50 이 위에 얹은 값까지는 닿지 않는다. */}
+          <div
+            className={cn('pointer-events-none relative flex min-w-0 max-w-full', change.isPending && 'opacity-50')}
+            data-testid="reporter-picker-value"
           >
             {children}
-          </button>
-        </PopoverTrigger>
+          </div>
+        </div>
         <PopoverContent className="w-72 p-2" data-testid="reporter-picker">
           <Input
             placeholder="멤버 검색"
