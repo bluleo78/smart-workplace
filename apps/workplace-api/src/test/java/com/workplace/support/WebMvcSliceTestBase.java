@@ -123,7 +123,10 @@ import com.workplace.wiki.service.WikiHtmlLockService;
 import com.workplace.wiki.service.WikiHtmlPageService;
 import com.workplace.wiki.service.WikiHtmlScriptsCheckService;
 import com.workplace.wiki.service.WikiHydrationService;
+import com.workplace.wiki.service.WikiPageActivityRecorder;
+import com.workplace.wiki.service.WikiPageReadAccess;
 import com.workplace.wiki.service.WikiPageService;
+import com.workplace.wiki.service.WikiRecentService;
 import com.workplace.wiki.service.WikiRevisionService;
 import com.workplace.wiki.service.WikiShareAccess;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -277,6 +280,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       WikiHtmlPageService.class,
       WikiHtmlLockService.class,
       WikiHtmlScriptsCheckService.class,
-      WikiShareAccess.class
+      WikiShareAccess.class,
+      // WP-1764 노트 「최근」 — 기록기·읽기 권한 포트·목록 서비스(컨트롤러가 주입받는다)
+      WikiPageActivityRecorder.class,
+      WikiPageReadAccess.class,
+      WikiRecentService.class
     })
 public abstract class WebMvcSliceTestBase {}

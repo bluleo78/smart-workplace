@@ -1,4 +1,4 @@
-// 홈 대시보드 편집 초안 훅(WP-161 에서 Dashboard.tsx 로부터 분리) — 편집 시작 기기·로컬 초안·단일 레벨 undo 와
+// 홈 대시보드 편집 초안 훅(WP-161 에서 Dashboard.tsx 로부터 분리) — 편집 시작 기기·로컬 초안·여러 단계 undo 와
 // 그 위의 편집 액션(이동·드래그 재배치·숨김·테두리·항목 수·추가·삭제·설정·되돌리기·저장)을 한곳에 모은다.
 // 화면(헤더·배너·목록)은 Dashboard 가, dnd 골격·카드 ref·포커스 복원은 DashboardWidgetList 가 맡는다.
 import { arrayMove } from '@dnd-kit/sortable'
@@ -12,6 +12,37 @@ import { getCatalogWidget } from '../widgets/catalogRegistry'
 import { getDashboardWidget } from '../widgets/registry'
 import { useDashboardEditDraftStore } from './DashboardEditDraftContext'
 import { type CatalogConfigPatch, DEFAULT_COUNT, entryTitle, HIGHLIGHT_DURATION_MS, MAX_WIDGETS, resolveEntries, resolveEntry } from './resolvedEntry'
+
+/** undo 스택 상한 — 넘으면 가장 오래된 스냅샷부터 버린다(편집이 길어져도 메모리가 무한히 늘지 않게). */
+export const MAX_UNDO = 50
+
+/** 값이 undefined 인 키를 뺀 키 목록 — JSON 으로 저장하면 사라지는 키라 「없는 키」와 같게 본다. */
+function definedKeys(o: object): string[] {
+  return Object.keys(o).filter((k) => (o as Record<string, unknown>)[k] !== undefined)
+}
+
+/**
+ * JSON 값(객체·배열·원시값)의 구조 비교 — 객체 키 순서는 무시하고, 값이 undefined 인 키는 없는 키로 본다(저장하면 같아지므로).
+ * 설정 적용이 실제로 바뀐 게 있는지 가르는 데 쓴다.
+ */
+export function jsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  const ka = definedKeys(a)
+  const kb = definedKeys(b)
+  if (ka.length !== kb.length) return false
+  return ka.every((k) => jsonEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+}
+
+/**
+ * undo 스택에 스냅샷을 쌓는 순수 함수 — 상한(MAX_UNDO)을 넘으면 앞(가장 오래된 것)에서 잘라낸다.
+ * 원본 스택은 바꾸지 않고 새 배열을 돌려준다.
+ */
+export function pushUndo(stack: DashboardWidgetConfig[][], snap: DashboardWidgetConfig[]): DashboardWidgetConfig[][] {
+  // 음수 slice 는 상한보다 짧으면 전체를, 길면 뒤에서 MAX_UNDO 개를 돌려준다.
+  return [...stack, snap].slice(-MAX_UNDO)
+}
 
 // 편집 세션 번호 발급기 — 모듈 수준이라 재마운트·주인(계정) 전환을 넘어 번호가 겹치지 않는다.
 let editSessionSeq = 0
@@ -35,7 +66,7 @@ interface Options {
 /**
  * 편집 초안 상태와 편집 액션.
  *
- * - 초안(시작 기기·초안·undo)은 DashboardEditDraftProvider 저장소에 있어 편집 중 lg 경계를 넘었다 돌아와도 유지된다(WP-162).
+ * - 초안(시작 기기·초안·undo 스택)은 DashboardEditDraftProvider 저장소에 있어 편집 중 lg 경계를 넘었다 돌아와도 유지된다(WP-162).
  * - 편집은 시작한 기기에 묶인다(editing = 시작 기기 === 현재 기기, 저장도 시작 기기로). 한 기기 초안이 다른 기기
  *   레이아웃에 저장되지 않도록 하는 안전장치다(WP-142).
  * - 저장 전까지 아무것도 영속화되지 않는다.
@@ -45,11 +76,10 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
   // 진행 중 저장은 전역 mutation 캐시로 본다 — 저장 중 재마운트돼도 저장 버튼이 다시 살아나 이중 PUT 하지 않게.
   const isSaving = useIsDashboardSaving()
   // 시작 기기·초안·undo 는 셸 교체(lg 경계 리사이즈로 인한 Dashboard 재마운트)에도 살아 있는 저장소에 둔다(WP-162).
-  const [{ editDevice, draft, undoSnapshot, session }, setStore] = useDashboardEditDraftStore()
+  const [{ editDevice, draft, undoStack, session }, setStore] = useDashboardEditDraftStore()
   const editing = editDevice === device
   const setDraft = (action: SetStateAction<DashboardWidgetConfig[]>) =>
     setStore((s) => ({ ...s, draft: typeof action === 'function' ? action(s.draft) : action }))
-  const setUndoSnapshot = (v: DashboardWidgetConfig[] | null) => setStore((s) => ({ ...s, undoSnapshot: v }))
   const [addModalOpen, setAddModalOpen] = useState(false)
   // 방금 추가된 위젯 id — 강조 표시 + 스크롤 이동 대상(4초 후 자동 해제).
   const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null)
@@ -86,7 +116,7 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
     setStore({
       editDevice: device,
       draft: (savedWidgets ?? []).map((w) => ({ ...w })),
-      undoSnapshot: null,
+      undoStack: [],
       session: editSessionSeq,
     })
     setLiveMsg('')
@@ -95,14 +125,15 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
   }
 
   function cancelEdit() {
-    setStore((s) => ({ ...s, editDevice: null, undoSnapshot: null }))
+    setStore((s) => ({ ...s, editDevice: null, undoStack: [] }))
     setLiveMsg('')
     setAddModalOpen(false)
     setRecentlyAddedId(null)
   }
 
+  // 편집 직전 초안을 undo 스택에 쌓는다. 업데이터 안에서 s.draft 를 읽어, 같은 틱에 연속 호출돼도 각 시점의 초안이 쌓인다.
   function snapshot() {
-    setUndoSnapshot(draft.map((w) => ({ ...w })))
+    setStore((s) => ({ ...s, undoStack: pushUndo(s.undoStack, s.draft.map((w) => ({ ...w }))) }))
   }
 
   // 위젯 이동(위/아래) — 드래프트 배열 내 순서 교환. id 기반.
@@ -110,13 +141,18 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
     // I1: setDraft 업데이터 안에서 title 을 계산하면 setLiveMsg 호출 시점엔 아직 반영 전(stale) 값을 읽게 되므로,
     // 다른 핸들러(toggleHidden 등)와 동일하게 항상 최신인 draft 로 핸들러에서 먼저 계산한다.
     const title = titleOf(id)
+    // 범위 밖이면 아무 일도 하지 않는다 — 스냅샷·공지·포커스 요청도 남기지 않는다(양 끝에서 단추가 꺼져 UI 로는 안 닿는 방어 가드).
+    const i = draft.findIndex((w) => w.id === id)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= draft.length) return
     snapshot()
     setDraft((prev) => {
-      const i = prev.findIndex((w) => w.id === id)
-      const j = i + dir
-      if (i < 0 || j < 0 || j >= prev.length) return prev
+      // 렌더 시점 draft 가 낡았을 수 있어(같은 틱 연속 호출) 최신 prev 기준으로 위치를 다시 구해 방어한다.
+      const from = prev.findIndex((w) => w.id === id)
+      const to = from + dir
+      if (from < 0 || to < 0 || to >= prev.length) return prev
       const next = [...prev]
-      ;[next[i], next[j]] = [next[j], next[i]]
+      ;[next[from], next[to]] = [next[to], next[from]]
       return next
     })
     setLiveMsg(`${title} 위젯을 ${dir < 0 ? '위로' : '아래로'} 이동했습니다`)
@@ -201,6 +237,16 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
 
   // 카탈로그 위젯 설정(필터/라벨) 적용 — 추가 시점 기본값 편집과 이후 편집이 동일 경로.
   function applyCatalogConfig(id: string, patch: CatalogConfigPatch) {
+    // 폼은 기본 파라미터를 합쳐 채우므로 저장값도 기본값과 합쳐 비교한다. 같으면 바뀐 게 없으므로
+    // 되돌리기 단계·공지를 만들지 않는다(적용 단추는 변경이 없어도 호출된다).
+    // label 은 저장본에서 undefined·빈 문자열일 수 있는데 적용은 빈 이름을 null 로 보내므로 null 로 맞춰 비교한다.
+    const cur = draft.find((w) => w.id === id)
+    if (
+      cur &&
+      (cur.label || null) === (patch.label || null) &&
+      jsonEqual({ ...getCatalogWidget(cur.type)?.defaultParams, ...cur.params }, patch.params)
+    )
+      return
     snapshot()
     setDraft((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)))
     setLiveMsg('위젯 설정을 변경했습니다')
@@ -208,6 +254,8 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
 
   // 항목 수 변경(시스템 위젯 전용).
   function setCount(id: string, count: number) {
+    // 이미 그 값이면 바뀐 게 없으므로 되돌리기 단계·공지를 만들지 않고 돌아간다.
+    if (draft.find((w) => w.id === id)?.count === count) return
     const title = titleOf(id)
     snapshot()
     setDraft((prev) => prev.map((w) => (w.id === id ? { ...w, count } : w)))
@@ -215,10 +263,17 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
   }
 
   function undo() {
-    if (!undoSnapshot) return
-    setDraft(undoSnapshot)
-    setUndoSnapshot(null)
-    setLiveMsg('마지막 편집을 되돌렸습니다')
+    // 렌더 시점 스택이 비었으면 되돌릴 게 없으므로 「되돌렸습니다」 공지도 하지 않는다(아래 업데이터 검사는 최신 저장소 방어).
+    if (undoStack.length === 0) return
+    // 스택 끝(가장 최근 스냅샷)을 초안으로 되돌리고 나머지를 스택에 남긴다 — 한 번의 setStore 로 원자적으로.
+    setStore((s) => {
+      if (s.undoStack.length === 0) return s
+      return { ...s, draft: s.undoStack[s.undoStack.length - 1], undoStack: s.undoStack.slice(0, -1) }
+    })
+    // 공지는 남은 단계 수를 넣어 매번 다른 문구로 만든다 — 같은 문구를 다시 넣으면 React 가 갱신을 건너뛰어
+    // aria-live 가 연달아 누른 되돌리기를 읽지 않는다(여러 단계 되돌리기에서 처음 한 번만 들리는 문제).
+    const left = undoStack.length - 1
+    setLiveMsg(left > 0 ? `마지막 편집을 되돌렸습니다. ${left}단계 더 되돌릴 수 있습니다` : '편집을 시작한 상태로 모두 되돌렸습니다')
   }
 
   function saveEdit() {
@@ -230,7 +285,7 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
     const savedSession = session
     save.mutateAsync({ device: editDevice, widgets: draft }).then(
       () => {
-        setStore((s) => (s.session === savedSession ? { ...s, editDevice: null, undoSnapshot: null } : s))
+        setStore((s) => (s.session === savedSession ? { ...s, editDevice: null, undoStack: [] } : s))
         setLiveMsg('대시보드 레이아웃을 저장했습니다')
       },
       (err: unknown) => handleApiError(err, '대시보드 저장에 실패했습니다'),
@@ -242,7 +297,7 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
     draft,
     // 편집 드래프트 → 알려진 위젯만 해석(순서/숨김 모두 포함).
     draftEntries: resolveEntries(draft),
-    canUndo: undoSnapshot !== null,
+    canUndo: undoStack.length > 0,
     isSaving,
     addModalOpen,
     setAddModalOpen,

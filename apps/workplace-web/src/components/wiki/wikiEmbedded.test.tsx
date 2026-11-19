@@ -5,6 +5,7 @@ import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { attachSilentCollab, editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
+import { wikiOpenHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../../e2e/factories/wiki.factory'
@@ -72,6 +73,8 @@ test('recordLastVisited=false 면 마지막으로 본 노트를 저장하지 않
   const handlers = [
     ...editorSideHandlers,
     ...spaceHandlers,
+    // 노트를 열면 「최근」 기록(WP-1764)이 나간다 — 공용 204 핸들러.
+    ...wikiOpenHandlers,
     http.get('/api/v1/wiki/pages/:id/summary', () =>
       HttpResponse.json({ summary: null, status: 'TOO_SHORT', summaryVersion: null, pageVersion: 1, summarizedAt: null }),
     ),

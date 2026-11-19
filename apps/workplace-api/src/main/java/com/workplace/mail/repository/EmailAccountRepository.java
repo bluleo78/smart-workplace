@@ -345,6 +345,27 @@ public class EmailAccountRepository {
   }
 
   /**
+   * 한 계정의 새 메일 알림 범위(notify_mode)를 바꾼다.
+   *
+   * <p>본인 소유(USER_ID)이면서 활성(DISABLED_AT null)인 계정만 대상이라, 남의 계정·비활성 계정은 0행이 된다. 반드시 @Transactional
+   * 컨텍스트(RLS GUC 주입) 안에서 호출한다.
+   *
+   * @param userId 계정 소유자
+   * @param id 계정 id
+   * @param notifyMode 설정할 값(ALL|WORK|OFF — 검증은 EmailAccountService.setNotifyMode 가 한다)
+   * @return 영향받은 행 수(0 이면 대상 계정 없음)
+   */
+  public int updateNotifyMode(long userId, long id, String notifyMode) {
+    return dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.NOTIFY_MODE, notifyMode)
+        .set(EMAIL_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
+        .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.ID.eq(id))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .execute();
+  }
+
+  /**
    * 사용자의 활성 계정 중 하나 이상이 ai_enabled=true 인지 확인한다.
    *
    * <p>M365 신규 계정 upsert 시 전역 설정을 상속하기 위해 사용한다.

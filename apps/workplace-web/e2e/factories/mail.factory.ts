@@ -24,6 +24,7 @@ export function mailAccount(overrides?: Partial<MailAccountResponse>): MailAccou
     smtpSecurity: 'STARTTLS',
     smtpUsername: 'me@example.com',
     aiEnabled: false,
+    notifyMode: 'WORK',
     lastTestedAt: '2026-06-03T00:00:00Z',
     lastSyncedAt: null,
     createdAt: '2026-06-03T00:00:00Z',

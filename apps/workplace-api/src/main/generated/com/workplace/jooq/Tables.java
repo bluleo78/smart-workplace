@@ -168,6 +168,7 @@ import com.workplace.jooq.tables.WikiHtmlDraft;
 import com.workplace.jooq.tables.WikiHtmlEditLock;
 import com.workplace.jooq.tables.WikiHtmlScriptsCheck;
 import com.workplace.jooq.tables.WikiPage;
+import com.workplace.jooq.tables.WikiPageActivity;
 import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiPageBodyHistory;
 import com.workplace.jooq.tables.WikiPageDoc;
@@ -1014,6 +1015,11 @@ public class Tables {
      * The table <code>public.wiki_page</code>.
      */
     public static final WikiPage WIKI_PAGE = WikiPage.WIKI_PAGE;
+
+    /**
+     * The table <code>public.wiki_page_activity</code>.
+     */
+    public static final WikiPageActivity WIKI_PAGE_ACTIVITY = WikiPageActivity.WIKI_PAGE_ACTIVITY;
 
     /**
      * The table <code>public.wiki_page_attachment</code>.

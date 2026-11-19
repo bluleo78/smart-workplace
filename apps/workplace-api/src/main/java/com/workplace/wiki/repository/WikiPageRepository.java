@@ -22,7 +22,9 @@ import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.service.WikiHtmlText;
 import com.workplace.wiki.service.WikiPlainText;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -597,6 +599,32 @@ public class WikiPageRepository {
             """,
             pageId)
         .map(r -> r.get(0, Long.class));
+  }
+
+  /**
+   * 여러 페이지의 조상 제목 체인을 쿼리 한 번에 돌려준다(WP-1764 「최근」 — 줄마다 조회하지 않는다). 값은 공간 루트 → 부모 순 제목 목록이고, 루트 직속이면 빈
+   * 목록, 없는 id 는 키가 없다. 재귀항 깊이를 100 으로 막아 사이클 데이터에도 끝난다.
+   */
+  public Map<Long, List<String>> ancestorTitleChains(Collection<Long> pageIds) {
+    Map<Long, List<String>> result = new LinkedHashMap<>();
+    if (pageIds == null || pageIds.isEmpty()) return result;
+    pageIds.forEach(id -> result.put(id, new ArrayList<>()));
+    String marks = String.join(",", Collections.nCopies(pageIds.size(), "?"));
+    dsl.fetch(
+            """
+            WITH RECURSIVE chain(origin, id, parent_id, title, depth) AS (
+              SELECT id, id, parent_id, title, 0 FROM wiki_page WHERE id IN (%s)
+              UNION ALL
+              SELECT c.origin, p.id, p.parent_id, p.title, c.depth + 1
+                FROM wiki_page p JOIN chain c ON p.id = c.parent_id
+               WHERE c.depth < 100
+            )
+            SELECT origin, title FROM chain WHERE depth > 0 ORDER BY origin, depth DESC
+            """
+                .formatted(marks),
+            pageIds.toArray())
+        .forEach(r -> result.get(r.get(0, Long.class)).add(r.get(1, String.class)));
+    return result;
   }
 
   /**

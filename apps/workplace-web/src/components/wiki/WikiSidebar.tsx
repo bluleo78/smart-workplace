@@ -16,12 +16,12 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { BookOpen, ChevronDown, ClipboardPaste, FileCode, FilePlus, FileText, FileUp, MoreHorizontal } from 'lucide-react'
+import { BookOpen, ChevronDown, ClipboardPaste, Clock, FileCode, FilePlus, FileText, FileUp, MoreHorizontal } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { NavLink, useMatch, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import {
   DropdownMenu,
@@ -42,9 +42,11 @@ import {
   SelectValue,
 } from '@/components/overlay/select'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useWikiLastSpaceKey } from '@/hooks/useWikiLastVisitedKey'
 import { parseId } from '@/lib/historyParam'
 import { failedWithoutData } from '@/lib/queryFailure'
 import { cn } from '@/lib/utils'
+import { readWikiLastVisited } from '@/lib/wikiLastVisited'
 import { groupWikiSpaces } from '@/lib/wikiSpaceGroups'
 import { canDeleteWikiSpace } from '@/lib/wikiSpaces'
 import { childrenByParent } from '@/lib/wikiTree'
@@ -210,11 +212,18 @@ export function WikiSidebar({
   const { spaceId: spaceIdParam, pageId: pageIdParam } = useParams()
   // 숫자가 아닌 주소 번호는 없는 것으로 본다(WP-612) — NaN 으로 트리·삭제 API 를 부르지 않게.
   // props 가 주어지면(탭 모드) 주소 값보다 우선한다.
-  const spaceId = spaceIdProp ?? parseId(spaceIdParam ?? null)
+  const spaceIdFromRoute = spaceIdProp ?? parseId(spaceIdParam ?? null)
   const activePageId = activePageIdProp !== undefined ? activePageIdProp : parseId(pageIdParam ?? null)
 
   const spacesQuery = useWikiSpaces()
   const spaces = spacesQuery.data
+  // 「최근」 목록(/wiki/recent, WP-1764)은 주소에 공간이 없다 — 사이드바가 비지 않게 마지막으로 고른 공간을 이어서 보여 준다.
+  // 지금도 접근 가능한 공간일 때만 쓴다(없어진 공간이면 빈 트리 대신 선택 안 됨으로 둔다).
+  const onRecentRoute = useMatch('/wiki/recent') != null
+  const lastSpaceKey = useWikiLastSpaceKey()
+  const rememberedSpaceId = onRecentRoute && !embedded && lastSpaceKey ? readWikiLastVisited(lastSpaceKey) : null
+  const spaceId =
+    spaceIdFromRoute ?? (rememberedSpaceId != null && spaces?.some((s) => s.id === rememberedSpaceId) ? rememberedSpaceId : null)
   const { data: pages } = useWikiTree(spaceId)
   const {
     create: createPage,
@@ -444,6 +453,15 @@ export function WikiSidebar({
       노트
     </div>
   )
+  // 「최근」(WP-1764) — 내가 열거나 고친 노트를 공간 가로질러 다시 찾는 입구. 공간 선택 상자 위. 탭 모드(embedded)는 그리지 않는다.
+  const recentLink = embedded ? null : (
+    <div className="border-b p-2">
+      <NavLink to="/wiki/recent" data-testid="wiki-nav-recent" className={sidebarLinkClass}>
+        <Clock className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 truncate">최근</span>
+      </NavLink>
+    </div>
+  )
   // 공간 목록 첫 조회 실패(WP-865) — 공간을 고르기 전(/wiki, 모바일 목록)엔 빈 선택 상자 대신 실패 안내 + 다시 시도.
   // 공간 안에서는 트리가 따로 조회되므로 아래에서 선택 상자 자리만 바꾸고 트리·새 노트는 그대로 둔다.
   const spacesError = failedWithoutData(spacesQuery) ? (
@@ -458,6 +476,7 @@ export function WikiSidebar({
     return (
       <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
         {appTitle}
+        {recentLink}
         {spacesError}
       </aside>
     )
@@ -470,6 +489,7 @@ export function WikiSidebar({
     return (
       <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
         {appTitle}
+        {recentLink}
         {isMobile && <WikiNoSpaces className="flex-1" onCreate={openCreateSpace} />}
         {createSpaceDialog}
       </aside>
@@ -479,6 +499,7 @@ export function WikiSidebar({
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
       {appTitle}
+      {recentLink}
       {/* 공간 목록 실패 중이면 선택 상자 자리에 안내(WP-865) — 트리는 아래에 그대로.
           스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지. 옆 ⋯ 는 스페이스 단위 메뉴(WP-582: 멤버, WP-580: 삭제) */}
       {spacesError ? (

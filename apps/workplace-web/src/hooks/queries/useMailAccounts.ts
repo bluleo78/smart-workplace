@@ -1,6 +1,6 @@
 // 메일 계정 목록 조회 + 생성/수정/삭제/연결 테스트 mutation. queryKey 는 ['mail-accounts'] 단일.
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import {
@@ -9,12 +9,13 @@ import {
   getM365MailStatus,
   listMailAccounts,
   setMailAiEnabled,
+  setMailNotifyMode,
   testMailConnection,
   testMailConnectionForAccount,
   updateMailAccount,
 } from '../../api/mailAccounts';
 import { handleApiError } from '../../lib/api-error';
-import type { MailAccountRequest } from '../../types/mailAccount';
+import type { MailAccountRequest, MailAccountResponse, MailNotifyMode } from '../../types/mailAccount';
 
 export const mailAccountKeys = {
   all: ['mail-accounts'] as const,
@@ -104,5 +105,51 @@ export function useTestMailConnectionForAccount() {
   return useMutation({
     mutationFn: ({ id, body }: { id: number; body: MailAccountRequest }) =>
       testMailConnectionForAccount(id, body),
+  });
+}
+
+/** 알림 범위 저장 뮤테이션 키 — 진행 중인 저장을 계정별로 모아 볼 때 쓴다. */
+export const setMailNotifyModeKey = ['mail-accounts', 'notify-mode'] as const;
+
+/** 캐시된 계정 목록에서 한 계정의 알림 범위만 바꾼다 — 낙관적 반영과 실패 되돌리기가 함께 쓴다. */
+function patchNotifyMode(qc: QueryClient, id: number, notifyMode: MailNotifyMode) {
+  qc.setQueryData<MailAccountResponse[]>(mailAccountKeys.all, (old) =>
+    old?.map((a) => (a.id === id ? { ...a, notifyMode } : a)),
+  );
+}
+
+/**
+ * 계정 하나의 새 메일 알림 범위를 바꾼다(WP-1740). 라디오가 즉시 반응하도록 캐시를 먼저 바꾸고(낙관적),
+ * 실패하면 그 계정의 이전 값만 되돌리며 토스트로 알린다. 성공 토스트는 없다 — 라디오 선택이 곧 피드백이다.
+ */
+export function useSetMailNotifyMode() {
+  const qc = useQueryClient();
+  return useMutation({
+    // 계정별 저장 중 여부를 useMutationState 로 읽을 수 있게 하는 키(MailNotifySection 의 라디오 잠금).
+    mutationKey: setMailNotifyModeKey,
+    mutationFn: ({ id, notifyMode }: { id: number; notifyMode: MailNotifyMode }) =>
+      setMailNotifyMode(id, notifyMode),
+    onMutate: async ({ id, notifyMode }) => {
+      // 진행 중인 목록 조회가 낙관적 값을 덮어쓰지 않게 먼저 취소한다.
+      await qc.cancelQueries({ queryKey: mailAccountKeys.all });
+      // 되돌릴 값은 이 계정의 이전 알림 범위뿐 — 목록 전체를 되돌리면 동시에 저장 중인 다른 계정의 낙관적 값을 덮는다.
+      const previous = qc
+        .getQueryData<MailAccountResponse[]>(mailAccountKeys.all)
+        ?.find((a) => a.id === id)?.notifyMode;
+      patchNotifyMode(qc, id, notifyMode);
+      return { previous };
+    },
+    onError: (e, { id }, ctx) => {
+      const prev = ctx?.previous;
+      if (prev) patchNotifyMode(qc, id, prev);
+      handleApiError(e, '메일 알림 범위를 바꾸지 못했어요');
+    },
+    // 다시 받기는 마지막 저장이 끝날 때 한 번만 — 겹친 저장 중 먼저 끝난 쪽이 목록을 받아 오면 아직 저장 중인
+    // 다른 계정의 낙관적 값을 서버의 옛 값으로 덮어 라디오가 되돌아간다. onSettled 시점에는 이 뮤테이션도 아직
+    // pending 으로 세어지므로 1 이면 자기만 남은 것이다.
+    onSettled: () => {
+      if (qc.isMutating({ mutationKey: setMailNotifyModeKey }) > 1) return;
+      return qc.invalidateQueries({ queryKey: mailAccountKeys.all });
+    },
   });
 }

@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { useCloseSheetAfterMenu } from '@/components/mobile/MobileSidebarSheetContext'
 import {
   DropdownMenu,
@@ -13,6 +14,7 @@ import {
 import { hasOpenMark } from '@/lib/historyParam'
 import { buildMailFolderTree, TRASH_LABEL } from '@/lib/mailFolders'
 import { FLAGGED_LABEL, mailClassificationActive, mailViewHref, resolveMailView } from '@/lib/mailView'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import { MAIL_CATEGORIES } from '@/types/mailMessage'
@@ -27,12 +29,17 @@ import { MailFolderTree } from './MailFolderTree'
  * 메일 모듈 2차 사이드바 — 공유 셸(타이틀 헤더) 보존 + 계정 스위처 + 편지쓰기
  * + 폴더 nav(받은편지함 + 하위 분류 + 별표(WP-1742) + 보낸편지함 + 임시보관함 + 보관 + 휴지통(WP-1681)) + 내 메일함 트리(WP-961) + 회신필요.
  * 폴더/계정 상태는 URL(:accountId, ?folder, ?box) 단일 소스. accountId 미지정 시 첫 계정을 현재로 본다.
+ * WP-1761: 계정 목록 조회 실패는 「연결된 계정이 없습니다」와 구분해 오류 줄 + 다시 시도를 보인다.
  */
 export function MailSidebar() {
   const { accountId } = useParams()
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const { data: accounts, isLoading } = useMailAccounts()
+  const accountsQuery = useMailAccounts()
+  const { data: accounts, isLoading } = accountsQuery
+  // WP-1761: 실패 뒤 재조회 동안 TanStack Query 는 data 없는 쿼리를 pending(isLoading)으로 되돌린다 — 앱 공용 판정(failedWithoutData)으로
+  // 오류 줄을 유지하며, 한 번만 계산해 실패 분기를 로딩 분기보다 먼저 둔다. 이미 받은 목록이 있으면(백그라운드 재조회 실패) 거짓이라 화면을 덮지 않는다.
+  const accountsFailed = failedWithoutData(accountsQuery)
   const { openCompose } = useMailCompose()
   // 계정 전환 메뉴 항목은 링크가 아니라 시트가 자동으로 닫히지 않는다 — 메뉴가 닫힌 뒤 시트를 닫는다(WP-578).
   const accountMenu = useCloseSheetAfterMenu()
@@ -106,7 +113,10 @@ export function MailSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        {isLoading ? (
+        {accountsFailed ? (
+          // WP-1761: 목록을 못 받았을 때(앱 공용 실패 안내) — 판정 설명은 위 accountsFailed 주석.
+          <LoadErrorState variant="inline" title="계정을 불러오지 못했습니다" queries={[accountsQuery]} testId="mail-sidebar-accounts-error" />
+        ) : isLoading ? (
           <div className="px-3 py-2 text-sm text-muted-foreground">불러오는 중…</div>
         ) : !accounts || accounts.length === 0 ? (
           <div data-testid="mail-no-account" className="px-3 py-2 text-sm text-muted-foreground">

@@ -25,6 +25,8 @@ import com.workplace.wiki.service.WikiHtmlLockService;
 import com.workplace.wiki.service.WikiHtmlPageService;
 import com.workplace.wiki.service.WikiHtmlScriptsCheckService;
 import com.workplace.wiki.service.WikiHydrationService;
+import com.workplace.wiki.service.WikiPageAction;
+import com.workplace.wiki.service.WikiPageActivityRecorder;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiRevisionService;
 import com.workplace.wiki.service.WikiShareAccess;
@@ -67,6 +69,9 @@ public class WikiPageController {
   private final WikiShareAccess shareAccess;
   private final WikiHtmlScriptsCheckService htmlScriptsCheckService;
 
+  /** 「최근」 기록(WP-1764) — 열기·고치기가 성공한 뒤 컨트롤러에서 부른다(트랜잭션 밖이라 바로 쓴다). */
+  private final WikiPageActivityRecorder activity;
+
   /**
    * 화면 주소(WP-1523) — 읽기·저장·복원 응답에 url 로 싣는다(create_wiki_page 는 만든 뒤 PUT 으로 본문을 넣어 PUT 응답에도 필요하다).
    */
@@ -80,6 +85,21 @@ public class WikiPageController {
       @RequestParam(value = "base", defaultValue = "true") boolean base,
       @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
     return ResponseEntity.ok(withUrl(pageService.read(callerId, pageId, base, shareToken)));
+  }
+
+  /**
+   * 노트를 열었다고 알린다(WP-1764 「최근」) — 웹이 페이지 화면을 처음 열 때 한 번 부른다. GET 은 홈 위젯·포커스 재조회도 타므로 기록하지 않는다. 공유 토큰
+   * 헤더가 있으면(공유 링크 화면) 기록 없이 204. 볼 수 없는 노트는 404.
+   */
+  @PostMapping("/{id}/open")
+  public ResponseEntity<Void> open(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    if (shareToken == null || shareToken.isBlank()) {
+      activity.recordOpen(callerId, pageId);
+    }
+    return ResponseEntity.noContent().build();
   }
 
   /**
@@ -184,7 +204,10 @@ public class WikiPageController {
       Authentication authentication,
       @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
     boolean ai = AuthDetails.methodOf(authentication) == null;
-    return ResponseEntity.ok(withUrl(pageService.save(callerId, pageId, req, ai, shareToken)));
+    WikiPageDetail saved = pageService.save(callerId, pageId, req, ai, shareToken);
+    // 헤더 유무와 무관하게 멤버로 읽을 수 있을 때만 기록한다(동기화 서버 저장 경로와 같은 규칙) — 공유 토큰으로 고친 비멤버의 기록은 남기지 않는다.
+    activity.recordEditIfMember(callerId, pageId);
+    return ResponseEntity.ok(withUrl(saved));
   }
 
   /**
@@ -200,7 +223,10 @@ public class WikiPageController {
       @Valid @RequestBody SaveHtmlPageRequest req,
       Authentication authentication) {
     boolean ai = AuthDetails.methodOf(authentication) == null;
-    return ResponseEntity.ok(withUrl(htmlPageService.save(callerId, pageId, req, ai)));
+    WikiPageDetail saved = htmlPageService.save(callerId, pageId, req, ai);
+    // HTML 저장은 공유 토큰 경로가 없어 호출자가 항상 멤버(EDITOR 이상)이므로 멤버 확인 없이 바로 EDIT 를 기록한다.
+    activity.record(callerId, pageId, WikiPageAction.EDIT);
+    return ResponseEntity.ok(withUrl(saved));
   }
 
   /**

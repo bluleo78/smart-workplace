@@ -91,6 +91,7 @@ const WikiModuleLayout = lazy(() =>
 const WikiPage = lazy(() => import('./pages/wiki/WikiPage').then((m) => ({ default: m.WikiPage })))
 // WP-579 공유 링크 화면 — 노트 사이드바 없이 링크로 볼 수 있는 페이지만. 외부 보기는 로그인 없이.
 const WikiSharePage = lazy(() => import('./pages/wiki/WikiSharePage').then((m) => ({ default: m.WikiSharePage })))
+const WikiRecentView = lazy(() => import('./pages/wiki/WikiRecentView').then((m) => ({ default: m.WikiRecentView })))
 // WP-579 노트 알림 입구 — 멤버면 노트로, 공유 대상이면 공유 화면으로 보낸다.
 const WikiOpenPage = lazy(() => import('./pages/wiki/WikiOpenPage').then((m) => ({ default: m.WikiOpenPage })))
 const WikiPublicSharePage = lazy(() =>
@@ -296,6 +297,8 @@ export default function App() {
                 {/* 위키 모듈 — 2차 사이드바(스페이스/페이지 트리) 가 감싼다 */}
                 <Route element={<WikiModuleLayout />}>
                   <Route path="wiki" element={<DesktopOnly><WikiIndexRedirect /></DesktopOnly>} />
+                  {/* 노트 「최근」(WP-1764) — 모바일에서도 열려야 하니 DesktopOnly 로 감싸지 않는다. */}
+                  <Route path="wiki/recent" element={<WikiRecentView />} />
                   <Route path="wiki/spaces/:spaceId" element={<WikiPage />} />
                   <Route path="wiki/spaces/:spaceId/pages/:pageId" element={<WikiPage />} />
                 </Route>

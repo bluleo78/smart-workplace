@@ -19,6 +19,7 @@ import type {
   WikiPageSummary,
   WikiPageSummaryState,
   WikiProjectSpace,
+  WikiRecentPage,
   WikiRevisionDetail,
   WikiRevisionList,
   WikiSearchResult,
@@ -38,6 +39,11 @@ import { client } from './client'
 export const shareHeaders = (token?: string) => (token ? { [WIKI_SHARE_TOKEN_HEADER]: token } : undefined)
 
 export const wikiApi = {
+  // 노트 「최근」(WP-1764) — 페이지를 열었음을 기록한다(204). 공유 토큰 요청은 서버가 기록하지 않는다.
+  recordOpen: (pageId: number): Promise<void> => client.post(`/wiki/pages/${pageId}/open`).then(() => undefined),
+  // 내가 열거나 고친 페이지를 공간 가로질러 최근 순으로(50개씩, cursor 페이징).
+  recent: (cursor?: string | null): Promise<WikiRecentPage> =>
+    client.get<WikiRecentPage>('/wiki/recent', { params: cursor ? { cursor } : undefined }).then((r) => r.data),
   listSpaces: () => client.get<WikiSpace[]>('/wiki/spaces'),
   createSpace: (name: string) => client.post<WikiSpace>('/wiki/spaces', { name }),
   getSpace: (spaceId: number) => client.get<WikiSpace>(`/wiki/spaces/${spaceId}`),

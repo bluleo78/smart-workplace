@@ -225,6 +225,11 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
           })
         : route.fallback(),
   )
+  // WP-1764: 노트를 열면 「최근」 기록(POST /wiki/pages/:id/open)이 나간다 — 기본은 204. 호출을 검증하는 spec 은 나중에 등록해 앞선다.
+  await page.route(
+    (url) => /^\/api\/v1\/wiki\/pages\/\d+\/open$/.test(url.pathname),
+    (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 204 }) : route.fallback()),
+  )
   // WP-1480: 프로젝트 설정의 「노트 공간」 영역이 /wiki/project-spaces/:key 를 조회한다 — 기본은 404(공간 없음, vitest baseHandlers 와 같다).
   await page.route(
     (url) => /^\/api\/v1\/wiki\/project-spaces\/[^/]+$/.test(url.pathname),

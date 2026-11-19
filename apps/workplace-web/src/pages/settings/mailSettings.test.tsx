@@ -31,6 +31,7 @@ function account(overrides?: Partial<MailAccountResponse>): MailAccountResponse 
     smtpSecurity: 'STARTTLS',
     smtpUsername: 'me@example.com',
     aiEnabled: false,
+    notifyMode: 'WORK',
     lastSyncedAt: null,
     lastTestedAt: '2026-06-03T00:00:00Z',
     createdAt: '2026-06-03T00:00:00Z',

@@ -7,6 +7,7 @@ import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.dto.EmailAccountListItem;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailNotifyModes;
 import com.workplace.mail.exception.DuplicateEmailAccountException;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailConnectionException;
@@ -183,6 +184,21 @@ public class EmailAccountService {
     // 소비 — soft-delete 커밋 후 동작). 즉시 purge 실패 시 스케줄러가 백스톱으로 다음 사이클에 재시도한다.
     events.publishEvent(new MailAccountDisconnectedEvent(userId, id));
     notifier.accountChanged(ResourceChangedEvent.OP_DELETED, userId, id, userId);
+  }
+
+  /** 새 메일 알림 범위(ALL|WORK|OFF)를 저장한다. 본인 활성 계정이 아니면 404(EmailAccountNotFoundException). */
+  @Transactional
+  public void setNotifyMode(long userId, long id, String notifyMode) {
+    // 컨트롤러 @Pattern 에만 기대지 않고 서비스에서도 거른다 — 다른 호출 경로가 잘못된 값을 저장하지 못하게 한다.
+    // IllegalArgumentException 은 GlobalExceptionHandler 가 400 으로 매핑한다.
+    if (!MailNotifyModes.isValid(notifyMode)) {
+      throw new IllegalArgumentException("알림 범위는 ALL, WORK, OFF 중 하나여야 합니다: " + notifyMode);
+    }
+    if (repo.updateNotifyMode(userId, id, notifyMode) == 0) {
+      throw new EmailAccountNotFoundException(id);
+    }
+    // 다른 탭·기기의 계정 목록(['mail-accounts'])이 새 알림 범위를 곧바로 따라오도록 실시간 변경 이벤트를 낸다.
+    notifier.accountChanged(ResourceChangedEvent.OP_UPDATED, userId, id, userId);
   }
 
   /** 공용: 주어진 비밀번호로 IMAP/SMTP 연결 검증. */

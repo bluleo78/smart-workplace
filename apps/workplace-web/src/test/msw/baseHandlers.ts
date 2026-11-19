@@ -70,6 +70,9 @@ export const helpMetricBaseHandlers = [
  */
 export const mailSettingsBaseHandlers = [http.get(`${API}/mail/settings`, () => HttpResponse.json(createMailSettings()))]
 
+/** 노트를 열면 나가는 「최근」 기록(WP-1764) — 기본은 204. 호출을 검증하는 테스트는 자기 핸들러를 앞에 건다. shellHandlers 가 포함하며, 셸을 깔지 않는 화면 테스트는 이것만 펼친다. */
+export const wikiOpenHandlers = [http.post(`${API}/wiki/pages/:id/open`, () => new HttpResponse(null, { status: 204 }))]
+
 /** 앱 셸·공통 부가 조회 빈 기본값 — e2e/fixtures/auth.fixture.ts setupAuthMocks 와 같은 목록. */
 export const shellHandlers = [
   holdEventStream,
@@ -152,6 +155,7 @@ export const shellHandlers = [
   // 프로젝트 설정의 「노트 공간」 영역(WP-1480, 소유자에게만) — 기본은 공간 없음(404). 영역을 검증하는 테스트는 자기 응답을 앞에 건다.
   http.get(`${API}/wiki/project-spaces/:key`, () => HttpResponse.json({ message: '노트 공간이 없습니다' }, { status: 404 })),
   http.post(`${API}/ai/suggestions`, () => HttpResponse.json({ items: [], enabled: true })),
+  ...wikiOpenHandlers,
   http.get(`${API}/wiki/pages/:id/mentions`, () => HttpResponse.json([])),
   http.get(`${API}/wiki/pages/:id/summary`, () =>
     HttpResponse.json({ summary: null, status: 'TOO_SHORT', summaryVersion: null, pageVersion: 1, summarizedAt: null }),

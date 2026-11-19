@@ -18,6 +18,7 @@ import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.WikiHtmlDraft.WikiHtmlDraftPath;
 import com.workplace.jooq.tables.WikiHtmlEditLock.WikiHtmlEditLockPath;
 import com.workplace.jooq.tables.WikiHtmlScriptsCheck.WikiHtmlScriptsCheckPath;
+import com.workplace.jooq.tables.WikiPageActivity.WikiPageActivityPath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageBodyHistory.WikiPageBodyHistoryPath;
 import com.workplace.jooq.tables.WikiPageDoc.WikiPageDocPath;
@@ -466,6 +467,19 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
         return _wikiHtmlScriptsCheck;
     }
 
+    private transient WikiPageActivityPath _wikiPageActivity;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_activity</code> table
+     */
+    public WikiPageActivityPath wikiPageActivity() {
+        if (_wikiPageActivity == null)
+            _wikiPageActivity = new WikiPageActivityPath(this, null, Keys.WIKI_PAGE_ACTIVITY__WIKI_PAGE_ACTIVITY_WIKI_PAGE_ID_FKEY.getInverseKey());
+
+        return _wikiPageActivity;
+    }
+
     private transient WikiPageAttachmentPath _wikiPageAttachment;
 
     /**
@@ -585,10 +599,18 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
 
     /**
      * Get the implicit many-to-many join path to the <code>public.user</code>
-     * table
+     * table, via the <code>wiki_html_draft_user_id_fkey</code> key
      */
-    public UserPath user() {
+    public UserPath wikiHtmlDraftUserIdFkey() {
         return wikiHtmlDraft().user();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>wiki_page_activity_user_id_fkey</code> key
+     */
+    public UserPath wikiPageActivityUserIdFkey() {
+        return wikiPageActivity().user();
     }
 
     @Override
