@@ -258,6 +258,43 @@ test('SKILL.md 대기열 가져오기: 다른 AI 가 형제를 진행 중이면 
   assert.ok(chain.includes('따로 진행'));
 });
 
+test('SKILL.md 하위를 차례로 맡기: 머지된(내 행 REVIEW) 형제 선행에만 막힌 하위는 「차례 막힘만」으로 막히지 않은 것으로 본다 (WP-1792)', () => {
+  const chain = lineWith(workLoopSkill, '- **하위를 차례로 맡는 이슈**');
+  const rule = lineWith(workLoopSkill, '  - **「차례 막힘만」**');
+  // 하위를 고르는 줄이 정의를 가리키고, 판정은 하나 맡기 전에 한다
+  assert.ok(chain.includes('아래 「차례 막힘만」인 것'));
+  assertBefore(chain, '「차례 막힘만」', '**하나만**');
+  // 닫히지 않은 선행이 모두 조건을 만족해야 풀린다 — 싼 확인부터, 하나라도 아니면 막힘
+  assert.ok(rule.includes('닫히지 않은(DONE·CANCELED 아닌) 선행이 **모두**'));
+  assert.ok(rule.includes('하나라도 아니면 막힌 것이다'));
+  // 하위·선행 상세는 history 와 함께 한 번 읽는다 — 형제 판정 재료는 선행 상세의 parent
+  assert.ok(rule.includes('`comments: 0`'));
+  assert.ok(rule.includes('`history: false` 는 넘기지 않는다'));
+  assert.ok(rule.includes('`blockedBy` 항목에는 `parent` 가 없다'));
+  // 1. 형제이고 그 선행의 내 행이 REVIEW
+  assert.ok(rule.includes('선행 상세의 `parent` 가 이 하위의 부모다'));
+  assert.ok(rule.includes('내 행이 검토 대기(REVIEW)'));
+  // 2. 머지 전이면 막힌 채 — 내가 연 PR 이 MERGED 일 때만(검토자로 받은 선행·PR 없는 REVIEW·검토자 없는 저장소의 머지 전 REVIEW 포함). pr-view 는 맨 끝
+  assert.ok(rule.includes('④ 내가 연 PR 이 머지됐다'));
+  assert.ok(rule.includes('`MERGED`'));
+  assert.ok(rule.includes('본문 `개발:` 줄이 나'));
+  assert.ok(rule.includes('검토자가 없어 머지 전에 REVIEW 로 오른 선행'));
+  assertBefore(rule, '① 같은 부모', '② 그 선행');
+  assertBefore(rule, '② 그 선행', '③ 그 차단');
+  assertBefore(rule, '③ 그 차단', '④ 내가 연');
+  // 3. 사람이 건 차단은 풀지 않는다 — 그 짝의 가장 최근 DEPENDENCY_ADDED 행위자, 지우고 다시 건 것 포함, 못 찾으면 사람
+  assert.ok(rule.includes('`DEPENDENCY_ADDED` 중 가장 최근 것'));
+  assert.ok(rule.includes("`kind: 'AGENT'`"));
+  assert.ok(rule.includes('`DEPENDENCY_REMOVED`'));
+  assert.ok(rule.includes('방향 `blockedBy`'));
+  assert.ok(rule.includes('방향 `blocks`'));
+  assert.ok(rule.includes('`to.other.number`'));
+  assert.ok(rule.includes('둘 다 못 찾으면 사람이 건 것으로 본다'));
+  assert.ok(rule.includes('사람이 건 차단·다른 AI 가 한 선행·다른 부모의 선행'));
+  // 서버 막힘 표시를 두고 시작한 까닭을 사람이 보게
+  assert.ok(rule.includes('막힘 표시를 두고 시작합니다'));
+});
+
 // WP-1040 동시 진행 상한 — AI 한 명당 맡은 프로젝트를 모두 합쳐 상한까지. 넘으면 새 작업·대기열 가져가기만 막는다.
 // WP-1205 뒤로 수는 서버(get_member 의 slots)가 센다 — 목록을 프로젝트 없이 읽어 세는 것은 slots 가 없는 옛 서버에서만.
 test('SKILL.md 3번: 후보는 이 프로젝트 목록으로 고르고, 동시 진행은 slots 로(없으면 프로젝트 없는 목록으로) 센다 (WP-1040·WP-1205)', () => {
