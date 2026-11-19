@@ -1,5 +1,5 @@
 import { CSS } from '@dnd-kit/utilities'
-import { ChevronDown, ChevronRight, CornerDownRight, FileCode, Link2, Link2Off, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, CornerDownRight, FileCode, Link2, Link2Off, MoreHorizontal, Plus, Star, Trash2 } from 'lucide-react'
 import { useLayoutEffect, useRef } from 'react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
+import { useIsWikiPageStarred, useToggleWikiStar } from '@/hooks/queries/useWikiStars'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { DRAGGABLE_PAGE_ROLE_DESCRIPTION, useSortableItem } from '@/lib/dnd/useSortableItem'
 import { revealInScrollY } from '@/lib/revealInScrollY'
@@ -95,6 +96,10 @@ export function WikiTreeRow({
   // 삭제는 메뉴/시트가 닫힌 뒤 다이얼로그를 연다 — 닫히는 오버레이의 포커스 복귀·pointer-events 정리와 겹치지 않게.
   const requestDelete = () => setTimeout(() => onRequestDelete(id), 0)
   const requestMove = () => setTimeout(() => onRequestMove(id), 0)
+  // 즐겨찾기(WP-1765) — 메뉴 항목 문구가 지금 상태를 따른다(「즐겨찾기」/「즐겨찾기 빼기」).
+  const starred = useIsWikiPageStarred(id)
+  const { toggle: toggleStar } = useToggleWikiStar()
+  const starLabel = starred ? '즐겨찾기 빼기' : '즐겨찾기'
   return (
     <div
       ref={setNodeRef}
@@ -166,6 +171,7 @@ export function WikiTreeRow({
                 ? [{ key: 'wiki-import-html-child', label: 'HTML 파일로 하위 노트', icon: <FileCode />, onSelect: () => onImportHtmlChild(id) }]
                 : []),
               { key: 'wiki-move', label: '이동…', icon: <CornerDownRight />, onSelect: requestMove },
+              { key: 'wiki-star', label: starLabel, icon: <Star />, onSelect: () => toggleStar(id, !starred) },
               { key: 'wiki-delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: requestDelete },
             ]}
           />
@@ -201,6 +207,11 @@ export function WikiTreeRow({
                     HTML 파일로 하위 노트
                   </DropdownMenuItem>
                 )}
+                {/* 「즐겨찾기」는 기존 항목 순서를 건드리지 않고 「이동…」·HTML 항목 뒤, 삭제 구분선 앞에 둔다(WP-1765). */}
+                <DropdownMenuItem data-testid={`wiki-tree-star-${id}`} onSelect={() => toggleStar(id, !starred)}>
+                  <Star />
+                  {starLabel}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onSelect={requestDelete}>
                   <Trash2 />

@@ -872,3 +872,25 @@ test('keepsRememberedSpaceOnRecentRouteWithTrailingSlash — 끝 슬래시가 �
   })
   expect(await screen.findByTestId('wiki-tree-row-70')).toBeInTheDocument()
 })
+
+// WP-1765: 「최근」 아래 「즐겨찾기」 줄.
+test('sidebarShowsRecentAndStarred — 「최근」 다음 「즐겨찾기」 두 줄, 즐겨찾기 주소', async () => {
+  open()
+  const recent = await screen.findByTestId('wiki-nav-recent')
+  const starred = await screen.findByTestId('wiki-nav-starred')
+  expect(starred).toHaveTextContent('즐겨찾기')
+  expect(starred).toHaveAttribute('href', '/wiki/starred')
+  expect(recent.compareDocumentPosition(starred) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('embeddedHasNoStarred — 프로젝트 탭(embedded)에는 「즐겨찾기」도 그리지 않는다', async () => {
+  renderScreen(<WikiSidebar spaceId={1} embedded />, {
+    path: '/projects/P/notes',
+    handlers: [
+      http.get('/api/v1/wiki/spaces', () => HttpResponse.json([PERSONAL])),
+      http.get('/api/v1/wiki/spaces/:id/pages', () => HttpResponse.json([])),
+    ],
+  })
+  await screen.findByTestId('wiki-new-menu')
+  expect(screen.queryByTestId('wiki-nav-starred')).not.toBeInTheDocument()
+})

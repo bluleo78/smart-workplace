@@ -29,6 +29,7 @@ import type {
   WikiShareListItem,
   WikiShareResolved,
   WikiSpace,
+  WikiStarredPage,
 } from '../types/wiki'
 import { client } from './client'
 
@@ -44,6 +45,14 @@ export const wikiApi = {
   // 내가 열거나 고친 페이지를 공간 가로질러 최근 순으로(50개씩, cursor 페이징).
   recent: (cursor?: string | null): Promise<WikiRecentPage> =>
     client.get<WikiRecentPage>('/wiki/recent', { params: cursor ? { cursor } : undefined }).then((r) => r.data),
+  // 노트 「즐겨찾기」(WP-1765) — 넣기·빼기는 멱등(204), 목록은 공간 가로질러 즐겨찾기한 순(cursor 페이징).
+  star: (pageId: number): Promise<void> => client.put(`/wiki/pages/${pageId}/star`).then(() => undefined),
+  unstar: (pageId: number): Promise<void> => client.delete(`/wiki/pages/${pageId}/star`).then(() => undefined),
+  starred: (cursor?: string | null): Promise<WikiStarredPage> =>
+    client.get<WikiStarredPage>('/wiki/starred', { params: cursor ? { cursor } : undefined }).then((r) => r.data),
+  // 내가 즐겨찾기한 페이지 id 전부 — 별 단추가 채움 여부를 한 번에 판정한다(서버 { pageIds } 를 배열로 푼다).
+  starredIds: (): Promise<number[]> =>
+    client.get<{ pageIds: number[] }>('/wiki/starred/ids').then((r) => r.data.pageIds),
   listSpaces: () => client.get<WikiSpace[]>('/wiki/spaces'),
   createSpace: (name: string) => client.post<WikiSpace>('/wiki/spaces', { name }),
   getSpace: (spaceId: number) => client.get<WikiSpace>(`/wiki/spaces/${spaceId}`),

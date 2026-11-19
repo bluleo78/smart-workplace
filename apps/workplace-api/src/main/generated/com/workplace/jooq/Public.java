@@ -177,6 +177,7 @@ import com.workplace.jooq.tables.WikiPageShareEvent;
 import com.workplace.jooq.tables.WikiPageShareExclusion;
 import com.workplace.jooq.tables.WikiPageShareGroup;
 import com.workplace.jooq.tables.WikiPageShareMember;
+import com.workplace.jooq.tables.WikiPageStar;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
 import com.workplace.jooq.tables.WikiShareAccessRequest;
@@ -1078,6 +1079,11 @@ public class Public extends SchemaImpl {
     public final WikiPageShareMember WIKI_PAGE_SHARE_MEMBER = WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER;
 
     /**
+     * The table <code>public.wiki_page_star</code>.
+     */
+    public final WikiPageStar WIKI_PAGE_STAR = WikiPageStar.WIKI_PAGE_STAR;
+
+    /**
      * The table <code>public.wiki_reference</code>.
      */
     public final WikiReference WIKI_REFERENCE = WikiReference.WIKI_REFERENCE;
@@ -1319,6 +1325,7 @@ public class Public extends SchemaImpl {
             WikiPageShareExclusion.WIKI_PAGE_SHARE_EXCLUSION,
             WikiPageShareGroup.WIKI_PAGE_SHARE_GROUP,
             WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER,
+            WikiPageStar.WIKI_PAGE_STAR,
             WikiReference.WIKI_REFERENCE,
             WikiRevision.WIKI_REVISION,
             WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST,

@@ -16,9 +16,9 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { BookOpen, ChevronDown, ClipboardPaste, Clock, FileCode, FilePlus, FileText, FileUp, MoreHorizontal } from 'lucide-react'
+import { BookOpen, ChevronDown, ClipboardPaste, Clock, FileCode, FilePlus, FileText, FileUp, MoreHorizontal, Star } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
-import { NavLink, useMatch, useNavigate, useParams } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -197,6 +197,9 @@ function getProjection(
 /** 공간 선택 상자 자리표시 — 고른 공간이 없거나 이름을 아직 모를 때(목록 받는 중·없는 id). */
 const SPACE_PLACEHOLDER = '노트 스페이스 선택'
 
+/** 주소에 공간이 없는 노트 화면 경로(「최근」·「즐겨찾기」) — 사이드바가 마지막 공간을 이어 보인다. */
+const WIKI_SPACELESS_ROUTES = ['/wiki/recent', '/wiki/starred']
+
 /**
  * 노트 사이드바. props 가 없으면 노트 앱처럼 주소(useParams)에서 공간·페이지를 읽는다.
  * 프로젝트 「노트」 탭(WP-1481)은 공간·열린 페이지를 props 로 지정하고 `embedded` 로 띄운다 —
@@ -219,9 +222,12 @@ export function WikiSidebar({
   const spaces = spacesQuery.data
   // 「최근」 목록(/wiki/recent, WP-1764)은 주소에 공간이 없다 — 사이드바가 비지 않게 마지막으로 고른 공간을 이어서 보여 준다.
   // 지금도 접근 가능한 공간일 때만 쓴다(없어진 공간이면 빈 트리 대신 선택 안 됨으로 둔다).
-  const onRecentRoute = useMatch('/wiki/recent') != null
+  // 「즐겨찾기」(/wiki/starred, WP-1765)도 주소에 공간이 없어 같은 방식으로 이어 보인다.
+  // 끝 슬래시는 useMatch 처럼 무시한다(「/wiki/recent/」도 같은 화면).
+  const { pathname } = useLocation()
+  const onSpacelessRoute = WIKI_SPACELESS_ROUTES.includes(pathname.replace(/\/+$/, ''))
   const lastSpaceKey = useWikiLastSpaceKey()
-  const rememberedSpaceId = onRecentRoute && !embedded && lastSpaceKey ? readWikiLastVisited(lastSpaceKey) : null
+  const rememberedSpaceId = onSpacelessRoute && !embedded && lastSpaceKey ? readWikiLastVisited(lastSpaceKey) : null
   const spaceId =
     spaceIdFromRoute ?? (rememberedSpaceId != null && spaces?.some((s) => s.id === rememberedSpaceId) ? rememberedSpaceId : null)
   const { data: pages } = useWikiTree(spaceId)
@@ -453,12 +459,16 @@ export function WikiSidebar({
       노트
     </div>
   )
-  // 「최근」(WP-1764) — 내가 열거나 고친 노트를 공간 가로질러 다시 찾는 입구. 공간 선택 상자 위. 탭 모드(embedded)는 그리지 않는다.
+  // 「최근」(WP-1764)·「즐겨찾기」(WP-1765) — 공간을 가로질러 노트를 다시 찾는 입구. 공간 선택 상자 위. 탭 모드(embedded)는 그리지 않는다.
   const recentLink = embedded ? null : (
     <div className="border-b p-2">
       <NavLink to="/wiki/recent" data-testid="wiki-nav-recent" className={sidebarLinkClass}>
         <Clock className="h-4 w-4 shrink-0" />
         <span className="min-w-0 truncate">최근</span>
+      </NavLink>
+      <NavLink to="/wiki/starred" data-testid="wiki-nav-starred" className={sidebarLinkClass}>
+        <Star className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 truncate">즐겨찾기</span>
       </NavLink>
     </div>
   )

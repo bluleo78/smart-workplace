@@ -162,6 +162,7 @@ import com.workplace.jooq.tables.WikiPageShareEvent;
 import com.workplace.jooq.tables.WikiPageShareExclusion;
 import com.workplace.jooq.tables.WikiPageShareGroup;
 import com.workplace.jooq.tables.WikiPageShareMember;
+import com.workplace.jooq.tables.WikiPageStar;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
 import com.workplace.jooq.tables.WikiShareAccessRequest;
@@ -527,6 +528,8 @@ public class Indexes {
     public static final Index IDX_WIKI_PAGE_SHARE_MEMBER_USER = Internal.createIndex(DSL.name("idx_wiki_page_share_member_user"), WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER, new OrderField[] { WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER.USER_ID }, false);
     public static final Index IDX_WIKI_PAGE_SHARE_SPACE = Internal.createIndex(DSL.name("idx_wiki_page_share_space"), WikiPageShare.WIKI_PAGE_SHARE, new OrderField[] { WikiPageShare.WIKI_PAGE_SHARE.SPACE_ID }, false);
     public static final Index IDX_WIKI_PAGE_SHARE_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_share_tenant"), WikiPageShare.WIKI_PAGE_SHARE, new OrderField[] { WikiPageShare.WIKI_PAGE_SHARE.TENANT_ID }, false);
+    public static final Index IDX_WIKI_PAGE_STAR_PAGE = Internal.createIndex(DSL.name("idx_wiki_page_star_page"), WikiPageStar.WIKI_PAGE_STAR, new OrderField[] { WikiPageStar.WIKI_PAGE_STAR.WIKI_PAGE_ID }, false);
+    public static final Index IDX_WIKI_PAGE_STAR_USER_CREATED = Internal.createIndex(DSL.name("idx_wiki_page_star_user_created"), WikiPageStar.WIKI_PAGE_STAR, new OrderField[] { WikiPageStar.WIKI_PAGE_STAR.USER_ID, WikiPageStar.WIKI_PAGE_STAR.CREATED_AT.desc(), WikiPageStar.WIKI_PAGE_STAR.ID.desc() }, false);
     public static final Index IDX_WIKI_PAGE_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_tenant"), WikiPage.WIKI_PAGE, new OrderField[] { WikiPage.WIKI_PAGE.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_TREE = Internal.createIndex(DSL.name("idx_wiki_page_tree"), WikiPage.WIKI_PAGE, new OrderField[] { WikiPage.WIKI_PAGE.SPACE_ID, WikiPage.WIKI_PAGE.PARENT_ID, WikiPage.WIKI_PAGE.POSITION }, false);
     public static final Index IDX_WIKI_REFERENCE_SOURCE = Internal.createIndex(DSL.name("idx_wiki_reference_source"), WikiReference.WIKI_REFERENCE, new OrderField[] { WikiReference.WIKI_REFERENCE.SOURCE_PAGE_ID }, false);

@@ -3,6 +3,8 @@ import { screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { MobileDetailCtx } from '@/components/mobile/MobileDetailContext'
+import { wikiStarHandlers } from '@/test/msw/baseHandlers'
+import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { WikiPageHeader } from './WikiPageHeader'
@@ -13,6 +15,8 @@ vi.mock('@/hooks/useIsMobile', () => ({ useIsMobile: () => true }))
 vi.mock('@/components/mobile/DetailAiButton', () => ({ DetailAiButton: () => null }))
 
 function renderMobileHeader(aiLabel: string | null) {
+  // 머리줄 즐겨찾기 별(WP-1765)이 id 집합을 부른다 — 기본 응답(즐겨찾기 없음).
+  server.use(...wikiStarHandlers)
   return renderWithProviders(
     <MobileDetailCtx.Provider value={{ title: '노트', register: () => () => {} }}>
       <WikiPageHeader

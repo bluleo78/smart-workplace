@@ -153,6 +153,8 @@ public final class TenantPurgePlan {
           // 노트 「최근」 열기·고침 기록(WP-1764) — wiki_page·user 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 페이지보다 먼저
           // 비운다.
           WIKI_PAGE_ACTIVITY,
+          // 노트 페이지 「즐겨찾기」(WP-1765) — wiki_page·user 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 페이지보다 먼저 비운다.
+          WIKI_PAGE_STAR,
           WIKI_PAGE_BODY_HISTORY,
           WIKI_PAGE_DOC,
           WIKI_REVISION,

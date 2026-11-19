@@ -5,6 +5,9 @@ export const wikiKeys = {
   spaces: () => ['wiki', 'spaces'] as const,
   // 노트 「최근」(WP-1764) — 열기·고치기를 기록한 뒤 무효화한다.
   recent: () => ['wiki', 'recent'] as const,
+  // 노트 「즐겨찾기」(WP-1765) — 목록과 id 목록(별 단추용). starredIds 는 starred 의 하위가 아닌 형제 키 — 목록 무효화가 낙관 중인 id 를 덮지 않게.
+  starred: () => ['wiki', 'starred'] as const,
+  starredIds: () => ['wiki', 'starred-ids'] as const,
   tree: (spaceId: number) => ['wiki', 'tree', spaceId] as const,
   // 모든 공간의 트리 — 어느 공간이 바뀌었는지 모를 때(프로젝트 노트 공간 연결·리포트 「지금 생성」) 한꺼번에 무효화한다.
   trees: () => ['wiki', 'tree'] as const,

@@ -116,6 +116,7 @@ import com.workplace.jooq.tables.WikiPageShareEvent.WikiPageShareEventPath;
 import com.workplace.jooq.tables.WikiPageShareExclusion.WikiPageShareExclusionPath;
 import com.workplace.jooq.tables.WikiPageShareGroup.WikiPageShareGroupPath;
 import com.workplace.jooq.tables.WikiPageShareMember.WikiPageShareMemberPath;
+import com.workplace.jooq.tables.WikiPageStar.WikiPageStarPath;
 import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
 import com.workplace.jooq.tables.WikiSpaceMember.WikiSpaceMemberPath;
@@ -1954,6 +1955,19 @@ public class User extends TableImpl<UserRecord> {
         return _wikiPageShareMemberUserIdFkey;
     }
 
+    private transient WikiPageStarPath _wikiPageStar;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_star</code> table
+     */
+    public WikiPageStarPath wikiPageStar() {
+        if (_wikiPageStar == null)
+            _wikiPageStar = new WikiPageStarPath(this, null, Keys.WIKI_PAGE_STAR__WIKI_PAGE_STAR_USER_ID_FKEY.getInverseKey());
+
+        return _wikiPageStar;
+    }
+
     private transient WikiShareAccessRequestPath _wikiShareAccessRequestDecidedByFkey;
 
     /**
@@ -2200,6 +2214,15 @@ public class User extends TableImpl<UserRecord> {
      */
     public WikiPagePath wikiPageActivityWikiPageIdFkey() {
         return wikiPageActivity().wikiPage();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.wiki_page</code> table, via the
+     * <code>wiki_page_star_wiki_page_id_fkey</code> key
+     */
+    public WikiPagePath wikiPageStarWikiPageIdFkey() {
+        return wikiPageStar().wikiPage();
     }
 
     @Override
