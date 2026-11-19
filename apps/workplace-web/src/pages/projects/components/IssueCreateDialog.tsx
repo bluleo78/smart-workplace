@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { useAllProjects } from '@/hooks/queries/useProjects';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { isRichBodyTarget } from '@/lib/richBodyTarget';
 
@@ -22,10 +23,12 @@ import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageBu
 import { RichInput } from '../../../components/mentions/RichInput';
 import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
+import { selectableCreateProjects } from '../../../lib/projectPermissions';
 import { SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN } from '../../../lib/supportedDate';
 import type { IssuePriority } from '../../../types/issue';
 import { useIssueCreateForm } from '../hooks/useIssueCreateForm';
 import { CreateAiHandoffSection } from './CreateAiHandoffSection';
+import { IssueCreateProjectField } from './IssueCreateProjectField';
 import { MobileIssueCreateSheet } from './mobile/MobileIssueCreateSheet';
 
 type Props = {
@@ -36,20 +39,74 @@ type Props = {
   initialStatusId?: number;
   // 맡길 AI 미리 채우기(WP-1767) — 열리면 「AI 에게 맡기기」가 펼쳐져 그 AI 가 골라진다.
   initialAgentId?: number;
+  // 창 안에서 프로젝트를 고른다(WP-1768) — 프로젝트가 정해지지 않은 곳(채팅·노트의 사람 카드)에서 연다. projectKey 는 처음 값 힌트(없으면 목록 첫 프로젝트).
+  selectProject?: boolean;
 };
+
+/**
+ * 데스크톱·모바일 구현이 받는 것 — renderProjectField 는 프로젝트 고르기 모드일 때 폼 맨 위에 그릴 칸.
+ * locked(본문에 이미지가 있거나 올리는 중)는 폼 훅만 알아 칸을 그리는 쪽에 넘겨 받는다.
+ */
+export type IssueCreateFormProps = Omit<Props, 'selectProject'> & { renderProjectField?: (locked: boolean) => ReactNode };
 
 // 새 이슈 생성 진입점 — 모바일(<1024px)은 전체 화면 시트(WP-196), 데스크톱은 기존 모달.
 // 훅 순서가 바뀌지 않도록 분기는 이 얇은 래퍼에서만 하고 각 구현이 자기 훅을 쓴다.
-export function IssueCreateDialog(props: Props) {
+export function IssueCreateDialog({ selectProject, ...props }: Props) {
   const isMobile = useIsMobile();
+  if (selectProject) return <ProjectPickingIssueCreate {...props} isMobile={isMobile} />;
   return isMobile ? <MobileIssueCreateSheet {...props} /> : <DesktopIssueCreateDialog {...props} />;
+}
+
+/**
+ * 프로젝트를 고르는 새 이슈 창(WP-1768) — 고른 프로젝트 키를 여기서 들고 폼(데스크톱·모바일)에 넘긴다. 폼 훅은 키가 바뀌면
+ * 제목·본문만 남기고 나머지(유형·담당자·AI 맡기기 등)를 처음으로 돌린다. 폼 훅은 프로젝트 키가 있어야 유형·후보를 받으므로,
+ * 목록을 받기 전이나 고를 프로젝트가 없으면 폼 대신 작은 안내 창을 그린다.
+ */
+function ProjectPickingIssueCreate({ isMobile, ...props }: Omit<Props, 'selectProject'> & { isMobile: boolean }) {
+  const { open, onOpenChange, projectKey: hint } = props;
+  const all = useAllProjects();
+  const projects = selectableCreateProjects(all.data?.content);
+  // 사용자가 고른 키 — 없으면 힌트, 그것도 목록에 없으면 첫 프로젝트.
+  const [picked, setPicked] = useState<string | undefined>(undefined);
+  // 다시 열면 고른 값을 버린다 — 렌더 중에 맞춰 효과 뒤 한 번 더 그리지 않게(열린 첫 렌더부터 처음 값으로 폼 훅이 열린다).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (open) setPicked(undefined);
+  }
+  const projectKey = [picked, hint].find((k) => k && projects.some((p) => p.key === k)) ?? projects[0]?.key;
+
+  if (!projectKey) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent data-testid="issue-create-project-pending">
+          <DialogHeader><DialogTitle>새 이슈</DialogTitle><DialogDescription className="sr-only">새 이슈</DialogDescription></DialogHeader>
+          <p className="text-sm text-muted-foreground" role={all.isPending ? 'status' : undefined}>
+            {all.isPending
+              ? '프로젝트를 불러오는 중…'
+              : all.isError ? '프로젝트 목록을 불러오지 못했습니다' : '이슈를 만들 수 있는 팀 프로젝트가 없습니다'}
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>닫기</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  const renderProjectField = (locked: boolean) => (
+    <IssueCreateProjectField projects={projects} value={projectKey} onChange={setPicked} locked={locked} />
+  );
+  // 고를 수 있는 것은 팀 프로젝트뿐이라 personal 은 기본값(false) 그대로 둔다.
+  const formProps = { ...props, projectKey, renderProjectField };
+  return isMobile ? <MobileIssueCreateSheet {...formProps} /> : <DesktopIssueCreateDialog {...formProps} />;
 }
 
 // 새 이슈 생성 모달. priority 기본 MID, dueDate 미지정 시 빈 문자열 → API 호출 직전 undefined 변환.
 // 유형 select 의 기본값은 프로젝트 유형 목록에서 name === 'TASK' 인 id (없으면 첫 번째).
 // personal=true 면 개인 프로젝트(#226) — 유형 select 를 숨긴다. 기본값 effect 가 typeId 를 TASK 로
 // 채우므로 셀렉트가 없어도 payload 의 typeId 는 TASK 로 유지된다.
-function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId, initialAgentId }: Props) {
+function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId, initialAgentId, renderProjectField }: IssueCreateFormProps) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 저장 성공 등 부모가 창을 닫을 때 별도 확인 창 상태도 끝내 다시 열 때 남지 않게 한다.
   const handleOpenChange = (nextOpen: boolean) => {
@@ -78,6 +135,8 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
         {/* noValidate — 날짜 칸 min/max·부모 번호 칸 min/step 을 넘는 값이면 브라우저 기본 검증(영문 말풍선)이 제출을 먼저
             막아 zod 의 한국어 안내가 그려지지 않는다(WP-900·WP-906). 검증은 zod 스키마 한 곳에서 한다. */}
         <form noValidate onSubmit={f.onSubmit} className="space-y-4">
+          {/* 프로젝트 고르기(WP-1768) — 프로젝트 없이 연 창만. 맨 위에 둔다(유형·담당 AI 후보가 이 값에 따라 바뀐다). */}
+          {renderProjectField?.(f.projectLocked)}
           {/* 보드 컬럼에서 연 경우 그 상태로 만들어진다는 것을 알린다(WP-464). */}
           {f.statusNote && (
             <p className="text-sm text-muted-foreground" data-testid="create-status-note">상태: {f.statusNote}</p>

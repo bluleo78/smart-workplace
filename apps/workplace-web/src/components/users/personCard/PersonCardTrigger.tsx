@@ -15,19 +15,23 @@ import { PersonCardBody } from './PersonCardBody'
 import type { PersonRef } from './usePersonCard'
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
-// 카드 틀(팝오버·시트 공통)이 막는 이벤트 — 포털 안 클릭·키·pointerup 이 React 조상으로 올라가지 않게.
-const STOP_PROPS = { onClick: stop, onKeyDown: stop, onPointerUp: stop }
+// 카드 틀(팝오버·시트 공통)이 막는 이벤트 — 포털 안 클릭·키·pointerup·우클릭이 React 조상으로 올라가지 않게.
+// 우클릭(onContextMenu)은 메시지 행의 링크 메뉴가 카드 위 우클릭에 열리지 않게 하려는 것이다(WP-1768). 막는 것은 전파뿐이라 브라우저 기본 메뉴는 그대로다.
+const STOP_PROPS = { onClick: stop, onKeyDown: stop, onPointerUp: stop, onContextMenu: stop }
 
 export function PersonCardTrigger({
   person,
   className,
   label,
+  tabIndex,
   children,
 }: {
   person: PersonRef
   className?: string
   /** 트리거의 접근 이름 — 안쪽 글자 대신 읽힌다. AI 처럼 이름만으로 모자랄 때 준다(예: 「리뷰봇 (에이전트)」). 없으면 안쪽 글자. */
   label?: string
+  /** 탭 순서 — 같은 사람의 트리거가 한 줄에 둘일 때(이름·아바타) 아바타 쪽에 -1 을 줘 탭 정지점을 하나로 둔다. 없으면 기본. */
+  tabIndex?: number
   children: ReactNode
 }) {
   const isMobile = useIsMobile()
@@ -40,10 +44,17 @@ export function PersonCardTrigger({
       type="button"
       aria-haspopup="dialog"
       aria-label={label}
+      tabIndex={tabIndex}
       aria-expanded={open}
       data-testid={`person-card-trigger-${person.id}`}
+      // 목록 길게 누르기 위임(useMessageListLongPress)이 이 표식 안에서 시작한 누름을 무시한다 — 작성자 이름을 길게 눌러도 메시지 작업 시트가 뜨지 않게.
+      // pointerdown 전파를 막는 대신 표식으로 거른다(전파 막기는 Radix 바깥 누르기 판정을 깨뜨린다 — 위 맨 앞 주석).
+      data-person-card-trigger=""
       className={cn('cursor-pointer rounded-sm text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', className)}
       onKeyDown={stop}
+      // 트리거 pointerup 도 막는다 — 터치로 작성자를 눌렀을 때 행의 툴바 드러내기(useToolbarReveal 의 onPointerUp)가 같이 일어나지 않게.
+      // pointerdown 은 위 맨 앞 주석과 같은 이유로 막지 않는다.
+      onPointerUp={stop}
       onClick={(e) => {
         stop(e)
         if (isMobile) setOpen(true)

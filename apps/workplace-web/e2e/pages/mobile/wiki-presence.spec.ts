@@ -119,7 +119,7 @@ test.describe('모바일 원격 커서', { tag: '@platform' }, () => {
     await expect(cur).not.toBeInViewport()
 
     await presence(a).tap()
-    await a.getByTestId('wiki-presence-sheet').getByTestId('wiki-presence-row-2').getByRole('button').tap()
+    await a.getByTestId('wiki-presence-sheet').getByTestId('wiki-presence-row-2').getByRole('button', { name: /커서로 이동/ }).tap()
     await expect(a.getByTestId('wiki-presence-sheet')).toBeHidden()
     await expect(cur).toBeInViewport()
     await expect(cur).toHaveAttribute('data-label-visible', '')

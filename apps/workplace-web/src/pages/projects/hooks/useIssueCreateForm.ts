@@ -3,7 +3,7 @@ import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } fr
 import { type FieldErrors, type Resolver, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
-import { uploadIssueImage } from '../../../api/issueImages';
+import { ISSUE_IMAGE_PATH_SOURCE, uploadIssueImage } from '../../../api/issueImages';
 import type { RichInputHandle } from '../../../components/mentions/RichInput';
 import type { MentionCandidate } from '../../../components/mentions/types';
 import { useComponents } from '../../../hooks/queries/useComponents';
@@ -23,6 +23,16 @@ import { isIntakeOnly } from '../../../lib/projectPermissions';
 import { defaultStatusOf } from '../../../lib/projectStatuses';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
 import { type CreateMode, useCreateAiHandoff } from './useCreateAiHandoff';
+
+// 본문 속 이슈 이미지 주소 전부 — 첫 묶음이 프로젝트 키. 모듈에 한 번만 만든다(렌더마다 새로 만들지 않게).
+// g 플래그는 matchAll 용이다 — matchAll 은 정규식을 복제해 쓰므로 공유 lastIndex 상태가 남지 않는다(test()/exec() 로는 쓰지 않는다).
+const ISSUE_IMAGE_PATH_ALL = new RegExp(ISSUE_IMAGE_PATH_SOURCE, 'g');
+
+/** 본문에 projectKey 프로젝트의 이슈 이미지 주소가 하나라도 있는지 — 다른 프로젝트 이미지는 세지 않는다. */
+function bodyHasProjectImage(body: string, projectKey: string): boolean {
+  for (const m of body.matchAll(ISSUE_IMAGE_PATH_ALL)) if (m[1] === projectKey) return true;
+  return false;
+}
 
 const zodIssueCreateResolver = zodResolver(createIssueSchema);
 const DATE_FIELDS = ['startDate', 'dueDate'] as const;
@@ -152,6 +162,21 @@ export function useIssueCreateForm({
     setComponentIds([]); // 구성요소 선택 초기화
   }, [open, reset]);
 
+  // 열린 채 프로젝트가 바뀌면(WP-1768 창 안 프로젝트 고르기) 제목·본문만 남기고 나머지를 처음으로 — 유형·구성요소·에픽·부모·담당자는
+  // 프로젝트마다 다른 값이라 앞 프로젝트의 것을 실으면 서버가 거절한다. 유형은 아래 effect 가 새 프로젝트 목록으로 다시 채운다
+  // (이 effect 가 먼저 선언돼 같은 커밋에서도 비운 뒤 채운다). AI 맡기기는 useCreateAiHandoff 가 projectKey 로 따로 돌린다.
+  const prevProjectKey = useRef(projectKey);
+  useEffect(() => {
+    if (prevProjectKey.current === projectKey) return;
+    prevProjectKey.current = projectKey;
+    if (!open) return;
+    const { title, body } = form.getValues();
+    reset({ priority: 'MID', title, body });
+    setClassifyReason(null);
+    setEpic(null);
+    setComponentIds([]);
+  }, [projectKey, open, form, reset]);
+
   // 유형 목록 로드 시 기본값 세팅 — name === 'TASK' 우선, 없으면 첫 항목.
   useEffect(() => {
     const list = types.data;
@@ -165,7 +190,7 @@ export function useIssueCreateForm({
     // open 의존: 다이얼로그 재오픈 시 reset 이 typeId 를 지운 뒤 이 effect 가 다시 TASK 기본값을 채우도록 한다.
     // (개인 프로젝트는 select 가 숨겨져 사용자 보정이 불가하므로 payload typeId 누락을 막는 것이 특히 중요.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [types.data, open]);
+  }, [types.data, open, projectKey]);
 
   const currentTypeId = watch('typeId');
   // 선택된 유형이 SUBTASK 인지 — parentNumber 입력 동적 노출 + 송신 분기에 사용 (Phase 4a).
@@ -184,6 +209,11 @@ export function useIssueCreateForm({
   const bodyValue = watch('body');
   // hasContent 는 버림 확인에도 쓰인다. 글자 없이 이미지만 올리는 중이어도(원문은 아직 빈 글자) 버리면 아까운 입력으로 본다.
   const hasContent = hasIssueDraftContent(titleValue, bodyValue) || uploading;
+  // 프로젝트 칸 잠금(WP-1768) — 본문 이미지는 그 프로젝트 키 주소로 올라가고 서버는 같은 프로젝트 이미지만 이슈에 잇는다(나머지는 하루 뒤 정리).
+  // 지금 프로젝트의 이미지를 넣었거나 올리는 중이면 프로젝트를 바꾸지 못하게 해 이미지가 조용히 사라지지 않게 한다.
+  // 다른 프로젝트 이미지(다른 이슈 본문에서 붙여넣은 주소 등)는 어차피 이 이슈에 이어지지 않으므로 잠그지 않는다.
+  const hasOwnImage = useMemo(() => bodyHasProjectImage(bodyValue ?? '', projectKey), [bodyValue, projectKey]);
+  const projectLocked = uploading || hasOwnImage;
   useUnsavedChangesWarning(open && hasContent);
 
   // AI 제안 핸들러 — 현재 폼 제목·본문으로 분류 요청.
@@ -301,6 +331,8 @@ export function useIssueCreateForm({
     isSubmitting: uploading || submitting,
     isCreating: submitting,
     hasContent, epic, setEpic,
+    // 프로젝트 고르기 칸을 잠글지(WP-1768) — 본문에 이슈 이미지가 있거나 올리는 중.
+    projectLocked,
     // 구성요소(WP-933) — 칸 노출 여부·목록(보관 포함)·고른 id.
     showComponents, componentList, componentIds, setComponentIds,
   };

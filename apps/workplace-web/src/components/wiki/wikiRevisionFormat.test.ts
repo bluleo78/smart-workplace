@@ -5,6 +5,7 @@ import {
   revisionBarLabel,
   revisionDayLabel,
   revisionEditorsLabel,
+  revisionEditorsShown,
   revisionTime,
   revisionVersionLabel,
 } from './wikiRevisionFormat'
@@ -44,6 +45,15 @@ describe('wikiRevisionFormat', () => {
     expect(
       revisionEditorsLabel([{ id: 1, name: '김철수' }, { id: 2, name: '박민수' }, { id: 3, name: '이영희' }]),
     ).toBe('김철수 외 2명')
+  })
+
+  it('편집자 트리거 나누기: 2명까지 모두, 3명 이상은 첫 사람 + more', () => {
+    const a = { id: 1, name: '김철수' }
+    const b = { id: 2, name: '박민수' }
+    const c = { id: 3, name: '이영희' }
+    expect(revisionEditorsShown([])).toEqual({ shown: [], more: 0 })
+    expect(revisionEditorsShown([a, b])).toEqual({ shown: [a, b], more: 0 })
+    expect(revisionEditorsShown([a, b, c])).toEqual({ shown: [a], more: 2 })
   })
 
   it('최신순 항목을 연속된 같은 날끼리 묶는다', () => {

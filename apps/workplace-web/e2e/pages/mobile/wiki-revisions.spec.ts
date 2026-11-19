@@ -14,7 +14,7 @@ import {
   REVISION_SPACE_ID as SPACE_ID,
   REVISION_TITLE as TITLE,
   openRevisionHistory,
-  revisionItem as revItem,
+  revisionItem as revItem, revisionRow as revRow,
   revisionPagePath as pagePath,
   revisionPreview as preview,
   revisionShot as shot,
@@ -59,10 +59,10 @@ test.describe('모바일 노트 버전 기록', () => {
     await expectOnTop(a, listBack(a), '[data-testid="wiki-revision-mobile"]')
     await expect(layer(a).locator('h3')).toHaveText(['오늘', '어제', '10월 5일'])
     await expect(revItem(a, 'current')).toHaveAttribute('aria-current', 'true')
-    await expect(revItem(a, 6)).toContainText('이영희 (AI 수정)')
+    await expect(revRow(a, 6)).toContainText('이영희 (AI 수정)')
     // 긴 이름은 줄 안에서 말줄임 — 가로로 넘치지 않는다. 터치 타깃 44px 이상.
-    await expect(revItem(a, 3)).toContainText('17:48')
-    await expect.poll(() => revItem(a, 3).evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+    await expect(revRow(a, 3)).toContainText('17:48')
+    await expect.poll(() => revRow(a, 3).evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
     await expectNoHorizontalOverflow(a)
     // 가려진 에디터는 inert — 숨은 contenteditable 로 입력이 가지 않는다.
     await expect(a.getByTestId('wiki-editor-scroll')).toHaveAttribute('inert', '')

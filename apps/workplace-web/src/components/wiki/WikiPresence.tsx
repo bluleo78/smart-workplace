@@ -1,3 +1,4 @@
+import { LocateFixed } from 'lucide-react'
 import { type ComponentProps, useId, useRef, useState } from 'react'
 
 import { AiIcon } from '@/components/ai/AiIcon'
@@ -7,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/po
 import { Avatar, AvatarBadge, AvatarFallback, AvatarGroup, AvatarGroupCount } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { AvatarPicture } from '@/components/users/AvatarPicture'
+import { PersonCardTrigger } from '@/components/users/personCard/PersonCardTrigger'
 import { avatarInitials } from '@/lib/avatarColor'
 import { type PresencePerson, presenceStyle, splitVisible } from '@/lib/collab/presence'
 import { cn } from '@/lib/utils'
@@ -54,7 +56,7 @@ export function PresenceAvatar({ person, className, ...rest }: { person: Presenc
 
 /**
  * 접속자 목록(팝오버·바텀시트 공용) — 이름 + 상태("✦ AI 작성 중" / 편집 중이면 없음 / "보는 중", collab-states 시안).
- * 커서나 AI 표식이 있어 갈 곳이 있는 사람만 버튼(이름 클릭 → 그 커서로 스크롤). 긴 이름은 말줄임 + title 로 전체 이름.
+ * 아바타+이름은 사람 카드 트리거(WP-1768). 커서나 AI 표식이 있어 갈 곳이 있는 사람만 오른쪽 끝 ⌖ 단추(→ 그 커서로 스크롤). 긴 이름은 말줄임 + title 로 전체 이름.
  */
 export function WikiPresenceList({
   people,
@@ -70,32 +72,38 @@ export function WikiPresenceList({
     <ul data-testid="wiki-presence-list" role="list" className="flex flex-col">
       {people.map((p) => {
         const canJump = onSelect != null && (p.editing || p.aiWriting)
-        const body = (
-          <>
-            <PresenceAvatar person={p} aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-left" title={p.name} data-testid="wiki-presence-name">
-              {p.name}
-            </span>
-            {p.aiWriting ? (
-              <AiLabel className="shrink-0">AI 작성 중</AiLabel>
-            ) : p.editing ? null : (
-              <span className="shrink-0 text-xs text-muted-foreground">보는 중</span>
-            )}
-          </>
-        )
         return (
           <li key={p.userId} data-testid={`wiki-presence-row-${p.userId}`}>
-            {canJump ? (
-              <button
-                type="button"
-                onClick={() => onSelect(p)}
-                className={cn(ROW, 'outline-none hover:bg-accent focus-visible:bg-accent', rowClassName)}
-              >
-                {body}
-              </button>
-            ) : (
-              <div className={cn(ROW, rowClassName)}>{body}</div>
-            )}
+            {/* 행은 div — 안에 사람 카드 트리거(아바타+이름)와 이동 단추가 따로 있어 한 버튼으로 감쌀 수 없다(버튼 안 버튼 금지). */}
+            <div className={cn(ROW, rowClassName)}>
+              <PersonCardTrigger person={{ id: p.userId, name: p.name }} // self-stretch: 행(44px) 높이 전체를 누를 수 있게 늘리고, items-center 로 아바타·이름은 그대로 세로 가운데에 둔다(데스크톱 모양 불변).
+                className="flex min-w-0 flex-1 items-center gap-2 self-stretch hover:underline">
+                <PresenceAvatar person={p} aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate text-left" title={p.name} data-testid="wiki-presence-name">
+                  {p.name}
+                </span>
+              </PersonCardTrigger>
+              {p.aiWriting ? (
+                <AiLabel className="shrink-0">AI 작성 중</AiLabel>
+              ) : p.editing ? null : (
+                <span className="shrink-0 text-xs text-muted-foreground">보는 중</span>
+              )}
+              {canJump && (
+                // 갈 곳이 있는 사람(커서·AI 표식)만 — 누르면 그 위치로 이동(목록 닫힘은 onSelect 가 한다). 모바일 시트에선 44px 터치 영역.
+                <button
+                  type="button"
+                  aria-label={`${p.name} 커서로 이동`}
+                  title="커서로 이동"
+                  onClick={() => onSelect(p)}
+                  className={cn(
+                    'flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
+                    rowClassName && 'size-11',
+                  )}
+                >
+                  <LocateFixed aria-hidden="true" className="size-4" />
+                </button>
+              )}
+            </div>
           </li>
         )
       })}
@@ -210,7 +218,7 @@ function WikiPresenceTrigger({ people, compact, stale, onJump }: WikiPresencePro
           requestAnimationFrame(() => triggerRef.current?.focus())
         }}
         title={title}
-        description="이름을 누르면 그 사람의 커서 위치로 이동합니다"
+        description="이름을 누르면 사람 카드, ⌖ 를 누르면 커서 위치로 이동"
         testId="wiki-presence-sheet"
       >
         <div className="overflow-y-auto pb-2">

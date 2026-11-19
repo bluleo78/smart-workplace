@@ -30,16 +30,18 @@ export function PersonCardBody({
 }) {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { profile, groups, slotsUsed, profileLoading } = usePersonCard(person)
+  const { profile, kind, groups, slotsUsed, profileLoading } = usePersonCard(person)
   const createDm = useCreateDm()
   const { openCompose } = useMailCompose()
   // 화면(이슈 상세 등)이 깐 「일 맡기기」 처리기 — 없으면 AI 카드에 그 단추가 없다.
   const onAssignWork = usePersonCardAssign()
 
-  const isAgent = person.kind === 'AGENT'
+  // 해석된 kind(person.kind ?? 프로필 kind). 프로필 응답 전에는 undefined 라 AI 도 사람도 아니다.
+  const isAgent = kind === 'AGENT'
+  const isHuman = kind === 'HUMAN'
   const isMe = user?.id === person.id
   // 메일 단추는 다른 사람(HUMAN) 카드에만 있다 — AI·나 카드에서는 계정 목록을 받지 않는다.
-  const { data: accounts, isLoading: accountsLoading } = useMailAccounts({ enabled: !isAgent && !isMe })
+  const { data: accounts, isLoading: accountsLoading } = useMailAccounts({ enabled: isHuman && !isMe })
   // 비활성이 나(self)보다 앞선다 — 정지된 계정에는 어떤 단추도 주지 않는다.
   const inactive = profile?.active === false || person.active === false
   const username = person.username ?? profile?.username
@@ -105,7 +107,8 @@ export function PersonCardBody({
   )
 
   // 비활성 여부를 모르는 동안(호출부가 active 를 안 줬고 프로필 응답 전)은 단추를 미룬다 — 단추가 떴다 사라지지 않게. 실패하면 단추로 떨어진다.
-  const actionsPending = person.active === undefined && profileLoading
+  // kind 도 마찬가지 — 호출부가 안 줬으면 프로필이 올 때까지 미룬다. 프로필이 실패해 kind 를 끝내 모르면 단추 없이(아래 최종 분기의 null) 둔다 — 연락처 링크도 사람(HUMAN)으로 확정될 때만.
+  const actionsPending = (person.active === undefined || kind === undefined) && profileLoading
   // 단추를 미룬 동안 열림 포커스는 카드 틀에 머문다 — 단추가 나타나면 포커스가 카드 밖(틀)에 있을 때만 첫 단추로 옮긴다(사용자가 이미 카드 안으로 옮겼으면 건드리지 않는다).
   const cardRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -119,6 +122,7 @@ export function PersonCardBody({
   if (actionsPending) {
     actions = <div data-testid="person-card-actions-pending" className="h-8 animate-pulse rounded-md bg-muted/40" aria-hidden />
   } else if (inactive) {
+    // 비활성·나는 kind 와 무관하다 — 프로필이 실패해 kind 를 몰라도 호출부가 준 active·내 id 로 정해지므로 kind 분기보다 먼저 본다.
     actions = <p className="text-center text-xs text-muted-foreground">비활성 멤버</p>
   } else if (isMe) {
     actions = (
@@ -128,7 +132,8 @@ export function PersonCardBody({
         </Link>
       </Button>
     )
-  } else {
+  } else if (isAgent || isHuman) {
+    // kind 를 끝내 모르면(AI·사람 어느 쪽도 아님) 단추를 단정할 수 없어 두지 않는다(actions 는 null 그대로).
     actions = (
       <div className="flex gap-2">
         {messageButton}
@@ -182,11 +187,12 @@ export function PersonCardBody({
 
       {isAgent && profile?.description && <p className="text-xs break-words text-muted-foreground">{profile.description}</p>}
       {isAgent && slotsUsed !== undefined && <p className="text-xs text-muted-foreground">지금 작업 {slotsUsed}개</p>}
-      {!isAgent && groups && groups.length > 0 && <p className="text-xs break-words text-muted-foreground">{groups.join(', ')}</p>}
+      {/* 그룹·연락처 링크는 사람 전용 — kind 를 모르는 동안(노트처럼 kind 없이 연 카드의 프로필 응답 전·실패)에는 AI 일 수도 있어 숨긴다. */}
+      {isHuman && groups && groups.length > 0 && <p className="text-xs break-words text-muted-foreground">{groups.join(', ')}</p>}
 
       {actions}
 
-      {!isAgent && (
+      {isHuman && (
         <Link
           to={contactPath(person.id)}
           onClick={onClose}

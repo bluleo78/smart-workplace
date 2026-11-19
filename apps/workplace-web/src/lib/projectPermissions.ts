@@ -61,3 +61,11 @@ export function workflowLockedNotice(canEditWorkflow: boolean, canEditContent: b
   const base = '이슈 속성(유형·상태·일정 등)은 프로젝트 멤버만 바꿀 수 있어요.'
   return canEditContent ? `${base} 바꿔야 하면 코멘트로 알려 주세요.` : base
 }
+
+/**
+ * 프로젝트를 고르는 새 이슈 창(WP-1768, 사람 카드 「일 맡기기」)에서 고를 수 있는 프로젝트 — 내가 멤버인 팀 프로젝트만.
+ * 개인 프로젝트는 AI 에게 맡길 곳이 아니다. 멤버만 고르므로 접수 전용(OPEN 비멤버)은 따로 거를 필요 없이 함께 빠진다. 서버 순서를 그대로 둔다(첫 항목이 처음 값).
+ */
+export function selectableCreateProjects<P extends Pick<ProjectResponse, 'type' | 'viewerIsMember'>>(projects: readonly P[] | undefined): P[] {
+  return (projects ?? []).filter((p) => p.type !== 'PERSONAL' && p.viewerIsMember)
+}

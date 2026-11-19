@@ -39,10 +39,19 @@ export function revisionBarLabel(iso: string): string {
   return `${formatDateMonthDay(iso)} ${revisionTime(iso)} 버전 미리보기 — 읽기 전용`
 }
 
+/**
+ * 편집자 이름을 사람 카드 트리거로 그릴 때의 나누기(WP-1768) — 1~2명은 모두, 3명 이상은 첫 사람만 + 나머지 수(more).
+ * 편집자 표시 규칙의 단일 구현이며 revisionEditorsLabel 이 이것 위에 얹혀 글자·트리거 표시가 어긋나지 않는다.
+ */
+export function revisionEditorsShown(editors: WikiRevisionPerson[]): { shown: WikiRevisionPerson[]; more: number } {
+  if (editors.length <= 2) return { shown: editors, more: 0 }
+  return { shown: [editors[0]], more: editors.length - 1 }
+}
+
 /** 편집자 표시 — 1~2명은 ", " 로 잇고, 3명 이상은 "{첫 사람} 외 {n-1}명". 없으면 빈 문자열. */
 export function revisionEditorsLabel(editors: WikiRevisionPerson[]): string {
-  if (editors.length <= 2) return editors.map((e) => e.name).join(', ')
-  return `${editors[0].name} 외 ${editors.length - 1}명`
+  const { shown, more } = revisionEditorsShown(editors)
+  return shown.map((e) => e.name).join(', ') + (more > 0 ? ` 외 ${more}명` : '')
 }
 
 /**

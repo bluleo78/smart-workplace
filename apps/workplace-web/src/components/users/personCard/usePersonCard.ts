@@ -20,7 +20,8 @@ const CARD_STALE_MS = 5 * 60_000
 export type PersonRef = {
   id: number
   name: string
-  kind: 'HUMAN' | 'AGENT'
+  /** 모르면 생략 — 노트 편집자·접속자처럼 kind 를 모르는 호출부는 프로필의 kind 로 정한다(WP-1768). */
+  kind?: 'HUMAN' | 'AGENT'
   username?: string
   /** 호출부가 알면 넘긴다 — false 면 프로필 응답 전에도 「비활성 멤버」. */
   active?: boolean
@@ -28,6 +29,8 @@ export type PersonRef = {
 
 export interface PersonCardData {
   profile?: MemberSummary
+  /** 해석된 kind — person.kind 가 우선, 없으면 프로필의 kind. 프로필 응답 전(또는 실패)에는 undefined. */
+  kind?: 'HUMAN' | 'AGENT'
   groups?: string[]
   slotsUsed?: number
   /** 프로필 요청이 아직 처음 응답 전인가 — 비활성·이메일 판정을 미뤄야 하는 동안 true. */
@@ -36,17 +39,18 @@ export interface PersonCardData {
 
 /** 카드 내용(PersonCardBody)이 마운트될 때 부른다 — Radix 가 닫힌 카드는 마운트하지 않으므로 요청은 카드를 열었을 때만 간다. */
 export function usePersonCard(person: PersonRef): PersonCardData {
-  const isHuman = person.kind === 'HUMAN'
   const profile = useQuery({
     queryKey: memberKeys.detail(person.id),
     queryFn: () => membersApi.getMember(person.id).then((r) => r.data),
     staleTime: CARD_STALE_MS,
     retry: false,
   })
+  // kind 가 정해진 뒤에야 연락처·AI 현황을 요청한다 — 모르는 동안은 프로필만 받는다.
+  const kind = person.kind ?? profile.data?.kind
   const contact = useQuery({
     queryKey: contactKeys.member(person.id),
     queryFn: () => contactsApi.getMember(person.id).then((r) => r.data),
-    enabled: isHuman,
+    enabled: kind === 'HUMAN',
     staleTime: CARD_STALE_MS,
     retry: false,
   })
@@ -55,13 +59,14 @@ export function usePersonCard(person: PersonRef): PersonCardData {
   const agents = useQuery({
     queryKey: aiAgentsKeys.scope('ALL'),
     queryFn: () => fetchAiAgents('ALL'),
-    enabled: !isHuman,
+    enabled: kind === 'AGENT',
     placeholderData: keepPreviousData,
     refetchInterval: AI_AGENTS_REFRESH_MS,
   })
   const slotsUsed = agents.data?.agents.find((a) => a.agent.id === person.id)?.slotsUsed
   return {
     profile: profile.data,
+    kind,
     groups: contact.data?.groups,
     slotsUsed,
     profileLoading: profile.isLoading,

@@ -25,12 +25,11 @@ import { formatDateMonthDay } from '../../../../lib/formatters';
 import { autoAssignHint } from '../../../../lib/issueComponents';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { CreateAiHandoffSection } from '../CreateAiHandoffSection';
+import type { IssueCreateFormProps } from '../IssueCreateDialog';
 import { HIT_EXPAND } from './chipStyles';
 import { CreateIssueChips } from './CreateIssueChips';
 
-type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number; initialStatusId?: number; initialAgentId?: number };
-
-export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId, initialAgentId }: Props) {
+export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId, initialAgentId, renderProjectField }: IssueCreateFormProps) {
   const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId, initialAgentId });
   const { register, watch, formState: { errors } } = f.form;
   // 설명 칸(본문 모드 RichInput)에 넘길 것 — 훅이 메모해 둔 같은 참조들.
@@ -93,6 +92,8 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
               </Button>
             </header>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+              {/* 프로젝트 고르기(WP-1768) — 프로젝트 없이 연 시트만. 유형·담당 AI 후보가 이 값에 따라 바뀌어 맨 위에 둔다. */}
+              {renderProjectField?.(f.projectLocked)}
               {/* 제목 — Enter 는 줄바꿈 대신 설명으로 이동(enterKeyHint=next). 한글 조합 중 Enter 는 조합 확정이라 무시.
                   제목은 한 줄 값이라 붙여넣은 줄바꿈은 공백으로. 글자 크기 20px 는 터치 16px 강제 규칙(index.css, 확대 방지)보다 커서 important 로 덮는다. */}
               <textarea

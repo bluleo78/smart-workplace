@@ -32,6 +32,7 @@ export type CreateMode = 'run' | 'only';
  * initialAgentId(WP-1767): 사람 카드의 「일 맡기기」가 AI 를 골라 둔 채 창을 연다 — 열릴 때 맡기기를 켜고 펼치며 그 AI 를 고른다. 후보를 받았는데 그
  * AI 가 없으면(이 프로젝트의 멤버가 아님) 첫 후보로 대신 고르지 않고 agent 를 비운다(notMember) — 엉뚱한 AI 에게 맡겨지지 않게.
  * 그때도 칸은 다른 후보를 고를 수 있게 보이고, 사용자가 고르면 pickedAgentId 가 바뀌어 notMember 가 풀린다.
+ * projectKey 가 열린 채 바뀌면(WP-1768) 열릴 때처럼 처음 상태로 돌아가 initialAgentId 를 새 프로젝트 후보로 다시 판정한다.
  *
  * 만들기와 일정 저장은 화면이 차례로 부른다(afterCreate) — 작업 만들기는 성공했는데 일정 저장이 실패하면 작업은 남기고 이유를 알린다.
  */
@@ -57,6 +58,8 @@ export function useCreateAiHandoff(projectKey: string, open: boolean, initialAge
   const error = active ? validateTaskRecurrence(form) : null;
 
   // 창을 다시 열면 처음 상태로 — 지난번에 켜 둔 맡기기가 다음 작업에 남지 않게. 미리 채운 AI 가 있으면 켜고 펼쳐 그 AI 를 고른다.
+  // 열린 채 프로젝트가 바뀌어도(WP-1768 창 안 프로젝트 고르기) 같이 처음으로 — 미리 채운 AI 를 다시 골라 새 프로젝트 후보로 판정한다
+  // (멤버가 아니면 notMember, 멤버인 프로젝트로 돌아오면 그 AI 가 다시 골라진다). 앞 프로젝트에서 고른 다른 AI 는 남기지 않는다.
   useEffect(() => {
     if (!open) return;
     const preset = initialAgentId != null;
@@ -65,9 +68,9 @@ export function useCreateAiHandoff(projectKey: string, open: boolean, initialAge
     setForm(INITIAL_FORM);
     setPickedAgentId(initialAgentId ?? null);
     setTouched(false);
-    // initialAgentId 는 열릴 때의 값만 쓴다 — 열린 채 바뀌어도 입력 중인 폼을 되돌리지 않는다.
+    // initialAgentId 는 열릴 때(·프로젝트가 바뀔 때)의 값만 쓴다 — 열린 채 바뀌어도 입력 중인 폼을 되돌리지 않는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, projectKey]);
 
   /** 줄을 누른다 — 처음 펼치면 맡기기를 켠다. 펼친 채 누르면 접기만 한다(설정은 남는다). */
   const toggle = () => {
