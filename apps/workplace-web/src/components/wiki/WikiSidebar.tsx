@@ -82,6 +82,13 @@ const INDENT = 16
 // 다른 스페이스로 옮길 때 새 부모의 맨 아래를 뜻하는 position — 서버가 범위를 넘으면 맨 끝으로 맞춘다.
 const MOVE_TO_END = 1_000_000
 
+// KeyboardSensor 옵션 — 모듈 상수로 둬 useSensor 메모가 렌더마다 옵션 참조로 갈리지 않게 한다(DriveDnd KEYBOARD_OPTIONS 선례).
+// 키보드 드래그 시작은 Space 만 — Enter 는 행에 초점이 있을 때 페이지 열기 몫이다(WP-1779). 놓기는 Space·Enter, 취소는 Esc.
+const KEYBOARD_OPTIONS = {
+  coordinateGetter: sortableKeyboardCoordinates,
+  keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] },
+}
+
 // Select 하단 "새 스페이스" 항목의 sentinel value — 실제 스페이스 id 와 충돌하지 않는 문자열.
 // 선택되어도 Select 는 controlled(value={spaceId}) 라 표시 값이 바뀌지 않는다.
 const CREATE_SENTINEL = '__create__'
@@ -324,7 +331,7 @@ export function WikiSidebar({
   // PointerSensor distance:5 — 짧은 클릭(제목 이동)과 드래그를 구분.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, KEYBOARD_OPTIONS),
   )
 
   // 현재 선택된 스페이스 — 멤버 버튼/다이얼로그 노출은 TEAM 스페이스에 한정.
