@@ -1,10 +1,10 @@
 // 설정 › 메일 계정(MailSettingsPage + MailAccountsSection + MailAccountDialog) — 화면 컴포넌트 테스트(WP-971, WP-995).
 // 연결 테스트 → 저장 → 목록, 테스트 실패·저장 막힘 이유(WP-928), 포트·표시 이름 검증(WP-907·WP-929), 전역 개인 비서 토글 payload·토스트,
-// 수정 다이얼로그(계정별 AI 토글 없음·id 기반 연결 테스트 #448), 삭제 확인, 공급자 기본값(WP-879)과 늦게 온 기본값,
+// 수정 다이얼로그(계정별 AI 토글 없음·id 기반 연결 테스트 #448), 연결 테스트 연타·실패 안내·다시 연 다이얼로그 잠금(WP-1770), 삭제 확인, 공급자 기본값(WP-879)과 늦게 온 기본값,
 // Outlook(M365) 팝업 흐름(성공·실패 메시지·팝업 차단·/start 실패)은 브라우저 없이 판정되므로 e2e/pages/profile/mail-accounts.spec.ts·
 // settings-layout.spec.ts 에서 옮겼다. 메일 계정 화면 배선(@wiring)은 mail-accounts.spec.ts, 긴 주소의 가로 넘침(@layout)은 settings-layout.spec.ts 에 남는다.
 // 팝업은 window.open 을 가짜 창으로 바꾸고, 팝업이 보내는 결과는 같은 출처의 message 이벤트로 흉내 낸다(E2E 도 같은 방식이었다).
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
@@ -47,14 +47,18 @@ type Opts = {
   accounts?: MailAccountResponse[]
   /** 연결 테스트 응답 — 부를 때마다 앞에서 하나씩 꺼낸다(마지막 값은 계속 쓴다). */
   tests?: Array<Record<string, unknown>>
+  /** 연결 테스트 응답 상태 — 부를 때마다 앞에서 하나씩 꺼낸다(비면 200). 200 이 아니면 오류 본문을 준다(WP-1770). */
+  testStatus?: number[]
   /** 기본 공급자 판단 — 프라미스를 주면 그 값이 풀릴 때까지 응답을 붙든다. */
   preferred?: boolean | Promise<boolean>
   /** /mail/oauth/m365/start 응답 상태(기본 200). */
   startStatus?: number
+  /** 연결 테스트 응답을 붙들 프라미스 — 부를 때마다 앞에서 하나씩 꺼내 그 값이 풀릴 때까지 응답을 미룬다(WP-1770). */
+  testGates?: Array<Promise<void>>
 }
 
 /** 메일 계정 화면을 띄운다 — 서버 목록은 상태로 들고 생성·삭제·AI 토글을 반영한다. 쓰기 요청은 calls 에 쌓인다. */
-async function openMail({ accounts = [], tests = [ok], preferred = false, startStatus = 200 }: Opts = {}) {
+async function openMail({ accounts = [], tests = [ok], testStatus = [], testGates = [], preferred = false, startStatus = 200 }: Opts = {}) {
   let list = [...accounts]
   const calls: Call[] = []
   const record = async (request: Request) => {
@@ -64,6 +68,12 @@ async function openMail({ accounts = [], tests = [ok], preferred = false, startS
     return call
   }
   const nextTest = () => (tests.length > 1 ? tests.shift() : tests[0])
+  // 연결 테스트 응답 — testStatus 가 200 이 아니면 서버 오류를 낸다(WP-1770)
+  const testResponse = async () => {
+    await testGates.shift()
+    const status = testStatus.shift() ?? 200
+    return status === 200 ? HttpResponse.json(nextTest()) : HttpResponse.json({ message: 'smtp unreachable' }, { status })
+  }
   const view = renderScreen(<MailSettingsPage />, {
     path: '/settings/mail',
     handlers: [
@@ -75,11 +85,11 @@ async function openMail({ accounts = [], tests = [ok], preferred = false, startS
       http.get('/api/v1/mail/accounts', () => HttpResponse.json(list)),
       http.post('/api/v1/mail/accounts/test', async ({ request }) => {
         await record(request)
-        return HttpResponse.json(nextTest())
+        return testResponse()
       }),
       http.post('/api/v1/mail/accounts/:id/test', async ({ request }) => {
         await record(request)
-        return HttpResponse.json(nextTest())
+        return testResponse()
       }),
       http.post('/api/v1/mail/accounts', async ({ request }) => {
         await record(request)
@@ -143,6 +153,80 @@ async function choose(user: User, combobox: string, option: string) {
 const testCalls = (calls: Call[]) => calls.filter((c) => c.path.endsWith('/test'))
 
 describe('계정 추가', () => {
+  // WP-1770 — 연결 테스트를 연타해도 요청은 한 번만 나간다(유효성 검사 동안에도 잠김).
+  test('연결 테스트를 더블클릭해도 요청은 한 번만 나간다 (WP-1770)', async () => {
+    const { user, calls } = await openMail()
+    await openAdd(user)
+    await fillImap(user)
+    // user-event 의 dblClick 은 클릭 사이에 비동기 틈이 있어 수정 전에도 통과했다 — 같은 틱에 두 번 눌러 유효성 검사 대기 구간을 재현한다.
+    // 단 act() 안에서는 state(testing)만으로도 버튼이 꺼져 이 테스트는 ref 없이도 통과할 수 있다 — 관찰 가능한 동작(요청 1회)을 고정하는 용도이고,
+    // ref 는 같은 틱 두 번째 클릭을 막는 안전장치다(EventDialog submittingRef #584 와 같은 패턴).
+    const button = screen.getByTestId('mail-test-button')
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(testCalls(calls)).toHaveLength(1)
+  })
+
+  test('연결 테스트가 서버 오류로 끝나도 다시 누를 수 있다 (WP-1770)', async () => {
+    const { user, calls } = await openMail({ testStatus: [500, 200] })
+    await openAdd(user)
+    await fillImap(user)
+    const button = screen.getByTestId('mail-test-button')
+    await user.click(button)
+    await waitFor(() => expect(testCalls(calls)).toHaveLength(1))
+    // handleApiError 는 서버 message 를 우선 보인다 — 실패가 조용히 묻히지 않는다
+    expect(await screen.findByText('smtp unreachable')).toBeInTheDocument()
+    await waitFor(() => expect(button).toBeEnabled())
+    await user.click(button)
+    expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(testCalls(calls)).toHaveLength(2)
+  })
+
+  test('유효성 검사에서 막힌 뒤 칸을 고치면 다시 보낸다 (WP-1770)', async () => {
+    const { user, calls } = await openMail()
+    await openAdd(user)
+    await fillImap(user)
+    await fill(user, 'mail-imap-host', '')
+    await user.click(screen.getByTestId('mail-test-button'))
+    // 검사가 끝나 칸 오류가 보인 뒤에 요청이 0건인지 본다 — 검사 도중이라 0건인 것과 구분
+    await within(screen.getByTestId('mail-account-dialog')).findByText('IMAP 호스트를 입력하세요')
+    expect(testCalls(calls)).toHaveLength(0)
+    await fill(user, 'mail-imap-host', 'imap.x.com')
+    await user.click(screen.getByTestId('mail-test-button'))
+    expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(testCalls(calls)).toHaveLength(1)
+  })
+
+  // WP-1770 — 닫았다 다시 연 뒤 늦게 온 옛 응답이 새 화면의 결과·잠금을 건드리지 않는다.
+  test('다이얼로그를 닫았다 다시 열면 옛 연결 테스트 응답이 결과·저장 가능 여부에 쓰이지 않는다 (WP-1770)', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { user, calls } = await openMail({ testGates: [gate] })
+    await openAdd(user)
+    await fillImap(user)
+    await user.click(screen.getByTestId('mail-test-button'))
+    await waitFor(() => expect(testCalls(calls)).toHaveLength(1))
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('mail-account-dialog')).not.toBeInTheDocument())
+    await openAdd(user)
+    await fillImap(user)
+    // 옛 응답이 이제 도착한다
+    await act(async () => {
+      release()
+      await delay(50)
+    })
+    expect(screen.queryByTestId('mail-test-imap')).not.toBeInTheDocument()
+    expect(screen.getByTestId('mail-save-button')).toBeDisabled()
+    const button = screen.getByTestId('mail-test-button')
+    expect(button).toBeEnabled()
+    await user.click(button)
+    expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(testCalls(calls)).toHaveLength(2)
+  })
+
   test('메일 계정 페이지 제목은 사이드바 메뉴 라벨과 같다 (#651)', async () => {
     await openMail()
     expect(screen.getByRole('heading', { name: '메일 계정' })).toBeInTheDocument()
@@ -264,6 +348,18 @@ describe('계정 목록', () => {
     expect(screen.getByTestId('mail-test-smtp')).toHaveTextContent('SMTP 연결됨')
     expect(testCalls(calls).map((c) => c.path)).toEqual(['/api/v1/mail/accounts/1/test'])
     expect((testCalls(calls)[0].body as { password: string }).password).toBe('')
+  })
+
+  // WP-1770 — 수정 모드(id 기반 엔드포인트)도 연타해도 요청은 한 번이다.
+  test('수정 다이얼로그에서 연결 테스트를 연타해도 요청은 한 번만 나간다 (WP-1770)', async () => {
+    const { user, calls } = await openMail({ accounts: [account()] })
+    await user.click(within(await screen.findByTestId('mail-account-row-1')).getByRole('button', { name: '수정' }))
+    await screen.findByTestId('mail-account-dialog')
+    const button = screen.getByTestId('mail-test-button')
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(testCalls(calls).map((c) => c.path)).toEqual(['/api/v1/mail/accounts/1/test'])
   })
 
   test('계정 삭제는 확인 대화상자 뒤에만 실행되고, 취소하면 행이 남는다 (#182)', async () => {
