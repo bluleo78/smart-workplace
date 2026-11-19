@@ -220,7 +220,7 @@ export interface RuntimeCalls {
   slotLimits: { slotLimit: number | null }[]
   /** GET /me/ai-agents 호출 수(WP-1775) — 에이전트 상세가 전체 AI 목록을 읽지 않는지(0) 본다. */
   rosterReads: number
-  /** GET /admin/agents/:id/runtime-setting/slots 호출 수(WP-1775) — 실행 중일 때만 읽는지, 상한 변경 뒤 다시 읽는지 본다. */
+  /** GET /admin/agents/:id/runtime-setting/slots 호출 수(WP-1775) — 실행 중일 때만 읽는지 본다. 상한을 바꿔도 다시 읽지 않고, 문구는 진행 수만 쓴다(WP-1781). */
   slotsReads: number
   /** 호출 순서 — 「삭제 → 실행 방식 PUT」처럼 순서를 볼 때 */
   order: string[]

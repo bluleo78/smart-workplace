@@ -79,10 +79,12 @@ interface Opts extends RuntimeApiOptions {
   probe?: boolean
   /** 기본 목보다 먼저 맞출 핸들러 — 특정 조회를 멈춰 「받는 중」 을 흉내 낼 때. */
   extraHandlers?: RequestHandler[]
+  /** 조회 재시도 기본값(renderScreen 의 queryRetry) — 훅이 재시도를 끄는지 볼 때만(WP-1781). */
+  queryRetry?: number | false
 }
 
 /** 상세 페이지 — 에이전트 한 명·계정·역할·키·공통 비서와 AI 실행 API 를 준다. */
-async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'agent-detail-page', models, probe = false, extraHandlers = [], ...runtimeOpts }: Opts) {
+async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'agent-detail-page', models, probe = false, extraHandlers = [], queryRetry, ...runtimeOpts }: Opts) {
   const runtime = agentRuntimeApi(runtimeOpts)
   /** 모델 목록 조회 횟수 — 계정 모델 칸이 없는 방식은 부르지 않는지 본다. */
   const modelCalls = { count: 0 }
@@ -125,6 +127,7 @@ async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'ag
   const view = renderScreen(probe ? withScreenContextProbe(routes) : withAppProviders(routes), {
     path: `/settings/agents/${agent.id}`,
     handlers,
+    queryRetry,
   })
   await screen.findByTestId(readyTestId)
   return { ...view, ...runtime, modelCalls }
@@ -453,6 +456,20 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
       await queryClient.refetchQueries({ queryKey: ['agent-runtime', 'slots'] })
       await waitFor(() => expect(calls.slotsReads).toBeGreaterThan(readsBefore))
       await waitFor(() => expect(row).not.toHaveTextContent('지금'))
+    })
+
+    // 30초 주기가 곧 다음 시도라 훅이 재시도하지 않는다(WP-1781) — 기본 재시도를 켜 둬도 한 번만 읽고 문구를 뺀다.
+    test('재시도가 켜져 있어도 자리 조회가 실패하면 바로 「지금 n개」를 뺀다', async () => {
+      const slots: Record<number, { used: number; limit: number } | 'error'> = { [id]: { used: 1, limit: 1 } }
+      // 운영처럼 조회 재시도(3회)를 켠 클라이언트로 띄운다 — 훅이 스스로 재시도를 꺼야 통과한다(WP-1781).
+      const { calls, queryClient } = await renderDetail({ ...works({ settings: { [id]: running() }, slots }), queryRetry: 3 })
+      const row = await screen.findByTestId('agent-slot-limit')
+      await waitFor(() => expect(row).toHaveTextContent('지금 1개 진행 중'))
+      slots[id] = 'error'
+      const before = calls.slotsReads
+      await queryClient.refetchQueries({ queryKey: ['agent-runtime', 'slots'] })
+      await waitFor(() => expect(row).not.toHaveTextContent('지금'))
+      expect(calls.slotsReads).toBe(before + 1) // 재시도하지 않는다
     })
 
     test('AI 에 고른 값이 있으면 그 값을, 템플릿 기본이 다르면 기본 옆에 「(기본)」을 보인다', async () => {

@@ -49,6 +49,7 @@ const DEFAULT_SLOT_LIMIT = 5
 export async function fetchAiAgents(scope: 'MINE' | 'ALL'): Promise<AiAgentsResponse> {
   const { data } = await client.get<AiAgentsResponse>(`/me/ai-agents?scope=${scope}`)
   // 배포가 섞인 동안 옛 API(WP-1754 전) 응답에는 agents[].slotLimit 이 없다(WP-1775) — 여기서 한 번 채워 화면은 늘 값이 있다고 본다.
+  // 모든 운영 서버가 WP-1754 이후(AI별 slotLimit)로 배포되면 이 대체값과 DEFAULT_SLOT_LIMIT 을 지운다.
   const fallback = data.slotLimit ?? DEFAULT_SLOT_LIMIT
   return { ...data, agents: data.agents.map((a) => ({ ...a, slotLimit: a.slotLimit ?? fallback })) }
 }
