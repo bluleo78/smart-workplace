@@ -23,7 +23,7 @@ vi.mock('sonner', () => ({
   }),
 }))
 
-const { useSendMail, showSentToast, SEND_UNDO_MS, SENT_REFRESH_MS } = await import('./useMailMessages')
+const { useSendMail, showSentToast, undoMailSend, SEND_UNDO_MS, SENT_REFRESH_MS } = await import('./useMailMessages')
 const { mailDraftKeys } = await import('./mailDraftKeys')
 
 const BODY: MailSendRequest = { to: ['a@test.local'], cc: [], bcc: [], subject: '안녕', bodyHtml: '<p>x</p>', bodyText: 'x', inReplyToMessageId: null }
@@ -89,6 +89,24 @@ describe('useSendMail — 되돌리기 토스트', () => {
     expect(cancelCalls).toEqual([55])
     await vi.waitFor(() => expect(openDraft).toHaveBeenCalledWith(55, back))
     expect(plain).not.toHaveBeenCalledWith('이미 보냄', undefined)
+  })
+
+  // WP-1786 리뷰 후속 — 되돌리기는 쓰기 창이 다시 열린 뒤에야 끝나야 한다(openDraft 를 기다린다).
+  it('되돌리기는 openDraft(쓰기 창 다시 열기)가 끝난 뒤에야 끝난다 — 늦게 끝나는 열기를 기다린다', async () => {
+    const back = draftDetail({ id: 57, to: ['a@test.local'], subject: '안녕' })
+    server.use(http.post('/api/v1/mail/drafts/:id/cancel-send', () => HttpResponse.json(back)))
+    const { qc } = setup()
+    let finishOpen: () => void = () => {}
+    const openDraft = vi.fn(() => new Promise<void>((resolve) => { finishOpen = resolve }))
+    const settled = vi.fn()
+    const done = undoMailSend(qc, 1, 57, openDraft).then((ok) => { settled(ok); return ok })
+    await vi.waitFor(() => expect(openDraft).toHaveBeenCalledWith(57, back))
+    // 열기가 아직 안 끝났다 — 되돌리기도 끝나지 않았다
+    await new Promise((r) => setTimeout(r, 30))
+    expect(settled).not.toHaveBeenCalled()
+    finishOpen()
+    await expect(done).resolves.toBe(true)
+    expect(settled).toHaveBeenCalledWith(true)
   })
 
   it.each([

@@ -12,6 +12,7 @@ import { useOpenMailDraft } from '@/hooks/queries/useMailDrafts';
 import { scheduleSentRefresh, showSentToast } from '@/hooks/queries/useMailMessages';
 import { useLatest } from '@/hooks/useLatest';
 import { forgetMailComposePopout, listenMailComposeWindowEvents, MAIL_COMPOSE_WINDOW_ID } from '@/lib/mailComposeChannel';
+import { notifySentElsewhere } from '@/lib/mailDraftCompose';
 
 export function MailComposeWindowSync() {
   const qc = useQueryClient();
@@ -37,6 +38,10 @@ export function MailComposeWindowSync() {
           toast.success('임시보관함에 저장했어요');
         } else if (type === 'discarded') {
           toast('임시저장을 버렸어요');
+        } else if (type === 'sentElsewhere' || type === 'sentElsewhereSaved') {
+          // WP-1786 리뷰 후속 — 새 창이 다른 곳에서 보냈거나 지운 작성을 닫았다. 새 창은 곧 닫혀 토스트를 못 보므로 연 창이 알린다
+          // (연 창이 듣고 있지 않으면 새 창이 스스로 안내한다 — MailComposeWindowPage).
+          notifySentElsewhere(type === 'sentElsewhereSaved');
         }
       }),
     // openRef 는 useLatest 가 돌려주는 같은 ref 라 의존성에 넣어도 다시 걸지 않는다.

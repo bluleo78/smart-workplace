@@ -73,14 +73,14 @@ interface Props {
   initialUnsaved?: boolean;
 }
 
-function setup(initial: Props, snap: { current: DraftSnapshot }) {
+function setup(initial: Props, snap: { current: DraftSnapshot }, extra: { onSentElsewhere?: (draftId: number) => void } = {}) {
   const qc = new QueryClient();
   const invalidate = vi.spyOn(qc, 'invalidateQueries');
   const onCreated = vi.fn();
   const onSendReleased = vi.fn();
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
   const hook = renderHook(
-    (p: Props) => useMailDraftAutosave({ ...p, accountId: 1, getSnapshot: () => snap.current, onCreated, onSendReleased }),
+    (p: Props) => useMailDraftAutosave({ ...p, accountId: 1, getSnapshot: () => snap.current, onCreated, onSendReleased, ...extra }),
     { wrapper, initialProps: initial },
   );
   return { hook, onCreated, onSendReleased, invalidate, qc };
@@ -128,6 +128,9 @@ describe('hasUnsavedDraft', () => {
     // 보내는 중(inflight)은 저장할 것이 없다 — 단 멈추며 저장하지 못한 변경이 있으면 경고한다(WP-1786 코드 리뷰).
     expect(hasUnsavedDraft('inflight')).toBe(false);
     expect(hasUnsavedDraft('inflight', true)).toBe(true);
+    // 다른 곳에서 보냄(sentElsewhere)도 같다 — 닫으며 새 임시저장으로 남길 변경이 있을 때만 경고한다(WP-1786 리뷰 후속).
+    expect(hasUnsavedDraft('sentElsewhere')).toBe(false);
+    expect(hasUnsavedDraft('sentElsewhere', true)).toBe(true);
     expect(hasUnsavedDraft('saved', true)).toBe(false);
     expect(hasUnsavedDraft('invalid')).toBe(true);
   });
@@ -391,6 +394,70 @@ describe('useMailDraftAutosave', () => {
     await elapse(DRAFT_INFLIGHT_RECHECK_MS);
     expect(hook.result.current.status).toBe('gone');
     expect(hook.result.current.currentDraftId()).toBeNull();
+  });
+
+  // WP-1786 리뷰 후속 — 보내는 중 확인이 404 면 gone 으로 풀면 같은 내용을 새 메일로 다시 보낼 수 있다. sentElsewhere 로 넘겨 호출부에 한 번 알리고
+  // 보내기 잠금을 유지한다. 그 행은 이미 없으니 간격·창 포커스 다시 확인도 멈춘다.
+  it('inflight 확인이 404 면 sentElsewhere 로 넘어가 onSentElsewhere(draftId) 를 한 번만 부르고(보내기 잠금 유지) 더 확인하지 않는다', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    const onSentElsewhere = vi.fn();
+    const { hook, invalidate } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap, { onSentElsewhere });
+    const ticket = await act(() => hook.result.current.beginSend());
+    act(() => ticket.alreadySending());
+    getDetail.mockRejectedValue(apiError(404, 'DRAFT_NOT_FOUND'));
+    invalidate.mockClear();
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS);
+    expect(onSentElsewhere).toHaveBeenCalledTimes(1);
+    // 보낸 행이 목록·개수에 남지 않게 임시보관함을 다시 받는다
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: mailDraftKeys.account(1) });
+    expect(onSentElsewhere).toHaveBeenCalledWith(9);
+    expect(hook.result.current.status).toBe('sentElsewhere');
+    expect(hook.result.current.currentDraftId()).toBe(9);
+    const again = await act(() => hook.result.current.beginSend());
+    expect(again.draftId).toBe(9);
+    // 다음 간격·창 포커스에도 그 id 를 다시 묻지 않고, 다시 알리지도 않는다
+    const calls = getDetail.mock.calls.length;
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS * 3);
+    await act(async () => {
+      window.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(getDetail.mock.calls.length).toBe(calls);
+    expect(onSentElsewhere).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.status).toBe('sentElsewhere');
+  });
+
+  it('resumeInflight(id): conflict 이고 같은 id 면 inflight 로 되돌리고 상세를 다시 확인한다 — 낡은 풀림 결과에는 반응하지 않는다', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    const { hook } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    const ticket = await act(() => hook.result.current.beginSend());
+    act(() => ticket.alreadySending());
+    getDetail.mockResolvedValue(detailWith(null));
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS);
+    expect(hook.result.current.status).toBe('conflict');
+    const calls = getDetail.mock.calls.length;
+    // 다시 열어 보니 또 보내는 중이다
+    getDetail.mockResolvedValue(detailWith('QUEUED'));
+    await act(async () => {
+      hook.result.current.resumeInflight(9);
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(hook.result.current.status).toBe('inflight');
+    expect(getDetail.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it('resumeInflight: phase 가 conflict 가 아니거나 id 가 다르면 아무것도 안 한다', async () => {
+    const snap = { current: { payload: payload(), empty: false } };
+    const { hook } = setup({ instanceId: 1, initialDraftId: 9, initialVersion: 5 }, snap);
+    act(() => hook.result.current.resumeInflight(9));
+    expect(hook.result.current.status).toBe('saved');
+    const ticket = await act(() => hook.result.current.beginSend());
+    act(() => ticket.alreadySending());
+    getDetail.mockResolvedValue(detailWith(null));
+    await elapse(DRAFT_INFLIGHT_RECHECK_MS);
+    expect(hook.result.current.status).toBe('conflict');
+    act(() => hook.result.current.resumeInflight(77));
+    expect(hook.result.current.status).toBe('conflict');
   });
 
   it('다시 확인이 네트워크 오류면 inflight 그대로 두고 다음 확인에서 다시 본다', async () => {

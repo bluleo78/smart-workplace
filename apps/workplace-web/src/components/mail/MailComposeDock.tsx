@@ -51,7 +51,12 @@ import {
   rememberMailComposePopout,
   toastMailComposePopupBlocked,
 } from '@/lib/mailComposeChannel';
-import { buildDraftSavePayload, MAIL_ALREADY_SENDING, MAIL_ALREADY_SENDING_NOT_SENT_HERE } from '@/lib/mailDraftCompose';
+import {
+  buildDraftSavePayload,
+  MAIL_ALREADY_SENDING,
+  MAIL_ALREADY_SENDING_NOT_SENT_HERE,
+  notifySentElsewhere,
+} from '@/lib/mailDraftCompose';
 import { pastedImageSrc, toSendablePastedImages, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
 import { parseRecipientInput } from '@/lib/mailRecipients';
 import {
@@ -274,7 +279,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const openDraft = useOpenMailDraft();
   // 「메일 보냄 · 되돌리기」(WP-1786) — 되돌리면 돌려받은 상세로 이 창에 다시 연다. 새 창은 토스트를 띄우지 않는다 — 보낸 뒤(onDone) 새 창
   // 페이지가 그때 메인 창이 듣고 있으면 메인 창에 맡기고, 없으면(닫혔거나 새로 고쳐졌다) 그 창이 띄운다.
-  const send = useSendMail(popout ? null : (id, detail) => void openDraft(id, { detail }));
+  const send = useSendMail(popout ? null : (id, detail) => openDraft(id, { detail }));
 
   const composerRef = useRef<MailComposerHandle>(null);
   const toInputRef = useRef<HTMLInputElement>(null);
@@ -425,6 +430,9 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   useLayoutEffect(() => {
     getSnapshotRef.current = getSnapshot;
   });
+  // closeSentElsewhere 는 autosave 훅 뒤에 정의돼 훅 옵션에서 직접 못 부른다 — 훅이 비동기로 부르는 onSentElsewhere 가 낡은 클로저를 잡지 않게
+  // 렌더마다 최신 함수를 거는 ref 로 건넨다(WP-1786 리뷰 후속, getSnapshotRef 와 같은 방식).
+  const closeSentElsewhereRef = useRef<() => void>(() => {});
   const autosave = useMailDraftAutosave({
     instanceId: draft?.instanceId,
     initialDraftId: draft?.draftId,
@@ -435,13 +443,24 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     onCreated: bindDraftId,
     // 다른 곳에서 보내던 이 임시저장의 보내기가 풀렸고 이 창에 바뀐 것이 없다(WP-1786 코드 리뷰) — 서버 내용으로 다시 연다(충돌 「다시 불러오기」와 같다).
     onSendReleased: () => reloadDraft(),
+    // 보내는 중으로 멈춘 작성을 다시 확인하니(또는 다시 불러오려니) 행이 없다(404) — 다른 곳에서 보냈거나 지웠다(WP-1786 리뷰 후속).
+    // 훅이 sentElsewhere 로 넘어가며 한 번 부른다 — 닫으며 저장 못 한 변경은 새 임시저장으로 남기고 안내를 한 번 띄운다(새 창이면 onDone 으로 넘긴다).
+    onSentElsewhere: () => closeSentElsewhereRef.current(),
   });
   // 충돌 「다시 불러오기」 — 내 변경은 저장하지 않고 서버의 최신 내용으로 작성창을 다시 연다.
   // 세션은 서버 내용을 받아 와 바꾸기 직전에 끝낸다 — 받지 못하면 충돌 상태 그대로 두어 계속 쓰고 ✕ 로 새 임시저장에 남길 수 있게.
   // 보내기가 풀린 작성(onSendReleased)도 같은 길로 다시 연다. 작성이 없을 때의 조기 return 앞에 둔다(훅이 비동기로 부른다).
   const reloadDraft = () => {
     const id = autosave.currentDraftId();
-    if (id != null) void openDraft(id, { force: true, beforeOpen: autosave.end });
+    if (id == null) return;
+    // 다시 여는 사이 그 행이 다시 보내는 중(QUEUED·SENDING)이 되면 열지 않고 'sending' 을 돌려준다 — 세션은 beforeOpen 이 끝내지 않아 충돌 상태로 남아 있으니
+    // 보내기가 풀린 것처럼 켜져 두 번 나가지 않게 inflight 로 되돌려 잠근다(WP-1786 리뷰 후속). 받기가 실패했거나 열었으면(undefined) 그대로 둔다.
+    // 받기가 404 면('gone') 그 행은 풀린 뒤 다른 곳에서 보냈거나 지웠다(WP-1786 리뷰 후속) — 충돌 상태로 두면 id 없이 보내기가 켜져 같은 메일이
+    // 두 번 나간다. inflight 404 와 같이 sentElsewhere 로 넘겨 닫으며 알린다(토스트는 quietGone 으로 열기가 아니라 closeSentElsewhere 가 한 번 띄운다).
+    void openDraft(id, { force: true, beforeOpen: autosave.end, quietGone: true }).then((r) => {
+      if (r === 'sending') autosave.resumeInflight(id);
+      else if (r === 'gone') autosave.markSentElsewhere(id);
+    });
   };
   // 보내기 준비 중(진행 중인 임시저장을 기다리는 동안) — send.isPending 이 켜지기 전에도 보내기를 잠가 두 번 나가지 않게 한다.
   // 상태는 버튼 표시용, ref 는 같은 틱의 두 번째 클릭을 막는 동기 잠금.
@@ -678,7 +697,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   // 「옮기는 중」(leaving)만 따로 뺀다 — 자동 옮기기는 앞 회차의 늦은 저장(leaving)이 남은 채 다음 회차를 열어도 그 회차를 막으면 안 되기 때문이다.
   const popoutBaseBlockedReason =
     blockedReason ??
-    (autosave.status === 'gone'
+    (autosave.status === 'gone' || autosave.status === 'sentElsewhere'
       ? '다른 곳에서 보냈거나 버린 메일이라 새 창으로 열 수 없어요'
       : autosave.status === 'inflight'
         ? '이미 보내는 중인 메일이라 새 창으로 열 수 없어요'
@@ -720,11 +739,54 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     return () => setComposeHandlers(null);
   });
 
+  /**
+   * 다른 곳에서 보냈거나 지운 작성을 닫는다(WP-1786 리뷰 후속) — 훅이 sentElsewhere 로 넘어가며(inflight 다시 확인·「다시 불러오기」가 404) 부르고,
+   * 새 창이 저장하지 못해 남은 뒤의 ✕ 도 이리로 온다(closeWithSave 가 상태로 가린다). 남은 저장을 한 번 돌려 저장 못 한 변경만 새 임시저장으로 남기고,
+   * 안내 「이 메일은 다른 곳에서 보냈거나 지웠어요」를 한 번 띄운다(새로 남겼으면 덧붙임). 그 임시저장은 이미 없으니 「손대지 않은 새 창」의 지우기는 하지 않는다.
+   * 조기 return 앞에 둔다 — 훅이 ref 로 부른다.
+   */
+  const closeSentElsewhere = () => {
+    if (!draft) return;
+    if (popout) {
+      const accountId = draft.accountId;
+      const leavingId = draft.instanceId as number;
+      setLeavingFor(leavingId);
+      void autosave.flush().then((r) => {
+        if (!r.ok) {
+          // 창이 남는다 — 안내를 여기서 보인다(메인 창에 넘길 onDone 이 아직 없다). 보내기 잠금과 나중의 ✕ 는 자동 저장 상태(sentElsewhere)가 잇는다.
+          setLeavingFor((cur) => (cur === leavingId ? null : cur));
+          notifySentElsewhere(false);
+          toast.error(r.reason ?? '임시저장하지 못했어요', { description: '창을 닫지 않았어요. 고치거나 잠시 뒤 다시 닫아 주세요' });
+          return;
+        }
+        // 안내는 페이지가 정한다 — 메인 창이 듣고 있으면 그 창이, 없으면 이 창이 띄운다(MailComposeWindowPage).
+        autosave.end();
+        popout.onDone(r.wrote ? 'sentElsewhereSaved' : 'sentElsewhere', accountId);
+      });
+      return;
+    }
+    // 앱 안 작성창 — 안내 토스트 하나로 알린다. 저장에 실패하면 「임시저장하지 못했어요 · 다시 열기」(notifySaved)도 띄워 쓴 것을 잃지 않게 한다.
+    const reopen = snapshotDraft();
+    void autosave.flush().then((r) => {
+      notifySentElsewhere(r.ok && r.wrote);
+      if (!r.ok) notifySaved(r, reopen);
+    });
+    closeCompose();
+  };
+  useLayoutEffect(() => {
+    closeSentElsewhereRef.current = closeSentElsewhere;
+  });
+
   if (!draft) return null;
 
   // ✕·모바일 back 공통 — 묻지 않고 남은 저장을 바로 돌린 뒤 닫는다. 저장 결과는 닫힌 뒤 토스트로 알린다.
   // 새 창은 저장이 끝난 뒤에 닫는다 — 창을 먼저 닫으면 나가던 저장 요청이 끊긴다. 저장하지 못했으면 창을 남기고 알린다(쓴 것을 잃지 않게).
+  // 다른 곳에서 보냈거나 지운 작성(새 창이 닫다가 저장하지 못해 남음)은 같은 안내로 끝낸다(WP-1786 리뷰 후속).
   const closeWithSave = () => {
+    if (autosave.status === 'sentElsewhere') {
+      closeSentElsewhere();
+      return;
+    }
     if (popout) {
       const accountId = draft.accountId;
       const leavingId = draft.instanceId as number;
@@ -815,7 +877,12 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     const { payload } = getSnapshot();
     // 다른 곳에서 보냈거나 버린 임시저장(gone)이면 지울 것(id 가 이미 비었다)도 되살릴 것도 없다 — 조용히 닫는다.
     // 다른 곳에서 보내는 중(inflight, WP-1786)이면 지우지 않고(훅이 건너뛴다) 이 창만 닫는다 — 되살릴 것도 없다.
-    const worth = autosave.status !== 'gone' && autosave.status !== 'inflight' && (hasContent || autosave.currentDraftId() != null);
+    // 다른 곳에서 보냈거나 지운 작성(sentElsewhere, WP-1786 리뷰 후속)도 같다 — 그 임시저장은 이미 없다.
+    const worth =
+      autosave.status !== 'gone' &&
+      autosave.status !== 'inflight' &&
+      autosave.status !== 'sentElsewhere' &&
+      (hasContent || autosave.currentDraftId() != null);
     const deleting = autosave.discard();
     // 새 창 — 지우기가 끝난 뒤 닫는다(창을 먼저 닫으면 DELETE 가 끊긴다). 「되돌리기」는 닫힌 창에서 누를 수 없어 메인 창은 버림만 알린다.
     if (popout) {
@@ -872,7 +939,14 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
         : null;
   // 보내기 잠금 — 발송 중, AI 초안 생성 중(반쯤 찬 본문이 나가지 않게, WP-576), 첨부 업로드 중·실패(WP-574).
   // 다른 곳에서 이미 보내는 중(inflight, WP-1786)이면 보내지 않는다 — 같은 메일이 두 번 나가지 않게(상태 줄이 이유를 보인다).
-  const sendDisabled = send.isPending || preparingSend || aiGenerating || blockedReason != null || autosave.status === 'inflight';
+  // 다른 곳에서 보냈거나 지운 작성(sentElsewhere — 새 창이 닫다가 저장 못 해 남음, WP-1786 리뷰 후속)도 막는다 — 같은 메일을 또 보내지 않게.
+  const sendDisabled =
+    send.isPending ||
+    preparingSend ||
+    aiGenerating ||
+    blockedReason != null ||
+    autosave.status === 'inflight' ||
+    autosave.status === 'sentElsewhere';
   const openFilePicker = () => fileInputRef.current?.click();
   const attachmentChips = (
     <MailComposeAttachmentChips

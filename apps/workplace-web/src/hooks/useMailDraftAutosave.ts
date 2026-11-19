@@ -7,10 +7,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 
 import { createMailDraft, deleteMailDraft, updateMailDraft } from '@/api/mailDrafts';
 import { invalidateMailDrafts } from '@/hooks/queries/mailDraftKeys';
-import { mailDraftQuery, patchMailDraftRow } from '@/hooks/queries/useMailDrafts';
-import { extractApiError, extractApiErrorCode, isConflictError, isNotFoundError } from '@/lib/api-error';
+import { isMailDraftNotFound, mailDraftQuery, patchMailDraftRow } from '@/hooks/queries/useMailDrafts';
+import { extractApiError, extractApiErrorCode, isConflictError } from '@/lib/api-error';
 import { isSendInFlight } from '@/lib/mailDraftCompose';
-import { DRAFT_CONFLICT, DRAFT_NOT_FOUND, DRAFT_SENDING, type MailDraftSaveRequest } from '@/types/mailDraft';
+import { DRAFT_CONFLICT, DRAFT_SENDING, type MailDraftSaveRequest } from '@/types/mailDraft';
 
 /** 내용이 바뀐 뒤 저장까지 기다리는 시간. */
 export const DRAFT_AUTOSAVE_DELAY_MS = 1500;
@@ -28,16 +28,29 @@ export const DRAFT_INFLIGHT_RECHECK_MS = 5000;
  * gone(404 DRAFT_NOT_FOUND — 다른 곳에서 보냈거나 버림. 되살리지 않고 자동 저장을 멈춘다. 작성창은 남아 여기서 보낼 수 있다) /
  * inflight(409 DRAFT_SENDING, WP-1786 — 이 임시저장이 다른 탭·창에서 보내기 대기열에 올라 보내는 중. 자동 저장도 보내기도 멈춘다 —
  * 여기서 또 보내면 같은 메일이 두 번 나가므로 id 를 그대로 두고 보내기를 막는다. 끝이 아니라 잠시 멈춤이다 — 서버를 다시 확인해 대기가 풀렸으면
- * 충돌(conflict)로 넘어가 이어 쓸 수 있고, 보내고 지워졌으면 gone 이 된다. 이 창에서 저장하지 못한 변경은 inflightUnsaved 로 따로 알린다).
+ * 충돌(conflict)로 넘어가 이어 쓸 수 있고, 보내고 지워졌으면 sentElsewhere(콜백이 없으면 gone)로 넘어간다. 이 창에서 저장하지 못한 변경은 inflightUnsaved 로 따로 알린다) /
+ * sentElsewhere(WP-1786 리뷰 후속 — 보내는 중이던 임시저장을 다시 확인하니, 또는 충돌 「다시 불러오기」가 받으려니 404. 다른 곳에서 보냈거나 지웠다.
+ * 끝난 단계다 — 자동 저장을 멈추고 보내기도 막은 채 onSentElsewhere 로 알린다. 호출부가 닫으며 저장 못 한 변경만 새 임시저장으로 남긴다).
  */
-export type DraftSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error' | 'invalid' | 'conflict' | 'gone' | 'inflight';
+export type DraftSaveStatus =
+  | 'idle'
+  | 'pending'
+  | 'saving'
+  | 'saved'
+  | 'error'
+  | 'invalid'
+  | 'conflict'
+  | 'gone'
+  | 'inflight'
+  | 'sentElsewhere';
 
 /**
- * 저장하지 않은 변경이 남은 상태 — 새로고침·탭 닫기 경고 대상. inflightUnsaved 는 다른 곳에서 보내는 중(inflight)으로 멈추며 저장하지 못한 변경이
- * 남았는가(훅의 inflightUnsaved) — inflight 그 자체는 저장할 것이 없지만, 그 변경은 닫을 때 새 임시저장으로 남기므로 경고 대상이다(WP-1786 코드 리뷰).
+ * 저장하지 않은 변경이 남은 상태 — 새로고침·탭 닫기 경고 대상. inflightUnsaved 는 다른 곳에서 보내는 중(inflight)·다른 곳에서 보냄(sentElsewhere)으로
+ * 멈추며 저장하지 못한 변경이 남았는가(훅의 inflightUnsaved) — 그 단계 자체는 저장할 것이 없지만, 그 변경은 닫을 때 새 임시저장으로 남기므로
+ * 경고 대상이다(WP-1786 코드 리뷰·리뷰 후속).
  */
 export function hasUnsavedDraft(status: DraftSaveStatus, inflightUnsaved = false): boolean {
-  if (status === 'inflight') return inflightUnsaved;
+  if (status === 'inflight' || status === 'sentElsewhere') return inflightUnsaved;
   return status === 'pending' || status === 'saving' || status === 'error' || status === 'invalid' || status === 'conflict';
 }
 
@@ -59,17 +72,23 @@ export interface DraftSnapshot {
 /**
  * 세션 단계 — active(정상) / error(네트워크·5xx — 다시 시도) / invalid(400 — 고쳐야 풀림) / conflict(409 — 서버 내용을 덮지 않음) /
  * gone(404 — 다른 곳에서 보냈거나 버림, 이후 저장 안 함) / inflight(409 DRAFT_SENDING — 다른 곳에서 보내는 중, 저장·보내기 멈춤. 다시 확인해
- * 대기가 풀리면 conflict, 보내고 지워졌으면 gone 으로 넘어간다) / ended(보냈거나 버림·다시 불러오기 — 이후 저장 안 함).
+ * 대기가 풀리면 conflict, 보내고 지워졌으면 sentElsewhere(콜백이 없으면 gone)) / sentElsewhere(다른 곳에서 보냈거나 지움 — 끝, 보내기 잠금 유지,
+ * 닫을 때 저장 못 한 변경만 새 임시저장으로 남긴다, WP-1786 리뷰 후속) / ended(보냈거나 버림·다시 불러오기 — 이후 저장 안 함).
  * 한 값이라 앞 실패가 뒤 상태에 남지 않는다(예: 검증 오류 뒤 네트워크 오류면 「다시 시도」가 산다).
  */
-type SessionPhase = 'active' | 'error' | 'invalid' | 'conflict' | 'gone' | 'inflight' | 'ended';
+type SessionPhase = 'active' | 'error' | 'invalid' | 'conflict' | 'gone' | 'inflight' | 'sentElsewhere' | 'ended';
 
 /**
- * 자동 저장이 멈춘 단계인가 — ended·gone 은 끝이고, inflight 는 다른 곳에서 보내는 동안의 잠시 멈춤이다(다시 확인해 풀리면 conflict 로 넘어간다).
- * 멈춘 동안의 입력은 저장하지 않고 dirty 로만 남긴다(inflight 면 닫을 때 새 임시저장으로 남긴다 — flushSession).
+ * 자동 저장이 멈춘 단계인가 — ended·gone·sentElsewhere 는 끝이고, inflight 는 다른 곳에서 보내는 동안의 잠시 멈춤이다(다시 확인해 풀리면 conflict 로 넘어간다).
+ * 멈춘 동안의 입력은 저장하지 않고 dirty 로만 남긴다(inflight·sentElsewhere 면 닫을 때 새 임시저장으로 남긴다 — flushSession).
  */
 function isStopped(phase: SessionPhase): boolean {
-  return phase === 'ended' || phase === 'gone' || phase === 'inflight';
+  return phase === 'ended' || phase === 'gone' || phase === 'inflight' || phase === 'sentElsewhere';
+}
+
+/** 저장 못 한 변경을 상태 줄·나가기 경고로 따로 알리는 멈춤 단계인가 — 보내는 중(inflight)·다른 곳에서 보냄(sentElsewhere). */
+function holdsUnsaved(status: DraftSaveStatus): boolean {
+  return status === 'inflight' || status === 'sentElsewhere';
 }
 
 /** 단계가 화면에 그대로 보이는 상태 — active·ended 는 저장 흐름(pending·saving·saved·idle)이 정한다. */
@@ -79,6 +98,7 @@ const PHASE_STATUS: Partial<Record<SessionPhase, DraftSaveStatus>> = {
   conflict: 'conflict',
   gone: 'gone',
   inflight: 'inflight',
+  sentElsewhere: 'sentElsewhere',
 };
 
 /** 작성 하나의 저장 세션. 화면 상태가 아니라서 ref 로 들고, 상태 표시는 지금 세션일 때만 바꾼다. */
@@ -127,14 +147,6 @@ function isConflict(e: unknown): boolean {
   if (!axios.isAxiosError(e) || e.response?.status !== 409) return false;
   const code = extractApiErrorCode(e);
   return code == null || code === DRAFT_CONFLICT;
-}
-
-/**
- * 404 DRAFT_NOT_FOUND — 그 임시저장이 없어졌다(다른 탭·기기에서 버렸거나 보냈다). 계정이 비활성인 404 같은 다른 404 는 코드가 없어
- * 일반 저장 실패로 다룬다.
- */
-function isDraftGone(e: unknown): boolean {
-  return isNotFoundError(e) && extractApiErrorCode(e) === DRAFT_NOT_FOUND;
 }
 
 /**
@@ -190,6 +202,12 @@ interface Options {
    * 호출부가 서버 내용으로 다시 연다(충돌 「다시 불러오기」와 같은 길). 그 전까지 상태는 충돌이라, 다시 열지 못해도 「다시 불러오기」가 남는다.
    */
   onSendReleased?: (draftId: number) => void;
+  /**
+   * 보내는 중(inflight)이던 임시저장을 다시 확인했더니(또는 markSentElsewhere — 충돌 「다시 불러오기」가 받으려니) 없다(404 — 다른 곳에서 보냈거나,
+   * 보내기가 풀린 뒤 지웠다)(WP-1786 리뷰 후속). 주어지면 gone 이 아니라 sentElsewhere 로 넘어가며(보내기 잠금 유지) 이 콜백을 한 번 부른다
+   * — gone 이면 id 가 비워져 같은 내용을 새 메일로 다시 보낼 수 있다. 호출부(도크)가 이 작성창을 닫는다. 없으면 기존대로 gone(markGone).
+   */
+  onSentElsewhere?: (draftId: number) => void;
 }
 
 /**
@@ -219,6 +237,7 @@ export function useMailDraftAutosave({
   getSnapshot,
   onCreated,
   onSendReleased,
+  onSentElsewhere,
 }: Options) {
   const qc = useQueryClient();
   // 상태는 작성(instanceId)에 묶어 둔다 — 새 작성으로 바뀌면 effect 없이 렌더 중에 처음 상태(임시보관함에서 열면 저장됨, 다시 열기면 저장 중…)로 보인다.
@@ -236,13 +255,16 @@ export function useMailDraftAutosave({
     instanceId == null ? 'idle' : current ? current.status : initialUnsaved ? 'pending' : initialDraftId != null ? 'saved' : 'idle';
   /** invalid 의 원인(짧은 문구). */
   const statusReason = current?.reason;
-  /** inflight 로 멈추며 이 창에서 저장하지 못한 변경이 남았는가(WP-1786 코드 리뷰) — 닫을 때 새 임시저장으로 남기고, 그 전엔 나가기를 경고한다. */
-  const inflightUnsaved = status === 'inflight' && !!current?.unsaved;
+  /**
+   * inflight·sentElsewhere 로 멈추며 이 창에서 저장하지 못한 변경이 남았는가(WP-1786 코드 리뷰·리뷰 후속) — 닫을 때 새 임시저장으로 남기고,
+   * 그 전엔 나가기를 경고한다.
+   */
+  const inflightUnsaved = holdsUnsaved(status) && !!current?.unsaved;
   const session = useRef<Session | null>(null);
   // 최신 콜백 — 타이머·사슬이 렌더 클로저가 아니라 지금 값을 읽게.
-  const latest = useRef({ getSnapshot, onCreated, accountId, onSendReleased });
+  const latest = useRef({ getSnapshot, onCreated, accountId, onSendReleased, onSentElsewhere });
   useLayoutEffect(() => {
-    latest.current = { getSnapshot, onCreated, accountId, onSendReleased };
+    latest.current = { getSnapshot, onCreated, accountId, onSendReleased, onSentElsewhere };
   });
 
   /**
@@ -251,8 +273,8 @@ export function useMailDraftAutosave({
    */
   const show = useCallback((s: Session, next: DraftSaveStatus, reason?: string) => {
     if (session.current !== s) return;
-    // inflight 의 저장 못 한 변경 여부는 세션에서 읽는다 — 멈춘 뒤 입력(schedule)이 같은 inflight 로 다시 보여 안내를 바꾼다.
-    const unsaved = next === 'inflight' && s.dirty;
+    // inflight·sentElsewhere 의 저장 못 한 변경 여부는 세션에서 읽는다 — 멈춘 뒤 입력(schedule)이 같은 단계로 다시 보여 안내를 바꾼다.
+    const unsaved = holdsUnsaved(next) && s.dirty;
     // inflight 면 다시 확인할 임시저장 id 도 싣는다(inflight 동안 id 는 바뀌지 않는다).
     const draftId = next === 'inflight' ? s.id : undefined;
     setShown((prev) =>
@@ -294,6 +316,29 @@ export function useMailDraftAutosave({
   );
 
   /**
+   * 다른 곳에서 보냈거나 지웠다 — sentElsewhere 로 넘어간다(WP-1786 리뷰 후속). 보내는 중(inflight) 다시 확인과 충돌 「다시 불러오기」의 404 가 같이 쓴다.
+   * 끝난 단계라 다시 들어오지 않으므로 알림·목록 다시 받기는 한 번뿐이다. id 는 남긴다(inflight 와 같이) — 비우면 보내기가 draftId 없이 새 메일로 나간다.
+   * 그 임시저장에 썼던 것(wrote)은 없어졌으니 비운다 — 닫을 때의 결과는 새 임시저장으로 남긴 변경만 알린다(flushSession).
+   * 콜백이 없으면 이 단계로 넘어가지 않고 기존대로 gone(markGone).
+   */
+  const markSessionSentElsewhere = useCallback(
+    (s: Session) => {
+      const { accountId, onSentElsewhere } = latest.current;
+      if (!onSentElsewhere || s.id == null) {
+        markGone(s, accountId);
+        return;
+      }
+      stopTimer(s);
+      s.wrote = false;
+      setPhase(s, 'sentElsewhere');
+      // 보낸 행이 임시보관함 목록·개수에 남아 눌러도 안 열리지 않게 다시 받는다.
+      if (accountId != null) void invalidateMailDrafts(qc, accountId);
+      onSentElsewhere(s.id);
+    },
+    [qc, setPhase, markGone],
+  );
+
+  /**
    * 세션의 변경을 지금 저장 사슬에 잇는다. 결과 promise 는 이 저장까지 끝나면 풀린다.
    * saveEmpty 면 빈 새 메일(손대지 않은 새 메일·답장·전달)도 만든다 — 새 창으로 열 때(WP-1535) 열 임시저장 id 가 있어야 해서.
    */
@@ -306,17 +351,25 @@ export function useMailDraftAutosave({
       // 없어진 임시저장은 저장한 것이 없는 것으로 알린다 — 닫을 때 「임시보관함에 저장했어요」를 띄우지 않는다.
       // 보내는 중에 닫으면 저장하지 않고 알리지도 않는다(보내기가 결과를 알린다).
       // inflight 의 남은 변경은 flushSession 이 새 임시저장으로 돌린 뒤라 여기 오는 inflight 는 저장할 것이 없다.
+      // sentElsewhere(WP-1786 리뷰 후속)는 남은 변경을 새 임시저장으로 남긴 것만 알린다 — 실패한 변경은 dirty 로 남아(다음 닫기에 다시 시도) ok 가 거짓이다.
       const result = (): DraftFlushResult =>
         s.phase === 'gone' || s.phase === 'inflight' || s.sending
           ? { wrote: false, ok: true, draftId: null, version: null }
-          : {
+          : s.phase === 'sentElsewhere'
+            ? { wrote: s.wrote, ok: !s.dirty, draftId: s.wrote ? s.id : null, version: s.wrote ? s.version : null, reason: s.reason }
+            : {
               wrote: s.wrote,
               ok: s.phase !== 'error' && s.phase !== 'conflict' && s.phase !== 'invalid',
               draftId: s.id,
               version: s.version,
               reason: s.phase === 'invalid' ? s.reason : undefined,
             };
-      const stopped = () => isStopped(s.phase) || s.sending;
+      // sentElsewhere 는 끝난 단계지만 닫을 때(flushSession) 남은 변경을 새 임시저장으로 남기는 저장만은 한다 — 자동 저장은 schedule 이 걸지 않는다.
+      const stopped = () => (isStopped(s.phase) && s.phase !== 'sentElsewhere') || s.sending;
+      // sentElsewhere 의 저장은 상태 줄을 바꾸지 않는다 — 상태가 「다른 곳에서 보냄」으로 남아야 보내기 잠금이 풀리지 않는다.
+      const display = (next: DraftSaveStatus) => {
+        if (s.phase !== 'sentElsewhere') show(s, next);
+      };
       if (!s.dirty || stopped() || s.phase === 'conflict') return s.chain.then(result);
       // 내용은 지금 읽는다 — 사슬이 기다리는 동안 작성이 바뀌어도 이 시점의 내용이 저장된다. 떨어진 세션은 잡아 둔 자기 내용만 쓴다.
       const snap = own ? latest.current.getSnapshot() : s.snap;
@@ -324,10 +377,10 @@ export function useMailDraftAutosave({
       s.snap = snap;
       s.dirty = false;
       if (snap.empty && s.id == null && !saveEmpty) {
-        show(s, 'idle');
+        display('idle');
         return s.chain.then(result);
       }
-      show(s, 'saving');
+      display('saving');
       s.chain = s.chain.then(async () => {
         if (stopped()) {
           // 보내는 동안 미뤄진 저장 — 보내기가 실패하면 failed() 가 다시 저장하도록 변경을 남긴다.
@@ -351,12 +404,21 @@ export function useMailDraftAutosave({
             patchMailDraftRow(qc, s.id, snap.payload, r);
           }
           s.wrote = true;
+          s.reason = undefined;
           if (s.phase === 'error' || s.phase === 'invalid') setPhase(s, 'active');
           // 그사이 또 바뀌었으면 다음 저장이 곧 오므로 「저장 중…」을 유지한다.
-          if (!s.dirty) show(s, 'saved');
+          if (!s.dirty) display('saved');
         } catch (e) {
           // 그사이 버렸으면(discard) 결과를 덮어쓰지 않는다.
           if (s.phase === 'ended') return;
+          if (s.phase === 'sentElsewhere') {
+            // 닫으며 남기려던 새 임시저장이 실패했다(WP-1786 리뷰 후속) — 단계는 그대로(보내기 잠금 유지) 두고 변경을 남겨 다음 닫기에 다시 시도한다.
+            // 검증 오류면 그 사유를 결과에 싣는다. 상태 줄의 「저장 못 한 변경」 안내를 다시 맞춘다.
+            s.dirty = true;
+            s.reason = isInvalid(e) ? shortSaveReason(extractApiError(e, '')) : undefined;
+            show(s, 'sentElsewhere');
+            return;
+          }
           if (isDraftSending(e) && s.id != null) {
             // 다른 탭·창에서 보내는 중이다 — 저장도 보내기도 멈춘다. id 는 그대로 둔다(보내기가 새 대기 행을 만들지 않게).
             // 이번에 저장하려던 내용은 저장되지 않았다 — 버리지 않고 남겨 두어(dirty) 상태 줄이 알리고, 닫을 때 새 임시저장으로 남긴다(코드 리뷰).
@@ -364,7 +426,7 @@ export function useMailDraftAutosave({
             setPhase(s, 'inflight');
             // 대기 행은 임시보관함에서 빠진다 — 목록·개수에 남은 그 줄을 걷어낸다.
             void invalidateMailDrafts(qc, snap.payload.accountId);
-          } else if (isDraftGone(e) && s.id != null) {
+          } else if (isMailDraftNotFound(e) && s.id != null) {
             // 다른 곳에서 보냈거나 버렸다 — 되살리지 않는다(markGone).
             markGone(s, snap.payload.accountId);
           } else if (isConflict(e)) {
@@ -415,12 +477,13 @@ export function useMailDraftAutosave({
    * 이 작성창이 영영 잠겨 있지 않게. inflight 가 되면 바로, 그 뒤 일정 간격과 창으로 돌아올 때(탭이 다시 보일 때) 상세를 받는다.
    * 간격 확인은 탭이 감춰져 있으면 쉰다(refetchIntervalInBackground 기본 false — 보이지 않는 탭이 계속 묻지 않게). 응답이 늦어도 같은 쿼리라
    * 요청이 겹치지 않는다. 재시도는 끈다 — 404 는 곧바로 gone 으로 보고, 네트워크 오류 등은 다음 간격에 다시 본다.
-   * inflight 를 벗어나면(풀림·gone·닫음) enabled 가 꺼져 더 묻지 않는다.
+   * inflight 를 벗어나면(풀림·gone·sentElsewhere·닫음) enabled 가 꺼져 더 묻지 않는다 — 404 로 sentElsewhere 가 되면 그 행은 이미 없으니
+   * 5초마다·창으로 돌아올 때마다 404 를 또 받지 않는다(WP-1786 리뷰 후속).
    */
   const inflightDraftId = status === 'inflight' ? (current?.draftId ?? null) : null;
   const inflightCheck = useQuery({
     ...mailDraftQuery(inflightDraftId ?? 0),
-    enabled: status === 'inflight' && inflightDraftId != null,
+    enabled: inflightDraftId != null,
     refetchInterval: DRAFT_INFLIGHT_RECHECK_MS,
     refetchOnWindowFocus: true,
     retry: false,
@@ -436,7 +499,8 @@ export function useMailDraftAutosave({
    * - 아직 보내는 중(QUEUED·SENDING)이면 그대로 둔다.
    * - 임시보관으로 돌아왔으면 충돌(conflict)로 넘어간다 — 서버 내용은 다른 곳에서 고쳐 보낸 것이라 이 창의 버전으로 덮지 않는다. 저장 못 한 변경이
    *   있으면 그대로 두어 이어 쓰고 「다시 불러오기」·닫을 때 새 임시저장으로 남기기를 고르게 하고, 없으면 호출부가 서버 내용으로 다시 연다(onSendReleased).
-   * - 보내고 지워졌으면(404) gone — 다른 곳에서 보낸 메일이다(markGone — 여기서 보내면 새 메일로 나간다).
+   * - 없어졌으면(404) 다른 곳에서 보냈거나, 보내기가 풀린 뒤 지운 메일이다 — sentElsewhere 로 넘어가 한 번 알린다(콜백이 없으면 gone,
+   *   markGone — 여기서 보내면 새 메일로 나간다). (WP-1786 리뷰 후속)
    * 네트워크 오류 등은 다음 확인에서 다시 본다. 그사이 닫았거나 버렸거나 다른 길로 풀렸으면 손대지 않는다.
    */
   const { data: checked, dataUpdatedAt, isError: checkFailed, error: checkError, errorUpdatedAt } = inflightCheck;
@@ -445,24 +509,25 @@ export function useMailDraftAutosave({
     if (!s || s.phase !== 'inflight' || s.id == null || s.id !== inflightDraftId) return;
     const since = inflightSince.current;
     if (checkFailed) {
-      if (errorUpdatedAt >= since && isDraftGone(checkError)) markGone(s, latest.current.accountId);
+      if (errorUpdatedAt >= since && isMailDraftNotFound(checkError)) markSessionSentElsewhere(s);
       return;
     }
     if (!checked || dataUpdatedAt < since || isSendInFlight(checked)) return;
     setPhase(s, 'conflict');
     if (!s.dirty) latest.current.onSendReleased?.(s.id);
-  }, [inflightDraftId, checked, dataUpdatedAt, checkFailed, checkError, errorUpdatedAt, markGone, setPhase]);
+  }, [inflightDraftId, checked, dataUpdatedAt, checkFailed, checkError, errorUpdatedAt, markSessionSentElsewhere, setPhase]);
 
   /**
    * 내용이 바뀌었다 — 1.5초 뒤 저장. 충돌 중에는 서버 내용을 덮지 않도록 미룬다(다시 불러오거나 닫을 때 처리).
-   * 다른 곳에서 보내는 중(inflight)이면 저장하지 않고 저장 못 한 변경으로만 남긴다 — 상태 줄이 알리고, 닫을 때 새 임시저장으로 남긴다.
+   * 다른 곳에서 보내는 중(inflight)·다른 곳에서 보냄(sentElsewhere)이면 저장하지 않고 저장 못 한 변경으로만 남긴다 — 상태 줄이 알리고,
+   * 닫을 때 새 임시저장으로 남긴다.
    */
   const schedule = useCallback(() => {
     const s = session.current;
     if (!s) return;
-    if (s.phase === 'inflight') {
+    if (s.phase === 'inflight' || s.phase === 'sentElsewhere') {
       s.dirty = true;
-      show(s, 'inflight');
+      show(s, s.phase);
       return;
     }
     if (isStopped(s.phase)) return;
@@ -486,6 +551,11 @@ export function useMailDraftAutosave({
       // 보내기가 풀려 충돌로 넘어왔는데 이 창에 바뀐 것이 없으면(서버 내용으로 다시 열지 못한 채 닫음) 같은 메일을 하나 더 만들지 않는다.
       if (s.phase === 'conflict' || (s.phase === 'inflight' && s.dirty)) {
         setPhase(s, 'active');
+        s.id = null;
+        s.version = null;
+      } else if (s.phase === 'sentElsewhere' && s.dirty && !s.wrote) {
+        // 다른 곳에서 보냈거나 지운 작성(WP-1786 리뷰 후속) — 단계(보내기 잠금)는 그대로 두고 남은 변경을 새 임시저장으로 만든다.
+        // 앞 닫기가 이미 새 임시저장을 만들었으면(wrote) 그 임시저장을 이어 고친다.
         s.id = null;
         s.version = null;
       }
@@ -576,7 +646,8 @@ export function useMailDraftAutosave({
     const acc = latest.current.accountId;
     s.dirty = false;
     // 다른 곳에서 보내는 중(inflight)인 임시저장은 지우지 않는다 — 서버도 409 로 거절하고, 대기 행은 되돌리기로만 푼다. 이 작성만 닫는다.
-    if (s.phase === 'inflight') {
+    // 다른 곳에서 보냈거나 지운(sentElsewhere) 임시저장은 이미 없다 — 지울 것이 없다(WP-1786 리뷰 후속).
+    if (s.phase === 'inflight' || s.phase === 'sentElsewhere') {
       endSession(s);
       return;
     }
@@ -590,7 +661,7 @@ export function useMailDraftAutosave({
         // 이미 없으면(다른 곳에서 보냈거나 버림) 버린 것과 같다. 그 밖의 실패는 호출부가 「버리지 못했어요」로 알린다.
         // 지우지 못했으면 세션을 다시 살린다 — 작성창이 남는 경우(새 창, WP-1535) 이어 쓴 내용이 저장되고, 닫을 때 지금 내용을 저장한다.
         // 작성창이 이미 닫혔으면(앱 안 도크) 떨어진 세션이라 아무 저장도 걸리지 않는다.
-        if (!isDraftGone(e)) {
+        if (!isMailDraftNotFound(e)) {
           s.phase = 'active';
           s.dirty = true;
           throw e;
@@ -627,8 +698,48 @@ export function useMailDraftAutosave({
     [qc, show],
   );
 
+  /**
+   * 충돌(conflict)로 넘어간 세션을 다시 보내는 중(inflight)으로 되돌린다(WP-1786 리뷰 후속) — 다시 열어 보니 그 임시저장이 또 대기(QUEUED·SENDING)일 때.
+   * conflict 이고 같은 id 일 때만 한다. inflight 로 바뀌면 inflightSince 가 지금으로 갱신돼 캐시의 낡은 「풀림」 결과에 다시 반응하지 않고, 상세를 새로 확인한다.
+   */
+  const resumeInflight = useCallback(
+    (draftId: number) => {
+      const s = session.current;
+      if (!s || s.phase !== 'conflict' || s.id !== draftId) return;
+      setPhase(s, 'inflight');
+    },
+    [setPhase],
+  );
+
+  /**
+   * 충돌(conflict)로 넘어간 세션이 다시 불러오려니 그 임시저장이 없다(404)(WP-1786 리뷰 후속) — 다른 곳에서 보냈거나 지웠다.
+   * inflight 다시 확인의 404 와 같이 sentElsewhere 로 넘긴다(보내기 잠금·임시보관함 다시 받기·onSentElsewhere 한 번). conflict 이고 같은 id 일 때만 한다.
+   */
+  const markSentElsewhere = useCallback(
+    (draftId: number) => {
+      const s = session.current;
+      if (!s || s.phase !== 'conflict' || s.id !== draftId) return;
+      markSessionSentElsewhere(s);
+    },
+    [markSessionSentElsewhere],
+  );
+
   /** 지금 세션의 임시저장 id(없으면 null). */
   const currentDraftId = () => session.current?.id ?? null;
 
-  return { status, statusReason, inflightUnsaved, schedule, flush, retry, beginSend, end, discard, detach, currentDraftId };
+  return {
+    status,
+    statusReason,
+    inflightUnsaved,
+    schedule,
+    flush,
+    retry,
+    beginSend,
+    end,
+    discard,
+    detach,
+    currentDraftId,
+    resumeInflight,
+    markSentElsewhere,
+  };
 }
