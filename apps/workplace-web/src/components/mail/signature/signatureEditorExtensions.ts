@@ -15,6 +15,7 @@ import { Plugin } from '@tiptap/pm/state';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 
+import { copyMarkerSerializer } from '@/lib/copyMarkerSerializer';
 import { SIGNATURE_COPY_ATTR } from '@/lib/mailSignaturePaste';
 
 import { MailLink } from '../mailEditorLink';
@@ -145,19 +146,7 @@ export const SignatureImage = Image.extend({
  * 표지가 있으면 판정(toPastedSignatureHtml)이 편집기에 둔다. 노트의 noteClipboardSerializer 와 같은 방식.
  */
 export function signatureClipboardSerializer(schema: Schema): DOMSerializer {
-  const base = DOMSerializer.fromSchema(schema);
-  return new (class extends DOMSerializer {
-    serializeFragment(...args: Parameters<DOMSerializer['serializeFragment']>) {
-      const frag = super.serializeFragment(...args);
-      for (let child = frag.firstChild; child; child = child.nextSibling) {
-        if (child.nodeType === 1) {
-          (child as HTMLElement).setAttribute(SIGNATURE_COPY_ATTR, '');
-          break;
-        }
-      }
-      return frag;
-    }
-  })(base.nodes, base.marks);
+  return copyMarkerSerializer(schema, SIGNATURE_COPY_ATTR);
 }
 
 /** 복사 표지 확장 — 서명 편집기의 복사·끌기 HTML 에 표지를 단다(signatureClipboardSerializer). */

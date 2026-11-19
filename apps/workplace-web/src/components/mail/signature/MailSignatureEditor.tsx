@@ -58,7 +58,8 @@ export interface MailSignatureEditorProps {
    */
   onChange: (html: string, initial: boolean) => void;
   /**
-   * 표·인라인 style·글꼴·클래스 서식이 든 서명을 붙여 넣었다(WP-1726) — 편집기는 그 붙여넣기를 받지 않고, 클래스 서식을 인라인으로 푼
+   * 편집기가 담지 못하는 서식(표·글꼴·클래스 서식·상자 서식, 링크·굵게 같은 요소의 style)이 든 서명을 붙여 넣었다(WP-1726) —
+   * span·문단의 글자 서식 style 만이면 여기로 오지 않는다(판정은 toPastedSignatureHtml). 편집기는 그 붙여넣기를 받지 않고, 클래스 서식을 인라인으로 푼
    * HTML 을 넘긴다. 카드가 「붙여넣은 서명 · 원본 그대로」 미리 보기로 바꾼다. 없으면 지금처럼 편집기가 받는다.
    */
   onRichPaste?: (html: string) => void;
@@ -100,7 +101,7 @@ export const MailSignatureEditor = forwardRef<MailSignatureEditorHandle, MailSig
           return true;
         },
         handleDOMEvents: {
-          // 표·글꼴·클래스 서식·상자 서식이 든 HTML 로 서명을 통째로 바꾸면(WP-1726) ProseMirror 가 클립보드를 스키마로 읽기
+          // 표·글꼴·클래스 서식·상자 서식·스키마가 버리는 요소 style(링크 색 등)이 든 HTML 로 서명을 통째로 바꾸면(WP-1726) ProseMirror 가 클립보드를 스키마로 읽기
           // (서식이 빠진다) 전에 가로채 카드로 넘긴다. 쓰던 서명 중간에 붙이는 조각은 편집기에 둔다(replacesWholeSignature).
           // 이미지만 든 붙여넣기는 text/html 이 없어 여기서 걸리지 않고 위 handlePaste 로 간다.
           // 이 편집기에서 복사한 서명(복사 표지)·글자 서식 style 만 든 웹 글은 판정이 null 이라 편집기에 남는다(toPastedSignatureHtml).

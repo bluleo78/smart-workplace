@@ -29,34 +29,71 @@ export function toPastedSignatureHtml(html: string): string | null {
 export const SIGNATURE_COPY_ATTR = 'data-wp-signature-copy';
 
 /**
- * style 을 가져도 편집기가 담는 요소 — 글자 요소(편집기의 글자 서식 mark·링크·굵게 등)와 문단·제목(블록 style 속성), 이미지(style 속성).
- * 이 밖의 요소(div·td·li 등)에 style 이 있으면 편집기가 지우거나 바꾸므로 원본 모드로 본다.
+ * style 을 가져도 편집기가 담는 요소 — 서명 편집기 스키마(signatureEditorExtensions)가 style 을 남기는 것만이다:
+ * span[style](글자 서식 mark)·문단·제목(블록 style 속성)·이미지(style 속성). 표·칸·font 는 위에서 따로 원본 모드로 본다.
+ * 링크·굵게·기울임 같은 다른 글자 요소의 style 은 스키마가 버린다 — 예: `<a style="color:#000;text-decoration:none">` 가
+ * 편집기로 가면 파란 밑줄 링크가 된다(WP-1726 2차 리뷰). 그래서 그런 요소의 style 은 효과 있는 값이 하나라도 있으면 원본 모드다.
  */
-const EDITOR_STYLED_TAGS = new Set([
-  'SPAN', 'A', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'SUB', 'SUP', 'SMALL', 'BIG', 'MARK', 'CODE',
-  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'IMG',
-]);
+const EDITOR_STYLED_TAGS = new Set(['SPAN', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'IMG']);
 
 /**
  * 상자 서식 속성 — 너비·높이·안쪽 여백·테두리·배치. 글자 요소·문단에 있어도 서명 배치(칸 나눔·세로 줄·고정 폭)를 만드는 서식이라
  * 원본 모드로 본다. margin·배경색은 크롬이 웹 글 복사에 늘 붙여 넣어 포함하지 않는다. 이미지의 크기 style 은 편집기가 담으므로 보지 않는다.
  */
-const BOX_STYLE_PROPERTY = /(^|;)\s*(width|min-width|max-width|height|min-height|max-height|padding[\w-]*|border[\w-]*|display|float|position)\s*:/i;
+const BOX_STYLE_PROPERTY = /^(width|min-width|max-width|height|min-height|max-height|padding[\w-]*|border[\w-]*|display|float|position)$/;
+
+/**
+ * 효과 없는 선언인가 — 판정에서 세지 않는다(WP-1726 2차 리뷰).
+ * - 크롬은 웹 글자를 복사할 때 글자 요소에 `display: inline !important; float: none;` 을 붙인다. 글자 요소는 원래 inline·float 없음이라
+ *   배치를 바꾸지 않는다 — 세면 「글자 서식만 든 크롬 웹 글은 편집기」 결정이 가장 흔한 경우에 지켜지지 않는다.
+ * - 굵게 요소(b·strong)의 `font-weight: normal|400` 은 Google 문서 복사가 전체를 감싸는 `<b style="font-weight:normal">` 이다.
+ *   편집기의 굵게 규칙도 이 요소를 굵게로 읽지 않아 결과가 같다.
+ */
+function isNeutralDeclaration(tagName: string, property: string, value: string): boolean {
+  if (property === 'display') return value === 'inline';
+  if (property === 'float') return value === 'none';
+  if (property === 'font-weight' && (tagName === 'B' || tagName === 'STRONG')) return value === 'normal' || value === '400';
+  return false;
+}
+
+/** 요소 style 의 효과 있는 선언 속성 이름들 — 소문자, !important 를 떼고 효과 없는 선언(isNeutralDeclaration)은 뺀다. */
+function effectiveStyleProperties(el: Element): string[] {
+  const out: string[] = [];
+  for (const decl of (el.getAttribute('style') ?? '').split(';')) {
+    const colon = decl.indexOf(':');
+    if (colon < 0) continue;
+    const property = decl.slice(0, colon).trim().toLowerCase();
+    const value = decl
+      .slice(colon + 1)
+      .replace(/!\s*important/i, '')
+      .trim()
+      .toLowerCase();
+    if (!property || isNeutralDeclaration(el.tagName, property, value)) continue;
+    out.push(property);
+  }
+  return out;
+}
+
+/** 이 요소의 style 이 편집기로 가면 잃는 서식인가 — 스키마가 style 을 버리는 요소의 효과 있는 선언, 또는 이미지 밖 요소의 상자 서식. */
+function hasStyleEditorLoses(el: Element): boolean {
+  const properties = effectiveStyleProperties(el);
+  if (properties.length === 0) return false;
+  if (!EDITOR_STYLED_TAGS.has(el.tagName)) return true;
+  return el.tagName !== 'IMG' && properties.some((property) => BOX_STYLE_PROPERTY.test(property));
+}
 
 /**
  * 붙여넣은 서명 「원본 그대로」 모드로 받을 문서인가. 판정(WP-1726 코드 리뷰 결정):
  * - 서명 편집기에서 복사한 것(SIGNATURE_COPY_ATTR)이면 false — 직접 쓴 서명은 편집기에 남는다.
  * - 표·<font>·(class + <style>) 가 있으면 true.
- * - style 이 글자 요소·문단·이미지 밖(div·td 등)에 있거나, 이미지가 아닌 요소의 style 에 상자 서식(BOX_STYLE_PROPERTY)이 있으면 true.
- * - 그 밖(글자·굵게·링크, 크롬 웹 글 복사처럼 글자 서식 style 만)은 false — 편집기가 그 서식을 그대로 담는다.
+ * - 편집기 스키마가 style 을 버리는 요소(div·td·a·b 등)에 효과 있는 style 이 있거나, 이미지가 아닌 요소의 style 에 상자 서식이 있으면 true.
+ * - 그 밖(글자·굵게·링크, 크롬 웹 글 복사처럼 span·문단의 글자 서식 style 만)은 false — 편집기가 그 서식을 그대로 담는다.
  */
 function isRichSignature(doc: Document): boolean {
   if (doc.querySelector(`[${SIGNATURE_COPY_ATTR}]`)) return false;
   if (doc.querySelector('table, font')) return true;
   if (doc.querySelector('style') != null && doc.querySelector('[class]') != null) return true;
-  return Array.from(doc.body.querySelectorAll('[style]')).some(
-    (el) => !EDITOR_STYLED_TAGS.has(el.tagName) || (el.tagName !== 'IMG' && BOX_STYLE_PROPERTY.test(el.getAttribute('style') ?? '')),
-  );
+  return Array.from(doc.body.querySelectorAll('[style]')).some(hasStyleEditorLoses);
 }
 
 /** CSS 규칙 하나 — 쉼표로 나눈 선택자 목록과 선언 문자열. */

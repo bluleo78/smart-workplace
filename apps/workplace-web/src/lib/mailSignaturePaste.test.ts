@@ -61,9 +61,38 @@ describe('toPastedSignatureHtml — 판정', () => {
         '<span style="color: rgb(34, 34, 34); font-family: Arial, sans-serif; font-size: 13px; background-color: rgb(255, 255, 255);">010-1234-5678</span>',
       ),
     ).toBe(false);
-    expect(isRich('<p style="margin:0;text-align:center;color:#333"><a href="https://x.com" style="color:#06c">x.com</a></p>')).toBe(false);
+    expect(isRich('<p style="margin:0;text-align:center;color:#333"><span style="color:#06c">x.com</span></p>')).toBe(false);
     // 이미지 크기 style 은 편집기 이미지가 그대로 담는다.
     expect(isRich('<p><img src="https://example.com/logo.png" style="width:120px;height:40px"></p>')).toBe(false);
+  });
+
+  test('크롬 웹 글 복사의 실제 클립보드 모양(display:inline !important; float:none 포함)도 편집기 그대로 — 효과 없는 값은 세지 않는다', () => {
+    // 크롬이 웹 페이지 글자를 복사할 때 text/html 로 싣는 모양 그대로(계산된 글자 서식 + display·float).
+    const chromeClipboard =
+      '<html><body>\n<!--StartFragment--><span style="color: rgb(34, 34, 34); font-family: Arial, Helvetica, sans-serif; ' +
+      'font-size: small; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; ' +
+      'letter-spacing: normal; orphans: 2; text-align: start; text-indent: 0px; text-transform: none; widows: 2; ' +
+      'word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: normal; background-color: rgb(255, 255, 255); ' +
+      'text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; ' +
+      'display: inline !important; float: none;">홍길동 | 개발팀 | 010-1234-5678</span><!--EndFragment-->\n</body></html>';
+    expect(isRich(chromeClipboard)).toBe(false);
+    // Google 문서 복사가 전체를 감싸는 굵게 요소(font-weight:normal)도 효과가 없다.
+    expect(
+      isRich('<b style="font-weight:normal;" id="docs-internal-guid-1"><p dir="ltr"><span style="font-family:Arial;color:#000000">홍길동</span></p></b>'),
+    ).toBe(false);
+    // 효과 있는 배치 값은 그대로 원본 모드다.
+    expect(isRich('<p><span style="display:inline-block">홍길동</span></p>')).toBe(true);
+    expect(isRich('<p><span style="float:left">홍길동</span></p>')).toBe(true);
+  });
+
+  test('편집기 스키마가 style 을 버리는 글자 요소(링크·굵게 등)의 style 은 원본 모드 — 편집기로 가면 그 서식을 잃는다', () => {
+    // 링크 색·밑줄 없음이 편집기에서는 파란 밑줄 링크로 바뀐다(WP-1726 완료 기준 「이메일·웹 주소가 원본처럼 검정·밑줄 없음」).
+    expect(isRich('<p><a href="mailto:hong@example.com" style="color:#000;text-decoration:none">hong@example.com</a></p>')).toBe(true);
+    expect(isRich('<p style="margin:0;text-align:center;color:#333"><a href="https://x.com" style="color:#06c">x.com</a></p>')).toBe(true);
+    expect(isRich('<p><strong style="color:#1F4E79">홍길동</strong></p>')).toBe(true);
+    // style 이 비었거나 효과 없는 값뿐이면 잃을 것이 없다.
+    expect(isRich('<p><a href="https://x.com" style="">x.com</a></p>')).toBe(false);
+    expect(isRich('<p><a href="https://x.com" style="display: inline !important; float: none;">x.com</a></p>')).toBe(false);
   });
 
   test('<style> 없이 class 만 있거나 <style> 만 있으면 편집기 그대로', () => {
