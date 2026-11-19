@@ -14,10 +14,13 @@ import { Button } from '@/components/ui/button';
 import { useOpenMailDraft } from '@/hooks/queries/useMailDrafts';
 import { type MailComposeWindowEvent, postMailComposeWindowEvent } from '@/lib/mailComposeChannel';
 
-/** 새 창 페이지 — 작성 상태·AI 모드(작성창이 읽는다)·도움말 공급자를 이 창 안에서 따로 둔다(앱 셸은 없다). */
+/**
+ * 새 창 페이지 — 작성 상태·AI 모드(작성창이 읽는다)·도움말 공급자를 이 창 안에서 따로 둔다(앱 셸은 없다).
+ * 작성 상태는 popout 으로 둔다 — 이미 새 창이라 작성 방식 기본값(WP-1744)을 읽지도, 또 다른 창을 미리 열지도 않는다.
+ */
 export default function MailComposeWindowPage() {
   return (
-    <MailComposeProvider>
+    <MailComposeProvider popout>
       <AIAssistantProvider hotkeysEnabled={false}>
         <HelpPanelProvider>
           <MailComposeWindow />
@@ -51,6 +54,7 @@ function MailComposeWindow() {
   useEffect(() => {
     if (draftId == null || startedRef.current) return;
     startedRef.current = true;
+    // 이미 새 창이라 작성 방식 기본값을 쓰지 않는다(WP-1744 — placement 없음. 새 창 페이지 공급자는 어차피 늘 DOCK).
     void openDraft(draftId).then(() => setPhase((p) => (p === 'loading' ? 'open' : p)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId]);

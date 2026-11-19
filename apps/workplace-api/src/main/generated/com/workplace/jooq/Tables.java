@@ -109,6 +109,7 @@ import com.workplace.jooq.tables.MailDraftForward;
 import com.workplace.jooq.tables.MailInbox;
 import com.workplace.jooq.tables.MailSignature;
 import com.workplace.jooq.tables.MailSignatureImage;
+import com.workplace.jooq.tables.MailUserSetting;
 import com.workplace.jooq.tables.Membership;
 import com.workplace.jooq.tables.Message;
 import com.workplace.jooq.tables.MessageActionProposal;
@@ -718,6 +719,11 @@ public class Tables {
      * The table <code>public.mail_signature_image</code>.
      */
     public static final MailSignatureImage MAIL_SIGNATURE_IMAGE = MailSignatureImage.MAIL_SIGNATURE_IMAGE;
+
+    /**
+     * The table <code>public.mail_user_setting</code>.
+     */
+    public static final MailUserSetting MAIL_USER_SETTING = MailUserSetting.MAIL_USER_SETTING;
 
     /**
      * 사용자-테넌트 소속 (다중 소속 허용)

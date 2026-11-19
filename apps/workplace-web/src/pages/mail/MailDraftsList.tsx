@@ -123,7 +123,8 @@ export function MailDraftsList({ accountId }: { accountId: number }) {
   return (
     <div data-testid="mail-drafts-list" className="flex-1 overflow-y-auto">
       {data.map((d) => (
-        <DraftRow key={d.id} d={d} onOpen={() => void openDraft(d.id)} onDelete={() => del.mutate(d)} />
+        // 임시보관함에서 여는 것은 새 작성이라 작성 방식 기본값대로 연다(WP-1744).
+        <DraftRow key={d.id} d={d} onOpen={() => void openDraft(d.id, { placement: 'default' })} onDelete={() => del.mutate(d)} />
       ))}
     </div>
   )

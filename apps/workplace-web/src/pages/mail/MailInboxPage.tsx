@@ -1815,8 +1815,9 @@ function MailInbox() {
   // 답장 draft 생성(조립은 모듈 함수 buildReplyDraft).
   const buildReply = (detail: EmailMessageDetail, all: boolean) =>
     buildReplyDraft(detail, all, accountIdNum as number, accountEmail ?? '')
-  function onReply(d: EmailMessageDetail) { openCompose(buildReply(d, false)) }
-  function onReplyAll(d: EmailMessageDetail) { openCompose(buildReply(d, true)) }
+  // 답장·전체 답장·전달은 새 작성이라 작성 방식 기본값(읽기 창·우측 하단·새 창, WP-1744)대로 연다.
+  function onReply(d: EmailMessageDetail) { openCompose(buildReply(d, false), { placement: 'default' }) }
+  function onReplyAll(d: EmailMessageDetail) { openCompose(buildReply(d, true), { placement: 'default' }) }
   function onForward(d: EmailMessageDetail) {
     const quote = buildQuote(d, 'forward')
     // 원본 첨부를 칩으로 미리 넣는다(WP-574). 인용문이 cid 로 다시 붙이는 본문 이미지는 빼 같은 그림이 두 번 붙지 않게 한다.
@@ -1832,7 +1833,7 @@ function MailInbox() {
       inReplyToMessageId: null,
       // 전달은 답장 대상이 없어 원본 id 를 따로 둔다 — 임시저장을 다시 열 때 인용문을 다시 만든다(WP-577).
       sourceMessageId: d.id,
-    })
+    }, { placement: 'default' })
   }
   // AI 답장 초안 — 인용문은 buildReply 가 이미 담은 것을 승계하고, 초안 본문만 얹는다.
   async function onAiReplyDraft(d: EmailMessageDetail) {
@@ -1840,7 +1841,8 @@ function MailInbox() {
     try {
       const { draftBody } = await replyDraft.mutateAsync(d.id)
       // draftBody 는 plain text — 새 메일 AI 초안(WP-576)과 같은 변환으로 escape 후 문단 HTML 로 넣는다(HTML 주입 방지).
-      openCompose({ ...base, initialHtml: plainTextToMailHtml(draftBody) })
+      // AI 응답을 기다린 뒤 열려 클릭의 사용자 활성화가 지났다 — 새 창 기본값이어도 팝업이 막히므로 우측 하단으로 연다(읽기 창은 그대로, WP-1744).
+      openCompose({ ...base, initialHtml: plainTextToMailHtml(draftBody) }, { placement: 'default-inline' })
     } catch {
       /* 토스트는 훅 onError 가 처리 */
     }

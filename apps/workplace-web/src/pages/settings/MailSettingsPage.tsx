@@ -3,6 +3,7 @@
 // 리스트/스캔 목적 화면이라 풀폭(#674) — TokenSettingsPage(#655)를 참조 구현으로 삼는다.
 // 추가/수정 다이얼로그는 여기서 소유해 "계정 추가" 버튼을 헤더 actions 에 올린다.
 // 계정 목록 아래에 사용자당 하나인 메일 서명 카드(WP-1517)를 둔다 — 서명은 계정별이 아니라 사람별이다.
+// 서명 다음에 작성 방식 카드(WP-1744) — 새 작성을 열 곳(읽기 창·우측 하단·새 창)도 사람별 설정이다.
 import { useState } from 'react'
 
 import { SettingsPage } from '@/components/layout/SettingsPage'
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { useMailAccounts } from '@/hooks/queries/useMailAccounts'
 import { MailAccountDialog } from '@/pages/profile/components/MailAccountDialog'
 import { MailAccountsSection } from '@/pages/profile/MailAccountsSection'
+import { MailComposeModeCard } from '@/pages/settings/MailComposeModeCard'
 import { MailSignatureCard } from '@/pages/settings/MailSignatureCard'
 import type { MailAccountResponse } from '@/types/mailAccount'
 
@@ -41,6 +43,7 @@ export default function MailSettingsPage() {
     >
       <MailAccountsSection onEdit={openEdit} />
       <MailSignatureCard />
+      <MailComposeModeCard />
       <MailAccountDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}

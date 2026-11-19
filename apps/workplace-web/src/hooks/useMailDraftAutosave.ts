@@ -441,8 +441,35 @@ export function useMailDraftAutosave({ instanceId, initialDraftId, initialVersio
     }
   }, [qc]);
 
+  /**
+   * 서버 임시저장 하나를 지우고 세션은 살려 둔다 — 새 창으로 옮기려 손대지 않은 작성으로 만든 빈 임시저장을 사용자가 빈 창을 닫아
+   * 쓰지 않게 됐을 때, 임시보관함에 빈 채로 남지 않게 한다. discard 와 달리 작성창이 남으므로 세션을 끝내지 않고 id·버전만 끊어
+   * 다음 입력이 새 임시저장으로 만들어지게 한다(그 id 가 지금 세션 것일 때만 — 다른 작성으로 바뀐 뒤면 서버 것만 지운다).
+   * 지우지 못해도 빈 임시저장 하나가 남을 뿐이라 알리지 않는다(404 도 이미 없는 것).
+   */
+  const detach = useCallback(
+    async (draftId: number) => {
+      const s = session.current;
+      const acc = latest.current.accountId;
+      if (s && s.id === draftId) {
+        s.id = null;
+        s.version = null;
+        s.wrote = false;
+        // 이 id 로 저장된 상태 표시(저장됨)도 걷어낸다 — 아직 아무것도 저장되지 않은 새 작성으로 돌아간다.
+        show(s, 'idle');
+      }
+      try {
+        await deleteMailDraft(draftId);
+      } catch {
+        /* 빈 임시저장이 남을 뿐 — 알릴 결과가 없다 */
+      }
+      if (acc != null) void invalidateMailDrafts(qc, acc);
+    },
+    [qc, show],
+  );
+
   /** 지금 세션의 임시저장 id(없으면 null). */
   const currentDraftId = () => session.current?.id ?? null;
 
-  return { status, statusReason, schedule, flush, retry, beginSend, end, discard, currentDraftId };
+  return { status, statusReason, schedule, flush, retry, beginSend, end, discard, detach, currentDraftId };
 }

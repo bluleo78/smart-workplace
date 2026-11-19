@@ -109,6 +109,7 @@ import com.workplace.jooq.tables.MailDraftForward;
 import com.workplace.jooq.tables.MailInbox;
 import com.workplace.jooq.tables.MailSignature;
 import com.workplace.jooq.tables.MailSignatureImage;
+import com.workplace.jooq.tables.MailUserSetting;
 import com.workplace.jooq.tables.Membership;
 import com.workplace.jooq.tables.Message;
 import com.workplace.jooq.tables.MessageActionProposal;
@@ -736,6 +737,11 @@ public class Public extends SchemaImpl {
     public final MailSignatureImage MAIL_SIGNATURE_IMAGE = MailSignatureImage.MAIL_SIGNATURE_IMAGE;
 
     /**
+     * The table <code>public.mail_user_setting</code>.
+     */
+    public final MailUserSetting MAIL_USER_SETTING = MailUserSetting.MAIL_USER_SETTING;
+
+    /**
      * 사용자-테넌트 소속 (다중 소속 허용)
      */
     public final Membership MEMBERSHIP = Membership.MEMBERSHIP;
@@ -1239,6 +1245,7 @@ public class Public extends SchemaImpl {
             MailInbox.MAIL_INBOX,
             MailSignature.MAIL_SIGNATURE,
             MailSignatureImage.MAIL_SIGNATURE_IMAGE,
+            MailUserSetting.MAIL_USER_SETTING,
             Membership.MEMBERSHIP,
             Message.MESSAGE,
             MessageActionProposal.MESSAGE_ACTION_PROPOSAL,

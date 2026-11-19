@@ -9,6 +9,7 @@ import type { RoleResponse } from '@/types/role'
 
 import { createTokenResponse, createUser } from '../../../e2e/factories/auth.factory'
 import { defaultRelationTypes } from '../../../e2e/factories/issueRelation.factory'
+import { createMailSettings } from '../../../e2e/factories/mailSettings.factory'
 import { createMailSignature } from '../../../e2e/factories/mailSignature.factory'
 import { defaultNotificationSettings } from '../../../e2e/factories/notificationSettings.factory'
 import { seedStatuses } from '../../../e2e/factories/projectStatus.factory'
@@ -61,6 +62,13 @@ export const helpMetricBaseHandlers = [
   http.post(`${API}/help/metrics/open`, () => new HttpResponse(null, { status: 204 })),
   http.post(`${API}/help/metrics/search-miss`, () => new HttpResponse(null, { status: 204 })),
 ]
+
+/**
+ * 메일 작성 방식 기본값(WP-1744) 기본 응답(DOCK) — 작성 상태 공급자(MailComposeProvider)가 마운트되면 늘 부른다.
+ * 그 공급자는 앱 셸뿐 아니라 여러 화면 테스트 키트(appProviders·testkit-b4)에도 들어 있어 renderScreen 도 맨 뒤에 깐다(도움말 기록과 같은 방식).
+ * 기본값별 열기를 보려는 테스트는 같은 경로를 앞에 건다.
+ */
+export const mailSettingsBaseHandlers = [http.get(`${API}/mail/settings`, () => HttpResponse.json(createMailSettings()))]
 
 /** 앱 셸·공통 부가 조회 빈 기본값 — e2e/fixtures/auth.fixture.ts setupAuthMocks 와 같은 목록. */
 export const shellHandlers = [
@@ -167,6 +175,8 @@ export const shellHandlers = [
   http.get(`${API}/mail/drafts`, () => HttpResponse.json([])),
   // 메일 서명(WP-1517) — 작성창이 열기 전에 이 조회를 기다린다. 기본은 서명 없음(자동 넣기 없음).
   http.get(`${API}/mail/signature`, () => HttpResponse.json(createMailSignature())),
+  // 메일 작성 방식 기본값(WP-1744) — 앱 셸의 작성 상태(MailComposeProvider)가 늘 부른다. 기본은 우측 하단(DOCK).
+  ...mailSettingsBaseHandlers,
   http.post(`${API}/mail/messages/:id/read`, () => new HttpResponse(null, { status: 204 })),
   http.post(`${API}/mail/messages/:id/unread`, () => new HttpResponse(null, { status: 204 })),
 ]
