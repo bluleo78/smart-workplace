@@ -3,12 +3,13 @@
 //  - 소속 그룹: HUMAN 만(연락처 상세 API 는 AGENT 에 404).
 //  - 작업 수: AGENT 만 — AI별 현황(fetchAiAgents 'ALL')에서 그 AI 의 slotsUsed.
 // 어느 요청이 실패해도 그 값만 undefined 가 되고 카드는 PersonRef 만으로 그려진다(재시도 없이 바로 대체).
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 
+import { fetchAiAgents } from '@/api/aiAgents'
 import { contactsApi } from '@/api/contacts'
 import { membersApi } from '@/api/members'
 import { contactKeys } from '@/hooks/queries/contactKeys'
-import { useAiAgents } from '@/hooks/queries/useAiAgents'
+import { AI_AGENTS_REFRESH_MS, aiAgentsKeys } from '@/hooks/queries/useAiAgents'
 import { memberKeys } from '@/hooks/queries/useMembers'
 import type { MemberSummary } from '@/types/member'
 
@@ -49,8 +50,15 @@ export function usePersonCard(person: PersonRef): PersonCardData {
     staleTime: CARD_STALE_MS,
     retry: false,
   })
-  // AI별 현황은 다른 화면과 같은 캐시를 쓴다 — 이미 받아 둔 게 있으면 바로 보인다.
-  const agents = useAiAgents('ALL', !isHuman)
+  // AI별 현황은 다른 화면(useAiAgents 'ALL')과 같은 키·주기로 같은 캐시를 쓴다 — 이미 받아 둔 게 있으면 바로 보인다.
+  // useAiAgents 는 enabled 를 받지 않아(WP-1781) 사람 카드에서는 AI 일 때만 받도록 같은 쿼리를 직접 쓴다.
+  const agents = useQuery({
+    queryKey: aiAgentsKeys.scope('ALL'),
+    queryFn: () => fetchAiAgents('ALL'),
+    enabled: !isHuman,
+    placeholderData: keepPreviousData,
+    refetchInterval: AI_AGENTS_REFRESH_MS,
+  })
   const slotsUsed = agents.data?.agents.find((a) => a.agent.id === person.id)?.slotsUsed
   return {
     profile: profile.data,
