@@ -280,8 +280,13 @@ describe('붙여넣은 서명 「원본 그대로」', () => {
     expect(await screen.findByText(PREVIEW_LABEL)).toBeInTheDocument()
     expect(screen.queryByTestId('mail-signature-editor')).not.toBeInTheDocument()
     expect(previewFrame().getAttribute('srcdoc')).toContain('<td>홍길동</td>')
-    // 카드보다 넓은 표 서명은 잘리지 않고 가로로 스크롤된다(세로는 내용에 맞춘다).
-    expect(previewFrame().getAttribute('srcdoc')).toContain('<style data-mail-signature-preview>body{overflow-x:auto;overflow-y:hidden}</style>')
+    // 카드보다 넓은 표 서명은 잘리지 않고 가로로 스크롤된다(세로는 내용에 맞춘다). 스크롤은 body(창)가 아니라 내용을 감싼 칸이 맡는다 —
+    // body 가 스크롤하면 가로 스크롤 막대가 창 안쪽을 차지해 높이 보고에 들지 않고 표 마지막 줄이 막대에 가린다.
+    const frameDoc = new DOMParser().parseFromString(previewFrame().getAttribute('srcdoc') ?? '', 'text/html')
+    const scroller = frameDoc.querySelector('[data-mail-signature-scroll]') as HTMLElement
+    expect(scroller.style.overflowX).toBe('auto')
+    expect(scroller.querySelector('td')?.textContent).toBe('홍길동')
+    expect(previewFrame().getAttribute('srcdoc')).not.toContain('body{overflow-x:auto')
     expect(saveButton()).toBeDisabled()
   })
 
@@ -398,13 +403,35 @@ describe('붙여넣은 서명 — 코드 리뷰 반영', () => {
     await within(ed).findByText('홍길동')
     await user.click(ed)
     await user.keyboard('{Control>}a{/Control}')
-    paste(ed, { html: '<p style="color:#123456">홍길동</p>' })
+    paste(ed, { html: '<p style="padding:4px">홍길동</p>' })
     await screen.findByText(PREVIEW_LABEL)
     // 다시 붙여넣기 칸에 서명과 같은 글을 붙이면 편집기로 돌아온다 — 서버 값과 같으므로 바뀐 것이 없다.
     await user.click(screen.getByRole('button', { name: '다시 붙여넣기' }))
     paste(screen.getByRole('textbox', { name: '여기에 서명을 붙여 넣으세요' }), { html: '<p>홍길동</p>', text: '홍길동' })
     await within(await screen.findByTestId('mail-signature-editor')).findByText('홍길동')
     await waitFor(() => expect(saveButton()).toBeDisabled())
+  })
+
+  test('서명 편집기에서 복사한 서명(복사 표지)을 전체 골라 되붙이면 색 글자·표가 있어도 편집기에 남는다', async () => {
+    const { user } = openCard({ saved: createMailSignature({ html: '<p>홍길동</p>' }) })
+    const ed = await screen.findByTestId('mail-signature-editor')
+    await within(ed).findByText('홍길동')
+    await user.click(ed)
+    await user.keyboard('{Control>}a{/Control}')
+    paste(ed, {
+      html: '<p data-wp-signature-copy="" data-pm-slice="1 1 []"><span style="color:#1F4E79">새 서명</span></p><table><tbody><tr><td>개발팀</td></tr></tbody></table>',
+      text: '새 서명',
+    })
+    expect(await within(editor()).findByText('새 서명')).toBeInTheDocument()
+    expect(screen.queryByText(PREVIEW_LABEL)).not.toBeInTheDocument()
+  })
+
+  test('빈 서명에 글자 서식 style 만 든 웹 글을 붙이면 편집기에 남는다', async () => {
+    openCard()
+    const ed = await screen.findByTestId('mail-signature-editor')
+    paste(ed, { html: '<span style="color: rgb(34, 34, 34); font-family: Arial;">010-1234-5678</span>', text: '010-1234-5678' })
+    expect(await within(editor()).findByText(/010-1234-5678/)).toBeInTheDocument()
+    expect(screen.queryByText(PREVIEW_LABEL)).not.toBeInTheDocument()
   })
 
   test('붙여넣기 칸은 글자 입력은 막고 Shift+Insert·Ctrl+V·Tab 은 통과시킨다', async () => {

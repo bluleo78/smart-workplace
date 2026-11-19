@@ -23,7 +23,7 @@ const MIN_HEIGHT = 20;
 /**
  * 서명 문서 앞에 붙이는 스타일 — 작성 에디터와 같은 글자·문단 규칙(COMPOSER_PREVIEW_STYLE)에서 안쪽 여백만 뺀다
  * (서명은 에디터 본문·카드 안에 놓여 이미 여백이 있다). 스크롤은 숨긴다 — 높이를 내용에 맞추므로 상한(1200px)을 넘는 일은 없다.
- * 작성창 서명 블록은 클릭을 막는 덮개가 있어 스크롤할 수 없으므로 여기서 가로 스크롤을 열지 않는다(설정 미리 보기만 따로 연다).
+ * 작성창 서명 블록은 클릭을 막는 덮개가 있어 스크롤할 수 없으므로 여기서 가로 스크롤을 열지 않는다(설정 미리 보기만 내용을 감싼 칸에 따로 연다 — PastedSignaturePreview).
  */
 export const SIGNATURE_FRAME_STYLE = `${COMPOSER_PREVIEW_STYLE}<style data-mail-signature-frame>body{padding:0;overflow:hidden}</style>`;
 

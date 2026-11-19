@@ -1,6 +1,6 @@
 // 붙여넣은 서명(WP-1726) — 설정 › 메일 계정 「서명」 카드가 붙여넣기를 받았을 때 쓰는 순수 함수.
 // 바깥에는 toPastedSignatureHtml 하나만 낸다(편집기 붙여넣기·「다시 붙여넣기」 칸이 같이 쓴다). 붙여 넣은 HTML 을 한 번만 열어
-// - isRichSignature: 표·인라인 style·font·클래스 서식이 든 서명인가. 맞으면 tiptap 편집기(스키마 밖 서식을 지운다) 대신
+// - isRichSignature: 표·font·클래스 서식·상자 서식이 든 서명인가(글자 서식 style 만이면 아니다). 맞으면 tiptap 편집기(스키마 밖 서식을 지운다) 대신
 //   「붙여넣은 서명 · 원본 그대로」 미리 보기로 넘어가 원본 HTML 을 서버 정리만 거쳐 그대로 저장·발송한다.
 // - inlineSignatureStyles: Outlook 이 <style> 의 클래스 규칙(p.MsoNormal 등)으로 준 글꼴·크기·색을 요소 인라인 style 로 옮긴다.
 //   서버 정리기는 <style> 을 지우므로(받는 쪽 메일 클라이언트도 <style> 을 자주 버린다) 저장 전에 웹이 풀어 둔다.
@@ -22,13 +22,41 @@ export function toPastedSignatureHtml(html: string): string | null {
 }
 
 /**
- * 붙여넣은 서명 「원본 그대로」 모드로 받을 문서인가 — 표·인라인 style·font·(class + <style>) 중 하나라도 있으면 true.
- * 글자·굵게·링크만이면 false(지금처럼 편집기). ProseMirror 조각 표시(data-pm-slice)는 따로 보지 않는다 — 노트·Notion·Confluence 도
- * 붙이는 표시라 거기서 복사한 표 서명이 지워진다. 편집기 안 복사·붙여넣기는 편집기가 「통째로 바꾸는가」로 걸러 편집기에 둔다.
+ * 서명 편집기에서 복사한 클립보드 HTML 표지 — 서명 편집기의 복사 직렬화기(signatureEditorExtensions)가 첫 최상위 요소에 단다.
+ * 이 표지가 있으면 직접 쓴 서명을 Ctrl+A·C → Ctrl+A·V 로 되붙인 것이라 편집기에 둔다(WP-1726 코드 리뷰).
+ * ProseMirror 의 data-pm-slice 는 노트·Notion·Confluence 같은 ProseMirror 앱이면 어디서나 붙어 쓰지 않는다(노트의 NOTE_COPY_ATTR 와 같은 방식).
+ */
+export const SIGNATURE_COPY_ATTR = 'data-wp-signature-copy';
+
+/**
+ * style 을 가져도 편집기가 담는 요소 — 글자 요소(편집기의 글자 서식 mark·링크·굵게 등)와 문단·제목(블록 style 속성), 이미지(style 속성).
+ * 이 밖의 요소(div·td·li 등)에 style 이 있으면 편집기가 지우거나 바꾸므로 원본 모드로 본다.
+ */
+const EDITOR_STYLED_TAGS = new Set([
+  'SPAN', 'A', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'SUB', 'SUP', 'SMALL', 'BIG', 'MARK', 'CODE',
+  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'IMG',
+]);
+
+/**
+ * 상자 서식 속성 — 너비·높이·안쪽 여백·테두리·배치. 글자 요소·문단에 있어도 서명 배치(칸 나눔·세로 줄·고정 폭)를 만드는 서식이라
+ * 원본 모드로 본다. margin·배경색은 크롬이 웹 글 복사에 늘 붙여 넣어 포함하지 않는다. 이미지의 크기 style 은 편집기가 담으므로 보지 않는다.
+ */
+const BOX_STYLE_PROPERTY = /(^|;)\s*(width|min-width|max-width|height|min-height|max-height|padding[\w-]*|border[\w-]*|display|float|position)\s*:/i;
+
+/**
+ * 붙여넣은 서명 「원본 그대로」 모드로 받을 문서인가. 판정(WP-1726 코드 리뷰 결정):
+ * - 서명 편집기에서 복사한 것(SIGNATURE_COPY_ATTR)이면 false — 직접 쓴 서명은 편집기에 남는다.
+ * - 표·<font>·(class + <style>) 가 있으면 true.
+ * - style 이 글자 요소·문단·이미지 밖(div·td 등)에 있거나, 이미지가 아닌 요소의 style 에 상자 서식(BOX_STYLE_PROPERTY)이 있으면 true.
+ * - 그 밖(글자·굵게·링크, 크롬 웹 글 복사처럼 글자 서식 style 만)은 false — 편집기가 그 서식을 그대로 담는다.
  */
 function isRichSignature(doc: Document): boolean {
-  if (doc.querySelector('table, font, [style]')) return true;
-  return doc.querySelector('style') != null && doc.querySelector('[class]') != null;
+  if (doc.querySelector(`[${SIGNATURE_COPY_ATTR}]`)) return false;
+  if (doc.querySelector('table, font')) return true;
+  if (doc.querySelector('style') != null && doc.querySelector('[class]') != null) return true;
+  return Array.from(doc.body.querySelectorAll('[style]')).some(
+    (el) => !EDITOR_STYLED_TAGS.has(el.tagName) || (el.tagName !== 'IMG' && BOX_STYLE_PROPERTY.test(el.getAttribute('style') ?? '')),
+  );
 }
 
 /** CSS 규칙 하나 — 쉼표로 나눈 선택자 목록과 선언 문자열. */
@@ -57,7 +85,8 @@ function parseStyleRules(css: string): StyleRule[] {
       else if (text[j] === '}') depth--;
       j++;
     }
-    const body = text.slice(open + 1, j - 1);
+    // 닫는 괄호를 찾았으면 그 앞까지, 끝까지 못 찾았으면(잘린 CSS 의 마지막 규칙) 글 끝까지 — 마지막 글자를 잃지 않는다.
+    const body = text.slice(open + 1, depth === 0 ? j - 1 : j);
     // `@charset "x";` 처럼 괄호 없는 @ 문이 앞에 붙어 오면 그 뒤만 선택자로 본다.
     const selectorText = prelude.slice(prelude.lastIndexOf(';') + 1).trim();
     if (selectorText && !selectorText.startsWith('@')) {
@@ -100,7 +129,8 @@ const JUNK_SELECTOR = 'style, meta, link, title, xml';
 
 /**
  * 붙여 넣은 문서의 <style> 클래스 규칙을 요소 인라인 style 로 옮기고 body 안 HTML 만 돌려준다.
- * - body·html 에 맞는 규칙(물려받는 기본 글꼴·색)은 body 가 사라지므로 결과 전체를 감싼 <div style> 로 옮긴다(그런 규칙이 있을 때만).
+ * - body·html 에 맞는 규칙과 <body style>(물려받는 기본 글꼴·색)은 body 가 사라지므로 결과 전체를 감싼 <div style> 로 옮긴다
+ *   (그런 규칙이나 body style 이 있을 때만 — <style> 이 없어도 body style 만으로 감싼다).
  * - 규칙 선언은 요소 인라인 style 앞에 둔다 — 같은 속성이면 요소 자신의 인라인 선언이 이긴다.
  * - 여러 규칙이 맞으면 나중 규칙이 이긴다(명시도는 따지지 않는 근사 — Outlook 서명은 거의 클래스 하나짜리 규칙이다).
  * - <html>·<head> 껍데기, <style>·<meta>, 주석(조건부 주석·StartFragment 표시 포함), <o:p> 같은 Office 이름공간 태그(내용은 남김)를 지운다.
@@ -126,7 +156,8 @@ function inlineSignatureStyles(doc: Document): string {
   for (const junk of Array.from(doc.querySelectorAll(JUNK_SELECTOR))) junk.remove();
   removeComments(doc.body);
   unwrapNamespacedTags(doc.body);
-  if (rootRules.length === 0 || !rootStyle) return doc.body.innerHTML;
+  // body 규칙이 없어도 <body style> 이 있으면 감싼다 — 빼면 붙여 넣은 문서의 기본 글꼴·색이 사라진다.
+  if (!rootStyle) return doc.body.innerHTML;
   const wrapper = doc.createElement('div');
   wrapper.setAttribute('style', rootStyle);
   wrapper.append(...Array.from(doc.body.childNodes));

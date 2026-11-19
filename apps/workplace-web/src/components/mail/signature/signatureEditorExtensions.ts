@@ -10,8 +10,12 @@ import TableCell from '@tiptap/extension-table-cell';
 import TableHeader from '@tiptap/extension-table-header';
 import TableRow from '@tiptap/extension-table-row';
 import Underline from '@tiptap/extension-underline';
+import { DOMSerializer, type Schema } from '@tiptap/pm/model';
+import { Plugin } from '@tiptap/pm/state';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+
+import { SIGNATURE_COPY_ATTR } from '@/lib/mailSignaturePaste';
 
 import { MailLink } from '../mailEditorLink';
 import { SignatureImageNodeView } from './SignatureImageNodeView';
@@ -135,6 +139,35 @@ export const SignatureImage = Image.extend({
   },
 }).configure({ inline: true, allowBase64: true });
 
+/**
+ * 서명 편집기 복사용 직렬화기(WP-1726 코드 리뷰) — 스키마 기본 직렬화 결과의 첫 최상위 요소에 복사 표지(SIGNATURE_COPY_ATTR)를 단다.
+ * 왜: 직접 쓴 서명(색 글자·표)을 Ctrl+A·C → Ctrl+A·V 로 되붙이면 「붙여넣은 서명 · 원본 그대로」로 넘어가 편집기를 잃었다.
+ * 표지가 있으면 판정(toPastedSignatureHtml)이 편집기에 둔다. 노트의 noteClipboardSerializer 와 같은 방식.
+ */
+export function signatureClipboardSerializer(schema: Schema): DOMSerializer {
+  const base = DOMSerializer.fromSchema(schema);
+  return new (class extends DOMSerializer {
+    serializeFragment(...args: Parameters<DOMSerializer['serializeFragment']>) {
+      const frag = super.serializeFragment(...args);
+      for (let child = frag.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 1) {
+          (child as HTMLElement).setAttribute(SIGNATURE_COPY_ATTR, '');
+          break;
+        }
+      }
+      return frag;
+    }
+  })(base.nodes, base.marks);
+}
+
+/** 복사 표지 확장 — 서명 편집기의 복사·끌기 HTML 에 표지를 단다(signatureClipboardSerializer). */
+export const SignatureCopyMarker = Extension.create({
+  name: 'signatureCopyMarker',
+  addProseMirrorPlugins() {
+    return [new Plugin({ props: { clipboardSerializer: signatureClipboardSerializer(this.editor.schema) } })];
+  },
+});
+
 /** 서명 편집기 확장 — 작성창과 같은 기본 서식(StarterKit·링크)에 밑줄·표·서식 보존·이미지를 더한다. */
 export const signatureEditorExtensions = [
   StarterKit,
@@ -148,4 +181,5 @@ export const signatureEditorExtensions = [
   TableHeader,
   TableCell,
   SignatureImage,
+  SignatureCopyMarker,
 ];

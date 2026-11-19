@@ -37,10 +37,15 @@ export interface PastedSignaturePreviewProps {
 }
 
 /**
- * 미리 보기 문서 스타일 — 작성창 서명과 같은 SIGNATURE_FRAME_STYLE 뒤에 가로 스크롤만 연다. 붙여 넣은 표 서명은 600pt(800px)까지
- * 넓을 수 있어 카드보다 넓으면 잘린다. 세로는 높이를 내용에 맞추므로 숨긴 채 둔다(가로 스크롤 막대 높이도 body 높이에 들어 높이 보고가 잰다).
+ * 미리 보기 문서 — 작성창 서명과 같은 SIGNATURE_FRAME_STYLE(body 는 스크롤 숨김) 뒤에 내용을 가로 스크롤 칸으로 감싼다.
+ * 붙여 넣은 표 서명은 600pt(800px)까지 넓을 수 있어 카드보다 넓으면 가로로 스크롤해야 한다.
+ * 왜 body 가 아니라 감싼 칸인가(WP-1726 코드 리뷰): body 가 스크롤하면 가로 스크롤 막대가 창(뷰포트) 안쪽 자리를 차지해 높이 보고
+ * (documentElement·body 높이)에 들지 않고, 표 마지막 줄 15px 남짓이 막대 밑에 가린다. 칸이 스크롤하면 막대가 칸 높이에 들어
+ * 문서 높이 = 내용 + 막대가 되어 iframe 이 막대까지 담는다. 세로는 높이를 내용에 맞추므로 숨긴다.
  */
-const PREVIEW_FRAME_STYLE = `${SIGNATURE_FRAME_STYLE}<style data-mail-signature-preview>body{overflow-x:auto;overflow-y:hidden}</style>`;
+function previewDocument(html: string): string {
+  return `${SIGNATURE_FRAME_STYLE}<div data-mail-signature-scroll style="overflow-x:auto;overflow-y:hidden">${html}</div>`;
+}
 
 /** 붙여넣은 서명 미리 보기 카드 — 머리 문구, 흰 바탕 격리 iframe, 「다시 붙여넣기」·「편집기로 바꾸기」. */
 export function PastedSignaturePreview({ html, onRepaste, onSwitchToEditor }: PastedSignaturePreviewProps) {
@@ -73,7 +78,7 @@ export function PastedSignaturePreview({ html, onRepaste, onSwitchToEditor }: Pa
 
       {/* 흰 종이 바탕 — iframe 둘레 여백도 같은 흰색이라 받는 쪽 메일 본문처럼 보인다. */}
       <div className={cn('rounded-sm px-3 py-2', HTML_DOCUMENT_CANVAS_CLASS)}>
-        <SignatureHtmlFrame html={PREVIEW_FRAME_STYLE + html} className={cn('block w-full border-0', HTML_DOCUMENT_CANVAS_CLASS)} />
+        <SignatureHtmlFrame html={previewDocument(html)} className={cn('block w-full border-0', HTML_DOCUMENT_CANVAS_CLASS)} />
       </div>
 
       <AlertDialog open={confirming} onOpenChange={setConfirming}>

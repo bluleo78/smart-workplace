@@ -100,9 +100,10 @@ export const MailSignatureEditor = forwardRef<MailSignatureEditorHandle, MailSig
           return true;
         },
         handleDOMEvents: {
-          // 표·인라인 style·글꼴·클래스 서식이 든 HTML 로 서명을 통째로 바꾸면(WP-1726) ProseMirror 가 클립보드를 스키마로 읽기
+          // 표·글꼴·클래스 서식·상자 서식이 든 HTML 로 서명을 통째로 바꾸면(WP-1726) ProseMirror 가 클립보드를 스키마로 읽기
           // (서식이 빠진다) 전에 가로채 카드로 넘긴다. 쓰던 서명 중간에 붙이는 조각은 편집기에 둔다(replacesWholeSignature).
           // 이미지만 든 붙여넣기는 text/html 이 없어 여기서 걸리지 않고 위 handlePaste 로 간다.
+          // 이 편집기에서 복사한 서명(복사 표지)·글자 서식 style 만 든 웹 글은 판정이 null 이라 편집기에 남는다(toPastedSignatureHtml).
           // 「통째로 바꾸는가」를 먼저 본다 — 쓰던 서명 중간 붙여넣기는 클립보드 HTML 을 열지 않고 바로 편집기로 보낸다.
           paste: (_view, event) => {
             const onRich = onRichPasteRef.current;

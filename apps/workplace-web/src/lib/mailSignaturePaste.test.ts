@@ -3,7 +3,7 @@
 // 인라인으로 옮겼는지를 고정한다(서버는 <style> 을 지우므로 옮기지 않으면 클래스 서식이 사라진다).
 import { describe, expect, test } from 'vitest';
 
-import { toPastedSignatureHtml } from './mailSignaturePaste';
+import { SIGNATURE_COPY_ATTR, toPastedSignatureHtml } from './mailSignaturePaste';
 
 /** 서식 있는 서명으로 판정되는가(null 이 아니면 「원본 그대로」). */
 const isRich = (html: string) => toPastedSignatureHtml(html) !== null;
@@ -36,11 +36,16 @@ const OUTLOOK_DOC =
   '<!--EndFragment--></body></html>';
 
 describe('toPastedSignatureHtml — 판정', () => {
-  test('표·인라인 style·font·클래스+<style> 이 하나라도 있으면 붙여넣은 서명', () => {
+  test('표·font·클래스+<style>·글자 요소가 아닌 요소의 style·상자 서식이 하나라도 있으면 붙여넣은 서명', () => {
     expect(isRich('<table><tr><td>홍길동</td></tr></table>')).toBe(true);
-    expect(isRich('<p><span style="color:#1F4E79">홍길동</span></p>')).toBe(true);
     expect(isRich('<p><font face="Arial">홍길동</font></p>')).toBe(true);
     expect(isRich(OUTLOOK_DOC)).toBe(true);
+    // 편집기가 지우는 div 의 style.
+    expect(isRich('<div style="color:#1F4E79">홍길동</div>')).toBe(true);
+    // 상자 서식(너비·안쪽 여백·테두리 등)은 글자 요소·문단에 있어도 원본으로 본다.
+    expect(isRich('<p style="padding:4px 8px">홍길동</p>')).toBe(true);
+    expect(isRich('<p><span style="border-left:2px solid #1F4E79">홍길동</span></p>')).toBe(true);
+    expect(isRich('<p><span style="display:inline-block;width:120px">홍길동</span></p>')).toBe(true);
   });
 
   test('글자·굵게·링크만이면 편집기 그대로', () => {
@@ -49,14 +54,31 @@ describe('toPastedSignatureHtml — 판정', () => {
     expect(isRich('')).toBe(false);
   });
 
+  test('글자 요소·문단의 글자 서식 style 만 있으면(크롬 웹 글 복사) 편집기 그대로 — 편집기가 담을 수 있다', () => {
+    expect(isRich('<p><span style="color:#1F4E79">홍길동</span></p>')).toBe(false);
+    expect(
+      isRich(
+        '<span style="color: rgb(34, 34, 34); font-family: Arial, sans-serif; font-size: 13px; background-color: rgb(255, 255, 255);">010-1234-5678</span>',
+      ),
+    ).toBe(false);
+    expect(isRich('<p style="margin:0;text-align:center;color:#333"><a href="https://x.com" style="color:#06c">x.com</a></p>')).toBe(false);
+    // 이미지 크기 style 은 편집기 이미지가 그대로 담는다.
+    expect(isRich('<p><img src="https://example.com/logo.png" style="width:120px;height:40px"></p>')).toBe(false);
+  });
+
   test('<style> 없이 class 만 있거나 <style> 만 있으면 편집기 그대로', () => {
     expect(isRich('<p class="x">홍길동</p>')).toBe(false);
     expect(isRich('<style>p{color:red}</style><p>홍길동</p>')).toBe(false);
   });
 
-  test('ProseMirror 조각 표시(data-pm-slice)가 있어도 서식으로 판정한다 — 노트·Notion·Confluence 의 표 서명', () => {
-    // 편집기 안 복사·붙여넣기는 판정이 아니라 「통째로 바꾸는 붙여넣기인가」(MailSignatureEditor)가 편집기에 둔다.
-    expect(isRich('<p data-pm-slice="1 1 []"><span style="color:#1F4E79">홍길동</span></p>')).toBe(true);
+  test('이 서명 편집기에서 복사한 HTML(복사 표지)은 표·상자 서식이 있어도 편집기 그대로 — 직접 쓴 서명은 편집기에 남는다', () => {
+    expect(isRich(`<p ${SIGNATURE_COPY_ATTR}="" data-pm-slice="1 1 []"><span style="color:#1F4E79">홍길동</span></p>`)).toBe(false);
+    expect(
+      isRich(`<table ${SIGNATURE_COPY_ATTR}="" data-pm-slice="1 1 []"><tbody><tr><td style="padding:4px">홍길동</td></tr></tbody></table>`),
+    ).toBe(false);
+  });
+
+  test('ProseMirror 조각 표시(data-pm-slice)만으로는 편집기로 보내지 않는다 — 노트·Notion·Confluence 의 표 서명', () => {
     expect(isRich('<table data-pm-slice="1 1 []"><tr><td>홍길동</td></tr></table>')).toBe(true);
   });
 });
@@ -124,5 +146,25 @@ describe('toPastedSignatureHtml — 클래스 서식 풀기', () => {
     expect(inline('<table><tbody><tr><td style="color: red;">x</td></tr></tbody></table>')).toBe(
       '<table><tbody><tr><td style="color: red;">x</td></tr></tbody></table>',
     );
+  });
+  test('<body style> 의 글꼴·색은 <style> 규칙이 없어도 결과를 감싼 div 로 남긴다', () => {
+    const html = inline('<html><body style="font-family:Arial;color:#333"><table><tbody><tr><td>x</td></tr></tbody></table></body></html>');
+    const wrapper = parse(html).body.firstElementChild as HTMLElement;
+    expect(wrapper.tagName).toBe('DIV');
+    expect(wrapper.style.fontFamily).toBe('Arial');
+    expect(wrapper.style.color).toBe('rgb(51, 51, 51)');
+    expect(wrapper.querySelector('td')?.textContent).toBe('x');
+  });
+
+  test('<style> 에 다른 규칙만 있어도 <body style> 은 남긴다', () => {
+    const html = inline('<html><head><style>p.a{font-size:10pt}</style></head><body style="color:#333"><p class="a">x</p></body></html>');
+    const wrapper = parse(html).body.firstElementChild as HTMLElement;
+    expect(wrapper.tagName).toBe('DIV');
+    expect(wrapper.style.color).toBe('rgb(51, 51, 51)');
+  });
+
+  test('닫는 괄호가 빠진 마지막 규칙도 선언 끝 글자를 잃지 않는다', () => {
+    const out = parse(inline('<style>p.a{color:#222222}p.b{font-size:10pt</style><p class="a">x</p><p class="b">y</p>'));
+    expect((out.querySelectorAll('p')[1] as HTMLElement).style.fontSize).toBe('10pt');
   });
 });
