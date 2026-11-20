@@ -135,7 +135,7 @@ E2E 를 vitest 로 옮길 때는 옮긴 테스트마다 로직을 일부러 깨 
 - 백엔드 없이 동작 — `page.route()` 로 API 모킹
 - **모든 테스트에 판정 태그**(`@layout`·`@input`·`@platform`·`@wiring`·`@flow`) — 위 「테스트 종류 판정」. 이관 전 테스트는 `e2e/untagged-baseline.json` 의 파일별 수만큼만 허용하고 늘면 lint 오류다(WP-971)
 - 모킹 데이터는 `src/types/` 의 타입 적용 (API 스펙 변경 시 컴파일 에러)
-- 타입 체크: `npx tsc -p tsconfig.e2e.json --noEmit`
+- 타입 체크: `pnpm typecheck:e2e`(= `tsc -p tsconfig.e2e.json --noEmit`) — web `pnpm typecheck` 에 포함되고, 커밋 훅(web 변경 시)·push 게이트가 돈다(WP-1835)
 - **고정 대기(`waitForTimeout`) 지양**: 양성 대기는 조건 대기(`expect.poll`·`toBeVisible`·`waitForResponse`)로, 앱 타이머(디바운스·지연 삭제 등)는 `page.clock` 으로 경과시킨다. "N 초 동안 일어나지 않음" 부재 확인처럼 불가피한 경우만 사유 주석과 함께 둔다(WP-82)
 - 에러 토스트는 fixture 가 포인터 이벤트를 통과시킨다 — 모킹 누락 API 의 에러 토스트가 버튼을 덮어 클릭이 ~4초씩 지연되던 문제(`e2e/fixtures/auth.fixture.ts`)
 

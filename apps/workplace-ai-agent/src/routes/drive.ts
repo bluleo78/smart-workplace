@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
+import { errorMessage, markScopeFailed } from '../ai-run/scope.js';
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
@@ -95,9 +96,12 @@ export function createDriveRouter(deps: RunAgentDeps): Router {
         res.end();
       }
     } catch (e) {
-      console.error('[drive-overview] 실패:', e instanceof Error ? e.message : String(e));
+      const message = errorMessage(e);
+      console.error('[drive-overview] 실패:', message);
       // 연결이 살아 있을 때만 error 발행(닫힌 소켓 write → EPIPE 방지).
       if (!aborted) {
+        // SSE 단계 실패를 기록에도 알린다(WP-1828). 러너 자체가 실패했다면 그 runner_error 가 사유로 남고, 러너 성공 뒤 스트림만 실패한 때 stream_error 가 된다.
+        markScopeFailed('stream_error', message);
         res.write(`event: error\ndata: ${JSON.stringify({ message: 'overview_failed' })}\n\n`);
         res.end();
       }

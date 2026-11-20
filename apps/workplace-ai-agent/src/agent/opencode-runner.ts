@@ -18,7 +18,7 @@ import { resolveOpencodeModelSettings, type OpencodeModelSettings } from './open
 import { cachedOpencodeEfforts, opencodeVariantFor } from './opencode-efforts.js';
 import { clampEffort } from './thinking.js';
 import type { McpProfile } from '../mcp/tools.js';
-import type { RunnerEvent, RunnerUsage } from './runner-events.js';
+import { sumRunnerUsage, type RunnerEvent, type RunnerUsage } from './runner-events.js';
 import { RunnerLimitError } from './runner-limit.js';
 
 // credential 이 opencode 가 아니면 이 러너를 쓸 수 없음(팩토리가 보장하지만 방어적으로 재확인).
@@ -251,7 +251,21 @@ export class OpencodeRunner implements AgentRunner {
         // 매칭이 영영 실패 — 실측 버그(도구 카드가 계속 "실행중"에 머묾).
         const toolSeq = new Map<string, number>();
         let fullText = '';
-        let lastUsage: RunnerUsage | null = null;
+        // WP-1828: 메시지 id → 그 메시지의 사용량. 같은 메시지의 message.updated 는 스트리밍 중 여러 번 오므로 id 로 덮어쓰고,
+        // result 를 낼 때 모든 메시지 합을 usage 로 낸다(claude-sdk 의 실행 전체 누적값과 같은 의미).
+        const usageByMessage = new Map<string, RunnerUsage>();
+        // 한 assistant 메시지의 토큰을 id 로 기록한다(같은 id 는 덮어쓰기). 캐시 읽기·쓰기는 opencode 의 tokens.cache.{read,write} — 숫자일 때만 키를 넣는다.
+        const recordUsage = (info: { id: string; tokens: { input: number; output: number } }): void => {
+          const msgUsage: RunnerUsage = { inputTokens: info.tokens.input, outputTokens: info.tokens.output };
+          const cache = (info.tokens as { cache?: { read?: unknown; write?: unknown } }).cache;
+          if (typeof cache?.read === 'number') msgUsage.cacheReadTokens = cache.read;
+          if (typeof cache?.write === 'number') msgUsage.cacheWriteTokens = cache.write;
+          usageByMessage.set(info.id, msgUsage);
+        };
+        // result 이벤트는 한 곳에서 낸다 — usage 는 지금까지 모인 모든 메시지의 합이다.
+        const emitResult = (ok: boolean, text: string | null): void => {
+          onEvent({ type: 'result', ok, text, usage: sumRunnerUsage(usageByMessage.values()) });
+        };
         let seq = 0;
 
         // opencode 는 primary agent 가 서브에이전트(allowSubagents)에 위임하면 parentID 가 primary
@@ -351,7 +365,7 @@ export class OpencodeRunner implements AgentRunner {
                     unknownSubagent = String(sub);
                     log.warn('opencode-runner', 'opencode_unknown_subagent', { requestId: i.requestId, subagentType: unknownSubagent });
                     requestAbort();
-                    onEvent({ type: 'result', ok: false, text: fullText || null, usage: lastUsage });
+                    emitResult(false, fullText || null);
                     break;
                   }
                 }
@@ -376,18 +390,14 @@ export class OpencodeRunner implements AgentRunner {
 
           if (ev.type === 'message.updated') {
             const info = ev.properties.info;
-            // WP-250: 압축 요약 메시지(summary·mode 'compaction')는 모델이 다음 단계에 읽을 대화 요약이지 사용자에게 줄 답이 아니다 —
-            // text 를 내보내지 않고 사용량도 그 메시지 것으로 덮지 않는다. opencode 는 요약을 쓰기 전에 이 표시가 달린 message.updated 를 먼저 낸다(실측).
-            if (info.role === 'assistant' && (info.summary === true || info.mode === 'compaction')) continue;
             if (info.role === 'assistant' && knownSessionIds.has(info.sessionID)) {
+              // WP-1828 결정: 하위(자식) 세션 메시지도 합산에 넣는다 — 이슈가 「범위 안 러너 호출(재시도·하위 에이전트)의 토큰을 합쳐 한 건」으로
+              // 정했고, 위임 실행의 실제 비용을 다 세야 하기 때문이다. 압축 요약도 과금되는 모델 호출이라 먼저 합산한다.
+              recordUsage(info);
+              // WP-250: 압축 요약 메시지(summary·mode 'compaction')는 모델이 다음 단계에 읽을 대화 요약이지 사용자에게 줄 답이 아니다 —
+              // text 는 내보내지 않는다. opencode 는 요약을 쓰기 전에 이 표시가 달린 message.updated 를 먼저 낸다(실측).
+              if (info.summary === true || info.mode === 'compaction') continue;
               assistantMessageIds.add(info.id);
-              if (info.sessionID === session.id) {
-                lastUsage = { inputTokens: info.tokens.input, outputTokens: info.tokens.output };
-                // WP-1828: 캐시 읽기·쓰기 토큰 — opencode 는 tokens.cache.{read,write}. 숫자일 때만 키를 넣는다.
-                const cache = (info.tokens as { cache?: { read?: unknown; write?: unknown } }).cache;
-                if (typeof cache?.read === 'number') lastUsage.cacheReadTokens = cache.read;
-                if (typeof cache?.write === 'number') lastUsage.cacheWriteTokens = cache.write;
-              }
               // WP-1407: 완료 시각이 처음 채워질 때 모델 호출 한 단계를 기록한다(회차 실행 기록). 중단된 마지막 단계는 completed 가 없을 수 있어
               // 내지 않는다 — 기록기가 「시작됐는데 안 끝난 단계」를 마지막 단계(모델 응답 대기)로 본다.
               const completed = info.time?.completed;
@@ -421,10 +431,10 @@ export class OpencodeRunner implements AgentRunner {
                 // 한도 초과 뒤 압축이 끝나지 못했다(요약 요청마저 한도를 넘는 등) — 답 없이 멈춘 실행이라 오류로 알린다.
                 errored = true;
                 log.error('opencode-runner', 'opencode_compaction_failed', { requestId: i.requestId });
-                onEvent({ type: 'result', ok: false, text: fullText || null, usage: lastUsage });
+                emitResult(false, fullText || null);
                 break;
               }
-              onEvent({ type: 'result', ok: true, text: fullText, usage: lastUsage });
+              emitResult(true, fullText);
               break;
             }
             continue;
@@ -448,7 +458,7 @@ export class OpencodeRunner implements AgentRunner {
                 requestId: i.requestId,
                 error: ev.properties.error,
               });
-              onEvent({ type: 'result', ok: false, text: fullText || null, usage: lastUsage });
+              emitResult(false, fullText || null);
               break;
             }
             // WP-1493: 위임한 자식 세션의 오류 — 실행을 끝내지 않는다. opencode 는 자식 실패를 위임 도구(task)의 결과로 primary 에 돌려주고

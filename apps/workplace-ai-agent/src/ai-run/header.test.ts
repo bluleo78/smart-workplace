@@ -28,6 +28,10 @@ describe('X-AI-Run 헤더', () => {
     expect(parseAiRunHeader(raw)).toEqual({ runId: '3f2b8c1e-5a4d-4e8f-9b7a-1c2d3e4f5a6b', attempt: 2 });
   });
 
+  it.each([0, -3])('양수가 아닌 tenantId(%s)는 그 필드만 버린다', (t) => {
+    expect(parseAiRunHeader(b64(JSON.stringify({ tenantId: t, attempt: 2 })))).toEqual({ attempt: 2 });
+  });
+
   it('UUID 가 아닌 runId·ISO 가 아닌 sourceAt 는 그 필드만 버린다', () => {
     const raw = b64(JSON.stringify({ runId: 'r-1', sourceAt: 'yesterday', kind: 'K', attempt: 2 }));
     expect(parseAiRunHeader(raw)).toEqual({ kind: 'K', attempt: 2 });

@@ -16,7 +16,7 @@ const FIELD_SCHEMAS = {
   actorId: z.union([z.number().int(), z.string().regex(/^\d+$/).transform(Number)]),
   // API 의 OffsetDateTime — 오프셋이 있는 ISO 시각만.
   sourceAt: z.string().datetime({ offset: true }),
-  tenantId: z.number().int(),
+  tenantId: z.number().int().positive(),
   attempt: z.number().int().positive(),
 } as const;
 

@@ -413,6 +413,30 @@ describe('POST /events', () => {
       });
     });
 
+    it('issue.recurring_run 은 헤더 tenantId 와 payload tenantId 가 다르면 payload 값을 기록한다', async () => {
+      const { records, sink } = collect();
+      vi.mocked(runRecurring).mockImplementation(async () => fakeRunner());
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 9 }))
+        .send({ type: 'issue.recurring_run', payload: recurring });
+      await vi.waitFor(() => expect(records).toHaveLength(2));
+      expect(records[1].tenantId).toBe(77);
+    });
+
+    it('payload 에 tenantId 가 없으면 헤더 tenantId 를 쓴다', async () => {
+      const { records, sink } = collect();
+      vi.mocked(runAgent).mockImplementation(async () => fakeRunner());
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 9 }))
+        .send({ type: 'issue.assigned', payload: { ...validCreatedPayload, added: [], removed: [] } });
+      await vi.waitFor(() => expect(records).toHaveLength(2));
+      expect(records[1].tenantId).toBe(9);
+    });
+
     it('messaging.message.posted 는 CHANNEL 대상', async () => {
       const { records, sink } = collect();
       vi.mocked(handleMessagingEvent).mockImplementation(() => {
@@ -453,18 +477,6 @@ describe('POST /events', () => {
         kind: 'ISSUE_CHAT_REPLY', tenantId: 5, targetType: 'ISSUE', targetId: String(validChatPayload.issueId),
         targetLabel: validChatPayload.issueKey, actorType: 'USER',
       });
-    });
-
-    it('반복 실행에서 헤더 tenantId 가 payload.tenantId 보다 우선', async () => {
-      const { records, sink } = collect();
-      vi.mocked(runRecurring).mockImplementation(async () => fakeRunner());
-      await request(buildApp(sink))
-        .post('/events')
-        .set('Authorization', AUTH)
-        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 123 }))
-        .send({ type: 'issue.recurring_run', payload: recurring });
-      await vi.waitFor(() => expect(records).toHaveLength(2));
-      expect(records[1].tenantId).toBe(123);
     });
 
     it('잘못된 payload(400)는 범위를 열지 않는다', async () => {

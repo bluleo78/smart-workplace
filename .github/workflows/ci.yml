@@ -59,6 +59,7 @@ jobs:
         run: pnpm lint
 
       # turbo 가 typecheck 전에 공유 패키지(mcp-tools-shared 등)를 먼저 빌드한다(^build).
+      # web typecheck 에 e2e 스펙 타입 검사 포함(WP-1835)
       - name: typecheck
         run: pnpm typecheck
 

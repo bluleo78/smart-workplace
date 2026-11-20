@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { answerChunks, mapSdkMessage, finalText, finalUsage, lastAnswerText, type RunnerEvent } from './runner-events.js';
+import { answerChunks, mapSdkMessage, finalText, finalUsage, lastAnswerText, sumRunnerUsage, type RunnerEvent } from './runner-events.js';
 
 describe('mapSdkMessage', () => {
   it('stream_event text_delta → text_delta(parent 보존, null)', () => {
@@ -406,5 +406,23 @@ describe('answerChunks', () => {
 
   it('텍스트가 없으면 빈 배열', () => {
     expect(answerChunks([{ type: 'result', ok: true, text: '결과', usage: null }])).toEqual([]);
+  });
+});
+
+// WP-1828: 러너 사용량 합산 헬퍼
+describe('sumRunnerUsage', () => {
+  it('빈 목록이면 null', () => {
+    expect(sumRunnerUsage([])).toBeNull();
+  });
+
+  it('입력·출력 토큰을 합하고 캐시 키는 숫자가 하나라도 있을 때만 넣는다', () => {
+    expect(sumRunnerUsage([{ inputTokens: 1, outputTokens: 2 }, { inputTokens: 3, outputTokens: 4 }])).toEqual({ inputTokens: 4, outputTokens: 6 });
+  });
+
+  it('캐시 토큰은 있는 값만 합친다', () => {
+    expect(sumRunnerUsage([
+      { inputTokens: 1, outputTokens: 1, cacheReadTokens: 5 },
+      { inputTokens: 1, outputTokens: 1, cacheReadTokens: 2, cacheWriteTokens: 3 },
+    ])).toEqual({ inputTokens: 2, outputTokens: 2, cacheReadTokens: 7, cacheWriteTokens: 3 });
   });
 });

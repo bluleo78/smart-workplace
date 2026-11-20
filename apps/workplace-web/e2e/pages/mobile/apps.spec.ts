@@ -18,6 +18,12 @@ async function tabIds(page: Page) {
   return page.getByTestId('mobile-tabbar')
     .locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"]):not([data-testid="mobile-tab-ai-capsule"])')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
+    // 위 셀렉터가 data-testid 가 붙은 요소만 고르므로 null 은 나올 수 없다 — 나오면 조용히 걸러 순서·개수 비교를
+    // 어긋나게 하지 않고 바로 실패시킨다. getAttribute 의 타입이 null 을 포함해 확인 뒤 string[] 로 좁힌다(WP-1835).
+    .then((ids) => {
+      expect(ids, 'data-testid 가 없는 탭이 섞였다').not.toContain(null)
+      return ids as string[]
+    })
 }
 
 /**
@@ -186,7 +192,10 @@ test('메뉴 단계를 바꾸면 새 단계 첫 항목으로 포커스가 간다
   await page.goto('/apps')
   const menu = page.getByTestId('apps-menu')
   // 1) 미고정 앱: 처음 열면 첫 항목(고정), Enter 로 교체 단계에 들어가면 그 단계 첫 항목으로 이동.
-  const firstSlot = (await tabIds(page))[0].replace('mobile-tab-', '')
+  const slots = await tabIds(page)
+  // 탭이 하나도 없으면 undefined 접근 대신 이 단언에서 분명하게 실패한다(WP-1835).
+  expect(slots.length, '탭바에 탭이 하나도 없다').toBeGreaterThan(0)
+  const firstSlot = slots[0].replace('mobile-tab-', '')
   await page.getByTestId('apps-app-contacts').click({ button: 'right' })
   await expect(menu).toBeVisible()
   await expect(menu.getByTestId('apps-pin')).toBeFocused()
