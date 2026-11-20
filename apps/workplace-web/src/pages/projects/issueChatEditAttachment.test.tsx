@@ -90,8 +90,8 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     const editor = await openEditor(user)
 
     expect(within(editor).getByTestId('chat-message-editor-attachments')).toBeInTheDocument()
-    expect(chips().getByText('a.pdf')).toBeInTheDocument()
-    expect(chips().getByText('b.txt')).toBeInTheDocument()
+    expect(chips().getByTitle('a.pdf')).toBeInTheDocument()
+    expect(chips().getByTitle('b.txt')).toBeInTheDocument()
     expect(removeButtons()).toHaveLength(2)
   })
 
@@ -189,7 +189,7 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
       threadId: THREAD_ID, id: MSG_ID, body: '보고서', mentions: [], editedAt: EDITED_AT, attachments: [A],
     })}\n\n`)
     await waitFor(() => expect(removeButtons()).toHaveLength(1))
-    expect(chips().queryByText('b.txt')).not.toBeInTheDocument()
+    expect(chips().queryByTitle('b.txt')).not.toBeInTheDocument()
 
     // 빠진 파일을 되살려 keep 에 싣지 않는다 — 본문만 고쳤으니 keepFileIds 키 자체가 없다.
     setRichText(screen.getByTestId('chat-message-editor-input'), '새 본문')
@@ -211,6 +211,6 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     expect(patched).toEqual([{ body: '보고서', keepFileIds: [1] }])
     expect(screen.getByTestId('chat-message-editor')).toBeInTheDocument()
     expect(removeButtons()).toHaveLength(1)
-    expect(chips().queryByText('b.txt')).not.toBeInTheDocument()
+    expect(chips().queryByTitle('b.txt')).not.toBeInTheDocument()
   })
 })

@@ -818,8 +818,8 @@ describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
     expect(await screen.findByTestId('attachment-card-1')).toBeInTheDocument()
     await user.click(screen.getByTestId('message-edit-11'))
     expect(await screen.findByTestId('message-editor-11')).toBeInTheDocument()
-    expect(within(chips()).getByText('a.pdf')).toBeInTheDocument()
-    expect(within(chips()).getByText('b.txt')).toBeInTheDocument()
+    expect(within(chips()).getByTitle('a.pdf')).toBeInTheDocument()
+    expect(within(chips()).getByTitle('b.txt')).toBeInTheDocument()
     expect(within(chips()).getAllByRole('button', { name: /첨부 제거$/ })).toHaveLength(2)
     // 칩 목록은 에디터 안(입력창 위)에 있다.
     expect(within(screen.getByTestId('message-editor-11')).getByTestId('message-editor-attachments')).toBeInTheDocument()
@@ -832,7 +832,7 @@ describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
     const { user } = open(own(), [p.handler])
     await user.click(await screen.findByTestId('message-edit-11'))
     await user.click(removeChip('b.txt'))
-    expect(within(chips()).queryByText('b.txt')).not.toBeInTheDocument()
+    expect(within(chips()).queryByTitle('b.txt')).not.toBeInTheDocument()
     // 본문은 그대로여도 파일을 뺐으면 「변경 없음」으로 닫지 않고 저장한다.
     await user.click(screen.getByTestId('message-editor-save-11'))
     await waitFor(() => expect(p.calls).toHaveLength(1))
@@ -926,8 +926,8 @@ describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
     await events.push('messaging.message.updated', {
       channelId: CH, id: 11, body: '보고서', mentions: [], editedAt: '2026-11-17T00:30:00Z', attachments: [att(1, 'a.pdf')],
     })
-    await waitFor(() => expect(within(chips()).queryByText('b.txt')).not.toBeInTheDocument())
-    expect(within(chips()).getByText('a.pdf')).toBeInTheDocument()
+    await waitFor(() => expect(within(chips()).queryByTitle('b.txt')).not.toBeInTheDocument())
+    expect(within(chips()).getByTitle('a.pdf')).toBeInTheDocument()
     setRichText(screen.getByTestId('message-editor-input-11'), '보고서 수정')
     await user.click(screen.getByTestId('message-editor-save-11'))
     await waitFor(() => expect(p.calls).toHaveLength(1))
@@ -943,7 +943,7 @@ describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
     await user.click(screen.getByTestId('message-editor-save-11'))
     expect(await screen.findByText('이 메시지에 붙은 첨부가 아닙니다')).toBeInTheDocument()
     expect(screen.getByTestId('message-editor-11')).toBeInTheDocument()
-    expect(within(chips()).getByText('a.pdf')).toBeInTheDocument()
-    expect(within(chips()).queryByText('b.txt')).not.toBeInTheDocument()
+    expect(within(chips()).getByTitle('a.pdf')).toBeInTheDocument()
+    expect(within(chips()).queryByTitle('b.txt')).not.toBeInTheDocument()
   })
 })
