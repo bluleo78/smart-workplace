@@ -1,7 +1,7 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import { describe, expect, it } from 'vitest';
 
-import { extractApiError, extractApiErrorCode, isTransientRequestError } from './api-error';
+import { extractApiError, extractApiErrorAsync, extractApiErrorCode, isServerError, isTransientRequestError, userFacingServerMessage } from './api-error';
 
 /** 서버 ErrorResponse 를 실은 axios 오류. */
 function apiError(status: number, data: unknown): AxiosError {
@@ -54,10 +54,50 @@ describe('extractApiError', () => {
     expect(extractApiError(new AxiosError('canceled', 'ERR_CANCELED'), 'fb')).toBe('fb');
     expect(extractApiError(new AxiosError('timeout', 'ECONNABORTED'), 'fb')).toBe('fb');
   });
+  // WP-1879 — 5xx 의 영문 내부 문구("An unexpected error occurred" 등)는 사용자에게 의미가 없어 호출 측 한국어 fallback 으로 바꾼다.
+  it('5xx 의 한국어 아닌 내부 문구는 fallback 으로 바꾼다', () => {
+    expect(extractApiError(apiError(500, { status: 500, message: 'An unexpected error occurred' }), '메일을 옮기지 못했어요')).toBe(
+      '메일을 옮기지 못했어요',
+    );
+    expect(extractApiError(apiError(502, { message: 'Connection refused' }), '메일을 옮기지 못했어요')).toBe('메일을 옮기지 못했어요');
+  });
+  it('5xx 의 필드 오류 값도 한국어 아닌 내부 문구면 fallback 으로 바꾼다', () => {
+    expect(extractApiError(apiError(502, { message: 'Bad Gateway', errors: { detail: 'Connection reset' } }), 'fb')).toBe('fb');
+    expect(extractApiError(apiError(500, { message: 'x', errors: { name: '이름이 너무 깁니다.' } }), 'fb')).toBe('이름이 너무 깁니다.');
+  });
+  it('5xx 라도 서버가 쓴 한국어 안내는 그대로', () => {
+    expect(
+      extractApiError(apiError(503, { message: '서버가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요.' }), 'fb'),
+    ).toBe('서버가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요.');
+  });
+  it('4xx 의 영문 message 는 그대로', () => {
+    expect(extractApiError(apiError(400, { message: 'Bad request' }), 'fb')).toBe('Bad request');
+  });
   it('code 라는 이름의 필드 검증 문구는 그대로 첫 메시지로 쓴다', () => {
     expect(extractApiError(apiError(400, { message: 'Validation failed', errors: { code: '코드는 6자리입니다.' } }), 'fb')).toBe(
       '코드는 6자리입니다.',
     );
+  });
+});
+
+// WP-1879: Blob 응답(responseType: 'blob')의 5xx 도 같은 규칙으로 fallback.
+describe('extractApiErrorAsync', () => {
+  it('Blob 500 내부 문구도 fallback', async () => {
+    const blob = new Blob([JSON.stringify({ status: 500, message: 'An unexpected error occurred' })]);
+    await expect(extractApiErrorAsync(apiError(500, blob), '다운로드하지 못했어요')).resolves.toBe('다운로드하지 못했어요');
+  });
+});
+
+// WP-1879: fallback 없이 서버 문구만 이어 붙이는 호출부(메일 완전 삭제 토스트)가 쓴다.
+describe('userFacingServerMessage', () => {
+  it('5xx 내부 문구·message 없음·axios 오류 아님은 null', () => {
+    expect(userFacingServerMessage(apiError(500, { message: 'An unexpected error occurred' }))).toBeNull();
+    expect(userFacingServerMessage(apiError(500, {}))).toBeNull();
+    expect(userFacingServerMessage(new Error('x'))).toBeNull();
+  });
+  it('서버가 쓴 한국어 문구와 4xx 문구는 그대로', () => {
+    expect(userFacingServerMessage(apiError(503, { message: '메일 서버에 연결하지 못했습니다' }))).toBe('메일 서버에 연결하지 못했습니다');
+    expect(userFacingServerMessage(apiError(400, { message: 'Bad request' }))).toBe('Bad request');
   });
 });
 
@@ -71,5 +111,21 @@ describe('isTransientRequestError', () => {
   it('401·403·404 같은 거절과 요청 오류가 아닌 예외는 일시 실패가 아니다', () => {
     for (const status of [400, 401, 403, 404]) expect(isTransientRequestError(apiError(status, {}))).toBe(false);
     expect(isTransientRequestError(new TypeError('x is undefined'))).toBe(false);
+  });
+});
+
+// WP-1879 — 5xx 판정 한 곳: 응답 상태가 500 이상인 axios 오류만 서버 오류다.
+describe('isServerError', () => {
+  it('500·503 은 true', () => {
+    expect(isServerError(apiError(500, {}))).toBe(true);
+    expect(isServerError(apiError(503, {}))).toBe(true);
+  });
+  it('400·404 는 false', () => {
+    expect(isServerError(apiError(400, {}))).toBe(false);
+    expect(isServerError(apiError(404, {}))).toBe(false);
+  });
+  it('응답 없는 네트워크 오류·일반 Error 는 false', () => {
+    expect(isServerError(new AxiosError('net', 'ERR_NETWORK'))).toBe(false);
+    expect(isServerError(new Error('x'))).toBe(false);
   });
 });

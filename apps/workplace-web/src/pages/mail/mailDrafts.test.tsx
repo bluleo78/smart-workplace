@@ -910,9 +910,11 @@ test('충돌 「다시 불러오기」가 실패하면 충돌 상태를 두고, 
   await tick(DEBOUNCE)
   await waitFor(() => expect(status()).toHaveAttribute('data-status', 'conflict'))
 
-  server.override.get = () => HttpResponse.json({ status: 500, message: 'boom' }, { status: 500 })
+  // 5xx 영문 내부 문구 — 화면엔 호출 측 한국어 안내(useMailDrafts 의 불러오기 실패 fallback)가 보이고 영문은 보이지 않는다(WP-1879)
+  server.override.get = () => HttpResponse.json({ status: 500, message: 'An unexpected error occurred' }, { status: 500 })
   await view.user.click(screen.getByTestId('mail-compose-save-reload'))
-  expect(await screen.findByText('boom')).toBeInTheDocument()
+  expect(await screen.findByText('임시저장을 불러오지 못했어요')).toBeInTheDocument()
+  expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument()
   expect(status()).toHaveAttribute('data-status', 'conflict')
   expect(subject()).toHaveValue('여기서 고친 제목')
 

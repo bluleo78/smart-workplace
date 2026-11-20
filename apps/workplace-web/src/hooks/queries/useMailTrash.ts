@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { getMailTrashCount, getTrashEmptyStatus, permanentDeleteMessages, startTrashEmpty } from '@/api/mailMessages'
-import { apiErrorResponse, extractApiError, extractApiErrorCode } from '@/lib/api-error'
+import { extractApiError, extractApiErrorCode, userFacingServerMessage } from '@/lib/api-error'
 import { flushMailMoves } from '@/lib/mailMoveQueue'
 import {
   endStateToast,
@@ -149,8 +149,8 @@ export function usePermanentDeleteMail(accountId: number | undefined, opts: { on
     },
     onError: (e) => {
       refetchFoldersIfUnsupported(qc, accountId, e)
-      // 서버 message 가 없으면 문구만 — extractApiError 의 fallback 은 네트워크 안내를 덧붙여 spec 문구와 달라진다.
-      toast.error(permanentDeleteFailureToast(apiErrorResponse(e)?.message || null))
+      // 서버 message 가 없거나 5xx 내부 문구면 문구만 — extractApiError 의 fallback 은 네트워크 안내를 덧붙여 spec 문구와 달라진다.
+      toast.error(permanentDeleteFailureToast(userFacingServerMessage(e)))
     },
   })
 }

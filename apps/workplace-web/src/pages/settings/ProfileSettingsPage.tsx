@@ -17,7 +17,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { AvatarEditor } from '@/components/users/AvatarEditor'
 import { useAfterAvatarChange } from '@/hooks/queries/useAvatars'
 import { useAuth } from '@/hooks/useAuth'
-import { extractApiError } from '@/lib/api-error'
+import { apiErrorStatus, extractApiError, isNetworkError, isServerError } from '@/lib/api-error'
 import { cn } from '@/lib/utils'
 import type { ChangePasswordFormData, UpdateProfileFormData } from '@/lib/validations/user'
 import { changePasswordSchema, updateProfileSchema } from '@/lib/validations/user'
@@ -26,6 +26,29 @@ import { SetPasswordCard } from './components/SetPasswordCard'
 
 /** 아바타 섹션 앵커 — 사용자 메뉴·다른 화면에서 `/settings/profile#avatar` 로 바로 찾아온다. */
 const AVATAR_ANCHOR = 'avatar'
+
+/**
+ * 서버가 문구를 주지 않았을 때의 폼 오류 안내(extractApiError 의 fallback).
+ * - 5xx(서버 고장): 입력 탓으로 보이지 않게 서버 오류 안내 — 판정은 api-error 의 isServerError 한 곳(WP-1879).
+ * - 4xx 응답: 입력 탓 안내(clientFallback).
+ * - 네트워크 오류: 짧은 「저장하지 못했습니다」만 — extractApiError 가 뒤에
+ *   「. 네트워크 연결을 확인한 뒤 다시 시도하세요」를 덧붙이므로 마침표를 붙이지 않는다.
+ * - 그 밖의 응답 없음(시간 초과·취소·Axios 아닌 예외): 덧붙는 안내가 없어 완결된 문장으로.
+ */
+function rootFallback(error: unknown, clientFallback: string): string {
+  if (isServerError(error)) return '서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.'
+  if (apiErrorStatus(error) != null) return clientFallback
+  return isNetworkError(error) ? '저장하지 못했습니다' : '저장하지 못했습니다. 잠시 후 다시 시도하세요.'
+}
+
+/**
+ * 폼 루트 오류 문구 — 서버 문구가 있으면 그것을, 없으면 rootFallback 을 쓴다(WP-1879).
+ * 서버가 준 「Validation failed」(필드 문구 없는 4xx 검증 실패)는 사용자에게 의미가 없어 입력 탓 안내로 바꾼다.
+ */
+function formErrorMessage(error: unknown, clientText: string): string {
+  const msg = extractApiError(error, rootFallback(error, clientText))
+  return msg !== 'Validation failed' ? msg : clientText
+}
 
 export default function ProfileSettingsPage() {
   const { user, refreshUser } = useAuth()
@@ -65,10 +88,7 @@ export default function ProfileSettingsPage() {
       await refreshUser()
       toast.success('프로필이 업데이트되었습니다.')
     } catch (error) {
-      const msg = extractApiError(error, '')
-      profileForm.setError('root', {
-        message: msg && msg !== 'Validation failed' ? msg : '입력값을 확인하세요.',
-      })
+      profileForm.setError('root', { message: formErrorMessage(error, '입력값을 확인하세요.') })
     }
   }
 
@@ -82,10 +102,7 @@ export default function ProfileSettingsPage() {
       passwordForm.reset()
       toast.success('비밀번호가 변경되었습니다.')
     } catch (error) {
-      const msg = extractApiError(error, '')
-      passwordForm.setError('root', {
-        message: msg && msg !== 'Validation failed' ? msg : '현재 비밀번호가 올바르지 않습니다.',
-      })
+      passwordForm.setError('root', { message: formErrorMessage(error, '현재 비밀번호가 올바르지 않습니다.') })
     }
   }
 

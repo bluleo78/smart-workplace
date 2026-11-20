@@ -6,20 +6,55 @@ import type { ErrorResponse } from '@/types/auth';
 /** 도메인 오류 코드 모양(AI_DISABLED·AI_MEMORY_FULL 등) — 필드 검증 문구(한국어 문장)와 구분한다. */
 const DOMAIN_ERROR_CODE = /^[A-Z][A-Z0-9_]*$/;
 
+/** 한글이 한 글자라도 있는지 — 5xx 문구가 서버가 쓴 한국어 안내인지 내부 영문 문구인지 가른다. */
+const HANGUL = /[가-힣]/;
+
 /**
  * ErrorResponse에서 사용자에게 표시할 메시지를 추출한다.
  * errors 필드(필드별 검증 오류)가 있으면 첫 번째 값을 우선 반환하여
  * 한국어 검증 메시지가 그대로 토스트에 뜨도록 한다.
  * 단 errors 가 도메인 오류 코드(errors.code — 예: AI_DISABLED)를 싣고 있으면 그 코드 문자열 대신 message 를 쓴다.
  * errors 없으면 최상위 message, 그것도 없으면 fallback 사용.
+ * 단 5xx 의 message 가 한글이 없는 문구면 서버 내부 문구("An unexpected error occurred" 등)라 사용자에게 의미가 없으므로
+ * 호출 측이 준 한국어 fallback 을 쓴다(WP-1879). 서버가 일부러 쓴 한국어 안내와 4xx 문구는 그대로 둔다.
  */
-function pickBestMessage(errData: ErrorResponse, fallback: string): string {
+function pickBestMessage(errData: ErrorResponse, fallback: string, status: number | undefined): string {
   const code = errData.errors?.code;
   if (errData.errors && !(typeof code === 'string' && DOMAIN_ERROR_CODE.test(code))) {
     const firstFieldMsg = Object.values(errData.errors)[0];
-    if (firstFieldMsg) return firstFieldMsg;
+    // 5xx 의 필드 값도 한글 없는 내부 문구면 건너뛴다 — message 와 같은 규칙(WP-1879).
+    if (firstFieldMsg && !isInternalServerMessage(firstFieldMsg, status)) return firstFieldMsg;
   }
+  if (errData.message && isInternalServerMessage(errData.message, status)) return fallback;
   return errData.message || fallback;
+}
+
+/** HTTP 상태가 5xx(500 이상)인가 — 서버 오류 판정의 단일 경계(isServerError·isInternalServerMessage 가 공유, WP-1879). */
+function isServerStatus(status: number | undefined): boolean {
+  return status != null && status >= 500;
+}
+
+/**
+ * 서버 오류(응답 상태 500 이상의 Axios 오류)인가 — 5xx 판정을 화면마다 따로 두지 않고 여기 한 곳에서 한다(WP-1879).
+ * 응답이 없는 네트워크 오류·Axios 가 아닌 예외는 서버 오류가 아니다.
+ */
+export function isServerError(error: unknown): boolean {
+  return isServerStatus(apiErrorStatus(error));
+}
+
+/** 5xx 응답의 한글 없는 message — 서버 내부 문구라 사용자에게 보이지 않는다(WP-1879). */
+function isInternalServerMessage(message: string, status: number | undefined): boolean {
+  return isServerStatus(status) && !HANGUL.test(message);
+}
+
+/**
+ * 사용자에게 보일 만한 서버 message — 없거나 5xx 내부 문구면 null.
+ * extractApiError 의 fallback(네트워크 안내 덧붙임)을 쓰지 않고 서버 문구만 이어 붙이는 호출부용(메일 완전 삭제 토스트 등, WP-1879).
+ */
+export function userFacingServerMessage(error: unknown): string | null {
+  const message = apiErrorResponse(error)?.message;
+  if (!message || isInternalServerMessage(message, apiErrorStatus(error))) return null;
+  return message;
 }
 
 /**
@@ -39,7 +74,7 @@ export function apiErrorResponse(error: unknown): ErrorResponse | null {
  */
 export function extractApiError(error: unknown, fallback: string): string {
   const errData = apiErrorResponse(error);
-  if (errData) return pickBestMessage(errData, fallback);
+  if (errData) return pickBestMessage(errData, fallback, apiErrorStatus(error));
   return isNetworkError(error) ? `${fallback}. ${NETWORK_ERROR_HINT}` : fallback;
 }
 
@@ -77,13 +112,13 @@ export async function extractApiErrorAsync(
       try {
         const text = await data.text();
         const parsed = JSON.parse(text) as ErrorResponse;
-        return pickBestMessage(parsed, fallback);
+        return pickBestMessage(parsed, fallback, error.response.status);
       } catch {
         return fallback;
       }
     }
     const errData = data as ErrorResponse;
-    return pickBestMessage(errData, fallback);
+    return pickBestMessage(errData, fallback, error.response.status);
   }
   return fallback;
 }

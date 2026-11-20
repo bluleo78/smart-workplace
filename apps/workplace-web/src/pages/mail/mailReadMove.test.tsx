@@ -173,13 +173,17 @@ test('상세 안읽음 → API 후 상세가 닫히고, 다시 열면 다시 읽
   await waitFor(() => expect(screen.queryByTestId('mail-unread-bar-10')).not.toBeInTheDocument())
 })
 
-test('토글 실패 → 서버 문구 토스트, 안 읽음으로 되돌린다', async () => {
+// 서버 캐치올 500 의 영문 내부 문구 대신 호출 측 한국어 안내를 보인다(WP-1879).
+test('토글 실패(500 내부 문구) → 한국어 안내 토스트, 안 읽음으로 되돌린다', async () => {
   const { handlers } = readStub()
-  const read = record('post', '/api/v1/mail/messages/10/read', () => HttpResponse.json({ message: 'boom' }, { status: 500 }))
+  const read = record('post', '/api/v1/mail/messages/10/read', () =>
+    HttpResponse.json({ status: 500, message: 'An unexpected error occurred' }, { status: 500 }),
+  )
   const { user } = renderMail('/mail/1', { handlers: [read.handler, ...handlers] })
   await user.click(await screen.findByTestId('mail-row-toggle-read-10'))
   await waitFor(() => expect(read.calls).toHaveLength(1))
-  expect(await screen.findByText('boom')).toBeInTheDocument()
+  expect(await screen.findByText('읽음 상태를 바꾸지 못했어요')).toBeInTheDocument()
+  expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument()
   await waitFor(() => expect(screen.getByTestId('mail-unread-bar-10')).toBeInTheDocument())
   expect(screen.getByTestId('mail-row-toggle-read-10')).toHaveAttribute('aria-label', '읽음으로 표시')
 })
