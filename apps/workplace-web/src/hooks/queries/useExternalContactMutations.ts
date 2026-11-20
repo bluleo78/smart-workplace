@@ -1,5 +1,5 @@
-// 외부 연락처 생성/수정/삭제 mutation. 성공 시 contactKeys.all 무효화(목록·상세 갱신).
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+// 외부 연락처 생성/수정/삭제 mutation. 성공 시 contactKeys.all 무효화(목록·상세 갱신) — 삭제는 지운 상세만 다르게 다룬다(WP-1867).
+import { hashKey, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { toast } from 'sonner'
 
@@ -56,8 +56,15 @@ export function useDeleteExternalContact() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => contactsApi.deleteExternal(id).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: contactKeys.all })
+    onSuccess: (_data, id) => {
+      // WP-1867: 지운 상세는 아직 화면이 구독 중이라 다시 부르면 404 가 난다 — 진행 중 요청을 취소하고 다시 부르지 않은 채
+      // stale 로만 표시한다(지운 데이터가 신선하게 남으면 앞으로 가기·옛 링크로 그대로 보인다. 다시 열면 404 안내 — WP-555).
+      // removeQueries 는 아직 구독 중인 observer 가 쿼리를 다시 만들어 부를 수 있어 쓰지 않는다. 나머지는 지금처럼 다시 부른다.
+      const detailKey = contactKeys.external(id)
+      const detailHash = hashKey(detailKey)
+      void qc.cancelQueries({ queryKey: detailKey, exact: true })
+      qc.invalidateQueries({ queryKey: detailKey, exact: true, refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: contactKeys.all, predicate: (q) => q.queryHash !== detailHash })
       toast.success('연락처를 삭제했습니다')
     },
     onError: (e) => handleApiError(e, '연락처 삭제에 실패했습니다'),
