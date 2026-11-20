@@ -38,24 +38,23 @@ export default function TabEditPage() {
   const [draft, setDraft] = useState<MobileTabId[]>(saved)
   // 저장 안 한 초안으로 ‹ 를 눌렀을 때의 확인 대화상자.
   const [confirmLeave, setConfirmLeave] = useState(false)
-  // 편집 중 화면을 돌려 칸 수가 바뀌면(3↔5) 초안을 새 칸 수의 저장 구성으로 제자리에서 다시 잡는다 —
-  // 그대로 두면 초안과 칸 수가 어긋나 저장·추가가 막힌다. 이때 저장 안 한 초안(과 열린 버림 확인)도 함께 사라진다(WP-1833 범위 밖 — 묻지 않는다).
-  // key 로 편집기를 다시 마운트하지 않는 까닭(WP-1849): 표식이 살아 있으면 새 편집기의 표식 정리(replace)가 옛 편집기의 표식 제거(popMark)보다 먼저 돌아
-  // 히스토리가 [/apps, /apps/tabs, /apps/tabs] 로 남는다. 제자리에서 맞추면 changed 가 true→false 로 바뀌어 훅이 표식을 정상으로 걷는다.
-  // 렌더 중 상태 맞추기(React 「이전 props 로 state 조정」) — 이전 칸 수를 state 로 들고 달라지면 바로 맞춘다.
   // 「버리고 나가기」·「저장」으로 나가는 중 — 훅의 open 을 끄고(표식 걷기·재심기 막기) 걷힌 뒤 back 을 한 번 부른다(WP-1849).
   const [leaving, setLeaving] = useState(false)
   // 조작 뒤 초점 잇기·알림(WP-846): 다시 그린 뒤 초점을 옮길 버튼 후보와 라이브 영역 문구.
   const focusNext = useRef<string[] | null>(null)
   const [live, setLive] = useState('')
   const slotCount = saved.length
+  // 편집 중 화면을 돌려 칸 수가 바뀌면(3↔5) 초안을 새 칸 수의 저장 구성으로 제자리에서 다시 잡는다 —
+  // 그대로 두면 초안과 칸 수가 어긋나 저장·추가가 막힌다. 이때 저장 안 한 초안(과 열린 버림 확인)도 함께 사라진다(WP-1833 범위 밖 — 묻지 않는다).
+  // key 로 편집기를 다시 마운트하지 않는 까닭(WP-1849): 표식이 살아 있으면 새 편집기의 표식 정리(replace)가 옛 편집기의 표식 제거(popMark)보다 먼저 돌아
+  // 히스토리가 [/apps, /apps/tabs, /apps/tabs] 로 남는다. 제자리에서 맞추면 changed 가 true→false 로 바뀌어 훅이 표식을 정상으로 걷는다.
+  // 렌더 중 상태 맞추기(React 「이전 props 로 state 조정」) — 이전 칸 수를 state 로 들고 달라지면 바로 맞춘다.
   const [prevSlotCount, setPrevSlotCount] = useState(slotCount)
   if (prevSlotCount !== slotCount) {
     setPrevSlotCount(slotCount)
     setDraft(saved)
     setConfirmLeave(false)
-    // 옛 key 재마운트가 비워 주던 것들 — 나가는 중 상태·알림 문구를 함께 비운다(초점 대기 ref 는 아래 효과가 비운다).
-    setLeaving(false)
+    // 알림 문구를 비운다(초점 대기 ref 는 아래 효과가 비운다). leaving 은 끄지 않는다 — 나가기는 언마운트로 끝나는 한 방향이고 navigated ref 와 짝이다.
     setLive('')
   }
   // 탭바 사용자 칸 수(AI·앱 제외) — 지금 화면에서 보이는 칸 수.
@@ -81,6 +80,7 @@ export default function TabEditPage() {
   })
   const { key: locationKey } = useLocation()
   // 나가는 이동(back)을 이미 불렀는지 — navigate(-1) 은 비동기라 위치가 그대로인 동안 두 번 부르지 않게 한다.
+  // 되돌리지 않는다 — leaving 도 한 번 켜면 끄지 않는다(하나만 끄면 그 뒤 나가기가 모두 막힌다).
   const navigated = useRef(false)
   useEffect(() => {
     // 나가는 중이고 라우터 위치가 표식 없는 브라우저 항목을 따라잡았을 때 한 번만 이동한다(표식 정리 중에 back 하면 낡은 위치에서 움직인다).
@@ -157,7 +157,6 @@ export default function TabEditPage() {
         data-testid="tab-edit-header"
         title="탭바 순서 편집"
         showAi={false}
-        // 나가는 중(leaving)에는 확인을 다시 열지 않는다 — 표식을 걷는 사이 ‹ 를 눌러도 아무 일도 없다.
         onBack={handleBack}
         trailing={
           <button
