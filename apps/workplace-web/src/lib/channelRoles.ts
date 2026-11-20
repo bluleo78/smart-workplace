@@ -16,6 +16,14 @@ export function assignableChannelRoles(member: Pick<ChannelMemberResponse, 'kind
   return ROLES.filter((r) => r === member.role || r !== 'OWNER' || ownerAllowed)
 }
 
+/**
+ * 채널을 관리(이름 바꾸기·멤버 초대·역할 변경)할 수 있는 역할인가 — OWNER·ADMIN.
+ * 헤더·멤버 패널·빈 채널의 「멤버 초대」가 같은 규칙을 쓰도록 한 곳에 둔다(WP-1859).
+ */
+export function canManageChannel(role: ChannelRole | null | undefined): boolean {
+  return role === 'OWNER' || role === 'ADMIN'
+}
+
 // 역할의 화면 이름 — 영어 코드 대신 한국어로 보인다(노트·드라이브 멤버 창의 「소유자·편집자·보기 전용」과 같은 결, WP-1131).
 const ROLE_LABEL: Record<ChannelRole, string> = { OWNER: '소유자', ADMIN: '관리자', MEMBER: '멤버' }
 

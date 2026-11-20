@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ChannelRole } from '@/types/messaging'
 
-import { assignableChannelRoles, channelRoleLabel } from './channelRoles'
+import { assignableChannelRoles, canManageChannel, channelRoleLabel } from './channelRoles'
 
 describe('assignableChannelRoles', () => {
   it('사람은 OWNER·ADMIN·MEMBER 모두(active 가 없으면 활성으로 본다)', () => {
@@ -24,5 +24,18 @@ describe('channelRoleLabel', () => {
   it('역할을 한국어 이름으로, 모르는 역할은 코드 그대로(WP-1131)', () => {
     expect(['OWNER', 'ADMIN', 'MEMBER'].map((r) => channelRoleLabel(r as ChannelRole))).toEqual(['소유자', '관리자', '멤버'])
     expect(channelRoleLabel('GUEST' as ChannelRole)).toBe('GUEST')
+  })
+})
+
+// WP-1859: 헤더·멤버 패널·빈 채널 「멤버 초대」가 같은 관리 권한 규칙을 쓴다.
+describe('canManageChannel', () => {
+  it('OWNER·ADMIN 은 관리할 수 있다', () => {
+    expect(canManageChannel('OWNER')).toBe(true)
+    expect(canManageChannel('ADMIN')).toBe(true)
+  })
+  it('MEMBER·비멤버(null·undefined)는 관리할 수 없다', () => {
+    expect(canManageChannel('MEMBER')).toBe(false)
+    expect(canManageChannel(null)).toBe(false)
+    expect(canManageChannel(undefined)).toBe(false)
   })
 })

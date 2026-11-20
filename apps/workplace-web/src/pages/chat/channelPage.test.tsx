@@ -816,6 +816,33 @@ describe('빈 상태', () => {
     openChannel(createChannel({ id: 800, name: '테스트채널', memberCount: 1 }))
     expect(await screen.findByTestId('chat-empty-state')).toHaveTextContent('이것은 #테스트채널 채널의 시작입니다.')
   })
+
+  // WP-1859: 초대 권한(OWNER)이 있으면 「멤버 초대」 — 누르면 멤버 패널이 열린다.
+  test('OWNER 의 빈 채널은 「멤버 초대」 버튼이 멤버 패널을 연다', async () => {
+    const { user } = openChannel(createChannel({ id: 800, name: '테스트채널', memberCount: 1, role: 'OWNER' }))
+    const empty = await screen.findByTestId('chat-empty-state')
+    await user.click(within(empty).getByRole('button', { name: '멤버 초대' }))
+    expect(await screen.findByTestId('channel-members-panel')).toBeInTheDocument()
+  })
+
+  // 초대 권한이 없으면 「첫 메시지 보내기」 — 누르면 입력 칸에 초점이 간다.
+  test('MEMBER 의 빈 채널은 「멤버 초대」 없이 「첫 메시지 보내기」가 입력 칸에 초점을 준다', async () => {
+    const { user } = openChannel(createChannel({ id: 800, name: '테스트채널', memberCount: 1, role: 'MEMBER' }))
+    const empty = await screen.findByTestId('chat-empty-state')
+    expect(within(empty).queryByRole('button', { name: '멤버 초대' })).not.toBeInTheDocument()
+    await user.click(within(empty).getByRole('button', { name: '첫 메시지 보내기' }))
+    // 입력기 testid 는 contenteditable 요소 자체에 달린다(RichInput editorProps).
+    expect(screen.getByTestId('message-composer-input')).toHaveFocus()
+  })
+
+  // 보관된 채널은 보낼 수 없으니 버튼이 없다.
+  test('보관된 빈 채널은 버튼이 없다', async () => {
+    openChannel(createChannel({ id: 800, name: '테스트채널', memberCount: 1, role: 'OWNER', archived: true }))
+    const empty = await screen.findByTestId('chat-empty-state')
+    expect(within(empty).queryByRole('button')).not.toBeInTheDocument()
+    // 행동이 없으면 action 슬롯의 감싸개(mt-2)도 그리지 않는다 — 설명 아래 빈 여백이 생기지 않게(WP-1859).
+    expect(empty.querySelector('.mt-2')).toBeNull()
+  })
 })
 
 describe('입력창 첨부', () => {

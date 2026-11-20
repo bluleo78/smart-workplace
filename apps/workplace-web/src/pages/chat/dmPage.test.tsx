@@ -73,6 +73,15 @@ describe('DM 화면', () => {
     expect(await screen.findByTestId('chat-empty-state')).toHaveTextContent('홍길동 님과의 메시지 시작입니다.')
   })
 
+  // WP-1859: 「첫 메시지 보내기」 — 누르면 입력 칸에 초점이 간다.
+  test('1:1 빈 DM 의 「첫 메시지 보내기」가 입력 칸에 초점을 준다', async () => {
+    const { user } = openDm(createDm({ id: 900, participants: [createDmParticipant({ userId: 1, name: MY_NAME }), createDmParticipant({ userId: 2, name: '홍길동' })] }))
+    const empty = await screen.findByTestId('chat-empty-state')
+    await user.click(within(empty).getByRole('button', { name: '첫 메시지 보내기' }))
+    // 입력기 testid 는 contenteditable 요소 자체에 달린다(RichInput editorProps).
+    expect(screen.getByTestId('message-composer-input')).toHaveFocus()
+  })
+
   test('셀프 DM 빈 상태는 「나에게만 보이는 공간입니다.」', async () => {
     openDm(createDm({ id: 901, participants: [createDmParticipant({ userId: 1, name: MY_NAME })] }))
     expect(await screen.findByTestId('chat-empty-state')).toHaveTextContent('나에게만 보이는 공간입니다.')

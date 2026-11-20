@@ -45,7 +45,7 @@ import {
   useUpdateMemberRole,
 } from '@/hooks/queries/useMemberMutations'
 import { useAuth } from '@/hooks/useAuth'
-import { assignableChannelRoles, channelRoleLabel } from '@/lib/channelRoles'
+import { assignableChannelRoles, canManageChannel, channelRoleLabel } from '@/lib/channelRoles'
 import { cn, directionParticle, objectParticle } from '@/lib/utils'
 import type { ChannelMemberResponse, ChannelRole, ChannelVisibility } from '@/types/messaging'
 
@@ -122,7 +122,7 @@ export function ChannelMembersPanel({
   if (confirmTransfer && (!isOwner || (members && !members.some((m) => m.userId === confirmTransfer.userId)))) {
     setConfirmTransfer(null)
   }
-  const canManage = myRole === 'OWNER' || myRole === 'ADMIN'
+  const canManage = canManageChannel(myRole)
   // 기존 직접 멤버 ID 집합 — 선택 창에서 중복 추가 방지. 부서로만 들어온 사람(direct=false)은 넣지 않는다 — 초대하면 서버가 직접 멤버로
   // 고정해(역할·읽음 위치 유지) 부서가 빠져도 채널에 남게 할 수 있어야 한다. 그런 사람은 선택 창 사람 줄에 안내를 붙인다(personNote).
   const existingIds = useMemo(

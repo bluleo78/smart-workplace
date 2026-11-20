@@ -11,12 +11,14 @@ import { CatchupSummarizeButton } from '@/components/chat/CatchupSummarizeButton
 import { ChannelCatchupCard } from '@/components/chat/ChannelCatchupCard'
 import { ChannelHeader } from '@/components/chat/ChannelHeader'
 import { ChannelMembersPanel } from '@/components/chat/ChannelMembersPanel'
+import { ChatEmptyActionButton } from '@/components/chat/ChatEmptyActionButton'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
+import { useComposerFocus } from '@/components/chat/useComposerFocus'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
@@ -39,6 +41,7 @@ import { useOpenThread } from '@/hooks/useOpenThread'
 import { buildChannelContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
+import { channelEmptyAction } from '@/lib/chatEmptyAction'
 import { chatEntryAnchor } from '@/lib/chatEntryAnchor'
 import { channelMentionCandidates } from '@/lib/mentionCandidates'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
@@ -97,6 +100,8 @@ export default function ChannelPage() {
   // @멘션 후보 = 채널 멤버 ∪ 워크스페이스 AGENT, 비서 비가용이면 AGENT 제외(게이트).
   const mentionMembers: MentionCandidate[] = channelMentionCandidates(channelMembers, agentCandidates, aiAvailable)
   const [membersOpen, setMembersOpen] = useState(false)
+  // 빈 채널의 「첫 메시지 보내기」가 입력 칸으로 초점을 주기 위한 감싸개 ref.
+  const { composerRef, focusComposer } = useComposerFocus()
   const [renameOpen, setRenameOpen] = useState(false)
   // 이름 대화창의 용도 — 이름 변경, 또는 이름이 겹쳐 거절된 보관 해제를 새 이름으로 다시 하기(WP-1084).
   const [renameMode, setRenameMode] = useState<'rename' | 'unarchive'>('rename')
@@ -199,6 +204,8 @@ export default function ChannelPage() {
   }
 
   const channel = detail.data
+  // 빈 채널의 다음 행동 — 없으면(null) 빈 상태에 action 슬롯을 넘기지 않아 빈 여백이 생기지 않는다(WP-1859).
+  const emptyAction = channelEmptyAction(channel)
   // 모바일 스레드는 전체폭 상세 — 채널 헤더·채널 컬럼을 함께 숨기고 스레드 자체 헤더(‹)만 보인다(WP-207).
   const hideChannel = isMobile && threadShown
   return (
@@ -251,6 +258,15 @@ export default function ChannelPage() {
                     icon={<Hash className="h-8 w-8" />}
                     title={`#${channel.name}`}
                     description={`이것은 #${channel.name} 채널의 시작입니다.`}
+                    action={
+                      emptyAction && (
+                        <ChatEmptyActionButton
+                          action={emptyAction}
+                          onInvite={() => setMembersOpen(true)}
+                          onCompose={focusComposer}
+                        />
+                      )
+                    }
                   />
                 ) : undefined
               }
@@ -265,18 +281,20 @@ export default function ChannelPage() {
             </ul>
           )}
           {/* 아카이브 채널이면 composer 비활성. */}
-          <MessageComposer
-            channelId={channel.id}
-            members={mentionMembers}
-            archived={channel.archived}
-            onSend={(body, fileIds, driveFileIds) =>
-              create.mutateAsync({
-                body,
-                fileIds: fileIds.length ? fileIds : undefined,
-                driveFileIds: driveFileIds.length ? driveFileIds : undefined,
-              })
-            }
-          />
+          <div ref={composerRef} className="contents">
+            <MessageComposer
+              channelId={channel.id}
+              members={mentionMembers}
+              archived={channel.archived}
+              onSend={(body, fileIds, driveFileIds) =>
+                create.mutateAsync({
+                  body,
+                  fileIds: fileIds.length ? fileIds : undefined,
+                  driveFileIds: driveFileIds.length ? driveFileIds : undefined,
+                })
+              }
+            />
+          </div>
         </div>
         {/* 스레드 칸 — 루트를 찾았을 때만 렌더(헤더 아래 본문 안 보조 칸). 닫기(✕·‹)는 히스토리 닫기 하나로 통일(WP-207). */}
         {openThreadParent && (
