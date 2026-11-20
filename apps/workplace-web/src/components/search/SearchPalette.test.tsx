@@ -10,6 +10,7 @@ import { settleHistory } from '@/test/history'
 import { renderScreen } from '@/test/renderScreen'
 
 import { loadRecent, pushRecent } from './recentSearches'
+import { SEARCH_TABS } from './searchApps'
 import { SearchPaletteHost } from './SearchPaletteHost'
 import { closeSearchPalette, openSearchPalette, SEARCH_PALETTE_HISTORY_KEY, searchPaletteSession } from './searchPaletteStore'
 import { SearchTrigger } from './SearchTrigger'
@@ -267,6 +268,37 @@ test('Tab 은 다음 탭으로, Shift+Tab 은 이전 탭으로 옮기고 입력 
   fireEvent.keyDown(input, { key: 'Tab', shiftKey: true })
   expect(screen.getByTestId('global-search-tab-all')).toHaveAttribute('aria-selected', 'true')
   expect(input).toHaveFocus()
+})
+
+test('검색어가 있어 AI 요청 버튼이 보여도 Shift+Tab 은 입력 포커스를 유지한다', async () => {
+  // WP-1791: ask-ai 버튼(AI·채팅 컨텍스트가 있어야 보임)이 마지막 tabbable 일 때만 FocusScope 가
+  // Shift+Tab 에 초점을 그 버튼으로 옮긴다 — 버튼 없는 위 테스트로는 잡히지 않는다.
+  ai.value = { mode: 'closed', open: vi.fn(), dismiss: vi.fn() }
+  const { user } = renderScreen(
+    <ChatSessionContext.Provider
+      value={{ newSession: vi.fn(), submitQuery: vi.fn().mockResolvedValue(true) } as never}
+    >
+      <SearchTrigger />
+    </ChatSessionContext.Provider>,
+    { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] },
+  )
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  await screen.findByTestId('global-search-hit-wiki:7')
+  await screen.findByTestId('global-search-ask-ai')
+  expect(input).toHaveFocus()
+  // SEARCH_TABS 순서에서 wiki 바로 앞 탭 — 순서가 바뀌어도 이 테스트가 깨지지 않게 계산한다.
+  const n = SEARCH_TABS.length
+  const prev = SEARCH_TABS[(SEARCH_TABS.findIndex((t) => t.id === 'wiki') - 1 + n) % n].id
+  await user.keyboard('{Shift>}{Tab}{/Shift}')
+  expect(input).toHaveFocus()
+  expect(screen.getByTestId(`global-search-tab-${prev}`)).toHaveAttribute('aria-selected', 'true')
+  await user.keyboard('{Tab}')
+  expect(input).toHaveFocus()
+  expect(screen.getByTestId('global-search-tab-wiki')).toHaveAttribute('aria-selected', 'true')
+  // Ctrl+Tab 은 창·브라우저 몫이라 검색 탭을 바꾸지 않는다.
+  await user.keyboard('{Control>}{Tab}{/Control}')
+  expect(screen.getByTestId('global-search-tab-wiki')).toHaveAttribute('aria-selected', 'true')
 })
 
 test('한글 조합 중 Enter·Tab 은 무시한다', async () => {
