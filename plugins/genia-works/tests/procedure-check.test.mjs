@@ -37,6 +37,8 @@ function repo(t) {
   return main;
 }
 
+// 1번 「시작」이 적는 처리 파일 줄 — 버전이 있어 전환(버전 없음)으로 빠지지 않는 notes 머리(WP-1836 리뷰 후속).
+const NOTES_HEAD = '처리 파일: process-issue.md (플러그인 0.1.69) 읽음 10:00\n';
 function notes(main, body, key = 'WP-1') {
   writeFileSync(join(main, '.work-loop/state/notes', `${key}.md`), body);
 }
@@ -88,7 +90,7 @@ test('통과 — 워크스페이스 progress.md 원장', (t) => {
 
 test('실패 — 절차 줄 없음', (t) => {
   const main = repo(t);
-  notes(main, '아무 내용\n');
+  notes(main, NOTES_HEAD);
   fail(run(main), '절차: 줄이 없습니다');
 });
 
@@ -307,7 +309,7 @@ test('세부 실패 줄에도 [procedure-check] 키 접두', (t) => {
   const main = repo(t);
   notes(main, `${GOOD}\n`);
   fail(run(main), '[procedure-check] WP-1: 계획 파일이 없습니다');
-  notes(main, '아무 내용\n');
+  notes(main, NOTES_HEAD);
   fail(run(main), '[procedure-check] WP-1: 절차: 줄이 없습니다');
 });
 
@@ -381,9 +383,9 @@ test('리뷰 후속 — 리뷰 후속: 줄이면 마지막 완료 단계와 상�
 });
 test('리뷰 후속 — 리뷰 후속 브랜치(-N)가 아니거나 앞 PR 번호가 없으면 예외 아님', (t) => {
   const main = repo(t);
-  notes(main, '리뷰 후속: 12\n브랜치: fix/wp-1\n');
+  notes(main, NOTES_HEAD + '리뷰 후속: 12\n브랜치: fix/wp-1\n');
   fail(run(main), '절차: 줄이 없습니다');
-  notes(main, '리뷰 후속: 없음\n브랜치: fix/wp-1-2\n');
+  notes(main, NOTES_HEAD + '리뷰 후속: 없음\n브랜치: fix/wp-1-2\n');
   fail(run(main), '절차: 줄이 없습니다');
 });
 
@@ -484,8 +486,28 @@ test('자리 표시 — 템플릿 칸 이름만 잡고 Map<string> 같은 글은
 // ── /code-review(반려 수정) 뒤 고친 것 ──
 test('대안 — 도구가 없어 자체 리뷰로 적으면 리뷰 단계 통과', (t) => {
   const main = repo(t);
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.70) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(까닭: /code-review·/simplify·대안 스킬 없음 — 정확성·단순화)\n');
+  ok(run(main));
+});
+// WP-1836 리뷰 후속 — 까닭 없는 「자체 리뷰」(without-superpowers.md 4단계 이름)는 6번 리뷰로 치지 않는다.
+test('대안 — 까닭 없는 자체 리뷰만 있고 6번 리뷰가 없으면 실패', (t) => {
+  const main = repo(t);
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.70) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰\n');
+  fail(run(main), '코드 리뷰(/code-review 또는 requesting-code-review) 가 절차 줄에 없습니다');
+});
+// WP-1836 리뷰 후속 — 0.1.70 전에 적은 줄은 맨 「자체 리뷰」도 받는다(이미 낸 0.1.69 규칙).
+test('전환 — 0.1.69 로 적은 맨 자체 리뷰는 통과', (t) => {
+  const main = repo(t);
   notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.69) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(정확성·단순화)\n');
   ok(run(main));
+});
+// WP-1836 리뷰 후속 — 절차 줄도 버전도 없으면 검토자 전환 규칙대로 통과.
+test('전환 — 절차 줄도 플러그인 버전도 없으면 통과', (t) => {
+  const main = repo(t);
+  notes(main, '아무 내용\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(전환 — 플러그인 버전 없음)'), r.stdout);
 });
 test('전환 — 0.1.55 전이어도 자리 표시는 잡는다', (t) => {
   const main = repo(t);
