@@ -74,10 +74,31 @@ describe('TaskRecurrenceField 「지금 실행」(WP-1313)', () => {
     expect(await screen.findByTestId('task-recurrence-run-now-icon')).toHaveAttribute('data-state', 'idle')
   })
 
-  // PR #1509 리뷰: 상태 줄 오른쪽 끝 자리(ml-auto)는 줄의 바깥 요소에 달려야 한다 — 잠기면 이유 툴팁 감싸개, 아니면 버튼.
-  it('지금 실행의 오른쪽 끝 자리(ml-auto)는 버튼에 단다(WP-1809)', async () => {
+  // PR #1509 리뷰: 상태 줄 오른쪽 끝 자리(ml-auto)는 줄의 바깥 요소에 달려야 한다 — ml-auto 는 늘 감싸개에 단다(WP-1852 — 감싸개가 늘 있어 버튼이 다시 마운트되지 않는다).
+  it('지금 실행의 오른쪽 끝 자리(ml-auto)는 늘 감싸개에 단다(WP-1809, WP-1852)', async () => {
     setup(recurrence())
-    expect(await screen.findByTestId('task-recurrence-run-now')).toHaveClass('ml-auto')
+    await screen.findByTestId('task-recurrence-run-now')
+    expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveClass('ml-auto')
+    expect(screen.getByTestId('task-recurrence-run-now')).not.toHaveClass('ml-auto')
+  })
+
+  // WP-1852: 키보드로 누르면 버튼이 disabled 가 되며 초점이 body 로 떨어지던 문제 — 버튼 노드를 그대로 두고 초점을 감싸개로 넘긴다.
+  it('키보드로 누르면 실행 중에는 초점이 감싸개에 남고, 끝나면 같은 버튼으로 돌아온다(WP-1852)', async () => {
+    const { user, state, queryClient } = setup(recurrence())
+    const button = await screen.findByTestId('task-recurrence-run-now')
+    button.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(screen.getByTestId('task-recurrence-run-now')).toHaveTextContent('실행 중…'))
+    expect(screen.getByTestId('task-recurrence-run-now')).toBe(button)
+    expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveFocus()
+
+    // 서버가 실행을 마쳤다 — 반복을 다시 받으면 testRunning 이 꺼진다.
+    state.r = { ...state.r!, testRunning: false }
+    await queryClient.invalidateQueries()
+
+    await waitFor(() => expect(screen.getByTestId('task-recurrence-run-now')).toHaveTextContent('지금 실행'))
+    expect(screen.getByTestId('task-recurrence-run-now')).toBe(button)
+    expect(button).toHaveFocus()
   })
 
   it('잠기면 오른쪽 끝 자리(ml-auto)는 이유 툴팁 감싸개에 단다(WP-1809)', async () => {
