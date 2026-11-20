@@ -4,7 +4,7 @@
 // e2e/pages/app-rail.spec.ts · workspace-switcher.spec.ts · whats-new.spec.ts · inbox.spec.ts 에서 옮겼다.
 // 그 spec 들에는 실제 기하(@layout)·호버 툴팁·포커스(@input)·새로고침 유지(@platform)·화면 배선(@wiring)·여러 화면 흐름(@flow)만 남는다.
 // App 전체(renderPage) 대신 레일만 AppLayout 과 같은 Provider(AI 어시스턴트·인박스)로 감싸 renderScreen 으로 띄운다.
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import type { ReactNode } from 'react'
 import { describe, expect, test, vi } from 'vitest'
@@ -13,6 +13,7 @@ import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AppRail } from '@/components/layout/AppRail'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { WHATS_NEW_STORAGE_KEY } from '@/lib/releaseNotes'
+import { controlIntersection } from '@/test/kits/layout'
 import { renderScreen } from '@/test/renderScreen'
 import type { Membership } from '@/types/auth'
 import type { NotificationResponse } from '@/types/notification'
@@ -623,24 +624,21 @@ describe('알림 인박스', () => {
     expect(window.location.hash).toBe('#connected-apps')
   })
 
-  test('바닥까지 스크롤하면 offset 다음 페이지를 요청해 이어 붙인다', async () => {
+  test('목록 끝이 화면에 들어오면 offset 다음 페이지를 요청해 이어 붙인다', async () => {
     const page1 = Array.from({ length: 20 }, (_, i) => notif({ id: 20 - i, issueNumber: 20 - i }))
     const page2 = Array.from({ length: 5 }, (_, i) => notif({ id: 100 - i, issueNumber: 100 - i }))
+    const io = controlIntersection()
     const offsets: (string | null)[] = []
     await openInbox((offset) => {
       offsets.push(offset)
       return offset === '20' ? page2 : page1
     }, 25)
     expect(await screen.findAllByTestId('inbox-item')).toHaveLength(20)
-    const area = screen.getByTestId('inbox-scroll-area')
-    Object.defineProperty(area, 'scrollHeight', { configurable: true, value: 2000 })
-    Object.defineProperty(area, 'clientHeight', { configurable: true, value: 384 })
-    area.scrollTop = 0
-    fireEvent.scroll(area)
+    // 공용 LoadMoreFooter 의 sentinel(WP-1848) — 끝이 화면 밖이면 요청하지 않고, 들어오면 다음 페이지를 요청한다.
+    io.set(() => false)
     expect(offsets).not.toContain('20')
 
-    area.scrollTop = 2000 - 384
-    fireEvent.scroll(area)
+    io.set(() => true)
     await waitFor(() => expect(screen.getAllByTestId('inbox-item')).toHaveLength(25))
     expect(offsets).toContain('20')
     const items = screen.getAllByTestId('inbox-item')

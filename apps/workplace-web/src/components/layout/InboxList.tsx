@@ -2,7 +2,7 @@
 // 인박스 목록 — 데스크톱 Popover(InboxPanel)와 모바일 /notifications 화면이 공유한다(WP-126).
 // 헤더(모두 읽음·읽은 알림 보관) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
 import { Archive, Bell, CheckCheck } from "lucide-react";
-import { type KeyboardEvent, useEffect, useRef } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -19,6 +19,7 @@ import { LoadErrorState } from "@/components/LoadErrorState";
 import { narrowHeaderActionClass } from "@/components/mobile/headerClass";
 import { MobileEmptyState } from "@/components/mobile/MobileEmptyState";
 import { Button } from "@/components/ui/button";
+import { LoadMoreFooter } from "@/components/ui/load-more-footer";
 import { AgentActorBadge } from "@/components/users/AgentBadge";
 import { useArchiveReadNotifications } from "@/hooks/queries/useArchiveReadNotifications";
 import { useMarkAllNotificationsRead } from "@/hooks/queries/useMarkAllNotificationsRead";
@@ -38,9 +39,6 @@ import {
 import { showsLoadError } from "@/lib/queryFailure";
 import { cn } from "@/lib/utils";
 import type { NotificationResponse } from "@/types/notification";
-
-// 스크롤이 바닥에서 이 거리(px) 이내로 들어오면 다음 페이지를 로드한다.
-const LOAD_MORE_THRESHOLD_PX = 48;
 
 /**
  * 노트 공유 알림 문구(WP-579) — 행위자 이름 뒤에 붙는 부분. 접근 승인은 행위자 없이 노트 기준 문구만 쓴다.
@@ -97,6 +95,18 @@ export function InboxViewTabs({
   // 탭 단추 ref — 방향키로 정해진 탭에 초점을 옮기는 데 쓴다.
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
+  // 보관함 빈 상태 CTA(「받은 알림 보기」)로 받은 알림에 돌아오면 눌린 버튼이 사라져 포커스가 body 로 떨어진다(WP-1848).
+  // 탭을 그리는 이 컴포넌트가 직접 처리한다 — 보기가 보관함에서 받은 알림으로 바뀐 뒤 포커스가 body 에 있으면(= 포커스를 가졌던
+  // 요소가 사라졌으면) 이 탭(받은 탭 = 첫 탭)으로 옮긴다. 탭을 직접 눌러 바꾼 경우엔 포커스가 이미 탭에 있어 건드리지 않는다.
+  // 탭이 InboxList 안(팝오버)이든 밖(모바일 헤더)이든 호출부가 할 일이 없고, id 로 찾지 않고 이 컴포넌트의 ref 만 쓰므로 두 모양이 함께 떠도 각자 자기 탭만 옮긴다.
+  const prevView = useRef(view);
+  useEffect(() => {
+    const cameBackFromArchive = prevView.current === "archive" && view === "inbox";
+    prevView.current = view;
+    if (!cameBackFromArchive) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) tabRefs.current[0]?.focus();
+  }, [view]);
   /** 방향키·Home·End 처리. 수식키(Shift 포함)가 눌렸거나 대상 키가 아니면 건드리지 않는다. */
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -132,7 +142,7 @@ export function InboxViewTabs({
           ref={(el) => {
             tabRefs.current[i] = el;
           }}
-          // id: 패널의 aria-labelledby(WP-1843)와 보관함 빈 상태 CTA 뒤 초점 자리(WP-1848)가 함께 쓴다
+          // id: 패널의 aria-labelledby 용(WP-1843). 포커스 이동(WP-1848)은 id 가 아니라 ref 를 쓴다.
           id={inboxViewTabId(t.id)}
           type="button"
           role="tab"
@@ -199,17 +209,8 @@ export function InboxList({
   // 빈 상태 CTA — 막다른 길을 없애려고 보기별 다음 행동을 하나 둔다(WP-1848).
   // 보관함: 받은 알림으로 돌아가기 / 받은 탭: 알림이 안 오는 이유를 찾을 수 있는 알림 설정으로 이동.
   const emptyActionLabel = isArchive ? "받은 알림 보기" : "알림 설정";
-  // 보관함 CTA 로 받은 알림에 돌아왔는지 — 눌린 버튼(빈 상태)이 사라져 포커스가 body 로 떨어지므로,
-  // 전환이 그려진 뒤(effect) 받은 탭 버튼으로 옮긴다. 탭은 모바일에서 InboxList 밖(헤더)에 있어 ref 대신 id 로 찾는다.
-  const focusInboxTabAfterSwitch = useRef(false);
-  useEffect(() => {
-    if (view !== "inbox" || !focusInboxTabAfterSwitch.current) return;
-    focusInboxTabAfterSwitch.current = false;
-    document.getElementById(inboxViewTabId("inbox"))?.focus();
-  }, [view]);
   const onEmptyAction = () => {
     if (isArchive) {
-      focusInboxTabAfterSwitch.current = true;
       onViewChange("inbox");
     } else {
       goTo("/settings/notifications");
@@ -220,8 +221,7 @@ export function InboxList({
   const inboxQuery = useNotifications(enabled && !isArchive);
   const archiveQuery = useArchivedNotifications(enabled && isArchive);
   const query = isArchive ? archiveQuery : inboxQuery;
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    query;
+  const { data, isLoading } = query;
   // 보기별 실패 문구 — 보관함에서 실패하면 받은 알림이 아니라 보관한 알림을 못 불러온 것이다(WP-1847).
   const loadErrorTitle = isArchive
     ? "보관한 알림을 불러오지 못했습니다"
@@ -232,18 +232,9 @@ export function InboxList({
   const markAll = useMarkAllNotificationsRead();
   const archiveRead = useArchiveReadNotifications();
 
-  // 스크롤 영역이 바닥 근처에 도달하면 다음 페이지 로드(#610 무한스크롤).
-  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (
-      distanceToBottom < LOAD_MORE_THRESHOLD_PX &&
-      hasNextPage &&
-      !isFetchingNextPage
-    ) {
-      fetchNextPage();
-    }
-  };
+  // 스크롤 컨테이너 — 공용 LoadMoreFooter 의 sentinel 이 이 칸을 root 로 바닥 근처를 본다(WP-1848).
+  // 객체 ref 가 아니라 state 인 이유: 마운트 뒤 값이 정해져야 footer 가 root 를 받아 observer 를 만든다(ReactorsPanel 과 같은 방식).
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
   // 행 클릭: (보관함이 아니고) 안읽음이면 읽음 처리 → onNavigate(패널 닫기 등) → 대상으로 이동.
   // 딥링크 규칙은 notifTarget() 공용 유틸과 동일(캘린더 알림→캘린더, 식별정보 없으면 인박스 대용 폴백).
@@ -253,8 +244,12 @@ export function InboxList({
   };
 
   // 빈 상태 CTA 버튼 — 전체 화면(터치 규격)·팝오버(작은 윤곽선)가 크기·모양만 달리 같은 요소를 쓴다.
+  // key={view}: 두 보기의 빈 상태가 같은 자리에 같은 버튼을 그려 React 가 DOM 버튼을 재사용하면, 눌린 버튼이 언마운트되지 않아
+  // 포커스가 body 로 떨어지지 않고 이름만 「알림 설정」으로 바뀐 그 버튼에 남는다(WP-1848 라이브 검증 회귀).
+  // 보기별 key 로 다시 마운트시켜 포커스를 잃게 하고, 그러면 InboxViewTabs 가 받은 탭으로 옮긴다.
   const emptyActionButton = (
     <Button
+      key={view}
       size={screenEmpty ? "default" : "sm"}
       variant={screenEmpty ? "default" : "outline"}
       className={screenEmpty ? "h-11 px-5" : undefined}
@@ -270,7 +265,10 @@ export function InboxList({
       {!hideHeader && (
         <div className="flex items-center border-b px-3 py-2 justify-between">
           {/* 제목 자리는 「알림 | 보관함」 전환(WP-1690) — 선택 탭이 제목 역할을 한다. */}
-          <InboxViewTabs view={view} onChange={onViewChange} />
+          <InboxViewTabs
+            view={view}
+            onChange={onViewChange}
+          />
           {/* 오른쪽 묶음: 모두 읽음 · 읽은 알림 보관(WP-1689). 보관함에서는 대상이 없어 숨긴다. 줄마다 보관 단추는 두지 않는다. */}
           {!isArchive && (
             <div className="flex items-center gap-3">
@@ -314,7 +312,7 @@ export function InboxList({
         id={INBOX_VIEW_PANEL_ID}
         aria-labelledby={inboxViewTabId(view)}
         tabIndex={isLoading || items.length === 0 ? 0 : -1}
-        onScroll={onScroll}
+        ref={setScrollEl}
         data-testid="inbox-scroll-area"
         className={scrollClassName}
       >
@@ -354,38 +352,119 @@ export function InboxList({
             <div className="mt-2">{emptyActionButton}</div>
           </div>
         ) : (
-          <ul>
-            {items.map((n) => (
-              <li key={n.id} className={cn(isArchive && "flex items-stretch")}>
-                <button
-                  type="button"
-                  data-testid="inbox-item"
-                  onClick={() => onRowClick(n)}
-                  // WP-1844: relative — 안의 sr-only(absolute)가 스크롤 영역 밖 기준으로 잡혀 페이지 넘침을 만들지 않게 한다.
-                  className={cn(
-                    "relative flex w-full min-w-0 items-start gap-2 row-divider px-3 py-2 text-left text-sm hover:bg-accent/50",
-                    !n.read && "bg-accent/20",
-                  )}
+          <>
+            <ul>
+              {items.map((n) => (
+                <li
+                  key={n.id}
+                  className={cn(isArchive && "flex items-stretch")}
                 >
-                  {/* WP-1844: 안 읽음을 파란 점(색)으로만 알리면 스크린 리더가 구분하지 못한다 —
-                      행 이름 맨 앞에 보이지 않는 「읽지 않음, 」을 넣는다(읽은 행은 넣지 않는다). */}
-                  {!n.read && <span className="sr-only">읽지 않음, </span>}
-                  <span className="min-w-0 flex-1">
-                    {n.type === "REMINDER" ? (
-                      // 일정 리마인더 — 액터 없이 일정 제목 + 시작 시각 표시.
-                      <>
-                        <span className="font-medium">일정 알림</span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {n.eventTitle} ·{" "}
-                          {formatDateTimeMinute(n.eventStartsAt)}
-                        </span>
-                      </>
-                    ) : isPersonalAssistantRevokedType(n) ? (
-                      // 개인 비서 연결 해제(WP-1170) — 이슈 줄 없이 문구만. 행위자(관리자)가 있으면 이름 + 동작 문구,
-                      // 없으면(일회성 정리) 「시스템님이」로 읽히지 않게 행위자 없는 문구.
-                      n.actorName ? (
+                  <button
+                    type="button"
+                    data-testid="inbox-item"
+                    onClick={() => onRowClick(n)}
+                    // WP-1844: relative — 안의 sr-only(absolute)가 스크롤 영역 밖 기준으로 잡혀 페이지 넘침을 만들지 않게 한다.
+                    className={cn(
+                      "relative flex w-full min-w-0 items-start gap-2 row-divider px-3 py-2 text-left text-sm hover:bg-accent/50",
+                      !n.read && "bg-accent/20",
+                    )}
+                  >
+                    {/* WP-1844: 안 읽음을 파란 점(색)으로만 알리면 스크린 리더가 구분하지 못한다 —
+                        행 이름 맨 앞에 보이지 않는 「읽지 않음, 」을 넣는다(읽은 행은 넣지 않는다). */}
+                    {!n.read && <span className="sr-only">읽지 않음, </span>}
+                    <span className="min-w-0 flex-1">
+                      {n.type === "REMINDER" ? (
+                        // 일정 리마인더 — 액터 없이 일정 제목 + 시작 시각 표시.
                         <>
-                          <span className="font-medium">{n.actorName}</span>
+                          <span className="font-medium">일정 알림</span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {n.eventTitle} ·{" "}
+                            {formatDateTimeMinute(n.eventStartsAt)}
+                          </span>
+                        </>
+                      ) : isPersonalAssistantRevokedType(n) ? (
+                        // 개인 비서 연결 해제(WP-1170) — 이슈 줄 없이 문구만. 행위자(관리자)가 있으면 이름 + 동작 문구,
+                        // 없으면(일회성 정리) 「시스템님이」로 읽히지 않게 행위자 없는 문구.
+                        n.actorName ? (
+                          <>
+                            <span className="font-medium">{n.actorName}</span>
+                            <AgentActorBadge
+                              kind={n.actorKind}
+                              className="ml-1 align-middle"
+                            />
+                            <span className="text-muted-foreground">
+                              {notificationAction(n)}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="font-medium">
+                            {PERSONAL_ASSISTANT_REVOKED_NO_ACTOR}
+                          </span>
+                        )
+                      ) : isOAuthAppConnectedType(n) ? (
+                        // 새 앱 연결(WP-1686) — 행위자·이슈 줄 없이 앱 이름(message)과 끊기 안내만. 내가 한 일이 아니면 바로 끊게 한다.
+                        <>
+                          <span className="font-medium">
+                            {n.message
+                              ? `${notificationAction(n)} — ${n.message}`
+                              : notificationAction(n)}
+                          </span>
+                          {/* 끊는 곳을 알려 주는 안내라 좁은 화면에서도 끝까지 보이게 한 줄 말줄임 대신 두 줄까지 감싼다(line-clamp 가 블록 상자를 만든다). */}
+                          <span className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">
+                            내가 연결하지 않았다면 설정 › API 토큰에서 끊어
+                            주세요
+                          </span>
+                        </>
+                      ) : isMailSendFailedType(n) ? (
+                        // 메일 보내기 실패(WP-1786) — 행위자·이슈 줄 없이 상태 문구(보내지 못함 / 보냈는지 확인하지 못함)와 메일 제목만.
+                        // 누르면 그 임시보관을 쓰기 창으로 연다(notifTarget).
+                        <>
+                          <span
+                            data-testid="inbox-mail-send-failed"
+                            className="font-medium"
+                          >
+                            {notificationAction(n)}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {mailSendFailedLabel(n)}
+                          </span>
+                        </>
+                      ) : isWikiShareType(n) ? (
+                        // 노트 공유 알림(WP-579) — 문구에 노트 제목이 들어간다. 공유받음은 보낸 사람의 메시지를 한 줄 더 보인다.
+                        <>
+                          {n.type === "WIKI_SHARE_ACCESS_APPROVED" ? (
+                            <span className="font-medium">
+                              {wikiShareText(n)}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="font-medium">
+                                {n.actorName ?? "시스템"}
+                              </span>
+                              <AgentActorBadge
+                                kind={n.actorKind}
+                                className="ml-1 align-middle"
+                              />
+                              <span className="text-muted-foreground">
+                                {wikiShareText(n)}
+                              </span>
+                            </>
+                          )}
+                          {n.type === "WIKI_SHARED" && n.message && (
+                            <span
+                              data-testid="inbox-wiki-message"
+                              className="mt-0.5 block truncate text-xs text-muted-foreground"
+                            >
+                              {n.message}
+                            </span>
+                          )}
+                        </>
+                      ) : isCalendarType(n) ? (
+                        // 일정 초대/RSVP 변경 — 액터 + 동작 문구 + 일정 제목·시작 시각 표시(#489, #585).
+                        <>
+                          <span className="font-medium">
+                            {n.actorName ?? "시스템"}
+                          </span>
                           <AgentActorBadge
                             kind={n.actorKind}
                             className="ml-1 align-middle"
@@ -393,144 +472,71 @@ export function InboxList({
                           <span className="text-muted-foreground">
                             {notificationAction(n)}
                           </span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {n.eventTitle} ·{" "}
+                            {formatDateTimeMinute(n.eventStartsAt)}
+                          </span>
                         </>
                       ) : (
-                        <span className="font-medium">
-                          {PERSONAL_ASSISTANT_REVOKED_NO_ACTOR}
-                        </span>
-                      )
-                    ) : isOAuthAppConnectedType(n) ? (
-                      // 새 앱 연결(WP-1686) — 행위자·이슈 줄 없이 앱 이름(message)과 끊기 안내만. 내가 한 일이 아니면 바로 끊게 한다.
-                      <>
-                        <span className="font-medium">
-                          {n.message
-                            ? `${notificationAction(n)} — ${n.message}`
-                            : notificationAction(n)}
-                        </span>
-                        {/* 끊는 곳을 알려 주는 안내라 좁은 화면에서도 끝까지 보이게 한 줄 말줄임 대신 두 줄까지 감싼다(line-clamp 가 블록 상자를 만든다). */}
-                        <span className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">
-                          내가 연결하지 않았다면 설정 › API 토큰에서 끊어 주세요
-                        </span>
-                      </>
-                    ) : isMailSendFailedType(n) ? (
-                      // 메일 보내기 실패(WP-1786) — 행위자·이슈 줄 없이 상태 문구(보내지 못함 / 보냈는지 확인하지 못함)와 메일 제목만.
-                      // 누르면 그 임시보관을 쓰기 창으로 연다(notifTarget).
-                      <>
-                        <span
-                          data-testid="inbox-mail-send-failed"
-                          className="font-medium"
-                        >
-                          {notificationAction(n)}
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {mailSendFailedLabel(n)}
-                        </span>
-                      </>
-                    ) : isWikiShareType(n) ? (
-                      // 노트 공유 알림(WP-579) — 문구에 노트 제목이 들어간다. 공유받음은 보낸 사람의 메시지를 한 줄 더 보인다.
-                      <>
-                        {n.type === "WIKI_SHARE_ACCESS_APPROVED" ? (
+                        <>
                           <span className="font-medium">
-                            {wikiShareText(n)}
+                            {n.actorName ?? "시스템"}
                           </span>
-                        ) : (
-                          <>
-                            <span className="font-medium">
-                              {n.actorName ?? "시스템"}
-                            </span>
-                            <AgentActorBadge
-                              kind={n.actorKind}
-                              className="ml-1 align-middle"
-                            />
-                            <span className="text-muted-foreground">
-                              {wikiShareText(n)}
-                            </span>
-                          </>
-                        )}
-                        {n.type === "WIKI_SHARED" && n.message && (
-                          <span
-                            data-testid="inbox-wiki-message"
-                            className="mt-0.5 block truncate text-xs text-muted-foreground"
-                          >
-                            {n.message}
+                          <AgentActorBadge
+                            kind={n.actorKind}
+                            className="ml-1 align-middle"
+                          />
+                          <span className="text-muted-foreground">
+                            {notificationAction(n)}
                           </span>
-                        )}
-                      </>
-                    ) : isCalendarType(n) ? (
-                      // 일정 초대/RSVP 변경 — 액터 + 동작 문구 + 일정 제목·시작 시각 표시(#489, #585).
-                      <>
-                        <span className="font-medium">
-                          {n.actorName ?? "시스템"}
-                        </span>
-                        <AgentActorBadge
-                          kind={n.actorKind}
-                          className="ml-1 align-middle"
-                        />
-                        <span className="text-muted-foreground">
-                          {notificationAction(n)}
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {n.eventTitle} ·{" "}
-                          {formatDateTimeMinute(n.eventStartsAt)}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-medium">
-                          {n.actorName ?? "시스템"}
-                        </span>
-                        <AgentActorBadge
-                          kind={n.actorKind}
-                          className="ml-1 align-middle"
-                        />
-                        <span className="text-muted-foreground">
-                          {notificationAction(n)}
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {n.projectKey}-{n.issueNumber} {n.issueTitle}
-                        </span>
-                      </>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {n.projectKey}-{n.issueNumber} {n.issueTitle}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatRelativeTime(n.createdAt)}
+                    </span>
+                    {!n.read && (
+                      // WP-1844: 장식용 점 — 의미는 위 sr-only 문구가 전달하므로 보조기기에서 숨긴다.
+                      <span
+                        aria-hidden="true"
+                        data-testid="inbox-unread-dot"
+                        className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary"
+                      />
                     )}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {formatRelativeTime(n.createdAt)}
-                  </span>
-                  {!n.read && (
-                    // WP-1844: 장식용 점 — 의미는 위 sr-only 문구가 전달하므로 보조기기에서 숨긴다.
-                    <span
-                      aria-hidden="true"
-                      data-testid="inbox-unread-dot"
-                      className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary"
-                    />
-                  )}
-                </button>
-                {isArchive && (
-                  // 보관함 줄 단추 — 줄 버튼 안에 넣을 수 없어 형제로 둔다(버튼 안 버튼 금지). 이동 없이 그 id 만 되돌린다.
-                  <button
-                    type="button"
-                    data-testid="inbox-unarchive"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      unarchive.mutate(n.id);
-                    }}
-                    // 처리 중인 그 줄만 막는다 — 전체를 막으면 한 줄 되돌리는 동안 다른 줄 클릭이 소리 없이 무시된다.
-                    disabled={unarchive.isPending && unarchive.variables === n.id}
-                    className="shrink-0 row-divider px-3 text-xs text-primary hover:bg-accent/50 disabled:opacity-50"
-                  >
-                    되돌리기
                   </button>
-                )}
-              </li>
-            ))}
-            {isFetchingNextPage && (
-              <li
-                data-testid="inbox-loading-more"
-                className="px-3 py-2 text-center text-xs text-muted-foreground"
-              >
-                더 불러오는 중…
-              </li>
-            )}
-          </ul>
+                  {isArchive && (
+                    // 보관함 줄 단추 — 줄 버튼 안에 넣을 수 없어 형제로 둔다(버튼 안 버튼 금지). 이동 없이 그 id 만 되돌린다.
+                    <button
+                      type="button"
+                      data-testid="inbox-unarchive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        unarchive.mutate(n.id);
+                      }}
+                      // 처리 중인 그 줄만 막는다 — 전체를 막으면 한 줄 되돌리는 동안 다른 줄 클릭이 소리 없이 무시된다.
+                      disabled={
+                        unarchive.isPending && unarchive.variables === n.id
+                      }
+                      className="shrink-0 row-divider px-3 text-xs text-primary hover:bg-accent/50 disabled:opacity-50"
+                    >
+                      되돌리기
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {/* 다음 페이지 — 공용 푸터가 바닥 근처에서 자동 로드·「불러오는 중…」·실패 시 다시 시도를 맡는다(WP-1848).
+              실패하면 안내 없이 목록이 끝나 「끝」으로 오인되지 않고, 실패 중에는 자동 로드가 멈춘다. <ul> 밖에 둔다(div 라서). */}
+            <LoadMoreFooter
+              query={query}
+              root={scrollEl}
+              errorLabel="더 불러오지 못했습니다 — 다시 시도"
+              data-testid="inbox-next-page"
+            />
+          </>
         )}
       </div>
     </>
