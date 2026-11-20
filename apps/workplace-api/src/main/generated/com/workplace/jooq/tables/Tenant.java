@@ -24,6 +24,7 @@ import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
 import com.workplace.jooq.tables.AiMemoryChange.AiMemoryChangePath;
 import com.workplace.jooq.tables.AiMemoryForgotten.AiMemoryForgottenPath;
+import com.workplace.jooq.tables.AiRun.AiRunPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
@@ -439,6 +440,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _aiMemory = new AiMemoryPath(this, null, Keys.AI_MEMORY__AI_MEMORY_TENANT_ID_FKEY.getInverseKey());
 
         return _aiMemory;
+    }
+
+    private transient AiRunPath _aiRun;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.ai_run</code>
+     * table
+     */
+    public AiRunPath aiRun() {
+        if (_aiRun == null)
+            _aiRun = new AiRunPath(this, null, Keys.AI_RUN__AI_RUN_TENANT_ID_FKEY.getInverseKey());
+
+        return _aiRun;
     }
 
     private transient CalendarDeletedMeetingPath _calendarDeletedMeeting;
