@@ -478,6 +478,95 @@ class AiRunRepositoryTest extends IntegrationTestBase {
     assertThat(r.getErrorReason()).isEqualTo("rate_limit");
   }
 
+  /** API 의 5xx 기록(사유 없음·상세 http_5xx)이 먼저 들어와도 ai-agent 의 구체적 사유(runner_error)가 사유로 남는다(WP-1829). */
+  @Test
+  void upsert_apiServerError_thenAgentFailed_keepsAgentReason() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(
+        new AiRunRecord(
+            id,
+            null,
+            "AI_CHAT",
+            null,
+            null,
+            null,
+            "USER",
+            1L,
+            null,
+            T0,
+            T0,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "FAILED",
+            null,
+            "http_503",
+            null));
+    repo.upsert(
+        new AiRunRecord(
+            id,
+            null,
+            "AI_CHAT",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            T0,
+            T0.plusSeconds(1),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "FAILED",
+            "runner_error",
+            "boom",
+            null));
+    assertThat(count(id)).isEqualTo(1);
+    var r = row(id);
+    assertThat(r.getStatus()).isEqualTo("FAILED");
+    assertThat(r.getErrorReason()).isEqualTo("runner_error");
+  }
+
+  /** ai-agent 가 끝내 보고하지 않으면 FAILED + 상세 http_5xx 흔적이 남는다. */
+  @Test
+  void upsert_apiServerErrorOnly_keepsHttpTraceInDetail() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(
+        new AiRunRecord(
+            id,
+            null,
+            "AI_CHAT",
+            null,
+            null,
+            null,
+            "USER",
+            1L,
+            null,
+            T0,
+            T0,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "FAILED",
+            null,
+            "http_503",
+            null));
+    var r = row(id);
+    assertThat(r.getStatus()).isEqualTo("FAILED");
+    assertThat(r.getErrorReason()).isNull();
+    assertThat(r.getErrorDetail()).isEqualTo("http_503");
+  }
+
   /** NUL 문자는 Postgres 가 거절하므로 저장 전에 제거한다. */
   @Test
   void upsert_nulCharacters_stripped() {

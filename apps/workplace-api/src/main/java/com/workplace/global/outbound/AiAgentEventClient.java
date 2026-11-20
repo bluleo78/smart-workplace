@@ -1,8 +1,7 @@
 package com.workplace.global.outbound;
 
+import com.workplace.airun.context.AiRunHeader;
 import com.workplace.global.tenant.TenantContext;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -23,9 +22,6 @@ import org.springframework.web.client.RestClient;
  */
 @Slf4j
 public class AiAgentEventClient {
-
-  /** 테넌트를 ai-agent 의 AI 처리 기록에 전달하는 헤더 이름 (WP-1828). */
-  public static final String AI_RUN_HEADER = "X-AI-Run";
 
   /** 시도 횟수 (초회 + 재시도). */
   private static final int MAX_ATTEMPTS = 4;
@@ -54,7 +50,7 @@ public class AiAgentEventClient {
                 .contentType(MediaType.APPLICATION_JSON);
         // 테넌트 맥락이 있을 때만 싣는다 — ai-agent 가 이벤트로 시작한 AI 처리 기록에 테넌트를 채운다.
         if (aiRun != null) {
-          request.header(AI_RUN_HEADER, aiRun);
+          request.header(AiRunHeader.NAME, aiRun);
         }
         request.body(envelope).retrieve().toBodilessEntity();
         return; // 성공
@@ -84,18 +80,11 @@ public class AiAgentEventClient {
   }
 
   /**
-   * X-AI-Run 값: {"tenantId":N} 을 base64url(패딩 없음)로 인코딩. 테넌트 맥락이 없으면 null. 숫자 하나뿐이라 JSON 라이브러리 없이 직접
-   * 만든다.
+   * X-AI-Run 값: tenantId 만 담은 base64url JSON. 테넌트 맥락이 없으면 null. 인코딩은 다른 ai-agent 클라이언트와 같은
+   * AiRunHeader 를 쓴다 (WP-1829).
    */
   private String aiRunHeaderValue() {
-    Long tenantId = TenantContext.get();
-    if (tenantId == null) {
-      return null;
-    }
-    String json = "{\"tenantId\":" + tenantId + "}";
-    return Base64.getUrlEncoder()
-        .withoutPadding()
-        .encodeToString(json.getBytes(StandardCharsets.UTF_8));
+    return AiRunHeader.encodeTenantOnly(TenantContext.get());
   }
 
   /** 4xx 중 재시도 가능한 코드 (408, 429). */

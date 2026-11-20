@@ -1,7 +1,7 @@
 package com.workplace.mail.outbound;
 
+import com.workplace.airun.outbound.AiAgentHttp;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,9 +18,9 @@ public class MailAiConfig {
    * Spring Boot 3.4 의 비-deprecated API({@code org.springframework.boot.http.client.*}) 로 팩토리를 생성한다.
    */
   @Bean
-  public AiAgentMailClient aiAgentMailClient(AiAgentProperties props) {
+  public AiAgentMailClient aiAgentMailClient(AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     var builder =
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
+        aiAgentHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
     return new AiAgentMailClient(builder, props.internalToken());
   }
 }

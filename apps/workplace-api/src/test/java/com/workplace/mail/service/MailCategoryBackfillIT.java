@@ -10,6 +10,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AgentOutageGuard;
@@ -700,5 +702,35 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
     assertThat(contentState(contents[0]).value2()).isNull();
     assertNoRetryRecorded(contents[1]);
     assertThat(contentState(contents[1]).value2()).isNull();
+  }
+
+  /** WP-1829: 분류 묶음 호출은 대상 없이 AUTO 주체 맥락으로 나가고 호출 뒤 비워진다. */
+  @Test
+  void classifyBatch_runsInsideAutoContextWithoutTarget() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long c =
+        MailAnalysisFixtures.content(
+            dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+    MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), null);
+    java.util.concurrent.atomic.AtomicReference<AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    when(mailClient.classifyBatch(any()))
+        .thenAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              ClassifyBatchRequest req = inv.getArgument(0);
+              return new ClassifyBatchResult(
+                  req.items().stream().map(it -> new ClassifyBatchEntry(it.id(), "업무")).toList());
+            });
+
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+
+    AiRunContext ctx = seen.get();
+    assertThat(ctx.actorType()).isEqualTo("AUTO");
+    assertThat(ctx.targetType()).isNull();
+    assertThat(ctx.targetId()).isNull();
+    assertThat(ctx.sourceAt()).isNull();
+    assertThat(AiRunScope.current()).isEqualTo(AiRunContext.empty());
   }
 }

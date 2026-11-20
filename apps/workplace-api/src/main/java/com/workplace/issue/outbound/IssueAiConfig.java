@@ -1,7 +1,7 @@
 package com.workplace.issue.outbound;
 
+import com.workplace.airun.outbound.AiAgentHttp;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,10 +30,10 @@ public class IssueAiConfig {
    * <p>connect 5s / read 90s(리포트는 210s) — read timeout 은 ai-agent 의 LLM 예산을 반드시 초과해야 한다.
    */
   @Bean
-  public AiAgentIssueClient aiAgentIssueClient(AiAgentProperties props) {
-    var builder = InternalHttp.restClient(props.baseUrl(), CONNECT_TIMEOUT, READ_TIMEOUT);
+  public AiAgentIssueClient aiAgentIssueClient(AiAgentProperties props, AiAgentHttp aiAgentHttp) {
+    var builder = aiAgentHttp.restClient(props.baseUrl(), CONNECT_TIMEOUT, READ_TIMEOUT);
     var reportBuilder =
-        InternalHttp.restClient(props.baseUrl(), CONNECT_TIMEOUT, REPORT_READ_TIMEOUT);
+        aiAgentHttp.restClient(props.baseUrl(), CONNECT_TIMEOUT, REPORT_READ_TIMEOUT);
     return new AiAgentIssueClient(builder, reportBuilder, props.internalToken(), props.enabled());
   }
 }

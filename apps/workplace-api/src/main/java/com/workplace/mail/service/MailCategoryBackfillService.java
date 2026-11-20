@@ -1,5 +1,7 @@
 package com.workplace.mail.service;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AgentOutageGuard;
@@ -152,7 +154,11 @@ public class MailCategoryBackfillService {
       calls[0]++;
       ClassifyBatchResult result;
       try {
-        result = mailClient.classifyBatch(request(inputs, members, spec));
+        // WP-1829: 분류 묶음은 대상 메일이 여럿이라 대상·원본 시각 없이 백그라운드(AUTO) 주체만 싣는다.
+        result =
+            AiRunScope.call(
+                AiRunContext.auto(),
+                () -> mailClient.classifyBatch(request(inputs, members, spec)));
       } catch (RuntimeException e) {
         int next = onClassifyFailure(accountId, guard, inputs, e);
         if (next == STOP) {

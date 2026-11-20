@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.jooq.Tables.AI_RUN;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
@@ -12,6 +13,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -20,6 +22,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
+import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -81,6 +86,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
   @Autowired ProjectReportGenerator generator;
   @Autowired AiAgentIssueClient client;
   @Autowired AssistantResolver assistantResolver;
+  @Autowired AiRunRecorder aiRunRecorder;
 
   @Value("${workplace.public-base-url:}")
   String baseUrl;
@@ -456,6 +462,76 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     verify(client, never()).writeProjectReport(any());
   }
 
+  // ───────────── AI 처리 기록(WP-1829) ─────────────
+
+  /** 이 프로젝트의 ai_run 행(대상 id 로 거른다 — 다른 테스트가 커밋한 행과 섞이지 않게). */
+  private List<org.jooq.Record> aiRuns() {
+    return dsl
+        .select()
+        .from(AI_RUN)
+        .where(AI_RUN.TARGET_TYPE.eq("PROJECT"))
+        .and(AI_RUN.TARGET_ID.eq(String.valueOf(project.id())))
+        .fetch()
+        .stream()
+        .map(r -> (org.jooq.Record) r)
+        .toList();
+  }
+
+  /** 자동 회차의 AI 호출은 대상 프로젝트·AUTO·sourceAt=now 범위 안에서 일어나고, 정상 생성은 SKIPPED 행을 남기지 않는다. */
+  @Test
+  void run_aiCallScope_projectAutoWithSourceAt() {
+    aiReturnsMessy(activity());
+    java.util.concurrent.atomic.AtomicReference<AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    doAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              return new ProjectReportAiResult("## 한 줄\n\n잘 끝났어요.");
+            })
+        .when(client)
+        .writeProjectReport(any());
+
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.GENERATED);
+
+    AiRunContext c = seen.get();
+    assertThat(c.targetType()).isEqualTo("PROJECT");
+    assertThat(c.targetId()).isEqualTo(String.valueOf(project.id()));
+    assertThat(c.targetLabel()).isEqualTo(project.name());
+    assertThat(c.actorType()).isEqualTo("AUTO");
+    assertThat(c.sourceAt().toInstant()).isEqualTo(NOW.toInstant());
+    assertThat(aiRuns()).isEmpty();
+  }
+
+  /** 변화 없음으로 건너뛴 회차는 SKIPPED/no_change 행으로 남는다. */
+  @Test
+  void run_noChange_recordsSkippedAiRun() {
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.SKIPPED_NO_CHANGE);
+    assertSkippedRow("no_change");
+  }
+
+  /** 공통 비서가 없어 건너뛴 회차는 SKIPPED/no_assistant 행으로 남는다. */
+  @Test
+  void run_noAssistant_recordsSkippedAiRun() {
+    activity();
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.SKIPPED_NO_ASSISTANT);
+    assertSkippedRow("no_assistant");
+  }
+
+  private void assertSkippedRow(String reason) {
+    var rows = aiRuns();
+    assertThat(rows).hasSize(1);
+    var r = rows.get(0);
+    assertThat(r.get(AI_RUN.STATUS)).isEqualTo("SKIPPED");
+    assertThat(r.get(AI_RUN.KIND)).isEqualTo("PROJECT_REPORT");
+    assertThat(r.get(AI_RUN.ERROR_REASON)).isEqualTo(reason);
+    assertThat(r.get(AI_RUN.TARGET_LABEL)).isEqualTo(project.name());
+    assertThat(r.get(AI_RUN.ACTOR_TYPE)).isEqualTo("AUTO");
+    assertThat(r.get(AI_RUN.SOURCE_AT).toInstant()).isEqualTo(NOW.toInstant());
+    assertThat(r.get(AI_RUN.STARTED_AT)).isEqualTo(r.get(AI_RUN.ENDED_AT));
+  }
+
   @Test
   void run_disabled_notDue() {
     activity();
@@ -750,6 +826,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
         assistantResolver,
         client,
         aiAgentProperties,
+        aiRunRecorder,
         txManager,
         baseUrl);
   }

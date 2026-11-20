@@ -6,6 +6,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.workplace.airun.context.AiRunHeader;
 import com.workplace.global.tenant.TenantContext;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -33,9 +34,7 @@ class AiAgentEventClientTest {
     AtomicReference<String> captured = new AtomicReference<>();
     server
         .expect(requestTo("http://agent/events"))
-        .andExpect(
-            request ->
-                captured.set(request.getHeaders().getFirst(AiAgentEventClient.AI_RUN_HEADER)))
+        .andExpect(request -> captured.set(request.getHeaders().getFirst(AiRunHeader.NAME)))
         .andRespond(withSuccess());
     TenantContext.set(7L);
 
@@ -53,7 +52,7 @@ class AiAgentEventClientTest {
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     server
         .expect(requestTo("http://agent/events"))
-        .andExpect(headerDoesNotExist(AiAgentEventClient.AI_RUN_HEADER))
+        .andExpect(headerDoesNotExist(AiRunHeader.NAME))
         .andExpect(header("Authorization", "Internal tok"))
         .andRespond(withSuccess());
 

@@ -1,5 +1,7 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.SharedAiMemoryReader;
@@ -317,20 +319,24 @@ public class HomeChatService {
         reservation,
         executor,
         TIMEOUT,
+        // executor 스레드는 SecurityContext 를 잃어 AUTO 로 기록되므로 요청자를 USER 로 명시한다 (WP-1829).
         () ->
-            pump(
-                turn,
-                reservation,
-                callerId,
-                sid,
-                text,
-                screenContext,
-                attachments,
-                snapshot,
-                spec,
-                tenantId,
-                memoryApp,
-                verifiedSpace),
+            AiRunScope.run(
+                AiRunContext.user(callerId),
+                () ->
+                    pump(
+                        turn,
+                        reservation,
+                        callerId,
+                        sid,
+                        text,
+                        screenContext,
+                        attachments,
+                        snapshot,
+                        spec,
+                        tenantId,
+                        memoryApp,
+                        verifiedSpace)),
         // R4: 큐(core 4·queue 16) 대기 중 취소·타임아웃되면 태스크는 돌지 않는다 — 누적 텍스트가 없으니 저장 없이 cancelled 만 나가
         // 웹이 "생성 중" 에 갇히지 않는다.
         turn::cancel);

@@ -1,5 +1,9 @@
 package com.workplace.wiki.report;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
+import com.workplace.airun.service.AiRunRecorder;
+import com.workplace.airun.service.AiRunSkips;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.issue.outbound.AiAgentIssueClient;
@@ -102,6 +106,7 @@ public class PersonalReportGenerator {
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient client;
   private final UserRepository users;
+  private final AiRunRecorder aiRunRecorder;
   private final TransactionTemplate tx;
   private final String issueUrlPrefix;
 
@@ -116,6 +121,7 @@ public class PersonalReportGenerator {
       AssistantResolver assistantResolver,
       AiAgentIssueClient client,
       UserRepository users,
+      AiRunRecorder aiRunRecorder,
       PlatformTransactionManager txManager,
       @Value("${workplace.public-base-url:}") String publicBaseUrl) {
     this.settings = settings;
@@ -128,6 +134,7 @@ public class PersonalReportGenerator {
     this.assistantResolver = assistantResolver;
     this.client = client;
     this.users = users;
+    this.aiRunRecorder = aiRunRecorder;
     this.tx = new TransactionTemplate(txManager);
     // 공개 주소가 없으면 링크 다듬기를 건너뛴다 — 경고는 프로젝트 리포트 생성기가 기동 때 이미 한 번 남긴다(같은 설정값).
     this.issueUrlPrefix = ProjectReportGenerator.issueUrlPrefix(publicBaseUrl);
@@ -163,6 +170,11 @@ public class PersonalReportGenerator {
         // 설정 상태라 실패로 세지 않는다 — 행을 남기지 않아 비서를 붙인 뒤 다음 날부터 정상으로 돈다.
         log.debug("비서가 없어 개인 일일 보고를 건너뜀 userId={}", userId);
         tx.executeWithoutResult(s -> reports.release(id));
+        AiRunSkips.record(
+            aiRunRecorder,
+            AiRunSkips.PERSONAL_REPORT,
+            aiRunContext(userId, now, true),
+            AiRunSkips.NO_ASSISTANT);
         // 그날을 버리므로 앞선 재시도의 실패 수도 지운다(다음 날로 넘어가지 않게).
         clearFailures(userId, setting);
         return Outcome.SKIPPED_NO_ASSISTANT;
@@ -218,11 +230,30 @@ public class PersonalReportGenerator {
     Optional<AssistantSpec> spec = tx.execute(s -> assistantResolver.resolveOrEmpty(userId));
     if (spec == null || spec.isEmpty()) {
       tx.executeWithoutResult(s -> reports.markFailed(reportId, NO_ASSISTANT, now));
+      AiRunSkips.record(
+          aiRunRecorder,
+          AiRunSkips.PERSONAL_REPORT,
+          aiRunContext(userId, now, false),
+          AiRunSkips.NO_ASSISTANT);
       return Outcome.SKIPPED_NO_ASSISTANT;
     }
 
     Optional<Long> pendingPageId = tx.execute(s -> reports.pendingPageId(reportId));
     return generate(userId, period, reportId, spec.get(), pendingPageId, false, false, now);
+  }
+
+  /**
+   * AI 처리 기록의 호출 맥락(WP-1829) — 대상은 보고 주인(USER). 자동은 AUTO + sourceAt=now, 수동은 주인이 직접 한 일(USER)이라
+   * sourceAt 없음.
+   */
+  private static AiRunContext aiRunContext(long userId, OffsetDateTime now, boolean auto) {
+    return new AiRunContext(
+        "USER",
+        String.valueOf(userId),
+        null,
+        auto ? AUTO : "USER",
+        auto ? null : userId,
+        auto ? now : null);
   }
 
   /** 그날을 실패 아닌 이유(이미 닫힘·비서 없음)로 끝낼 때 — 앞선 재시도가 남긴 연속 실패 수가 있으면 지운다. */
@@ -267,6 +298,11 @@ public class PersonalReportGenerator {
                 reportId, facts.completed(), facts.created(), facts.statusChanged(), now);
             if (auto) settings.resetFailures(userId);
           });
+      AiRunSkips.record(
+          aiRunRecorder,
+          AiRunSkips.PERSONAL_REPORT,
+          aiRunContext(userId, now, auto),
+          AiRunSkips.EMPTY);
       return Outcome.SKIPPED_EMPTY;
     }
 
@@ -291,8 +327,11 @@ public class PersonalReportGenerator {
 
     // tx 밖 AI — 커넥션을 붙잡지 않는다.
     PersonalReportAiResult result =
-        client.writePersonalReport(
-            request(userName, period, facts, templateMarkdown, workTableInTemplate, spec));
+        AiRunScope.call(
+            aiRunContext(userId, now, auto),
+            () ->
+                client.writePersonalReport(
+                    request(userName, period, facts, templateMarkdown, workTableInTemplate, spec)));
     String markdown = result == null || result.markdown() == null ? "" : result.markdown().strip();
     if (markdown.isEmpty()) throw new ReportFailure("AI 가 빈 보고를 돌려줬어요.");
     if (ReportPageWriter.codePoints(markdown) > OUTPUT_MAX) {

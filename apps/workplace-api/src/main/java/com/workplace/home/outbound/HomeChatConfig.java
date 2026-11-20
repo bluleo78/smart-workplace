@@ -1,7 +1,8 @@
 package com.workplace.home.outbound;
 
+import com.workplace.airun.outbound.AiAgentHttp;
+import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,8 +17,8 @@ public class HomeChatConfig {
 
   /** AiAgentChatClient Bean — props 에서 baseUrl/internalToken 을 가져온다. */
   @Bean
-  public AiAgentChatClient aiAgentChatClient(AiAgentProperties props) {
-    return new AiAgentChatClient(props);
+  public AiAgentChatClient aiAgentChatClient(AiAgentProperties props, AiRunRecorder aiRunRecorder) {
+    return new AiAgentChatClient(props, aiRunRecorder);
   }
 
   /**
@@ -25,9 +26,10 @@ public class HomeChatConfig {
    * MessagingAiConfig 미러.
    */
   @Bean
-  public AiAgentContextSummaryClient aiAgentContextSummaryClient(AiAgentProperties props) {
+  public AiAgentContextSummaryClient aiAgentContextSummaryClient(
+      AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     var builder =
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
+        aiAgentHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
     return new AiAgentContextSummaryClient(builder, props.internalToken());
   }
 
@@ -36,9 +38,10 @@ public class HomeChatConfig {
    * 클라이언트를 두 용도가 같이 쓰므로 긴 쪽(followup)에 맞춘다. 무재시도.
    */
   @Bean
-  public AiAgentSuggestionClient aiAgentSuggestionClient(AiAgentProperties props) {
+  public AiAgentSuggestionClient aiAgentSuggestionClient(
+      AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     var builder =
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(25));
+        aiAgentHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(25));
     return new AiAgentSuggestionClient(builder, props.internalToken());
   }
 
@@ -47,9 +50,10 @@ public class HomeChatConfig {
    * 끝나므로 10초 여유. 무재시도.
    */
   @Bean
-  public AiAgentMemoryCleanupClient aiAgentMemoryCleanupClient(AiAgentProperties props) {
+  public AiAgentMemoryCleanupClient aiAgentMemoryCleanupClient(
+      AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     var builder =
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(40));
+        aiAgentHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(40));
     return new AiAgentMemoryCleanupClient(builder, props.internalToken());
   }
 
@@ -58,10 +62,11 @@ public class HomeChatConfig {
    * 기다린다), 배경 connect 5s / read 40s(상한 30초 + effort 재시도 여유). 무재시도.
    */
   @Bean
-  public AiAgentSharedMemoryClient aiAgentSharedMemoryClient(AiAgentProperties props) {
+  public AiAgentSharedMemoryClient aiAgentSharedMemoryClient(
+      AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     return new AiAgentSharedMemoryClient(
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(3), Duration.ofSeconds(15)),
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(40)),
+        aiAgentHttp.restClient(props.baseUrl(), Duration.ofSeconds(3), Duration.ofSeconds(15)),
+        aiAgentHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(40)),
         props.internalToken());
   }
 }

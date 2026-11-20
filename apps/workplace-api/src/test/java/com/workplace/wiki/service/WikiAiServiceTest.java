@@ -481,4 +481,26 @@ class WikiAiServiceTest {
   private WikiAiRequest continueAction() {
     return new WikiAiRequest(WikiAiAction.CONTINUE, null, null);
   }
+
+  /** WP-1829: executor 스레드로 넘어가도 AI 처리 기록의 실행 주체가 요청자(USER)로 잡힌다. */
+  @Test
+  void startCompose_실행_주체를_요청자_USER_로_넘긴다() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    java.util.concurrent.atomic.AtomicReference<com.workplace.airun.context.AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    doAnswer(
+        inv -> {
+          seen.set(com.workplace.airun.context.AiRunScope.current());
+          return null;
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    service.startCompose(CALLER, PAGE_ID, continueAction());
+
+    assertThat(seen.get().actorType()).isEqualTo("USER");
+    assertThat(seen.get().actorId()).isEqualTo(CALLER);
+  }
 }
