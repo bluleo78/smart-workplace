@@ -37,7 +37,7 @@ export function RowMenuButton({
         e.preventDefault();
         e.stopPropagation();
         const r = e.currentTarget.getBoundingClientRect();
-        onOpenMenu(issue, { x: r.right, y: r.bottom, align: 'end' });
+        onOpenMenu(issue, { x: r.right, y: r.bottom, align: 'end', origin: e.currentTarget });
       }}
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',

@@ -6,6 +6,8 @@ export interface RowLinkMenuAnchor {
   x: number
   y: number
   align: 'start' | 'end'
+  /** 메뉴를 연 요소(행·줄 또는 ⋯ 단추) — 닫을 때 초점 복귀 범위를 정한다(WP-1778). */
+  origin?: HTMLElement
 }
 
 /**
@@ -20,11 +22,12 @@ export function rowLinkMenuAnchorFromContextMenu(e: MouseEvent<HTMLElement>): Ro
   if (selection && !selection.isCollapsed && selection.toString().trim() !== '') return null
   const r = e.currentTarget.getBoundingClientRect()
   const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
-  return inside ? { x: e.clientX, y: e.clientY, align: 'start' } : { x: r.left + 16, y: r.bottom, align: 'start' }
+  const origin = e.currentTarget
+  return inside ? { x: e.clientX, y: e.clientY, align: 'start', origin } : { x: r.left + 16, y: r.bottom, align: 'start', origin }
 }
 
 /** ⋯ 단추 아래 오른쪽 모서리 자리. */
 export function rowLinkMenuAnchorFromButton(el: HTMLElement): RowLinkMenuAnchor {
   const r = el.getBoundingClientRect()
-  return { x: r.right, y: r.bottom, align: 'end' }
+  return { x: r.right, y: r.bottom, align: 'end', origin: el }
 }
