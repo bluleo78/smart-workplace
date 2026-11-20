@@ -5,6 +5,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.mail.dto.UserMailProfile;
+import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
@@ -206,6 +207,10 @@ public class MailAnalysisService {
         });
   }
 
+  /** 규칙만으로 회신 필요가 정해져 LLM 을 부르지 않을 때의 ④ 결과 — raw needsReply=false, 요약·분류·기억 반영 없음(WP-1812). */
+  private static final AnalyzePersonalResult RULE_SKIPPED_RESULT =
+      new AnalyzePersonalResult(false, null, false, null);
+
   /** ③ 대상: 적재·검증된 사본 + content 연결 + 미시도. */
   private static boolean contentAnalyzable(AnalysisContext ctx) {
     return ctx != null && ctx.fetched() && ctx.contentId() != null && !ctx.contentAttempted();
@@ -220,38 +225,67 @@ public class MailAnalysisService {
    *
    * @param profiles 이 배치 동안 공유하는 "나" 프로필 캐시(WP-150)
    */
-  public void analyzeAfterLoad(long userId, long messageId, UserMailProfileCache profiles) {
+  public AfterLoadOutcome analyzeAfterLoad(
+      long userId, long messageId, UserMailProfileCache profiles) {
     boolean unread;
     try {
       AnalysisContext ctx = readContext(userId, messageId);
       // 본문 보충 대상(listMissingBody)은 폴더를 가리지 않으므로 여기서 INBOX 만 남긴다(④ 의 읽음 제한은 아래)
       if (ctx == null || !"INBOX".equals(ctx.folderName())) {
-        return;
+        return AfterLoadOutcome.SKIPPED;
       }
       if (!EmailMessageRepository.isWithinNeedsReplyWindow(ctx.receivedAt())) {
-        return; // 회신필요 기간 밖 옛 메일은 선제 분석하지 않는다 — 열람 시 요약 GET 이 온디맨드로 처리
+        return AfterLoadOutcome.SKIPPED; // 회신필요 기간 밖 옛 메일은 선제 분석하지 않는다 — 열람 시 요약 GET 이 온디맨드로 처리
       }
       unread = !ctx.seen();
       if (!unread && !ctx.aiEnabled()) {
-        return; // 읽은 메일은 AI 켠 계정만 — 꺼진 계정의 읽은 메일 비용 방지(열람 시 요약 GET 이 온디맨드로 처리)
+        // 읽은 메일은 AI 켠 계정만 — 꺼진 계정의 읽은 메일 비용 방지(열람 시 요약 GET 이 온디맨드로 처리)
+        return AfterLoadOutcome.SKIPPED;
       }
     } catch (RuntimeException e) {
       log.warn("적재 후 분석 대상 조회 실패 (messageId={}): {}", messageId, e.toString());
-      return;
+      return AfterLoadOutcome.SKIPPED;
     }
+    boolean responded = false;
     try {
-      analyzeContent(userId, messageId);
+      responded = analyzeContent(userId, messageId);
     } catch (RuntimeException e) {
       log.warn("원본 분석 건너뜀 (messageId={}): {}", messageId, e.toString());
+      if (MailAnalysisBreaker.countsAsModelFailure(e)) {
+        // 모델이 멈춘 상태면 ④ 도 같은 시간 초과를 또 기다릴 뿐이다 — 메일당 두 번 기다리지 않고 바로 실패로 돌려준다
+        return AfterLoadOutcome.AI_FAILED;
+      }
     }
     if (!unread) {
-      return; // 읽은 메일의 ④(회신필요·개인 요약)는 열람 시 요약 GET 이 온디맨드로 만든다
+      // 읽은 메일의 ④(회신필요·개인 요약)는 열람 시 요약 GET 이 온디맨드로 만든다 — ③ 이 모델을 불렀을 때만 응답으로 센다
+      return responded ? AfterLoadOutcome.RESPONDED : AfterLoadOutcome.SKIPPED;
     }
+    boolean aiFailed = false;
     try {
-      analyzePersonal(userId, messageId, profiles);
+      responded |= analyzePersonal(userId, messageId, profiles);
     } catch (RuntimeException e) {
+      aiFailed = MailAnalysisBreaker.countsAsModelFailure(e);
       log.warn("개인 분석 건너뜀 (messageId={}): {}", messageId, e.toString());
     }
+    return outcomeOf(responded, aiFailed);
+  }
+
+  /** {@link #analyzeAfterLoad} 의 결과 — 백필 회로 차단기(WP-1812)가 모델 상태를 판단하는 근거. */
+  public enum AfterLoadOutcome {
+    /** 대상이 아니거나 모델을 부르지 않았다 — 회로에 영향 없음. */
+    SKIPPED,
+    /** 모델이 응답했다. */
+    RESPONDED,
+    /** 모델을 불렀으나 응답을 못 받았다({@link MailAiException}) — 응답한 단계가 없을 때만. */
+    AI_FAILED
+  }
+
+  /** 한 단계라도 응답했으면 모델은 살아 있다(RESPONDED), 아니고 모델 실패가 있었으면 AI_FAILED. */
+  private static AfterLoadOutcome outcomeOf(boolean responded, boolean aiFailed) {
+    if (responded) {
+      return AfterLoadOutcome.RESPONDED;
+    }
+    return aiFailed ? AfterLoadOutcome.AI_FAILED : AfterLoadOutcome.SKIPPED;
   }
 
   /** 분석 배치 하나 동안 쓸 "나" 프로필 캐시 — 배치 호출부(백필 루프)가 패스마다 1개 만든다. */
@@ -261,13 +295,16 @@ public class MailAnalysisService {
 
   /**
    * ④ 개인 분석 — 계정 AI 사용 + 비서(개인→공통) + 사본 미분석이면 회신필요 원판정(raw)을 받고, 개인 비서면 개인 요약도(생략 조건 제외), 공통 비서가 없고
-   * 원본 분류가 비었으면 분류도 받는다. 규칙에 걸려도 LLM 은 부른다(raw 는 ⑤ 재계산 입력) — 개인 요약만 요청하지 않는다.
+   * 원본 분류가 비었으면 분류도 받는다. 분류와 무관한 규칙(blockedByRules)으로 회신 필요가 정해졌고 요약·분류·기억 반영도 필요 없으면 LLM 을 부르지 않고
+   * raw=false 로 기록한다(WP-1812). 분류만 걸린 메일은 부른다. 그 밖에는 규칙에 걸려도 LLM 을 부른다(raw 는 ⑤ 재계산 입력) — 개인 요약만
+   * 요청하지 않는다.
    *
    * <p>LLM·파싱 실패, needsReply 누락은 예외 — ai_analyzed_at 이 남지 않아 다음 백필 대상이 된다. 개인 요약만 형식이 틀리면
    * needsReply 는 저장하고 개인 요약은 미시도로 둔다(열람 시 요약만 다시 시도). 읽음 여부는 보지 않는다 — 선제 호출부가 안 읽은 메일만 고른다(판단 13).
    *
    * @param profiles 이 배치 동안 공유하는 "나" 프로필 캐시(WP-150)
-   * @return 이번 호출이 ai-agent 를 불러 응답을 받았으면 true(분석 대상 아님·비서 없음·빈 본문·다른 실행 대기면 false, WP-166)
+   * @return 이번 호출이 ai-agent 를 불러 응답을 받았으면 true(분석 대상 아님·비서 없음·빈 본문·규칙으로 LLM 생략·다른 실행 대기면 false,
+   *     WP-166)
    */
   public boolean analyzePersonal(long userId, long messageId, UserMailProfileCache profiles) {
     AnalysisContext pre = readContext(userId, messageId);
@@ -311,19 +348,27 @@ public class MailAnalysisService {
     // 분류는 ③(공통 비서)이 맡는다 — 공통 비서가 없고 원본 분류가 비었을 때만 보충
     boolean wantCategory =
         ctx.contentCategory() == null && assistantResolver.resolveWorkspaceOrEmpty().isEmpty();
+    // WP-1812: 분류와 무관한 규칙(자기 발신·자동 발송·수신자 아님)으로 최종 회신 필요가 false 로 정해졌고 요약·분류·기억 반영도
+    // 요청하지 않으면 LLM 이 줄 것이 없다(raw 는 ⑤ 에서 어차피 false 로 덮인다). 모델이 안 되는 때 백필이 이런 메일로 호출을 낭비하지 않도록
+    // 부르지 않고 raw=false 로 기록한다. 분류 규칙은 생략 근거가 아니다 — 분류는 사용자가 나중에 바꿀 수 있어, 생략해 raw=false 로
+    // 저장하면 업무로 바꿔도 회신 필요가 되지 못한다.
+    boolean blocked = NeedsReplyRules.blockedByRules(rules);
+    boolean callAgent = wantPersonal || wantCategory || memories != null || !blocked;
     AnalyzePersonalResult r =
-        mailClient.analyzePersonal(
-            personalRequest(
-                ctx,
-                bodyInput(ctx, newBody),
-                me,
-                rules,
-                contextLoader.load(userId, ctx, me),
-                true,
-                wantPersonal,
-                wantCategory,
-                spec,
-                memories));
+        callAgent
+            ? mailClient.analyzePersonal(
+                personalRequest(
+                    ctx,
+                    bodyInput(ctx, newBody),
+                    me,
+                    rules,
+                    contextLoader.load(userId, ctx, me),
+                    true,
+                    wantPersonal,
+                    wantCategory,
+                    spec,
+                    memories))
+            : RULE_SKIPPED_RESULT;
     if (r.needsReply() == null) {
       throw new IllegalStateException("개인 분석 응답에 needsReply 가 없음 (messageId=" + messageId + ")");
     }
@@ -361,7 +406,7 @@ public class MailAnalysisService {
               return true;
             });
     if (!Boolean.TRUE.equals(saved)) {
-      return true; // agent 는 응답했다 — 저장만 다른 실행에 밀렸다
+      return callAgent; // agent 를 불렀다면 응답했다 — 저장만 다른 실행에 밀렸다
     }
     // 커밋 뒤 한 번 더 — ③ 저장(recomputeForContent)과 ④ 저장이 READ COMMITTED 로 겹치면 서로의 결과(분류·raw)를 못 보고 ⑤ 를
     // 계산할 수 있다.
@@ -373,7 +418,7 @@ public class MailAnalysisService {
           finalizer.recompute(messageId);
           notifier.mailChanged(userId, ctx.accountId(), messageId, null);
         });
-    return true;
+    return callAgent; // LLM 을 건너뛴 저장이면 false — 호출부(백필 회로)는 모델 응답으로 세지 않는다
   }
 
   /**

@@ -16,6 +16,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailAnalysisBreaker;
 import com.workplace.mail.service.MailAnalysisService;
 import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailBodyFetcher;
@@ -48,7 +49,14 @@ class MailBackfillServiceAnalysisTest {
     when(fetcher.fetchBody(7L, loaded)).thenReturn(true);
     when(fetcher.fetchBody(7L, failed)).thenReturn(false);
 
-    new MailBackfillService(repo, fetcher, progress, analysis, tx, mock(MailPushService.class))
+    new MailBackfillService(
+            repo,
+            fetcher,
+            progress,
+            analysis,
+            tx,
+            mock(MailPushService.class),
+            new MailAnalysisBreaker())
         .backfillNow(7L, 9L);
 
     InOrder order = inOrder(progress, analysis);
@@ -75,7 +83,14 @@ class MailBackfillServiceAnalysisTest {
     when(fetcher.fetchBody(7L, b)).thenReturn(true);
     doThrow(new RuntimeException("boom")).when(analysis).analyzeAfterLoad(eq(7L), eq(1L), any());
 
-    new MailBackfillService(repo, fetcher, progress, analysis, tx, mock(MailPushService.class))
+    new MailBackfillService(
+            repo,
+            fetcher,
+            progress,
+            analysis,
+            tx,
+            mock(MailPushService.class),
+            new MailAnalysisBreaker())
         .backfillNow(7L, 9L);
 
     verify(progress, times(1)).finish(9L);
@@ -101,7 +116,14 @@ class MailBackfillServiceAnalysisTest {
     }
     when(repo.listMissingBody(9L, MailBackfillService.BATCH_LIMIT)).thenReturn(targets);
 
-    new MailBackfillService(repo, fetcher, progress, analysis, tx, mock(MailPushService.class))
+    new MailBackfillService(
+            repo,
+            fetcher,
+            progress,
+            analysis,
+            tx,
+            mock(MailPushService.class),
+            new MailAnalysisBreaker())
         .backfillNow(7L, 9L);
 
     verify(analysis, times(MailBackfillService.ANALYZE_AFTER_LOAD_LIMIT))
@@ -131,7 +153,8 @@ class MailBackfillServiceAnalysisTest {
     EmailAccountResponse account = mock(EmailAccountResponse.class);
     TenantContext.set(1L);
     try {
-      new MailBackfillService(repo, fetcher, progress, analysis, tx, push)
+      new MailBackfillService(
+              repo, fetcher, progress, analysis, tx, push, new MailAnalysisBreaker())
           .backfill(7L, 9L, new NewMailPush(account, 3L));
     } finally {
       TenantContext.clear();
@@ -163,7 +186,8 @@ class MailBackfillServiceAnalysisTest {
               progress,
               mock(MailAnalysisService.class),
               tx,
-              push)
+              push,
+              new MailAnalysisBreaker())
           .backfill(7L, 9L, new NewMailPush(account, 3L));
     } finally {
       TenantContext.clear();
@@ -189,7 +213,8 @@ class MailBackfillServiceAnalysisTest {
             mock(MailSyncProgress.class),
             mock(MailAnalysisService.class),
             tx,
-            push)
+            push,
+            new MailAnalysisBreaker())
         .backfillNow(7L, 9L);
 
     verify(push, never()).sendNewMail(anyLong(), any(), anyLong());

@@ -26,6 +26,8 @@ public class OutboundConfig {
   /**
    * ai-agent 발사 전용 executor. dispatcher 의 @TransactionalEventListener 핸들러를 호출 스레드와 분리해 ai-agent 다운
    * 시의 HTTP 재시도 백오프(최대 7s)가 도메인 API 응답을 막지 않도록 보장한다. core/max 2/4, queue 100 — 발사 부하는 매우 낮으므로 충분.
+   *
+   * <p>짧은 발사 전용 — 오래 붙잡는 일(메일 분석·계정 동기화 등)은 두지 않는다(WP-1812: 메일 분석이 60초씩 붙잡아 이슈·채팅 이벤트가 거절됐다).
    */
   @Bean(name = "aiAgentEventExecutor")
   public Executor aiAgentEventExecutor() {
@@ -323,6 +325,42 @@ public class OutboundConfig {
     // TenantContext 전파 — @Async AFTER_COMMIT 핸들러가 워커 스레드에서 트랜잭션을 시작할 때
     // TenantAwareTransactionManager 가 GUC(app.tenant_id) 를 주입할 수 있도록.
     // (issue_watcher 등 RLS 보호 테이블 조회가 fail-closed 로 차단되지 않도록 하는 핵심 조치)
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
+   * 메일 선제 분석·적재 백필·AI 켬 백필 전용 executor(WP-1812). 한 건이 LLM 호출로 스레드를 수십 초 점유하므로 이벤트 발사용 {@code
+   * aiAgentEventExecutor} 와 분리한다. core/max 2·queue 50 — 넘치면 기본 AbortPolicy 가 TaskRejectedException
+   * 을 던지고 호출부가 진행바를 끝내고 로그만 남긴다(다음 주기가 다시 집는다). TenantContext 를 전파해 워커의 트랜잭션이 RLS GUC 를 받게 한다.
+   */
+  @Bean(name = "mailAnalysisExecutor")
+  public ThreadPoolTaskExecutor mailAnalysisExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);
+    executor.setMaxPoolSize(2);
+    executor.setQueueCapacity(50);
+    executor.setThreadNamePrefix("mail-analysis-");
+    executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
+   * 메일·캘린더 계정 즉시 동기화와 계정 정리 전용 executor(WP-1812). IMAP/Graph 네트워크 I/O 가 오래 걸려 이벤트 발사 풀과 나누고, 분석 풀과도
+   * 나눠 동기화가 분석 뒤에 줄 서지 않게 한다. core 2·max 4·queue 100, 넘치면 AbortPolicy(호출부가 TaskRejectedException
+   * 처리). TenantContext 를 전파한다.
+   */
+  @Bean(name = "mailAccountSyncExecutor")
+  public ThreadPoolTaskExecutor mailAccountSyncExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);
+    executor.setMaxPoolSize(4);
+    executor.setQueueCapacity(100);
+    executor.setThreadNamePrefix("mail-account-sync-");
+    executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
     executor.setTaskDecorator(new TenantContextTaskDecorator());
     executor.initialize();
     return executor;

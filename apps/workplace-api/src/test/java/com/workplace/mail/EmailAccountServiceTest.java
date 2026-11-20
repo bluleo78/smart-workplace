@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
@@ -31,6 +32,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * EmailAccountService CRUD·암복호화·연결 테스트 게이트·소유 격리 통합 테스트. GreenMail(IMAP/SMTP — MailTestPorts, 평문)로
@@ -361,11 +364,21 @@ class EmailAccountServiceTest extends IntegrationTestBase {
             "pw",
             true /* aiEnabled = true */);
     service.update(user, created.id(), onReq);
+    // WP-1812: 커밋 전에는 제출하지 않고(옛 ai_enabled 를 읽는 레이스 방지), 커밋 뒤에만 1회 제출한다
+    verifyNoInteractions(classifyBackfillService);
+    fireAfterCommit();
     verify(classifyBackfillService, times(1)).classifyRecentUnread(user, created.id());
 
     // on→on: 이미 on 이므로 추가 호출 없음
     service.update(user, created.id(), onReq);
+    // 커밋 뒤 콜백은 첫 전환에서만 등록됐다(두 번째 update 는 등록 없음) — 이미 실행한 콜백을 다시 돌리지 않으므로 호출이 늘지 않는다
     verifyNoMoreInteractions(classifyBackfillService);
+  }
+
+  /** 테스트 트랜잭션은 롤백되어 afterCommit 이 오지 않으므로, 등록된 커밋 뒤 콜백을 직접 호출해 커밋을 흉내 낸다. */
+  private static void fireAfterCommit() {
+    TransactionSynchronizationManager.getSynchronizations()
+        .forEach(TransactionSynchronization::afterCommit);
   }
 
   @Test

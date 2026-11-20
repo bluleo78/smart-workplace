@@ -15,6 +15,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -127,8 +128,14 @@ public class MailSyncService {
         progress.startBodies(accountId, shown);
         // WP-1739: 보충을 띄우면 새 메일 푸시는 보충이 끝난 뒤 보충이 보낸다 — 자동 발송 판정(auto_generated)이 본문을 받을 때
         // 헤더로 정해지므로, 지금 판정하면 대량·자동 발송 메일이 「업무 메일만」에서 걸러지지 않는다.
-        backfillService.backfill(userId, accountId, deferredPush(account, maxInboxId));
-        triggeredBackfill = true;
+        // WP-1812: 분석 실행기가 가득 차 거절되면 보충을 띄우지 못한 것이다 — triggeredBackfill 을 false 로 둬 finally 가
+        // 진행바를 끝내게 하고(백필이 끝낼 책임을 못 진다), 새 메일 푸시도 아래에서 바로 보낸다. 남은 본문은 다음 주기가 다시 집는다.
+        try {
+          backfillService.backfill(userId, accountId, deferredPush(account, maxInboxId));
+          triggeredBackfill = true;
+        } catch (TaskRejectedException e) {
+          log.warn("메일 본문 보충 실행기가 가득 차 건너뜀 — 다음 주기에 재시도 account={}", accountId);
+        }
       }
       // 동기화 성공 — 마지막 동기화 시각 기록(자동·수동 공통). tx-local GUC 위해 txTemplate 사용.
       // 서버 메일함 목록이 바뀐 것(WP-960)도 같은 이벤트로 알린다.
@@ -156,7 +163,12 @@ public class MailSyncService {
       // AI 게이트는 계정 단위(ai_enabled) — 호출자가 책임진다. 분석 서비스의 자체 게이트(비서 해석)는
       // 유저/비서 설정 단위라 계정 ai_enabled 와 어긋나므로, 여기서 OFF 계정을 미리 거른다(불필요한 IMAP fetch·요약 예외 스팸 방지).
       if (account.aiEnabled()) {
-        summaryBackfillService.summarizeRecentUnread(userId, accountId);
+        try {
+          summaryBackfillService.summarizeRecentUnread(userId, accountId);
+        } catch (TaskRejectedException e) {
+          // WP-1812: 분석 실행기 포화 — 동기화 결과는 그대로 돌려주고 요약은 다음 주기에 맡긴다.
+          log.warn("메일 선제 요약 실행기가 가득 차 건너뜀 account={}", accountId);
+        }
       }
       return result;
     } finally {
