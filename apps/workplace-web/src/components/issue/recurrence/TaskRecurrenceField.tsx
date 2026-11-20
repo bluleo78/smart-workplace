@@ -53,9 +53,10 @@ export function TaskRecurrenceField({
             // 조회 전에는 폼 초기값을 모르니 잠근다(실패하면 다시 열어 새로 만들 수 있게 풀어 둔다).
             disabled={q.isLoading || disabled}
             // WP-1388: 공용 Button 은 한 줄 고정(whitespace-nowrap·h-8)이라 긴 일정 문구가 속성 칸 밖으로 잘렸다 — 칸 폭 안에서 줄바꿈한다(말줄임 안 함).
-            // 한 줄일 때는 min-h-8 + 위아래 5px 로 예전 h-8(32px) 높이를 지키고, 짧은 문구는 예전처럼 글자 폭만큼만 차지한다.
+            // 한 줄일 때는 min-h-8 + 위아래 5px 로 예전 h-8(32px) 높이를 지킨다.
+            // WP-1809: 짧은 문구도 글자 폭이 아니라 칸 폭 가득(w-full)으로 그려 위 칸들과 오른쪽 끝을 맞추고, 글은 왼쪽(justify-start)에 둔다.
             className={cn(
-              'h-auto min-h-8 max-w-full items-start py-[5px] text-left whitespace-normal',
+              'h-auto min-h-8 w-full items-start justify-start py-[5px] text-left whitespace-normal',
               !r && 'text-muted-foreground',
             )}
           >
@@ -92,8 +93,10 @@ export function TaskRecurrenceField({
           <TaskRecurrenceEditor projectKey={projectKey} number={number} recurrence={r} onDone={() => setOpen(false)} />
         </PopoverContent>
       </Popover>
+      {/* WP-1809: 「다음 실행」 은 왼쪽, 「지금 실행」 은 카드 오른쪽 끝. 데스크톱 레일이 좁아 줄이 꺾이면 버튼이 아래 줄 왼쪽부터 놓인다
+          (모바일 속성 시트는 이 상태 줄을 그리지 않고 RecurrenceRunNowButton 만 따로 둔다). */}
       {r ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1" data-testid="task-recurrence-status-row">
           <TaskRecurrenceStatus recurrence={r} />
           <RecurrenceRunNowButton projectKey={projectKey} number={number} recurrence={r} locked={disabled} />
         </div>

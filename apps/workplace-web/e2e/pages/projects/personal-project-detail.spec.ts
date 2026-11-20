@@ -5,11 +5,12 @@
 // 검색/필터/그룹 쿼리 파라미터는 페이지 테스트 src/pages/projects/personalProjectDetail.test.tsx 가 지킨다.
 import { createChatMessagePage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
+import { createIssueRecurrence } from '../../factories/issueRecurrence.factory';
 import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { boxOf } from '../../fixtures/layout';
+import { boxOf, expectEndAligned } from '../../fixtures/layout';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import type { IssueStatus } from '../../../src/types/issue';
@@ -475,7 +476,7 @@ test('「몇 시간마다」를 골라 팝오버가 커져도 화면 안에 머�
 });
 
 // WP-1388 — 「AI 에게 맡기기」 요약 버튼이 공용 Button 의 한 줄 고정(whitespace-nowrap·h-8)이라, 긴 담당 AI 이름 + 「몇 시간마다」 문구가
-// 속성 레일(300px) 밖으로 넘쳐 잘렸다. 긴 문구는 레일 폭 안에서 줄바꿈해 모두 보이고, 짧은 문구는 예전처럼 한 줄 높이를 지킨다.
+// 속성 레일(300px) 밖으로 넘쳐 잘렸다. 긴 문구는 레일 폭 안에서 줄바꿈해 모두 보이고, 짧은 문구는 한 줄 높이를 지킨다(폭은 WP-1809 부터 칸 폭 가득).
 // WP-1413 — 요약을 두 줄(1줄 AI 이름, 2줄 반복 아이콘 + 일정)로 나눴다. 레일 폭에서 각 줄이 한 줄로 머물고(일정이 이름과 섞여 꺾이지 않고)
 // 버튼이 레일 밖으로 넘치지 않는지 본다. jsdom 은 줄바꿈·넘침을 잴 수 없어 브라우저에서 기하로 확인한다.
 for (const c of [
@@ -485,7 +486,6 @@ for (const c of [
     time: '09:00',
     agentName: 'AI 이슈 관리자 운영팀',
     schedule: '월·수·금 09~18시 · 1시간마다',
-    short: false,
   },
   {
     name: '시안의 「평일 07~21시 · 2시간마다」',
@@ -493,33 +493,25 @@ for (const c of [
     time: '07:00',
     agentName: 'AI 이슈 관리자',
     schedule: '평일 07~21시 · 2시간마다',
-    short: false,
   },
   {
-    name: '짧은 문구는 글자 폭만큼만 차지한다',
+    name: '짧은 문구도 칸 폭 가득 차지한다',
     rrule: 'FREQ=WEEKLY;BYDAY=MO',
     time: '08:30',
     agentName: '내 AI 비서',
     schedule: '매주 월 08:30',
-    short: true,
   },
 ]) {
   test(`「AI 에게 맡기기」 요약 버튼 두 줄: ${c.name}(WP-1388·WP-1413)`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1400, height: 900 });
     await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
     await mockTaskDetail(page);
-    await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/recurrence`, {
-      rrule: c.rrule,
-      time: c.time,
-      enabled: true,
-      nextRunAt: null,
-      consecutiveFailures: 0,
-      lastRunAt: null,
-      agentUserId: 900,
-      agentName: c.agentName,
-      editable: true,
-      testRunning: false,
-    });
+    await mockApi(
+      page,
+      'GET',
+      `/api/v1/projects/${KEY}/issues/1/recurrence`,
+      createIssueRecurrence({ rrule: c.rrule, time: c.time, agentName: c.agentName, nextRunAt: null }),
+    );
     await page.goto(`/projects/${KEY}?task=1`);
 
     const trigger = page.getByTestId('task-recurrence-trigger');
@@ -549,7 +541,51 @@ for (const c of [
     expect(sc.height, `일정 줄 높이 ${sc.height} vs 줄 높이 ${lineHeights[1]}`).toBeLessThanOrEqual(lineHeights[1] + 1);
     // 일정 줄은 이름 줄 아래에 있다.
     expect(sc.y).toBeGreaterThanOrEqual(a.y + a.height - 1);
-    // 짧은 문구는 레일 폭으로 늘어나지 않고 글자 폭만큼만 차지한다(옆 피커들과 같은 모양).
-    if (c.short) expect(t.width, `짧은 문구 폭 ${t.width} vs 레일 안쪽 폭 ${railInnerRight - r.x}`).toBeLessThan(railInnerRight - r.x - 40);
+    // WP-1809: 「짧은 문구는 글자 폭만큼」 결정을 「칸 폭 가득」으로 바꿨다 — 짧든 길든 트리거 오른쪽 끝이 레일 안쪽 끝과 같다.
+    expect(Math.abs(t.x + t.width - railInnerRight), `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${railInnerRight}`).toBeLessThanOrEqual(1);
   });
 }
+
+// WP-1809: 「AI 에게 맡기기」 카드는 위 칸(상태 고르기)과 오른쪽 끝이 같고, 상태 줄의 「지금 실행」 은 카드 오른쪽 끝에 붙는다.
+test('「AI 에게 맡기기」 카드는 위 칸과 오른쪽 끝이 같고, 지금 실행 버튼 끝은 카드 끝과 같다(WP-1809)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/recurrence`, createIssueRecurrence());
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const trigger = page.getByTestId('task-recurrence-trigger');
+  const runNow = page.getByTestId('task-recurrence-run-now');
+  const statusRow = page.getByTestId('task-recurrence-status-row');
+  await expect(runNow).toBeVisible();
+  // 카드 끝 = 위 칸(상태 고르기) 끝, 버튼 끝 = 카드 끝.
+  await expectEndAligned(trigger, page.getByTestId('personal-task-rail').getByTestId('issue-status-select'));
+  await expectEndAligned(runNow, trigger);
+  const [b, row, text] = await Promise.all([
+    boxOf(runNow),
+    boxOf(statusRow),
+    boxOf(statusRow.getByTestId('task-recurrence-status')),
+  ]);
+  // 「다음 실행」 글과 버튼이 겹치지 않는다.
+  expect(b.x, `버튼 왼쪽 ${b.x} vs 글 오른쪽 ${text.x + text.width}`).toBeGreaterThan(text.x + text.width);
+  expect(b.y + b.height, `버튼 아래끝 ${b.y + b.height} vs 상태 줄 아래끝 ${row.y + row.height}`).toBeLessThanOrEqual(row.y + row.height + 1);
+});
+
+test('일정이 없어도 「AI 에게 맡기기」 카드 오른쪽 끝은 레일 안쪽 끝과 같다(WP-1809)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/recurrence`, null);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const trigger = page.getByTestId('task-recurrence-trigger');
+  await expect(trigger).toBeVisible();
+  const rail = page.getByTestId('personal-task-rail');
+  const [t, r, railPadRight] = await Promise.all([
+    boxOf(trigger),
+    boxOf(rail),
+    rail.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight)),
+  ]);
+  const railInnerRight = r.x + r.width - railPadRight;
+  expect(Math.abs(t.x + t.width - railInnerRight), `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${railInnerRight}`).toBeLessThanOrEqual(1);
+});

@@ -1,8 +1,8 @@
 // 「지금 실행」 버튼(WP-1313) — 실행 일정이 있는 이슈에서 다음 회차를 기다리지 않고 한 번 실행한다. 다음 실행 시각·실패 횟수는 그대로이고,
 // 결과는 이 작업의 채팅에 「테스트 실행」 표시로 남는다. 되돌릴 수 없는 쓰기(메일 보내기 등)는 실행 전에 채팅에서 묻는다.
 // 데스크톱 「AI 에게 맡기기」 칸(TaskRecurrenceField)과 모바일 편집 시트가 함께 쓴다. 남의 개인 비서 일정·읽기 전용 이슈·실행 중이면 잠그고
-// 이유를 툴팁으로 보인다(판정은 lib/issueRecurrence 의 runNowState).
-import { Play } from 'lucide-react';
+// 이유를 툴팁으로 보인다(판정은 lib/issueRecurrence 의 runNowState). WP-1809: 실행 중에는 ▷ 대신 도는 Loader2 로 진행 중임을 보인다.
+import { Loader2, Play } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { DisabledReasonTooltip } from '@/components/ui/disabled-reason-tooltip';
@@ -26,6 +26,8 @@ export function RecurrenceRunNowButton({
   const run = useRunIssueRecurrenceNow(projectKey, number);
   const state = runNowState(recurrence, locked, run.isPending);
   if (!state.visible) return null;
+  // WP-1809: 실행 중이면 ▷ 대신 도는 표시 — 아이콘 하나만 바꿔 그린다(크기는 xs 변형이 정한다).
+  const Icon = state.running ? Loader2 : Play;
   const button = (
     <Button
       type="button"
@@ -35,7 +37,12 @@ export function RecurrenceRunNowButton({
       onClick={() => run.mutate()}
       data-testid="task-recurrence-run-now"
     >
-      <Play className="h-3.5 w-3.5" aria-hidden />
+      <Icon
+        className={state.running ? 'animate-spin motion-reduce:animate-none' : undefined}
+        aria-hidden
+        data-testid="task-recurrence-run-now-icon"
+        data-state={state.running ? 'running' : 'idle'}
+      />
       {state.running ? '실행 중…' : '지금 실행'}
     </Button>
   );

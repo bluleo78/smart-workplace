@@ -57,6 +57,21 @@ describe('TaskRecurrenceField 「지금 실행」(WP-1313)', () => {
     await waitFor(() => expect(screen.getByTestId('task-recurrence-run-now')).toHaveTextContent('실행 중…'))
     expect(screen.getByTestId('task-recurrence-run-now')).toBeDisabled()
     expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveAccessibleName(/실행 중이에요/)
+    // WP-1809: 실행 중에는 ▷ 대신 도는 아이콘을 보인다.
+    expect(screen.getByTestId('task-recurrence-run-now-icon')).toHaveAttribute('data-state', 'running')
+    expect(screen.getByTestId('task-recurrence-run-now-icon')).toHaveClass('animate-spin')
+  })
+
+  it('실행 중이 아니면 ▷ 아이콘이다(WP-1809)', async () => {
+    setup(recurrence())
+    const icon = await screen.findByTestId('task-recurrence-run-now-icon')
+    expect(icon).toHaveAttribute('data-state', 'idle')
+    expect(icon).not.toHaveClass('animate-spin')
+  })
+
+  it('잠김(남의 비서)이어도 실행 중이 아니면 ▷ 아이콘이다(WP-1809)', async () => {
+    setup(recurrence({ editable: false }))
+    expect(await screen.findByTestId('task-recurrence-run-now-icon')).toHaveAttribute('data-state', 'idle')
   })
 
   it('일정이 없으면 버튼이 없다', async () => {
