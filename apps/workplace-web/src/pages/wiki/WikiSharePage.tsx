@@ -31,6 +31,9 @@ import { useWikiPage } from '../../hooks/queries/useWikiPage'
 import { wikiKeys } from '../../hooks/queries/wikiKeys'
 import type { WikiShareResolved } from '../../types/wiki'
 
+/** 공유 하위 트리의 보이는 제목이자 랜드마크 이름 — 한 곳에서 정해 둘이 어긋나지 않게(WP-1774). */
+const SHARE_TREE_TITLE = '공유된 페이지'
+
 /**
  * 공유 링크 화면(WP-579) — /wiki/share/:token(/pages/:pageId). 스페이스 멤버가 아닌 워크스페이스 멤버가 링크로 들어온다.
  * 노트 사이드바 없이 그 페이지(하위 포함이면 공유된 하위 트리까지)만 보이고, 페이지 머리에 누가 공유했는지 보인다.
@@ -110,11 +113,11 @@ export function WikiSharePage() {
       {hasChildren && isMobile && <WikiSharePageSelect pages={data.pages} activeId={pageId} onSelect={openPage} />}
       <div className="flex min-h-0 flex-1">
         {hasChildren && !isMobile && (
-          // 공유된 하위 트리 — 하위 포함 공유일 때만. 드래그·추가·삭제 없이 읽기만 한다.
-          <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40" data-testid="wiki-share-tree">
+          // 공유된 하위 트리 — 하위 포함 공유일 때만. 드래그·추가·삭제 없이 읽기만 한다. 랜드마크 이름은 보이는 제목과 같다(WP-1774).
+          <aside aria-label={SHARE_TREE_TITLE} className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40" data-testid="wiki-share-tree">
             <div className={sidebarTitleClass}>
               <LinkIcon className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
-              공유된 페이지
+              {SHARE_TREE_TITLE}
             </div>
             <WikiShareTreeNav className="min-h-0 flex-1" pages={data.pages} activeId={pageId} onOpen={openPage} />
           </aside>

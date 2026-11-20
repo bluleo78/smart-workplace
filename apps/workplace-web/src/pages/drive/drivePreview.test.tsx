@@ -298,7 +298,10 @@ describe('요약·참조 패널', () => {
   test('요약 DONE 은 패널 카드로 펼쳐 보이고 마크다운 헤딩을 파싱한다', async () => {
     const { user } = renderPreview([{ file: docx, summary: { summary: '# 파일 요약: 문서.docx\n\n이 문서의 핵심 요약입니다.', status: 'DONE' } }], { handlers: [noContent] })
     await openPreview(user, '문서.docx')
-    const card = await within(await screen.findByTestId('viewer-side-panel')).findByTestId('drive-summary-card')
+    const panel = await screen.findByTestId('viewer-side-panel')
+    // 패널은 보이는 제목 「AI 요약」 이름의 complementary 랜드마크다(WP-1774).
+    expect(await screen.findByRole('complementary', { name: 'AI 요약' })).toBe(panel)
+    const card = await within(panel).findByTestId('drive-summary-card')
     await waitFor(() => expect(card).toHaveTextContent('핵심 요약'))
     expect(within(card).getByRole('heading', { name: '파일 요약: 문서.docx' })).toBeInTheDocument()
     expect(card).not.toHaveTextContent('# 파일 요약')
