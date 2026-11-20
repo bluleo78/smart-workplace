@@ -12,6 +12,7 @@ import { describe, expect, test } from 'vitest'
 
 import { API, chatEvents, ME_ID, renderChat } from '@/test/kits/chat/testkit-b5'
 import { setRichText } from '@/test/kits/projects/issueDetailRef'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 import type { DriveLink } from '@/types/drive'
 import type { ChannelResponse, MessageAttachment, MessageResponse } from '@/types/messaging'
 
@@ -261,6 +262,24 @@ describe('반응자 (WP-106)', () => {
     expect(await screen.findByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeInTheDocument()
     await new Promise((r) => setTimeout(r, 300))
     expect(screen.queryByTestId('reactors-dialog')).not.toBeInTheDocument()
+  })
+
+  // WP-1820: 첫 조회가 실패한 뒤 다시 시도하면 status 가 pending 으로 돌아간다 — 응답 전에도 안내·초점이 남아야 한다.
+  test('WP-1820 반응자 목록 다시 시도 — 응답 전 안내·초점 유지, 응답 뒤 행', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const flaky = http.get(`${API}/messaging/messages/${MSG_ID}/reactions/users`, async () => {
+      calls += 1
+      if (calls === 1) return new HttpResponse(null, { status: 500 })
+      await promise
+      return HttpResponse.json({ items: [{ kind: 'HUMAN', userId: 3, name: '이영희' }], nextCursor: null, hasMore: false })
+    })
+    const { user } = openChannel(channel, [msg([createReaction({ emoji: '🎉', count: 1, reacted: false })])], { handlers: [flaky] })
+    await user.click(await screen.findByTestId(`message-reactors-${MSG_ID}`))
+    await clickRetryAndExpectErrorKept(user, 'reactors-error', () => calls)
+    await act(async () => { release() })
+    expect(await screen.findByTestId('reactor-row-3')).toHaveTextContent('이영희')
+    expect(screen.queryByTestId('reactors-error')).toBeNull()
   })
 })
 

@@ -1,20 +1,23 @@
 // 메모리 변경 기록의 무한 스크롤 본문 — 개인 「AI가 정리한 기록」(WP-385)과 공용 「기록 보기」(WP-386)가 같은 모양·같은 상태 안내를 쓴다.
-// 첫 묶음을 받는 중이면 항목 모양의 스켈레톤(디자인 시스템 06 §A), 첫 묶음이 실패하면 이유 문구 + 「다시 시도」(처음부터),
+// 첫 묶음을 받는 중이면 항목 모양의 스켈레톤(디자인 시스템 06 §A), 첫 묶음이 실패하면 이유 문구 + 「다시 시도」(처음부터) —
+// 다시 시도하는 동안에도 스켈레톤으로 바꾸지 않고 안내·초점을 그대로 둔다(WP-1820, lib/queryFailure),
 // 다음 묶음이 실패하면 받은 목록은 그대로 두고 그 아래에 같은 안내(그 묶음만)를 보인다. 토스트는 띄우지 않는다(자리에서 알린다).
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
 import { MemoryChangeLog } from '@/components/ai/MemoryChangeLog';
 import type { MemoryChangeLogEntry } from '@/components/ai/memoryChangeLogEntry';
+import { LoadErrorState } from '@/components/LoadErrorState';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { type LoadMoreQuery, useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel';
+import { failedWithoutData } from '@/lib/queryFailure';
 
 /** 본문이 읽는 무한 쿼리 상태 — 두 기록 쿼리(개인·공용)가 모두 만족한다. */
 type ChangeLogQuery = LoadMoreQuery &
   Pick<
     UseInfiniteQueryResult<InfiniteData<unknown>, Error>,
-    'data' | 'isPending' | 'isFetching' | 'isLoadingError' | 'isFetchingNextPage'
+    'data' | 'isPending' | 'isFetching' | 'isFetchingNextPage' | 'errorUpdateCount' | 'isPlaceholderData'
   > & { refetch: () => unknown };
 
 export function InfiniteChangeLogBody({
@@ -38,6 +41,8 @@ export function InfiniteChangeLogBody({
   empty?: ReactNode;
 }) {
   const sentinel = useLoadMoreSentinel(query, scrollRoot);
+  // 첫 묶음 실패 판정 — 다시 부르는 중(pending)에도 참이라 안내가 사라지지 않는다.
+  const firstFailed = failedWithoutData(query);
   const showEmpty = empty != null && query.data != null && entries.length === 0;
   return (
     <>
@@ -47,12 +52,10 @@ export function InfiniteChangeLogBody({
         <MemoryChangeLog entries={entries} onUndo={onUndo} isUndoing={isUndoing} testId={`${testIdPrefix}-log`} />
       )}
       <div ref={sentinel} data-testid={`${testIdPrefix}-sentinel`} aria-hidden className="h-px" />
-      {/* 다시 시도 중에도 첫 묶음 오류 상태는 성공 전까지 남는다 — 받는 중이면 스켈레톤을 먼저 본다 */}
-      {!query.data && (query.isPending || query.isFetching) && <ChangeLogSkeleton testId={`${testIdPrefix}-loading`} />}
+      {/* 첫 묶음 실패가 먼저 — 실패 뒤 다시 시도 중이면 스켈레톤 대신 안내를 남긴다. 첫 진입 로딩은 실패 전이라 스켈레톤을 본다 */}
+      {!firstFailed && !query.data && (query.isPending || query.isFetching) && <ChangeLogSkeleton testId={`${testIdPrefix}-loading`} />}
       {query.isFetchingNextPage && <p className="py-2 text-center text-xs text-muted-foreground">불러오는 중…</p>}
-      {query.isLoadingError && !query.isFetching && (
-        <ChangeLogError testId={`${testIdPrefix}-error`} message="기록을 불러오지 못했어요" onRetry={() => void query.refetch()} />
-      )}
+      {firstFailed && <LoadErrorState variant="inline" title="기록을 불러오지 못했어요" queries={[query]} testId={`${testIdPrefix}-error`} />}
       {query.isFetchNextPageError && (
         <ChangeLogError testId={`${testIdPrefix}-error`} message="다음 기록을 불러오지 못했어요" onRetry={() => void query.fetchNextPage()} />
       )}

@@ -197,7 +197,9 @@ export function memoryChangesApi(pages: AiMemoryChange[][], count30d = pages.fla
       lists.push(url)
       if (failList?.when(url)) {
         if (failList.hold) await failList.hold
-        return HttpResponse.json({ code: 'INTERNAL', message: '오류' }, { status: 500 })
+        // 풀려난 뒤 지금 규칙으로 다시 판정한다 — 붙들린 사이 실패 설정이 풀렸거나(failListWhen(null)) 이 요청에 맞지 않는 규칙으로 바뀌었으면 성공으로 이어진다.
+        // 다시 시도 응답 전 상태를 본 뒤 성공시키려고(WP-1820). 같은 조건의 규칙으로 바꿨으면 그대로 실패한다.
+        if (failList?.when(url)) return HttpResponse.json({ code: 'INTERNAL', message: '오류' }, { status: 500 })
       }
       const cursor = url.searchParams.get('cursor')
       const i = cursor ? Number(cursor.slice(1)) : 0

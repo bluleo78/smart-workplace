@@ -3,12 +3,13 @@
 // - 같은 프로젝트 하위 행에도 이슈 키(WP-1635).
 // - 열린 하위만 보이고 끝난 하위는 「완료 n건」으로 접는다, 100건씩 「더 보기」, 하위 태스크도 /children 한 갈래(WP-1684).
 // 이슈 상세 화면 배선은 subtasks·issueDetailFields 페이지 테스트가 맡는다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, it } from 'vitest'
 
 import { childrenResolver } from '@/test/kits/projects/children'
 import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 import type { IssueResponse } from '@/types/issue'
 
@@ -77,6 +78,69 @@ describe('IssueChildrenSection — 하위 목록 조회 실패', () => {
     await user.click(screen.getByRole('button', { name: '다시 시도' }))
     await waitFor(() => expect(screen.getByTestId('child-row-10')).toHaveTextContent('살아 있는 하위'))
     expect(screen.queryByTestId('children-load-error')).not.toBeInTheDocument()
+  })
+})
+
+// WP-1820: 데이터 없이 실패한 쿼리를 다시 부르면 status 가 pending 으로 돌아간다 — 그 동안에도 안내·초점이 남아야 한다.
+describe('IssueChildrenSection — WP-1820 조회 실패 뒤 다시 시도', () => {
+  it('WP-1820 하위 목록 다시 시도 — 응답 전 안내·초점 유지, 응답 뒤 행', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const { user } = renderSection(() => [child(10, 'TODO', '살아 있는 하위')], {
+      parentTypeName: 'TASK',
+      extra: [
+        http.get(CHILDREN, async () => {
+          calls += 1
+          if (calls === 1) return new HttpResponse(null, { status: 500 })
+          await promise
+          return undefined
+        }),
+      ],
+    })
+    await clickRetryAndExpectErrorKept(user, 'children-load-error', () => calls)
+    expect(screen.queryByText('로딩 중…')).toBeNull()
+    await act(async () => { release() })
+    expect(await screen.findByTestId('child-row-10')).toBeInTheDocument()
+    expect(screen.queryByTestId('children-load-error')).toBeNull()
+  })
+
+  it('WP-1820 끝난 하위 다시 시도 — 같은 기준', async () => {
+    let closedCalls = 0
+    const { promise, release } = gate()
+    const { user } = renderSection(() => [child(1, 'DONE', '끝난 하위'), child(2, 'TODO', '열린 하위')], {
+      extra: [
+        http.get(CHILDREN, async ({ request }) => {
+          if (new URL(request.url).searchParams.get('state') !== 'closed') return undefined
+          closedCalls += 1
+          if (closedCalls === 1) return new HttpResponse(null, { status: 500 })
+          await promise
+          return undefined
+        }),
+      ],
+    })
+    await user.click(await screen.findByTestId('children-closed-toggle'))
+    await clickRetryAndExpectErrorKept(user, 'children-closed-load-error', () => closedCalls)
+    expect(screen.queryByText('로딩 중…')).toBeNull()
+    await act(async () => { release() })
+    expect(await screen.findByTestId('children-closed-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('children-closed-load-error')).toBeNull()
+  })
+
+  it('WP-1820 첫 진입 로딩 중에는 실패 전이라 「로딩 중…」을 보인다', async () => {
+    const { promise, release } = gate()
+    renderSection(() => [child(10, 'TODO', '하위')], {
+      parentTypeName: 'TASK',
+      extra: [
+        http.get(CHILDREN, async () => {
+          await promise
+          return undefined
+        }),
+      ],
+    })
+    expect(await screen.findByText('로딩 중…')).toBeInTheDocument()
+    expect(screen.queryByTestId('children-load-error')).toBeNull()
+    await act(async () => { release() })
+    expect(await screen.findByTestId('child-row-10')).toBeInTheDocument()
   })
 })
 

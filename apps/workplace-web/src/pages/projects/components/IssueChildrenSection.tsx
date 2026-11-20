@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { AiDelegationBadge, delegationState } from '@/components/ai/agentWork/AiDelegationBadge';
+import { LoadErrorState } from '@/components/LoadErrorState';
 import {
   Select,
   SelectContent,
@@ -23,6 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { keepFocusProps } from '@/lib/keepFocus';
+import { failedWithoutData } from '@/lib/queryFailure';
 
 import { issuesApi } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
@@ -237,16 +239,12 @@ export function IssueChildrenSection({
         )}
       </div>
 
-      {children.isLoading ? (
-        <p className="text-xs text-muted-foreground">로딩 중…</p>
-      ) : children.isLoadingError ? (
+      {failedWithoutData(children) ? (
         // 목록을 못 불러오면 진행률(「2/3」)과 빈 목록이 어긋나 보인다 — 실패를 알리고 다시 시도를 준다(WP-858).
-        <p role="alert" className="text-xs text-destructive" data-testid="children-load-error">
-          하위 이슈를 불러오지 못했습니다.{' '}
-          <button type="button" className="underline" onClick={() => void children.refetch()}>
-            다시 시도
-          </button>
-        </p>
+        // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-1820, lib/queryFailure).
+        <LoadErrorState variant="inline" title="하위 이슈를 불러오지 못했습니다" queries={[children]} testId="children-load-error" />
+      ) : children.isLoading ? (
+        <p className="text-xs text-muted-foreground">로딩 중…</p>
       ) : items.length === 0 && hiddenCount === 0 && closedCount === 0 ? null : (
         <>
           {(items.length > 0 || hiddenCount > 0) && (
@@ -284,15 +282,16 @@ export function IssueChildrenSection({
                 완료 {closedCount}건
               </button>
               {closedExpanded &&
-                (closedChildren.isLoading ? (
+                (failedWithoutData(closedChildren) ? (
+                  // 끝난 하위도 같은 기준 — 실패 먼저, 다시 시도 중에도 안내·초점을 남긴다(WP-1820).
+                  <LoadErrorState
+                    variant="inline"
+                    title="끝난 하위 이슈를 불러오지 못했습니다"
+                    queries={[closedChildren]}
+                    testId="children-closed-load-error"
+                  />
+                ) : closedChildren.isLoading ? (
                   <p className="px-1 text-xs text-muted-foreground">로딩 중…</p>
-                ) : closedChildren.isLoadingError ? (
-                  <p role="alert" className="px-1 text-xs text-destructive" data-testid="children-closed-load-error">
-                    끝난 하위 이슈를 불러오지 못했습니다.{' '}
-                    <button type="button" className="underline" onClick={() => void closedChildren.refetch()}>
-                      다시 시도
-                    </button>
-                  </p>
                 ) : (
                   <ul className="space-y-1" data-testid="children-closed-list">
                     {closedItems.map((it) => (

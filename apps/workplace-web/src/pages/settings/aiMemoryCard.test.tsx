@@ -8,6 +8,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { controlIntersection } from '@/test/kits/layout'
+import { clickRetryAndExpectErrorKept } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 import type { AiMemoryItem } from '@/types/aiMemory'
 
@@ -770,6 +771,29 @@ describe('AI가 정리한 기록 (WP-385)', () => {
     await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(5))
     expect(changes.lists.length).toBe(before + 1)
     expect(changes.lists.at(-1)!.searchParams.get('cursor')).toBeNull()
+    expect(dialog.queryByTestId('ai-memory-cleanup-error')).not.toBeInTheDocument()
+  })
+
+  // WP-1820: 첫 묶음 실패 뒤 다시 시도하면 status 가 pending 으로 돌아간다 — 응답 전에도 안내·초점이 남고 스켈레톤은 없어야 한다.
+  test('WP-1820 기록 첫 묶음 다시 시도 — 응답 전 안내·초점 유지, 스켈레톤 없음', async () => {
+    freeze()
+    const changes = memoryChangesApi([FIVE()])
+    changes.failListWhen((u) => u.searchParams.get('size') !== '1')
+    const { user } = await openMemory([], { changes })
+    const dialogEl = await openLog(user)
+    const dialog = within(dialogEl)
+    await dialog.findByTestId('ai-memory-cleanup-error')
+    // 기록 목록(size≠1) 요청 수만 센다 — 안내 줄 횟수(size=1)는 제외. 다시 시도의 응답은 붙들어 둔다.
+    const listCalls = () => changes.lists.filter((u) => u.searchParams.get('size') !== '1').length
+    const held = gate()
+    changes.failListWhen((u) => u.searchParams.get('size') !== '1', held.p)
+    const retry = await clickRetryAndExpectErrorKept(user, 'ai-memory-cleanup-error', listCalls)
+    expect(retry).toBeInTheDocument()
+    expect(dialog.queryByTestId('ai-memory-cleanup-loading')).not.toBeInTheDocument()
+    // 실패 설정을 풀고 응답을 놓으면 붙들린 요청이 성공으로 끝나 기록이 보인다.
+    changes.failListWhen(null)
+    await act(async () => held.release())
+    await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(5))
     expect(dialog.queryByTestId('ai-memory-cleanup-error')).not.toBeInTheDocument()
   })
 })
