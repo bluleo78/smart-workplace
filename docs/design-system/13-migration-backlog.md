@@ -18,7 +18,7 @@
 이식 과정에서 sibling 프로젝트에서 물려받은, 워크플레이스에 해당 없는 코드가 다수 확인됐다.
 
 - [ ] **`sparkline.tsx` 도메인 색상 누수** — `color: 'pipeline' | 'dataset' | 'dashboard'` 타입은 fire-hub(파이프라인/데이터셋 도메인) 잔재. 워크플레이스에는 그 도메인이 없다. 시맨틱 식별자(`primary`/`accent`/`muted` 등)로 리네임. ([01-design-tokens.md](./01-design-tokens.md) §domain-token)
-- [ ] **죽은 차트 토큰** — `--chart-1..5`는 정의돼 있으나 recharts/nivo 등 차트 라이브러리가 의존성에 없고 sparkline도 `--primary`를 쓴다. 차트 도입 계획 확정 또는 토큰 제거 결정.
+- [x] **죽은 차트 토큰** — 해결(WP-1822). Recharts + shadcn chart 를 도입하고 `--chart-1..5` 를 색맹 검증 통과 값으로 바꿨으며 `--chart-other` 를 추가했다([14-data-visualization.md](./14-data-visualization.md)). 원래 문제: 토큰이 정의만 되고 차트 라이브러리·사용처가 없었다.
 - [ ] **죽은 `--dtype-*` / `--dataset` 토큰** — 정의됐으나 어디서도 참조되지 않음. 제거 검토.
 - [ ] **죽은 keyframes/스타일** — `index.css`의 `ai-chip-*`, `canvas-*` keyframes 및 `.dark .react-flow__*` 오버라이드는 fire-hub의 AI 캔버스/react-flow 기능 잔재. 워크플레이스에 react-flow 의존성 없음. 제거.
 - [ ] **정의됐지만 미연결 유틸** — `.bg-gradient-main`, `.card-hover`, `.status-online`, `.glass`, `logo-pulse*`는 정의만 되고 컴포넌트에서 사용되지 않음. 사용처 연결 또는 제거 결정. (실사용 확인: `.row-hover` 3곳, `.nav-active-indicator` 1곳, `chat-dock-expand`만 실제 사용 — [08-animation-motion.md](./08-animation-motion.md))
@@ -68,7 +68,7 @@
 - [x] **하드코딩 색 리터럴 정리** — 완료(2026-06-18). `chat-rich-input.css` 의 `rgb()` 3건(멘션 칩 bg/text, placeholder) → `color-mix(in oklch, var(--primary) …)`·`var(--primary)`·`var(--muted-foreground)` 토큰화. `pages` 내 팔레트색 위반(`text-green-600`→`text-success`, `text-amber-600`→`text-warning`)도 시맨틱 토큰으로 교체.
 - 식별색 팔레트(라벨/아바타/프로젝트)는 **승인된 categorical 예외**로 분류·문서화([01-design-tokens.md §1-7](./01-design-tokens.md)). 아바타 색 중복(`UserAvatar` 자체 팔레트)은 `avatarColor.ts` 단일 출처로 통합 완료.
 - [ ] **`ui/` 수동 편집 차단 정책** — fire-hub는 `components/ui/`를 ESLint ignore로 수동 편집을 막아 스타일 크리프를 방지. 동일 정책 도입 검토.
-- [ ] **차트 라이브러리 도입 결정** — 도입 시 `--chart-*` 토큰 활용, 미도입 시 P0의 토큰 제거와 연동.
+- [x] **차트 라이브러리 도입 결정** — 해결(WP-1822). Recharts 도입(지연 로딩), `--chart-*` 토큰 활용. 손그림 차트·옛 기간 선택기를 공용 부품으로 옮기는 일은 후속([14번](./14-data-visualization.md) 「현재 사용 현황」).
 
 ---
 

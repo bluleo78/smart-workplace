@@ -1,6 +1,7 @@
 // AI 계정 사용량 표시 조각(WP-1451·1465) — 계정 탭의 표와 AI 상세의 계정 고르기가 같은 막대·상태 배지·「한도 없음」을 쓰도록 한곳에 둔다.
 // 판정(상태 우선순위·막대 색·초기화 문구)은 lib/agentAccountUsage 의 순수 함수가 하고, 여기는 그 결과를 그리기만 한다.
 
+import { UsageMeter } from '@/components/metrics/UsageMeter';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TableCell } from '@/components/ui/table';
 import {
@@ -10,21 +11,10 @@ import {
   formatUsedPercent,
   formatWeeklyReset,
   isUnlimitedAccount,
-  type UsageBarTone,
   usageBarTone,
-  usageBarWidth,
 } from '@/lib/agentAccountUsage';
 import { cn } from '@/lib/utils';
 import type { AgentAccountResponse } from '@/types/agentAccount';
-
-/** 막대 색 → 채움 클래스(시맨틱 토큰만). */
-const TONE_CLASS: Record<UsageBarTone, string> = {
-  destructive: 'bg-destructive',
-  warning: 'bg-warning',
-  primary: 'bg-primary',
-  // 초기화 시각이 지난 창 — 지난 값이라 경고 색 없이 흐리게.
-  muted: 'bg-muted-foreground/40',
-};
 
 /** 사용량 창 종류 — 사용량 응답(usage)의 키와 같다. */
 type UsageKind = 'fiveHour' | 'weekly';
@@ -58,23 +48,12 @@ function AccountUsageCell({
   const reset = kind === 'fiveHour' ? formatResetCountdown(window.resetsAt, now) : formatWeeklyReset(window.resetsAt, now);
   // 지난 창 — 보이는 % 는 초기화 전 값이다. 지우지 않되(마지막으로 잰 값) 지금 값이 아님을 흐림으로 알린다. 막대 색 판정(muted)과 같은 기준.
   const stale = tone === 'muted';
-  const width = usageBarWidth(window.usedPercent);
   return (
     <div className="flex flex-col gap-1">
       <span className={cn('text-sm tabular-nums', stale && 'text-muted-foreground')} data-stale={stale || undefined}>
         {formatUsedPercent(window.usedPercent)}
       </span>
-      <div
-        role="progressbar"
-        aria-label={`${KIND_NAME[kind]} 사용률`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.floor(width)}
-        data-tone={tone}
-        className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-      >
-        <div className={cn('h-full rounded-full', TONE_CLASS[tone])} style={{ width: `${width}%` }} />
-      </div>
+      <UsageMeter percent={window.usedPercent} tone={tone} label={`${KIND_NAME[kind]} 사용률`} />
       {reset && <span className="text-xs text-muted-foreground">{reset}</span>}
     </div>
   );

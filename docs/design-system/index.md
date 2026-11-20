@@ -53,6 +53,7 @@
 | 11 | [Dark Mode](./11-dark-mode.md) | 다크 모드 토큰, 알파 오버레이 Surface Elevation |
 | 12 | [Responsive](./12-responsive.md) | 브레이크포인트, 앱 셸 반응형, Desktop-first |
 | 13 | [Migration Backlog](./13-migration-backlog.md) | 잔여 정리 작업 (P0~P3 우선순위) |
+| 14 | [Data Visualization](./14-data-visualization.md) | 지표 카드·차트·대시보드 규칙, 차트 색(CVD 검증), 공용 부품 |
 
 ---
 
@@ -92,6 +93,7 @@
 | `bg-card` / `border-border` | 카드 표면·테두리 |
 | `bg-destructive` / `text-destructive` | 위험·삭제·에러 |
 | `bg-sidebar*` | 사이드바 전용 토큰 |
+| `--chart-1..5` · `--chart-other` | 차트 계열 색(고정 배정, 6번째부터 기타 회색). 하드코딩 금지, 규칙은 [14번](./14-data-visualization.md) |
 
 ### Layout (앱 셸)
 
