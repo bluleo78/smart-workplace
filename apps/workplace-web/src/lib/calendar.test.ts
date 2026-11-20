@@ -1,3 +1,4 @@
+import { format } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { memoryStorage } from '@/test/memoryStorage'
@@ -5,6 +6,7 @@ import { memoryStorage } from '@/test/memoryStorage'
 import type { Attendee, Calendar, CalendarEvent, IssueDueMarker } from '../types/calendar'
 import {
   allDayLocalDate,
+  CALENDAR_VIEWS,
   type CalendarLayers,
   dragSlotRange,
   eventCalendarLabel,
@@ -27,12 +29,14 @@ import {
   proposalTimeRange,
   providerLabel,
   saveLastView,
+  screenRange,
   timedEventBox,
   timedEventColumnStyle,
   toggleCalendar,
   visibleRange,
   weekDays,
   WORKDAY_START_HOUR,
+  workWeekDays,
 } from './calendar'
 
 describe('isNotEventOrganizer (WP-200)', () => {
@@ -82,10 +86,71 @@ describe('weekDays', () => {
   })
 })
 
+describe('workWeekDays', () => {
+  const fmt = (d: Date) => format(d, 'yyyy-MM-dd')
+
+  it('수요일 기준 그 주 월~금 5일을 반환', () => {
+    expect(workWeekDays(new Date('2026-11-18T00:00:00')).map(fmt)).toEqual([
+      '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20',
+    ])
+  })
+
+  it('토요일 기준일은 직전 월~금', () => {
+    const days = workWeekDays(new Date('2026-11-21T00:00:00')).map(fmt)
+    expect(days[0]).toBe('2026-11-16')
+    expect(days[4]).toBe('2026-11-20')
+  })
+
+  it('일요일 기준일은 다가오는 월~금', () => {
+    const days = workWeekDays(new Date('2026-11-22T00:00:00')).map(fmt)
+    expect(days[0]).toBe('2026-11-23')
+    expect(days[4]).toBe('2026-11-27')
+  })
+})
+
+describe('CALENDAR_VIEWS', () => {
+  it('탭 순서는 월·작업주·주·일·목록', () => {
+    expect(CALENDAR_VIEWS.map((v) => v.label)).toEqual(['월', '작업주', '주', '일', '목록'])
+  })
+})
+
 describe('visibleRange', () => {
+  it('workweek 는 「주」와 같은 범위(캐시 공유)', () => {
+    const a = new Date('2026-11-18T10:00:00')
+    expect(visibleRange('workweek', a)).toEqual(visibleRange('week', a))
+  })
+
+  it('week 는 그대로 일 00:00 ~ 다음 일 00:00', () => {
+    expect(visibleRange('week', new Date('2026-11-18T10:00:00'))).toEqual({
+      from: new Date('2026-11-15T00:00:00').toISOString(),
+      to: new Date('2026-11-22T00:00:00').toISOString(),
+    })
+  })
+
   it('month 뷰는 from<to ISO 범위', () => {
     const { from, to } = visibleRange('month', new Date('2026-06-15T00:00:00'))
     expect(new Date(from).getTime()).toBeLessThan(new Date(to).getTime())
+  })
+})
+
+describe('screenRange', () => {
+  it('workweek 는 그 주 월요일 00:00 ~ 토요일 00:00', () => {
+    expect(screenRange('workweek', new Date('2026-11-18T10:00:00'))).toEqual({
+      from: new Date('2026-11-16T00:00:00').toISOString(),
+      to: new Date('2026-11-21T00:00:00').toISOString(),
+    })
+  })
+
+  it('workweek 는 월 경계를 걸쳐도 월~금', () => {
+    expect(screenRange('workweek', new Date('2026-12-02T10:00:00'))).toEqual({
+      from: new Date('2026-11-30T00:00:00').toISOString(),
+      to: new Date('2026-12-05T00:00:00').toISOString(),
+    })
+  })
+
+  it('그 외 보기는 visibleRange 와 같다', () => {
+    const a = new Date('2026-11-18T10:00:00')
+    expect(screenRange('week', a)).toEqual(visibleRange('week', a))
   })
 })
 
@@ -369,6 +434,8 @@ describe('loadLastView / saveLastView', () => {
     expect(loadLastView(lastViewOwner, false)).toBe('week')
     saveLastView(lastViewOwner, false, 'day')
     expect(loadLastView(lastViewOwner, false)).toBe('day')
+    saveLastView(lastViewOwner, false, 'workweek')
+    expect(loadLastView(lastViewOwner, false)).toBe('workweek')
   })
 
   it('데스크톱과 모바일은 따로 기억한다', () => {

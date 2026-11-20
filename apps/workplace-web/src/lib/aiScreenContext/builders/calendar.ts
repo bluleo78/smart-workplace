@@ -31,11 +31,11 @@ export interface CalendarContextInput {
 
 /** 캘린더 화면 → AI 화면 컨텍스트. scope=보기·표시 기간·일정 수, focus=열린(또는 작성 중인) 일정. */
 export function buildCalendarContext(input: CalendarContextInput): AiScreenContext {
-  // 표시 기간 — visibleRange 의 to 는 배타 경계(다음 날 00:00)라 표시는 1ms 뺀 날짜로. refs 는 원본 ISO 유지(list_events 인자).
+  // 표시 기간 — screenRange(화면에 보이는 기간, 작업주는 월~토 00:00)의 to 는 배타 경계(다음 날 00:00)라 표시는 1ms 뺀 날짜로. refs 는 원본 ISO 유지(list_events 인자).
   const toInclusive = new Date(new Date(input.to).getTime() - 1).toISOString();
   const scope = withListState(
     {
-      // 사용자가 보는 보기 탭 이름('월'·'주'·'일'·'목록') + ' 보기' — 화면과 AI 가 같은 단어를 쓴다.
+      // 사용자가 보는 보기 탭 이름('월'·'작업주'·'주'·'일'·'목록') + ' 보기' — 화면과 AI 가 같은 단어를 쓴다.
       label: `${CALENDAR_VIEW_LABEL[input.view]} 보기`,
       refs: buildRefs({ from: input.from, to: input.to }),
       facts: buildFacts([['기간', `${fmtKst(input.from, false)} ~ ${fmtKst(toInclusive, false)}`]]),

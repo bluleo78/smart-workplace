@@ -18,6 +18,14 @@ describe('buildCalendarContext', () => {
     });
   });
 
+  it('작업주 보기 — 라벨과 월~금 기간', () => {
+    const ctx = buildCalendarContext({
+      view: 'workweek', from: '2026-11-15T15:00:00.000Z', to: '2026-11-20T15:00:00.000Z', count: 3, creating: false, editing: null,
+    });
+    expect(ctx.scope?.label).toBe('작업주 보기');
+    expect(ctx.scope?.facts).toEqual([{ label: '기간', value: '2026-11-16 ~ 2026-11-20' }]);
+  });
+
   it('일정 조회 전(count 미지정)에는 scope.count 를 싣지 않는다', () => {
     const ctx = buildCalendarContext({ view: 'week', ...range, editing: null, creating: false });
     expect(ctx.scope).not.toHaveProperty('count');
