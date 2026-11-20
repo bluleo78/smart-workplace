@@ -172,17 +172,17 @@ describe('목록 불러오기 실패 상태 (WP-865)', () => {
 })
 
 describe('에러 상태 다시 시도 (#134)', () => {
-  // 연락처 목록 500 → 실패 문구 + 다시 시도, 다시 시도가 성공하면 실패 문구가 사라진다.
+  // 연락처 목록 500 → 실패 문구(LoadErrorState 「연락처를 불러오지 못했습니다」, WP-1820) + 다시 시도, 다시 시도가 성공하면 실패 문구가 사라진다.
   test('연락처 목록 실패 — 다시 시도 버튼으로 재조회한다', async () => {
     const contacts = failingThenOk('/api/v1/contacts', contactPage([]))
     const { user } = renderPage('/contacts', {
       handlers: [contacts.handler, http.get('/api/v1/contacts/facets', () => HttpResponse.json({ organizations: [], titles: [] }))],
     })
-    expect(await screen.findByText('목록을 불러오지 못했습니다', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByText('연락처를 불러오지 못했습니다', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
     contacts.state.recover()
     const before = contacts.state.calls
     await user.click(screen.getAllByRole('button', { name: '다시 시도' })[0])
-    await waitFor(() => expect(screen.queryByText('목록을 불러오지 못했습니다')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('연락처를 불러오지 못했습니다')).not.toBeInTheDocument())
     expect(contacts.state.calls).toBeGreaterThan(before)
   })
 
