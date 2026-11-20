@@ -1,4 +1,4 @@
-import { format } from 'date-fns'
+import { format, startOfDay } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { memoryStorage } from '@/test/memoryStorage'
@@ -37,6 +37,7 @@ import {
   weekDays,
   WORKDAY_START_HOUR,
   workWeekDays,
+  workWeekNewStart,
 } from './calendar'
 
 describe('isNotEventOrganizer (WP-200)', () => {
@@ -105,6 +106,37 @@ describe('workWeekDays', () => {
     const days = workWeekDays(new Date('2026-11-22T00:00:00')).map(fmt)
     expect(days[0]).toBe('2026-11-23')
     expect(days[4]).toBe('2026-11-27')
+  })
+})
+
+// WP-1815 리뷰 후속 — 작업주에서 주말에 「새 일정」을 열면 보이는 월~금 안의 날짜로(시각은 지금 그대로).
+describe('workWeekNewStart', () => {
+  const fmt = (d: Date | undefined) => (d ? format(d, 'yyyy-MM-dd HH:mm') : d)
+
+  it('평일이면 undefined — 다이얼로그가 지금 시각을 쓴다', () => {
+    expect(workWeekNewStart(new Date('2026-11-18T00:00:00'), new Date('2026-11-18T14:30:00'))).toBeUndefined()
+  })
+
+  it('토요일 오늘 기준이면 지난 금요일 같은 시각', () => {
+    const sat = new Date('2026-11-21T14:30:00')
+    expect(fmt(workWeekNewStart(startOfDay(sat), sat))).toBe('2026-11-20 14:30')
+  })
+
+  it('일요일 오늘 기준이면 다가오는 월요일 같은 시각', () => {
+    const sun = new Date('2026-11-22T09:15:00')
+    expect(fmt(workWeekNewStart(startOfDay(sun), sun))).toBe('2026-11-23 09:15')
+  })
+
+  it('주말에 다른 주를 보는 중이면 undefined — 지난 주 끝 날로 과거 일정을 만들지 않게', () => {
+    const sat = new Date('2026-11-21T10:00:00')
+    // 토 11-21 의 주는 11.15~21. 다음 주(11.23~27)·지난 주(11.9~13)를 보면 옮기지 않는다.
+    expect(workWeekNewStart(new Date('2026-11-25T00:00:00'), sat)).toBeUndefined()
+    expect(workWeekNewStart(new Date('2026-11-11T00:00:00'), sat)).toBeUndefined()
+  })
+
+  it('토요일에 같은 주의 평일을 기준일로 보고 있어도 금요일로', () => {
+    const sat = new Date('2026-11-21T10:00:00')
+    expect(fmt(workWeekNewStart(new Date('2026-11-17T00:00:00'), sat))).toBe('2026-11-20 10:00')
   })
 })
 

@@ -549,6 +549,23 @@ describe('작업주 보기 (WP-1815)', () => {
     expect(headers(await screen.findByTestId('calendar-view-workweek'))[0]).toBe('11.23 (월)')
   })
 
+  // 리뷰 후속 — 주말에 작업주에서 「새 일정」을 열면 지금(토요일)으로 잡혀 저장해도 격자에 안 보였다.
+  test('토요일에 작업주에서 「새 일정」을 열면 시작이 보이는 금요일 같은 시각이고, 주 보기는 그대로 토요일이다', async () => {
+    vi.setSystemTime(new Date('2026-11-21T03:00:00Z')) // 토 12:00 KST
+    const { user } = await renderCalendar()
+    await user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    await screen.findByTestId('calendar-view-workweek')
+    await user.click(screen.getByTestId('calendar-new-event'))
+    expect(await screen.findByTestId('calendar-form-start')).toHaveValue('2026-11-20T12:00')
+    await user.click(screen.getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    await screen.findByTestId('calendar-view-week')
+    await user.click(screen.getByTestId('calendar-new-event'))
+    expect(await screen.findByTestId('calendar-form-start')).toHaveValue('2026-11-21T12:00')
+  })
+
   test('헤더 제목은 같은 기준일의 주 보기와 같다', async () => {
     vi.setSystemTime(new Date('2026-12-02T03:00:00Z'))
     const { user } = await renderCalendar()

@@ -148,8 +148,8 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
   }
 
   /**
-   * WP-1024: 대기 중(WAITING)은 다른 AI 의 차례라 사람의 「답변 필요」·검토 요청 알림을 만들지 않는다. 사람을 멘션한 대기 중은 WP-1217 부터 답변
-   * 필요로 저장되므로(waitingMentioningHuman_…) 여기서는 사람을 멘션하지 않은 대기 중(AI 의 답 대기)만 본다.
+   * WP-1024: 대기 중(WAITING)은 다른 AI 의 차례라 사람의 「답변 필요」·검토 요청 알림을 만들지 않는다. 사람에게 보낸(맨 앞 멘션) 대기 중은
+   * WP-1217 부터 답변 필요로 저장되므로(waitingMentioningHuman_…) 여기서는 사람에게 보내지 않은 대기 중(AI 의 답 대기)만 본다.
    */
   @Test
   void waiting_withoutHumanMention_noNeedsInput() {
@@ -164,6 +164,26 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
     assertStays(humanId, AI_QUESTION, 0);
     assertStays(humanId, REVIEW_REQUESTED, 0);
     assertStays(otherId, AI_QUESTION, 0);
+  }
+
+  /** WP-1841: AI 에게 보낸 글(맨 앞 멘션이 AI)의 본문 중 사람 멘션은 질문이 아니라 멘션 알림 1건만 만든다. */
+  @Test
+  void waiting_leadingAgentMention_bodyHumanMention_mentionOnly() {
+    assertOk(
+        putReport(
+            akToken,
+            TOOL,
+            Map.of(
+                "state",
+                "WAITING",
+                "note",
+                "리뷰 대기",
+                "message",
+                "<@" + agentId + "> 반려합니다. 설계가 낫다고 보면 <@" + humanId + "> 확인을 받아 주세요")));
+
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("WAITING");
+    awaitCount(humanId, MENTION, 1);
+    assertStays(humanId, AI_QUESTION, 0);
   }
 
   /** 바뀌지 않는 대기 중(사람 작업자의 보고)의 멘션은 그대로 멘션 알림 1건 — 답변 필요 질문 알림은 없다(WP-1217 은 AI 작업자만 바꾼다). */
@@ -308,7 +328,10 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
     assertThat(ofType(humanId, AI_QUESTION).get(0).agentWorkState()).isEqualTo("INPUT_REQUIRED");
   }
 
-  /** AI 가 사람을 멘션한 대기 중 보고는 답변 필요 질문으로 저장되므로(WP-1217) 사람 관계자가 질문 알림을 받는다 — 멘션 알림과 겹치지 않게 사람당 1건. */
+  /**
+   * AI 가 사람에게 보낸(맨 앞 멘션) 대기 중 보고는 답변 필요 질문으로 저장되므로(WP-1217) 사람 관계자가 질문 알림을 받는다 — 멘션 알림과 겹치지 않게 사람당
+   * 1건.
+   */
   @Test
   void waitingMentioningHuman_coercedToQuestion_notifiesHumanOnce() {
     assertOk(

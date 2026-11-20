@@ -90,6 +90,39 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     assertThat(lastChatMessage(issueId).isQuestion()).isFalse();
   }
 
+  // WP-1841: 받는 사람은 글 맨 앞 멘션 — 본문 중 사람 언급(조건부 안내 등)은 질문으로 바꾸지 않는다.
+  @Test
+  void AI에게_보낸_대기중_보고는_본문에_사람_멘션이_있어도_대기중() {
+    var r =
+        putReport(
+            akToken,
+            TOOL,
+            Map.of(
+                "state",
+                "WAITING",
+                "message",
+                "<@" + agentId + "> 반려합니다. 설계가 낫다고 보면 <@" + humanId + "> 확인을 받아 주세요"));
+    assertThat(json(r).at("/work/state").asString()).isEqualTo("WAITING");
+    assertThat(json(r).at("/coercedFrom").isNull()).isTrue();
+    assertThat(lastChatMessage(issueId).isQuestion()).isFalse();
+  }
+
+  @Test
+  void AI와_사람을_함께_선행_멘션한_대기중_보고는_답변필요() {
+    var r =
+        putReport(
+            akToken,
+            TOOL,
+            Map.of(
+                "state",
+                "WAITING",
+                "message",
+                "<@" + agentId + "> <@" + humanId + "> 셋으로 합칠지 정해 주세요"));
+    assertThat(json(r).at("/work/state").asString()).isEqualTo("INPUT_REQUIRED");
+    assertThat(json(r).at("/coercedFrom").asString()).isEqualTo("WAITING");
+    assertThat(lastChatMessage(issueId).isQuestion()).isTrue();
+  }
+
   @Test
   void 멘션_없는_대기중_보고는_그대로_대기중() {
     var r = putReport(akToken, TOOL, Map.of("state", "WAITING", "message", "다른 AI 의 답을 기다립니다"));

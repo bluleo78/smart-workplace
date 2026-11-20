@@ -21,14 +21,32 @@ public final class MentionParser {
   // 자릿수 상한(18)으로 bigint 범위를 넘는 토큰 차단 — Long.parseLong overflow(500) 방지.
   private static final Pattern P = Pattern.compile("<@(\\d{1,18})>");
 
+  // 선행 멘션 — 앞 매치 끝(\G)에서 구분자(공백류·쉼표)만 건너뛴 뒤 바로 토큰이 와야 한다. 토큰 모양은 P 를 그대로 쓴다(WP-1841).
+  private static final Pattern LEADING = Pattern.compile("\\G[\\s,]*" + P.pattern());
+
   /** 사용자 id 의 멘션 토큰({@code <@id>}) — 토큰 형식을 이 클래스 한 곳에 둔다(본문 검색 등 SQL 쪽도 이것으로 만든다, WP-719). */
   public static String token(long id) {
     return "<@" + id + ">";
   }
 
   public static List<Long> parse(String body) {
+    return distinctIds(P, body);
+  }
+
+  /**
+   * 글 맨 앞의 멘션(선행 멘션)만 뽑는다 — 앞 공백을 건너뛴 뒤 {@code <@id>} 토큰과 그 사이 구분자(공백류·쉼표)만 이어지는 구간의 id. 토큰이 아닌 글자를
+   * 만나면 멈춘다. 첫 등장 순서를 유지하고 중복은 제거한다. AI 대기 보고(WP-1841)에서 "글 맨 앞에 부른 사람 = 받는 사람" 으로 판정하기 위한 것이라, 본문
+   * 중간·끝의 멘션은 포함하지 않는다. null/빈 본문은 빈 목록.
+   */
+  public static List<Long> parseLeading(String body) {
+    // LEADING 은 \G 로 앞 매치 끝(처음엔 0)에 붙어야만 맞으므로, 토큰이 아닌 글자를 만나면 find 가 멈춘다.
+    return distinctIds(LEADING, body);
+  }
+
+  /** 패턴이 맞은 토큰의 id(첫 그룹)를 첫 등장 순서로, 중복 없이 모은다 — parse·parseLeading 공용. null/빈 본문은 빈 목록. */
+  private static List<Long> distinctIds(Pattern pattern, String body) {
     if (body == null || body.isEmpty()) return List.of();
-    Matcher m = P.matcher(body);
+    Matcher m = pattern.matcher(body);
     LinkedHashSet<Long> seen = new LinkedHashSet<>();
     while (m.find()) seen.add(Long.parseLong(m.group(1)));
     return new ArrayList<>(seen);

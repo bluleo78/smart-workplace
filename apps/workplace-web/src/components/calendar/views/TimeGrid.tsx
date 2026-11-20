@@ -1,5 +1,5 @@
-// 주/일 뷰 공용 타임그리드 컴포넌트.
-// WeekView(7일)와 DayView(1일)가 동일한 레이아웃을 공유한다.
+// 주·작업주·일 뷰 공용 타임그리드 컴포넌트.
+// WeekView(7일)·WorkWeekView(월~금 5일, WP-1815)·DayView(1일)가 동일한 레이아웃을 공유한다. 열은 days 길이만큼 flex-1 로 나뉜다.
 import { format, isSameDay } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -27,7 +27,7 @@ export interface ViewProps {
   anchor: Date
   onSelectEvent: (e: CalendarEvent) => void
   onSelectIssue: (marker: IssueDueMarker) => void
-  // end 는 주·일 보기에서 시간 구간을 끌어 고른 경우만(WP-949) — 없으면 기본 길이로 연다.
+  // end 는 주·작업주·일 보기에서 시간 구간을 끌어 고른 경우만(WP-949) — 없으면 기본 길이로 연다.
   onCreateAt: (start: Date, end?: Date) => void
   // 일정을 끌어 다른 날짜·시간에 놓았을 때(WP-1328) — 없으면 끌어 옮기기를 켜지 않는다(목록 보기 등).
   onMoveEvent?: (e: CalendarEvent, range: MovedRange) => void
@@ -40,7 +40,7 @@ const RESIZE_EDGES: ResizeEdge[] = ['start', 'end']
 
 // TimeGrid 전용 추가 props
 interface TimeGridProps extends ViewProps {
-  /** 표시할 날짜 목록 (주간: 7개, 일간: 1개) */
+  /** 표시할 날짜 목록 (주간: 7개, 작업주: 월~금 5개, 일간: 1개) */
   days: Date[]
   /** 루트 컨테이너 data-testid */
   testid: string
@@ -76,7 +76,7 @@ export function TimeGrid({
   // 시간 구간 끌어 만들기(WP-949) — 마우스·펜만. 터치는 세로 스크롤과 겹쳐 지금처럼 칸 탭(정각 + 1시간)만 둔다.
   const [drag, setDragState] = useState<DragSelection | null>(null)
   // 날짜별 타임드 일정 배치(겹침 열 나누기, WP-1138) — 끌기 중 포인터가 움직일 때마다 다시 그리므로 일정·날짜가 바뀔 때만 계산한다.
-  // 부르는 쪽(주·일 보기)은 렌더마다 새 days 배열을 넘기므로 배열이 아니라 날짜 값으로 메모한다(WP-1154 — 배열 기준이면 끌기 중 매번
+  // 부르는 쪽(주·작업주·일 보기)은 렌더마다 새 days 배열을 넘기므로 배열이 아니라 날짜 값으로 메모한다(WP-1154 — 배열 기준이면 끌기 중 매번
   // 다시 계산됐다). 블록 가로 위치·폭도 여기서 함께 만든다.
   const dayKey = days.map((d) => d.getTime()).join(',')
   const layoutsByDay = useMemo(
