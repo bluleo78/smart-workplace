@@ -91,3 +91,49 @@ describe('TrendChart 빈 상태 크기', () => {
     expect(screen.getByText('데이터 없음')).toHaveStyle({ width: '300px', height: '120px' })
   })
 })
+
+describe('TrendChart 고립된 점 (WP-1822 후속)', () => {
+  it('양옆이 null 인 점과 한 점짜리 계열은 점으로 그린다, 이어진 선 위 점은 안 그린다', () => {
+    const data = [
+      { day: '1', a: 1, b: 5 },
+      { day: '2', a: 2, b: null },
+      { day: '3', a: null, b: 4 },
+      { day: '4', a: 3, b: null },
+      { day: '5', a: 2, b: null },
+    ]
+    const { container } = render(
+      <TrendChartImpl data={data} xKey="day" series={two} aria-label="추이" width={400} height={200} />,
+    )
+    // a: 1·2 이어짐(점 없음), 4·5 이어짐 / b: 1 은 고립, 3 도 고립 → 2개
+    expect(container.querySelectorAll('[data-testid="isolated-dot"]').length).toBe(2)
+  })
+
+  it('계열 값이 한 점뿐이면 점이 그려진다', () => {
+    const data = [{ day: '1', a: 1, b: null }]
+    const { container } = render(
+      <TrendChartImpl data={data} xKey="day" series={[two[0]]} aria-label="추이" width={400} height={200} />,
+    )
+    expect(container.querySelectorAll('[data-testid="isolated-dot"]').length).toBe(1)
+  })
+})
+
+describe('TrendChart 계열 키 색 (WP-1822 후속)', () => {
+  it('점이 든 키도 색 변수가 안전한 이름으로 정의되고 선이 그 변수를 쓴다', () => {
+    const data = [
+      { day: '1', 'ai.tokens': 1 },
+      { day: '2', 'ai.tokens': 3 },
+    ]
+    const { container } = render(
+      <TrendChartImpl
+        data={data}
+        xKey="day"
+        series={[{ key: 'ai.tokens', label: 'AI', colorIndex: 1 }]}
+        aria-label="추이"
+        width={400}
+        height={200}
+      />,
+    )
+    expect(container.querySelector('style')?.textContent).toContain('--color-ai_tokens: var(--chart-1)')
+    expect(container.querySelector('.recharts-line-curve')?.getAttribute('stroke')).toBe('var(--color-ai_tokens)')
+  })
+})

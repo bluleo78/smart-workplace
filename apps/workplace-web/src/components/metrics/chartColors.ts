@@ -21,7 +21,29 @@ export function chartColorVar(i: ChartColorIndex): string {
  * (import type 만 써서 Recharts 를 끌고 오지 않는다)
  */
 export function buildChartConfig(series: ChartSeries[]): ChartConfig {
-  return Object.fromEntries(series.map((s) => [s.key, { label: s.label, color: chartColorVar(s.colorIndex) }]))
+  const entries: [string, ChartConfig[string]][] = []
+  for (const s of series) {
+    const safe = safeColorKey(s.key)
+    // 색은 안전한 이름 항목에만 싣는다 — shadcn ChartStyle 이 config 키를 그대로 `--color-<키>` 로 쓰기 때문이다
+    entries.push([safe, { label: s.label, color: chartColorVar(s.colorIndex) }])
+    // 키가 바뀌었으면 원래 키로도 라벨을 찾을 수 있게 색 없는 항목을 남긴다(툴팁·범례가 dataKey 로 조회)
+    if (safe !== s.key) entries.push([s.key, { label: s.label }])
+  }
+  return Object.fromEntries(entries)
+}
+
+/**
+ * 계열 key → CSS 사용자 지정 속성 이름에 쓸 안전한 식별자.
+ * `ai.tokens` 같은 키가 `--color-ai.tokens` 로 들어가면 var() 참조가 깨져 계열 색이 사라지므로,
+ * 영문·숫자·`_`·`-` 밖의 글자는 `_` 로 바꾼다. 데이터 필드 이름(dataKey)은 건드리지 않고 색 변수 이름에만 쓴다.
+ */
+export function safeColorKey(key: string): string {
+  return key.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+/** 계열 key 의 색 참조 `var(--color-<안전한 키>)` — 선·막대·점·툴팁 견본이 같은 변수 이름을 쓰도록 한곳에서 만든다 */
+export function seriesColorVar(key: string): string {
+  return `var(--color-${safeColorKey(key)})`
 }
 
 /**

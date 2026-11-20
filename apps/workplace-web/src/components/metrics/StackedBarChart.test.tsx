@@ -130,3 +130,51 @@ describe('StackedBarChart 접근성·크기', () => {
     expect(screen.getByText('데이터 없음')).toHaveStyle({ width: '300px', height: '120px' })
   })
 })
+
+describe('StackedBarChart 키보드 드릴다운 (WP-1822 후속)', () => {
+  function renderClickable(onBarClick: (d: Row) => void) {
+    return render(
+      <StackedBarChartImpl<Row>
+        data={rows}
+        xKey="day"
+        series={two}
+        aria-label="분포"
+        width={400}
+        height={200}
+        onBarClick={onBarClick}
+      />,
+    )
+  }
+
+  it('각 막대 조각이 이름 있는 단추로 초점을 받는다', () => {
+    renderClickable(() => {})
+    const btns = screen.getAllByRole('button')
+    expect(btns.length).toBe(4)
+    expect(btns[0]).toHaveAttribute('tabindex', '0')
+    expect(btns[0]).toHaveAccessibleName(/계열A/)
+  })
+
+  it('Enter·Space 로 onBarClick 이 불린다, 다른 키는 안 불린다', () => {
+    const onBarClick = vi.fn()
+    renderClickable(onBarClick)
+    const btn = screen.getAllByRole('button')[0]
+    fireEvent.keyDown(btn, { key: 'Enter' })
+    fireEvent.keyDown(btn, { key: ' ' })
+    fireEvent.keyDown(btn, { key: 'a' })
+    expect(onBarClick).toHaveBeenCalledTimes(2)
+    expect(onBarClick).toHaveBeenCalledWith(rows[0])
+  })
+
+  it('키보드 초점은 <g> outline 이 아니라 안쪽 막대 path 의 테두리 색(--ring)으로 보인다', () => {
+    // SVG <g> 의 outline 은 Safari 등에서 그려지지 않을 수 있어, 초점 표시는 막대 자체의 stroke 로 한다
+    renderClickable(() => {})
+    const btn = screen.getAllByRole('button')[0]
+    expect(btn.getAttribute('class')).toContain('focus-visible:[&>path]:stroke-ring')
+    expect(btn.querySelector('path')).not.toBeNull()
+  })
+
+  it('onBarClick 이 없으면 단추가 없다', () => {
+    render(<StackedBarChartImpl<Row> data={rows} xKey="day" series={two} aria-label="분포" width={400} height={200} />)
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+  })
+})

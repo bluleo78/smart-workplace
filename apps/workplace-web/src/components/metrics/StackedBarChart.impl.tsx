@@ -8,7 +8,7 @@ import { Bar, BarChart, CartesianGrid, Rectangle, ReferenceLine, XAxis, YAxis } 
 
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip } from '@/components/ui/chart'
 
-import { buildChartConfig } from './chartColors'
+import { buildChartConfig, seriesColorVar } from './chartColors'
 import { asChartRows, isTopSegment } from './chartData'
 import { buildTooltipContent } from './chartTooltip'
 import { DEFAULT_CHART_HEIGHT, DEFAULT_CHART_WIDTH, type StackedBarChartProps } from './chartTypes'
@@ -82,14 +82,39 @@ export default function StackedBarChartImpl<D>({
             dataKey={s.key}
             name={s.label}
             stackId="stack"
-            fill={`var(--color-${s.key})`}
+            fill={seriesColorVar(s.key)}
             // 막대 사이 2px 간격: 표면색 테두리로 만든다
+            // --card 로 바꾸지 않는다: 다크 --card 는 반투명(oklch(1 0 0 / 4.5%))이라 틈에 아래 막대가 비친다(14장 참고)
             stroke="var(--background)"
             strokeWidth={2}
             // 열마다 실제로 맨 위에 보이는 막대(위 계열이 0/null 이면 그 아래 계열)만 위 끝을 둥글게
-            shape={(p: React.ComponentProps<typeof Rectangle> & { payload?: unknown }) => (
-              <Rectangle {...p} radius={isTopSegment(p.payload, series, i) ? [4, 4, 0, 0] : 0} />
-            )}
+            shape={(p: React.ComponentProps<typeof Rectangle> & { payload?: unknown }) => {
+              const rect = <Rectangle {...p} radius={isTopSegment(p.payload, series, i) ? [4, 4, 0, 0] : 0} />
+              const value = (p.payload as Record<string, unknown> | undefined)?.[s.key]
+              // 누를 수 없거나 값이 없는(0/null) 조각은 초점을 만들지 않는다
+              if (!onBarClick || !value) return rect
+              const x = (p.payload as Record<string, unknown>)[xKey]
+              const xLabel = xFormatter ? xFormatter(x) : String(x)
+              const valueText = valueFormatter ? valueFormatter(Number(value)) : String(value)
+              // 마우스 클릭은 Bar.onClick 이 받고, 키보드는 조각마다 button 역할의 초점 요소로 받는다(Enter·Space)
+              return (
+                <g
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${xLabel} ${s.label} ${valueText}`}
+                  // 초점 표시는 안쪽 막대 path 의 테두리 색으로 — SVG <g> 의 outline 은 Safari 등에서 그려지지 않을 수 있다
+                  className="cursor-pointer outline-none focus-visible:[&>path]:stroke-ring"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onBarClick(p.payload as D)
+                    }
+                  }}
+                >
+                  {rect}
+                </g>
+              )
+            }}
             isAnimationActive={false}
             // Recharts 가 넘기는 막대 항목의 payload 가 원래 데이터 행이다
             onClick={onBarClick ? (item: { payload?: unknown }) => onBarClick(item.payload as D) : undefined}

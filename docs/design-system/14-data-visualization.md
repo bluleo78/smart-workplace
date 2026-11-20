@@ -105,8 +105,8 @@ node validate_palette.js "#3d84ea,#04a99c,#c48800,#d4599a,#68a63f" --mode dark  
 
 | 요소 | 규격 |
 |------|------|
-| 선(`TrendChart`) | 굵기 **2px**, 점(dot) 없음, `type="monotone"`, `connectNulls={false}` — **빈 구간(`null`)은 이어 그리지 않고 끊는다** |
-| 누적 막대(`StackedBarChart`) | 한 `stackId` 로 쌓고, 막대 조각 사이 **2px** 는 `var(--background)` stroke 로 만든다(다크 `--card` 는 반투명이라 `var(--card)` 를 쓰면 틈이 비쳐 보인다. 카드(`bg-card`) 위에서는 배경색과 카드색이 달라 이음매가 살짝 보일 수 있다 — 의도한 절충이다). **맨 위 조각만** 위 끝 둥글게(`[4,4,0,0]`, `isTopSegment` 로 판정) |
+| 선(`TrendChart`) | 굵기 **2px**, 점(dot) 없음, `type="monotone"`, `connectNulls={false}` — **빈 구간(`null`)은 이어 그리지 않고 끊는다**. 단 양옆이 비어 선이 이어지지 않는 **고립된 점**과 한 점짜리 계열은 반지름 3px 점으로 보인다(`isIsolatedPoint`) |
+| 누적 막대(`StackedBarChart`) | 한 `stackId` 로 쌓고, 막대 조각 사이 **2px** 는 `var(--background)` stroke 로 만든다(다크 `--card` 는 반투명이라 `var(--card)` 를 쓰면 틈이 비쳐 보인다. 카드(`bg-card`) 위에서는 배경색과 카드색이 달라 이음매가 살짝 보일 수 있다 — 라이트 `--card` 는 불투명 흰색이지만 다크·테마별 `--card` 가 반투명이라 하나로 맞추려면 `--background` 를 유지해야 한다. 의도한 절충이다). **맨 위 조각만** 위 끝 둥글게(`[4,4,0,0]`, `isTopSegment` 로 판정) |
 | 격자 | 가로선만(`vertical={false}`), 점선 `3 3`, `strokeOpacity 0.5` |
 | 축 | 눈금선·축선 없음(`tickLine`·`axisLine` false), 글자 `text-xs fill-muted-foreground`(12px), Y 축 폭 40px |
 | 한도선 | `ReferenceLine` 점선 `4 4`, `--muted-foreground`, 라벨은 오른쪽 위 `text-xs`. `ifOverflow="extendDomain"` 이라 한도가 데이터 최댓값보다 커도 Y 축이 늘어나 선이 보인다 |
@@ -119,7 +119,7 @@ node validate_palette.js "#3d84ea,#04a99c,#c48800,#d4599a,#68a63f" --mode dark  
 
 - **범례**: 계열이 2개 이상이면 항상 켠다(`ChartLegend`). 색만으로 계열을 구분하게 두지 않는다. 한 계열이면 카드 제목이 곧 범례다. 범례를 카드 머리에 따로 두려면 `ChartCard` 의 `legend` 슬롯을 쓴다.
 - **툴팁**: 선은 **세로 기준선**(`--border` 1px) 위에서 그 시점의 모든 계열 값을 보여 준다. 막대는 **막대마다** 툴팁이 뜬다. 값 표기는 `valueFormatter`, 가로축 표기는 `xFormatter` 로 넘기고 [숫자 표기](#숫자-표기)의 함수를 쓴다.
-- 막대를 눌러 이동하는 동작은 `StackedBarChart` 의 `onBarClick(datum)` 으로 받는다(`cursor: pointer` 가 함께 켜진다).
+- 막대를 눌러 이동하는 동작은 `StackedBarChart` 의 `onBarClick(datum)` 으로 받는다(`cursor: pointer` 가 함께 켜진다). 값이 있는 막대 조각마다 `role="button"`·`tabIndex=0`·이름(`<X 표기> <계열> <값>`)이 붙어 키보드(Tab·Enter·Space)로도 같은 동작을 한다. 초점 표시는 막대 테두리를 `--ring` 색으로 바꿔 보인다 — SVG `<g>` 의 outline 은 브라우저(Safari 등)에 따라 그려지지 않는다.
 
 ---
 
@@ -133,7 +133,8 @@ node validate_palette.js "#3d84ea,#04a99c,#c48800,#d4599a,#68a63f" --mode dark  
 | 비어 있음 | `'empty'` | 「데이터 없음」 (`emptyLabel` 로 바꿀 수 있다), 가운데 정렬 `text-sm text-muted-foreground` |
 | 실패 | `'error'` | 「불러오지 못함」 + `onRetry` 가 있으면 「다시 시도」 단추(`outline` `sm`) |
 
-- 차트 자체도 모든 계열이 `null`/없음이면 「데이터 없음」을 그린다(`hasAnyValue`). 일부 시점만 비면 그 구간만 끊어서 보인다 — 0 으로 채우지 않는다. 0 은 「측정했더니 0」이고 `null` 은 「측정 없음」이다.
+- 차트 자체도 모든 계열이 `null`/없음이면 「데이터 없음」을 그린다(`hasAnyValue`). 문구·모양은 `ChartCard` 와 같은 `ChartEmptyState` 한 벌이고, 차트 자리에서는 `role="img"` + `aria-label="<차트 이름>: 데이터 없음"` 이 붙는다.
+- impl 청크를 못 불러오면(배포 직후 404 등) 라우트 오류 화면으로 올리지 않고 차트 자리에서 `ChartErrorState`(「불러오지 못함」+「다시 시도」)를 보인다. 다시 시도는 그 차트만 청크를 새로 불러온다(같은 화면의 멀쩡한 차트는 다시 로딩되지 않는다). 다시 시도도 실패하면 「계속 안 되면 새로고침해 주세요」를 함께 보인다 — 배포 직후 404 는 새로고침으로만 회복된다. 일부 시점만 비면 그 구간만 끊어서 보인다 — 0 으로 채우지 않는다. 0 은 「측정했더니 0」이고 `null` 은 「측정 없음」이다.
 - 문구를 바꾸지 않는다: 「데이터 없음」·「불러오지 못함」·「다시 시도」. 일반 화면 상태는 [06-feedback-states.md](./06-feedback-states.md) 를 따른다.
 - `AlertList` 가 비면 「이상 없음」(`emptyLabel`)을 보인다.
 
@@ -218,7 +219,7 @@ const [period, setPeriod] = usePeriodParam('period', PERIODS, '30d')
 | `chartColors` | `chartColors.ts` | `chartColorVar(i)`, `groupTopN(items, n = 5)`, `buildChartConfig(series)` | 색 번호 → CSS 변수, 상위 N + 기타, 계열 → 차트 config(타입만 가져와 Recharts 를 끌고 오지 않는다) |
 | `chartData` / `chartTypes` / `lazyChart` / `chartTooltip` | `chartData.ts`·`chartTypes.ts`·`lazyChart.tsx`·`chartTooltip.tsx` | `hasAnyValue`·`isTopSegment`, `ChartSeries`·`ChartLimit` 타입, `makeLazyChart`, 툴팁 포맷터·`buildTooltipContent` | 내부 도구. `chartTooltip` 은 Recharts 를 쓰는 impl 에서만 가져오고, `chartTypes`·`lazyChart` 는 Recharts 를 끌고 오지 않는다 |
 
-`ChartSeries` 는 `{ key, label, colorIndex }` 이고 `colorIndex` 는 `1~5 | 'other'` 다. **`key` 는 유효한 CSS 사용자 지정 속성 이름이어야 하고(`--color-<key>` 로 쓰인다) 점(`.`)을 넣지 않는다** — Recharts 가 점을 중첩 경로로 읽는다. 이메일·ID 같은 값은 안전한 키(`s0`, `s1` …)로 매핑하고 사람이 읽는 값은 `label` 에 둔다. `limit` 은 `{ value, label }`.
+`ChartSeries` 는 `{ key, label, colorIndex }` 이고 `colorIndex` 는 `1~5 | 'other'` 다. **`key` 는 유효한 CSS 사용자 지정 속성 이름이어야 하고(`--color-<key>` 로 쓰인다) 점(`.`)을 넣지 않는다** — Recharts 가 점을 중첩 경로로 읽는다. 이메일·ID 같은 값은 안전한 키(`s0`, `s1` …)로 매핑하고 사람이 읽는 값은 `label` 에 둔다. 점 등 CSS 이름에 못 쓰는 글자가 든 키도 색이 사라지지 않게, 색 변수 이름에는 `safeColorKey`(영문·숫자·`_`·`-` 외는 `_`)를 쓴다(`ai.tokens` → `--color-ai_tokens`). 다만 데이터 필드 이름 자체의 점은 Recharts 가 중첩 경로로 읽으니 여전히 피한다. `limit` 은 `{ value, label }`.
 
 ```tsx
 <ChartCard title="일별 호출" unit="건" actions={<PeriodToggle … />} state={state} onRetry={refetch}>
