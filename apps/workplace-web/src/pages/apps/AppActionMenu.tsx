@@ -2,7 +2,7 @@
 // 메뉴 단계(step)를 스스로 가진다. 부모는 열린 앱의 메뉴만 렌더하므로(PopoverContent 가 열릴 때만 마운트)
 // 닫았다 다시 열면 자연히 첫 단계부터 시작한다.
 import { ArrowUpRight, type LucideIcon, Pin, Replace } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId } from '@/lib/mobile/tabs'
 
@@ -58,34 +58,43 @@ export function AppActionMenu({ id, slots, onReplace, onOpen }: {
 }) {
   const [step, setStep] = useState<MenuStep>('menu')
   const t = MOBILE_TABS[id]
+  // 단계가 바뀌면 직전 단계의 눌린 버튼이 사라져 포커스가 body 로 떨어지므로(키보드·스크린리더 사용자가 길을 잃음),
+  // 새 단계의 첫 항목으로 포커스를 옮긴다. 첫 단계('menu')는 PopoverContent 의 기본 포커스에 맡긴다.
+  // 고를 항목이 하나도 없으면(교체 후보 0개) 단계 묶음 자체(tabIndex=-1)에 둬 body 로 빠지지 않게 한다.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (step === 'menu') return
+    const root = rootRef.current
+    ;(root?.querySelector<HTMLButtonElement>('button') ?? root)?.focus()
+  }, [step])
 
   if (step === 'replace') {
     // 탭바 칸은 항상 차 있으므로 고정 = 지금 보이는 칸 하나와 교체.
     return (
-      <>
+      <div ref={rootRef} tabIndex={-1} className="outline-none">
         <MenuCaption>탭바가 꽉 찼어요 — 바꿀 탭 선택</MenuCaption>
         {slots.map((slotId) => (
           <TabMenuItem key={slotId} testId={`apps-replace-${slotId}`} tab={slotId} suffix=" 대신" onClick={() => onReplace(slotId, id)} />
         ))}
-      </>
+      </div>
     )
   }
   if (step === 'swap') {
     // 이 칸에 대신 넣을 수 있는 앱 = 탭바에 없는 앱.
     const candidates = ALL_TAB_IDS.filter((x) => !slots.includes(x))
     return (
-      <>
+      <div ref={rootRef} tabIndex={-1} className="outline-none">
         <MenuCaption>{t.label} 대신 넣을 앱</MenuCaption>
         <div className="max-h-64 overflow-y-auto">
           {candidates.map((c) => (
             <TabMenuItem key={c} testId={`apps-swap-to-${c}`} tab={c} onClick={() => onReplace(id, c)} />
           ))}
         </div>
-      </>
+      </div>
     )
   }
   return (
-    <>
+    <div ref={rootRef}>
       <MenuCaption>{t.label}</MenuCaption>
       {slots.includes(id) ? (
         <MenuItem testId="apps-swap" icon={Replace} onClick={() => setStep('swap')}>다른 앱으로 교체</MenuItem>
@@ -93,6 +102,6 @@ export function AppActionMenu({ id, slots, onReplace, onOpen }: {
         <MenuItem testId="apps-pin" icon={Pin} onClick={() => setStep('replace')}>탭바에 고정</MenuItem>
       )}
       <MenuItem testId="apps-open" icon={ArrowUpRight} onClick={onOpen}>열기</MenuItem>
-    </>
+    </div>
   )
 }

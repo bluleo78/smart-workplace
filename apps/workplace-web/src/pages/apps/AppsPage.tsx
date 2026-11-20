@@ -13,6 +13,7 @@ import { MobileListHeader } from '@/components/mobile/MobileListHeader'
 import { MobileSearchButton } from '@/components/mobile/MobileSearchButton'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/overlay/popover'
+import { useMenuFocusReturn } from '@/components/overlay/useMenuFocusReturn'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { AvatarPicture } from '@/components/users/AvatarPicture'
 import { useWhatsNew } from '@/components/whats-new/useWhatsNew'
@@ -95,11 +96,18 @@ function PinnableTile({ app, id, pinned, open, onOpenMenu, onCloseMenu, menu }: 
   onCloseMenu: () => void
   menu: ReactNode
 }) {
+  // 칸 래퍼(아이콘+배지) — 메뉴를 닫을 때 포커스를 돌려줄 기준(origin). 렌더 중에 값으로 넘겨야 해 ref 대신 상태로 받는다.
+  const [tileEl, setTileEl] = useState<HTMLDivElement | null>(null)
+  // PopoverTrigger 없이 PopoverAnchor + 제어 open 으로 열어 Radix 가 돌려줄 대상을 모른다(기본 복원은 body 로 빠짐).
+  // 공용 훅(WP-1778)이 열 때 초점 요소를 기억했다가, 닫힌 뒤 초점이 비었을 때만 돌려준다 —
+  // 배지로 열었으면 배지, 우클릭·길게 누르기면 칸의 첫 단추(아이콘), 교체로 배지가 사라졌으면 아이콘.
+  // 항목이 연 다른 화면·대화상자가 초점을 가져간 경우는 빼앗지 않는다(Tab 은 메뉴 안에서 돌아 밖으로 나가지 않는다).
+  const focusReturn = useMenuFocusReturn(open, tileEl)
   return (
     <Popover open={open} onOpenChange={(o) => { if (!o) onCloseMenu() }}>
       <PopoverAnchor asChild>
         {/* 메뉴가 열리면 칸을 1.08배로 들어 스크림(z-40) 위에 둔다 — 어느 앱의 메뉴인지 한눈에. */}
-        <div className={cn('relative flex justify-center transition-transform duration-150', open && 'z-[41] scale-[1.08]')}>
+        <div ref={setTileEl} className={cn('relative flex justify-center transition-transform duration-150', open && 'z-[41] scale-[1.08]')}>
           <AppButton app={app} pinned={pinned} lifted={open} onMenu={onOpenMenu} />
           {pinned && (
             // 28px 투명 버튼 안에 16px 배지 — 아이콘(48px, 칸 가운데) 우상단 모서리에 걸친다.
@@ -120,7 +128,15 @@ function PinnableTile({ app, id, pinned, open, onOpenMenu, onCloseMenu, menu }: 
         </div>
       </PopoverAnchor>
       {/* 칸(아이콘+이름) 바로 아래에 붙여 누른 앱의 이름을 가리지 않는다. collisionPadding: 끝 열 메뉴가 화면 가장자리에 붙지 않게. */}
-      <PopoverContent data-testid="apps-menu" side="bottom" align="center" sideOffset={4} collisionPadding={16} className="w-52 p-0 py-1">
+      <PopoverContent
+        data-testid="apps-menu"
+        side="bottom"
+        align="center"
+        sideOffset={4}
+        collisionPadding={16}
+        className="w-52 p-0 py-1"
+        onCloseAutoFocus={focusReturn.onCloseAutoFocus}
+      >
         {menu}
       </PopoverContent>
     </Popover>

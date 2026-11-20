@@ -152,3 +152,74 @@ test('알림 화면: 이슈 챗 AI 질문 알림 → 이슈 챗 드로워로 이
   await expect(page).toHaveURL(/\/projects\/WP\/issues\/12\?chat=1$/)
   await expect(page.getByTestId('issue-chat-drawer')).toBeVisible()
 })
+
+test('메뉴를 Esc 로 닫으면 연 단추로 포커스가 돌아온다(WP-1838)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/apps')
+  const menu = page.getByTestId('apps-menu')
+  // 1) 고정 배지로 연 메뉴 → 배지로 복귀.
+  await page.getByTestId('apps-pinned-home').click()
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(page.getByTestId('apps-pinned-home')).toBeFocused()
+  // 2) 우클릭으로 연 메뉴 → 아이콘 단추로 복귀.
+  await page.getByTestId('apps-app-calendar').click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(page.getByTestId('apps-app-calendar')).toBeFocused()
+  // 3) 같은 칸을 이번엔 우클릭으로 열면 앞서 배지로 연 기억이 아니라 아이콘으로 복귀.
+  await page.getByTestId('apps-pinned-home').click()
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('apps-pinned-home')).toBeFocused()
+  await page.getByTestId('apps-app-home').click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(page.getByTestId('apps-app-home')).toBeFocused()
+})
+
+test('메뉴 단계를 바꾸면 새 단계 첫 항목으로 포커스가 간다(WP-1838)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/apps')
+  const menu = page.getByTestId('apps-menu')
+  // 1) 미고정 앱: 처음 열면 첫 항목(고정), Enter 로 교체 단계에 들어가면 그 단계 첫 항목으로 이동.
+  const firstSlot = (await tabIds(page))[0].replace('mobile-tab-', '')
+  await page.getByTestId('apps-app-contacts').click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByTestId('apps-pin')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId(`apps-replace-${firstSlot}`)).toBeFocused()
+  // 2) 고정 앱: 교체 단계로 들어가면 첫 후보로 이동.
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await page.getByTestId('apps-pinned-home').click()
+  await expect(menu.getByTestId('apps-swap')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('[data-testid^="apps-swap-to-"]').first()).toBeFocused()
+})
+
+test('배지로 연 메뉴에서 교체를 고르면 배지가 사라져도 앱 아이콘으로 포커스가 간다(WP-1838)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/apps')
+  await page.getByTestId('apps-pinned-home').click()
+  await expect(page.getByTestId('apps-menu')).toBeVisible()
+  await page.getByTestId('apps-swap').click()
+  await page.locator('[data-testid^="apps-swap-to-"]').first().click()
+  await expect(page.getByTestId('apps-menu')).toHaveCount(0)
+  // 교체로 홈 칸의 배지가 사라지면 연 단추가 DOM 에서 떨어진다 — 포커스는 body 가 아니라 앱 아이콘으로.
+  await expect(page.getByTestId('apps-app-home')).toBeFocused()
+})
+
+test('스크림(바깥)을 눌러 닫아도 연 단추로 포커스가 돌아온다(WP-1838)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/apps')
+  await page.getByTestId('apps-pinned-home').click()
+  await expect(page.getByTestId('apps-menu')).toBeVisible()
+  // 스크림 위 빈 곳(좌상단)을 눌러 바깥 누름으로 닫는다.
+  await page.getByTestId('apps-scrim').click({ position: { x: 5, y: 5 } })
+  await expect(page.getByTestId('apps-menu')).toHaveCount(0)
+  await expect(page.getByTestId('apps-pinned-home')).toBeFocused()
+})
