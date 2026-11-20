@@ -213,3 +213,18 @@ test('첫 화면(목록)에서도 도구 줄 ＋ 「새 일정」으로 새 일�
   const dialog = await screen.findByTestId('calendar-event-dialog')
   expect(within(dialog).getByRole('heading', { name: '새 일정' })).toBeInTheDocument()
 })
+
+test('보기 선택에 작업주가 월 다음에 있고, 고르면 월~금 날짜 머리 5개 · 다시 열면 작업주로 열린다 (WP-1815)', async () => {
+  const cal = stubCalendar()
+  const first = openCalendar(cal.handlers)
+  const select = (await screen.findByTestId('calendar-view-select')) as HTMLSelectElement
+  expect([...select.options].map((o) => o.value)).toEqual(['month', 'workweek', 'week', 'day', 'agenda'])
+  fireEvent.change(select, { target: { value: 'workweek' } })
+  const grid = await screen.findByTestId('calendar-view-workweek')
+  expect(within(grid).getAllByTestId('calendar-day-header')).toHaveLength(5)
+  first.unmount()
+
+  openCalendar(cal.handlers)
+  expect(await screen.findByTestId('calendar-view-workweek')).toBeInTheDocument()
+  expect((screen.getByTestId('calendar-view-select') as HTMLSelectElement).value).toBe('workweek')
+})
