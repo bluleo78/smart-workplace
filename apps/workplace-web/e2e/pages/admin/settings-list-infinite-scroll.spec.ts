@@ -53,6 +53,13 @@ test.describe('설정 › 구성원 무한 스크롤 (WP-182)', () => {
     await page.getByRole('button', { name: `사용자 구성원 ${PAGE_SIZE} 상세 보기` }).scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: '사용자 구성원 1003 상세 보기' })).toBeVisible();
     await expect(page.getByTestId('user-list-load-more')).toHaveCount(0);
+
+    // WP-1862 리뷰 후속: 푸터에 늘 붙은 숨은 안내(role=status, 1px)가 칸 안 정적 위치에 놓인 채 담는 블록(앱 셸 main)의
+    // 스크롤 범위를 목록 끝까지 늘리지 않는다 — 목록은 안쪽 칸만 스크롤하고 main·문서는 화면 높이를 넘지 않는다.
+    const overflow = await page.evaluate(() =>
+      [document.scrollingElement!, document.querySelector('main')!].map((el) => el.scrollHeight - el.clientHeight),
+    );
+    expect(overflow).toEqual([0, 0]);
   });
 });
 
