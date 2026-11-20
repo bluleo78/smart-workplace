@@ -106,9 +106,8 @@ test('비밀번호 칸 셋은 각자 보기/숨기기 토글로 type 이 바뀌�
   }
 })
 
-// WP-1879 — 서버 고장(500)의 영문 내부 문구는 버리고, 입력 탓(「현재 비밀번호가 올바르지 않습니다」)으로 잘못 알리지 않는다.
-test('비밀번호 변경이 서버 오류(500)로 실패하면 서버 오류 안내를 보인다 (WP-1879)', async () => {
-  const { user, calls } = await openProfile(true, 500)
+/** 비밀번호 변경 폼을 채워 제출하고 요청이 나갈 때까지 기다린다(WP-1879 오류 안내 테스트 공용). */
+async function submitPasswordChange(user: Awaited<ReturnType<typeof openProfile>>['user'], calls: unknown[]) {
   await user.click(document.getElementById('current-password')!)
   await user.paste('Password123')
   await user.click(document.getElementById('new-password')!)
@@ -117,6 +116,12 @@ test('비밀번호 변경이 서버 오류(500)로 실패하면 서버 오류 �
   await user.paste('Password456')
   await user.click(screen.getByRole('button', { name: '비밀번호 변경' }))
   await waitFor(() => expect(calls).toHaveLength(1))
+}
+
+// WP-1879 — 서버 고장(500)의 영문 내부 문구는 버리고, 입력 탓(「현재 비밀번호가 올바르지 않습니다」)으로 잘못 알리지 않는다.
+test('비밀번호 변경이 서버 오류(500)로 실패하면 서버 오류 안내를 보인다 (WP-1879)', async () => {
+  const { user, calls } = await openProfile(true, 500)
+  await submitPasswordChange(user, calls)
   expect(await screen.findByText('서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.')).toBeInTheDocument()
   expect(screen.queryByText('현재 비밀번호가 올바르지 않습니다.')).not.toBeInTheDocument()
   expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument()
@@ -125,14 +130,7 @@ test('비밀번호 변경이 서버 오류(500)로 실패하면 서버 오류 �
 // WP-1879 — 서버가 일부러 쓴 한국어 5xx 안내는 영문 내부 문구와 달리 그대로 보인다(서버 오류 일반 안내로 덮지 않는다).
 test('비밀번호 변경 서버 오류(503)가 한국어 문구를 주면 그 문구를 보인다 (WP-1879)', async () => {
   const { user, calls } = await openProfile(true, 503, { status: 503, message: '잠시 점검 중입니다' })
-  await user.click(document.getElementById('current-password')!)
-  await user.paste('Password123')
-  await user.click(document.getElementById('new-password')!)
-  await user.paste('Password456')
-  await user.click(document.getElementById('confirm-password')!)
-  await user.paste('Password456')
-  await user.click(screen.getByRole('button', { name: '비밀번호 변경' }))
-  await waitFor(() => expect(calls).toHaveLength(1))
+  await submitPasswordChange(user, calls)
   expect(await screen.findByText('잠시 점검 중입니다')).toBeInTheDocument()
   expect(screen.queryByText('서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.')).not.toBeInTheDocument()
 })
@@ -140,14 +138,7 @@ test('비밀번호 변경 서버 오류(503)가 한국어 문구를 주면 그 �
 // WP-1879 — 응답 없는 네트워크 오류는 입력 탓(「현재 비밀번호가 올바르지 않습니다」)으로 보이지 않고, 연결 안내만 덧붙는다.
 test('비밀번호 변경이 네트워크 오류로 실패하면 입력 탓이 아닌 연결 안내를 보인다 (WP-1879)', async () => {
   const { user, calls } = await openProfile(true, 0)
-  await user.click(document.getElementById('current-password')!)
-  await user.paste('Password123')
-  await user.click(document.getElementById('new-password')!)
-  await user.paste('Password456')
-  await user.click(document.getElementById('confirm-password')!)
-  await user.paste('Password456')
-  await user.click(screen.getByRole('button', { name: '비밀번호 변경' }))
-  await waitFor(() => expect(calls).toHaveLength(1))
+  await submitPasswordChange(user, calls)
   expect(await screen.findByText('저장하지 못했습니다. 네트워크 연결을 확인한 뒤 다시 시도하세요')).toBeInTheDocument()
   expect(screen.queryByText(/현재 비밀번호가 올바르지 않습니다/)).not.toBeInTheDocument()
 })

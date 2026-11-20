@@ -41,6 +41,15 @@ function rootFallback(error: unknown, clientFallback: string): string {
   return isNetworkError(error) ? '저장하지 못했습니다' : '저장하지 못했습니다. 잠시 후 다시 시도하세요.'
 }
 
+/**
+ * 폼 루트 오류 문구 — 서버 문구가 있으면 그것을, 없으면 rootFallback 을 쓴다(WP-1879).
+ * 서버가 준 「Validation failed」(필드 문구 없는 4xx 검증 실패)는 사용자에게 의미가 없어 입력 탓 안내로 바꾼다.
+ */
+function formErrorMessage(error: unknown, clientText: string): string {
+  const msg = extractApiError(error, rootFallback(error, clientText))
+  return msg !== 'Validation failed' ? msg : clientText
+}
+
 export default function ProfileSettingsPage() {
   const { user, refreshUser } = useAuth()
   const { hash } = useLocation()
@@ -79,10 +88,7 @@ export default function ProfileSettingsPage() {
       await refreshUser()
       toast.success('프로필이 업데이트되었습니다.')
     } catch (error) {
-      // 서버 오류면 한국어 서버 안내를, 아니면 입력 탓 안내를 fallback 으로 — 5xx 판정은 api-error 한 곳(WP-1879).
-      const clientText = '입력값을 확인하세요.'
-      const msg = extractApiError(error, rootFallback(error, clientText))
-      profileForm.setError('root', { message: msg !== 'Validation failed' ? msg : clientText })
+      profileForm.setError('root', { message: formErrorMessage(error, '입력값을 확인하세요.') })
     }
   }
 
@@ -96,10 +102,7 @@ export default function ProfileSettingsPage() {
       passwordForm.reset()
       toast.success('비밀번호가 변경되었습니다.')
     } catch (error) {
-      // 서버 오류면 한국어 서버 안내를, 아니면 입력 탓 안내를 fallback 으로 — 5xx 판정은 api-error 한 곳(WP-1879).
-      const clientText = '현재 비밀번호가 올바르지 않습니다.'
-      const msg = extractApiError(error, rootFallback(error, clientText))
-      passwordForm.setError('root', { message: msg !== 'Validation failed' ? msg : clientText })
+      passwordForm.setError('root', { message: formErrorMessage(error, '현재 비밀번호가 올바르지 않습니다.') })
     }
   }
 

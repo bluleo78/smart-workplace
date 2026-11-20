@@ -18,7 +18,7 @@ const HANGUL = /[가-힣]/;
  * 단 5xx 의 message 가 한글이 없는 문구면 서버 내부 문구("An unexpected error occurred" 등)라 사용자에게 의미가 없으므로
  * 호출 측이 준 한국어 fallback 을 쓴다(WP-1879). 서버가 일부러 쓴 한국어 안내와 4xx 문구는 그대로 둔다.
  */
-function pickBestMessage(errData: ErrorResponse, fallback: string, status?: number): string {
+function pickBestMessage(errData: ErrorResponse, fallback: string, status: number | undefined): string {
   const code = errData.errors?.code;
   if (errData.errors && !(typeof code === 'string' && DOMAIN_ERROR_CODE.test(code))) {
     const firstFieldMsg = Object.values(errData.errors)[0];
