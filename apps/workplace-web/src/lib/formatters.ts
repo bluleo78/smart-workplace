@@ -488,6 +488,66 @@ export function formatNumber(n: number): string {
   return n.toLocaleString('ko-KR');
 }
 
+/** 소수 1자리로 반올림하되 끝의 `.0` 은 생략한다 — 12.0 → "12", 12.34 → "12.3". 지표 표기 공통 규칙. */
+function trimFixed(v: number, digits = 1): string {
+  const s = v.toFixed(digits);
+  return digits > 0 ? s.replace(/\.?0+$/, '') : s;
+}
+
+/**
+ * 큰 수 축약 — 1234 → "1.2K", 3100000 → "3.1M", 1500000000 → "1.5B".
+ * 차트 축·지표 카드의 좁은 자리용. 반올림 뒤 단위가 넘치면 다음 단위로 올린다(999950 → "1M", "1000K" 방지).
+ * NaN·Infinity·음수는 의미 있는 건수가 아니므로 EMPTY_GLYPH.
+ */
+export function formatCompactNumber(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return EMPTY_GLYPH;
+  const units = ['', 'K', 'M', 'B'];
+  let v = n;
+  let i = 0;
+  while (i < units.length - 1 && Math.round(v * 10) / 10 >= 1000) {
+    v /= 1000;
+    i++;
+  }
+  return trimFixed(v) + units[i];
+}
+
+/**
+ * 비율 → 퍼센트 문자열. 입력은 0~1 의 **비율**(0.123 → "12.3%")이지 이미 곱한 퍼센트 값이 아니다.
+ * 기본 소수 1자리, `.0` 생략. NaN·Infinity·음수는 EMPTY_GLYPH.
+ */
+export function formatPercent(ratio: number, digits = 1): string {
+  if (!Number.isFinite(ratio) || ratio < 0) return EMPTY_GLYPH;
+  return `${trimFixed(ratio * 100, digits)}%`;
+}
+
+/**
+ * 두 비율의 차이를 퍼센트포인트로 — (0.05, 0.034) → "+1.6%p". 증감 방향을 부호로 보이려고 양수에 `+` 를 붙인다.
+ * 입력은 0~1 비율. 소수 1자리 반올림 결과가 0 이면 부호 없이 "0%p". 유효하지 않은 입력은 EMPTY_GLYPH.
+ */
+export function formatPercentPointDiff(currentRatio: number, previousRatio: number): string {
+  if (!Number.isFinite(currentRatio) || !Number.isFinite(previousRatio)) return EMPTY_GLYPH;
+  const rounded = Math.round((currentRatio - previousRatio) * 1000) / 10;
+  if (rounded === 0) return '0%p';
+  return `${rounded > 0 ? '+' : ''}${trimFixed(rounded)}%p`;
+}
+
+/**
+ * 밀리초 지속 시간 → 사람이 읽는 문자열 — 850 → "850ms", 12300 → "12.3초", 245000 → "4분 5초", 7380000 → "2시간 3분".
+ * 시간 단위부터는 초를 버려 두 단위까지만 보인다. 반올림 뒤 단위가 넘치면 윗 단위로 올린다. 음수·NaN·Infinity 는 EMPTY_GLYPH.
+ * (기존 `formatDuration` 은 시작·종료 시각 문자열용이라 별개다.)
+ */
+export function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return EMPTY_GLYPH;
+  if (ms < 1000 && Math.round(ms) < 1000) return `${Math.round(ms)}ms`;
+  if (Math.round(ms / 100) / 10 < 60) return `${trimFixed(ms / 1000)}초`;
+  const total = Math.round(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return m > 0 ? `${h}시간 ${m}분` : `${h}시간`;
+  return s > 0 ? `${m}분 ${s}초` : `${m}분`;
+}
+
 // 날짜 비교·표기 기준 타임존 — 기존 formatClockTime 과 같은 Asia/Seoul 고정(CI 타임존 비의존).
 const LIST_TZ = 'Asia/Seoul'
 // 표기 문구는 ICU 로케일 데이터(small-icu 에선 ko 누락 → "PM 1:05")에 기대지 않고, 숫자 부품만 뽑아 직접 조립한다.

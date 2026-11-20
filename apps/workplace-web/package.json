@@ -82,6 +82,7 @@
     "react-hook-form": "^7.76.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.5",
+    "recharts": "3.8.0",
     "remark-cjk-friendly": "2.3.3",
     "remark-gfm": "^4.0.1",
     "remark-parse": "11.0.0",

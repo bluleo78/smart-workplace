@@ -14,7 +14,7 @@
    - 1-3. 디자인 철학: 인디고 브랜드 팔레트
    - 1-4. Semantic Status Tokens (success / warning / info)
    - 1-5. Domain & Accent Tokens (sparkline · AI · caution)
-   - 1-6. 정의됨·미사용 토큰 (chart / dtype)
+   - 1-6. Chart 토큰 · 미사용 토큰 (dtype)
    - 1-7. Categorical Palette — 식별색
    - 1-8. 선택 상태 표시 규칙
 2. [컬러 테마 변형 — Ocean / Sunset](#2-컬러-테마-변형--ocean--sunset)
@@ -152,7 +152,7 @@ Smart Workplace의 색상 시스템은 **인디고(h≈264) 계열을 브랜드 
 
 핵심 관찰:
 
-- `--primary`, `--ring`, `--sidebar-primary`, `--sidebar-ring`, `--chart-1`이 모두 인디고 계열(h=264, 채도 0.15~0.2)이다. UI 크롬 자체가 브랜드 색을 띤다.
+- `--primary`, `--ring`, `--sidebar-primary`, `--sidebar-ring`이 모두 인디고 계열(h=264, 채도 0.15~0.2)이다. UI 크롬 자체가 브랜드 색을 띤다.
 - 배경·회색 계열(`--background`, `--secondary`, `--muted`, `--accent`, `--border`)조차 채도 `0.002~0.015 / h=264`로 **미세한 한색 기운**을 머금는다. 완전한 무채색이 아니다.
 - 다크 모드 베이스는 h=280(살짝 더 보라 쪽)로 한색감을 강화한다.
 
@@ -239,7 +239,7 @@ AI 관련 UI(홈 캔버스 위젯, 플로팅 챗, 세션 스위처, AI 상태 �
 
 #### Sparkline / Domain Tokens
 
-소형 추세 시각화(`src/components/ui/sparkline.tsx`, 커스텀 SVG/div 막대)에서 막대 색상으로 사용한다. 차트 라이브러리는 도입되어 있지 않다.
+소형 추세 시각화(`src/components/ui/sparkline.tsx`, 커스텀 SVG/div 막대)에서 막대 색상으로 사용한다.
 
 | Token | Light | Dark | 용도 |
 |-------|-------|------|------|
@@ -281,21 +281,22 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 
 ---
 
-### 1-6. 정의됨·미사용 토큰 (chart / dtype)
+### 1-6. Chart 토큰 · 미사용 토큰 (dtype)
 
-아래 토큰은 `index.css`에 정의되어 있고 `@theme inline`에 매핑되어 있으나, **현재 어떤 컴포넌트에서도 참조되지 않는다.** sibling 프로젝트의 데이터/시각화 기능에서 물려받은 토큰으로, Workplace에는 해당 기능(차트 라이브러리, 스키마 탐색기)이 없다.
+#### Chart Tokens — 사용 중 (WP-1822)
 
-#### Chart Tokens — 정의됨, 차트 라이브러리 미도입 → 미사용
+`--chart-1..5` 는 차트 계열 색, `--chart-other` 는 6번째 이후를 묶는 「기타」 회색이다. `@theme inline` 에 `--color-chart-*` 로 매핑돼 있고 `components/metrics/` 의 공용 차트가 `var(--chart-n)` 으로 쓴다. 값은 색맹(CVD) 검증을 통과한 것이며 순서는 파랑·청록·황토·분홍·연두로 고정이다. 배정·검증·규격은 [14-data-visualization.md](./14-data-visualization.md).
 
 | Token | Light | Dark |
 |-------|-------|------|
-| `--chart-1` | `oklch(0.45 0.2 264)` | `oklch(0.65 0.2 264)` |
-| `--chart-2` | `oklch(0.55 0.15 195)` | `oklch(0.7 0.15 195)` |
-| `--chart-3` | `oklch(0.5 0.18 300)` | `oklch(0.65 0.2 300)` |
-| `--chart-4` | `oklch(0.7 0.15 84)` | `oklch(0.75 0.15 84)` |
-| `--chart-5` | `oklch(0.6 0.2 27)` | `oklch(0.7 0.2 27)` |
+| `--chart-1` | `oklch(0.519 0.19 258)` | `oklch(0.62 0.17 258)` |
+| `--chart-2` | `oklch(0.593 0.105 183)` | `oklch(0.661 0.116 185)` |
+| `--chart-3` | `oklch(0.662 0.14 75)` | `oklch(0.67 0.14 78)` |
+| `--chart-4` | `oklch(0.599 0.19 350)` | `oklch(0.639 0.17 350)` |
+| `--chart-5` | `oklch(0.62 0.17 135)` | `oklch(0.661 0.151 135)` |
+| `--chart-other` | `oklch(0.65 0 0)` | `oklch(0.55 0 0)` |
 
-> recharts/nivo 등 차트 라이브러리는 의존성에 없으며, sparkline(커스텀 SVG)도 `--chart-*`가 아니라 `--primary`/`--pipeline`/`--dashboard-accent`를 사용한다. 따라서 `--chart-1..5`는 현재 죽은 토큰이다. 향후 차트 도입 시 활용하거나, 불필요하면 제거를 검토할 수 있다.
+> `.theme-ocean`·`.theme-sunset` 은 `--chart-1` 을 덮어쓰지 않는다(ocean 라이트·다크와 sunset 다크가 새 팔레트에서 검증 실패했고, sunset 라이트는 통과했지만 테마 안에서 라이트·다크가 달라지지 않게 일관성을 위해 함께 삭제). 차트 색은 테마와 무관하다.
 
 #### Data Type Tokens (`--dtype-*`) — 정의됨, 미사용
 
@@ -350,7 +351,7 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 
 ## 2. 컬러 테마 변형 — Ocean / Sunset
 
-`index.css`에는 인디고 기본 테마 외에 hue만 바꾼 두 가지 컬러 테마가 정의되어 있다. 최상위 엘리먼트에 `.theme-ocean` 또는 `.theme-sunset` 클래스를 부여하면 `--primary`, `--ring`, `--sidebar-primary`, `--chart-1`, `--accent`, `--selected`가 해당 hue로 오버라이드된다. `.dark`와 조합 가능(`.theme-ocean.dark`).
+`index.css`에는 인디고 기본 테마 외에 hue만 바꾼 두 가지 컬러 테마가 정의되어 있다. 최상위 엘리먼트에 `.theme-ocean` 또는 `.theme-sunset` 클래스를 부여하면 `--primary`, `--ring`, `--sidebar-primary`, `--accent`, `--selected`가 해당 hue로 오버라이드된다. `.dark`와 조합 가능(`.theme-ocean.dark`).
 
 | 테마 | hue | Light `--primary` | Dark `--primary` |
 |------|-----|-------------------|------------------|

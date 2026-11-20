@@ -43,6 +43,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-other: var(--chart-other);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -132,11 +133,16 @@
   /* 전역 슬림 스크롤바 thumb 색 — 라이트 캔버스에서 보이되 콘텐츠보다 튀지 않는 톤. */
   --scrollbar-thumb: oklch(0.82 0.005 264);
   --scrollbar-thumb-hover: oklch(0.7 0.005 264);
-  --chart-1: oklch(0.45 0.2 264);
-  --chart-2: oklch(0.55 0.15 195);
-  --chart-3: oklch(0.5 0.18 300);
-  --chart-4: oklch(0.7 0.15 84);
-  --chart-5: oklch(0.6 0.2 27);
+  /* WP-1822: 차트 색 — 색맹(CVD) 검증 통과 값(validate_palette.js --mode light, 표면 #ffffff, FAIL 0).
+     순서 고정(파랑·청록·황토·분홍·연두). 빨강(hue 15-35)·AI 보라(280-310)·상태색 회피. 근거: docs/design-system/14-data-visualization.md
+     hex: #0362d3 #049284 #c48400 #cd4290 #559b1b */
+  --chart-1: oklch(0.519 0.19 258);
+  --chart-2: oklch(0.593 0.105 183);
+  --chart-3: oklch(0.662 0.14 75);
+  --chart-4: oklch(0.599 0.19 350);
+  --chart-5: oklch(0.62 0.17 135);
+  /* 6번째 이후 묶음('기타') 중립 회색 — hex #8f8f8f, 표면 대비 3.2:1 */
+  --chart-other: oklch(0.65 0 0);
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.45 0.2 264);
@@ -187,7 +193,7 @@
   --presence-7: oklch(0.5 0.14 255);
   --presence-8: oklch(0.5 0.14 335);
   --presence-foreground: oklch(0.985 0 0);
-  /* 타임라인 에픽 계층 시각화 전용(#649, 보라 — 미사용 chart-3 값 채택) */
+  /* 타임라인 에픽 계층 시각화 전용(#649, 보라 — 옛 chart-3 값을 따로 들고 있어 차트 팔레트 변경과 무관) */
   --epic: oklch(0.5 0.18 300);
   --epic-subtle: oklch(0.96 0.03 300);
   --caution: oklch(0.7 0.15 55);
@@ -254,11 +260,15 @@
   --ring: oklch(0.65 0.2 264);
   --scrollbar-thumb: oklch(1 0 0 / 18%);
   --scrollbar-thumb-hover: oklch(1 0 0 / 30%);
-  --chart-1: oklch(0.65 0.2 264);
-  --chart-2: oklch(0.7 0.15 195);
-  --chart-3: oklch(0.65 0.2 300);
-  --chart-4: oklch(0.75 0.15 84);
-  --chart-5: oklch(0.7 0.2 27);
+  /* WP-1822: 다크 차트 색 — validate_palette.js --mode dark, 표면 #111218(다크 --card 를 배경 위에 합성한 값), FAIL 0.
+     hex: #3d84ea #04a99c #c48800 #d4599a #68a63f */
+  --chart-1: oklch(0.62 0.17 258);
+  --chart-2: oklch(0.661 0.116 185);
+  --chart-3: oklch(0.67 0.14 78);
+  --chart-4: oklch(0.639 0.17 350);
+  --chart-5: oklch(0.661 0.151 135);
+  /* '기타' 회색 — hex #717171, 표면 대비 3.9:1 */
+  --chart-other: oklch(0.55 0 0);
   --sidebar: oklch(0.14 0.02 280);
   --sidebar-foreground: oklch(0.93 0 0);
   --sidebar-primary: oklch(0.65 0.2 264);
@@ -474,7 +484,6 @@
   --ring: oklch(0.47 0.14 195);
   --sidebar-primary: oklch(0.47 0.14 195);
   --sidebar-ring: oklch(0.47 0.14 195);
-  --chart-1: oklch(0.47 0.14 195);
   --accent: oklch(0.96 0.01 195);
   --sidebar-accent: oklch(0.96 0.01 195);
   --selected: oklch(0.905 0.02 195);
@@ -489,7 +498,6 @@
   --sidebar-primary: oklch(0.75 0.12 195);
   --sidebar-ring: oklch(0.75 0.12 195);
   --sidebar-accent: oklch(0.75 0.12 195 / 7%);
-  --chart-1: oklch(0.75 0.12 195);
   --accent: oklch(0.75 0.12 195 / 7%);
   --selected: oklch(0.28 0.025 195);
 }
@@ -500,7 +508,6 @@
   --ring: oklch(0.53 0.18 50);
   --sidebar-primary: oklch(0.53 0.18 50);
   --sidebar-ring: oklch(0.53 0.18 50);
-  --chart-1: oklch(0.53 0.18 50);
   --accent: oklch(0.96 0.01 50);
   --sidebar-accent: oklch(0.96 0.01 50);
   --selected: oklch(0.905 0.02 50);
@@ -515,7 +522,6 @@
   --sidebar-primary: oklch(0.72 0.15 50);
   --sidebar-ring: oklch(0.72 0.15 50);
   --sidebar-accent: oklch(0.72 0.15 50 / 7%);
-  --chart-1: oklch(0.72 0.15 50);
   --accent: oklch(0.72 0.15 50 / 7%);
   --selected: oklch(0.28 0.025 50);
 }

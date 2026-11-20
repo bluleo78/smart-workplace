@@ -88,4 +88,4 @@ Workplace 다크 모드의 핵심 특징은 **솔리드 회색이 아니라 흰�
 ## G. 향후 정리 후보
 
 - `.dark .react-flow__*` 규칙 — react-flow 미사용, 제거 후보 (섹션 E-4).
-- `--chart-1..5`, `--dtype-*` 토큰의 다크 값 — 라이트와 마찬가지로 참조하는 컴포넌트가 없다 ([01-design-tokens.md](./01-design-tokens.md) §1-6).
+- `--chart-1..5`·`--chart-other` 의 다크 값은 `.dark` 에서 따로 정의돼 있고 다크 표면(`#111218`) 기준으로 색맹 검증을 통과했다([14-data-visualization.md](./14-data-visualization.md)). `--dtype-*` 의 다크 값은 참조하는 컴포넌트가 없다 ([01-design-tokens.md](./01-design-tokens.md) §1-6).

@@ -2,10 +2,10 @@
 // 완료·새로 생김은 지표 모듈 값(모든 유형), 마감 임박·기한 지남은 이슈 탭 기본 범위(하위 작업·에픽 제외)의 열린 이슈다.
 // 마감 임박·기한 지남은 같은 조건의 이슈 탭으로 가는 링크다(완료·새로 생김은 이슈 탭에 같은 조건이 없어 링크를 달지 않는다).
 // 카드 모양은 내 작업 개요의 숫자 카드(StatCard)를 그대로 쓴다 — 링크만 개요 표시를 싣는 OverviewIssueLink.
+import { StatCard } from '@/components/metrics/StatCard'
 import { cn } from '@/lib/utils'
 import type { ProjectOverviewCards } from '@/types/projectOverview'
 
-import { StatCard } from '../../me/overview/OverviewCard'
 import { attentionHref, dueSoonHref } from './overviewModel'
 import { OverviewIssueLink } from './OverviewParts'
 
