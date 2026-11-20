@@ -214,7 +214,7 @@ test('⋯ → 이름 변경 대화상자 — Esc 로 닫으면 포커스가 body
   await openRename(page, '회의록.txt')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('rename-dialog-input')).toBeHidden()
-  // ⋯ 는 hover·키보드 포커스 때만 보여 닫힐 무렵 숨어 있다 — 같은 행에서 포커스를 받는 첫 대상(선택 체크박스)으로 간다.
+  // WP-1782: ⋯ 는 접혀도 렌더돼 있어(폭 0·투명) 닫히면 초점이 ⋯ 로 돌아온다 — body 로 빠지지 않고 그 행에 남는다.
   const row = page.getByRole('listitem').filter({ hasText: '회의록.txt' })
-  await expect(row.getByRole('checkbox')).toBeFocused()
+  await expect(row.getByRole('button', { name: /더보기/ })).toBeFocused()
 })

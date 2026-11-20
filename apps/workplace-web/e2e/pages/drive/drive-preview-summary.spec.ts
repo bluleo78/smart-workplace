@@ -40,7 +40,7 @@ async function setupDrive(page: import('@playwright/test').Page) {
 async function openPreview(page: import('@playwright/test').Page) {
   await page.goto('/drive')
   await page.waitForURL(/drive\/spaces\/\d+/)
-  await page.getByRole('button', { name: '문서.docx' }).click()
+  await page.getByRole('button', { name: '문서.docx', exact: true }).click()
   await expect(page.getByTestId('preview-body')).toBeVisible()
 }
 

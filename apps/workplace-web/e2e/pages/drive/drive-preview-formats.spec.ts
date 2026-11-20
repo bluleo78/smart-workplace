@@ -162,7 +162,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     )
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'sheet.xlsx' }).click()
+    await page.getByRole('button', { name: 'sheet.xlsx', exact: true }).click()
 
     const body = page.getByTestId('preview-body')
     await expect(body).toBeVisible()
@@ -181,7 +181,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await stubHtmlFile(page, 'page.html', HTML_BODY)
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'page.html' }).click()
+    await page.getByRole('button', { name: 'page.html', exact: true }).click()
 
     const body = page.getByTestId('preview-body')
     await expect(body).toBeVisible()
@@ -214,7 +214,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await stubSecurityCheckLow(page)
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'deck.html' }).click()
+    await page.getByRole('button', { name: 'deck.html', exact: true }).click()
 
     const body = page.getByTestId('preview-body')
     const state = page.frameLocator('[data-testid="html-document"]').locator('#state')
@@ -237,7 +237,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await stubSecurityCheckLow(page)
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'deck.html' }).click()
+    await page.getByRole('button', { name: 'deck.html', exact: true }).click()
 
     const sw = page.getByRole('switch', { name: '스크립트 실행' })
     const state = page.frameLocator('[data-testid="html-document"]').locator('#state')
@@ -270,7 +270,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     page.on('popup', (p) => popups.push(p.url()))
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'toc.html' }).click()
+    await page.getByRole('button', { name: 'toc.html', exact: true }).click()
     const frame = page.frameLocator('[data-testid="html-document"]')
     // 스크롤 위치 — 스크립트 꺼짐이면 body 가 스크롤을 맡고(WP-1749 고정 높이 미리보기) 창 스크롤은 0 이라 둘 중 큰 값을 본다.
     // 문서 스크립트가 도는 켜짐은 예전처럼 창이 스크롤한다.
@@ -316,7 +316,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
       await stubHtmlFile(page, 'deck.html', '<!doctype html><html><body><h1>덱</h1><script>1</script></body></html>')
       await stubSecurityCheckLow(page)
       await page.goto(`/drive/spaces/${SPACE_ID}`)
-      await page.getByRole('button', { name: 'deck.html' }).first().click()
+      await page.getByRole('button', { name: 'deck.html', exact: true }).first().click()
 
       const group = page.getByTestId('html-script-notice')
       await expect(group).toBeVisible()
@@ -396,7 +396,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     )
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'small.png' }).click()
+    await page.getByRole('button', { name: 'small.png', exact: true }).click()
 
     const body = page.getByTestId('preview-body')
     await expect(body.locator('img')).toBeVisible()

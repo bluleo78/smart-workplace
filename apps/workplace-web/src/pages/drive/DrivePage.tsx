@@ -119,7 +119,14 @@ const MOBILE_BULK_BAR_H = 'calc(3.5rem + 1px)'
 // 데스크톱 행 hover 액션 묶음(폴더·파일 공용) — 평소엔 숨기고 hover·키보드 포커스(group-kbd)일 때만 보인다.
 // ⋯ 메뉴가 열린 동안에도 보인다(has-data-[state=open]) — 메뉴가 열리면 바깥 포인터가 막혀 hover 가 풀리는데,
 // 그때 트리거가 숨으면 메뉴가 기준점을 잃고 화면 왼쪽 위로 튄다(WP-335).
-const ROW_HOVER_ACTIONS = 'hidden items-center gap-0.5 group-hover:flex group-kbd:flex has-data-[state=open]:flex'
+// display:none 이면 Tab 순간 blur 로 group-kbd 가 풀려 묶음이 사라지고 초점이 건너뛰어진다(body 로 떨어짐).
+// 그래서 숨김은 폭 0·투명·포인터 차단으로만 한다(WP-1782, GroupTree WP-844 와 같은 규칙) — 버튼이 Tab 순서에 남는다.
+// -ml-2 는 행의 gap-2 를 거둬, 숨은 동안에도 이름 폭이 달라지지 않게 한다.
+const ROW_HOVER_ACTIONS =
+  'flex w-0 -ml-2 overflow-hidden opacity-0 pointer-events-none items-center gap-0.5 ' +
+  'group-hover:w-auto group-hover:ml-0 group-hover:overflow-visible group-hover:opacity-100 group-hover:pointer-events-auto ' +
+  'group-kbd:w-auto group-kbd:ml-0 group-kbd:overflow-visible group-kbd:opacity-100 group-kbd:pointer-events-auto ' +
+  'has-data-[state=open]:w-auto has-data-[state=open]:ml-0 has-data-[state=open]:overflow-visible has-data-[state=open]:opacity-100 has-data-[state=open]:pointer-events-auto'
 
 /** 행 작업 대상 — 파일 또는 폴더 행. */
 type RowTarget = { kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder }

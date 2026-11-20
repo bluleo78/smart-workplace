@@ -109,7 +109,8 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: ['@wiring',
   // 확인 버튼은 모드별 동사+명사 라벨을 써야 한다 — 모호한 "확인" 금지 (#635)
   await expect(page.getByTestId('folder-name-confirm')).toHaveText('만들기')
   await page.getByTestId('folder-name-confirm').click()
-  await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
+  // exact — 접힌 행 액션 버튼(「문서 이동」 등)도 접근성 트리에 남으므로(WP-1782) 이름이 정확히 같은 버튼만 고른다.
+  await expect(page.getByRole('button', { name: '문서', exact: true })).toBeVisible()
   // POST body — 입력한 이름이 정확히 전달된다.
   expect(folderPosts.lastBody<{ name?: string }>()?.name).toBe('문서')
 
@@ -136,7 +137,9 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: ['@wiring',
 })
 
 // #712 — 파일/폴더 행 액션이 group-hover 전용이라 키보드 사용자는 도달 불가하던 문제.
-test('파일 행 액션 — 마우스 없이 키보드 포커스만으로 노출됨 (#712)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+// WP-1782 — 노출만으로는 부족했다: 액션 묶음이 display:none 이라 Tab 으로 이름 버튼을 벗어나는 순간 blur 로 group-kbd 가 풀려
+// 묶음이 사라지고 초점이 body 로 떨어졌다. 이제 묶음을 Tab 순서에 남겨 이름 → 다운로드 → 더보기 로 이어져야 한다.
+test('파일 행 액션 — 키보드 Tab 으로 이름 다음 다운로드 버튼에 초점이 간다 (#712·WP-1782)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const state = { folders: [] as unknown[], files: [createFile()] }
   await stubSpaces(page)
   await stubItems(page, () => state)
@@ -147,13 +150,90 @@ test('파일 행 액션 — 마우스 없이 키보드 포커스만으로 노출
 
   const memoItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
   const actions = memoItem.locator('[data-file-actions]')
-  // hover 전: 액션 wrapper 는 display:none 이어야 한다.
-  await expect(actions).toHaveCSS('display', 'none')
 
-  // 파일명 버튼에 포커스만 이동(마우스 hover 없음) — group-focus-within 으로 노출돼야 한다.
-  await memoItem.getByRole('button', { name: 'memo.txt' }).focus()
-  await expect(actions).toHaveCSS('display', 'flex')
-  await expect(memoItem.getByRole('button', { name: '다운로드' })).toBeVisible()
+  // 파일명 버튼에 포커스만 이동(마우스 hover 없음) — group-kbd 로 묶음이 펼쳐져야 한다.
+  await memoItem.getByRole('button', { name: 'memo.txt', exact: true }).focus()
+  await expect(actions).toBeVisible()
+  // toBeVisible 은 opacity 를 보지 않는다 — 폭만 펼쳐지고 투명한 채 남는 회귀를 막는다(WP-1782).
+  await expect(actions).toHaveCSS('opacity', '1')
+
+  // Tab — 다음 초점은 다운로드 버튼(묶음이 사라져 body 로 떨어지면 안 된다).
+  await page.keyboard.press('Tab')
+  await expect(memoItem.getByRole('button', { name: 'memo.txt 다운로드', exact: true })).toBeFocused()
+
+  // Tab 을 이어 공유 → 더보기 순서로 닿는다(인라인 목록 ROW_INLINE_ACTIONS: 다운로드·공유) — 순서를 명시로 고정.
+  await page.keyboard.press('Tab')
+  await expect(memoItem.getByTestId('share-link-btn')).toBeFocused()
+  await page.keyboard.press('Tab')
+  const more = memoItem.getByRole('button', { name: 'memo.txt 더보기', exact: true })
+  await expect(more).toBeFocused()
+  await expect(actions).toBeVisible()
+
+  // Enter 로 메뉴를 열고 Escape 로 닫으면 초점이 더보기 버튼으로 돌아온다.
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(more).toBeFocused()
+})
+
+// WP-1782 — 폴더 행도 같은 구조다: 이름 → 이동 → 더보기 로 Tab 이 이어지고, Shift+Tab 으로 되돌아오며,
+// 다음 행의 체크박스에서 거꾸로 들어와도 숨은 더보기 버튼에 닿아야 한다(접힌 묶음이 Tab 순서에 남아 있음).
+test('폴더 행 액션 — Tab 으로 이동·더보기에 닿고 Shift+Tab 으로 되돌아온다 (WP-1782)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  const state = { folders: [createFolder({ id: 10, name: '문서' })], files: [createFile()] }
+  await stubSpaces(page)
+  await stubItems(page, () => state)
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  const folderRow = page.getByTestId('drive-row-folder-10')
+  const move = folderRow.getByRole('button', { name: '문서 이동', exact: true })
+  const more = folderRow.getByRole('button', { name: '문서 더보기', exact: true })
+
+  // 정방향 — 마우스 없이 이름 버튼에서 Tab.
+  await folderRow.getByRole('button', { name: '문서', exact: true }).focus()
+  await page.keyboard.press('Tab')
+  await expect(move).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(more).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(move).toBeFocused()
+
+  // 역방향 진입 — 파일 행 체크박스에서 Shift+Tab 하면 앞 행(폴더)의 더보기에 닿는다.
+  await page.getByTestId('select-file-20').focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(more).toBeFocused()
+  // toBeVisible 은 opacity 를 보지 않는다 — 펼쳐져 실제로 보이는지는 opacity 로 본다(WP-1782).
+  await expect(folderRow.locator('[data-folder-actions]')).toHaveCSS('opacity', '1')
+})
+
+// WP-1782 — 접힌 묶음은 Tab 순서에 남기려 렌더는 하되 폭 0·포인터 꺼짐이어야 한다. 폭이 남거나 gap 을 남기면
+// 이름 칸이 줄어들고(예전 display:none 과 다른 레이아웃) 보이지 않는 버튼이 클릭을 가로챈다.
+test('숨은 행 액션은 폭 0·포인터 꺼짐이고 행 간격도 거둔다 (WP-1782)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [createFile()] }))
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 마우스를 행에서 치우고 어떤 요소에도 초점이 없는 상태.
+  await page.mouse.move(0, 0)
+  const row = page.getByTestId('drive-row-file-20')
+  const actions = row.locator('[data-file-actions]')
+  await expect(actions).toHaveCount(1)
+
+  // 계산된 폭으로 본다 — 폭 0 요소의 boundingBox 는 엔진에 따라 null 일 수 있다.
+  await expect(actions).toHaveCSS('width', '0px')
+  await expect(actions).toHaveCSS('pointer-events', 'none')
+
+  // 묶음은 행 맨 끝 — 수정일 열 오른쪽 끝이 행 오른쪽 끝에서 px-1(4px) 안쪽이어야 한다(숨은 묶음이 gap-2 를 남기지 않음).
+  const dateBox = await row.locator('span.w-24').boundingBox()
+  const rowBox = await row.boundingBox()
+  expect(dateBox).not.toBeNull()
+  expect(rowBox).not.toBeNull()
+  const dateRight = dateBox!.x + dateBox!.width
+  const rowRight = rowBox!.x + rowBox!.width
+  expect(Math.abs(dateRight - (rowRight - 4))).toBeLessThanOrEqual(1)
 })
 
 // WP-643 — 단일 파일 업로드 중 버튼에 진행률(%)을 보인다. 라우트 가로채기에선 실제 전송 진행 이벤트가 한 번에 끝나므로,
@@ -294,7 +374,7 @@ test('파일/폴더 액션 버튼이 기본 상태에서는 숨겨지고 호버 
   const folderItem = page.getByRole('listitem').filter({ hasText: '문서' })
   const fileItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
   await expect(folderItem.locator('[data-folder-actions]')).toBeHidden()
-  // 파일 행 액션은 group-hover 로만 표시되는 래퍼(display 토글) — 호버 전에는 숨김.
+  // 파일 행 액션 래퍼는 width 0·투명으로 접혀 있다(WP-1782). 빈 박스는 toBeHidden 이 숨김으로 취급하므로 호버 전에는 숨김.
   await expect(fileItem.locator('[data-file-actions]')).toBeHidden()
 
   // 호버 시: 액션 버튼이 표시되어야 함
