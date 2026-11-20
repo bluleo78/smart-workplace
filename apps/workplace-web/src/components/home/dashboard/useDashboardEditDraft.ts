@@ -3,6 +3,7 @@
 // 화면(헤더·배너·목록)은 Dashboard 가, dnd 골격·카드 ref·포커스 복원은 DashboardWidgetList 가 맡는다.
 import { arrayMove } from '@dnd-kit/sortable'
 import { type SetStateAction, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 
 import { useIsDashboardSaving, useSaveDashboardLayout } from '@/hooks/queries/useDashboard'
 import { handleApiError } from '@/lib/api-error'
@@ -57,10 +58,12 @@ export interface MoveFocusRequest {
 interface Options {
   /** 지금 화면 기기(lg 미만 = 모바일). 편집은 시작한 기기에서만 보인다. */
   device: DashboardDevice
-  /** 현재 기기의 저장된 위젯 목록 — 편집 시작 시 초안으로 복사한다. */
+  /** 현재 기기의 저장된 위젯 목록(아직 못 받았으면 undefined) — 편집 시작 시 초안으로 복사한다. */
   savedWidgets: DashboardWidgetConfig[] | undefined
   /** 접기 저장 중이면 편집 진입을 막는다(늦게 도착한 접기 PUT 이 편집 저장을 덮어쓰지 않게). */
   collapseSaving: boolean
+  /** 현재 기기의 레이아웃 조회가 데이터 없이 실패했는가(failedWithoutData) — 실패면 기준 레이아웃이 없는 것으로 본다. */
+  layoutFailed: boolean
 }
 
 /**
@@ -71,15 +74,18 @@ interface Options {
  *   레이아웃에 저장되지 않도록 하는 안전장치다(WP-142).
  * - 저장 전까지 아무것도 영속화되지 않는다.
  */
-export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: Options) {
+export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, layoutFailed }: Options) {
   const save = useSaveDashboardLayout()
   // 진행 중 저장은 전역 mutation 캐시로 본다 — 저장 중 재마운트돼도 저장 버튼이 다시 살아나 이중 PUT 하지 않게.
   const isSaving = useIsDashboardSaving()
   // 시작 기기·초안·undo 는 셸 교체(lg 경계 리사이즈로 인한 Dashboard 재마운트)에도 살아 있는 저장소에 둔다(WP-162).
   const [{ editDevice, draft, undoStack, session }, setStore] = useDashboardEditDraftStore()
-  // 기준 레이아웃(savedWidgets)이 없으면 편집 중이 아니다 — 조회 실패로 기준이 없는데 남은 초안을 저장하면 서버 레이아웃을
-  // 볼 수 없는 채로 덮어쓴다(WP-1850). 다시 불러오면 남은 초안으로 편집이 이어진다.
-  const editing = editDevice === device && savedWidgets !== undefined
+  // 기준 레이아웃 — 조회 실패면 없는 것으로 본다. 편집 가능 판정(editing·canEnterEdit)은 이 값 하나로 여기서만 정한다
+  // (WP-1850 리뷰 후속 — 화면과 훅이 따로 판정하지 않게). 기준이 없는데 남은 초안을 저장하면 볼 수 없는 서버 레이아웃을 덮어쓴다.
+  const baseWidgets = layoutFailed ? undefined : savedWidgets
+  const editing = editDevice === device && baseWidgets !== undefined
+  // 편집에 들어갈 수 있는가 — 기준 레이아웃이 있고 접기 저장 중이 아닐 때. 화면의 [편집] 단추도 이 값으로 잠근다.
+  const canEnterEdit = !collapseSaving && baseWidgets !== undefined
   const setDraft = (action: SetStateAction<DashboardWidgetConfig[]>) =>
     setStore((s) => ({ ...s, draft: typeof action === 'function' ? action(s.draft) : action }))
   const [addModalOpen, setAddModalOpen] = useState(false)
@@ -105,6 +111,18 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
     }
   }, [recentlyAddedId])
 
+  // 편집 중인 기기의 레이아웃 조회가 실패하면 편집 세션을 끝낸다(WP-1850 리뷰 후속) — 남겨 두면 다시 시도로 받은 새 레이아웃과
+  // 견주지 않고 옛 초안으로 편집이 되살아나 그사이 바뀐 레이아웃을 덮어쓰고, 실패 중에는 취소할 길도 없다.
+  // 다시 받는 중(캐시가 지워진 뒤)·다른 기기로 넘어간 동안은 끝내지 않고(WP-162 초안 유지), 저장 중이면 저장이 끝난 뒤에 본다
+  // (저장 실패 뒤 다시 저장할 초안이 사라지지 않게).
+  const sessionLost = editDevice === device && layoutFailed && !isSaving
+  useEffect(() => {
+    if (!sessionLost) return
+    setStore((s) => ({ ...s, editDevice: null, draft: [], undoStack: [] }))
+    // 저장하지 않은 변경이 말없이 사라지지 않게 알린다(토스트는 스크린리더에도 읽힌다). id 로 같은 안내가 겹쳐 쌓이지 않게 한다.
+    toast.info('홈 위젯을 불러오지 못해 편집을 끝냈습니다. 저장하지 않은 변경은 반영되지 않았습니다', { id: 'dashboard-edit-ended' })
+  }, [sessionLost, setStore])
+
   /** 초안에서 id 의 표시 제목(없으면 id) — 공지 문구용. */
   function titleOf(id: string): string {
     const cur = draft.find((w) => w.id === id)
@@ -114,11 +132,12 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
 
   function enterEdit() {
     // 기준 레이아웃 없이 들어가면 빈 초안으로 시작해 저장 때 레이아웃을 덮어쓴다(WP-1850).
-    if (collapseSaving || savedWidgets === undefined) return
+    // baseWidgets 검사는 canEnterEdit 에 들어 있지만 아래 복사의 타입 좁히기에 필요하다.
+    if (!canEnterEdit || baseWidgets === undefined) return
     editSessionSeq += 1
     setStore({
       editDevice: device,
-      draft: savedWidgets.map((w) => ({ ...w })),
+      draft: baseWidgets.map((w) => ({ ...w })),
       undoStack: [],
       session: editSessionSeq,
     })
@@ -280,8 +299,9 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
   }
 
   function saveEdit() {
-    // 편집을 시작한 기기 레이아웃에만 저장한다(렌더 시점 device 가 아님).
-    if (!editDevice) return
+    // 편집 중(시작 기기 화면이고 기준 레이아웃이 있음)일 때만 저장한다 — 기준이 없으면 볼 수 없는 서버 레이아웃을 남은 초안으로
+    // 덮어쓴다(WP-1850 리뷰 후속). editDevice 검사는 editing 에 들어 있지만 아래 저장 대상의 타입 좁히기에 필요하다.
+    if (!editDevice || !editing) return
     // mutate 의 호출별 콜백은 저장 중 Dashboard 가 재마운트(lg 경계 리사이즈)되면 불리지 않아, 이미 저장된 초안으로
     // 편집 모드가 되살아난다. 프라미스로 받아 저장소(셸 밖 provider) 갱신이 재마운트와 무관하게 실행되게 한다(WP-162).
     // 단, 그사이 새 편집 세션이 시작됐으면 그 편집은 건드리지 않는다(session 비교).
@@ -297,12 +317,14 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
 
   return {
     editing,
+    canEnterEdit,
     draft,
     // 편집 드래프트 → 알려진 위젯만 해석(순서/숨김 모두 포함).
     draftEntries: resolveEntries(draft),
     canUndo: undoStack.length > 0,
     isSaving,
-    addModalOpen,
+    // 편집이 꺼지면(조회 실패로 세션이 끝남 포함) 모달도 닫힌 것으로 본다 — 다시 들어갈 때 열린 채 시작하지 않게.
+    addModalOpen: addModalOpen && editing,
     setAddModalOpen,
     recentlyAddedId,
     moveFocus,

@@ -18,6 +18,7 @@ import {
   memberDetail,
   page as makePage,
 } from '../../../e2e/factories/contacts.factory'
+import { contactKeys } from '../../hooks/queries/contactKeys'
 import type { ContactSummary } from '../../types/contact'
 
 /** 목록 요청 기록 + search·type·favorite·organization·title 로 거르는 목록 GET(E2E stubList 와 같은 규칙). 첫 멤버는 즐겨찾기. */
@@ -364,11 +365,16 @@ test('외부 연락처 편집 — PATCH 본문과 상세 갱신', async () => {
 // 삭제 확인 → DELETE → 선택 해제(빈 상세 안내) → 목록 무효화로 행이 사라진다.
 test('외부 연락처 삭제 — 확인 뒤 DELETE, 빈 상세와 목록 갱신', async () => {
   let deletes = 0
-  const { user, location } = renderContacts('/contacts', {
+  // WP-1867: 삭제(204) 뒤 지운 연락처 상세를 다시 부르면 404·콘솔 에러가 나므로 DELETE 이후 GET 수를 센다.
+  let detailGetsAfterDelete = 0
+  const { user, location, queryClient } = renderContacts('/contacts', {
     handlers: [
       emptyTree(),
       listHandler([], () => (deletes ? [] : [external()])),
-      http.get('/api/v1/contacts/external/100', () => HttpResponse.json(externalDetail())),
+      http.get('/api/v1/contacts/external/100', () => {
+        if (deletes) detailGetsAfterDelete++
+        return HttpResponse.json(externalDetail())
+      }),
       http.delete('/api/v1/contacts/external/100', () => {
         deletes++
         return new HttpResponse(null, { status: 204 })
@@ -385,6 +391,9 @@ test('외부 연락처 삭제 — 확인 뒤 DELETE, 빈 상세와 목록 갱신
   expect(empty).toHaveTextContent('연락처를 선택하세요')
   expect(location()).not.toContain('contact=')
   await waitFor(() => expect(screen.queryByTestId('contact-row-EXTERNAL-100')).not.toBeInTheDocument())
+  expect(detailGetsAfterDelete).toBe(0)
+  // 지운 상세는 신선한 캐시로 남지 않는다 — 앞으로 가기·옛 링크로 다시 열면 지운 연락처 대신 다시 조회해 404 안내를 보인다.
+  expect(queryClient.getQueryState(contactKeys.external(100))?.isInvalidated).toBe(true)
 })
 
 // #790: 이름+이메일 중복은 409 소프트 경고 — 확인 창을 띄우고(생성 창 유지), 강행하면 force=true 로 다시 보내 저장한다.

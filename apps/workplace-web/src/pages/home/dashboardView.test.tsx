@@ -328,3 +328,65 @@ test('편집 중 레이아웃을 다시 불러오다 실패하면 편집 배너�
   expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument()
   expect(screen.queryByTestId('dashboard-edit-save')).not.toBeInTheDocument()
 })
+
+// WP-1850 리뷰 후속 — 편집 중 기준 레이아웃을 잃으면 편집 세션을 끝낸다. 다시 시도로 바뀐 레이아웃을 받았을 때 옛 초안으로
+// 편집이 되살아나 저장하면 그사이 바뀐 레이아웃을 덮어쓰지 않게, 다시 들어가면 새 레이아웃에서 시작하게 한다.
+test('편집 중 기준 레이아웃을 잃었다가 다시 받으면 옛 초안으로 편집이 되살아나지 않고 새 레이아웃에서 다시 시작한다 (WP-1850)', async () => {
+  let fail = false
+  const { user, queryClient, dash } = await renderDashboard(layout(['my_tasks', 'calendar_today']), {
+    handlers: [http.get('/api/v1/me/dashboard', () => (fail ? HttpResponse.json({ message: 'boom' }, { status: 500 }) : undefined))],
+  })
+  await user.click(screen.getByTestId('dashboard-edit-toggle'))
+  expect(await screen.findByTestId('dashboard-edit-banner')).toBeInTheDocument()
+  // 초안을 바꿔 둔다(내 작업 숨김) — 세션이 남으면 이 초안이 되살아난다.
+  await user.click(within(card('my_tasks')).getByTestId('widget-hide-toggle'))
+
+  fail = true
+  await queryClient.resetQueries({ queryKey: dashboardKeys.all })
+  expect(await screen.findByTestId('dashboard-load-error')).toBeInTheDocument()
+
+  // 그사이 다른 기기·탭에서 레이아웃이 바뀌었다 — 다시 시도로 새 레이아웃을 받는다.
+  dash.state.stored = layout(['calendar_today'])
+  fail = false
+  await user.click(within(screen.getByTestId('dashboard-load-error')).getByRole('button', { name: '다시 시도' }))
+  await waitFor(() => expect(order()).toEqual(['calendar_today']))
+  // 편집 세션이 끝나 보기 모드다 — 옛 초안(내 작업 숨김)으로 편집 배너·저장이 되살아나지 않는다.
+  expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument()
+  expect(screen.getByTestId('dashboard-edit-toggle')).toBeEnabled()
+
+  // 다시 들어가면 새 레이아웃에서 시작하고, 저장하면 새 레이아웃 그대로 보낸다(옛 초안의 my_tasks 가 섞이지 않는다).
+  await user.click(screen.getByTestId('dashboard-edit-toggle'))
+  expect(await screen.findByTestId('dashboard-edit-banner')).toBeInTheDocument()
+  expect(order()).toEqual(['calendar_today'])
+  await user.click(screen.getByTestId('dashboard-edit-save'))
+  await waitFor(() => expect(dash.state.puts).toHaveLength(1))
+  expect(dash.state.puts[0].body.widgets.map((w) => w.id)).toEqual(['calendar_today'])
+})
+
+// WP-1850 리뷰 후속 /code-review — 실패가 아니라 캐시가 지워져 다시 받는 중이면 편집 세션을 끝내지 않는다(WP-162 초안 유지).
+test('편집 중 레이아웃 캐시가 지워져 다시 받기만 하면 초안과 편집이 그대로 이어진다 (WP-1850)', async () => {
+  // 다시 받는 응답을 붙잡아 둔다 — 바로 응답하면 「받는 중」(데이터 없음) 렌더가 건너뛰어져 세션을 끝내는 잘못을 못 잡는다.
+  let hold: ReturnType<typeof gate> | null = null
+  const { user, queryClient } = await renderDashboard(layout(['my_tasks', 'calendar_today']), {
+    handlers: [
+      http.get('/api/v1/me/dashboard', async () => {
+        if (hold) await hold.promise
+        return undefined
+      }),
+    ],
+  })
+  await user.click(screen.getByTestId('dashboard-edit-toggle'))
+  expect(await screen.findByTestId('dashboard-edit-banner')).toBeInTheDocument()
+  await user.click(within(card('my_tasks')).getByTestId('widget-hide-toggle'))
+  expect(within(card('my_tasks')).getByTestId('widget-hide-toggle')).toHaveAccessibleName(/^표시:/)
+
+  // 캐시를 비우고 다시 받는다(성공) — gcTime 으로 지워진 뒤 돌아온 것과 같다. 받는 중(스켈레톤)을 화면에서 확인한 뒤 응답을 푼다.
+  hold = gate()
+  void queryClient.resetQueries({ queryKey: dashboardKeys.all })
+  expect(await screen.findByTestId('dashboard-skeleton')).toBeInTheDocument()
+  hold.release()
+  expect(await screen.findByTestId('dashboard-edit-banner')).toBeInTheDocument()
+  // 숨김 초안이 남아 있다(세션이 끝났다면 「숨김:」으로 돌아온다).
+  expect(within(card('my_tasks')).getByTestId('widget-hide-toggle')).toHaveAccessibleName(/^표시:/)
+  expect(screen.getByTestId('dashboard-edit-undo')).toBeEnabled()
+})
