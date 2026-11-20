@@ -1,5 +1,6 @@
 package com.workplace.mail;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -23,7 +24,10 @@ import com.workplace.mail.service.MailBodyFetcher;
 import com.workplace.mail.service.MailPushService;
 import com.workplace.mail.service.MailPushService.NewMailPush;
 import com.workplace.mail.service.MailSyncProgress;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -56,7 +60,8 @@ class MailBackfillServiceAnalysisTest {
             analysis,
             tx,
             mock(MailPushService.class),
-            new MailAnalysisBreaker())
+            new MailAnalysisBreaker(),
+            Runnable::run)
         .backfillNow(7L, 9L);
 
     InOrder order = inOrder(progress, analysis);
@@ -64,6 +69,63 @@ class MailBackfillServiceAnalysisTest {
     order.verify(analysis).analyzeAfterLoad(eq(7L), eq(1L), any());
     verify(analysis, never()).analyzeAfterLoad(eq(7L), eq(2L), any());
     verify(progress, times(1)).finish(9L); // 분석 뒤 두 번째 finish 가 다음 동기화 상태를 지우지 않는다
+  }
+
+  /**
+   * 받은편지함 메일 한 건(id 1)을 본문 보충해 적재하는 보충 서비스 — 적재 후 분석은 {@code analysisExecutor} 로 넘긴다(WP-1812 리뷰 후속
+   * 시험용).
+   */
+  private static MailBackfillService oneLoaded(
+      MailSyncProgress progress, MailAnalysisService analysis, Executor analysisExecutor) {
+    EmailMessageRepository repo = mock(EmailMessageRepository.class);
+    MailBodyFetcher fetcher = mock(MailBodyFetcher.class);
+    PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
+    when(tx.getTransaction(any(TransactionDefinition.class)))
+        .thenReturn(new SimpleTransactionStatus());
+    BodyTarget loaded = new BodyTarget(1L, 9L, 5L, "INBOX", null, null, 100L);
+    when(repo.listMissingBody(9L, MailBackfillService.BATCH_LIMIT)).thenReturn(List.of(loaded));
+    when(fetcher.fetchBody(7L, loaded)).thenReturn(true);
+    return new MailBackfillService(
+        repo,
+        fetcher,
+        progress,
+        analysis,
+        tx,
+        mock(MailPushService.class),
+        new MailAnalysisBreaker(),
+        analysisExecutor);
+  }
+
+  /** WP-1812 리뷰 후속: 적재 후 분석(LLM)은 본문 보충 스레드에서 돌지 않고 분석 실행기로 넘긴다 — 넘긴 작업이 돌기 전에는 분석하지 않는다. */
+  @Test
+  void backfillNow_handsAnalysisToAnalysisExecutor() {
+    MailSyncProgress progress = mock(MailSyncProgress.class);
+    MailAnalysisService analysis = mock(MailAnalysisService.class);
+    var handedOff = new ArrayList<Runnable>();
+
+    oneLoaded(progress, analysis, handedOff::add).backfillNow(7L, 9L);
+
+    verify(progress, times(1)).finish(9L);
+    verify(analysis, never()).analyzeAfterLoad(anyLong(), anyLong(), any());
+    assertThat(handedOff).hasSize(1);
+    handedOff.get(0).run();
+    verify(analysis).analyzeAfterLoad(eq(7L), eq(1L), any());
+  }
+
+  /** WP-1812 리뷰 후속: 분석 실행기가 거절해도 보충은 예외 없이 끝나고 분석은 건너뛴다(요약 백필이 이어 맡는다). */
+  @Test
+  void backfillNow_analysisExecutorRejects_skipsAnalysis() {
+    MailSyncProgress progress = mock(MailSyncProgress.class);
+    MailAnalysisService analysis = mock(MailAnalysisService.class);
+    Executor rejecting =
+        task -> {
+          throw new RejectedExecutionException("가득 참");
+        };
+
+    oneLoaded(progress, analysis, rejecting).backfillNow(7L, 9L);
+
+    verify(progress, times(1)).finish(9L);
+    verify(analysis, never()).analyzeAfterLoad(anyLong(), anyLong(), any());
   }
 
   /** 분석이 던져도 finish 는 다시 호출되지 않고, 다음 메일 분석은 계속된다. */
@@ -90,7 +152,8 @@ class MailBackfillServiceAnalysisTest {
             analysis,
             tx,
             mock(MailPushService.class),
-            new MailAnalysisBreaker())
+            new MailAnalysisBreaker(),
+            Runnable::run)
         .backfillNow(7L, 9L);
 
     verify(progress, times(1)).finish(9L);
@@ -123,7 +186,8 @@ class MailBackfillServiceAnalysisTest {
             analysis,
             tx,
             mock(MailPushService.class),
-            new MailAnalysisBreaker())
+            new MailAnalysisBreaker(),
+            Runnable::run)
         .backfillNow(7L, 9L);
 
     verify(analysis, times(MailBackfillService.ANALYZE_AFTER_LOAD_LIMIT))
@@ -154,7 +218,7 @@ class MailBackfillServiceAnalysisTest {
     TenantContext.set(1L);
     try {
       new MailBackfillService(
-              repo, fetcher, progress, analysis, tx, push, new MailAnalysisBreaker())
+              repo, fetcher, progress, analysis, tx, push, new MailAnalysisBreaker(), Runnable::run)
           .backfill(7L, 9L, new NewMailPush(account, 3L));
     } finally {
       TenantContext.clear();
@@ -187,7 +251,8 @@ class MailBackfillServiceAnalysisTest {
               mock(MailAnalysisService.class),
               tx,
               push,
-              new MailAnalysisBreaker())
+              new MailAnalysisBreaker(),
+              Runnable::run)
           .backfill(7L, 9L, new NewMailPush(account, 3L));
     } finally {
       TenantContext.clear();
@@ -214,7 +279,8 @@ class MailBackfillServiceAnalysisTest {
             mock(MailAnalysisService.class),
             tx,
             push,
-            new MailAnalysisBreaker())
+            new MailAnalysisBreaker(),
+            Runnable::run)
         .backfillNow(7L, 9L);
 
     verify(push, never()).sendNewMail(anyLong(), any(), anyLong());

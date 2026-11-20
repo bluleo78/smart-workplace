@@ -331,9 +331,10 @@ public class OutboundConfig {
   }
 
   /**
-   * 메일 선제 분석·적재 백필·AI 켬 백필 전용 executor(WP-1812). 한 건이 LLM 호출로 스레드를 수십 초 점유하므로 이벤트 발사용 {@code
-   * aiAgentEventExecutor} 와 분리한다. core/max 2·queue 50 — 넘치면 기본 AbortPolicy 가 TaskRejectedException
-   * 을 던지고 호출부가 진행바를 끝내고 로그만 남긴다(다음 주기가 다시 집는다). TenantContext 를 전파해 워커의 트랜잭션이 RLS GUC 를 받게 한다.
+   * 메일 선제 분석(분류·요약 백필)·AI 켬 백필 전용 executor(WP-1812). 한 건이 LLM 호출로 스레드를 수십 초 점유하므로 이벤트 발사용 {@code
+   * aiAgentEventExecutor} 와 분리한다. core/max 2·queue 50 — 넘치면 AbortPolicy 가 TaskRejectedException 을
+   * 던지고 호출부가 로그만 남긴다(다음 주기가 다시 집는다). 본문 보충은 여기서 돌지 않는다 — {@link #mailBodyBackfillExecutor}.
+   * TenantContext 를 전파해 워커의 트랜잭션이 RLS GUC 를 받게 한다.
    */
   @Bean(name = "mailAnalysisExecutor")
   public ThreadPoolTaskExecutor mailAnalysisExecutor() {
@@ -349,9 +350,52 @@ public class OutboundConfig {
   }
 
   /**
+   * 메일 본문 보충(동기화마다 한 번 — {@code MailBackfillService.backfill}) 전용 executor(WP-1812 리뷰 후속). 본문·첨부
+   * 가져오기(IMAP/Graph I/O)와 새 메일 푸시를 LLM 분석 풀({@link #mailAnalysisExecutor}, 2스레드·큐 50)에 함께 두면 계정이
+   * 많거나 모델이 느릴 때 같은 순서의 계정이 매 회차 거절돼 본문이 늦게 오르거나 안 올랐다. 그래서 분석과 떼고, 보충 끝의 적재 후 분석도 분석 풀로 넘겨 이 스레드는
+   * I/O 만 한다. core=max 4·queue 100 — ThreadPoolExecutor 는 큐가 찬 뒤에야 core 를 넘겨 스레드를 늘리므로 core 를 max 와
+   * 같게 둬 4개가 바로 돈다. 동기화 스케줄러는 계정마다 한 번만 넣고(진행 중이면 tryStart 가 막는다) 3분 주기라 활성 계정이 100 을 넘지 않는 한 큐가 차지
+   * 않는다. 넘치면 AbortPolicy → 호출부 (MailSyncService)가 TaskRejectedException 을 받아 진행 상태를 풀고 로그만 남긴다(다음
+   * 주기가 다시 집는다). TenantContext 를 전파한다.
+   */
+  @Bean(name = "mailBodyBackfillExecutor")
+  public ThreadPoolTaskExecutor mailBodyBackfillExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(4);
+    executor.setMaxPoolSize(4);
+    executor.setQueueCapacity(100);
+    executor.setThreadNamePrefix("mail-body-backfill-");
+    executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
+   * 거절된 반복 회차의 실패 기록 전용 executor(WP-1812 리뷰 후속). 회차 리스너(AFTER_COMMIT, 커밋 콜백 안)가 실패 기록(REQUIRES_NEW
+   * — 새 커넥션)을 직접 부르면 커밋 콜백 안에서 두 번째 커넥션을 빌리게 되므로(global/util/AfterCommit 이 금지한 꼴) 이 스레드로 넘긴다. 거절은
+   * 드물고 기록은 짧아 core·max 1·queue 100 이면 충분하다. 넘치면 AbortPolicy → 리스너가 로그만 남기고 결과 대기 시간 초과가 정리한다. 배포로
+   * 내려갈 때 큐에 남은 기록을 버리지 않게 최대 10초 기다린다(버리면 그 회차가 40분 대기 뒤에야 실패로 드러난다). TenantContext 를 전파한다.
+   */
+  @Bean(name = "recurrenceDispatchFailExecutor")
+  public ThreadPoolTaskExecutor recurrenceDispatchFailExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(1);
+    executor.setQueueCapacity(100);
+    executor.setThreadNamePrefix("recurrence-fail-");
+    executor.setWaitForTasksToCompleteOnShutdown(true);
+    executor.setAwaitTerminationSeconds(10);
+    executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * 메일·캘린더 계정 즉시 동기화와 계정 정리 전용 executor(WP-1812). IMAP/Graph 네트워크 I/O 가 오래 걸려 이벤트 발사 풀과 나누고, 분석 풀과도
-   * 나눠 동기화가 분석 뒤에 줄 서지 않게 한다. core 2·max 4·queue 100, 넘치면 AbortPolicy(호출부가 TaskRejectedException
-   * 처리). TenantContext 를 전파한다.
+   * 나눠 동기화가 분석 뒤에 줄 서지 않게 한다. core 2·max 4·queue 100, 넘치면 AbortPolicy — 쓰는 곳은 모두 AFTER_COMMIT 리스너라
+   * 거절은 Spring 이 로그로 삼키고 각 주기 스케줄러가 다음 사이클에 다시 한다(리스너 javadoc). TenantContext 를 전파한다.
    */
   @Bean(name = "mailAccountSyncExecutor")
   public ThreadPoolTaskExecutor mailAccountSyncExecutor() {

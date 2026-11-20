@@ -26,6 +26,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *       컨텍스트를 전파한다.
  *   <li><b>best-effort</b> — 즉시 동기화 실패는 사용자 흐름(계정은 이미 저장됨)을 막지 않는다. 로그만 남기고 삼키면 스케줄러가 다음 사이클에
  *       재시도한다.
+ *   <li><b>실행기 거절</b>(WP-1812) — 실행기 큐가 가득 차 거절되면 예외는 이 리스너가 아니라 발행 트랜잭션의 커밋 콜백으로 올라가 Spring 이 로그로
+ *       남기고 삼킨다(이미 커밋된 계정 변경은 그대로). 주기 스케줄러가 다음 사이클에 다시 하므로 따로 처리하지 않는다.
  * </ul>
  */
 @Slf4j

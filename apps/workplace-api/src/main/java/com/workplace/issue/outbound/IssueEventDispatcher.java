@@ -62,6 +62,14 @@ public class IssueEventDispatcher {
   /** 거절된 회차를 실패로 남기는 서비스 — 순환 의존을 피하려 늦게 꺼낸다. */
   private final ObjectProvider<IssueRecurrenceService> recurrenceServiceProvider;
 
+  /**
+   * WP-1812 리뷰 후속: 거절된 회차의 실패 기록을 돌리는 전용 실행기. 회차 리스너는 AFTER_COMMIT(커밋 콜백) 안이라 여기서 REQUIRES_NEW 로 두
+   * 번째 커넥션을 빌리면 발행 트랜잭션의 커넥션이 아직 반납되지 않은 채 풀을 더 쓴다(global/util/AfterCommit 이 금지한 꼴) — 거절은 풀이 붐빌 때
+   * 나므로 커넥션 대기로 스케줄러 스레드가 묶일 수 있다. 그래서 기록은 이 실행기 스레드로 넘겨 커밋 콜백이 바로 끝나게 한다.
+   */
+  @Qualifier("recurrenceDispatchFailExecutor")
+  private final Executor failExecutor;
+
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueAssigned(IssueAssignedEvent e) {
@@ -151,8 +159,25 @@ public class IssueEventDispatcher {
     }
   }
 
-  /** 거절된 회차를 실패로 남긴다. 이것마저 실패하면 로그만 — 다음 폴·결과 대기 시간 초과가 정리한다. */
+  /**
+   * 거절된 회차의 실패 기록을 전용 실행기({@link #failExecutor})로 넘긴다 — 커밋 콜백 안에서 DB 를 쓰지 않으려는 것이다(WP-1812 리뷰 후속).
+   * 그 실행기마저 거절하거나 기록이 실패하면 로그만 — 결과 대기 시간 초과(40분)가 그 회차를 정리한다.
+   */
   private void failRejectedRun(IssueRecurringRunEvent e) {
+    try {
+      failExecutor.execute(() -> recordRejectedRun(e));
+    } catch (RuntimeException rejected) {
+      // 거절(RejectedExecutionException)뿐 아니라 종료 중 실행기의 다른 예외도 리스너 밖으로 내보내지 않는다.
+      log.warn(
+          "[outbound] 거절된 반복 회차의 실패 기록마저 실행기에 거절됨 — 결과 대기 시간 초과가 정리 issueId={} runId={}",
+          e.issueId(),
+          e.runId(),
+          rejected);
+    }
+  }
+
+  /** 실패 기록 실행기 스레드에서 거절된 회차를 실패로 남긴다(새 트랜잭션). 예외는 로그로 삼킨다 — 스레드 미처리 예외로 사라지지 않게. */
+  private void recordRejectedRun(IssueRecurringRunEvent e) {
     try {
       recurrenceServiceProvider
           .getObject()

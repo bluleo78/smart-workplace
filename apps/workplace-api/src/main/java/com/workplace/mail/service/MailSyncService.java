@@ -128,8 +128,8 @@ public class MailSyncService {
         progress.startBodies(accountId, shown);
         // WP-1739: 보충을 띄우면 새 메일 푸시는 보충이 끝난 뒤 보충이 보낸다 — 자동 발송 판정(auto_generated)이 본문을 받을 때
         // 헤더로 정해지므로, 지금 판정하면 대량·자동 발송 메일이 「업무 메일만」에서 걸러지지 않는다.
-        // WP-1812: 분석 실행기가 가득 차 거절되면 보충을 띄우지 못한 것이다 — triggeredBackfill 을 false 로 둬 finally 가
-        // 진행바를 끝내게 하고(백필이 끝낼 책임을 못 진다), 새 메일 푸시도 아래에서 바로 보낸다. 남은 본문은 다음 주기가 다시 집는다.
+        // WP-1812: 본문 보충 실행기가 가득 차 거절되면 보충을 띄우지 못한 것이다 — 보충 표시를 false 로 둬 finally 가 진행바를
+        // 끝내게 하고(백필이 끝낼 책임을 못 진다), 새 메일 푸시도 아래에서 바로 보낸다. 남은 본문은 다음 주기가 다시 집는다.
         try {
           backfillService.backfill(userId, accountId, deferredPush(account, maxInboxId));
           triggeredBackfill = true;

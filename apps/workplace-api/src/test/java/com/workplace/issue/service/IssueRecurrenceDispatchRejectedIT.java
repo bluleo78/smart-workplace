@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.ISSUE_RECURRENCE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -24,6 +25,7 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HashMap;
@@ -134,15 +136,22 @@ class IssueRecurrenceDispatchRejectedIT extends IntegrationTestBase {
     TenantContext.set(1L);
     assertThat(recurrenceService.runDue(Instant.now())).isEqualTo(1);
 
-    // 40분 대기 없이 바로: 사유가 이슈 챗에 남고 대기 runId 가 비며 연속 실패는 1.
-    assertThat(agentMessages())
-        .containsExactly(
-            IssueRecurrenceService.FAILED_PREFIX + IssueRecurrenceService.DISPATCH_REJECTED);
+    // 40분 대기 없이 바로: 사유가 이슈 챗에 남고 대기 runId 가 비며 연속 실패는 1. 기록은 커밋 콜백 밖 전용 실행기
+    // (recurrenceDispatchFailExecutor)에서 도므로 잠깐 기다린다(WP-1812 리뷰 후속).
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(
+            () -> {
+              assertThat(agentMessages())
+                  .containsExactly(
+                      IssueRecurrenceService.FAILED_PREFIX
+                          + IssueRecurrenceService.DISPATCH_REJECTED);
+              Record row = row();
+              assertThat(row.get(ISSUE_RECURRENCE.PENDING_RUN_ID)).isNull();
+              assertThat(row.get(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES)).isEqualTo(1);
+            });
     assertThat(IssueRecurrenceService.FAILED_PREFIX + IssueRecurrenceService.DISPATCH_REJECTED)
         .isEqualTo("이번 회차를 실행하지 못했습니다: 서버가 바빠 회차를 보내지 못했습니다");
-    Record row = row();
-    assertThat(row.get(ISSUE_RECURRENCE.PENDING_RUN_ID)).isNull();
-    assertThat(row.get(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES)).isEqualTo(1);
   }
 
   @Test
