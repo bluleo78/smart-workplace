@@ -9,6 +9,7 @@ import { showsLoadError } from '@/lib/queryFailure'
 import type { ConversationSummaryItem } from '@/types/dashboard'
 
 import { WidgetError } from '../WidgetError'
+import { WidgetEmptyState } from './WidgetEmptyState'
 
 // 대화 딥링크 — DM 은 /chat/dms/:id, 채널은 /chat/channels/:id.
 function href(c: ConversationSummaryItem): string {
@@ -87,17 +88,16 @@ export default function ConversationsBody({
     ? previewData.filter((c) => c.unreadCount > 0).length
     : (data?.unreadConversationCount ?? 0)
 
-  // 빈 상태: 최근 대화 없음 → 조용한 메시지.
+  // 빈 상태: 최근 대화 없음 → 설명 + 다음 행동(새 대화) CTA. 빈 상태는 늘 CTA 를 둔다(WP-1853).
   if (recent.length === 0)
     return (
-      <div
-        role="status"
-        className="flex flex-col items-center gap-2 py-6 text-center"
-        data-testid="dash-chat-empty"
-      >
-        <MessageSquare className="h-8 w-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">조용하네요 — 새 대화가 없어요</p>
-      </div>
+      <WidgetEmptyState
+        icon={MessageSquare}
+        title="조용하네요 — 새 대화가 없어요"
+        description="새 메시지가 오면 여기에 모여요"
+        cta={{ label: '새 대화', to: '/chat/new' }}
+        testId="dash-chat-empty"
+      />
     )
 
   return (

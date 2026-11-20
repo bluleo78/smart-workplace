@@ -2,7 +2,7 @@
 // 그룹 헤더 → 필터 조회 주소, 담당 0건일 때의 긍정적 빈 상태·구독 변동 라인·헤더 부제, 한쪽 조회 5xx → 오류+재시도는
 // 브라우저 없이 판정되므로 e2e/pages/home-widget-mytasks.spec.ts 에서 옮겼다. 홈 → 위젯 → 이슈 상세 배선은 그 E2E 의 @wiring 1건이 지킨다.
 // 버킷 순서·중복 제거 규칙은 lib/myTasks.test.ts(buildMyTaskRows) 몫이다.
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
@@ -69,6 +69,8 @@ test('담당 0건 + 오늘 구독 변동 → 긍정적 빈 상태, 오늘 변동
   const empty = await screen.findByTestId('dash-mytasks-empty')
   expect(empty).toHaveTextContent('지금 손댈 일이 없어요')
   expect(empty).toHaveTextContent('구독 중 오늘 1건 변동')
+  // 변동이 있으면 CTA 는 변동 링크 하나뿐 — 새 이슈 바로 가기는 없다.
+  expect(within(empty).queryByRole('link', { name: /새 이슈/ })).toBeNull()
   // 헤더 부제(빈 상태 밖) — 구독 총량.
   expect(screen.getByTestId('dash-mytasks')).toHaveTextContent('구독 중 2건')
 })
@@ -77,6 +79,9 @@ test('담당 0건 + 오늘 구독 변동 없음 → 빈 상태에 변동 라인�
   renderTasks([], [createIssue({ id: 30, number: 30, updatedAt: '2026-06-01T00:00:00Z' })])
   const empty = await screen.findByTestId('dash-mytasks-empty')
   expect(empty).not.toHaveTextContent('변동')
+  // 변동이 없어도 빈 상태는 늘 다음 행동(새 이슈)을 보인다.
+  expect(within(empty).getAllByRole('link')).toHaveLength(1)
+  expect(within(empty).getByRole('link', { name: /새 이슈/ })).toHaveAttribute('href', '/projects')
 })
 
 test('담당 조회만 5xx 여도 위젯 전체를 오류+재시도로 보인다(거짓 분류 금지, #205)', async () => {

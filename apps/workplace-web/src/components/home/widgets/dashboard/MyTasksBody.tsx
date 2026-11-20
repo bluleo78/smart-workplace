@@ -141,7 +141,13 @@ export default function MyTasksBody({
           icon={CheckCircle2}
           title="지금 손댈 일이 없어요"
           description="담당한 작업을 모두 위임했거나 끝냈어요"
-          cta={result.watchedToday > 0 ? { label: `구독 중 오늘 ${result.watchedToday}건 변동`, to: '/me/tasks/watched' } : undefined}
+          // 빈 상태는 늘 다음 행동을 둔다(WP-1853). 오늘 구독 변동이 있으면 그 링크, 없으면 새 이슈 —
+          // 빠른 액션과 같은 진입이며, 이슈 생성은 프로젝트 범위라 /projects 로 보낸다.
+          cta={
+            result.watchedToday > 0
+              ? { label: `구독 중 오늘 ${result.watchedToday}건 변동`, to: '/me/tasks/watched' }
+              : { label: '새 이슈', to: '/projects' }
+          }
           testId="dash-mytasks-empty"
         />
       ) : (
