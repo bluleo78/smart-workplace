@@ -75,10 +75,10 @@ describeSkillTools('work-done', {
 // WP-800: 할 일이 없으면 대기열 라벨 이슈(list_issues label)를 가져가고(claim_issue), 넘길 때는 AI 대신 라벨(labels)을 붙인다.
 // WP-719: 담당 밖 이슈의 멘션(list_issues mentionsMe)에 물은 곳에서 답한다(add_issue_chat).
 // WP-1569: 질문할 때 답 선택지를 options 로도 보낸다(질문 아래 칩, 추천이 첫 번째).
-// 끝난 이슈의 [반영 안내 보충] 멘션은 DONE·closedFrom 으로 따로 읽는다(새 TASK 대신 개발 이슈 챗으로 보충 요청, WP-1816 — 이행 기간 댓글 요청도 찾는다).
+// WP-1832: 멘션은 상태 없이 한 조회(mentionsMe)로 읽고, 끝난 이슈의 [반영 안내 보충](WP-1816 — 이슈 챗, 이행 기간 댓글도)은 그 결과에서 closedAt 으로 가린다.
 describeSkillTools('work-loop', {
   get_member: ['username'],
-  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'mentionsMe', 'reporter', 'createdFrom', 'createdTo', 'q', 'label', 'closedFrom', 'size'],
+  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'mentionsMe', 'reporter', 'createdFrom', 'createdTo', 'q', 'label', 'size'],
   report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'nextRunAt', 'fileIds', 'options'],
   get_issue_chat: ['issueKey', 'after'],
   update_issue: ['issueKey', 'assignees', 'status', 'labels', 'body', 'parent', 'fileIds'],
