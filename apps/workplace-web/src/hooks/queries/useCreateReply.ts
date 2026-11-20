@@ -7,7 +7,7 @@ import { handleApiError } from '../../lib/api-error';
 import type { MessagePage, MessageResponse, UserKind } from '../../types/messaging';
 import { withLatestLinkPreviews } from './linkPreviewCache';
 import { messagingKeys } from './messagingKeys';
-import { removeOptimisticRow, settleOptimisticRow } from './optimisticRows';
+import { beginOptimisticSend, finishOptimisticSend, optimisticSendKey, removeOptimisticRow, settleOptimisticRow } from './optimisticRows';
 
 interface MeContext {
   id: number;
@@ -67,6 +67,8 @@ export function appendOptimisticReply(
 export function useCreateReply(channelId: number, parentMessageId: number, me: MeContext) {
   const qc = useQueryClient();
   return useMutation({
+    // 같은 스레드의 진행 중 전송 수를 세어 목록 복구를 마지막 전송 뒤 한 번만 하게 한다(WP-1872).
+    mutationKey: optimisticSendKey(messagingKeys.thread(parentMessageId)),
     mutationFn: ({ body, fileIds, driveFileIds }: { body: string; fileIds?: number[]; driveFileIds?: number[] }) =>
       messagingApi
         // fileIds/driveFileIds 빈 배열이면 키 자체를 생략(텍스트 전용 payload 오염 방지).
@@ -80,27 +82,28 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
 
     onMutate: async ({ body }) => {
       const threadKey = messagingKeys.thread(parentMessageId);
-      await qc.cancelQueries({ queryKey: threadKey });
-      // 스냅숏은 들고 가지 않는다 — 캐시가 있었는지만 기억(없었으면 실패 뒤 무효화).
-      const hadCache = qc.getQueryData<InfiniteData<MessagePage>>(threadKey) !== undefined;
+      // 조회 취소 + 복구 필요 표시(캐시 없음/진행 중 조회). 스냅숏은 들고 가지 않는다.
+      await beginOptimisticSend(qc, threadKey);
 
       // 스레드 캐시에만 낙관적 답글을 넣는다 — 부모 replyCount 는 건드리지 않는다(SSE echo 가 +1).
       const tempId = appendOptimisticReply(qc, channelId, parentMessageId, me, body);
 
-      return { hadCache, tempId };
+      return { tempId };
     },
 
     onSuccess: (saved, _body, ctx) => {
       const threadKey = messagingKeys.thread(parentMessageId);
       // POST 응답은 링크 미리보기를 가져오기 전 상태다(WP-874) — echo 에 이미 붙은 미리보기 SSE 값을 살린다.
       const next = withLatestLinkPreviews(qc, channelId, saved);
-      // 임시 답글이 사라졌으면 저장 답글을 끝에 넣고, 캐시 없이 보냈다면 목록을 다시 부른다(WP-1872).
-      if (ctx) settleOptimisticRow(qc, threadKey, ctx.tempId, next, ctx.hadCache, 'end');
+      // 임시 답글이 사라졌으면 저장 답글을 끝에 넣고, 복구가 필요하면 마지막 전송 뒤 목록을 다시 부른다(WP-1872).
+      if (ctx) settleOptimisticRow(qc, threadKey, ctx.tempId, next, 'end');
     },
 
     onError: (err, _body, ctx) => {
-      // 이 전송의 임시 답글만 걷는다(스냅숏 복원 X — 다른 답글·SSE 행 보존, WP-1872). 캐시가 없던 경우엔 무효화.
-      if (ctx) removeOptimisticRow(qc, messagingKeys.thread(parentMessageId), ctx.tempId, ctx.hadCache);
+      // 이 전송의 임시 답글만 걷는다(스냅숏 복원 X — 다른 답글·SSE 행 보존, WP-1872). 목록 복구는 마지막 전송이 끝날 때 한 번.
+      if (ctx) removeOptimisticRow(qc, messagingKeys.thread(parentMessageId), ctx.tempId);
+      // onMutate 가 표시만 남기고 실패했으면(ctx 없음) 표시를 풀고 목록을 되살린다.
+      else finishOptimisticSend(qc, messagingKeys.thread(parentMessageId));
       handleApiError(err, '답글 전송에 실패했습니다');
     },
   });

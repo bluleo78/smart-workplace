@@ -108,4 +108,43 @@ describe('useCreateChatMessage — 실패 시 낙관 행 되돌리기', () => {
     await act(async () => { await result.current.mutateAsync({ body: 'A' }) })
     expect(inv).toHaveBeenCalledTimes(1)
   })
+
+  it('(가) 캐시 없이 보낸 A 가 실패해도 B 가 끝나기 전엔 무효화하지 않아 B 의 임시 행이 남고, B 가 끝나면 한 번 무효화한다', async () => {
+    const a = deferred<unknown>()
+    const b = deferred<unknown>()
+    createMessage.mockImplementationOnce(() => a.promise).mockImplementationOnce(() => b.promise)
+    const qc = new QueryClient()
+    const inv = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = setup(qc)
+    let pa: Promise<unknown> = Promise.resolve()
+    let pb: Promise<unknown> = Promise.resolve()
+    await act(async () => {
+      pa = result.current.mutateAsync({ body: 'A' }).catch(() => {})
+      pb = result.current.mutateAsync({ body: 'B' }).catch(() => {})
+    })
+    await act(async () => { a.reject(new Error('fail')); await pa })
+    expect(itemsOf(qc).filter((m) => m.id < 0)).toHaveLength(1) // B 의 「전송 중…」 행
+    expect(inv).not.toHaveBeenCalled()
+    await act(async () => { b.resolve({ data: msg({ id: 501 }) }); await pb })
+    expect(inv).toHaveBeenCalledTimes(1)
+  })
+
+  it('(나) 캐시 없이 보낸 A 의 복구 재조회를 B 의 onMutate 가 취소해도 B 가 끝나면 다시 무효화한다', async () => {
+    const b = deferred<unknown>()
+    createMessage.mockImplementationOnce(() => Promise.resolve({ data: msg({ id: 501 }) })).mockImplementationOnce(() => b.promise)
+    const qc = new QueryClient()
+    const inv = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = setup(qc)
+    await act(async () => { await result.current.mutateAsync({ body: 'A' }) })
+    expect(inv).toHaveBeenCalledTimes(1)
+    // 복구 재조회가 진행 중인 상태를 흉내 — 끝나지 않는 조회를 건다.
+    const refetch = deferred<unknown>()
+    const fetching = qc.fetchQuery({ queryKey: chatKeys.messages(TH), queryFn: () => refetch.promise }).catch(() => {})
+    expect(qc.getQueryState(chatKeys.messages(TH))?.fetchStatus).toBe('fetching')
+    let pb: Promise<unknown> = Promise.resolve()
+    await act(async () => { pb = result.current.mutateAsync({ body: 'B' }).catch(() => {}) })
+    await fetching // B 의 onMutate 가 조회를 취소했다
+    await act(async () => { b.resolve({ data: msg({ id: 502 }) }); await pb })
+    expect(inv).toHaveBeenCalledTimes(2)
+  })
 })

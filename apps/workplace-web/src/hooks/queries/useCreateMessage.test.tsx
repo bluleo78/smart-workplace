@@ -182,4 +182,69 @@ describe('useCreateMessage — 실패 시 낙관 행 되돌리기', () => {
     await act(async () => { await r2.result.current.mutateAsync({ body: 'A' }) })
     expect(inv2).not.toHaveBeenCalled()
   })
+
+  it('(가) 캐시 없이 보낸 A 가 실패해도 B 가 끝나기 전엔 무효화하지 않아 B 의 임시 행이 남고, B 가 끝나면 한 번 무효화한다', async () => {
+    const a = deferred<unknown>()
+    const b = deferred<unknown>()
+    createMessage.mockImplementationOnce(() => a.promise).mockImplementationOnce(() => b.promise)
+    const qc = new QueryClient()
+    const inv = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = setup(qc)
+    let pa: Promise<unknown> = Promise.resolve()
+    let pb: Promise<unknown> = Promise.resolve()
+    await act(async () => {
+      pa = result.current.mutateAsync({ body: 'A' }).catch(() => {})
+      pb = result.current.mutateAsync({ body: 'B' }).catch(() => {})
+    })
+    await act(async () => { a.reject(new Error('fail')); await pa })
+    expect(itemsOf(qc).filter((m) => m.id < 0)).toHaveLength(1) // B 의 「전송 중…」 행
+    expect(inv).not.toHaveBeenCalled()
+    await act(async () => { b.resolve({ data: msg({ id: 501 }) }); await pb })
+    expect(inv).toHaveBeenCalledTimes(1)
+  })
+
+  it('(나) 캐시 없이 보낸 A 의 복구 재조회를 B 의 onMutate 가 취소해도 B 가 끝나면 다시 무효화한다', async () => {
+    const b = deferred<unknown>()
+    createMessage.mockImplementationOnce(() => Promise.resolve({ data: msg({ id: 501 }) })).mockImplementationOnce(() => b.promise)
+    const qc = new QueryClient()
+    const inv = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = setup(qc)
+    await act(async () => { await result.current.mutateAsync({ body: 'A' }) })
+    expect(inv).toHaveBeenCalledTimes(1)
+    // 복구 재조회가 진행 중인 상태를 흉내 — 끝나지 않는 조회를 건다.
+    const refetch = deferred<unknown>()
+    const fetching = qc.fetchQuery({ queryKey: messagingKeys.messages(CH), queryFn: () => refetch.promise }).catch(() => {})
+    expect(qc.getQueryState(messagingKeys.messages(CH))?.fetchStatus).toBe('fetching')
+    let pb: Promise<unknown> = Promise.resolve()
+    await act(async () => { pb = result.current.mutateAsync({ body: 'B' }).catch(() => {}) })
+    await fetching // B 의 onMutate 가 조회를 취소했다
+    await act(async () => { b.resolve({ data: msg({ id: 502 }) }); await pb })
+    expect(inv).toHaveBeenCalledTimes(2)
+  })
+
+  // 조회 상태만 바꿔 「진행 중 조회가 무엇이었나」를 흉내 — 실제 조회 없이 beginOptimisticSend 의 판정을 본다.
+  function seedWithFetch(qc: QueryClient, fetchStatus: 'paused' | 'fetching', fetchMeta: unknown) {
+    qc.setQueryData(messagingKeys.messages(CH), { pages: [{ items: [msg({ id: 1 })] }], pageParams: [undefined] })
+    qc.getQueryCache().find({ queryKey: messagingKeys.messages(CH) })!.setState({ fetchStatus, fetchMeta } as never)
+  }
+
+  it('오프라인으로 멈춘(paused) 조회를 취소한 전송은 끝날 때 목록을 다시 부른다', async () => {
+    createMessage.mockResolvedValueOnce({ data: msg({ id: 501 }) })
+    const qc = new QueryClient()
+    seedWithFetch(qc, 'paused', null)
+    const inv = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = setup(qc)
+    await act(async () => { await result.current.mutateAsync({ body: 'A' }) })
+    expect(inv).toHaveBeenCalledTimes(1)
+  })
+
+  it('이전 페이지 더 불러오기(fetchMore)만 취소한 전송은 목록 전체를 다시 부르지 않는다', async () => {
+    createMessage.mockResolvedValueOnce({ data: msg({ id: 501 }) })
+    const qc = new QueryClient()
+    seedWithFetch(qc, 'fetching', { fetchMore: { direction: 'forward' } })
+    const inv = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = setup(qc)
+    await act(async () => { await result.current.mutateAsync({ body: 'A' }) })
+    expect(inv).not.toHaveBeenCalled()
+  })
 })
