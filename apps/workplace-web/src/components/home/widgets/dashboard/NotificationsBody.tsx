@@ -12,6 +12,7 @@ import type { NotificationResponse } from '@/types/notification'
 
 import { WidgetError } from '../WidgetError'
 import { NotificationGroupRow } from './NotificationGroupRow'
+import { WidgetEmptyState } from './WidgetEmptyState'
 
 /**
  * 알림 위젯 — "캐치업" 모델.
@@ -57,18 +58,16 @@ export default function NotificationsBody({
   // 그룹의 미읽음 id 들을 read 처리(낙관적 — 훅이 invalidate 후 재조회).
   const ack = (ids: number[]) => ids.forEach((id) => markRead.mutate(id))
 
-  // 정직한 빈 상태: 미읽음이 전혀 없을 때만 축하형.
+  // 정직한 빈 상태: 미읽음이 전혀 없을 때만 축하형. 다음 행동은 알림 설정(WP-1853).
   if (!hasUnread)
     return (
-      <div
-        role="status"
-        className="flex flex-col items-center gap-2 py-6 text-center"
-        data-testid="dash-notif-empty"
-      >
-        <Bell className="h-8 w-8 text-muted-foreground" />
-        <p className="text-sm font-medium">다 따라잡았어요 🎉</p>
-        <p className="text-xs text-muted-foreground">새로운 알림이 생기면 여기에 모여요</p>
-      </div>
+      <WidgetEmptyState
+        icon={Bell}
+        title="다 따라잡았어요 🎉"
+        description="새로운 알림이 생기면 여기에 모여요"
+        cta={{ label: '알림 설정', to: '/settings/notifications' }}
+        testId="dash-notif-empty"
+      />
     )
 
   return (

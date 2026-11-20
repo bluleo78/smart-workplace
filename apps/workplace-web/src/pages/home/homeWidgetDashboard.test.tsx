@@ -197,9 +197,33 @@ test('알림 위젯 — 행 ✓ 는 그 알림을, 「모두 읽음」은 read-a
   await waitFor(() => expect(state.reads).toContain('all'))
 })
 
-test('알림 위젯 — 안 읽은 알림이 없으면 「다 따라잡았어요」 빈 상태를 보인다', async () => {
+test('알림 위젯 — 빈 상태는 제목·설명·「알림 설정」 CTA(/settings/notifications) 하나를 보인다 (WP-1853)', async () => {
   renderHome(layout(['notifications']), { notifications: [notif({ id: 31, type: 'COMMENTED', read: true })] })
-  expect(await screen.findByTestId('dash-notif-empty')).toHaveTextContent('다 따라잡았어요')
+  const empty = await screen.findByTestId('dash-notif-empty')
+  expect(empty).toHaveTextContent('다 따라잡았어요')
+  expect(empty).toHaveTextContent('새로운 알림이 생기면 여기에 모여요')
+  expect(within(empty).getAllByRole('link')).toHaveLength(1)
+  expect(within(empty).getByRole('link', { name: /알림 설정/ })).toHaveAttribute('href', '/settings/notifications')
+})
+
+test('대화 위젯 — 빈 상태는 제목·설명·「새 대화」 CTA(/chat/new) 하나를 보인다 (WP-1853)', async () => {
+  renderHome(layout(['recent_chats']))
+  const empty = await screen.findByTestId('dash-chat-empty')
+  expect(empty).toHaveTextContent('조용하네요 — 새 대화가 없어요')
+  expect(empty).toHaveTextContent('새 메시지가 오면 여기에 모여요')
+  expect(within(empty).getAllByRole('link')).toHaveLength(1)
+  expect(within(empty).getByRole('link', { name: /새 대화/ })).toHaveAttribute('href', '/chat/new')
+})
+
+test('메일 위젯 — 빈 상태는 제목·설명·「메일함 열기」 CTA(/mail) 하나를 보인다 (WP-1853)', async () => {
+  renderHome(layout(['unread_mail']), {
+    mail: { unreadCount: 0, needsReplyCount: 0, classificationActive: false, recent: [] },
+  })
+  const empty = await screen.findByTestId('dash-mail-empty')
+  expect(empty).toHaveTextContent('새 메일이 없어요')
+  expect(empty).toHaveTextContent('읽지 않은 메일이 오면 여기에 모여요')
+  expect(within(empty).getAllByRole('link')).toHaveLength(1)
+  expect(within(empty).getByRole('link', { name: /메일함 열기/ })).toHaveAttribute('href', '/mail')
 })
 
 test('알림 위젯 — AI(AGENT) 행위자에는 이름에 「AI」가 있어도 에이전트 배지(ai-accent)를 달고 「AI」 칩은 없다 (#637, WP-935)', async () => {

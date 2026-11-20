@@ -13,6 +13,7 @@ import type { MailSummaryItem } from '@/types/dashboard'
 
 import { WidgetError } from '../WidgetError'
 import { mailSender } from './bodyRules'
+import { WidgetEmptyState } from './WidgetEmptyState'
 
 // 아바타 이니셜 — 발신자명(bodyRules.mailSender — 모바일 요약과 같은 규칙) 첫 글자.
 function initial(item: MailSummaryItem): string {
@@ -53,16 +54,18 @@ export default function UnreadMailBody({
   const needsReplyCount = previewData ? previewData.filter(isNeedsReply).length : (queryData?.needsReplyCount ?? 0)
   const classificationActive = previewData ? true : (queryData?.classificationActive ?? false)
 
+  // 빈 상태: 설명 + 다음 행동(메일함 열기) CTA(WP-1853). 메일 화면으로 보낸다 — 작성 도크를 바로 여는 딥링크가 없고,
+  // 계정을 연결하지 않은 사용자도 같은 빈 상태를 보므로(요약 응답에 계정 유무가 없다) 「작성」이 아닌 「메일함 열기」로 둔다.
+  // 메일 화면은 계정이 없으면 연결 안내를 보여 준다.
   if (recent.length === 0)
     return (
-      <div
-        role="status"
-        className="flex flex-col items-center gap-2 py-6 text-center"
-        data-testid="dash-mail-empty"
-      >
-        <Mail className="h-8 w-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">새 메일이 없어요</p>
-      </div>
+      <WidgetEmptyState
+        icon={Mail}
+        title="새 메일이 없어요"
+        description="읽지 않은 메일이 오면 여기에 모여요"
+        cta={{ label: '메일함 열기', to: '/mail' }}
+        testId="dash-mail-empty"
+      />
     )
 
   // 회신필요(분류 활성 시) 먼저 → 최신순. receivedAt nullsLast.
