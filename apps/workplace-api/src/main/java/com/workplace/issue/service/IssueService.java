@@ -1061,6 +1061,19 @@ public class IssueService {
       throw new IssueConflictException(project.key() + "-" + number);
     }
 
+    // WP-1780 fileIds 만 담은 요청은 이슈 행(version·updated_at)·이력을 건드리지 않고 첨부만 붙인다 — 예전 claim 엔드포인트처럼
+    // 편집기를 연 사람이 이 쓰기 때문에 #611 409 를 받지 않게 한다. 권한·충돌 검사는 위에서 이미 지났다.
+    if (req.isAttachOnly()) {
+      issueAttachmentService.attachStaged(
+          project,
+          before.id(),
+          callerId,
+          mergeFileIds(req.fileIds(), IssueBodyImageService.ResolvedBody.empty()));
+      // 첨부는 작업 쓰기다(isOrganizingOnly 가 fileIds 를 보고 거른다) — AI 작업 터치 이벤트를 낸다.
+      changeNotifier.updated(project, number, before.id(), callerId);
+      return;
+    }
+
     String newTitle = req.title() != null ? normalizeTitle(req.title()) : before.title();
     // WP-1634 본문의 스테이징 파일 자리표시를 실제 주소로 바꾼다 — 권한·충돌 검사를 지난 뒤, 저장 전에(못 쓰는 번호면 예외로 아무것도 바뀌지 않는다).
     IssueBodyImageService.ResolvedBody resolvedBody =
@@ -1144,11 +1157,15 @@ public class IssueService {
     // 새 본문·이전 본문 모두 이미지 참조가 없으면 syncIssueImages 가 추가 쿼리 없이 돌아간다.
     if (req.body() != null) {
       bodyImageService.syncIssueImages(project, before.id(), callerId, before.body(), newBody);
-      // WP-1634 본문 자리표시의 이미지가 아닌 파일은 이슈 첨부로 — 내용 편집 권한(위 가드)을 지났으므로 첨부 클레임 API 와 같은 자격이다.
-      if (!resolvedBody.attachmentFileIds().isEmpty()) {
-        issueAttachmentService.attachStaged(
-            project, before.id(), callerId, resolvedBody.attachmentFileIds());
-      }
+    }
+    // WP-1634 본문 자리표시의 이미지가 아닌 파일 + WP-1780 요청 fileIds 는 이슈 첨부로 — 만들기와 같이 mergeFileIds 로 합쳐
+    // 한 번만 붙인다(자리표시로 이미 처리된 번호는 뺀다). 내용 편집 권한(위 가드)을 지났으므로 첨부 클레임 API 와 같은 자격이다.
+    List<Long> stagedFileIds =
+        mergeFileIds(
+            req.fileIds(),
+            resolvedBody != null ? resolvedBody : IssueBodyImageService.ResolvedBody.empty());
+    if (!stagedFileIds.isEmpty()) {
+      issueAttachmentService.attachStaged(project, before.id(), callerId, stagedFileIds);
     }
     var after = issueRepository.findById(before.id()).orElseThrow();
 
@@ -1504,10 +1521,13 @@ public class IssueService {
    * 것이 아니라 MCP 경유라도 AI 작업을 시작하지 않는다.
    */
   private static boolean isOrganizingOnly(UpdateIssueRequest req) {
+    // WP-1780 첨부(fileIds)는 그 일을 한 쓰기라 정리성이 아니다 — 예전 claim 경로(changeNotifier.updated)와 같게 AI 작업을
+    // 터치한다.
     return req.title() == null
         && req.body() == null
         && req.status() == null
-        && req.statusId() == null;
+        && req.statusId() == null
+        && (req.fileIds() == null || req.fileIds().isEmpty());
   }
 
   /**

@@ -185,97 +185,6 @@ async function resolveReporterId(client: IssueToolClient, projectKey: string, re
   return found.userId;
 }
 
-/**
- * WP-1755: 본문 문자열의 `](file:N)` 자리표시에 쓰인 파일 번호 집합. 서버(IssueBodyFilePlaceholders)는 본문 처리 때 이 번호를 첨부·본문 이미지로 한 번만 옮기므로,
- * 같은 번호를 fileIds 로도 먼저 클레임하면 자리표시 해석이 실패한다 — 호출 쪽에서 fileIds 에서 뺀다.
- * 찾는 꼴은 서버와 같다: `[대체 글](file:N)`(앞 `!` 는 있어도 없어도 됨), 대체 글은 `]`·줄바꿈 없이, 번호는 1~19자리 —
- * 서버가 자리표시로 보지 않는 것을 MCP 가 fileIds 에서 빼 첨부가 사라지는 일이 없게 한다.
- * 코드 표기 안은 서버처럼 건너뛴다(IssueBodyFilePlaceholders.codeMask 와 같은 판정): 펜스 코드 블록(``` 또는 ~~~, 3개 이상, 앞 공백 3칸까지,
- * 닫는 펜스는 같은 문자·같거나 긴 길이·뒤는 공백뿐)과 한 줄 안 인라인 코드(같은 길이 백틱 묶음 사이). 코드 예시에만 있는 번호는 서버가 자리표시로
- * 보지 않아 본문 처리로 붙지 않으므로, 클레임에서 빼지 않아야 첨부가 사라지지 않는다.
- */
-export function placeholderFileIds(body: string | undefined): Set<number> {
-  const ids = new Set<number>();
-  if (!body || !body.includes('](file:')) return ids;
-  const code = codeMask(body);
-  for (const m of body.matchAll(/!?\[[^\]\n]*\]\(file:(\d{1,19})\)/g)) {
-    if (!code[m.index!]) ids.add(Number(m[1]));
-  }
-  return ids;
-}
-
-/** 본문 각 위치가 코드(펜스 블록·인라인 코드) 안인지 표시한다 — 서버 IssueBodyFilePlaceholders.codeMask 의 TS 판. */
-function codeMask(body: string): boolean[] {
-  const code: boolean[] = new Array<boolean>(body.length).fill(false);
-  let fenceChar = '';
-  let fenceLen = 0;
-  let lineStart = 0;
-  while (lineStart < body.length) {
-    const nl = body.indexOf('\n', lineStart);
-    const lineEnd = nl < 0 ? body.length : nl;
-    const line = body.substring(lineStart, lineEnd);
-    const f = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    if (fenceChar) {
-      // 펜스 안 — 닫는 펜스 줄까지 모두 코드. 닫는 펜스는 같은 문자·같거나 긴 길이이고 뒤에 공백만 온다.
-      markRange(code, lineStart, lineEnd);
-      if (f && f[1][0] === fenceChar && f[1].length >= fenceLen && line.substring(f[0].length).trim() === '') fenceChar = '';
-    } else if (f) {
-      fenceChar = f[1][0];
-      fenceLen = f[1].length;
-      markRange(code, lineStart, lineEnd);
-    } else {
-      markInlineCode(code, line, lineStart);
-    }
-    lineStart = lineEnd + 1;
-  }
-  return code;
-}
-
-/** 한 줄 안의 인라인 코드 — 백틱 n개 묶음과 다음의 같은 길이 묶음 사이. 짝이 없는 백틱은 글자 그대로다. */
-function markInlineCode(code: boolean[], line: string, offset: number): void {
-  let i = 0;
-  while (i < line.length) {
-    if (line[i] !== '`') {
-      i++;
-      continue;
-    }
-    const runEnd = backtickRunEnd(line, i);
-    const len = runEnd - i;
-    const close = findBacktickRun(line, runEnd, len);
-    if (close < 0) {
-      i = runEnd;
-      continue;
-    }
-    markRange(code, offset + i, offset + close + len);
-    i = close + len;
-  }
-}
-
-/** from 부터 정확히 len 개의 백틱 묶음이 처음 나오는 위치, 없으면 -1. */
-function findBacktickRun(line: string, from: number, len: number): number {
-  let i = from;
-  while (i < line.length) {
-    if (line[i] !== '`') {
-      i++;
-      continue;
-    }
-    const end = backtickRunEnd(line, i);
-    if (end - i === len) return i;
-    i = end;
-  }
-  return -1;
-}
-
-function backtickRunEnd(line: string, start: number): number {
-  let i = start;
-  while (i < line.length && line[i] === '`') i++;
-  return i;
-}
-
-function markRange(code: boolean[], from: number, to: number): void {
-  for (let i = from; i < to && i < code.length; i++) code[i] = true;
-}
-
 /** 공유 이슈 도구 13종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
 export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
@@ -449,19 +358,10 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
 
         // 모르는 상태 이름은 어떤 쓰기보다 먼저 실패해야 한다 — 담당자·라벨 등만 바뀐 반쯤 고친 이슈를 남기지 않게.
         // 이름은 서버가 내용 PATCH 에서 해석·거절하므로 보통은 내용 PATCH 를 맨 앞에 두는 것으로 충분하다(아래 contentFirst).
-        // 다만 첨부·드라이브 링크는 상태보다 먼저 저장해(아래 주석) 내용 PATCH 를 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
+        // 다만 드라이브 링크는 상태보다 먼저 저장해(아래 주석) 내용 PATCH 를 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
+        // WP-1780: fileIds 는 서버가 내용 PATCH 와 같은 트랜잭션에서 붙이므로(자리표시 번호는 서버가 걸러냄) 더는 먼저 쓰는 쓰기가 아니다.
         const statusName = statusPatch && 'statusName' in statusPatch ? statusPatch.statusName : undefined;
-        // WP-1755: 본문(PATCH 로 가는 body)에 `](file:N)` 자리표시로 쓴 번호는 클레임에서 뺀다 — 먼저 첨부로 묶이면 본문 처리의 자리표시 해석이 실패한다.
-        // fileIds 가 없으면 본문을 훑지 않는다. 한 번 나눠 클레임할 번호와 본문이 처리할 번호(결과에 알림, 중복 제거)를 함께 얻는다.
-        const inBody = fileIds?.length ? placeholderFileIds(typeof rest.body === 'string' ? rest.body : undefined) : new Set<number>();
-        const claimFileIds: number[] = [];
-        const bodyHandled = new Set<number>();
-        for (const id of fileIds ?? []) {
-          if (inBody.has(id)) bodyHandled.add(id);
-          else claimFileIds.push(id);
-        }
-        const bodyHandledIds = [...bodyHandled];
-        const writesBeforeContent = claimFileIds.length > 0 || driveFileId !== undefined;
+        const writesBeforeContent = driveFileId !== undefined;
         if (statusName !== undefined && writesBeforeContent) {
           const unknown = await unknownStatusMessage(client, projectKey, statusName);
           if (unknown) return JSON.stringify({ ok: false, results: { content: `failed: ${unknown}` } });
@@ -475,31 +375,25 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           }
         };
 
-        // WP-1755: 본문 자리표시로 처리를 맡긴 번호는 본문 저장(content) 성공 여부를 따른다 — 성공이면 ok, 실패하면 붙지 않은 번호를 알린다. 뺀 번호가 없으면 키를 만들지 않는다.
-        const noteBodyFiles = () => {
-          if (!bodyHandledIds.length) return;
-          results.bodyFiles =
-            results.content === 'ok' ? 'ok' : `failed: 본문 저장 실패로 붙지 않음 — ${bodyHandledIds.join(',')}`;
-        };
-
-        // 첨부·드라이브 링크는 내용(상태 포함) PATCH 보다 먼저 한다 — 모르는 상태 이름은 위에서 어떤 쓰기보다 먼저 거르고, 명시 status 가 마지막 쓰기로 남게.
-        // WP-422: 스테이징 파일 첨부 — 빈 배열이면 서버를 부르지 않는다. 실패(만료 등)는 attachments 결과로만 알린다.
-        if (claimFileIds.length) await run('attachments', () => client.claimIssueAttachments(issueKey, claimFileIds));
+        // 드라이브 링크는 내용(상태 포함) PATCH 보다 먼저 한다 — 모르는 상태 이름은 위에서 어떤 쓰기보다 먼저 거르고, 명시 status 가 마지막 쓰기로 남게.
         if (driveFileId !== undefined) await run('driveLink', () => client.addIssueDriveLink(issueKey, driveFileId));
 
         // 마일스톤은 이슈 PATCH 본문의 필드다(milestoneId 설정 / clearMilestone 해제).
         const content: Record<string, unknown> = { ...rest, ...statusPatch };
         if (milestoneId !== undefined) content.milestoneId = milestoneId;
         if (milestone === null) content.clearMilestone = true;
+        // WP-1780: 스테이징 파일 첨부(WP-422)는 내용 PATCH 의 fileIds 로 보낸다 — 서버가 본문 자리표시 번호를 빼고 나머지를 같은 트랜잭션에서 붙인다. 빈 배열은 싣지 않는다.
+        if (fileIds?.length) content.fileIds = fileIds;
         if (Object.keys(content).length > 0) {
           await run('content', async () => {
             // WP-1523: 내용 PATCH 응답(상세)에 서버가 실은 화면 주소를 결과에 옮긴다. 내용을 고치지 않은 호출에는 없다.
             const updated = (await client.updateIssueContent(issueKey, content)) as { url?: unknown } | null | undefined;
             if (typeof updated?.url === 'string' && updated.url) url = updated.url;
           });
-          // 상태 이름을 실은 내용 PATCH 가 실패했으면(모르는 이름 400 등) 나머지는 쓰지 않는다 — 이 앞의 쓰기는 첨부·링크뿐이고 그때는 이름을 미리 확인했다.
+          // WP-1780: 첨부는 내용 PATCH 와 한 몸이라 결과도 같은 값(성공이면 ok, 실패면 같은 실패)으로 알린다 — 일찍 돌아가는 경로보다 먼저 채운다.
+          if (fileIds?.length) results.attachments = results.content;
+          // 상태 이름을 실은 내용 PATCH 가 실패했으면(모르는 이름 400 등) 나머지는 쓰지 않는다 — 이 앞의 쓰기는 드라이브 링크뿐이고 그때는 이름을 미리 확인했다.
           if (statusName !== undefined && results.content !== 'ok') {
-            noteBodyFiles();
             return JSON.stringify({ ok: false, results });
           }
         }
@@ -525,7 +419,6 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         // WP-944: 보고자는 맨 마지막 — 쓰기 권한이 지금 보고자를 따르므로(OPEN 비멤버 보고자) 넘긴 뒤의 쓰기는 거절될 수 있다.
         if (reporterId !== undefined) await run('reporter', () => client.changeIssueReporter(issueKey, reporterId));
 
-        noteBodyFiles();
         const ok = Object.values(results).every((v) => v === 'ok');
         // 라벨 교체가 실패했으면 라벨도 만들어지지 않았다 — 성공했을 때만 새 라벨을 알린다.
         return JSON.stringify({ ok, ...(url && { url }), results, ...(results.labels === 'ok' ? createdLabelsField(labelPart) : {}) });

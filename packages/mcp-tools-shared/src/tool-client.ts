@@ -282,7 +282,10 @@ export interface IssueToolClient
   updateIssueFields(issueKey: string, values: { defId: number; value: unknown }[]): Promise<unknown>;
   /** POST .../drive-links — 이미 연결돼 있으면 서버가 무시한다(멱등). 드라이브 스페이스 VIEWER 이상 필요(WP-356). */
   addIssueDriveLink(issueKey: string, driveFileId: number): Promise<void>;
-  /** POST .../attachments/claim — upload_file 로 스테이징한 파일을 이슈 첨부로 붙인다(WP-422). 만료·남의 파일이면 서버가 거절한다. */
+  /**
+   * POST .../attachments/claim — upload_file 로 스테이징한 파일을 이슈 첨부로 붙인다(WP-422). 만료·남의 파일이면 서버가 거절한다.
+   * update_issue 는 WP-1780 부터 내용 PATCH 의 fileIds 를 쓰고, 이 메서드는 claim 엔드포인트와 짝으로 남겨 둔다.
+   */
   claimIssueAttachments(issueKey: string, fileIds: number[]): Promise<unknown>;
   /**
    * POST .../claim — 대기열 라벨이 붙은 이슈를 호출 AI 가 가져간다(WP-800). 한 트랜잭션에서 호출자를 담당자에 추가하고 그 라벨을 뗀다.
