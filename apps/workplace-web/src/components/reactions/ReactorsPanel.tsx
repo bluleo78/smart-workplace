@@ -5,10 +5,12 @@
 import { useState } from 'react'
 
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import type { ReactionResponse, ReactionTarget, ReactorSource } from '@/components/reactions/types'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useReactors } from '@/hooks/queries/useReactors'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { othersOf } from '@/lib/reactorSummary'
 import type { ReactorResponse } from '@/types/messaging'
 
@@ -84,11 +86,11 @@ function ReactorList({
       {others.map((r) => (
         <ReactorRow key={r.userId} testId={`reactor-row-${r.userId}`} userId={r.userId} name={r.name} kind={r.kind} />
       ))}
-      {q.isPending && <p className="py-3 text-center text-xs text-muted-foreground">불러오는 중…</p>}
-      {q.isLoadingError && (
-        <button type="button" className="w-full py-3 text-xs text-destructive underline" onClick={() => void q.refetch()}>
-          불러오지 못했습니다 — 다시 시도
-        </button>
+      {/* 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-1820, lib/queryFailure). */}
+      {failedWithoutData(q) ? (
+        <LoadErrorState variant="inline" title="반응한 사람을 불러오지 못했습니다" queries={[q]} testId="reactors-error" className="m-3" />
+      ) : (
+        q.isPending && <p className="py-3 text-center text-xs text-muted-foreground">불러오는 중…</p>
       )}
       <LoadMoreFooter query={q} root={scrollEl} />
     </div>

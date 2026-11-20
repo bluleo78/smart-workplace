@@ -140,6 +140,65 @@ describe('알림 창 보관함 전환', () => {
     await user.click(await screen.findByTestId('inbox-tab-archive'))
     expect(await screen.findByTestId('inbox-empty')).toHaveTextContent('보관한 알림이 없습니다')
   })
+
+  // WP-1843: 목록 영역은 선택 탭에 이어진 tabpanel 이다(APG Tabs). 모바일은 탭이 화면 머리에 따로 있어 id 로 잇는다.
+  test('목록 영역은 선택 탭에 이어진 tabpanel', async () => {
+    const { user } = renderInbox({ archived: [notif({ id: 5, issueTitle: '보관된 이슈' })] })
+    await screen.findAllByTestId('inbox-item')
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('id', 'inbox-view-panel')
+    expect(panel).toHaveAttribute('aria-labelledby', 'inbox-view-tab-inbox')
+    expect(panel).toHaveAttribute('data-testid', 'inbox-scroll-area')
+    // 행이 있으면 패널은 Tab 정지점이 아니다(첫 행 단추가 Tab 정지점). -1 은 스크립트 초점만 받는다(로딩 중 둔 초점 유지).
+    expect(panel).toHaveAttribute('tabindex', '-1')
+    await user.click(screen.getByTestId('inbox-tab-archive'))
+    await screen.findByText(/보관된 이슈/)
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'inbox-view-tab-archive')
+  })
+
+  // WP-1843: 로딩 중에는 패널이 Tab 정지점(0)이고, 로딩 중에 둔 초점은 행이 도착해도 남는다(-1 로 내려가도 초점 유지).
+  test('불러오는 중 패널은 Tab 정지점이고, 초점을 둔 채 행이 도착해도 남는다', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    renderScreen(<InboxHarness />, {
+      path: '/',
+      handlers: [
+        http.get('/api/v1/notifications', async () => {
+          // 풀어 줄 때까지 응답을 보류해 로딩 상태를 붙잡는다.
+          await gate
+          return HttpResponse.json([notif({ id: 1 })])
+        }),
+        http.get('/api/v1/notifications/archived', () => HttpResponse.json([])),
+        http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: 0 })),
+        http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null })),
+      ],
+    })
+    const panel = await screen.findByRole('tabpanel')
+    expect(await screen.findByText(/불러오는 중/)).toBeInTheDocument()
+    expect(panel).toHaveAttribute('tabindex', '0')
+    panel.focus()
+    expect(panel).toHaveFocus()
+    release()
+    await screen.findAllByTestId('inbox-item')
+    expect(panel).toHaveAttribute('tabindex', '-1')
+    expect(panel).toHaveFocus()
+  })
+
+  test('빈 목록 패널은 초점을 받는다', async () => {
+    renderInbox({ inbox: [] })
+    await screen.findByTestId('inbox-empty')
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '0')
+  })
+
+  test('탭의 aria-controls 값이 패널 id 와 같다', async () => {
+    renderInbox()
+    await screen.findAllByTestId('inbox-item')
+    const panel = screen.getByRole('tabpanel')
+    expect(screen.getByTestId('inbox-tab-inbox')).toHaveAttribute('aria-controls', panel.id)
+    expect(screen.getByTestId('inbox-tab-archive')).toHaveAttribute('aria-controls', panel.id)
+  })
 })
 
 describe('보관함 줄 되돌리기 — 처리 중 비활성은 그 줄만', () => {

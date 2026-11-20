@@ -34,6 +34,7 @@ export function LoadErrorState({
   retrying: retryingProp = false,
   variant = 'block',
   className,
+  retryClassName,
   testId,
 }: {
   /** 「…을(를) 불러오지 못했습니다」 — 무엇이 실패했는지 화면 말로. */
@@ -42,6 +43,8 @@ export function LoadErrorState({
   description?: string
   variant?: 'block' | 'inline' | 'banner'
   className?: string
+  /** 다시 시도 단추에 더할 클래스 — 바텀시트처럼 터치 크기(pointer-coarse:h-11)가 필요한 자리에서 쓴다(WP-1820). */
+  retryClassName?: string
   testId: string
 } & RetryProps) {
   const onRetry = queries ? () => queries.forEach((q) => void q.refetch()) : onRetryProp
@@ -85,7 +88,7 @@ export function LoadErrorState({
       onClick={() => { if (!retrying) onRetry() }}
       aria-disabled={retrying || undefined}
       aria-busy={retrying || undefined}
-      className={cn(retrying && 'cursor-progress opacity-50')}
+      className={cn(retryClassName, retrying && 'cursor-progress opacity-50')}
       data-testid={`${testId}-retry`}
       data-load-error-retry=""
     >

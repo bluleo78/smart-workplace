@@ -3,7 +3,7 @@
 // 사용자가 직접 다시 시도할 수 있게 버튼을 보인다. 이슈 보드 컬럼·설정 목록·연락처 등이 함께 쓴다.
 // manualLabel 을 주면 자동 로드 대신 그 문구의 버튼을 눌러야 다음 묶음을 불러온다 — 구간을 여러 개 쌓은 목록에서
 // 마지막이 아닌 구간이 스크롤로 자라 아래 구간 사이에 행이 끼어드는 것을 막는 예외(디자인 시스템 05 §A-3, WP-876).
-// 사용처는 오류 화면을 isLoadingError(첫 페이지 실패)일 때만 그려야 한다 — isError 는 다음 페이지 실패에도
+// 사용처는 첫 페이지 실패 화면을 failedWithoutData(lib/queryFailure)로 그려야 한다 — isError 는 다음 페이지 실패에도
 // true 라서, 그걸로 분기하면 이미 받은 목록이 오류 화면으로 덮이고 이 푸터의 다시 시도도 사라진다.
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query';
 import { type ReactNode, useId } from 'react';

@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { Page } from '@/components/layout/Page'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { messagePlainText } from '@/components/mentions/parseMessageSegments'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useMyDms } from '@/hooks/queries/useMyDms'
@@ -13,12 +14,15 @@ import { useThreadsInbox } from '@/hooks/queries/useThreadsInbox'
 import { useAuth } from '@/hooks/useAuth'
 import { buildThreadsInboxContext } from '@/lib/aiScreenContext/builders/messaging'
 import { dmDisplayName } from '@/lib/dm'
+import { failedWithoutData } from '@/lib/queryFailure'
 import type { ThreadInboxItem } from '@/types/messaging'
 
 export default function ThreadsInboxPage() {
   const navigate = useNavigate()
   const threadsQuery = useThreadsInbox()
-  const { data, hasNextPage, isLoading, isLoadingError } = threadsQuery
+  const { data, hasNextPage, isLoading } = threadsQuery
+  // 첫 조회 실패 — 다시 부르는 중(pending)에도 참이라 실패 안내가 빈 상태·「불러오는 중」으로 바뀌지 않는다(WP-1820).
+  const firstFailed = failedWithoutData(threadsQuery)
   // 목록 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const items: ThreadInboxItem[] = data?.pages.flatMap((p) => p.items) ?? []
@@ -33,11 +37,8 @@ export default function ThreadsInboxPage() {
 
   // WP-54: 스레드 모아보기 화면 컨텍스트 — 로드된 스레드 수. 로딩/오류 중엔 미등록(미로드 수치 전송 금지).
   const screenContext = useMemo(
-    () =>
-      data && !isLoadingError
-        ? buildThreadsInboxContext({ count: data.pages.flatMap((p) => p.items).length, hasMore: !!hasNextPage })
-        : null,
-    [data, isLoadingError, hasNextPage],
+    () => (data ? buildThreadsInboxContext({ count: data.pages.flatMap((p) => p.items).length, hasMore: !!hasNextPage }) : null),
+    [data, hasNextPage],
   )
   useRegisterAiScreenContext(screenContext)
 
@@ -55,7 +56,12 @@ export default function ThreadsInboxPage() {
     // 읽기 폭(reading) 페이지 — 카드 목록이 헤더 시작선에서 왼쪽 정렬로 768px 까지만 펼쳐진다.
     <Page width="reading" data-testid="threads-inbox-page">
       <Page.Header title="스레드" icon={<Inbox className="h-5 w-5 text-muted-foreground" />} />
-      {!isLoading && items.length === 0 ? (
+      {firstFailed ? (
+        // 실패 먼저 — 빈 상태로 그리면 답글이 없는 것으로 오해하고, 다시 시도 중(pending)에 안내·초점을 잃는다(WP-881·WP-1820).
+        <Page.Body padded={false} className="items-center justify-center">
+          <LoadErrorState title="스레드를 불러오지 못했습니다" queries={[threadsQuery]} testId="threads-inbox-error" />
+        </Page.Body>
+      ) : !isLoading && items.length === 0 ? (
         <Page.Body padded={false} className="items-center justify-center">
           <ChatEmptyState
             icon={<Inbox className="h-10 w-10" />}

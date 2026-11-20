@@ -4,11 +4,12 @@
 // contacts-external-crud.spec.ts 에서 옮겼다. 라우트 → 목록 API → 상세 배선(@wiring), 한글 IME 연속 입력(@input),
 // 좁은 폭에서 목록이 숨는 2단 배치(@layout)는 contacts.spec.ts 의 E2E 가 지킨다.
 // App 전체 대신 모듈 레이아웃(사이드바) + ContactsPage 만 renderScreen 으로 띄운다(testkit-b8).
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { emptyTree, record, type Recorded, renderContacts } from '@/test/kits/contacts/testkit-b8'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 
 import {
   external,
@@ -441,4 +442,44 @@ test('사이드바와 필터 nav 에 이름이 있다 — 랜드마크 이름(WP
   renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), listHandler(lists)] })
   const aside = await screen.findByRole('complementary', { name: '연락처 사이드바' })
   expect(within(aside).getByRole('navigation', { name: '연락처 필터' })).toBeInTheDocument()
+})
+
+// WP-1820: 첫 조회 실패 뒤 다시 시도하면 TanStack Query 가 status 를 pending 으로 되돌린다 — 그 동안에도 오류 안내·초점이 남아야 한다.
+test('WP-1820 다시 시도 성공 — 응답 전에도 안내·초점 유지, 응답 뒤 목록', async () => {
+  let calls = 0
+  const { promise, release } = gate()
+  const { user } = renderContacts('/contacts', {
+    handlers: [
+      emptyTree(),
+      http.get('/api/v1/contacts', async () => {
+        calls += 1
+        if (calls === 1) return HttpResponse.json({ message: 'x' }, { status: 500 })
+        await promise
+        return HttpResponse.json(makePage([external()]))
+      }),
+    ],
+  })
+  await clickRetryAndExpectErrorKept(user, 'contact-list-error', () => calls)
+  await act(async () => { release() })
+  expect(await screen.findByTestId('contact-row-EXTERNAL-100')).toBeInTheDocument()
+  expect(screen.queryByTestId('contact-list-error')).toBeNull()
+})
+
+test('WP-1820 다시 시도도 실패 — 안내가 남고 단추가 다시 눌린다', async () => {
+  let calls = 0
+  const { promise, release } = gate()
+  const { user } = renderContacts('/contacts', {
+    handlers: [
+      emptyTree(),
+      http.get('/api/v1/contacts', async () => {
+        calls += 1
+        if (calls >= 2) await promise
+        return HttpResponse.json({ message: 'x' }, { status: 500 })
+      }),
+    ],
+  })
+  const retry = await clickRetryAndExpectErrorKept(user, 'contact-list-error', () => calls)
+  await act(async () => { release() })
+  await waitFor(() => expect(retry).not.toHaveAttribute('aria-busy', 'true'))
+  expect(screen.getByTestId('contact-list-error')).toBeInTheDocument()
 })

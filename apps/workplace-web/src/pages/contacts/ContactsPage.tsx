@@ -6,6 +6,7 @@ import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAi
 import { FilterLine } from '@/components/filter/FilterLine'
 import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
@@ -19,6 +20,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
 import { andParticle, cn } from '@/lib/utils'
 
@@ -262,8 +264,8 @@ export function ContactsPage() {
 
   // 그룹 보기의 검색은 GroupContactView 가 소속 멤버 안에서 거른다 — 통합 목록 조회는 쓰지 않으니 끈다.
   const contactsQuery = useContacts(search, type, organization, title, { enabled: groupId == null })
-  // 오류 화면은 첫 페이지 실패만(isLoadingError) — LoadMoreFooter 참조
-  const { data, isLoading, isLoadingError, refetch, hasNextPage } = contactsQuery
+  // 오류 화면은 첫 페이지 실패만(failedWithoutData) — LoadMoreFooter 참조. 다시 시도 중(pending)에도 안내를 남긴다(WP-1820).
+  const { data, isLoading, hasNextPage } = contactsQuery
   // 목록 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [listScrollEl, setListScrollEl] = useState<HTMLDivElement | null>(null)
 
@@ -371,13 +373,11 @@ export function ContactsPage() {
                 search={search}
                 onSearchAll={leaveGroup}
               />
+            ) : failedWithoutData(contactsQuery) ? (
+              // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1820, lib/queryFailure).
+              <LoadErrorState variant="inline" title="연락처를 불러오지 못했습니다" queries={[contactsQuery]} testId="contact-list-error" className="m-4" />
             ) : isLoading ? (
               <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
-            ) : isLoadingError ? (
-              <div className="p-6 text-center">
-                <p className="text-sm text-destructive mb-2">목록을 불러오지 못했습니다</p>
-                <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
-              </div>
             ) : items.length === 0 ? (
               // 빈 상태 — 즐겨찾기 모드일 때 전용 메시지, 그 외 기본 메시지
               <div data-testid="contact-empty" className="p-8 text-center text-sm text-muted-foreground">
