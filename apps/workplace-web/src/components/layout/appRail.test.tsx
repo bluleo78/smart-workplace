@@ -77,6 +77,13 @@ function renderRail({ handlers = [], activeTenant = null, selectTenant, ...count
 }
 
 describe('레일 항목', () => {
+  // WP-1774: 레일 aside·nav 가 이름 없는 랜드마크로 남지 않게 한다.
+  test('레일은 「앱 메뉴」 complementary 안의 「주 내비게이션」 navigation 이다(WP-1774)', async () => {
+    renderRail()
+    const aside = await screen.findByRole('complementary', { name: '앱 메뉴' })
+    expect(within(aside).getByRole('navigation', { name: '주 내비게이션' })).toBeInTheDocument()
+  })
+
   // #98·#99·#477 — 한글 라벨과 소통 우선 순서. 순서가 바뀌면 사용자가 익힌 위치가 흔들린다.
   test('한글 라벨과 소통 우선 순서(홈·대화·메일·캘린더·작업관리·드라이브·노트·연락처·설정)', async () => {
     renderRail()

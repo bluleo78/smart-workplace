@@ -484,7 +484,7 @@ export function WikiSidebar({
   ) : null
   if (spacesError && spaceId == null) {
     return (
-      <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
+      <aside aria-label="노트 사이드바" className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
         {appTitle}
         {recentLink}
         {spacesError}
@@ -497,7 +497,7 @@ export function WikiSidebar({
   // 단 탭 모드(embedded)는 늘 공간 id 가 정해져 있으니 목록이 비었어도(stale) 그 공간 트리를 그린다 — 프로젝트가 공간을 정한다.
   if (spaces?.length === 0 && !embedded) {
     return (
-      <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
+      <aside aria-label="노트 사이드바" className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
         {appTitle}
         {recentLink}
         {isMobile && <WikiNoSpaces className="flex-1" onCreate={openCreateSpace} />}
@@ -507,7 +507,7 @@ export function WikiSidebar({
   }
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
+    <aside aria-label="노트 사이드바" className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
       {appTitle}
       {recentLink}
       {/* 공간 목록 실패 중이면 선택 상자 자리에 안내(WP-865) — 트리는 아래에 그대로.
@@ -683,7 +683,15 @@ export function WikiSidebar({
         />
       ) : (
         // data-tree-scroller: 선택 행이 스스로 드러날 스크롤 영역(WikiTreeRow, WP-1462).
-        <nav data-testid="wiki-tree-nav" data-tree-scroller className="min-h-0 flex-1 overflow-y-auto px-1 pb-4">
+        // WP-1774: 트리 행이 있을 때만 「페이지 목록」 랜드마크다 — 스페이스를 고르지 않았거나 행이 0개면
+        // 스크롤 영역(레이아웃·testid)은 두고 랜드마크 역할만 뺀다(빈 navigation 이 랜드마크 목록에 뜨지 않게).
+        <nav
+          aria-label={dndItems.length > 0 ? '페이지 목록' : undefined}
+          role={dndItems.length > 0 ? undefined : 'none'}
+          data-testid="wiki-tree-nav"
+          data-tree-scroller
+          className="min-h-0 flex-1 overflow-y-auto px-1 pb-4"
+        >
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}

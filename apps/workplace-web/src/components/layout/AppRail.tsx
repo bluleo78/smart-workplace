@@ -155,6 +155,7 @@ export function AppRail() {
       )}
 
       <aside
+        aria-label="앱 메뉴"
         data-testid="app-rail"
         className={cn(
           'fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r bg-sidebar transition-[transform,width] duration-200',
@@ -220,7 +221,7 @@ export function AppRail() {
         </div>
 
         {/* 모듈 런처 */}
-        <nav className="flex-1 space-y-1 overflow-y-auto p-2">
+        <nav aria-label="주 내비게이션" className="flex-1 space-y-1 overflow-y-auto p-2">
           {items.map((item) => (
             <RailLink
               key={item.href}

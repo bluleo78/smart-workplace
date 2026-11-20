@@ -90,3 +90,23 @@ describe('관리자', () => {
     expect(within(group).getByRole('link', { name: '작업 관리' })).toHaveAttribute('aria-current', 'page')
   })
 })
+
+describe('설정 사이드바 랜드마크', () => {
+  test('관리자는 개인 설정·워크스페이스 관리·앱 설정 nav 와 사이드바에 이름이 있다 — 랜드마크 이름(WP-1774)', async () => {
+    renderPage('/settings/profile', { ...ADMIN, handlers: settingsHandlers })
+    await sidebar()
+    const aside = screen.getByRole('complementary', { name: '설정 사이드바' })
+    expect(within(aside).getByRole('navigation', { name: '개인 설정' })).toBeInTheDocument()
+    expect(within(aside).getByRole('navigation', { name: '워크스페이스 관리' })).toBeInTheDocument()
+    expect(within(aside).getByRole('navigation', { name: '앱 설정' })).toBeInTheDocument()
+  })
+
+  test('일반 사용자는 개인 설정 nav 만 있다 — 랜드마크 이름(WP-1774)', async () => {
+    renderPage('/settings/profile', { handlers: settingsHandlers })
+    await sidebar()
+    const aside = screen.getByRole('complementary', { name: '설정 사이드바' })
+    expect(within(aside).getByRole('navigation', { name: '개인 설정' })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '워크스페이스 관리' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: '앱 설정' })).toBeNull()
+  })
+})

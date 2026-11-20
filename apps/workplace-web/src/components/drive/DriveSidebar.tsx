@@ -289,8 +289,10 @@ export function DriveSidebar() {
   const { primary } = partitionSpaces(spaces)
 
   return (
+    // 랜드마크 이름(WP-1774) — 같은 화면의 aside·nav 를 스크린리더가 구분하도록 접근 이름을 붙인다.
     <aside
       data-testid="drive-sidebar"
+      aria-label="드라이브 사이드바"
       className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
     >
       {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "드라이브" 앱임을 명시 */}
@@ -351,68 +353,71 @@ export function DriveSidebar() {
             testId="drive-spaces-error"
           />
         )}
-        <nav className="mt-2 space-y-1" data-testid="drive-space-list">
-          {primary.map((s) => {
-            // TEAM 공간이면 ⋯ — 「멤버」는 모든 멤버, 이름 변경/삭제는 OWNER 만(개인·채널 공간은 ⋯ 없음, WP-582).
-            const canManage = canManageDriveSpace(s)
-            const hasMenu = hasDriveSpaceMembers(s)
-            return (
-              <div key={s.id} className="group/space relative flex items-center">
-                {/* 메뉴가 있는 행은 ⋯ 자리를 비운다 — 터치 기기(pointer: coarse)는 ⋯ 가 상시 44px 라 더 넓게(WP-237). */}
-                <NavLink
-                  to={`/drive/spaces/${s.id}`}
-                  className={({ isActive }) =>
-                    cn(sidebarLinkClass({ isActive }), 'flex-1 pr-7', hasMenu && 'pointer-coarse:pr-12')
-                  }
-                >
-                  {/* 공간 종류 아이콘(WP-143) — 개인은 User, 팀은 Users. 첨부 모아보기(Paperclip)와 함께 모든 행이 아이콘을 갖도록 통일 */}
-                  <SpaceTypeIcon type={s.type} className="h-4 w-4 shrink-0" data-testid="drive-space-icon" />
-                  <span className="min-w-0 break-words">{spaceDisplayName(s)}</span>
-                </NavLink>
-                {hasMenu && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={`${s.name} 메뉴`}
-                        data-testid={`drive-space-menu-${s.id}`}
-                        // 터치 기기(pointer: coarse)는 hover 가 없으므로 상시 노출 + 44px 터치 영역(WP-237).
-                        className="absolute right-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 group-hover/space:opacity-100 pointer-coarse:flex pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0 pointer-coarse:opacity-100"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        data-testid={`drive-space-members-${s.id}`}
-                        onSelect={() => setMembersTargetId(s.id)}
-                      >
-                        멤버
-                      </DropdownMenuItem>
-                      {canManage && (
-                        <>
-                          <DropdownMenuItem
-                            data-testid={`drive-space-rename-${s.id}`}
-                            onSelect={() => setRenameTarget(s)}
-                          >
-                            이름 변경
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            data-testid={`drive-space-delete-${s.id}`}
-                            onSelect={() => setDeleteTarget(s)}
-                          >
-                            삭제
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            )
-          })}
-        </nav>
+        {/* WP-1774: nav 의 자식은 공간 목록뿐이라, 공간이 1건 이상일 때만 「드라이브 공간」 랜드마크를 낸다(빈 nav 방지). */}
+        {primary.length > 0 && (
+          <nav aria-label="드라이브 공간" className="mt-2 space-y-1" data-testid="drive-space-list">
+            {primary.map((s) => {
+              // TEAM 공간이면 ⋯ — 「멤버」는 모든 멤버, 이름 변경/삭제는 OWNER 만(개인·채널 공간은 ⋯ 없음, WP-582).
+              const canManage = canManageDriveSpace(s)
+              const hasMenu = hasDriveSpaceMembers(s)
+              return (
+                <div key={s.id} className="group/space relative flex items-center">
+                  {/* 메뉴가 있는 행은 ⋯ 자리를 비운다 — 터치 기기(pointer: coarse)는 ⋯ 가 상시 44px 라 더 넓게(WP-237). */}
+                  <NavLink
+                    to={`/drive/spaces/${s.id}`}
+                    className={({ isActive }) =>
+                      cn(sidebarLinkClass({ isActive }), 'flex-1 pr-7', hasMenu && 'pointer-coarse:pr-12')
+                    }
+                  >
+                    {/* 공간 종류 아이콘(WP-143) — 개인은 User, 팀은 Users. 첨부 모아보기(Paperclip)와 함께 모든 행이 아이콘을 갖도록 통일 */}
+                    <SpaceTypeIcon type={s.type} className="h-4 w-4 shrink-0" data-testid="drive-space-icon" />
+                    <span className="min-w-0 break-words">{spaceDisplayName(s)}</span>
+                  </NavLink>
+                  {hasMenu && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`${s.name} 메뉴`}
+                          data-testid={`drive-space-menu-${s.id}`}
+                          // 터치 기기(pointer: coarse)는 hover 가 없으므로 상시 노출 + 44px 터치 영역(WP-237).
+                          className="absolute right-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 group-hover/space:opacity-100 pointer-coarse:flex pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0 pointer-coarse:opacity-100"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          data-testid={`drive-space-members-${s.id}`}
+                          onSelect={() => setMembersTargetId(s.id)}
+                        >
+                          멤버
+                        </DropdownMenuItem>
+                        {canManage && (
+                          <>
+                            <DropdownMenuItem
+                              data-testid={`drive-space-rename-${s.id}`}
+                              onSelect={() => setRenameTarget(s)}
+                            >
+                              이름 변경
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              data-testid={`drive-space-delete-${s.id}`}
+                              onSelect={() => setDeleteTarget(s)}
+                            >
+                              삭제
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              )
+            })}
+          </nav>
+        )}
       </div>
 
       {/* 하단 그룹 — 첨부 모아보기 + 저장 공간을 한 영역에(사이 구분선 없음). 상단만 스크롤 영역과 구분선.

@@ -123,7 +123,7 @@ function SidebarSection({
       ) : (
         <div className={cn('px-3', labelClass)}>{label}</div>
       )}
-      <nav className={cn(compact ? (action ? 'mt-1' : 'mt-3') : 'mt-2', 'space-y-1')}>{children}</nav>
+      <nav aria-label={label} className={cn(compact ? (action ? 'mt-1' : 'mt-3') : 'mt-2', 'space-y-1')}>{children}</nav>
     </div>
   )
 }
@@ -161,6 +161,8 @@ export function IssueSidebar({ compact = false }: { compact?: boolean }) {
     <aside
       className={cn('flex shrink-0 flex-col border-r bg-sidebar/40', compact ? 'w-14' : 'w-56')}
       data-testid="issue-sidebar"
+      // 랜드마크 이름(WP-1774) — 같은 화면의 aside·nav 를 스크린리더가 구분하도록 접근 이름을 붙인다.
+      aria-label="작업 관리 사이드바"
       data-compact={compact || undefined}
     >
       {/* 앱 타이틀 헤더 — 레일과 동일한 앱 아이콘 + 이름으로 "작업 관리" 앱임을 명시(Slack 모델). compact 는 아이콘만 */}
@@ -171,7 +173,7 @@ export function IssueSidebar({ compact = false }: { compact?: boolean }) {
 
       <div className={cn('flex-1 overflow-y-auto', compact ? 'p-2' : 'p-3')}>
         {/* 개인 영역 — 경쟁 솔루션 공통 패턴: 개인 작업을 사이드바 최상단에 고정 */}
-        <nav className="space-y-1">
+        <nav aria-label="내 작업 바로가기" className="space-y-1">
           <SidebarItem compact={compact} to="/me/tasks" icon={<ListChecks className="h-4 w-4 shrink-0" />} label="내 작업" />
           <SidebarItem compact={compact} to="/me/ai-tasks" icon={<AiIcon className="h-4 w-4 shrink-0" />} label="AI 위임 작업" />
         </nav>

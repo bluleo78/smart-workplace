@@ -894,3 +894,22 @@ test('embeddedHasNoStarred — 프로젝트 탭(embedded)에는 「즐겨찾기�
   await screen.findByTestId('wiki-new-menu')
   expect(screen.queryByTestId('wiki-nav-starred')).not.toBeInTheDocument()
 })
+
+test('사이드바에 이름이 있다 — 랜드마크 이름(WP-1774)', async () => {
+  open({ tree: () => [wikiPageSummary({ id: 1, title: '제품 문서' })] })
+  expect(await screen.findByRole('complementary', { name: '노트 사이드바' })).toBeInTheDocument()
+  // 페이지 트리 nav 도 이름이 있다 — 페이지가 불러와진 뒤(WP-1774)
+  const nav = await screen.findByRole('navigation', { name: '페이지 목록' })
+  expect(await within(nav).findByText('제품 문서')).toBeInTheDocument()
+})
+
+test('트리 행이 없으면 「페이지 목록」 을 랜드마크로 내지 않는다 — 빈 navigation 방지(WP-1774)', async () => {
+  const { queryClient } = open({ tree: () => [] })
+  const scroller = await screen.findByTestId('wiki-tree-nav')
+  // 트리 조회가 끝난 뒤에 본다 — 응답 전 단언이 공허하게 통과하지 않도록.
+  await waitFor(() =>
+    expect(queryClient.getQueryCache().findAll({ predicate: (q) => q.state.status === 'success' }).length).toBeGreaterThan(1),
+  )
+  expect(scroller).toHaveAttribute('role', 'none')
+  expect(screen.queryByRole('navigation', { name: '페이지 목록' })).toBeNull()
+})

@@ -103,3 +103,9 @@ test('새 프로젝트 버튼도 아이콘으로 남아 생성 창을 연다', a
   await user.click(within(sidebar).getByRole('button', { name: '새 프로젝트' }))
   expect(await screen.findByRole('dialog')).toBeInTheDocument()
 })
+
+test('접힌 상태에서도 섹션 nav 가 이름을 갖는다(라벨 글자가 없어도) — 랜드마크 이름(WP-1774)', async () => {
+  const { sidebar } = await openProjects()
+  expect(sidebar).toHaveAttribute('data-compact', 'true')
+  expect(within(sidebar).getByRole('navigation', { name: '프로젝트' })).toBeInTheDocument()
+})

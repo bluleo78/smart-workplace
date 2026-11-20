@@ -435,3 +435,10 @@ test('editable=false 면 수정/삭제 미노출', async () => {
   expect(screen.queryByTestId('contact-edit')).not.toBeInTheDocument()
   expect(screen.queryByTestId('contact-delete')).not.toBeInTheDocument()
 })
+
+test('사이드바와 필터 nav 에 이름이 있다 — 랜드마크 이름(WP-1774)', async () => {
+  const lists: Recorded[] = []
+  renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), listHandler(lists)] })
+  const aside = await screen.findByRole('complementary', { name: '연락처 사이드바' })
+  expect(within(aside).getByRole('navigation', { name: '연락처 필터' })).toBeInTheDocument()
+})

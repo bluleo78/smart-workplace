@@ -184,3 +184,29 @@ describe('스레드 인박스', () => {
     expect(screen.queryByTestId('sidebar-threads-badge')).not.toBeInTheDocument()
   })
 })
+
+// WP-1774: 랜드마크(aside·nav)에 고유한 한글 이름을 붙이고, 채널이 없을 때 빈 nav 를 내지 않는다.
+describe('랜드마크 이름(WP-1774)', () => {
+  test('채널 0건이면 채널 목록 navigation 이 없고, 대화 사이드바·메시지 목록은 이름이 있다', async () => {
+    renderChat('/chat', { auth, handlers: [http.get(`${API}/messaging/channels`, () => HttpResponse.json([]))] })
+    expect(await screen.findByRole('complementary', { name: '대화 사이드바' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: '메시지 목록' })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '채널 목록' })).toBeNull()
+  })
+
+  test('채널이 있으면 「채널 목록」 navigation 안에 채널 링크가 있다', async () => {
+    const ch = createChannel({ id: 41, name: '일반', visibility: 'PUBLIC', role: 'MEMBER' })
+    renderChat('/chat', { auth, handlers: [http.get(`${API}/messaging/channels`, () => HttpResponse.json([ch]))] })
+    const nav = await screen.findByRole('navigation', { name: '채널 목록' })
+    expect(within(nav).getByTestId('channel-link-41')).toBeInTheDocument()
+  })
+
+  test('채널 조회 실패 시 채널 목록 navigation 없이 오류 안내만', async () => {
+    renderChat('/chat', {
+      auth,
+      handlers: [http.get(`${API}/messaging/channels`, () => HttpResponse.json({ message: '서버 오류' }, { status: 500 }))],
+    })
+    expect(await screen.findByTestId('channel-list-error')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '채널 목록' })).toBeNull()
+  })
+})

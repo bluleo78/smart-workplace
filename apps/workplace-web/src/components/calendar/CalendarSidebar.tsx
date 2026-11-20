@@ -85,7 +85,8 @@ export function CalendarSidebar({
   // 버튼은 data-sheet-dismiss, ⋯ 메뉴 항목은 메뉴가 닫힌 뒤 닫는다. 캘린더·레이어 토글은 시트 안에서 이어 고르므로 둔다.
   const rowMenu = useCloseSheetAfterMenu()
   return (
-    <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r bg-sidebar/40">
+    // 랜드마크 이름(WP-1774) — 스크린리더가 사이드바를 구분하도록 접근 이름을 붙인다.
+    <aside aria-label="캘린더 사이드바" className="flex w-56 shrink-0 flex-col overflow-y-auto border-r bg-sidebar/40">
       <div className={sidebarTitleClass}>
         <CalendarDays className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
         캘린더

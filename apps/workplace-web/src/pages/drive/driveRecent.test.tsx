@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
+import { driveKeys } from '@/hooks/queries/driveKeys'
 import { fileSideHandlers } from '@/test/kits/drive/testkit-b6'
 import { controlIntersection } from '@/test/kits/layout'
 import { renderScreen } from '@/test/renderScreen'
-import type { DriveRecentFile, DriveRecentPage, DriveStarTarget } from '@/types/drive'
+import type { DriveRecentFile, DriveRecentPage, DriveSpace, DriveStarTarget } from '@/types/drive'
 
 import { DriveRecentView } from './DriveRecentView'
 
@@ -232,5 +233,45 @@ describe('드라이브 사이드바 「최근」 입구', () => {
     expect(entry.compareDocumentPosition(shared) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await user.click(entry)
     await waitFor(() => expect(location()).toBe('/drive/recent'))
+  })
+})
+
+describe('드라이브 사이드바 랜드마크', () => {
+  /** 사이드바 공간 행 하나 — 팀 공간(이름만 본다). */
+  const teamSpace: DriveSpace = {
+    id: 4,
+    type: 'TEAM',
+    name: '팀 드라이브',
+    ownerId: 1,
+    role: 'OWNER',
+    archived: false,
+    createdAt: '2026-01-01T00:00:00Z',
+  }
+
+  /** 공간 목록 응답을 주고 사이드바를 그린다. 공간 조회가 끝났는지 볼 수 있게 queryClient 를 돌려준다. */
+  function renderSidebar(spaces: DriveSpace[]) {
+    return renderScreen(<DriveSidebar />, {
+      path: '/drive/recent',
+      handlers: [
+        http.get('/api/v1/drive/quota', () => HttpResponse.json({ usedBytes: 0, quotaBytes: 1024 })),
+        http.get('/api/v1/drive/spaces', () => HttpResponse.json(spaces)),
+        http.get('/api/v1/drive/shared-with-me', () => HttpResponse.json([])),
+      ],
+    })
+  }
+
+  test('공간이 있으면 사이드바와 「드라이브 공간」 nav 에 이름이 있다 — 랜드마크 이름(WP-1774)', async () => {
+    renderSidebar([teamSpace])
+    const aside = await screen.findByRole('complementary', { name: '드라이브 사이드바' })
+    const nav = await within(aside).findByRole('navigation', { name: '드라이브 공간' })
+    expect(within(nav).getByText('팀 드라이브')).toBeInTheDocument()
+  })
+
+  test('공간이 0건이면 응답이 온 뒤에도 「드라이브 공간」 nav 를 내지 않는다 — 빈 랜드마크 방지(WP-1774)', async () => {
+    const { queryClient } = renderSidebar([])
+    const aside = await screen.findByRole('complementary', { name: '드라이브 사이드바' })
+    // 공간 조회가 성공으로 끝난 뒤에 본다 — 응답 전 null 단언이 공허하게 통과하지 않도록(고정 대기 대신 쿼리 상태).
+    await waitFor(() => expect(queryClient.getQueryState(driveKeys.spaces())?.status).toBe('success'))
+    expect(within(aside).queryByRole('navigation', { name: '드라이브 공간' })).toBeNull()
   })
 })

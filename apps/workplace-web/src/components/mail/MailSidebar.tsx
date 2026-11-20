@@ -102,8 +102,10 @@ export function MailSidebar() {
     )
 
   return (
+    // 랜드마크 이름(WP-1774) — 같은 화면의 aside·nav 를 스크린리더가 구분하도록 접근 이름을 붙인다.
     <aside
       data-testid="mail-sidebar"
+      aria-label="메일 사이드바"
       className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
     >
       {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "메일" 앱임을 명시(공유 셸, 불변) */}
@@ -172,7 +174,7 @@ export function MailSidebar() {
             </button>
 
             {/* 폴더 nav — 받은편지함/보낸편지함(현재 계정 기준, URL ?folder 로 active) */}
-            <nav className="mt-4 space-y-1" data-testid="mail-folder-toggle">
+            <nav aria-label="메일함" className="mt-4 space-y-1" data-testid="mail-folder-toggle">
               {/* 받은편지함 = 전체 보기(하위 분류와 상호배타로 active) */}
               <Link
                 to={mailViewHref(current!.id, 'all', view.unreadOnly)}
@@ -276,7 +278,7 @@ export function MailSidebar() {
                 <div className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   AI 필터
                 </div>
-                <nav className="mt-1 space-y-1">
+                <nav aria-label="AI 필터" className="mt-1 space-y-1">
                   <Link
                     to={`/mail/${current!.id}?needsReply=true`}
                     data-testid="mail-filter-needsreply"

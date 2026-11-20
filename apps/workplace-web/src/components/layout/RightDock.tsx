@@ -100,6 +100,8 @@ function HelpDock({ id, stacked }: { id: string; stacked: boolean }) {
     <aside
       ref={asideRef}
       id={id}
+      // WP-1774: 같은 화면의 다른 aside 와 구별되는 랜드마크 이름
+      aria-label="도움말"
       data-testid="help-panel"
       data-help-panel
       style={stacked ? { flex: `0 0 ${split * 100}%` } : { width }}

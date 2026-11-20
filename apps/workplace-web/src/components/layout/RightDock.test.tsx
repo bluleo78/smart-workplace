@@ -80,6 +80,16 @@ describe('RightDock', () => {
     expect(helpWidthVar()).toBe('')
   })
 
+  it('도움말·AI 패널을 함께 열어도 complementary 이름이 「도움말」·「AI 패널」 각각 하나다 (WP-1774)', async () => {
+    setWindowWidth(1920)
+    const { user } = renderDock()
+    await user.click(screen.getByRole('button', { name: '도움말 토글' }))
+    await user.click(screen.getByRole('button', { name: 'AI 토글' }))
+    await screen.findByTestId('ai-side-panel')
+    expect(screen.getAllByRole('complementary', { name: '도움말' })).toHaveLength(1)
+    expect(screen.getAllByRole('complementary', { name: 'AI 패널' })).toHaveLength(1)
+  })
+
   it('나란히면 --help-side-width 를 두고, 위아래로 합치면 지우며, 다시 나란히면 되살린다', async () => {
     setWindowWidth(1920)
     const { user } = renderDock()

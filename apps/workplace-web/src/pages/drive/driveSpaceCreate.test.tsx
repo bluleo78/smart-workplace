@@ -138,8 +138,10 @@ describe('머리말·사용량·공간 목록', () => {
     renderSidebar([personalSpace, { ...personalSpace, id: 2, type: 'CHANNEL', name: '마케팅', role: 'EDITOR' }])
     const sidebar = screen.getByTestId('drive-sidebar')
     expect(within(sidebar).getByText('드라이브', { exact: true })).toBeInTheDocument()
-    expect(await within(screen.getByTestId('drive-space-list')).findByText('내 드라이브')).toBeInTheDocument()
-    expect(screen.getByTestId('drive-space-list')).not.toHaveTextContent('마케팅')
+    // 공간 목록 nav 는 공간이 불러와진 뒤에야 그려진다(빈 nav 를 내지 않음, WP-1774).
+    const spaceList = await screen.findByTestId('drive-space-list')
+    expect(await within(spaceList).findByText('내 드라이브')).toBeInTheDocument()
+    expect(spaceList).not.toHaveTextContent('마케팅')
     expect(screen.queryByTestId('drive-channel-space-list')).not.toBeInTheDocument()
     expect(sidebar).not.toHaveTextContent('마케팅')
   })

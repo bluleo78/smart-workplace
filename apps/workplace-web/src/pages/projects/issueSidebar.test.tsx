@@ -32,3 +32,17 @@ test('사이드바가 즐겨찾기한 팀 프로젝트만 링크로 렌더한다
   expect(within(sidebar).getByTestId('project-badge-ENG')).toHaveTextContent('EN')
   expect(within(sidebar).queryByTestId('team-project-OPS')).not.toBeInTheDocument()
 })
+
+test('사이드바와 내 작업 바로가기·프로젝트 nav 에 이름이 있다 — 랜드마크 이름(WP-1774)', async () => {
+  renderScreen(<IssueSidebar />, {
+    path: '/projects',
+    handlers: [
+      ...projectFavoriteHandlers(['ENG']).handlers,
+      http.get('/api/v1/me/pinned-views', () => HttpResponse.json([])),
+      http.get('/api/v1/projects', () => HttpResponse.json({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })),
+    ],
+  })
+  const aside = await screen.findByRole('complementary', { name: '작업 관리 사이드바' })
+  expect(within(aside).getByRole('navigation', { name: '내 작업 바로가기' })).toBeInTheDocument()
+  expect(within(aside).getByRole('navigation', { name: '프로젝트' })).toBeInTheDocument()
+})
