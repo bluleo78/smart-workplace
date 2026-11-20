@@ -1,7 +1,7 @@
 // 메시지 작성 mutation + optimistic UI.
-// 임시 메시지 id 는 음수 (UI 키로만 쓰임) — onSuccess 시 서버 응답 id 로 replace.
-// onError 시 snapshot 복원 + toast.
-// 폴링이 concurrent 메시지를 5초 안에 동기화하므로 onSettled 재요청은 두지 않는다 (네트워크 절약).
+// 임시 메시지 id 는 음수 (UI 키로만 쓰임) — onSuccess 시 서버 응답 id 로 replace(임시 행이 사라졌으면 insert).
+// onError 시 그 전송의 임시 행만 걷고(스냅숏 복원 X — 다른 전송·SSE 행 보존, WP-1872) + toast.
+// 다른 사람의 동시 메시지는 SSE(useChatStream)가 캐시에 넣으므로 onSettled 재요청은 두지 않는다 (네트워크 절약).
 
 import { type InfiniteData,useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -16,6 +16,7 @@ import type {
   UserKind,
 } from '../../types/chat';
 import { chatKeys } from './chatKeys';
+import { removeOptimisticRow, settleOptimisticRow } from './optimisticRows';
 
 interface MeContext {
   id: number;
@@ -38,7 +39,8 @@ export function useCreateChatMessage(
     onMutate: async (payload) => {
       const key = chatKeys.messages(threadId);
       await qc.cancelQueries({ queryKey: key });
-      const snapshot = qc.getQueryData<InfiniteData<ChatMessagePage>>(key);
+      // 스냅숏은 들고 가지 않는다 — 캐시가 있었는지만 기억(없었으면 실패 뒤 무효화).
+      const hadCache = qc.getQueryData<InfiniteData<ChatMessagePage>>(key) !== undefined;
 
       const tempId = -Math.floor(Math.random() * 1_000_000_000);
       const optimistic: ChatMessageResponse = {
@@ -71,35 +73,18 @@ export function useCreateChatMessage(
         };
       });
 
-      return { snapshot, tempId };
+      return { hadCache, tempId };
     },
 
     onSuccess: (saved, _payload, ctx) => {
       const key = chatKeys.messages(threadId);
-      qc.setQueryData<InfiniteData<ChatMessagePage>>(key, (old) => {
-        if (!old) return old;
-        // optimistic temp id → 서버 메시지로 치환. SSE self-echo 가 이미 같은 id 를 넣었을 수 있으므로
-        // id 기준 dedup 으로 중복 행 제거 (SSE 도착 순서와 무관하게 단일 행 보장).
-        const seen = new Set<number>();
-        return {
-          ...old,
-          pages: old.pages.map((p) => ({
-            ...p,
-            items: p.items
-              .map((m) => (m.id === ctx?.tempId ? saved : m))
-              .filter((m) => {
-                if (seen.has(m.id)) return false;
-                seen.add(m.id);
-                return true;
-              }),
-          })),
-        };
-      });
+      // 임시 행 → 서버 메시지 치환(없으면 삽입, SSE echo 와 id dedup), 캐시 없이 보냈다면 목록 재조회(WP-1872).
+      if (ctx) settleOptimisticRow(qc, key, ctx.tempId, saved, ctx.hadCache, 'start');
     },
 
     onError: (err, _payload, ctx) => {
-      const key = chatKeys.messages(threadId);
-      if (ctx?.snapshot) qc.setQueryData(key, ctx.snapshot);
+      // 이 전송의 임시 행만 걷는다. 캐시가 없던 경우엔 무효화로 서버 상태를 다시 받는다.
+      if (ctx) removeOptimisticRow(qc, chatKeys.messages(threadId), ctx.tempId, ctx.hadCache);
       handleApiError(err, '메시지 전송에 실패했습니다');
     },
   });
