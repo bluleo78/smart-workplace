@@ -23,6 +23,7 @@ import com.workplace.jooq.tables.AiAgentCredential;
 import com.workplace.jooq.tables.AiMemory;
 import com.workplace.jooq.tables.AiMemoryChange;
 import com.workplace.jooq.tables.AiMemoryForgotten;
+import com.workplace.jooq.tables.AiRun;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
@@ -206,6 +207,9 @@ public class Indexes {
     public static final Index AI_MEMORY_SEARCH_TV_IDX = Internal.createIndex(DSL.name("ai_memory_search_tv_idx"), AiMemory.AI_MEMORY, new OrderField[] { AiMemory.AI_MEMORY.SEARCH_TV }, false);
     public static final Index AI_MEMORY_USER_IDX = Internal.createIndex(DSL.name("ai_memory_user_idx"), AiMemory.AI_MEMORY, new OrderField[] { AiMemory.AI_MEMORY.TENANT_ID, AiMemory.AI_MEMORY.USER_ID, AiMemory.AI_MEMORY.UPDATED_AT.desc() }, false);
     public static final Index AI_MEMORY_USER_SCOPE_IDX = Internal.createIndex(DSL.name("ai_memory_user_scope_idx"), AiMemory.AI_MEMORY, new OrderField[] { AiMemory.AI_MEMORY.TENANT_ID, AiMemory.AI_MEMORY.USER_ID, AiMemory.AI_MEMORY.SCOPE, AiMemory.AI_MEMORY.UPDATED_AT.desc() }, false);
+    public static final Index AI_RUN_RUNNING_IDX = Internal.createIndex(DSL.name("ai_run_running_idx"), AiRun.AI_RUN, new OrderField[] { AiRun.AI_RUN.STARTED_AT }, false);
+    public static final Index AI_RUN_TENANT_KIND_STARTED_IDX = Internal.createIndex(DSL.name("ai_run_tenant_kind_started_idx"), AiRun.AI_RUN, new OrderField[] { AiRun.AI_RUN.TENANT_ID, AiRun.AI_RUN.KIND, AiRun.AI_RUN.STARTED_AT.desc() }, false);
+    public static final Index AI_RUN_TENANT_STARTED_IDX = Internal.createIndex(DSL.name("ai_run_tenant_started_idx"), AiRun.AI_RUN, new OrderField[] { AiRun.AI_RUN.TENANT_ID, AiRun.AI_RUN.STARTED_AT.desc() }, false);
     public static final Index EMAIL_CONTENT_SEARCH_TV_IDX = Internal.createIndex(DSL.name("email_content_search_tv_idx"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.SEARCH_TV }, false);
     public static final Index EMAIL_CONTENT_TENANT_HASH_IDX = Internal.createIndex(DSL.name("email_content_tenant_hash_idx"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.TENANT_ID, EmailContent.EMAIL_CONTENT.CONTENT_HASH }, false);
     public static final Index EMAIL_CONTENT_TENANT_MESSAGE_FP_UK = Internal.createIndex(DSL.name("email_content_tenant_message_fp_uk"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.TENANT_ID, EmailContent.EMAIL_CONTENT.MESSAGE_ID, EmailContent.EMAIL_CONTENT.FINGERPRINT }, true);

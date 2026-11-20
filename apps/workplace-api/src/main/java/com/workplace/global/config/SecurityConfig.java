@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -115,6 +116,9 @@ public class SecurityConfig {
                     // 로그인한 사용자가 자기 state 로만 완료한다.
                     // (다른 앱에서 옮겨 온 triggers·slack inbound·kakao/slack 콜백 허용은 이 앱에 없는 경로라 걷어냈다 — 같은
                     // 경로로 API 를 추가하면 인증 없이 공개될 수 있었다(WP-673). 공개 경로는 실제 있는 것만 둔다.)
+                    // AI 처리 기록 묶음 수신 — 컨트롤러가 Internal 토큰을 직접 검증(X-On-Behalf-Of 없는 묶음 수신, WP-1827)
+                    .requestMatchers(HttpMethod.POST, "/api/v1/internal/ai-runs")
+                    .permitAll()
                     // 공유 링크 공개 다운로드 — 인증 없이 토큰으로 접근(capability URL)
                     .requestMatchers("/api/v1/public/drive/share/**")
                     .permitAll()

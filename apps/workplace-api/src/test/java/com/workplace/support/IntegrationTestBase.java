@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 
 import com.workplace.agentaccount.genialogin.GeniaLoginClient;
+import com.workplace.airun.repository.AiRunRepository;
 import com.workplace.calendar.service.CalendarSyncService;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileActivityRepository;
@@ -90,6 +91,8 @@ import org.springframework.transaction.support.TransactionTemplate;
       AiMemoryClock.class,
       AiMemoryReader.class,
       AiPreferenceService.class,
+      // WP-1827: AI 처리 기록 저장 실패 주입(기록 실패가 호출자에게 번지지 않는지).
+      AiRunRepository.class,
       CalendarSyncService.class,
       DriveChangeNotifier.class,
       DriveFileActivityRepository.class,

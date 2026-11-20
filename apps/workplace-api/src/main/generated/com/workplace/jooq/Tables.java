@@ -24,6 +24,7 @@ import com.workplace.jooq.tables.AiAgentCredential;
 import com.workplace.jooq.tables.AiMemory;
 import com.workplace.jooq.tables.AiMemoryChange;
 import com.workplace.jooq.tables.AiMemoryForgotten;
+import com.workplace.jooq.tables.AiRun;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
@@ -295,6 +296,11 @@ public class Tables {
      * The table <code>public.ai_memory_forgotten</code>.
      */
     public static final AiMemoryForgotten AI_MEMORY_FORGOTTEN = AiMemoryForgotten.AI_MEMORY_FORGOTTEN;
+
+    /**
+     * AI 처리 기록 — 처리 ID(run_id) 하나당 한 행
+     */
+    public static final AiRun AI_RUN = AiRun.AI_RUN;
 
     /**
      * The table <code>public.assistant_config</code>.

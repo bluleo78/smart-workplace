@@ -51,8 +51,11 @@ public class MessagingAttentionService {
 
   /**
    * 비동기 진입점 — @Async 스레드에서 새 트랜잭션을 열어 tenant GUC 를 주입한다. (작성자 스레드 컨텍스트에 의존하지 않음 — fail-safe RLS).
+   *
+   * <p>분류는 LLM 호출(최대 30초)을 품으므로 공유 이벤트 발사 풀(aiAgentEventExecutor)이 아닌 전용 풀에서 돌려 그 풀의 고갈을
+   * 막는다(WP-1818).
    */
-  @Async("aiAgentEventExecutor")
+  @Async("messagingAttentionExecutor")
   @Transactional
   public void onChannelMessage(long channelId) {
     onChannelMessageSync(channelId);
