@@ -11,7 +11,7 @@ const CHANNEL_ID = 1;
 // 하단 고정 훅이 「바닥 근처」로 보는 거리(useStickToBottom NEAR_BOTTOM_PX) — 이보다 멀면 바닥에 붙지 않은 것이다.
 const NEAR_BOTTOM_GUARD_PX = 80;
 
-// 채널 목록/상세/SSE 공통 모킹.
+// 채널 목록/상세 공통 모킹.
 async function setupChannelStubs(
   page: import('@playwright/test').Page,
   channel: ReturnType<typeof createChannel>,
@@ -29,16 +29,6 @@ async function setupChannelStubs(
       if (route.request().method() !== 'GET') return route.fallback();
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(channel) });
     },
-  );
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
   );
 }
 

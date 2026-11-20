@@ -29,17 +29,6 @@ async function stubCommon(page: import('@playwright/test').Page) {
   )
 
   await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
-  )
-
-  await page.route(
     (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}`,
     (route) =>
       route.request().method() === 'GET'

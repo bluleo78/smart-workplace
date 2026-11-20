@@ -877,7 +877,7 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
     },
   )
 
-  // 채널 목록·SSE·메시지 스텁.
+  // 채널 목록·메시지 스텁.
   const CHANNEL_ID = 500
   const channel = createChannel({ id: CHANNEL_ID, name: '#general', unreadCount: 1 })
   await page.route(
@@ -893,12 +893,6 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
       route.request().method() === 'GET'
         ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
         : route.fallback(),
-  )
-  // SSE 스텁 — 미스텁 flake 방지(빈 keep-alive 스트림).
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: `:\n\n` }),
   )
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}`,

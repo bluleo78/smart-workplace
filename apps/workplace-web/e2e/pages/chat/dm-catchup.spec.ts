@@ -30,11 +30,6 @@ async function setupDmStubs(
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail) });
     },
   );
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: `:\n\n` }),
-  );
 }
 
 const SAMPLE_CATCHUP = {

@@ -287,6 +287,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // 마커 응답을 '닫히지 않는 본문'으로 바꿔치기한다(onOpen 은 첫 연결 1회만 → catch-up 없음, isConnected=true 유지).
   // 미완료 route 핸들러를 남기지 않으므로 teardown 이 멈추지 않는다. SSE 를 검증하는 스펙은 자체 route 를
   // 나중에 등록(LIFO 우선)하며, 마커가 없으므로 기존처럼 동작한다.
+  // 스펙에서 /api/v1/events 를 유한 본문(`:\n\n` 등)으로 덮어쓰지 않는다 — 이벤트를 보내야 하면
+  // e2e/fixtures/gatedEvents.ts 의 mockGatedEvents·pushHeldEvents 를 쓴다(WP-1861).
   await page.route('**/api/v1/events', (route) =>
     route.fulfill({
       status: 200,
