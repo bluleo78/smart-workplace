@@ -941,32 +941,43 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
   await mockApi(page, 'GET', '/api/v1/me/mail-summary', { unreadCount: 0, recent: [] })
 
   // 1) 홈 진입 → SynthesisLayer 마운트 → messaging-summary 첫 조회.
+  //    첫 진입은 문서를 처음 열 수 있어(앱 이어 쓰기 첫 테스트) 부하 속에서 5초를 넘긴 적이 있다 — 여유를 둔다.
+  //    staleTime 창은 이 응답 뒤부터 재므로(firstSummaryAt) 이 대기 길이는 판정에 영향이 없다.
   const firstSummaryPromise = page.waitForResponse(
     (res) => res.url().includes('/me/messaging-summary') && res.request().method() === 'GET',
-    { timeout: 5000 },
+    { timeout: 15_000 },
   )
   await page.goto('/')
   await firstSummaryPromise
   expect(summaries.count()).toBeGreaterThanOrEqual(1)
+  const firstSummaryAt = Date.now()
+  // 앱을 다시 띄우지 않았다는 표식 — window 가 아니라 레일 DOM 에 단다(앱 이어 쓰기의 goto 는 같은 문서에서 트리만 다시 띄운다).
+  const homeRailLink = page.getByTestId('rail-link-/')
+  await homeRailLink.evaluate((el) => el.setAttribute('data-e2e-mounted', 'first'))
 
-  // 2) 채널 진입 + markRead POST 대기를 동시에 설정.
-  //    waitForResponse 는 goto 이전에 Promise 로 미리 걸어야 한다.
+  // 2) 레일 「대화」 → 채널 클릭으로 클라이언트 이동한다. page.goto 는(새 문서든 앱 이어 쓰기든) 쿼리 캐시를 비워
+  //    무효화 없이도 홈에서 재조회되므로, 캐시(useMessagingSummary staleTime 30초)를 살려야 markRead 무효화만이 재조회를 만든다.
   const markReadPromise = page.waitForResponse(
     (res) => res.url().includes(`/channels/${CHANNEL_ID}/read`) && res.request().method() === 'POST',
     { timeout: 8000 },
   )
-  await page.goto(`/chat/channels/${CHANNEL_ID}`)
+  await page.getByTestId('rail-link-/chat').click()
+  await page.getByTestId(`channel-link-${CHANNEL_ID}`).click()
+  await expect(page).toHaveURL(new RegExp(`/chat/channels/${CHANNEL_ID}$`))
   await expect(page.getByText('안녕하세요')).toBeVisible()
   // IntersectionObserver 가 메시지를 감지하고 markRead 를 호출할 때까지 대기.
   await markReadPromise
 
-  // 3) 홈으로 복귀 → invalidate 로 stale 된 ['messaging-summary'] 가 재조회된다.
+  // 3) 레일 홈 링크로 클라이언트 복귀 — 무효화로 stale 된 ['messaging-summary'] 만 재조회된다(채팅 화면은 이 쿼리를 쓰지 않는다).
   const summaryRefetchPromise = page.waitForResponse(
     (res) => res.url().includes('/me/messaging-summary') && res.request().method() === 'GET',
     { timeout: 5000 },
   )
-  await page.goto('/')
+  // staleTime(30초)을 넘겨 복귀하면 무효화 없이도 재조회돼 거짓 통과한다 — 그 대신 실패로 알린다.
+  expect(Date.now() - firstSummaryAt).toBeLessThan(30_000)
+  await homeRailLink.click()
   await summaryRefetchPromise
+  await expect(homeRailLink).toHaveAttribute('data-e2e-mounted', 'first')
 
   // invalidate + 재조회로 총 2회 이상 호출됐어야 한다.
   expect(summaries.count()).toBeGreaterThanOrEqual(2)
