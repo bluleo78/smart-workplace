@@ -127,16 +127,15 @@ function SharedFolderGate({ item, token }: { item: SharedWithMeItem; token: stri
         />
       )
     }
+    // Page 로 감싸지 않는다(위 목록 실패와 같다) — 감싸면 성공 때 안내의 부모째 바뀌어 LoadErrorState 가 초점을 옮기지 못한다.
+    // 막다른 화면이 되지 않게 「공유받은 항목으로」는 함께 둔다.
     return (
-      <NoticeState
-        testId="drive-shared-folder-error"
-        title="열지 못했습니다. 잠시 후 다시 시도하세요."
-        action={
-          <button type="button" onClick={() => void info.refetch()} className="text-sm font-medium text-primary underline-offset-4 hover:underline">
-            다시 시도
-          </button>
-        }
-      />
+      <>
+        <LoadErrorState title="공유 폴더를 열지 못했습니다" queries={[info]} testId="drive-shared-folder-error" />
+        <div className="flex justify-center pb-8">
+          <BackToSharedLink />
+        </div>
+      </>
     )
   }
   // 불러오는 중 — data 없음도 함께 걸러 타입을 좁힌다(실패는 위에서 처리했다).
