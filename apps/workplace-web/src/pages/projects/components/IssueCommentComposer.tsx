@@ -81,7 +81,8 @@ export function IssueCommentComposer({
       // RichInput 은 입력을 자르지 않고(붙여넣기 유실 방지) 이 안내와 함께 전송만 막는다 — 본문 편집기와 같은 문구.
       overLimitMessage={commentOverLimitMessage}
       placeholder="코멘트를 작성하세요"
-      submitLabel={create.isPending ? '작성 중…' : '작성'}
+      // 전송 중에도 라벨을 바꾸지 않는다 — 보내기 버튼이 스피너로 표시하고, 글자가 바뀌면 버튼 폭이 흔들린다(WP-1860).
+      submitLabel="작성"
       submitDisabled={create.isPending}
       inputTestId="issue-comment-input"
       submitTestId="issue-comment-submit"

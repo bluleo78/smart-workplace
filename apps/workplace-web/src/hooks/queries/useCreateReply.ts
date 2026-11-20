@@ -108,7 +108,16 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
     },
 
     onError: (err, _body, ctx) => {
-      if (ctx?.threadSnap) qc.setQueryData(messagingKeys.thread(parentMessageId), ctx.threadSnap);
+      const threadKey = messagingKeys.thread(parentMessageId);
+      if (ctx?.threadSnap) qc.setQueryData(threadKey, ctx.threadSnap);
+      else if (ctx) {
+        // 스냅샷이 없던(스레드 캐시 비어 있던) 경우 — 낙관 답글만 걷어 「전송 중…」이 영원히 남지 않게 한다.
+        qc.setQueryData<InfiniteData<MessagePage>>(threadKey, (old) =>
+          old
+            ? { ...old, pages: old.pages.map((p) => ({ ...p, items: p.items.filter((m) => m.id !== ctx.tempId) })) }
+            : old,
+        );
+      }
       handleApiError(err, '답글 전송에 실패했습니다');
     },
   });

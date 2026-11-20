@@ -16,7 +16,7 @@ import Text from '@tiptap/extension-text';
 import { isHistoryTransaction } from '@tiptap/pm/history';
 import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, Loader2 } from 'lucide-react';
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
@@ -820,15 +820,20 @@ export function RichInput({
               에디터처럼 CSS 브레이크포인트로만 바꾼다 — 라벨이 '업로드 중…' 으로 바뀌면 데스크톱엔 글자로, 모바일엔 접근 이름으로 전달. */}
           <Button
             type="button"
-            className="shrink-0 max-lg:size-11 max-lg:rounded-full max-lg:p-0"
+            className="relative shrink-0 max-lg:size-11 max-lg:rounded-full max-lg:p-0"
             aria-label={submitLabel}
             onClick={submit}
             {...keepFocusProps}
             data-testid={submitTestId}
             disabled={submitBlocked}
+            aria-busy={submitting || undefined}
           >
-            <ArrowUp className="size-5 lg:hidden" aria-hidden />
-            <span className="max-lg:hidden">{submitLabel}</span>
+            {/* 전송 중(WP-1860): 스피너 한 개를 두 브레이크포인트 공용으로 쓴다(testid 중복 방지).
+                버튼 크기가 바뀌면 입력 줄이 흔들리므로(anti-goal) 아이콘·글자는 레이아웃에 그대로 두고 invisible 로만 숨기며,
+                스피너는 래퍼 span 에 담아 버튼 정중앙에 절대 배치한다(래퍼라서 Button 의 has-[>svg] 패딩 규칙도 건드리지 않는다). */}
+            <ArrowUp className={`size-5 lg:hidden ${submitting ? 'invisible' : ''}`} aria-hidden />
+            <span className={`max-lg:hidden ${submitting ? 'invisible' : ''}`}>{submitLabel}</span>
+            {submitting && <SubmitSpinnerOverlay testId={`${submitTestId}-spinner`} iconClassName="size-5 lg:size-4" />}
           </Button>
         </div>
         {limitError}
@@ -886,16 +891,35 @@ export function RichInput({
           <Button
             type="button"
             size="sm"
-            className="max-lg:h-11"
+            className="relative max-lg:h-11"
             onClick={submit}
             {...keepFocusProps}
             data-testid={submitTestId}
             disabled={submitBlocked}
+            aria-busy={submitting || undefined}
+            // 전송 중엔 글자 span 이 invisible(visibility:hidden)이라 접근성 트리에서 빠진다 — 이름을 라벨로 고정해 항상 유지한다.
+            aria-label={submitLabel}
           >
-            {submitLabel}
+            {/* 전송 중(WP-1860): 글자는 invisible 로 폭을 유지하고 스피너를 정중앙에 겹친다 — 디자인 시스템 06 §A-3.
+                래퍼 span 이라 Button 의 has-[>svg] 패딩(px-3 → px-2.5)이 바뀌지 않는다. */}
+            <span className={submitting ? 'invisible' : undefined}>{submitLabel}</span>
+            {submitting && <SubmitSpinnerOverlay testId={`${submitTestId}-spinner`} iconClassName="size-4" />}
           </Button>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * 보내기 버튼 전송 중 스피너(WP-1860) — 버튼(relative) 정중앙에 절대 배치해 버튼 폭을 바꾸지 않는다.
+ * 래퍼 span 에 담는 까닭: Button 의 has-[>svg] 패딩 규칙이 직계 svg 를 보고 패딩을 바꾸기 때문이다.
+ * 두 레이아웃(inlineSubmit·기본)이 같은 모양을 쓰도록 한곳에 둔다 — 아이콘 크기만 다르다.
+ */
+function SubmitSpinnerOverlay({ testId, iconClassName }: { testId: string; iconClassName: string }) {
+  return (
+    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      <Loader2 className={`${iconClassName} animate-spin`} aria-hidden data-testid={testId} />
+    </span>
   );
 }

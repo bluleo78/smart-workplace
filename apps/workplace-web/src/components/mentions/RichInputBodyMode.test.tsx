@@ -1,5 +1,6 @@
-// RichInput 본문 모드(WP-1656) 컴포넌트 테스트 — 이슈 본문 편집칸으로 쓸 때의 키·이미지 크기·원문 알림·업로드 알림·붙여넣기·실행 취소와,
+// RichInput 컴포넌트 테스트 두 가지. (1) 본문 모드(WP-1656) — 이슈 본문 편집칸으로 쓸 때의 키·이미지 크기·원문 알림·업로드 알림·붙여넣기·실행 취소와,
 // 본문 모드가 아닌 코멘트 입력창이 그대로인지(썸네일·Enter 전송)를 본다. 실제 키 입력·클립보드·레이아웃은 E2E(@input·@layout)가 본다.
+// (2) 보내기 버튼 전송 중 표시(WP-1860) — onSubmit Promise 대기 중 스피너·aria-busy, 끝나면(성공·실패) 걷힘, 단순 비활성엔 스피너 없음(디자인 시스템 06 §A-3).
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
@@ -792,5 +793,76 @@ describe('RichInput 코멘트 입력창(본문 모드 아님) — 그대로', ()
 
     fireEvent.keyDown(screen.getByTestId('comment-input'), { key: 'Enter' })
     expect(onSubmit).toHaveBeenCalledWith(`글 \n![화면](${OTHER_PROJECT_IMAGE})`)
+  })
+})
+
+/** 본문이 채워진 RichInput — onSubmit 은 테스트가 resolve/reject 를 쥐는 Promise 를 돌려준다. */
+function setupSubmitting(props: Props = {}) {
+  let resolve!: () => void
+  let reject!: (e: unknown) => void
+  const onSubmit = vi.fn(
+    () =>
+      new Promise<void>((res, rej) => {
+        resolve = res
+        reject = rej
+      }),
+  )
+  renderWithProviders(
+    <RichInput
+      members={[]}
+      ariaLabel="입력"
+      inputTestId="in"
+      submitTestId="send"
+      initialBody="안녕"
+      clearOnSubmit={false}
+      onSubmit={onSubmit}
+      {...props}
+    />,
+  )
+  return { onSubmit, resolve: () => resolve(), reject: (e: unknown) => reject(e) }
+}
+
+describe('RichInput 보내기 버튼 전송 중 표시', () => {
+  it.each([
+    ['inlineSubmit', true],
+    ['기본', false],
+  ])('%s: 전송 중이면 스피너와 aria-busy, 끝나면 걷힌다', async (_name, inlineSubmit) => {
+    const { resolve } = setupSubmitting({ inlineSubmit })
+    const send = screen.getByTestId('send')
+    expect(send).not.toHaveAttribute('aria-busy')
+    expect(screen.queryByTestId('send-spinner')).toBeNull()
+
+    fireEvent.click(send)
+    expect(send).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getAllByTestId('send-spinner')).toHaveLength(1)
+    expect(screen.getByTestId('send-spinner').getAttribute('class')).toContain('animate-spin')
+    // 접근 이름은 그대로 「보내기」 — 스피너는 장식(aria-hidden).
+    // (jsdom 은 Tailwind invisible 을 적용하지 않으므로 이름의 출처인 aria-label 을 명시적으로 확인한다 — 글자 span 이 숨겨져도 이름 유지.)
+    expect(send).toHaveAttribute('aria-label', '보내기')
+    expect(screen.getByRole('button', { name: '보내기' })).toBe(send)
+
+    await act(async () => resolve())
+    expect(send).not.toHaveAttribute('aria-busy')
+    expect(screen.queryByTestId('send-spinner')).toBeNull()
+  })
+
+  it('실패하면 스피너가 걷히고 다시 누를 수 있다', async () => {
+    const { reject } = setupSubmitting()
+    const send = screen.getByTestId('send')
+    fireEvent.click(send)
+    expect(screen.getByTestId('send-spinner')).toBeInTheDocument()
+
+    await act(async () => reject(new Error('fail')))
+    expect(send).not.toHaveAttribute('aria-busy')
+    expect(screen.queryByTestId('send-spinner')).toBeNull()
+    expect(send).toBeEnabled()
+  })
+
+  it('비활성만으로는 스피너가 없다', () => {
+    setupSubmitting({ submitDisabled: true })
+    const send = screen.getByTestId('send')
+    expect(send).toBeDisabled()
+    expect(send).not.toHaveAttribute('aria-busy')
+    expect(screen.queryByTestId('send-spinner')).toBeNull()
   })
 })

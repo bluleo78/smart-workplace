@@ -92,6 +92,14 @@ export function useCreateMessage(channelId: number, me: MeContext) {
     onError: (err, _payload, ctx) => {
       const key = messagingKeys.messages(channelId);
       if (ctx?.snapshot) qc.setQueryData(key, ctx.snapshot);
+      else if (ctx) {
+        // 스냅샷이 없던(캐시 비어 있던) 경우 — 낙관 행만 걷어 「전송 중…」이 영원히 남지 않게 한다.
+        qc.setQueryData<InfiniteData<MessagePage>>(key, (old) =>
+          old
+            ? { ...old, pages: old.pages.map((p) => ({ ...p, items: p.items.filter((m) => m.id !== ctx.tempId) })) }
+            : old,
+        );
+      }
       handleApiError(err, '메시지 전송에 실패했습니다');
     },
   });

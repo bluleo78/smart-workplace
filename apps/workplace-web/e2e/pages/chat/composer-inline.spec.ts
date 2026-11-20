@@ -85,6 +85,36 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     expect(Math.abs(s3.height - s1.height)).toBeLessThanOrEqual(1)
   })
 
+  test('전송이 느려 스피너가 보여도 보내기 버튼·입력칸 폭은 그대로다 (WP-1860)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    // 전송 POST 를 promise 로 붙잡아 두었다가 테스트가 풀어 준다(고정 대기 없음).
+    let release!: () => void
+    const gate = new Promise<void>((res) => { release = res })
+    await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', async (r) => {
+      if (r.request().method() !== 'POST') return r.fallback()
+      await gate
+      const p = r.request().postDataJSON() as { body: string }
+      await r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createMessage({ id: 91, channelId: 1, authorId: 1, body: p.body })) })
+    })
+    const input = page.getByTestId('message-composer-input')
+    const send = page.getByTestId('message-composer-submit')
+    await input.click()
+    await page.keyboard.type('느린 전송 폭 확인')
+    const sendBefore = (await send.boundingBox())!.width
+    const inputBefore = (await input.boundingBox())!.width
+
+    // 단언이 실패해도 붙잡은 POST 는 반드시 풀어, 처리 안 된 route 가 남지 않게 한다.
+    try {
+      await send.click()
+      await expect(send).toHaveAttribute('aria-busy', 'true')
+      // 스피너가 보이는 동안에도 버튼·에디터 폭이 변하지 않는다(1px 오차).
+      expect(Math.abs((await send.boundingBox())!.width - sendBefore)).toBeLessThanOrEqual(1)
+      expect(Math.abs((await input.boundingBox())!.width - inputBefore)).toBeLessThanOrEqual(1)
+    } finally {
+      release()
+    }
+    await expect(send).not.toHaveAttribute('aria-busy', 'true')
+  })
+
   test('＋ 팝오버에서 파일 첨부 → 사전 업로드 → 칩 → 전송 payload 에 fileIds', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploaded = await stubUpload(page)
     const sends = await stubSend(page)

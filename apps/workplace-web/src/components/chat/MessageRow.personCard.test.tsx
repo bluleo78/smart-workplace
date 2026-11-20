@@ -1,6 +1,8 @@
-// 채널·DM 메시지 작성자 이름·아바타를 누르면 사람 카드가 열린다(WP-1768).
+// MessageRow 컴포넌트 판정 두 가지.
+// (1) 채널·DM 메시지 작성자 이름·아바타를 누르면 사람 카드가 열린다(WP-1768).
 //  - 남의 메시지 묶음 첫 줄에만 트리거가 있고, 내 메시지·묶음 둘째 줄에는 없다.
 //  - 탭 순서에는 이름 트리거만(아바타 트리거는 tabIndex -1). 카드 안 클릭·우클릭은 행 툴바·링크 메뉴를 열지 않는다.
+// (2) 전송 중인 낙관 말풍선(id<0)은 흐리게 보이고 「전송 중…」을 곁들인다(WP-1860) — 본인·타인 분기 모두, 확정 메시지(id>0)에는 없다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import type { ReactNode } from 'react'
@@ -33,19 +35,19 @@ function LongPressList({ onOpen, children }: { onOpen: (id: number) => void; chi
   return <div data-testid="message-list" {...longPress}>{children}</div>
 }
 
-function renderRow({ authorId = 7, startsGroup = true, authorKind = 'HUMAN' as 'HUMAN' | 'AGENT', authorName = '김민수', onOpenSheet = vi.fn() } = {}) {
+function renderRow({ id = 11, currentUserId = 1, authorId = 7, startsGroup = true, authorKind = 'HUMAN' as 'HUMAN' | 'AGENT', authorName = '김민수', onOpenSheet = vi.fn() } = {}) {
   server.use(...cardHandlers)
   const noop = vi.fn()
   return renderScreen(
     <LongPressList onOpen={onOpenSheet}>
     <MessageRow
-      message={createMessage({ id: 11, authorId, authorName, authorKind })}
+      message={createMessage({ id, authorId, authorName, authorKind })}
       channelId={1}
-      currentUserId={1}
+      currentUserId={currentUserId}
       members={[]}
       startsGroup={startsGroup}
       isEditing={false}
-      rowProps={{ 'data-tap-row': 11, 'data-tap-active': undefined, onPointerUp: noop, onPointerEnter: noop, onFocus: noop }}
+      rowProps={{ 'data-tap-row': id, 'data-tap-active': undefined, onPointerUp: noop, onPointerEnter: noop, onFocus: noop }}
       onStartEdit={noop}
       onCancelEdit={noop}
       onSaveEdit={noop}
@@ -56,7 +58,7 @@ function renderRow({ authorId = 7, startsGroup = true, authorKind = 'HUMAN' as '
       proposalBusy={false}
       onConfirmProposal={noop}
       onRejectProposal={noop}
-      linkTarget={() => ({ kind: 'message', url: 'http://x/chat/channels/1?message=11', title: '안녕하세요' })}
+      linkTarget={() => ({ kind: 'message', url: `http://x/chat/channels/1?message=${id}`, title: '안녕하세요' })}
     />
     </LongPressList>,
   )
@@ -161,5 +163,33 @@ describe('채널·DM 메시지 작성자 사람 카드 (WP-1768)', () => {
   test('묶음 둘째 줄에는 트리거가 없다', () => {
     renderRow({ startsGroup: false })
     expect(screen.queryByTestId('person-card-trigger-7')).not.toBeInTheDocument()
+  })
+})
+
+describe('전송 중 낙관 말풍선(WP-1860)', () => {
+  test('내 낙관 메시지(id<0)는 흐리고 「전송 중…」을 보인다', () => {
+    renderRow({ id: -1, authorId: 1 })
+    expect(screen.getByTestId('message--1').className).toContain('opacity-60')
+    expect(screen.getByTestId('message-pending--1')).toHaveTextContent('전송 중…')
+  })
+
+  test('묶음 후속 줄의 낙관 메시지에도 보인다', () => {
+    renderRow({ id: -1, authorId: 1, startsGroup: false })
+    expect(screen.getByTestId('message--1').className).toContain('opacity-60')
+    expect(screen.getByTestId('message-pending--1')).toHaveTextContent('전송 중…')
+  })
+
+  test('확정 메시지에는 없다', () => {
+    renderRow({ id: 11, authorId: 1 })
+    expect(screen.getByTestId('message-11').className).not.toContain('opacity-60')
+    expect(screen.queryByTestId('message-pending-11')).toBeNull()
+  })
+
+  test('남의 메시지 분기로 그려진 낙관 행도 흐림과 문구(role=status)가 함께 나온다', () => {
+    renderRow({ id: -2, authorId: 7, currentUserId: 1 })
+    expect(screen.getByTestId('message--2').className).toContain('opacity-60')
+    const label = screen.getByTestId('message-pending--2')
+    expect(label).toHaveTextContent('전송 중…')
+    expect(label).toHaveAttribute('role', 'status')
   })
 })
