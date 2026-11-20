@@ -5,7 +5,10 @@
 // beforeunload 경고는 페이지 테스트 src/pages/projects/issueDetailLayout.test.tsx 가 지킨다(WP-980).
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectEndAligned } from '../../fixtures/layout';
+import { mockApi } from '../../fixtures/api-mock';
 import { createChatMessage, createChatThread } from '../../factories/chat.factory';
+import { createIssueRecurrence } from '../../factories/issueRecurrence.factory';
 import {
   createComment,
   createHistoryEntry,
@@ -301,4 +304,20 @@ test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
     // 첫 렌더 직후 배치가 자리 잡을 때까지 다시 잰다(WP-225).
     await expect.poll(async () => (await rowProbe(page)).flexDir).toBe('row');
   });
+});
+
+// WP-1809: 팀 이슈 레일의 「AI 에게 맡기기」 카드도 칸 폭 가득이고, 「지금 실행」 은 카드 끝에 붙는다.
+test('팀 이슈 레일 「AI 에게 맡기기」 카드 끝이 마일스톤 칸 끝과 같다(WP-1809)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1700, height: 900 });
+  await mockIssueDetail(page, {});
+  await mockChatThread(page, { threadId: 12, recentMessages: [] });
+  await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/recurrence`, createIssueRecurrence());
+  await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+  const trigger = page.getByTestId('task-recurrence-trigger');
+  const runNow = page.getByTestId('task-recurrence-run-now');
+  await expect(runNow).toBeVisible();
+  // 카드 끝 = 마일스톤 칸 끝, 버튼 끝 = 카드 끝.
+  await expectEndAligned(trigger, page.getByTestId('issue-milestone-section').getByRole('button').first());
+  await expectEndAligned(runNow, trigger);
 });

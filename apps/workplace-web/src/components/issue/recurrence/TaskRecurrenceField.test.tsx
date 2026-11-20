@@ -57,6 +57,34 @@ describe('TaskRecurrenceField 「지금 실행」(WP-1313)', () => {
     await waitFor(() => expect(screen.getByTestId('task-recurrence-run-now')).toHaveTextContent('실행 중…'))
     expect(screen.getByTestId('task-recurrence-run-now')).toBeDisabled()
     expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveAccessibleName(/실행 중이에요/)
+    // WP-1809: 실행 중에는 ▷ 대신 도는 아이콘을 보인다.
+    expect(screen.getByTestId('task-recurrence-run-now-icon')).toHaveAttribute('data-state', 'running')
+    expect(screen.getByTestId('task-recurrence-run-now-icon')).toHaveClass('animate-spin')
+  })
+
+  it('실행 중이 아니면 ▷ 아이콘이다(WP-1809)', async () => {
+    setup(recurrence())
+    const icon = await screen.findByTestId('task-recurrence-run-now-icon')
+    expect(icon).toHaveAttribute('data-state', 'idle')
+    expect(icon).not.toHaveClass('animate-spin')
+  })
+
+  it('잠김(남의 비서)이어도 실행 중이 아니면 ▷ 아이콘이다(WP-1809)', async () => {
+    setup(recurrence({ editable: false }))
+    expect(await screen.findByTestId('task-recurrence-run-now-icon')).toHaveAttribute('data-state', 'idle')
+  })
+
+  // PR #1509 리뷰: 상태 줄 오른쪽 끝 자리(ml-auto)는 줄의 바깥 요소에 달려야 한다 — 잠기면 이유 툴팁 감싸개, 아니면 버튼.
+  it('지금 실행의 오른쪽 끝 자리(ml-auto)는 버튼에 단다(WP-1809)', async () => {
+    setup(recurrence())
+    expect(await screen.findByTestId('task-recurrence-run-now')).toHaveClass('ml-auto')
+  })
+
+  it('잠기면 오른쪽 끝 자리(ml-auto)는 이유 툴팁 감싸개에 단다(WP-1809)', async () => {
+    setup(recurrence({ editable: false }))
+    await screen.findByTestId('task-recurrence-run-now')
+    expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveClass('ml-auto')
+    expect(screen.getByTestId('task-recurrence-run-now')).not.toHaveClass('ml-auto')
   })
 
   it('일정이 없으면 버튼이 없다', async () => {
