@@ -1,6 +1,7 @@
 // 캘린더 E2E 팩토리 — 일정·캘린더 컨테이너 응답 모킹용.
 import type { Attendee, Calendar, CalendarEvent, EventNoteRef } from '../../src/types/calendar'
 import type { WikiSearchResult } from '../../src/types/wiki'
+import { wikiSearchResult } from './wiki.factory'
 
 /** 참석자 행 팩토리 — userId 가 null 이면 외부 이메일 참석자. */
 export function attendee(
@@ -103,9 +104,9 @@ export function eventNoteRestricted(): EventNoteRef {
   return { restricted: true }
 }
 
-/** 노트 연결 창 검색 결과 한 건(WP-1701) */
+/** 노트 연결 창 검색 결과 한 건(WP-1701) — 필드는 위키 팩토리가 채우고 노트 연결 창에 맞는 기본값만 덮는다. */
 export function noteSearchResult(over: Partial<WikiSearchResult> = {}): WikiSearchResult {
-  return {
+  return wikiSearchResult({
     id: 11,
     spaceId: 3,
     spaceName: '기획팀 공간',
@@ -114,5 +115,5 @@ export function noteSearchResult(over: Partial<WikiSearchResult> = {}): WikiSear
     updatedAt: '2026-06-10T02:50:00Z',
     updatedByName: '양동희',
     ...over,
-  }
+  })
 }
