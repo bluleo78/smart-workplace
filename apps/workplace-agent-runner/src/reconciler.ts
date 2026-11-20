@@ -28,7 +28,7 @@ import {
   secretName,
   type AgentContext,
 } from './k8s/manifest.js';
-import { clip, formatNoticeTime, RESTART_NOTICE_MS, toObserved } from './observe.js';
+import { clip, formatNoticeTime, isWithinNoticeWindow, toObserved } from './observe.js';
 import {
   checkImages,
   collectActual,
@@ -714,7 +714,7 @@ export class Reconciler {
     const actualById = new Map(actual.map((a) => [a.agentUserId, a]));
     const now = this.now().getTime();
     for (const [id, notice] of [...this.finishNotices]) {
-      if (generationById.get(id) !== notice.generation || now - notice.at > RESTART_NOTICE_MS) this.finishNotices.delete(id);
+      if (generationById.get(id) !== notice.generation || !isWithinNoticeWindow(notice.at, now)) this.finishNotices.delete(id);
     }
     for (const [id, loop] of [...this.finishLoops]) {
       const readySince = actualById.get(id)?.pod?.readySince;
@@ -817,10 +817,10 @@ export class Reconciler {
       const failure = stopping ? undefined : (this.failures.get(id) ?? this.finishFailure(id));
       // 끝나 지운 Pod 의 사유는 6시간 싣는다 — 사람이 한참 뒤에 봐도 왜 다시 떴는지 알 수 있게. phase 는 지금 상태 그대로 두고
       // message 만 채우며, 지금 상태가 이미 message 를 내면(컨테이너 재시작 알림) 버리지 않고 `재시작 알림 / 끝난 Pod 알림` 으로
-      // 이어 함께 싣는다(둘 다 사람이 알아야 할 사건). 실패 사유가 있으면 실패만 싣는다.
+      // 이어 함께 싣는다(둘 다 사람이 알아야 할 사건). 실패면(runner 의 실패든 관찰상 FAILED 든) 실패 사유만 싣는다.
       // 6시간을 정리 주기와 무관하게 정확히 지키려 보고 때에도 나이를 본다.
-      const found = stopping ? undefined : this.finishNotices.get(id);
-      const notice = found && this.now().getTime() - found.at <= RESTART_NOTICE_MS ? found : undefined;
+      const kept = stopping || failure || state.phase === 'FAILED' ? undefined : this.finishNotices.get(id);
+      const notice = kept && isWithinNoticeWindow(kept.at, this.now().getTime()) ? kept : undefined;
       const finishText = notice
         ? `이전 Pod 가 끝나 다시 띄웠습니다 — ${notice.reason} · ${formatNoticeTime(new Date(notice.at))}`
         : undefined;

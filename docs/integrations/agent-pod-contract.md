@@ -174,7 +174,7 @@ OpenCode 템플릿(`opencode`)은 Works 의 「OpenAI 호환」 연결(모델 �
 
 AI Pod 는 Deployment 없는 맨 Pod(`restartPolicy: Always`)다. 떠 있어야 할 AI 의 Pod 가 사라지거나(kubectl delete 등) phase 가 `Succeeded`·`Failed` 로 끝나면(노드 재시작 뒤 Completed·Error) runner 가 `CLUSTER_CHECK_SECONDS`(기본 30초) 안에 알아채 끝난 Pod 를 지우고 다시 만든다 — `generation`·`applyNow` 와 무관(WP-1501). 컨테이너 재시작·CrashLoopBackOff 는 kubelet 몫이라 건드리지 않고, `Unknown`(노드 연락 끊김)도 끝난 것으로 보지 않는다.
 
-계속 끝나는 AI(DinD `emptyDir` sizeLimit 초과·노드 압박으로 거듭 Evicted)는 끝없이 바로 다시 띄우지 않는다. 첫 번째는 바로, 연속으로 다시 만들수록 마지막으로 다시 만든 때부터 30초·1분·2분·5분(이후 5분)을 기다린 뒤 다시 만든다(실제로는 다음 `CLUSTER_CHECK_SECONDS` 확인 때). 끝난 Pod 를 지우기 전에 `status.reason`·`message` 를 로그에 남기고, 다음 관찰 보고 한 번에 지금 phase 그대로 message `이전 Pod 가 끝나 다시 띄웠습니다 — <reason — message>` 를 싣는다. 연속 3번째부터는 `FAILED`(message `AI Pod 가 연속 N번 끝나 간격을 늘려 다시 띄웁니다 — <사유>`)로 보고한다. 새 Pod 가 Ready 로 10분 넘게 떠 있거나 `generation` 이 바뀌면 연속 횟수를 0 으로 되돌린다. 횟수는 runner 메모리에만 있어 runner 가 다시 뜨면 0 부터다.
+계속 끝나는 AI(DinD `emptyDir` sizeLimit 초과·노드 압박으로 거듭 Evicted)는 끝없이 바로 다시 띄우지 않는다. 첫 번째는 바로, 연속으로 다시 만들수록 마지막으로 다시 만든 때부터 30초·1분·2분·5분(이후 5분)을 기다린 뒤 다시 만든다(실제로는 다음 `CLUSTER_CHECK_SECONDS` 확인 때). 끝난 Pod 를 지우기 전에 `status.reason`·`message` 를 로그에 남기고, 끝난 때부터 6시간 동안(`RESTART_NOTICE_MS`) 관찰 보고에 지금 phase 그대로 message `이전 Pod 가 끝나 다시 띄웠습니다 — <reason — message>` 를 싣는다(컨테이너 재시작 알림이 있으면 `재시작 알림 / 끝난 Pod 알림` 으로 함께). 단 `FAILED`(runner 실패, 또는 관찰상 CrashLoopBackOff·ImagePullBackOff·ErrImagePull·Pod phase Failed 처럼 `FAILED` 로 보이는 상태)로 보고할 때는 실패 사유만 싣고 이 알림은 싣지 않는다. 연속 3번째부터는 `FAILED`(message `AI Pod 가 연속 N번 끝나 간격을 늘려 다시 띄웁니다 — <사유>`)로 보고한다. 새 Pod 가 Ready 로 10분 넘게 떠 있거나 `generation` 이 바뀌면 연속 횟수를 0 으로 되돌린다. 횟수는 runner 메모리에만 있어 runner 가 다시 뜨면 0 부터다.
 
 ## config.json
 
@@ -227,7 +227,7 @@ AI Pod 는 Deployment 없는 맨 Pod(`restartPolicy: Always`)다. 떠 있어야 
 
 - 이미지: dind sidecar 의 이미지 그대로(docker CLI 포함, 이미지 허용 목록 그대로). `privileged: false`, `runAsUser: 0`(du 가 root 전용 레이어 폴더까지 읽게), AppArmor `Unconfined`(agent 와 같은 이유)
 - 마운트: `/dind`(소켓), `/dind-storage`(볼륨 `dind-storage`, 읽기 전용 — 사용량을 du 로 잰다)
-- env: `DOCKER_HOST=unix:///dind/docker.sock`, `DIND_GC_THRESHOLD_KIB`(상한 × Helm `dind.gcThresholdPercent`(기본 70)%), `DIND_GC_INTERVAL_SECONDS=300`, `DIND_GC_IMAGE_COOLDOWN_SECONDS=3600`
+- env: `DOCKER_HOST=unix:///dind/docker.sock`, `DIND_GC_THRESHOLD_KIB`(상한 × Helm `dind.gcThresholdPercent`(기본 70)%), `DIND_GC_CRITICAL_KIB`(상한 × 90%, 임계값보다 낮지 않게), `DIND_GC_INTERVAL_SECONDS=60`, `DIND_GC_FAST_INTERVAL_SECONDS=15`, `DIND_GC_IMAGE_COOLDOWN_SECONDS=600`, `DIND_GC_CRITICAL_COOLDOWN_SECONDS=120`
 - 동작: 60초마다(임계값의 80% 이상이면 15초마다 — `DIND_GC_INTERVAL_SECONDS`·`DIND_GC_FAST_INTERVAL_SECONDS`) 사용량을 재 임계값(`DIND_GC_THRESHOLD_KIB`) 이상이면 `container prune -f --filter until=10m`(만든 지 10분 안 된 컨테이너는 시작 전일 수 있어 지우지 않는다) → `volume prune -af`(쓰지 않는 볼륨을 이름 있는 것까지 모두 — 멈춘 스택의 데이터 볼륨도 지워진다). 그래도 임계값 이상이면 `builder prune -af`·`image prune -af` 를 하되 쿨다운(`DIND_GC_IMAGE_COOLDOWN_SECONDS`, 600초)에 한 번만 한다(실행 중인 것만으로 넘는 동안 빌드 캐시·이미지를 거듭 지워 다시 만들거나 받게 하지 않게). 단 위급선(`DIND_GC_CRITICAL_KIB`, 상한의 90%) 이상이면 곧 쫓겨나므로 쿨다운이 짧은 위급 쿨다운(`DIND_GC_CRITICAL_COOLDOWN_SECONDS`, 120초)이다. 실행 중인 컨테이너가 쓰는 이미지·볼륨은 지우지 않는다. 시간마다 무조건 이미지를 지우지 않는 이유는, 막 받은 이미지까지 지워 테스트 시작과 부딪히기 때문이다(prune 의 `until` 은 받은 시각이 아니라 이미지를 만든 시각 기준). 사용량을 잴 수 없으면(du 실패) 그때마다 로그를 남기고 건너뛴다.
 - 템플릿 sidecar 가 이미 `dind-gc` 라는 이름을 쓰면 넣지 않는다(이름이 겹치면 Pod 가 거절된다). `DIND_STORAGE_LIMIT` 은 1Gi 이상의 쿠버네티스 수량이어야 runner 가 시작한다.
 - TERM 을 받으면 바로 끝난다.

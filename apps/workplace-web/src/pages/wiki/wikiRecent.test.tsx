@@ -1,10 +1,11 @@
 // 노트 「최근」(WP-1764) — 화면 컴포넌트 테스트(renderScreen + MSW). driveRecent.test.tsx 를 본뜸.
 // 날짜 묶음·공간 경로·마지막 활동 문구, 빈·오류(다시 시도)·다음 쪽 상태, 제목 링크 주소, ⋯ 링크 복사를 본다.
-import { screen, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { controlIntersection } from '@/test/kits/layout'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 import type { WikiRecentItem, WikiRecentPage } from '@/types/wiki'
 
@@ -114,5 +115,62 @@ describe('노트 최근 화면', () => {
     io.set(() => true)
     expect(await screen.findByTestId('wiki-recent-row-2')).toBeInTheDocument()
     expect(cursors).toEqual([null, 'c1'])
+  })
+})
+
+// WP-1788: 실패 뒤 다시 시도하면 TanStack Query 가 status 를 pending 으로 되돌린다 — 그 동안에도 오류 안내·초점이 남아야 한다.
+describe('노트 최근 화면 — 실패 뒤 다시 시도하는 동안 안내와 초점이 남는다(WP-1788)', () => {
+  test('WP-1788 다시 시도 성공 — 응답 전에도 안내·초점 유지, 응답 뒤 목록', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const { user } = renderScreen(<WikiRecentView />, {
+      path: '/wiki/recent',
+      handlers: [
+        http.get('/api/v1/wiki/recent', async () => {
+          calls += 1
+          if (calls === 1) return HttpResponse.json({ message: 'x' }, { status: 500 })
+          await promise
+          return HttpResponse.json({ items: [item(1)], nextCursor: null })
+        }),
+      ],
+    })
+    await clickRetryAndExpectErrorKept(user, 'wiki-recent-error', () => calls)
+    await act(async () => { release() })
+    expect(await screen.findByTestId('wiki-recent-row-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-recent-error')).toBeNull()
+  })
+
+  test('WP-1788 다시 시도도 실패 — 안내가 사라졌다 다시 그려지지 않고 남는다', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const { user } = renderScreen(<WikiRecentView />, {
+      path: '/wiki/recent',
+      handlers: [
+        http.get('/api/v1/wiki/recent', async () => {
+          calls += 1
+          if (calls > 1) await promise
+          return HttpResponse.json({ message: 'x' }, { status: 500 })
+        }),
+      ],
+    })
+    const retry = await clickRetryAndExpectErrorKept(user, 'wiki-recent-error', () => calls)
+    await act(async () => { release() })
+    await waitFor(() => expect(retry).not.toHaveAttribute('aria-busy'))
+    expect(screen.getByTestId('wiki-recent-error')).toBeInTheDocument()
+    expect(screen.queryByText('불러오는 중…')).toBeNull()
+    // 안내가 새로 그려지지 않고 같은 노드·초점이 남는다.
+    expect(retry.isConnected).toBe(true)
+    expect(document.activeElement).toBe(retry)
+  })
+
+  test('WP-1788 첫 진입 로딩 — 실패 전 첫 조회 중에는 「불러오는 중…」', async () => {
+    const { promise, release } = gate()
+    renderScreen(<WikiRecentView />, {
+      path: '/wiki/recent',
+      handlers: [http.get('/api/v1/wiki/recent', async () => { await promise; return HttpResponse.json({ items: [], nextCursor: null }) })],
+    })
+    expect(await screen.findByText('불러오는 중…')).toBeInTheDocument()
+    await act(async () => { release() })
+    expect(await screen.findByTestId('wiki-recent-empty')).toBeInTheDocument()
   })
 })

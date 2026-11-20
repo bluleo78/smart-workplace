@@ -62,11 +62,12 @@ export function DriveSharedFolderView() {
   const { shareLinkId } = useParams()
   const list = useSharedWithMe()
 
-  // 1·2. 목록 불러오는 중 / 실패(캐시된 목록이 없을 때만).
-  if (list.isPending) return <SharedLoading />
+  // 1·2. 목록 실패(캐시된 목록이 없을 때만) / 불러오는 중.
+  // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1788, lib/queryFailure).
   if (failedWithoutData(list)) {
     return <LoadErrorState title="공유받은 항목을 불러오지 못했습니다" queries={[list]} testId="drive-shared-error" />
   }
+  if (list.isPending) return <SharedLoading />
 
   // 3. 목록에 없는 id — 뺐거나 이제 그 공간 구성원이라 드라이브에서 바로 보인다.
   const item = (list.data ?? []).find((i) => String(i.shareLinkId) === shareLinkId)
@@ -112,8 +113,8 @@ function SharedFolderGate({ item, token }: { item: SharedWithMeItem; token: stri
     gcTime: 0,
   })
 
-  if (info.isPending) return <SharedLoading />
-  if (info.isError) {
+  // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1788, lib/queryFailure).
+  if (failedWithoutData(info)) {
     const status = statusOf(info.error)
     // 막힘(폐기·만료·없음)과 다른 워크스페이스(403)는 안내 + 「공유받은 항목으로」, 그 밖은 다시 시도.
     const closed = status === 410 || status === 404
@@ -138,6 +139,8 @@ function SharedFolderGate({ item, token }: { item: SharedWithMeItem; token: stri
       />
     )
   }
+  // 불러오는 중 — data 없음도 함께 걸러 타입을 좁힌다(실패는 위에서 처리했다).
+  if (info.isPending || info.data === undefined) return <SharedLoading />
   const data = info.data
   // 응답이 잠금(비밀번호·로그인 확인 필요)이면 공유 화면으로, 폴더가 아니면 목록으로.
   if (data.passwordRequired || data.loginRequired) return <Navigate to={`/s/${token}`} replace />

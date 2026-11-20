@@ -33,6 +33,7 @@ import { sharedOpenedLabel } from '@/lib/driveSharedWithMe'
 import { isStarredMissing, starredLocationPath, starredMetaLine, starredViewerFile } from '@/lib/driveStarred'
 import { parseId } from '@/lib/historyParam'
 import { HIT_AREA_COARSE } from '@/lib/hitArea'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { cn } from '@/lib/utils'
 import type { DriveFile, DriveStarredItem } from '@/types/drive'
 
@@ -154,10 +155,11 @@ export function DriveStarredView() {
   const viewerItemSource = viewer.current ? knownFile(viewer.current.id) : null
 
   let body
-  if (query.isPending) {
-    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
-  } else if (query.isLoadingError) {
+  // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1788, lib/queryFailure).
+  if (failedWithoutData(query)) {
     body = <LoadErrorState title="별표한 항목을 불러오지 못했습니다" queries={[query]} testId="drive-starred-error" />
+  } else if (query.isPending) {
+    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
   } else if (items.length === 0) {
     body = (
       <div data-testid="drive-starred-empty">

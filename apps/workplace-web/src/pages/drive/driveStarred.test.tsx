@@ -2,12 +2,13 @@
 // 드라이브 「별표」(WP-1698) — 화면 컴포넌트 테스트(renderScreen).
 // 「별표」 목록(행 칸·빈 화면·더 불러오기), 별표 빼기 토스트와 되돌리기(여러 행을 연달아 빼도 각자 맞는 항목), 폴더 클릭 이동 주소·파일 클릭 보기 창,
 // 행 ⋯ 메뉴(위치 열기·링크 복사·빼기), 사이드바 입구 순서, 공간 화면 행 메뉴 「별표」/「별표 빼기」와 이름 옆 별, 보기 창 별표 단추를 본다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
 import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from '@/test/kits/drive/testkit-b6'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
 import { renderScreen } from '@/test/renderScreen'
 import type { DriveFile, DriveFolder, DriveStarredItem, DriveStarTarget } from '@/types/drive'
@@ -417,5 +418,39 @@ describe('공간 화면 별표', () => {
     await user.click(within(dialog).getByTestId('viewer-star'))
     await waitFor(() => expect(calls.puts).toEqual([{ kind: 'FILE', id: 30 }]))
     await waitFor(() => expect(within(dialog).getByTestId('viewer-star')).toHaveAttribute('aria-pressed', 'true'))
+  })
+})
+
+// WP-1788: 실패 뒤 다시 시도하면 TanStack Query 가 status 를 pending 으로 되돌린다 — 그 동안에도 오류 안내·초점이 남아야 한다.
+describe('별표 화면 — 실패 뒤 다시 시도하는 동안 안내와 초점이 남는다(WP-1788)', () => {
+  test('WP-1788 다시 시도 성공 — 응답 전에도 안내·초점 유지, 응답 뒤 목록', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const { user } = renderScreen(<DriveStarredView />, {
+      path: '/drive/starred',
+      handlers: [
+        http.get(`${API}/starred`, async () => {
+          calls += 1
+          if (calls === 1) return HttpResponse.json({ message: 'x' }, { status: 500 })
+          await promise
+          return HttpResponse.json({ items: [fileItem], nextCursor: null })
+        }),
+      ],
+    })
+    await clickRetryAndExpectErrorKept(user, 'drive-starred-error', () => calls)
+    await act(async () => { release() })
+    expect(await screen.findByTestId('drive-starred-row-file-70')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-starred-error')).toBeNull()
+  })
+
+  test('WP-1788 첫 진입 로딩 — 실패 전 첫 조회 중에는 「불러오는 중…」', async () => {
+    const { promise, release } = gate()
+    renderScreen(<DriveStarredView />, {
+      path: '/drive/starred',
+      handlers: [http.get(`${API}/starred`, async () => { await promise; return HttpResponse.json({ items: [], nextCursor: null }) })],
+    })
+    expect(await screen.findByText('불러오는 중…')).toBeInTheDocument()
+    await act(async () => { release() })
+    expect(await screen.findByTestId('drive-starred-empty')).toBeInTheDocument()
   })
 })

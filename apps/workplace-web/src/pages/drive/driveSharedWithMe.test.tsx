@@ -1,11 +1,12 @@
 // 드라이브 「공유받은 항목」(WP-1539) — 화면 컴포넌트 테스트(renderScreen).
 // 목록(이름·공간·크기·공유한 사람·마지막으로 연 날), 열 수 없는 행(흐림·배지·둘째 줄·메뉴 비활성), 목록에서 빼기(DELETE → 다시 받기),
 // 빈 화면, 열기(공유 정보 조회 → 미리보기 / 비밀번호면 공유 화면으로), 사이드바 입구와 개수를 본다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 import type { SharedWithMeItem } from '@/types/drive'
 
@@ -242,5 +243,39 @@ describe('드라이브 사이드바 입구', () => {
     })
     await screen.findByTestId('drive-nav-shared')
     await waitFor(() => expect(screen.queryByTestId('drive-nav-shared-count')).not.toBeInTheDocument())
+  })
+})
+
+// WP-1788: 실패 뒤 다시 시도하면 TanStack Query 가 status 를 pending 으로 되돌린다 — 그 동안에도 오류 안내·초점이 남아야 한다.
+describe('공유받은 항목 화면 — 실패 뒤 다시 시도하는 동안 안내와 초점이 남는다(WP-1788)', () => {
+  test('WP-1788 다시 시도 성공 — 응답 전에도 안내·초점 유지, 응답 뒤 목록', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const { user } = renderScreen(<DriveSharedWithMeView />, {
+      path: '/drive/shared',
+      handlers: [
+        http.get('/api/v1/drive/shared-with-me', async () => {
+          calls += 1
+          if (calls === 1) return HttpResponse.json({ message: 'x' }, { status: 500 })
+          await promise
+          return HttpResponse.json([openItem])
+        }),
+      ],
+    })
+    await clickRetryAndExpectErrorKept(user, 'drive-shared-error', () => calls)
+    await act(async () => { release() })
+    expect(await screen.findByTestId('drive-shared-row-11')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-shared-error')).toBeNull()
+  })
+
+  test('WP-1788 첫 진입 로딩 — 실패 전 첫 조회 중에는 「불러오는 중…」', async () => {
+    const { promise, release } = gate()
+    renderScreen(<DriveSharedWithMeView />, {
+      path: '/drive/shared',
+      handlers: [http.get('/api/v1/drive/shared-with-me', async () => { await promise; return HttpResponse.json([]) })],
+    })
+    expect(await screen.findByText('불러오는 중…')).toBeInTheDocument()
+    await act(async () => { release() })
+    expect(await screen.findByTestId('drive-shared-empty')).toBeInTheDocument()
   })
 })

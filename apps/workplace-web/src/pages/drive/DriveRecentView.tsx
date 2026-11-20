@@ -148,10 +148,11 @@ export function DriveRecentView() {
   }
 
   let body
-  if (query.isPending) {
-    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
-  } else if (failedWithoutData(query)) {
+  // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1788, lib/queryFailure).
+  if (failedWithoutData(query)) {
     body = <LoadErrorState title="최근 파일을 불러오지 못했습니다" queries={[query]} testId="drive-recent-error" />
+  } else if (query.isPending) {
+    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
   } else if (items.length === 0) {
     body = (
       // 설명 문장 없이 아이콘과 제목만 둔다(ChatEmptyState 는 설명이 필수라 쓰지 않는다).
