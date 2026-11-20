@@ -12,6 +12,7 @@ import { useContactDetail } from '../../hooks/queries/useContactDetail'
 import { useDeleteExternalContact } from '../../hooks/queries/useExternalContactMutations'
 import { useToggleFavorite } from '../../hooks/queries/useFavoriteMutations'
 import type { ExternalContactDetail, MemberDetail } from '../../types/contact'
+import { PersonActionButtons } from '../users/personCard/PersonActionButtons'
 import { ExternalContactFormDialog } from './ExternalContactFormDialog'
 
 // 라벨-값 한 줄. 값이 없으면 '-'.
@@ -117,6 +118,11 @@ export function ContactDetailPanel({
           </button>
         </div>
         <p className="mb-4 text-sm text-muted-foreground">멤버 · @{m.username}</p>
+        {/* 사람 카드와 같은 단추 줄(WP-1769) — 연락처 API 는 활성 사람(HUMAN) 멤버만 주므로 kind 는 API 값을 좁혀 넘기고(그 밖의 값이면 단추 없음),
+            active 는 API 에 필드가 없어 true 로 둔다 — 연락처 API 는 활성 멤버만 준다. */}
+        <div data-testid="contact-detail-actions" className="mb-4 sm:max-w-sm">
+          <PersonActionButtons personId={m.id} kind={m.kind === 'HUMAN' || m.kind === 'AGENT' ? m.kind : undefined} username={m.username} email={m.email} active />
+        </div>
         <Row label="이메일" value={m.email} />
         <Row label="직책" value={m.title} />
         <Row label="소속 그룹" value={m.groups.length ? m.groups.join(', ') : null} />
