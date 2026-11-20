@@ -98,3 +98,13 @@ export function initialOf(name?: string | null): string {
 export function displayNameOf(user?: { name?: string | null; username?: string | null } | null): string {
   return user?.name || user?.username || '사용자'
 }
+
+/**
+ * 사용자 아이디 표시 — 일반 아이디(jay)는 「@jay」, 이메일형 아이디(admin@host)는 이미 @ 가 있으니 그대로 둔다.
+ * @ 가 이미 들어 있으면(이메일형·@ 접두) 그대로 — 「@admin@host」 이중 @ 를 막는 공용 규칙(WP-1880). 빈 아이디는 빈 문자열.
+ */
+export function usernameHandle(username: string): string {
+  if (!username) return ''
+  if (username.includes('@')) return username
+  return `@${username}`
+}

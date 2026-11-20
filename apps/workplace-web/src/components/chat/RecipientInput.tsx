@@ -22,6 +22,7 @@ import { useUserSearch } from '@/hooks/queries/useUserSearch'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { isImeComposing } from '@/lib/imeKey'
 import { recipientCandidates } from '@/lib/recipientCandidates'
+import { usernameHandle } from '@/lib/utils'
 import type { UserKind } from '@/types/user'
 
 type KindFilter = 'ALL' | UserKind
@@ -244,9 +245,9 @@ export function RecipientInput({
                       >
                         {/* 폭이 좁으면 아이디부터 줄인다 — 이름과 에이전트 배지가 먼저 보여야 상대를 구분할 수 있다. */}
                         <span className="max-w-[60%] shrink-0 truncate font-medium">{u.name}</span>
-                        {/* 아이디가 이메일이면 이미 '@' 가 있어 앞에 또 붙이면 '@a@b.com' 이 된다 — 그대로 보인다. */}
+                        {/* 아이디 표기는 usernameHandle 로 — 이메일형이면 '@' 를 겹쳐 붙이지 않고 그대로, 핸들이면 '@' 를 붙인다. */}
                         <span className="min-w-0 truncate text-xs text-muted-foreground">
-                          {u.username.includes('@') ? u.username : `@${u.username}`}
+                          {usernameHandle(u.username)}
                         </span>
                         {u.kind === 'AGENT' && <AgentBadge size="xs" />}
                       </CommandItem>

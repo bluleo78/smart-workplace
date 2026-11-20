@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
 import { isNotFoundError } from '@/lib/api-error'
-import { cn } from '@/lib/utils'
+import { cn, usernameHandle } from '@/lib/utils'
 import { CONTACT_NOTES_MAX } from '@/lib/validations/contact'
 
 import type { ContactSelection } from '../../hooks/queries/useContactDetail'
@@ -117,7 +117,7 @@ export function ContactDetailPanel({
             <Star className={cn('h-5 w-5', m.isFavorite && 'fill-yellow-400 text-yellow-400')} />
           </button>
         </div>
-        <p className="mb-4 text-sm text-muted-foreground">멤버 · @{m.username}</p>
+        <p className="mb-4 text-sm text-muted-foreground">멤버 · {usernameHandle(m.username)}</p>
         {/* 사람 카드와 같은 단추 줄(WP-1769) — 연락처 API 는 활성 사람(HUMAN) 멤버만 주므로 kind 는 API 값을 좁혀 넘기고(그 밖의 값이면 단추 없음),
             active 는 API 에 필드가 없어 true 로 둔다 — 연락처 API 는 활성 멤버만 준다. */}
         <div data-testid="contact-detail-actions" className="mb-4 sm:max-w-sm">

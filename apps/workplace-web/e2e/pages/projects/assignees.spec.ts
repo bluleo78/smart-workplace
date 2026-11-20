@@ -105,13 +105,16 @@ test.describe('이슈 담당자(다중)', () => {
     await page.getByTestId('assignee-picker-trigger').click();
     const option = page.getByTestId(`assignee-option-${LONG.id}`);
     await expect(option).toBeVisible();
-    await expect(option).toHaveAttribute('title', `${LONG.name} @${LONG.username}`);
+    // 이메일형 아이디는 @ 접두 없이 그대로 보인다(WP-1880 — 「@kim…@example.com」 이중 @ 방지).
+    await expect(option).toHaveAttribute('title', `${LONG.name} ${LONG.username}`);
 
     // 이름·아이디 모두 한 줄 — 줄 높이를 넘지 않고, 행이 픽커 밖으로 넘치지 않는다.
-    const lines = await option.evaluate((row) =>
-      Array.from(row.querySelectorAll('span'))
-        .filter((s) => s.textContent === row.getAttribute('title')?.split(' @')[0] || s.textContent?.startsWith('@'))
-        .map((s) => Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight))),
+    const lines = await option.evaluate(
+      (row, texts) =>
+        Array.from(row.querySelectorAll('span'))
+          .filter((s) => s.textContent !== null && texts.includes(s.textContent))
+          .map((s) => Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight))),
+      [LONG.name, LONG.username],
     );
     expect(lines).toEqual([1, 1]);
     const [rowBox, pickerBox] = await Promise.all([option.boundingBox(), page.getByTestId('assignee-picker').boundingBox()]);

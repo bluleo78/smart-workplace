@@ -21,6 +21,7 @@ import type { SettingsAiContextInput } from '@/lib/aiScreenContext/builders/sett
 import type { FactValue } from '@/lib/aiScreenContext/common';
 import { isNotFoundError } from '@/lib/api-error';
 import { parseId } from '@/lib/historyParam';
+import { usernameHandle } from '@/lib/utils';
 
 import { useAgentRuntimeSetting, useAgentTemplates } from '../../hooks/queries/useAgentRuntime';
 import { useAgent } from '../../hooks/queries/useAgents';
@@ -174,7 +175,7 @@ function AgentDetailView({
       }
       meta={
         <span className="flex items-center gap-2 text-sm text-muted-foreground">
-          @{agent.username}
+          {usernameHandle(agent.username)}
           {modeTitle && <Badge variant="secondary">{modeTitle}</Badge>}
           {!agent.isActive && <Badge variant="outline">사용 중지</Badge>}
         </span>
