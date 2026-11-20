@@ -16,7 +16,7 @@ const MY_NAME = '테스트 사용자'
 
 // ── stub helpers ──────────────────────────────────────────────────────────────
 
-/** 채널 목록 + DM 목록(GET) + SSE 스트림 stub. DM POST 는 stub 불포함 — 각 테스트에서 별도 처리. */
+/** 채널 목록 + DM 목록(GET) stub. DM POST 는 불포함 — 각 테스트에서 별도 처리. */
 async function stubSidebarLists(page: Page, dms: ReturnType<typeof createDm>[] = []) {
   await page.route(
     (url) => url.pathname === '/api/v1/messaging/channels',
@@ -36,16 +36,7 @@ async function stubSidebarLists(page: Page, dms: ReturnType<typeof createDm>[] =
       })
     },
   )
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
-  )
+  // /api/v1/events 는 기본 픽스처의 열린 스트림을 쓴다 — 유한 본문은 곧 닫혀 재연결 배너(ChatModuleLayout RECONNECT_GRACE_MS 뒤)가 화면을 32px 밀어 낸다(WP-1840).
 }
 
 /** 구성원 검색 stub(#833 — 디렉터리 /members) — 전달한 users 리스트를 MemberSummary 로 변환해 반환. */

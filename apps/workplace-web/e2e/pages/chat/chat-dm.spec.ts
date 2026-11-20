@@ -9,8 +9,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { expectSelectedRow } from '../../fixtures/selection'
 
-// 채널·DM 사이드바 목록 + SSE 스트림 stub.
-// AppLayout 이 useEventStream() 으로 /api/v1/events 를 항상 구독하므로 함께 stub (#506).
+// 채널·DM 사이드바 목록 stub — /api/v1/events 는 기본 픽스처의 열린 스트림이 받는다(#506·WP-1840).
 async function stubLists(page: Page, dms: ReturnType<typeof createDm>[]) {
   await page.route(
     (url) => url.pathname === '/api/v1/messaging/channels',
@@ -34,10 +33,10 @@ async function stubLists(page: Page, dms: ReturnType<typeof createDm>[]) {
       })
     },
   )
-  await stubStream(page)
+  // SSE 는 기본 픽스처의 열린 스트림 — 유한 본문 스텁은 재연결 배너가 화면을 민다(WP-1840).
 }
 
-// SSE 스트림 stub — 빈 keep-alive body.
+// SSE 스트림 stub — 유한 본문이라 곧 닫혀 클라이언트가 재연결한다(연결 끊김 배너가 뜰 수 있어 레이아웃 단언에는 쓰지 않는다).
 async function stubStream(page: Page) {
   await page.route(
     (url) => url.pathname === '/api/v1/events',
