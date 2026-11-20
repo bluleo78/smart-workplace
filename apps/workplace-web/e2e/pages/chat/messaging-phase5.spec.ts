@@ -308,4 +308,63 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await expect(panel).toHaveCount(0)
     await expect(page).not.toHaveURL(/[?&]thread=/)
   })
+
+  // WP-1804: 키보드로 연 스레드를 ✕ 로 닫으면 초점이 body 로 빠지지 않고 열었던 「스레드」 단추로 돌아온다.
+  test('스레드를 키보드로 열고 ✕ 로 닫으면 초점이 그 메시지의 스레드 단추로 돌아온다', { tag: '@input' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const CHANNEL_ID = 513
+    const PARENT_ID = 9901
+    const channel = createChannel({ id: CHANNEL_ID, name: '초점채널' })
+    const parent = createMessage({ id: PARENT_ID, channelId: CHANNEL_ID, body: '부모글', replyCount: 0 })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [parent])
+    await stubReplies(page, PARENT_ID, [])
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    // 툴바는 opacity 토글이라 키보드 포커스로도 닿는다 — 스레드 단추에 초점을 두고 Enter.
+    const replyButton = page.getByTestId(`message-reply-${PARENT_ID}`)
+    await replyButton.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('thread-panel')).toBeVisible()
+
+    await page.getByTestId('thread-close').focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('thread-panel')).toHaveCount(0)
+    await expect(replyButton).toBeFocused()
+  })
+
+  // WP-1804: 「답글 N개」 링크로 연 스레드도 닫으면 그 링크로 돌아온다(연 요소 기준 — 스레드 단추로 보내지 않는다).
+  test('「답글 N개」 링크를 키보드로 열고 ✕ 로 닫으면 초점이 그 링크로 돌아온다', { tag: '@input' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const CHANNEL_ID = 514
+    const PARENT_ID = 9902
+    const channel = createChannel({ id: CHANNEL_ID, name: '초점링크' })
+    const parent = createMessage({ id: PARENT_ID, channelId: CHANNEL_ID, body: '부모글', replyCount: 1 })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [parent])
+    await stubReplies(page, PARENT_ID, [])
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    const threadLink = page.getByTestId(`message-thread-link-${PARENT_ID}`)
+    await threadLink.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('thread-panel')).toBeVisible()
+
+    await page.getByTestId('thread-close').focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('thread-panel')).toHaveCount(0)
+    await expect(threadLink).toBeFocused()
+  })
 })
