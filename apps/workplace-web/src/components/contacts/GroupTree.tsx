@@ -18,6 +18,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeleteUserGroup } from '@/hooks/queries/useUserGroupMutations'
 import { useUserGroups } from '@/hooks/queries/useUserGroups'
 import { useAuth } from '@/hooks/useAuth'
@@ -166,6 +168,58 @@ interface Props {
   onSelect: (id: number | null) => void
 }
 
+/**
+ * 사이드바 머리(조직도·내 그룹)의 「+」 추가 단추 (WP-1870).
+ * 32px(터치 44px) 단추 높이만큼 머리 줄이 커진다 — 음수 여백·::after 로 영역만 넓히면 아래 첫 그룹 줄과
+ * 앞 구역 마지막 줄을 덮어 그 탭을 가로챈다. 툴팁은 마우스·키보드에만 단다(터치는 탭이 곧 동작).
+ * 앱 루트에 TooltipProvider 가 없어 여기서 직접 감싼다(IssueSidebar 와 같은 방식).
+ */
+function GroupAddButton({ label, testId, onClick }: { label: string; testId: string; onClick: () => void }) {
+  const coarse = useIsCoarsePointer()
+  const button = (
+    // -mr-2 / pointer-coarse:-mr-3.5: 커진 단추 안의 아이콘(14px)이 머리 줄 오른쪽 끝(글자 여백 선)에 맞게 하는 보정 —
+    // 32px 단추는 아이콘 옆 여백이 9px, 터치 44px 단추는 15px 라 간격 눈금의 8px·14px 를 당긴다(끝선과 1px 차이 — 눈에 띄지 않는다).
+    // 오른쪽에는 이웃이 없고, 터치에서 단추가 머리 밖으로 2px 나가는 것은 사이드바 시트 목록의 안쪽 여백(p-3)이 받는다.
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label={label}
+      data-testid={testId}
+      onClick={onClick}
+      className="-mr-2 text-muted-foreground hover:text-foreground pointer-coarse:-mr-3.5 pointer-coarse:size-11"
+    >
+      {/* size-3.5: Button 기본 규칙(size 클래스 없는 svg 는 16px)에 덮이지 않게 size 로 적는다 */}
+      <Plus className="size-3.5" aria-hidden="true" />
+    </Button>
+  )
+  if (coarse) return button
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger
+          asChild
+          // 그룹 삭제·폼 닫기 뒤 이 단추로 초점을 되돌릴 때(마우스 조작 뒤 프로그램 초점) 툴팁이 저절로 뜨지 않게,
+          // 키보드 초점(:focus-visible)일 때만 Radix 의 초점 열기를 둔다 — preventDefault 하면 Radix 가 열지 않는다.
+          onFocus={(e) => {
+            if (!e.currentTarget.matches(':focus-visible')) e.preventDefault()
+          }}
+        >
+          {button}
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+/**
+ * 사이드바 구역 머리 줄(조직도·내 그룹) 클래스 (WP-1870).
+ * 최소 높이 = 「+」 단추(32px, 터치 44px) + 아래 여백(pb-1 4px) — 관리자가 아니라 조직도 머리에 + 가 없어도
+ * 두 구역 머리 높이가 같게 둔다(border-box 라 min-h 에 pb 가 들어간다).
+ */
+const SECTION_HEADER_CLASS = 'flex min-h-9 items-center justify-between px-3 pb-1 pointer-coarse:min-h-12'
+
 /** 사이드바 그룹 영역: 조직도(공유 — 관리는 ADMIN) + 내 그룹(개인). 관리 다이얼로그(폼·삭제 확인)를 함께 가진다. */
 export function GroupTree({ selectedId, onSelect }: Props) {
   const { data, isLoading } = useUserGroups()
@@ -270,18 +324,10 @@ export function GroupTree({ selectedId, onSelect }: Props) {
     <div className="mt-6 space-y-3">
       {/* 공유 조직도 — 관리(추가·수정·삭제)는 ADMIN 만 */}
       <div>
-        <div className="flex items-center justify-between px-3 pb-1">
+        <div className={SECTION_HEADER_CLASS}>
           <span className="text-xs font-semibold text-muted-foreground">조직도</span>
           {isAdmin && (
-            <button
-              type="button"
-              data-testid="org-create"
-              onClick={() => openCreate('SHARED')}
-              aria-label="새 조직 그룹"
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
+            <GroupAddButton label="새 조직 그룹" testId="org-create" onClick={() => openCreate('SHARED')} />
           )}
         </div>
         {isLoading ? (
@@ -305,17 +351,9 @@ export function GroupTree({ selectedId, onSelect }: Props) {
 
       {/* 내 그룹 — 개인, 본인이 관리 */}
       <div>
-        <div className="flex items-center justify-between px-3 pb-1">
+        <div className={SECTION_HEADER_CLASS}>
           <span className="text-xs font-semibold text-muted-foreground">내 그룹</span>
-          <button
-            type="button"
-            data-testid="group-create"
-            onClick={() => openCreate('PERSONAL')}
-            aria-label="새 그룹"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <GroupAddButton label="새 그룹" testId="group-create" onClick={() => openCreate('PERSONAL')} />
         </div>
         {(data?.personal.length ?? 0) === 0 ? (
           <div className="px-3 py-1 text-xs text-muted-foreground">그룹이 없습니다</div>

@@ -145,6 +145,37 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     await expect(input).toHaveText('')
   })
 
+  // @layout: 긴 파일명 잘림은 jsdom 이 잴 수 없는 기하다(WP-1858) — 앞부분만 같은 두 긴 이름이
+  // 칩에서 똑같아 보이던 문제를, 확장자 꼬리가 래퍼 안에 보이고 래퍼가 10rem 을 넘지 않는지로 지킨다.
+  test('앞부분이 같은 긴 파일명 두 개도 칩에서 확장자 꼬리가 잘리지 않고 서로 구분된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await stubUpload(page)
+    const base = '최종_수정_필요_안_테스트_리포트_2026년_11월_분기_합본'
+    await page.getByTestId('composer-attach-button').click()
+    for (const ext of ['txt', 'xlsx']) {
+      const chooser = page.waitForEvent('filechooser')
+      await page.getByTestId('composer-attach-file').click()
+      await (await chooser).setFiles({ name: `${base}.${ext}`, mimeType: 'application/octet-stream', buffer: Buffer.from('x') })
+      await expect(page.getByTestId('composer-attachments').getByTestId('attachment-chip-name')).toHaveCount(ext === 'txt' ? 1 : 2)
+      // 첫 첨부 뒤 팝오버가 닫히므로 다음 반복을 위해 다시 연다.
+      if (ext === 'txt') await page.getByTestId('composer-attach-button').click()
+    }
+    const wrappers = page.getByTestId('composer-attachments').getByTestId('attachment-chip-name')
+    // 두 칩의 꼬리가 서로 다른 확장자로 보이는지는 아래 toHaveText 두 줄이 함께 확인한다.
+    for (const [i, expected] of ['합본.txt', '합본.xlsx'].entries()) {
+      const wrapper = wrappers.nth(i)
+      const tail = wrapper.getByTestId('attachment-chip-name-tail')
+      await expect(tail).toBeVisible()
+      await expect(tail).toHaveText(expected)
+      const w = (await wrapper.boundingBox())!
+      const t = (await tail.boundingBox())!
+      // 꼬리는 래퍼 안에 완전히 들어오고, 래퍼는 10rem(160px)을 넘지 않는다.
+      expect(t.width).toBeGreaterThan(0)
+      expect(t.x).toBeGreaterThanOrEqual(w.x - 0.5)
+      expect(t.x + t.width).toBeLessThanOrEqual(w.x + w.width + 0.5)
+      expect(w.width).toBeLessThanOrEqual(160.5)
+    }
+  })
+
   test('텍스트와 렌더링 이미지가 함께 오는 붙여넣기(워드·엑셀)는 텍스트로 들어가고 업로드하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploaded = await stubUpload(page)
     const input = page.getByTestId('message-composer-input')

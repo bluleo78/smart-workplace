@@ -214,3 +214,22 @@ test('admin: 최상위 공유 그룹 이름 중복(400) → 인라인 에러 + �
   )
   expect(screen.getByTestId('group-form-dialog')).toBeInTheDocument()
 })
+
+// WP-1870: 머리 + 단추는 아이콘만 있어 hover·focus 툴팁으로 이름을 보인다(실제 크기는 E2E @layout 「user-groups」 가 잰다).
+test('WP-1870 그룹 추가 + 단추에 마우스를 올리면 툴팁 「새 그룹」', async () => {
+  const { user } = await open('/contacts', base())
+  const add = screen.getByTestId('group-create')
+  await user.hover(add)
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('새 그룹')
+})
+
+// 프로그램 초점(add.focus())은 가드가 막으려는 경우라 쓰지 않고 실제 Tab 으로 초점을 옮긴다.
+// jsdom 은 :focus-visible 을 마우스·키보드로 가르지 못하므로 「프로그램 초점이면 툴팁 없음」은 E2E @input(user-groups)이 지킨다.
+test('WP-1870 admin: 조직도 + 단추에 Tab 으로 초점을 옮기면 툴팁 「새 조직 그룹」', async () => {
+  const { user } = await open('/contacts', base(), ADMIN)
+  const add = screen.getByTestId('org-create')
+  // 앞쪽 초점 대상 수는 화면 구성에 따라 달라 상한을 두고 Tab 을 되풀이한다.
+  for (let i = 0; i < 50 && document.activeElement !== add; i++) await user.tab()
+  expect(add).toHaveFocus()
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('새 조직 그룹')
+})
