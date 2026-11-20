@@ -897,6 +897,8 @@ export function RichInput({
             data-testid={submitTestId}
             disabled={submitBlocked}
             aria-busy={submitting || undefined}
+            // 전송 중엔 글자 span 이 invisible(visibility:hidden)이라 접근성 트리에서 빠진다 — 이름을 라벨로 고정해 항상 유지한다.
+            aria-label={submitLabel}
           >
             {/* 전송 중(WP-1860): 글자는 invisible 로 폭을 유지하고 스피너를 정중앙에 겹친다 — 디자인 시스템 06 §A-3.
                 래퍼 span 이라 Button 의 has-[>svg] 패딩(px-3 → px-2.5)이 바뀌지 않는다. */}

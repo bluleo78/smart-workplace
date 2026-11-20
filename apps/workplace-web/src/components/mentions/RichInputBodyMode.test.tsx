@@ -837,6 +837,8 @@ describe('RichInput 보내기 버튼 전송 중 표시', () => {
     expect(screen.getAllByTestId('send-spinner')).toHaveLength(1)
     expect(screen.getByTestId('send-spinner').getAttribute('class')).toContain('animate-spin')
     // 접근 이름은 그대로 「보내기」 — 스피너는 장식(aria-hidden).
+    // (jsdom 은 Tailwind invisible 을 적용하지 않으므로 이름의 출처인 aria-label 을 명시적으로 확인한다 — 글자 span 이 숨겨져도 이름 유지.)
+    expect(send).toHaveAttribute('aria-label', '보내기')
     expect(screen.getByRole('button', { name: '보내기' })).toBe(send)
 
     await act(async () => resolve())
