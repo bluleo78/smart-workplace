@@ -17,7 +17,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { AvatarEditor } from '@/components/users/AvatarEditor'
 import { useAfterAvatarChange } from '@/hooks/queries/useAvatars'
 import { useAuth } from '@/hooks/useAuth'
-import { apiErrorStatus, extractApiError } from '@/lib/api-error'
+import { extractApiError, isServerError } from '@/lib/api-error'
 import { cn } from '@/lib/utils'
 import type { ChangePasswordFormData, UpdateProfileFormData } from '@/lib/validations/user'
 import { changePasswordSchema, updateProfileSchema } from '@/lib/validations/user'
@@ -32,7 +32,7 @@ const AVATAR_ANCHOR = 'avatar'
  * 5xx 영문 내부 문구는 extractApiError 가 버리므로(WP-1879) 그대로 두면 「현재 비밀번호가 올바르지 않습니다」로 잘못 보였다.
  */
 function rootFallback(error: unknown, clientFallback: string): string {
-  return (apiErrorStatus(error) ?? 0) >= 500 ? '서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.' : clientFallback
+  return isServerError(error) ? '서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.' : clientFallback
 }
 
 export default function ProfileSettingsPage() {
@@ -73,10 +73,10 @@ export default function ProfileSettingsPage() {
       await refreshUser()
       toast.success('프로필이 업데이트되었습니다.')
     } catch (error) {
-      const msg = extractApiError(error, '')
-      profileForm.setError('root', {
-        message: msg && msg !== 'Validation failed' ? msg : rootFallback(error, '입력값을 확인하세요.'),
-      })
+      // 서버 오류면 한국어 서버 안내를, 아니면 입력 탓 안내를 fallback 으로 — 5xx 판정은 api-error 한 곳(WP-1879).
+      const clientText = '입력값을 확인하세요.'
+      const msg = extractApiError(error, rootFallback(error, clientText))
+      profileForm.setError('root', { message: msg !== 'Validation failed' ? msg : clientText })
     }
   }
 
@@ -90,10 +90,10 @@ export default function ProfileSettingsPage() {
       passwordForm.reset()
       toast.success('비밀번호가 변경되었습니다.')
     } catch (error) {
-      const msg = extractApiError(error, '')
-      passwordForm.setError('root', {
-        message: msg && msg !== 'Validation failed' ? msg : rootFallback(error, '현재 비밀번호가 올바르지 않습니다.'),
-      })
+      // 서버 오류면 한국어 서버 안내를, 아니면 입력 탓 안내를 fallback 으로 — 5xx 판정은 api-error 한 곳(WP-1879).
+      const clientText = '현재 비밀번호가 올바르지 않습니다.'
+      const msg = extractApiError(error, rootFallback(error, clientText))
+      passwordForm.setError('root', { message: msg !== 'Validation failed' ? msg : clientText })
     }
   }
 

@@ -1,7 +1,7 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import { describe, expect, it } from 'vitest';
 
-import { extractApiError, extractApiErrorAsync, extractApiErrorCode, isTransientRequestError, userFacingServerMessage } from './api-error';
+import { extractApiError, extractApiErrorAsync, extractApiErrorCode, isServerError, isTransientRequestError, userFacingServerMessage } from './api-error';
 
 /** 서버 ErrorResponse 를 실은 axios 오류. */
 function apiError(status: number, data: unknown): AxiosError {
@@ -107,5 +107,21 @@ describe('isTransientRequestError', () => {
   it('401·403·404 같은 거절과 요청 오류가 아닌 예외는 일시 실패가 아니다', () => {
     for (const status of [400, 401, 403, 404]) expect(isTransientRequestError(apiError(status, {}))).toBe(false);
     expect(isTransientRequestError(new TypeError('x is undefined'))).toBe(false);
+  });
+});
+
+// WP-1879 — 5xx 판정 한 곳: 응답 상태가 500 이상인 axios 오류만 서버 오류다.
+describe('isServerError', () => {
+  it('500·503 은 true', () => {
+    expect(isServerError(apiError(500, {}))).toBe(true);
+    expect(isServerError(apiError(503, {}))).toBe(true);
+  });
+  it('400·404 는 false', () => {
+    expect(isServerError(apiError(400, {}))).toBe(false);
+    expect(isServerError(apiError(404, {}))).toBe(false);
+  });
+  it('응답 없는 네트워크 오류·일반 Error 는 false', () => {
+    expect(isServerError(new AxiosError('net', 'ERR_NETWORK'))).toBe(false);
+    expect(isServerError(new Error('x'))).toBe(false);
   });
 });

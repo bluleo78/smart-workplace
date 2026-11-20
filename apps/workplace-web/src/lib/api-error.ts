@@ -28,9 +28,22 @@ function pickBestMessage(errData: ErrorResponse, fallback: string, status?: numb
   return errData.message || fallback;
 }
 
+/** HTTP 상태가 5xx(500 이상)인가 — 서버 오류 판정의 단일 경계(isServerError·isInternalServerMessage 가 공유, WP-1879). */
+function isServerStatus(status: number | undefined): boolean {
+  return status != null && status >= 500;
+}
+
+/**
+ * 서버 오류(응답 상태 500 이상의 Axios 오류)인가 — 5xx 판정을 화면마다 따로 두지 않고 여기 한 곳에서 한다(WP-1879).
+ * 응답이 없는 네트워크 오류·Axios 가 아닌 예외는 서버 오류가 아니다.
+ */
+export function isServerError(error: unknown): boolean {
+  return isServerStatus(apiErrorStatus(error));
+}
+
 /** 5xx 응답의 한글 없는 message — 서버 내부 문구라 사용자에게 보이지 않는다(WP-1879). */
 function isInternalServerMessage(message: string, status: number | undefined): boolean {
-  return status != null && status >= 500 && !HANGUL.test(message);
+  return isServerStatus(status) && !HANGUL.test(message);
 }
 
 /**

@@ -18,7 +18,7 @@ import { testAuthValue } from '@/test/renderWithProviders'
 import ProfileSettingsPage from './ProfileSettingsPage'
 
 /** 프로필 화면이 부르는 쓰기 API — 받은 요청을 calls 에 모은다(나가면 안 되는 요청도 이것으로 센다). */
-function writeHandlers(passwordStatus = 204) {
+function writeHandlers(passwordStatus = 204, passwordBody: unknown = { message: 'An unexpected error occurred' }) {
   const calls: { method: string; path: string; body: unknown }[] = []
   const record = async (request: Request) => {
     const text = await request.text()
@@ -33,7 +33,7 @@ function writeHandlers(passwordStatus = 204) {
       }),
       http.put('/api/v1/users/me/password', async ({ request }) => {
         await record(request)
-        if (passwordStatus >= 500) return HttpResponse.json({ status: passwordStatus, message: 'An unexpected error occurred' }, { status: passwordStatus })
+        if (passwordStatus >= 500) return HttpResponse.json(passwordBody as Record<string, unknown>, { status: passwordStatus })
         return new HttpResponse(null, { status: passwordStatus })
       }),
     ],
@@ -41,8 +41,8 @@ function writeHandlers(passwordStatus = 204) {
 }
 
 /** 프로필 화면을 띄운다 — hasPassword 를 주면 그 계정으로 그린다. */
-async function openProfile(hasPassword = true, passwordStatus = 204) {
-  const api = writeHandlers(passwordStatus)
+async function openProfile(hasPassword = true, passwordStatus = 204, passwordBody?: unknown) {
+  const api = writeHandlers(passwordStatus, passwordBody)
   const view = renderScreen(<ProfileSettingsPage />, {
     path: '/settings/profile',
     handlers: api.handlers,
@@ -118,6 +118,21 @@ test('비밀번호 변경이 서버 오류(500)로 실패하면 서버 오류 �
   expect(await screen.findByText('서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.')).toBeInTheDocument()
   expect(screen.queryByText('현재 비밀번호가 올바르지 않습니다.')).not.toBeInTheDocument()
   expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument()
+})
+
+// WP-1879 — 서버가 일부러 쓴 한국어 5xx 안내는 영문 내부 문구와 달리 그대로 보인다(서버 오류 일반 안내로 덮지 않는다).
+test('비밀번호 변경 서버 오류(503)가 한국어 문구를 주면 그 문구를 보인다 (WP-1879)', async () => {
+  const { user, calls } = await openProfile(true, 503, { status: 503, message: '잠시 점검 중입니다' })
+  await user.click(document.getElementById('current-password')!)
+  await user.paste('Password123')
+  await user.click(document.getElementById('new-password')!)
+  await user.paste('Password456')
+  await user.click(document.getElementById('confirm-password')!)
+  await user.paste('Password456')
+  await user.click(screen.getByRole('button', { name: '비밀번호 변경' }))
+  await waitFor(() => expect(calls).toHaveLength(1))
+  expect(await screen.findByText('잠시 점검 중입니다')).toBeInTheDocument()
+  expect(screen.queryByText('서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.')).not.toBeInTheDocument()
 })
 
 // WP-48 — 비밀번호 없는(SSO 전용) 계정은 현재 비밀번호 칸 없이 「비밀번호 설정」 카드로 새 비밀번호만 보낸다.
