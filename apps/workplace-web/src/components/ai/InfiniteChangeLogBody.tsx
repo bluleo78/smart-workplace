@@ -55,7 +55,16 @@ export function InfiniteChangeLogBody({
       {/* 첫 묶음 실패가 먼저 — 실패 뒤 다시 시도 중이면 스켈레톤 대신 안내를 남긴다. 첫 진입 로딩은 실패 전이라 스켈레톤을 본다 */}
       {!firstFailed && !query.data && (query.isPending || query.isFetching) && <ChangeLogSkeleton testId={`${testIdPrefix}-loading`} />}
       {query.isFetchingNextPage && <p className="py-2 text-center text-xs text-muted-foreground">불러오는 중…</p>}
-      {firstFailed && <LoadErrorState variant="inline" title="기록을 불러오지 못했어요" queries={[query]} testId={`${testIdPrefix}-error`} />}
+      {/* 터치 기기(바텀시트)에서는 다음 묶음 안내와 같게 다시 시도를 44px 로 둔다 */}
+      {firstFailed && (
+        <LoadErrorState
+          variant="inline"
+          title="기록을 불러오지 못했어요"
+          queries={[query]}
+          retryClassName="pointer-coarse:h-11"
+          testId={`${testIdPrefix}-error`}
+        />
+      )}
       {query.isFetchNextPageError && (
         <ChangeLogError testId={`${testIdPrefix}-error`} message="다음 기록을 불러오지 못했어요" onRetry={() => void query.fetchNextPage()} />
       )}
