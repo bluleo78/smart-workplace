@@ -5,13 +5,16 @@ import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { gotoTimeline } from '../../fixtures/timeline';
+import { gotoTimeline, TIMELINE_SPEC_TIMEOUT } from '../../fixtures/timeline';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 
 const KEY = 'WP';
+
+// 공용 fixture 의 gotoTimeline 첫 로드 대기가 한도에 잘리지 않게 파일 한도를 늘린다(WP-1854).
+test.describe.configure({ timeout: TIMELINE_SPEC_TIMEOUT });
 
 function baseMilestones(): MilestoneResponse[] {
   return [

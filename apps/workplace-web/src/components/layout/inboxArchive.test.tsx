@@ -2,10 +2,34 @@
 // InboxList 만 renderScreen 으로 띄우고(Popover 없이), MSW 로 알림·보관함·되돌리기 API 를 모킹한다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 
+import { InboxList, type InboxView, InboxViewTabs } from '@/components/layout/InboxList'
+import { controlIntersection } from '@/test/kits/layout'
 import { InboxHarness, inboxSupportHandlers, notif, renderInbox } from '@/test/kits/notifications/inboxTestKit'
 import { renderScreen } from '@/test/renderScreen'
+
+/**
+ * 데스크톱 팝오버 모양(자체 제목 행)과 모바일 전체 화면 모양(hideHeader + 바깥 탭)을 한 문서에 함께 띄운다(WP-1848).
+ * 두 모양이 동시에 있어도 포커스 이동이 id 조회에 기대지 않고 포커스가 각자 인스턴스의 탭으로 가는지 본다.
+ */
+function BothHarness() {
+  const [popView, setPopView] = useState<InboxView>('inbox')
+  const [pageView, setPageView] = useState<InboxView>('inbox')
+  return (
+    <>
+      <div data-testid="pop">
+        <InboxList enabled view={popView} onViewChange={setPopView} />
+      </div>
+      <div data-testid="page">
+        <InboxViewTabs view={pageView} onChange={setPageView} />
+        <InboxList enabled view={pageView} onViewChange={setPageView} hideHeader screenEmpty />
+      </div>
+    </>
+  )
+}
+
 
 describe('알림 창 보관함 전환', () => {
   test('알림 탭이 기본이고 aria-selected 가 맞다', async () => {
@@ -98,8 +122,7 @@ describe('알림 창 보관함 전환', () => {
           return HttpResponse.json([notif({ id: 1 })])
         }),
         http.get('/api/v1/notifications/archived', () => HttpResponse.json([])),
-        http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: 0 })),
-        http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null })),
+        ...inboxSupportHandlers(),
       ],
     })
     const panel = await screen.findByRole('tabpanel')
@@ -213,6 +236,22 @@ describe('알림 빈 상태 CTA (WP-1848)', () => {
     await waitFor(() => expect(tab).toHaveFocus())
   })
 
+  // 받은 알림도 비어 있으면 두 보기의 빈 상태가 같은 자리에 같은 버튼을 그린다 — 버튼이 재사용되면 포커스가 그 버튼에 남는다(WP-1848 라이브 회귀).
+  // (위 테스트는 받은 알림이 있어 버튼이 사라지므로 이 경우를 잡지 못했다.)
+  test.each([
+    { name: '팝오버', screenEmpty: false, hideHeader: false },
+    { name: '실제 모바일 구성(hideHeader)', screenEmpty: true, hideHeader: true },
+  ])('$name: 받은 알림도 비어 있어도 보관함 CTA 뒤 포커스는 CTA 버튼이 아니라 받은 탭에 간다', async ({ screenEmpty, hideHeader }) => {
+    const { user } = renderInbox({ inbox: [], archived: [], screenEmpty, hideHeader })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    const cta = await screen.findByTestId('inbox-empty-action')
+    expect(cta).toHaveTextContent('받은 알림 보기')
+    await user.click(cta)
+    await waitFor(() => expect(screen.getByTestId('inbox-tab-inbox')).toHaveFocus())
+    expect(screen.getByTestId('inbox-empty-action')).toHaveTextContent('알림 설정')
+    expect(screen.getByTestId('inbox-empty-action')).not.toHaveFocus()
+  })
+
   test('알림이 있으면 빈 상태 CTA 가 없다', async () => {
     renderInbox()
     await screen.findAllByTestId('inbox-item')
@@ -230,6 +269,60 @@ describe('알림 빈 상태 CTA (WP-1848)', () => {
     // 다시 불러도 실패하면 안내가 그대로 남는다(다시 부르는 동안 「불러오는 중」·빈 상태로 바뀌지 않는다)
     expect(await screen.findByTestId('inbox-error')).toBeInTheDocument()
     expect(screen.queryByTestId('inbox-empty')).toBeNull()
+  })
+
+  test('팝오버와 전체 화면이 함께 있어도 CTA 뒤 포커스가 그 인스턴스의 받은 탭에 간다(WP-1848)', async () => {
+    const { user, container } = renderScreen(<BothHarness />, {
+      path: '/',
+      handlers: [
+        http.get('/api/v1/notifications', () => HttpResponse.json([notif({ id: 1 })])),
+        http.get('/api/v1/notifications/archived', () => HttpResponse.json([])),
+        ...inboxSupportHandlers(),
+      ],
+    })
+    const pop = await screen.findByTestId('pop')
+    const page = screen.getByTestId('page')
+    // 문서 안에 같은 id 가 둘 이상 없다
+    const ids = Array.from(container.ownerDocument.querySelectorAll('[id]')).map((e) => e.id)
+    expect(ids.filter((id) => id.startsWith('inbox-tab-'))).toEqual([])
+    // 탭·패널 aria 연결용 고정 id(WP-1843)는 두 인스턴스가 같은 값을 쓴다 — 포커스는 id 가 아니라 ref 로 찾으므로 영향이 없다(아래 단언).
+    // 전체 화면 쪽 보관함 → CTA → 그 쪽 받은 탭에 포커스(팝오버 탭이 아니다)
+    await user.click(within(page).getByTestId('inbox-tab-archive'))
+    await user.click(await within(page).findByTestId('inbox-empty-action'))
+    await waitFor(() => expect(within(page).getByTestId('inbox-tab-inbox')).toHaveFocus())
+    expect(within(pop).getByTestId('inbox-tab-inbox')).not.toHaveFocus()
+    // 팝오버 쪽도 자기 탭으로
+    await user.click(within(pop).getByTestId('inbox-tab-archive'))
+    await user.click(await within(pop).findByTestId('inbox-empty-action'))
+    await waitFor(() => expect(within(pop).getByTestId('inbox-tab-inbox')).toHaveFocus())
+  })
+
+  test('다음 페이지 조회가 실패하면 목록은 남고 다시 시도가 보이며 누르면 한 번 더 요청한다(WP-1848)', async () => {
+    const io = controlIntersection()
+    const calls: number[] = []
+    const first = Array.from({ length: 20 }, (_, i) => notif({ id: i + 1 }))
+    const { user } = renderScreen(<InboxHarness />, {
+      path: '/',
+      handlers: [
+        http.get('/api/v1/notifications', ({ request }) => {
+          const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+          if (offset === 0) return HttpResponse.json(first)
+          calls.push(offset)
+          return new HttpResponse(null, { status: 500 })
+        }),
+        ...inboxSupportHandlers(),
+      ],
+    })
+    expect(await screen.findAllByTestId('inbox-item')).toHaveLength(20)
+    // 목록 끝 푸터가 화면에 들어왔다고 알린다 → 다음 페이지 요청(실패)
+    io.set(() => true)
+    const footer = await screen.findByTestId('inbox-next-page')
+    const retry = await within(footer).findByRole('button', { name: /더 불러오지 못했습니다/ })
+    expect(screen.getAllByTestId('inbox-item')).toHaveLength(20)
+    expect(calls).toEqual([20])
+    // 다시 시도 → 같은 offset 으로 한 번 더(실패 중 자동 로드는 공용 훅이 멈춘다 — useLoadMoreSentinel 이 소유한 동작이라 여기선 재검증하지 않는다)
+    await user.click(retry)
+    await waitFor(() => expect(calls).toEqual([20, 20]))
   })
 })
 

@@ -1295,6 +1295,50 @@ describe('Reconciler', () => {
       expect(lastQuota(works)).toEqual({ capacity: 5 });
     });
 
+    /** 실행 중 AI 하나를 심고(prepare 로 손질) 쿼터 hard·used 를 정해 보고된 수용량을 돌려준다. */
+    const runQuota = async (
+      agent: RunnerDesiredAgent,
+      hard: Record<string, string>,
+      used: Record<string, string>,
+      prepare?: (c: FakeCluster) => void,
+    ) => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, agent);
+      prepare?.(cluster);
+      cluster.quotaHard = hard;
+      cluster.quotaUsed = used;
+      const works = new FakeWorks(desired([agent]));
+      const r = makeReconciler(cluster, works, [], cfg());
+      await r.reconcileOnce();
+      await r.reportObserved();
+      return lastQuota(works);
+    };
+
+    it('capacityIsRunningAiPlusHeadroom', async () => {
+      const agent = desiredAgent();
+      const cpu = perPod(agent).cpuMillicores;
+      const hard = { 'requests.cpu': `${cpu * 3}m` };
+      // 떠 있는 AI 1개 + 여유 floor((3cpu - 1cpu - 50m)/cpu)=1 → 2 (runner 등 50m 가 AI 몫 계산 없이 그대로 반영된다)
+      expect(await runQuota(agent, hard, { 'requests.cpu': `${cpu + 50}m` })).toEqual({ capacity: 2 });
+      // overhead 로 AI 하나가 요청보다 크게 센 경우도 used 만 믿는다
+      expect(await runQuota(agent, hard, { 'requests.cpu': `${cpu + cpu / 2}m` })).toEqual({ capacity: 2 });
+      // pods hard 2, used 2 → 떠 있는 AI 1 + 여유 0
+      expect(await runQuota(agent, { pods: '2' }, { pods: '2' })).toEqual({ capacity: 1 });
+      // used 가 없는 키는 hard 전체
+      expect(await runQuota(agent, hard, {})).toEqual({ capacity: 3 });
+    });
+
+    it('excludesTerminatingPodsFromRunningAiCount', async () => {
+      const agent = desiredAgent();
+      // 떠 있는 Pod 1 + 여유 5 = 6
+      expect(await runQuota(agent, { pods: '5' }, { pods: '0' })).toEqual({ capacity: 6 });
+      // Terminating Pod 는 AI 수에서 뺀다 → 5
+      const terminating = (c: FakeCluster) => {
+        for (const o of c.objects.values()) if (o.kind === 'Pod') o.metadata = { ...o.metadata, deletionTimestamp: new Date() as never };
+      };
+      expect(await runQuota(agent, { pods: '5' }, { pods: '0' }, terminating)).toEqual({ capacity: 5 });
+    });
+
     it('attachesQuotaOnlyToFirstBatch', async () => {
       const cluster = new FakeCluster();
       cluster.quotaHard = { 'requests.cpu': '40' };

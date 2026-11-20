@@ -104,14 +104,15 @@ describe('quotaCapacity', () => {
     expect(quotaCapacity({ 'requests.cpu': '6', 'requests.memory': '64Gi', persistentvolumeclaims: '10' }, perPod)).toBe(2);
   });
 
-  it('acceptsPlainCpuAndMemoryAliasesButPrefersRequestsKeys', () => {
+  it('acceptsPlainCpuAndMemoryAliasesAndTakesTightest', () => {
     expect(quotaCapacity({ cpu: '16' }, perPod)).toBe(7);
     expect(quotaCapacity({ memory: '9Gi' }, perPod)).toBe(2);
-    expect(quotaCapacity({ cpu: '1', 'requests.cpu': '16' }, perPod)).toBe(7);
+    // 별칭이 둘이면 가장 빡빡한 쪽(cpu 1 → 0개)
+    expect(quotaCapacity({ cpu: '1', 'requests.cpu': '16' }, perPod)).toBe(0);
   });
 
   it('returnsNullWithoutKnownKeys', () => {
-    expect(quotaCapacity({ 'count/pods': '5', 'limits.cpu': '8' }, perPod)).toBeNull();
+    expect(quotaCapacity({ 'limits.cpu': '8' }, perPod)).toBeNull();
     expect(quotaCapacity({}, perPod)).toBeNull();
   });
 
@@ -122,5 +123,55 @@ describe('quotaCapacity', () => {
 
   it('isZeroWhenOnePodDoesNotFit', () => {
     expect(quotaCapacity({ 'requests.cpu': '1' }, perPod)).toBe(0);
+  });
+
+  describe('남은 여유(hard−used)와 떠 있는 AI 수(WP-1819 후속)', () => {
+    const ai = { pods: 2, pvcs: 2 };
+
+    it('boundaryUsesHeadroomPlusRunningAi', () => {
+      // hard 6780m(3개 몫), used 4570m(AI 2개 4520m + runner 50m) → 2 + floor(2210/2260)=2 (used 를 안 보면 3)
+      const hard = { 'requests.cpu': '6780m' };
+      expect(quotaCapacity(hard, perPod)).toBe(3);
+      expect(quotaCapacity(hard, perPod, { 'requests.cpu': '4570m' }, ai)).toBe(2);
+      expect(quotaCapacity(hard, perPod, { 'requests.cpu': '4520m' }, ai)).toBe(3);
+    });
+
+    it('trustsUsedEvenWhenLargerThanAiRequests', () => {
+      // overhead·LimitRange 로 AI Pod 하나가 요청 합보다 더 센 경우 — used 만 믿는다: 2 + floor((6780-5000)/2260)=2
+      expect(quotaCapacity({ 'requests.cpu': '6780m' }, perPod, { 'requests.cpu': '5000m' }, ai)).toBe(2);
+    });
+
+    it('podsHardCanBeTheTightestLimit', () => {
+      const hard = { 'requests.cpu': '16', pods: '5' };
+      expect(quotaCapacity(hard, perPod)).toBe(5);
+      expect(quotaCapacity(hard, perPod, { 'requests.cpu': '4520m', pods: '3' }, ai)).toBe(4);
+      expect(quotaCapacity({ 'count/pods': '5' }, perPod, { 'count/pods': '3' }, ai)).toBe(4);
+    });
+
+    it('countsPvcHeadroomPlusRunningAiPvcs', () => {
+      expect(quotaCapacity({ persistentvolumeclaims: '10' }, perPod, { persistentvolumeclaims: '3' }, ai)).toBe(9);
+    });
+
+    it('takesTightestOfAliasKeys', () => {
+      // cpu 별칭 둘 — requests.cpu 로는 넉넉(16)해도 cpu 별칭이 빡빡(6780m)하면 그쪽
+      const hard = { 'requests.cpu': '16', cpu: '6780m' };
+      const used = { 'requests.cpu': '4570m', cpu: '4570m' };
+      expect(quotaCapacity(hard, perPod, used, ai)).toBe(2);
+      expect(quotaCapacity({ pods: '5', 'count/pods': '4' }, perPod, { pods: '3', 'count/pods': '3' }, ai)).toBe(3);
+    });
+
+    it('usesHardOverPerPodForKeysWithoutReadableUsed', () => {
+      // cpu 는 used 가 있고(2 + floor(2210/2260)=2), pods 는 used 가 없어 hard 5 그대로 → 최솟값 2. 과대일 수 있는 짧은 순간만의 값
+      const hard = { 'requests.cpu': '6780m', pods: '5' };
+      expect(quotaCapacity(hard, perPod, { 'requests.cpu': '4570m' }, ai)).toBe(2);
+      expect(quotaCapacity({ pods: '2', 'requests.cpu': '6780m' }, perPod, { 'requests.cpu': '4570m' }, ai)).toBe(2);
+      expect(quotaCapacity({ 'requests.cpu': '6780m' }, perPod, { 'requests.cpu': 'abc' }, ai)).toBe(3);
+      expect(quotaCapacity(hard, perPod, {}, ai)).toBe(3);
+    });
+
+    it('clampsOverUsedToZeroHeadroom', () => {
+      // 이미 hard 를 넘게 쓰고 있으면(상한을 낮춘 직후) 여유 0 — 떠 있는 AI 수만 남는다
+      expect(quotaCapacity({ 'requests.cpu': '4' }, perPod, { 'requests.cpu': '9' }, ai)).toBe(2);
+    });
   });
 });

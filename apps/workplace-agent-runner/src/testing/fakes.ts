@@ -31,6 +31,8 @@ export class FakeCluster implements ClusterApi {
   missingMetricsApi = false;
   /** resourceQuota 응답 — null 이면 쿼터 없음(404), 객체면 그 hard. 기본은 쿼터 없음. */
   quotaHard: Record<string, string> | null = null;
+  /** resourceQuota 의 used(사용량) — 기본 비어 있음(컨트롤러가 아직 안 채운 것과 같다). */
+  quotaUsed: Record<string, string> = {};
   /** 설정하면 resourceQuota 가 이 오류로 던진다(403·5xx·네트워크 등). */
   quotaError: Error | undefined;
   /** resourceQuota 호출 기록(이름) — 쿼터 이름이 없을 때 부르지 않았는지 단언한다. */
@@ -104,7 +106,7 @@ export class FakeCluster implements ClusterApi {
   async resourceQuota(name: string) {
     this.quotaCalls.push(name);
     if (this.quotaError) throw this.quotaError;
-    return this.quotaHard ? { hard: { ...this.quotaHard } } : null;
+    return this.quotaHard ? { hard: { ...this.quotaHard }, used: { ...this.quotaUsed } } : null;
   }
 
   async podMetrics() {
