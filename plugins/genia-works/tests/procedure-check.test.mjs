@@ -135,9 +135,9 @@ test('실패 — 원장 없음', (t) => {
   fail(run(main), 'SDD 원장이 없습니다');
 });
 
-test('실패 — 계획 파일 없음', (t) => {
+test('실패 — 계획 파일 없음(notes 원장 절도 없음)', (t) => {
   const main = repo(t);
-  notes(main, `${GOOD}\n\n${LEDGER}`);
+  notes(main, `${GOOD}\n`);
   fail(run(main), '계획 파일이 없습니다: docs/superpowers/plans/p.md');
 });
 
@@ -150,7 +150,7 @@ test('통과 — 상대경로 계획 파일을 MAIN 에서 찾음', (t) => {
 
 test('예외 — 리뷰 후속', (t) => {
   const main = repo(t);
-  notes(main, '리뷰 후속: 1490\n마지막 완료 단계: 리뷰 후속 수정\n');
+  notes(main, '리뷰 후속: 1490\n브랜치: fix/wp-1-2\n마지막 완료 단계: 리뷰 후속 수정\n');
   const r = run(main);
   ok(r);
   assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
@@ -158,7 +158,7 @@ test('예외 — 리뷰 후속', (t) => {
 
 test('예외 — executing-plans 와 까닭', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.68) → executing-plans(까닭: 하위 에이전트 도구 없음) → /code-review medium(지적 0) → /simplify\n');
+  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.68) → executing-plans(까닭: 하위 에이전트 도구 없음) → 최종 리뷰 → /code-review medium(지적 0) → /simplify\n');
   ok(run(main));
 });
 
@@ -267,7 +267,7 @@ test('끝 문구 — 원장 항목뿐이면 notes 원장 절 안내', (t) => {
 
 test('끝 문구 — 계획 파일 없음도 notes 안내', (t) => {
   const main = repo(t);
-  notes(main, `${GOOD}\n\n${LEDGER}`);
+  notes(main, `${GOOD}\n`);
   fail(run(main), TAIL_NOTES);
 });
 
@@ -291,7 +291,7 @@ test('실패 — SDD 구간에 모델 없음', (t) => {
   const main = repo(t);
   plan(join(main, '.claude/worktrees/WP-1'));
   notes(main, `${GOOD.replace(', 모델 sonnet', '')}\n\n${LEDGER}`);
-  fail(run(main), 'subagent-driven-development 괄호 안에 모델이 없습니다');
+  fail(run(main), 'subagent-driven-development 괄호 안에 모델 이름이 없습니다');
 });
 
 test('실패 — 최종 리뷰가 진행 중이면 결과 없음', (t) => {
@@ -305,7 +305,7 @@ test('실패 — 최종 리뷰가 진행 중이면 결과 없음', (t) => {
 
 test('세부 실패 줄에도 [procedure-check] 키 접두', (t) => {
   const main = repo(t);
-  notes(main, `${GOOD}\n\n${LEDGER}`);
+  notes(main, `${GOOD}\n`);
   fail(run(main), '[procedure-check] WP-1: 계획 파일이 없습니다');
   notes(main, '아무 내용\n');
   fail(run(main), '[procedure-check] WP-1: 절차: 줄이 없습니다');
@@ -321,7 +321,7 @@ test('까닭 대안 줄에 자리 표시가 남으면 자리 표시 실패만', 
 
 test('예외 — without-superpowers.md 와 까닭 → 0', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.68) → 까닭: 스킬 도구 없는 실행기\n');
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.68) → 까닭: 스킬 도구 없는 실행기 → /code-review medium(지적 0) → /simplify\n');
   ok(run(main));
 });
 
@@ -370,11 +370,20 @@ test('원장 합침 — Task 줄이 notes 에만 있어도 인정', (t) => {
   ok(run(main));
 });
 
-test('리뷰 후속 — 마지막 완료 단계가 리뷰 후속 수정일 때만 예외', (t) => {
+test('리뷰 후속 — 리뷰 후속: 줄이면 마지막 완료 단계와 상관없이 예외(쌓은 뒤 출발 검사에서도)', (t) => {
   const main = repo(t);
-  notes(main, '리뷰 후속: 12\n마지막 완료 단계: 리뷰 후속 수정\n');
+  notes(main, '리뷰 후속: 12\n브랜치: fix/wp-1-2\n마지막 완료 단계: 리뷰 후속 수정\n');
   ok(run(main));
-  notes(main, '리뷰 후속: 12\n마지막 완료 단계: 5. 설계·구현\n');
+  notes(main, '리뷰 후속: 12\n브랜치: fix/wp-1-2\n마지막 완료 단계: 백그라운드: 기차 게이트(integ/a-1)\n');
+  ok(run(main));
+  notes(main, '- 리뷰 후속: #12\n- 브랜치: fix/wp-1-3\n마지막 완료 단계: 기차에 쌓음\n');
+  ok(run(main));
+});
+test('리뷰 후속 — 리뷰 후속 브랜치(-N)가 아니거나 앞 PR 번호가 없으면 예외 아님', (t) => {
+  const main = repo(t);
+  notes(main, '리뷰 후속: 12\n브랜치: fix/wp-1\n');
+  fail(run(main), '절차: 줄이 없습니다');
+  notes(main, '리뷰 후속: 없음\n브랜치: fix/wp-1-2\n');
   fail(run(main), '절차: 줄이 없습니다');
 });
 
@@ -404,5 +413,101 @@ test('여러 절차: 줄이면 마지막 줄을 씀', (t) => {
 test('버전 앞자리 0 — 0.1.08 은 0.1.8 로 다뤄 전환 규칙대로 통과', (t) => {
   const main = repo(t);
   notes(main, `${GOOD.replace('0.1.68', '0.1.08')}\n`);
+  ok(run(main));
+});
+
+// ── 반려(PR #1508) 뒤 고친 것 ──
+test('계획 파일이 없어도 notes 원장 절이 있으면 참고로 통과(워크트리를 다시 만든 경우)', (t) => {
+  const main = repo(t);
+  notes(main, `${GOOD}\n\n${LEDGER}`);
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('참고 — 계획 파일이 없음'), r.stdout);
+});
+test('대안 — executing-plans 도 /code-review·/simplify·최종 리뷰를 요구', (t) => {
+  const main = repo(t);
+  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.68) → executing-plans(까닭: 하위 에이전트 도구 없음) → /simplify\n');
+  const r = run(main);
+  fail(r, '코드 리뷰(/code-review 또는 requesting-code-review) 가 절차 줄에 없습니다');
+  fail(r, '최종 리뷰 가 절차 줄에 없습니다');
+});
+test('대안 — without-superpowers.md 도 리뷰를 요구', (t) => {
+  const main = repo(t);
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.68) → 까닭: 스킬 도구 없는 실행기\n');
+  fail(run(main), '정리(/simplify 또는 code-simplifier) 가 절차 줄에 없습니다');
+});
+test('전환 — 0.1.68 전 템플릿은 `모델` 한 낱말로 통과', (t) => {
+  const main = repo(t);
+  plan(join(main, '.claude/worktrees/WP-1'));
+  notes(main, `${GOOD.replace('0.1.68', '0.1.64').replace('모델 sonnet', '모델')}\n\n${LEDGER}`);
+  ok(run(main));
+});
+test('전환 — 0.1.55 전이면 새 토큰이 없어도 통과', (t) => {
+  const main = repo(t);
+  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.50) → 직접 TDD\n');
+  ok(run(main));
+});
+test('버전 — 절차 줄에 없으면 처리 파일: 줄에서 읽어 원장을 검사', (t) => {
+  const main = repo(t);
+  plan(join(main, '.claude/worktrees/WP-1'));
+  notes(main, `처리 파일: process-issue.md (플러그인 0.1.68) 읽음 10:00\n${GOOD.replace(' (플러그인 0.1.68)', '')}\n`);
+  fail(run(main), 'SDD 원장이 없습니다');
+});
+test('버전 — 처리 파일: 줄이 0.1.55 전이면 절차 줄이 없어도 통과', (t) => {
+  const main = repo(t);
+  notes(main, '처리 파일: process-issue.md (플러그인 0.1.40) 읽음 10:00\n');
+  ok(run(main));
+});
+test('원장 — 여러 원장 절이면 마지막 절을 읽는다', (t) => {
+  const main = repo(t);
+  plan(join(main, '.claude/worktrees/WP-1'));
+  notes(main, `${GOOD}\n\n원장:\nTask 1: complete (old)\n\n${LEDGER}`);
+  ok(run(main));
+  notes(main, `${GOOD}\n\n${LEDGER}\n원장:\nTask 1: complete (new)\n`);
+  fail(run(main), '원장에 Task 2 완료 줄이 없습니다');
+});
+test('원장 — 들여쓴 목록 줄도 읽는다', (t) => {
+  const main = repo(t);
+  plan(join(main, '.claude/worktrees/WP-1'));
+  notes(main, `${GOOD}\n\n원장:\n  - Task 1: complete (a)\n  - Task 2: complete (b)\n  - 최종 리뷰: clean\n`);
+  ok(run(main));
+});
+test('자리 표시 — 템플릿 칸 이름만 잡고 Map<string> 같은 글은 통과', (t) => {
+  const main = repo(t);
+  plan(join(main, '.claude/worktrees/WP-1'));
+  notes(main, `${GOOD.replace('/simplify', '/simplify(Map<string> 정리)')}\n\n${LEDGER}`);
+  ok(run(main));
+  notes(main, `${GOOD.replace('Task 2개', 'Task <n>개')}\n\n${LEDGER}`);
+  fail(run(main), '자리 표시가 남아 있습니다: <n>');
+});
+
+// ── /code-review(반려 수정) 뒤 고친 것 ──
+test('대안 — 도구가 없어 자체 리뷰로 적으면 리뷰 단계 통과', (t) => {
+  const main = repo(t);
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.68) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(정확성·단순화)\n');
+  ok(run(main));
+});
+test('전환 — 0.1.55 전이어도 자리 표시는 잡는다', (t) => {
+  const main = repo(t);
+  notes(main, '처리 파일: process-issue.md (플러그인 0.1.40)\n절차: 처리 파일 <파일> (플러그인 <버전>) → 직접 TDD\n');
+  fail(run(main), '자리 표시가 남아 있습니다: <버전>');
+});
+test('전환 — 버전이 어디에도 없으면 형식 토큰을 요구하지 않는다', (t) => {
+  const main = repo(t);
+  notes(main, '절차: brainstorming → 직접 TDD\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(전환 — 플러그인 버전 없음)'), r.stdout);
+});
+test('원장 — `원장:` 뒤에 글이 있는 줄은 머리로 보지 않는다', (t) => {
+  const main = repo(t);
+  plan(join(main, '.claude/worktrees/WP-1'));
+  notes(main, `${GOOD}\n\n${LEDGER}\n- 원장: progress.md 지움\n`);
+  ok(run(main));
+});
+test('원장 — 들여쓴 ## 원장 머리도 읽는다', (t) => {
+  const main = repo(t);
+  plan(join(main, '.claude/worktrees/WP-1'));
+  notes(main, `${GOOD}\n\n  ## 원장\nTask 1: complete (a)\nTask 2: complete (b)\n최종 리뷰: clean\n`);
   ok(run(main));
 });
