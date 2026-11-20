@@ -237,12 +237,14 @@ function PaletteBody({
         return
       }
       setActive((cur) => moveActive(cur, down ? 1 : -1, visible.length))
-    } else if (e.key === 'Tab') {
-      // 다음/이전 탭 — 기본 포커스 이동은 막아 입력 포커스를 유지한다.
+    } else if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      // 다음/이전 탭 — 입력 포커스를 유지한다(Ctrl·Alt·Meta+Tab 은 창·브라우저 몫이라 넘긴다).
+      // Dialog 포커스 트랩(FocusScope)은 defaultPrevented 를 보지 않고 Shift+Tab 때 마지막 버튼으로
+      // 초점을 옮기므로 전파까지 막는다(WP-1791).
       e.preventDefault()
+      e.stopPropagation()
       const i = SEARCH_TABS.findIndex((t) => t.id === tab)
-      const n = SEARCH_TABS.length
-      changeTab(SEARCH_TABS[(i + (e.shiftKey ? -1 : 1) + n) % n].id)
+      changeTab(SEARCH_TABS[moveActive(i, e.shiftKey ? -1 : 1, SEARCH_TABS.length)].id)
     } else if (e.key === 'Enter') {
       if (e.shiftKey) {
         e.preventDefault()
