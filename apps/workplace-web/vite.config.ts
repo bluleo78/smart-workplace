@@ -9,6 +9,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 import { appVersionDefine, versionJsonPlugin } from '../../scripts/vite-app-version.mjs'
 import { manualHelpPlugin } from '../../scripts/vite-manual-help.mjs'
+import { precacheGlobPatterns } from './scripts/pwa-precache.mjs'
 
 // E2E(Playwright)·CI 에서는 백엔드를 띄우지 않고 page.route() 로 /api 를 모킹한다.
 const IS_E2E = process.env.E2E === '1' || !!process.env.CI
@@ -130,7 +131,8 @@ export default defineConfig({
         ],
       },
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // E2E=1 빌드만 앱 셸로 줄인다(WP-1802 — 이유는 scripts/pwa-precache.mjs). 운영은 그대로.
+        globPatterns: precacheGlobPatterns(process.env),
         // 링크 미리보기 이미지(WP-894)는 메신저 봇만 받는다 — 앱이 쓰지 않으므로 모든 설치본이 미리 받아 두지 않게 뺀다.
         // 드라이브 공유 카드 그림(og/drive-*.png, WP-1473)도 같은 이유로 뺀다.
         // 매뉴얼 도움말 묶음(help/**, WP-1504)도 뺀다 — 그림 PNG 수십 MB 를 모든 설치본이 미리 받지 않게. 패널이 장 단위로 필요할 때 받는다.
