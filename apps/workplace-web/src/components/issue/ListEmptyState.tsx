@@ -32,13 +32,14 @@ export function ListEmptyState({
   className?: string
 }) {
   return (
-    <div className={cn('flex flex-col items-center justify-center gap-3 py-16 text-center', className)} data-testid={testId}>
+    // min-w-0(바깥)·max-w-full(글 칸): 긴 낱말이 칸을 부모 폭 너머로 키우지 않게 — 그래야 break-words 가 끊는다(WP-1869).
+    <div className={cn('flex min-w-0 flex-col items-center justify-center gap-3 py-16 text-center', className)} data-testid={testId}>
       <Icon className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
-      <div className="space-y-1">
+      <div className="max-w-full space-y-1">
         <p className="text-sm font-medium">{title}</p>
-        {/* 한국어는 어절 단위로 줄을 바꾼다 — 좁은 폭에서 「있습/니다」처럼 끊기지 않게(WP-941).
-            띄어쓰기 없는 긴 값(검색어·이메일)은 넘치지 않게 어디서든 끊는다(WP-1869). */}
-        {description && <p className="break-keep wrap-anywhere text-xs text-muted-foreground">{description}</p>}
+        {/* 한국어는 어절 단위로(break-keep, WP-941), 띄어쓰기 없는 긴 값은 칸을 넘칠 때만(break-words) 끊는다.
+            wrap-anywhere 는 최소 폭을 0 으로 만들어 한국어가 글자 단위로 끊겨 쓰지 않는다(WP-1869). */}
+        {description && <p className="break-keep break-words text-xs text-muted-foreground">{description}</p>}
       </div>
       {(action || secondaryAction) && (
         <div className="flex flex-wrap items-center justify-center gap-2">
