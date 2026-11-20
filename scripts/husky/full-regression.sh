@@ -83,9 +83,9 @@ else
     # api gradle 은 전체 범위에서만 — web·admin 만 바꾼 변경은 api 동작을 바꾸지 않는다.
     [ "$GATE_SCOPE" = full ] || exit 0
     # 게이트는 통과/실패만 필요 — test 의 finalizedBy 로 매번 도는 JaCoCo 리포트 생성은 제외 (WP-76),
-    # 리포트를 안 만드니 계측 에이전트도 끈다(-PnoCoverage, WP-1028). 이 단계는 앞 단계가 끝난 뒤 혼자 돌므로
-    # 포크를 기본 2 보다 하나 늘린다(-PtestForks=3, 452→376초)
-    cd apps/workplace-api && ./gradlew test -PnoCoverage -PtestForks=3 -x generateJooq -x jacocoTestReport --build-cache --configuration-cache
+    # 리포트를 안 만드니 계측 에이전트도 끈다(-PnoCoverage, WP-1028).
+    # 포크는 기본과 같은 2 — AI Pod 16Gi 에서 3 은 데몬 포함 약 12.5GiB 로 다른 작업과 겹치면 OOM(WP-1811)
+    cd apps/workplace-api && ./gradlew test -PnoCoverage -PtestForks=2 -x generateJooq -x jacocoTestReport --build-cache --configuration-cache
   '
 fi
 
