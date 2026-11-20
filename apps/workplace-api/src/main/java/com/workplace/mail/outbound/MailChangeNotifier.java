@@ -46,6 +46,31 @@ public class MailChangeNotifier {
 
   /** 메일 계정 생성·수정·삭제·일괄 설정. accountId 0 은 "사용자의 모든 계정"(전역 토글) 을 뜻한다. */
   public void accountChanged(String op, long ownerId, long accountId, Long actorId) {
+    publishAccount(op, ownerId, accountId, Map.of("accountId", accountId), actorId);
+  }
+
+  /**
+   * WP-1789: 계정 변경 이벤트 attrs 의 change 값 — 알림 범위(notify_mode)만 바뀐 변경임을 뜻한다. 웹의 실시간 규칙이 이 글자를 그대로
+   * 비교하므로 바꾸면 웹과 함께 고쳐야 한다.
+   */
+  public static final String CHANGE_NOTIFY_MODE = "notify-mode";
+
+  /**
+   * WP-1789: 알림 범위만 바뀐 계정 변경(updated). accountChanged 와 같은 이벤트에 change="notify-mode" 를 더 실어, 웹이 이
+   * 변경을 구분해 처리(계정 목록은 갱신하되 메일 목록 등은 건드리지 않음)할 수 있게 한다.
+   */
+  public void accountNotifyModeChanged(long ownerId, long accountId, Long actorId) {
+    publishAccount(
+        ResourceChangedEvent.OP_UPDATED,
+        ownerId,
+        accountId,
+        Map.of("accountId", accountId, "change", CHANGE_NOTIFY_MODE),
+        actorId);
+  }
+
+  /** 계정 이벤트 발행 공통부 — 리소스·scope·ids 조립을 한곳에 둔다(accountChanged 와 알림 범위 변경이 어긋나지 않게, WP-1789). */
+  private void publishAccount(
+      String op, long ownerId, long accountId, Map<String, Object> attrs, Long actorId) {
     publisher.publishEvent(
         ResourceChangedEvent.of(
             RESOURCE_MAIL_ACCOUNT,
@@ -53,7 +78,7 @@ public class MailChangeNotifier {
             UserAudienceResolver.SCOPE,
             ownerId,
             accountId == 0 ? List.of() : List.of(accountId),
-            Map.of("accountId", accountId),
+            attrs,
             actorId));
   }
 }

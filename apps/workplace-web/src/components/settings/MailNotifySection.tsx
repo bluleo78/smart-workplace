@@ -26,10 +26,10 @@ export function MailNotifySection({ subscribed, onEnableDevice, enableDisabled }
   const accounts = useMailAccounts()
   const setMode = useSetMailNotifyMode()
 
-  // 저장 중인 계정 id 들 — 뮤테이션 하나의 마지막 호출이 아니라 진행 중인 전부를 본다(겹친 요청 방지).
-  const savingIds = useMutationState({
+  // 저장 중인 요청들(계정 id + 고른 값) — 뮤테이션 하나의 마지막 호출이 아니라 진행 중인 전부를 본다(겹친 요청 방지).
+  const saving = useMutationState({
     filters: { mutationKey: setMailNotifyModeKey, status: 'pending' },
-    select: (m) => (m.state.variables as { id: number }).id,
+    select: (m) => m.state.variables as { id: number; notifyMode: MailNotifyMode },
   })
 
   if (!accounts.data || accounts.data.length === 0) return null
@@ -59,7 +59,9 @@ export function MailNotifySection({ subscribed, onEnableDevice, enableDisabled }
       <div className="divide-y">
         {accounts.data.map((a) => {
           // 그 계정을 저장하는 동안만 그 계정 라디오를 잠근다 — 다른 계정은 계속 고를 수 있다.
-          const saving = savingIds.includes(a.id)
+          const pending = saving.find((v) => v.id === a.id)
+          // 저장 중에는 고른 값을 보인다 — 다른 경로의 다시 받기가 서버의 옛 값을 캐시에 넣어도 라디오가 튀지 않게(WP-1789).
+          const mode = pending?.notifyMode ?? a.notifyMode
           return (
             <div key={a.id} data-testid={`mail-notify-row-${a.id}`} className="py-3 first:pt-0 last:pb-0">
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -67,7 +69,7 @@ export function MailNotifySection({ subscribed, onEnableDevice, enableDisabled }
                 <RadioGroup
                   aria-label={`${a.emailAddress} 메일 알림 범위`}
                   className="flex flex-wrap gap-x-4 gap-y-2"
-                  value={a.notifyMode}
+                  value={mode}
                   onValueChange={(v) => setMode.mutate({ id: a.id, notifyMode: v as MailNotifyMode })}
                 >
                   {OPTIONS.map((o) => (
@@ -76,7 +78,7 @@ export function MailNotifySection({ subscribed, onEnableDevice, enableDisabled }
                         id={`mail-notify-${a.id}-${o}`}
                         data-testid={`mail-notify-${a.id}-${o}`}
                         value={o}
-                        disabled={saving}
+                        disabled={pending != null}
                       />
                       <Label htmlFor={`mail-notify-${a.id}-${o}`} className="text-sm font-normal">
                         {MAIL_NOTIFY_MODE_LABEL[o]}
@@ -86,7 +88,7 @@ export function MailNotifySection({ subscribed, onEnableDevice, enableDisabled }
                 </RadioGroup>
               </div>
               {/* AI 분류가 꺼진 계정은 업무 메일을 가릴 수 없어 서버가 모든 새 메일로 알린다. */}
-              {a.notifyMode === 'WORK' && !a.aiEnabled && (
+              {mode === 'WORK' && !a.aiEnabled && (
                 <p data-testid={`mail-notify-ai-off-${a.id}`} className="mt-2 text-xs text-muted-foreground">
                   AI 분류가 꺼져 있어 모든 새 메일로 알려요.
                 </p>

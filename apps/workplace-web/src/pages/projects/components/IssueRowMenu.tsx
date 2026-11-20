@@ -39,6 +39,8 @@ export interface RowMenuTarget {
   at: { x: number; y: number };
   /** ⋯ 버튼에서 열면 오른쪽 끝 정렬(버튼 아래로 펼침), 우클릭이면 커서에서 시작. */
   align: 'start' | 'end';
+  /** 메뉴를 연 요소(행·카드 또는 ⋯ 버튼) — 초점 복귀 범위(WP-1778). */
+  origin?: HTMLElement;
   /** 적용 대상 이슈 번호 — 다중 선택 행에서 열면 선택 전체, 아니면 [issue.number]. */
   numbers: number[];
 }
@@ -93,7 +95,7 @@ export function IssueRowMenu({
   onDelete: () => void;
 }) {
   // 닫힐 때 초점을 연 요소로 돌려준다(WP-1778).
-  const focusReturn = useMenuFocusReturn(target != null);
+  const focusReturn = useMenuFocusReturn(target != null, target?.origin);
   const issue = target?.issue;
   const count = target?.numbers.length ?? 0;
   const bulk = count > 1;

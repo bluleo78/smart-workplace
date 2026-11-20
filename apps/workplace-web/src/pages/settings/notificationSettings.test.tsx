@@ -181,7 +181,7 @@ function account(over: Partial<MailAccountResponse>): MailAccountResponse {
 }
 
 /** 푸시 서버 켜짐 + 메일 계정 목록으로 알림 화면을 띄운다. PATCH 는 patches 에 쌓인다(patch 로 응답을 바꾼다). */
-function openMail(opts: { accounts: MailAccountResponse[]; pushEnabled?: boolean; patch?: (id: string) => Promise<Response> | Response }) {
+function openMail(opts: { accounts: MailAccountResponse[]; pushEnabled?: boolean; patch?: (id: string) => Promise<Response> | Response; holdList?: (nth: number) => Promise<void> | undefined }) {
   const patches: { url: string; body: unknown }[] = []
   // 서버처럼 PATCH 가 성공하면 목록 상태에 반영한다 — 저장 뒤 다시 불러온 목록이 새 값을 돌려준다.
   let current = opts.accounts
@@ -192,7 +192,13 @@ function openMail(opts: { accounts: MailAccountResponse[]; pushEnabled?: boolean
       ...helpBundleHandlers(),
       http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: opts.pushEnabled ?? true, vapidPublicKey: 'k' })),
       http.get('/api/v1/notification-settings', () => HttpResponse.json(defaultNotificationSettings())),
-      http.get('/api/v1/mail/accounts', () => { listGets += 1; return HttpResponse.json(current) }),
+      http.get('/api/v1/mail/accounts', async () => {
+        listGets += 1
+        // 요청 시점의 목록을 떠 둔다 — holdList 로 응답을 붙들면 저장이 끝난 뒤 옛 목록이 늦게 도착하는 상황이 된다.
+        const snapshot = current
+        await opts.holdList?.(listGets)
+        return HttpResponse.json(snapshot)
+      }),
       http.patch('/api/v1/mail/accounts/:id/notify-mode', async ({ request, params }) => {
         const body = (await request.json()) as { notifyMode: MailAccountResponse['notifyMode'] }
         patches.push({ url: new URL(request.url).pathname, body })
@@ -263,6 +269,99 @@ test('한 계정을 저장하는 중에 다른 계정을 골라도 앞 계정은
   release()
   await waitFor(() => expect(radio(1, 'OFF')).toBeEnabled())
   await waitFor(() => expect(radio(2, 'OFF')).toBeEnabled())
+})
+
+// 다른 경로(이벤트 무효화 등)의 다시 받기가 저장 중에 서버의 옛 값을 캐시에 넣어도 라디오는 고른 값을 지킨다(WP-1789).
+test('저장 중에 계정 목록을 다시 받아 옛 값이 와도 고른 값이 유지된다 (WP-1789)', async () => {
+  let release!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  const { user, listGets, queryClient } = openMail({
+    accounts: [account({ id: 1, notifyMode: 'WORK' })],
+    patch: async () => {
+      await gate
+      return new HttpResponse(null, { status: 204 })
+    },
+  })
+  await screen.findByTestId('mail-notify-section')
+  await waitFor(() => expect(listGets()).toBe(1))
+  await user.click(radio(1, 'ALL'))
+  await waitFor(() => expect(radio(1, 'OFF')).toBeDisabled())
+  await queryClient.invalidateQueries({ queryKey: ['mail-accounts'] })
+  await waitFor(() => expect(listGets()).toBe(2))
+  // 서버는 아직 옛 값(WORK)을 돌려줬지만 저장 중이라 고른 값(ALL)이 체크돼 있어야 한다.
+  expect(radio(1, 'ALL')).toHaveAttribute('aria-checked', 'true')
+  expect(radio(1, 'WORK')).toHaveAttribute('aria-checked', 'false')
+  release()
+  await waitFor(() => expect(radio(1, 'OFF')).toBeEnabled())
+  expect(radio(1, 'ALL')).toHaveAttribute('aria-checked', 'true')
+})
+
+test('겹친 저장 중 목록을 다시 받아 옛 값이 왔어도 먼저 끝난 계정은 고른 값으로 남는다 (WP-1789)', async () => {
+  const releases: Record<string, () => void> = {}
+  const gates: Record<string, Promise<void>> = {
+    '1': new Promise<void>((r) => (releases['1'] = r)),
+    '2': new Promise<void>((r) => (releases['2'] = r)),
+  }
+  const { user, listGets, queryClient } = openMail({
+    accounts: [account({ id: 1, notifyMode: 'WORK' }), account({ id: 2, emailAddress: 'b@x.com', notifyMode: 'WORK' })],
+    patch: async (id) => {
+      await gates[id]
+      return new HttpResponse(null, { status: 204 })
+    },
+  })
+  await screen.findByTestId('mail-notify-section')
+  await waitFor(() => expect(listGets()).toBe(1))
+  await user.click(radio(1, 'ALL'))
+  await user.click(radio(2, 'OFF'))
+  await waitFor(() => expect(radio(2, 'ALL')).toBeDisabled())
+  await queryClient.invalidateQueries({ queryKey: ['mail-accounts'] })
+  await waitFor(() => expect(listGets()).toBe(2))
+  // 계정 1 만 먼저 끝난다 — 캐시엔 옛 값(WORK)이 들어왔지만 성공 시 캐시를 고른 값으로 다시 적어 ALL 로 남는다.
+  releases['1']()
+  await waitFor(() => expect(radio(1, 'OFF')).toBeEnabled())
+  expect(radio(1, 'ALL')).toHaveAttribute('aria-checked', 'true')
+  expect(radio(2, 'OFF')).toHaveAttribute('aria-checked', 'true')
+  releases['2']()
+  await waitFor(() => expect(radio(2, 'ALL')).toBeEnabled())
+  expect(radio(2, 'OFF')).toHaveAttribute('aria-checked', 'true')
+})
+
+// 저장 성공 시점에 이미 나가 있던 목록 요청이 늦게 도착해 옛 값으로 덮지 못해야 한다(WP-1789) —
+// 겹친 저장이라 onSettled 의 다시 받기가 건너뛰어져도 라디오가 옛 값으로 튀지 않는다.
+test('저장이 끝나기 전에 나간 목록 요청이 뒤늦게 옛 값을 가져와도 먼저 끝난 계정은 고른 값으로 남는다 (WP-1789)', async () => {
+  const releases: Record<string, () => void> = {}
+  const gates: Record<string, Promise<void>> = {
+    '1': new Promise<void>((r) => (releases['1'] = r)),
+    '2': new Promise<void>((r) => (releases['2'] = r)),
+  }
+  let releaseList!: () => void
+  const listGate = new Promise<void>((r) => (releaseList = r))
+  const { user, listGets, queryClient } = openMail({
+    accounts: [account({ id: 1, notifyMode: 'WORK' }), account({ id: 2, emailAddress: 'b@x.com', notifyMode: 'WORK' })],
+    patch: async (id) => {
+      await gates[id]
+      return new HttpResponse(null, { status: 204 })
+    },
+    // 두 번째 목록 요청(저장 중 무효화)만 붙든다.
+    holdList: (nth) => (nth === 2 ? listGate : undefined),
+  })
+  await screen.findByTestId('mail-notify-section')
+  await waitFor(() => expect(listGets()).toBe(1))
+  await user.click(radio(1, 'ALL'))
+  await user.click(radio(2, 'OFF'))
+  await waitFor(() => expect(radio(2, 'ALL')).toBeDisabled())
+  // 계정 1 의 PATCH 가 끝나기 전에 목록 요청이 나가 응답을 붙든 채 서버의 옛 값(WORK)을 들고 있다.
+  void queryClient.invalidateQueries({ queryKey: ['mail-accounts'] })
+  await waitFor(() => expect(listGets()).toBe(2))
+  releases['1']()
+  await waitFor(() => expect(radio(1, 'OFF')).toBeEnabled())
+  // 계정 2 는 아직 저장 중 — 이제 붙들었던 옛 목록 응답이 도착한다.
+  releaseList()
+  await new Promise((r) => setTimeout(r, 100))
+  expect(radio(1, 'ALL')).toHaveAttribute('aria-checked', 'true')
+  expect(radio(1, 'WORK')).toHaveAttribute('aria-checked', 'false')
+  releases['2']()
+  await waitFor(() => expect(radio(2, 'ALL')).toBeEnabled())
 })
 
 // 겹친 저장 — A 가 먼저 끝나도 B 가 저장 중이면 목록을 다시 받지 않아 B 의 낙관적 값이 유지되고, 마지막이 끝나면 다시 받는다.

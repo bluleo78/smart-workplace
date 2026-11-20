@@ -58,7 +58,8 @@ type Open =
   | null;
 
 /** 메뉴를 연 위치 — 우클릭 지점(start) 또는 ⋯ 버튼 아래 모서리(end). 모바일은 무시. */
-export type RowMenuAnchor = { x: number; y: number; align: 'start' | 'end' };
+/** origin: 메뉴를 연 요소(행·카드 또는 ⋯ 버튼) — 닫을 때 초점 복귀 범위(WP-1778). */
+export type RowMenuAnchor = { x: number; y: number; align: 'start' | 'end'; origin?: HTMLElement };
 export type OpenRowMenu = (issue: IssueResponse, anchor?: RowMenuAnchor) => void;
 
 /**
@@ -69,7 +70,8 @@ export function openRowMenuAtPointer(e: MouseEvent<HTMLElement>, issue: IssueRes
   e.preventDefault();
   const r = e.currentTarget.getBoundingClientRect();
   const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-  openMenu(issue, inside ? { x: e.clientX, y: e.clientY, align: 'start' } : { x: r.left + 16, y: r.bottom, align: 'start' });
+  const origin = e.currentTarget;
+  openMenu(issue, inside ? { x: e.clientX, y: e.clientY, align: 'start', origin } : { x: r.left + 16, y: r.bottom, align: 'start', origin });
 }
 
 export function useIssueRowActions({
@@ -137,7 +139,7 @@ export function useIssueRowActions({
       // 선택된 행(2개 이상 선택)에서 열면 선택 전체, 선택 밖 행이면 그 행만(Notion·Linear 관례).
       const sel = selectedRef.current;
       const numbers = sel && sel.size > 1 && sel.has(issue.number) ? [...sel] : [issue.number];
-      setState({ kind: 'menu', target: { issue, at: { x: anchor.x, y: anchor.y }, align: anchor.align, numbers }, assigneeIds });
+      setState({ kind: 'menu', target: { issue, at: { x: anchor.x, y: anchor.y }, align: anchor.align, origin: anchor.origin, numbers }, assigneeIds });
     },
     [isMobile],
   );

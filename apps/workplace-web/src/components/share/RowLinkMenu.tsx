@@ -36,7 +36,7 @@ export function RowLinkMenu({
   children?: ReactNode
 }) {
   // 연 동안만 마운트되므로 항상 열림. 닫힐 때 초점을 연 요소로 돌려준다(WP-1778).
-  const focusReturn = useMenuFocusReturn(true)
+  const focusReturn = useMenuFocusReturn(true, anchor.origin)
   return (
     <DropdownMenu open onOpenChange={(o) => !o && onClose()} modal>
       <DropdownMenuTrigger asChild>

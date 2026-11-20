@@ -16,10 +16,10 @@ pnpm --filter @smart-workplace/mcp-tools-shared build   # dist 는 git 무시라
 
 | 바뀐 곳 | 명령 |
 |---|---|
-| `apps/workplace-api/` | `cd apps/workplace-api && ./gradlew test --tests "<패키지>.*"` (예: `"com.workplace.issue.*"`) · 커밋 전 `./gradlew spotlessApply` |
+| `apps/workplace-api/` | `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-api && ./gradlew test --tests "<패키지>.*"'` (예: `"com.workplace.issue.*"`) · 커밋 전 `./gradlew spotlessApply` |
 | ↳ `db/migration/` | 위에 더해 `./gradlew generateJooq` 로 `src/main/generated` 를 다시 만들어 함께 커밋. 버전 번호(`V<n>__`)가 main 의 마지막보다 큰지 rebase 뒤 다시 확인 |
-| `apps/workplace-web/` | `cd apps/workplace-web && pnpm test`(vitest 전체, 40초 안팎) · `pnpm test:e2e e2e/<바꾼 화면 spec>` · `pnpm typecheck` |
-| ↳ `vite.config.ts`·`src/App.tsx`·`src/main.tsx`·`e2e/fixtures/` 등 공유 설정 | `E2E_SERVER=preview pnpm test:e2e`(E2E 전체) |
+| `apps/workplace-web/` | `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && pnpm test'`(vitest 전체, 40초 안팎) · `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && pnpm test:e2e e2e/<바꾼 화면 spec>'` · `pnpm typecheck` |
+| ↳ `vite.config.ts`·`src/App.tsx`·`src/main.tsx`·`e2e/fixtures/` 등 공유 설정 | `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e'`(E2E 전체) |
 | `apps/workplace-admin/` | `cd apps/workplace-admin && pnpm test && pnpm test:e2e` |
 | `packages/mcp-tools-shared/` | `pnpm --filter @smart-workplace/mcp-tools-shared test` → `… build` → 쓰는 쪽 `pnpm --filter @smart-workplace/workplace-mcp test`·`pnpm --filter @smart-workplace/workplace-ai-agent test`·`cd apps/workplace-web && pnpm test` |
 | `packages/wiki-editor-schema/` | `pnpm --filter @smart-workplace/wiki-editor-schema test` · `pnpm --filter @smart-workplace/workplace-collab test` · `cd apps/workplace-web && pnpm test` |
@@ -106,6 +106,7 @@ work-loop 는 아래 명령을 기다리지 않고 이슈 워크트리에서 백
 
 - **push 게이트 미리 돌리기(9번)**: 커밋한 상태에서 `pnpm test:full` 을 띄운다. 통과하면 그 트리가 기록돼 뒤의 `git push` 가 회귀를 다시 돌지 않는다. 지금 HEAD 트리가 이미 기록돼 있는지는 워크트리에서 `sh -c '. scripts/husky/noncode.sh && . scripts/husky/gate-scope.sh && . scripts/husky/verified-trees.sh && is_verified_head'` 로 본다(성공이면 기록됨 — 다시 돌리지 않는다. HEAD 에 필요한 범위를 origin/main 기준으로 구해 pre-push 와 같게 판정한다). 기차는 기차 워크트리에서 이렇게 돌린다(위 「기차」).
 - 한 번에 `test:full` 하나만 돈다(전역 락). 다른 이슈의 게이트를 띄우면 락을 기다리느라 그만큼 늦게 끝난다.
+- 무거운 테스트(api `./gradlew test`·web vitest 전체·E2E)를 게이트 밖에서 직접 돌릴 때는 `scripts/husky/run-locked.sh <명령>` 로 감싸고 `-PtestForks` 를 2 넘게 주지 않는다 — AI Pod 에서는 이 락이 저장소를 넘어 하나라 다른 저장소 게이트와 겹치지 않는다(WP-1811). 게이트(`pnpm test:full`·커밋·push)는 스스로 이 락을 잡으므로 감쌀 필요가 없다(감싸도 안쪽은 다시 잡지 않아 멈추지 않는다).
 
 ## 4. 격리 라이브 스택 (`process-issue.md` 8·10번)
 
