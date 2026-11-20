@@ -843,11 +843,14 @@ test('기차: 저장소가 켜면 9~11번 대신 쌓기 → 출발 → 통합 PR
   assert.ok(!pi.includes('묶음 게이트'));
 });
 
-// WP-1216 — 대기 중(PR 리뷰 대기 = 기차 대기)은 자리를 쥐지 않는다. slots 가 없는 옛 서버의 셈도 같은 기준.
-test('SKILL.md 3번: slots 가 없을 때 대기 중은 동시 진행에 세지 않는다 (WP-1216)', () => {
+// WP-1810 — 대기 중(PR 리뷰 대기 = 기차 대기)도 자리를 쥔다(WP-1216 을 뒤집음). slots 가 없는 옛 서버의 셈도 같은 기준.
+test('SKILL.md 3번: 대기 중도 동시 진행 자리로 센다 — slots 가 없을 때의 셈도 같다 (WP-1810)', () => {
   const skill = body(workLoop('SKILL.md'));
-  assert.ok(skill.includes('내 행이 작업 중·답변 필요·인증 필요이고 `stale` 이 아닌 이슈를 세되(대기 중은 세지 않는다'));
-  assert.ok(!skill.includes('작업 중·대기 중·답변 필요·인증 필요'));
+  assert.ok(skill.includes('내 행이 작업 중·답변 필요·인증 필요·대기 중이고 `stale` 이 아닌 이슈를 세되'));
+  assert.ok(!skill.includes('대기 중은 세지 않는다'));
+  assert.ok(skill.includes('PR 을 올려 대기 중인 이슈도 자리를 쥔다'));
+  const pi = body(workLoop('process-issue.md'));
+  assert.ok(pi.includes('상한이 1이면 기차에 이슈 하나만 실린다'));
 });
 
 // WP-1293·1403·1427 깨우는 방식 — 환경변수를 직접 읽지 않고 gw-wake-mode 한 단어(runner·pane·self)만 보고, 방식마다 감시·다음 확인을 정한다.

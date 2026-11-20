@@ -91,7 +91,7 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     connectedUsers.forEach(sseRegistry::closeAll);
   }
 
-  /** 전체 범위 — 활성 AI 가 모두 나오고, 열린 작업·검토 대기·마지막 종료 시각·자리 수(작업 중·대기 중만 셈)가 실린다. */
+  /** 전체 범위 — 활성 AI 가 모두 나오고, 열린 작업·검토 대기·마지막 종료 시각·자리 수(작업 중·대기 중·답변 필요만 셈)가 실린다. */
   @Test
   void list_whenScopeAll_returnsAgentsWithWorksAndSlots() throws Exception {
     long busy = createAgentUserWithMembership("ag-busy");
@@ -113,8 +113,8 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(body.get("slotLimit").asInt()).isEqualTo(5);
     JsonNode b = agent(body, busy);
     assertThat(b.get("agent").get("kind").asString()).isEqualTo("AGENT");
-    // 작업 중·답변 필요만 자리를 쥔다 — 대기 중(PR 리뷰 대기 = 기차 대기)·막힘·검토 대기는 세지 않는다(WP-1216).
-    assertThat(b.get("slotsUsed").asInt()).isEqualTo(2);
+    // 작업 중·대기 중·답변 필요가 자리를 쥔다 — 막힘·검토 대기는 세지 않는다(WP-1810).
+    assertThat(b.get("slotsUsed").asInt()).isEqualTo(3);
     assertThat(b.get("hiddenWorks").asInt()).isZero();
     assertThat(field(b.get("works"), "title"))
         .containsExactly("작업 중 이슈", "대기 중 이슈", "막힌 이슈", "검토 대기 이슈", "답변 필요 이슈");
@@ -197,9 +197,49 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(field(a.get("works"), "stale")).containsExactly("false", "false", "true");
   }
 
+  /** 하위가 대기 중(WP-1810)이어도 자리를 쥔 하위이므로, 하위가 각자 세고 부모는 뺀다. */
+  @Test
+  void list_excludesParentWhoseChildIsWaiting() throws Exception {
+    assertThat(slotsUsedWithWorkingParent("ag-wait-child", "WAITING", Instant.now())).isEqualTo(1);
+  }
+
+  /** 하위가 무소식(stale)이면 자리를 쥔 것이 아니므로, 부모는 빠지지 않고 센다(회귀 고정). */
+  @Test
+  void list_countsParentWhenChildIsStale() throws Exception {
+    assertThat(
+            slotsUsedWithWorkingParent(
+                "ag-stale-child", "WORKING", Instant.now().minusSeconds(3 * 3600)))
+        .isEqualTo(1);
+  }
+
+  /**
+   * 자리 수 — 하위가 답변 필요(사람 답 대기)여도 자리를 쥔 하위라 부모(「하위 차례로 진행」 작업 중)는 빼고 하위 하나만 센다(WP-1810 — 센 하위가 있는 부모를
+   * 뺀다).
+   */
+  @Test
+  void list_excludesParentWhoseChildIsInputRequired() throws Exception {
+    assertThat(slotsUsedWithWorkingParent("ag-ask-child", "INPUT_REQUIRED", Instant.now()))
+        .isEqualTo(1);
+  }
+
+  /**
+   * 부모 작업 중(지금 보고) + 하위 하나(주어진 상태·보고 시각)를 가진 새 AI 를 만들고, AI별 보기의 자리 수를 돌려준다 — 부모 빼기 규칙(센 하위가 있는 부모를
+   * 뺀다, WP-1810)을 하위 상태별로 확인하는 테스트가 함께 쓴다.
+   */
+  private int slotsUsedWithWorkingParent(String agentName, String childState, Instant childAt)
+      throws Exception {
+    long agent = createAgentUserWithMembership(agentName);
+    long parent = issue(projectId, "부모", me);
+    long child = issue(projectId, "하위", me);
+    dsl.update(ISSUE).set(ISSUE.PARENT_ISSUE_ID, parent).where(ISSUE.ID.eq(child)).execute();
+    work(parent, agent, "WORKING", Instant.now());
+    work(child, agent, childState, childAt);
+    return agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent).get("slotsUsed").asInt();
+  }
+
   /**
    * AI 본인 조회(get_member("me") 가 부르는 GET /members/{내 id})에 실리는 자리(WP-1205)는 AI별 보기의 자리 수와 같은 값이다 — 못
-   * 보는 프로젝트 작업은 세고, 작업 중인 하위가 있는 부모·무소식·막힘·대기 중(WP-1216)은 세지 않는다. 자리를 쥔 이슈 키도 함께 싣는다.
+   * 보는 프로젝트 작업은 세고, 자리를 쥔(센) 하위가 있는 부모·무소식·막힘은 세지 않고 대기 중도 센다(WP-1810). 자리를 쥔 이슈 키도 함께 싣는다.
    */
   @Test
   void memberSelf_whenAgent_carriesSameSlotsAsRoster() throws Exception {
@@ -214,14 +254,15 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     work(child, agent, "WORKING", Instant.now());
     work(issue(projectId, "무소식", me), agent, "WORKING", Instant.now().minusSeconds(3 * 3600));
     work(issue(projectId, "막힌 이슈", me), agent, "BLOCKED", T0);
-    work(issue(projectId, "리뷰 대기", me), agent, "WAITING", Instant.now());
+    long review = issue(projectId, "리뷰 대기", me);
+    work(review, agent, "WAITING", Instant.now());
 
     JsonNode slots = getJson("/api/v1/members/" + agent, agent).get("slots");
     JsonNode roster = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
 
-    assertThat(slots.get("used").asInt()).isEqualTo(roster.get("slotsUsed").asInt()).isEqualTo(2);
+    assertThat(slots.get("used").asInt()).isEqualTo(roster.get("slotsUsed").asInt()).isEqualTo(3);
     assertThat(slots.get("limit").asInt()).isEqualTo(5);
-    assertThat(texts(slots.get("issues"))).containsExactly(issueKey(child));
+    assertThat(texts(slots.get("issues"))).containsExactly(issueKey(child), issueKey(review));
   }
 
   /** 실행 설정 행을 만든다(WP-1754) — slotLimit 이 null 이면 덮어쓴 값 없음(템플릿 기본을 따른다). */
