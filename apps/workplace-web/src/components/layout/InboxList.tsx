@@ -82,6 +82,9 @@ export type InboxView = "inbox" | "archive";
 // 이 파일 안(탭·목록)에서만 쓴다 — 컴포넌트 파일에서 컴포넌트가 아닌 것을 내보내면 Fast Refresh 가 전체 새로고침이 된다.
 const INBOX_VIEW_PANEL_ID = "inbox-view-panel";
 
+/** 알림 행 표식 — 포커스 복구 훅의 행 선택자. 채팅 메시지 표식(data-message-id)과 겹치지 않게 따로 둔다(WP-1845). */
+const INBOX_ROW_SELECTOR = "[data-inbox-row-id]";
+
 /** 보기 탭 단추의 id — 패널의 aria-labelledby 가 가리킨다(WP-1843). */
 function inboxViewTabId(v: InboxView): string {
   return `inbox-view-tab-${v}`;
@@ -245,8 +248,28 @@ export function InboxList({
     [data?.pages],
   );
   const unarchive = useUnarchiveNotification();
+  // 되돌리는 중인 줄 id 들 — 여러 줄을 빠르게 되돌리면 요청이 겹치므로, 마지막 호출(unarchive.variables)만 보면 앞 줄의 잠금이
+  // 요청이 끝나기 전에 풀린다. 호출마다 넣고 그 호출이 끝나면(성공·실패) 뺀다(WP-1845).
+  const [unarchivingIds, setUnarchivingIds] = useState<ReadonlySet<number>>(() => new Set());
   // 그 줄을 되돌리는 중인지 — 클릭 무시와 aria-disabled 가 같은 판정을 쓴다.
-  const isUnarchiving = (id: number) => unarchive.isPending && unarchive.variables === id;
+  const isUnarchiving = (id: number) => unarchivingIds.has(id);
+  /**
+   * 한 줄을 되돌린다. mutate 의 호출별 콜백은 마지막 호출에만 불리므로(TanStack) 호출마다 끝을 알 수 있는 mutateAsync 를 쓴다.
+   * 실패 안내는 훅의 onError 토스트가 맡으니 여기서는 거부를 삼키기만 한다.
+   */
+  const startUnarchive = (id: number) => {
+    setUnarchivingIds((prev) => new Set(prev).add(id));
+    unarchive
+      .mutateAsync(id)
+      .catch(() => {})
+      .finally(() =>
+        setUnarchivingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        }),
+      );
+  };
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const archiveRead = useArchiveReadNotifications();
@@ -271,7 +294,7 @@ export function InboxList({
   // 되돌리기로 행이 빠지면 포커스를 같은 자리 행(마지막이었으면 앞 행), 남은 행이 없으면 목록 영역으로 옮긴다(WP-1845).
   // 채팅·코멘트 목록과 같은 공용 훅(WP-832)을 쓴다. 목록 요소는 <ul> 이 아니라 스크롤 영역이다 — 마지막 행이 빠지면 <ul> 자체가
   // 빈 상태로 바뀌어 사라지므로, 거기 달면 훅이 목록을 잃어 fallback 까지 가지 못한다.
-  const setRescueList = useListFocusRescue(items, rescueFallback);
+  const setRescueList = useListFocusRescue(items, rescueFallback, INBOX_ROW_SELECTOR);
   // 복구 훅의 효과가 이번 커밋의 보기 비교를 마친 뒤 갱신한다(같은 컴포넌트의 효과는 선언 순서대로 돈다).
   useEffect(() => {
     committedView.current = view;
@@ -408,8 +431,10 @@ export function InboxList({
               {items.map((n) => (
                 <li
                   key={n.id}
-                  // data-message-id: 포커스 복구 훅(useListFocusRescue)의 행 표식 — 행이 빠지면 같은 자리 행으로 포커스를 옮긴다(WP-1845).
-                  data-message-id={n.id}
+                  // data-inbox-row-id: 포커스 복구 훅(useListFocusRescue)의 행 표식 — 행이 빠지면 같은 자리 행으로 포커스를 옮긴다(WP-1845).
+                  // data-message-id 를 쓰지 않는다 — 메시지 링크 이동(useMessageLinkJump)이 문서 전체에서 그 표식을 찾아, 알림 창이 열려
+                  // 있으면 같은 id 의 알림 행이 실제 메시지 대신 강조된다.
+                  data-inbox-row-id={n.id}
                   className={cn(isArchive && "flex items-stretch")}
                 >
                   <button
@@ -569,7 +594,7 @@ export function InboxList({
                         e.stopPropagation();
                         // 처리 중인 그 줄은 클릭을 무시한다(aria-disabled). 행이 빠진 뒤 포커스는 목록의 포커스 복구 훅이 옮긴다.
                         if (isUnarchiving(n.id)) return;
-                        unarchive.mutate(n.id);
+                        startUnarchive(n.id);
                       }}
                       // 처리 중인 그 줄만 막는다 — 전체를 막으면 한 줄 되돌리는 동안 다른 줄 클릭이 소리 없이 무시된다.
                       // native disabled 대신 aria-disabled 로 잠근다 — 실패해 줄이 남으면 포커스가 이 버튼에 그대로 있게(WP-1845).
@@ -601,17 +626,24 @@ export function InboxList({
  * 모두 읽음을 실행하고, 성공하면 포커스를 알림 목록 영역으로 옮긴다(WP-1845).
  * 성공 뒤 안 읽음이 0 이 되어 버튼이 native disabled 가 되면 포커스가 BODY 로 떨어져 키보드·스크린리더 사용자가 위치를 잃기 때문이다.
  * 처리 중에는 aria-disabled 라 클릭을 무시한다 — 연속 호출이 없으니 호출별 onSuccess 가 덮이지 않고, 실패 땐 포커스가 버튼에 그대로 남는다.
- * 옮기는 조건: 포커스가 갈 곳을 잃었거나(focusLost) 아직 누른 버튼에 있을 때(비활성 요소에서 포커스를 빼지 않는 브라우저·jsdom).
+ * 옮기는 조건: 포커스가 갈 곳을 잃었거나(focusLost), 아직 누른 버튼에 있는데 그 버튼이 실제로 native disabled 가 됐을 때
+ * (비활성 요소에서 포커스를 빼지 않는 브라우저·jsdom). 그 사이 새 안 읽음이 와서 버튼이 여전히 눌리면 포커스를 버튼에 둔다 —
+ * 멀쩡한 컨트롤에서 포커스를 빼앗지 않는다. aria-disabled 는 이 버튼에서 「처리 중」만 뜻하고 성공 뒤엔 풀리므로 판정에 넣지 않는다.
  * 처리 중 사용자가 다른 곳으로 옮겼으면 빼앗지 않는다.
  */
-function markAllAndRefocus(markAll: ReturnType<typeof useMarkAllNotificationsRead>, trigger: HTMLElement) {
+function markAllAndRefocus(markAll: ReturnType<typeof useMarkAllNotificationsRead>, trigger: HTMLButtonElement) {
   if (markAll.isPending) return;
   markAll.mutate(undefined, {
-    // rAF 한 번 뒤 — React 가 안 읽음 0 으로 다시 그려 버튼이 비활성이 된 DOM 을 보고 판단한다.
+    // rAF 한 번 + 매크로태스크 한 번 뒤 — React 가 안 읽음 0 으로 다시 그려 버튼이 비활성이 된 DOM 을 보고 판단한다.
+    // rAF 만으로는 재조회 결과의 커밋보다 먼저 돌 수 있어(jsdom 에서 확인) 버튼이 아직 활성으로 보인다 — 그러면 비활성 여부를
+    // 잘못 읽어 포커스를 옮기지 못한다. 그 뒤 태스크로 한 번 더 미뤄 커밋된 DOM 을 본다.
     onSuccess: () =>
-      requestAnimationFrame(() => {
-        if (focusLost() || document.activeElement === trigger) focusInboxList();
-      }),
+      requestAnimationFrame(() =>
+        setTimeout(() => {
+          const disabledTrigger = document.activeElement === trigger && trigger.disabled;
+          if (focusLost() || disabledTrigger) focusInboxList();
+        }, 0),
+      ),
   });
 }
 

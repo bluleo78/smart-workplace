@@ -77,9 +77,19 @@ describe('알림 창 보관함 전환', () => {
     await user.click(await screen.findByTestId('inbox-tab-archive'))
     const buttons = await screen.findAllByTestId('inbox-unarchive')
     await user.click(buttons[1])
-    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-message-id', '7'))
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-inbox-row-id', '7'))
     expect(document.activeElement?.tagName).toBe('LI')
-    expect(document.querySelector('[data-message-id="6"]')).toBeNull()
+    expect(document.querySelector('[data-inbox-row-id="6"]')).toBeNull()
+  })
+
+  // 알림 행은 채팅 메시지 표식(data-message-id)을 달지 않는다 — 메시지 링크 이동(useMessageLinkJump)이 문서 전체에서 그 표식을 찾아,
+  // 알림 창이 열려 있으면 같은 id 의 알림 행을 실제 메시지 대신 강조했다(WP-1845 리뷰).
+  test('알림 행은 data-message-id 가 아니라 자기 표식(data-inbox-row-id)을 단다', async () => {
+    renderInbox({ inbox: [notif({ id: 1 }), notif({ id: 2 })] })
+    const items = await screen.findAllByTestId('inbox-item')
+    expect(items).toHaveLength(2)
+    expect(document.querySelector('[data-message-id]')).toBeNull()
+    expect(document.querySelectorAll('[data-inbox-row-id]')).toHaveLength(2)
   })
 
   test('마지막 행을 되돌리면 앞 행으로 간다', async () => {
@@ -87,7 +97,7 @@ describe('알림 창 보관함 전환', () => {
     await user.click(await screen.findByTestId('inbox-tab-archive'))
     const buttons = await screen.findAllByTestId('inbox-unarchive')
     await user.click(buttons[1])
-    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-message-id', '5'))
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-inbox-row-id', '5'))
   })
 
   // 목록 영역은 tabpanel(WP-1843)이라 늘 tabIndex 가 있다 — 복구가 임시 tabindex 를 달고 떼며 패널의 Tab 정지점 규칙을 덮지 않는지도 본다.
@@ -270,6 +280,51 @@ describe('보관함 줄 되돌리기 — 처리 중 비활성은 그 줄만', ()
     await user.click(second)
     await waitFor(() => expect(requested).toEqual([[5], [6]]))
     release()
+  })
+
+  // 두 줄을 빠르게 되돌리면 마지막 호출(6)만 잠그던 판정으로는 앞 줄(5)이 요청이 끝나기 전에 다시 눌렸다(WP-1845 리뷰).
+  // 처리 중인 id 를 모두 기억하므로 뒤 줄 요청이 먼저 끝나도 앞 줄은 잠긴 채다.
+  test('두 줄을 빠르게 되돌리면 뒤 줄이 끝나도 아직 처리 중인 앞 줄은 잠겨 있다', async () => {
+    const requested: number[][] = []
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { user } = renderScreen(<InboxHarness />, {
+      path: '/',
+      handlers: [
+        http.get('/api/v1/notifications', () => HttpResponse.json([])),
+        http.get('/api/v1/notifications/archived', () =>
+          HttpResponse.json([
+            notif({ id: 5, issueTitle: '첫째' }),
+            notif({ id: 6, issueTitle: '둘째' }),
+          ]),
+        ),
+        ...inboxSupportHandlers(),
+        http.post('/api/v1/notifications/unarchive', async ({ request }) => {
+          const body = (await request.json()) as { ids: number[] }
+          requested.push(body.ids)
+          // 앞 줄(5) 요청만 걸어 두고, 뒤 줄(6)은 바로 끝낸다.
+          if (body.ids[0] === 5) await gate
+          return HttpResponse.json({ restoredIds: body.ids })
+        }),
+      ],
+    })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    await screen.findByText(/둘째/)
+    const [first, second] = screen.getAllByTestId('inbox-unarchive')
+    await user.click(first)
+    await user.click(second)
+    await waitFor(() => expect(requested).toEqual([[5], [6]]))
+    // 뒤 줄 요청이 끝났다(성공 토스트) — 그 줄의 잠금은 풀리고, 앞 줄은 여전히 처리 중이다.
+    expect(await screen.findByText('되돌렸습니다')).toBeInTheDocument()
+    await waitFor(() => expect(second).not.toHaveAttribute('aria-disabled'))
+    expect(first).toHaveAttribute('aria-disabled', 'true')
+    // 앞 줄을 다시 눌러도 요청이 나가지 않는다.
+    await user.click(first)
+    expect(requested).toEqual([[5], [6]])
+    release()
+    await waitFor(() => expect(first).not.toHaveAttribute('aria-disabled'))
   })
 })
 

@@ -2,10 +2,13 @@
 // 행이 「(삭제됨)」으로 다시 그려지며 삭제·수정 버튼이 사라져 포커스가 body 로 빠졌다. 그러면 키보드·스크린리더 사용자의 다음 Tab 이
 // 화면 처음부터 시작한다(WCAG 2.4.3). 목록이 마지막에 포커스된 컨트롤과 그 행을 기억해 두고, 그것이 사라진 채 포커스가 body 면
 // 지운 자리 근처로 옮긴다.
-// 행 표식: 각 행의 data-message-id(채팅 메시지·이슈 코멘트 행이 길게 누르기 위임용으로 이미 단다).
+// 행 표식: 기본은 각 행의 data-message-id(채팅 메시지·이슈 코멘트 행이 길게 누르기 위임용으로 이미 단다).
+// 다른 목록(알림 인박스)은 rowSelector 로 자기 표식을 넘긴다 — data-message-id 는 메시지 링크 이동(useMessageLinkJump)이 문서 전체에서
+// 찾는 표식이라, 메시지가 아닌 행이 같은 값을 달면 그 행이 메시지 대신 강조된다(WP-1845).
 import { useEffect, useRef, useState } from 'react';
 
-const ROW_SELECTOR = '[data-message-id]';
+/** 기본 행 표식 — 채팅 메시지·이슈 코멘트 행. */
+const DEFAULT_ROW_SELECTOR = '[data-message-id]';
 
 /**
  * 포커스가 목록 밖 이 오버레이들로 옮겨 가도 기억을 지우지 않는다 — 삭제 확인창·작업 시트·메뉴·실행 취소 토스트를 거쳐 다시 돌아오거나,
@@ -21,8 +24,8 @@ interface LastFocus {
   index: number;
 }
 
-function rowsOf(list: HTMLElement): HTMLElement[] {
-  return Array.from(list.querySelectorAll<HTMLElement>(ROW_SELECTOR));
+function rowsOf(list: HTMLElement, rowSelector: string): HTMLElement[] {
+  return Array.from(list.querySelectorAll<HTMLElement>(rowSelector));
 }
 
 /**
@@ -48,7 +51,7 @@ export function focusRow(row: HTMLElement) {
 }
 
 /**
- * 돌려준 ref 를 행(data-message-id)들을 담은 목록 요소에 단다. items 가 바뀌어 다시 그려진 직후, 마지막에 포커스된 컨트롤이 사라졌고
+ * 돌려준 ref 를 행(rowSelector, 기본 data-message-id)들을 담은 목록 요소에 단다. items 가 바뀌어 다시 그려진 직후, 마지막에 포커스된 컨트롤이 사라졌고
  * 포커스가 body 면:
  * - 그 행이 남아 있으면(채팅 메시지 → 「(삭제됨)」) 그 행으로,
  * - 행이 빠졌으면(코멘트 삭제) 같은 자리에 온 행(뒤 행이 당겨 온다, 마지막이었으면 바로 앞 행)으로,
@@ -56,7 +59,11 @@ export function focusRow(row: HTMLElement) {
  * 목록 요소는 상태로 들고 있다 — 빈 목록이면 다른 화면을 그리다 첫 메시지가 오면 목록을 그리는 곳(이슈 채팅)에서도 그때 리스너를 단다
  * (ref 객체를 효과 의존성으로 두면 마운트 때 목록이 없을 경우 영영 달지 못한다).
  */
-export function useListFocusRescue(items: unknown, fallback?: () => HTMLElement | null) {
+export function useListFocusRescue(
+  items: unknown,
+  fallback?: () => HTMLElement | null,
+  rowSelector: string = DEFAULT_ROW_SELECTOR,
+) {
   const [list, setList] = useState<HTMLElement | null>(null);
   const last = useRef<LastFocus | null>(null);
 
@@ -64,8 +71,8 @@ export function useListFocusRescue(items: unknown, fallback?: () => HTMLElement 
     if (!list) return;
     const onFocusIn = (e: FocusEvent) => {
       if (!(e.target instanceof HTMLElement)) return;
-      const row = e.target.closest<HTMLElement>(ROW_SELECTOR);
-      last.current = { el: e.target, row, index: row ? rowsOf(list).indexOf(row) : -1 };
+      const row = e.target.closest<HTMLElement>(rowSelector);
+      last.current = { el: e.target, row, index: row ? rowsOf(list, rowSelector).indexOf(row) : -1 };
     };
     const onFocusOut = (e: FocusEvent) => {
       const next = e.relatedTarget;
@@ -81,7 +88,7 @@ export function useListFocusRescue(items: unknown, fallback?: () => HTMLElement 
       list.removeEventListener('focusin', onFocusIn);
       list.removeEventListener('focusout', onFocusOut);
     };
-  }, [list]);
+  }, [list, rowSelector]);
 
   // 행 안의 더 좁은 복구가 먼저 돌게 일반 효과로 둔다 — 반응 컨트롤(useReactionFocusRestore, 레이아웃 효과)과 수정 종료 뒤
   // 「수정」 버튼 복귀(useRestoreFocusOnExit, 자식의 일반 효과)가 먼저 포커스를 잡으면 body 가 아니어서 여기선 손대지 않는다.
@@ -92,11 +99,11 @@ export function useListFocusRescue(items: unknown, fallback?: () => HTMLElement 
       focusRow(prev.row);
       return;
     }
-    const rows = rowsOf(list);
+    const rows = rowsOf(list, rowSelector);
     const row = prev.index >= 0 ? rows[Math.min(prev.index, rows.length - 1)] : undefined;
     if (row) focusRow(row);
     else fallback?.()?.focus({ preventScroll: true });
-  }, [list, items, fallback]);
+  }, [list, items, fallback, rowSelector]);
 
   return setList;
 }

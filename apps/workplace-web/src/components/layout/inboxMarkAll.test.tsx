@@ -31,6 +31,12 @@ function notif(over: Partial<NotificationResponse> = {}): NotificationResponse {
   }
 }
 
+/** 모두 읽음 성공 뒤 포커스 판정(rAF 한 번 + 매크로태스크 한 번)이 끝날 때까지 기다린다 — 「옮기지 않음」 단언이 판정 전에 통과하지 않게. */
+async function afterRefocusCheck() {
+  await new Promise((r) => requestAnimationFrame(() => r(undefined)))
+  await new Promise((r) => setTimeout(r, 20))
+}
+
 /** InboxList 는 보기 상태를 바깥이 들고 있어야 해서(제어 전용), 상태만 쥐는 얇은 래퍼로 띄운다. */
 function InboxHarness() {
   const [view, setView] = useState<InboxView>('inbox')
@@ -117,6 +123,24 @@ describe('알림 창 모두 읽음 토스트', () => {
     expect(button).toBeDisabled()
   })
 
+  // 성공 사이 새 안 읽음이 와서 버튼이 여전히 눌리면 포커스를 버튼에 둔다 — 비활성이 된 때만 목록으로 옮긴다(WP-1845 리뷰).
+  test('모두 읽음이 성공해도 안 읽음이 남아 버튼이 눌리면 포커스는 버튼에 그대로 있다', async () => {
+    const { user } = renderInbox({
+      // 처리는 성공하지만 안 읽음 수는 2 그대로(그 사이 새 알림이 온 상황) — 버튼이 disabled 되지 않는다.
+      readAll: http.post('/api/v1/notifications/read-all', () => new HttpResponse(null, { status: 204 })),
+    })
+    await screen.findAllByTestId('inbox-item')
+    const button = screen.getByTestId('inbox-mark-all')
+    button.focus()
+    await user.click(button)
+    expect(await screen.findByText('읽음 처리했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled'))
+    // 성공 콜백의 판정(rAF 뒤 매크로태스크)이 지난 뒤에도 버튼에 남는지 본다.
+    await afterRefocusCheck()
+    expect(button).toBeEnabled()
+    expect(document.activeElement).toBe(button)
+  })
+
   test('처리 중 다른 곳에 포커스를 옮겼으면 빼앗지 않는다', async () => {
     let release: () => void = () => {}
     const gate = new Promise<void>((resolve) => {
@@ -134,7 +158,7 @@ describe('알림 창 모두 읽음 토스트', () => {
     expect(await screen.findByText('읽음 처리했습니다')).toBeInTheDocument()
     // 토스트는 무효화·rAF 보다 먼저 뜬다 — 안 읽음 0 재조회가 끝나고 한 프레임 흘린 뒤에야 가드를 지나는지 볼 수 있다.
     await waitFor(() => expect(screen.getByTestId('inbox-mark-all')).toBeDisabled())
-    await new Promise((r) => requestAnimationFrame(() => r(undefined)))
+    await afterRefocusCheck()
     expect(document.activeElement).toBe(tab)
   })
 })
