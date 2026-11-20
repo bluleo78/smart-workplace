@@ -14,9 +14,13 @@ import type { OAuthConnection } from '@/types/oauth'
 import { oauthConnection } from '../../../e2e/factories/oauth.factory'
 import TokenSettingsPage from './TokenSettingsPage'
 
-// scrollIntoView 스파이를 되돌린다.
+// 붙잡아 둔 발급 응답(heldRejection) — 단언이 release() 전에 실패해도 요청이 다음 테스트로 새지 않게 끝에 모두 푼다.
+const heldReleases: (() => void)[] = []
+
+// scrollIntoView 스파이를 되돌리고, 붙잡아 둔 응답을 푼다.
 afterEach(() => {
   vi.restoreAllMocks()
+  heldReleases.splice(0).forEach((release) => release())
 })
 
 interface Token {
@@ -87,13 +91,12 @@ test('유효기간을 무기한으로 발급하면 발급 창과 목록에 무�
 
 // WP-835 — 활성 토큰 20개 상한(WP-818)에 걸리면 서버 사유를 발급 창 안에 보이고, 같은 내용을 토스트로 한 번 더 띄우지 않는다.
 test('발급이 상한에 걸리면 서버 사유를 발급 창 안에 보이고 토스트는 띄우지 않는다 (WP-835)', async () => {
-  const reason = LIMIT_REASON
-  const { user } = await openTokens([], () => HttpResponse.json({ message: reason }, { status: 400 }))
+  const { user } = await openTokens([], () => HttpResponse.json({ message: LIMIT_REASON }, { status: 400 }))
   const form = await fillIssueForm(user, 'one-too-many')
   await user.click(form.getByTestId('token-issue-submit'))
   // 창 안에 사유 그대로(스크린리더가 읽게 role=alert) — 사유 없는 「토큰 발급에 실패했습니다.」가 아니다.
   const error = await form.findByTestId('token-issue-error')
-  expect(error).toHaveTextContent(reason)
+  expect(error).toHaveTextContent(LIMIT_REASON)
   expect(error).toHaveAttribute('role', 'alert')
   // 창은 열린 채이고 같은 사유의 토스트는 없다.
   expect(screen.getByTestId('token-issue-form-dialog')).toBeInTheDocument()
@@ -146,24 +149,69 @@ test('안내가 뜬 뒤 이름을 채워 다시 보내면 안내가 사라지고
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
 
-// WP-1776 — 발급 요청이 도는 동안 이름·유효기간을 막아, 늦게 온 서버 사유가 바뀐 값 아래에 붙는 경쟁을 없앤다.
-test('발급 요청 중에는 이름 칸과 유효기간이 막히고 거절 뒤 다시 편집된다 (WP-1776)', async () => {
+/** 발급 응답을 붙잡아 두는 대역 — release() 를 부르기 전까지 POST 가 끝나지 않는다(요청 중 상태를 재현). */
+function heldRejection(message = '거절') {
   let release: () => void = () => {}
   const gate = new Promise<void>((resolve) => {
     release = resolve
   })
-  const { user } = await openTokens([], async () => {
+  heldReleases.push(() => release())
+  const issue = async () => {
     await gate
-    return HttpResponse.json({ message: '거절' }, { status: 400 })
-  })
+    return HttpResponse.json({ message }, { status: 400 })
+  }
+  return { issue, release: () => release() }
+}
+
+// WP-1776 리뷰 — 요청 중 칸을 막으면 Enter 한 이름 칸이 막혀 초점이 창 밖으로 빠졌다. 칸은 열린 채 초점이 그 자리에 남는다.
+test('이름 칸에서 Enter 로 발급하면 요청 중에도 칸이 열려 있고 초점이 그 칸에 남는다 (WP-1776)', async () => {
+  const held = heldRejection()
+  const { user, posts } = await openTokens([], held.issue)
+  const form = await fillIssueForm(user, 'slow-one')
+  const input = form.getByLabelText('토큰 이름')
+  expect(input).toHaveFocus()
+  await user.keyboard('{Enter}')
+  // 요청 중(발급 단추가 막힘)에도 이름 칸·유효기간은 막히지 않고 초점은 이름 칸 그대로다.
+  await waitFor(() => expect(form.getByTestId('token-issue-submit')).toBeDisabled())
+  expect(posts).toHaveLength(1)
+  expect(input).toBeEnabled()
+  expect(form.getByTestId('token-expiry-select')).toBeEnabled()
+  expect(input).toHaveFocus()
+  held.release()
+  expect(await form.findByTestId('token-issue-error')).toHaveTextContent('거절')
+  expect(input).toHaveFocus()
+})
+
+// WP-1776 리뷰 — 요청 중 값을 바꾸면 늦게 온 실패는 바뀌기 전 값의 답이라 바뀐 값 아래에 붙이지 않는다.
+test('요청 중 이름을 바꾸면 늦게 온 실패 사유를 보이지 않는다 (WP-1776)', async () => {
+  const held = heldRejection(LIMIT_REASON)
+  const { user } = await openTokens([], held.issue)
   const form = await fillIssueForm(user, 'slow-one')
   await user.click(form.getByTestId('token-issue-submit'))
-  await waitFor(() => expect(form.getByLabelText('토큰 이름')).toBeDisabled())
-  expect(form.getByTestId('token-expiry-select')).toBeDisabled()
-  release()
-  expect(await form.findByTestId('token-issue-error')).toHaveTextContent('거절')
-  expect(form.getByLabelText('토큰 이름')).toBeEnabled()
-  expect(form.getByTestId('token-expiry-select')).toBeEnabled()
+  await waitFor(() => expect(form.getByTestId('token-issue-submit')).toBeDisabled())
+  await user.type(form.getByLabelText('토큰 이름'), '-2')
+  held.release()
+  // 요청이 끝나 발급 단추가 다시 열린 뒤에도 지난 사유는 없다.
+  await waitFor(() => expect(form.getByTestId('token-issue-submit')).toBeEnabled())
+  expect(form.queryByTestId('token-issue-error')).not.toBeInTheDocument()
+  expect(form.getByLabelText('토큰 이름')).toHaveValue('slow-one-2')
+})
+
+// WP-1776 리뷰 — 요청 중 창을 닫았다 다시 열면 늦게 온 실패 사유가 새로 연 창에 뜨지 않는다(이전 「남은 위험」).
+test('요청 중 창을 닫았다 다시 열면 늦게 온 실패 사유가 새 창에 뜨지 않는다 (WP-1776)', async () => {
+  const held = heldRejection(LIMIT_REASON)
+  const { user } = await openTokens([], held.issue)
+  const first = await fillIssueForm(user, 'slow-one')
+  await user.click(first.getByTestId('token-issue-submit'))
+  await waitFor(() => expect(first.getByTestId('token-issue-submit')).toBeDisabled())
+  await user.click(first.getByRole('button', { name: '취소' }))
+  await waitFor(() => expect(screen.queryByTestId('token-issue-form-dialog')).not.toBeInTheDocument())
+  await user.click(screen.getByTestId('token-issue-open'))
+  const form = within(await screen.findByTestId('token-issue-form-dialog'))
+  held.release()
+  await waitFor(() => expect(form.getByTestId('token-issue-submit')).toBeEnabled())
+  expect(form.queryByTestId('token-issue-error')).not.toBeInTheDocument()
+  expect(form.queryByRole('alert')).not.toBeInTheDocument()
 })
 
 // WP-1776 — 오류 상태로 닫은 창을 다시 열면 이전 안내·aria-invalid 가 이월되지 않는다.
@@ -184,11 +232,10 @@ test('오류 상태에서 창을 닫았다 다시 열면 안내가 없다 (WP-17
 // WP-1776 — 서버가 거절한 뒤 이름을 비우고 다시 보내면 클라이언트 검증이 먼저 막아 제출 함수가 불리지 않는다.
 // 그때 지난 서버 사유가 남으면 이름 안내와 함께 alert 두 개가 읽혀 지금 입력과 모순된다.
 test('서버 거절 뒤 이름을 비우고 다시 보내면 이름 안내만 alert 로 읽힌다 (WP-1776)', async () => {
-  const reason = LIMIT_REASON
-  const { user } = await openTokens([], () => HttpResponse.json({ message: reason }, { status: 400 }))
+  const { user } = await openTokens([], () => HttpResponse.json({ message: LIMIT_REASON }, { status: 400 }))
   const form = await fillIssueForm(user, 'one-too-many')
   await user.click(form.getByTestId('token-issue-submit'))
-  expect(await form.findByTestId('token-issue-error')).toHaveTextContent(reason)
+  expect(await form.findByTestId('token-issue-error')).toHaveTextContent(LIMIT_REASON)
   await user.clear(form.getByLabelText('토큰 이름'))
   await user.click(form.getByTestId('token-issue-submit'))
   await waitFor(() => expect(form.getAllByRole('alert')).toHaveLength(1))
@@ -198,11 +245,10 @@ test('서버 거절 뒤 이름을 비우고 다시 보내면 이름 안내만 al
 
 // WP-1776 — 서버 사유는 「그때 보낸 값」에 대한 답이라 유효기간만 바꿔도 더는 맞지 않아 지운다.
 test('서버 거절 뒤 유효기간만 바꿔도 지난 서버 사유가 사라진다 (WP-1776)', async () => {
-  const reason = LIMIT_REASON
-  const { user } = await openTokens([], () => HttpResponse.json({ message: reason }, { status: 400 }))
+  const { user } = await openTokens([], () => HttpResponse.json({ message: LIMIT_REASON }, { status: 400 }))
   const form = await fillIssueForm(user, 'one-too-many')
   await user.click(form.getByTestId('token-issue-submit'))
-  expect(await form.findByTestId('token-issue-error')).toHaveTextContent(reason)
+  expect(await form.findByTestId('token-issue-error')).toHaveTextContent(LIMIT_REASON)
   await user.click(form.getByTestId('token-expiry-select'))
   // Radix Select 의 옵션은 포털에 그려져 form 범위 밖이므로 screen 에서 찾는다.
   await user.click(await screen.findByRole('option', { name: '60일' }))

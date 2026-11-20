@@ -2,7 +2,7 @@
 // 발급 자체(평문 노출)는 별도 TokenIssueDialog 가 담당 — 이 모달은 닫힌 뒤 그쪽이 열린다.
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 
@@ -69,6 +69,10 @@ export function TokenIssueFormDialog({
   isPending,
 }: TokenIssueFormDialogProps) {
   const [serverError, setServerError] = useState('');
+  // 제출 순번(WP-1776 리뷰) — 제출마다 하나 올리고, 값 변경·창 닫기에서도 올려 도는 요청을 무효로 만든다.
+  // 왜: 요청 중 칸을 막으면(disabled) 키보드로 Enter 한 이름 칸이 막혀 초점이 창 밖(body)으로 빠졌다.
+  // 칸은 열어 두고, 늦게 온 실패는 순번이 그대로일 때(그 뒤 값을 바꾸거나 닫지 않았을 때)만 사유로 보인다.
+  const submitSeq = useRef(0);
 
   const {
     register,
@@ -84,10 +88,16 @@ export function TokenIssueFormDialog({
 
   // 값이 바뀌면 지난 서버 사유를 지운다(WP-1776). 왜: 서버 사유는 「그때 보낸 값」에 대한 답인데, 이름을 비우는 등
   // 검증 실패 제출은 submit 이 불리지 않아 옛 서버 사유가 이름 안내와 함께 alert 로 읽혔다.
-  useClearOnFormChange({ watch }, () => setServerError(''));
+  // 요청 중 값을 바꾸면 그 요청의 늦은 실패도 「바뀌기 전 값」의 답이라 순번을 올려 버린다.
+  useClearOnFormChange({ watch }, () => {
+    submitSeq.current += 1;
+    setServerError('');
+  });
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
+      // 요청 중 닫았다 다시 열면 늦게 온 실패 사유가 새 창에 뜨지 않게 도는 요청을 무효로 만든다.
+      submitSeq.current += 1;
       reset();
       setServerError('');
     }
@@ -95,13 +105,15 @@ export function TokenIssueFormDialog({
   };
 
   const submit = async (data: IssueFormData) => {
+    submitSeq.current += 1;
+    const seq = submitSeq.current;
     setServerError('');
     try {
       await onSubmit({ name: data.name, expiresAt: presetToExpiresAt(data.expiryPreset) });
       reset();
     } catch (e) {
       // 서버 사유(예: 활성 토큰 20개 상한, WP-818)를 창 안에 그대로 보인다 — 사유 없는 고정 문구만 보이고 사유는 토스트로만 나갔다(WP-835).
-      setServerError(extractApiError(e, '토큰 발급에 실패했습니다.'));
+      if (seq === submitSeq.current) setServerError(extractApiError(e, '토큰 발급에 실패했습니다.'));
     }
   };
 
@@ -123,10 +135,9 @@ export function TokenIssueFormDialog({
             error={errors.name?.message}
             className="space-y-1.5"
           >
-            {/* 요청 중에는 막는다 — 값을 바꾸면 늦게 온 서버 사유가 바뀐 값 아래에 붙는 경쟁이 생기므로 원천 차단 */}
+            {/* 요청 중에도 막지 않는다 — 막으면 Enter 한 칸에서 초점이 빠진다. 늦은 사유 경쟁은 제출 순번(submitSeq)이 막는다. */}
             <Input
               id="token-name"
-              disabled={isPending}
               placeholder="예: claude-code-mcp"
               maxLength={80}
               {...register('name')}
@@ -139,7 +150,7 @@ export function TokenIssueFormDialog({
               name="expiryPreset"
               control={control}
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange} disabled={isPending}>
+                <Select value={field.value} onValueChange={field.onChange}>
                   <SelectTrigger id="token-expiry" data-testid="token-expiry-select">
                     <SelectValue />
                   </SelectTrigger>
