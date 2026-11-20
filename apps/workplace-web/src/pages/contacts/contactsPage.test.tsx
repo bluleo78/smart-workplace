@@ -504,7 +504,11 @@ describe('검색 결과 없음 빈 상태 (WP-1869)', () => {
     const { user, location } = renderEmpty('/contacts?q=zzz')
     const empty = await screen.findByTestId('contact-empty')
     expect(within(empty).getByText('검색 결과가 없습니다')).toBeInTheDocument()
-    expect(within(empty).getByText('「zzz」에 맞는 연락처가 없습니다')).toBeInTheDocument()
+    const desc = within(empty).getByText('「zzz」에 맞는 연락처가 없습니다')
+    // 줄바꿈 계약(리뷰 후속) — 어절 단위·넘칠 때만 끊기. wrap-anywhere 는 공용 빈 상태의 최소 폭을 0 으로 만들어
+    // 다른 화면의 한국어를 글자 단위로 끊으므로 쓰지 않는다. 실제 넘침은 jsdom 이 못 재 라이브 검증으로 본다.
+    expect(desc).toHaveClass('break-keep', 'break-words')
+    expect(desc).not.toHaveClass('wrap-anywhere')
     expect(screen.queryByTestId('contact-empty-reset-filters')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('contact-empty-clear-search'))
     expect(screen.getByTestId('contact-search')).toHaveValue('')
