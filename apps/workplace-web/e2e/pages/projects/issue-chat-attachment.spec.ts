@@ -3,7 +3,7 @@
 // 본문 입력 + 전송 → POST /messages payload 에 fileIds 포함 → 첨부 카드 렌더.
 //
 // 스텁 전략:
-//   - chat/stream: auth.fixture 에서 빈 event-stream 으로 이미 스텁 → frame-detached flake 없음.
+//   - 이벤트 스트림: auth.fixture 의 열린 스트림 스텁 사용 → 재연결·frame-detached flake 없음.
 //   - drive/spaces: useAttachmentDraft 마운트 시 PERSONAL 스페이스를 조회하므로 빈 배열 대신
 //     PERSONAL 1개를 반환해 spacesResolved 를 true 로 세팅 (드라이브 버튼 활성화).
 //   - POST /chat/threads/*/attachments: [{fileId:1,...}] 반환 → pending 칩 노출.
