@@ -3,8 +3,11 @@ package com.workplace.airun;
 import static com.workplace.jooq.Tables.AI_RUN;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -14,6 +17,8 @@ import com.workplace.airun.dto.AiRunRecord;
 import com.workplace.airun.repository.AiRunRepository;
 import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantScopedRunner;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.support.IntegrationTestBase;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -240,6 +245,24 @@ class AiRunInternalControllerTest extends IntegrationTestBase {
       TenantContext.clear();
     }
     assertThat(count(1L, id)).isEqualTo(1);
+  }
+
+  /** 리뷰 후속 — 테넌트 상태 조회가 실패해도 그 테넌트 묶음만 버리고 다른 테넌트는 저장하며 예외를 던지지 않는다. */
+  @Test
+  void ingest_tenantStatusLookupThrows_dropsOnlyThatTenant() {
+    var checker = mock(TenantStatusChecker.class);
+    var runner = mock(TenantScopedRunner.class);
+    when(checker.isActive(1L)).thenThrow(new IllegalStateException("db down"));
+    when(checker.isActive(2L)).thenReturn(true);
+    var isolated = new AiRunRecorder(repo, runner, checker);
+    var result =
+        isolated.ingest(
+            List.of(
+                rec(UUID.randomUUID(), 1L, "RUNNING", "AI_CHAT"),
+                rec(UUID.randomUUID(), 2L, "RUNNING", "AI_CHAT")));
+    assertThat(result.accepted()).isEqualTo(1);
+    assertThat(result.dropped()).isEqualTo(1);
+    verify(runner).runForTenant(eq(2L), any());
   }
 
   /** I-2 — 틀린 actorType 한 건만 버리고 같은 테넌트 묶음의 나머지는 저장한다. */

@@ -44,7 +44,7 @@ public class AiRunStaleSweeper {
     AtomicInteger failed = new AtomicInteger();
     tenantRunner.forEachActiveTenant(
         t -> {
-          // 종류별 기준(긴 종류 60분·나머지 30분)을 한 번의 UPDATE 로 적용한다.
+          // 종류별 기준(긴 종류 60분·나머지 30분)을 한 번의 UPDATE 로 적용한다(상수 상한으로 부분 색인 범위 사용).
           failed.addAndGet(repo.failStaleRunning(LONG_KINDS, LONG_MAX, DEFAULT_MAX, now));
         });
     if (failed.get() > 0) {
