@@ -3,7 +3,7 @@
 // 보내기(draftId·잠금·실패 뒤 저장)·새로고침 경고·400 검증·실패/다시 시도는 브라우저 없이 판정되므로 e2e/pages/mail/mail-drafts.spec.ts 에서 옮겼다.
 // 그 E2E 에는 라우트 → 작성창 → 저장 API 가 실제로 이어지는 @wiring 1건과 목록 행 키보드 초점 테두리(@layout)만 남는다.
 // e2e/fixtures/mail-drafts-mock.ts 의 상태 있는 임시저장 모킹을 MSW 로 옮긴 draftServer 로 계약(201·409 DRAFT_CONFLICT·404·204)대로 응답한다.
-// 디바운스·토스트 타이머는 가짜 시계(setTimeout 만)로 넘긴다. 메일 모듈 + 작성 도크만 renderScreen 으로 띄운다(testkit-b4).
+// 디바운스·토스트(setTimeout)와 inflight 다시 확인 간격(setInterval)은 가짜 시계로 넘긴다(WP-1808). 메일 모듈 + 작성 도크만 renderScreen 으로 띄운다(testkit-b4).
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -26,8 +26,10 @@ const DEBOUNCE = 1500
 const SEND_PATH = '/api/v1/mail/accounts/1/send'
 
 beforeEach(() => {
-  // 디바운스·토스트는 setTimeout 이다 — 그것만 가짜로 두고 실제 시간도 흐르게 해(userEvent·MSW 지연) 필요할 때만 앞당긴다.
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  // 디바운스·토스트는 setTimeout 이다. 다시 확인(TanStack Query refetchInterval)은 setInterval 이라,
+  // 이것을 가짜로 두지 않으면 tick 이 앞당겨지지 않아 실제 5초와 findBy 5초가 경합해 부하에서 실패했다(WP-1808).
+  // 그래서 setInterval·clearInterval 도 가짜로 두고, 실제 시간도 흐르게 해(userEvent·MSW 지연) 필요할 때만 앞당긴다.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'], shouldAdvanceTime: true })
 })
 afterEach(() => {
   vi.useRealTimers()

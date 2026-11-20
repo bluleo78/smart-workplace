@@ -34,6 +34,7 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
       chatThreadId: i.mcp.chatThreadId,
       homeSessionId: i.mcp.homeSessionId, // WP-234: 메인 AI 채팅 세션 바인딩
       recurringPermits: i.mcp.recurringPermits, // WP-1313: 테스트 이어 처리의 허락된 쓰기
+      recurringSelfIdentity: i.mcp.recurringSelfIdentity, // WP-1816: AI 자신 신원일 때만 add_issue_chat
     });
     mcpServers = { workplace };
   }

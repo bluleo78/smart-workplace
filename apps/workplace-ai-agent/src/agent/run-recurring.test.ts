@@ -122,6 +122,16 @@ describe('runRecurring', () => {
       client: c.scoped,
     });
     expect(input.userId).toBe(7);
+    // WP-1816: 주인(7) 대행 ≠ 실행 AI(201) — 사람 신원이라 add_issue_chat 을 싣지 않는다.
+    expect(vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0]).toMatchObject({ recurringSelfIdentity: false });
+  });
+
+  // WP-1816: AI 가 자기 자신으로 도는 반복(주인 id === 실행 AI id)은 add_issue_chat 을 싣는다.
+  it('도구 신원이 AI 자신이면 recurringSelfIdentity 를 true 로 넘긴다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '정리')]);
+    const c = client();
+    await runRecurring({ ...payload, ownerUserId: 201 }, { client: c });
+    expect(vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0]).toMatchObject({ recurringSelfIdentity: true });
   });
 
   // WP-1312: 질문에 소유자가 답해 보낸 이어 처리 — 회차와 같은 AI 자격·소유자 대행·recurring 프로필·프롬프트로 돌고, 이어 처리 지시문을 쓰며,

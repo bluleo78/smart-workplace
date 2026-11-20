@@ -63,9 +63,11 @@ export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>>
 /**
  * WP-377: AI Chat·서브에이전트 프로필에 싣지 않는 공유 도구. 외부 클라이언트(Claude Code·Cursor 등) 전용이다 —
  * 서버가 돌리는 AI 는 모델이 이슈 진행 기록(report_agent_work)을 보고하지 않는다(스펙 §1 "하지 않는 것") — 그 기록은 run-agent 의 실행 보고로 서버가 남긴다(WP-1219).
- * WP-373: get_issue_chat 도 같다 — 외부 AI 가 맡은 이슈에서 던진 질문의 답을 읽는 도구이고, 서버 AI 는 이슈 챗 스레드(chat 프로필)에서 직접 대화한다. 그래서 sharedTool() 이 이 이름을 거부하고,
+ * WP-373: get_issue_chat 도 같다 — 외부 AI 가 맡은 이슈에서 던진 질문의 답을 읽는 도구이고, 서버 AI 는 이슈 챗 스레드(chat 프로필)에서 직접 대화한다. 그래서 sharedTool() 이 이 이름을 거부한다.
  * WP-800: claim_issue 도 같다 — 대기열 라벨 이슈를 스스로 가져가는 외부 AI(work-loop) 전용이고, 서버 AI 는 담당 지정 시점에 일을 받는다.
  * WP-719: add_issue_chat 도 같다 — 외부 AI 가 담당 밖 이슈의 멘션에 이슈 챗으로 답하는 도구이고, 서버 AI 는 이슈 챗 스레드에서 직접 대화한다.
+ * WP-1816: 반복 실행(recurring·recurring-test)만 get_issue_chat·add_issue_chat 두 도구를 싣는다(RECURRING_RUN_ISSUE_CHAT_TOOLS) — 다른 이슈의 이슈챗에 있는 검토 보고를 읽고
+ * 보충을 요청하는 반복 업무(VOC 관리)를 위해서다(add_issue_chat 은 도구 신원이 AI 자신일 때만 — buildTools 의 recurringSelfIdentity). report_agent_work·claim_issue 는 반복 실행에서도 계속 제외한다.
  * tools.test.ts 의 "공유 도구 전부 노출" 검사도 이 목록만 빼고 본다. CARD_ONLY_SHARED_TOOLS 와 달리 대체 도구(확인 카드)는 없다.
  */
 export const AI_AGENT_EXCLUDED_SHARED_TOOLS: ReadonlySet<string> = new Set([
@@ -74,6 +76,12 @@ export const AI_AGENT_EXCLUDED_SHARED_TOOLS: ReadonlySet<string> = new Set([
   'add_issue_chat',
   'claim_issue',
 ]);
+
+/**
+ * WP-1816: 제외 목록(AI_AGENT_EXCLUDED_SHARED_TOOLS) 중 반복 실행 프로필만 예외로 싣는 이슈챗 도구 두 개.
+ * sharedTool 의 allowIssueChat 이 true 이고 이름이 이 집합에 있을 때만 제외 거부를 건너뛴다(report_agent_work·claim_issue 는 예외 없음).
+ */
+export const RECURRING_RUN_ISSUE_CHAT_TOOLS: ReadonlySet<string> = new Set(['get_issue_chat', 'add_issue_chat']);
 
 /**
  * WP-423: 에이전트 신원 프로필(messaging)에서 입력을 좁혀 싣는 공유 도구 — 도구 이름 → 뺀 입력 필드.
@@ -322,6 +330,7 @@ export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant' |
 export const RECURRING_RUN_TOOLS: readonly string[] = [
   // 이슈·프로젝트
   'list_issues', 'get_issue_detail', 'list_projects', 'get_project',
+  'get_issue_chat', // WP-1816: 다른 이슈의 이슈챗(검토 보고)을 읽는다
   // 노트
   'list_wiki_spaces', 'list_wiki_pages', 'search_wiki', 'get_wiki_page', 'list_wiki_backlinks',
   'list_my_wiki_pages', // WP-1766: 내 최근·즐겨찾기 노트
@@ -370,6 +379,12 @@ export const RECURRING_RUN_WRITE_TOOLS: readonly string[] = [
   // 알림 — WP-1689 읽은 알림 보관(되돌릴 수 있는 쓰기)
   'mark_notification_read', 'mark_all_notifications_read', 'archive_read_notifications',
 ];
+
+/**
+ * WP-1816: 반복 실행이 도구 신원이 AI 자신일 때만 더 싣는 쓰기(buildTools 의 recurringSelfIdentity) — 다른 이슈의 이슈챗에 보충을 요청한다.
+ * 주인(사람) 대행이면 그 글이 사람 글(ChatMessageService humanReply)이 되어 반복의 대기 질문 소비·예약 AI 깨움을 일으킬 수 있어 싣지 않는다.
+ */
+export const RECURRING_RUN_SELF_WRITE_TOOLS: readonly string[] = ['add_issue_chat'];
 
 /**
  * WP-1311: 공유 직접 실행 도구가 없고 확인 카드로만 하던 되돌릴 수 없는 작업 — 반복 회차에서는 카드 대신 바로 실행한다(도구 이름 → 실행기 actionType).
@@ -507,23 +522,30 @@ export function buildTools(
   // WP-1313: recurring-test 프로필에서 실행을 허락한 되돌릴 수 없는 쓰기(도구 이름, 같은 이름이 여러 번이면 그만큼) — 테스트 질문에 사람이 답해
   // 보낸 이어 처리가 그 질문이 멈춘 쓰기만 하게 한다. 이 실행 안에서 하나당 한 번만 쓰이고, 그 밖의 되돌릴 수 없는 쓰기는 멈춘다.
   recurringPermits: readonly string[] = [],
+  // WP-1816: recurring·recurring-test 의 도구 신원이 AI 자신인지(onBehalfOfId === 실행 AI id). false(기본)면 주인(사람) 대행이라
+  // add_issue_chat 을 싣지 않는다 — 그 글이 사람 글(ChatMessageService humanReply)이 되어 반복의 대기 질문 소비·예약 AI 깨움을 일으킬 수 있다.
+  recurringSelfIdentity = false,
 ): McpTool[] {
   // #846: 두 앱 공유 도구(이슈·프로젝트·노트·캘린더·메일·구성원·메시징·드라이브 읽기) — 프로필이 이름으로 골라 쓴다.
   // 같은 이름의 도구를 여기서 따로 정의하지 않는다(tools.test.ts 패리티 테스트가 강제) — 정의가 두 벌이면 파라미터가 어긋난다.
   const sc = client.toolClient(agentId);
+  // 반복 회차(정기·테스트 실행) — 이슈챗 첨부 안내와 반복 도구 목록이 같은 판정을 쓴다.
+  const isRecurringProfile = profile === 'recurring' || profile === 'recurring-test';
   const shared = buildSharedTools(sc, {
     // 스레드 mirror: 바인딩된 트리거 채널에 한해 그 스레드 parent 로 답한다(다른 채널은 인라인).
     parentMessageIdFor: (channelId) =>
       threadBinding && threadBinding.channelId === channelId ? threadBinding.parentMessageId : undefined,
     imageInput,
-    // WP-392: get_issue_chat 을 싣지 않으므로(AI_AGENT_EXCLUDED_SHARED_TOOLS) read_file 설명에서 issue_chat 안내도 뺀다.
-    issueChatSource: !AI_AGENT_EXCLUDED_SHARED_TOOLS.has('get_issue_chat'),
+    // WP-392: get_issue_chat 을 싣지 않으면(AI_AGENT_EXCLUDED_SHARED_TOOLS) read_file 설명에서 issue_chat 안내도 뺀다.
+    // WP-1816: 반복 실행은 get_issue_chat 을 싣고 이슈챗 첨부도 읽으므로 안내를 남긴다.
+    issueChatSource: isRecurringProfile,
     // WP-421 결정 8: upload_file 은 content 모드만 — 웹 AI Chat 사용자에게는 셸이 없어 업로드 링크를 쓸 수 없다(설명·거절은 공유본이 만든다).
     // 요청자 신원(assistant)에만 싣는다 — 에이전트 신원 프로필(issue·messaging·chat)의 기능 확대는 README WP-355 절이 보류한 제품 결정이다.
     allowUploadLink: false,
   });
   // allowCardOnly: 반복 회차(recurring)만 확인 카드 전용 공유 도구를 직접 싣는다(WP-1311) — 다른 프로필은 지금처럼 거부한다.
-  const sharedTool = (name: string, opts: { allowCardOnly?: boolean } = {}): McpTool => {
+  // allowIssueChat: 반복 회차만 이슈챗 두 도구(RECURRING_RUN_ISSUE_CHAT_TOOLS)를 싣는다(WP-1816).
+  const sharedTool = (name: string, opts: { allowCardOnly?: boolean; allowIssueChat?: boolean } = {}): McpTool => {
     const t = shared.find((x) => x.name === name);
     if (!t) throw new Error(`공유 도구 없음: ${name}`);
     // #853: 되돌릴 수 없는 공유 도구를 직접 실행으로 노출하지 않는다 — 그런 작업은 propose_* 확인 카드로만 한다.
@@ -531,7 +553,9 @@ export function buildTools(
     // WP-348: 확인 카드가 있는 작업의 직접 실행 도구는 AI Chat 에 싣지 않는다 — 카드를 띄울 수 없는 반복 실행만 allowCardOnly 로 싣는다(WP-1311).
     if (name in CARD_ONLY_SHARED_TOOLS && !opts.allowCardOnly) throw new Error(`확인 카드로만 하는 공유 도구는 직접 노출할 수 없습니다: ${name}`);
     // WP-377: 외부 클라이언트 전용 도구(진행 보고)는 서버 AI 에 싣지 않는다.
-    if (AI_AGENT_EXCLUDED_SHARED_TOOLS.has(name)) throw new Error(`외부 클라이언트 전용 공유 도구는 노출할 수 없습니다: ${name}`);
+    // WP-1816: 제외 목록의 예외 — 반복 실행(allowIssueChat)이 싣는 이슈챗 두 도구만 통과한다.
+    const issueChatException = opts.allowIssueChat === true && RECURRING_RUN_ISSUE_CHAT_TOOLS.has(name);
+    if (AI_AGENT_EXCLUDED_SHARED_TOOLS.has(name) && !issueChatException) throw new Error(`외부 클라이언트 전용 공유 도구는 노출할 수 없습니다: ${name}`);
     // WP-342: 연산 성격 힌트를 실어 보낸다 — Claude Code 가 readOnlyHint 로 읽기 도구를 병렬 실행한다. 로컬 전용 도구는 힌트가 없다.
     return { ...t, annotations: toolAnnotations(t) };
   };
@@ -1519,12 +1543,13 @@ export function buildTools(
   }
 
   // WP-989·WP-1311: 반복 회차 — 소유자 권한의 읽기·쓰기. 사람이 지켜보지 않아 카드를 누를 사람이 없으므로 확인 카드 작업도 바로 실행한다.
-  if (profile === 'recurring' || profile === 'recurring-test') {
+  if (isRecurringProfile) {
     const tools = [
-      ...RECURRING_RUN_TOOLS.map((n) => sharedTool(n)),
-      ...RECURRING_RUN_WRITE_TOOLS.map((n) =>
+      ...RECURRING_RUN_TOOLS.map((n) => sharedTool(n, { allowIssueChat: true })),
+      // WP-1816: AI 자신 신원일 때만 RECURRING_RUN_SELF_WRITE_TOOLS(add_issue_chat)를 더 싣는다.
+      ...[...RECURRING_RUN_WRITE_TOOLS, ...(recurringSelfIdentity ? RECURRING_RUN_SELF_WRITE_TOOLS : [])].map((n) =>
         // create_drive_file 은 AI Chat 과 같이 content 모드만(업로드 링크를 받을 사람이 없다).
-        n === 'create_drive_file' ? createDriveFileTool : sharedTool(n, { allowCardOnly: n in CARD_ONLY_SHARED_TOOLS }),
+        n === 'create_drive_file' ? createDriveFileTool : sharedTool(n, { allowCardOnly: n in CARD_ONLY_SHARED_TOOLS, allowIssueChat: true }),
       ),
       ...buildRecurringDirectActionTools(),
     ];

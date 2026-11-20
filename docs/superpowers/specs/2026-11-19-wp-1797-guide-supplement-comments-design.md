@@ -1,3 +1,5 @@
+> 이슈챗 도구가 생겨 원래 설계로 되돌림(WP-1816) — docs/superpowers/specs/2026-11-20-wp-1816-recurring-issue-chat-design.md
+
 # WP-1797 — 반영 안내 보충 요청을 댓글 기준으로 (설계, 짧은 판)
 
 ## 의도와 까닭

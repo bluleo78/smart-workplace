@@ -222,7 +222,7 @@ export interface IssueToolClient
     q: { after?: number; limit?: number },
   ): Promise<{ items: Record<string, unknown>[]; nextCursor?: string | null; hasMore: boolean; truncated?: boolean }>;
   /** POST /chat/threads/{id}/messages — 이슈 챗에 글을 남긴다(WP-719). 쓰기 권한은 댓글과 같고, 처음 쓰면 서버가 대화에 참여시킨다. */
-  addIssueChatMessage(threadId: number, body: string): Promise<void>;
+  addIssueChatMessage(threadId: number, body: string, fileIds?: number[]): Promise<void>; // WP-1816: fileIds = upload_file 로 올린 첨부
   /** 이슈 상세 — 백엔드 raw JSON 반환(정규화는 도구 핸들러가 normalizeIssueDetail 로 수행). */
   getIssueDetail(issueKey: string): Promise<unknown>;
   /** 이슈 생성 — 생성 응답 raw 반환. */

@@ -89,6 +89,8 @@ export function buildInProcessWorkplaceMcpServer(i: {
   homeSessionId?: string;
   // WP-1313: recurring-test 프로필에서 실행을 허락한 되돌릴 수 없는 쓰기(테스트 질문의 이어 처리).
   recurringPermits?: readonly string[];
+  // WP-1816: 도구 신원이 AI 자신인 반복 실행(true)만 add_issue_chat 을 싣는다.
+  recurringSelfIdentity?: boolean;
 }): McpSdkServerConfigWithInstance {
   const tools = buildTools(
     i.client,
@@ -102,6 +104,7 @@ export function buildInProcessWorkplaceMcpServer(i: {
     // WP-250: Claude 는 이미지를 볼 수 있어 페이지 보기를 연다.
     true,
     i.recurringPermits,
+    i.recurringSelfIdentity,
   );
   // 라우터·서브에이전트 호출이 같은 인스턴스를 공유하므로 seq 카운터 1개로 전체 순서 보존.
   let seq = 0;

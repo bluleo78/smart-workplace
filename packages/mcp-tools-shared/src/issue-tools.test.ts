@@ -1268,8 +1268,21 @@ describe('add_issue_chat (WP-719)', () => {
     );
     const out = await chatTool(c).handler({ issueKey: 'WP-1', body: '@dh.yang@iacloud.kr 원인은 X 입니다' });
     expect(c.getIssueChatThreadId).toHaveBeenCalledWith('WP-1');
-    expect(c.addIssueChatMessage).toHaveBeenCalledWith(55, '<@7> 원인은 X 입니다');
+    expect(c.addIssueChatMessage).toHaveBeenCalledWith(55, '<@7> 원인은 X 입니다', undefined);
     expect(resultText(out)).toBe('ok');
+  });
+
+  it('add_issue_chat 은 fileIds 를 이슈 챗 글에 함께 넘긴다(WP-1816)', async () => {
+    const c = mockClient();
+    await chatTool(c).handler({ issueKey: 'WP-1', body: '스크린샷 첨부', fileIds: [11, 12] });
+    expect(c.addIssueChatMessage).toHaveBeenCalledWith(55, '스크린샷 첨부', [11, 12]);
+  });
+
+  it('add_issue_chat 은 fileIds 가 11개면 거절한다', async () => {
+    const c = mockClient();
+    const fileIds = Array.from({ length: 11 }, (_, i) => i + 1);
+    await expect(chatTool(c).handler({ issueKey: 'WP-1', body: 'x', fileIds })).rejects.toThrow();
+    expect(c.addIssueChatMessage).not.toHaveBeenCalled();
   });
 
   it('빈 본문은 보내기 전에 거절한다', async () => {

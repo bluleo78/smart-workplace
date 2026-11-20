@@ -381,6 +381,15 @@ describe('buildOpencodeConfig', () => {
     expect(env(baseInput({ mcp: { client, profile: 'recurring-test', onBehalfOfId: 1, recurringPermits: [] } }))).not.toHaveProperty('MCP_RECURRING_PERMITS');
   });
 
+  // WP-1816: AI 자신 신원인 반복 실행만 MCP_RECURRING_SELF=1 — 아니면 키가 없다.
+  it('mcp.recurringSelfIdentity 가 true 면 MCP_RECURRING_SELF=1, 아니면 키 없음', () => {
+    const client = {} as unknown as WorkplaceApiClient;
+    const env = (i: RunnerInput) =>
+      (buildOpencodeConfig(i, 'run-1', ['cmd'], VISION_ON).mcp?.workplace as { environment?: Record<string, string> }).environment;
+    expect(env(baseInput({ mcp: { client, profile: 'recurring', onBehalfOfId: 1, recurringSelfIdentity: true } }))?.MCP_RECURRING_SELF).toBe('1');
+    expect(env(baseInput({ mcp: { client, profile: 'recurring', onBehalfOfId: 1 } }))).not.toHaveProperty('MCP_RECURRING_SELF');
+  });
+
   it('mcp.onBehalfOfTenantId 있으면 MCP_ON_BEHALF_OF_TENANT 추가, 없으면 키 없음', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const env = (i: RunnerInput) =>

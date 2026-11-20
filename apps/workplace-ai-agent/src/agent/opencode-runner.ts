@@ -82,7 +82,10 @@ function poolKeyFor(i: RunnerInput, { vision, limit }: OpencodeModelSettings): s
   // WP-1368: 시스템 프롬프트(이제 AI 별 「지시」가 맨 뒤에 실린다)도 스폰 때 config 에 고정되므로 키에 넣는다 — 관리자가 지시를 고치면
   // 옛 지시가 박힌 웜 서버를 재사용하지 않고 새 서버를 띄운다. 프롬프트 전문은 길어 sha256 앞 12자리만 쓴다(구분용이라 충분).
   const promptKey = createHash('sha256').update(i.systemPrompt).digest('hex').slice(0, 12);
-  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}${limitKey}${variantKey}:${promptKey}`;
+  // WP-1816: MCP_RECURRING_SELF(add_issue_chat 을 싣는지)도 env 로 고정되므로 키에 넣는다 — 지금은 agentId·onBehalfOfId 에서 정해지지만,
+  // 정하는 방식이 바뀌어도 AI 자신 신원 서버를 사람 대행 실행이 재사용하지 않게 명시한다.
+  const selfKey = i.mcp.recurringSelfIdentity ? ':self' : '';
+  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}${limitKey}${variantKey}${selfKey}:${promptKey}`;
 }
 
 // 세션 생성 + 이벤트 구독 — 풀에서 재사용한 서버든 새로 스폰한 서버든 동일하게 거친다. 실패 시

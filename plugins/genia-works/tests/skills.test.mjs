@@ -600,6 +600,8 @@ test('SKILL.md: AI 담당자가 여럿이면 멘션된 AI 만 반응하고 나�
   const line = lineWith(workLoop('SKILL.md'), '누구에게 한 글인가');
   assert.ok(line.includes('멘션된 AI 만 반응하고'));
   assert.ok(line.includes('「답하지 않고 넘긴 글」'));
+  // 멘션을 어디서 읽는지 출처를 나눠 적는다 — 댓글 멘션은 get_issue_chat 에 없다(WP-1816 리뷰 후속).
+  assert.ok(line.includes('이슈 챗 글은 `get_issue_chat`, 댓글은 `get_issue_detail` 의 `comments`'));
 });
 
 // WP-994 오래 걸리는 작업 — 빠지면 push 게이트 동안 루프가 다른 일을 못 하거나, 끝난 게이트 결과를 이어 받지 못한다.
@@ -1189,20 +1191,22 @@ test('process-issue.md: 검토자는 최종 보고의 바뀐 것·확인 위치�
   assertBefore(reviewer, '**최종 보고 확인**', '6. **머지**:');
 });
 const guideReq = section(pi, '\n### 반영 안내 보충 (끝난 이슈)\n', '\n### 분류 (분류 역할 AI)\n');
-// 안내 자료가 모자랄 때 새 TASK 를 만들면 요청자 VOC 와 무관한 이슈가 쌓인다 — 끝난 개발 이슈의 댓글 멘션으로 받고(이슈 관리자는 이슈 챗을 쓸 수 없다, WP-1797), 댓글로 보충한다.
-test('process-issue.md: 반영 안내 보충은 끝난 이슈에서 구현·새 이슈 없이 확인해 캡처를 넣은 댓글로 답한다', () => {
+// 안내 자료가 모자랄 때 새 TASK 를 만들면 요청자 VOC 와 무관한 이슈가 쌓인다 — 끝난 개발 이슈의 이슈 챗 멘션으로 받고(WP-1816 — 이슈 관리자도 이슈 챗을 쓴다), 이슈 챗 한 번으로 보충한다. 이행 기간 댓글로 온 요청도 찾는다.
+test('process-issue.md: 반영 안내 보충은 끝난 이슈에서 구현·새 이슈 없이 확인해 캡처를 붙인 이슈 챗 글로 답한다', () => {
   for (const s of ['`[반영 안내 보충]`', '구현하지 않는다', '새 이슈도 만들지 않는다', '「모자란 것」으로 적은 항목만',
-    '다른 프로젝트 이슈는 열지 않는다', '워크트리·브랜치·커밋·PR·게이트 없이', '`add_comment` **한 번**',
-    '`![설명](file:<fileId>)`', 'notes 파일을 만들지 않는다', '결함 이슈를 만들어']) {
+    '다른 프로젝트 이슈는 열지 않는다', '워크트리·브랜치·커밋·PR·게이트 없이', '`add_issue_chat` **한 번**',
+    '`fileIds`', 'notes 파일을 만들지 않는다', '결함 이슈를 만들어']) {
     assert.ok(guideReq.includes(s), `「${s}」 가 없다`);
   }
   assert.ok(!guideReq.includes("state: 'REVIEW'"), '끝난 이슈라 작업 보고를 쓰지 않는다');
-  // WP-1797 — 요청은 댓글로 온다: 댓글(전부)과 이슈 챗을 둘 다 읽고, 나를 멘션한 가장 최근 요청에 답한다.
-  assert.ok(guideReq.includes('댓글로 나를 멘션해'), '요청이 댓글로 온다는 말이 없다');
-  for (const s of ['`get_issue_detail` 의 `comments`', '`allComments: true`', '이슈 챗은 `get_issue_chat`', '가장 최근 것']) {
+  // WP-1816 — 요청은 이슈 챗으로 온다. 이행 기간 댓글로 온 요청도 찾고(allComments), 둘을 합쳐 가장 최근 요청에 답한다. 답은 이슈 챗.
+  assert.ok(guideReq.includes('이슈 챗에 누군가'), '요청이 이슈 챗으로 온다는 말이 없다');
+  for (const s of ['`get_issue_chat`', '`get_issue_detail` 의 `comments`', '`allComments: true`', '이행 기간', '가장 최근 것', '`upload_file`']) {
     assert.ok(guideReq.includes(s), `「${s}」 가 없다`);
   }
-  assert.ok(!guideReq.includes('없으면 `get_issue_chat`'), '이슈 챗을 댓글이 없을 때만 보면 이슈 챗의 새 요청을 놓친다');
+  assert.ok(!guideReq.includes('`add_comment` **한 번**'), '답을 댓글로 하라는 문구가 남아 있다');
+  assert.ok(!guideReq.includes('이슈 챗을 쓸 수 없'), '이슈 관리자는 이슈 챗을 쓸 수 없다는 옛 문구가 남아 있다');
+  assert.ok(!guideReq.includes('없으면 `get_issue_chat`'), '이슈 챗을 댓글이 없을 때만 보면 요청을 놓친다');
   assert.ok(!pi.includes('「안내 자료 요청」'), '옛 안내 자료 요청(TASK) 갈래가 남아 있다');
   assert.ok(!triage.includes('안내 자료 요청'));
   // 끝난 이슈에도 PR 이 있다 — PR 갈래(1번부터·PR 리뷰)보다 먼저 이 절로 보내야 한다.
@@ -1211,7 +1215,7 @@ test('process-issue.md: 반영 안내 보충은 끝난 이슈에서 구현·새 
   // 4번 공통 절차의 notes 줄·WORKING 보고는 끝난 이슈에 하지 않는다.
   const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
   assert.ok(s4.includes('끝난 이슈의 반영 안내 보충은 notes 를 만들지 않으니 적지 않고'));
-  assert.ok(s4.includes('끝난 이슈에 반영 안내 보충 댓글을 남김'));
+  assert.ok(s4.includes('끝난 이슈에 반영 안내 보충 이슈 챗 글을 남김'));
 });
 test('SKILL.md 4번: 고른 처리 파일을 Read 로 읽고 notes 에 처리 파일 줄을 적는다 (WP-1717)', () => {
   const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
@@ -1224,17 +1228,18 @@ test('SKILL.md: 끝난 이슈의 [반영 안내 보충] 멘션을 DONE 조회로
   for (const t of ["mentionsMe: true, status: 'DONE', closedFrom:", '`hasMore` 면 `nextCursor`', '`[반영 안내 보충]` 으로 시작하는 이슈만 후보', '「답하지 않고 넘긴 글」', '`HOLD` 에서도 고른다']) {
     assert.ok(pick.includes(t), `「${t}」 가 없다`);
   }
-  // WP-1797 — 요청은 댓글로 온다(이슈 챗 글도 받는다).
-  assert.ok(pick.includes('`get_issue_detail` 의 `comments`'), '댓글 기준 문구가 없다');
-  assert.ok(!pick.includes('이슈 챗에서 나를 멘션해'), '옛 이슈 챗 기준 문구가 남아 있다');
+  // WP-1816 — 요청은 이슈 챗으로 온다(이행 기간 댓글로 온 요청도 찾는다).
+  assert.ok(pick.includes('이슈 챗에서 나를 멘션해'), '이슈 챗 기준 문구가 없다');
+  assert.ok(pick.includes('`get_issue_detail` 의 `comments`'), '이행 기간 댓글 요청을 찾는 문구가 없다');
+  assert.ok(!pick.includes('이슈 챗을 쓸 수 없'), '이슈 관리자는 이슈 챗을 쓸 수 없다는 옛 문구가 남아 있다');
   const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
   assert.match(s4, /^\| 누구든 \| [^\n]*「끝난 이슈의 반영 안내 보충」[^\n]*「반영 안내 보충 \(끝난 이슈\)」[^\n]*\|$/m);
   assertBefore(s4, '| 누구든 |', '| 기획 역할 AI |');
   const reviewer = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업 (백그라운드)\n');
   const finalCheck = lineWith(reviewer, '**최종 보고 확인**(WP-1705)');
   assert.ok(finalCheck.includes('`[반영 안내 보충]` 으로 시작'));
-  assert.ok(finalCheck.includes('`add_comment`'), '검토자는 머지 뒤 보충을 댓글로 요청한다');
-  assert.ok(finalCheck.includes('끝났든 아니든'), '머지 뒤 열린 이슈의 요청이 닫힌 뒤 버려지지 않게 늘 표지 댓글로');
+  assert.ok(finalCheck.includes('`add_issue_chat`'), '검토자는 머지 뒤 보충을 이슈 챗으로 요청한다');
+  assert.ok(!finalCheck.includes('`add_comment`'), '검토자의 보충 요청을 댓글로 하라는 문구가 남아 있다');
   const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
   assert.ok(!project.includes('VOC 반영 안내'), 'project.md 에 옛 안내 요청 TASK 라벨이 남아 있다');
 });

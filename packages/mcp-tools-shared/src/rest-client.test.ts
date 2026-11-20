@@ -114,6 +114,15 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(await client.listIssues({})).toEqual({ items: [], nextCursor: undefined, hasMore: undefined });
   });
 
+  it('이슈 챗 글쓰기: fileIds 가 있을 때만 본문에 싣는다(WP-1816)', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValue({ data: {} });
+    await client.addIssueChatMessage(55, '글', [11, 12]);
+    expect(http.post).toHaveBeenLastCalledWith('/chat/threads/55/messages', { body: '글', fileIds: [11, 12] });
+    await client.addIssueChatMessage(55, '글');
+    expect(http.post).toHaveBeenLastCalledWith('/chat/threads/55/messages', { body: '글' });
+  });
+
   it('이슈 챗: 스레드 id 를 구하고 메시지를 after / afterMine 으로 읽는다(WP-373)', async () => {
     const { http, client } = mockHttp();
     http.get.mockResolvedValueOnce({ data: { threadId: 55 } });

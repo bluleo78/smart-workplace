@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, RECURRING_RUN_DIRECT_ACTIONS, RECURRING_RUN_TOOLS, RECURRING_RUN_WRITE_TOOLS, RECURRING_TEST_GATED_TOOLS, RECURRING_TEST_PAUSED_MESSAGE, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
+import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, RECURRING_RUN_DIRECT_ACTIONS, RECURRING_RUN_ISSUE_CHAT_TOOLS, RECURRING_RUN_SELF_WRITE_TOOLS, RECURRING_RUN_TOOLS, RECURRING_RUN_WRITE_TOOLS, RECURRING_TEST_GATED_TOOLS, RECURRING_TEST_PAUSED_MESSAGE, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -613,9 +613,9 @@ describe('프로필 구성', () => {
 
   // WP-989·WP-1311: 반복 회차 실행은 사람이 없어 확인 카드를 띄울 수 없다 — 읽기 도구와 함께, 카드로만 하던 작업까지 카드 없이 바로 하는 쓰기 도구를 싣는다.
   it('recurring 프로필은 소유자 권한의 읽기·쓰기 도구를 싣고 확인 카드 도구는 없다', () => {
-    const tools = buildTools(client(), AGENT_ID, 'recurring');
+    const tools = buildTools(client(), AGENT_ID, 'recurring', undefined, undefined, undefined, undefined, undefined, true, [], true);
     const names = tools.map((t) => t.name);
-    expect(names).toEqual([...RECURRING_RUN_TOOLS, ...RECURRING_RUN_WRITE_TOOLS, ...Object.keys(RECURRING_RUN_DIRECT_ACTIONS)]);
+    expect(names).toEqual([...RECURRING_RUN_TOOLS, ...RECURRING_RUN_WRITE_TOOLS, ...RECURRING_RUN_SELF_WRITE_TOOLS, ...Object.keys(RECURRING_RUN_DIRECT_ACTIONS)]);
     expect(new Set(names).size).toBe(names.length);
     for (const r of RECURRING_RUN_TOOLS) expect(find(tools, r).annotations?.readOnlyHint, r).toBe(true);
     // 소유자 권한으로 메일·일정·연락처·노트·드라이브·이슈를 읽는다(홈 비서의 읽기 도구).
@@ -633,8 +633,60 @@ describe('프로필 구성', () => {
     // 사람이 승인하는 확인 카드·화면 표시 도구는 없다. 담당 빠지기(이슈 AI 전용)·다운로드 링크(받을 사람이 없다)도 싣지 않는다.
     expect(names.filter((n) => n.startsWith('propose_') || n.startsWith('show_'))).toEqual([]);
     for (const n of ['unassign_self', 'create_drive_download_link', 'add_chat_message']) expect(names).not.toContain(n);
-    for (const n of AI_AGENT_EXCLUDED_SHARED_TOOLS) expect(names).not.toContain(n);
+    // WP-1816: 이슈챗 두 도구는 반복 실행만 예외로 싣는다 — 나머지 제외 도구는 그대로 없다.
+    for (const n of AI_AGENT_EXCLUDED_SHARED_TOOLS) {
+      if (RECURRING_RUN_ISSUE_CHAT_TOOLS.has(n)) expect(names).toContain(n);
+      else expect(names).not.toContain(n);
+    }
     expect(routerToolsFor('recurring')).toBeUndefined();
+  });
+
+  it('WP-1816: AI 자신 신원의 recurring·recurring-test 는 get_issue_chat·add_issue_chat 을 싣고 report_agent_work·claim_issue 는 싣지 않는다', () => {
+    for (const p of ['recurring', 'recurring-test'] as const) {
+      const names = buildTools(client(), AGENT_ID, p, undefined, undefined, undefined, undefined, undefined, true, [], true).map((t) => t.name);
+      expect(names, p).toContain('get_issue_chat');
+      expect(names, p).toContain('add_issue_chat');
+      expect(names, p).not.toContain('report_agent_work');
+      expect(names, p).not.toContain('claim_issue');
+    }
+    expect(RECURRING_RUN_TOOLS).toContain('get_issue_chat');
+    expect(RECURRING_RUN_SELF_WRITE_TOOLS).toEqual(['add_issue_chat']);
+    expect(RECURRING_RUN_WRITE_TOOLS).not.toContain('add_issue_chat');
+  });
+
+  // 주인(사람) 대행이면 add_issue_chat 글이 사람 글이 되어 반복의 대기 질문을 소비하거나 AI 를 깨울 수 있어 읽기만 싣는다.
+  it('WP-1816: 주인(사람) 대행 신원의 recurring·recurring-test 는 get_issue_chat 만 싣고 add_issue_chat 은 싣지 않는다', () => {
+    for (const p of ['recurring', 'recurring-test'] as const) {
+      const defaultNames = buildTools(client(), AGENT_ID, p).map((t) => t.name);
+      const explicitNames = buildTools(client(), AGENT_ID, p, undefined, undefined, undefined, undefined, undefined, true, [], false).map((t) => t.name);
+      for (const names of [defaultNames, explicitNames]) {
+        expect(names, p).toContain('get_issue_chat');
+        expect(names, p).not.toContain('add_issue_chat');
+        expect(names, p).toContain('add_comment'); // 다른 쓰기 도구는 그대로
+      }
+    }
+  });
+
+  it('WP-1816: 반복 실행 밖 프로필(issue·chat·home·messaging·assistant)은 이슈챗 도구를 싣지 않는다', () => {
+    for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as const) {
+      const names = buildTools(client(), AGENT_ID, p).map((t) => t.name);
+      expect(names, p).not.toContain('get_issue_chat');
+      expect(names, p).not.toContain('add_issue_chat');
+    }
+  });
+
+  it('WP-1816: recurring 의 read_file 설명에 issue_chat 출처가 있고 assistant 에는 없다', () => {
+    expect(find(buildTools(client(), AGENT_ID, 'recurring'), 'read_file').description).toContain('issue_chat');
+    expect(find(buildTools(client(), AGENT_ID, 'assistant'), 'read_file').description).not.toContain('issue_chat');
+  });
+
+  it('WP-1816: recurring-test 의 add_issue_chat 은 멈추지 않고 바로 실행한다', async () => {
+    const c = client();
+    const b = { onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() } satisfies HostBridge;
+    const tools = buildTools(c, AGENT_ID, 'recurring-test', undefined, undefined, b, undefined, undefined, true, [], true);
+    await find(tools, 'add_issue_chat').handler({ issueKey: 'WP-5', body: '보충 요청' });
+    expect(b.onProposal).not.toHaveBeenCalled();
+    expect(c.sc.addIssueChatMessage).toHaveBeenCalled();
   });
 
   // 공유 도구와 이름이 같은 도구는 공유 스키마 그대로여야 하고(카드 전용 도구도), 서버 레이어가 shape 를 쓰므로 모두 ZodObject 다.
@@ -868,7 +920,7 @@ describe('공유 도구 패리티 (#846)', () => {
     for (const v of variants) expect(v.build(c).map((t) => t.name), v.label).not.toContain('claim_issue');
   });
 
-  it('WP-377: 제외 목록의 도구는 실제 공유 도구이고 어떤 프로필에도 없다', () => {
+  it('WP-377: 제외 목록의 도구는 실제 공유 도구이고 이 variants 목록의 어떤 프로필에도 없다(WP-1816: 반복 실행은 이슈챗 두 도구 예외라 이 목록에 없다)', () => {
     const c = client();
     const shared = new Set(buildSharedTools(c.sc).map((t) => t.name));
     for (const name of AI_AGENT_EXCLUDED_SHARED_TOOLS) expect(shared.has(name), name).toBe(true); // 낡은 항목 방지

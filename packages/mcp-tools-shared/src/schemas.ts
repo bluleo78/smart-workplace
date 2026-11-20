@@ -314,4 +314,5 @@ export const getIssueChatInput = z.object({
  * add_issue_chat 입력(WP-719) — 담당이 아니어도 이슈 챗에 글을 남긴다(멘션받은 질문에 물은 곳에서 답하기). 길이 상한은 두지 않는다 —
  * @username 이 <@id> 로 바뀌며 길이가 달라지므로 변환 뒤 본문을 서버(@Size 4000)가 검증한다(report_agent_work message 와 같다).
  */
-export const addIssueChatInput = z.object({ issueKey: z.string().min(1), body: z.string().min(1) });
+// WP-1816: 이슈 챗 글에도 upload_file 로 올린 파일(스크린샷 등)을 붙일 수 있다 — 서버 POST /chat/threads/{id}/messages 가 이미 fileIds 를 받는다.
+export const addIssueChatInput = z.object({ issueKey: z.string().min(1), body: z.string().min(1), fileIds: stagedFileIdsInput.optional() });
