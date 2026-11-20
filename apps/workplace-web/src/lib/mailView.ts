@@ -9,8 +9,9 @@ import { folderAncestorIds, serverFolderLabel } from './mailFolders'
 
 // drafts(WP-577) — 앱 서버 임시보관함. IMAP 폴더가 아니라 메시지 목록 API 를 쓰지 않는다.
 // folder(WP-961) — 서버의 보관·휴지통(WP-1681)·내 메일함 하나(?box=<메일함 id>). 목록·안 읽은 수·모두 읽음 API 에 folderId 로 보낸다.
+// scheduled(WP-1787) — 앱 서버 예약 목록(보낼 시각을 정해 둔 메일). drafts 와 같이 메시지 목록 API 를 쓰지 않는다.
 // flagged(WP-1742) — 별표 모아 보기(?flagged=true). 계정의 모든 메일함(휴지통 제외)의 별표 메일을 한 목록에 — 목록 API 에 flagged=true.
-export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent' | 'drafts' | 'folder' | 'flagged'
+export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent' | 'drafts' | 'scheduled' | 'folder' | 'flagged'
 
 /** 별표 모아 보기 URL 파라미터(WP-1742) — ?flagged=true. 회신필요(?needsReply=true)와 같은 모양. */
 export const MAIL_FLAGGED_PARAM = 'flagged'
@@ -76,6 +77,9 @@ export function resolveMailView(
   }
   if (params.get('folder') === 'drafts') {
     return { kind: 'drafts', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '임시보관함', breadcrumb: [{ label: '임시보관함' }], key: 'drafts', folderId: null }
+  }
+  if (params.get('folder') === 'scheduled') {
+    return { kind: 'scheduled', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '예약됨', breadcrumb: [{ label: '예약됨' }], key: 'scheduled', folderId: null }
   }
   // 서버 메일함 — 딥링크 판정보다 먼저 본다(?box=5&messageId=9 는 그 메일함에서 연 메일). 분류·회신필요는 쓰지 않는다.
   const boxId = Number(params.get(MAIL_BOX_PARAM))
@@ -195,6 +199,7 @@ export function unreadCountForView(
       return counts.needsReply
     case 'sent':
     case 'drafts':
+    case 'scheduled':
       return 0
     case 'flagged':
       return null

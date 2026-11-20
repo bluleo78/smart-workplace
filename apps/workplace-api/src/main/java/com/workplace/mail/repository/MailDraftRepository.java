@@ -14,6 +14,7 @@ import com.workplace.mail.dto.MailDraftDetail.Attachment;
 import com.workplace.mail.dto.MailDraftSaved;
 import com.workplace.mail.dto.MailDraftSummary;
 import com.workplace.mail.dto.MailDraftVersion;
+import com.workplace.mail.dto.MailScheduledSummary;
 import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
 import com.workplace.mail.dto.MailSendRequest.InlineUploadRef;
 import com.workplace.mail.dto.QueuedSend;
@@ -129,17 +130,19 @@ public class MailDraftRepository {
   }
 
   /**
-   * 새 임시저장을 곧바로 보내기 대기(QUEUED)로 만든다(WP-1786 보내기) — 지금(DB 시계)부터 delaySeconds 초 뒤를 send_at 으로, 값과 대기
-   * 표시를 같은 INSERT 한 문장에 담는다(따로 UPDATE 하지 않는다).
+   * 새 임시저장을 곧바로 보내기 대기(QUEUED)로 만든다(WP-1786 보내기) — 값과 대기 표시를 같은 INSERT 한 문장에 담는다(따로 UPDATE 하지 않는다).
+   * 보낼 시각은 sendAt 이 있으면 그 시각(예약 발송, WP-1787), 없으면 지금(DB 시계)부터 delaySeconds 초 뒤(되돌리기 유예).
    *
-   * @return 새 id 와 DB 가 정한 보낼 시각
+   * @param sendAt 예약 시각(null 이면 즉시 보내기 — 되돌리기 유예)
+   * @return 새 id 와 보낼 시각
    */
-  public QueuedSend insertQueued(long userId, Fields f, QueueFields q, int delaySeconds) {
+  public QueuedSend insertQueued(
+      long userId, Fields f, QueueFields q, int delaySeconds, OffsetDateTime sendAt) {
     var r =
         insertStep(userId, f, q)
             .set(MAIL_DRAFT.SEND_STATE, SendState.QUEUED)
-            .set(MAIL_DRAFT.SEND_AT, dbNowPlusSeconds(delaySeconds))
-            .set(MAIL_DRAFT.SENT_BY_SCHEDULE, false)
+            .set(MAIL_DRAFT.SEND_AT, sendAtField(delaySeconds, sendAt))
+            .set(MAIL_DRAFT.SENT_BY_SCHEDULE, sendAt != null)
             .returning(MAIL_DRAFT.ID, MAIL_DRAFT.SEND_AT)
             .fetchOne();
     return new QueuedSend(r.getId(), r.getSendAt());
@@ -187,7 +190,8 @@ public class MailDraftRepository {
 
   /**
    * 보내기가 내 일반·FAILED 임시보관을 이어받아 곧바로 보내기 대기(QUEUED)로 만든다(WP-1786) — 버전 검사 없이 값을 고치고(버전 +1) 이전 실패 흔적을
-   * 지우며, 지금(DB 시계)부터 delaySeconds 초 뒤를 send_at 으로 같은 UPDATE 한 문장에서 표시한다.
+   * 지우며, 보낼 시각을 같은 UPDATE 한 문장에서 표시한다 — sendAt 이 있으면 그 시각(예약 발송, WP-1787), 없으면 지금(DB 시계)부터
+   * delaySeconds 초 뒤.
    *
    * <p>보낼 시각을 DB 시계로 계산하는 이유: 스케줄러의 잡기·멈춤 정리가 DB now() 와 비교하므로, 앱 서버와 DB 의 시계가 어긋나도 되돌리기 유예가 줄거나 늘지
    * 않게(코드 리뷰).
@@ -195,13 +199,13 @@ public class MailDraftRepository {
    * @return DB 가 정한 보낼 시각. 없거나 남의 것이거나 이미 대기·발송 중이면 빈 값
    */
   public Optional<OffsetDateTime> updateQueued(
-      long userId, long draftId, Fields f, QueueFields q, int delaySeconds) {
+      long userId, long draftId, Fields f, QueueFields q, int delaySeconds, OffsetDateTime sendAt) {
     return updateStep(f, q)
         .set(MAIL_DRAFT.SEND_STATE, SendState.QUEUED)
         .set(MAIL_DRAFT.SEND_ERROR, (String) null)
-        .set(MAIL_DRAFT.SEND_AT, dbNowPlusSeconds(delaySeconds))
+        .set(MAIL_DRAFT.SEND_AT, sendAtField(delaySeconds, sendAt))
         .set(MAIL_DRAFT.SENDING_STARTED_AT, (OffsetDateTime) null)
-        .set(MAIL_DRAFT.SENT_BY_SCHEDULE, false)
+        .set(MAIL_DRAFT.SENT_BY_SCHEDULE, sendAt != null)
         .where(idleOwned(userId, draftId))
         .returning(MAIL_DRAFT.SEND_AT)
         .fetchOptional(MAIL_DRAFT.SEND_AT);
@@ -238,6 +242,11 @@ public class MailDraftRepository {
     return MAIL_DRAFT.SEND_STATE.isNull().or(MAIL_DRAFT.SEND_STATE.eq(SendState.FAILED));
   }
 
+  /** 보낼 시각 값 — 예약 시각이 있으면 그대로, 없으면 DB 시계 지금 + 유예(초). */
+  private static Field<OffsetDateTime> sendAtField(int delaySeconds, OffsetDateTime sendAt) {
+    return sendAt != null ? DSL.val(sendAt) : dbNowPlusSeconds(delaySeconds);
+  }
+
   /** DB 시계 기준 지금 + seconds 초 — 보낼 시각을 앱 시계와 섞지 않는다. */
   private static Field<OffsetDateTime> dbNowPlusSeconds(int seconds) {
     return DSL.field("now() + make_interval(secs => {0})", OffsetDateTime.class, DSL.val(seconds));
@@ -264,32 +273,110 @@ public class MailDraftRepository {
     return objectMapper.readValue(json.data(), type);
   }
 
+  /** 예약 발송 대기 행 조건 — QUEUED 이고 예약으로 올린 것(WP-1787). 즉시 보내기 되돌리기 대기·SENDING 은 아니다. */
+  private static Condition scheduledRow() {
+    return MAIL_DRAFT.SEND_STATE.eq(SendState.QUEUED).and(MAIL_DRAFT.SENT_BY_SCHEDULE.isTrue());
+  }
+
+  /** 내 예약 발송 대기 행 조건 — {@link #scheduledRow()} 에 내 행만. */
+  private static Condition scheduledOf(long userId) {
+    return MAIL_DRAFT.USER_ID.eq(userId).and(scheduledRow());
+  }
+
+  /** 목록 한 줄의 첨부 수 — 묶인 업로드 + 아직 남아 있는 전달 원본 첨부(상관 부분 쿼리 둘의 합). 임시보관·예약 목록이 같은 값을 쓴다. */
+  private static Field<Integer> attachmentCount() {
+    Field<Integer> uploads =
+        DSL.field(
+            DSL.selectCount()
+                .from(MAIL_DRAFT_ATTACHMENT)
+                .where(MAIL_DRAFT_ATTACHMENT.DRAFT_ID.eq(MAIL_DRAFT.ID)));
+    Field<Integer> forwards =
+        DSL.field(
+            DSL.selectCount()
+                .from(MAIL_DRAFT_FORWARD)
+                .where(MAIL_DRAFT_FORWARD.DRAFT_ID.eq(MAIL_DRAFT.ID)));
+    return uploads.plus(forwards).as("attachment_count");
+  }
+
+  /** DB 시계의 지금 — 예약 시각 검사(1분 뒤 이후)를 앱 시계와 섞지 않고 스케줄러와 같은 시계로 한다(WP-1787). */
+  public OffsetDateTime dbNow() {
+    return dsl.select(DSL.currentOffsetDateTime()).fetchOne().value1();
+  }
+
   /**
-   * 대기열에 올린다 — send_at 에 보낼 때가 되면 스케줄러가 집도록 QUEUED 로 바꾼다. 이전 실패 흔적(send_error)은 지운다. 보낼 시각을 앱이 정하는
-   * 길이다(예약 발송) — 보내기 직후 되돌리기 대기는 {@link #insertQueued}·{@link #updateQueued} 가 값과 함께 DB 시계로 올린다.
-   *
-   * <p>일반(send_state NULL)·FAILED 행만 올린다 — 이미 QUEUED·SENDING 인 행을 덮어쓰면 보내는 중인 행이 되돌려지므로 거절한다.
-   *
-   * @param bySchedule 예약 발송이면 true(완료 알림 문구가 달라진다), 즉시 보내기 후 되돌리기 대기면 false
-   * @return 올렸으면 true, 이미 대기·발송 중이거나 없으면 false
+   * 사용자별 예약 상한 검사를 한 줄로 세우는 트랜잭션 advisory 락(WP-1787) — 같은 사용자의 동시 예약이 센 뒤 넣는 사이에 끼어 100건을 넘지 않게 한다.
+   * 키는 2-인자(기능 이름 해시, 사용자 id)라 다른 기능의 락과 겹치지 않는다. 호출자 트랜잭션이 끝나면 풀린다.
    */
-  public boolean markQueued(long draftId, OffsetDateTime sendAt, boolean bySchedule) {
+  public void lockScheduleQuota(long userId) {
+    dsl.execute("SELECT pg_advisory_xact_lock(hashtext('mail-schedule'), ?)", (int) userId);
+  }
+
+  /**
+   * 내 예약 발송 대기 수(전 계정, 상한 100건 검사용, WP-1787).
+   *
+   * @param excludeDraftId 세지 않을 행(다시 예약하는 자기 행) — null 이면 모두 센다
+   */
+  public int countScheduledByUser(long userId, Long excludeDraftId) {
+    Condition cond = scheduledOf(userId);
+    if (excludeDraftId != null) {
+      cond = cond.and(MAIL_DRAFT.ID.ne(excludeDraftId));
+    }
+    return dsl.fetchCount(MAIL_DRAFT, cond);
+  }
+
+  /**
+   * 예약 행을 지금 보내도록 보낼 시각을 지금(DB 시계)으로 당긴다(WP-1787 바로 보내기) — 내 QUEUED 예약 행만. 스케줄러가 다음 틱에 집는다.
+   *
+   * @return 새 보낼 시각. 예약 행이 아니거나(남의 것·없음·즉시 대기·발송 중·일반) 빈 값
+   */
+  public Optional<OffsetDateTime> sendScheduledNow(long userId, long draftId) {
     return dsl.update(MAIL_DRAFT)
-            .set(MAIL_DRAFT.SEND_AT, sendAt)
-            .set(MAIL_DRAFT.SEND_STATE, SendState.QUEUED)
-            .set(MAIL_DRAFT.SEND_ERROR, (String) null)
-            .set(MAIL_DRAFT.SENDING_STARTED_AT, (OffsetDateTime) null)
-            .set(MAIL_DRAFT.SENT_BY_SCHEDULE, bySchedule)
-            .where(MAIL_DRAFT.ID.eq(draftId))
-            .and(idle())
-            .execute()
-        > 0;
+        .set(MAIL_DRAFT.SEND_AT, DSL.currentOffsetDateTime())
+        .where(MAIL_DRAFT.ID.eq(draftId))
+        .and(scheduledOf(userId))
+        .returning(MAIL_DRAFT.SEND_AT)
+        .fetchOptional(MAIL_DRAFT.SEND_AT);
+  }
+
+  /** 예약 발송 목록(WP-1787) — 내 계정의 예약 대기 행을 보낼 시각 오름차순(같으면 id 오름차순)으로 limit 건. 본문 HTML 은 읽지 않는다. */
+  public List<MailScheduledSummary> listScheduled(long userId, long accountId, int limit) {
+    Field<Integer> attachments = attachmentCount();
+    return dsl.select(
+            MAIL_DRAFT.ID,
+            MAIL_DRAFT.ACCOUNT_ID,
+            MAIL_DRAFT.MODE,
+            MAIL_DRAFT.TO_ADDRS,
+            MAIL_DRAFT.SUBJECT,
+            MAIL_DRAFT.PREVIEW,
+            MAIL_DRAFT.UPDATED_AT,
+            MAIL_DRAFT.SEND_AT,
+            attachments)
+        .from(MAIL_DRAFT)
+        .where(scheduledOf(userId))
+        .and(MAIL_DRAFT.ACCOUNT_ID.eq(accountId))
+        .orderBy(MAIL_DRAFT.SEND_AT, MAIL_DRAFT.ID)
+        .limit(limit)
+        .fetch(
+            r ->
+                new MailScheduledSummary(
+                    r.get(MAIL_DRAFT.ID),
+                    r.get(MAIL_DRAFT.ACCOUNT_ID),
+                    r.get(MAIL_DRAFT.MODE),
+                    List.of(r.get(MAIL_DRAFT.TO_ADDRS)),
+                    r.get(MAIL_DRAFT.SUBJECT),
+                    r.get(MAIL_DRAFT.PREVIEW),
+                    r.get(attachments),
+                    r.get(MAIL_DRAFT.UPDATED_AT),
+                    r.get(MAIL_DRAFT.SEND_AT)));
   }
 
   /**
    * 되돌리기 — 아직 대기(QUEUED)일 때만 대기를 풀어 일반 임시저장으로 돌린다. 이미 스케줄러가 집었으면(SENDING) 늦은 것이라 건드리지 않는다.
    *
-   * @return 풀었으면 true, 대기가 아니거나 남의 것이면 false
+   * <p>예약 행(WP-1787)은 보낼 시각이 이미 지났으면(DB 시계) 풀지 않는다 — 「바로 보내기」로 당긴 행은 곧 스케줄러가 집으므로, 그 틈에 열기·예약 취소가
+   * 방금 보낸 메일을 되돌리지 않게 한다(코드 리뷰). 즉시 보내기의 되돌리기 대기(WP-1786)는 이 조건을 걸지 않아 지금처럼 집히기 전까지 풀 수 있다.
+   *
+   * @return 풀었으면 true, 대기가 아니거나 남의 것이거나 보낼 때가 된 예약 행이면 false
    */
   public boolean cancelQueued(long userId, long draftId) {
     return dsl.update(MAIL_DRAFT)
@@ -298,6 +385,11 @@ public class MailDraftRepository {
             .where(MAIL_DRAFT.ID.eq(draftId))
             .and(MAIL_DRAFT.USER_ID.eq(userId))
             .and(MAIL_DRAFT.SEND_STATE.eq(SendState.QUEUED))
+            .and(
+                MAIL_DRAFT
+                    .SENT_BY_SCHEDULE
+                    .isFalse()
+                    .or(MAIL_DRAFT.SEND_AT.gt(DSL.currentOffsetDateTime())))
             .execute()
         > 0;
   }
@@ -448,16 +540,7 @@ public class MailDraftRepository {
 
   /** 내 계정의 임시저장 목록 — 갱신 최신순(같으면 id 큰 것 먼저), 최대 limit 건. 본문 HTML 은 읽지 않는다. */
   public List<MailDraftSummary> listByAccount(long userId, long accountId, int limit) {
-    Field<Integer> uploads =
-        DSL.selectCount()
-            .from(MAIL_DRAFT_ATTACHMENT)
-            .where(MAIL_DRAFT_ATTACHMENT.DRAFT_ID.eq(MAIL_DRAFT.ID))
-            .asField("uploads");
-    Field<Integer> forwards =
-        DSL.selectCount()
-            .from(MAIL_DRAFT_FORWARD)
-            .where(MAIL_DRAFT_FORWARD.DRAFT_ID.eq(MAIL_DRAFT.ID))
-            .asField("forwards");
+    Field<Integer> attachments = attachmentCount();
     return dsl.select(
             MAIL_DRAFT.ID,
             MAIL_DRAFT.ACCOUNT_ID,
@@ -466,8 +549,7 @@ public class MailDraftRepository {
             MAIL_DRAFT.SUBJECT,
             MAIL_DRAFT.PREVIEW,
             MAIL_DRAFT.UPDATED_AT,
-            uploads,
-            forwards)
+            attachments)
         .from(MAIL_DRAFT)
         .where(MAIL_DRAFT.USER_ID.eq(userId))
         .and(MAIL_DRAFT.ACCOUNT_ID.eq(accountId))
@@ -484,7 +566,7 @@ public class MailDraftRepository {
                     List.of(r.get(MAIL_DRAFT.TO_ADDRS)),
                     r.get(MAIL_DRAFT.SUBJECT),
                     r.get(MAIL_DRAFT.PREVIEW),
-                    r.get(uploads) + r.get(forwards),
+                    r.get(attachments),
                     r.get(MAIL_DRAFT.UPDATED_AT)));
   }
 
@@ -495,13 +577,18 @@ public class MailDraftRepository {
   public MailDraftCount countByAccount(long userId, long accountId) {
     Field<Integer> drafts = DSL.count().filterWhere(MAIL_DRAFT.SEND_AT.isNull());
     Field<Integer> queued = DSL.count().filterWhere(MAIL_DRAFT.SEND_AT.isNotNull());
+    // 예약(WP-1787) — 대기 중이면서 예약으로 올린 것만. 즉시 보내기 되돌리기 대기·발송 중은 세지 않는다.
+    Condition isScheduled = scheduledRow();
+    Field<Integer> scheduled = DSL.count().filterWhere(isScheduled);
+    // 가장 이른 예약 시각(코드 리뷰) — 웹이 그 시각 근처에서만 다시 받게(예약이 있다고 늘 30초마다 받지 않게).
+    Field<OffsetDateTime> nextSendAt = DSL.min(MAIL_DRAFT.SEND_AT).filterWhere(isScheduled);
     var r =
-        dsl.select(drafts, queued)
+        dsl.select(drafts, queued, scheduled, nextSendAt)
             .from(MAIL_DRAFT)
             .where(MAIL_DRAFT.USER_ID.eq(userId))
             .and(MAIL_DRAFT.ACCOUNT_ID.eq(accountId))
             .fetchOne();
-    return new MailDraftCount(r.value1(), r.value2());
+    return new MailDraftCount(r.value1(), r.value2(), r.value3(), r.value4());
   }
 
   /**

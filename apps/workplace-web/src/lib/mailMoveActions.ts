@@ -107,7 +107,7 @@ export function mailMoveTargets(
   view: Pick<MailView, 'kind' | 'folderId'>,
   folders: readonly MailServerFolder[] | undefined,
 ): MailMoveTargetOption[] {
-  if (view.kind === 'sent' || view.kind === 'drafts') return []
+  if (view.kind === 'sent' || view.kind === 'drafts' || view.kind === 'scheduled') return []
   const out: MailMoveTargetOption[] = []
   if (!isInboxView(view.kind)) {
     out.push({ key: 'inbox', label: INBOX_LABEL, target: { kind: 'INBOX' }, depth: 0, selectable: true, section: 'base' })
@@ -145,7 +145,7 @@ export function mailMoveAvailability(
   view: Pick<MailView, 'kind' | 'folderId'>,
   folders: readonly MailServerFolder[] | undefined,
 ): MailMoveAvailability {
-  if (view.kind === 'sent' || view.kind === 'drafts') return { archive: false, move: false, trash: false, restore: false }
+  if (view.kind === 'sent' || view.kind === 'drafts' || view.kind === 'scheduled') return { archive: false, move: false, trash: false, restore: false }
   if (viewingRole(view, folders, 'TRASH')) return { archive: false, move: false, trash: false, restore: true }
   const hasArchive = (folders ?? []).some((f) => f.role === 'ARCHIVE')
   return {

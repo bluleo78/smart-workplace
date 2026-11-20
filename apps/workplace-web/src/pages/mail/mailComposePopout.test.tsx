@@ -19,6 +19,7 @@ import {
   type MailComposeWindowMessage,
   rememberMailComposePopout,
 } from '@/lib/mailComposeChannel'
+import { formatScheduleLabel } from '@/lib/mailSchedule'
 import MailComposeWindowPage from '@/pages/mail/MailComposeWindowPage'
 import { fakeWindow } from '@/test/kits/mail/compose-default'
 import { mailBaseHandlers, record, renderMail } from '@/test/kits/mail/testkit-b4'
@@ -496,6 +497,56 @@ test('새 창에서 보낸 메일도 메인 창 토스트의 「되돌리기」�
   fireEvent.click(await screen.findByRole('button', { name: '되돌리기' }))
   await waitFor(() => expect(cancel.calls).toHaveLength(1))
   await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창에서 보낸 메일'))
+})
+
+// WP-1787 — 새 창에서 예약하면 메인 창은 「메일 보냄」 대신 「예약됨 · … · 예약 취소」를 띄운다(같은 cancel-send).
+test('새 창에서 예약한 메일은 메인 창에 「예약됨」 토스트와 「예약 취소」로 뜨고 cancel-send 로 다시 연다', async () => {
+  const cancel = record('post', '/api/v1/mail/drafts/91/cancel-send', () =>
+    HttpResponse.json(draftDetail({ id: 91, to: ['rcpt@test.local'], subject: '예약한 메일', version: 3 })),
+  )
+  const put = http.put('/api/v1/mail/drafts/91', () => HttpResponse.json({ version: 9, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))
+  renderPage('/mail/1', { handlers: [cancel.handler, put, ...mailBaseHandlers({ accounts: [mailAccount()] })] })
+  await screen.findByTestId('mail-compose-new', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const other = new BroadcastChannel(MAIL_COMPOSE_CHANNEL)
+  other.postMessage(msg('sent', { opener: MAIL_COMPOSE_WINDOW_ID, sentDraftId: 91, sendAt: new Date(2099, 0, 5, 9, 0).toISOString() }))
+  other.close()
+  expect(await screen.findByText(/^예약됨 · /)).toBeInTheDocument()
+  expect(screen.queryByText('메일 보냄')).not.toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('button', { name: '예약 취소' }))
+  await waitFor(() => expect(cancel.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('예약한 메일'))
+})
+
+test('새 창에서 예약 보내기를 고르면 sent 알림에 sendAt 을 싣는다', async () => {
+  vi.spyOn(window, 'close').mockImplementation(() => {})
+  const send = record<{ sendAt?: string }>('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
+  setOpener('listening')
+  const view = renderWindow([send.handler], WITH_OPENER)
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
+  await view.user.click(screen.getByTestId('mail-compose-schedule-trigger'))
+  await view.user.click(await screen.findByTestId('mail-schedule-preset-tomorrow'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  const sendAt = send.calls[0].body.sendAt as string
+  expect(sendAt).toBeTruthy()
+  await waitFor(() => expect(heard).toContainEqual(msg('sent', { sentDraftId: 900, opener: MAIL_COMPOSE_WINDOW_ID, sendAt })))
+})
+
+// WP-1787 코드 리뷰 — 연 창이 없는 새 창에서 예약하면 그 창 안내도 「보냈어요」가 아니라 메인 창 토스트와 같은 「예약됨 · <시각>」이다.
+test('연 창이 없는 새 창에서 예약하면 창 안내가 「예약됨 · <시각>」이고 「메일을 보냈어요」는 보이지 않는다', async () => {
+  vi.spyOn(window, 'close').mockImplementation(() => {})
+  const at = new Date(2099, 0, 5, 9, 0).toISOString()
+  const send = record<{ sendAt?: string }>('post', '/api/v1/mail/accounts/1/send', () => HttpResponse.json({ draftId: 900, sendAt: at }))
+  const view = renderWindow([send.handler])
+  await waitFor(() => expect(screen.getByTestId('mail-compose-subject')).toHaveValue('새 창 메일'))
+  await view.user.click(screen.getByTestId('mail-compose-schedule-trigger'))
+  await view.user.click(await screen.findByTestId('mail-schedule-preset-tomorrow'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  const notice = await screen.findByTestId('mail-compose-window-sent')
+  // 안내의 시각은 실제로 고른 시각(보낸 sendAt)으로 만든다 — 메인 창 토스트와 같은 라벨.
+  const label = formatScheduleLabel(new Date(send.calls[0].body.sendAt as string), new Date())
+  expect(notice).toHaveTextContent(`예약됨 · ${label}`)
+  expect(notice).not.toHaveTextContent('메일을 보냈어요')
+  expect(screen.getByRole('button', { name: '예약 취소' })).toBeInTheDocument()
 })
 
 // ── 연 창이 없는 새 창(WP-1786 코드 리뷰) ───────────────────────────

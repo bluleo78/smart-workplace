@@ -8,6 +8,7 @@ import com.workplace.mail.dto.MailDraftSaveRequest;
 import com.workplace.mail.dto.MailDraftSaved;
 import com.workplace.mail.dto.MailDraftSummary;
 import com.workplace.mail.dto.MailDraftVersion;
+import com.workplace.mail.dto.MailScheduledSummary;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.dto.QueuedSend;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
@@ -94,6 +95,16 @@ public class MailDraftService {
     requireAccount(userId, accountId);
     // 대기 수(WP-1786)는 계정 삭제 확인창이 함께 지워질 보내기 대기를 알리는 데 쓴다. 두 수를 한 쿼리로 센다.
     return draftRepo.countByAccount(userId, accountId);
+  }
+
+  /**
+   * 내 계정의 예약 보내기 목록(WP-1787) — 보낼 시각 순, 최대 {@link MailSendQueueService#MAX_SCHEDULED}건. 남의·비활성 계정은
+   * 404.
+   */
+  @Transactional(readOnly = true)
+  public List<MailScheduledSummary> listScheduled(long userId, long accountId) {
+    requireAccount(userId, accountId);
+    return draftRepo.listScheduled(userId, accountId, MailSendQueueService.MAX_SCHEDULED);
   }
 
   /** 임시저장 상세 — 전달 원본 첨부(남아 있는 것만) 다음 업로드 첨부. 없거나 남의 것이면 404. */
@@ -212,7 +223,8 @@ public class MailDraftService {
    * 수 없다(새 행은 커밋 전이라 보이지 않는다). 첨부 묶기는 {@link #create}·{@link #update} 와 같은 경로다.
    *
    * @param mode new·reply·forward
-   * @param delaySeconds 되돌릴 수 있는 시간(초) — 보낼 시각은 DB 시계로 정한다
+   * @param delaySeconds 되돌릴 수 있는 시간(초) — 보낼 시각은 DB 시계로 정한다(sendAt 이 없을 때)
+   * @param sendAt 예약 보내기 시각(WP-1787) — 있으면 그 시각에 보내고 예약 행으로 표시한다. null 이면 즉시 보내기
    * @return 대기 행이 된 임시보관 id 와 DB 가 정한 보낼 시각
    * @throws MailDraftSendingException draftId 행이 이미 QUEUED·SENDING(409)
    */
@@ -224,7 +236,8 @@ public class MailDraftService {
       String mode,
       Long sourceMessageId,
       Boolean quoteRemoved,
-      int delaySeconds) {
+      int delaySeconds,
+      OffsetDateTime sendAt) {
     MailDraftSaveRequest save =
         new MailDraftSaveRequest(
             accountId,
@@ -254,15 +267,15 @@ public class MailDraftService {
         if (SendState.isInFlight(state.get())) {
           throw new MailDraftSendingException();
         }
-        OffsetDateTime sendAt =
+        OffsetDateTime stored =
             draftRepo
-                .updateQueued(userId, draftId, fields, queue, delaySeconds)
+                .updateQueued(userId, draftId, fields, queue, delaySeconds, sendAt)
                 .orElseThrow(() -> new MailDraftNotFoundException(draftId));
         syncAttachments(userId, draftId, save);
-        return new QueuedSend(draftId, sendAt);
+        return new QueuedSend(draftId, stored);
       }
     }
-    QueuedSend created = draftRepo.insertQueued(userId, fields, queue, delaySeconds);
+    QueuedSend created = draftRepo.insertQueued(userId, fields, queue, delaySeconds, sendAt);
     syncAttachments(userId, created.draftId(), save);
     return created;
   }

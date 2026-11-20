@@ -71,6 +71,12 @@ describe('resolveMailView', () => {
     })
     expect(resolveMailView(p('folder=drafts&messageId=55'), true).kind).toBe('drafts')
   })
+  // WP-1787 예약됨 — 앱 서버 예약 목록. 임시보관함과 같은 모양(토글 없음)에 제목만 다르다.
+  it('예약됨 — 분류·토글 없음, 제목 예약됨', () => {
+    expect(resolveMailView(p('folder=scheduled&category=개인&unread=true'), true)).toMatchObject({
+      kind: 'scheduled', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '예약됨', breadcrumb: [{ label: '예약됨' }], key: 'scheduled',
+    })
+  })
   it('unread=true 는 key 를 바꾼다', () => {
     expect(resolveMailView(p('unread=true'), true).key).not.toBe(resolveMailView(p(''), true).key)
   })
@@ -104,6 +110,7 @@ describe('unreadCountForView', () => {
   it('needsReply = 회신필요 수', () => expect(unreadCountForView(view('needsReply=true'), counts)).toBe(4))
   it('sent = 0', () => expect(unreadCountForView(view('folder=sent'), counts)).toBe(0))
   it('drafts = 0', () => expect(unreadCountForView(view('folder=drafts'), counts)).toBe(0))
+  it('scheduled = 0', () => expect(unreadCountForView(view('folder=scheduled'), counts)).toBe(0))
 })
 
 // WP-961 서버 메일함 보기(?box=<id>) — 보관·내 메일함.

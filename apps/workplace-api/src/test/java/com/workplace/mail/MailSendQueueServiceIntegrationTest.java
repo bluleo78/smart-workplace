@@ -303,7 +303,8 @@ class MailSendQueueServiceIntegrationTest extends ExternalClientMockedTestBase {
         null,
         mode,
         sourceMessageId,
-        quoteRemoved);
+        quoteRemoved,
+        null);
   }
 
   @Test

@@ -7,6 +7,7 @@ export const mailDraftKeys = {
   account: (accountId: number) => ['mail-drafts', accountId] as const,
   list: (accountId: number) => ['mail-drafts', accountId, 'list'] as const,
   count: (accountId: number) => ['mail-drafts', accountId, 'count'] as const,
+  scheduled: (accountId: number) => ['mail-drafts', accountId, 'scheduled'] as const,
   detail: (id: number) => ['mail-draft', id] as const,
 };
 

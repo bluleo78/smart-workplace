@@ -17,9 +17,10 @@ import { MailComposeProvider, useMailCompose } from '@/components/mail/MailCompo
 import { MailComposeDock, type MailComposePopout } from '@/components/mail/MailComposeDock';
 import { Button } from '@/components/ui/button';
 import { useOpenMailDraft } from '@/hooks/queries/useMailDrafts';
-import { SEND_UNDO_MS, showSentToast } from '@/hooks/queries/useMailMessages';
+import { type OpenSentDraft, SEND_UNDO_MS, showScheduledToast, showSentToast } from '@/hooks/queries/useMailMessages';
 import { isOpenerListening, type MailComposeWindowEvent, postMailComposeWindowEvent } from '@/lib/mailComposeChannel';
 import { MAIL_ALREADY_SENDING_NOTICE, sentElsewhereNotice } from '@/lib/mailDraftCompose';
+import { formatScheduleLabel } from '@/lib/mailSchedule';
 
 /**
  * 새 창 페이지 — 작성 상태·AI 모드(작성창이 읽는다)·도움말 공급자를 이 창 안에서 따로 둔다(앱 셸은 없다).
@@ -55,6 +56,16 @@ const SENT_NOTICE: Record<UndoState, string> = {
   failed: '메일을 되돌리지 못했어요. 이 창을 닫아도 돼요.',
 };
 
+/**
+ * 예약 보내기(WP-1787)의 보냄 단계 안내 — 메일은 아직 나가지 않았으므로 「보냈어요」 대신 메인 창 토스트와 같은 「예약됨 · <시각>」을 보인다.
+ * 「예약 취소」는 되돌리기와 같은 동작이라 진행 단계(undo)는 그대로 쓴다.
+ */
+function scheduledNotice(undo: UndoState, sendAt: string): string {
+  if (undo === 'pending') return '예약을 취소하는 중…';
+  if (undo === 'failed') return '예약을 취소하지 못했어요. 이 창을 닫아도 돼요.';
+  return `예약됨 · ${formatScheduleLabel(new Date(sendAt), new Date())}. 예약을 취소할 수 있게 잠시 이 창을 열어 둘게요.`;
+}
+
 function MailComposeWindow() {
   const [params] = useSearchParams();
   const raw = params.get('draftId');
@@ -80,6 +91,8 @@ function MailComposeWindow() {
   // 「되돌리기」 진행 — 안내 문구를 고르고 닫기 시계를 멈춘다. 토스트 단추 클릭은 이산 이벤트라 누른 그 자리에서 다시 그려지고 효과 정리가
   // 돌아 시계가 바로 멈춘다(9.8초에 눌러도 창이 닫히지 않는다).
   const [undo, setUndo] = useState<UndoState>('idle');
+  // 이 창이 맡은 보냄이 예약 보내기면 그 시각(ISO, WP-1787) — 보냄 안내를 「예약됨 · <시각>」으로 바꾼다. 즉시 보내기면 null.
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null);
   useEffect(() => {
     draftOpenRef.current = draft != null;
   }, [draft]);
@@ -112,7 +125,7 @@ function MailComposeWindow() {
 
   // 작성이 끝났다(서버 작업 완료) — 메인 창에 알리고 작성창을 내린다. 창 닫기는 아래 효과가 한다.
   const onDone = useCallback(
-    (kind: MailComposeWindowEvent, accountId: number, sentDraftId?: number) => {
+    (kind: MailComposeWindowEvent, accountId: number, sentDraftId?: number, sendAt?: string) => {
       notifiedRef.current = true;
       // 보냈을 때 「메일 보냄 · 되돌리기」를 이 창이 맡는가 — 보낸 지금 정한다(WP-1786 코드 리뷰). 연 메인 창이 없거나 닫혔거나 새로 고쳐져
       // 이 창의 알림을 받지 못하면 이 창이 띄운다. 연 창이 열려 있을 때 정해 두면 그 사이 닫힌 경우 아무 데서도 되돌릴 수 없었다.
@@ -130,6 +143,7 @@ function MailComposeWindow() {
           draftId,
           opener: undoHere || elsewhereHere ? null : opener,
           ...(sentDraftId != null ? { sentDraftId } : {}),
+          ...(sendAt ? { sendAt } : {}),
         });
       }
       closeCompose();
@@ -141,14 +155,19 @@ function MailComposeWindow() {
       // 이 창이 「메일 보냄 · 되돌리기」를 띄우고, 누를 수 있게 10초 동안 열어 둔다(아래 효과가 닫는다). 되돌리면 이 창에 다시 연다.
       if (undoHere && queuedId != null) {
         setUndo('idle');
+        setScheduledAt(sendAt ?? null);
         setPhase('sent');
         setSentRound({});
-        showSentToast(qc, accountId, queuedId, (id, detail) => openDraft(id, { detail }), {
+        const reopen: OpenSentDraft = (id, detail) => openDraft(id, { detail });
+        const undoCallbacks = {
           // 누른 즉시 닫기 시계를 멈춘다 — 되돌리기 요청이 끝나기 전에 창이 닫히면 다시 연 작성이 보이지 않는다.
           onStart: () => setUndo('pending'),
           // 되돌렸으면 작성이 다시 열렸다(그 작성이 끝날 때 닫힌다). 못 했으면(이미 보냄 등) 안내를 볼 수 있게 창을 남긴다.
-          onSettled: (ok) => setUndo(ok ? 'idle' : 'failed'),
-        });
+          onSettled: (ok: boolean) => setUndo(ok ? 'idle' : 'failed'),
+        };
+        // 예약 보내기(WP-1787)면 「예약됨 · … · 예약 취소」(같은 cancel-send), 아니면 「메일 보냄 · 되돌리기」.
+        if (sendAt) showScheduledToast(qc, accountId, queuedId, new Date(sendAt), reopen, undoCallbacks);
+        else showSentToast(qc, accountId, queuedId, reopen, undoCallbacks);
         return;
       }
       setPhase('done');
@@ -192,7 +211,7 @@ function MailComposeWindow() {
         </div>
       )}
       {showSent && (
-        <WindowNotice testId="mail-compose-window-sent" text={SENT_NOTICE[undo]}>
+        <WindowNotice testId="mail-compose-window-sent" text={scheduledAt ? scheduledNotice(undo, scheduledAt) : SENT_NOTICE[undo]}>
           {undo === 'failed' && <CloseWindowButton />}
         </WindowNotice>
       )}

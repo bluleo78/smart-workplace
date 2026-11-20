@@ -81,6 +81,7 @@ import { MailComposer, type MailComposerHandle, type MailComposerLayout } from '
 import { MailDraftSaveStatus } from './MailDraftSaveStatus';
 import { MailQuoteBlock } from './MailQuoteBlock';
 import { MailRecipientInput } from './MailRecipientInput';
+import { MailScheduleSendMenu } from './MailScheduleSendMenu';
 import { useMailAiDraft } from './useMailAiDraft';
 
 /**
@@ -114,10 +115,10 @@ const PANEL_CLASS: Record<MailComposeFrameLayout, string> = {
 
 /**
  * 새 창 모드 손잡이 — 새 창 페이지가 넘긴다. 작성이 끝나면(보냄·닫으며 저장·버림) 서버 작업이 끝난 뒤 한 번 부른다.
- * kind 는 메인 창에 알릴 이유, accountId 는 다시 받을 목록의 계정, sentDraftId 는 보냈을 때 대기열에 올라간 행 id(WP-1786 — 메인 창 「되돌리기」의 키).
+ * kind 는 메인 창에 알릴 이유, accountId 는 다시 받을 목록의 계정, sentDraftId 는 보냈을 때 대기열에 올라간 행 id(WP-1786 — 메인 창 「되돌리기」의 키), sendAt 은 예약 보내기면 보낼 시각(WP-1787 — 메인 창이 예약 토스트를 띄운다).
  */
 export interface MailComposePopout {
-  onDone: (kind: MailComposeWindowEvent, accountId: number, sentDraftId?: number) => void;
+  onDone: (kind: MailComposeWindowEvent, accountId: number, sentDraftId?: number, sendAt?: string) => void;
   /**
    * 손대지 않은 작성을 새 창으로 옮기려 방금 만든 임시저장인가 — 새 창에서도 손대지 않고 닫으면 그 임시저장을 지운다
    * (앱 안 작성창은 빈 작성을 닫을 때 임시저장을 만들지 않으므로 같은 결과가 되게).
@@ -1016,7 +1017,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
 
   // 보내기 — 자동 저장을 멈추고 진행 중인 저장이 끝나 id 가 정해지면 draftId 로 싣는다(서버가 보낸 뒤 그 임시저장을 지운다).
   // 기다리는 동안에도 잠가 두 번 눌러도 한 번만 나간다. 보내는 동안 작성창을 닫거나 다른 작성으로 바꿔도 결과는 이 작성에 묶어 처리한다.
-  const onSend = async () => {
+  // sendAt — 예약 보내기(WP-1787)의 보낼 시각(ISO). 없으면 지금 보내기(10초 되돌리기). 준비·검증·실패 처리는 둘이 같다.
+  const onSend = async (sendAt?: string) => {
     if (sendLock.current) return;
     // 붙여 넣은 이미지가 아직 올라가는 중이면 보내지 않는다 — 그대로 보내면 받는 쪽에 빈 그림 자리만 남는다(WP-947).
     if (composerRef.current?.hasPendingImage()) {
@@ -1072,13 +1074,14 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       mode: draft.mode,
       sourceMessageId: draft.sourceMessageId ?? null,
       quoteRemoved,
+      ...(sendAt ? { sendAt } : {}),
     };
     try {
       const queued = await send.mutateAsync({ accountId: draft.accountId, body });
       ticket.succeeded();
       closeInstance(instanceId as number);
       // 새 창은 보낸 뒤 메인 창에 알리고 닫힌다(페이지가 처리). 대기 행 id 를 실어 메인 창이 되돌릴 수 있게 한다(WP-1786).
-      popout?.onDone('sent', draft.accountId, queued.draftId);
+      popout?.onDone('sent', draft.accountId, queued.draftId, sendAt);
     } catch (e) {
       // 다른 탭·창에서 이미 보내는 중(409 DRAFT_SENDING, WP-1786) — 이 메일은 실제로 나가는 중이라 실패도 임시보관함 저장도 아니다.
       // 이 작성의 저장·보내기를 멈추고(상태 줄 「이 메일은 이미 보내는 중이에요」) 그대로 알린다.
@@ -1172,7 +1175,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
         />
         {isMobile ? (
           // 모바일 상단 바 — 메일 상세 헤더와 같은 56px 규격. 보내기를 위에 둬 키보드가 올라와도 가리지 않는다.
-          <div className={mobileDetailBarClass}>
+          // 저장 상태 줄이 2줄로 줄바꿈하면(좁은 폭의 검증 오류 등) 그만큼만 높아진다(min-h-14) — 버튼 크기·순서는 그대로.
+          <div className={cn(mobileDetailBarClass, 'h-auto min-h-14')}>
             <button
               type="button"
               aria-label="닫기"
@@ -1212,6 +1216,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
             <HeaderIconAction label="보내기" onClick={() => void onSend()} disabled={sendDisabled} data-testid="mail-compose-send">
               {send.isPending || preparingSend ? <Loader2 className="animate-spin" /> : <Send />}
             </HeaderIconAction>
+            {/* ⋯ — 예약 보내기(WP-1787). 보내기를 막는 조건과 같을 때 꺼진다. */}
+            <MailScheduleSendMenu variant="mobile" disabled={sendDisabled} onSchedule={(at) => void onSend(at.toISOString())} />
           </div>
         ) : (
           // 상단 모서리는 우측 하단 작은 창(dock)만 둥글린다 — 읽기 창(pane)은 모서리 없는 패널, 새 창(fill)은 창 전체라 둥글릴 모서리가 없다.
@@ -1575,17 +1581,21 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
                 >
                   <Paperclip className="size-4" />
                 </button>
-                <button
-                  type="button"
-                  data-testid="mail-compose-send"
-                  onClick={() => void onSend()}
-                  disabled={sendDisabled}
-                  title={blockedReason ?? undefined}
-                  className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                >
-                  <Send className="h-4 w-4" />
-                  {send.isPending || preparingSend ? '전송 중…' : '보내기'}
-                </button>
+                {/* 보내기 + ▾ 예약 보내기(WP-1787) — 같은 주 색의 한 묶음 버튼. */}
+                <div className="flex items-stretch">
+                  <button
+                    type="button"
+                    data-testid="mail-compose-send"
+                    onClick={() => void onSend()}
+                    disabled={sendDisabled}
+                    title={blockedReason ?? undefined}
+                    className="flex items-center gap-1.5 rounded-l-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    <Send className="h-4 w-4" />
+                    {send.isPending || preparingSend ? '전송 중…' : '보내기'}
+                  </button>
+                  <MailScheduleSendMenu variant="dock" disabled={sendDisabled} onSchedule={(at) => void onSend(at.toISOString())} />
+                </div>
               </div>
             </div>
           )}

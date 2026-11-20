@@ -47,9 +47,14 @@ export function MailDraftSaveStatus({
       {label}
     </button>
   );
-  // 안내 글 — 모바일 상단 바는 제목 아래 줄 폭이 🗑·📎·➤ 앞까지라(390px 에서 약 200px) 긴 안내(충돌 등)가 아이콘 위로 넘쳤다.
-  // 글만 말줄임하고 옆 동작 버튼은 줄지 않게 둔다. 띄어쓰기는 낭독·문구 그대로 두고, 화면 간격은 바깥 gap 이 맡는다.
-  const message = (text: string) => <span className="min-w-0 truncate">{text}</span>;
+  // 안내 글 — 모바일 상단 바는 제목 아래 줄 폭이 🗑·✒·📎·➤·⋯ 앞까지라(390px 에서 약 100px) 한 줄 말줄임이면 원인이 잘렸다.
+  // 모바일은 낱말 단위로 최대 2줄까지 줄바꿈하고(상단 바가 그만큼 높아진다, WP-1787 예약 ⋯ 추가 뒤), 데스크톱은 한 줄 말줄임 그대로다.
+  // 옆 동작 버튼은 줄지 않게 둔다. 띄어쓰기는 낭독·문구 그대로 두고, 화면 간격은 바깥 gap 이 맡는다.
+  const message = (text: string) => (
+    <span data-part="message" className={cn('min-w-0', mobile ? 'line-clamp-2 wrap-break-word break-keep' : 'truncate')}>
+      {text}
+    </span>
+  );
   // 검증 오류 원인 — 모바일 한 줄(약 200px)에 「저장하지 못했어요 · 」까지 넣으면 원인이 잘려서, 모바일은 원인만 보인다(빨간 글씨라 실패임은 보인다).
   // 앞 문구는 화면에서만 감추고 낭독·title 에는 전체 문구를 남긴다.
   const invalidReason = reason ?? '내용을 확인해 주세요';
@@ -106,10 +111,12 @@ export function MailDraftSaveStatus({
       role={failed || stoppedNotice ? 'status' : undefined}
       title={status === 'invalid' ? invalidFull : undefined}
       className={cn(
-        'flex items-baseline gap-1 whitespace-nowrap text-xs',
+        // 모바일은 글이 2줄까지 줄바꿈하므로 줄바꿈을 막지 않는다(데스크톱은 한 줄).
+        'flex items-baseline gap-1 text-xs',
+        mobile ? 'whitespace-normal' : 'whitespace-nowrap',
         // 데스크톱은 제목 옆 — 제목만 말줄임하고 상태는 줄이지 않는다. 「저장 중…」↔「저장됨」이 번갈아도 폭이 같게
         // 최소 폭을 「저장 중…」만큼 잡아, 긴 제목의 말줄임 위치가 입력마다 흔들리지 않게 한다.
-        // 모바일은 제목 아래 한 줄을 다 쓰므로 줄어들 수 있게(안의 글이 말줄임) 둔다.
+        // 모바일은 제목 아래 줄을 다 쓰므로 줄어들 수 있게(안의 글이 2줄까지 줄바꿈) 둔다.
         mobile ? 'min-w-0' : 'min-w-12 shrink-0',
         failed ? 'text-destructive-text' : 'text-muted-foreground',
       )}

@@ -264,6 +264,18 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
 
   // ---- CRUD ----
 
+  /** 행을 보내기 대기(QUEUED, 10초 뒤)로 직접 올린다 — 대기 행은 고치기·지우기를 거절하는지 보는 시드. */
+  private void markQueued(long id) {
+    callInTenant(
+        1L,
+        () ->
+            dsl.update(MAIL_DRAFT)
+                .set(MAIL_DRAFT.SEND_STATE, "QUEUED")
+                .set(MAIL_DRAFT.SEND_AT, OffsetDateTime.now().plusSeconds(10))
+                .where(MAIL_DRAFT.ID.eq(id))
+                .execute());
+  }
+
   /** 만들기 → 상세 → 수정(버전 증가) → 다시 상세 → 버리기 204 → 404. */
   @Test
   void crud_createGetUpdateDelete() throws Exception {
@@ -564,10 +576,7 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
     long me = user();
     long acc = account(me);
     long id = create(me, body(acc)).get("id").asLong();
-    assertThat(
-            callInTenant(
-                1L, () -> draftRepo.markQueued(id, OffsetDateTime.now().plusSeconds(10), false)))
-        .isTrue();
+    markQueued(id);
 
     Map<String, Object> b = body(acc);
     b.put("subject", "바뀐 제목");
@@ -589,7 +598,7 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
     long me = user();
     long acc = account(me);
     long id = create(me, body(acc)).get("id").asLong();
-    callInTenant(1L, () -> draftRepo.markQueued(id, OffsetDateTime.now().plusSeconds(10), false));
+    markQueued(id);
 
     http(delete("/api/v1/mail/drafts/" + id).header("Authorization", bearer(me)))
         .andExpect(status().isConflict())
@@ -676,7 +685,8 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
             List.of());
 
     long created =
-        callInTenant(1L, () -> draftService.upsertForSend(me, acc, req, "reply", 55L, false, 10))
+        callInTenant(
+                1L, () -> draftService.upsertForSend(me, acc, req, "reply", 55L, false, 10, null))
             .draftId();
     var row = dsl.selectFrom(MAIL_DRAFT).where(MAIL_DRAFT.ID.eq(created)).fetchOne();
     assertThat(row.getBodyText()).isEqualTo("본문");
@@ -703,7 +713,8 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
             created,
             null);
     long same =
-        callInTenant(1L, () -> draftService.upsertForSend(me, acc, again, "new", null, false, 10))
+        callInTenant(
+                1L, () -> draftService.upsertForSend(me, acc, again, "new", null, false, 10, null))
             .draftId();
     assertThat(same).isEqualTo(created);
     var after = dsl.selectFrom(MAIL_DRAFT).where(MAIL_DRAFT.ID.eq(created)).fetchOne();
@@ -719,7 +730,8 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
     assertThatThrownBy(
             () ->
                 callInTenant(
-                    1L, () -> draftService.upsertForSend(me, acc, again, "new", null, false, 10)))
+                    1L,
+                    () -> draftService.upsertForSend(me, acc, again, "new", null, false, 10, null)))
         .isInstanceOf(com.workplace.mail.exception.MailDraftSendingException.class);
 
     // 남의 draftId 면 새로 만든다
@@ -742,7 +754,9 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
     long fresh =
         callInTenant(
                 1L,
-                () -> draftService.upsertForSend(other, otherAcc, stolen, "new", null, false, 10))
+                () ->
+                    draftService.upsertForSend(
+                        other, otherAcc, stolen, "new", null, false, 10, null))
             .draftId();
     assertThat(fresh).isNotEqualTo(created);
   }

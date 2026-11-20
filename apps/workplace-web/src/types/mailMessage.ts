@@ -199,6 +199,8 @@ export interface MailSendRequest {
   sourceMessageId?: number | null;
   /** 작성 중 인용문을 지웠는가 — 되돌려 열 때 인용문을 되살리지 않는다. */
   quoteRemoved?: boolean;
+  /** 예약 보내기(WP-1787) — 이 시각(ISO-8601)에 보낸다. 생략하면 바로(10초 되돌리기) 보낸다. 지금부터 1분 뒤 이후여야 한다. */
+  sendAt?: string;
 }
 
 /**

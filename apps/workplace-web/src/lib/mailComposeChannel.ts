@@ -22,6 +22,8 @@ export interface MailComposeWindowMessage {
   opener: string | null;
   /** sent 일 때 대기열에 올라간 행 id(WP-1786) — 메인 창 「되돌리기」가 되돌린다. 쓰던 임시저장이 없어졌으면 draftId 와 다르다. */
   sentDraftId?: number;
+  /** sent 이고 예약 보내기(WP-1787)일 때 보낼 시각(ISO) — 메인 창이 「메일 보냄」 대신 「예약됨 · …」 토스트를 띄운다. */
+  sendAt?: string;
 }
 
 /** 이 창(탭)의 id — 새 창 주소에 실어, 끝났다는 알림이 "내가 연 창"에서 왔는지 가린다. 문서마다 새로 정한다. */
@@ -69,7 +71,8 @@ export function isMailComposeWindowMessage(data: unknown): data is MailComposeWi
     typeof m.accountId === 'number' &&
     typeof m.draftId === 'number' &&
     (m.opener === null || typeof m.opener === 'string') &&
-    (m.sentDraftId === undefined || typeof m.sentDraftId === 'number')
+    (m.sentDraftId === undefined || typeof m.sentDraftId === 'number') &&
+    (m.sendAt === undefined || typeof m.sendAt === 'string')
   );
 }
 

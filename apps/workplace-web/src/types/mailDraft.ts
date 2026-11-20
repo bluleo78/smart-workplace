@@ -26,6 +26,21 @@ export interface MailDraftSummary {
   updatedAt: string;
 }
 
+/** 예약 목록 한 행(WP-1787) — 임시보관함 행에 보낼 시각이 더해진다. GET /mail/drafts/scheduled?accountId= (보낼 시각 오름차순, 최대 100) */
+export interface MailScheduledSummary extends MailDraftSummary {
+  /** 보낼 시각(ISO-8601 UTC). */
+  sendAt: string;
+}
+
+/** 임시저장 개수 응답 — count 배지, queued 보내기 대기 수(WP-1786), scheduled 예약 수(WP-1787). GET /mail/drafts/count */
+export interface MailDraftCount {
+  count: number;
+  queued: number;
+  scheduled: number;
+  /** 가장 이른 예약 시각(ISO-8601, 예약이 없으면 null) — 그 시각 근처에서만 다시 받는다(WP-1787 코드 리뷰). 옛 응답엔 없을 수 있다. */
+  nextSendAt?: string | null;
+}
+
 /** 임시저장 첨부 한 개. */
 export interface MailDraftAttachment {
   id: number;

@@ -6,6 +6,8 @@ import com.workplace.mail.dto.MailDraftSaveRequest;
 import com.workplace.mail.dto.MailDraftSaved;
 import com.workplace.mail.dto.MailDraftSummary;
 import com.workplace.mail.dto.MailDraftVersion;
+import com.workplace.mail.dto.MailScheduledSummary;
+import com.workplace.mail.dto.QueuedSend;
 import com.workplace.mail.service.MailDraftService;
 import com.workplace.mail.service.MailSendQueueService;
 import jakarta.validation.Valid;
@@ -52,6 +54,13 @@ public class MailDraftController {
     return draftService.count(callerId, accountId);
   }
 
+  /** 계정의 예약 보내기 목록(WP-1787) — 보낼 시각 순, 최대 100건. */
+  @GetMapping("/scheduled")
+  public List<MailScheduledSummary> scheduled(
+      @AuthenticationPrincipal Long callerId, @RequestParam long accountId) {
+    return draftService.listScheduled(callerId, accountId);
+  }
+
   /** 임시저장 상세 — 작성창을 다시 열 때. */
   @GetMapping("/{id}")
   public MailDraftDetail get(@AuthenticationPrincipal Long callerId, @PathVariable long id) {
@@ -90,5 +99,14 @@ public class MailDraftController {
   public MailDraftDetail cancelSend(
       @AuthenticationPrincipal Long callerId, @PathVariable long draftId) {
     return sendQueueService.cancel(callerId, draftId);
+  }
+
+  /**
+   * 예약 행 바로 보내기(WP-1787) — 보낼 시각을 지금으로 당긴다 → {draftId, sendAt}. 보내는 중이면 409 ALREADY_SENDING, 내 예약
+   * 행이 아니면 404.
+   */
+  @PostMapping("/{draftId}/send-now")
+  public QueuedSend sendNow(@AuthenticationPrincipal Long callerId, @PathVariable long draftId) {
+    return sendQueueService.sendNow(callerId, draftId);
   }
 }

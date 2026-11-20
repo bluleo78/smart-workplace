@@ -9,6 +9,7 @@ import { cancelMailSend, coachDraft, fetchMailAttachmentDataUri, fetchOlderMail,
 import { handleApiError, isConflictError, isNotFoundError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import { MAIL_PAGE_SIZE, type MailListCache, mapMailListCache, nextMailCursor } from '../../lib/mailListPages';
+import { formatScheduleLabel } from '../../lib/mailSchedule';
 import type { MailDraftDetail } from '../../types/mailDraft';
 import type { CalendarInvite, DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, InviteResponseRequest, MailFolder, MailListCursor, MailOlderResult, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
 import { calendarKeys } from './calendarKeys';
@@ -520,9 +521,11 @@ export type OpenSentDraft = (draftId: number, detail: MailDraftDetail) => void |
  * 지금: 대기 행이 임시보관함에서 빠진다(메일은 아직 대기 중이라 보낸편지함은 그대로다 — 다시 받지 않는다).
  * 20초 뒤: 서버가 보낸 메일이 보낸편지함에 들어온다. 보내기에 성공하면 서버가 mailChanged 이벤트도 보내 열린 창이 곧바로 다시 받으므로 이것은 놓친 경우의
  * 대비다. 새 창을 연 창이 아닌 다른 탭도 이것만 한다.
+ * immediate=false 면 지금 다시 받기를 건너뛴다 — 예약 「바로 보내기」(WP-1787)는 캐시에서 행을 이미 뺐고, 지금 다시 받으면 아직 QUEUED 인 행이
+ * 예약 목록에 되살아난다.
  */
-export function scheduleSentRefresh(qc: QueryClient, accountId: number) {
-  void invalidateMailDrafts(qc, accountId);
+export function scheduleSentRefresh(qc: QueryClient, accountId: number, { immediate = true }: { immediate?: boolean } = {}) {
+  if (immediate) void invalidateMailDrafts(qc, accountId);
   setTimeout(() => {
     void qc.invalidateQueries({ queryKey: ['mail-messages', accountId, 'SENT'] });
     void invalidateMailDrafts(qc, accountId);
@@ -544,6 +547,27 @@ export function showSentToast(
   toastSendUndo(qc, accountId, draftId, openDraft, { message: '메일 보냄', success: true, duration: SEND_UNDO_MS, undo });
 }
 
+/**
+ * 「예약됨 · 11월 23일 (월) 오전 9:00」 토스트(WP-1787) — 「예약 취소」는 「되돌리기」와 같은 동작(cancel-send 로 대기를 풀고 쓰기 창을 다시 연다)이다.
+ * 예약은 10초 안에 나가지 않으므로 토스트 시간은 sonner 기본이다. 보낸편지함 갱신 시계(scheduleSentRefresh)는 돌리지 않는다 — 예약 시각에 나간다.
+ */
+export function showScheduledToast(
+  qc: QueryClient,
+  accountId: number,
+  draftId: number,
+  sendAt: Date,
+  openDraft: OpenSentDraft,
+  undo: SentUndoCallbacks = {},
+) {
+  void invalidateMailDrafts(qc, accountId);
+  toastSendUndo(qc, accountId, draftId, openDraft, {
+    message: `예약됨 · ${formatScheduleLabel(sendAt, new Date())}`,
+    success: true,
+    actionLabel: '예약 취소',
+    undo,
+  });
+}
+
 /** toastSendUndo 의 문구·모양 — 「메일 보냄」(성공 토스트, 10초)과 보내는 중인 행 안내(일반 토스트, 설명 덧붙임)가 다르게 준다. */
 export interface SendUndoToastOptions {
   message: string;
@@ -552,6 +576,8 @@ export interface SendUndoToastOptions {
   success?: boolean;
   /** 떠 있는 시간 — 없으면 토스트 기본값. */
   duration?: number;
+  /** 동작 단추 문구 — 기본 「되돌리기」(예약 토스트는 「예약 취소」, 같은 cancel-send 동작). */
+  actionLabel?: string;
   undo?: SentUndoCallbacks;
 }
 
@@ -564,13 +590,13 @@ export function toastSendUndo(
   accountId: number,
   draftId: number,
   openDraft: OpenSentDraft,
-  { message, description, success, duration, undo = {} }: SendUndoToastOptions,
+  { message, description, success, duration, actionLabel = '되돌리기', undo = {} }: SendUndoToastOptions,
 ) {
   const opts = {
     ...(description != null ? { description } : {}),
     ...(duration != null ? { duration } : {}),
     action: {
-      label: '되돌리기',
+      label: actionLabel,
       onClick: () => {
         undo.onStart?.();
         void undoMailSend(qc, accountId, draftId, openDraft).then((ok) => undo.onSettled?.(ok));
@@ -619,8 +645,9 @@ export function useSendMail(openDraft: OpenSentDraft | null) {
   return useMutation({
     // 계정은 요청마다 싣는다 — 보내는 동안 다른 계정의 작성으로 바뀌어도 보낸 계정의 목록·임시보관함을 다시 받게.
     mutationFn: ({ accountId, body }: { accountId: number; body: MailSendRequest }) => sendMail(accountId, body),
-    onSuccess: (r, { accountId }) => {
-      if (openDraft) showSentToast(qc, accountId, r.draftId, openDraft);
+    onSuccess: (r, { accountId, body }) => {
+      if (openDraft && body.sendAt) showScheduledToast(qc, accountId, r.draftId, new Date(body.sendAt), openDraft);
+      else if (openDraft) showSentToast(qc, accountId, r.draftId, openDraft);
       // 새 창은 목록만 다시 받는다(그 창은 곧 닫힌다 — 메인 창이 알림을 받아 다시 받는다).
       else void invalidateMailDrafts(qc, accountId);
     },
