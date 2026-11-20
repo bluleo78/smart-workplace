@@ -78,13 +78,14 @@ export function IssueExternalLinkRow({
         />
       ) : (
         // 마우스: hover·키보드 포커스 때만 보인다(투명도로만 숨겨 Tab 순서에 남는다 — WP-468).
+        // 단추 이름에 링크 이름(name)을 넣는다 — 같은 이름의 단추가 여럿이면 스크린리더가 구분하지 못한다(WP-1871).
         <span className="flex shrink-0 items-center">
           {onEdit && (
             <Button
               variant="ghost"
               size="icon"
               onClick={onEdit}
-              aria-label="외부 링크 수정"
+              aria-label={`${name} 외부 링크 수정`}
               className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               data-testid={`issue-external-link-edit-${link.id}`}
             >
@@ -96,7 +97,7 @@ export function IssueExternalLinkRow({
               variant="ghost"
               size="icon"
               onClick={onRemove}
-              aria-label="외부 링크 제거"
+              aria-label={`${name} 외부 링크 제거`}
               className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               data-testid={`issue-external-link-remove-${link.id}`}
             >
