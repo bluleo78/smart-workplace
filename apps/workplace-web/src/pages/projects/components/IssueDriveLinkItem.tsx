@@ -76,7 +76,8 @@ export function IssueDriveLinkItem({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="링크 제거"
+            // 링크 이름을 넣어 여러 링크 중 대상을 구분한다 — 「드라이브」는 확인창 제목과 맞춘다(WP-1871).
+            aria-label={`${link.name} 드라이브 링크 제거`}
             className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:-my-2.5 pointer-coarse:size-11 pointer-coarse:opacity-100"
             data-testid={`issue-drive-link-remove-${link.driveFileId}`}
             onClick={() => onRemove(link.driveFileId)}
