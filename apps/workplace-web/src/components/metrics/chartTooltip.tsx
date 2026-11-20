@@ -4,6 +4,8 @@
  */
 import { type ChartConfig, ChartTooltipContent } from '@/components/ui/chart'
 
+import { seriesColorVar } from './chartColors'
+
 /**
  * 툴팁 머리글 포맷터를 만든다. ChartTooltipContent 는 label 이 문자열일 때만 쓰고 아니면 계열 이름으로 되돌리므로,
  * 숫자 x(타임스탬프 등)도 올바르게 보이도록 payload 의 원래 데이터 행에서 x 값을 직접 읽는다.
@@ -34,7 +36,7 @@ export function makeTooltipRowFormatter(config: ChartConfig, valueFormatter?: (v
         <span
           data-testid="tooltip-swatch"
           className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-          style={{ backgroundColor: `var(--color-${key})` }}
+          style={{ backgroundColor: seriesColorVar(key) }}
         />
         <span className="flex flex-1 items-center justify-between gap-4 leading-none">
           <span className="text-muted-foreground">{config[key]?.label ?? String(name)}</span>

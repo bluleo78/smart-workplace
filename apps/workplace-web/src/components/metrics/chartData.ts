@@ -24,3 +24,13 @@ export function isTopSegment(row: unknown, series: { key: string }[], idx: numbe
 export function asChartRows<D>(data: D[]): Record<string, unknown>[] {
   return data as unknown[] as Record<string, unknown>[]
 }
+
+/**
+ * rows[idx] 의 key 값이 「고립된 점」인지 — 값은 있는데 앞뒤 행이 모두 비어(null/없음) 선이 이어지지 않는 점.
+ * connectNulls=false 로 끊어 그리는 선은 이런 점을 그리지 못하므로(선분이 없다) 점으로 보여 준다.
+ * 한 점짜리 계열도 여기에 든다.
+ */
+export function isIsolatedPoint(rows: Record<string, unknown>[], key: string, idx: number): boolean {
+  const has = (i: number) => i >= 0 && i < rows.length && rows[i][key] !== null && rows[i][key] !== undefined
+  return has(idx) && !has(idx - 1) && !has(idx + 1)
+}
