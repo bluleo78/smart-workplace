@@ -945,7 +945,7 @@ describe('입력창 첨부', () => {
     })
   }
   const files = (n: number, prefix = 'a') => Array.from({ length: n }, (_, i) => new File(['x'], `${prefix}${i}.txt`, { type: 'text/plain' }))
-  const chipCount = () => screen.queryAllByLabelText('첨부 제거').length
+  const chipCount = () => screen.queryAllByLabelText(/첨부 제거$/).length
 
   test('첨부가 10개인 채 2개를 더 붙이면 올리지 않고 남은 자리를 알린다', async () => {
     const calls: number[] = []
@@ -971,7 +971,7 @@ describe('입력창 첨부', () => {
     await user.upload(input, files(1, 'c'))
     expect(await screen.findByText('첨부는 메시지당 최대 10개예요 — 더 붙일 수 없어요')).toBeInTheDocument()
     expect(calls).toEqual([9, 1])
-    await user.click(screen.getAllByLabelText('첨부 제거')[0])
+    await user.click(screen.getAllByLabelText(/첨부 제거$/)[0])
     await waitFor(() => expect(chipCount()).toBe(9))
     await user.upload(input, files(1, 'd'))
     await waitFor(() => expect(chipCount()).toBe(10))

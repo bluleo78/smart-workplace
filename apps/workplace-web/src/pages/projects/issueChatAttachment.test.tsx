@@ -112,7 +112,7 @@ describe('이슈 채팅 첨부', () => {
     ])
     const input = await screen.findByTestId<HTMLInputElement>('chat-composer-file-input')
     const files = (n: number, prefix: string) => Array.from({ length: n }, (_, i) => new File(['x'], `${prefix}${i}.txt`, { type: 'text/plain' }))
-    const chips = () => screen.queryAllByLabelText('첨부 제거').length
+    const chips = () => screen.queryAllByLabelText(/첨부 제거$/).length
     await user.upload(input, files(8, 'a'))
     await waitFor(() => expect(chips()).toBe(8))
     await user.upload(input, files(3, 'b'))
