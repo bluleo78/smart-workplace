@@ -1628,7 +1628,10 @@ test('process-issue.md: Gen:iA Code 하위 에이전트 task 에 agent_report �
     assert.ok(!part.includes('agent_report'), `${label} 에 agent_report 가 새면 안 된다`);
   }
   // Codex 줄은 「같은 규칙」이 agent_report 까지 뜻하지 않는다고 밝힌다.
-  includesAll(lineWith(wait, '- **Codex'), ['`agent_report` 문구·회수는 쓰지 않는다'], 'Codex');
+  // runner 는 genia 확장도 포함하므로 이 줄은 Codex·OpenCode 로 한정하고 Gen:iA Code 는 위 항목대로 둔다.
+  includesAll(lineWith(wait, '- **Codex·OpenCode**'), ['`agent_report` 문구·회수는 쓰지 않는다', 'Gen:iA Code 는 깨우는 방식이 `runner`(genia 확장)여도 이 줄이 아니라 위 Gen:iA Code 항목대로 한다'], 'Codex·OpenCode');
+  // 1번 「시작」 양보 갈래에서 끝난 하위 에이전트 결과가 agent_report 누락이면 회수로 간다.
+  includesAll(lineWith(pi, '`양보:` 줄이 있으면(「쥔 동안'), ['`Agent ended without agent_report` 면 「하위 에이전트 기다리기」 Gen:iA Code 항목대로 회수'], '1번 양보 갈래');
   // 모든 Subagent start 에 문구를 붙이고, 빠지면 세션 파일에서 회수해 커밋·워크트리를 확인한 뒤 쓴다(다시 띄우지 않는다).
   includesAll(section(wait, '- **Gen:iA Code**:', '\n- **Codex'), [
     '반드시 `agent_report` 도구를 불러',
@@ -1640,6 +1643,7 @@ test('process-issue.md: Gen:iA Code 하위 에이전트 task 에 agent_report �
     '마지막 assistant 답',
     '`git log`',
     '`git status`',
+    '말한 커밋이 브랜치에 없으면 그 Task 는 실패로 본다',
     '마지막 코드 변경 뒤에 돌린 실행',
     '없을 때만 바뀐 범위 테스트를 다시 돌려',
     '과제 검토자·리뷰 하위 에이전트면 그 답의 판정·지적이 보고다',
