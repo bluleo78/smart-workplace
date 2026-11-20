@@ -118,18 +118,23 @@ export function MobileWidgetCard({
   // 머리말 링크는 글자 높이(20px)만큼만 눌려 위아래로 눌림 영역을 넓힌다(WP-734).
   const labelClass = cn('flex min-w-0 items-center gap-2 rounded-sm hover:text-ai-accent', FOCUS, HIT_AREA_Y_COARSE)
   const interactiveHead = !edit && !isTile
-  const headLabel =
-    interactiveHead && headerLink ? (
-      <Link to={headerLink} className={labelClass}>
-        {label}
-      </Link>
-    ) : interactiveHead && onHeaderClick ? (
-      <button type="button" onClick={onHeaderClick} className={labelClass}>
-        {label}
-      </button>
-    ) : (
-      <span className="flex min-w-0 items-center gap-2">{label}</span>
-    )
+  // WP-1885: 위젯 제목은 h2 — 링크/단추/span 을 h2 가 감싼다(단추 안에 헤딩을 넣지 않는다). 접기 단추·편집 손잡이는 h2 밖.
+  // preflight 가 h2 글꼴은 상속·여백 0 으로 둬 모양은 그대로, min-w-0 로 truncate 가 계속 먹게 한다.
+  const headLabel = (
+    <h2 className="min-w-0">
+      {interactiveHead && headerLink ? (
+        <Link to={headerLink} className={labelClass}>
+          {label}
+        </Link>
+      ) : interactiveHead && onHeaderClick ? (
+        <button type="button" onClick={onHeaderClick} className={labelClass}>
+          {label}
+        </button>
+      ) : (
+        <span className="flex min-w-0 items-center gap-2">{label}</span>
+      )}
+    </h2>
+  )
 
   // ⌃/⌄ — 44px 터치 영역. 음수 여백으로 머리 높이는 시안대로 유지한다.
   const collapseButton =

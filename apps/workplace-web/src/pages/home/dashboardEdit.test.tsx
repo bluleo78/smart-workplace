@@ -291,3 +291,14 @@ test.each([
   await view.user.click(await screen.findByTestId('widget-settings-apply'))
   expect(screen.getByTestId('dashboard-edit-undo')).toBeDisabled()
 })
+
+test('편집 모드에서도 위젯 제목은 h2 이고 드래그 핸들은 헤딩 밖이다(WP-1885)', async () => {
+  await openEdit(['my_tasks', 'unread_mail'])
+  const headings = screen.getAllByRole('heading', { level: 2 })
+  expect(headings.map((h) => h.textContent)).toEqual(expect.arrayContaining(['내 작업', '메일']))
+  for (const h of headings) {
+    expect(within(h).queryByTestId('widget-drag-handle')).toBeNull()
+    // 위·아래 이동·숨김·테두리 토글 등 어떤 단추도 헤딩 이름에 섞이지 않는다.
+    expect(within(h).queryAllByRole('button')).toHaveLength(0)
+  }
+})

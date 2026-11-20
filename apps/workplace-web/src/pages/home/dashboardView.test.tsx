@@ -390,3 +390,23 @@ test('편집 중 레이아웃 캐시가 지워져 다시 받기만 하면 초안
   expect(within(card('my_tasks')).getByTestId('widget-hide-toggle')).toHaveAccessibleName(/^표시:/)
   expect(screen.getByTestId('dashboard-edit-undo')).toBeEnabled()
 })
+
+// WP-1885 — 위젯 제목이 헤딩이 아니라 div 라 스크린리더 헤딩 탐색에서 빠졌다. 제목=h2, 요약 소제목=h3.
+test('위젯 제목은 h2 로, 요약 안 「지금 신경 쓸 일」은 h3 로 그려진다(WP-1885)', async () => {
+  await renderDashboard(layout(['synthesis', 'my_tasks', 'notifications', 'unread_mail']))
+  await screen.findByTestId('dashboard-attention')
+  const names = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
+  expect(names).toEqual(expect.arrayContaining(['내 작업', '알림', '메일']))
+  expect(screen.getByRole('heading', { level: 3, name: /지금 신경 쓸 일/ })).toBeInTheDocument()
+  // 링크 머리는 h2 안의 링크, 인박스를 여는 알림 머리는 h2 안의 단추 — 헤딩이 단추를 감싼다.
+  const mail = screen.getByRole('heading', { level: 2, name: '메일' })
+  expect(within(mail).getByRole('link')).toHaveAttribute('href', '/mail')
+  const noti = screen.getByRole('heading', { level: 2, name: '알림' })
+  expect(within(noti).getByRole('button', { name: '알림' })).toBeInTheDocument()
+})
+
+test('제목을 숨긴(chromeless) 위젯도 보이지 않는 h2 제목이 있다(WP-1885)', async () => {
+  await renderDashboard(layout([{ id: 'quick_actions', type: 'quick_actions', count: 5, hidden: false, chromeless: true }]))
+  const h = await screen.findByRole('heading', { level: 2, name: '빠른 액션' })
+  expect(h).toHaveClass('sr-only')
+})

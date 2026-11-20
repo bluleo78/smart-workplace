@@ -233,13 +233,14 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
 
         {/* 지금 신경 쓸 일 — 크로스앱(이슈·멘션) 급한 것만. 최상위 1건은 포커스 카드로 강조. 비면 차분한 빈 상태. */}
         <div data-testid="dashboard-attention">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+          {/* WP-1885: 요약 위젯(h2) 아래 소제목이므로 h3. */}
+          <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
             {/* 빈 상태(0건)면 경고 색 제거 — 경고 아이콘이 긍정 메시지와 모순되지 않도록. */}
             <AlertTriangle
               className={`h-4 w-4 ${top.length > 0 ? 'text-destructive' : 'text-muted-foreground'}`}
             />
             지금 신경 쓸 일{top.length > 0 ? ` (${top.length})` : ''}
-          </div>
+          </h3>
           {top.length === 0 && failedSources.length > 0 ? (
             <LoadErrorState
               variant="inline"

@@ -289,3 +289,38 @@ test('위젯을 모두 숨기면 빈 상태 안내가 보이고 「홈 편집」
   await user.click(within(empty).getByTestId('dashboard-empty-action'))
   expect(await screen.findByTestId('dashboard-add-widget-open')).toBeInTheDocument()
 })
+
+test('모바일 홈 위젯 제목은 h2 이고 접기 단추는 헤딩 밖이다(WP-1885)', async () => {
+  const dash = dashboard(
+    layout(['my_tasks', { id: 'drv-1', type: 'drive', count: 0, hidden: false, params: {}, label: null }]),
+  )
+  await openHome([
+    ...widgetData(),
+    ...dash.handler,
+    http.get('/api/v1/drive/spaces', () => HttpResponse.json([createSpace({ id: 1, name: '디자인팀 공유 자료' })])),
+  ])
+  // 본문형 — 링크 머리는 h2 안, 접기 단추는 h2 밖.
+  const bodyH2 = within(widget('my_tasks')!).getByRole('heading', { level: 2 })
+  expect(within(bodyH2).getByRole('link')).toBeInTheDocument()
+  expect(within(bodyH2).queryByTestId('mobile-widget-collapse')).toBeNull()
+  expect(within(widget('my_tasks')!).getByTestId('mobile-widget-collapse')).toBeInTheDocument()
+  // 타일 — 카드 전체가 링크, 그 안에 h2. 링크 이름에 제목이 그대로 들어 있다.
+  const tileH2 = within(widget('drive')!).getByRole('heading', { level: 2 })
+  expect(widget('drive')!.tagName).toBe('A')
+  expect(widget('drive')).toHaveAccessibleName(expect.stringContaining(tileH2.textContent ?? ''))
+})
+
+test('모바일 편집 모드에서도 위젯 제목은 h2 이고 드래그 핸들·단추는 헤딩 밖이다(WP-1885)', async () => {
+  const dash = dashboard(layout(['my_tasks', 'unread_mail']))
+  const { user } = await openHome([...widgetData(), ...dash.handler])
+  await user.click(screen.getByTestId('dashboard-edit-toggle'))
+  // 편집 카드(MobileEditableWidgetCard)가 그려질 때까지 — 드래그 핸들이 위젯 수만큼 생긴다.
+  await waitFor(() => expect(screen.getAllByTestId('widget-drag-handle')).toHaveLength(2))
+  const headings = screen.getAllByRole('heading', { level: 2 })
+  expect(headings.length).toBeGreaterThanOrEqual(2)
+  for (const h of headings) {
+    expect(within(h).queryByTestId('widget-drag-handle')).toBeNull()
+    // 이동·숨김·접기 등 어떤 단추도 헤딩 이름에 섞이지 않는다.
+    expect(within(h).queryAllByRole('button')).toHaveLength(0)
+  }
+})
