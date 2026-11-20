@@ -285,8 +285,10 @@ describe('드라이브 안 공유 폴더 화면', () => {
 
   test('info 가 그 밖 실패면 「다시 시도」', async () => {
     renderFolderView({ info: () => new HttpResponse(null, { status: 500 }) })
-    expect(await screen.findByText('열지 못했습니다. 잠시 후 다시 시도하세요.')).toBeInTheDocument()
+    expect(await screen.findByText('공유 폴더를 열지 못했습니다')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '다시 시도' })).toBeInTheDocument()
+    // 막다른 화면이 되지 않게 「공유받은 항목으로」도 있다.
+    expect(screen.getByRole('link', { name: '공유받은 항목으로' })).toHaveAttribute('href', '/drive/shared')
   })
 
   test('갱신 뒤에도 401 이면 안내 토스트를 띄우고 공유 화면으로 간다(히스토리를 쌓지 않고 replace)', async () => {
@@ -403,15 +405,12 @@ describe('드라이브 공유 폴더 화면 — 실패 뒤 다시 시도하는 �
         }),
       ],
     })
-    const error = await screen.findByTestId('drive-shared-folder-error')
-    const retry = within(error).getByRole('button', { name: '다시 시도' })
-    await user.click(retry)
-    await waitFor(() => expect(infoCalls).toBe(2))
-    expect(screen.getByTestId('drive-shared-folder-error')).toBeInTheDocument()
-    expect(screen.queryByText('불러오는 중…')).toBeNull()
-    expect(document.activeElement).toBe(retry)
+    await clickRetryAndExpectErrorKept(user, 'drive-shared-folder-error', () => infoCalls)
     await act(async () => { release() })
     expect(await screen.findByTestId('share-file-row-31')).toBeInTheDocument()
     expect(screen.queryByTestId('drive-shared-folder-error')).toBeNull()
+    // 성공한 뒤 초점은 버려지지 않고(body 가 아니라) 새 폴더 화면 안의 조작 요소로 옮겨진다.
+    const view = screen.getByTestId('drive-shared-folder-view')
+    await waitFor(() => expect(view.contains(document.activeElement)).toBe(true))
   })
 })
