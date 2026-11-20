@@ -6,7 +6,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo } from 'react'
 
 import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
-import { usernameHandle } from '../../lib/utils'
 import type { WikiMentionType } from '../../types/wiki'
 
 // 이 탭에서 삽입한 멘션의 라벨(mtype:id → label). 모듈 수명 동안 유지 — 같은 대상의 라벨은 페이지가 달라도 같다.
@@ -53,11 +52,12 @@ function resolveMentionLabel(map: Map<string, string>, mtype: WikiMentionType, i
   return mtype === 'USER' ? `사용자 ${id}` : mtype === 'PAGE' ? `페이지 #${id}` : `이슈 #${id}`
 }
 
-/** 칩에 보일 글자 — USER 는 채팅 칩과 같은 "@" 접두, PAGE/ISSUE 는 참조 링크라 접두 없음(#703).
- *  라벨이 이름 없는 사용자의 username 폴백이면 이메일(@ 포함)일 수 있어 usernameHandle 로 "@@" 중복을 막는다(WP-1880). */
+/** 칩에 보일 글자 — USER 는 채팅 칩(MessageRow·IssueMentionChip)과 같은 "@"+라벨, PAGE/ISSUE 는 참조 링크라 접두 없음(#703).
+ *  USER 라벨은 표시 이름이라 usernameHandle 없이 늘 "@" 를 붙인다(WP-1880 리뷰 후속). 이름 없는 이메일형 사용자는
+ *  삽입한 탭에서 멘션 재조회 전까지만 username 폴백 라벨이라 "@admin@host" 로 보일 수 있다. */
 // eslint-disable-next-line react-refresh/only-export-components
 export function mentionChipText(mtype: WikiMentionType, label: string): string {
-  return mtype === 'USER' ? usernameHandle(label) : label
+  return mtype === 'USER' ? `@${label}` : label
 }
 
 /** 칩에 보일 라벨 — 해소 결과 > 로컬 기억 > 대체 라벨. */
