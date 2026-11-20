@@ -78,6 +78,10 @@ async function openEditor(user: Awaited<ReturnType<typeof openChat>>['user']) {
 
 const ok = (message: ChatMessageResponse) => HttpResponse.json(message)
 const chips = () => within(screen.getByTestId('chat-message-editor-attachments'))
+/** 칩 × 단추 전부 — 접근 이름이 「<파일명> 첨부 제거」(WP-1865). */
+const removeButtons = () => chips().getAllByRole('button', { name: /첨부 제거$/ })
+/** 파일명이 name 인 칩의 × 단추. */
+const removeButton = (name: string) => chips().getByRole('button', { name: `${name} 첨부 제거` })
 
 describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
   test('수정을 열면 입력창 위에 첨부 칩 두 개(×)가 보인다', async () => {
@@ -88,7 +92,7 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     expect(within(editor).getByTestId('chat-message-editor-attachments')).toBeInTheDocument()
     expect(chips().getByText('a.pdf')).toBeInTheDocument()
     expect(chips().getByText('b.txt')).toBeInTheDocument()
-    expect(chips().getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+    expect(removeButtons()).toHaveLength(2)
   })
 
   test('× 후 저장하면 {body, keepFileIds:[1]} 을 보내고 파일 하나와 (수정됨)이 보인다', async () => {
@@ -96,7 +100,7 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     const { user } = await openChat(handlers)
     await openEditor(user)
 
-    await user.click(chips().getAllByRole('button', { name: '첨부 제거' })[1])
+    await user.click(removeButton('b.txt'))
     await user.click(screen.getByTestId('chat-message-editor-save'))
 
     await waitFor(() => expect(screen.queryByTestId('chat-message-editor')).not.toBeInTheDocument())
@@ -111,15 +115,15 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     const { user } = await openChat(handlers)
     await openEditor(user)
 
-    await user.click(chips().getAllByRole('button', { name: '첨부 제거' })[0])
-    expect(chips().getAllByRole('button', { name: '첨부 제거' })).toHaveLength(1)
+    await user.click(removeButton('a.pdf'))
+    expect(removeButtons()).toHaveLength(1)
     await user.click(screen.getByTestId('chat-message-editor-cancel'))
 
     await waitFor(() => expect(screen.queryByTestId('chat-message-editor')).not.toBeInTheDocument())
     expect(screen.getByTestId('attachment-card-1')).toBeInTheDocument()
     expect(screen.getByTestId('attachment-card-2')).toBeInTheDocument()
     await openEditor(user)
-    expect(chips().getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+    expect(removeButtons()).toHaveLength(2)
     expect(patched).toHaveLength(0)
   })
 
@@ -129,7 +133,7 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     await openEditor(user)
     expect(screen.getByTestId('chat-message-editor-save')).toBeEnabled()
 
-    await user.click(chips().getByRole('button', { name: '첨부 제거' }))
+    await user.click(removeButton('a.pdf'))
     expect(screen.queryByTestId('chat-message-editor-attachments')).not.toBeInTheDocument()
     expect(screen.getByTestId('chat-message-editor-save')).toBeDisabled()
   })
@@ -154,7 +158,7 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     const { user } = await openChat(handlers)
     await openEditor(user)
 
-    await user.click(chips().getByRole('button', { name: '첨부 제거' }))
+    await user.click(removeButton('a.pdf'))
     expect(screen.getByTestId('chat-message-editor-save')).toBeEnabled()
     await user.click(screen.getByTestId('chat-message-editor-save'))
 
@@ -179,12 +183,12 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     const { handlers, events, patched } = setup(own(), () => ok(own({ body: '새 본문', attachments: [A], editedAt: EDITED_AT })))
     const { user } = await openChat(handlers)
     await openEditor(user)
-    expect(chips().getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+    expect(removeButtons()).toHaveLength(2)
 
     await events.push(`event: chat.message.updated\ndata: ${JSON.stringify({
       threadId: THREAD_ID, id: MSG_ID, body: '보고서', mentions: [], editedAt: EDITED_AT, attachments: [A],
     })}\n\n`)
-    await waitFor(() => expect(chips().getAllByRole('button', { name: '첨부 제거' })).toHaveLength(1))
+    await waitFor(() => expect(removeButtons()).toHaveLength(1))
     expect(chips().queryByText('b.txt')).not.toBeInTheDocument()
 
     // 빠진 파일을 되살려 keep 에 싣지 않는다 — 본문만 고쳤으니 keepFileIds 키 자체가 없다.
@@ -200,13 +204,13 @@ describe('이슈 챗 메시지 수정 — 첨부 빼기 (WP-1680)', () => {
     const { user } = await openChat(handlers)
     await openEditor(user)
 
-    await user.click(chips().getAllByRole('button', { name: '첨부 제거' })[1])
+    await user.click(removeButton('b.txt'))
     await user.click(screen.getByTestId('chat-message-editor-save'))
 
     expect(await screen.findByText('이 메시지에 붙은 첨부가 아닙니다')).toBeInTheDocument()
     expect(patched).toEqual([{ body: '보고서', keepFileIds: [1] }])
     expect(screen.getByTestId('chat-message-editor')).toBeInTheDocument()
-    expect(chips().getAllByRole('button', { name: '첨부 제거' })).toHaveLength(1)
+    expect(removeButtons()).toHaveLength(1)
     expect(chips().queryByText('b.txt')).not.toBeInTheDocument()
   })
 })

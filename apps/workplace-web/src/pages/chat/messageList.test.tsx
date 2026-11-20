@@ -810,8 +810,8 @@ describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
     openChannel(createChannel({ id: CH, member: true }), [message], { handlers, events: events?.handler })
   /** 수정 중 입력창 위 칩 목록. */
   const chips = () => screen.getByTestId('message-editor-attachments')
-  /** 칩 목록에서 이름이 name 인 칩의 × 버튼. */
-  const removeChip = (name: string) => within(within(chips()).getByText(name).closest('li')!).getByRole('button', { name: '첨부 제거' })
+  /** 칩 목록에서 이름이 name 인 칩의 × 버튼 — 접근 이름에 파일명이 든다(WP-1865). */
+  const removeChip = (name: string) => within(chips()).getByRole('button', { name: `${name} 첨부 제거` })
 
   test('수정을 열면 입력창 위에 첨부 칩 두 개(×)가 보이고 아래 첨부 목록의 파일은 숨는다', async () => {
     const { user } = open(own())
@@ -820,7 +820,7 @@ describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
     expect(await screen.findByTestId('message-editor-11')).toBeInTheDocument()
     expect(within(chips()).getByText('a.pdf')).toBeInTheDocument()
     expect(within(chips()).getByText('b.txt')).toBeInTheDocument()
-    expect(within(chips()).getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+    expect(within(chips()).getAllByRole('button', { name: /첨부 제거$/ })).toHaveLength(2)
     // 칩 목록은 에디터 안(입력창 위)에 있다.
     expect(within(screen.getByTestId('message-editor-11')).getByTestId('message-editor-attachments')).toBeInTheDocument()
     expect(screen.queryByTestId('attachment-card-1')).not.toBeInTheDocument()
@@ -855,7 +855,7 @@ describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
     expect(p.calls).toHaveLength(0)
     // 다시 열면 칩 두 개로 처음부터 시작한다(취소한 × 가 남지 않는다).
     await user.click(screen.getByTestId('message-edit-11'))
-    expect(within(chips()).getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+    expect(within(chips()).getAllByRole('button', { name: /첨부 제거$/ })).toHaveLength(2)
   })
 
   test('첨부만 있는 메시지에서 파일을 모두 빼면 저장이 비활성이다', async () => {
@@ -921,7 +921,7 @@ describe('메시지 수정 — 첨부 빼기 (WP-1679)', () => {
     const p = patch(() => HttpResponse.json(own({ body: '보고서 수정', attachments: [att(1, 'a.pdf')], editedAt: '2026-11-17T01:00:00Z' })))
     const { user } = open(own(), [p.handler], events)
     await user.click(await screen.findByTestId('message-edit-11'))
-    expect(within(chips()).getAllByRole('button', { name: '첨부 제거' })).toHaveLength(2)
+    expect(within(chips()).getAllByRole('button', { name: /첨부 제거$/ })).toHaveLength(2)
     // 다른 기기에서 b.txt 를 뺀 수정이 SSE 로 온다.
     await events.push('messaging.message.updated', {
       channelId: CH, id: 11, body: '보고서', mentions: [], editedAt: '2026-11-17T00:30:00Z', attachments: [att(1, 'a.pdf')],

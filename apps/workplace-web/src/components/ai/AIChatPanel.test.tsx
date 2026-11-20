@@ -141,7 +141,7 @@ describe('첨부 초안 (WP-234)', () => {
     await waitFor(() => expect(chips()).toHaveTextContent('b.png'))
 
     const before = revoke.mock.calls.length
-    await user.click(within(within(chips()!).getByText('a.png').closest('li')!).getByRole('button', { name: '첨부 제거' }))
+    await user.click(within(chips()!).getByRole('button', { name: 'a.png 첨부 제거' }))
     await waitFor(() => expect(chips()).not.toHaveTextContent('a.png'))
     expect(revoke.mock.calls.slice(before).map(([u]) => u)).toEqual(['blob:preview-0'])
 
@@ -199,7 +199,7 @@ describe('첨부 초안 (WP-234)', () => {
     attach({ name: 'extra.png', type: 'image/png' })
     await waitFor(() => expect(chips()).toHaveTextContent('extra.png'))
     expect(screen.queryByText(PER_SESSION_LIMIT_MSG)).not.toBeInTheDocument()
-    await user.click(within(within(chips()!).getByText('extra.png').closest('li')!).getByRole('button', { name: '첨부 제거' }))
+    await user.click(within(chips()!).getByRole('button', { name: 'extra.png 첨부 제거' }))
     await waitFor(() => expect(within(chips()!).getAllByRole('listitem')).toHaveLength(5))
 
     // 다시 보내면 처음과 같은 fileIds 가 실린다.
