@@ -50,7 +50,10 @@ export function DisabledReasonTooltip({
       // 브라우저가 버튼을 막으며 초점을 이미 body 로 떨어뜨린 경우(그 blur 이벤트는 이 효과보다 늦게 온다).
       if ((stillInside || focusLost()) && keyboardFocus.current) span.focus()
     } else if (prev != null && reason == null) {
-      // 풀리는 순간: 초점이 감싸개에 있었다면 안의 버튼으로 돌려준다(감싸개는 Tab 정지가 아니게 된다).
+      // 풀리는 순간: 열려 있던 툴팁 상태를 닫는다 — reason 이 없는 동안은 onOpenChange 가 없어 blur 로도 닫히지 않으므로,
+      // 여기서 닫지 않으면 다음에 reason 이 생길 때(마우스 클릭·예약 실행) 호버·초점 없이 툴팁이 저절로 뜬다.
+      setOpen(false)
+      // 초점이 감싸개에 있었다면 안의 버튼으로 돌려준다(감싸개는 Tab 정지가 아니게 된다).
       // 초점 받을 요소가 없으면 옮기지 않는다.
       if (active === span) span.querySelector<HTMLElement>(FOCUSABLE)?.focus()
     }
@@ -78,8 +81,9 @@ export function DisabledReasonTooltip({
       // 풀리는 순간의 위 효과가 「감싸개에 초점이 있었다」를 보지 못하고 모달 초점 가두기가 초점을 모달로 가져간다.
       // -1 은 Tab 순서에는 없고 초점만 쥘 수 있어 효과가 안의 버튼으로 넘겨줄 때까지 초점이 남는다.
       tabIndex={reason != null ? (spanProps.tabIndex ?? 0) : -1}
-      // 이름은 호출자가 주면 그것, 없으면 이유 자체. reason 이 없으면 이름 없음.
-      aria-label={reason != null ? (spanProps['aria-label'] ?? reason) : undefined}
+      // 이름은 호출자가 줄 때만 — 기본값을 reason 으로 두면 이름을 넘기지 않던 곳(상태 「+ 추가」·사람 카드 「메일」)의
+      // 컨트롤 이름이 사유로 덮인다. reason 이 없으면 이름 없음.
+      aria-label={reason != null ? spanProps['aria-label'] : undefined}
       className={cn(
         'inline-flex rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
         className,

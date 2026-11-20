@@ -123,9 +123,10 @@ describe('DisabledReasonTooltip', () => {
     expect(getByTestId('w')).toHaveAttribute('tabindex', '0')
   })
 
-  it('aria-label 은 호출자가 안 주면 reason, 주면 호출자 값, reason 이 null 이면 없다', () => {
+  it('aria-label 은 호출자가 줄 때만 있고(기본값 없음), reason 이 null 이면 없다', () => {
+    // 기본값을 reason 으로 두면 이름을 넘기지 않던 호출부(상태 「+ 추가」 등)의 이름이 사유로 덮인다(PR #1526 리뷰).
     const { getByTestId, rerender } = render(wrapEl({ reason: '이유' }))
-    expect(getByTestId('w')).toHaveAttribute('aria-label', '이유')
+    expect(getByTestId('w')).not.toHaveAttribute('aria-label')
     rerender(wrapEl({ reason: '이유', 'aria-label': '이름' }))
     expect(getByTestId('w')).toHaveAttribute('aria-label', '이름')
     rerender(wrapEl({ reason: null, 'aria-label': '이름' }))
@@ -144,7 +145,20 @@ describe('DisabledReasonTooltip', () => {
         <button disabled>d</button>
       </DisabledReasonTooltip>,
     )
-    expect(document.body.contains(document.activeElement)).toBe(true)
-    expect(document.activeElement?.tagName).not.toBe('BUTTON')
+    // 감싸개가 초점을 그대로 쥔다(body 로 떨어지면 실패).
+    expect(getByTestId('w')).toHaveFocus()
+  })
+
+  it('툴팁이 열린 채 reason 이 사라지면 닫아, 다음에 reason 이 생겨도 호버·초점 없이 저절로 뜨지 않는다', () => {
+    const { getByTestId, queryByRole, rerender } = render(wrapEl({ reason: '실행 중이에요' }))
+    // 키보드 초점으로 툴팁을 연다(Radix 는 초점에 연다).
+    fireEvent.focus(getByTestId('w'))
+    expect(queryByRole('tooltip')).not.toBeNull()
+    // 실행이 끝나 reason 이 사라지고, 초점도 감싸개를 떠난다.
+    rerender(wrapEl({ reason: null }))
+    fireEvent.blur(getByTestId('w'))
+    // 다시 막혀도(마우스 클릭·예약 실행) 초점·호버가 없으니 툴팁이 뜨지 않는다.
+    rerender(wrapEl({ reason: '실행 중이에요' }))
+    expect(queryByRole('tooltip')).toBeNull()
   })
 })

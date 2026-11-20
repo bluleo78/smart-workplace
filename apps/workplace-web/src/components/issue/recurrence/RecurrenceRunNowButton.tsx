@@ -55,6 +55,8 @@ export function RecurrenceRunNowButton({
   return (
     <DisabledReasonTooltip
       reason={state.reason}
+      // 감싸개 이름은 사유 그대로(막혔을 때만 — 풀리면 감싸개가 이름을 내리고 안의 버튼이 「지금 실행」으로 읽힌다).
+      aria-label={state.reason ?? undefined}
       className={className}
       data-testid="task-recurrence-run-now-reason"
     >
