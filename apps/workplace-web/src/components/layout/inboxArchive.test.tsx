@@ -247,3 +247,35 @@ describe('알림 빈 상태 CTA (WP-1848)', () => {
     expect(screen.queryByTestId('inbox-empty')).toBeNull()
   })
 })
+
+describe('읽음 처리 실패 안내(WP-1842)', () => {
+  // 읽음 처리가 실패해도 조용하면 사용자가 성공으로 오인한다 — 보관 실패와 같은 오류 토스트가 떠야 한다.
+  function renderFailing() {
+    return renderScreen(<InboxHarness />, {
+      path: '/',
+      handlers: [
+        http.get('/api/v1/notifications', () => HttpResponse.json([notif({ id: 1, read: false })])),
+        http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: 1 })),
+        http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null })),
+        http.post('/api/v1/notifications/read-all', () => HttpResponse.json({ message: '실패' }, { status: 500 })),
+        http.post('/api/v1/notifications/1/read', () => HttpResponse.json({ message: '실패' }, { status: 500 })),
+      ],
+    })
+  }
+
+  test('「모두 읽음」 이 실패하면 「읽음 처리하지 못했습니다」 토스트가 보인다', async () => {
+    const { user } = renderFailing()
+    await screen.findAllByTestId('inbox-item')
+    const btn = screen.getByTestId('inbox-mark-all')
+    await waitFor(() => expect(btn).toBeEnabled())
+    await user.click(btn)
+    expect(await screen.findByText('읽음 처리하지 못했습니다')).toBeInTheDocument()
+  })
+
+  test('안 읽은 줄을 눌러 읽음 처리가 실패해도 같은 토스트가 보인다', async () => {
+    const { user } = renderFailing()
+    const row = (await screen.findAllByTestId('inbox-item'))[0]
+    await user.click(within(row).getByText(/리팩터링/))
+    expect(await screen.findByText('읽음 처리하지 못했습니다')).toBeInTheDocument()
+  })
+})
