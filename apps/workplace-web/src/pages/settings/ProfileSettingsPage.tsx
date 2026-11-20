@@ -167,8 +167,9 @@ export default function ProfileSettingsPage() {
               {...profileForm.register('email')}
             />
           </FormField>
+          {/* 폼 루트 오류가 나타나는 순간 스크린리더가 읽게 role=alert (WP-1896, 로그인 WP-733 과 같은 방식) */}
           {profileForm.formState.errors.root && (
-            <p className="text-sm text-destructive">{profileForm.formState.errors.root.message}</p>
+            <p role="alert" className="text-sm text-destructive">{profileForm.formState.errors.root.message}</p>
           )}
           <Button type="submit" disabled={profileForm.formState.isSubmitting}>
             {profileForm.formState.isSubmitting ? '저장 중...' : '저장'}
@@ -202,8 +203,9 @@ export default function ProfileSettingsPage() {
             >
               <PasswordInput id="confirm-password" fieldLabel="비밀번호 확인" {...passwordForm.register('confirmPassword')} autoComplete="new-password" />
             </FormField>
+            {/* 폼 루트 오류가 나타나는 순간 스크린리더가 읽게 role=alert (WP-1896, 로그인 WP-733 과 같은 방식) */}
             {passwordForm.formState.errors.root && (
-              <p className="text-sm text-destructive">{passwordForm.formState.errors.root.message}</p>
+              <p role="alert" className="text-sm text-destructive">{passwordForm.formState.errors.root.message}</p>
             )}
             <Button type="submit" disabled={passwordForm.formState.isSubmitting}>
               {passwordForm.formState.isSubmitting ? '변경 중...' : '비밀번호 변경'}

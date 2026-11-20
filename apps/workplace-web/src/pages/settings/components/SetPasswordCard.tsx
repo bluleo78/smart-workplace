@@ -53,7 +53,8 @@ export function SetPasswordCard({ onDone }: { onDone: () => Promise<void> }) {
         <FormField label="비밀번호 확인" htmlFor="set-confirm-password" error={form.formState.errors.confirmPassword?.message}>
           <PasswordInput id="set-confirm-password" fieldLabel="비밀번호 확인" {...form.register('confirmPassword')} autoComplete="new-password" />
         </FormField>
-        {form.formState.errors.root && <p className="text-sm text-destructive">{form.formState.errors.root.message}</p>}
+        {/* 폼 루트 오류가 나타나는 순간 스크린리더가 읽게 role=alert (WP-1896, 로그인 WP-733 과 같은 방식) */}
+        {form.formState.errors.root && <p role="alert" className="text-sm text-destructive">{form.formState.errors.root.message}</p>}
         <Button type="submit" disabled={form.formState.isSubmitting}>
           {form.formState.isSubmitting ? '설정 중...' : '비밀번호 설정'}
         </Button>
