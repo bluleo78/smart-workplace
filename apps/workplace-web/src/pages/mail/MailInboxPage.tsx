@@ -616,6 +616,14 @@ function AttachmentList({
   )
 }
 
+/**
+ * 상세 칸의 숨은 구역 헤딩(WP-1889) — 스크린리더가 헤딩 탐색으로 상세 칸에 닿게 한다.
+ * 내용이 열리면 본문 제목 h2 가 대신하므로 칸 바깥 한 곳이 아니라 빈·로딩·오류 분기마다 둔다.
+ */
+function MailDetailSrHeading() {
+  return <h2 className="sr-only">메일 상세</h2>
+}
+
 // 선택한 메시지의 본문 패널 — text 우선, HTML 만 있으면 스크립트 차단 iframe 으로 렌더.
 function MessageDetailPanel({
   messageId,
@@ -735,6 +743,7 @@ function MessageDetailPanel({
         data-testid="mail-detail-empty"
         className="flex h-full flex-col items-center justify-center gap-3 text-center"
       >
+        <MailDetailSrHeading />
         <Mail className="h-10 w-10 text-muted-foreground/50" />
         <div>
           <p className="text-sm font-medium">메일을 선택하세요</p>
@@ -756,12 +765,20 @@ function MessageDetailPanel({
       body
     )
   if (isLoading) {
-    return withViewer(withMobileBar(<div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>))
+    return withViewer(
+      withMobileBar(
+        <div className="p-6 text-sm text-muted-foreground">
+          <MailDetailSrHeading />
+          불러오는 중…
+        </div>,
+      ),
+    )
   }
   if (isError || !detail) {
     return withViewer(
       withMobileBar(
         <div className="p-6 text-center">
+          <MailDetailSrHeading />
           <p className="text-sm text-destructive mb-2">메일을 불러오지 못했습니다</p>
           <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
         </div>,
@@ -1981,6 +1998,8 @@ function MailInbox() {
           )}
           data-testid="mail-list"
         >
+          {/* 스크린리더 헤딩 탐색용 숨은 구역 헤딩(WP-1889) — 목록 칸을 헤딩으로 건너뛸 수 있게 한다 */}
+          <h2 className="sr-only">메일 목록</h2>
           {/* 목록 위 필터 줄(WP-1355) — [▽ 제목·보낸사람] [↻ 동기화 상태] ···· [안 읽은 메일만] [모두 읽음] (받은편지함만 컨트롤).
               서버 메일함 보기(WP-961)도 INBOX 로 해석되지만 계정 동기화 대신 상태 줄이 가져오기를 맡아 동기화 버튼·시각은 뺀다.
               보일 것이 없는 슬롯은 undefined 로 넘긴다(FilterLine 슬롯 계약). 줄 폭이 좁으면(목록 칸 448px) 키워드 줄 + 컨트롤 줄로 쌓인다. */}
