@@ -392,6 +392,14 @@ export function MessageRow({
     </button>
   )
 
+  // 전송 중 문구(WP-1860) — 행 흐림(opacity-60)과 늘 한 쌍이라 본인·타인 분기 양쪽에서 같은 요소를 쓴다.
+  // role=status 로 스크린리더에도 알린다.
+  const pendingLabel = isPending ? (
+    <span data-testid={`message-pending-${m.id}`} role="status" className="text-xs text-muted-foreground">
+      전송 중…
+    </span>
+  ) : null
+
   return (
     <>
       <div
@@ -421,6 +429,9 @@ export function MessageRow({
         }
         className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${
           ownBubble ? 'justify-end' : ''
+        } ${
+          // 서버 확정 전(낙관, id<0)인 행은 흐리게 해 아직 전송 중임을 보인다(WP-1860).
+          isPending ? 'opacity-60' : ''
         } ${
           // 터치 셸: 선택·콜아웃 억제(이유는 TOUCH_NO_SELECT_CLASS 주석). 수정 중인 행은 풀어 둔다(C2).
           touchShell && !isEditing ? TOUCH_NO_SELECT_CLASS : ''
@@ -454,6 +465,8 @@ export function MessageRow({
                 {!startsGroup && toolbar}
                 {body}
               </div>
+              {/* 전송 중 표시(WP-1860) — 흐림(opacity-60)과 늘 함께 나오도록 본문 아래 본인 컬럼에 둔다. */}
+              {pendingLabel}
               {/* 본인 컬럼 폭(75%)에 묶는 첨부 래퍼 — 이유는 OWN_ATTACHMENTS_CLASS 주석 참조. */}
               {attachments && <div className={OWN_ATTACHMENTS_CLASS}>{attachments}</div>}
               {reactions}
@@ -503,6 +516,8 @@ export function MessageRow({
                 </div>
               )}
               {body}
+              {/* 낙관 행이 아직 남의 메시지 분기로 그려져도(currentUserId 미확정 등) 흐림과 문구가 함께 나오게 같은 문구를 둔다. */}
+              {pendingLabel}
               {attachments}
               {toolbar}
               {reactions}
