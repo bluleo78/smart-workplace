@@ -1608,3 +1608,44 @@ test('process-issue.md: 개발자는 머지 뒤 [리뷰 후속] 글을 받으면
 test('README: 리뷰 후속은 같은 이슈에서 한 번만 고친다 (WP-1801)', () => {
   includesAll(lineWith(followReadme, '`[리뷰 후속]`'), ['같은 이슈', '한 번', '리뷰 후속이 머지된 뒤 검토 대기'], 'README');
 });
+// WP-1817 — Gen:iA Code 하위 에이전트는 task 에 agent_report 호출을 명시하고, 빠지면 세션 파일로 회수한다.
+test('process-issue.md: Gen:iA Code 하위 에이전트 task 에 agent_report 호출을 명시하고, 빠지면 세션 파일로 회수한다 (WP-1817)', () => {
+  const s5 = section(pi, '\n### 5. 설계·구현\n', '\n### 6. 리뷰\n');
+  // 5번 브리프 줄은 genia 칸에만 문구를 붙인다 — 다른 실행기 브리프에 붙으면 없는 도구를 부르라고 시킨다.
+  includesAll(lineWith(s5, '**Gen:iA Code 면 하위 에이전트 task'), ['Gen:iA Code 가 아닌 실행기(Claude Code·Codex·OpenCode) 브리프에는 넣지 않는다', '하위 에이전트 기다리기'], '5번');
+  const wait = section(pi, '\n### 하위 에이전트 기다리기\n', '\n### 차단됨\n');
+  // SDD 밖 하위 에이전트(최종 리뷰·6번 리뷰·PR 리뷰 코드 리뷰)에도 같은 규칙을 쓴다고 절 머리에 적는다.
+  includesAll(lineWith(wait, 'SDD 밖에서 띄우는 하위 에이전트'), ['SDD 최종 리뷰', '6번 리뷰', '「PR 리뷰·머지」 3번 코드 리뷰'], '하위 에이전트 기다리기');
+  // 6번·「PR 리뷰·머지」 3번에서도 기다리기 절의 규칙을 찾아가게 가리킨다.
+  const pointer = '「하위 에이전트 기다리기」 Gen:iA Code 항목의 `agent_report` 문구·회수';
+  includesAll(section(pi, '\n### 6. 리뷰\n', '\n### 7. '), [pointer], '6번');
+  includesAll(lineWith(pi, '**코드 리뷰**: 브랜치 전체'), [pointer], 'PR 리뷰·머지 3번');
+  // 문구·회수는 Gen:iA Code 항목에만 있다 — 공통 1~3번·Claude Code 항목에 새면 없는 도구를 부르라고 시킨다.
+  for (const [label, part] of [
+    ['공통 1~3번', section(wait, '\n1. **제한 시간을 두고 기다린다**', '\n실행기별:')],
+    ['Claude Code', section(wait, '- **Claude Code**:', '\n- **Gen:iA Code**:')],
+  ]) {
+    assert.ok(!part.includes('agent_report'), `${label} 에 agent_report 가 새면 안 된다`);
+  }
+  // Codex 줄은 「같은 규칙」이 agent_report 까지 뜻하지 않는다고 밝힌다.
+  includesAll(lineWith(wait, '- **Codex'), ['`agent_report` 문구·회수는 쓰지 않는다'], 'Codex');
+  // 모든 Subagent start 에 문구를 붙이고, 빠지면 세션 파일에서 회수해 커밋·워크트리를 확인한 뒤 쓴다(다시 띄우지 않는다).
+  includesAll(section(wait, '- **Gen:iA Code**:', '\n- **Codex'), [
+    '반드시 `agent_report` 도구를 불러',
+    '구현자·과제 검토자·최종 리뷰·requesting-code-review·code-simplifier',
+    '`Agent ended without agent_report`',
+    '같은 과제를 그냥 다시 띄우지 않는다',
+    '`sessionFile`',
+    '끝부분만',
+    '마지막 assistant 답',
+    '`git log`',
+    '`git status`',
+    '마지막 코드 변경 뒤에 돌린 실행',
+    '없을 때만 바뀐 범위 테스트를 다시 돌려',
+    '과제 검토자·리뷰 하위 에이전트면 그 답의 판정·지적이 보고다',
+    '도구 호출 도중에 끊긴 답 포함',
+    '그때만 실패로 본다',
+  ], 'Gen:iA Code');
+  // 멈춘 하위 에이전트를 다시 맡기는 규칙이 agent_report 누락까지 다시 띄우지 않게 한다.
+  includesAll(lineWith(wait, '끊긴 Task 는 다시 맡긴다'), ['`Agent ended without agent_report` 면 끊긴 것이 아니다'], 'Gen:iA Code 멈춤');
+});
