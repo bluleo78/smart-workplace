@@ -117,7 +117,8 @@ exec ${realCurl} "$@"
 
 /**
  * 가짜 배포본 하나를 srv 에 둔다 — tar.gz 안은 폴더 하나(genia-<버전>-linux-x64/)에 가짜 genia 와 genia-root.crt.
- * 가짜 genia 는 --version 에 버전을, --help 에 권한 옵션 줄(칸 명령이 묻는다, WP-1807)을 내고, 그 밖(칸)에서는 받은 env·인자를 FAKE_OUT/pane-<폴더>.env 에 남기고 기다린다.
+ * 가짜 genia 는 --version 에 버전을 내고, --help 에는 권한 옵션 줄(칸 명령이 묻는다, WP-1807)을 낸다 — 이 줄이 없으면 칸 명령이 옵션을 안 붙인다.
+ * 그 밖(칸)에서는 받은 env·인자를 FAKE_OUT/pane-<폴더>.env 에 남기고 기다린다.
  * latest.txt 에는 두 리눅스 키 모두 같은 파일을 적는다(테스트를 돌리는 컴퓨터의 아키텍처와 상관없게). sum 을 주면 그 값을 적는다(불일치 시험).
  * crlf·upper 는 윈도 줄바꿈·대문자 sha 로 적는다(서버가 그렇게 내도 받아야 한다).
  */

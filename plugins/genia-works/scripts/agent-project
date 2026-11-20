@@ -270,11 +270,12 @@ do_start() {
       crt="${GENIA_CA_CERT:-$HOME/.genia/app/genia-root.crt}"
       set -- "$@" GENIA_WORKS_WAKE_MODE=runner GENIA_WORKS_RUNNER_WAKES=1
       [ -f "$crt" ] && set -- "$@" "NODE_EXTRA_CA_CERTS=$crt"
+      # 무인 칸이 첫 명령 승인 대기에서 멈추지 않게 bypassPermissions 로 띄운다 — 옵션을 모르는 옛 genia 는 모르는 인자로 죽으므로
+      # --help(stdout·stderr)에 옵션 이름이 있을 때만 붙인다. 이름 뒤가 이름 글자가 아니면 맞는다(--permission-mode-file 은 거름, WP-1807).
       set -- "$@" genia
-      # genia 2611.3.12 부터 도구 실행 전 승인을 묻는다(기본 권한 모드) — 사람이 없는 칸은 첫 명령에서 멈추므로 Claude 칸처럼
-      # 승인 없이 돌게 한다(WP-1807). 옵션을 모르는 옛 genia 는 「Unknown option」으로 칸이 아예 뜨지 않으므로 --help 에 있을 때만 붙인다.
-      # 옵션 이름 그대로만 본다(--permission-mode-file 같은 다른 옵션에 걸리지 않게).
-      genia --help </dev/null 2>/dev/null | grep -Eq -- '--permission-mode([[:space:]=]|$)' && set -- "$@" --permission-mode bypassPermissions
+      if genia --help </dev/null 2>&1 | grep -Eq -- '--permission-mode([^[:alnum:]_-]|$)'; then
+        set -- "$@" --permission-mode bypassPermissions
+      fi
       # genia-works 확장·스킬은 이 플러그인 폴더(package.json 의 pi 목록)를 -e 로 싣는다 — 설치 없이 지금 플러그인 버전을 쓴다.
       set -- "$@" --approve -e "$(cd "$here/.." && pwd)" "/gw-loop $args"
       ;;
