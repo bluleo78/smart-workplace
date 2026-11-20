@@ -180,9 +180,9 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(a.get("slotsUsed").asInt()).isEqualTo(2);
   }
 
-  /** 자리 수 — 작업 중인 하위가 있는 부모와 무소식(2시간 넘게 보고 없는 작업 중)은 세지 않는다(work-loop 상한 기준). */
+  /** 자리 수 — 자리를 쥔(센) 하위가 있는 부모와 무소식(2시간 넘게 보고 없는 작업 중)은 세지 않는다(work-loop 상한 기준, WP-1810). */
   @Test
-  void list_excludesParentWithWorkingChildAndStaleFromSlots() throws Exception {
+  void list_excludesParentWithCountedChildAndStaleFromSlots() throws Exception {
     long agent = createAgentUserWithMembership("ag-slot");
     long parent = issue(projectId, "부모", me);
     long child = issue(projectId, "하위", me);
@@ -195,6 +195,37 @@ class AiAgentsControllerTest extends IntegrationTestBase {
 
     assertThat(a.get("slotsUsed").asInt()).isEqualTo(1);
     assertThat(field(a.get("works"), "stale")).containsExactly("false", "false", "true");
+  }
+
+  /**
+   * 자리 수 — 반복 이슈 대기열의 줄 대기(대기 중, 메모 「같은 AI 의 앞 회차가 끝나기를 기다립니다」)는 서버 안 AI 가 한 번에 하나만 돌리므로 세지 않는다. 다른
+   * 대기 중(PR 리뷰 대기 등)은 센다(WP-1810 리뷰 후속).
+   */
+  @Test
+  void list_excludesRecurrenceQueuedWaitingFromSlots() throws Exception {
+    long agent = createAgentUserWithMembership("ag-queued");
+    long q1 = issue(projectId, "회차 1", me);
+    long q2 = issue(projectId, "회차 2", me);
+    work(q1, agent, "WAITING", Instant.now());
+    work(q2, agent, "WAITING", Instant.now());
+    // IssueRecurrenceService 의 TOOL·NOTE_QUEUED 와 같은 값 — 줄 대기 행으로 만든다.
+    dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.TOOL, "workplace")
+        .set(AGENT_WORK.NOTE, "같은 AI 의 앞 회차가 끝나기를 기다립니다")
+        .where(AGENT_WORK.ISSUE_ID.in(q1, q2))
+        .execute();
+    work(issue(projectId, "PR 리뷰 대기", me), agent, "WAITING", Instant.now());
+    // 다른 도구가 같은 문구로 남긴 대기 중은 줄 대기가 아니라 센다.
+    long sameText = issue(projectId, "같은 문구 대기", me);
+    work(sameText, agent, "WAITING", Instant.now());
+    dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.NOTE, "같은 AI 의 앞 회차가 끝나기를 기다립니다")
+        .where(AGENT_WORK.ISSUE_ID.eq(sameText))
+        .execute();
+
+    JsonNode a = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
+
+    assertThat(a.get("slotsUsed").asInt()).isEqualTo(2);
   }
 
   /** 하위가 대기 중(WP-1810)이어도 자리를 쥔 하위이므로, 하위가 각자 세고 부모는 뺀다. */
