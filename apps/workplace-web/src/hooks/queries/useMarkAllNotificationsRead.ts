@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
 
 import { notificationsApi } from '../../api/notifications'
-import { NOTIFICATION_READ_ERROR_TOAST_ID, notificationKeys } from './notificationKeys'
+import { notificationKeys } from './notificationKeys'
+import { toastNotificationReadError } from './notificationReadError'
 
 /**
  * 「모두 읽음」 — 끝나면(성공·실패 모두) 목록+안 읽은 수를 함께 무효화한다.
@@ -18,6 +18,6 @@ export function useMarkAllNotificationsRead() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: notificationKeys.all })
     },
-    onError: () => toast.error('읽음 처리하지 못했습니다', { id: NOTIFICATION_READ_ERROR_TOAST_ID }),
+    onError: toastNotificationReadError,
   })
 }
