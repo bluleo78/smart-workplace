@@ -313,6 +313,8 @@ describe('읽음 처리 실패 안내(WP-1842)', () => {
     await waitFor(() => expect(btn).toBeEnabled())
     await user.click(btn)
     await waitFor(() => expect(calls.readAll).toBe(2))
+    // 요청 수는 요청이 닿을 때 늘어나 onError 보다 먼저다 — 두 번째 실패 처리가 끝나(단추가 다시 켜져) 토스트를 그린 뒤에 센다.
+    await waitFor(() => expect(btn).toBeEnabled())
     expect(screen.getAllByText('읽음 처리하지 못했습니다')).toHaveLength(1)
   })
 })
