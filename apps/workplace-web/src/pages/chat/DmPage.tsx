@@ -11,12 +11,14 @@ import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAi
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
 import { CatchupSummarizeButton } from '@/components/chat/CatchupSummarizeButton'
 import { ChannelCatchupCard } from '@/components/chat/ChannelCatchupCard'
+import { ChatEmptyActionButton } from '@/components/chat/ChatEmptyActionButton'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
+import { useComposerFocus } from '@/components/chat/useComposerFocus'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
@@ -40,6 +42,7 @@ import { useOpenThread } from '@/hooks/useOpenThread'
 import { buildDmContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
+import { dmEmptyAction } from '@/lib/chatEmptyAction'
 import { chatEntryAnchor } from '@/lib/chatEntryAnchor'
 import { dmDisplayName, isDmRecipientInactive } from '@/lib/dm'
 import { channelMentionCandidates } from '@/lib/mentionCandidates'
@@ -120,6 +123,8 @@ export default function DmPage() {
   const unreadCount = unreadFromOthersCount(messages, catchupSince, user?.id, entryMaxId)
   const [catchupManual, setCatchupManual] = useState(false)
   const [catchupDismissed, setCatchupDismissed] = useState(false)
+  // 빈 DM 의 「첫 메시지 보내기」가 입력 칸으로 초점을 주기 위한 감싸개 ref.
+  const { composerRef, focusComposer } = useComposerFocus()
   const showCatchupCard =
     !catchupDismissed && catchupSince != null && (shouldAutoShowCatchup(unreadCount) || catchupManual)
   const showCatchupButton =
@@ -217,6 +222,10 @@ export default function DmPage() {
     return <div className="p-4 text-sm text-muted-foreground">불러오는 중…</div>
   }
 
+  // 빈 DM 의 다음 행동 — 없으면(null) 빈 상태에 action 슬롯을 넘기지 않아 빈 여백이 생기지 않는다(WP-1859).
+  // 받는 사람이 모두 정지 — 입력기 대신 안내를 보이고 빈 상태 버튼도 숨긴다(한 번만 계산해 두 곳이 같은 값을 쓴다).
+  const recipientInactive = isDmRecipientInactive(dm, me.id)
+  const emptyAction = dmEmptyAction({ blocked: recipientInactive })
   // 모바일 스레드는 전체폭 상세 — DM 헤더·대화 컬럼을 숨기고 스레드 자체 헤더(‹)만 보인다(ChannelPage 와 같음).
   const hideConversation = isMobile && threadShown
   return (
@@ -256,6 +265,7 @@ export default function DmPage() {
                   icon={<MessageSquare className="h-8 w-8" />}
                   title={dmDisplayName(dm, me.id)}
                   description={dmEmptyDescription(dm, me.id)}
+                  action={emptyAction && <ChatEmptyActionButton action={emptyAction} onCompose={focusComposer} />}
                 />
               ) : undefined
             }
@@ -269,21 +279,23 @@ export default function DmPage() {
             ))}
           </ul>
         )}
-        <MessageComposer
-          channelId={dm.id}
-          members={mentionMembers}
-          // 받는 사람이 모두 정지됐으면 입력창 대신 안내 — 서버도 전송을 막는다(WP-723).
-          blockedNotice={
-            isDmRecipientInactive(dm, me.id) ? '비활성화된 구성원이라 메시지를 보낼 수 없습니다' : undefined
-          }
-          onSend={(body, fileIds, driveFileIds) =>
-            create.mutateAsync({
-              body,
-              fileIds: fileIds.length ? fileIds : undefined,
-              driveFileIds: driveFileIds.length ? driveFileIds : undefined,
-            })
-          }
-        />
+        <div ref={composerRef} className="contents">
+          <MessageComposer
+            channelId={dm.id}
+            members={mentionMembers}
+            // 받는 사람이 모두 정지됐으면 입력창 대신 안내 — 서버도 전송을 막는다(WP-723).
+            blockedNotice={
+              recipientInactive ? '비활성화된 구성원이라 메시지를 보낼 수 없습니다' : undefined
+            }
+            onSend={(body, fileIds, driveFileIds) =>
+              create.mutateAsync({
+                body,
+                fileIds: fileIds.length ? fileIds : undefined,
+                driveFileIds: driveFileIds.length ? driveFileIds : undefined,
+              })
+            }
+          />
+        </div>
         </div>
         {/* 스레드 칸 — 루트를 찾았을 때만. 보조 표기는 # 없이 상대 이름(WP-1083). 닫기는 히스토리 닫기(WP-207). */}
         {openThreadParent && (
@@ -297,7 +309,7 @@ export default function DmPage() {
             archived={false}
             // 받는 사람이 모두 정지됐으면 스레드 답글도 막는다 — 대화 입력창과 같은 안내(WP-723).
             blockedNotice={
-              isDmRecipientInactive(dm, me.id) ? '비활성화된 구성원이라 메시지를 보낼 수 없습니다' : undefined
+              recipientInactive ? '비활성화된 구성원이라 메시지를 보낼 수 없습니다' : undefined
             }
             onClose={threadParam.close}
           />

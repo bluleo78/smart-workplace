@@ -36,6 +36,7 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { canManageChannel } from '@/lib/channelRoles'
 import type { ChannelResponse } from '@/types/messaging'
 
 export function ChannelHeader({
@@ -64,7 +65,7 @@ export function ChannelHeader({
 
   // 서버 권한과 같게 나눈다(WP-1132) — 이름 변경은 채널 OWNER/ADMIN(requireManage), 보관·보관 해제는 OWNER 또는 시스템 ADMIN(requireOwner).
   // 보관된 채널은 서버가 이름 변경을 거절한다(WP-508) — 입력창을 숨기는 것과 같은 기준으로 숨긴다(WP-843).
-  const canRename = (channel.role === 'OWNER' || channel.role === 'ADMIN') && !channel.archived
+  const canRename = canManageChannel(channel.role) && !channel.archived
   const canArchive = channel.role === 'OWNER' || isAdmin
 
   // #76 → 채널 파일 드로워 — 열림 = URL ?files=1(WP-207). 시스템 뒤로가기가 드로워(와 그 안 폴더)부터 닫는다.

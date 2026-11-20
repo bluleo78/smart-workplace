@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { messagingApi } from '@/api/messaging'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { RecipientInput } from '@/components/chat/RecipientInput'
+import { useComposerFocus } from '@/components/chat/useComposerFocus'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useCreateDm } from '@/hooks/queries/useCreateDm'
@@ -105,12 +106,7 @@ export default function NewMessagePage() {
   }
 
   // 받는 사람 입력에서 Tab → 메시지 입력(contenteditable)으로 곧장. 입력기가 없으면(수신자 0명) 기본 Tab 동작.
-  const composerRef = useRef<HTMLDivElement>(null)
-  const focusComposer = () => {
-    const editor = composerRef.current?.querySelector<HTMLElement>('[contenteditable="true"]')
-    editor?.focus()
-    return !!editor
-  }
+  const { composerRef, focusComposer } = useComposerFocus()
 
   return (
     <Page data-testid="new-message-page">
