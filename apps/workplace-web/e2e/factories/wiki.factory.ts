@@ -1,5 +1,5 @@
 // 위키 E2E 팩토리 — 스페이스·페이지 응답 모킹용.
-import type { WikiHtmlLockStatus, WikiPageDetail, WikiPageSummary, WikiSpace } from '../../src/types/wiki'
+import type { WikiHtmlLockStatus, WikiPageDetail, WikiPageSummary, WikiSearchResult, WikiSpace } from '../../src/types/wiki'
 
 export function wikiSpace(over: Partial<WikiSpace> = {}): WikiSpace {
   return {
@@ -21,6 +21,24 @@ export function wikiPageSummary(over: Partial<WikiPageSummary> = {}): WikiPageSu
     position: 0,
     // #736: 기본값은 AI 이력 없음 — 배지 노출 케이스는 over 로 명시 지정.
     aiLastUsedAt: null,
+    ...over,
+  }
+}
+
+/**
+ * 위키 검색 결과 한 건(S2) 모킹 — 타입의 필수 필드(updatedByName 포함)를 채운다.
+ * 필수 필드를 한 곳에서 채워, 필드가 늘면 이 팩토리만 고치게 한다(목마다 리터럴로 쓰면 곳곳이 깨진다).
+ * 기본 updatedByName 은 null(한 번도 고치지 않은 노트)로 둔다.
+ */
+export function wikiSearchResult(over: Partial<WikiSearchResult> = {}): WikiSearchResult {
+  return {
+    id: 101,
+    spaceId: 1,
+    spaceName: '팀 위키',
+    title: '온보딩 가이드',
+    snippet: '신규 입사자를 위한 안내 문서입니다.',
+    updatedAt: '2026-01-01T00:00:00Z',
+    updatedByName: null,
     ...over,
   }
 }

@@ -144,13 +144,14 @@ export function dashboardServer(initial: DashboardLayout) {
   return { state, handlers }
 }
 
-type Options = { handlers?: RequestHandler[]; widgets?: boolean }
+type Options = { handlers?: RequestHandler[]; widgets?: boolean; waitForGrid?: boolean }
 
 /**
  * 대시보드(+인박스 패널)를 띄우고 첫 위젯 또는 빈 상태가 그려질 때까지 기다린다.
  * widgets=false 면 위젯 데이터를 주지 않는다(앱 셸 기본 빈 응답만 — E2E 에서 mockWidgets 를 부르지 않은 경우).
+ * waitForGrid=false 면 그리드를 기다리지 않는다 — 레이아웃 조회 실패처럼 그리드가 그려지지 않는 경우(WP-1850).
  */
-export async function renderDashboard(saved: DashboardLayout, { handlers = [], widgets = true }: Options = {}) {
+export async function renderDashboard(saved: DashboardLayout, { handlers = [], widgets = true, waitForGrid = true }: Options = {}) {
   const dash = dashboardServer(saved)
   const view = renderScreen(
     <InboxProvider>
@@ -169,7 +170,7 @@ export async function renderDashboard(saved: DashboardLayout, { handlers = [], w
       ],
     },
   )
-  await screen.findByTestId('dashboard')
+  if (waitForGrid) await screen.findByTestId('dashboard')
   return { ...view, dash }
 }
 

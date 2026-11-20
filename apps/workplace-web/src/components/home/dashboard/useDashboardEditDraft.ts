@@ -77,7 +77,9 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
   const isSaving = useIsDashboardSaving()
   // 시작 기기·초안·undo 는 셸 교체(lg 경계 리사이즈로 인한 Dashboard 재마운트)에도 살아 있는 저장소에 둔다(WP-162).
   const [{ editDevice, draft, undoStack, session }, setStore] = useDashboardEditDraftStore()
-  const editing = editDevice === device
+  // 기준 레이아웃(savedWidgets)이 없으면 편집 중이 아니다 — 조회 실패로 기준이 없는데 남은 초안을 저장하면 서버 레이아웃을
+  // 볼 수 없는 채로 덮어쓴다(WP-1850). 다시 불러오면 남은 초안으로 편집이 이어진다.
+  const editing = editDevice === device && savedWidgets !== undefined
   const setDraft = (action: SetStateAction<DashboardWidgetConfig[]>) =>
     setStore((s) => ({ ...s, draft: typeof action === 'function' ? action(s.draft) : action }))
   const [addModalOpen, setAddModalOpen] = useState(false)
@@ -111,11 +113,12 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving }: 
   }
 
   function enterEdit() {
-    if (collapseSaving) return
+    // 기준 레이아웃 없이 들어가면 빈 초안으로 시작해 저장 때 레이아웃을 덮어쓴다(WP-1850).
+    if (collapseSaving || savedWidgets === undefined) return
     editSessionSeq += 1
     setStore({
       editDevice: device,
-      draft: (savedWidgets ?? []).map((w) => ({ ...w })),
+      draft: savedWidgets.map((w) => ({ ...w })),
       undoStack: [],
       session: editSessionSeq,
     })

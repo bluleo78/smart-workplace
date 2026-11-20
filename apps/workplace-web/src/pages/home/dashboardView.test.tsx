@@ -7,7 +7,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { dashboardKeys } from '@/hooks/queries/dashboardKeys'
 import { card, cardById, catalog, headerLink, issues, layout, notification, order, renderDashboard } from '@/test/kits/home/dashboardKit-b1'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 
@@ -247,4 +249,82 @@ test('count:10 위젯은 항목 12건 중 10건만 렌더한다', async () => {
   )
   const body = await screen.findByTestId('dash-mytasks')
   await waitFor(() => expect(within(body).getAllByRole('link', { name: /^이슈 열기:/ })).toHaveLength(10))
+})
+
+// WP-1850 — 레이아웃 조회가 실패하면 빈 상태(「보이는 위젯이 없습니다」)로 위장하지 않고 오류 안내·다시 시도를 보인다.
+test('레이아웃 조회가 실패하면 빈 상태 대신 오류 안내와 다시 시도를 보이고 편집을 잠근다 (WP-1850)', async () => {
+  let fail = true
+  let calls = 0
+  // 두 번째(다시 시도) 응답을 붙잡아 둔다 — 응답이 이미 도착한 뒤에 단언하면 `!loadFailed` 가 빠져도 통과하기 때문(WP-1850).
+  const retryGate = gate()
+  // 실패하면 위젯 그리드가 그려지지 않으므로 그리드를 기다리지 않는다.
+  const { user } = await renderDashboard(layout(['my_tasks']), {
+    waitForGrid: false,
+    handlers: [
+      http.get('/api/v1/me/dashboard', async () => {
+        calls += 1
+        if (fail) return HttpResponse.json({ message: 'boom' }, { status: 500 })
+        await retryGate.promise
+        return undefined
+      }),
+    ],
+  })
+  expect(await screen.findByTestId('dashboard-load-error')).toHaveTextContent('홈 위젯을 불러오지 못했습니다')
+  expect(screen.queryByTestId('dashboard-empty')).not.toBeInTheDocument()
+  expect(screen.getByTestId('dashboard-edit-toggle')).toBeDisabled()
+
+  // 다시 시도 — 서버가 살아나면 위젯이 나오고 안내가 사라지며 편집이 풀린다. 다시 부르는 동안에도 빈 상태로 바뀌지 않는다.
+  fail = false
+  await clickRetryAndExpectErrorKept(user, 'dashboard-load-error', () => calls)
+  expect(screen.queryByTestId('dashboard-empty')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('dashboard-skeleton')).not.toBeInTheDocument()
+  retryGate.release()
+  await waitFor(() => expect(card('my_tasks')).toBeTruthy())
+  expect(screen.queryByTestId('dashboard-load-error')).not.toBeInTheDocument()
+  expect(screen.getByTestId('dashboard-edit-toggle')).toBeEnabled()
+})
+
+test('저장된 위젯이 0개면(조회 성공) 오류가 아니라 빈 상태를 보인다 (WP-1850)', async () => {
+  await renderDashboard(layout([]))
+  expect(await screen.findByTestId('dashboard-empty')).toBeInTheDocument()
+  expect(screen.queryByTestId('dashboard-load-error')).not.toBeInTheDocument()
+})
+
+test('이미 받은 레이아웃은 재조회가 실패해도 위젯을 그대로 보인다 (WP-1850)', async () => {
+  let fail = false
+  let failedCalls = 0
+  const { queryClient } = await renderDashboard(layout(['my_tasks']), {
+    handlers: [
+      http.get('/api/v1/me/dashboard', () => {
+        if (!fail) return undefined
+        failedCalls += 1
+        return HttpResponse.json({ message: 'boom' }, { status: 500 })
+      }),
+    ],
+  })
+  expect(card('my_tasks')).toBeTruthy()
+  fail = true
+  await queryClient.invalidateQueries({ queryKey: dashboardKeys.all })
+  expect(failedCalls).toBeGreaterThan(0) // 500 경로가 실제로 탔는지
+  // 쿼리가 실패 상태가 된 뒤의 화면을 본다 — 다시 그리기 전에 단언하면 오류 안내가 없다는 단언이 저절로 통과한다.
+  await waitFor(() => expect(queryClient.getQueryState(dashboardKeys.layout('desktop'))?.status).toBe('error'))
+  expect(card('my_tasks')).toBeTruthy()
+  expect(screen.queryByTestId('dashboard-load-error')).not.toBeInTheDocument()
+})
+
+// WP-1850 /code-review — 편집 중에 레이아웃 캐시가 비고 다시 부르기가 실패하면 편집 배너(저장·위젯 추가)를 숨긴다.
+// 기준 레이아웃을 볼 수 없는 채로 저장하면 서버 레이아웃을 덮어쓰기 때문이다.
+test('편집 중 레이아웃을 다시 불러오다 실패하면 편집 배너를 숨기고 오류 안내만 보인다 (WP-1850)', async () => {
+  let fail = false
+  const { user, queryClient } = await renderDashboard(layout(['my_tasks']), {
+    handlers: [http.get('/api/v1/me/dashboard', () => (fail ? HttpResponse.json({ message: 'boom' }, { status: 500 }) : undefined))],
+  })
+  await user.click(screen.getByTestId('dashboard-edit-toggle'))
+  expect(await screen.findByTestId('dashboard-edit-banner')).toBeInTheDocument()
+  fail = true
+  // 캐시를 비우고 다시 부른다 — 데이터 없이 실패한 상태(gcTime 으로 캐시가 지워진 뒤 돌아온 경우와 같다).
+  await queryClient.resetQueries({ queryKey: dashboardKeys.all })
+  expect(await screen.findByTestId('dashboard-load-error')).toBeInTheDocument()
+  expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('dashboard-edit-save')).not.toBeInTheDocument()
 })

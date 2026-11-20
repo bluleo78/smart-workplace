@@ -19,6 +19,7 @@ import type {
   WikiSpace,
 } from '../../../src/types/wiki'
 import { createMember } from '../../factories/auth.factory'
+import { wikiSearchResult } from '../../factories/wiki.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
@@ -62,14 +63,14 @@ const USER: MemberSummary = createMember({
   email: 'alice@example.com',
   name: '앨리스',
 })
-const WIKI_PAGE: WikiSearchResult = {
+const WIKI_PAGE = wikiSearchResult({
   id: 55,
   spaceId: SPACE_ID,
   spaceName: '팀 위키',
   title: '온보딩 가이드',
   snippet: '신규 입사자…',
   updatedAt: '2026-06-01T00:00:00Z',
-}
+})
 const ISSUE: IssueResponse = {
   id: 99,
   projectKey: 'WP',
@@ -436,14 +437,16 @@ test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으�
       name: `유저 ${i + 1}`,
     }),
   )
-  const MANY_PAGES: WikiSearchResult[] = Array.from({ length: 5 }, (_, i) => ({
-    id: 100 + i,
-    spaceId: SPACE_ID,
-    spaceName: '팀 위키',
-    title: `문서 ${i + 1}`,
-    snippet: '내용',
-    updatedAt: '2026-06-01T00:00:00Z',
-  }))
+  const MANY_PAGES: WikiSearchResult[] = Array.from({ length: 5 }, (_, i) =>
+    wikiSearchResult({
+      id: 100 + i,
+      spaceId: SPACE_ID,
+      spaceName: '팀 위키',
+      title: `문서 ${i + 1}`,
+      snippet: '내용',
+      updatedAt: '2026-06-01T00:00:00Z',
+    }),
+  )
   const MANY_ISSUES: IssueResponse[] = Array.from({ length: 5 }, (_, i) => ({
     id: 300 + i,
     projectKey: 'WP',
