@@ -600,6 +600,8 @@ test('SKILL.md: AI 담당자가 여럿이면 멘션된 AI 만 반응하고 나�
   const line = lineWith(workLoop('SKILL.md'), '누구에게 한 글인가');
   assert.ok(line.includes('멘션된 AI 만 반응하고'));
   assert.ok(line.includes('「답하지 않고 넘긴 글」'));
+  // 멘션을 어디서 읽는지 출처를 나눠 적는다 — 댓글 멘션은 get_issue_chat 에 없다(WP-1816 리뷰 후속).
+  assert.ok(line.includes('이슈 챗 글은 `get_issue_chat`, 댓글은 `get_issue_detail` 의 `comments`'));
 });
 
 // WP-994 오래 걸리는 작업 — 빠지면 push 게이트 동안 루프가 다른 일을 못 하거나, 끝난 게이트 결과를 이어 받지 못한다.
