@@ -156,7 +156,7 @@ test('SKILL.md 이슈 챗 글의 받는 사람은 participants 에서 골라 @us
 // WP-719 담당 밖 이슈의 멘션 — 프로젝트 범위로 찾아, 맥락을 읽고 물은 곳에 답만 한다(구현·작업 보고 없음, 작업 지시는 담당 지정 요청).
 test('SKILL.md 담당 밖 이슈의 멘션은 프로젝트 범위로 찾아 맥락을 읽고 물은 곳에 답만 한다', () => {
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes('`list_issues({ projectKey: <프로젝트 키>, mentionsMe: true })`'));
+  assert.ok(text.includes('`list_issues({ projectKey: <프로젝트 키>, mentionsMe: true, size: 100 })`'));
   assert.ok(text.includes('멘션 조회 결과 중 열린 이슈(할 일·진행 중)에서 내가 담당이 아닌 이슈가 이 후보다'));
   assert.ok(text.includes('② 멘션받은 이슈(열린 이슈의 답'));
   assert.ok(text.includes('구현하지 않고 답만 한다'));
@@ -1275,9 +1275,12 @@ test('SKILL.md 3번: 조회 셋 — 멘션은 상태 없이 하나로 내고 상
   }
   assert.ok(!/^4\. /m.test(head), '목록에 넷째 줄이 있다');
   const mention = lineWith(s3, '3. 멘션 조회');
-  assert.ok(mention.includes('mentionsMe: true })') && !mention.includes('status'));
+  assert.ok(mention.includes('mentionsMe: true, size: 100 })') && !mention.includes('status'), '멘션 조회는 상태 없이 size 100 으로 낸다');
+  // 리뷰 후속 — 열린 이슈로 좁히는 것은 쥔 동안 확인뿐이라고 두 문서가 함께 말한다. 요약 줄은 그 조회를 세지 않는다.
+  assert.ok(mention.includes('「쥔 동안 끼어들 일 확인」'));
+  assert.ok(lineWith(s3, '실행 끝 요약에 「조회:').includes('쥔 동안 확인의 조회는 세지 않는다'));
   assert.ok(!lineWith(s3, '1. 내 이슈 조회').includes('list_issues('), '내 이슈 조회 호출은 첫 문단 한 곳에만 둔다');
-  assert.ok(head.includes('셋 모두 `hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지 읽는다'));
+  assert.ok(head.includes('어느 조회든 `hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지 읽는다'));
   assert.ok(head.includes('`<n>` 은 그 조회가 돌려준 이슈 수'));
   // 상태별 처리·답 글 필수
   assert.ok(lineWith(s3, '`closedAt` 이 30일 안').includes('끝난 이슈의 반영 안내 보충'));
@@ -1592,6 +1595,8 @@ test('work-loop: 이슈를 쥔 동안 사이 확인·단계 사이에 3번 고�
     '**양보하는 때**', // 겹친 끼어들기 금지(⓪ 은 예외)
     '`양보:` 줄 갈래', '완료 알림', // 돌아오기
   ]) assert.ok(intr.includes(anchor), anchor);
+  // WP-1832 리뷰 후속 — 쥔 동안 확인의 멘션 조회는 열린 이슈만 읽는다(끝난 이슈 멘션을 사이 확인마다 끝까지 넘기지 않게).
+  assert.ok(lineWith(intr, '- **무엇**').includes("이 확인에서만 `status: 'TODO,IN_PROGRESS'` 를 더한다"));
   // 다시 고르면 처음부터(brainstorming) 다시 하지 않고 SDD 원장의 다음 Task 부터 잇는다.
   const start = section(pi, '\n### 1. 시작\n', '\n### 2. ');
   // 반려 1·2: 과제 검토 전 Task 부터 잇고, 작업 id 가 이 세션에 없는(사라진) 하위 에이전트의 Task 만 다시 맡긴다.
