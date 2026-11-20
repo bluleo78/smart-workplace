@@ -177,7 +177,9 @@ interface Props {
 function GroupAddButton({ label, testId, onClick }: { label: string; testId: string; onClick: () => void }) {
   const coarse = useIsCoarsePointer()
   const button = (
-    // -mr-2: 커진 단추 안의 아이콘이 머리 줄 오른쪽 끝(글자 여백 선)에 그대로 맞게 하는 보정 — 오른쪽에는 이웃이 없다.
+    // -mr-2 / pointer-coarse:-mr-3.5: 커진 단추 안의 아이콘(14px)이 머리 줄 오른쪽 끝(글자 여백 선)에 맞게 하는 보정 —
+    // 32px 단추는 아이콘 옆 여백이 9px, 터치 44px 단추는 15px 라 간격 눈금의 8px·14px 를 당긴다(끝선과 1px 차이 — 눈에 띄지 않는다).
+    // 오른쪽에는 이웃이 없고, 터치에서 단추가 머리 밖으로 2px 나가는 것은 사이드바 시트 목록의 안쪽 여백(p-3)이 받는다.
     <Button
       type="button"
       variant="ghost"
@@ -185,7 +187,7 @@ function GroupAddButton({ label, testId, onClick }: { label: string; testId: str
       aria-label={label}
       data-testid={testId}
       onClick={onClick}
-      className="-mr-2 text-muted-foreground hover:text-foreground pointer-coarse:size-11"
+      className="-mr-2 text-muted-foreground hover:text-foreground pointer-coarse:-mr-3.5 pointer-coarse:size-11"
     >
       {/* size-3.5: Button 기본 규칙(size 클래스 없는 svg 는 16px)에 덮이지 않게 size 로 적는다 */}
       <Plus className="size-3.5" aria-hidden="true" />
@@ -210,6 +212,13 @@ function GroupAddButton({ label, testId, onClick }: { label: string; testId: str
     </TooltipProvider>
   )
 }
+
+/**
+ * 사이드바 구역 머리 줄(조직도·내 그룹) 클래스 (WP-1870).
+ * 최소 높이 = 「+」 단추(32px, 터치 44px) + 아래 여백(pb-1 4px) — 관리자가 아니라 조직도 머리에 + 가 없어도
+ * 두 구역 머리 높이가 같게 둔다(border-box 라 min-h 에 pb 가 들어간다).
+ */
+const SECTION_HEADER_CLASS = 'flex min-h-9 items-center justify-between px-3 pb-1 pointer-coarse:min-h-12'
 
 /** 사이드바 그룹 영역: 조직도(공유 — 관리는 ADMIN) + 내 그룹(개인). 관리 다이얼로그(폼·삭제 확인)를 함께 가진다. */
 export function GroupTree({ selectedId, onSelect }: Props) {
@@ -315,7 +324,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
     <div className="mt-6 space-y-3">
       {/* 공유 조직도 — 관리(추가·수정·삭제)는 ADMIN 만 */}
       <div>
-        <div className="flex items-center justify-between px-3 pb-1">
+        <div className={SECTION_HEADER_CLASS}>
           <span className="text-xs font-semibold text-muted-foreground">조직도</span>
           {isAdmin && (
             <GroupAddButton label="새 조직 그룹" testId="org-create" onClick={() => openCreate('SHARED')} />
@@ -342,7 +351,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
 
       {/* 내 그룹 — 개인, 본인이 관리 */}
       <div>
-        <div className="flex items-center justify-between px-3 pb-1">
+        <div className={SECTION_HEADER_CLASS}>
           <span className="text-xs font-semibold text-muted-foreground">내 그룹</span>
           <GroupAddButton label="새 그룹" testId="group-create" onClick={() => openCreate('PERSONAL')} />
         </div>

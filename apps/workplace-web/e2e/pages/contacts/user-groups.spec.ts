@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 
 import { personalDetail, sharedDetail, tree } from '../../factories/userGroups.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectGroupHeadersAligned } from '../../fixtures/group-tree-header'
 
 // GET /api/v1/user-groups → 트리(기본: 공유 1개 + 개인 1개)
 async function stubTree(page: Page, body = tree()) {
@@ -125,6 +126,8 @@ test('사이드바 머리 ＋ 단추는 32×32 이고 아래 줄을 덮지 않�
   expect(box.y + box.height).toBeLessThanOrEqual(row.y + row.height + 0.5)
   const below = (await header.locator('xpath=following-sibling::*[1]').boundingBox())!
   expect(below.y).toBeGreaterThanOrEqual(box.y + box.height - 0.5)
+  // 관리자가 아니라 조직도 머리에 ＋ 가 없어도 두 머리는 같은 높이(32 + 아래 여백 4)이고, ＋ 아이콘은 머리 글자 끝선에 맞는다.
+  await expectGroupHeadersAligned(page.getByTestId('contact-sidebar'), add, 36)
 })
 
 // WP-1870: 마우스로 연 새 그룹 창을 「취소」로 닫으면 초점이 ＋ 로 돌아오지만, 키보드 초점이 아니라서 툴팁이 저절로 뜨지 않는다

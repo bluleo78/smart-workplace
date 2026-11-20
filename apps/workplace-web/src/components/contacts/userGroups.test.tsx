@@ -3,7 +3,7 @@
 // 관리자 전용 노출, 400/409 오류 토스트·인라인 오류는 브라우저 없이 판정되므로 e2e/pages/contacts/user-groups.spec.ts 에서 옮겼다.
 // 조직도 선택 → 트리·직속 멤버 배선(@wiring)과 긴 이름이 창 폭을 넘지 않는 것(@layout)은 그 E2E 가 지킨다.
 // 사이드바 트리와 본문 그룹 뷰가 URL ?group 으로 이어지므로 모듈 레이아웃 + ContactsPage 를 renderScreen 으로 띄운다(testkit-b8).
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test } from 'vitest'
 
@@ -223,9 +223,13 @@ test('WP-1870 그룹 추가 + 단추에 마우스를 올리면 툴팁 「새 그
   expect(await screen.findByRole('tooltip')).toHaveTextContent('새 그룹')
 })
 
-test('WP-1870 admin: 조직도 + 단추에 키보드 초점을 두면 툴팁 「새 조직 그룹」', async () => {
-  await open('/contacts', base(), ADMIN)
+// 프로그램 초점(add.focus())은 가드가 막으려는 경우라 쓰지 않고 실제 Tab 으로 초점을 옮긴다.
+// jsdom 은 :focus-visible 을 마우스·키보드로 가르지 못하므로 「프로그램 초점이면 툴팁 없음」은 E2E @input(user-groups)이 지킨다.
+test('WP-1870 admin: 조직도 + 단추에 Tab 으로 초점을 옮기면 툴팁 「새 조직 그룹」', async () => {
+  const { user } = await open('/contacts', base(), ADMIN)
   const add = screen.getByTestId('org-create')
-  act(() => add.focus())
+  // 앞쪽 초점 대상 수는 화면 구성에 따라 달라 상한을 두고 Tab 을 되풀이한다.
+  for (let i = 0; i < 50 && document.activeElement !== add; i++) await user.tab()
+  expect(add).toHaveFocus()
   expect(await screen.findByRole('tooltip')).toHaveTextContent('새 조직 그룹')
 })

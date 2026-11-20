@@ -7,6 +7,7 @@ import type { Page } from '@playwright/test'
 
 import { external, member, page as makePage } from '../../factories/contacts.factory'
 import { personalDetail, sharedDetail, tree } from '../../factories/userGroups.factory'
+import { expectGroupHeadersAligned } from '../../fixtures/group-tree-header'
 import { json } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { trackRequests } from '../../fixtures/requests'
@@ -38,6 +39,16 @@ test('내 그룹: 사이드바 시트 안 ⋯ 는 터치 타깃 44px 이상', { 
   const box = (await page.getByTestId('group-more-20').boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
+})
+
+// WP-1870 리뷰: 터치에서 ＋ 는 44px 이라 데스크톱 보정(-mr-2)만으로는 아이콘이 머리 끝선에서 6px 어긋났고,
+// 관리자가 아니라 조직도 머리에 ＋ 가 없으면 두 머리 높이가 달랐다 — 둘 다 44 + 아래 여백 4 = 48 이어야 한다.
+test('사이드바 시트 머리: 두 머리 높이가 같고 ＋ 아이콘이 머리 끝선에 맞는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await stubBase(page)
+  await page.goto('/contacts')
+  await openSidebar(page)
+  const sheet = page.getByTestId('mobile-sidebar-sheet')
+  await expectGroupHeadersAligned(sheet, sheet.getByTestId('group-create'), 48)
 })
 
 test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨찾기된 ★ 는 탭으로 해제된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
