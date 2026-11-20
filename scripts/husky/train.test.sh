@@ -39,6 +39,8 @@ feature() {
   git checkout -q main
 }
 WT="$TMP/work/.claude/worktrees/integ-ai-1"
+# 기존 사례는 쌓기 동작만 본다 — 절차 검사(WP-1836)는 끄고, 맨 끝 절에서 따로 검증한다.
+export TRAIN_NO_PROCEDURE_CHECK=1
 
 # ---- 1) 쌓기 ----
 feature f-a WP-1 a.txt 'a'
@@ -46,6 +48,7 @@ git checkout -q f-a; printf 'a2\n' > a.txt; git commit -qam "wip"; git commit -q
 feature f-b WP-2 b.txt 'b'
 out=$($TRAIN stack ai f-a WP-1 2>&1)
 check "첫 쌓기 — 새 기차를 origin/main 에서 만든다" "$out" "새 기차 integ/ai-1"
+check "우회 환경변수 — 절차 검사를 건너뛴다고 알림" "$out" "절차 검사를 건너뜁니다"
 out=$($TRAIN stack ai f-b WP-2 2>&1)
 check "둘째 쌓기 — 같은 기차" "$out" "WP-2 → integ/ai-1" "새 기차"
 check "이슈당 커밋 하나" "$(git log --format=%s origin/main..integ/ai-1 | wc -l | tr -d ' ')" "2"
@@ -160,6 +163,32 @@ out=$(env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_CO
   $TRAIN stack ai f-n WP-12 2>&1 || true)
 check "신원 없는 환경 — 쌓음" "$out" "WP-12 → integ/ai-3"
 check "이름에 정규식 문자는 받지 않음" "$($TRAIN next 'a.i' 2>&1 || true)" "영문·숫자·_·- 만"
+
+# ---- 5) 절차 검사 (WP-1836) ----
+unset TRAIN_NO_PROCEDURE_CHECK
+NOTES="$TMP/work/.work-loop/state/notes"
+mkdir -p "$NOTES"
+feature f-p1 WP-31 p1.txt 'p1'
+out=$($TRAIN stack pc f-p1 WP-31 2>&1 || true)
+check "notes 없는 이슈는 쌓지 않음" "$out" "notes 파일이 없습니다"
+check "검사 실패 — 기차를 만들지 않음" "[$(git rev-parse --verify --quiet refs/heads/integ/pc-1 || true)]" "[]"
+printf '# WP-31\n' > "$NOTES/WP-31.md"
+out=$($TRAIN stack pc f-p1 WP-31 2>&1 || true)
+check "절차 줄 없는 notes 는 쌓지 않음" "$out" "절차: 줄이 없습니다"
+check "절차 줄 없음 — 기차를 만들지 않음" "[$(git rev-parse --verify --quiet refs/heads/integ/pc-1 || true)]" "[]"
+printf '# WP-31\n절차: 처리 파일 process-issue.md (플러그인 0.1.50) → brainstorming(Skill) → writing-plans(Skill, p.md) → subagent-driven-development(Skill, Task 1개 — 모델 sonnet) → 최종 리뷰 → /code-review medium → /simplify\n' > "$NOTES/WP-31.md"
+out=$($TRAIN stack pc f-p1 WP-31 2>&1 || true)
+check "통과 notes 는 쌓음" "$out" "WP-31 → integ/pc-1"
+out=$($TRAIN check integ/pc-1 2>&1)
+check "check — 통과" "$out" "WP-31: 통과"
+printf '# WP-31\n' > "$NOTES/WP-31.md"
+rc=0
+out=$($TRAIN check integ/pc-1 2>&1) || rc=$?
+check "check — 절차 줄이 없으면 실패" "$out" "절차 검사 실패"
+check "check — 실패 종료 코드 1" "$rc" "1"
+
+out=$(TRAIN_NO_PROCEDURE_CHECK=1 $TRAIN check integ/pc-1 2>&1)
+check "check — 우회 환경변수면 검사를 건너뜀" "$out" "절차 검사를 건너뜁니다"
 
 check "잘못된 하위 명령은 사용법" "$($TRAIN nope 2>&1 || true)" "사용:"
 

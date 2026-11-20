@@ -1,0 +1,223 @@
+#!/bin/sh
+# work-loop 이슈 절차 기계 검사 — 개발자 AI 가 이슈를 통합 브랜치(기차)에 쌓기 전에, notes 파일의 「절차:」 줄·계획 파일·
+# SDD 원장이 process-issue.md 의 절차를 밟았다고 말하는지 본다(WP-1836). 말로 한 약속을 스크립트가 대신 확인해 건너뜀을 막는다.
+#
+#   procedure-check <이슈 키 | notes 파일 경로>
+#
+# 현재 디렉터리가 속한 git 저장소의 MAIN(git-common-dir 의 부모)을 쓴다.
+# - 인자가 이슈 키(^[A-Z][A-Z0-9]*-[0-9]+$)면 notes = MAIN/.work-loop/state/notes/<키>.md.
+#   아니면 인자를 notes 경로로 보고 키 = 파일 이름에서 .md 를 뺀 것.
+# - 이슈 워크트리 = MAIN/.claude/worktrees/<키>.
+# 출력은 모두 stdout. 통과면 `[procedure-check] <키>: 통과` 한 줄.
+# 종료 코드: 0 통과 · 1 검사 실패(실패 줄을 모아 한꺼번에 출력) · 2 notes 파일 없음.
+
+arg="$1"
+if [ -z "$arg" ]; then
+  echo "사용법: procedure-check <이슈 키 | notes 파일 경로>"
+  exit 2
+fi
+
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+if [ -z "$common" ]; then
+  echo "git 저장소 안에서 실행해야 합니다"
+  exit 2
+fi
+main=$(dirname "$common")
+
+if printf '%s\n' "$arg" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9]+$'; then
+  key="$arg"
+  notes="$main/.work-loop/state/notes/$key.md"
+else
+  notes="$arg"
+  key=$(basename "$arg" .md)
+fi
+wt="$main/.claude/worktrees/$key"
+tag="[procedure-check] $key"
+
+# 1. notes 없음
+if [ ! -f "$notes" ]; then
+  echo "$tag: notes 파일이 없습니다: $notes"
+  exit 2
+fi
+
+# 2. 예외 — 리뷰 후속 수정은 앞 PR 의 절차를 쓴다.
+# `리뷰 후속:` 줄은 `마지막 완료 단계:` 가 리뷰 후속 수정일 때만 인정한다(뒤에 새 요청으로 5번을 다시 밟으면 값이 바뀌어 검사가 돈다).
+if grep -Eq '리뷰 후속 수정 — 앞 PR #[0-9]' "$notes" ||
+  { grep -Eq '^(- )?리뷰 후속:' "$notes" && grep -Eq '^(- )?마지막 완료 단계:.*리뷰 후속 수정' "$notes"; }; then
+  echo "$tag: 통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)"
+  exit 0
+fi
+
+# 3. 「절차:」 줄(여럿이면 마지막 — 낡은 줄 아래에 고쳐 쓴 줄이 현재 값)
+line=$(grep -E '^(- )?절차:' "$notes" | tail -n1)
+if [ -z "$line" ]; then
+  echo "$tag: 절차: 줄이 없습니다"
+  echo "$tag: 실패 — process-issue.md 5번부터 다시 밟습니다"
+  exit 1
+fi
+
+# 실패 줄은 모아 두었다가 끝에 한꺼번에 낸다. 줄마다 `[procedure-check] <키>: ` 접두를 붙인다.
+# add_fail = 절차 줄 자체의 문제(5번부터 다시 밟기), add_nfail = notes 서식 문제(원장·계획 파일·최종 리뷰 줄 — notes 의 원장 절만 고치면 됨).
+fails=""
+step_fail=0
+add_nfail() {
+  fails="$fails$tag: $1
+"
+}
+add_fail() {
+  step_fail=1
+  add_nfail "$1"
+}
+
+# 4. 자리 표시(<n>·<버전>·<계획 파일> 등 채우지 않은 칸)
+ph_fail=0
+placeholders=$(printf '%s\n' "$line" | grep -oE '<[^<>]{1,20}>')
+if [ -n "$placeholders" ]; then
+  ph_fail=1
+  # 토큰 안의 공백이 쪼개지지 않게 줄 단위로 읽는다.
+  while IFS= read -r p; do
+    add_fail "자리 표시가 남아 있습니다: $p"
+  done <<PH
+$placeholders
+PH
+fi
+
+finish() {
+  if [ -n "$fails" ]; then
+    printf '%s' "$fails"
+    # 절차 줄 문제가 하나라도 있으면 5번부터, notes 서식 문제뿐이면 원장 절만 고친다.
+    if [ "$step_fail" = 1 ]; then
+      echo "$tag: 실패 — process-issue.md 5번부터 다시 밟습니다"
+    else
+      echo "$tag: 실패 — notes 의 원장 절을 고칩니다(원장 줄이 남아 있으면 옮겨 적기)"
+    fi
+    exit 1
+  fi
+}
+
+# 통과로 끝내기 — 모은 실패가 있으면 finish 가 먼저 실패로 끝낸다. 인자는 통과 줄의 괄호 안 설명(없으면 생략).
+pass() {
+  finish
+  if [ -n "$1" ]; then
+    echo "$tag: 통과($1)"
+  else
+    echo "$tag: 통과"
+  fi
+  exit 0
+}
+
+# 버전 x.y.z 를 견줄 수 있는 정수로 — awk 는 08 도 10진수로 읽는다(sh 산술은 8진수로 읽어 오류).
+ver_num() {
+  printf '%s\n' "$1" | awk -F. '{ print $1 * 1000000 + $2 * 1000 + $3 }'
+}
+# 계획 파일·원장을 보기 시작한 버전(검토자 전환 규칙)과 notes 원장 절이 생긴 버전.
+PLAN_LEDGER_SINCE=$(ver_num 0.1.55)
+LEDGER_SECTION_SINCE=$(ver_num 0.1.68)
+
+# 5. 대안 — executing-plans·without-superpowers.md 는 까닭을 적으면 통과
+alt=""
+if printf '%s\n' "$line" | grep -q 'executing-plans'; then alt="executing-plans"; fi
+if [ -z "$alt" ] && printf '%s\n' "$line" | grep -q 'without-superpowers.md'; then alt="without-superpowers.md"; fi
+if [ -n "$alt" ] && printf '%s\n' "$line" | grep -q '까닭'; then
+  # 자리 표시가 남았으면 그것만 알리고 필수 토큰 검사로 넘어가지 않는다.
+  pass "$alt — 까닭 적힘"
+fi
+
+# 6. 필수 토큰
+has() {
+  printf '%s\n' "$line" | grep -Eq "$1"
+}
+has 'brainstorming\(Skill\)' || add_fail "brainstorming(Skill) 이 절차 줄에 없습니다"
+has 'writing-plans\(Skill, ' || add_fail "writing-plans(Skill,  이 절차 줄에 없습니다"
+n=""
+if has 'subagent-driven-development\(Skill, Task [0-9]+개'; then
+  n=$(printf '%s\n' "$line" | sed -n 's/.*subagent-driven-development(Skill, Task \([0-9][0-9]*\)개.*/\1/p')
+  # 모델은 subagent-driven-development( 부터 다음 → 앞(없으면 줄 끝)까지에서 찾는다 — 괄호가 안에 있어도 된다.
+  sdd_inner=$(printf '%s\n' "$line" | sed -n 's/.*subagent-driven-development(//; s/→.*//; p')
+  # `모델` 뒤(공백·: 건너뜀)에 `)`·줄 끝이 아닌 글자가 와야 모델 이름이 적힌 것이다.
+  printf '%s\n' "$sdd_inner" | grep -Eq '모델[ :]*[^ :)]' || add_fail "subagent-driven-development 괄호 안에 모델이 없습니다"
+else
+  add_fail "subagent-driven-development(Skill, Task <숫자>개 이 절차 줄에 없습니다"
+fi
+has '최종 리뷰' || add_fail "최종 리뷰 가 절차 줄에 없습니다"
+has '/code-review|requesting-code-review' || add_fail "코드 리뷰(/code-review 또는 requesting-code-review) 가 절차 줄에 없습니다"
+has '/simplify|code-simplifier' || add_fail "정리(/simplify 또는 code-simplifier) 가 절차 줄에 없습니다"
+
+# 7. 전환 — 플러그인 0.1.55 미만(또는 버전 없음)은 계획 파일·원장을 보지 않는다
+ver=$(printf '%s\n' "$line" | sed -n 's/.*플러그인 \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+[ -n "$ver" ] || pass
+vnum=$(ver_num "$ver")
+[ "$vnum" -ge "$PLAN_LEDGER_SINCE" ] || pass
+
+# 8. 계획 파일 — writing-plans(Skill, 뒤부터 다음 ) 앞까지
+planref=$(printf '%s\n' "$line" | sed -n 's/.*writing-plans(Skill, \([^)]*\)).*/\1/p' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+planbase=""
+if [ -n "$planref" ] && [ "$ph_fail" = 0 ]; then
+  planbase=$(basename "$planref")
+  case "$planref" in
+    /*) [ -e "$planref" ] || add_nfail "계획 파일이 없습니다: $planref" ;;
+    *)
+      if [ ! -e "$wt/$planref" ] && [ ! -e "$main/$planref" ]; then
+        add_nfail "계획 파일이 없습니다: $planref"
+      fi
+      ;;
+  esac
+fi
+
+# 0.1.55 이상 0.1.68 미만은 notes 원장 절이 아직 없던 절차라 원장을 못 찾아도 실패하지 않는다.
+ledger_optional=0
+if [ "$vnum" -lt "$LEDGER_SECTION_SINCE" ]; then ledger_optional=1; fi
+
+# 9. 원장 — 워크스페이스 progress.md(계획 파일 이름이 같은 것)와 notes 의 원장: 절을 함께 본다.
+# 실제 SDD progress.md 에는 최종 리뷰 줄이 없을 수 있어(최종 리뷰가 깨끗하면 워크스페이스를 지운다) Task·최종 리뷰 줄은 어느 출처에 있어도 인정한다.
+ledger=""
+have_ledger=0
+if [ -n "$planbase" ]; then
+  for f in "$wt"/.superpowers/sdd/*/progress.md; do
+    [ -f "$f" ] || continue
+    first=$(head -n1 "$f")
+    case "$first" in
+      "# SDD ledger — plan: "*)
+        p=${first#"# SDD ledger — plan: "}
+        p=$(printf '%s' "$p" | sed 's/[[:space:]]*$//')
+        if [ "$(basename "$p")" = "$planbase" ]; then
+          ledger=$(cat "$f")
+          have_ledger=1
+          break
+        fi
+        ;;
+    esac
+  done
+fi
+# 머리(`원장:` 또는 `## 원장…`) 다음부터 — 머리 바로 뒤 빈 줄은 건너뛰고, 내용이 나온 뒤의 빈 줄이나 다음 ## 머리에서 끝낸다.
+if grep -Eq '^((- )?원장:|## 원장)' "$notes"; then
+  section=$(awk '
+    !on && (/^(- )?원장:/ || /^## 원장/) { on = 1; next }
+    on && /^## / { exit }
+    on && /^$/ { if (started) exit; next }
+    on { started = 1; print }
+  ' "$notes")
+  ledger="$ledger
+$section"
+  have_ledger=1
+fi
+if [ "$have_ledger" = 0 ]; then
+  if [ "$ledger_optional" = 1 ]; then
+    echo "$tag: 참고 — 0.1.68 전 절차라 notes 원장 절이 없음, 원장 줄은 PR 본문으로 검토자가 본다"
+  else
+    add_nfail "SDD 원장이 없습니다(워크스페이스 progress.md 또는 notes 의 원장: 절)"
+  fi
+else
+  if [ -n "$n" ]; then
+    i=1
+    while [ "$i" -le "$n" ]; do
+      printf '%s\n' "$ledger" | grep -Eq "^(- )?Task $i: complete" || add_nfail "원장에 Task $i 완료 줄이 없습니다"
+      i=$((i + 1))
+    done
+  fi
+  # 최종 리뷰 줄은 머리말(과 :) 뒤에 결과가 있어야 하고, `진행 중`·`in progress` 면 결과가 아직 없는 것으로 본다.
+  printf '%s\n' "$ledger" | grep -Ei '^(- )?(최종 리뷰|Final review)[[:space:]]*(:[[:space:]]*)?[^[:space:]:]' | grep -Eviq '진행 중|in progress' || add_nfail "원장에 최종 리뷰 결과가 없습니다"
+fi
+
+# 10. 결과
+pass
