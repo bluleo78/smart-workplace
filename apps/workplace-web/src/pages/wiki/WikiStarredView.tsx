@@ -54,10 +54,11 @@ export function WikiStarredView() {
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
 
   let body
-  if (query.isPending) {
-    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
-  } else if (failedWithoutData(query)) {
+  // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1788, lib/queryFailure).
+  if (failedWithoutData(query)) {
     body = <LoadErrorState title="즐겨찾기를 불러오지 못했습니다" queries={[query]} testId="wiki-starred-error" />
+  } else if (query.isPending) {
+    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
   } else if (items.length === 0 && !query.hasNextPage) {
     // 다음 쪽이 남았으면 빈 상태가 아니다 — 받아 둔 행을 다 뺐거나 첫 쪽이 비어도 뒤에 줄이 있을 수 있어, 목록 + 더 보기를 그린다.
     body = (

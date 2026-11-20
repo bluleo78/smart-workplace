@@ -3,11 +3,12 @@
 // 별 토글 뒤 id 다시 받기(받는 중·실패 상태에서도 다른 행이 안 사라짐), 연타 시 한 번만 다시 받기,
 // 받아 둔 행이 비거나 첫 쪽이 비어도 다음 쪽이 남으면 빈 상태가 아니고 다음 쪽 행이 이어 보이는 경우를 본다.
 import type { QueryClient } from '@tanstack/react-query'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test } from 'vitest'
 
 import { controlIntersection } from '@/test/kits/layout'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 import type { WikiStarredItem } from '@/types/wiki'
 
@@ -313,5 +314,43 @@ describe('노트 즐겨찾기 화면', () => {
     io.set(() => true)
     expect(await screen.findByTestId('wiki-starred-row-5')).toBeInTheDocument()
     expect(screen.queryByTestId('wiki-starred-empty')).not.toBeInTheDocument()
+  })
+})
+
+// WP-1788: 실패 뒤 다시 시도하면 status 가 pending 으로 되돌아간다 — 그 동안에도 오류 안내·초점이 남아야 한다.
+describe('노트 즐겨찾기 화면 — 실패 뒤 다시 시도하는 동안 안내와 초점이 남는다(WP-1788)', () => {
+  test('WP-1788 다시 시도 성공 — 응답 전에도 안내·초점 유지, 응답 뒤 목록', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const { user } = renderScreen(<WikiStarredView />, {
+      path: '/wiki/starred',
+      handlers: [
+        idsHandler([1]),
+        http.get('/api/v1/wiki/starred', async () => {
+          calls += 1
+          if (calls === 1) return HttpResponse.json({ message: 'x' }, { status: 500 })
+          await promise
+          return HttpResponse.json({ items: [item(1)], nextCursor: null })
+        }),
+      ],
+    })
+    await clickRetryAndExpectErrorKept(user, 'wiki-starred-error', () => calls)
+    await act(async () => { release() })
+    expect(await screen.findByTestId('wiki-starred-row-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-starred-error')).toBeNull()
+  })
+
+  test('WP-1788 첫 진입 로딩 — 실패 전 첫 조회 중에는 「불러오는 중…」', async () => {
+    const { promise, release } = gate()
+    renderScreen(<WikiStarredView />, {
+      path: '/wiki/starred',
+      handlers: [
+        idsHandler([]),
+        http.get('/api/v1/wiki/starred', async () => { await promise; return HttpResponse.json({ items: [], nextCursor: null }) }),
+      ],
+    })
+    expect(await screen.findByText('불러오는 중…')).toBeInTheDocument()
+    await act(async () => { release() })
+    expect(await screen.findByTestId('wiki-starred-empty')).toBeInTheDocument()
   })
 })

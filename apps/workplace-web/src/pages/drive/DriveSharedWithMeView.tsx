@@ -113,10 +113,11 @@ export function DriveSharedWithMeView() {
   }
 
   let body
-  if (query.isPending) {
-    body = <SharedLoading />
-  } else if (failedWithoutData(query)) {
+  // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1788, lib/queryFailure).
+  if (failedWithoutData(query)) {
     body = <LoadErrorState title="공유받은 항목을 불러오지 못했습니다" queries={[query]} testId="drive-shared-error" />
+  } else if (query.isPending) {
+    body = <SharedLoading />
   } else if (items.length === 0) {
     body = (
       <div data-testid="drive-shared-empty">

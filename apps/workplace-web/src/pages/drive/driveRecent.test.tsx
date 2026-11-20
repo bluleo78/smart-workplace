@@ -1,6 +1,6 @@
 // 드라이브 「최근」(WP-1699) — 화면 컴포넌트 테스트(renderScreen + MSW).
 // 날짜 묶음·마지막 활동 문구·경로 줄, 빈 상태, 다음 쪽(cursor), 행 별표 단추(WP-1698 별표 API), ⋯ 「파일 위치 열기」 이동, 사이드바 입구 순서를 본다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -9,6 +9,7 @@ import { DriveSidebar } from '@/components/drive/DriveSidebar'
 import { driveKeys } from '@/hooks/queries/driveKeys'
 import { fileSideHandlers } from '@/test/kits/drive/testkit-b6'
 import { controlIntersection } from '@/test/kits/layout'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 import type { DriveRecentFile, DriveRecentPage, DriveSpace, DriveStarTarget } from '@/types/drive'
 
@@ -273,5 +274,39 @@ describe('드라이브 사이드바 랜드마크', () => {
     // 공간 조회가 성공으로 끝난 뒤에 본다 — 응답 전 null 단언이 공허하게 통과하지 않도록(고정 대기 대신 쿼리 상태).
     await waitFor(() => expect(queryClient.getQueryState(driveKeys.spaces())?.status).toBe('success'))
     expect(within(aside).queryByRole('navigation', { name: '드라이브 공간' })).toBeNull()
+  })
+})
+
+// WP-1788: 실패 뒤 다시 시도하면 TanStack Query 가 status 를 pending 으로 되돌린다 — 그 동안에도 오류 안내·초점이 남아야 한다.
+describe('최근 화면 — 실패 뒤 다시 시도하는 동안 안내와 초점이 남는다(WP-1788)', () => {
+  test('WP-1788 다시 시도 성공 — 응답 전에도 안내·초점 유지, 응답 뒤 목록', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const { user } = renderScreen(<DriveRecentView />, {
+      path: '/drive/recent',
+      handlers: [
+        http.get('/api/v1/drive/recent', async () => {
+          calls += 1
+          if (calls === 1) return HttpResponse.json({ message: 'x' }, { status: 500 })
+          await promise
+          return HttpResponse.json({ items: [recent(1)], nextCursor: null })
+        }),
+      ],
+    })
+    await clickRetryAndExpectErrorKept(user, 'drive-recent-error', () => calls)
+    await act(async () => { release() })
+    expect(await screen.findByTestId('drive-recent-row-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-recent-error')).toBeNull()
+  })
+
+  test('WP-1788 첫 진입 로딩 — 실패 전 첫 조회 중에는 「불러오는 중…」', async () => {
+    const { promise, release } = gate()
+    renderScreen(<DriveRecentView />, {
+      path: '/drive/recent',
+      handlers: [http.get('/api/v1/drive/recent', async () => { await promise; return HttpResponse.json({ items: [], nextCursor: null }) })],
+    })
+    expect(await screen.findByText('불러오는 중…')).toBeInTheDocument()
+    await act(async () => { release() })
+    expect(await screen.findByTestId('drive-recent-empty')).toBeInTheDocument()
   })
 })

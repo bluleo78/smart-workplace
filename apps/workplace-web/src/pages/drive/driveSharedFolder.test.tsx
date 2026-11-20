@@ -1,12 +1,13 @@
 // 드라이브 안 보기 전용 공유 폴더 화면(/drive/shared/:shareLinkId, WP-1540) — 화면 컴포넌트 테스트(renderScreen).
 // 진입 판정(목록에서 행·토큰 찾기 → info 한 번 → 열람), 경로·보기 전용 배지, 쓰기 단추 없음, 공개 파일 경로 미리보기,
 // 404·410·401(갱신 뒤 재시도) 처리를 본다. 목록 행은 권한을 주지 않으므로 열람은 늘 공개 폴더 API 로 한다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { setAccessToken } from '@/api/client'
+import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 import type { SharedWithMeItem } from '@/types/drive'
 
@@ -364,5 +365,53 @@ describe('드라이브 안 공유 폴더 화면', () => {
 
     expect(await screen.findByTestId('share-file-row-31')).toBeInTheDocument()
     expect(childCalls).toBe(2)
+  })
+})
+
+// WP-1788: 목록 조회가 실패한 뒤 다시 시도하면 TanStack Query 가 status 를 pending 으로 되돌린다 — 그 동안에도 오류 안내·초점이 남아야 한다.
+describe('드라이브 공유 폴더 화면 — 실패 뒤 다시 시도하는 동안 안내와 초점이 남는다(WP-1788)', () => {
+  test('WP-1788 다시 시도 성공 — 응답 전에도 안내·초점 유지, 응답 뒤 목록', async () => {
+    let calls = 0
+    const { promise, release } = gate()
+    const { user } = renderFolderView({
+      extra: [
+        http.get('/api/v1/drive/shared-with-me', async () => {
+          calls += 1
+          if (calls === 1) return HttpResponse.json({ message: 'x' }, { status: 500 })
+          await promise
+          return HttpResponse.json([folderItem()])
+        }),
+      ],
+    })
+    await clickRetryAndExpectErrorKept(user, 'drive-shared-error', () => calls)
+    await act(async () => { release() })
+    expect(await screen.findByTestId('share-file-row-31')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-shared-error')).toBeNull()
+  })
+
+  test('WP-1788 폴더 정보가 일반 오류 — 다시 시도하는 동안 안내·초점 유지, 응답 뒤 폴더 화면', async () => {
+    let infoCalls = 0
+    const { promise, release } = gate()
+    // 첫 응답은 500, 두 번째는 gate 로 붙잡은 뒤 정상 — 목록·children 은 기본 핸들러.
+    const { user } = renderFolderView({
+      extra: [
+        http.get(PUBLIC, async () => {
+          infoCalls += 1
+          if (infoCalls === 1) return new HttpResponse(null, { status: 500 })
+          await promise
+          return HttpResponse.json(folderInfo)
+        }),
+      ],
+    })
+    const error = await screen.findByTestId('drive-shared-folder-error')
+    const retry = within(error).getByRole('button', { name: '다시 시도' })
+    await user.click(retry)
+    await waitFor(() => expect(infoCalls).toBe(2))
+    expect(screen.getByTestId('drive-shared-folder-error')).toBeInTheDocument()
+    expect(screen.queryByText('불러오는 중…')).toBeNull()
+    expect(document.activeElement).toBe(retry)
+    await act(async () => { release() })
+    expect(await screen.findByTestId('share-file-row-31')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-shared-folder-error')).toBeNull()
   })
 })

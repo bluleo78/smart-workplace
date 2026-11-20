@@ -45,10 +45,11 @@ export function WikiRecentView() {
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
 
   let body
-  if (query.isPending) {
-    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
-  } else if (failedWithoutData(query)) {
+  // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1788, lib/queryFailure).
+  if (failedWithoutData(query)) {
     body = <LoadErrorState title="최근 노트를 불러오지 못했습니다" queries={[query]} testId="wiki-recent-error" />
+  } else if (query.isPending) {
+    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
   } else if (items.length === 0) {
     body = (
       <div data-testid="wiki-recent-empty" className="flex flex-col items-center gap-2 px-4 py-12 text-center">

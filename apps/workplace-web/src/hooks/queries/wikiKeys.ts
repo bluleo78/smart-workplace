@@ -3,7 +3,8 @@ import type { QueryClient } from '@tanstack/react-query'
 export const wikiKeys = {
   all: ['wiki'] as const,
   spaces: () => ['wiki', 'spaces'] as const,
-  // 노트 「최근」(WP-1764) — 열기·고치기를 기록한 뒤 무효화한다.
+  // 노트 「최근」(WP-1764) — 열기·고치기를 기록해도 따로 무효화하지 않는다(wikiKeys.all 무효화에는 함께 걸린다).
+  // useWikiRecent 의 refetchOnMount: 'always' 로 화면에 들어올 때 새로 받는다.
   recent: () => ['wiki', 'recent'] as const,
   // 노트 「즐겨찾기」(WP-1765) — 목록과 id 목록(별 단추용). starredIds 는 starred 의 하위가 아닌 형제 키 — 목록 무효화가 낙관 중인 id 를 덮지 않게.
   starred: () => ['wiki', 'starred'] as const,
