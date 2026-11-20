@@ -22,6 +22,7 @@ import {
   memoryChangesApi,
   memoryItem,
   memorySnap,
+  UNDONE_AT,
 } from './memoryTestkit-b7'
 import { SuggestionPreferenceCard } from './SuggestionPreferenceCard'
 
@@ -825,5 +826,30 @@ describe('AI가 정리한 기록 (WP-385)', () => {
     expect(dialog.queryByTestId('ai-memory-cleanup-error')).not.toBeInTheDocument()
     // 초점은 목록 맨 위가 아니라 새로 이어 붙은 기록(6번째)으로 간다 — 스크롤 자리를 잃지 않는다.
     await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')[5]).toContainElement(document.activeElement as HTMLElement))
+  })
+
+  // WP-1820 반려 수정: 새로 이어 붙은 첫 기록에 조작 요소(출처 링크·되돌리기)가 없거나 묶음이 0건이어도
+  // 다시 시도 단추가 사라진 뒤 초점이 body 로 빠지지 않는다 — 되돌린 기록이면 그 기록 자체로, 0건이면 받아 둔 마지막 기록으로 간다.
+  test.each([
+    ['되돌린 기록(조작 요소 없음)', [memoryChange(0, { memory: memorySnap(1, '가장 오래된 기록'), undoneAt: UNDONE_AT })], 6],
+    ['빈 묶음(0건)', [], 5],
+  ] as const)('WP-1820 기록 다음 묶음 다시 시도 — 새 첫 기록이 %s 이어도 초점이 body 로 빠지지 않는다', async (_, page, total) => {
+    freeze()
+    const io = controlIntersection()
+    const changes = memoryChangesApi([FIVE(), [...page]])
+    const nextPage = (u: URL) => u.searchParams.get('cursor') === 'c1'
+    changes.failListWhen(nextPage)
+    const { user } = await openMemory([], { changes })
+    const dialog = within(await openLog(user))
+    await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(5))
+    io.set((el) => el.getAttribute('data-testid') === 'ai-memory-cleanup-sentinel')
+    const error = await dialog.findByTestId('ai-memory-cleanup-error')
+    changes.failListWhen(null)
+    await user.click(within(error).getByRole('button', { name: '다시 시도' }))
+    await waitFor(() => expect(dialog.queryByTestId('ai-memory-cleanup-error')).not.toBeInTheDocument())
+    expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(total)
+    // 목록 맨 위가 아니라 새 기록(되돌린 기록이면 그 기록 자체), 0건이면 받아 둔 마지막 기록으로 간다(스크롤 자리 유지).
+    // 초점이 body 로 빠지면 대화상자의 초점 가두기가 대화상자 자체로 되돌리므로, 기록 안에 있는지로 본다.
+    await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')[total - 1]).toContainElement(document.activeElement as HTMLElement))
   })
 })

@@ -47,11 +47,14 @@ export function InfiniteChangeLogBody({
   const showEmpty = empty != null && query.data != null && entries.length === 0;
   // 다음 묶음 다시 시도를 누른 때 받아 둔 기록 수 — 성공하면 그 자리(새로 이어 붙은 첫 기록)로 초점을 보낸다.
   const loadedAtRetry = useRef(0);
-  /** 새로 이어 붙은 첫 기록의 첫 조작 요소(출처 링크·되돌리기) — 없으면 초점을 옮기지 않는다(목록 맨 위로 튀지 않게). */
+  /**
+   * 새로 이어 붙은 첫 기록의 첫 조작 요소(출처 링크·되돌리기), 없으면 그 기록 자체(li, tabIndex -1).
+   * 새 기록이 없으면(0건) 받아 둔 마지막 기록으로 — 목록 맨 위로 튀거나 초점이 body 로 빠지지 않게(WP-1820 반려 수정).
+   */
   const firstNewEntryControl = () => {
-    const log = sentinel.current?.previousElementSibling;
-    const item = log?.querySelectorAll('[data-testid="memory-log-item"]')[loadedAtRetry.current];
-    return item?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
+    const items = sentinel.current?.previousElementSibling?.querySelectorAll<HTMLElement>('[data-testid="memory-log-item"]');
+    const item = items?.[loadedAtRetry.current] ?? items?.[loadedAtRetry.current - 1];
+    return item?.querySelector<HTMLElement>(FOCUSABLE) ?? item ?? null;
   };
   return (
     <>

@@ -49,7 +49,7 @@ export function LoadErrorState({
   /**
    * 다시 불러 성공해 안내가 사라질 때 초점을 받을 요소를 고른다(새 내용이 그려진 뒤 부른다) — 아래 기본 순서의 2)·3) 대신 쓴다(같은 자리에 아직 실패 안내가 있으면 그 다시 시도가 먼저다).
    * 불러온 것이 안내 앞(같은 목록 안)에 이어 붙는 자리(기록 다음 묶음 등)에서, 기본 순서가 목록 맨 위로 초점을 보내 스크롤을 잃지 않게 한다(WP-1820).
-   * null 이면 초점을 옮기지 않는다.
+   * null 이면(고를 요소가 없으면) 기본 순서의 2)·3) 으로 내려간다 — 다시 시도 단추는 이미 사라져, 옮기지 않으면 초점이 body 로 빠진다.
    */
   focusAfterRetry?: () => HTMLElement | null
   testId: string
@@ -83,9 +83,10 @@ export function LoadErrorState({
           stillFailing.focus()
           return
         }
-        // 부르는 쪽이 고르는 자리(focusAfterRetry)가 있으면 아래 2)·3) 대신 쓴다
-        if (pick) {
-          pick()?.focus()
+        // 부르는 쪽이 고른 요소(focusAfterRetry)가 있으면 아래 2)·3) 대신 쓴다 — 고르지 못했으면(null) 2)·3) 으로 내려간다
+        const picked = pick?.()
+        if (picked) {
+          picked.focus()
           return
         }
         const candidates = Array.from(area.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(visible)
