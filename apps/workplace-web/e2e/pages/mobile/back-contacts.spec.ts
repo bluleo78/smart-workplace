@@ -4,6 +4,7 @@
 import type { Page } from '@playwright/test'
 
 import { external, externalDetail, member, memberDetail, page as makePage } from '../../factories/contacts.factory'
+import { mailAccount } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/mobile.fixture'
 
@@ -46,4 +47,33 @@ test('데스크톱 2단: 같은 행 재클릭·행 전환 후 goBack 1회로 선
   await page.goBack()
   await expect(page).toHaveURL(/\/contacts$/)
   await expect(page.getByTestId('contact-detail-empty')).toBeVisible()
+})
+
+// WP-1769: 구성원 상세의 메시지·메일 쓰기·일정 잡기 단추가 390px 에서 한 줄로 들어가고 가로로 넘치지 않는다.
+test('390px 구성원 상세의 사람 단추 셋이 한 줄에 들어간다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await stubContacts(page)
+  // 메일 계정이 있어야 「메일 쓰기」 가 정상(활성)으로 그려진다.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  // 로그인 사용자(id 1)는 「내 프로필」 단추 하나만 받으므로 다른 구성원(id 7)을 연다.
+  await page.route((u) => u.pathname === '/api/v1/contacts', (r) =>
+    r.fulfill({ json: makePage([member({ id: 7, name: '이동료' })]) }))
+  await mockApi(page, 'GET', '/api/v1/contacts/members/7', memberDetail({ id: 7, username: 'lee', name: '이동료', email: 'lee@example.com' }))
+  await page.goto('/contacts')
+  await page.getByTestId('contact-row-MEMBER-7').getByRole('button').first().click()
+
+  const buttons = page.getByTestId('contact-detail-actions').getByRole('button')
+  await expect(buttons).toHaveCount(3)
+  const boxes = []
+  for (let i = 0; i < 3; i++) {
+    const box = await buttons.nth(i).boundingBox()
+    expect(box).not.toBeNull()
+    boxes.push(box!)
+  }
+  // 세 단추의 y 가 같다(한 줄), 마지막 단추 오른쪽 끝이 화면 안
+  expect(boxes[1].y).toBe(boxes[0].y)
+  expect(boxes[2].y).toBe(boxes[0].y)
+  expect(boxes[2].x + boxes[2].width).toBeLessThanOrEqual(390)
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+  expect(scrollWidth).toBeLessThanOrEqual(390)
 })
