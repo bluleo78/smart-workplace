@@ -1403,6 +1403,31 @@ describe('계속 끝나는 Pod 의 간격·사유 보고(WP-1501)', () => {
     expect(msg).toContain(' / 이전 Pod 가 끝나 다시 띄웠습니다');
     expect(msg.indexOf('agent 컨테이너')).toBeLessThan(msg.indexOf('이전 Pod'));
   });
+
+  it('FAILED 관찰(예: CrashLoopBackOff) 이면 끝난 Pod 알림을 섞지 않고 실패 사유만 싣는다(WP-1795)', async () => {
+    const { cluster, r, clock, name, evict, lastObserved } = await loopSetup();
+    evict();
+    await r.reconcileOnce();
+    await r.reconcileOnce();
+    // 다시 만든 Pod 의 컨테이너가 CrashLoopBackOff 대기 — toObserved 가 FAILED 를 낸다
+    clock.t += 60_000;
+    cluster.get<V1Pod>('Pod', name)!.status = {
+      phase: 'Running',
+      containerStatuses: [
+        {
+          name: 'agent',
+          ready: false,
+          restartCount: 3,
+          image: 'x',
+          imageID: 'x',
+          state: { waiting: { reason: 'CrashLoopBackOff', message: 'back-off 5m0s' } },
+        },
+      ],
+    };
+    await r.reportObserved();
+    expect(lastObserved()).toMatchObject({ phase: 'FAILED', message: expect.stringContaining('CrashLoopBackOff') });
+    expect(lastObserved()?.message ?? '').not.toContain('이전 Pod 가 끝나');
+  });
 });
 
 describe('ClusterCheck', () => {

@@ -21,9 +21,12 @@
 //      DIND_GC_INTERVAL_SECONDS(확인 간격), DIND_GC_FAST_INTERVAL_SECONDS(임계값 80% 이상일 때 확인 간격),
 //      DIND_GC_IMAGE_COOLDOWN_SECONDS(빌드 캐시·이미지 정리 최소 간격), DIND_GC_CRITICAL_COOLDOWN_SECONDS(위급선에서의 최소 간격).
 // du 가 아무것도 내지 못하면(권한·경로 문제) 정리가 조용히 꺼지므로 그때마다 로그를 남긴다.
+// 사용량 u 는 prune 뒤 다시 잴 때도 빌 수 있다 — 빈 값이 숫자 test 로 가면 셸 오류이므로 사용량 비교는 빈 값이면 거짓인 `ge` 로 하고,
+// 「정리 뒤」 로그는 빈 값이면 잴 수 없다고 남긴다(WP-1795).
 export const DIND_GC_SCRIPT = `trap 'exit 0' TERM INT
 used() { du -sk /dind-storage 2>/dev/null | cut -f1; }
-over() { [ -n "$u" ] && [ "$u" -ge "$DIND_GC_THRESHOLD_KIB" ]; }
+ge() { [ -n "$1" ] && [ "$1" -ge "$2" ]; }
+over() { ge "$u" "$DIND_GC_THRESHOLD_KIB"; }
 last_image_prune=""
 while :; do
   u=$(used)
@@ -37,7 +40,7 @@ while :; do
       now=$(date +%s)
       cooldown="$DIND_GC_IMAGE_COOLDOWN_SECONDS"
       tier="아직 \${u}KiB"
-      if [ "$u" -ge "$DIND_GC_CRITICAL_KIB" ]; then
+      if ge "$u" "$DIND_GC_CRITICAL_KIB"; then
         cooldown="$DIND_GC_CRITICAL_COOLDOWN_SECONDS"
         tier="\${tier} ≥ 위급선 \${DIND_GC_CRITICAL_KIB}KiB(위급 쿨다운 \${cooldown}초)"
       fi
@@ -51,7 +54,11 @@ while :; do
         echo "[dind-gc] \${tier} — 빌드 캐시·이미지 정리는 쿨다운 중이라 건너뜁니다"
       fi
     fi
-    echo "[dind-gc] 정리 뒤 \${u}KiB"
+    if [ -n "$u" ]; then
+      echo "[dind-gc] 정리 뒤 \${u}KiB"
+    else
+      echo "[dind-gc] 정리 뒤 사용량을 잴 수 없습니다"
+    fi
   fi
   wait_s="$DIND_GC_INTERVAL_SECONDS"
   [ -n "$u" ] && [ $((u * 100)) -ge $((DIND_GC_THRESHOLD_KIB * 80)) ] && wait_s="$DIND_GC_FAST_INTERVAL_SECONDS"

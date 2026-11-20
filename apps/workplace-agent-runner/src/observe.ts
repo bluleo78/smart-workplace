@@ -47,6 +47,11 @@ export function podFinishReason(pod: V1Pod): string {
 /** 컨테이너 재시작 알림을 관찰 보고에 싣는 기간 — 지나면 조용히 지운다(OOMKilled 재시작은 Pod 가 계속 Running 이라 흔적이 남지 않던 것을 보완). */
 export const RESTART_NOTICE_MS = 6 * 60 * 60_000;
 
+/** 시각 at(ms)의 알림이 아직 실을 나이인지 — {@link RESTART_NOTICE_MS} 이하(경계 포함)면 참. 재시작 알림·끝난 Pod 알림이 함께 쓴다(WP-1795). */
+export function isWithinNoticeWindow(at: number, now: number): boolean {
+  return now - at <= RESTART_NOTICE_MS;
+}
+
 /** 알림 시각 포맷터 — 만드는 비용이 커서 모듈에서 한 번만 만든다. */
 const NOTICE_TIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Seoul',
@@ -69,13 +74,12 @@ export function formatNoticeTime(d: Date): string {
  * 정상 종료(exit 0·Completed)는 알리지 않는다. init 컨테이너는 제외하고, 여러 컨테이너면 가장 늦게 끝난(finishedAt) 것을 고른다. finishedAt 이 없으면 시점을 몰라 무시.
  */
 export function restartNotice(pod: V1Pod, now: Date): string | null {
-  const since = now.getTime() - RESTART_NOTICE_MS;
   let best: { at: number; text: string } | null = null;
   for (const c of pod.status?.containerStatuses ?? []) {
     const t = c.lastState?.terminated;
     if (!t?.finishedAt) continue;
     const at = new Date(t.finishedAt).getTime();
-    if (Number.isNaN(at) || at < since) continue;
+    if (Number.isNaN(at) || !isWithinNoticeWindow(at, now.getTime())) continue;
     // 정상 종료(exit 0·Completed)로 끝난 재시작은 경고가 아니라 알리지 않는다 — OOMKilled 는 그대로 알린다
     if (t.reason !== 'OOMKilled' && (t.exitCode === 0 || t.reason === 'Completed')) continue;
     if (best && at <= best.at) continue;

@@ -42,7 +42,7 @@ async function runOnce(
   criticalKib = thresholdKib * 2,
   criticalCooldownSeconds = 3600,
 ) {
-  const { stdout } = await run('sh', ['-c', DIND_GC_SCRIPT], {
+  const { stdout, stderr } = await run('sh', ['-c', DIND_GC_SCRIPT], {
     env: {
       PATH: `${dir}:${process.env.PATH}`,
       DIND_GC_THRESHOLD_KIB: String(thresholdKib),
@@ -66,7 +66,7 @@ async function runOnce(
   } catch {
     // sleep 을 한 번도 부르지 않았다
   }
-  return { stdout, calls, sleeps };
+  return { stdout, stderr, calls, sleeps };
 }
 
 describe('DIND_GC_SCRIPT', () => {
@@ -137,6 +137,22 @@ describe('DIND_GC_SCRIPT', () => {
     // 위급선 아래에서는 위급 쿨다운(0)이 아니라 일반 쿨다운(3600)을 쓴다
     const { calls } = await runOnce(fakeBin(1500, {}, 2), 1000, 3600, 2000, 0);
     expect(calls.filter((c) => c === 'image prune -af')).toHaveLength(1);
+  });
+
+  it('logsUnmeasurableWithoutShellError_whenUsageVanishesAfterPrune', async () => {
+    // WP-1795: prune 뒤 다시 잰 사용량이 비어도(du 는 성공하되 빈 사용량을 낸다) 「정리 뒤」 로그·다음 간격 계산이 셸 test 오류를 내지 않고,
+    // 로그는 빈 숫자(「정리 뒤 KiB」) 대신 잴 수 없다고 남긴다 — 0 으로 비운 것과 못 잰 것을 운영자가 가를 수 있게
+    for (const sub of ['volume', 'builder']) {
+      const dir = fakeBin(1500, {}, 1);
+      // docker 가 해당 하위명령을 실행하면 used 가 빈 값이 된다(du 는 빈 첫 열을 낸다)
+      writeFileSync(join(dir, `after-${sub}`), '');
+      const { calls, stdout, stderr } = await runOnce(dir, 1000, 3600, 1400, 3600);
+      // 해당 정리 갈래(volume/builder)를 실제로 지나 빈 사용량 경로에 닿았음을 확인한다
+      expect(calls).toContain(`${sub} prune -af`);
+      expect(stderr).toBe('');
+      expect(stdout).toContain('정리 뒤 사용량을 잴 수 없습니다');
+      expect(stdout).not.toContain('정리 뒤 KiB');
+    }
   });
 
   it('sleepsFast_whenNearThreshold', async () => {
