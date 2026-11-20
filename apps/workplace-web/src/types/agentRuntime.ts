@@ -59,6 +59,8 @@ export interface AgentLocation {
   isDefault: boolean;
   /** 이 실행 환경에서 동시에 실행할 수 있는 AI 수(최대 AI 수). */
   capacity: number;
+  /** 네임스페이스 ResourceQuota 가 통째로 담을 수 있는 AI 수(WP-1819) — 사용분은 빼지 않은 총량. null = 쿼터 없음·모름. */
+  quotaCapacity: number | null;
   /** 지금 이 실행 환경에서 실행 중인 AI 수. */
   used: number;
   /** 이 실행 환경을 쓰도록 설정된 AI — 기본 실행 환경이면 실행 환경을 고르지 않은 AI 도 포함(「AI」 열). */

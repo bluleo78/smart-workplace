@@ -406,3 +406,18 @@ test('삭제가 409 로 실패하면 서버 메시지 토스트가 뜨고 행은
   expect(await screen.findByText('쓰는 AI 가 있어 지울 수 없습니다')).toBeInTheDocument()
   expect(screen.getByTestId('agent-location-row-3')).toBeInTheDocument()
 })
+
+test('최대 AI 수가 클러스터 상한보다 크면 행에 경고 — 같거나 작거나 null 이면 없음 (WP-1819)', async () => {
+  await renderLocations({
+    initial: [
+      createLocation({ capacity: 6, quotaCapacity: 2 }),
+      createLocation({ id: 2, name: 'PoC', isDefault: false, capacity: 2, quotaCapacity: 2 }),
+      createLocation({ id: 3, name: '사내 GPU', isDefault: false, capacity: 6, quotaCapacity: null }),
+    ],
+  })
+  // 이름 칸 아래 한 줄이라 데스크톱·모바일 행에서 같은 요소가 보인다(CSS 로 숨기지 않음)
+  expect(screen.getByTestId('agent-location-quota-capacity-1')).toHaveTextContent('클러스터 상한으로는 2명까지 띄울 수 있습니다')
+  expect(screen.getAllByText('클러스터 상한으로는 2명까지 띄울 수 있습니다')).toHaveLength(1)
+  expect(screen.queryByTestId('agent-location-quota-capacity-2')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('agent-location-quota-capacity-3')).not.toBeInTheDocument()
+})

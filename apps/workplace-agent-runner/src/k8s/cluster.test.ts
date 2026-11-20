@@ -151,6 +151,19 @@ describe('KubeCluster', () => {
     expect(secretErr.message).toBe('k8s apply Secret/agent-99 실패 (403 Forbidden)');
   });
 
+  it('keepsQuotaNumbersFromUntruncatedServerMessage', () => {
+    // 첫 줄이 250자를 넘어 message 에서는 잘리지만 quotaExceeded 는 원문 숫자 그대로
+    const pad = 'x'.repeat(250);
+    const server = `pods "agent-76" is forbidden: ${pad} exceeded quota: agent-runner, requested: requests.cpu=2260m, used: requests.cpu=4570m, limited: requests.cpu=6`;
+    const e = new ClusterError('apply', 'Pod', 'agent-76', 403, 'Forbidden', server);
+    expect(e.message.length).toBeLessThan(server.length);
+    expect(e.quotaExceeded).toEqual([{ resource: 'requests.cpu', requested: '2260m', used: '4570m', limited: '6' }]);
+    // Secret 은 서버 메시지를 아예 쓰지 않는다
+    expect(new ClusterError('apply', 'Secret', 's', 403, 'Forbidden', server).quotaExceeded).toBeUndefined();
+    // 쿼터가 아닌 거절은 없다
+    expect(new ClusterError('apply', 'Pod', 'p', 403, 'Forbidden', 'violates PodSecurity').quotaExceeded).toBeUndefined();
+  });
+
   it('listsOnlyRunnerLabeledResources', async () => {
     await cluster.listManaged();
     const lists = seen.filter((s) => s.method === 'GET').map((s) => [s.path, s.query.get('labelSelector')]);

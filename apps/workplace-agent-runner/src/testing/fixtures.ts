@@ -49,6 +49,7 @@ export function runnerConfig(overrides: Partial<RunnerConfig> = {}): RunnerConfi
     workHostPath: '/var/lib/genia-agents',
     storageClass: undefined,
     caConfigMap: undefined,
+    quotaName: undefined,
     screenAllowInput: false,
     dindStorageLimit: '20Gi',
     dindStorageLimitKib: 20 * 1024 * 1024,

@@ -64,6 +64,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            {{- if .Values.quota.enabled }}
+            # 이 차트가 만든 ResourceQuota 이름 — runner 가 hard 를 읽어 수용량을 보고한다(WP-1819)
+            - name: QUOTA_NAME
+              value: {{ include "runner.name" . | quote }}
+            {{- end }}
             - name: ALLOWED_IMAGE_PREFIXES
               value: {{ join "," .Values.allowedImagePrefixes | quote }}
             - name: AGENT_NODE_SELECTOR

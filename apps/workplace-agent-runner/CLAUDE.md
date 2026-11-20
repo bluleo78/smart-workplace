@@ -44,7 +44,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
   연속 `FINISH_FAIL_AFTER`(3)번부터는 FAILED(끝난 사유)로 보고한다. Ready 로 `FINISH_STABLE_MS`(10분) 떠 있거나 generation 이 바뀌면 횟수를 지운다. 기록은 `failures` 와 따로 둔 메모리 맵(`finishLoops`)이라 runner 재시작 시 0 부터.
 - 조정은 시작·변경 스트림·재시도·desired 의 `pollIntervalSeconds`(300초)마다 돈다. 그와 따로 `ClusterCheck` 가 `CLUSTER_CHECK_SECONDS`(기본 30초)마다 마지막 desired 로
   Pod 목록만(`listManagedPods`) 보고 `planReconcile` 에 「Pod 없음(create)·Pod 끝남(recreate)」 할 일이 있으면 조정을 깨운다(WP-1501). Works 는 부르지 않는다 — 조정은 늘 desired 를 새로 받는 회차가 해서
-  오래된 desired 로 키를 다시 받는(=교체) 일이 없다. Works 쪽이 바뀌어야 낫는 실패(허용 밖 이미지·이름 충돌·모델 연결 종류 — `blocked`)인 AI·간격을 기다리는 끝난 Pod·지우는 중인 Pod·generation 차이는 깨우지 않는다(클러스터 거절 같은 그 밖의 실패는 깨운다). Pod watch 대신 이것을 고른 까닭은
+  오래된 desired 로 키를 다시 받는(=교체) 일이 없다. Works 쪽이 바뀌어야 낫는 실패(허용 밖 이미지·이름 충돌·모델 연결 종류 — `blocked`)인 AI·간격을 기다리는 끝난 Pod·지우는 중인 Pod·generation 차이는 깨우지 않는다(클러스터가 Pod·PVC·ConfigMap 만들기를 거절한 `rejected` AI 도 깨우지 않는다 — 재시도는 30초 'later' 가 한다. Secret 거절 같은 그 밖의 실패는 깨운다). Pod watch 대신 이것을 고른 까닭은
   기존 `listManaged`·`ReconcileLoop` 를 그대로 쓰고 watch 의 재연결·410 Gone·디바운스를 다루지 않아도 되기 때문.
 - 모델 연결 교체: Pod 어노테이션 `genia.works/claude-version`(만들 때 Secret 의 version)이 Secret 의 것과 다르면(없음 ↔ 값 포함) generation·applyNow 와
   무관하게 Pod 를 다시 만든다 — 토큰이 env 로 고정되고 Works 는 재등록에 generation 을 올리지 않기 때문. 허용 밖 이미지면 지우지 않는다.
@@ -73,7 +73,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 
 `WORKS_URL`, `RUNNER_TOKEN_FILE`, `NAMESPACE`, `ALLOWED_IMAGE_PREFIXES`(쉼표), `AGENT_NODE_SELECTOR`·`AGENT_TOLERATIONS`·`AGENT_HOST_ALIASES`(JSON),
 `AGENT_WORK_DISK_TYPE`(hostPath·pvc, 기본 hostPath), `AGENT_WORK_HOST_PATH`(기본 /var/lib/genia-agents), `AGENT_STORAGE_CLASS`(pvc 만), `AGENT_CA_CONFIGMAP`(추가 CA ConfigMap — 키 `ca.crt` 를 AI Pod `/run/genia/ca` 에 꽂는다, WP-1276), `DIND_STORAGE_LIMIT`(기본 20Gi, 쿠버네티스 수량), `DIND_GC_THRESHOLD_PERCENT`(기본 70 — 사용량이 상한의 이 비율을 넘으면 AI Pod 의 dind-gc 가 정리, WP-1581), `DIND_RESOURCES`(JSON, 기본 requests 250m/512Mi·limits 2/4Gi),
-`AGENT_IMAGE_PULL_SECRETS`(쉼표), `SCREEN_ALLOW_INPUT`(true·false, 기본 false — 작업 화면 입력 허용, WP-1277), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다), `CLUSTER_CHECK_SECONDS`(5~300, 기본 30 — 클러스터 다시 보기 간격, 차트는 넣지 않는다).
+`AGENT_IMAGE_PULL_SECRETS`(쉼표), `SCREEN_ALLOW_INPUT`(true·false, 기본 false — 작업 화면 입력 허용, WP-1277), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다), `CLUSTER_CHECK_SECONDS`(5~300, 기본 30 — 클러스터 다시 보기 간격, 차트는 넣지 않는다), `QUOTA_NAME`(선택 — 차트가 `quota.enabled` 일 때 넣는다. 이 ResourceQuota 의 hard 로 띄울 수 있는 AI 수를 계산해 관찰 보고 첫 묶음의 `quota` 로 싣는다. 없으면 `capacity: null` 을 보내 화면의 묵은 경고를 지운다; runner 의 Role 에 `resourcequotas` get 권한이 필요하다).
 
 로컬 실행은 `pnpm --filter @smart-workplace/workplace-agent-runner start:local`(KUBECONFIG·env 필요). `dev` 스크립트는 일부러 없다 —
 루트 `pnpm dev` 가 클러스터를 만지는 runner 를 띄우지 않게.

@@ -104,7 +104,8 @@ class AdminAgentLocationApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$[0].plaintextToken").doesNotExist())
         .andExpect(jsonPath("$[0].tokenPrefix").value(token.substring(0, 12)))
         .andExpect(jsonPath("$[0].connection").value("PENDING"))
-        .andExpect(jsonPath("$[0].used").value(0));
+        .andExpect(jsonPath("$[0].used").value(0))
+        .andExpect(jsonPath("$[0].quotaCapacity").value(org.hamcrest.Matchers.nullValue()));
   }
 
   @Test

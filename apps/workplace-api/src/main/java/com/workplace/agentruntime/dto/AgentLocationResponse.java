@@ -15,6 +15,8 @@ import java.util.List;
  * @param settingCount 이 위치를 직접 지정한 실행 설정 수 — 0 보다 크면 삭제가 409 다(기본 따라가기 AI 는 세지 않는다)
  * @param metricsAvailable CPU·메모리 사용량을 잴 수 있는지(WP-1280) — false 면 그 클러스터에 metrics-server 가 없다, null
  *     은 아직 모름
+ * @param quotaCapacity 클러스터 쿼터 상한으로 띄울 수 있는 최대 AI 수(사용분은 빼지 않은 총량)(WP-1819, runner 보고) — null 은 쿼터
+ *     없음 또는 아직 모름
  */
 public record AgentLocationResponse(
     long id,
@@ -28,4 +30,5 @@ public record AgentLocationResponse(
     String tokenPrefix,
     List<AgentLocationAgent> agents,
     int settingCount,
-    Boolean metricsAvailable) {}
+    Boolean metricsAvailable,
+    Integer quotaCapacity) {}

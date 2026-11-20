@@ -89,6 +89,11 @@ export interface RepoSecretsResponse {
   tokens: { kind: 'GITHUB' | 'GITLAB'; host: string; token: string }[];
 }
 
+/** 관찰 보고에 싣는 쿼터 수용량 — capacity 는 쿼터가 없거나 계산할 수 없으면 null. */
+export interface ObservedQuota {
+  capacity: number | null;
+}
+
 export interface ObservedResponse {
   updated: number;
   ignored: number[];
@@ -105,8 +110,11 @@ export interface WorksClient {
   getLoginSecret(agentUserId: number): Promise<SecretPayloadResponse | null>;
   /** 저장소 토큰(WP-1268) — 원문이 들어 있으니 로그에 남기지 않는다. */
   getRepoSecrets(agentUserId: number): Promise<RepoSecretsResponse>;
-  /** metricsAvailable — 사용량 API 가 있는지(WP-1280). 모르면(일시 오류) undefined 라 보내지 않는다. */
-  reportObserved(agents: RunnerObservedAgent[], metricsAvailable?: boolean): Promise<ObservedResponse>;
+  /**
+   * metricsAvailable — 사용량 API 가 있는지(WP-1280). 모르면(일시 오류) undefined 라 보내지 않는다.
+   * quota — 네임스페이스 쿼터로 띄울 수 있는 AI 수(WP-1819). 설정이 없거나 읽지 못하면 undefined 라 보내지 않고, 쿼터가 없으면 capacity null.
+   */
+  reportObserved(agents: RunnerObservedAgent[], metricsAvailable?: boolean, quota?: ObservedQuota): Promise<ObservedResponse>;
 }
 
 /**
@@ -201,7 +209,7 @@ export class HttpWorksClient implements WorksClient {
     return this.call('GET', `/agents/${agentUserId}/secrets/repos`);
   }
 
-  reportObserved(agents: RunnerObservedAgent[], metricsAvailable?: boolean): Promise<ObservedResponse> {
-    return this.call('POST', '/observed', { agents, metricsAvailable });
+  reportObserved(agents: RunnerObservedAgent[], metricsAvailable?: boolean, quota?: ObservedQuota): Promise<ObservedResponse> {
+    return this.call('POST', '/observed', { agents, metricsAvailable, quota });
   }
 }

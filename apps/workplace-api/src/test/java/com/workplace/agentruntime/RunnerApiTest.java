@@ -503,4 +503,31 @@ class RunnerApiTest extends IntegrationTestBase {
     observed(t1, "{\"agents\":[],\"metricsAvailable\":true}").andExpect(status().isOk());
     assertThat(locationService.get(l1).metricsAvailable()).isTrue();
   }
+
+  /**
+   * WP-1819 — 관찰 보고의 quota.capacity 를 위치에 적는다. quota 가 없는 보고(일시 오류·옛 runner)는 저장값을 두고, capacity
+   * null 은 「쿼터 없음」으로 지운다.
+   */
+  @Test
+  void observed_recordsQuotaCapacityOnLocation() throws Exception {
+    assertThat(locationService.get(l1).quotaCapacity()).isNull();
+
+    observed(t1, "{\"agents\":[],\"quota\":{\"capacity\":2}}").andExpect(status().isOk());
+    assertThat(locationService.get(l1).quotaCapacity()).isEqualTo(2);
+    assertThat(locationService.get(l2).quotaCapacity()).isNull();
+
+    // quota 가 없는 보고는 저장값을 그대로 둔다
+    observed(t1, "{\"agents\":[]}").andExpect(status().isOk());
+    assertThat(locationService.get(l1).quotaCapacity()).isEqualTo(2);
+
+    // capacity null = 쿼터 없음
+    observed(t1, "{\"agents\":[],\"quota\":{\"capacity\":null}}").andExpect(status().isOk());
+    assertThat(locationService.get(l1).quotaCapacity()).isNull();
+  }
+
+  /** WP-1819 — 음수 capacity 는 중첩 quota 검증에 걸려 400 이다. */
+  @Test
+  void observed_rejectsNegativeQuotaCapacity() throws Exception {
+    observed(t1, "{\"agents\":[],\"quota\":{\"capacity\":-1}}").andExpect(status().isBadRequest());
+  }
 }

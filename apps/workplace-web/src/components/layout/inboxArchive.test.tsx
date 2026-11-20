@@ -1,11 +1,11 @@
-// 알림 창 「알림 | 보관함」 전환·보관함 목록·줄 되돌리기(WP-1690) — 화면 컴포넌트 테스트.
+// 알림 창 「알림 | 보관함」 전환·보관함 목록·줄 되돌리기(WP-1690), 빈 상태 CTA·조회 실패 표시(WP-1848) — 화면 컴포넌트 테스트.
 // InboxList 만 renderScreen 으로 띄우고(Popover 없이), MSW 로 알림·보관함·되돌리기 API 를 모킹한다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
-import { InboxList, type InboxView } from '@/components/layout/InboxList'
+import { InboxList, type InboxView, InboxViewTabs } from '@/components/layout/InboxList'
 import { renderScreen } from '@/test/renderScreen'
 import type { NotificationResponse } from '@/types/notification'
 
@@ -32,22 +32,40 @@ function notif(over: Partial<NotificationResponse> = {}): NotificationResponse {
 }
 
 /** InboxList 는 보기 상태를 바깥이 들고 있어야 해서(제어 전용), 테스트에서는 상태만 쥐는 얇은 래퍼로 띄운다. */
-function InboxHarness({ screenEmpty = false }: { screenEmpty?: boolean }) {
+function InboxHarness({
+  screenEmpty = false,
+  onNavigate,
+  hideHeader = false,
+}: {
+  screenEmpty?: boolean
+  onNavigate?: () => void
+  /** true 면 실제 모바일 NotificationsPage 처럼 탭을 InboxList 밖에 그리고 InboxList 는 hideHeader 로 띄운다. */
+  hideHeader?: boolean
+}) {
   const [view, setView] = useState<InboxView>('inbox')
-  return <InboxList enabled view={view} onViewChange={setView} screenEmpty={screenEmpty} />
+  return (
+    <>
+      {hideHeader && <InboxViewTabs view={view} onChange={setView} />}
+      <InboxList enabled view={view} onViewChange={setView} screenEmpty={screenEmpty} onNavigate={onNavigate} hideHeader={hideHeader} />
+    </>
+  )
 }
 
 /**
  * InboxList 를 띄운다. archived 는 보관함 응답(되돌리기 성공 뒤에는 restored 로 비운다), unarchived 는 되돌리기 요청 바디 ids.
  */
-function renderInbox(opts: { inbox?: NotificationResponse[]; archived?: NotificationResponse[]; screenEmpty?: boolean } = {}) {
-  const { inbox = [notif({ id: 1 })], archived = [], screenEmpty = false } = opts
+function renderInbox(opts: { inbox?: NotificationResponse[]; archived?: NotificationResponse[]; screenEmpty?: boolean; onNavigate?: () => void; hideHeader?: boolean; inboxStatus?: number } = {}) {
+  const { inbox = [notif({ id: 1 })], archived = [], screenEmpty = false, onNavigate, hideHeader = false, inboxStatus = 200 } = opts
+  const inboxCalls = { count: 0 }
   const unarchived: number[][] = []
   let archiveRows = archived
-  const view = renderScreen(<InboxHarness screenEmpty={screenEmpty} />, {
+  const view = renderScreen(<InboxHarness screenEmpty={screenEmpty} onNavigate={onNavigate} hideHeader={hideHeader} />, {
     path: '/',
     handlers: [
-      http.get('/api/v1/notifications', () => HttpResponse.json(inbox)),
+      http.get('/api/v1/notifications', () => {
+        inboxCalls.count += 1
+        return inboxStatus === 200 ? HttpResponse.json(inbox) : new HttpResponse(null, { status: inboxStatus })
+      }),
       http.get('/api/v1/notifications/archived', () => HttpResponse.json(archiveRows)),
       http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: 0 })),
       http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null })),
@@ -59,7 +77,7 @@ function renderInbox(opts: { inbox?: NotificationResponse[]; archived?: Notifica
       }),
     ],
   })
-  return { ...view, unarchived }
+  return { ...view, unarchived, inboxCalls }
 }
 
 describe('알림 창 보관함 전환', () => {
@@ -164,5 +182,68 @@ describe('보관함 줄 되돌리기 — 처리 중 비활성은 그 줄만', ()
     await user.click(second)
     await waitFor(() => expect(requested).toEqual([[5], [6]]))
     release()
+  })
+})
+
+describe('알림 빈 상태 CTA (WP-1848)', () => {
+  test('받은 탭 빈 상태에 「알림 설정」 CTA 가 있고 누르면 팝오버를 닫고 설정으로 간다', async () => {
+    // onNavigate 가 불리는 시점의 주소를 기록해 「닫고 → 이동」 순서를 확인한다.
+    let locationAtClose: string | undefined
+    const spy = vi.fn(() => {
+      locationAtClose = holder.location?.()
+    })
+    const holder: { location?: () => string } = {}
+    const { user, location } = renderInbox({ inbox: [], onNavigate: spy })
+    holder.location = location
+    const cta = await screen.findByTestId('inbox-empty-action')
+    expect(cta).toHaveTextContent('알림 설정')
+    await user.click(cta)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(locationAtClose).toBe('/')
+    await waitFor(() => expect(location()).toBe('/settings/notifications'))
+  })
+
+  test('screenEmpty 받은 탭 CTA 는 설정으로 이동한다', async () => {
+    const { user, location } = renderInbox({ inbox: [], screenEmpty: true })
+    await user.click(await screen.findByTestId('inbox-empty-action'))
+    await waitFor(() => expect(location()).toBe('/settings/notifications'))
+  })
+
+  // 팝오버 · 모바일 전체 화면 · 실제 모바일 구성(hideHeader — 탭이 InboxList 밖) 세 모양 모두 같은 동작이다.
+  test.each([
+    { name: '팝오버', screenEmpty: false, hideHeader: false },
+    { name: '전체 화면', screenEmpty: true, hideHeader: false },
+    { name: '실제 모바일 구성(hideHeader)', screenEmpty: true, hideHeader: true },
+  ])('$name: 보관함 CTA 는 이동하지 않고 받은 탭으로 바꾸고 그 탭에 포커스를 둔다', async ({ screenEmpty, hideHeader }) => {
+    const { user, location } = renderInbox({ inbox: [notif({ id: 1 })], archived: [], screenEmpty, hideHeader })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    const cta = await screen.findByTestId('inbox-empty-action')
+    expect(cta).toHaveTextContent('받은 알림 보기')
+    const before = location()
+    await user.click(cta)
+    const tab = screen.getByTestId('inbox-tab-inbox')
+    expect(tab).toHaveAttribute('aria-selected', 'true')
+    expect(location()).toBe(before)
+    expect(await screen.findAllByTestId('inbox-item')).toHaveLength(1)
+    await waitFor(() => expect(tab).toHaveFocus())
+  })
+
+  test('알림이 있으면 빈 상태 CTA 가 없다', async () => {
+    renderInbox()
+    await screen.findAllByTestId('inbox-item')
+    expect(screen.queryByTestId('inbox-empty-action')).toBeNull()
+  })
+
+  test('알림 조회가 실패하면 빈 상태 대신 오류와 다시 시도가 보인다', async () => {
+    const { user, inboxCalls } = renderInbox({ inboxStatus: 500 })
+    expect(await screen.findByTestId('inbox-error')).toHaveTextContent('알림을 불러오지 못했습니다')
+    expect(screen.queryByTestId('inbox-empty')).toBeNull()
+    expect(screen.queryByTestId('inbox-empty-action')).toBeNull()
+    expect(inboxCalls.count).toBe(1)
+    await user.click(screen.getByTestId('inbox-error-retry'))
+    await waitFor(() => expect(inboxCalls.count).toBe(2))
+    // 다시 불러도 실패하면 안내가 그대로 남는다(다시 부르는 동안 「불러오는 중」·빈 상태로 바뀌지 않는다)
+    expect(await screen.findByTestId('inbox-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('inbox-empty')).toBeNull()
   })
 })

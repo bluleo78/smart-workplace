@@ -48,7 +48,8 @@ public class AgentLocationRepository {
       int capacity,
       String tokenPrefix,
       OffsetDateTime lastSeenAt,
-      Boolean metricsAvailable) {}
+      Boolean metricsAvailable,
+      Integer quotaCapacity) {}
 
   private Row map(Record r) {
     return new Row(
@@ -59,7 +60,8 @@ public class AgentLocationRepository {
         r.get(AGENT_LOCATION.CAPACITY),
         r.get(AGENT_RUNNER_TOKEN.TOKEN_PREFIX),
         r.get(AGENT_RUNNER_TOKEN.LAST_USED_AT),
-        r.get(AGENT_LOCATION.METRICS_AVAILABLE));
+        r.get(AGENT_LOCATION.METRICS_AVAILABLE),
+        r.get(AGENT_LOCATION.QUOTA_CAPACITY));
   }
 
   /** 위치 + 쓸 수 있는(회수 안 된) 토큰을 left join — 위치당 활성 토큰은 최대 1개(부분 유니크). */
@@ -72,7 +74,8 @@ public class AgentLocationRepository {
             AGENT_LOCATION.CAPACITY,
             AGENT_RUNNER_TOKEN.TOKEN_PREFIX,
             AGENT_RUNNER_TOKEN.LAST_USED_AT,
-            AGENT_LOCATION.METRICS_AVAILABLE)
+            AGENT_LOCATION.METRICS_AVAILABLE,
+            AGENT_LOCATION.QUOTA_CAPACITY)
         .from(AGENT_LOCATION)
         .leftJoin(AGENT_RUNNER_TOKEN)
         .on(
@@ -88,6 +91,15 @@ public class AgentLocationRepository {
         .set(AGENT_LOCATION.METRICS_AVAILABLE, available)
         .where(AGENT_LOCATION.ID.eq(id))
         .and(AGENT_LOCATION.METRICS_AVAILABLE.isDistinctFrom(available))
+        .execute();
+  }
+
+  /** runner 가 본 네임스페이스 쿼터 수용량을 적는다(WP-1819). null 은 쿼터 없음. 값이 같으면 쓰지 않는다 — 매번 오는 보고가 행을 고치지 않게. */
+  public void updateQuotaCapacity(long id, Integer capacity) {
+    dsl.update(AGENT_LOCATION)
+        .set(AGENT_LOCATION.QUOTA_CAPACITY, capacity)
+        .where(AGENT_LOCATION.ID.eq(id))
+        .and(AGENT_LOCATION.QUOTA_CAPACITY.isDistinctFrom(capacity))
         .execute();
   }
 

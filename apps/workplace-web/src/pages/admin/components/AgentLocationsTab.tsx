@@ -2,7 +2,7 @@
 // 표(이름·설명·기본·연결 상태·이 환경의 AI·최대 AI 수) + 「+ 실행 환경 추가」(머리 단추) → 연결 토큰 1회 표시 + 설치 순서 + ⋯ 메뉴(기본 지정·이름/최대 AI 수·토큰 재발급·삭제).
 // 화면 위 설명 문단과 설치 문제 해결은 매뉴얼 15장 도움말 절(agents.locations 층, WP-1507)로 옮겼다 — 칸·대화상자의 data-help 가 그 절로 잇는다.
 
-import { MoreHorizontal } from 'lucide-react';
+import { AlertTriangle, MoreHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -100,6 +100,7 @@ export function AgentLocationsTab({ createOpen, onCreateOpenChange }: Props) {
               rows.map((l) => {
                 const pill = connectionPill(l.connection);
                 const deleteBlocked = locationDeleteBlockReason(l);
+                const quotaShort = quotaShortBy(l);
                 const reported = l.lastSeenAt ? `${formatRelativeTime(l.lastSeenAt)} 보고` : null;
                 return (
                   <TableRow key={l.id} data-testid={`agent-location-row-${l.id}`} className="align-top">
@@ -109,6 +110,7 @@ export function AgentLocationsTab({ createOpen, onCreateOpenChange }: Props) {
                         {l.isDefault && <Badge variant="secondary">기본</Badge>}
                       </div>
                       {l.description && <p className="mt-0.5 text-xs text-muted-foreground">{l.description}</p>}
+                      {quotaShort !== null && <QuotaCapacityNote quotaCapacity={quotaShort} testId={`agent-location-quota-capacity-${l.id}`} />}
                       {/* 모바일 전용 — 숨긴 연결·최대 AI 수·AI 열의 값 */}
                       <div className="mt-1.5 space-y-1 md:hidden" data-testid={`agent-location-meta-${l.id}`}>
                         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -304,5 +306,23 @@ function MetricsUnavailableNote({ testId }: { testId: string }) {
     <IconHint label={METRICS_INSTALL_HINT} data-testid={testId}>
       <span className="cursor-default text-xs text-muted-foreground">사용량 측정 안 됨</span>
     </IconHint>
+  );
+}
+
+/** 최대 AI 수가 클러스터 쿼터가 담을 수 있는 수보다 크면 그 수용량(경고 문구에 쓴다), 아니면 null(WP-1819) — 쿼터 없음·모름도 null 이라 경고하지 않는다. */
+function quotaShortBy(l: AgentLocation): number | null {
+  return l.quotaCapacity !== null && l.capacity > l.quotaCapacity ? l.quotaCapacity : null;
+}
+
+/**
+ * 최대 AI 수가 클러스터 상한을 넘는다는 경고 한 줄(WP-1819) — 아이콘+문구의 정적 안내(role 없음, 경고 글자색 `text-warning-text` — AgentWorkBits 의 경고 줄과 같은 결).
+ * 이름 칸 아래라 데스크톱·모바일 행에 모두 보인다. 넘는 만큼은 띄우려 해도 클러스터가 거절하기 때문에 미리 알린다.
+ */
+function QuotaCapacityNote({ quotaCapacity, testId }: { quotaCapacity: number; testId: string }) {
+  return (
+    <p className="mt-1 flex items-center gap-1 text-xs text-warning-text" data-testid={testId}>
+      <AlertTriangle className="size-3 shrink-0" aria-hidden />
+      <span>클러스터 상한으로는 {quotaCapacity}명까지 띄울 수 있습니다</span>
+    </p>
   );
 }

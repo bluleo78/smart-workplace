@@ -28,6 +28,7 @@ import {
   secretName,
   type AgentContext,
 } from './k8s/manifest.js';
+import { maxRequests, podRequests, quotaCapacity, quotaReason, type PodRequests } from './k8s/quota.js';
 import { clip, formatNoticeTime, isWithinNoticeWindow, toObserved } from './observe.js';
 import {
   checkImages,
@@ -41,7 +42,7 @@ import {
   type ActualAgent,
 } from './plan.js';
 import { refVersion, secretFetches } from './secrets.js';
-import type { RunnerDesired, RunnerDesiredAgent, RunnerObservedAgent, WorksClient } from './works/client.js';
+import type { ObservedQuota, RunnerDesired, RunnerDesiredAgent, RunnerObservedAgent, WorksClient } from './works/client.js';
 import type { Logger } from './works/events.js';
 
 /** 관찰 보고 한 번에 실을 수 있는 최대 AI 수(Works 제한). */
@@ -181,13 +182,16 @@ export class Reconciler {
 
   /** 마지막으로 받은 desired — 관찰 보고가 「보고할 AI」를 정할 때 쓴다. */
   private lastDesired: RunnerDesired | undefined;
-  /** AI 별 실패 사유(허용 밖 이미지·이름 충돌·모델 연결 종류·클러스터 거절) — 관찰 보고에서 FAILED 로 덮는다. */
-  private readonly failures = new Map<number, string>();
   /**
-   * failures 중 Works 쪽이 바뀌어야 낫는 AI(허용 밖 이미지·이름 충돌·모델 연결 종류) — 클러스터 다시 보기가 헛 조정을 깨우지 않게 뺀다.
-   * 클러스터 거절(쿼터 등)은 저절로 나을 수 있어 넣지 않는다.
+   * AI 별 실패(허용 밖 이미지·이름 충돌·모델 연결 종류·클러스터 거절) — 관찰 보고에서 FAILED 로 덮는다.
+   * - blocking: Works 쪽이 바뀌어야 낫는 실패(허용 밖 이미지·이름 충돌·모델 연결 종류)라 클러스터 다시 보기가 헛 조정을 깨우지 않게 뺀다.
+   *   클러스터 거절(쿼터 등)은 저절로 나을 수 있어 넣지 않는다.
+   * - rejectedGeneration: 클러스터가 Pod 만들기(create)를 거절한 실패(쿼터·PodSecurity·검증)에서 거절당한 그 회차의 desired generation.
+   *   관찰 보고가 이 generation 으로 실패를 알린다(report 참고). 거절이 이어지는 동안 클러스터 다시 보기가 30초마다
+   *   「Pod 없음」으로 조정을 깨우지 않게 뺀다. 재시도는 actionFailed 의 'later'(30초)가 맡는다.
+   * 성공·clearFailure 때 지운다.
    */
-  private readonly blocked = new Set<number>();
+  private readonly failures = new Map<number, { message: string; blocking: boolean; rejectedGeneration?: number }>();
   /** AI 별 연속 끝남 기록(WP-1501) — failures 와 따로 둔다(reconcileDesired 가 할 일을 마치면 failures 를 지우므로). */
   private readonly finishLoops = new Map<number, FinishLoop>();
   /** AI 별 「끝나 다시 띄운 Pod」 알림(WP-1794) — 관찰 보고 message 에 6시간 싣는다. 메모리뿐이라 runner 재시작 시 사라진다. */
@@ -273,7 +277,7 @@ export class Reconciler {
         }
       }
     } catch (e) {
-      return this.actionFailed(id, action.kind, e, round.desiredById.has(id));
+      return this.actionFailed(id, action.kind, e, round.desiredById.get(id)?.generation);
     }
   }
 
@@ -281,10 +285,16 @@ export class Reconciler {
    * AI 조정 실패를 재시도 간격으로. 클러스터가 거절했으면(쿼터·PodSecurity·검증) — 로그만 남기면 관리자 화면엔 STARTING 으로만
    * 보이므로 사유를 FAILED 로 알리고 늦게 다시 본다. desired 에서 빠진(지우는 중) AI 는 관찰 보고가 STOPPING/STOPPED 라
    * FAILED 를 싣지 않고 로그로만 남긴다. 그 밖(404·409·429·5xx·네트워크)은 일시 오류로 곧 다시.
+   * 쿼터 초과면 사유를 사람이 읽는 문구로 다듬고, create 중 Secret 이 아닌 거절(Pod·PVC)이면 그 generation 을 실패 기록에 남겨
+   * 클러스터 다시 보기가 헛 조정을 깨우지 않게 한다(recreate·delete 중 거절은 Pod 가 안 비니 깨움을 막지 않는다).
+   * generation: 이 AI 의 desired generation — undefined 면 desired 에 없는 AI.
    */
-  private actionFailed(id: number, action: string, e: unknown, inDesired: boolean): Retry {
+  private actionFailed(id: number, action: string, e: unknown, generation: number | undefined): Retry {
     if (e instanceof ClusterError && e.rejected) {
-      if (inDesired) this.fail(id, e.message);
+      if (generation !== undefined) {
+        const podless = action === 'create' && e.kind !== 'Secret';
+        this.fail(id, quotaReason(e.quotaExceeded ?? []) ?? e.message, { rejectedGeneration: podless ? generation : undefined });
+      }
       this.log.error('클러스터가 AI 조정을 거절했습니다 — 30초 뒤 다시 봅니다', { agentUserId: id, action, error: e.message });
       return 'later';
     }
@@ -305,7 +315,7 @@ export class Reconciler {
     // 그 자체가 교체(generation+1)이고, recreate 는 허용 밖 이미지로 바뀐 템플릿 때문에 멀쩡히 돌던 Pod 를 지우지 않게.
     const imageProblem = checkImages(agent, this.cfg.allowedImagePrefixes);
     if (kind !== 'keep' && imageProblem) {
-      this.fail(id, imageProblem, true);
+      this.fail(id, imageProblem, { blocking: true });
       return undefined;
     }
     // 끝나 버린 Pod 를 연속으로 다시 만드는 중이면 간격이 지날 때까지 두고 본다(재시도 없음 — 클러스터 다시 보기가 간격 뒤 깨운다)
@@ -325,7 +335,7 @@ export class Reconciler {
     if (kind === 'create') {
       const foreign = await this.findForeign(current, id);
       if (foreign) {
-        this.fail(id, foreign, true);
+        this.fail(id, foreign, { blocking: true });
         return undefined;
       }
     }
@@ -336,7 +346,7 @@ export class Reconciler {
       // 바뀌지 않을 실패(provider·이름 충돌)는 주기 조회에 맡기고, 키를 아직 못 받았으면 곧 다시
       // 이름 충돌·모델 연결 종류 — 둘 다 Works(또는 사람이 남의 리소스를 치움)가 바뀌어야 낫는다
       if (secret.message) {
-        this.fail(id, secret.message, true);
+        this.fail(id, secret.message, { blocking: true });
         return undefined;
       }
       return 'soon';
@@ -358,7 +368,7 @@ export class Reconciler {
         versionChanged(current.pod.loginVersion, secret.loginVersion) ||
         versionChanged(current.pod.reposVersion, secret.repos.version));
     if (swapPod && imageProblem) {
-      this.fail(id, imageProblem, true);
+      this.fail(id, imageProblem, { blocking: true });
       return undefined;
     }
     // 실패 기록은 이 AI 의 할 일이 끝까지 된 뒤에 지운다 — 중간(Pod apply 거절 등)에 관찰 보고가 끼어들어도 사유가 사라지지 않게
@@ -679,7 +689,7 @@ export class Reconciler {
         try {
           if (a.configMap) await this.cluster.delete('ConfigMap', configMapName(id));
         } catch (e) {
-          return this.actionFailed(id, 'reportStopped', e, false);
+          return this.actionFailed(id, 'reportStopped', e, undefined);
         }
         this.log.info('STOPPED 를 보내고 정리를 끝냈습니다', { agentUserId: id });
         // 남은 PVC·Secret 은 방금 삭제를 냈거나 지워지는 중 — 사라지기만 기다린다
@@ -690,17 +700,16 @@ export class Reconciler {
     return retry;
   }
 
-  /** 실패 사유를 적는다. blocking: Works 쪽이 바뀌어야 낫는 실패라 클러스터 다시 보기가 이 AI 로 조정을 깨우지 않는다. */
-  private fail(id: number, message: string, blocking = false) {
-    if (this.failures.get(id) !== message) this.log.warn('AI 를 띄우지 않습니다', { agentUserId: id, reason: message });
-    this.failures.set(id, message);
-    if (blocking) this.blocked.add(id);
-    else this.blocked.delete(id);
+  /**
+   * 실패 사유를 적는다(한 AI 의 실패는 항상 한 건 — 덮어쓴다). 옵션의 뜻은 {@link failures}.
+   */
+  private fail(id: number, message: string, opts: { blocking?: boolean; rejectedGeneration?: number } = {}) {
+    if (this.failures.get(id)?.message !== message) this.log.warn('AI 를 띄우지 않습니다', { agentUserId: id, reason: message });
+    this.failures.set(id, { message, blocking: opts.blocking ?? false, rejectedGeneration: opts.rejectedGeneration });
   }
 
   private clearFailure(id: number) {
     this.failures.delete(id);
-    this.blocked.delete(id);
   }
 
   /**
@@ -757,8 +766,9 @@ export class Reconciler {
    * 「Pod 없음(create)·Pod 끝남(recreate)」 할 일이 있으면 true(조정을 깨운다). 조정과 같은 계획 함수를 써 기준이 어긋나지 않게 한다.
    * Works 는 부르지 않는다 — 조정 자체는 늘 desired 를 새로 받는 온전한 회차가 하므로, 오래된 desired 로 키를 다시 받는(=교체) 일이 없다.
    * 클러스터에서 생긴 변화(kubectl 로 지움·노드 재시작으로 끝남)만 본다. generation 차이·STOPPED 미보고는 Works 쪽 변화라 변경 스트림·주기 조회 몫이다.
-   * 빼는 AI: Works 쪽이 바뀌어야 낫는 실패(허용 밖 이미지·이름 충돌·모델 연결 종류 — {@link blocked})는 간격마다 헛 조정을 깨우지 않게,
-   * 끝난 Pod 를 간격을 두고 다시 만드는 중({@link FINISH_BACKOFF_MS})이면 간격이 지날 때까지. 클러스터 거절 같은 그 밖의 실패는 깨운다.
+   * 빼는 AI: Works 쪽이 바뀌어야 낫는 실패(허용 밖 이미지·이름 충돌·모델 연결 종류 — {@link failures} 의 blocking)는 간격마다 헛 조정을 깨우지 않게,
+   * 끝난 Pod 를 간격을 두고 다시 만드는 중({@link FINISH_BACKOFF_MS})이면 간격이 지날 때까지, 클러스터가 Pod 만들기를 거절한 AI({@link failures} 의 rejectedGeneration)도
+   * 거절이 이어지는 동안은 깨우지 않는다(재시도는 30초 'later'). 그 밖의 실패는 깨운다.
    * desired 를 아직 못 받았으면 false — 조정 루프가 30초 재시도로 받고 있다.
    */
   async clusterNeedsReconcile(): Promise<boolean> {
@@ -769,7 +779,8 @@ export class Reconciler {
     this.trackFinishLoops(desired.agents, actual);
     // Pod 만 넣었으니 desired 에 없는 AI 의 delete·reportStopped 도 나올 수 있으나 create·recreate 만 본다
     return planReconcile(desired.agents, actual).some((a) => {
-      if (this.blocked.has(a.agentUserId)) return false;
+      const failure = this.failures.get(a.agentUserId);
+      if (failure?.blocking || failure?.rejectedGeneration !== undefined) return false;
       if (a.kind === 'create' && a.reason === REASON_NO_POD) return true;
       return a.kind === 'recreate' && a.reason === REASON_POD_FINISHED && this.finishBackoffLeft(a.agentUserId) === 0;
     });
@@ -797,16 +808,17 @@ export class Reconciler {
     if (!desired) return;
     const { resources, actual } = await this.observeCluster(desired.locationId);
     const podsByName = new Map(resources.pods.map((p) => [p.metadata?.name ?? '', p]));
-    let usage = new Map<string, PodUsage>();
     // 사용량을 잴 수 있는지(WP-1280) — 조회되면 true, 사용량 API 가 없으면(404 — metrics-server 미설치) false,
     // 그 밖의 실패는 일시 오류라 모름(undefined, 보내지 않아 Works 가 마지막 값을 둔다). 어느 쪽이든 사용량 없이 보고는 나간다.
-    let metricsAvailable: boolean | undefined;
-    try {
-      usage = await this.cluster.podMetrics();
-      metricsAvailable = true;
-    } catch (e) {
-      if (e instanceof ClusterError && e.status === 404) metricsAvailable = false;
-    }
+    // 사용량 조회와 쿼터 읽기는 서로 독립이라 함께 시작한다(둘 다 던지지 않는다).
+    const fetchMetrics = async (): Promise<{ usage: Map<string, PodUsage>; available: boolean | undefined }> => {
+      try {
+        return { usage: await this.cluster.podMetrics(), available: true };
+      } catch (e) {
+        return { usage: new Map(), available: e instanceof ClusterError && e.status === 404 ? false : undefined };
+      }
+    };
+    const [{ usage, available: metricsAvailable }, quota] = await Promise.all([fetchMetrics(), this.observeQuota(desired, actual)]);
 
     const desiredIds = new Set(desired.agents.map((a) => a.agentUserId));
     const report = (id: number, stopping: boolean): RunnerObservedAgent => {
@@ -814,7 +826,8 @@ export class Reconciler {
       const pod = podsByName.get(name);
       const state = toObserved(pod, stopping, this.now());
       // 실패 사유가 이기고, 없으면 연속 끝남(FINISH_FAIL_AFTER 번 이상) 실패
-      const failure = stopping ? undefined : (this.failures.get(id) ?? this.finishFailure(id));
+      const failureEntry = stopping ? undefined : this.failures.get(id);
+      const failure = failureEntry?.message ?? (stopping ? undefined : this.finishFailure(id));
       // 끝나 지운 Pod 의 사유는 6시간 싣는다 — 사람이 한참 뒤에 봐도 왜 다시 떴는지 알 수 있게. phase 는 지금 상태 그대로 두고
       // message 만 채우며, 지금 상태가 이미 message 를 내면(컨테이너 재시작 알림) 버리지 않고 `재시작 알림 / 끝난 Pod 알림` 으로
       // 이어 함께 싣는다(둘 다 사람이 알아야 할 사건). 실패면(runner 의 실패든 관찰상 FAILED 든) 실패 사유만 싣는다.
@@ -826,9 +839,15 @@ export class Reconciler {
         : undefined;
       const lastFinish = finishText ? (state.message ? `${state.message} / ${finishText}` : finishText) : undefined;
       const u = pod ? usage.get(name) : undefined;
+      // Pod 를 못 만든 실패(클러스터 거절)는 Pod 가 없어 generation 이 null — 거절당한 그 회차의 desired generation 을 실어야 Works 가
+      // 「이 요청의 실패」로 받아들이고, 옛 generation 의 실패가 새 요청을 가리지 않는다(그새 새 generation 이 와도 새 요청이 덮이지 않게
+      // 지금 desired 의 것이 아니다). Secret 거절은 rejectedGeneration 이 없다 — 키가 Pod 에 전달된 것으로 읽혀 Works 가 키를 재발급하지 않게.
+      const observedGeneration =
+        failure && state.observedGeneration === null ? (failureEntry?.rejectedGeneration ?? state.observedGeneration) : state.observedGeneration;
       return {
         agentUserId: id,
         ...state,
+        observedGeneration,
         ...(lastFinish ? { message: clip(lastFinish) } : {}),
         ...(failure ? { phase: 'FAILED' as const, message: clip(failure) } : {}),
         cpuMillicores: u?.cpuMillicores ?? null,
@@ -840,12 +859,46 @@ export class Reconciler {
       ...actual.filter((a) => !desiredIds.has(a.agentUserId)).map((a) => report(a.agentUserId, true)),
     ];
 
+    // quota 는 위치 단위 값이라 첫 묶음에만 싣는다(AI 가 없으면 빈 묶음 하나)
     if (agents.length === 0) {
-      await this.works.reportObserved([], metricsAvailable);
+      await this.works.reportObserved([], metricsAvailable, quota);
       return;
     }
     for (let i = 0; i < agents.length; i += OBSERVED_BATCH) {
-      await this.works.reportObserved(agents.slice(i, i + OBSERVED_BATCH), metricsAvailable);
+      await this.works.reportObserved(agents.slice(i, i + OBSERVED_BATCH), metricsAvailable, i === 0 ? quota : undefined);
+    }
+  }
+
+  /**
+   * 네임스페이스 쿼터로 띄울 수 있는 AI 수(WP-1819) — 화면이 「설정한 최대 AI 수가 쿼터보다 크다」를 경고하는 데 쓴다.
+   * AI 가 하나도 없으면 읽지 않고(undefined), 쿼터 이름 설정이 없거나(차트가 쿼터를 끔) 쿼터가 없으면(404) capacity null.
+   * 읽기 실패(403·5xx·네트워크)는 모름이라 undefined — 보고는 쿼터 없이 나가고 Works 가 마지막 값을 둔다.
+   * Pod 하나의 요청량은 자원별로 desired 중 가장 큰 값(가장 큰 AI 기준으로 보수적으로) — 실제 Pod 를 만드는 경로로 계산한다.
+   */
+  private async observeQuota(desired: RunnerDesired, actual: ActualAgent[]): Promise<ObservedQuota | undefined> {
+    const name = this.cfg.quotaName;
+    if (desired.agents.length === 0) return undefined;
+    // 쿼터 이름 설정이 없다 = 차트가 쿼터를 껐다 — 수용량 없음(null)을 보내 화면의 묵은 경고를 지운다
+    if (!name) return { capacity: null };
+    try {
+      const quota = await this.cluster.resourceQuota(name);
+      if (!quota) return { capacity: null };
+      const ctx: AgentContext = { locationId: desired.locationId, apiUrl: desired.apiUrl, mcpUrl: desired.mcpUrl };
+      const actualById = new Map(actual.map((a) => [a.agentUserId, a]));
+      let perPod: PodRequests = { cpuMillicores: 0, memoryBytes: 0, pvcs: 0 };
+      for (const agent of desired.agents) {
+        // 띄울 수 없는 AI(허용 밖 이미지·모델 연결 종류 등 blocked)는 쿼터를 쓰지 않으니 센 값에서 뺀다
+        if (this.failures.get(agent.agentUserId)?.blocking || checkImages(agent, this.cfg.allowedImagePrefixes)) continue;
+        // 실제 Pod 를 만들 때와 같은 작업 디스크 방식으로 만들어 PVC 개수가 어긋나지 않게 한다
+        const { pod, pvc } = buildAgentResources(agent, ctx, this.cfg, {
+          workDisk: this.diskFor(actualById.get(agent.agentUserId) ?? emptyActual(agent.agentUserId)),
+        });
+        perPod = maxRequests(perPod, podRequests(pod, pvc));
+      }
+      return { capacity: quotaCapacity(quota.hard, perPod) };
+    } catch (e) {
+      this.log.warn('쿼터를 읽지 못해 수용량 보고를 건너뜁니다', { error: e instanceof Error ? e.message : String(e) });
+      return undefined;
     }
   }
 }

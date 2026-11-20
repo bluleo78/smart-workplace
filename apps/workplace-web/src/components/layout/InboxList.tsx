@@ -2,6 +2,7 @@
 // 인박스 목록 — 데스크톱 Popover(InboxPanel)와 모바일 /notifications 화면이 공유한다(WP-126).
 // 헤더(모두 읽음·읽은 알림 보관) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
 import { Archive, Bell, CheckCheck } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -14,8 +15,10 @@ import {
   notifTarget,
 } from "@/components/home/notifTarget";
 import { PushPromptBanner } from "@/components/layout/PushPromptBanner";
+import { LoadErrorState } from "@/components/LoadErrorState";
 import { narrowHeaderActionClass } from "@/components/mobile/headerClass";
 import { MobileEmptyState } from "@/components/mobile/MobileEmptyState";
+import { Button } from "@/components/ui/button";
 import { AgentActorBadge } from "@/components/users/AgentBadge";
 import { useArchiveReadNotifications } from "@/hooks/queries/useArchiveReadNotifications";
 import { useMarkAllNotificationsRead } from "@/hooks/queries/useMarkAllNotificationsRead";
@@ -32,6 +35,7 @@ import {
   notificationAction,
   PERSONAL_ASSISTANT_REVOKED_NO_ACTOR,
 } from "@/lib/notifText";
+import { showsLoadError } from "@/lib/queryFailure";
 import { cn } from "@/lib/utils";
 import type { NotificationResponse } from "@/types/notification";
 
@@ -89,6 +93,8 @@ export function InboxViewTabs({
           key={t.id}
           type="button"
           role="tab"
+          // id: 보관함 빈 상태 CTA 로 받은 알림에 돌아올 때 포커스를 받을 자리(WP-1848)
+          id={`inbox-tab-${t.id}`}
           aria-selected={view === t.id}
           data-testid={`inbox-tab-${t.id}`}
           onClick={() => onChange(t.id)}
@@ -142,12 +148,37 @@ export function InboxList({
     ? "보관한 알림이 여기에 표시됩니다."
     : "이슈 배정, 코멘트, 상태 변경 알림이 여기에 표시됩니다.";
   const navigate = useNavigate();
+  // 닫고 이동하는 순서를 한 곳에 — 팝오버면 먼저 닫고(onNavigate) 대상으로 간다. 행 클릭·빈 상태 CTA 가 함께 쓴다.
+  const goTo = (path: string) => {
+    onNavigate?.();
+    navigate(path);
+  };
+  // 빈 상태 CTA — 막다른 길을 없애려고 보기별 다음 행동을 하나 둔다(WP-1848).
+  // 보관함: 받은 알림으로 돌아가기 / 받은 탭: 알림이 안 오는 이유를 찾을 수 있는 알림 설정으로 이동.
+  const emptyActionLabel = isArchive ? "받은 알림 보기" : "알림 설정";
+  // 보관함 CTA 로 받은 알림에 돌아왔는지 — 눌린 버튼(빈 상태)이 사라져 포커스가 body 로 떨어지므로,
+  // 전환이 그려진 뒤(effect) 받은 탭 버튼으로 옮긴다. 탭은 모바일에서 InboxList 밖(헤더)에 있어 ref 대신 id 로 찾는다.
+  const focusInboxTabAfterSwitch = useRef(false);
+  useEffect(() => {
+    if (view !== "inbox" || !focusInboxTabAfterSwitch.current) return;
+    focusInboxTabAfterSwitch.current = false;
+    document.getElementById("inbox-tab-inbox")?.focus();
+  }, [view]);
+  const onEmptyAction = () => {
+    if (isArchive) {
+      focusInboxTabAfterSwitch.current = true;
+      onViewChange("inbox");
+    } else {
+      goTo("/settings/notifications");
+    }
+  };
   const { data: unread = 0 } = useUnreadCount();
   // 두 목록 모두 훅은 늘 부르되 보고 있는 쪽만 조회한다(enabled).
   const inboxQuery = useNotifications(enabled && !isArchive);
   const archiveQuery = useArchivedNotifications(enabled && isArchive);
+  const query = isArchive ? archiveQuery : inboxQuery;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    isArchive ? archiveQuery : inboxQuery;
+    query;
   const items = flattenNotificationPages(data?.pages);
   const unarchive = useUnarchiveNotification();
   const markRead = useMarkNotificationRead();
@@ -171,9 +202,21 @@ export function InboxList({
   // 딥링크 규칙은 notifTarget() 공용 유틸과 동일(캘린더 알림→캘린더, 식별정보 없으면 인박스 대용 폴백).
   const onRowClick = (n: NotificationResponse) => {
     if (!isArchive && !n.read) markRead.mutate(n.id);
-    onNavigate?.();
-    navigate(notifTarget(n));
+    goTo(notifTarget(n));
   };
+
+  // 빈 상태 CTA 버튼 — 전체 화면(터치 규격)·팝오버(작은 윤곽선)가 크기·모양만 달리 같은 요소를 쓴다.
+  const emptyActionButton = (
+    <Button
+      size={screenEmpty ? "default" : "sm"}
+      variant={screenEmpty ? "default" : "outline"}
+      className={screenEmpty ? "h-11 px-5" : undefined}
+      data-testid="inbox-empty-action"
+      onClick={onEmptyAction}
+    >
+      {emptyActionLabel}
+    </Button>
+  );
 
   return (
     <>
@@ -217,7 +260,17 @@ export function InboxList({
         data-testid="inbox-scroll-area"
         className={scrollClassName}
       >
-        {isLoading ? (
+        {showsLoadError(query) && items.length === 0 ? (
+          // 조회 실패 — 빈 상태로 보이면 「알림 설정」 문제로 오해하므로 공용 실패 안내(다시 시도)를 보인다(WP-1848).
+          // 불러오는 중보다 먼저 본다 — 다시 부르는 동안에도 안내를 두어야 초점이 body 로 사라지지 않는다(lib/queryFailure).
+          // 일부 페이지를 이미 받아 items 가 있으면 여기로 오지 않고 목록을 유지한다.
+          <LoadErrorState
+            variant="inline"
+            title="알림을 불러오지 못했습니다"
+            queries={[query]}
+            testId="inbox-error"
+          />
+        ) : isLoading ? (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">
             불러오는 중…
           </p>
@@ -229,9 +282,10 @@ export function InboxList({
             icon={Bell}
             title={emptyTitle}
             description={emptyDesc}
+            action={emptyActionButton}
           />
         ) : items.length === 0 ? (
-          // 빈 상태: 아이콘 + 제목 + 설명 (디자인 시스템 §2.5 Empty State 4요소)
+          // 빈 상태: 아이콘 + 제목 + 설명 + CTA (디자인 시스템 §2.5 Empty State 4요소, WP-1848)
           <div
             data-testid="inbox-empty"
             className="flex flex-col items-center gap-2 px-3 py-8 text-center text-muted-foreground"
@@ -239,6 +293,7 @@ export function InboxList({
             <Bell className="h-8 w-8 opacity-30" />
             <p className="text-sm font-medium">{emptyTitle}</p>
             <p className="text-xs">{emptyDesc}</p>
+            <div className="mt-2">{emptyActionButton}</div>
           </div>
         ) : (
           <ul>

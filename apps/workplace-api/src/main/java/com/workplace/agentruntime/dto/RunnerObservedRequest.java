@@ -10,12 +10,16 @@ import java.util.List;
  *
  * @param metricsAvailable 이 위치에서 CPU·메모리 사용량을 잴 수 있는지(WP-1280) — false 는 클러스터에 사용량
  *     API(metrics-server)가 없음. null 은 이번엔 모름(일시 오류·옛 runner)이라 저장된 값을 그대로 둔다.
+ * @param quota 네임스페이스 쿼터 수용량(WP-1819) — null 은 이번엔 모름이라 저장된 값을 그대로 둔다. capacity 가 null 이면 쿼터 없음으로
+ *     저장값을 지운다.
  */
 public record RunnerObservedRequest(
-    @NotNull @Size(max = 200) List<@Valid RunnerObservedAgent> agents, Boolean metricsAvailable) {
+    @NotNull @Size(max = 200) List<@Valid RunnerObservedAgent> agents,
+    Boolean metricsAvailable,
+    @Valid RunnerQuota quota) {
 
   /** 사용량 가능 여부 없이 AI 상태만 보내는 보고(옛 runner 와 같은 모양). */
   public RunnerObservedRequest(List<RunnerObservedAgent> agents) {
-    this(agents, null);
+    this(agents, null, null);
   }
 }

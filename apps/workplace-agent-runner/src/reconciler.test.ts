@@ -4,6 +4,7 @@ import type { V1PersistentVolumeClaim, V1Pod, V1Secret } from '@kubernetes/clien
 import { ClusterCheck, ReconcileLoop, Reconciler, type ReconcileResult } from './reconciler.js';
 import { ClusterError } from './k8s/cluster.js';
 import { buildAgentResources, buildAgentSecret } from './k8s/manifest.js';
+import { podRequests } from './k8s/quota.js';
 import { formatNoticeTime, RESTART_NOTICE_MS } from './observe.js';
 import { FakeCluster, FakeWorks } from './testing/fakes.js';
 import { ctx, desiredAgent, runnerConfig } from './testing/fixtures.js';
@@ -191,7 +192,7 @@ describe('Reconciler', () => {
     await r.reportObserved();
     expect(works.reportObserved).toHaveBeenCalledWith([
       expect.objectContaining({ agentUserId: 42, phase: 'FAILED', message: expect.stringContaining('ghcr.io/evil/miner:1') }),
-    ], true);
+    ], true, { capacity: null });
   });
 
   it('doesNotCreatePodBeforeAgentKeySecretExists', async () => {
@@ -247,7 +248,7 @@ describe('Reconciler', () => {
     await r.reportObserved();
     expect(works.reportObserved).toHaveBeenCalledWith([
       expect.objectContaining({ agentUserId: 42, phase: 'FAILED', message: expect.stringContaining('ghcr.io/evil/miner:2') }),
-    ], true);
+    ], true, { capacity: null });
   });
 
   it('waitsForTerminatingPvcBeforeCreatingAgain', async () => {
@@ -391,7 +392,7 @@ describe('Reconciler', () => {
     await r.reportObserved();
     expect(works.reportObserved).toHaveBeenCalledWith([
       expect.objectContaining({ agentUserId: 42, phase: 'FAILED', message: expect.stringContaining('Secret/agent-42') }),
-    ], true);
+    ], true, { capacity: null });
   });
 
   it('failsNonAnthropicClaudeConnectionButKeepsAgentKey', async () => {
@@ -414,7 +415,7 @@ describe('Reconciler', () => {
     await r.reportObserved();
     expect(works.reportObserved).toHaveBeenCalledWith([
       expect.objectContaining({ agentUserId: 42, phase: 'FAILED', message: 'Claude Code 템플릿은 Anthropic 연결만 씁니다' }),
-    ], true);
+    ], true, { capacity: null });
   });
 
   it('applyRejectedReportsFailedWithReason', async () => {
@@ -448,6 +449,130 @@ describe('Reconciler', () => {
     expect(cluster.get('Pod', 'agent-42')).toBeDefined();
     await r.reportObserved();
     expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ agentUserId: 42, phase: 'STARTING', message: null });
+  });
+
+  const QUOTA_SERVER =
+    'pods "agent-42" is forbidden: exceeded quota: agent-runner, requested: requests.cpu=2260m, used: requests.cpu=4570m, limited: requests.cpu=6';
+
+  it('quotaRejectionReportsFailedWithDesiredGenerationAndReadableReason', async () => {
+    const cluster = new FakeCluster();
+    cluster.rejectApply = (obj) =>
+      obj.kind === 'Pod' ? new ClusterError('apply', 'Pod', 'agent-42', 403, 'Forbidden', QUOTA_SERVER) : undefined;
+    const agent = desiredAgent();
+    const works = new FakeWorks(desired([agent]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+
+    await r.reportObserved();
+    const sent = works.reportObserved.mock.calls.at(-1)?.[0]?.[0];
+    expect(sent).toMatchObject({
+      agentUserId: 42,
+      phase: 'FAILED',
+      observedGeneration: agent.generation,
+      message: '클러스터 자원 상한이 차서 AI 를 띄우지 못했습니다 — CPU 상한 6코어(사용 4.57 · 요청 2.26). 자리가 나면 저절로 뜹니다.',
+    });
+  });
+
+  it('nonQuotaRejectionKeepsRawMessageButCarriesGeneration', async () => {
+    const cluster = new FakeCluster();
+    cluster.rejectApply = (obj) =>
+      obj.kind === 'Pod' ? new ClusterError('apply', 'Pod', 'agent-42', 403, 'Forbidden', 'violates PodSecurity') : undefined;
+    const agent = desiredAgent();
+    const works = new FakeWorks(desired([agent]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    const sent = works.reportObserved.mock.calls.at(-1)?.[0]?.[0];
+    expect(sent).toMatchObject({ phase: 'FAILED', observedGeneration: agent.generation });
+    expect(sent?.message).toContain('violates PodSecurity');
+  });
+
+  it('rejectedPodReportsGenerationOfRejectedRoundNotNewerDesired', async () => {
+    const cluster = new FakeCluster();
+    cluster.rejectApply = (obj) =>
+      obj.kind === 'Pod' ? new ClusterError('apply', 'Pod', 'agent-42', 403, 'Forbidden', QUOTA_SERVER) : undefined;
+    const works = new FakeWorks(desired([desiredAgent({ generation: 5 })]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    // desired 가 generation 6 으로 바뀐 뒤, 그 회차가 클러스터 조회에서 실패해 아직 새 generation 을 시도하지 못했다
+    works.desired = desired([desiredAgent({ generation: 6 })]);
+    vi.spyOn(cluster, 'listManaged').mockRejectedValueOnce(new Error('503'));
+    await expect(r.reconcileOnce()).rejects.toThrow();
+    await r.reportObserved();
+    expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ phase: 'FAILED', observedGeneration: 5 });
+  });
+
+  it('recreateRejectionDoesNotSuppressWakeUp', async () => {
+    // 끝난 Pod 를 지우다 거절됨(recreate) — Pod 는 그대로 있어 거절 표시를 남기지 않고, 클러스터 다시 보기는 계속 깨운다
+    const cluster = new FakeCluster();
+    const agent = desiredAgent();
+    seedRunningAgent(cluster, agent);
+    cluster.get<V1Pod>('Pod', 'agent-42')!.status = { phase: 'Failed', reason: 'Terminated' };
+    const works = new FakeWorks(desired([agent]));
+    // 끝난 Pod 를 다시 만들기 전 간격이 지나도록 시계를 움직일 수 있게 reconciler 를 직접 만든다
+    const clock = { t: NOW.getTime() };
+    const log = { info: () => undefined, warn: () => undefined, error: () => undefined };
+    const r = new Reconciler({ cluster, works, cfg: runnerConfig(), now: () => new Date(clock.t), log });
+    vi.spyOn(cluster, 'delete').mockRejectedValue(new ClusterError('delete', 'Pod', 'agent-42', 403, 'Forbidden', 'forbidden'));
+    expect((await r.reconcileOnce()).retry).toBe('later');
+    clock.t += 60 * 60 * 1000;
+    expect(await r.clusterNeedsReconcile()).toBe(true);
+  });
+
+  it('secretRejectionWithoutPodReportsNullObservedGeneration', async () => {
+    // Secret 거절은 키가 Pod 에 전달되지 않은 상태 — desired generation 을 실으면 Works 가 키 전달로 오판해 generation 이 폭주한다
+    const cluster = new FakeCluster();
+    cluster.rejectApply = (obj) =>
+      obj.kind === 'Secret' ? new ClusterError('apply', 'Secret', obj.metadata?.name ?? '', 403, 'Forbidden') : undefined;
+    const works = new FakeWorks(desired([desiredAgent()]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    const sent = works.reportObserved.mock.calls.at(-1)?.[0]?.[0];
+    expect(sent).toMatchObject({ phase: 'FAILED', observedGeneration: null });
+  });
+
+  it('doesNotWakeWhilePodRejectedAndWakesAgainAfterRecovery', async () => {
+    const cluster = new FakeCluster();
+    cluster.rejectApply = (obj) =>
+      obj.kind === 'Pod' ? new ClusterError('apply', 'Pod', 'agent-42', 403, 'Forbidden', QUOTA_SERVER) : undefined;
+    const works = new FakeWorks(desired([desiredAgent()]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    // 거절 중 — Pod 가 없어도 30초마다 깨우지 않는다
+    expect(await r.clusterNeedsReconcile()).toBe(false);
+
+    // 자리가 나 다음 조정이 성공하면 표시가 지워져, Pod 가 사라질 때 다시 깨운다
+    cluster.rejectApply = undefined;
+    await r.reconcileOnce();
+    expect(cluster.get('Pod', 'agent-42')).toBeDefined();
+    cluster.instantPodDelete = true;
+    await cluster.delete('Pod', 'agent-42');
+    expect(await r.clusterNeedsReconcile()).toBe(true);
+  });
+
+  it('pvcQuotaRejectionDoesNotWakeEither', async () => {
+    const cluster = new FakeCluster();
+    cluster.rejectApply = (obj) =>
+      obj.kind === 'PersistentVolumeClaim'
+        ? new ClusterError(
+            'apply',
+            'PersistentVolumeClaim',
+            'agent-42-work',
+            403,
+            'Forbidden',
+            'persistentvolumeclaims "agent-42-work" is forbidden: exceeded quota: q, requested: persistentvolumeclaims=1, used: persistentvolumeclaims=10, limited: persistentvolumeclaims=10',
+          )
+        : undefined;
+    const works = new FakeWorks(desired([desiredAgent()]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({
+      phase: 'FAILED',
+      message: expect.stringContaining('작업 폴더 상한 10개'),
+    });
+    expect(await r.clusterNeedsReconcile()).toBe(false);
   });
 
   it('transientApplyErrorRetriesSoonWithoutFailed', async () => {
@@ -1059,7 +1184,7 @@ describe('Reconciler', () => {
     await r.reconcileOnce();
     await r.reportObserved();
     // AI 가 없어도 위치의 「잴 수 없음」은 알린다
-    expect(works.reportObserved).toHaveBeenCalledWith([], false);
+    expect(works.reportObserved).toHaveBeenCalledWith([], false, undefined);
   });
 
   it('sendsEmptyObservedListToStayConnected', async () => {
@@ -1068,7 +1193,132 @@ describe('Reconciler', () => {
     const r = makeReconciler(cluster, works);
     await r.reconcileOnce();
     await r.reportObserved();
-    expect(works.reportObserved).toHaveBeenCalledWith([], true);
+    expect(works.reportObserved).toHaveBeenCalledWith([], true, undefined);
+  });
+
+  describe('쿼터 수용량 보고(WP-1819)', () => {
+    const cfg = () => runnerConfig({ quotaName: 'agent-runner' });
+    /** 이 AI 의 실제 Pod 요청량 — runner 가 띄우는 Pod 와 같은 경로(buildAgentResources)로 만든다. */
+    const perPod = (a: RunnerDesiredAgent) => {
+      const { pod, pvc } = buildAgentResources(a, ctx, cfg());
+      return podRequests(pod, pvc);
+    };
+    const lastQuota = (works: FakeWorks) => works.reportObserved.mock.calls.at(-1)?.[2];
+
+    it('reportsCapacityFromLargestDesiredPod', async () => {
+      const cluster = new FakeCluster();
+      const small = desiredAgent({ agentUserId: 1 });
+      const big = desiredAgent({ agentUserId: 2, resources: { ...desiredAgent().resources, cpuRequest: '6', memoryRequest: '12Gi' } });
+      const cpu = perPod(big).cpuMillicores;
+      expect(cpu).toBeGreaterThan(perPod(small).cpuMillicores);
+      cluster.quotaHard = { 'requests.cpu': '40', 'requests.memory': '640Gi', persistentvolumeclaims: '100' };
+      const works = new FakeWorks(desired([small, big]));
+      const r = makeReconciler(cluster, works, [], cfg());
+      await r.reconcileOnce();
+      await r.reportObserved();
+      expect(cluster.quotaCalls).toEqual(['agent-runner']);
+      expect(lastQuota(works)).toEqual({ capacity: Math.floor(40000 / cpu) });
+    });
+
+    it('reportsNullCapacityWhenQuotaMissing', async () => {
+      const cluster = new FakeCluster();
+      cluster.quotaHard = null;
+      const works = new FakeWorks(desired([desiredAgent()]));
+      const r = makeReconciler(cluster, works, [], cfg());
+      await r.reconcileOnce();
+      await r.reportObserved();
+      expect(lastQuota(works)).toEqual({ capacity: null });
+    });
+
+    it.each([403, 500])('omitsQuotaOnReadError%i', async (status) => {
+      const cluster = new FakeCluster();
+      cluster.quotaError = new ClusterError('get', 'ResourceQuota', 'agent-runner', status);
+      const works = new FakeWorks(desired([desiredAgent()]));
+      const r = makeReconciler(cluster, works, [], cfg());
+      await r.reconcileOnce();
+      await r.reportObserved();
+      expect(works.reportObserved).toHaveBeenCalled();
+      expect(lastQuota(works)).toBeUndefined();
+    });
+
+    it('omitsQuotaOnNetworkError', async () => {
+      const cluster = new FakeCluster();
+      cluster.quotaError = new Error('ECONNRESET');
+      const works = new FakeWorks(desired([desiredAgent()]));
+      const r = makeReconciler(cluster, works, [], cfg());
+      await r.reconcileOnce();
+      await r.reportObserved();
+      expect(lastQuota(works)).toBeUndefined();
+    });
+
+    it('reportsNullCapacityWithoutQuotaNameWithoutReadingQuota', async () => {
+      const cluster = new FakeCluster();
+      cluster.quotaHard = { 'requests.cpu': '16' };
+      const works = new FakeWorks(desired([desiredAgent()]));
+      const r = makeReconciler(cluster, works);
+      await r.reconcileOnce();
+      await r.reportObserved();
+      // 차트가 쿼터를 껐다 — 읽지 않고 capacity null 로 화면의 묵은 경고를 지운다
+      expect(cluster.quotaCalls).toEqual([]);
+      expect(lastQuota(works)).toEqual({ capacity: null });
+    });
+
+    it('excludesBlockedAgentsFromPerPodRequest', async () => {
+      const cluster = new FakeCluster();
+      const small = desiredAgent({ agentUserId: 1 });
+      // 허용 밖 이미지 — 띄울 수 없는 AI 라 가장 큰 요청량 계산에서 빠져야 한다
+      const evil = desiredAgent({
+        agentUserId: 2,
+        image: 'ghcr.io/evil/agent:1',
+        resources: { ...desiredAgent().resources, cpuRequest: '6', memoryRequest: '12Gi' },
+      });
+      cluster.quotaHard = { 'requests.cpu': '40', 'requests.memory': '640Gi', persistentvolumeclaims: '100' };
+      const works = new FakeWorks(desired([small, evil]));
+      const r = makeReconciler(cluster, works, [], cfg());
+      await r.reconcileOnce();
+      await r.reportObserved();
+      const q = perPod(small);
+      const expected = Math.min(Math.floor(40000 / q.cpuMillicores), Math.floor(640 * 1024 ** 3 / q.memoryBytes), 100);
+      expect(lastQuota(works)).toEqual({ capacity: expected });
+    });
+
+    it('countsPvcLikeRealPodWhenExistingPvcKeepsDiskOnPvc', async () => {
+      const cluster = new FakeCluster();
+      const agent = desiredAgent();
+      // 설정은 hostPath 지만 pvc 로 설치된 AI(PVC 가 이미 있음)는 실제 Pod 도 pvc 방식 — 수용량에도 PVC 1개로 센다
+      seedRunningAgent(cluster, agent);
+      cluster.quotaHard = { persistentvolumeclaims: '5' };
+      const works = new FakeWorks(desired([agent]));
+      const r = makeReconciler(cluster, works, [], runnerConfig({ quotaName: 'agent-runner', workDiskType: 'hostPath' }));
+      await r.reconcileOnce();
+      await r.reportObserved();
+      expect(lastQuota(works)).toEqual({ capacity: 5 });
+    });
+
+    it('attachesQuotaOnlyToFirstBatch', async () => {
+      const cluster = new FakeCluster();
+      cluster.quotaHard = { 'requests.cpu': '40' };
+      const agents = Array.from({ length: 201 }, (_, i) => desiredAgent({ agentUserId: i + 1 }));
+      const works = new FakeWorks(desired(agents));
+      const r = makeReconciler(cluster, works, [], cfg());
+      await r.reconcileOnce();
+      await r.reportObserved();
+      const calls = works.reportObserved.mock.calls;
+      expect(calls.length).toBeGreaterThan(1);
+      expect(calls[0]?.[2]).toEqual({ capacity: expect.any(Number) });
+      for (const c of calls.slice(1)) expect(c[2]).toBeUndefined();
+    });
+
+    it('omitsQuotaWhenNoDesiredAgents', async () => {
+      const cluster = new FakeCluster();
+      cluster.quotaHard = { 'requests.cpu': '16' };
+      const works = new FakeWorks(desired([]));
+      const r = makeReconciler(cluster, works, [], cfg());
+      await r.reconcileOnce();
+      await r.reportObserved();
+      expect(cluster.quotaCalls).toEqual([]);
+      expect(lastQuota(works)).toBeUndefined();
+    });
   });
 });
 

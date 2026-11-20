@@ -80,6 +80,7 @@ terminationGraceSeconds: 60
 # runner 는 AI Pod 의 모든 컨테이너에 requests 를 둔다: agent 는 템플릿 값(없으면 cpu 1·memory 2Gi), dind 는 dind.resources,
 # 그 밖의 사이드카는 cpu 100m·memory 128Mi. AI 한 명 기본 템플릿(agent 2/4Gi + dind 250m/512Mi)이면 아래 cpu 16 으로 7명까지 뜬다
 # (runner 자신의 requests 도 같은 쿼터에 든다). requests 는 limits 보다 훨씬 작아 여러 AI 가 동시에 test:full 을 돌리면 노드 메모리가 모자랄 수 있다.
+# 앱 실행 환경의 「최대 AI 수」와 맞출 것 — 넘으면 화면이 경고한다(WP-1819).
 quota:
   enabled: true
   hard:

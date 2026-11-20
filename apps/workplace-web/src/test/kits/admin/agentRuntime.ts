@@ -89,6 +89,7 @@ export function createLocation(overrides: Partial<AgentLocation> = {}): AgentLoc
     description: 'iacloud-prod · genia-agents 네임스페이스',
     isDefault: true,
     capacity: 4,
+    quotaCapacity: null,
     used: 3,
     agents: [],
     settingCount: 0,

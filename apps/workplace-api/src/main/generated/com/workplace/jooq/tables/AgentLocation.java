@@ -116,6 +116,12 @@ public class AgentLocation extends TableImpl<AgentLocationRecord> {
      */
     public final TableField<AgentLocationRecord, Boolean> METRICS_AVAILABLE = createField(DSL.name("metrics_available"), SQLDataType.BOOLEAN, this, "");
 
+    /**
+     * The column <code>public.agent_location.quota_capacity</code>. 클러스터 쿼터
+     * 상한으로 띄울 수 있는 최대 AI 수(사용분은 빼지 않은 총량, runner 보고). NULL 은 쿼터 없음 또는 아직 모름
+     */
+    public final TableField<AgentLocationRecord, Integer> QUOTA_CAPACITY = createField(DSL.name("quota_capacity"), SQLDataType.INTEGER, this, "클러스터 쿼터 상한으로 띄울 수 있는 최대 AI 수(사용분은 빼지 않은 총량, runner 보고). NULL 은 쿼터 없음 또는 아직 모름");
+
     private AgentLocation(Name alias, Table<AgentLocationRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

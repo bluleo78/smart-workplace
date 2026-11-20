@@ -160,6 +160,22 @@ public class AgentLocationRecord extends UpdatableRecordImpl<AgentLocationRecord
         return (Boolean) get(9);
     }
 
+    /**
+     * Setter for <code>public.agent_location.quota_capacity</code>. 클러스터 쿼터
+     * 상한으로 띄울 수 있는 최대 AI 수(사용분은 빼지 않은 총량, runner 보고). NULL 은 쿼터 없음 또는 아직 모름
+     */
+    public void setQuotaCapacity(Integer value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_location.quota_capacity</code>. 클러스터 쿼터
+     * 상한으로 띄울 수 있는 최대 AI 수(사용분은 빼지 않은 총량, runner 보고). NULL 은 쿼터 없음 또는 아직 모름
+     */
+    public Integer getQuotaCapacity() {
+        return (Integer) get(10);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -183,7 +199,7 @@ public class AgentLocationRecord extends UpdatableRecordImpl<AgentLocationRecord
     /**
      * Create a detached, initialised AgentLocationRecord
      */
-    public AgentLocationRecord(Long id, Long tenantId, String name, String description, Boolean isDefault, Integer capacity, Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean metricsAvailable) {
+    public AgentLocationRecord(Long id, Long tenantId, String name, String description, Boolean isDefault, Integer capacity, Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean metricsAvailable, Integer quotaCapacity) {
         super(AgentLocation.AGENT_LOCATION);
 
         setId(id);
@@ -196,6 +212,7 @@ public class AgentLocationRecord extends UpdatableRecordImpl<AgentLocationRecord
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setMetricsAvailable(metricsAvailable);
+        setQuotaCapacity(quotaCapacity);
         resetTouchedOnNotNull();
     }
 }
