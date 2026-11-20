@@ -212,6 +212,33 @@ test('탭 편집 — 초안을 바꾼 채 회전해 칸 수가 바뀌어도 표�
   expect(screen.queryByTestId('tab-edit-discard-dialog')).not.toBeInTheDocument()
 })
 
+// WP-1849: 「버리고 나가기」·「저장」 직후(표식을 걷는 사이) 회전해 칸 수가 바뀌어도 누른 나가기가 사라지지 않는다.
+/** 나가기 단추를 누르고 같은 틱에 회전한 뒤(칸 수 맞추기가 같은 렌더에 든다) 앞 화면(idx 0)에서 끝나고 표식이 없는지 본다. */
+async function pressAndRotateLeaves(button: HTMLElement, location: () => string) {
+  act(() => {
+    button.click()
+    viewport.setWidth(360)
+  })
+  await waitFor(() => expect(location()).toBe('/apps'))
+  // 이동이 다 끝난 뒤에도 그대로인지 — back 을 두 번 불렀으면 여기서 드러난다.
+  await settleHistory()
+  expect(location()).toBe('/apps')
+  expect(hasLiveStateMark('tabEdit')).toBe(false)
+  expect(window.history.state.idx).toBe(0)
+}
+
+test('탭 편집 — 버리고 나가기 직후 회전해 칸 수가 바뀌어도 앞 화면으로 나간다', async () => {
+  const { location } = await removeFirstAndBack()
+  await pressAndRotateLeaves(screen.getByTestId('tab-edit-discard-confirm'), location)
+})
+
+test('저장 — 누른 직후 회전해 칸 수가 바뀌어도 앞 화면으로 나간다', async () => {
+  const { user, location } = await renderTabEditFromApps()
+  await user.click(await screen.findByTestId('tab-edit-down-0'))
+  await waitFor(() => expect(hasLiveStateMark('tabEdit')).toBe(true))
+  await pressAndRotateLeaves(screen.getByTestId('tab-edit-save'), location)
+})
+
 test('탭 편집 — 버리고 나가기는 표식 항목을 걷고 화면을 떠난다', async () => {
   const { user, location } = await removeFirstAndBack()
   await user.click(screen.getByTestId('tab-edit-discard-confirm'))

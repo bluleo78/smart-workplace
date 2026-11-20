@@ -6,7 +6,7 @@
 // App 전체 대신 모듈 레이아웃(사이드바) + ContactsPage 만 renderScreen 으로 띄운다(testkit-b8).
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { emptyTree, record, type Recorded, renderContacts } from '@/test/kits/contacts/testkit-b8'
 import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
@@ -491,4 +491,69 @@ test('WP-1820 다시 시도도 실패 — 안내가 남고 단추가 다시 눌�
   await act(async () => { release() })
   await waitFor(() => expect(retry).not.toHaveAttribute('aria-busy', 'true'))
   expect(screen.getByTestId('contact-list-error')).toBeInTheDocument()
+})
+
+// ── 검색 결과 없음 빈 상태(WP-1869) ───────────────────────────────
+
+describe('검색 결과 없음 빈 상태 (WP-1869)', () => {
+  /** 0건 목록으로 화면을 띄운다. */
+  const renderEmpty = (url: string, extra: ReturnType<typeof http.get>[] = []) =>
+    renderContacts(url, { handlers: [emptyTree(), facetsHandler(), listHandler([], () => []), ...extra] })
+
+  test('검색어로 0건이면 검색어를 언급하고 검색어 지우기로 q 와 입력칸을 비운다', async () => {
+    const { user, location } = renderEmpty('/contacts?q=zzz')
+    const empty = await screen.findByTestId('contact-empty')
+    expect(within(empty).getByText('검색 결과가 없습니다')).toBeInTheDocument()
+    expect(within(empty).getByText('「zzz」에 맞는 연락처가 없습니다')).toBeInTheDocument()
+    expect(screen.queryByTestId('contact-empty-reset-filters')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('contact-empty-clear-search'))
+    expect(screen.getByTestId('contact-search')).toHaveValue('')
+    await waitFor(() => expect(location()).not.toContain('q='))
+  })
+
+  test('조직 필터로 0건이면 필터 초기화가 organization·title 을 지운다', async () => {
+    const { user, location } = renderEmpty('/contacts?type=EXTERNAL&organization=Corp&title=대표')
+    const empty = await screen.findByTestId('contact-empty')
+    expect(within(empty).getByText('선택한 조직·직책 조건에 맞는 연락처가 없습니다')).toBeInTheDocument()
+    expect(screen.queryByTestId('contact-empty-clear-search')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('contact-empty-reset-filters'))
+    await waitFor(() => expect(location()).not.toContain('organization='))
+    expect(location()).not.toContain('title=')
+    expect(location()).toContain('type=EXTERNAL')
+  })
+
+  test('검색어와 필터가 함께면 버튼 둘과 검색어 문장을 보인다', async () => {
+    renderEmpty('/contacts?type=EXTERNAL&q=zzz&organization=Corp')
+    const empty = await screen.findByTestId('contact-empty')
+    expect(screen.getByTestId('contact-empty-clear-search')).toBeInTheDocument()
+    expect(screen.getByTestId('contact-empty-reset-filters')).toBeInTheDocument()
+    expect(within(empty).getByText('「zzz」에 맞는 연락처가 없습니다')).toBeInTheDocument()
+  })
+
+  test('상세가 열린 채 복구하면 상세도 닫는다', async () => {
+    const { user, location } = renderEmpty('/contacts?q=zzz&contact=external:100', [
+      http.get('/api/v1/contacts/external/100', () => HttpResponse.json(externalDetail())),
+    ])
+    await user.click(await screen.findByTestId('contact-empty-clear-search'))
+    await waitFor(() => expect(location()).not.toContain('contact='))
+  })
+
+  test('검색 없이 0건이면 지금 문구를 버튼 없이 보인다', async () => {
+    renderEmpty('/contacts')
+    const empty = await screen.findByTestId('contact-empty')
+    expect(within(empty).getByText('연락처가 없습니다')).toBeInTheDocument()
+    expect(screen.queryByTestId('contact-empty-clear-search')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('contact-empty-reset-filters')).not.toBeInTheDocument()
+  })
+
+  test('즐겨찾기 보기에서 0건이면 즐겨찾기 문구를 보인다', async () => {
+    renderEmpty('/contacts?type=FAVORITE')
+    expect(await screen.findByText('즐겨찾기한 연락처가 없습니다')).toBeInTheDocument()
+  })
+
+  test('검색어 앞뒤 공백은 문구에서 뺀다', async () => {
+    renderEmpty('/contacts?q=zzz%20')
+    const empty = await screen.findByTestId('contact-empty')
+    expect(within(empty).getByText('「zzz」에 맞는 연락처가 없습니다')).toBeInTheDocument()
+  })
 })

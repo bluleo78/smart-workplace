@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 /** 빈 상태 다음 행동 버튼 하나. */
 type EmptyStateAction = { label: string; onClick: () => void; testId: string }
@@ -18,6 +19,7 @@ export function ListEmptyState({
   action,
   secondaryAction,
   testId,
+  className,
 }: {
   icon: LucideIcon
   title: string
@@ -26,14 +28,17 @@ export function ListEmptyState({
   /** 두 번째 다음 행동 — action 옆에 같은 모양으로 둔다. 좁은 폭에서는 줄을 바꾼다. */
   secondaryAction?: EmptyStateAction
   testId: string
+  /** 바깥 여백 등 — 좌우 여백이 없는 칸(Page.Body padded=false)에 둘 때 px 를 더한다. */
+  className?: string
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center" data-testid={testId}>
+    <div className={cn('flex flex-col items-center justify-center gap-3 py-16 text-center', className)} data-testid={testId}>
       <Icon className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
       <div className="space-y-1">
         <p className="text-sm font-medium">{title}</p>
-        {/* 한국어는 어절 단위로 줄을 바꾼다 — 좁은 폭에서 「있습/니다」처럼 끊기지 않게(WP-941). */}
-        {description && <p className="break-keep text-xs text-muted-foreground">{description}</p>}
+        {/* 한국어는 어절 단위로 줄을 바꾼다 — 좁은 폭에서 「있습/니다」처럼 끊기지 않게(WP-941).
+            띄어쓰기 없는 긴 값(검색어·이메일)은 넘치지 않게 어디서든 끊는다(WP-1869). */}
+        {description && <p className="break-keep wrap-anywhere text-xs text-muted-foreground">{description}</p>}
       </div>
       {(action || secondaryAction) && (
         <div className="flex flex-wrap items-center justify-center gap-2">
