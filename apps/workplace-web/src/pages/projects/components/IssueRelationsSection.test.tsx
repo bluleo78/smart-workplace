@@ -125,3 +125,22 @@ describe('IssueRelationsSection — 묶음 표시', () => {
     expect(screen.queryByTestId('blocked-by-list')).not.toBeInTheDocument()
   })
 })
+
+// WP-1875: × 단추 접근 이름에 상대 이슈가 들어가야 스크린리더가 어느 줄을 제거하는지 구분한다.
+describe('IssueRelationsSection — 제거 단추 접근 이름', () => {
+  it('관계 두 개의 × 단추 이름이 서로 다르고 각 상대 이슈 키·제목을 담는다', () => {
+    const other: IssueRelationView = {
+      ...relation,
+      id: 10,
+      issue: { projectKey: 'OPNQA', number: 41, title: '같은 프로젝트 이슈', status: 'TODO', type },
+    }
+    renderSection(false, { relations: [relation, other] })
+    expect(screen.getByTestId('issue-relation-remove-9')).toHaveAccessibleName('WPV-28 다른 프로젝트 이슈 관계 제거')
+    expect(screen.getByTestId('issue-relation-remove-10')).toHaveAccessibleName('#41 같은 프로젝트 이슈 관계 제거')
+  })
+
+  it('차단 줄 × 단추 이름도 상대 이슈 키·제목을 담는다', () => {
+    renderSection(false)
+    expect(screen.getByTestId('issue-link-remove-3')).toHaveAccessibleName('#3 선행 작업 차단 제거')
+  })
+})

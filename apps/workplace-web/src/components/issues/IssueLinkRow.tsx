@@ -51,7 +51,7 @@ export function IssueLinkRow({
   link: LinkRowIssue;
   /** 없으면 제거 조작을 그리지 않는다 — 워크플로 편집 권한이 없는 OPEN 비멤버(WP-503, 서버는 멤버만 허용). */
   onRemove?: () => void;
-  /** 제거 버튼·메뉴 이름 — 차단은 「차단 제거」, 관계는 「관계 제거」. */
+  /** 제거 이름 — 차단은 「차단 제거」, 관계는 「관계 제거」. × 단추는 앞에 상대 이슈 키·제목을 붙인다(WP-1875). */
   removeLabel?: string;
   /** testid 접두사 — 차단 줄은 기존 `issue-link-*`(E2E 계약), 관계 줄은 `issue-relation-*`. */
   testIdPrefix?: string;
@@ -60,6 +60,8 @@ export function IssueLinkRow({
 }) {
   const isCoarse = useIsCoarsePointer();
   const displayKey = relatedIssueKey(projectKey, currentProjectKey, link.number);
+  // 상대 이슈 이름(화면 줄과 같은 표시 키 + 제목) — 터치 시트 제목과 × 단추 접근 이름이 같은 꼴을 쓴다.
+  const rowName = `${displayKey} ${link.title}`;
 
   const statusText = statusLabel(link.status, link.statusName);
 
@@ -91,7 +93,7 @@ export function IssueLinkRow({
       {onRemove && (isCoarse ? (
         // WP-237: 터치용 ⋯ — 44px 터치 영역이 행 높이를 키우지 않도록 음수 세로 마진으로 시각 크기만 유지.
         <TouchRowActionsMenu
-          title={`${displayKey} ${link.title}`}
+          title={rowName}
           ariaLabel={`${displayKey} 더보기`}
           testId={`${testIdPrefix}-more-${testIdKey}`}
           sheetTestId={`${testIdPrefix}-sheet`}
@@ -107,7 +109,8 @@ export function IssueLinkRow({
           variant="ghost"
           size="icon"
           onClick={onRemove}
-          aria-label={removeLabel}
+          // WP-1875: 줄마다 이름이 같으면 스크린리더가 어느 관계를 제거하는지 알 수 없어 상대 이슈 키·제목을 앞에 붙인다.
+          aria-label={`${rowName} ${removeLabel}`}
           className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           data-testid={`${testIdPrefix}-remove-${testIdKey}`}
         >

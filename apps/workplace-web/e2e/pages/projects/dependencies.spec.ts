@@ -9,7 +9,6 @@ import type { Page, Route } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { stableBox } from '../../fixtures/wait';
 import type { IssueLookupItem } from '../../../src/types/issue';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
@@ -325,16 +324,34 @@ test.describe('의존성', () => {
     await expect(page.getByRole('tooltip')).toHaveText('검토 중');
 
     // 한 줄 구성 — 상태 아이콘·키·제목이 같은 줄 가운데에 있고, 행이 두 줄로 늘지 않으며, 긴 제목이 남는 폭을 대부분 쓴다.
-    const title = await stableBox(row.getByRole('link', { name: LONG_LINK_TITLE }));
-    // 같은 프로젝트 이슈는 키를 「#5」 로 줄여 보인다(WP-887).
-    const key = await stableBox(row.getByText('#5', { exact: true }));
-    const statusBox = await stableBox(status);
-    const rowBox = await stableBox(row);
+    // WP-1882 — 추정 원인: 네 상자를 따로(왕복 네 번) 재면 부하 속 늦은 레이아웃 이동 때문에 서로 다른 순간의 좌표를
+    // 비교하게 되어 상태 아이콘 중심과 제목 중심이 8px 어긋나 보였을 것으로 본다(로컬에서는 재현하지 못했다).
+    // 그래서 한 번의 evaluate 로 같은 프레임에서 모두 읽고, 정착 전이면 toPass 로 다시 잰다(오차는 그대로).
     const mid = (b: { y: number; height: number }) => b.y + b.height / 2;
-    expect(Math.abs(mid(statusBox) - mid(title))).toBeLessThanOrEqual(2);
-    expect(Math.abs(mid(key) - mid(title))).toBeLessThanOrEqual(2);
-    expect(statusBox.x).toBeLessThan(key.x);
-    expect(rowBox.height).toBeLessThan(title.height * 2);
-    expect(title.x + title.width - statusBox.x).toBeGreaterThan((rowBox.width - 24) * 0.75);
+    await expect(async () => {
+      const { title, key, statusBox, rowBox } = await row.evaluate((li, longTitle) => {
+        // 없는 요소는 이름을 붙여 던진다 — toPass 가 다시 재고, 끝내 없으면 어느 요소가 안 맞는지 실패 메시지로 보인다.
+        const rect = (el: Element | null, name: string) => {
+          if (!el) throw new Error(`링크 행 측정 대상(${name})이 아직 없다`);
+          return el.getBoundingClientRect().toJSON() as { x: number; y: number; width: number; height: number };
+        };
+        // 제목은 텍스트가 정확히 긴 제목과 같은 링크만 고른다(첫 링크를 어림으로 고르지 않는다).
+        const titleEl = Array.from(li.querySelectorAll('a')).find((e) => e.textContent?.trim() === longTitle) ?? null;
+        // 같은 프로젝트 이슈는 키를 「#5」 로 줄여 보인다(WP-887). 그런 span 이 둘 이상이면 어느 것을 잴지 모호하니 throw 한다.
+        const keySpans = Array.from(li.querySelectorAll('span')).filter((e) => e.textContent?.trim() === '#5');
+        if (keySpans.length > 1) throw new Error('키 「#5」 를 가진 span 이 둘 이상이다');
+        return {
+          statusBox: rect(li.querySelector('[data-testid="issue-link-status-5"]'), '상태 아이콘'),
+          key: rect(keySpans[0] ?? null, '키 #5'),
+          title: rect(titleEl, '제목 링크'),
+          rowBox: rect(li, '행'),
+        };
+      }, LONG_LINK_TITLE);
+      expect(Math.abs(mid(statusBox) - mid(title)), '상태 아이콘·제목 중앙 차이').toBeLessThanOrEqual(2);
+      expect(Math.abs(mid(key) - mid(title)), '키·제목 중앙 차이').toBeLessThanOrEqual(2);
+      expect(statusBox.x, '상태 아이콘이 키보다 왼쪽').toBeLessThan(key.x);
+      expect(rowBox.height, '행이 두 줄로 늘지 않음').toBeLessThan(title.height * 2);
+      expect(title.x + title.width - statusBox.x, '제목이 남는 폭을 대부분 씀').toBeGreaterThan((rowBox.width - 24) * 0.75);
+    }).toPass();
   });
 });
