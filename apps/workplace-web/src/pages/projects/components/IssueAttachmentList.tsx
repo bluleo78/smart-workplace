@@ -22,6 +22,7 @@ import { driveViewerKey, fileViewerKey } from '../../../components/viewer/viewer
 import { useDeleteIssueAttachment } from '../../../hooks/queries/useDeleteIssueAttachment';
 import { useIssueAttachments } from '../../../hooks/queries/useIssueAttachments';
 import { useIssueDriveLinks, useRemoveIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
+import type { DriveLink } from '../../../types/drive';
 import { IssueAttachmentItem } from './IssueAttachmentItem';
 import { IssueDriveLinkItem } from './IssueDriveLinkItem';
 
@@ -53,8 +54,10 @@ export function IssueAttachmentList({
   const removeLink = useRemoveIssueDriveLink(projectKey, number);
   // 삭제 확인 다이얼로그 — window.confirm 대체 (#148).
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
-  // 드라이브 링크 제거 확인 다이얼로그.
-  const [pendingRemoveLinkId, setPendingRemoveLinkId] = useState<number | null>(null);
+  // 드라이브 링크 제거 확인 다이얼로그 — 대상은 누른 링크 그대로 들고(WP-1871), 열림은 따로 둔다.
+  // 대상을 닫을 때 비우지 않는 까닭: 닫히는 애니메이션 동안이나 목록이 다시 불려 링크가 빠져도 확인창 글이 다른 파일·빈 이름으로 바뀌지 않게.
+  const [removeTarget, setRemoveTarget] = useState<DriveLink | null>(null);
+  const [removeOpen, setRemoveOpen] = useState(false);
 
   // driveLinksOnly 모드: driveQ 만, 업로드 모드: q 만 기다림 (서로 독립, 파트A #80 Fix).
   if (driveLinksOnly ? driveQ.isLoading : q.isLoading) {
@@ -103,7 +106,10 @@ export function IssueAttachmentList({
             link={link}
             canManage={link.createdById === currentUserId || isOwner}
             onPreview={() => onPreview(driveViewerKey(link.driveFileId))}
-            onRemove={(driveFileId) => setPendingRemoveLinkId(driveFileId)}
+            onRemove={() => {
+              setRemoveTarget(link);
+              setRemoveOpen(true);
+            }}
           />
         ))}
       </ul>
@@ -135,21 +141,22 @@ export function IssueAttachmentList({
 
       {/* 드라이브 링크 제거 확인 AlertDialog (#80) */}
       <AlertDialog
-        open={pendingRemoveLinkId != null}
-        onOpenChange={(open) => { if (!open) setPendingRemoveLinkId(null); }}
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
       >
         <AlertDialogContent data-testid="drive-link-remove-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>드라이브 링크 제거</AlertDialogTitle>
-            <AlertDialogDescription>
-              이슈에서 드라이브 파일 링크를 제거하시겠습니까? 드라이브 파일 자체는 삭제되지 않습니다.
+            {/* 링크가 여럿이어도 어느 파일을 빼는지 다시 확인하게 이름을 넣는다(WP-1871). 띄어쓰기 없는 긴 이름도 줄을 바꿔 창 안에 둔다. */}
+            <AlertDialogDescription className="break-words">
+              「{removeTarget?.name}」 링크를 이슈에서 제거하시겠습니까? 드라이브 파일 자체는 삭제되지 않습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => { if (pendingRemoveLinkId != null) removeLink.mutate(pendingRemoveLinkId); }}
+              onClick={() => { if (removeTarget) removeLink.mutate(removeTarget.driveFileId); }}
               data-testid="drive-link-remove-confirm"
             >
               제거
