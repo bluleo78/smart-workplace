@@ -9,6 +9,7 @@
 #   sh scripts/husky/train.sh rebase <기차 브랜치>                         — 출발 전이면 최신 origin/main 으로, 출발했으면 충돌할 때만
 #   sh scripts/husky/train.sh next <AI 이름>                               — 아직 출발하지 않은 기차 이름(없으면 빈 출력)
 #   sh scripts/husky/train.sh keys <기차 브랜치>                           — 실린 이슈 키를 쌓은 순서로 「K1·K2」(PR 제목 `통합 K1·K2`)
+#   sh scripts/husky/train.sh check <기차 브랜치>                          — 실린 이슈마다 절차 검사(procedure-check). 하나라도 실패하면 1(출발 전 게이트를 띄우지 않는다)
 #
 # - 「출발」 = 기차 브랜치를 origin 에 push 한 것(origin/<기차> 가 있음). 출발한 기차에는 새 이슈를 쌓지 않는다 — 다음 번호로 새 기차를 만든다.
 # - 기차마다 워크트리 MAIN/.claude/worktrees/integ-<AI 이름>-<번호> 를 둔다. 게이트·수정 커밋·push 는 그 안에서 한다.
@@ -16,11 +17,14 @@
 #   (끝난 이슈 정리 worktree-sweep 이 feature 커밋이 들어갔는지 가리는 데 쓴다 — WP-1643). 쌓는 커밋은 커밋 훅을 다시 돌지 않는다 —
 #   같은 변경을 feature 커밋 때 훅이 이미 봤고, 쌓은 결과 전체는 출발 때 push 게이트가 본다.
 # - 마이그레이션 번호가 origin/main·앞서 쌓은 이슈와 겹치면 쌓지 않고 멈춘다(번호를 feature 에서 옮긴 뒤 다시 쌓는다).
+# - 쌓기 전·출발 전에 이슈별 절차 검사(plugins/genia-works/scripts/procedure-check, WP-1836)를 돌린다. 쌓을 때·check 때 TRAIN_NO_PROCEDURE_CHECK=1 이면 건너뛴다.
 # git 은 origin 에서 한 번 fetch 한다(TRAIN_NO_FETCH=1 이면 건너뜀). 커밋 신원은 호출한 환경의 것을 쓴다(rebase 가 committer 를 쓴다).
 
 set -e
 
 HOOK_DIR=$(cd "$(dirname "$0")" && pwd)
+# 이슈 절차 검사 스크립트(WP-1836) — notes 의 절차 줄·계획 파일·원장을 기계로 확인한다.
+PROC_CHECK="$HOOK_DIR/../../plugins/genia-works/scripts/procedure-check"
 BASE=refs/remotes/origin/main
 
 # 커밋 신원이 없는 환경(AI 에이전트 서버)에서도 쌓고 rebase 한다(WP-1213 과 같은 이유) — committer 만 고정값으로 채운다.
@@ -38,6 +42,7 @@ usage() {
       sh scripts/husky/train.sh rebase <기차 브랜치>
       sh scripts/husky/train.sh next <AI 이름>
       sh scripts/husky/train.sh keys <기차 브랜치>
+      sh scripts/husky/train.sh check <기차 브랜치>
 EOF
   exit 2
 }
@@ -103,11 +108,26 @@ migrations_ok() {
   return 0
 }
 
+# 사람 세션 우회(TRAIN_NO_PROCEDURE_CHECK=1) — 쌓기·check 가 같은 규칙으로 건너뛰게 한 곳에 둔다. 건너뛰면 알리고 0.
+proc_check_skipped() {
+  [ "${TRAIN_NO_PROCEDURE_CHECK:-}" = 1 ] || return 1
+  say "절차 검사를 건너뜁니다(TRAIN_NO_PROCEDURE_CHECK=1)"
+}
+
 cmd_stack() {
   [ $# -eq 3 ] || usage
   name=$1; feature=$2; key=$3
   check_name "$name"
   echo "$key" | grep -Eq '^[A-Z][A-Z0-9]*-[0-9]+$' || die "이슈 키 형식이 아닙니다: '$key'" 2
+  # 절차를 안 지킨 이슈는 기차를 만들기 전에 막는다(WP-1836). 검사 종료 코드 2(사용법·notes 없음)는 그대로 2, 그 밖의 실패는 1.
+  if ! proc_check_skipped; then
+    prc=0
+    sh "$PROC_CHECK" "$key" || prc=$?
+    if [ "$prc" -ne 0 ]; then
+      [ "$prc" -eq 2 ] || prc=1
+      die "$key: 절차 검사 실패 — 쌓지 않습니다(process-issue.md 5번부터 다시)" "$prc"
+    fi
+  fi
   fetch
   git rev-parse --verify --quiet "$BASE" >/dev/null || die "origin/main 이 없습니다 — git fetch origin 뒤 다시" 2
   fsha=$(git rev-parse --verify --quiet "$feature^{commit}") || die "커밋을 찾을 수 없음: $feature" 2
@@ -220,6 +240,19 @@ cmd_keys() {
     awk '!seen[$0]++ { out = out (out == "" ? "" : "·") $0 } END { if (out != "") print out }'
 }
 
+# 기차에 실린 이슈마다 절차 검사 — 출력은 그대로 보이고, 하나라도 실패하면 1 (출발 전 push 게이트를 띄우지 않기 위한 관문).
+cmd_check() {
+  [ $# -eq 1 ] || usage
+  keys=$(cmd_keys "$1") || exit $?
+  [ -n "$keys" ] || die "실린 이슈가 없습니다" 2
+  proc_check_skipped && return 0
+  failed=0
+  for k in $(echo "$keys" | tr '·' ' '); do
+    sh "$PROC_CHECK" "$k" || failed=1
+  done
+  [ "$failed" -eq 0 ] || die "절차 검사 실패 — 게이트를 띄우지 않습니다"
+}
+
 [ $# -ge 1 ] || usage
 cmd=$1; shift
 case "$cmd" in
@@ -227,5 +260,6 @@ case "$cmd" in
   rebase) cmd_rebase "$@" ;;
   next) cmd_next "$@" ;;
   keys) cmd_keys "$@" ;;
+  check) cmd_check "$@" ;;
   *) usage ;;
 esac

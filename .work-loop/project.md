@@ -70,9 +70,10 @@ pnpm test:full   # 이미지 입력 타입 검사 → web vitest → web E2E 전
 이 저장소는 기차 흐름을 켠다(`process-issue.md` 「기차」). 이슈마다 PR 을 내지 않고, 끝낸 이슈를 내 통합 브랜치 `integ/<AI 이름>-<번호>`(AI 이름 = 내 username 의 `@` 앞, 예: `integ/developer3-4`)에 커밋 하나씩 쌓아 기차마다 push 게이트 한 번·PR 하나로 올린다. 게이트 락이 이 저장소 사본마다 하나라 이슈마다 게이트를 띄우면 한 AI 의 이슈들이 한 줄로 기다리고, 예전 묶음 게이트(WP-1208)는 게이트만 합쳐 돌고 PR 은 이슈마다 내서 A+B 로 통과한 뒤 B 가 반려되면 A 혼자의 트리가 검증 없이 머지됐다.
 
 ```sh
-pnpm train stack <AI 이름> <feature 브랜치> <이슈 키>   # 다음 기차에 커밋 하나로 쌓는다(출발한 기차는 건너뛰고, 없으면 새 번호를 origin/main 에서)
+pnpm train stack <AI 이름> <feature 브랜치> <이슈 키>   # 다음 기차에 커밋 하나로 쌓는다(출발한 기차는 건너뛰고, 없으면 새 번호를 origin/main 에서). 절차 검사(procedure-check)를 통과해야 쌓인다 — 사람 세션은 TRAIN_NO_PROCEDURE_CHECK=1(check 도 건너뜀)
 pnpm train rebase <기차 브랜치>                         # 최신 origin/main 으로 rebase(출발한 기차는 아래 「게이트 실패·반려」)
 pnpm train next <AI 이름>                               # 아직 출발하지 않은 기차(없으면 빈 출력)
+pnpm train check <기차 브랜치>                          # 실린 이슈마다 절차 검사(출발 전 — 게이트 띄우기 전)
 pnpm train keys <기차 브랜치>                           # 실린 이슈 키 「K1·K2」 — PR 제목 `통합 K1·K2`
 ```
 
