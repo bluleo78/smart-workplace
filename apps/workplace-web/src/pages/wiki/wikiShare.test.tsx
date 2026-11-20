@@ -850,7 +850,7 @@ describe('노트 공유 창 — 공유 대상 고르기 읽기 도구(WP-1065)',
     expect(input).toHaveAccessibleDescription(/오른쪽 화살표로 펼쳐 하위와 구성원을 보고 왼쪽 화살표로 접습니다/)
     const dev = await screen.findByTestId('share-target-department-10')
     expect(dev).toHaveAccessibleName('개발팀 조직 하위 부서 포함 (접힘 — 오른쪽 화살표로 펼치기)')
-    expect(screen.getByRole('status')).toHaveTextContent('')
+    expect(screen.getByTestId('share-target-announcement')).toHaveTextContent('')
 
     await user.click(screen.getByTestId('share-target-expand-10'))
     expect(dev).toHaveAccessibleName('개발팀 조직 하위 부서 포함 (펼침 — 왼쪽 화살표로 접기)')
@@ -858,10 +858,10 @@ describe('노트 공유 창 — 공유 대상 고르기 읽기 도구(WP-1065)',
     expect(await screen.findByTestId('share-target-department-12')).toHaveAccessibleName(/^개발팀 하위, 백엔드 조직/)
     expect(await screen.findByTestId('share-target-member-10-7')).toHaveAccessibleName(/^개발팀 구성원, /)
     // 선택이 그대로라 이름이 바뀌어도 다시 읽히지 않으므로 결과를 상태 영역이 알린다 — 구성원을 받은 뒤 수까지.
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('개발팀 펼침 — 하위 1개, 구성원 1명'))
+    await waitFor(() => expect(screen.getByTestId('share-target-announcement')).toHaveTextContent('개발팀 펼침 — 하위 1개, 구성원 1명'))
 
     await user.click(screen.getByTestId('share-target-expand-10'))
-    expect(screen.getByRole('status')).toHaveTextContent('개발팀 접힘')
+    expect(screen.getByTestId('share-target-announcement')).toHaveTextContent('개발팀 접힘')
   })
 
   test('이미 추가한(고를 수 없는) 조직은 키로 닿지 않으니 펼침 상태만 읽고 키 안내는 붙이지 않는다', async () => {

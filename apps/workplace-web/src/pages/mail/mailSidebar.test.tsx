@@ -432,6 +432,29 @@ test('가져오기에 실패하면 목록 끝에 「다시 시도」 — 스스�
   expect(olders.calls).toHaveLength(2)
 })
 
+test('다시 시도 중에도 같은 버튼이 남아 포커스를 지키고, 성공하면 사라진다 (WP-1862)', async () => {
+  let fail = true
+  let release: () => void = () => {}
+  const gate = new Promise<void>((r) => { release = r })
+  const olders = record('post', OLDER, async () => {
+    if (fail) return HttpResponse.json({ message: '메일 서버에 연결하지 못했습니다' }, { status: 502 })
+    await gate
+    return HttpResponse.json(olderResult())
+  })
+  const { user } = renderMail('/mail/1', { messages: rows(1000, 999), handlers: [olders.handler] })
+  const end = await screen.findByTestId('mail-list-end')
+  const retry = await within(end).findByRole('button', { name: '이전 메일을 가져오지 못했습니다 — 다시 시도' })
+  fail = false
+  await user.click(retry)
+  await waitFor(() => expect(olders.calls).toHaveLength(2))
+  // 재시도가 아직 끝나지 않은 동안 — 같은 버튼 노드가 마운트된 채 포커스를 갖는다.
+  expect(within(end).getByRole('button')).toBe(retry)
+  expect(document.activeElement).toBe(retry)
+  release()
+  expect(await screen.findByTestId('mail-list-no-older')).toBeInTheDocument()
+  expect(retry).not.toBeInTheDocument()
+})
+
 test('사이드바·메일함 nav 에 이름이 있고 회신필요가 있으면 AI 필터 nav 도 있다 — 랜드마크 이름(WP-1774)', async () => {
   const list = record('get', LIST, () => HttpResponse.json([]))
   renderMail('/mail/1', { handlers: [list.handler, countsHandler(unreadCounts({ inbox: 4, needsReply: 2 }))] })
