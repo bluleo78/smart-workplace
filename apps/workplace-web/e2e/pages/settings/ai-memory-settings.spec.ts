@@ -14,6 +14,23 @@ import { stableBox } from '../../fixtures/wait'
 
 const rows = (page: Page) => page.getByTestId('ai-memory-row')
 
+/**
+ * 인피니트 스크롤을 끝까지 내린다 — 한 poll 에 여러 묶음을 몰면 부하에서 10초를 넘기므로 30행 묶음마다 따로 기다린다(WP-1813).
+ * 한 번에 두 묶음이 붙을 수 있어 이상(>=)으로 기다린다.
+ */
+async function scrollRowsTo(page: Page, total: number) {
+  for (let target = 60; target < total + 30; target += 30) {
+    const goal = Math.min(target, total)
+    await expect
+      .poll(async () => {
+        await page.getByTestId('ai-memory-sentinel').scrollIntoViewIfNeeded()
+        return await rows(page).count()
+      })
+      .toBeGreaterThanOrEqual(goal)
+  }
+  await expect(rows(page)).toHaveCount(total)
+}
+
 test('개인 비서·추천 질문 카드 아래에 최신순 목록과 배지·메타·카운트가 보인다', { tag: ['@wiring', '@smoke'] }, async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [
     memoryItem(3, { kind: 'CONTEXT', content: '백엔드 팀이고 주로 WP 프로젝트를 본다', source: 'USER', updatedAt: '2026-10-13T12:00:00Z' }),
@@ -46,6 +63,8 @@ test('개인 비서·추천 질문 카드 아래에 최신순 목록과 배지·
 const many = (n: number) => Array.from({ length: n }, (_, i) => memoryItem(n - i))
 
 test('270개면 묶음 카운트가 주황이고 추가는 된다 — 행은 처음 30개만 그리고 끝에 닿으면 30개씩 더 그린다(더 보기 버튼 없음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // 묶음 8개를 끝까지 내리느라 부하에서 기본 테스트 시간(30초)이 빠듯하다(WP-1813).
+  test.slow()
   await mockAiMemories(page, many(270))
   await openMemorySettings(page)
   await expect(page.getByTestId('ai-memory-group-count')).toHaveText('270 / 300')
@@ -55,16 +74,7 @@ test('270개면 묶음 카운트가 주황이고 추가는 된다 — 행은 처
   await expect(page.getByTestId('ai-memory-group-more')).toHaveCount(0)
 
   await expect(rows(page)).toHaveCount(30)
-  // 목록 끝 sentinel 을 화면으로 가져오면 다음 30행이 이어진다.
-  await page.getByTestId('ai-memory-sentinel').scrollIntoViewIfNeeded()
-  await expect.poll(async () => await rows(page).count()).toBeGreaterThan(30)
-  // 끝까지 내려가면 전부 그려지고 그 뒤로는 더 늘지 않는다.
-  await expect
-    .poll(async () => {
-      await page.getByTestId('ai-memory-sentinel').scrollIntoViewIfNeeded()
-      return await rows(page).count()
-    })
-    .toBe(270)
+  await scrollRowsTo(page, 270)
   await expect(page.getByTestId('ai-memory-group-more')).toHaveCount(0)
 })
 
@@ -180,12 +190,7 @@ test.describe('고정·검색 (WP-383)', () => {
     await mockAiMemories(page, many(100))
     await openMemorySettings(page)
     await expect(rows(page)).toHaveCount(30)
-    await expect
-      .poll(async () => {
-        await page.getByTestId('ai-memory-sentinel').scrollIntoViewIfNeeded()
-        return await rows(page).count()
-      })
-      .toBe(100)
+    await scrollRowsTo(page, 100)
     // "메모리" 는 모든 행에 맞는다 — 질의가 바뀌면 다시 30행부터.
     await page.getByTestId('ai-memory-search').fill('메모리')
     await expect(rows(page)).toHaveCount(30)

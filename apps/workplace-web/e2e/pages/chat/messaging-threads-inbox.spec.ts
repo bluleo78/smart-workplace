@@ -170,7 +170,7 @@ test(
 test('스레드 인박스는 끝까지 스크롤하면 다음 묶음을 자동으로 불러온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChannelsList(page, [createChannel({ id: 902, name: '긴채널' })])
   await stubDmsList(page)
-  await stubStream(page)
+  // SSE 는 기본 픽스처의 열린 스트림 — 유한 본문 스텁은 재연결 배너가 화면을 민다(WP-1840).
   await stubInboxCount(page, 0)
   // 첫 묶음 30건(화면을 넘치게) + cursor → 두 번째 묶음 1건.
   const first = Array.from({ length: 30 }, (_, i) =>
@@ -202,7 +202,7 @@ for (const width of DESKTOP_WIDTHS) {
     await page.setViewportSize({ width, height: 900 })
     await stubChannelsList(page, [createChannel({ id: 903, name: '정렬채널' })])
     await stubDmsList(page)
-    await stubStream(page)
+    // SSE 는 기본 픽스처의 열린 스트림 — 유한 본문 스텁은 재연결 배너가 화면을 민다(WP-1840).
     await stubInboxCount(page, 1)
     await stubInbox(page, [createThreadInboxItem({ rootMessage: { id: 7100, channelId: 903, body: '정렬 스레드' } })])
 
