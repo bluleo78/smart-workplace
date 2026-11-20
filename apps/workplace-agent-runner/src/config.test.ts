@@ -14,6 +14,12 @@ const readFile = (path: string) => {
 };
 
 describe('loadConfig', () => {
+  it('readsOptionalQuotaName', () => {
+    expect(loadConfig({ ...BASE, QUOTA_NAME: ' agent-runner ' }, readFile).quotaName).toBe('agent-runner');
+    expect(loadConfig({ ...BASE, QUOTA_NAME: '  ' }, readFile).quotaName).toBeUndefined();
+    expect(loadConfig(BASE, readFile).quotaName).toBeUndefined();
+  });
+
   it('readsEnvWithDefaults', () => {
     expect(loadConfig(BASE, readFile)).toEqual({
       worksUrl: 'https://genia-works.iacloud.kr',
@@ -27,6 +33,7 @@ describe('loadConfig', () => {
       workHostPath: '/var/lib/genia-agents',
       storageClass: undefined,
       caConfigMap: undefined,
+      quotaName: undefined,
       screenAllowInput: false,
       dindStorageLimit: '20Gi',
       dindStorageLimitKib: 20 * 1024 * 1024,

@@ -224,6 +224,10 @@ public class RunnerDesiredStateService {
         && !req.metricsAvailable().equals(location.metricsAvailable())) {
       locations.updateMetricsAvailable(location.id(), req.metricsAvailable());
     }
+    // quota 키가 있을 때만 적는다(없으면 저장값 유지). capacity null 은 쿼터 없음으로 지운다.
+    if (req.quota() != null) {
+      locations.updateQuotaCapacity(location.id(), req.quota().capacity());
+    }
     Map<Long, ObservedUpdate> updated =
         reconcileSlots(settings.updateObserved(location.id(), location.isDefault(), req.agents()));
     List<RunnerObservedAgent> applied = new ArrayList<>();

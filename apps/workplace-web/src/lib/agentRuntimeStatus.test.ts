@@ -239,3 +239,11 @@ describe('runtimeNotice — 다시 시작됐다는 경고 한 줄 (WP-1794)', ()
     expect(runtimeNotice({ status: 'RUNNING', message: undefined })).toBeNull()
   })
 })
+
+describe('쿼터 거절 — 오류 알약과 사유 (WP-1819)', () => {
+  const reason = '클러스터 자원 상한이 차서 AI 를 띄우지 못했습니다 — CPU 상한 6코어(사용 4.57 · 요청 2.26). 자리가 나면 저절로 뜹니다.'
+  test('FAILED + 쿼터 사유 → 「오류」 알약, 상세는 그 문구 그대로', () => {
+    expect(statusPill('FAILED', null)).toEqual({ label: '오류', type: 'error' })
+    expect(statusDetail({ status: 'FAILED', agentState: null, agentIssueKey: null, agentNextCheckAt: null, message: reason })).toEqual({ kind: 'error', text: reason })
+  })
+})

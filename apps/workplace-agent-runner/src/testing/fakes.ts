@@ -4,6 +4,7 @@ import type { KubernetesObject, V1ConfigMap, V1PersistentVolumeClaim, V1Pod, V1S
 import { ClusterError, type ClusterApi, type ManagedKind, type ManagedResources } from '../k8s/cluster.js';
 import type {
   AgentKeyResponse,
+  ObservedQuota,
   SecretPayloadResponse,
   RepoSecretsResponse,
   RunnerDesired,
@@ -28,6 +29,12 @@ export class FakeCluster implements ClusterApi {
   failMetrics = false;
   /** 사용량 API(metrics.k8s.io)가 없는 클러스터 — 404 ClusterError 를 던진다(WP-1280). */
   missingMetricsApi = false;
+  /** resourceQuota 응답 — null 이면 쿼터 없음(404), 객체면 그 hard. 기본은 쿼터 없음. */
+  quotaHard: Record<string, string> | null = null;
+  /** 설정하면 resourceQuota 가 이 오류로 던진다(403·5xx·네트워크 등). */
+  quotaError: Error | undefined;
+  /** resourceQuota 호출 기록(이름) — 쿼터 이름이 없을 때 부르지 않았는지 단언한다. */
+  readonly quotaCalls: string[] = [];
 
   private key(kind: string, name: string) {
     return `${kind}/${name}`;
@@ -94,6 +101,12 @@ export class FakeCluster implements ClusterApi {
     this.objects.delete(k);
   }
 
+  async resourceQuota(name: string) {
+    this.quotaCalls.push(name);
+    if (this.quotaError) throw this.quotaError;
+    return this.quotaHard ? { hard: { ...this.quotaHard } } : null;
+  }
+
   async podMetrics() {
     if (this.missingMetricsApi) throw new ClusterError('list', 'PodMetrics', 'agents', 404, 'NotFound');
     if (this.failMetrics) throw new Error('metrics.k8s.io unavailable');
@@ -122,7 +135,7 @@ export class FakeWorks implements WorksClient {
     version: 1730505600000,
     tokens: [{ kind: 'GITHUB', host: 'github.com', token: `ghp_plain_${agentUserId}` }],
   }));
-  reportObserved = vi.fn(async (agents: RunnerObservedAgent[], _metricsAvailable?: boolean) => ({
+  reportObserved = vi.fn(async (agents: RunnerObservedAgent[], _metricsAvailable?: boolean, _quota?: ObservedQuota) => ({
     updated: agents.length,
     ignored: [] as number[],
   }));

@@ -15,6 +15,7 @@ import {
 } from '@kubernetes/client-node';
 import { MANAGED_SELECTOR } from './manifest.js';
 import { parseCpuMillicores, parseMemoryBytes } from '../observe.js';
+import { parseQuotaExceeded, type QuotaExceeded } from './quota.js';
 
 export type ManagedKind = 'Pod' | 'PersistentVolumeClaim' | 'Secret' | 'ConfigMap';
 
@@ -44,6 +45,8 @@ export interface ClusterApi {
   delete(kind: ManagedKind, name: string): Promise<void>;
   /** Pod 이름 → 사용량. metrics.k8s.io 가 없으면 실패한다(부르는 쪽이 무시). */
   podMetrics(): Promise<Map<string, PodUsage>>;
+  /** 네임스페이스 ResourceQuota 의 hard(상한) — 그 이름의 쿼터가 없으면(404) null, 그 밖의 오류는 ClusterError(WP-1819). */
+  resourceQuota(name: string): Promise<{ hard: Record<string, string> } | null>;
 }
 
 export const FIELD_MANAGER = 'genia-agent-runner';
@@ -56,6 +59,9 @@ const SERVER_MESSAGE_MAX = 200;
  * ApiException 의 본문에는 보낸 객체(Secret 원문)가 되돌아올 수 있어 원문 본문은 절대 쓰지 않는다. Secret 은 서버 메시지도 뺀다.
  */
 export class ClusterError extends Error {
+  /** 쿼터 초과 거절이면 넘은 자원 — 200자로 잘리기 전 서버 메시지 전체에서 읽어 잘린 숫자를 읽을 일이 없다. 아니면 undefined. */
+  readonly quotaExceeded?: QuotaExceeded[];
+
   constructor(
     readonly op: string,
     readonly kind: string,
@@ -69,6 +75,7 @@ export class ClusterError extends Error {
     const paren = detail || line ? ` (${detail}${line ? `${detail ? ': ' : ''}${line}` : ''})` : '';
     super(`k8s ${op} ${kind}/${resourceName} 실패${paren}`);
     this.name = 'ClusterError';
+    if (kind !== 'Secret' && serverMessage) this.quotaExceeded = parseQuotaExceeded(serverMessage) ?? undefined;
   }
 
   /**
@@ -189,6 +196,17 @@ export class KubeCluster implements ClusterApi {
     } catch (e) {
       if (isNotFound(e)) return;
       throw wrap(e, 'delete', kind, name);
+    }
+  }
+
+  async resourceQuota(name: string): Promise<{ hard: Record<string, string> } | null> {
+    try {
+      const q = await this.core.readNamespacedResourceQuota({ name, namespace: this.namespace });
+      // status.hard 는 컨트롤러가 채운 실제 적용값 — 아직 없으면 spec.hard
+      return { hard: q.status?.hard ?? q.spec?.hard ?? {} };
+    } catch (e) {
+      if (isNotFound(e)) return null;
+      throw wrap(e, 'get', 'ResourceQuota', name);
     }
   }
 

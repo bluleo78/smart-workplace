@@ -32,6 +32,11 @@ export interface RunnerConfig {
    */
   caConfigMap: string | undefined;
   /**
+   * 이 네임스페이스의 ResourceQuota 이름(WP-1819) — 있으면 runner 가 hard 를 읽어 띄울 수 있는 AI 수를 계산해 관찰 보고에 싣는다.
+   * Helm 이 쿼터를 만들 때(quota.enabled)만 넘긴다. 없으면 쿼터를 읽지도, 보고하지도 않는다.
+   */
+  quotaName: string | undefined;
+  /**
    * 작업 화면 입력 허용(WP-1277) — 관리자가 작업 화면에서 키를 치게 둘지. 입력은 사실상 AI 작업 공간의 셸(비밀값·docker 소켓)이라
    * 클러스터를 운영하는 쪽이 차트 값 screen.allowInput 으로 켜야만 쓴다. 기본 꺼짐(보기 전용만).
    */
@@ -209,6 +214,7 @@ const envSchema = z
         .refine((v) => v.startsWith('/'), { error: 'AGENT_WORK_HOST_PATH 는 절대 경로여야 합니다' }),
       AGENT_STORAGE_CLASS: optionalStr(),
       AGENT_CA_CONFIGMAP: optionalStr(),
+      QUOTA_NAME: optionalStr(),
       SCREEN_ALLOW_INPUT: z
         .string()
         .optional()
@@ -241,6 +247,7 @@ const envSchema = z
         workHostPath: e.AGENT_WORK_HOST_PATH,
         storageClass: e.AGENT_STORAGE_CLASS,
         caConfigMap: e.AGENT_CA_CONFIGMAP,
+        quotaName: e.QUOTA_NAME,
         screenAllowInput: e.SCREEN_ALLOW_INPUT === 'true',
         dindStorageLimit: e.DIND_STORAGE_LIMIT.raw,
         dindStorageLimitKib: e.DIND_STORAGE_LIMIT.kib,

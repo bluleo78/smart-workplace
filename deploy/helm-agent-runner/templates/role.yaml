@@ -21,3 +21,8 @@ rules:
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods"]
     verbs: ["get", "list"]
+  # 네임스페이스 ResourceQuota 의 hard 를 읽어 띄울 수 있는 AI 수를 관찰 보고에 싣는다 — 실행 환경의 「최대 AI 수」가
+  # 쿼터보다 크면 화면이 경고한다(WP-1819). 없어도 runner 는 동작한다(보고만 빠진다).
+  - apiGroups: [""]
+    resources: ["resourcequotas"]
+    verbs: ["get"]

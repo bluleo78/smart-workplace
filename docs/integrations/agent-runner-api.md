@@ -154,16 +154,18 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
     { "agentUserId": 42, "observedGeneration": 7, "phase": "RUNNING", "message": null,
       "cpuMillicores": 1200, "memoryBytes": 3221225472, "startedAt": "2026-11-01T09:58:00+09:00" }
   ],
-  "metricsAvailable": true
+  "metricsAvailable": true,
+  "quota": { "capacity": 12 }
 }
 ```
 
-- `phase`: `STARTING` · `RUNNING` · `STOPPING` · `STOPPED` · `FAILED` 중 하나(그 밖은 400). `observedGeneration` 은 그 Pod 가 반영한 generation 이다. `message` 500자, 한 번에 200명까지.
+- `phase`: `STARTING` · `RUNNING` · `STOPPING` · `STOPPED` · `FAILED` 중 하나(그 밖은 400). `observedGeneration` 은 그 Pod 가 반영한 generation 이다. 단 클러스터가 Pod·PVC·ConfigMap 만들기를 거절해(쿼터 등) Pod 가 없는 `FAILED` 는 desired generation 을 싣는다 — Works 가 「이 요청의 실패」로 받는다. Secret 거절은 키가 전달되지 않았으므로 싣지 않는다(`null`). `message` 500자, 한 번에 200명까지.
 - **이 위치의 AI 만** 반영한다(꺼진 AI 의 `STOPPING`·`STOPPED` 도 받는다 — 지운 뒤 `STOPPED` 를 보내야 관리자 화면이 「끄는 중」에서 「꺼짐」으로 바뀐다). 없는 AI·다른 위치의 AI 는 `ignored` 로 돌려준다. AI 를 다른 위치로 옮긴 뒤 옛 위치가 보낸 보고는 `ignored` 다 — 예외는 꺼진 AI(desired `STOP`)의 `STOPPING`·`STOPPED` 보고 하나로, 어느 위치에서 와도 받는다(WP-1751). 그래서 꺼진 AI 를 옮긴 뒤에도 옛 위치 runner 가 Pod 를 지우고 `STOPPED` 를 보내면 「꺼짐」이 된다.
 - 응답: `{"updated": 1, "ignored": []}`. 보고는 generation 도, 원하는 상태도 바꾸지 않는다.
 - `observedGeneration` 은 줄지 않는다 — 늦게 도착한 옛 Pod 보고(더 작은 값)는 그 칸을 되돌리지 않고, 값이 없는 보고는 그대로 둔다.
 - 새 Pod 가 보이면(`phase=STARTING`, `startedAt` 이 바뀜, `observedGeneration` 이 오름) 옛 Pod 가 보고한 AI 상태(쉬는 중 등)를 지운다. 단 그 AI 보고가 새 Pod 의 `startedAt` 뒤에 왔으면 새 Pod 의 것이라 남긴다. `startedAt` 을 함께 보내야 이 판정이 정확하다.
 - `metricsAvailable`(선택, WP-1280): 이 위치에서 CPU·메모리 사용량을 잴 수 있는지. 사용량 API(`metrics.k8s.io`)가 **없으면(404) `false`**, 조회가 되면 `true`, 일시 오류(그 밖의 실패)면 **보내지 않는다** — 서버는 값이 올 때만 위치에 적고, 없으면 마지막 값을 둔다. 관리자 화면은 `false` 인 위치의 AI CPU·메모리 칸에 「알 수 없음」과 이유(metrics-server 없음)를 보인다. 실행 위치 응답(`GET /api/v1/admin/agent-locations`)에 같은 이름으로 실린다(`null` = 아직 모름).
+- `quota`(선택, WP-1819): `{ "capacity": number | null }` — 이 위치 네임스페이스 쿼터로 띄울 수 있는 최대 AI 수(쿼터 hard ÷ AI Pod 1개 요청량, 사용분은 빼지 않은 총량). 요청량은 띄울 수 있는 AI(허용 밖 이미지·모델 연결 종류 때문에 막힌 AI 는 뺌) 중 가장 큰 값이다. runner 는 `QUOTA_NAME` 이 없으면(차트가 쿼터를 끔) `capacity: null` 을 보내 묵은 경고를 지우고, 첫 묶음(batch)에만 싣는다. **생략하면 저장된 값을 그대로 둔다**(runner 가 쿼터를 읽지 못함 — 403·5xx·네트워크 오류, 또는 desired AI 가 없음), `capacity: null` 이면 쿼터 없음으로 지운다. 음수는 400. 실행 위치 응답에 `quotaCapacity` 로 실리며, 관리자 화면이 최대 AI 수가 이보다 크면 경고한다.
 - **변화가 없어도 60초마다 보낸다.** CPU·메모리 갱신과 함께, 관리자 화면의 위치 연결 상태가 이 호출로 정해진다(마지막 호출이 2분 안이면 「연결됨」). desired 조회만 5분마다 하면 그 사이 「끊김」으로 보인다.
 
 ### 변경 스트림 — `GET /api/v1/agent-runtime/runner/events`
