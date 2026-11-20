@@ -435,7 +435,7 @@ test.describe('AI 채팅 — 드라이브 미리보기 모달 위 입력', () =>
     await page.goto('/drive/spaces/1')
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-    await page.getByRole('button', { name: 'notes.txt' }).click()
+    await page.getByRole('button', { name: 'notes.txt', exact: true }).click()
     const preview = page.getByTestId('preview-body')
     await expect(preview).toBeVisible()
 

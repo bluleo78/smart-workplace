@@ -85,7 +85,7 @@ test('업로드 중 다른 메뉴로 가도 패널이 이어지고, 끝난 뒤 �
   // 드라이브로 돌아오면(개인 공간으로 착지) 새 파일이 목록에 있고 업로드 단추가 활성이다.
   await page.getByTestId('rail-link-/drive').click()
   await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}`))
-  await expect(page.getByRole('button', { name: 'big.pdf' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'big.pdf', exact: true })).toBeVisible()
   const btn = page.getByTestId('drive-upload')
   await expect(btn).toHaveText('업로드')
   await expect(btn).toBeEnabled()

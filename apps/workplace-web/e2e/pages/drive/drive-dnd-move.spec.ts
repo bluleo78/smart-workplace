@@ -226,7 +226,7 @@ test.describe('드라이브 끌어 옮기기', () => {
 
   test('짧은 클릭은 그대로 폴더를 연다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
-    await page.getByTestId(`drive-row-folder-${MEETING}`).getByRole('button', { name: '회의록' }).click()
+    await page.getByTestId(`drive-row-folder-${MEETING}`).getByRole('button', { name: '회의록', exact: true }).click()
     await expect(page).toHaveURL(new RegExp(`folderId=${MEETING}`))
     expect(moves.count()).toBe(0)
   })
