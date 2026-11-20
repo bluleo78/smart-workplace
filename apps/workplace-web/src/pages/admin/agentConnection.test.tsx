@@ -93,13 +93,13 @@ function credentialApi(initial: CredentialMeta | null, { postStatus = 200 }: { p
   return { state, handlers }
 }
 
-/** 모델 프로브 — 성공이면 models, 실패면 502. 요청 본문을 모은다. */
-function probeApi(opts: { status: 200 | 502; models?: Array<{ id: string; label: string }> }) {
+/** 모델 프로브 — 200 이면 models, 아니면 status 와 body(기본: 한국어 502 문구)로 실패. 요청 본문을 모은다. */
+function probeApi(opts: { status: number; models?: Array<{ id: string; label: string }>; body?: object }) {
   const bodies: unknown[] = []
   const handler = http.post(PROBE, async ({ request }) => {
     bodies.push(await request.json())
-    return opts.status === 502
-      ? HttpResponse.json({ message: '프로바이더 연결에 실패했습니다' }, { status: 502 })
+    return opts.status !== 200
+      ? HttpResponse.json(opts.body ?? { message: '프로바이더 연결에 실패했습니다' }, { status: opts.status })
       : HttpResponse.json({ models: opts.models ?? [] })
   })
   return { bodies, handler }
@@ -130,6 +130,19 @@ async function openOpencode(user: ReturnType<typeof renderScreen>['user']) {
   await user.click(screen.getByTestId('oauth-token-register'))
   await user.click(await screen.findByTestId('credential-provider-opencode'))
 }
+
+/** 등록 대화상자를 opencode 로 열고 OpenAI 주소·키를 넣어 「모델 불러오기」를 누른다. */
+async function probeOpenAi(user: ReturnType<typeof renderScreen>['user']) {
+  await openOpencode(user)
+  await user.clear(screen.getByTestId('credential-base-url'))
+  await user.paste('https://api.openai.com/v1')
+  await user.click(screen.getByTestId('credential-api-key'))
+  await user.paste('sk-openai-test')
+  await user.click(screen.getByTestId('credential-probe-models'))
+}
+
+/** 프로브 실패 시 보이는 한국어 안내(WP-1884). */
+const PROBE_FALLBACK = '모델 목록을 불러오지 못했습니다. 모델 id를 직접 입력하세요.'
 
 test('미등록 → anthropic 토큰 등록 → payload 는 provider·token 뿐이고 등록 상태(뱃지·재발급·회수)로 바뀐다', async () => {
   const { user, state } = await renderSection(null)
@@ -184,17 +197,24 @@ test('opencode 등록 — 기본 프리셋 URL·프로브 payload·고른 모델
   expect(screen.getByText(BEDROCK_URL, { exact: false })).toBeInTheDocument()
 })
 
+// 프로브 실패 안내 — 5xx 내부 영문·메시지 없음은 한국어 fallback, 400 검증 실패는 영문 「Validation failed」 대신 필드 문구(WP-1884).
+test.each([
+  [500, { message: 'An unexpected error occurred' }, PROBE_FALLBACK],
+  [400, { message: 'Validation failed', errors: { 'providerConfig.baseUrl': 'Base URL 을 입력하세요' } }, 'Base URL 을 입력하세요'],
+  [500, {}, PROBE_FALLBACK],
+])('opencode 프로브 %i %j → 「%s」 안내 (WP-1884)', async (status, body, shown) => {
+  const probe = probeApi({ status, body })
+  const { user } = await renderSection(null, {}, [probe.handler])
+  await probeOpenAi(user)
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(shown)
+  expect(screen.getByTestId('credential-model-manual')).toBeInTheDocument()
+})
+
 test('opencode 프로브 실패 → 모델 목록 대신 직접 입력이 나오고, 접두 없는 id 에 프리셋 접두를 붙여 보낸다', async () => {
   const probe = probeApi({ status: 502 })
   const { user, state } = await renderSection(null, {}, [probe.handler])
-  await openOpencode(user)
-
-  const baseUrl = screen.getByTestId('credential-base-url')
-  await user.clear(baseUrl)
-  await user.paste('https://api.openai.com/v1')
-  await user.click(screen.getByTestId('credential-api-key'))
-  await user.paste('sk-openai-test')
-  await user.click(screen.getByTestId('credential-probe-models'))
+  await probeOpenAi(user)
 
   const manual = await screen.findByTestId('credential-model-manual')
   expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // WP-962 옮기기 대기열 — 토스트가 닫힐 때만 보내고, 실행 취소면 보내지 않고, 페이지를 떠나면 keepalive 로 보내는지.
 import { QueryClient } from '@tanstack/react-query'
+import { AxiosError } from 'axios'
 import type { ExternalToast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,6 +30,18 @@ const lastToast = () => success.mock.calls.at(-1)![1]!
 function schedule(qc = new QueryClient(), onUndo?: () => void) {
   scheduleMailMove({ qc, accountId: 3, messageIds: [11, 12], target: { kind: 'ARCHIVE' }, message: '2통을 보관했습니다', onUndo })
   return qc
+}
+
+/** WP-1890 서버 500 + 한글 없는 영문 내부 문구 — WP-1879 이전에는 이 문구가 토스트에 그대로 보였다. */
+function internal500() {
+  const response = {
+    status: 500,
+    statusText: 'Internal Server Error',
+    headers: {},
+    config: {} as never,
+    data: { status: 500, message: 'An unexpected error occurred' },
+  }
+  return new AxiosError('Request failed with status code 500', 'ERR_BAD_RESPONSE', undefined, undefined, response)
 }
 
 describe('scheduleMailMove', () => {
@@ -103,6 +116,28 @@ describe('scheduleMailMove', () => {
     schedule()
     lastToast().onAutoClose!(fakeToast)
     await vi.waitFor(() => expect(error).toHaveBeenCalled())
+    expect(mailMoveHiddenSnapshot().size).toBe(0)
+  })
+
+  // WP-1890 서버 500 의 영문 내부 문구는 토스트에 노출하지 않고, 호출부의 한국어 안내만 보인다(WP-1879 경계).
+  it('요청 500(영문 내부 문구) — 안내 문구만 보이고 모두 되돌린다 (WP-1890)', async () => {
+    // 500 응답 본문의 message 가 한글 없는 영문이면 서버 내부 문구로 보고 fallback 을 쓴다.
+    moveMessages.mockRejectedValue(internal500())
+    schedule()
+    lastToast().onAutoClose!(fakeToast)
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith('메일을 옮기지 못했어요'))
+    // 영문 내부 문구가 두 번째 토스트로 따로 뜨지 않는다 — 안내 하나만.
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(mailMoveHiddenSnapshot().size).toBe(0)
+  })
+
+  // WP-1890 응답 없이 끊긴 네트워크 오류는 fallback 뒤에 네트워크 안내를 붙여 알린다(WP-927 경계).
+  it('네트워크 끊김 — 네트워크 안내를 붙여 알린다 (WP-1890)', async () => {
+    moveMessages.mockRejectedValue(new AxiosError('Network Error', 'ERR_NETWORK'))
+    schedule()
+    lastToast().onAutoClose!(fakeToast)
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith('메일을 옮기지 못했어요. 네트워크 연결을 확인한 뒤 다시 시도하세요'))
+    expect(error).toHaveBeenCalledTimes(1)
     expect(mailMoveHiddenSnapshot().size).toBe(0)
   })
 
@@ -239,6 +274,16 @@ describe('scheduleMailMove', () => {
       lastToast().onAutoClose!(fakeToast)
       await vi.waitFor(() => expect(mailMovePatchSnapshot().has(11)).toBe(false))
       expect(error).toHaveBeenCalled()
+    })
+
+    // WP-1890 요청 자체가 500 으로 실패해도 얹은 목적지 값을 떼고 한국어 안내만 보인다.
+    it('요청이 500 으로 실패해도 바로 뗀다 (WP-1890)', async () => {
+      moveMessages.mockRejectedValue(internal500())
+      move(ARCH)
+      expect(mailMovePatchSnapshot().get(11)).toEqual(ARCH)
+      lastToast().onAutoClose!(fakeToast)
+      await vi.waitFor(() => expect(error).toHaveBeenCalledWith('메일을 옮기지 못했어요'))
+      expect(mailMovePatchSnapshot().has(11)).toBe(false)
     })
 
     it('대기 중에 또 옮기면 나중 것이 보이고, 나중 것을 취소하면 앞의 목적지로 돌아간다', () => {

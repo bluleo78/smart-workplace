@@ -37,6 +37,19 @@ const BEDROCK_MODELS: Model[] = [
   { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
   { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
 ]
+/** 프로브 실패 시 보이는 한국어 안내(WP-1884). */
+const PROBE_FALLBACK = '모델 목록을 불러오지 못했습니다. 모델 id를 직접 입력하세요.'
+
+/** OpenAI 호환(opencode)으로 바꾸고 OpenAI 주소·키를 넣어 「모델 불러오기」를 누른다. */
+async function probeOpenAi(user: UserEvent) {
+  await user.click(await screen.findByTestId('credential-provider-opencode'))
+  await user.clear(screen.getByTestId('credential-base-url'))
+  await user.paste('https://api.openai.com/v1')
+  await user.click(screen.getByTestId('credential-api-key'))
+  await user.paste('sk-openai-test')
+  await user.click(screen.getByTestId('credential-probe-models'))
+}
+
 const BEDROCK_URL = 'https://bedrock-mantle.us-east-1.api.aws/openai/v1'
 const API = '/api/v1/users/me/assistant'
 
@@ -50,6 +63,8 @@ function open(opts: {
   provider?: string
   replies?: { credential?: number; settings?: number; name?: number; disable?: number; probe?: number }
   probeModels?: Model[]
+  /** probe 실패 응답 본문 message — 기본은 한국어 502 문구(WP-1884). */
+  probeMessage?: string
   onCredential?: () => void
   /** 등록(PUT credential) 실패 본문 — 주면 그 ErrorResponse 를 400 으로 돌려준다(WP-1496 워크스페이스 ID 거절). */
   credentialError?: object
@@ -72,7 +87,7 @@ function open(opts: {
     }),
     http.post(`${API}/models/probe`, async ({ request }) => {
       bodies.probe.push(await request.json())
-      if (r.probe && r.probe >= 400) return fail(r.probe, '프로바이더 연결에 실패했습니다')
+      if (r.probe && r.probe >= 400) return fail(r.probe, opts.probeMessage ?? '프로바이더 연결에 실패했습니다')
       return HttpResponse.json({ models: opts.probeModels ?? [] })
     }),
     http.put(`${API}/settings`, async ({ request }) => {
@@ -131,12 +146,7 @@ describe('개인 비서 — 미설정 등록 폼', () => {
   // 프로브가 실패하면 모델 선택 대신 직접 입력이 보이고, 접두 없이 넣은 id 에 providerId/ 가 붙어 제출된다(실행 시점 splitOpencodeModel 실패 회귀).
   test('프로브 실패 → 직접 입력 폴백, 접두 없는 모델 id 에 providerId 접두가 붙어 제출된다', async () => {
     const { user, bodies } = open({ status: unconfigured, replies: { probe: 502 } })
-    await user.click(await screen.findByTestId('credential-provider-opencode'))
-    await user.clear(screen.getByTestId('credential-base-url'))
-    await user.paste('https://api.openai.com/v1')
-    await user.click(screen.getByTestId('credential-api-key'))
-    await user.paste('sk-openai-test')
-    await user.click(screen.getByTestId('credential-probe-models'))
+    await probeOpenAi(user)
     const manual = await screen.findByTestId('credential-model-manual')
     expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
     await user.click(manual)
@@ -145,6 +155,18 @@ describe('개인 비서 — 미설정 등록 폼', () => {
     expect(await screen.findByText('개인 비서를 등록했습니다.')).toBeInTheDocument()
     expect(bodies.credential).toHaveLength(1)
     expect((bodies.credential[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+  })
+
+  // 프로브 실패 안내 — 5xx 내부 영문 문구는 숨기고 서버 한국어·4xx 문구는 그대로 보인다(WP-1884).
+  test.each([
+    [500, 'An unexpected error occurred', PROBE_FALLBACK],
+    [502, '프로바이더 연결에 실패했습니다', '프로바이더 연결에 실패했습니다'],
+    [400, '허용되지 않은 주소입니다', '허용되지 않은 주소입니다'],
+  ])('프로브 %i 「%s」 → 「%s」 안내 (WP-1884)', async (status, message, shown) => {
+    const { user } = open({ status: unconfigured, replies: { probe: status }, probeMessage: message })
+    await probeOpenAi(user)
+    expect(await screen.findByRole('alert')).toHaveTextContent(shown)
+    expect(screen.getByTestId('credential-model-manual')).toBeInTheDocument()
   })
 
   // 모델을 고르기 전에는 등록할 수 없다 — 버튼 비활성, 요청 없음.
