@@ -39,7 +39,7 @@ function makeEventProposal(): MessageProposal {
 }
 
 // channel-proposal.spec.ts 의 setupChannelStubs 인라인 복제.
-// 채널 목록·상세·SSE 공통 모킹.
+// 채널 목록·상세 공통 모킹.
 async function setupChannelStubs(
   page: import('@playwright/test').Page,
   channel: ReturnType<typeof createChannel>,
@@ -65,16 +65,6 @@ async function setupChannelStubs(
         body: JSON.stringify(channel),
       })
     },
-  )
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
   )
 }
 

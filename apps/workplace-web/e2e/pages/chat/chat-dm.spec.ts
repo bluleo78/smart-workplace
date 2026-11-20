@@ -36,20 +36,6 @@ async function stubLists(page: Page, dms: ReturnType<typeof createDm>[]) {
   // SSE 는 기본 픽스처의 열린 스트림 — 유한 본문 스텁은 재연결 배너가 화면을 민다(WP-1840).
 }
 
-// SSE 스트림 stub — 유한 본문이라 곧 닫혀 클라이언트가 재연결한다(연결 끊김 배너가 뜰 수 있어 레이아웃 단언에는 쓰지 않는다).
-async function stubStream(page: Page) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
-  )
-}
-
 // DM 메시지 히스토리 stub.
 async function stubMessages(page: Page, dmId: number, items: ReturnType<typeof createMessage>[]) {
   await page.route(
@@ -139,7 +125,6 @@ test.describe('messaging DM', () => {
           ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
           : route.fallback(),
     )
-    await stubStream(page)
     await stubMessages(page, 100, [])
     await stubMarkRead(page, 100)
     // 첫 메시지 전송 stub
@@ -240,7 +225,6 @@ test.describe('messaging DM', () => {
           ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
           : route.fallback(),
     )
-    await stubStream(page)
     await stubMessages(page, 101, [])
     await stubMarkRead(page, 101)
     // 첫 메시지 전송 stub

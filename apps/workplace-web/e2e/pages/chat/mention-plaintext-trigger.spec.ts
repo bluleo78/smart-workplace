@@ -33,19 +33,6 @@ async function stubDmsList(page: Page) {
   )
 }
 
-async function stubStream(page: Page) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
-  )
-}
-
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/channels/${channel.id}`,
@@ -116,7 +103,6 @@ test.describe('#366 평문 @에이전트 멘션 → <@id> 변환', { tag: '@inpu
     const channel = createChannel({ id: CHANNEL_ID, name: '테스트', memberCount: 2 })
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID)
     await stubMessagesGet(page, CHANNEL_ID)

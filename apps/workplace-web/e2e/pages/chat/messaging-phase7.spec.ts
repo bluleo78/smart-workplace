@@ -44,20 +44,6 @@ async function stubDmsList(page: Page) {
   )
 }
 
-// SSE 스트림 stub — keep-alive 로 즉시 닫는다.
-async function stubStream(page: Page) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
-  )
-}
-
 // 채널 상세(헤더) GET stub.
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
@@ -117,7 +103,6 @@ test.describe('messaging phase7 AI 멤버', () => {
       // 사이드바/레이아웃 stubs.
       await stubChannelsList(page, [channel])
       await stubDmsList(page)
-      await stubStream(page)
       await stubChannelDetail(page, channel)
 
       // 채널 멤버: 나(HUMAN)만 포함. AGENT 는 비멤버.

@@ -47,19 +47,6 @@ async function stubDmsList(page: Page, dms: ReturnType<typeof createDm>[] = []) 
   )
 }
 
-async function stubStream(page: Page) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
-  )
-}
-
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/channels/${channel.id}`,
@@ -139,7 +126,6 @@ test.describe('전송 버튼 비활성/활성 전환', () => {
     const channel = createChannel({ id: CHANNEL_ID, name: '컴포저테스트', memberCount: 1 })
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: MY_ID, name: MY_NAME })])
     await stubMessages(page, CHANNEL_ID, [])
