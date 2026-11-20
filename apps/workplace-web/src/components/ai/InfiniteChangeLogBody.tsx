@@ -1,15 +1,16 @@
 // 메모리 변경 기록의 무한 스크롤 본문 — 개인 「AI가 정리한 기록」(WP-385)과 공용 「기록 보기」(WP-386)가 같은 모양·같은 상태 안내를 쓴다.
 // 첫 묶음을 받는 중이면 항목 모양의 스켈레톤(디자인 시스템 06 §A), 첫 묶음이 실패하면 이유 문구 + 「다시 시도」(처음부터) —
 // 다시 시도하는 동안에도 스켈레톤으로 바꾸지 않고 안내·초점을 그대로 둔다(WP-1820, lib/queryFailure),
-// 다음 묶음이 실패하면 받은 목록은 그대로 두고 그 아래에 같은 안내(그 묶음만)를 보인다. 토스트는 띄우지 않는다(자리에서 알린다).
+// 다음 묶음이 실패하면 받은 목록은 그대로 두고 그 아래에 같은 공용 안내(그 묶음만 다시 받기)를 보인다 — 다시 받는 동안에도
+// 안내·초점을 두고 단추를 잠근다(WP-1820 리뷰 후속). 토스트는 띄우지 않는다(자리에서 알린다).
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { type ReactNode, useRef } from 'react';
 
 import { MemoryChangeLog } from '@/components/ai/MemoryChangeLog';
 import type { MemoryChangeLogEntry } from '@/components/ai/memoryChangeLogEntry';
 import { LoadErrorState } from '@/components/LoadErrorState';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { FOCUSABLE } from '@/hooks/useDialogFocusRestore';
 import { type LoadMoreQuery, useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel';
 import { failedWithoutData } from '@/lib/queryFailure';
 
@@ -44,6 +45,14 @@ export function InfiniteChangeLogBody({
   // 첫 묶음 실패 판정 — 다시 부르는 중(pending)에도 참이라 안내가 사라지지 않는다.
   const firstFailed = failedWithoutData(query);
   const showEmpty = empty != null && query.data != null && entries.length === 0;
+  // 다음 묶음 다시 시도를 누른 때 받아 둔 기록 수 — 성공하면 그 자리(새로 이어 붙은 첫 기록)로 초점을 보낸다.
+  const loadedAtRetry = useRef(0);
+  /** 새로 이어 붙은 첫 기록의 첫 조작 요소(출처 링크·되돌리기) — 없으면 초점을 옮기지 않는다(목록 맨 위로 튀지 않게). */
+  const firstNewEntryControl = () => {
+    const log = sentinel.current?.previousElementSibling;
+    const item = log?.querySelectorAll('[data-testid="memory-log-item"]')[loadedAtRetry.current];
+    return item?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
+  };
   return (
     <>
       {showEmpty ? (
@@ -54,7 +63,10 @@ export function InfiniteChangeLogBody({
       <div ref={sentinel} data-testid={`${testIdPrefix}-sentinel`} aria-hidden className="h-px" />
       {/* 첫 묶음 실패가 먼저 — 실패 뒤 다시 시도 중이면 스켈레톤 대신 안내를 남긴다. 첫 진입 로딩은 실패 전이라 스켈레톤을 본다 */}
       {!firstFailed && !query.data && (query.isPending || query.isFetching) && <ChangeLogSkeleton testId={`${testIdPrefix}-loading`} />}
-      {query.isFetchingNextPage && <p className="py-2 text-center text-xs text-muted-foreground">불러오는 중…</p>}
+      {/* 다음 묶음 실패 뒤 다시 받는 중에는 아래 안내가 잠긴 단추로 진행을 알린다 — 「불러오는 중…」을 겹쳐 보이지 않는다 */}
+      {query.isFetchingNextPage && !query.isFetchNextPageError && (
+        <p className="py-2 text-center text-xs text-muted-foreground">불러오는 중…</p>
+      )}
       {/* 터치 기기(바텀시트)에서는 다음 묶음 안내와 같게 다시 시도를 44px 로 둔다 */}
       {firstFailed && (
         <LoadErrorState
@@ -65,8 +77,20 @@ export function InfiniteChangeLogBody({
           testId={`${testIdPrefix}-error`}
         />
       )}
+      {/* 다음 묶음 실패 — 받은 목록은 두고 그 묶음만 다시 받는다(onRetry). 다시 받는 동안 단추를 잠근다(retrying) */}
       {query.isFetchNextPageError && (
-        <ChangeLogError testId={`${testIdPrefix}-error`} message="다음 기록을 불러오지 못했어요" onRetry={() => void query.fetchNextPage()} />
+        <LoadErrorState
+          variant="inline"
+          title="다음 기록을 불러오지 못했어요"
+          onRetry={() => {
+            loadedAtRetry.current = entries.length;
+            void query.fetchNextPage();
+          }}
+          retrying={query.isFetchingNextPage}
+          retryClassName="pointer-coarse:h-11"
+          focusAfterRetry={firstNewEntryControl}
+          testId={`${testIdPrefix}-error`}
+        />
       )}
     </>
   );
@@ -88,18 +112,6 @@ function ChangeLogSkeleton({ testId }: { testId: string }) {
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-/** 불러오기 실패 안내 — 이유 문구 + 「다시 시도」. 토스트 대신 자리에서 알린다(안내 줄·목록 모두 같은 오류를 두 번 알리지 않게). */
-function ChangeLogError({ testId, message, onRetry }: { testId: string; message: string; onRetry: () => void }) {
-  return (
-    <div data-testid={testId} role="alert" className="flex flex-col items-center gap-2 py-6 text-center">
-      <p className="text-sm text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" className="pointer-coarse:h-11" onClick={onRetry}>
-        다시 시도
-      </Button>
     </div>
   );
 }

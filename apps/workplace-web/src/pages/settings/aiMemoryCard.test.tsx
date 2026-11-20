@@ -796,4 +796,34 @@ describe('AI가 정리한 기록 (WP-385)', () => {
     await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(5))
     expect(dialog.queryByTestId('ai-memory-cleanup-error')).not.toBeInTheDocument()
   })
+
+  // WP-1820 리뷰 후속: 다음 묶음 실패도 첫 묶음과 같은 공용 안내(LoadErrorState)라, 다시 시도하는 동안 안내·초점이 남고 단추가 잠긴다.
+  test('WP-1820 기록 다음 묶음 다시 시도 — 받은 목록은 두고 응답 전 안내·초점 유지, 성공하면 이어 붙는다', async () => {
+    freeze()
+    const io = controlIntersection()
+    const changes = memoryChangesApi([FIVE(), [memoryChange(0, { memory: memorySnap(1, '가장 오래된 기록') })]])
+    // 두 번째 묶음(cursor=c1)만 실패시킨다.
+    const nextPage = (u: URL) => u.searchParams.get('cursor') === 'c1'
+    changes.failListWhen(nextPage)
+    const { user } = await openMemory([], { changes })
+    const dialog = within(await openLog(user))
+    await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(5))
+    io.set((el) => el.getAttribute('data-testid') === 'ai-memory-cleanup-sentinel')
+    const error = await dialog.findByTestId('ai-memory-cleanup-error')
+    expect(error).toHaveTextContent('다음 기록을 불러오지 못했어요')
+    expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(5)
+    // 다시 시도의 응답은 붙들어 두고, 그 동안 안내·초점·잠금을 본다(두 번째 묶음 요청 수로 센다).
+    const held = gate()
+    changes.failListWhen(nextPage, held.p)
+    const retry = await clickRetryAndExpectErrorKept(user, 'ai-memory-cleanup-error', () => changes.lists.filter(nextPage).length)
+    expect(retry).toHaveAttribute('aria-disabled', 'true')
+    expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(5)
+    // 실패 설정을 풀고 응답을 놓으면 두 번째 묶음이 이어 붙고 안내가 사라진다.
+    changes.failListWhen(null)
+    await act(async () => held.release())
+    await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')).toHaveLength(6))
+    expect(dialog.queryByTestId('ai-memory-cleanup-error')).not.toBeInTheDocument()
+    // 초점은 목록 맨 위가 아니라 새로 이어 붙은 기록(6번째)으로 간다 — 스크롤 자리를 잃지 않는다.
+    await waitFor(() => expect(dialog.getAllByTestId('memory-log-item')[5]).toContainElement(document.activeElement as HTMLElement))
+  })
 })
