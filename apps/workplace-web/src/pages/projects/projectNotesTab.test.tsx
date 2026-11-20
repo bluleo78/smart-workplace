@@ -65,7 +65,8 @@ describe('프로젝트 노트 탭', () => {
     const { user, location } = open(`/projects/${KEY}`, ok)
     const link = await within(await screen.findByRole('navigation', { name: '프로젝트 탭' }, { timeout: PAGE_LOAD_TIMEOUT })).findByRole('link', { name: '노트' })
     await user.click(link)
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/notes/21`))
+    // 탭을 처음 누르면 노트 탭이 lazy 로 처음 불러와져 부하 땐 5초를 넘긴다 — 첫 화면과 같은 45초로 기다린다 (WP-1874).
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/notes/21`), { timeout: PAGE_LOAD_TIMEOUT })
     expect(await screen.findByTestId('wiki-tree-row-21')).toBeInTheDocument()
     expect(within(tabNav()).getByRole('link', { name: '노트' })).toHaveAttribute('aria-current', 'page')
   })
@@ -104,7 +105,8 @@ describe('프로젝트 노트 탭', () => {
   test('공간이 없으면(404) 탭 줄에 「노트」가 없고, 주소로 직접 들어오면 프로젝트 이슈 탭으로 간다', async () => {
     const { location } = open(`/projects/${KEY}/notes`, notFound)
     await screen.findByRole('navigation', { name: '프로젝트 탭' }, { timeout: PAGE_LOAD_TIMEOUT })
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
+    // 404 이동은 공간 응답 뒤에 일어나고, 이 테스트만 돌리면 lazy 노트 탭 모듈도 여기서 처음 불러 같은 45초로 기다린다 (WP-1874).
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`), { timeout: PAGE_LOAD_TIMEOUT })
     expect(within(tabNav()).queryByRole('link', { name: '노트' })).not.toBeInTheDocument()
   })
 
