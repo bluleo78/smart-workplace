@@ -1,9 +1,10 @@
-import { Plus, Star, X } from 'lucide-react'
+import { Plus, SearchX, Star, Users, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { FilterLine } from '@/components/filter/FilterLine'
+import { ListEmptyState } from '@/components/issue/ListEmptyState'
 import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
 import { LoadErrorState } from '@/components/LoadErrorState'
@@ -262,6 +263,26 @@ export function ContactsPage() {
       { replace: true },
     )
 
+  // 검색어 지우기 — 입력칸(draft)을 바로 비우고 URL 의 q 는 writeQuery 로 지운다(통합 목록이라 열린 상세도 같은 항목에서 닫힌다, WP-1869).
+  // draft 만 비우면 디바운스(300ms) 동안 옛 검색어가 입력칸에 남고, URL 만 지우면 입력칸 동기화를 기다리게 된다.
+  const clearSearch = (): void => {
+    setQDraft('')
+    writeQuery('')
+  }
+
+  // 필터 초기화 — 조직·직책 조건만 풀고(타입·검색어는 유지) 열린 상세도 닫는다(WP-1869).
+  const resetFilters = (): void =>
+    setParams(
+      (prev) => {
+        const sp = new URLSearchParams(prev)
+        sp.delete('organization')
+        sp.delete('title')
+        sp.delete('contact')
+        return sp
+      },
+      { replace: true },
+    )
+
   // 그룹 보기의 검색은 GroupContactView 가 소속 멤버 안에서 거른다 — 통합 목록 조회는 쓰지 않으니 끈다.
   const contactsQuery = useContacts(search, type, organization, title, { enabled: groupId == null })
   // 오류 화면은 첫 페이지 실패만(failedWithoutData) — LoadMoreFooter 참조. 다시 시도 중(pending)에도 안내를 남긴다(WP-1820).
@@ -270,6 +291,14 @@ export function ContactsPage() {
   const [listScrollEl, setListScrollEl] = useState<HTMLDivElement | null>(null)
 
   const items = data?.pages.flatMap((p) => p.items) ?? []
+  // 0건일 때 검색·조직·직책 조건이 하나라도 있으면 「검색 결과 없음」, 없으면 진짜 빈 목록(WP-1869).
+  // 검색어 앞뒤 공백은 보이는 문구·판정에서 뺀다(useSearchDraft 는 q 의 앞뒤 공백을 그대로 둔다 — 그룹 보기 문구와 같게).
+  const shownQuery = search.trim()
+  const searching = shownQuery !== '' || organization !== '' || title !== ''
+  // 복구 버튼 — 걸린 조건에 해당하는 것만 둔다. 둘 다면 검색어 지우기가 앞, 필터 초기화가 옆(WP-1869).
+  const clearAction = shownQuery !== '' ? { label: '검색어 지우기', onClick: clearSearch, testId: 'contact-empty-clear-search' } : undefined
+  const resetAction =
+    organization !== '' || title !== '' ? { label: '필터 초기화', onClick: resetFilters, testId: 'contact-empty-reset-filters' } : undefined
 
   // 그룹 보기의 위치 — 데스크톱 헤더 브레드크럼, 모바일 「‹ 그룹 이름」 헤더의 ‹ 대체 경로(WP-977).
   const groupLocation = useGroupLocation(groupId, params)
@@ -379,10 +408,25 @@ export function ContactsPage() {
             ) : isLoading ? (
               <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
             ) : items.length === 0 ? (
-              // 빈 상태 — 즐겨찾기 모드일 때 전용 메시지, 그 외 기본 메시지
-              <div data-testid="contact-empty" className="p-8 text-center text-sm text-muted-foreground">
-                {type === 'FAVORITE' ? '즐겨찾기한 연락처가 없습니다' : '연락처가 없습니다'}
-              </div>
+              // 빈 상태 — 검색·조직·직책 조건이 있으면 「검색 결과 없음」(연락처가 사라진 것처럼 읽히던 문제, WP-1869),
+              // 없으면 첫 사용 빈 목록(즐겨찾기 모드는 전용 문구). design.md 2.2·2.5(empty vs no results).
+              // 이 분기는 그룹 보기가 아닐 때만 렌더되므로 그룹 조건은 보지 않는다.
+              // 목록 칸은 좌우 여백이 없어(Page.Body padded=false) 긴 검색어·버튼이 칸 끝에 붙지 않게 px-4 를 준다.
+              <ListEmptyState
+                icon={searching ? SearchX : type === 'FAVORITE' ? Star : Users}
+                title={searching ? '검색 결과가 없습니다' : type === 'FAVORITE' ? '즐겨찾기한 연락처가 없습니다' : '연락처가 없습니다'}
+                description={
+                  !searching
+                    ? undefined
+                    : shownQuery
+                      ? `「${shownQuery}」에 맞는 연락처가 없습니다`
+                      : '선택한 조직·직책 조건에 맞는 연락처가 없습니다'
+                }
+                action={clearAction ?? resetAction}
+                secondaryAction={clearAction && resetAction}
+                testId="contact-empty"
+                className="px-4"
+              />
             ) : (
               <div ref={setListScrollEl} className="flex-1 overflow-y-auto">
                 {items.map((c) => (
