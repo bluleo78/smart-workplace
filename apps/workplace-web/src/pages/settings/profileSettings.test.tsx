@@ -33,6 +33,8 @@ function writeHandlers(passwordStatus = 204, passwordBody: unknown = { message: 
       }),
       http.put('/api/v1/users/me/password', async ({ request }) => {
         await record(request)
+        // 상태 0 은 응답 없는 네트워크 오류(ERR_NETWORK)를 흉내 낸다.
+        if (passwordStatus === 0) return HttpResponse.error()
         if (passwordStatus >= 500) return HttpResponse.json(passwordBody as Record<string, unknown>, { status: passwordStatus })
         return new HttpResponse(null, { status: passwordStatus })
       }),
@@ -133,6 +135,21 @@ test('비밀번호 변경 서버 오류(503)가 한국어 문구를 주면 그 �
   await waitFor(() => expect(calls).toHaveLength(1))
   expect(await screen.findByText('잠시 점검 중입니다')).toBeInTheDocument()
   expect(screen.queryByText('서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.')).not.toBeInTheDocument()
+})
+
+// WP-1879 — 응답 없는 네트워크 오류는 입력 탓(「현재 비밀번호가 올바르지 않습니다」)으로 보이지 않고, 연결 안내만 덧붙는다.
+test('비밀번호 변경이 네트워크 오류로 실패하면 입력 탓이 아닌 연결 안내를 보인다 (WP-1879)', async () => {
+  const { user, calls } = await openProfile(true, 0)
+  await user.click(document.getElementById('current-password')!)
+  await user.paste('Password123')
+  await user.click(document.getElementById('new-password')!)
+  await user.paste('Password456')
+  await user.click(document.getElementById('confirm-password')!)
+  await user.paste('Password456')
+  await user.click(screen.getByRole('button', { name: '비밀번호 변경' }))
+  await waitFor(() => expect(calls).toHaveLength(1))
+  expect(await screen.findByText('저장하지 못했습니다. 네트워크 연결을 확인한 뒤 다시 시도하세요')).toBeInTheDocument()
+  expect(screen.queryByText(/현재 비밀번호가 올바르지 않습니다/)).not.toBeInTheDocument()
 })
 
 // WP-48 — 비밀번호 없는(SSO 전용) 계정은 현재 비밀번호 칸 없이 「비밀번호 설정」 카드로 새 비밀번호만 보낸다.
