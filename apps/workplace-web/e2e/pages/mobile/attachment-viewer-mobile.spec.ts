@@ -25,6 +25,7 @@ import {
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays, nextFrame } from '../../fixtures/wait'
 import { expectToggle } from '../../fixtures/selection'
+import { expectPdfPageVisible } from '../../fixtures/pdf'
 
 const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -321,7 +322,7 @@ test.describe('바 숨김과 본문 여백', { tag: '@layout' }, () => {
     await page.setViewportSize({ width: 844, height: 390 })
     await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
     await openViewer(page, 'doc.pdf')
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
     const body = page.getByTestId('preview-body')
     const pad = () => body.evaluate((el) => [getComputedStyle(el).paddingTop, getComputedStyle(el).paddingBottom])
@@ -629,8 +630,7 @@ test.describe('핀치·두 번 탭 확대', { tag: '@input' }, () => {
   test('PDF 핀치 확대는 페이지를 그 배율로 다시 그린다(1~3배), 두 번 탭은 2배', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
     await openViewer(page, 'doc.pdf')
-    const page1 = page.getByTestId('pdf-page-1')
-    await expect(page1).toBeVisible()
+    const page1 = await expectPdfPageVisible(page)
     const stage = page.getByTestId('viewer-stage')
     const w1 = (await page1.boundingBox())!.width
     // 맞춤 상태의 캔버스 백킹 폭(= CSS 폭 × DPR) — 렌더가 끝날 때까지 기다린 뒤 잰다.
@@ -654,7 +654,7 @@ test.describe('핀치·두 번 탭 확대', { tag: '@input' }, () => {
     test.slow()
     await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
     await openViewer(page, 'doc.pdf')
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     const stage = page.getByTestId('viewer-stage')
     const doc = page.getByTestId('pdf-document')
     const c = await centerOf(stage)
@@ -692,7 +692,7 @@ test.describe('핀치·두 번 탭 확대', { tag: '@input' }, () => {
   test('PDF 뒤 페이지에서 두 번 탭해도 탭한 지점이 제자리 — 페이지 간격·여백이 쌓여도 어긋나지 않는다', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
     await openViewer(page, 'doc.pdf')
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     const p3 = page.getByTestId('pdf-page-3')
     const p = await pointOnLastPdfPage(page)
     const f = await fractionOf(p3, p)
@@ -704,7 +704,7 @@ test.describe('핀치·두 번 탭 확대', { tag: '@input' }, () => {
   test('PDF 뒤 페이지에서 핀치한 두 손가락 중점이 확대 뒤에도 제자리', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
     await openViewer(page, 'doc.pdf')
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     const p3 = page.getByTestId('pdf-page-3')
     const p = await pointOnLastPdfPage(page)
     const f = await fractionOf(p3, p)
@@ -718,7 +718,7 @@ test.describe('핀치·두 번 탭 확대', { tag: '@input' }, () => {
   test('문서를 손가락으로 스크롤하는 중 두 번째 손가락이 닿으면 핀치 미리보기·확대를 하지 않는다', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
     await openViewer(page, 'doc.pdf')
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     const stage = page.getByTestId('viewer-stage')
     const doc = page.getByTestId('pdf-document')
     const c = await centerOf(stage)
@@ -866,7 +866,7 @@ test.describe('공유·저장', { tag: '@platform' }, () => {
     const contents = trackRequests(page, 'GET', '/api/v1/drive/files/86/content')
     await openViewer(page, name)
     await expect(page.getByTestId('preview-converting')).toContainText('원래 모양으로 여는 중…')
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     await expect(page.getByTestId('preview-converting')).toHaveCount(0)
     const share = page.getByTestId('viewer-slot-share')
     await expect(share).toHaveAccessibleName('공유할 수 없음')

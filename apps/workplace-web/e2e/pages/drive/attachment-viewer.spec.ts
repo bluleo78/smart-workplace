@@ -11,6 +11,7 @@ import type { Page } from '@playwright/test'
 import { type DriveSummaryStub, stubDriveFiles as stubDrive } from '../../fixtures/drive-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { solidPng } from '../../fixtures/png'
+import { expectPdfPageVisible } from '../../fixtures/pdf'
 
 const SPACE_ID = 1
 // ESM 컨텍스트: __dirname 대신 이 스펙 파일 기준 디렉토리.
@@ -89,7 +90,7 @@ test('PDF 는 모든 페이지를 세로로 그리고 현재 페이지를 보여
   const pdf = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'))
   await stubDriveFiles(page, [{ id: 72, name: 'three.pdf', mimeType: 'application/pdf', sizeBytes: pdf.length }], { 72: pdf })
   await openPreview(page, 'three.pdf')
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   await expect(page.getByTestId('pdf-document').locator('canvas')).toHaveCount(3)
   await expect(page.getByTestId('preview-meta')).toContainText('p.1 / 3')
   await page.getByTestId('pdf-page-3').scrollIntoViewIfNeeded()
@@ -100,7 +101,7 @@ test('PDF 를 300% 로 확대해도 페이지 왼쪽 끝까지 스크롤된다',
   const pdf = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'))
   await stubDriveFiles(page, [{ id: 74, name: 'zoom.pdf', mimeType: 'application/pdf', sizeBytes: pdf.length }], { 74: pdf })
   await openPreview(page, 'zoom.pdf')
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   // 100% → 300% (25% 단계 8번).
   for (let i = 0; i < 8; i++) await page.getByRole('button', { name: '확대' }).click()
   await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('300%')

@@ -8,6 +8,7 @@ import { detail } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { MEMO_TEXT, stubMailWithAttachments } from '../../fixtures/mail-viewer-mock'
 import { trackRequests } from '../../fixtures/requests'
+import { expectPdfPageVisible } from '../../fixtures/pdf'
 
 test.describe('메일 첨부 뷰어', () => {
   test('상세에서 첨부를 열고 묶음 안에서 넘긴 뒤 ⬇ 로 받는다', { tag: ['@platform', '@smoke'] }, async ({ authenticatedPage: page }) => {
@@ -25,7 +26,7 @@ test.describe('메일 첨부 뷰어', () => {
     await expect(viewer).toHaveAccessibleName('안건.pdf 미리보기')
     // 열림은 URL ?preview=mail:{id} — 메일 상세(?messageId)는 그대로 둔다.
     await expect(page).toHaveURL(/\/mail\/1\?messageId=10&preview=mail%3A6$/)
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
 
     // 메일 첨부엔 요약이 없다. ☁ 는 메일 첨부 저장(WP-1400) — 공간 조회는 누를 때 해서 열 때는 늘 누를 수 있다.
@@ -54,7 +55,7 @@ test.describe('메일 첨부 뷰어', () => {
 
     // 이전으로 돌아가 PDF 를 다시 본다.
     await page.getByRole('button', { name: '이전 파일' }).click()
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
   })
 
@@ -130,7 +131,7 @@ test.describe('메일 첨부 뷰어', () => {
     await page.getByTestId('mail-row-12').click()
     await page.getByTestId('mail-attachment-open-8').click()
     // 응답 헤더도 octet-stream 이지만 확장자(.PDF)로 PDF 렌더러가 그린다.
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     await expect(page.getByTestId('pdf-document').locator('canvas')).toHaveCount(3)
 
     await page.getByRole('button', { name: '다음 파일' }).click()

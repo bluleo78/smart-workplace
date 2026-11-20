@@ -7,6 +7,7 @@ import { LINK_TEXT, stubHomeChatAttachments, stubIssueChatAttachments, stubTeamC
 import { KEY, longPress } from '../../fixtures/mobile-chat'
 import { expect, expectOnTop, test } from '../../fixtures/mobile.fixture'
 import { centerOf, touchDrag } from '../../fixtures/touch'
+import { expectPdfPageVisible } from '../../fixtures/pdf'
 
 const VIEWER = '[data-testid="attachment-viewer"]'
 
@@ -34,7 +35,7 @@ test('팀 채팅: 썸네일 탭 → 전체 화면 뷰어, 스와이프·‹ 로 
   let c = await centerOf(stage)
   await touchDrag(page, c, { x: c.x - 180, y: c.y })
   await expect(page.getByTestId('preview-meta')).toContainText('2 / 4')
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   c = await centerOf(stage)
   await touchDrag(page, c, { x: c.x - 180, y: c.y })
   await expect(page.getByTestId('preview-meta')).toContainText('3 / 4')
@@ -76,7 +77,7 @@ test('팀 채팅 스레드: 스레드 안 카드 탭 → 뷰어 하나, 뒤로�
   const panel = page.getByTestId('thread-panel')
   await expect(panel).toBeVisible()
   await panel.getByTestId('attachment-card-802').tap()
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   await expect(page.getByTestId('attachment-viewer')).toHaveCount(1)
   await expectViewerOnTop(page)
 
@@ -92,7 +93,7 @@ test('이슈 채팅 드로워: 카드 탭 → 드로워 위 뷰어(‹ › ✕ �
   await page.getByTestId('issue-chat-open').tap()
   await expect(page).toHaveURL(/[?&]chat=1$/)
   await page.getByTestId('attachment-card-802').tap()
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   await expect(page.getByTestId('preview-meta')).toContainText('2 / 4')
   await expectViewerOnTop(page)
 
@@ -149,7 +150,7 @@ test('AI 시트: 복원한 대화 썸네일 탭 → 시트 위 뷰어, 뒤로가
   await expect(bar.locator('[data-slot-id="summary"]')).toHaveAttribute('data-state', 'empty')
   await expectViewerOnTop(page)
   await page.getByRole('button', { name: '다음 파일' }).tap()
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
 
   await page.goBack()
   await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
@@ -158,7 +159,7 @@ test('AI 시트: 복원한 대화 썸네일 탭 → 시트 위 뷰어, 뒤로가
 
   // 문서 카드도 시트 위 뷰어로 열고 하단 ⬇ 로 받는다. ✕ 로 닫으면 카드로 포커스.
   await turn.getByTestId('attachment-card-78').tap()
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
   await expectViewerOnTop(page)
   const download = page.waitForEvent('download')

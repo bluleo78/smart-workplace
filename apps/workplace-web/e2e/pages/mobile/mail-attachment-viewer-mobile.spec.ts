@@ -7,6 +7,7 @@ import { mockApi } from '../../fixtures/api-mock'
 import { DOC_MAIL_ID, stubMailWithAttachments, stubMailWithDocAttachments } from '../../fixtures/mail-viewer-mock'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { centerOf, touchDrag } from '../../fixtures/touch'
+import { expectPdfPageVisible } from '../../fixtures/pdf'
 
 /** 받은편지함 → 10번 메일 → 첨부 칩을 탭해 뷰어를 연다. */
 async function openAttachment(page: Page, id: number) {
@@ -20,7 +21,7 @@ async function openAttachment(page: Page, id: number) {
 test('첨부를 탭하면 전체 화면 뷰어 — 스와이프·‹ 로 넘기고 ⬇ 저장으로 받는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubMailWithAttachments(page)
   await openAttachment(page, 6)
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   // 묶음 = 목록 첨부 2개(본문 인라인 이미지 제외).
   await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
 
@@ -112,7 +113,7 @@ test('모바일에서도 메일 HWP 첨부가 변환 중 → PDF 로 바뀐다',
   await expect(page.getByTestId('attachment-viewer')).toBeVisible()
 
   await expect(page.getByTestId('preview-converting')).toContainText('원래 모양으로 여는 중…')
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   await expect(page.getByTestId('preview-converting')).toHaveCount(0)
   // 화면 가로 넘침이 없다 — 변환 PDF·긴 파일명이 뷰포트 폭을 밀어내지 않는다.
   const width = page.viewportSize()!.width
