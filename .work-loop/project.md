@@ -75,11 +75,12 @@ pnpm train rebase <기차 브랜치>                         # 최신 origin/mai
 pnpm train next <AI 이름>                               # 아직 출발하지 않은 기차(없으면 빈 출력)
 pnpm train check <기차 브랜치>                          # 실린 이슈마다 절차 검사(출발 전 — 게이트 띄우기 전)
 pnpm train keys <기차 브랜치>                           # 실린 이슈 키 「K1·K2」 — PR 제목 `통합 K1·K2`
+pnpm train depart <기차 브랜치>                         # 출발 표시(rebase 뒤·게이트 전) — 이후 stack·next 는 이 기차를 건너뛴다. 최신 main 이 아니거나 앞 기차가 머지되지 않았으면 거절
 ```
 
-- 스크립트는 `scripts/husky/train.sh`(테스트 `train.test.sh`). 「출발」 = 기차 브랜치를 origin 에 push 한 것. 기차마다 워크트리 `MAIN/.claude/worktrees/integ-<AI 이름>-<번호>` 를 스크립트가 만든다 — 게이트·수정 커밋·push 는 그 안에서 한다. 처음 게이트를 돌기 전에 1절처럼 설치·빌드한다.
+- 스크립트는 `scripts/husky/train.sh`(테스트 `train.test.sh`). 「출발」 = 기차 브랜치를 `train depart` 로 표시했거나 origin 에 push 한 것(`process-issue.md` 「기차」 3번). 기차마다 워크트리 `MAIN/.claude/worktrees/integ-<AI 이름>-<번호>` 를 스크립트가 만든다 — 게이트·수정 커밋·push 는 그 안에서 한다. 처음 게이트를 돌기 전에 1절처럼 설치·빌드한다.
 - 쌓기는 feature 의 커밋 하나(제목 끝 `(<이슈 키>)`, 작성자 유지)를 그대로 옮긴다. 마이그레이션 번호가 origin/main·앞서 실린 이슈와 겹치거나 앞서 실린 이슈와 충돌하면 쌓지 않고 멈춘다 — feature 에서 고쳐 다시 쌓는다.
-- 출발: 내 앞 기차의 PR 이 main 에 머지됐거나 처음일 때만. 최신 origin/main 으로 rebase → 기차 워크트리에서 `pnpm test:full`(백그라운드) → `git push -u origin <기차>` → PR(제목 `통합 <키>·…`, 본문 첫 줄 `개발: <username>`, 이슈마다 요약·검증 근거·라이브 검증).
+- 출발: 내 앞 기차의 PR 이 main 에 머지됐거나 처음일 때만. 최신 origin/main 으로 rebase → `pnpm train depart <기차>` → 기차 워크트리에서 `pnpm test:full`(백그라운드) → `git push -u origin <기차>` → PR(제목 `통합 <키>·…`, 본문 첫 줄 `개발: <username>`, 이슈마다 요약·검증 근거·라이브 검증).
 - 게이트 실패·반려: 같은 기차에 수정 커밋(제목 끝에 고친 이슈 키)을 더해 다시 돈다. 출발한 기차는 검토자의 「main 반영 필요」 요청 때만 반영한다 — 충돌이면 rebase(게이트를 다시 돌고 `--force-with-lease`), 마이그레이션 번호 겹침이면 번호 옮기기(7절 — 수정 커밋을 더하고 게이트를 다시 돌고 push).
 - 다른 AI 의 이슈는 내 기차에 싣지 않는다.
 

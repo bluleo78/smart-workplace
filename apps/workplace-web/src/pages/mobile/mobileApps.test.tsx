@@ -50,6 +50,24 @@ describe('앱 목록', () => {
     expect(location()).toBe('/apps')
   })
 
+  // 액션 메뉴(role=dialog)는 앱 이름이 든 접근 이름을 가진다(WP-1837) — 스크린리더가 어느 앱의 메뉴인지 읽게.
+  // 이름은 메뉴 단계(교체 목록)가 바뀌어도 같다. 「채팅」·「홈」은 lib/mobile/tabs.ts 의 MOBILE_TABS 라벨이다.
+  test('액션 메뉴는 앱 이름이 든 접근 이름으로 읽힌다(WP-1837)', async () => {
+    const { user } = await openApps()
+    // 채팅 칸을 우클릭하면 「채팅 액션 메뉴」 대화 상자가 열린다.
+    fireEvent.contextMenu(screen.getByTestId('apps-app-chat'))
+    expect(await screen.findByRole('dialog', { name: '채팅 액션 메뉴' })).toBeInTheDocument()
+    // 「다른 앱으로 교체」 단계로 넘어가도 같은 이름이다 — 단계마다 이름이 바뀌지 않는다.
+    await user.click(screen.getByTestId('apps-swap'))
+    expect(screen.getByRole('dialog', { name: '채팅 액션 메뉴' })).toBeInTheDocument()
+    // 닫고 홈 칸을 우클릭하면 이번에는 「홈 액션 메뉴」 가 열린다.
+    await user.keyboard('{Escape}')
+    // 채팅 메뉴가 실제로 닫혔는지 먼저 본다 — 닫히지 않은 채 홈 메뉴만 열려도 통과하지 않게.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '채팅 액션 메뉴' })).not.toBeInTheDocument())
+    fireEvent.contextMenu(screen.getByTestId('apps-app-home'))
+    expect(await screen.findByRole('dialog', { name: '홈 액션 메뉴' })).toBeInTheDocument()
+  })
+
   // 설정은 탭바에 고정할 수 없다 — 우클릭해도 메뉴가 없다.
   test('설정은 우클릭해도 메뉴가 뜨지 않는다', async () => {
     const { location } = await openApps()

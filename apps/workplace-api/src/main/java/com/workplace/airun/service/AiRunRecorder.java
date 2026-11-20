@@ -92,7 +92,16 @@ public class AiRunRecorder {
     int accepted = 0;
     for (Map.Entry<Long, List<AiRunRecord>> e : byTenant.entrySet()) {
       List<AiRunRecord> group = e.getValue();
-      if (!tenantStatusChecker.isActive(e.getKey())) {
+      // 테넌트 상태 조회 실패도 그 테넌트 묶음만 버린다 — 묶음 전체 500 으로 올리지 않는다(기록은 부가 기능, WP-1827 리뷰 후속).
+      boolean active;
+      try {
+        active = tenantStatusChecker.isActive(e.getKey());
+      } catch (Exception ex) {
+        log.warn("AI 처리 기록 테넌트 상태 조회 실패 — 테넌트 {} {}건 버림", e.getKey(), group.size(), ex);
+        dropped += group.size();
+        continue;
+      }
+      if (!active) {
         log.info("비활성·없는 테넌트 AI 처리 기록 무시: tenantId={}, {}건", e.getKey(), group.size());
         dropped += group.size();
         continue;

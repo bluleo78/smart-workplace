@@ -35,6 +35,9 @@ public record AiRunRecord(
     String errorDetail,
     Integer attempt) {
 
+  /** error_detail 길이 상한(자) — 저장 전 자르기와 청소기의 상세 합치기가 같이 쓴다. */
+  public static final int DETAIL_MAX = 2000;
+
   /**
    * 칸별 최대 길이로 자른 사본을 돌려준다(먼저 NUL 문자를 제거 — Postgres text 는 NUL 을 거절한다) — 넘치면 거절하지 않고 잘라 저장한다(표의
    * VARCHAR 한도·error_detail 2,000자와 같은 값).
@@ -60,7 +63,7 @@ public record AiRunRecord(
         cut(credentialLabel, 100),
         status,
         cut(errorReason, 200),
-        cut(errorDetail, 2000),
+        cut(errorDetail, DETAIL_MAX),
         clampAttempt(attempt));
   }
 

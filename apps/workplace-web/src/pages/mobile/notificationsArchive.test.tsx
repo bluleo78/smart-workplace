@@ -7,34 +7,13 @@ import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, test } from 'vitest'
 
 import { renderMobileScreen } from '@/test/kits/mobile/mobileScreen'
+// 알림 1건(읽음 — 보관 가능한 줄) 기본값은 알림 창 테스트와 같은 공유 도우미를 쓴다(WP-1844).
+import { notif } from '@/test/kits/notifications/inboxTestKit'
 import { mockViewport } from '@/test/viewport'
-import type { NotificationResponse } from '@/types/notification'
 
 import NotificationsPage from '../NotificationsPage'
 
 mockViewport()
-
-/** 알림 1건(읽음) — 보관 가능한 줄. */
-function notif(over: Partial<NotificationResponse> = {}): NotificationResponse {
-  return {
-    id: 1,
-    type: 'COMMENTED',
-    actorId: 9,
-    actorName: '업무 비서',
-    actorKind: 'AGENT',
-    issueId: 7,
-    projectKey: 'WP',
-    issueNumber: 3,
-    issueTitle: '리팩터링',
-    commentId: 55,
-    eventId: null,
-    eventTitle: null,
-    eventStartsAt: null,
-    read: true,
-    createdAt: new Date().toISOString(),
-    ...over,
-  }
-}
 
 /** 알림 화면을 모바일로 띄운다. 탭 루트로 보려면 탭바 슬롯에 알림을 넣어 둔다. */
 function renderNotifications(opts: { tabRoot: boolean }) {

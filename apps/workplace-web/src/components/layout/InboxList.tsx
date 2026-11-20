@@ -357,11 +357,15 @@ export function InboxList({
                   type="button"
                   data-testid="inbox-item"
                   onClick={() => onRowClick(n)}
+                  // WP-1844: relative — 안의 sr-only(absolute)가 스크롤 영역 밖 기준으로 잡혀 페이지 넘침을 만들지 않게 한다.
                   className={cn(
-                    "flex w-full min-w-0 items-start gap-2 row-divider px-3 py-2 text-left text-sm hover:bg-accent/50",
+                    "relative flex w-full min-w-0 items-start gap-2 row-divider px-3 py-2 text-left text-sm hover:bg-accent/50",
                     !n.read && "bg-accent/20",
                   )}
                 >
+                  {/* WP-1844: 안 읽음을 파란 점(색)으로만 알리면 스크린 리더가 구분하지 못한다 —
+                      행 이름 맨 앞에 보이지 않는 「읽지 않음, 」을 넣는다(읽은 행은 넣지 않는다). */}
+                  {!n.read && <span className="sr-only">읽지 않음, </span>}
                   <span className="min-w-0 flex-1">
                     {n.type === "REMINDER" ? (
                       // 일정 리마인더 — 액터 없이 일정 제목 + 시작 시각 표시.
@@ -488,7 +492,12 @@ export function InboxList({
                     {formatRelativeTime(n.createdAt)}
                   </span>
                   {!n.read && (
-                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                    // WP-1844: 장식용 점 — 의미는 위 sr-only 문구가 전달하므로 보조기기에서 숨긴다.
+                    <span
+                      aria-hidden="true"
+                      data-testid="inbox-unread-dot"
+                      className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary"
+                    />
                   )}
                 </button>
                 {isArchive && (

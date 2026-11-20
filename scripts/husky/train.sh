@@ -8,10 +8,14 @@
 #   sh scripts/husky/train.sh stack <AI 이름> <feature 브랜치> <이슈 키>  — 다음 기차에 그 브랜치를 커밋 하나로 쌓는다(없으면 만든다)
 #   sh scripts/husky/train.sh rebase <기차 브랜치>                         — 출발 전이면 최신 origin/main 으로, 출발했으면 충돌할 때만
 #   sh scripts/husky/train.sh next <AI 이름>                               — 아직 출발하지 않은 기차 이름(없으면 빈 출력)
+#   sh scripts/husky/train.sh depart <기차 브랜치>                         — 게이트를 띄우기 전에 출발 표시(이 뒤 쌓는 이슈는 다음 기차로)
 #   sh scripts/husky/train.sh keys <기차 브랜치>                           — 실린 이슈 키를 쌓은 순서로 「K1·K2」(PR 제목 `통합 K1·K2`)
 #   sh scripts/husky/train.sh check <기차 브랜치>                          — 실린 이슈마다 절차 검사(procedure-check). 하나라도 실패하면 1(출발 전 게이트를 띄우지 않는다)
 #
-# - 「출발」 = 기차 브랜치를 origin 에 push 한 것(origin/<기차> 가 있음). 출발한 기차에는 새 이슈를 쌓지 않는다 — 다음 번호로 새 기차를 만든다.
+# - 「출발」 = 기차 브랜치를 origin 에 push 했거나(origin/<기차> 가 있거나, 머지 뒤 원격이 지워져도 push -u 가 남긴 upstream 설정이 있음)
+#   depart 로 표지(branch.<기차>.trainDeparted, 기차를 git branch -D 로 지우면 함께 지워짐)를 남긴 것. 게이트는 push 전에 돌아 오래 걸리므로
+#   그 사이 끝난 이슈가 게이트가 보지 않은 트리로 나가지 않게 게이트 전에 표지를 남긴다(WP-1839). 출발한 기차에는 새 이슈를 쌓지 않는다 —
+#   다음 번호로 새 기차를 만든다. 표지가 서면 rebase 는 충돌 때만 하므로 depart 는 최신 origin/main 위인지·앞 기차가 머지됐는지 먼저 본다.
 # - 기차마다 워크트리 MAIN/.claude/worktrees/integ-<AI 이름>-<번호> 를 둔다. 게이트·수정 커밋·push 는 그 안에서 한다.
 # - 쌓기는 feature 의 마지막 커밋 메시지(제목 끝 `(<이슈 키>)`)와 작성자를 그대로 쓰고, 끝에 `Stacked-From: <feature 커밋 SHA>` 트레일러를 단다
 #   (끝난 이슈 정리 worktree-sweep 이 feature 커밋이 들어갔는지 가리는 데 쓴다 — WP-1643). 쌓는 커밋은 커밋 훅을 다시 돌지 않는다 —
@@ -43,6 +47,7 @@ usage() {
       sh scripts/husky/train.sh next <AI 이름>
       sh scripts/husky/train.sh keys <기차 브랜치>
       sh scripts/husky/train.sh check <기차 브랜치>
+      sh scripts/husky/train.sh depart <기차 브랜치>
 EOF
   exit 2
 }
@@ -67,16 +72,20 @@ train_numbers() {
     sed -n "s#^integ/$1-\([0-9][0-9]*\)\$#\1#p" | sort -n -u
 }
 
-# 출발 = origin 에 push 함. 원격 브랜치가 머지 뒤 지워지고 prune 돼도 push -u 가 남긴 upstream 설정으로 알아본다 —
-# 머지된 기차에 새 이슈를 쌓지 않게.
-departed() {
+# origin 에 올렸는지 — origin/<기차> 가 있거나, 원격 브랜치가 머지 뒤 지워지고 prune 돼도 push -u 가 남긴 upstream 설정이 있다.
+pushed() {
   git rev-parse --verify --quiet "refs/remotes/origin/$1" >/dev/null ||
-    [ "$(git config --get "branch.$1.merge" || true)" = "refs/heads/$1" ]
+    [ "$(git config --get "branch.$1.merge")" = "refs/heads/$1" ]
+}
+
+# 출발 = push 했거나 depart 표지(맨 위 「출발」 설명 참고).
+departed() {
+  pushed "$1" || [ "$(git config --get "branch.$1.trainDeparted")" = true ]
 }
 
 worktree_of() { echo "$MAIN_DIR/.claude/worktrees/$(echo "$1" | tr '/' '-')"; }
 
-# 아직 출발하지 않은(origin 에 없는) 로컬 기차 중 가장 낮은 번호.
+# 아직 출발하지 않은 로컬 기차 중 가장 낮은 번호(출발 정의는 맨 위 설명).
 next_train() {
   for n in $(train_numbers "$1"); do
     b="integ/$1-$n"
@@ -114,6 +123,17 @@ proc_check_skipped() {
   say "절차 검사를 건너뜁니다(TRAIN_NO_PROCEDURE_CHECK=1)"
 }
 
+# origin/main 이 있어야 한다(없으면 종료 코드 2). stack·rebase·depart 가 같이 쓴다.
+require_base() {
+  git rev-parse --verify --quiet "$BASE" >/dev/null || die "origin/main 이 없습니다 — git fetch origin 뒤 다시" 2
+}
+
+# 기차 브랜치 검증 — integ/* 이고 로컬에 있어야 한다(아니면 종료 코드 2). rebase·depart 가 같이 쓴다.
+require_train() {
+  case "$1" in integ/*) : ;; *) die "기차 브랜치(integ/…)가 아닙니다: $1" 2 ;; esac
+  git rev-parse --verify --quiet "refs/heads/$1" >/dev/null || die "기차 브랜치가 없습니다: $1" 2
+}
+
 cmd_stack() {
   [ $# -eq 3 ] || usage
   name=$1; feature=$2; key=$3
@@ -129,7 +149,7 @@ cmd_stack() {
     fi
   fi
   fetch
-  git rev-parse --verify --quiet "$BASE" >/dev/null || die "origin/main 이 없습니다 — git fetch origin 뒤 다시" 2
+  require_base
   fsha=$(git rev-parse --verify --quiet "$feature^{commit}") || die "커밋을 찾을 수 없음: $feature" 2
   subject=$(git log -1 --format=%s "$fsha")
   case "$subject" in *"($key)") : ;; *) die "$feature 의 마지막 커밋 제목 끝에 ($key) 가 없습니다 — 「$subject」(커밋 하나로 합친 뒤 쌓습니다)" ;; esac
@@ -189,10 +209,9 @@ cmd_stack() {
 cmd_rebase() {
   [ $# -eq 1 ] || usage
   train=$1
-  case "$train" in integ/*) : ;; *) die "기차 브랜치(integ/…)가 아닙니다: $train" 2 ;; esac
-  git rev-parse --verify --quiet "refs/heads/$train" >/dev/null || die "기차 브랜치가 없습니다: $train" 2
+  require_train "$train"
   fetch
-  git rev-parse --verify --quiet "$BASE" >/dev/null || die "origin/main 이 없습니다 — git fetch origin 뒤 다시" 2
+  require_base
   wt=$(ensure_worktree "$train")
   if git -C "$wt" merge-base --is-ancestor "$BASE" HEAD; then
     say "$train: 이미 최신 origin/main 위입니다"; return 0
@@ -219,7 +238,9 @@ cmd_rebase() {
   rm -f "$log"
   migrations_ok "$wt" HEAD || die "$train: rebase 뒤 마이그레이션 번호가 origin/main 과 겹칩니다 — 그 이슈의 번호를 옮기는 수정 커밋을 더합니다"
   if departed "$train"; then
-    say "$train: rebase 했습니다 — 게이트(pnpm test:full)를 다시 돈 뒤 git push --force-with-lease 합니다"
+    # 올라간 기차는 force-with-lease, 표지만 있고 push 전이면 처음 올리는 push -u.
+    if pushed "$train"; then push_cmd="git push --force-with-lease"; else push_cmd="git push -u origin $train"; fi
+    say "$train: rebase 했습니다 — 게이트(pnpm test:full)를 다시 돈 뒤 $push_cmd 합니다"
   else
     say "$train: 최신 origin/main 으로 rebase 했습니다"
   fi
@@ -253,6 +274,36 @@ cmd_check() {
   [ "$failed" -eq 0 ] || die "절차 검사 실패 — 게이트를 띄우지 않습니다"
 }
 
+# 출발 표시 — 게이트를 띄우기 전에 부른다(왜 표지가 필요한지는 맨 위 「출발」). 표지가 서기 전에 최신 origin/main 위인지,
+# 앞 번호 기차가 main 에 들어갔는지 확인한다(process-issue.md 「기차」 3번).
+cmd_depart() {
+  [ $# -eq 1 ] || usage
+  train=$1
+  require_train "$train"
+  fetch
+  require_base
+  if ! departed "$train"; then
+    git merge-base --is-ancestor "$BASE" "$train" ||
+      die "$train: 최신 origin/main 위가 아닙니다 — 먼저 sh scripts/husky/train.sh rebase $train 뒤 depart 합니다"
+    # 앞 번호 기차(로컬·origin)가 아직 main 에 없으면 출발하지 않는다.
+    rest=${train#integ/}
+    name=${rest%-*}
+    num=${rest##*-}
+    for n in $(train_numbers "$name"); do
+      [ "$n" -lt "$num" ] || continue
+      for ref in "refs/heads/integ/$name-$n" "refs/remotes/origin/integ/$name-$n"; do
+        git rev-parse --verify --quiet "$ref" >/dev/null || continue
+        git merge-base --is-ancestor "$ref" "$BASE" ||
+          die "$train: 앞 기차 integ/$name-$n 이 아직 main 에 들어가지 않아 출발하지 않습니다"
+      done
+    done
+    # 빈 기차는 출발시키지 않는다 — 표지만 남으면 아무것도 싣지 못한 채 번호만 소모된다.
+    [ "$(git rev-list --count "$BASE..$train")" -gt 0 ] || die "$train: 실린 이슈가 없어 출발하지 않습니다"
+    git config "branch.$train.trainDeparted" true
+  fi
+  say "$train: 출발 표시 — 이제 쌓는 이슈는 다음 기차로 갑니다"
+}
+
 [ $# -ge 1 ] || usage
 cmd=$1; shift
 case "$cmd" in
@@ -261,5 +312,6 @@ case "$cmd" in
   next) cmd_next "$@" ;;
   keys) cmd_keys "$@" ;;
   check) cmd_check "$@" ;;
+  depart) cmd_depart "$@" ;;
   *) usage ;;
 esac

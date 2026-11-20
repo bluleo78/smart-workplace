@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.airun.dto.AiRunRecord;
 import com.workplace.airun.repository.AiRunRepository;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Set;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -359,6 +361,88 @@ class AiRunRepositoryTest extends IntegrationTestBase {
     var r = row(id);
     assertThat(r.getStatus()).isEqualTo("FAILED");
     assertThat(r.getErrorReason()).isEqualTo("보고 없음");
+  }
+
+  /** 실패 레코드 — 사유·상세만 바꿔 쓴다. */
+  private static AiRunRecord failedRec(
+      UUID id, String reason, String detail, OffsetDateTime ended) {
+    return new AiRunRecord(
+        id, null, "AI_CHAT", null, null, null, null, null, null, T0, ended, null, null, null, null,
+        null, null, "FAILED", reason, detail, null);
+  }
+
+  /** 사유·상세가 있는 RUNNING 레코드. */
+  private static AiRunRecord runningRec(UUID id, String reason, String detail) {
+    return new AiRunRecord(
+        id, null, "AI_CHAT", null, null, null, null, null, null, T0, null, null, null, null, null,
+        null, null, "RUNNING", reason, detail, null);
+  }
+
+  /** T0 에 시작한 RUNNING 을 모두 닫을 만큼 지난 시각(1시간 뒤)에 청소기를 돌린다(긴 종류 없음 — 기준 30분). */
+  private void sweepAll() {
+    repo.failStaleRunning(Set.of(), Duration.ofHours(1), Duration.ofMinutes(30), T0.plusHours(1));
+  }
+
+  /** 리뷰 후속 — 사유가 이미 있던 RUNNING 행도 청소기가 「보고 없음」 표지로 닫고, 옛 사유는 상세로 옮긴다. */
+  @Test
+  void sweep_runningWithReason_marksStaleAndKeepsOldReasonInDetail() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(runningRec(id, "retrying", "1차 429"));
+    sweepAll();
+    var r = row(id);
+    assertThat(r.getStatus()).isEqualTo("FAILED");
+    assertThat(r.getErrorReason()).isEqualTo("보고 없음");
+    assertThat(r.getErrorDetail()).isEqualTo("retrying / 1차 429");
+    // 표지가 있으니 늦은 성공 보고가 바로잡는다.
+    repo.upsert(rec(id, "SUCCEEDED", T0, T0.plusMinutes(5)));
+    assertThat(row(id).getStatus()).isEqualTo("SUCCEEDED");
+  }
+
+  /** 리뷰 후속 — 사유만 있고 상세가 없던 행은 옛 사유가 그대로 상세가 된다. */
+  @Test
+  void sweep_runningWithReasonOnly_reasonMovesToDetail() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(runningRec(id, "retrying", null));
+    sweepAll();
+    assertThat(row(id).getErrorReason()).isEqualTo("보고 없음");
+    assertThat(row(id).getErrorDetail()).isEqualTo("retrying");
+  }
+
+  /**
+   * 리뷰 후속 — 사유 없이 늦게 온 FAILED 는 사유 없는 행을 남기지 않고 「사유 미보고」로 채운다. 「보고 없음」 표지가 아니므로 그 뒤 성공 재전송이 실제로 보고된
+   * 실패를 뒤집지 못한다.
+   */
+  @Test
+  void upsert_sweptRow_lateFailedWithoutReason_fillsUnreportedAndStaysFailed() {
+    UUID id = sweptRow(T0.plusHours(1));
+    repo.upsert(failedRec(id, null, null, T0.plusMinutes(5)));
+    var r = row(id);
+    assertThat(r.getStatus()).isEqualTo("FAILED");
+    assertThat(r.getErrorReason()).isEqualTo("사유 미보고");
+    assertThat(r.getEndedAt().toInstant()).isEqualTo(T0.plusMinutes(5).toInstant());
+    repo.upsert(rec(id, "SUCCEEDED", T0, T0.plusMinutes(6)));
+    assertThat(row(id).getStatus()).isEqualTo("FAILED");
+  }
+
+  /** 리뷰 후속 — 늦은 FAILED 가 이기면 사유·상세를 한 묶음으로 바꾼다(청소기가 옮긴 옛 상세가 새 사유 옆에 남지 않는다). */
+  @Test
+  void sweep_thenLateFailedWithReasonOnly_detailReplacedTogether() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(runningRec(id, "retrying", "1차 429"));
+    sweepAll();
+    repo.upsert(failedRec(id, "timeout", null, T0.plusMinutes(5)));
+    var r = row(id);
+    assertThat(r.getErrorReason()).isEqualTo("timeout");
+    assertThat(r.getErrorDetail()).isNull();
+  }
+
+  /** 리뷰 후속 — 옛 사유를 상세로 옮겨도 상세 상한 2000자를 넘기지 않는다. */
+  @Test
+  void sweep_oldReasonMovedToDetail_truncatedTo2000() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(runningRec(id, "r".repeat(200), "d".repeat(2000)));
+    sweepAll();
+    assertThat(row(id).getErrorDetail()).hasSize(2000).startsWith("r".repeat(200) + " / ");
   }
 
   /** 청소기가 닫은 게 아닌 일반 FAILED 는 이후 SUCCEEDED 로 뒤집히지 않는다(기존 규칙 유지). */

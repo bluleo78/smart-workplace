@@ -128,8 +128,10 @@ function PinnableTile({ app, id, pinned, open, onOpenMenu, onCloseMenu, menu }: 
         </div>
       </PopoverAnchor>
       {/* 칸(아이콘+이름) 바로 아래에 붙여 누른 앱의 이름을 가리지 않는다. collisionPadding: 끝 열 메뉴가 화면 가장자리에 붙지 않게. */}
+      {/* 접근 이름 = 「<앱 이름> 액션 메뉴」 — 스크린리더가 어느 앱의 메뉴인지 알린다(WP-1837). 메뉴 단계가 바뀌어도 이름은 같다. */}
       <PopoverContent
         data-testid="apps-menu"
+        aria-label={`${app.label} 액션 메뉴`}
         side="bottom"
         align="center"
         sideOffset={4}

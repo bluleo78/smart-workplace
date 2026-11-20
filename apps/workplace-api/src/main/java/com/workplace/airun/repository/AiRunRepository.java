@@ -30,6 +30,12 @@ public class AiRunRepository {
   /** 보고 없이 멈춘 처리를 실패로 닫을 때 남기는 사유. */
   static final String STALE_REASON = "보고 없음";
 
+  /**
+   * 청소기가 닫은 행에 사유 없이 늦은 FAILED 가 왔을 때 남기는 사유 — 사유 없는 FAILED 를 남기지 않되 「보고 없음」 표지와 달라야 한다(표지가 남으면 그 뒤
+   * 성공 재전송이 실제로 보고된 실패를 뒤집는다, WP-1827 리뷰 후속).
+   */
+  static final String UNREPORTED_REASON = "사유 미보고";
+
   private final DSLContext dsl;
 
   /** 상태 순위 — FAILED(3) > SUCCEEDED·SKIPPED(2) > RUNNING(1). */
@@ -49,7 +55,13 @@ public class AiRunRepository {
 
   /** 늦은 보고가 이기면 보고 값(NULL 포함)으로 덮고, 아니면 먼저 들어온 값을 유지한다. */
   private static <T> Field<T> lateWinsOrKeepFirst(Condition lateReportWins, Field<T> f) {
-    return case_().when(lateReportWins, excluded(f)).else_(keepFirst(f));
+    return lateWinsOrKeepFirst(lateReportWins, excluded(f), f);
+  }
+
+  /** 늦은 보고가 이기면 {@code lateValue} 로 덮고, 아니면 먼저 들어온 값을 유지한다. */
+  private static <T> Field<T> lateWinsOrKeepFirst(
+      Condition lateReportWins, Field<T> lateValue, Field<T> f) {
+    return case_().when(lateReportWins, lateValue).else_(keepFirst(f));
   }
 
   /**
@@ -71,6 +83,13 @@ public class AiRunRepository {
             .eq("FAILED")
             .and(AI_RUN.ERROR_REASON.eq(STALE_REASON))
             .and(incomingStatus.ne("RUNNING"));
+    // 늦은 보고가 이길 때 쓸 사유 — FAILED 가 사유를 비워 오면 「사유 미보고」(아래 ERROR_REASON 설명).
+    Field<String> lateReason =
+        case_()
+            .when(
+                incomingStatus.eq("FAILED").and(excluded(AI_RUN.ERROR_REASON).isNull()),
+                val(UNREPORTED_REASON))
+            .else_(excluded(AI_RUN.ERROR_REASON));
     dsl.insertInto(AI_RUN)
         .set(AI_RUN.RUN_ID, r.runId())
         .set(AI_RUN.KIND, r.kind())
@@ -123,8 +142,11 @@ public class AiRunRepository {
         .set(AI_RUN.ACTOR_TYPE, keepFirst(AI_RUN.ACTOR_TYPE))
         .set(AI_RUN.ACTOR_ID, keepFirst(AI_RUN.ACTOR_ID))
         .set(AI_RUN.SOURCE_AT, keepFirst(AI_RUN.SOURCE_AT))
-        // 늦은 보고가 이기면 사유·상세도 보고 값으로 바꾼다(성공·건너뜀이면 NULL 로 「보고 없음」을 지운다).
-        .set(AI_RUN.ERROR_REASON, lateWinsOrKeepFirst(lateReportWins, AI_RUN.ERROR_REASON))
+        // 늦은 보고가 이기면 사유·상세를 한 묶음으로 보고 값으로 바꾼다(성공·건너뜀이면 NULL 로 「보고 없음」을 지운다). 늦은 FAILED 가 사유를
+        // 비워 오면 「사유 미보고」로 채운다 — 사유 없는 FAILED 도, 표지가 남아 뒤집히는 FAILED 도 만들지 않는다(WP-1827 리뷰 후속).
+        .set(
+            AI_RUN.ERROR_REASON,
+            lateWinsOrKeepFirst(lateReportWins, lateReason, AI_RUN.ERROR_REASON))
         .set(AI_RUN.ERROR_DETAIL, lateWinsOrKeepFirst(lateReportWins, AI_RUN.ERROR_DETAIL))
         .set(AI_RUN.ATTEMPT, greatest(AI_RUN.ATTEMPT, excluded(AI_RUN.ATTEMPT)))
         .set(AI_RUN.UPDATED_AT, DSL.currentOffsetDateTime())
@@ -135,21 +157,39 @@ public class AiRunRepository {
    * 진행 중(RUNNING)인데 보고 없이 기준 시간을 넘긴 처리를 FAILED 로 닫는다. {@code longKinds} 에 속한 kind 는 {@code
    * longMax}, 나머지는 {@code defaultMax} 를 기준으로 하며, 한 번의 UPDATE 로 처리한다. 닫은 건수를 돌려준다.
    *
+   * <p>kind 별 CASE 기준 시각은 색인 범위 조건이 되지 못하므로, 두 기준 중 늦은 쪽을 상수 상한으로 함께 걸어 부분 색인 {@code
+   * ai_run_running_idx}(started_at, RUNNING 만)를 범위로 쓰게 한다(WP-1827 리뷰 후속).
+   *
+   * <p>사유는 늘 「보고 없음」으로 둔다 — 늦은 결과 보고 바로잡기(upsert 의 lateReportWins)가 이 표지로 청소기가 닫은 행을 알아본다. 이미 사유가
+   * 있던 행이면 그 사유를 상세 앞에 옮긴다(상세 상한 2000자로 자른다).
+   *
    * @param now 기준 시각(테스트·호출자가 정한다)
    */
   public int failStaleRunning(
       Set<String> longKinds, Duration longMax, Duration defaultMax, OffsetDateTime now) {
+    OffsetDateTime longCutoff = now.minus(longMax);
+    OffsetDateTime defaultCutoff = now.minus(defaultMax);
     // kind 별 기준 시각 — 긴 종류는 더 오래 기다린다.
     Field<OffsetDateTime> cutoff =
-        case_()
-            .when(AI_RUN.KIND.in(longKinds), val(now.minus(longMax)))
-            .else_(val(now.minus(defaultMax)));
+        case_().when(AI_RUN.KIND.in(longKinds), val(longCutoff)).else_(val(defaultCutoff));
+    // 색인 범위용 상수 상한 — 두 기준 중 늦은 시각(이보다 늦게 시작한 행은 어느 기준으로도 아직 닫지 않는다).
+    OffsetDateTime latestCutoff = longCutoff.isAfter(defaultCutoff) ? longCutoff : defaultCutoff;
+    Field<String> detailWithOldReason =
+        DSL.substring(
+            case_()
+                .when(AI_RUN.ERROR_REASON.isNull(), AI_RUN.ERROR_DETAIL)
+                .when(AI_RUN.ERROR_DETAIL.isNull(), AI_RUN.ERROR_REASON)
+                .else_(AI_RUN.ERROR_REASON.concat(val(" / ")).concat(AI_RUN.ERROR_DETAIL)),
+            1,
+            AiRunRecord.DETAIL_MAX);
     return dsl.update(AI_RUN)
         .set(AI_RUN.STATUS, "FAILED")
         .set(AI_RUN.ENDED_AT, now)
-        .set(AI_RUN.ERROR_REASON, coalesce(AI_RUN.ERROR_REASON, val(STALE_REASON)))
+        .set(AI_RUN.ERROR_DETAIL, detailWithOldReason)
+        .set(AI_RUN.ERROR_REASON, val(STALE_REASON))
         .set(AI_RUN.UPDATED_AT, DSL.currentOffsetDateTime())
         .where(AI_RUN.STATUS.eq("RUNNING"))
+        .and(AI_RUN.STARTED_AT.lt(latestCutoff))
         .and(AI_RUN.STARTED_AT.lt(cutoff))
         .execute();
   }
