@@ -72,6 +72,7 @@ import {
   toggleCalendar,
   visibleRange,
   workWeekDays,
+  workWeekNewStart,
 } from '@/lib/calendar'
 import { headerMonthLabel } from '@/lib/calendarAgenda'
 import { canMoveEvent, type MovedRange, moveRequestBody } from '@/lib/calendarMove'
@@ -395,10 +396,10 @@ export function CalendarPage() {
     if (mobileAgenda) resetAgenda()
   }
 
-  // 새 일정 다이얼로그 열기 (시작 시각 선택 시 전달)
+  // 새 일정 다이얼로그 열기 (시작 시각 선택 시 전달). 작업주에서 주말이면 보이는 평일로 연다(workWeekNewStart, WP-1815).
   const openNew = (start?: Date, end?: Date) => {
     setEditing(null)
-    setDefaultStart(start)
+    setDefaultStart(start ?? (view === 'workweek' ? workWeekNewStart(anchor, new Date()) : undefined))
     setDefaultEnd(end)
     setDefaultAttendees(undefined)
     attendeeLookupRef.current += 1

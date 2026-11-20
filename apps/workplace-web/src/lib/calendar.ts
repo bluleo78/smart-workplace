@@ -39,6 +39,21 @@ export function workWeekDays(anchor: Date): Date[] {
   return weekDays(anchor).slice(1, 6)
 }
 
+// 작업주 보기의 「새 일정」 기본 시작(WP-1815 리뷰 후속). 보고 있는 주의 주말이 오늘이면 5열 격자에 안 보이므로 날짜만 가까운
+// 평일(토 → 금, 일 → 월)로 옮기고 시각은 둔다. 평일이거나 다른 주를 보는 중이면 undefined(지금 시각 — 「주」 보기와 같음) —
+// 다른 주의 끝 날로 옮기면 주말에 지난 주를 보다가 과거 일정을 만들게 된다.
+export function workWeekNewStart(anchor: Date, now: Date): Date | undefined {
+  const dow = now.getDay()
+  if (dow !== 0 && dow !== 6) return undefined
+  if (!weekDays(anchor).some((d) => isSameDay(d, now))) return undefined
+  // 날짜는 격자가 그리는 열(workWeekDays)에서 고른다 — 열 규칙이 바뀌어도 고른 날이 격자 밖으로 나가지 않게.
+  const days = workWeekDays(anchor)
+  const day = dow === 6 ? days[days.length - 1] : days[0]
+  const start = new Date(now)
+  start.setFullYear(day.getFullYear(), day.getMonth(), day.getDate())
+  return start
+}
+
 // 뷰별 서버 조회 범위(ISO). 겹침 쿼리에 사용.
 export function visibleRange(view: CalendarViewType, anchor: Date): { from: string; to: string } {
   let start: Date
