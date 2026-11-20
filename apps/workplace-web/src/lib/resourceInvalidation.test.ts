@@ -429,6 +429,21 @@ describe('mail-account 규칙 범위', () => {
   });
 });
 
+// WP-1789: 알림 범위(notify-mode) 변경은 계정 목록만 다시 받는다. 표시가 없으면 기존 규칙(메일·안 읽은 수·일정)을 그대로 탄다.
+describe('mail-account 알림 범위 변경', () => {
+  it('change=notify-mode → 계정 목록만', () => {
+    expect(
+      invalidationTargets({ resource: 'mail-account', op: 'updated', accountId: 5, change: 'notify-mode' }),
+    ).toEqual([{ queryKey: ['mail-accounts'] }]);
+  });
+
+  it('표시가 없는 계정 수정은 지금처럼 메일 목록·안 읽은 수·일정까지', () => {
+    const keys = invalidationTargets({ resource: 'mail-account', op: 'updated', accountId: 5 }).map((t) => t.queryKey);
+    expect(keys).toContainEqual(['mail-messages', 5]);
+    expect(keys).toContainEqual(['calendar']);
+  });
+});
+
 describe('리소스 이름 계약', () => {
   it('RULES 키 목록 = resource-contract.json (백엔드 ResourceChangedContractTest 가 같은 파일을 RESOURCE_* 상수와 비교)', () => {
     expect([...ruleResourceNames()].sort()).toEqual([...resourceContract].sort());

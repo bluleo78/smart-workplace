@@ -198,7 +198,8 @@ public class EmailAccountService {
       throw new EmailAccountNotFoundException(id);
     }
     // 다른 탭·기기의 계정 목록(['mail-accounts'])이 새 알림 범위를 곧바로 따라오도록 실시간 변경 이벤트를 낸다.
-    notifier.accountChanged(ResourceChangedEvent.OP_UPDATED, userId, id, userId);
+    // WP-1789: 알림 범위 변경임을 change 표시로 실어, 웹이 이 변경에는 메일 목록 등을 다시 불러오지 않게 한다.
+    notifier.accountNotifyModeChanged(userId, id, userId);
   }
 
   /** 공용: 주어진 비밀번호로 IMAP/SMTP 연결 검증. */

@@ -31,6 +31,8 @@ export interface ResourceChangedPayload {
   accountId?: number;
   messageId?: number;
   pageId?: number;
+  /** 규칙이 범위를 좁힐 때 본다 — 예: mail-account 의 'notify-mode'(알림 범위만 바뀜, WP-1789). */
+  change?: string;
 }
 
 export interface InvalidationTarget {
@@ -218,17 +220,22 @@ const RULES: Record<string, Rule> = {
   ],
   // 계정 추가·해제는 모든 계정 목록에 영향 — 개별 계정 수정(accountId>0)은 그 계정의 메일 목록만 다시 받는다(0 은 전 계정 일괄 설정).
   // ['calendar'] 는 op 와 무관하게 유지: M365 연결(신규·IMAP→Graph 전환)이 upsert 라 updated 로 오는데 외부 캘린더 표시가 생긴다.
-  'mail-account': (p) => [
-    { queryKey: ['mail-accounts'] },
-    {
-      queryKey:
-        p.op === 'updated' && p.accountId != null && p.accountId > 0 ? ['mail-messages', p.accountId] : ['mail-messages'],
-    },
-    { queryKey: mailMessageKeys.unreadCountsAll() },
-    { queryKey: mailMessageKeys.unreadSummary() },
-    { queryKey: ['mail-summary'], exact: true },
-    { queryKey: calendarKeys.all },
-  ],
+  // 알림 범위(notify-mode, WP-1789)만 바뀐 경우 메일 목록·안 읽은 수·일정은 그대로라 계정 목록만 다시 받는다.
+  // 값 'notify-mode' 는 서버 MailChangeNotifier.CHANGE_NOTIFY_MODE 와 같고 서버 테스트가 고정한다 — 바꾸면 양쪽을 함께 바꾼다.
+  'mail-account': (p) => {
+    if (p.change === 'notify-mode') return [{ queryKey: ['mail-accounts'] }];
+    return [
+      { queryKey: ['mail-accounts'] },
+      {
+        queryKey:
+          p.op === 'updated' && p.accountId != null && p.accountId > 0 ? ['mail-messages', p.accountId] : ['mail-messages'],
+      },
+      { queryKey: mailMessageKeys.unreadCountsAll() },
+      { queryKey: mailMessageKeys.unreadSummary() },
+      { queryKey: ['mail-summary'], exact: true },
+      { queryKey: calendarKeys.all },
+    ];
+  },
   // 삭제(WP-580)는 목록만 — 지운 스페이스의 트리·멤버를 다시 받으면 404 만 난다. 그 스페이스를 보던 멤버는 목록에서 빠진 것으로
   // "볼 수 없는 공간" 안내(WP-559)를 본다.
   'wiki-space': (p) => [

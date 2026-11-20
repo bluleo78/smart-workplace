@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -24,6 +23,8 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -32,11 +33,13 @@ import org.springframework.transaction.annotation.Transactional;
  * 메서드 @Transactional 로 공유 test DB 롤백(현행 리포지토리 통합 테스트 패턴).
  */
 @Transactional
+@RecordApplicationEvents
 class EmailAccountNotifyModeTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired EmailAccountRepository repo;
   @Autowired EmailAccountService service;
+  @Autowired ApplicationEvents events;
 
   /** 실시간 변경 알림 호출 여부만 확인하므로 spy — 실제 동작은 그대로 둔다. */
   @MockitoSpyBean MailChangeNotifier notifier;
@@ -127,16 +130,28 @@ class EmailAccountNotifyModeTest extends IntegrationTestBase {
         .isInstanceOf(EmailAccountNotFoundException.class);
   }
 
-  /** WP-1740: 변경에 성공하면 본인에게 계정 변경(updated) 실시간 이벤트를 낸다. */
+  /**
+   * WP-1789: 알림 범위 변경은 계정 변경(updated) 이벤트에 change="notify-mode" 를 실어 낸다. 웹의 실시간 규칙이 이 글자를 보고 알림 범위
+   * 변경만 제외하므로(계정 목록은 갱신) 값이 글자 그대로 유지돼야 한다.
+   */
   @Test
-  void setNotifyMode_publishesAccountChanged() {
+  void setNotifyMode_publishesNotifyModeChange() {
     long user = TestFixtures.createHuman(dsl);
     long id = repo.insert(user, sampleReq("set-event@example.com"), "ENC");
 
     service.setNotifyMode(user, id, "OFF");
 
-    verify(notifier)
-        .accountChanged(eq(ResourceChangedEvent.OP_UPDATED), eq(user), eq(id), eq(user));
+    ResourceChangedEvent last =
+        events.stream(ResourceChangedEvent.class)
+            .filter(e -> MailChangeNotifier.RESOURCE_MAIL_ACCOUNT.equals(e.resource()))
+            .reduce((first, second) -> second)
+            .orElseThrow();
+    assertThat(last.op()).isEqualTo(ResourceChangedEvent.OP_UPDATED);
+    assertThat(last.scopeId()).isEqualTo(user);
+    assertThat(last.ids()).containsExactly(id);
+    assertThat(last.actorId()).isEqualTo(user);
+    assertThat(last.attrs()).containsEntry("accountId", id).containsEntry("change", "notify-mode");
+    verify(notifier, never()).accountChanged(anyString(), anyLong(), anyLong(), any());
   }
 
   /** WP-1740: 404 로 실패하면 이벤트를 내지 않는다. */
@@ -148,5 +163,6 @@ class EmailAccountNotifyModeTest extends IntegrationTestBase {
         .isInstanceOf(EmailAccountNotFoundException.class);
 
     verify(notifier, never()).accountChanged(anyString(), anyLong(), anyLong(), any());
+    verify(notifier, never()).accountNotifyModeChanged(anyLong(), anyLong(), any());
   }
 }

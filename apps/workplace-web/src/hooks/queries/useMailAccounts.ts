@@ -141,6 +141,14 @@ export function useSetMailNotifyMode() {
       patchNotifyMode(qc, id, notifyMode);
       return { previous };
     },
+    // 성공하면 고른 값을 캐시에 다시 적는다 — 저장 중 다른 경로의 다시 받기가 옛 값을 캐시에 넣었어도,
+    // 저장이 끝나 라디오 덧씌우기가 풀리는 순간 옛 값으로 튀지 않게(WP-1789).
+    // 먼저 이미 나간 목록 요청을 거둔다 — 저장 전에 시작된 요청이 pending 을 벗어난 뒤 늦게 도착해 방금 적은 값을
+    // 옛 값으로 덮을 수 있고, 겹친 저장이면 onSettled 가 다시 받기를 건너뛰어 다음 저장이 끝날 때까지 되돌아가 있게 된다.
+    onSuccess: async (_data, { id, notifyMode }) => {
+      await qc.cancelQueries({ queryKey: mailAccountKeys.all });
+      patchNotifyMode(qc, id, notifyMode);
+    },
     onError: (e, { id }, ctx) => {
       const prev = ctx?.previous;
       if (prev) patchNotifyMode(qc, id, prev);
