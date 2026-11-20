@@ -12,7 +12,7 @@ import type {
 } from '../../types/messaging';
 import { withLatestLinkPreviews } from './linkPreviewCache';
 import { messagingKeys } from './messagingKeys';
-import { removeOptimisticRow, settleOptimisticRow } from './optimisticRows';
+import { beginOptimisticSend, finishOptimisticSend, optimisticSendKey, removeOptimisticRow, settleOptimisticRow } from './optimisticRows';
 
 interface MeContext {
   id: number;
@@ -24,14 +24,15 @@ export function useCreateMessage(channelId: number, me: MeContext) {
   const qc = useQueryClient();
 
   return useMutation({
+    // 같은 대화의 진행 중 전송 수를 세어 목록 복구를 마지막 전송 뒤 한 번만 하게 한다(WP-1872).
+    mutationKey: optimisticSendKey(messagingKeys.messages(channelId)),
     mutationFn: (payload: CreateMessageRequest) =>
       messagingApi.createMessage(channelId, payload).then((r) => r.data),
 
     onMutate: async (payload) => {
       const key = messagingKeys.messages(channelId);
-      await qc.cancelQueries({ queryKey: key });
-      // 스냅숏은 들고 가지 않는다 — 캐시가 있었는지만 기억(없었으면 실패 뒤 무효화).
-      const hadCache = qc.getQueryData<InfiniteData<MessagePage>>(key) !== undefined;
+      // 조회 취소 + 복구 필요 표시(캐시 없음/진행 중 조회). 스냅숏은 들고 가지 않는다.
+      await beginOptimisticSend(qc, key);
 
       const tempId = -Math.floor(Math.random() * 1_000_000_000);
       const optimistic: MessageResponse = {
@@ -65,20 +66,22 @@ export function useCreateMessage(channelId: number, me: MeContext) {
         return { ...old, pages: [{ ...first, items: [optimistic, ...first.items] }, ...rest] };
       });
 
-      return { hadCache, tempId };
+      return { tempId };
     },
 
     onSuccess: (saved, _payload, ctx) => {
       const key = messagingKeys.messages(channelId);
       // POST 응답은 링크 미리보기를 가져오기 전 상태다(WP-874) — echo 에 이미 붙은 미리보기 SSE 값을 살린다.
       const next = withLatestLinkPreviews(qc, channelId, saved);
-      // 임시 행이 사라졌으면 저장 행을 넣고, 캐시 없이 보냈다면 목록을 다시 부른다(WP-1872).
-      if (ctx) settleOptimisticRow(qc, key, ctx.tempId, next, ctx.hadCache, 'start');
+      // 임시 행이 사라졌으면 저장 행을 넣고, 복구가 필요하면 마지막 전송 뒤 목록을 다시 부른다(WP-1872).
+      if (ctx) settleOptimisticRow(qc, key, ctx.tempId, next, 'start');
     },
 
     onError: (err, _payload, ctx) => {
-      // 이 전송의 임시 행만 걷는다. 캐시가 없던 경우엔 무효화로 서버 상태를 다시 받는다.
-      if (ctx) removeOptimisticRow(qc, messagingKeys.messages(channelId), ctx.tempId, ctx.hadCache);
+      // 이 전송의 임시 행만 걷는다. 목록 복구는 마지막 전송이 끝날 때 한 번(WP-1872).
+      if (ctx) removeOptimisticRow(qc, messagingKeys.messages(channelId), ctx.tempId);
+      // onMutate 가 표시만 남기고 실패했으면(ctx 없음) 표시를 풀고 목록을 되살린다.
+      else finishOptimisticSend(qc, messagingKeys.messages(channelId));
       handleApiError(err, '메시지 전송에 실패했습니다');
     },
   });
