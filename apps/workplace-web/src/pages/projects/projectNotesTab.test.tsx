@@ -1,6 +1,10 @@
 // 프로젝트 「노트」 탭(WP-1481) — 페이지 테스트. renderPage 로 실제 라우트 트리를 띄운다.
 // 탭 보이기(공간 200/404/500), 탭 클릭 → 첫 최상위 페이지로 replace, 트리·삭제 뒤 주소가 탭 안에 머무름,
 // 다른 공간 백링크는 노트 앱 주소로, 잘못된 페이지 주소 안내를 본다.
+// 노트 탭은 App 에서 lazy 라 탭을 누르는 순간 처음 불러오면 부하 속에서 이동 대기(5초)를 넘겼다(WP-1874).
+// 미리 불러 두면 lazy 는 한 틱 뒤 바로 풀려, 첫 화면 대기(45초) 뒤 이동은 기본 대기로 충분하다 — 두 45초를 잇지 않는다.
+import '@/pages/projects/tabs/ProjectNotesTab'
+
 import { screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
@@ -65,8 +69,7 @@ describe('프로젝트 노트 탭', () => {
     const { user, location } = open(`/projects/${KEY}`, ok)
     const link = await within(await screen.findByRole('navigation', { name: '프로젝트 탭' }, { timeout: PAGE_LOAD_TIMEOUT })).findByRole('link', { name: '노트' })
     await user.click(link)
-    // 탭을 처음 누르면 노트 탭이 lazy 로 처음 불러와져 부하 땐 5초를 넘긴다 — 첫 화면과 같은 45초로 기다린다 (WP-1874).
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/notes/21`), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/notes/21`))
     expect(await screen.findByTestId('wiki-tree-row-21')).toBeInTheDocument()
     expect(within(tabNav()).getByRole('link', { name: '노트' })).toHaveAttribute('aria-current', 'page')
   })
@@ -105,8 +108,7 @@ describe('프로젝트 노트 탭', () => {
   test('공간이 없으면(404) 탭 줄에 「노트」가 없고, 주소로 직접 들어오면 프로젝트 이슈 탭으로 간다', async () => {
     const { location } = open(`/projects/${KEY}/notes`, notFound)
     await screen.findByRole('navigation', { name: '프로젝트 탭' }, { timeout: PAGE_LOAD_TIMEOUT })
-    // 404 이동은 공간 응답 뒤에 일어나고, 이 테스트만 돌리면 lazy 노트 탭 모듈도 여기서 처음 불러 같은 45초로 기다린다 (WP-1874).
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
     expect(within(tabNav()).queryByRole('link', { name: '노트' })).not.toBeInTheDocument()
   })
 
