@@ -46,7 +46,7 @@ import {
   DEFAULT_OPENCODE_PRESET,
   OpencodeConnectionFields,
 } from './credential-fields/OpencodeConnectionFields';
-import { probeModelsErrorMessage } from './credential-fields/probeModelsError';
+import { PROBE_MODELS_EMPTY, probeModelsErrorMessage } from './credential-fields/probeModelsError';
 
 interface Props {
   open: boolean;
@@ -83,6 +83,8 @@ export function ProviderCredentialDialog({
   // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
   // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
   const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
+  // 직접 입력 칸의 안내 — 있으면 칸을 보인다. 프로브 실패, 또는 성공했지만 목록이 빈 경우(빈 Select 로는 고를 수 없다, WP-1895).
+  const manualNotice = probeError ?? (modelOptions?.length === 0 ? PROBE_MODELS_EMPTY : null);
   const resolvedModel = selectedModel || normalizedManualModel;
   // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다. 선택은 그때의 모델 id 에만 적용되어,
   // 모델을 바꾸면(직접 입력 중 다른 id 가 되면) 자동 감지로 보인다. 키를 칠 때마다 지우지 않으므로 같은 id 로 정리되는 입력엔 유지된다.
@@ -132,7 +134,7 @@ export function ProviderCredentialDialog({
     clearLoadedModels();
   };
 
-  // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
+  // 모델 목록 프로브 — 성공·목록 있음 → Select 노출, 실패 또는 빈 목록 → 수동 입력 폴백 노출(WP-1895).
   const onProbeModels = async () => {
     setProbeError(null);
     setModelOptions(null);
@@ -144,8 +146,9 @@ export function ProviderCredentialDialog({
       // 불러오는 사이 주소·키·프리셋이 바뀌었으면 이 목록은 지금 연결의 것이 아니라 버린다.
       if (generation !== probeGeneration.current) return;
       setModelOptions(res.models);
-      // 목록이 보이면 직접 입력 칸은 사라진다 — 숨은 칸에 남은 값이 resolvedModel 로 보내지지 않게 비운다(WP-1622).
-      setManualModel('');
+      // 목록이 있어 Select 가 직접 입력 칸을 대체할 때만 비운다 — 숨은 칸의 값이 resolvedModel 로 보내지지 않게(WP-1622).
+      // 빈 목록이면 직접 입력이 계속 보이므로 사용자가 친 id 를 남긴다(WP-1895).
+      if (res.models.length > 0) setManualModel('');
     } catch (e) {
       if (generation !== probeGeneration.current) return;
       // 두 화면 공용 문구 규칙(WP-1884).
@@ -312,7 +315,7 @@ export function ProviderCredentialDialog({
                 {probe.isPending ? '불러오는 중…' : '모델 불러오기'}
               </Button>
 
-              {modelOptions != null ? (
+              {modelOptions != null && modelOptions.length > 0 ? (
                 <div className="space-y-1.5">
                   <Label htmlFor="credential-model-select">모델</Label>
                   <Select value={selectedModel} onValueChange={setSelectedModel}>
@@ -333,9 +336,9 @@ export function ProviderCredentialDialog({
                 </div>
               ) : null}
 
-              {probeError ? (
+              {manualNotice ? (
                 <div className="space-y-1.5">
-                  <p role="alert" className="text-sm text-destructive">{probeError}</p>
+                  <p role="alert" className="text-sm text-destructive">{manualNotice}</p>
                   <Label htmlFor="credential-model-manual">모델 id (직접 입력)</Label>
                   <Input
                     id="credential-model-manual"
@@ -351,7 +354,7 @@ export function ProviderCredentialDialog({
                 </div>
               ) : null}
 
-              {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패 → 수동 입력)에서만 노출. */}
+              {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패·빈 목록 → 수동 입력)에서만 노출. */}
               {modelOptions != null || probeError ? (
                 <VisionInputSelect
                   id="credential-vision"
