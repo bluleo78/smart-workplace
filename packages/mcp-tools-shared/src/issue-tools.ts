@@ -551,7 +551,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         const body = nextRunAt === undefined ? rest : { ...rest, nextRunAt: normalizeTimezone(nextRunAt) };
         const { work, ended, coercedFrom } = await client.reportAgentWork(issueKey, body);
         // 서버 뷰의 숫자 id 는 빼고 사람을 username 으로만 가리킨다(#833). 끝났으면 work 는 null 이라 ended 만 남는다.
-        // coercedFrom: 서버가 상태를 바꿔 저장한 원래 상태(WP-1217 — 사람을 멘션한 WAITING → INPUT_REQUIRED). 바꾸지 않았으면 빠진다.
+        // coercedFrom: 서버가 상태를 바꿔 저장한 원래 상태(WP-1217 — 사람에게 보낸(글 맨 앞 멘션) WAITING → INPUT_REQUIRED). 바꾸지 않았으면 빠진다.
         return JSON.stringify(dropEmpty({ work: work ? toAgentWorkView(work) : null, ended, coercedFrom }));
       },
     },

@@ -106,7 +106,8 @@ public class AgentWorkReportService {
 
     // 작업을 시작했으면 TODO 이슈는 진행 중으로 — 상태 변경이 작업 터치로 보고를 덮지 않게 이미 억제 구간 안이다.
     // 단, 다음 회차 대기(SCHEDULED) 보고는 아직 착수 전(「월요일 9시에 시작」)이라 이슈 상태를 바꾸지 않는다(WP-450).
-    // AI 가 사람을 멘션한 대기 중 보고는 답변 필요로 저장한다(WP-1217) — 아래 상태 변경·질문 저장·알림이 모두 바뀐 상태를 따른다.
+    // AI 가 사람에게 보낸(글 맨 앞 멘션에 사람이 있는) 대기 중 보고는 답변 필요로 저장한다(WP-1217·WP-1841) — 아래 상태 변경·질문 저장·알림이 모두
+    // 바뀐 상태를 따른다.
     String state = storedState(req, agentWorker, hasMessage);
     boolean scheduled = AgentWorkState.SCHEDULED.equals(state);
     if (IssueStatuses.TODO.equals(issue.status()) && !scheduled) {
@@ -163,19 +164,22 @@ public class AgentWorkReportService {
   }
 
   /**
-   * 저장할 진행 상태(WP-1217). AI 작업자가 대기 중(WAITING)으로 보고하며 글에서 사람(HUMAN)을 멘션했으면 답변 필요(INPUT_REQUIRED)로
-   * 바꾼다 — 사람에게 묻거나 사람의 답을 기다리는 일은 사람의 할 일·질문 알림에 떠야 하는데, 대기 중이면 잡히지 않아 이슈가 방치됐다. 거절하지 않고 바꿔 저장해 AI
-   * 가 규칙을 놓쳐도 사람에게 질문이 반드시 간다. AI 만 멘션한 대기 중(검토자 AI 리뷰 요청 등)·사람 작업자의 보고·작업 중 보고는 그대로 둔다 — 작업 중 글의
-   * 사람 멘션은 질문인지 알림인지 서버가 가릴 수 없다.
+   * 저장할 진행 상태(WP-1217·WP-1841). AI 작업자가 대기 중(WAITING)으로 보고하며 글의 받는 사람(글 맨 앞 멘션)에 사람(HUMAN)이 있으면 답변
+   * 필요(INPUT_REQUIRED)로 바꾼다 — 사람에게 묻거나 사람의 답을 기다리는 일은 사람의 할 일·질문 알림에 떠야 하는데, 대기 중이면 잡히지 않아 이슈가
+   * 방치됐다. 거절하지 않고 바꿔 저장해 AI 가 규칙을 놓쳐도 사람에게 질문이 반드시 간다.
+   *
+   * <p>받는 사람만 보는 이유(WP-1841): 본문 중 사람 언급은 「설계가 낫다고 보면 @사람 확인을 받아 주세요」 같은 조건부 안내일 수 있어, 이를 질문으로 바꾸면
+   * AI 에게 보낸 반려 글이 사람의 답변 필요로 잘못 떴다. 본문 중 사람 멘션은 일반 멘션 알림만 간다. AI 만 받는 대기 중(검토자 AI 리뷰 요청 등)·사람 작업자의
+   * 보고·작업 중 보고는 그대로 둔다 — 작업 중 글의 사람 멘션은 질문인지 알림인지 서버가 가릴 수 없다.
    */
   private String storedState(ReportAgentWorkRequest req, boolean agentWorker, boolean hasMessage) {
     if (!agentWorker || !hasMessage || !AgentWorkState.WAITING.equals(req.state())) {
       return req.state();
     }
-    boolean mentionsHuman =
-        mentionHydrator.asMentionResponses(MentionParser.parse(req.message())).stream()
+    boolean addressesHuman =
+        mentionHydrator.asMentionResponses(MentionParser.parseLeading(req.message())).stream()
             .anyMatch(m -> UserKind.HUMAN.equals(m.kind()));
-    return mentionsHuman ? AgentWorkState.INPUT_REQUIRED : req.state();
+    return addressesHuman ? AgentWorkState.INPUT_REQUIRED : req.state();
   }
 
   /**

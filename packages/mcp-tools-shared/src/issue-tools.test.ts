@@ -210,7 +210,7 @@ describe('buildSharedIssueTools', () => {
       expect(out.work.worker).toEqual({ username: 'claude', name: 'Claude', kind: 'AI' });
     });
 
-    it('서버가 사람 멘션 WAITING 을 INPUT_REQUIRED 로 바꿔 저장하면 coercedFrom 을 함께 돌려주고, 바꾸지 않았으면 빠진다(WP-1217)', async () => {
+    it('서버가 사람에게 보낸(맨 앞 멘션) WAITING 을 INPUT_REQUIRED 로 바꿔 저장하면 coercedFrom 을 함께 돌려주고, 바꾸지 않았으면 빠진다(WP-1217·WP-1841)', async () => {
       const c = mockClient();
       vi.mocked(c.reportAgentWork).mockResolvedValueOnce({
         work: { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AGENT' }, tool: 'mcp', state: 'INPUT_REQUIRED', updatedAt: '2026-10-30T00:00:00Z' },
