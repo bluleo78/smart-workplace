@@ -66,7 +66,8 @@ export function ViewerPanelContent({ item, panel }: { item: ViewerItem; panel: P
  */
 export function ViewerSidePanel({ item, panel, onClose }: { item: ViewerItem; panel: PanelAvailability; onClose: () => void }) {
   return (
-    <aside data-testid="viewer-side-panel" className="flex w-80 shrink-0 flex-col border-l border-border">
+    // 보이는 패널 제목과 같은 접근 이름 — 이름 없는 complementary 랜드마크가 남지 않게(WP-1774).
+    <aside aria-label={panel.title} data-testid="viewer-side-panel" className="flex w-80 shrink-0 flex-col border-l border-border">
       {/* 머리는 고정 높이(h-11)·아래 선 — 왼쪽 HTML 스크립트 안내 줄과 높이·선이 이어진다(WP-1282). 내용만 스크롤된다. */}
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border pr-1.5 pl-4">
         <h2 className="text-sm font-medium">{panel.title}</h2>

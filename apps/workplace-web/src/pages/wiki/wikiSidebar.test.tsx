@@ -8,6 +8,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, onTestFinished, test } from 'vitest'
 
 import { WikiSidebar } from '@/components/wiki/WikiSidebar'
+import { wikiKeys } from '@/hooks/queries/wikiKeys'
 import { DRAGGABLE_PAGE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
 import { wikiLastSpaceKey, writeWikiLastVisited } from '@/lib/wikiLastVisited'
 import { renderScreen } from '@/test/renderScreen'
@@ -978,10 +979,8 @@ test('사이드바에 이름이 있다 — 랜드마크 이름(WP-1774)', async 
 test('트리 행이 없으면 「페이지 목록」 을 랜드마크로 내지 않는다 — 빈 navigation 방지(WP-1774)', async () => {
   const { queryClient } = open({ tree: () => [] })
   const scroller = await screen.findByTestId('wiki-tree-nav')
-  // 트리 조회가 끝난 뒤에 본다 — 응답 전 단언이 공허하게 통과하지 않도록.
-  await waitFor(() =>
-    expect(queryClient.getQueryCache().findAll({ predicate: (q) => q.state.status === 'success' }).length).toBeGreaterThan(1),
-  )
+  // 이 스페이스(1)의 트리 조회가 끝난 뒤에 본다 — 응답 전 단언이 공허하게 통과하지 않도록.
+  await waitFor(() => expect(queryClient.getQueryState(wikiKeys.tree(1))?.status).toBe('success'))
   expect(scroller).toHaveAttribute('role', 'none')
   expect(screen.queryByRole('navigation', { name: '페이지 목록' })).toBeNull()
 })

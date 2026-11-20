@@ -31,7 +31,8 @@ export function WikiShareTreeNav({
   testId?: string
 }) {
   return (
-    <nav className={cn('overflow-y-auto px-1 py-2', className)} data-testid={testId}>
+    // 노트 사이드바 트리 nav 와 같은 이름 — 공유·공개 화면 모두 이름 없는 navigation 이 남지 않게(WP-1774).
+    <nav aria-label="페이지 목록" className={cn('overflow-y-auto px-1 py-2', className)} data-testid={testId}>
       {flattenShareTree(pages).map((r) => (
         <button
           key={r.page.id}

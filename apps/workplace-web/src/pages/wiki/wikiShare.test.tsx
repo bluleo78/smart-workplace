@@ -222,6 +222,8 @@ describe('노트 외부 보기(로그인 없음)', () => {
     expect(publicView().querySelector('.wiki-editor')).toBeNull()
     expect(within(tree()).getByTestId(`wiki-share-tree-html-badge-${ROOT}`)).toHaveTextContent('HTML')
     expect(within(tree()).queryByTestId(`wiki-share-tree-html-badge-${CHILD}`)).not.toBeInTheDocument()
+    // 공개 보기의 하위 목록도 이름 있는 navigation 이다(WP-1774).
+    expect(screen.getByRole('navigation', { name: '페이지 목록' })).toBe(tree())
   })
 
   test('하위 응답을 기다리는 동안에도 트리가 남고 본문이 skeleton 으로 깜빡이지 않는다', async () => {
@@ -454,6 +456,11 @@ describe('노트 공유 링크 — 받는 사람', () => {
     await user.click(within(box).getByRole('button', { name: '다시 시도' }))
     expect(await screen.findByTestId('wiki-page-shared-by')).toHaveTextContent('김민지님이 공유')
     expect(screen.getByTestId('wiki-share-tree')).toHaveTextContent('하반기 계획')
+    // 공유 트리는 보이는 제목 「공유된 페이지」 이름의 complementary 랜드마크다(WP-1774).
+    const aside = screen.getByRole('complementary', { name: '공유된 페이지' })
+    expect(aside).toBe(screen.getByTestId('wiki-share-tree'))
+    // 그 안의 하위 목록 nav 도 이름이 있다(WP-1774).
+    expect(within(aside).getByRole('navigation', { name: '페이지 목록' })).toHaveTextContent('하반기 계획')
   })
 
   test.each([
