@@ -26,8 +26,14 @@ export interface MobileSheetAction {
   description?: string;
 }
 
+/** 기본 닫힘 초점 처리 — Radix 기본 복귀(초점 이동)를 막는다. 렌더마다 새 함수를 만들지 않게 모듈에 둔다. */
+function preventCloseAutoFocus(e: Event) {
+  e.preventDefault();
+}
+
 export function MobileActionSheet({
   open, onClose, title, description, actions, testId = 'mobile-action-sheet', aboveAiSheet = false, 'data-help': dataHelp,
+  onCloseAutoFocus = preventCloseAutoFocus,
 }: {
   open: boolean;
   onClose: () => void;
@@ -43,6 +49,11 @@ export function MobileActionSheet({
   aboveAiSheet?: boolean;
   /** 도움말 절 id(WP-1508) — 시트는 포털이라 화면 쪽 data-help 를 물려받지 못해, 열려 있는 동안 도움말 패널이 따라갈 절을 직접 단다. */
   'data-help'?: string;
+  /**
+   * 닫힐 때의 초점 처리(Radix onCloseAutoFocus) — 기본은 되돌리지 않는다. 시트를 연 단추가 있는 호출부만
+   * useMenuFocusReturn 의 반환값을 넘겨, Esc·바깥 클릭으로 닫아도 초점이 body 로 사라지지 않게 한다(WP-1804, 예: ShareSheetButton).
+   */
+  onCloseAutoFocus?: (e: Event) => void;
 }) {
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
@@ -53,8 +64,8 @@ export function MobileActionSheet({
         data-help={dataHelp}
         data-ai-layer={aboveAiSheet || undefined}
         className={cn('max-h-[85dvh] gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]', aboveAiSheet && 'z-[80]')}
-        // 트리거 없는 시트 — 닫힐 때 포커스를 되돌리지 않는다(행으로 포커스가 튀어 스크롤되는 것 방지).
-        onCloseAutoFocus={(e) => e.preventDefault()}
+        // 트리거 없는 시트 — 기본은 닫힐 때 포커스를 되돌리지 않는다(행으로 포커스가 튀어 스크롤되는 것 방지).
+        onCloseAutoFocus={onCloseAutoFocus}
       >
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
         {/* break-keep: 한글 제목이 음절 중간에서 끊기지 않게 낱말 단위로 줄바꿈 — 공백 없는 긴 이름은 wrap-break-word 가 그래도 끊어 넘치지 않는다. */}

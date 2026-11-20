@@ -139,6 +139,19 @@ test.describe('모바일 배치', () => {
     }
   })
 
+  // WP-1804: 공유 시트를 Esc 로 닫으면 초점이 body 로 사라지지 않고 시트를 연 ⬆︎ 단추로 돌아온다(WCAG 2.4.3).
+  test('⬆︎ 공유 시트를 키보드로 열고 Esc 로 닫으면 초점이 ⬆︎ 단추로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(74)])
+    await openViewer(page, '사진74.png')
+    const share = page.getByTestId('viewer-top-bar').getByTestId('mobile-share-button')
+    await share.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('share-sheet')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('share-sheet')).toHaveCount(0)
+    await expect(share).toBeFocused()
+  })
+
   test('가로 모드(844×390)도 넘침 없이 전체 화면', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 844, height: 390 })
     await stubDriveFiles(page, [IMG(70)])

@@ -5,6 +5,7 @@ import { Share } from 'lucide-react'
 import { useState } from 'react'
 
 import { MobileActionSheet } from '@/components/mobile/MobileActionSheet'
+import { useMenuFocusReturn } from '@/components/overlay/useMenuFocusReturn'
 import type { ShareTarget } from '@/lib/shareTarget'
 import { cn } from '@/lib/utils'
 
@@ -21,9 +22,14 @@ export function ShareSheetButton({
   aboveAiSheet?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  // 닫을 때 초점을 돌려줄 단추 — 콜백 ref 로 상태에 담아 렌더 중에 ref.current 를 읽지 않는다(WP-1804).
+  const [button, setButton] = useState<HTMLButtonElement | null>(null)
+  // Esc·바깥 클릭으로 닫으면 초점을 이 단추로 돌려준다 — 항목이 연 대화상자가 초점을 가져갔으면 빼앗지 않는다(WP-1804).
+  const { onCloseAutoFocus } = useMenuFocusReturn(open, button)
   return (
     <>
       <button
+        ref={setButton}
         type="button"
         aria-label="공유"
         aria-haspopup="dialog"
@@ -41,6 +47,7 @@ export function ShareSheetButton({
         actions={open ? shareSheetActions(target) : []}
         testId="share-sheet"
         aboveAiSheet={aboveAiSheet}
+        onCloseAutoFocus={onCloseAutoFocus}
       />
     </>
   )

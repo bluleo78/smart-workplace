@@ -64,6 +64,8 @@ test('390px 구성원 상세의 사람 단추 셋이 한 줄에 들어간다', {
 
   const buttons = page.getByTestId('contact-detail-actions').getByRole('button')
   await expect(buttons).toHaveCount(3)
+  // 메일 계정 응답 전에는 「메일 쓰기」가 막힌 모양(aria-disabled·툴팁 래퍼)이다 — 활성이 된 뒤의 모양을 잰다.
+  await expect(buttons.filter({ hasText: '메일 쓰기' })).not.toHaveAttribute('aria-disabled', 'true')
   const boxes = []
   for (let i = 0; i < 3; i++) {
     const box = await buttons.nth(i).boundingBox()
