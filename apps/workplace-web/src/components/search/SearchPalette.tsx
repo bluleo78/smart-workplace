@@ -227,6 +227,15 @@ function PaletteBody({
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    // 수식키 없는 Tab(Ctrl·Alt·Meta+Tab 은 창·브라우저 몫이라 넘긴다)은 초점을 입력에 둔다 — Dialog 포커스
+    // 트랩(FocusScope)은 defaultPrevented 를 보지 않고 Shift+Tab 때 마지막 버튼(AI 요청)으로 초점을 옮겨
+    // 이어 친 글자를 잃게 하므로 전파까지 막는다(WP-1791). 한글 조합 중에도 막고(탭은 바꾸지 않는다),
+    // Windows 한글 IME 는 조합 중 키를 key='Process' 로 보내므로 물리 키(code)도 본다.
+    const plainTab = (e.key === 'Tab' || e.code === 'Tab') && !e.ctrlKey && !e.altKey && !e.metaKey
+    if (plainTab) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
     if (isImeComposing(e.nativeEvent)) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
@@ -237,12 +246,8 @@ function PaletteBody({
         return
       }
       setActive((cur) => moveActive(cur, down ? 1 : -1, visible.length))
-    } else if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      // 다음/이전 탭 — 입력 포커스를 유지한다(Ctrl·Alt·Meta+Tab 은 창·브라우저 몫이라 넘긴다).
-      // Dialog 포커스 트랩(FocusScope)은 defaultPrevented 를 보지 않고 Shift+Tab 때 마지막 버튼으로
-      // 초점을 옮기므로 전파까지 막는다(WP-1791).
-      e.preventDefault()
-      e.stopPropagation()
+    } else if (plainTab) {
+      // 다음/이전 탭.
       const i = SEARCH_TABS.findIndex((t) => t.id === tab)
       changeTab(SEARCH_TABS[moveActive(i, e.shiftKey ? -1 : 1, SEARCH_TABS.length)].id)
     } else if (e.key === 'Enter') {
