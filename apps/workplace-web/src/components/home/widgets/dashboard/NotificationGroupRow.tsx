@@ -74,7 +74,8 @@ export function NotificationGroupRow({
       />
       <Link
         to={group.target}
-        aria-label={`알림 열기: ${group.label}`}
+        // 미읽음을 인박스(WP-1844)처럼 「읽지 않음, 」으로 알린다 — aria-label 이 내용을 덮으므로 sr-only 대신 이름에 넣는다(WP-1887).
+        aria-label={`${group.read ? "" : "읽지 않음, "}알림 열기: ${group.label}`}
         // 열기 = 읽음 처리(InboxPanel과 동일). 이동과 함께 그룹 미읽음을 read 처리.
         onClick={() => onAck(group.unreadIds)}
         className="min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"

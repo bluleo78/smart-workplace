@@ -32,7 +32,7 @@ test('위젯 행·헤더가 각 항목 상세와 모듈로 딥링크되고, 대�
   await renderDashboard(layout(['my_tasks', 'calendar_today', 'notifications', 'recent_chats', 'unread_mail']))
   expect(await screen.findByRole('link', { name: '이슈 열기: 로그인 버그' })).toHaveAttribute('href', '/projects/WP/issues/7')
   expect(await screen.findByRole('link', { name: '일정 열기: 스탠드업 미팅' })).toHaveAttribute('href', '/calendar')
-  expect(await screen.findByRole('link', { name: '알림 열기: 리뷰 요청 이슈' })).toHaveAttribute('href', '/projects/WP/issues/7')
+  expect(await screen.findByRole('link', { name: '읽지 않음, 알림 열기: 리뷰 요청 이슈' })).toHaveAttribute('href', '/projects/WP/issues/7')
   expect(await screen.findByRole('link', { name: '메일 열기: 월간 보고서' })).toHaveAttribute('href', '/mail/1?messageId=100')
   expect(await screen.findByTestId('dash-chat-empty')).toHaveTextContent('새 대화가 없어요')
   // 헤더 — 메일은 /mail, 대화 제목은 「대화」(#272).

@@ -1034,8 +1034,9 @@ test.describe('알림 위젯 — 터치 태블릿(≥1024px) 오터치 방지', 
     await expectStays(page, () => readCapture.requests.length, 0)
 
     // 행 탭(열기) — 기본 동작 그대로: 이동하면서 읽음 처리.
+    // 위젯은 미읽음 그룹만 그리므로 행 이름은 늘 「읽지 않음, 」으로 시작한다(WP-1887).
     const before = page.url()
-    await page.getByRole('link', { name: /^알림 열기:/ }).first().tap()
+    await page.getByRole('link', { name: /^읽지 않음, 알림 열기:/ }).first().tap()
     await expect(readCapture.waitForRequest()).resolves.toBeTruthy()
     await expect.poll(() => page.url()).not.toBe(before)
   })
