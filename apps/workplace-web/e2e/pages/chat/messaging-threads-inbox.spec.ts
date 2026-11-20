@@ -29,13 +29,6 @@ async function stubDmsList(page: Page) {
     (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   )
 }
-async function stubStream(page: Page, body = `:\n\n`) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body }),
-  )
-}
 async function stubInboxCount(page: Page, count: number) {
   await page.route(
     (url) => url.pathname === '/api/v1/messaging/threads/inbox/unread-count',
@@ -117,7 +110,6 @@ test(
     const inboxRef = { items: [inboxItem] }
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     let inboxCount = 1
     await page.route(
       (url) => url.pathname === '/api/v1/messaging/threads/inbox/unread-count',

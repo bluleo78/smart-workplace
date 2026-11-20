@@ -43,20 +43,6 @@ async function stubDmsList(page: Page) {
   )
 }
 
-// SSE 스트림 stub — body 로 임의 이벤트(또는 keep-alive)를 흘릴 수 있다.
-async function stubStream(page: Page, body = `:\n\n`) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body,
-      }),
-  )
-}
-
 // 채널 상세(헤더) GET stub.
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
@@ -108,7 +94,6 @@ async function setupUndoChannel(page: Page, channelId: number, msgId: number) {
   const channel = createChannel({ id: channelId, name: 'Undo채널', member: true })
   await stubChannelsList(page, [channel])
   await stubDmsList(page)
-  await stubStream(page)
   await stubChannelDetail(page, channel)
   await stubMembers(page, channelId, [createChannelMember({ userId: ME_ID, name: '나' })])
   // 목록 스텁은 요청 시점에 이 배열을 직렬화한다 — DELETE 가 배열도 삭제됨으로 바꿔, 삭제 뒤 목록 재조회가 원본을 되살리지 않게 한다(WP-85 와 같은 이유).
@@ -146,7 +131,6 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     const channel = createChannel({ id: CHANNEL_ID, name: '멘션채널', member: true })
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [
       createChannelMember({ userId: ME_ID, name: '나' }),
@@ -205,7 +189,6 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     const channel = createChannel({ id: CHANNEL_ID, name: '편집채널', member: true })
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     // 목록 스텁은 요청 시점에 이 배열을 직렬화한다. 아래 PATCH·DELETE 핸들러가 배열을 갱신해 뒤늦은 목록 재조회도
@@ -352,7 +335,6 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     const channel = createChannel({ id: CHANNEL_ID, name: '실패테스트채널', member: true })
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     await stubMessages(page, CHANNEL_ID, [
@@ -436,7 +418,6 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     const channel = createChannel({ id: CHANNEL_ID, name: '빈내용테스트채널', member: true })
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     await stubMessages(page, CHANNEL_ID, [
@@ -481,7 +462,6 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     const channel = createChannel({ id: CHANNEL_ID, name: '길이제한채널', member: true })
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     await stubMessages(page, CHANNEL_ID, [

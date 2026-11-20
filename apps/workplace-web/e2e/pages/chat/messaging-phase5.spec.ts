@@ -43,20 +43,6 @@ async function stubDmsList(page: Page) {
   )
 }
 
-// SSE 스트림 stub — body 로 임의 이벤트(또는 keep-alive)를 흘릴 수 있다.
-async function stubStream(page: Page, body = `:\n\n`) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body,
-      }),
-  )
-}
-
 // 채널 상세(헤더) GET stub.
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
@@ -134,7 +120,6 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
 
       await stubChannelsList(page, [channel])
       await stubDmsList(page)
-      await stubStream(page)
       await stubChannelDetail(page, channel)
       await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
       await stubMessages(page, CHANNEL_ID, [parent])
@@ -212,7 +197,6 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
 
       await stubChannelsList(page, [channel])
       await stubDmsList(page)
-      await stubStream(page)
       await stubChannelDetail(page, channel)
       await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
       await stubMessages(page, CHANNEL_ID, [parent])

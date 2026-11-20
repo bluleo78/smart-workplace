@@ -40,11 +40,10 @@ async function stubEmptyHistoryWithPost(
   );
 }
 
-// 채널 목록 + SSE 스트림을 공통으로 모킹하는 헬퍼.
+// 채널 목록을 공통으로 모킹하는 헬퍼.
 async function setupChannelStubs(
   page: import('@playwright/test').Page,
   channels: ReturnType<typeof createChannel>[],
-  sseBody: string,
 ) {
   // GET /messaging/channels — 채널 목록
   await page.route(
@@ -73,18 +72,6 @@ async function setupChannelStubs(
       },
     );
   }
-
-  // GET /events — 통합 SSE 단일 스트림 (#506). 모든 도메인 이벤트(chat·messaging·notify)를 한 커넥션으로.
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: sseBody,
-      }),
-  );
 }
 
 test.describe('messaging 채팅 E2E', () => {
@@ -95,7 +82,7 @@ test.describe('messaging 채팅 E2E', () => {
       const channel = createChannel({ id: CHANNEL_ID, member: true });
       const historyMsg = createMessage({ id: 10, channelId: CHANNEL_ID, body: '기존 메시지' });
 
-      await setupChannelStubs(page, [channel], `:\n\n`);
+      await setupChannelStubs(page, [channel]);
 
       // GET /messaging/channels/1/messages — 히스토리 1건
       await page.route(
@@ -120,7 +107,7 @@ test.describe('messaging 채팅 E2E', () => {
   test('사이드바 — 열린 채널 행만 bg-selected·selection-bar 를 갖는다 (WP-368)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const open = createChannel({ id: CHANNEL_ID, name: 'general', member: true });
     const other = createChannel({ id: 2, name: 'random', member: true });
-    await setupChannelStubs(page, [open, other], `:\n\n`);
+    await setupChannelStubs(page, [open, other]);
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
       (route) =>
@@ -142,7 +129,7 @@ test.describe('messaging 채팅 E2E', () => {
   }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
 
-    await setupChannelStubs(page, [channel], `:\n\n`);
+    await setupChannelStubs(page, [channel]);
     const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
     await stubEmptyHistoryWithPost(page, 500);
 
@@ -165,7 +152,7 @@ test.describe('messaging 채팅 E2E', () => {
     authenticatedPage: page,
   }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
-    await setupChannelStubs(page, [channel], `:\n\n`);
+    await setupChannelStubs(page, [channel]);
     const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
     await stubEmptyHistoryWithPost(page, 502);
 
@@ -186,7 +173,7 @@ test.describe('messaging 채팅 E2E', () => {
     authenticatedPage: page,
   }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
-    await setupChannelStubs(page, [channel], `:\n\n`);
+    await setupChannelStubs(page, [channel]);
     const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
     await stubEmptyHistoryWithPost(page, 501);
 
@@ -208,7 +195,7 @@ test.describe('MessageComposer 4000자 한도 검증', { tag: '@input' }, () => 
   // 채널 스텁 + GET messages 스텁 공통 setup.
   async function setupForLimit(page: import('@playwright/test').Page) {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
-    await setupChannelStubs(page, [channel], `:\n\n`);
+    await setupChannelStubs(page, [channel]);
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
       (route) => {
@@ -304,7 +291,7 @@ test.describe('MessageComposer 4000자 한도 검증', { tag: '@input' }, () => 
 test.describe('MessageComposer 전송 실패 입력 보존', { tag: '@input' }, () => {
   test('메시지 POST 503 실패 → 입력창 텍스트 보존', async ({ authenticatedPage: page }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
-    await setupChannelStubs(page, [channel], `:\n\n`);
+    await setupChannelStubs(page, [channel]);
 
     // GET messages — 빈 목록
     await page.route(
@@ -344,11 +331,7 @@ test.describe('MessageComposer 전송 실패 입력 보존', { tag: '@input' }, 
 // 회귀 — 긴 채널명 옆 미읽음 배지(99+)가 이름에 밀려 찌그러지지 않는다(배지 shrink-0).
 test('대화 사이드바 — 긴 채널명이어도 미읽음 배지가 줄어들지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const longName = 'smart-workplace-모바일-개선-태스크포스-2026-하반기-로드맵'
-  await setupChannelStubs(
-    page,
-    [createChannel({ id: CHANNEL_ID, member: true, name: longName, unreadCount: 150 })],
-    `:\n\n`,
-  );
+  await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true, name: longName, unreadCount: 150 })]);
   await page.goto(`/chat/channels/${CHANNEL_ID}`);
   const badge = page.getByTestId(`channel-unread-${CHANNEL_ID}`);
   await expect(badge).toHaveText('99+');
@@ -363,11 +346,7 @@ test('대화 사이드바 — 긴 채널명이어도 미읽음 배지가 줄어�
 // 제목·설명 모두 scrollWidth 가 clientWidth 이하이고, 박스가 빈 상태 영역 안에 들어와야 한다(jsdom 은 폭을 못 재서 E2E).
 test('빈 채널 안내 — 공백 없는 긴 채널 이름도 칸 안에서 줄바꿈된다 (WP-1553)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const longName = 'A'.repeat(80);
-  await setupChannelStubs(
-    page,
-    [createChannel({ id: CHANNEL_ID, member: true, name: longName })],
-    `:\n\n`,
-  );
+  await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true, name: longName })]);
   await stubEmptyHistoryWithPost(page, 900);
   await page.goto(`/chat/channels/${CHANNEL_ID}`);
 
@@ -403,7 +382,7 @@ test('진입 시 첫 미읽음(구분선)으로 스크롤된다', { tag: '@layou
   const many = Array.from({ length: 30 }, (_, i) => createMessage({ id: i + 1, channelId: 78, authorId: 2, createdAt: new Date(Date.UTC(2026, 5, 1, 0, i)).toISOString() }))
   const channel = createChannel({ id: 78, lastReadMessageId: 10 })
 
-  await setupChannelStubs(page, [channel], `:\n\n`)
+  await setupChannelStubs(page, [channel])
 
   await page.route(
     (url) => url.pathname === '/api/v1/messaging/channels/78/messages',

@@ -48,20 +48,6 @@ async function stubDmsList(page: Page) {
   )
 }
 
-// SSE 스트림 stub — keep-alive 만 흘린다(첨부 렌더는 POST 응답으로 충분).
-async function stubStream(page: Page, body = `:\n\n`) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body,
-      }),
-  )
-}
-
 // 채널 상세(헤더) GET stub.
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
@@ -159,7 +145,6 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
 
       await stubChannelsList(page, [channel])
       await stubDmsList(page)
-      await stubStream(page)
       await stubChannelDetail(page, channel)
       await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
       await stubMessages(page, CHANNEL_ID, [])
@@ -242,7 +227,6 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
 
       await stubChannelsList(page, [channel])
       await stubDmsList(page)
-      await stubStream(page)
       await stubChannelDetail(page, channel)
       await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
       await stubMessages(page, CHANNEL_ID, [])

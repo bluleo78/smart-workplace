@@ -38,7 +38,8 @@ async function setupHomeBattery(page: Page) {
   )
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
   await mockApi(page, 'GET', '/api/v1/notifications', [])
-  // SSE 스트림은 즉시 닫히는 빈 event-stream 으로 스텁(실네트워크 차단 — 리로드 레이스/frame detached 방지).
+  // 맨 page 라 setupAuthMocks 의 열린 스트림 장치(마커 헤더 + fetch 래퍼)를 쓸 수 없어 이 스텁을 남긴다 — 이벤트 요청이 백엔드 프록시로 새 503 이 되는 것을 200 빈 본문으로 막는다.
+  // 재연결은 일어나지만 이 흐름은 채팅 화면에 머물지 않고 재조회 수를 세지 않아 영향이 없다(WP-1866).
   await page.route('**/api/v1/events', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }),
   )
