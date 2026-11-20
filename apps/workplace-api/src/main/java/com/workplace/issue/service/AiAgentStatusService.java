@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -46,11 +47,16 @@ public class AiAgentStatusService implements AgentSlotCounter {
   static final Duration RECONNECT_GRACE = Duration.ofMinutes(3);
 
   /**
-   * 상한에 세는 상태 — 작업 중·답변 필요·인증 필요(대기 중·차단됨·다음 회차 대기·일시 중지·검토 필요는 세지 않는다). 대기 중(PR 리뷰 대기 등 남의 차례)은 기차
-   * 흐름(WP-1216)에서 통합 PR 에 실린 이슈라, 세면 기차가 커질수록 새 일을 가져가지 못한다.
+   * 상한에 세는 상태 — 작업 중·답변 필요·인증 필요·대기 중(다음 회차 대기·차단됨·일시 중지·검토 필요는 세지 않는다). 대기 중(PR 리뷰·기차·순서·수정·다른 AI
+   * 답 대기)도 세어, PR 을 올린 뒤 머지(또는 취소)될 때까지 새 일을 가져가지 않게 한다 — 한 세션에 여러 이슈 맥락이 섞이지 않게(WP-1810, 이전
+   * WP-1216 기준을 뒤집음).
    */
   private static final Set<String> SLOT_STATES =
-      Set.of(AgentWorkState.WORKING, AgentWorkState.INPUT_REQUIRED, AgentWorkState.AUTH_REQUIRED);
+      Set.of(
+          AgentWorkState.WORKING,
+          AgentWorkState.WAITING,
+          AgentWorkState.INPUT_REQUIRED,
+          AgentWorkState.AUTH_REQUIRED);
 
   private final AiAgentRepository aiAgentRepository;
   private final IssueRepository issueRepository;
@@ -103,22 +109,19 @@ public class AiAgentStatusService implements AgentSlotCounter {
   }
 
   /**
-   * 동시 진행 자리를 쥔 행 — 한 AI 의 열린 작업 행 중 {@link #SLOT_STATES} 이고 무소식(stale)이 아닌 것. 같은 AI 가 작업 중인 하위가 있는
-   * 부모는 하위가 각자 세므로 뺀다. AI별 보기와 AI 본인 조회가 이 규칙 하나를 쓴다.
+   * 동시 진행 자리를 쥔 행 — 한 AI 의 열린 작업 행 중 {@link #SLOT_STATES} 이고 무소식(stale)이 아닌 것. 자리를 쥔(센) 하위가 있는 부모는
+   * 하위가 각자 세므로 뺀다. AI별 보기와 AI 본인 조회가 이 규칙 하나를 쓴다.
    */
   static List<WorkRow> slotRows(List<WorkRow> rows) {
-    Set<Long> parentsWithWorkingChild =
-        rows.stream()
-            .filter(r -> AgentWorkState.WORKING.equals(r.state()) && r.parentIssueId() != null)
+    // 먼저 센 행을 고른 뒤, 그중 하위의 부모 id 를 모아 부모 행을 뺀다 — 무소식 하위는 자리를 쥔 게 아니므로 부모를 가리지 않는다.
+    List<WorkRow> counted =
+        rows.stream().filter(r -> SLOT_STATES.contains(r.state()) && !r.stale()).toList();
+    Set<Long> parentsWithCountedChild =
+        counted.stream()
             .map(WorkRow::parentIssueId)
+            .filter(Objects::nonNull)
             .collect(Collectors.toSet());
-    return rows.stream()
-        .filter(
-            r ->
-                SLOT_STATES.contains(r.state())
-                    && !r.stale()
-                    && !parentsWithWorkingChild.contains(r.issueId()))
-        .toList();
+    return counted.stream().filter(r -> !parentsWithCountedChild.contains(r.issueId())).toList();
   }
 
   private AiAgentStatus toStatus(
