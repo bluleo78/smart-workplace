@@ -431,3 +431,12 @@ test('가져오기에 실패하면 목록 끝에 「다시 시도」 — 스스�
   expect(await screen.findByTestId('mail-list-no-older')).toBeInTheDocument()
   expect(olders.calls).toHaveLength(2)
 })
+
+test('사이드바·메일함 nav 에 이름이 있고 회신필요가 있으면 AI 필터 nav 도 있다 — 랜드마크 이름(WP-1774)', async () => {
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  renderMail('/mail/1', { handlers: [list.handler, countsHandler(unreadCounts({ inbox: 4, needsReply: 2 }))] })
+  const aside = await screen.findByRole('complementary', { name: '메일 사이드바' })
+  const folders = await within(aside).findByRole('navigation', { name: '메일함' })
+  expect(within(folders).getByTestId('mail-folder-inbox')).toBeInTheDocument()
+  expect(await within(aside).findByRole('navigation', { name: 'AI 필터' })).toBeInTheDocument()
+})

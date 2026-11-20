@@ -595,9 +595,13 @@ export default function IssueDetailPage() {
               />
             </div>
             {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
-            {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. #354: 뷰포트 lg → 컨테이너 1032px 기준. */}
+            {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음.
+                #354: 뷰포트 lg → 컨테이너 1032px 기준.
+                WP-1774: aside 에 랜드마크 이름(이슈 속성). */}
             {!isMobile && (
-              <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">{renderRail('rail')}</aside>
+              <aside aria-label="이슈 속성" className="w-full shrink-0 @min-[1032px]:w-[280px]">
+                {renderRail('rail')}
+              </aside>
             )}
           </div>
         </div>

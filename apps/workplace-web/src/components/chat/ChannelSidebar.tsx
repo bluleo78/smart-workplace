@@ -63,6 +63,7 @@ export function ChannelSidebar() {
 
   return (
     <aside
+      aria-label="대화 사이드바"
       className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
       data-testid="channel-sidebar"
     >
@@ -136,73 +137,76 @@ export function ChannelSidebar() {
             testId="channel-list-error"
           />
         )}
-        <nav className="mt-2 space-y-1">
-          {channels?.map((c) =>
-            isMobile ? (
-              <MobileConversationRow
+        {/* WP-1774: 채널이 1건 이상일 때만 「채널 목록」 랜드마크를 낸다 — 0건·조회 실패에 빈 nav 가 남지 않게. */}
+        {channels && channels.length > 0 && (
+          <nav aria-label="채널 목록" className="mt-2 space-y-1">
+            {channels.map((c) =>
+              isMobile ? (
+                <MobileConversationRow
+                  key={c.id}
+                  to={`/chat/channels/${c.id}`}
+                  testId={`channel-link-${c.id}`}
+                  testKey={String(c.id)}
+                  active={channelActive(c.id)}
+                  icon={
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                      {c.visibility === 'PRIVATE' ? (
+                        <Lock className="h-[18px] w-[18px]" data-testid={`channel-lock-${c.id}`} />
+                      ) : (
+                        <Hash className="h-[18px] w-[18px]" />
+                      )}
+                    </span>
+                  }
+                  name={c.name}
+                  preview={previewLine(c.lastMessage, { meId: myId, isOneToOneDm: false })}
+                  empty={!c.lastMessage}
+                  at={c.lastMessage?.createdAt}
+                  unread={c.unreadCount > 0}
+                  badge={
+                    c.unreadCount > 0 ? (
+                      <UnreadBadge testId={`channel-unread-${c.id}`} count={c.unreadCount} />
+                    ) : c.hasUnreadThreads ? (
+                      <span
+                        data-testid={`channel-unread-threads-${c.id}`}
+                        className="h-2 w-2 rounded-full bg-muted-foreground"
+                        aria-label="미읽은 스레드 있음"
+                      />
+                    ) : null
+                  }
+                />
+              ) : (
+              <Link
                 key={c.id}
                 to={`/chat/channels/${c.id}`}
-                testId={`channel-link-${c.id}`}
-                testKey={String(c.id)}
-                active={channelActive(c.id)}
-                icon={
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                    {c.visibility === 'PRIVATE' ? (
-                      <Lock className="h-[18px] w-[18px]" data-testid={`channel-lock-${c.id}`} />
-                    ) : (
-                      <Hash className="h-[18px] w-[18px]" />
-                    )}
-                  </span>
-                }
-                name={c.name}
-                preview={previewLine(c.lastMessage, { meId: myId, isOneToOneDm: false })}
-                empty={!c.lastMessage}
-                at={c.lastMessage?.createdAt}
-                unread={c.unreadCount > 0}
-                badge={
-                  c.unreadCount > 0 ? (
-                    <UnreadBadge testId={`channel-unread-${c.id}`} count={c.unreadCount} />
-                  ) : c.hasUnreadThreads ? (
-                    <span
-                      data-testid={`channel-unread-threads-${c.id}`}
-                      className="h-2 w-2 rounded-full bg-muted-foreground"
-                      aria-label="미읽은 스레드 있음"
-                    />
-                  ) : null
-                }
-              />
-            ) : (
-            <Link
-              key={c.id}
-              to={`/chat/channels/${c.id}`}
-              data-testid={`channel-link-${c.id}`}
-              aria-current={channelActive(c.id) ? 'page' : undefined}
-              className={cn(
-                'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-                channelActive(c.id)
-                  ? SELECTED_NAV_CLASS
-                  : 'text-muted-foreground hover:bg-accent/50',
-              )}
-            >
-              {c.visibility === 'PRIVATE' ? (
-                <Lock className="h-4 w-4 shrink-0" data-testid={`channel-lock-${c.id}`} />
-              ) : (
-                <Hash className="h-4 w-4 shrink-0" />
-              )}
-              <span className="truncate">{c.name}</span>
-              {c.unreadCount > 0 && <UnreadBadge testId={`channel-unread-${c.id}`} count={c.unreadCount} />}
-              {/* 채널 미읽음 없고 팔로우 중인 미읽음 스레드가 있으면 점 표시(숫자 뱃지보다 낮은 우선순위). */}
-              {c.unreadCount === 0 && c.hasUnreadThreads && (
-                <span
-                  data-testid={`channel-unread-threads-${c.id}`}
-                  className="ml-auto h-2 w-2 shrink-0 rounded-full bg-muted-foreground"
-                  aria-label="미읽은 스레드 있음"
-                />
-              )}
-            </Link>
-            ),
-          )}
-        </nav>
+                data-testid={`channel-link-${c.id}`}
+                aria-current={channelActive(c.id) ? 'page' : undefined}
+                className={cn(
+                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+                  channelActive(c.id)
+                    ? SELECTED_NAV_CLASS
+                    : 'text-muted-foreground hover:bg-accent/50',
+                )}
+              >
+                {c.visibility === 'PRIVATE' ? (
+                  <Lock className="h-4 w-4 shrink-0" data-testid={`channel-lock-${c.id}`} />
+                ) : (
+                  <Hash className="h-4 w-4 shrink-0" />
+                )}
+                <span className="truncate">{c.name}</span>
+                {c.unreadCount > 0 && <UnreadBadge testId={`channel-unread-${c.id}`} count={c.unreadCount} />}
+                {/* 채널 미읽음 없고 팔로우 중인 미읽음 스레드가 있으면 점 표시(숫자 뱃지보다 낮은 우선순위). */}
+                {c.unreadCount === 0 && c.hasUnreadThreads && (
+                  <span
+                    data-testid={`channel-unread-threads-${c.id}`}
+                    className="ml-auto h-2 w-2 shrink-0 rounded-full bg-muted-foreground"
+                    aria-label="미읽은 스레드 있음"
+                  />
+                )}
+              </Link>
+              ),
+            )}
+          </nav>
+        )}
 
         {/* DM 섹션 헤더 — 내 DM 목록 + 새 메시지 버튼. */}
         <div className="mt-5 flex items-center justify-between px-3">
@@ -222,7 +226,7 @@ export function ChannelSidebar() {
             </Link>
           </Button>
         </div>
-        <nav className="mt-2 space-y-1" data-testid="dm-list">
+        <nav aria-label="메시지 목록" className="mt-2 space-y-1" data-testid="dm-list">
           {/* self-DM("나") 고정 항목 — 항상 맨 위. 클릭 시 find-or-create 후 진입. */}
           {isMobile ? (
             <MobileConversationRow

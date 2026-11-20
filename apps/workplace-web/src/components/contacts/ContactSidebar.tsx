@@ -70,8 +70,10 @@ export function ContactSidebar() {
   }
 
   return (
+    // 랜드마크 이름(WP-1774) — 같은 화면의 aside·nav 를 스크린리더가 구분하도록 접근 이름을 붙인다.
     <aside
       data-testid="contact-sidebar"
+      aria-label="연락처 사이드바"
       className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
     >
       {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "연락처" 앱임을 명시 */}
@@ -82,7 +84,7 @@ export function ContactSidebar() {
 
       <div className="flex-1 overflow-y-auto p-3">
         {/* 타입 퀵필터 — ALL/MEMBER/EXTERNAL/FAVORITE */}
-        <nav className="space-y-1">
+        <nav aria-label="연락처 필터" className="space-y-1">
         {TYPE_FILTERS.map((f) => {
           // 조직도·내 그룹을 고른 동안엔 그룹이 현재 보기라 퀵필터는 어느 것도 현재 항목이 아니다(WP-898).
           // 잠그지는 않는다 — 누르면 그 보기로 바로 이동하고 그룹 선택은 저절로 풀린다(WP-976).

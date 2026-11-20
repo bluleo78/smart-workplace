@@ -32,6 +32,8 @@ export function AISidePanel({ embedded = false }: { embedded?: boolean }) {
     <aside
       ref={asideRef}
       data-testid="ai-side-panel"
+      // WP-1774: 도움말 등 다른 aside 와 구별되는 랜드마크 이름
+      aria-label="AI 패널"
       // WP-54: AI 표면 표식 — 엔티티 다이얼로그가 열려 있어도 이 영역 상호작용은 다이얼로그를 닫지 않는다(useAiPanelAwareDialog).
       data-ai-panel
       // WP-54: 패널 React 트리의 pointerdown/focus 를 기록 — 여기서 연 포털 레이어(Tooltip·Dropdown·AlertDialog 등)도

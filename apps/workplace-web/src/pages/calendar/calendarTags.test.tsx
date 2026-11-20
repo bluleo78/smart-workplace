@@ -374,3 +374,10 @@ describe('구독 주소 창(WP-715)', () => {
     expect(within(dialog).getByTestId('calendar-tag-feed-count')).toHaveTextContent('지금 이 태그를 붙인 일정 5개')
   })
 })
+
+describe('캘린더 사이드바 랜드마크', () => {
+  test('사이드바에 이름이 있다 — 랜드마크 이름(WP-1774)', async () => {
+    renderCalendarPage('/calendar', calendarHandlers({ calendars: CALENDARS, tags: TAGS }))
+    expect(await screen.findByRole('complementary', { name: '캘린더 사이드바' })).toBeInTheDocument()
+  })
+})

@@ -47,9 +47,11 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
 export function SettingsSidebar() {
   const { isAdmin } = useAuth()
   return (
+    // 랜드마크 이름(WP-1774) — 같은 화면의 aside·nav 를 스크린리더가 구분하도록 접근 이름을 붙인다.
     <aside
       className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
       data-testid="settings-sidebar"
+      aria-label="설정 사이드바"
     >
       {/* 앱 타이틀 헤더 — 레일과 동일 아이콘+이름으로 "설정" 앱임을 명시(Slack 모델) */}
       <div className={sidebarTitleClass}>
@@ -59,7 +61,7 @@ export function SettingsSidebar() {
 
       <div className="flex-1 overflow-y-auto p-3">
         <GroupLabel>개인 설정</GroupLabel>
-        <nav className="space-y-1">
+        <nav aria-label="개인 설정" className="space-y-1">
           {PERSONAL_ITEMS.map(({ label, href, icon: Icon }) => (
             <NavLink key={href} to={href} className={sidebarLinkClass}>
               <Icon className="h-4 w-4" /> {label}
@@ -71,7 +73,7 @@ export function SettingsSidebar() {
         {isAdmin && (
           <>
             <GroupLabel>워크스페이스 관리</GroupLabel>
-            <nav className="space-y-1" data-testid="settings-admin-group">
+            <nav aria-label="워크스페이스 관리" className="space-y-1" data-testid="settings-admin-group">
               {ADMIN_ITEMS.map(({ label, href, icon: Icon }) => (
                 <NavLink key={href} to={href} className={sidebarLinkClass}>
                   <Icon className="h-4 w-4" /> {label}
@@ -79,7 +81,7 @@ export function SettingsSidebar() {
               ))}
             </nav>
             <GroupLabel>앱 설정</GroupLabel>
-            <nav className="space-y-1" data-testid="settings-apps-group">
+            <nav aria-label="앱 설정" className="space-y-1" data-testid="settings-apps-group">
               {APP_ITEMS.map(({ label, href, icon: Icon }) => (
                 <NavLink key={href} to={href} className={sidebarLinkClass}>
                   <Icon className="h-4 w-4" /> {label}

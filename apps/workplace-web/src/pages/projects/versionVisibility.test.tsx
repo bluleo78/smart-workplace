@@ -92,6 +92,21 @@ describe('버전 노출 — 이슈 상세·목록', () => {
     await expectListVisibility({ versions }, false)
   })
 
+  test('이슈 상세의 속성 레일 aside 는 「이슈 속성」 이름을 가진 complementary 다 (WP-1774)', async () => {
+    const api = versionApi({ versions: [] })
+    renderScreen(
+      atRoute(
+        '/projects/:key/issues/:number',
+        <AIAssistantProvider hotkeysEnabled={false}>
+          <IssueDetailPage />
+        </AIAssistantProvider>,
+      ),
+      { path: `/projects/${KEY}/issues/1`, handlers: [...api.handlers, ...shellHandlers] },
+    )
+    await screen.findByTestId('property-group-status-people')
+    expect(screen.getByRole('complementary', { name: '이슈 속성' })).toBeInTheDocument()
+  })
+
   test('보관 안 된 버전이 있으면 같은 자리(상세 두 줄·필터 후보·열 후보)에 버전이 나타난다', async () => {
     const opts = { versions: [createVersion({ id: 1, name: '1.0.0' })] }
     await expectDetailVisibility(opts, true)
