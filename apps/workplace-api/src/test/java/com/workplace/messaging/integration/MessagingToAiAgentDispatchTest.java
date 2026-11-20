@@ -44,6 +44,11 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
   @Qualifier("aiAgentEventExecutor")
   Executor aiAgentEventExecutor;
 
+  // 어텐션 분류는 전용 풀에서 돈다(WP-1818) — 검증·정리 전에 이 풀도 비어야 FK/데드락 경합(WP-1182)이 없다.
+  @Autowired
+  @Qualifier("messagingAttentionExecutor")
+  Executor messagingAttentionExecutor;
+
   @Autowired DSLContext dsl;
   @Autowired MessageService messageService;
   @Autowired ChannelService channelService;
@@ -62,12 +67,20 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
   @AfterEach
   void cleanup() {
     TenantContext.clear(); // ThreadLocal 누수 방지
+    // 삭제 전에 진행 중인 비동기 작업(이벤트·어텐션)을 비워 FK 위반/데드락을 막는다.
+    awaitAsyncIdle();
     if (createdUserIds.isEmpty()) return;
     dsl.deleteFrom(CHANNEL).where(CHANNEL.CREATED_BY.in(createdUserIds)).execute();
     // USER 삭제 → membership.user_id FK 의 ON DELETE CASCADE 로 멤버십 행도 자동 삭제(V44).
     // (app_tenant 는 membership DELETE 권한이 없지만, FK CASCADE 는 제약 소유자 권한으로 실행되어 통과.)
     dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
     createdUserIds.clear();
+  }
+
+  /** 이벤트 발사 풀과 어텐션 분류 전용 풀(WP-1818)이 모두 빌 때까지 기다린다 — 검증·정리 전에 비동기 작업이 남지 않게. */
+  private void awaitAsyncIdle() {
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    AsyncPools.awaitIdle(messagingAttentionExecutor);
   }
 
   /**
@@ -171,7 +184,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
     assertThat(saved.body()).contains("처리해줘");
 
     // 교차테넌트 AGENT 는 채널 멤버로 추가되지 않고, AI 이벤트도 발사되지 않는다.
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     assertThat(memberRepo.isMember(channelId, crossTenantAgent)).isFalse();
     verify(client, never()).publish(any());
   }
@@ -183,7 +196,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
     long channelId = channelRepo.insertPublic("c7b", human);
     channelService.join(human, channelId);
     messageService.create(human, channelId, new CreateMessageRequest("그냥 메시지"));
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     verify(client, never()).publish(any());
   }
 
@@ -223,7 +236,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
             other, channelId, new CreateMessageRequest("<@" + assistant + "> 이 채널 요약해 줘"));
     assertThat(saved.body()).contains("요약해 줘");
 
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     assertThat(memberRepo.isMember(channelId, assistant)).isFalse();
     verify(client, never()).publish(any());
   }
@@ -253,7 +266,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
 
     messageService.create(other, dmId, new CreateMessageRequest("안녕"));
 
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     verify(client, never()).publish(any());
   }
 
@@ -278,7 +291,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
     long agent = seedUser("AGENT");
     long dmId = seedDm(human, agent);
     messageService.create(agent, dmId, new CreateMessageRequest("AI 응답 메시지"));
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     verify(client, never()).publish(any());
   }
 
@@ -289,7 +302,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
     long b = seedUser("HUMAN");
     long dmId = seedDm(a, b);
     messageService.create(a, dmId, new CreateMessageRequest("hi"));
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     verify(client, never()).publish(any());
   }
 
@@ -339,7 +352,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
 
     messageService.create(human, dmId, new CreateMessageRequest("안녕 외부 AI"));
 
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     verify(client, never()).publish(any());
   }
 
@@ -354,7 +367,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
 
     messageService.create(human, dmId, new CreateMessageRequest("<@" + agent + "> 봐줘"));
 
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     verify(client, never()).publish(any());
   }
 
@@ -369,7 +382,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
 
     messageService.create(human, channelId, new CreateMessageRequest("<@" + external + "> 처리"));
 
-    AsyncPools.awaitIdle(aiAgentEventExecutor);
+    awaitAsyncIdle();
     assertThat(memberRepo.isMember(channelId, external)).isTrue();
     verify(client, never()).publish(any());
   }
