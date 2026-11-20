@@ -1,6 +1,7 @@
 // 보드 컬럼 헤더 ⋯ 메뉴(WP-808) — OWNER 에게만: 「이름 변경」(헤더 인라인 편집으로 전환)·「이 뒤에 상태 추가」(⋯ 에 붙은 팝오버)·
 // 구분선 뒤 「상태 관리…」(WP-809, 설정 「상태」 섹션 — 색·순서·삭제는 거기서). MEMBER 는 설정이 읽기 전용이라 바로가기를 두지 않는다.
-// 메뉴가 닫히며 ⋯ 로 포커스를 되돌리면 막 연 입력기가 포커스를 잃으므로 메뉴의 onCloseAutoFocus 를 막는다.
+// 메뉴를 닫으면 Radix 기본대로 ⋯ 로 포커스가 돌아온다(Esc·바깥 클릭 — WP-1778). 항목이 연 입력기·팝오버가 이미 포커스를 가져갔으면
+// 공용 DropdownMenuContent(ui/dropdown-menu 의 handleCloseAutoFocus)가 되돌리지 않는다 — 예전처럼 여기서 막으면 Esc 때 포커스가 body 로 사라졌다.
 // 「이 뒤에 상태 추가」 팝오버는 Trigger 없이 ⋯ 에 붙어(Anchor) 있어 Radix 가 돌아갈 곳을 모른다 — 닫힐 때 ⋯ 로 직접 돌린다.
 import { MoreHorizontal, Pencil, Plus, Settings2 } from 'lucide-react';
 import { type RefObject, useId, useRef, useState } from 'react';
@@ -64,7 +65,7 @@ export function BoardColumnHeaderMenu({
             </Button>
           </DropdownMenuTrigger>
         </PopoverAnchor>
-        <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={onRename}>
             <Pencil className="h-4 w-4" />
             이름 변경

@@ -105,4 +105,33 @@ test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
     await page.getByTestId('row-menu-copy-key').click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('WP-7');
   });
+
+  // WP-1778 — 포털 메뉴를 닫으면 초점이 body 로 사라지던 결함. 키보드 사용자는 닫은 뒤 그 자리에서 이어 가야 한다.
+  test('키보드로 연 행 ⋯ 메뉴를 Esc 로 닫으면 초점이 ⋯ 로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?view=list&group=none`);
+    const btn = page.getByTestId('issue-row-7-menu');
+    await btn.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-row-menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('issue-row-menu')).toBeHidden();
+    await expect(btn).toBeFocused();
+  });
+
+  test('하위 메뉴에서 Esc 로 모두 닫혀도 초점이 ⋯ 로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?view=list&group=none`);
+    const btn = page.getByTestId('issue-row-7-menu');
+    await btn.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-row-menu')).toBeVisible();
+    await page.getByTestId('row-menu-assignee').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('row-menu-assignee-2')).toBeVisible();
+    // Radix 는 하위 메뉴의 Esc 한 번으로 메뉴 전체를 닫는다 — 그 동작과 초점 복귀를 함께 고정한다.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('issue-row-menu')).toBeHidden();
+    await expect(btn).toBeFocused();
+  });
 });

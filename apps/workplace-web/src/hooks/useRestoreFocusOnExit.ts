@@ -3,7 +3,7 @@
 import { type RefObject, useEffect, useRef } from 'react';
 
 /** 포커스가 갈 곳을 잃었는지 — 사용자가 다른 곳을 눌러 끝냈으면 그 자리를 빼앗지 않는다. */
-function focusLost(): boolean {
+export function focusLost(): boolean {
   const el = document.activeElement;
   return el === null || el === document.body;
 }
