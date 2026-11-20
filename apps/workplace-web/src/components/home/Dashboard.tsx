@@ -53,8 +53,8 @@ export function Dashboard() {
   // 접기 저장 중엔 편집 진입을 막는다 — 늦게 도착한 접기 PUT 이 편집 저장을 덮어쓰지 않게(데스크톱은 접기가 없어 항상 false).
   const collapseSaving = useIsCollapseSaving()
   // 편집 초안·액션 — 편집은 시작한 기기에 묶인다(editing = 시작 기기 === 현재 기기, 저장도 시작 기기로).
-  const edit = useDashboardEditDraft({ device, savedWidgets: data?.widgets, collapseSaving })
-  // 조회 실패로 기준 레이아웃이 없으면 훅이 editing 을 끈다(WP-1850 — 편집 배너·위젯 추가를 그리지 않는다).
+  // 편집 가능 판정(canEnterEdit·editing)과 조회 실패 시 편집 세션 끝내기는 훅이 한 곳에서 정한다(WP-1850 리뷰 후속).
+  const edit = useDashboardEditDraft({ device, savedWidgets: data?.widgets, collapseSaving, layoutFailed: loadFailed })
   const { editing, draft } = edit
 
   // 저장된 레이아웃 → 알려진 위젯만 해석(알 수 없는 타입은 조용히 스킵).
@@ -98,7 +98,7 @@ export function Dashboard() {
               variant="outline"
               size="sm"
               data-testid="dashboard-edit-toggle"
-              disabled={collapseSaving || loadFailed}
+              disabled={!edit.canEnterEdit}
               onClick={edit.enterEdit}
             >
               <Pencil className="h-4 w-4" />
@@ -125,7 +125,7 @@ export function Dashboard() {
             <HeaderIconAction
               label="홈 편집"
               data-testid="dashboard-edit-toggle"
-              disabled={collapseSaving || loadFailed}
+              disabled={!edit.canEnterEdit}
               onClick={edit.enterEdit}
             >
               <Pencil />
