@@ -6,7 +6,7 @@ import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { afterScroll, gotoTimeline } from '../../fixtures/timeline';
+import { afterScroll, gotoTimeline, openTimelineGantt, reloadTimeline, TIMELINE_FIRST_LOAD_TIMEOUT, TIMELINE_SPEC_TIMEOUT } from '../../fixtures/timeline';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType } from '../../factories/issueType.factory';
@@ -17,6 +17,10 @@ import type { MilestoneResponse } from '../../../src/types/milestone';
 import { expectToggle } from '../../fixtures/selection';
 
 const KEY = 'WP';
+
+// 부하 속 첫 로드 대기는 fixture 가 맡고(WP-1650·WP-1854), 테스트 한도는 파일 전체에 한 번 늘린다 — 파일 최상위 test.slow(콜백)는
+// fullyParallel 에서 먹지 않아(실측 30000ms) describe.configure 를 쓴다. 첫 로드가 두 번인 테스트(goto+reload, 기간 둘)는 한 번 더 얹는다.
+test.describe.configure({ timeout: TIMELINE_SPEC_TIMEOUT + TIMELINE_FIRST_LOAD_TIMEOUT });
 
 // 그룹 기본 상태는 "접힘"이다(사용자 요청 — 펼친 것만 localStorage 저장). 이 스펙의 이슈는
 // 스텁 이슈는 활성 사이클 7 에 든다 — 기본 기간(활성 사이클)은 날짜가 아니라 사이클 소속으로 거른다(WP-1330).
@@ -104,8 +108,7 @@ test('간트 영역이 컨텐츠 컨테이너 높이를 꽉 채운다 (Willow �
   authenticatedPage: page,
 }) => {
   await setupTimelineStubs(page);
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await openTimelineGantt(page, `/projects/${KEY}/timeline?period=all`);
   // timeline-gantt-root 는 간트 위젯이 채워야 할 실제 컨테이너 — .wx-chart 가 그 높이만큼
   // 채워지는지 확인한다(둘 다 같은 부모 아래라 동일해야 정상).
   const rootBox = await page.locator('.timeline-gantt-root').boundingBox();
@@ -119,8 +122,7 @@ test('간트 영역이 컨텐츠 컨테이너 높이를 꽉 채운다 (Willow �
 
 test('이슈 막대·사이클 밴드·오늘선 렌더', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await openTimelineGantt(page, `/projects/${KEY}/timeline`);
   await expandNoEpicGroup(page);
   // 기간 이슈 + 마감일만 이슈 막대가 렌더되고, 취소된 이슈/미정 이슈는 막대로 렌더되지 않는다.
   await expect(page.getByText('기간 이슈').first()).toBeVisible();
@@ -169,8 +171,7 @@ test('이슈 막대가 상태별로 다른 색으로 렌더된다 (#639)', { tag
   });
 
   // 사이클이 없으면 기본 기간이 rolling(오늘−3개월~)이라 7월 고정 날짜 막대가 날짜가 지나며 빠진다 — 전체 기간으로 본다(WP-247).
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await openTimelineGantt(page, `/projects/${KEY}/timeline?period=all`);
   await expandNoEpicGroup(page);
 
   const bg = async (issueNumber: number) =>
@@ -342,7 +343,7 @@ test('의존 화살표 렌더 (표시 전용)', { tag: '@layout' }, async ({ aut
   });
   // 재방문(reload) — 앞서 펼친 "에픽 없음" 그룹 상태가 localStorage 로 복원되므로
   // 여기서 다시 펼치면 오히려 접힌다. 복원된 펼침 상태 그대로 막대가 보여야 한다.
-  await page.goto(`/projects/${KEY}/timeline`);
+  await openTimelineGantt(page, `/projects/${KEY}/timeline`);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();
   await bar.hover();
@@ -389,8 +390,7 @@ test('일정 모순 의존성 링크가 destructive 색으로 강조된다', { t
     }),
   );
 
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await openTimelineGantt(page, `/projects/${KEY}/timeline?period=all`);
   await expandNoEpicGroup(page);
   await expect(page.locator('[data-link-id]')).toHaveCount(2);
 
@@ -401,8 +401,9 @@ test('일정 모순 의존성 링크가 destructive 색으로 강조된다', { t
       .locator('[data-link-id] polyline.wx-line-draw')
       .evaluateAll((els) => els.map((el) => (el as SVGPolylineElement).style.stroke));
 
+  // 링크 색칠은 간트 첫 그리기 단계라 부하 속에서 10초를 넘었다(WP-1854) — 첫 로드 한도로 기다린다.
   await expect
-    .poll(async () => (await strokes()).filter((s) => s === 'var(--destructive)').length)
+    .poll(async () => (await strokes()).filter((s) => s === 'var(--destructive)').length, { timeout: TIMELINE_FIRST_LOAD_TIMEOUT })
     .toBe(1);
   const finalStrokes = await strokes();
   expect(finalStrokes.filter((s) => s !== 'var(--destructive)').length).toBe(1);
@@ -436,25 +437,19 @@ async function setupEarlyIssueTimeline(page: Page) {
 }
 
 test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크롤돼 오늘선이 차트 안에 보인다 — 기본 기간', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
-  // 부하 속 첫 로드(최대 30초)를 기다려도 테스트 한도를 넘지 않게 한도를 늘린다(WP-1650).
-  test.slow();
   const todayInChart = await setupEarlyIssueTimeline(page);
   // 기본(활성 사이클) 기간 — 사이클 시작으로 스크롤.
-  await page.goto(`/projects/${KEY}/timeline`);
-  // 첫 로드는 dev 서버의 첫 변환을 기다려 부하 속에서 기본 10초를 넘었다(WP-1650).
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible({ timeout: 30_000 });
-  await expect.poll(todayInChart).toBe(true);
+  await openTimelineGantt(page, `/projects/${KEY}/timeline`);
+  // 첫 진입 스크롤 대기는 첫 로드 단계라 같은 한도(WP-1854).
+  await expect.poll(todayInChart, { timeout: TIMELINE_FIRST_LOAD_TIMEOUT }).toBe(true);
 });
 
 test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크롤돼 오늘선이 차트 안에 보인다 — 전체 기간', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
-  // 부하 속 첫 로드(최대 30초)를 기다려도 테스트 한도를 넘지 않게 한도를 늘린다(WP-1650).
-  test.slow();
   const todayInChart = await setupEarlyIssueTimeline(page);
   // 전체 기간 — 차트는 1월 이슈부터 시작하지만 처음 열 때 오늘 근처로 스크롤.
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  // 첫 로드는 dev 서버의 첫 변환을 기다려 부하 속에서 기본 10초를 넘었다(WP-1650).
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible({ timeout: 30_000 });
-  await expect.poll(todayInChart).toBe(true);
+  await openTimelineGantt(page, `/projects/${KEY}/timeline?period=all`);
+  // 첫 진입 스크롤 대기는 첫 로드 단계라 같은 한도(WP-1854).
+  await expect.poll(todayInChart, { timeout: TIMELINE_FIRST_LOAD_TIMEOUT }).toBe(true);
 });
 
 // WP-489 — 기간이 겹치는 사이클 이름표가 서로 겹치고, 차트 왼쪽으로 지난 사이클 이름표가 왼쪽 표 위까지 그려지던 문제.
@@ -483,8 +478,7 @@ test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 �
     const issues = [createIssue({ number: 1, title: '9월 이슈', startDate: '2026-09-01', dueDate: '2026-09-10' })];
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
   });
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await openTimelineGantt(page, `/projects/${KEY}/timeline?period=all`);
   const labels = page.getByTestId('timeline-cycle-band');
   await expect(labels).toHaveCount(3);
   // 지난 사이클이 차트 왼쪽 밖에 걸치도록 오른쪽으로 스크롤한다(10/8 을 왼쪽 끝에).
@@ -538,8 +532,7 @@ test('같은 기간 사이클이 많으면 이름표는 2줄까지만 쌓이고 
     ];
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
   });
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await openTimelineGantt(page, `/projects/${KEY}/timeline?period=all`);
   await expandNoEpicGroup(page);
   await page.getByRole('button', { name: '오늘' }).click();
   const labels = page.getByTestId('timeline-cycle-band');
@@ -696,9 +689,8 @@ test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 
     return !!c && !!t && t.x >= c.x && t.x <= c.x + c.width;
   };
   for (const period of ['', '?period=all']) {
-    await page.goto(`/projects/${KEY}/timeline${period}`);
-    await expect(page.getByTestId('timeline-gantt')).toBeVisible();
-    await expect.poll(todayInChart).toBe(true);
+    await openTimelineGantt(page, `/projects/${KEY}/timeline${period}`);
+    await expect.poll(todayInChart, { timeout: TIMELINE_FIRST_LOAD_TIMEOUT }).toBe(true);
     // 축이 200년(약 100만 px)으로 늘지 않는다 — 조회 기간 앞뒤로 자른 폭.
     const scrollWidth = await chart.evaluate((el) => el.scrollWidth);
     expect(scrollWidth).toBeLessThan(200_000);
@@ -764,8 +756,7 @@ test('주 보기 — 축이 길어도 오늘선 위 월 칸이 실제 달이고 
     ];
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
   });
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await openTimelineGantt(page, `/projects/${KEY}/timeline?period=all`);
   await page.getByRole('button', { name: '오늘' }).click();
   const todayLine = page.getByTestId('timeline-today-line');
   await expect(todayLine).toBeVisible();
@@ -812,7 +803,6 @@ test('일 보기 — 날짜·요일 칸과 주말 음영, 하루 단위 막대 �
     });
   });
   await gotoTimeline(page, `/projects/${KEY}/timeline`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   const dayButton = page.getByRole('button', { name: '일', exact: true });
   // 보기를 바꾸면 보던 날짜로 다시 가운데를 맞추고, 「오늘」도 스크롤한다 — 막대를 끌기 전에 둘 다 걸린 뒤로 기다린다.
   await afterScroll(page, async () => {
@@ -861,12 +851,14 @@ test('일 보기 — 날짜·요일 칸과 주말 음영, 하루 단위 막대 �
   await expect.poll(() => patches.lastBody()).toEqual({ startDate: '2026-07-04', dueDate: '2026-07-08' });
 
   // 다시 열어도 일 보기로 시작한다.
-  await page.reload();
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await reloadTimeline(page);
   await expectToggle(page.getByRole('button', { name: '일', exact: true }), true);
 });
 
 // WP-938 — 상태 목록 관문(받기 전 로딩·실패 다시 시도)의 동작은 timeline.test.tsx, 여기선 그 화면의 세로 위치만 본다.
+// 관문 화면(로딩 문구·500 뒤 오류 화면)은 간트가 아니라 openTimelineGantt 을 못 쓴다. 로딩 문구는 첫 표시, 오류 화면은 500 응답 뒤 앱이
+// 한 번 재시도한 다음에야 떠서 부하 속에서 10초를 넘을 수 있어 첫 로드와 같은 30초로 기다린다(WP-1854).
+const SLOW_SCREEN_TIMEOUT = 30_000;
 const STATUSES_PATH = `/api/v1/projects/${KEY}/statuses`;
 
 // 관문 로딩 문구와 실패 화면 덩어리(아이콘 위 ~ 「다시 시도」 아래)가 본문 자리(timeline-body)의 세로 가운데에서 벗어난 px.
@@ -892,12 +884,12 @@ test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 �
   await page.goto(`/projects/${KEY}/timeline`);
 
   const loading = page.getByTestId('timeline-body').getByText('로딩 중…');
-  await expect(loading).toBeVisible();
+  await expect(loading).toBeVisible({ timeout: SLOW_SCREEN_TIMEOUT });
   expect(await offsetFromBodyCenter(page, loading)).toBeLessThan(4);
 
   release();
   const error = page.getByTestId('project-statuses-error');
-  await expect(error).toBeVisible();
+  await expect(error).toBeVisible({ timeout: SLOW_SCREEN_TIMEOUT });
   expect(await offsetFromBodyCenter(page, error.locator('svg').first(), error.getByRole('button', { name: '다시 시도' }))).toBeLessThan(4);
 });
 

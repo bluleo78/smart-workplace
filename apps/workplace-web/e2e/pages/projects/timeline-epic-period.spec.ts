@@ -5,13 +5,16 @@ import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { gotoTimeline } from '../../fixtures/timeline';
+import { gotoTimeline, TIMELINE_SPEC_TIMEOUT } from '../../fixtures/timeline';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import type { IssueResponse } from '../../../src/types/issue';
 
 const KEY = 'WP';
+
+// 공용 fixture 의 gotoTimeline 첫 로드 대기가 한도에 잘리지 않게 파일 한도를 늘린다(WP-1854).
+test.describe.configure({ timeout: TIMELINE_SPEC_TIMEOUT });
 const EPIC_TYPE = makeEpicType();
 const parent = (number: number, title: string) => ({ number, title, type: EPIC_TYPE });
 
