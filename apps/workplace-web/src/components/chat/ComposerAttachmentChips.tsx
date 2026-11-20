@@ -30,7 +30,8 @@ export function ComposerAttachmentChips({
       {pending.map((p) => (
         <li key={p.fileId} className="flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs">
           <span className="max-w-[10rem] truncate">{p.originalName}</span>
-          <button type="button" aria-label="첨부 제거" className={HIT_AREA} onClick={() => onRemoveFile(p.fileId)}>
+          {/* WP-1865 — 칩이 여럿이어도 어느 파일을 빼는지 읽히게 접근 이름에 (잘리지 않은) 파일명을 넣는다. */}
+          <button type="button" aria-label={`${p.originalName} 첨부 제거`} className={HIT_AREA} onClick={() => onRemoveFile(p.fileId)}>
             <X className="h-3 w-3" />
           </button>
         </li>
@@ -43,9 +44,10 @@ export function ComposerAttachmentChips({
         >
           <Cloud className="h-3 w-3" />
           <span className="max-w-[10rem] truncate">{d.name}</span>
+          {/* WP-1865 — 어느 드라이브 파일의 링크를 빼는지 접근 이름에 파일명을 넣는다. */}
           <button
             type="button"
-            aria-label="드라이브 링크 제거"
+            aria-label={`${d.name} 드라이브 링크 제거`}
             className={HIT_AREA}
             onClick={() => onRemoveDrive?.(d.driveFileId)}
           >
