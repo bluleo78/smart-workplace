@@ -486,19 +486,19 @@ test('자리 표시 — 템플릿 칸 이름만 잡고 Map<string> 같은 글은
 // ── /code-review(반려 수정) 뒤 고친 것 ──
 test('대안 — 도구가 없어 자체 리뷰로 적으면 리뷰 단계 통과', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.70) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(까닭: /code-review·/simplify·대안 스킬 없음 — 정확성·단순화)\n');
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.71) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(까닭: /code-review·/simplify·대안 스킬 없음 — 정확성·단순화)\n');
   ok(run(main));
 });
 // WP-1836 리뷰 후속 — 까닭 없는 「자체 리뷰」(without-superpowers.md 4단계 이름)는 6번 리뷰로 치지 않는다.
 test('대안 — 까닭 없는 자체 리뷰만 있고 6번 리뷰가 없으면 실패', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.70) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰\n');
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.71) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰\n');
   fail(run(main), '코드 리뷰(/code-review 또는 requesting-code-review) 가 절차 줄에 없습니다');
 });
-// WP-1836 리뷰 후속 — 0.1.70 전에 적은 줄은 맨 「자체 리뷰」도 받는다(이미 낸 0.1.69 규칙).
-test('전환 — 0.1.69 로 적은 맨 자체 리뷰는 통과', (t) => {
+// WP-1836 리뷰 후속 — 0.1.71 전에 적은 줄은 맨 「자체 리뷰」도 받는다(이미 낸 0.1.69·0.1.70 규칙).
+test('전환 — 0.1.70 로 적은 맨 자체 리뷰는 통과', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.69) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(정확성·단순화)\n');
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.70) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(정확성·단순화)\n');
   ok(run(main));
 });
 // WP-1836 리뷰 후속 — 절차 줄도 버전도 없으면 검토자 전환 규칙대로 통과.
