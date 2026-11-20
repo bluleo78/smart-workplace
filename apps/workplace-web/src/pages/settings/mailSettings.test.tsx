@@ -236,10 +236,22 @@ describe('계정 추가', () => {
     expect(screen.getByRole('heading', { name: '메일 계정' })).toBeInTheDocument()
   })
 
+  // WP-1772 — 선택칸 4개의 접근 이름은 보이는 라벨과 같다(WCAG 2.5.3 — Radix 의 숨은 native select 는 접근성 트리 밖).
+  test('추가 대화상자의 선택칸 4개는 보이는 라벨을 이름으로 갖는다 (WP-1772)', async () => {
+    const { user } = await openMail()
+    await openAdd(user)
+    for (const name of ['공급자', '빠른 설정(provider)', 'IMAP 보안', 'SMTP 보안']) {
+      expect(screen.getByRole('combobox', { name })).toBeInTheDocument()
+    }
+    // 프리셋을 고른 뒤에도 이름은 라벨 그대로(값 글자로 바뀌지 않는다)
+    await choose(user, '빠른 설정(provider)', 'Gmail')
+    expect(screen.getByRole('combobox', { name: '빠른 설정(provider)' })).toHaveTextContent('Gmail')
+  })
+
   test('Gmail 프리셋으로 연결 테스트 성공 → 저장 → 목록에 보인다', async () => {
     const { user, calls } = await openMail()
     await openAdd(user)
-    await choose(user, 'provider 프리셋', 'Gmail')
+    await choose(user, '빠른 설정(provider)', 'Gmail')
     await fill(user, 'mail-email', 'me@example.com')
     await fill(user, 'mail-imap-user', 'me@example.com')
     await fill(user, 'mail-smtp-user', 'me@example.com')

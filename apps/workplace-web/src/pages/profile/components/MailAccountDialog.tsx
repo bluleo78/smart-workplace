@@ -236,7 +236,7 @@ export function MailAccountDialog({
     }
   }, [open, account, form, defaultAiEnabled]);
 
-  /** provider 프리셋 선택 시 IMAP/SMTP 호스트·포트·보안 자동 채움 */
+  /** 빠른 설정(provider) 선택 시 IMAP/SMTP 호스트·포트·보안 자동 채움 */
   const applyPreset = (name: string) => {
     const preset = MAIL_PROVIDER_PRESETS.find((p) => p.name === name);
     if (!preset) return;
@@ -322,6 +322,7 @@ export function MailAccountDialog({
 
         {/* noValidate — 이메일 칸(type=email)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내 대신 말풍선만 뜨고 화면엔 문구가 남지 않았다(WP-912). 검증은 zod 스키마가 한다. */}
         <form noValidate onSubmit={form.handleSubmit(onSubmit)} onChange={pinProvider} className="space-y-3">
+          {/* 선택칸 이름은 FormField 라벨(label[for])에서 온다 — aria-label 을 달면 보이는 라벨을 덮는다(WP-1772) */}
           {/* 추가 모드에서만 공급자 선택 드롭다운 표시 — 수정 모드는 기존 공급자 고정 */}
           {!isEdit && (
             <FormField label="공급자" htmlFor="mail-provider">
@@ -330,7 +331,7 @@ export function MailAccountDialog({
                 onOpenChange={(o) => o && pinProvider()}
                 onValueChange={(v) => setChosenProvider(v as MailProvider)}
               >
-                <SelectTrigger id="mail-provider" aria-label="공급자" className="w-full">
+                <SelectTrigger id="mail-provider" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -393,7 +394,7 @@ export function MailAccountDialog({
               {!isEdit && (
                 <FormField label="빠른 설정(provider)" htmlFor="mail-preset">
                   <Select onValueChange={applyPreset}>
-                    <SelectTrigger id="mail-preset" aria-label="provider 프리셋" className="w-full">
+                    <SelectTrigger id="mail-preset" className="w-full">
                       <SelectValue placeholder="직접 입력" />
                     </SelectTrigger>
                     <SelectContent>
@@ -457,7 +458,7 @@ export function MailAccountDialog({
                       )
                     }
                   >
-                    <SelectTrigger id="mail-imap-sec" aria-label="IMAP 보안" className="w-full">
+                    <SelectTrigger id="mail-imap-sec" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -511,7 +512,7 @@ export function MailAccountDialog({
                       )
                     }
                   >
-                    <SelectTrigger id="mail-smtp-sec" aria-label="SMTP 보안" className="w-full">
+                    <SelectTrigger id="mail-smtp-sec" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
