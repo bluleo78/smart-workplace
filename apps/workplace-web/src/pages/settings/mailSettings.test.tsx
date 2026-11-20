@@ -74,7 +74,8 @@ async function openMail({ accounts = [], tests = [ok], testStatus = [], testGate
   const testResponse = async () => {
     await testGates.shift()
     const status = testStatus.shift() ?? 200
-    return status === 200 ? HttpResponse.json(nextTest()) : HttpResponse.json({ message: 'SMTP 서버에 연결하지 못했습니다' }, { status })
+    // 5xx 본문은 서버 내부 영문 문구 — 화면엔 호출 측 한국어 안내가 보여야 한다(WP-1879)
+    return status === 200 ? HttpResponse.json(nextTest()) : HttpResponse.json({ message: 'An unexpected error occurred' }, { status })
   }
   const view = renderScreen(<MailSettingsPage />, {
     path: '/settings/mail',
@@ -179,8 +180,9 @@ describe('계정 추가', () => {
     const button = screen.getByTestId('mail-test-button')
     await user.click(button)
     await waitFor(() => expect(testCalls(calls)).toHaveLength(1))
-    // handleApiError 는 서버의 한국어 message 를 우선 보인다 — 실패가 조용히 묻히지 않는다(5xx 영문 내부 문구는 fallback, WP-1879)
-    expect(await screen.findByText('SMTP 서버에 연결하지 못했습니다')).toBeInTheDocument()
+    // 5xx 영문 내부 문구는 호출 측 안내로 바꿔 보인다 — 실패가 조용히 묻히지 않고 영문도 새지 않는다(WP-1879)
+    expect(await screen.findByText('연결 테스트에 실패했습니다')).toBeInTheDocument()
+    expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument()
     await waitFor(() => expect(button).toBeEnabled())
     await user.click(button)
     expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
