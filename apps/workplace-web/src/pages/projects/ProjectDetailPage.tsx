@@ -32,6 +32,7 @@ import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/Issu
 import { IssueDndProvider, useIssueDnd } from './components/IssueDndProvider';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
+import { IssueResultStatus } from './components/IssueResultStatus';
 import { MobileEpicChip } from './components/mobile/MobileEpicSheet';
 import { MobileIssueToolbar } from './components/mobile/MobileIssueToolbar';
 import { ProjectStatusesGate } from './components/ProjectStatusesGate';
@@ -228,6 +229,8 @@ function ProjectIssuesSection({
               <IssueFilterBar projectKey={projectKey} />
             </>
           )}
+          {/* WP-1777: 필터·검색 결과 건수를 스크린리더에 알리는 화면 밖 live region(모바일·데스크톱 공통). 프로젝트가 바뀌면 key 로 다시 마운트해 첫 진입처럼 조용히 둔다. */}
+          <IssueResultStatus key={projectKey} projectKey={projectKey} filters={filters} />
         </div>
         {/* overflow-auto: 목록/보드는 h-full 로 슬롯을 정확히 채워 자체 스크롤하고,
             로딩·빈 상태·사이클 구간 목록처럼 자체 스크롤이 없는 화면이 넘칠 때만 이 슬롯이 스크롤한다. */}
