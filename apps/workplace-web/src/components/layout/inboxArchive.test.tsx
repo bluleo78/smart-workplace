@@ -2,83 +2,10 @@
 // InboxList 만 renderScreen 으로 띄우고(Popover 없이), MSW 로 알림·보관함·되돌리기 API 를 모킹한다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { useState } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 
-import { InboxList, type InboxView, InboxViewTabs } from '@/components/layout/InboxList'
+import { InboxHarness, inboxSupportHandlers, notif, renderInbox } from '@/test/kits/notifications/inboxTestKit'
 import { renderScreen } from '@/test/renderScreen'
-import type { NotificationResponse } from '@/types/notification'
-
-/** 알림 1건 — appRail.test.tsx 와 같은 기본값. */
-function notif(over: Partial<NotificationResponse> = {}): NotificationResponse {
-  return {
-    id: 1,
-    type: 'COMMENTED',
-    actorId: 9,
-    actorName: '업무 비서',
-    actorKind: 'AGENT',
-    issueId: 7,
-    projectKey: 'WP',
-    issueNumber: 3,
-    issueTitle: '리팩터링',
-    commentId: 55,
-    eventId: null,
-    eventTitle: null,
-    eventStartsAt: null,
-    read: true,
-    createdAt: new Date().toISOString(),
-    ...over,
-  }
-}
-
-/** InboxList 는 보기 상태를 바깥이 들고 있어야 해서(제어 전용), 테스트에서는 상태만 쥐는 얇은 래퍼로 띄운다. */
-function InboxHarness({
-  screenEmpty = false,
-  onNavigate,
-  hideHeader = false,
-}: {
-  screenEmpty?: boolean
-  onNavigate?: () => void
-  /** true 면 실제 모바일 NotificationsPage 처럼 탭을 InboxList 밖에 그리고 InboxList 는 hideHeader 로 띄운다. */
-  hideHeader?: boolean
-}) {
-  const [view, setView] = useState<InboxView>('inbox')
-  return (
-    <>
-      {hideHeader && <InboxViewTabs view={view} onChange={setView} />}
-      <InboxList enabled view={view} onViewChange={setView} screenEmpty={screenEmpty} onNavigate={onNavigate} hideHeader={hideHeader} />
-    </>
-  )
-}
-
-/**
- * InboxList 를 띄운다. archived 는 보관함 응답(되돌리기 성공 뒤에는 restored 로 비운다), unarchived 는 되돌리기 요청 바디 ids.
- */
-function renderInbox(opts: { inbox?: NotificationResponse[]; archived?: NotificationResponse[]; screenEmpty?: boolean; onNavigate?: () => void; hideHeader?: boolean; inboxStatus?: number } = {}) {
-  const { inbox = [notif({ id: 1 })], archived = [], screenEmpty = false, onNavigate, hideHeader = false, inboxStatus = 200 } = opts
-  const inboxCalls = { count: 0 }
-  const unarchived: number[][] = []
-  let archiveRows = archived
-  const view = renderScreen(<InboxHarness screenEmpty={screenEmpty} onNavigate={onNavigate} hideHeader={hideHeader} />, {
-    path: '/',
-    handlers: [
-      http.get('/api/v1/notifications', () => {
-        inboxCalls.count += 1
-        return inboxStatus === 200 ? HttpResponse.json(inbox) : new HttpResponse(null, { status: inboxStatus })
-      }),
-      http.get('/api/v1/notifications/archived', () => HttpResponse.json(archiveRows)),
-      http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: 0 })),
-      http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null })),
-      http.post('/api/v1/notifications/unarchive', async ({ request }) => {
-        const body = (await request.json()) as { ids: number[] }
-        unarchived.push(body.ids)
-        archiveRows = [] // 성공 뒤 보관함은 비었다
-        return HttpResponse.json({ restoredIds: body.ids })
-      }),
-    ],
-  })
-  return { ...view, unarchived, inboxCalls }
-}
 
 describe('알림 창 보관함 전환', () => {
   test('알림 탭이 기본이고 aria-selected 가 맞다', async () => {
@@ -160,8 +87,7 @@ describe('보관함 줄 되돌리기 — 처리 중 비활성은 그 줄만', ()
             notif({ id: 6, issueTitle: '둘째' }),
           ]),
         ),
-        http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: 0 })),
-        http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null })),
+        ...inboxSupportHandlers(),
         http.post('/api/v1/notifications/unarchive', async ({ request }) => {
           const body = (await request.json()) as { ids: number[] }
           requested.push(body.ids)
