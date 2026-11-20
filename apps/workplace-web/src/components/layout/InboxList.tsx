@@ -179,6 +179,10 @@ export function InboxList({
   const query = isArchive ? archiveQuery : inboxQuery;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     query;
+  // 보기별 실패 문구 — 보관함에서 실패하면 받은 알림이 아니라 보관한 알림을 못 불러온 것이다(WP-1847).
+  const loadErrorTitle = isArchive
+    ? "보관한 알림을 불러오지 못했습니다"
+    : "알림을 불러오지 못했습니다";
   const items = flattenNotificationPages(data?.pages);
   const unarchive = useUnarchiveNotification();
   const markRead = useMarkNotificationRead();
@@ -266,7 +270,7 @@ export function InboxList({
           // 일부 페이지를 이미 받아 items 가 있으면 여기로 오지 않고 목록을 유지한다.
           <LoadErrorState
             variant="inline"
-            title="알림을 불러오지 못했습니다"
+            title={loadErrorTitle}
             queries={[query]}
             testId="inbox-error"
           />
