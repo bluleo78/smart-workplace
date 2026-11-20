@@ -8,6 +8,7 @@ import { ChatSessionContext } from '@/hooks/chat-session-context'
 import { hasLiveStateMark } from '@/lib/historyParam'
 import { settleHistory } from '@/test/history'
 import { renderScreen } from '@/test/renderScreen'
+import { testAuthValue } from '@/test/renderWithProviders'
 
 import { loadRecent, pushRecent } from './recentSearches'
 import { SEARCH_TABS } from './searchApps'
@@ -369,6 +370,40 @@ test('「AI에게 검색 요청하기」는 팔레트를 닫고 새 대화로 �
   expect(newSession).toHaveBeenCalled()
   expect(submitQuery).toHaveBeenCalledWith('「배포」 검색해 줘')
   expect(screen.queryByTestId('global-search')).toBeNull()
+})
+
+const NO_AI_AUTH = { user: { ...testAuthValue.user!, aiAvailable: false } }
+
+test('AI 를 쓸 수 없는 사용자에게는 「AI에게 검색 요청하기」 줄을 숨긴다(WP-1894)', async () => {
+  ai.value = { mode: 'closed', open: vi.fn(), dismiss: vi.fn() }
+  const { user } = renderScreen(
+    <ChatSessionContext.Provider value={{ newSession: vi.fn(), submitQuery: vi.fn() } as never}>
+      <SearchTrigger />
+    </ChatSessionContext.Provider>,
+    { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()], auth: NO_AI_AUTH },
+  )
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  await screen.findByTestId('global-search-hit-wiki:7')
+  expect(screen.queryByTestId('global-search-ask-ai')).toBeNull()
+})
+
+test('AI 를 쓸 수 없는 사용자는 Shift+Enter 로도 AI 에게 요청하지 않는다(WP-1894)', async () => {
+  const open = vi.fn()
+  ai.value = { mode: 'closed', open, dismiss: vi.fn() }
+  const submitQuery = vi.fn().mockResolvedValue(true)
+  const { user } = renderScreen(
+    <ChatSessionContext.Provider value={{ newSession: vi.fn(), submitQuery } as never}>
+      <SearchTrigger />
+    </ChatSessionContext.Provider>,
+    { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()], auth: NO_AI_AUTH },
+  )
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+  expect(submitQuery).not.toHaveBeenCalled()
+  expect(open).not.toHaveBeenCalled()
+  expect(screen.getByTestId('global-search')).toBeInTheDocument()
 })
 
 test('AI 공급자가 없으면 「AI에게 검색 요청하기」 줄을 숨긴다', async () => {

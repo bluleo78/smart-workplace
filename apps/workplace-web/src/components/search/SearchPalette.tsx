@@ -14,6 +14,7 @@ import { useOptionalAssistant } from '@/components/ai/AIAssistantContext'
 import { RawSheetContent, RawSheetRoot } from '@/components/mobile/RawSheetContent'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { ChatSessionContext } from '@/hooks/chat-session-context'
+import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { chatLinkSessionId, withChatParam } from '@/lib/aiChatLink'
@@ -132,10 +133,12 @@ function PaletteBody({
   const [active, setActive] = useState(-1)
   const [order] = useState(() => groupOrder(current))
 
-  // AI 표면 — 없으면(비서 없는 워크스페이스·테스트) 「AI에게 검색 요청하기」를 숨긴다.
+  // AI 표면 — AI 를 쓸 수 없는 사용자(앱 셸이 AI 시트를 그리지 않음)·비서 없는 워크스페이스·테스트에서는
+  // 「AI에게 검색 요청하기」를 숨긴다. 공급자 컨텍스트는 늘 있어 훅 존재만으로는 판정할 수 없다(WP-1894).
+  const aiAvailable = useAiAvailable()
   const ai = useOptionalAssistant()
   const chat = useContext(ChatSessionContext)
-  const canAskAi = ai != null && chat != null
+  const canAskAi = aiAvailable && ai != null && chat != null
 
   const trimmed = q.trim()
   const term = useDebounceValue(trimmed, SEARCH_DEBOUNCE_MS)
