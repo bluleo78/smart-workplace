@@ -1658,3 +1658,29 @@ test('process-issue.md: Gen:iA Code 하위 에이전트 task 에 agent_report �
   // 멈춘 하위 에이전트를 다시 맡기는 규칙이 agent_report 누락까지 다시 띄우지 않게 한다.
   includesAll(lineWith(wait, '끊긴 Task 는 다시 맡긴다'), ['`Agent ended without agent_report` 면 끊긴 것이 아니다'], 'Gen:iA Code 멈춤');
 });
+
+// WP-1834 — AI 개발자가 gitignore 대상인 docs/superpowers 설계·계획을 git add -f 로 넣고, 이미 들어간 파일이 다음 AI 의 선례가 되어 퍼졌다.
+test('process-issue.md: docs/superpowers 설계·계획·원장 파일을 새로 넣지 않고 검토자는 더한 PR 을 반려한다 (WP-1834)', () => {
+  const s5 = section(pi, '\n### 5. 설계·구현\n', '\n### 6. 리뷰\n');
+  const CHECK = '`git diff --name-only --diff-filter=ACR $(git merge-base origin/main HEAD) HEAD -- docs/superpowers/ .superpowers/`';
+  includesAll(lineWith(s5, '**설계·계획·원장은 커밋하지 않는다**(WP-1834)'), [
+    '`docs/superpowers/`',
+    '`.superpowers/sdd/`',
+    '`git add -f` 로 넣지 않는다',
+    '이미 추적된 같은 폴더 파일이 있어도 새 파일을 넣는 선례로 삼지 않는다',
+    // 다른 문서·스크립트가 근거로 가리키는 이미 추적된 계약 문서(help-panel-design.md 등)는 고칠 수 있어야 한다.
+    '이미 추적된 파일을 고치는 것은 막지 않는다',
+    // 검토자와 같은 명령으로 올리기 전에 스스로 본다 — 반려 한 바퀴를 아낀다. 명령은 검토자 줄 한 곳에만 둔다.
+    '검토자의 「설계 문서 커밋」 검사(「PR 리뷰·머지」 3번 절차 확인) 명령으로 스스로 보고',
+    '「절차」 줄·원장 줄',
+  ], '5번');
+  // 원장 줄 규칙 뒤에 있어야 함께 읽힌다(순서만 본다 — 바로 붙어 있는지는 보지 않는다).
+  assertBefore(s5, '**SDD 원장 줄을 붙인다**', '**설계·계획·원장은 커밋하지 않는다**');
+  includesAll(lineWith(pi, '**절차 확인**: 개발자 PR 본문'), [
+    '**설계 문서 커밋**(WP-1834)',
+    CHECK,
+    '4번처럼 반려한다',
+    '리뷰 후속 수정 예외(WP-1801)와 상관없다',
+    '통합 PR 이면 그 파일을 더한 커밋의 이슈 키를 반려 글에 적는다',
+  ], '절차 확인');
+});
