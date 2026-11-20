@@ -15,6 +15,7 @@ export function RecurrenceRunNowButton({
   number,
   recurrence,
   locked = false,
+  className,
 }: {
   projectKey: string;
   number: number;
@@ -22,6 +23,8 @@ export function RecurrenceRunNowButton({
   recurrence: IssueRecurrence | null | undefined;
   /** 이슈를 고칠 수 없는 사람(팀 이슈 읽기 전용)이면 잠근다. */
   locked?: boolean;
+  /** 바깥 줄에서의 자리(예: ml-auto) — 이유 툴팁 감싸개가 있으면 감싸개에, 없으면 버튼에 단다. */
+  className?: string;
 }) {
   const run = useRunIssueRecurrenceNow(projectKey, number);
   const state = runNowState(recurrence, locked, run.isPending);
@@ -34,6 +37,7 @@ export function RecurrenceRunNowButton({
       variant="outline"
       size="xs"
       disabled={state.disabled}
+      className={state.reason ? undefined : className}
       onClick={() => run.mutate()}
       data-testid="task-recurrence-run-now"
     >
@@ -48,7 +52,12 @@ export function RecurrenceRunNowButton({
   );
   // 막힌 버튼은 포인터를 받지 않아 툴팁을 못 띄우므로 이유 툴팁 감싸개로 — 키보드 포커스에도 이유가 보인다.
   return state.reason ? (
-    <DisabledReasonTooltip reason={state.reason} aria-label={state.reason} data-testid="task-recurrence-run-now-reason">
+    <DisabledReasonTooltip
+      reason={state.reason}
+      aria-label={state.reason}
+      className={className}
+      data-testid="task-recurrence-run-now-reason"
+    >
       {button}
     </DisabledReasonTooltip>
   ) : (

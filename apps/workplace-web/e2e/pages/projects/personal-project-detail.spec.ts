@@ -20,6 +20,13 @@ const KEY = 'PME';
 // 개인 프로젝트 + 이슈 목록 공통 모킹.
 // 공유 툴바(IssueFilterBar) 가 마운트 시 labels/cycles/issue-types 를 페치하므로(개인은 숨김이지만
 // 훅은 항상 호출됨) 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
+/** 개인 작업 레일의 안쪽 오른쪽 끝(오른쪽 padding 을 뺀 끝) — 칸들이 맞춰야 하는 선(WP-1809). */
+async function railInnerRight(page: import('@playwright/test').Page) {
+  const rail = page.getByTestId('personal-task-rail');
+  const [r, padRight] = await Promise.all([boxOf(rail), rail.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight))]);
+  return r.x + r.width - padRight;
+}
+
 async function mockPersonal(page: import('@playwright/test').Page, issues = [createIssue({ projectKey: KEY })]) {
   const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
@@ -521,19 +528,14 @@ for (const c of [
     await expect(agentLine).toHaveText(c.agentName);
     await expect(scheduleLine).toHaveText(c.schedule);
 
-    // 트리거 오른쪽 끝이 레일 안쪽(오른쪽 padding 을 뺀 끝)을 넘지 않는다 — 소수 픽셀 1px 오차는 허용.
-    const rail = page.getByTestId('personal-task-rail');
-    const [t, r, a, sc, railPadRight, { scrollWidth, clientWidth }, lineHeights] = await Promise.all([
+    const [t, inner, a, sc, { scrollWidth, clientWidth }, lineHeights] = await Promise.all([
       boxOf(trigger),
-      boxOf(rail),
+      railInnerRight(page),
       boxOf(agentLine),
       boxOf(scheduleLine),
-      rail.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight)),
       trigger.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth })),
       Promise.all([agentLine, scheduleLine].map((l) => l.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight)))),
     ]);
-    const railInnerRight = r.x + r.width - railPadRight;
-    expect(t.x + t.width, `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${railInnerRight}`).toBeLessThanOrEqual(railInnerRight + 1);
     // 글자가 버튼 밖으로 넘치지 않는다(가로 스크롤 폭 = 보이는 폭).
     expect(scrollWidth, `scrollWidth ${scrollWidth} vs clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth + 1);
     // 각 줄은 한 줄 높이 그대로다 — 이름·일정이 레일 폭에서 꺾이지 않는다.
@@ -541,8 +543,8 @@ for (const c of [
     expect(sc.height, `일정 줄 높이 ${sc.height} vs 줄 높이 ${lineHeights[1]}`).toBeLessThanOrEqual(lineHeights[1] + 1);
     // 일정 줄은 이름 줄 아래에 있다.
     expect(sc.y).toBeGreaterThanOrEqual(a.y + a.height - 1);
-    // WP-1809: 「짧은 문구는 글자 폭만큼」 결정을 「칸 폭 가득」으로 바꿨다 — 짧든 길든 트리거 오른쪽 끝이 레일 안쪽 끝과 같다.
-    expect(Math.abs(t.x + t.width - railInnerRight), `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${railInnerRight}`).toBeLessThanOrEqual(1);
+    // WP-1809: 「짧은 문구는 글자 폭만큼」 결정을 「칸 폭 가득」으로 바꿨다 — 짧든 길든 트리거 오른쪽 끝이 레일 안쪽 끝과 같다(1px 오차 허용).
+    expect(Math.abs(t.x + t.width - inner), `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${inner}`).toBeLessThanOrEqual(1);
   });
 }
 
@@ -580,12 +582,20 @@ test('일정이 없어도 「AI 에게 맡기기」 카드 오른쪽 끝은 레�
 
   const trigger = page.getByTestId('task-recurrence-trigger');
   await expect(trigger).toBeVisible();
-  const rail = page.getByTestId('personal-task-rail');
-  const [t, r, railPadRight] = await Promise.all([
-    boxOf(trigger),
-    boxOf(rail),
-    rail.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight)),
-  ]);
-  const railInnerRight = r.x + r.width - railPadRight;
-  expect(Math.abs(t.x + t.width - railInnerRight), `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${railInnerRight}`).toBeLessThanOrEqual(1);
+  const [t, inner] = await Promise.all([boxOf(trigger), railInnerRight(page)]);
+  expect(Math.abs(t.x + t.width - inner), `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${inner}`).toBeLessThanOrEqual(1);
+});
+
+// 리뷰(PR #1509): 「다음 실행」 문구가 없으면(nextRunAt=null) 상태 줄에 버튼만 남는다 — 그래도 버튼 끝은 카드 끝이다(왼쪽에 붙지 않는다).
+test('「다음 실행」 문구가 없어도 지금 실행 버튼 끝은 카드 끝과 같다(WP-1809)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/recurrence`, createIssueRecurrence({ nextRunAt: null }));
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const runNow = page.getByTestId('task-recurrence-run-now');
+  await expect(runNow).toBeVisible();
+  await expect(page.getByTestId('task-recurrence-status-row').getByTestId('task-recurrence-status')).toHaveCount(0);
+  await expectEndAligned(runNow, page.getByTestId('task-recurrence-trigger'));
 });

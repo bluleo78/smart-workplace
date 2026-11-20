@@ -74,6 +74,19 @@ describe('TaskRecurrenceField 「지금 실행」(WP-1313)', () => {
     expect(await screen.findByTestId('task-recurrence-run-now-icon')).toHaveAttribute('data-state', 'idle')
   })
 
+  // PR #1509 리뷰: 상태 줄 오른쪽 끝 자리(ml-auto)는 줄의 바깥 요소에 달려야 한다 — 잠기면 이유 툴팁 감싸개, 아니면 버튼.
+  it('지금 실행의 오른쪽 끝 자리(ml-auto)는 버튼에 단다(WP-1809)', async () => {
+    setup(recurrence())
+    expect(await screen.findByTestId('task-recurrence-run-now')).toHaveClass('ml-auto')
+  })
+
+  it('잠기면 오른쪽 끝 자리(ml-auto)는 이유 툴팁 감싸개에 단다(WP-1809)', async () => {
+    setup(recurrence({ editable: false }))
+    await screen.findByTestId('task-recurrence-run-now')
+    expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveClass('ml-auto')
+    expect(screen.getByTestId('task-recurrence-run-now')).not.toHaveClass('ml-auto')
+  })
+
   it('일정이 없으면 버튼이 없다', async () => {
     setup(null)
     await waitFor(() => expect(screen.getByTestId('task-recurrence-trigger')).toBeEnabled())
