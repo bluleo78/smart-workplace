@@ -1752,3 +1752,41 @@ test('process-issue.md: docs/superpowers 설계·계획·원장 파일을 새로
     '통합 PR 이면 그 파일을 더한 커밋의 이슈 키를 반려 글에 적는다',
   ], '절차 확인');
 });
+
+// WP-1851 — 선행 대기 차단: 정의·시작 절차는 SKILL.md 3번 한 곳, 처리 파일은 그곳을 가리키는 한 줄뿐이다.
+const planIssue = workLoop('plan-issue.md');
+const blockDef = lineWith(workLoopSkill, '**선행 대기 차단**');
+test('SKILL.md 3번: 선행 대기 차단은 깨어날 때 선행 풀림을 다시 보고 풀리면 새 글 없이 고른다 (WP-1851)', () => {
+  includesAll(blockDef, [
+    '선행 대기: <키>', '`선행 ` 으로 시작', '**모두**', '선행마다 따로', '「차례 막힘만」 ①~④', '.work-loop/project.md',
+    '사람이 건 차단은 (a) 서버 완료만 푼다', '`선행 무시:`', '`마지막 완료 단계` 가 없는', '새 작업(⑤⑥)처럼 동시 진행 상한·`HOLD`',
+    '판정은 고를 차례', '그 밖의 BLOCKED', '이어 갑니다',
+  ], '정의 줄');
+  const block = section(workLoopSkill, '**선행 대기 차단**', '\n순서: ⓪');
+  const proc = lineWith(block, '**시작 절차**');
+  includesAll(proc, ["state: 'BLOCKED'", "note: '선행 대기: <키>[, <키>…]'", "message: '선행 <키> 가 아직 풀리지 않아 기다립니다'", '`WORKING` 을 먼저 보고하지 않는다'], '시작 절차');
+  assertBefore(proc, '새 글로 골랐으면 새 글을 먼저 읽는다', '선행 확인');
+  assertBefore(proc, '선행 확인', "state: 'BLOCKED'");
+  includesAll(lineWith(block, '- **사람 지시**'), ['`선행 무시: <키>[, <키>…] — <사람 username> <KST 시각>`', '풀린 것으로 본다'], '사람 지시');
+  includesAll(lineWith(block, '**판정 대상**'), ['`blocked` 가 true 일 때만', '목록 `blocked` 를 쓰지 않고'], '판정 대상');
+  includesAll(lineWith(block, '**③-1 옛 형식**'), ['`선행 대기:` 줄이 없어도', '같은 시작 절차'], '③-1 옛 형식');
+  // 상태 표·순서·HOLD·상한이 정의를 가리킨다
+  assert.ok(lineWith(workLoopSkill, '| 차단됨(BLOCKED) |').includes('「선행 대기 차단」'));
+  const order = lineWith(workLoopSkill, '순서: ⓪');
+  assertBefore(order, '③ 끊긴 작업', '풀린 선행 대기 차단');
+  assertBefore(order, '풀린 선행 대기 차단', '④');
+  for (const k of ['- **언제 세나**', '- **상한 이상이면**', '- `HOLD`: 새 작업을 받지 않는다']) {
+    includesAll(lineWith(workLoopSkill, k), ['시작 전에 막혔던 ③-1(notes 에 `마지막 완료 단계` 없음)은 새 작업처럼', '「선행 대기 차단」'], k);
+  }
+});
+
+test('process-issue.md·plan-issue.md 1번: 선행 대기는 SKILL.md 「선행 대기 차단」 시작 절차를 가리키는 한 줄뿐이고 갈래 목록보다 먼저 읽힌다 (WP-1851)', () => {
+  for (const [name, text, next] of [['process-issue.md', pi, '### 2. 워크트리'], ['plan-issue.md', planIssue, '| 마지막 완료 단계 |']]) {
+    const ptr = lineWith(text, '고른 이슈가 새로 시작하는 것이거나');
+    includesAll(ptr, ['`선행 대기:`', '③-1', '다른 갈래보다 먼저', '`SKILL.md` 3번 「선행 대기 차단」의 시작 절차'], name);
+    assertBefore(text, '고른 이슈가 새로 시작하는 것이거나', '- notes 파일이 있으면');
+    assertBefore(text, '고른 이슈가 새로 시작하는 것이거나', next);
+    for (const s of ['아직 풀리지 않아 기다립니다', '이어 갑니다', '**선행 확인**']) assert.ok(!text.includes(s), `${name} 에 「${s}」 중복`);
+  }
+});
+
