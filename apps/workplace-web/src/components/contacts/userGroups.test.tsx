@@ -3,7 +3,7 @@
 // 관리자 전용 노출, 400/409 오류 토스트·인라인 오류는 브라우저 없이 판정되므로 e2e/pages/contacts/user-groups.spec.ts 에서 옮겼다.
 // 조직도 선택 → 트리·직속 멤버 배선(@wiring)과 긴 이름이 창 폭을 넘지 않는 것(@layout)은 그 E2E 가 지킨다.
 // 사이드바 트리와 본문 그룹 뷰가 URL ?group 으로 이어지므로 모듈 레이아웃 + ContactsPage 를 renderScreen 으로 띄운다(testkit-b8).
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test } from 'vitest'
 
@@ -213,4 +213,19 @@ test('admin: 최상위 공유 그룹 이름 중복(400) → 인라인 에러 + �
     expect(document.getElementById('g-name-error')).toHaveTextContent('이미 존재하는 그룹 이름입니다: 테스트그룹A'),
   )
   expect(screen.getByTestId('group-form-dialog')).toBeInTheDocument()
+})
+
+// WP-1870: 머리 + 단추는 아이콘만 있어 hover·focus 툴팁으로 이름을 보인다(실제 크기는 E2E @layout 「user-groups」 가 잰다).
+test('WP-1870 그룹 추가 + 단추에 마우스를 올리면 툴팁 「새 그룹」', async () => {
+  const { user } = await open('/contacts', base())
+  const add = screen.getByTestId('group-create')
+  await user.hover(add)
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('새 그룹')
+})
+
+test('WP-1870 admin: 조직도 + 단추에 키보드 초점을 두면 툴팁 「새 조직 그룹」', async () => {
+  await open('/contacts', base(), ADMIN)
+  const add = screen.getByTestId('org-create')
+  act(() => add.focus())
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('새 조직 그룹')
 })

@@ -106,3 +106,47 @@ for (const viewport of [
     expect(await dialog.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
   })
 }
+
+// WP-1870: 사이드바 머리 「＋」(새 그룹)은 데스크톱 32×32 로 눌리고(14px 맨 아이콘이던 것), 단추가 머리 줄 안에 들어
+// 바로 아래 줄(첫 그룹 줄·빈 안내)을 덮지 않는다 — 덮으면 그 줄의 탭·클릭을 가로챈다(코드 리뷰 지적). jsdom 이 못 재는 기하.
+test('사이드바 머리 ＋ 단추는 32×32 이고 아래 줄을 덮지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await stubContacts(page)
+  await stubTree(page)
+  await page.goto('/contacts')
+  const add = page.getByTestId('group-create')
+  await expect(add).toBeVisible()
+  const box = (await add.boundingBox())!
+  expect(Math.round(box.width)).toBe(32)
+  expect(Math.round(box.height)).toBe(32)
+  // 머리 줄(단추의 부모)이 단추를 세로로 다 품고, 그다음 형제(머리 아래 첫 요소)는 단추 아래에서 시작한다.
+  const header = add.locator('..')
+  const row = (await header.boundingBox())!
+  expect(box.y).toBeGreaterThanOrEqual(row.y - 0.5)
+  expect(box.y + box.height).toBeLessThanOrEqual(row.y + row.height + 0.5)
+  const below = (await header.locator('xpath=following-sibling::*[1]').boundingBox())!
+  expect(below.y).toBeGreaterThanOrEqual(box.y + box.height - 0.5)
+})
+
+// WP-1870: 마우스로 연 새 그룹 창을 「취소」로 닫으면 초점이 ＋ 로 돌아오지만, 키보드 초점이 아니라서 툴팁이 저절로 뜨지 않는다
+// (그룹 삭제 뒤 초점 복원도 같은 경로) — :focus-visible 판정은 실제 브라우저의 입력 방식에 달려 jsdom 이 가릴 수 없다.
+test('마우스로 연 새 그룹 창을 닫아 ＋ 로 초점이 돌아와도 툴팁이 뜨지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stubContacts(page)
+  await stubTree(page)
+  await page.goto('/contacts')
+  const add = page.getByTestId('group-create')
+  await add.click()
+  const dialog = page.getByTestId('group-form-dialog')
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '취소' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(add).toBeFocused()
+  // 툴팁 지연(200ms)이 지나도 뜨지 않는지 — 부재 확인이라 짧게 기다린다.
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 툴팁이 「뜨지 않음」 부재 확인이라 조건 대기로 바꿀 수 없다
+  await page.waitForTimeout(400)
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  // 키보드 초점이면 뜬다(대조) — Tab 으로 나갔다가 Shift+Tab 으로 돌아온다.
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(add).toBeFocused()
+  await expect(page.getByRole('tooltip')).toHaveText('새 그룹')
+})
