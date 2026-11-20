@@ -17,7 +17,8 @@ import { UNDO_DELETE_DELAY_MS } from '../../../src/lib/deleteWithUndo'
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정 기준.
 const ME_ID = 1
 
-// 채널/DM 사이드바 목록 + SSE 스트림 stub. ChatModuleLayout 이 항상 구독한다.
+// 채널 사이드바 목록 stub. ChatModuleLayout 이 항상 부른다.
+// SSE 스트림은 덮지 않고 auth.fixture 의 열린 스트림을 쓴다(WP-1866).
 // channels 는 호출자가 더 구체적으로 다시 등록할 수 있게 인자로 받는다.
 async function stubChannelsList(page: Page, channels: ReturnType<typeof createChannel>[]) {
   await page.route(
