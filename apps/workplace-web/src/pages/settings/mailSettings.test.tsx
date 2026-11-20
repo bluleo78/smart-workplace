@@ -1,6 +1,6 @@
 // 설정 › 메일 계정(MailSettingsPage + MailAccountsSection + MailAccountDialog) — 화면 컴포넌트 테스트(WP-971, WP-995).
 // 연결 테스트 → 저장 → 목록, 테스트 실패·저장 막힘 이유(WP-928), 포트·표시 이름 검증(WP-907·WP-929), 전역 개인 비서 토글 payload·토스트,
-// 수정 다이얼로그(계정별 AI 토글 없음·id 기반 연결 테스트 #448), 연결 테스트 연타·실패 안내·다시 연 다이얼로그 잠금(WP-1770), 삭제 확인, 공급자 기본값(WP-879)과 늦게 온 기본값,
+// 수정 다이얼로그(계정별 AI 토글 없음·id 기반 연결 테스트 #448), 연결 테스트 연타·실패 안내·다시 연 다이얼로그 잠금(WP-1770), 연결 칸을 고치면 테스트 결과 무효(WP-1790), 삭제 확인, 공급자 기본값(WP-879)과 늦게 온 기본값,
 // Outlook(M365) 팝업 흐름(성공·실패 메시지·팝업 차단·/start 실패)은 브라우저 없이 판정되므로 e2e/pages/profile/mail-accounts.spec.ts·
 // settings-layout.spec.ts 에서 옮겼다. 메일 계정 화면 배선(@wiring)은 mail-accounts.spec.ts, 긴 주소의 가로 넘침(@layout)은 settings-layout.spec.ts 에 남는다.
 // 팝업은 window.open 을 가짜 창으로 바꾸고, 팝업이 보내는 결과는 같은 출처의 message 이벤트로 흉내 낸다(E2E 도 같은 방식이었다).
@@ -229,6 +229,72 @@ describe('계정 추가', () => {
     await user.click(button)
     expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
     expect(testCalls(calls)).toHaveLength(2)
+  })
+
+  // WP-1790 — 테스트한 값과 지금 값(연결 칸)이 같을 때만 결과를 쓴다. 표시 이름은 연결과 무관.
+  test('연결 테스트 통과 뒤 연결 칸을 고치면 결과를 지우고 저장을 막는다, 표시 이름은 그대로, 되돌리면 다시 열린다 (WP-1790)', async () => {
+    const { user, calls } = await openMail()
+    await openAdd(user)
+    await fillImap(user)
+    await user.click(screen.getByTestId('mail-test-button'))
+    expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(screen.getByTestId('mail-save-button')).toBeEnabled()
+    await fill(user, 'mail-display', '내 메일')
+    expect(screen.getByTestId('mail-save-button')).toBeEnabled()
+    expect(screen.getByTestId('mail-test-imap')).toBeInTheDocument()
+    await fill(user, 'mail-imap-host', 'imap.other.com')
+    expect(screen.queryByTestId('mail-test-imap')).not.toBeInTheDocument()
+    expect(screen.getByTestId('mail-save-button')).toBeDisabled()
+    expect(screen.getByTestId('mail-save-blocked-reason')).toHaveTextContent(
+      '저장하려면 먼저 「연결 테스트」로 IMAP·SMTP 연결을 확인하세요.',
+    )
+    await fill(user, 'mail-imap-host', 'imap.x.com')
+    expect(screen.getByTestId('mail-test-imap')).toBeInTheDocument()
+    expect(screen.getByTestId('mail-save-button')).toBeEnabled()
+    await fill(user, 'mail-pw', 'other')
+    expect(screen.getByTestId('mail-save-button')).toBeDisabled()
+    expect(testCalls(calls)).toHaveLength(1)
+  })
+
+  test('테스트가 도는 중에 연결 칸을 고치면 늦게 온 통과 결과로 저장이 열리지 않는다 (WP-1790)', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { user, calls } = await openMail({ testGates: [gate] })
+    await openAdd(user)
+    await fillImap(user)
+    await user.click(screen.getByTestId('mail-test-button'))
+    await waitFor(() => expect(testCalls(calls)).toHaveLength(1))
+    await fill(user, 'mail-smtp-host', 'smtp.other.com')
+    await act(async () => {
+      release()
+    })
+    // 응답이 실제로 도착해 테스트가 끝났다(버튼이 다시 눌린다) — 그 뒤에도 결과는 보이지 않고 저장은 막혀 있다
+    await waitFor(() => expect(screen.getByTestId('mail-test-button')).toBeEnabled())
+    expect(screen.queryByTestId('mail-test-imap')).not.toBeInTheDocument()
+    expect(screen.getByTestId('mail-save-button')).toBeDisabled()
+    // 테스트한 값으로 되돌리면 늦게 온 통과 결과가 그 값의 결과로 보인다 — 결과가 버려진 게 아니라 지문으로 가려졌던 것
+    await fill(user, 'mail-smtp-host', 'smtp.x.com')
+    expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(screen.getByTestId('mail-save-button')).toBeEnabled()
+  })
+
+  // WP-1790 — 통과 뒤 다른 빠른 설정을 고르면 호스트·포트가 바뀌어 결과가 무효가 된다(프리셋은 결과를 직접 지우지 않고 지문 비교에 맡긴다).
+  test('연결 테스트 통과 뒤 다른 빠른 설정을 고르면 결과가 사라지고 저장이 막힌다 (WP-1790)', async () => {
+    const { user } = await openMail()
+    await openAdd(user)
+    await choose(user, '빠른 설정(provider)', 'Gmail')
+    await fill(user, 'mail-email', 'me@example.com')
+    await fill(user, 'mail-imap-user', 'me@example.com')
+    await fill(user, 'mail-smtp-user', 'me@example.com')
+    await fill(user, 'mail-pw', 'app-password')
+    await user.click(screen.getByTestId('mail-test-button'))
+    expect(await screen.findByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(screen.getByTestId('mail-save-button')).toBeEnabled()
+    await choose(user, '빠른 설정(provider)', 'Naver')
+    await waitFor(() => expect(screen.queryByTestId('mail-test-imap')).not.toBeInTheDocument())
+    expect(screen.getByTestId('mail-save-button')).toBeDisabled()
   })
 
   test('메일 계정 페이지 제목은 사이드바 메뉴 라벨과 같다 (#651)', async () => {

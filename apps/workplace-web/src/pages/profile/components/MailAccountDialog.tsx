@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { Check, Loader2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { type SubmitHandler, useForm } from 'react-hook-form';
+import { type SubmitHandler, useForm, useWatch } from 'react-hook-form';
 
 import { getM365AuthorizeUrl } from '@/api/mailAccounts';
 import {
@@ -40,6 +40,7 @@ import {
   MAIL_SECURITY_OPTIONS,
 } from '@/lib/constants/mailAccount';
 import { M365_OAUTH_CHANNEL, M365_OAUTH_SOURCE, type M365OAuthResult } from '@/lib/m365-oauth';
+import { MAIL_CONNECTION_FIELDS, mailConnectionFingerprint } from '@/lib/mailConnectionFingerprint';
 import {
   type MailAccountFormData,
   type MailAccountFormInput,
@@ -83,8 +84,9 @@ export function MailAccountDialog({
   const testConn = useTestMailConnection();
   // 수정 모드는 비밀번호 미입력 시 저장된 비밀번호로 폴백하는 id 기반 테스트를 사용(#448)
   const testConnExisting = useTestMailConnectionForAccount();
-  // 연결 테스트 결과 — 추가 모드에서 저장 가능 여부 판단에 사용
-  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  // 연결 테스트 결과 + 테스트한 연결 칸 지문 — 추가 모드에서 저장 가능 여부 판단에 사용.
+  // 테스트한 값 지문과 지금 값이 같을 때만 결과를 쓴다 — 통과 뒤 연결 칸을 고쳐 테스트 안 한 값으로 저장되던 것(WP-1790)
+  const [tested, setTested] = useState<{ result: ConnectionTestResult; fingerprint: string } | null>(null);
   // 연결 테스트 진행 잠금(WP-1770) — onTest 는 유효성 검사(form.trigger)를 await 한 뒤에야 mutation 을 시작하므로
   // 그 사이엔 isPending 이 false 라 두 번째 클릭이 통과했다. ref 는 같은 틱의 두 번째 클릭을 막고,
   // state 는 검사 중에도 버튼을 비활성·「테스트 중…」으로 보이게 한다(EventDialog submittingRef 와 같은 패턴).
@@ -202,10 +204,16 @@ export function MailAccountDialog({
     defaultValues: EMPTY,
   });
 
+  // 지금 연결 칸 값 — 바뀌면 지문이 달라져 옛 테스트 결과가 자동으로 무효가 된다(WP-1790).
+  // 연결 칸만 구독해 표시 이름·AI 토글 입력으로는 다시 그리지 않는다.
+  const watchedConnection = useWatch({ control: form.control, name: MAIL_CONNECTION_FIELDS });
+  const testResult =
+    tested && tested.fingerprint === mailConnectionFingerprint(watchedConnection) ? tested.result : null;
+
   // 다이얼로그가 열릴 때마다 폼 초기화 + 공급자 초기화
   useEffect(() => {
     if (!open) return;
-    setTestResult(null);
+    setTested(null);
     // 열 때마다 새 세션 — 이전 열림의 진행 중 테스트가 남긴 잠금을 끊고, 그 테스트의 늦은 결과·해제는 무시된다
     testSessionRef.current += 1;
     testingRef.current = false;
@@ -246,8 +254,7 @@ export function MailAccountDialog({
     form.setValue('smtpHost', preset.smtpHost);
     form.setValue('smtpPort', preset.smtpPort);
     form.setValue('smtpSecurity', preset.smtpSecurity);
-    // 폼 값 변경 후 테스트 결과 무효화
-    setTestResult(null);
+    // 테스트 결과는 여기서 지우지 않는다 — 바뀐 연결 칸은 지문 비교가 무효로 만든다(WP-1790)
   };
 
   /** 연결 테스트 — 먼저 전체 유효성 검사 후 API 호출 */
@@ -261,15 +268,17 @@ export function MailAccountDialog({
     try {
       const valid = await form.trigger();
       if (!valid) return;
-      setTestResult(null);
+      setTested(null);
       // getValues() 는 input 타입(coerce 전)이라 schema.parse 로 output 타입(number 포트) 변환
       const body = mailAccountSchema.parse(form.getValues());
+      // 요청 직전 값의 지문 — 응답이 오기 전에 연결 칸을 고치면 지문이 달라져 늦은 통과가 저장을 열지 못한다(WP-1790)
+      const fingerprint = mailConnectionFingerprint(form.getValues(MAIL_CONNECTION_FIELDS));
       // 수정 모드: 비밀번호 빈 값이면 서버가 저장된 비밀번호로 폴백(#448). 추가 모드: 본문 비밀번호 사용.
       const result =
         isEdit && account
           ? await testConnExisting.mutateAsync({ id: account.id, body })
           : await testConn.mutateAsync(body);
-      if (session === testSessionRef.current) setTestResult(result);
+      if (session === testSessionRef.current) setTested({ result, fingerprint });
     } catch (e) {
       // 요청 실패(axios 오류)는 mutation onError 가 이미 토스트로 알렸으니 삼킨다. 그 밖의 오류(schema.parse 등 코드 결함)는 숨기지 않고 다시 던진다.
       if (!isAxiosError(e)) throw e;
