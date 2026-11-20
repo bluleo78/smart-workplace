@@ -35,6 +35,7 @@ export function LoadErrorState({
   variant = 'block',
   className,
   retryClassName,
+  focusAfterRetry,
   testId,
 }: {
   /** 「…을(를) 불러오지 못했습니다」 — 무엇이 실패했는지 화면 말로. */
@@ -45,11 +46,22 @@ export function LoadErrorState({
   className?: string
   /** 다시 시도 단추에 더할 클래스 — 바텀시트처럼 터치 크기(pointer-coarse:h-11)가 필요한 자리에서 쓴다(WP-1820). */
   retryClassName?: string
+  /**
+   * 다시 불러 성공해 안내가 사라질 때 초점을 받을 요소를 고른다(새 내용이 그려진 뒤 부른다) — 아래 기본 순서의 2)·3) 대신 쓴다(같은 자리에 아직 실패 안내가 있으면 그 다시 시도가 먼저다).
+   * 불러온 것이 안내 앞(같은 목록 안)에 이어 붙는 자리(기록 다음 묶음 등)에서, 기본 순서가 목록 맨 위로 초점을 보내 스크롤을 잃지 않게 한다(WP-1820).
+   * null 이면(고를 요소가 없으면) 기본 순서의 2)·3) 으로 내려간다 — 다시 시도 단추는 이미 사라져, 옮기지 않으면 초점이 body 로 빠진다.
+   */
+  focusAfterRetry?: () => HTMLElement | null
   testId: string
 } & RetryProps) {
   const onRetry = queries ? () => queries.forEach((q) => void q.refetch()) : onRetryProp
   const retrying = queries ? queries.some((q) => q.isFetching) : retryingProp
   const retryRef = useRef<HTMLButtonElement>(null)
+  // 정리 함수가 마지막 렌더의 고르기 함수를 읽게 ref 로 둔다(정리 효과를 testId 로만 다시 걸기 위해)
+  const focusAfterRetryRef = useRef(focusAfterRetry)
+  useLayoutEffect(() => {
+    focusAfterRetryRef.current = focusAfterRetry
+  })
   useLayoutEffect(() => {
     const button = retryRef.current
     const root = button?.closest<HTMLElement>(`[data-testid="${testId}"]`)
@@ -62,12 +74,19 @@ export function LoadErrorState({
       // 1) 같은 자리에 아직 실패 안내가 있으면(일부만 성공해 배너로 바뀐 경우 등) 그 다시 시도.
       // 2) 안내가 있던 자리 뒤의 첫 조작 요소 — 머리말 버튼(＋ 등)보다 불러온 목록이 먼저다.
       // 3) 그 자리의 첫 조작 요소. 보이지 않는 요소(display:none 등)는 건너뛴다. 없으면 옮기지 않는다.
+      const pick = focusAfterRetryRef.current
       requestAnimationFrame(() => {
         if (!area.isConnected) return
         const visible = (el: HTMLElement) => el.getClientRects().length > 0
         const stillFailing = area.querySelector<HTMLElement>('[data-load-error-retry]')
         if (stillFailing && visible(stillFailing)) {
           stillFailing.focus()
+          return
+        }
+        // 부르는 쪽이 고른 요소(focusAfterRetry)가 있으면 아래 2)·3) 대신 쓴다 — 고르지 못했으면(null) 2)·3) 으로 내려간다
+        const picked = pick?.()
+        if (picked) {
+          picked.focus()
           return
         }
         const candidates = Array.from(area.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(visible)

@@ -260,6 +260,9 @@ export function InboxList({
     </Button>
   );
 
+  // 조회 실패 안내를 그릴지 — 일부 페이지를 이미 받아 행이 있으면 목록을 유지한다(WP-1848). 패널 Tab 정지점도 이것으로 가른다.
+  const loadFailed = showsLoadError(query) && items.length === 0;
+
   return (
     <>
       {!hideHeader && (
@@ -303,23 +306,22 @@ export function InboxList({
       {/*
         WP-1843: 목록 영역은 선택 탭(inboxViewTabId)에 이어진 tabpanel 이다(APG Tabs).
         모바일은 탭이 화면 머리에 따로 있고 목록은 별도 컴포넌트라, 같은 파일의 고정 id 로 탭과 패널을 잇는다.
-        Tab 정지점은 빈 목록·로딩일 때만 패널이 된다(tabIndex 0, APG: 안에 초점 받을 것이 없을 때만).
-        행이 있으면 -1 로 둔다 — 속성을 아예 빼면 로딩 중 패널에 둔 초점이 행 도착 때 body 로 떨어지므로,
-        -1 로 프로그램 초점은 유지하되 Tab 순서에서는 빼 첫 행 단추가 Tab 정지점이 되게 한다(WP-1843).
+        Tab 정지점은 불러오는 중일 때만 패널이 된다(tabIndex 0, APG: 안에 초점 받을 것이 없을 때만).
+        조회 실패(다시 시도)·빈 상태(CTA)·행 목록에는 안에 초점 받을 단추가 있어 -1 로 둔다 — 정지점이 하나 더 생기지 않게(WP-1843 리뷰 후속).
+        속성을 아예 빼지 않고 -1 로 두는 까닭: 로딩 중 패널에 둔 초점이 행 도착 때 body 로 떨어지지 않게 프로그램 초점은 유지한다(WP-1843).
       */}
       <div
         role="tabpanel"
         id={INBOX_VIEW_PANEL_ID}
         aria-labelledby={inboxViewTabId(view)}
-        tabIndex={isLoading || items.length === 0 ? 0 : -1}
+        tabIndex={isLoading && !loadFailed ? 0 : -1}
         ref={setScrollEl}
         data-testid="inbox-scroll-area"
         className={scrollClassName}
       >
-        {showsLoadError(query) && items.length === 0 ? (
+        {loadFailed ? (
           // 조회 실패 — 빈 상태로 보이면 「알림 설정」 문제로 오해하므로 공용 실패 안내(다시 시도)를 보인다(WP-1848).
           // 불러오는 중보다 먼저 본다 — 다시 부르는 동안에도 안내를 두어야 초점이 body 로 사라지지 않는다(lib/queryFailure).
-          // 일부 페이지를 이미 받아 items 가 있으면 여기로 오지 않고 목록을 유지한다.
           <LoadErrorState
             variant="inline"
             title={loadErrorTitle}

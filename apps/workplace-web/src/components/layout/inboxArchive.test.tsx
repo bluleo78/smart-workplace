@@ -136,10 +136,17 @@ describe('알림 창 보관함 전환', () => {
     expect(panel).toHaveFocus()
   })
 
-  test('빈 목록 패널은 초점을 받는다', async () => {
-    renderInbox({ inbox: [] })
-    await screen.findByTestId('inbox-empty')
-    expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '0')
+  // WP-1843 리뷰 후속: 빈 상태(CTA)·조회 실패(다시 시도)에는 안에 초점 받을 단추가 있어 패널을 Tab 정지점으로 더하지 않는다.
+  // 패널이 빠진 만큼 그 단추가 켜진 채 Tab 순서에 있어야 한다(꺼지거나 -1 이면 그 상태에 정지점이 없어진다).
+  test.each([
+    { state: '빈 목록', opts: { inbox: [] }, control: 'inbox-empty-action' },
+    { state: '조회 실패', opts: { inboxStatus: 500 }, control: 'inbox-error-retry' },
+  ])('$state 패널은 Tab 정지점이 아니고 안의 단추가 정지점이다', async ({ opts, control }) => {
+    renderInbox(opts)
+    const button = await screen.findByTestId(control)
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '-1')
+    expect(button).toBeEnabled()
+    expect(button).not.toHaveAttribute('tabindex', '-1')
   })
 
   test('탭의 aria-controls 값이 패널 id 와 같다', async () => {

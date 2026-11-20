@@ -132,7 +132,13 @@ function ChangeItem({
     }
   }, [done]);
   return (
-    <li data-testid="memory-log-item" className="flex items-start gap-3 px-3 py-2.5 pointer-coarse:py-3">
+    // tabIndex -1: 탭 순서에는 넣지 않고, 조작 요소가 없는 기록(읽기 전용·되돌린 기록)도 코드로 초점을 받게 한다 —
+    // 다음 묶음 다시 시도가 성공해 안내가 사라질 때 초점을 이 기록으로 옮긴다(InfiniteChangeLogBody, WP-1820 반려 수정).
+    <li
+      data-testid="memory-log-item"
+      tabIndex={-1}
+      className="flex items-start gap-3 px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset pointer-coarse:py-3"
+    >
       <Icon aria-hidden className={cn('mt-0.5 size-4 shrink-0 text-muted-foreground', done && 'opacity-60')} />
       <div className={cn('min-w-0 flex-1 space-y-0.5', done && 'opacity-60')}>
         <p className="text-xs text-muted-foreground">
