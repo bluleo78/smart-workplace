@@ -3,6 +3,12 @@
 import type { V1Container, V1PersistentVolumeClaim, V1Pod } from '@kubernetes/client-node';
 import { parseCpuMillicores, parseMemoryBytes } from '../observe.js';
 
+/** 쿼터 자원 키의 별칭 목록(WP-1819) — 사유 문구(describe)와 수용량 계산(quotaCapacity)이 같은 키를 같은 자원으로 본다. */
+const CPU_KEYS = ['requests.cpu', 'cpu'];
+const MEMORY_KEYS = ['requests.memory', 'memory'];
+const PVC_KEYS = ['persistentvolumeclaims', 'count/persistentvolumeclaims'];
+const POD_KEYS = ['pods', 'count/pods'];
+
 /** 상한을 넘은 자원 하나 — 값은 서버가 쓴 수량 문자열 그대로(예: 2260m, 64Gi). */
 export interface QuotaExceeded {
   resource: string;
@@ -84,13 +90,13 @@ function detail(used: string | undefined, requested: string | undefined): string
 /** 자원 하나의 설명 — 아는 자원(CPU·메모리·PVC)만, 모르면 undefined. */
 function describe(item: QuotaExceeded): string | undefined {
   const { resource, requested, used, limited } = item;
-  if (resource === 'requests.cpu' || resource === 'cpu') {
+  if (CPU_KEYS.includes(resource)) {
     return `CPU 상한 ${cores(limited)}코어${detail(used && cores(used), requested && cores(requested))}`;
   }
-  if (resource === 'requests.memory' || resource === 'memory') {
+  if (MEMORY_KEYS.includes(resource)) {
     return `메모리 상한 ${gib(limited)}GiB${detail(used && gib(used), requested && gib(requested))}`;
   }
-  if (resource === 'persistentvolumeclaims') {
+  if (PVC_KEYS.includes(resource)) {
     return `작업 폴더 상한 ${limited}개${detail(used, requested)}`;
   }
   return undefined;
@@ -141,23 +147,48 @@ export function podRequests(pod: V1Pod, pvc?: V1PersistentVolumeClaim): PodReque
   return { cpuMillicores: total('cpu'), memoryBytes: total('memory'), pvcs: pvc ? 1 : 0 };
 }
 
-/** 쿼터 hard 에서 자원 하나의 상한을 읽는다 — 우선 키(requests.*)가 있으면 그것, 없으면 별칭(cpu·memory). 없거나 못 읽으면 undefined. */
-function hardOf(hard: Record<string, string>, keys: string[], parse: (q: string) => number | undefined): number | undefined {
-  const key = keys.find((k) => hard[k] !== undefined);
-  return key === undefined ? undefined : parse(hard[key] as string);
+/** 쿼터가 세는 지금 떠 있는 AI — Pod 수와 PVC 수(WP-1819). 수용량에 「이미 떠 있는 만큼」으로 더한다. */
+export interface AiUsage {
+  pods: number;
+  pvcs: number;
 }
 
 /**
- * 네임스페이스 쿼터가 Pod 를 몇 개까지 받는지 — 자원별 floor(상한 합계 / Pod 하나 요청량)의 최솟값.
- * 이미 쓴 양(used)은 빼지 않는다: 지금 떠 있는 AI 까지 포함한 「최대 AI 수」를 알려 설정 값과 비교하려는 것이기 때문이다.
- * 아는 자원(CPU·메모리·PVC)이 하나도 없거나, Pod 요청량이 0 이라 나눌 수 없는 자원뿐이면 null(모름).
+ * 네임스페이스 쿼터가 AI Pod 를 몇 개까지 받는지(지금 떠 있는 AI 까지 포함한 「최대 AI 수」).
+ * 자원 키마다 (떠 있는 AI 수) + floor(max(0, hard − used) / Pod 하나 요청량) 를 구하고, 그 최솟값을 쓴다.
+ * 쿼터 컨트롤러가 센 used 를 그대로 믿는 여유(headroom) 방식이다 — runner 자신·다른 Pod 의 사용량은 물론 overhead(RuntimeClass)·
+ * LimitRange 기본값·사이드카 규칙까지 이미 used 에 들어 있어 runner 가 다시 계산할 필요가 없다(AI 요청 합을 손으로 빼는 방식은 이것들과 어긋난다).
+ * - 별칭 키(requests.cpu·cpu, requests.memory·memory, pods·count/pods, persistentvolumeclaims·count/persistentvolumeclaims)가
+ *   hard 에 여럿이면 각각 계산해 가장 빡빡한 값을 쓴다. 각 키의 used 는 같은 키로 읽는다.
+ * - 그 키의 used 가 없거나 못 읽으면 hard / Pod 하나 요청량(사용분 무시)으로 센다. 과대일 수 있지만 쿼터를 막 만들어
+ *   컨트롤러가 used 를 채우기 전의 짧은 순간이라 받아들인다.
+ * - ai 는 actual 스냅샷에서 센 값이라 같은 순간의 used 와 AI Pod 수가 한 개쯤 어긋날 수 있다 — 30초 뒤 다음 보고 주기에 바로잡힌다.
+ * 아는 자원이 하나도 없거나, Pod 요청량이 0 이라 나눌 수 없는 자원뿐이면 null(모름).
  */
-export function quotaCapacity(hard: Record<string, string>, perPod: PodRequests): number | null {
-  const limits: Array<[number | undefined, number]> = [
-    [hardOf(hard, ['requests.cpu', 'cpu'], parseCpuMillicores), perPod.cpuMillicores],
-    [hardOf(hard, ['requests.memory', 'memory'], parseMemoryBytes), perPod.memoryBytes],
-    [hardOf(hard, ['persistentvolumeclaims'], parseCount), perPod.pvcs],
+export function quotaCapacity(
+  hard: Record<string, string>,
+  perPod: PodRequests,
+  used: Record<string, string> = {},
+  ai: AiUsage = { pods: 0, pvcs: 0 },
+): number | null {
+  // 자원마다 별칭 키 목록·Pod 하나 요청량·지금 떠 있는 AI 의 몫
+  const specs = [
+    { keys: CPU_KEYS, per: perPod.cpuMillicores, running: ai.pods },
+    { keys: MEMORY_KEYS, per: perPod.memoryBytes, running: ai.pods },
+    { keys: PVC_KEYS, per: perPod.pvcs, running: ai.pvcs },
+    { keys: POD_KEYS, per: 1, running: ai.pods },
   ];
-  const counts = limits.filter((l): l is [number, number] => l[0] !== undefined && l[1] > 0).map(([h, p]) => Math.floor(h / p));
+  // 키 이름으로 파서를 고르는 parseQuantity 로 읽는다 — 없거나 못 읽으면 undefined
+  const read = (rec: Record<string, string>, key: string) => (rec[key] === undefined ? undefined : parseQuantity(key, rec[key]));
+  const counts: number[] = [];
+  for (const { keys, per, running } of specs) {
+    if (per <= 0) continue;
+    for (const key of keys) {
+      const h = read(hard, key);
+      if (h === undefined) continue;
+      const u = read(used, key);
+      counts.push(u === undefined ? Math.floor(h / per) : running + Math.floor(Math.max(0, h - u) / per));
+    }
+  }
   return counts.length > 0 ? Math.min(...counts) : null;
 }

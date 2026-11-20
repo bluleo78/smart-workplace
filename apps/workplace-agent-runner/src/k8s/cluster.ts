@@ -45,8 +45,8 @@ export interface ClusterApi {
   delete(kind: ManagedKind, name: string): Promise<void>;
   /** Pod 이름 → 사용량. metrics.k8s.io 가 없으면 실패한다(부르는 쪽이 무시). */
   podMetrics(): Promise<Map<string, PodUsage>>;
-  /** 네임스페이스 ResourceQuota 의 hard(상한) — 그 이름의 쿼터가 없으면(404) null, 그 밖의 오류는 ClusterError(WP-1819). */
-  resourceQuota(name: string): Promise<{ hard: Record<string, string> } | null>;
+  /** 네임스페이스 ResourceQuota 의 hard(상한)·used(사용량, 아직 없으면 빈 객체) — 그 이름의 쿼터가 없으면(404) null, 그 밖의 오류는 ClusterError(WP-1819). */
+  resourceQuota(name: string): Promise<{ hard: Record<string, string>; used: Record<string, string> } | null>;
 }
 
 export const FIELD_MANAGER = 'genia-agent-runner';
@@ -199,11 +199,12 @@ export class KubeCluster implements ClusterApi {
     }
   }
 
-  async resourceQuota(name: string): Promise<{ hard: Record<string, string> } | null> {
+  async resourceQuota(name: string): Promise<{ hard: Record<string, string>; used: Record<string, string> } | null> {
     try {
       const q = await this.core.readNamespacedResourceQuota({ name, namespace: this.namespace });
       // status.hard 는 컨트롤러가 채운 실제 적용값 — 아직 없으면 spec.hard
-      return { hard: q.status?.hard ?? q.spec?.hard ?? {} };
+      // used 는 컨트롤러가 채우는 status.used — AI 가 아닌 Pod 의 몫을 가려내는 데 쓴다
+      return { hard: q.status?.hard ?? q.spec?.hard ?? {}, used: q.status?.used ?? {} };
     } catch (e) {
       if (isNotFound(e)) return null;
       throw wrap(e, 'get', 'ResourceQuota', name);

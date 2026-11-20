@@ -28,7 +28,7 @@ import {
   secretName,
   type AgentContext,
 } from './k8s/manifest.js';
-import { maxRequests, podRequests, quotaCapacity, quotaReason, type PodRequests } from './k8s/quota.js';
+import { maxRequests, podRequests, quotaCapacity, quotaReason, type AiUsage, type PodRequests } from './k8s/quota.js';
 import { clip, formatNoticeTime, isWithinNoticeWindow, toObserved } from './observe.js';
 import {
   checkImages,
@@ -874,6 +874,7 @@ export class Reconciler {
    * AI 가 하나도 없으면 읽지 않고(undefined), 쿼터 이름 설정이 없거나(차트가 쿼터를 끔) 쿼터가 없으면(404) capacity null.
    * 읽기 실패(403·5xx·네트워크)는 모름이라 undefined — 보고는 쿼터 없이 나가고 Works 가 마지막 값을 둔다.
    * Pod 하나의 요청량은 자원별로 desired 중 가장 큰 값(가장 큰 AI 기준으로 보수적으로) — 실제 Pod 를 만드는 경로로 계산한다.
+   * 쿼터의 남은 여유(hard−used)와 떠 있는 AI 수로 셈하고 `pods` 상한도 반영한다(quotaCapacity).
    */
   private async observeQuota(desired: RunnerDesired, actual: ActualAgent[]): Promise<ObservedQuota | undefined> {
     const name = this.cfg.quotaName;
@@ -895,7 +896,14 @@ export class Reconciler {
         });
         perPod = maxRequests(perPod, podRequests(pod, pvc));
       }
-      return { capacity: quotaCapacity(quota.hard, perPod) };
+      // 쿼터가 세는 지금 떠 있는 AI — 끝난 Pod(Succeeded·Failed)는 쿼터에 세지 않는다. 지우는 중(Terminating)인 Pod 는 grace 안에서는
+      // 세지만 넘기면 안 세는데 actual 에서 그 시각을 가리기 어려워 통째로 뺀다(여유가 조금 작게 나오는 안전한 쪽). PVC 는 있는 대로.
+      const ai: AiUsage = { pods: 0, pvcs: 0 };
+      for (const a of actual) {
+        if (a.pvc) ai.pvcs += 1;
+        if (a.pod && !a.pod.finished && !a.pod.deleting) ai.pods += 1;
+      }
+      return { capacity: quotaCapacity(quota.hard, perPod, quota.used, ai) };
     } catch (e) {
       this.log.warn('쿼터를 읽지 못해 수용량 보고를 건너뜁니다', { error: e instanceof Error ? e.message : String(e) });
       return undefined;
