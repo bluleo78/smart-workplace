@@ -19,6 +19,7 @@ import {
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
 import { AnthropicWorkspaceIdField } from '@/pages/admin/components/credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MIN } from '@/pages/admin/components/credential-fields/ClaudeTokenField';
+import { probeModelsErrorMessage } from '@/pages/admin/components/credential-fields/probeModelsError';
 
 import { probeMyAssistantModels } from '../../api/models';
 import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
@@ -149,10 +150,8 @@ export function PersonalAssistantSection() {
       const res = await probe.mutateAsync();
       setProbedModels(res.models);
     } catch (e) {
-      const message =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        '모델 목록을 불러오지 못했습니다. 모델 id를 직접 입력하세요.';
-      setProbeError(message);
+      // 두 화면 공용 문구 규칙(WP-1884).
+      setProbeError(probeModelsErrorMessage(e));
     }
   };
 

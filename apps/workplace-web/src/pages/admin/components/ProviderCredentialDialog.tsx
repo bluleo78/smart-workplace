@@ -46,6 +46,7 @@ import {
   DEFAULT_OPENCODE_PRESET,
   OpencodeConnectionFields,
 } from './credential-fields/OpencodeConnectionFields';
+import { probeModelsErrorMessage } from './credential-fields/probeModelsError';
 
 interface Props {
   open: boolean;
@@ -147,10 +148,8 @@ export function ProviderCredentialDialog({
       setManualModel('');
     } catch (e) {
       if (generation !== probeGeneration.current) return;
-      const message =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        '모델 목록을 불러오지 못했습니다. 모델 id를 직접 입력하세요.';
-      setProbeError(message);
+      // 두 화면 공용 문구 규칙(WP-1884).
+      setProbeError(probeModelsErrorMessage(e));
     }
   };
 
