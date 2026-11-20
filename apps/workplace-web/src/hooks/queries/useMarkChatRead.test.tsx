@@ -2,10 +2,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createChatMember, createChatThread } from '../../../e2e/factories/chat.factory';
 import { chatApi } from '../../api/chat';
+import { httpError } from '../../test/httpError';
 import type { ChatThreadResponse } from '../../types/chat';
 import { chatKeys } from './chatKeys';
 import { advanceLastRead, useMarkChatRead } from './useMarkChatRead';
@@ -20,9 +22,11 @@ function withClient(client = new QueryClient()) {
 
 describe('useMarkChatRead', () => {
   let markRead: ReturnType<typeof vi.spyOn>;
+  let toastError: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     vi.useFakeTimers();
     markRead = vi.spyOn(chatApi, 'markRead').mockResolvedValue(undefined as never);
+    toastError = vi.spyOn(toast, 'error').mockImplementation(() => 'id');
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -91,12 +95,60 @@ describe('useMarkChatRead', () => {
     vi.advanceTimersByTime(1000);
     await vi.waitFor(() => expect(myLastRead()).toBe(30));
 
-    markRead.mockRejectedValueOnce(new Error('boom'));
+    markRead.mockRejectedValueOnce(httpError(500));
     result.current(40);
     vi.advanceTimersByTime(1000);
     await Promise.resolve();
     await Promise.resolve();
     expect(myLastRead()).toBe(30);
+  });
+
+  it('읽음 요청이 실패하면 오류 토스트를 띄우고 같은 id 를 다시 보낼 수 있다 (WP-1855)', async () => {
+    markRead.mockRejectedValueOnce(httpError(500));
+    const { result } = renderHook(() => useMarkChatRead(100), withClient());
+    result.current(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(toastError).toHaveBeenCalledWith('읽음 처리하지 못했습니다', { id: 'message-read-error' });
+    result.current(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(markRead).toHaveBeenCalledTimes(2);
+  });
+
+  it('실패한 요청보다 큰 id 를 그 사이 보냈으면 기준을 되돌리지 않는다 (WP-1855)', async () => {
+    let rejectFirst: (e: unknown) => void = () => {};
+    markRead.mockImplementationOnce(() => new Promise((_, reject) => { rejectFirst = reject; }));
+    const { result } = renderHook(() => useMarkChatRead(100), withClient());
+    result.current(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    result.current(20);
+    await vi.advanceTimersByTimeAsync(1000);
+    rejectFirst(httpError(500));
+    await vi.advanceTimersByTimeAsync(0);
+    result.current(20);
+    result.current(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(markRead).toHaveBeenCalledTimes(2);
+  });
+
+  it('영구 4xx(403)로 실패하면 토스트 없이 조용하고, 같은 id 도 다시 보내지 않는다 (WP-1855)', async () => {
+    markRead.mockRejectedValue(httpError(403));
+    const { result } = renderHook(() => useMarkChatRead(100), withClient());
+    result.current(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    result.current(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('언마운트 flush 가 401 로 실패해도(로그아웃 직후) 토스트를 띄우지 않는다 (WP-1855)', async () => {
+    markRead.mockRejectedValue(httpError(401));
+    const { result, unmount } = renderHook(() => useMarkChatRead(100), withClient());
+    result.current(10);
+    unmount();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
 

@@ -166,6 +166,15 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'GET', '/api/v1/calendar/tags', [])
   await mockApi(page, 'GET', '/api/v1/messaging/channels', [])
   await mockApi(page, 'GET', '/api/v1/messaging/dms', [])
+  // WP-1855: 채널·DM·스레드·이슈 채팅을 열면 읽음 표시(POST …/read)를 보낸다 — 미스텁이면 프록시 실패(5xx)가 「읽음 처리하지 못했습니다」
+  // 오류 토스트를 띄워 다른 토스트 단언(삭제 실행 취소 등)과 겹친다. 기본은 성공(204). 읽음을 검증하는 spec 이 나중에 등록하면 그쪽이 우선(LIFO).
+  await page.route(
+    (url) =>
+      /^\/api\/v1\/messaging\/channels\/\d+\/read$/.test(url.pathname) ||
+      /^\/api\/v1\/messaging\/messages\/\d+\/thread\/read$/.test(url.pathname) ||
+      /^\/api\/v1\/chat\/threads\/\d+\/read$/.test(url.pathname),
+    (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 204 }) : route.fallback()),
+  )
   // 이슈 레이아웃의 IssueSidebar 가 마운트 시 /me/pinned-views(고정뷰)를 페치하므로
   // 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 고정뷰를 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.
