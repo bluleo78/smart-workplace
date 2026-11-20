@@ -21,11 +21,16 @@ fi
 run_locked() {
   # 이미 이 락 안에서 도는 중이면(run-locked.sh 로 감싼 명령이 게이트·커밋을 부름) 다시 잡지 않고 바로 실행한다 —
   # 같은 파일을 새 fd 로 다시 잡으면 바깥 락이 풀리지 않아 영영 기다린다(WP-1811).
-  # 표시는 잡은 락의 경로다 — 같은 경로일 때만 건너뛴다. Pod 밖(저장소별 락)에서 감싼 명령이 다른 저장소의
-  # 게이트를 부르면 그쪽 락은 다른 파일이라 그대로 잡는다(WP-1811 리뷰 후속).
-  # 옛 표시 `1`(경로를 모르는 「락 안」)도 건너뛴다 — 옛 스크립트(이전 main 의 워크트리·같은 Pod 의 다른 저장소)가
-  # 같은 락을 쥔 채 이 게이트를 부를 수 있어, 기다리면 멈춘다. 옛 동작 그대로라 그 경우만 저장소 사이 락을 건너뛴다.
-  if [ "${TEST_GATE_LOCK_HELD:-}" = 1 ] || [ "${TEST_GATE_LOCK_HELD:-}" = "$TEST_GATE_LOCK" ]; then
+  # 표시는 둘이다: TEST_GATE_LOCK_HELD=1(「락 안」 — 옛 스크립트가 보는 값이라 늘 그대로 물려준다)과
+  # TEST_GATE_LOCK_HELD_PATH(잡은 락의 경로). 경로 표시가 있으면 같은 경로일 때만 건너뛴다 — Pod 밖(저장소별 락)에서
+  # 감싼 명령이 다른 저장소의 게이트를 부르면 그쪽 락은 다른 파일이라 그대로 잡는다(WP-1811 리뷰 후속).
+  # 경로 표시 없이 `1` 만 있으면(옛 스크립트가 바깥) 옛 동작대로 건너뛴다 — 기다리면 같은 락을 쥔 바깥 때문에 멈춘다.
+  if [ -n "${TEST_GATE_LOCK_HELD_PATH:-}" ]; then
+    if [ "$TEST_GATE_LOCK_HELD_PATH" = "$TEST_GATE_LOCK" ]; then
+      "$@"
+      return
+    fi
+  elif [ "${TEST_GATE_LOCK_HELD:-}" = 1 ]; then
     "$@"
     return
   fi
@@ -38,6 +43,7 @@ run_locked() {
     echo "[test-lock] 다른 세션이 테스트 게이트 실행 중 — 대기합니다 (락: $TEST_GATE_LOCK)"
   fi
   # 잡은 뒤 한 줄 알린다 — 로그에 대기 줄만 있고 이 줄이 없으면 아직 락을 기다리는 게이트다(묶음으로 다시 띄울 수 있다, WP-1208).
-  # 안쪽에서 같은 락으로 다시 run_locked 를 불러도 멈추지 않게 잡은 락 경로를 TEST_GATE_LOCK_HELD 로 물려준다.
-  TEST_GATE_LOCK_HELD="$TEST_GATE_LOCK" flock "$TEST_GATE_LOCK" sh -c 'echo "[test-lock] 락 획득 — 게이트 실행"; exec "$@"' sh "$@"
+  # 안쪽에서 같은 락으로 다시 run_locked 를 불러도 멈추지 않게 표시를 물려준다 — `1` 은 이 커밋 전 스크립트(=1 만 보고
+  # 건너뜀)를 쓰는 안쪽 게이트가 같은 락을 다시 잡아 멈추지 않게 그대로 두고, 경로는 새 변수로 따로 넘긴다(WP-1811 리뷰 후속).
+  TEST_GATE_LOCK_HELD=1 TEST_GATE_LOCK_HELD_PATH="$TEST_GATE_LOCK" flock "$TEST_GATE_LOCK" sh -c 'echo "[test-lock] 락 획득 — 게이트 실행"; exec "$@"' sh "$@"
 }
