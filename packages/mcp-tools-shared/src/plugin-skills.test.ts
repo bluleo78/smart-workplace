@@ -25,13 +25,17 @@ const calledTools = (body: string) => new Set([...body.matchAll(/`([a-z]+(?:_[a-
 /** 도구의 입력 필드 이름(외부 MCP 에 나가는 JSON 스키마 기준). */
 const inputFields = (name: string) => Object.keys((wireInputSchema(tools.get(name)!.inputSchema).properties ?? {}) as object);
 
-/** 스킬이 적은 도구가 모두 외부로 나가는 공유 도구인지, 표에 적은 인자가 그 도구의 입력에 있는지 — 스킬마다 같은 두 검사. */
-function describeSkillTools(name: string, uses: Record<string, string[]>) {
+/**
+ * 스킬이 적은 도구가 모두 외부로 나가는 공유 도구인지, 표에 적은 인자가 그 도구의 입력에 있는지 — 스킬마다 같은 두 검사.
+ * runnerTools: 스킬이 실행기 절차로 부르는 실행기 자체 도구(공유 MCP 도구 아님) — 검사에서 빼되, 스킬이 실제로 적었는지는 확인한다.
+ */
+function describeSkillTools(name: string, uses: Record<string, string[]>, runnerTools: string[] = []) {
   describe(`${name} 스킬`, () => {
     it('스킬이 적은 도구는 모두 외부 MCP 로 나가는 공유 도구다', () => {
       const called = calledTools(skill(name));
       expect(called.size).toBeGreaterThan(0);
-      expect([...called].filter((n) => !tools.has(n))).toEqual([]);
+      expect([...called].filter((n) => !tools.has(n) && !runnerTools.includes(n))).toEqual([]);
+      expect(runnerTools.filter((r) => !called.has(r))).toEqual([]);
       // workplace-mcp 는 destructive 도구를 내보내지 않는다(exposableTools) — 스킬이 그런 도구를 부르면 외부 사용자에게는 없다.
       expect([...called].filter((n) => tools.get(n)?.kind === 'destructive')).toEqual([]);
     });
@@ -90,4 +94,4 @@ describeSkillTools('work-loop', {
   claim_issue: ['issueKey', 'queueLabel'],
   add_issue_chat: ['issueKey', 'body'],
   // 새 프로젝트 확인은 MCP 도구가 아니라 스크립트(gw-agent-projects --assigned)가 맡는다(WP-1275) — 그래서 list_projects 는 없다.
-});
+}, ['agent_report']); // agent_report: Gen:iA Code 하위 에이전트가 결과를 넘기는 실행기 도구(process-issue.md 「하위 에이전트 기다리기」, WP-1817)

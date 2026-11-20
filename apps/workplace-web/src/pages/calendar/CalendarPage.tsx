@@ -19,7 +19,7 @@ import { TagFeedDialog } from '@/components/calendar/TagFeedDialog'
 import { AgendaView } from '@/components/calendar/views/AgendaView'
 import { MobileAgendaView } from '@/components/calendar/views/MobileAgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
-import { DayView, WeekView } from '@/components/calendar/views/WeekView'
+import { DayView, WeekView, WorkWeekView } from '@/components/calendar/views/WeekView'
 import { Page } from '@/components/layout/Page'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { MobileSidebarSheet } from '@/components/mobile/MobileSidebarSheet'
@@ -61,14 +61,17 @@ import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
 import {
   CALENDAR_VIEWS,
   type CalendarLayers,
+  eventsOnDay,
   isEventVisible,
   loadLastView,
   loadLayers,
   markedDays,
   saveLastView,
   saveLayers,
+  screenRange,
   toggleCalendar,
   visibleRange,
+  workWeekDays,
 } from '@/lib/calendar'
 import { headerMonthLabel } from '@/lib/calendarAgenda'
 import { canMoveEvent, type MovedRange, moveRequestBody } from '@/lib/calendarMove'
@@ -95,8 +98,8 @@ import type { WikiSearchResult } from '@/types/wiki'
 // 반복 일정의 첫 회차를 찾으려고 DTSTART 부터 펼쳐 보는 구간(366일) — 연 1회 반복도 첫 회차가 들어온다(WP-1701)
 const FIRST_OCCURRENCE_WINDOW_MS = 366 * 24 * 60 * 60 * 1000
 
-// 월·주·일 보기 컴포넌트 — 목록(agenda)은 모바일·데스크톱이 따로 그린다.
-const GRID_VIEWS = { month: MonthView, week: WeekView, day: DayView }
+// 월·주·작업주·일 보기 컴포넌트 — 목록(agenda)은 모바일·데스크톱이 따로 그린다.
+const GRID_VIEWS = { month: MonthView, workweek: WorkWeekView, week: WeekView, day: DayView }
 
 /** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD + 캘린더 컨테이너 CRUD + 필터를 통합 관리. */
 export function CalendarPage() {
@@ -274,9 +277,18 @@ export function CalendarPage() {
   const openEditing = dialogOpen && !creating ? editing : null
   // 모바일 목록 보기는 실제로 불러온 범위(첫 청크 시작 ~ 마지막 청크 끝)와 그 범위의 일정 수를 싣는다.
   // loadedRange 는 렌더마다 새 객체라 원시값으로 풀어 memo 의존성에 넣는다(안 그러면 매 렌더 컨텍스트를 다시 등록).
-  const ctxFrom = mobileAgenda ? agenda.loadedRange.from : from
-  const ctxTo = mobileAgenda ? agenda.loadedRange.to : to
-  const ctxCount = mobileAgenda ? agenda.count : eventsLoaded ? visibleEvents.length : undefined
+  // 작업주는 조회 범위가 주와 같아(일~토) 토·일 일정도 받아 오므로, 컨텍스트 기간은 화면(월~금)에 맞추고 일정 수도 그 날들에 걸친 것만 센다.
+  // 그 외 보기는 screenRange === visibleRange 이고 받은 일정이 모두 그 범위라 기존처럼 visibleEvents.length.
+  const screenSpan = screenRange(view, anchor)
+  const ctxFrom = mobileAgenda ? agenda.loadedRange.from : screenSpan.from
+  const ctxTo = mobileAgenda ? agenda.loadedRange.to : screenSpan.to
+  // 작업주 일정 수는 렌더마다 다시 세지 않게 일정·보기·기준일이 바뀔 때만 센다. 월~금 날짜는 한 번만 만든다.
+  const screenCount = useMemo(() => {
+    if (view !== 'workweek') return visibleEvents.length
+    // 날마다 eventsOnDay 로 모은 뒤 Set 으로 겹친 일정(여러 날 걸친 일정)을 한 번만 센다.
+    return new Set(workWeekDays(anchor).flatMap((d) => eventsOnDay(visibleEvents, d))).size
+  }, [view, anchor, visibleEvents])
+  const ctxCount = mobileAgenda ? agenda.count : eventsLoaded ? screenCount : undefined
   const screenContext = useMemo(
     () =>
       buildCalendarContext({
@@ -336,7 +348,7 @@ export function CalendarPage() {
       view === 'month' ? addMonths(a, dir) : addDays(a, view === 'day' ? dir : 7 * dir),
     )
 
-  // 모바일 월·주·일 본문 좌우 스와이프(WP-136) — 왼쪽으로 밀면 다음 기간, 오른쪽이면 이전 기간. 목록 보기에는 걸지 않는다(무한 스크롤).
+  // 모바일 월·주·작업주·일 본문 좌우 스와이프(WP-136) — 왼쪽으로 밀면 다음 기간, 오른쪽이면 이전 기간. 목록 보기에는 걸지 않는다(무한 스크롤).
   const swipe = useHorizontalSwipe((dir) => step(dir === 'next' ? 1 : -1))
 
   // 모바일 목록을 첫 청크·맨 위로 되돌린다(anchor 가 같으면 훅이 스스로 되돌리지 않는다) — [오늘]·보기 전환·미니 달력 날짜 선택.
@@ -713,7 +725,7 @@ export function CalendarPage() {
             size="sm"
             data-testid={dir < 0 ? 'calendar-prev' : 'calendar-next'}
             className={arrowBtnClass}
-            // 글리프만으로는 이름이 무의미해 뷰별 단위를 붙인다(#818) — step() 은 month=한 달, day=하루, 그 외=7일.
+            // 글리프만으로는 이름이 무의미해 뷰별 단위를 붙인다(#818) — step() 은 month=한 달, day=하루, 그 외(주·작업주)=7일.
             aria-label={`${dir < 0 ? '이전' : '다음'} ${view === 'month' ? '달' : view === 'day' ? '날' : '주'}`}
             onClick={() => step(dir)}
           >
@@ -751,7 +763,7 @@ export function CalendarPage() {
     <span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>
   )
 
-  // 월·주·일 본문 컴포넌트(목록이면 없음).
+  // 월·주·작업주·일 본문 컴포넌트(목록이면 없음).
   const GridView = view === 'agenda' ? null : GRID_VIEWS[view]
 
   return (

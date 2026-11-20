@@ -9,6 +9,7 @@ import { type StorageOwner, userScopedKey } from './userScopedKey'
 // 보기 → 사용자에게 보이는 탭 이름. 캘린더 헤더의 뷰 전환 탭과 AI 화면 컨텍스트(WP-54, '<이름> 보기')가 공유한다.
 export const CALENDAR_VIEW_LABEL: Record<CalendarViewType, string> = {
   month: '월',
+  workweek: '작업주',
   week: '주',
   day: '일',
   agenda: '목록',
@@ -32,6 +33,12 @@ export function weekDays(anchor: Date): Date[] {
   return eachDayOfInterval({ start: first, end: addDays(first, 6) })
 }
 
+// 작업주(월~금) 5일. 일요일 시작 주(weekDays)의 1~5번째를 그대로 써서 「주」⇄「작업주」가 같은 주를 가리키게 한다.
+// 그래서 기준일이 토요일이면 직전 월~금, 일요일이면 다가오는 월~금이 된다.
+export function workWeekDays(anchor: Date): Date[] {
+  return weekDays(anchor).slice(1, 6)
+}
+
 // 뷰별 서버 조회 범위(ISO). 겹침 쿼리에 사용.
 export function visibleRange(view: CalendarViewType, anchor: Date): { from: string; to: string } {
   let start: Date
@@ -39,7 +46,9 @@ export function visibleRange(view: CalendarViewType, anchor: Date): { from: stri
   if (view === 'month') {
     start = startOfWeek(startOfMonth(anchor), { weekStartsOn: 0 })
     end = addDays(start, 42)
-  } else if (view === 'week' || view === 'agenda') {
+  } else if (view === 'week' || view === 'workweek' || view === 'agenda') {
+    // 작업주(workweek)는 「주」와 같은 범위(일 00:00 ~ 다음 일 00:00)를 조회한다 — 일정 목록 쿼리 키가 같아 주 ⇄ 작업주 전환 때
+    // 캐시를 공유해 빈 격자 깜빡임이 없다. 화면은 TimeGrid 의 days(월~금)가 잘라 보인다.
     start = startOfWeek(anchor, { weekStartsOn: 0 })
     end = view === 'agenda' ? addDays(start, 30) : addDays(start, 7)
   } else {
@@ -47,6 +56,15 @@ export function visibleRange(view: CalendarViewType, anchor: Date): { from: stri
     end = addDays(start, 1)
   }
   return { from: start.toISOString(), to: end.toISOString() }
+}
+
+// 사용자가 실제로 보는 기간(ISO) — 작업주는 월 00:00 ~ 토 00:00(배타), 그 외는 조회 범위와 같다.
+// AI 화면 컨텍스트의 기간·일정 수를 화면과 맞추는 데 쓴다(조회 범위는 주와 공유해 일~토를 다 받아 오기 때문).
+export function screenRange(view: CalendarViewType, anchor: Date): { from: string; to: string } {
+  if (view !== 'workweek') return visibleRange(view, anchor)
+  // 월~금 정의는 workWeekDays 한 곳에 둔다 — 화면 열과 AI 기간이 어긋나지 않게.
+  const days = workWeekDays(anchor)
+  return { from: days[0].toISOString(), to: addDays(days[days.length - 1], 1).toISOString() }
 }
 
 // 종일 일정의 "의도한 캘린더 날짜"를 타임존 독립적으로 복원해 로컬 자정 Date 로 반환한다.

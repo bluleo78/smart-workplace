@@ -15,6 +15,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { setAccessToken } from '@/api/client'
 import { useEventStream } from '@/hooks/useEventStream'
 import { CalendarPage } from '@/pages/calendar/CalendarPage'
+import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
 import { dueIssue, fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
 import { controllableEvents, resourceChangedFrame } from '@/test/kits/projects/issueDetailEvents'
 
@@ -480,5 +481,132 @@ describe('캘린더 관리', () => {
     const dialog = await screen.findByTestId('calendar-edit-dialog')
     expect(screen.queryByTestId('calendar-edit-external-warning')).not.toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: '삭제' })).toBeInTheDocument()
+  })
+})
+
+// 작업주 보기(WP-1815) — 월~금 5열. 조회 범위(from/to)는 calendarPageKit 이 요청 파라미터를 기록하지 않아
+// 여기서는 값을 보지 않고(lib/calendar.test.ts 가 본다), 「주」와 조회를 공유하는지는 목록 조회 횟수로 본다.
+describe('작업주 보기 (WP-1815)', () => {
+  // 기준일 = 2026-11-18(수) 12:00 KST. 그 주 월~금은 11.16~11.20, 토는 11.21.
+  const WED = '2026-11-18T03:00:00Z'
+  const headers = (grid: HTMLElement) => within(grid).getAllByTestId('calendar-day-header').map((h) => h.textContent)
+
+  test('보기 탭 순서가 월·작업주·주·일·목록이다', async () => {
+    vi.setSystemTime(new Date(WED))
+    await renderCalendar()
+    const names = ['month', 'workweek', 'week', 'day', 'agenda'].map((k) => screen.getByTestId(`calendar-view-${k}-btn`).textContent)
+    expect(names).toEqual(['월', '작업주', '주', '일', '목록'])
+    // DOM 순서도 같아야 한다 — 버튼 줄 안에서 월 다음이 작업주.
+    const buttons = screen.getAllByTestId(/^calendar-view-.*-btn$/).map((b) => b.textContent)
+    expect(buttons).toEqual(['월', '작업주', '주', '일', '목록'])
+  })
+
+  test('월~금 5열만 그리고 토요일 일정은 주 보기에서만, 금~월 종일 일정은 금요일 칸에 보인다', async () => {
+    vi.setSystemTime(new Date(WED))
+    const { user } = await renderCalendar({
+      events: [
+        calendarEvent({ id: 1, title: '토요일 행사', startsAt: '2026-11-21T01:00:00Z', endsAt: '2026-11-21T02:00:00Z' }),
+        calendarEvent({ id: 2, title: '금월 연휴', allDay: true, startsAt: '2026-11-19T15:00:00Z', endsAt: '2026-11-23T15:00:00Z' }),
+      ],
+    })
+    await user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    const grid = await screen.findByTestId('calendar-view-workweek')
+    expect(headers(grid)).toEqual(['11.16 (월)', '11.17 (화)', '11.18 (수)', '11.19 (목)', '11.20 (금)'])
+    // 금~월 종일 일정은 작업주에서 금요일(11.20) 칸에만 걸린다(토·일 칸은 없다).
+    const fri = (await within(grid).findAllByTestId('calendar-allday-cell')).find((c) => c.dataset.moveDay === '2026-11-20')
+    expect(within(fri as HTMLElement).getByTestId('calendar-event-2')).toBeInTheDocument()
+    expect(within(grid).queryByTestId('calendar-event-1')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    const week = await screen.findByTestId('calendar-view-week')
+    expect(await within(week).findByTestId('calendar-event-1')).toBeInTheDocument()
+  })
+
+  test('이전·다음은 한 주씩 옮긴다', async () => {
+    vi.setSystemTime(new Date(WED))
+    const { user } = await renderCalendar()
+    await user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    expect(screen.getByTestId('calendar-prev')).toHaveAccessibleName('이전 주')
+    expect(screen.getByTestId('calendar-next')).toHaveAccessibleName('다음 주')
+    await user.click(screen.getByTestId('calendar-next'))
+    expect(headers(await screen.findByTestId('calendar-view-workweek'))[0]).toBe('11.23 (월)')
+    await user.click(screen.getByTestId('calendar-prev'))
+    await user.click(screen.getByTestId('calendar-prev'))
+    expect(headers(screen.getByTestId('calendar-view-workweek'))[0]).toBe('11.9 (월)')
+  })
+
+  test('토요일에 열면 지난 월~금, 일요일에 열면 다가오는 월~금이 보인다', async () => {
+    vi.setSystemTime(new Date('2026-11-21T03:00:00Z')) // 토
+    const sat = await renderCalendar()
+    await sat.user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    expect(headers(await screen.findByTestId('calendar-view-workweek'))[0]).toBe('11.16 (월)')
+    sat.unmount()
+
+    localStorage.clear()
+    vi.setSystemTime(new Date('2026-11-22T03:00:00Z')) // 일
+    const sun = await renderCalendar()
+    await sun.user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    expect(headers(await screen.findByTestId('calendar-view-workweek'))[0]).toBe('11.23 (월)')
+  })
+
+  test('헤더 제목은 같은 기준일의 주 보기와 같다', async () => {
+    vi.setSystemTime(new Date('2026-12-02T03:00:00Z'))
+    const { user } = await renderCalendar()
+    await user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    await screen.findByTestId('calendar-view-workweek')
+    const workweekTitle = screen.getByTestId('calendar-title').textContent
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    await screen.findByTestId('calendar-view-week')
+    expect(screen.getByTestId('calendar-title').textContent).toBe(workweekTitle)
+  })
+
+  test('마지막으로 쓴 작업주 보기로 다시 열린다', async () => {
+    vi.setSystemTime(new Date(WED))
+    const first = await renderCalendar()
+    await first.user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    await screen.findByTestId('calendar-view-workweek')
+    first.unmount()
+
+    await renderCalendar()
+    expect(screen.getByTestId('calendar-view-workweek-btn')).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByTestId('calendar-view-workweek')).toBeInTheDocument()
+  })
+
+  test('주 ⇄ 작업주 전환은 일정을 다시 조회하지 않고 바로 보인다(깜빡임 없음)', async () => {
+    vi.setSystemTime(new Date(WED))
+    const { user, requests } = await renderCalendar({
+      events: [calendarEvent({ id: 1, title: '수요일 회의', startsAt: '2026-11-18T01:00:00Z', endsAt: '2026-11-18T02:00:00Z' })],
+    })
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    expect(await within(await screen.findByTestId('calendar-view-week')).findByTestId('calendar-event-1')).toBeInTheDocument()
+    const before = requests.eventLists
+    await user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    // 전환 직후 같은 틱에 일정이 이미 있어야 한다(빈 격자 한 번 거치지 않음).
+    expect(within(screen.getByTestId('calendar-view-workweek')).getByTestId('calendar-event-1')).toBeInTheDocument()
+    expect(requests.eventLists).toBe(before)
+  })
+
+  test('AI 화면 참고는 월~금 기간과 토요일을 뺀 일정 수를 싣는다', async () => {
+    vi.setSystemTime(new Date(WED))
+    const { user } = await renderCalendar(
+      {
+        events: [
+          calendarEvent({ id: 1, title: '수요일 회의', startsAt: '2026-11-18T01:00:00Z', endsAt: '2026-11-18T02:00:00Z' }),
+          calendarEvent({ id: 2, title: '토요일 행사', startsAt: '2026-11-21T01:00:00Z', endsAt: '2026-11-21T02:00:00Z' }),
+        ],
+      },
+      {},
+      withScreenContextProbe(<CalendarPage />),
+    )
+    await user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    // 화면(월~금) 기간과 그 안의 일정 수(토요일 행사 제외 1건)를 싣는다.
+    await waitFor(() =>
+      expect(currentScreenContext()?.scope).toMatchObject({
+        label: '작업주 보기',
+        refs: { from: new Date('2026-11-15T15:00:00Z').toISOString(), to: new Date('2026-11-20T15:00:00Z').toISOString() },
+        facts: [{ label: '기간', value: '2026-11-16 ~ 2026-11-20' }],
+        count: 1,
+      }),
+    )
   })
 })

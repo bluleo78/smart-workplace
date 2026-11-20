@@ -175,6 +175,26 @@ describe('주 보기 시간 그리드에서 끌기', () => {
     expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument()
   })
 
+  // 작업주(WP-1815) — 같은 시간 그리드라 끌기가 그대로 동작하는지 지킨다(월~금 5열이라 월요일은 첫째 열).
+  test('작업주에서 수요일 일정을 월요일 열로 끌어 놓으면 날짜·시각이 함께 바뀐다', async () => {
+    const { user, requests } = await renderCalendar({ events: [meeting] })
+    await user.click(screen.getByTestId('calendar-view-workweek-btn'))
+    const block = await within(await screen.findByTestId('calendar-view-workweek')).findByTestId('calendar-event-1')
+    const monday = screen.getAllByTestId('calendar-day-column')[0]
+    drag(block, monday, { dx: 0, dy: 48, up: false })
+    expect(within(monday).getByTestId('calendar-move-preview')).toHaveTextContent('오전 11:00 – 오후 12:00 팀 회의')
+    fireEvent.pointerUp(block, { pointerId: 1, pointerType: 'mouse', clientX: 100, clientY: 148 })
+    fireEvent.click(block)
+
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    expect(requests.patches[0].body).toMatchObject({
+      startsAt: '2026-06-08T02:00:00.000Z',
+      endsAt: '2026-06-08T03:00:00.000Z',
+      allDay: false,
+    })
+    expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument()
+  })
+
   test('아래 손잡이를 48px 끌어 놓으면 시작은 그대로 종료만 한 시간 늦춰 PATCH 한다', async () => {
     const { user, requests } = await renderCalendar({ events: [meeting] })
     await user.click(screen.getByTestId('calendar-view-week-btn'))
