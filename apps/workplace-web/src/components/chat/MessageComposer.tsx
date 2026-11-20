@@ -14,6 +14,7 @@ import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { type PendingFile, useAttachmentDraft } from '@/hooks/useAttachmentDraft'
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop'
+import { MAX_ATTACHMENTS_PER_MESSAGE } from '@/lib/attachmentLimits'
 import { MESSAGE_PLACEHOLDER } from '@/lib/submitEnter'
 import { cn } from '@/lib/utils'
 
@@ -62,7 +63,7 @@ export function MessageComposer({
     removeDrive,
     addDrive,
     reset,
-  } = useAttachmentDraft(uploadFn ?? ((files) => messagingApi.uploadAttachments(channelId, files)), { rejectOversize: true })
+  } = useAttachmentDraft(uploadFn ?? ((files) => messagingApi.uploadAttachments(channelId, files)), { rejectOversize: true, maxFiles: MAX_ATTACHMENTS_PER_MESSAGE })
   // 입력창 영역 파일 드롭 → 사전 업로드(WP-235). 보관·비활성으로 입력기가 없을 땐 래퍼도 렌더되지 않는다.
   const { isDragging, dropProps } = useComposerFileDrop(onFiles)
 

@@ -931,4 +931,94 @@ describe('입력창 첨부', () => {
     await new Promise((r) => setTimeout(r, 200))
     expect(uploaded).toHaveLength(1)
   })
+
+  // WP-1857: 나눠 붙여도 메시지당 10개를 넘기기 전에 막는다 — 받은 파일 수만큼 meta 를 돌려주는 업로드 핸들러.
+  const uploadHandler = (calls: number[], { hold, failFirst = false }: { hold?: { nth: number; release: Promise<void> }; failFirst?: boolean } = {}) => {
+    let nextId = 7000
+    return http.post(`${API}/messaging/channels/${CHANNEL_ID}/attachments`, async ({ request }) => {
+      const raw = await request.text()
+      const n = [...raw.matchAll(/filename="([^"]+)"/g)].length
+      calls.push(n)
+      if (failFirst && calls.length === 1) return new HttpResponse(null, { status: 500 })
+      if (hold && calls.length === hold.nth) await hold.release
+      return HttpResponse.json(Array.from({ length: n }, () => { nextId += 1; return meta(nextId, `f${nextId}.txt`) }))
+    })
+  }
+  const files = (n: number, prefix = 'a') => Array.from({ length: n }, (_, i) => new File(['x'], `${prefix}${i}.txt`, { type: 'text/plain' }))
+  const chipCount = () => screen.queryAllByLabelText('첨부 제거').length
+
+  test('첨부가 10개인 채 2개를 더 붙이면 올리지 않고 남은 자리를 알린다', async () => {
+    const calls: number[] = []
+    const { user } = openChannel(channel, { handlers: [uploadHandler(calls)] })
+    const input = await screen.findByTestId('composer-file-input')
+    await user.upload(input, files(10))
+    await waitFor(() => expect(chipCount()).toBe(10))
+    await user.upload(input, files(2, 'b'))
+    expect(await screen.findByText('첨부는 메시지당 최대 10개예요 — 더 붙일 수 없어요')).toBeInTheDocument()
+    // 개수 검사는 업로드 전에 동기로 거절하므로 토스트가 보인 시점에 요청이 없으면 나가지 않은 것이다.
+    expect(calls).toEqual([10])
+    expect(chipCount()).toBe(10)
+  })
+
+  test('9개 뒤 1개는 받고, 칩을 빼면 다시 붙일 수 있다', async () => {
+    const calls: number[] = []
+    const { user } = openChannel(channel, { handlers: [uploadHandler(calls)] })
+    const input = await screen.findByTestId('composer-file-input')
+    await user.upload(input, files(9))
+    await waitFor(() => expect(chipCount()).toBe(9))
+    await user.upload(input, files(1, 'b'))
+    await waitFor(() => expect(chipCount()).toBe(10))
+    await user.upload(input, files(1, 'c'))
+    expect(await screen.findByText('첨부는 메시지당 최대 10개예요 — 더 붙일 수 없어요')).toBeInTheDocument()
+    expect(calls).toEqual([9, 1])
+    await user.click(screen.getAllByLabelText('첨부 제거')[0])
+    await waitFor(() => expect(chipCount()).toBe(9))
+    await user.upload(input, files(1, 'd'))
+    await waitFor(() => expect(chipCount()).toBe(10))
+    expect(calls).toEqual([9, 1, 1])
+  })
+
+  test('업로드 중인 묶음도 세어 겹친 묶음을 막는다', async () => {
+    const calls: number[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const { user } = openChannel(channel, { handlers: [uploadHandler(calls, { hold: { nth: 1, release: gate } })] })
+    const input = await screen.findByTestId('composer-file-input')
+    await user.upload(input, files(6))
+    await waitFor(() => expect(calls).toEqual([6]))
+    await user.upload(input, files(6, 'b'))
+    expect(await screen.findByText('첨부는 메시지당 최대 10개예요 — 4개 더 붙일 수 있어요')).toBeInTheDocument()
+    // 개수 검사는 업로드 전에 동기로 거절하므로 토스트가 보인 시점에 요청이 없으면 나가지 않은 것이다.
+    expect(calls).toEqual([6])
+    release()
+    await waitFor(() => expect(chipCount()).toBe(6))
+  })
+
+  test('25MB 초과는 세지 않고 한도를 본다', async () => {
+    const calls: number[] = []
+    const { user } = openChannel(channel, { handlers: [uploadHandler(calls)] })
+    const input = await screen.findByTestId('composer-file-input')
+    await user.upload(input, files(9))
+    await waitFor(() => expect(chipCount()).toBe(9))
+    const big = new File(['x'], 'big.bin', { type: 'application/octet-stream' })
+    Object.defineProperty(big, 'size', { value: 25 * 1024 * 1024 + 1 })
+    await user.upload(input, [big, new File(['x'], 'small.txt', { type: 'text/plain' })])
+    expect(await screen.findByText('big.bin는 25MB 한도를 초과합니다')).toBeInTheDocument()
+    await waitFor(() => expect(chipCount()).toBe(10))
+    expect(calls).toEqual([9, 1])
+    expect(screen.queryByText(/첨부는 메시지당 최대/)).not.toBeInTheDocument()
+  })
+
+  test('업로드가 실패한 묶음은 세지 않는다', async () => {
+    const calls: number[] = []
+    const { user } = openChannel(channel, { handlers: [uploadHandler(calls, { failFirst: true })] })
+    const input = await screen.findByTestId('composer-file-input')
+    await user.upload(input, files(6))
+    await waitFor(() => expect(calls).toEqual([6]))
+    // 실패 안내가 뜬 뒤(업로드 중 집계가 내려간 뒤)에 다음 묶음을 붙인다.
+    expect(await screen.findByText('첨부 업로드에 실패했습니다')).toBeInTheDocument()
+    await user.upload(input, files(10, 'b'))
+    await waitFor(() => expect(chipCount()).toBe(10))
+    expect(calls).toEqual([6, 10])
+  })
 })
