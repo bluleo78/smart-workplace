@@ -713,6 +713,18 @@ describe('메시지 링크 메뉴 (WP-1236)', () => {
     act(() => closeSendToChat())
   })
 
+  // WP-1778 — Esc 로 닫으면 초점이 body 로 사라지던 결함(0 크기 앵커라 Radix 기본 복귀 불가).
+  test('⋯ 메뉴를 Esc 로 닫으면 초점이 ⋯ 로 돌아온다', async () => {
+    const { user } = openChannel(channel, [msg])
+    const more = await screen.findByTestId('message-more-61')
+    more.focus()
+    await user.keyboard('{Enter}')
+    await screen.findByTestId('message-link-menu-61')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('message-link-menu-61')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('message-more-61')).toHaveFocus())
+  })
+
   test('행 우클릭은 같은 메뉴를 열고, 본문 링크 위 우클릭은 브라우저 메뉴에 맡긴다', async () => {
     const { fireEvent } = await import('@testing-library/react')
     openChannel(channel, [msg])

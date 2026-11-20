@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
+import { useMenuFocusReturn } from '@/components/overlay/useMenuFocusReturn'
 import type { ShareTarget } from '@/lib/shareTarget'
 
 import { LinkMenuItems } from './LinkMenuItems'
@@ -34,6 +35,8 @@ export function RowLinkMenu({
   testId: string
   children?: ReactNode
 }) {
+  // 연 동안만 마운트되므로 항상 열림. 닫힐 때 초점을 연 요소로 돌려준다(WP-1778).
+  const focusReturn = useMenuFocusReturn(true)
   return (
     <DropdownMenu open onOpenChange={(o) => !o && onClose()} modal>
       <DropdownMenuTrigger asChild>
@@ -50,8 +53,9 @@ export function RowLinkMenu({
         sideOffset={4}
         className="w-56"
         data-testid={testId}
-        // 앵커가 보이지 않는 span 이라 닫힐 때 포커스를 되돌리지 않는다(줄로 튀어 스크롤되는 것 방지).
-        onCloseAutoFocus={(e) => e.preventDefault()}
+        // 앵커가 보이지 않는 span 이라 Radix 기본 복귀는 막고, 앵커 span 대신 메뉴를 연 요소로
+        // 초점을 돌려준다 — 항목이 다른 곳으로 초점을 옮겼다면 건드리지 않는다(WP-1778).
+        onCloseAutoFocus={focusReturn.onCloseAutoFocus}
       >
         {children && (
           <>

@@ -16,6 +16,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu';
+import { useMenuFocusReturn } from '@/components/overlay/useMenuFocusReturn';
 import { StatusBadge } from '@/components/ui/status-badge';
 
 import { EpicColorDot } from '../../../components/issues/EpicColorDot';
@@ -91,6 +92,8 @@ export function IssueRowMenu({
   onOpenTab: () => void;
   onDelete: () => void;
 }) {
+  // 닫힐 때 초점을 연 요소로 돌려준다(WP-1778).
+  const focusReturn = useMenuFocusReturn(target != null);
   const issue = target?.issue;
   const count = target?.numbers.length ?? 0;
   const bulk = count > 1;
@@ -113,8 +116,9 @@ export function IssueRowMenu({
         sideOffset={4}
         className="w-56"
         data-testid="issue-row-menu"
-        // 앵커가 보이지 않는 span 이라 닫힐 때 포커스를 되돌리지 않는다(행으로 튀어 스크롤되는 것 방지).
-        onCloseAutoFocus={(e) => e.preventDefault()}
+        // 앵커가 보이지 않는 span 이라 Radix 기본 복귀는 막고, 앵커 span 대신 메뉴를 연 요소(⋯ 단추 등)로
+        // 초점을 돌려준다 — 항목이 다른 입력기로 초점을 옮겼다면 건드리지 않는다(WP-1778).
+        onCloseAutoFocus={focusReturn.onCloseAutoFocus}
       >
         {bulk && <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">선택한 {count}개 이슈</DropdownMenuLabel>}
 

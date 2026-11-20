@@ -192,6 +192,32 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await expect(plus).toBeFocused();
   });
 
+  // WP-1778 — 메뉴만 열고 Esc 로 닫으면 초점이 body 로 사라지던 결함.
+  test('키보드로 연 컬럼 ⋯ 메뉴를 Esc 로 닫으면 초점이 ⋯ 로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await stubBoard(page);
+    await page.goto(`/projects/${KEY}?view=board`);
+    const btn = page.getByTestId('board-col-menu-2');
+    await btn.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(btn).toBeFocused();
+  });
+
+  // WP-1778 — Radix 트리거가 pointerdown 을 막아 마우스 클릭은 ⋯ 에 초점을 주지 않는다. 열 때 초점이 있던 다른 곳으로 가면 안 된다.
+  test('마우스로 연 컬럼 ⋯ 메뉴를 Esc 로 닫아도 초점이 ⋯ 로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await stubBoard(page);
+    await page.goto(`/projects/${KEY}?view=board`);
+    const btn = page.getByTestId('board-col-menu-2');
+    await page.getByTestId('board-col-menu-1').focus(); // 다른 컬럼 ⋯ 에 초점
+    await btn.click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(btn).toBeFocused();
+  });
+
   test('헤더 이름 편집은 헤더 높이를 바꾸지 않고, 바깥을 누르면 저장 없이 닫힌다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubBoard(page);
     const patches = trackRequests(page, 'PATCH', `${STATUSES_PATH}/2`);

@@ -117,7 +117,8 @@ exec ${realCurl} "$@"
 
 /**
  * 가짜 배포본 하나를 srv 에 둔다 — tar.gz 안은 폴더 하나(genia-<버전>-linux-x64/)에 가짜 genia 와 genia-root.crt.
- * 가짜 genia 는 --version 에 버전을 내고, 그 밖(칸)에서는 받은 env·인자를 FAKE_OUT/pane-<폴더>.env 에 남기고 기다린다.
+ * 가짜 genia 는 --version 에 버전을 내고, --help 에는 권한 옵션 줄(칸 명령이 묻는다, WP-1807)을 낸다 — 이 줄이 없으면 칸 명령이 옵션을 안 붙인다.
+ * 그 밖(칸)에서는 받은 env·인자를 FAKE_OUT/pane-<폴더>.env 에 남기고 기다린다.
  * latest.txt 에는 두 리눅스 키 모두 같은 파일을 적는다(테스트를 돌리는 컴퓨터의 아키텍처와 상관없게). sum 을 주면 그 값을 적는다(불일치 시험).
  * crlf·upper 는 윈도 줄바꿈·대문자 sha 로 적는다(서버가 그렇게 내도 받아야 한다).
  */
@@ -127,7 +128,7 @@ function release(f, version, { sum, crlf = false, upper = false } = {}) {
   const top = join(build, `genia-${version}-linux-x64`);
   mkdirSync(top, { recursive: true });
   exe(join(top, 'genia'), `#!/bin/sh
-case "$1" in --version) echo "genia-fake ${version}"; exit 0 ;; esac
+case "$1" in --version) echo "genia-fake ${version}"; exit 0 ;; --help) echo '  --permission-mode <value>'; exit 0 ;; esac
 k=$(basename "$PWD")
 { env | grep -E '^(GENIA_|NODE_EXTRA_CA_CERTS=)' | sort; for a in "$@"; do printf 'arg %s\\n' "$a"; done; } > "$FAKE_OUT/pane-$k.tmp"
 mv "$FAKE_OUT/pane-$k.tmp" "$FAKE_OUT/pane-$k.env"
@@ -544,6 +545,8 @@ tmuxTest('entrypoint_launchesGeniaPaneWithEnvAndArgsAndStopsOnSigterm', async (t
     'GENIA_WORKS_MCP_URL=http://127.0.0.1:9/mcp',
     'GENIA_WORKS_TENANT=3',
     'GENIA_AGENT_GENERATION=7',
+    'arg --permission-mode',
+    'arg bypassPermissions',
     'arg --approve',
     'arg -e',
     `arg ${f.d('plugin')}`,
