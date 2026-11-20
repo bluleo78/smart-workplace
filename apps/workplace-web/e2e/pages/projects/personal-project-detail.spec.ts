@@ -17,9 +17,6 @@ import type { IssueStatus } from '../../../src/types/issue';
 
 const KEY = 'PME';
 
-// 개인 프로젝트 + 이슈 목록 공통 모킹.
-// 공유 툴바(IssueFilterBar) 가 마운트 시 labels/cycles/issue-types 를 페치하므로(개인은 숨김이지만
-// 훅은 항상 호출됨) 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
 /** 개인 작업 레일의 안쪽 오른쪽 끝(오른쪽 padding 을 뺀 끝) — 칸들이 맞춰야 하는 선(WP-1809). */
 async function railInnerRight(page: import('@playwright/test').Page) {
   const rail = page.getByTestId('personal-task-rail');
@@ -27,6 +24,9 @@ async function railInnerRight(page: import('@playwright/test').Page) {
   return r.x + r.width - padRight;
 }
 
+// 개인 프로젝트 + 이슈 목록 공통 모킹.
+// 공유 툴바(IssueFilterBar) 가 마운트 시 labels/cycles/issue-types 를 페치하므로(개인은 숨김이지만
+// 훅은 항상 호출됨) 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
 async function mockPersonal(page: import('@playwright/test').Page, issues = [createIssue({ projectKey: KEY })]) {
   const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
