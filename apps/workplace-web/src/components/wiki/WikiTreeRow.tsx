@@ -1,6 +1,6 @@
 import { CSS } from '@dnd-kit/utilities'
 import { ChevronDown, ChevronRight, CornerDownRight, FileCode, Link2, Link2Off, MoreHorizontal, Plus, Star, Trash2 } from 'lucide-react'
-import { useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
@@ -76,12 +76,39 @@ export function WikiTreeRow({
   // 중첩되어 무효한 interactive-in-interactive 구조가 되고, accname 계산 시 세 버튼 이름이 하나로
   // 뒤섞여 낭독된다(#801). group 은 콘텐츠 기반 이름 계산을 하지 않아 자손 버튼과 충돌하지 않으면서도
   // tabIndex/키보드 리스너는 그대로 유지해 키보드 드래그(Space+화살표)는 그대로 동작한다.
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortableItem({
+  // active: DndContext 에 진행 중인 드래그(어느 행이든) — useSortable 이 이미 구독하는 값이라 따로 useDndContext 를 부르지 않는다.
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, active } = useSortableItem({
     id,
     // 순서뿐 아니라 하위로 넣기·옮기기도 되므로 「드래그 가능한 페이지」로 읽힌다(WP-1549).
     attributes: { role: 'group', roleDescription: DRAGGABLE_PAGE_ROLE_DESCRIPTION },
     disabled: !canEdit,
   })
+  // 행 루트를 드래그 노드이자 활성화 노드로 지정 — 지정하지 않으면 KeyboardSensor 가 안쪽 단추(펼치기·제목·＋·⋯)에서
+  // 올라온 키 입력까지 받아 드래그를 시작한다(IssueListRow 선례, #881).
+  const rootRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      setNodeRef(el)
+      setActivatorNodeRef(el)
+    },
+    [setNodeRef, setActivatorNodeRef],
+  )
+  // 행 자신에 초점이 있을 때 Enter → 페이지 열기(클릭과 같은 onOpen). dnd-kit 의 onKeyDown 을 덮지 않고 먼저 호출한 뒤 합성한다.
+  // 안쪽 단추의 Enter(target≠행)·수식키 조합·키 반복·드래그 중(Enter 는 놓기 — 다른 행을 끄는 중 포함)에는 열지 않는다(WP-1779).
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    listeners?.onKeyDown?.(e)
+    if (
+      e.target === e.currentTarget &&
+      // e.code 로 판정 — dnd-kit keyboardCodes(놓기 Enter)가 e.code 로 맞추므로 같은 기준이다(NumpadEnter 는 둘 다 무시).
+      e.code === 'Enter' &&
+      !e.repeat &&
+      !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
+      !e.defaultPrevented &&
+      active == null
+    ) {
+      e.preventDefault()
+      onOpen(id)
+    }
+  }
   const style = { transform: CSS.Translate.toString(transform), transition }
   const label = title || '제목 없음'
   // WP-1462 선택된(mount 되거나 막 선택된) 행을 트리 스크롤 영역 안으로 드러낸다 — 새로 연 페이지 행이 목록 밖에 남지 않게.
@@ -102,11 +129,11 @@ export function WikiTreeRow({
   const starLabel = starred ? '즐겨찾기 빼기' : '즐겨찾기'
   return (
     <div
-      ref={setNodeRef}
+      ref={rootRef}
       style={style}
       // 편집 권한이 없으면(드래그 불가) dnd-kit 속성·리스너를 펼치지 않는다 — disabled 면 aria-disabled="true" 가 붙어 행과 그 안의
       // 열기·접기 버튼까지 스크린리더에 「사용 불가」로 읽혔다(WP-713). 행 역할(group)만 남긴다.
-      {...(canEdit ? { ...attributes, ...listeners } : { role: 'group' })}
+      {...(canEdit ? { ...attributes, ...listeners, onKeyDown: handleRowKeyDown } : { role: 'group' })}
       aria-label={label}
       data-testid={`wiki-tree-row-${id}`}
       className={`group relative flex items-center ${isDragging ? 'opacity-50' : ''}`}

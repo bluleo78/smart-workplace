@@ -437,6 +437,78 @@ test('트리 행은 role=group 이고 열기 버튼 이름은 제목 그대로�
   expect(within(row).getByRole('button', { name: '제품 문서' })).toBeInTheDocument()
 })
 
+/** WP-1779 용 트리 — 부모(1) 아래 자식(2). */
+const ENTER_TREE = () => [wikiPageSummary({ id: 1, title: '제품 문서' }), wikiPageSummary({ id: 2, parentId: 1, title: '기획' })]
+
+/** 페이지 이동(PATCH …/move) 요청을 모으는 핸들러 — 드래그로 옮겼는지(놓기) 아닌지를 요청 유무로 본다(WP-1779). */
+function moveSpy(movedId: number) {
+  const moves: string[] = []
+  const handler = http.patch('/api/v1/wiki/pages/:id/move', ({ request }) => {
+    moves.push(new URL(request.url).pathname)
+    return HttpResponse.json(wikiPageDetail({ id: movedId }))
+  })
+  return { moves, handler }
+}
+
+test('트리 행에 초점을 두고 Enter 를 누르면 그 페이지가 열린다(WP-1779)', async () => {
+  const { user, location } = open({ tree: ENTER_TREE })
+  const row = await screen.findByTestId('wiki-tree-row-2')
+  act(() => row.focus())
+  await user.keyboard('{Enter}')
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/2'))
+})
+
+// Space 뒤 드래그가 실제로 시작됐다가(행 opacity-50) Esc 로 취소된 뒤, 수식키 Enter 가 열기를 일으키지 않는다.
+test.each([['Control'], ['Meta'], ['Shift'], ['Alt']])('트리 행에서 Space 로 집었다 Esc 로 취소한 뒤 %s+Enter 는 페이지를 열지 않는다(WP-1779)', async (mod) => {
+  const { user, location } = open({ tree: ENTER_TREE })
+  const row = await screen.findByTestId('wiki-tree-row-2')
+  act(() => row.focus())
+  // Space 는 키보드 드래그 집기 — 집힌 행은 반투명(isDragging).
+  await user.keyboard('{ }')
+  await waitFor(() => expect(row).toHaveClass('opacity-50'))
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(row).not.toHaveClass('opacity-50'))
+  await user.keyboard(`{${mod}>}{Enter}{/${mod}}`)
+  // 열기가 일어났다면 반영될 시간을 한 틱 이상 준다.
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50))
+  })
+  expect(location()).toBe('/wiki/spaces/1')
+})
+
+test('펼치기 단추에서 Enter 는 접기만 하고 행을 열거나 끌지 않는다(WP-1779)', async () => {
+  const { user, location } = open({ tree: ENTER_TREE })
+  await screen.findByTestId('wiki-tree-row-2')
+  act(() => screen.getByRole('button', { name: '제품 문서 접기' }).focus())
+  await user.keyboard('{Enter}')
+  await waitFor(() => expect(screen.getByRole('button', { name: '제품 문서 펼치기' })).toHaveAttribute('aria-expanded', 'false'))
+  expect(location()).toBe('/wiki/spaces/1')
+})
+
+test('접기 단추에서 Space 는 접기만 하고 행을 끌지 않는다 — 이동 요청 없음·경로 그대로(WP-1779)', async () => {
+  const { moves, handler } = moveSpy(1)
+  const { user, location } = open({ tree: ENTER_TREE, handlers: [handler] })
+  await screen.findByTestId('wiki-tree-row-2')
+  act(() => screen.getByRole('button', { name: '제품 문서 접기' }).focus())
+  await user.keyboard('{ }')
+  await waitFor(() => expect(screen.getByRole('button', { name: '제품 문서 펼치기' })).toHaveAttribute('aria-expanded', 'false'))
+  expect(screen.queryByTestId('wiki-tree-row-2')).not.toBeInTheDocument()
+  expect(moves).toEqual([])
+  expect(location()).toBe('/wiki/spaces/1')
+})
+
+test('Space 로 집은 뒤 Enter 로 놓아도 페이지가 열리지 않는다(WP-1779)', async () => {
+  const { moves, handler } = moveSpy(2)
+  const { user, location } = open({ tree: ENTER_TREE, handlers: [handler] })
+  const row = await screen.findByTestId('wiki-tree-row-2')
+  act(() => row.focus())
+  await user.keyboard('{ }')
+  await user.keyboard('{Enter}')
+  // 놓기(Enter)로 이동 요청이 나갔다 = 실제 키보드 드래그가 jsdom 에서 돌았다. 그래도 페이지는 열리지 않는다.
+  await waitFor(() => expect(moves).toEqual(['/api/v1/wiki/pages/2/move']))
+  expect(location()).toBe('/wiki/spaces/1')
+})
+
 test('깊은 단계에서 잘리는 제목은 title 속성으로 전체 제목을 보이고, 열기 버튼 이름은 그대로다(WP-1440)', async () => {
   const long = '아주 긴 하위 페이지 제목이라 깊은 단계에서는 몇 글자만 보인다'
   open({

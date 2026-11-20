@@ -35,7 +35,9 @@ export function ResourceErrorState({
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center min-h-[60vh]">
       <Icon className="h-12 w-12 text-muted-foreground" />
-      <div className="space-y-2">
+      {/* 페이지 수준 오류라 라이브 영역 밖에서 렌더되므로 role=alert 로 화면 읽기가 자동으로 읽게 한다.
+          버튼은 밖에 둬 안내가 제목+설명 두 줄로 끝나게 한다 (WP-1773). */}
+      <div role="alert" className="space-y-2">
         <Title className="text-lg font-semibold">{title}</Title>
         <p className="text-sm text-muted-foreground max-w-md">{description}</p>
       </div>
