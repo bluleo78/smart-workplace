@@ -2,7 +2,7 @@
 // 인박스 목록 — 데스크톱 Popover(InboxPanel)와 모바일 /notifications 화면이 공유한다(WP-126).
 // 헤더(모두 읽음·읽은 알림 보관) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
 import { Archive, Bell, CheckCheck } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { type KeyboardEvent, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -67,9 +67,25 @@ function hasReadNotification(items: NotificationResponse[]): boolean {
 /** 알림 창 보기 — 받은 알림(inbox) 또는 보관함(archive)(WP-1690). */
 export type InboxView = "inbox" | "archive";
 
+/** 보기 탭이 가리키는 패널(목록 영역)의 id — 탭의 aria-controls 와 패널의 id 가 같은 값을 쓴다(WP-1843). */
+// 이 파일 안(탭·목록)에서만 쓴다 — 컴포넌트 파일에서 컴포넌트가 아닌 것을 내보내면 Fast Refresh 가 전체 새로고침이 된다.
+const INBOX_VIEW_PANEL_ID = "inbox-view-panel";
+
+/** 보기 탭 단추의 id — 패널의 aria-labelledby 가 가리킨다(WP-1843). */
+function inboxViewTabId(v: InboxView): string {
+  return `inbox-view-tab-${v}`;
+}
+
+/** 보기 탭 목록(순서 = 방향키 이동 순서). 렌더마다 새로 만들 필요가 없어 모듈에 둔다. */
+const VIEW_TABS: { id: InboxView; label: string }[] = [
+  { id: "inbox", label: "알림" },
+  { id: "archive", label: "보관함" },
+];
+
 /**
  * 「알림 | 보관함」 전환 탭(WP-1690) — 데스크톱 제목 줄과 모바일 /notifications 가 함께 쓴다.
  * 선택 탭은 굵게·밑줄로 구분하고 aria-selected 로 알린다.
+ * WP-1843: APG Tabs 패턴 — roving tabindex(선택 탭만 Tab 정지점), ←/→(감김)·Home·End 로 초점 이동과 동시에 선택(자동 활성화).
  */
 export function InboxViewTabs({
   view,
@@ -78,24 +94,51 @@ export function InboxViewTabs({
   view: InboxView;
   onChange: (v: InboxView) => void;
 }) {
-  const tabs: { id: InboxView; label: string }[] = [
-    { id: "inbox", label: "알림" },
-    { id: "archive", label: "보관함" },
-  ];
+  // 탭 단추 ref — 방향키로 정해진 탭에 초점을 옮기는 데 쓴다.
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  /** 방향키·Home·End 처리. 수식키(Shift 포함)가 눌렸거나 대상 키가 아니면 건드리지 않는다. */
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
+    const n = VIEW_TABS.length;
+    // 기준은 초점이 있는 탭 — 보조기기·스크립트가 선택되지 않은 탭에 초점을 두었어도 그 자리에서 움직인다.
+    // 초점 탭을 못 찾으면(tablist 자체 등) 선택 탭을 기준으로 한다.
+    const focused = tabRefs.current.findIndex((el) => el === e.target);
+    const current =
+      focused >= 0 ? focused : VIEW_TABS.findIndex((t) => t.id === view);
+    const next =
+      e.key === "Home"
+        ? 0
+        : e.key === "End"
+          ? n - 1
+          : (current + (e.key === "ArrowRight" ? 1 : n - 1)) % n; // ←/→ 는 끝에서 감긴다
+    e.preventDefault();
+    tabRefs.current[next]?.focus();
+    // 같은 탭이면 전환 알림을 보내지 않는다.
+    if (VIEW_TABS[next].id !== view) onChange(VIEW_TABS[next].id);
+  };
+
   return (
     <div
       role="tablist"
       aria-label="알림 보기"
       className="flex items-center gap-3"
+      onKeyDown={handleKeyDown}
     >
-      {tabs.map((t) => (
+      {VIEW_TABS.map((t, i) => (
         <button
           key={t.id}
+          ref={(el) => {
+            tabRefs.current[i] = el;
+          }}
+          // id: 패널의 aria-labelledby(WP-1843)와 보관함 빈 상태 CTA 뒤 초점 자리(WP-1848)가 함께 쓴다
+          id={inboxViewTabId(t.id)}
           type="button"
           role="tab"
-          // id: 보관함 빈 상태 CTA 로 받은 알림에 돌아올 때 포커스를 받을 자리(WP-1848)
-          id={`inbox-tab-${t.id}`}
           aria-selected={view === t.id}
+          aria-controls={INBOX_VIEW_PANEL_ID}
+          tabIndex={view === t.id ? 0 : -1}
           data-testid={`inbox-tab-${t.id}`}
           onClick={() => onChange(t.id)}
           className={cn(
@@ -162,7 +205,7 @@ export function InboxList({
   useEffect(() => {
     if (view !== "inbox" || !focusInboxTabAfterSwitch.current) return;
     focusInboxTabAfterSwitch.current = false;
-    document.getElementById("inbox-tab-inbox")?.focus();
+    document.getElementById(inboxViewTabId("inbox"))?.focus();
   }, [view]);
   const onEmptyAction = () => {
     if (isArchive) {
@@ -255,7 +298,18 @@ export function InboxList({
       )}
       {/* 푸시 유도 배너는 받은 알림 보기에서만 */}
       {!isArchive && <PushPromptBanner />}
+      {/*
+        WP-1843: 목록 영역은 선택 탭(inboxViewTabId)에 이어진 tabpanel 이다(APG Tabs).
+        모바일은 탭이 화면 머리에 따로 있고 목록은 별도 컴포넌트라, 같은 파일의 고정 id 로 탭과 패널을 잇는다.
+        Tab 정지점은 빈 목록·로딩일 때만 패널이 된다(tabIndex 0, APG: 안에 초점 받을 것이 없을 때만).
+        행이 있으면 -1 로 둔다 — 속성을 아예 빼면 로딩 중 패널에 둔 초점이 행 도착 때 body 로 떨어지므로,
+        -1 로 프로그램 초점은 유지하되 Tab 순서에서는 빼 첫 행 단추가 Tab 정지점이 되게 한다(WP-1843).
+      */}
       <div
+        role="tabpanel"
+        id={INBOX_VIEW_PANEL_ID}
+        aria-labelledby={inboxViewTabId(view)}
+        tabIndex={isLoading || items.length === 0 ? 0 : -1}
         onScroll={onScroll}
         data-testid="inbox-scroll-area"
         className={scrollClassName}
