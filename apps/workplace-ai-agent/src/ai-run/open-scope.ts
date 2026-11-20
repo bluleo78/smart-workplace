@@ -14,19 +14,29 @@ export function readAiRunHeader(raw: string | string[] | undefined): AiRunContex
   return parsed ?? {};
 }
 
+/** 값이 undefined 인 키를 뺀다 — derived 가 헤더 값을 undefined 로 지우지 않게 한다. */
+function definedOnly(o: Partial<AiRunContext>): Partial<AiRunContext> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<AiRunContext>;
+}
+
 /**
  * 헤더·표 값·요청에서 뽑은 값을 합쳐 범위를 연다(WP-1828) — 미들웨어와 이벤트 라우트가 함께 쓴다.
- * 필드 우선순위는 헤더 > derived, kind 는 헤더 > 표 값(kind). 열다가 던지면 경고만 하고 undefined(기록 없이 처리).
+ * 필드 우선순위는 기본 헤더 > derived, kind 는 헤더 > 표 값(kind).
+ * 단 opts.derivedWins 면 derived 에 정의된 필드가 헤더보다 앞선다(derived 의 undefined 는 헤더를 지우지 않는다) — 이벤트 payload 가
+ * 권위 있는 이벤트 라우트(recurring tenantId·actor·sourceAt 등)에서 발행 스레드의 헤더 값이 payload 를 덮지 않게 한다. 미들웨어는 헤더 우선 그대로. 열다가 던지면 경고만 하고 undefined(기록 없이 처리).
  */
 export function openAiRunScope(
   kind: string,
   headerRaw: string | string[] | undefined,
   derived: Partial<AiRunContext>,
   sink: AiRunSink,
+  opts?: { derivedWins?: boolean },
 ): AiRunScope | undefined {
   try {
     const header = readAiRunHeader(headerRaw);
-    return new AiRunScope({ ...derived, ...header, kind: header.kind ?? kind }, sink);
+    const base = opts?.derivedWins ? { ...header, ...definedOnly(derived) } : { ...derived, ...header };
+    const merged: AiRunContext & { kind: string } = { ...base, kind: header.kind ?? kind };
+    return new AiRunScope(merged, sink);
   } catch (e) {
     console.warn('[ai-run] 범위 열기 실패(무시):', errorMessage(e));
     return undefined;

@@ -12,6 +12,9 @@ vi.mock('../agent/run-drive-ai.js', () => ({
 
 import { createDriveRouter } from './drive.js';
 import { runDriveSummarize, runDriveOverview, runDriveSecurityCheck } from '../agent/run-drive-ai.js';
+import { aiRunScopeMiddleware } from '../middleware/ai-run-scope.js';
+import { currentAiRunScope } from '../ai-run/scope.js';
+import type { AiRunRecord } from '../ai-run/types.js';
 
 function app() {
   const a = express();
@@ -109,6 +112,45 @@ describe('POST /drive/overview', () => {
     const res = await request(app()).post('/drive/overview').send(validOverview);
     expect(res.headers['content-type']).toMatch(/text\/event-stream/);
     expect(res.text).toContain('event: error');
+  });
+
+  // WP-1828 후속: 러너는 성공했어도 SSE 단계 오류면 기록은 FAILED·stream_error.
+  it('러너 성공 뒤 오류가 나면 기록은 FAILED·stream_error', async () => {
+    const records: AiRunRecord[] = [];
+    const a = express();
+    a.use(express.json());
+    a.use(aiRunScopeMiddleware({ enqueue: (r) => void records.push(r) }));
+    a.use(createDriveRouter({ client: {} as never }));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(runDriveOverview).mockImplementation(async () => {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'c');
+      s.runnerFinished({ ok: true, usage: null });
+      throw new Error('stream broke');
+    });
+    const res = await request(a).post('/drive/overview').send(validOverview);
+    expect(res.text).toContain('event: error');
+    await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']));
+    expect(records[1]).toMatchObject({ errorReason: 'stream_error', errorDetail: 'stream broke' });
+  });
+
+  // 러너 자체가 실패한 경우 stream_error 가 아니라 runner_error 로 남는다.
+  it('러너가 실패(reject)하면 기록은 FAILED·runner_error', async () => {
+    const records: AiRunRecord[] = [];
+    const a = express();
+    a.use(express.json());
+    a.use(aiRunScopeMiddleware({ enqueue: (r) => void records.push(r) }));
+    a.use(createDriveRouter({ client: {} as never }));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(runDriveOverview).mockImplementation(async () => {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'c');
+      s.runnerFinished({ ok: false, usage: null, error: new Error('provider 401') });
+      throw new Error('provider 401');
+    });
+    await request(a).post('/drive/overview').send(validOverview);
+    await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']));
+    expect(records[1]).toMatchObject({ errorReason: 'runner_error', errorDetail: 'provider 401' });
   });
 });
 

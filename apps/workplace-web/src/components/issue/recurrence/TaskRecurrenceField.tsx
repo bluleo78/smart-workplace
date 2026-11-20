@@ -93,7 +93,7 @@ export function TaskRecurrenceField({
           <TaskRecurrenceEditor projectKey={projectKey} number={number} recurrence={r} onDone={() => setOpen(false)} />
         </PopoverContent>
       </Popover>
-      {/* WP-1809: 「다음 실행」 은 왼쪽, 「지금 실행」 은 카드 오른쪽 끝. 버튼을 감싼 이유 툴팁 감싸개(span)의 ml-auto 가 오른쪽 끝을 지킨다(WP-1852) — justify-between 만으로는
+      {/* WP-1809: 「다음 실행」 은 왼쪽, 「지금 실행」 은 카드 오른쪽 끝. 버튼의 ml-auto 가 오른쪽 끝을 지킨다 — justify-between 만으로는
           상태 문구가 없을 때(꺼짐·다음 실행 없음이면 TaskRecurrenceStatus 가 null)나 줄이 꺾일 때 버튼이 왼쪽에 붙었다.
           (모바일 속성 시트는 이 상태 줄을 그리지 않고 RecurrenceRunNowButton 만 따로 둔다). */}
       {r ? (

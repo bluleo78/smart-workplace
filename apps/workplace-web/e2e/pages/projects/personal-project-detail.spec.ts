@@ -573,37 +573,6 @@ test('「AI 에게 맡기기」 카드는 위 칸과 오른쪽 끝이 같고, �
   expect(b.y + b.height, `버튼 아래끝 ${b.y + b.height} vs 상태 줄 아래끝 ${row.y + row.height}`).toBeLessThanOrEqual(row.y + row.height + 1);
 });
 
-// WP-1852: 키보드로 「지금 실행」 을 누르면 버튼이 막히는데, 브라우저는 막힌 버튼의 초점을 body 로 떨어뜨린다(jsdom 은 안 한다) —
-// 이유 감싸개로 초점이 넘어가 키보드 사용자가 자리를 잃지 않아야 한다.
-test('키보드로 지금 실행을 누르면 초점이 body 가 아니라 이유 감싸개에 남고, 끝나면 버튼으로 돌아온다(WP-1852)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
-  // 실행 중에는 반복을 10초(TEST_RUN_POLL_MS)마다 다시 읽는다 — 끝나는 것까지 보려면 그 한 번을 기다려야 해 시간 한도를 늘린다.
-  test.slow();
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
-  await mockTaskDetail(page);
-  const recurrencePath = `/api/v1/projects/${KEY}/issues/1/recurrence`;
-  await mockApi(page, 'GET', recurrencePath, createIssueRecurrence());
-  // 실행 요청이 202 로 끝난 뒤 다시 읽으면 실행 중(testRunning)으로 온다.
-  await page.route((url) => url.pathname === `${recurrencePath}/test-runs`, async (route) => {
-    await mockApi(page, 'GET', recurrencePath, createIssueRecurrence({ testRunning: true }));
-    await route.fulfill({ status: 202, body: '' });
-  });
-  await page.goto(`/projects/${KEY}?task=1`);
-
-  const runNow = page.getByTestId('task-recurrence-run-now');
-  await expect(runNow).toBeEnabled();
-  await runNow.focus();
-  await page.keyboard.press('Enter');
-  await expect(runNow).toBeDisabled();
-  await expect(page.getByTestId('task-recurrence-run-now-reason')).toBeFocused();
-
-  // 실행이 끝나 다시 읽으면 버튼이 풀리고 초점이 버튼으로 돌아온다 — 감싸개의 tabindex 를 지우면 브라우저가 그 순간 초점을 떨어뜨려
-  // 모달 초점 가두기가 초점을 모달로 가져갔다(jsdom 은 재현하지 않는다).
-  await mockApi(page, 'GET', recurrencePath, createIssueRecurrence({ testRunning: false }));
-  await expect(runNow).toBeEnabled({ timeout: 25_000 });
-  await expect(runNow).toBeFocused();
-});
-
 test('일정이 없어도 「AI 에게 맡기기」 카드 오른쪽 끝은 레일 안쪽 끝과 같다(WP-1809)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);

@@ -22,14 +22,15 @@ export function WidgetEmptyState({
   testId?: string
 }) {
   return (
-    <div className="flex flex-col items-center gap-1 py-6 text-center" data-testid={testId}>
+    <div
+      // I3(a11y): 빈 상태는 보조 안내이므로 role="status"(polite live region).
+      role="status"
+      className="flex flex-col items-center gap-1 py-6 text-center"
+      data-testid={testId}
+    >
       <Icon className="h-8 w-8 text-ai-accent" aria-hidden />
-      {/* I3(a11y): 제목·설명만 role="status"(polite live region)로 알리고 CTA 링크는 그 밖에 둔다 — 안에 두면 링크 글자까지
-          읽힌다(WP-1853). display:contents 는 일부 브라우저가 role 을 지워 쓰지 않고, 블록 감싸개 + space-y-1 로 간격을 맞춘다. */}
-      <div role="status" className="space-y-1">
-        <div className="mt-1 text-sm font-medium">{title}</div>
-        <div className="text-xs text-muted-foreground">{description}</div>
-      </div>
+      <div className="mt-1 text-sm font-medium">{title}</div>
+      <div className="text-xs text-muted-foreground">{description}</div>
       <Link
         to={cta.to}
         className="mt-2 inline-block rounded px-2 py-1 text-xs text-ai-accent hover:underline"

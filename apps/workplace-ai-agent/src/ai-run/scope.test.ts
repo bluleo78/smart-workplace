@@ -129,4 +129,23 @@ describe('AiRunScope', () => {
     scope.close({ ok: true });
     expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'stream_error', errorDetail: 'boom' });
   });
+
+  // 러너가 실패했으면 SSE 라우트의 stream_error 가 그 사유를 덮지 않는다.
+  it('러너 실패 + markFailed(stream_error) 면 사유는 runner_error, 상세는 러너 오류', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: new Error('provider 401') });
+    scope.markFailed('stream_error', 'sse broke');
+    scope.close({ ok: true });
+    expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'runner_error', errorDetail: 'provider 401' });
+  });
+
+  it('러너 성공 + markFailed 면 stream_error', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: true, usage: null });
+    scope.markFailed('stream_error', 'sse broke');
+    scope.close({ ok: true });
+    expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'stream_error', errorDetail: 'sse broke' });
+  });
 });

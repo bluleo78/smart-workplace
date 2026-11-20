@@ -11,6 +11,22 @@ export interface RunnerUsage {
   cacheWriteTokens?: number;
 }
 
+/**
+ * 여러 번의 모델 호출 사용량을 한 건으로 합친다(WP-1828). 빈 목록이면 null.
+ * 캐시 읽기·쓰기 키는 합칠 값 중 숫자가 하나라도 있을 때만 둔다.
+ */
+export function sumRunnerUsage(list: Iterable<RunnerUsage>): RunnerUsage | null {
+  let sum: RunnerUsage | null = null;
+  for (const u of list) {
+    sum ??= { inputTokens: 0, outputTokens: 0 };
+    sum.inputTokens += u.inputTokens;
+    sum.outputTokens += u.outputTokens;
+    if (u.cacheReadTokens !== undefined) sum.cacheReadTokens = (sum.cacheReadTokens ?? 0) + u.cacheReadTokens;
+    if (u.cacheWriteTokens !== undefined) sum.cacheWriteTokens = (sum.cacheWriteTokens ?? 0) + u.cacheWriteTokens;
+  }
+  return sum;
+}
+
 export type RunnerEvent =
   | { type: 'text_delta'; text: string; parentToolUseId: string | null } // 스트리밍 텍스트(라우터 vs 서브에이전트 구분용 parent)
   // assistant 메시지의 완성 text 블록(collect 폴백). WP-1408: 서브에이전트 블록이면 parentToolUseId 를 싣는다(라우터 블록은 지금처럼 없음 —

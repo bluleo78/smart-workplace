@@ -102,10 +102,13 @@ export class AiRunScope {
     // 남은 실패 중 가장 최근 항목의 사유를 쓴다.
     const runnerErrorDetail = runnerFailed ? this.runnerFailures[this.runnerFailures.length - 1] : null;
     const ok = o.ok && !runnerFailed && !forced;
+    // 실패 사유 우선순위: 미들웨어가 정한 o.reason(http_<코드>·client_closed) > 러너 실패(runner_error) > markFailed 사유 > 'failed'.
+    // 러너가 실패했으면 SSE 라우트의 stream_error 가 그 사유를 덮지 않는다 — 러너는 성공했는데 스트림만 실패한 경우에만 stream_error 가 남는다.
     const reason = ok
       ? null
-      : cut(forced && o.ok ? forced.reason : (o.reason ?? (runnerFailed ? 'runner_error' : (forced?.reason ?? 'failed'))), REASON_MAX);
-    const detailSrc = ok ? null : (o.detail ?? forced?.detail ?? runnerErrorDetail);
+      : cut(o.reason ?? (runnerFailed ? 'runner_error' : (forced?.reason ?? 'failed')), REASON_MAX);
+    // 상세도 같은 순서: o.detail > 마지막 러너 오류(runnerFailed 일 때만 값이 있다) > markFailed 상세.
+    const detailSrc = ok ? null : (o.detail ?? runnerErrorDetail ?? forced?.detail ?? null);
     const detail = detailSrc === null ? null : cut(detailSrc, DETAIL_MAX);
     this.emit(this.build(ok ? 'SUCCEEDED' : 'FAILED', this.now().toISOString(), reason, detail));
   }

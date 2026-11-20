@@ -1530,16 +1530,7 @@ function MailInbox() {
   const fetchOlderMail = (key: string) => {
     if (olderFolder == null || olderMail.isPending) return
     olderMail.mutate(olderFolder, {
-      // 성공하면 실패 기록을 함께 정리한다 — 끝이면 'done', 아니면 키를 지운다(다시 시도 성공 시 'failed' 해제).
-      onSuccess: (r) =>
-        setOlderEnded((m) => {
-          if (!r.hasMore) return { ...m, [key]: 'done' }
-          // 지울 기록이 없으면 그대로 — 새 객체를 만들어 큰 메일함 화면을 괜히 다시 그리지 않는다.
-          if (!(key in m)) return m
-          const next = { ...m }
-          delete next[key]
-          return next
-        }),
+      onSuccess: (r) => { if (!r.hasMore) setOlderEnded((m) => ({ ...m, [key]: 'done' })) },
       onError: () => setOlderEnded((m) => ({ ...m, [key]: 'failed' })),
     })
   }
@@ -1554,7 +1545,14 @@ function MailInbox() {
     isFetchingNextPage: isFetchingNextPage || olderMail.isPending,
     fetchNextPage: () => {
       if (hasNextPage) return fetchNextPage({ cancelRefetch: false })
-      // 실패 뒤 다시 시도 — 실패 기록은 지우지 않고 다시 부른다(지우면 다시 시도 버튼이 사라져 포커스가 빠진다, WP-1862).
+      // 실패 뒤 다시 시도 — 실패 기록을 지우고 다시 부른다(자동 로드는 실패 동안 멈춰 있다).
+      if (olderFailed) {
+        setOlderEnded((m) => {
+          const next = { ...m }
+          delete next[olderKey]
+          return next
+        })
+      }
       fetchOlderMail(olderKey)
     },
   }

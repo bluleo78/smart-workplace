@@ -41,6 +41,21 @@ describe('open-scope', () => {
     expect(records[0]).toMatchObject({ kind: 'PROJECT_REPORT', tenantId: 9, targetId: '5' });
   });
 
+  it('openAiRunScope: derivedWins 면 derived 필드가 헤더를 이기고, derived 에 없으면(undefined 포함) 헤더를 쓴다', () => {
+    const records: AiRunRecord[] = [];
+    const sink = { enqueue: (r: AiRunRecord) => records.push(r) };
+    openAiRunScope('K', enc({ tenantId: 9 }), { tenantId: 1, actorId: 5 }, sink, { derivedWins: true })!.runnerStarted('m', 'c');
+    openAiRunScope('K', enc({ tenantId: 9 }), { tenantId: undefined }, sink, { derivedWins: true })!.runnerStarted('m', 'c');
+    expect(records.map((r) => r.tenantId)).toEqual([1, 9]);
+    expect(records[0].actorId).toBe(5);
+  });
+
+  it('openAiRunScope: 기본은 헤더 tenantId 가 derived 를 이긴다', () => {
+    const records: AiRunRecord[] = [];
+    openAiRunScope('K', enc({ tenantId: 9 }), { tenantId: 1 }, { enqueue: (r) => records.push(r) })!.runnerStarted('m', 'c');
+    expect(records[0].tenantId).toBe(9);
+  });
+
   it('openAiRunScope: 헤더가 없으면 표 kind·derived 를 쓴다', () => {
     const records: AiRunRecord[] = [];
     const scope = openAiRunScope('AI_CHAT', undefined, { tenantId: 1 }, { enqueue: (r) => records.push(r) });

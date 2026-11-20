@@ -34,7 +34,7 @@ function isoOrUndefined(v: string): string | undefined {
 
 /**
  * 이벤트를 AI 처리 한 건의 범위로 열어 handler 를 돌리고, 처리 promise 결과로 닫는다 (WP-1828).
- * 헤더(X-AI-Run)의 값이 이벤트에서 뽑은 값보다 필드별로 우선한다.
+ * 헤더(X-AI-Run)의 값이 이벤트에서 뽑은 값보다 필드별로 우선한다. 단 이 라우트에서는 payload 에서 뽑은 값(tenantId·actor·sourceAt 등)이 있으면 그것이 우선한다(WP-1828 후속).
  * handler 는 이 이벤트로 시작한 실행 promise(이미 inflight 등록·catch 로그됨)를 돌려주고, 여기서 .then(ok, fail) 로
  * 관찰만 한다 — 거부 핸들러를 달아 두므로 새 unhandled rejection 이 생기지 않는다. undefined(합쳐짐·무시)는 성공으로 닫고,
  * 러너가 안 불렸으면 아무것도 기록되지 않는다. 기록 쪽 오류는 모두 삼켜 202 응답·처리 결과에 영향이 없다.
@@ -47,7 +47,7 @@ function runInScope(
   handler: () => Promise<unknown> | undefined,
 ): void {
   const kind = kindForEvent(type);
-  const scope = kind ? openAiRunScope(kind, headerRaw, derived, sink) : undefined;
+  const scope = kind ? openAiRunScope(kind, headerRaw, derived, sink, { derivedWins: true }) : undefined;
   if (!scope) {
     handler();
     return;

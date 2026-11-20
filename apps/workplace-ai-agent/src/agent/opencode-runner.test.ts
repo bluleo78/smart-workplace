@@ -625,6 +625,22 @@ describe('OpencodeRunner.stream', () => {
       expect((events.at(-1) as { usage: unknown }).usage).toEqual({ inputTokens: 10, outputTokens: 5 });
     });
 
+    // WP-1828 후속: 사용량은 마지막 메시지가 아니라 모든 메시지(자식 세션 포함)의 합. 같은 id 의 중복 갱신은 마지막 값으로 한 번만.
+    it('result usage 는 주·자식 세션 모든 메시지의 합이다(같은 id 중복 갱신은 한 번만) (WP-1828)', async () => {
+      const msg = (id: string, sessionID: string, tokens: Record<string, unknown>) =>
+        ({ type: 'message.updated', properties: { info: { id, sessionID, role: 'assistant', tokens } } });
+      const events = await run(baseInput(), [
+        { type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } },
+        msg('m1', 'sess-1', { input: 1, output: 1, cache: { read: 1, write: 0 } }),
+        msg('m1', 'sess-1', { input: 10, output: 5, cache: { read: 7, write: 3 } }),
+        msg('c1', 'child-1', { input: 100, output: 50, cache: { read: 70, write: 30 } }),
+        msg('m2', 'sess-1', { input: 1000, output: 500, cache: { read: 700, write: 300 } }),
+      ]);
+      expect((events.at(-1) as { usage: unknown }).usage).toEqual({
+        inputTokens: 1110, outputTokens: 555, cacheReadTokens: 777, cacheWriteTokens: 333,
+      });
+    });
+
     it('result 텍스트는 라우터(primary) 글만 — 서브에이전트 글은 text_delta 로만 낸다', async () => {
       const events = await run(baseInput(), [
         { type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } },
@@ -646,7 +662,8 @@ describe('OpencodeRunner.stream', () => {
       es.push({ type: 'session.error', properties: { sessionID: 'sess-1', error: { name: 'UnknownError' } } });
       const events: RunnerEvent[] = [];
       await expect(new OpencodeRunner().stream(baseInput(), (e) => events.push(e)).done).rejects.toThrow();
-      expect(events.at(-1)).toEqual({ type: 'result', ok: false, text: null, usage: null });
+      // WP-1828: 자식 세션 메시지의 사용량도 합산에 들어간다(0 토큰이어도 사용량 객체는 생긴다).
+      expect(events.at(-1)).toEqual({ type: 'result', ok: false, text: null, usage: { inputTokens: 0, outputTokens: 0 } });
     });
 
     it('kill() 은 primary 와 알려진 자식 세션을 모두 abort 한다(개별 실패는 무시)', async () => {
@@ -816,10 +833,10 @@ describe('OpencodeRunner.stream', () => {
       properties: { part: { id: `${messageID}-t`, sessionID: 'sess-1', messageID, type: 'text', text: t, ...extra } },
     });
     // 압축 요약 메시지 — opencode 는 summary·mode 'compaction' 표시가 달린 message.updated 를 요약 text 보다 먼저 낸다.
-    const summaryMessage = (id: string) => assistant(id, { summary: true, mode: 'compaction' });
-    const compactedTail = (summaryId: string) => [
+    const summaryMessage = (id: string, tokens = { input: 0, output: 0 }) => assistant(id, { summary: true, mode: 'compaction' }, tokens);
+    const compactedTail = (summaryId: string, tokens = { input: 0, output: 0 }) => [
       user('u-compact'),
-      summaryMessage(summaryId),
+      summaryMessage(summaryId, tokens),
       text(summaryId, '## Objective\n- Read pages 1–24 ...'),
       user('u-continue'),
       text('u-continue', 'Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.', { synthetic: true }),
@@ -835,10 +852,10 @@ describe('OpencodeRunner.stream', () => {
       return { handle, out };
     }
 
-    it('한도에 닿아 미리 압축하면 요약 text 는 답으로 내보내지 않고 이어진 답만 낸다(사용량도 요약 메시지 것으로 덮지 않는다)', async () => {
+    it('한도에 닿아 미리 압축하면 요약 text 는 답으로 내보내지 않고 이어진 답만 낸다(요약 메시지의 토큰은 과금되는 모델 호출이라 사용량 합에 넣는다)', async () => {
       const { handle, out } = await run([
         assistant('m1', {}, { input: 805, output: 39 }),
-        ...compactedTail('m-sum'),
+        ...compactedTail('m-sum', { input: 300, output: 30 }),
         assistant('m2', {}, { input: 6610, output: 29 }),
         text('m2', 'P1, P2, P3'),
         { type: 'session.idle', properties: { sessionID: 'sess-1' } },
@@ -846,7 +863,7 @@ describe('OpencodeRunner.stream', () => {
       await handle.done;
       expect(out).toEqual([
         { type: 'text_delta', text: 'P1, P2, P3', parentToolUseId: null },
-        { type: 'result', ok: true, text: 'P1, P2, P3', usage: { inputTokens: 6610, outputTokens: 29 } },
+        { type: 'result', ok: true, text: 'P1, P2, P3', usage: { inputTokens: 7715, outputTokens: 98 } },
       ]);
     });
 
@@ -868,7 +885,7 @@ describe('OpencodeRunner.stream', () => {
       await handle.done;
       expect(out).toEqual([
         { type: 'text_delta', text: 'FINAL', parentToolUseId: null },
-        { type: 'result', ok: true, text: 'FINAL', usage: { inputTokens: 1000, outputTokens: 20 } },
+        { type: 'result', ok: true, text: 'FINAL', usage: { inputTokens: 23600, outputTokens: 40 } },
       ]);
     });
 
@@ -880,7 +897,7 @@ describe('OpencodeRunner.stream', () => {
         { type: 'session.idle', properties: { sessionID: 'sess-1' } },
       ]);
       await expect(handle.done).rejects.toThrow('opencode session.error');
-      expect(out).toEqual([{ type: 'result', ok: false, text: null, usage: null }]);
+      expect(out).toEqual([{ type: 'result', ok: false, text: null, usage: { inputTokens: 0, outputTokens: 0 } }]);
     });
   });
 
