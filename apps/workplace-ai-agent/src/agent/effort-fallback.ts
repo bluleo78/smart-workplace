@@ -7,6 +7,7 @@
 // kill 되지 않음. 보인 것이 생긴 뒤의 실패는 다시 돌면 답이 겹치므로 그대로 실패시킨다.
 // 첫 실행의 이벤트는 처음 보이는 이벤트가 나올 때까지 모아 두었다가 그때 흘려보낸다 — 거절로 끝나면 버려서 실패 result·오류 문장이
 // 다시 돈 실행의 결과와 섞이지 않게 한다.
+import { forgiveScopeRunnerFailure } from '../ai-run/scope.js';
 import { log } from '../logger.js';
 import type { AgentRunner, RunnerInput, RunnerStreamHandle } from './agent-runner.js';
 import type { RunnerEvent } from './runner-events.js';
@@ -71,6 +72,8 @@ export function streamWithEffortFallback(
         remainingMs,
         error: e instanceof Error ? e.message : String(e),
       });
+      // 재시도가 회복하면 처리 전체는 성공 — 첫 시도의 러너 실패 표시를 지운다(WP-1828).
+      forgiveScopeRunnerFailure();
       current = runner.stream(withoutEffort(input, remainingMs), onEvent);
       await current.done;
     }

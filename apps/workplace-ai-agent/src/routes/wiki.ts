@@ -11,6 +11,7 @@ import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runWikiCompose } from '../agent/run-wiki-compose.js';
 import { runWikiSummarize } from '../agent/run-wiki-summarize.js';
 import { thinkingDepthSchema } from '../agent/thinking.js';
+import { markScopeFailed } from '../ai-run/scope.js';
 import { handler } from './mail.js';
 
 // WP-301 노트 상단 요약 요청 스키마(workplace-api WikiAiAgentSummaryClient.Req 와 1:1).
@@ -102,6 +103,8 @@ export function createWikiRouter(deps: RunAgentDeps): Router {
       console.error('[wiki-compose] 실패:', e instanceof Error ? e.message : String(e));
       // 연결이 살아 있을 때만 error 발행(닫힌 소켓 write → EPIPE 방지).
       if (!aborted) {
+        // 러너는 성공했어도 SSE 가 실패했으니 기록에도 실패를 알린다(WP-1828).
+        markScopeFailed('stream_error', e instanceof Error ? e.message : String(e));
         res.write(`event: error\ndata: ${JSON.stringify({ message: 'compose_failed' })}\n\n`);
         res.end();
       }

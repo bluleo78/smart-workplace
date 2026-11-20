@@ -196,6 +196,28 @@ describe('mapSdkMessage', () => {
     expect(ev).toEqual([{ type: 'result', ok: true, text: '완료', usage: { inputTokens: 10, outputTokens: 20 } }]);
   });
 
+  // WP-1828: 캐시 읽기·쓰기 토큰은 숫자일 때만 키를 싣는다(없으면 키 자체가 없어 기존 toEqual 보존).
+  it('result usage → 캐시 토큰(snake_case)을 싣는다 (WP-1828)', () => {
+    const ev = mapSdkMessage(
+      { type: 'result', subtype: 'success', result: 'x', usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 7, cache_creation_input_tokens: 3 } },
+      new Set(),
+    );
+    expect((ev[0] as { usage: unknown }).usage).toEqual({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 7, cacheWriteTokens: 3 });
+  });
+
+  it('result usage → 캐시 토큰(camelCase)도 같은 값 (WP-1828)', () => {
+    const ev = mapSdkMessage(
+      { type: 'result', subtype: 'success', result: 'x', usage: { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 7, cacheCreationInputTokens: 3 } },
+      new Set(),
+    );
+    expect((ev[0] as { usage: unknown }).usage).toEqual({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 7, cacheWriteTokens: 3 });
+  });
+
+  it('result usage → 캐시 필드가 없으면 키 자체가 없다 (WP-1828)', () => {
+    const ev = mapSdkMessage({ type: 'result', subtype: 'success', result: 'x', usage: { input_tokens: 10, output_tokens: 5 } }, new Set());
+    expect((ev[0] as { usage: unknown }).usage).toEqual({ inputTokens: 10, outputTokens: 5 });
+  });
+
   it('result: usage 누락/형식 불명이면 null', () => {
     const ev1 = mapSdkMessage({ type: 'result', subtype: 'success', result: '완료' }, new Set());
     expect((ev1[0] as { usage: unknown }).usage).toBeNull();

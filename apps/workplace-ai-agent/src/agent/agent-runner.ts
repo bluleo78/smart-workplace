@@ -9,6 +9,7 @@ import type { OpencodeVision } from './opencode-vision.js';
 import type { EffortLevel } from './thinking.js';
 import { ClaudeSdkRunner } from './claude-sdk-runner.js';
 import { OpencodeRunner } from './opencode-runner.js';
+import { recordingRunner } from '../ai-run/recording-runner.js';
 
 // LLM 공급자 자격증명. anthropic=구독 OAuth 토큰 또는 API 키, opencode=공급자별 설정 블록(Task 9).
 // WP-1496: anthropic 의 workspaceId 는 선택 Anthropic 워크스페이스 ID(주로 사용자 API 키 sk-ant-usr) — 없으면 null(또는 생략).
@@ -92,13 +93,14 @@ export interface AgentRunner {
 
 // credential.provider 로 러너 구현체 분기. 두 러너 모두 상태 없는 얇은 어댑터라 매 호출 새
 // 인스턴스라도 무해하나, 재사용을 위해 캐시.
+// WP-1828: 모든 AI 실행이 지나는 곳이라 기록 감싸개로 감싼 인스턴스를 캐시한다(범위가 없으면 그대로 위임).
 let claudeRunner: AgentRunner | undefined;
 let opencodeRunner: AgentRunner | undefined;
 export function runnerFor(credential: ProviderCredential): AgentRunner {
   if (credential.provider === 'anthropic') {
-    if (!claudeRunner) claudeRunner = new ClaudeSdkRunner();
+    if (!claudeRunner) claudeRunner = recordingRunner(new ClaudeSdkRunner(), 'anthropic');
     return claudeRunner;
   }
-  if (!opencodeRunner) opencodeRunner = new OpencodeRunner();
+  if (!opencodeRunner) opencodeRunner = recordingRunner(new OpencodeRunner(), 'opencode');
   return opencodeRunner;
 }

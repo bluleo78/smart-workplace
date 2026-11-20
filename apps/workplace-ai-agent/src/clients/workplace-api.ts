@@ -4,6 +4,7 @@
 import axios, { AxiosInstance } from 'axios';
 
 import { DEFAULT_API_BASE_URL } from '../constants.js';
+import type { AiRunRecord } from '../ai-run/types.js';
 import type { ProviderCredential } from '../agent/agent-runner.js';
 import type { MemoryKind, MemoryScope } from '../agent/memory-block.js';
 // WP-1313: 멈춘 쓰기 모양은 회차 실행(run-recurring)이 정의한 것 하나만 쓴다.
@@ -262,6 +263,8 @@ export interface WorkplaceApiClient {
     issueId: number,
     body: { phase: 'STARTED' | 'FINISHED'; ok: boolean; note?: string },
   ): Promise<void>;
+  // WP-1828: AI 처리 기록 묶음 전송 — 사용자 대행이 아닌 시스템 호출이라 Internal 토큰만 쓴다.
+  reportAiRuns(runs: AiRunRecord[]): Promise<{ accepted: number; dropped: number }>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
@@ -525,6 +528,11 @@ export function createWorkplaceApiClient(opts: {
         ...onBehalfOf(agentId),
         timeout: opts.recurringReportTimeoutMs ?? RECURRING_REPORT_TIMEOUT_MS,
       });
+    },
+    async reportAiRuns(runs) {
+      // X-On-Behalf-Of 없이 Internal 토큰만 — 기본 헤더가 이미 싣는다. 응답 없는 연결에 flush 가 걸리지 않게 10초 상한.
+      const r = await http.post('/internal/ai-runs', { runs }, { timeout: 10_000 });
+      return r.data as { accepted: number; dropped: number };
     },
     async requestSharedMemory(onBehalfOfId, body) {
       const r = await http.post('/shared-ai-memories/requests', body, onBehalfOf(onBehalfOfId));

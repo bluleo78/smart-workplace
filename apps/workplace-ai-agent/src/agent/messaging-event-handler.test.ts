@@ -45,6 +45,68 @@ function manualRun() {
 /** 마이크로태스크를 비워 다음 실행이 시작되게 한다. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+describe('messaging 실행 합치기 — submit 반환 promise (WP-1828)', () => {
+  it('합쳐진 이벤트는 undefined, 첫 이벤트 promise 는 합쳐진 재실행이 끝난 뒤에야 이행한다', async () => {
+    const { run, started, finishers } = manualRun();
+    const runner = createMessagingRunner(run);
+    const a = runner.submit({ env: ev(1), deps });
+    const b = runner.submit({ env: ev(2), deps });
+    expect(a).toBeInstanceOf(Promise);
+    expect(b).toBeUndefined();
+    let settled = false;
+    void a!.then(() => {
+      settled = true;
+    });
+    finishers[0](true);
+    await flush();
+    expect(started).toEqual([1, 2]);
+    expect(settled).toBe(false);
+    finishers[1](true);
+    await flush();
+    expect(settled).toBe(true);
+  });
+
+  it('성공하면 이행, 실패하면 첫 오류로 거부한다', async () => {
+    const ok = manualRun();
+    const r1 = createMessagingRunner(ok.run);
+    const p1 = r1.submit({ env: ev(1), deps })!;
+    ok.finishers[0](true);
+    await expect(p1).resolves.toBeUndefined();
+
+    const bad = manualRun();
+    const r2 = createMessagingRunner(bad.run);
+    const p2 = r2.submit({ env: ev(1), deps })!;
+    r2.submit({ env: ev(2), deps });
+    bad.finishers[0](false);
+    await flush();
+    bad.finishers[1](true);
+    await expect(p2).rejects.toThrow('실패');
+  });
+
+  it('반환 promise 를 무시해도 unhandled rejection 이 생기지 않는다', async () => {
+    const seen: unknown[] = [];
+    const h = (e: unknown) => seen.push(e);
+    process.on('unhandledRejection', h);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { run, finishers } = manualRun();
+    const runner = createMessagingRunner(run);
+    runner.submit({ env: ev(1), deps });
+    finishers[0](false);
+    await flush();
+    await flush();
+    process.off('unhandledRejection', h);
+    expect(seen).toEqual([]);
+  });
+
+  it('상한 시간을 넘겨도 키가 풀리고 첫 promise 가 거부된다', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const runner = createMessagingRunner(() => new Promise<void>(() => {}), 20);
+    const p = runner.submit({ env: ev(1), deps })!;
+    await expect(p).rejects.toThrow('안에 끝나지 않음');
+    expect(runner.activeKeys()).toBe(0);
+  });
+});
+
 describe('messaging 실행 합치기 (WP-1490)', () => {
   it('실행 중 같은 키로 메시지 3개가 오면 끝난 뒤 한 번만, 마지막 이벤트로 다시 실행한다', async () => {
     const { run, started, finishers } = manualRun();

@@ -22,6 +22,7 @@ import {
   sharedMemoryExtractInput,
 } from '../agent/run-shared-memory.js';
 import { runSuggestions, suggestionsInput } from '../agent/run-suggestions.js';
+import { markScopeFailed } from '../ai-run/scope.js';
 import { log } from '../logger.js';
 import { parseMemoryToolResult } from '../mcp/memory-tools.js';
 import { screenContextSchema } from '../agent/screen-context.js';
@@ -207,6 +208,8 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         log.info('ai-chat', 'aborted', { requestId, durationMs: Date.now() - startedAt });
       }
     } catch (e) {
+      // 러너는 성공했어도 스트림 처리 중 실패하면 상태가 200 이라 SUCCEEDED 로 남으므로 기록에 실패를 알린다(WP-1828).
+      markScopeFailed('stream_error', e instanceof Error ? e.message : String(e));
       console.error('[ai-chat] 실패:', e instanceof Error ? e.message : String(e));
       log.error('ai-chat', 'error', {
         requestId,

@@ -24,6 +24,11 @@ import { runRecurring } from '../agent/run-recurring.js';
 import { handleChatEvent } from '../agent/chat-event-handler.js';
 import { handleMessagingEvent } from '../agent/messaging-event-handler.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import { currentAiRunScope } from '../ai-run/scope.js';
+import type { AiRunRecord } from '../ai-run/types.js';
+
+/** X-AI-Run 헤더 값(base64url(JSON))을 만드는 테스트용 보조 함수(WP-1828). */
+const encodeAiRunHeader = (ctx: object) => Buffer.from(JSON.stringify(ctx)).toString('base64url');
 
 const client = {
   addIssueComment: vi.fn(),
@@ -31,10 +36,10 @@ const client = {
   getOAuthToken: vi.fn(),
 } as unknown as WorkplaceApiClient;
 
-function buildApp() {
+function buildApp(aiRunSink?: { enqueue: (r: AiRunRecord) => void }) {
   const app = express();
   app.use(express.json());
-  app.use(internalAuth, createEventsRouter({ client }));
+  app.use(internalAuth, createEventsRouter({ client, aiRunSink }));
   return app;
 }
 
@@ -323,5 +328,171 @@ describe('POST /events', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('invalid_payload');
     expect(handleMessagingEvent).not.toHaveBeenCalled();
+  });
+
+  // WP-1828: AI 처리 기록 범위 — 이벤트마다 범위를 열고 처리 promise 결과로 닫는다.
+  describe('AI 처리 기록 범위', () => {
+    const recurring = {
+      ...validCreatedPayload,
+      ownerUserId: 5,
+      tenantId: 77,
+      runId: 'run-1',
+      runAt: '2026-05-25T09:00:00+09:00',
+      recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+    };
+
+    /** 러너 호출을 흉내 — 현재 범위에 시작·종료를 알린다. */
+    function fakeRunner() {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'anthropic');
+      s.runnerFinished({ ok: true, usage: { inputTokens: 1, outputTokens: 1 } });
+    }
+
+    function collect() {
+      const records: AiRunRecord[] = [];
+      return { records, sink: { enqueue: (r: AiRunRecord) => records.push(r) } };
+    }
+
+    it('issue.assigned 는 ISSUE_AGENT_RUN 범위로 처리되고 X-AI-Run 의 tenantId·issue 대상·actor 가 레코드에 실린다', async () => {
+      const { records, sink } = collect();
+      vi.mocked(runAgent).mockImplementation(async () => fakeRunner());
+      const res = await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 9, runId: '3f2b8c1e-5a4d-4e8f-9b7a-1c2d3e4f5a6b' }))
+        .send({ type: 'issue.assigned', payload: { ...validCreatedPayload, added: [], removed: [] } });
+      expect(res.status).toBe(202);
+      await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'SUCCEEDED']));
+      expect(records[1]).toMatchObject({
+        kind: 'ISSUE_AGENT_RUN', tenantId: 9, runId: '3f2b8c1e-5a4d-4e8f-9b7a-1c2d3e4f5a6b', targetType: 'ISSUE', targetId: '42',
+        targetLabel: 'WP-42', actorType: 'USER', actorId: 7, sourceAt: '2026-05-25T12:00:00.000Z',
+      });
+    });
+
+    it('occurredAt 을 읽을 수 없으면 sourceAt 은 null 이고 처리는 그대로 202', async () => {
+      const { records, sink } = collect();
+      vi.mocked(runAgent).mockImplementation(async () => fakeRunner());
+      const res = await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 9 }))
+        .send({ type: 'issue.assigned', payload: { ...validCreatedPayload, occurredAt: 'not-a-date', added: [], removed: [] } });
+      expect(res.status).toBe(202);
+      await vi.waitFor(() => expect(records).toHaveLength(2));
+      expect(records[1].sourceAt).toBeNull();
+    });
+
+    it('X-AI-Run 을 읽을 수 없으면 경고 한 줄을 남기고 처리한다', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const { records, sink } = collect();
+        vi.mocked(runAgent).mockImplementation(async () => fakeRunner());
+        await request(buildApp(sink))
+          .post('/events')
+          .set('Authorization', AUTH)
+          .set('X-AI-Run', '%%%')
+          .send({ type: 'issue.assigned', payload: { ...validCreatedPayload, added: [], removed: [] } });
+        await vi.waitFor(() => expect(records).toHaveLength(2));
+        expect(warn).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('issue.recurring_run 은 payload.tenantId·AUTO·runAt', async () => {
+      const { records, sink } = collect();
+      vi.mocked(runRecurring).mockImplementation(async () => fakeRunner());
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .send({ type: 'issue.recurring_run', payload: recurring });
+      await vi.waitFor(() => expect(records).toHaveLength(2));
+      expect(records[1]).toMatchObject({
+        kind: 'RECURRING_RUN', tenantId: 77, actorType: 'AUTO', actorId: 5,
+        sourceAt: '2026-05-25T00:00:00.000Z', targetId: '42',
+      });
+    });
+
+    it('messaging.message.posted 는 CHANNEL 대상', async () => {
+      const { records, sink } = collect();
+      vi.mocked(handleMessagingEvent).mockImplementation(() => {
+        fakeRunner();
+        return Promise.resolve();
+      });
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 3 }))
+        .send({
+          type: 'messaging.message.posted',
+          payload: {
+            channelId: 12, channelKind: 'CHANNEL', messageId: 1, respondAsAgentId: 9,
+            actor: { id: 4, kind: 'AGENT' }, body: 'hi', mentions: [], occurredAt: '2026-05-25T12:00:00Z',
+          },
+        });
+      await vi.waitFor(() => expect(records).toHaveLength(2));
+      expect(records[1]).toMatchObject({
+        kind: 'MESSAGING_REPLY', targetType: 'CHANNEL', targetId: '12', targetLabel: null,
+        actorType: 'AGENT', actorId: 4, tenantId: 3,
+      });
+    });
+
+    it('chat.message.posted 는 ISSUE_CHAT_REPLY 범위, ISSUE 대상', async () => {
+      const { records, sink } = collect();
+      vi.mocked(handleChatEvent).mockImplementation(() => {
+        fakeRunner();
+        return Promise.resolve();
+      });
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 5 }))
+        .send({ type: 'chat.message.posted', payload: validChatPayload });
+      await vi.waitFor(() => expect(records).toHaveLength(2));
+      expect(records[1]).toMatchObject({
+        kind: 'ISSUE_CHAT_REPLY', tenantId: 5, targetType: 'ISSUE', targetId: String(validChatPayload.issueId),
+        targetLabel: validChatPayload.issueKey, actorType: 'USER',
+      });
+    });
+
+    it('반복 실행에서 헤더 tenantId 가 payload.tenantId 보다 우선', async () => {
+      const { records, sink } = collect();
+      vi.mocked(runRecurring).mockImplementation(async () => fakeRunner());
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 123 }))
+        .send({ type: 'issue.recurring_run', payload: recurring });
+      await vi.waitFor(() => expect(records).toHaveLength(2));
+      expect(records[1].tenantId).toBe(123);
+    });
+
+    it('잘못된 payload(400)는 범위를 열지 않는다', async () => {
+      const { records, sink } = collect();
+      const res = await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .send({ type: 'issue.created', payload: { projectKey: 'WP' } });
+      expect(res.status).toBe(400);
+      expect(records).toEqual([]);
+    });
+
+    it('처리 promise 가 reject 해도 202 응답은 같고 FAILED·handler_error', async () => {
+      const { records, sink } = collect();
+      vi.mocked(runAgent).mockImplementation(async () => {
+        fakeRunner();
+        throw new Error('실행 실패');
+      });
+      const res = await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 9 }))
+        .send({ type: 'issue.created', payload: validCreatedPayload });
+      expect(res.status).toBe(202);
+      expect(res.body).toEqual({ received: true });
+      await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']));
+      expect(records[1].errorReason).toBe('handler_error');
+      expect(records[1].errorDetail).toContain('실행 실패');
+    });
   });
 });

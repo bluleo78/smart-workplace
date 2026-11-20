@@ -116,4 +116,18 @@ describe('gracefulShutdown', () => {
     await Promise.resolve();
     expect(inflightCount()).toBe(0);
   });
+
+  it('async cleanup 이 끝난 뒤 exit 한다', async () => {
+    const { server } = await startServer();
+    const order: string[] = [];
+    const exit = vi.fn(() => {
+      order.push('exit');
+    });
+    const cleanup = async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      order.push('cleanup');
+    };
+    await gracefulShutdown({ server, drainTimeoutMs: 5_000, cleanup, exit, log: () => {} });
+    expect(order).toEqual(['cleanup', 'exit']);
+  });
 });
