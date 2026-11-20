@@ -788,9 +788,10 @@ public class IssueRecurrenceService {
 
   /**
    * 회차를 이벤트 실행기가 거절해 ai-agent 로 보내지 못했을 때(큐 가득 등) 그 회차를 바로 실패로 남긴다(WP-1812). 결과 보고를 기다리다 대기 시간 초과로
-   * 「결과를 받지 못했습니다」가 뜨기까지 수십 분 걸리던 것을 사유와 함께 즉시 알리려는 것이다. 회차 발행 트랜잭션의 AFTER_COMMIT 단계에서 불리므로 새 트랜잭션
-   * (REQUIRES_NEW)에서 처리한다. 서버 내부 경로라 보고자 검사는 없다. runId 가 지금 대기 중인 정기 회차·이어 처리·테스트 실행 중 어느 것과도 다르면
-   * (지난 회차의 늦은 통보·이미 정리된 회차) 아무것도 하지 않는다.
+   * 「결과를 받지 못했습니다」가 뜨기까지 수십 분 걸리던 것을 사유와 함께 즉시 알리려는 것이다. 발행 트랜잭션의 AFTER_COMMIT 리스너가 커밋 콜백 밖(전용 실행기
+   * recurrenceDispatchFailExecutor 스레드)으로 넘겨 부르며, 어디서 불려도 새 트랜잭션(REQUIRES_NEW)에서 처리한다. 서버 내부 경로라
+   * 보고자 검사는 없다. runId 가 지금 대기 중인 정기 회차·이어 처리·테스트 실행 중 어느 것과도 다르면 (지난 회차의 늦은 통보·이미 정리된 회차) 아무것도 하지
+   * 않는다.
    */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void failDispatch(long issueId, String runId, String reason) {

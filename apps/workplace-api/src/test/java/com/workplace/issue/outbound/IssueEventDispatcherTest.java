@@ -23,8 +23,11 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.issue.service.IssueRecurrenceService;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -78,7 +81,7 @@ class IssueEventDispatcherTest {
     @SuppressWarnings("unchecked")
     ObjectProvider<IssueRecurrenceService> recurrence = Mockito.mock(ObjectProvider.class);
     return new IssueEventDispatcher(
-        client, props, resolver, sharedReader, Runnable::run, recurrence);
+        client, props, resolver, sharedReader, Runnable::run, recurrence, Runnable::run);
   }
 
   /** WP-386: 이슈 이벤트에 조직 + 그 프로젝트 공용 메모리를 싣는다(대행 에이전트 권한으로 리더가 고른다). */
@@ -408,6 +411,57 @@ class IssueEventDispatcherTest {
         .containsEntry("issueBody", "오늘 할 일 정리")
         .containsEntry("recurrence", java.util.Map.of("rrule", "FREQ=DAILY", "time", "00:33"));
     verify(resolver, never()).pickActingAgent(any(), any());
+  }
+
+  /** 늘 거절하는 실행기(큐 가득) — WP-1812 거절 경로 시험용. */
+  private static final Executor REJECTING =
+      task -> {
+        throw new RejectedExecutionException("큐 가득");
+      };
+
+  /** 회차 실행기·실패 기록 실행기를 골라 끼운 디스패처(WP-1812 리뷰 후속 시험용). */
+  private IssueEventDispatcher dispatcherWith(
+      Executor eventExecutor, IssueRecurrenceService recurrence, Executor failExecutor) {
+    @SuppressWarnings("unchecked")
+    ObjectProvider<IssueRecurrenceService> provider = Mockito.mock(ObjectProvider.class);
+    when(provider.getObject()).thenReturn(recurrence);
+    return new IssueEventDispatcher(
+        client,
+        new AiAgentProperties("http://ai-agent", "tok", true),
+        resolver,
+        sharedReader,
+        eventExecutor,
+        provider,
+        failExecutor);
+  }
+
+  /**
+   * WP-1812 리뷰 후속: 이벤트 실행기가 회차를 거절하면 실패 기록(REQUIRES_NEW — 새 커넥션)을 리스너 스레드(커밋 콜백 안)에서 부르지 않고 전용 실행기로
+   * 넘긴다. 넘긴 작업이 돌기 전에는 실패 기록이 불리지 않고, 돌면 그 회차를 거절 사유로 실패시킨다.
+   */
+  @Test
+  void 거절된_회차의_실패_기록은_커밋_콜백_밖_실행기로_넘긴다() {
+    var recurrence = Mockito.mock(IssueRecurrenceService.class);
+    var handedOff = new ArrayList<Runnable>();
+    var run = recurringRun();
+
+    dispatcherWith(REJECTING, recurrence, handedOff::add).onIssueRecurringRun(run);
+
+    verifyNoInteractions(recurrence);
+    assertThat(handedOff).hasSize(1);
+    handedOff.get(0).run();
+    verify(recurrence)
+        .failDispatch(run.issueId(), run.runId(), IssueRecurrenceService.DISPATCH_REJECTED);
+  }
+
+  /** WP-1812 리뷰 후속: 실패 기록 실행기마저 거절해도 리스너는 예외를 던지지 않는다(결과 대기 시간 초과가 정리). */
+  @Test
+  void 실패_기록_실행기마저_거절해도_리스너는_던지지_않는다() {
+    var recurrence = Mockito.mock(IssueRecurrenceService.class);
+
+    dispatcherWith(REJECTING, recurrence, REJECTING).onIssueRecurringRun(recurringRun());
+
+    verifyNoInteractions(recurrence);
   }
 
   /**

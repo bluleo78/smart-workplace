@@ -8,7 +8,10 @@ import com.workplace.mail.service.MailAnalysisService.AfterLoadOutcome;
 import com.workplace.mail.service.MailPushService.NewMailPush;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -29,7 +32,7 @@ public class MailBackfillService {
 
   /**
    * 적재 직후 분석 상한(최근 수신 순 상위 N건) — MailSummaryBackfillService.LIMIT 과 같은 값. 분석은 메시지당 LLM 을 최대 두 번 부르고
-   * 전용 executor(mailAnalysisExecutor, core 2) 스레드를 순차로 붙잡으므로 200건 전부 돌리지 않는다. 나머지는 동기화 후 요약 백필 패스와
+   * 분석 executor(mailAnalysisExecutor, core 2) 스레드를 순차로 붙잡으므로 200건 전부 돌리지 않는다. 나머지는 동기화 후 요약 백필 패스와
    * 열람 시 요약 GET 이 맡는다.
    */
   public static final int ANALYZE_AFTER_LOAD_LIMIT = 20;
@@ -47,6 +50,12 @@ public class MailBackfillService {
   private final MailAnalysisBreaker breaker;
 
   /**
+   * 적재 후 분석(LLM)을 넘기는 분석 실행기(mailAnalysisExecutor, WP-1812 리뷰 후속). 본문 보충 스레드가 분석까지 붙잡으면 다른 계정의 본문·새
+   * 메일 푸시가 그 뒤에 줄 서고, 분석 동시 실행도 분석 풀의 2개를 넘는다 — 그래서 분석은 이 실행기로 넘기고 본문 스레드는 바로 끝낸다.
+   */
+  private final Executor analysisExecutor;
+
+  /**
    * TransactionTemplate 은 @Primary {@code TenantAwareTransactionManager} 로 구성 — 본문 보충은 RLS 적용
    * 테이블(email_message/email_attachment) 을 읽고 쓰므로, 트랜잭션 진입 시 GUC(app.tenant_id) 주입이 필요하다.
    * (@Transactional 어노테이션을 쓰지 않는 이유: backfill→backfillNow 자기-호출은 프록시를 우회해 어노테이션 트랜잭션이 적용되지 않기 때문 —
@@ -59,8 +68,10 @@ public class MailBackfillService {
       MailAnalysisService analysis,
       PlatformTransactionManager txManager,
       MailPushService pushService,
-      MailAnalysisBreaker breaker) {
+      MailAnalysisBreaker breaker,
+      @Qualifier("mailAnalysisExecutor") Executor analysisExecutor) {
     this.breaker = breaker;
+    this.analysisExecutor = analysisExecutor;
     this.messageRepo = messageRepo;
     this.bodyFetcher = bodyFetcher;
     this.progress = progress;
@@ -72,13 +83,14 @@ public class MailBackfillService {
   /**
    * 비동기 진입점(sync 가 호출). 별도 스레드/트랜잭션에서 동기 보충 수행.
    *
-   * <p>요청 스레드에서 트리거되며 mailAnalysisExecutor 의 TenantContextTaskDecorator 가 TenantContext 를 워커로 전파한다.
-   * null 가드: 전파 실패(비테넌트/시스템 트리거) 시 GUC 미설정으로 RLS fail-closed 가 되어 조용히 no-op 되므로, 명시적으로 경고 후 skip 하여
-   * 잘못된 비테넌트 실행을 방지한다(이때는 새 메일 푸시도 싣지 못해 보내지 않는다 — 후보 조회·발송 테넌트 모두 테넌트 문맥이 필요하다).
+   * <p>요청 스레드에서 트리거되며 mailBodyBackfillExecutor 의 TenantContextTaskDecorator 가 TenantContext 를 워커로
+   * 전파한다. 분석 풀(mailAnalysisExecutor)과 떼어 본문 가져오기가 LLM 분석 뒤에 줄 서거나 거절되지 않게 한다(WP-1812 리뷰 후속). null
+   * 가드: 전파 실패(비테넌트/시스템 트리거) 시 GUC 미설정으로 RLS fail-closed 가 되어 조용히 no-op 되므로, 명시적으로 경고 후 skip 하여 잘못된
+   * 비테넌트 실행을 방지한다(이때는 새 메일 푸시도 싣지 못해 보내지 않는다 — 후보 조회·발송 테넌트 모두 테넌트 문맥이 필요하다).
    *
    * @param push 보충이 끝난 뒤 보낼 새 메일 푸시(WP-1739) — 동기화가 넘긴다. 첫 동기화처럼 보내지 않을 때는 null
    */
-  @Async("mailAnalysisExecutor")
+  @Async("mailBodyBackfillExecutor")
   public void backfill(long userId, long accountId, NewMailPush push) {
     if (TenantContext.get() == null) {
       log.warn("본문 백필 skip — TenantContext 없음(비테넌트 트리거 의심) accountId={}", accountId);
@@ -134,10 +146,29 @@ public class MailBackfillService {
     // WP-1739: 미뤄 둔 새 메일 푸시 — 본문 적재(자동 발송 판정)가 끝난 뒤, 분석 전에 보낸다.
     sendNewMailQuietly(userId, push);
     // 분석은 finish 뒤에서 한다: 분석 중 다음 동기화가 tryStart 한 진행 상태를 여기서 다시 finish 로 지우면
-    // 진행바가 꺼지고 동기화가 중복 시작될 수 있다. analyzeAfterLoad 는 각 단계 예외를 스스로 삼키지만 방어적으로 감싼다.
-    // loaded 는 listMissingBody(received_at DESC) 순서 그대로라 앞 N건이 최근 수신 메일이다.
+    // 진행바가 꺼지고 동기화가 중복 시작될 수 있다. loaded 는 listMissingBody(received_at DESC) 순서 그대로라 앞 N건이 최근 수신
+    // 메일이다.
+    // WP-1812 리뷰 후속: 분석(LLM)은 분석 실행기로 넘기고 이 본문 보충 스레드는 바로 끝낸다 — 다른 계정의 본문 보충이 분석 뒤에 줄 서지 않고,
+    // 메일 LLM 동시 실행이 분석 풀 크기(2)로 묶인다. 분석 실행기가 가득 차 거절되면 건너뛴다(요약 백필 패스·열람 시 요약이 맡는다).
+    if (loaded.isEmpty()) {
+      return;
+    }
+    List<Long> toAnalyze =
+        new ArrayList<>(loaded.subList(0, Math.min(loaded.size(), ANALYZE_AFTER_LOAD_LIMIT)));
+    try {
+      analysisExecutor.execute(() -> analyzeLoaded(userId, toAnalyze));
+    } catch (RejectedExecutionException e) {
+      log.warn("적재 후 분석 건너뜀 — 분석 실행기 가득 참(요약 백필이 이어 맡음) accountId={}", accountId);
+    }
+  }
+
+  /**
+   * 적재 후 분석 본체(분석 실행기 스레드) — 최근 수신 순으로 ③+④ 를 차례로 한다. 회로가 열리면 멈추고, 메시지마다 예외를 삼킨다(best-effort, 스레드
+   * 미처리 예외로 사라지지 않게).
+   */
+  private void analyzeLoaded(long userId, List<Long> ids) {
     UserMailProfileCache profiles = analysis.newProfileCache(); // 이 배치 동안 "나" 프로필 1회 조회(WP-150)
-    for (Long id : loaded.subList(0, Math.min(loaded.size(), ANALYZE_AFTER_LOAD_LIMIT))) {
+    for (Long id : ids) {
       Admission admission = breaker.admit(id);
       if (admission == Admission.OPEN) {
         break; // 모델 실패가 이어져 회로가 열렸다(WP-1812) — 남은 메일은 요약 백필 패스·열람 시 요약이 맡는다

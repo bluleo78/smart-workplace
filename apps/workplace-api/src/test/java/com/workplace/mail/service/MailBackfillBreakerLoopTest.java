@@ -66,7 +66,8 @@ class MailBackfillBreakerLoopTest {
         analysis,
         tx,
         mock(MailPushService.class),
-        breaker);
+        breaker,
+        Runnable::run);
   }
 
   @Test

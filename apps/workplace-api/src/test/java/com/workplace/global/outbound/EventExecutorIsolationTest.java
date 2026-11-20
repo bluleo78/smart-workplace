@@ -44,8 +44,9 @@ class EventExecutorIsolationTest {
             asyncValue(
                 "com.workplace.mail.service.MailSummaryBackfillService", "summarizeRecentUnread"))
         .isEqualTo("mailAnalysisExecutor");
+    // 본문 보충은 LLM 분석 풀과 떼어 둔다(WP-1812 리뷰 후속) — 분석이 밀려도 본문 가져오기가 거절되지 않게.
     assertThat(asyncValue("com.workplace.mail.service.MailBackfillService", "backfill"))
-        .isEqualTo("mailAnalysisExecutor");
+        .isEqualTo("mailBodyBackfillExecutor");
     assertThat(
             asyncValue(
                 "com.workplace.mail.service.MailClassifyBackfillService", "classifyRecentUnread"))

@@ -47,7 +47,8 @@ class MailBackfillNullGuardTest {
             analysis,
             txManager,
             push,
-            new MailAnalysisBreaker());
+            new MailAnalysisBreaker(),
+            Runnable::run);
   }
 
   @AfterEach
