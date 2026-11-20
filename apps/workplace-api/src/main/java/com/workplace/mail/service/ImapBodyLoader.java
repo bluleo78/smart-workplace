@@ -1,6 +1,5 @@
 package com.workplace.mail.service;
 
-import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
@@ -37,7 +36,7 @@ public class ImapBodyLoader implements MailBodyLoader {
   private final MailContentShareGate shareGate;
 
   private final EmailAttachmentRepository attachmentRepo;
-  private final EncryptionService encryption;
+  private final MailAccountCredentials credentials;
   private final ImapConnector imapConnector;
   private final MailMessageParser parser;
 
@@ -71,7 +70,7 @@ public class ImapBodyLoader implements MailBodyLoader {
     String password =
         accountRepo
             .findEncryptedPassword(userId, target.accountId())
-            .map(encryption::decrypt)
+            .map(enc -> credentials.decrypt(target.accountId(), enc))
             .orElseThrow(() -> new EmailAccountNotFoundException(target.accountId()));
 
     Store store = null;

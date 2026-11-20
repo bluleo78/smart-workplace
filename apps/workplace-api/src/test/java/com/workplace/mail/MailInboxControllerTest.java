@@ -13,12 +13,14 @@ import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailServerErrors;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -93,6 +95,55 @@ class MailInboxControllerTest extends IntegrationTestBase {
       MailTestSupport.seedSummary(dsl, msg, aiSummary);
     }
     return msg;
+  }
+
+  /** WP-1892 복호화 불가 안내 문구(서버 접속 전 실패라 GreenMail 이 필요 없다). */
+  private static final String UNREADABLE_MSG = MailServerErrors.CREDENTIAL_UNREADABLE;
+
+  /** WP-1892: 저장된 비밀번호가 복호화되지 않는 계정을 만든다. */
+  private long createUnreadableAccount(long userId) {
+    long accountId = createAccount(userId, "unreadable-" + System.nanoTime() + "@test.local");
+    MailTestSupport.setStoredPassword(dsl, accountId, "not-encrypted");
+    return accountId;
+  }
+
+  /** WP-1892: 메일함 동기화가 복호화 실패를 500 이 아니라 502 + 한국어 안내로 돌려준다. */
+  @Test
+  void sync_credentialUnreadable_is502WithKoreanMessage() throws Exception {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createUnreadableAccount(userId);
+    String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/sync", accountId)
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isBadGateway())
+        .andExpect(jsonPath("$.message").value(UNREADABLE_MSG));
+  }
+
+  /** WP-1892: 비밀번호를 비운 연결 테스트는 저장값을 복호화하다 실패하면 입력 문제 — 400 + 같은 안내. */
+  @Test
+  void connectionTest_blankPassword_credentialUnreadable_is400WithKoreanMessage() throws Exception {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createUnreadableAccount(userId);
+    String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
+    String body =
+        "{\"emailAddress\":\"box@test.local\",\"displayName\":\"박스\","
+            + "\"imapHost\":\"127.0.0.1\",\"imapPort\":"
+            + MailTestPorts.IMAP
+            + ",\"imapSecurity\":\"NONE\",\"imapUsername\":\"box@test.local\","
+            + "\"smtpHost\":\"127.0.0.1\",\"smtpPort\":"
+            + MailTestPorts.SMTP
+            + ",\"smtpSecurity\":\"NONE\",\"smtpUsername\":\"box@test.local\","
+            + "\"password\":\"\",\"aiEnabled\":false}";
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/test", accountId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(UNREADABLE_MSG));
   }
 
   /** WP-146: 회신필요 메일을 상세 조회(=열람)하면 계정 회신필요 카운트 API 가 0 이 된다 — 읽으면 해제. */

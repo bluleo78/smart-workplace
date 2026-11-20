@@ -1,6 +1,5 @@
 package com.workplace.mail.service;
 
-import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.exception.EmailAttachmentNotFoundException;
@@ -38,7 +37,7 @@ public class MailAttachmentService {
 
   private final EmailAttachmentRepository attachmentRepo;
   private final EmailAccountRepository accountRepo;
-  private final EncryptionService encryption;
+  private final MailAccountCredentials credentials;
   private final ImapConnector imapConnector;
   private final MailMessageParser parser;
   private final GraphTokenService graphTokenService;
@@ -225,7 +224,7 @@ public class MailAttachmentService {
     String password =
         accountRepo
             .findEncryptedPassword(userId, ctx.accountId())
-            .map(encryption::decrypt)
+            .map(enc -> credentials.decrypt(ctx.accountId(), enc))
             .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId));
     return new ImapLogin(account, password);
   }
