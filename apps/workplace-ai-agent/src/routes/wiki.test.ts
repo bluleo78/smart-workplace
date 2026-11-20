@@ -11,6 +11,9 @@ vi.mock('../agent/run-wiki-summarize.js', () => ({
 }));
 
 import { createWikiRouter, wikiComposeSchema } from './wiki.js';
+import { aiRunScopeMiddleware } from '../middleware/ai-run-scope.js';
+import { currentAiRunScope } from '../ai-run/scope.js';
+import type { AiRunRecord } from '../ai-run/types.js';
 import { runWikiCompose } from '../agent/run-wiki-compose.js';
 import { runWikiSummarize } from '../agent/run-wiki-summarize.js';
 
@@ -119,6 +122,26 @@ describe('POST /wiki/compose', () => {
     const res = await request(buildApp()).post('/wiki/compose').send(validBody());
     expect(res.text).toContain('event: error');
     expect(res.text).toContain('compose_failed');
+  });
+
+  // WP-1828: 러너는 성공했어도 SSE 단계 오류면 기록은 FAILED·stream_error.
+  it('WP-1828: 러너 성공 뒤 오류가 나면 기록은 FAILED·stream_error', async () => {
+    const records: AiRunRecord[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use(aiRunScopeMiddleware({ enqueue: (r) => void records.push(r) }));
+    app.use(createWikiRouter({ client: {} as never }));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(runWikiCompose).mockImplementation(async () => {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'c');
+      s.runnerFinished({ ok: true, usage: null });
+      throw new Error('stream broke');
+    });
+    const res = await request(app).post('/wiki/compose').send(validBody());
+    expect(res.text).toContain('event: error');
+    await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']));
+    expect(records[1]).toMatchObject({ errorReason: 'stream_error', errorDetail: 'stream broke' });
   });
 });
 

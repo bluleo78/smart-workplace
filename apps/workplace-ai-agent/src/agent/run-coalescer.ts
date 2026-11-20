@@ -13,8 +13,12 @@ interface Slot<E> {
 }
 
 export interface RunCoalescer<E> {
-  /** 이벤트를 넣는다. 같은 키가 실행 중이면 새로 띄우지 않고 가장 최근 이벤트만 기억한다. */
-  submit(event: E): void;
+  /**
+   * 이벤트를 넣는다. 같은 키가 실행 중이면 새로 띄우지 않고 가장 최근 이벤트만 기억한다.
+   * WP-1828: 새 실행을 시작했으면 합쳐진 재실행까지 끝난 뒤 정해지는 promise(실패면 첫 오류로 reject)를, 합쳐졌으면 undefined 를 돌려준다.
+   * 돌려주는 promise 는 미리 거부 처리가 붙어 있어 호출부가 무시해도 unhandled rejection 이 되지 않는다.
+   */
+  submit(event: E): Promise<void> | undefined;
   /** 실행 중인 키 수(테스트·진단용). */
   activeKeys(): number;
 }
@@ -49,21 +53,32 @@ export function createRunCoalescer<E>(
     }
   }
 
-  /** 키의 실행을 밀린 이벤트가 없을 때까지 차례로 돌린다. */
+  /**
+   * 키의 실행을 밀린 이벤트가 없을 때까지 차례로 돌린다.
+   * WP-1828: 첫 실패를 기억해 키를 비운 뒤 다시 던진다 — 그래야 첫 이벤트의 promise 가 합쳐진 재실행까지 끝난 뒤 정해져
+   * 재실행 동안 첫 이벤트의 기록 범위가 열려 있다.
+   */
   async function drain(key: string, slot: Slot<E>, first: E): Promise<void> {
     let current: E | null = first;
+    let failed = false;
+    let firstErr: unknown;
     while (current) {
       try {
         await runWithLimit(current);
       } catch (e) {
         // 오류로 끝나도 밀린 이벤트는 돌리고 키는 정리해야 하므로 여기서 삼킨다.
         onError(current, e);
+        if (!failed) {
+          failed = true;
+          firstErr = e;
+        }
       }
       current = slot.pending;
       slot.pending = null;
     }
     // pending 확인과 삭제 사이에 await 가 없어, 그 틈에 submit 이 끼어 이벤트를 잃는 일은 없다(단일 스레드).
     slots.delete(key);
+    if (failed) throw firstErr;
   }
 
   return {
@@ -72,11 +87,14 @@ export function createRunCoalescer<E>(
       const busy = slots.get(key);
       if (busy) {
         busy.pending = event;
-        return;
+        return undefined;
       }
       const slot: Slot<E> = { pending: null };
       slots.set(key, slot);
-      void trackInflight(drain(key, slot, event));
+      const p = drain(key, slot, event);
+      void trackInflight(p);
+      p.catch(() => undefined); // 호출부가 안 봐도 unhandled rejection 이 되지 않게
+      return p;
     },
     activeKeys: () => slots.size,
   };

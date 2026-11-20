@@ -6,6 +6,9 @@
 export interface RunnerUsage {
   inputTokens: number;
   outputTokens: number;
+  // WP-1828: 프롬프트 캐시 읽기·쓰기 토큰. 러너가 알려 줄 때만(숫자일 때만) 키를 둔다.
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 export type RunnerEvent =
@@ -35,7 +38,13 @@ function extractUsage(u: unknown): RunnerUsage | null {
   const inp = uu.input_tokens ?? uu.inputTokens;
   const out = uu.output_tokens ?? uu.outputTokens;
   if (typeof inp !== 'number' || typeof out !== 'number') return null;
-  return { inputTokens: inp, outputTokens: out };
+  const usage: RunnerUsage = { inputTokens: inp, outputTokens: out };
+  // WP-1828: 캐시 토큰 — snake_case(cache_read_input_tokens)/camelCase 양쪽 허용, 숫자일 때만 키를 넣는다.
+  const cacheRead = uu.cache_read_input_tokens ?? uu.cacheReadInputTokens;
+  const cacheWrite = uu.cache_creation_input_tokens ?? uu.cacheCreationInputTokens;
+  if (typeof cacheRead === 'number') usage.cacheReadTokens = cacheRead;
+  if (typeof cacheWrite === 'number') usage.cacheWriteTokens = cacheWrite;
+  return usage;
 }
 
 interface ContentBlock {

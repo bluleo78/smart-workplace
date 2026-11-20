@@ -1,5 +1,6 @@
 // 도구 없는 단발 실행(maxTurns 1) + effort 거절이면 한 번 더 — WP-139 run-suggestions 에서 옮겨 WP-385 메모리 정리·WP-386 공용 추출이 함께 쓴다.
 // effort 를 받지 않는 모델이면 요청이 거절(4xx)될 수 있어, Claude 연결은 그런 거절일 때만 남은 시간 안에서 effort 없이 한 번 다시 돈다.
+import { forgiveScopeRunnerFailure } from '../ai-run/scope.js';
 import { log } from '../logger.js';
 import { runnerFor, type RunnerInput } from './agent-runner.js';
 import { resultOk, type RunnerEvent } from './runner-events.js';
@@ -70,6 +71,8 @@ export async function runSingleShot(input: RunnerInput, opts: SingleShotOptions)
       requestId: input.requestId, ...opts.logFields, model: input.model, remainingMs,
       error: e instanceof Error ? e.message : String(e),
     });
+    // 재시도가 회복하면 처리 전체는 성공 — 첫 시도의 러너 실패 표시를 지운다(WP-1828).
+    forgiveScopeRunnerFailure();
     return collectOk(withoutEffort(input, remainingMs), opts.failMessage);
   }
 }

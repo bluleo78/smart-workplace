@@ -383,6 +383,10 @@ export class OpencodeRunner implements AgentRunner {
               assistantMessageIds.add(info.id);
               if (info.sessionID === session.id) {
                 lastUsage = { inputTokens: info.tokens.input, outputTokens: info.tokens.output };
+                // WP-1828: 캐시 읽기·쓰기 토큰 — opencode 는 tokens.cache.{read,write}. 숫자일 때만 키를 넣는다.
+                const cache = (info.tokens as { cache?: { read?: unknown; write?: unknown } }).cache;
+                if (typeof cache?.read === 'number') lastUsage.cacheReadTokens = cache.read;
+                if (typeof cache?.write === 'number') lastUsage.cacheWriteTokens = cache.write;
               }
               // WP-1407: 완료 시각이 처음 채워질 때 모델 호출 한 단계를 기록한다(회차 실행 기록). 중단된 마지막 단계는 completed 가 없을 수 있어
               // 내지 않는다 — 기록기가 「시작됐는데 안 끝난 단계」를 마지막 단계(모델 응답 대기)로 본다.

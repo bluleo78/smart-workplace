@@ -7,8 +7,10 @@ import dotenv from 'dotenv';
 import { createWorkplaceApiClient } from './clients/workplace-api.js';
 import { closeAllServers } from './agent/opencode-server-pool.js';
 import { DEFAULT_PORT } from './constants.js';
+import { AiRunReporter } from './ai-run/reporter.js';
 import { gracefulShutdown } from './graceful-shutdown.js';
 import { internalAuth } from './middleware/internal-auth.js';
+import { aiRunScopeMiddleware } from './middleware/ai-run-scope.js';
 import { healthRouter } from './routes/health.js';
 import { createEventsRouter } from './routes/events.js';
 import { createHomeRouter } from './routes/home.js';
@@ -41,13 +43,18 @@ const workplaceApi = createWorkplaceApiClient({
   internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
 });
 
+// WP-1828: AI 처리 기록 묶음 전송기 — 주기·종료 때 API 로 비운다.
+const aiRunReporter = new AiRunReporter({ send: (runs) => workplaceApi.reportAiRuns(runs) });
+
 const app = express();
 const PORT = Number(process.env.PORT ?? DEFAULT_PORT);
 
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(healthRouter);
 app.use(internalAuth);
-app.use(createEventsRouter({ client: workplaceApi }));
+// WP-1828: 표에 있는 경로의 요청마다 AI 처리 범위를 열어 기록한다.
+app.use(aiRunScopeMiddleware(aiRunReporter));
+app.use(createEventsRouter({ client: workplaceApi, aiRunSink: aiRunReporter }));
 app.use(createHomeRouter({ client: workplaceApi }));
 app.use(createMailRouter({ client: workplaceApi }));
 app.use(createMessagingRouter({ client: workplaceApi }));
@@ -81,6 +88,7 @@ const server = app.listen(PORT, () => {
   console.log('  POST /wiki/compose (SSE)');
   console.log('  POST /internal/bridge/:runId');
   console.log('  POST /models/list');
+  aiRunReporter.start();
 });
 
 // 종료 대기 상한 — 에이전트 실행 타임아웃(300s) + 실행 전 준비(자격 조회·첨부 다운로드) 여유. 차트의
@@ -102,7 +110,17 @@ function shutdown(signal: string) {
     drainTimeoutMs: SHUTDOWN_DRAIN_MS,
     // 진행 중 실행이 끝난 뒤에 opencode 서버(및 그 stdio MCP 자식 프로세스)를 정리 — 안 하면 좀비 프로세스로 남는다.
     // 먼저 닫으면 실행 중이던 에이전트가 끊긴다.
-    cleanup: closeAllServers,
+    cleanup: async () => {
+      // WP-1828: 남은 기록을 최대 5초 안에 비운 뒤 서버를 정리 — 전송이 느려도 종료를 막지 않는다.
+      let timer: NodeJS.Timeout | undefined;
+      const limit = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 5_000);
+      });
+      await Promise.race([aiRunReporter.flush(), limit]);
+      clearTimeout(timer);
+      aiRunReporter.stop();
+      closeAllServers();
+    },
     exit: (code) => process.exit(code),
   });
 }

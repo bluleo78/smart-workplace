@@ -9,6 +9,8 @@ const { collectSpy, logMock } = vi.hoisted(() => ({
 vi.mock('./agent-runner.js', () => ({ runnerFor: vi.fn(() => ({ collect: collectSpy, stream: vi.fn() })) }));
 vi.mock('../logger.js', () => ({ log: logMock }));
 
+import { AiRunScope, withAiRunScope } from '../ai-run/scope.js';
+import type { AiRunRecord } from '../ai-run/types.js';
 import { looksLikeEffortRejection, runSingleShot } from './single-shot.js';
 
 const NOW = new Date('2026-10-15T00:00:00Z');
@@ -66,6 +68,23 @@ describe('runSingleShot', () => {
     expect(retry.effort).toBeUndefined();
     expect(retry.timeoutMs).toBe(25_000);
     expect(logMock.warn).toHaveBeenCalledWith('memory-cleanup', 'retry_without_effort', expect.objectContaining({ agentId: 7, requestId: 'r1' }));
+  });
+  it('범위 안에서 effort 거절 뒤 재시도가 성공하면 SUCCEEDED 로 기록한다', async () => {
+    const records: AiRunRecord[] = [];
+    const scope = new AiRunScope({ kind: 'K', tenantId: 1 }, { enqueue: (r) => void records.push(r) });
+    collectSpy
+      .mockImplementationOnce(async () => {
+        scope.runnerStarted('m', 'c');
+        scope.runnerFinished({ ok: false, usage: null, error: new Error(EFFORT_400) });
+        throw new Error(EFFORT_400);
+      })
+      .mockImplementationOnce(async () => {
+        scope.runnerFinished({ ok: true, usage: null });
+        return ok;
+      });
+    await withAiRunScope(scope, () => runSingleShot(input(), opts));
+    scope.close({ ok: true });
+    expect(records.at(-1)).toMatchObject({ status: 'SUCCEEDED', errorReason: null });
   });
   it('opencode 연결이나 남은 시간 2초 미만이면 다시 돌지 않는다', async () => {
     collectSpy.mockImplementation(failAfter(1_000));

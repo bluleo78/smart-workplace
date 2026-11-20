@@ -37,13 +37,14 @@ export function createMessagingRunner(
 
 const runner = createMessagingRunner(runMessagingAgent);
 
+// WP-1828: 새 실행을 시작했으면 그 첫 실행의 결과 promise, 실행 중인 같은 대화에 합쳐졌거나 처리 안 하면 undefined.
 export function handleMessagingEvent(
   env: MessagingEventEnvelope,
   deps: EventHandlerDeps,
-): void {
+): Promise<void> | undefined {
   // AGENT 가 작성한 메시지엔 응답하지 않음 (API 에서 이미 걸러지지만 이중 방어).
-  if (env.payload.actor.kind === 'AGENT') return;
+  if (env.payload.actor.kind === 'AGENT') return undefined;
 
   // 종료 대기 등록(WP-167)은 합치기가 다시 실행까지 묶어 한다.
-  runner.submit({ env, deps });
+  return runner.submit({ env, deps });
 }

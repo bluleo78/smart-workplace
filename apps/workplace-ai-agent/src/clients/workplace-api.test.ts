@@ -775,4 +775,21 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       expect(scope.isDone()).toBe(true);
     });
   });
+
+  // WP-1828: AI 처리 기록 묶음 — 대행 없이 Internal 토큰만 싣는다.
+  it('reportAiRuns 는 /internal/ai-runs 로 Internal 토큰만 실어 보낸다', async () => {
+    const runs = [{ runId: 'r-1' }] as never[];
+    let headers: Record<string, unknown> = {};
+    const scope = nock(BASE)
+      .post(`${PREFIX}/internal/ai-runs`, { runs })
+      .reply(200, function () {
+        headers = this.req.headers;
+        return { accepted: 1, dropped: 0 };
+      });
+    const r = await newClient().reportAiRuns(runs);
+    expect(r).toEqual({ accepted: 1, dropped: 0 });
+    expect(headers.authorization).toBe('Internal tk-internal');
+    expect(headers['x-on-behalf-of']).toBeUndefined();
+    expect(scope.isDone()).toBe(true);
+  });
 });

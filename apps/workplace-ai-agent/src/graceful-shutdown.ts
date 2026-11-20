@@ -33,7 +33,7 @@ export interface ShutdownDeps {
   /** 진행 중 작업을 기다릴 최대 시간(ms) — 넘으면 남은 작업을 버리고 종료한다. */
   drainTimeoutMs: number;
   /** 대기가 끝난 뒤 실행할 정리(opencode 서버·자식 프로세스 종료). */
-  cleanup: () => void;
+  cleanup: () => void | Promise<void>;
   exit: (code: number) => void;
   log?: (msg: string) => void;
 }
@@ -59,6 +59,7 @@ export async function gracefulShutdown(deps: ShutdownDeps): Promise<void> {
   } else {
     log('[ai-agent] 진행 중 작업 완료 — 종료');
   }
-  deps.cleanup();
+  // WP-1828: cleanup 이 async(기록 flush 등)일 수 있어 끝날 때까지 기다린 뒤 exit 한다.
+  await deps.cleanup();
   deps.exit(hitLimit ? 1 : 0);
 }

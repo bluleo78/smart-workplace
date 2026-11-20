@@ -59,6 +59,7 @@ function client(token: string | Error): WorkplaceApiClient {
     reportRecurringRun: vi.fn().mockResolvedValue(undefined),
     // WP-1219: 이슈 실행 시작·끝 보고
     reportAgentRun: vi.fn().mockResolvedValue(undefined),
+    reportAiRuns: vi.fn().mockResolvedValue({ accepted: 0, dropped: 0 }),
   };
   return c;
 }

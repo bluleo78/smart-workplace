@@ -610,6 +610,21 @@ describe('OpencodeRunner.stream', () => {
       errSpy.mockRestore();
     });
 
+    // WP-1828: opencode tokens.cache.{read,write} 를 result usage 의 캐시 토큰으로 싣는다. 없으면 키 없음.
+    it('tokens.cache 가 있으면 result usage 에 캐시 읽기·쓰기 토큰을 싣는다 (WP-1828)', async () => {
+      const events = await run(baseInput(), [
+        { type: 'message.updated', properties: { info: { id: 'm1', sessionID: 'sess-1', role: 'assistant', tokens: { input: 10, output: 5, cache: { read: 7, write: 3 } } } } },
+      ]);
+      expect(events.at(-1)).toMatchObject({ type: 'result', usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 7, cacheWriteTokens: 3 } });
+    });
+
+    it('tokens.cache 가 없으면 캐시 키가 없다 (WP-1828)', async () => {
+      const events = await run(baseInput(), [
+        { type: 'message.updated', properties: { info: { id: 'm1', sessionID: 'sess-1', role: 'assistant', tokens: { input: 10, output: 5 } } } },
+      ]);
+      expect((events.at(-1) as { usage: unknown }).usage).toEqual({ inputTokens: 10, outputTokens: 5 });
+    });
+
     it('result 텍스트는 라우터(primary) 글만 — 서브에이전트 글은 text_delta 로만 낸다', async () => {
       const events = await run(baseInput(), [
         { type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } },

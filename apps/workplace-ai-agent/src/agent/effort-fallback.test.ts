@@ -6,6 +6,8 @@ vi.mock('../logger.js', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import type { AgentRunner, RunnerInput } from './agent-runner.js';
 import { streamWithEffortFallback } from './effort-fallback.js';
 import type { RunnerEvent } from './runner-events.js';
+import { AiRunScope, withAiRunScope } from '../ai-run/scope.js';
+import type { AiRunRecord } from '../ai-run/types.js';
 
 const REJECT = new Error("Claude Code returned an error result: API Error: Effort 'max' isn't available with thinking turned off on this model");
 const OK: RunnerEvent = { type: 'result', ok: true, text: 'done', usage: null };
@@ -54,6 +56,17 @@ describe('streamWithEffortFallback', () => {
     expect(inputs[1].effort).toBeUndefined();
     expect(inputs[1].timeoutMs).toBeLessThanOrEqual(60_000);
     expect(got).toEqual([DELTA, OK]);
+  });
+
+  it('범위 안에서 거절 뒤 재시도가 성공하면 SUCCEEDED 로 기록한다', async () => {
+    const records: AiRunRecord[] = [];
+    const scope = new AiRunScope({ kind: 'K', tenantId: 1 }, { enqueue: (r) => void records.push(r) });
+    const { runner } = fakeRunner([{ events: [FAIL], error: REJECT }, { events: [OK] }]);
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: REJECT });
+    await withAiRunScope(scope, () => streamWithEffortFallback(runner, input(), () => undefined, { logArea: 't' }).done);
+    scope.close({ ok: true });
+    expect(records.at(-1)).toMatchObject({ status: 'SUCCEEDED', errorReason: null });
   });
 
   it('거절이 아닌 오류·opencode 연결·effort 미지정·남은 시간 부족이면 다시 돌지 않는다', async () => {

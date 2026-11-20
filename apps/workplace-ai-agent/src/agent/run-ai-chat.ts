@@ -31,6 +31,7 @@ import {
 } from './shared-memory-block.js';
 import { FINALIZE_PROGRESS_LABEL, FINALIZE_TIMEOUT_MS, finalizeAfterLimit, ToolResultCollector } from './ai-chat-finalize.js';
 import { RunnerLimitError } from './runner-limit.js';
+import { forgiveScopeRunnerFailure } from '../ai-run/scope.js';
 import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
 
 /** runAiChatStream 의존성 — sleep 은 추출 대기 테스트에서 실제로 기다리지 않게 주입한다(RunChatAgentDeps 와 같은 방식). */
@@ -438,6 +439,8 @@ export async function runAiChatStream(
     : 0;
   if (limit && subagentTexts.length === 0 && !signal.aborted && finalizeTimeoutMs >= FINALIZE_MIN_MS) {
     onProgress?.(FINALIZE_PROGRESS_LABEL);
+    // 한도 도달로 쌓인 러너 실패는 마무리 답이 나오면 용서한다 — 마무리 러너가 실패하면 새 실패로 기록된다(WP-1828).
+    forgiveScopeRunnerFailure();
     const fin = await finalizeAfterLimit({
       runner,
       credential,

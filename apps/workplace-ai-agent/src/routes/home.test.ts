@@ -34,6 +34,9 @@ vi.mock('../logger.js', () => ({ log: logMock }));
 
 import { createHomeRouter, chatSchema } from './home.js';
 import { JSON_BODY_LIMIT } from '../index-config.js';
+import { aiRunScopeMiddleware } from '../middleware/ai-run-scope.js';
+import { currentAiRunScope } from '../ai-run/scope.js';
+import type { AiRunRecord } from '../ai-run/types.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 import { runHomeContextSummary } from '../agent/run-home-context-summary.js';
@@ -238,6 +241,25 @@ describe('chatSchema', () => {
 });
 
 describe('POST /ai/chat', () => {
+  it('WP-1828: 러너 성공 뒤 스트림 처리 오류면 error 이벤트를 쓰고 기록은 FAILED·stream_error', async () => {
+    const records: AiRunRecord[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use(aiRunScopeMiddleware({ enqueue: (r) => void records.push(r) }));
+    app.use(createHomeRouter({ client: {} as never }));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(runAiChatStream).mockImplementation(async () => {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'c');
+      s.runnerFinished({ ok: true, usage: null });
+      throw new Error('stream broke');
+    });
+    const res = await request(app).post('/ai/chat').send(validBody());
+    expect(res.text).toContain('event: error');
+    await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']));
+    expect(records[1]).toMatchObject({ errorReason: 'stream_error', errorDetail: 'stream broke' });
+  });
+
   it('WP-379: app 을 runAiChatStream 입력으로 전달', async () => {
     vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'router_prose', usage: null });
     await request(buildApp()).post('/ai/chat').send(validBody({ app: 'ISSUE' }));

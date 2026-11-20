@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { RunnerEvent } from './runner-events.js';
 import type { RunnerInput } from './agent-runner.js';
+import { AiRunScope, withAiRunScope } from '../ai-run/scope.js';
 
 // Task 6: stream 경로 RunnerEvent 이관. runSdkStream/buildInProcessWorkplaceMcpServer mock 대신
 // agent-runner(runnerFor().stream) 를 mock 하고 RunnerEvent 픽스처를 onEvent 로 흘린다.
@@ -1620,6 +1621,45 @@ describe('runAiChatStream — 한도 도달 마무리', () => {
     const outcome = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(collectSpy).not.toHaveBeenCalled();
     expect(outcome.fullText).toBe('위임 답');
+  });
+
+  // WP-1828: 한도 도달의 러너 실패는 마무리 답이 나오면 용서되어 기록이 SUCCEEDED 가 된다.
+  it('WP-1828: 한도 뒤 마무리가 성공하면 AI 처리 기록은 SUCCEEDED', async () => {
+    const records: Array<{ status: string }> = [];
+    const scope = new AiRunScope({ kind: 'AI_CHAT' }, { enqueue: (r) => records.push(r) });
+    const base = limitRunner([], { toolResult: 'r' });
+    streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+      scope.runnerStarted('m', 'c');
+      scope.runnerFinished({ ok: false, usage: null, error: new Error('max turns') });
+      return base(i, onEvent);
+    });
+    collectSpy.mockImplementation(async () => {
+      scope.runnerStarted('m', 'c');
+      scope.runnerFinished({ ok: true, usage: null });
+      return [{ type: 'result', ok: true, text: '마무리 답', usage: null }];
+    });
+    await withAiRunScope(scope, () => runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal));
+    scope.close({ ok: true });
+    expect(records.at(-1)?.status).toBe('SUCCEEDED');
+  });
+
+  it('WP-1828: 한도 뒤 마무리 러너도 실패하면 AI 처리 기록은 FAILED', async () => {
+    const records: Array<{ status: string }> = [];
+    const scope = new AiRunScope({ kind: 'AI_CHAT' }, { enqueue: (r) => records.push(r) });
+    const base = limitRunner([], { toolResult: 'r' });
+    streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+      scope.runnerStarted('m', 'c');
+      scope.runnerFinished({ ok: false, usage: null, error: new Error('max turns') });
+      return base(i, onEvent);
+    });
+    collectSpy.mockImplementation(async () => {
+      scope.runnerStarted('m', 'c');
+      scope.runnerFinished({ ok: false, usage: null, error: new Error('finalize failed') });
+      return [{ type: 'result', ok: true, text: '마무리 답', usage: null }];
+    });
+    await withAiRunScope(scope, () => runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal));
+    scope.close({ ok: true });
+    expect(records.at(-1)?.status).toBe('FAILED');
   });
 
   it('시간 한도도 같은 방식으로 마무리', async () => {
