@@ -100,7 +100,7 @@ ver_of() {
 # 계획 파일·원장을 보기 시작한 버전(검토자 전환 규칙, WP-1717)과
 # notes 원장 절·`모델 <이름>` 형식이 생긴 버전(WP-1836).
 PLAN_LEDGER_SINCE=$(ver_num 0.1.55)
-LEDGER_SECTION_SINCE=$(ver_num 0.1.68)
+LEDGER_SECTION_SINCE=$(ver_num 0.1.69)
 
 # 3. 「절차:」 줄(여럿이면 마지막 — 낡은 줄 아래에 고쳐 쓴 줄이 현재 값). 들여쓴 목록 줄도 읽는다.
 line=$(grep -E '^[[:space:]]*(- )?절차:' "$notes" | tail -n1)
@@ -114,7 +114,7 @@ vnum=""
 pre_section=0
 if [ -n "$ver" ]; then
   vnum=$(ver_num "$ver")
-  # 0.1.68 전 템플릿 — `모델` 한 낱말·notes 원장 절 없음을 받아들인다.
+  # 0.1.69 전 템플릿 — `모델` 한 낱말·notes 원장 절 없음을 받아들인다.
   if [ "$vnum" -lt "$LEDGER_SECTION_SINCE" ]; then
     pre_section=1
   fi
@@ -179,7 +179,7 @@ if [ "$alt_ok" = 0 ]; then
     # 모델은 subagent-driven-development( 부터 다음 → 앞(없으면 줄 끝)까지에서 찾는다 — 괄호가 안에 있어도 된다.
     sdd_inner=$(printf '%s\n' "$line" | sed -n 's/.*subagent-driven-development(//; s/→.*//; p')
     if [ "$pre_section" = 1 ]; then
-      # 0.1.68 전 템플릿은 `모델` 한 낱말이었다 — 이름을 요구하지 않는다.
+      # 0.1.69 전 템플릿은 `모델` 한 낱말이었다 — 이름을 요구하지 않는다.
       printf '%s\n' "$sdd_inner" | grep -q '모델' || add_fail "subagent-driven-development 괄호 안에 모델이 없습니다"
     else
       # `모델` 뒤(공백·: 건너뜀)에 `)`·줄 끝이 아닌 글자가 와야 모델 이름이 적힌 것이다.
@@ -269,9 +269,9 @@ $section"
   have_ledger=1
 fi
 if [ "$have_ledger" = 0 ]; then
-  # 0.1.55 이상 0.1.68 미만은 notes 원장 절이 아직 없던 절차라 원장을 못 찾아도 실패하지 않는다.
+  # 0.1.55 이상 0.1.69 미만은 notes 원장 절이 아직 없던 절차라 원장을 못 찾아도 실패하지 않는다.
   if [ "$pre_section" = 1 ]; then
-    echo "$tag: 참고 — 0.1.68 전 절차라 notes 원장 절이 없음, 원장 줄은 PR 본문으로 검토자가 본다"
+    echo "$tag: 참고 — 0.1.69 전 절차라 notes 원장 절이 없음, 원장 줄은 PR 본문으로 검토자가 본다"
   else
     add_nfail "SDD 원장이 없습니다(워크스페이스 progress.md 또는 notes 의 원장: 절)"
   fi

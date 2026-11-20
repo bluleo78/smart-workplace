@@ -20,7 +20,7 @@ const env = {
 
 /** 좋은 절차 줄 — 모든 필수 토큰과 계획 파일(docs/superpowers/plans/p.md)을 갖춘다. */
 const GOOD =
-  '절차: 처리 파일 process-issue.md (플러그인 0.1.68) → brainstorming(Skill) → writing-plans(Skill, docs/superpowers/plans/p.md) → ' +
+  '절차: 처리 파일 process-issue.md (플러그인 0.1.69) → brainstorming(Skill) → writing-plans(Skill, docs/superpowers/plans/p.md) → ' +
   'subagent-driven-development(Skill, Task 2개 — 구현자·과제 검토자 하위 에이전트, 모델 sonnet) → 최종 리뷰 → /code-review medium(지적 0) → /simplify';
 const LEDGER = '원장:\nTask 1: complete (commits a..b, review clean)\nTask 2: complete (commits b..c, review clean)\n최종 리뷰: clean\n';
 
@@ -158,13 +158,13 @@ test('예외 — 리뷰 후속', (t) => {
 
 test('예외 — executing-plans 와 까닭', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.68) → executing-plans(까닭: 하위 에이전트 도구 없음) → 최종 리뷰 → /code-review medium(지적 0) → /simplify\n');
+  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.69) → executing-plans(까닭: 하위 에이전트 도구 없음) → 최종 리뷰 → /code-review medium(지적 0) → /simplify\n');
   ok(run(main));
 });
 
 test('전환 — 플러그인 0.1.50 은 계획 파일·원장을 보지 않음', (t) => {
   const main = repo(t);
-  notes(main, `${GOOD.replace('0.1.68', '0.1.50')}\n`);
+  notes(main, `${GOOD.replace('0.1.69', '0.1.50')}\n`);
   ok(run(main));
 });
 
@@ -192,13 +192,13 @@ const TAIL_STEPS = '실패 — process-issue.md 5번부터 다시 밟습니다';
 test('전환 — 0.1.67 + 원장 없음 → 0 과 참고 줄', (t) => {
   const main = repo(t);
   plan(join(main, '.claude/worktrees/WP-1'));
-  notes(main, `${GOOD.replace('0.1.68', '0.1.67')}\n`);
+  notes(main, `${GOOD.replace('0.1.69', '0.1.67')}\n`);
   const r = run(main);
   ok(r);
-  assert.ok(r.stdout.includes('[procedure-check] WP-1: 참고 — 0.1.68 전 절차라 notes 원장 절이 없음, 원장 줄은 PR 본문으로 검토자가 본다'), r.stdout);
+  assert.ok(r.stdout.includes('[procedure-check] WP-1: 참고 — 0.1.69 전 절차라 notes 원장 절이 없음, 원장 줄은 PR 본문으로 검토자가 본다'), r.stdout);
 });
 
-test('전환 — 0.1.68 + 원장 없음 → 1', (t) => {
+test('전환 — 0.1.69 + 원장 없음 → 1', (t) => {
   const main = repo(t);
   plan(join(main, '.claude/worktrees/WP-1'));
   notes(main, `${GOOD}\n`);
@@ -207,10 +207,10 @@ test('전환 — 0.1.68 + 원장 없음 → 1', (t) => {
 
 test('전환 — 0.1.55 경계: 0.1.54 는 계획·원장 생략, 0.1.55 + 원장 없음은 참고', (t) => {
   const main = repo(t);
-  notes(main, `${GOOD.replace('0.1.68', '0.1.54')}\n`);
+  notes(main, `${GOOD.replace('0.1.69', '0.1.54')}\n`);
   ok(run(main));
   plan(join(main, '.claude/worktrees/WP-1'));
-  notes(main, `${GOOD.replace('0.1.68', '0.1.55')}\n`);
+  notes(main, `${GOOD.replace('0.1.69', '0.1.55')}\n`);
   const r = run(main);
   ok(r);
   assert.ok(r.stdout.includes('참고'), r.stdout);
@@ -218,20 +218,20 @@ test('전환 — 0.1.55 경계: 0.1.54 는 계획·원장 생략, 0.1.55 + 원�
 
 test('전환 — 0.1.67 + 계획 파일 없음은 여전히 실패', (t) => {
   const main = repo(t);
-  notes(main, `${GOOD.replace('0.1.68', '0.1.67')}\n`);
+  notes(main, `${GOOD.replace('0.1.69', '0.1.67')}\n`);
   fail(run(main), '계획 파일이 없습니다');
 });
 
 test('전환 — 0.1.67 + 원장 있으면 검사한다', (t) => {
   const main = repo(t);
   plan(join(main, '.claude/worktrees/WP-1'));
-  notes(main, `${GOOD.replace('0.1.68', '0.1.67')}\n\n원장:\nTask 1: complete (a)\n`);
+  notes(main, `${GOOD.replace('0.1.69', '0.1.67')}\n\n원장:\nTask 1: complete (a)\n`);
   fail(run(main), 'Task 2 완료 줄이 없습니다');
 });
 
 test('전환 — 버전 없음 → 0', (t) => {
   const main = repo(t);
-  notes(main, `${GOOD.replace(' (플러그인 0.1.68)', '')}\n`);
+  notes(main, `${GOOD.replace(' (플러그인 0.1.69)', '')}\n`);
   ok(run(main));
 });
 
@@ -313,7 +313,7 @@ test('세부 실패 줄에도 [procedure-check] 키 접두', (t) => {
 
 test('까닭 대안 줄에 자리 표시가 남으면 자리 표시 실패만', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.68) → executing-plans(까닭: <까닭>) → /simplify\n');
+  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.69) → executing-plans(까닭: <까닭>) → /simplify\n');
   const r = run(main);
   fail(r, '자리 표시가 남아 있습니다: <까닭>');
   assert.ok(!r.stdout.includes('brainstorming'), r.stdout);
@@ -321,13 +321,13 @@ test('까닭 대안 줄에 자리 표시가 남으면 자리 표시 실패만', 
 
 test('예외 — without-superpowers.md 와 까닭 → 0', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.68) → 까닭: 스킬 도구 없는 실행기 → /code-review medium(지적 0) → /simplify\n');
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.69) → 까닭: 스킬 도구 없는 실행기 → /code-review medium(지적 0) → /simplify\n');
   ok(run(main));
 });
 
 test('실패 — executing-plans 인데 까닭 없음', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.68) → executing-plans → /code-review medium(지적 0) → /simplify\n');
+  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.69) → executing-plans → /code-review medium(지적 0) → /simplify\n');
   fail(run(main), 'brainstorming(Skill)');
 });
 
@@ -412,7 +412,7 @@ test('여러 절차: 줄이면 마지막 줄을 씀', (t) => {
 
 test('버전 앞자리 0 — 0.1.08 은 0.1.8 로 다뤄 전환 규칙대로 통과', (t) => {
   const main = repo(t);
-  notes(main, `${GOOD.replace('0.1.68', '0.1.08')}\n`);
+  notes(main, `${GOOD.replace('0.1.69', '0.1.08')}\n`);
   ok(run(main));
 });
 
@@ -426,20 +426,20 @@ test('계획 파일이 없어도 notes 원장 절이 있으면 참고로 통과(
 });
 test('대안 — executing-plans 도 /code-review·/simplify·최종 리뷰를 요구', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.68) → executing-plans(까닭: 하위 에이전트 도구 없음) → /simplify\n');
+  notes(main, '절차: 처리 파일 process-issue.md (플러그인 0.1.69) → executing-plans(까닭: 하위 에이전트 도구 없음) → /simplify\n');
   const r = run(main);
   fail(r, '코드 리뷰(/code-review 또는 requesting-code-review) 가 절차 줄에 없습니다');
   fail(r, '최종 리뷰 가 절차 줄에 없습니다');
 });
 test('대안 — without-superpowers.md 도 리뷰를 요구', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.68) → 까닭: 스킬 도구 없는 실행기\n');
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.69) → 까닭: 스킬 도구 없는 실행기\n');
   fail(run(main), '정리(/simplify 또는 code-simplifier) 가 절차 줄에 없습니다');
 });
-test('전환 — 0.1.68 전 템플릿은 `모델` 한 낱말로 통과', (t) => {
+test('전환 — 0.1.69 전 템플릿은 `모델` 한 낱말로 통과', (t) => {
   const main = repo(t);
   plan(join(main, '.claude/worktrees/WP-1'));
-  notes(main, `${GOOD.replace('0.1.68', '0.1.64').replace('모델 sonnet', '모델')}\n\n${LEDGER}`);
+  notes(main, `${GOOD.replace('0.1.69', '0.1.64').replace('모델 sonnet', '모델')}\n\n${LEDGER}`);
   ok(run(main));
 });
 test('전환 — 0.1.55 전이면 새 토큰이 없어도 통과', (t) => {
@@ -450,7 +450,7 @@ test('전환 — 0.1.55 전이면 새 토큰이 없어도 통과', (t) => {
 test('버전 — 절차 줄에 없으면 처리 파일: 줄에서 읽어 원장을 검사', (t) => {
   const main = repo(t);
   plan(join(main, '.claude/worktrees/WP-1'));
-  notes(main, `처리 파일: process-issue.md (플러그인 0.1.68) 읽음 10:00\n${GOOD.replace(' (플러그인 0.1.68)', '')}\n`);
+  notes(main, `처리 파일: process-issue.md (플러그인 0.1.69) 읽음 10:00\n${GOOD.replace(' (플러그인 0.1.69)', '')}\n`);
   fail(run(main), 'SDD 원장이 없습니다');
 });
 test('버전 — 처리 파일: 줄이 0.1.55 전이면 절차 줄이 없어도 통과', (t) => {
@@ -484,7 +484,7 @@ test('자리 표시 — 템플릿 칸 이름만 잡고 Map<string> 같은 글은
 // ── /code-review(반려 수정) 뒤 고친 것 ──
 test('대안 — 도구가 없어 자체 리뷰로 적으면 리뷰 단계 통과', (t) => {
   const main = repo(t);
-  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.68) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(정확성·단순화)\n');
+  notes(main, '절차: 처리 파일 without-superpowers.md (플러그인 0.1.69) → 까닭: 스킬 도구 없는 실행기 → 자체 리뷰(정확성·단순화)\n');
   ok(run(main));
 });
 test('전환 — 0.1.55 전이어도 자리 표시는 잡는다', (t) => {
