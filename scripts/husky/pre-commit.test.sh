@@ -80,6 +80,18 @@ run_case "web 변경 → vitest 실행" \
   "apps/workplace-web/src/lib/notifGrouping.ts" \
   "vitest 단위 테스트 실행"
 
+# 11-2) web 변경 → e2e 타입 검사 알림 (WP-1835 — e2e 목 타입 어긋남을 커밋 전에)
+run_case "web 변경 → e2e 타입 검사" \
+  "apps/workplace-web/src/lib/notifGrouping.ts" \
+  "e2e 타입 검사(tsconfig.e2e.json)"
+run_case "공용 스키마만 변경 → e2e 타입 검사(e2e 가 스키마 타입을 가져온다)" \
+  "packages/wiki-editor-schema/src/index.ts" \
+  "e2e 타입 검사(tsconfig.e2e.json)"
+run_case "api 만 변경 → e2e 타입 검사 없음" \
+  "apps/workplace-api/src/main/java/com/workplace/auth/service/AuthService.java" \
+  '--tests "*AuthServiceTest"' \
+  "e2e 타입 검사"
+
 # e2e 공용 fixture 변경 → 전체 E2E
 run_case "e2e fixture 변경 → 전체 E2E" \
   "apps/workplace-web/e2e/fixtures/wiki-mock.ts" \

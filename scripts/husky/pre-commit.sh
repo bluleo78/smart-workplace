@@ -73,6 +73,14 @@ fi
 # 이 단계가 빠지면 해당 회귀가 게이트를 통과한다.
 # 페이지 테스트(renderPage — App 전체를 띄움)는 파일당 10초 안팎이라 120여 개가 전체를 40초에서 3분으로 늘렸다 —
 # 커밋에서는 빼고(VITEST_SKIP_PAGE_TESTS, vitest.config.ts) pre-push 전체 회귀가 함께 돌린다 (WP-995).
+# e2e 타입 검사 — e2e 목이 src/types 와 어긋나도 vitest·린트는 통과해 push 게이트에서야 드러났다(WP-1835).
+# e2e 가 공용 스키마(wiki-editor-schema)의 타입을 소스 그대로 가져오므로 스키마만 바뀐 커밋도 함께 본다.
+# 수 초짜리 tsc 라 락 없이 돌리고, vitest 보다 먼저 두어 타입 오류를 빠르게 실패시킨다.
+E2E_TYPES_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^(apps/workplace-web/|packages/wiki-editor-schema/)' || true)
+if [ -n "$E2E_TYPES_CHANGED" ]; then
+  echo "[pre-commit] workplace-web 변경 — e2e 타입 검사(tsconfig.e2e.json)"
+  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && pnpm typecheck:e2e)
+fi
 WEB_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/' || true)
 if [ -n "$WEB_CHANGED" ]; then
   echo "[pre-commit] workplace-web 변경 — vitest 단위 테스트 실행(페이지 테스트는 pre-push)"

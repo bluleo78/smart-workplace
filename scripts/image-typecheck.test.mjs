@@ -1,4 +1,4 @@
-// scripts/image-typecheck.mjs 의 .dockerignore·Dockerfile COPY 해석 단위 테스트 (WP-1026) — `node --test scripts/image-typecheck.test.mjs`
+// scripts/image-typecheck.mjs 의 .dockerignore·Dockerfile COPY 해석·typecheck 스크립트 고르기·tsc 인자 해석 단위 테스트 (WP-1026·WP-1835) — `node --test scripts/image-typecheck.test.mjs`
 // 이 해석이 Docker 와 어긋나면 검사 복사본에 이미지에 없는 파일이 남아 깨지는 빌드를 놓친다.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -6,7 +6,7 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { buildStageCopySources, isExcluded, parseDockerignore } from './image-typecheck.mjs'
+import { buildStageCopySources, imageTypecheckScript, isExcluded, parseDockerignore, tscArgsFromScript } from './image-typecheck.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -84,4 +84,28 @@ test('저장소 .dockerignore 는 테스트 파일·src/test/ 를 빼고 앱 소
   assert.equal(isExcluded('apps/workplace-web/e2e/home.spec.ts', rules), true)
   assert.equal(isExcluded('apps/workplace-web/src/App.tsx', rules), false)
   assert.equal(isExcluded('packages/wiki-editor-schema/src/index.ts', rules), false)
+})
+
+test('tscArgsFromScript: 단일 tsc 스크립트는 tsc 뒤 인자를 그대로 돌려준다', () => {
+  assert.deepEqual(tscArgsFromScript('tsc -b --noEmit'), ['-b', '--noEmit'])
+})
+
+test('tscArgsFromScript: tsc 가 아닌 스크립트는 예외(label 이 앞에 붙는다)', () => {
+  assert.throws(() => tscArgsFromScript('vite build', 'apps/x 의 '), /^Error: apps\/x 의 typecheck 가 tsc 가 아닙니다/)
+})
+
+test('tscArgsFromScript: 셸 연산자(&&·||·;·|)가 섞이면 tsc 한 명령이 아니라고 예외 (WP-1835)', () => {
+  for (const s of ['tsc -b --noEmit && pnpm typecheck:e2e', 'tsc -b; pnpm x', 'tsc -p a.json || true', 'tsc -b | tee log']) {
+    assert.throws(() => tscArgsFromScript(s), /tsc 한 명령이 아닙니다/)
+  }
+})
+
+test('imageTypecheckScript: typecheck:src 가 있으면 그것, 없으면 typecheck (WP-1835)', () => {
+  assert.equal(imageTypecheckScript({ typecheck: 'pnpm typecheck:src && pnpm typecheck:e2e', 'typecheck:src': 'tsc -b --noEmit' }), 'tsc -b --noEmit')
+  assert.equal(imageTypecheckScript({ typecheck: 'tsc --noEmit' }), 'tsc --noEmit')
+  assert.equal(imageTypecheckScript(undefined), '')
+})
+
+test('tscArgsFromScript: 빈 문자열은 예외', () => {
+  assert.throws(() => tscArgsFromScript(''), /tsc 가 아닙니다/)
 })

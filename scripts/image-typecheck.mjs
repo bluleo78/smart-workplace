@@ -190,16 +190,36 @@ function buildContext(root, app, files, rules, outDir) {
 }
 
 /**
- * 앱 하나를 복사본에서 검사한다 — package.json 의 typecheck(`tsc …`)를 앱의 typescript 로 그대로 돌린다.
+ * 이미지 타입 검사에 쓸 스크립트를 고른다 — `typecheck:src` 가 있으면 그것, 없으면 `typecheck`.
+ * WP-1835 — web 의 typecheck 는 소스(`typecheck:src`)와 e2e 스펙(`typecheck:e2e`)을 이어 돌린다. 이미지에는 소스만
+ * 들어가므로 소스 검사만 따로 둔 스크립트를 읽는다(합친 스크립트 문자열을 쪼개 해석하지 않는다).
+ */
+export function imageTypecheckScript(scripts) {
+  return scripts?.['typecheck:src'] ?? scripts?.typecheck ?? ''
+}
+
+/**
+ * 스크립트 문자열에서 tsc 뒤의 인자 배열을 뽑는다. 셸을 거치지 않고 tsc 를 바로 띄우므로 `tsc <인자>` 한 명령만 받는다 —
+ * 셸 연산자(`&&`·`||`·`;`·`|`)가 섞이면 tsc 인자로 새어 엉뚱한 오류가 나니 지원하지 않는 형태로 바로 알린다(WP-1835).
+ * label 은 오류 메시지 앞머리(예: `apps/workplace-web 의 `).
+ */
+export function tscArgsFromScript(script, label = '') {
+  if (/[;&|]/.test(script)) throw new Error(`${label}typecheck 가 tsc 한 명령이 아닙니다(셸 연산자 — 소스 검사는 typecheck:src 로 따로 두세요): ${script}`)
+  const [cmd, ...args] = script.trim().split(/\s+/)
+  if (cmd !== 'tsc') throw new Error(`${label}typecheck 가 tsc 가 아닙니다: ${script}`)
+  return args
+}
+
+/**
+ * 앱 하나를 복사본에서 검사한다 — package.json 의 typecheck:src(없으면 typecheck, `tsc …`)를 앱의 typescript 로 그대로 돌린다.
  * 돌려준다: 'ok' | 'type-error' — 검사를 돌릴 수 없으면(tsc 없음·실행 실패) 타입 오류와 섞이지 않게 예외로 알린다.
  */
 function checkApp(contextDir, app) {
   const appDir = path.join(contextDir, 'apps', app)
   const pkgPath = path.join(appDir, 'package.json')
   if (!fs.existsSync(pkgPath)) throw new Error(`apps/${app}/package.json 이 복사본에 없습니다(Dockerfile COPY 확인)`)
-  const script = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).scripts?.typecheck ?? ''
-  const [cmd, ...args] = script.trim().split(/\s+/)
-  if (cmd !== 'tsc') throw new Error(`apps/${app} 의 typecheck 가 tsc 가 아닙니다: ${script}`)
+  const script = imageTypecheckScript(JSON.parse(fs.readFileSync(pkgPath, 'utf8')).scripts)
+  const args = tscArgsFromScript(script, `apps/${app} 의 `)
   const tsc = path.join(appDir, 'node_modules', 'typescript', 'bin', 'tsc')
   if (!fs.existsSync(tsc)) throw new Error(`apps/${app}/node_modules/typescript 가 없습니다 — pnpm install 을 먼저 하세요`)
   console.log(`[image-typecheck] apps/${app}: tsc ${args.join(' ')}`)

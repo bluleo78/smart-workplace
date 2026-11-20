@@ -42,10 +42,10 @@ else
   GATE_SCOPE=full
 fi
 case "$GATE_SCOPE" in
-  full) STAGES="이미지 타입 검사 · web vitest · web E2E · admin E2E · api gradle" ;;
-  web) STAGES="이미지 타입 검사 · web vitest · web E2E (admin E2E·gradle 건너뜀)" ;;
+  full) STAGES="이미지 타입 검사 · web e2e 타입 검사 · web vitest · web E2E · admin E2E · api gradle" ;;
+  web) STAGES="이미지 타입 검사 · web e2e 타입 검사 · web vitest · web E2E (admin E2E·gradle 건너뜀)" ;;
   admin) STAGES="이미지 타입 검사 · admin E2E (web vitest·web E2E·gradle 건너뜀)" ;;
-  web+admin) STAGES="이미지 타입 검사 · web vitest · web E2E · admin E2E (gradle 건너뜀)" ;;
+  web+admin) STAGES="이미지 타입 검사 · web e2e 타입 검사 · web vitest · web E2E · admin E2E (gradle 건너뜀)" ;;
   *) echo "[full-regression] 알 수 없는 범위 '$GATE_SCOPE' — full|web|admin|web+admin" >&2; exit 1 ;;
 esac
 export GATE_SCOPE
@@ -65,6 +65,8 @@ else
     # 테스트 아닌 파일이 src/test/ 를 import 하면 로컬·CI typecheck 는 통과하고 이미지 빌드만 깨진다(v0.9.24) — PR 전에 잡는다.
     node scripts/image-typecheck.mjs
     if want web; then
+      # e2e 타입 검사 — e2e 목이 앱 타입과 어긋나면 E2E 를 돌리기 전에 실패시킨다(WP-1835)
+      (cd apps/workplace-web && pnpm typecheck:e2e)
       # web 단위·페이지 테스트(vitest 전체, 3분 안팎) — E2E 보다 먼저 돌려 순수 로직 회귀를 빠르게 실패시킨다 (WP-79).
       # 페이지 테스트는 pre-commit 이 빼고 돌므로 여기가 유일한 게이트다 (WP-995)
       (cd apps/workplace-web && pnpm test)
