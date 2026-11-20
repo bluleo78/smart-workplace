@@ -1370,32 +1370,39 @@ test('gw-claude-run: 토큰 파일이 있으면 그 setup-token 으로(API 키�
   assert.equal(noFile.stdout, 'oauth=unset api=sk-ant-api auth=unset\n');
 });
 
-tmuxTest('agent-project start: 실행기가 genia 면 genia 인증서·「깨우기는 실행기가」 표시와 함께 /gw-loop 를 띄운다(WP-1292)', async (t) => {
-  const { wrapper } = tmuxServer(t);
-  const d = aiDir();
-  mkdirSync(join(d, 'repos', 'WP'), { recursive: true });
-  run('agent-home', [d, 'set', 'cli', 'genia']);
-  run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
-  const crt = join(home, 'genia-root.crt');
-  writeFileSync(crt, 'x');
-  // genia 대신 받은 환경·인자를 적는 가짜 — PATH 앞에 둔다. 이 셸의 NODE_EXTRA_CA_CERTS 가 다른 값이어도 genia 인증서로 바뀌어야 한다.
-  writeFileSync(join(bin, 'genia'), '#!/bin/sh\n{ env | grep -E "^(GENIA_WORKS_RUNNER|GENIA_WORKS_WAKE|NODE_EXTRA|CLAUDE_AUTOCOMPACT)" | sort; printf "%s\\n" "$@"; } > "$HOME/genia-args"\nexec sleep 60\n');
-  chmodSync(join(bin, 'genia'), 0o755);
-  const r = run('agent-project', ['start', d, 'WP'], { env: { GW_TMUX: wrapper, GENIA_CA_CERT: crt, NODE_EXTRA_CA_CERTS: '/elsewhere.pem' } });
-  assert.deepEqual([r.status, r.stdout], [0, 'started kodi\n']);
-  const out = join(home, 'genia-args');
-  await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/gw-loop'));
-  assert.equal(readFileSync(out, 'utf8'), [
-    'GENIA_WORKS_RUNNER_WAKES=1',
-    'GENIA_WORKS_WAKE_MODE=runner',
-    `NODE_EXTRA_CA_CERTS=${crt}`,
-    '--approve',
-    '-e',
-    join(scripts, '..'),
-    '/gw-loop WP --queue "AI 개발팀"',
-    '',
-  ].join('\n'));
-});
+// genia 2611.3.12 부터 도구 실행 전 승인을 묻는다 — 칸 명령은 genia --help 에 --permission-mode 가 있을 때만 승인 없이 돌게 한다(WP-1807).
+// 옵션을 모르는 옛 genia 에 붙이면 「Unknown option」으로 칸이 뜨지 않으므로 모르는 genia 에는 붙이지 않는다.
+for (const knowsPermission of [true, false]) {
+  tmuxTest(`agent-project start: 실행기가 genia 면 genia 인증서·「깨우기는 실행기가」 표시와 함께 /gw-loop 를 띄운다(WP-1292) — 권한 옵션 ${knowsPermission ? '아는' : '모르는'} genia(WP-1807)`, async (t) => {
+    const { wrapper } = tmuxServer(t);
+    const d = aiDir();
+    mkdirSync(join(d, 'repos', 'WP'), { recursive: true });
+    run('agent-home', [d, 'set', 'cli', 'genia']);
+    run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
+    const crt = join(home, 'genia-root.crt');
+    writeFileSync(crt, 'x');
+    // genia 대신 받은 환경·인자를 적는 가짜 — PATH 앞에 둔다. 이 셸의 NODE_EXTRA_CA_CERTS 가 다른 값이어도 genia 인증서로 바뀌어야 한다.
+    // --help 에는 바로 답한다(칸을 띄우기 전에 agent-project 가 묻는다) — 아는 genia 면 --permission-mode 줄을 낸다.
+    const help = knowsPermission ? '  --permission-mode <value>  Permission mode\\n' : '  --approve  Trust the project\\n';
+    writeFileSync(join(bin, 'genia'), `#!/bin/sh\ncase "$1" in --help) printf '${help}'; exit 0 ;; esac\n{ env | grep -E "^(GENIA_WORKS_RUNNER|GENIA_WORKS_WAKE|NODE_EXTRA|CLAUDE_AUTOCOMPACT)" | sort; printf "%s\\n" "$@"; } > "$HOME/genia-args"\nexec sleep 60\n`);
+    chmodSync(join(bin, 'genia'), 0o755);
+    const r = run('agent-project', ['start', d, 'WP'], { env: { GW_TMUX: wrapper, GENIA_CA_CERT: crt, NODE_EXTRA_CA_CERTS: '/elsewhere.pem' } });
+    assert.deepEqual([r.status, r.stdout], [0, 'started kodi\n']);
+    const out = join(home, 'genia-args');
+    await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/gw-loop'));
+    assert.equal(readFileSync(out, 'utf8'), [
+      'GENIA_WORKS_RUNNER_WAKES=1',
+      'GENIA_WORKS_WAKE_MODE=runner',
+      `NODE_EXTRA_CA_CERTS=${crt}`,
+      ...(knowsPermission ? ['--permission-mode', 'bypassPermissions'] : []),
+      '--approve',
+      '-e',
+      join(scripts, '..'),
+      '/gw-loop WP --queue "AI 개발팀"',
+      '',
+    ].join('\n'));
+  });
+}
 
 tmuxTest('agent-project start: 실행기가 opencode 면 「깨우기는 실행기가」 표시와 함께 구동기 gw-opencode-loop 를 띄운다(WP-1410)', async (t) => {
   const { wrapper } = tmuxServer(t);
