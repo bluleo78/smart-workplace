@@ -167,12 +167,14 @@ check "이름에 정규식 문자는 받지 않음" "$($TRAIN next 'a.i' 2>&1 ||
 # ---- 5) 절차 검사 (WP-1836) ----
 unset TRAIN_NO_PROCEDURE_CHECK
 NOTES="$TMP/work/.work-loop/state/notes"
+# 버전이 있는 notes 머리 — 버전도 절차 줄도 없으면 전환으로 통과하므로(WP-1836 리뷰 후속) 실패 경우에 붙인다.
+HEAD_LINE='처리 파일: process-issue.md (플러그인 0.1.70) 읽음 10:00'
 mkdir -p "$NOTES"
 feature f-p1 WP-31 p1.txt 'p1'
 out=$($TRAIN stack pc f-p1 WP-31 2>&1 || true)
 check "notes 없는 이슈는 쌓지 않음" "$out" "notes 파일이 없습니다"
 check "검사 실패 — 기차를 만들지 않음" "[$(git rev-parse --verify --quiet refs/heads/integ/pc-1 || true)]" "[]"
-printf '# WP-31\n' > "$NOTES/WP-31.md"
+printf '# WP-31\n%s\n' "$HEAD_LINE" > "$NOTES/WP-31.md"
 out=$($TRAIN stack pc f-p1 WP-31 2>&1 || true)
 check "절차 줄 없는 notes 는 쌓지 않음" "$out" "절차: 줄이 없습니다"
 check "절차 줄 없음 — 기차를 만들지 않음" "[$(git rev-parse --verify --quiet refs/heads/integ/pc-1 || true)]" "[]"
@@ -181,7 +183,7 @@ out=$($TRAIN stack pc f-p1 WP-31 2>&1 || true)
 check "통과 notes 는 쌓음" "$out" "WP-31 → integ/pc-1"
 out=$($TRAIN check integ/pc-1 2>&1)
 check "check — 통과" "$out" "WP-31: 통과"
-printf '# WP-31\n' > "$NOTES/WP-31.md"
+printf '# WP-31\n%s\n' "$HEAD_LINE" > "$NOTES/WP-31.md"
 rc=0
 out=$($TRAIN check integ/pc-1 2>&1) || rc=$?
 check "check — 절차 줄이 없으면 실패" "$out" "절차 검사 실패"
