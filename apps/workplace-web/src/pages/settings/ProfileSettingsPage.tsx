@@ -17,7 +17,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { AvatarEditor } from '@/components/users/AvatarEditor'
 import { useAfterAvatarChange } from '@/hooks/queries/useAvatars'
 import { useAuth } from '@/hooks/useAuth'
-import { extractApiError } from '@/lib/api-error'
+import { apiErrorStatus, extractApiError } from '@/lib/api-error'
 import { cn } from '@/lib/utils'
 import type { ChangePasswordFormData, UpdateProfileFormData } from '@/lib/validations/user'
 import { changePasswordSchema, updateProfileSchema } from '@/lib/validations/user'
@@ -26,6 +26,14 @@ import { SetPasswordCard } from './components/SetPasswordCard'
 
 /** 아바타 섹션 앵커 — 사용자 메뉴·다른 화면에서 `/settings/profile#avatar` 로 바로 찾아온다. */
 const AVATAR_ANCHOR = 'avatar'
+
+/**
+ * 서버가 문구를 주지 않았을 때의 폼 오류 안내. 5xx(서버 고장)는 입력 탓으로 보이지 않게 따로 안내한다 —
+ * 5xx 영문 내부 문구는 extractApiError 가 버리므로(WP-1879) 그대로 두면 「현재 비밀번호가 올바르지 않습니다」로 잘못 보였다.
+ */
+function rootFallback(error: unknown, clientFallback: string): string {
+  return (apiErrorStatus(error) ?? 0) >= 500 ? '서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.' : clientFallback
+}
 
 export default function ProfileSettingsPage() {
   const { user, refreshUser } = useAuth()
@@ -67,7 +75,7 @@ export default function ProfileSettingsPage() {
     } catch (error) {
       const msg = extractApiError(error, '')
       profileForm.setError('root', {
-        message: msg && msg !== 'Validation failed' ? msg : '입력값을 확인하세요.',
+        message: msg && msg !== 'Validation failed' ? msg : rootFallback(error, '입력값을 확인하세요.'),
       })
     }
   }
@@ -84,7 +92,7 @@ export default function ProfileSettingsPage() {
     } catch (error) {
       const msg = extractApiError(error, '')
       passwordForm.setError('root', {
-        message: msg && msg !== 'Validation failed' ? msg : '현재 비밀번호가 올바르지 않습니다.',
+        message: msg && msg !== 'Validation failed' ? msg : rootFallback(error, '현재 비밀번호가 올바르지 않습니다.'),
       })
     }
   }

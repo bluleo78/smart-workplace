@@ -910,9 +910,9 @@ test('충돌 「다시 불러오기」가 실패하면 충돌 상태를 두고, 
   await tick(DEBOUNCE)
   await waitFor(() => expect(status()).toHaveAttribute('data-status', 'conflict'))
 
-  server.override.get = () => HttpResponse.json({ status: 500, message: 'boom' }, { status: 500 })
+  server.override.get = () => HttpResponse.json({ status: 500, message: '임시보관 메일을 불러오지 못했습니다' }, { status: 500 })
   await view.user.click(screen.getByTestId('mail-compose-save-reload'))
-  expect(await screen.findByText('boom')).toBeInTheDocument()
+  expect(await screen.findByText('임시보관 메일을 불러오지 못했습니다')).toBeInTheDocument()
   expect(status()).toHaveAttribute('data-status', 'conflict')
   expect(subject()).toHaveValue('여기서 고친 제목')
 
