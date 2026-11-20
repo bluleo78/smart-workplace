@@ -7,7 +7,8 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchMeIssues } from '../../api/meIssues'
 import { membersApi } from '../../api/members'
 import { wikiApi } from '../../api/wiki'
-import { usernameHandle } from '../../lib/utils'
+import { displayNameOf, usernameHandle } from '../../lib/utils'
+import type { MemberSummary } from '../../types/member'
 import type { WikiMentionType } from '../../types/wiki'
 
 // 멘션 피커 한 행 — mtype/id 가 삽입될 노드 attrs 의 원천, label/sublabel 은 표시용.
@@ -16,6 +17,18 @@ export interface WikiEntityCandidate {
   id: number
   label: string
   sublabel?: string
+}
+
+/**
+ * USER 후보 행 — label=이름(없으면 username), sublabel=usernameHandle(username)(이메일형 아이디는 @ 를 또 붙이지 않는다, WP-1880).
+ * 이름 없는 이메일형 사용자는 label 과 sublabel 이 같은 글자라 피커 행에 두 번 보이므로 sublabel 을 뺀다(WP-1880 리뷰 후속).
+ */
+export function userMentionCandidate(u: Pick<MemberSummary, 'userId' | 'name' | 'username'>): WikiEntityCandidate {
+  const label = displayNameOf(u)
+  const handle = usernameHandle(u.username)
+  // 이름이 있는 사용자는 이름이 아이디와 같아 보여도 아이디 행을 남긴다 — 이름 없는 경우만 겹침을 뺀다.
+  const duplicate = !u.name && handle === label
+  return { mtype: 'USER', id: u.userId, label, sublabel: duplicate ? undefined : handle }
 }
 
 // 타입별 최대 후보 수 — 셋을 합쳐도 메뉴가 너무 길지 않게 제한.
@@ -56,14 +69,8 @@ export function useWikiEntitySearch(query: string, spaceId: number) {
       const [users, pages, issues] = await Promise.all([usersP, pagesP, issuesP])
 
       const candidates: WikiEntityCandidate[] = []
-      // USER — label=name(없으면 username), sublabel=usernameHandle(username). 이메일형 아이디는 @ 를 또 붙이지 않는다(WP-1880).
       for (const u of users.slice(0, PER_TYPE)) {
-        candidates.push({
-          mtype: 'USER',
-          id: u.userId,
-          label: u.name || u.username,
-          sublabel: usernameHandle(u.username),
-        })
+        candidates.push(userMentionCandidate(u))
       }
       // PAGE — 현재 spaceId 를 앞으로 안정 정렬(우선) 후 상위 N. label=title, sublabel=스페이스명.
       const rankedPages = [...pages].sort(
