@@ -7,6 +7,7 @@ import { handleApiError } from '../../lib/api-error';
 import type { MessagePage, MessageResponse, UserKind } from '../../types/messaging';
 import { withLatestLinkPreviews } from './linkPreviewCache';
 import { messagingKeys } from './messagingKeys';
+import { removeOptimisticRow, settleOptimisticRow } from './optimisticRows';
 
 interface MeContext {
   id: number;
@@ -80,44 +81,26 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
     onMutate: async ({ body }) => {
       const threadKey = messagingKeys.thread(parentMessageId);
       await qc.cancelQueries({ queryKey: threadKey });
-      const threadSnap = qc.getQueryData<InfiniteData<MessagePage>>(threadKey);
+      // 스냅숏은 들고 가지 않는다 — 캐시가 있었는지만 기억(없었으면 실패 뒤 무효화).
+      const hadCache = qc.getQueryData<InfiniteData<MessagePage>>(threadKey) !== undefined;
 
       // 스레드 캐시에만 낙관적 답글을 넣는다 — 부모 replyCount 는 건드리지 않는다(SSE echo 가 +1).
       const tempId = appendOptimisticReply(qc, channelId, parentMessageId, me, body);
 
-      return { threadSnap, tempId };
+      return { hadCache, tempId };
     },
 
     onSuccess: (saved, _body, ctx) => {
       const threadKey = messagingKeys.thread(parentMessageId);
       // POST 응답은 링크 미리보기를 가져오기 전 상태다(WP-874) — echo 에 이미 붙은 미리보기 SSE 값을 살린다.
       const next = withLatestLinkPreviews(qc, channelId, saved);
-      qc.setQueryData<InfiniteData<MessagePage>>(threadKey, (old) => {
-        if (!old) return old;
-        const seen = new Set<number>();
-        return {
-          ...old,
-          pages: old.pages.map((p) => ({
-            ...p,
-            items: p.items
-              .map((m) => (m.id === ctx?.tempId ? next : m))
-              .filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true))),
-          })),
-        };
-      });
+      // 임시 답글이 사라졌으면 저장 답글을 끝에 넣고, 캐시 없이 보냈다면 목록을 다시 부른다(WP-1872).
+      if (ctx) settleOptimisticRow(qc, threadKey, ctx.tempId, next, ctx.hadCache, 'end');
     },
 
     onError: (err, _body, ctx) => {
-      const threadKey = messagingKeys.thread(parentMessageId);
-      if (ctx?.threadSnap) qc.setQueryData(threadKey, ctx.threadSnap);
-      else if (ctx) {
-        // 스냅샷이 없던(스레드 캐시 비어 있던) 경우 — 낙관 답글만 걷어 「전송 중…」이 영원히 남지 않게 한다.
-        qc.setQueryData<InfiniteData<MessagePage>>(threadKey, (old) =>
-          old
-            ? { ...old, pages: old.pages.map((p) => ({ ...p, items: p.items.filter((m) => m.id !== ctx.tempId) })) }
-            : old,
-        );
-      }
+      // 이 전송의 임시 답글만 걷는다(스냅숏 복원 X — 다른 답글·SSE 행 보존, WP-1872). 캐시가 없던 경우엔 무효화.
+      if (ctx) removeOptimisticRow(qc, messagingKeys.thread(parentMessageId), ctx.tempId, ctx.hadCache);
       handleApiError(err, '답글 전송에 실패했습니다');
     },
   });
