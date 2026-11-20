@@ -33,7 +33,7 @@ import { useEffect, useId, useState } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
-import { cn, directionParticle } from '@/lib/utils'
+import { cn, directionParticle, usernameHandle } from '@/lib/utils'
 
 import { userGroupsApi } from '../../api/userGroups'
 import { groupAllMembersQuery } from '../../hooks/queries/useGroupMemberSearch'
@@ -525,7 +525,7 @@ export function PeopleAndDepartmentPicker({
             <PersonAvatar name={u.name} />
             <span className="truncate font-medium">{u.name}</span>
             {/* 소속 부서(없으면 아이디)로 같은 이름을 가른다. */}
-            <span className="truncate text-xs text-muted-foreground">{u.department ?? `@${u.username}`}</span>
+            <span className="truncate text-xs text-muted-foreground">{u.department ?? usernameHandle(u.username)}</span>
             {u.kind === 'AGENT' && <AgentBadge size="xs" />}
             {added && <span className="ml-auto shrink-0 text-xs text-muted-foreground">(이미 추가됨)</span>}
             {note && (

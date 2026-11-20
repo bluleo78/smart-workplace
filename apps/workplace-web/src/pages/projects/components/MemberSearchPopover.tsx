@@ -29,6 +29,7 @@ import { AgentBadge } from '../../../components/users/AgentBadge';
 import type { MemberPickerCandidate } from '../../../hooks/queries/useUserSearch';
 import { useUserSearch } from '../../../hooks/queries/useUserSearch';
 import { useDebounceValue } from '../../../hooks/useDebounceValue';
+import { usernameHandle } from '../../../lib/utils';
 import type { UserKind } from '../../../types/user';
 
 type KindFilter = 'ALL' | UserKind;
@@ -150,7 +151,7 @@ export function MemberSearchPopover({
                     >
                       <span className="font-medium truncate">{u.name}</span>
                       <span className="text-xs text-muted-foreground truncate">
-                        @{u.username}
+                        {usernameHandle(u.username)}
                       </span>
                       {u.kind === 'AGENT' && <AgentBadge size="xs" />}
                       {isMember && (

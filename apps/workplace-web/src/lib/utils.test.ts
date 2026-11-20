@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { andParticle, cn, directionParticle, euroRo, initialOf, objectParticle, subjectParticle } from './utils'
+import { andParticle, cn, directionParticle, euroRo, initialOf, objectParticle, subjectParticle, usernameHandle } from './utils'
 
 describe('cn — 줄바꿈 클래스 병합 (WP-1073)', () => {
   it('break-words(overflow-wrap)는 break-keep(word-break)과 함께 남는다 — 지워지면 긴 제목이 넘친다', () => {
@@ -81,5 +81,24 @@ describe('directionParticle', () => {
     expect(directionParticle('모듈')).toBe('로')
     expect(directionParticle('보드')).toBe('로')
     expect(directionParticle('v2')).toBe('(으)로')
+  })
+})
+
+// 사용자 아이디 표시 — 이메일형 아이디(admin@host)에 @ 를 또 붙여 「@admin@host」로 보이던 문제(WP-1880).
+describe('usernameHandle (WP-1880)', () => {
+  it('일반 아이디는 @ 접두를 붙인다', () => {
+    expect(usernameHandle('jay')).toBe('@jay')
+  })
+
+  it('이메일형 아이디는 이미 @ 가 있으므로 접두를 붙이지 않는다', () => {
+    expect(usernameHandle('admin@work-loop.local')).toBe('admin@work-loop.local')
+  })
+
+  it('이미 @ 로 시작하면 그대로 둔다 (이중 접두 방지)', () => {
+    expect(usernameHandle('@jay')).toBe('@jay')
+  })
+
+  it('빈 아이디는 빈 문자열', () => {
+    expect(usernameHandle('')).toBe('')
   })
 })

@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchMeIssues } from '../../api/meIssues'
 import { membersApi } from '../../api/members'
 import { wikiApi } from '../../api/wiki'
+import { usernameHandle } from '../../lib/utils'
 import type { WikiMentionType } from '../../types/wiki'
 
 // 멘션 피커 한 행 — mtype/id 가 삽입될 노드 attrs 의 원천, label/sublabel 은 표시용.
@@ -55,13 +56,13 @@ export function useWikiEntitySearch(query: string, spaceId: number) {
       const [users, pages, issues] = await Promise.all([usersP, pagesP, issuesP])
 
       const candidates: WikiEntityCandidate[] = []
-      // USER — label=name(없으면 username), sublabel=@username.
+      // USER — label=name(없으면 username), sublabel=usernameHandle(username). 이메일형 아이디는 @ 를 또 붙이지 않는다(WP-1880).
       for (const u of users.slice(0, PER_TYPE)) {
         candidates.push({
           mtype: 'USER',
           id: u.userId,
           label: u.name || u.username,
-          sublabel: `@${u.username}`,
+          sublabel: usernameHandle(u.username),
         })
       }
       // PAGE — 현재 spaceId 를 앞으로 안정 정렬(우선) 후 상위 N. label=title, sublabel=스페이스명.

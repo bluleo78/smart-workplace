@@ -6,6 +6,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo } from 'react'
 
 import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
+import { usernameHandle } from '../../lib/utils'
 import type { WikiMentionType } from '../../types/wiki'
 
 // 이 탭에서 삽입한 멘션의 라벨(mtype:id → label). 모듈 수명 동안 유지 — 같은 대상의 라벨은 페이지가 달라도 같다.
@@ -52,10 +53,11 @@ function resolveMentionLabel(map: Map<string, string>, mtype: WikiMentionType, i
   return mtype === 'USER' ? `사용자 ${id}` : mtype === 'PAGE' ? `페이지 #${id}` : `이슈 #${id}`
 }
 
-/** 칩에 보일 글자 — USER 는 채팅 칩과 같은 "@" 접두, PAGE/ISSUE 는 참조 링크라 접두 없음(#703). */
+/** 칩에 보일 글자 — USER 는 채팅 칩과 같은 "@" 접두, PAGE/ISSUE 는 참조 링크라 접두 없음(#703).
+ *  라벨이 이름 없는 사용자의 username 폴백이면 이메일(@ 포함)일 수 있어 usernameHandle 로 "@@" 중복을 막는다(WP-1880). */
 // eslint-disable-next-line react-refresh/only-export-components
 export function mentionChipText(mtype: WikiMentionType, label: string): string {
-  return mtype === 'USER' ? `@${label}` : label
+  return mtype === 'USER' ? usernameHandle(label) : label
 }
 
 /** 칩에 보일 라벨 — 해소 결과 > 로컬 기억 > 대체 라벨. */

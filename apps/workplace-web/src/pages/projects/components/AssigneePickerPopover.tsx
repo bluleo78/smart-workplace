@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/po
 import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { labelWithValue } from '@/lib/labelWithValue';
-import { cn } from '@/lib/utils';
+import { cn, usernameHandle } from '@/lib/utils';
 
 import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
 import { AgentBadge } from '../../../components/users/AgentBadge';
@@ -176,7 +176,7 @@ export function AssigneePickerPopover({
               className="flex min-w-0 items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
               data-testid={`assignee-option-${m.userId}`}
               data-agent={m.kind === 'AGENT' ? 'true' : undefined}
-              title={`${m.name} @${m.username}`}
+              title={`${m.name} ${usernameHandle(m.username)}`}
             >
               <input
                 type="checkbox"
@@ -191,7 +191,7 @@ export function AssigneePickerPopover({
                   이름·AgentBadge·「비활성」 배지가 글자로 함께 있어 아바타는 장식으로 두고 AI 표식도 뺀다(WP-1160 — AI·비활성을 두 번 표시·낭독). */}
               <CandidateAvatar user={toSummary(m)} />
               <span className="min-w-0 truncate text-sm">{m.name}</span>
-              <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">@{m.username}</span>
+              <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">{usernameHandle(m.username)}</span>
               {m.kind === 'AGENT' && <AgentBadge size="xs" />}
               {isInactiveUser(m) && (
                 <StatusBadge type="inactive" className="shrink-0" data-testid={`assignee-option-${m.userId}-inactive`}>

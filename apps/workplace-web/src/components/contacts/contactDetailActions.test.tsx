@@ -108,3 +108,14 @@ test('다른 멤버로 바꾸면 단추가 새 멤버를 가리킨다', async ()
   await view.user.click(bar.getByRole('button', { name: '메일 쓰기' }))
   expect(await screen.findByTestId('draft-to')).toHaveTextContent('jisu@example.com')
 })
+
+test('이메일 username 멤버는 메타에 @ 를 겹쳐 붙이지 않는다 (WP-1880)', async () => {
+  setup([http.get('/api/v1/contacts/members/:id', () => HttpResponse.json(detail({ username: 'admin@work-loop.local' })))])
+  expect(await screen.findByText('멤버 · admin@work-loop.local')).toBeInTheDocument()
+  expect(screen.queryByText(/@admin@/)).toBeNull()
+})
+
+test('핸들 username 멤버는 @ 를 붙인다 (WP-1880)', async () => {
+  setup()
+  expect(await screen.findByText('멤버 · @minsu')).toBeInTheDocument()
+})

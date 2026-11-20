@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { labelWithValue } from '@/lib/labelWithValue';
-import { cn } from '@/lib/utils';
+import { cn, usernameHandle } from '@/lib/utils';
 
 import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
 import { PersonCardTrigger } from '../../../components/users/personCard/PersonCardTrigger';
@@ -209,12 +209,12 @@ function ReporterPicker({
                   // 이름·아이디 한 줄 말줄임 — 담당자 픽커와 같은 규칙(WP-461).
                   className="flex w-full min-w-0 items-center gap-2 rounded p-1 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
                   data-testid={`reporter-option-${m.userId}`}
-                  title={`${m.name} @${m.username}`}
+                  title={`${m.name} ${usernameHandle(m.username)}`}
                   onClick={() => pick(m)}
                 >
                   <UserAvatar user={{ id: m.userId, username: m.username, name: m.name }} size="xs" />
                   <span className="min-w-0 truncate text-sm">{m.name}</span>
-                  <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">@{m.username}</span>
+                  <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">{usernameHandle(m.username)}</span>
                 </button>
               ))
             )}
