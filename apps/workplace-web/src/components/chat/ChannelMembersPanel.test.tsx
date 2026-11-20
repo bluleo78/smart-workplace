@@ -2,9 +2,12 @@
 // 사람 줄의 부서 안내(「개발팀에도 속함」·「개발팀으로 참여」)·내보내기 확인 문구·부서로만 들어온 사람의 역할 안내, 공개 채널은 부서를 숨기는 것,
 // 내 그룹을 사람으로 풀어 초대(이미 직접 멤버는 빼고, 부서로만 들어온 사람은 초대해 직접 멤버로 고정)·부서로만 들어온 사람의 직접 초대,
 // 부서 이름을 모를 때(부서 목록 실패) 줄 안내를 숨기고 내보내기 문구를 「조직도 부서로도」로 쓰는 것을 MSW 로 본다.
+// 나가기가 409 로 실패하면 토스트로 안내하고 이 화면에 머물며 미처리 Promise rejection 이 남지 않는 것, 성공하면 그 사이 패널이 사라져도
+// /chat 으로 가는 것(WP-1799)도 본다.
 // 사람 초대·역할 변경·소유권 이전·나가기 같은 기존 패널 동작은 pages/chat/channelPage.test.tsx 「멤버 패널」이 채널 화면에서 본다.
 import { screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, type HttpHandler, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { describe, expect, test } from 'vitest'
 
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
@@ -67,6 +70,8 @@ function openPanel({
   groups: initialGroups = [DEV],
   members: initialMembers = MEMBERS,
   groupsFail = false,
+  path,
+  extraHandlers = [],
 }: {
   visibility?: ChannelVisibility
   myRole?: ChannelRole
@@ -74,6 +79,10 @@ function openPanel({
   members?: ChannelMemberResponse[]
   /** 멤버 부서 조회를 500 으로 — 부서 이름을 모르는 상태. */
   groupsFail?: boolean
+  /** 시작 주소 — 이동하지 않았는지 볼 때. */
+  path?: string
+  /** 더 줄 핸들러(나가기 등) — 기본 핸들러보다 앞에 둔다. */
+  extraHandlers?: HttpHandler[]
 } = {}) {
   let groups = [...initialGroups]
   let members = [...initialMembers]
@@ -82,7 +91,9 @@ function openPanel({
   const view = renderScreen(
     <ChannelMembersPanel channelId={CID} myRole={myRole} visibility={visibility} open onOpenChange={() => {}} />,
     {
+      path,
       handlers: [
+        ...extraHandlers,
         http.get(`${API}/members`, () => HttpResponse.json(members)),
         http.post(`${API}/members`, async ({ request }) => {
           const body = (await request.json()) as { userId: number }
@@ -306,5 +317,53 @@ describe('채널 멤버 패널 — 조직도 부서·내 그룹(WP-1058)', () =>
     expect(screen.queryByTestId('member-via-5')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '박민수 제거' }))
     expect(await screen.findByTestId('member-remove-group-note')).toHaveTextContent('조직도 부서로도 참여 중 — 내보내면 부서 대상에서도 제외됩니다')
+  })
+})
+
+describe('채널 멤버 패널 — 나가기(WP-1799)', () => {
+  test('나가기가 409 면 토스트로 안내하고 이 화면에 머물며 미처리 rejection 이 없다', async () => {
+    const message = '채널 소유자는 소유권을 다른 멤버에게 넘긴 뒤에 나갈 수 있습니다'
+    // 나가기 요청 수 — 실패해도 정확히 한 번만 보내야 한다.
+    let leaveCalls = 0
+    const { user, location } = openPanel({
+      path: '/chat/channels/70',
+      extraHandlers: [
+        http.post(`${API}/leave`, () => {
+          leaveCalls += 1
+          return HttpResponse.json({ status: 409, message }, { status: 409 })
+        }),
+      ],
+    })
+    await user.click(await screen.findByTestId('channel-leave-btn'))
+    await user.click(await screen.findByTestId('channel-leave-confirm'))
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(location()).toBe('/chat/channels/70')
+    expect(leaveCalls).toBe(1)
+  })
+
+  test('나가기가 성공하면 그 사이 패널이 사라져도(채널 상세 404 등) /chat 으로 간다', async () => {
+    // 나간 직후 실시간 갱신으로 채널 상세가 404 가 되면 채널 화면이 패널을 내린다 — 그래도 이동은 해야 한다.
+    let hidePanel = () => {}
+    function Host() {
+      const [shown, setShown] = useState(true)
+      hidePanel = () => setShown(false)
+      return shown ? <ChannelMembersPanel channelId={CID} myRole="MEMBER" visibility="PRIVATE" open onOpenChange={() => {}} /> : null
+    }
+    const { user, location } = renderScreen(<Host />, {
+      path: '/chat/channels/70',
+      handlers: [
+        http.get(`${API}/members`, () => HttpResponse.json(MEMBERS)),
+        http.get(`${API}/member-groups`, () => HttpResponse.json([])),
+        http.post(`${API}/leave`, async () => {
+          // 응답이 오기 전에 패널이 사라진다 — 숨긴 뒤 다시 그려질 틈을 두고 응답한다.
+          hidePanel()
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          return new HttpResponse(null, { status: 204 })
+        }),
+      ],
+    })
+    await user.click(await screen.findByTestId('channel-leave-btn'))
+    await user.click(await screen.findByTestId('channel-leave-confirm'))
+    await waitFor(() => expect(location()).toBe('/chat'))
   })
 })

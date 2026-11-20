@@ -369,6 +369,8 @@ export function ChannelMembersPanel({
               size="sm"
               variant="destructive"
               data-testid="channel-leave-btn"
+              // 나가는 중에는 다시 열어 두 번 나가기를 보내지 않게 막는다(DmHeader 와 같다).
+              disabled={leave.isPending}
               onClick={() => setConfirmLeave(true)}
             >
               채널 나가기
@@ -482,10 +484,9 @@ export function ChannelMembersPanel({
             <AlertDialogAction
               variant="destructive"
               data-testid="channel-leave-confirm"
-              onClick={async () => {
-                await leave.mutateAsync(channelId)
-                navigate('/chat')
-              }}
+              // 실패(409 등)는 훅이 토스트로 알리니 여기서는 삼켜 미처리 rejection 을 남기지 않는다(WP-1799). mutate 의 호출별 onSuccess 는
+              // 패널이 사라지면(나간 직후 채널 상세 404) 불리지 않아 쓰지 않는다 — 약속을 기다리면 패널이 사라져도 /chat 으로 간다.
+              onClick={() => leave.mutateAsync(channelId).then(() => navigate('/chat'), () => {})}
             >
               나가기
             </AlertDialogAction>
