@@ -11,12 +11,14 @@ import { useMemo } from 'react'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { Page } from '@/components/layout/Page'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDashboardLayout, useIsCollapseSaving } from '@/hooks/queries/useDashboard'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildHomeContext } from '@/lib/aiScreenContext/builders/mobileLists'
+import { failedWithoutData } from '@/lib/queryFailure'
 import type { DashboardDevice } from '@/types/dashboard'
 
 import { DashboardWidgetList } from './dashboard/DashboardWidgetList'
@@ -42,11 +44,17 @@ export function Dashboard() {
   // 기기 판단은 셸과 같은 기준(lg 미만 = 모바일). 폭이 lg 경계를 넘으면 그 기기 레이아웃을 새로 조회한다(WP-142).
   const isMobile = useIsMobile()
   const device: DashboardDevice = isMobile ? 'mobile' : 'desktop'
-  const { data, isLoading } = useDashboardLayout(device)
+  const layoutQuery = useDashboardLayout(device)
+  const { data, isLoading } = layoutQuery
+  // WP-1850: 레이아웃 조회가 데이터 없이 실패하면 「보이는 위젯이 없습니다」 빈 상태로 위장하지 않는다 — 사용자가 위젯이 사라졌다고
+  // 오해하고, 편집→저장하면 빈 초안으로 저장된 레이아웃을 덮어쓸 수 있다. 다시 부르는 중에도 안내를 유지(failedWithoutData).
+  // 이미 받은 레이아웃의 재조회 실패는 data 가 남아 있으므로 해당 없음(위젯 그대로).
+  const loadFailed = failedWithoutData(layoutQuery)
   // 접기 저장 중엔 편집 진입을 막는다 — 늦게 도착한 접기 PUT 이 편집 저장을 덮어쓰지 않게(데스크톱은 접기가 없어 항상 false).
   const collapseSaving = useIsCollapseSaving()
   // 편집 초안·액션 — 편집은 시작한 기기에 묶인다(editing = 시작 기기 === 현재 기기, 저장도 시작 기기로).
   const edit = useDashboardEditDraft({ device, savedWidgets: data?.widgets, collapseSaving })
+  // 조회 실패로 기준 레이아웃이 없으면 훅이 editing 을 끈다(WP-1850 — 편집 배너·위젯 추가를 그리지 않는다).
   const { editing, draft } = edit
 
   // 저장된 레이아웃 → 알려진 위젯만 해석(알 수 없는 타입은 조용히 스킵).
@@ -54,14 +62,16 @@ export function Dashboard() {
 
   // WP-191: 모바일 홈은 탭 루트 — 위젯 제목으로 화면 컨텍스트를 등록한다(데스크톱 홈은 기존대로 미등록).
   const homeCtx = useMemo(
-    () => (isMobile ? buildHomeContext({ widgets: savedEntries.map(entryTitle) }) : null),
-    [isMobile, savedEntries],
+    // 조회 실패면 등록하지 않는다 — 빈 위젯 목록으로 알리면 AI 도 「위젯이 없다」로 오해한다(WP-1850).
+    () => (isMobile && !loadFailed ? buildHomeContext({ widgets: savedEntries.map(entryTitle) }) : null),
+    [isMobile, loadFailed, savedEntries],
   )
   useRegisterAiScreenContext(homeCtx)
 
   const homeIcon = <Home className="h-5 w-5 text-muted-foreground" />
 
-  if (isLoading)
+  // 실패 뒤 다시 부르는 중(isLoading 이 다시 참)에도 스켈레톤으로 바꾸지 않고 오류 안내를 유지한다(초점 보존, WP-881·WP-1850).
+  if (isLoading && !loadFailed)
     return (
       <Page>
         <Page.Header data-testid="canvas-header" title="홈" icon={homeIcon} />
@@ -88,7 +98,7 @@ export function Dashboard() {
               variant="outline"
               size="sm"
               data-testid="dashboard-edit-toggle"
-              disabled={collapseSaving}
+              disabled={collapseSaving || loadFailed}
               onClick={edit.enterEdit}
             >
               <Pencil className="h-4 w-4" />
@@ -115,7 +125,7 @@ export function Dashboard() {
             <HeaderIconAction
               label="홈 편집"
               data-testid="dashboard-edit-toggle"
-              disabled={collapseSaving}
+              disabled={collapseSaving || loadFailed}
               onClick={edit.enterEdit}
             >
               <Pencil />
@@ -187,7 +197,11 @@ export function Dashboard() {
           {edit.liveMsg}
         </div>
 
-        <DashboardWidgetList isMobile={isMobile} savedEntries={savedEntries} edit={edit} />
+        {loadFailed ? (
+          <LoadErrorState title="홈 위젯을 불러오지 못했습니다" queries={[layoutQuery]} testId="dashboard-load-error" />
+        ) : (
+          <DashboardWidgetList isMobile={isMobile} savedEntries={savedEntries} edit={edit} />
+        )}
 
         {editing && (
           <AddWidgetModal
