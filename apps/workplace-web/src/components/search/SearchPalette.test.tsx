@@ -296,6 +296,13 @@ test('검색어가 있어 AI 요청 버튼이 보여도 Shift+Tab 은 입력 포
   await user.keyboard('{Tab}')
   expect(input).toHaveFocus()
   expect(screen.getByTestId('global-search-tab-wiki')).toHaveAttribute('aria-selected', 'true')
+  // 한글 조합 중(「배포」 마지막 글자 조합 중) Shift+Tab — 탭은 그대로, 초점도 입력에 남는다(WP-1791 리뷰 후속).
+  expect(fireEvent.keyDown(input, { key: 'Tab', shiftKey: true, isComposing: true })).toBe(false)
+  expect(input).toHaveFocus()
+  expect(screen.getByTestId('global-search-tab-wiki')).toHaveAttribute('aria-selected', 'true')
+  // Windows 한글 IME 는 조합 중 키를 key='Process'·keyCode 229 로 보낸다 — 물리 키(code)로 Tab 을 알아 기본 동작을 막는다.
+  expect(fireEvent.keyDown(input, { key: 'Process', code: 'Tab', keyCode: 229, shiftKey: true })).toBe(false)
+  expect(input).toHaveFocus()
   // Ctrl+Tab 은 창·브라우저 몫이라 검색 탭을 바꾸지 않는다.
   await user.keyboard('{Control>}{Tab}{/Control}')
   expect(screen.getByTestId('global-search-tab-wiki')).toHaveAttribute('aria-selected', 'true')
