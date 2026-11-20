@@ -4,7 +4,9 @@
 #   2) 멈춤: 마이그레이션 번호 겹침·앞서 실린 이슈와 충돌·origin/main 과 충돌에서 쌓지 않음
 #   3) 출발: push 한 기차에는 쌓지 않고 다음 번호 기차를 만든다
 #   4) rebase: 출발 전에는 최신 origin/main 으로, 출발한 기차는 충돌할 때만
-# 을 단언한다.
+#   5) 리뷰 반영: 뒤처진 기차에 쌓기·번호 겹침·prune 뒤 출발 판정·충돌 아닌 rebase 실패·신원 없는 환경
+#   6) 출발 표지(WP-1839): depart 한 기차에는 쌓지 않고, 표지 기차는 출발한 기차 rebase 규칙, 지운 번호를 다시 쓰면 표지 없음,
+#      최신 main 이 아니거나 앞 기차가 main 에 없으면 depart 거절을 단언한다.
 #
 # 사용: 리포지토리 루트에서 `sh scripts/husky/train.test.sh`
 
@@ -191,6 +193,72 @@ check "check — 실패 종료 코드 1" "$rc" "1"
 
 out=$(TRAIN_NO_PROCEDURE_CHECK=1 $TRAIN check integ/pc-1 2>&1)
 check "check — 우회 환경변수면 검사를 건너뜀" "$out" "절차 검사를 건너뜁니다"
+
+# ---- 6) 출발 표지(WP-1839) — 게이트를 띄우기 전 depart 하면 그 뒤 쌓는 이슈는 다음 기차로 ----
+# 출발 표지 검사는 절차 검사와 무관하다 — 5) 가 풀어 둔 우회를 다시 켠다
+export TRAIN_NO_PROCEDURE_CHECK=1
+feature f-d1 WP-20 d1.txt 'd1'
+$TRAIN stack bi f-d1 WP-20 >/dev/null 2>&1
+out=$($TRAIN depart integ/bi-1 2>&1)
+check "depart — 출발 표시" "$out" "integ/bi-1: 출발 표시 — 이제 쌓는 이슈는 다음 기차로 갑니다"
+check "depart — 표지는 git 설정" "$(git config --get branch.integ/bi-1.trainDeparted)" "true"
+check "표지 기차는 next 에 없음" "[$($TRAIN next bi)]" "[]"
+feature f-d2 WP-21 d2.txt 'd2'
+out=$($TRAIN stack bi f-d2 WP-21 2>&1)
+check "표지 뒤 쌓기 — 다음 번호 기차" "$out" "새 기차 integ/bi-2" "→ integ/bi-1"
+check "표지 기차는 그대로" "$($TRAIN keys integ/bi-1)" "WP-20"
+check "depart 다시 불러도 성공" "$($TRAIN depart integ/bi-1 2>&1 && echo rc0)" "integ/bi-1: 출발 표시 — 이제 쌓는 이슈는 다음 기차로 갑니다
+rc0"
+# 표지만 있고 push 전 — 충돌 없으면 rebase 하지 않는다(출발한 기차 규칙)
+git checkout -q main; printf 'd\n' > main-d.txt; git add -A; git commit -qm "main 출발 표지 뒤"; git push -q origin main
+before=$(git rev-parse integ/bi-1)
+out=$($TRAIN rebase integ/bi-1 2>&1)
+check "표지 기차 — 충돌 없으면 rebase 하지 않음" "$out" "충돌하지 않아 rebase 하지 않습니다"
+check "표지 기차 — 그대로" "$(git rev-parse integ/bi-1)" "$before"
+# 빈 기차·기차 아닌 브랜치는 출발하지 않는다
+git branch -q integ/ci-1 origin/main
+check "빈 기차 depart 거절" "$($TRAIN depart integ/ci-1 2>&1 || echo "rc$?")" "실린 이슈가 없어 출발하지 않습니다" "출발 표시"
+check "빈 기차 — 표지 없음" "[$(git config --get branch.integ/ci-1.trainDeparted || true)]" "[]"
+check "기차 아닌 브랜치 depart 거절" "$($TRAIN depart main 2>&1 || echo "rc$?")" "rc2"
+# 지운 기차 번호를 다시 쓰면 표지 없음 — 표지는 브랜치 설정이라 git branch -D 와 함께 지워진다
+git branch -q -D integ/ci-1
+feature f-r1 WP-22 c1.txt 'c1'
+$TRAIN stack ci f-r1 WP-22 >/dev/null 2>&1
+$TRAIN depart integ/ci-1 >/dev/null 2>&1
+git worktree remove --force "$TMP/work/.claude/worktrees/integ-ci-1"
+git branch -q -D integ/ci-1
+feature f-r2 WP-23 c2.txt 'c2'
+out=$($TRAIN stack ci f-r2 WP-23 2>&1)
+check "지운 기차 번호를 다시 쓰면 표지 없음" "$out" "새 기차 integ/ci-1"
+feature f-r3 WP-24 c3.txt 'c3'
+out=$($TRAIN stack ci f-r3 WP-24 2>&1)
+check "다시 쓴 번호 기차에 이어 쌓음" "$out" "WP-24 → integ/ci-1" "새 기차"
+
+# depart 는 최신 origin/main 위의 기차만 출발시킨다 — 표지가 서면 rebase 가 충돌 때만 하게 되어 낡은 기차를 최신으로 올릴 수 없다
+feature f-s1 WP-30 s1.txt 's1'
+$TRAIN stack di f-s1 WP-30 >/dev/null 2>&1
+git checkout -q main; printf 's\n' > main-s.txt; git add -A; git commit -qm "main 쌓은 뒤 진행"; git push -q origin main
+out=$($TRAIN depart integ/di-1 2>&1 || echo "rc$?")
+check "낡은 기차 depart 거절" "$out" "최신 origin/main 위가 아닙니다 — 먼저 sh scripts/husky/train.sh rebase integ/di-1 뒤 depart 합니다"
+check "낡은 기차 — 표지 없음" "[$(git config --get branch.integ/di-1.trainDeparted || true)]" "[]"
+$TRAIN rebase integ/di-1 >/dev/null 2>&1
+out=$($TRAIN depart integ/di-1 2>&1)
+check "rebase 뒤 depart 성공" "$out" "integ/di-1: 출발 표시"
+check "rebase 뒤 depart — 표지" "$(git config --get branch.integ/di-1.trainDeparted)" "true"
+
+# 앞 기차가 main 에 들어가기 전에는 다음 기차가 출발하지 않는다
+git -C "$TMP/work/.claude/worktrees/integ-di-1" push -q -u origin integ/di-1
+feature f-s2 WP-31 s2.txt 's2'
+out=$($TRAIN stack di f-s2 WP-31 2>&1)
+check "앞 기차 출발 뒤 쌓기 — 다음 번호" "$out" "새 기차 integ/di-2"
+out=$($TRAIN depart integ/di-2 2>&1 || echo "rc$?")
+check "앞 기차가 main 에 없으면 depart 거절" "$out" "앞 기차 integ/di-1 이 아직 main 에 들어가지 않아 출발하지 않습니다"
+check "앞 기차 미머지 — 표지 없음" "[$(git config --get branch.integ/di-2.trainDeparted || true)]" "[]"
+# 앞 기차를 main 에 머지(PR 머지 흉내) — 그 뒤 다음 기차를 최신으로 올려 출발
+git checkout -q main; git merge -q --no-ff -m "통합 WP-30 머지" integ/di-1; git push -q origin main
+$TRAIN rebase integ/di-2 >/dev/null 2>&1
+out=$($TRAIN depart integ/di-2 2>&1)
+check "앞 기차가 머지되면 depart 성공" "$out" "integ/di-2: 출발 표시"
 
 check "잘못된 하위 명령은 사용법" "$($TRAIN nope 2>&1 || true)" "사용:"
 

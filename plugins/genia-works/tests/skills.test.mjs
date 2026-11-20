@@ -847,6 +847,15 @@ test('기차: 저장소가 켜면 9~11번 대신 쌓기 → 출발 → 통합 PR
   assert.ok(!pi.includes('묶음 게이트'));
 });
 
+// WP-1839 기차 출발 표지 — rebase 뒤·게이트 앞에 `train depart` 로 표시해, 게이트 중 끝난 이슈가 출발한 기차에 쌓이지 않게 한다.
+test('기차 출발은 rebase 뒤 train depart 로 표시하고 게이트를 돈다 (WP-1839)', () => {
+  const pi = workLoop('process-issue.md');
+  const train = pi.slice(pi.indexOf('### 기차 (저장소가 켰을 때)'), pi.indexOf('### PR 리뷰·머지 (검토자)'));
+  const line = train.split('\n').find((l) => l.startsWith('   - 출발 = '));
+  assert.ok(line, '출발 = 줄');
+  assert.match(line, /rebase[^\n]*→[^\n]*train depart[^\n]*→[^\n]*게이트[^\n]*→[^\n]*push/);
+});
+
 // WP-1810 — 대기 중(PR 리뷰 대기 = 기차 대기)도 자리를 쥔다(WP-1216 을 뒤집음). slots 가 없는 옛 서버의 셈도 같은 기준.
 test('SKILL.md 3번: 대기 중도 동시 진행 자리로 센다 — slots 가 없을 때의 셈도 같다 (WP-1810)', () => {
   const skill = body(workLoop('SKILL.md'));
