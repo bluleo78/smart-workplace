@@ -23,7 +23,7 @@ export function RecurrenceRunNowButton({
   recurrence: IssueRecurrence | null | undefined;
   /** 이슈를 고칠 수 없는 사람(팀 이슈 읽기 전용)이면 잠근다. */
   locked?: boolean;
-  /** 바깥 줄에서의 자리(예: ml-auto) — 이유 툴팁 감싸개가 있으면 감싸개에, 없으면 버튼에 단다. */
+  /** 바깥 줄에서의 자리(예: ml-auto) — 늘 이유 툴팁 감싸개에 단다(WP-1852). */
   className?: string;
 }) {
   const run = useRunIssueRecurrenceNow(projectKey, number);
@@ -37,7 +37,6 @@ export function RecurrenceRunNowButton({
       variant="outline"
       size="xs"
       disabled={state.disabled}
-      className={state.reason ? undefined : className}
       onClick={() => run.mutate()}
       data-testid="task-recurrence-run-now"
     >
@@ -51,16 +50,15 @@ export function RecurrenceRunNowButton({
     </Button>
   );
   // 막힌 버튼은 포인터를 받지 않아 툴팁을 못 띄우므로 이유 툴팁 감싸개로 — 키보드 포커스에도 이유가 보인다.
-  return state.reason ? (
+  // WP-1852: 감싸개를 늘 두고(이유가 없으면 이름·툴팁 없는 빈 껍데기) 자리(className)도 늘 감싸개에 단다 —
+  //   실행 중으로 바뀔 때 버튼이 다시 만들어져 키보드 초점이 body 로 떨어지던 문제를 막는다.
+  return (
     <DisabledReasonTooltip
       reason={state.reason}
-      aria-label={state.reason}
       className={className}
       data-testid="task-recurrence-run-now-reason"
     >
       {button}
     </DisabledReasonTooltip>
-  ) : (
-    button
   );
 }
