@@ -649,6 +649,9 @@ test.describe('핀치·두 번 탭 확대', { tag: '@input' }, () => {
   })
 
   test('PDF 축소(3배 → 맞춤 쪽)에서도 보던 위치가 비례해 유지된다', async ({ authenticatedPage: page }) => {
+    // 무거운 시나리오(PDF 로드 + DPR3 3배 재렌더 + 핀치 두 번)라 push 게이트 전체 E2E 부하에서 30초 한도를 넘겼다(WP-1846).
+    // CPU 6배 재현에선 뷰어 열기만 ~28초, 비율 차 0.03 으로 동작은 정상 — 예산만 늘린다.
+    test.slow()
     await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
     await openViewer(page, 'doc.pdf')
     await expect(page.getByTestId('pdf-page-1')).toBeVisible()
