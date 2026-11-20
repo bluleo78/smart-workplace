@@ -26,8 +26,10 @@ const DEBOUNCE = 1500
 const SEND_PATH = '/api/v1/mail/accounts/1/send'
 
 beforeEach(() => {
-  // 디바운스·토스트는 setTimeout 이다 — 그것만 가짜로 두고 실제 시간도 흐르게 해(userEvent·MSW 지연) 필요할 때만 앞당긴다.
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  // 디바운스·토스트는 setTimeout, inflight 다시 확인(TanStack Query refetchInterval)은 setInterval 이다 — 그것만 가짜로 두고 실제 시간도
+  // 흐르게 해(userEvent·MSW 지연) 필요할 때만 앞당긴다. setInterval 을 빼면 tick(DRAFT_INFLIGHT_RECHECK_MS) 가 다시 확인을 앞당기지 못해
+  // 실제 5초를 기다리게 되고, 그 뒤 findBy 대기(5초)와 경합해 부하가 크면 실패했다(WP-1808).
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'], shouldAdvanceTime: true })
 })
 afterEach(() => {
   vi.useRealTimers()
