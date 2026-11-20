@@ -2,6 +2,7 @@ package com.workplace.mail.service;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailAnalysisBreaker.Admission;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -33,17 +34,22 @@ public class MailClassifyBackfillService {
   /** 대상 조회용 — @Primary TenantAwareTransactionManager 라 진입 시 RLS GUC 주입. */
   private final TransactionTemplate txTemplate;
 
+  /** 백필 전용 회로 차단기(WP-1812). */
+  private final MailAnalysisBreaker breaker;
+
   public MailClassifyBackfillService(
       EmailMessageRepository messageRepo,
       MailAnalysisService analysis,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      MailAnalysisBreaker breaker) {
+    this.breaker = breaker;
     this.messageRepo = messageRepo;
     this.analysis = analysis;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
   /** off→on 전환 비동기 진입점. TenantContext 전파 실패 시 RLS fail-closed 라 경고 후 skip. */
-  @Async("aiAgentEventExecutor")
+  @Async("mailAnalysisExecutor")
   public void classifyRecentUnread(long userId, long accountId) {
     if (TenantContext.get() == null) {
       log.warn("개인 분석 백필 skip — TenantContext 없음 accountId={}", accountId);
@@ -61,9 +67,19 @@ public class MailClassifyBackfillService {
     }
     UserMailProfileCache profiles = analysis.newProfileCache(); // 이 백필 동안 "나" 프로필 1회 조회(WP-150)
     for (Long id : ids) {
+      Admission admission = breaker.admit(id);
+      if (admission == Admission.OPEN) {
+        return; // 모델 실패가 이어져 회로가 열렸다(WP-1812) — 남은 메일은 다음 기회에
+      }
+      if (admission == Admission.SKIP) {
+        continue;
+      }
       try {
-        analysis.analyzePersonal(userId, id, profiles);
+        if (analysis.analyzePersonal(userId, id, profiles)) {
+          breaker.recordSuccess();
+        }
       } catch (RuntimeException e) {
+        breaker.onError(id, e);
         log.warn("개인 분석 백필 건너뜀 (messageId={}): {}", id, e.toString());
       }
     }

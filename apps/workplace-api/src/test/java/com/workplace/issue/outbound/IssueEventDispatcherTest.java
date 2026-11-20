@@ -20,6 +20,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueRecurringRunEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.service.IssueRecurrenceService;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.util.List;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.beans.factory.ObjectProvider;
 
 /** IssueEventDispatcher — 필터·envelope 빌드 검증. Spring 컨텍스트 없이 직접 호출. */
 class IssueEventDispatcherTest {
@@ -72,7 +74,11 @@ class IssueEventDispatcherTest {
 
   private IssueEventDispatcher build(boolean enabled) {
     var props = new AiAgentProperties("http://ai-agent", "tok", enabled);
-    return new IssueEventDispatcher(client, props, resolver, sharedReader);
+    // 회차 발사는 실행기에 직접 제출한다(WP-1812) — 여기서는 호출 스레드에서 바로 돌려 payload 검증을 동기로 유지한다.
+    @SuppressWarnings("unchecked")
+    ObjectProvider<IssueRecurrenceService> recurrence = Mockito.mock(ObjectProvider.class);
+    return new IssueEventDispatcher(
+        client, props, resolver, sharedReader, Runnable::run, recurrence);
   }
 
   /** WP-386: 이슈 이벤트에 조직 + 그 프로젝트 공용 메모리를 싣는다(대행 에이전트 권한으로 리더가 고른다). */

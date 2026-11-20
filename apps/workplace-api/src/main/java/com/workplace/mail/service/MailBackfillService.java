@@ -3,6 +3,8 @@ package com.workplace.mail.service;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailAnalysisBreaker.Admission;
+import com.workplace.mail.service.MailAnalysisService.AfterLoadOutcome;
 import com.workplace.mail.service.MailPushService.NewMailPush;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +29,7 @@ public class MailBackfillService {
 
   /**
    * 적재 직후 분석 상한(최근 수신 순 상위 N건) — MailSummaryBackfillService.LIMIT 과 같은 값. 분석은 메시지당 LLM 을 최대 두 번 부르고
-   * 공유 executor(aiAgentEventExecutor, core 2) 스레드를 순차로 붙잡으므로 200건 전부 돌리지 않는다. 나머지는 동기화 후 요약 백필 패스와
+   * 전용 executor(mailAnalysisExecutor, core 2) 스레드를 순차로 붙잡으므로 200건 전부 돌리지 않는다. 나머지는 동기화 후 요약 백필 패스와
    * 열람 시 요약 GET 이 맡는다.
    */
   public static final int ANALYZE_AFTER_LOAD_LIMIT = 20;
@@ -41,6 +43,9 @@ public class MailBackfillService {
   /** 새 메일 OS 푸시(WP-1739) — 동기화가 넘긴 발송 정보가 있을 때만 보충이 끝난 뒤 부른다. */
   private final MailPushService pushService;
 
+  /** 백필 전용 회로 차단기(WP-1812). */
+  private final MailAnalysisBreaker breaker;
+
   /**
    * TransactionTemplate 은 @Primary {@code TenantAwareTransactionManager} 로 구성 — 본문 보충은 RLS 적용
    * 테이블(email_message/email_attachment) 을 읽고 쓰므로, 트랜잭션 진입 시 GUC(app.tenant_id) 주입이 필요하다.
@@ -53,7 +58,9 @@ public class MailBackfillService {
       MailSyncProgress progress,
       MailAnalysisService analysis,
       PlatformTransactionManager txManager,
-      MailPushService pushService) {
+      MailPushService pushService,
+      MailAnalysisBreaker breaker) {
+    this.breaker = breaker;
     this.messageRepo = messageRepo;
     this.bodyFetcher = bodyFetcher;
     this.progress = progress;
@@ -65,13 +72,13 @@ public class MailBackfillService {
   /**
    * 비동기 진입점(sync 가 호출). 별도 스레드/트랜잭션에서 동기 보충 수행.
    *
-   * <p>요청 스레드에서 트리거되며 aiAgentEventExecutor 의 TenantContextTaskDecorator 가 TenantContext 를 워커로 전파한다.
+   * <p>요청 스레드에서 트리거되며 mailAnalysisExecutor 의 TenantContextTaskDecorator 가 TenantContext 를 워커로 전파한다.
    * null 가드: 전파 실패(비테넌트/시스템 트리거) 시 GUC 미설정으로 RLS fail-closed 가 되어 조용히 no-op 되므로, 명시적으로 경고 후 skip 하여
    * 잘못된 비테넌트 실행을 방지한다(이때는 새 메일 푸시도 싣지 못해 보내지 않는다 — 후보 조회·발송 테넌트 모두 테넌트 문맥이 필요하다).
    *
    * @param push 보충이 끝난 뒤 보낼 새 메일 푸시(WP-1739) — 동기화가 넘긴다. 첫 동기화처럼 보내지 않을 때는 null
    */
-  @Async("aiAgentEventExecutor")
+  @Async("mailAnalysisExecutor")
   public void backfill(long userId, long accountId, NewMailPush push) {
     if (TenantContext.get() == null) {
       log.warn("본문 백필 skip — TenantContext 없음(비테넌트 트리거 의심) accountId={}", accountId);
@@ -131,9 +138,22 @@ public class MailBackfillService {
     // loaded 는 listMissingBody(received_at DESC) 순서 그대로라 앞 N건이 최근 수신 메일이다.
     UserMailProfileCache profiles = analysis.newProfileCache(); // 이 배치 동안 "나" 프로필 1회 조회(WP-150)
     for (Long id : loaded.subList(0, Math.min(loaded.size(), ANALYZE_AFTER_LOAD_LIMIT))) {
+      Admission admission = breaker.admit(id);
+      if (admission == Admission.OPEN) {
+        break; // 모델 실패가 이어져 회로가 열렸다(WP-1812) — 남은 메일은 요약 백필 패스·열람 시 요약이 맡는다
+      }
+      if (admission == Admission.SKIP) {
+        continue;
+      }
       try {
-        analysis.analyzeAfterLoad(userId, id, profiles);
+        AfterLoadOutcome outcome = analysis.analyzeAfterLoad(userId, id, profiles);
+        if (outcome == AfterLoadOutcome.RESPONDED) {
+          breaker.recordSuccess();
+        } else if (outcome == AfterLoadOutcome.AI_FAILED) {
+          breaker.recordFailure(id);
+        }
       } catch (RuntimeException e) {
+        breaker.onError(id, e);
         log.warn("적재 후 분석 실패 (messageId={}): {}", id, e.toString());
       }
     }

@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.EncryptionService;
+import com.workplace.global.util.AfterCommit;
 import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.dto.EmailAccountListItem;
 import com.workplace.mail.dto.EmailAccountRequest;
@@ -18,7 +19,9 @@ import com.workplace.mail.outbound.MailDomainEvents.MailAccountDisconnectedEvent
 import com.workplace.mail.repository.EmailAccountRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 메일 계정 CRUD 오케스트레이션. 모든 작업은 callerId(=본인) 스코프. 생성/수정은 저장 전 IMAP/SMTP 연결을 실제로 검증하고 통과해야만 영속화한다.
  * 비밀번호 평문은 이 계층에서만 잠깐 다뤄 EncryptionService 로 암호화한 뒤 저장한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EmailAccountService {
@@ -144,10 +148,26 @@ public class EmailAccountService {
 
     // AI 분류 off→on 전환 시에만 최근 안읽음 classify 백필(비동기). 가드가 곧 중복 방지.
     if (!before.aiEnabled() && req.aiEnabled()) {
-      classifyBackfillService.classifyRecentUnread(userId, id);
+      classifyQuietly(userId, id);
     }
     notifier.accountChanged(ResourceChangedEvent.OP_UPDATED, userId, id, userId);
     return repo.findByIdAndUser(userId, id).orElseThrow();
+  }
+
+  /**
+   * 최근 안읽음 classify 백필을 커밋 뒤에 띄우되 분석 실행기가 가득 차 거절돼도 계정 저장 흐름을 깨지 않는다(WP-1812). 커밋 전에 제출하면 놀고 있는
+   * 실행기가 바로 돌아 옛 ai_enabled=false 를 읽고 아무것도 안 할 수 있어 {@link AfterCommit} 으로 미룬다(트랜잭션 밖이면 즉시 실행).
+   * 거절은 경고만 남기고 다음 동기화 주기가 다시 집는다.
+   */
+  private void classifyQuietly(long userId, long accountId) {
+    AfterCommit.run(
+        () -> {
+          try {
+            classifyBackfillService.classifyRecentUnread(userId, accountId);
+          } catch (TaskRejectedException e) {
+            log.warn("메일 분류 백필 실행기가 가득 차 건너뜀 account={}", accountId);
+          }
+        });
   }
 
   /**
@@ -168,7 +188,7 @@ public class EmailAccountService {
       // off→on 전환된 계정만 백필 트리거 — 이미 켜져 있던 계정은 건너뜀.
       before.stream()
           .filter(acc -> !acc.aiEnabled())
-          .forEach(acc -> classifyBackfillService.classifyRecentUnread(userId, acc.id()));
+          .forEach(acc -> classifyQuietly(userId, acc.id()));
     }
     // 전 계정 일괄 설정이라 특정 계정 id 가 없다 — accountId 0.
     notifier.accountChanged(ResourceChangedEvent.OP_UPDATED, userId, 0L, userId);
