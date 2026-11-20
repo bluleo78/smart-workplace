@@ -9,6 +9,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 
 import { PersonalAssistantSection } from '@/pages/profile/PersonalAssistantSection'
+import { gate } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 
 type Status = {
@@ -63,6 +64,8 @@ function open(opts: {
   provider?: string
   replies?: { credential?: number; settings?: number; name?: number; disable?: number; probe?: number }
   probeModels?: Model[]
+  /** 주면 probe 응답을 이 함수가 만든다(호출 번호는 1부터) — 늦게 오는 응답을 흉내낸다(WP-1893). */
+  probeReply?: (call: number) => Promise<Response>
   /** probe 실패 응답 본문 message — 기본은 한국어 502 문구(WP-1884). */
   probeMessage?: string
   onCredential?: () => void
@@ -87,6 +90,7 @@ function open(opts: {
     }),
     http.post(`${API}/models/probe`, async ({ request }) => {
       bodies.probe.push(await request.json())
+      if (opts.probeReply) return opts.probeReply(bodies.probe.length)
       if (r.probe && r.probe >= 400) return fail(r.probe, opts.probeMessage ?? '프로바이더 연결에 실패했습니다')
       return HttpResponse.json({ models: opts.probeModels ?? [] })
     }),
@@ -447,5 +451,116 @@ describe('개인 비서 — 등록 뒤 설정', () => {
     first.unmount()
     open({ status: () => configured({ tokenLabel: '내 토큰' }), models: [SONNET] })
     expect(await screen.findByTestId('assistant-configured')).toHaveTextContent('내 토큰')
+  })
+})
+
+// WP-1893: 「모델 불러오기」 응답이 오기 전에 연결(주소·키)을 바꾸면 늦게 온 앞 응답은 버린다.
+describe('개인 비서 — 늦게 온 프로브 응답 (WP-1893)', () => {
+  /** pending 이 끝나(버튼 문구가 돌아와) 응답이 처리됐음을 기다린다. */
+  const probeSettled = () =>
+    waitFor(() => expect(screen.getByTestId('credential-probe-models')).toHaveTextContent('모델 불러오기'))
+  /** 「모델 불러오기」 502 실패 응답 — 서버 한국어 문구 그대로 보인다(WP-1884). */
+  const probeFails = () => HttpResponse.json({ message: '프로바이더 연결에 실패했습니다' }, { status: 502 })
+
+  test('프로브 도중 주소를 바꾸면 늦게 온 앞 목록을 버린다', async () => {
+    const { promise: held, release } = gate()
+    const { user } = open({
+      status: unconfigured,
+      probeReply: async () => {
+        await held
+        return HttpResponse.json({ models: BEDROCK_MODELS })
+      },
+    })
+    await probeOpenAi(user)
+    await user.type(screen.getByTestId('credential-base-url'), 'x')
+    release()
+    await probeSettled()
+    expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
+  })
+
+  test('프로브 도중 키를 바꾸면 늦게 온 앞 실패를 버린다', async () => {
+    const { promise: held, release } = gate()
+    const { user } = open({
+      status: unconfigured,
+      probeReply: async () => {
+        await held
+        return probeFails()
+      },
+    })
+    await probeOpenAi(user)
+    await user.type(screen.getByTestId('credential-api-key'), 'x')
+    release()
+    await probeSettled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('credential-model-manual')).not.toBeInTheDocument()
+  })
+
+  test('앞 응답을 버린 뒤 다시 불러오면 새 목록이 보인다', async () => {
+    const { promise: held, release } = gate()
+    const { user } = open({
+      status: unconfigured,
+      probeReply: async (call) => {
+        if (call === 1) {
+          await held
+          return HttpResponse.json({ models: [SONNET] })
+        }
+        return HttpResponse.json({ models: BEDROCK_MODELS })
+      },
+    })
+    await probeOpenAi(user)
+    await user.type(screen.getByTestId('credential-base-url'), 'x')
+    release()
+    await probeSettled()
+    await user.click(screen.getByTestId('credential-probe-models'))
+    await pick(user, await screen.findByTestId('credential-model-select'), 'Claude 3.5 Sonnet')
+    // 고른 뒤 트리거 글자가 고른 모델이어야 한다(닫힌 목록의 옵션 부재 단언은 늘 통과해 공허하다).
+    expect(screen.getByTestId('credential-model-select')).toHaveTextContent('Claude 3.5 Sonnet')
+  })
+
+  test('같은 연결로 다시 불러와 성공하면 숨은 직접 입력 모델이 남지 않아 등록이 막힌다', async () => {
+    const { user } = open({
+      status: unconfigured,
+      probeReply: async (call) => {
+        if (call === 1) return probeFails()
+        return HttpResponse.json({ models: BEDROCK_MODELS })
+      },
+    })
+    await probeOpenAi(user)
+    await user.click(await screen.findByTestId('credential-model-manual'))
+    await user.paste('gpt-4o-mini')
+    await user.click(screen.getByTestId('credential-probe-models'))
+    await screen.findByTestId('credential-model-select')
+    expect(screen.queryByTestId('credential-model-manual')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '등록' })).toBeDisabled()
+  })
+
+  test('직접 입력 뒤 다시 불러오는 동안에는 등록할 수 없다', async () => {
+    const { promise: held, release } = gate()
+    const { user, bodies } = open({
+      status: unconfigured,
+      probeReply: async (call) => {
+        if (call === 1) return probeFails()
+        await held
+        return HttpResponse.json({ models: BEDROCK_MODELS })
+      },
+    })
+    await probeOpenAi(user)
+    await user.click(await screen.findByTestId('credential-model-manual'))
+    await user.paste('gpt-4o-mini')
+    expect(screen.getByRole('button', { name: '등록' })).toBeEnabled()
+    await user.click(screen.getByTestId('credential-probe-models'))
+    // 불러오는 중에는 숨겨질 직접 입력 값이 남아 있어도 등록 단추가 막힌다.
+    await waitFor(() => expect(screen.getByRole('button', { name: '등록' })).toBeDisabled())
+    release()
+    await screen.findByTestId('credential-model-select')
+    expect(bodies.credential).toHaveLength(0)
+  })
+
+  test('불러온 목록이 있는 상태에서 주소를 고치면 모델 선택이 사라진다', async () => {
+    const { user } = open({ status: unconfigured, probeModels: BEDROCK_MODELS })
+    await probeOpenAi(user)
+    await screen.findByTestId('credential-model-select')
+    await user.type(screen.getByTestId('credential-base-url'), 'x')
+    expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
   })
 })

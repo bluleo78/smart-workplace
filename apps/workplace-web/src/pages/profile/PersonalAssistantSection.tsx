@@ -6,7 +6,7 @@
 // 별도 다이얼로그가 아닌 섹션 내 인라인 폼으로 둔다 — 소비처가 1곳뿐이라 다이얼로그 추출은 과설계(YAGNI).
 
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
@@ -114,13 +114,12 @@ export function PersonalAssistantSection() {
       }),
   });
 
-  const resetForm = () => {
-    setConnectionType('anthropic');
-    setToken('');
-    workspace.reset();
-    setPresetKey('amazon-bedrock-openai');
-    setBaseUrl(OPENCODE_PRESETS[0].baseUrl);
-    setApiKey('');
+  // WP-1893: 「모델 불러오기」 세대 번호 — 연결(프리셋·주소·키)이 바뀔 때마다 올려, 그 전에 보낸 응답이
+  // 늦게 와도 바뀐 연결 칸에 덮어쓰지 못하게 버린다(관리자 다이얼로그 WP-1622 와 같은 규칙).
+  const probeGeneration = useRef(0);
+  // 불러온 모델 목록·오류·선택을 비우고 세대를 올린다 — 진행 중이던 응답은 onProbeModels 에서 버려진다.
+  const clearLoadedModels = () => {
+    probeGeneration.current += 1;
     setProbedModels(null);
     setProbeError(null);
     setSelectedModel('');
@@ -128,16 +127,22 @@ export function PersonalAssistantSection() {
     resetVision();
   };
 
+  const resetForm = () => {
+    setConnectionType('anthropic');
+    setToken('');
+    workspace.reset();
+    setPresetKey('amazon-bedrock-openai');
+    setBaseUrl(OPENCODE_PRESETS[0].baseUrl);
+    setApiKey('');
+    clearLoadedModels();
+  };
+
   // 프리셋 변경 시 baseURL 템플릿 자동 채움 + 이전 프로브 결과 초기화.
   const onPresetChange = (key: OpencodePresetKey) => {
     setPresetKey(key);
     const preset = OPENCODE_PRESETS.find((p) => p.key === key);
     setBaseUrl(preset?.baseUrl ?? '');
-    setProbedModels(null);
-    setProbeError(null);
-    setSelectedModel('');
-    setManualModel('');
-    resetVision();
+    clearLoadedModels();
   };
 
   // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
@@ -146,10 +151,18 @@ export function PersonalAssistantSection() {
     setProbedModels(null);
     setSelectedModel('');
     resetVision();
+    // 이 요청의 세대 — 시작할 때 올려 마지막 요청만 남긴다. 응답이 올 때 세대가 달라졌으면(그 사이 연결을 바꾸거나
+    // 다시 불러옴) 앞 요청의 응답이므로 버린다(WP-1893).
+    probeGeneration.current += 1;
+    const generation = probeGeneration.current;
     try {
       const res = await probe.mutateAsync();
+      if (generation !== probeGeneration.current) return;
       setProbedModels(res.models);
+      // 직접 입력 칸이 사라지는데 값이 남아 resolvedModel 이 숨은 id 로 정해지고 등록되는 것을 막는다(WP-1893, 관리자 WP-1622 와 같은 뜻).
+      setManualModel('');
     } catch (e) {
+      if (generation !== probeGeneration.current) return;
       // 두 화면 공용 문구 규칙(WP-1884).
       setProbeError(probeModelsErrorMessage(e));
     }
@@ -205,7 +218,10 @@ export function PersonalAssistantSection() {
     }
   };
 
-  const submitDisabled = register.isPending || (connectionType === 'opencode' && !resolvedModel);
+  // 「모델 불러오기」 중에는 모델이 곧 바뀌므로(목록 도착·오류) 그동안은 등록하지 않는다 — 다시 불러오는 사이
+  // 숨은 직접 입력 값이 등록되지 않게(WP-1893, 관리자 WP-1622 와 같은 조건).
+  const submitDisabled =
+    register.isPending || (connectionType === 'opencode' && (probe.isPending || !resolvedModel));
 
   // 이름 변경 — 명시적 저장(키 입력마다 PUT 금지). 빈값 거부, 성공 시 서버값으로 재동기화.
   const handleNameSave = async () => {
@@ -524,7 +540,11 @@ export function PersonalAssistantSection() {
                     id="credential-base-url"
                     data-testid="credential-base-url"
                     value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
+                    onChange={(e) => {
+                      setBaseUrl(e.target.value);
+                      // 주소가 바뀌면 앞 연결로 불러온 목록·오류를 비운다(WP-1893).
+                      clearLoadedModels();
+                    }}
                     placeholder="https://api.example.com/v1"
                     autoComplete="off"
                   />
@@ -536,7 +556,11 @@ export function PersonalAssistantSection() {
                     fieldLabel="API Key"
                     data-testid="credential-api-key"
                     value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
+                    onChange={(e) => {
+                      setApiKey(e.target.value);
+                      // 키가 바뀌면 앞 연결로 불러온 목록·오류를 비운다(WP-1893).
+                      clearLoadedModels();
+                    }}
                     autoComplete="off"
                   />
                 </div>
