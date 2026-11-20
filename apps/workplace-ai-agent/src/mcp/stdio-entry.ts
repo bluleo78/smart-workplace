@@ -38,6 +38,8 @@ export interface StdioEntryConfig {
   imageInput: boolean;
   // WP-1313: recurring-test 프로필에서 실행을 허락한 되돌릴 수 없는 쓰기(MCP_RECURRING_PERMITS, JSON 문자열 배열). 없으면 빈 목록.
   recurringPermits: string[];
+  // WP-1816: 반복 실행의 도구 신원이 AI 자신인지(MCP_RECURRING_SELF=1). 미지정은 닫힘 — add_issue_chat 을 싣지 않는다.
+  recurringSelfIdentity: boolean;
 }
 
 // 이미지를 볼 수 없는 모델에 이미지 대신 넘기는 안내. 시스템 프롬프트 규칙(NO_VISION_PROMPT_RULE)과 짝을 이룬다.
@@ -141,6 +143,7 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     // WP-250: MCP_VISION 과 달리 미지정은 닫힘 — 이미지를 볼 수 있는지 모르는 모델에 쓸 수 없는 인자(pages)를 보이지 않는다.
     imageInput: env.MCP_IMAGE_TOOLS === '1',
     recurringPermits,
+    recurringSelfIdentity: env.MCP_RECURRING_SELF === '1',
   };
 }
 
@@ -244,6 +247,7 @@ async function main(): Promise<void> {
     config.homeSessionId,
     config.imageInput,
     config.recurringPermits,
+    config.recurringSelfIdentity,
   );
 
   // 서버명 'workplace' 고정 — mcp__workplace__* 네임스페이스 정합(sdk-mcp-server.ts 참고).

@@ -45,6 +45,9 @@ export interface RunnerMcpConfig {
   // WP-1313: recurring-test 프로필(「지금 실행」 테스트 실행)에서 실행을 허락한 되돌릴 수 없는 쓰기 — 테스트 질문에 사람이 답해 보낸 이어
   // 처리가 그 질문이 멈춘 쓰기만 하게 한다. 그 밖의 프로필은 쓰지 않는다. opencode 는 env MCP_RECURRING_PERMITS 로 넘긴다.
   recurringPermits?: readonly string[];
+  // WP-1816: recurring·recurring-test 에서 도구 신원이 AI 자신인지(onBehalfOfId === 실행 AI id). true 일 때만 add_issue_chat 을 싣는다 —
+  // 개인 비서처럼 주인(사람) 대행이면 그 글이 사람 글이 되어 반복의 대기 질문을 답으로 소비하거나 AI 를 깨울 수 있다. opencode 는 env MCP_RECURRING_SELF 로 넘긴다.
+  recurringSelfIdentity?: boolean;
 }
 
 export interface RunnerInput {

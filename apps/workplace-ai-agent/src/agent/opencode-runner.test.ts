@@ -1224,6 +1224,18 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     expect(acquireServer).toHaveBeenCalledWith(`7:issue:42:5:openai/gpt-5:true:${SYS_KEY}`, expect.any(Function));
   });
 
+  // WP-1816: add_issue_chat 을 싣는지(MCP_RECURRING_SELF)도 env 로 고정되므로 AI 자신 신원 실행은 키를 나눈다.
+  it('mcp.recurringSelfIdentity 를 풀 키에 넣는다(WP-1816)', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const mcp = { client: {} as unknown as WorkplaceApiClient, profile: 'recurring' as const, onBehalfOfId: 7, recurringSelfIdentity: true };
+    await new OpencodeRunner().stream(baseInput({ agentId: 7, model: 'openai/gpt-5', mcp }), () => {}).done;
+
+    expect(acquireServer).toHaveBeenCalledWith(`7:recurring:7:-:openai/gpt-5:true:self:${SYS_KEY}`, expect.any(Function));
+  });
+
   it('vision 판단 결과를 config 에 넘기고 풀 키에도 반영한다(WP-241)', async () => {
     resolveOpencodeModelSettings.mockResolvedValueOnce({ vision: false, limit: undefined });
     const es = makeEventStream();

@@ -231,8 +231,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       const data = (await http.get(`/chat/threads/${threadId}/messages`, { params })).data;
       return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: !!data?.hasMore, truncated: data?.truncated === true ? true : undefined };
     },
-    async addIssueChatMessage(threadId, body) {
-      await http.post(`/chat/threads/${threadId}/messages`, { body });
+    async addIssueChatMessage(threadId, body, fileIds) {
+      // WP-1816: fileIds 는 있을 때만 싣는다(없으면 기존 본문 모양 그대로).
+      await http.post(`/chat/threads/${threadId}/messages`, fileIds?.length ? { body, fileIds } : { body });
     },
     async getIssueDetail(issueKey) {
       return (await http.get(issue(issueKey))).data;

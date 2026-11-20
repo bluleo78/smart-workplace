@@ -256,6 +256,9 @@ export async function runRecurring(
         onBehalfOfId: ownerId,
         profile: test ? 'recurring-test' : 'recurring',
         onBehalfOfTenantId: p.tenantId ?? undefined, // opencode stdio MCP 도 같은 테넌트로 호출
+        // WP-1816: 도구 신원이 AI 자신(ownerId === agentId)일 때만 add_issue_chat 을 싣는다. 개인 비서(주인 대행)면 그 글이 사람 글이 되어
+        // 반복의 대기 질문을 사람의 답으로 소비하거나 예약 AI 를 깨우고 멘션한 서버 AI 를 깨울 수 있어 읽기(get_issue_chat)만 싣는다.
+        recurringSelfIdentity: ownerId === agentId,
         ...(hostBridge ? { hostBridge, recurringPermits } : {}),
       },
     }, (ev) => {

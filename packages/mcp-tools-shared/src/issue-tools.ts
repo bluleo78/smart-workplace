@@ -597,10 +597,10 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         LINK_RULE_AUTOLINK,
       inputSchema: addIssueChatInput,
       async handler(args) {
-        const { issueKey, body } = addIssueChatInput.parse(args);
+        const { issueKey, body, fileIds } = addIssueChatInput.parse(args);
         // WP-719: 담당이 아닌 이슈에서 멘션받은 질문에 물은 곳(이슈 챗)에서 답한다 — @username 은 report_agent_work 처럼 멘션 토큰으로 바꾼다.
         const [threadId, text] = await Promise.all([client.getIssueChatThreadId(issueKey), linkMentions(client, body)]);
-        await client.addIssueChatMessage(threadId, text);
+        await client.addIssueChatMessage(threadId, text, fileIds); // WP-1816: 첨부 fileIds 전달
         return 'ok';
       },
     },

@@ -37,6 +37,7 @@ describe('parseConfigFromEnv', () => {
       vision: true,
       imageInput: false,
       recurringPermits: [],
+      recurringSelfIdentity: false,
     });
   });
 
@@ -120,6 +121,12 @@ describe('parseConfigFromEnv', () => {
     expect(cfg.profile).toBe('recurring-test');
     expect(cfg.recurringPermits).toEqual(['send_mail']);
     expect(parseConfigFromEnv(baseEnv()).recurringPermits).toEqual([]);
+  });
+
+  // WP-1816: MCP_RECURRING_SELF=1 일 때만 AI 자신 신원 — 미지정은 닫힘(add_issue_chat 을 싣지 않는다).
+  it('MCP_RECURRING_SELF 를 recurringSelfIdentity 로 파싱한다(WP-1816)', () => {
+    expect(parseConfigFromEnv(baseEnv({ MCP_RECURRING_SELF: '1' })).recurringSelfIdentity).toBe(true);
+    expect(parseConfigFromEnv(baseEnv()).recurringSelfIdentity).toBe(false);
   });
 
   it.each(['not json', '{"a":1}', '[1]'])('MCP_RECURRING_PERMITS 가 문자열 배열이 아니면(%s) throw', (v) => {
