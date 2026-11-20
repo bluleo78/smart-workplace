@@ -250,14 +250,25 @@ describe('알림 빈 상태 CTA (WP-1848)', () => {
 
 describe('읽음 처리 실패 안내(WP-1842)', () => {
   // 읽음 처리가 실패해도 조용하면 사용자가 성공으로 오인한다 — 보관 실패와 같은 오류 토스트가 떠야 한다.
+  // 요청 수를 세어 무효화(재조회)·재시도 여부를 검증한다.
+  const calls = { unreadCount: 0, readAll: 0 }
+
   function renderFailing() {
+    calls.unreadCount = 0
+    calls.readAll = 0
     return renderScreen(<InboxHarness />, {
       path: '/',
       handlers: [
         http.get('/api/v1/notifications', () => HttpResponse.json([notif({ id: 1, read: false })])),
-        http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: 1 })),
+        http.get('/api/v1/notifications/unread-count', () => {
+          calls.unreadCount += 1
+          return HttpResponse.json({ count: 1 })
+        }),
         http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null })),
-        http.post('/api/v1/notifications/read-all', () => HttpResponse.json({ message: '실패' }, { status: 500 })),
+        http.post('/api/v1/notifications/read-all', () => {
+          calls.readAll += 1
+          return HttpResponse.json({ message: '실패' }, { status: 500 })
+        }),
         http.post('/api/v1/notifications/1/read', () => HttpResponse.json({ message: '실패' }, { status: 500 })),
       ],
     })
@@ -277,5 +288,31 @@ describe('읽음 처리 실패 안내(WP-1842)', () => {
     const row = (await screen.findAllByTestId('inbox-item'))[0]
     await user.click(within(row).getByText(/리팩터링/))
     expect(await screen.findByText('읽음 처리하지 못했습니다')).toBeInTheDocument()
+  })
+
+  test('「모두 읽음」 이 실패해도 안 읽은 수를 다시 받는다(onSettled)', async () => {
+    // 실패·응답 유실 때도 배지를 서버 값으로 되돌려야 한다 — 실패 뒤 unread-count 요청 수가 클릭 전보다 늘어난다.
+    const { user } = renderFailing()
+    await screen.findAllByTestId('inbox-item')
+    const btn = screen.getByTestId('inbox-mark-all')
+    await waitFor(() => expect(btn).toBeEnabled())
+    const countBefore = calls.unreadCount
+    await user.click(btn)
+    await screen.findByText('읽음 처리하지 못했습니다')
+    await waitFor(() => expect(calls.unreadCount).toBeGreaterThan(countBefore))
+  })
+
+  test('「모두 읽음」 이 두 번 실패해도 토스트는 한 장이다(고정 id)', async () => {
+    // 같은 id 로 갱신되어 겹쳐 쌓이지 않아야 한다.
+    const { user } = renderFailing()
+    await screen.findAllByTestId('inbox-item')
+    const btn = screen.getByTestId('inbox-mark-all')
+    await waitFor(() => expect(btn).toBeEnabled())
+    await user.click(btn)
+    await screen.findByText('읽음 처리하지 못했습니다')
+    await waitFor(() => expect(btn).toBeEnabled())
+    await user.click(btn)
+    await waitFor(() => expect(calls.readAll).toBe(2))
+    expect(screen.getAllByText('읽음 처리하지 못했습니다')).toHaveLength(1)
   })
 })
