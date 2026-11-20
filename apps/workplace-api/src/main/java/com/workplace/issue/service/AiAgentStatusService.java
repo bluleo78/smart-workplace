@@ -49,7 +49,7 @@ public class AiAgentStatusService implements AgentSlotCounter {
   /**
    * 상한에 세는 상태 — 작업 중·답변 필요·인증 필요·대기 중(다음 회차 대기·차단됨·일시 중지·검토 필요는 세지 않는다). 대기 중(PR 리뷰·기차·순서·수정·다른 AI
    * 답 대기)도 세어, PR 을 올린 뒤 머지(또는 취소)될 때까지 새 일을 가져가지 않게 한다 — 한 세션에 여러 이슈 맥락이 섞이지 않게(WP-1810, 이전
-   * WP-1216 기준을 뒤집음).
+   * WP-1216 기준을 뒤집음). 다만 반복 이슈 대기열의 줄 대기는 {@link #slotRows} 가 뺀다({@link #isRecurrenceQueued}).
    */
   private static final Set<String> SLOT_STATES =
       Set.of(
@@ -109,19 +109,32 @@ public class AiAgentStatusService implements AgentSlotCounter {
   }
 
   /**
-   * 동시 진행 자리를 쥔 행 — 한 AI 의 열린 작업 행 중 {@link #SLOT_STATES} 이고 무소식(stale)이 아닌 것. 자리를 쥔(센) 하위가 있는 부모는
-   * 하위가 각자 세므로 뺀다. AI별 보기와 AI 본인 조회가 이 규칙 하나를 쓴다.
+   * 동시 진행 자리를 쥔 행 — 한 AI 의 열린 작업 행 중 {@link #SLOT_STATES} 이고 무소식(stale)·반복 회차 줄 대기가 아닌 것. 자리를 쥔(센)
+   * 하위가 있는 부모는 하위가 각자 세므로 뺀다. AI별 보기와 AI 본인 조회가 이 규칙 하나를 쓴다.
    */
   static List<WorkRow> slotRows(List<WorkRow> rows) {
     // 먼저 센 행을 고른 뒤, 그중 하위의 부모 id 를 모아 부모 행을 뺀다 — 무소식 하위는 자리를 쥔 게 아니므로 부모를 가리지 않는다.
     List<WorkRow> counted =
-        rows.stream().filter(r -> SLOT_STATES.contains(r.state()) && !r.stale()).toList();
+        rows.stream()
+            .filter(r -> SLOT_STATES.contains(r.state()) && !r.stale() && !isRecurrenceQueued(r))
+            .toList();
     Set<Long> parentsWithCountedChild =
         counted.stream()
             .map(WorkRow::parentIssueId)
             .filter(Objects::nonNull)
             .collect(Collectors.toSet());
     return counted.stream().filter(r -> !parentsWithCountedChild.contains(r.issueId())).toList();
+  }
+
+  /**
+   * 반복 이슈 대기열의 줄 대기 행인가 — 반복 회차 도구({@link IssueRecurrenceService#TOOL})가 남긴, 같은 AI 의 앞 회차가 끝나기를
+   * 기다리는 대기 중({@link IssueRecurrenceService#NOTE_QUEUED}). 메모만으로 가르지 않아 다른 도구의 같은 문구 보고를 잘못 빼지 않는다.
+   * 서버 안 AI 가 실제로는 한 번에 하나만 돌리므로 자리로 세지 않는다 — 같은 분에 회차가 여럿 줄 서도 6/5 처럼 보이지 않게(WP-1810 리뷰 후속).
+   */
+  private static boolean isRecurrenceQueued(WorkRow r) {
+    return AgentWorkState.WAITING.equals(r.state())
+        && IssueRecurrenceService.TOOL.equals(r.tool())
+        && IssueRecurrenceService.NOTE_QUEUED.equals(r.note());
   }
 
   private AiAgentStatus toStatus(
