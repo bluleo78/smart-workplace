@@ -156,8 +156,9 @@ test('SKILL.md 이슈 챗 글의 받는 사람은 participants 에서 골라 @us
 // WP-719 담당 밖 이슈의 멘션 — 프로젝트 범위로 찾아, 맥락을 읽고 물은 곳에 답만 한다(구현·작업 보고 없음, 작업 지시는 담당 지정 요청).
 test('SKILL.md 담당 밖 이슈의 멘션은 프로젝트 범위로 찾아 맥락을 읽고 물은 곳에 답만 한다', () => {
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes("`list_issues({ projectKey, mentionsMe: true, status: 'TODO,IN_PROGRESS' })`"));
-  assert.ok(text.includes('② 멘션받은 담당 밖 이슈'));
+  assert.ok(text.includes('`list_issues({ projectKey: <프로젝트 키>, mentionsMe: true })`'));
+  assert.ok(text.includes('멘션 조회 결과 중 열린 이슈(할 일·진행 중)에서 내가 담당이 아닌 이슈가 이 후보다'));
+  assert.ok(text.includes('② 멘션받은 이슈(열린 이슈의 답'));
   assert.ok(text.includes('구현하지 않고 답만 한다'));
   assert.ok(text.includes('**맥락부터 모두 읽는다**'));
   assert.ok(text.includes('댓글에서 받은 말에는 `add_comment` 로 답한다(물은 곳에 답한다)'));
@@ -630,7 +631,8 @@ test('SKILL.md 4번: 이슈가 멈출 지점에 오면 같은 부르기에서 �
   assert.ok(s4.includes('처리 중인 이슈는 끊지 않는다'));
   // 멘션 답·백그라운드 양보도 멈출 지점이다 — 따로 예외를 두지 않는다.
   assert.ok(s4.includes('백그라운드 작업에 양보(작업 중 그대로)'));
-  assert.ok(s4.includes('멘션받은 담당 밖 이슈에 답함'));
+  assert.ok(s4.includes('멘션받은 이슈에 답함(또는 답하지 않고 넘김)'));
+  assert.ok(s4.includes('멘션받은 이슈는 3번 「멘션 조회 결과는 이슈 상태로 가려 처리한다」대로 한다'));
   assert.ok(!text.includes('**예외 — 백그라운드 작업 대기로 양보했을 때**'));
 });
 
@@ -1222,12 +1224,13 @@ test('SKILL.md 4번: 고른 처리 파일을 Read 로 읽고 notes 에 처리 �
   assert.ok(s4.includes('`Read` 로 읽는다') && s4.includes('`처리 파일: <파일> (플러그인 <버전>) 읽음 <HH:MM>` 줄'));
 });
 
-test('SKILL.md: 끝난 이슈의 [반영 안내 보충] 멘션을 DONE 조회로 따로 집어 맨 위 행으로 처리한다', () => {
+test('SKILL.md: 멘션 조회의 끝난 이슈 중 [반영 안내 보충] 을 맨 위 행으로 처리한다', () => {
   const s3 = section(workLoopSkill, '\n### 3. 후보 고르기\n', '\n### 4. 이슈를 하나씩 처리\n');
   const pick = lineWith(s3, '**끝난 이슈의 반영 안내 보충**');
-  for (const t of ["mentionsMe: true, status: 'DONE', closedFrom:", '`hasMore` 면 `nextCursor`', '`[반영 안내 보충]` 으로 시작하는 이슈만 후보', '「답하지 않고 넘긴 글」', '`HOLD` 에서도 고른다']) {
+  for (const t of ['멘션 조회 결과 중 완료 이슈는', '`closedAt` 이 30일 안', '`[반영 안내 보충]` 으로 시작하는 이슈만 후보', '「답하지 않고 넘긴 글」', '`HOLD` 에서도 고른다', '동시 진행 상한은 세지 않는다']) {
     assert.ok(pick.includes(t), `「${t}」 가 없다`);
   }
+  assert.ok(!pick.includes('list_issues('), '판정 문단에 조회 호출이 남아 있다');
   // WP-1816 — 요청은 이슈 챗으로 온다(이행 기간 댓글로 온 요청도 찾는다).
   assert.ok(pick.includes('이슈 챗에서 나를 멘션해'), '이슈 챗 기준 문구가 없다');
   assert.ok(pick.includes('`get_issue_detail` 의 `comments`'), '이행 기간 댓글 요청을 찾는 문구가 없다');
@@ -1242,6 +1245,63 @@ test('SKILL.md: 끝난 이슈의 [반영 안내 보충] 멘션을 DONE 조회로
   assert.ok(!finalCheck.includes('`add_comment`'), '검토자의 보충 요청을 댓글로 하라는 문구가 남아 있다');
   const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
   assert.ok(!project.includes('VOC 반영 안내'), 'project.md 에 옛 안내 요청 TASK 라벨이 남아 있다');
+});
+
+// WP-1832 — 후보 고르기는 조회 셋을 매번 모두 내고 합쳐 고른다(멘션은 상태 없이 하나로 내고 상태별로 처리한다).
+test('SKILL.md 3번: 조회 셋 — 멘션은 상태 없이 하나로 내고 상태별로 처리한다 (WP-1832)', () => {
+  const s3 = section(workLoopSkill, '\n### 3. 후보 고르기\n', '\n### 4. 이슈를 하나씩 처리\n');
+  const from = s3.indexOf('조회 셋은 매번 모두 낸다');
+  const to = s3.indexOf('**멘션 조회 결과는 이슈 상태로 가려 처리한다.**');
+  assert.ok(from > -1 && to > from, '조회 셋 목록이 상태별 처리 문단보다 앞에 있어야 한다');
+  const head = s3.slice(from, to);
+  assert.ok(!/^\d\. [①②③④]/m.test(head), '조회 목록에 순서 표지(①~④)와 겹치는 번호를 쓰지 않는다');
+  assert.ok(!s3.includes('조회 넷'), '조회 넷 문구가 남아 있다');
+  assert.ok(!s3.includes("status: 'DONE'") && !s3.includes('closedFrom'), 'DONE 조회가 남아 있다');
+  assert.ok(!/mentionsMe: true, status/.test(s3), '멘션 조회에 status 가 붙어 있다');
+  assertBefore(s3, '조회 셋은 매번 모두 낸다', '순서: ⓪');
+  assert.ok(s3.includes('새 글이 있는 이슈 후보가 보여도 남은 조회를 건너뛰고 처리로 가지 않는다'));
+  assert.ok(s3.includes('셋을 다시 낸다'));
+  assert.ok(s3.includes('`get_member` 의 `slots` 를 본 뒤 셋을 한 번에 함께 낸다'));
+  assert.ok(!s3.includes('이것이 후보다'));
+  assert.ok(lineWith(s3, '후보는 아래 「조회 셋」을 합친 것이다').includes('내 이슈 조회를 `projectKey` 없이 읽어'));
+  assertBefore(s3, '- **누구에게 한 글인가**', '조회 셋은 매번 모두 낸다');
+  assertBefore(s3, '- **답하지 않고 넘긴 글**', '조회 셋은 매번 모두 낸다');
+  // 목록 모양 — 번호 줄 셋이 이 순서로 있고 넷째 줄은 없다.
+  let at = -1;
+  for (const t of ['\n1. 내 이슈 조회', '\n2. 새 글 조회', '\n3. 멘션 조회']) {
+    const k = head.indexOf(t);
+    assert.ok(k > at, `「${t.trim()}」 줄이 없거나 순서가 틀렸다`);
+    at = k;
+  }
+  assert.ok(!/^4\. /m.test(head), '목록에 넷째 줄이 있다');
+  const mention = lineWith(s3, '3. 멘션 조회');
+  assert.ok(mention.includes('mentionsMe: true })') && !mention.includes('status'));
+  assert.ok(!lineWith(s3, '1. 내 이슈 조회').includes('list_issues('), '내 이슈 조회 호출은 첫 문단 한 곳에만 둔다');
+  assert.ok(head.includes('셋 모두 `hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지 읽는다'));
+  assert.ok(head.includes('`<n>` 은 그 조회가 돌려준 이슈 수'));
+  // 상태별 처리·답 글 필수
+  assert.ok(lineWith(s3, '`closedAt` 이 30일 안').includes('끝난 이슈의 반영 안내 보충'));
+  assert.ok(lineWith(s3, '30일을 넘었거나').includes('답하지 않고 넘긴 글'), '30일을 넘긴 완료 이슈 멘션은 넘긴 글로 적는다');
+  assert.ok(lineWith(s3, '- 취소 이슈 —').includes('답하지 않고 넘긴 글'), '취소 이슈 멘션 처리가 없다');
+  // 답 글 필수 문단 — 그 문단 안에서만 본다.
+  const rf = s3.indexOf('**멘션을 처리했으면 반드시 그 이슈에 답 글을 남긴다**');
+  assert.ok(rf > -1, '답 글 필수 문단이 없다');
+  const rt = s3.indexOf('\n\n', rf);
+  const reply = s3.slice(rf, rt > -1 ? rt : undefined);
+  assert.ok(reply.includes('다음 조회에 다시 나온다'));
+  assert.ok(!s3.includes('멘션받은 담당 밖 이슈와 같은 자리'), '옛 ② 이름이 남아 있다');
+  assert.ok(lineWith(s3, '**끝난 이슈의 반영 안내 보충** —').includes('순서는 ② 멘션받은 이슈 자리'));
+  assert.ok(lineWith(s3, '**답하지 않고 넘긴 글**').includes('(아래 멘션 조회 결과도 상태와 상관없이 같다)'));
+  assert.ok(s3.includes('넘긴 글로 적으면 다음부터 후보에서 빠진다(조회에는 계속 나온다)'));
+  assert.ok(reply.includes('`add_comment`') && reply.includes('`add_issue_chat`'));
+  assert.ok(reply.includes('「처리 중」') && reply.includes('덮지 않는다'));
+  assert.ok(reply.includes('답 글 대신') && reply.includes('`seen`'), '답하지 않을 멘션은 seen 파일로');
+  assert.ok(!lineWith(s3, '**멘션받은 담당 밖 이슈**').includes('list_issues('));
+  const order = lineWith(s3, '순서: ⓪');
+  assert.ok(order.includes('② 멘션받은 이슈(열린 이슈의 답·끝난 이슈의 반영 안내 보충)'));
+  assert.ok(s3.includes('조회: 내 이슈 <n> · 새 글 <n> · 멘션 <n>(끝난 이슈 <n>)'));
+  assert.ok(lineWith(s3, '- 취소 이슈 —').includes('「멘션받은 담당 밖 이슈」처럼 답만 한다'), '답할 것이 있는 취소 이슈 멘션');
+  assert.ok(lineWith(reply, '받은 곳에 답한다').includes('이슈 챗(`add_issue_chat`) 한 번으로 답한다'), '반영 안내 보충은 댓글로 받아도 이슈 챗 한 번');
 });
 
 // WP-1714 — 비우기 표시는 다음 확인을 잡은 뒤에만, 끝나지 않은 백그라운드 작업이 없을 때만 남긴다. 비운 뒤 이어 하기 놓침은 miss 로 남긴다.
@@ -1526,7 +1586,7 @@ test('work-loop: 이슈를 쥔 동안 사이 확인·단계 사이에 3번 고�
   const intr = section(pi, '\n### 쥔 동안 끼어들 일 확인\n', '\n### ');
   for (const anchor of [
     '사이 확인과 `wake` 줄마다', '다시 시도하기 전', '10분이 지났을 때만', // 언제
-    '⓪(반려된 내 기차)', '①(새 글이 있는 내 이슈', '②(멘션받은 담당 밖 이슈)', '③ 이하는 끼어들지 않는다', // 무엇
+    '⓪(반려된 내 기차)', '①(새 글이 있는 내 이슈', '②(멘션받은 이슈 중 열린 이슈', '끝난 이슈 멘션은 다음 고르기에서 본다', '지금 일이 ⓪(내 기차)·②(멘션 답)이면 양보하지 않고', '③ 이하는 끼어들지 않는다', // 무엇
     '게이트가 `failed` 면',
     '하위 에이전트는 끊지 않는다', '<돌고 있는 Task> <그 하위 에이전트 작업 id>` 한 줄을 목록 기호 없이 줄 맨 앞에', '3번 조회를 새로 하지 않고 그 후보를 바로 처리한다', // 양보
     '**양보하는 때**', // 겹친 끼어들기 금지(⓪ 은 예외)
@@ -1547,7 +1607,7 @@ test('work-loop: 이슈를 쥔 동안 사이 확인·단계 사이에 3번 고�
   // 3차 반려 1·3: 양보하는 때는 한 규칙 — 끼어든 일은 ⓪ 으로만 다시 양보, ⓪·② 일 때는 양보 안 함, 조회·다시 보고는 그대로.
   assert.ok(!intr.includes('살아 있는 양보가 있으면 이 확인을 하지 않는다'), '조회까지 끄는 문구는 없앴다');
   assert.ok(intr.includes('끼어든 일은 ⓪ 으로만 다시 양보한다') && intr.includes('⓪(반려된 내 기차·게이트 실패)은 양보 중이어도 늘 끼어든다'));
-  assert.ok(intr.includes('지금 일이 ⓪(내 기차)·②(담당 밖 답)이면 양보하지 않고'));
+  assert.ok(intr.includes('지금 일이 ⓪(내 기차)·②(멘션 답)이면 양보하지 않고'));
   assert.ok(intr.includes('3번 조회·살아 있는 양보 판단·아래 「양보한 이슈 다시 보고」는 그대로 한다'));
   assert.ok(intr.includes('YYYY-MM-DDTHH:MM'));
   assert.ok(section(workLoopSkill, '\n### 4. ', '\n### 5. ').includes('그 절 「양보하는 때」 한 곳이다'));
