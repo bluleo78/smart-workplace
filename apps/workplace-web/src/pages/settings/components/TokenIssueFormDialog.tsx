@@ -25,6 +25,7 @@ import {
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useClearOnFormChange } from '@/hooks/useClearOnFormChange';
 import { extractApiError } from '@/lib/api-error';
 
 // GitHub PAT 등 통상적인 프리셋 — 30일을 기본값(권장)으로 안내.
@@ -74,11 +75,16 @@ export function TokenIssueFormDialog({
     handleSubmit,
     reset,
     control,
+    watch,
     formState: { errors },
   } = useForm<IssueFormData>({
     resolver: zodResolver(issueSchema),
     defaultValues: { name: '', expiryPreset: '30d' },
   });
+
+  // 값이 바뀌면 지난 서버 사유를 지운다(WP-1776). 왜: 서버 사유는 「그때 보낸 값」에 대한 답인데, 이름을 비우는 등
+  // 검증 실패 제출은 submit 이 불리지 않아 옛 서버 사유가 이름 안내와 함께 alert 로 읽혔다.
+  useClearOnFormChange({ watch }, () => setServerError(''));
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
@@ -117,8 +123,10 @@ export function TokenIssueFormDialog({
             error={errors.name?.message}
             className="space-y-1.5"
           >
+            {/* 요청 중에는 막는다 — 값을 바꾸면 늦게 온 서버 사유가 바뀐 값 아래에 붙는 경쟁이 생기므로 원천 차단 */}
             <Input
               id="token-name"
+              disabled={isPending}
               placeholder="예: claude-code-mcp"
               maxLength={80}
               {...register('name')}
@@ -131,7 +139,7 @@ export function TokenIssueFormDialog({
               name="expiryPreset"
               control={control}
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select value={field.value} onValueChange={field.onChange} disabled={isPending}>
                   <SelectTrigger id="token-expiry" data-testid="token-expiry-select">
                     <SelectValue />
                   </SelectTrigger>
