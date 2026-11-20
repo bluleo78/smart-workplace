@@ -112,17 +112,29 @@ export function ChatMessageList({
   }, [lastId]);
 
   // 마지막 메시지 IO — viewport 진입 시 mark-read.
+  // 탭이 다시 보일 때 마지막 메시지가 보이면 한 번 더 부른다(WP-1855) — 읽음 실패 뒤 IO 재진입이 없어 다시 보낼 계기가 없었다.
+  // 채널 목록(MessageList)과 같은 「다음 확인」이고, 이미 보낸 id 는 훅이 거른다.
   useEffect(() => {
     const el = lastRef.current;
     if (!el || lastId === null || lastId < 0) return;
+    let intersecting = false;
+    const markIfSeen = () => {
+      if (intersecting && document.visibilityState === 'visible') onMarkRead(lastId);
+    };
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) onMarkRead(lastId);
+        intersecting = entries.some((e) => e.isIntersecting);
+        // 진입 시 바로 읽음은 지금처럼 탭 표시 여부와 무관하다(동작을 바꾸지 않는다).
+        if (intersecting) onMarkRead(lastId);
       },
       { threshold: 0.5 },
     );
     io.observe(el);
-    return () => io.disconnect();
+    document.addEventListener('visibilitychange', markIfSeen);
+    return () => {
+      io.disconnect();
+      document.removeEventListener('visibilitychange', markIfSeen);
+    };
   }, [lastId, onMarkRead]);
 
   const target = sheet.target;
