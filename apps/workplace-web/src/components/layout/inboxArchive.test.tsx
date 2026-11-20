@@ -63,6 +63,74 @@ describe('알림 창 보관함 전환', () => {
     expect(await screen.findByTestId('inbox-empty')).toHaveTextContent('보관한 알림이 없습니다')
   })
 
+  test('되돌리기 성공 뒤 「되돌렸습니다」 토스트가 뜬다', async () => {
+    const { user } = renderInbox({ archived: [notif({ id: 5, issueTitle: '보관된 이슈' })] })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    await screen.findByText(/보관된 이슈/)
+    await user.click(screen.getByTestId('inbox-unarchive'))
+    expect(await screen.findByText('되돌렸습니다')).toBeInTheDocument()
+  })
+
+  // 포커스 복구는 공용 훅(useListFocusRescue)이 한다 — 클릭으로 버튼에 포커스가 간 것을 focusin 으로 기억하고, 행이 빠지면 같은 자리 행(<li>)으로.
+  test('가운데 행을 되돌리면 포커스가 같은 자리에 온 다음 행으로 간다', async () => {
+    const { user } = renderInbox({ archived: [notif({ id: 5 }), notif({ id: 6 }), notif({ id: 7 })] })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    const buttons = await screen.findAllByTestId('inbox-unarchive')
+    await user.click(buttons[1])
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-message-id', '7'))
+    expect(document.activeElement?.tagName).toBe('LI')
+    expect(document.querySelector('[data-message-id="6"]')).toBeNull()
+  })
+
+  test('마지막 행을 되돌리면 앞 행으로 간다', async () => {
+    const { user } = renderInbox({ archived: [notif({ id: 5 }), notif({ id: 6 })] })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    const buttons = await screen.findAllByTestId('inbox-unarchive')
+    await user.click(buttons[1])
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-message-id', '5'))
+  })
+
+  // 목록 영역은 tabpanel(WP-1843)이라 늘 tabIndex 가 있다 — 복구가 임시 tabindex 를 달고 떼며 패널의 Tab 정지점 규칙을 덮지 않는지도 본다.
+  test('하나뿐인 행을 되돌리면 목록 영역(tabpanel)으로 가고, 패널 tabindex 규칙은 그대로다', async () => {
+    const { user } = renderInbox({ archived: [notif({ id: 5 })] })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    const btn = await screen.findByTestId('inbox-unarchive')
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('data-testid', 'inbox-scroll-area')
+    expect(panel).toHaveAttribute('tabindex', '-1')
+    await user.click(btn)
+    await waitFor(() => expect(document.activeElement).toBe(panel))
+    // 빈 상태여도 패널은 Tab 정지점이 아니다(-1 — 안의 CTA 가 정지점, WP-1843). 프로그램 초점은 받으므로 복구 도착지로 쓴다.
+    // 보기는 보관함 그대로라 받은 탭으로 옮기지 않는다(WP-1848 의 탭 이동은 보기 전환 때만).
+    expect(panel).toHaveAttribute('tabindex', '-1')
+    expect(screen.getByTestId('inbox-tab-archive')).toHaveAttribute('aria-selected', 'true')
+    // 패널을 떠나도 복구가 tabindex 를 바꿔 두지 않는다 — 패널의 Tab 정지점 규칙(WP-1843) 그대로.
+    screen.getByTestId('inbox-tab-archive').focus()
+    expect(panel).toHaveAttribute('tabindex', '-1')
+  })
+
+  // 모바일 모양(탭이 InboxList 밖)에서도 같은 결과 — 복구 훅과 InboxViewTabs 의 효과 순서가 바뀌어도 패널에 남는다.
+  test('탭이 목록 밖(hideHeader)이어도 하나뿐인 행을 되돌리면 목록 영역으로 간다', async () => {
+    const { user } = renderInbox({ archived: [notif({ id: 5 })], hideHeader: true })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    const btn = await screen.findByTestId('inbox-unarchive')
+    await user.click(btn)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('tabpanel')))
+  })
+
+  test('되돌리기 실패면 포커스가 그 버튼에 그대로 있고 성공 토스트가 없다', async () => {
+    const { user } = renderInbox({
+      archived: [notif({ id: 5 })],
+      unarchiveFails: true,
+    })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    const btn = await screen.findByTestId('inbox-unarchive')
+    await user.click(btn)
+    expect(await screen.findByText('되돌리지 못했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(btn))
+    expect(screen.queryByText('되돌렸습니다')).toBeNull()
+  })
+
   test('archive view: 되돌리기는 이동하지 않는다', async () => {
     const { user, location } = renderInbox({ archived: [notif({ id: 5 })] })
     await user.click(await screen.findByTestId('inbox-tab-archive'))
@@ -191,9 +259,14 @@ describe('보관함 줄 되돌리기 — 처리 중 비활성은 그 줄만', ()
     const [first, second] = screen.getAllByTestId('inbox-unarchive')
     await user.click(first)
     await waitFor(() => expect(requested).toEqual([[5]]))
-    // 처리 중인 그 줄만 비활성, 다른 줄은 눌린다.
-    await waitFor(() => expect(first).toBeDisabled())
-    expect(second).toBeEnabled()
+    // 처리 중인 그 줄만 aria-disabled(포커스를 빼지 않는 잠금), 다른 줄은 눌린다.
+    await waitFor(() => expect(first).toHaveAttribute('aria-disabled', 'true'))
+    expect(first).toBeEnabled()
+    expect(first).toHaveFocus()
+    expect(second).not.toHaveAttribute('aria-disabled')
+    // 처리 중인 줄을 다시 눌러도 요청이 나가지 않는다.
+    await user.click(first)
+    expect(requested).toEqual([[5]])
     await user.click(second)
     await waitFor(() => expect(requested).toEqual([[5], [6]]))
     release()
@@ -302,6 +375,33 @@ describe('알림 빈 상태 CTA (WP-1848)', () => {
     await user.click(within(pop).getByTestId('inbox-tab-archive'))
     await user.click(await within(pop).findByTestId('inbox-empty-action'))
     await waitFor(() => expect(within(pop).getByTestId('inbox-tab-inbox')).toHaveFocus())
+  })
+
+  // WP-1845 포커스 복구 훅과의 경계 — 탭이 목록보다 트리 뒤에 있으면 목록의 복구 효과가 먼저 돈다. 그때도 보기 전환으로 사라진
+  // CTA 의 포커스는 복구 훅(패널)이 아니라 InboxViewTabs(받은 탭)가 가져야 한다(복구 fallback 은 보기가 바뀐 커밋에서 비킨다).
+  test('탭이 목록 뒤에 그려져도 보관함 CTA 뒤 포커스는 받은 탭이다(WP-1845 복구와 겹치지 않음)', async () => {
+    function ListFirstHarness() {
+      const [view, setView] = useState<InboxView>('inbox')
+      return (
+        <>
+          <InboxList enabled view={view} onViewChange={setView} hideHeader screenEmpty />
+          <InboxViewTabs view={view} onChange={setView} />
+        </>
+      )
+    }
+    const { user } = renderScreen(<ListFirstHarness />, {
+      path: '/',
+      handlers: [
+        http.get('/api/v1/notifications', () => HttpResponse.json([notif({ id: 1 })])),
+        http.get('/api/v1/notifications/archived', () => HttpResponse.json([])),
+        ...inboxSupportHandlers(),
+      ],
+    })
+    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    await user.click(await screen.findByTestId('inbox-empty-action'))
+    await waitFor(() => expect(screen.getByTestId('inbox-tab-inbox')).toHaveFocus())
+    await screen.findAllByTestId('inbox-item')
+    expect(screen.getByTestId('inbox-tab-inbox')).toHaveFocus()
   })
 
   test('다음 페이지 조회가 실패하면 목록은 남고 다시 시도가 보이며 누르면 한 번 더 요청한다(WP-1848)', async () => {

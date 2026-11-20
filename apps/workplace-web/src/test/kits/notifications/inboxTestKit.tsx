@@ -60,7 +60,8 @@ export function inboxSupportHandlers() {
 /**
  * InboxList 를 띄운다.
  * - inbox: 알림 GET 응답. 함수면 요청마다 평가한다(읽음 처리 뒤 응답을 바꾸는 테스트용).
- * - archived: 보관함 응답(되돌리기 성공 뒤에는 비운다). unarchived: 되돌리기 요청 바디 ids.
+ * - archived: 보관함 응답(되돌리기 성공 뒤에는 그 id 만 뺀다). unarchived: 되돌리기 요청 바디 ids.
+ * - unarchiveFails: true 면 되돌리기 POST 를 500 으로 실패시킨다(WP-1845 실패 뒤 포커스·토스트).
  * - onMarkRead: POST /notifications/:id/read 가 올 때 부르는 콜백. markedRead: 그 id 모음.
  * - onNavigate·hideHeader: 하네스로 넘긴다(WP-1848 빈 상태 CTA). inboxStatus: 200 이 아니면 알림 GET 을 그 상태로 실패시킨다. inboxCalls: 알림 GET 횟수.
  */
@@ -73,9 +74,10 @@ export function renderInbox(
     onNavigate?: () => void
     hideHeader?: boolean
     inboxStatus?: number
+    unarchiveFails?: boolean
   } = {},
 ) {
-  const { inbox = [notif({ id: 1 })], archived = [], screenEmpty = false, onMarkRead, onNavigate, hideHeader = false, inboxStatus = 200 } = opts
+  const { inbox = [notif({ id: 1 })], archived = [], screenEmpty = false, onMarkRead, onNavigate, hideHeader = false, inboxStatus = 200, unarchiveFails = false } = opts
   const inboxCalls = { count: 0 }
   const unarchived: number[][] = []
   const markedRead: number[] = []
@@ -90,9 +92,10 @@ export function renderInbox(
       http.get('/api/v1/notifications/archived', () => HttpResponse.json(archiveRows)),
       ...inboxSupportHandlers(),
       http.post('/api/v1/notifications/unarchive', async ({ request }) => {
+        if (unarchiveFails) return new HttpResponse(null, { status: 500 })
         const body = (await request.json()) as { ids: number[] }
         unarchived.push(body.ids)
-        archiveRows = [] // 성공 뒤 보관함은 비었다
+        archiveRows = archiveRows.filter((r) => !body.ids.includes(r.id)) // 성공 뒤 보관함에서 그 id 만 빠진다
         return HttpResponse.json({ restoredIds: body.ids })
       }),
       http.post('/api/v1/notifications/:id/read', ({ params }) => {
