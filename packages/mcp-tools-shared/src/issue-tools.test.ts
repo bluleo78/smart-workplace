@@ -758,110 +758,55 @@ describe('buildSharedIssueTools', () => {
     expect(c.claimIssueAttachments).not.toHaveBeenCalled();
   });
 
-  it('WP-422: update_issue: fileIds 는 attachments 단계로 저장되고 실패는 results.attachments 에 담긴다', async () => {
+  // WP-1780: 서버 고치기 PATCH 가 fileIds 를 받아 자리표시 번호를 빼고 같은 트랜잭션에서 붙인다 — MCP 는 fileIds 를 내용 PATCH 에 그대로 싣는다.
+  it('WP-1780: update_issue: fileIds 는 내용 PATCH 에 실려 가고 클레임을 따로 부르지 않는다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    const ok = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', fileIds: [5, 6] })));
-    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5, 6]);
-    expect(ok).toEqual({ ok: true, results: { attachments: 'ok' } });
-    vi.mocked(c.claimIssueAttachments).mockRejectedValueOnce(new Error('만료된 파일'));
-    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'DONE', fileIds: [7] })));
-    expect(out.ok).toBe(false);
-    expect(out.results).toEqual({ content: 'ok', attachments: 'failed: 만료된 파일' });
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', body: '시안 ![a](file:5)', fileIds: [5, 6] })));
+    expect(c.updateIssueContent).toHaveBeenCalledTimes(1);
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ body: '시안 ![a](file:5)', fileIds: [5, 6] }));
+    expect(c.claimIssueAttachments).not.toHaveBeenCalled();
+    expect(out).toEqual({ ok: true, results: { content: 'ok', attachments: 'ok' } });
   });
 
-  it('WP-422: update_issue: fileIds 와 status 를 함께 주면 첨부 클레임을 먼저, 내용(상태) 저장을 나중에 한다', async () => {
+  it('WP-1780: update_issue: fileIds 만 주어도 내용 PATCH 한 번으로 보낸다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', status: 'TODO', fileIds: [5] });
-    const claimOrder = vi.mocked(c.claimIssueAttachments).mock.invocationCallOrder[0];
-    const contentOrder = vi.mocked(c.updateIssueContent).mock.invocationCallOrder[0];
-    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { status: 'TODO' });
-    expect(claimOrder).toBeLessThan(contentOrder);
+    await t.handler({ issueKey: 'WP-12', fileIds: [5] });
+    expect(c.updateIssueContent).toHaveBeenCalledTimes(1);
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { fileIds: [5] });
+    expect(c.claimIssueAttachments).not.toHaveBeenCalled();
   });
 
-  it('update_issue: driveFileId 와 status 를 함께 주면 드라이브 링크를 먼저, 내용(상태) 저장을 나중에 한다', async () => {
-    // 드라이브 링크도 첨부와 같이 명시 status 보다 먼저 저장한다 — 첨부·링크·상태를 함께 줘도 상태가 마지막이다.
-    const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', status: 'TODO', driveFileId: 77, fileIds: [5] });
-    const linkOrder = vi.mocked(c.addIssueDriveLink).mock.invocationCallOrder[0];
-    const claimOrder = vi.mocked(c.claimIssueAttachments).mock.invocationCallOrder[0];
-    const contentOrder = vi.mocked(c.updateIssueContent).mock.invocationCallOrder[0];
-    expect(c.addIssueDriveLink).toHaveBeenCalledWith('WP-12', 77);
-    expect(linkOrder).toBeLessThan(contentOrder);
-    expect(claimOrder).toBeLessThan(contentOrder);
-  });
-
-  it('WP-422: update_issue: 빈 fileIds 는 부르지 않는다', async () => {
+  it('WP-1780: update_issue: 빈 fileIds 는 싣지 않는다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
     const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'DONE', fileIds: [] })));
+    expect(vi.mocked(c.updateIssueContent).mock.calls[0][1]).not.toHaveProperty('fileIds');
     expect(c.claimIssueAttachments).not.toHaveBeenCalled();
     expect(out).toEqual({ ok: true, results: { content: 'ok' } });
   });
 
-  it('WP-1755: update_issue: 본문 자리표시에 쓴 번호는 fileIds 클레임에서 빠진다', async () => {
+  it('WP-1780: update_issue: 내용 PATCH 가 실패하면 attachments 도 같은 실패로 알린다', async () => {
     const c = mockClient();
+    vi.mocked(c.updateIssueContent).mockRejectedValueOnce(new Error('만료된 파일'));
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', body: '시안 ![a](file:5)', fileIds: [5, 6] });
-    expect(c.claimIssueAttachments).toHaveBeenCalledTimes(1);
-    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [6]);
-    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ body: '시안 ![a](file:5)' }));
-  });
-
-  it('WP-1755: update_issue: fileIds 가 모두 자리표시면 클레임을 부르지 않는다', async () => {
-    const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', body: '[x](file:5)', fileIds: [5] })));
-    expect(c.claimIssueAttachments).not.toHaveBeenCalled();
-    expect(out.ok).toBe(true);
-    expect(out.results).not.toHaveProperty('attachments');
-  });
-
-  it('WP-1755: update_issue: body 가 없으면 fileIds 를 그대로 클레임한다', async () => {
-    const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', fileIds: [5] });
-    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5]);
-  });
-
-  it('WP-1755: update_issue: 대체 글에 줄바꿈이 있으면 서버가 자리표시로 보지 않으니 fileIds 에서 빼지 않는다', async () => {
-    const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', body: '![a\nb](file:5)', fileIds: [5] });
-    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5]);
-  });
-
-  it('WP-1755: update_issue: 인라인 코드 안의 자리표시 번호는 서버가 무시하므로 클레임에서 빼지 않는다', async () => {
-    const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', body: '예: `![a](file:5)`', fileIds: [5] })));
-    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5]);
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', body: 'x', fileIds: [7] })));
+    expect(out.ok).toBe(false);
+    expect(out.results.content).toMatch(/^failed: .*만료된 파일/);
+    expect(out.results.attachments).toBe(out.results.content);
     expect(out.results).not.toHaveProperty('bodyFiles');
   });
 
-  it('WP-1755: update_issue: 펜스 코드 블록 안의 자리표시 번호도 클레임에서 빼지 않는다', async () => {
+  it('update_issue: driveFileId 와 status 를 함께 주면 드라이브 링크를 먼저, 내용(상태) 저장을 나중에 한다', async () => {
+    // 드라이브 링크는 명시 status 보다 먼저 저장한다 — 링크·상태를 함께 줘도 상태가 마지막이다.
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', body: '예시\n```\n![a](file:5)\n```\n끝', fileIds: [5] });
-    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5]);
-  });
-
-  it('WP-1755: update_issue: 본문이 처리한 번호는 bodyFiles 로 알리고, 본문 저장이 실패하면 붙지 않았다고 알린다', async () => {
-    const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    const ok = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', body: '![a](file:5) [b](file:7)', fileIds: [5, 7, 9] })));
-    expect(ok.ok).toBe(true);
-    expect(ok.results).toEqual({ attachments: 'ok', content: 'ok', bodyFiles: 'ok' });
-
-    const c2 = mockClient();
-    vi.mocked(c2.updateIssueContent).mockRejectedValue(new Error('boom'));
-    const t2 = buildSharedIssueTools(c2).find((x) => x.name === 'update_issue')!;
-    const bad = JSON.parse(resultText(await t2.handler({ issueKey: 'WP-12', body: '![a](file:5)', fileIds: [5] })));
-    expect(bad.ok).toBe(false);
-    expect(bad.results.content).toMatch(/^failed:/);
-    expect(bad.results.bodyFiles).toBe('failed: 본문 저장 실패로 붙지 않음 — 5');
+    await t.handler({ issueKey: 'WP-12', status: 'TODO', driveFileId: 77, fileIds: [5] });
+    const linkOrder = vi.mocked(c.addIssueDriveLink).mock.invocationCallOrder[0];
+    const contentOrder = vi.mocked(c.updateIssueContent).mock.invocationCallOrder[0];
+    expect(c.addIssueDriveLink).toHaveBeenCalledWith('WP-12', 77);
+    expect(linkOrder).toBeLessThan(contentOrder);
   });
 
   it('WP-422: get_issue_detail 은 클레임된 첨부를 기존 attachments 뷰 그대로 보여 준다', async () => {
@@ -1134,30 +1079,32 @@ describe('buildSharedIssueTools', () => {
     expect(c.getProjectStatuses).not.toHaveBeenCalled();
   });
 
-  // 첨부·드라이브 링크는 상태 저장보다 먼저 해(위 WP-422 순서) 내용 저장을 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
-  it('update_issue: 첨부와 모르는 상태 이름을 함께 주면 아무것도 쓰지 않고 content 실패로 알린다', async () => {
+  // 드라이브 링크는 상태 저장보다 먼저 해(위 순서) 내용 저장을 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
+  it('update_issue: 드라이브 링크와 모르는 상태 이름을 함께 주면 아무것도 쓰지 않고 content 실패로 알린다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
     const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'WRONG', fileIds: [5], driveFileId: 77, assignees: ['alice'] })));
     expect(out.ok).toBe(false);
     expect(Object.keys(out.results)).toEqual(['content']);
     expect(out.results.content).toMatch(/^failed: 상태 'WRONG' 을\(를\) 찾을 수 없습니다\. 사용 가능: /);
-    expect(c.claimIssueAttachments).not.toHaveBeenCalled();
     expect(c.addIssueDriveLink).not.toHaveBeenCalled();
     expect(c.updateIssueContent).not.toHaveBeenCalled();
     expect(c.replaceIssueAssignees).not.toHaveBeenCalled();
   });
 
-  it('update_issue: 첨부와 아는 상태 이름(대소문자·공백 무시)이면 첨부를 먼저, 상태를 나중에 저장한다', async () => {
+  it('WP-1780: update_issue: 모르는 상태 이름과 fileIds 는 미리 확인 없이 한 PATCH 로 함께 실패한다', async () => {
+    // 첨부는 이제 내용 PATCH 와 한 트랜잭션이라 상태 목록을 먼저 조회할 필요가 없다 — 서버가 이름을 거절하면 첨부도 함께 안 붙는다.
     const c = mockClient();
-    vi.mocked(c.getProjectStatuses).mockResolvedValue([{ id: 40, name: 'Code Review', category: 'IN_PROGRESS', position: 2 }]);
+    const message = "상태 'WRONG' 을(를) 찾을 수 없습니다. 사용 가능: 할 일, 진행 중";
+    vi.mocked(c.updateIssueContent).mockRejectedValue(Object.assign(new Error('x'), { response: { status: 400, data: { message } } }));
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: ' code review ', fileIds: [5] })));
-    expect(out).toEqual({ ok: true, results: { attachments: 'ok', content: 'ok' } });
-    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { statusName: 'code review' });
-    const claimOrder = vi.mocked(c.claimIssueAttachments).mock.invocationCallOrder[0];
-    const contentOrder = vi.mocked(c.updateIssueContent).mock.invocationCallOrder[0];
-    expect(claimOrder).toBeLessThan(contentOrder);
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'WRONG', fileIds: [5], assignees: ['alice'] })));
+    expect(c.getProjectStatuses).not.toHaveBeenCalled();
+    expect(c.updateIssueContent).toHaveBeenCalledTimes(1);
+    expect(out.ok).toBe(false);
+    expect(out.results.content).toMatch(/^failed: /);
+    expect(out.results.attachments).toBe(out.results.content);
+    expect(c.replaceIssueAssignees).not.toHaveBeenCalled();
   });
 
   it('update_issue 는 모르는 마일스톤이면 아무것도 쓰지 않고 throw (#854)', async () => {

@@ -51,7 +51,9 @@ class MailSummaryBackfillServiceTest {
     lenient()
         .when(txManager.getTransaction(ArgumentMatchers.any(TransactionDefinition.class)))
         .thenReturn(new SimpleTransactionStatus());
-    service = new MailSummaryBackfillService(messageRepo, bodyFetcher, analysis, txManager);
+    service =
+        new MailSummaryBackfillService(
+            messageRepo, bodyFetcher, analysis, txManager, new MailAnalysisBreaker());
   }
 
   @Test

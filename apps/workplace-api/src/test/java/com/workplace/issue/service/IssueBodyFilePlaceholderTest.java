@@ -10,12 +10,15 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
+import com.workplace.global.security.AgentToolContext;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateCommentRequest;
@@ -23,6 +26,7 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.UpdateCommentRequest;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
+import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -41,6 +45,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +61,7 @@ import tools.jackson.databind.ObjectMapper;
  * 같은 방식). 실패 시 아무것도 저장되지 않는지는 세이브포인트(NESTED) 트랜잭션으로 확인한다.
  */
 @Transactional
+@RecordApplicationEvents
 class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
 
   private static final long TEST_TENANT_ID = 1L;
@@ -75,6 +82,7 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired MockMvc mvc;
+  @Autowired ApplicationEvents events;
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired ObjectMapper objectMapper;
 
@@ -469,6 +477,236 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
                         + " 은 넣을 수 없어요 — 내가 올렸고 아직 어디에도 붙이지 않은, 24시간이 지나지 않은 파일만 넣을 수 있어요. 파일을 다시 올려 주세요."));
   }
 
+  // ---------------------------------------------------------------- WP-1780 고치기 fileIds
+
+  /** WP-1780 고치기도 만들기와 같이, 같은 이미지 번호가 fileIds 와 자리표시에 함께 와도 본문 그림으로만 묶인다. */
+  @Test
+  void 고치기_같은_이미지_번호를_fileIds_와_자리표시에_함께_넣어도_본문_그림으로_한_번만_묶인다() {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+    long img = seedStaged(ownerId, "dupu.png", PNG, "image/png", PNG.length);
+
+    issueService.update(
+        ownerId,
+        projectKey,
+        created.number(),
+        bodyWithFiles("시안 ![시안](file:" + img + ")", List.of(img)));
+
+    assertThat(bodyOf(created.id())).contains("/issue-images/").doesNotContain("file:");
+    assertThat(dsl.fetchCount(ISSUE_BODY_IMAGE, ISSUE_BODY_IMAGE.FILE_ID.eq(img))).isEqualTo(1);
+    assertThat(attachmentService.listByIssueId(created.id())).isEmpty();
+  }
+
+  /** WP-1780 fileIds 와 이미지가 아닌 자리표시가 겹쳐도 첨부는 한 번만 붙는다. */
+  @Test
+  void 고치기_fileIds_와_비이미지_자리표시가_함께_와도_첨부는_한_번만_붙는다() {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+    long doc = seedStaged(ownerId, "u1.txt", "hello".getBytes(), "text/plain", 5);
+    long other = seedStaged(ownerId, "u2.txt", "world".getBytes(), "text/plain", 5);
+
+    issueService.update(
+        ownerId,
+        projectKey,
+        created.number(),
+        bodyWithFiles("[x](file:" + doc + ")", List.of(other, doc)));
+
+    assertThat(attachmentService.listByIssueId(created.id()))
+        .extracting("fileId")
+        .containsExactlyInAnyOrder(doc, other);
+  }
+
+  /** WP-1780 닫는 펜스 뒤 NBSP 경계에서도 자리표시 번호가 한 번만 붙고 거절되지 않는다. */
+  @Test
+  void 고치기_닫는_펜스_뒤_NBSP_경계에서도_한_번만_붙고_거절되지_않는다() {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+    long doc = seedStaged(ownerId, "nb.txt", "hello".getBytes(), "text/plain", 5);
+
+    issueService.update(
+        ownerId,
+        projectKey,
+        created.number(),
+        bodyWithFiles("```\n코드\n``` \n[x](file:" + doc + ")", List.of(doc)));
+
+    assertThat(attachmentService.listByIssueId(created.id()))
+        .extracting("fileId")
+        .containsExactly(doc);
+  }
+
+  /** WP-1780 본문 없이 fileIds 만 주면 본문은 그대로, 첨부만 붙는다. */
+  @Test
+  void 고치기_fileIds_만_주면_본문은_그대로_첨부만_붙는다() {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+    long doc = seedStaged(ownerId, "only.txt", "hello".getBytes(), "text/plain", 5);
+
+    issueService.update(ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc)));
+
+    assertThat(bodyOf(created.id())).isEqualTo("처음");
+    assertThat(attachmentService.listByIssueId(created.id()))
+        .extracting("fileId")
+        .containsExactly(doc);
+  }
+
+  /** WP-1780 fileIds 의 남의 파일은 거절되고 같은 요청의 본문 변경도 반영되지 않는다. */
+  @Test
+  void 고치기_fileIds_의_남의_파일은_400_이고_본문이_바뀌지_않는다() {
+    var created = issueService.create(ownerId, projectKey, createReq("그대로"));
+    long theirs = seedStaged(memberId, "th.txt", "x".getBytes(), "text/plain", 1);
+    var nested = nested();
+
+    assertThatThrownBy(
+            () ->
+                nested.executeWithoutResult(
+                    st ->
+                        issueService.update(
+                            ownerId,
+                            projectKey,
+                            created.number(),
+                            bodyWithFiles("새 본문", List.of(theirs)))))
+        .isInstanceOf(StagedFileUnusableException.class);
+    assertThat(bodyOf(created.id())).isEqualTo("그대로");
+  }
+
+  /** WP-1780 fileIds 만 고치면 이슈 행 version 이 그대로이고(편집기를 연 사람이 409 를 받지 않는다) 첨부만 붙는다. */
+  @Test
+  void 고치기_fileIds_만_주면_version_이_그대로이고_첨부가_붙는다() {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+    int versionBefore = issueRepository.findById(created.id()).orElseThrow().version();
+    long doc = seedStaged(ownerId, "ver.txt", "hello".getBytes(), "text/plain", 5);
+
+    var res =
+        issueService.update(
+            ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc)));
+
+    assertThat(issueRepository.findById(created.id()).orElseThrow().version())
+        .isEqualTo(versionBefore);
+    assertThat(res.summary().number()).isEqualTo(created.number());
+    assertThat(attachmentService.listByIssueId(created.id()))
+        .extracting("fileId")
+        .containsExactly(doc);
+  }
+
+  /** WP-1780 fileIds 와 함께 우선순위를 바꾸면 이슈 행이 갱신돼 version 이 오른다(첨부 전용이 아니다). */
+  @Test
+  void 고치기_fileIds_와_우선순위를_함께_주면_version_이_오른다() {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+    int versionBefore = issueRepository.findById(created.id()).orElseThrow().version();
+    long doc = seedStaged(ownerId, "ver2.txt", "hello".getBytes(), "text/plain", 5);
+
+    issueService.update(
+        ownerId,
+        projectKey,
+        created.number(),
+        new UpdateIssueRequest(
+            null,
+            null,
+            null,
+            "HIGH",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(doc)));
+
+    assertThat(issueRepository.findById(created.id()).orElseThrow().version())
+        .isGreaterThan(versionBefore);
+    assertThat(attachmentService.listByIssueId(created.id())).hasSize(1);
+  }
+
+  /**
+   * WP-1780 MCP 수행 도구 경유 fileIds 고치기는 예전 claim 처럼 작업 쓰기라 AI 작업 터치 이벤트를 낸다(fileIds 만·우선순위와 함께 모두).
+   */
+  @Test
+  void 고치기_fileIds_는_MCP_경유_작업_쓰기로_AgentToolWriteEvent_를_낸다() {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+    long doc = seedStaged(ownerId, "ev1.txt", "hello".getBytes(), "text/plain", 5);
+    long doc2 = seedStaged(ownerId, "ev2.txt", "hello".getBytes(), "text/plain", 5);
+    events.clear();
+
+    AgentToolContext.set("test-tool");
+    try {
+      issueService.update(ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc)));
+      assertThat(events.stream(AgentToolWriteEvent.class).count()).isEqualTo(1);
+      events.clear();
+
+      issueService.update(
+          ownerId,
+          projectKey,
+          created.number(),
+          new UpdateIssueRequest(
+              null,
+              null,
+              null,
+              "HIGH",
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              List.of(doc2)));
+      assertThat(events.stream(AgentToolWriteEvent.class).count()).isEqualTo(1);
+    } finally {
+      AgentToolContext.clear();
+    }
+  }
+
+  /** WP-1780 OPEN 프로젝트의 비멤버 보고자는 고치기 fileIds 로 첨부할 수 있고, 보고자가 아닌 비멤버는 거절된다. */
+  @Test
+  void 고치기_fileIds_OPEN_비멤버_보고자는_첨부할_수_있고_비보고자는_거절된다() {
+    long reporter = createUser("ph-rep");
+    long stranger = createUser("ph-stranger");
+    ProjectResponse open =
+        projectService.create(
+            ownerId, new CreateProjectRequest(uniqueKey("PO"), "P-open", "x", "OPEN"));
+    var created = issueService.create(reporter, open.key(), createReq("보고"));
+    long mine = seedStaged(reporter, "rep.txt", "hello".getBytes(), "text/plain", 5);
+    long theirs = seedStaged(stranger, "str.txt", "hello".getBytes(), "text/plain", 5);
+
+    issueService.update(reporter, open.key(), created.number(), bodyWithFiles(null, List.of(mine)));
+    assertThat(attachmentService.listByIssueId(created.id()))
+        .extracting("fileId")
+        .containsExactly(mine);
+
+    assertThatThrownBy(
+            () ->
+                issueService.update(
+                    stranger, open.key(), created.number(), bodyWithFiles(null, List.of(theirs))))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
+  /** WP-1780 HTTP — fileIds 는 만들기와 같이 10개까지. */
+  @Test
+  void 고치기_fileIds_가_10개를_넘으면_400() throws Exception {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+
+    mvc.perform(
+            patch("/api/v1/projects/" + projectKey + "/issues/" + created.number())
+                .header("Authorization", tokenFor(ownerId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"fileIds\":[1,2,3,4,5,6,7,8,9,10,11]}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** WP-1780 fileIds 의 빈 원소(null)는 첨부 단계까지 가 500 이 되지 않고 형태 오류 400 으로 거절된다. */
+  @Test
+  void 고치기_fileIds_에_null_이_있으면_400() throws Exception {
+    var created = issueService.create(ownerId, projectKey, createReq("처음"));
+
+    mvc.perform(
+            patch("/api/v1/projects/" + projectKey + "/issues/" + created.number())
+                .header("Authorization", tokenFor(ownerId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"fileIds\":[null]}"))
+        .andExpect(status().isBadRequest());
+  }
+
   // ---------------------------------------------------------------- 도우미
 
   /** 이슈 만들기가 거절되고 이슈가 생기지 않는지 세이브포인트 안에서 확인한다. */
@@ -558,6 +796,12 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
   private UpdateIssueRequest bodyOnly(String body) {
     return new UpdateIssueRequest(
         null, body, null, null, null, null, null, null, null, null, null, null, null);
+  }
+
+  /** WP-1780 본문·fileIds 를 함께(또는 fileIds 만) 보내는 PATCH. */
+  private UpdateIssueRequest bodyWithFiles(String body, List<Long> fileIds) {
+    return new UpdateIssueRequest(
+        null, body, null, null, null, null, null, null, null, null, null, null, null, fileIds);
   }
 
   private String tokenFor(long userId) {

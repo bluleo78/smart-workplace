@@ -108,7 +108,13 @@ public class IssueBodyImageService {
    *     처리로 끝나므로 요청 fileIds 에서 빼야 한다(WP-1755: 이미지가 첨부로 다시 클레임되면 이미 묶인 파일이라 400)
    */
   public record ResolvedBody(
-      String body, List<Long> attachmentFileIds, Set<Long> placeholderFileIds) {}
+      String body, List<Long> attachmentFileIds, Set<Long> placeholderFileIds) {
+
+    /** WP-1780 자리표시 해석이 없는(본문을 안 보낸) 경우의 빈 해석 — 요청 fileIds 만 그대로 쓰게 한다. */
+    public static ResolvedBody empty() {
+      return new ResolvedBody(null, List.of(), Set.of());
+    }
+  }
 
   /**
    * 본문·댓글의 스테이징 파일 자리표시({@code ![설명](file:123)}, {@code [이름](file:123)})를 해석한다(WP-1634).

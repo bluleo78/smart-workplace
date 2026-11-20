@@ -104,7 +104,7 @@ class MailReanalysisServiceTest extends ExternalClientMockedTestBase {
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     // 옛 기준 false → 새 기준(LLM true, To 가 나) → true
     long a = legacyEnvelope(box, content, "minsu@acme.com", box.address(), false);
-    // 옛 기준 true, LLM true 지만 To/CC 에 내가 없음 → ⑤ 규칙으로 false
+    // 옛 기준 true, To/CC 에 내가 없음 → 규칙으로 false 가 정해져 LLM 을 부르지 않고 raw=false 로 기록(WP-1812)
     long b = legacyEnvelope(box, content, "minsu@acme.com", "someone@acme.com", true);
     // 아직 분류되지 않은 행도 대상
     long c =
@@ -113,14 +113,16 @@ class MailReanalysisServiceTest extends ExternalClientMockedTestBase {
 
     assertThat(reanalysis.reanalyzeAccountNow(box.userId(), box.accountId())).isTrue();
 
-    verify(mailClient, times(3)).analyzePersonal(any());
+    verify(mailClient, times(2)).analyzePersonal(any()); // b 는 규칙 차단 — 호출 없음
     // 메일 3건이어도 "나" 프로필은 계정 루프 동안 1회만 조회(WP-150 배치 캐시 — 2인자 호출이면 3회)
     verify(profileBuilder, times(1)).build(box.userId());
     assertThat(version(box.accountId())).isEqualTo(MailReanalysisService.CURRENT_CLASSIFY_VERSION);
     for (long id : new long[] {a, b, c}) {
       assertThat(row(id).get(EMAIL_MESSAGE.AI_ANALYZED_AT)).isNotNull();
-      assertThat(row(id).get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isTrue();
     }
+    assertThat(row(a).get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isTrue();
+    assertThat(row(b).get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isFalse();
+    assertThat(row(c).get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isTrue();
     assertThat(row(a).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
     assertThat(row(b).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse(); // 규칙 덮어쓰기
     assertThat(row(c).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();

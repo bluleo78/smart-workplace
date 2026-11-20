@@ -16,6 +16,8 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
@@ -25,6 +27,7 @@ import com.workplace.mail.outbound.MailAiMessages.Me;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.support.ExternalClientMockedTestBase;
+import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -32,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +59,9 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   @Autowired AiAgentMailClient mailClient;
   @Autowired AssistantResolver assistantResolver;
   @Autowired NeedsReplyFinalizer finalizer;
+
+  /** 메일 범위 기억 유무를 테스트가 정한다(WP-1812) — 기본은 빈 목록(기억 없음). */
+  @MockitoBean AiMemoryReader memoryReader;
 
   @BeforeEach
   void assistants() {
@@ -306,8 +313,116 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   }
 
   @Test
-  void personalAssistant_rulesHit_skipsPersonalSummary() {
+  void personalAssistant_rulesHit_skipsLlmAndMarksSummarySkipped() {
+    // WP-1812: 개인 비서라도 규칙으로 정해졌고 기억·분류 보충이 없으면 LLM 을 부르지 않고 요약 생략만 표시한다
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(
+            dsl, box, content, "noreply@service.com", box.address(), null);
+
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+
+    verify(mailClient, never()).analyzePersonal(any());
+    assertThat(envelope(env).get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED)).isTrue();
+  }
+
+  @Test
+  void blockedByRulesSkipsLlmForWorkspaceAssistant() {
+    // WP-1812: 공통 비서만 있고 분류도 있는 사용자 — 규칙(noreply 발신)으로 false 가 정해져 LLM 이 필요 없다
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(
+            dsl, box, content, "noreply@service.com", box.address(), null);
+
+    boolean responded = analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+
+    assertThat(responded).isFalse();
+    verify(mailClient, never()).analyzePersonal(any());
+    Record row = envelope(env);
+    assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isFalse();
+    assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
+    assertThat(row.get(EMAIL_MESSAGE.AI_ANALYZED_AT)).isNotNull();
+  }
+
+  @Test
+  void nonReplyCategoryStillCallsLlm() {
+    // WP-1812: 분류만 걸린 메일은 LLM 을 부른다 — 분류는 사용자가 나중에 바꿀 수 있어, 생략해 raw=false 로 저장하면
+    // 업무로 바꿔도 회신 필요가 될 수 없다. 최종값(⑤)은 분류 규칙으로 false.
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_CATEGORY, "알림")
+        .where(EMAIL_CONTENT.ID.eq(content))
+        .execute();
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
+
+    boolean responded = analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+
+    assertThat(responded).isTrue();
+    verify(mailClient, times(1)).analyzePersonal(any());
+    Record row = envelope(env);
+    assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isTrue();
+    assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
+  }
+
+  @Test
+  void userCategoryOverOriginalNonReply_callsLlm() {
+    // 사용자 분류(업무) 위에 원본 분류(알림)가 있는 메일 — 분류는 규칙 생략 근거가 아니므로 LLM 을 부르고 raw 가 저장돼
+    // 업무로 바꾼 뒤 최종값이 true 가 된다.
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_CATEGORY, "알림")
+        .where(EMAIL_CONTENT.ID.eq(content))
+        .execute();
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.USER_CATEGORY, "업무")
+        .where(EMAIL_MESSAGE.ID.eq(env))
+        .execute();
+    when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
+
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+
+    verify(mailClient, times(1)).analyzePersonal(any());
+    Record row = envelope(env);
+    assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isTrue();
+    assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
+  }
+
+  @Test
+  void personalAssistantStillCallsLlm() {
+    // 개인 비서에 메일 기억이 있으면 개인 분류를 같은 호출에서 받으므로 규칙에 걸려도 LLM 을 부른다
+    when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(memoryReader.readAppScope(anyLong(), any()))
+        .thenReturn(List.of(new AiMemoryLine(1, "PREFERENCE", "사내 소식은 뉴스레터", null, null, null)));
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(
+            dsl, box, content, "noreply@service.com", box.address(), null);
+    when(mailClient.analyzePersonal(any())).thenReturn(reply(false));
+
+    boolean responded = analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+
+    assertThat(responded).isTrue();
+    verify(mailClient, times(1)).analyzePersonal(any());
+  }
+
+  @Test
+  void missingCategoryStillCallsLlm() {
+    // 공통 비서가 없고 원본 분류도 없으면 ④ 가 분류를 채워야 하므로 규칙에 걸려도 LLM 을 부른다
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
@@ -317,8 +432,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
 
     analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
-    assertThat(captured().includePersonalSummary()).isFalse(); // 규칙에 걸려도 LLM 은 부르되 요약은 요청 안 함
-    assertThat(envelope(env).get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED)).isTrue();
+    verify(mailClient, times(1)).analyzePersonal(any());
   }
 
   @Test

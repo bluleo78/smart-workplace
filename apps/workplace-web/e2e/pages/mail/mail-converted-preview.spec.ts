@@ -10,6 +10,7 @@ import { DOC_MAIL_ID, stubMailWithDocAttachments } from '../../fixtures/mail-vie
 import type { PreviewStub } from '../../fixtures/preview-stub'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
+import { expectPdfPageVisible } from '../../fixtures/pdf'
 
 /** 시안의 긴 한글 파일명 — 긴 이름이 상태 화면·다운로드 파일명에 그대로 남는지도 함께 본다. */
 const HWP_NAME = '2026년 언택트 AI R&D 과제기획 전담반 회의 참석안내.hwp'
@@ -33,7 +34,7 @@ async function openViewer(page: Page, id: number) {
 
 /** 변환 PDF(3쪽 샘플)가 pdf.js 캔버스로 다 그려졌는지. */
 async function expectConvertedPdf(page: Page) {
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   await expect(page.getByTestId('pdf-document').locator('canvas')).toHaveCount(3)
 }
 

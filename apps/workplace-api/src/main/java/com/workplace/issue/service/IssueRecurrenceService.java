@@ -54,6 +54,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.JacksonException;
@@ -121,6 +122,9 @@ public class IssueRecurrenceService {
 
   /** 실패 회차 글의 머리. */
   static final String FAILED_PREFIX = "이번 회차를 실행하지 못했습니다: ";
+
+  /** 이벤트 발사 실행기가 회차 발사를 거절했을 때(큐 가득) 실패 글에 남기는 사유(WP-1812). */
+  public static final String DISPATCH_REJECTED = "서버가 바빠 회차를 보내지 못했습니다";
 
   /** 반복을 멈췄을 때 이슈 챗에 남기는 안내. */
   static final String STOPPED_NOTICE = "반복 작업이 3회 연속 실패해 반복을 멈췄습니다. 이슈의 반복 설정에서 다시 저장하면 다시 켜집니다.";
@@ -780,6 +784,30 @@ public class IssueRecurrenceService {
             ? orDefault(report.message(), EMPTY_RESULT)
             : FAILED_PREFIX + orDefault(report.message(), "알 수 없는 오류");
     applyResult(row, report.ok(), body, report.asQuestion());
+  }
+
+  /**
+   * 회차를 이벤트 실행기가 거절해 ai-agent 로 보내지 못했을 때(큐 가득 등) 그 회차를 바로 실패로 남긴다(WP-1812). 결과 보고를 기다리다 대기 시간 초과로
+   * 「결과를 받지 못했습니다」가 뜨기까지 수십 분 걸리던 것을 사유와 함께 즉시 알리려는 것이다. 회차 발행 트랜잭션의 AFTER_COMMIT 단계에서 불리므로 새 트랜잭션
+   * (REQUIRES_NEW)에서 처리한다. 서버 내부 경로라 보고자 검사는 없다. runId 가 지금 대기 중인 정기 회차·이어 처리·테스트 실행 중 어느 것과도 다르면
+   * (지난 회차의 늦은 통보·이미 정리된 회차) 아무것도 하지 않는다.
+   */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void failDispatch(long issueId, String runId, String reason) {
+    IssueRecurrenceRow row = repository.findForUpdate(issueId).orElse(null);
+    if (row == null || runId == null) return;
+    if (runId.equals(row.pendingRunId())) {
+      applyResult(row, false, FAILED_PREFIX + reason, false);
+    } else if (runId.equals(row.followUpRunId())) {
+      String text = FOLLOW_UP_FAILED_PREFIX + reason;
+      // 테스트 질문의 이어 처리(WP-1313)는 보고 경로와 같이 테스트 표시를 붙인다.
+      if (row.followUpTestBy() != null) text = TEST_LABEL + text;
+      applyFollowUpResult(row, false, text, false, null);
+    } else if (runId.equals(row.testRunId())) {
+      applyTestResult(row, TEST_LABEL + TEST_FAILED_PREFIX + reason, false, null);
+    } else {
+      log.debug("[recurrence] 대기 중이 아닌 회차의 발사 거절 통보 무시 issueId={} runId={}", issueId, runId);
+    }
   }
 
   /**

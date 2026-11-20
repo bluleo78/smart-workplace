@@ -420,8 +420,8 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
     stubAssistant();
     when(assistantResolver.resolvePersonalOrEmpty(anyLong()))
         .thenReturn(Optional.of(new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000)));
+    // WP-1812: 자동 발송(규칙 차단)이라 첫 요약 조회의 ④ 는 LLM 을 부르지 않는다 — 호출은 강제 생성 1회뿐이다
     when(mailClient.analyzePersonal(any()))
-        .thenReturn(new AnalyzePersonalResult(false, null, false, null))
         .thenReturn(new AnalyzePersonalResult(false, "• 강제 개인 요약", true, null));
 
     assertThat(mailAiService.summarize(userId, msgId).status())
@@ -431,14 +431,14 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
 
     ArgumentCaptor<AnalyzePersonalRequest> req =
         ArgumentCaptor.forClass(AnalyzePersonalRequest.class);
-    verify(mailClient, times(2)).analyzePersonal(req.capture());
-    AnalyzePersonalRequest forced = req.getAllValues().get(1);
+    verify(mailClient, times(1)).analyzePersonal(req.capture());
+    AnalyzePersonalRequest forced = req.getAllValues().get(0);
     assertThat(forced.includePersonalSummary()).isTrue();
     assertThat(forced.includeNeedsReply()).isFalse();
     assertThat(forced.body()).contains("배포 일정"); // 미리보기가 아닌 새 본문
     verify(mailClient, never()).analyzeContent(any());
     assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.ready("• 강제 개인 요약"));
-    verify(mailClient, times(2)).analyzePersonal(any());
+    verify(mailClient, times(1)).analyzePersonal(any());
   }
 
   /** 이미 요약이 있으면 강제 생성은 캐시를 그대로 돌려주고 LLM 을 부르지 않는다. */

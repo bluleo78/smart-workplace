@@ -17,6 +17,7 @@ import { createFile, createFolder, createSpace } from '../../factories/drive.fac
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueAttachment } from '../../../src/types/attachment';
+import { expectPdfPageVisible } from '../../fixtures/pdf';
 
 const PROJECT_KEY = 'WP';
 // ESM 컨텍스트: __dirname 대신 이 스펙 파일 기준 디렉토리. 실제 PDF 바이트는 공용 픽스처를 쓴다(pdf.js 가 그려야 하므로).
@@ -179,7 +180,7 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
 
     await page.getByRole('button', { name: 'real.pdf 미리보기' }).click();
     // WP-277: PDF 는 iframe 이 아니라 pdf.js 캔버스(페이지별 testid)로 그린다.
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible();
+    await expectPdfPageVisible(page);
     await page.keyboard.press('Escape');
 
     await page.getByRole('button', { name: 'fake.pdf 미리보기' }).click();
@@ -377,7 +378,7 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page).toHaveURL(/preview=file(%3A|:)7601/);
 
     await page.keyboard.press('ArrowRight');
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible();
+    await expectPdfPageVisible(page);
     await expect(page.getByTestId('preview-meta')).toContainText('2 / 3');
 
     await page.keyboard.press('ArrowRight');

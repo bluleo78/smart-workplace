@@ -12,6 +12,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueRecurringRunEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.issue.service.IssueRecurrenceRules;
+import com.workplace.issue.service.IssueRecurrenceService;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
@@ -19,8 +20,12 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -28,8 +33,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
  * 도메인 이벤트 → ai-agent 발사. AFTER_COMMIT 에서만 동작 — 트랜잭션 롤백 시 발사하지 않는다. 모든 핸들러는 enabled / self-loop / 서버
- * 실행(INTERNAL) AGENT 담당자 필터를 거친 뒤 envelope 을 만들어 client 에 위임한다. 핸들러는 @Async("aiAgentEventExecutor")
- * 로 별도 스레드에서 실행되어 ai-agent 다운 시의 재시도 백오프가 도메인 처리(호출 스레드)에 영향을 주지 않는다.
+ * 실행(INTERNAL) AGENT 담당자 필터를 거친 뒤 envelope 을 만들어 client 에 위임한다. 핸들러는 별도 스레드에서 실행되어 ai-agent 다운 시의
+ * 재시도 백오프가 도메인 처리(호출 스레드)에 영향을 주지 않는다 — 대부분 @Async("aiAgentEventExecutor") 이고, onIssueRecurringRun
+ * 만 동기 리스너가 같은 실행기에 직접 제출한다(실행기 거절을 잡아 그 회차를 바로 실패로 남기려는 것, WP-1812).
  *
  * <p>WP-253: IssueCreatedEvent 는 발사하지 않는다. 담당자를 지정한 생성은 IssueAssignedEvent(added=전원)도 함께 발행되므로 둘 다
  * 발사하면 AI 가 2회 실행된다 — 트리거는 "담당 지정" 하나로 통일. (ai-agent 는 롤링 배포 호환을 위해 issue.created 수신을 유지한다.)
@@ -45,6 +51,16 @@ public class IssueEventDispatcher {
 
   /** WP-386: 이슈 AI 담당자 이벤트에 싣는 공용 메모리 리더(조직 + 이 프로젝트). */
   private final SharedAiMemoryReader sharedReader;
+
+  /**
+   * WP-1812: 회차 발사를 직접 제출하는 이벤트 실행기 — 거절(RejectedExecutionException, TaskRejectedException 포함)을
+   * 잡으려 @Async 를 쓰지 않는다.
+   */
+  @Qualifier("aiAgentEventExecutor")
+  private final Executor eventExecutor;
+
+  /** 거절된 회차를 실패로 남기는 서비스 — 순환 의존을 피하려 늦게 꺼낸다. */
+  private final ObjectProvider<IssueRecurrenceService> recurrenceServiceProvider;
 
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -121,10 +137,44 @@ public class IssueEventDispatcher {
    * actor 는 반복을 등록한 사람이라 self-loop 판정도 필요 없다. 결과는 ai-agent 가 내부
    * 보고(/internal/issue-recurrence/{issueId}/runs)로 돌려준다.
    */
-  @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueRecurringRun(IssueRecurringRunEvent e) {
     if (!props.enabled()) return;
+    // WP-1812: @Async 대신 실행기에 직접 제출한다 — @Async 는 큐가 가득 차 거절돼도 발행 스레드에 예외만 던지고 회차가 조용히 사라져 40분 뒤
+    // 「결과를 받지 못했습니다」로만 드러났다. 직접 제출하면 거절을 잡아 그 회차를 바로 실패 사유와 함께 남길 수 있다(테넌트는 실행기 데코레이터가 전파한다).
+    try {
+      eventExecutor.execute(() -> dispatchRecurringRun(e));
+    } catch (RejectedExecutionException rejected) {
+      log.warn(
+          "[outbound] 반복 회차 발사가 실행기에 거절됨 issueId={} runId={}", e.issueId(), e.runId(), rejected);
+      failRejectedRun(e);
+    }
+  }
+
+  /** 거절된 회차를 실패로 남긴다. 이것마저 실패하면 로그만 — 다음 폴·결과 대기 시간 초과가 정리한다. */
+  private void failRejectedRun(IssueRecurringRunEvent e) {
+    try {
+      recurrenceServiceProvider
+          .getObject()
+          .failDispatch(e.issueId(), e.runId(), IssueRecurrenceService.DISPATCH_REJECTED);
+    } catch (RuntimeException ex) {
+      log.warn("[outbound] 거절된 반복 회차를 실패로 남기지 못함 issueId={} runId={}", e.issueId(), e.runId(), ex);
+    }
+  }
+
+  /**
+   * 실행기 스레드에서 도는 회차 페이로드 구성과 발사. 실행기에 직접 넣은 본문이라 @Async 처럼 예외를 대신 로그로 남겨 주지 않는다 — 여기서 잡아 경고로 남기고
+   * 삼킨다(스레드 미처리 예외로 사라지지 않게).
+   */
+  private void dispatchRecurringRun(IssueRecurringRunEvent e) {
+    try {
+      doDispatchRecurringRun(e);
+    } catch (RuntimeException ex) {
+      log.warn("[outbound] 반복 회차 발사 실패 issueId={} runId={}", e.issueId(), e.runId(), ex);
+    }
+  }
+
+  private void doDispatchRecurringRun(IssueRecurringRunEvent e) {
     Map<String, Object> p =
         baseFields(
             e.issueId(),

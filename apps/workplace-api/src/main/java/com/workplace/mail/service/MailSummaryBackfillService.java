@@ -5,6 +5,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailAnalysisBreaker.Admission;
 import java.util.List;
 import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
@@ -38,11 +39,16 @@ public class MailSummaryBackfillService {
   private final MailAnalysisService analysis;
   private final TransactionTemplate txTemplate;
 
+  /** 백필 전용 회로 차단기(WP-1812) — 모델 실패가 이어지면 패스를 쉬고 실패한 메일은 한동안 건너뛴다. */
+  private final MailAnalysisBreaker breaker;
+
   public MailSummaryBackfillService(
       EmailMessageRepository messageRepo,
       MailBodyFetcher bodyFetcher,
       MailAnalysisService analysis,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      MailAnalysisBreaker breaker) {
+    this.breaker = breaker;
     this.messageRepo = messageRepo;
     this.bodyFetcher = bodyFetcher;
     this.analysis = analysis;
@@ -50,7 +56,7 @@ public class MailSummaryBackfillService {
   }
 
   /** 동기화 직후 비동기 진입점 — ③·④ 두 패스. TenantContext 는 TaskDecorator 가 전파. */
-  @Async("aiAgentEventExecutor")
+  @Async("mailAnalysisExecutor")
   public void summarizeRecentUnread(long userId, long accountId) {
     if (TenantContext.get() == null) {
       log.warn("선제 분석 skip — TenantContext 없음 accountId={}", accountId);
@@ -107,12 +113,21 @@ public class MailSummaryBackfillService {
       if (guard.tripped()) {
         return;
       }
+      Admission admission = breaker.admit(id);
+      if (admission == Admission.OPEN) {
+        return; // 회로가 열렸다(WP-1812) — 남은 메일은 닫힌 뒤 다음 주기가 다시 집는다
+      }
+      if (admission == Admission.SKIP) {
+        continue; // 최근 모델 실패한 메일 — 한동안 같은 메일을 다시 부르지 않는다
+      }
       try {
         ensureBody(userId, id);
         if (step.test(id)) {
           guard.recordResponse(); // agent 가 응답했다 — 비서 없음·빈 본문 등으로 부르지 않은 메일은 근거가 아니다
+          breaker.recordSuccess();
         }
       } catch (RuntimeException e) {
+        breaker.onError(id, e); // 모델 실패만 센다 — IMAP 본문 적재 실패 등은 모델 상태와 무관
         if (MailAiException.isAgentUnavailable(e)) {
           // agent 재기동 중 등 — 스택 없이 한 줄. 읽기 타임아웃도 여기 들어오므로 첫 실패에서 멈추지는 않는다.
           guard.recordUnavailable();

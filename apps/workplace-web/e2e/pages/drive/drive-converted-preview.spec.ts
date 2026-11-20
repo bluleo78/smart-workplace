@@ -13,6 +13,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { type DriveStubFile, type PreviewStub, stubDriveFiles } from '../../fixtures/drive-mock'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
+import { expectPdfPageVisible } from '../../fixtures/pdf'
 
 const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -45,7 +46,7 @@ async function openViewer(page: Page, name: string) {
 
 /** 변환 PDF(3쪽 샘플)가 pdf.js 캔버스로 다 그려졌는지. */
 async function expectConvertedPdf(page: Page) {
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   await expect(page.getByTestId('pdf-document').locator('canvas')).toHaveCount(3)
   await expect(page.getByTestId('preview-meta')).toContainText('p.1 / 3')
 }

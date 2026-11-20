@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailAnalysisBreaker;
 import com.workplace.mail.service.MailAnalysisService;
 import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailBodyFetcher;
@@ -39,7 +40,14 @@ class MailBackfillNullGuardTest {
     push = Mockito.mock(MailPushService.class);
     PlatformTransactionManager txManager = Mockito.mock(PlatformTransactionManager.class);
     service =
-        new MailBackfillService(messageRepo, bodyFetcher, progress, analysis, txManager, push);
+        new MailBackfillService(
+            messageRepo,
+            bodyFetcher,
+            progress,
+            analysis,
+            txManager,
+            push,
+            new MailAnalysisBreaker());
   }
 
   @AfterEach

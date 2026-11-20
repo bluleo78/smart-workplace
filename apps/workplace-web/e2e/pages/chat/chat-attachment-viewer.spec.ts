@@ -15,6 +15,7 @@ import {
   stubTeamChatAttachments,
 } from '../../fixtures/chat-viewer-mock'
 import { KEY } from '../../fixtures/mobile-chat'
+import { expectPdfPageVisible } from '../../fixtures/pdf'
 
 const viewerOf = (page: Page) => page.getByTestId('attachment-viewer')
 
@@ -37,7 +38,7 @@ async function walkBundle(page: Page) {
 
   // PDF — 저장 형식이 octet-stream 이어도 파일명(.pdf)으로 PDF 렌더러가 그린다.
   await page.keyboard.press('ArrowRight')
-  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expectPdfPageVisible(page)
   await expect(page.getByTestId('preview-meta')).toContainText('2 / 4')
 
   // 활성 드라이브 링크 — 링크 전용 경로로 받고 ✨ 있음·☁ 없음, ⋯ 에 드라이브에서 열기.
@@ -112,7 +113,7 @@ test.describe('팀 채팅 첨부 뷰어', () => {
     await expect(page.getByTestId('attachment-card-802')).toHaveCount(2)
 
     await panel.getByTestId('attachment-card-802').click()
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     await expect(viewerOf(page)).toHaveCount(1)
     await expect(page.getByTestId('preview-meta')).toContainText('2 / 4')
 
@@ -173,7 +174,7 @@ test.describe('메인 AI 채팅 첨부 뷰어', () => {
     await expect(viewer.getByRole('button', { name: '더 보기' })).toHaveCount(0)
 
     await page.keyboard.press('ArrowRight')
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
     // 다음 사용자 턴(memo 79)으로는 넘어가지 않는다.
     await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
@@ -192,7 +193,7 @@ test.describe('메인 AI 채팅 첨부 뷰어', () => {
 
     // 문서 카드도 뷰어로 열고 Esc 로 닫으면 카드로 포커스.
     await turn.getByTestId('attachment-card-78').click()
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     await page.keyboard.press('Escape')
     await expect(viewer).toHaveCount(0)
     await expect(page.getByTestId('chat-panel')).toBeVisible()
@@ -247,7 +248,7 @@ test.describe('메인 AI 사이드 패널과 뷰어', { tag: '@input' }, () => {
     await stubHomeChatAttachments(page)
     await openRestoredPanel(page)
     await page.getByTestId('chat-turn').first().getByTestId('attachment-card-78').click()
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expectPdfPageVisible(page)
     expect(await liveChatKey(page, 'homeChatPreview')).toBe('home:78')
 
     // side 모드라 뷰어 옆 AI 패널을 그대로 조작할 수 있다.

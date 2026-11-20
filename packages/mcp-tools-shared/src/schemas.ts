@@ -80,7 +80,7 @@ export const createIssueInput = z.object({
   affectsVersions: z.array(z.string()).optional(), // WP-888: 영향 버전 이름[]
   milestone: z.string().min(1).optional(),
   cycles: z.array(z.string()).optional(),
-  fileIds: stagedFileIdsInput.optional(), // WP-422: 생성은 같은 트랜잭션, 수정은 클레임 API 로 붙는다
+  fileIds: stagedFileIdsInput.optional(), // WP-422·WP-1780: 생성·수정 모두 서버가 같은 트랜잭션에서 붙인다(수정은 내용 PATCH 의 fileIds — 실패하면 내용과 함께 되돌린다)
 });
 
 /** 이슈 부분 수정 입력 — 전달 필드만 변경. */
@@ -113,7 +113,7 @@ export const updateIssueInput = z.object({
     .optional(),
   // WP-356: 드라이브 파일 연결(POST .../drive-links). 이미 연결돼 있으면 서버가 무시한다.
   driveFileId: z.number().int().positive().describe('Drive file to link').optional(),
-  fileIds: stagedFileIdsInput.optional(), // WP-422: 생성은 같은 트랜잭션, 수정은 클레임 API 로 붙는다
+  fileIds: stagedFileIdsInput.optional(), // WP-422·WP-1780: 생성·수정 모두 서버가 같은 트랜잭션에서 붙인다(수정은 내용 PATCH 의 fileIds — 실패하면 내용과 함께 되돌린다)
 });
 
 /** 코멘트 작성 입력. */

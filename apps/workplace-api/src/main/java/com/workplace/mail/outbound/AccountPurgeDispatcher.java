@@ -23,7 +23,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * <ul>
  *   <li><b>AFTER_COMMIT</b> — soft-delete(disabled_at) 가 커밋된 뒤에만 purge 가 일관된 상태를 본다. 트랜잭션 내부 호출은
  *       미커밋 상태와 레이스가 난다.
- *   <li><b>@Async("aiAgentEventExecutor")</b> — purge 의 DB I/O·디스크 삭제를 요청(삭제 API) 스레드와 분리.
+ *   <li><b>@Async("mailAccountSyncExecutor")</b> — purge 의 DB I/O·디스크 삭제를 요청(삭제 API) 스레드와 분리.
  *       TenantContextTaskDecorator 가 워커 스레드로 테넌트 컨텍스트를 전파한다.
  *   <li><b>best-effort</b> — 즉시 purge 실패는 사용자 흐름(계정은 이미 숨겨짐)을 막지 않는다. 로그만 남기면 스케줄러가 백스톱으로 처리한다.
  * </ul>
@@ -39,7 +39,7 @@ public class AccountPurgeDispatcher {
    * 계정 삭제 커밋 직후 즉시 purge. TenantContext 는 TenantContextTaskDecorator 가 전파 — 전파 실패(null)면 GUC 미주입으로
    * RLS fail-closed 되므로 경고 후 skip(스케줄러가 다음 사이클에 처리).
    */
-  @Async("aiAgentEventExecutor")
+  @Async("mailAccountSyncExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onAccountDisconnected(MailAccountDisconnectedEvent e) {
     if (TenantContext.get() == null) {

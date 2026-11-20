@@ -39,6 +39,9 @@ const EXPIRY_PRESETS = {
 
 type ExpiryPreset = keyof typeof EXPIRY_PRESETS;
 
+// 서버 거절 사유 문단의 id — 이름 칸의 aria-describedby 가 가리킨다.
+const SERVER_ERROR_ID = 'token-issue-error';
+
 const issueSchema = z.object({
   name: z.string().trim().min(1, '토큰 이름을 입력하세요').max(80, '토큰 이름은 80자 이하여야 합니다'),
   expiryPreset: z.enum(['30d', '60d', '90d', '365d', 'never'] as [ExpiryPreset, ...ExpiryPreset[]]),
@@ -69,9 +72,8 @@ export function TokenIssueFormDialog({
   isPending,
 }: TokenIssueFormDialogProps) {
   const [serverError, setServerError] = useState('');
-  // 제출 순번(WP-1776 리뷰) — 제출마다 하나 올리고, 값 변경·창 닫기에서도 올려 도는 요청을 무효로 만든다.
-  // 왜: 요청 중 칸을 막으면(disabled) 키보드로 Enter 한 이름 칸이 막혀 초점이 창 밖(body)으로 빠졌다.
-  // 칸은 열어 두고, 늦게 온 실패는 순번이 그대로일 때(그 뒤 값을 바꾸거나 닫지 않았을 때)만 사유로 보인다.
+  // 제출 순번(WP-1776) — 제출마다 하나 올리고, 값 변경·창 닫기에서도 올려 도는 요청을 무효로 만든다.
+  // 늦게 온 실패는 순번이 그대로일 때(보낸 뒤 값을 바꾸거나 창을 닫지 않았을 때)만 사유로 보인다 — 바뀐 값·새 창에 지난 답이 뜨지 않게.
   const submitSeq = useRef(0);
 
   const {
@@ -133,9 +135,11 @@ export function TokenIssueFormDialog({
             label="토큰 이름"
             htmlFor="token-name"
             error={errors.name?.message}
+            // 서버 사유도 이름 칸과 잇는다(WP-1776 리뷰) — 칸으로 돌아온 화면 읽기 사용자가 거절 사유를 듣게.
+            externalErrorId={serverError ? SERVER_ERROR_ID : undefined}
             className="space-y-1.5"
           >
-            {/* 요청 중에도 막지 않는다 — 막으면 Enter 한 칸에서 초점이 빠진다. 늦은 사유 경쟁은 제출 순번(submitSeq)이 막는다. */}
+            {/* 요청 중에도 칸을 열어 둔다 — Enter 로 보낸 뒤에도 초점이 이 칸에 남는다. */}
             <Input
               id="token-name"
               placeholder="예: claude-code-mcp"
@@ -172,7 +176,12 @@ export function TokenIssueFormDialog({
           </div>
 
           {serverError && (
-            <p role="alert" className="text-sm text-destructive" data-testid="token-issue-error">
+            <p
+              id={SERVER_ERROR_ID}
+              role="alert"
+              className="text-sm text-destructive"
+              data-testid="token-issue-error"
+            >
               {serverError}
             </p>
           )}
