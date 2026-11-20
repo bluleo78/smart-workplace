@@ -9,7 +9,9 @@ import { afterEach, expect, test, vi } from 'vitest'
 
 import type { PriorityItemsResponse } from '@/api/priorityItems'
 import { Dashboard } from '@/components/home/Dashboard'
+import { NotificationGroupRow } from '@/components/home/widgets/dashboard/NotificationGroupRow'
 import { InboxProvider, useInboxPanel } from '@/components/layout/InboxContext'
+import { groupNotifications } from '@/lib/notifGrouping'
 import { renderScreen } from '@/test/renderScreen'
 import type { CalendarEvent } from '@/types/calendar'
 import type { DashboardLayout, DashboardWidgetConfig, MailSummary, MessagingSummary } from '@/types/dashboard'
@@ -182,8 +184,26 @@ test('알림 위젯 — 일정 초대·응답 알림(#585)도 크래시 없이 �
   const updates = await screen.findByTestId('dash-notif-updates')
   await waitFor(() => expect(updates).toHaveTextContent('분기 킥오프'))
   expect(updates).toHaveTextContent('주간 회의')
-  await user.click(within(updates).getByRole('link', { name: '알림 열기: 분기 킥오프' }))
+  await user.click(within(updates).getByRole('link', { name: '읽지 않음, 알림 열기: 분기 킥오프' }))
   await waitFor(() => expect(location()).toMatch(/^\/calendar\?eventId=\d+$/))
+})
+
+test('알림 위젯 행 — 미읽음·섞인 그룹 링크 이름은 「읽지 않음, 」으로 시작하고 읽음 그룹은 접두가 없다 (WP-1887)', () => {
+  // 위젯은 미읽음 그룹만 그려 읽음 분기를 볼 수 없으므로, 실제 그룹핑(groupNotifications) 결과를 행 컴포넌트에 직접 넣는다.
+  // (기본 type ASSIGNED 는 mine 섹션.) 위젯을 거친 미읽음 이름은 위 「일정 초대·응답」 테스트가 본다.
+  const n = (id: number, issueNumber: number, issueTitle: string, read: boolean) =>
+    notif({ id, issueNumber, issueId: issueNumber, issueTitle, read })
+  const groupOf = (...ns: NotificationResponse[]) => groupNotifications(ns).mine[0]
+  renderScreen(
+    <ul>
+      <NotificationGroupRow group={groupOf(n(41, 41, '안 읽은 알림', false))} onAck={() => {}} />
+      <NotificationGroupRow group={groupOf(n(42, 42, '읽은 알림', true))} onAck={() => {}} />
+      <NotificationGroupRow group={groupOf(n(43, 43, '섞인 알림', true), n(44, 43, '섞인 알림', false))} onAck={() => {}} />
+    </ul>,
+  )
+  expect(screen.getByRole('link', { name: '읽지 않음, 알림 열기: 안 읽은 알림' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '알림 열기: 읽은 알림' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '읽지 않음, 알림 열기: 섞인 알림' })).toBeInTheDocument()
 })
 
 test('알림 위젯 — 행 ✓ 는 그 알림을, 「모두 읽음」은 read-all 을 요청한다', async () => {
