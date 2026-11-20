@@ -410,3 +410,15 @@ test('제목을 숨긴(chromeless) 위젯도 보이지 않는 h2 제목이 있�
   const h = await screen.findByRole('heading', { level: 2, name: '빠른 액션' })
   expect(h).toHaveClass('sr-only')
 })
+
+// WP-1888 — 카탈로그 위젯 제목(WidgetFrame)은 카드 제목 아래라 h3. 카드 제목 자체(WP-1885 뒤 h2)와 상관없이
+// 위젯 틀(home-widget) 안에는 h2 가 없어야 한다.
+test('카탈로그 위젯 제목은 카드 안에서 h3 — 카드 제목 아래 위계 (WP-1888)', async () => {
+  await renderDashboard(layout([catalog('w-projects', 'projects')]), {
+    // 프로젝트 위젯이 함께 부르는 위키 스페이스 조회 — 핸들러가 없으면 테스트가 실패한다
+    handlers: [http.get('/api/v1/wiki/spaces', () => HttpResponse.json([]))],
+  })
+  const c = cardById('w-projects')
+  expect(await within(c).findByRole('heading', { level: 3, name: '프로젝트' })).toBeInTheDocument()
+  expect(within(c).getByTestId('home-widget').querySelector('h2')).toBeNull()
+})

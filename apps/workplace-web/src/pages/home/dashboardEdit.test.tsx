@@ -302,3 +302,13 @@ test('편집 모드에서도 위젯 제목은 h2 이고 드래그 핸들은 헤�
     expect(within(h).queryAllByRole('button')).toHaveLength(0)
   }
 })
+
+// WP-1888 — 미리보기 안 카탈로그 위젯 제목은 대화상자 제목(h2 「위젯 추가」) 아래라 h3.
+test('위젯 추가 미리보기의 카탈로그 위젯 제목은 대화상자 제목(h2) 아래 h3 (WP-1888)', async () => {
+  const view = await openEdit(['my_tasks'])
+  const modal = await openAddModal(view)
+  await view.user.click(modalCard(modal, 'projects'))
+  const preview = within(modal).getByTestId('add-widget-preview')
+  expect(await within(preview).findByRole('heading', { level: 3, name: '프로젝트' })).toBeInTheDocument()
+  expect([...modal.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['위젯 추가'])
+})

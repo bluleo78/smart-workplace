@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { CATALOG_CATEGORIES, type CatalogWidget } from './catalogRegistry'
 import { getChatWidget } from './chatWidgetRegistry'
 import { type DashboardWidget,getDashboardWidget } from './registry'
+import { WidgetHeadingLevelProvider } from './WidgetFrame'
 import { widgetPreviewFixtures } from './widgetPreviewFixtures'
 
 const ALL_CATEGORY = '전체'
@@ -186,7 +187,12 @@ function PreviewBody({ entry }: { entry: CardEntry }) {
   if (entry.kind === 'catalog') {
     const Component = getChatWidget(entry.widget.type)
     if (!Component) return null
-    return createElement(Component, { params: entry.widget.defaultParams, previewData })
+    // 위젯 제목은 대화상자 제목(h2 「위젯 추가」) 아래이므로 h3 로 그린다(WP-1888).
+    return (
+      <WidgetHeadingLevelProvider level={3}>
+        {createElement(Component, { params: entry.widget.defaultParams, previewData })}
+      </WidgetHeadingLevelProvider>
+    )
   }
   const def = getDashboardWidget(entry.widget.type)
   if (!def) return null
