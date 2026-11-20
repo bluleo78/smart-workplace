@@ -3,12 +3,25 @@
 // 앱 목록의 길게 누르기(고정·교체)가 빠른 교체라면, 이 화면은 칸 순서 조정까지 하는 상세 편집이다.
 // 드래그 대신 위/아래·추가/제거 버튼으로 편집한다(접근성·단순성). 모바일 전용.
 // 앱 목록에서 들어오는 푸시 화면 — ‹(앱 목록) + 제목 + 우측 [저장] 헤더, 탭바 없음(U2-2).
+// WP-1833: 저장하지 않은 초안(changed)으로 ‹ 를 누르면 바로 나가지 않고 버릴지 묻는다(칸이 덜 찬 초안 포함).
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useTabSlots } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
+import { useMobileBack } from '@/components/mobile/useMobileBack'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId } from '@/lib/mobile/tabs'
 import { eulReul, euroRo } from '@/lib/utils'
 
@@ -18,7 +31,8 @@ const ICON_BTN = 'flex h-11 w-11 shrink-0 items-center justify-center text-lg di
 export default function TabEditPage() {
   const [saved] = useTabSlots()
   // 편집 중 화면을 돌려 칸 수가 바뀌면(3↔5) 편집기를 새로 띄워 초안을 새 칸 수의 저장 구성으로 다시 잡는다 —
-  // 그대로 두면 초안과 칸 수가 어긋나 저장·추가가 막힌다.
+  // 그대로 두면 초안과 칸 수가 어긋나 저장·추가가 막힌다. 이때 저장 안 한 초안(과 열린 버림 확인)도 함께 사라진다 —
+  // 칸 수가 바뀐 구성은 어차피 새로 골라야 해 묻지 않는다(WP-1833 범위 밖).
   return <TabEditor key={saved.length} />
 }
 
@@ -32,11 +46,17 @@ function TabEditor() {
   // AI 비서를 쓸 수 없으면 탭바에 가운데 AI 칸이 없다(MobileTabBar) — 안내도 실제 탭바 모양에 맞춘다(WP-880).
   const aiAvailable = useAiAvailable()
   const navigate = useNavigate()
+  // ‹ 의 기본 이동(히스토리/앱 목록) — 바뀐 것이 없거나 「버리고 나가기」일 때 쓴다.
+  const back = useMobileBack()
+  // 저장 안 한 초안으로 ‹ 를 눌렀을 때의 확인 대화상자.
+  const [confirmLeave, setConfirmLeave] = useState(false)
   const candidates = ALL_TAB_IDS.filter((id) => !draft.includes(id))
   const full = draft.length >= slotCount
   // 저장은 바뀐 것이 있을 때만(U3-R9) — 순서까지 같은지 칸별로 비교한다. 칸을 다 채워야 저장할 수 있다.
   const changed = draft.length !== saved.length || draft.some((id, i) => id !== saved[i])
   const canSave = draft.length === slotCount && changed
+  // 초안이 바뀐 동안은 새로고침·창 닫기에 브라우저 확인을 띄우고, 새 버전 자동 새로고침도 미룬다(WP-664 — 「저장 안 한 입력」).
+  useUnsavedChangesWarning(changed)
 
   // 조작 뒤 초점 잇기·알림(WP-846) — 경계로 옮긴 「위로/아래로」, 빠진 행의 「빼기」, 칸이 다 차 꺼진 「＋」는 눌린 버튼이
   // 사라지거나 disabled 가 되어 초점이 body 로 사라졌다. 다시 그린 뒤 이어서 쓸 수 있는 버튼(후보를 앞에서부터)으로 옮기고,
@@ -90,6 +110,7 @@ function TabEditor() {
         data-testid="tab-edit-header"
         title="탭바 순서 편집"
         showAi={false}
+        onBack={() => (changed ? setConfirmLeave(true) : back())}
         trailing={
           <button
             type="button"
@@ -141,6 +162,21 @@ function TabEditor() {
         </ul>
       </div>
       <p className="sr-only" aria-live="polite" data-testid="tab-edit-live">{live}</p>
+      {/* 고친 구성을 두고 ‹ 로 나갈 때의 확인 — 저장하지 않은 채 나가면 초안이 사라진다. */}
+      <AlertDialog open={confirmLeave} onOpenChange={setConfirmLeave}>
+        <AlertDialogContent data-testid="tab-edit-discard-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>저장하지 않은 변경을 버릴까요?</AlertDialogTitle>
+            <AlertDialogDescription>나가면 고친 탭바 구성이 사라집니다.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="tab-edit-discard-keep">계속 편집</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" data-testid="tab-edit-discard-confirm" onClick={back}>
+              버리고 나가기
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
