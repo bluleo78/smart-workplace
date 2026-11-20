@@ -103,6 +103,22 @@ test('발급이 상한에 걸리면 서버 사유를 발급 창 안에 보이고
   expect(document.querySelectorAll('[data-sonner-toast]')).toHaveLength(0)
 })
 
+// WP-1776 리뷰 후속 — 서버가 거절해도 이름 칸이 그 사유와 이어져, 칸으로 돌아온 화면 읽기 사용자가 사유를 듣는다.
+test('서버가 거절하면 이름 칸에 aria-invalid 가 서고 서버 사유와 aria-describedby 로 이어진다 (WP-1776)', async () => {
+  const { user } = await openTokens([], () => HttpResponse.json({ message: LIMIT_REASON }, { status: 400 }))
+  const form = await fillIssueForm(user, 'one-too-many')
+  const input = form.getByLabelText('토큰 이름')
+  await user.click(form.getByTestId('token-issue-submit'))
+  const error = await form.findByTestId('token-issue-error')
+  expect(input).toHaveAttribute('aria-invalid', 'true')
+  expect(input).toHaveAttribute('aria-describedby', error.id)
+  expect(input).toHaveAccessibleDescription(LIMIT_REASON)
+  // 값을 바꾸면 사유가 지워지고 칸의 오류 연결도 함께 풀린다.
+  await user.type(input, 'x')
+  await waitFor(() => expect(input).not.toHaveAttribute('aria-invalid'))
+  expect(input).not.toHaveAttribute('aria-describedby')
+})
+
 // WP-1776 — 빈 이름으로 발급하면 안내를 화면 읽기가 바로 읽고(role=alert), 이름 칸이 그 안내와 이어진다(aria-invalid·aria-describedby).
 test('빈 이름으로 발급하면 안내가 role=alert 로 뜨고 이름 칸에 aria-invalid·aria-describedby 가 이어진다 (WP-1776)', async () => {
   const { user, posts } = await openTokens()
