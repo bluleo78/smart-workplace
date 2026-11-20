@@ -22,7 +22,8 @@ function pickBestMessage(errData: ErrorResponse, fallback: string, status?: numb
   const code = errData.errors?.code;
   if (errData.errors && !(typeof code === 'string' && DOMAIN_ERROR_CODE.test(code))) {
     const firstFieldMsg = Object.values(errData.errors)[0];
-    if (firstFieldMsg) return firstFieldMsg;
+    // 5xx 의 필드 값도 한글 없는 내부 문구면 건너뛴다 — message 와 같은 규칙(WP-1879).
+    if (firstFieldMsg && !isInternalServerMessage(firstFieldMsg, status)) return firstFieldMsg;
   }
   if (errData.message && isInternalServerMessage(errData.message, status)) return fallback;
   return errData.message || fallback;

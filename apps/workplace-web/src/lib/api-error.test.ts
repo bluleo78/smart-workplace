@@ -61,6 +61,10 @@ describe('extractApiError', () => {
     );
     expect(extractApiError(apiError(502, { message: 'Connection refused' }), '메일을 옮기지 못했어요')).toBe('메일을 옮기지 못했어요');
   });
+  it('5xx 의 필드 오류 값도 한국어 아닌 내부 문구면 fallback 으로 바꾼다', () => {
+    expect(extractApiError(apiError(502, { message: 'Bad Gateway', errors: { detail: 'Connection reset' } }), 'fb')).toBe('fb');
+    expect(extractApiError(apiError(500, { message: 'x', errors: { name: '이름이 너무 깁니다.' } }), 'fb')).toBe('이름이 너무 깁니다.');
+  });
   it('5xx 라도 서버가 쓴 한국어 안내는 그대로', () => {
     expect(
       extractApiError(apiError(503, { message: '서버가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요.' }), 'fb'),

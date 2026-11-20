@@ -17,7 +17,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { AvatarEditor } from '@/components/users/AvatarEditor'
 import { useAfterAvatarChange } from '@/hooks/queries/useAvatars'
 import { useAuth } from '@/hooks/useAuth'
-import { apiErrorStatus, extractApiError, isServerError } from '@/lib/api-error'
+import { apiErrorStatus, extractApiError, isNetworkError, isServerError } from '@/lib/api-error'
 import { cn } from '@/lib/utils'
 import type { ChangePasswordFormData, UpdateProfileFormData } from '@/lib/validations/user'
 import { changePasswordSchema, updateProfileSchema } from '@/lib/validations/user'
@@ -30,13 +30,15 @@ const AVATAR_ANCHOR = 'avatar'
 /**
  * 서버가 문구를 주지 않았을 때의 폼 오류 안내(extractApiError 의 fallback).
  * - 5xx(서버 고장): 입력 탓으로 보이지 않게 서버 오류 안내 — 판정은 api-error 의 isServerError 한 곳(WP-1879).
- * - 응답 없음(네트워크 오류 등): 입력 탓이 아니므로 짧은 「저장하지 못했습니다」만 — extractApiError 가 뒤에
- *   「. 네트워크 연결을 확인한 뒤 다시 시도하세요」를 덧붙이므로 마침표를 붙이지 않는다.
  * - 4xx 응답: 입력 탓 안내(clientFallback).
+ * - 네트워크 오류: 짧은 「저장하지 못했습니다」만 — extractApiError 가 뒤에
+ *   「. 네트워크 연결을 확인한 뒤 다시 시도하세요」를 덧붙이므로 마침표를 붙이지 않는다.
+ * - 그 밖의 응답 없음(시간 초과·취소·Axios 아닌 예외): 덧붙는 안내가 없어 완결된 문장으로.
  */
 function rootFallback(error: unknown, clientFallback: string): string {
   if (isServerError(error)) return '서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.'
-  return apiErrorStatus(error) != null ? clientFallback : '저장하지 못했습니다'
+  if (apiErrorStatus(error) != null) return clientFallback
+  return isNetworkError(error) ? '저장하지 못했습니다' : '저장하지 못했습니다. 잠시 후 다시 시도하세요.'
 }
 
 export default function ProfileSettingsPage() {
