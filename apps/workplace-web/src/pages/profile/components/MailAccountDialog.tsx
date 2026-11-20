@@ -56,6 +56,33 @@ interface MailAccountDialogProps {
   defaultAiEnabled?: boolean;
 }
 
+// 연결 테스트 통과 = IMAP·SMTP 모두 성공 — 저장 허용과 결과 표시(통과 결과만 값 변경에 숨김)가 같은 기준을 쓴다(WP-1790).
+const testPassed = (r: ConnectionTestResult) => r.imapOk && r.smtpOk;
+
+/**
+ * 연결 테스트 결과 한 줄(IMAP 또는 SMTP).
+ * 실패는 빨간 오류, 통과는 초록 「연결됨」. 값을 바꾼 뒤 남은 결과(stale)의 성공 쪽은 테스트 안 한 값이라
+ * 통과처럼 보이지 않게 흐린 「바꾸기 전 값으로 연결됨」으로 둔다(WP-1790 리뷰 후속).
+ */
+function TestResultRow({ testId, label, ok, error, stale }: {
+  testId: string;
+  label: string;
+  ok: boolean;
+  error: string | null;
+  stale: boolean;
+}) {
+  const state = !ok ? 'fail' : stale ? 'stale' : 'ok';
+  const color = { fail: 'text-destructive', stale: 'text-muted-foreground', ok: 'text-success' }[state];
+  const text = { fail: error ?? '실패', stale: '바꾸기 전 값으로 연결됨', ok: '연결됨' }[state];
+  return (
+    <p data-testid={testId} className={`flex items-center gap-1 ${color}`}>
+      {state === 'fail' && <X className="h-4 w-4" />}
+      {state === 'ok' && <Check className="h-4 w-4" />}
+      {label} {text}
+    </p>
+  );
+}
+
 /** 빈 폼 초기값 */
 const EMPTY: MailAccountFormData = {
   emailAddress: '',
@@ -207,8 +234,14 @@ export function MailAccountDialog({
   // 지금 연결 칸 값 — 바뀌면 지문이 달라져 옛 테스트 결과가 자동으로 무효가 된다(WP-1790).
   // 연결 칸만 구독해 표시 이름·AI 토글 입력으로는 다시 그리지 않는다.
   const watchedConnection = useWatch({ control: form.control, name: MAIL_CONNECTION_FIELDS });
-  const testResult =
-    tested && tested.fingerprint === mailConnectionFingerprint(watchedConnection) ? tested.result : null;
+  // 테스트한 값과 지금 값이 같은가 — 저장 허용(canSave)은 이 값이 참일 때의 결과만 쓴다.
+  const testFresh = tested !== null && tested.fingerprint === mailConnectionFingerprint(watchedConnection);
+  const freshResult = testFresh ? tested.result : null;
+  // 화면에 보일 결과 — 통과 결과는 값을 바꾸면 숨기지만(테스트 안 한 값을 통과처럼 보이지 않게),
+  // 실패 결과는 남긴다. 오류를 고치는 동안 무엇이 틀렸는지 볼 수 있어야 해서다(WP-1790 리뷰 후속).
+  const shownResult = tested && (testFresh || !testPassed(tested.result)) ? tested.result : null;
+  // 보이는 실패 결과가 지금 값으로 테스트한 것이 아니다 — 성공한 쪽도 「연결됨」(초록)으로 두지 않고 보조 문구를 붙인다.
+  const shownStale = shownResult !== null && !testFresh;
 
   // 다이얼로그가 열릴 때마다 폼 초기화 + 공급자 초기화
   useEffect(() => {
@@ -309,14 +342,14 @@ export function MailAccountDialog({
   // OAuth 공급자는 저장 버튼 자체를 숨김(콜백이 계정 생성). IMAP은 연결 테스트 성공 후 허용.
   const isOAuth = provider === 'M365_GRAPH';
   // 추가 모드는 IMAP + SMTP 모두 성공 후에만 저장 허용; 수정 모드는 항상 허용
-  const canSave =
-    isEdit || (testResult?.imapOk === true && testResult?.smtpOk === true);
+  const canSave = isEdit || (freshResult !== null && testPassed(freshResult));
   // 저장이 막힌 이유 — 버튼만 회색이면 값을 다 채워도 왜 저장이 안 되는지 알 수 없었다(WP-928). 저장 버튼 아래에 보이고 버튼과 잇는다.
-  const saveBlockedReason = canSave
-    ? null
-    : testResult
-      ? '연결 테스트를 통과해야 저장할 수 있어요. 위 오류를 고친 뒤 다시 테스트하세요.'
-      : '저장하려면 먼저 「연결 테스트」로 IMAP·SMTP 연결을 확인하세요.';
+  const saveBlockedReason = (() => {
+    if (canSave) return null;
+    if (shownStale) return '값을 바꿨어요 — 바꾼 값으로 다시 연결 테스트를 해야 저장할 수 있어요.';
+    if (shownResult) return '연결 테스트를 통과해야 저장할 수 있어요. 위 오류를 고친 뒤 다시 테스트하세요.';
+    return '저장하려면 먼저 「연결 테스트」로 IMAP·SMTP 연결을 확인하세요.';
+  })();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -560,22 +593,15 @@ export function MailAccountDialog({
               </p>
 
               {/* 연결 테스트 결과 인라인 표시 */}
-              {testResult && (
-                <div data-testid="mail-test-result" className="rounded border p-2 text-sm">
-                  <p
-                    data-testid="mail-test-imap"
-                    className={`flex items-center gap-1 ${testResult.imapOk ? 'text-success' : 'text-destructive'}`}
-                  >
-                    {testResult.imapOk ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                    IMAP {testResult.imapOk ? '연결됨' : (testResult.imapError ?? '실패')}
-                  </p>
-                  <p
-                    data-testid="mail-test-smtp"
-                    className={`flex items-center gap-1 ${testResult.smtpOk ? 'text-success' : 'text-destructive'}`}
-                  >
-                    {testResult.smtpOk ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                    SMTP {testResult.smtpOk ? '연결됨' : (testResult.smtpError ?? '실패')}
-                  </p>
+              {shownResult && (
+                <div data-testid="mail-test-result" role="status" className="rounded border p-2 text-sm">
+                  <TestResultRow testId="mail-test-imap" label="IMAP" ok={shownResult.imapOk} error={shownResult.imapError} stale={shownStale} />
+                  <TestResultRow testId="mail-test-smtp" label="SMTP" ok={shownResult.smtpOk} error={shownResult.smtpError} stale={shownStale} />
+                  {shownStale && (
+                    <p data-testid="mail-test-stale" className="mt-1 text-xs text-muted-foreground">
+                      값을 바꿨어요 — 다시 테스트하세요.
+                    </p>
+                  )}
                 </div>
               )}
 

@@ -1,6 +1,6 @@
 // 설정 › 메일 계정(MailSettingsPage + MailAccountsSection + MailAccountDialog) — 화면 컴포넌트 테스트(WP-971, WP-995).
 // 연결 테스트 → 저장 → 목록, 테스트 실패·저장 막힘 이유(WP-928), 포트·표시 이름 검증(WP-907·WP-929), 전역 개인 비서 토글 payload·토스트,
-// 수정 다이얼로그(계정별 AI 토글 없음·id 기반 연결 테스트 #448), 연결 테스트 연타·실패 안내·다시 연 다이얼로그 잠금(WP-1770), 연결 칸을 고치면 테스트 결과 무효(WP-1790), 삭제 확인, 공급자 기본값(WP-879)과 늦게 온 기본값,
+// 수정 다이얼로그(계정별 AI 토글 없음·id 기반 연결 테스트 #448), 연결 테스트 연타·실패 안내·다시 연 다이얼로그 잠금(WP-1770), 연결 칸을 고치면 통과 결과 무효·실패 결과는 남김(WP-1790), 삭제 확인, 공급자 기본값(WP-879)과 늦게 온 기본값,
 // Outlook(M365) 팝업 흐름(성공·실패 메시지·팝업 차단·/start 실패)은 브라우저 없이 판정되므로 e2e/pages/profile/mail-accounts.spec.ts·
 // settings-layout.spec.ts 에서 옮겼다. 메일 계정 화면 배선(@wiring)은 mail-accounts.spec.ts, 긴 주소의 가로 넘침(@layout)은 settings-layout.spec.ts 에 남는다.
 // 팝업은 window.open 을 가짜 창으로 바꾸고, 팝업이 보내는 결과는 같은 출처의 message 이벤트로 흉내 낸다(E2E 도 같은 방식이었다).
@@ -295,6 +295,32 @@ describe('계정 추가', () => {
     await choose(user, '빠른 설정(provider)', 'Naver')
     await waitFor(() => expect(screen.queryByTestId('mail-test-imap')).not.toBeInTheDocument())
     expect(screen.getByTestId('mail-save-button')).toBeDisabled()
+  })
+
+  // WP-1790 리뷰 후속 — 실패 결과는 연결 칸을 고쳐도 남긴다(고치는 동안 오류를 봐야 한다). 지금 값이 아니라는 보조 문구만 붙고 저장은 그대로 막힌다.
+  test('연결 테스트 실패 뒤 연결 칸을 고쳐도 오류 줄이 남고, 성공했던 쪽은 통과로 보이지 않으며 「값을 바꿨어요」 안내가 붙는다 (WP-1790)', async () => {
+    const { user } = await openMail({ tests: [{ imapOk: true, imapError: null, smtpOk: false, smtpError: 'SMTP 인증 실패' }] })
+    await openAdd(user)
+    await fillImap(user, 'bad')
+    await user.click(screen.getByTestId('mail-test-button'))
+    expect(await screen.findByTestId('mail-test-smtp')).toHaveTextContent('SMTP 인증 실패')
+    expect(screen.queryByTestId('mail-test-stale')).not.toBeInTheDocument()
+    await fill(user, 'mail-pw', 'bad2')
+    expect(screen.getByTestId('mail-test-smtp')).toHaveTextContent('SMTP 인증 실패')
+    // 성공했던 쪽은 테스트 안 한 값이라 「연결됨」(통과)으로 보이지 않는다
+    expect(screen.getByTestId('mail-test-imap')).toHaveTextContent('IMAP 바꾸기 전 값으로 연결됨')
+    expect(screen.getByTestId('mail-test-stale')).toHaveTextContent('값을 바꿨어요 — 다시 테스트하세요.')
+    expect(screen.getByTestId('mail-save-button')).toBeDisabled()
+    expect(screen.getByTestId('mail-save-blocked-reason')).toHaveTextContent(
+      '값을 바꿨어요 — 바꾼 값으로 다시 연결 테스트를 해야 저장할 수 있어요.',
+    )
+    // 테스트한 값으로 되돌리면 지금 값의 결과라 보조 문구가 사라지고 원래 안내로 돌아간다
+    await fill(user, 'mail-pw', 'bad')
+    expect(screen.queryByTestId('mail-test-stale')).not.toBeInTheDocument()
+    expect(screen.getByTestId('mail-test-imap')).toHaveTextContent('IMAP 연결됨')
+    expect(screen.getByTestId('mail-save-blocked-reason')).toHaveTextContent(
+      '연결 테스트를 통과해야 저장할 수 있어요. 위 오류를 고친 뒤 다시 테스트하세요.',
+    )
   })
 
   test('메일 계정 페이지 제목은 사이드바 메뉴 라벨과 같다 (#651)', async () => {
