@@ -56,13 +56,14 @@ export function useDeleteExternalContact() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => contactsApi.deleteExternal(id).then((r) => r.data),
-    onSuccess: (_data, id) => {
+    onSuccess: async (_data, id) => {
       // WP-1867: 지운 상세는 아직 화면이 구독 중이라 다시 부르면 404 가 난다 — 진행 중 요청을 취소하고 다시 부르지 않은 채
       // stale 로만 표시한다(지운 데이터가 신선하게 남으면 앞으로 가기·옛 링크로 그대로 보인다. 다시 열면 404 안내 — WP-555).
       // removeQueries 는 아직 구독 중인 observer 가 쿼리를 다시 만들어 부를 수 있어 쓰지 않는다. 나머지는 지금처럼 다시 부른다.
+      // 취소의 되돌리기(revert)가 끝난 뒤 표시를 달아야 표시가 지워지지 않는다(revert:false 는 취소 오류 상태로 남는다).
       const detailKey = contactKeys.external(id)
       const detailHash = hashKey(detailKey)
-      void qc.cancelQueries({ queryKey: detailKey, exact: true })
+      await qc.cancelQueries({ queryKey: detailKey, exact: true })
       qc.invalidateQueries({ queryKey: detailKey, exact: true, refetchType: 'none' })
       qc.invalidateQueries({ queryKey: contactKeys.all, predicate: (q) => q.queryHash !== detailHash })
       toast.success('연락처를 삭제했습니다')
