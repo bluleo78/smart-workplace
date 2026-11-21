@@ -19,6 +19,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -274,5 +275,83 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
 
     // 기존 값 유지 — incoming 이 없으므로 변경/삭제 없음
     assertThat(valueRepo.findValuesByIssue(issue.id())).containsKey(d.id());
+  }
+
+  // --- WP-1932: 커스텀 필드 값 변경도 이슈 수정 시각을 올린다(version 은 그대로) ---
+
+  /** 커스텀 필드 값을 바꾸면 수정 시각은 올라가고 version 은 그대로다. */
+  @Test
+  void custom_field_change_bumps_updated_at_but_not_version() {
+    Long owner = createUser("t1");
+    var p = newProject(owner, "VST1");
+    var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+    Integer versionBefore = IssueSeeds.version(dsl, issue.id());
+
+    service.replace(
+        owner,
+        p.key(),
+        1,
+        new UpdateIssueFieldsRequest(List.of(new FieldValueInput(d.id(), om.valueToTree("v")))));
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isAfter(before);
+    assertThat(IssueSeeds.version(dsl, issue.id())).isEqualTo(versionBefore);
+  }
+
+  /** 같은 값으로 저장(diff 0)하면 수정 시각을 올리지 않는다. */
+  @Test
+  void noop_custom_field_keeps_updated_at() {
+    Long owner = createUser("t2");
+    var p = newProject(owner, "VST2");
+    var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    service.replace(
+        owner,
+        p.key(),
+        1,
+        new UpdateIssueFieldsRequest(List.of(new FieldValueInput(d.id(), om.valueToTree("v")))));
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+
+    service.replace(
+        owner,
+        p.key(),
+        1,
+        new UpdateIssueFieldsRequest(List.of(new FieldValueInput(d.id(), om.valueToTree("v")))));
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isEqualTo(before);
+  }
+
+  /** 두 필드 중 하나만 바뀌어도(나머지는 diff 0) 수정 시각이 올라간다. */
+  @Test
+  void partial_custom_field_change_bumps_updated_at() {
+    Long owner = createUser("t3");
+    var p = newProject(owner, "VST3");
+    var d1 = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("a", "TEXT", null));
+    var d2 = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("b", "TEXT", null));
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    service.replace(
+        owner,
+        p.key(),
+        1,
+        new UpdateIssueFieldsRequest(
+            List.of(
+                new FieldValueInput(d1.id(), om.valueToTree("x")),
+                new FieldValueInput(d2.id(), om.valueToTree("y")))));
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+
+    service.replace(
+        owner,
+        p.key(),
+        1,
+        new UpdateIssueFieldsRequest(
+            List.of(
+                new FieldValueInput(d1.id(), om.valueToTree("x")),
+                new FieldValueInput(d2.id(), om.valueToTree("z")))));
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isAfter(before);
   }
 }

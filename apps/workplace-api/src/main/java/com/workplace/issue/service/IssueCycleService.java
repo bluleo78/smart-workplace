@@ -91,6 +91,8 @@ public class IssueCycleService {
 
     // 실시간 무효화 — diff 가 있을 때만(no-op 은 미발행)
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
+      // 최근 수정 순 정렬·최근 변동에 반영(WP-1932) — version 은 올리지 않음
+      issueRepository.touchUpdatedAt(issue.id());
       changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }
 
@@ -138,6 +140,8 @@ public class IssueCycleService {
     boolean addedTo = toCycleId != null && issueCycleRepository.add(issue.id(), toCycleId) > 0;
     // 실시간 무효화 — 실제 변경이 있을 때만(no-op 은 미발행)
     if (removedFrom || addedTo) {
+      // 최근 수정 순 정렬·최근 변동에 반영(WP-1932) — version 은 올리지 않음
+      issueRepository.touchUpdatedAt(issue.id());
       changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }
 
@@ -151,6 +155,9 @@ public class IssueCycleService {
    * 이슈가 있었는지 이력으로 남긴다. 붙이기는 INSERT … SELECT 한 번이라 이슈 수와 무관하게 왕복이 일정하다. 이미 to 에 붙어 있던 이슈는 건너뛰고 알림도
    * 내지 않는다. 새로 붙인 이슈마다 사이클 붙이기와 같은 정리성 쓰기 알림을 내 이슈 화면·목록이 실시간으로 갱신되게 한다. 클래스 트랜잭션이 호출자 트랜잭션에 합류해 완료
    * 전체가 한 번에 커밋·롤백된다.
+   *
+   * <p>이슈 수정 시각(updated_at)은 올리지 않는다 — 사이클 마감의 일괄 부수 효과라, 올리면 미완료 이슈 전부가 최근 수정 순 맨 위로
+   * 올라온다(WP-1932).
    */
   public void attachIncomplete(
       ProjectRow project, long fromCycleId, long toCycleId, Long callerId) {

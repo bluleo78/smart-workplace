@@ -5,7 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -130,6 +132,37 @@ class IssueComponentTest extends IssueComponentTestSupport {
     }
     assertThat(sawTagged).isTrue();
     assertThat(sawBare).isTrue();
+  }
+
+  /** WP-1932: 구성요소만 바꿔도 이슈 수정 시각이 올라가고 version 은 그대로다. */
+  @Test
+  void component_replace_bumps_updated_at_but_not_version() throws Exception {
+    long a = component("Alpha", null);
+    JsonNode issue = createdIssue(ownerId, Map.of());
+    int number = issue.get("number").asInt();
+    long issueId = issue.get("id").asLong();
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issueId);
+    Integer versionBefore = IssueSeeds.version(dsl, issueId);
+
+    replaceComponents(ownerId, number, List.of(a)).andExpect(status().isOk());
+
+    assertThat(IssueSeeds.updatedAt(dsl, issueId)).isAfter(before);
+    assertThat(IssueSeeds.version(dsl, issueId)).isEqualTo(versionBefore);
+  }
+
+  /** WP-1932: 같은 집합을 다시 보내는 no-op 은 수정 시각을 건드리지 않는다. */
+  @Test
+  void noop_component_replace_keeps_updated_at() throws Exception {
+    long a = component("Alpha", null);
+    JsonNode issue = createdIssue(ownerId, Map.of());
+    int number = issue.get("number").asInt();
+    long issueId = issue.get("id").asLong();
+    replaceComponents(ownerId, number, List.of(a)).andExpect(status().isOk());
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issueId);
+
+    replaceComponents(ownerId, number, List.of(a)).andExpect(status().isOk());
+
+    assertThat(IssueSeeds.updatedAt(dsl, issueId)).isEqualTo(before);
   }
 
   private static List<String> names(JsonNode arr) {

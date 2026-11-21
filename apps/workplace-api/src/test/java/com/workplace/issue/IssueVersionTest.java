@@ -8,7 +8,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.global.security.AgentToolContext;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.service.IssueVersionService;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -198,6 +200,51 @@ class IssueVersionTest extends IssueVersionTestSupport {
     } finally {
       AgentToolContext.clear();
     }
+  }
+
+  /** WP-1932: 수정 버전만 바꿔도 이슈 수정 시각이 올라가고 version 은 그대로다. */
+  @Test
+  void version_change_bumps_updated_at_but_not_version() throws Exception {
+    long a = version("A");
+    JsonNode issue = createdIssue(ownerId, Map.of());
+    int number = issue.get("number").asInt();
+    long issueId = issue.get("id").asLong();
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issueId);
+    Integer versionBefore = IssueSeeds.version(dsl, issueId);
+
+    replaceVersions(ownerId, number, List.of(a), null).andExpect(status().isOk());
+
+    assertThat(IssueSeeds.updatedAt(dsl, issueId)).isAfter(before);
+    assertThat(IssueSeeds.version(dsl, issueId)).isEqualTo(versionBefore);
+  }
+
+  /** WP-1932: 영향 버전만 바꿔도 수정 시각이 올라간다. */
+  @Test
+  void affects_version_change_bumps_updated_at() throws Exception {
+    long a = version("A");
+    JsonNode issue = createdIssue(ownerId, Map.of());
+    int number = issue.get("number").asInt();
+    long issueId = issue.get("id").asLong();
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issueId);
+
+    replaceVersions(ownerId, number, null, List.of(a)).andExpect(status().isOk());
+
+    assertThat(IssueSeeds.updatedAt(dsl, issueId)).isAfter(before);
+  }
+
+  /** WP-1932: 같은 집합을 다시 보내는 no-op 은 수정 시각을 건드리지 않는다. */
+  @Test
+  void noop_version_change_keeps_updated_at() throws Exception {
+    long a = version("A");
+    JsonNode issue = createdIssue(ownerId, Map.of());
+    int number = issue.get("number").asInt();
+    long issueId = issue.get("id").asLong();
+    replaceVersions(ownerId, number, List.of(a), List.of(a)).andExpect(status().isOk());
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issueId);
+
+    replaceVersions(ownerId, number, List.of(a), List.of(a)).andExpect(status().isOk());
+
+    assertThat(IssueSeeds.updatedAt(dsl, issueId)).isEqualTo(before);
   }
 
   private static List<String> names(JsonNode arr) {
