@@ -545,7 +545,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   useEffect(() => {
     if (!draft || composeInitial.signatureSettled || signature.isPending) return;
     if (composerReadyFor !== instanceId || signatureDecidedFor === instanceId) return;
-     
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 서명 조회가 끝난 뒤(비동기 결과)에야 정해지고 회차마다 한 번이라 렌더 중으로 못 옮긴다.
     setSignatureDecidedFor(instanceId);
     if (!sig || !shouldAutoInsertSignature(draft, sig)) return;
     if (bodyHtmlRef.current !== bodyBaselineRef.current) return;
