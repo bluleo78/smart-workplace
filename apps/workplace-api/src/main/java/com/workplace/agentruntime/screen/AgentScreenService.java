@@ -131,11 +131,18 @@ public class AgentScreenService {
         sessionId.toString(), ticket, expiresAt.atOffset(ZoneOffset.UTC));
   }
 
-  /** 켜 둠이고 화면 상태가 실행 중(RUNNING) 또는 적용 대기(APPLY_PENDING)인지 — Pod 가 떠 있어야 runner 가 화면을 이을 수 있다. */
+  /**
+   * 켜 둠이고 화면 상태가 실행 중(RUNNING) 또는 적용 대기(APPLY_PENDING)인지 — Pod 가 떠 있어야 runner 가 화면을 이을 수 있다. 진입점 차단
+   * 보고가 있으면 FAILED 가 되어 허용이 끊긴다 — 칸이 실제로 없다(WP-1913).
+   */
   private static boolean isRunning(Row r) {
     AgentRuntimeStatus s =
         AgentRuntimeStatusResolver.resolve(
-            r.desired(), r.generation(), r.observedGeneration(), r.phase());
+            r.desired(),
+            r.generation(),
+            r.observedGeneration(),
+            r.phase(),
+            AgentRuntimeStatusResolver.currentPaneBlocked(r));
     return s == AgentRuntimeStatus.RUNNING || s == AgentRuntimeStatus.APPLY_PENDING;
   }
 

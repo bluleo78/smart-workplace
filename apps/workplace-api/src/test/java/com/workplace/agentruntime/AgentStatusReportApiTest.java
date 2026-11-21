@@ -13,12 +13,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.service.AgentApiKeyService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.AgentTenantResolver;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.CapabilityTokens;
@@ -124,6 +126,16 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
 
   private long changedEvents() {
     return appEvents.stream(AgentRuntimeDesiredChanged.class).count();
+  }
+
+  /**
+   * 관리자 화면 실시간 알림(resource agent-runtime) 수 — 화면에 보이는 것이 바뀔 때만 나가야 한다(WP-1254·1913). 테스트는 트랜잭션을
+   * 되돌리므로 커밋 직전 디스패처는 돌지 않고 발행된 이벤트만 기록된다.
+   */
+  private long runtimeEvents() {
+    return appEvents.stream(ResourceChangedEvent.class)
+        .filter(e -> AgentRuntimeChangeNotifier.RESOURCE_AGENT_RUNTIME.equals(e.resource()))
+        .count();
   }
 
   /** 실행 설정이 없는 AI(외부 실행)는 저장 없이 RUN — 외부 AI 동작이 바뀌지 않는다. */
@@ -532,6 +544,80 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     report(key, slotReport("IDLE", "A".repeat(33), null, null)).andExpect(status().isBadRequest());
 
     assertThat(slotKeysOf(agent)).isEmpty();
+  }
+
+  /**
+   * 남아 있던 진입점 차단 메시지는 정상 칸 보고(칸이 도는 중인 보고)가 오는 순간 비워진다 — 칸이 띄워졌다는 증거이므로(WP-1913 백스톱) 차단 보고가 아무리
+   * 오래돼도 화면이 FAILED 에 갇히지 않는다. 칸을 비운 것 자체가 화면 변경이라 실시간 알림을 한 번 보내고, 칸이 이미 비었거나 보고가 똑같으면 알리지 않는다.
+   */
+  @Test
+  void status_slotReport_clearsPaneBlockedMessage() throws Exception {
+    // 먼저 정상 보고로 화면 상태를 맞춘다 — 그 뒤에는 칸 차단만 바뀌므로, 알림이 칸 비움에서만 나가는지 가릴 수 있다.
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+
+    Record row = settingOf(agent);
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT)).isNull();
+    assertThat(runtimeEvents()).isEqualTo(1);
+
+    // 칸이 이미 비었고 보고도 같은 내용이면 화면에 보이는 것은 그대로 — 추가 알림은 없다(WP-1913).
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    assertThat(runtimeEvents()).isEqualTo(1);
+  }
+
+  /**
+   * 옛 generation 의 칸 보고는 지금 차단을 지우지 못한다 — 백스톱이 generation 을 보지 않으면 끝나는 중인 옛 Pod 의 상태 보고가 지금 새 차단을
+   * 지워 화면이 「오류」를 잃는다(WP-1913 리뷰 반려 ③).
+   */
+  @Test
+  void status_옛_generation_보고는_칸_차단을_지우지_못한다() throws Exception {
+    // 먼저 정상 보고로 화면 상태를 맞춘다 — 그 뒤에는 칸 차단만 바뀌므로, 알림이 칸에서만 나는지 가릴 수 있다.
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, gen)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, slotReport("IDLE", "WP", null, gen - 1)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+        .isEqualTo("설정 오류로 칸을 못 띄웠어요");
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /**
+   * 가려진 옛 차단 사유를 비워도 실시간 알림은 나지 않는다 — 화면에 보이는 것이 그대로라서다(WP-1913 리뷰 반려 ③, 칸 비움 알림을 저장 원문이 아니라 읽을 때
+   * 합치는 currentPaneBlocked 기준으로 바꾼 것을 고정). 칸 자체는 지금 generation 보고가 오면 비워 둔다.
+   */
+  @Test
+  void status_가려진_칸_차단을_비워도_알리지_않는다() throws Exception {
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    // 옛 generation 에서 남은 차단 — 읽을 때 가려져 화면에는 보이지 않는다.
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "옛 Pod 의 차단")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, gen - 1)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isZero();
   }
 
   /** 두 워크스페이스에 속한 AI — 설정은 테넌트 2 에만 있다. [tenant2, loc2, agent] */

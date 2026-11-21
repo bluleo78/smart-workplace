@@ -222,6 +222,102 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
     assertThat(c.get("locationName").asString()).isEqualTo("L2");
   }
 
+  /**
+   * 진입점 차단 메시지가 있는 행은 목록에서 status FAILED·message 로, 상세에서 observed.message 로 차단 사유를 보여 준다(WP-1913 읽기
+   * 합치기) — runner 관찰 칸(observedMessage·phase)은 그대로 두고 읽을 때만 합친다.
+   */
+  @Test
+  void paneBlocked_listAndDetail_showFailedWithReason() throws Exception {
+    long agent = fx.runningAgent(null);
+    observed(agent, fx.generationOf(agent), "RUNNING", 10);
+    TenantContext.set(1L);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_MESSAGE, "러너가 남긴 관찰 메시지")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    JsonNode list =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+    JsonNode a = summaryOf(list, agent);
+    assertThat(a.get("status").asString()).isEqualTo("FAILED");
+    assertThat(a.get("message").asString()).isEqualTo("설정 오류로 칸을 못 띄웠어요");
+
+    call(admin, get("/api/v1/admin/agents/" + agent + "/runtime-setting"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("FAILED"))
+        .andExpect(jsonPath("$.observed.message").value("설정 오류로 칸을 못 띄웠어요"));
+
+    // 읽기에서만 합친다 — runner 관찰 칸은 쓰지 않았으므로 원래 값 그대로 남아 있다.
+    TenantContext.set(1L);
+    assertThat(
+            dsl.selectFrom(AGENT_RUNTIME_SETTING)
+                .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+                .fetchOne()
+                .get(AGENT_RUNTIME_SETTING.OBSERVED_MESSAGE))
+        .isEqualTo("러너가 남긴 관찰 메시지");
+  }
+
+  /**
+   * 지금 generation 에 속하지 않는 차단 메시지는 읽지 않는다(WP-1913 리뷰 반려 ①) — 설정을 고쳐 새 generation 이 뜨면 옛 사유가 「오류」로
+   * 남지 않고 runner 관찰 값을 그대로 보여 준다. 목록과 상세가 같은 판정을 써야 화면이 어긋나지 않는다.
+   */
+  @Test
+  void paneBlocked_staleGeneration_isNotMerged() throws Exception {
+    long agent = fx.runningAgent(null);
+    long gen = fx.generationOf(agent);
+    observed(agent, gen, "RUNNING", 10);
+    TenantContext.set(1L);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_MESSAGE, "러너가 남긴 관찰 메시지")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "옛 generation 의 차단")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, gen - 1)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    JsonNode list =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+    JsonNode a = summaryOf(list, agent);
+    assertThat(a.get("status").asString()).isNotEqualTo("FAILED");
+    assertThat(a.get("message").asString()).isEqualTo("러너가 남긴 관찰 메시지");
+
+    call(admin, get("/api/v1/admin/agents/" + agent + "/runtime-setting"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.observed.message").value("러너가 남긴 관찰 메시지"));
+  }
+
+  /**
+   * 공백만 남은 차단 메시지는 없다고 본다(WP-1913) — 상태는 차단이 아닌 걸로 계산하고(리졸버와 같은 판정), 사유 자리도 빈 칸 대신 runner 관찰 메시지를
+   * 보여 준다. 합치기 네 곳이 같은 공백 판정을 쓰지 않으면 화면이 FAILED 는 아닌데 사유만 비게 된다.
+   */
+  @Test
+  void paneBlocked_blankMessage_keepsStatusAndObservedReason() throws Exception {
+    long agent = fx.runningAgent(null);
+    observed(agent, fx.generationOf(agent), "RUNNING", 10);
+    TenantContext.set(1L);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_MESSAGE, "러너가 남긴 관찰 메시지")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "   ")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    JsonNode list =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+    JsonNode a = summaryOf(list, agent);
+    assertThat(a.get("status").asString()).isNotEqualTo("FAILED");
+    assertThat(a.get("message").asString()).isEqualTo("러너가 남긴 관찰 메시지");
+
+    call(admin, get("/api/v1/admin/agents/" + agent + "/runtime-setting"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.observed.message").value("러너가 남긴 관찰 메시지"));
+  }
+
   /** 여러 칸이 일하면(WP-1409) 상세의 관찰 상태와 요약 줄이 현재 이슈를 칸 키 순으로 모두 싣는다. 보고가 없는 AI 는 빈 목록이다. */
   @Test
   void issueKeys_fromAllWorkingSlots_inDetailAndSummary() throws Exception {

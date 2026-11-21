@@ -286,6 +286,19 @@ seed_login() { seed_login_file "$GENIA_CODING_AGENT_DIR/auth.json" Gen:iA; }
 # 칸을 띄울 수 있는지(lib.sh tick 의 훅) — genia 를 받았고 로그인 정보가 있을 때만. 아니면 칸도 알림 감시 창도 띄우지 않는다.
 can_launch() { genia_ready && login_file_ready "$GENIA_CODING_AGENT_DIR/auth.json"; }
 
+# 막힌 이번 회차의 까닭을 다시 판정한다(lib.sh tick 의 훅, WP-1913 리뷰 반려 ②) — can_launch 을 막는 것이 무엇인지 이번에 다시 적는다.
+# 지난 사유 파일을 그대로 두면 로그인을 고친 사이 genia 를 받지 못해도 「로그인 미연결」이 계속 보내져 화면에 틀린 사유가 남는다.
+pane_blocked_reason() {
+  if ! genia_ready; then
+    pane_blocked "오류: genia 프로그램을 받지 못했습니다 — 사내 설치 서버(또는 네트워크)를 확인하세요. 칸을 띄우지 않습니다"
+  elif ! login_file_ready "$GENIA_CODING_AGENT_DIR/auth.json"; then
+    pane_blocked "경고: Gen:iA 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
+  else
+    # can_launch 를 막는 것이 둘 다 아니다 — 지난 사유를 남기지 않는다(부득이한 판정 누락이 오류로 남지 않게).
+    rm -f "$AI_DIR/state/pane-blocked"
+  fi
+}
+
 # 감독 회차마다 칸 살피기 전(lib.sh tick 의 훅) — genia 가 없으면 다시 받아 본다(받지 못해도 끝내지 않는다 — 다음 회차에 또 한다).
 before_supervise() {
   genia_ready || install_genia || :

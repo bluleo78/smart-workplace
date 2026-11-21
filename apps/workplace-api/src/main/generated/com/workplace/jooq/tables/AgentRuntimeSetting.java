@@ -207,6 +207,23 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, Short> SLOT_LIMIT = createField(DSL.name("slot_limit"), SQLDataType.SMALLINT, this, "");
 
+    /**
+     * The column
+     * <code>public.agent_runtime_setting.pane_blocked_message</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, String> PANE_BLOCKED_MESSAGE = createField(DSL.name("pane_blocked_message"), SQLDataType.VARCHAR(500), this, "");
+
+    /**
+     * The column <code>public.agent_runtime_setting.pane_blocked_at</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, OffsetDateTime> PANE_BLOCKED_AT = createField(DSL.name("pane_blocked_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column
+     * <code>public.agent_runtime_setting.pane_blocked_generation</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, Long> PANE_BLOCKED_GENERATION = createField(DSL.name("pane_blocked_generation"), SQLDataType.BIGINT, this, "");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
