@@ -24,6 +24,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet'
@@ -1607,8 +1608,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 「드라이브 전체에서 찾기」는 상단 검색이 찾을 수 있는 길이(MIN_SEARCH_ALL_LEN)일 때만 — 짧으면 팔레트가 아무것도 찾지 않는다. */}
             {filterTerm !== '' && !itemsQuery.isPlaceholderData && items.folders.length + items.files.length > 0 && shownItems.folders.length + shownItems.files.length === 0 && (
               <li className="flex flex-col items-center gap-2 px-4 py-12 text-center" data-testid="drive-filter-empty">
-                <SearchX className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
-                <p className="text-sm font-semibold">조건에 맞는 항목이 없습니다</p>
+                <SearchX className={emptyStateIconClass} aria-hidden="true" />
+                <p className={emptyStateTitleClass}>조건에 맞는 항목이 없습니다</p>
                 <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
                   <Button variant="outline" size="sm" onClick={() => setNameFilter('')} data-testid="drive-filter-clear">
                     필터 지우기
@@ -1632,22 +1633,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 className="flex flex-col items-center gap-2 px-4 py-12 text-center"
                 data-testid="drive-empty-folder"
               >
-                <FolderOpen className="h-12 w-12 text-muted-foreground" />
-                <p className="text-sm font-semibold">이 폴더는 비어 있어요</p>
-                {readOnlyRole && <p className="text-xs text-muted-foreground">이 공간은 보기 권한만 있어요</p>}
+                <FolderOpen className={emptyStateIconClass} />
+                <p className={emptyStateTitleClass}>이 폴더는 비어 있어요</p>
+                {readOnlyRole && <p className={emptyStateDescriptionClass}>이 공간은 보기 권한만 있어요</p>}
                 {/* WP-582: 읽기 전용 공간(보관·보기 전용)엔 올릴 수 없으니 업로드 권유(설명·CTA)를 뺀다. */}
                 {canDropHere && (
                   <>
-                    <p className="text-xs text-muted-foreground">파일을 업로드하거나 새 폴더를 만들어보세요</p>
-                    <button
-                      type="button"
-                      onClick={openUploadPicker}
-                      data-testid="drive-empty-upload"
-                      className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
+                    <p className={emptyStateDescriptionClass}>파일을 업로드하거나 새 폴더를 만들어보세요</p>
+                    <Button type="button" variant="outline" size="sm" className="mt-1" onClick={openUploadPicker} data-testid="drive-empty-upload">
+                      {/* 아이콘 크기는 Button 기본(size-4)에 맡긴다 — h-3.5 는 Button 의 svg 규칙에 덮여 쓰이지 않았다. */}
+                      <Upload />
                       업로드
-                    </button>
+                    </Button>
                   </>
                 )}
               </li>

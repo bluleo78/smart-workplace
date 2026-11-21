@@ -15,7 +15,7 @@ Smart Workplace 타이포그래피 시스템 — As-Is 감사 결과와 To-Be �
 | Page / Section Title | `text-2xl font-semibold` | 24px | 600 | 페이지·섹션 제목 (프로젝트 상세, 이슈 상세, 설정 등) | ~10 곳 |
 | Dialog / Card Title | `text-lg font-semibold` | 18px | 600 | Dialog/Sheet 제목, 카드 헤더 (shadcn 기본값) | ~15 곳 |
 | Sidebar App Title | `text-[15px] font-bold tracking-tight` | 15px | 700 | 2차 사이드바 상단 앱 타이틀(`appTitleTextClass`), 홈 상단 워드마크 | 공유 토큰 |
-| Section / Card Sub-head | `text-base font-medium` | 16px | 500 | 카드 내부 소제목 (빈 상태 제목은 WP-1881 로 14px `heading-body-section`) | ~5 곳 |
+| Section / Card Sub-head | `text-base font-medium` | 16px | 500 | 카드 내부 소제목 (빈 상태 제목은 [06 §B](./06-feedback-states.md#일반-빈-상태-테이블-외) 규격 14px/500 — WP-1924) | ~5 곳 |
 | Body / Label | `text-sm` | 14px | 400 | **일반 본문, 폼 레이블, 모듈 사이드바 nav 항목** | ~270 곳 |
 | Label (medium) | `text-sm font-medium` | 14px | 500 | 카드 제목, 활성 nav 항목, 버튼 텍스트 | ~110 곳 |
 | App-Rail Nav | `text-[13px] font-medium` | 13px | 500 | 앱 레일(56px) 링크 라벨 | AppRail |
@@ -46,7 +46,7 @@ Vercel Geist 3-tier 시스템(Heading / Body / Label)을 참고하여 의미론�
 | `heading-section` | 섹션 제목 (H2) — 현 페이지 제목 | `text-2xl leading-8 font-semibold tracking-tight` | 24px | 32px | 600 | -0.025em |
 | `heading-card` | 카드/다이얼로그 제목 (H3) | `text-lg leading-7 font-semibold` | 18px | 28px | 600 | normal |
 | `heading-app-title` | 사이드바/홈 앱 타이틀 | `text-[15px] leading-5 font-bold tracking-tight` | 15px | 20px | 700 | -0.025em |
-| `heading-body-section` | 헤더 바 아래 본문 섹션 제목 (H2)·빈 상태 안내 제목 — `heading-column` 과 값이 같은 별칭 | `text-sm leading-5 font-semibold` | 14px | 20px | 600 | normal |
+| `heading-body-section` | 헤더 바 아래 본문 섹션 제목 (H2) — `heading-column` 과 값이 같은 별칭. 빈 상태 제목은 쓰지 않는다(06 §B 규격 14px/500, WP-1924) | `text-sm leading-5 font-semibold` | 14px | 20px | 600 | normal |
 | `heading-group` | 폼/설정 그룹 헤딩 (H4) | `text-base leading-6 font-medium` | 16px | 24px | 500 | normal |
 | `heading-column` | 테이블 컬럼 헤더 — `heading-body-section` 과 값이 같은 별칭 | `text-sm leading-5 font-semibold` | 14px | 20px | 600 | normal |
 | `body-primary` | 주요 본문 텍스트 | `text-base leading-7` | 16px | 28px | 400 | normal |
@@ -62,10 +62,10 @@ Vercel Geist 3-tier 시스템(Heading / Body / Label)을 참고하여 의미론�
 
 ⭐ `heading-page`(28px)는 현재 코드에 없는 신규 제안이다. 도입 전까지는 `heading-section`(24px)을 페이지 H1 로 사용한다.
 
-헤더 바(`heading-app-title` 15px) 아래 본문에서는 섹션·그룹 제목이 헤더 바 제목보다 크면 안 된다 — `heading-body-section`(14px, 코드 `bodySectionTitleClass`) 이하를 쓰고 16px `heading-group` 은 쓰지 않는다(WP-1881). 빈 상태 안내 제목도 같은 위계다 — 공용 `ChatEmptyState` 와 손으로 만든 빈 상태(드라이브 「최근」·노트 빈 화면 등)가 같은 크기여야 한 화면 안에서 크기가 섞이지 않는다.
+헤더 바(`heading-app-title` 15px) 아래 본문에서는 섹션·그룹 제목이 헤더 바 제목보다 크면 안 된다 — `heading-body-section`(14px, 코드 `bodySectionTitleClass`) 이하를 쓰고 16px `heading-group` 은 쓰지 않는다(WP-1881). 빈 상태 안내 제목은 섹션 제목이 아니라 [06 §B 「일반 빈 상태」](./06-feedback-states.md#일반-빈-상태-테이블-외) 규격(14px/500, 코드 `emptyStateTitleClass`)을 쓴다 — 공용 `ListEmptyState`·`ChatEmptyState` 와 손으로 만든 빈 상태(드라이브 「최근」·노트 빈 화면 등)가 같은 상수를 써야 한 화면 안에서 굵기·크기가 섞이지 않는다(WP-1924 — WP-1881 의 600 을 바꿈).
 
 - **예외 — 자체 제목을 가진 화면**: 이슈 상세(「본문」·「활동」·하위 태스크)는 화면 제목이 자체 H1(`heading-section` 24px)이라 `heading-group`(16px) 을 그대로 쓴다 — 16px < 24px 이라 위계가 뒤집히지 않는다. 개인 작업 「메모」 는 데스크톱이 프로젝트 페이지 본문 위에 뜨는 다이얼로그 표면(머리 16px)이고 모바일만 전체 화면 H1 24px 인 별개 표면이라 WP-1881 범위에서 제외했다 — **남은 위험**: 데스크톱 다이얼로그 머리·「메모」 16px 은 그 페이지 헤더 바 제목 15px 보다 크다. 위 규칙(헤더 바 아래 16px 금지)은 「헤더 바 아래 본문」 에만 적용한다.
-- `heading-body-section` 은 표의 `heading-column`(테이블 컬럼 헤더)과 크기·줄높이·굵기가 모두 같다 — 같은 값의 별칭이니 **용도**로만 구분한다(To-Be: 섹션 제목 `h2`·빈 상태 제목 `div`·컬럼 머리 `th`. 지금 표 목록 머리는 `text-xs` 다).
+- `heading-body-section` 은 표의 `heading-column`(테이블 컬럼 헤더)과 크기·줄높이·굵기가 모두 같다 — 같은 값의 별칭이니 **용도**로만 구분한다(To-Be: 섹션 제목 `h2`·컬럼 머리 `th`. 지금 표 목록 머리는 `text-xs` 다).
 
 ### 2.2 Heading 계층
 
@@ -179,7 +179,7 @@ UI 컨트롤에 붙는 레이블. 본문 텍스트와 달리 수직 정렬이 �
 | `text-2xl font-semibold` | 페이지 제목 | `heading-section` (또는 `heading-page` ⭐) | `text-2xl leading-8 font-semibold tracking-tight` |
 | `text-lg font-semibold` | Dialog/Card 제목 | `heading-card` | `text-lg leading-7 font-semibold` |
 | `text-[15px] font-bold tracking-tight` | 사이드바/홈 앱 타이틀 | `heading-app-title` | 동일 (`text-[15px] leading-5 font-bold tracking-tight`) |
-| `text-base font-medium` | 카드 소제목 (헤더 바 아래 빈 상태 제목은 14px `heading-body-section` — WP-1881) | `heading-group` | `text-base leading-6 font-medium` |
+| `text-base font-medium` | 카드 소제목 (헤더 바 아래 빈 상태 제목은 06 §B 규격 14px/500 `emptyStateTitleClass` — WP-1924) | `heading-group` | `text-base leading-6 font-medium` |
 | `text-sm font-medium` | 카드 제목, 활성 nav | `label-primary` | `text-sm leading-5 font-medium` |
 | `text-sm` | 일반 본문 / 폼 레이블 / 사이드바 nav | `body-secondary` / `label-primary` | 문맥에 따라 분기 |
 | `text-[13px] font-medium` | 앱 레일 nav | `label-rail` | `text-[13px] leading-5 font-medium` |

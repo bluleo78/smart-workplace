@@ -168,6 +168,8 @@ function EmptyState({ icon: Icon, title, description, action }: {
 
 **원칙**: 빈 상태는 항상 생산적인 액션을 포함한다.
 
+**코드 원본(WP-1924)**: 이 규격의 클래스는 `@/components/layout/empty-state` 의 `emptyStateIconClass`(아이콘 40px muted)·`emptyStateTitleClass`(제목 14px/500)·`emptyStateDescriptionClass`(본문 12px muted) 한 곳에 둔다. `ListEmptyState`·`ChatEmptyState` 와 손으로 만든 빈 상태(드라이브 폴더·최근·필터 0건·공유 안내, 노트 빈 화면·최근·즐겨찾기)가 이 상수를 쓴다 — 빈 상태 제목에 섹션 제목(`bodySectionTitleClass`, 600)을 쓰지 않는다.
+
 ---
 
 ## C. Error States (에러 상태)

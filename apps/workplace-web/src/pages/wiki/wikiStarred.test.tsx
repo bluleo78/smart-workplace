@@ -96,7 +96,12 @@ describe('노트 즐겨찾기 화면', () => {
 
   test('showsEmpty — 「즐겨찾기 없음」', async () => {
     renderScreen(<WikiStarredView />, { path: '/wiki/starred', handlers: [starredHandler([])] })
-    expect(await screen.findByTestId('wiki-starred-empty')).toHaveTextContent('즐겨찾기 없음')
+    const empty = await screen.findByTestId('wiki-starred-empty')
+    expect(empty).toHaveTextContent('즐겨찾기 없음')
+    // WP-1924: 빈 상태 규격(제목 14px 500, 600 아님).
+    const title = within(empty).getByText('즐겨찾기 없음')
+    expect(title).toHaveClass('text-sm', 'font-medium')
+    expect(title).not.toHaveClass('font-semibold')
   })
 
   test('showsErrorWithRetry — 500 이면 오류 안내, 다시 시도로 재요청', async () => {

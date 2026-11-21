@@ -7,8 +7,8 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ActionMenuItems } from '@/components/ActionMenuItems'
+import { ListEmptyState } from '@/components/issue/ListEmptyState'
 import { Page, pageGutterClass } from '@/components/layout/Page'
-import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
@@ -53,10 +53,7 @@ export function WikiRecentView() {
     body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
   } else if (items.length === 0) {
     body = (
-      <div data-testid="wiki-recent-empty" className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-        <Clock aria-hidden className="h-10 w-10 text-muted-foreground" />
-        <div className={bodySectionTitleClass}>최근 노트 없음</div>
-      </div>
+      <ListEmptyState icon={Clock} title="최근 노트 없음" testId="wiki-recent-empty" className="gap-2 px-4 py-12" />
     )
   } else {
     body = (
