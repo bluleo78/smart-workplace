@@ -89,8 +89,11 @@ function AlertDialogHeader({
   return (
     <div
       data-slot="alert-dialog-header"
+      // 띄어쓰기 없는 긴 이름(공간·앱·첨부 등)이 창 밖으로 넘치지 않게 한다(WP-1921). 자식 min-w-0 으로 그리드 트랙이 창 폭에 맞춰 줄고,
+      // 물려받는 wrap-anywhere 가 제목·설명 등 머리 안 글을 접는다 — break-words 는 min-content 를 줄이지 못한다.
+      // 폭이 정해진 창이라 넘칠 때만 끊어 보통 한국어 문장은 그대로 접힌다(내용 폭 칸에서 글자 단위로 끊긴 WP-1869 와 다르다).
       className={cn(
-        "grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-6 sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]",
+        "grid *:min-w-0 wrap-anywhere grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-6 sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]",
         className
       )}
       {...props}

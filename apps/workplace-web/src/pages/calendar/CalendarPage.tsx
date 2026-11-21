@@ -957,7 +957,7 @@ export function CalendarPage() {
         <AlertDialogContent data-testid="calendar-delete-confirm">
           <AlertDialogHeader>
             <AlertDialogTitle>캘린더 삭제</AlertDialogTitle>
-            <AlertDialogDescription className="wrap-anywhere">
+            <AlertDialogDescription>
               「{deletingCal?.name}」 캘린더를 삭제할까요? 이 캘린더의 일정은 기본 캘린더
               {defaultCalendarName ? `(${defaultCalendarName})` : ''}로 옮겨집니다.
             </AlertDialogDescription>
