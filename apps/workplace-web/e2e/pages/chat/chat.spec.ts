@@ -202,6 +202,37 @@ test.describe('messaging 채팅 E2E', () => {
     }
   });
 
+  // WP-1923 리뷰 후속 — 위처럼 정리가 조합 끝을 기다리는 중에, 조합을 확정하는 Enter(macOS Chrome 순서: 확정 → compositionend
+  // → Enter 를 한 태스크에)로 바로 보내면 그 Enter 가 버려지지 않고, 보낸 "시작"을 먼저 지운 뒤 남은 "가"만 보낸다.
+  test('보낸 글자 정리를 기다리는 중 조합을 확정하는 Enter 로 이어 보내면 남은 글자만 보낸다 (WP-1923)', { tag: '@input' }, async ({
+    authenticatedPage: page,
+  }) => {
+    const channel = createChannel({ id: CHANNEL_ID, member: true });
+    await setupChannelStubs(page, [channel]);
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
+    const { p: responseGate, release } = gate();
+    await stubEmptyHistoryWithPost(page, 504, responseGate);
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+    const input = page.getByTestId('message-composer-input');
+    await input.click();
+    await page.keyboard.type('시작');
+    await page.keyboard.press('Enter');
+
+    const ime = await startImeComposition(page, '가');
+    try {
+      release();
+      await expect(page.getByTestId('message-body-504').first()).toHaveText('시작');
+      // 이미 보낸 메시지다 — 조합 끝을 기다리는 동안에도 전송 중 표시는 풀려 있다.
+      await expect(page.getByTestId('message-composer-submit')).not.toHaveAttribute('aria-busy', 'true');
+      await commitImeThenEnterInSameTask(input, { composing: '가', committed: '가' });
+      await expect.poll(() => posts.bodies()).toEqual([{ body: '시작' }, { body: '가' }]);
+      await expect(input).toHaveText('');
+    } finally {
+      await ime.detach();
+    }
+  });
+
   // 팀 채팅도 이슈 채팅(#357)과 같은 RichInput — Shift+Enter 는 줄바꿈, Enter 는 전송이어야 한다.
   test('Shift+Enter 줄바꿈 → Enter 전송 시 POST body 에 \\n 포함', { tag: '@input' }, async ({
     authenticatedPage: page,

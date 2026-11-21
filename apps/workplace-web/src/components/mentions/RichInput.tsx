@@ -15,6 +15,7 @@ import Paragraph from '@tiptap/extension-paragraph';
 import Placeholder from '@tiptap/extension-placeholder';
 import Text from '@tiptap/extension-text';
 import { isHistoryTransaction } from '@tiptap/pm/history';
+import type { Node as PMNode } from '@tiptap/pm/model';
 import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
 import { ArrowUp, Loader2 } from 'lucide-react';
@@ -138,7 +139,6 @@ interface RichInputProps {
   ref?: Ref<RichInputHandle>;
 }
 
-/** editorAria → 편집칸 속성. 값이 없는 속성은 넣지 않는다(ProseMirror 는 undefined 도 "undefined" 글자로 단다). */
 /**
  * 입력칸이 비었는지 — 공백·줄바꿈뿐이어도 비었다고 보고, 글 없이 이미지만 있으면 비어 있지 않다(WP-362).
  * 키 입력마다 호출되므로 editor.isEmpty(O(1))로 먼저 거르고, 아니면 글자·멘션을 처음 찾는 즉시 멈추는 탐색을 쓴다
@@ -155,6 +155,7 @@ function isEditorBlank(editor: Editor, imagesEnabled: boolean): boolean {
   return !found && !(imagesEnabled && hasImage(editor));
 }
 
+/** editorAria → 편집칸 속성. 값이 없는 속성은 넣지 않는다(ProseMirror 는 undefined 도 "undefined" 글자로 단다). */
 function editorAriaAttributes(aria: RichInputProps['editorAria']): Record<string, string> {
   const attrs: Record<string, string> = {};
   if (aria?.invalid) attrs['aria-invalid'] = 'true';
@@ -341,10 +342,10 @@ export function RichInput({
   // (MessageComposer/ChatComposer/ChatMessageEditor 등)가 공유하므로 이 chokepoint 하나로
   // 전체가 해결된다. state(submitting)는 버튼의 시각적 disabled 표시용 보조 상태.
   const submittingRef = useRef(false);
-  // 조합 중이라 미룬 성공 뒤 정리(WP-1923)의 취소 함수 — 한 번에 하나만 둔다.
+  // 한글 조합 중이라 미룬 성공 뒤 정리(WP-1923) — 부르면 대기를 거두고 보낸 앞부분을 바로 지운다.
+  // 다음 전송(조합을 확정하는 Enter 등)이 먼저 와도 이것을 불러 보낸 글이 다시 실리지 않게 한다. 한 번에 하나뿐이다
+  // (가드가 요청이 끝날 때 풀리고, 다음 전송은 시작할 때 이것을 비우므로 겹치지 않는다).
   const pendingClearRef = useRef<(() => void) | null>(null);
-  // 전송 순번 — 늦게 도착한 이전 전송의 가드 해제가 새 전송의 가드를 풀지 않게 한다.
-  const submitSeqRef = useRef(0);
   const [submitting, setSubmitting] = useState(false);
 
   // leftActions: 버튼 행 좌측에 렌더할 커스텀 액션(파일 첨부 버튼 등). 미전달 시 좌측 영역 빈 채로 유지.
@@ -726,6 +727,29 @@ export function RichInput({
     onFocusRequestDone?.();
   }, [editor, focusRequest, onFocusRequestDone]);
 
+  /**
+   * 전송 성공 뒤 입력창 정리(WP-1923) — 전송 중 이어서 입력한 글자는 지우지 않는다.
+   * 보낸 문서가 지금 문서와 같으면 비우고, 앞부분이면 그 부분만 지우고, 보낸 부분을 고쳤으면 아무것도 지우지 않는다.
+   */
+  function clearSent(sentDoc: PMNode, refocus: boolean) {
+    if (!editor || editor.isDestroyed) return;
+    const end = sentPrefixEnd(sentDoc, editor.state.doc);
+    if (end === 'same') {
+      // clearContent(emitUpdate=true) — TipTap 2.27.2 의 clearContent 기본값(false)은
+      // onUpdate 를 발생시키지 않아, 전송 직후 isEmpty/charCount 가 stale(false/직전값)로 남는다.
+      // 그 결과 disableWhenEmpty 컴포저(이슈 챗 ChatComposer 등)에서 전송 후 빈 입력인데도
+      // 보내기 버튼이 활성으로 남아 클릭 시 silent no-op 이 되는 회귀(#197)가 발생.
+      // true 를 전달해 update 를 강제 → onUpdate 가 isEmpty=true / charCount=0 을 동기화.
+      editor.commands.clearContent(true);
+    } else if (end != null) {
+      // 보낸 앞부분만 지운다 — deleteRange 도 update 를 내므로 isEmpty/charCount 가 동기화된다.
+      editor.commands.deleteRange({ from: 0, to: end });
+    }
+    // end == null(보낸 부분을 고침)이면 아무것도 지우지 않는다 — 글자를 잃는 것보다 남는 쪽이 안전.
+    // 조합 끝을 기다렸다 지울 때는 초점을 당기지 않는다 — 조합은 흔히 다른 칸을 눌러(blur) 끝나므로 그 칸의 입력을 뺏게 된다.
+    if (refocus) editor.commands.focus();
+  }
+
   function submit() {
     if (!editor) return;
     // 업로드 중 이미지가 있으면 버튼·Enter 모두 막는다 — 자리표시가 빈 이미지로 저장되지 않게(WP-362).
@@ -735,6 +759,16 @@ export function RichInput({
     if (submittingRef.current) return;
     // 외부에서 전송을 차단한 경우(파일 업로드 중 등) 버튼·Enter 양쪽 모두 차단.
     if (submitDisabledRef.current) return;
+    // 앞 전송의 정리가 조합 끝을 기다리는 중이면(WP-1923 리뷰 후속) — 조합을 확정하는 Enter 가 여기로 온다.
+    // 버리지 않고 보낸 앞부분을 지금 지운 뒤 남은 글로 이어 보낸다. 아직 조합 중이면(초점을 뺏지 않는 버튼을 누름 등) 지우면 조합이
+    // 깨지므로 조합이 끝난 뒤 다시 보낸다 — 눌러도 아무 일 없는 버튼이 되지 않게(#197 과 같은 무반응 방지).
+    if (pendingClearRef.current) {
+      if (editor.view.composing) {
+        waitCompositionIdle(editor).promise.then(submit, () => {});
+        return;
+      }
+      pendingClearRef.current();
+    }
     const body = serializeToBody(editor.getJSON()).trim();
     // 본문이 비어도 첨부가 있으면(allowEmptySubmit) 제출 허용.
     if (body.length === 0 && !allowEmptyRef.current) return;
@@ -752,10 +786,10 @@ export function RichInput({
     // 보낸 시점의 문서를 기억한다 — 전송 중 새로 입력한 글자를 성공 시 지우지 않으려고(WP-1923).
     const sentDoc = editor.state.doc;
     const result = onSubmitRef.current(body);
-    // 가드 해제는 이 한 곳에서만 한다(아래 finally). 이후 전송이 시작됐으면(순번이 바뀜) 건드리지 않는다.
-    const seq = ++submitSeqRef.current;
+    // 가드 해제는 요청이 끝날 때 이 한 곳에서만 한다(아래 finally) — 조합 끝을 기다리는 정리와 상관없이 전송 중 표시를 푼다.
+    // 순번 확인 없이 풀어도 되는 까닭: release 는 아래 성공·실패 처리(동기)가 끝난 뒤 finally 로 돌고, 새 전송은 가드가 풀린 뒤에야
+    // 시작되므로 앞 전송의 release 가 새 전송의 가드를 풀 일이 없다. 성공 처리를 다시 async 로 바꾸면 이 전제가 깨지니 주의.
     const release = () => {
-      if (submitSeqRef.current !== seq) return;
       submittingRef.current = false;
       // 언마운트된 뒤에는 state 를 건드리지 않는다.
       if (!editor.isDestroyed) setSubmitting(false);
@@ -772,39 +806,26 @@ export function RichInput({
     // void 반환(첨부 attach 등 비-Promise 경로)이면 resolve 로 취급해 기존처럼 비운다.
     Promise.resolve(result)
       .then(
-        async () => {
+        () => {
           // 비동기 resolve 시점에 언마운트됐을 수 있으므로 editor 파괴 여부를 확인.
           if (editor.isDestroyed) return;
-          // 한글 조합 중에 지우면 조합이 끊긴다 — 조합이 끝날 때까지 기다린 뒤 지운다. 기다리는 동안에도 가드(submittingRef·
-          // submitting)는 유지된다(finally 에서만 풀므로) — 풀면 그 사이 보내기가 눌려 이미 보낸 글이 다시 전송된다.
-          // 새 대기가 시작되면 이전 대기는 취소한다(한 번에 하나).
-          pendingClearRef.current?.();
-          const wait = waitCompositionIdle(editor);
-          pendingClearRef.current = wait.cancel;
-          try {
-            await wait.promise;
-          } catch {
-            // 취소(언마운트·교체) — 지우지 않는다.
+          if (!editor.view.composing) {
+            clearSent(sentDoc, true);
             return;
-          } finally {
-            if (pendingClearRef.current === wait.cancel) pendingClearRef.current = null;
           }
-          if (editor.isDestroyed) return;
-          // 전송 중 이어서 입력한 글자는 지우지 않는다(WP-1923): 보낸 문서가 지금 문서의 앞부분이면 그 부분만 지운다.
-          const end = sentPrefixEnd(sentDoc, editor.state.doc);
-          if (end === 'same') {
-            // clearContent(emitUpdate=true) — TipTap 2.27.2 의 clearContent 기본값(false)은
-            // onUpdate 를 발생시키지 않아, 전송 직후 isEmpty/charCount 가 stale(false/직전값)로 남는다.
-            // 그 결과 disableWhenEmpty 컴포저(이슈 챗 ChatComposer 등)에서 전송 후 빈 입력인데도
-            // 보내기 버튼이 활성으로 남아 클릭 시 silent no-op 이 되는 회귀(#197)가 발생.
-            // true 를 전달해 update 를 강제 → onUpdate 가 isEmpty=true / charCount=0 을 동기화.
-            editor.commands.clearContent(true);
-          } else if (end != null) {
-            // 보낸 앞부분만 지운다 — deleteRange 도 update 를 내므로 isEmpty/charCount 가 동기화된다.
-            editor.commands.deleteRange({ from: 0, to: end });
-          }
-          // end == null(보낸 부분을 고침)이면 아무것도 지우지 않는다 — 글자를 잃는 것보다 남는 쪽이 안전.
-          editor.commands.focus();
+          // 한글 조합 중에 지우면 조합이 끊긴다 — 조합이 끝날 때까지 기다린 뒤 지운다. 기다리는 동안 다음 전송이 오면
+          // submit 이 pendingClearRef 를 불러 먼저 지운다. 취소(언마운트)면 지우지 않는다.
+          const wait = waitCompositionIdle(editor);
+          const flush = () => {
+            if (pendingClearRef.current !== flush) return;
+            pendingClearRef.current = null;
+            wait.cancel();
+            clearSent(sentDoc, false);
+          };
+          pendingClearRef.current = flush;
+          wait.promise.then(flush, () => {
+            if (pendingClearRef.current === flush) pendingClearRef.current = null;
+          });
         },
         () => {
           // 전송 실패: 입력 유지. 포커스만 복귀시켜 재시도 가능하게.

@@ -970,20 +970,62 @@ describe('RichInput clearOnSubmit — 전송 중 입력한 글자 유지(WP-1923
     expect(screen.getByTestId('send')).toBeDisabled()
   })
 
-  it('조합 때문에 정리가 미뤄지는 동안은 다시 보낼 수 없고, 정리 뒤에 풀린다', async () => {
-    const { onSubmit } = await submitThenResolveWhileComposing({ disableWhenEmpty: true }, ' 더')
-    // 성공했지만 정리는 미뤄진 상태 — 가드가 유지돼 버튼이 막히고 spinner 가 남는다.
+  it('조합 때문에 정리가 미뤄져도 요청이 끝나면 전송 중 표시가 풀린다', async () => {
+    await submitThenResolveWhileComposing({ disableWhenEmpty: true }, ' 더')
+    // 이미 보낸 메시지다 — 정리를 기다리는 동안 spinner·aria-busy 를 남기지 않는다(리뷰 후속).
     const send = screen.getByTestId('send')
-    expect(send).toBeDisabled()
-    expect(send).toHaveAttribute('aria-busy', 'true')
-    fireEvent.click(send)
+    expect(send).not.toHaveAttribute('aria-busy')
+    expect(send).toBeEnabled()
+    expect(screen.getByTestId('in').textContent).toBe('안녕 더')
+  })
+
+  it('정리를 기다리는 중 조합을 확정한 Enter 는 버려지지 않고, 보낸 앞부분을 지운 뒤 남은 글만 보낸다', async () => {
+    const { onSubmit } = await submitThenResolveWhileComposing({}, ' 더')
+    // macOS Chrome: 조합 확정 → compositionend → Enter(13). 50ms 정리 타이머가 돌기 전에 Enter 가 온다.
+    setComposing(false)
+    dispatchCompositionEnd()
+    fireEvent.keyDown(editorOf(screen.getByTestId('in')).view.dom, { key: 'Enter' })
+    expect(onSubmit).toHaveBeenCalledTimes(2)
+    expect(onSubmit).toHaveBeenLastCalledWith('더')
+    // 늦게 도는 정리 타이머가 남은 글을 다시 지우지 않는다.
+    await settle()
+    expect(screen.getByTestId('in').textContent).toBe(' 더')
+  })
+
+  it('정리를 기다리는 중 아직 조합 중에 보내기를 누르면 조합이 끝난 뒤 남은 글만 보낸다', async () => {
+    const { onSubmit } = await submitThenResolveWhileComposing({}, ' 더')
+    fireEvent.click(screen.getByTestId('send'))
+    // 조합 중에는 지우지도 보내지도 않는다(조합이 깨지지 않게).
     expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('in').textContent).toBe('안녕 더')
+    setComposing(false)
+    dispatchCompositionEnd()
+    await settle()
+    // 누른 보내기는 버려지지 않는다 — 보낸 앞부분을 지운 뒤 남은 글만 보낸다.
+    expect(onSubmit).toHaveBeenCalledTimes(2)
+    expect(onSubmit).toHaveBeenLastCalledWith('더')
+  })
+
+  it('조합이 다른 칸으로 옮겨 가며 끝나면 늦은 정리가 입력창으로 초점을 되돌리지 않는다', async () => {
+    await submitThenResolveWhileComposing({}, ' 더')
+    const editor = editorOf(screen.getByTestId('in'))
+    act(() => editor.commands.blur())
     setComposing(false)
     dispatchCompositionEnd()
     await settle()
     expect(screen.getByTestId('in').textContent).toBe(' 더')
-    expect(send).not.toHaveAttribute('aria-busy')
-    expect(send).toBeEnabled()
+    expect(editor.isFocused).toBe(false)
+  })
+
+  it('Shift+Enter 로 줄을 바꿔 이어 쓰면 남은 글 앞에 빈 줄이 남지 않는다', async () => {
+    const { resolve } = setupSubmitting({ clearOnSubmit: true })
+    fireEvent.click(screen.getByTestId('send'))
+    const editor = editorOf(screen.getByTestId('in'))
+    act(() => {
+      editor.chain().focus('end').setHardBreak().insertContent('다음').run()
+    })
+    await act(async () => resolve())
+    expect(editor.getJSON().content?.[0]?.content).toEqual([{ type: 'text', text: '다음' }])
   })
 
   it('compositionend 직후 다시 조합이 시작되면 마지막 compositionend 까지 지우지 않는다', async () => {
@@ -1000,20 +1042,16 @@ describe('RichInput clearOnSubmit — 전송 중 입력한 글자 유지(WP-1923
     expect(screen.getByTestId('in').textContent).toBe(' 더')
   })
 
-  it('compositionend 가 오지 않아도 조합이 풀려 있으면 점검 주기에 보낸 부분을 지우고 가드를 푼다', async () => {
+  it('compositionend 가 오지 않아도 조합이 풀려 있으면 점검 주기에 보낸 부분을 지운다', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] })
     try {
       await submitThenResolveWhileComposing({ disableWhenEmpty: true }, ' 더')
-      const send = screen.getByTestId('send')
-      expect(send).toHaveAttribute('aria-busy', 'true')
       // 조합은 풀렸지만 compositionend 는 오지 않았다(Android 조합 타임아웃 등).
       setComposing(false)
       await act(async () => {
         vi.advanceTimersByTime(COMPOSITION_POLL_MS)
       })
       expect(screen.getByTestId('in').textContent).toBe(' 더')
-      expect(send).not.toHaveAttribute('aria-busy')
-      expect(send).toBeEnabled()
     } finally {
       vi.useRealTimers()
     }
