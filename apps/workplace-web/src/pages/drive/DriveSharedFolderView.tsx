@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { fetchShareInfo, isShareFolderInfo, type ShareFolderInfo } from '@/api/drivePublicShare'
 import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
+import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import { driveKeys } from '@/hooks/queries/driveKeys'
@@ -45,7 +46,8 @@ function NoticeState({ testId, title, description, action }: { testId: string; t
       <Page.Body>
         <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
           <FolderSearch className="h-10 w-10 text-muted-foreground" aria-hidden />
-          <h2 className="text-base font-semibold">{title}</h2>
+          {/* 헤더 바 h1(15px)보다 작게 — 본문 섹션 제목 14px/600(WP-1881). */}
+          <h2 className={bodySectionTitleClass}>{title}</h2>
           {description && <p className="max-w-sm text-sm text-muted-foreground">{description}</p>}
           <div className="mt-2">{action}</div>
         </div>

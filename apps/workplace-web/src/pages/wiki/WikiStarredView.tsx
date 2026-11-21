@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 
 import { ActionMenuItems } from '@/components/ActionMenuItems'
 import { Page, pageGutterClass } from '@/components/layout/Page'
+import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
@@ -64,7 +65,7 @@ export function WikiStarredView() {
     body = (
       <div data-testid="wiki-starred-empty" className="flex flex-col items-center gap-2 px-4 py-12 text-center">
         <Star aria-hidden className="h-10 w-10 text-muted-foreground" />
-        <div className="text-base font-semibold">즐겨찾기 없음</div>
+        <div className={bodySectionTitleClass}>즐겨찾기 없음</div>
       </div>
     )
   } else {

@@ -46,6 +46,7 @@ Vercel Geist 3-tier 시스템(Heading / Body / Label)을 참고하여 의미론�
 | `heading-section` | 섹션 제목 (H2) — 현 페이지 제목 | `text-2xl leading-8 font-semibold tracking-tight` | 24px | 32px | 600 | -0.025em |
 | `heading-card` | 카드/다이얼로그 제목 (H3) | `text-lg leading-7 font-semibold` | 18px | 28px | 600 | normal |
 | `heading-app-title` | 사이드바/홈 앱 타이틀 | `text-[15px] leading-5 font-bold tracking-tight` | 15px | 20px | 700 | -0.025em |
+| `heading-body-section` | 헤더 바 아래 본문 섹션 제목 (H2) | `text-sm leading-5 font-semibold` | 14px | 20px | 600 | normal |
 | `heading-group` | 폼/설정 그룹 헤딩 (H4) | `text-base leading-6 font-medium` | 16px | 24px | 500 | normal |
 | `heading-column` | 테이블 컬럼 헤더 | `text-sm leading-5 font-semibold` | 14px | 20px | 600 | normal |
 | `body-primary` | 주요 본문 텍스트 | `text-base leading-7` | 16px | 28px | 400 | normal |
@@ -60,6 +61,8 @@ Vercel Geist 3-tier 시스템(Heading / Body / Label)을 참고하여 의미론�
 | `data-number` | 데이터 테이블 숫자 | `text-sm font-mono tabular-nums` | 14px | - | 400 | normal |
 
 ⭐ `heading-page`(28px)는 현재 코드에 없는 신규 제안이다. 도입 전까지는 `heading-section`(24px)을 페이지 H1 로 사용한다.
+
+헤더 바(`heading-app-title` 15px) 아래 본문에서는 섹션·그룹 제목이 헤더 바 제목보다 크면 안 된다 — `heading-body-section`(14px, 코드 `bodySectionTitleClass`) 이하를 쓰고 16px `heading-group` 은 쓰지 않는다(WP-1881).
 
 ### 2.2 Heading 계층
 
@@ -81,7 +84,12 @@ Vercel Geist 3-tier 시스템(Heading / Body / Label)을 참고하여 의미론�
   이슈 생성
 </h3>
 
-// heading-group — 폼 섹션, 설정 그룹 라벨
+// heading-body-section — 헤더 바 아래 본문 섹션 제목. 헤더 바 h1(15px/700)보다 작게 두어 위계를 지킨다(WP-1881)
+<h2 className="text-sm leading-5 font-semibold">
+  서명
+</h2>
+
+// heading-group — 폼 섹션, 설정 그룹 라벨 (헤더 바 페이지 안에서는 16px 대신 heading-body-section 14px 위계, WP-1881)
 <h4 className="text-base leading-6 font-medium">
   알림 설정
 </h4>

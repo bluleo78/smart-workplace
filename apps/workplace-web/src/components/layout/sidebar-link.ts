@@ -20,3 +20,10 @@ export const sidebarTitleClass =
 // 인-플로우 페이지 제목(헤더 바 없는 문서/설정형) — 단일 토큰으로 통일.
 // 헤더 바를 쓰지 않는 페이지(설정 등)의 <h1> 에 적용. 바 제목은 appTitleTextClass 사용.
 export const pageTitleClass = 'text-[28px] leading-[36px] font-semibold tracking-tight'
+
+/**
+ * 본문 섹션·안내(빈 상태) 제목 클래스 — 14px/20px/600.
+ * 왜: 데스크톱 헤더 바 페이지 제목 h1(15px/700, appTitleTextClass)보다 본문 제목이 크면 위계가 뒤집힌다.
+ * 그래서 헤더 바 제목보다 작게 둔다(docs/design-system 02-typography `heading-body-section`, WP-1881). 위험 톤은 호출부가 `text-destructive` 를 더한다.
+ */
+export const bodySectionTitleClass = 'text-sm leading-5 font-semibold'

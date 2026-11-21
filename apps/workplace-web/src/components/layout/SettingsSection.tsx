@@ -2,6 +2,7 @@
 // 왜: Polaris settings·Microsoft SettingsCard 처럼 넓은 폭을 입력창을 늘리지 않고 구조로 채워, 폼 화면도 다른 탭과 같은 폭 체계를 쓰게 한다(WP-397).
 import { type ReactNode, useId } from 'react'
 
+import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { cn } from '@/lib/utils'
 
 /**
@@ -44,8 +45,8 @@ export function SettingsSection({
       className="grid gap-x-12 gap-y-3 border-b py-6 first:pt-2 last:border-b-0 @min-[768px]:grid-cols-[240px_minmax(0,1fr)]"
     >
       <div data-slot="settings-section-heading" className="space-y-1">
-        {/* 섹션 제목은 heading-group 위계(16px/24px semibold, 02-typography §2.1) — 본문 라벨(14px)과 구분되게. */}
-        <h2 id={headingId} className={cn('text-base leading-6 font-semibold', tone === 'danger' && 'text-destructive')}>
+        {/* 섹션 제목은 heading-body-section(14px/20px/600, 02-typography §2.1) — 헤더 바 h1(15px)보다 작게(WP-1881). */}
+        <h2 id={headingId} className={cn(bodySectionTitleClass, tone === 'danger' && 'text-destructive')}>
           {title}
         </h2>
         {description != null && <div className="text-sm text-muted-foreground">{description}</div>}
