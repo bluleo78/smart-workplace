@@ -141,10 +141,11 @@ test('로그인 진행 중에는 라벨을 잠근다 — 라벨은 [로그인] �
   expect(label).toBeEnabled()
   await user.click(within(dialog).getByTestId('genia-login-start'))
   await within(dialog).findByTestId('genia-login-open')
-  expect(label).toBeDisabled()
+  // 잠금·풀림은 자식 effect 가 부모 state 를 바꾼 다음 렌더에 반영된다 — 둘 다 기다린다
+  await waitFor(() => expect(label).toBeDisabled())
   await tickPoll()
   await within(dialog).findByTestId('genia-login-retry')
-  expect(label).toBeEnabled()
+  await waitFor(() => expect(label).toBeEnabled())
 })
 
 test('로그인 진행 중에 종류를 바꾸면 라벨 잠금이 풀린다', async () => {
@@ -152,9 +153,11 @@ test('로그인 진행 중에 종류를 바꾸면 라벨 잠금이 풀린다', a
   const dialog = await openGenia(user)
   await user.click(within(dialog).getByTestId('genia-login-start'))
   await within(dialog).findByTestId('genia-login-open')
-  expect(within(dialog).getByTestId('agent-account-label')).toBeDisabled()
+  const label = within(dialog).getByTestId('agent-account-label')
+  // 잠금·풀림은 자식 effect 가 부모 state 를 바꾼 다음 렌더에 반영된다 — 둘 다 기다린다
+  await waitFor(() => expect(label).toBeDisabled())
   await user.click(within(dialog).getByTestId('agent-account-kind-chatgpt'))
-  await waitFor(() => expect(within(dialog).getByTestId('agent-account-label')).toBeEnabled())
+  await waitFor(() => expect(label).toBeEnabled())
 })
 
 test('[로그인] — 라벨을 비우면 빈 본문으로 시작한다', async () => {
