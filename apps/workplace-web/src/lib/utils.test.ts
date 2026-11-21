@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { andParticle, cn, directionParticle, euroRo, initialOf, objectParticle, subjectParticle, usernameHandle } from './utils'
+import { andParticle, cn, directionParticle, displayNameOf, euroRo, initialOf, objectParticle, subjectParticle, usernameHandle } from './utils'
 
 describe('cn — 줄바꿈 클래스 병합 (WP-1073)', () => {
   it('break-words(overflow-wrap)는 break-keep(word-break)과 함께 남는다 — 지워지면 긴 제목이 넘친다', () => {
@@ -100,5 +100,17 @@ describe('usernameHandle (WP-1880)', () => {
 
   it('빈 아이디는 빈 문자열', () => {
     expect(usernameHandle('')).toBe('')
+  })
+})
+
+describe('displayNameOf (WP-1897)', () => {
+  it('이름 → 아이디 → 「사용자」 순으로 대체한다', () => {
+    expect(displayNameOf({ name: '김민수', username: 'minsu' })).toBe('김민수')
+    expect(displayNameOf({ name: '', username: 'minsu' })).toBe('minsu')
+    expect(displayNameOf(null)).toBe('사용자')
+  })
+
+  it('공백뿐인 이름은 없는 것으로 보고 아이디를 쓴다(서버 멘션 라벨과 같은 규칙)', () => {
+    expect(displayNameOf({ name: '   ', username: 'admin@work-loop.local' })).toBe('admin@work-loop.local')
   })
 })

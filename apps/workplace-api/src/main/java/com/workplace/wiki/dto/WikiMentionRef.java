@@ -7,7 +7,7 @@ package com.workplace.wiki.dto;
 public record WikiMentionRef(
     String type, // USER | PAGE | ISSUE
     long id, // 대상 전역 id
-    String label, // 유저 name / 페이지 title / 이슈 title (inaccessible 이면 null)
+    String label, // 유저 이름(비면 username) / 페이지 title / 이슈 title (inaccessible 이면 null)
     Long spaceId, // PAGE 전용 라우트(그 외 null)
     String projectKey, // ISSUE 전용(그 외 null)
     Integer number, // ISSUE 전용(그 외 null)

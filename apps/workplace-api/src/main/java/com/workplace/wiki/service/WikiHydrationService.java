@@ -57,9 +57,9 @@ public class WikiHydrationService {
   public List<WikiMentionRef> resolveMentions(long callerId, String body, WikiShareGrant grant) {
     List<WikiMentionRef> out = new ArrayList<>();
 
-    // 1) 유저 멘션: 실존 유저만 통과(MentionResponse.name 을 라벨로). USER 는 라우트/이슈 메타 없음.
+    // 1) 유저 멘션: 실존 유저만 통과(라벨은 displayName — 이름이 비면 username, WP-1897). USER 는 라우트/이슈 메타 없음.
     for (var u : userHydrator.asMentionResponses(MentionParser.parse(body))) {
-      out.add(new WikiMentionRef("USER", u.id(), u.name(), null, null, null));
+      out.add(new WikiMentionRef("USER", u.id(), u.displayName(), null, null, null));
     }
 
     // 2)·3) 본문에서 page/issue 토큰을 한 번에 추출 후 타입별로 분리.

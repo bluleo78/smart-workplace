@@ -24,10 +24,11 @@ export interface WikiEntityCandidate {
  * 이름 없는 이메일형 사용자는 label 과 sublabel 이 같은 글자라 피커 행에 두 번 보이므로 sublabel 을 뺀다(WP-1880 리뷰 후속).
  */
 export function userMentionCandidate(u: Pick<MemberSummary, 'userId' | 'name' | 'username'>): WikiEntityCandidate {
+  // 라벨은 서버 멘션 라벨과 같은 규칙(displayNameOf — 공백뿐인 이름은 없는 것)이라 삽입한 탭과 다른 탭의 칩이 같다(WP-1897).
   const label = displayNameOf(u)
   const handle = usernameHandle(u.username)
   // 이름이 있는 사용자는 이름이 아이디와 같아 보여도 아이디 행을 남긴다 — 이름 없는 경우만 겹침을 뺀다.
-  const duplicate = !u.name && handle === label
+  const duplicate = !u.name?.trim() && handle === label
   return { mtype: 'USER', id: u.userId, label, sublabel: duplicate ? undefined : handle }
 }
 

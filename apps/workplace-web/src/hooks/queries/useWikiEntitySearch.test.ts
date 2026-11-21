@@ -29,6 +29,12 @@ describe('userMentionCandidate', () => {
     expect(userMentionCandidate({ userId: 5, name: '@jay', username: 'jay' }).sublabel).toBe('@jay')
   })
 
+  it('공백만인 이름은 없는 것으로 보고 아이디를 라벨로 쓴다(서버 멘션 라벨과 같은 규칙, WP-1897)', () => {
+    const c = userMentionCandidate({ userId: 6, name: '   ', username: 'admin@work-loop.local' })
+    expect(c.label).toBe('admin@work-loop.local')
+    expect(c.sublabel).toBeUndefined()
+  })
+
   it('이름 없는 일반 아이디는 label=아이디, sublabel=@아이디(서로 달라 둘 다 둔다)', () => {
     const c = userMentionCandidate({ userId: 4, name: '', username: 'jay' })
     expect(c.label).toBe('jay')

@@ -205,14 +205,12 @@ public class WikiRevisionService {
         .orElseThrow(() -> new WikiRevisionNotFoundException(pageId, version));
   }
 
-  /** 사용자 id → 표시 사용자. 한 번의 조회로 해석하고, 사라진 사용자는 빠진다. 이름이 비었으면 username 으로 대체. */
+  /** 사용자 id → 표시 사용자. 한 번의 조회로 해석하고, 사라진 사용자는 빠진다. 이름은 displayName(비면 username). */
   private Map<Long, Person> resolvePeople(Collection<Long> ids) {
     return users.asMentionResponses(List.copyOf(ids)).stream()
         .collect(
             Collectors.toMap(
-                MentionResponse::id,
-                m -> new Person(m.id(), m.name() != null ? m.name() : m.username()),
-                (a, b) -> a));
+                MentionResponse::id, m -> new Person(m.id(), m.displayName()), (a, b) -> a));
   }
 
   /** id 목록 → 표시 사용자 목록(순서 유지). 해석되지 않은(삭제된) 사용자는 뺀다. */

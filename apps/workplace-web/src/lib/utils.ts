@@ -94,9 +94,12 @@ export function initialOf(name?: string | null): string {
   return letter ?? (trimmed.charAt(0) || '·')
 }
 
-/** 사용자 표시 이름 — 이름 → 아이디 → '사용자' 순의 대체값(모바일 계정 UI 공용). */
+/**
+ * 사용자 표시 이름 — 이름 → 아이디 → '사용자' 순의 대체값(모바일 계정 UI·노트 멘션 피커 공용).
+ * 공백뿐인 이름은 없는 것으로 본다 — 서버 MentionResponse.displayName 과 같은 규칙(WP-1897).
+ */
 export function displayNameOf(user?: { name?: string | null; username?: string | null } | null): string {
-  return user?.name || user?.username || '사용자'
+  return (user?.name?.trim() ? user.name : '') || user?.username || '사용자'
 }
 
 /**

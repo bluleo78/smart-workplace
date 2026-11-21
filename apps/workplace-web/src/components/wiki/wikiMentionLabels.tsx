@@ -52,12 +52,20 @@ function resolveMentionLabel(map: Map<string, string>, mtype: WikiMentionType, i
   return mtype === 'USER' ? `사용자 ${id}` : mtype === 'PAGE' ? `페이지 #${id}` : `이슈 #${id}`
 }
 
-/** 칩에 보일 글자 — USER 는 채팅 칩(MessageRow·IssueMentionChip)과 같은 "@"+라벨, PAGE/ISSUE 는 참조 링크라 접두 없음(#703).
- *  USER 라벨은 표시 이름이라 usernameHandle 없이 늘 "@" 를 붙인다(WP-1880 리뷰 후속). 이름 없는 이메일형 사용자는
- *  삽입한 탭에서 멘션 재조회 전까지만 username 폴백 라벨이라 "@admin@host" 로 보일 수 있다. */
+/**
+ * 이메일 주소 모양(공백·@ 없는 앞부분 @ 점이 든 도메인)의 라벨 — 이름 없는 사용자의 username 라벨(예: admin@work-loop.local)을 가리킨다.
+ * 도메인에 점을 요구해 「R&D@Seoul」·「kim@platform」 같은 @ 든 이름은 이메일로 보지 않는다(코드 리뷰 지적).
+ */
+const EMAIL_SHAPED_LABEL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * 칩에 보일 글자 — USER 는 "@"+라벨, 단 이메일 주소 모양 라벨은 이중 @ 를 막으려 그대로(WP-1897 — 채팅 칩에는 없는 노트 칩만의 예외).
+ * PAGE/ISSUE 는 참조 링크라 접두 없음(#703). usernameHandle 은 쓰지 않는다(「Kim @Platform」의 접두를 지키려고).
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function mentionChipText(mtype: WikiMentionType, label: string): string {
-  return mtype === 'USER' ? `@${label}` : label
+  if (mtype !== 'USER') return label
+  return EMAIL_SHAPED_LABEL.test(label) ? label : `@${label}`
 }
 
 /** 칩에 보일 라벨 — 해소 결과 > 로컬 기억 > 대체 라벨. */

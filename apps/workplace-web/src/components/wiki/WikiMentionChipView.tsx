@@ -42,7 +42,7 @@ export function WikiMentionChipView({ node }: NodeViewProps) {
       data-id={String(id)}
       className={isUser ? BASE_CHIP_CLASS : NAV_CHIP_CLASS}
     >
-      {/* USER 는 채팅 칩과 동일하게 "@" 프리픽스 — PAGE/ISSUE 는 참조 링크라 제외(#703). 버전 비교 위젯도 같은 규칙. */}
+      {/* 칩 글자 규칙(USER 「@」 접두·이메일 모양 생략, PAGE/ISSUE 접두 없음)은 mentionChipText 한 곳 — 버전 비교 위젯도 같다. */}
       {mentionChipText(mtype, label)}
     </NodeViewWrapper>
   )
