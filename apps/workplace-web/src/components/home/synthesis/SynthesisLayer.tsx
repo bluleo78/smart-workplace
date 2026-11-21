@@ -175,8 +175,11 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   })
   const top = rows.slice(0, 5)
   // 행 Link 의 aria-label 이 보이는 meta(멘션 N · 시간 등)를 덮으므로 meta 를 aria-describedby 로 잇는다(WP-1891).
-  // id 는 useId 접두 + 포커스 `-focus` / 리스트 map 순번(r.key 는 경로 문자열이라 IDREF 로 쓰지 않는다).
+  // id 는 useId 접두 + 포커스 meta `-focus` · 포커스 출처 칩 `-focus-chip` / 리스트 meta `-${i}` · 리스트 출처 칩 `-chip-${i}`
+  // (i 는 map 순번 — r.key 는 경로 문자열이라 IDREF 로 쓰지 않는다).
   const metaIdBase = useId()
+  // WP-1902 — 출처 칩도 설명으로 읽히게 id 를 더한다(시각 순: 칩 → meta)
+  const focusChipId = `${metaIdBase}-focus-chip`
   const focusMetaId = `${metaIdBase}-focus`
   // 행을 만드는 소스 중 실패한 것(WP-865) — 하나라도 실패하면 0건이어도 「다 확인했습니다」라고 말할 수 없고,
   // 행이 있어도 빠진 소스가 있음을 알린다. AI 우선순위(priority)는 정렬 점수만 주고 행을 만들지 않아(없으면 고정 순위로 폴백) 넣지 않는다.
@@ -281,11 +284,11 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                   <Link
                     to={f.to}
                     aria-label={f.ariaLabel}
-                    aria-describedby={focusMetaId}
+                    aria-describedby={`${focusChipId} ${focusMetaId}`}
                     data-testid="dashboard-attention-focus"
                     className="flex items-center gap-3 rounded-lg border border-ai-accent bg-ai-accent-subtle px-3 py-2.5 hover:bg-ai-accent-subtle/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
-                    <span className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    <span id={focusChipId} className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                       <FIcon className="h-3 w-3" />
                       {f.source}
                     </span>
@@ -306,15 +309,17 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                   {top.slice(1).map((r, i) => {
                     const Icon = SOURCE_ICON[r.source]
                     const metaId = `${metaIdBase}-${i}`
+                    // WP-1902 — 출처 칩도 설명으로 읽히게 id 를 더한다(시각 순: 칩 → meta, 포커스 카드와 같은 방식).
+                    const chipId = `${metaIdBase}-chip-${i}`
                     return (
                       <li key={r.key}>
                         <Link
                           to={r.to}
                           aria-label={r.ariaLabel}
-                          aria-describedby={metaId}
+                          aria-describedby={`${chipId} ${metaId}`}
                           className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                         >
-                          <span className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          <span id={chipId} className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                             <Icon className="h-3 w-3" />
                             {r.source}
                           </span>
