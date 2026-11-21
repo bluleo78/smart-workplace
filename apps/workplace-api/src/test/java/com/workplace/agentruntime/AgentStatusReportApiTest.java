@@ -707,7 +707,9 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   void status_파드_시각은_시작_시각_30초_여유_경계로_가른다() throws Exception {
     report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
     long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
-    OffsetDateTime startedAt = OffsetDateTime.now().minusMinutes(10);
+    // 초 단위로 끊는다 — 클라이언트(gw-status)·kubelet startTime 을 모두 초 정밀로 보내므로 경계(정확히 30초)가
+    // 나노초 때문에 어긋나지 않게 한다. 나노초를 남기면 DB 반올림이 시작 시각을 조금 늘려 -30초 보고가 걸러진다.
+    OffsetDateTime startedAt = OffsetDateTime.now().withNano(0).minusMinutes(10);
     dsl.update(AGENT_RUNTIME_SETTING)
         .set(AGENT_RUNTIME_SETTING.STARTED_AT, startedAt)
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
@@ -717,6 +719,13 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
 
     // 여유 안(시작 − 29초) — 지금 Pod 로 보아 칸을 비우고 화면이 바뀌었으니 알린다.
     report(key, slotReportWithPod("IDLE", "WP", null, gen, startedAt.minusSeconds(29)))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isEqualTo(1);
+
+    // 경계값 그 자체(시작 − 30초) — 문서가 말하는 「이후」(같거나 뒤)에 들어가므로 지우고 알린다.
+    setPaneBlocked(gen);
+    report(key, slotReportWithPod("IDLE", "WP", null, gen, startedAt.minusSeconds(30)))
         .andExpect(status().isOk());
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
     assertThat(runtimeEvents()).isEqualTo(1);

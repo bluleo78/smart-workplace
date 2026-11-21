@@ -61,7 +61,8 @@ if [ -r /proc/1/stat ] && [ -r /proc/uptime ]; then
   for v in "$hz" "$ticks" "$up" "$now"; do
     case "$v" in "" | *[!0-9]*) bad=1 ;; esac
   done
-  if [ "$bad" = 0 ]; then
+  # hz 는 0 일 수 없다(getconf CLK_TCK ≥ 100) — 그래도 0 으로 나누면 셸이 죽어 「RUN·종료 0」 약속이 깨진다.
+  if [ "$bad" = 0 ] && [ "$hz" -gt 0 ]; then
     pod_start=$((now - up + ticks / hz))
     if [ "$pod_start" -gt 0 ]; then
       pod_started=$(date -u -d "@$pod_start" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
@@ -73,9 +74,7 @@ body="{\"state\":\"$state\",\"generation\":$gen"
 [ -n "$issue" ] && body="$body,\"issueKey\":\"$issue\""
 [ -n "$next" ] && body="$body,\"nextCheckAt\":\"$next\""
 [ -n "$slot" ] && body="$body,\"slot\":\"$slot\""
-if [ -n "$pod_started" ]; then
-  body="$body,\"podStartedAt\":\"$pod_started\""
-fi
+[ -n "$pod_started" ] && body="$body,\"podStartedAt\":\"$pod_started\""
 body="$body}"
 
 gw_api_request "$key" 5 10 -X PUT -H 'Content-Type: application/json' -d "$body" \
