@@ -50,8 +50,8 @@ class HomeChatHelpGapTest extends ExternalClientMockedTestBase {
   /** 생성 슬롯이 비었는지로 「펌프가 composeStream 에 닿기 전에 생성이 끝남」을 판정한다(WP-1905). */
   @Autowired StreamingGenerationRegistry registry;
 
-  /** 펌프 대기 상한 — 제품 HomeChatService TIMEOUT(300초)보다 긴 hang 방지용 값이지 속도 단언이 아니다. */
-  private static final Duration PUMP_WAIT_LIMIT = Duration.ofSeconds(310);
+  /** 펌프 대기 상한 — 제품 턴 상한보다 긴 hang 방지용 값이지 속도 단언이 아니다. */
+  private static final Duration PUMP_WAIT_LIMIT = HomeChatPumpTestSupport.PUMP_WAIT_LIMIT;
 
   private final List<Long> createdUserIds = new ArrayList<>();
   private Executor prev;

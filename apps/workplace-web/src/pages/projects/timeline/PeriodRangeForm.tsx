@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { FieldError } from '@/components/ui/form-field';
+import { useFieldHint } from '@/hooks/useFieldHint';
 import { cn } from '@/lib/utils';
 
 export function PeriodRangeForm({
@@ -20,6 +21,7 @@ export function PeriodRangeForm({
   const valid = from !== '' && to !== '' && from <= to;
   // 둘 다 채웠는데 뒤집혔을 때만 이유를 보인다(비어 있을 때는 비활성 버튼으로 충분).
   const reversed = from !== '' && to !== '' && from > to;
+  const hint = useFieldHint(reversed);
   const input = cn('h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm', inputClassName);
   return (
     <form
@@ -33,8 +35,7 @@ export function PeriodRangeForm({
         <input
           type="date"
           aria-label="시작일"
-          aria-invalid={reversed || undefined}
-          aria-describedby={reversed ? 'period-range-error' : undefined}
+          {...hint.inputProps}
           data-testid="period-range-from"
           value={from}
           onChange={(e) => setFrom(e.target.value)}
@@ -44,8 +45,7 @@ export function PeriodRangeForm({
         <input
           type="date"
           aria-label="종료일"
-          aria-invalid={reversed || undefined}
-          aria-describedby={reversed ? 'period-range-error' : undefined}
+          {...hint.inputProps}
           data-testid="period-range-to"
           value={to}
           onChange={(e) => setTo(e.target.value)}
@@ -53,11 +53,9 @@ export function PeriodRangeForm({
         />
       </div>
       {/* 뒤집힌 기간 안내는 적용하는 도중에 뜨는 검증 실패라 polite 로 읽히게 한다(WP-1901 리뷰) — role=alert 는 제출 실패에만. */}
-      {reversed && (
-        <FieldError id="period-range-error" data-testid="period-range-error" className="text-xs">
-          시작일이 종료일보다 늦어요
-        </FieldError>
-      )}
+      <FieldError id={hint.id} data-testid="period-range-error" className="text-xs">
+        {reversed ? '시작일이 종료일보다 늦어요' : null}
+      </FieldError>
       <Button type="submit" size="sm" disabled={!valid} data-testid="period-range-apply" className={buttonClassName}>
         적용
       </Button>

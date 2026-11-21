@@ -1,5 +1,6 @@
 package com.workplace.home;
 
+import static com.workplace.home.service.HomeChatPumpTestSupport.forUser;
 import static com.workplace.jooq.Tables.HOME_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.dto.HomeMessageResponse;
+import com.workplace.home.service.HomeChatPumpTestSupport;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -66,7 +68,7 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
         + "}";
   }
 
-  /** 시나리오를 돌려 영속된 ASSISTANT 메시지를 돌려준다(onDone 이 동기로 영속을 마친 뒤 latch 가 풀린다). */
+  /** 시나리오를 돌려 영속된 ASSISTANT 메시지를 돌려준다. */
   private HomeMessageResponse assistantAfter(long uid, Script script) throws Exception {
     return assistantAfter(uid, script, false);
   }
@@ -77,7 +79,17 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
    */
   private HomeMessageResponse assistantAfter(long uid, Script script, boolean fail)
       throws Exception {
-    CountDownLatch done = new CountDownLatch(1);
+    // 스크립트는 중간에 다른 대기가 없어 inline 으로 충분하다 — startChat 이 돌아오면 영속까지 끝나 있다(WP-1918).
+    try (var ignored = HomeChatPumpTestSupport.inline(chatService)) {
+      stubScript(uid, script, fail);
+      chatService.startChat(uid, null, "질문");
+    }
+    UUID sid = onlySession(uid);
+    return assistantOf(uid, sid);
+  }
+
+  /** 요청 사용자(uid)의 호출에만 스크립트를 돌리는 composeStream 스텁 — 다른 사용자의 늦은 펌프가 부르지 않게 거른다. */
+  private void stubScript(long uid, Script script, boolean fail) throws Exception {
     doAnswer(
             inv -> {
               Consumer<String> onDelta = inv.getArgument(1);
@@ -96,15 +108,10 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
               String fullText = script.run(onDelta, onProgress, tool);
               if (fail) onError.accept("AI 구성 요청에 실패했어요.");
               else onDone.accept(fullText, null);
-              done.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
-    chatService.startChat(uid, null, "질문");
-    assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
-    UUID sid = onlySession(uid);
-    return assistantOf(uid, sid);
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
   }
 
   /**
@@ -394,18 +401,27 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
               onTool.accept(om.readTree(result(1, "remember_memory", false, SAVED)));
               started.countDown();
               try {
-                new CountDownLatch(1).await(5, TimeUnit.SECONDS); // 취소 인터럽트까지 붙잡는다
+                // 취소 인터럽트까지 붙잡는다 — 펌프를 붙잡는 스텁이라 이 테스트만 비동기 유지(WP-1918)
+                new CountDownLatch(1)
+                    .await(
+                        HomeChatPumpTestSupport.CANCEL_HOLD_LIMIT.toMillis(),
+                        TimeUnit.MILLISECONDS);
               } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); // 실제 클라이언트처럼 플래그만 세우고 조용히 return
               }
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
     HomeChatStartedResponse r = chatService.startChat(uid, null, "질문");
-    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+    HomeChatPumpTestSupport.awaitPump(started);
     chatService.cancelChat(r.correlationId(), uid);
-    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.cancelled"), any());
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> cancelled = ArgumentCaptor.forClass(Map.class);
+    verify(sseRegistry, timeout(HomeChatPumpTestSupport.PUMP_WAIT_LIMIT.toMillis()))
+        .fanOut(any(), eq("home.chat.cancelled"), cancelled.capture());
+    // 타임아웃 abort 가 아니라 사용자 취소로 끝났음을 확인한다(붙잡기 상한이 턴 상한보다 짧아 섞이지 않는다).
+    assertThat(cancelled.getValue()).containsEntry("reason", "user");
     UUID sid = r.sessionId();
     HomeMessageResponse a = assistantOf(uid, sid);
 

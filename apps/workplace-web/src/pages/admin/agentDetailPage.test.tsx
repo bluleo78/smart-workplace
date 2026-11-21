@@ -734,7 +734,7 @@ describe('Works 실행 AI — 저장소 연결(WP-1268)', () => {
     expect(within(dialog).queryByRole('alert')).toBeNull()
     expect(within(dialog).getByText(/호스트 이름만 적어 주세요/)).toHaveAttribute('role', 'status')
     expect(host).toHaveAttribute('aria-invalid', 'true')
-    expect(host.getAttribute('aria-describedby')).toContain('agent-repo-host-error')
+    expect(host.getAttribute('aria-describedby')).toBe(within(dialog).getByText(/호스트 이름만 적어 주세요/).id)
     await user.clear(host)
     await user.type(host, ' GHE.GitHub.example.com ')
     expect(within(dialog).getByTestId('agent-repo-kind-github')).toBeChecked()

@@ -47,10 +47,12 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     long uid = user();
     long pdf = upload(uid, "a.pdf", "application/pdf", "%PDF".getBytes());
     long png = upload(uid, "b.png", "image/png", new byte[] {1});
-    CountDownLatch latch = stubDone("확인했어요");
+    stubDoneFor(uid, "확인했어요");
 
-    chatService.startChat(uid, null, "요약해 줘", null, List.of(pdf, png), null, null, null);
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    // 펌프를 호출 스레드에서 돌린다(WP-1918) — startChat 이 돌아올 때 펌프가 끝나 있어 래치가 필요 없다.
+    try (var ignored = HomeChatPumpTestSupport.inline(chatService)) {
+      chatService.startChat(uid, null, "요약해 줘", null, List.of(pdf, png), null, null, null);
+    }
 
     UUID sid = onlySession(uid);
     long userMsgId = sessionService.getMessages(uid, sid).get(0).id();
@@ -67,10 +69,11 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
   void 첨부만_보내면_빈_본문으로_저장하고_제목은_첫_파일명이다() throws Exception {
     long uid = user();
     long pdf = upload(uid, "회의록.pdf", "application/pdf", "%PDF".getBytes());
-    CountDownLatch latch = stubDone("읽었어요");
+    stubDoneFor(uid, "읽었어요");
 
-    chatService.startChat(uid, null, "   ", null, List.of(pdf), null, null, null);
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    try (var ignored = HomeChatPumpTestSupport.inline(chatService)) {
+      chatService.startChat(uid, null, "   ", null, List.of(pdf), null, null, null);
+    }
 
     UUID sid = onlySession(uid);
     assertThat(sessionService.getMessages(uid, sid))

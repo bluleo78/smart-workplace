@@ -9,7 +9,6 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -24,6 +23,7 @@ import com.workplace.home.outbound.AiAgentContextSummaryClient;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.home.service.HomeAttachmentService;
+import com.workplace.home.service.HomeChatPumpTestSupport;
 import com.workplace.home.service.HomeChatService;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.support.ExternalClientMockedTestBase;
@@ -32,8 +32,6 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -47,7 +45,6 @@ import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -159,19 +156,12 @@ public abstract class HomeAttachmentTestSupport extends ExternalClientMockedTest
     return ids;
   }
 
-  /** composeStream 이 즉시 done 하도록 스텁하고 latch 반환(HomeChatContextBudgetTest 와 같은 방식). */
-  protected CountDownLatch stubDone(String reply) throws Exception {
-    CountDownLatch latch = new CountDownLatch(1);
-    doAnswer(
-            inv -> {
-              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
-              onDone.accept(reply, null);
-              latch.countDown();
-              return null;
-            })
-        .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
-    return latch;
+  /**
+   * 요청 사용자(uid)의 composeStream 호출에만 곧바로 done 하도록 스텁한다(WP-1918, {@link
+   * HomeChatPumpTestSupport#stubDone}).
+   */
+  protected void stubDoneFor(long uid, String reply) throws Exception {
+    HomeChatPumpTestSupport.stubDone(chatClient, uid, reply);
   }
 
   /** ai-agent 로 보낸 ChatRequest(이 테스트에서 한 번 호출됐다고 가정). */

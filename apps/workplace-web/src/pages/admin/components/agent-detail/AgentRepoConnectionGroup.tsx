@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { useFieldHint } from '@/hooks/useFieldHint';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 
 import {
@@ -207,6 +208,7 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
   const tokenText = token.trim();
   const tokenOk = tokenText.length >= TOKEN_MIN && tokenText.length <= TOKEN_MAX;
   const hostError = !row && hostInput.trim() !== '' && host == null;
+  const hostHint = useFieldHint(hostError);
 
   // 「연결하기」/「변경」 단추를 끄는 조건(WP-1627). 제출 자체는 submit 이 같은 입력 조건 + 진행 중 ref 로 막는다.
   const submitBlocked = !host || !tokenOk || register.isPending;
@@ -283,7 +285,9 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
               ))}
             </RadioGroup>
           </div>
-          <div className="space-y-1.5">
+          {/* space-y 대신 flex gap — 늘 두는 빈 안내 리전(sr-only, absolute)이 마지막 자식이 되어도 앞 칸에 여백을 더 붙이지 않는다(WP-1934).
+              items-start 로 라벨을 글자 폭에 둔다(칸은 w-full). */}
+          <div className="flex flex-col items-start gap-1.5">
             <Label htmlFor="agent-repo-host">호스트</Label>
             <Input
               id="agent-repo-host"
@@ -296,16 +300,13 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
               className="font-mono text-sm"
               autoComplete="off"
               spellCheck={false}
-              aria-invalid={hostError || undefined}
-              aria-describedby={hostError ? 'agent-repo-host-error' : undefined}
+              {...hostHint.inputProps}
               data-testid="agent-repo-host"
             />
             {/* 호스트 형식 검증은 입력하는 도중에 뜨는 안내라 polite 로 읽히게 한다(WP-1901 리뷰) — role=alert 는 제출 실패에만. */}
-            {hostError && (
-              <FieldError id="agent-repo-host-error" className="text-xs">
-                https:// 나 경로 없이 호스트 이름만 적어 주세요. 예: github.com
-              </FieldError>
-            )}
+            <FieldError id={hostHint.id} className="text-xs">
+              {hostError ? 'https:// 나 경로 없이 호스트 이름만 적어 주세요. 예: github.com' : null}
+            </FieldError>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="agent-repo-token">토큰</Label>

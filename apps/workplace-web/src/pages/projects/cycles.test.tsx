@@ -141,13 +141,14 @@ describe('사이클 관리', () => {
     await user.paste('종료일역전테스트')
     await user.type(screen.getByLabelText('시작일'), '2026-09-10')
     await user.type(screen.getByLabelText('종료일'), '2026-09-01')
-    const rangeError = await screen.findByTestId('cycle-date-range-error')
-    expect(rangeError).toHaveTextContent('종료일은 시작일 이후여야 합니다')
+    // 리전은 늘 있으니 글자가 뜰 때까지 기다린다(빈 리전에 바로 잡히지 않게 — WP-1934).
+    const rangeError = await screen.findByText('종료일은 시작일 이후여야 합니다')
+    expect(rangeError).toHaveAttribute('data-testid', 'cycle-date-range-error')
     // WP-1901 리뷰 반려 — 입력 중에 뜨는 날짜 안내는 polite(status) 이고 두 칸이 함께 가리킨다.
     expect(rangeError).toHaveAttribute('role', 'status')
     expect(within(screen.getByTestId('cycle-form-dialog')).queryByRole('alert')).toBeNull()
     expect(screen.getByLabelText('시작일')).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getByLabelText('종료일').getAttribute('aria-describedby')).toContain('cycle-date-range-error')
+    expect(screen.getByLabelText('종료일').getAttribute('aria-describedby')).toBe(rangeError.id)
     const submit = screen.getByTestId('cycle-submit')
     expect(submit).toBeDisabled()
     // 잠긴 버튼을 눌러도, 단추를 거치지 않는 폼 제출(Enter 저장 WP-1616)로도 요청은 없다.
@@ -563,8 +564,19 @@ describe('사이클 완료 (WP-1578)', () => {
     const nameError = within(dialog).getByTestId('cycle-complete-name-error')
     expect(nameError).toHaveTextContent('이미 존재하는 사이클 이름입니다: GW-8')
     expect(nameError).toHaveAttribute('role', 'alert')
+    expect(name.getAttribute('aria-describedby')).toBe(nameError.id)
     expect(screen.getByTestId('cycle-complete-dialog')).toBeInTheDocument()
     await waitFor(() => expect(within(dialog).getByTestId('cycle-complete-submit')).toBeEnabled())
+
+    // 거절 중에도 polite 리전은 비운 채 남아 있다 — 거절을 지우고 바로 길이 초과가 떠도 같은 노드라 안내가 읽힌다(WP-1934).
+    const hint = within(dialog).getByTestId('cycle-complete-name-hint')
+    expect(hint).toHaveAttribute('role', 'status')
+    expect(hint).toBeEmptyDOMElement()
+    fireEvent.change(name, { target: { value: '가'.repeat(61) } })
+    expect(within(dialog).queryByTestId('cycle-complete-name-error')).toBeNull()
+    expect(within(dialog).getByTestId('cycle-complete-name-hint')).toBe(hint)
+    expect(hint).toHaveTextContent('사이클 이름은 60자 이하로 입력하세요')
+    expect(name.getAttribute('aria-describedby')).toBe(hint.id)
   })
 
   test('그 밖의 오류는 창을 남기고 완료 버튼 위에 서버 메시지를 알린다', async () => {
@@ -614,7 +626,8 @@ describe('사이클 완료 (WP-1578)', () => {
     expect(within(dialog).queryByRole('alert')).toBeNull()
     expect(within(dialog).getByLabelText('새 사이클 시작일')).toHaveAttribute('aria-invalid', 'true')
     expect(end).toHaveAttribute('aria-invalid', 'true')
-    expect(end.getAttribute('aria-describedby')).toContain('cycle-complete-range-error')
+    // id 는 useId 로 만들어 고정 글자가 아니다 — 칸이 가리키는 id 가 바로 그 안내 리전인지 본다(WP-1934).
+    expect(end.getAttribute('aria-describedby')).toBe(hint.id)
     expect(within(dialog).getByTestId('cycle-complete-submit')).toBeDisabled()
   })
 
@@ -681,16 +694,16 @@ describe('사이클 완료 (WP-1578)', () => {
     expect(name).toHaveValue(`${'가'.repeat(59)}10`)
     expect(name).toHaveAttribute('aria-invalid', 'true')
     // 길이 초과는 입력하는 도중의 안내라 polite(status) 로 읽힌다 — 서버 거절(alert)과 구분된다(WP-1901 리뷰 반려).
-    const tooLong = within(dialog).getByTestId('cycle-complete-name-error')
+    const tooLong = within(dialog).getByTestId('cycle-complete-name-hint')
     expect(tooLong).toHaveTextContent('사이클 이름은 60자 이하로 입력하세요')
     expect(tooLong).toHaveAttribute('role', 'status')
     expect(within(dialog).queryByRole('alert')).toBeNull()
     const submit = within(dialog).getByTestId('cycle-complete-submit')
     expect(submit).toBeDisabled()
-    // 60자 안으로 고치면 안내가 사라지고 완료할 수 있다.
+    // 60자 안으로 고치면 안내 글자가 사라지고 완료할 수 있다 — 리전은 비어도 화면에 남지 않는 글자다(WP-1934).
     await user.clear(name)
     await user.paste('GW-8')
-    expect(within(dialog).queryByTestId('cycle-complete-name-error')).not.toBeInTheDocument()
+    expect(within(dialog).getByTestId('cycle-complete-name-hint')).toBeEmptyDOMElement()
     expect(submit).toBeEnabled()
     expect(bodies).toEqual([])
   })
