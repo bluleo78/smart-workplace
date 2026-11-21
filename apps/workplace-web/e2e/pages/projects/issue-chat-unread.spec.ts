@@ -137,9 +137,6 @@ test(
     await pushHeldEvents(page, oneCreated);
     await expectStays(page, () => badge.textContent(), '1', { ms: 500 });
 
-    // 시드(staleTime 5s)가 신선하면 드로워가 refetch 하지 않아 빈 목록이 남는다 — 시계를 6초 넘겨 낡게 한다(앱 빈틈 WP-1914, 고치면 이 우회를 없앤다).
-    await page.clock.fastForward(6_000);
-
     // ── Phase 2: 드로워 열기 → 배지 사라지고 메시지 본문 표시 ─────────────────
     await page.getByTestId('issue-chat-open').click();
     await expect(page.getByTestId('issue-chat-drawer')).toBeVisible();

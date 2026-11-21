@@ -4,6 +4,8 @@
 
 export const chatKeys = {
   all: ['chat'] as const,
+  // 모든 이슈의 스레드 쿼리 접두 — 이벤트는 threadId 만 실어 와 스레드 캐시를 이 접두로 찾는다(WP-1914).
+  threads: () => [...chatKeys.all, 'thread'] as const,
   thread: (projectKey: string, issueNumber: number) =>
     [...chatKeys.all, 'thread', projectKey, issueNumber] as const,
   messages: (threadId: number) =>
