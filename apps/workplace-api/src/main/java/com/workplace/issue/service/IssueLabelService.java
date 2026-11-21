@@ -91,6 +91,8 @@ public class IssueLabelService {
               .map(r -> new LabelSummary(r.id(), r.name(), r.colorToken()))
               .toList();
       historyRecorder.recordLabelsChanged(callerId, issue.id(), addedSummaries, removedSummaries);
+      // 라벨만 바뀌어도 이슈 수정 시각을 올린다 — 최근 수정 순 정렬·최근 변동에 반영(WP-1930). version 은 그대로.
+      issueRepository.touchUpdatedAt(issue.id());
       // 실시간 무효화 — diff 가 있을 때만(no-op 은 미발행)
       changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }

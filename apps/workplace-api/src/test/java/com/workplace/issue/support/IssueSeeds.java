@@ -10,6 +10,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.ProjectStatusRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.jooq.DSLContext;
 
@@ -99,6 +100,34 @@ public final class IssueSeeds {
                 .orElseThrow(() -> new IllegalStateException("프로젝트에 " + status + " 범주 상태가 없음"));
     issues.updateAll(
         id, title, body, status, statusId, priority, dueDate, startDate, milestoneId, closedAt);
+  }
+
+  /**
+   * 이슈 수정 시각을 5분 전으로 돌려 두고 저장된 값을 돌려준다(WP-1930) — 같은 마이크로초 안에 다시 쓰여도 「올라갔는지」를 isAfter 로 가를 수 있게,
+   * 「그대로인지」를 isEqualTo 로 가를 수 있게 기준을 과거로 옮긴다.
+   */
+  public static OffsetDateTime rewindUpdatedAt(DSLContext dsl, Long issueId) {
+    dsl.update(ISSUE)
+        .set(ISSUE.UPDATED_AT, OffsetDateTime.now().minusMinutes(5))
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
+    return updatedAt(dsl, issueId);
+  }
+
+  /** 이슈 행의 수정 시각(WP-1930). */
+  public static OffsetDateTime updatedAt(DSLContext dsl, Long issueId) {
+    return dsl.select(ISSUE.UPDATED_AT)
+        .from(ISSUE)
+        .where(ISSUE.ID.eq(issueId))
+        .fetchOne(ISSUE.UPDATED_AT);
+  }
+
+  /** 이슈 행의 낙관 잠금 버전(WP-1930). */
+  public static Integer version(DSLContext dsl, Long issueId) {
+    return dsl.select(ISSUE.VERSION)
+        .from(ISSUE)
+        .where(ISSUE.ID.eq(issueId))
+        .fetchOne(ISSUE.VERSION);
   }
 
   /**
