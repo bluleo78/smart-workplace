@@ -15,6 +15,7 @@ import com.workplace.contacts.dto.MemberDetail;
 import com.workplace.global.util.LikePatternUtils;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
@@ -319,20 +320,39 @@ public class ContactRepository {
   }
 
   /**
+   * 중복 판정 잠금 전용 classId(WP-1952) — 2-인자 pg_advisory_xact_lock(classId, hash) 형태. 다른 용도의 잠금 키와 겹치지
+   * 않게 고유 값을 쓴다.
+   */
+  private static final int DUPLICATE_LOCK_CLASS = 1952;
+
+  /**
+   * 같은 테넌트·이름·이메일의 중복 판정을 줄 세우는 트랜잭션 범위 advisory lock(WP-1952).
+   *
+   * <p>{@link #existsDuplicate} 의 확인과 그 뒤 저장 사이에 다른 요청이 끼면 둘 다 통과해 중복이 생긴다(TOCTOU). 판정 전에 이 잠금을 잡으면
+   * 같은 키의 나중 요청이 먼저 요청의 커밋까지 기다렸다가 그 행을 보고 경고한다. 키는 판정과 같은 정규화(이름 strip, 이메일 strip·소문자, 빈
+   * 이메일=null)를 따르고, 이름 길이를 넣어 이름·이메일 경계가 섞이지 않게 한다. 해시 충돌로 다른 키가 같이 기다려도 정확성엔 영향이 없다(잠깐 줄 설 뿐).
+   */
+  public void lockDuplicateKey(long tenantId, String name, String email) {
+    String n = strip(name);
+    String e = duplicateEmailKey(email);
+    String key =
+        tenantId + ":" + (n == null ? 0 : n.length()) + ":" + n + ":" + (e == null ? "" : e);
+    dsl.execute("SELECT pg_advisory_xact_lock(?, hashtext(?))", DUPLICATE_LOCK_CLASS, key);
+  }
+
+  /**
    * 동일 이름+이메일 외부 연락처가 caller 가시 범위(SHARED 전체 + 본인 PERSONAL)에 이미 존재하는지 — 소프트 경고용(#790). excludeId 는
    * 수정 시 자기 자신 제외(null 이면 미적용).
    *
    * <p>이름은 앞뒤 공백을, 이메일은 공백·대소문자를 무시하고 비교한다(WP-550) — 저장 전 다듬기가 생기기 전의 행도 잡도록 컬럼 쪽도 다듬는다.
    */
   public boolean existsDuplicate(long callerId, String name, String email, Long excludeId) {
-    String normalizedEmail = nullIfBlank(strip(email));
     var condition =
         DSL.trim(CONTACT_ENTRY.NAME)
             .eq(strip(name))
             .and(
                 DSL.lower(DSL.trim(CONTACT_ENTRY.EMAIL))
-                    .isNotDistinctFrom(
-                        normalizedEmail == null ? null : normalizedEmail.toLowerCase()))
+                    .isNotDistinctFrom(duplicateEmailKey(email)))
             .and(CONTACT_ENTRY.VISIBILITY.eq("SHARED").or(CONTACT_ENTRY.OWNER_ID.eq(callerId)));
     if (excludeId != null) {
       condition = condition.and(CONTACT_ENTRY.ID.ne(excludeId));
@@ -417,6 +437,16 @@ public class ContactRepository {
         .forShare()
         .fetchOptional()
         .isPresent();
+  }
+
+  /**
+   * 중복 판정용 이메일 정규화 — 공백 제거·빈값 null·소문자(WP-550). {@link #existsDuplicate} 와 {@link
+   * #lockDuplicateKey} 가 함께 써서 판정과 잠금 키가 어긋나지 않게 한다(WP-1952). 소문자는 {@link Locale#ROOT} 로 — 기본 로캘(예:
+   * 터키어 I→ı)에 따라 DB {@code lower()} 와 달라지지 않게.
+   */
+  private static String duplicateEmailKey(String email) {
+    String e = nullIfBlank(strip(email));
+    return e == null ? null : e.toLowerCase(Locale.ROOT);
   }
 
   private static String nullIfBlank(String s) {

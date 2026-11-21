@@ -109,9 +109,13 @@ public class ContactService {
    *
    * <p>force=false 이고 동일 이름+이메일이 가시 범위(SHARED 전체+본인 PERSONAL)에 이미 있으면 409 소프트 경고를 던진다(#790). 사용자가
    * 확인 다이얼로그에서 강행하면 force=true 로 재요청 — 그대로 저장한다(동명이인·조직 공유 이메일 허용, 하드 차단 아님).
+   *
+   * <p>판정 전 잠금으로 같은 테넌트·이름·이메일의 동시 요청을 줄 세운다(WP-1952). force 여도 잠그는 이유: 강행 요청이 커밋 전이면 뒤따르는 비강행 요청이
+   * 그 행을 못 보고 통과하므로, 강행 쪽도 같은 잠금을 쥐고 저장해야 한다.
    */
   @Transactional
   public ExternalContactDetail create(long callerId, ExternalContactRequest req, boolean force) {
+    repo.lockDuplicateKey(TenantContext.require(), req.name(), req.email());
     if (!force && repo.existsDuplicate(callerId, req.name(), req.email(), null)) {
       throw new ContactDuplicateWarningException(req.name());
     }
@@ -132,6 +136,8 @@ public class ContactService {
    *
    * <p>create 와 동일한 소프트 중복 경고 규칙(자기 자신은 제외) — 판정은 **병합 후** 이름+이메일로 한다. 요청 원문으로 판정하면 전화번호만 고치는
    * 요청(name=null)이 중복 검사를 건너뛰거나, 이메일만 바꿔 기존 연락처와 겹치는 경우를 놓친다.
+   *
+   * <p>판정 전 잠금으로 동시 요청을 줄 세운다. 강행(force)이어도 잠그는 이유는 create 와 같다(WP-1952).
    */
   @Transactional
   public ExternalContactDetail update(
@@ -153,6 +159,7 @@ public class ContactService {
             keep(req.title(), cur.title()),
             keep(req.notes(), cur.notes()),
             keep(req.visibility(), cur.visibility()));
+    repo.lockDuplicateKey(TenantContext.require(), merged.name(), merged.email());
     if (!force && repo.existsDuplicate(callerId, merged.name(), merged.email(), id)) {
       throw new ContactDuplicateWarningException(merged.name());
     }
