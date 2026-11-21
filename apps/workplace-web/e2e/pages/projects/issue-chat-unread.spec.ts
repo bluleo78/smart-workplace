@@ -131,7 +131,7 @@ test(
     const catchUpRefetched = page.waitForResponse(
       (res) => new URL(res.url()).pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
     );
-    await reconnectHeldEvents(page, { advance: () => page.clock.runFor(2_000) });
+    await reconnectHeldEvents(page, { advance: () => page.clock.runFor(500) });
     await catchUpRefetched;
     // 새 스트림에 같은 created 를 다시 보낸다 — 프레임이 소비돼 배지에 반영될 시간을 stays 창으로 준다.
     await pushHeldEvents(page, oneCreated);

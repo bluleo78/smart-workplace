@@ -44,31 +44,46 @@ export async function pushHeldEvents(page: Page, body: string): Promise<void> {
  * 열린 SSE 스트림을 서버가 끊은 것처럼 정상 종료하고, 클라이언트가 /api/v1/events 로 다시 붙는 요청을 기다린다.
  * 왜: 재연결 뒤 같은 프레임을 다시 받아도 중복 반영되지 않는지 보려면 '끊김→재연결'을 실제로 일으켜야 한다.
  * 종료 후 재연결 지연은 1000ms + random(<1000ms)이다. 기본은 실시간으로 기다린다(최대 RECONNECT_WAIT_MS).
- * page.clock 이 설치된 페이지는 앱 타이머가 가짜 시계라 호출 측이 advance(예: clock.runFor(2_000))로 백오프를 넘긴다 —
- * advance 는 스트림을 끊은 뒤에 불려, 그때 걸린 재연결 타이머를 넘긴다.
+ * page.clock 이 설치된 페이지는 앱 타이머가 가짜 시계라 호출 측이 advance(예: clock.runFor(500))로 백오프를 넘긴다 —
+ * advance 는 재연결 요청이 관찰될 때까지 반복 호출되므로 한 번에 백오프 전체를 넘길 필요가 없다.
  * 재연결 응답은 래퍼가 새 열린 스트림으로 바꿔치기하므로, 이어서 pushHeldEvents(Until)로 프레임을 밀어 넣을 수 있다.
  */
 export const RECONNECT_WAIT_MS = 8000;
 export async function reconnectHeldEvents(page: Page, opts: { advance?: () => Promise<void> } = {}): Promise<void> {
   await waitForHeldStream(page);
-  // 요청 대기를 종료보다 먼저 걸어 둔다 — 종료 직후의 빠른 재연결을 놓치지 않게.
-  const reconnected = page.waitForRequest((req) => new URL(req.url()).pathname === '/api/v1/events', {
-    timeout: RECONNECT_WAIT_MS,
-  });
-  await page.evaluate(() => {
-    const held = (window as unknown as { __e2eHeldSse: Set<ReadableStreamDefaultController<Uint8Array>> }).__e2eHeldSse;
-    for (const controller of [...held]) {
-      held.delete(controller);
-      // 이미 닫힌 스트림이면 무시.
-      try {
-        controller.close();
-      } catch {
-        // noop
+  // 재연결 요청 관찰을 종료보다 먼저 걸어 둔다 — 종료 직후의 빠른 재연결을 놓치지 않게.
+  let reconnected = false;
+  const onRequest = (req: { url(): string }) => {
+    if (new URL(req.url()).pathname === '/api/v1/events') reconnected = true;
+  };
+  page.on('request', onRequest);
+  try {
+    await page.evaluate(() => {
+      const held = (window as unknown as { __e2eHeldSse: Set<ReadableStreamDefaultController<Uint8Array>> }).__e2eHeldSse;
+      for (const controller of [...held]) {
+        held.delete(controller);
+        // 이미 닫힌 스트림이면 무시.
+        try {
+          controller.close();
+        } catch {
+          // noop
+        }
       }
+    });
+    if (opts.advance) {
+      // 앱이 재연결 타이머를 거는 시점은 스트림 종료 뒤 비동기라, 한 번만 넘기면 타이머가 걸리기 전에 시계가 끝날 수 있다.
+      // 재연결 요청이 관찰될 때까지 시계를 조금씩 반복해 넘긴다(백오프 최대 2s 이므로 모자라지 않게 넘긴다).
+      await expect(async () => {
+        await opts.advance!();
+        expect(reconnected).toBe(true);
+      }).toPass({ timeout: RECONNECT_WAIT_MS });
+    } else {
+      // 실시간 대기 — 백오프(1~2s)가 지나 요청이 나갈 때까지 기다린다.
+      await expect.poll(() => reconnected, { timeout: RECONNECT_WAIT_MS }).toBe(true);
     }
-  });
-  await opts.advance?.();
-  await reconnected;
+  } finally {
+    page.off('request', onRequest);
+  }
 }
 
 /** pushHeldEventsUntil 안쪽 단언의 한 번 시도 제한(ms) — 짧게 끊고 push 부터 다시 해 구독이 늦게 걸려도 따라잡는다. */
