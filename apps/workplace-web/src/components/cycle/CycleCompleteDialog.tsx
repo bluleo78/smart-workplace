@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { FormError } from '@/components/ui/form-field';
+import { FieldError, FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -344,9 +344,13 @@ function CompleteBody({
                       aria-invalid={nameMessage != null}
                       aria-describedby={nameMessage ? `${labelId}-name-error` : undefined}
                     />
+                    {/* 서버 거절(제출 실패)은 alert, 길이 초과 같은 입력 중 안내는 polite — 같은 칸이어도 뜨는 시점이 다르다(WP-1901 리뷰). */}
                     <FormError id={`${labelId}-name-error`} data-testid="cycle-complete-name-error">
-                      {nameMessage}
+                      {nameError}
                     </FormError>
+                    <FieldError id={`${labelId}-name-error`} data-testid="cycle-complete-name-error">
+                      {nameError ? null : nameMessage}
+                    </FieldError>
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground">기간</span>
@@ -358,6 +362,8 @@ function CompleteBody({
                         value={newStart}
                         onChange={(e) => setNewStart(e.target.value)}
                         aria-label="새 사이클 시작일"
+                        aria-invalid={newRangeInvalid}
+                        aria-describedby={newRangeInvalid ? 'cycle-complete-range-error' : undefined}
                       />
                       <span className="hidden text-muted-foreground sm:inline" aria-hidden="true">~</span>
                       <Input
@@ -366,10 +372,14 @@ function CompleteBody({
                         onChange={(e) => setNewEnd(e.target.value)}
                         aria-label="새 사이클 종료일"
                         aria-invalid={newRangeInvalid}
+                        aria-describedby={newRangeInvalid ? 'cycle-complete-range-error' : undefined}
                       />
                     </div>
+                    {/* 날짜 뒤집힘은 입력하는 도중에 뜨는 안내라 polite 로 읽히게 한다(WP-1901 리뷰) — role=alert 는 제출 실패에만. */}
                     {newRangeInvalid && (
-                      <FormError>종료일은 시작일 이후여야 합니다</FormError>
+                      <FieldError id="cycle-complete-range-error" data-testid="cycle-complete-range-error">
+                        종료일은 시작일 이후여야 합니다
+                      </FieldError>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">새 사이클은 바로 진행 중으로 시작합니다.</p>

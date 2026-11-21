@@ -393,62 +393,62 @@ export function MailAccountDialog({
           )}
 
           {/* Outlook(M365 Graph) OAuth 연결 — 팝업 상태 머신(idle/connecting/error/cancelled) */}
-          {isOAuth ? (
-            // 바깥 래퍼는 ARIA 없음 — 리전은 아래 status 하나만. 오류 alert 는 그 형제로 밖에 둔다.
-            <div className="space-y-4 py-2">
-              {/* 오류 두 개는 polite 리전 밖 — 같은 안내가 alert·status 두 경로로 두 번 읽히지 않게 (WP-1901) */}
-              {oauthPhase === 'blocked' && (
-                <FormError className={OAUTH_ERROR_BOX_CLASS}>
-                  팝업이 차단되었습니다. 팝업을 허용한 뒤 다시 시도하세요.
-                </FormError>
-              )}
-              {oauthPhase === 'error' && (
-                <FormError className={OAUTH_ERROR_BOX_CLASS}>
-                  Outlook 계정 연결에 실패했습니다. 다시 시도하세요.
-                </FormError>
-              )}
-              {/* 진행·취소 안내를 담는 polite 리전 — 대화상자가 열리는 순간부터 렌더링해 내용이 바뀔 때만 읽힌다.
-                  리전과 내용을 같은 순간에 그리면 스크린리더가 안내를 건너뛰기 때문이다(WP-1901 리뷰). */}
-              <div
-                role="status"
-                aria-live="polite"
-                className={connecting ? 'flex flex-col items-center gap-3 py-4 text-center' : 'space-y-4'}
-              >
-                {connecting ? (
-                  <>
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
-                    <p className="text-sm font-medium">Microsoft 창에서 인증을 진행하세요…</p>
-                    <p className="text-xs text-muted-foreground">창이 보이지 않으면 팝업 차단을 확인하세요.</p>
-                  </>
-                ) : (
-                  <>
-                    {oauthPhase === 'cancelled' && (
-                      <p className="text-sm text-muted-foreground">연결이 취소되었습니다.</p>
-                    )}
-                    <p className="text-sm text-muted-foreground">
-                      별도 창에서 Microsoft 로그인이 열립니다. 권한을 허용하면 자동으로 계정이 연결됩니다.
-                    </p>
-                  </>
-                )}
-              </div>
-              {!connecting && (
+          {/* 오류 두 개는 polite 리전 밖 — 같은 안내가 alert·status 두 경로로 두 번 읽히지 않게 (WP-1901) */}
+          {isOAuth && oauthPhase === 'blocked' && (
+            <FormError className={OAUTH_ERROR_BOX_CLASS}>
+              팝업이 차단되었습니다. 팝업을 허용한 뒤 다시 시도하세요.
+            </FormError>
+          )}
+          {isOAuth && oauthPhase === 'error' && (
+            <FormError className={OAUTH_ERROR_BOX_CLASS}>
+              Outlook 계정 연결에 실패했습니다. 다시 시도하세요.
+            </FormError>
+          )}
+          {/* 진행·취소 안내를 담는 polite 리전 — **공급자 분기 밖**에 두어 IMAP↔Outlook 을 바꿔도 리전이 다시 태어나지 않는다.
+              리전과 내용이 같은 렌더에 생기면 스크린리더가 안내를 건너뛰기 때문이다(WP-1901 리뷰 반려).
+              IMAP 모드에서는 내용이 없어 빈 리전으로 남는다 — 리전만 미리 두면 내용이 바뀔 때 읽힌다. */}
+          <div
+            role="status"
+            aria-live="polite"
+            className={isOAuth && connecting ? 'flex flex-col items-center gap-3 py-4 text-center' : 'space-y-4'}
+          >
+            {isOAuth &&
+              (connecting ? (
                 <>
-                  <Button type="button" className="w-full" onClick={handleConnectOutlook}>
-                    {oauthPhase === 'error' || oauthPhase === 'blocked' || oauthPhase === 'cancelled'
-                      ? '다시 시도'
-                      : 'Outlook 계정 연결'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full"
-                    onClick={() => onOpenChange(false)}
-                  >
-                    취소
-                  </Button>
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
+                  <p className="text-sm font-medium">Microsoft 창에서 인증을 진행하세요…</p>
+                  <p className="text-xs text-muted-foreground">창이 보이지 않으면 팝업 차단을 확인하세요.</p>
                 </>
-              )}
-            </div>
+              ) : (
+                <>
+                  {oauthPhase === 'cancelled' && (
+                    <p className="text-sm text-muted-foreground">연결이 취소되었습니다.</p>
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    별도 창에서 Microsoft 로그인이 열립니다. 권한을 허용하면 자동으로 계정이 연결됩니다.
+                  </p>
+                </>
+              ))}
+          </div>
+          {isOAuth ? (
+            // 바깥 래퍼는 ARIA 없음 — 리전은 위에 하나뿐이다. 인증 중에는 단추가 없어 빈 상자를 남기지 않는다.
+            !connecting && (
+              <div className="space-y-4 py-2">
+                <Button type="button" className="w-full" onClick={handleConnectOutlook}>
+                  {oauthPhase === 'error' || oauthPhase === 'blocked' || oauthPhase === 'cancelled'
+                    ? '다시 시도'
+                    : 'Outlook 계정 연결'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => onOpenChange(false)}
+                >
+                  취소
+                </Button>
+              </div>
+            )
           ) : (
             <>
               {/* ── IMAP 방식: 추가 모드 프리셋 + 전체 폼 ── */}

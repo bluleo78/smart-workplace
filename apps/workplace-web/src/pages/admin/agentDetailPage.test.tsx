@@ -730,6 +730,11 @@ describe('Works 실행 AI — 저장소 연결(WP-1268)', () => {
     await user.type(host, 'https://git.example.com')
     expect(within(dialog).getByTestId('agent-repo-save')).toBeDisabled()
     expect(dialog).toHaveTextContent('호스트 이름만 적어 주세요')
+    // WP-1901 리뷰 반려 — 형식 검증은 입력하는 도중의 안내라 polite(status) 이고 호스트 칸이 가리킨다.
+    expect(within(dialog).queryByRole('alert')).toBeNull()
+    expect(within(dialog).getByText(/호스트 이름만 적어 주세요/)).toHaveAttribute('role', 'status')
+    expect(host).toHaveAttribute('aria-invalid', 'true')
+    expect(host.getAttribute('aria-describedby')).toContain('agent-repo-host-error')
     await user.clear(host)
     await user.type(host, ' GHE.GitHub.example.com ')
     expect(within(dialog).getByTestId('agent-repo-kind-github')).toBeChecked()

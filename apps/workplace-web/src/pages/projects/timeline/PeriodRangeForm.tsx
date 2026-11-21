@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { FormError } from '@/components/ui/form-field';
+import { FieldError } from '@/components/ui/form-field';
 import { cn } from '@/lib/utils';
 
 export function PeriodRangeForm({
@@ -30,15 +30,33 @@ export function PeriodRangeForm({
       }}
     >
       <div className="flex items-center gap-1.5">
-        <input type="date" aria-label="시작일" data-testid="period-range-from" value={from} onChange={(e) => setFrom(e.target.value)} className={input} />
+        <input
+          type="date"
+          aria-label="시작일"
+          aria-invalid={reversed || undefined}
+          aria-describedby={reversed ? 'period-range-error' : undefined}
+          data-testid="period-range-from"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          className={input}
+        />
         <span className="text-muted-foreground" aria-hidden="true">–</span>
-        <input type="date" aria-label="종료일" data-testid="period-range-to" value={to} onChange={(e) => setTo(e.target.value)} className={input} />
+        <input
+          type="date"
+          aria-label="종료일"
+          aria-invalid={reversed || undefined}
+          aria-describedby={reversed ? 'period-range-error' : undefined}
+          data-testid="period-range-to"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          className={input}
+        />
       </div>
-      {/* 뒤집힌 기간 안내 — 적용을 막는 검증 실패라 role=alert 로 읽히게 한다(WP-1901). 시각은 그대로 text-xs. */}
+      {/* 뒤집힌 기간 안내는 적용하는 도중에 뜨는 검증 실패라 polite 로 읽히게 한다(WP-1901 리뷰) — role=alert 는 제출 실패에만. */}
       {reversed && (
-        <FormError data-testid="period-range-error" className="text-xs">
+        <FieldError id="period-range-error" data-testid="period-range-error" className="text-xs">
           시작일이 종료일보다 늦어요
-        </FormError>
+        </FieldError>
       )}
       <Button type="submit" size="sm" disabled={!valid} data-testid="period-range-apply" className={buttonClassName}>
         적용

@@ -3,8 +3,8 @@
 
 import { useState } from 'react';
 
-import { FormError } from './form-field';
 import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 

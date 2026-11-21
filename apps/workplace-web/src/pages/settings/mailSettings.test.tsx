@@ -574,6 +574,19 @@ describe('Outlook 연결 팝업', () => {
       window.dispatchEvent(new MessageEvent('message', { data, origin: window.location.origin }))
     })
 
+  // WP-1901 리뷰 반려 — 진행 안내 리전은 공급자 분기 밖에 두어, IMAP→Outlook 을 바꿔도 리전이 다시 태어나지 않아야 한다.
+  // 리전과 내용이 같은 렌더에 생기면 스크린리더가 안내를 건너뛴다.
+  test('IMAP 에서 Outlook 으로 바꿔도 진행 안내 리전이 같은 노드로 남는다', async () => {
+    const view = await openMail()
+    await openAdd(view.user)
+    const dialog = await screen.findByTestId('mail-account-dialog')
+    const region = () => within(dialog).getByRole('status')
+    const before = region()
+    await choose(view.user, '공급자', 'Outlook (Microsoft 365)')
+    expect(region()).toBe(before)
+    expect(within(dialog).getByRole('button', { name: 'Outlook 계정 연결' })).toBeInTheDocument()
+  })
+
   test('연결 버튼 → 팝업 open + /start 의 인가 주소로 이동 + 진행 안내, 성공 메시지면 토스트와 함께 닫힌다', async () => {
     const popup = fakePopup()
     const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
