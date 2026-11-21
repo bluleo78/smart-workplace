@@ -1,5 +1,5 @@
 import {
-  addDays, eachDayOfInterval, endOfDay, endOfMonth, format, isSameDay, isSameYear,
+  addDays, eachDayOfInterval, endOfMonth, format, isSameDay, isSameYear,
   startOfDay, startOfMonth, startOfWeek,
 } from 'date-fns'
 
@@ -96,28 +96,57 @@ export function allDayLocalDate(iso: string): Date {
 }
 
 // yyyymmdd 정수 키 — 날짜 비교용(시각 시프트 차단).
-function dateKey(day: Date): number {
+export function dayKey(day: Date): number {
   return day.getFullYear() * 10000 + (day.getMonth() + 1) * 100 + day.getDate()
+}
+
+// 일정이 걸친 날짜 구간 [firstKey, lastKey](yyyymmdd 정수, 양끝 포함). 구간이 비었거나 날짜를 읽을 수 없으면 null.
+// eventsOnDay 와 eventsByDayKey 가 같은 칸 판정 규칙을 쓰도록 한 곳에 둔다.
+export function eventDayKeyRange(e: CalendarEvent): [number, number] | null {
+  if (e.allDay) {
+    // 종일은 시각이 아니라 캘린더 날짜로 half-open [start,end) 비교(배타적 end 날짜 제외).
+    // 자정 경계가 아닌 시각(같은 날 10:30~11:00)으로 저장된 종일 일정은 날짜로 바꾸면 시작=종료가 되어 어느 칸에도 걸리지 않았다 —
+    // 일정 창(normalizeAllDayRange)처럼 종료 ≤ 시작이면 시작 날 하루 일정으로 본다(WP-1172).
+    const startKey = dayKey(allDayLocalDate(e.startsAt))
+    const endKey = dayKey(allDayLocalDate(e.endsAt))
+    if (endKey <= startKey) return [startKey, startKey]
+    // endKey - 1 은 월 초에서 실제 전날이 아니지만 칸 키(유효한 날짜뿐)와 대소만 비교하므로 「endKey 보다 작은 칸」과 동치다.
+    return [startKey, endKey - 1]
+  }
+  // 타임드: 시작 ≤ 그날 끝 && 종료 > 그날 시작. 종료 직전(1ms 전)이 속한 날까지가 마지막 날이다.
+  const firstKey = dayKey(new Date(e.startsAt))
+  const lastKey = dayKey(new Date(new Date(e.endsAt).getTime() - 1))
+  // NaN(잘못된 날짜)이면 비교가 false 라 함께 걸러진다.
+  return firstKey <= lastKey ? [firstKey, lastKey] : null
 }
 
 // 특정 날짜와 겹치는 일정.
 export function eventsOnDay(events: CalendarEvent[], day: Date): CalendarEvent[] {
-  const dayStart = startOfDay(day)
-  const dayEnd = endOfDay(day)
-  const cellKey = dateKey(day)
+  const cellKey = dayKey(day)
   return events.filter((e) => {
-    // 종일은 시각이 아니라 캘린더 날짜로 half-open [start,end) 비교(배타적 end 날짜 제외).
-    // 자정 경계가 아닌 시각(같은 날 10:30~11:00)으로 저장된 종일 일정은 날짜로 바꾸면 시작=종료가 되어 어느 칸에도 걸리지 않았다 —
-    // 일정 창(normalizeAllDayRange)처럼 종료 ≤ 시작이면 시작 날 하루 일정으로 본다(WP-1172).
-    if (e.allDay) {
-      const startKey = dateKey(allDayLocalDate(e.startsAt))
-      const endKey = dateKey(allDayLocalDate(e.endsAt))
-      return endKey <= startKey ? cellKey === startKey : startKey <= cellKey && cellKey < endKey
-    }
-    const s = new Date(e.startsAt)
-    const en = new Date(e.endsAt)
-    return s <= dayEnd && en > dayStart
+    const range = eventDayKeyRange(e)
+    return range !== null && range[0] <= cellKey && cellKey <= range[1]
   })
+}
+
+// days(월 그리드 등) 각 칸에 걸친 일정을 날짜 키(yyyymmdd)별로 한 번에 나눈다. 월 보기가 칸마다 eventsOnDay 로
+// 전체 일정의 날짜를 다시 파싱하던 것을, 일정당 한 번만 파싱(eventDayKeyRange)하고 칸마다는 정수 키만 비교하도록 줄인다.
+// 칸 안 순서는 입력(events) 순서이고, 일정이 없는 칸·days 밖 날짜는 키가 없다(쓰는 쪽이 `?? []`).
+export function eventsByDayKey(events: CalendarEvent[], days: Date[]): Map<number, CalendarEvent[]> {
+  const result = new Map<number, CalendarEvent[]>()
+  // days 가 연속이라고 가정하지 않고 실제로 주어진 칸의 키만 쓰며, 같은 날짜가 반복돼도 일정이 두 번 들어가지 않게 중복을 없앤다.
+  const cellKeys = [...new Set(days.map(dayKey))]
+  for (const e of events) {
+    const range = eventDayKeyRange(e)
+    if (!range) continue
+    for (const key of cellKeys) {
+      if (key < range[0] || key > range[1]) continue
+      const list = result.get(key)
+      if (list) list.push(e)
+      else result.set(key, [e])
+    }
+  }
+  return result
 }
 
 // 시간 그리드(주·일 보기) 한 칸 = 1시간 높이(px).

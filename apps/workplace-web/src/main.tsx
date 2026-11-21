@@ -88,9 +88,9 @@ if (e2eWindow.__E2E_REUSE_APP__) {
     queryClient.clear()
     // 모듈 안에 남는 상태도 새 문서처럼 비운다 — 메모리 액세스 토큰, 노트 동시 편집 세션(페이지 번호로 재사용돼 앞 테스트의 문서가 남는다),
     // AI 첫 화면 추천 저장소(오늘 받은 결과면 다시 부르지 않는다), 메일 이동 대기열, AI 대화 스트림 저장소(같은 대화 id 면 앞 테스트의 대화가 보인다),
-    // 첨부 다운로드 재저장 막기(같은 파일을 1초 안에 다시 받으면 무시한다).
-    // 동적으로 불러와 메인 번들에 싣지 않는다(이미 떠 있는 같은 모듈이라 새 비용도 없다).
-    const [{ setAccessToken }, { resetCollabSessionsForTest }, { clearStarterStorage }, { resetMailMoveQueueForTest }, { chatStreams }, { resetDownloadInFlightForTest }] =
+    // 첨부 다운로드 재저장 막기(같은 파일을 1초 안에 다시 받으면 무시한다), 월 보기가 기억한 행 높이.
+    // 동적으로 불러와 메인 번들에 싣지 않는다(대부분 이미 떠 있는 모듈이고, 월 보기 높이 기억은 가벼운 lib 모듈이다).
+    const [{ setAccessToken }, { resetCollabSessionsForTest }, { clearStarterStorage }, { resetMailMoveQueueForTest }, { chatStreams }, { resetDownloadInFlightForTest }, { resetMonthRowHeightForTest }] =
       await Promise.all([
         import('./api/client'),
         import('./lib/collab/collabSession'),
@@ -98,12 +98,14 @@ if (e2eWindow.__E2E_REUSE_APP__) {
         import('./lib/mailMoveQueue'),
         import('./lib/ai/chatStreams'),
         import('./components/viewer/downloadViewerItem'),
+        import('./lib/monthRowHeight'),
       ])
     setAccessToken(null)
     resetCollabSessionsForTest()
     clearStarterStorage()
     resetMailMoveQueueForTest()
     resetDownloadInFlightForTest()
+    resetMonthRowHeightForTest()
     // storage 가 있으면 새 테스트의 시작이다 — 저장소를 비우고 시작 값을 넣는다. null 이면 같은 테스트 안의 다시 열기(새로고침과 같다)라 둔다.
     if (storage) {
       window.localStorage.clear()

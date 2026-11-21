@@ -1,11 +1,13 @@
-// MonthView 접근성 테스트(WP-1906) — grid 구조·날짜 칸 이름·로빙 tabIndex·키보드 조작.
-import { act, fireEvent, screen, within } from '@testing-library/react'
+// MonthView 테스트 — 접근성(WP-1906: grid 구조·날짜 칸 이름·로빙 tabIndex·키보드)과
+// 렌더 비용(WP-1917: 잰 행 높이를 기억해 첫 렌더부터 쓰고, 일정을 날짜별로 한 번만 나눈다).
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { isSameDay } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { resetMonthRowHeightForTest } from '@/lib/monthRowHeight'
 import { renderWithProviders } from '@/test/renderWithProviders'
-import type { IssueDueMarker } from '@/types/calendar'
+import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import { calendarEvent } from '../../../../e2e/factories/calendar.factory'
 import { MonthView } from './MonthView'
@@ -199,5 +201,92 @@ describe('MonthView 접근성', () => {
     const cell = screen.getByRole('gridcell', { name: TODAY_NAME })
     expect(cell).toHaveAccessibleDescription('일정 1개')
     expect(cell.querySelector('.sr-only')).toHaveAttribute('aria-hidden', 'true')
+  })
+})
+
+
+// 스텁 ResizeObserver 가 받은 콜백 — 테스트가 직접 불러 창 크기 바뀜을 흉내 낸다.
+let roCallbacks: Array<() => void> = []
+// 그리드 높이(px) — 0 이면 측정 못 한 상태
+let gridHeight = 600
+
+/** 로컬 시각 기준 일정 팩토리 */
+function ev(id: number, start: Date, end: Date): CalendarEvent {
+  return calendarEvent({ id, title: `일정${id}`, startsAt: start.toISOString(), endsAt: end.toISOString(), allDay: false })
+}
+
+const anchor = new Date(2026, 4, 15)
+
+function renderMonth(events: CalendarEvent[]) {
+  return render(
+    <MonthView
+      events={events}
+      issueDues={[]}
+      anchor={anchor}
+      onSelectEvent={vi.fn()}
+      onSelectIssue={vi.fn()}
+      onCreateAt={vi.fn()}
+      onMoveEvent={vi.fn()}
+      canMoveEvent={() => false}
+    />,
+  )
+}
+
+// 5월 20일 하루에 일정 5개
+const five = [1, 2, 3, 4, 5].map((i) => ev(i, new Date(2026, 4, 20, 9 + i), new Date(2026, 4, 20, 10 + i)))
+const chipCount = () => screen.getByTestId('calendar-cell-2026-05-20').querySelectorAll('[data-testid^="calendar-event-"]').length
+
+describe('MonthView 렌더 비용', () => {
+  beforeEach(() => {
+    resetMonthRowHeightForTest()
+    roCallbacks = []
+    gridHeight = 600
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(() => gridHeight)
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          roCallbacks.push(cb)
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('다시 열면 처음 렌더부터 잰 행 높이로 칩 수를 정한다', () => {
+    const first = renderMonth(five)
+    // 행 100 → 2개 + 「+3」
+    expect(chipCount()).toBe(2)
+    expect(screen.getByTestId('calendar-more-2026-05-20').textContent).toBe('+3')
+    first.unmount()
+
+    // 두 번째는 잴 수 없어도(0) 기억한 높이로 그린다 — 측정 전 기본 3개가 아니다
+    gridHeight = 0
+    renderMonth(five)
+    expect(chipCount()).toBe(2)
+    expect(screen.getByTestId('calendar-more-2026-05-20').textContent).toBe('+3')
+    // Profiler 렌더 수 단언은 없다 — Radix 팝오버 때문에 MonthView 와 무관하게 2회가 되며, 위 칩 수가 기억한 높이 사용을 증명한다.
+  })
+
+  it('창 크기가 바뀌면 다시 재어 반영한다', () => {
+    renderMonth(five)
+    expect(chipCount()).toBe(2)
+    gridHeight = 1200
+    act(() => roCallbacks.forEach((cb) => cb()))
+    expect(chipCount()).toBe(5)
+    expect(screen.queryByTestId('calendar-more-2026-05-20')).toBeNull()
+  })
+
+  it('칸마다 일정은 eventsOnDay 와 같다', () => {
+    // 5/12 10시 ~ 5/13 11시 — 두 칸에 걸친다
+    renderMonth([ev(9, new Date(2026, 4, 12, 10), new Date(2026, 4, 13, 11))])
+    expect(screen.getByTestId('calendar-cell-2026-05-12').querySelector('[data-testid="calendar-event-9"]')).not.toBeNull()
+    expect(screen.getByTestId('calendar-cell-2026-05-13').querySelector('[data-testid="calendar-event-9"]')).not.toBeNull()
+    expect(screen.getByTestId('calendar-cell-2026-05-14').querySelector('[data-testid="calendar-event-9"]')).toBeNull()
   })
 })

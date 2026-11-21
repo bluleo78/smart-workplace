@@ -8,9 +8,12 @@ import {
   allDayLocalDate,
   CALENDAR_VIEWS,
   type CalendarLayers,
+  dayKey,
   dragSlotRange,
   eventCalendarLabel,
+  eventDayKeyRange,
   eventDisplayColor,
+  eventsByDayKey,
   eventsOnDay,
   extraTagColors,
   groupCalendarsBySource,
@@ -243,6 +246,98 @@ describe('eventsOnDay', () => {
     const zero = ev(5, '2026-11-05T15:00:00Z', '2026-11-05T15:00:00Z', true) // KST 11/6 자정
     expect(eventsOnDay([zero], new Date('2026-11-06T00:00:00')).map((e) => e.id)).toEqual([5])
     expect(eventsOnDay([zero], new Date('2026-11-07T00:00:00')).map((e) => e.id)).toEqual([])
+  })
+})
+
+// 로컬 시각 문자열 → ISO(instant). 타임드 일정을 타임존과 무관하게 같은 로컬 날짜로 만드는 헬퍼.
+const L = (s: string) => new Date(s).toISOString()
+// 종일 일정의 동기화 표현(UTC 자정). m 은 1~12.
+const allDayIso = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d)).toISOString()
+// eventsByDayKey 가 모든 칸에서 eventsOnDay 와 같은 결과를 내는지 확인한다.
+function expectMatchesEventsOnDay(events: CalendarEvent[], days: Date[]) {
+  const map = eventsByDayKey(events, days)
+  for (const day of days) expect(map.get(dayKey(day)) ?? []).toEqual(eventsOnDay(events, day))
+}
+
+describe('eventsByDayKey', () => {
+  it('칸마다 eventsOnDay 와 같은 결과', () => {
+    const days = monthMatrix(new Date(2026, 10, 15))
+    const events = [
+      ev(1, L('2026-11-12T09:00:00'), L('2026-11-12T10:00:00')),
+      ev(2, L('2026-11-03T22:00:00'), L('2026-11-05T01:00:00')),
+      ev(3, allDayIso(2026, 11, 8), allDayIso(2026, 11, 9), true),
+      ev(4, allDayIso(2026, 11, 17), allDayIso(2026, 11, 20), true),
+      ev(5, L('2026-11-10T10:30:00'), L('2026-11-10T11:00:00'), true),
+      ev(6, L('2026-10-20T09:00:00'), L('2026-11-02T10:00:00')),
+      ev(7, allDayIso(2026, 12, 5), allDayIso(2026, 12, 21), true),
+      ev(8, L('2026-01-01T09:00:00'), L('2026-01-01T10:00:00')),
+    ]
+    expectMatchesEventsOnDay(events, days)
+  })
+
+  it('종료가 정확히 로컬 00:00 인 타임드 일정은 종료일 칸에 없다', () => {
+    const days = monthMatrix(new Date(2026, 10, 15))
+    const events = [ev(1, L('2026-11-12T22:00:00'), L('2026-11-13T00:00:00'))]
+    const map = eventsByDayKey(events, days)
+    expect(map.get(dayKey(new Date(2026, 10, 12)))?.map((e) => e.id)).toEqual([1])
+    expect(map.get(dayKey(new Date(2026, 10, 13)))).toBeUndefined()
+    expectMatchesEventsOnDay(events, days)
+  })
+
+  it('미국 DST 전환일(2026-03-08)을 걸친 여러 날 타임드 일정도 칸마다 eventsOnDay 와 같다', () => {
+    const days = monthMatrix(new Date(2026, 2, 15))
+    const events = [
+      ev(1, L('2026-03-07T20:00:00'), L('2026-03-09T03:00:00')),
+      ev(2, L('2026-03-08T00:00:00'), L('2026-03-09T00:00:00')),
+    ]
+    expectMatchesEventsOnDay(events, days)
+  })
+
+  it('days 에 같은 날짜가 반복돼도 일정을 두 번 넣지 않는다', () => {
+    const d = new Date(2026, 10, 12)
+    const events = [ev(1, L('2026-11-12T09:00:00'), L('2026-11-12T10:00:00'))]
+    const map = eventsByDayKey(events, [d, new Date(2026, 10, 12, 15), d])
+    expect(map.get(dayKey(d))?.map((e) => e.id)).toEqual([1])
+  })
+
+  it('한 칸 안 순서는 입력 순서', () => {
+    const days = monthMatrix(new Date(2026, 10, 15))
+    const events = [
+      ev(3, L('2026-11-12T15:00:00'), L('2026-11-12T16:00:00')),
+      ev(1, L('2026-11-12T09:00:00'), L('2026-11-12T10:00:00')),
+      ev(2, L('2026-11-12T11:00:00'), L('2026-11-12T12:00:00')),
+    ]
+    const map = eventsByDayKey(events, days)
+    expect((map.get(dayKey(new Date(2026, 10, 12))) ?? []).map((e) => e.id)).toEqual([3, 1, 2])
+  })
+
+  it('범위 밖 일정은 어떤 키에도 없다', () => {
+    const days = monthMatrix(new Date(2026, 10, 15))
+    const events = [ev(8, L('2026-01-01T09:00:00'), L('2026-01-01T10:00:00'))]
+    const map = eventsByDayKey(events, days)
+    for (const list of map.values()) expect(list.some((e) => e.id === 8)).toBe(false)
+  })
+})
+
+describe('eventDayKeyRange', () => {
+  it('종일: 시작 날부터 배타적 종료 전날까지', () => {
+    const r = eventDayKeyRange(ev(1, allDayIso(2026, 11, 17), allDayIso(2026, 11, 20), true))
+    expect(r).not.toBeNull()
+    expect(r![0]).toBe(20261117)
+    expect(r![1]).toBe(20261119)
+  })
+
+  it('종일: 종료 ≤ 시작이면 시작 날 하루', () => {
+    expect(eventDayKeyRange(ev(1, allDayIso(2026, 11, 17), allDayIso(2026, 11, 17), true))).toEqual([20261117, 20261117])
+    expect(eventDayKeyRange(ev(2, allDayIso(2026, 11, 17), allDayIso(2026, 11, 15), true))).toEqual([20261117, 20261117])
+  })
+
+  it('타임드: 종료가 정확히 자정이면 마지막 날은 전날', () => {
+    expect(eventDayKeyRange(ev(1, L('2026-11-12T22:00:00'), L('2026-11-13T00:00:00')))).toEqual([20261112, 20261112])
+  })
+
+  it('타임드: 종료가 시작보다 앞서면 null', () => {
+    expect(eventDayKeyRange(ev(1, L('2026-11-12T10:00:00'), L('2026-11-10T10:00:00')))).toBeNull()
   })
 })
 
