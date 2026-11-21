@@ -1641,7 +1641,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   <>
                     <p className={emptyStateDescriptionClass}>파일을 업로드하거나 새 폴더를 만들어보세요</p>
                     <Button type="button" variant="outline" size="sm" className="mt-1" onClick={openUploadPicker} data-testid="drive-empty-upload">
-                      {/* 아이콘 크기는 Button 기본(size-4)에 맡긴다 — h-3.5 는 Button 의 svg 규칙에 덮여 쓰이지 않았다. */}
+                      {/* 다른 빈 상태 CTA 와 같은 Button outline sm 로 맞춘다 — 아이콘은 Button 기본(size-4)이라 예전 평범한 버튼의 14px 보다 16px 로 커졌다. */}
                       <Upload />
                       업로드
                     </Button>

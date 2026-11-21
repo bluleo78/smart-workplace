@@ -8,6 +8,7 @@ import { driveApi } from '@/api/drive'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DriveThumbnail } from '@/components/drive/DriveThumbnail'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
+import { emptyStateIconClass } from '@/components/layout/empty-state'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
@@ -179,7 +180,7 @@ export function DriveAttachmentsView() {
           </div>
         ) : items.length === 0 ? (
           <ChatEmptyState
-            icon={<Paperclip className="h-10 w-10" />}
+            icon={<Paperclip className={emptyStateIconClass} />}
             title="첨부가 없어요"
             description="볼 수 있는 이슈·이슈챗·채팅·노트의 첨부와 내 메일의 첨부가 여기에 모입니다"
           />

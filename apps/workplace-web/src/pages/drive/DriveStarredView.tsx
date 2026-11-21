@@ -12,6 +12,7 @@ import { driveApi } from '@/api/drive'
 import { ActionMenuItems } from '@/components/ActionMenuItems'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
+import { emptyStateIconClass } from '@/components/layout/empty-state'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
@@ -164,7 +165,7 @@ export function DriveStarredView() {
     body = (
       <div data-testid="drive-starred-empty">
         <ChatEmptyState
-          icon={<Star className="h-10 w-10" />}
+          icon={<Star className={emptyStateIconClass} />}
           title="별표한 항목 없음"
           description="파일이나 폴더의 메뉴에서 「별표」를 누르면 여기에 모입니다."
         />

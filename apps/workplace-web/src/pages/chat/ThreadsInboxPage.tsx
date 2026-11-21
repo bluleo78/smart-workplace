@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
+import { emptyStateIconClass } from '@/components/layout/empty-state'
 import { Page } from '@/components/layout/Page'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { messagePlainText } from '@/components/mentions/parseMessageSegments'
@@ -64,7 +65,7 @@ export default function ThreadsInboxPage() {
       ) : !isLoading && items.length === 0 ? (
         <Page.Body padded={false} className="items-center justify-center">
           <ChatEmptyState
-            icon={<Inbox className="h-10 w-10" />}
+            icon={<Inbox className={emptyStateIconClass} />}
             title="새 스레드 답글이 없어요"
             description="내가 시작했거나 참여한 스레드에 새 답글이 달리면 여기에 모입니다."
           />

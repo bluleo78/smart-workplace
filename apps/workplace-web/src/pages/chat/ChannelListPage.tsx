@@ -4,6 +4,7 @@ import { MessagesSquare } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
+import { emptyStateIconClass } from '@/components/layout/empty-state'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
@@ -24,7 +25,7 @@ export default function ChannelListPage() {
         />
       ) : (
         <ChatEmptyState
-          icon={<MessagesSquare className="h-10 w-10" />}
+          icon={<MessagesSquare className={emptyStateIconClass} />}
           title="대화를 시작해 보세요"
           description="왼쪽에서 채널을 선택하거나 새 메시지로 다이렉트 메시지를 시작할 수 있어요."
           action={
