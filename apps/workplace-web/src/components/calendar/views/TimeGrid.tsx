@@ -91,10 +91,14 @@ export function TimeGrid({
       }),
     [events, dayKey],
   )
+  // 날짜가 바뀔 때만 새 값이 되는 지금(WP-1557) — 「오늘」 배지와 현재 시각 선을 그을 열 판정이 화면을 열어 둔 채 자정을 넘겨도 따라간다.
+  // 분 단위로 두면 그리드 전체가 1분마다 다시 그려져, 분마다 움직이는 선 위치는 GridNowLine 이 스스로 갱신한다.
+  const { now } = useMinuteNow('day')
   // 로빙 tabIndex(WP-1906) — 시간 칸 168개 중 Tab 정지점은 초점 칸 하나. 기본은 오늘 열의 지금 시, 없으면 첫 열 오전 8시.
   // 고른 칸은 그때 보이던 날짜(dayKey)와 함께 둔다 — 날짜가 바뀌면 사라진 열을 가리키지 않게 기본값으로 읽는다(다시 set 하지 않음).
+  // 기본값은 렌더마다 new Date() 가 아니라 useMinuteNow(날짜 단위) 값을 쓴다 — 시각이 흘러 Tab 정지점이 다른 칸으로 옮겨가지 않게(WP-1906 리뷰 후속 2).
   const [focusPick, setFocusPick] = useState<{ key: string; slot: TimeSlotPos } | null>(null)
-  const focusSlot = focusPick?.key === dayKey ? focusPick.slot : defaultTimeSlot(days, new Date())
+  const focusSlot = focusPick?.key === dayKey ? focusPick.slot : defaultTimeSlot(days, now)
   const setFocusSlot = (slot: TimeSlotPos) => setFocusPick({ key: dayKey, slot })
   // 키보드 초점 링 표시 여부 — 칸 자체 outline 은 뒤 형제인 일정 블록(absolute)에 가려지므로, 열 안 오버레이로 그린다.
   // 마우스 클릭 초점에는 보이지 않게 칸이 :focus-visible 일 때만 켠다(상태는 focus/blur 이벤트로만 바꾼다).
@@ -108,9 +112,6 @@ export function TimeGrid({
   }
   // 끌기를 마친 직후 같은 제스처의 click 이 칸 클릭(정각 생성)으로 한 번 더 열지 않게 막는다.
   const suppressClickRef = useRef(false)
-  // 날짜가 바뀔 때만 새 값이 되는 지금(WP-1557) — 「오늘」 배지와 현재 시각 선을 그을 열 판정이 화면을 열어 둔 채 자정을 넘겨도 따라간다.
-  // 분 단위로 두면 그리드 전체가 1분마다 다시 그려져, 분마다 움직이는 선 위치는 GridNowLine 이 스스로 갱신한다.
-  const { now } = useMinuteNow('day')
   // 시간 그리드 스크롤 요소 — 지금 시각 근처로 내려 두려고 잡는다(WP-1557).
   const gridScrollRef = useRef<HTMLDivElement>(null)
   // 처음 스크롤을 이미 정했는가 — 이후 날짜 변경 때는 오늘이 든 기간일 때만 다시 정한다.
@@ -297,6 +298,11 @@ export function TimeGrid({
                     tabIndex={focusSlot.dayIndex === dayIndex && focusSlot.hour === h ? 0 : -1}
                     className="h-12 border-b cursor-pointer hover:bg-muted/30 focus:outline-none"
                     onFocus={(ev) => {
+                      // click 이 오지 않는 경로(끌어 만들기의 마우스다운 등)에서도 초점을 받은 칸이 로빙 초점 칸이 되게 한다 —
+                      // 아니면 tabIndex=-1 칸이 초점만·로빙 표식은 다른 칸에 남아 초점 링이 어긋난다(WP-1906 리뷰 후속 1).
+                      if (focusSlot.dayIndex !== dayIndex || focusSlot.hour !== h) {
+                        setFocusSlot({ dayIndex, hour: h })
+                      }
                       // 키보드 초점(:focus-visible)일 때만 링을 켠다. 지원하지 않는 환경이면 켜지 않는다.
                       try {
                         setSlotRingOn(ev.currentTarget.matches(':focus-visible'))
@@ -320,8 +326,10 @@ export function TimeGrid({
                         el?.focus()
                         el?.scrollIntoView?.({ block: 'nearest' })
                       } else if (ev.key === 'Enter' || ev.key === ' ') {
-                        // Space 의 페이지 스크롤을 막고 클릭과 같은 정각 생성을 연다.
+                        // Space 의 페이지 스크롤을 막고 클릭과 같은 정각 생성을 연다. 길게 누르면(ev.repeat) 매 키마다
+                        // 되풀이되므로 반복 눌림도 막고 첫 눌림만 받는다(WP-1906 리뷰 후속 3).
                         ev.preventDefault()
+                        if (ev.repeat) return
                         createAtHour()
                       }
                     }}
