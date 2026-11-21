@@ -62,7 +62,7 @@ export function MessageComposer({
     removeFile,
     removeDrive,
     addDrive,
-    reset,
+    commitSent,
   } = useAttachmentDraft(uploadFn ?? ((files) => messagingApi.uploadAttachments(channelId, files)), { rejectOversize: true, maxFiles: MAX_ATTACHMENTS_PER_MESSAGE })
   // 입력창 영역 파일 드롭 → 사전 업로드(WP-235). 보관·비활성으로 입력기가 없을 땐 래퍼도 렌더되지 않는다.
   const { isDragging, dropProps } = useComposerFileDrop(onFiles)
@@ -84,15 +84,15 @@ export function MessageComposer({
     return null
   }
 
-  // 본문·첨부·드라이브 링크 모두 비면 전송 차단. 전송 성공 시에만 pending 비움 (#169).
+  // 본문·첨부·드라이브 링크 모두 비면 전송 차단. 전송 성공 시 보낸 첨부만 뺌 (#169, WP-1868).
   // RichInput clearOnSubmit 이 반환된 Promise 를 보고 성공 시에만 입력창을 비운다.
   const handleSubmit = async (body: string): Promise<void> => {
     // #366: 평문으로 입력한 @에이전트 멘션을 <@id> 로 변환 — AI 트리거 누락 방지.
     const trimmed = convertPlaintextMentions(body, members).trim()
     if (!trimmed && !hasAny) return
     await onSend(trimmed, fileIds, driveFileIds)
-    // 성공 경로에서만 도달 — 실패 시 await 에서 throw 되어 pending 도 입력창도 유지됨.
-    reset()
+    // 성공 경로에서만 도달(실패면 throw 로 초안 유지). 이 render 의 id 가 곧 보낸 목록이라 전송 중 붙인 첨부는 남는다(WP-1868).
+    commitSent(fileIds, driveFileIds)
   }
 
   return (

@@ -101,9 +101,18 @@ export function useAttachmentDraft(
     setPendingDrive((prev) =>
       prev.some((x) => x.driveFileId === driveFileId) ? prev : [...prev, { driveFileId, name }],
     )
+  /** 초안을 통째로 비운다 — 대화 전환처럼 전부 버릴 때만 쓴다. 전송 성공 뒤에는 commitSent(전송 중 붙인 칩 유지, WP-1868). */
   const reset = () => {
     commitPending([])
     setPendingDrive([])
+  }
+  /**
+   * 전송 성공 뒤 보낸 것만 뺀다 — 전송 중 새로 붙인 칩을 지우지 않게(WP-1868). reset() 은 전부 비우므로 그 칩까지 잃는다.
+   * 칩 원본은 ref 라 전송 중 늘어난 칩도 반영된 최신 배열에서 거른다. 이미 지운 id 가 섞여도 무해하다.
+   */
+  const commitSent = (sentFileIds: number[], sentDriveFileIds: number[]) => {
+    commitPending(pendingRef.current.filter((p) => !sentFileIds.includes(p.fileId)))
+    setPendingDrive((prev) => prev.filter((d) => !sentDriveFileIds.includes(d.driveFileId)))
   }
 
   return {
@@ -117,6 +126,7 @@ export function useAttachmentDraft(
     removeDrive,
     addDrive,
     reset,
+    commitSent,
     hasAny: pending.length > 0 || pendingDrive.length > 0,
     fileIds: pending.map((p) => p.fileId),
     driveFileIds: pendingDrive.map((d) => d.driveFileId),

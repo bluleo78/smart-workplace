@@ -109,10 +109,12 @@ export function useHomeChatAttachments({
 
   /** 전송이 수락되면 보낸 파일만 초안에서 뺀다 — 그 사이 새로 붙인 파일은 남기고, 미리보기는 턴이 쓰므로 해제하지 않는다. */
   const commitSent = (sent: TurnAttachment[] = []) => {
-    for (const { fileId } of sent) {
-      previews.current.delete(fileId);
-      draft.removeFile(fileId);
-    }
+    for (const { fileId } of sent) previews.current.delete(fileId);
+    // 팀 채팅·이슈 챗과 같은 「보낸 것만 빼기」를 쓴다(WP-1868) — 메인 AI 채팅은 드라이브 링크가 없다.
+    draft.commitSent(
+      sent.map((s) => s.fileId),
+      [],
+    );
   };
 
   /**
