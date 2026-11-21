@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -732,4 +733,132 @@ tmuxTest('entrypoint_doesNotLaunchPaneWhenModelCannotBeDecidedButKeepsRunning', 
   assert.doesNotMatch(e.log(), /sk-fake-secret-value/);
   e.child.kill('SIGTERM');
   assert.equal((await e.exited).code, 0);
+});
+
+// ---------------------------------------------------------------- 칸 차단 보고(gw-boot — WP-1913)
+
+/**
+ * 칸 차단 보고(PUT /api/v1/agent-runtime/me/pane)를 받는 로컬 stub 서버(WP-1913) — 401행 가짜 모델 서버와 같은 node:http.createServer
+ * 패턴. 받은 본문(state·message)을 모아 나중에 본다. 엔트리포인트를 뒤에서 띄우는 테스트는 이벤트 루프가 비어 있으므로 같은 프로세스에 둔다.
+ */
+async function paneServer(t) {
+  const seen = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      if (req.method === 'PUT' && req.url.endsWith('/agent-runtime/me/pane')) {
+        seen.push(JSON.parse(body));
+        res.writeHead(204);
+        res.end();
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  return { url: `http://127.0.0.1:${server.address().port}/api/v1`, seen: () => seen };
+}
+
+tmuxTest('모델을 정할 수 없으면 gw-boot 로 차단을 보고하고 계속 돈다', async (t) => {
+  // write_opencode_config 가 실패하면(모델 못 정함) tick 이 매 회차 gw-boot blocked 로 서버에 보고한다 — 진입점은 끝내지 않는다(끝내면 kubelet 이 헛돈다).
+  // 기존처럼 fixture 의 API 주소 기본값(못 닿음)은 그대로 두고, 이 테스트만 env 로 stub 서버 주소를 넘겨 보고를 받는다.
+  const f = fixture(t);
+  const s = await paneServer(t);
+  const { defaultModel: _drop, ...noModel } = LOGIN_OBJ;
+  f.withLogin(noModel);
+  const e = startEntrypoint(t, { ...f.env, GENIA_WORKS_API_URL: s.url });
+  await until(() => s.seen().some((b) => b.state === 'BLOCKED' && b.message.includes('모델을 정할 수 없습니다')), 'gw-boot 차단 보고', 15000, e.log);
+  // 보고를 받은 뒤에도 감독 회차가 계속 돈다.
+  await until(() => ticks(f) >= 2, '감독 회차 두 번', 15000, e.log);
+  assert.equal(e.child.exitCode, null, e.log());
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
+tmuxTest('정상 기동하면 차단을 보고하지 않는다(pane-boot-ok-sent 표식만)', async (t) => {
+  // 정상 기동(can_launch 성공)에서는 차단을 보고하지 않는다 — 부팅 후 처음 한 번 gw-boot ok 만 보내 $AI_DIR/state/pane-boot-ok-sent 표식을 남긴다.
+  const f = fixture(t);
+  const s = await paneServer(t);
+  f.withLogin();
+  const e = startEntrypoint(t, { ...f.env, GENIA_WORKS_API_URL: s.url });
+  const stateDir = f.d('work', 'agents', 'kodi', 'state');
+  await until(() => existsSync(join(stateDir, 'pane-boot-ok-sent')), 'pane-boot-ok-sent 표식', 15000, e.log);
+  await until(() => ticks(f) >= 3, '감독 회차 세 번', 15000, e.log);
+  // 부팅당 한 번 ok — 그 밖의 보고(BLOCKED)는 없다. 차단 사유 파일도 남지 않는다.
+  assert.deepEqual(s.seen().map((b) => b.state), ['OK'], JSON.stringify(s.seen()));
+  assert.equal(existsSync(join(stateDir, 'pane-blocked')), false);
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
+/**
+ * 기록만 하는 가짜 gw-boot(WP-1913) — 받은 인자를 한 줄씩 FAKE_OUT/gw-boot-calls 에 이어 붙이고 늘 0 으로 끝난다(진짜 계약과 같음).
+ * gw-boot-fail 파일이 있는 동안만 stderr 에 경고 한 줄을 더한다 — 진짜 gw-boot 의 실패(출력 있음·종료 0)를 흉내 낸다.
+ */
+function fakeBoot(f) {
+  const dir = f.d('fake-scripts');
+  mkdirSync(dir, { recursive: true });
+  exe(join(dir, 'gw-boot'), `#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE_OUT/gw-boot-calls"
+[ -f "$FAKE_OUT/gw-boot-fail" ] && echo "gw-boot: 칸 차단 보고 실패(HTTP 500) — 보고하지 않고 계속합니다" >&2
+exit 0
+`);
+  return dir;
+}
+
+/** 감독 한 회차를 부른다 — 띄울 수 있음(can_launch)·칸 살피기만 가짜로 두고 보고 훅(pane_report_*)은 진짜로 돈다(이 이미지의 can_launch 는 설정 파일을 보므로 따로 연다). */
+const tickRun = (f, fake, tail = 'tick') => callLib(f.env, `${BOOT} && GW_SCRIPTS="${fake}" && can_launch() { return 0; } && supervise_once() { :; } && ${tail}`);
+
+test('ok 보고가 실패하면 표식을 남기지 않고 다음 회차에 다시 보고한다', (t) => {
+  // gw-boot 는 실패해도 늘 종료 0 이라(최선 노력 계약) 종료 코드로는 성공을 못 본다 — 출력(경고 한 줄)으로만 성공을 판정한다.
+  // 실패하면 표식을 남기지 않아야 다음 회차가 다시 보고한다(한 번 시도로 끝나면 서버에 차단 표시가 남는다).
+  const f = fixture(t);
+  const fake = fakeBoot(f);
+  const mark = f.d('work', 'agents', 'kodi', 'state', 'pane-boot-ok-sent');
+  writeFileSync(f.d('out', 'gw-boot-fail'), '');
+
+  // 첫 회차 — 보고 실패: 경고는 로그로만 남기고 표식은 없다.
+  const first = tickRun(f, fake);
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stderr, /gw-boot: 칸 차단 보고 실패/);
+  assert.equal(existsSync(mark), false);
+
+  // 서버가 고쳐진 뒤 다음 회차 — 표식이 없으니 다시 보고하고, 성공하면 표식을 남긴다.
+  rmSync(f.d('out', 'gw-boot-fail'));
+  const second = tickRun(f, fake);
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(existsSync(mark), true);
+  assert.deepEqual(readFileSync(f.d('out', 'gw-boot-calls'), 'utf8').trim().split('\n'), ['ok', 'ok']);
+});
+
+test('차단이 풀리면 표식과 무관하게 ok 를 다시 보고하고 차단 사유 파일을 지운다', (t) => {
+  // 같은 부팅에서 정상(ok·표식) → 막힘(차단 사유·blocked 보고) → 다시 띄움으로 바뀌는 경우 — 표식만 보면 서버가 FAILED 에 갇힌다.
+  // 그래서 차단 사유 파일이 남아 있는 성공 회차는 표식과 무관하게 ok 를 다시 보내고 파일을 지운다(서버 표시 cleared).
+  const f = fixture(t);
+  const fake = fakeBoot(f);
+  const state = f.d('work', 'agents', 'kodi', 'state');
+
+  // 1) 정상 기동 — ok 한 번과 표식.
+  const healthy = tickRun(f, fake);
+  assert.equal(healthy.status, 0, healthy.stderr);
+  assert.equal(existsSync(join(state, 'pane-boot-ok-sent')), true);
+
+  // 2) 같은 부팅에서 막힘 — 차단 사유를 남기고 회차는 blocked 를 보고한다(표식은 이미 있는 상태).
+  const blocked = tickRun(f, fake, 'can_launch() { return 1; } && pane_blocked "설정을 바꿨습니다 — 칸을 띄우지 않습니다" && tick');
+  assert.equal(blocked.status, 0, blocked.stderr);
+  assert.equal(existsSync(join(state, 'pane-blocked')), true);
+
+  // 3) 차단이 풀림 — 표식이 있어도 ok 를 다시 보고하고 차단 사유 파일을 지운다.
+  const cleared = tickRun(f, fake);
+  assert.equal(cleared.status, 0, cleared.stderr);
+  assert.equal(existsSync(join(state, 'pane-blocked')), false);
+  assert.equal(existsSync(join(state, 'pane-boot-ok-sent')), true);
+  assert.deepEqual(readFileSync(f.d('out', 'gw-boot-calls'), 'utf8').trim().split('\n'), [
+    'ok',
+    'blocked 설정을 바꿨습니다 — 칸을 띄우지 않습니다',
+    'ok',
+  ]);
 });

@@ -309,6 +309,31 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     assertThat(r.body()).contains("실행 중인 AI 만 작업 화면을 볼 수 있어요");
   }
 
+  /**
+   * 진입점이 칸을 못 띄웠다고 보고한 AI 는 실행 중이어도 화면 세션을 열지 못한다 — 칸이 실제로 없어 runner 가 이을 수 없다(WP-1913, 설계 2절
+   * `AgentScreenService`). 차단 보고가 원인임을 가리기 위해 열기 성공을 먼저 본 뒤 보고를 심는다.
+   */
+  @Test
+  void open_whenPaneBlocked_returns409() throws Exception {
+    long blocked = runningAgent();
+    assertThat(post(admin, blocked).statusCode()).isEqualTo(201);
+
+    callInTenant(
+        1L,
+        () -> {
+          dsl.update(AGENT_RUNTIME_SETTING)
+              .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+              .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+              .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(blocked))
+              .execute();
+          return null;
+        });
+
+    HttpResponse<String> r = post(admin, blocked);
+    assertThat(r.statusCode()).isEqualTo(409);
+    assertThat(r.body()).contains("실행 중인 AI 만 작업 화면을 볼 수 있어요");
+  }
+
   /** AI 하나에 열린 화면은 3개까지 — 4번째는 409. 성공 응답에는 sessionId·ticket·expiresAt 이 있고 세션 행·감사가 남는다. */
   @Test
   void open_whenThreeAlreadyOpen_returns409() throws Exception {

@@ -569,7 +569,8 @@ safe_model_id() {
 #   마운트 파일($GENIA_RUN_DIR/login-info)이 없거나 비었으면 보관본·표식($AI_DIR/state/login-version)을 지운다(연결 끊기가 실제로 끊기게).
 #   표식이 GENIA_LOGIN_VERSION 과 다르면(없음 포함) 600 으로 원자적으로 복사하고 표식을 적는다. 같으면 그대로 — 프로그램이 스스로 갱신해(토큰
 #   새로고침) 다시 쓴 로그인을 옛 Secret 값으로 덮지 않는다. 쓰기는 gw-lib 의 gw_write_atomic(임시 파일 → 600 → mv) — 내용은 셸 내장 printf
-#   로만 쓰여 외부 명령 인자·로그에 실리지 않는다. 결과로 로그인이 없으면 경고 한 줄(칸은 띄우지 않는다 — 각 이미지의 can_launch). 늘 0.
+#   로만 쓰여 외부 명령 인자·로그에 실리지 않는다. 결과로 로그인이 없으면 경고 한 줄(칸은 띄우지 않는다 — 각 이미지의 can_launch)이며,
+#   그 메시지는 pane_blocked 로 남아 감독 회차(tick)가 서버에 차단 사유를 보고한다(WP-1913). 늘 0.
 seed_login_file() {
   local src="$GENIA_RUN_DIR/login-info" dst=$1 label=$2 mark="$AI_DIR/state/login-version"
   if [ ! -s "$src" ]; then
@@ -578,7 +579,7 @@ seed_login_file() {
     gw_write_atomic "$dst" "$(cat "$src")" && gw_write_atomic "$mark" "${GENIA_LOGIN_VERSION:-}" ||
       log "경고: $label 로그인 정보를 $(dirname "$dst") 에 두지 못했습니다"
   fi
-  login_file_ready "$dst" || log "경고: $label 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
+  login_file_ready "$dst" || pane_blocked "경고: $label 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
   return 0
 }
 
@@ -724,16 +725,65 @@ supervise_once() {
 
 # 감독 한 회차(Gen:iA Code·Codex·OpenCode 엔트리포인트 — 부팅 첫 회차 포함) — 이미지 훅 before_supervise(Gen:iA: 프로그램 받기, Codex: 모델 목록 보고)를
 # 돈 뒤, 칸을 띄울 수 있으면(이미지의 can_launch — 로그인 등) supervise_once(처음이면 start_projects, 그 뒤 칸 살피기·알림 감시 창). 못 띄우면
-# 칸 일은 하지 않는다. 띄울 수 있든 없든 tmp 정리(sweep_tmp_due — 한 시간에 한 번)는 부른다(WP-1683) — 로그인을 오래 기다리는 Pod 도
-# tmp 가 찬다. 회차 번호를 $AI_DIR/state/supervise-ticks 에 적는다 — 감독이 도는지 밖에서(테스트·kubectl exec) 볼 수 있게.
+# 칸 일은 하지 않고 차단 사유(pane_blocked 가 남긴 상태 파일)만 서버에 보고한다(pane_report_blocked). 띄울 수 있든 없든 tmp 정리(sweep_tmp_due —
+# 한 시간에 한 번)는 부른다(WP-1683) — 로그인을 오래 기다리는 Pod 도 tmp 가 찬다. 회차 번호를 $AI_DIR/state/supervise-ticks 에 적는다 —
+# 감독이 도는지 밖에서(테스트·kubectl exec) 볼 수 있게.
 # 두 훅의 기본은 「할 일 없음」·「띄울 수 있음」이고 이미지가 trust_folders 처럼 덮어쓴다. 늘 0.
 before_supervise() { return 0; }
 can_launch() { return 0; }
+
+# 칸을 띄우지 못한 이유(WP-1913) — 로그 한 줄을 남기고 같은 메시지를 상태 파일에 덮어쓴다.
+# 감독 회차(tick)가 이 파일을 읽어 서버에 보고한다 — 파일이 없으면 보고도 없다(일시 차단은 오류로 뜨지 않는다).
+pane_blocked() {
+  log "$1"
+  mkdir -p "$AI_DIR/state" && printf '%s\n' "$1" > "$AI_DIR/state/pane-blocked"
+}
+
+# gw-boot ok 보고 — (a) 차단 없이 띄우는 부팅의 첫 회차에 한 번(표식 $AI_DIR/state/pane-boot-ok-sent), 그리고 (b) 차단 사유 파일이 아직 남아 있는
+# 성공 회차에는 표식과 무관하게 또 보고해 서버의 FAILED 표시를 지운다(막혔다 다시 띄우는 경우 — 표식만으로 짧으면 서버가 차단 사유에 갇힌다).
+# 신원은 GENIA_WORKS_AS 로 넘긴다 — 엔트리포인트 셸에는 칸처럼 신원이 없다(lib-codex.sh 의 gw-models 보고와 같은 방식).
+# 성공 판정: gw-boot 는 실패해도 늘 종료 0 이라(최선 노력 계약) 종료 코드로는 성공을 못 본다 — stdout 은 늘 비고 경고 한 줄만 stderr 로 나오므로
+# 출력이 없어야 성공이다. 실패면 표식도 차단 파일도 건드리지 않고 뒤로 미룬다 — 다음 회차가 다시 보고한다(pane_report_blocked 와 같은 재시도,
+# gw-boot 없음·보고 실패에도 늘 0 이라 감독은 멈추지 않는다 — 진입점은 끝내지 않는다).
+pane_report_ok_once() {
+  local gw="$GW_SCRIPTS/gw-boot" mark="$AI_DIR/state/pane-boot-ok-sent" blocked="$AI_DIR/state/pane-blocked" out
+  [ -x "$gw" ] || return 0
+  # 차단 파일도 표식도 없으면 이미 보고한 정상 상태 — 매 회차 중복 ok 를 보내지 않는다(표식의 본래 뜻).
+  if [ ! -f "$blocked" ] && [ -e "$mark" ]; then
+    return 0
+  fi
+  out=$(GENIA_WORKS_AS="$GENIA_AGENT_NAME" "$gw" ok 2>&1) || true
+  if [ -n "$out" ]; then
+    log "$out" # 경고 한 줄을 진입점 로그로 남긴다 — 표식·차단 파일은 그대로 두어 다음 회차에 다시 보게 한다
+    return 0
+  fi
+  # 보고 성공 — 정상으로 띄웠으니 지난 차단 사유는 남기지 않는다(서버 표시와 로컬 상태를 함께 지운다).
+  rm -f "$blocked"
+  mkdir -p "$AI_DIR/state" && printf '%s\n' "$(date +%s)" > "$mark" 2>/dev/null
+  return 0
+}
+
+# 차단 사유(pane_blocked 가 남긴 상태 파일)가 있으면 매 감독 회차 gw-boot blocked 로 서버에 보고한다 — 파일이 없으면 조용히 건너뛴다.
+# 보고는 최선 노력: gw-boot 없음·실패에도 늘 0 이라 감독은 멈추지 않는다. 같은 사유라도 매 회차 다시 보고한다(서버 표시가 오래돼도 최신 상태로 맞춘다).
+pane_report_blocked() {
+  local gw="$GW_SCRIPTS/gw-boot" blocked="$AI_DIR/state/pane-blocked" msg
+  [ -x "$gw" ] || return 0
+  [ -f "$blocked" ] || return 0
+  msg=$(cat "$blocked")
+  GENIA_WORKS_AS="$GENIA_AGENT_NAME" "$gw" blocked "$msg" >/dev/null || true
+  return 0
+}
+
 SUPERVISE_TICKS=0
 tick() {
   SUPERVISE_TICKS=$((SUPERVISE_TICKS + 1))
   before_supervise
-  if can_launch; then supervise_once; fi
+  if can_launch; then
+    supervise_once
+    pane_report_ok_once # 첫 정상 회차·차단 해제 회차에 gw-boot ok — 서버의 차단 표시를 지운다(실패하면 다음 회차 재시도)
+  else
+    pane_report_blocked # 상태 파일이 있을 때만 매 회차 gw-boot blocked
+  fi
   sweep_tmp_due
   printf '%s\n' "$SUPERVISE_TICKS" > "$AI_DIR/state/supervise-ticks" 2>/dev/null
   return 0

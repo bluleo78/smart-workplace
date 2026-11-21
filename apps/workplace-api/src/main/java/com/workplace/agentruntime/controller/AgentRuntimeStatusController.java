@@ -2,11 +2,13 @@ package com.workplace.agentruntime.controller;
 
 import com.workplace.agentruntime.dto.AgentLoginResponse;
 import com.workplace.agentruntime.dto.AgentLoginUploadRequest;
+import com.workplace.agentruntime.dto.AgentPaneReportRequest;
 import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentStatusReportRequest;
 import com.workplace.agentruntime.dto.AgentStatusReportResponse;
 import com.workplace.agentruntime.dto.ReportedModelsRequest;
 import com.workplace.agentruntime.service.AgentLoginService;
+import com.workplace.agentruntime.service.AgentPaneReportService;
 import com.workplace.agentruntime.service.AgentRuntimeSummaryService;
 import com.workplace.agentruntime.service.AgentStatusReportService;
 import com.workplace.auth.dto.ModelOption;
@@ -27,9 +29,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * AI 자신의 실행 API — 자기 키({@code ak_})로 부른다. 상태 보고(WP-1250): Works 가 띄운 AI 가 지금 상태를 알리고 계속 일할지·멈출지를
- * 받는다. 맡는 프로젝트(WP-1275): 작업 공간·start-agent 가 칸을 열 프로젝트와 저장소를 받는다. 모델 목록 보고(WP-1297): 로그인 계정으로 도는 AI
- * 가 자기 프로그램이 쓸 수 있는 모델 목록을 알린다. 계약은 docs/integrations/agent-runner-api.md. 모두 AI 키로 인증한 호출만 — 아니면
- * 403 {@code AGENT_ONLY}({@link RequireAgent}).
+ * 받는다. 칸 차단 보고(WP-1913): Pod 안 진입점이 칸을 띄우지 못한 사실·이유를 남긴다. 맡는 프로젝트(WP-1275): 작업 공간·start-agent 가 칸을
+ * 열 프로젝트와 저장소를 받는다. 모델 목록 보고(WP-1297): 로그인 계정으로 도는 AI 가 자기 프로그램이 쓸 수 있는 모델 목록을 알린다. 계약은
+ * docs/integrations/agent-runner-api.md. 모두 AI 키로 인증한 호출만 — 아니면 403 {@code AGENT_ONLY}({@link
+ * RequireAgent}).
  */
 @RestController
 @RequireAgent
@@ -38,6 +41,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AgentRuntimeStatusController {
 
   private final AgentStatusReportService service;
+  private final AgentPaneReportService paneReports;
   private final AgentRuntimeSummaryService summaries;
   private final AgentReportedModelService reportedModels;
   private final AgentLoginService logins;
@@ -47,6 +51,17 @@ public class AgentRuntimeStatusController {
   public ResponseEntity<AgentStatusReportResponse> report(
       @AuthenticationPrincipal Long userId, @Valid @RequestBody AgentStatusReportRequest req) {
     return ResponseEntity.ok(service.report(userId, req));
+  }
+
+  /**
+   * 칸 차단 보고(WP-1913) — Pod 안 진입점이 칸을 띄우지 못하면(설정·로그인 오류) 이유를 pane_blocked 칸에 남긴다. 본문이 잘못됐을 때만 400, 그
+   * 밖엔 늘 204(보고는 최선 노력 — 워크스페이스·실행 설정이 없어도 저장 없이 204).
+   */
+  @PutMapping("/pane")
+  public ResponseEntity<Void> reportPane(
+      @AuthenticationPrincipal Long userId, @Valid @RequestBody AgentPaneReportRequest req) {
+    paneReports.report(userId, req);
+    return ResponseEntity.noContent().build();
   }
 
   /**

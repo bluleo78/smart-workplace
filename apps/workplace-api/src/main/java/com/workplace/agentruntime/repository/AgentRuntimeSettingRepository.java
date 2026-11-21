@@ -83,6 +83,8 @@ public class AgentRuntimeSettingRepository {
       List<String> agentIssueKeys,
       OffsetDateTime agentNextCheckAt,
       OffsetDateTime agentReportedAt,
+      String paneBlockedMessage,
+      OffsetDateTime paneBlockedAt,
       @With boolean acceptNewWork,
       @With Integer slotLimit) {
 
@@ -121,6 +123,8 @@ public class AgentRuntimeSettingRepository {
             r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)),
         r.get(AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT),
         r.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT),
+        r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE),
+        r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT),
         r.get(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK),
         Optional.ofNullable(r.get(AGENT_RUNTIME_SETTING.SLOT_LIMIT))
             .map(Short::intValue)
@@ -427,6 +431,24 @@ public class AgentRuntimeSettingRepository {
         .where(s.AGENT_USER_ID.eq(agentUserId))
         .returning()
         .fetchOne(this::map);
+  }
+
+  /**
+   * 진입점이 보고한 칸 차단 사실·이유를 쓴다(WP-1913) — 실행 설정이 없는 AI 는 부르지 않는다(호출자가 잠금·존재 확인). message 가 null 이면 두 칸
+   * 모두 비운다(다시 띄웠다는 OK 보고). runner 관찰 칸·원하는 상태 칸·agent_* 칸은 건드리지 않는다 — 진입점 보고와 runner 보고는 다른 칸에 남겨
+   * 두고 읽을 때만 합친다(덮어쓰기 없음). 호출자가 이 행을 이미 잠갔다고 가정한다({@link #findForUpdate}).
+   *
+   * @param message 차단 이유(최대 500자 — DTO 에서 검증) 또는 null(칸 비움)
+   * @param at 차단을 보고한 시각 — message 가 null 이면 함께 지운다
+   */
+  public void updatePaneBlocked(long agentUserId, String message, OffsetDateTime at) {
+    var s = AGENT_RUNTIME_SETTING;
+    OffsetDateTime savedAt = message == null ? null : at;
+    dsl.update(s)
+        .set(s.PANE_BLOCKED_MESSAGE, message)
+        .set(s.PANE_BLOCKED_AT, savedAt)
+        .where(s.AGENT_USER_ID.eq(agentUserId))
+        .execute();
   }
 
   /**

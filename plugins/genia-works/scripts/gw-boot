@@ -1,0 +1,66 @@
+#!/bin/sh
+# gw-boot blocked "<메시지>" · gw-boot ok — 자기 칸이 멈췄다는 사실과 까닭을 Works 에 알린다(PUT /agent-runtime/me/pane, WP-1913).
+# 왜: 진입점(에이전트)이 막혀 아무것도 못 하는 상태를 사람이 「현재 칸」 화면에서 바로 알아채게 하려 한다 — 막힌 자리에선 그 에이전트 자신이
+#   까닭을 가장 정확히 알고 있어서, Pod 진입점이 이 명령으로 차단 사실을 보고하고 사람이 간섭할 때까지 기다린다.
+# - 인자: blocked "<메시지>" | ok. 잘못된 인자면 표준 오류에 한 줄만 알린다.
+# - 보고는 최선 노력이다: 실패해도(키 없음·서버 오류·닿지 못함·인자 이상) 일을 막지 않고 표준 오류에 한 줄만 알린 뒤 늘 종료 0 —
+#   진입점이 이 명령의 결과에 좌우되지 않게(부르는 쪽이 종료 코드를 보지 않도록), 표준 출력은 늘 비워 두고 경고는 표준 오류로만 낸다.
+# - GENIA_AGENT_GENERATION(runner 가 Pod 에 넣는 generation)이 없으면 Works 가 띄운 AI 가 아니다 — 서버에 보내지 않고 조용히 끝낸다(gw-models 와 같음).
+# - 메시지는 서버 @Size(max=500) 상한을 넘지 않게 유니코드 글자 수 기준 500 자로 자른다 — 한글은 글자당 3 바이트라 바이트로 자르면 글자가
+#   깨지고, 서버는 글자 수로 세므로 글자 수로 잘라야 한다. JSON 문자열을 깨뜨리는 따옴표·백슬래시·제어 문자는 공백으로 바꾼다.
+# - 키는 명령줄 인자로 넘기지 않는다(ps 에 보인다) — gw_identity_key 로 읽어 curl 설정(표준 입력)에 넣고 어디에도 출력하지 않는다(gw-models 와 같은 방식).
+#   본문(차단 까닭)에는 비밀이 없으나 신원 키는 비밀이다.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+# 실패해도 일은 계속한다 — 경고 한 줄과 종료 0.
+fallback() {
+  echo "gw-boot: $1 — 보고하지 않고 계속합니다" >&2
+  exit 0
+}
+
+# 인자: blocked "<메시지>" | ok — 잘못된 인자도 한 줄 알리고 계속(진입점을 멈추지 않는다).
+case "${1:-}" in
+  blocked)
+    [ $# -eq 2 ] || fallback "사용법: gw-boot blocked \"<메시지>\" | gw-boot ok"
+    # 따옴표·백슬래시는 공백으로 바꾸고(본문 JSON 이 깨지지 않게), 개행 등 제어 문자도 공백으로 바꿔 본문이 한 줄 JSON 이 되게 한다.
+    msg=$(printf '%s' "$2" | tr '\000-\037\177' ' ' | sed 's/["\\]/ /g')
+    # 유니코드 글자 수 기준 500 자로 자른다 — mawk 처럼 바이트만 세는 awk 에서도 한글이 중간에 갈리지 않게, C 로캘에서
+    # 이어지는 바이트(0x80-0xBF)는 새 글자로 세지 않고 앞 글자에 이어 붙인 뒤 글자가 끝날 때마다 센다.
+    msg=$(printf '%s' "$msg" | LC_ALL=C awk '{
+      out = ""; n = 0; i = 1; len = length($0)
+      while (i <= len && n < 500) {
+        c = substr($0, i, 1)
+        out = out c
+        i++
+        if (!(c >= "\200" && c <= "\277")) {
+          n++
+          while (i <= len) {
+            c = substr($0, i, 1)
+            if (c >= "\200" && c <= "\277") { out = out c; i++ } else break
+          }
+        }
+      }
+      print out
+    }')
+    body=$(printf '{"state":"BLOCKED","message":"%s"}' "$msg")
+    ;;
+  ok)
+    [ $# -eq 1 ] || fallback "사용법: gw-boot blocked \"<메시지>\" | gw-boot ok"
+    body='{"state":"OK"}'
+    ;;
+  *)
+    fallback "사용법: gw-boot blocked \"<메시지>\" | gw-boot ok"
+    ;;
+esac
+
+# Works 가 띄운 AI 가 아니면 보고할 서버 신원도 없다 — 조용히 끝낸다(위 인자 검사는 남길: 호출부 잘못은 표준 오류로 드러나야 한다).
+[ -n "${GENIA_AGENT_GENERATION:-}" ] || exit 0
+
+key=$(gw_identity_key) || key=""
+[ -n "$key" ] || fallback "AI 키 신원이 아니어서 보고하지 않았습니다"
+
+gw_api_request "$key" 5 10 -X PUT -H 'Content-Type: application/json' -d "$body" \
+  "$(gw_api_url)/agent-runtime/me/pane"
+[ "$GW_CODE" = 204 ] || [ "$GW_CODE" = 200 ] || fallback "칸 차단 보고 실패(HTTP ${GW_CODE:-000})"
+exit 0

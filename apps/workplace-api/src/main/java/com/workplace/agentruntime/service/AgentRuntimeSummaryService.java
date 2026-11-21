@@ -65,14 +65,20 @@ public class AgentRuntimeSummaryService {
                         .map(AgentTemplate::card)
                         .map(AgentTemplate.Card::title)
                         .orElse(null),
+                    // 차단 메시지가 있으면 읽을 때만 합쳐 FAILED 로 보인다(WP-1913) — runner 관찰 칸은 그대로다.
                     AgentRuntimeStatusResolver.resolve(
-                        r.desired(), r.generation(), r.observedGeneration(), r.phase()),
+                        r.desired(),
+                        r.generation(),
+                        r.observedGeneration(),
+                        r.phase(),
+                        r.paneBlockedMessage()),
                     r.agentState(),
                     r.agentIssueKey(),
                     r.agentIssueKeys(),
                     r.agentNextCheckAt(),
                     r.locationId() == null ? defaultName : names.get(r.locationId()),
-                    r.observedMessage(),
+                    // 사유도 차단 메시지를 먼저 싣는다 — 없으면 기존 관찰 메시지(실패 이유) 그대로(WP-1913).
+                    AgentRuntimeStatusResolver.reason(r.paneBlockedMessage(), r.observedMessage()),
                     r.acceptNewWork()))
         .toList();
   }

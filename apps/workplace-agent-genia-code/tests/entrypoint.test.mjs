@@ -1,7 +1,8 @@
 // Gen:iA Code 작업 공간 엔트리포인트 테스트(WP-1296) — Claude Code 이미지의 lib.sh + 이 이미지의 lib-genia.sh 함수를 하나씩, 그리고 bin/entrypoint 전체를 돌려 본다.
 // genia 배포 서버는 file:// 폴더(latest.txt + 가짜 tar.gz — 안에 가짜 genia 셸 스크립트)로, gh·npx·curl(맡는 프로젝트 조회만)은 PATH 앞의 가짜로 바꾼다.
 // tmux 는 진짜를 테스트마다 격리한 서버(-L)로 쓰고, 플러그인 스크립트는 저장소의 plugins/genia-works/scripts 를 그대로 쓴다 —
-// 칸 명령(agent-project 의 genia 분기)과 칸이 물려받는 env 를 진짜로 확인하려는 것이다. 키·로그인 정보는 모두 가짜 값이다.
+// 칸 명령(agent-project 의 genia 분기)과 칸이 물려받는 env 를 진짜로 확인하려는 것이다. 단 gw-boot 만 가짜로 두어 칸 차단 보고(WP-1913)를 파일로 받는다.
+// 키·로그인 정보는 모두 가짜 값이다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -74,7 +75,16 @@ exec ${realCurl} "$@"
   // AI 키 — 진짜 gw-agent-projects 가 읽는 자리에 플러그인의 gw-keys 로 놓는다(엔트리포인트의 install_key 가 같은 값을 다시 놓는다).
   spawnSync(join(pluginScripts, 'gw-keys'), ['add', 'kodi'], { input: 'ak_testkey123\n', env: { PATH: process.env.PATH, HOME: d('home') } });
 
-  for (const f of readdirSync(pluginScripts)) symlinkSync(join(pluginScripts, f), d('plugin', 'scripts', f));
+  // 스크립트는 그대로 링크하되 gw-boot 만 가짜(받은 신원·인자를 FAKE_OUT/gw-boot-N 파일로 남긴다)로 둔다 — 진입점의 칸 차단 보고(WP-1913)를 파일로 확인하려는 것이다.
+  for (const f of readdirSync(pluginScripts)) {
+    if (f === 'gw-boot') continue;
+    symlinkSync(join(pluginScripts, f), d('plugin', 'scripts', f));
+  }
+  exe(d('plugin', 'scripts', 'gw-boot'), `#!/bin/sh
+n=$(ls "$FAKE_OUT" | grep -c '^gw-boot-[0-9]')
+{ printf 'as=%s\\n' "$GENIA_WORKS_AS"; for a in "$@"; do printf '%s\\n' "$a"; done; } > "$FAKE_OUT/gw-boot-$((n + 1))"
+exit 0
+`);
   writeFileSync(d('plugin', 'genia', 'index.ts'), '// 굳힌 플러그인 자리\n');
   writeFileSync(d('out', 'projects.json'), '[]');
 
@@ -591,6 +601,8 @@ tmuxTest('entrypoint_doesNotLaunchPaneWithoutLoginInfo', async (t) => {
   assert.equal(e.child.exitCode, null, e.log());
   assert.equal(existsSync(f.d('out', 'pane-WP.env')), false);
   assert.equal(existsSync(f.d('work', 'agents', 'kodi', 'repos', 'WP')), false);
+  // 차단 보고(WP-1913) — tick 이 매 회차 gw-boot 에 로그인 미연결 사유를 넘긴다(신원은 GENIA_WORKS_AS).
+  assert.match(f.read('out', 'gw-boot-1'), /^as=kodi\nblocked\n.*로그인 정보가 연결되지 않았습니다/m);
   // 알림 감시 창도 띄우지 않는다 — tmux 세션 자체가 없다
   assert.notEqual(f.tmux('list-sessions').status, 0);
   e.child.kill('SIGTERM');

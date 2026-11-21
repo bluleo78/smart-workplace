@@ -233,6 +233,24 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 - 합친 상태가 **쉬는 중으로 바뀐** 보고(모든 칸이 쉬게 된 보고 — 앞의 합친 상태가 `IDLE` 이 아니었음 — 새 Pod 가 보여 AI 상태가 지워진 뒤 첫 보고 포함)인데 아직 반영하지 않은 generation 이 있으면(generation ≠ 마지막 observedGeneration) Works 가 그 AI 의 실제 위치로 `agent-runtime.changed` 를 낸다 — runner 가 다시 조회하면 `applyNow=true` 다. 한 칸이 아직 일하면 다른 칸의 `IDLE` 보고는 `DRAIN` 을 받고 이벤트도 없다 — 마지막 일하던 칸이 `IDLE` 을 보고하는 순간 그 칸이 `RESTART` 를 받고 이벤트가 한 번 나간다. 이미 쉬는 중이던 AI 가 다음 확인마다 `IDLE` 을 거듭 보고해도 이벤트를 다시 내지 않는다(놓친 이벤트는 주기 조회가 맞춘다).
 - 실행 설정이 없는 AI(외부에서 돌리는 AI)나 워크스페이스가 정해지지 않은 호출은 아무것도 저장하지 않고 `RUN` 이다. AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
 
+## 칸 차단 보고 — `PUT /api/v1/agent-runtime/me/pane` (Pod 안 진입점이 부름)
+
+작업 공간 진입점이 칸을 띄우지 못하면(설정 오류·로그인 오류 등) **못 띄운 사실과 이유**를 자기 AI 키(`Authorization: Bearer ak_…`)로 알려 서버에 남긴다(WP-1913) — 관리자 화면의 AI 목록이 「오류」와 이유를 보여 주기 위해서다. 위 「AI 상태 보고」와 달리 보고하는 쪽이 Pod 안 **진입점(스크립트)** 이다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다.
+
+```json
+{ "state": "BLOCKED", "message": "설정 오류: …" }
+```
+
+```json
+{ "state": "OK" }
+```
+
+- `state`: `BLOCKED`(칸을 못 띄움) 또는 `OK`(다시 띄웠다 — 앞서 남긴 차단 보고를 지운다). 그 밖의 값은 400.
+- `message`: 차단 이유, 500자 이하(501자를 넘으면 400). `BLOCKED` 일 때만 필요(없으면 400), `OK` 에는 쓰지 않는다.
+- 응답은 늘 `204`(본문 없음) — **보고는 최선 노력이라 실패해도 진입점은 계속된다**(gw-models 와 같다). 워크스페이스가 정해지지 않았거나 실행 설정이 없는 AI 는 저장 없이 204.
+- 본문 검증 실패는 400, AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
+- 저장 위치: 실행 설정 행의 `pane_blocked_message`(500자)·`pane_blocked_at` 칸. runner 가 쓰는 관찰 보고 칸과 **분리해 두고 읽을 때만 합친다** — 진입점 보고와 runner 관찰 보고가 서로의 값을 덮어쓰지 않는다.
+
 ## 로그인 계정 모델 목록 보고 — `PUT /api/v1/agent-runtime/me/models` (Pod 안의 AI 가 부름)
 
 로그인 정보(`genia`·`chatgpt`)로 연결된 AI 가 **자기 프로그램이 쓸 수 있는 모델 목록**을 알린다(WP-1297). 서버가 저장된 ChatGPT 로그인으로 모델을 조회하면 1회용 refresh token 을 써서 Pod 안 프로그램의 로그인이 풀리므로, 목록은 Pod 안에서 뽑아(Codex 는 `codex debug models`) 자기 AI 키(`Authorization: Bearer ak_…`)로 보고한다. 플러그인 스크립트 `gw-models < models.json` 이 이 호출을 하고(표준 입력은 `{"models":[…]}` 그대로 — 스크립트가 `jq` 로 `loginVersion` 을 덧붙인다), `GENIA_AGENT_GENERATION` 이 없으면(Works 가 띄운 AI 가 아니면)·`GENIA_LOGIN_VERSION` 이 없으면(로그인 없음) 부르지 않는다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다(플러그인이 env 가 있으면 붙인다).
