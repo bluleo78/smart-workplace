@@ -103,6 +103,43 @@ describe('useMarkChatRead', () => {
     expect(myLastRead()).toBe(30);
   });
 
+  it('요청이 끝나기 전(드로워를 닫은 직후 flush)에도 스레드 캐시 워터마크는 먼저 오른다 — 배지가 잠깐 다시 보이지 않게(WP-1914)', () => {
+    const { client, wrapper } = withClient();
+    const key = chatKeys.thread('P1', 4);
+    client.setQueryData(key, createChatThread({ members: [createChatMember({ userId: 1, lastReadMessageId: 10 })] }));
+    markRead.mockReturnValueOnce(new Promise(() => {}) as never);
+    const { result, unmount } = renderHook(() => useMarkChatRead(100, { projectKey: 'P1', issueNumber: 4, userId: 1 }), { wrapper });
+    result.current(30);
+    unmount();
+    expect(client.getQueryData<ChatThreadResponse>(key)?.members[0].lastReadMessageId).toBe(30);
+  });
+
+  it('실패하면 먼저 올린 워터마크를 되돌리되, 그사이 더 올라갔으면 그 값을 둔다', async () => {
+    const { client, wrapper } = withClient();
+    const key = chatKeys.thread('P1', 4);
+    client.setQueryData(key, createChatThread({ members: [createChatMember({ userId: 1, lastReadMessageId: 10 })] }));
+    const myLastRead = () => client.getQueryData<ChatThreadResponse>(key)?.members[0].lastReadMessageId;
+    let reject!: (e: unknown) => void;
+    markRead.mockReturnValueOnce(new Promise((_, r) => { reject = r; }) as never);
+    const { result } = renderHook(() => useMarkChatRead(100, { projectKey: 'P1', issueNumber: 4, userId: 1 }), { wrapper });
+    result.current(30);
+    vi.advanceTimersByTime(1000);
+    expect(myLastRead()).toBe(30);
+    reject(httpError(500));
+    await vi.waitFor(() => expect(myLastRead()).toBe(10));
+
+    let reject2!: (e: unknown) => void;
+    markRead.mockReturnValueOnce(new Promise((_, r) => { reject2 = r; }) as never);
+    result.current(40);
+    vi.advanceTimersByTime(1000);
+    result.current(50);
+    vi.advanceTimersByTime(1000);
+    reject2(httpError(500));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(myLastRead()).toBe(50);
+  });
+
   it('읽음 요청이 실패하면 오류 토스트를 띄우고 같은 id 를 다시 보낼 수 있다 (WP-1855)', async () => {
     markRead.mockRejectedValueOnce(httpError(500));
     const { result } = renderHook(() => useMarkChatRead(100), withClient());

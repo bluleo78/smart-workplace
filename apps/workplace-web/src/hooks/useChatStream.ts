@@ -2,7 +2,7 @@
 // 트랜스포트(fetch 루프·백오프·401) 제거, 캐시 변이 + 이벤트 버스 발행만 담당.
 // 이벤트 버스(onChatTyping 등)와 타입 export 는 소비처 import 경로 보존을 위해 그대로 유지.
 
-import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
+import { type InfiniteData, type Query, type QueryClient } from '@tanstack/react-query';
 
 import { keyedSubscribe } from '../lib/aiWorkingProgress';
 import type { ChatMessagePage, ChatMessageResponse, ChatThreadResponse } from '../types/chat';
@@ -69,10 +69,17 @@ function emitCreated(e: ChatMessageCreatedEvent) {
   createdListeners.forEach((l) => l(e));
 }
 
-// 메시지 목록(최신순) 에 메시지를 반영하는 순수 함수 — 같은 id 가 있으면 바꾸고, 없으면 맨 앞에 넣는다.
-// 스레드 캐시 recentMessages 는 같은 created 를 재연결로 다시 받을 수 있어 이 규칙으로 중복을 막는다.
+// 메시지 목록(최신순 = id 내림차순) 에 메시지를 반영하는 순수 함수 — 같은 id 가 있으면 바꾸고, 없으면 id 순서 자리에 넣는다.
+// 스레드 캐시 recentMessages 는 같은 created 를 재연결로 다시 받을 수 있어 이 규칙으로 중복을 막고,
+// 재연결로 옛 created 를 늦게 받아도 맨 앞이 아니라 제자리에 들어가 시드 순서가 뒤집히지 않는다.
+// - 보내는 중인 내 메시지(낙관적 음수 임시 id)는 맨 위에 그대로 두고 그 아래 실제 id 들 사이에서 자리를 찾는다.
+// - 담긴 실제 메시지보다 모두 오래된 메시지는 넣지 않는다 — 그 메시지는 이 목록 뒤(더 옛 페이지)에 있고,
+//   끝에 붙이면 옛 페이지를 불러올 때 두 번 보인다.
 function upsertItem(items: ChatMessageResponse[], msg: ChatMessageResponse): ChatMessageResponse[] {
-  return items.some((m) => m.id === msg.id) ? items.map((m) => (m.id === msg.id ? msg : m)) : [msg, ...items];
+  if (items.some((m) => m.id === msg.id)) return items.map((m) => (m.id === msg.id ? msg : m));
+  const at = items.findIndex((m) => m.id > 0 && m.id < msg.id);
+  if (at >= 0) return [...items.slice(0, at), msg, ...items.slice(at)];
+  return items.some((m) => m.id > 0) ? items : [...items, msg];
 }
 
 // 스레드 캐시(chatKeys.thread) 중 해당 threadId 의 recentMessages 를 update 로 고친다.
@@ -85,26 +92,42 @@ function updateThreadRecent(
   update: (items: ChatMessageResponse[]) => ChatMessageResponse[],
 ) {
   for (const q of qc.getQueryCache().findAll({ queryKey: chatKeys.threads() })) {
-    const data = q.state.data as ChatThreadResponse | undefined;
-    if (data?.threadId !== threadId || !Array.isArray(data.recentMessages)) continue;
-    // 가져오는 중이면 지금 쓴 값은 응답에 덮이고, 응답이 이 이벤트보다 먼저 만들어졌을 수 있다 —
-    // 가져오기가 끝난 뒤(성공·실패 모두) 다시 반영한다. update 는 두 번 반영해도 결과가 같다(같은 id 는 바꿈).
-    if (q.state.fetchStatus === 'fetching') {
-      const retry = () => updateThreadRecent(qc, threadId, update);
-      void q.promise?.then(retry, retry);
-      continue;
-    }
-    // setQueryData 는 무효화 표시를 지우므로(멤버 변경 등으로 걸린 다음 refetch 가 사라진다) 쓰기 뒤 다시 건다(요청은 보내지 않음).
-    const wasInvalidated = q.state.isInvalidated;
-    // updatedAt 을 원래 값으로 유지한다 — 서랍이 initialDataUpdatedAt 으로 시드 신선도를 판단하므로,
-    // 시각을 올리면 재연결 사이 놓친 메시지가 있는 시드가 신선한 것으로 보여 refetch 가 생략된다.
-    qc.setQueryData<ChatThreadResponse>(
-      q.queryKey,
-      { ...data, recentMessages: update(data.recentMessages) },
-      { updatedAt: q.state.dataUpdatedAt },
-    );
-    if (wasInvalidated) q.invalidate();
+    applyThreadRecent(qc, q, threadId, update);
   }
+}
+
+// 스레드 쿼리 하나에 updateThreadRecent 를 적용한다.
+function applyThreadRecent(
+  qc: QueryClient,
+  q: Query,
+  threadId: number,
+  update: (items: ChatMessageResponse[]) => ChatMessageResponse[],
+) {
+  const data = q.state.data as ChatThreadResponse | undefined;
+  // 다른 스레드로 이미 받은 쿼리는 볼 것이 없다(가져오는 중이어도 기다리지 않는다 — 이벤트마다 기다림을 걸지 않게).
+  if (data && data.threadId !== threadId) return;
+  // 가져오는 중(오프라인으로 멈춘 paused 포함)이면 지금 쓴 값은 응답에 덮이고, 응답이 이 이벤트보다 먼저 만들어졌을 수 있다 —
+  // 가져오기가 끝난 뒤(성공·실패 모두) 그 쿼리에 다시 반영한다. 첫 가져오기라 아직 data(threadId)가 없어도
+  // 이 스레드일 수 있으므로 기다린다. update 는 두 번 반영해도 결과가 같다(같은 id 는 바꿈).
+  if (q.state.fetchStatus !== 'idle') {
+    const retry = () => {
+      // 그사이 캐시에서 빠진 쿼리에는 쓰지 않는다(setQueryData 가 새 쿼리를 만들지 않게).
+      if (qc.getQueryCache().get(q.queryHash) === q) applyThreadRecent(qc, q, threadId, update);
+    };
+    void q.promise?.then(retry, retry);
+    return;
+  }
+  if (data?.threadId !== threadId || !Array.isArray(data.recentMessages)) return;
+  // setQueryData 는 무효화 표시를 지우므로(멤버 변경 등으로 걸린 다음 refetch 가 사라진다) 쓰기 뒤 다시 건다(요청은 보내지 않음).
+  const wasInvalidated = q.state.isInvalidated;
+  // updatedAt 을 원래 값으로 유지한다 — 서랍이 initialDataUpdatedAt 으로 시드 신선도를 판단하므로,
+  // 시각을 올리면 재연결 사이 놓친 메시지가 있는 시드가 신선한 것으로 보여 refetch 가 생략된다.
+  qc.setQueryData<ChatThreadResponse>(
+    q.queryKey,
+    { ...data, recentMessages: update(data.recentMessages) },
+    { updatedAt: q.state.dataUpdatedAt },
+  );
+  if (wasInvalidated) q.invalidate();
 }
 
 // 새 메시지(또는 재수신)를 반영한다 — 스레드 캐시 recentMessages 와, 있으면 messages 캐시 첫 페이지.
@@ -124,7 +147,7 @@ function upsertMessage(qc: QueryClient, threadId: number, msg: ChatMessageRespon
       };
     }
     const [first, ...rest] = old.pages;
-    return { ...old, pages: [{ ...first, items: [msg, ...first.items] }, ...rest] };
+    return { ...old, pages: [{ ...first, items: upsertItem(first.items, msg) }, ...rest] };
   });
 }
 

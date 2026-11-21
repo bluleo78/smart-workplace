@@ -129,6 +129,59 @@ describe('handleChatEvent — 스레드 캐시 recentMessages 반영 (WP-1914, �
     await vi.waitFor(() => expect(recentOf(qc).map((x) => x.id)).toEqual([2, 1]))
   })
 
+  it('첫 가져오기 중(아직 data 없음)에 받은 created 도 응답 뒤 들어간다(리뷰 후속)', async () => {
+    const qc = new QueryClient()
+    let resolve!: (v: unknown) => void
+    const fetching = qc.fetchQuery({
+      queryKey: chatKeys.thread('WP', 7),
+      queryFn: () => new Promise((r) => { resolve = r }),
+    })
+    handleChatEvent(qc, 'chat.message.created', m(2))
+    // 응답이 이벤트보다 먼저 만들어졌다 — 그 메시지가 빠진 recentMessages.
+    resolve(thread(100, [m(1)]))
+    await fetching
+    await vi.waitFor(() => expect(recentOf(qc).map((x) => x.id)).toEqual([2, 1]))
+  })
+
+  it('첫 가져오기 중에 받은 created 는 다른 스레드 응답에는 들어가지 않는다', async () => {
+    const qc = new QueryClient()
+    let resolve!: (v: unknown) => void
+    const fetching = qc.fetchQuery({
+      queryKey: chatKeys.thread('WP', 7),
+      queryFn: () => new Promise((r) => { resolve = r }),
+    })
+    handleChatEvent(qc, 'chat.message.created', m(2))
+    resolve(thread(999, [m(1)]))
+    await fetching
+    await new Promise((r) => setTimeout(r, 0))
+    expect(recentOf(qc).map((x) => x.id)).toEqual([1])
+  })
+
+  it('늦게 받은 옛 created 는 맨 앞이 아니라 id 순서 자리에 들어간다(리뷰 후속)', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(chatKeys.thread('WP', 7), thread(100, [m(5), m(3)]))
+    handleChatEvent(qc, 'chat.message.created', m(4))
+    expect(recentOf(qc).map((x) => x.id)).toEqual([5, 4, 3])
+  })
+
+  it('담긴 메시지보다 모두 오래된 created 는 넣지 않는다(더 옛 페이지에서 두 번 보이지 않게)', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(chatKeys.thread('WP', 7), thread(100, [m(5), m(3)]))
+    handleChatEvent(qc, 'chat.message.created', m(1))
+    expect(recentOf(qc).map((x) => x.id)).toEqual([5, 3])
+  })
+
+  it('보내는 중인 내 메시지(음수 임시 id)는 맨 위에 두고 그 아래 id 순서 자리에 넣는다', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(chatKeys.messages(100), {
+      pages: [{ items: [m(-123), m(50), m(48)], nextCursor: null, hasMore: false }],
+      pageParams: [null],
+    })
+    handleChatEvent(qc, 'chat.message.created', m(49))
+    const items = qc.getQueryData<{ pages: { items: ChatMessageResponse[] }[] }>(chatKeys.messages(100))!.pages[0].items
+    expect(items.map((x) => x.id)).toEqual([-123, 50, 49, 48])
+  })
+
   it('스레드 캐시가 없어도 예외 없이 지나간다', () => {
     const qc = new QueryClient()
     expect(() => handleChatEvent(qc, 'chat.message.created', m(2))).not.toThrow()
