@@ -7,10 +7,10 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { PROBE_MODELS_EMPTY } from '@/lib/probeModelsError'
 import { renderScreen } from '@/test/renderScreen'
 
 import { AgentConnectionSection } from './components/AgentConnectionSection'
-import { PROBE_MODELS_EMPTY } from './components/credential-fields/probeModelsError'
 
 const AGENT_ID = 100
 const CREDENTIAL = `/api/v1/admin/agents/${AGENT_ID}/provider-credential`
@@ -601,6 +601,67 @@ test('Enter — 「모델 불러오기」 중에는 Enter 로도 [연결하기]�
   expect(state.posts).toEqual([])
   probe.release()
   await screen.findByTestId('credential-model-select')
+})
+
+// WP-1900: 연결을 바꾸면 앞 요청을 끊으므로, 앞 요청이 끝나기를 기다리지 않고 곧바로 다시 불러오거나 연결할 수 있다.
+test('모델 불러오기 도중 주소를 바꾸면 곧바로 다시 불러올 수 있다 (WP-1900)', async () => {
+  const probe = probeSequence(['hold', 'ok'])
+  const { user } = await renderSection(null, {}, [probe.handler])
+  await openOpencodeWithKey(user)
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await screen.findByRole('button', { name: '불러오는 중…' })
+  await user.click(screen.getByTestId('credential-base-url'))
+  await user.keyboard('{End}x')
+  const probeButton = screen.getByTestId('credential-probe-models')
+  expect(probeButton).toHaveTextContent('모델 불러오기')
+  expect(probeButton).toBeEnabled()
+  await user.click(probeButton)
+  expect(await screen.findByTestId('credential-model-select')).toBeInTheDocument()
+  probe.release()
+})
+
+test('모델 불러오기 도중 키를 바꾸면 앞 요청이 도는 동안에도 직접 입력 모델로 연결할 수 있다 (WP-1900)', async () => {
+  const probe = probeSequence(['hold', 'fail'])
+  const { user, state } = await renderSection(null, {}, [probe.handler])
+  const apiKey = await openOpencodeWithKey(user)
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await screen.findByRole('button', { name: '불러오는 중…' })
+  await user.click(apiKey)
+  await user.keyboard('{End}x')
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await user.click(await screen.findByTestId('credential-model-manual'))
+  await user.paste('gpt-4o-mini')
+  await user.click(screen.getByRole('button', { name: '연결하기' }))
+  expect(await screen.findByText('AI에 연결했습니다.')).toBeInTheDocument()
+  expect(state.posts).toHaveLength(1)
+  const posted = state.posts[0] as { model: string; providerConfig: { options: { apiKey: string } } }
+  expect(posted.model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+  // 바꾼 키(끝에 x)가 실려야 「지금 연결」로 등록한 것이다 — 앞 요청의 옛 키가 아니다.
+  expect(posted.providerConfig.options.apiKey).toBe('sk-openai-testx')
+  probe.release()
+})
+
+// WP-1900: 대화상자는 닫혀도 컴포넌트는 남아 있으므로, [취소]가 reset 을 건너뛰면 불러오는 중에 닫은 뒤 다시 열었을 때
+// 진행 표시·목록·오류·입력한 값이 그대로 남는다 — [취소]도 Radix 닫힘과 같은 reset 경로를 거쳐야 한다.
+test('모델 불러오기 도중 취소하면 다시 열었을 때 진행 표시·목록·값이 남지 않는다 (WP-1900)', async () => {
+  const probe = probeSequence(['hold', 'ok'])
+  const { user } = await renderSection(null, {}, [probe.handler])
+  await openOpencodeWithKey(user)
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await screen.findByRole('button', { name: '불러오는 중…' })
+
+  await user.click(screen.getByRole('button', { name: '취소' }))
+  await waitFor(() => expect(screen.queryByRole('heading', { name: 'AI 연결하기' })).not.toBeInTheDocument())
+
+  // 다시 열어 OpenAI 호환으로 돌아온다 — 남은 진행 표시·목록·오류 없이 입력 칸도 처음 상태여야 한다.
+  await user.click(await screen.findByTestId('oauth-token-register'))
+  await user.click(await screen.findByTestId('credential-provider-opencode'))
+  const probeButton = screen.getByTestId('credential-probe-models')
+  expect(probeButton).toHaveTextContent('모델 불러오기')
+  expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getByTestId('credential-api-key')).toHaveValue('')
+  probe.release()
 })
 
 test('Enter — 짧은 토큰으로 같은 틱에 Enter 를 두 번 눌러도 「짧다」 알림은 한 번이다', async () => {

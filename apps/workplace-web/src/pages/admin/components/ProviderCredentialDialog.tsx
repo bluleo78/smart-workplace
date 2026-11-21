@@ -4,7 +4,6 @@
 // - opencode: OpenAI 호환 엔드포인트(AWS Bedrock/OpenAI/Gemini/직접 입력) — baseURL+apiKey 로
 //   모델 목록을 프로브한 뒤 모델을 선택(또는 프로브 실패 시 수동 입력)해 등록한다.
 // 저장 후 평문(토큰/apiKey)은 다시 표시되지 않으며, 재발급 시 기존 active API 키는 자동 회수된다.
-import { useMutation } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -30,6 +29,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useRegisterAgentProviderCredential } from '@/hooks/queries/useAgentProviderCredential';
+import { useModelProbe } from '@/hooks/useModelProbe';
 import { useModelVisionChoice } from '@/hooks/useModelVisionChoice';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { withProviderPrefix } from '@/lib/ai/suggestionModel';
@@ -37,7 +37,8 @@ import { visionConfigFor } from '@/lib/ai/visionConfig';
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
 import { handleApiError } from '@/lib/api-error';
 import { type OpencodePresetKey, toOpencodeProviderConfig } from '@/lib/opencode-presets';
-import type { CredentialProvider, ModelOption } from '@/types/providerCredential';
+import { PROBE_MODELS_EMPTY } from '@/lib/probeModelsError';
+import type { CredentialProvider } from '@/types/providerCredential';
 
 import { AnthropicWorkspaceIdField } from './credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MAX, CLAUDE_TOKEN_MIN, ClaudeTokenField } from './credential-fields/ClaudeTokenField';
@@ -46,7 +47,6 @@ import {
   DEFAULT_OPENCODE_PRESET,
   OpencodeConnectionFields,
 } from './credential-fields/OpencodeConnectionFields';
-import { PROBE_MODELS_EMPTY, probeModelsErrorMessage } from './credential-fields/probeModelsError';
 
 interface Props {
   open: boolean;
@@ -75,29 +75,25 @@ export function ProviderCredentialDialog({
   const [presetKey, setPresetKey] = useState<PresetKey>(DEFAULT_OPENCODE_PRESET);
   const [baseUrl, setBaseUrl] = useState<string>(DEFAULT_OPENCODE_BASE_URL);
   const [apiKey, setApiKey] = useState('');
-  const [modelOptions, setModelOptions] = useState<ModelOption[] | null>(null);
-  const [probeError, setProbeError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
   const [manualModel, setManualModel] = useState('');
   // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 실측 함정(접두 없이 저장 →
   // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
   // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
   const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
-  // 직접 입력 칸의 안내 — 있으면 칸을 보인다. 프로브 실패, 또는 성공했지만 목록이 빈 경우(빈 Select 로는 고를 수 없다, WP-1895).
-  const manualNotice = probeError ?? (modelOptions?.length === 0 ? PROBE_MODELS_EMPTY : null);
   const resolvedModel = selectedModel || normalizedManualModel;
   // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다. 선택은 그때의 모델 id 에만 적용되어,
   // 모델을 바꾸면(직접 입력 중 다른 id 가 되면) 자동 감지로 보인다. 키를 칠 때마다 지우지 않으므로 같은 id 로 정리되는 입력엔 유지된다.
   const { vision, setVision, resetVision } = useModelVisionChoice(resolvedModel);
 
   const mutation = useRegisterAgentProviderCredential(agentUserId);
-  const probe = useMutation({
-    mutationFn: () =>
-      probeAgentModels({ providerConfig: toOpencodeProviderConfig(presetKey, baseUrl, apiKey) }),
-  });
-
-  // 연결 대상(프리셋·주소·키)이 바뀐 횟수 — 진행 중이던 「모델 불러오기」 응답이 바뀌기 전 대상의 것이면 버리려고 쓴다(WP-1622).
-  const probeGeneration = useRef(0);
+  // 「모델 불러오기」 — 요청 끊기·늦은 응답 버리기·진행 표시는 공용 훅이 맡는다(WP-1900). 연결이 바뀌면 clear 를 부른다.
+  const probe = useModelProbe((signal) =>
+    probeAgentModels({ providerConfig: toOpencodeProviderConfig(presetKey, baseUrl, apiKey) }, signal),
+  );
+  // 직접 입력 칸의 안내 — 있으면 칸을 보인다. 프로브 실패, 또는 성공했지만 목록이 빈 경우(빈 Select 로는 고를 수 없다, WP-1895) —
+  // 두 조건 모두 공용 훅의 결과(probe.models·probe.error) 기준이다(WP-1900).
+  const manualNotice = probe.error ?? (probe.models?.length === 0 ? PROBE_MODELS_EMPTY : null);
 
   /**
    * 불러온 모델 목록·고른 모델·직접 입력한 모델·불러오기 오류를 비운다(WP-1622).
@@ -105,9 +101,7 @@ export function ProviderCredentialDialog({
    *     「주소 B + 주소 A 에서 고른 모델」이 저장된다. 주소·키·프리셋이 바뀌면 모델을 다시 불러오게 한다.
    */
   const clearLoadedModels = () => {
-    probeGeneration.current += 1;
-    setModelOptions(null);
-    setProbeError(null);
+    probe.clear();
     setSelectedModel('');
     setManualModel('');
     resetVision();
@@ -124,6 +118,16 @@ export function ProviderCredentialDialog({
   };
 
   /**
+   * 닫기 공통 경로 — Radix 의 닫힘(오버레이·ESC·닫기 단추)과 푸터 [취소] 단추가 모두 이 함수를 거치게 한다(WP-1900).
+   * 왜: 대화상자는 닫혀도 숨겨질 뿐 언마운트되지 않아, [취소] 만 reset 을 건너뛰면 불러오는 중에 닫은 뒤 다시 열었을 때
+   *   옛 목록·오류·「불러오는 중…」이 그대로 남는다.
+   */
+  const requestClose = (open: boolean) => {
+    if (!open) reset();
+    onOpenChange(open);
+  };
+
+  /**
    * 연결 칸 하나(프리셋·주소·키)를 바꾸고 불러온 모델 상태를 비운다(WP-1622) — 앞서 불러온 모델은 지금 연결의 것이 아니다.
    * 칸마다 같은 두 줄(값 바꾸기 + clearLoadedModels)을 되풀이하지 않게 한 곳에 둔다(계정 창의 resettingProbe 와 같은 뜻).
    * 커링(setter 를 감싼 함수를 렌더 중에 만들기)으로 쓰면 React Compiler 린트(react-hooks/refs)가 렌더 중 ref 접근으로 보아,
@@ -136,24 +140,12 @@ export function ProviderCredentialDialog({
 
   // 모델 목록 프로브 — 성공·목록 있음 → Select 노출, 실패 또는 빈 목록 → 수동 입력 폴백 노출(WP-1895).
   const onProbeModels = async () => {
-    setProbeError(null);
-    setModelOptions(null);
     setSelectedModel('');
     resetVision();
-    const generation = probeGeneration.current;
-    try {
-      const res = await probe.mutateAsync();
-      // 불러오는 사이 주소·키·프리셋이 바뀌었으면 이 목록은 지금 연결의 것이 아니라 버린다.
-      if (generation !== probeGeneration.current) return;
-      setModelOptions(res.models);
-      // 목록이 있어 Select 가 직접 입력 칸을 대체할 때만 비운다 — 숨은 칸의 값이 resolvedModel 로 보내지지 않게(WP-1622).
-      // 빈 목록이면 직접 입력이 계속 보이므로 사용자가 친 id 를 남긴다(WP-1895).
-      if (res.models.length > 0) setManualModel('');
-    } catch (e) {
-      if (generation !== probeGeneration.current) return;
-      // 두 화면 공용 문구 규칙(WP-1884).
-      setProbeError(probeModelsErrorMessage(e));
-    }
+    // 목록이 있어(빈 목록이 아닐 때) Select 가 직접 입력 칸을 대체하므로 그때만 비운다 — 목록이 보이는데 숨은 칸의 값이
+    // 남아 resolvedModel 로 보내지는 것을 막는다(WP-1622·WP-1895). 끊기거나 실패·빈 목록이면 입력을 그대로 둔다.
+    const loadedModels = await probe.load();
+    if (loadedModels && loadedModels.length > 0) setManualModel('');
   };
 
   const visionConfig = visionConfigFor(vision, resolvedModel);
@@ -161,7 +153,7 @@ export function ProviderCredentialDialog({
   // [연결하기] 단추의 비활성 조건 — Enter 제출도 같은 조건을 지키도록 submit 맨 앞에서 함께 쓴다(WP-1622).
   // 「모델 불러오기」 중에는 모델이 곧 바뀌므로(목록 도착·오류) 그동안은 보내지 않는다.
   const submitDisabled =
-    mutation.isPending || (connectionType === 'opencode' && (probe.isPending || !resolvedModel));
+    mutation.isPending || (connectionType === 'opencode' && (probe.isLoading || !resolvedModel));
   // 요청 진행 중 표시(WP-1622) — isPending 은 다음 렌더에야 바뀌므로 같은 틱에 두 번 제출(Enter 자동 반복·Enter 뒤 클릭)되면
   // 둘 다 submitDisabled 를 통과한다. ref 는 즉시 바뀌어 두 번째 제출을 막는다.
   const inFlight = useRef(false);
@@ -235,13 +227,7 @@ export function ProviderCredentialDialog({
   const submitOnEnter = () => void submit();
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) reset();
-        onOpenChange(o);
-      }}
-    >
+    <Dialog open={open} onOpenChange={requestClose}>
       {/* 「AI 계정을 연결한다」 도움말 절(WP-1507) — 열린 대화상자가 포커스보다 앞서므로 안쪽 칸에는 따로 달지 않는다. */}
       <DialogContent data-help="agent.run.account">
         <DialogHeader>
@@ -309,13 +295,14 @@ export function ProviderCredentialDialog({
                 variant="outline"
                 size="sm"
                 onClick={() => void onProbeModels()}
-                disabled={probe.isPending || !baseUrl.trim() || !apiKey}
+                disabled={probe.isLoading || !baseUrl.trim() || !apiKey}
                 data-testid="credential-probe-models"
               >
-                {probe.isPending ? '불러오는 중…' : '모델 불러오기'}
+                {probe.isLoading ? '불러오는 중…' : '모델 불러오기'}
               </Button>
 
-              {modelOptions != null && modelOptions.length > 0 ? (
+              {/* 목록이 있어야 Select 로 고를 수 있다 — 빈 목록이면 아래 직접 입력 폴백으로(WP-1895). */}
+              {probe.models != null && probe.models.length > 0 ? (
                 <div className="space-y-1.5">
                   <Label htmlFor="credential-model-select">모델</Label>
                   <Select value={selectedModel} onValueChange={setSelectedModel}>
@@ -326,7 +313,7 @@ export function ProviderCredentialDialog({
                       <SelectValue placeholder="선택…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {modelOptions.map((m) => (
+                      {probe.models.map((m) => (
                         <SelectItem key={m.id} value={m.id}>
                           {m.label}
                         </SelectItem>
@@ -355,7 +342,7 @@ export function ProviderCredentialDialog({
               ) : null}
 
               {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패·빈 목록 → 수동 입력)에서만 노출. */}
-              {modelOptions != null || probeError ? (
+              {probe.models != null || probe.error ? (
                 <VisionInputSelect
                   id="credential-vision"
                   testId="credential-vision"
@@ -368,7 +355,7 @@ export function ProviderCredentialDialog({
 
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" onClick={() => requestClose(false)}>
             취소
           </Button>
           <Button onClick={() => void submit()} disabled={submitDisabled}>

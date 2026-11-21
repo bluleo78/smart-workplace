@@ -5,8 +5,7 @@
 // - opencode: 프리셋 선택 → baseURL/apiKey 입력 → 모델 프로브(실패 시 수동 입력 폴백) → 등록.
 // 별도 다이얼로그가 아닌 섹션 내 인라인 폼으로 둔다 — 소비처가 1곳뿐이라 다이얼로그 추출은 과설계(YAGNI).
 
-import { useMutation } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import {
@@ -17,9 +16,9 @@ import {
   SelectValue,
 } from '@/components/overlay/select';
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
+import { PROBE_MODELS_EMPTY } from '@/lib/probeModelsError';
 import { AnthropicWorkspaceIdField } from '@/pages/admin/components/credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MIN } from '@/pages/admin/components/credential-fields/ClaudeTokenField';
-import { PROBE_MODELS_EMPTY, probeModelsErrorMessage } from '@/pages/admin/components/credential-fields/probeModelsError';
 
 import { probeMyAssistantModels } from '../../api/models';
 import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
@@ -42,6 +41,7 @@ import {
 } from '../../hooks/queries/useAssistant';
 import { useAssistantVisionSetting } from '../../hooks/useAssistantVisionSetting';
 import { useAuth } from '../../hooks/useAuth';
+import { useModelProbe } from '../../hooks/useModelProbe';
 import { useModelVisionChoice } from '../../hooks/useModelVisionChoice';
 import { providerIdOf, withProviderPrefix } from '../../lib/ai/suggestionModel';
 import { visionConfigFor } from '../../lib/ai/visionConfig';
@@ -49,7 +49,7 @@ import { handleApiError } from '../../lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey, presetLabelFor } from '../../lib/opencode-presets';
 import { cn } from '../../lib/utils';
 import type { ThinkingDepth } from '../../types/assistant';
-import type { CredentialProvider, ModelOption } from '../../types/providerCredential';
+import type { CredentialProvider } from '../../types/providerCredential';
 
 export function PersonalAssistantSection() {
   // 훅은 컴포넌트 최상위에서만 호출 — 핸들러 안에서 호출 금지.
@@ -86,16 +86,12 @@ export function PersonalAssistantSection() {
   const [presetKey, setPresetKey] = useState<OpencodePresetKey>('amazon-bedrock-openai');
   const [baseUrl, setBaseUrl] = useState<string>(OPENCODE_PRESETS[0].baseUrl);
   const [apiKey, setApiKey] = useState('');
-  const [probedModels, setProbedModels] = useState<ModelOption[] | null>(null);
-  const [probeError, setProbeError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
   const [manualModel, setManualModel] = useState('');
   // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 실측 함정(접두 없이 저장 →
   // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
   // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
   const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
-  // 직접 입력 칸의 안내 — 있으면 칸을 보인다. 프로브 실패, 또는 성공했지만 목록이 빈 경우(빈 Select 로는 고를 수 없다, WP-1895).
-  const manualNotice = probeError ?? (probedModels?.length === 0 ? PROBE_MODELS_EMPTY : null);
   const resolvedModel = selectedModel || normalizedManualModel;
   // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다. 선택은 그때의 모델 id 에만 적용되어,
   // 모델을 바꾸면(직접 입력 중 다른 id 가 되면) 자동 감지로 보인다. 키를 칠 때마다 지우지 않으므로 같은 id 로 정리되는 입력엔 유지된다.
@@ -109,21 +105,19 @@ export function PersonalAssistantSection() {
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const nameValue = nameDraft ?? status?.name ?? '';
 
-  const probe = useMutation({
-    mutationFn: () =>
-      probeMyAssistantModels({
-        providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } },
-      }),
-  });
-
-  // WP-1893: 「모델 불러오기」 세대 번호 — 연결(프리셋·주소·키)이 바뀔 때마다 올려, 그 전에 보낸 응답이
-  // 늦게 와도 바뀐 연결 칸에 덮어쓰지 못하게 버린다(관리자 다이얼로그 WP-1622 와 같은 규칙).
-  const probeGeneration = useRef(0);
-  // 불러온 모델 목록·오류·선택을 비우고 세대를 올린다 — 진행 중이던 응답은 onProbeModels 에서 버려진다.
+  // 「모델 불러오기」 — 요청 끊기·늦은 응답 버리기·진행 표시는 공용 훅이 맡는다(WP-1900). 연결이 바뀌면 clear 를 부른다.
+  const probe = useModelProbe((signal) =>
+    probeMyAssistantModels(
+      { providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } } },
+      signal,
+    ),
+  );
+  // 직접 입력 칸의 안내 — 있으면 칸을 보인다. 프로브 실패, 또는 성공했지만 목록이 빈 경우(빈 Select 로는 고를 수 없다, WP-1895) —
+  // 두 조건 모두 공용 훅의 결과(probe.models·probe.error) 기준이다(WP-1900).
+  const manualNotice = probe.error ?? (probe.models?.length === 0 ? PROBE_MODELS_EMPTY : null);
+  // 불러온 모델 목록·오류를 비우고 앞 요청을 끊는다(훅) + 고른 모델·직접 입력·이미지 입력 선택을 비운다.
   const clearLoadedModels = () => {
-    probeGeneration.current += 1;
-    setProbedModels(null);
-    setProbeError(null);
+    probe.clear();
     setSelectedModel('');
     setManualModel('');
     resetVision();
@@ -149,26 +143,13 @@ export function PersonalAssistantSection() {
 
   // 모델 목록 프로브 — 성공·목록 있음 → Select 노출, 실패 또는 빈 목록 → 수동 입력 폴백 노출(WP-1895).
   const onProbeModels = async () => {
-    setProbeError(null);
-    setProbedModels(null);
     setSelectedModel('');
     resetVision();
-    // 이 요청의 세대 — 시작할 때 올려 마지막 요청만 남긴다. 응답이 올 때 세대가 달라졌으면(그 사이 연결을 바꾸거나
-    // 다시 불러옴) 앞 요청의 응답이므로 버린다(WP-1893).
-    probeGeneration.current += 1;
-    const generation = probeGeneration.current;
-    try {
-      const res = await probe.mutateAsync();
-      if (generation !== probeGeneration.current) return;
-      setProbedModels(res.models);
-      // 목록이 와서 Select 가 직접 입력 칸을 대체할 때만 비운다 — 숨은 값이 resolvedModel 로 정해져 등록되지 않게(WP-1893,
-      // 관리자 WP-1622 와 같은 뜻). 실패·빈 목록이면 직접 입력이 계속 보이므로 사용자가 친 id 를 남긴다(WP-1895).
-      if (res.models.length > 0) setManualModel('');
-    } catch (e) {
-      if (generation !== probeGeneration.current) return;
-      // 두 화면 공용 문구 규칙(WP-1884).
-      setProbeError(probeModelsErrorMessage(e));
-    }
+    // 목록이 있어(빈 목록이 아닐 때) Select 가 직접 입력 칸을 대체하므로 그때만 비운다 — 칸이 사라지는데 값이 남아
+    // resolvedModel 이 숀은 id 로 정해져 등록되지 않게(WP-1893·WP-1895, 관리자 WP-1622 와 같은 뜻).
+    // 끊기거나 실패·빈 목록이면 입력을 그대로 둔다.
+    const loadedModels = await probe.load();
+    if (loadedModels && loadedModels.length > 0) setManualModel('');
   };
 
   const visionConfig = visionConfigFor(vision, resolvedModel);
@@ -224,7 +205,7 @@ export function PersonalAssistantSection() {
   // 「모델 불러오기」 중에는 모델이 곧 바뀌므로(목록 도착·오류) 그동안은 등록하지 않는다 — 다시 불러오는 사이
   // 숨은 직접 입력 값이 등록되지 않게(WP-1893·WP-1895, 관리자 WP-1622 와 같은 조건).
   const submitDisabled =
-    register.isPending || (connectionType === 'opencode' && (probe.isPending || !resolvedModel));
+    register.isPending || (connectionType === 'opencode' && (probe.isLoading || !resolvedModel));
 
   // 이름 변경 — 명시적 저장(키 입력마다 PUT 금지). 빈값 거부, 성공 시 서버값으로 재동기화.
   const handleNameSave = async () => {
@@ -572,13 +553,14 @@ export function PersonalAssistantSection() {
                   variant="outline"
                   size="sm"
                   onClick={() => void onProbeModels()}
-                  disabled={probe.isPending || !baseUrl.trim() || !apiKey}
+                  disabled={probe.isLoading || !baseUrl.trim() || !apiKey}
                   data-testid="credential-probe-models"
                 >
-                  {probe.isPending ? '불러오는 중…' : '모델 불러오기'}
+                  {probe.isLoading ? '불러오는 중…' : '모델 불러오기'}
                 </Button>
 
-                {probedModels != null && probedModels.length > 0 ? (
+                {/* 목록이 있어야 Select 로 고를 수 있다 — 빈 목록이면 아래 직접 입력 폴백으로(WP-1895). */}
+                {probe.models != null && probe.models.length > 0 ? (
                   <div className="space-y-1.5">
                     <Label htmlFor="credential-model-select">모델</Label>
                     <Select value={selectedModel} onValueChange={setSelectedModel}>
@@ -589,7 +571,7 @@ export function PersonalAssistantSection() {
                         <SelectValue placeholder="선택…" />
                       </SelectTrigger>
                       <SelectContent>
-                        {probedModels.map((m) => (
+                        {probe.models.map((m) => (
                           <SelectItem key={m.id} value={m.id}>
                             {m.label}
                           </SelectItem>
@@ -619,7 +601,7 @@ export function PersonalAssistantSection() {
                 ) : null}
 
                 {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패·빈 목록 → 수동 입력)에서만 노출. */}
-                {probedModels != null || probeError ? (
+                {probe.models != null || probe.error ? (
                   <VisionInputSelect
                     id="credential-vision"
                     testId="credential-vision"
