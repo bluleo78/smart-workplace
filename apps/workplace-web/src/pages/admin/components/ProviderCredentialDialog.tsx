@@ -128,7 +128,7 @@ export function ProviderCredentialDialog({
   };
 
   /**
-   * 연결 칸 하나(프리셋·주소·키)를 바꾸고 불러온 모델 상태를 비운다(WP-1622) — 앞서 불러온 모델은 지금 연결의 것이 아니다.
+   * 연결 칸 하나(프리셋·주소·키·연결 종류)를 바꾸고 불러온 모델 상태를 비운다(WP-1622·WP-1900) — 앞서 불러온 모델은 지금 연결의 것이 아니다.
    * 칸마다 같은 두 줄(값 바꾸기 + clearLoadedModels)을 되풀이하지 않게 한 곳에 둔다(계정 창의 resettingProbe 와 같은 뜻).
    * 커링(setter 를 감싼 함수를 렌더 중에 만들기)으로 쓰면 React Compiler 린트(react-hooks/refs)가 렌더 중 ref 접근으로 보아,
    * 칸의 onChange 안에서 (setter, 값) 으로 부른다. 프리셋을 바꿀 때 baseURL 템플릿은 OpencodeConnectionFields 가 채운다.
@@ -244,9 +244,10 @@ export function ProviderCredentialDialog({
         <div className="space-y-4 min-h-[420px]">
           <div className="space-y-1.5">
             <Label>연결 방식</Label>
+            {/* 연결 종류를 바꿔도 프로브 결과만 비우면 고른 모델이 남아 화면에 없는 모델로 연결된다 — 개인 비서와 같은 뜻(WP-1900 리뷰 반려 ②). */}
             <RadioGroup
               value={connectionType}
-              onValueChange={(v) => setConnectionType(v as CredentialProvider)}
+              onValueChange={(v) => setClearingModels(setConnectionType, v as CredentialProvider)}
               className="grid grid-cols-1 gap-2 sm:grid-cols-2"
             >
               <Label

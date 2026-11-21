@@ -453,9 +453,9 @@ export function PersonalAssistantSection() {
                 value={connectionType}
                 onValueChange={(v) => {
                   setConnectionType(v as CredentialProvider);
-                  // 연결 종류를 바꾸면 앞 요청을 끊고 목록·오류·진행 표시를 비운다 — 남긴 채 opencode 로
-                  // 돌아오면 늦게 온 목록·오류가 그대로 보인다(WP-1900 리뷰 후속).
-                  probe.clear();
+                  // 연결 종류를 바꾸면 앞 요청과 함께 고른 모델·직접 입력·이미지 입력 선택도 비운다 — 요청만 끊으면
+                  // 남은 selectedModel 이 화면에 없는 모델로 「등록」이 켜진다(WP-1900 리뷰 반려 ①).
+                  clearLoadedModels();
                 }}
                 className="grid grid-cols-1 gap-2 sm:grid-cols-2"
               >

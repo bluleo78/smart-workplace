@@ -664,6 +664,23 @@ test('모델 불러오기 도중 취소하면 다시 열었을 때 진행 표시
   probe.release()
 })
 
+// WP-1900 리뷰 반려 ②: 개인 비서와 같은 뜻 — 연결 종류를 바꾸면 고른 모델까지 비워야, 화면에 없는 모델로 연결되지 않는다.
+test('모델을 고른 뒤 연결 종류를 바꿨다 돌아오면 [연결하기]가 막힌다 (WP-1900)', async () => {
+  const probe = probeApi({ status: 200, models: MODELS })
+  const { user, state } = await renderSection(null, {}, [probe.handler])
+  await openOpencodeWithKey(user)
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await user.click(await screen.findByTestId('credential-model-select'))
+  await user.click(await screen.findByRole('option', { name: 'GPT-OSS 120B' }))
+  expect(screen.getByRole('button', { name: '연결하기' })).toBeEnabled()
+
+  await user.click(await screen.findByTestId('credential-provider-anthropic'))
+  await user.click(await screen.findByTestId('credential-provider-opencode'))
+  expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '연결하기' })).toBeDisabled()
+  expect(state.posts).toEqual([])
+})
+
 test('Enter — 짧은 토큰으로 같은 틱에 Enter 를 두 번 눌러도 「짧다」 알림은 한 번이다', async () => {
   const { user, state } = await renderSection(null)
   const workspaceId = await openWithToken(user, SHORT_TOKEN_16)

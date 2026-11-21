@@ -134,6 +134,9 @@ async function pick(user: UserEvent, trigger: HTMLElement, name: string) {
 
 const modelCombo = () => screen.getByRole('combobox', { name: '모델' })
 
+/** 늦게 난 응답이 컴포넌트에 도착할 시간을 준다 — 끝난 뒤에 목록·오류가 남지 않는지 확인하기 위한 자리(WP-1900). */
+const letLateResponseArrive = () => new Promise((r) => setTimeout(r, 50))
+
 describe('개인 비서 — 미설정 등록 폼', () => {
   // opencode 등록의 전 과정 — 프리셋 기본 baseURL → 프로브 payload → 고른 모델로 제출 payload → 등록 뒤 재조회로 배지 반영.
   test('opencode 등록 — 프리셋 baseURL·프로브 payload·모델 선택·제출 payload·연결 배지', async () => {
@@ -665,14 +668,32 @@ describe('개인 비서 — 늦게 온 프로브 응답 (WP-1893)', () => {
     expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
   })
 
+  // WP-1900 리뷰 반려 ①: 연결 종류를 바꿔도 clearLoadedModels 를 부르지 않으면 고른 모델·직접 입력이 남아,
+  // opencode 로 돌아왔을 때 화면에 없는 모델로 「등록」이 켜진다.
+  test('모델을 고른 뒤 연결 종류를 바꿨다 돌아오면 「등록」이 막힌다 (WP-1900)', async () => {
+    const { user, bodies } = open({ status: unconfigured, probeModels: BEDROCK_MODELS })
+    await probeOpenAi(user)
+    await pick(user, await screen.findByTestId('credential-model-select'), 'GPT-OSS 120B')
+    expect(screen.getByRole('button', { name: '등록' })).toBeEnabled()
+
+    await user.click(await screen.findByTestId('credential-provider-anthropic'))
+    await user.click(await screen.findByTestId('credential-provider-opencode'))
+    // 목록 칸이 사라졌고 남은 selectedModel 도 비어 있어 등록이 막혀야 한다(WP-1893·1895·1622 가 막던 숨은 id 등록).
+    expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '등록' })).toBeDisabled()
+    expect(bodies.credential).toHaveLength(0)
+  })
+
   // WP-1900 리뷰 후속: 연결 종류를 바꿔도 clear 를 부르지 않으면 앞 요청이 계속 돌아, 응답이 오면 늦은 목록·오류가
   // 남아 다시 opencode 로 돌아왔을 때 그대로 보인다.
-  test('연결 종류를 바꾸면 진행 중이던 프로브가 끊기고 늦은 목록·오류가 남지 않는다 (WP-1900)', async () => {
+  test('연결 종류를 바꾸면 진행 중이던 프로브가 끊기고 끝난 늦은 응답도 목록·오류로 남지 않는다 (WP-1900)', async () => {
     const { promise: held, release } = gate()
+    let responded = false
     const { user } = open({
       status: unconfigured,
       probeReply: async () => {
         await held
+        responded = true
         return HttpResponse.json({ models: BEDROCK_MODELS })
       },
     })
@@ -680,6 +701,9 @@ describe('개인 비서 — 늦게 온 프로브 응답 (WP-1893)', () => {
     await waitFor(() => expect(screen.getByTestId('credential-probe-models')).toHaveTextContent('불러오는 중…'))
     await user.click(await screen.findByTestId('credential-provider-anthropic'))
     release()
+    // 늦은 응답이 끝난 뒤에 단언한다 — 취소된 요청이라 결과를 받지 못해야 목록·오류가 없다.
+    await waitFor(() => expect(responded).toBe(true))
+    await letLateResponseArrive()
     await user.click(await screen.findByTestId('credential-provider-opencode'))
     expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
     expect(screen.queryByTestId('credential-model-manual')).not.toBeInTheDocument()
