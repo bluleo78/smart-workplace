@@ -57,7 +57,7 @@ import { mailSubjectText } from '@/lib/mailSubject'
 import { firstSummaryLine } from '@/lib/mailSummary'
 import { permanentDeleteState } from '@/lib/mailTrashActions'
 import { mailBreadcrumbItems, mailBreadcrumbText, mailClassificationActive, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
-import { failedWithoutData } from '@/lib/queryFailure'
+import { failedWithoutData, showsLoadError } from '@/lib/queryFailure'
 import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { SELECTED_BG_CLASS } from '@/lib/selectionStyles'
 import type { ShareTarget } from '@/lib/shareTarget'
@@ -674,7 +674,11 @@ function MessageDetailPanel({
   /** WP-1341 모바일 ⋯ 「분류 바꾸기」 — 분류 시트를 연다(시트는 메일함 화면이 그린다). */
   onOpenCategorySheet: (messageId: number, current: MailCategoryState) => void
 }) {
-  const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
+  // WP-1908: 쿼리 결과를 통째로 받는다 — LoadErrorState 가 다시 시도·잠금을 꺼내고, 실패 판정은 다시 부르는 중에도 유지돼야 한다.
+  const messageQuery = useMailMessage(messageId)
+  const { data: detail, isLoading } = messageQuery
+  // 실패 안내 판정 — 첨부 뷰어 판정과 오류 분기가 같은 값을 쓴다(WP-1908).
+  const loadFailed = showsLoadError(messageQuery)
   // 비서가 있을 때만 요약 조회 — aiAvailable false면 fetch 자체를 생략해 불필요한 API 호출을 막는다.
   const aiAvailable = useAiAvailable()
   // 휴대폰 폭 판정 — 모바일은 상단바·하단 액션 바 배치(WP-400)로 그린다. 조기 return 앞(훅 순서 고정).
@@ -728,7 +732,8 @@ function MessageDetailPanel({
   )
   // WP-280 첨부 뷰어 — 묶음은 목록에 보이는 첨부(인라인 이미지 제외). 상세 조회가 끝났거나(실패 포함) 열린 메일이 없으면
   // "찾을 수 없음"을 판정한다 — 메일 없이·조회 실패로 남은 ?preview 가 뷰어도 안내도 없이 URL 에 남지 않게(다른 호스트와 같은 규칙).
-  const attachmentViewer = useMailAttachmentViewer(messageId, listedAttachments, messageId == null || detail != null || isError)
+  // 실패 판정은 화면과 같은 showsLoadError — 실패 뒤 다시 부르는 중(isError 가 잠시 false)에도 판정이 미정으로 돌아가지 않게(WP-1908).
+  const attachmentViewer = useMailAttachmentViewer(messageId, listedAttachments, messageId == null || detail != null || loadFailed)
   // 모든 분기(빈 상태·로딩·오류·상세)를 같은 Fragment 의 같은 자리에 뷰어 노드와 함께 그린다 — 분기가 바뀌어도 뷰어가 리마운트되지 않게.
   const withViewer = (body: ReactNode) => (
     <>
@@ -765,7 +770,8 @@ function MessageDetailPanel({
     ) : (
       body
     )
-  if (isLoading) {
+  // 첫 조회가 실패한 뒤 다시 부르는 중(pending)에도 로딩이 아니라 오류 안내를 유지한다(WP-1908) — 초점이 단추에 남는다.
+  if (isLoading && !failedWithoutData(messageQuery)) {
     return withViewer(
       withMobileBar(
         <div className="p-6 text-sm text-muted-foreground">
@@ -775,13 +781,13 @@ function MessageDetailPanel({
       ),
     )
   }
-  if (isError || !detail) {
+  if (loadFailed || !detail) {
+    // 숨은 h2 는 안내와 같은 부모 안에 둔다 — LoadErrorState 가 성공 뒤 초점을 부모 영역 안에서 옮기기 때문.
     return withViewer(
       withMobileBar(
-        <div className="p-6 text-center">
+        <div>
           <MailDetailSrHeading />
-          <p className="text-sm text-destructive mb-2">메일을 불러오지 못했습니다</p>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+          <LoadErrorState title="메일을 불러오지 못했습니다" queries={[messageQuery]} testId="mail-detail-error" className="px-6" />
         </div>,
       ),
     )
@@ -1301,13 +1307,15 @@ function MailInbox() {
   // 탭 제목 — 「{폴더} · 메일」(WP-814). 계정이 없으면(연결 안내 화면) 폴더가 없으니 「메일」만.
   useDocumentTitle([(accounts?.length ?? 0) > 0 && view.title, '메일'])
 
-  const {
-    data: fetchedMessages, isLoading, isError, refetch: refetchMessages,
-    fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
-  } = useMailMessages(
+  // WP-1908: 목록 오류 안내(LoadErrorState)가 쿼리 결과를 통째로 받아 다시 시도·잠금을 처리한다.
+  const messagesQuery = useMailMessages(
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
     { folderId: view.folderId, flagged: flaggedView },
   )
+  const {
+    data: fetchedMessages, isLoading,
+    fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
+  } = messagesQuery
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
@@ -2072,13 +2080,11 @@ function MailInbox() {
               onFetchOlder={fetchOlder}
             />
           )}
-          {isLoading ? (
+          {isLoading && !failedWithoutData(messagesQuery) ? (
             <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
-          ) : isError ? (
-            <div className="p-6 text-center">
-              <p className="text-sm text-destructive mb-2">목록을 불러오지 못했습니다</p>
-              <Button variant="outline" size="sm" onClick={() => refetchMessages()}>다시 시도</Button>
-            </div>
+          ) : showsLoadError(messagesQuery) ? (
+            // 첫 조회 실패 뒤 다시 부르는 중에도 안내·초점을 유지한다(WP-1908).
+            <LoadErrorState title="목록을 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" />
           ) : !messages || messages.length === 0 ? (
             // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
             view.kind === 'needsReply' ? (
