@@ -65,7 +65,7 @@ async function settledMailButton(card: HTMLElement, blocked: boolean) {
     // 막힌 동안은 감싸개가 Tab 정지점이다.
     await waitFor(() => expect(wrapper).toHaveAttribute('tabindex', '0'))
     // 안의 막힌 단추는 따로 노출되지 않는다.
-    expect(within(card).queryByRole('button', { name: '메일 쓰기' })).not.toBeInTheDocument()
+    expect(wrapper.querySelector('[inert]')).not.toBeNull()
     return wrapper
   }
   await waitFor(() => expect(within(card).getByRole('button', { name: '메일 쓰기' })).not.toHaveAttribute('aria-disabled'))

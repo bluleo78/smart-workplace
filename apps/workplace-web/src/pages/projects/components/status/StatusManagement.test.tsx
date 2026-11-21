@@ -106,7 +106,7 @@ describe('StatusManagement', () => {
     expect(wrapper).toHaveAttribute('aria-label', '할 일 범주에 상태 추가 — 상태는 프로젝트당 20개까지예요')
     // 막힌 동안은 감싸개가 이름 있는 button 역할이고 안의 disabled 버튼은 따로 노출되지 않는다.
     expect(screen.getByRole('button', { name: '할 일 범주에 상태 추가 — 상태는 프로젝트당 20개까지예요' })).toBe(wrapper)
-    expect(screen.queryByRole('button', { name: '할 일 범주에 상태 추가' })).not.toBeInTheDocument()
+    expect(button.closest('[inert]')).not.toBeNull()
     expect(wrapper).toHaveAttribute('data-add-slot', 'TODO')
     expect(button).not.toHaveAttribute('data-add-slot')
 

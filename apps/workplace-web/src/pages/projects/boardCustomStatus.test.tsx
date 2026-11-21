@@ -188,7 +188,23 @@ describe('보드 — 프로젝트 상태 컬럼', () => {
     const name = '진행 중에 상태 추가 — 상태는 프로젝트당 20개까지예요'
     expect(screen.getByRole('button', { name })).toBe(wrapper)
     // 안의 막힌 ＋ 는 따로 노출되지 않는다.
-    expect(screen.queryByRole('button', { name: '진행 중에 상태 추가' })).not.toBeInTheDocument()
+    expect(add.closest('[inert]')).not.toBeNull()
+  })
+
+  // WP-1856: 키보드로 20번째 상태를 저장하면 Radix 가 돌려줄 트리거가 막혀 있다 — 초점이 body 로 빠지지 않고 감싸개로 간다.
+  test('키보드로 띠 ＋ 에서 20번째 상태를 저장하면 초점이 감싸개로 돌아온다', async () => {
+    const statuses = boardStatuses()
+    for (let i = 0; i < 11; i++) statuses.push(makeProjectStatus({ id: 100 + i, name: `추가 상태 ${i + 1}`, category: 'IN_PROGRESS', position: 20 + i }))
+    const { user } = await openBoard(boardApi({ statuses }))
+    const add = screen.getByTestId('board-band-add-IN_PROGRESS')
+    add.focus()
+    await user.keyboard('{Enter}')
+    await submitName(user, '마지막')
+    await waitFor(() => expect(screen.queryByTestId('status-name-input')).not.toBeInTheDocument())
+    await waitFor(() => expect(add).toBeDisabled())
+    expect(add.closest('[data-disabled-reason-wrapper]')).toHaveFocus()
+    // 상한이 풀려도 팝오버가 저절로 다시 열리지 않는다(막힐 때 open 을 접었다).
+    expect(screen.queryByTestId('status-name-input')).not.toBeInTheDocument()
   })
 
   test('서버가 중복 이름(409)으로 거절하면 그 자리에 오류를 보이고 입력을 남긴다', async () => {

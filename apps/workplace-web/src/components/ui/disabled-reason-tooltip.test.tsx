@@ -147,24 +147,24 @@ describe('DisabledReasonTooltip', () => {
     const wrap = getByTestId('wrap')
     expect(screen.getByRole('button', { name: '상태 추가 — 꽉 찼어요' })).toBe(wrap)
     expect(wrap).toHaveAttribute('aria-disabled', 'true')
-    // 안의 막힌 버튼은 숨겨져 버튼이 하나만 노출된다(중첩·중복 없음).
-    expect(screen.getAllByRole('button')).toHaveLength(1)
+    // 안쪽은 inert 라 안의 막힌 버튼은 보조기기에서 숨고 초점·클릭도 받지 않는다(중첩·중복 버튼 없음).
+    // (testing-library 는 inert 를 접근 불가로 치지 않아 속성으로 확인한다.)
     const inner = wrap.querySelector('button')!
+    expect(inner.closest('[inert]')).not.toBeNull()
     // 풀리면 같은 노드가 남은 채 역할·숨김이 사라지고 진짜 버튼이 이름 「추가」로 노출된다.
     rerender(view(null))
     expect(getByTestId('wrap')).toBe(wrap)
     expect(wrap.querySelector('button')).toBe(inner)
     expect(wrap).not.toHaveAttribute('role')
     expect(wrap).not.toHaveAttribute('aria-disabled')
-    expect(wrap.querySelector('[aria-hidden]')).toBeNull()
+    expect(wrap.querySelector('[inert]')).toBeNull()
     expect(screen.getByRole('button', { name: '추가' })).toBe(inner)
-    expect(screen.getAllByRole('button')).toHaveLength(1)
   })
 
-  it('이름이 없으면(label·aria-label 없음) 막혀도 역할·숨김을 달지 않는다', () => {
+  it('이름이 없으면(label·aria-label 없음) 막혀도 역할·inert 를 달지 않는다', () => {
     const { getByTestId } = render(wrapEl({ reason: '이유' }))
     expect(getByTestId('w')).not.toHaveAttribute('role')
-    expect(getByTestId('w').querySelector('[aria-hidden]')).toBeNull()
+    expect(getByTestId('w').querySelector('[inert]')).toBeNull()
   })
 
   it('aria-label 은 호출자가 줄 때만 있고(기본값 없음), reason 이 null 이면 없다', () => {

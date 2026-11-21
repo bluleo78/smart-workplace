@@ -6,7 +6,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
 
-import { DISABLED_REASON_INNER_ATTR, DISABLED_REASON_WRAPPER_ATTR, FOCUSABLE } from '@/hooks/useDialogFocusRestore'
+import { DISABLED_REASON_WRAPPER_ATTR, FOCUSABLE } from '@/hooks/useDialogFocusRestore'
 import { focusLost, isKeyboardFocused } from '@/hooks/useRestoreFocusOnExit'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -98,9 +98,10 @@ export function DisabledReasonTooltip({
         className,
       )}
     >
-      {/* 막혀 이름을 가진 동안은 안의 막힌 버튼을 보조기기에서 숨긴다 — 감싸개가 버튼 하나로 읽히므로 중첩·중복 버튼을 만들지 않는다.
-          reason 이 바뀌어도 같은 노드를 두고 속성만 바꾸어 다시 만들어지지 않게 한다. display: contents 라 배치는 그대로. */}
-      <span {...{ [DISABLED_REASON_INNER_ATTR]: '' }} className="contents" aria-hidden={accessibleName ? true : undefined}>
+      {/* 막혀 이름을 가진 동안은 안쪽을 inert 로 막는다 — 보조기기에서 숨기고(감싸개가 버튼 하나로 읽힌다) 초점·클릭도 막아,
+          aria-disabled + tabIndex -1 로 남은 안의 단추가 숨겨진 채 초점을 받는 일이 없다. 클릭·호버는 감싸개로 간다.
+          reason 이 바뀌어도 같은 노드를 두고 속성만 바꾸어 다시 만들어지지 않게 한다. 안쪽 칸은 감싸개 폭을 채워(flex) 배치를 그대로 둔다. */}
+      <span className="flex min-w-0 flex-1" inert={accessibleName ? true : undefined}>
         {children}
       </span>
     </span>

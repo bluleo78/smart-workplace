@@ -76,16 +76,16 @@ test('일정 잡기는 참석자를 채운 새 일정으로 간다', async () =>
 test('이메일이 없으면 메일 쓰기가 막히고 이메일 없음', async () => {
   const view = setup([http.get('/api/v1/contacts/members/:id', () => HttpResponse.json(detail({ email: null })))])
   const bar = await actions()
-  await waitFor(() => expect(bar.getByRole('button', { name: '메일 쓰기' })).toHaveAttribute('aria-disabled', 'true'))
-  await view.user.hover(bar.getByRole('button', { name: '메일 쓰기' }))
+  await waitFor(() => expect(bar.getByRole('button', { name: /^메일 쓰기 — / })).toHaveAttribute('aria-disabled', 'true'))
+  await view.user.hover(bar.getByRole('button', { name: /^메일 쓰기 — / }))
   expect(await screen.findByRole('tooltip')).toHaveTextContent('이메일 없음')
 })
 
 test('메일 계정이 없으면 메일 계정 연결 필요', async () => {
   const view = setup([http.get('/api/v1/mail/accounts', () => HttpResponse.json([]))])
   const bar = await actions()
-  await waitFor(() => expect(bar.getByRole('button', { name: '메일 쓰기' })).toHaveAttribute('aria-disabled', 'true'))
-  await view.user.hover(bar.getByRole('button', { name: '메일 쓰기' }))
+  await waitFor(() => expect(bar.getByRole('button', { name: /^메일 쓰기 — / })).toHaveAttribute('aria-disabled', 'true'))
+  await view.user.hover(bar.getByRole('button', { name: /^메일 쓰기 — / }))
   expect(await screen.findByRole('tooltip')).toHaveTextContent('메일 계정 연결 필요')
 })
 
