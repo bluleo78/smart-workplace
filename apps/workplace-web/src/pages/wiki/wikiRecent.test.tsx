@@ -50,7 +50,12 @@ describe('노트 최근 화면', () => {
 
   test('emptyState — 「최근 노트 없음」', async () => {
     renderScreen(<WikiRecentView />, { path: '/wiki/recent', handlers: [recentHandler({ items: [], nextCursor: null })] })
-    expect(await screen.findByTestId('wiki-recent-empty')).toHaveTextContent('최근 노트 없음')
+    const empty = await screen.findByTestId('wiki-recent-empty')
+    expect(empty).toHaveTextContent('최근 노트 없음')
+    // WP-1924: 드라이브 「최근」과 같은 빈 상태 규격(제목 14px 500, 600 아님).
+    const title = within(empty).getByText('최근 노트 없음')
+    expect(title).toHaveClass('text-sm', 'font-medium')
+    expect(title).not.toHaveClass('font-semibold')
   })
 
   test('errorStateRetries — 실패 안내의 다시 시도로 재요청한다', async () => {

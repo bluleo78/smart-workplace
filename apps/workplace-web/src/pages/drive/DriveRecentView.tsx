@@ -10,8 +10,8 @@ import { useNavigate } from 'react-router-dom'
 import { driveApi } from '@/api/drive'
 import { ActionMenuItems } from '@/components/ActionMenuItems'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
+import { ListEmptyState } from '@/components/issue/ListEmptyState'
 import { Page, pageGutterClass } from '@/components/layout/Page'
-import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
@@ -156,11 +156,7 @@ export function DriveRecentView() {
     body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
   } else if (items.length === 0) {
     body = (
-      // 설명 문장 없이 아이콘과 제목만 둔다(ChatEmptyState 는 설명이 필수라 쓰지 않는다).
-      <div data-testid="drive-recent-empty" className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-        <Clock aria-hidden className="h-10 w-10 text-muted-foreground" />
-        <div className={bodySectionTitleClass}>최근 파일 없음</div>
-      </div>
+      <ListEmptyState icon={Clock} title="최근 파일 없음" testId="drive-recent-empty" className="gap-2 px-4 py-12" />
     )
   } else {
     body = (

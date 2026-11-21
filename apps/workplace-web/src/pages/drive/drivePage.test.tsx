@@ -121,7 +121,9 @@ describe('이 폴더 거르기 (WP-1356)', () => {
     await user.click(screen.getByTestId('drive-filter-input'))
     await user.paste('회의록')
     const empty = await screen.findByTestId('drive-filter-empty')
-    expect(within(empty).getByText('조건에 맞는 항목이 없습니다')).toBeInTheDocument()
+    // WP-1924: 필터 0건 빈 상태도 공용 규격(제목 14px 500, 600 아님).
+    expect(within(empty).getByText('조건에 맞는 항목이 없습니다')).toHaveClass('text-sm', 'font-medium')
+    expect(within(empty).getByText('조건에 맞는 항목이 없습니다')).not.toHaveClass('font-semibold')
     expect(screen.getByTestId('drive-filter-count')).toHaveTextContent('4개 중 0개')
     // 빈 폴더 안내(업로드 권유)와 섞이지 않는다 — 폴더는 비어 있지 않다.
     expect(screen.queryByTestId('drive-empty-folder')).not.toBeInTheDocument()
@@ -410,6 +412,14 @@ describe('업로드', () => {
     const empty = await screen.findByTestId('drive-empty-folder')
     expect(within(empty).getByText('이 폴더는 비어 있어요')).toBeInTheDocument()
     expect(within(empty).getByText('파일을 업로드하거나 새 폴더를 만들어보세요')).toBeInTheDocument()
+    // WP-1924: 빈 상태 규격 — 아이콘 40px, 제목 14px medium, 본문 12px muted, CTA 는 outline sm 버튼.
+    const icon = empty.querySelector('svg')
+    expect(icon).toHaveClass('h-10', 'w-10')
+    expect(icon).not.toHaveClass('h-12')
+    expect(within(empty).getByText('이 폴더는 비어 있어요')).toHaveClass('text-sm', 'font-medium')
+    expect(within(empty).getByText('이 폴더는 비어 있어요')).not.toHaveClass('font-semibold')
+    expect(within(empty).getByText('파일을 업로드하거나 새 폴더를 만들어보세요')).toHaveClass('text-xs', 'text-muted-foreground')
+    expect(within(empty).getByTestId('drive-empty-upload').tagName).toBe('BUTTON')
     expect(screen.getByTestId('file-input')).toHaveAttribute('multiple')
 
     chooseFiles([new File(['one'], 'one.txt', { type: 'text/plain' }), new File(['two'], 'two.txt', { type: 'text/plain' })])

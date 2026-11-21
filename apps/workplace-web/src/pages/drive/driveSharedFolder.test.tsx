@@ -230,6 +230,11 @@ describe('드라이브 안 공유 폴더 화면', () => {
     expect(missing).toHaveTextContent('이 항목을 찾을 수 없습니다')
     expect(missing).toHaveTextContent('목록에서 뺐거나, 지금은 그 공간 구성원이라 드라이브에서 바로 볼 수 있습니다.')
     expect(within(missing).getByRole('link', { name: '공유받은 항목으로' })).toHaveAttribute('href', '/drive/shared')
+    // WP-1924: 안내 상태도 빈 상태 규격 — 제목 14px/500(600 아님), 설명 12px muted.
+    const title = within(missing).getByRole('heading', { name: '이 항목을 찾을 수 없습니다' })
+    expect(title).toHaveClass('text-sm', 'font-medium')
+    expect(title).not.toHaveClass('font-semibold')
+    expect(within(missing).getByText('목록에서 뺐거나, 지금은 그 공간 구성원이라 드라이브에서 바로 볼 수 있습니다.')).toHaveClass('text-xs', 'text-muted-foreground')
     expect(calls.info).toBe(0)
   })
 

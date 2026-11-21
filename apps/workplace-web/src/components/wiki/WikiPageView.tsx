@@ -6,9 +6,11 @@ import { Navigate, useNavigate } from 'react-router-dom'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { Button } from '@/components/ui/button'
 import { buildWikiContext } from '@/lib/aiScreenContext/builders/wiki'
+import { cn } from '@/lib/utils'
 
 import { wikiApi } from '../../api/wiki'
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
@@ -112,10 +114,10 @@ export function WikiPageView({
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center" data-testid="wiki-empty-state">
         {/* 공간 첫 화면에는 헤더가 없어 화면 이름을 숨은 h1 로 둔다 — 스크린리더 제목 이동용(WP-816). */}
         <h1 className="sr-only">{spaceName ? `노트 — ${spaceName}` : '노트'}</h1>
-        <BookOpen className="h-10 w-10 text-muted-foreground/50" aria-hidden="true" />
+        <BookOpen className={emptyStateIconClass} aria-hidden="true" />
         <div>
-          <p className="text-sm font-medium">표시할 페이지가 없습니다</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className={emptyStateTitleClass}>표시할 페이지가 없습니다</p>
+          <p className={cn('mt-1', emptyStateDescriptionClass)}>
             {canCreate ? '페이지를 선택하거나 새 페이지를 만드세요' : '페이지를 선택하세요 — 이 공간은 읽기만 할 수 있어요'}
           </p>
         </div>

@@ -7,8 +7,8 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ActionMenuItems } from '@/components/ActionMenuItems'
+import { ListEmptyState } from '@/components/issue/ListEmptyState'
 import { Page, pageGutterClass } from '@/components/layout/Page'
-import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
@@ -63,10 +63,7 @@ export function WikiStarredView() {
   } else if (items.length === 0 && !query.hasNextPage) {
     // 다음 쪽이 남았으면 빈 상태가 아니다 — 받아 둔 행을 다 뺐거나 첫 쪽이 비어도 뒤에 줄이 있을 수 있어, 목록 + 더 보기를 그린다.
     body = (
-      <div data-testid="wiki-starred-empty" className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-        <Star aria-hidden className="h-10 w-10 text-muted-foreground" />
-        <div className={bodySectionTitleClass}>즐겨찾기 없음</div>
-      </div>
+      <ListEmptyState icon={Star} title="즐겨찾기 없음" testId="wiki-starred-empty" className="gap-2 px-4 py-12" />
     )
   } else {
     body = (

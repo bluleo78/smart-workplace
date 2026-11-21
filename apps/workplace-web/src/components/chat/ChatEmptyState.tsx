@@ -1,7 +1,7 @@
 // 대화 빈 상태 — 메시지 0건일 때 "대화의 시작" 안내. 아이콘+제목+설명(+선택 액션).
 import type { ReactNode } from 'react'
 
-import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
+import { emptyStateDescriptionClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { cn } from '@/lib/utils'
 
 interface ChatEmptyStateProps {
@@ -18,12 +18,11 @@ export function ChatEmptyState({ icon, title, description, action }: ChatEmptySt
       data-testid="chat-empty-state"
     >
       {icon && <div className="text-muted-foreground">{icon}</div>}
-      {/* 제목: 본문 섹션 제목 위계(14/20/600) — 손으로 만든 빈 상태(드라이브 「최근」 등)와 같은 크기로 섞이지 않고,
-          헤더 바 페이지 제목 h1(15px/700) 아래 위계도 지킨다(WP-1881).
+      {/* 제목·설명: 디자인 시스템 06 빈 상태 규격(14/500 · 12 muted) — 다른 빈 상태(ListEmptyState)와 같은 상수를 쓴다(WP-1924).
           max-w-full·wrap-anywhere — 공백 없는 긴 채널 이름이 칸 밖으로 넘치지 않게 접는다(WP-1553):
           break-word 로는 플렉스 열 안 제목의 min-content 가 줄지 않아 넘친다. */}
-      <div className={cn('max-w-full wrap-anywhere', bodySectionTitleClass)}>{title}</div>
-      <p className="max-w-sm text-sm text-muted-foreground wrap-anywhere">{description}</p>
+      <div className={cn('max-w-full wrap-anywhere', emptyStateTitleClass)}>{title}</div>
+      <p className={cn('max-w-sm wrap-anywhere', emptyStateDescriptionClass)}>{description}</p>
       {action && <div className="mt-2">{action}</div>}
     </div>
   )

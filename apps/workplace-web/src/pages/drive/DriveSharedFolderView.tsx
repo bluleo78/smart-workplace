@@ -12,8 +12,8 @@ import { toast } from 'sonner'
 
 import { fetchShareInfo, isShareFolderInfo, type ShareFolderInfo } from '@/api/drivePublicShare'
 import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { Page } from '@/components/layout/Page'
-import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import { driveKeys } from '@/hooks/queries/driveKeys'
@@ -22,6 +22,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { resolveSharedTarget, SHARED_CLOSED_MESSAGE } from '@/lib/driveSharedWithMe'
 import { failedWithoutData } from '@/lib/queryFailure'
+import { cn } from '@/lib/utils'
 import type { SharedWithMeItem } from '@/types/drive'
 
 import { SharedLoading } from './DriveSharedWithMeView'
@@ -45,10 +46,10 @@ function NoticeState({ testId, title, description, action }: { testId: string; t
       <Page.Header title="공유받은 항목" />
       <Page.Body>
         <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-          <FolderSearch className="h-10 w-10 text-muted-foreground" aria-hidden />
-          {/* 헤더 바 h1(15px)보다 작게 — 본문 섹션 제목 14px/600(WP-1881). */}
-          <h2 className={bodySectionTitleClass}>{title}</h2>
-          {description && <p className="max-w-sm text-sm text-muted-foreground">{description}</p>}
+          <FolderSearch className={emptyStateIconClass} aria-hidden />
+          {/* 제목은 h2 로 두어 스크린리더 제목 이동에 잡히게 하고, 헤더 바 h1(15px)보다 작다. */}
+          <h2 className={emptyStateTitleClass}>{title}</h2>
+          {description && <p className={cn('max-w-sm', emptyStateDescriptionClass)}>{description}</p>}
           <div className="mt-2">{action}</div>
         </div>
       </Page.Body>

@@ -19,6 +19,7 @@ import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import { useComposerFocus } from '@/components/chat/useComposerFocus'
+import { emptyStateIconClass } from '@/components/layout/empty-state'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
@@ -255,7 +256,7 @@ export default function ChannelPage() {
               emptyState={
                 data ? (
                   <ChatEmptyState
-                    icon={<Hash className="h-8 w-8" />}
+                    icon={<Hash className={emptyStateIconClass} />}
                     title={`#${channel.name}`}
                     description={`이것은 #${channel.name} 채널의 시작입니다.`}
                     action={

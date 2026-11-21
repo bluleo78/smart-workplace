@@ -19,6 +19,7 @@ import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import { useComposerFocus } from '@/components/chat/useComposerFocus'
+import { emptyStateIconClass } from '@/components/layout/empty-state'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
@@ -262,7 +263,7 @@ export default function DmPage() {
             emptyState={
               data ? (
                 <ChatEmptyState
-                  icon={<MessageSquare className="h-8 w-8" />}
+                  icon={<MessageSquare className={emptyStateIconClass} />}
                   title={dmDisplayName(dm, me.id)}
                   description={dmEmptyDescription(dm, me.id)}
                   action={emptyAction && <ChatEmptyActionButton action={emptyAction} onCompose={focusComposer} />}

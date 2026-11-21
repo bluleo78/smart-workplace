@@ -58,7 +58,11 @@ describe('최근 화면', () => {
 
   test('빈 응답 → 「최근 파일 없음」', async () => {
     renderScreen(<DriveRecentView />, { path: '/drive/recent', handlers: [recentHandler({ items: [], nextCursor: null })] })
-    expect(await screen.findByTestId('drive-recent-empty')).toHaveTextContent('최근 파일 없음')
+    const empty = await screen.findByTestId('drive-recent-empty')
+    expect(empty).toHaveTextContent('최근 파일 없음')
+    // WP-1924: 제목은 빈 상태 규격(14px medium) — 섹션 제목 semibold 가 아니다.
+    expect(within(empty).getByText('최근 파일 없음')).toHaveClass('text-sm', 'font-medium')
+    expect(within(empty).getByText('최근 파일 없음')).not.toHaveClass('font-semibold')
   })
 
   test('조회 실패 → 오류 안내', async () => {
