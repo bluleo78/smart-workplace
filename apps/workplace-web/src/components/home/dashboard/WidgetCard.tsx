@@ -2,7 +2,7 @@
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 
 import { EntryBody } from './EntryBody'
@@ -26,7 +26,10 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
     <>
       {/* shrink-0: 표시 이름이 길어 두 줄이 돼도 아이콘이 flex 축소로 찌그러지지 않게(WP-519). */}
       <Icon className="h-4 w-4 shrink-0" />
-      <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      {/* WP-1885: CardTitle(div) 대신 같은 모양의 span — 헤딩 의미는 바깥 h2 가 맡는다. */}
+      <span data-slot="card-title" className="leading-none text-sm font-medium">
+        {title}
+      </span>
     </>
   )
   const body = <EntryBody entry={entry} />
@@ -42,6 +45,8 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
         data-widget-id={entry.cfg.id}
         data-chromeless="true"
       >
+        {/* WP-1885: 제목 헤더를 숨겨도 헤딩 탐색에서는 위젯이 잡히도록 보이지 않는 h2 를 둔다. */}
+        <h2 className="sr-only">{title}</h2>
         {body}
       </div>
     )
@@ -55,17 +60,22 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
       data-widget-id={entry.cfg.id}
     >
       <CardHeader className="pb-2">
-        {deepLink ? (
-          <Link to={deepLink} className={headerClassName}>
-            {headerInner}
-          </Link>
-        ) : entry.cfg.type === 'notifications' ? (
-          <button type="button" onClick={() => openInbox()} className={headerClassName}>
-            {headerInner}
-          </button>
-        ) : (
-          <div className="flex items-center gap-2 text-muted-foreground">{headerInner}</div>
-        )}
+        {/* WP-1885: 위젯 제목을 h2 로 — 링크·단추를 헤딩이 감싼다(단추 안에 헤딩 금지). 글꼴은 안쪽 span 이 유지.
+            링크 없는 머리는 헤딩 안이라 div 대신 flex span(헤딩 안에는 구문 콘텐츠만 허용).
+            h2 는 grid — 자식(알림 단추 등)이 이전처럼 폭 전체로 늘어 눌림 영역이 줄지 않게. */}
+        <h2 className="grid">
+          {deepLink ? (
+            <Link to={deepLink} className={headerClassName}>
+              {headerInner}
+            </Link>
+          ) : entry.cfg.type === 'notifications' ? (
+            <button type="button" onClick={() => openInbox()} className={headerClassName}>
+              {headerInner}
+            </button>
+          ) : (
+            <span className="flex items-center gap-2 text-muted-foreground">{headerInner}</span>
+          )}
+        </h2>
       </CardHeader>
       <CardContent>{body}</CardContent>
     </Card>

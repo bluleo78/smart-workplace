@@ -3,7 +3,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { ArrowDown, ArrowUp, GripVertical, PanelTop, PanelTopClose } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useSortableItem } from '@/lib/dnd/useSortableItem'
 
 import { EntryBody } from './EntryBody'
@@ -85,7 +85,10 @@ export function EditableWidgetCard({
               <GripVertical className="h-4 w-4" />
             </button>
             <Icon className="h-4 w-4" />
-            <CardTitle className="text-sm font-medium">{title}</CardTitle>
+            {/* WP-1885: 위젯 제목을 h2 로(CardTitle 과 같은 클래스). 핸들·이동 단추는 헤딩 밖. */}
+            <h2 data-slot="card-title" className="leading-none text-sm font-medium">
+              {title}
+            </h2>
           </div>
           <div className="flex items-center gap-1">
             <Button

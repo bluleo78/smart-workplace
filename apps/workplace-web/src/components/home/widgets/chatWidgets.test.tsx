@@ -16,6 +16,7 @@ import { createIssue, createIssueDetail } from '../../../../e2e/factories/issue.
 import { createMember, createProject } from '../../../../e2e/factories/project.factory'
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../../../e2e/factories/wiki.factory'
 import { getChatWidget } from './chatWidgetRegistry'
+import { WidgetHeadingLevelProvider } from './WidgetFrame'
 
 /** 챗 도크(AIChatPanel)처럼 type 으로 위젯을 찾아 params 를 넘겨 그린다. */
 function renderChatWidget(type: string, params: Record<string, unknown>, handlers: RequestHandler[] = []) {
@@ -192,4 +193,33 @@ test('wiki_page 위젯 — 페이지 제목과 본문을 그린다', async () =>
 test('wiki_page 위젯 — pageId 가 없으면 조회 없이 안내를 보인다', async () => {
   renderChatWidget('wiki_page', {})
   expect(await screen.findByTestId('wiki_page-error', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent('페이지 ID가 없습니다')
+})
+
+// ── 제목 헤딩(WP-1888) ──
+
+// 문맥 없는 기본(h2)은 오류 분기에서 본다 — 정상·오류 분기 모두 같은 WidgetFrame 을 거친다.
+test('챗 위젯 제목은 문맥이 없으면 h2 헤딩이다 — contacts 조회 실패 분기', async () => {
+  renderChatWidget('contacts', {}, [
+    http.get('/api/v1/contacts', () => HttpResponse.json({ message: 'boom' }, { status: 500 })),
+  ])
+  await screen.findByTestId('contacts-error', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  expect(screen.getByRole('heading', { level: 2, name: '연락처' })).toBeInTheDocument()
+})
+
+test('WidgetHeadingLevelProvider level=3 안에서는 h3 — issue_detail 동적 제목', async () => {
+  const Widget = getChatWidget('issue_detail')!
+  renderScreen(
+    <Suspense fallback={null}>
+      <WidgetHeadingLevelProvider level={3}>
+        <Widget params={{ number: 1, projectKey: 'WP' }} />
+      </WidgetHeadingLevelProvider>
+    </Suspense>,
+    {
+      handlers: [
+        http.get('/api/v1/projects/WP/issues/1', () => HttpResponse.json(createIssueDetail({ summary: createIssue({ priority: 'HIGHEST' }) }))),
+      ],
+    },
+  )
+  expect(await screen.findByRole('heading', { level: 3, name: 'WP-1' }, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  expect(document.querySelector('h2')).toBeNull()
 })
