@@ -6,9 +6,9 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChannel, createMessage } from '../../factories/messaging.factory';
-import { commitImeThenEnterInSameTask } from '../../fixtures/ime';
+import { commitImeThenEnterInSameTask, startImeComposition } from '../../fixtures/ime';
 import { trackRequests } from '../../fixtures/requests';
-import { expectStays } from '../../fixtures/wait';
+import { expectStays, gate } from '../../fixtures/wait';
 import { expectSelectedRow } from '../../fixtures/selection';
 
 const CHANNEL_ID = 1;
@@ -16,13 +16,15 @@ const CHANNEL_ID = 1;
 const ME_ID = 1;
 
 // 빈 히스토리 GET + 전송 POST 스텁 — messageId 로 확정 응답한다.
+// responseGate 가 있으면 POST 는 그 게이트가 열릴 때까지 응답하지 않는다(전송 중 상태를 만들려고).
 async function stubEmptyHistoryWithPost(
   page: import('@playwright/test').Page,
   messageId: number,
+  responseGate?: Promise<void>,
 ) {
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-    (route) => {
+    async (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({
           status: 200,
@@ -31,6 +33,7 @@ async function stubEmptyHistoryWithPost(
         });
       }
       const payload = route.request().postDataJSON() as { body: string };
+      await responseGate;
       return route.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -166,6 +169,37 @@ test.describe('messaging 채팅 E2E', () => {
     expect(posts.bodies()).toEqual([{ body: '시작' }]);
     // 전송 뒤 입력창에 확정 글자가 남지 않는다(늦게 반영된 글자가 빈 입력창에 되살아나지 않음).
     await expect(input).toHaveText('');
+  });
+
+  // WP-1923 — 전송 응답을 기다리는 동안 한글을 조합 중이면, 응답이 와도 조합이 끝나기 전엔 입력칸을 건드리지 않고
+  // 끝난 뒤 보낸 부분("시작")만 지운다(조합 글자 "가"는 남는다). 실제 IME 는 아니고 CDP 의 조합 입력으로 재현한다.
+  test('전송 응답을 기다리며 한글을 조합하면 조합이 끝난 뒤 보낸 글자만 지운다 (WP-1923)', { tag: '@input' }, async ({
+    authenticatedPage: page,
+  }) => {
+    const channel = createChannel({ id: CHANNEL_ID, member: true });
+    await setupChannelStubs(page, [channel]);
+    const { p: responseGate, release } = gate();
+    await stubEmptyHistoryWithPost(page, 503, responseGate);
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+    const input = page.getByTestId('message-composer-input');
+    await input.click();
+    await page.keyboard.type('시작');
+    await page.keyboard.press('Enter');
+
+    // 응답 전에 조합을 시작한다.
+    const ime = await startImeComposition(page, '가');
+    try {
+      release();
+      await expect(page.getByTestId('message-body-503')).toHaveText('시작');
+      // 조합 중에는 보낸 글자도 지우지 않는다 — 조합이 끊기지 않게.
+      await expectStays(page, async () => (await input.textContent())?.includes('시작'), true);
+      // 조합을 확정하면 보낸 "시작"만 빠지고 새로 친 "가"가 남는다.
+      await ime.commit('가');
+      await expect(input).toHaveText('가');
+    } finally {
+      await ime.detach();
+    }
   });
 
   // 팀 채팅도 이슈 채팅(#357)과 같은 RichInput — Shift+Enter 는 줄바꿈, Enter 는 전송이어야 한다.

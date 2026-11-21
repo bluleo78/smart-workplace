@@ -2,7 +2,7 @@
 // 본문 모드가 아닌 코멘트 입력창이 그대로인지(썸네일·Enter 전송)를 본다. 실제 키 입력·클립보드·레이아웃은 E2E(@input·@layout)가 본다.
 // (2) 보내기 버튼 전송 중 표시(WP-1860) — onSubmit Promise 대기 중 스피너·aria-busy, 끝나면(성공·실패) 걷힘, 단순 비활성엔 스피너 없음(디자인 시스템 06 §A-3).
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
 import { createRef } from 'react'
 import { toast } from 'sonner'
@@ -14,6 +14,7 @@ import { renderWithProviders } from '@/test/renderWithProviders'
 import { OTHER_PROJECT_IMAGE, WP_IMAGE } from './__fixtures__/issueBodySamples'
 import { bodyToDoc } from './mentionSerialize'
 import { RichInput, type RichInputHandle } from './RichInput'
+import { COMPOSITION_POLL_MS, COMPOSITION_SETTLE_MS } from './waitCompositionIdle'
 
 // 인증 이미지 요청은 끊고 고정 blob 주소를 준다 — 이미지가 다 받아진 상태의 <img> 클래스를 보려고.
 vi.mock('@/hooks/queries/useApiBlobUrl', () => ({
@@ -864,5 +865,163 @@ describe('RichInput 보내기 버튼 전송 중 표시', () => {
     expect(send).toBeDisabled()
     expect(send).not.toHaveAttribute('aria-busy')
     expect(screen.queryByTestId('send-spinner')).toBeNull()
+  })
+})
+
+describe('RichInput clearOnSubmit — 전송 중 입력한 글자 유지(WP-1923)', () => {
+  /** 전송 대기 중 편집칸 끝에 글자를 더한다(jsdom 에서 키 입력 대신 TipTap 명령으로 넣는다). */
+  function typeAtEnd(content: string | { type: string; content: JSONContent[] }) {
+    const editor = editorOf(screen.getByTestId('in'))
+    act(() => {
+      editor.chain().focus('end').insertContent(content).run()
+    })
+  }
+
+  it('전송 중 같은 줄 끝에 이어 쓴 글자만 남는다', async () => {
+    const { onSubmit, resolve } = setupSubmitting({ clearOnSubmit: true, disableWhenEmpty: true })
+    fireEvent.click(screen.getByTestId('send'))
+    typeAtEnd(' 반가워')
+    await act(async () => resolve())
+    expect(screen.getByTestId('in').textContent).toBe(' 반가워')
+    // 일부만 지워도 isEmpty/charCount 가 동기화돼 남은 글자가 있으면 보내기가 활성이다.
+    expect(screen.getByTestId('send')).toBeEnabled()
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledWith('안녕')
+  })
+
+  it('전송 중 새 줄에 쓴 글자만 남는다', async () => {
+    const { onSubmit, resolve } = setupSubmitting({ clearOnSubmit: true })
+    fireEvent.click(screen.getByTestId('send'))
+    typeAtEnd({ type: 'paragraph', content: [{ type: 'text', text: '다음' }] })
+    await act(async () => resolve())
+    const editor = editorOf(screen.getByTestId('in'))
+    expect(editor.getJSON().content).toHaveLength(1)
+    expect(screen.getByTestId('in').textContent).toBe('다음')
+    expect(onSubmit).toHaveBeenCalledWith('안녕')
+  })
+
+  it('전송 중 아무것도 안 쓰면 비워지고 보내기 버튼이 비활성이다', async () => {
+    const { resolve } = setupSubmitting({ clearOnSubmit: true, disableWhenEmpty: true })
+    fireEvent.click(screen.getByTestId('send'))
+    await act(async () => resolve())
+    expect(screen.getByTestId('in').textContent).toBe('')
+    expect(screen.getByTestId('send')).toBeDisabled()
+  })
+
+  it('전송 중 보낸 부분을 고쳤으면 지우지 않는다', async () => {
+    const { resolve } = setupSubmitting({ clearOnSubmit: true })
+    fireEvent.click(screen.getByTestId('send'))
+    const editor = editorOf(screen.getByTestId('in'))
+    act(() => {
+      editor.commands.setContent('<p>안해</p>', true)
+    })
+    await act(async () => resolve())
+    expect(screen.getByTestId('in').textContent).toBe('안해')
+  })
+
+  it('전송이 실패하면 입력이 그대로다', async () => {
+    const { reject } = setupSubmitting({ clearOnSubmit: true })
+    fireEvent.click(screen.getByTestId('send'))
+    typeAtEnd(' 더')
+    await act(async () => reject(new Error('fail')))
+    expect(screen.getByTestId('in').textContent).toBe('안녕 더')
+  })
+
+  /** 조합 상태를 켜고 끈다(jsdom 에서 ProseMirror 가 compositionstart 로 view.composing 을 켜는지에 기대지 않고 직접 바꾼다). */
+  function setComposing(on: boolean) {
+    const editor = editorOf(screen.getByTestId('in'))
+    Object.defineProperty(editor.view, 'composing', { value: on, configurable: true })
+    return editor
+  }
+  /** compositionend 를 보낸다(조합 상태는 바꾸지 않는다). */
+  function dispatchCompositionEnd() {
+    editorOf(screen.getByTestId('in')).view.dom.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+  }
+  /** 지연 정리(compositionend 뒤 COMPOSITION_SETTLE_MS)가 돌 시간을 준다. */
+  const settle = () => act(() => new Promise<void>((r) => setTimeout(r, COMPOSITION_SETTLE_MS + 30)))
+  /** 조합 중에 전송 성공이 도착한 상태를 만든다 — 보낸 뒤 tail 을 이어 쓰고(없으면 생략) 조합을 켠 채 resolve. */
+  async function submitThenResolveWhileComposing(props: Props = {}, tail?: string) {
+    const ctx = setupSubmitting({ clearOnSubmit: true, ...props })
+    fireEvent.click(screen.getByTestId('send'))
+    if (tail) typeAtEnd(tail)
+    setComposing(true)
+    await act(async () => ctx.resolve())
+    return ctx
+  }
+
+  it('한글 조합 중이면 compositionend 전엔 지우지 않고, 끝난 뒤 보낸 부분만 지운다', async () => {
+    await submitThenResolveWhileComposing({ disableWhenEmpty: true }, ' 반가워')
+    // 조합 중 — 아직 아무것도 지우지 않는다.
+    expect(screen.getByTestId('in').textContent).toBe('안녕 반가워')
+    setComposing(false)
+    dispatchCompositionEnd()
+    await settle()
+    expect(screen.getByTestId('in').textContent).toBe(' 반가워')
+    expect(screen.getByTestId('send')).toBeEnabled()
+  })
+
+  it('한글 조합 중 전송이 끝나도 새로 쓴 게 없으면 조합이 끝난 뒤 비워진다', async () => {
+    await submitThenResolveWhileComposing({ disableWhenEmpty: true })
+    expect(screen.getByTestId('in').textContent).toBe('안녕')
+    setComposing(false)
+    dispatchCompositionEnd()
+    await settle()
+    expect(screen.getByTestId('in').textContent).toBe('')
+    expect(screen.getByTestId('send')).toBeDisabled()
+  })
+
+  it('조합 때문에 정리가 미뤄지는 동안은 다시 보낼 수 없고, 정리 뒤에 풀린다', async () => {
+    const { onSubmit } = await submitThenResolveWhileComposing({ disableWhenEmpty: true }, ' 더')
+    // 성공했지만 정리는 미뤄진 상태 — 가드가 유지돼 버튼이 막히고 spinner 가 남는다.
+    const send = screen.getByTestId('send')
+    expect(send).toBeDisabled()
+    expect(send).toHaveAttribute('aria-busy', 'true')
+    fireEvent.click(send)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    setComposing(false)
+    dispatchCompositionEnd()
+    await settle()
+    expect(screen.getByTestId('in').textContent).toBe(' 더')
+    expect(send).not.toHaveAttribute('aria-busy')
+    expect(send).toBeEnabled()
+  })
+
+  it('compositionend 직후 다시 조합이 시작되면 마지막 compositionend 까지 지우지 않는다', async () => {
+    await submitThenResolveWhileComposing({}, ' 더')
+    // 음절 경계: compositionend 뒤 곧바로 새 조합이 시작된다.
+    setComposing(false)
+    dispatchCompositionEnd()
+    setComposing(true)
+    await settle()
+    expect(screen.getByTestId('in').textContent).toBe('안녕 더')
+    setComposing(false)
+    dispatchCompositionEnd()
+    await settle()
+    expect(screen.getByTestId('in').textContent).toBe(' 더')
+  })
+
+  it('compositionend 가 오지 않아도 조합이 풀려 있으면 점검 주기에 보낸 부분을 지우고 가드를 푼다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] })
+    try {
+      await submitThenResolveWhileComposing({ disableWhenEmpty: true }, ' 더')
+      const send = screen.getByTestId('send')
+      expect(send).toHaveAttribute('aria-busy', 'true')
+      // 조합은 풀렸지만 compositionend 는 오지 않았다(Android 조합 타임아웃 등).
+      setComposing(false)
+      await act(async () => {
+        vi.advanceTimersByTime(COMPOSITION_POLL_MS)
+      })
+      expect(screen.getByTestId('in').textContent).toBe(' 더')
+      expect(send).not.toHaveAttribute('aria-busy')
+      expect(send).toBeEnabled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('조합을 기다리다 언마운트돼도 오류 없이 끝난다', async () => {
+    await submitThenResolveWhileComposing()
+    act(() => editorOf(screen.getByTestId('in')).destroy())
+    await settle()
   })
 })
