@@ -14,6 +14,7 @@ import { ActionMenuItems } from '@/components/ActionMenuItems'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
 import { shareErrorStatus, shareViewerItem, shareViewerSource } from '@/components/drive/shareViewer'
+import { emptyStateIconClass } from '@/components/layout/empty-state'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
@@ -122,7 +123,7 @@ export function DriveSharedWithMeView() {
     body = (
       <div data-testid="drive-shared-empty">
         <ChatEmptyState
-          icon={<UserRoundPlus className="h-10 w-10" />}
+          icon={<UserRoundPlus className={emptyStateIconClass} />}
           title="공유받은 항목이 없습니다"
           description="사내 공유 링크를 열면 여기에 모입니다."
         />
