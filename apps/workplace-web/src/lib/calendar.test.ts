@@ -32,6 +32,7 @@ import {
   screenRange,
   timedEventBox,
   timedEventColumnStyle,
+  timedSegmentLabel,
   toggleCalendar,
   visibleRange,
   weekDays,
@@ -375,6 +376,36 @@ describe('timedEventBox', () => {
       .toEqual({ top: 10 * 48, height: 1.5 * 48 })
     expect(timedEventBox(ev(4, '2026-11-12T10:00:00+09:00', '2026-11-12T10:05:00+09:00'), new Date('2026-11-12T00:00:00')).height)
       .toBe(16)
+  })
+})
+
+describe('timedSegmentLabel (WP-1910)', () => {
+  const trip = ev(1, '2026-12-02T09:00:00+09:00', '2026-12-04T18:00:00+09:00')
+  it('시작한 날 조각은 시작 시각', () => {
+    expect(timedSegmentLabel(trip, new Date('2026-12-02T00:00:00'))).toBe('오전 09:00')
+  })
+  it('하루를 통째로 덮는 이어지는 날은 시작 날짜부터', () => {
+    expect(timedSegmentLabel(trip, new Date('2026-12-03T00:00:00'))).toBe('12/2부터')
+  })
+  it('마지막 날 조각은 ~끝 시각', () => {
+    expect(timedSegmentLabel(trip, new Date('2026-12-04T00:00:00'))).toBe('~오후 06:00')
+  })
+  it('(a) 끝이 다음 날 0시인 여러 날 일정의 마지막 날은 「~24:00」(12/3이 마지막 날)', () => {
+    const toMidnight = ev(2, '2026-12-02T09:00:00+09:00', '2026-12-04T00:00:00+09:00')
+    expect(timedSegmentLabel(toMidnight, new Date('2026-12-03T00:00:00'))).toBe('~24:00')
+  })
+  it('(b) 이틀짜리 자정 종료 일정의 마지막 날도 「~24:00」', () => {
+    const twoDay = ev(5, '2026-12-02T22:00:00+09:00', '2026-12-04T00:00:00+09:00')
+    expect(timedSegmentLabel(twoDay, new Date('2026-12-03T00:00:00'))).toBe('~24:00')
+  })
+  it('(c) 해가 바뀌면 시작 날짜에 연도를 붙인다', () => {
+    const years = ev(6, '2026-12-30T10:00:00+09:00', '2027-01-03T18:00:00+09:00')
+    expect(timedSegmentLabel(years, new Date('2027-01-01T00:00:00'))).toBe('2026/12/30부터')
+    expect(timedSegmentLabel(years, new Date('2026-12-31T00:00:00'))).toBe('12/30부터')
+  })
+  it('하루짜리·0시 시작 일정은 시작 시각 그대로', () => {
+    expect(timedSegmentLabel(ev(3, '2026-12-02T10:00:00+09:00', '2026-12-02T11:00:00+09:00'), new Date('2026-12-02T00:00:00'))).toBe('오전 10:00')
+    expect(timedSegmentLabel(ev(4, '2026-12-03T00:00:00+09:00', '2026-12-03T02:00:00+09:00'), new Date('2026-12-03T00:00:00'))).toBe('오전 12:00')
   })
 })
 

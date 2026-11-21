@@ -6,9 +6,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.workplace.mail.dto.MailTrashEmptyStatus;
+import com.workplace.mail.exception.MailCredentialUnreadableException;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailTrashException;
 import com.workplace.mail.outbound.GraphApiClient;
@@ -16,6 +18,7 @@ import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.service.GraphTokenService;
+import com.workplace.mail.service.MailServerErrors;
 import com.workplace.mail.service.graph.GraphMailFolder;
 import com.workplace.mail.service.graph.GraphMessageIdPage;
 import com.workplace.mail.service.trash.GraphMailEraser;
@@ -490,5 +493,73 @@ class MailTrashEmptyGraphTest extends ExternalClientMockedTestBase {
     assertThat(st.total()).isNull();
     org.mockito.Mockito.verify(graphApiClient, org.mockito.Mockito.never()).batch(any(), any());
     assertThat(dsl.fetchExists(EMAIL_MESSAGE, EMAIL_MESSAGE.ID.eq(row))).isTrue();
+  }
+
+  /** WP-1907 — M365 토큰을 읽지 못하면 서버 호출 없이 OAUTH_TOKEN_UNREADABLE 로 실패하고 다시 연결 문구를 남긴다. */
+  @Test
+  void tokenUnreadable_failsOauthTokenUnreadable_noServerCalls() {
+    long[] s = setup();
+    when(graphTokenService.getAccessToken(anyLong(), anyLong()))
+        .thenThrow(MailCredentialUnreadableException.oauthToken(null));
+
+    MailTrashEmptyStatus st = trashService.startEmpty(s[0], s[1]);
+
+    assertThat(st.state()).isEqualTo("FAILED");
+    assertThat(st.errorCode()).isEqualTo(MailTrashException.OAUTH_TOKEN_UNREADABLE);
+    assertThat(st.error()).isEqualTo(MailServerErrors.OAUTH_TOKEN_UNREADABLE);
+    verifyNoInteractions(graphApiClient);
+  }
+
+  /**
+   * WP-1907 — 비우는 도중 토큰을 읽지 못하게 되면(refresh 토큰이 깨짐) 다시 보내며 기다리지 않고 OAUTH_TOKEN_UNREADABLE 로 멈춘다. 이미
+   * 지운 첫 묶음은 반영하고, 남은 항목은 실패로 세어 deleted + failed == total 을 지킨다.
+   */
+  @Test
+  void tokenBecomesUnreadableMidRun_failsOauthTokenUnreadable_noRetry_countsAddUp() {
+    long[] s = setup();
+    List<String> ids = new ArrayList<>();
+    for (int i = 1; i <= 25; i++) {
+      ids.add("A" + i);
+    }
+    long firstChunkRow = seed(s[1], s[2], "A1");
+    long secondChunkRow = seed(s[1], s[2], "A21");
+    stubSinglePage(ids);
+    java.util.concurrent.atomic.AtomicBoolean broken =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    // 첫 묶음 permanentDelete 가 끝나면 그 뒤 토큰 조회는 「토큰을 읽지 못함」
+    when(graphTokenService.getAccessToken(anyLong(), anyLong()))
+        .thenAnswer(
+            inv -> {
+              if (broken.get()) {
+                throw MailCredentialUnreadableException.oauthToken(null);
+              }
+              return TOKEN;
+            });
+    when(graphApiClient.batch(eq(TOKEN), any()))
+        .thenAnswer(
+            inv -> {
+              List<GraphBatchRequest> reqs = inv.getArgument(1);
+              if (isLocate(reqs)) {
+                return reqs.stream()
+                    .map(
+                        r -> new GraphBatchResponse(r.id(), 200, locatedIn(TRASH_FOLDER_ID).body()))
+                    .toList();
+              }
+              batches.add(reqs);
+              broken.set(true);
+              return reqs.stream().map(r -> new GraphBatchResponse(r.id(), 204)).toList();
+            });
+
+    MailTrashEmptyStatus st = trashService.startEmpty(s[0], s[1]);
+
+    assertThat(pauses).isEmpty();
+    assertThat(st.state()).isEqualTo("FAILED");
+    assertThat(st.errorCode()).isEqualTo(MailTrashException.OAUTH_TOKEN_UNREADABLE);
+    assertThat(st.error()).isEqualTo(MailServerErrors.OAUTH_TOKEN_UNREADABLE);
+    assertThat(st.total()).isEqualTo(25);
+    assertThat(st.deleted()).isEqualTo(20);
+    assertThat(st.failed()).isEqualTo(5);
+    assertThat(dsl.fetchExists(EMAIL_MESSAGE, EMAIL_MESSAGE.ID.eq(firstChunkRow))).isFalse();
+    assertThat(dsl.fetchExists(EMAIL_MESSAGE, EMAIL_MESSAGE.ID.eq(secondChunkRow))).isTrue();
   }
 }

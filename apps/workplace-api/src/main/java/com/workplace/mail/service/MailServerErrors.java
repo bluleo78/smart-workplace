@@ -27,4 +27,8 @@ public final class MailServerErrors {
    */
   public static final String CREDENTIAL_UNREADABLE =
       "메일 계정 비밀번호를 읽지 못했습니다 — 메일 계정 설정에서 비밀번호를 다시 입력해 주세요";
+
+  /** 저장된 Microsoft 365 계정 연결 정보(토큰)를 읽지 못했다(WP-1907) — 암호문 손상·키 불일치·토큰 없음. 사용자가 계정을 다시 연결해야 풀린다. */
+  public static final String OAUTH_TOKEN_UNREADABLE =
+      "Microsoft 365 계정 연결 정보를 읽지 못했습니다 — 메일 계정 설정에서 계정을 다시 연결해 주세요";
 }

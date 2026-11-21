@@ -1,6 +1,7 @@
 package com.workplace.airun.context;
 
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
+import com.workplace.global.security.InternalOnBehalfOf;
 import java.time.OffsetDateTime;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,31 +26,40 @@ public record AiRunContext(
     Long actorId,
     OffsetDateTime sourceAt) {
 
-  /** 요청자(사용자 id)가 직접 한 일 — 대상 없이 주체만 USER 로 정한다. */
-  public static AiRunContext user(long id) {
-    return new AiRunContext(null, null, null, "USER", id, null);
-  }
-
   /**
-   * 지금 이 스레드의 SecurityContext 로 주체만 정한 맥락 — **요청 스레드**에서 만들어 스레드 풀로 넘긴다(WP-1829 리뷰 반영).
+   * 지금 이 스레드의 SecurityContext (없으면 callerId) 로 주체를 정한 맥락 — **요청 스레드**에서 만들어 스레드 풀로 넘긴다(WP-1829 리뷰
+   * 반영).
    *
-   * <p>왜: 펌프·SSE 처럼 스레드 풀로 도는 작업에는 SecurityContext 가 없어 주체가 AUTO 로 떨어진다. 이전에는 호출부가 {@link
-   * #user(long)} 로 USER 를 고정해, AI 키(ROLE_AGENT) 로 시작한 처리까지 사람의 일로 기록됐다. 요청 스레드에서 주체를 잡아 범위로 넘기면 AI
-   * 키 호출은 AGENT, 사람 호출은 USER 로 남는다.
+   * <p>왜: 펌프·SSE 처럼 스레드 풀로 도는 작업에는 SecurityContext 가 없어 주체가 AUTO 로 떨어진다. 이전에는 호출부가 user id 로 USER 를
+   * 고정해, AI 키(ROLE_AGENT) 로 시작한 처리까지 사람의 일로 기록됐다. 요청 스레드에서 주체를 잡아 범위로 넘기면 AI 키 호출은 AGENT, 사람 호출은
+   * USER 로 남는다.
    *
-   * <p>principal 이 사용자 id(Long)면 ROLE_AGENT 권한이 있으면 AGENT, 없으면 USER. 인증이 없거나 principal 이 사용자 id 가
-   * 아니면 AUTO.
+   * <p>principal 이 사용자 id(Long)면 Internal 대행 호출·ROLE_AGENT 권한이면 AGENT, 없으면 USER. 인증이 없거나 principal
+   * 이 사용자 id 가 아니면 callerId 로 사람을 남기고, 그것도 없으면 AUTO.
+   *
+   * @param callerId SecurityContext 로 주체를 못 정했을 때 쓸 사용자 id — 호출부가 이미 사람으로 확정한 곳이면 그 id 로 남긴다(null
+   *     이면 AUTO)
    */
-  public static AiRunContext actorFromSecurity() {
+  public static AiRunContext actorFromSecurity(Long callerId) {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth == null || !(auth.getPrincipal() instanceof Long userId)) {
-      return auto();
+      // principal 이 사용자 id 가 아니면 AUTO 로 떨어져 사람이 시작한 처리도 자동 처리로 보였다 — 호출부가 확정한 사람으로 남긴다(WP-1829 리뷰
+      // 후속).
+      return callerId == null ? auto() : new AiRunContext(null, null, null, "USER", callerId, null);
     }
-    // AI 키·PAT 인증은 principal 이 사용자 id 지만 ROLE_AGENT 권한이 붙는다 — 사람이 아니라 AGENT 가 한 일로 남긴다.
+    // AI 키 인증은 principal 이 사용자 id 지만 ROLE_AGENT 권한이 붙는다 — 사람이 아니라 AGENT 가 한 일로 남긴다.
+    // Internal 대행 호출(내부 토큰 + X-On-Behalf-Of)은 권한에 ROLE_AGENT 가 없지만 역시 ai-agent 가 한 일이다(WP-1829 리뷰
+    // 후속).
     boolean agent =
-        auth.getAuthorities().stream()
-            .anyMatch(a -> ApiKeyAuthenticationFilter.ROLE_AGENT.equals(a.getAuthority()));
+        InternalOnBehalfOf.isInternal(auth)
+            || auth.getAuthorities().stream()
+                .anyMatch(a -> ApiKeyAuthenticationFilter.ROLE_AGENT.equals(a.getAuthority()));
     return new AiRunContext(null, null, null, agent ? "AGENT" : "USER", userId, null);
+  }
+
+  /** SecurityContext 만으로 주체를 정한다({@link #actorFromSecurity(Long)} 와 같고 callerId 없음). */
+  public static AiRunContext actorFromSecurity() {
+    return actorFromSecurity(null);
   }
 
   /** 백그라운드(AUTO) 주체만 정한 맥락 — 대상·원천 시각 없음. */

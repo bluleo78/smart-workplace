@@ -41,6 +41,9 @@ public interface MailEraser {
    * @throws com.workplace.mail.exception.MailTrashException 중간에 멈춤 — 코드({@code
    *     PERMANENT_DELETE_UNSUPPORTED}·{@code TRASH_CHANGED}·{@code SERVER_UNREACHABLE}·{@code
    *     INTERRUPTED}·{@code ACCOUNT_GONE})가 FAILED 사유다. 그 전에 sink 로 넘긴 묶음은 이미 반영돼 있다.
+   * @throws com.workplace.mail.exception.MailCredentialUnreadableException 저장된 비밀번호·토큰을 복호화하지
+   *     못함(WP-1907) — {@code MailTrashException} 으로 바꾸지 말고 그대로 던진다. 작업이 {@code trashCode()}(연결 실패와
+   *     다른 사유)로 FAILED 를 남긴다
    */
   void emptyTrash(long userId, EmailAccountResponse account, TrashRef trash, EmptySink sink);
 

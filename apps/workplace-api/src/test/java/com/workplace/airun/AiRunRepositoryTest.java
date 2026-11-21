@@ -479,11 +479,11 @@ class AiRunRepositoryTest extends IntegrationTestBase {
   }
 
   /**
-   * 5xx 표지가 사유(http_503)로 먼저 들어와도, 그 뒤 온 ai-agent 의 실제 오류 상세(boom)는 남아야 한다 — 표지를 상세에 먼저 채우면
-   * keep-first 때문에 영구히 묻히기 때문이다(WP-1829 리뷰 반영).
+   * 「표지 → ai-agent 사유로 바뀜」: 5xx 표지가 사유(http_503)로 먼저 들어와도, 그 뒤 온 ai-agent 의 실제
+   * 사유(runner_error)·상세(boom)이 남아야 한다 — 표지 사유를 keep-first 로 두면 실제 사유가 영구히 묻힌다(WP-1829 리뷰 후속).
    */
   @Test
-  void upsert_apiServerError_thenAgentFailed_keepsAgentDetail() {
+  void upsert_apiServerError_thenAgentFailed_replacesMarkerReason() {
     UUID id = UUID.randomUUID();
     repo.upsert(
         new AiRunRecord(
@@ -535,12 +535,12 @@ class AiRunRepositoryTest extends IntegrationTestBase {
     var r = row(id);
     assertThat(r.getStatus()).isEqualTo("FAILED");
     assertThat(r.getErrorDetail()).isEqualTo("boom");
-    assertThat(r.getErrorReason()).isEqualTo("http_503");
+    assertThat(r.getErrorReason()).isEqualTo("runner_error");
   }
 
   /**
-   * ai-agent 가 끝내 보고하지 않으면(503·프록시 502 로 runner 를 시작 못 함) 사유 없는 FAILED 가 남지 않아야 한다 — 표지 사유 http_503
-   * 이 그대로 남는다(WP-1829 리뷰 반영).
+   * 「보고 없음 → 표지 유지」: ai-agent 가 끝내 보고하지 않으면(503·프록시 502 로 runner 를 시작 못 함) 사유 없는 FAILED 가 남지 않아야 한다
+   * — 표지 사유 http_503 이 그대로 남는다(WP-1829 리뷰 후속).
    */
   @Test
   void upsert_apiServerErrorOnly_keepsMarkerReason() {
@@ -568,6 +568,40 @@ class AiRunRepositoryTest extends IntegrationTestBase {
             "http_503",
             null,
             null));
+    var r = row(id);
+    assertThat(r.getStatus()).isEqualTo("FAILED");
+    assertThat(r.getErrorReason()).isEqualTo("http_503");
+    assertThat(r.getErrorDetail()).isNull();
+  }
+
+  /** 사유 없이 온 늦은 보고는 표지를 지우지 않는다 — 표지가 사라지면 사유 없는 FAILED 가 된다(WP-1827 규칙, WP-1829 리뷰 후속). */
+  @Test
+  void upsert_apiServerError_thenAgentFailedWithoutReason_keepsMarkerReason() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(
+        new AiRunRecord(
+            id,
+            null,
+            "AI_CHAT",
+            null,
+            null,
+            null,
+            "USER",
+            1L,
+            null,
+            T0,
+            T0,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "FAILED",
+            "http_503",
+            null,
+            null));
+    repo.upsert(rec(id, "FAILED", T0, T0.plusSeconds(1)));
     var r = row(id);
     assertThat(r.getStatus()).isEqualTo("FAILED");
     assertThat(r.getErrorReason()).isEqualTo("http_503");

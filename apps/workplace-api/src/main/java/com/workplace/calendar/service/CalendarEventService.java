@@ -38,6 +38,7 @@ import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
+import com.workplace.mail.exception.MailCredentialUnreadableException;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphAttendeeWrite;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphDateTime;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEmail;
@@ -221,8 +222,9 @@ public class CalendarEventService {
     if (extId == null || !hasNewTags(req)) return created;
     try {
       return applyOutlookTags(callerId, created.id(), req.tagIds());
-    } catch (ExternalCalendarWriteException e) {
-      // 일정은 이미 Outlook·앱에 만들어졌다 — 여기서 실패로 돌려주면 폼이 남아 다시 「저장」할 때 같은 일정(과 초대 메일)이 또 만들어진다.
+    } catch (ExternalCalendarWriteException | MailCredentialUnreadableException e) {
+      // 토큰을 읽지 못함(WP-1907 — 전송기가 그대로 내보낸다)도 같다: 일정은 이미 Outlook·앱에 만들어졌다 — 여기서 실패로 돌려주면 폼이 남아 다시
+      // 「저장」할 때 같은 일정(과 초대 메일)이 또 만들어진다.
       // 일정은 성공으로 돌려주고 태그만 빠뜨린다(상세 보기 피커로 다시 붙일 수 있다). 404·409 는 사전검증이 이미 걸렀다.
       log.warn("새 M365 일정의 Outlook 범주 써 넣기 실패 — 태그 없이 둔다. eventId={}", created.id(), e);
       return txTemplate.execute(s -> get(callerId, created.id()));

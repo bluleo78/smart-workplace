@@ -2,6 +2,7 @@ package com.workplace.mail.service.trash;
 
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailTrashEmptyStatus;
+import com.workplace.mail.exception.MailCredentialUnreadableException;
 import com.workplace.mail.exception.MailTrashException;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -24,8 +25,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>어떤 길로 끝나든 진행 상태를 RUNNING 으로 남기지 않는다(DONE 또는 FAILED + 사유). 끝 상태를 적기 전에 메일함 목록을 best-effort 로 한
  * 번 갱신해 휴지통 전체 수·UIDPLUS 기록을 서버에 맞춘다 — 다만 UIDPLUS 없음으로 멈췄으면(서버는 그대로이고, 갱신이 다시 「지원」으로 적을 수 있다), 계정
- * 연결이 해제돼 멈췄으면(갱신할 계정이 없다), 앱 종료로 멈췄으면(종료를 늦추지 않게 — 다음 동기화가 맞춘다) 건너뛴다. 로그는 계정 id 와 수만 남긴다(제목·주소
- * 없음).
+ * 연결이 해제돼 멈췄으면(갱신할 계정이 없다), 앱 종료로 멈췄으면(종료를 늦추지 않게 — 다음 동기화가 맞춘다), 자격증명을 읽지 못해 멈췄으면(갱신도 같은 실패를
+ * 되풀이한다) 건너뛴다. 로그는 계정 id 와 수만 남긴다(제목·주소 없음).
  */
 @Slf4j
 @Component
@@ -76,6 +77,11 @@ public class MailTrashEmptyJob {
     } catch (MailTrashException e) {
       failCode = e.code();
       recordNoUidPlusQuietly(account, failCode);
+    } catch (MailCredentialUnreadableException e) {
+      // 저장된 자격증명을 읽지 못함 — 연결 실패와 구분되는 사유 코드로 남긴다(계정 id·코드만 로그, 암호문·토큰 없음)
+      failCode = e.trashCode();
+      log.warn(
+          "휴지통 비우기 중단 — 자격증명(IMAP 비밀번호·M365 토큰) 복호화 실패: accountId={} code={}", accountId, failCode);
     } catch (RuntimeException e) {
       // 서버 접속 실패(MailSyncException)·예상 못 한 실패 — 화면에는 연결 실패로 보인다. 예외 메시지는 남기지 않는다(주소가 섞일 수 있다).
       log.warn("휴지통 비우기 실패: accountId={} {}", accountId, e.getClass().getSimpleName());
@@ -105,12 +111,15 @@ public class MailTrashEmptyJob {
 
   /**
    * 끝난 뒤 메일함 목록 갱신을 건너뛰는 사유인지 — UIDPLUS 없음(서버는 그대로이고 갱신이 다시 「지원」으로 적는다)·계정 해제(갱신할 계정이 없다)·앱
-   * 종료(인터럽트된 스레드로 서버 I/O 를 하면 종료가 늦어지고 어차피 실패한다). 끝까지 돌았으면(null) 갱신한다.
+   * 종료(인터럽트된 스레드로 서버 I/O 를 하면 종료가 늦어지고 어차피 실패한다)·자격증명 복호화 실패(갱신도 같은 실패를 되풀이해 경고만 쌓인다). 끝까지
+   * 돌았으면(null) 갱신한다.
    */
   private static boolean skipsRefresh(String failCode) {
     return MailTrashException.PERMANENT_DELETE_UNSUPPORTED.equals(failCode)
         || MailTrashException.ACCOUNT_GONE.equals(failCode)
-        || MailTrashException.INTERRUPTED.equals(failCode);
+        || MailTrashException.INTERRUPTED.equals(failCode)
+        || MailTrashException.CREDENTIAL_UNREADABLE.equals(failCode)
+        || MailTrashException.OAUTH_TOKEN_UNREADABLE.equals(failCode);
   }
 
   /**

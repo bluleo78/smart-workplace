@@ -29,6 +29,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.service.ImapConnector;
 import com.workplace.mail.service.MailAccountCredentials;
+import com.workplace.mail.service.MailServerErrors;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.move.MailMoveService;
@@ -162,6 +163,20 @@ class MailTrashEmptyImapTest extends MailSyncTestSupport {
     assertThat(serverSubjects("Archive")).containsExactly("보관 메일");
     assertThat(countIn(s[1], trash)).isZero();
     assertThat(trashService.emptyStatus(s[0], s[1])).isEqualTo(st);
+  }
+
+  /** 저장된 비밀번호를 읽지 못하면 연결 실패가 아닌 자격증명 사유로 멈추고, 서버는 건드리지 않는다(WP-1907). */
+  @Test
+  void storedPasswordUnreadable_failsCredentialUnreadable_serverUntouched() throws Exception {
+    long[] s = trashScenario();
+    MailTestSupport.setStoredPassword(dsl, s[1], "not-encrypted");
+
+    MailTrashEmptyStatus st = trashService.startEmpty(s[0], s[1]);
+
+    assertThat(st.state()).isEqualTo("FAILED");
+    assertThat(st.errorCode()).isEqualTo(MailTrashException.CREDENTIAL_UNREADABLE);
+    assertThat(st.error()).isEqualTo(MailServerErrors.CREDENTIAL_UNREADABLE);
+    assertThat(serverSubjects("Trash")).hasSize(3);
   }
 
   @Test

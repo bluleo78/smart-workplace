@@ -51,14 +51,7 @@ class WikiHydrationServiceTest extends IntegrationTestBase {
 
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "wh_" + s)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "Name_" + s)
-        .set(USER.EMAIL, "wh_" + s + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    return seedUserWithName("wh_" + s, "Name_" + s);
   }
 
   private String uniqueKey() {
@@ -169,6 +162,35 @@ class WikiHydrationServiceTest extends IntegrationTestBase {
         .filteredOn(r -> r.type().equals("PAGE"))
         .extracting(WikiMentionRef::id)
         .containsExactly(first, second);
+  }
+
+  /** 이름이 비었거나 공백뿐인 유저는 라벨이 username 으로 대체된다(WP-1897 — 빈 라벨이면 웹이 「사용자 N」 으로 떨어짐). */
+  @Test
+  void resolveMentions_userWithoutName_labelFallsBackToUsername() {
+    long caller = seedUser();
+    String s1 = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    String s2 = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    String un1 = "wh_" + s1;
+    String un2 = "wh_" + s2;
+    long a = seedUserWithName(un1, "");
+    long b = seedUserWithName(un2, "   ");
+
+    List<WikiMentionRef> refs = hydration.resolveMentions(caller, "<@" + a + "> <@" + b + ">");
+
+    assertThat(refs).extracting(WikiMentionRef::type).containsExactly("USER", "USER");
+    assertThat(refs).extracting(WikiMentionRef::label).containsExactly(un1, un2);
+  }
+
+  /** 유일한 유저 insert 헬퍼 — username 은 호출자가 정하고 email 은 username@example.com. */
+  private long seedUserWithName(String username, String name) {
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, username)
+        .set(USER.PASSWORD, "pw")
+        .set(USER.NAME, name)
+        .set(USER.EMAIL, username + "@example.com")
+        .returning(USER.ID)
+        .fetchOne()
+        .getId();
   }
 
   /** resolveMentions: 빈 본문이면 빈 리스트. */

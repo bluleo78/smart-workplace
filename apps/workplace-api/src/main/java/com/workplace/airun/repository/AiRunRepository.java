@@ -65,12 +65,24 @@ public class AiRunRepository {
   }
 
   /**
+   * 기존 사유가 5xx 표지({@code http_<코드>})이고 이번 보고에 사유가 있으면 그 사유로 덮는다 — keep-first 의 예외.
+   *
+   * <p>왜: 표지는 API 쪽이 먼저 채우는 값이라 keep-first 를 그대로 두면 ai-agent 가 뒤에 보고한 실제 사유가 영구히 묻힌다. 사유가 비어 온
+   * 보고(성공·건너뜀)는 표지를 지우지 않는다(WP-1829 리뷰 후속).
+   */
+  private static Condition overwriteHttpMarkerReason() {
+    return AI_RUN.ERROR_REASON.like("http!_%", '!').and(excluded(AI_RUN.ERROR_REASON).isNotNull());
+  }
+
+  /**
    * 보고를 넣거나, 같은 (테넌트, 처리 ID) 가 있으면 합친다. 길이는 먼저 {@link AiRunRecord#truncated()} 로 자른다.
    *
    * <p>합치기 규칙: 상태는 순위가 높은 쪽(같으면 기존 유지), started_at 은 더 이른 값, ended_at 은 더 늦은 값(NULL 무시), 토큰·model·
    * credential_label 은 새 값이 있으면 새 값, target_*·actor_*·source_at·error_* 는 먼저 들어온 값, attempt 는 큰 값.
    *
    * <p>예외: 기존 행이 청소기가 닫은 「보고 없음」 FAILED 이면 종료 상태 보고가 상태·사유·상세·ended_at 을 모두 덮어쓴다(RUNNING 보고는 무시).
+   *
+   * <p>예외: 기존 사유가 5xx 표지({@code http_<코드>})이면 사유가 있는 보고가 그 사유를 덮어쓴다(WP-1829 리뷰 후속).
    */
   public void upsert(AiRunRecord raw) {
     AiRunRecord r = raw.truncated();
@@ -144,9 +156,13 @@ public class AiRunRepository {
         .set(AI_RUN.SOURCE_AT, keepFirst(AI_RUN.SOURCE_AT))
         // 늦은 보고가 이기면 사유·상세를 한 묶음으로 보고 값으로 바꾼다(성공·건너뜀이면 NULL 로 「보고 없음」을 지운다). 늦은 FAILED 가 사유를
         // 비워 오면 「사유 미보고」로 채운다 — 사유 없는 FAILED 도, 표지가 남아 뒤집히는 FAILED 도 만들지 않는다(WP-1827 리뷰 후속).
+        // 단, 기존 사유가 5xx 표지면 사유가 있는 보고가 덮어쓴다 — 표지가 실제 사유를 영구히 가리지 않게(WP-1829 리뷰 후속).
         .set(
             AI_RUN.ERROR_REASON,
-            lateWinsOrKeepFirst(lateReportWins, lateReason, AI_RUN.ERROR_REASON))
+            case_()
+                .when(lateReportWins, lateReason)
+                .when(overwriteHttpMarkerReason(), excluded(AI_RUN.ERROR_REASON))
+                .else_(keepFirst(AI_RUN.ERROR_REASON)))
         .set(AI_RUN.ERROR_DETAIL, lateWinsOrKeepFirst(lateReportWins, AI_RUN.ERROR_DETAIL))
         .set(AI_RUN.ATTEMPT, greatest(AI_RUN.ATTEMPT, excluded(AI_RUN.ATTEMPT)))
         .set(AI_RUN.UPDATED_AT, DSL.currentOffsetDateTime())

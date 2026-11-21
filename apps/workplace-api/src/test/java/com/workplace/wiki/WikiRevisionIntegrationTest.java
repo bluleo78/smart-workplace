@@ -160,6 +160,25 @@ class WikiRevisionIntegrationTest extends ExternalClientMockedTestBase {
     assertThat(res.current().editedAt().toInstant()).isEqualTo(updatedAt.toInstant());
   }
 
+  /** 이름이 빈 편집자는 username 으로 표시된다(WP-1897 — user.name 이 NOT NULL 이라 null 검사로는 대체되지 않았다). */
+  @Test
+  void editorWithEmptyNameIsShownByUsername() {
+    long pageId = seedPageWithRevisions(personalSpace());
+    long nameless = seedUser("");
+    seedDoc(pageId, List.of(nameless), base.minusMinutes(3));
+    String username =
+        inTxGet(
+            () ->
+                dsl.select(USER.USERNAME)
+                    .from(USER)
+                    .where(USER.ID.eq(nameless))
+                    .fetchOne(USER.USERNAME));
+
+    tenant1();
+    var res = revisionService.list(ownerId, pageId);
+    assertThat(res.current().editors()).extracting(p -> p.name()).containsExactly(username);
+  }
+
   /** 본문이 빈 옛 판은 복원하지 않는다 — 노트를 비우지 않게 위임 전에 400(collab 호출 없음, 리비전·본문 불변). */
   @Test
   void restoreOfBlankRevisionIs400() throws Exception {

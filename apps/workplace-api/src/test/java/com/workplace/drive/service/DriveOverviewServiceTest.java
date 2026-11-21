@@ -419,4 +419,31 @@ class DriveOverviewServiceTest {
     assertThat(seen.get().actorType()).isEqualTo("USER");
     assertThat(seen.get().actorId()).isEqualTo(CALLER);
   }
+
+  /** WP-1829 리뷰 후속: SecurityContext 가 없어도 callerId 로 요청자(USER)가 잡힌다 — 주체가 AUTO 로 떨어지지 않는다. */
+  @Test
+  void startOverview_SecurityContext가없으면_callerId로_USER() throws Exception {
+    when(search.search(eq(CALLER), eq("매출"), eq(5), isNull()))
+        .thenReturn(new DriveContentSearchResponse(List.of(), false));
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    java.util.concurrent.atomic.AtomicReference<com.workplace.airun.context.AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    doAnswer(
+        inv -> {
+          seen.set(com.workplace.airun.context.AiRunScope.current());
+          return null;
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    try {
+      service.startOverview(CALLER, "매출", null);
+    } finally {
+      org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    assertThat(seen.get().actorType()).isEqualTo("USER");
+    assertThat(seen.get().actorId()).isEqualTo(CALLER);
+  }
 }

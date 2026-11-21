@@ -1,9 +1,11 @@
 import { Star, Users,UserX } from 'lucide-react'
 import { useState } from 'react'
 
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
 import { isNotFoundError } from '@/lib/api-error'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { cn, usernameHandle } from '@/lib/utils'
 import { CONTACT_NOTES_MAX } from '@/lib/validations/contact'
 
@@ -51,7 +53,8 @@ export function ContactDetailPanel({
   onDeleted?: () => void
   onClose?: () => void
 }) {
-  const { data, isLoading, isError, error, refetch } = useContactDetail(selected)
+  const query = useContactDetail(selected)
+  const { data, isLoading, isError, error } = query
   const [editOpen, setEditOpen] = useState(false)
   const del = useDeleteExternalContact()
   // 즐겨찾기 토글 — 멤버/외부 공통으로 사용
@@ -72,14 +75,6 @@ export function ContactDetailPanel({
             왼쪽 목록에서 연락처를 클릭하면 상세 정보가 표시됩니다
           </p>
         </div>
-      </div>
-    )
-  }
-  if (isLoading) {
-    return (
-      <div className="p-4 text-sm text-muted-foreground">
-        <ContactDetailSrHeading />
-        불러오는 중…
       </div>
     )
   }
@@ -104,12 +99,23 @@ export function ContactDetailPanel({
       </div>
     )
   }
-  if (isError || !data) {
+  // 보일 데이터가 없으면 로딩 또는 불러오기 실패 안내 — 한 곳에서 가른다(WP-1903).
+  // 실패 뒤 다시 시도 중(pending)에도 isLoading 이 참이지만 안내를 유지해 초점·잠금을 지킨다(WP-881).
+  // 이미 불러온 연락처는 백그라운드 재조회가 실패해도 내용을 덮지 않는다.
+  if (!data) {
+    if (isLoading && !failedWithoutData(query)) {
+      return (
+        <div className="p-4 text-sm text-muted-foreground">
+          <ContactDetailSrHeading />
+          불러오는 중…
+        </div>
+      )
+    }
+    // 바깥 div 는 아래 상세 분기와 같은 요소라 성공 뒤에도 LoadErrorState 의 초점 옮기기 자리가 남는다.
     return (
-      <div className="p-4 text-center">
+      <div className="flex h-full flex-col items-center justify-center p-4">
         <ContactDetailSrHeading />
-        <p className="text-sm text-destructive mb-2">연락처를 찾을 수 없습니다</p>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+        <LoadErrorState title="연락처를 불러오지 못했습니다" queries={[query]} testId="contact-detail-load-error" />
       </div>
     )
   }

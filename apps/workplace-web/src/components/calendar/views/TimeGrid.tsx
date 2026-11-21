@@ -8,7 +8,7 @@ import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { NowLine } from '@/components/calendar/NowLine'
 import { useMinuteNow } from '@/hooks/useMinuteNow'
-import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, hourOffset, HOURS, initialGridScrollTop, issueDuesOnDay, layoutTimedEvents, nowLineTop, timedEventBox, timedEventColumnStyle } from '@/lib/calendar'
+import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, hourOffset, HOURS, initialGridScrollTop, issueDuesOnDay, layoutTimedEvents, nowLineTop, timedEventBox, timedEventColumnStyle, timedSegmentLabel } from '@/lib/calendar'
 import { dayColumnLabel, defaultTimeSlot, nextTimeSlot, timeSlotLabel, type TimeSlotPos } from '@/lib/calendarGridNav'
 import { type MovedRange, type ResizeEdge, resizeHandles, withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
@@ -382,7 +382,8 @@ export function TimeGrid({
                     className={`text-xs text-left rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden ${isMovingEvent(move.preview, e) ? 'opacity-50' : ''}`}
                   >
                     <ExtraTagDots event={e} />
-                    {formatClockTimePadded(e.startsAt)} {e.title}
+                    {/* WP-1910: 여러 날 일정은 조각마다 그날에 맞는 라벨(시작일 시작 시각·이어지는 날 M/d부터·마지막 날 ~끝 시각) */}
+                    {timedSegmentLabel(e, day)} {e.title}
                     {handles &&
                       RESIZE_EDGES.filter((edge) => handles[edge]).map((edge) => (
                         <span
