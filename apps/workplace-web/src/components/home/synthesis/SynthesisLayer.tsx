@@ -5,7 +5,7 @@
 // 페치 정책: notifications·mail·calendar 훅은 ③ 위젯 바디와 동일 키 → TanStack Query 가 dedupe(이중 페치 없음).
 //   단 useMyIssueDues 는 어느 ③ 바디도 쓰지 않는 합성 전용 추가 쿼리다(마감 마커 — 스펙 허용).
 import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageCircle, MessageSquare, X } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import type { PriorityItem } from '@/api/priorityItems'
@@ -174,6 +174,10 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
     todayKey,
   })
   const top = rows.slice(0, 5)
+  // 행 Link 의 aria-label 이 보이는 meta(멘션 N · 시간 등)를 덮으므로 meta 를 aria-describedby 로 잇는다(WP-1891).
+  // id 는 useId 접두 + 포커스 `-focus` / 리스트 map 순번(r.key 는 경로 문자열이라 IDREF 로 쓰지 않는다).
+  const metaIdBase = useId()
+  const focusMetaId = `${metaIdBase}-focus`
   // 행을 만드는 소스 중 실패한 것(WP-865) — 하나라도 실패하면 0건이어도 「다 확인했습니다」라고 말할 수 없고,
   // 행이 있어도 빠진 소스가 있음을 알린다. AI 우선순위(priority)는 정렬 점수만 주고 행을 만들지 않아(없으면 고정 순위로 폴백) 넣지 않는다.
   // 다시 시도는 실패한 소스만 다시 부른다.
@@ -277,6 +281,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                   <Link
                     to={f.to}
                     aria-label={f.ariaLabel}
+                    aria-describedby={focusMetaId}
                     data-testid="dashboard-attention-focus"
                     className="flex items-center gap-3 rounded-lg border border-ai-accent bg-ai-accent-subtle px-3 py-2.5 hover:bg-ai-accent-subtle/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
@@ -285,7 +290,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                       {f.source}
                     </span>
                     <span className="truncate text-sm font-medium">{f.title}</span>
-                    <span className="ml-auto shrink-0 text-xs font-medium text-ai-accent">{f.meta}</span>
+                    <span id={focusMetaId} className="ml-auto shrink-0 text-xs font-medium text-ai-accent">{f.meta}</span>
                   </Link>
                 )
                 // AI 발굴 신호가 있을 때만 AiContent 아우라 추가(aiReason 이 있는 대화 행).
@@ -298,13 +303,15 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
               {/* 나머지 항목 — 차분한 리스트. */}
               {top.length > 1 && (
                 <ul className="space-y-0.5 border-l-2 border-l-destructive pl-2">
-                  {top.slice(1).map((r) => {
+                  {top.slice(1).map((r, i) => {
                     const Icon = SOURCE_ICON[r.source]
+                    const metaId = `${metaIdBase}-${i}`
                     return (
                       <li key={r.key}>
                         <Link
                           to={r.to}
                           aria-label={r.ariaLabel}
+                          aria-describedby={metaId}
                           className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                         >
                           <span className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -313,7 +320,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                           </span>
                           <span className="truncate">{r.title}</span>
                           {/* AI 발굴 신호 행은 meta 를 ai-accent 로 강조. */}
-                          <span className={`ml-auto shrink-0 text-xs ${r.isAi ? 'text-ai-accent' : 'text-muted-foreground'}`}>{r.meta}</span>
+                          <span id={metaId} className={`ml-auto shrink-0 text-xs ${r.isAi ? 'text-ai-accent' : 'text-muted-foreground'}`}>{r.meta}</span>
                         </Link>
                       </li>
                     )

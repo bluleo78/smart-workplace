@@ -11,6 +11,7 @@ import type { PriorityItemsResponse } from '@/api/priorityItems'
 import { Dashboard } from '@/components/home/Dashboard'
 import { NotificationGroupRow } from '@/components/home/widgets/dashboard/NotificationGroupRow'
 import { InboxProvider, useInboxPanel } from '@/components/layout/InboxContext'
+import { formatRelativeTime } from '@/lib/formatters'
 import { groupNotifications } from '@/lib/notifGrouping'
 import { renderScreen } from '@/test/renderScreen'
 import type { CalendarEvent } from '@/types/calendar'
@@ -204,6 +205,35 @@ test('알림 위젯 행 — 미읽음·섞인 그룹 링크 이름은 「읽지 
   expect(screen.getByRole('link', { name: '읽지 않음, 알림 열기: 안 읽은 알림' })).toBeInTheDocument()
   expect(screen.getByRole('link', { name: '알림 열기: 읽은 알림' })).toBeInTheDocument()
   expect(screen.getByRole('link', { name: '읽지 않음, 알림 열기: 섞인 알림' })).toBeInTheDocument()
+})
+
+test('알림 위젯 행 — 둘째 줄(행위자·에이전트·변경 요약·시간)을 접근 설명으로 읽는다 (WP-1891)', () => {
+  // 링크 이름(aria-label)은 짧게 두고, 시각적 둘째 줄은 aria-describedby 설명으로 이어져야 한다.
+  const groupOf = (n: NotificationResponse) => groupNotifications([n]).mine[0]
+  const human = groupOf(notif({ id: 51, issueNumber: 51, issueId: 51, issueTitle: '사람 알림', actorId: 3, actorName: '홍길동', read: false }))
+  const agent = groupOf(notif({ id: 52, issueNumber: 52, issueId: 52, issueTitle: '에이전트 알림', actorId: 4, actorName: 'AI 팀장', actorKind: 'AGENT', read: false }))
+  const nobody = groupOf(notif({ id: 53, issueNumber: 53, issueId: 53, issueTitle: '행위자 없음', actorId: null, actorName: null, read: false }))
+  renderScreen(
+    <ul>
+      <NotificationGroupRow group={human} onAck={() => {}} />
+      <NotificationGroupRow group={agent} onAck={() => {}} />
+      <NotificationGroupRow group={nobody} onAck={() => {}} />
+    </ul>,
+  )
+  const humanLink = screen.getByRole('link', { name: '읽지 않음, 알림 열기: 사람 알림' })
+  // 행위자 뒤에 공백이 있어 「홍길동변경 요약」처럼 붙지 않는다.
+  expect(humanLink).toHaveAccessibleDescription(/^홍길동 /)
+  // jsdom 은 flex 자식 사이에 공백을 보태 계산하므로, 공백을 넣지 않는 보조기기를 위해 DOM 텍스트에도 공백이 있는지 직접 본다.
+  const descEl = document.getElementById(humanLink.getAttribute('aria-describedby') ?? '')
+  expect(descEl?.textContent).toMatch(/^홍길동 /)
+  expect(humanLink).toHaveAccessibleDescription(expect.stringContaining(human.deltaSummary))
+  expect(humanLink).toHaveAccessibleDescription(expect.stringContaining(formatRelativeTime(human.latestAt)))
+  // 에이전트 사례 — 행위자 이름과 「에이전트」 배지 사이, 배지와 요약 사이에 공백.
+  expect(screen.getByRole('link', { name: '읽지 않음, 알림 열기: 에이전트 알림' })).toHaveAccessibleDescription(/AI 팀장 에이전트 /)
+  const nobodyLink = screen.getByRole('link', { name: '읽지 않음, 알림 열기: 행위자 없음' })
+  // 행위자·배지가 없으면 앞 공백은 접근 설명 계산에서 잘려 요약으로 시작한다.
+  expect(nobodyLink).toHaveAccessibleDescription(new RegExp(`^${nobody.deltaSummary}`))
+  expect(nobodyLink).toHaveAccessibleDescription(expect.stringContaining(formatRelativeTime(nobody.latestAt)))
 })
 
 test('알림 위젯 — 행 ✓ 는 그 알림을, 「모두 읽음」은 read-all 을 요청한다', async () => {
@@ -445,6 +475,27 @@ test('합성 — 같은 이슈 멘션 3건은 한 줄(멘션 3)로 묶이고 단
   expect(rest[0].textContent).not.toContain(' · ')
   expect(rest[0]).toHaveAttribute('href', '/projects/WP/issues/8')
   expect(screen.getByRole('button', { name: '멘션 4건' })).toBeInTheDocument()
+})
+
+test('합성 — 「지금 신경 쓸 일」 행은 보이는 meta 를 접근 설명으로 읽는다 (WP-1891)', async () => {
+  const A = '결제 모듈 리팩터링 후 정산 배치가 이중 집계되는 문제 조사 및 재발 방지 대책 수립'
+  const c = (id: number, issueNumber: number, issueTitle: string, createdAt: string) =>
+    notif({ id, type: 'ISSUE_COMMENT_MENTION', actorId: 3, actorName: '홍길동', issueId: issueNumber, issueNumber, issueTitle, commentId: id, createdAt })
+  renderHome(layout(['synthesis']), {
+    notifications: [c(1, 7, A, '2026-06-16T01:00:00Z'), c(2, 7, A, '2026-06-16T03:00:00Z'), c(3, 7, A, '2026-06-16T02:00:00Z'), c(4, 8, '이슈 B', '2026-06-16T00:00:00Z')],
+    issues: [],
+    mail: { ...baseMail, recent: [] },
+  })
+  const attention = await screen.findByTestId('dashboard-attention')
+  await waitFor(() => expect(attention).toHaveTextContent('지금 신경 쓸 일 (2)'))
+  const focus = screen.getByTestId('dashboard-attention-focus')
+  // aria-label 이름은 그대로 두고, 가려진 meta 는 설명으로 읽힌다.
+  expect(focus).toHaveAccessibleName(`알림 열기: ${A} (멘션 3건)`)
+  expect(focus).toHaveAccessibleDescription(/^멘션 3 · /)
+  const rest = attention.querySelectorAll('ul a')
+  expect(rest[0]).toHaveAccessibleDescription('멘션')
+  // 행마다 id 가 고유해 설명이 서로 섞이지 않는다.
+  expect(focus.getAttribute('aria-describedby')).not.toBe(rest[0].getAttribute('aria-describedby'))
 })
 
 test('합성 — 메일 분류가 꺼져 있으면 회신 필요 CTA 가 뜨고, 닫으면 사라지며 다시 열어도(재마운트) 보이지 않는다', async () => {
