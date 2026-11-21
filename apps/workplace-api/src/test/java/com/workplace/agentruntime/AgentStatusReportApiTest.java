@@ -410,13 +410,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   private String slotReport(
       String state, String slot, String issueKey, Long generation, String nextCheckAt)
       throws Exception {
-    Map<String, Object> body = new java.util.LinkedHashMap<>();
-    body.put("state", state);
-    if (slot != null) body.put("slot", slot);
-    if (issueKey != null) body.put("issueKey", issueKey);
-    if (generation != null) body.put("generation", generation);
-    if (nextCheckAt != null) body.put("nextCheckAt", nextCheckAt);
-    return om.writeValueAsString(body);
+    return slotReportBody(state, slot, issueKey, generation, nextCheckAt, null);
   }
 
   /**
@@ -425,11 +419,24 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   private String slotReportWithPod(
       String state, String slot, String issueKey, Long generation, OffsetDateTime podStartedAt)
       throws Exception {
+    return slotReportBody(state, slot, issueKey, generation, null, podStartedAt);
+  }
+
+  /** 칸 보고 본문 — null 인 값은 싣지 않는다. 선택 값(다음 확인 시각·Pod 시작 시각)은 한 군데서만 쌓아 본문이 어긋나지 않게 한다. */
+  private String slotReportBody(
+      String state,
+      String slot,
+      String issueKey,
+      Long generation,
+      String nextCheckAt,
+      OffsetDateTime podStartedAt)
+      throws Exception {
     Map<String, Object> body = new java.util.LinkedHashMap<>();
     body.put("state", state);
     if (slot != null) body.put("slot", slot);
     if (issueKey != null) body.put("issueKey", issueKey);
     if (generation != null) body.put("generation", generation);
+    if (nextCheckAt != null) body.put("nextCheckAt", nextCheckAt);
     if (podStartedAt != null) body.put("podStartedAt", podStartedAt);
     return om.writeValueAsString(body);
   }
@@ -690,6 +697,37 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
 
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
     assertThat(runtimeEvents()).isEqualTo(1);
+  }
+
+  /**
+   * 30초 여유의 경계(WP-1913 리뷰 반려 ①) — `podStartedAt` 이 `started_at − 30초`(= {@code podStartCutoff})와
+   * 같거나 뒤면 지금 Pod 로 보고, 그보다 앞서면 옛 Pod 로 본다(WP-1253 칸 거르기와 같은 여유). 문서가 말하는 경계를 코드가 지키는지 여기서 고정한다.
+   */
+  @Test
+  void status_파드_시각은_시작_시각_30초_여유_경계로_가른다() throws Exception {
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    OffsetDateTime startedAt = OffsetDateTime.now().minusMinutes(10);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, startedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    report(key, slotReport("IDLE", "WP", null, gen)).andExpect(status().isOk());
+    setPaneBlocked(gen);
+
+    // 여유 안(시작 − 29초) — 지금 Pod 로 보아 칸을 비우고 화면이 바뀌었으니 알린다.
+    report(key, slotReportWithPod("IDLE", "WP", null, gen, startedAt.minusSeconds(29)))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isEqualTo(1);
+
+    // 여유 밖(시작 − 31초) — 옛 Pod 로 보아 칸을 그대로 두고 알리지도 않는다(setPaneBlocked 가 알림 기록을 비운다).
+    setPaneBlocked(gen);
+    report(key, slotReportWithPod("IDLE", "WP", null, gen, startedAt.minusSeconds(31)))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+        .isEqualTo("설정 오류로 칸을 못 띄웠어요");
+    assertThat(runtimeEvents()).isZero();
   }
 
   /**

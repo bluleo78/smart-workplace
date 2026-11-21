@@ -1499,12 +1499,33 @@ async function fakeStatusServer({ status = 200, body = '{"desired":"RUN"}' } = {
   return { url: `http://127.0.0.1:${server.address().port}/api/v1`, reqs, close: () => server.close() };
 }
 
-/** 상태 보고 본문 — Pod 시작 시각(/proc/1)은 실행 환경 값이라 형식만 확인하고 비교에서 뺀다(WP-1913 리뷰 반려 ①). */
+/** 상태 보고 본문 — Pod 시작 시각(/proc)은 실행 환경 값이라 형식만 확인하고 비교에서 뺀다(WP-1913 리뷰 반려 ①). */
 function statusBody(raw) {
   const body = JSON.parse(raw);
-  assert.match(body.podStartedAt ?? '', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  if (body.podStartedAt !== undefined) assert.match(body.podStartedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   delete body.podStartedAt;
   return body;
+}
+
+/**
+ * 컨테이너 PID 1 의 실제 시작 시각(epoch) — 스크립트와 **다른 코드**로 계산해 값을 견준다(원 동그라미 검사 방지).
+ * `now - uptime + starttime/CLK_TCK`. /proc 을 못 읽으면 null(테스트를 건너뛴다).
+ */
+function pid1StartEpoch() {
+  let stat, up;
+  try {
+    stat = readFileSync('/proc/1/stat', 'utf8');
+    up = readFileSync('/proc/uptime', 'utf8');
+  } catch {
+    return null;
+  }
+  const hz = Number(spawnSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).stdout.trim());
+  // comm 에는 공백·괄호가 들어갈 수 있어 마지막 ')' 뒤부터 필드를 센다 — starttime 은 그 뒤 20번째.
+  const fields = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/);
+  const ticks = Number(fields[19]);
+  const uptime = Math.floor(Number(up.split(/\s+/)[0]));
+  if (!Number.isFinite(hz) || hz <= 0 || !Number.isFinite(ticks) || !Number.isFinite(uptime)) return null;
+  return Math.floor(Date.now() / 1000) - uptime + Math.floor(ticks / hz);
 }
 
 test('gw-status: GENIA_AGENT_GENERATION 이 없으면(Works 가 띄운 AI 아님) 서버에 묻지 않고 RUN', async () => {
@@ -1532,14 +1553,21 @@ test('gw-status: 서버가 HOLD(새 작업 받지 않음, WP-1514)를 주면 HOL
   }
 });
 
-test('gw-status: 보고에 Pod 시작 시각(/proc/1)을 싣는다 — 서버가 옛 Pod 늦은 보고를 가르는 데 쓴다 (WP-1913 리뷰 반려 ①)', async () => {
+test('gw-status: 보고에 Pod 시작 시각을 싣는다 — /proc/1 mtime 이 아니라 PID 1 시작 기준 (WP-1913 리뷰 반려 ①)', async (t) => {
+  const expected = pid1StartEpoch();
+  if (expected == null) return t.skip('/proc/1 을 읽지 못하는 환경');
   run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
   const srv = await fakeStatusServer({ body: '{"desired":"RUN"}' });
   try {
     const r = await runAsync('gw-status', ['IDLE'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' });
     assert.equal(r.status, 0);
-    const epoch = Number(spawnSync('stat', ['-c', '%Y', '/proc/1'], { encoding: 'utf8' }).stdout.trim());
-    assert.equal(Date.parse(JSON.parse(srv.reqs[0].body).podStartedAt), epoch * 1000);
+    const body = JSON.parse(srv.reqs[0].body);
+    assert.match(body.podStartedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    // 계산이 달라도 5초 안에 맞아야 한다 — dentry mtime 을 쓰면 여기서 수 시간 차이로 깨진다.
+    assert.ok(Math.abs(Date.parse(body.podStartedAt) - expected * 1000) <= 5000, `podStartedAt=${body.podStartedAt} expected≈${new Date(expected * 1000).toISOString()}`);
+    // /proc/1 mtime 은 inode 생성(경로 조회) 시각이라 쓰지 않는다 — 실제 시작과 다르면 이 값이다.
+    const dentry = Number(spawnSync('stat', ['-c', '%Y', '/proc/1'], { encoding: 'utf8' }).stdout.trim());
+    if (Number.isFinite(dentry) && Math.abs(dentry - expected) > 5) assert.notEqual(Date.parse(body.podStartedAt), dentry * 1000);
   } finally {
     srv.close();
   }
