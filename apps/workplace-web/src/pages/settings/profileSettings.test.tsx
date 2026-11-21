@@ -17,8 +17,19 @@ import { testAuthValue } from '@/test/renderWithProviders'
 
 import ProfileSettingsPage from './ProfileSettingsPage'
 
+/** 쓰기 API 하나의 흉내 응답 — status 0 은 응답 없는 네트워크 오류(ERR_NETWORK), body 를 주면 그 JSON 을 돌려준다. */
+type Reply = { status: number; body?: unknown }
+
+/** 흉내 응답을 만든다 — 본문이 없으면 5xx 는 기본 영문 문구를, 그 밖에는 빈 본문을 돌려준다(WP-1879·WP-1896). */
+function toResponse({ status, body }: Reply) {
+  if (status === 0) return HttpResponse.error()
+  if (body !== undefined) return HttpResponse.json(body as Record<string, unknown>, { status })
+  if (status >= 500) return HttpResponse.json({ message: 'An unexpected error occurred' }, { status })
+  return new HttpResponse(null, { status })
+}
+
 /** 프로필 화면이 부르는 쓰기 API — 받은 요청을 calls 에 모은다(나가면 안 되는 요청도 이것으로 센다). */
-function writeHandlers(passwordStatus = 204, passwordBody: unknown = { message: 'An unexpected error occurred' }) {
+function writeHandlers({ password = { status: 204 }, profile = { status: 200, body: {} } }: { password?: Reply; profile?: Reply }) {
   const calls: { method: string; path: string; body: unknown }[] = []
   const record = async (request: Request) => {
     const text = await request.text()
@@ -29,22 +40,19 @@ function writeHandlers(passwordStatus = 204, passwordBody: unknown = { message: 
     handlers: [
       http.put('/api/v1/users/me', async ({ request }) => {
         await record(request)
-        return HttpResponse.json({})
+        return toResponse(profile)
       }),
       http.put('/api/v1/users/me/password', async ({ request }) => {
         await record(request)
-        // 상태 0 은 응답 없는 네트워크 오류(ERR_NETWORK)를 흉내 낸다.
-        if (passwordStatus === 0) return HttpResponse.error()
-        if (passwordStatus >= 500) return HttpResponse.json(passwordBody as Record<string, unknown>, { status: passwordStatus })
-        return new HttpResponse(null, { status: passwordStatus })
+        return toResponse(password)
       }),
     ],
   }
 }
 
-/** 프로필 화면을 띄운다 — hasPassword 를 주면 그 계정으로 그린다. */
-async function openProfile(hasPassword = true, passwordStatus = 204, passwordBody?: unknown) {
-  const api = writeHandlers(passwordStatus, passwordBody)
+/** 프로필 화면을 띄운다 — hasPassword 를 주면 그 계정으로 그리고, replies 로 쓰기 API 응답을 정한다. */
+async function openProfile(hasPassword = true, replies: { password?: Reply; profile?: Reply } = {}) {
+  const api = writeHandlers(replies)
   const view = renderScreen(<ProfileSettingsPage />, {
     path: '/settings/profile',
     handlers: api.handlers,
@@ -120,7 +128,7 @@ async function submitPasswordChange(user: Awaited<ReturnType<typeof openProfile>
 
 // WP-1879 — 서버 고장(500)의 영문 내부 문구는 버리고, 입력 탓(「현재 비밀번호가 올바르지 않습니다」)으로 잘못 알리지 않는다.
 test('비밀번호 변경이 서버 오류(500)로 실패하면 서버 오류 안내를 보인다 (WP-1879)', async () => {
-  const { user, calls } = await openProfile(true, 500)
+  const { user, calls } = await openProfile(true, { password: { status: 500 } })
   await submitPasswordChange(user, calls)
   expect(await screen.findByText('서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.')).toBeInTheDocument()
   expect(screen.queryByText('현재 비밀번호가 올바르지 않습니다.')).not.toBeInTheDocument()
@@ -129,7 +137,7 @@ test('비밀번호 변경이 서버 오류(500)로 실패하면 서버 오류 �
 
 // WP-1879 — 서버가 일부러 쓴 한국어 5xx 안내는 영문 내부 문구와 달리 그대로 보인다(서버 오류 일반 안내로 덮지 않는다).
 test('비밀번호 변경 서버 오류(503)가 한국어 문구를 주면 그 문구를 보인다 (WP-1879)', async () => {
-  const { user, calls } = await openProfile(true, 503, { status: 503, message: '잠시 점검 중입니다' })
+  const { user, calls } = await openProfile(true, { password: { status: 503, body: { status: 503, message: '잠시 점검 중입니다' } } })
   await submitPasswordChange(user, calls)
   expect(await screen.findByText('잠시 점검 중입니다')).toBeInTheDocument()
   expect(screen.queryByText('서버 오류로 저장하지 못했습니다. 잠시 후 다시 시도하세요.')).not.toBeInTheDocument()
@@ -137,10 +145,46 @@ test('비밀번호 변경 서버 오류(503)가 한국어 문구를 주면 그 �
 
 // WP-1879 — 응답 없는 네트워크 오류는 입력 탓(「현재 비밀번호가 올바르지 않습니다」)으로 보이지 않고, 연결 안내만 덧붙는다.
 test('비밀번호 변경이 네트워크 오류로 실패하면 입력 탓이 아닌 연결 안내를 보인다 (WP-1879)', async () => {
-  const { user, calls } = await openProfile(true, 0)
+  const { user, calls } = await openProfile(true, { password: { status: 0 } })
   await submitPasswordChange(user, calls)
   expect(await screen.findByText('저장하지 못했습니다. 네트워크 연결을 확인한 뒤 다시 시도하세요')).toBeInTheDocument()
   expect(screen.queryByText(/현재 비밀번호가 올바르지 않습니다/)).not.toBeInTheDocument()
+})
+
+/** 비밀번호 설정(SSO 전용 계정) 폼에 같은 새 비밀번호를 두 번 넣고 제출한다(WP-48·WP-1896 공용). */
+async function submitSetPassword(user: Awaited<ReturnType<typeof openProfile>>['user']) {
+  await user.click(document.getElementById('set-new-password')!)
+  await user.paste('Password123')
+  await user.click(document.getElementById('set-confirm-password')!)
+  await user.paste('Password123')
+  await user.click(screen.getByRole('button', { name: '비밀번호 설정' }))
+}
+
+// WP-1896 — 폼 루트 오류(errors.root)는 나타나는 순간 스크린리더가 읽도록 role=alert 다(로그인 WP-733 과 같은 방식).
+test('비밀번호 변경이 현재 비밀번호 불일치(400)로 실패하면 안내를 스크린리더 알림으로 읽는다 (WP-1896)', async () => {
+  const { user, calls } = await openProfile(true, { password: { status: 400, body: { status: 400, error: 'Bad Request', message: '현재 비밀번호가 올바르지 않습니다' } } })
+  await submitPasswordChange(user, calls)
+  // 클라이언트 대체 문구는 끝에 마침표가 붙는다 — 정확히 서버 문구인지 본다(대체 문구로 덮이면 실패).
+  expect(await screen.findByRole('alert')).toHaveTextContent(/^현재 비밀번호가 올바르지 않습니다$/)
+  expect(screen.getAllByRole('alert')).toHaveLength(1)
+})
+
+test('프로필 저장이 실패하면 안내를 스크린리더 알림으로 읽는다 (WP-1896)', async () => {
+  const { user, calls } = await openProfile(true, { profile: { status: 400, body: { message: '이미 사용 중인 이메일입니다' } } })
+  const info = document.querySelector<HTMLElement>('[data-help="profile.info"]')!
+  await user.click(within(info).getByRole('button', { name: '저장' }))
+  await waitFor(() => expect(calls.map((c) => c.path)).toEqual(['/api/v1/users/me']))
+  expect(await within(info).findByRole('alert')).toHaveTextContent('이미 사용 중인 이메일입니다')
+  expect(screen.getAllByRole('alert')).toHaveLength(1)
+})
+
+test('비밀번호 설정이 실패하면 안내를 스크린리더 알림으로 읽는다 (WP-1896)', async () => {
+  // 서버 문구는 대체 문구(「비밀번호 설정에 실패했습니다.」)와 달라야 서버 문구를 보이는지 가릴 수 있다.
+  const { user, calls } = await openProfile(false, { password: { status: 400, body: { message: '새 비밀번호가 정책에 맞지 않습니다' } } })
+  await submitSetPassword(user)
+  await waitFor(() => expect(calls).toHaveLength(1))
+  expect(await screen.findByRole('alert')).toHaveTextContent('새 비밀번호가 정책에 맞지 않습니다')
+  expect(screen.getAllByRole('alert')).toHaveLength(1)
 })
 
 // WP-48 — 비밀번호 없는(SSO 전용) 계정은 현재 비밀번호 칸 없이 「비밀번호 설정」 카드로 새 비밀번호만 보낸다.
@@ -149,11 +193,7 @@ test('비밀번호 없는 계정은 새 비밀번호만으로 설정한다 (WP-4
   expect(document.getElementById('current-password')).toBeNull()
   // WP-1298 — 「비밀번호 설정」 섹션도 「비밀번호 변경」과 같은 도움말 절(profile.password)로 이어진다.
   expect(document.querySelector('[data-help="profile.password"] h2')).toHaveTextContent('비밀번호 설정')
-  await user.click(document.getElementById('set-new-password')!)
-  await user.paste('Password123')
-  await user.click(document.getElementById('set-confirm-password')!)
-  await user.paste('Password123')
-  await user.click(screen.getByRole('button', { name: '비밀번호 설정' }))
+  await submitSetPassword(user)
   await waitFor(() => expect(calls).toEqual([{ method: 'PUT', path: '/api/v1/users/me/password', body: { newPassword: 'Password123' } }]))
 })
 
