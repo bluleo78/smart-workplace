@@ -477,7 +477,7 @@ test('합성 — 같은 이슈 멘션 3건은 한 줄(멘션 3)로 묶이고 단
   expect(screen.getByRole('button', { name: '멘션 4건' })).toBeInTheDocument()
 })
 
-test('합성 — 「지금 신경 쓸 일」 행은 보이는 meta 를 접근 설명으로 읽는다 (WP-1891)', async () => {
+test('합성 — 「지금 신경 쓸 일」 행은 출처 칩과 meta 를 접근 설명으로 읽는다 (WP-1891·WP-1902)', async () => {
   const A = '결제 모듈 리팩터링 후 정산 배치가 이중 집계되는 문제 조사 및 재발 방지 대책 수립'
   const c = (id: number, issueNumber: number, issueTitle: string, createdAt: string) =>
     notif({ id, type: 'ISSUE_COMMENT_MENTION', actorId: 3, actorName: '홍길동', issueId: issueNumber, issueNumber, issueTitle, commentId: id, createdAt })
@@ -489,13 +489,44 @@ test('합성 — 「지금 신경 쓸 일」 행은 보이는 meta 를 접근 �
   const attention = await screen.findByTestId('dashboard-attention')
   await waitFor(() => expect(attention).toHaveTextContent('지금 신경 쓸 일 (2)'))
   const focus = screen.getByTestId('dashboard-attention-focus')
-  // aria-label 이름은 그대로 두고, 가려진 meta 는 설명으로 읽힌다.
+  // 이름은 출처 칩 때문에 늘지 않는다(WP-1902) — 여전히 제목만.
   expect(focus).toHaveAccessibleName(`알림 열기: ${A} (멘션 3건)`)
+  // meta 에 「멘션」이 이미 있어 칩은 설명에서 빠진다 — 「멘션」이 한 번만 읽힌다(WP-1902).
   expect(focus).toHaveAccessibleDescription(/^멘션 3 · /)
   const rest = attention.querySelectorAll('ul a')
+  // WP-1902: 이 행도 meta(「멘션」)에 출처 낱말이 있어 칩 없이 meta 만 설명이 된다.
   expect(rest[0]).toHaveAccessibleDescription('멘션')
-  // 행마다 id 가 고유해 설명이 서로 섞이지 않는다.
+  // 행마다 id 가 고유해 설명이 서로 섞이지 않는다(WP-1891 유지).
   expect(focus.getAttribute('aria-describedby')).not.toBe(rest[0].getAttribute('aria-describedby'))
+})
+
+test('합성 — 「지금 신경 쓸 일」 행은 출처 낱말이 이름·meta 에 없을 때만 칩을 접근 설명으로 읽는다 (WP-1902)', async () => {
+  // 「이슈·메시지·메일 행이 AI 우선순위 점수 순서로…」 테스트와 같은 픽스처(issues 1건 · mail 1건 · messaging 1건 + priority)를 그대로 옮겨 쓴다.
+  renderHome(layout(['synthesis']), {
+    notifications: [],
+    issues: [createIssue({ id: 1, projectKey: 'WP', number: 7, title: '마감 지난 이슈', dueDate: '2020-01-01' })],
+    mail: { unreadCount: 1, needsReplyCount: 1, classificationActive: true, recent: [mailItem({ id: 200, subject: '계약 검토 요청', fromName: '거래처', aiCategory: 'ACTION', aiNeedsReply: true })] },
+    messaging: {
+      unreadConversationCount: 1, needsReplyCount: 0, aiAttentionCount: 1, attentionCount: 1,
+      recent: [{ kind: 'CHANNEL', conversationId: 5, label: '#dev', lastAuthorName: '박서연', lastMessagePreview: '배포 확인 부탁', lastMessageAt: new Date(Date.now() - 5 * 60_000).toISOString(), unreadCount: 1, mentioned: false, needsReply: false, newThreadReplyCount: 0, aiReason: '배포 여부 질문' }],
+    },
+    priority: {
+      items: [
+        { sourceType: 'MAIL_NEEDS_REPLY', sourceId: '200', title: '계약 검토 요청', deepLink: '/x', importanceScore: 90, urgencyScore: 90, reason: '높음' },
+        { sourceType: 'ISSUE_DUE', sourceId: '1', title: '마감 지난 이슈', deepLink: '/y', importanceScore: 50, urgencyScore: 50, reason: '중간' },
+        { sourceType: 'MESSAGE_ATTENTION', sourceId: '5', title: '#dev', deepLink: '/z', importanceScore: 10, urgencyScore: 10, reason: '낮음' },
+      ],
+    },
+  })
+  const attention = await screen.findByTestId('dashboard-attention')
+  await waitFor(() => expect(within(attention).getAllByRole('link')).toHaveLength(3))
+  // DOM 순 출처 칩 = 포커스(메일) · 리스트1(이슈) · 리스트2(메시지) — 위 테스트의 정렬 결과와 같다.
+  // 이름(「메일 열기」「이슈 열기」)에 출처 낱말이 있는 메일·이슈 행은 meta 만, 이름에 없는 메시지 행(「대화 열기」)만 칩+meta 가 설명이 된다.
+  // 문구는 buildAttentionRows 규칙의 확정 문구를 그대로 적어 describedby 가 다른 행의 요소를 가리키면 실패하게 한다.
+  const descriptions = ['회신 필요', '마감 지남', '메시지 확인 필요']
+  within(attention).getAllByRole('link').forEach((link, i) => {
+    expect(link).toHaveAccessibleDescription(descriptions[i])
+  })
 })
 
 test('합성 — 메일 분류가 꺼져 있으면 회신 필요 CTA 가 뜨고, 닫으면 사라지며 다시 열어도(재마운트) 보이지 않는다', async () => {

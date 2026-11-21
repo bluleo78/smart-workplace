@@ -22,6 +22,9 @@ export interface AttentionRow {
   meta: string // 우측 정렬 메타(마감/시각)
   to: string
   ariaLabel: string
+  // 출처 칩을 접근 설명에 이을지(WP-1902) — 이름(「이슈 열기」·「메일 열기」)이나 meta(「멘션 …」)가 이미 출처를 말하는 행은 false.
+  // 행을 만드는 곳에서 이름·meta 와 함께 정한다 — 문구를 바꾸는 사람이 같은 자리에서 이 값도 본다.
+  sourceChipDescribed: boolean
   urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션·메시지, 2=회신필요메일)
   recency: number // 동일 urgency 내 최신순(epoch ms, 클수록 위)
   isAi?: boolean // AI 발굴 신호(메시지 aiReason, 메일 aiNeedsReply)
@@ -69,6 +72,7 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
         meta: overdue ? '마감 지남' : '오늘 마감',
         to: `/projects/${d.projectKey}/issues/${d.number}`,
         ariaLabel: `이슈 열기: ${d.title}`,
+        sourceChipDescribed: false,
         urgency: 0,
         // 마감일만 있어 recency 는 마감일 epoch(지난 게 더 위로 오게 음수 정렬은 urgency 가 처리).
         recency: parseUtcDate(`${d.dueDate}T00:00:00Z`).getTime(),
@@ -95,6 +99,7 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
       meta: count > 1 ? `멘션 ${count} · ${formatRelativeTime(n.createdAt)}` : '멘션',
       to: g.to,
       ariaLabel: `알림 열기: ${notifLabel(n)}${count > 1 ? ` (멘션 ${count}건)` : ''}`,
+      sourceChipDescribed: false,
       urgency: 1,
       recency: parseUtcDate(n.createdAt).getTime(),
       aiScore: scores.length > 0 ? Math.max(...scores) : null,
@@ -113,6 +118,7 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
         // accountId 기반 딥링크 — Task 6 가 소비.
         to: `/mail/${m.accountId}?messageId=${m.id}`,
         ariaLabel: `메일 열기: ${mailSubjectText(m.subject)}`,
+        sourceChipDescribed: false,
         urgency: 2,
         recency: parseUtcDate(m.receivedAt ?? '1970-01-01T00:00:00Z').getTime(),
         aiScore: priorityScoreOf('MAIL_NEEDS_REPLY', String(m.id)),
@@ -144,6 +150,7 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
       // DM은 /chat/dms/:id, 채널은 /chat/channels/:id 딥링크.
       to: c.kind === 'DM' ? `/chat/dms/${c.conversationId}` : `/chat/channels/${c.conversationId}`,
       ariaLabel: `대화 열기: ${c.label}`,
+      sourceChipDescribed: true,
       urgency: 1,
       recency: c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : 0,
       isAi: c.aiReason != null,
@@ -160,4 +167,12 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
     return a.urgency - b.urgency || b.recency - a.recency
   })
   return rows
+}
+
+/**
+ * 행 Link 의 aria-describedby 값 — 출처 칩을 이을 행이면 「칩 id meta id」(보이는 순서), 아니면 meta id 만(WP-1902).
+ * 포커스 카드와 목록 행이 같은 규칙을 쓰도록 한 곳에 둔다.
+ */
+export function attentionDescribedBy(row: Pick<AttentionRow, 'sourceChipDescribed'>, chipId: string, metaId: string): string {
+  return row.sourceChipDescribed ? `${chipId} ${metaId}` : metaId
 }

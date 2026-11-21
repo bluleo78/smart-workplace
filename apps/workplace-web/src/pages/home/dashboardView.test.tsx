@@ -405,6 +405,19 @@ test('위젯 제목은 h2 로, 요약 안 「지금 신경 쓸 일」은 h3 로 
   expect(within(noti).getByRole('button', { name: '알림' })).toBeInTheDocument()
 })
 
+// WP-1941 — 위젯 제목이 본문 상속 16px/400 이라 홈 제목(15px/700)보다 컸다. 섹션 제목 토큰(14px/600)을 쓴다.
+test('위젯 제목 h2 는 섹션 제목 토큰(heading-body-section)을 쓴다(WP-1941)', async () => {
+  await renderDashboard(layout(['my_tasks', 'notifications', 'unread_mail']))
+  for (const name of ['내 작업', '알림', '메일']) {
+    const h = await screen.findByRole('heading', { level: 2, name })
+    expect(h).toHaveClass('text-sm', 'leading-5', 'font-semibold')
+    // 글꼴은 h2 에서만 정한다 — 안쪽 card-title span 이 자기 글꼴 클래스로 토큰을 덮으면 안 된다.
+    const span = h.querySelector('[data-slot="card-title"]')
+    expect(span).not.toBeNull()
+    for (const c of ['font-medium', 'text-sm', 'leading-none']) expect(span).not.toHaveClass(c)
+  }
+})
+
 test('제목을 숨긴(chromeless) 위젯도 보이지 않는 h2 제목이 있다(WP-1885)', async () => {
   await renderDashboard(layout([{ id: 'quick_actions', type: 'quick_actions', count: 5, hidden: false, chromeless: true }]))
   const h = await screen.findByRole('heading', { level: 2, name: '빠른 액션' })

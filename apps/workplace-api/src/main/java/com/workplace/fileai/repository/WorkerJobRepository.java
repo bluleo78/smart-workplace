@@ -47,6 +47,24 @@ public class WorkerJobRepository {
   private static final Condition FULL_ONLY =
       FILE_EXTRACTION.PROFILE.eq(ExtractionProfile.FULL.name());
 
+  /**
+   * 요약 재개 대상 조건 — {@link #findResumable} 과 {@link FileExtractionRepository#countSummaryPending} 이
+   * 같은 규칙을 쓰도록 한 곳에 둔다. TEXT_READY(요약 대기) 이거나 리스 만료된 SUMMARIZING 이면서, 시도 횟수가 상한 미만이고 FULL 프로파일일 때만
+   * 일꾼이 집어 간다. 리스 만료 시각 비교 기준({@code now})은 호출부가 정한다.
+   */
+  public static Condition summaryResumableCondition(OffsetDateTime now) {
+    return FILE_EXTRACTION
+        .STATUS
+        .eq("TEXT_READY")
+        .or(
+            FILE_EXTRACTION
+                .STATUS
+                .eq("SUMMARIZING")
+                .and(FILE_EXTRACTION.LEASED_UNTIL.lessThan(now)))
+        .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS))
+        .and(FULL_ONLY);
+  }
+
   private final DSLContext dsl;
   private final ObjectMapper objectMapper;
 
@@ -402,19 +420,7 @@ public class WorkerJobRepository {
                         .STATUS
                         .eq("EXTRACTING")
                         .and(FILE_EXTRACTION.LEASED_UNTIL.lessThan(now)))
-                .or(
-                    FILE_EXTRACTION
-                        .STATUS
-                        .eq("SUMMARIZING")
-                        .and(FILE_EXTRACTION.LEASED_UNTIL.lessThan(now))
-                        .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS))
-                        .and(FULL_ONLY))
-                .or(
-                    FILE_EXTRACTION
-                        .STATUS
-                        .eq("TEXT_READY")
-                        .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS))
-                        .and(FULL_ONLY)))
+                .or(summaryResumableCondition(now)))
         // 상한을 넘을 때 FULL(드라이브 — 요약 재시도·lease 만료 복구 포함)을 TEXT_ONLY(첨부 백필, WP-244)보다 먼저 집는다. 첨부
         // 백필이 쌓여도 드라이브 복구가 굶지 않게 하기 위함. 같은 프로파일 안에서는 file_id 오름차순(오래된 것 먼저)으로 결정적 순서.
         .orderBy(

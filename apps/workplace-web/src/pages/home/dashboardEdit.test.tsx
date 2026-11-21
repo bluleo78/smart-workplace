@@ -303,6 +303,17 @@ test('편집 모드에서도 위젯 제목은 h2 이고 드래그 핸들은 헤�
   }
 })
 
+// WP-1941 — 편집 모드 제목(14px/500)도 일반 모드와 같은 섹션 제목 토큰(14px/600)으로 맞춘다.
+test('편집 모드 위젯 제목도 일반 모드와 같은 섹션 제목 토큰을 쓴다(WP-1941)', async () => {
+  await openEdit(['my_tasks', 'unread_mail'])
+  // 위젯 카드 안의 h2 만 본다 — 편집 화면의 다른 h2(대화상자 등)와 묶이지 않게.
+  for (const type of ['my_tasks', 'unread_mail']) {
+    const h = within(card(type)).getByRole('heading', { level: 2 })
+    expect(h).toHaveClass('text-sm', 'leading-5', 'font-semibold')
+    expect(h).not.toHaveClass('font-medium')
+  }
+})
+
 // WP-1888 — 미리보기 안 카탈로그 위젯 제목은 대화상자 제목(h2 「위젯 추가」) 아래라 h3.
 test('위젯 추가 미리보기의 카탈로그 위젯 제목은 대화상자 제목(h2) 아래 h3 (WP-1888)', async () => {
   const view = await openEdit(['my_tasks'])
