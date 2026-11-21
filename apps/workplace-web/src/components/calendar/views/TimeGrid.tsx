@@ -9,6 +9,7 @@ import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { NowLine } from '@/components/calendar/NowLine'
 import { useMinuteNow } from '@/hooks/useMinuteNow'
 import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, hourOffset, HOURS, initialGridScrollTop, issueDuesOnDay, layoutTimedEvents, nowLineTop, timedEventBox, timedEventColumnStyle } from '@/lib/calendar'
+import { dayColumnLabel, defaultTimeSlot, nextTimeSlot, timeSlotLabel, type TimeSlotPos } from '@/lib/calendarGridNav'
 import { type MovedRange, type ResizeEdge, resizeHandles, withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
@@ -90,6 +91,14 @@ export function TimeGrid({
       }),
     [events, dayKey],
   )
+  // 로빙 tabIndex(WP-1906) — 시간 칸 168개 중 Tab 정지점은 초점 칸 하나. 기본은 오늘 열의 지금 시, 없으면 첫 열 오전 8시.
+  // 고른 칸은 그때 보이던 날짜(dayKey)와 함께 둔다 — 날짜가 바뀌면 사라진 열을 가리키지 않게 기본값으로 읽는다(다시 set 하지 않음).
+  const [focusPick, setFocusPick] = useState<{ key: string; slot: TimeSlotPos } | null>(null)
+  const focusSlot = focusPick?.key === dayKey ? focusPick.slot : defaultTimeSlot(days, new Date())
+  const setFocusSlot = (slot: TimeSlotPos) => setFocusPick({ key: dayKey, slot })
+  // 키보드 초점 링 표시 여부 — 칸 자체 outline 은 뒤 형제인 일정 블록(absolute)에 가려지므로, 열 안 오버레이로 그린다.
+  // 마우스 클릭 초점에는 보이지 않게 칸이 :focus-visible 일 때만 켠다(상태는 focus/blur 이벤트로만 바꾼다).
+  const [slotRingOn, setSlotRingOn] = useState(false)
   // 이벤트 처리기는 이 ref 의 최신 값을 읽는다 — 빠르게 튕기듯 끌면 다시 그리기 전에 pointerup 이 와서, 렌더 때 값(drag)으로는
   // 움직이지 않은 것으로 보고 정각 클릭으로 열 수 있었다. state 는 하이라이트를 그리는 데만 쓴다.
   const dragRef = useRef<DragSelection | null>(null)
@@ -203,6 +212,8 @@ export function TimeGrid({
             <div
               key={day.toISOString()}
               data-testid="calendar-allday-cell"
+              role="group"
+              aria-label={`${dayColumnLabel(day)} 종일`}
               data-move-day={format(day, 'yyyy-MM-dd')}
               data-move-kind="day"
               className="flex-1 min-w-0 border-l min-h-[28px] p-0.5 space-y-0.5 select-none"
@@ -251,10 +262,14 @@ export function TimeGrid({
 
         {/* 날짜별 컬럼 */}
         {days.map((day, dayIndex) => {
+          // 열 이름과 그 열 시간 칸 24개 이름에 함께 쓴다 — 칸마다 날짜를 다시 format 하지 않게 열마다 한 번.
+          const dayLabel = dayColumnLabel(day)
           return (
             <div
               key={day.toISOString()}
               data-testid="calendar-day-column"
+              role="group"
+              aria-label={dayLabel}
               data-move-day={format(day, 'yyyy-MM-dd')}
               data-move-kind="grid"
               className="flex-1 relative border-l select-none"
@@ -263,25 +278,67 @@ export function TimeGrid({
               onPointerUp={endDrag}
               onPointerCancel={() => setDrag(null)}
             >
-              {/* 클릭 가능한 시간 슬롯 */}
-              {HOURS.map((h) => (
-                <div
-                  key={h}
-                  className="h-12 border-b cursor-pointer hover:bg-muted/30"
-                  onClick={() => {
-                    if (suppressClickRef.current) {
-                      suppressClickRef.current = false
-                      return
-                    }
-                    // 일정을 끌어 옮긴 직후 칸으로 온 click 이면 새 일정을 열지 않는다(WP-1328).
-                    if (move.consumeClick()) return
-                    // 해당 날 h시 정각으로 onCreateAt 호출
-                    const d = new Date(day)
-                    d.setHours(h, 0, 0, 0)
-                    onCreateAt(d)
-                  }}
-                />
-              ))}
+              {/* 클릭 가능한 시간 슬롯 — 키보드로도 닿는 버튼 역할(WP-1906). 일정 블록 버튼은 이 칸의 자식이 아니라 형제라
+                  블록에서 올라온 키가 칸 동작을 일으키지 않는다. */}
+              {HOURS.map((h) => {
+                // 클릭·Enter·Space 공통 — 해당 날 h시 정각으로 새 일정을 연다.
+                const createAtHour = () => {
+                  const d = new Date(day)
+                  d.setHours(h, 0, 0, 0)
+                  onCreateAt(d)
+                }
+                return (
+                  <div
+                    key={h}
+                    // 방향키로 옮길 칸을 찾는 표식 — 칸마다 ref 콜백을 두면 끌기 중 pointermove 다시 그리기마다 168개가 떼었다 붙는다.
+                    data-slot={`${dayIndex}-${h}`}
+                    role="button"
+                    aria-label={timeSlotLabel(dayLabel, h)}
+                    tabIndex={focusSlot.dayIndex === dayIndex && focusSlot.hour === h ? 0 : -1}
+                    className="h-12 border-b cursor-pointer hover:bg-muted/30 focus:outline-none"
+                    onFocus={(ev) => {
+                      // 키보드 초점(:focus-visible)일 때만 링을 켠다. 지원하지 않는 환경이면 켜지 않는다.
+                      try {
+                        setSlotRingOn(ev.currentTarget.matches(':focus-visible'))
+                      } catch {
+                        setSlotRingOn(false)
+                      }
+                    }}
+                    onBlur={() => setSlotRingOn(false)}
+                    onKeyDown={(ev) => {
+                      // 브라우저·OS 단축키(Alt+←: 뒤로 등)는 가로채지 않는다.
+                      if (ev.altKey || ev.ctrlKey || ev.metaKey) return
+                      if (ev.target !== ev.currentTarget) return
+                      // 마우스로 눌러 초점이 온 칸(:focus-visible 아님)에서도 키를 쓰면 키보드 사용 중이니 링을 켠다.
+                      setSlotRingOn(true)
+                      const next = nextTimeSlot({ dayIndex, hour: h }, ev.key, days.length)
+                      if (next) {
+                        // 방향키가 스크롤 영역을 움직이지 않게 막고 초점만 옮긴다(끝에서는 그대로).
+                        ev.preventDefault()
+                        setFocusSlot(next)
+                        const el = gridScrollRef.current?.querySelector<HTMLElement>(`[data-slot="${next.dayIndex}-${next.hour}"]`)
+                        el?.focus()
+                        el?.scrollIntoView?.({ block: 'nearest' })
+                      } else if (ev.key === 'Enter' || ev.key === ' ') {
+                        // Space 의 페이지 스크롤을 막고 클릭과 같은 정각 생성을 연다.
+                        ev.preventDefault()
+                        createAtHour()
+                      }
+                    }}
+                    onClick={() => {
+                      // 마우스로 눌러도 그 칸이 로빙 초점 칸이 된다.
+                      setFocusSlot({ dayIndex, hour: h })
+                      if (suppressClickRef.current) {
+                        suppressClickRef.current = false
+                        return
+                      }
+                      // 일정을 끌어 옮긴 직후 칸으로 온 click 이면 새 일정을 열지 않는다(WP-1328).
+                      if (move.consumeClick()) return
+                      createAtHour()
+                    }}
+                  />
+                )
+              })}
 
               {/* 현재 시각 선 — 오늘 열에만(WP-1557). 포인터를 막지 않아 칸 클릭·끌어 만들기·일정 끌기가 그대로 동작한다. */}
               {isSameDay(day, now) && <GridNowLine />}
@@ -331,6 +388,16 @@ export function TimeGrid({
                   </button>
                 )
               })}
+
+              {/* 키보드 초점 칸 링 — 일정 블록보다 위(z-[6])에 그려 블록에 가려지지 않게 하고, pointer-events-none 이라 블록 클릭을 빼앗지 않는다. */}
+              {slotRingOn && focusSlot.dayIndex === dayIndex && (
+                <div
+                  data-testid="calendar-slot-focus-ring"
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 z-[6] ring-2 ring-inset ring-ring"
+                  style={{ top: focusSlot.hour * HOUR_SLOT_PX, height: HOUR_SLOT_PX }}
+                />
+              )}
 
               {/* 끌어 옮기는 타임드 일정이 놓일 자리 — 그날에 걸친 구간만(WP-1328). 포인터 이벤트를 막지 않아 놓을 열을 가리지 않는다. */}
               {movedEvent && !movedEvent.allDay && eventsOnDay([movedEvent], day).length > 0 && (

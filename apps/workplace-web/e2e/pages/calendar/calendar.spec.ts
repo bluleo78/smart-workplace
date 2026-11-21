@@ -417,6 +417,31 @@ test.describe('시간 구간 끌어 일정 만들기 (WP-949)', { tag: '@input' 
   })
 })
 
+// WP-1906: 월 보기 격자는 Tab 한 번으로 들어가 방향키로 날짜를 옮기고 Enter 로 새 일정을 연다 — 실제 브라우저 초점 순서.
+test('월 보기 격자를 키보드로 — Tab 진입·방향키·Enter 로 새 일정', { tag: ['@input'] }, async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-11-21T01:00:00Z'))
+  await stubCalendarEvents(page, [])
+  await page.goto('/calendar')
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+
+  // 「오늘」 단추에서 시작해 Tab 으로 격자 칸(gridcell)에 닿을 때까지 — 칸이 Tab 정지점 하나뿐이어야 20번 안에 닿는다.
+  await page.getByTestId('calendar-today').focus()
+  let reached = false
+  for (let i = 0; i < 20 && !reached; i++) {
+    await page.keyboard.press('Tab')
+    reached = (await page.evaluate(() => document.activeElement?.getAttribute('role'))) === 'gridcell'
+  }
+  expect(reached).toBe(true)
+  const focused = page.locator(':focus')
+  await expect(focused).toHaveAccessibleName('2026년 11월 21일 토요일, 오늘')
+
+  await page.keyboard.press('ArrowRight')
+  await expect(focused).toHaveAccessibleName('2026년 11월 22일 일요일')
+
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
 // WP-948: 캘린더를 다시 열면 마지막으로 쓴 보기(월·주·일)로 열린다. 데스크톱과 모바일은 따로 기억한다.
 test('다시 들어오면 마지막으로 쓴 보기로 열린다 (WP-948)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
