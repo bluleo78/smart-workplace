@@ -1,0 +1,74 @@
+// ResultStatus 컴포넌트 테스트(WP-1943) — 키가 바뀐 뒤에만, 준비되면 한 번 채우는 live region.
+import { render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+
+import { nextFrames } from '@/test/nextFrames'
+
+import { ResultStatus } from './ResultStatus'
+
+type Props = { conditionKey: string; ready: boolean; text: string }
+
+/** 테스트 id `rs` 로 렌더하고 props 를 바꾸는 rerender 도우미를 돌려준다. */
+function setup(initial: Props) {
+  const view = render(<ResultStatus {...initial} testId="rs" />)
+  return { update: (p: Props) => view.rerender(<ResultStatus {...p} testId="rs" />) }
+}
+const el = () => screen.getByTestId('rs')
+
+describe('ResultStatus', () => {
+  it('첫 키는 ready 여도 읽지 않는다', async () => {
+    setup({ conditionKey: 'a', ready: true, text: '연락처 3명' })
+    await nextFrames()
+    expect(el().textContent).toBe('')
+    expect(el().getAttribute('role')).toBe('status')
+    expect(el().getAttribute('aria-live')).toBe('polite')
+    expect(el().getAttribute('aria-atomic')).toBe('true')
+    expect(el().className).toContain('sr-only')
+  })
+
+  it('키가 바뀌고 준비되면 채운다', async () => {
+    const { update } = setup({ conditionKey: 'a', ready: true, text: '연락처 3명' })
+    update({ conditionKey: 'b', ready: true, text: '연락처 1명' })
+    await waitFor(() => expect(el().textContent).toBe('연락처 1명'))
+  })
+
+  it('같은 문구라도 키가 바뀌면 비웠다가 다시 채운다', async () => {
+    const { update } = setup({ conditionKey: 'a', ready: true, text: '연락처 3명' })
+    update({ conditionKey: 'b', ready: true, text: '연락처 1명' })
+    await waitFor(() => expect(el().textContent).toBe('연락처 1명'))
+    update({ conditionKey: 'c', ready: true, text: '연락처 1명' })
+    expect(el().textContent).toBe('')
+    await waitFor(() => expect(el().textContent).toBe('연락처 1명'))
+  })
+
+  it('ready 가 거짓이면 채우지 않는다', async () => {
+    const { update } = setup({ conditionKey: 'a', ready: true, text: '연락처 3명' })
+    update({ conditionKey: 'b', ready: false, text: '연락처 9명' })
+    await nextFrames()
+    expect(el().textContent).toBe('')
+    update({ conditionKey: 'b', ready: true, text: '연락처 2명' })
+    await waitFor(() => expect(el().textContent).toBe('연락처 2명'))
+  })
+
+  it('같은 키의 재조회로는 바꾸지 않는다', async () => {
+    const { update } = setup({ conditionKey: 'a', ready: true, text: '연락처 3명' })
+    update({ conditionKey: 'b', ready: true, text: '연락처 1명' })
+    await waitFor(() => expect(el().textContent).toBe('연락처 1명'))
+    update({ conditionKey: 'b', ready: true, text: '연락처 5명' })
+    await nextFrames()
+    expect(el().textContent).toBe('연락처 1명')
+  })
+
+  it('앞서 알린 키로 돌아와도 새로 채운다', async () => {
+    const { update } = setup({ conditionKey: 'a', ready: true, text: '연락처 3명' })
+    update({ conditionKey: 'b', ready: true, text: '연락처 1명' })
+    await waitFor(() => expect(el().textContent).toBe('연락처 1명'))
+    update({ conditionKey: 'c', ready: false, text: '연락처 9명' })
+    update({ conditionKey: 'b', ready: false, text: '연락처 1명' })
+    expect(el().textContent).toBe('')
+    await nextFrames()
+    expect(el().textContent).toBe('')
+    update({ conditionKey: 'b', ready: true, text: '연락처 4명' })
+    await waitFor(() => expect(el().textContent).toBe('연락처 4명'))
+  })
+})

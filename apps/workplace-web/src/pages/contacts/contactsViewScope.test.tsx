@@ -144,7 +144,7 @@ test('그룹 보기에서 검색하면 하위 조직 구성원까지 서버에�
   expect(groupSearches).toContain('회계')
   expect(screen.getByTestId('group-member-MEMBER-2')).toBeInTheDocument()
   expect(screen.queryByTestId('group-member-MEMBER-3')).not.toBeInTheDocument()
-  expect(screen.getByText('하위 조직 포함 검색 결과 2명')).toBeInTheDocument()
+  expect(within(screen.getByTestId('group-contact-view')).getByText('하위 조직 포함 검색 결과 2명')).toBeInTheDocument()
   // 하위 조직 사람은 「찾은 그룹 › 속한 조직」 경로, 직속은 경로 없음.
   expect(screen.getByTestId('group-member-path-MEMBER-4')).toHaveTextContent(`${GROUP_NAME} › 결산파트`)
   expect(screen.queryByTestId('group-member-path-MEMBER-2')).not.toBeInTheDocument()

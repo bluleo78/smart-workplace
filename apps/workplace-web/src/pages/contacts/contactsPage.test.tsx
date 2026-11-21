@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest'
 
 import { emptyTree, record, type Recorded, renderContacts } from '@/test/kits/contacts/testkit-b8'
 import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
+import { nextFrames } from '@/test/nextFrames'
 
 import {
   external,
@@ -650,5 +651,76 @@ describe('검색 결과 없음 빈 상태 (WP-1869)', () => {
     renderEmpty('/contacts?q=zzz%20')
     const empty = await screen.findByTestId('contact-empty')
     expect(within(empty).getByText('「zzz」에 맞는 연락처가 없습니다')).toBeInTheDocument()
+  })
+})
+
+// ── 검색 결과 스크린리더 안내(WP-1943) ─────────────────────────────
+
+describe('검색 결과 스크린리더 안내 (WP-1943)', () => {
+  /** 안내 영역(sr-only role=status) — 늘 마운트돼 있어 첫 렌더부터 잡힌다. */
+  const region = () => screen.getByTestId('contact-result-status')
+
+  test('첫 진입은 안내하지 않는다', async () => {
+    renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), listHandler([])] })
+    await screen.findByTestId('contact-row-MEMBER-1')
+    await nextFrames()
+    expect(region().textContent).toBe('')
+  })
+
+  test('검색 결과가 0건이면 빈 결과를 알린다', async () => {
+    renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), listHandler([])] })
+    await screen.findByTestId('contact-row-MEMBER-1')
+    fireEvent.change(screen.getByTestId('contact-search'), { target: { value: 'zzzz' } })
+    await waitFor(() => expect(region().textContent).toBe('검색 결과가 없습니다'))
+  })
+
+  test('검색 결과 건수를 알린다', async () => {
+    renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), listHandler([])] })
+    await screen.findByTestId('contact-row-MEMBER-1')
+    fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '박외부' } })
+    await waitFor(() => expect(region().textContent).toBe('연락처 1명'))
+  })
+
+  test('보기를 바꾸면 그 결과를 알린다', async () => {
+    const { user } = renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), listHandler([])] })
+    await screen.findByTestId('contact-row-MEMBER-1')
+    await user.click(screen.getByTestId('contact-filter-EXTERNAL'))
+    await waitFor(() => expect(region().textContent).toBe('연락처 1명'))
+  })
+
+  test('다음 페이지가 있으면 이상을 붙인다', async () => {
+    const more = http.get('/api/v1/contacts', ({ request }) => {
+      const searching = new URL(request.url).searchParams.get('search')
+      const items = searching ? [member(), external()] : [member()]
+      return HttpResponse.json({ ...makePage(items), hasMore: !!searching, nextCursor: searching ? 'c2' : null })
+    })
+    renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), more] })
+    await screen.findByTestId('contact-row-MEMBER-1')
+    fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '김' } })
+    await waitFor(() => expect(region().textContent).toBe('연락처 2명 이상'))
+  })
+
+  // 즐겨찾기가 하나도 없는 목록에서 즐겨찾기 보기로 바꾸면 일반 빈 결과가 아닌 즐겨찾기 전용 문구를 알려야 한다.
+  test('즐겨찾기 보기에서 결과가 없으면 즐겨찾기 빈 안내를 알린다', async () => {
+    const { user } = renderContacts('/contacts', {
+      handlers: [emptyTree(), facetsHandler(), listHandler([], () => [member(), external()])],
+    })
+    await screen.findByTestId('contact-row-MEMBER-1')
+    await user.click(screen.getByTestId('contact-filter-FAVORITE'))
+    await waitFor(() => expect(region().textContent).toBe('즐겨찾기한 연락처가 없습니다'))
+  })
+
+  test('목록 조회가 실패하면 안내하지 않는다', async () => {
+    const failing = http.get('/api/v1/contacts', ({ request }) =>
+      new URL(request.url).searchParams.get('search')
+        ? HttpResponse.json({ message: 'boom' }, { status: 500 })
+        : HttpResponse.json(makePage([member()])),
+    )
+    renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), failing] })
+    await screen.findByTestId('contact-row-MEMBER-1')
+    fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '김' } })
+    await screen.findByTestId('contact-list-error', {}, { timeout: 10_000 })
+    await nextFrames()
+    expect(region().textContent).toBe('')
   })
 })
