@@ -135,8 +135,57 @@ test('연락처 상세 로딩·조회 실패 상태에도 숨은 구역 헤딩(h
   } finally {
     release()
   }
-  expect(await within(detail).findByText('연락처를 찾을 수 없습니다')).toBeInTheDocument()
+  // WP-1903 — 일반 오류는 「찾을 수 없음」이 아니라 불러오기 실패 안내(LoadErrorState)
+  const err = await within(detail).findByTestId('contact-detail-load-error')
+  expect(err).toHaveTextContent('연락처를 불러오지 못했습니다')
+  expect(within(detail).queryByText('연락처를 찾을 수 없습니다')).not.toBeInTheDocument()
   expect(within(detail).getByRole('heading', { level: 2, name: '연락처 상세' })).toHaveClass('sr-only')
+})
+
+// WP-1903 + WP-881 — 다시 시도로 다시 부르는 동안(pending)에도 오류 안내·초점이 남고, 성공 뒤 초점이 body 로 사라지지 않는다.
+test('WP-1903 상세 다시 시도 중에도 오류 안내·초점 유지, 성공 뒤 상세 표시', async () => {
+  let calls = 0
+  const { promise, release } = gate()
+  const { user } = renderContacts('/contacts?contact=member:1', {
+    handlers: [
+      emptyTree(),
+      listHandler([]),
+      http.get('/api/v1/contacts/members/1', async () => {
+        calls += 1
+        if (calls === 1) return HttpResponse.json({ message: 'boom' }, { status: 500 })
+        await promise
+        return HttpResponse.json(memberDetail())
+      }),
+    ],
+  })
+  await clickRetryAndExpectErrorKept(user, 'contact-detail-load-error', () => calls)
+  await act(async () => { release() })
+  expect(await screen.findByTestId('contact-detail-member')).toBeInTheDocument()
+  expect(screen.queryByTestId('contact-detail-load-error')).toBeNull()
+  expect(calls).toBe(2)
+  // 초점은 body 가 아니라 불러온 상세 안의 조작 요소로 옮겨진다(WP-881)
+  await waitFor(() => expect(screen.getByTestId('contact-detail-member')).toContainElement(document.activeElement as HTMLElement))
+})
+
+// WP-1903 — 이미 불러온 연락처는 다시 불러오기가 5xx 로 실패해도 보던 내용을 오류 안내로 덮지 않는다.
+test('WP-1903 불러온 상세는 재조회 실패에도 내용 유지', async () => {
+  let calls = 0
+  const { queryClient } = renderContacts('/contacts?contact=member:1', {
+    handlers: [
+      emptyTree(),
+      listHandler([]),
+      http.get('/api/v1/contacts/members/1', () => {
+        calls += 1
+        if (calls === 1) return HttpResponse.json(memberDetail())
+        return HttpResponse.json({ message: 'boom' }, { status: 500 })
+      }),
+    ],
+  })
+  expect(await screen.findByTestId('contact-detail-member')).toBeInTheDocument()
+  await act(async () => { await queryClient.refetchQueries({ queryKey: contactKeys.member(1) }) })
+  expect(calls).toBe(2)
+  expect(screen.getByTestId('contact-detail-member')).toBeInTheDocument()
+  expect(screen.queryByTestId('contact-detail-load-error')).toBeNull()
 })
 
 // #113 그룹 뷰에서도 공통 헤더의 「새 외부 연락처」가 보이고, #98 사이드바는 레일과 같은 「연락처」 타이틀 헤더를 갖는다.
