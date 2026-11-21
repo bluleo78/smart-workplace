@@ -1,5 +1,5 @@
 // MonthView 접근성 테스트(WP-1906) — grid 구조·날짜 칸 이름·로빙 tabIndex·키보드 조작.
-import { fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { isSameDay } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -144,5 +144,60 @@ describe('MonthView 접근성', () => {
     fireEvent.keyDown(more, { key: 'ArrowRight' })
     expect(onCreateAt).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(more)
+  })
+
+  it('초점이 tabIndex=-1 칸에도 가면 그 칸이 로빙 초점 칸이 된다(리뷰 후속 1)', () => {
+    setup()
+    const cell = screen.getByRole('gridcell', { name: '2026년 11월 18일 수요일' })
+    expect(cell.tabIndex).toBe(-1)
+    act(() => cell.focus())
+    expect(cell.tabIndex).toBe(0)
+    expect(zeroTabCells()).toHaveLength(1)
+    expect(zeroTabCells()[0]).toBe(cell)
+  })
+
+  it('Enter 을 길게 누르면(ev.repeat) 한 번만 연다(리뷰 후속 3)', () => {
+    const { onCreateAt } = setup()
+    const cell = screen.getByRole('gridcell', { name: TODAY_NAME })
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'Enter' })
+    fireEvent.keyDown(cell, { key: 'Enter', repeat: true })
+    fireEvent.keyDown(cell, { key: 'Enter', repeat: true })
+    expect(onCreateAt).toHaveBeenCalledTimes(1)
+    // 반복 막음은 Enter·Space 만 — 방향키 길게 누르기(이동)는 그대로여야 한다.
+    fireEvent.keyDown(cell, { key: 'ArrowRight', repeat: true })
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight', repeat: true })
+    expect(document.activeElement).toHaveAccessibleName('2026년 11월 23일 월요일')
+    expect(zeroTabCells()).toHaveLength(1)
+  })
+
+  it('칸 안 칩에 초점이 가도 그 칸이 로빙 초점 칸이 된다(리뷰 후속 1 — click 이 오지 않는 자손 초점)', () => {
+    renderWithProviders(
+      <MonthView
+        events={[calendarEvent({ id: 1, title: '회의', startsAt: '2026-11-05T01:00:00Z', endsAt: '2026-11-05T02:00:00Z' })]}
+        issueDues={[]}
+        anchor={new Date(2026, 10, 1)}
+        onCreateAt={vi.fn()}
+        onSelectEvent={vi.fn()}
+        onSelectIssue={vi.fn()}
+      />,
+    )
+    // 기본 로빙 칸은 오늘(21일) — 5일 칸 안 칩에 초점을 주면 그 칸으로 로빙이 따라가야 한다(onFocus 는 focusin 으로 번진다).
+    const chip = screen.getByRole('button', { name: /회의/ })
+    act(() => chip.focus())
+    const cell = screen.getByRole('gridcell', { name: '2026년 11월 5일 목요일' })
+    expect(cell.tabIndex).toBe(0)
+    expect(zeroTabCells()).toHaveLength(1)
+    expect(document.activeElement).toBe(chip)
+  })
+
+  it('칸 안 요약 사본은 aria-hidden — 설명은 aria-describedby 로만 읽는다(리뷰 후속 4)', () => {
+    const events = [calendarEvent({ id: 1, title: '회의', startsAt: '2026-11-21T01:00:00Z', endsAt: '2026-11-21T02:00:00Z' })]
+    renderWithProviders(
+      <MonthView events={events} issueDues={[]} anchor={new Date(2026, 10, 1)} onCreateAt={vi.fn()} onSelectEvent={vi.fn()} onSelectIssue={vi.fn()} />,
+    )
+    const cell = screen.getByRole('gridcell', { name: TODAY_NAME })
+    expect(cell).toHaveAccessibleDescription('일정 1개')
+    expect(cell.querySelector('.sr-only')).toHaveAttribute('aria-hidden', 'true')
   })
 })

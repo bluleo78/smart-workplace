@@ -39,6 +39,7 @@ import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { handleApiError } from '@/lib/api-error'
 import { appUrl, mailMessagePath } from '@/lib/appUrl'
+import { backoffDelay } from '@/lib/backoff'
 import { UNDO_DELETE_DELAY_MS } from '@/lib/deleteWithUndo'
 import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
@@ -1243,6 +1244,10 @@ function MailAccountNotFound() {
   )
 }
 
+/** WP-1878 리뷰 후속 — 이전 메일 기다림(running)의 느린 재시도 첫 간격·상한(ms). */
+const OLDER_RETRY_BASE_MS = 30_000
+const OLDER_RETRY_MAX_MS = 5 * 60_000
+
 /**
  * 받은편지함/보낸편지함 — 좌측 메시지 목록(검색·동기화) + 우측 본문(마스터-디테일).
  * 계정은 /mail/:accountId 로 선택하며, accountId 가 없으면 첫 계정으로 리다이렉트한다.
@@ -1553,22 +1558,33 @@ function MailInbox() {
   // WP-1878 waiting — 서버가 「아직 가져올 수 없음(running)」이라 답한 기록. at 은 그때 목록 query 의 dataUpdatedAt 이다.
   // 목록이 다시 받아져 dataUpdatedAt 이 달라질 때까지만 이전 메일 푸터를 끈다(받은편지함 행이 없는 계정이 3초 주기로 무한 재요청하던 문제).
   // done 으로 굳히지 않는다 — 첫 동기화가 끝나면 옛 메일을 다시 가져올 수 있어야 한다.
-  const [olderEnded, setOlderEnded] = useState<Record<string, 'done' | 'failed' | { waiting: true; at: number }>>({})
+  // tries 는 연달아 running 을 받은 횟수다 — 목록 갱신이 없어도 늘려 가는 느린 재시도(backoffDelay)의 간격을 정한다(WP-1878 리뷰 후속).
+  const [olderEnded, setOlderEnded] = useState<Record<string, 'done' | 'failed' | { waiting: true; at: number; tries: number }>>({})
   const olderRaw = olderEnded[olderKey]
-  const olderWaiting = typeof olderRaw === 'object' && olderRaw.at === listUpdatedAt
+  // 지금 목록에서 유효한 기다림 기록(없으면 null) — 아래 안내·재시도·로딩 판정이 이 하나를 본다.
+  const olderWait = typeof olderRaw === 'object' && olderRaw.at === listUpdatedAt ? olderRaw : null
+  const olderWaiting = olderWait != null
   // 기다림이 끝난(목록이 다시 받아진) 기록은 없는 것과 같다 — 상태를 따로 지우지 않아도 아래 판정이 알아서 다시 묻게 한다.
   const olderStatus = typeof olderRaw === 'string' ? olderRaw : undefined
   // 응답 시점의 목록 dataUpdatedAt — 요청 중에 목록이 다시 받아졌으면 그 값으로 적어야 곧바로 한 번 더 묻지 않는다.
   const listUpdatedAtRef = useLatest(listUpdatedAt)
   const olderMail = useFetchOlderMail(accountIdNum)
-  const fetchOlderMail = (key: string) => {
-    if (olderFolder == null || olderMail.isPending) return
+  // silent = 기다림 중 타이머가 부른 조용한 재시도 — 실패해도 'failed'(다시 시도 줄)로 바꾸지 않고 기다림을 이어 간다.
+  // 보내지 못했으면(다른 요청이 도는 중) false — 타이머가 다시 걸게 한다.
+  const fetchOlderMail = (key: string, silent = false): boolean => {
+    if (olderFolder == null || olderMail.isPending) return false
     olderMail.mutate(olderFolder, {
       // 성공하면 기록을 바꾼다 — running 이면 기다림(WP-1878), 끝이면 'done', 아니면 키를 지운다(다시 시도 성공 시 'failed' 해제).
       onSuccess: (r) => {
         const at = listUpdatedAtRef.current
         setOlderEnded((m) => {
-          if (r.running) return { ...m, [key]: { waiting: true, at } }
+          if (r.running) {
+            // 같은 목록(dataUpdatedAt)에서 기다리던 중 다시 받은 running 만 연달아로 센다 — 목록 주기 재조회가 기다림을 끝낸 뒤의
+            // running 까지 세면 주기 재조회가 꺼졌을 때 첫 재시도가 30초가 아니라 5분부터 시작한다.
+            const prev = m[key]
+            const tries = typeof prev === 'object' && prev.at === at ? prev.tries + 1 : 0
+            return { ...m, [key]: { waiting: true, at, tries } }
+          }
           if (!r.hasMore) return { ...m, [key]: 'done' }
           // 지울 기록이 없으면 그대로 — 새 객체를 만들어 큰 메일함 화면을 괜히 다시 그리지 않는다.
           if (!(key in m)) return m
@@ -1577,18 +1593,51 @@ function MailInbox() {
           return next
         })
       },
-      onError: () => setOlderEnded((m) => ({ ...m, [key]: 'failed' })),
+      onError: () => {
+        // 조용한 재시도의 실패는 기다림 그대로 두고 간격만 늘린다 — 사용자가 누르지 않은 요청으로 다시 시도 줄을 띄우지 않는다.
+        if (silent) {
+          setOlderEnded((m) => {
+            const prev = m[key]
+            return typeof prev === 'object' ? { ...m, [key]: { ...prev, tries: prev.tries + 1 } } : m
+          })
+          return
+        }
+        setOlderEnded((m) => ({ ...m, [key]: 'failed' }))
+      },
     })
+    return true
   }
+  // WP-1878 리뷰 후속 — 기다림 중 느린 재시도. 3페이지를 넘게 내린 목록은 주기 재조회가 꺼져 목록이 다시 받아지지 않을 수 있어,
+  // 목록 갱신과 별개로 30초부터 늘려 가며(최대 5분) 조용히 다시 묻는다. 기다림이 끝나거나(목록 갱신) 계정·폴더가 바뀌면 타이머를 버린다.
+  // 창이 숨어 있거나 다른 이전 메일 요청이 도는 중이면 보내지 않고 같은 간격으로 타이머만 다시 건다 — 끊기지도, 숨은 탭에서 쏘지도 않고,
+  // 큰 메일함 화면을 다시 그리지도 않게 state 없이 효과 안에서 다시 건다.
+  const olderTries = olderWait?.tries ?? null
+  const fetchOlderMailRef = useLatest(fetchOlderMail)
+  useEffect(() => {
+    if (olderTries == null) return
+    const delay = backoffDelay(OLDER_RETRY_BASE_MS, OLDER_RETRY_MAX_MS, olderTries + 1)
+    let timer: ReturnType<typeof setTimeout>
+    const arm = () => {
+      timer = setTimeout(() => {
+        const sent = document.visibilityState !== 'hidden' && fetchOlderMailRef.current(olderKey, true)
+        if (!sent) arm()
+      }, delay)
+    }
+    arm()
+    return () => clearTimeout(timer)
+  }, [olderTries, olderKey, fetchOlderMailRef])
+  // 한 번 running 을 받은 계정·폴더는 그 뒤 요청(타이머 재시도·목록 갱신 뒤 다시 묻기)에도 「불러오는 중…」을 띄우지 않는다 —
+  // 빈 목록에서 빈 상태와 로딩이 함께 보이던 모순(WP-1878)이 주기 재조회마다 깜박이며 돌아오지 않게.
+  const olderLoading = olderMail.isPending && typeof olderRaw !== 'object'
   // 목록 스크롤 칸 — 공용 푸터 sentinel 의 root(미리 부르기 여유가 스크롤 칸 클리핑에 먹히지 않게, useLoadMoreSentinel).
   const [listScrollEl, setListScrollEl] = useState<HTMLDivElement | null>(null)
   // 공용 목록 끝 푸터(LoadMoreFooter) 어댑터 — 로컬 다음 페이지가 있으면 그것을, 없으면 서버 이전 메일을 「다음 페이지」로 본다(캘린더 목록과 같은 방식).
   const olderFailed = !hasNextPage && olderStatus === 'failed'
   const footerQuery = {
     hasNextPage: !!hasNextPage || (olderFolder != null && olderStatus !== 'done' && !olderWaiting),
-    isFetching: listFetching || olderMail.isPending,
+    isFetching: listFetching || olderLoading,
     isFetchNextPageError: hasNextPage ? isFetchNextPageError : olderFailed,
-    isFetchingNextPage: isFetchingNextPage || olderMail.isPending,
+    isFetchingNextPage: isFetchingNextPage || olderLoading,
     fetchNextPage: () => {
       if (hasNextPage) return fetchNextPage({ cancelRefetch: false })
       // 실패 뒤 다시 시도 — 실패 기록은 지우지 않고 다시 부른다(지우면 다시 시도 버튼이 사라져 포커스가 빠진다, WP-1862).
@@ -1603,6 +1652,11 @@ function MailInbox() {
         errorLabel={olderFailed ? '이전 메일을 가져오지 못했습니다 — 다시 시도' : undefined}
         data-testid="mail-list-end"
       />
+      {/* WP-1878 리뷰 후속 — 메일이 있는 목록의 기다림은 푸터가 통째로 사라져 「더 없음」과 구별되지 않았다. 조용한 안내를 둔다
+          (빈 목록은 빈 상태 문구가 이미 있어 두지 않는다). */}
+      {olderWaiting && !hasNextPage && (messages?.length ?? 0) > 0 && (
+        <div data-testid="mail-list-older-waiting" role="status" className="py-3 text-center text-xs text-muted-foreground">이전 메일을 준비하는 중이에요</div>
+      )}
       {olderFolder != null && olderStatus === 'done' && !hasNextPage && (
         <div data-testid="mail-list-no-older" className="py-3 text-center text-xs text-muted-foreground">더 이전 메일 없음</div>
       )}

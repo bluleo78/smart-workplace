@@ -148,4 +148,42 @@ describe('TimeGrid 접근성', () => {
     act(() => (document.activeElement as HTMLElement).blur())
     expect(screen.queryByTestId('calendar-slot-focus-ring')).not.toBeInTheDocument()
   })
+
+  it('초점이 tabIndex=-1 칸에도 가면 그 칸이 로빙 초점 칸이 된다(리뷰 후속 1)', () => {
+    setup()
+    const cell = screen.getByRole('button', { name: '11월 18일 수요일 오후 3시 새 일정' })
+    expect(cell.tabIndex).toBe(-1)
+    act(() => cell.focus())
+    expect(cell.tabIndex).toBe(0)
+    expect(zeroTabSlots()).toHaveLength(1)
+    expect(zeroTabSlots()[0]).toBe(cell)
+    // 초점 링도 그 칸의 시각 위치로 따라간다 — 로빙 표식과 실제 초점이 어긋나지 않게.
+    const ring = screen.getByTestId('calendar-slot-focus-ring')
+    expect(ring.style.top).toBe(`${15 * HOUR_SLOT_PX}px`)
+  })
+
+  it('Enter 을 길게 누르면(ev.repeat) 한 번만 연다(리뷰 후속 3)', () => {
+    const { onCreateAt } = setup()
+    const cell = screen.getByRole('button', { name: TODAY_10 })
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'Enter' })
+    fireEvent.keyDown(cell, { key: 'Enter', repeat: true })
+    fireEvent.keyDown(cell, { key: 'Enter', repeat: true })
+    expect(onCreateAt).toHaveBeenCalledTimes(1)
+    // 반복 막음은 Enter·Space 만 — 방향키 길게 누르기(시간 이동)는 그대로여야 한다.
+    fireEvent.keyDown(cell, { key: 'ArrowUp', repeat: true })
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowUp', repeat: true })
+    expect(document.activeElement).toHaveAccessibleName('11월 21일 토요일 오전 8시 새 일정')
+    expect(zeroTabSlots()).toHaveLength(1)
+  })
+
+  it('시각이 흘러도 Tab 정지점이 다른 칸으로 옮겨가지 않는다(리뷰 후속 2)', () => {
+    const { rerenderDays } = setup()
+    expect(zeroTabSlots()[0]).toHaveAccessibleName(TODAY_10)
+    // 같은 날 안에서 시각이 한 시간 넘게 흘러도 기본 초점 칸은 그대로여야 한다(새 Date() 를 쓰면 11시로 옮겨 간다).
+    vi.setSystemTime(new Date(2026, 10, 21, 11, 30))
+    rerenderDays(weekOf(15))
+    expect(zeroTabSlots()).toHaveLength(1)
+    expect(zeroTabSlots()[0]).toHaveAccessibleName(TODAY_10)
+  })
 })

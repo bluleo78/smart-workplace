@@ -107,3 +107,30 @@ test('어제/오늘 요약만 실패하면 그 한 줄만 숨기고 목록은 �
   expect(screen.queryByTestId('dash-mytasks-today')).not.toBeInTheDocument()
   expect(screen.queryByTestId('dash-mytasks-error')).not.toBeInTheDocument()
 })
+
+test('행 링크는 이름은 제목만, 설명에 이슈 키와 마감을 담는다(WP-1899)', async () => {
+  const d = new Date()
+  d.setDate(d.getDate() - 1)
+  const yesterday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  renderTasks([createIssue({ id: 7, number: 7, title: '마감 작업', dueDate: yesterday })], [])
+  const link = await screen.findByRole('link', { name: '이슈 열기: 마감 작업' })
+  expect(link).toHaveAccessibleDescription(/^WP-7 .*지남/)
+})
+
+test('meta 가 없는 행은 이슈 키만 설명한다(WP-1899)', async () => {
+  renderTasks([createIssue({ id: 8, number: 8, title: '진행 작업', status: 'IN_PROGRESS', dueDate: null })], [])
+  const link = await screen.findByRole('link', { name: '이슈 열기: 진행 작업' })
+  expect(link).toHaveAccessibleDescription('WP-8')
+})
+
+test('구독 행 링크는 설명에 이슈 키와 변동 상대 시각을 담는다(WP-1899)', async () => {
+  // 담당 0건이면 빈 상태라 구독 행이 안 그려진다 — 담당 1건을 함께 둔다.
+  const threeHoursAgo = new Date(Date.now() - 3 * 3600_000).toISOString()
+  renderTasks(
+    [createIssue({ id: 1, number: 1, title: '담당 작업', status: 'IN_PROGRESS' })],
+    [createIssue({ id: 9, number: 9, title: '구독 작업', updatedAt: threeHoursAgo })],
+  )
+  const link = await screen.findByRole('link', { name: '이슈 열기: 구독 작업' })
+  expect(link).toHaveAccessibleDescription(/^WP-9 .+/)
+  expect(link.getAttribute('aria-describedby')?.split(' ')).toHaveLength(2)
+})

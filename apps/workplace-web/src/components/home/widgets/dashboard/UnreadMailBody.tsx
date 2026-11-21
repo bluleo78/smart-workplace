@@ -1,5 +1,5 @@
 import { Mail, Paperclip } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
@@ -33,6 +33,8 @@ export default function UnreadMailBody({
   count?: number
   previewData?: MailSummaryItem[]
 }) {
+  // WP-1899: 행 설명 id 접두 — 훅 규칙상 early return 전에 둔다.
+  const base = useId()
   const query = useMailSummary({ enabled: !previewData })
   const { data: queryData, isLoading, refetch } = query
   // "회신 필요" 토글 — 켜면 회신필요(AI 판정 && 안 읽음) 메일만 필터(헤더 칩 클릭). 위젯 로컬 상태.
@@ -110,45 +112,75 @@ export default function UnreadMailBody({
         )}
       </div>
       <ul className="space-y-0.5">
-        {visible.slice(0, count).map((m) => (
-          <li key={m.id}>
-            <Link
-              to={`/mail/${m.accountId}?messageId=${m.id}`}
-              data-testid="dash-mail-row"
-              aria-label={`메일 열기: ${mailSubjectText(m.subject)}`}
-              className="flex gap-2 rounded px-1 py-1.5 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-xs font-medium">
-                {initial(m)}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium">{mailSender(m)}</span>
-                  {/* 회신필요 배지 — AI action 스타일(빨강 제거). 비-AI 멘션/회신대기 배지와 시각적으로 구분. */}
-                  {classificationActive && isNeedsReply(m) && (
-                    <AiSignalBadge variant="action" data-testid="dash-mail-badge-reply">
-                      회신필요
-                    </AiSignalBadge>
-                  )}
-                  <span className="ml-auto flex-none text-xs text-muted-foreground">
-                    {m.receivedAt ? relTime(m.receivedAt) : ''}
+        {visible.slice(0, count).map((m) => {
+          // WP-1899: 이름(aria-label)은 제목만 짧게 두고, 보이는 보조 정보(보낸 사람·회신필요·시간·미리보기)는
+          // aria-describedby 로 이어 설명으로 읽힌다. 늘 그리는 span 은 id 를 늘 달고, 내용이 없으면 설명에 잇지만 않는다.
+          const fromId = `${base}-${m.id}-from`
+          const badgeId = `${base}-${m.id}-badge`
+          const timeId = `${base}-${m.id}-time`
+          const snippetId = `${base}-${m.id}-snippet`
+          const showBadge = classificationActive && isNeedsReply(m)
+          const hasSnippet = !!m.snippet?.trim()
+          // 첨부 아이콘의 스크린리더용 글자(attachId)는 화면 순서(미리보기 뒤)대로 마지막에 잇는다.
+          const attachId = `${base}-${m.id}-attach`
+          const describedBy = [
+            fromId,
+            showBadge && badgeId,
+            m.receivedAt && timeId,
+            hasSnippet && snippetId,
+            m.hasAttachment && attachId,
+          ]
+            .filter(Boolean)
+            .join(' ')
+          return (
+            <li key={m.id}>
+              <Link
+                to={`/mail/${m.accountId}?messageId=${m.id}`}
+                data-testid="dash-mail-row"
+                aria-label={`메일 열기: ${mailSubjectText(m.subject)}`}
+                aria-describedby={describedBy || undefined}
+                className="flex gap-2 rounded px-1 py-1.5 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-xs font-medium">
+                  {initial(m)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <span id={fromId} className="truncate text-sm font-medium">
+                      {mailSender(m)}
+                    </span>
+                    {/* 회신필요 배지 — AI action 스타일(빨강 제거). 비-AI 멘션/회신대기 배지와 시각적으로 구분. */}
+                    {/* WP-1899: 배지 root 에 id 를 직접 단다(AiSignalBadge id prop) — 감싸는 요소 없이 레이아웃 그대로. */}
+                    {showBadge && (
+                      <AiSignalBadge id={badgeId} variant="action" data-testid="dash-mail-badge-reply">
+                        회신필요
+                      </AiSignalBadge>
+                    )}
+                    <span id={timeId} className="ml-auto flex-none text-xs text-muted-foreground">
+                      {m.receivedAt ? relTime(m.receivedAt) : ''}
+                    </span>
+                  </span>
+                  <span className="block truncate text-sm text-foreground/90">{mailSubjectText(m.subject)}</span>
+                  <span className="flex items-center gap-1">
+                    <span id={snippetId} className="block min-w-0 truncate text-xs text-muted-foreground">
+                      {m.snippet?.trim() || ''}
+                    </span>
+                    {m.hasAttachment && (
+                      // 아이콘은 시각 전용이라 곁에 스크린리더용 글자를 둔다. 아이콘(svg)에 이름을 달아 가리키면
+                      // 접근 설명 계산이 svg 를 건너뛰는 구현이 있어(jsdom 에서 설명이 통째로 비었다) 글자 span 을 가리킨다.
+                      <>
+                        <Paperclip aria-hidden="true" className="h-3 w-3 flex-none text-muted-foreground" />
+                        <span id={attachId} className="sr-only">
+                          첨부 있음
+                        </span>
+                      </>
+                    )}
                   </span>
                 </span>
-                <span className="block truncate text-sm text-foreground/90">
-                  {mailSubjectText(m.subject)}
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="block min-w-0 truncate text-xs text-muted-foreground">
-                    {m.snippet?.trim() || ''}
-                  </span>
-                  {m.hasAttachment && (
-                    <Paperclip className="h-3 w-3 flex-none text-muted-foreground" />
-                  )}
-                </span>
-              </span>
-            </Link>
-          </li>
-        ))}
+              </Link>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

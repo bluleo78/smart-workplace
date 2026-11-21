@@ -132,6 +132,13 @@ export function MonthView({
                     aria-label={calendarDayLabel(day, today)}
                     aria-describedby={summary ? summaryId : undefined}
                     tabIndex={idx === focusIndex ? 0 : -1}
+                    onFocus={() => {
+                      // click 이 오지 않는 경로(프로그램 초점·드래그 중 마우스다운)에서도 초점을 받은 칸이 로빙 초점 칸이 되게 한다 —
+                      // 아니면 tabIndex=-1 칸이 초점만 가진 채 남아 로빙 표식과 실제 초점이 어긋난다(WP-1906 리뷰 후속 1).
+                      // React onFocus 은 focusin 이라 칸 안 칩·「+N」 단추의 초점에도 같이 돈다 — 그때도 로빙 칸을 따라가게
+                      // (onKeyDown 과 달리 타깃 가드를 두지 않은 이유).
+                      if (focusIndex !== idx) setFocusIndex(idx)
+                    }}
                     data-testid={`calendar-cell-${dateLabel}`}
                     data-move-day={dateLabel}
                     data-move-kind="day"
@@ -156,8 +163,10 @@ export function MonthView({
                         const nextDay = format(cells[next], 'yyyy-MM-dd')
                         gridRef.current?.querySelector<HTMLElement>(`[data-move-day="${nextDay}"]`)?.focus()
                       } else if (ev.key === 'Enter' || ev.key === ' ') {
-                        // Space 의 페이지 스크롤을 막고 클릭과 같은 경로로 새 일정을 연다.
+                        // Space 의 페이지 스크롤을 막고 클릭과 같은 경로로 새 일정을 연다. 길게 누르면(ev.repeat) 매 키마다
+                        // 되풀이되므로 반복 눌림도 막고 첫 눌림만 받는다(WP-1906 리뷰 후속 3).
                         ev.preventDefault()
+                        if (ev.repeat) return
                         onCreateAt(day)
                       }
                     }}
@@ -166,7 +175,9 @@ export function MonthView({
                     }`}
                   >
                     {summary && (
-                      <span id={summaryId} className="sr-only">
+                      // 칸 안에서는 두 번 읽히지 않게 가린다 — 설명은 aria-describedby 가 한 번 준다(WP-1906 리뷰 후속 4).
+                      // 직접 참조된 요소는 aria-hidden 이어도 접근자 설명 계산에는 포함된다(숨김은 본문 흐름에서만 적용).
+                      <span id={summaryId} aria-hidden="true" className="sr-only">
                         {summary}
                       </span>
                     )}
