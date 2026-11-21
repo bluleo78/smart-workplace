@@ -225,6 +225,7 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
   - 다음 확인 = `IDLE` 칸 중 가장 이른 `nextCheckAt`(일하는 칸이 보낸 값은 쓰지 않는다).
   - 지금 Pod 가 뜨기 전에 받은 칸 보고(`reported_at < started_at − 30초` — 옛 Pod 의 칸. 30초는 API 서버와 runner·kubelet 시계 차이 여유)는 합치기에서 빼고 지운다(방금 보고한 칸은 남긴다). runner 가 관찰 보고로 새 Pod 의 `startedAt` 을 알릴 때도 같은 규칙으로 옛 칸을 지우고 남은 칸으로 다시 합친다 — Pod 를 다시 만들면 옛 칸이 합친 상태를 붙잡지 않는다.
   - 마지막 보고가 6시간(`workplace.agent-runtime.slot-stale-after`)보다 오래된 칸은 죽은 칸으로 보고 합치기에서 뺀다(행은 남는다 — 다시 보고하면 이어진다). 살아 있는 칸은 매 턴 끝마다 보고하므로, 죽은 칸의 마지막 `WORKING` 이 미뤄 둔 교체를 영영 막지 않게 하는 상한이다.
+  - **칸 차단 백스톱**: 남아 있던 진입점 차단(아래 「칸 차단 보고」)은 정상 칸 보고가 오는 순간 비우지만, 보고 `generation` 이 차단 `generation` **이상일 때만** 비우고(`generation` 없는 옛 이미지의 차단은 지금 `generation` 과 견준다 — 옛 generation 보고가 지금 차단을 지우지 않게; `generation` 을 싣지 않은 보고는 견주지 않고 그대로 믿는다), **화면에 보이던 것을 비울 때만** 관리자 화면 알림을 보낸다(가려진 옛 사유를 비우는 동작은 화면이 그대로라 알림 없음). 시작 시각보다 30초 넘게 앞선 보고(끝나는 중인 옛 Pod)는 비우지 않는다.
 - 응답 `{"desired": "RUN" | "DRAIN" | "RESTART"}`:
   - AI 가 꺼졌으면(desired=STOP) `DRAIN` — 지워지는 Pod 가 새 이슈를 집지 않게 하는 **안전장치일 뿐**이다. 끄기는 위 「끄기는 즉시 정지」대로 runner 가 바로 Pod 를 지운다.
   - 보낸 `generation` 이 지금 설정보다 작으면, desired 의 `applyNow` 와 같은 판정(위 「언제 Pod 를 다시 만드나」 — 이번 보고까지 반영해서)이 참이면 `RESTART`(곧 다시 띄워진다 — 바로 적용, 합친 상태가 쉬는 중(**모든 칸이 쉼**), 지금 Pod 의 옛 키가 24시간 안에 만료 등), 아니면 `DRAIN`(새 이슈를 집지 않고 쉰다 — 쉬면 runner 가 다시 띄운다).

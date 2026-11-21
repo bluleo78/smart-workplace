@@ -70,14 +70,8 @@ public class AgentPaneReportService {
     // gen 3 이 막힌 뒤 설정을 고쳐 gen 4 가 되고, gen 4 Pod 가 같은 사유를 보고하면 저장 원문은 그대로여도
     // 화면이 「시작 중」 → 「오류」로 바뀌는데 원문 기준이면 알림이 나가지 않아, 목록·상세가 새로고침 전까지
     // 「시작 중」으로 남는다(WP-1913 리뷰 반려 ①·③). setting 행의 generation 은 이 갱신에서 바뀌지 않으므로
-    // 계산에 쓰는 값도 before 과 같다.
-    String visibleBefore =
-        AgentRuntimeStatusResolver.currentPaneBlocked(
-            before.paneBlockedMessage(),
-            before.paneBlockedGeneration(),
-            before.generation(),
-            before.paneBlockedAt(),
-            before.startedAt());
+    // 계산에 쓰는 값도 before 과 같다 — 갱신 전 값은 그 행을 통째로 넘기는 Row 오버로드로 읽는다(리뷰 후속 ④).
+    String visibleBefore = AgentRuntimeStatusResolver.currentPaneBlocked(before);
     String visibleAfter =
         AgentRuntimeStatusResolver.currentPaneBlocked(
             nextMessage,
