@@ -6,23 +6,28 @@ import type { CredentialProvider, ModelOption, ProviderConfig } from '../types/p
 import { client } from './client';
 
 // 관리자 — 임의 baseURL+apiKey 로 등록 전 모델 프로브(AGENT 공통, userId 불필요).
-export async function probeAgentModels(body: {
-  providerConfig: ProviderConfig;
-}): Promise<{ models: ModelOption[] }> {
+// signal: 연결이 바뀌면 앞 요청을 끊기 위한 선택 인자(WP-1900).
+export async function probeAgentModels(
+  body: { providerConfig: ProviderConfig },
+  signal?: AbortSignal,
+): Promise<{ models: ModelOption[] }> {
   const { data } = await client.post<{ models: ModelOption[] }>(
     '/admin/agents/models/probe',
     body,
+    { signal },
   );
   return data;
 }
 
-// 본인(개인 비서) — 임의 baseURL+apiKey 로 등록 전 모델 프로브.
-export async function probeMyAssistantModels(body: {
-  providerConfig: ProviderConfig;
-}): Promise<{ models: ModelOption[] }> {
+// 본인(개인 비서) — 임의 baseURL+apiKey 로 등록 전 모델 프로브. signal 은 위와 같다.
+export async function probeMyAssistantModels(
+  body: { providerConfig: ProviderConfig },
+  signal?: AbortSignal,
+): Promise<{ models: ModelOption[] }> {
   const { data } = await client.post<{ models: ModelOption[] }>(
     '/users/me/assistant/models/probe',
     body,
+    { signal },
   );
   return data;
 }

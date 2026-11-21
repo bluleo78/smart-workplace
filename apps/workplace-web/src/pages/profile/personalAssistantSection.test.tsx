@@ -607,6 +607,56 @@ describe('개인 비서 — 늦게 온 프로브 응답 (WP-1893)', () => {
     expect(bodies.credential).toHaveLength(0)
   })
 
+  // WP-1900: 연결을 바꾸면 앞 요청을 끊으므로, 앞 요청이 끝나기를 기다리지 않고 곧바로 다시 불러오거나 등록할 수 있다.
+  test('프로브 도중 주소를 바꾸면 앞 요청이 끝나기 전에 다시 불러올 수 있다 (WP-1900)', async () => {
+    const { promise: held, release } = gate()
+    const { user } = open({
+      status: unconfigured,
+      probeReply: async (call) => {
+        if (call === 1) {
+          await held
+          return HttpResponse.json({ models: [SONNET] })
+        }
+        return HttpResponse.json({ models: BEDROCK_MODELS })
+      },
+    })
+    await probeOpenAi(user)
+    await user.type(screen.getByTestId('credential-base-url'), 'x')
+    // 앞 요청은 아직 붙잡혀 있어도 단추가 곧바로 풀린다.
+    const probeButton = screen.getByTestId('credential-probe-models')
+    expect(probeButton).toHaveTextContent('모델 불러오기')
+    expect(probeButton).toBeEnabled()
+    await user.click(probeButton)
+    expect(await screen.findByTestId('credential-model-select')).toBeInTheDocument()
+    release()
+  })
+
+  test('프로브 도중 주소를 바꾸면 앞 요청이 도는 동안에도 직접 입력 모델로 등록할 수 있다 (WP-1900)', async () => {
+    const { promise: held, release } = gate()
+    const { user, bodies } = open({
+      status: unconfigured,
+      probeReply: async (call) => {
+        if (call === 1) {
+          await held
+          return HttpResponse.json({ models: BEDROCK_MODELS })
+        }
+        return probeFails()
+      },
+    })
+    await probeOpenAi(user)
+    await user.type(screen.getByTestId('credential-base-url'), 'x')
+    await user.click(screen.getByTestId('credential-probe-models'))
+    await user.click(await screen.findByTestId('credential-model-manual'))
+    await user.paste('gpt-4o-mini')
+    await user.click(screen.getByRole('button', { name: '등록' }))
+    expect(await screen.findByText('개인 비서를 등록했습니다.')).toBeInTheDocument()
+    expect(bodies.credential).toHaveLength(1)
+    const body = bodies.credential[0] as { model: string; providerConfig: { options: { baseURL: string } } }
+    expect(body.model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+    expect(body.providerConfig.options.baseURL).toBe('https://api.openai.com/v1x')
+    release()
+  })
+
   test('불러온 목록이 있는 상태에서 주소를 고치면 모델 선택이 사라진다', async () => {
     const { user } = open({ status: unconfigured, probeModels: BEDROCK_MODELS })
     await probeOpenAi(user)
