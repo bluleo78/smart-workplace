@@ -1,4 +1,5 @@
 import { CheckCircle2 } from 'lucide-react'
+import { useId } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
@@ -31,6 +32,8 @@ export default function MyTasksBody({
   count?: number
   previewData?: { assigned: IssueSearchResponse; watched: IssueSearchResponse }
 }) {
+  // WP-1899: 행 설명 id 접두 — 훅 규칙상 early return 전에 둔다.
+  const base = useId()
   const assigned = useMyIssues({ assignee: 'me', size: 50 }, { enabled: !previewData })
   const watched = useWatchedIssues({ enabled: !previewData })
   // 어제/오늘 한 줄(WP-1484) — 개요 탭과 같은 요약. 미리보기(카탈로그)에선 부르지 않고, 실패하면 이 줄만 숨긴다(목록은 그대로).
@@ -91,11 +94,20 @@ export default function MyTasksBody({
   }
 
   // 행별 우측 메타 — 그룹 헤더가 못 담는 "가변" 정보만(마감 D-n, 구독 변동 상대시간).
-  function meta(bucket: MyTaskBucket, dueDate: string | null, updatedAt: string) {
+  // metaId: 행 Link 의 aria-describedby 가 이 span 을 가리키도록 단다(WP-1899).
+  function meta(bucket: MyTaskBucket, dueDate: string | null, updatedAt: string, metaId: string) {
     if (bucket === 'due' && dueDate)
-      return <span className="shrink-0 text-xs font-semibold text-destructive">{dueLabel(dueDate, now)}</span>
+      return (
+        <span id={metaId} className="shrink-0 text-xs font-semibold text-destructive">
+          {dueLabel(dueDate, now)}
+        </span>
+      )
     if (bucket === 'watched')
-      return <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeTime(updatedAt)}</span>
+      return (
+        <span id={metaId} className="shrink-0 text-xs text-muted-foreground">
+          {formatRelativeTime(updatedAt)}
+        </span>
+      )
     return null
   }
 
@@ -171,21 +183,29 @@ export default function MyTasksBody({
                   )}
                 </div>
                 <ul className="space-y-0.5">
-                  {group.rows.map(({ issue, bucket }) => (
-                    <li key={issue.id}>
-                      <Link
-                        to={`/projects/${issue.projectKey}/issues/${issue.number}`}
-                        aria-label={`이슈 열기: ${issue.title}`}
-                        className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                      >
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {issue.projectKey}-{issue.number}
-                        </span>
-                        <span className="flex-1 truncate">{issue.title}</span>
-                        {meta(bucket, issue.dueDate, issue.updatedAt)}
-                      </Link>
-                    </li>
-                  ))}
+                  {group.rows.map(({ issue, bucket }) => {
+                    // WP-1899: 이름(aria-label)은 제목만 두고, 이슈 키·마감/변동 시각은 aria-describedby 로 설명에 잇는다.
+                    // meta 가 없는 행은 그 id 를 잇지 않는다(그린 요소와 같은 조건).
+                    const keyId = `${base}-${issue.id}-key`
+                    const metaId = `${base}-${issue.id}-meta`
+                    const metaNode = meta(bucket, issue.dueDate, issue.updatedAt, metaId)
+                    return (
+                      <li key={issue.id}>
+                        <Link
+                          to={`/projects/${issue.projectKey}/issues/${issue.number}`}
+                          aria-label={`이슈 열기: ${issue.title}`}
+                          aria-describedby={[keyId, metaNode && metaId].filter(Boolean).join(' ')}
+                          className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        >
+                          <span id={keyId} className="shrink-0 text-xs text-muted-foreground">
+                            {issue.projectKey}-{issue.number}
+                          </span>
+                          <span className="flex-1 truncate">{issue.title}</span>
+                          {metaNode}
+                        </Link>
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             )

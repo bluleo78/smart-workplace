@@ -1,4 +1,5 @@
 import { CalendarDays } from 'lucide-react'
+import { useId } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
@@ -27,6 +28,8 @@ export default function CalendarTodayBody({
   count?: number
   previewData?: CalendarEvent[]
 }) {
+  // WP-1899: 행 설명 id 접두 — 훅 규칙상 early return 전에 둔다.
+  const base = useId()
   const { from, to } = todayRange()
   const query = useCalendarEvents(from, to, { enabled: !previewData })
   const { data: queryData, isLoading, refetch } = query
@@ -69,16 +72,23 @@ export default function CalendarTodayBody({
       <ul className="space-y-0.5">
         {top.map((ev) => {
           const { label, kind } = eventTime(ev)
+          // WP-1899: 이름(aria-label)은 제목만 두고, 시각 라벨(종일/HH:mm/미정)은 aria-describedby 로 설명에 잇는다.
+          // 반복 일정은 회차가 id 를 공유하므로 occurrenceDate 를 붙여 행마다 유일하게 한다
+          // (AgendaView·MonthView·TimeGrid 와 같은 키 규칙). 같은 id 면 둘째 행이 첫째 행의 시각을 읽는다.
+          const rowKey = `${ev.id}-${ev.occurrenceDate ?? 'single'}`
+          const timeId = `${base}-${rowKey}-time`
           return (
             // 일정 전용 상세 라우트가 없어 캘린더(/calendar)로 딥링크(스펙 §1.3 허용 폴백).
-            <li key={ev.id}>
+            <li key={rowKey}>
               <Link
                 to="/calendar"
                 aria-label={`일정 열기: ${ev.title}`}
+                aria-describedby={timeId}
                 className="flex min-h-7 items-center gap-2.5 rounded-md px-1.5 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 {/* 리딩 컬럼: 점 마커 + 라벨(종일/HH:mm/미정). 고정폭으로 제목 시작점 정렬. */}
                 <span
+                  id={timeId}
                   data-testid="cal-time"
                   className={cn(
                     // 미정은 흐린 색 대신 기울임으로 구분한다 — 투명도를 낮추면 글자 대비가 4.5:1 밑으로 떨어진다(WP-736).

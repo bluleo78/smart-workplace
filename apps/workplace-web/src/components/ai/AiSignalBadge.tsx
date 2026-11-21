@@ -11,6 +11,7 @@ export function AiSignalBadge({
   reason,
   onClick,
   to,
+  id,
   className,
   children,
   'data-testid': testId,
@@ -19,6 +20,8 @@ export function AiSignalBadge({
   reason?: string
   onClick?: (e: React.MouseEvent) => void
   to?: string
+  // WP-1899: 접근 설명(aria-describedby) 참조용 id — 주어지면 root 요소(Link/button/span)에 그대로 단다.
+  id?: string
   className?: string
   children: React.ReactNode
   'data-testid'?: string
@@ -37,20 +40,20 @@ export function AiSignalBadge({
   )
   if (to) {
     return (
-      <Link to={to} data-testid={testId} title={reason} className={`${cls} hover:opacity-90`}>
+      <Link to={to} id={id} data-testid={testId} title={reason} className={`${cls} hover:opacity-90`}>
         {inner}
       </Link>
     )
   }
   if (onClick) {
     return (
-      <button type="button" data-testid={testId} title={reason} onClick={onClick} className={`${cls} hover:opacity-90`}>
+      <button type="button" id={id} data-testid={testId} title={reason} onClick={onClick} className={`${cls} hover:opacity-90`}>
         {inner}
       </button>
     )
   }
   return (
-    <span data-testid={testId} title={reason} className={cls}>
+    <span id={id} data-testid={testId} title={reason} className={cls}>
       {inner}
     </span>
   )
