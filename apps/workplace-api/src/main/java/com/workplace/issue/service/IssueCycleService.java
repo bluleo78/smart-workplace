@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,9 +53,10 @@ public class IssueCycleService {
   public List<CycleSummary> replace(
       Long callerId, String projectKey, int number, List<Long> cycleIds) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    // 잠금 순서: 이슈 행 → 매핑 행(라벨·담당자·구성요소·버전과 같다, WP-1932)
     var issue =
         issueRepository
-            .findByProjectAndNumber(project.id(), number)
+            .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
     List<Long> normalized = cycleIds == null ? List.of() : cycleIds;
@@ -86,7 +88,8 @@ public class IssueCycleService {
       throw new CompletedCycleNotAssignableException();
     }
 
-    for (Long id : toAdd) issueCycleRepository.add(issue.id(), id);
+    // id 오름차순으로 붙인다 — INSERT 가 사이클 행에 KEY SHARE 를 잡으므로 사이클 완료의 작은 id → 큰 id 잠금과 순서를 맞춰 교착을 피한다.
+    for (Long id : new TreeSet<>(toAdd)) issueCycleRepository.add(issue.id(), id);
     for (Long id : toRemove) issueCycleRepository.remove(issue.id(), id);
 
     // 실시간 무효화 — diff 가 있을 때만(no-op 은 미발행)
@@ -112,9 +115,10 @@ public class IssueCycleService {
   public MoveResult move(
       Long callerId, String projectKey, int number, Long fromCycleId, Long toCycleId) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    // 잠금 순서: 이슈 행 → 매핑 행(라벨·담당자·구성요소·버전과 같다, WP-1932)
     var issue =
         issueRepository
-            .findByProjectAndNumber(project.id(), number)
+            .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
     // 같은 섹션으로의 이동은 변화 없음.
