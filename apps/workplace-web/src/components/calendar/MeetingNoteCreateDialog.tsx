@@ -8,6 +8,7 @@ import { type RefObject, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ReportLocationDialog } from '@/components/wiki/ReportLocationDialog'
@@ -214,11 +215,7 @@ function MeetingNoteCreateBody({
         </ul>
       </div>
 
-      {error && (
-        <p role="alert" className="text-sm text-destructive" data-testid="meeting-note-error">
-          {error}
-        </p>
-      )}
+      <FormError data-testid="meeting-note-error">{error}</FormError>
 
       {/* 390px 에서 단추가 세로로 쌓이고 「만들기」가 위·가득 폭 — 공용 DialogFooter 의 flex-col-reverse */}
       <DialogFooter>

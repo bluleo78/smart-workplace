@@ -104,6 +104,20 @@ test('이미 있는 이름이면 409 메시지를 인라인으로 보이고 대�
   expect(location()).not.toBe(`/drive/spaces/${NEW_SPACE_ID}`)
 })
 
+// WP-1901: 제출 실패 안내는 나타나는 순간 스크린리더가 읽도록 role=alert 여야 한다.
+test('공간 만들기 실패 안내는 alert 로 읽힌다', async () => {
+  const { user } = await openCreateDialog({
+    handlers: [
+      http.post('/api/v1/drive/spaces', () =>
+        HttpResponse.json({ message: '이미 존재하는 공간 이름입니다: 중복 공간' }, { status: 409 }),
+      ),
+    ],
+  })
+  await user.type(screen.getByTestId('space-name-input'), '중복 공간')
+  await user.click(screen.getByTestId('space-name-confirm'))
+  expect(await screen.findByRole('alert')).toHaveTextContent('이미 존재하는 공간 이름입니다: 중복 공간')
+})
+
 test('만든 팀 공간이 사이드바 목록에 나타난다(#148)', async () => {
   const { user, created } = await openCreateDialog({
     handlers: [

@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 
 interface WikiCreateSpaceDialogProps {
@@ -91,11 +92,7 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending, e
           aria-invalid={!!error}
           data-testid="wiki-space-create-input"
         />
-        {error && (
-          <p className="text-sm text-destructive" data-testid="wiki-space-create-error">
-            {error}
-          </p>
-        )}
+        <FormError data-testid="wiki-space-create-error">{error}</FormError>
         <DialogFooter>
           <Button variant="outline" onClick={close}>
             취소

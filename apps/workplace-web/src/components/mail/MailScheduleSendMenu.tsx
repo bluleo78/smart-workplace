@@ -16,6 +16,7 @@ import {
 } from '@/components/overlay/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { FieldError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { isoToLocalInput } from '@/lib/calendar';
@@ -85,6 +86,8 @@ export function MailScheduleSendMenu({ disabled, onSchedule, variant }: Props) {
   const pickedOk = picked != null && !Number.isNaN(picked.getTime());
   const tooFar = pickedOk && picked.getTime() > max.getTime();
   const valid = pickedOk && picked.getTime() >= min.getTime() && !tooFar;
+  // 지금 뜨는 안내 중 「2분 뒤 이후」 쪽 — 덜 넣었거나 지난 값이거나, 확인하는 사이 최소 시각이 지났다.
+  const tooSoon = (!valid && value !== '') || stale;
 
   const refreshNow = () => {
     setNow(new Date());
@@ -152,6 +155,8 @@ export function MailScheduleSendMenu({ disabled, onSchedule, variant }: Props) {
           type="datetime-local"
           data-testid="mail-schedule-datetime"
           aria-label="예약 시각"
+          aria-invalid={tooFar || tooSoon || undefined}
+          aria-describedby={tooFar || tooSoon ? 'mail-schedule-datetime-error' : undefined}
           min={minValue}
           max={maxValue}
           value={value}
@@ -161,10 +166,17 @@ export function MailScheduleSendMenu({ disabled, onSchedule, variant }: Props) {
             setBlocked(false);
           }}
         />
+        {/* 예약 시각 검증 실패는 입력하는 도중에 뜨는 안내라 polite 로 읽히게 한다(WP-1901 리뷰) — role=alert 는 제출 실패에만. */}
         {tooFar ? (
-          <p className="text-xs text-destructive">지금부터 1년 안으로 골라 주세요</p>
+          <FieldError id="mail-schedule-datetime-error" className="text-xs">
+            지금부터 1년 안으로 골라 주세요
+          </FieldError>
         ) : (
-          ((!valid && value !== '') || stale) && <p className="text-xs text-destructive">지금부터 2분 뒤 이후로 골라 주세요</p>
+          tooSoon && (
+            <FieldError id="mail-schedule-datetime-error" className="text-xs">
+              지금부터 2분 뒤 이후로 골라 주세요
+            </FieldError>
+          )
         )}
         {blocked && <BlockedNote />}
         <DialogFooter>

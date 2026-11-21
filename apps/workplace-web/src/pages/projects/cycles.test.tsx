@@ -141,7 +141,13 @@ describe('사이클 관리', () => {
     await user.paste('종료일역전테스트')
     await user.type(screen.getByLabelText('시작일'), '2026-09-10')
     await user.type(screen.getByLabelText('종료일'), '2026-09-01')
-    expect(await screen.findByTestId('cycle-date-range-error')).toHaveTextContent('종료일은 시작일 이후여야 합니다')
+    const rangeError = await screen.findByTestId('cycle-date-range-error')
+    expect(rangeError).toHaveTextContent('종료일은 시작일 이후여야 합니다')
+    // WP-1901 리뷰 반려 — 입력 중에 뜨는 날짜 안내는 polite(status) 이고 두 칸이 함께 가리킨다.
+    expect(rangeError).toHaveAttribute('role', 'status')
+    expect(within(screen.getByTestId('cycle-form-dialog')).queryByRole('alert')).toBeNull()
+    expect(screen.getByLabelText('시작일')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByLabelText('종료일').getAttribute('aria-describedby')).toContain('cycle-date-range-error')
     const submit = screen.getByTestId('cycle-submit')
     expect(submit).toBeDisabled()
     // 잠긴 버튼을 눌러도, 단추를 거치지 않는 폼 제출(Enter 저장 WP-1616)로도 요청은 없다.
@@ -553,7 +559,10 @@ describe('사이클 완료 (WP-1578)', () => {
     const name = await within(dialog).findByLabelText('새 사이클 이름')
     expect(name).toHaveValue('GW-8')
     expect(name).toHaveAttribute('aria-invalid', 'true')
-    expect(within(dialog).getByTestId('cycle-complete-name-error')).toHaveTextContent('이미 존재하는 사이클 이름입니다: GW-8')
+    // 서버가 이름을 거절한 것(제출 실패)이라 alert(assertive) 로 읽혀야 한다 — 실시간 안내와 구분된다(WP-1901 리뷰 반려).
+    const nameError = within(dialog).getByTestId('cycle-complete-name-error')
+    expect(nameError).toHaveTextContent('이미 존재하는 사이클 이름입니다: GW-8')
+    expect(nameError).toHaveAttribute('role', 'alert')
     expect(screen.getByTestId('cycle-complete-dialog')).toBeInTheDocument()
     await waitFor(() => expect(within(dialog).getByTestId('cycle-complete-submit')).toBeEnabled())
   })
@@ -587,6 +596,26 @@ describe('사이클 완료 (WP-1578)', () => {
     await user.clear(within(dialog).getByLabelText('새 사이클 종료일'))
     expect(submit).toBeDisabled()
     expect(bodies).toEqual([])
+  })
+
+  // WP-1901 리뷰 반려 — 새 사이클 기간이 뒤집힌 안내는 입력 중에 뜨는 것이라 polite(status) 이고 두 칸이 함께 가리킨다.
+  test('새 사이클 기간이 뒤집히면 안내는 status 로 읽히고 두 날짜 칸이 함께 가리킨다', async () => {
+    const autumn = createCycle({ id: 7, name: '가을 스프린트', startDate: '2026-11-03', endDate: '2026-11-16', status: 'ACTIVE' })
+    const { user } = await openCycles({ current: [autumn] }, [P7])
+    await user.click(within(await screen.findByTestId('cycle-row-7')).getByRole('button', { name: '가을 스프린트 사이클 완료' }))
+    const dialog = await screen.findByTestId('cycle-complete-dialog')
+    // 시작일(2026-11-17)보다 이른 종료일로 바꾼다 — <input type="date"> 는 한 번에 넣는다.
+    const end = within(dialog).getByLabelText('새 사이클 종료일')
+    fireEvent.change(end, { target: { value: '2026-11-01' } })
+
+    const hint = within(dialog).getByTestId('cycle-complete-range-error')
+    expect(hint).toHaveTextContent('종료일은 시작일 이후여야 합니다')
+    expect(hint).toHaveAttribute('role', 'status')
+    expect(within(dialog).queryByRole('alert')).toBeNull()
+    expect(within(dialog).getByLabelText('새 사이클 시작일')).toHaveAttribute('aria-invalid', 'true')
+    expect(end).toHaveAttribute('aria-invalid', 'true')
+    expect(end.getAttribute('aria-describedby')).toContain('cycle-complete-range-error')
+    expect(within(dialog).getByTestId('cycle-complete-submit')).toBeDisabled()
   })
 
   test('기간 없는 사이클이면 칸이 펼쳐지고 날짜를 채워야 완료된다', async () => {
@@ -651,7 +680,11 @@ describe('사이클 완료 (WP-1578)', () => {
     const name = within(dialog).getByLabelText('새 사이클 이름')
     expect(name).toHaveValue(`${'가'.repeat(59)}10`)
     expect(name).toHaveAttribute('aria-invalid', 'true')
-    expect(within(dialog).getByTestId('cycle-complete-name-error')).toHaveTextContent('사이클 이름은 60자 이하로 입력하세요')
+    // 길이 초과는 입력하는 도중의 안내라 polite(status) 로 읽힌다 — 서버 거절(alert)과 구분된다(WP-1901 리뷰 반려).
+    const tooLong = within(dialog).getByTestId('cycle-complete-name-error')
+    expect(tooLong).toHaveTextContent('사이클 이름은 60자 이하로 입력하세요')
+    expect(tooLong).toHaveAttribute('role', 'status')
+    expect(within(dialog).queryByRole('alert')).toBeNull()
     const submit = within(dialog).getByTestId('cycle-complete-submit')
     expect(submit).toBeDisabled()
     // 60자 안으로 고치면 안내가 사라지고 완료할 수 있다.

@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 
 import { useCreateSavedView, useUpdateSavedView } from '../../../hooks/queries/useSavedViews'
@@ -138,7 +139,8 @@ export function SaveViewDialog({
           }}
           className="space-y-4"
         >
-          {/* 필터 미적용 안내 — 빈 query 로 저장 시도 방지 */}
+          {/* 필터 미적용 안내 — 빈 query 로 저장 시도 방지.
+              열 때부터 보이는 사전 조건 안내라 제출 실패 안내(role=alert)로 바꾸지 않는다(WP-1901). */}
           {noFilter && (
             <p data-testid="save-view-no-filter-msg" className="text-sm text-destructive">
               저장하려면 먼저 필터를 하나 이상 적용하세요.
@@ -163,11 +165,9 @@ export function SaveViewDialog({
               placeholder="예: 내 HIGH 이슈"
             />
             {/* 빈 이름 제출 시 표시되는 인라인 에러 메시지 */}
-            {nameError && (
-              <p id="save-view-name-error" data-testid="save-view-name-error" className="text-sm text-destructive">
-                {nameError}
-              </p>
-            )}
+            <FormError id="save-view-name-error" data-testid="save-view-name-error">
+              {nameError}
+            </FormError>
           </div>
           <fieldset className="flex items-center gap-4 border-none p-0 text-sm">
             <legend className="mb-1 text-sm font-medium">가시성</legend>

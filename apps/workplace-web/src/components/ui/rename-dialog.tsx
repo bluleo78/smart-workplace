@@ -4,6 +4,7 @@
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 
@@ -124,11 +125,7 @@ export function RenameDialog({
           aria-invalid={!!error}
           data-testid="rename-dialog-input"
         />
-        {error && (
-          <p className="text-sm text-destructive" data-testid="rename-dialog-error">
-            {error}
-          </p>
-        )}
+        <FormError data-testid="rename-dialog-error">{error}</FormError>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             취소

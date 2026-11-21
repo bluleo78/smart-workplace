@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { FormField } from '@/components/ui/form-field';
+import { FormError, FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useClearOnFormChange } from '@/hooks/useClearOnFormChange';
@@ -175,16 +175,7 @@ export function TokenIssueFormDialog({
             />
           </div>
 
-          {serverError && (
-            <p
-              id={SERVER_ERROR_ID}
-              role="alert"
-              className="text-sm text-destructive"
-              data-testid="token-issue-error"
-            >
-              {serverError}
-            </p>
-          )}
+          <FormError id={SERVER_ERROR_ID} data-testid="token-issue-error">{serverError}</FormError>
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => handleOpenChange(false)}>

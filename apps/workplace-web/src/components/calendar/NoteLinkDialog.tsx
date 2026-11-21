@@ -8,6 +8,7 @@ import { type ReactNode, type RefObject, useRef, useState } from 'react'
 import { wikiApi } from '@/api/wiki'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { extractApiError } from '@/lib/api-error'
@@ -153,11 +154,7 @@ function NoteLinkBody({
         )}
       </div>
 
-      {error && (
-        <p role="alert" className="text-sm text-destructive" data-testid="note-link-error">
-          {error}
-        </p>
-      )}
+      <FormError data-testid="note-link-error">{error}</FormError>
 
       {/* 390px 에서 단추가 세로로 쌓이고 「연결」이 위 — 공용 DialogFooter 의 flex-col-reverse */}
       <DialogFooter>

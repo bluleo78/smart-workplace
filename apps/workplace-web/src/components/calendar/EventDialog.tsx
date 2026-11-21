@@ -37,6 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent'
@@ -535,9 +536,8 @@ export function EventDialog({
                   className="h-auto rounded-none border-0 border-b border-border bg-transparent px-0 pt-0.5 pb-2 text-lg font-semibold shadow-none focus-visible:border-ring focus-visible:ring-0 md:text-lg dark:bg-transparent"
                   {...form.register('title')}
                 />
-                {form.formState.errors.title && (
-                  <p className="text-sm text-destructive">{form.formState.errors.title.message}</p>
-                )}
+                {/* 검증 오류는 공용 FormError(role=alert)로 — 화면을 못 보는 사용자도 저장이 막힌 이유를 듣는다(WP-1901). 빈 값이면 아무것도 그리지 않는다 */}
+                <FormError>{form.formState.errors.title?.message}</FormError>
               </div>
 
               {/* 회의 참가 — 주최자는 보기 화면 없이 편집 폼을 열므로 여기에도 둔다. 기존 일정(상세 로드 뒤)에만 — 새 일정엔 회의 정보가 없다(WP-710) */}
@@ -550,9 +550,7 @@ export function EventDialog({
               <EventFormRow icon={Clock}>
                 <EventRangeInputs form={form} allDay={allDay} />
                 {(form.formState.errors.start || form.formState.errors.end) && (
-                  <p className="text-sm text-destructive">
-                    {form.formState.errors.start?.message ?? form.formState.errors.end?.message}
-                  </p>
+                  <FormError>{form.formState.errors.start?.message ?? form.formState.errors.end?.message}</FormError>
                 )}
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -704,11 +702,11 @@ export function EventDialog({
                     {(form.formState.errors.recurrenceInterval ||
                       form.formState.errors.recurrenceUntil ||
                       form.formState.errors.recurrenceCount) && (
-                      <p className="text-sm text-destructive">
+                      <FormError>
                         {form.formState.errors.recurrenceInterval?.message ??
                           form.formState.errors.recurrenceUntil?.message ??
                           form.formState.errors.recurrenceCount?.message}
-                      </p>
+                      </FormError>
                     )}
                   </>
                 )}
@@ -725,9 +723,7 @@ export function EventDialog({
                   className="h-8 px-2.5 pointer-coarse:h-11"
                   {...form.register('location')}
                 />
-                {form.formState.errors.location && (
-                  <p className="text-sm text-destructive">{form.formState.errors.location.message}</p>
-                )}
+                <FormError>{form.formState.errors.location?.message}</FormError>
               </EventFormRow>
 
               {/* 참석자 — 생성 모드: 로컬 선택, 편집 모드: 상세 attendees + 즉시 invite/remove (이슈 #489) */}
@@ -875,9 +871,7 @@ export function EventDialog({
                   className="field-sizing-content min-h-16 resize-none px-2.5 py-1.5 pointer-coarse:py-2.5"
                   {...form.register('description')}
                 />
-                {form.formState.errors.description && (
-                  <p className="text-sm text-destructive">{form.formState.errors.description.message}</p>
-                )}
+                <FormError>{form.formState.errors.description?.message}</FormError>
               </EventFormRow>
 
               {/* 회의록 — 새 일정은 고른 노트를 들고 있다 저장 뒤 잇고, 기존 일정은 연결·해제가 바로 반영된다. 기존 일정은 조회가 끝나야 그린다(「노트 연결」이 번쩍이지 않게).

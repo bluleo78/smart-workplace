@@ -136,6 +136,19 @@ describe('뷰 저장', () => {
     expect(calls).toHaveLength(0)
   })
 
+  // WP-1901: 이름 검증 오류는 나타나는 순간 스크린리더가 읽도록 role=alert 여야 한다(입력의 aria-describedby 가 가리키는 문단).
+  test('뷰 이름 오류는 alert 로 읽힌다', async () => {
+    const { user, location } = await openWithViews([])
+    await applyHighPriority(user, location)
+    await user.click(screen.getByTestId('save-view-button'))
+    await user.click(await screen.findByTestId('save-view-submit'))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveAttribute('id', 'save-view-name-error')
+    expect(alert).toHaveTextContent('뷰 이름을 입력하세요')
+    await user.type(screen.getByTestId('save-view-name'), '테스트')
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
   // WP-474: 이름은 서버 상한 60자 — 입력이 60자에서 멈추고, 그보다 긴 예전 이름은 저장 전에 필드 오류로 막는다.
   test('이름 입력은 60자에서 멈추고, 70자 예전 이름을 그대로 저장하려 하면 필드 오류로 막는다', async () => {
     const { user, calls } = await openWithViews([view(1, '가'.repeat(70))], { path: `/projects/${KEY}?priority=LOW` })

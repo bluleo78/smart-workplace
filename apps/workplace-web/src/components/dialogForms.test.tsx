@@ -279,6 +279,50 @@ describe('채널 이름 변경 창 — 라벨과 Enter 저장 (WP-1615)', () => 
   })
 })
 
+describe('채널 대화상자 — 이름 오류 안내는 alert 로 읽힌다 (WP-1901)', () => {
+  test('채널 만들기 이름 오류는 alert 로 읽히고, 이름을 고치면 사라진다', async () => {
+    const { user } = renderScreen(<CreateChannelModal open onOpenChange={() => {}} />, {
+      path: '/chat',
+      handlers: [
+        http.post('/api/v1/messaging/channels', () =>
+          HttpResponse.json({ message: '이미 같은 이름의 채널이 있습니다.' }, { status: 409 }),
+        ),
+      ],
+    })
+    await user.click(await screen.findByTestId('create-channel-name'))
+    await user.paste('겹치는채널')
+    await user.click(screen.getByTestId('create-channel-submit'))
+    const alert = await screen.findByRole('alert')
+    // alert 와 오류 문단이 같은 노드인지 + 서버가 준 문구가 실제로 들어 있는지(같은 노드끼리 비교는 아무것도 검증하지 않는다)
+    expect(alert).toBe(screen.getByTestId('create-channel-name-error'))
+    expect(alert).toHaveTextContent('이미 같은 이름의 채널이 있습니다.')
+    // 오류를 고치면 빈 alert 가 남지 않는다
+    await user.type(screen.getByTestId('create-channel-name'), 'X')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  test('채널 이름 바꾸기 오류 alert 는 id 를 유지하고 입력칸이 가리킨다', async () => {
+    const { user } = renderScreen(<RenameChannelModal channelId={5} currentName="기존채널" open onOpenChange={() => {}} />, {
+      handlers: [
+        http.patch('/api/v1/messaging/channels/5', () =>
+          HttpResponse.json({ message: '이미 같은 이름의 채널이 있습니다.' }, { status: 409 }),
+        ),
+      ],
+    })
+    const input = await screen.findByRole<HTMLInputElement>('textbox', { name: '채널 이름' })
+    await user.clear(input)
+    await user.paste('겹치는채널')
+    await user.keyboard('{Enter}')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveAttribute('id', 'rename-channel-name-error')
+    expect(alert).toHaveTextContent('이미 같은 이름의 채널이 있습니다.')
+    expect(input.getAttribute('aria-describedby')).toContain('rename-channel-name-error')
+    // 오류를 고치면 alert 도 사라진다
+    await user.type(input, 'X')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
 describe('채널 만들기 — Enter 로 만들기 (WP-1614)', () => {
   // 이름 칸에서 Enter 를 누르면 「만들기」 단추를 누른 것과 같이 채널이 만들어져야 한다.
   test('이름을 넣고 Enter 를 누르면 채널이 한 번 만들어지고 새 채널로 간다', async () => {
