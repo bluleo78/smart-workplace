@@ -214,6 +214,7 @@ function useScrolledPast(root: HTMLElement | null, target: HTMLElement | null): 
 export function MailMobileDetail({
   detail,
   share,
+  banner,
   onBack,
   onMarkUnread,
   menuItems,
@@ -230,6 +231,8 @@ export function MailMobileDetail({
   detail: EmailMessageDetail
   /** 상단바 ⬆︎ 공유(WP-1234). */
   share?: ReactNode
+  /** 재조회 실패 배너(WP-1911) — 데이터는 보이는 중 실패라 상세는 그대로 두고 상단바 아래 한 줄로만 알린다. */
+  banner?: ReactNode
   onBack: () => void
   onMarkUnread: () => void
   menuItems?: ReactNode
@@ -262,6 +265,8 @@ export function MailMobileDetail({
         menuItems={menuItems}
         share={share}
       />
+      {/* 재조회 실패 배너(WP-1911) — 상세 본문은 그대로 두고 상단바 바로 아래 한 줄로만 실패를 알린다. */}
+      {banner}
       <div data-testid="mail-detail" className="flex min-h-0 flex-1 flex-col">
         {/* container-type:size — HTML 본문 iframe 이 스크롤 영역 높이(100cqh)만큼 차지하게 한다. 머리 영역이 위로 스크롤돼 사라지면
             본문이 화면을 채운다(iframe 은 스크립트를 막아 내용 높이를 잴 수 없다).
