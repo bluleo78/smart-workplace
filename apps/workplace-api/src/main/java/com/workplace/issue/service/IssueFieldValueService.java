@@ -41,9 +41,10 @@ public class IssueFieldValueService {
   public IssueDetailResponse replace(
       Long callerId, String projectKey, int number, UpdateIssueFieldsRequest req) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    // 잠금 순서: 이슈 행 → 매핑 행(라벨·담당자·구성요소·버전과 같다, WP-1932)
     var issue =
         issueRepository
-            .findByProjectAndNumber(project.id(), number)
+            .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
     // 1)·2) 정의 소속·값 모양 검증 — 가져오기(importValues)와 같은 규칙을 공유한다.
