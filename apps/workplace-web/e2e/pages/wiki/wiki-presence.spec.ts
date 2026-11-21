@@ -1,6 +1,7 @@
 import type { Locator, Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
+import { pauseClockAhead } from '../../fixtures/clock'
 import {
   applyCollabMarkdown,
   changeCollabRole,
@@ -757,7 +758,7 @@ test.describe('노트 재연결', { tag: '@platform' }, () => {
     await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 70 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     // 이후 페이지 타이머는 하나도 돌지 않는다 — provider 자동 재시도도 멈춘다.
-    await a.clock.pauseAt((await a.evaluate(() => Date.now())) + 50)
+    await pauseClockAhead(a, 50)
     await sock.drop()
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'reconnecting')
     sock.restore()

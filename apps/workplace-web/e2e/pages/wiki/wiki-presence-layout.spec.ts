@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
+import { pauseClockAhead } from '../../fixtures/clock'
 import { connectCollabPeer, leaveAllCollabPeers, presenceShot, typeAtEnd } from '../../fixtures/collab'
 import { expectTheme, textContrast, withTheme } from '../../fixtures/contrast'
 import { LAYOUT_BODY as BODY, LAYOUT_PEERS as PEERS, tagsDisjoint } from '../../fixtures/presence'
@@ -33,7 +34,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expectTheme(a, theme)
     await expect(a.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'live')
     // 접속자가 붙기 전에 A 의 시계를 멈춘다 — 이름표가 켜진 채(3초가 지나지 않은 채) 배치·대비를 잰다. 수신 메시지 처리는 타이머와 무관하다.
-    await a.clock.pauseAt((await a.evaluate(() => Date.now())) + 50)
+    await pauseClockAhead(a, 50)
     await b.goto(pagePath(90))
     const peers = []
     for (const u of PEERS) peers.push(await connectCollabPeer(collabNs, 90, u))

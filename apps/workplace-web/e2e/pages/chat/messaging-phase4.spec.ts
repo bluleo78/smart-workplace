@@ -10,6 +10,7 @@ import {
   createMessage,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { pauseClockAhead } from '../../fixtures/clock'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays, stableBox } from '../../fixtures/wait'
 import { UNDO_DELETE_DELAY_MS } from '../../../src/lib/deleteWithUndo'
@@ -308,10 +309,12 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}`)
     await clickDelete(page, MSG_ID)
 
-    // 시계를 멈춰 지연 시간이 흐르지 않게 한다 — 삭제가 일어난다면 스와이프 때문이다.
-    // (지금 시각 측정과 pauseAt 사이에도 실시간이 흐르므로 0.5초 앞을 잡는다 — 토스트 5초 안쪽)
-    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 500))
+    // 시계를 멈춰 지연 시간이 흐르지 않게 한다(토스트 5초 안쪽) — 삭제가 일어난다면 스와이프 때문이다.
+    await pauseClockAhead(page, 500)
     const undoToast = page.getByText('메시지를 삭제했습니다')
+    // 멈춘 시점에 아직 토스트가 떠 있고 삭제 요청이 나가지 않았어야 아래 스와이프 검증이 의미가 있다.
+    await expect(undoToast).toBeVisible()
+    expect(deletes.count()).toBe(0)
     // 글자 위에서 끌면 텍스트가 선택되고, Sonner 는 선택 중엔 스와이프를 무시한다 → 토스트 왼쪽 여백에서 시작한다.
     const box = await stableBox(page.locator('[data-sonner-toast]'))
     await page.mouse.move(box.x + 4, box.y + box.height / 2)
