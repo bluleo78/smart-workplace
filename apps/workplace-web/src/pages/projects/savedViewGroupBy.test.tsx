@@ -41,7 +41,10 @@ test('그룹 헤더 수는 서버 그룹 총계이고, 목록과 같은 필터�
       ...issueListHandlers({ issues: () => createIssueSearchResponse(issues, 'c1') }),
     ],
   })
-  expect(await screen.findByTestId('list-group-count-1')).toHaveTextContent(/^32$/)
+  // WP-1929 — 목록 캐시에서 행이 먼저 와 헤더가 잠깐 행 수(2)로 그려질 수 있다 — 서버 총계가 그려질 때까지 기다린다(의미 불변).
+  // 요소는 waitFor 안에서 매번 다시 찾는다 — 리마운트로 옛 노드가 떨어져 나가도 계속 그 노드를 폴링하지 않게.
+  await screen.findByTestId('list-group-count-1')
+  await waitFor(() => expect(screen.getByTestId('list-group-count-1')).toHaveTextContent(/^32$/))
   const counts = requests.last('GET', `/api/v1/projects/${KEY}/issues/group-counts`)!
   expect(counts.search.get('groupBy')).toBe('statusId')
   expect(counts.search.get('q')).toBe('todo')

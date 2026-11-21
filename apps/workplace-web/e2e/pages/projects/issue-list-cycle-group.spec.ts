@@ -221,8 +221,10 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
       // 진행 중 D-N 은 스크린리더용 문장을 함께 준다.
       await expect(page.getByTestId('list-cycle-remaining-cycle-1')).toHaveAttribute('aria-label', '종료까지 3일');
 
-      // 평면 목록 요청(cycle 파라미터 없음)은 나가지 않는다.
-      expect(requests().every((p) => p.has('cycle'))).toBe(true);
+      // WP-1929 — 사이클 판정 전에 이미 발사한 평면 프리페치 1건은 허용, 그 뒤 중복 평면 요청은 금지.
+      // (옛 불변식 « 평면 목록 요청은 아예 나가지 않는다 » 는 「게이트 위 즉시 발사」 와 양립 불가 — vitest 동생 테스트와 같은 새 불변식.)
+      const flat = requests().filter((p) => !p.has('cycle'));
+      expect(flat.length).toBe(1);
       // 그룹 메뉴 표시도 사이클.
       await expect(page.getByTestId('group-by-trigger')).toHaveText('사이클');
     },

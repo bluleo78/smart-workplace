@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 
 import { useComponents } from '../../hooks/queries/useComponents';
 import { useCycles } from '../../hooks/queries/useCycles';
+import { useIssueSearchKeepingPrevious } from '../../hooks/queries/useIssueSearch';
 import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../hooks/queries/useLabels';
 import { useMilestones } from '../../hooks/queries/useMilestones';
@@ -28,7 +29,7 @@ import { canEditStatuses } from '../../lib/projectStatuses';
 import type { ProjectResponse } from '../../types/project';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
-import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/IssueCycleGroupedList';
+import { IssueCycleGroupedList } from './components/IssueCycleGroupedList';
 import { IssueDndProvider, useIssueDnd } from './components/IssueDndProvider';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
@@ -124,12 +125,21 @@ function ProjectIssuesSection({
   // params 가 바뀔 때만 새 필터 객체 — 매 렌더 새 객체면 아래 화면 컨텍스트 useMemo 가 매번 재계산된다.
   const filters = useMemo(() => parseFilters(params), [params]);
   const view = parseView(params);
+  // 그룹 기준 — URL 에 없으면 진행 중·예정 사이클이 있을 때 사이클 그룹이 목록 기본값(#878).
+  // 판정 대기(pending) 동안엔 groupBy 가 null 이라 아래 본문이 평면 목록을 그린다(WP-1929) — 판정 스켈레톤 자리는 없다
+  // (명시 ?group=cycle 진입은 판정이 즉시 확정이라 거기서는 기존 사이클 스켈레톤이 그대로다).
+  const { groupBy } = useIssueGroupBy(projectKey, true);
+  // 평면 목록이 필요한 자리 — 보드는 컬럼별(size/statusId) 쿼리만, 사이클 구간은 구간 쿼리만 쓴다.
+  // 이 판정 하나가 프리페치 on/off 와 건수 보고(listLoaded)가 공유한다 — 두 값이 어긋날 일이 없다.
+  const showsFlatList = view !== 'board' && groupBy !== 'cycle';
+  // WP-1929: 목록 쿼리를 게이트(ProjectStatusesGate)보다 위에서 발사한다 — 같은 queryKey·size(기본 30) 라 아래
+  // IssueListView 와 요청이 하나로 합쳐져 행이 그려질 때쯤이면 응답이 이미 캐시에 있다. 보드·사이클 구간은 평면 쿼리를
+  // 쓰지 않으므로 끈다 — 켜 두면 안 보이는 평면 요청이 필터·검색 변경과 ['issues','search',projectKey] 무효화
+  // (이슈 생성·수정·상태·사이클 변경)마다 같이 살아나기 때문이다(이 브랜치 이전엔 사이클 모드에 평면 옵저버가 아예 없었다).
+  useIssueSearchKeepingPrevious(projectKey, withDefaultIssueScope(filters), undefined, showsFlatList);
   // 목록 선택 열(WP-270) — URL cols → 개인 저장값 → 기본, 완료일 기간 필터가 걸리면 완료일 열 자동 추가.
   // 필터 막대의 열 메뉴도 같은 훅을 부르며, URL·저장값을 공유 구독해 두 곳이 같은 열을 본다.
   const { columns: listColumns } = useIssueListColumns(projectKey, filters.closedIn != null);
-  // 그룹 기준 — URL 에 없으면 진행 중·예정 사이클이 있을 때 사이클 그룹이 목록 기본값(#878).
-  // pending(사이클 목록 로딩 중)엔 스켈레톤 — 평면 목록이 잠깐 떴다 구간 목록으로 바뀌는 깜빡임과 헛요청을 막는다.
-  const { groupBy, pending: groupPending } = useIssueGroupBy(projectKey, true);
   // 에픽 패널 열림 상태 — ViewChipBar(토글 버튼)와 EpicSidePanel(조건 마운트)이 공유.
   const { open: epicPanelOpen, toggle: toggleEpicPanel } = useEpicPanelOpen(projectKey);
   const isMobile = useIsMobile();
@@ -173,7 +183,7 @@ function ProjectIssuesSection({
       setLoaded((prev) => (prev && prev.count === count && prev.hasMore === hasMore ? prev : { count, hasMore })),
     [],
   );
-  const listLoaded = view === 'board' || groupBy === 'cycle' ? null : loaded;
+  const listLoaded = showsFlatList ? loaded : null;
   const screenContext = useMemo(
     () =>
       buildIssueListContext({
@@ -198,6 +208,51 @@ function ProjectIssuesSection({
     [projectKey, project.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, components.data, versions.data, listLoaded],
   );
   useRegisterAiScreenContext(screenContext);
+
+  // 목록·보드 본문 — 보드 → 사이클 구간 → 평면 목록 순으로 판정한다.
+  // 판정 대기(pending) 동안엔 스켈레톤 대신 평면 목록이 그대로다(WP-1929): 목록 쿼리가 이미 위에서 발사됐고,
+  // 행이 뜨는 시점은 응답 시점에 달린다(캐시에 있으면 바로, 아니면 IssueListView 가 자기 로딩 상태를 그린다).
+  // 옛 스켈레톤이 막던 «평면 목록이 잠깐 뜨다가 구간 목록으로 바뀌는 깜빡임»은 의도적으로 감수한다
+  // (첫 행 ~800ms 지연과의 거래 — 설계가 승인한 상충). 전환으로 IssueListView 가 unmount 되면 그 안의 로컬 상태
+  // (예: 선택)도 초기화되는데, 이는 「그룹 기준이 바뀌면 초기화」하던 기존 동작과 같은 결과다(상태 보존 로직은 없다).
+  let viewBody: ReactNode;
+  if (view === 'board') {
+    viewBody = (
+      <IssueBoardView
+        projectKey={projectKey}
+        // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
+        filters={withDefaultIssueScope(filters)}
+        groupBy={toClientGroupBy(groupBy)}
+        canEditStatuses={statusEditable}
+        onOpenCreate={onOpenCreate}
+        canDragStatus={canDragStatus}
+        canEdit={canEdit}
+      />
+    );
+  } else if (groupBy === 'cycle') {
+    viewBody = (
+      <IssueCycleGroupedList
+        projectKey={projectKey}
+        filters={filters}
+        canDrag={canDragStatus}
+        canEdit={canEdit}
+        columns={listColumns}
+      />
+    );
+  } else {
+    viewBody = (
+      <IssueListView
+        projectKey={projectKey}
+        filters={filters}
+        columns={listColumns}
+        groupBy={toClientGroupBy(groupBy)}
+        onOpenCreate={onOpenCreate}
+        onLoadedChange={onLoadedChange}
+        canDrag={canDragStatus}
+        canEdit={canEdit}
+      />
+    );
+  }
 
   return (
     <section aria-label="태스크" className="flex min-h-0 flex-1 items-stretch gap-4">
@@ -236,41 +291,7 @@ function ProjectIssuesSection({
             로딩·빈 상태·사이클 구간 목록처럼 자체 스크롤이 없는 화면이 넘칠 때만 이 슬롯이 스크롤한다. */}
         <div className="min-h-0 flex-1 overflow-auto">
           {/* 목록·보드는 상태 목록을 받은 뒤에만 그린다(WP-870) — 받기 전엔 로딩, 실패면 다시 시도. */}
-          <ProjectStatusesGate projectKey={projectKey}>
-            {view === 'board' ? (
-              <IssueBoardView
-                projectKey={projectKey}
-                // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
-                filters={withDefaultIssueScope(filters)}
-                groupBy={toClientGroupBy(groupBy)}
-                canEditStatuses={statusEditable}
-                onOpenCreate={onOpenCreate}
-                canDragStatus={canDragStatus}
-                canEdit={canEdit}
-              />
-            ) : groupPending ? (
-              <IssueCycleListSkeleton />
-            ) : groupBy === 'cycle' ? (
-              <IssueCycleGroupedList
-                projectKey={projectKey}
-                filters={filters}
-                canDrag={canDragStatus}
-                canEdit={canEdit}
-                columns={listColumns}
-              />
-            ) : (
-              <IssueListView
-                projectKey={projectKey}
-                filters={filters}
-                columns={listColumns}
-                groupBy={toClientGroupBy(groupBy)}
-                onOpenCreate={onOpenCreate}
-                onLoadedChange={onLoadedChange}
-                canDrag={canDragStatus}
-                canEdit={canEdit}
-              />
-            )}
-          </ProjectStatusesGate>
+          <ProjectStatusesGate projectKey={projectKey}>{viewBody}</ProjectStatusesGate>
         </div>
       </div>
       {/* 닫힌 패널은 드래그 동안만 떠 있는 드롭 대상으로 잠시 띄운다 — 저장된 열림 설정은 그대로. */}

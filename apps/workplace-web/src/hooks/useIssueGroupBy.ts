@@ -13,7 +13,8 @@ export interface IssueGroupByState {
   raw: IssueGroupParam | null;
   /** 실제 적용할 그룹. 보드·사이클 비사용 화면에선 cycle 이 오지 않는다. */
   groupBy: IssueGroupBy | null;
-  /** 사이클 목록 로딩 중이라 기본 그룹(사이클/없음) 판정을 보류 중 — 이동안 목록은 스켈레톤. */
+  /** 사이클 목록 로딩 중이라 기본 그룹(사이클/없음) 판정이 아직 안 정해짐 — 예) useSavedViewState 이 판정 확정까지 뷰 매칭을 보류.
+   *  이 값은 스켈레톤 신호가 아니다(WP-1929): 호출처는 이 동안 groupBy 를 null 로 받아 평면 목록을 그린다. */
   pending: boolean;
 }
 

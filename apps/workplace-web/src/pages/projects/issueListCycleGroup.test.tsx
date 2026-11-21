@@ -2,7 +2,7 @@
 // 구간별 요청 파라미터, 접힘/펼침 지연 요청, 그룹 전환·저장 뷰 하위호환, M:N 중복 표시와 선택 공유·일괄 작업, 로딩·빈 구간 문구는
 // 브라우저 없이 판정되므로 e2e/pages/projects/issue-list-cycle-group.spec.ts 에서 옮겼다.
 // 기본 사이클 그룹 진입(@wiring)·스크롤해 체크해도 일괄 바가 보임(@layout)·구간 끝 자동 로드(@layout)는 E2E 에 남는다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -56,8 +56,15 @@ afterEach(() => vi.useRealTimers())
 type Options = {
   savedViews?: SavedViewResponse[]
   backlog?: IssueResponse[]
-  /** 사이클 목록 응답을 늦추는 약속. */
+  /** 사이클 목록 응답을 늦추는 약속 — cyclesGate() 반환의 held. */
   cyclesGate?: Promise<void>
+}
+
+/** 사이클 응답 게이트 — release 를 부르기 전까지 /cycles 응답을 멈춰 판정 대기 상태를 만든다(issueListPendingGroup.test.tsx 와 같은 패턴). */
+function cyclesGate() {
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => (release = r))
+  return { held, release }
 }
 
 /** 공통 목 — 이슈 검색 URL·저장 뷰 POST·상태 PATCH·진행률 조회 수를 기록한다. */
@@ -121,7 +128,18 @@ async function chooseGroup(user: ScreenUser, value: string) {
 
 describe('이슈 목록 사이클 그룹 (#878)', () => {
   test('구간별 요청 파라미터 — 사이클 구간은 종료 이슈 포함, 백로그는 cycle=null + 미종료 스코프', async () => {
-    const { api } = await open()
+    // WP-1929 — 사이클 응답을 게이트로 묶어 두고, 판정 전에 평면 프리페치가 이미 나가는지 먼저 고정한다.
+    // 게이트 해제 전 단언이 없으면 「목록이 필터 메타데이터를 기다렸다가 발사하는」 회귀(바로잡은 그 버그)가 통과해 버린다.
+    const gate = cyclesGate()
+    const api = setup({ cyclesGate: gate.held })
+    renderProjectScreen(`/projects/${KEY}`, { handlers: api.handlers })
+    // WP-1929 — 스켈레톤 대신 평면 행 = 화면이 이미 마운트됐고 목록 쿼리가 게이트 이전에 응답까지 받았다는 증거다
+    // (옛 issue-list-pending 앵커는 평면 목록을 막던 스켈레톤 게이트라 같은 증명을 못 한다).
+    expect(await screen.findByTestId('issue-row-90')).toBeInTheDocument()
+    await waitFor(() => expect(api.params().filter((p) => !p.has('cycle'))).toHaveLength(1))
+    gate.release()
+    await waitFor(() => expect(within(section('backlog')).getAllByTestId(/^issue-row-/).length).toBeGreaterThan(0))
+
     const backlog = api.params().find((p) => p.get('cycle') === 'null')
     expect(backlog?.get('hideInactiveClosed')).toBe('true')
     expect(backlog?.get('excludeEpics')).toBe('true')
@@ -132,8 +150,10 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     expect(active?.get('hideInactiveClosed')).toBeNull()
     expect(active?.get('excludeEpics')).toBe('true')
     expect(active?.get('excludeSubtasks')).toBe('true')
-    // 평면 목록 요청(cycle 없음)은 나가지 않는다.
-    expect(api.params().every((p) => p.has('cycle'))).toBe(true)
+    // WP-1929 — 사이클 판정 전에 이미 발사한 평면 프리페치 1건은 허용, 그 뒤 중복 평면 요청은 금지.
+    // (옛 불변식 « 평면 목록 요청은 아예 나가지 않는다 » 는 「게이트 위 즉시 발사」 와 양립 불가라 새 불변식으로 갱신)
+    const flat = api.params().filter((p) => !p.has('cycle'))
+    expect(flat).toHaveLength(1)
   })
 
   test('예정 구간은 접혀 있고 펼칠 때 요청한다 — 다시 접으면 행이 사라지고, 빈 구간은 하위 이슈 안내', async () => {
@@ -220,16 +240,49 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     await waitFor(() => expect(api.progressGets()).toBeGreaterThan(progressBefore))
   })
 
-  test('로딩 중엔 평면 목록을 띄우지 않고 스켈레톤을 보인다', async () => {
-    let release: () => void = () => {}
-    const cyclesGate = new Promise<void>((r) => (release = r))
-    const api = setup({ cyclesGate })
+  test('로딩 중에도 평면 목록 행을 보인다 — 사이클 판정 스켈레톤은 목록을 막지 않는다 (WP-1929)', async () => {
+    const gate = cyclesGate()
+    const api = setup({ cyclesGate: gate.held })
     renderProjectScreen(`/projects/${KEY}`, { handlers: api.handlers })
-    expect(await screen.findByTestId('issue-list-pending')).toBeInTheDocument()
-    expect(screen.queryByTestId('issue-row-90')).not.toBeInTheDocument()
-    release()
+    // 사이클 응답이 게이트에 묶여 있는 동안에 이미 평면 행이 떠 있어야 한다 —
+    // 옛 스켈레톤 게이트(행 대신 issue-list-pending 을 그리던 코드)에서는 이 단언이 시간초과로 실패했다.
+    expect(await screen.findByTestId('issue-row-90')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-list-pending')).not.toBeInTheDocument()
+    // WP-1929 — 사이클 응답이 아직 게이트된 동안(평면 행이 이미 떴음)에 평면 프리페치 1건이 발사됨을 고정한다.
+    // 게이트를 연 뒤에만 세면 사이클 판정 후 발사하는 회귀도 flat===1 로 통과해 버린다.
+    await waitFor(() => expect(api.params().filter((p) => !p.has('cycle'))).toHaveLength(1))
+    gate.release()
     expect(await screen.findByTestId('list-cycle-section-backlog')).toBeInTheDocument()
-    expect(api.params().every((p) => p.has('cycle'))).toBe(true)
+    // WP-1929 — 사이클 판정 전에 이미 발사한 평면 프리페치 1건은 허용, 그 뒤 중복 평면 요청은 금지.
+    const flat = api.params().filter((p) => !p.has('cycle'))
+    expect(flat).toHaveLength(1)
+  })
+
+  // WP-1929 리뷰 Important 1 — 사이클 그룹에선 평면 페이지를 그리지 않으므로 평면 옵저버가 살아 있으면
+  // 필터·검색 변경마다 안 보이는 평면(size=30·cycle 없음) 요청이 하나씩 더 나간다(이 브랜치 이전 동작).
+  test('기본 사이클 그룹에서 검색어를 바꿔도 평면 요청(size=30·cycle 없음)은 추가로 나가지 않는다 (WP-1929)', async () => {
+    const { location, api } = await open()
+    // 판정 대기 동안 발사한 평면 프리페치 1건 — 여기까진 기존 불변식 그대로다.
+    await waitFor(() => expect(api.params().filter((p) => !p.has('cycle') && p.get('size') === '30')).toHaveLength(1))
+
+    // 필터 변경 — 검색어(debounce) 하나만 바꾼다. 구간 쿼리는 새 필터로 다시 나가야 바뀐 게 확인된다.
+    const box = await screen.findByLabelText('태스크 필터: 제목·키')
+    fireEvent.change(box, { target: { value: 'login' } })
+    await waitFor(() => expect(location()).toMatch(/q=login/))
+    await waitFor(() => expect(api.params().some((p) => p.has('cycle') && p.get('q') === 'login')).toBe(true))
+    // 새 필터의 구간 요청은 왔는데, 평면 요청은 프리페치 1건 그대로 — 사이클 그룹에선 평면 페이지를 그리지 않는다.
+    expect(api.params().filter((p) => !p.has('cycle') && p.get('size') === '30')).toHaveLength(1)
+  })
+
+  test('명시 ?group=cycle 진입에선 평면 요청이 아예 나가지 않는다 — 필터를 바꿔도 (WP-1929)', async () => {
+    const { location, api } = await open(`/projects/${KEY}?group=cycle`)
+    // 명시 group=cycle 은 판정이 처음부터 확정이라(pending 없음) 평면 프리페치 자체가 없다.
+    const box = await screen.findByLabelText('태스크 필터: 제목·키')
+    fireEvent.change(box, { target: { value: 'login' } })
+    await waitFor(() => expect(location()).toMatch(/q=login/))
+    // 구간 쿼리가 새 필터로 나온 뒤에 세면, 진입 시점의 느린 평면 응답까지 잡아 잴 수 있다.
+    await waitFor(() => expect(api.params().some((p) => p.has('cycle') && p.get('q') === 'login')).toBe(true))
+    expect(api.params().filter((p) => !p.has('cycle') && p.get('size') === '30')).toHaveLength(0)
   })
 
   test('백로그 = 진행 중·예정 사이클 밖 — 완료 사이클에만 속한 미완료 이슈도 백로그 요청(cycle=null)으로 뜬다', async () => {
