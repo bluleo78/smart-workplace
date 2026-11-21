@@ -133,9 +133,10 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     const gate = cyclesGate()
     const api = setup({ cyclesGate: gate.held })
     renderProjectScreen(`/projects/${KEY}`, { handlers: api.handlers })
-    // WP-1929 — 스켈레톤 대신 평면 행 = 화면이 이미 마운트됐고 목록 쿼리가 게이트 이전에 응답까지 받았다는 증거다
-    // (옛 issue-list-pending 앵커는 평면 목록을 막던 스켈레톤 게이트라 같은 증명을 못 한다).
-    expect(await screen.findByTestId('issue-row-90')).toBeInTheDocument()
+    // WP-1929 리뷰 반려 — 판정 전엔 스켈레톤(행이 아직 없다). 발사는 스켈레톤과 무관하게 게이트 위에서 이미 끝났음을
+    // 아래 flat 요청 카운트로 증명한다.
+    expect(await screen.findByTestId('issue-list-pending')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-row-90')).not.toBeInTheDocument()
     await waitFor(() => expect(api.params().filter((p) => !p.has('cycle'))).toHaveLength(1))
     gate.release()
     await waitFor(() => expect(within(section('backlog')).getAllByTestId(/^issue-row-/).length).toBeGreaterThan(0))
@@ -240,20 +241,19 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     await waitFor(() => expect(api.progressGets()).toBeGreaterThan(progressBefore))
   })
 
-  test('로딩 중에도 평면 목록 행을 보인다 — 사이클 판정 스켈레톤은 목록을 막지 않는다 (WP-1929)', async () => {
+  test('로딩 중엔 평면 목록을 띄우지 않고 스켈레톤을 보인다', async () => {
     const gate = cyclesGate()
     const api = setup({ cyclesGate: gate.held })
     renderProjectScreen(`/projects/${KEY}`, { handlers: api.handlers })
-    // 사이클 응답이 게이트에 묶여 있는 동안에 이미 평면 행이 떠 있어야 한다 —
-    // 옛 스켈레톤 게이트(행 대신 issue-list-pending 을 그리던 코드)에서는 이 단언이 시간초과로 실패했다.
-    expect(await screen.findByTestId('issue-row-90')).toBeInTheDocument()
-    expect(screen.queryByTestId('issue-list-pending')).not.toBeInTheDocument()
-    // WP-1929 — 사이클 응답이 아직 게이트된 동안(평면 행이 이미 떴음)에 평면 프리페치 1건이 발사됨을 고정한다.
+    // 판정 대기 동안엔 스켈레톤 — 평면 행이 잠깐 뜨지 않는다(#878 복원, WP-1929 리뷰 반려).
+    expect(await screen.findByTestId('issue-list-pending')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-row-90')).not.toBeInTheDocument()
+    // WP-1929 — 스켈레톤이 목록 쿼리를 막지는 않는다: 판정 전에 평면 프리페치 1건이 이미 발사돼 있어야 한다.
     // 게이트를 연 뒤에만 세면 사이클 판정 후 발사하는 회귀도 flat===1 로 통과해 버린다.
     await waitFor(() => expect(api.params().filter((p) => !p.has('cycle'))).toHaveLength(1))
     gate.release()
     expect(await screen.findByTestId('list-cycle-section-backlog')).toBeInTheDocument()
-    // WP-1929 — 사이클 판정 전에 이미 발사한 평면 프리페치 1건은 허용, 그 뒤 중복 평면 요청은 금지.
+    // 판정 전에 발사한 평면 프리페치 1건은 허용, 그 뒤 중복 평면 요청은 금지.
     const flat = api.params().filter((p) => !p.has('cycle'))
     expect(flat).toHaveLength(1)
   })

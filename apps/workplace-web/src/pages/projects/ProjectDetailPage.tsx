@@ -29,7 +29,7 @@ import { canEditStatuses } from '../../lib/projectStatuses';
 import type { ProjectResponse } from '../../types/project';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
-import { IssueCycleGroupedList } from './components/IssueCycleGroupedList';
+import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/IssueCycleGroupedList';
 import { IssueDndProvider, useIssueDnd } from './components/IssueDndProvider';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
@@ -126,16 +126,21 @@ function ProjectIssuesSection({
   const filters = useMemo(() => parseFilters(params), [params]);
   const view = parseView(params);
   // 그룹 기준 — URL 에 없으면 진행 중·예정 사이클이 있을 때 사이클 그룹이 목록 기본값(#878).
-  // 판정 대기(pending) 동안엔 groupBy 가 null 이라 아래 본문이 평면 목록을 그린다(WP-1929) — 판정 스켈레톤 자리는 없다
-  // (명시 ?group=cycle 진입은 판정이 즉시 확정이라 거기서는 기존 사이클 스켈레톤이 그대로다).
-  const { groupBy } = useIssueGroupBy(projectKey, true);
+  // pending(사이클 목록 로딩 중)엔 스켈레톤 — 평면 목록이 잠깐 떴다 구간 목록으로 바뀌는 깜빡임과 헛요청을 막는다(#878).
+  // 명시 ?group=cycle 진입은 판정이 즉시 확정이라 거기선 기존 사이클 스켈레톤이 그대로다.
+  const { groupBy, pending: groupPending } = useIssueGroupBy(projectKey, true);
   // 평면 목록이 필요한 자리 — 보드는 컬럼별(size/statusId) 쿼리만, 사이클 구간은 구간 쿼리만 쓴다.
   // 이 판정 하나가 프리페치 on/off 와 건수 보고(listLoaded)가 공유한다 — 두 값이 어긋날 일이 없다.
   const showsFlatList = view !== 'board' && groupBy !== 'cycle';
   // WP-1929: 목록 쿼리를 게이트(ProjectStatusesGate)보다 위에서 발사한다 — 같은 queryKey·size(기본 30) 라 아래
-  // IssueListView 와 요청이 하나로 합쳐져 행이 그려질 때쯤이면 응답이 이미 캐시에 있다. 보드·사이클 구간은 평면 쿼리를
-  // 쓰지 않으므로 끈다 — 켜 두면 안 보이는 평면 요청이 필터·검색 변경과 ['issues','search',projectKey] 무효화
-  // (이슈 생성·수정·상태·사이클 변경)마다 같이 살아나기 때문이다(이 브랜치 이전엔 사이클 모드에 평면 옵저버가 아예 없었다).
+  // IssueListView 와 요청이 하나로 합쳐져, 판정이 끝나 그려지는 순간 응답이 이미 캐시에 있다. 캐시에 응답이 남아도
+  // 판정 대기 동안엔 위 스켈레톤을 그린다(요청만 먼저 나가고 화면엔 아무것도 그리지 않는다) —
+  // 사이클로 판정되면 그 응답은 쓰지 않지만, 요청을 판정 뒤로 미루면 목록이 다시 사이클 응답을 기다려 ① 기준이 깨진다.
+  // 보드·사이클 구간은 평면 쿼리를 쓰지 않으므로 끈다 — 켜 두면 안 보이는 평면 요청이 필터·검색 변경과
+  // ['issues','search',projectKey] 무효화(이슈 생성·수정·상태·사이클 변경)마다 같이 살아나기 때문이다.
+  // 이 쿼리가 상태 목록보다 먼저 올 수 있으므로(게이트 위 발사), 모르는 statusId 판정은 쿼리 안의
+  // refreshStatusesOnUnknown(캐시가 비면 건너뜀)과 그 뒤 useProjectStatuses 의 도착 시 재검사가 맡는다 —
+  // 「목록이 먼저 온 뒤 상태 목록이 올 때 모르는 상태를 다시 받는다」를 페이지 테스트로 고정해 뒀다.
   useIssueSearchKeepingPrevious(projectKey, withDefaultIssueScope(filters), undefined, showsFlatList);
   // 목록 선택 열(WP-270) — URL cols → 개인 저장값 → 기본, 완료일 기간 필터가 걸리면 완료일 열 자동 추가.
   // 필터 막대의 열 메뉴도 같은 훅을 부르며, URL·저장값을 공유 구독해 두 곳이 같은 열을 본다.
@@ -209,12 +214,11 @@ function ProjectIssuesSection({
   );
   useRegisterAiScreenContext(screenContext);
 
-  // 목록·보드 본문 — 보드 → 사이클 구간 → 평면 목록 순으로 판정한다.
-  // 판정 대기(pending) 동안엔 스켈레톤 대신 평면 목록이 그대로다(WP-1929): 목록 쿼리가 이미 위에서 발사됐고,
-  // 행이 뜨는 시점은 응답 시점에 달린다(캐시에 있으면 바로, 아니면 IssueListView 가 자기 로딩 상태를 그린다).
-  // 옛 스켈레톤이 막던 «평면 목록이 잠깐 뜨다가 구간 목록으로 바뀌는 깜빡임»은 의도적으로 감수한다
-  // (첫 행 ~800ms 지연과의 거래 — 설계가 승인한 상충). 전환으로 IssueListView 가 unmount 되면 그 안의 로컬 상태
-  // (예: 선택)도 초기화되는데, 이는 「그룹 기준이 바뀌면 초기화」하던 기존 동작과 같은 결과다(상태 보존 로직은 없다).
+  // 목록·보드 본문 — 보드 → 판정 대기 스켈레톤 → 사이클 구간 → 평면 목록 순으로 판정한다.
+  // 판정 대기(pending) 동안엔 스켈레톤을 그린다(#878) — 평면 목록이 잠깐 떴다 구간 목록으로 바뀌는 깜빡임을 막는다.
+  // 그 아래 평면 목록은 위에서 게이트보다 먼저 발사해 둔 쿼리(가능하면 이미 캐시)를 그린다(WP-1929).
+  // 전환으로 IssueListView 가 unmount 되면 그 안의 로컬 상태(예: 선택)도 초기화되는데, 이는
+  // 「그룹 기준이 바뀌면 초기화」하던 기존 동작과 같은 결과다(상태 보존 로직은 없다).
   let viewBody: ReactNode;
   if (view === 'board') {
     viewBody = (
@@ -229,6 +233,8 @@ function ProjectIssuesSection({
         canEdit={canEdit}
       />
     );
+  } else if (groupPending) {
+    viewBody = <IssueCycleListSkeleton />;
   } else if (groupBy === 'cycle') {
     viewBody = (
       <IssueCycleGroupedList

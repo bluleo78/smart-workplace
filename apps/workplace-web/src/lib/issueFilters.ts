@@ -254,8 +254,7 @@ export function toClientGroupBy(g: IssueGroupBy | null): IssueClientGroupBy | nu
 
 // 팀 목록의 유효 그룹 기준(#878) — URL 에 group 이 없으면 진행 중·예정 사이클이 있을 때 사이클 그룹이 기본.
 // openCycleCount 가 undefined(사이클 목록 로딩 중)면 판정을 보류해 undefined 를 돌려준다 —
-// 호출처는 그 동안 groupBy 를 null 로 받아 평면 목록을 그린다(WP-1929). 사이클이 도착하면
-// 그때부터 구간 목록으로 전환된다 — 판정 대기 동안 스켈레톤을 그리던 옛 동작은 없다.
+// 호출처는 그동안 스켈레톤을 보여 평면 목록이 잠깐 떴다 바뀌는 깜빡임을 막는다.
 export function resolveListGroupBy(
   raw: IssueGroupParam | null,
   openCycleCount: number | undefined,

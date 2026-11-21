@@ -67,3 +67,39 @@ test('상태 목록이 오기 전에 이슈 목록 요청이 나간다', async (
   // 목록 뷰가 자기 키로 다시 요청해 2건이 되고 여기서 실패한다.
   expect(requestedParams.filter((p) => !p.has('cycle'))).toHaveLength(1)
 })
+
+// WP-1929 리뷰 — 「목록 첫 페이지가 상태 목록보다 먼저 오면 refreshStatusesOnUnknown 이 캐시가 비어 있어 그냥
+// 돌아간다」는 지적에 대한 페이지 수준 회귀: 목록(모르는 statusId)이 먼저 도착한 뒤 상태 목록이 오면,
+// useProjectStatuses 가 캐시된 목록 페이지를 다시 훑어 모르는 상태로 한 번 더 받아야 한다(WP-870·WP-936).
+test('목록이 상태 목록보다 먼저 와도, 상태 목록이 오면 모르는 상태로 한 번 더 받는다', async () => {
+  // 상태 목록 응답 게이트 — 위 테스트와 같은 약속 패턴. 게이트가 닫힌 동안 목록 응답만 먼저 간다.
+  let releaseStatuses: () => void = () => {}
+  const statusesGate = new Promise<void>((r) => (releaseStatuses = r))
+  let statusesRequests = 0
+  let issuesArrivedAt: number | null = null
+  const handlers = [
+    http.get(`${API}/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY, name: '상태 재검사 프로젝트' }))),
+    http.get(`${API}/projects/${KEY}/statuses`, async () => {
+      statusesRequests += 1
+      if (statusesRequests === 1) await statusesGate
+      return HttpResponse.json(seedStatuses())
+    }),
+    http.get(`${API}/projects/${KEY}/issues`, () => {
+      issuesArrivedAt ??= Date.now()
+      // 상태 목록(1~4)에 없는 statusId — 목록이 먼저 왔을 때의 판정 대상.
+      return HttpResponse.json(
+        createIssueSearchResponse([createIssue({ id: 1, number: 1, title: SEED_TITLE, statusId: 99, statusName: '방금 만든 상태' })], null),
+      )
+    }),
+  ]
+  renderPage(`/projects/${KEY}`, { handlers, projectTabs: { PRF1: 'issues' } })
+
+  // 목록 응답이 상태 목록보다 먼저 도착했음을 확인한다 — 이 시점에 refreshStatusesOnUnknown 은 캐시가 비어 있어 판정하지 못한다.
+  await waitFor(() => expect(issuesArrivedAt).not.toBeNull(), { timeout: PAGE_LOAD_TIMEOUT })
+  expect(statusesRequests).toBe(1)
+  // 게이트 해제 — 상태 목록이 오면 캐시된 목록 페이지를 훑어 모르는 상태(99)를 발견, 한 번 더 받아야 한다.
+  releaseStatuses()
+  await waitFor(() => expect(statusesRequests).toBeGreaterThanOrEqual(2), { timeout: PAGE_LOAD_TIMEOUT })
+  // 목록은 그대로 화면에 있다(깨지지 않는다).
+  expect(await screen.findByText(SEED_TITLE, {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+})
