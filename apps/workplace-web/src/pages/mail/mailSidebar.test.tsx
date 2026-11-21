@@ -43,6 +43,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.unstubAllGlobals()
+  // 가짜 타이머를 쓴 테스트가 단언에서 실패해도 뒤 테스트로 새지 않게 늘 되돌린다.
+  vi.useRealTimers()
 })
 
 const COUNTS = unreadCounts({ inbox: 4, byCategory: { 업무: 2, 개인: 1, 알림: 1, 프로모션: 0, 뉴스레터: 0 } })
@@ -477,6 +479,55 @@ test('running 으로 기다리던 중 목록이 다시 받아지면 이전 메�
   // 목록 재조회(동기화·메일 변경 알림·주기 재조회가 하는 일) → 기다림이 끝나 다시 묻는다.
   await act(() => queryClient.invalidateQueries({ queryKey: ['mail-messages', 1] }))
   await waitFor(() => expect(olders.calls).toHaveLength(2))
+})
+
+test('메일이 있는 목록이 running 으로 기다리면 「이전 메일을 준비하는 중이에요」를 보이고, 빈 목록에는 두지 않는다 (WP-1878 리뷰 후속)', async () => {
+  const olders = record('post', OLDER, () => HttpResponse.json(olderResult({ running: true, hasMore: true })))
+  renderMail('/mail/1', { messages: rows(1000, 999), handlers: [olders.handler] })
+  expect(await screen.findByTestId('mail-list-older-waiting')).toHaveTextContent('이전 메일을 준비하는 중이에요')
+  // 기다림 안내는 「불러오는 중…」·「더 이전 메일 없음」과 함께 보이지 않는다.
+  expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('mail-list-no-older')).not.toBeInTheDocument()
+})
+
+test('running 기다림은 목록이 다시 받아지지 않아도 30초 뒤 조용히 다시 묻고, 연달아 running 이면 간격을 두 배로 늘린다 (WP-1878 리뷰 후속)', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  const olders = record('post', OLDER, () => HttpResponse.json(olderResult({ running: true, hasMore: true })))
+  renderMail('/mail/1', { handlers: [http.get(LIST, () => HttpResponse.json([])), olders.handler] })
+  expect(await screen.findByTestId('mail-list-empty')).toBeInTheDocument()
+  await waitFor(() => expect(olders.calls).toHaveLength(1))
+  // 30초 전에는 묻지 않는다.
+  await act(() => vi.advanceTimersByTimeAsync(29_000))
+  expect(olders.calls).toHaveLength(1)
+  await act(() => vi.advanceTimersByTimeAsync(1_500))
+  await waitFor(() => expect(olders.calls).toHaveLength(2))
+  // 조용한 재시도 동안에도 빈 목록에 「불러오는 중…」이 보이지 않는다.
+  expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument()
+  // 두 번째 running 뒤에는 60초 — 30초 만에는 다시 묻지 않는다.
+  await act(() => vi.advanceTimersByTimeAsync(31_000))
+  expect(olders.calls).toHaveLength(2)
+  await act(() => vi.advanceTimersByTimeAsync(30_000))
+  await waitFor(() => expect(olders.calls).toHaveLength(3))
+})
+
+test('조용한 재시도가 실패해도 「다시 시도」 줄로 바꾸지 않고 기다림을 이어 간다 (WP-1878 리뷰 후속)', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+  let n = 0
+  const olders = record('post', OLDER, () => {
+    n += 1
+    // 처음은 running, 타이머 재시도는 502, 그다음(목록 갱신 뒤 다시 묻기)은 다시 running.
+    if (n === 2) return HttpResponse.json({ message: '메일 서버에 연결하지 못했습니다' }, { status: 502 })
+    return HttpResponse.json(olderResult({ running: true, hasMore: true }))
+  })
+  renderMail('/mail/1', { messages: rows(1000, 999), handlers: [olders.handler] })
+  expect(await screen.findByTestId('mail-list-older-waiting')).toBeInTheDocument()
+  await act(() => vi.advanceTimersByTimeAsync(30_500))
+  // 실패하면 훅이 목록을 다시 받아(서버가 그 전에 받은 메일이 있을 수 있다) 기다림이 풀리고 곧바로 한 번 더 묻는다 — 그 답은 running.
+  await waitFor(() => expect(olders.calls).toHaveLength(3))
+  // 사용자가 누르지 않은 요청의 실패라 다시 시도 줄은 없고, 기다림 안내로 돌아온다.
+  expect(await screen.findByTestId('mail-list-older-waiting')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '이전 메일을 가져오지 못했습니다 — 다시 시도' })).not.toBeInTheDocument()
+  expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument()
 })
 
 test('사이드바·메일함 nav 에 이름이 있고 회신필요가 있으면 AI 필터 nav 도 있다 — 랜드마크 이름(WP-1774)', async () => {
