@@ -2,7 +2,7 @@
 // 왜: 데스크톱은 활동 탭(코멘트 목록 아래)에, 모바일은 화면 하단 고정 줄에 같은 작성창을 둔다.
 // #785: 이슈 채팅과 동일한 RichInput + 공용 멘션 파이프라인 — @ 자동완성 지원.
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { RichInput } from '@/components/mentions/RichInput';
@@ -39,27 +39,19 @@ export function IssueCommentComposer({
   const membersQuery = useProjectMembers(projectKey);
   const mentionCandidates: MentionCandidate[] = membersQuery.data ?? [];
 
-  // 새로고침 시 작성 중이던 코멘트 유실 방지 (#620) — RichInput 은 실시간 본문을 노출하지 않으므로
-  // "입력 발생 여부"로 근사한다. 제출 성공 직후의 clearOnSubmit 이 유발하는 onChange 는
-  // suppressNextChangeRef 로 걸러 거짓 경고를 막는다.
+  // 새로고침 시 작성 중이던 코멘트 유실 방지 (#620) — onChange 의 현재 본문이 비었는지로 판단한다.
+  // 제출 성공 뒤 비워지면(clearOnSubmit) false, 전송 중 이어 쓴 글자가 남으면(WP-1923) true 로 맞는다.
   const [hasDraft, setHasDraft] = useState(false);
-  const suppressNextChangeRef = useRef(false);
   useUnsavedChangesWarning(hasDraft);
 
-  const handleDraftChange = () => {
-    if (suppressNextChangeRef.current) {
-      suppressNextChangeRef.current = false;
-      setHasDraft(false);
-      return;
-    }
-    setHasDraft(true);
+  const handleDraftChange = ({ isEmpty }: { isEmpty: boolean }) => {
+    setHasDraft(!isEmpty);
   };
 
   // 제출 → API 호출 → 성공 시 clearOnSubmit 이 입력창을 비움 + 토스트, 실패 시 입력 보존(reject) + 공통 에러 핸들러.
   const handleSubmit = async (body: string): Promise<void> => {
     try {
       const created = await create.mutateAsync({ body });
-      suppressNextChangeRef.current = true;
       onPosted?.(created.id);
       toast.success('코멘트를 작성했습니다');
     } catch (e) {

@@ -1,5 +1,5 @@
 // IME(한글) 키 입력 재현 도우미 — Playwright 로는 실제 IME 조합을 만들 수 없어, 브라우저가 보내는 이벤트 순서를 그대로 디스패치한다.
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 /**
  * macOS Chrome 한글 IME 에서 마지막 글자를 조합하던 중 Enter 를 누른 순간의 이벤트 순서(WP-331):
@@ -76,4 +76,22 @@ export async function commitImeThenEnterInSameTask(
   }
   const rewrite = await field.getAttribute('data-ime-rewrite');
   if (rewrite !== 'done') throw new Error(`IME 확정 재현 실패: ${rewrite}`);
+}
+
+/**
+ * 편집칸에 한글 조합을 시작해 둔다(CDP imeSetComposition) — 조합 중 상태를 유지한 채 다른 일을 하다가
+ * commit() 으로 확정(compositionend)한다. 실제 입력기는 아니다. 끝나면 반드시 detach() 한다.
+ */
+export async function startImeComposition(
+  page: Page,
+  composing: string,
+): Promise<{ commit: (text: string) => Promise<void>; detach: () => Promise<void> }> {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.imeSetComposition', { text: composing, selectionStart: composing.length, selectionEnd: composing.length });
+  return {
+    commit: async (text) => {
+      await cdp.send('Input.insertText', { text });
+    },
+    detach: () => cdp.detach(),
+  };
 }
