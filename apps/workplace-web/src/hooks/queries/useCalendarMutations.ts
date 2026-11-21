@@ -1,19 +1,54 @@
 // 캘린더 일정 생성/수정/삭제 mutation. 성공 시 calendarKeys.all 무효화(목록 갱신).
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
 import { calendarApi, type ScopeParams } from '../../api/calendar'
-import { handleApiError } from '../../lib/api-error'
-import type { CalendarEventRequest, EditScope, RsvpStatus } from '../../types/calendar'
+import { extractApiError, handleApiError } from '../../lib/api-error'
+import { isEventConflict } from '../../lib/eventConflict'
+import type { CalendarEvent, CalendarEventRequest, EditScope, RsvpStatus } from '../../types/calendar'
 import { calendarKeys } from './calendarKeys'
 
 // scope/occurrenceDate 를 쿼리 파라미터로 정리 — 값이 있을 때만 포함(반복 일정에서만 전달).
 // occurrenceDate 는 서버가 준 불투명 문자열을 그대로 echo.
-function scopeParams(scope?: EditScope, occurrenceDate?: string | null): ScopeParams | undefined {
+// expectedUpdatedAt 은 수정 충돌 감지용(WP-1920) — 있을 때만 싣는다.
+function scopeParams(
+  scope?: EditScope,
+  occurrenceDate?: string | null,
+  expectedUpdatedAt?: string,
+): ScopeParams | undefined {
   const params: ScopeParams = {}
   if (scope) params.scope = scope
   if (occurrenceDate) params.occurrenceDate = occurrenceDate
+  if (expectedUpdatedAt) params.expectedUpdatedAt = expectedUpdatedAt
   return Object.keys(params).length ? params : undefined
+}
+
+/**
+ * 수정 응답의 새 updatedAt 을 캐시된 일정(범위 목록·상세)에 반영한다.
+ * - 응답과 id 가 같은 항목은 항상 반영한다(고친 그 행).
+ * - 가상 회차는 마스터의 updatedAt 을 달고 다니므로(masterEventId) 마스터를 고친 경우(scope 없음·ALL)에만 같이 반영한다.
+ *   THIS·THIS_AND_FOLLOWING 의 응답은 예외 행·새 시리즈일 수 있어 마스터의 버전을 알 수 없으므로 건드리지 않는다(재조회에 맡김).
+ */
+function applyFreshVersion(qc: QueryClient, updated: CalendarEvent | undefined, scope?: EditScope) {
+  if (!updated?.id || !updated.updatedAt) return
+  const wholeMaster = !scope || scope === 'ALL'
+  const patch = (e: CalendarEvent): CalendarEvent =>
+    e.id === updated.id || (wholeMaster && e.masterEventId === updated.id)
+      ? { ...e, updatedAt: updated.updatedAt }
+      : e
+  // 바뀐 항목이 없으면 원래 data 를 그대로 돌려준다 — 새 참조를 만들면 구독 중인 화면이 쓸데없이 다시 그려진다.
+  const patchData = (data: unknown) => {
+    if (Array.isArray(data)) {
+      const next = data.map((e) => (e && typeof e === 'object' && 'id' in e ? patch(e as CalendarEvent) : e))
+      return next.some((e, i) => e !== data[i]) ? next : data
+    }
+    if (data && typeof data === 'object' && 'id' in data && 'updatedAt' in data) return patch(data as CalendarEvent)
+    return data
+  }
+  // calendarKeys.all 한 번으로 묶지 않는다 — 그 아래에는 캘린더 목록·태그처럼 id 가 겹칠 수 있는 다른 데이터도 있어
+  // 엉뚱한 항목의 updatedAt 을 덮을 수 있다. 일정 목록·상세 두 접두만 고친다.
+  qc.setQueriesData({ queryKey: calendarKeys.events }, patchData)
+  qc.setQueriesData({ queryKey: calendarKeys.eventDetails }, patchData)
 }
 
 export function useCreateEvent() {
@@ -38,17 +73,32 @@ export function useUpdateEvent() {
       body,
       scope,
       occurrenceDate,
+      expectedUpdatedAt,
     }: {
       id: number
       body: CalendarEventRequest
       scope?: EditScope
       occurrenceDate?: string | null
-    }) => calendarApi.update(id, body, scopeParams(scope, occurrenceDate)).then((r) => r.data),
-    onSuccess: () => {
+      // 연 때 본 일정의 updatedAt — 그 사이 다른 사람이 고쳤으면 서버가 409 로 막는다.
+      expectedUpdatedAt?: string
+    }) =>
+      calendarApi.update(id, body, scopeParams(scope, occurrenceDate, expectedUpdatedAt)).then((r) => r.data),
+    onSuccess: (updated, vars) => {
+      // 재조회가 끝나기 전에 같은 일정을 또 저장하면 낡은 updatedAt 을 보내 자기 변경과 충돌(409)한다 —
+      // 응답의 새 updatedAt 을 캐시에 먼저 써 둔다(WP-1920). 무효화는 그대로 두어 나머지 필드는 재조회로 맞춘다.
+      applyFreshVersion(qc, updated, vars.scope)
       qc.invalidateQueries({ queryKey: calendarKeys.all })
       toast.success('일정을 수정했습니다')
     },
-    onError: (e) => handleApiError(e, '일정 수정에 실패했습니다'),
+    onError: (e) => {
+      // 다른 사람이 먼저 고친 충돌 — 서버 안내를 보이고 목록을 다시 받아 최신 내용을 보게 한다(WP-1920).
+      if (isEventConflict(e)) {
+        toast.error(extractApiError(e, '다른 사람이 먼저 이 일정을 수정했습니다'))
+        qc.invalidateQueries({ queryKey: calendarKeys.all })
+        return
+      }
+      handleApiError(e, '일정 수정에 실패했습니다')
+    },
   })
 }
 

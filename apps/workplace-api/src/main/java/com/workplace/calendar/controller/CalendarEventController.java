@@ -134,6 +134,9 @@ public class CalendarEventController {
    *
    * <p>occurrenceDate 와 함께 ALL 을 주면 대상 회차를 옮긴 만큼 시리즈 전체를 같은 양만큼 밀어 재기준하지 않는다(WP-1915) — 마스터 기준일을 옮긴
    * 날짜로 다시 잡지 않는다.
+   *
+   * <p>expectedUpdatedAt(WP-1920) — 화면이 일정을 읽을 때 받은 updatedAt. 주면 그 뒤 다른 사람이 고친 일정은
+   * 409(EVENT_CONFLICT)로 막는다. 없으면(AI·MCP) 검사 없이 덮어쓴다.
    */
   @PatchMapping("/{id}")
   @RequirePermission("calendar:write")
@@ -145,8 +148,11 @@ public class CalendarEventController {
       @RequestParam(required = false)
           @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
           @SupportedDateTime
-          OffsetDateTime occurrenceDate) {
-    return ResponseEntity.ok(withUrl(service.update(callerId, id, req, scope, occurrenceDate)));
+          OffsetDateTime occurrenceDate,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          OffsetDateTime expectedUpdatedAt) {
+    return ResponseEntity.ok(
+        withUrl(service.update(callerId, id, req, scope, occurrenceDate, expectedUpdatedAt)));
   }
 
   /** RSVP 응답. 참석자 본인만 가능(비참석자 → 404 은닉). calendar:read 권한으로 충분(쓰기 권한 없는 참석자도 응답 가능). */

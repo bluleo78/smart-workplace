@@ -77,6 +77,7 @@ import {
 import { headerMonthLabel } from '@/lib/calendarAgenda'
 import { canMoveEvent, type MovedRange, moveRequestBody } from '@/lib/calendarMove'
 import { RECURRING_TAGS_NOTE } from '@/lib/calendarTag'
+import { isEventConflict } from '@/lib/eventConflict'
 import { firstOccurrenceDate } from '@/lib/eventNote'
 import { parseId } from '@/lib/historyParam'
 import type { MeetingNoteDraft } from '@/lib/meetingNote'
@@ -421,6 +422,16 @@ export function CalendarPage() {
     else eventParam.close()
   }
 
+  // 저장이 「다른 사람이 먼저 고쳐서」 막힌 충돌(WP-1920)이면 옛 내용 폼을 닫고 true 를 돌려준다 — 안내 토스트·목록 갱신은 훅이 한다.
+  // 충돌이 아니면 아무것도 하지 않고 false(호출자가 폼 복귀 등 자기 처리를 한다).
+  const closeOnConflict = (e: unknown): boolean => {
+    if (!isEventConflict(e)) {
+      return false
+    }
+    closeDialog()
+    return true
+  }
+
   // 새 일정 딥링크(?new=true) 처리 — 진입 시 1회 다이얼로그 오픈 후 쿼리파라미터 정리(replace).
   useEffect(() => {
     if (!deepLinkNew) return
@@ -555,7 +566,16 @@ export function CalendarPage() {
         setScopeMode('edit')
         return
       }
-      update.mutate({ id: editing.id, body }, { onSuccess: () => closeDialog() })
+      update.mutate(
+        { id: editing.id, body, expectedUpdatedAt: editing.updatedAt },
+        // 다른 사람이 먼저 고친 충돌이면 옛 내용 폼을 닫는다 — 안내 토스트·목록 갱신은 훅이 한다(WP-1920).
+        {
+          onSuccess: () => closeDialog(),
+          onError: (e) => {
+            closeOnConflict(e)
+          },
+        },
+      )
     } else {
       create.mutate(body, {
         onSuccess: (created) => {
@@ -585,6 +605,15 @@ export function CalendarPage() {
     onSuccess: () => closeDialog(),
     onError: () => setSuspendedId(null),
   }
+  // 범위 선택 뒤 수정 — 충돌(다른 사람이 먼저 고침)이면 옛 내용으로 돌아가지 않고 닫는다(WP-1920).
+  const updateScopeCallbacks = {
+    ...secondStepCallbacks,
+    onError: (e: unknown) => {
+      if (!closeOnConflict(e)) {
+        setSuspendedId(null)
+      }
+    },
+  }
 
   // 삭제 확인 — AlertDialogAction 의 자동 닫기(onOpenChange(false))를 막아 '취소'와 구분한다.
   const confirmDelete = (e: React.MouseEvent) => {
@@ -605,7 +634,10 @@ export function CalendarPage() {
     const id = editing.masterEventId ?? editing.id
     const occurrenceDate = editing.occurrenceDate
     if (scopeMode === 'edit' && pendingBody) {
-      update.mutate({ id, body: pendingBody, scope, occurrenceDate }, secondStepCallbacks)
+      update.mutate(
+        { id, body: pendingBody, scope, occurrenceDate, expectedUpdatedAt: editing.updatedAt },
+        updateScopeCallbacks,
+      )
     } else if (scopeMode === 'delete') {
       remove.mutate({ id, scope, occurrenceDate }, secondStepCallbacks)
     }
@@ -684,12 +716,18 @@ export function CalendarPage() {
       setPendingMove({ event: e, body })
       return
     }
-    update.mutate({ id: e.id, body })
+    update.mutate({ id: e.id, body, expectedUpdatedAt: e.updatedAt })
   }
   const pickMoveScope = (scope: EditScope) => {
     if (!pendingMove) return
     const { event: e, body } = pendingMove
-    update.mutate({ id: e.masterEventId ?? e.id, body, scope, occurrenceDate: e.occurrenceDate })
+    update.mutate({
+      id: e.masterEventId ?? e.id,
+      body,
+      scope,
+      occurrenceDate: e.occurrenceDate,
+      expectedUpdatedAt: e.updatedAt,
+    })
     setPendingMove(null)
   }
 

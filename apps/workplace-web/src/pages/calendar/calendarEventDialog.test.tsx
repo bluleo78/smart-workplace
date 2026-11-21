@@ -9,6 +9,7 @@
 // 저장 요청·대화상자 전환까지 보려고 CalendarPage 를 renderScreen 으로 띄운다(calendarPageKit). 지금 = 2026-06-10 12:00 KST.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
@@ -136,6 +137,75 @@ describe('일정 만들기·수정·삭제', () => {
     })
     await waitFor(() => expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument())
     expect(requests.posts).toHaveLength(1)
+  })
+})
+
+const CONFLICT_MESSAGE = '다른 사람이 먼저 이 일정을 수정했습니다. 최신 내용을 확인한 뒤 다시 저장해 주세요.'
+
+describe('저장 충돌 감지 (WP-1920)', () => {
+  test('일정을 고쳐 저장하면 연 때의 updatedAt 을 expectedUpdatedAt 으로 보낸다', async () => {
+    const event = calendarEvent({ id: 1, title: '팀 회의', updatedAt: '2026-06-10T03:21:45Z' })
+    const { user, requests } = await renderCalendar({ events: [event] })
+    await openEvent(user, 'calendar-event-1')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    expect(requests.patches[0].url.searchParams.get('expectedUpdatedAt')).toBe('2026-06-10T03:21:45Z')
+  })
+
+  test('반복 회차를 범위(이 일정만)로 저장해도 연 때의 updatedAt 을 보낸다', async () => {
+    // 가상 회차는 마스터 행을 펼친 것이라 마스터의 updatedAt 을 싣는다 — 그 값이 그대로 가야 한다.
+    const masterUpdatedAt = '2026-06-10T03:21:45Z'
+    const { user, requests } = await renderCalendar({
+      events: recurringCalendarEvent(MASTER_ID, OCC_DATES, { updatedAt: masterUpdatedAt }),
+    })
+    await openEvent(user, occTestId(OCC_DATES[0]))
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await screen.findByTestId('calendar-recurrence-scope-dialog')
+    await user.click(screen.getByTestId('calendar-recurrence-scope-this'))
+
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    expect(requests.patches[0].url.searchParams.get('expectedUpdatedAt')).toBe(masterUpdatedAt)
+  })
+
+  test('저장이 409 EVENT_CONFLICT 면 안내 토스트를 띄우고 대화상자를 닫고 목록을 다시 불러온다', async () => {
+    const { user, requests } = await renderCalendar(
+      { events: [calendarEvent({ id: 1, title: '팀 회의' })] },
+      {
+        handlers: [
+          http.patch('/api/v1/calendar/events/:id', () =>
+            HttpResponse.json({ message: CONFLICT_MESSAGE, errors: { code: 'EVENT_CONFLICT' } }, { status: 409 }),
+          ),
+        ],
+      },
+    )
+    await openEvent(user, 'calendar-event-1')
+    const listsBefore = requests.eventLists
+    await user.click(screen.getByTestId('calendar-form-submit'))
+
+    expect(await screen.findByText(CONFLICT_MESSAGE)).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(requests.eventLists).toBe(listsBefore + 1))
+  })
+
+  test('다른 409(EVENT_CONFLICT 아님)는 오류 토스트만 띄우고 대화상자를 연 채 둔다', async () => {
+    const { user, requests } = await renderCalendar(
+      { events: [calendarEvent({ id: 1, title: '팀 회의' })] },
+      {
+        handlers: [
+          http.patch('/api/v1/calendar/events/:id', () =>
+            HttpResponse.json({ message: '이미 처리된 요청입니다' }, { status: 409 }),
+          ),
+        ],
+      },
+    )
+    await openEvent(user, 'calendar-event-1')
+    const listsBefore = requests.eventLists
+    await user.click(screen.getByTestId('calendar-form-submit'))
+
+    expect(await screen.findByText('이미 처리된 요청입니다')).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-event-dialog')).toBeInTheDocument()
+    expect(requests.eventLists).toBe(listsBefore)
   })
 })
 
