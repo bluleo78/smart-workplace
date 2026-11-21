@@ -25,7 +25,8 @@ export function IssueDriveLinkItem({
   number: number
   link: DriveLink
   canManage: boolean
-  onRemove: (driveFileId: number) => void
+  /** 제거 × — 대상 링크는 부모가 이미 들고 있어 인자를 넘기지 않는다(WP-1919). */
+  onRemove: () => void
   /** 이름 클릭 — 통합 뷰어 열기. 휴지통이어도 열 수 있다(뷰어가 '사용할 수 없음' 안내). */
   onPreview: () => void
 }) {
@@ -80,7 +81,7 @@ export function IssueDriveLinkItem({
             aria-label={`${link.name} 드라이브 링크 제거`}
             className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:-my-2.5 pointer-coarse:size-11 pointer-coarse:opacity-100"
             data-testid={`issue-drive-link-remove-${link.driveFileId}`}
-            onClick={() => onRemove(link.driveFileId)}
+            onClick={onRemove}
           >
             <X className="h-4 w-4" />
           </Button>

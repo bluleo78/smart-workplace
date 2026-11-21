@@ -54,11 +54,10 @@ describe('IssueDriveLinkItem — × 단추', () => {
     expect(screen.getByRole('button', { name: '예산.xlsx 드라이브 링크 제거' })).toBeInTheDocument()
   })
 
-  it('× 를 누르면 그 링크의 driveFileId 로 onRemove', async () => {
+  it('× 를 누르면 onRemove 가 한 번 불린다', async () => {
     const onRemove = renderRows(true)
     await userEvent.click(screen.getByRole('button', { name: '예산.xlsx 드라이브 링크 제거' }))
     expect(onRemove).toHaveBeenCalledTimes(1)
-    expect(onRemove).toHaveBeenCalledWith(12)
   })
 
   it('canManage=false 면 × 단추가 없다', () => {
