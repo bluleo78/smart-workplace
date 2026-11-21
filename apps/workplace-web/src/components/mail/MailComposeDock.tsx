@@ -1224,9 +1224,10 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
           <div className={cn('flex items-center justify-between gap-2 bg-muted px-3 py-2', layout === 'dock' && 'rounded-t-lg')}>
             {/* 제목 + 임시저장 상태(WP-577) — 제목이 길면 제목만 말줄임하고 상태는 그대로 보인다. */}
             <div className="flex min-w-0 items-baseline gap-2">
-              <span id="mail-compose-dock-title" className="truncate text-sm font-medium">
+              {/* 작성 구역의 h2 헤딩(WP-1904) — 읽기 창으로 옮기면 상세의 숨은 h2 가 감춰지므로 이 제목이 그 칸의 헤딩이 된다. */}
+              <h2 id="mail-compose-dock-title" className="truncate text-sm font-medium">
                 {subject || '새 메일'}
-              </span>
+              </h2>
               {saveStatus}
             </div>
             <div className="flex shrink-0 items-center gap-1">
