@@ -166,6 +166,8 @@ class AgentRuntimeStatusResolverTest {
   @Test
   void 새_Pod가_뜬_뒤_남은_옛_차단은_합치지_않는다() {
     assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(1), at(40))).isNull();
+    // 정확히 30초 차이(isBefore 가 거짓)는 경계 안 — 지금 Pod 의 것으로 합친다.
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), at(40))).isEqualTo("설정 오류");
     assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(11), at(40))).isEqualTo("설정 오류");
     assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(40), at(40))).isEqualTo("설정 오류");
     assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(50), at(40))).isEqualTo("설정 오류");
