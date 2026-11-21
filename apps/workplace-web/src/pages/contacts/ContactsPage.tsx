@@ -1,5 +1,5 @@
 import { Plus, SearchX, Star, Users, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -20,6 +20,7 @@ import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useUserGroupDetail } from '@/hooks/queries/useUserGroupDetail'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useLatest } from '@/hooks/useLatest'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
@@ -42,14 +43,16 @@ import type { ContactSummary, ContactTypeFilter } from '../../types/contact'
 
 // 한 줄 목록 항목 — 멤버/외부 배지 + 이름·보조정보 + 호버 시 즐겨찾기 별 버튼.
 // 중첩 button 방지를 위해 행 컨테이너는 div, 선택 클릭은 inner button, 별은 형제 button.
-function ContactRow({
+// WP-1948: memo + 안정된 onSelect(행이 자기 type·id 로 호출)라 props(c·active)가 안 바뀐 행은 다시 그리지 않는다.
+// 행 컨테이너의 content-visibility:auto 는 화면 밖 행의 스타일·레이아웃·페인트를 브라우저가 건너뛰게 한다(DOM 은 그대로).
+const ContactRow = memo(function ContactRow({
   c,
   active,
   onSelect,
 }: {
   c: ContactSummary
   active: boolean
-  onSelect: () => void
+  onSelect: (sel: ContactSelection) => void
 }) {
   const toggle = useToggleFavorite()
   return (
@@ -57,13 +60,15 @@ function ContactRow({
       data-testid={`contact-row-${c.type}-${c.id}`}
       className={cn(
         'group flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors',
+        // 화면 밖 행의 스타일·레이아웃·페인트 생략(React 렌더·DOM 은 그대로) + 건너뛴 행의 추정 높이(두 줄 행 61px — py-3 + 두 줄 글자). auto 라 한 번 그린 행은 실제 높이를 기억해 스크롤바 튐을 줄인다.
+        '[content-visibility:auto] [contain-intrinsic-size:auto_61px]',
         // 목록 안 보조 줄(이메일 등)까지 굵어지지 않게 막대+배경만 쓴다(이름은 이미 font-medium).
         active ? SELECTED_SURFACE_CLASS : 'hover:bg-accent/50',
       )}
     >
       <button
         type="button"
-        onClick={onSelect}
+        onClick={() => onSelect({ type: c.type, id: c.id })}
         aria-current={active ? 'true' : undefined}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
@@ -101,7 +106,7 @@ function ContactRow({
       </button>
     </div>
   )
-}
+})
 
 // WP-54: 연락처 화면 컨텍스트 등록 — 목록 필터 + 선택 연락처. 컨텍스트는 직렬화 키로 중복 제거되므로 useMemo 없이 매 렌더 만든다.
 // 미로드 데이터는 보내지 않는다: 건수·hasMore 는 통합 목록 조회가 끝난 뒤(그룹 뷰에서는 통합 목록이 화면에 없어 생략)에만,
@@ -257,6 +262,36 @@ function ContactResultStatus({
   return <ResultStatus conditionKey={key} ready={ready} text={text} testId="contact-result-status" />
 }
 
+/**
+ * 검색 입력칸 — draft(타이핑 중 값) 상태를 페이지 밖 이 컴포넌트에 둔다(WP-1948).
+ * draft 가 페이지에 있으면 키 입력마다 페이지 전체(행 수백 개)가 다시 그려진다. 여기 두면 키 입력은 이 입력칸만 다시 그린다.
+ * 타이핑은 즉시 반영되되 URL(q)은 300ms debounce 뒤에만 쓴다 — q 가 URL 에 직접 묶이면 한글 IME 조합이 끊긴다(WP-974).
+ * 내가 쓴 q 가 되돌아올 때 draft 를 덮지 않는 것(WP-999)·바깥 변경(지우기·뒤로 가기)에 맞추는 것은 useSearchDraft 가 맡는다.
+ */
+function ContactSearchInput({
+  search,
+  groupId,
+  scopeName,
+  onWrite,
+}: {
+  search: string
+  groupId: number | null
+  scopeName: string
+  onWrite: (q: string) => void
+}) {
+  const { draft, setDraft } = useSearchDraft(search, onWrite)
+  return (
+    <FilterInput
+      placeholder="이름·이메일"
+      value={draft}
+      onChange={setDraft}
+      // 그룹 보기 검색은 하위 조직까지 찾는다(WP-1000) — 범위 안내는 placeholder 가 아니라 접근성 이름으로 둔다.
+      aria-label={groupId != null ? `${scopeName}${andParticle(scopeName)} 하위 조직에서 검색` : '연락처 검색'}
+      inputTestId="contact-search"
+    />
+  )
+}
+
 /** 통합 연락처 목록 + 마스터-디테일. 보기(type·group)는 ContactSidebar 와 URL searchParams 로 공유하고, 검색(q)은 목록 위 키워드 필터 줄이 쓴다(WP-976, WP-1355). */
 export function ContactsPage() {
   const [params, setParams] = useSearchParams()
@@ -273,6 +308,10 @@ export function ContactsPage() {
   const contactParam = useHistoryParam('contact')
   const selected = decodeContactParam(contactParam.value)
   const selectContact = (sel: ContactSelection) => contactParam.open(encodeContactParam(sel))
+  // 행에 넘기는 안정된 선택 콜백(WP-1948) — 렌더마다 새 함수를 주면 ContactRow memo 가 무력해진다.
+  // 최신 selectContact 는 useLatest 의 ref 로 들고, 콜백 자체는 한 번만 만든다.
+  const selectContactRef = useLatest(selectContact)
+  const selectRow = useCallback((sel: ContactSelection) => selectContactRef.current(sel), [])
   // 모바일: 상세가 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selected != null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -295,12 +334,6 @@ export function ContactsPage() {
       },
       { replace: true },
     )
-  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다(history replace).
-  // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
-  // 검색 칸이 사이드바에서 헤더를 거쳐 목록 위 필터 줄로 옮겨 오며(WP-976·WP-1355) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
-  // 내가 쓴 q 가 되돌아올 때 draft 를 덮지 않는 것(WP-999)은 공용 훅이 맡는다(WP-1003).
-  const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(search, writeQuery)
-
   // 그룹 보기 떠나기 — 범위 칩 ×·「전체에서 찾기」(그룹만 풀고 검색어는 남겨 전체에서 같은 말로 찾는다)와
   // 보던 그룹(또는 조상)이 삭제됐을 때 통합 목록 복귀가 같은 동작이다. 열린 상세도 함께 닫는다.
   const leaveGroup = () =>
@@ -314,12 +347,9 @@ export function ContactsPage() {
       { replace: true },
     )
 
-  // 검색어 지우기 — 입력칸(draft)을 바로 비우고 URL 의 q 는 writeQuery 로 지운다(통합 목록이라 열린 상세도 같은 항목에서 닫힌다, WP-1869).
-  // draft 만 비우면 디바운스(300ms) 동안 옛 검색어가 입력칸에 남고, URL 만 지우면 입력칸 동기화를 기다리게 된다.
-  const clearSearch = (): void => {
-    setQDraft('')
-    writeQuery('')
-  }
+  // 검색어 지우기 — URL 의 q 만 writeQuery 로 지운다(통합 목록이라 열린 상세도 같은 항목에서 닫힌다, WP-1869).
+  // 입력칸 draft 는 ContactSearchInput 안의 useSearchDraft 가 바깥 변경(내가 쓴 값이 아님)으로 보고 바로 비운다(WP-1948).
+  const clearSearch = (): void => writeQuery('')
 
   // 필터 초기화 — 조직·직책 조건만 풀고(타입·검색어는 유지) 열린 상세도 닫는다(WP-1869).
   const resetFilters = (): void =>
@@ -444,23 +474,16 @@ export function ContactsPage() {
             <h2 className="sr-only">연락처 목록</h2>
             {/* 목록 위 필터 줄(WP-1355) — 키워드(→ q) 다음에 그룹 범위 칩. 데스크톱·모바일 같은 줄이 폭에 맞춰 한 줄/두 줄로 바뀐다(돋보기 없음).
                 자리표시는 통합 목록이 찾는 기준(이름·이메일)만 쓴다 — 소속(organization)은 통합 검색 대상이 아니다. */}
-            {showListChrome && (
-              <FilterLine
-                data-testid="contact-filter-line"
-                className="border-b px-4 py-2"
-                keyword={
-                  <FilterInput
-                    placeholder="이름·이메일"
-                    value={qDraft}
-                    onChange={setQDraft}
-                    // 그룹 보기 검색은 하위 조직까지 찾는다(WP-1000) — 범위 안내는 placeholder 가 아니라 접근성 이름으로 둔다.
-                    aria-label={groupId != null ? `${scopeName}${andParticle(scopeName)} 하위 조직에서 검색` : '연락처 검색'}
-                    inputTestId="contact-search"
-                  />
-                }
-                chips={groupId != null ? <SearchScopeChip name={scopeName} onClear={leaveGroup} className="max-w-48" /> : undefined}
-              />
-            )}
+            {/* 모바일에서 상세가 열려도 필터 줄은 내리지 않는다(WP-1948) — 목록 칸 전체가 hidden 이라 보이지 않고,
+                내리면 검색 draft·300ms debounce 가 사라져 상세를 열기 직전 친 글자를 잃는다. */}
+            <FilterLine
+              data-testid="contact-filter-line"
+              className="border-b px-4 py-2"
+              keyword={
+                <ContactSearchInput search={search} groupId={groupId} scopeName={scopeName} onWrite={writeQuery} />
+              }
+              chips={groupId != null ? <SearchScopeChip name={scopeName} onClear={leaveGroup} className="max-w-48" /> : undefined}
+            />
             {groupId != null ? (
               <GroupContactView
                 groupId={groupId}
@@ -501,7 +524,7 @@ export function ContactsPage() {
                     key={`${c.type}-${c.id}`}
                     c={c}
                     active={selected?.type === c.type && selected?.id === c.id}
-                    onSelect={() => selectContact({ type: c.type, id: c.id })}
+                    onSelect={selectRow}
                   />
                 ))}
                 {/* WP-182: 끝에 닿으면 자동 로드 — 실패했을 때만 다시 시도 버튼 */}
