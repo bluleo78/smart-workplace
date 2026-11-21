@@ -667,6 +667,30 @@ describe('AI 위임 작업 AI별 보기', () => {
     expect(rowOrder(document.body, /^ai-agent-\d+$/)).toHaveLength(4)
   })
 
+  // WP-1955: 작업 중 행이 있는 AI 는 막힌 행이 있어도 「작업 중」, 막힌 건수는 상태 칸에 따로 보인다.
+  test('작업 중 행이 있으면 차단 행이 있어도 작업 중, 차단 수는 상태 아래 따로 (WP-1955)', async () => {
+    renderAgents('/me/ai-tasks?view=agents&scope=all', [
+      createAiAgentStatus(51, 'AI 개발자9', { works: [
+        createAiAgentWork({ number: 1824, title: '부하 개요', state: 'BLOCKED', note: '선행 WP-1823 머지 대기', stateChangedAt: minutesAgo(600) }),
+        createAiAgentWork({ number: 1929, title: '지금 하는 일', stateChangedAt: minutesAgo(20) }),
+      ] }),
+      createAiAgentStatus(52, 'AI 개발자10', { works: [createAiAgentWork({ number: 1927, state: 'BLOCKED', stateChangedAt: minutesAgo(30) })] }),
+    ])
+    const busy = await screen.findByTestId('ai-agent-51')
+    expect(within(busy).getByTestId('ai-agent-51-state')).toHaveTextContent('작업 중')
+    expect(within(busy).getByTestId('ai-agent-51-lead')).toHaveTextContent('WP-1929지금 하는 일')
+    expect(within(busy).getByTestId('ai-agent-51-blocked')).toHaveTextContent('차단 1')
+    // 막힌 행도 맡은 일 칩으로 남는다.
+    expect(within(busy).getByTestId('ai-agent-51-work-WP-1824')).toBeInTheDocument()
+    // 대표 상태가 차단됨이면 따로 세지 않는다(배지가 이미 말한다).
+    const stuck = screen.getByTestId('ai-agent-52')
+    expect(within(stuck).getByTestId('ai-agent-52-state')).toHaveTextContent('차단됨')
+    expect(within(stuck).queryByTestId('ai-agent-52-blocked')).not.toBeInTheDocument()
+    // 상태 칩 건수는 대표 상태 기준 — 차단됨은 52 한 명뿐.
+    expect(screen.getByTestId('ai-roster-count-blocked')).toHaveTextContent(/^1$/)
+    expect(screen.getByTestId('ai-roster-count-working')).toHaveTextContent(/^1$/)
+  })
+
   test('나와 관련에 AI 가 없으면 전체로 안내, 실패는 오류 안내', async () => {
     renderAgents('/me/ai-tasks?view=agents', [])
     expect(await screen.findByTestId('ai-agents-empty')).toHaveTextContent('「전체」에서 모든 AI 를 볼 수 있습니다')
