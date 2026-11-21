@@ -104,7 +104,12 @@ public class HomeChatService {
   private final AiAgentProperties aiAgentProperties;
   private final ObjectMapper objectMapper;
   private final AssistantResolver assistantResolver;
-  private final AsyncTaskExecutor executor;
+
+  /**
+   * 펌프 실행기. 테스트가 {@link #useExecutorForTest} 로 실행 중에 바꾸고, 펌프 제출 스레드가 바뀐 값을 곧바로 보도록 volatile 로 둔다.
+   */
+  private volatile AsyncTaskExecutor executor;
+
   private final StreamingGenerationRegistry registry;
   private final SseRegistry sseRegistry;
   private final HomeChatProperties chatProperties;
@@ -171,6 +176,18 @@ public class HomeChatService {
 
   /** 홈 채팅 레지스트리 scope 접두 — 대화(sessionId) 단위로 동시 생성을 추적한다(WP-190). */
   static final String SCOPE = "home";
+
+  /** 한 턴 생성 상한(300초). 테스트가 펌프 대기 상한을 이 값에서 파생하도록 공개한다. */
+  public static Duration turnTimeout() {
+    return TIMEOUT;
+  }
+
+  /** 테스트 전용 — 펌프 실행기를 바꾸고 이전 것을 돌려준다(테스트가 끝에 되돌린다). */
+  public AsyncTaskExecutor useExecutorForTest(AsyncTaskExecutor e) {
+    AsyncTaskExecutor prev = this.executor;
+    this.executor = e;
+    return prev;
+  }
 
   /**
    * 현재 워크스페이스(요청 스레드의 active-tenant)의 홈 채팅 scope. 사용자 상한·생성 중 목록은 워크스페이스별이다 — scope 를 테넌트로 나누지 않으면

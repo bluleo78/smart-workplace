@@ -1,5 +1,6 @@
 package com.workplace.home.service;
 
+import static com.workplace.home.service.HomeChatPumpTestSupport.forUser;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.groups.Tuple.tuple;
@@ -23,7 +24,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -62,8 +62,12 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
   /** fanOut 을 (이벤트, payload) 로 모은다. */
   private final List<Map.Entry<String, Map<String, Object>>> events = new CopyOnWriteArrayList<>();
 
+  /** 펌프를 호출 스레드에서 돌리는 핸들(WP-1918) — 취소·재진입 시나리오 테스트만 직접 닫아 비동기로 되돌린다. */
+  private AutoCloseable inlinePump;
+
   @BeforeEach
   void captureEvents() {
+    inlinePump = HomeChatPumpTestSupport.inline(chatService);
     when(assistantResolver.resolve(anyLong()))
         .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
     doAnswer(
@@ -80,12 +84,13 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
   /** 슬롯이 모두 빠질 때까지 기다린 뒤 사용자를 회수한다 — 다음 테스트가 aiChatStreamExecutor 대기열 뒤에 서지 않게. */
   @AfterEach
   void cleanup() throws Exception {
+    inlinePump.close();
     for (long u : users) awaitTrue(() -> registry.active(u, HomeChatService.scope()).isEmpty());
     if (!users.isEmpty()) dsl.deleteFrom(USER).where(USER.ID.in(users)).execute();
   }
 
   private static void awaitTrue(BooleanSupplier cond) throws InterruptedException {
-    long deadline = System.currentTimeMillis() + 5000;
+    long deadline = System.currentTimeMillis() + HomeChatPumpTestSupport.PUMP_WAIT_LIMIT.toMillis();
     while (!cond.getAsBoolean()) {
       if (System.currentTimeMillis() > deadline) throw new AssertionError("timeout");
       Thread.sleep(20);
@@ -114,7 +119,6 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
   @Test
   void 모든_home_chat_이벤트에_sessionId_가_실린다() throws Exception {
     long uid = user();
-    CountDownLatch done = new CountDownLatch(1);
     doAnswer(
             inv -> {
               Consumer<String> onDelta = inv.getArgument(1);
@@ -128,15 +132,13 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
                   om.readTree("{\"phase\":\"result\",\"seq\":1,\"toolName\":\"list_events\"}"));
               onDelta.accept("일정 3건");
               onDone.accept("일정 3건", null);
-              done.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     HomeChatStartedResponse r = chatService.startChat(uid, null, "오늘 일정");
-    assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
-    awaitTrue(() -> !payloads("home.chat.done").isEmpty());
+    assertThat(payloads("home.chat.done")).isNotEmpty();
 
     assertThat(events)
         .extracting(Map.Entry::getKey)
@@ -161,10 +163,10 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     HomeChatStartedResponse r = chatService.startChat(uid, null, "보고서");
-    awaitTrue(() -> !payloads("home.chat.error").isEmpty());
+    assertThat(payloads("home.chat.error")).isNotEmpty();
 
     assertThat(payloads("home.chat.error").get(0)).containsEntry("message", "AI 구성 요청에 실패했어요.");
     List<HomeMessageResponse> messages = sessionService.getMessages(uid, r.sessionId());
@@ -179,6 +181,8 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
   /** 인터럽트로 줄 루프를 빠져나온 composeStream 은 콜백 없이 조용히 return 한다(R8) — 그 경로도 취소로 마감해야 한다. */
   @Test
   void 사용자_취소의_조용한_return_경로도_STOPPED_저장과_cancelled_user() throws Exception {
+    // 펌프가 스텁 안에서 붙잡혀 있어야 취소할 수 있다 — 비동기 실행기로 되돌린다.
+    inlinePump.close();
     long uid = user();
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
@@ -187,17 +191,17 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
               onDelta.accept("멈출 답 ");
               started.countDown();
               try {
-                Thread.sleep(5000);
+                Thread.sleep(HomeChatPumpTestSupport.CANCEL_HOLD_LIMIT.toMillis());
               } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); // 실제 클라이언트처럼 플래그만 세우고 정상 return
               }
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     HomeChatStartedResponse r = chatService.startChat(uid, null, "길게 써줘");
-    assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+    HomeChatPumpTestSupport.awaitPump(started);
     chatService.cancelChat(r.correlationId(), uid);
     awaitTrue(() -> !payloads("home.chat.cancelled").isEmpty());
 
@@ -217,23 +221,25 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
 
   @Test
   void 첫_글자_전에_취소되면_어시스턴트_메시지를_남기지_않는다() throws Exception {
+    // 펌프가 스텁 안에서 붙잡혀 있어야 취소할 수 있다 — 비동기 실행기로 되돌린다.
+    inlinePump.close();
     long uid = user();
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
             inv -> {
               started.countDown();
               try {
-                Thread.sleep(5000);
+                Thread.sleep(HomeChatPumpTestSupport.CANCEL_HOLD_LIMIT.toMillis());
               } catch (InterruptedException e) {
                 throw new java.io.UncheckedIOException(new java.io.IOException(e)); // 예외 경로
               }
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     HomeChatStartedResponse r = chatService.startChat(uid, null, "안녕");
-    assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+    HomeChatPumpTestSupport.awaitPump(started);
     chatService.cancelChat(r.correlationId(), uid);
     awaitTrue(() -> !payloads("home.chat.cancelled").isEmpty());
 
@@ -249,6 +255,8 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
   /** R3: done 을 내보낼 때는 이미 슬롯이 비어 있어야 한다 — done 핸들러 안에서 같은 대화로 곧바로 다시 물어 결정적으로 검증한다. */
   @Test
   void done_발행_시점엔_이미_슬롯이_비어_같은_대화로_곧바로_다시_물을_수_있다() throws Exception {
+    // 펌프가 도는 동안(done 핸들러 안에서) 두 번째 startChat 을 부르는 시나리오라 비동기 실행기를 쓴다.
+    inlinePump.close();
     long uid = user();
     UUID sid = sessionService.create(uid).id();
     AtomicReference<String> outcome = new AtomicReference<>();
@@ -275,7 +283,7 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
             })
         .doAnswer(inv -> null) // 두 번째 턴은 콜백 없이 끝난다(오류로 마감)
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     chatService.startChat(uid, sid, "첫 질문");
     awaitTrue(() -> outcome.get() != null);

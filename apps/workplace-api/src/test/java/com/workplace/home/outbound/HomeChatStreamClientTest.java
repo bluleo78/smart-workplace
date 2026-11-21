@@ -11,6 +11,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -28,6 +29,13 @@ import org.junit.jupiter.api.Test;
  * 도착 전에 점진적으로 소비되는지 검증한다.
  */
 class HomeChatStreamClientTest {
+
+  /**
+   * 점진 전달 증명에서 서버가 「클라이언트의 첫 토큰 소비」를 기다리는 hang 방지 상한(WP-1918). 홈 채팅 펌프와 무관한 HTTP 스트림 대기라
+   * HomeChatPumpTestSupport 를 쓰지 않는다 — 정상이면 토큰 소비 즉시 풀리고, 버퍼링 회귀일 때만 이 상한 뒤에 단언이 실패한다. 부하 flake 를
+   * 피하려고 넉넉히 잡는다.
+   */
+  private static final Duration FIRST_TOKEN_WAIT_LIMIT = Duration.ofSeconds(30);
 
   private HttpServer server;
   private AiAgentChatClient client;
@@ -141,7 +149,8 @@ class HomeChatStreamClientTest {
           os.flush();
           try {
             // client 가 "a" 를 소비해야만 latch 가 풀린다.
-            latchReleased.set(firstSeen.await(5, TimeUnit.SECONDS));
+            latchReleased.set(
+                firstSeen.await(FIRST_TOKEN_WAIT_LIMIT.toMillis(), TimeUnit.MILLISECONDS));
           } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
           }

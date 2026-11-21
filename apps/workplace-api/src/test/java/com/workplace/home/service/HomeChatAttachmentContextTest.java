@@ -14,8 +14,6 @@ import com.workplace.home.outbound.ChatMessages.ContextSummaryRequest;
 import com.workplace.home.outbound.ChatMessages.ContextSummaryResult;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -31,9 +29,11 @@ class HomeChatAttachmentContextTest extends HomeAttachmentTestSupport {
   }
 
   private ChatRequest send(long uid, UUID sid, String query, List<Long> fileIds) throws Exception {
-    CountDownLatch latch = stubDone("네");
-    chatService.startChat(uid, sid, query, null, fileIds, null, null, null);
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    stubDoneFor(uid, "네");
+    // 펌프를 호출 스레드에서 돌려 startChat 이 돌아올 때 이미 끝나 있게 한다(WP-1918) — 래치 대기 불필요.
+    try (var ignored = HomeChatPumpTestSupport.inline(chatService)) {
+      chatService.startChat(uid, sid, query, null, fileIds, null, null, null);
+    }
     return sentRequest();
   }
 

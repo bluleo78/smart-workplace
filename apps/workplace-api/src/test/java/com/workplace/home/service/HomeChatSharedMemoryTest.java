@@ -1,5 +1,6 @@
 package com.workplace.home.service;
 
+import static com.workplace.home.service.HomeChatPumpTestSupport.forUser;
 import static com.workplace.jooq.Tables.HOME_MESSAGE;
 import static com.workplace.jooq.Tables.HOME_SESSION;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -35,9 +36,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import org.jooq.DSLContext;
@@ -133,19 +132,20 @@ class HomeChatSharedMemoryTest extends ExternalClientMockedTestBase {
 
   /** 한 턴을 보내고 ai-agent 로 나간 요청을 돌려준다. */
   private ChatRequest send(long uid, HomeChatRequest.Space space) throws Exception {
-    CountDownLatch done = new CountDownLatch(1);
+    // 요청 사용자로 거른다 — 앞 테스트의 늦은 펌프가 이 스텁을 부르지 않게(WP-1918).
     doAnswer(
             inv -> {
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("네", null);
-              done.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
     TenantContext.set(1L);
-    chatService.startChat(uid, null, "배포 체크리스트 만들어줘", null, List.of(), null, "ISSUE", space);
-    assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
+    // 펌프를 호출 스레드에서 돌려 startChat 반환 시점에 끝나 있게 한다 — 래치 대기 불필요.
+    try (var ignored = HomeChatPumpTestSupport.inline(chatService)) {
+      chatService.startChat(uid, null, "배포 체크리스트 만들어줘", null, List.of(), null, "ISSUE", space);
+    }
     ArgumentCaptor<ChatRequest> cap = ArgumentCaptor.forClass(ChatRequest.class);
     verify(chatClient, atLeastOnce())
         .composeStream(cap.capture(), any(), any(), any(), any(), any(), any());
