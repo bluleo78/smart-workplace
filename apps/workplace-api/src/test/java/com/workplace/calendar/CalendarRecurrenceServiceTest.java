@@ -29,7 +29,7 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
 
   private static final OffsetDateTime BASE = OffsetDateTime.parse("2026-06-10T09:00:00Z");
 
-  /** 「전체 일정」 이동(WP-1915) 테스트 7개가 공통으로 쓰는 시리즈 첫 회차. */
+  /** 「전체 일정」 이동(WP-1915) 테스트 9개가 공통으로 쓰는 시리즈 첫 회차. */
   private static final OffsetDateTime SERIES_FIRST = OffsetDateTime.parse("2026-11-24T03:00:00Z");
 
   /** 테스트용 사용자 삽입 후 ID 반환. */
@@ -611,26 +611,73 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * WP-1915: 이동으로 UNTIL 이 새 시작보다 이르면 거절한다 — 새 시작에 닿지 않는 반복 규칙이 그대로 저장되지 않는다. 예외는 이동 경로
-   * (shiftAllScope)가 아니라 그 위 사전검증 checkUpdatable(req.startsAt 기준 validateRecurrence)에서 먼저 나온다 —
-   * req.startsAt (2026-12-15)이 UNTIL(2026-11-30)보다 늦기 때문이다. 이 테스트가 막는 것: 사전검증이 걸려도 「전체 일정」 이동 경로에서
-   * 거절이 유지되고 마스터 시작 시각이 그대로인지를 검증하는 회귀 가드다 — 검증 ③ 자체를 고립 시키지는 않는다.
+   * WP-1915 반려 1·2: 원래 UNTIL 을 넘어선 자리로 옮겨도 통과해야 한다 — UNTIL 을 이동량만큼 함께 옮기고(WP-1915 반려 1), 사전검증도 이동 뒤
+   * 조합(새 시작 + 옮긴 UNTIL)으로 검증하기 때문이다(WP-1915 반려 2). 이동 전 req.startsAt 기준으로 검증하면 맞는 이동도 400 으로 막혔다.
    */
   @Test
-  void updateScopeAll_shiftPastUntil_isRejected() {
+  void updateScopeAll_shiftPastUntil_movesUntilToo() {
     long u = user();
     OffsetDateTime first = SERIES_FIRST;
-    String until = "FREQ=WEEKLY;UNTIL=20261130T235959Z";
+    String until = "FREQ=WEEKLY;UNTIL=20261206T235959Z";
     CalendarEventResponse master =
         service.create(u, recurringReq(until, first, first.plusHours(1)));
     OffsetDateTime second = first.plusWeeks(1);
 
+    // 가운데 회차(12-01)를 12-20 으로 끌어 옮긴다 — 이동량 +19일, 원래 UNTIL(12-06)을 넘어선다.
+    service.update(
+        u, master.id(), editReq("회의", until, second.plusDays(19)), EditScope.ALL, second);
+
+    CalendarEventResponse moved = service.get(u, master.id());
+    assertThat(moved.startsAt()).isEqualTo(first.plusDays(19));
+    // UNTIL 도 같은 이동량만큼 밀렸다 — 옮기지 않으면 새 범위(12-13~) 밖이라 마지막 회차가 잘린다.
+    assertThat(moved.recurrenceRule()).contains("UNTIL=20261225T235959Z");
+    assertThat(service.list(u, first.minusDays(1), first.plusDays(40)))
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactly(
+            first.plusDays(19).toInstant(), first.plusDays(19).plusWeeks(1).toInstant());
+  }
+
+  /** WP-1915 반려 3: 「전체 일정」 + 실제가 아닌 회차는 실행이 아니라 사전검증(확인 카드)에서 걸린다 — 카드가 뜨고 승인해야 400 이 났다. */
+  @Test
+  void validateUpdatable_scopeAllWithNonOccurrenceDate_isRejectedBeforeCard() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime fake = first.plusDays(1).plusMinutes(33);
+
     assertThatThrownBy(
             () ->
-                service.update(
+                service.validateUpdatable(
                     u,
                     master.id(),
-                    editReq("회의", until, second.plusWeeks(2)),
+                    editReq("가짜 회차", "FREQ=WEEKLY;COUNT=3", fake),
+                    EditScope.ALL,
+                    fake))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(service.get(u, master.id()).startsAt()).isEqualTo(first);
+  }
+
+  /**
+   * WP-1590 회귀 가드(코드 리뷰): 이동 경로는 UNTIL 을 먼저 밀어야 해 잘못된 값을 통과시킬 수 있다 — 밀어 버리면 validate 가 못 잡고 전역
+   * 핸들러에서 500 이 된다. shiftUntil 이 원문을 그대로 두면 validateRecurrence 가 IllegalArgumentException(400)으로
+   * 거절한다.
+   */
+  @Test
+  void updateScopeAll_withMalformedUntil_isRejectedWithIllegalArgument() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(
+            u, recurringReq("FREQ=WEEKLY;UNTIL=20261206T235959Z", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+
+    assertThatThrownBy(
+            () ->
+                service.validateUpdatable(
+                    u,
+                    master.id(),
+                    editReq("회의", "FREQ=WEEKLY;UNTIL=20261301T000000Z", second.plusDays(19)),
                     EditScope.ALL,
                     second))
         .isInstanceOf(IllegalArgumentException.class);

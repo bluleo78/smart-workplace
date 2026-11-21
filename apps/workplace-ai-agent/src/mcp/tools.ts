@@ -993,7 +993,7 @@ export function buildTools(
   const proposeUpdateEventTool: McpTool = {
     name: 'propose_update_event',
     description:
-      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 참석자 추가·제거는 이 도구가 아니라 propose_add_attendees / propose_remove_attendee 로 제안하세요(이 도구는 제목·시간·장소 등 일정 필드만 수정). 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 수정합니다.',
+      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 참석자 추가·제거는 이 도구가 아니라 propose_add_attendees / propose_remove_attendee 로 제안하세요(이 도구는 제목·시간·장소 등 일정 필드만 수정). 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). scope=ALL 과 occurrenceDate 를 함께 쓰면 startsAt 은 그 회차의 새 시작이고, 시리즈 전체가 같은 양만큼 이동합니다 — 마스터 기준일을 다시 잡지 않습니다(끌어 옮기기). 승인 시 서버가 실제로 수정합니다.',
     inputSchema: proposeUpdateEventInput,
     async handler(args) {
       const { summary, eventId, ...params } = proposeUpdateEventInput.parse(args);

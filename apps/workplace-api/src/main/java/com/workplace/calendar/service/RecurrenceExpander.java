@@ -1,6 +1,8 @@
 package com.workplace.calendar.service;
 
 import java.math.BigInteger;
+import java.time.DateTimeException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -17,6 +19,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -66,6 +69,9 @@ public class RecurrenceExpander {
   private static final DateTimeFormatter UNTIL_FMT =
       DateTimeFormatter.ofPattern(UNTIL_PATTERN).withZone(ZoneOffset.UTC);
 
+  /** RRULE 원문의 UNTIL 토큰 — `(^|;)UNTIL=<값>` 을 찾아 값을 그 자리에 다시 쓴다(WP-1915 반려 1). */
+  private static final Pattern UNTIL_PART = Pattern.compile("(?i)(^|;)UNTIL=([^;]+)");
+
   /**
    * 기존 RRULE 에 UNTIL=<cutoff(UTC)> 를 설정한 새 규칙 반환 — 시리즈 잘라내기(THIS_AND_FOLLOWING)용. UNTIL 과 COUNT 는
    * 상호 배타이므로 기존 UNTIL=/COUNT= 토큰을 모두 제거한 뒤 새 UNTIL 을 덧붙인다. cutoff 는 절대(UTC) 시각으로 포맷한다.
@@ -83,6 +89,41 @@ public class RecurrenceExpander {
                 })
             .collect(Collectors.joining(";"));
     return cleaned.isEmpty() ? until : cleaned + ";" + until;
+  }
+
+  /**
+   * RRULE 의 UNTIL 을 이동량만큼 옮긴 새 규칙 — 「전체 일정」 끌어 옮기기(WP-1915 반려 1). UNTIL 을 그대로 두면 앞으로 옮긴 시리즈에서 마지막
+   * 회차가 새 범위 밖으로 잘린다(예: UNTIL 12-08 시리즈를 +1일 끌면 12-09 회차가 사라진다). UNTIL 없는 규칙(COUNT·무한)은 그대로다.
+   *
+   * <p>값은 {@link #checkByValues} 처럼 대문자·트림으로 맞춘 뒤 본다 — 그렇지 않으면 validate 가 받는 소문자·공백 값
+   * (`20261231t145959z`)은 이동이 그대로 빠져 마지막 회차가 잘린다(UNTIL 토큰 키는 `(?i)` 라 찾고도 값이 미끄러진다).
+   *
+   * <p>읽지 못하는 값(13월·25시처럼 shape 은 맞지만 날짜가 아닌 것)은 원문을 그대로 준다 — 여기서 밀어 두면 validate 가 뒤에 와도 잘못된 규칙이
+   * 통과하기 때문이다. 두지 않으면 뒤의 validateRecurrence 가 400으로 거절하고, 예외를 밖으로 던지면 전역 핸들러에서 500이 된다(WP-1590).
+   * 날짜만(yyyyMMdd) UNTIL 은 validate 가 받지 않는 형식이라 여기서 다루지 않는다.
+   */
+  public static String shiftUntil(String rrule, Duration delta) {
+    if (rrule == null || rrule.isBlank() || delta == null || delta.isZero()) {
+      return rrule;
+    }
+    Matcher m = UNTIL_PART.matcher(rrule);
+    if (!m.find()) {
+      return rrule;
+    }
+    String value = m.group(2).trim().toUpperCase(Locale.ROOT);
+    if (!UNTIL_SHAPE.matcher(value).matches()) {
+      return rrule;
+    }
+    String moved;
+    try {
+      // STRICT 로 읽어 13월·25시를 먼저 잡는다 — 통과하면 UTC 절대 시각으로 고쳐 이동량만큼 더한다.
+      LocalDateTime local = LocalDateTime.parse(value, STRICT_UNTIL);
+      moved = UNTIL_FMT.format(OffsetDateTime.of(local, ZoneOffset.UTC).plus(delta));
+    } catch (DateTimeException e) {
+      // shape 은 맞지만 실 날짜·시각이 아닌 값 — 원문 그대로 두어 validate 가 400으로 거절하게 한다(WP-1590).
+      return rrule;
+    }
+    return rrule.substring(0, m.start(2)) + moved + rrule.substring(m.end(2));
   }
 
   /** RRULE 원문의 COUNT 값 — 없거나 숫자가 아니면 null. 원문 토큰으로 본다(관용 파싱은 잘못된 값을 기본값으로 바꿔 읽는다). */

@@ -235,6 +235,60 @@ class RecurrenceExpanderTest {
     assertThat(r).isEqualTo("FREQ=WEEKLY;UNTIL=20260617T085959Z");
   }
 
+  /** WP-1915 반려 1: UNTIL 을 이동량만큼 옮긴다 — 옮기지 않으면 앞으로 끌어도 마지막 회차가 새 범위 밖으로 잘린다. */
+  @Test
+  void shiftUntil_movesUntilBySameDelta() {
+    assertThat(
+            RecurrenceExpander.shiftUntil(
+                "FREQ=WEEKLY;UNTIL=20261206T235959Z", Duration.ofDays(19)))
+        .isEqualTo("FREQ=WEEKLY;UNTIL=20261225T235959Z");
+    assertThat(
+            RecurrenceExpander.shiftUntil("FREQ=DAILY;UNTIL=20261206T235959Z", Duration.ofDays(-2)))
+        .isEqualTo("FREQ=DAILY;UNTIL=20261204T235959Z");
+  }
+
+  /**
+   * WP-1915 반려 1 (코드 리뷰): validate 가 받는 소문자·공백 값도 같은 양만큼 옮겨야 한다 — 토큰 키는 (?i) 라 찾고도 값이 미끄러지면 이동이 조용히
+   * 빠져 원래 증상(마지막 회차 잘림)이 남는다.
+   */
+  @Test
+  void shiftUntil_lowercaseAndPaddedValue_alsoMoves() {
+    assertThat(
+            RecurrenceExpander.shiftUntil("FREQ=DAILY;UNTIL=20261231t145959z", Duration.ofDays(2)))
+        .isEqualTo("FREQ=DAILY;UNTIL=20270102T145959Z");
+    assertThat(
+            RecurrenceExpander.shiftUntil("FREQ=DAILY;UNTIL= 20261231T145959Z", Duration.ofDays(2)))
+        .isEqualTo("FREQ=DAILY;UNTIL=20270102T145959Z");
+  }
+
+  /**
+   * WP-1590 회귀 가드: shape 은 맞지만 실 날짜·시각이 아닌 UNTIL 은 밀지 않고 원문 그대로 둔다 — 밀어 버리면 validate 가 못 잡고 전역
+   * 핸들러에서 500 이 난다. 두지 않으면 validateRecurrence 가 400으로 거절한다.
+   */
+  @Test
+  void shiftUntil_malformedValue_returnsUnchangedWithoutThrowing() {
+    assertThat(
+            RecurrenceExpander.shiftUntil("FREQ=WEEKLY;UNTIL=20261301T000000Z", Duration.ofDays(3)))
+        .isEqualTo("FREQ=WEEKLY;UNTIL=20261301T000000Z");
+    assertThat(
+            RecurrenceExpander.shiftUntil("FREQ=WEEKLY;UNTIL=20261201T250000Z", Duration.ofDays(3)))
+        .isEqualTo("FREQ=WEEKLY;UNTIL=20261201T250000Z");
+    assertThat(RecurrenceExpander.shiftUntil("FREQ=WEEKLY;UNTIL=nope", Duration.ofDays(3)))
+        .isEqualTo("FREQ=WEEKLY;UNTIL=nope");
+  }
+
+  /** UNTIL 없는 규칙(COUNT·무한)·제로 이동·null 은 원문 그대로다. */
+  @Test
+  void shiftUntil_withoutUntilOrZeroDelta_returnsUnchanged() {
+    assertThat(RecurrenceExpander.shiftUntil("FREQ=DAILY;COUNT=5", Duration.ofDays(3)))
+        .isEqualTo("FREQ=DAILY;COUNT=5");
+    assertThat(RecurrenceExpander.shiftUntil("FREQ=DAILY", Duration.ofDays(3)))
+        .isEqualTo("FREQ=DAILY");
+    assertThat(RecurrenceExpander.shiftUntil("FREQ=WEEKLY;UNTIL=20261206T235959Z", Duration.ZERO))
+        .isEqualTo("FREQ=WEEKLY;UNTIL=20261206T235959Z");
+    assertThat(RecurrenceExpander.shiftUntil(null, Duration.ofDays(3))).isNull();
+  }
+
   /** expand 도 잘못된 규칙이면 동일하게 IllegalArgumentException(list per-master 격리 대상). */
   @Test
   void expand_invalidRule_throws() {
