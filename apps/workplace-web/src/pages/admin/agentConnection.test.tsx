@@ -10,6 +10,7 @@ import { expect, test } from 'vitest'
 import { renderScreen } from '@/test/renderScreen'
 
 import { AgentConnectionSection } from './components/AgentConnectionSection'
+import { PROBE_MODELS_EMPTY } from './components/credential-fields/probeModelsError'
 
 const AGENT_ID = 100
 const CREDENTIAL = `/api/v1/admin/agents/${AGENT_ID}/provider-credential`
@@ -220,6 +221,25 @@ test('opencode 프로브 실패 → 모델 목록 대신 직접 입력이 나오
   expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
   // 접두 누락 시 실행 시점 splitOpencodeModel 이 실패했다 — 제출 때 자동으로 붙인다.
   await user.click(manual)
+  await user.paste('gpt-4o-mini')
+  await user.click(screen.getByRole('button', { name: '연결하기' }))
+
+  expect(await screen.findByText('AI에 연결했습니다.')).toBeInTheDocument()
+  expect(state.posts).toHaveLength(1)
+  expect((state.posts[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+})
+
+// 프로브가 성공했지만 목록이 비면 빈 Select 대신 안내와 직접 입력을 보인다(WP-1895).
+test('opencode 프로브가 빈 목록이면 안내와 직접 입력이 나오고, 접두를 붙여 연결한다 (WP-1895)', async () => {
+  const probe = probeApi({ status: 200, models: [] })
+  const { user, state } = await renderSection(null, {}, [probe.handler])
+  await probeOpenAi(user)
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(PROBE_MODELS_EMPTY)
+  expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
+  expect(screen.getByTestId('credential-vision')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '연결하기' })).toBeDisabled()
+  await user.click(screen.getByTestId('credential-model-manual'))
   await user.paste('gpt-4o-mini')
   await user.click(screen.getByRole('button', { name: '연결하기' }))
 
@@ -489,7 +509,7 @@ test('Enter — opencode 모델을 정하지 않으면 API Key 칸 Enter 로도 
 })
 
 /** 「모델 불러오기」 응답을 차례대로 돌려준다 — 'fail' 은 502, 'hold' 는 release 를 부를 때까지 붙잡았다가 목록을 준다. */
-function probeSequence(steps: Array<'ok' | 'fail' | 'hold'>) {
+function probeSequence(steps: Array<'ok' | 'fail' | 'hold' | 'empty'>) {
   let calls = 0
   let release: () => void = () => {}
   const held = new Promise<void>((r) => {
@@ -499,6 +519,7 @@ function probeSequence(steps: Array<'ok' | 'fail' | 'hold'>) {
     const step = steps[Math.min(calls, steps.length - 1)]
     calls += 1
     if (step === 'fail') return HttpResponse.json({ message: '프로바이더 연결에 실패했습니다' }, { status: 502 })
+    if (step === 'empty') return HttpResponse.json({ models: [] })
     if (step === 'hold') await held
     return HttpResponse.json({ models: MODELS })
   })
@@ -530,6 +551,19 @@ test('Enter — 모델을 불러와 고른 뒤 Base URL 을 고치면 모델이 
   expect(state.posts).toEqual([])
   expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '연결하기' })).toBeDisabled()
+})
+
+// 재시도가 빈 목록이면 Select 로 대체되지 않으므로 직접 입력한 id 를 지우지 않는다(WP-1895).
+test('프로브 실패 → 직접 입력 → 다시 불러와 빈 목록이면 입력값이 남고 빈 목록 안내가 나온다 (WP-1895)', async () => {
+  const probe = probeSequence(['fail', 'empty'])
+  const { user } = await renderSection(null, {}, [probe.handler])
+  await openOpencodeWithKey(user)
+  await user.click(screen.getByTestId('credential-probe-models'))
+  await user.click(await screen.findByTestId('credential-model-manual'))
+  await user.paste('my-model')
+  await user.click(screen.getByTestId('credential-probe-models'))
+  expect(await screen.findByRole('alert')).toHaveTextContent(PROBE_MODELS_EMPTY)
+  expect(screen.getByTestId('credential-model-manual')).toHaveValue('my-model')
 })
 
 test('Enter — 불러오기 실패 뒤 직접 입력한 모델은, 다시 불러오기가 성공하면 지워져 모델을 고르기 전엔 보내지 않는다', async () => {

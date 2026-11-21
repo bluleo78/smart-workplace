@@ -11,3 +11,9 @@ const PROBE_MODELS_FALLBACK = '모델 목록을 불러오지 못했습니다. �
 export function probeModelsErrorMessage(error: unknown): string {
   return apiErrorResponse(error) ? extractApiError(error, PROBE_MODELS_FALLBACK) : PROBE_MODELS_FALLBACK;
 }
+
+/**
+ * 「모델 불러오기」가 성공했지만 목록이 빈 경우의 안내 — 빈 Select 로는 모델을 고를 수 없으니 직접 입력으로 넘어간다.
+ * 개인 비서 설정·관리자 AI 연결 대화상자 공용(WP-1895).
+ */
+export const PROBE_MODELS_EMPTY = '이 연결에서 불러온 모델이 없습니다. 모델 id를 직접 입력하세요.';

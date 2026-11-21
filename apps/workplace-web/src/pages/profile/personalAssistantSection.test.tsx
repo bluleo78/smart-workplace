@@ -38,6 +38,8 @@ const BEDROCK_MODELS: Model[] = [
   { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
   { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
 ]
+/** 프로브 성공이지만 빈 목록일 때 보이는 한국어 안내(WP-1895). */
+const PROBE_EMPTY = '이 연결에서 불러온 모델이 없습니다. 모델 id를 직접 입력하세요.'
 /** 프로브 실패 시 보이는 한국어 안내(WP-1884). */
 const PROBE_FALLBACK = '모델 목록을 불러오지 못했습니다. 모델 id를 직접 입력하세요.'
 
@@ -66,6 +68,10 @@ function open(opts: {
   probeModels?: Model[]
   /** 주면 probe 응답을 이 함수가 만든다(호출 번호는 1부터) — 늦게 오는 응답을 흉내낸다(WP-1893). */
   probeReply?: (call: number) => Promise<Response>
+  /** 두 번째 probe 부터의 응답 — 주면 첫 호출만 probeModels, 이후는 이 목록(WP-1895). */
+  probeModelsAfterFirst?: Model[]
+  /** 첫 probe 만 실패(502)시키고 이후는 정상 응답 — 실패 뒤 재시도 시나리오용(WP-1895). */
+  probeFailFirst?: boolean
   /** probe 실패 응답 본문 message — 기본은 한국어 502 문구(WP-1884). */
   probeMessage?: string
   onCredential?: () => void
@@ -74,6 +80,7 @@ function open(opts: {
 }) {
   const bodies = { credential: [] as unknown[], settings: [] as unknown[], name: [] as unknown[], probe: [] as unknown[], disable: 0 }
   const r = opts.replies ?? {}
+  let probeCalls = 0
   const fail = (status: number, message: string) => HttpResponse.json({ message }, { status })
   const handlers = [
     http.get(API, () => HttpResponse.json(opts.status())),
@@ -92,7 +99,10 @@ function open(opts: {
       bodies.probe.push(await request.json())
       if (opts.probeReply) return opts.probeReply(bodies.probe.length)
       if (r.probe && r.probe >= 400) return fail(r.probe, opts.probeMessage ?? '프로바이더 연결에 실패했습니다')
-      return HttpResponse.json({ models: opts.probeModels ?? [] })
+      probeCalls++
+      if (opts.probeFailFirst && probeCalls === 1) return fail(502, '프로바이더 연결에 실패했습니다')
+      const models = probeCalls > 1 && opts.probeModelsAfterFirst ? opts.probeModelsAfterFirst : (opts.probeModels ?? [])
+      return HttpResponse.json({ models })
     }),
     http.put(`${API}/settings`, async ({ request }) => {
       bodies.settings.push(await request.json())
@@ -159,6 +169,47 @@ describe('개인 비서 — 미설정 등록 폼', () => {
     expect(await screen.findByText('개인 비서를 등록했습니다.')).toBeInTheDocument()
     expect(bodies.credential).toHaveLength(1)
     expect((bodies.credential[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+  })
+
+  // 프로브가 성공했지만 목록이 비면 빈 Select 대신 안내와 직접 입력을 보인다(WP-1895).
+  test('프로브가 빈 목록이면 안내와 직접 입력이 보이고, 입력한 id 에 접두가 붙어 등록된다 (WP-1895)', async () => {
+    const { user, bodies } = open({ status: unconfigured })
+    await probeOpenAi(user)
+    expect(await screen.findByRole('alert')).toHaveTextContent(PROBE_EMPTY)
+    expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
+    expect(screen.getByTestId('credential-vision')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '등록' })).toBeDisabled()
+    await user.click(screen.getByTestId('credential-model-manual'))
+    await user.paste('gpt-4o-mini')
+    await user.click(screen.getByRole('button', { name: '등록' }))
+    expect(await screen.findByText('개인 비서를 등록했습니다.')).toBeInTheDocument()
+    expect((bodies.credential[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+  })
+
+  // 재시도가 실패하거나 빈 목록이면 Select 로 대체되지 않으므로 직접 입력한 id 를 지우지 않는다(WP-1895).
+  test.each([
+    ['다시 실패', { replies: { probe: 502 } }, '프로바이더 연결에 실패했습니다'],
+    ['빈 목록', { probeFailFirst: true }, PROBE_EMPTY],
+  ] as const)('프로브 실패 → 직접 입력 → 다시 불러와 %s 이면 입력값이 남는다 (WP-1895)', async (_, opts, notice) => {
+    const { user } = open({ status: unconfigured, ...opts })
+    await probeOpenAi(user)
+    await user.click(await screen.findByTestId('credential-model-manual'))
+    await user.paste('gpt-4o-mini')
+    await user.click(screen.getByTestId('credential-probe-models'))
+    await waitFor(() => expect(screen.getByTestId('credential-probe-models')).toBeEnabled())
+    expect(screen.getByRole('alert')).toHaveTextContent(notice)
+    expect(screen.getByTestId('credential-model-manual')).toHaveValue('gpt-4o-mini')
+  })
+
+  test('빈 목록 뒤 다시 불러와 목록이 오면 직접 입력이 사라지고 목록에서 고른다 (WP-1895)', async () => {
+    const { user } = open({ status: unconfigured, probeModelsAfterFirst: BEDROCK_MODELS })
+    await probeOpenAi(user)
+    await user.click(await screen.findByTestId('credential-model-manual'))
+    await user.paste('gpt-4o-mini')
+    await user.click(screen.getByTestId('credential-probe-models'))
+    expect(await screen.findByTestId('credential-model-select')).toBeInTheDocument()
+    expect(screen.queryByTestId('credential-model-manual')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '등록' })).toBeDisabled()
   })
 
   // 프로브 실패 안내 — 5xx 내부 영문 문구는 숨기고 서버 한국어·4xx 문구는 그대로 보인다(WP-1884).

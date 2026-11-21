@@ -19,7 +19,7 @@ import {
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
 import { AnthropicWorkspaceIdField } from '@/pages/admin/components/credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MIN } from '@/pages/admin/components/credential-fields/ClaudeTokenField';
-import { probeModelsErrorMessage } from '@/pages/admin/components/credential-fields/probeModelsError';
+import { PROBE_MODELS_EMPTY, probeModelsErrorMessage } from '@/pages/admin/components/credential-fields/probeModelsError';
 
 import { probeMyAssistantModels } from '../../api/models';
 import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
@@ -94,6 +94,8 @@ export function PersonalAssistantSection() {
   // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
   // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
   const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
+  // 직접 입력 칸의 안내 — 있으면 칸을 보인다. 프로브 실패, 또는 성공했지만 목록이 빈 경우(빈 Select 로는 고를 수 없다, WP-1895).
+  const manualNotice = probeError ?? (probedModels?.length === 0 ? PROBE_MODELS_EMPTY : null);
   const resolvedModel = selectedModel || normalizedManualModel;
   // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다. 선택은 그때의 모델 id 에만 적용되어,
   // 모델을 바꾸면(직접 입력 중 다른 id 가 되면) 자동 감지로 보인다. 키를 칠 때마다 지우지 않으므로 같은 id 로 정리되는 입력엔 유지된다.
@@ -145,7 +147,7 @@ export function PersonalAssistantSection() {
     clearLoadedModels();
   };
 
-  // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
+  // 모델 목록 프로브 — 성공·목록 있음 → Select 노출, 실패 또는 빈 목록 → 수동 입력 폴백 노출(WP-1895).
   const onProbeModels = async () => {
     setProbeError(null);
     setProbedModels(null);
@@ -159,8 +161,9 @@ export function PersonalAssistantSection() {
       const res = await probe.mutateAsync();
       if (generation !== probeGeneration.current) return;
       setProbedModels(res.models);
-      // 직접 입력 칸이 사라지는데 값이 남아 resolvedModel 이 숨은 id 로 정해지고 등록되는 것을 막는다(WP-1893, 관리자 WP-1622 와 같은 뜻).
-      setManualModel('');
+      // 목록이 와서 Select 가 직접 입력 칸을 대체할 때만 비운다 — 숨은 값이 resolvedModel 로 정해져 등록되지 않게(WP-1893,
+      // 관리자 WP-1622 와 같은 뜻). 실패·빈 목록이면 직접 입력이 계속 보이므로 사용자가 친 id 를 남긴다(WP-1895).
+      if (res.models.length > 0) setManualModel('');
     } catch (e) {
       if (generation !== probeGeneration.current) return;
       // 두 화면 공용 문구 규칙(WP-1884).
@@ -219,7 +222,7 @@ export function PersonalAssistantSection() {
   };
 
   // 「모델 불러오기」 중에는 모델이 곧 바뀌므로(목록 도착·오류) 그동안은 등록하지 않는다 — 다시 불러오는 사이
-  // 숨은 직접 입력 값이 등록되지 않게(WP-1893, 관리자 WP-1622 와 같은 조건).
+  // 숨은 직접 입력 값이 등록되지 않게(WP-1893·WP-1895, 관리자 WP-1622 와 같은 조건).
   const submitDisabled =
     register.isPending || (connectionType === 'opencode' && (probe.isPending || !resolvedModel));
 
@@ -575,7 +578,7 @@ export function PersonalAssistantSection() {
                   {probe.isPending ? '불러오는 중…' : '모델 불러오기'}
                 </Button>
 
-                {probedModels != null ? (
+                {probedModels != null && probedModels.length > 0 ? (
                   <div className="space-y-1.5">
                     <Label htmlFor="credential-model-select">모델</Label>
                     <Select value={selectedModel} onValueChange={setSelectedModel}>
@@ -596,9 +599,9 @@ export function PersonalAssistantSection() {
                   </div>
                 ) : null}
 
-                {probeError ? (
+                {manualNotice ? (
                   <div className="space-y-1.5">
-                    <p role="alert" className="text-sm text-destructive">{probeError}</p>
+                    <p role="alert" className="text-sm text-destructive">{manualNotice}</p>
                     <Label htmlFor="credential-model-manual">모델 id (직접 입력)</Label>
                     <Input
                       id="credential-model-manual"
@@ -615,7 +618,7 @@ export function PersonalAssistantSection() {
                   </div>
                 ) : null}
 
-                {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패 → 수동 입력)에서만 노출. */}
+                {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패·빈 목록 → 수동 입력)에서만 노출. */}
                 {probedModels != null || probeError ? (
                   <VisionInputSelect
                     id="credential-vision"
