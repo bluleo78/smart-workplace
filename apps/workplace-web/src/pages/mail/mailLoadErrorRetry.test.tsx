@@ -214,6 +214,12 @@ test('다음 페이지 실패 뒤 배경 재조회 중에는 배너가 없다가
     refetch = queryClient.refetchQueries({ queryKey: ['mail-messages'] }) as Promise<unknown>
   })
   await waitFor(() => expect(listCalls).toBe(3))
+  // 재조회가 화면에 반영됐는지 먼저 기다린다 — TanStack 은 재조회를 시작하며 fetchMeta 를 비우므로 그 순간
+  // isFetchNextPageError 가 풀려 목록 끝 푸터의 오류 줄이 잠깐 사라지고, 그와 같은 갱신으로 isFetching 이 켜진다.
+  // 재조회 중 상태가 그려지기 전에 단언하면 「배너 없음」이 재조회 중이라가 아니라 아직 반영 안 됐을 때로도 통과한다.
+  await waitFor(() =>
+    expect(screen.queryByTestId('mail-list-end')?.textContent ?? '').not.toContain('불러오지 못했습니다 — 다시 시도'),
+  )
   expect(screen.queryByTestId('mail-list-error')).toBeNull()
   expect(screen.getByTestId('mail-row-3000')).toBeInTheDocument()
 
