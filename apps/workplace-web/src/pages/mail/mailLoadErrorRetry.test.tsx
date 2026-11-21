@@ -63,7 +63,7 @@ test('상세 재조회가 데이터 있는 중 실패하면 본문을 지우지 
   await screen.findByTestId('mail-detail')
   // 다른 메일을 거쳐 되돌아오면 상세가 다시 받아진다 — 첫 데이터가 있는데 재조회가 실패한 경우다.
   await user.click(screen.getByTestId('mail-row-101'))
-  // 테스트 클라우드도 운영과 같은 staleTime 30초라, 눈앞에서 되돌아오는 사이 쿼리가 낡지 않는다 — 그사이 시간이 지난
+  // 테스트 클라이언트도 운영과 같은 staleTime 30초라, 눈앞에서 되돌아오는 사이 쿼리가 낡지 않는다 — 그사이 시간이 지난
   // 경우(재조회 대상)를 흉내 내려 낡음만 표시해 둔다(refetchType 'none' — 표시만 하고 여기서는 부르지 않는다).
   await act(async () => {
     queryClient.invalidateQueries({ queryKey: ['mail-message', 100], refetchType: 'none' })
@@ -178,4 +178,50 @@ test('다음 페이지 실패 뒤 목록 전체 재조회도 실패하면 배너
   })
   expect(await screen.findByTestId('mail-list-error')).toBeInTheDocument()
   expect(screen.getByTestId('mail-row-2000')).toBeInTheDocument()
+})
+
+// WP-1911 리뷰 반려 2차 — 다음 페이지 실패 뒤 배경 재조회(60초 폴링·창 포커스)가 도는 동안에는 TanStack 이 재조회를
+// 시작하며 fetchMeta 를 비워 isFetchNextPageError 가 풀리는데, 그 사이 목록 배너가 되살아나고 푸터 오류가 꺼졌다.
+// 재조회가 확정된 실패로 끝나기 전에는 배너를 띄우지 않는 쪽을 고정한다(재조회 실패 시 배너가 서는 반쪽은 위 테스트).
+test('다음 페이지 실패 뒤 배경 재조회 중에는 배너가 없다가 재조회가 실패로 끝나면 뜬다(WP-1911)', async () => {
+  const firstPage = Array.from({ length: MAIL_PAGE_SIZE }, (_, i) => summary({ id: 3000 - i, subject: `메일 ${i}` }))
+  const { promise, release } = gate()
+  let listCalls = 0
+  const handler = http.get('/api/v1/mail/accounts/1/messages', async () => {
+    listCalls += 1
+    if (listCalls === 1) return HttpResponse.json(firstPage)
+    // 세 번째 호출(배경 재조회 첫 페이지)만 응답을 붙잡는다 — 재조회 중 화면을 응답 전에 단언하기 위해서다.
+    if (listCalls === 3) await promise
+    return new HttpResponse(null, { status: 500 })
+  })
+  const { queryClient } = renderMail('/mail/1', { handlers: [handler] })
+  await screen.findByTestId('mail-row-3000')
+  const listQuery = queryClient.getQueryCache().getAll().find((q) => q.queryKey[0] === 'mail-messages')
+  const fetchNextPage = (listQuery?.observers[0] as unknown as { fetchNextPage: () => Promise<unknown> } | undefined)
+    ?.fetchNextPage
+  expect(fetchNextPage).toBeTruthy()
+  await act(async () => {
+    await fetchNextPage!()
+  })
+  // 다음 페이지 실패가 화면에 반영된다(목록 끝 푸터가 오류를 먼저 알린다) — 배경 재조회는 그 뒤에 시작된다(운영 순서:
+  // 실패 → 주기·포커스 재조회). 오류가 그려지기 전에 재조회를 겹쳐 걸면 실패 사실이 화면에 한 번도 안 닿는다.
+  await waitFor(() => expect(screen.getByTestId('mail-list-end')).toHaveTextContent('불러오지 못했습니다 — 다시 시도'))
+  expect(screen.queryByTestId('mail-list-error')).toBeNull()
+
+  // 배경 재조회(주기·포커스 흉내)를 띄우고 응답 전 — 배경 재조회는 확정된 실패가 아니므로 배너가 없어야 한다.
+  let refetch: Promise<unknown> | undefined
+  act(() => {
+    refetch = queryClient.refetchQueries({ queryKey: ['mail-messages'] }) as Promise<unknown>
+  })
+  await waitFor(() => expect(listCalls).toBe(3))
+  expect(screen.queryByTestId('mail-list-error')).toBeNull()
+  expect(screen.getByTestId('mail-row-3000')).toBeInTheDocument()
+
+  // 재조회가 실패로 끝나면 전체 장애 신호로서 배너가 다시 선다(받은 행은 남는다).
+  release()
+  await act(async () => {
+    await refetch
+  })
+  expect(await screen.findByTestId('mail-list-error')).toBeInTheDocument()
+  expect(screen.getByTestId('mail-row-3000')).toBeInTheDocument()
 })

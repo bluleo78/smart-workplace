@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button'
 import { FilterInput } from '@/components/ui/filter-input'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { FOCUSABLE } from '@/hooks/useDialogFocusRestore'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -630,7 +631,13 @@ function MailDetailSrHeading() {
 /**
  * 다시 시도 성공 뒤 초점을 넘길 상세의 첫 조작 요소(WP-1911 리뷰 반려) — LoadErrorState 의 기본 순서는 안내 자리의
  * 첫 조작 요소를 골라 휴대폰에선 상단바 뒤로 단추로 떨어진다. 상세의 첫 조작 요소(답장 단추)를 먼저 고르고,
- * 아직 없으면 뒤로 단추를 건너뛴다. jsdom 은 getClientRects 를 못 재어 null — LoadErrorState 는 기본 순서로 내려간다.
+ * 아직 없으면 상단바 밖의 첫 조작 요소를 고른다. jsdom 은 getClientRects 를 못 재어 null — LoadErrorState 는
+ * 기본 순서로 내려간다.
+ * 휴대폰 경로에서만 넘긴다(호출 쪽에서 isMobile 일 때만) — 데스크톱은 상단바가 없고 기본 순서(숨은 h2 다음 첫 조작
+ * 요소)가 상세 위쪽 조작 요소를 먼저 건드는 게 맞다(리뷰 반려 — 이 고르기가 데스크톱에도 걸려 답장 단추로 건너뛰었다).
+ * 대체 경로는 뒤로 단추가 든 상단바(<header> — ‹ 뒤로·⋯ 메뉴·✦ 가 그 안에 있다) 안 요소를 통째로 건너뛴다.
+ * testId 로 하나씩 고르던 건 `mail-back` 이 뒤로 단추가 아니라 바 자체의 표시라 맞지 않았고, 성공 화면도 같은 바를
+ * 그리므로 끊어진다(리뷰 반려).
  */
 function focusAfterDetailRetry(): HTMLElement | null {
   const pane = document.querySelector<HTMLElement>('[data-testid="mail-detail-pane"]')
@@ -638,14 +645,9 @@ function focusAfterDetailRetry(): HTMLElement | null {
   const visible = (el: HTMLElement) => el.getClientRects().length > 0
   const reply = Array.from(pane.querySelectorAll<HTMLElement>('[data-testid="mail-reply"]')).find(visible)
   if (reply) return reply
-  const FOCUSABLE =
-    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-  // 뒤로 단추는 상단바 밖으로 나가는 길이라 초점 대상이 아니다(모바일 셸 `mobile-back` — 메일 자체 바는
-  // 성공 화면에선 그리지 않지만 testId 를 함께 걸어 두어 새 상단바가 생겨도 초점이 거기 가지 않게 한다).
-  const BACK = new Set(['mobile-back', 'mail-back'])
   return (
     Array.from(pane.querySelectorAll<HTMLElement>(FOCUSABLE)).find(
-      (el) => visible(el) && !BACK.has(el.getAttribute('data-testid') ?? ''),
+      (el) => visible(el) && !el.closest('header'),
     ) ?? null
   )
 }
@@ -822,7 +824,8 @@ function MessageDetailPanel({
             testId="mail-detail-error"
             className="px-6"
             // 성공 뒤 초점이 상단바 뒤로 단추로 떨어지지 않게 상세 첫 조작 요소로 넘긴다(리뷰 반려 — E2E 로 고정).
-            focusAfterRetry={focusAfterDetailRetry}
+            // 데스크톱엔 넘기지 않는다 — 기본 순서(숨은 h2 다음 첫 조작 요소)가 위쪽 조작 요소를 먼저 건드는 게 맞다(리뷰 반려).
+            focusAfterRetry={isMobile ? focusAfterDetailRetry : undefined}
           />
         </>,
       ),
@@ -1372,6 +1375,13 @@ function MailInbox() {
     data: fetchedMessages, isLoading,
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
   } = messagesQuery
+  // WP-1911(리뷰 반려 2차): 다음 페이지만 실패한 뒤 배경 재조회(60초 폴링·창 포커스)가 돌면 TanStack 이 재조회를 시작하며
+  // fetchMeta 를 비워 isFetchNextPageError 가 풀리는 동안 목록 배너가 되살아난다 — 배경 재조회 중은 확정된 실패가 아니고,
+  // 그동안 푸터 오류도 꺼진다. 직전 실패가 다음 페이지 실패였으면 배너를 끈다. 재조회가 끝나 (다음 페이지 실패가 아닌) 오류로
+  // 남으면 다시 켠다 — 재조회 성공 땐 오류가 없어지고, 전체 재조회 실패 시 배너가 서는 전체 장애 신호는 그대로다(리뷰 반려).
+  const [nextPageFailed, setNextPageFailed] = useState(isFetchNextPageError)
+  if (!nextPageFailed && isFetchNextPageError) setNextPageFailed(true)
+  else if (nextPageFailed && !listFetching && !isFetchNextPageError) setNextPageFailed(false)
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
@@ -2194,8 +2204,10 @@ function MailInbox() {
             <>
               {/* WP-1911 데이터 있는 재조회 실패 — 행을 지우지 않고 목록 위 배너 한 줄로만 알린다.
                   다음 페이지 받기만 실패한 경우(isFetchNextPageError)는 목록 끝 푸터가 이미 실패를 알리므로 배너를 띄우지 않는다 —
-                  두 안내가 함께 뜨고 배너의 다시 시도가 이미 받은 페이지까지 다시 받게 하던 것을 막는다(리뷰 반려). */}
-              {showsLoadError(messagesQuery) && !messagesQuery.isFetchNextPageError && (
+                  두 안내가 함께 뜨고 배너의 다시 시도가 이미 받은 페이지까지 다시 받게 하던 것을 막는다(리뷰 반려).
+                  다음 페이지 실패였다는 기록(nextPageFailed)도 함께 본다 — 배경 재조회 중에는 fetchMeta 가 비어
+                  isFetchNextPageError 가 풀려 배너가 되살아나기 때문이다(리뷰 반려 2차). */}
+              {showsLoadError(messagesQuery) && !isFetchNextPageError && !nextPageFailed && (
                 <LoadErrorState title="목록을 다시 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" variant="banner" className="px-4 py-3" />
               )}
               {!messages || messages.length === 0 ? (
