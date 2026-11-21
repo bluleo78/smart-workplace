@@ -8,6 +8,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { record, renderMail, unreadCounts } from '@/test/kits/mail/testkit-b4'
+import { gate } from '@/test/loadErrorRetry'
 import type { EmailMessageSummary } from '@/types/mailMessage'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
@@ -102,8 +103,10 @@ test('메일 검색은 헤더가 아니라 목록 칸 맨 위 키워드 필터(�
   expect(search).toHaveAttribute('placeholder', '제목·보낸사람')
   const list = screen.getByTestId('mail-list')
   expect(list).toContainElement(search)
-  // 필터 줄이 목록 칸의 첫 자식이고, 받은편지함의 동기화·모두 읽음도 같은 줄에 합쳐졌다
-  expect(list.firstElementChild).toBe(screen.getByTestId('mail-filter-line')) // 필터 줄 바깥 루트(@container)가 첫 자식
+  // 필터 줄이 목록 칸의 맨 위(숨은 구역 헤딩 h2 바로 뒤, WP-1889)이고, 받은편지함의 동기화·모두 읽음도 같은 줄에 합쳐졌다
+  expect(list.firstElementChild?.tagName).toBe('H2') // 숨은 sr-only 구역 헤딩은 레이아웃에 자리를 차지하지 않는다
+  // 위치 인덱스 대신 이름으로 찾은 헤딩의 바로 다음 형제가 필터 줄 바깥 루트(@container)여야 한다
+  expect(within(list).getByRole('heading', { level: 2, name: '메일 목록' }).nextElementSibling).toBe(screen.getByTestId('mail-filter-line'))
   // 접근성 이름은 목적까지, 자리표시는 대상 필드만
   expect(search).toHaveAccessibleName('메일 필터: 제목·보낸사람')
   // 동기화 버튼은 키워드 뒤 왼쪽(chips), 모두 읽음은 오른쪽 끝 — DOM 순서 키워드 → 동기화 → 모두 읽음
@@ -724,4 +727,51 @@ test('개인 비서 OFF 계정이어도 객관 요약이 있으면 카드를 보
   await openFirstMail(false, [http.get('/api/v1/mail/messages/:id/summary', () => HttpResponse.json({ summary: '• 객관 요약 텍스트' }))])
   expect(await screen.findByTestId('mail-ai-summary')).toHaveTextContent('객관 요약 텍스트')
   expect(screen.queryByTestId('mail-ai-summary-loading')).not.toBeInTheDocument()
+})
+
+// 스크린리더 헤딩 탐색용 숨은 구역 헤딩(WP-1889)
+test('목록 칸·빈 상세에 숨은 구역 헤딩(h2)이 있어 헤딩 탐색으로 건너뛸 수 있다(WP-1889)', async () => {
+  renderMail('/mail/1', { handlers: [searchableList().handler] })
+  const list = await screen.findByTestId('mail-list')
+  expect(within(list).getByRole('heading', { level: 2, name: '메일 목록' })).toHaveClass('sr-only')
+  const empty = await screen.findByTestId('mail-detail-empty')
+  expect(within(empty).getByRole('heading', { level: 2, name: '메일 상세' })).toHaveClass('sr-only')
+})
+
+// 메일을 열면 빈 상세의 숨은 h2 가 사라져 상세 칸의 h2 는 메일 제목뿐이어야 한다(WP-1889)
+test('메일을 열면 상세 칸의 h2 는 메일 제목 하나뿐이다(WP-1889)', async () => {
+  renderMail('/mail/1?messageId=100', {
+    messages: [summary({ id: 100, subject: '월간 보고서' })],
+    handlers: [detailHandler(100, { subject: '월간 보고서' })],
+  })
+  await screen.findByTestId('mail-detail')
+  const pane = screen.getByTestId('mail-detail-pane')
+  const h2s = within(pane).getAllByRole('heading', { level: 2 })
+  expect(h2s).toHaveLength(1)
+  expect(h2s[0]).toHaveTextContent('월간 보고서')
+})
+
+// 상세를 불러오는 동안(응답 전)과 조회가 실패한 뒤 모두 상세 구역 헤딩이 있다 — 헤딩 탐색이 상세 칸을 건너뛰지 않게(WP-1889)
+test('메일 상세 로딩·조회 실패 상태에도 숨은 구역 헤딩(h2)이 있다(WP-1889)', async () => {
+  const { promise, release } = gate()
+  renderMail('/mail/1?messageId=100', {
+    messages: [summary({ id: 100, subject: '월간 보고서' })],
+    handlers: [
+      http.get('/api/v1/mail/messages/100', async () => {
+        await promise
+        return HttpResponse.json({ message: 'boom' }, { status: 500 })
+      }),
+    ],
+  })
+  try {
+    const loading = await screen.findByText('불러오는 중…', {}, { timeout: 10_000 })
+    const pane = screen.getByTestId('mail-detail-pane')
+    expect(pane).toContainElement(loading)
+    expect(within(pane).getByRole('heading', { level: 2, name: '메일 상세' })).toHaveClass('sr-only')
+  } finally {
+    release()
+  }
+  const pane = screen.getByTestId('mail-detail-pane')
+  expect(await within(pane).findByText('메일을 불러오지 못했습니다')).toBeInTheDocument()
+  expect(within(pane).getByRole('heading', { level: 2, name: '메일 상세' })).toHaveClass('sr-only')
 })

@@ -31,6 +31,14 @@ function truncateNotes(notes: string | null | undefined) {
 }
 
 /**
+ * 상세 칸의 숨은 구역 헤딩(WP-1889) — 스크린리더가 헤딩 탐색으로 상세 칸에 닿게 한다.
+ * 내용이 열리면 본문 제목 h2 가 대신하므로 칸 바깥 한 곳이 아니라 빈·로딩·오류 분기마다 둔다.
+ */
+function ContactDetailSrHeading() {
+  return <h2 className="sr-only">연락처 상세</h2>
+}
+
+/**
  * 선택된 연락처 상세 패널. 멤버=프로필+그룹(읽기전용), 외부=연락 필드 + editable 시 수정/삭제.
  * onClose 는 선택을 닫는다(목록으로) — 없거나 볼 수 없는 연락처(404)에서 「다시 시도」 대신 쓴다(WP-555).
  */
@@ -56,6 +64,7 @@ export function ContactDetailPanel({
         data-testid="contact-detail-empty"
         className="flex h-full flex-col items-center justify-center gap-3 text-center"
       >
+        <ContactDetailSrHeading />
         <Users className="h-10 w-10 text-muted-foreground/50" />
         <div>
           <p className="text-sm font-medium">연락처를 선택하세요</p>
@@ -67,7 +76,12 @@ export function ContactDetailPanel({
     )
   }
   if (isLoading) {
-    return <div className="p-4 text-sm text-muted-foreground">불러오는 중…</div>
+    return (
+      <div className="p-4 text-sm text-muted-foreground">
+        <ContactDetailSrHeading />
+        불러오는 중…
+      </div>
+    )
   }
   // 404 = 없거나(삭제) 볼 수 없는(남의 개인) 연락처 — 다시 시도해도 같으므로 안내와 목록으로 돌아가기만 둔다(WP-555).
   if (isError && isNotFoundError(error)) {
@@ -76,6 +90,7 @@ export function ContactDetailPanel({
         data-testid="contact-detail-not-found"
         className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center"
       >
+        <ContactDetailSrHeading />
         <UserX className="h-10 w-10 text-muted-foreground/50" />
         <div>
           <p className="text-sm font-medium">연락처를 찾을 수 없거나 볼 수 없습니다</p>
@@ -92,6 +107,7 @@ export function ContactDetailPanel({
   if (isError || !data) {
     return (
       <div className="p-4 text-center">
+        <ContactDetailSrHeading />
         <p className="text-sm text-destructive mb-2">연락처를 찾을 수 없습니다</p>
         <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
       </div>

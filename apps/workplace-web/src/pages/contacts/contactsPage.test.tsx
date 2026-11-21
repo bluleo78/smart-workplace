@@ -100,6 +100,45 @@ test('연락처 행·타입 필터 선택 표시 (WP-368)', async () => {
   expect(all).not.toHaveAttribute('aria-current')
 })
 
+// WP-1889 — 스크린리더 헤딩 탐색용 숨은 h2: 목록 칸·빈 상세에 하나씩 두고, 연락처를 고르면 상세 h2 는 이름 하나뿐이다.
+test('목록 칸·빈 상세에 숨은 구역 헤딩, 연락처를 고르면 상세 h2 는 이름 하나(WP-1889)', async () => {
+  const { user } = renderContacts('/contacts', { handlers: [emptyTree(), facetsHandler(), listHandler([]), memberDetailHandler()] })
+  const list = await screen.findByTestId('contact-list')
+  expect(within(list).getByRole('heading', { level: 2, name: '연락처 목록' })).toHaveClass('sr-only')
+  const detail = screen.getByTestId('contact-detail')
+  expect(within(detail).getByRole('heading', { level: 2, name: '연락처 상세' })).toHaveClass('sr-only')
+  const picked = await screen.findByTestId('contact-row-MEMBER-1')
+  await user.click(within(picked).getByRole('button', { name: /^멤버 김멤버/ }))
+  await screen.findByTestId('contact-detail-member')
+  const h2s = within(detail).getAllByRole('heading', { level: 2 })
+  expect(h2s).toHaveLength(1)
+  expect(h2s[0]).not.toHaveTextContent('연락처 상세')
+})
+
+// WP-1889 — 상세를 불러오는 동안(응답 전)과 조회가 일반 오류(500)로 끝난 뒤 모두 상세 구역 헤딩이 있다.
+test('연락처 상세 로딩·조회 실패 상태에도 숨은 구역 헤딩(h2)이 있다(WP-1889)', async () => {
+  const { promise, release } = gate()
+  renderContacts('/contacts?contact=member:1', {
+    handlers: [
+      emptyTree(),
+      listHandler([]),
+      http.get('/api/v1/contacts/members/1', async () => {
+        await promise
+        return HttpResponse.json({ message: 'boom' }, { status: 500 })
+      }),
+    ],
+  })
+  const detail = screen.getByTestId('contact-detail')
+  try {
+    expect(within(detail).getByText('불러오는 중…')).toBeInTheDocument()
+    expect(within(detail).getByRole('heading', { level: 2, name: '연락처 상세' })).toHaveClass('sr-only')
+  } finally {
+    release()
+  }
+  expect(await within(detail).findByText('연락처를 찾을 수 없습니다')).toBeInTheDocument()
+  expect(within(detail).getByRole('heading', { level: 2, name: '연락처 상세' })).toHaveClass('sr-only')
+})
+
 // #113 그룹 뷰에서도 공통 헤더의 「새 외부 연락처」가 보이고, #98 사이드바는 레일과 같은 「연락처」 타이틀 헤더를 갖는다.
 test('그룹 뷰에서도 헤더 새 외부 연락처 버튼과 사이드바 타이틀이 보인다', async () => {
   renderContacts('/contacts?group=1', {
@@ -114,6 +153,8 @@ test('그룹 뷰에서도 헤더 새 외부 연락처 버튼과 사이드바 타
   expect(await screen.findByTestId('group-contact-view')).toBeInTheDocument()
   expect(screen.getByTestId('page-header')).toHaveTextContent('연락처')
   expect(screen.getByTestId('contact-create')).toHaveTextContent('새 외부 연락처')
+  // 그룹 보기에서도 목록 칸의 숨은 구역 헤딩이 있다(WP-1889)
+  expect(within(screen.getByTestId('contact-list')).getByRole('heading', { level: 2, name: '연락처 목록' })).toBeInTheDocument()
   expect(within(screen.getByTestId('contact-sidebar')).getByText('연락처', { exact: true })).toBeInTheDocument()
 })
 
@@ -195,6 +236,7 @@ test('404 연락처 주소 — 찾을 수 없음 안내와 목록으로(데스�
   })
   const notFound = await screen.findByTestId('contact-detail-not-found')
   expect(notFound).toHaveTextContent('연락처를 찾을 수 없거나 볼 수 없습니다')
+  expect(within(notFound).getByRole('heading', { level: 2, name: '연락처 상세' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '다시 시도' })).not.toBeInTheDocument()
   await user.click(screen.getByTestId('contact-detail-back-to-list'))
   await waitFor(() => expect(location()).not.toContain('contact='))

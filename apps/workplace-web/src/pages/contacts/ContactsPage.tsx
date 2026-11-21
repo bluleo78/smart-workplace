@@ -375,6 +375,8 @@ export function ContactsPage() {
             )}
             data-testid="contact-list"
           >
+            {/* 스크린리더 헤딩 탐색용 숨은 구역 제목(WP-1889) — 목록 칸을 h2 로 알린다(보이는 제목은 따로 없음). */}
+            <h2 className="sr-only">연락처 목록</h2>
             {/* 목록 위 필터 줄(WP-1355) — 키워드(→ q) 다음에 그룹 범위 칩. 데스크톱·모바일 같은 줄이 폭에 맞춰 한 줄/두 줄로 바뀐다(돋보기 없음).
                 자리표시는 통합 목록이 찾는 기준(이름·이메일)만 쓴다 — 소속(organization)은 통합 검색 대상이 아니다. */}
             {showListChrome && (
