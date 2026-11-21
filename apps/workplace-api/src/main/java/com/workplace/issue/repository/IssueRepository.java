@@ -10,12 +10,15 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_COMMENT;
 import static com.workplace.jooq.Tables.ISSUE_COMPONENT;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
+import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ISSUE_VERSION;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
+import static com.workplace.jooq.Tables.LABEL;
 import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_STATUS;
+import static com.workplace.jooq.Tables.USER;
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.exists;
 import static org.jooq.impl.DSL.noCondition;
@@ -35,6 +38,7 @@ import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.repository.KeysetSeek.SeekKey;
+import com.workplace.user.dto.UserKind;
 import com.workplace.version.dto.VersionKind;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -46,6 +50,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -291,6 +296,44 @@ public class IssueRepository {
         .from(ISSUE_WITH_STATUS)
         .where(ISSUE.ID.eq(DSL.any(ids.toArray(Long[]::new))).and(ISSUE.DELETED_AT.isNull()))
         .fetch(this::mapToRow);
+  }
+
+  /** WP-1830 AI 처리 표본용 — 대기열 이슈 수와 그중 가장 오래 기다린 라벨 부착 시각(없으면 null). */
+  public record QueueStats(int waiting, OffsetDateTime oldestLabeledAt) {}
+
+  /**
+   * WP-1830 — AI 가 아직 집지 않은 대기열 이슈를 센다. 대기열 이슈 = 열린 상태 · 삭제 안 됨 · 대기열 라벨(이름이 목록 중 하나와 앞뒤 공백·대소문자
+   * 무시로 같음)이 붙음 · AI(kind=AGENT) 담당이 없음({@code IssueClaimService} 의 판정과 같은 규칙). 이슈 하나에 대기열 라벨이 둘이어도
+   * 한 번만 센다. 삭제된 프로젝트의 이슈는 일꾼이 집지 않으므로 뺀다(프로젝트 삭제는 이슈를 정리하지 않는다). {@code oldestLabeledAt} 은 그 이슈들의
+   * 대기열 라벨 부착 시각 최솟값이다. 호출자는 테넌트 범위 트랜잭션(RLS) 안에서 부르므로 SQL 에 테넌트 조건이 없다.
+   */
+  public QueueStats countAgentQueue(Collection<String> queueLabels) {
+    List<String> names = queueLabels.stream().map(n -> n.trim().toLowerCase(Locale.ROOT)).toList();
+    if (names.isEmpty()) return new QueueStats(0, null);
+    var r =
+        dsl.select(DSL.countDistinct(ISSUE.ID), DSL.min(ISSUE_LABEL.CREATED_AT))
+            .from(ISSUE)
+            .join(PROJECT)
+            .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+            .join(ISSUE_LABEL)
+            .on(ISSUE_LABEL.ISSUE_ID.eq(ISSUE.ID))
+            .join(LABEL)
+            .on(LABEL.ID.eq(ISSUE_LABEL.LABEL_ID))
+            .where(ISSUE.DELETED_AT.isNull())
+            .and(PROJECT.DELETED_AT.isNull())
+            .and(ISSUE.STATUS.in(IssueStatuses.OPEN))
+            .and(DSL.lower(DSL.trim(LABEL.NAME)).in(names))
+            .and(
+                notExists(
+                    selectOne()
+                        .from(ISSUE_ASSIGNEE)
+                        .join(USER)
+                        .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
+                        .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))
+                        .and(USER.KIND.eq(UserKind.AGENT))))
+            .fetchOne();
+    // COUNT(DISTINCT) 는 null 을 내지 않는다 — 대상이 없으면 0, 최소 시각은 null.
+    return new QueueStats(r.value1(), r.value2());
   }
 
   /**

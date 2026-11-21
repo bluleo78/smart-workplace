@@ -186,6 +186,10 @@ workplace:
   # 두 값은 따로의 설정이라 반드시 함께 옮긴다 — 운영은 Helm values 의 api.recurrencePendingTimeout 과 aiAgent.recurringTimeoutMs.
   issue-recurrence:
     pending-timeout: ${WORKPLACE_RECURRENCE_PENDING_TIMEOUT:PT40M}
+  # WP-1830: AI 현황 — AI 대기열로 보는 라벨 이름 목록(AI 처리 1분 표본의 대기열 수·대기 시간). 비우면 「AI 개발팀」.
+  ai-status:
+    queue-labels:
+      - AI 개발팀
   ai-agent:
     base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN}  # 기본값 없음 — 미설정 시 앱 기동 실패 (보안)

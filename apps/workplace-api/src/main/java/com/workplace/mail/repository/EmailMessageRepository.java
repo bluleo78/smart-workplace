@@ -1892,16 +1892,7 @@ public class EmailMessageRepository {
             .join(EMAIL_CONTENT)
             .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
-            .and(EMAIL_FOLDER.NAME.eq("INBOX"))
-            .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
-            .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
-            .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNull())
-            // WP-1347: 재시도 예약된 content 는 그 시각이 지난 뒤에만
-            .and(
-                EMAIL_CONTENT
-                    .AI_CATEGORY_NEXT_ATTEMPT_AT
-                    .isNull()
-                    .or(EMAIL_CONTENT.AI_CATEGORY_NEXT_ATTEMPT_AT.le(DSL.currentOffsetDateTime())))
+            .and(uncategorizedCondition())
             .asTable("r");
     return dsl.select(ranked.field(EMAIL_MESSAGE.ID))
         .from(ranked)
@@ -1911,6 +1902,56 @@ public class EmailMessageRepository {
             ranked.field(EMAIL_MESSAGE.ID).desc())
         .limit(limit)
         .fetch(ranked.field(EMAIL_MESSAGE.ID));
+  }
+
+  /**
+   * 분류 대기 메일의 공통 조건 — {@link #listUncategorizedIds} 와 {@link #countUncategorized} 가 같은 규칙을 쓰도록 한 곳에
+   * 둔다 (INBOX · 본문 적재 완료 · 미분류 · 재시도 예약 시각이 없거나 지남). EMAIL_MESSAGE·EMAIL_FOLDER·EMAIL_CONTENT 가 조인된
+   * 쿼리에서만 쓴다. 계정 조건은 호출부가 붙인다.
+   */
+  private static Condition uncategorizedCondition() {
+    return EMAIL_FOLDER
+        .NAME
+        .eq("INBOX")
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
+        .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNull())
+        // WP-1347: 재시도 예약된 content 는 그 시각이 지난 뒤에만
+        .and(
+            EMAIL_CONTENT
+                .AI_CATEGORY_NEXT_ATTEMPT_AT
+                .isNull()
+                .or(EMAIL_CONTENT.AI_CATEGORY_NEXT_ATTEMPT_AT.le(DSL.currentOffsetDateTime())));
+  }
+
+  /**
+   * WP-1830 AI 처리 표본용 — 분류 대기 메일 수. {@link #listUncategorizedIds} 와 같은 행 조건에서 limit 만 뺀, 서로 다른
+   * content 수다(같은 content 사본은 한 번 분류하면 모두 빠지므로 1로 센다). 분류기가 실제로 도는 계정의 메일만 센다 — {@code
+   * MailCategoryBackfillScheduler} 는 동기화 대상(연결이 끊기지 않은) 계정만 돌고({@code findActiveForSync} 와 같은
+   * {@code disabled_at IS NULL}), 워크스페이스 비서가 없으면 계정 {@code ai_enabled} 인 계정만 분류한다({@code
+   * resolveSpec}). 그 밖의 계정 메일은 일꾼이 영원히 집지 않아 적체로 남으므로 세지 않는다. 개인 비서의 자격증명 유무는 SQL 로 알 수 없어 여기서는 보지
+   * 않는다(이 경우만 약간 많이 센다). 호출자는 테넌트 범위 트랜잭션(RLS) 안에서 부른다.
+   *
+   * @param workspaceAssistantPresent 워크스페이스 공통 비서가 있는가 — 없으면 {@code ai_enabled} 계정만 센다
+   */
+  public int countUncategorized(boolean workspaceAssistantPresent) {
+    Condition accountScope = EMAIL_ACCOUNT.DISABLED_AT.isNull();
+    if (!workspaceAssistantPresent) {
+      accountScope = accountScope.and(EMAIL_ACCOUNT.AI_ENABLED.isTrue());
+    }
+    Integer n =
+        dsl.select(DSL.countDistinct(EMAIL_MESSAGE.CONTENT_ID))
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_ACCOUNT)
+            .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(uncategorizedCondition())
+            .and(accountScope)
+            .fetchOne(0, Integer.class);
+    return n == null ? 0 : n;
   }
 
   /** WP-185 분류 입력 — 대상 id 들의 제목·보낸사람·본문. 계정 범위로 한정하고(다른 계정 id 차단), 본문은 적재·검증 사본만 읽는다. */

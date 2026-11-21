@@ -21,6 +21,7 @@ import com.workplace.jooq.tables.AgentScreenInput.AgentScreenInputPath;
 import com.workplace.jooq.tables.AgentScreenSession.AgentScreenSessionPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
+import com.workplace.jooq.tables.AiCapacitySample.AiCapacitySamplePath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
 import com.workplace.jooq.tables.AiMemoryChange.AiMemoryChangePath;
 import com.workplace.jooq.tables.AiMemoryForgotten.AiMemoryForgottenPath;
@@ -401,6 +402,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _agentWork = new AgentWorkPath(this, null, Keys.AGENT_WORK__AGENT_WORK_TENANT_ID_FKEY.getInverseKey());
 
         return _agentWork;
+    }
+
+    private transient AiCapacitySamplePath _aiCapacitySample;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.ai_capacity_sample</code> table
+     */
+    public AiCapacitySamplePath aiCapacitySample() {
+        if (_aiCapacitySample == null)
+            _aiCapacitySample = new AiCapacitySamplePath(this, null, Keys.AI_CAPACITY_SAMPLE__AI_CAPACITY_SAMPLE_TENANT_ID_FKEY.getInverseKey());
+
+        return _aiCapacitySample;
     }
 
     private transient AiMemoryChangePath _aiMemoryChange;

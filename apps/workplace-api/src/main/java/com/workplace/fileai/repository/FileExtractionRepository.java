@@ -3,6 +3,7 @@ package com.workplace.fileai.repository;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
 import com.workplace.fileai.ExtractionProfile;
+import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -24,6 +25,16 @@ public class FileExtractionRepository {
         .onConflict(FILE_EXTRACTION.FILE_ID)
         .doNothing()
         .execute();
+  }
+
+  /**
+   * WP-1830 AI 처리 표본용 — 요약 대기 파일 수. 요약 일꾼이 실제로 집어 가는 조건({@link
+   * WorkerJobRepository#summaryResumableCondition} — TEXT_READY 또는 임대 만료 SUMMARIZING, 시도 상한 미만,
+   * FULL 프로파일)과 같다. 호출자는 테넌트 범위 트랜잭션(RLS) 안에서 부른다.
+   */
+  public int countSummaryPending() {
+    return dsl.fetchCount(
+        FILE_EXTRACTION, WorkerJobRepository.summaryResumableCondition(OffsetDateTime.now()));
   }
 
   /**

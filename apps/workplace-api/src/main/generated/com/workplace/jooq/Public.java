@@ -21,6 +21,7 @@ import com.workplace.jooq.tables.AgentScreenSession;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
+import com.workplace.jooq.tables.AiCapacitySample;
 import com.workplace.jooq.tables.AiMemory;
 import com.workplace.jooq.tables.AiMemoryChange;
 import com.workplace.jooq.tables.AiMemoryForgotten;
@@ -297,6 +298,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.ai_agent_credential</code>.
      */
     public final AiAgentCredential AI_AGENT_CREDENTIAL = AiAgentCredential.AI_AGENT_CREDENTIAL;
+
+    /**
+     * AI 처리 용량 1분 표본 — 테넌트·분 하나당 한 행
+     */
+    public final AiCapacitySample AI_CAPACITY_SAMPLE = AiCapacitySample.AI_CAPACITY_SAMPLE;
 
     /**
      * The table <code>public.ai_memory</code>.
@@ -1175,6 +1181,7 @@ public class Public extends SchemaImpl {
             AgentWork.AGENT_WORK,
             AgentWorkEvent.AGENT_WORK_EVENT,
             AiAgentCredential.AI_AGENT_CREDENTIAL,
+            AiCapacitySample.AI_CAPACITY_SAMPLE,
             AiMemory.AI_MEMORY,
             AiMemoryChange.AI_MEMORY_CHANGE,
             AiMemoryForgotten.AI_MEMORY_FORGOTTEN,
