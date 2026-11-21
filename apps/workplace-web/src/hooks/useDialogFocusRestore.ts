@@ -9,6 +9,21 @@ export const FOCUSABLE =
 /** 이유 감싸개(DisabledReasonTooltip)가 다는 표지 속성 — 순환 import 를 피하려 훅 쪽에 두고 감싸개가 가져다 쓴다. */
 export const DISABLED_REASON_WRAPPER_ATTR = 'data-disabled-reason-wrapper';
 
+/**
+ * 막힌 트리거 대신 그것을 감싼 이유 감싸개로 초점을 옮긴다 — 옮겼으면 true (WP-1856).
+ * 처리 중·상한으로 트리거가 막혀 있으면(disabled 는 초점을 받지 않는다) 그냥 두면 body 로 떨어진다.
+ * 키보드를 쓴 경우에만, 트리거에서 가장 가까운 이유 감싸개(표지로 식별 — 안쪽 보조 span 이 있어 깊이에 기대지 않는다)가 대신 받는다.
+ * 마우스 사용자는 감싸개가 초점을 받으면 툴팁이 억지로 뜨므로 건너뛴다. reason 이 없어 tabindex -1 인 감싸개는 Tab 정지가 아니므로 제외한다.
+ * 대화상자 복원(focusNearest)과 팝오버 닫힘(보드 밴드 「+」)이 같은 정책을 쓰도록 꺼내 둔다.
+ */
+export function focusDisabledReasonWrapper(el: HTMLElement, keyboard: boolean): boolean {
+  if (!keyboard) return false;
+  const wrapper = el.parentElement?.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`);
+  if (!wrapper || wrapper.tabIndex < 0) return false;
+  wrapper.focus();
+  return document.activeElement === wrapper;
+}
+
 /** 대상 안에서 포커스가 머물 행 — 숨은 대상이면 이 안에서 대신 받을 곳을 찾는다. */
 const ROW = 'li, tr, [role="row"], [role="listitem"]';
 
@@ -43,15 +58,7 @@ function currentRestoreTarget(): HTMLElement | null {
 function focusNearest(el: HTMLElement, keyboard: boolean) {
   el.focus();
   if (document.activeElement === el) return;
-  // WP-1856: 처리 중이라 트리거가 막혀 있으면(disabled 는 초점을 받지 않는다) 그냥 두면 body 로 떨어진다.
-  // 키보드를 쓴 경우에만, 막힌 버튼의 직접 부모인 이유 감싸개(표지로 식별)가 대신 받는다 — 마우스 사용자는 감싸개가 초점을
-  // 받으면 툴팁이 억지로 뜨므로 건너뛴다. reason 이 없어 tabindex -1 인 감싸개는 Tab 정지가 아니므로 제외한다(tabIndex >= 0).
-  // 감싸개는 안쪽 내용을 보조 span 으로 한 번 더 감싸므로 깊이에 기대지 않고 가장 가까운 감싸개 표지를 찾는다.
-  const parent = el.parentElement?.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`)
-  if (keyboard && parent && parent.tabIndex >= 0) {
-    parent.focus();
-    if (document.activeElement === parent) return;
-  }
+  if (focusDisabledReasonWrapper(el, keyboard)) return;
   for (const candidate of el.closest(ROW)?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []) {
     candidate.focus();
     if (document.activeElement === candidate) return;

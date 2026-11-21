@@ -207,6 +207,21 @@ describe('보드 — 프로젝트 상태 컬럼', () => {
     expect(screen.queryByTestId('status-name-input')).not.toBeInTheDocument()
   })
 
+  // 리뷰 후속(#1580): 마우스로 저장했으면 감싸개로 초점을 보내지 않는다 — 감싸개가 초점을 받으면 툴팁이 억지로 뜬다(대화상자 복원과 같은 정책).
+  test('마우스로 띠 ＋ 에서 20번째 상태를 저장하면 감싸개로 초점을 옮기지 않는다', async () => {
+    const statuses = boardStatuses()
+    for (let i = 0; i < 11; i++) statuses.push(makeProjectStatus({ id: 100 + i, name: `추가 상태 ${i + 1}`, category: 'IN_PROGRESS', position: 20 + i }))
+    const { user } = await openBoard(boardApi({ statuses }))
+    const add = screen.getByTestId('board-band-add-IN_PROGRESS')
+    await user.click(add)
+    const input = await screen.findByTestId('status-name-input')
+    fireEvent.change(input, { target: { value: '마지막' } })
+    await user.click(screen.getByTestId('status-name-submit'))
+    await waitFor(() => expect(screen.queryByTestId('status-name-input')).not.toBeInTheDocument())
+    await waitFor(() => expect(add).toBeDisabled())
+    expect(add.closest('[data-disabled-reason-wrapper]')).not.toHaveFocus()
+  })
+
   test('서버가 중복 이름(409)으로 거절하면 그 자리에 오류를 보이고 입력을 남긴다', async () => {
     const api = boardApi()
     const { user } = await openBoard(api, {

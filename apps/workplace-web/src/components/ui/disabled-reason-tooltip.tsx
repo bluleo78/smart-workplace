@@ -68,7 +68,11 @@ export function DisabledReasonTooltip({
       // 감싸개 표지 — 초점 복원이 막힌 트리거의 부모 중 이 감싸개만 골라 초점을 옮기게 한다.
       {...{ [DISABLED_REASON_WRAPPER_ATTR]: '' }}
       onFocusCapture={(e) => {
-        keyboardFocus.current = isKeyboardFocused(e.target as Element)
+        // 포털로 띄운 안쪽 내용(팝오버 입력칸 등)의 초점도 React 트리를 따라 여기로 올라온다 — 그건 감싸개 DOM 밖이라 세지 않는다.
+        // 입력칸은 마우스로 눌러도 :focus-visible 이라, 세면 마우스로 저장해 막힐 때도 감싸개가 초점을 가져가 툴팁이 억지로 떴다(WP-1856).
+        // 포털 안에서 닫힐 때의 초점은 그 팝오버가 맡는다(보드 띠 ＋ 의 onCloseAutoFocus).
+        const target = e.target as Element
+        keyboardFocus.current = !!spanRef.current?.contains(target) && isKeyboardFocused(target)
         onFocusCapture?.(e)
       }}
       onBlurCapture={(e) => {
