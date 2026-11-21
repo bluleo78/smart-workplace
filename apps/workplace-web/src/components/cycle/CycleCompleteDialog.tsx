@@ -27,6 +27,7 @@ import {
 import { FieldError, FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useFieldHint } from '@/hooks/useFieldHint';
 
 import { useCompleteCycle, useCycleProgress, useCycles } from '../../hooks/queries/useCycles';
 import { extractApiError, isConflictError } from '../../lib/api-error';
@@ -201,6 +202,7 @@ function CompleteBody({
   const targetTotal = target ? (progressById.get(target.id)?.total ?? 0) : 0;
 
   const newRangeInvalid = isCycleDateRangeInvalid(newStart, newEnd);
+  const rangeHint = useFieldHint(newRangeInvalid);
   const nameTooLong = isNewCycleNameTooLong(newName);
   // 이름 칸 아래 문구 — 서버 오류(409)가 먼저, 없으면 길이 초과 안내.
   const nameMessage = nameError ?? (nameTooLong ? `사이클 이름은 ${CYCLE_NAME_MAX}자 이하로 입력하세요` : null);
@@ -330,7 +332,9 @@ function CompleteBody({
             {effectiveDest.kind === 'NEW' &&
               (editingNew ? (
                 <div className="space-y-3 rounded-lg border p-3">
-                  <div className="space-y-1">
+                  {/* space-y 대신 flex gap — 늘 두는 빈 안내 리전(sr-only, absolute)이 마지막 자식이 되어도 앞 칸에 여백을 더 붙이지 않는다(WP-1934).
+                      items-start 로 라벨을 글자 폭에 두어 라벨 오른쪽 빈 곳을 눌러 칸이 잡히지 않게 한다(칸은 w-full 이라 폭이 그대로다). */}
+                  <div className="flex flex-col items-start gap-1">
                     <Label htmlFor={`${labelId}-name`} className="text-xs text-muted-foreground">이름</Label>
                     <Input
                       id={`${labelId}-name`}
@@ -342,17 +346,21 @@ function CompleteBody({
                       maxLength={CYCLE_NAME_MAX} // 서버 상한(CycleCompleteRequest.newCycleName @Size 60)
                       aria-label="새 사이클 이름"
                       aria-invalid={nameMessage != null}
-                      aria-describedby={nameMessage ? `${labelId}-name-error` : undefined}
+                      aria-describedby={
+                        nameError ? `${labelId}-name-error` : nameMessage ? `${labelId}-name-hint` : undefined
+                      }
                     />
-                    {/* 서버 거절(제출 실패)은 alert, 길이 초과 같은 입력 중 안내는 polite — 같은 칸이어도 뜨는 시점이 다르다(WP-1901 리뷰). */}
+                    {/* 서버 거절(제출 실패)은 alert, 길이 초과 같은 입력 중 안내는 polite — 같은 칸이어도 뜨는 시점이 다르다(WP-1901 리뷰).
+                        둘은 id·testid 를 따로 갖는다. polite 리전(FieldError)은 서버 거절 중에도 비운 채 늘 두어,
+                        거절을 지우고 바로 길이 초과가 떠도 리전이 새로 생기지 않아 안내가 읽힌다(WP-1934). */}
                     <FormError id={`${labelId}-name-error`} data-testid="cycle-complete-name-error">
                       {nameError}
                     </FormError>
-                    <FieldError id={`${labelId}-name-error`} data-testid="cycle-complete-name-error">
+                    <FieldError id={`${labelId}-name-hint`} data-testid="cycle-complete-name-hint">
                       {nameError ? null : nameMessage}
                     </FieldError>
                   </div>
-                  <div className="space-y-1">
+                  <div className="flex flex-col gap-1">
                     <span className="text-xs text-muted-foreground">기간</span>
                     {/* 모바일(390px)에서는 날짜 칸을 한 줄씩 쌓는다 — 패널 안쪽에서 둘을 나란히 두면 칸이 126px 로 줄어 연도가 잘렸다(WP-1606).
                         캘린더 기간 입력(EventRangeInputs)처럼 좁을 때는 줄표를 숨기고 sm 부터 나란히 둔다. */}
@@ -362,8 +370,7 @@ function CompleteBody({
                         value={newStart}
                         onChange={(e) => setNewStart(e.target.value)}
                         aria-label="새 사이클 시작일"
-                        aria-invalid={newRangeInvalid}
-                        aria-describedby={newRangeInvalid ? 'cycle-complete-range-error' : undefined}
+                        {...rangeHint.inputProps}
                       />
                       <span className="hidden text-muted-foreground sm:inline" aria-hidden="true">~</span>
                       <Input
@@ -371,16 +378,13 @@ function CompleteBody({
                         value={newEnd}
                         onChange={(e) => setNewEnd(e.target.value)}
                         aria-label="새 사이클 종료일"
-                        aria-invalid={newRangeInvalid}
-                        aria-describedby={newRangeInvalid ? 'cycle-complete-range-error' : undefined}
+                        {...rangeHint.inputProps}
                       />
                     </div>
                     {/* 날짜 뒤집힘은 입력하는 도중에 뜨는 안내라 polite 로 읽히게 한다(WP-1901 리뷰) — role=alert 는 제출 실패에만. */}
-                    {newRangeInvalid && (
-                      <FieldError id="cycle-complete-range-error" data-testid="cycle-complete-range-error">
-                        종료일은 시작일 이후여야 합니다
-                      </FieldError>
-                    )}
+                    <FieldError id={rangeHint.id} data-testid="cycle-complete-range-error">
+                      {newRangeInvalid ? '종료일은 시작일 이후여야 합니다' : null}
+                    </FieldError>
                   </div>
                   <p className="text-xs text-muted-foreground">새 사이클은 바로 진행 중으로 시작합니다.</p>
                 </div>
