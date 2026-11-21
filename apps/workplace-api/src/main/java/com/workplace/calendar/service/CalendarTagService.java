@@ -254,18 +254,9 @@ public class CalendarTagService {
             .findMasterOccurrenceByOverride(eventId)
             .map(MasterOccurrence::eventId)
             .orElse(eventId);
-    // 링크를 바꾸기 전에 행을 먼저 잠근다(WP-1920) — 잠그지 않으면 동시 PATCH(FOR UPDATE 후 버전 검사)가 링크 교체와 버전 갱신 사이에 끼어들어
-    // 낡은 폼이 통과한다. 순서는 lockSeriesFor 와 같게 마스터 → override. 일정 저장 요청 경로는 이미 같은 순서로 잠근 상태라 재잠금은 즉시
-    // 통과한다.
-    eventRepo.lockForUpdate(masterId);
-    if (masterId != eventId) eventRepo.lockForUpdate(eventId);
-    // 태그가 실제로 바뀌면 버전을 올린다(WP-1920) — 안 올리면 다른 사람이 태그만 바꾼 뒤 낡은 폼(태그를 늘 함께 보냄)이 버전 검사를 통과해 태그를
-    // 덮어쓴다. 태그는 마스터에 붙지만 고친 회차 폼의 버전 검사는 그 회차 행의 updated_at 을 보므로 마스터와 회차 행을 함께 올린다.
-    // 같은 태그를 다시 보낸 no-op 은 올리지 않는다. 일정 저장 요청 경로에서는 버전 검사가 쓰기 전에 끝났으므로 자기 충돌이 없다.
-    if (tagRepo.replaceAppLinks(callerId, masterId, wanted)) {
-      eventRepo.touchUpdatedAt(
-          masterId == eventId ? List.of(masterId) : List.of(masterId, eventId));
-    }
+    // 앱 태그는 사람마다 따로 붙는 개인 데이터라 일정의 공유 버전(updated_at)을 올리지 않는다(WP-1920) — 올리면 초대받은 사람이 자기 태그를 붙일 때
+    // 주최자의 열린 폼이 거짓 409 로 막힌다. 내 태그는 나만 바꾸므로 낡은 폼이 덮어쓸 다른 사람의 변경도 없다.
+    tagRepo.replaceAppLinks(callerId, masterId, wanted);
   }
 
   /**

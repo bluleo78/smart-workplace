@@ -53,10 +53,15 @@ class CalendarEventUpdateConflictTest extends IntegrationTestBase {
 
   /** 일정 읽기·쓰기 권한을 가진 사람 요청으로 꾸민다(요청마다 테넌트를 되돌려 놓는다). */
   private RequestPostProcessor asMe() {
+    return asUser(me);
+  }
+
+  /** 일정 읽기·쓰기 권한을 가진 지정 사용자 요청으로 꾸민다. */
+  private RequestPostProcessor asUser(long userId) {
     RequestPostProcessor auth =
         authentication(
             new UsernamePasswordAuthenticationToken(
-                me,
+                userId,
                 "n/a",
                 List.of(
                     new SimpleGrantedAuthority("calendar:read"),
@@ -272,122 +277,78 @@ class CalendarEventUpdateConflictTest extends IntegrationTestBase {
         .andExpect(status().is2xxSuccessful());
   }
 
+  /**
+   * 태그 연결은 사람마다 따로라, 초대받은 사람이 자기 태그를 붙여도 일정의 공유 버전(updatedAt)이 움직이지 않는다 — 주최자의 열린 폼이 거짓 409 로 막히면 안
+   * 된다(WP-1920).
+   */
   @Test
-  void 다른_쪽이_태그만_바꾸면_버전이_올라_낡은_폼_저장이_409_이고_태그는_그대로다() throws Exception {
-    long tagA = createTag("A");
-    long tagB = createTag("B");
-    JsonNode created = create("회의", null);
+  void 초대받은_사람이_자기_태그를_붙여도_주최자의_낡은_버전_저장은_200_이다() throws Exception {
+    long invitee = withMembership(TestFixtures.createHuman(dsl));
+    long organizerTag = createTag("주최자태그");
+    JsonNode created =
+        JSON.readTree(
+            mvc.perform(
+                    post("/api/v1/calendar/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            "{\"title\":\"회의\",\"startsAt\":\"2026-11-20T01:00:00Z\","
+                                + "\"endsAt\":\"2026-11-20T02:00:00Z\",\"attendeeUserIds\":["
+                                + invitee
+                                + "],\"tagIds\":["
+                                + organizerTag
+                                + "]}")
+                        .with(asMe()))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
     long id = created.path("id").asLong();
-    String openedVersion = created.path("updatedAt").asText();
+    String openedVersion = send(get("/api/v1/calendar/events/" + id)).path("updatedAt").asText();
     tick();
 
-    // 다른 사람(탭)이 태그만 바꾼다 — 본문은 그대로.
-    putTags(id, tagA);
-    String afterTags = send(get("/api/v1/calendar/events/" + id)).path("updatedAt").asText();
-    assertThat(afterTags).isNotEqualTo(openedVersion);
+    // 초대받은 사람이 자기 태그를 만들어 읽기 전용 상세에서 붙인다(PUT /events/{id}/tags).
+    long inviteeTag =
+        JSON.readTree(
+                mvc.perform(
+                        post("/api/v1/calendar/tags")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"초대받은이태그\"}")
+                            .with(asUser(invitee)))
+                    .andExpect(status().isCreated())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .path("id")
+            .asLong();
+    mvc.perform(
+            put("/api/v1/calendar/events/" + id + "/tags")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"tagIds\":[" + inviteeTag + "]}")
+                .with(asUser(invitee)))
+        .andExpect(status().is2xxSuccessful());
     tick();
 
-    // 낡은 폼은 태그를 늘 함께 보낸다 — 버전이 같았다면 태그 A 를 B 로 덮어썼을 것이다.
-    String stale =
-        "{\"title\":\"낡은저장\",\"startsAt\":\"2026-11-20T01:00:00Z\",\"endsAt\":\"2026-11-20T02:00:00Z\","
+    // 주최자가 폼을 연 뒤의 버전으로 저장 — 남의 태그 변경으로 거짓 충돌이 나면 안 된다.
+    String save =
+        "{\"title\":\"주최자저장\",\"startsAt\":\"2026-11-20T01:00:00Z\",\"endsAt\":\"2026-11-20T02:00:00Z\","
             + "\"tagIds\":["
-            + tagB
+            + organizerTag
             + "]}";
     mvc.perform(
             patch("/api/v1/calendar/events/" + id)
                 .param("expectedUpdatedAt", openedVersion)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(stale)
-                .with(asMe()))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.errors.code").value("EVENT_CONFLICT"));
-
-    mvc.perform(get("/api/v1/calendar/events/" + id).with(asMe()))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.title").value("회의"))
-        .andExpect(jsonPath("$.tags.length()").value(1))
-        .andExpect(jsonPath("$.tags[0].id").value(tagA));
-  }
-
-  @Test
-  void 같은_태그를_다시_보내는_no_op_은_버전을_올리지_않고_저장_한_번은_자기_충돌이_없다() throws Exception {
-    long tagA = createTag("A");
-    JsonNode created = create("회의", null);
-    long id = created.path("id").asLong();
-    putTags(id, tagA);
-    tick();
-    String v1 = send(get("/api/v1/calendar/events/" + id)).path("updatedAt").asText();
-    tick();
-    putTags(id, tagA);
-    assertThat(send(get("/api/v1/calendar/events/" + id)).path("updatedAt").asText()).isEqualTo(v1);
-
-    // 본문과 태그를 함께 바꾸는 한 번의 저장은 자기 버전과 충돌하지 않는다.
-    String both =
-        "{\"title\":\"한번에\",\"startsAt\":\"2026-11-20T01:00:00Z\",\"endsAt\":\"2026-11-20T02:00:00Z\","
-            + "\"tagIds\":[]}";
-    mvc.perform(
-            patch("/api/v1/calendar/events/" + id)
-                .param("expectedUpdatedAt", v1)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(both)
+                .content(save)
                 .with(asMe()))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.title").value("한번에"))
-        .andExpect(jsonPath("$.tags.length()").value(0));
-  }
-
-  /** 목록에서 제목이 title 인 일정(고친 회차)의 id — 없으면 -1. */
-  private long idOf(String title) throws Exception {
-    JsonNode list =
-        send(
-            get("/api/v1/calendar/events")
-                .param("from", "2026-11-19T00:00:00Z")
-                .param("to", "2026-11-23T00:00:00Z"));
-    long id = -1;
-    for (JsonNode e : list) {
-      if (title.equals(e.path("title").asText())) id = e.path("id").asLong();
-    }
-    return id;
-  }
-
-  /** 고친 회차(override)의 태그를 바꾸면 그 회차 행의 버전도 올라, 낡은 폼의 override 저장이 409 이고 태그는 그대로다. */
-  @Test
-  void 고친_회차의_태그를_바꾸면_그_회차_버전이_올라_낡은_폼_저장이_409_이다() throws Exception {
-    long tagA = createTag("A");
-    long tagB = createTag("B");
-    JsonNode master = create("주간", "FREQ=DAILY;COUNT=3");
-    long masterId = master.path("id").asLong();
-    String occ = "2026-11-21T01:00:00Z";
-    tick();
-    mvc.perform(edit(masterId, "회차v1", "THIS", occ, null).with(asMe())).andExpect(status().isOk());
-    tick();
-    long overrideId = idOf("회차v1");
-    assertThat(overrideId).isNotEqualTo(-1).isNotEqualTo(masterId);
-    String openedVersion = versionOf("회차v1");
-    tick();
-
-    // 다른 사람(탭)이 그 회차의 태그만 바꾼다.
-    putTags(overrideId, tagA);
-    assertThat(versionOf("회차v1")).isNotEqualTo(openedVersion);
-    tick();
-
-    // 낡은 폼은 태그를 늘 함께 보낸다 — 회차 행 버전이 안 올랐다면 통과해 태그를 덮어썼을 것이다.
-    String stale =
-        "{\"title\":\"낡은저장\",\"startsAt\":\"2026-11-21T01:00:00Z\",\"endsAt\":\"2026-11-21T02:00:00Z\","
-            + "\"tagIds\":["
-            + tagB
-            + "]}";
-    mvc.perform(
-            patch("/api/v1/calendar/events/" + overrideId)
-                .param("expectedUpdatedAt", openedVersion)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(stale)
-                .with(asMe()))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.errors.code").value("EVENT_CONFLICT"));
-    assertThat(titles()).contains("회차v1").doesNotContain("낡은저장");
-    mvc.perform(get("/api/v1/calendar/events/" + overrideId).with(asMe()))
+        .andExpect(jsonPath("$.title").value("주최자저장"))
         .andExpect(jsonPath("$.tags.length()").value(1))
-        .andExpect(jsonPath("$.tags[0].id").value(tagA));
+        .andExpect(jsonPath("$.tags[0].id").value(organizerTag));
+
+    // 초대받은 사람의 태그 연결은 그대로 남는다.
+    mvc.perform(get("/api/v1/calendar/events/" + id).with(asUser(invitee)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tags.length()").value(1))
+        .andExpect(jsonPath("$.tags[0].id").value(inviteeTag));
   }
 }

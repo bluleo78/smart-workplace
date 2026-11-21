@@ -268,10 +268,8 @@ public class CalendarTagRepository {
   /**
    * 한 일정의 이 사용자 APP 연결을 tagIds 와 같게 맞춘다 — 빠진 것은 지우고 새 것은 넣는다. 다른 사람의 태그 연결과 OUTLOOK 연결은 건드리지 않는다.
    * tagIds 는 모두 이 사용자 것이라고 서비스가 확인한 뒤 부른다.
-   *
-   * @return 연결이 실제로 바뀌었는가(지운 것 또는 새로 넣은 것이 있음) — 같은 태그를 다시 보낸 no-op 이면 false
    */
-  public boolean replaceAppLinks(long userId, long eventId, Collection<Long> tagIds) {
+  public void replaceAppLinks(long userId, long eventId, Collection<Long> tagIds) {
     var mine =
         DSL.select(CALENDAR_TAG.ID).from(CALENDAR_TAG).where(CALENDAR_TAG.USER_ID.eq(userId));
     var del =
@@ -281,14 +279,13 @@ public class CalendarTagRepository {
             .and(CALENDAR_EVENT_TAG.SOURCE.eq(SOURCE_APP))
             .and(CALENDAR_EVENT_TAG.TAG_ID.in(mine));
     if (!tagIds.isEmpty()) del = del.and(CALENDAR_EVENT_TAG.TAG_ID.notIn(tagIds));
-    int deleted = dsl.deleteFrom(CALENDAR_EVENT_TAG).where(del).execute();
-    int inserted = insertLinks(eventId, tagIds, SOURCE_APP);
-    return deleted + inserted > 0;
+    dsl.deleteFrom(CALENDAR_EVENT_TAG).where(del).execute();
+    insertLinks(eventId, tagIds, SOURCE_APP);
   }
 
-  /** 한 일정에 여러 태그 연결을 넣는다 — 이미 있는 (tag, event) 는 건드리지 않는다. 새로 들어간 행 수를 돌려준다. */
-  private int insertLinks(long eventId, Collection<Long> tagIds, String source) {
-    if (tagIds.isEmpty()) return 0;
+  /** 한 일정에 여러 태그 연결을 넣는다 — 이미 있는 (tag, event) 는 건드리지 않는다. */
+  private void insertLinks(long eventId, Collection<Long> tagIds, String source) {
+    if (tagIds.isEmpty()) return;
     var insert =
         dsl.insertInto(
             CALENDAR_EVENT_TAG,
@@ -298,7 +295,7 @@ public class CalendarTagRepository {
     for (Long tagId : tagIds) {
       insert = insert.values(tagId, eventId, source);
     }
-    return insert.onConflictDoNothing().execute();
+    insert.onConflictDoNothing().execute();
   }
 
   /**
