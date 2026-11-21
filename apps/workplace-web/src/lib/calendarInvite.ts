@@ -1,15 +1,15 @@
 // 메일 일정 초대 카드(WP-986)의 표시 문구를 만드는 순수 함수.
 // 일시 표기는 일정 상세 보기(eventTimeLines, WP-708)와 같은 규칙 — 브라우저 로컬 타임존, ICU 로케일 비의존.
 import { eventTimeLines, RSVP_LABEL } from '@/lib/calendarEventView'
-import { formatLocalDateWithWeekday, localClockParts } from '@/lib/formatters'
+import { clock24, formatLocalDateWithWeekday } from '@/lib/formatters'
 import type { CalendarInvite, CalendarInviteResponse } from '@/types/mailMessage'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
- * 초대 일시 한 줄 — 「11월 3일 (화) 오후 2:00 – 3:00」.
+ * 초대 일시 한 줄 — 「11월 3일 (화) 14:00 – 15:00」.
  * - 종일: 날짜만(「11월 3일 (화)」, 여러 날이면 「… – …」). 끝이 없으면 하루짜리로 본다.
- * - 시간 일정인데 끝이 없으면 시작 시각만(「11월 3일 (화) 오후 2:00」).
+ * - 시간 일정인데 끝이 없으면 시작 시각만(「11월 3일 (화) 14:00」).
  */
 export function inviteTimeText(invite: Pick<CalendarInvite, 'start' | 'end' | 'allDay'>, now: Date = new Date()): string {
   if (invite.allDay) {
@@ -18,8 +18,7 @@ export function inviteTimeText(invite: Pick<CalendarInvite, 'start' | 'end' | 'a
   }
   if (!invite.end) {
     const start = new Date(invite.start)
-    const { meridiem, clock } = localClockParts(start)
-    return `${formatLocalDateWithWeekday(start, now)} ${meridiem} ${clock}`
+    return `${formatLocalDateWithWeekday(start, now)} ${clock24(start)}`
   }
   const { date, time } = eventTimeLines({ startsAt: invite.start, endsAt: invite.end, allDay: false }, now)
   return time ? `${date} ${time}` : date

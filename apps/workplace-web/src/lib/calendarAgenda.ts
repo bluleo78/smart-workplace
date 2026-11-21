@@ -6,7 +6,7 @@ import { ko } from 'date-fns/locale'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import { allDayLocalDate } from './calendar'
-import { formatLocalClockTime24 } from './formatters'
+import { endClock24, formatLocalClockTime24, isNextMidnightEnd } from './formatters'
 
 // 한 청크가 덮는 일수. 목록은 청크 단위로 아래로 이어 불러온다.
 export const AGENDA_CHUNK_DAYS = 30
@@ -70,11 +70,11 @@ function continuesInto(event: CalendarEvent, day: Date): boolean {
 
 // 시간 일정의 실제 마지막 날 — 끝이 정확히 로컬 자정(00:00)이면 그 자정은 "다음 날의 시작"이 아니라 "그 전날의 끝"이라
 // 전날로 본다(22:00~다음 날 00:00 을 여러 날 일정처럼 보이지 않게). 길이 0 일정(시작 == 끝)은 그대로 둔다.
-function timedLastDay(event: CalendarEvent): { day: Date; endsAtMidnight: boolean } {
+function timedLastDay(event: CalendarEvent): { day: Date } {
   const end = new Date(event.endsAt)
   const endDay = startOfDay(end)
-  const endsAtMidnight = end.getTime() === endDay.getTime() && end.getTime() > new Date(event.startsAt).getTime()
-  return { day: endsAtMidnight ? addDays(endDay, -1) : endDay, endsAtMidnight }
+  const endsAtMidnight = isNextMidnightEnd(new Date(event.startsAt), end)
+  return { day: endsAtMidnight ? addDays(endDay, -1) : endDay }
 }
 
 // 일정 행 시간 칸 두 줄(시작·끝) — 목록 시작 행과 이어지는(continued) 행이 같은 규칙으로 끝을 보이게 한 곳에 모은다.
@@ -91,11 +91,11 @@ export function agendaTimeLabels(event: CalendarEvent, continuedOn: Date | null)
     // 이어지는 종일 행은 시작일 전에 시작했으니 언제나 여러 날이다.
     return { start: '종일', end: multiDay ? `~${format(lastDay, 'M/d')}` : null }
   }
-  const { day: lastDay, endsAtMidnight } = timedLastDay(event)
+  const { day: lastDay } = timedLastDay(event)
   const refDay = continuedOn ?? new Date(event.startsAt)
   const start = continuedOn ? format(new Date(event.startsAt), 'M/d') : formatLocalClockTime24(event.startsAt)
   if (!isSameDay(lastDay, refDay)) return { start, end: `~${format(lastDay, 'M/d')}` }
-  const time = endsAtMidnight ? '24:00' : formatLocalClockTime24(event.endsAt)
+  const time = endClock24(new Date(event.startsAt), new Date(event.endsAt))
   return { start, end: continuedOn ? `~${time}` : time }
 }
 

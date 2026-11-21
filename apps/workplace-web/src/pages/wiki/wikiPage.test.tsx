@@ -414,7 +414,7 @@ describe('연결된 일정 패널', () => {
     expect(panel).toHaveTextContent('연결된 일정')
     const row = within(panel).getByTestId('wiki-linked-event-7-single')
     expect(row).toHaveTextContent('주간 회의')
-    expect(row).toHaveTextContent('오전 10:00 · 참석 5명')
+    expect(row).toHaveTextContent('10:00 · 참석 5명')
     await user.click(row)
     await waitFor(() => expect(location()).toBe('/calendar?eventId=7'))
   })

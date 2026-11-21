@@ -1,12 +1,12 @@
 // 노트에 이어진 일정 한 줄의 표시 문구·이동 주소(WP-1703).
-// 날짜·시각은 캘린더 상세 보기와 같은 공용 부품(formatMonthDayWeekdayClock·formatLocalDateWithWeekday)으로 만든다 —
+// 날짜·시각은 캘린더 상세 보기와 같은 공용 부품(formatMonthDayWeekdayClock24·formatLocalDateWithWeekday)으로 만든다 —
 // 노트 하단 패널이 캘린더 화면과 다른 표기를 내지 않게.
 import type { NoteLinkedEvent } from '../types/calendar'
 import { allDayLocalDate } from './calendar'
-import { formatLocalDateWithWeekday, formatMonthDayWeekdayClock } from './formatters'
+import { formatLocalDateWithWeekday, formatMonthDayWeekdayClock24 } from './formatters'
 
 /**
- * 보조 글 — 「11월 18일 (수) 오전 10:00 · 참석 5명」. 종일은 시각 대신 「종일」, 참석자가 없으면(0명) 뒷부분을 생략한다.
+ * 보조 글 — 「11월 18일 (수) 10:00 · 참석 5명」. 종일은 시각 대신 「종일」, 참석자가 없으면(0명) 뒷부분을 생략한다.
  * 종일 일정은 UTC 자정이 아니라 날짜 값이라 allDayLocalDate 로 날짜를 읽는다(하루 밀림 방지).
  * now 는 「올해면 연도 생략」 판정용(테스트에서 고정).
  */
@@ -16,7 +16,7 @@ export function linkedEventMeta(
 ): string {
   const when = e.allDay
     ? `${formatLocalDateWithWeekday(allDayLocalDate(e.startsAt), now)} 종일`
-    : formatMonthDayWeekdayClock(e.startsAt, now)
+    : formatMonthDayWeekdayClock24(e.startsAt, now) // 시간 일정은 24시간제 HH:mm(자정 00:00, WP-1909), 무효면 ''
   return e.attendeeCount > 0 ? `${when} · 참석 ${e.attendeeCount}명` : when
 }
 

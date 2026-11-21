@@ -5,16 +5,16 @@
 import { isSameDay } from 'date-fns'
 
 import { allDayLocalDate } from '@/lib/calendar'
-import { formatLocalDateWithWeekday as dateLabel, localClockParts, WEEKDAY_KO } from '@/lib/formatters'
+import { clock24, formatLocalClockRange24, formatLocalDateWithWeekday as dateLabel, WEEKDAY_KO } from '@/lib/formatters'
 import { isFormEditableRRule, parseRRule, recurrenceUnitLabel } from '@/lib/recurrence'
 import { CALENDAR_LINK_RULES, splitLinks, type TextSegment } from '@/lib/textLinks'
 import type { Attendee, CalendarEvent, OnlineMeetingProvider, RsvpStatus } from '@/types/calendar'
 
 /**
- * 일정 시간 표시 — 날짜 줄과 시각 줄.
- * - 같은 날 시간 일정: { date: "10월 21일 (수)", time: "오후 3:00 – 4:30" } (오전/오후가 같으면 끝 시각의 접두어 생략).
- *   끝이 정확히 다음 날 0시인 일정(22:00–24:00)도 같은 날로 본다.
- * - 여러 날 시간 일정: 날짜 줄 하나에 "10월 21일 (수) 오후 11:00 – 10월 22일 (목) 오전 1:00", time=null
+ * 일정 시간 표시 — 날짜 줄과 시각 줄. 시각은 24시간 「HH:mm」.
+ * - 같은 날 시간 일정: { date: "10월 21일 (수)", time: "15:00 – 16:30" }.
+ *   끝이 정확히 다음 날 0시인 일정도 같은 날로 보고 끝을 「24:00」으로 쓴다(22:00 – 24:00).
+ * - 여러 날 시간 일정: 날짜 줄 하나에 "10월 21일 (수) 23:00 – 10월 22일 (목) 01:00", time=null
  * - 종일: { date: "10월 21일 (수)" 또는 "10월 21일 (수) – 10월 23일 (금)", time: "종일" } — 종료는 배타적(다음 날 0시)이라 하루 뺀다.
  */
 export function eventTimeLines(
@@ -30,18 +30,16 @@ export function eventTimeLines(
   }
   const start = new Date(event.startsAt)
   const end = new Date(event.endsAt)
-  const s = localClockParts(start)
-  const e = localClockParts(end)
   // 끝 시각은 배타적 — 1ms 앞을 기준으로 같은 날인지 본다(자정에 끝나는 일정이 이틀로 보이지 않게). 길이 0 일정은 끝 그대로.
   const lastInstant = end > start ? new Date(end.getTime() - 1) : end
   if (!isSameDay(start, lastInstant)) {
     return {
-      date: `${dateLabel(start, now)} ${s.meridiem} ${s.clock} – ${dateLabel(end, now)} ${e.meridiem} ${e.clock}`,
+      date: `${dateLabel(start, now)} ${clock24(start)} – ${dateLabel(end, now)} ${clock24(end)}`,
       time: null,
     }
   }
-  const endText = s.meridiem === e.meridiem ? e.clock : `${e.meridiem} ${e.clock}`
-  return { date: dateLabel(start, now), time: `${s.meridiem} ${s.clock} – ${endText}` }
+  // 같은 날 줄 — 끝이 다음 날 0시면 「24:00」 규칙은 formatLocalClockRange24 하나가 맡는다
+  return { date: dateLabel(start, now), time: formatLocalClockRange24(start, end) }
 }
 
 // 간격 1 일 때의 빈도 문구

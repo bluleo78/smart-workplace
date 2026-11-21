@@ -31,7 +31,7 @@ test('초대(REQUEST) — 제목·일정 초대 태그·일시·장소·주최�
   const card = await screen.findByTestId('mail-invite-card')
   expect(within(card).getByTestId('mail-invite-title')).toHaveTextContent('주간 제품 회의')
   expect(within(card).getByTestId('mail-invite-tag')).toHaveTextContent('일정 초대')
-  expect(within(card).getByTestId('mail-invite-time')).toHaveTextContent('11월 3일 (화) 오후 2:00 – 3:00')
+  expect(within(card).getByTestId('mail-invite-time')).toHaveTextContent('11월 3일 (화) 14:00 – 15:00')
   expect(within(card).getByTestId('mail-invite-time').className).not.toMatch(/line-through/)
   expect(within(card).getByTestId('mail-invite-location')).toHaveTextContent('장소 3층 대회의실 · Teams')
   expect(within(card).getByTestId('mail-invite-people')).toHaveTextContent('주최자 Ethan Lee <ethan@partner.com> · 참석자 5명')

@@ -12,7 +12,7 @@ import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_
 import { dayColumnLabel, defaultTimeSlot, nextTimeSlot, timeSlotLabel, type TimeSlotPos } from '@/lib/calendarGridNav'
 import { type MovedRange, type ResizeEdge, resizeHandles, withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
-import { formatClockTimePadded } from '@/lib/formatters'
+import { formatHourLabel24, formatLocalClockRange24 } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import { MovePreviewChip } from './MovePreviewChip'
@@ -256,7 +256,8 @@ export function TimeGrid({
               key={h}
               className="h-12 text-xs text-muted-foreground text-right pr-2 pt-0.5"
             >
-              {h}:00
+              {/* 캘린더 안 시각은 24시간 HH:mm 하나로(WP-1909) — 시를 2자리로 맞춘다. */}
+              {formatHourLabel24(h)}
             </div>
           ))}
         </div>
@@ -382,7 +383,7 @@ export function TimeGrid({
                     className={`text-xs text-left rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden ${isMovingEvent(move.preview, e) ? 'opacity-50' : ''}`}
                   >
                     <ExtraTagDots event={e} />
-                    {/* WP-1910: 여러 날 일정은 조각마다 그날에 맞는 라벨(시작일 시작 시각·이어지는 날 M/d부터·마지막 날 ~끝 시각) */}
+                    {/* WP-1910: 여러 날 일정은 조각마다 그날에 맞는 라벨 — 24시간 HH:mm, 로컬 타임존(WP-1909) — (시작일 시작 시각·이어지는 날 M/d부터·마지막 날 ~끝 시각) */}
                     {timedSegmentLabel(e, day)} {e.title}
                     {handles &&
                       RESIZE_EDGES.filter((edge) => handles[edge]).map((edge) => (
@@ -416,7 +417,8 @@ export function TimeGrid({
                   style={timedEventBox(movedEvent, day)}
                 >
                   {/* 옮기기·늘이기 모두 놓이면 갈 시각 범위와 제목을 보인다(시각은 formatters 로만 그린다) */}
-                  {formatClockTimePadded(movedEvent.startsAt)} – {formatClockTimePadded(movedEvent.endsAt)} {movedEvent.title}
+                  {/* 옮기기 미리보기도 24시간 HH:mm — 끝이 다음 날 0시면 24:00 */}
+                  {formatLocalClockRange24(new Date(movedEvent.startsAt), new Date(movedEvent.endsAt))} {movedEvent.title}
                 </div>
               )}
             </div>
@@ -456,7 +458,7 @@ function DragSelectionBox({ day, startY, currentY }: { day: Date; startY: number
       className="pointer-events-none absolute inset-x-0.5 z-10 rounded border border-primary bg-primary/15 px-1 text-xs font-medium text-primary"
       style={{ top: toPx(start), height: toPx(end) - toPx(start) }}
     >
-      {format(start, 'HH:mm')} – {format(end, 'HH:mm')}
+      {formatLocalClockRange24(start, end)}
     </div>
   )
 }

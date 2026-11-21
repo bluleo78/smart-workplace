@@ -45,6 +45,27 @@ describe('헤더·보기·표기', () => {
     expect(screen.getByTestId('calendar-view-month-btn')).toHaveAttribute('aria-pressed', 'false')
   })
 
+  // WP-1909 — 캘린더 안 시각은 24시간 HH:mm 하나로. 일 보기 축·칩, 목록 행에 「오전/오후」·한 자리 시가 없다.
+  test('자정 시작 일정이 일 보기 칩·시간 축과 목록 행에서 24시간 HH:mm 로 보인다 (WP-1909)', async () => {
+    // 2026-06-10 00:00 KST = 06-09T15:00Z
+    const { user } = await renderCalendar({
+      events: [calendarEvent({ id: 1, title: '자정 일정', startsAt: '2026-06-09T15:00:00Z', endsAt: '2026-06-09T16:00:00Z' })],
+    })
+    await user.click(screen.getByTestId('calendar-view-day-btn'))
+    const day = await screen.findByTestId('calendar-view-day')
+    const chip = await within(day).findByTestId('calendar-event-1')
+    expect(chip.textContent).toMatch(/^00:00 /)
+    expect(chip).not.toHaveTextContent('오전')
+    expect(within(day).getByText('00:00')).toBeInTheDocument()
+    expect(within(day).getByText('13:00')).toBeInTheDocument()
+    expect(day).not.toHaveTextContent(/오전|오후/)
+
+    await user.click(screen.getByTestId('calendar-view-agenda-btn'))
+    const row = await within(await screen.findByTestId('calendar-view-agenda')).findByTestId('calendar-event-1')
+    expect(row).toHaveTextContent('00:00')
+    expect(row).not.toHaveTextContent('오전')
+  })
+
   // #176 — date-fns 로케일이 빠지면 요일이 「Mon」 으로 나왔다. 목록·주·일 보기 날짜 머리 모두 한국어.
   test('목록·주·일 보기의 요일이 한국어로 표시된다 (#176)', async () => {
     vi.setSystemTime(new Date('2026-06-08T03:00:00Z')) // 2026-06-08 = 월요일

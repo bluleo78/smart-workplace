@@ -161,7 +161,7 @@ describe('주 보기 시간 그리드에서 끌기', () => {
     // 6/7(일) 시작 주 — 목(6/11)은 다섯째 열
     const thursday = screen.getAllByTestId('calendar-day-column')[4]
     drag(block, thursday, { dx: 0, dy: 48, up: false })
-    expect(within(thursday).getByTestId('calendar-move-preview')).toHaveTextContent('오전 11:00 – 오후 12:00 팀 회의')
+    expect(within(thursday).getByTestId('calendar-move-preview')).toHaveTextContent('11:00 – 12:00 팀 회의')
     fireEvent.pointerUp(block, { pointerId: 1, pointerType: 'mouse', clientX: 100, clientY: 148 })
     fireEvent.click(block)
 
@@ -182,7 +182,7 @@ describe('주 보기 시간 그리드에서 끌기', () => {
     const block = await within(await screen.findByTestId('calendar-view-workweek')).findByTestId('calendar-event-1')
     const monday = screen.getAllByTestId('calendar-day-column')[0]
     drag(block, monday, { dx: 0, dy: 48, up: false })
-    expect(within(monday).getByTestId('calendar-move-preview')).toHaveTextContent('오전 11:00 – 오후 12:00 팀 회의')
+    expect(within(monday).getByTestId('calendar-move-preview')).toHaveTextContent('11:00 – 12:00 팀 회의')
     fireEvent.pointerUp(block, { pointerId: 1, pointerType: 'mouse', clientX: 100, clientY: 148 })
     fireEvent.click(block)
 
@@ -195,6 +195,17 @@ describe('주 보기 시간 그리드에서 끌기', () => {
     expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument()
   })
 
+  // WP-1909 — 끝이 다음 날 0시가 되는 미리보기는 「00:00」이 아니라 「24:00」으로 읽혀야 한다.
+  test('22:00 일정의 아래 손잡이를 한 시간 끌어 하루 끝에 닿으면 미리보기가 22:00 – 24:00 이다', async () => {
+    const late = calendarEvent({ id: 2, title: '야간 점검', startsAt: '2026-06-10T13:00:00Z', endsAt: '2026-06-10T14:00:00Z' })
+    const { user } = await renderCalendar({ events: [late] })
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    const block = await within(await screen.findByTestId('calendar-view-week')).findByTestId('calendar-event-2')
+    const handle = within(block).getByTestId('calendar-event-resize-end')
+    drag(handle, screen.getAllByTestId('calendar-day-column')[3], { dx: 2, dy: 48, up: false })
+    expect(screen.getByTestId('calendar-move-preview')).toHaveTextContent('22:00 – 24:00 야간 점검')
+  })
+
   test('아래 손잡이를 48px 끌어 놓으면 시작은 그대로 종료만 한 시간 늦춰 PATCH 한다', async () => {
     const { user, requests } = await renderCalendar({ events: [meeting] })
     await user.click(screen.getByTestId('calendar-view-week-btn'))
@@ -202,7 +213,7 @@ describe('주 보기 시간 그리드에서 끌기', () => {
     const handle = within(block).getByTestId('calendar-event-resize-end')
     // 가로로 흔들려도(dx) 세로 문턱만 보므로 늘이기로 인정된다
     drag(handle, screen.getAllByTestId('calendar-day-column')[3], { dx: 2, dy: 48, up: false })
-    expect(screen.getByTestId('calendar-move-preview')).toHaveTextContent('오전 10:00 – 오후 12:00 팀 회의')
+    expect(screen.getByTestId('calendar-move-preview')).toHaveTextContent('10:00 – 12:00 팀 회의')
     fireEvent.pointerUp(handle, { pointerId: 1, pointerType: 'mouse', clientX: 102, clientY: 148 })
     fireEvent.click(handle)
     await waitFor(() => expect(requests.patches).toHaveLength(1))

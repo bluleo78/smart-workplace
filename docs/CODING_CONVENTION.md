@@ -105,8 +105,12 @@ private static final long ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000L;
 | 짧은 보조 표기 — 월/일 + 시각 | `formatMonthDayClock` | `10/8 14:20` | 24시간제, 브라우저 로컬 타임존. 노트 AI 요약 시각(WP-301) |
 | 시각만 — 채팅 버블 | `formatClockTime` | `오후 3:24` | `Asia/Seoul` 고정 |
 | 시각만 — 컴팩트 거터 | `formatClockTimeCompact` | `15:24` | 24시간제, 좁은 폭 |
-| 시각만 — 캘린더 로컬 | `formatLocalClockTime24` | `14:30` | 24시간제, **브라우저 로컬 타임존**(캘린더 날짜 계산과 기준 일치) |
-| 시각만 — 오전/오후 zero-pad | `formatClockTimePadded` | `오후 02:30` | 캘린더 그리드·메일 목록(오늘) |
+| 시각만 — 캘린더 로컬 | `formatLocalClockTime24` | `14:30` | 24시간제, **브라우저 로컬 타임존**(캘린더 날짜 계산과 기준 일치). 칩·목록·위젯, ICU 비의존 |
+| 시각 구간 — 캘린더 그리드 | `formatLocalClockRange24` | `22:00 – 24:00` | 24시간제, 로컬. 끝이 다음 날 0시면 `24:00`(타임그리드 미리보기·끌기 라벨, 상세 시각 줄) |
+| 시 눈금 — 캘린더 그리드 축 | `formatHourLabel24` | `09:00` | 24시간제, 0~23 → `00:00`…`23:00` |
+| 날짜 + 시각 — 24시간제 | `formatMonthDayWeekdayClock24` | `10월 23일 (금) 14:05` | 올해면 연도 생략, 로컬. 노트 연결 일정 등 캘린더 계열(무효 → `''`) |
+| 시각 조립 — 24시간제 | `clock24` | `09:05` | `Date` → `HH:mm` 직접 조립(ICU 비의존). 위 24시간 포매터의 공통 부품 |
+| 시각만 — 오전/오후 zero-pad | `formatClockTimePadded` | `오후 02:30` | 메일 목록(오늘 수신) 전용 — 캘린더 그리드는 24시간 포매터를 쓴다 |
 | 좁은 목록 — 월·일 zero-pad | `formatDateMonthDayPadded` | `07. 15.` | 메일 목록(오늘 이전) |
 | 설정/관리 — 로케일 일시 | `formatDateTimeLocale` | `2026. 7. 15. 오후 2:30:00` | 토큰·에이전트·버전 이력 기존 표기 유지 |
 | 숫자 천단위 | `formatNumber` | `9,007,199,254,740,991` | 날짜 아님(구문 기반 린트 규칙 대응) |
