@@ -50,16 +50,27 @@ function writeHandlers({ password = { status: 204 }, profile = { status: 200, bo
   }
 }
 
-/** 프로필 화면을 띄운다 — hasPassword 를 주면 그 계정으로 그리고, replies 로 쓰기 API 응답을 정한다. */
-async function openProfile(hasPassword = true, replies: { password?: Reply; profile?: Reply } = {}) {
+/**
+ * 프로필 화면을 띄운다 — hasPassword 를 주면 그 계정으로 그리고, replies 로 쓰기 API 응답을 정한다.
+ * opts.refreshFails 를 주면 저장 뒤 내 정보 갱신(refreshUser)이 실패하는 경우를 흉내 낸다(WP-1912).
+ */
+async function openProfile(
+  hasPassword = true,
+  replies: { password?: Reply; profile?: Reply } = {},
+  opts: { refreshFails?: boolean } = {},
+) {
   const api = writeHandlers(replies)
+  // refreshUser — 갱신이 부른 횟수를 세고, refreshFails 면 throw 한다(openAvatar 의 목업과 같은 모양).
+  const refreshUser = vi.fn(async () => {
+    if (opts.refreshFails) throw new Error('refresh failed')
+  })
   const view = renderScreen(<ProfileSettingsPage />, {
     path: '/settings/profile',
     handlers: api.handlers,
-    auth: { user: { ...testAuthValue.user!, hasPassword } },
+    auth: { user: { ...testAuthValue.user!, hasPassword }, refreshUser },
   })
   await screen.findByRole('heading', { level: 2, name: hasPassword ? '비밀번호 변경' : '비밀번호 설정' })
-  return { ...view, calls: api.calls }
+  return { ...view, calls: api.calls, refreshUser }
 }
 
 // WP-912 — 이메일 칸(type=email)의 브라우저 기본 검증이 제출을 가로채 zod 의 한국어 안내가 남지 않았다. 폼 noValidate 로 안내가 칸 아래에 보인다.
@@ -169,13 +180,83 @@ test('비밀번호 변경이 현재 비밀번호 불일치(400)로 실패하면 
   expect(screen.getAllByRole('alert')).toHaveLength(1)
 })
 
-test('프로필 저장이 실패하면 안내를 스크린리더 알림으로 읽는다 (WP-1896)', async () => {
-  const { user, calls } = await openProfile(true, { profile: { status: 400, body: { message: '이미 사용 중인 이메일입니다' } } })
+/** 정보 섹션의 「저장」을 눌러 PUT /users/me 가 나갈 때까지 기다린다 — 섹션을 돌려 칸 단언에 쓴다(WP-1896·WP-1912 공용). */
+async function submitProfileSave(
+  user: Awaited<ReturnType<typeof openProfile>>['user'],
+  calls: Awaited<ReturnType<typeof openProfile>>['calls'],
+) {
   const info = document.querySelector<HTMLElement>('[data-help="profile.info"]')!
   await user.click(within(info).getByRole('button', { name: '저장' }))
   await waitFor(() => expect(calls.map((c) => c.path)).toEqual(['/api/v1/users/me']))
+  return info
+}
+
+test('프로필 저장이 실패하면 안내를 스크린리더 알림으로 읽는다 (WP-1896)', async () => {
+  const { user, calls } = await openProfile(true, { profile: { status: 400, body: { message: '이미 사용 중인 이메일입니다' } } })
+  const info = await submitProfileSave(user, calls)
   expect(await within(info).findByRole('alert')).toHaveTextContent('이미 사용 중인 이메일입니다')
   expect(screen.getAllByRole('alert')).toHaveLength(1)
+})
+
+// WP-1912 — 쓰기와 새로고침을 나눈다: 쓰기만 성공해도 저장은 성공이다.
+test('프로필 저장은 성공하고 새로고침만 실패하면 성공 안내를 보이고 실패 알림은 없다 (WP-1912)', async () => {
+  const { user, calls, refreshUser } = await openProfile(true, {}, { refreshFails: true })
+  await submitProfileSave(user, calls)
+  expect(await screen.findByText('프로필이 업데이트되었습니다.')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(
+    await screen.findByText('프로필은 저장됐지만 화면을 새로 고치지 못했습니다. 새로고침하면 반영됩니다.'),
+  ).toBeInTheDocument()
+  expect(refreshUser).toHaveBeenCalledTimes(1)
+})
+
+test('프로필 저장과 갱신이 모두 성공하면 경고 토스트는 없다 (WP-1912)', async () => {
+  const { user, calls, refreshUser } = await openProfile(true)
+  await submitProfileSave(user, calls)
+  expect(await screen.findByText('프로필이 업데이트되었습니다.')).toBeInTheDocument()
+  await waitFor(() => expect(refreshUser).toHaveBeenCalledTimes(1))
+  expect(screen.queryByText(/화면을 새로 고치지 못했습니다/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('프로필 저장 자체가 실패하면 갱신을 부르지 않고 실패 안내를 읽힌다 (WP-1912)', async () => {
+  const { user, calls, refreshUser } = await openProfile(
+    true,
+    { profile: { status: 400, body: { message: '이미 사용 중인 이메일입니다' } } },
+    { refreshFails: true },
+  )
+  const info = await submitProfileSave(user, calls)
+  expect(await within(info).findByRole('alert')).toHaveTextContent('이미 사용 중인 이메일입니다')
+  expect(refreshUser).not.toHaveBeenCalled()
+  expect(screen.queryByText('프로필이 업데이트되었습니다.')).not.toBeInTheDocument()
+})
+
+// WP-1912 — 비밀번호 설정은 쓰기가 성공한 순간 끝난다: 갱신이 실패해도 다시 설정할 수 없어야 한다.
+test('비밀번호 설정은 성공하고 새로고침만 실패하면 다시 설정하지 않고 변경 칸으로 바뀐다 (WP-1912)', async () => {
+  const { user, calls, refreshUser } = await openProfile(false, {}, { refreshFails: true })
+  await submitSetPassword(user)
+  await waitFor(() => expect(calls).toHaveLength(1))
+  expect(await screen.findByText('비밀번호를 설정했습니다.')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(await screen.findByRole('heading', { level: 2, name: '비밀번호 변경' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '비밀번호 설정' })).not.toBeInTheDocument()
+  expect(
+    await screen.findByText('비밀번호는 설정됐지만 화면을 새로 고치지 못했습니다. 새로고침하면 반영됩니다.'),
+  ).toBeInTheDocument()
+  expect(refreshUser).toHaveBeenCalledTimes(1)
+})
+
+// WP-1912 — 설정과 갱신이 둘 다 성공하면 칸이 전환되고 새로고침 경고 토스트는 뜨지 않는다(갱신 실패 케이스와 짝).
+test('비밀번호 설정과 갱신이 모두 성공하면 칸이 전환되고 경고 토스트는 없다 (WP-1912)', async () => {
+  const { user, calls, refreshUser } = await openProfile(false)
+  await submitSetPassword(user)
+  await waitFor(() => expect(calls).toHaveLength(1))
+  expect(await screen.findByText('비밀번호를 설정했습니다.')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { level: 2, name: '비밀번호 변경' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '비밀번호 설정' })).not.toBeInTheDocument()
+  await waitFor(() => expect(refreshUser).toHaveBeenCalledTimes(1))
+  expect(screen.queryByText(/화면을 새로 고치지 못했습니다/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
 
 test('비밀번호 설정이 실패하면 안내를 스크린리더 알림으로 읽는다 (WP-1896)', async () => {
@@ -195,6 +276,8 @@ test('비밀번호 없는 계정은 새 비밀번호만으로 설정한다 (WP-4
   expect(document.querySelector('[data-help="profile.password"] h2')).toHaveTextContent('비밀번호 설정')
   await submitSetPassword(user)
   await waitFor(() => expect(calls).toEqual([{ method: 'PUT', path: '/api/v1/users/me/password', body: { newPassword: 'Password123' } }]))
+  // 갱신(refreshUser)까지 성공하면 passwordSet 전환으로 칸이 「비밀번호 변경」 으로 바뀐다(WP-1912).
+  expect(await screen.findByRole('heading', { level: 2, name: '비밀번호 변경' })).toBeInTheDocument()
 })
 
 test('비밀번호가 있는 계정은 기존 변경 카드를 보인다 (WP-48)', async () => {
