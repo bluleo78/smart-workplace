@@ -859,3 +859,69 @@ test('캐시된 결과가 있는 검색어를 채워 다시 열면 status 는 �
   expect(status.textContent).toBe('')
   await waitFor(() => expect(status).toHaveTextContent(/^전체 결과 \d+건$/))
 })
+
+test('AI 를 쓸 수 없는 사용자에게는 「AI 대화」 탭이 없고 Tab 순환도 건너뛴다(WP-1898)', async () => {
+  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: emptyApis(), auth: NO_AI_AUTH })
+  const input = await openPalette(user)
+  expect(screen.queryByTestId('global-search-tab-ai')).toBeNull()
+  fireEvent.keyDown(input, { key: 'Tab' })
+  expect(screen.getByTestId('global-search-tab-chat')).toHaveAttribute('aria-selected', 'true')
+  fireEvent.keyDown(input, { key: 'Tab', shiftKey: true })
+  fireEvent.keyDown(input, { key: 'Tab', shiftKey: true })
+  expect(screen.getByTestId('global-search-tab-contacts')).toHaveAttribute('aria-selected', 'true')
+})
+
+/** WP-1898 — AI 대화 검색(`/search/ai-conversations`) 호출 수를 세는 핸들러와, 위키 결과 1건·나머지 빈 응답을 한 벌로 준다. */
+function aiConversationsProbe() {
+  const aiCalls = vi.fn()
+  const handlers = [
+    http.get(`${API}/search/ai-conversations`, () => {
+      aiCalls()
+      return HttpResponse.json({ items: [], hasMore: false })
+    }),
+    wikiHandler([wikiRow(7)]),
+    ...emptyApis(),
+  ]
+  return { aiCalls, handlers }
+}
+
+test('AI 를 쓸 수 없는 사용자는 「전체」 검색에서 AI 대화를 조회하지 않는다(WP-1898)', async () => {
+  const { aiCalls, handlers } = aiConversationsProbe()
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers,
+    auth: NO_AI_AUTH,
+  })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  await screen.findByTestId('global-search-hit-wiki:7')
+  expect(aiCalls).not.toHaveBeenCalled()
+  expect(screen.queryByTestId('global-search-group-ai')).toBeNull()
+})
+
+test('AI 를 쓸 수 없는 사용자가 AI 대화 탭으로 열어도 「전체」로 연다(WP-1898)', async () => {
+  const { aiCalls, handlers } = aiConversationsProbe()
+  renderScreen(<SearchPaletteHost />, {
+    path: '/',
+    handlers,
+    auth: NO_AI_AUTH,
+  })
+  act(() => openSearchPalette({ q: '배포', app: 'ai' }))
+  const all = await screen.findByTestId('global-search-tab-all')
+  expect(all).toHaveAttribute('aria-selected', 'true')
+  await screen.findByTestId('global-search-hit-wiki:7')
+  expect(aiCalls).not.toHaveBeenCalled()
+})
+
+test('AI 를 쓸 수 있는 사용자는 「전체」 검색에서 AI 대화도 조회한다(WP-1898 대조군)', async () => {
+  // 위 두 테스트의 「조회하지 않는다」가 핸들러·계수 설정 탓에 거짓 통과하지 않음을 보이는 양성 대조.
+  const { aiCalls, handlers } = aiConversationsProbe()
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers,
+  })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  await screen.findByTestId('global-search-hit-wiki:7')
+  await waitFor(() => expect(aiCalls.mock.calls.length).toBeGreaterThanOrEqual(1))
+})
