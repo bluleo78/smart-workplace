@@ -1,5 +1,7 @@
 package com.workplace.home.service;
 
+import static com.workplace.home.service.HomeChatPumpTestSupport.forUser;
+import static com.workplace.home.service.HomeChatPumpTestSupport.stubDone;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,12 +35,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,8 +74,17 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
 
   private final List<Long> users = new ArrayList<>();
 
+  /** 펌프를 호출 스레드에서 돌리는 핸들(WP-1918) — 인터럽트가 펌프 스레드에서 일어나는 동작을 보려는 테스트만 직접 닫아 비동기로 되돌린다. */
+  private AutoCloseable inlinePump;
+
+  @BeforeEach
+  void openInlinePump() {
+    inlinePump = HomeChatPumpTestSupport.inline(chatService);
+  }
+
   @AfterEach
-  void cleanup() {
+  void cleanup() throws Exception {
+    inlinePump.close();
     if (!users.isEmpty()) dsl.deleteFrom(USER).where(USER.ID.in(users)).execute();
     users.clear();
   }
@@ -101,21 +111,6 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     return label + "가".repeat(Math.max(0, koChars - label.length()));
   }
 
-  /** composeStream 이 즉시 done 하도록 스텁하고 latch 반환. */
-  private CountDownLatch stubDone(String reply) throws Exception {
-    CountDownLatch latch = new CountDownLatch(1);
-    doAnswer(
-            inv -> {
-              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
-              onDone.accept(reply, null);
-              latch.countDown();
-              return null;
-            })
-        .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
-    return latch;
-  }
-
   private ChatRequest sentRequest() throws Exception {
     ArgumentCaptor<ChatRequest> c = ArgumentCaptor.forClass(ChatRequest.class);
     verify(chatClient).composeStream(c.capture(), any(), any(), any(), any(), any(), any());
@@ -129,8 +124,12 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     return (400 - AiMemoryService.EMPTY_BLOCK_TOKENS) / 50;
   }
 
+  /** 비동기 요약 실행기 대기 상한 — 펌프의 턴 타임아웃(300초)과 무관한 hang 방지용 값이다. */
+  private static final long ASYNC_WAIT_MS = 30_000L;
+
+  /** 펌프가 아닌 조건(비동기 요약 저장·예약)을 {@link #ASYNC_WAIT_MS} 까지 폴링한다. */
   private static void await(BooleanSupplier cond) throws InterruptedException {
-    long deadline = System.currentTimeMillis() + 5000;
+    long deadline = System.currentTimeMillis() + ASYNC_WAIT_MS;
     while (!cond.getAsBoolean()) {
       if (System.currentTimeMillis() > deadline) throw new AssertionError("timeout");
       Thread.sleep(50);
@@ -143,10 +142,9 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     UUID sid = sessionService.create(uid).id();
     sessionService.appendMessage(uid, sid, "USER", "질문1", null, null, null);
     sessionService.appendMessage(uid, sid, "ASSISTANT", "답1", null, null, null);
-    CountDownLatch latch = stubDone("네");
+    stubDone(chatClient, uid, "네");
 
     chatService.startChat(uid, sid, "다음");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.contextSummary()).isNull();
@@ -165,10 +163,9 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     }
     when(summaryClient.summarize(any()))
         .thenReturn(new ContextSummaryResult("요약1"), new ContextSummaryResult("요약본"));
-    CountDownLatch latch = stubDone("네");
+    stubDone(chatClient, uid, "네");
 
     chatService.startChat(uid, sid, "처음 질문이 뭐였지?");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     var order = inOrder(summaryClient, chatClient);
     ArgumentCaptor<ContextSummaryRequest> sc = ArgumentCaptor.forClass(ContextSummaryRequest.class);
@@ -215,10 +212,9 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
       sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
     }
     when(summaryClient.summarize(any())).thenThrow(new HomeContextSummaryException("boom", null));
-    CountDownLatch latch = stubDone("네");
+    stubDone(chatClient, uid, "네");
 
     chatService.startChat(uid, sid, "다음");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.contextSummary()).isNull();
@@ -248,7 +244,7 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     chatService.startChat(uid, sid, "다음");
 
     ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.cancelled"), payload.capture());
+    verify(sseRegistry).fanOut(any(), eq("home.chat.cancelled"), payload.capture());
     assertThat(((Map<?, ?>) payload.getValue()).get("reason")).isEqualTo("user");
     verify(sseRegistry, never()).fanOut(any(), eq("home.chat.error"), any());
     verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
@@ -271,10 +267,9 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
             new HomeContextSummaryException(
                 "timeout",
                 new RestClientException("io", new SocketTimeoutException("Read timed out"))));
-    CountDownLatch latch = stubDone("네");
+    stubDone(chatClient, uid, "네");
 
     chatService.startChat(uid, sid, "다음");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.contextSummary()).isNull();
@@ -294,10 +289,9 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
       sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
     }
     when(summaryClient.summarize(any())).thenReturn(new ContextSummaryResult("비동기 요약"));
-    CountDownLatch first = stubDone(body("답변4", 46));
+    stubDone(chatClient, uid, body("답변4", 46));
 
     chatService.startChat(uid, sid, body("질문4", 46));
-    assertThat(first.await(5, TimeUnit.SECONDS)).isTrue();
     // 이번 턴은 예산 이내였으므로 동기 요약 없이 원문만.
     assertThat(sentRequest().contextSummary()).isNull();
 
@@ -306,9 +300,8 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     assertThat(saved.summary()).isEqualTo("비동기 요약");
 
     reset(chatClient);
-    CountDownLatch second = stubDone("네");
+    stubDone(chatClient, uid, "네");
     chatService.startChat(uid, sid, "처음 질문 뭐였지?");
-    assertThat(second.await(5, TimeUnit.SECONDS)).isTrue();
     ChatRequest req = sentRequest();
     assertThat(req.contextSummary()).isEqualTo("비동기 요약");
     // 경계(uptoId) 이후 메시지만 원문 — 8건(400) 중 target 200 → 최신 4건.
@@ -325,10 +318,9 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
       sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
     }
     when(summaryClient.summarize(any())).thenReturn(new ContextSummaryResult("요약본"));
-    CountDownLatch latch = stubDone("네");
+    stubDone(chatClient, uid, "네");
 
     chatService.startChat(uid, sid, "다음");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
     // 동기 요약(접을 6건 = 청크 4건 + 2건, 2회) 후, 압축된 원문(200)+요약+이번 Q/A 는 trigger(300) 미만 → 추가 요약 없음.
     Thread.sleep(500); // 비동기 예약이 잘못 일어났다면 실행될 시간
     verify(summaryClient, org.mockito.Mockito.times(2)).summarize(any());
@@ -346,10 +338,9 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     sessionService.appendActionResult(uid, sid, "ACTION_DONE", body("승인완료", 46));
     sessionService.appendActionResult(uid, sid, "ACTION_FAILED", body("승인실패", 46));
     when(summaryClient.summarize(any())).thenReturn(new ContextSummaryResult("요약본"));
-    CountDownLatch latch = stubDone("네");
+    stubDone(chatClient, uid, "네");
 
     chatService.startChat(uid, sid, "잘 됐어?");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // 총 300 + 100 + 100 = 500 > 400 → 동기 요약. 꼬리(200)는 target(200) 을 채워 앞 6건 전부 요약.
     ChatRequest req = sentRequest();
@@ -365,10 +356,9 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     UUID sid = sessionService.create(uid).id();
     sessionService.appendMessage(uid, sid, "USER", "보고서 붙여넣기", null, null, null);
     sessionService.appendMessage(uid, sid, "ASSISTANT", "가".repeat(300), null, null, null);
-    CountDownLatch latch = stubDone("네");
+    stubDone(chatClient, uid, "네");
 
     chatService.startChat(uid, sid, "요약해줘");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     String assistant = sentRequest().recentContext().get(1).content();
     assertThat(assistant).endsWith(TokenEstimates.TRUNCATION_MARK);
@@ -389,15 +379,13 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
       sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
     }
     when(summaryClient.summarize(any())).thenThrow(new HomeContextSummaryException("down", null));
-    CountDownLatch first = stubDone("네");
+    stubDone(chatClient, uid, "네");
     chatService.startChat(uid, sid, "다음");
-    assertThat(first.await(5, TimeUnit.SECONDS)).isTrue();
     Thread.sleep(300); // 쿨다운이 없다면 비동기 예약이 실행될 시간
 
     reset(chatClient);
-    CountDownLatch second = stubDone("네");
+    stubDone(chatClient, uid, "네");
     chatService.startChat(uid, sid, "그다음");
-    assertThat(second.await(5, TimeUnit.SECONDS)).isTrue();
     Thread.sleep(300);
 
     verify(summaryClient, org.mockito.Mockito.times(1)).summarize(any());
@@ -426,6 +414,8 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
    */
   @Test
   void 동기요약_중_인터럽트_플래그만_있어도_cancelled_로_끝난다() throws Exception {
+    // 인터럽트가 펌프 스레드에서 일어나는 운영 동작을 그대로 보려고 비동기 실행기를 쓴다.
+    inlinePump.close();
     long uid = user();
     UUID sid = sessionService.create(uid).id();
     for (int i = 1; i <= 5; i++) {
@@ -443,7 +433,8 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     chatService.startChat(uid, sid, "다음");
 
     ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.cancelled"), payload.capture());
+    verify(sseRegistry, timeout(HomeChatPumpTestSupport.PUMP_WAIT_LIMIT.toMillis()))
+        .fanOut(any(), eq("home.chat.cancelled"), payload.capture());
     assertThat(((Map<?, ?>) payload.getValue()).get("reason")).isEqualTo("user");
     verify(sseRegistry, never()).fanOut(any(), eq("home.chat.error"), any());
     verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
@@ -473,21 +464,18 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     // compose 시점의 요약 호출·저장 상태를 고정한다(턴 종료 후 비동기 요약이 이어서 접기 때문).
     List<ContextSummaryRequest> syncRequests = new ArrayList<>();
     SummaryState[] atCompose = new SummaryState[1];
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               syncRequests.addAll(requests);
               atCompose[0] = sessionService.getContextSummary(uid, sid);
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("네", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     chatService.startChat(uid, sid, "처음 질문이 뭐였지?");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     assertThat(syncRequests).hasSize(3);
     for (ContextSummaryRequest r : syncRequests) {

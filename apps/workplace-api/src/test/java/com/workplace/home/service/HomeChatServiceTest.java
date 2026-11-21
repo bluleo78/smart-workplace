@@ -1,5 +1,6 @@
 package com.workplace.home.service;
 
+import static com.workplace.home.service.HomeChatPumpTestSupport.forUser;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeSessionSummary;
 import com.workplace.home.outbound.AiAgentChatClient;
@@ -23,7 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.jooq.DSLContext;
@@ -39,8 +41,8 @@ import tools.jackson.databind.node.ObjectNode;
  * delta/done/tool/pending_action fanOut + done 시 ASSISTANT 영속을 검증한다.
  *
  * <p>AiAgentChatClient·SseRegistry 는 Mockito bean 으로 대체해 실제 ai-agent/SSE 커넥션 없이 테스트한다.
- * composeStream 은 비동기 펌프를 제출하므로 CountDownLatch 로 done 완료를 기다린다. @Transactional 을 쓰지 않는다 — 펌프 스레드의
- * ASSISTANT appendMessage 가 별도 tx 로 커밋되어야 하기 때문이다.
+ * composeStream 은 비동기 펌프를 제출하지만 테스트는 펌프를 호출 스레드에서 돌려(inline) 래치 없이 단언한다(취소 테스트만
+ * 비동기). @Transactional 을 쓰지 않는다 — 펌프 스레드의 ASSISTANT appendMessage 가 별도 tx 로 커밋되어야 하기 때문이다.
  *
  * <p>예전에는 기동 직후 도는 MailSummaryScheduler 가 다른 스레드에서 AssistantResolver 스텁을 건드려 flake 해서
  * TenantScopedRunner 를 목으로 막았다. 테스트 프로파일이 @Scheduled 를 끈 뒤(WP-80) 그 목은 필요 없어 뺐다(WP-1028).
@@ -58,10 +60,19 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired AssistantResolver assistantResolver;
   @Autowired SseRegistry sseRegistry;
+  @Autowired StreamingGenerationRegistry registry;
 
   private void stubAssistant() {
     when(assistantResolver.resolve(anyLong()))
         .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+  }
+
+  /** 펌프를 호출 스레드에서 돌리는 핸들(WP-1918) — 5초 래치 대기 없이 startChat 반환 시점에 펌프가 끝나 있게 한다. */
+  private AutoCloseable inlinePump;
+
+  @org.junit.jupiter.api.BeforeEach
+  void openInlinePump() {
+    inlinePump = HomeChatPumpTestSupport.inline(composeService);
   }
 
   private final java.util.List<Long> createdUserIds = new java.util.ArrayList<>();
@@ -71,7 +82,8 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
    * 삭제 가능.
    */
   @org.junit.jupiter.api.AfterEach
-  void cleanupUsers() {
+  void cleanupUsers() throws Exception {
+    inlinePump.close();
     if (!createdUserIds.isEmpty()) {
       dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
       createdUserIds.clear();
@@ -98,8 +110,8 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
 
   /**
    * delta×2 + done 시퀀스를 시뮬레이션한다. composeClient.composeStream 을 가로채 onDelta 를 2회, onDone 을 1회 즉시
-   * 호출한다. CountDownLatch 로 펌프 완료를 기다린 뒤 세션 메시지를 조회해 USER/ASSISTANT 영속을 검증하고, delta/done fanOut 이
-   * correlationId 를 포함하는지 확인한다.
+   * 호출한다. startChat 이 돌아온 뒤 세션 메시지를 조회해 USER/ASSISTANT 영속을 검증하고, delta/done fanOut 이 correlationId
+   * 를 포함하는지 확인한다.
    */
   @Test
   void sessionId_null_이면_새_세션_생성하고_USER_ASSISTANT_영속() throws Exception {
@@ -107,7 +119,6 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     stubAssistant();
 
     // composeStream 은 void 반환 → doAnswer 사용. delta×2 + done 즉시 호출.
-    CountDownLatch doneLatch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               java.util.function.Consumer<String> onDelta = inv.getArgument(1);
@@ -115,17 +126,13 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
               onDelta.accept("내 ");
               onDelta.accept("할 일이에요");
               onDone.accept("내 할 일이에요", widgets("[{\"type\":\"my_tasks\",\"params\":{}}]"));
-              doneLatch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     String correlationId = composeService.startChat(uid, null, "내 할 일").correlationId();
     assertThat(correlationId).isNotBlank();
-
-    // 펌프 완료 대기(최대 5초).
-    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // 세션 목록 조회 후 메시지 검증.
     List<HomeSessionSummary> summaries = sessionService.list(uid, null, 10).items();
@@ -161,7 +168,6 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     long uid = user("toolfilter" + System.nanoTime());
     stubAssistant();
 
-    CountDownLatch doneLatch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
@@ -199,14 +205,12 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
                           + "\"isError\":false}"));
 
               onDone.accept("상태를 변경했어요", null);
-              doneLatch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     composeService.startChat(uid, null, "EX-1 상태 변경해줘");
-    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     List<HomeSessionSummary> summaries = sessionService.list(uid, null, 10).items();
     UUID sid = summaries.get(0).id();
@@ -239,7 +243,6 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     long uid = user("toolnull" + System.nanoTime());
     stubAssistant();
 
-    CountDownLatch doneLatch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
@@ -257,14 +260,12 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
                           + "\"isError\":false}"));
 
               onDone.accept("안녕하세요", null);
-              doneLatch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     composeService.startChat(uid, null, "안녕");
-    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     List<HomeSessionSummary> summaries = sessionService.list(uid, null, 10).items();
     UUID sid = summaries.get(0).id();
@@ -294,7 +295,6 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
   private HomeMessageResponse assistantAfter(StreamScript script) throws Exception {
     long uid = user("blocks" + System.nanoTime());
     stubAssistant();
-    CountDownLatch doneLatch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               Consumer<String> onDelta = inv.getArgument(1);
@@ -313,13 +313,11 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
                     onTool.accept(node);
                   };
               onDone.accept(script.run(onDelta, onProgress, tool), null);
-              doneLatch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
     composeService.startChat(uid, null, "질문");
-    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
     UUID sid = sessionService.list(uid, null, 10).items().get(0).id();
     return sessionService.getMessages(uid, sid).get(1);
   }
@@ -424,19 +422,16 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
         null);
     stubAssistant();
 
-    CountDownLatch doneLatch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("HIGH 만 추렸어요", null);
-              doneLatch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     composeService.startChat(uid, s.id(), "그 중 HIGH 만");
-    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
     verify(chatClient).composeStream(captor.capture(), any(), any(), any(), any(), any(), any());
@@ -462,19 +457,16 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
       sessionService.appendActionResult(uid, s.id(), "ACTION_DONE", "승인 완료: 카드" + i);
     }
     stubAssistant();
-    CountDownLatch doneLatch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("네", null);
-              doneLatch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     composeService.startChat(uid, s.id(), "다음");
-    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
     verify(chatClient).composeStream(captor.capture(), any(), any(), any(), any(), any(), any());
@@ -508,19 +500,16 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     // 기본 비서: timeoutMs=60000 (공유 기본값).
     stubAssistant();
 
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("처리했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     composeService.startChat(uid, null, "오늘 일정 확인 + 메일도");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // 전송된 ChatRequest 를 캡처해 timeoutMs 가 하한(180_000)으로 상향됐는지 검증.
     ArgumentCaptor<ChatRequest> reqCaptor = ArgumentCaptor.forClass(ChatRequest.class);
@@ -538,19 +527,16 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     // 기본 비서: maxTurns=8 (공유 기본값).
     stubAssistant();
 
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("처리했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     composeService.startChat(uid, null, "어제~오늘 완료된 이슈 에픽 중심으로");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ArgumentCaptor<ChatRequest> reqCaptor = ArgumentCaptor.forClass(ChatRequest.class);
     verify(chatClient).composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
@@ -569,21 +555,18 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     JsonNode proposal =
         objectMapper.readTree(
             "[{\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시\",\"params\":{}}]");
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               java.util.function.Consumer<JsonNode> onPending = inv.getArgument(5);
               onPending.accept(proposal);
               java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("제안했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     String correlationId = composeService.startChat(uid, null, "내일 10시 회의 잡아줘").correlationId();
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
@@ -607,14 +590,13 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
 
     org.mockito.Mockito.doThrow(new RuntimeException("ai-agent 응답 실패"))
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     String correlationId = composeService.startChat(uid, null, "안녕").correlationId();
 
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
-    verify(sseRegistry, org.mockito.Mockito.timeout(2000))
-        .fanOut(eq(Set.of(uid)), eq("home.chat.error"), payloadCaptor.capture());
+    verify(sseRegistry).fanOut(eq(Set.of(uid)), eq("home.chat.error"), payloadCaptor.capture());
     assertThat(payloadCaptor.getValue())
         .containsEntry("correlationId", correlationId)
         .containsEntry("message", "ai-agent 응답 실패");
@@ -626,6 +608,8 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
    */
   @Test
   void cancelChat_으로_인터럽트되면_home_chat_cancelled_fanOut() throws Exception {
+    // 펌프가 스텁 안에서 붙잡혀 있어야 취소할 수 있다 — 이 테스트만 비동기 실행기로 되돌린다.
+    inlinePump.close();
     long uid = user("cancel" + System.nanoTime());
     stubAssistant();
 
@@ -634,29 +618,70 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
             inv -> {
               started.countDown();
               try {
-                Thread.sleep(5000);
+                Thread.sleep(HomeChatPumpTestSupport.CANCEL_HOLD_LIMIT.toMillis());
               } catch (InterruptedException ie) {
                 throw new java.io.UncheckedIOException(new java.io.IOException(ie));
               }
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     String correlationId = composeService.startChat(uid, null, "안녕").correlationId();
-    assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+    HomeChatPumpTestSupport.awaitPump(started);
 
     composeService.cancelChat(correlationId, uid);
 
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
-    verify(sseRegistry, org.mockito.Mockito.timeout(2000))
+    verify(
+            sseRegistry,
+            org.mockito.Mockito.timeout(HomeChatPumpTestSupport.PUMP_WAIT_LIMIT.toMillis()))
         .fanOut(eq(Set.of(uid)), eq("home.chat.cancelled"), payloadCaptor.capture());
     assertThat(payloadCaptor.getValue())
         .containsEntry("correlationId", correlationId)
         .containsEntry("reason", "user");
     verify(sseRegistry, org.mockito.Mockito.never())
         .fanOut(eq(Set.of(uid)), eq("home.chat.error"), any());
+  }
+
+  /**
+   * forUser(userId) 로 거른 스텁이 다른 사용자 호출을 가로채지 않는지 본다(WP-1918). A 용 스텁이 B 의 startChat 호출을 받지 않는 것을
+   * 지킨다. A 스텁을 마지막에 등록하므로 거르기 없는 any() 였다면 B 호출을 가로채 실패한다.
+   */
+  @Test
+  void userId_로_거른_스텁은_다른_사용자_호출을_가로채지_않는다() throws Exception {
+    long a = user("lateA" + System.nanoTime());
+    long b = user("lateB" + System.nanoTime());
+    stubAssistant();
+    AtomicInteger aCalls = new AtomicInteger();
+    AtomicInteger bCalls = new AtomicInteger();
+    // B 도 자기 스텁으로 즉시 끝낸다 — Mockito 기본 no-op 에 펌프 종료를 맡기지 않는다.
+    doAnswer(
+            inv -> {
+              bCalls.incrementAndGet();
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("B 응답", null);
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(forUser(b), any(), any(), any(), any(), any(), any());
+
+    // A 스텁은 마지막에 등록한다 — Mockito 는 마지막에 맞는 스텁을 쓰므로, 거르기가 없으면 B 호출을 가로채 실패한다.
+    doAnswer(
+            inv -> {
+              aCalls.incrementAndGet();
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("A 응답", null);
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(forUser(a), any(), any(), any(), any(), any(), any());
+    composeService.startChat(b, null, "B 질문");
+
+    assertThat(aCalls.get()).isZero();
+    assertThat(bCalls.get()).isEqualTo(1);
+    assertThat(registry.active(b, HomeChatService.scope())).isEmpty();
   }
 
   /** cancelChat 은 존재하지 않는 correlationId 에 대해 레지스트리의 예외 정책을 그대로 따른다(위임 확인). */

@@ -29,9 +29,14 @@ test('FormError(제출 실패) 는 alert, FieldError(실시간) 는 polite statu
   expect(status).not.toHaveAttribute('role', 'alert')
 })
 
-test('비어 있는 FieldError 는 문단을 남기지 않는다 — 빈 리전이 안내로 잡히지 않는다', () => {
+test('비어 있는 FieldError 는 리전만 두고 글자를 남기지 않는다 — 빈 리전이 안내로 잡히지 않는다', () => {
   const { container } = render(<FieldError id="empty">{null}</FieldError>)
-  expect(container.querySelector('#empty')).toBeNull()
+  const region = container.querySelector('#empty')
+  // 리전은 조건 없이 늘 DOM 에 있어야 글자가 바뀔 때 polite 안내가 읽힌다(WP-1934) —
+  // 빈 동안에는 sr-only 로 화면 흐름에서 빠져 간격을 만들지 않는다.
+  expect(region).not.toBeNull()
+  expect(region).toHaveClass('sr-only')
+  expect(region).toBeEmptyDOMElement()
 })
 
 describe('실시간 검증 — 입력 중에 뜨는 안내는 status 다', () => {
@@ -54,7 +59,7 @@ describe('실시간 검증 — 입력 중에 뜨는 안내는 status 다', () =>
     expect(hint).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(input).toHaveAttribute('aria-invalid', 'true')
-    expect(input.getAttribute('aria-describedby')).toContain('mail-schedule-datetime-error')
+    expect(input.getAttribute('aria-describedby')).toBe(hint.id)
   })
 
   test('조회 기간 — 뒤집힌 기간 안내는 status 이고 두 칸이 함께 가리킨다', () => {
@@ -67,7 +72,26 @@ describe('실시간 검증 — 입력 중에 뜨는 안내는 status 다', () =>
     expect(hint).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByTestId('period-range-from')).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getByTestId('period-range-to').getAttribute('aria-describedby')).toContain('period-range-error')
+    expect(screen.getByTestId('period-range-to').getAttribute('aria-describedby')).toBe(hint.id)
+  })
+
+  test('조회 기간 — 안내 리전은 오류 전부터 있고 오류가 떠도 같은 노드다(WP-1934)', () => {
+    // 리전이 문구와 같은 렌더에 생기면 스크린리더가 polite 안내를 건너뛴다 — 리전을 미리 두고 글자만 바꿔야 한다.
+    render(<PeriodRangeForm initial={{ from: '', to: '' }} onApply={vi.fn()} />)
+    const before = screen.getByTestId('period-range-error')
+    expect(before).toHaveAttribute('role', 'status')
+    expect(before).toBeEmptyDOMElement()
+    // 오류가 없을 때는 칸이 빈 리전을 가리키지 않는다.
+    expect(screen.getByTestId('period-range-to')).not.toHaveAttribute('aria-describedby')
+
+    fireEvent.change(screen.getByTestId('period-range-from'), { target: { value: '2026-12-31' } })
+    fireEvent.change(screen.getByTestId('period-range-to'), { target: { value: '2026-01-01' } })
+
+    const after = screen.getByTestId('period-range-error')
+    expect(after).toBe(before)
+    expect(after).toHaveTextContent('시작일이 종료일보다 늦어요')
+    expect(after).not.toHaveClass('sr-only')
+    expect(screen.getByTestId('period-range-to').getAttribute('aria-describedby')).toBe(after.id)
   })
 })
 

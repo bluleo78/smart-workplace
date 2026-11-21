@@ -6,9 +6,11 @@ import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -26,6 +28,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 같은 틀을 쓴다.
  */
 abstract class AiMemoryRaceTestSupport extends IntegrationTestBase {
+
+  /** 경합 작업 전체(장벽 대기 포함)가 끝나기까지의 상한 — 속도 단언이 아니라 교착으로 걸리는 hang 방지용이다(펌프와 무관). */
+  private static final Duration RACE_WAIT = Duration.ofSeconds(30);
 
   @Autowired protected DSLContext dsl;
 
@@ -54,8 +59,8 @@ abstract class AiMemoryRaceTestSupport extends IntegrationTestBase {
   }
 
   /**
-   * 같은 작업을 두 스레드가 장벽에서 동시에 출발해 돌리고 결과 문자열을 모아 돌려준다. 각 스레드에 tenant#1 을 걸어 준다. 시간 단언은 없고 대기 상한(10초)은
-   * 교착 방지용 liveness 안전장치다.
+   * 같은 작업을 두 스레드가 장벽에서 동시에 출발해 돌리고 결과 문자열을 모아 돌려준다. 각 스레드에 tenant#1 을 걸어 준다. 시간 단언은 없고 작업 전체 완료
+   * 상한(RACE_WAIT, 30초)은 교착 방지용 liveness 안전장치다. 상한 안에 끝나지 않으면 AssertionError 를 던진다.
    */
   protected List<String> raceTwice(Callable<String> work) throws Exception {
     CyclicBarrier start = new CyclicBarrier(2);
@@ -63,7 +68,7 @@ abstract class AiMemoryRaceTestSupport extends IntegrationTestBase {
         () -> {
           TenantContext.set(1L);
           try {
-            start.await(5, TimeUnit.SECONDS);
+            start.await(RACE_WAIT.toMillis(), TimeUnit.MILLISECONDS);
             return work.call();
           } finally {
             TenantContext.clear();
@@ -72,8 +77,14 @@ abstract class AiMemoryRaceTestSupport extends IntegrationTestBase {
     ExecutorService pool = Executors.newFixedThreadPool(2);
     List<String> results = new ArrayList<>();
     try {
-      for (Future<String> f : pool.invokeAll(List.of(task, task))) {
-        results.add(f.get(10, TimeUnit.SECONDS));
+      // 상한을 넘기면 invokeAll 이 미완료 작업을 취소해 돌려주므로, 취소된 Future 의 get 은 CancellationException 이다.
+      for (Future<String> f :
+          pool.invokeAll(List.of(task, task), RACE_WAIT.toMillis(), TimeUnit.MILLISECONDS)) {
+        try {
+          results.add(f.get());
+        } catch (CancellationException e) {
+          throw new AssertionError("경합 작업이 상한 안에 끝나지 않았다", e);
+        }
       }
     } finally {
       pool.shutdownNow();

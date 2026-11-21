@@ -1,5 +1,6 @@
 package com.workplace.home.service;
 
+import static com.workplace.home.service.HomeChatPumpTestSupport.forUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -28,7 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
@@ -77,7 +77,9 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
    * 삭제 가능.
    */
   @org.junit.jupiter.api.AfterEach
-  void cleanupUsers() {
+  void cleanupUsers() throws Exception {
+    for (AutoCloseable c : inlinePumps) c.close();
+    inlinePumps.clear();
     if (!createdUserIds.isEmpty()) {
       baseDsl
           .deleteFrom(com.workplace.jooq.Tables.USER)
@@ -107,8 +109,21 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     }
   }
 
-  /** SseRegistry.fanOut() 을 가로채 전송 이벤트를 캡처하는 목 + 실제 레지스트리로 조립한 서비스 인스턴스. */
+  /** 테스트가 연 inline 핸들 — @AfterEach 에서 닫는다(WP-1918). */
+  private final List<AutoCloseable> inlinePumps = new ArrayList<>();
+
+  /** 서비스를 만들고 펌프를 호출 스레드에서 돌게 한다(WP-1918) — startChat 이 돌아올 때 펌프가 끝나 있어 래치 대기가 필요 없다. */
   private HomeChatService serviceCapturing(List<SentEvent> captured) {
+    HomeChatService svc = serviceCapturingAsync(captured);
+    inlinePumps.add(HomeChatPumpTestSupport.inline(svc));
+    return svc;
+  }
+
+  /**
+   * 펌프가 실제 실행기(별도 스레드)에서 도는 서비스. 펌프 스레드로의 주체 인계처럼 스레드 경계 자체를 검증하는 테스트가 쓰며,
+   * HomeChatPumpTestSupport.awaitPump 로 기다린다.
+   */
+  private HomeChatService serviceCapturingAsync(List<SentEvent> captured) {
     SseRegistry capturingSseRegistry = mock(SseRegistry.class);
     doAnswer(
             inv -> {
@@ -155,17 +170,15 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     long uid = seedAgent("fwd-screen-ctx");
     stubAssistant();
 
-    CountDownLatch latch = new CountDownLatch(1);
     var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
     doAnswer(
             inv -> {
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("처리했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     AiScreenContext ctx =
         new AiScreenContext(
@@ -179,8 +192,6 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
             null);
     serviceCapturing(new ArrayList<>())
         .startChat(uid, null, "이거 요약", ctx, List.of(), null, null, null);
-
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
     org.mockito.Mockito.verify(chatClient)
         .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
     assertThat(reqCaptor.getValue().screenContext()).isEqualTo(ctx);
@@ -230,32 +241,27 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
    * onProgress 콜백이 호출되면 home.chat.progress 가 fanOut 되는지 검증.
    *
    * <p>composeClient.composeStream 을 가로채 onProgress("캘린더 전문가에게 위임 중") → onDone 순으로 즉시 호출한다.
-   * CountDownLatch 로 펌프 완료를 기다린 뒤, 캡처된 이벤트 목록에서 progress + 라벨을 단언한다.
+   * startChat 이 돌아온 뒤(펌프가 inline 으로 끝남), 캡처된 이벤트 목록에서 progress + 라벨을 단언한다.
    */
   @Test
   void progress_콜백을_받으면_home_chat_progress_이벤트를_fanOut_한다() throws Exception {
     long uid = seedAgent("fwd-prog");
     stubAssistant();
 
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               Consumer<String> onProgress = inv.getArgument(4);
               onProgress.accept("캘린더 전문가에게 위임 중");
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("처리했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     String correlationId =
         serviceCapturing(captured).startChat(uid, null, "다음주 회의 잡아줘").correlationId();
-
-    // 펌프 완료 대기(최대 5초).
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // progress 이벤트가 fanOut 되고 라벨 + correlationId 가 포함됐는지 검증.
     List<SentEvent> progressEvents =
@@ -280,25 +286,20 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     JsonNode proposal =
         objectMapper.readTree(
             "[{\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시\",\"params\":{}}]");
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               Consumer<JsonNode> onPending = inv.getArgument(5);
               onPending.accept(proposal);
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("제안했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     String correlationId =
         serviceCapturing(captured).startChat(uid, null, "내일 10시 회의 잡아줘").correlationId();
-
-    // 펌프 완료 대기(최대 5초).
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // pending_action 이벤트가 { correlationId, actions } 봉투로 fanOut 됐는지 검증.
     List<SentEvent> pendingEvents =
@@ -331,24 +332,19 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
 
     JsonNode widgets =
         objectMapper.readTree("[{\"type\":\"mail_list\",\"params\":{\"folder\":\"INBOX\"}}]");
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               // show_mail_list 단독 응답 — fullText 는 비어 있고 widgets 만 존재.
               onDone.accept("", widgets);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     String correlationId =
         serviceCapturing(captured).startChat(uid, null, "메일 보여줘").correlationId();
-
-    // 펌프 완료 대기(최대 5초).
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // home.chat.done 이 fanOut 되고 correlationId + sessionId + widgets(mail_list) 가 함께 실렸는지 검증.
     List<SentEvent> doneEvents =
@@ -376,24 +372,19 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
             objectMapper.readTree(
                 "[{\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시\",\"params\":{}},"
                     + "{\"actionType\":\"mail.send\",\"summary\":\"메일 보내기\",\"params\":{}}]");
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               Consumer<JsonNode> onPending = inv.getArgument(5);
               onPending.accept(proposals);
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("제안했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).startChat(uid, null, "내일 10시 회의 잡고 메일도 보내줘");
-
-    // 펌프 완료 대기(최대 5초).
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // pending_action 이벤트가 fanOut 되고 actions 배열에 두 actionType 이 모두 포함됐는지 검증.
     List<SentEvent> pendingEvents =
@@ -426,7 +417,6 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     JsonNode toolResult =
         objectMapper.readTree("{\"seq\":1,\"phase\":\"result\",\"isError\":false}");
 
-    CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
               Consumer<String> onProgress = inv.getArgument(4);
@@ -436,17 +426,14 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
               onTool.accept(toolResult);
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("이슈 상태를 변경했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     HomeChatService svc = serviceCapturing(captured);
     svc.startChat(uid, null, "이슈 10번 완료 처리해줘");
-
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // fanOut: tool 이벤트가 최소 2회 전달됐는지 검증 + correlationId 병합 확인.
     List<SentEvent> toolEvents =
@@ -487,22 +474,18 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     // 기본 비서: timeoutMs=60000 (공유 기본값).
     stubAssistant();
 
-    CountDownLatch latch = new CountDownLatch(1);
     var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
     doAnswer(
             inv -> {
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("처리했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).startChat(uid, null, "오늘 일정 확인 + 메일도");
-
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     // 전송된 ChatRequest 를 캡처해 timeoutMs 가 하한(180_000)으로 상향됐는지 검증.
     org.mockito.Mockito.verify(chatClient)
@@ -522,22 +505,18 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     stubAssistant();
     TenantContext.set(1L);
 
-    CountDownLatch latch = new CountDownLatch(1);
     var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
     doAnswer(
             inv -> {
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("처리했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).startChat(uid, null, "양정모님에 대해서 알려줘");
-
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     org.mockito.Mockito.verify(chatClient)
         .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
@@ -554,22 +533,18 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     stubAssistant();
     TenantContext.clear();
 
-    CountDownLatch latch = new CountDownLatch(1);
     var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
     doAnswer(
             inv -> {
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
               onDone.accept("처리했어요", null);
-              latch.countDown();
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).startChat(uid, null, "안녕");
-
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     org.mockito.Mockito.verify(chatClient)
         .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
@@ -618,7 +593,7 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     // 요청 스레드에 SecurityContext 를 둔다 — 주체는 여기서 잡아 스레드 풀로 넘어가야 한다(WP-1829 리뷰 반영).
     org.springframework.security.core.context.SecurityContextHolder.getContext()
@@ -626,9 +601,9 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
             new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
                 uid, null, java.util.List.of()));
     try {
-      serviceCapturing(new ArrayList<>())
+      serviceCapturingAsync(new ArrayList<>())
           .startChat(uid, null, "안녕", null, List.of(), null, null, null);
-      assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+      HomeChatPumpTestSupport.awaitPump(latch);
     } finally {
       org.springframework.security.core.context.SecurityContextHolder.clearContext();
     }
@@ -655,13 +630,13 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
               return null;
             })
         .when(chatClient)
-        .composeStream(any(), any(), any(), any(), any(), any(), any());
+        .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
 
     org.springframework.security.core.context.SecurityContextHolder.clearContext();
     try {
-      serviceCapturing(new ArrayList<>())
+      serviceCapturingAsync(new ArrayList<>())
           .startChat(uid, null, "안녕", null, List.of(), null, null, null);
-      assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+      HomeChatPumpTestSupport.awaitPump(latch);
     } finally {
       org.springframework.security.core.context.SecurityContextHolder.clearContext();
     }

@@ -582,9 +582,23 @@ describe('Outlook 연결 팝업', () => {
     const dialog = await screen.findByTestId('mail-account-dialog')
     const region = () => within(dialog).getByRole('status')
     const before = region()
+    // IMAP 에서는 빈 리전을 감싼 상자가 흐름에서 빠져(sr-only) 공급자 칸과 IMAP 칸 사이 간격을 더 만들지 않는다(WP-1934).
+    expect(before.parentElement).toHaveClass('sr-only')
     await choose(view.user, '공급자', 'Outlook (Microsoft 365)')
     expect(region()).toBe(before)
+    // Outlook 에서는 오류 상자·안내·단추를 예전 간격(space-y-4 py-2)으로 모은다.
+    expect(before.parentElement).toHaveClass('space-y-4', 'py-2')
+    expect(before.parentElement).not.toHaveClass('sr-only')
     expect(within(dialog).getByRole('button', { name: 'Outlook 계정 연결' })).toBeInTheDocument()
+  })
+
+  test('인증 중 진행 안내는 예전처럼 가운데 모아 그린다', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(fakePopup() as unknown as Window)
+    const { user } = await openOutlook()
+    await user.click(screen.getByRole('button', { name: 'Outlook 계정 연결' }))
+    await screen.findByText(/Microsoft 창에서 인증을 진행하세요/)
+    const region = within(screen.getByTestId('mail-account-dialog')).getByRole('status')
+    expect(region).toHaveClass('flex', 'flex-col', 'items-center', 'gap-3', 'py-4', 'text-center')
   })
 
   test('연결 버튼 → 팝업 open + /start 의 인가 주소로 이동 + 진행 안내, 성공 메시지면 토스트와 함께 닫힌다', async () => {

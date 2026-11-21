@@ -13,13 +13,13 @@ import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.home.service.AiMemoryClock;
 import com.workplace.home.service.AiMemoryService;
+import com.workplace.home.service.HomeChatPumpTestSupport;
 import com.workplace.user.service.AiPreferenceService;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -32,6 +32,21 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
 
   @Autowired AiMemoryService memoryService;
   @Autowired AiPreferenceService preferences;
+
+  /** 펌프를 호출 스레드에서 돌리는 해제 핸들 — 테스트 안에서 취소·두 번째 요청이 없어 전부 inline 으로 충분하다(WP-1918). */
+  private AutoCloseable inlinePump;
+
+  /** 펌프를 inline 으로 열어 startChat 이 돌아온 시점에 요청 전송이 끝나 있게 한다(5초 래치 대기 제거). */
+  @BeforeEach
+  void openInlinePump() {
+    inlinePump = HomeChatPumpTestSupport.inline(chatService);
+  }
+
+  /** 실행기를 원래대로 되돌린다(다른 테스트로 새지 않게). */
+  @AfterEach
+  void closeInlinePump() throws Exception {
+    inlinePump.close();
+  }
 
   /** 하위 클래스 @AfterEach 가 먼저 돈다 — 사용자 삭제(상위 정리) 전에 tenant 트랜잭션으로 메모리를 지운다. */
   @AfterEach
@@ -63,10 +78,9 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     long uid = user();
     AiMemoryTestFixtures.createMemory(memoryService, uid, "PREFERENCE", "짧은 목록으로 보여 준다");
     AiMemoryTestFixtures.createMemory(memoryService, uid, "CONTEXT", "백엔드 팀이다");
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
 
     chatService.startChat(uid, null, "이슈 보여줘");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.memoryEnabled()).isTrue();
@@ -82,10 +96,9 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     long uid = user();
     AiMemoryTestFixtures.createMemory(memoryService, uid, "PREFERENCE", "짧은 목록으로 보여 준다");
     preferences.update(uid, null, false);
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
 
     chatService.startChat(uid, null, "이슈 보여줘");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.memoryEnabled()).isFalse();
@@ -98,10 +111,9 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
   void 메모리가_없으면_예산_안의_이력을_그대로_보낸다() throws Exception {
     long uid = user();
     UUID sid = seedHistory(uid);
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
 
     chatService.startChat(uid, sid, "다음");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.contextSummary()).isNull();
@@ -118,10 +130,9 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     long uid = user();
     UUID sid = seedHistory(uid);
     AiMemoryTestFixtures.createMemory(memoryService, uid, "CONTEXT", "가".repeat(200));
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
 
     chatService.startChat(uid, sid, "다음");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.recentContext()).hasSize(1);
@@ -143,10 +154,9 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     createScoped(uid, "답은 존댓말로 한다", null);
     createScoped(uid, "이슈 목록은 짧게 보여 준다", "ISSUE");
     createScoped(uid, "메일은 세 줄로 요약한다", "MAIL");
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
 
     chatService.startChat(uid, null, "이슈 보여줘", null, List.of(), null, "ISSUE", null);
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.app()).isEqualTo("ISSUE");
@@ -162,10 +172,9 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     long uid = user();
     createScoped(uid, "답은 존댓말로 한다", null);
     createScoped(uid, "이슈 목록은 짧게 보여 준다", "ISSUE");
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
 
     chatService.startChat(uid, null, "안녕", null, List.of(), null, "CONTACTS", null);
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.app()).isNull();
@@ -177,14 +186,13 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
   void 채팅_요청_본문의_app_이_ai_agent_요청까지_간다() throws Exception {
     long uid = user();
     createScoped(uid, "메일은 세 줄로 요약한다", "MAIL");
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
 
     http(post("/api/v1/ai/chat")
             .header("Authorization", bearer(uid))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"query\":\"메일 정리해줘\",\"app\":\"MAIL\"}"))
         .andExpect(status().isOk());
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.app()).isEqualTo("MAIL");
@@ -199,11 +207,10 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
         uid,
         new CreateAiMemoryRequest("PREFERENCE", "이번 분기는 결제 모듈", null, null, null, "2999-12-31"),
         false);
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
     String before = LocalDate.now(AiMemoryClock.ZONE).toString();
 
     chatService.startChat(uid, null, "안녕");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
     String after = LocalDate.now(AiMemoryClock.ZONE).toString();
 
     ChatRequest req = sentRequest();
@@ -218,10 +225,9 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     long uid = user();
     createScoped(uid, "이슈 목록은 짧게 보여 준다", "ISSUE");
     createScoped(uid, "메일은 세 줄로 요약한다", "MAIL");
-    CountDownLatch latch = stubDone("네");
+    stubDoneFor(uid, "네");
 
     chatService.startChat(uid, null, "이슈 정리 방식 기억나?");
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
     assertThat(req.memoryEnabled()).isTrue();

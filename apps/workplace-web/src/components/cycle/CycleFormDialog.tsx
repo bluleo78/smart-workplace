@@ -16,6 +16,7 @@ import {
 import { FieldError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { useFieldHint } from '@/hooks/useFieldHint';
 
 import { useCreateCycle, useUpdateCycle } from '../../hooks/queries/useCycles';
 import { CYCLE_NAME_MAX, isCycleDateMissing, isCycleDateRangeInvalid } from '../../lib/cycleMeta';
@@ -50,6 +51,7 @@ export function CycleFormDialog({
   const dateMissing = isCycleDateMissing(startDate, endDate);
   // 종료일이 시작일보다 빠르면 오류(#804).
   const dateRangeInvalid = isCycleDateRangeInvalid(startDate, endDate);
+  const rangeHint = useFieldHint(dateRangeInvalid);
   // 저장 단추 잠금 조건 — 단추와 Enter 제출(WP-1616)이 같이 쓴다.
   const canSubmit = name.trim().length > 0 && !dateMissing && !dateRangeInvalid && !saving;
 
@@ -132,8 +134,7 @@ export function CycleFormDialog({
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 aria-label="시작일"
-                aria-invalid={dateRangeInvalid}
-                aria-describedby={dateRangeInvalid ? 'cycle-date-range-error' : undefined}
+                {...rangeHint.inputProps}
                 required
               />
               <Input
@@ -141,8 +142,7 @@ export function CycleFormDialog({
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
                 aria-label="종료일"
-                aria-invalid={dateRangeInvalid}
-                aria-describedby={dateRangeInvalid ? 'cycle-date-range-error' : undefined}
+                {...rangeHint.inputProps}
                 required
               />
             </div>
@@ -152,11 +152,9 @@ export function CycleFormDialog({
               </p>
             )}
             {/* 날짜 뒤집힘은 입력하는 도중에 뜨는 안내라 polite 로 읽히게 한다(WP-1901 리뷰) — role=alert 는 제출 실패에만. */}
-            {dateRangeInvalid && (
-              <FieldError id="cycle-date-range-error" data-testid="cycle-date-range-error">
-                종료일은 시작일 이후여야 합니다
-              </FieldError>
-            )}
+            <FieldError id={rangeHint.id} data-testid="cycle-date-range-error">
+              {dateRangeInvalid ? '종료일은 시작일 이후여야 합니다' : null}
+            </FieldError>
             {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
             <Select value={status} onValueChange={(v) => setStatus(v as CycleStatus)}>
               <SelectTrigger

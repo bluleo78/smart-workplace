@@ -154,7 +154,8 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(page.getByTestId('period-range-apply')).toBeDisabled();
     await expect(page.getByTestId('period-range-error')).toHaveText('시작일이 종료일보다 늦어요');
     await page.getByTestId('period-range-to').fill('2026-09-30');
-    await expect(page.getByTestId('period-range-error')).toHaveCount(0);
+    // 안내 리전은 polite 안내가 읽히도록 늘 두고 글자만 비운다(WP-1934).
+    await expect(page.getByTestId('period-range-error')).toBeEmpty();
     await page.getByTestId('period-range-apply').click();
     await expect(page).toHaveURL(/period=range%3A2026-09-20%7E2026-09-30|period=range:2026-09-20~2026-09-30/);
     await expect(page.getByTestId('timeline-period-trigger')).toContainText('9/20–9/30');
