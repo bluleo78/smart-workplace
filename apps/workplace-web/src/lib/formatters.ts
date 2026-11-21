@@ -711,3 +711,13 @@ export function formatKstMonthDayWeekdayClock(dateStr: string | null | undefined
   const text = `${t.m}월 ${t.d}일 (${kstWeekday(t)}) ${pad2(t.h)}:${pad2(t.min)}`
   return t.y === kstParts(now).y ? text : `${t.y}년 ${text}`
 }
+
+/**
+ * 브라우저 로컬 타임존 기준 「M/d」 날짜 — 「12/2」. 기준일(ref)의 로컬 연도와 해가 다르면 「2026/12/30」처럼 연도를 붙인다(WP-1910).
+ * 여러 날 일정 조각의 「…부터」 라벨이 해를 넘어갈 때 어느 해의 날짜인지 구분하기 위함. null/undefined/무효 입력 → ''.
+ */
+export function formatLocalMonthDaySlash(dateStr: string | null | undefined, ref: Date): string {
+  const d = parseUtcDate(dateStr)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.getFullYear() === ref.getFullYear() ? format(d, 'M/d') : format(d, 'yyyy/M/d')
+}

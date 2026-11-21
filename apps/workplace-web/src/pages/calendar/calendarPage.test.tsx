@@ -124,6 +124,20 @@ describe('헤더·보기·표기', () => {
     await waitFor(() => expect(screen.getAllByTestId('calendar-event-1')).toHaveLength(2))
   })
 
+  // (기대 라벨은 vitest TZ=Asia/Seoul 에 의존한다)
+  // WP-1910 — 여러 날 시간 일정은 조각마다 그날에 맞는 라벨(시작일 시작 시각·중간 「M/d부터」·마지막 「~끝 시각」).
+  test('주 보기 — 여러 날 시간 일정 조각은 시작일에만 시작 시각을 붙인다 (WP-1910)', async () => {
+    const { user } = await renderCalendar({
+      events: [calendarEvent({ id: 1, title: '부산 출장', allDay: false, startsAt: '2026-06-08T00:00:00Z', endsAt: '2026-06-10T09:00:00Z' })],
+    })
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    await screen.findByTestId('calendar-view-week')
+    await waitFor(() => expect(screen.getAllByTestId('calendar-event-1')).toHaveLength(3))
+    expect(screen.getAllByTestId('calendar-event-1').map((b) => b.textContent)).toEqual([
+      '오전 09:00 부산 출장', '6/8부터 부산 출장', '~오후 06:00 부산 출장',
+    ])
+  })
+
   // WP-952 — 일정 색 = 직접 고른 색 › 첫 태그 색 › 캘린더 색. 남은 태그 색은 블록 앞 작은 점.
   test('태그가 붙은 일정은 월·주 보기에서 첫 태그 색으로 칠하고, 직접 고른 색이 먼저다 (WP-952)', async () => {
     const tag = (id: number, name: string, color: string) => ({ id, name, color })
