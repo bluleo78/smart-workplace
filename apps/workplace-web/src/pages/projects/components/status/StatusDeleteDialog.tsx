@@ -261,7 +261,7 @@ function DeleteBody({
   return (
     <AlertDialogContent data-testid="status-delete-dialog" data-layout="dialog" data-help="project-settings.statuses">
       <AlertDialogHeader>
-        <AlertDialogTitle className="break-words">{title}</AlertDialogTitle>
+        <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
       </AlertDialogHeader>
       {content}

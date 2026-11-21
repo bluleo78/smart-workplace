@@ -126,9 +126,8 @@ export function IssueAttachmentList({
         <AlertDialogContent data-testid="attachment-delete-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>첨부 삭제</AlertDialogTitle>
-            {/* 첨부가 여럿이어도 어느 파일을 지우는지 다시 확인하게 이름을 넣는다(WP-1919). 헤더가 place-items-center 그리드라
-                break-words 로는 min-content 가 줄지 않아 긴 이름이 창 밖으로 나가므로 wrap-anywhere 를 쓴다. */}
-            <AlertDialogDescription className="wrap-anywhere">
+            {/* 첨부가 여럿이어도 어느 파일을 지우는지 다시 확인하게 이름을 넣는다(WP-1919). 줄바꿈은 공용 AlertDialogDescription 이 맡는다(WP-1921). */}
+            <AlertDialogDescription>
               「{deleteTarget?.originalName}」 첨부를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -153,8 +152,8 @@ export function IssueAttachmentList({
         <AlertDialogContent data-testid="drive-link-remove-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>드라이브 링크 제거</AlertDialogTitle>
-            {/* 링크가 여럿이어도 어느 파일을 빼는지 다시 확인하게 이름을 넣는다(WP-1871). 띄어쓰기 없는 긴 이름도 줄을 바꿔 창 안에 둔다(헤더 그리드라 break-words 가 아닌 wrap-anywhere). */}
-            <AlertDialogDescription className="wrap-anywhere">
+            {/* 링크가 여럿이어도 어느 파일을 빼는지 다시 확인하게 이름을 넣는다(WP-1871). */}
+            <AlertDialogDescription>
               「{removeTarget?.name}」 링크를 이슈에서 제거하시겠습니까? 드라이브 파일 자체는 삭제되지 않습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
