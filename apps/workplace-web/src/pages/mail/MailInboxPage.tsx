@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button'
 import { FilterInput } from '@/components/ui/filter-input'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { FOCUSABLE } from '@/hooks/useDialogFocusRestore'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -627,6 +628,30 @@ function MailDetailSrHeading() {
   return <h2 className="sr-only">메일 상세</h2>
 }
 
+/**
+ * 다시 시도 성공 뒤 초점을 넘길 상세의 첫 조작 요소(WP-1911 리뷰 반려) — LoadErrorState 의 기본 순서는 안내 자리의
+ * 첫 조작 요소를 골라 휴대폰에선 상단바 뒤로 단추로 떨어진다. 상세의 첫 조작 요소(답장 단추)를 먼저 고르고,
+ * 아직 없으면 상단바 밖의 첫 조작 요소를 고른다. jsdom 은 getClientRects 를 못 재어 null — LoadErrorState 는
+ * 기본 순서로 내려간다.
+ * 휴대폰 경로에서만 넘긴다(호출 쪽에서 isMobile 일 때만) — 데스크톱은 상단바가 없고 기본 순서(숨은 h2 다음 첫 조작
+ * 요소)가 상세 위쪽 조작 요소를 먼저 건드는 게 맞다(리뷰 반려 — 이 고르기가 데스크톱에도 걸려 답장 단추로 건너뛰었다).
+ * 대체 경로는 뒤로 단추가 든 상단바(<header> — ‹ 뒤로·⋯ 메뉴·✦ 가 그 안에 있다) 안 요소를 통째로 건너뛴다.
+ * testId 로 하나씩 고르던 건 `mail-back` 이 뒤로 단추가 아니라 바 자체의 표시라 맞지 않았고, 성공 화면도 같은 바를
+ * 그리므로 끊어진다(리뷰 반려).
+ */
+function focusAfterDetailRetry(): HTMLElement | null {
+  const pane = document.querySelector<HTMLElement>('[data-testid="mail-detail-pane"]')
+  if (!pane) return null
+  const visible = (el: HTMLElement) => el.getClientRects().length > 0
+  const reply = Array.from(pane.querySelectorAll<HTMLElement>('[data-testid="mail-reply"]')).find(visible)
+  if (reply) return reply
+  return (
+    Array.from(pane.querySelectorAll<HTMLElement>(FOCUSABLE)).find(
+      (el) => visible(el) && !el.closest('header'),
+    ) ?? null
+  )
+}
+
 // 선택한 메시지의 본문 패널 — text 우선, HTML 만 있으면 스크립트 차단 iframe 으로 렌더.
 function MessageDetailPanel({
   messageId,
@@ -774,26 +799,51 @@ function MessageDetailPanel({
     )
   // 첫 조회가 실패한 뒤 다시 부르는 중(pending)에도 로딩이 아니라 오류 안내를 유지한다(WP-1908) — 초점이 단추에 남는다.
   if (isLoading && !failedWithoutData(messageQuery)) {
+    // 감싸는 div 대신 Fragment — 로딩·오류·성공 어느 분기에서든 안내의 부모가 슬롯 contents div 로 같아,
+    // 로딩→성공 전환 때도 부모가 갈라지지 않는다(WP-1911). 스타일은 문구를 감싸는 p 에 그대로 둔다.
     return withViewer(
       withMobileBar(
-        <div className="p-6 text-sm text-muted-foreground">
+        <>
           <MailDetailSrHeading />
-          불러오는 중…
-        </div>,
+          <p className="p-6 text-sm text-muted-foreground">불러오는 중…</p>
+        </>,
       ),
     )
   }
-  if (loadFailed || !detail) {
+  // WP-1911: 데이터 없이 실패한 경우에만 본문 자리 block 안내 — 데이터가 있는 재조회 실패는 아래 배너로만 알린다(본문 유지).
+  if (failedWithoutData(messageQuery) || !detail) {
     // 숨은 h2 는 안내와 같은 부모 안에 둔다 — LoadErrorState 가 성공 뒤 초점을 부모 영역 안에서 옮기기 때문.
+    // 감싸는 div 를 없애 그 부모가 슬롯 contents div(MailComposePaneSlot, 성공 화면까지 남는다)가 되게 한다(WP-1911).
     return withViewer(
       withMobileBar(
-        <div>
+        <>
           <MailDetailSrHeading />
-          <LoadErrorState title="메일을 불러오지 못했습니다" queries={[messageQuery]} testId="mail-detail-error" className="px-6" />
-        </div>,
+          <LoadErrorState
+            title="메일을 불러오지 못했습니다"
+            queries={[messageQuery]}
+            testId="mail-detail-error"
+            className="px-6"
+            // 성공 뒤 초점이 상단바 뒤로 단추로 떨어지지 않게 상세 첫 조작 요소로 넘긴다(리뷰 반려 — E2E 로 고정).
+            // 데스크톱엔 넘기지 않는다 — 기본 순서(숨은 h2 다음 첫 조작 요소)가 위쪽 조작 요소를 먼저 건드는 게 맞다(리뷰 반려).
+            focusAfterRetry={isMobile ? focusAfterDetailRetry : undefined}
+          />
+        </>,
       ),
     )
   }
+  // WP-1911 데이터 있는 재조회 실패 — 상세는 그대로 두고(본문을 오류로 덮지 않게) 상단 한 줄 배너로만 알린다.
+  // 데스크톱은 #mail-detail 첫 자식, 모바일은 MailMobileDetail 상단바 아래 같은 값을 그린다.
+  // 실패 판정은 위에서 골라 둔 loadFailed 를 그대로 쓴다(같은 쿼리를 두 번 계산하지 않게 — 리뷰 반려).
+  // border-b 는 banner 변형이 이미 준다(목록 배너와 같은 모양 — 리뷰 반려).
+  const detailRetryBanner = loadFailed ? (
+    <LoadErrorState
+      title="메일을 다시 불러오지 못했습니다"
+      queries={[messageQuery]}
+      testId="mail-detail-error"
+      variant="banner"
+      className="px-4 py-3"
+    />
+  ) : null
 
   // #520 이슈 승격 배지 — issueKey 있을 때만 표시. AI 표면이므로 ai-accent 시맨틱 토큰 사용. 데스크톱·모바일 공용.
   const linkedBadge = linked.data?.issueKey ? (
@@ -865,6 +915,7 @@ function MessageDetailPanel({
         key={detail.id}
         detail={detail}
         share={shareTarget && <ShareSheetButton target={shareTarget} />}
+        banner={detailRetryBanner}
         invite={inviteCard}
         onBack={onBack}
         onMarkUnread={onMarkUnread}
@@ -966,6 +1017,8 @@ function MessageDetailPanel({
 
   return withViewer(
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
+      {/* WP-1911 데이터 있는 재조회 실패 — 본문을 덮지 않게 첫 자식 배너로만 실패를 알린다. */}
+      {detailRetryBanner}
       <div className="border-b p-4">
         {/* AI 요약 카드 — 비서 있을 때만. 객관 요약은 동의 불필요. 조회·생성 중에는 스켈레톤. */}
         {aiAvailable && (summaryData?.summary || summaryLoading) && (
@@ -1322,9 +1375,21 @@ function MailInbox() {
     data: fetchedMessages, isLoading,
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
   } = messagesQuery
+  // WP-1911(리뷰 반려 2차): 다음 페이지만 실패한 뒤 배경 재조회(60초 폴링·창 포커스)가 돌면 TanStack 이 재조회를 시작하며
+  // fetchMeta 를 비워 isFetchNextPageError 가 풀리는 동안 목록 배너가 되살아난다 — 배경 재조회 중은 확정된 실패가 아니고,
+  // 그동안 푸터 오류도 꺼진다. 직전 실패가 다음 페이지 실패였으면 배너를 끈다. 재조회가 끝나 (다음 페이지 실패가 아닌) 오류로
+  // 남으면 다시 켠다 — 재조회 성공 땐 오류가 없어지고, 전체 재조회 실패 시 배너가 서는 전체 장애 신호는 그대로다(리뷰 반려).
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
+  // 리뷰 반려: 목록 키가 바뀌면 앞 보기에 남은 다음 페이지 실패 기록을 이월하지 않는다 — 이월하면 새 보기의 재조회가
+  // 끝나기 전까지 그 보기의 오류 배너가 가려진다(kept 와 같은 키 동기화 패턴으로 렌더 중에 바로 되돌린다).
+  const [nextPage, setNextPage] = useState({ key: keepKey, failed: isFetchNextPageError })
+  if (nextPage.key !== keepKey) setNextPage({ key: keepKey, failed: false })
+  else if (!nextPage.failed && isFetchNextPageError) setNextPage({ key: keepKey, failed: true })
+  else if (nextPage.failed && !listFetching && !isFetchNextPageError) setNextPage({ key: keepKey, failed: false })
+  const nextPageFailed = nextPage.key === keepKey && nextPage.failed
+  // 연 행의 스냅샷(읽음 처리본)을 읽음 처리 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다(applyToggle).
   // 연 행의 스냅샷(읽음 처리본)을 읽음 처리 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다(applyToggle).
   const [kept, setKept] = useState<{ key: string; rows: ReadonlyMap<number, EmailMessageSummary> }>({ key: keepKey, rows: new Map() })
   // 키가 바뀌면 렌더 중에 실제로 비운다(숨기기만 하면 같은 키로 돌아올 때 되살아난다).
@@ -2137,94 +2202,106 @@ function MailInbox() {
           )}
           {isLoading && !failedWithoutData(messagesQuery) ? (
             <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
-          ) : showsLoadError(messagesQuery) ? (
-            // 첫 조회 실패 뒤 다시 부르는 중에도 안내·초점을 유지한다(WP-1908).
+          ) : failedWithoutData(messagesQuery) ? (
+            // 데이터 없이 첫 조회에 실패했을 때만 본문 자리 block 안내 — 다시 부르는 중에도 안내·초점을 유지한다(WP-1908).
             <LoadErrorState title="목록을 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" />
-          ) : !messages || messages.length === 0 ? (
-            // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
-            view.kind === 'needsReply' ? (
-              <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-                <Check className={emptyStatePositiveIconClass} aria-hidden="true" />
-                <p className={emptyStateTitleClass}>회신이 필요한 안 읽은 메일이 없어요 🎉</p>
-                {/* WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다. */}
-                <p className={emptyStateDescriptionClass}>메일을 열면 회신필요에서 빠져요.</p>
-              </div>
-            ) : view.unreadOnly ? (
-              // WP-186: 안 읽은 메일만 보기 0건 — 보기별 문구.
-              <div data-testid="mail-view-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-                <Check className={emptyStatePositiveIconClass} aria-hidden="true" />
-                <p className={emptyStateTitleClass}>
-                  {view.kind === 'all' ? '안 읽은 메일이 없어요.' : `${view.title} 메일 중 안 읽은 메일이 없어요.`}
-                </p>
-                <Button
-                  variant="link"
-                  size="sm"
-                  data-testid="mail-view-empty-show-all"
-                  onClick={() => {
-                    const next = new URLSearchParams(params)
-                    next.delete('unread')
-                    setParams(next)
-                  }}
-                >
-                  모든 메일 보기
-                </Button>
-              </div>
-            ) : flaggedView && !search ? (
-              // WP-1742 별표 모아 보기 0건 — 별표를 다는 방법을 함께 알린다.
-              <div data-testid="mail-flagged-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-                <Star className={emptyStateIconClass} aria-hidden="true" />
-                <p className={emptyStateTitleClass}>별표한 메일 없음</p>
-                <p className={emptyStateDescriptionClass}>메일 목록의 별을 누르면 여기에 모여요.</p>
-              </div>
-            ) : folderView && !search ? (
-              // WP-961 서버 메일함 0건 — 처음 가져오는 중이면 그렇게, 아니면 중립 문구(「동기화를 눌러보세요」는 받은편지함 안내).
-              <div data-testid="mail-box-empty" className="p-6 text-sm text-muted-foreground">
-                {folderSyncing ? '메일함을 가져오는 중…' : '이 메일함에 메일이 없습니다.'}
-              </div>
-            ) : view.kind === 'category' ? (
-              // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
-              <div data-testid="mail-category-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-                <Inbox className={emptyStateIconClass} aria-hidden="true" />
-                <p className={emptyStateTitleClass}>이 분류에 해당하는 메일이 없어요.</p>
-              </div>
-            ) : (
-              <>
-                <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
-                  {search
-                    ? '검색 결과가 없습니다'
-                    : folderParam === 'SENT'
-                      ? '보낸 메일이 없습니다.'
-                      : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
-                </div>
-                {/* WP-965 최근 범위에 메일이 없어도 그 이전 메일은 서버에 있을 수 있다 — 빈 목록에서도 이어 받는다. */}
-                {olderFolder != null && listEnd}
-              </>
-            )
           ) : (
-            <div ref={setListScrollEl} data-testid="mail-list-scroll" className="flex-1 overflow-y-auto" {...longPress}>
-              {messages.map((m) => (
-                <MessageRow
-                  key={m.id}
-                  m={m}
-                  open={selectedId === m.id}
-                  sheetTarget={sheet.open && sheet.target?.id === m.id}
-                  onSelect={() => mailParam.open(String(m.id))}
-                  pendingVisible={view.kind !== 'sent' && !folderView && !flaggedView && classificationActive}
-                  // WP-1742 별표 보기는 받은편지함 메일에만 AI 배지 — 보관·내 메일함 메일의 분류 배지를 누르면 그 메일이 없는 받은편지함 분류 보기로 간다(WP-961 과 같은 까닭).
-                  aiSignalsVisible={!folderView && (!flaggedView || m.folderRole === 'INBOX')}
-                  showFolder={flaggedView}
-                  // 분류 보기 안 검색도 서버가 그 분류로 좁히므로 검색 중에도 넘긴다(WP-1348).
-                  viewCategory={view.activeCategory}
-                  showToggle={!touchShell}
-                  // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
-                  onToggleRead={() => toggleRow(m)}
-                  onToggleFlag={() => toggleFlagFromView(m.id, !m.flagged)}
-                  moveActions={touchShell ? null : moveActionsFor(m.id)}
-                  menu={!touchShell && accountIdNum != null ? () => rowMenuHandlers(accountIdNum, m) : undefined}
-                />
-              ))}
-              {listEnd}
-            </div>
+            <>
+              {/* WP-1911 데이터 있는 재조회 실패 — 행을 지우지 않고 목록 위 배너 한 줄로만 알린다.
+                  다음 페이지 받기만 실패한 경우(isFetchNextPageError)는 목록 끝 푸터가 이미 실패를 알리므로 배너를 띄우지 않는다 —
+                  두 안내가 함께 뜨고 배너의 다시 시도가 이미 받은 페이지까지 다시 받게 하던 것을 막는다(리뷰 반려).
+                  다음 페이지 실패였다는 기록(nextPageFailed)도 함께 본다 — 배경 재조회 중에는 fetchMeta 가 비어
+                  isFetchNextPageError 가 풀려 배너가 되살아나기 때문이다(리뷰 반려 2차). */}
+              {showsLoadError(messagesQuery) && !isFetchNextPageError && !nextPageFailed && (
+                <LoadErrorState title="목록을 다시 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" variant="banner" className="px-4 py-3" />
+              )}
+              {!messages || messages.length === 0 ? (
+                // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
+                view.kind === 'needsReply' ? (
+                  <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+                    <Check className={emptyStatePositiveIconClass} aria-hidden="true" />
+                    <p className={emptyStateTitleClass}>회신이 필요한 안 읽은 메일이 없어요 🎉</p>
+                    {/* WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다. */}
+                    <p className={emptyStateDescriptionClass}>메일을 열면 회신필요에서 빠져요.</p>
+                  </div>
+                ) : view.unreadOnly ? (
+                  // WP-186: 안 읽은 메일만 보기 0건 — 보기별 문구.
+                  <div data-testid="mail-view-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+                    <Check className={emptyStatePositiveIconClass} aria-hidden="true" />
+                    <p className={emptyStateTitleClass}>
+                      {view.kind === 'all' ? '안 읽은 메일이 없어요.' : `${view.title} 메일 중 안 읽은 메일이 없어요.`}
+                    </p>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      data-testid="mail-view-empty-show-all"
+                      onClick={() => {
+                        const next = new URLSearchParams(params)
+                        next.delete('unread')
+                        setParams(next)
+                      }}
+                    >
+                      모든 메일 보기
+                    </Button>
+                  </div>
+                ) : flaggedView && !search ? (
+                  // WP-1742 별표 모아 보기 0건 — 별표를 다는 방법을 함께 알린다.
+                  <div data-testid="mail-flagged-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+                    <Star className={emptyStateIconClass} aria-hidden="true" />
+                    <p className={emptyStateTitleClass}>별표한 메일 없음</p>
+                    <p className={emptyStateDescriptionClass}>메일 목록의 별을 누르면 여기에 모여요.</p>
+                  </div>
+                ) : folderView && !search ? (
+                  // WP-961 서버 메일함 0건 — 처음 가져오는 중이면 그렇게, 아니면 중립 문구(「동기화를 눌러보세요」는 받은편지함 안내).
+                  <div data-testid="mail-box-empty" className="p-6 text-sm text-muted-foreground">
+                    {folderSyncing ? '메일함을 가져오는 중…' : '이 메일함에 메일이 없습니다.'}
+                  </div>
+                ) : view.kind === 'category' ? (
+                  // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
+                  <div data-testid="mail-category-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+                    <Inbox className={emptyStateIconClass} aria-hidden="true" />
+                    <p className={emptyStateTitleClass}>이 분류에 해당하는 메일이 없어요.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
+                      {search
+                        ? '검색 결과가 없습니다'
+                        : folderParam === 'SENT'
+                          ? '보낸 메일이 없습니다.'
+                          : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
+                    </div>
+                    {/* WP-965 최근 범위에 메일이 없어도 그 이전 메일은 서버에 있을 수 있다 — 빈 목록에서도 이어 받는다. */}
+                    {olderFolder != null && listEnd}
+                  </>
+                )
+              ) : (
+                <div ref={setListScrollEl} data-testid="mail-list-scroll" className="flex-1 overflow-y-auto" {...longPress}>
+                  {messages.map((m) => (
+                    <MessageRow
+                      key={m.id}
+                      m={m}
+                      open={selectedId === m.id}
+                      sheetTarget={sheet.open && sheet.target?.id === m.id}
+                      onSelect={() => mailParam.open(String(m.id))}
+                      pendingVisible={view.kind !== 'sent' && !folderView && !flaggedView && classificationActive}
+                      // WP-1742 별표 보기는 받은편지함 메일에만 AI 배지 — 보관·내 메일함 메일의 분류 배지를 누르면 그 메일이 없는 받은편지함 분류 보기로 간다(WP-961 과 같은 까닭).
+                      aiSignalsVisible={!folderView && (!flaggedView || m.folderRole === 'INBOX')}
+                      showFolder={flaggedView}
+                      // 분류 보기 안 검색도 서버가 그 분류로 좁히므로 검색 중에도 넘긴다(WP-1348).
+                      viewCategory={view.activeCategory}
+                      showToggle={!touchShell}
+                      // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
+                      onToggleRead={() => toggleRow(m)}
+                      onToggleFlag={() => toggleFlagFromView(m.id, !m.flagged)}
+                      moveActions={touchShell ? null : moveActionsFor(m.id)}
+                      menu={!touchShell && accountIdNum != null ? () => rowMenuHandlers(accountIdNum, m) : undefined}
+                    />
+                  ))}
+                  {listEnd}
+                </div>
+              )}
+            </>
           )}
         </div>
 
