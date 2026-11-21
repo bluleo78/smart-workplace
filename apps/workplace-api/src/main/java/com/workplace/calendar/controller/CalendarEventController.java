@@ -131,6 +131,9 @@ public class CalendarEventController {
   /**
    * 일정 수정. 반복 일정은 scope(THIS/THIS_AND_FOLLOWING/ALL)와 occurrenceDate(대상 회차 시작시각)로 적용 범위를 지정. scope
    * 미지정 시 ALL(마스터 전체 교체).
+   *
+   * <p>occurrenceDate 와 함께 ALL 을 주면 대상 회차를 옮긴 만큼 시리즈 전체를 같은 양만큼 밀어 재기준하지 않는다(WP-1915) — 마스터 기준일을 옮긴
+   * 날짜로 다시 잡지 않는다.
    */
   @PatchMapping("/{id}")
   @RequirePermission("calendar:write")

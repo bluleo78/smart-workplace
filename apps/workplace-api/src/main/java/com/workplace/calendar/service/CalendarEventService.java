@@ -82,6 +82,10 @@ public class CalendarEventService {
   /** 목록 조회 구간 상한(WP-766) — 윤년을 포함한 1년. */
   static final Duration MAX_LIST_RANGE = Duration.ofDays(366);
 
+  /** 반복 일정에 없는 회차 요청을 거절할 때의 예외 문구 — 같은 상황의 두 검사 경로에서 메시지가 갈리지 않게 한 곳에서 쓴다. */
+  private static final String NON_OCCURRENCE_MESSAGE =
+      "반복 일정에 없는 회차입니다. 회차 날짜(occurrenceDate)를 확인해 주세요";
+
   private final CalendarEventRepository repo;
   private final EventReminderRepository reminderRepo;
   private final CalendarEventExceptionRepository exceptionRepo;
@@ -1144,21 +1148,39 @@ public class CalendarEventService {
         long resolved = resolveCalendarId(callerId, req.calendarId());
         repo.moveSingleEventToCalendar(id, resolved);
       }
-      repo.update(id, req);
+      CalendarEventRequest writeReq = req;
+      // 「전체 일정」은 대상 회차를 옮긴 만큼만 시리즈 전체를 밀어 재기준하지 않는다(WP-1915).
+      // req 에 RRULE 이 없으면 반복을 푸는 요청이라 이동량 재조립 대상이 아니다 — 이 조건이 없으면
+      // delta 0 이어도 마스터 기준일로 재조립돼 편집한 회차가 아니라 시리즈 첫 회차로 일정이 끌려간다.
+      if (target.recurrenceRule() != null
+          && occurrenceDate != null
+          && req.recurrenceRule() != null
+          && !req.recurrenceRule().isBlank()) {
+        writeReq = shiftAllScope(target, req, occurrenceDate);
+      }
+      repo.update(id, writeReq);
       boolean scheduleChanged =
-          !target.startsAt().equals(req.startsAt())
-              || !Objects.equals(target.recurrenceRule(), req.recurrenceRule());
+          !target.startsAt().equals(writeReq.startsAt())
+              || !Objects.equals(target.recurrenceRule(), writeReq.recurrenceRule());
       applyReminder(
-          id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), scheduleChanged);
+          id,
+          writeReq.reminderMinutes(),
+          writeReq.startsAt(),
+          writeReq.recurrenceRule(),
+          scheduleChanged);
       noticeIfRescheduled(
           callerId,
           id,
           timeChanged(
-              target.startsAt(), target.endsAt(), target.allDay(), target.recurrenceRule(), req),
-          locationChanged(target.location(), req.location()),
+              target.startsAt(),
+              target.endsAt(),
+              target.allDay(),
+              target.recurrenceRule(),
+              writeReq),
+          locationChanged(target.location(), writeReq.location()),
           true);
       // 태그(WP-801) — 이 일정(고친 회차면 그 시리즈 마스터)에
-      applyAppTags(callerId, id, req);
+      applyAppTags(callerId, id, writeReq);
       return get(callerId, id);
     }
 
@@ -2169,7 +2191,7 @@ public class CalendarEventService {
     // 예외 행을 만들었다.
     if (!expander.producesOccurrence(
         target.recurrenceRule(), target.startsAt(), occurrenceDate.toInstant())) {
-      throw new IllegalArgumentException("반복 일정에 없는 회차입니다. 회차 날짜(occurrenceDate)를 확인해 주세요");
+      throw new IllegalArgumentException(NON_OCCURRENCE_MESSAGE);
     }
   }
 
@@ -2226,6 +2248,48 @@ public class CalendarEventService {
     if (recurrenceRule != null && !recurrenceRule.isBlank()) {
       expander.validate(recurrenceRule, startsAt);
     }
+  }
+
+  /**
+   * 「전체 일정」(scope=ALL) + occurrenceDate — 대상 회차를 occurrenceDate 에서 req.startsAt 으로 옮긴 만큼만 마스터 기준일을
+   * 밀어 시리즈 전체를 같은 양만큼 이동시킨다(WP-1915). 마스터를 끌린 날짜로 재기준하면 앞 회차가 사라지고 새 회차가 생긴다.
+   *
+   * <p>기간은 요청 본문의 길이를 따른다 — 시리즈 길이를 함께 바꿀 수 있어서다. 이동량이 0 이어도 마스터 기준으로 재조립한다(요청 본문의 시작은 대상 회차 날짜이므로
+   * 그대로 쓰면 재기준이 된다).
+   */
+  private CalendarEventRequest shiftAllScope(
+      CalendarEventResponse master, CalendarEventRequest req, OffsetDateTime occurrenceDate) {
+    // 검증 순서: ① occurrenceDate 가 실제 회차인지 → ② 이동량 적용 → ③ 이동 뒤 새 시작 기준으로 RRULE 재검증.
+    // ① 은 ② 보다 먼저 — 가짜 occurrenceDate 로 계산한 이동량 자체가 무의미해서다. ① 이 지금 이 경로에서 유일한 회차 검사인 이유:
+    // scope=ALL 경로는 requireOccurrenceDateIfRecurring 와 lockAndRecheckOccurrence 에서 ALL 이면 일찍 돌아 ①
+    // 밖에 없다(WP-1915).
+    // 문구는 requireOccurrenceDateIfRecurring 와 동일하게 쓴다.
+    if (!expander.producesOccurrence(
+        master.recurrenceRule(), master.startsAt(), occurrenceDate.toInstant())) {
+      throw new IllegalArgumentException(NON_OCCURRENCE_MESSAGE);
+    }
+    Duration delta = Duration.between(occurrenceDate, req.startsAt());
+    OffsetDateTime newStart = master.startsAt().plus(delta);
+    OffsetDateTime newEnd = newStart.plus(Duration.between(req.startsAt(), req.endsAt()));
+    // ③ 은 검사 대상이 이동 뒤 시작(newStart)이라 ② 다음에 둔다. 다만 오늘날에는 결코 예외를 낼 수 없는 안전망이다 — 사전검증
+    // checkUpdatable 이 req.startsAt 기준 validateRecurrence 를 이미 돌렸고, ① 이 occurrenceDate ≥
+    // masterStart 를 강제하므로
+    // newStart ≤ req.startsAt 이며 validate 는 시작이 이르면 예외를 내는 단조 함수라서. 앞으로 사전검증이 바뀌어도 이동한 시작
+    // 기준으로 다시 한 번 확인하는 방어성 중복이다(WP-1915).
+    validateRecurrence(req.recurrenceRule(), newStart);
+    return new CalendarEventRequest(
+        req.title(),
+        req.description(),
+        newStart,
+        newEnd,
+        req.allDay(),
+        req.location(),
+        req.color(),
+        req.reminderMinutes(),
+        req.recurrenceRule(),
+        req.attendeeUserIds(),
+        req.calendarId(),
+        req.tagIds());
   }
 
   /**

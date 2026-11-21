@@ -275,4 +275,27 @@ class CalendarEventServiceTest extends IntegrationTestBase {
         .containsExactly(e.id());
     assertThat(service.list(u, BASE, BASE)).isEmpty();
   }
+
+  /** WP-1915: 「전체 일정」으로 시리즈를 밀면 리마인더도 옮긴 마스터 시작 기준으로 다시 무장한다. */
+  @Test
+  void updateScopeAll_shift_rearmsReminderAtShiftedStart() {
+    long u = user();
+    OffsetDateTime first =
+        OffsetDateTime.now().plusDays(7).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+    CalendarEventResponse master =
+        service.create(
+            u, reqWithRecurrenceAndReminder(first, first.plusHours(1), "FREQ=WEEKLY;COUNT=3", 60));
+    OffsetDateTime second = first.plusWeeks(1);
+    assertThat(nextFireOf(master.id())).isEqualTo(first.minusMinutes(60));
+
+    OffsetDateTime moved = second.plusDays(1);
+    service.update(
+        u,
+        master.id(),
+        reqWithRecurrenceAndReminder(moved, moved.plusHours(1), "FREQ=WEEKLY;COUNT=3", 60),
+        EditScope.ALL,
+        second);
+
+    assertThat(nextFireOf(master.id())).isEqualTo(first.plusDays(1).minusMinutes(60));
+  }
 }
