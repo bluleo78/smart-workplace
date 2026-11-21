@@ -26,6 +26,7 @@ function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {
     widgets: widgets.map((w) =>
       typeof w === 'string' ? { id: w, type: w, count: 3, hidden: false, collapsed: false } : w,
     ),
+    version: 0,
   }
 }
 
@@ -49,7 +50,7 @@ async function stubDashboard(
   const tracked = trackRequests(page, 'ANY', '/api/v1/me/dashboard')
   const deviceOf = (req: Request) => new URL(req.url()).searchParams.get('device')
   const stub: DashboardStub = {
-    stored: { mobile: initial.mobile ?? { widgets: [] }, desktop: initial.desktop ?? { widgets: [] } },
+    stored: { mobile: initial.mobile ?? { widgets: [], version: 0 }, desktop: initial.desktop ?? { widgets: [], version: 0 } },
     requests: () => tracked.requests().map((req) => ({ method: req.method(), device: deviceOf(req) })),
     puts: () => tracked.requests()
       .filter((req) => req.method() === 'PUT')

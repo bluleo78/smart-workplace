@@ -11,9 +11,10 @@ export const dashboardApi = {
     client
       .get<DashboardLayout>('/me/dashboard', { params: deviceParams(device) })
       .then((r) => r.data),
-  // 객체-배열 컨트랙트: PUT body 는 { widgets: [{type,count,hidden,...}, ...] }. 기기별 전체 교체.
-  save: (device: DashboardDevice, widgets: DashboardWidgetConfig[]) =>
+  // 객체-배열 컨트랙트: PUT body 는 { widgets: [{type,count,hidden,...}, ...], version? }. 기기별 전체 교체.
+  // version = 편집·접기를 시작할 때 읽은 레이아웃 version. 서버가 현재 값과 다르면 409 로 거절한다(생략하면 검사 안 함).
+  save: (device: DashboardDevice, widgets: DashboardWidgetConfig[], version?: number) =>
     client
-      .put<DashboardLayout>('/me/dashboard', { widgets }, { params: deviceParams(device) })
+      .put<DashboardLayout>('/me/dashboard', { widgets, version }, { params: deviceParams(device) })
       .then((r) => r.data),
 }

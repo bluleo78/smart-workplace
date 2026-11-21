@@ -27,6 +27,7 @@ mockViewport()
 function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {
   return {
     widgets: widgets.map((w) => (typeof w === 'string' ? { id: w, type: w, count: 3, hidden: false, collapsed: false } : w)),
+    version: 0,
   }
 }
 
@@ -186,6 +187,7 @@ test('collapsed 필드 없는 저장본은 펼침으로, 미등록 위젯은 건
       { id: 'unknown_x', type: 'unknown_x', count: 3, hidden: false },
       { id: 'my_tasks', type: 'my_tasks', count: 3, hidden: false },
     ],
+    version: 0,
   })
   await openHome([...widgetData(), ...dash.handler])
   expect(screen.getAllByTestId('dashboard-widget')).toHaveLength(1)

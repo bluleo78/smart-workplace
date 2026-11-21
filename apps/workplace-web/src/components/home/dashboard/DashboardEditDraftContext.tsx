@@ -21,9 +21,11 @@ export interface DashboardEditDraftState {
    * 폭에서 새 편집을 시작하면, 늦게 끝난 이전 저장이 그 새 편집을 닫아 버리지 않게 한다.
    */
   session: number
+  /** 편집을 시작할 때 읽은 레이아웃 version — 저장 때 이 값을 실어 보내 그사이 다른 곳의 변경을 서버가 가리게 한다(WP-1953). */
+  baseVersion: number | undefined
 }
 
-const EMPTY_EDIT_DRAFT: DashboardEditDraftState = { editDevice: null, draft: [], undoStack: [], session: 0 }
+const EMPTY_EDIT_DRAFT: DashboardEditDraftState = { editDevice: null, draft: [], undoStack: [], session: 0, baseVersion: undefined }
 
 type DraftStore = [DashboardEditDraftState, Dispatch<SetStateAction<DashboardEditDraftState>>]
 

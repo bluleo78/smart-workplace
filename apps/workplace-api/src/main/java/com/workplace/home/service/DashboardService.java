@@ -3,7 +3,9 @@ package com.workplace.home.service;
 import com.workplace.home.dto.DashboardDevice;
 import com.workplace.home.dto.DashboardResponse;
 import com.workplace.home.dto.DashboardWidgetConfig;
+import com.workplace.home.exception.DashboardConflictException;
 import com.workplace.home.repository.DashboardRepository;
+import com.workplace.home.repository.DashboardRepository.StoredLayout;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -117,17 +119,19 @@ public class DashboardService {
    */
   @Transactional(readOnly = true)
   public DashboardResponse get(long userId, DashboardDevice device) {
-    Optional<String> json = repository.findWidgetsJson(userId, device);
-    if (json.isEmpty()) {
-      return new DashboardResponse(defaultConfigs(device));
+    Optional<StoredLayout> row = repository.find(userId, device);
+    if (row.isEmpty()) {
+      // 행 없음 — 기본 레이아웃, version 0(첫 저장은 version 0 으로 보낸다).
+      return new DashboardResponse(defaultConfigs(device), 0L);
     }
+    long version = row.get().version();
     List<DashboardWidgetConfig> stored;
     try {
-      stored = parse(json.get());
+      stored = parse(row.get().widgetsJson());
     } catch (RuntimeException e) {
       // GET 은 관용적 — 손상된 한 행이 대시보드를 깨뜨리지 않도록 해당 기기 기본 레이아웃으로 폴백한다.
       log.warn("대시보드 위젯 파싱 실패(userId={}, device={}), 기본 레이아웃으로 폴백", userId, device, e);
-      return new DashboardResponse(defaultConfigs(device));
+      return new DashboardResponse(defaultConfigs(device), version);
     }
     List<DashboardWidgetConfig> filtered = new ArrayList<>();
     Set<String> seenSystemTypes = new LinkedHashSet<>();
@@ -146,7 +150,7 @@ public class DashboardService {
       }
       filtered.add(normalized);
     }
-    return new DashboardResponse(filtered);
+    return new DashboardResponse(filtered, version);
   }
 
   /**
@@ -154,11 +158,18 @@ public class DashboardService {
    * / 시스템 위젯 type 중복 / 위젯 id 중복 / params 형식 오류 / 총 개수 초과는 400 으로 거부한다(기기 공통). 카탈로그 위젯은 동일 type 다중
    * 인스턴스를 허용한다. 숨김(hidden)·접힘(collapsed) 위젯도 순서·설정 보존을 위해 그대로 영속한다.
    *
-   * @return 실제 저장된 위젯 목록
+   * <p>expectedVersion(WP-1953)이 있으면 읽은 뒤 바뀐 레이아웃을 덮어쓰지 않도록 그 version 일 때만 저장하고, 아니면 {@link
+   * DashboardConflictException}(409)이다. null 이면 검사 없이 저장한다(옛 호출·롤링 배포 호환). 어느 쪽이든 저장 성공은 version 을
+   * 1 올린다.
+   *
+   * @return 실제 저장된 위젯 목록과 새 version
    */
   @Transactional
   public DashboardResponse save(
-      long userId, DashboardDevice device, List<DashboardWidgetConfig> widgets) {
+      long userId,
+      DashboardDevice device,
+      List<DashboardWidgetConfig> widgets,
+      Long expectedVersion) {
     if (widgets.isEmpty()) {
       // GlobalExceptionHandler 에서 IllegalArgumentException → 400 으로 매핑된다.
       throw new IllegalArgumentException("유효한 위젯이 하나도 없습니다.");
@@ -182,8 +193,14 @@ public class DashboardService {
       }
       validated.add(v);
     }
-    repository.upsert(userId, device, write(validated));
-    return new DashboardResponse(validated);
+    String json = write(validated);
+    long newVersion =
+        expectedVersion == null
+            ? repository.upsert(userId, device, json)
+            : repository
+                .saveIfVersion(userId, device, json, expectedVersion)
+                .orElseThrow(DashboardConflictException::new);
+    return new DashboardResponse(validated, newVersion);
   }
 
   /**

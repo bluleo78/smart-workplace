@@ -85,7 +85,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig("calendar_today", 10, false),
-                    new DashboardWidgetConfig("my_tasks", 5, true))));
+                    new DashboardWidgetConfig("my_tasks", 5, true)),
+                null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -113,7 +114,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
     String body =
         om.writeValueAsString(
             new DashboardUpdateRequest(
-                List.of(new DashboardWidgetConfig("bogus_widget", 5, false))));
+                List.of(new DashboardWidgetConfig("bogus_widget", 5, false)), null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -128,7 +129,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
     long userId = createUser("g");
     String body =
         om.writeValueAsString(
-            new DashboardUpdateRequest(List.of(new DashboardWidgetConfig("my_tasks", 7, false))));
+            new DashboardUpdateRequest(
+                List.of(new DashboardWidgetConfig("my_tasks", 7, false)), null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -146,7 +148,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig("my_tasks", 5, false),
-                    new DashboardWidgetConfig("my_tasks", 10, false))));
+                    new DashboardWidgetConfig("my_tasks", 10, false)),
+                null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -159,7 +162,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
   @Test
   void put_rejects_empty_list() throws Exception {
     long userId = createUser("j");
-    String body = om.writeValueAsString(new DashboardUpdateRequest(List.of()));
+    String body = om.writeValueAsString(new DashboardUpdateRequest(List.of(), null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -175,7 +178,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
     // count=0(미지정 의미)은 수용되고 기본값 5로 보정되어야 한다(designed behavior).
     String body =
         om.writeValueAsString(
-            new DashboardUpdateRequest(List.of(new DashboardWidgetConfig("my_tasks", 0, false))));
+            new DashboardUpdateRequest(
+                List.of(new DashboardWidgetConfig("my_tasks", 0, false)), null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -235,7 +239,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
                         "마케팅팀 이슈",
                         false,
                         null),
-                    new DashboardWidgetConfig("my_tasks", 5, false))));
+                    new DashboardWidgetConfig("my_tasks", 5, false)),
+                null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -268,7 +273,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig(
-                        null, "mail_list", 0, false, null, null, false, null))));
+                        null, "mail_list", 0, false, null, null, false, null)),
+                null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -288,7 +294,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
       widgets.add(
           new DashboardWidgetConfig("chan-" + i, "channels", 0, false, null, null, false, null));
     }
-    String body = om.writeValueAsString(new DashboardUpdateRequest(widgets));
+    String body = om.writeValueAsString(new DashboardUpdateRequest(widgets, null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -306,14 +312,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig(
-                        "act-1",
-                        "activity",
-                        0,
-                        false,
-                        om.readTree("[1,2,3]"),
-                        null,
-                        false,
-                        null))));
+                        "act-1", "activity", 0, false, om.readTree("[1,2,3]"), null, false, null)),
+                null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -331,8 +331,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null, false, null),
-                    new DashboardWidgetConfig(
-                        "dup-1", "wiki", 0, false, null, null, false, null))));
+                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null, false, null)),
+                null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -351,7 +351,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig(
-                        "quick_actions", "quick_actions", 5, false, null, null, true, null))));
+                        "quick_actions", "quick_actions", 5, false, null, null, true, null)),
+                null));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -399,7 +400,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
         put("/api/v1/me/dashboard")
             .header("Authorization", "Bearer " + tokenFor(userId))
             .contentType(MediaType.APPLICATION_JSON)
-            .content(om.writeValueAsString(new DashboardUpdateRequest(widgets)));
+            .content(om.writeValueAsString(new DashboardUpdateRequest(widgets, null)));
     return device == null ? b : b.param("device", device);
   }
 
@@ -555,8 +556,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
     String body =
         om.writeValueAsString(
             new DashboardUpdateRequest(
-                List.of(
-                    new DashboardWidgetConfig(id, type, 0, false, params, label, false, null))));
+                List.of(new DashboardWidgetConfig(id, type, 0, false, params, label, false, null)),
+                null));
     return mvc.perform(
         put("/api/v1/me/dashboard")
             .header("Authorization", "Bearer " + tokenFor(userId))
@@ -630,5 +631,38 @@ class DashboardEndpointTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.widgets.length()").value(1))
         .andExpect(jsonPath("$.widgets[0].type").value("my_tasks"));
+  }
+
+  /** WP-1953 — GET/PUT 응답에 version 이 실리고, 옛 version 의 PUT 은 409 와 한국어 문구를 받는다. */
+  @Test
+  void put_with_stale_version_returns_409_with_message() throws Exception {
+    long userId = createUser("v");
+    String auth = "Bearer " + tokenFor(userId);
+    mvc.perform(get("/api/v1/me/dashboard").header("Authorization", auth))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.version").value(0));
+
+    String body =
+        om.writeValueAsString(
+            new DashboardUpdateRequest(
+                List.of(new DashboardWidgetConfig("my_tasks", 5, false)), 0L));
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .header("Authorization", auth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.version").value(1));
+
+    // 같은 version 0 으로 다시 저장 — 이미 1 이라 거절.
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .header("Authorization", auth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isConflict())
+        .andExpect(
+            jsonPath("$.message")
+                .value("다른 곳에서 대시보드 레이아웃이 바뀌었습니다. 최신 레이아웃을 불러왔으니 확인한 뒤 다시 저장해 주세요."));
   }
 }

@@ -6,7 +6,7 @@ import { type SetStateAction, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useIsDashboardSaving, useSaveDashboardLayout } from '@/hooks/queries/useDashboard'
-import { handleApiError } from '@/lib/api-error'
+import { handleApiError, isConflictError } from '@/lib/api-error'
 import type { DashboardDevice, DashboardWidgetConfig } from '@/types/dashboard'
 
 import { getCatalogWidget } from '../widgets/catalogRegistry'
@@ -60,6 +60,8 @@ interface Options {
   device: DashboardDevice
   /** 현재 기기의 저장된 위젯 목록(아직 못 받았으면 undefined) — 편집 시작 시 초안으로 복사한다. */
   savedWidgets: DashboardWidgetConfig[] | undefined
+  /** 현재 기기 저장 레이아웃의 version — 편집 시작 때 세션에 기록해 저장에 싣는다(WP-1953). */
+  savedVersion?: number
   /** 접기 저장 중이면 편집 진입을 막는다(늦게 도착한 접기 PUT 이 편집 저장을 덮어쓰지 않게). */
   collapseSaving: boolean
   /** 현재 기기의 레이아웃 조회가 데이터 없이 실패했는가(failedWithoutData) — 실패면 기준 레이아웃이 없는 것으로 본다. */
@@ -74,12 +76,12 @@ interface Options {
  *   레이아웃에 저장되지 않도록 하는 안전장치다(WP-142).
  * - 저장 전까지 아무것도 영속화되지 않는다.
  */
-export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, layoutFailed }: Options) {
+export function useDashboardEditDraft({ device, savedWidgets, savedVersion, collapseSaving, layoutFailed }: Options) {
   const save = useSaveDashboardLayout()
   // 진행 중 저장은 전역 mutation 캐시로 본다 — 저장 중 재마운트돼도 저장 버튼이 다시 살아나 이중 PUT 하지 않게.
   const isSaving = useIsDashboardSaving()
   // 시작 기기·초안·undo 는 셸 교체(lg 경계 리사이즈로 인한 Dashboard 재마운트)에도 살아 있는 저장소에 둔다(WP-162).
-  const [{ editDevice, draft, undoStack, session }, setStore] = useDashboardEditDraftStore()
+  const [{ editDevice, draft, undoStack, session, baseVersion }, setStore] = useDashboardEditDraftStore()
   // 기준 레이아웃 — 조회 실패면 없는 것으로 본다. 편집 가능 판정(editing·canEnterEdit)은 이 값 하나로 여기서만 정한다
   // (WP-1850 리뷰 후속 — 화면과 훅이 따로 판정하지 않게). 기준이 없는데 남은 초안을 저장하면 볼 수 없는 서버 레이아웃을 덮어쓴다.
   const baseWidgets = layoutFailed ? undefined : savedWidgets
@@ -140,6 +142,7 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, la
       draft: baseWidgets.map((w) => ({ ...w })),
       undoStack: [],
       session: editSessionSeq,
+      baseVersion: savedVersion,
     })
     setLiveMsg('')
     setAddModalOpen(false)
@@ -306,12 +309,19 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, la
     // 편집 모드가 되살아난다. 프라미스로 받아 저장소(셸 밖 provider) 갱신이 재마운트와 무관하게 실행되게 한다(WP-162).
     // 단, 그사이 새 편집 세션이 시작됐으면 그 편집은 건드리지 않는다(session 비교).
     const savedSession = session
-    save.mutateAsync({ device: editDevice, widgets: draft }).then(
+    // 같은 세션일 때만 편집을 끝낸다 — 그사이 시작된 새 편집은 건드리지 않는다.
+    const endSession = () => setStore((s) => (s.session === savedSession ? { ...s, editDevice: null, undoStack: [] } : s))
+    save.mutateAsync({ device: editDevice, widgets: draft, version: baseVersion }).then(
       () => {
-        setStore((s) => (s.session === savedSession ? { ...s, editDevice: null, undoStack: [] } : s))
+        endSession()
         setLiveMsg('대시보드 레이아웃을 저장했습니다')
       },
-      (err: unknown) => handleApiError(err, '대시보드 저장에 실패했습니다'),
+      (err: unknown) => {
+        // 409 = 다른 곳에서 먼저 바뀐 낡은 초안 — 편집을 끝내고(최신은 훅이 재조회) 사용자가 최신 레이아웃에서 다시 편집한다.
+        // 그 밖 실패는 초안을 남겨 다시 저장할 수 있게 둔다.
+        if (isConflictError(err)) endSession()
+        handleApiError(err, '대시보드 저장에 실패했습니다')
+      },
     )
   }
 

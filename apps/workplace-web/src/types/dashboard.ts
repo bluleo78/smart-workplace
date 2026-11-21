@@ -22,8 +22,11 @@ export interface DashboardWidgetConfig {
 }
 
 // 홈 대시보드 레이아웃 — 위젯 구성의 정렬된 배열(순서 = 렌더 순서).
+// version 은 저장 때마다 서버가 올리는 낙관적 잠금 값(WP-1953) — 저장할 때 읽은 version 을 그대로 실어 보내
+// 그사이 다른 곳(다른 기기·탭)에서 바뀌었는지 서버가 가린다. 저장된 적 없으면 0.
 export interface DashboardLayout {
   widgets: DashboardWidgetConfig[]
+  version: number
 }
 
 // 메일 요약 위젯의 최근 메일 한 행.

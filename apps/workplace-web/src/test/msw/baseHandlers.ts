@@ -133,7 +133,7 @@ export const shellHandlers = [
   http.get(`${API}/projects/:key/issues/:n/recurrence`, () => new HttpResponse(null, { status: 204 })),
   http.get(`${API}/projects/:key/issues/:n/recurrence/agents`, () => HttpResponse.json([])),
   http.get(`${API}/mail/accounts/:id/folders`, () => HttpResponse.json([])),
-  http.get(`${API}/me/dashboard`, () => HttpResponse.json({ widgets: [] })),
+  http.get(`${API}/me/dashboard`, () => HttpResponse.json({ widgets: [], version: 0 })),
   http.get(`${API}/me/mail-summary`, () => HttpResponse.json({ unreadCount: 0, recent: [] })),
   http.get(`${API}/me/messaging-summary`, () =>
     HttpResponse.json({ unreadConversationCount: 0, needsReplyCount: 0, aiAttentionCount: 0, attentionCount: 0, recent: [] }),

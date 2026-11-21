@@ -2,10 +2,12 @@ package com.workplace.home.service;
 
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.home.dto.DashboardDevice;
 import com.workplace.home.dto.DashboardResponse;
 import com.workplace.home.dto.DashboardWidgetConfig;
+import com.workplace.home.exception.DashboardConflictException;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -58,7 +60,8 @@ class DashboardServiceTest extends IntegrationTestBase {
             List.of(
                 new DashboardWidgetConfig("synthesis", 5, false),
                 new DashboardWidgetConfig("quick_actions", 5, false),
-                new DashboardWidgetConfig("priority_quadrant", 5, false)));
+                new DashboardWidgetConfig("priority_quadrant", 5, false)),
+            null);
     assertThat(saved.widgets()).hasSize(3);
   }
 
@@ -81,5 +84,65 @@ class DashboardServiceTest extends IntegrationTestBase {
               assertThat(w.collapsed()).isFalse();
               assertThat(w.hidden()).isFalse();
             });
+  }
+
+  /** WP-1953 409 문구 — 서버 문구가 곧 토스트 문구다. */
+  static final String CONFLICT_MESSAGE =
+      "다른 곳에서 대시보드 레이아웃이 바뀌었습니다. 최신 레이아웃을 불러왔으니 확인한 뒤 다시 저장해 주세요.";
+
+  private List<DashboardWidgetConfig> layout(String... types) {
+    return java.util.Arrays.stream(types).map(t -> new DashboardWidgetConfig(t, 5, false)).toList();
+  }
+
+  @Test
+  void 처음_GET_은_version_0() {
+    long userId = insertUser("dash_v0_" + System.nanoTime());
+    assertThat(service.get(userId, DashboardDevice.DESKTOP).version()).isZero();
+  }
+
+  @Test
+  void 맞는_version_이면_저장되고_version_이_1_오른다() {
+    long userId = insertUser("dash_v1_" + System.nanoTime());
+    List<DashboardWidgetConfig> w2 = layout("notifications", "my_tasks");
+    assertThat(service.save(userId, DashboardDevice.DESKTOP, layout("my_tasks"), 0L).version())
+        .isEqualTo(1);
+    assertThat(service.save(userId, DashboardDevice.DESKTOP, w2, 1L).version()).isEqualTo(2);
+    DashboardResponse got = service.get(userId, DashboardDevice.DESKTOP);
+    assertThat(got.version()).isEqualTo(2);
+    assertThat(got.widgets().stream().map(DashboardWidgetConfig::type).toList())
+        .containsExactly("notifications", "my_tasks");
+  }
+
+  @Test
+  void 옛_version_이면_409_이고_행은_그대로() {
+    long userId = insertUser("dash_old_" + System.nanoTime());
+    service.save(userId, DashboardDevice.DESKTOP, layout("my_tasks"), 0L);
+    assertThatThrownBy(
+            () -> service.save(userId, DashboardDevice.DESKTOP, layout("notifications"), 0L))
+        .isInstanceOf(DashboardConflictException.class)
+        .hasMessage(CONFLICT_MESSAGE);
+    DashboardResponse got = service.get(userId, DashboardDevice.DESKTOP);
+    assertThat(got.version()).isEqualTo(1);
+    assertThat(got.widgets().stream().map(DashboardWidgetConfig::type).toList())
+        .containsExactly("my_tasks");
+  }
+
+  @Test
+  void version_없으면_검사_없이_저장() {
+    long userId = insertUser("dash_nov_" + System.nanoTime());
+    service.save(userId, DashboardDevice.DESKTOP, layout("my_tasks"), null);
+    DashboardResponse second =
+        service.save(userId, DashboardDevice.DESKTOP, layout("notifications"), null);
+    assertThat(second.version()).isEqualTo(2);
+    assertThat(service.get(userId, DashboardDevice.DESKTOP).version()).isEqualTo(2);
+  }
+
+  @Test
+  void 기기별_version_은_독립() {
+    long userId = insertUser("dash_dev_" + System.nanoTime());
+    service.save(userId, DashboardDevice.MOBILE, layout("my_tasks"), 0L);
+    service.save(userId, DashboardDevice.MOBILE, layout("my_tasks"), 1L);
+    assertThat(service.get(userId, DashboardDevice.MOBILE).version()).isEqualTo(2);
+    assertThat(service.get(userId, DashboardDevice.DESKTOP).version()).isZero();
   }
 }

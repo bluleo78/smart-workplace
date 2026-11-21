@@ -240,7 +240,7 @@ test('한 위젯 데이터 실패는 그 위젯에만 오류·다시 시도를 �
 
 test('count:10 위젯은 항목 12건 중 10건만 렌더한다', async () => {
   await renderDashboard(
-    { widgets: [{ id: 'my_tasks', type: 'my_tasks', count: 10, hidden: false }] },
+    { widgets: [{ id: 'my_tasks', type: 'my_tasks', count: 10, hidden: false }], version: 0 },
     {
       handlers: [
         myIssues(Array.from({ length: 12 }, (_, i) => createIssue({ id: i + 1, projectKey: 'WP', number: i + 1, title: `이슈 ${i + 1}`, status: 'IN_PROGRESS' }))),
