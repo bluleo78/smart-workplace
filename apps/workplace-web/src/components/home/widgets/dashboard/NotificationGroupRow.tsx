@@ -15,6 +15,7 @@ import {
   RefreshCw,
   UserPlus,
 } from "lucide-react";
+import { useId } from "react";
 import { Link } from "react-router-dom";
 
 import { AgentActorBadge } from "@/components/users/AgentBadge";
@@ -63,6 +64,8 @@ export function NotificationGroupRow({
   onAck: (ids: number[]) => void;
 }) {
   const Icon = TYPE_ICON[group.repType] ?? FALLBACK_ICON;
+  // 둘째 줄(행위자·변경 요약·시간)을 링크의 접근 설명으로 잇기 위한 id(WP-1891).
+  const descId = useId();
   return (
     <li
       className="group flex items-start gap-2 rounded px-1 py-1.5 hover:bg-muted/50"
@@ -78,6 +81,8 @@ export function NotificationGroupRow({
         aria-label={`${group.read ? "" : "읽지 않음, "}알림 열기: ${group.label}`}
         // 열기 = 읽음 처리(InboxPanel과 동일). 이동과 함께 그룹 미읽음을 read 처리.
         onClick={() => onAck(group.unreadIds)}
+        // aria-label 이 링크 내용을 덮어 둘째 줄이 안 읽히므로, 이름은 짧게 두고 둘째 줄을 설명으로 잇는다(WP-1891).
+        aria-describedby={descId}
         className="min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {/* primary: 객체 제목(미읽음이면 medium). */}
@@ -86,13 +91,19 @@ export function NotificationGroupRow({
         >
           {group.title}
         </span>
-        {/* secondary: 행위자 + 에이전트 배지 + 델타 + 상대시간 한 줄(muted). */}
-        <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
+        {/* secondary: 행위자 + 에이전트 배지 + 델타 + 상대시간 한 줄(muted).
+            {" "} 는 접근 설명에서 단어가 붙지 않게 하는 공백 — flex 라 화면에는 그려지지 않는다(WP-1891). */}
+        <span
+          id={descId}
+          className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground"
+        >
           {group.actorName && (
             <span className="truncate">{group.actorName}</span>
           )}
+          {" "}
           {/* 에이전트 배지 — 인박스와 같은 공용 AgentActorBadge(Bot+「에이전트」, WP-935). 그룹에 AGENT 행위자가 있으면 붙는다. */}
           <AgentActorBadge kind={group.hasAgent ? "AGENT" : null} />
+          {" "}
           <span className="truncate">
             {group.deltaSummary} · {formatRelativeTime(group.latestAt)}
           </span>
