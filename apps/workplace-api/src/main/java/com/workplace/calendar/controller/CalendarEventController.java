@@ -27,8 +27,8 @@ import org.springframework.web.bind.annotation.*;
 /**
  * 개인 일정 API. 읽기=calendar:read, 쓰기=calendar:write. owner=호출자.
  *
- * <p>@Validated: 쿼리 파라미터 시각(from·to·occurrenceDate)의 지원 범위({@link SupportedDateTime}) 검사를 켠다 — 범위 밖
- * 값이 DB 에서 409 로 터지던 것을 한국어 400 으로 거절한다(WP-1579).
+ * <p>@Validated: 쿼리 파라미터 시각(from·to·occurrenceDate·expectedUpdatedAt)의 지원 범위({@link
+ * SupportedDateTime}) 검사를 켠다 — 범위 밖 값이 DB 에서 409 로 터지던 것을 한국어 400 으로 거절한다(WP-1579).
  */
 @RestController
 @Validated
@@ -149,7 +149,9 @@ public class CalendarEventController {
           @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
           @SupportedDateTime
           OffsetDateTime occurrenceDate,
-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+      @RequestParam(required = false)
+          @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          @SupportedDateTime
           OffsetDateTime expectedUpdatedAt) {
     return ResponseEntity.ok(
         withUrl(service.update(callerId, id, req, scope, occurrenceDate, expectedUpdatedAt)));

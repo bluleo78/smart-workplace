@@ -25,17 +25,15 @@ function scopeParams(
 
 /**
  * 수정 응답의 새 updatedAt 을 캐시된 일정(범위 목록·상세)에 반영한다.
- * - 응답과 id 가 같은 항목은 항상 반영한다(고친 그 행).
- * - 가상 회차는 마스터의 updatedAt 을 달고 다니므로(masterEventId) 마스터를 고친 경우(scope 없음·ALL)에만 같이 반영한다.
- *   THIS·THIS_AND_FOLLOWING 의 응답은 예외 행·새 시리즈일 수 있어 마스터의 버전을 알 수 없으므로 건드리지 않는다(재조회에 맡김).
+ * - 응답과 id 가 같은 항목만 반영한다. 가상 회차도 id 가 마스터 id 와 같아서(masterEventId 는 따로 가진다) 마스터를 고친 응답(scope 없음·ALL)은
+ *   같은 id 비교로 가상 회차까지 함께 갱신된다.
+ * - THIS·THIS_AND_FOLLOWING 의 응답은 예외 행·새 시리즈(다른 id)일 수 있어, 응답 id 와 같은 행만 고치면 다른 행의 버전을 잘못 덮을 일이 없다.
+ *   나머지는 이어지는 재조회에 맡긴다.
  */
-function applyFreshVersion(qc: QueryClient, updated: CalendarEvent | undefined, scope?: EditScope) {
+export function applyFreshVersion(qc: QueryClient, updated: CalendarEvent | undefined) {
   if (!updated?.id || !updated.updatedAt) return
-  const wholeMaster = !scope || scope === 'ALL'
   const patch = (e: CalendarEvent): CalendarEvent =>
-    e.id === updated.id || (wholeMaster && e.masterEventId === updated.id)
-      ? { ...e, updatedAt: updated.updatedAt }
-      : e
+    e.id === updated.id ? { ...e, updatedAt: updated.updatedAt } : e
   // 바뀐 항목이 없으면 원래 data 를 그대로 돌려준다 — 새 참조를 만들면 구독 중인 화면이 쓸데없이 다시 그려진다.
   const patchData = (data: unknown) => {
     if (Array.isArray(data)) {
@@ -83,10 +81,10 @@ export function useUpdateEvent() {
       expectedUpdatedAt?: string
     }) =>
       calendarApi.update(id, body, scopeParams(scope, occurrenceDate, expectedUpdatedAt)).then((r) => r.data),
-    onSuccess: (updated, vars) => {
+    onSuccess: (updated) => {
       // 재조회가 끝나기 전에 같은 일정을 또 저장하면 낡은 updatedAt 을 보내 자기 변경과 충돌(409)한다 —
       // 응답의 새 updatedAt 을 캐시에 먼저 써 둔다(WP-1920). 무효화는 그대로 두어 나머지 필드는 재조회로 맞춘다.
-      applyFreshVersion(qc, updated, vars.scope)
+      applyFreshVersion(qc, updated)
       qc.invalidateQueries({ queryKey: calendarKeys.all })
       toast.success('일정을 수정했습니다')
     },

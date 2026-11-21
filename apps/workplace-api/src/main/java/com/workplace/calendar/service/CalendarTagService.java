@@ -254,7 +254,18 @@ public class CalendarTagService {
             .findMasterOccurrenceByOverride(eventId)
             .map(MasterOccurrence::eventId)
             .orElse(eventId);
-    tagRepo.replaceAppLinks(callerId, masterId, wanted);
+    // 링크를 바꾸기 전에 행을 먼저 잠근다(WP-1920) — 잠그지 않으면 동시 PATCH(FOR UPDATE 후 버전 검사)가 링크 교체와 버전 갱신 사이에 끼어들어
+    // 낡은 폼이 통과한다. 순서는 lockSeriesFor 와 같게 마스터 → override. 일정 저장 요청 경로는 이미 같은 순서로 잠근 상태라 재잠금은 즉시
+    // 통과한다.
+    eventRepo.lockForUpdate(masterId);
+    if (masterId != eventId) eventRepo.lockForUpdate(eventId);
+    // 태그가 실제로 바뀌면 버전을 올린다(WP-1920) — 안 올리면 다른 사람이 태그만 바꾼 뒤 낡은 폼(태그를 늘 함께 보냄)이 버전 검사를 통과해 태그를
+    // 덮어쓴다. 태그는 마스터에 붙지만 고친 회차 폼의 버전 검사는 그 회차 행의 updated_at 을 보므로 마스터와 회차 행을 함께 올린다.
+    // 같은 태그를 다시 보낸 no-op 은 올리지 않는다. 일정 저장 요청 경로에서는 버전 검사가 쓰기 전에 끝났으므로 자기 충돌이 없다.
+    if (tagRepo.replaceAppLinks(callerId, masterId, wanted)) {
+      eventRepo.touchUpdatedAt(
+          masterId == eventId ? List.of(masterId) : List.of(masterId, eventId));
+    }
   }
 
   /**
@@ -325,6 +336,8 @@ public class CalendarTagService {
     }
     // 먼저 표시해 행 잠금을 잡는다 — 동시에 도는 동기화의 같은 행 upsert 는 이 tx 가 끝난 뒤에 이어지고, 그때 이 표시를 보고 범주 연결을 건너뛴다.
     eventRepo.markCategoriesWritten(rows, writtenAt);
+    // 범주를 바꿨으니 버전도 올린다(WP-1920) — 낡은 폼 저장이 바뀐 범주를 덮어쓰지 않게(앱 일정 replaceAppTags 와 같은 이유).
+    eventRepo.touchUpdatedAt(rows);
     eventRepo.updateExternalSeries(eventId, live.seriesMasterId(), live.type());
     Set<Long> addable = tagRepo.ownedIds(callerId, write.addedIds());
     List<EventTagLink> adds = new ArrayList<>();

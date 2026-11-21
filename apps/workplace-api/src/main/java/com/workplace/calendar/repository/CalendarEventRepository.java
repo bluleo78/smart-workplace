@@ -699,6 +699,18 @@ public class CalendarEventRepository {
   }
 
   /**
+   * 일정 행들의 updated_at 을 지금으로 올린다(WP-1920) — 본문은 그대로여도 태그가 바뀌면 버전을 올려, 바뀌기 전 화면의 낡은 폼 저장이
+   * expectedUpdatedAt 검사에서 409 로 막히게 한다.
+   */
+  public void touchUpdatedAt(Collection<Long> eventIds) {
+    if (eventIds.isEmpty()) return;
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
+        .where(CALENDAR_EVENT.ID.in(eventIds))
+        .execute();
+  }
+
+  /**
    * 일정 행을 쓰기 잠금(FOR UPDATE)한다 — 같은 일정을 고치거나 지우는 요청을 차례로 세워, 늦은 쪽이 앞선 쪽의 결과(잘린 RRULE 등)를 보고 다시 판단하게
    * 한다(WP-761). 쓰기 tx 안에서만 부른다.
    */
