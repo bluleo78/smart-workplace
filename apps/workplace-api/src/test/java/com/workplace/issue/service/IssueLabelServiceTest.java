@@ -18,6 +18,7 @@ import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -171,5 +172,51 @@ class IssueLabelServiceTest extends IntegrationTestBase {
         .isInstanceOf(com.workplace.label.exception.InvalidLabelNameException.class)
         .hasMessageContaining("20개");
     assertThat(labelService.list(owner, p.key())).isEmpty();
+  }
+
+  @Test
+  void replace_labels_bumps_updated_at_but_not_version() {
+    Long owner = createUser("u1");
+    ProjectResponse p = newProject(owner, "ILU");
+    var l1 = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+    Integer versionBefore = IssueSeeds.version(dsl, issue.id());
+
+    issueLabelService.replace(owner, p.key(), 1, List.of(l1.id()));
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isAfter(before);
+    assertThat(IssueSeeds.version(dsl, issue.id())).isEqualTo(versionBefore);
+  }
+
+  @Test
+  void remove_only_labels_bumps_updated_at() {
+    Long owner = createUser("u2");
+    ProjectResponse p = newProject(owner, "ILV");
+    var l1 = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    issueLabelService.replace(owner, p.key(), 1, List.of(l1.id()));
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+
+    issueLabelService.replace(owner, p.key(), 1, List.of());
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isAfter(before);
+  }
+
+  @Test
+  void noop_label_replace_keeps_updated_at() {
+    Long owner = createUser("u3");
+    ProjectResponse p = newProject(owner, "ILW");
+    var l1 = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    issueLabelService.replace(owner, p.key(), 1, List.of(l1.id()));
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+
+    issueLabelService.replace(owner, p.key(), 1, List.of(l1.id()));
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isEqualTo(before);
   }
 }

@@ -29,6 +29,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -393,5 +394,54 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
 
     assertThat(result).hasSize(1);
     assertThat(result.get(0).id()).isEqualTo(other);
+  }
+
+  @Test
+  void replace_assignees_bumps_updated_at_but_not_version() {
+    Long owner = createUser("t1");
+    Long u1 = createUser("t11");
+    ProjectResponse p = newProject(owner, "AST1");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+    Integer versionBefore = IssueSeeds.version(dsl, issue.id());
+
+    service.replace(owner, p.key(), 1, List.of(u1));
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isAfter(before);
+    assertThat(IssueSeeds.version(dsl, issue.id())).isEqualTo(versionBefore);
+  }
+
+  @Test
+  void remove_only_assignees_bumps_updated_at() {
+    Long owner = createUser("t2");
+    Long u1 = createUser("t21");
+    ProjectResponse p = newProject(owner, "AST2");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    service.replace(owner, p.key(), 1, List.of(u1));
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+
+    service.replace(owner, p.key(), 1, List.of());
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isAfter(before);
+  }
+
+  @Test
+  void noop_assignee_replace_keeps_updated_at() {
+    Long owner = createUser("t3");
+    Long u1 = createUser("t31");
+    ProjectResponse p = newProject(owner, "AST3");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    service.replace(owner, p.key(), 1, List.of(u1));
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, issue.id());
+
+    service.replace(owner, p.key(), 1, List.of(u1));
+
+    assertThat(IssueSeeds.updatedAt(dsl, issue.id())).isEqualTo(before);
   }
 }

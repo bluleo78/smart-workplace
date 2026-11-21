@@ -567,6 +567,15 @@ public class IssueRepository {
   }
 
   /**
+   * 수정 시각만 올린다(WP-1930). 라벨·담당자 교체는 매핑 테이블만 쓰고 issue 행은 안 건드려 updated_at 이 그대로라 「최근 수정 순」 정렬·최근 변동에
+   * 안 잡혔다. updateReporter·updateType 과 같은 근거로 version 은 올리지 않는다 — 본문 편집(PATCH)이 덮어쓰는 필드가 아니라
+   * lost-update 대상이 아니고, 올리면 편집 중 라벨·담당자만 바꿔도 저장이 거짓 409 가 된다.
+   */
+  public void touchUpdatedAt(Long id) {
+    dsl.update(ISSUE).set(ISSUE.UPDATED_AT, OffsetDateTime.now()).where(ISSUE.ID.eq(id)).execute();
+  }
+
+  /**
    * 유형만 갱신 — updated_at 동기. 서비스에서 fast-return / history 기록과 함께 사용. version 은 올리지 않는다(#611 — PATCH 가
    * 덮어쓰는 필드가 아니라 lost-update 대상이 아니고, 올리면 제목·본문 편집 중 유형만 바꿔도 저장이 거짓 409 가 된다).
    */
