@@ -16,16 +16,22 @@ import NotificationsPage from '../NotificationsPage'
 mockViewport()
 
 /** 알림 화면을 모바일로 띄운다. 탭 루트로 보려면 탭바 슬롯에 알림을 넣어 둔다. */
-function renderNotifications(opts: { tabRoot: boolean }) {
+function renderNotifications(opts: { tabRoot: boolean; unread?: boolean }) {
   if (opts.tabRoot) localStorage.setItem('mobile-tabs', JSON.stringify(['notifications', 'home', 'chat', 'mail', 'calendar']))
   const unarchived: number[][] = []
+  // 모두 읽음 뒤에는 실서버처럼 목록·안 읽음 수를 읽음으로 돌린다 — 버튼이 실제로 disabled 되어야 포커스를 목록으로 옮긴다(WP-1845).
+  let allRead = false
   const view = renderMobileScreen(<NotificationsPage />, {
     path: '/notifications',
     handlers: [
-      http.get('/api/v1/notifications', () => HttpResponse.json([notif({ id: 1 })])),
+      http.get('/api/v1/notifications', () => HttpResponse.json([notif({ id: 1, read: allRead || !opts.unread })])),
       http.get('/api/v1/notifications/archived', () => HttpResponse.json([notif({ id: 5, issueTitle: '보관된 이슈' })])),
-      http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: 0 })),
+      http.get('/api/v1/notifications/unread-count', () => HttpResponse.json({ count: opts.unread && !allRead ? 1 : 0 })),
       http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null })),
+      http.post('/api/v1/notifications/read-all', () => {
+        allRead = true
+        return new HttpResponse(null, { status: 204 })
+      }),
       http.post('/api/v1/notifications/unarchive', async ({ request }) => {
         const body = (await request.json()) as { ids: number[] }
         unarchived.push(body.ids)
@@ -61,6 +67,17 @@ describe('모바일 알림 화면 보관함 전환', () => {
     expect(await screen.findByText(/보관된 이슈/)).toBeInTheDocument()
     expect(screen.queryByTestId('inbox-mark-all')).not.toBeInTheDocument()
     expect(screen.queryByTestId('inbox-archive-read')).not.toBeInTheDocument()
+  })
+
+  // WP-1845 — 모두 읽음 뒤 버튼이 disabled 되어 포커스가 BODY 로 떨어지지 않도록 목록 영역으로 옮긴다.
+  test('모바일 머리 모두 읽음 뒤 포커스가 목록 영역으로 간다', async () => {
+    const { user } = renderNotifications({ tabRoot: false, unread: true })
+    await screen.findAllByTestId('inbox-item')
+    const button = screen.getByTestId('inbox-mark-all')
+    button.focus()
+    await user.click(button)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('inbox-scroll-area')))
+    expect(await screen.findByText('읽음 처리했습니다')).toBeInTheDocument()
   })
 
   test('보관함에서 되돌리기를 누르면 unarchive 요청을 보낸다', async () => {

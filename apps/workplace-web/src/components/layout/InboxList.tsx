@@ -2,7 +2,14 @@
 // 인박스 목록 — 데스크톱 Popover(InboxPanel)와 모바일 /notifications 화면이 공유한다(WP-126).
 // 헤더(모두 읽음·읽은 알림 보관) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
 import { Archive, Bell, CheckCheck } from "lucide-react";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -14,6 +21,10 @@ import {
   mailSendFailedLabel,
   notifTarget,
 } from "@/components/home/notifTarget";
+import {
+  focusInboxList,
+  INBOX_SCROLL_TESTID,
+} from "@/components/layout/inboxFocus";
 import { PushPromptBanner } from "@/components/layout/PushPromptBanner";
 import { LoadErrorState } from "@/components/LoadErrorState";
 import { narrowHeaderActionClass } from "@/components/mobile/headerClass";
@@ -31,6 +42,8 @@ import {
 } from "@/hooks/queries/useNotifications";
 import { useUnarchiveNotification } from "@/hooks/queries/useUnarchiveNotification";
 import { useUnreadCount } from "@/hooks/queries/useUnreadCount";
+import { useListFocusRescue } from "@/hooks/useListFocusRescue";
+import { focusLost } from "@/hooks/useRestoreFocusOnExit";
 import { formatDateTimeMinute, formatRelativeTime } from "@/lib/formatters";
 import {
   notificationAction,
@@ -68,6 +81,9 @@ export type InboxView = "inbox" | "archive";
 /** 보기 탭이 가리키는 패널(목록 영역)의 id — 탭의 aria-controls 와 패널의 id 가 같은 값을 쓴다(WP-1843). */
 // 이 파일 안(탭·목록)에서만 쓴다 — 컴포넌트 파일에서 컴포넌트가 아닌 것을 내보내면 Fast Refresh 가 전체 새로고침이 된다.
 const INBOX_VIEW_PANEL_ID = "inbox-view-panel";
+
+/** 알림 행 표식 — 포커스 복구 훅의 행 선택자. 채팅 메시지 표식(data-message-id)과 겹치지 않게 따로 둔다(WP-1845). */
+const INBOX_ROW_SELECTOR = "[data-inbox-row-id]";
 
 /** 보기 탭 단추의 id — 패널의 aria-labelledby 가 가리킨다(WP-1843). */
 function inboxViewTabId(v: InboxView): string {
@@ -226,8 +242,34 @@ export function InboxList({
   const loadErrorTitle = isArchive
     ? "보관한 알림을 불러오지 못했습니다"
     : "알림을 불러오지 못했습니다";
-  const items = flattenNotificationPages(data?.pages);
+  // 페이지가 바뀔 때만 새 배열 — 포커스 복구 훅의 효과가 렌더마다 돌지 않게 한다(WP-1845).
+  const items = useMemo(
+    () => flattenNotificationPages(data?.pages),
+    [data?.pages],
+  );
   const unarchive = useUnarchiveNotification();
+  // 되돌리는 중인 줄 id 들 — 여러 줄을 빠르게 되돌리면 요청이 겹치므로, 마지막 호출(unarchive.variables)만 보면 앞 줄의 잠금이
+  // 요청이 끝나기 전에 풀린다. 호출마다 넣고 그 호출이 끝나면(성공·실패) 뺀다(WP-1845).
+  const [unarchivingIds, setUnarchivingIds] = useState<ReadonlySet<number>>(() => new Set());
+  // 그 줄을 되돌리는 중인지 — 클릭 무시와 aria-disabled 가 같은 판정을 쓴다.
+  const isUnarchiving = (id: number) => unarchivingIds.has(id);
+  /**
+   * 한 줄을 되돌린다. mutate 의 호출별 콜백은 마지막 호출에만 불리므로(TanStack) 호출마다 끝을 알 수 있는 mutateAsync 를 쓴다.
+   * 실패 안내는 훅의 onError 토스트가 맡으니 여기서는 거부를 삼키기만 한다.
+   */
+  const startUnarchive = (id: number) => {
+    setUnarchivingIds((prev) => new Set(prev).add(id));
+    unarchive
+      .mutateAsync(id)
+      .catch(() => {})
+      .finally(() =>
+        setUnarchivingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        }),
+      );
+  };
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const archiveRead = useArchiveReadNotifications();
@@ -235,6 +277,36 @@ export function InboxList({
   // 스크롤 컨테이너 — 공용 LoadMoreFooter 의 sentinel 이 이 칸을 root 로 바닥 근처를 본다(WP-1848).
   // 객체 ref 가 아니라 state 인 이유: 마운트 뒤 값이 정해져야 footer 가 root 를 받아 observer 를 만든다(ReactorsPanel 과 같은 방식).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+
+  // 직전 커밋의 보기 — 아래 복구 fallback 이 「보기가 방금 바뀌었는가」를 판단하는 데 쓴다. 복구 훅의 효과 뒤(선언 순서)에 갱신한다.
+  const committedView = useRef(view);
+  /**
+   * 행이 모두 빠졌을 때(하나뿐인 행을 되돌림) 복구 훅이 포커스를 둘 곳 — 이 인스턴스의 목록 영역(tabpanel)(WP-1845).
+   * 패널은 늘 tabIndex 가 있어(빈 목록이면 0) 훅이 그대로 focus() 하면 된다.
+   * 보기가 방금 바뀐 커밋에서는 null — 보관함 빈 상태 CTA(「받은 알림 보기」)로 사라진 버튼의 포커스는 InboxViewTabs 가 받은 탭으로
+   * 옮긴다(WP-1848). 여기서 패널로 먼저 옮기면, 탭이 InboxList 밖(모바일 머리)에 있어 그 효과가 나중에 돌 때 body 가 아니라서
+   * 탭으로 가지 못한다. 보기 전환으로 생긴 포커스 잃음은 탭이, 같은 보기 안에서 행이 빠진 것은 이 훅이 맡는다.
+   */
+  const rescueFallback = useCallback(
+    () => (committedView.current === view ? scrollEl : null),
+    [view, scrollEl],
+  );
+  // 되돌리기로 행이 빠지면 포커스를 같은 자리 행(마지막이었으면 앞 행), 남은 행이 없으면 목록 영역으로 옮긴다(WP-1845).
+  // 채팅·코멘트 목록과 같은 공용 훅(WP-832)을 쓴다. 목록 요소는 <ul> 이 아니라 스크롤 영역이다 — 마지막 행이 빠지면 <ul> 자체가
+  // 빈 상태로 바뀌어 사라지므로, 거기 달면 훅이 목록을 잃어 fallback 까지 가지 못한다.
+  const setRescueList = useListFocusRescue(items, rescueFallback, INBOX_ROW_SELECTOR);
+  // 복구 훅의 효과가 이번 커밋의 보기 비교를 마친 뒤 갱신한다(같은 컴포넌트의 효과는 선언 순서대로 돈다).
+  useEffect(() => {
+    committedView.current = view;
+  }, [view]);
+  // 스크롤 영역 하나에 두 ref 를 단다 — footer root(state)와 복구 훅의 목록. 참조가 안정적이어야 렌더마다 null→요소로 다시 불리지 않는다.
+  const scrollAreaRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      setScrollEl(el);
+      setRescueList(el);
+    },
+    [setRescueList],
+  );
 
   // 행 클릭: (보관함이 아니고) 안읽음이면 읽음 처리 → onNavigate(패널 닫기 등) → 대상으로 이동.
   // 딥링크 규칙은 notifTarget() 공용 유틸과 동일(캘린더 알림→캘린더, 식별정보 없으면 인박스 대용 폴백).
@@ -278,12 +350,9 @@ export function InboxList({
               <button
                 type="button"
                 data-testid="inbox-mark-all"
-                onClick={() => markAll.mutate()}
-                // 알림 없거나 모두 읽음 상태이거나 처리 중이면 비활성화
-                disabled={
-                  items.length === 0 || unread === 0 || markAll.isPending
-                }
-                className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                // 알림 없거나 모두 읽음 상태면 비활성화, 처리 중이면 aria-disabled(markAllButtonProps).
+                {...markAllButtonProps(markAll, items.length === 0 || unread === 0)}
+                className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
               >
                 모두 읽음
               </button>
@@ -314,9 +383,12 @@ export function InboxList({
         role="tabpanel"
         id={INBOX_VIEW_PANEL_ID}
         aria-labelledby={inboxViewTabId(view)}
+        // 불러오는 중일 때만 Tab 정지점(WP-1843) — 빈 목록·조회 실패는 안의 CTA·다시 시도 단추가 정지점이다.
+        // -1 이어도 프로그램 포커스는 받으므로, 행이 모두 빠지거나 모두 읽음 뒤 포커스 복구의 도착지로 쓴다(WP-1845).
         tabIndex={isLoading && !loadFailed ? 0 : -1}
-        ref={setScrollEl}
-        data-testid="inbox-scroll-area"
+        // footer root + 포커스 복구 훅의 목록(WP-1845)
+        ref={scrollAreaRef}
+        data-testid={INBOX_SCROLL_TESTID}
         className={scrollClassName}
       >
         {loadFailed ? (
@@ -359,6 +431,10 @@ export function InboxList({
               {items.map((n) => (
                 <li
                   key={n.id}
+                  // data-inbox-row-id: 포커스 복구 훅(useListFocusRescue)의 행 표식 — 행이 빠지면 같은 자리 행으로 포커스를 옮긴다(WP-1845).
+                  // data-message-id 를 쓰지 않는다 — 메시지 링크 이동(useMessageLinkJump)이 문서 전체에서 그 표식을 찾아, 알림 창이 열려
+                  // 있으면 같은 id 의 알림 행이 실제 메시지 대신 강조된다.
+                  data-inbox-row-id={n.id}
                   className={cn(isArchive && "flex items-stretch")}
                 >
                   <button
@@ -516,13 +592,14 @@ export function InboxList({
                       data-testid="inbox-unarchive"
                       onClick={(e) => {
                         e.stopPropagation();
-                        unarchive.mutate(n.id);
+                        // 처리 중인 그 줄은 클릭을 무시한다(aria-disabled). 행이 빠진 뒤 포커스는 목록의 포커스 복구 훅이 옮긴다.
+                        if (isUnarchiving(n.id)) return;
+                        startUnarchive(n.id);
                       }}
                       // 처리 중인 그 줄만 막는다 — 전체를 막으면 한 줄 되돌리는 동안 다른 줄 클릭이 소리 없이 무시된다.
-                      disabled={
-                        unarchive.isPending && unarchive.variables === n.id
-                      }
-                      className="shrink-0 row-divider px-3 text-xs text-primary hover:bg-accent/50 disabled:opacity-50"
+                      // native disabled 대신 aria-disabled 로 잠근다 — 실패해 줄이 남으면 포커스가 이 버튼에 그대로 있게(WP-1845).
+                      aria-disabled={isUnarchiving(n.id) || undefined}
+                      className="shrink-0 row-divider px-3 text-xs text-primary hover:bg-accent/50 aria-disabled:opacity-50"
                     >
                       되돌리기
                     </button>
@@ -546,7 +623,45 @@ export function InboxList({
 }
 
 /**
- * 모바일 알림 화면 헤더용 '모두 읽음' — InboxList 제목 행의 버튼과 같은 규칙(알림 없음·모두 읽음·처리 중이면 비활성)·testid.
+ * 모두 읽음을 실행하고, 성공하면 포커스를 알림 목록 영역으로 옮긴다(WP-1845).
+ * 성공 뒤 안 읽음이 0 이 되어 버튼이 native disabled 가 되면 포커스가 BODY 로 떨어져 키보드·스크린리더 사용자가 위치를 잃기 때문이다.
+ * 처리 중에는 aria-disabled 라 클릭을 무시한다 — 연속 호출이 없으니 호출별 onSuccess 가 덮이지 않고, 실패 땐 포커스가 버튼에 그대로 남는다.
+ * 옮기는 조건: 포커스가 갈 곳을 잃었거나(focusLost), 아직 누른 버튼에 있는데 그 버튼이 실제로 native disabled 가 됐을 때
+ * (비활성 요소에서 포커스를 빼지 않는 브라우저·jsdom). 그 사이 새 안 읽음이 와서 버튼이 여전히 눌리면 포커스를 버튼에 둔다 —
+ * 멀쩡한 컨트롤에서 포커스를 빼앗지 않는다. aria-disabled 는 이 버튼에서 「처리 중」만 뜻하고 성공 뒤엔 풀리므로 판정에 넣지 않는다.
+ * 처리 중 사용자가 다른 곳으로 옮겼으면 빼앗지 않는다.
+ */
+function markAllAndRefocus(markAll: ReturnType<typeof useMarkAllNotificationsRead>, trigger: HTMLButtonElement) {
+  if (markAll.isPending) return;
+  markAll.mutate(undefined, {
+    // rAF 한 번 + 매크로태스크 한 번 뒤 — React 가 안 읽음 0 으로 다시 그려 버튼이 비활성이 된 DOM 을 보고 판단한다.
+    // rAF 만으로는 재조회 결과의 커밋보다 먼저 돌 수 있어(jsdom 에서 확인) 버튼이 아직 활성으로 보인다 — 그러면 비활성 여부를
+    // 잘못 읽어 포커스를 옮기지 못한다. 그 뒤 태스크로 한 번 더 미뤄 커밋된 DOM 을 본다.
+    onSuccess: () =>
+      requestAnimationFrame(() =>
+        setTimeout(() => {
+          const disabledTrigger = document.activeElement === trigger && trigger.disabled;
+          if (focusLost() || disabledTrigger) focusInboxList();
+        }, 0),
+      ),
+  });
+}
+
+/**
+ * 두 「모두 읽음」 버튼(제목 행·모바일 머리)이 함께 쓰는 잠금·클릭 속성 — 규칙을 한 곳에 둔다(WP-1845).
+ * 대상 없음(알림 없음·안 읽음 0)은 native disabled, 처리 중은 aria-disabled(native disabled 는 브라우저가 포커스를 빼서
+ * 실패 뒤 포커스가 BODY 에 남는다 — useRestoreFocusOnExit 와 같은 규칙).
+ */
+function markAllButtonProps(markAll: ReturnType<typeof useMarkAllNotificationsRead>, nothingToRead: boolean) {
+  return {
+    onClick: (e: React.MouseEvent<HTMLButtonElement>) => markAllAndRefocus(markAll, e.currentTarget),
+    disabled: nothingToRead,
+    "aria-disabled": markAll.isPending || undefined,
+  };
+}
+
+/**
+ * 모바일 알림 화면 헤더용 '모두 읽음' — InboxList 제목 행의 버튼과 같은 규칙(알림 없음·모두 읽음이면 비활성, 처리 중이면 aria-disabled)·testid.
  * 목록과 같은 쿼리 키를 쓰므로 추가 요청 없이 캐시를 공유한다.
  */
 export function MarkAllReadButton() {
@@ -558,10 +673,12 @@ export function MarkAllReadButton() {
     <button
       type="button"
       data-testid="inbox-mark-all"
-      onClick={() => markAll.mutate()}
-      disabled={items.length === 0 || unread === 0 || markAll.isPending}
+      {...markAllButtonProps(markAll, items.length === 0 || unread === 0)}
       title="모두 읽음"
-      className={narrowHeaderActionClass}
+      className={cn(
+        narrowHeaderActionClass,
+        "aria-disabled:cursor-not-allowed aria-disabled:text-muted-foreground aria-disabled:opacity-60",
+      )}
     >
       {/* WP-1731: 360px 미만은 아이콘만 보이고 글자는 sr-only 로 남겨 접근 이름을 지킨다(aria-label 로 바꾸지 않음). */}
       <CheckCheck aria-hidden className="hidden h-5 w-5 max-[360px]:block" />

@@ -1,10 +1,10 @@
 // 메인 AI 채팅 첨부(WP-234) 순수 규칙 — 상한 판정·세션 첨부 수·25MB 분리·턴 첨부 변환·미리보기 해제·원본 경로.
 // useHomeChatAttachments·useChatSession·homeApi 가 공유하고 vitest 로 검증한다(브라우저 없이 판정되는 부분만 모았다).
-import { ATTACHMENT_MAX_BYTES } from '@/lib/attachmentLimits';
+import { ATTACHMENT_MAX_BYTES, type CountCheck, MAX_ATTACHMENTS_PER_MESSAGE } from '@/lib/attachmentLimits';
 import type { ChatTurn, HomeMessage, TurnAttachment } from '@/types/home';
 
-/** 메시지당 첨부 수 — 이슈 챗과 같은 10개(이슈 첨부의 ATTACHMENT_MAX_PER_ISSUE 는 이슈 전체 누적 상한이라 뜻이 달라 공유하지 않는다). */
-export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
+/** 메시지당 첨부 수 — 공용 상수(attachmentLimits)를 기존 import 처가 그대로 쓰도록 re-export 한다. */
+export { MAX_ATTACHMENTS_PER_MESSAGE };
 /** 세션당 첨부 수 — 매 턴 프롬프트에 넣는 첨부 목록 크기를 묶는다. */
 export const MAX_ATTACHMENTS_PER_SESSION = 30;
 
@@ -13,8 +13,8 @@ export const PER_MESSAGE_LIMIT_MSG = `한 번에 첨부할 수 있는 파일은 
 /** 서버(HomeAttachmentService.MSG_SESSION_LIMIT) 400 문구와 글자 그대로 같게 유지한다(PF-C3). */
 export const PER_SESSION_LIMIT_MSG = `이 대화에는 파일을 최대 ${MAX_ATTACHMENTS_PER_SESSION}개까지 첨부할 수 있어요. 새 대화를 열어 주세요.`;
 
-/** 개수 판정 결과 — ok=false 면 message 를 토스트로 보이고 이번 묶음 전체를 올리지 않는다. */
-export type CountCheck = { ok: true } | { ok: false; message: string };
+// 개수 판정 결과 타입은 팀 채팅·이슈 챗과 함께 쓰므로 attachmentLimits 에 둔다 — 기존 import 경로를 위해 다시 내보낸다.
+export type { CountCheck };
 
 /**
  * 새로 고른(붙여넣은·드롭한) 파일 묶음을 받아도 되는지 개수로 판정한다. 서버도 같은 상한으로 막지만,

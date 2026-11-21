@@ -8,6 +8,7 @@
 // WP-1696: 행의 content-visibility:auto — 화면 안 행은 실제 높이, 휠로 내려 30행이 더 붙어도 이미 본 행의 자리가 그대로(@layout).
 import type { Page } from '@playwright/test'
 
+import { ROWS_PAGE } from '../../../src/lib/aiMemory'
 import { memoryItem, mockAiMemories, openMemorySettings } from '../../fixtures/ai-memory-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { stableBox } from '../../fixtures/wait'
@@ -15,11 +16,12 @@ import { stableBox } from '../../fixtures/wait'
 const rows = (page: Page) => page.getByTestId('ai-memory-row')
 
 /**
- * 인피니트 스크롤을 끝까지 내린다 — 한 poll 에 여러 묶음을 몰면 부하에서 10초를 넘기므로 30행 묶음마다 따로 기다린다(WP-1813).
+ * 인피니트 스크롤을 끝까지 내린다 — 한 poll 에 여러 묶음을 몰면 부하에서 10초를 넘기므로 화면 묶음(ROWS_PAGE)마다 따로 기다린다(WP-1813).
+ * 묶음 크기는 화면 상수를 그대로 써서 화면이 바뀌어도 테스트가 따라간다.
  * 한 번에 두 묶음이 붙을 수 있어 이상(>=)으로 기다린다.
  */
 async function scrollRowsTo(page: Page, total: number) {
-  for (let target = 60; target < total + 30; target += 30) {
+  for (let target = ROWS_PAGE * 2; target < total + ROWS_PAGE; target += ROWS_PAGE) {
     const goal = Math.min(target, total)
     await expect
       .poll(async () => {

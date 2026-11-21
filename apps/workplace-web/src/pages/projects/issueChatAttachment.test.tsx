@@ -92,4 +92,39 @@ describe('이슈 채팅 첨부', () => {
       ]),
     )
   })
+
+  // WP-1857: 나눠 붙여 10개를 넘기려 하면 업로드 전에 막는다 — 전송으로 초안이 비워지면 다시 붙일 수 있다.
+  test('첨부를 나눠 붙여 10개를 넘기려 하면 업로드하지 않고 알린다', async () => {
+    const UPLOAD = `/api/v1/chat/threads/${THREAD_ID}/attachments`
+    let nextId = 5000
+    const requests = recordRequests()
+    const { user } = await openChatDrawer([
+      http.post(UPLOAD, async ({ request }) => {
+        const n = [...(await request.text()).matchAll(/filename="([^"]+)"/g)].length
+        return HttpResponse.json(Array.from({ length: n }, () => { nextId += 1; return { fileId: nextId, originalName: `f${nextId}.txt`, mimeType: 'text/plain', sizeBytes: 5 } }))
+      }),
+      http.post(`/api/v1/chat/threads/${THREAD_ID}/messages`, () =>
+        HttpResponse.json({
+          id: 2002, threadId: THREAD_ID, authorId: ME_ID, authorName: '테스트 사용자', authorKind: 'HUMAN', body: '',
+          mentions: [], attachments: [], driveLinks: [], createdAt: '2026-01-01T00:00:00Z', editedAt: null, deleted: false,
+        }, { status: 201 }),
+      ),
+    ])
+    const input = await screen.findByTestId<HTMLInputElement>('chat-composer-file-input')
+    const files = (n: number, prefix: string) => Array.from({ length: n }, (_, i) => new File(['x'], `${prefix}${i}.txt`, { type: 'text/plain' }))
+    const chips = () => screen.queryAllByLabelText(/첨부 제거$/).length
+    await user.upload(input, files(8, 'a'))
+    await waitFor(() => expect(chips()).toBe(8))
+    await user.upload(input, files(3, 'b'))
+    expect(await screen.findByText('첨부는 메시지당 최대 10개예요 — 2개 더 붙일 수 있어요')).toBeInTheDocument()
+    // 개수 검사는 업로드 전에 동기로 거절하므로 토스트가 보인 시점에 요청이 없으면 나가지 않은 것이다.
+    expect(requests.count('POST', UPLOAD)).toBe(1)
+    expect(chips()).toBe(8)
+
+    await user.click(screen.getByTestId('chat-composer-submit'))
+    await waitFor(() => expect(chips()).toBe(0))
+    await user.upload(input, files(10, 'c'))
+    await waitFor(() => expect(chips()).toBe(10))
+    expect(requests.count('POST', UPLOAD)).toBe(2)
+  })
 })
