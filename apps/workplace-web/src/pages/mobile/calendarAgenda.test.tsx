@@ -108,7 +108,7 @@ test('초대받은 일정 — 목록은 「초대받은 일정」, 창은 입력
   expect(within(dialog).getByRole('heading', { name: '주간 회의' })).toBeInTheDocument()
   expect(within(dialog).getByTestId('event-detail-calendar')).toHaveTextContent('초대받은 일정')
   expect(within(dialog).getByTestId('event-detail-time')).toHaveTextContent('10월 13일 (화)')
-  expect(within(dialog).getByTestId('event-detail-time')).toHaveTextContent('오전 11:00 – 오후 12:00')
+  expect(within(dialog).getByTestId('event-detail-time')).toHaveTextContent('11:00 – 12:00')
   expect(within(dialog).getByTestId('event-detail-recurrence')).toHaveTextContent('매주 화요일 · 5회')
   // 입력칸이 없으니 열자마자 숫자 칸 포커스(휴대폰 숫자 키보드)가 생길 수 없다(WP-604).
   expect(dialog.querySelectorAll('input, textarea, select')).toHaveLength(0)

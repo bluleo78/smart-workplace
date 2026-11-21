@@ -80,6 +80,19 @@ test('event 위젯 — 단일 일정의 제목·장소·설명을 그린다', as
   expect(detail).toHaveTextContent('분기 기획 발표 자료 리뷰')
 })
 
+test('event 위젯 — 다음 날 0시에 끝나는 일정은 끝 시각을 24:00 으로 보인다(WP-1909)', async () => {
+  // 로컬 22:00 ~ 다음 날 로컬 00:00 — 타임존과 무관하게 로컬 기준으로 만든다.
+  const start = new Date(2026, 5, 22, 22, 0)
+  const end = new Date(2026, 5, 23, 0, 0)
+  renderChatWidget('event', { eventId: 6 }, [
+    http.get('/api/v1/calendar/events/6', () =>
+      HttpResponse.json(calendarEvent({ id: 6, title: '야간 작업', startsAt: start.toISOString(), endsAt: end.toISOString() })),
+    ),
+  ])
+  const detail = await screen.findByTestId('event-detail', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  expect(detail).toHaveTextContent('22:00 – 24:00')
+})
+
 // ── 이슈 상세 ──
 
 test('issue_detail 위젯 — 우선순위를 원시 enum 이 아니라 한글 라벨로 보인다(WP-886)', async () => {

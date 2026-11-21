@@ -32,7 +32,11 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
       </span>
     </>
   )
-  const body = <EntryBody entry={entry} />
+  // 제목을 숨긴(chromeless) 카탈로그 카드는 위젯 자체 제목이 h2 로 카드 제목을 대신한다 — sr-only h2 를 따로 두면
+  // 같은 제목이 두 번 읽힌다(WP-1888). 카탈로그 위젯은 오류·빈 상태까지 늘 WidgetFrame 제목을 그린다는 전제다.
+  // 시스템 위젯은 자체 제목이 없어 sr-only h2 를 둔다.
+  const frameIsCardHeading = entry.cfg.chromeless === true && entry.kind === 'catalog'
+  const body = <EntryBody entry={entry} frameHeadingLevel={frameIsCardHeading ? 2 : 3} />
 
   // chromeless: 테두리·제목 헤더 없이 본문만 렌더(빠른 액션처럼 자체 설명적인 위젯용). 그리드 폭/행
   // span(wide/tall)은 레이아웃 유지를 위해 그대로 적용한다.
@@ -46,7 +50,7 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
         data-chromeless="true"
       >
         {/* WP-1885: 제목 헤더를 숨겨도 헤딩 탐색에서는 위젯이 잡히도록 보이지 않는 h2 를 둔다. */}
-        <h2 className="sr-only">{title}</h2>
+        {!frameIsCardHeading && <h2 className="sr-only">{title}</h2>}
         {body}
       </div>
     )

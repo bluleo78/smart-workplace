@@ -3,11 +3,15 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  clock24,
   formatClockTimePadded,
   formatDateMonthDayPadded,
   formatDateShort,
   formatDateTimeLocale,
+  formatHourLabel24,
+  formatLocalClockRange24,
   formatLocalClockTime24,
+  formatMonthDayWeekdayClock24,
   formatNumber,
 } from './formatters'
 
@@ -71,5 +75,44 @@ describe('formatNumber', () => {
     expect(formatNumber(Number.MAX_SAFE_INTEGER)).toBe('9,007,199,254,740,991')
     expect(formatNumber(-1234)).toBe('-1,234')
     expect(formatNumber(0)).toBe('0')
+  })
+})
+
+// WP-1909 — 캘린더 24시간 표기 부품. TZ=Asia/Seoul 고정, ICU 비의존.
+describe('clock24 · formatHourLabel24', () => {
+  it('자정 00:00 · 정오 12:00 · 23:59', () => {
+    expect(clock24(new Date(2026, 6, 15, 0, 0))).toBe('00:00')
+    expect(clock24(new Date(2026, 6, 15, 12, 0))).toBe('12:00')
+    expect(clock24(new Date(2026, 6, 15, 23, 59))).toBe('23:59')
+  })
+  it('시 눈금 라벨 00:00 … 23:00', () => {
+    expect(formatHourLabel24(0)).toBe('00:00')
+    expect(formatHourLabel24(9)).toBe('09:00')
+    expect(formatHourLabel24(23)).toBe('23:00')
+  })
+})
+
+describe('formatLocalClockRange24', () => {
+  it('일반 구간 · 자정 시작 · 정오', () => {
+    expect(formatLocalClockRange24(new Date(2026, 6, 15, 9, 0), new Date(2026, 6, 15, 10, 30))).toBe('09:00 – 10:30')
+    expect(formatLocalClockRange24(new Date(2026, 6, 15, 0, 0), new Date(2026, 6, 15, 12, 0))).toBe('00:00 – 12:00')
+    expect(formatLocalClockRange24(new Date(2026, 6, 15, 23, 0), new Date(2026, 6, 15, 23, 59))).toBe('23:00 – 23:59')
+  })
+  it('끝이 다음 날 0시면 끝을 24:00 으로', () => {
+    expect(formatLocalClockRange24(new Date(2026, 6, 15, 22, 0), new Date(2026, 6, 16, 0, 0))).toBe('22:00 – 24:00')
+  })
+  it('길이 0 구간은 00:00 – 00:00 그대로', () => {
+    expect(formatLocalClockRange24(new Date(2026, 6, 15, 0, 0), new Date(2026, 6, 15, 0, 0))).toBe('00:00 – 00:00')
+  })
+})
+
+describe('formatMonthDayWeekdayClock24', () => {
+  const NOW = new Date(2026, 9, 1)
+  it('올해 — 월일 (요일) 24시간 시각, 자정은 00:30', () => {
+    expect(formatMonthDayWeekdayClock24('2026-10-23T05:05:00Z', NOW)).toBe('10월 23일 (금) 14:05')
+    expect(formatMonthDayWeekdayClock24('2026-10-22T15:30:00Z', NOW)).toBe('10월 23일 (금) 00:30')
+  })
+  it('무효 입력 → 빈 문자열', () => {
+    for (const v of INVALID) expect(formatMonthDayWeekdayClock24(v, NOW)).toBe('')
   })
 })

@@ -6,7 +6,7 @@ import { Flag } from 'lucide-react'
 import { eventDisplayColor } from '@/lib/calendar'
 import { eventDate } from '@/lib/calendarAgenda'
 import { resolvePalette } from '@/lib/calendarPalette'
-import { formatClockTimePadded } from '@/lib/formatters'
+import { formatLocalClockTime24 } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import type { ViewProps } from './TimeGrid'
@@ -49,9 +49,9 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
               <span className="text-sm text-muted-foreground w-28 shrink-0">
                 {format(eventDate(row.event), 'M.d (EEE)', { locale: ko })}
               </span>
-              {/* 시간 — 종일 이벤트는 '종일' 표시 */}
+              {/* 시간 — 종일 이벤트는 '종일' 표시. 캘린더 안 시각은 24시간 HH:mm 하나로(WP-1909) */}
               <span className="text-sm text-muted-foreground w-16 shrink-0">
-                {row.event.allDay ? '종일' : formatClockTimePadded(row.event.startsAt)}
+                {row.event.allDay ? '종일' : formatLocalClockTime24(row.event.startsAt)}
               </span>
               {/* 색 점 — effectiveColor 기반 */}
               <span

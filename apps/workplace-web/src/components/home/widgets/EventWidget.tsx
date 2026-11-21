@@ -2,21 +2,23 @@ import { MapPin } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent';
-import { formatDateMonthDay, formatLocalClockTime24 } from '@/lib/formatters';
+import { formatDateMonthDay, formatLocalClockRange24, formatLocalClockTime24, isNextMidnightEnd } from '@/lib/formatters';
 import { showsLoadError } from '@/lib/queryFailure';
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
 
-// 일정 기간 텍스트 — 날짜 + 시각(allDay 면 날짜만).
+// 일정 기간 텍스트 — 날짜 + 시각(allDay 면 날짜만). 다음 날 0시에 끝나는 하루 일정은 「22:00 – 24:00」(캘린더와 동일).
 function formatRange(startsAt: string, endsAt: string, allDay: boolean): string {
   const startDate = formatDateMonthDay(startsAt);
   if (allDay) return startDate;
-  const startTime = formatLocalClockTime24(startsAt);
-  const endTime = formatLocalClockTime24(endsAt);
-  const endDate = formatDateMonthDay(endsAt);
-  if (startDate === endDate) return `${startDate} ${startTime} – ${endTime}`;
-  return `${startDate} ${startTime} – ${endDate} ${endTime}`;
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+  // 끝이 정확히 다음 날 0시면 끝 날짜는 1ms 앞(= 시작과 같은 날)으로 본다.
+  const lastMoment = isNextMidnightEnd(start, end) ? new Date(end.getTime() - 1) : end;
+  const endDate = formatDateMonthDay(lastMoment.toISOString());
+  if (startDate === endDate) return `${startDate} ${formatLocalClockRange24(start, end)}`;
+  return `${startDate} ${formatLocalClockTime24(startsAt)} – ${formatDateMonthDay(endsAt)} ${formatLocalClockTime24(endsAt)}`;
 }
 
 /**

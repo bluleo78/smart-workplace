@@ -364,7 +364,7 @@ export function InboxList({
         </div>
       )}
       {/* 푸시 유도 배너는 받은 알림 보기에서만 */}
-      {!isArchive && <PushPromptBanner />}
+      {!isArchive && <PushPromptBanner onNavigate={onNavigate} />}
       {/*
         WP-1843: 목록 영역은 선택 탭(inboxViewTabId)에 이어진 tabpanel 이다(APG Tabs).
         모바일은 탭이 화면 머리에 따로 있고 목록은 별도 컴포넌트라, 같은 파일의 고정 id 로 탭과 패널을 잇는다.

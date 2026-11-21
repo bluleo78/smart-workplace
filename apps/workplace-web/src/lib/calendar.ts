@@ -4,7 +4,7 @@ import {
 } from 'date-fns'
 
 import type { Calendar, CalendarEvent, CalendarViewType, IssueDueMarker } from '../types/calendar'
-import { formatClockTimePadded, formatLocalMonthDaySlash } from './formatters'
+import { endClock24, formatLocalClockTime24, formatLocalMonthDaySlash, isNextMidnightEnd } from './formatters'
 import { type StorageOwner, userScopedKey } from './userScopedKey'
 
 // 보기 → 사용자에게 보이는 탭 이름. 캘린더 헤더의 뷰 전환 탭과 AI 화면 컨텍스트(WP-54, '<이름> 보기')가 공유한다.
@@ -168,11 +168,11 @@ export function timedEventBox(event: CalendarEvent, day: Date): { top: number; h
 /**
  * 여러 날에 걸친 타임드 일정의 날별 조각에 붙일 라벨(WP-1910). 조각마다 같은 시작 시각을 쓰면 이어지는 날에도 「오전 09:00」이
  * 떠서 그날 일정이 언제 끝나는지·언제부터 이어지는지 알 수 없었다. 그래서 조각의 자리에 따라 다르게 보인다.
- * - 시작한 날: 시작 시각(「오전 09:00」)
- * - 마지막 날(끝이 그날 안): 「~」와 끝 시각(「~오후 06:00」)
+ * - 시작한 날: 시작 시각(「09:00」 — 캘린더 시각은 24시간 표기, WP-1909)
+ * - 마지막 날(끝이 그날 안): 「~」와 끝 시각(「~18:00」)
  * - 가운데 날(하루 전체를 덮는 날): 시작 날짜부터(「12/2부터」, 해가 다르면 「2026/12/30부터」) — 어느 날부터 이어지는지 알려준다.
  * 끝이 정확히 다음 날 0시이면 그 날이 실제 마지막 날이다(eventsOnDay 는 end > dayStart 로 판정해 다음 날엔 조각을 그리지 않는다).
- * 이때 「~오전 12:00」은 그날 0시에 끝나는 것처럼 읽히므로 목록 보기(agendaTimeLabels)와 같이 「~24:00」으로 보인다.
+ * 이때 「~00:00」은 그날 0시에 끝나는 것처럼 읽히므로 목록 보기(agendaTimeLabels)와 같이 「~24:00」으로 보인다.
  * 끝이 다음 날 0시보다 뒤일 때만 가운데 날로 본다.
  */
 export function timedSegmentLabel(event: CalendarEvent, day: Date): string {
@@ -181,9 +181,9 @@ export function timedSegmentLabel(event: CalendarEvent, day: Date): string {
   const start = new Date(event.startsAt)
   const end = new Date(event.endsAt)
   // 시작이 그날 0시 이후면 시작한 날 조각 — 시작 시각을 그대로 보인다.
-  if (start >= dayStart) return formatClockTimePadded(event.startsAt)
+  if (start >= dayStart) return formatLocalClockTime24(event.startsAt)
   // 끝이 그날 안(다음 날 0시 전)이면 마지막 날 조각 — 끝 시각을 「~」와 함께 보인다.
-  if (end < nextDay) return `~${formatClockTimePadded(event.endsAt)}`
+  if (end < nextDay) return `~${formatLocalClockTime24(event.endsAt)}`
   // 끝이 정확히 다음 날 0시면 그 날이 마지막 날 — 자정 종료는 「24:00」으로 보인다.
   if (end.getTime() === nextDay.getTime()) return '~24:00'
   // 그 밖은 하루 전체를 덮는 가운데 날 — 시작 날짜부터 이어진다고 보인다(해가 다르면 연도 포함).
@@ -357,7 +357,7 @@ export function proposalTimeRange(
   if (!end) return from
   if (isSameDay(start, end)) return `${from} ~ ${format(end, 'HH:mm')}`
   // 배타적 끝 — 1ms 앞이 시작과 같은 날이면 자정에 끝나는 일정이다.
-  if (end > start && isSameDay(start, new Date(end.getTime() - 1))) return `${from} ~ 24:00`
+  if (isNextMidnightEnd(start, end) && isSameDay(start, new Date(end.getTime() - 1))) return `${from} ~ ${endClock24(start, end)}`
   return `${from} ~ ${format(end, isSameYear(start, end) ? 'MM-dd HH:mm' : 'yyyy-MM-dd HH:mm')}`
 }
 

@@ -28,38 +28,52 @@ const att = (role: Attendee['role'], userId: number | null, rsvpStatus: Attendee
 })
 
 describe('eventTimeLines', () => {
-  it('같은 날 같은 오후 — 끝 시각의 오전/오후는 생략한다', () => {
+  it('같은 날 시각 범위는 24시간 HH:mm', () => {
     // 15:00–16:30 KST
     expect(
       eventTimeLines({ startsAt: '2026-10-21T06:00:00Z', endsAt: '2026-10-21T07:30:00Z', allDay: false }, NOW),
-    ).toEqual({ date: '10월 21일 (수)', time: '오후 3:00 – 4:30' })
+    ).toEqual({ date: '10월 21일 (수)', time: '15:00 – 16:30' })
   })
 
-  it('오전에서 오후로 넘어가면 양쪽에 오전/오후를 쓴다, 정오는 오후 12시', () => {
+  it('오전에서 오후로 넘어가도 24시간 표기, 정오는 12:00 계열', () => {
     // 11:00–12:30 KST
     expect(
       eventTimeLines({ startsAt: '2026-10-21T02:00:00Z', endsAt: '2026-10-21T03:30:00Z', allDay: false }, NOW).time,
-    ).toBe('오전 11:00 – 오후 12:30')
+    ).toBe('11:00 – 12:30')
   })
 
   it('자정을 넘기는 시간 일정은 날짜 줄 하나에 양쪽 날짜·시각을 쓴다', () => {
     // 10/21 23:00 – 10/22 01:00 KST
     expect(
       eventTimeLines({ startsAt: '2026-10-21T14:00:00Z', endsAt: '2026-10-21T16:00:00Z', allDay: false }, NOW),
-    ).toEqual({ date: '10월 21일 (수) 오후 11:00 – 10월 22일 (목) 오전 1:00', time: null })
+    ).toEqual({ date: '10월 21일 (수) 23:00 – 10월 22일 (목) 01:00', time: null })
   })
 
   it('자정에 끝나는 시간 일정은 같은 날로 본다', () => {
     // 22:00–24:00 KST
     expect(
       eventTimeLines({ startsAt: '2026-10-21T13:00:00Z', endsAt: '2026-10-21T15:00:00Z', allDay: false }, NOW),
-    ).toEqual({ date: '10월 21일 (수)', time: '오후 10:00 – 오전 12:00' })
+    ).toEqual({ date: '10월 21일 (수)', time: '22:00 – 24:00' })
   })
 
   it('길이 0 인 자정 일정은 날짜를 두 번 쓰지 않는다', () => {
     expect(
       eventTimeLines({ startsAt: '2026-10-20T15:00:00Z', endsAt: '2026-10-20T15:00:00Z', allDay: false }, NOW),
-    ).toEqual({ date: '10월 21일 (수)', time: '오전 12:00 – 12:00' })
+    ).toEqual({ date: '10월 21일 (수)', time: '00:00 – 00:00' })
+  })
+
+  it('자정 시작 일정은 00:00 으로 보인다', () => {
+    // 00:00–00:30 KST
+    expect(
+      eventTimeLines({ startsAt: '2026-10-20T15:00:00Z', endsAt: '2026-10-20T15:30:00Z', allDay: false }, NOW).time,
+    ).toBe('00:00 – 00:30')
+  })
+
+  it('00:00 에서 다음 날 00:00 까지 24시간 일정은 같은 날 「00:00 – 24:00」', () => {
+    // 10/21 00:00 – 10/22 00:00 KST
+    expect(
+      eventTimeLines({ startsAt: '2026-10-20T15:00:00Z', endsAt: '2026-10-21T15:00:00Z', allDay: false }, NOW),
+    ).toEqual({ date: '10월 21일 (수)', time: '00:00 – 24:00' })
   })
 
   it('하루 종일 — 배타적 종료(다음 날 0시)는 같은 날로 본다', () => {

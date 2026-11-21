@@ -422,3 +422,15 @@ test('카탈로그 위젯 제목은 카드 안에서 h3 — 카드 제목 아래
   expect(await within(c).findByRole('heading', { level: 3, name: '프로젝트' })).toBeInTheDocument()
   expect(within(c).getByTestId('home-widget').querySelector('h2')).toBeNull()
 })
+
+// 제목을 숨긴 카탈로그 카드는 위젯 자체 제목 하나만 h2 — sr-only h2 를 따로 두지 않아 두 번 읽히지 않는다(WP-1888).
+// 사용자가 붙인 라벨(cfg.label)이 위젯 제목과 달라도 보이는 위젯 제목이 헤딩이다.
+test.each([undefined, '내 일감'])('제목을 숨긴 카탈로그 위젯은 위젯 제목 하나만 h2 다 (라벨 %s)', async (label) => {
+  await renderDashboard(layout([{ ...catalog('w-projects', 'projects'), chromeless: true, label }]), {
+    handlers: [http.get('/api/v1/wiki/spaces', () => HttpResponse.json([]))],
+  })
+  const c = cardById('w-projects')
+  const h = await within(c).findByRole('heading', { level: 2, name: '프로젝트' })
+  expect(within(c).getAllByRole('heading')).toHaveLength(1)
+  expect(within(c).getByTestId('home-widget')).toContainElement(h)
+})

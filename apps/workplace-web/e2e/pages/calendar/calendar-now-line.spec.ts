@@ -100,6 +100,6 @@ test.describe('주·일 보기 처음 스크롤과 현재 시각 선', { tag: '@
     const grid = day.locator('div.overflow-auto')
     const want = await expectedScrollTop(grid, 8 * HOUR_SLOT_PX)
     await expect.poll(() => grid.evaluate((el, w) => Math.abs(el.scrollTop - w), want)).toBeLessThanOrEqual(2)
-    await expect(day.getByText('8:00', { exact: true })).toBeInViewport()
+    await expect(day.getByText('08:00', { exact: true })).toBeInViewport()
   })
 })

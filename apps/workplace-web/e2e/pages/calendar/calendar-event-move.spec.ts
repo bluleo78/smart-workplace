@@ -143,7 +143,7 @@ test.describe('일정 테두리 늘이기', { tag: ['@input'] }, () => {
     await page.mouse.down()
     await page.mouse.move(from.x, from.y + 48, { steps: 8 })
     // 끄는 중 — 미리보기에 바뀌는 시각 범위
-    await expect(page.getByTestId('calendar-move-preview')).toHaveText('오전 10:00 – 오후 12:00 팀 회의')
+    await expect(page.getByTestId('calendar-move-preview')).toHaveText('10:00 – 12:00 팀 회의')
     await page.mouse.up()
 
     await expect.poll(() => patches.length).toBe(1)
@@ -160,7 +160,7 @@ test.describe('일정 테두리 늘이기', { tag: ['@input'] }, () => {
     await page.mouse.move(from.x, from.y)
     await page.mouse.down()
     await page.mouse.move(from.x, from.y - 48, { steps: 8 })
-    await expect(page.getByTestId('calendar-move-preview')).toHaveText('오전 09:00 – 오전 11:00 팀 회의')
+    await expect(page.getByTestId('calendar-move-preview')).toHaveText('09:00 – 11:00 팀 회의')
     await page.mouse.up()
 
     await expect.poll(() => patches.length).toBe(1)

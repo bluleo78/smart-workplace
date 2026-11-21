@@ -214,7 +214,7 @@ describe('읽기 전용 일정 — 상세 보기(WP-708·710)', () => {
     const view = await screen.findByTestId('event-detail-view')
 
     // 시간 한 줄·장소, 값 없는 알림·반복 행은 숨김
-    await waitFor(() => expect(within(view).getByTestId('event-detail-time')).toHaveTextContent('6월 10일 (수) · 오전 10:00 – 11:00'))
+    await waitFor(() => expect(within(view).getByTestId('event-detail-time')).toHaveTextContent('6월 10일 (수) · 10:00 – 11:00'))
     expect(within(view).getByTestId('event-detail-location')).toHaveTextContent('SynergiA')
     expect(within(view).queryByTestId('event-detail-reminder')).not.toBeInTheDocument()
     expect(within(view).queryByTestId('event-detail-recurrence')).not.toBeInTheDocument()
@@ -287,7 +287,7 @@ describe('읽기 전용 일정 — 상세 보기(WP-708·710)', () => {
     ])
     await user.click(await screen.findByTestId(`calendar-event-7-${occ[1]}`))
     const time = await screen.findByTestId('event-detail-time')
-    expect(time).toHaveTextContent('6월 15일 (월) · 오전 10:00 – 11:00')
+    expect(time).toHaveTextContent('6월 15일 (월) · 10:00 – 11:00')
     expect(time).not.toHaveTextContent('6월 8일')
     expect(screen.getByTestId('event-detail-recurrence')).toHaveTextContent('매주 월요일')
   })

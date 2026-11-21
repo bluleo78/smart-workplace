@@ -7,11 +7,11 @@ const NOW = new Date('2026-11-18T03:00:00Z')
 const timed = { startsAt: '2026-11-18T01:00:00Z', allDay: false, attendeeCount: 5 }
 
 describe('linkedEventMeta', () => {
-  it('시간 일정은 날짜·오전/오후 시각과 참석 인원을 붙인다', () => {
-    expect(linkedEventMeta(timed, NOW)).toBe('11월 18일 (수) 오전 10:00 · 참석 5명')
+  it('시간 일정은 날짜·24시간제 시각과 참석 인원을 붙인다', () => {
+    expect(linkedEventMeta(timed, NOW)).toBe('11월 18일 (수) 10:00 · 참석 5명')
   })
   it('참석자가 0명이면 인원 문구를 생략한다', () => {
-    expect(linkedEventMeta({ ...timed, attendeeCount: 0 }, NOW)).toBe('11월 18일 (수) 오전 10:00')
+    expect(linkedEventMeta({ ...timed, attendeeCount: 0 }, NOW)).toBe('11월 18일 (수) 10:00')
   })
   it('종일 일정은 시각 대신 「종일」', () => {
     // KST 자정 시작 = 전날 15:00Z

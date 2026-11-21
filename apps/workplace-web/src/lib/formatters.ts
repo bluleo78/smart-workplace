@@ -466,12 +466,62 @@ export function formatClockTimeCompact(dateStr: string | null | undefined): stri
  * 홈 캘린더/일정 위젯처럼 로컬 날짜와 함께 쓰는 곳에 사용. null/undefined/무효 입력 → '-'.
  */
 export function formatLocalClockTime24(dateStr: string | null | undefined): string {
-  return formatLocaleOrDash(dateStr, (d) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }));
+  // ICU(hour12:false)는 엔진에 따라 자정을 「24:05」로 내므로(WP-1029 류) clock24 로 직접 조립한다.
+  const d = parseUtcDate(dateStr);
+  if (Number.isNaN(d.getTime())) return '-';
+  return clock24(d);
+}
+
+/**
+ * 로컬 시각을 24시간 「HH:mm」로 — 시·분을 항상 2자리로 직접 조립한다(ICU 로케일 비의존).
+ * 캘린더 전체가 24시간 표기로 통일돼 있어(WP-1909) 상세·초대·노트 문구가 모두 같은 모양을 쓴다.
+ */
+export function clock24(d: Date): string {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** 시간 눈금 라벨 — 0~23 → 「00:00」…「23:00」(타임그리드 세로축, WP-1909). */
+export function formatHourLabel24(hour: number): string {
+  return `${pad2(hour)}:00`;
+}
+
+/** 끝이 시작보다 뒤이면서 정확히 로컬 0시인가(= 「24:00」으로 써야 하는 끝). 길이 0 구간은 false. */
+export function isNextMidnightEnd(start: Date, end: Date): boolean {
+  return end > start && end.getHours() === 0 && end.getMinutes() === 0;
+}
+
+/** 끝 시각 문구 — 다음 날 0시에 끝나면 「24:00」, 아니면 clock24(end). */
+export function endClock24(start: Date, end: Date): string {
+  return isNextMidnightEnd(start, end) ? '24:00' : clock24(end);
+}
+
+/**
+ * 같은 날 시간 구간 → 「HH:mm – HH:mm」(로컬). 끝이 시작보다 뒤이면서 정확히 로컬 0시이면(= 다음 날 0시에 끝남)
+ * 끝을 「24:00」으로 쓴다 — 「22:00 – 00:00」은 시작보다 앞서 보이기 때문. 길이 0 구간은 「00:00 – 00:00」 그대로.
+ * 상세 문구(eventTimeLines)와 타임그리드 미리보기·끌기 라벨이 이 규칙 하나를 공유한다.
+ */
+export function formatLocalClockRange24(start: Date, end: Date): string {
+  return `${clock24(start)} – ${endClock24(start, end)}`;
+}
+
+/** 날짜·요일 + 시각 조립 공통부 — 파싱·무효 가드는 한 곳에서, 시각 부분만 clockPart 로 바꾼다. */
+function monthDayWeekdayWith(dateStr: string | null | undefined, now: Date, clockPart: (d: Date) => string): string {
+  const d = parseUtcDate(dateStr);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${formatLocalDateWithWeekday(d, now)} ${clockPart(d)}`;
+}
+
+/**
+ * 시각 값(ISO) → 「10월 23일 (금) 14:05」 — formatMonthDayWeekdayClock 의 24시간제 짝(WP-1909).
+ * 올해면 연도 생략, 로컬 타임존. 무효 입력이면 ''.
+ */
+export function formatMonthDayWeekdayClock24(dateStr: string | null | undefined, now: Date = new Date()): string {
+  return monthDayWeekdayWith(dateStr, now, clock24);
 }
 
 /**
  * 시각 2자리 12시간제 — "오후 02:30" (브라우저 로컬 타임존, #828).
- * 시(時)가 zero-pad 되어 폭이 일정 — 캘린더 타임그리드/아젠다, 메일 목록(오늘 수신)용.
+ * 시(時)가 zero-pad 되어 폭이 일정 — 메일 목록(오늘 수신)용.
  * `formatClockTime`("오후 2:30", Asia/Seoul 고정)과 달리 zero-pad·로컬 타임존. null/undefined/무효 입력 → '-'.
  * 오전/오후는 ICU 에 맡기지 않고 직접 붙인다(WP-1029 — ICU 78 은 ko-KR 에도 「AM/PM」).
  */
@@ -645,7 +695,7 @@ function localDotDate(d: Date): string {
   return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`
 }
 
-/** 로컬 시각의 오전/오후와 "3:00" 부분 — 일정 시간 범위에서 끝 시각의 오전/오후를 생략할 수 있게 나눠 준다(WP-708). */
+/** 로컬 시각의 오전/오후와 "3:00" 부분(12시간제 표기용 — 캘린더는 clock24). */
 export function localClockParts(d: Date): { meridiem: '오전' | '오후'; clock: string } {
   return meridiemClock(d.getHours(), d.getMinutes())
 }
@@ -667,10 +717,10 @@ export function formatInstantMonthDay(dateStr: string | null | undefined, now: D
  * 날짜·요일은 formatLocalDateWithWeekday, 오전/오후·시각은 localClockParts 를 재사용한다. 무효 입력이면 ''.
  */
 export function formatMonthDayWeekdayClock(dateStr: string | null | undefined, now: Date = new Date()): string {
-  const d = parseUtcDate(dateStr)
-  if (Number.isNaN(d.getTime())) return ''
-  const { meridiem, clock } = localClockParts(d)
-  return `${formatLocalDateWithWeekday(d, now)} ${meridiem} ${clock}`
+  return monthDayWeekdayWith(dateStr, now, (d) => {
+    const { meridiem, clock } = localClockParts(d)
+    return `${meridiem} ${clock}`
+  })
 }
 
 /**

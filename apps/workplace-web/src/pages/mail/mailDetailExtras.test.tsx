@@ -406,7 +406,7 @@ test('일정 초대 메일은 헤더와 본문 사이에 초대 카드를 그리
   // 답장 버튼(헤더) 뒤, 본문 앞.
   expect(screen.getByTestId('mail-reply').compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(card.compareDocumentPosition(screen.getByText('초대 본문')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(within(card).getByTestId('mail-invite-time')).toHaveTextContent('11월 3일 (화) 오후 2:00 – 3:00')
+  expect(within(card).getByTestId('mail-invite-time')).toHaveTextContent('11월 3일 (화) 14:00 – 15:00')
 
   await user.click(within(card).getByTestId('rsvp-btn-accepted'))
   expect(await within(card).findByTestId('mail-invite-result')).toHaveTextContent('수락했습니다 — 주최자에게 응답을 보냈습니다')

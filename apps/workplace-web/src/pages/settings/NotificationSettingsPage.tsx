@@ -14,7 +14,7 @@ import { useDevicePush, useDisablePush, useEnablePush, usePushConfig } from '@/h
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { APP_LABEL, knownApps } from '@/lib/notificationSettingsMeta'
 import { requestPushPermission } from '@/lib/push/subscription'
-import { getPushSupport, type PushSupport } from '@/lib/push/support'
+import { getPushSupport, PUSH_DENIED_GUIDE, type PushSupport } from '@/lib/push/support'
 import { MAIL_NOTIFY_MODE_LABEL, type MailAccountResponse } from '@/types/mailAccount'
 import type { NotificationAppSetting } from '@/types/notificationSettings'
 
@@ -105,7 +105,7 @@ export default function NotificationSettingsPage() {
           )}
           {(support === 'denied' || deniedNow) && (
             <p className="rounded-md bg-muted p-3 text-sm" data-testid="push-denied-guide">
-              알림 권한이 차단되어 있습니다. 브라우저 주소창의 사이트 설정(또는 OS 설정 &gt; 알림)에서 이 사이트의 알림을 허용해 주세요.
+              {PUSH_DENIED_GUIDE}
             </p>
           )}
           {support === 'unsupported' && (

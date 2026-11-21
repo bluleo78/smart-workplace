@@ -7,20 +7,20 @@ import { inviteActionMode, inviteOrganizerText, inviteResultText, inviteTimeText
 const NOW = new Date('2026-10-28T03:00:00Z')
 
 describe('inviteTimeText', () => {
-  it('같은 날 시간 일정은 날짜·요일과 시각 범위(같은 오전/오후면 끝 접두어 생략)', () => {
+  it('같은 날 시간 일정은 날짜·요일과 24시간 시각 범위', () => {
     expect(inviteTimeText({ start: '2026-11-03T14:00:00+09:00', end: '2026-11-03T15:00:00+09:00', allDay: false }, NOW)).toBe(
-      '11월 3일 (화) 오후 2:00 – 3:00',
+      '11월 3일 (화) 14:00 – 15:00',
     )
   })
 
   it('UTC 오프셋으로 온 시각도 로컬(KST)로 보인다', () => {
     expect(inviteTimeText({ start: '2026-11-03T01:30:00Z', end: '2026-11-03T03:00:00Z', allDay: false }, NOW)).toBe(
-      '11월 3일 (화) 오전 10:30 – 오후 12:00',
+      '11월 3일 (화) 10:30 – 12:00',
     )
   })
 
   it('끝이 없는 시간 일정은 시작 시각만', () => {
-    expect(inviteTimeText({ start: '2026-11-03T14:00:00+09:00', end: null, allDay: false }, NOW)).toBe('11월 3일 (화) 오후 2:00')
+    expect(inviteTimeText({ start: '2026-11-03T14:00:00+09:00', end: null, allDay: false }, NOW)).toBe('11월 3일 (화) 14:00')
   })
 
   it('종일은 날짜만 — 하루, 여러 날(끝은 배타적), 끝 없음', () => {
@@ -33,7 +33,7 @@ describe('inviteTimeText', () => {
 
   it('올해가 아니면 연도를 붙인다', () => {
     expect(inviteTimeText({ start: '2027-01-05T10:00:00+09:00', end: '2027-01-05T11:00:00+09:00', allDay: false }, NOW)).toBe(
-      '2027년 1월 5일 (화) 오전 10:00 – 11:00',
+      '2027년 1월 5일 (화) 10:00 – 11:00',
     )
   })
 })
