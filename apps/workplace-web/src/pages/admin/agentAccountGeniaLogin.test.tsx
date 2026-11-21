@@ -133,8 +133,13 @@ test('[로그인] → 라벨을 실어 시작하고 「Microsoft 로그인 열�
 })
 
 test('로그인 진행 중에는 라벨을 잠근다 — 라벨은 [로그인] 때 값으로 저장되므로, 끝나면(만료) 다시 풀린다', async () => {
-  const { user } = renderLogin({
-    polls: [() => ({ status: 200, body: createGeniaLogin({ status: 'EXPIRED', authorizeUrl: null }) })],
+  // 만료는 테스트가 정한 때에만 돌려준다 — 그 전 조회는 모두 대기(PENDING). shouldAdvanceTime 으로 시계가 저절로 흘러
+  // 잠김 단언 전에 조회가 몇 번 나가더라도 만료로 풀리지 않게 해, 잠김 단언이 폴링과 경합하지 않게 한다
+  let expired = false
+  const { user, calls } = renderLogin({
+    polls: [
+      () => ({ status: 200, body: expired ? createGeniaLogin({ status: 'EXPIRED', authorizeUrl: null }) : createGeniaLogin() }),
+    ],
   })
   const dialog = await openGenia(user)
   const label = within(dialog).getByTestId('agent-account-label')
@@ -143,9 +148,18 @@ test('로그인 진행 중에는 라벨을 잠근다 — 라벨은 [로그인] �
   await within(dialog).findByTestId('genia-login-open')
   // 잠금·풀림은 자식 effect 가 부모 state 를 바꾼 다음 렌더에 반영된다 — 둘 다 기다린다
   await waitFor(() => expect(label).toBeDisabled())
+  // 대기 응답을 받은 뒤에도 잠긴 채다
+  await tickPoll()
+  await waitFor(() => expect(calls.polls.length).toBeGreaterThan(0))
+  expect(label).toBeDisabled()
+  // 만료되면 풀리고, 더 묻지 않는다
+  expired = true
   await tickPoll()
   await within(dialog).findByTestId('genia-login-retry')
   await waitFor(() => expect(label).toBeEnabled())
+  const pollsAfter = calls.polls.length
+  await tickPoll()
+  expect(calls.polls.length).toBe(pollsAfter)
 })
 
 test('로그인 진행 중에 종류를 바꾸면 라벨 잠금이 풀린다', async () => {
@@ -183,10 +197,13 @@ test('대기 → 성공이면 「로그인됨 — me@iacloud.kr」, 목록을 �
   expect(done).toHaveAttribute('role', 'status')
   await waitFor(() => expect(calls.listGets).toBe(listBefore + 1))
   expect(await screen.findByText('계정을 추가했습니다.')).toBeInTheDocument()
-  // 계정이 이미 생겼다 — 종류·라벨을 잠그고 하단은 [닫기] 하나
-  expect(within(dialog).queryByTestId('agent-account-submit')).not.toBeInTheDocument()
-  expect(within(dialog).getByTestId('agent-account-label')).toBeDisabled()
-  expect(within(dialog).getByTestId('agent-account-kind-anthropic')).toBeDisabled()
+  // 계정이 이미 생겼다 — 종류·라벨을 잠그고 하단은 [닫기] 하나.
+  // 성공 표시와 부모의 잠금 state 는 한 렌더 어긋날 수 있어(자식 effect → 부모 state) 부하에서도 흔들리지 않게 기다린다
+  await waitFor(() => {
+    expect(within(dialog).queryByTestId('agent-account-submit')).not.toBeInTheDocument()
+    expect(within(dialog).getByTestId('agent-account-label')).toBeDisabled()
+    expect(within(dialog).getByTestId('agent-account-kind-anthropic')).toBeDisabled()
+  })
   // 성공 뒤에는 더 묻지 않는다
   const pollsAfter = calls.polls.length
   await tickPoll()
