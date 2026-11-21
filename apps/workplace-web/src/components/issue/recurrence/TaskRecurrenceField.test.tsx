@@ -118,7 +118,7 @@ describe('TaskRecurrenceField 「지금 실행」(WP-1313)', () => {
     const { user, state } = setup(recurrence({ editable: false, agentName: '앨리스 비서' }))
     const button = await screen.findByTestId('task-recurrence-run-now')
     expect(button).toBeDisabled()
-    expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveAccessibleName('다른 사람의 개인 비서 일정이라 그 주인만 실행할 수 있어요')
+    expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveAccessibleName('지금 실행 — 다른 사람의 개인 비서 일정이라 그 주인만 실행할 수 있어요')
     await user.click(button).catch(() => {})
     expect(state.posts).toBe(0)
   })

@@ -9,6 +9,8 @@ import { DisabledReasonTooltip } from '@/components/ui/disabled-reason-tooltip'
 import { useStartTrashEmpty, useTrashCount, useTrashEmptyStatus } from '@/hooks/queries/useMailTrash'
 import { mailSubjectText } from '@/lib/mailSubject'
 import {
+  foldPendingReason,
+  PERMANENT_DELETE_PENDING_REASON,
   permanentDeleteConfirmBody,
   TRASH_COPY_NOTE,
   type TrashButtonState,
@@ -53,9 +55,10 @@ export function MailTrashEmptyRow({
   // 남겨 두므로, 그대로 쓰면 파괴적 확인 창에 낡은 수(예: 처음 5 → 서버 1234 → 재조회 실패 → 「5통」)가 보인다. 줄 글자·단추 판정은
   // 위 liveCount 를 그대로 써(폴백 유지) 재조회 중에 단추가 잠기거나 줄이 깜빡이지 않는다.
   const confirmCount = !live.isFetching && !live.isError ? liveCount : null
-  const state = trashEmptyState(folder, status.data, listEmpty, liveCount)
+  // 시작 요청 중 이유까지 상태가 갖는다 — 막힘은 이유에서 파생하므로 감싸개·이름이 빠지는 어긋남이 없다(WP-1856).
+  const state = trashEmptyState(folder, status.data, listEmpty, liveCount, start.isPending)
   const text = trashEmptyRowText(folder, status.data, liveCount)
-  const disabled = !state.enabled || start.isPending
+  const reason = state.reason
 
   const confirm = () => {
     if (busy.current) return
@@ -85,7 +88,7 @@ export function MailTrashEmptyRow({
       variant="outline"
       size="sm"
       data-testid="mail-trash-empty"
-      disabled={disabled}
+      disabled={reason != null}
       onClick={() => handleConfirmOpenChange(true)}
       className={`h-7 shrink-0 max-lg:h-9 ${DESTRUCTIVE_OUTLINE}`}
     >
@@ -99,14 +102,15 @@ export function MailTrashEmptyRow({
       <span data-testid="mail-trash-empty-text" className="min-w-0 flex-1 truncate">
         {text}
       </span>
-      {/* 꺼진 단추는 포인터·포커스를 받지 않아 이유 툴팁을 감싼 칸이 띄운다(진행 중은 이유 없이 라벨만 바뀐다). */}
-      {!state.enabled && state.reason ? (
-        <DisabledReasonTooltip reason={state.reason} aria-label={state.reason} data-testid="mail-trash-empty-reason" className="shrink-0">
-          {button}
-        </DisabledReasonTooltip>
-      ) : (
-        button
-      )}
+      {/* 꺼진 단추는 포인터·포커스를 받지 않아 이유 툴팁을 감싼 칸이 띄운다. 늘 감싸 두어(reason 이 null 이면 이름·툴팁만 없다) 진행 시작·끝에 단추가 다시 만들어져 초점을 잃지 않는다. */}
+      <DisabledReasonTooltip
+        reason={reason}
+        label="휴지통 비우기"
+        data-testid="mail-trash-empty-reason"
+        className="shrink-0"
+      >
+        {button}
+      </DisabledReasonTooltip>
       <DeleteConfirmDialog
         open={confirmOpen}
         onOpenChange={handleConfirmOpenChange}
@@ -160,26 +164,26 @@ export function MailPermanentDeleteDialog({
   )
 }
 
-/** 데스크톱 상세 작업 줄의 「완전히 삭제」 — 「되살리기」 바로 뒤. 처리 중엔 스피너·비활성, 미지원이면 비활성 + 이유 툴팁. */
+/** 데스크톱 상세 작업 줄의 「완전히 삭제」 — 「되살리기」 바로 뒤. 처리 중엔 스피너·비활성, 미지원이면 비활성 + 이유 툴팁. 늘 감싸 처리 중에도 단추가 다시 만들어지지 않는다(WP-1856). */
 export function MailPermanentDeleteButton({ state, pending, onClick }: { state: TrashButtonState; pending: boolean; onClick: () => void }) {
+  // 처리 중에도 같은 감싸개 안에 두어 초점이 유지된다.
+  const reason = foldPendingReason(state, pending, PERMANENT_DELETE_PENDING_REASON).reason
   const button = (
     <Button
       variant="outline"
       size="sm"
       data-testid="mail-permanent-delete"
-      disabled={!state.enabled || pending}
+      disabled={reason != null}
       onClick={onClick}
       className={DESTRUCTIVE_OUTLINE}
     >
       {pending ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : <Trash2 aria-hidden className="h-3.5 w-3.5" />} 완전히 삭제
     </Button>
   )
-  return !state.enabled && state.reason ? (
-    <DisabledReasonTooltip reason={state.reason} aria-label={state.reason} data-testid="mail-permanent-delete-reason">
+  return (
+    <DisabledReasonTooltip reason={reason} label="완전히 삭제" data-testid="mail-permanent-delete-reason">
       {button}
     </DisabledReasonTooltip>
-  ) : (
-    button
   )
 }
 

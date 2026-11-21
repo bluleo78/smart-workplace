@@ -8,7 +8,7 @@ import { useLocation } from 'react-router-dom'
 
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
-import { focusLost } from '@/hooks/useRestoreFocusOnExit'
+import { focusLost, isKeyboardFocused } from '@/hooks/useRestoreFocusOnExit'
 import { parseId } from '@/lib/historyParam'
 import type { MessageResponse } from '@/types/messaging'
 
@@ -57,12 +57,7 @@ export function useOpenThread(messages: MessageResponse[]) {
 function keyboardFocusedElement(): HTMLElement | null {
   const el = document.activeElement
   if (!(el instanceof HTMLElement) || el === document.body) return null
-  try {
-    return el.matches(':focus-visible') ? el : null
-  } catch {
-    // :focus-visible 을 모르는 브라우저는 키보드 여부를 알 수 없으니 기억하지 않는다.
-    return null
-  }
+  return isKeyboardFocused(el) ? el : null
 }
 
 /**

@@ -299,6 +299,15 @@ test('처음 받은 상태가 DONE 이면 토스트가 없고, RUNNING 이면 �
   expect(screen.getByTestId('mail-trash-empty')).toHaveTextContent(/^비우는 중…$/)
 })
 
+test('RUNNING 동안 비우기 단추는 감싸개 안에 남고 감싸개 이름과 포커스 툴팁이 진행 이유다 (WP-1856)', async () => {
+  renderTrash({ status: RUNNING })
+  const wrapper = await screen.findByTestId('mail-trash-empty-reason')
+  expect(wrapper).toHaveAccessibleName('휴지통 비우기 — 휴지통을 비우는 중이에요')
+  expect(within(wrapper).getByTestId('mail-trash-empty')).toBeDisabled()
+  fireEvent.focus(wrapper)
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('휴지통을 비우는 중이에요')
+})
+
 test('실행 취소 토스트 중인 되살리기가 있으면 비우기 POST 전에 move(RESTORE) 가 먼저 나간다', async () => {
   const { user, order, moves, starts } = renderTrash({
     rows: [summary({ id: 10, seen: true, subject: '지운 메일' }), summary({ id: 11, seen: true, subject: '다른 메일' })],

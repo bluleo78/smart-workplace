@@ -59,3 +59,98 @@ describe('useAttachmentDraft maxFiles (WP-1857)', () => {
     expect(result.current.pending).toHaveLength(8)
   })
 })
+
+describe('commitSent (WP-1868)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  /** 호출마다 다음 fileId 를 이어 매기는 업로드 흉내 — 여러 번 올려도 id 가 겹치지 않는다. */
+  function seqUpload() {
+    let next = 1
+    return vi.fn((files: File[]): Promise<{ data: PendingFile[] }> => {
+      const data = files.map((f) => ({ fileId: next++, originalName: f.name, mimeType: 'text/plain', sizeBytes: 1 }))
+      return Promise.resolve({ data })
+    })
+  }
+
+  it('보낸 fileId 만 빠지고 나머지 칩은 남는다', async () => {
+    const upload = seqUpload()
+    const { result } = renderHook(() => useAttachmentDraft(upload, { drive: false }), { wrapper })
+    await act(async () => {
+      await result.current.onFiles(mk(2))
+    })
+    // 전송 중 새로 붙은 칩 — id 3
+    await act(async () => {
+      await result.current.onFiles(mk(1))
+    })
+    act(() => result.current.commitSent([1, 2], []))
+    expect(result.current.pending.map((p) => p.fileId)).toEqual([3])
+  })
+
+  it('보낸 드라이브 링크만 빠진다', () => {
+    const { result } = renderHook(() => useAttachmentDraft(seqUpload(), { drive: false }), { wrapper })
+    act(() => {
+      result.current.addDrive(10, 'a')
+      result.current.addDrive(11, 'b')
+    })
+    act(() => result.current.commitSent([], [10]))
+    expect(result.current.driveFileIds).toEqual([11])
+  })
+
+  it('이미 지운 id 를 보내도 남은 칩은 그대로', async () => {
+    const upload = seqUpload()
+    const { result } = renderHook(() => useAttachmentDraft(upload, { drive: false }), { wrapper })
+    await act(async () => {
+      await result.current.onFiles(mk(2))
+    })
+    act(() => result.current.removeFile(1))
+    act(() => result.current.commitSent([1], []))
+    expect(result.current.pending.map((p) => p.fileId)).toEqual([2])
+  })
+
+  it('commitSent 뒤에 끝난 업로드의 칩도 남는다', async () => {
+    // 전송이 끝날 때 아직 올라가던 파일 — 업로드 결과는 commitSent 뒤 pendingRef 에 더해져야 한다.
+    let finishUpload: (v: { data: PendingFile[] }) => void = () => {}
+    const upload = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        Promise.resolve({ data: [1, 2].map((id) => ({ fileId: id, originalName: `f${id}`, mimeType: 'text/plain', sizeBytes: 1 })) }),
+      )
+      .mockImplementationOnce(() => new Promise<{ data: PendingFile[] }>((resolve) => { finishUpload = resolve }))
+    const { result } = renderHook(() => useAttachmentDraft(upload, { drive: false }), { wrapper })
+    await act(async () => {
+      await result.current.onFiles(mk(2))
+    })
+    let uploading: Promise<void> = Promise.resolve()
+    act(() => {
+      uploading = result.current.onFiles(mk(1))
+    })
+    act(() => result.current.commitSent([1], []))
+    await act(async () => {
+      finishUpload({ data: [{ fileId: 3, originalName: 'f3', mimeType: 'text/plain', sizeBytes: 1 }] })
+      await uploading
+    })
+    expect(result.current.pending.map((p) => p.fileId)).toEqual([2, 3])
+  })
+
+  it('개수 집계가 남은 칩 수를 따른다', async () => {
+    const upload = seqUpload()
+    const { result } = renderHook(() => useAttachmentDraft(upload, { drive: false, maxFiles: 2 }), { wrapper })
+    await act(async () => {
+      await result.current.onFiles(mk(2))
+    })
+    act(() => result.current.commitSent([1], []))
+    expect(upload).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      await result.current.onFiles(mk(1))
+    })
+    expect(upload).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      await result.current.onFiles(mk(1))
+    })
+    expect(upload).toHaveBeenCalledTimes(2)
+    expect(toast.error).toHaveBeenCalledWith(
+      '첨부는 메시지당 최대 2개예요 — 더 붙일 수 없어요',
+      { id: 'attachment-count-limit' },
+    )
+  })
+})

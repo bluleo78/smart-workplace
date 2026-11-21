@@ -302,9 +302,15 @@ function AddButton({
       추가
     </Button>
   )
-  if (!blockedReason) return <div className="ml-auto">{button}</div>
+  // 늘 같은 감싸개로 감싼다(WP-1856) — 상한에 닿았다 풀려도 버튼이 다시 만들어지지 않아 키보드 초점을 잃지 않는다.
+  // 이름은 막혔을 때만 `<컨트롤 이름> — <이유>`, 「+ 추가」 자리 표시(WP-1658)는 막히면 감싸개·풀리면 버튼이 갖는다.
   return (
-    <DisabledReasonTooltip reason={blockedReason} className="ml-auto" data-add-slot={category}>
+    <DisabledReasonTooltip
+      reason={blockedReason ?? null}
+      label={`${ISSUE_STATUS_LABEL[category]} 범주에 상태 추가`}
+      className="ml-auto"
+      data-add-slot={blockedReason ? category : undefined}
+    >
       {button}
     </DisabledReasonTooltip>
   )

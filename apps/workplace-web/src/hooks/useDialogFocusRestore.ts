@@ -1,8 +1,13 @@
 // 다이얼로그 닫힘 시 포커스 복원 — Dialog·AlertDialog 콘텐츠 래퍼가 함께 쓴다.
-import { useCallback, useInsertionEffect, useRef } from 'react';
+import { useCallback, useEffect, useInsertionEffect, useRef } from 'react';
+
+import { isKeyboardFocused } from '@/hooks/useRestoreFocusOnExit';
 
 export const FOCUSABLE =
   'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** 이유 감싸개(DisabledReasonTooltip)가 다는 표지 속성 — 순환 import 를 피하려 훅 쪽에 두고 감싸개가 가져다 쓴다. */
+export const DISABLED_REASON_WRAPPER_ATTR = 'data-disabled-reason-wrapper';
 
 /** 대상 안에서 포커스가 머물 행 — 숨은 대상이면 이 안에서 대신 받을 곳을 찾는다. */
 const ROW = 'li, tr, [role="row"], [role="listitem"]';
@@ -33,10 +38,20 @@ function currentRestoreTarget(): HTMLElement | null {
 /**
  * el 로 포커스를 돌리되, 숨어서 받지 못하면(hover·키보드 포커스 때만 보이는 행 작업의 ⋯ 등) 같은 행에서 실제로
  * 포커스를 받는 첫 대상으로 돌린다 — 키보드 사용자가 자리를 잃지 않게. 행이 없으면 브라우저 기본(body)에 맡긴다.
+ * keyboard: 대화상자가 열려 있던 동안 마지막 입력 수단이 키보드였는지. true 일 때만 막힌 버튼의 이유 감싸개로 초점을 옮긴다.
  */
-function focusNearest(el: HTMLElement) {
+function focusNearest(el: HTMLElement, keyboard: boolean) {
   el.focus();
   if (document.activeElement === el) return;
+  // WP-1856: 처리 중이라 트리거가 막혀 있으면(disabled 는 초점을 받지 않는다) 그냥 두면 body 로 떨어진다.
+  // 키보드를 쓴 경우에만, 막힌 버튼의 직접 부모인 이유 감싸개(표지로 식별)가 대신 받는다 — 마우스 사용자는 감싸개가 초점을
+  // 받으면 툴팁이 억지로 뜨므로 건너뛴다. reason 이 없어 tabindex -1 인 감싸개는 Tab 정지가 아니므로 제외한다(tabIndex >= 0).
+  // 감싸개는 안쪽 내용을 보조 span 으로 한 번 더 감싸므로 깊이에 기대지 않고 가장 가까운 감싸개 표지를 찾는다.
+  const parent = el.parentElement?.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`)
+  if (keyboard && parent && parent.tabIndex >= 0) {
+    parent.focus();
+    if (document.activeElement === parent) return;
+  }
   for (const candidate of el.closest(ROW)?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []) {
     candidate.focus();
     if (document.activeElement === candidate) return;
@@ -64,12 +79,29 @@ export function useDialogFocusRestore(
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   // 이번 열림의 복원 대상을 이미 잡았는지 — 닫힐 때 비운다.
   const capturedRef = useRef(false);
+  // 대화상자가 열려 있는 동안의 마지막 입력 수단이 키보드인지(WP-1856). 여는 순간엔 연 요소의 :focus-visible 로 시작하고
+  // (대상은 document.activeElement, 예: 메뉴 항목 — 복원 대상과 다를 수 있다), 열린 사이 keydown 이면 true, pointerdown 이면 false 로 바꾼다.
+  // 마우스로 열었어도 안에서 키보드를 쓰고 Esc 로 닫으면 키보드 사용자로 본다(Esc 자체가 keydown).
+  const keyboardRef = useRef(false);
+  // 열려 있는 동안 입력 수단 감시를 한꺼번에 해제하는 컨트롤러 — 닫힐 때·언마운트 때 abort 한다.
+  const trackingRef = useRef<AbortController | null>(null);
+
+  // 언마운트 시 남은 감시 해제(닫힘 없이 사라지는 경우의 누수 방지).
+  useEffect(() => () => trackingRef.current?.abort(), []);
 
   const capture = useCallback(() => {
     if (capturedRef.current) return;
     capturedRef.current = true;
     // document.body 는 유효한 복원 대상이 아니다(포커스가 이미 없던 상태).
     previouslyFocusedElementRef.current = currentRestoreTarget();
+    keyboardRef.current = isKeyboardFocused(document.activeElement);
+    // 열린 동안 마지막 입력 수단을 추적한다 — 캡처 단계라 다이얼로그 안에서 전파를 막아도 놓치지 않는다.
+    trackingRef.current?.abort();
+    const controller = new AbortController();
+    trackingRef.current = controller;
+    const options = { capture: true, signal: controller.signal };
+    document.addEventListener('keydown', () => { keyboardRef.current = true; }, options);
+    document.addEventListener('pointerdown', () => { keyboardRef.current = false; }, options);
   }, []);
 
   const handleOpenAutoFocus = useCallback(
@@ -90,11 +122,13 @@ export function useDialogFocusRestore(
       // 래퍼가 open 사이클을 넘어 유지되므로, 다음 open 에서 stale 복원을 막기 위해 이번 close 에서 소비한 뒤 비운다.
       previouslyFocusedElementRef.current = null;
       capturedRef.current = false;
+      // 닫혔으니 입력 수단 감시를 끝낸다 — keyboardRef 값은 아래 복원에서 쓴 뒤 다음 열림에서 다시 정한다.
+      trackingRef.current?.abort();
       if (event.defaultPrevented) return;
       // 복원 대상이 이미 DOM 에서 제거됐을 수 있으므로 isConnected 확인 후 focus.
       if (target && target.isConnected && (shouldRestore?.(target) ?? true)) {
         event.preventDefault();
-        focusNearest(target);
+        focusNearest(target, keyboardRef.current);
       }
     },
     [onCloseAutoFocus, shouldRestore],

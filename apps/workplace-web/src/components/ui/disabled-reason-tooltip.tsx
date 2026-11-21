@@ -6,29 +6,27 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
 
-import { FOCUSABLE } from '@/hooks/useDialogFocusRestore'
-import { focusLost } from '@/hooks/useRestoreFocusOnExit'
+import { DISABLED_REASON_WRAPPER_ATTR, FOCUSABLE } from '@/hooks/useDialogFocusRestore'
+import { focusLost, isKeyboardFocused } from '@/hooks/useRestoreFocusOnExit'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
-/** 그 요소가 키보드 초점(:focus-visible)인지 — 마우스 클릭 초점에는 툴팁·초점 이동을 하지 않으려는 판정. 지원 안 하면 false(옮기지 않음). */
-function hasKeyboardFocus(el: Element): boolean {
-  try {
-    return el.matches(':focus-visible')
-  } catch {
-    return false
-  }
-}
 
 export function DisabledReasonTooltip({
   reason,
+  label,
   className,
   children,
   onFocusCapture,
   onBlurCapture,
   onPointerDownCapture,
   ...spanProps
-}: { reason: string | null; children: ReactNode } & Omit<ComponentProps<'span'>, 'children'>) {
+}: {
+  reason: string | null
+  /** 컨트롤 이름 — 주면 막혔을 때 이름이 `<label> — <reason>` 이 된다. 명시한 aria-label 이 있으면 그것이 이긴다. */
+  label?: string
+  children: ReactNode
+} & Omit<ComponentProps<'span'>, 'children'>) {
   const spanRef = useRef<HTMLSpanElement>(null)
   const prevReason = useRef<string | null>(reason)
   const [open, setOpen] = useState(false)
@@ -59,12 +57,18 @@ export function DisabledReasonTooltip({
     }
   }, [reason])
 
+  // 막혔을 때의 접근 가능한 이름 — 호출자가 명시한 aria-label 이 이기고, 없으면 `label — reason`. reason 이 없으면 없음.
+  const accessibleName =
+    reason != null ? (spanProps['aria-label'] ?? (label ? `${label} — ${reason}` : undefined)) : undefined
+
   const span = (
     <span
       ref={spanRef}
       {...spanProps}
+      // 감싸개 표지 — 초점 복원이 막힌 트리거의 부모 중 이 감싸개만 골라 초점을 옮기게 한다.
+      {...{ [DISABLED_REASON_WRAPPER_ATTR]: '' }}
       onFocusCapture={(e) => {
-        keyboardFocus.current = hasKeyboardFocus(e.target as Element)
+        keyboardFocus.current = isKeyboardFocused(e.target as Element)
         onFocusCapture?.(e)
       }}
       onBlurCapture={(e) => {
@@ -83,13 +87,23 @@ export function DisabledReasonTooltip({
       tabIndex={reason != null ? (spanProps.tabIndex ?? 0) : -1}
       // 이름은 호출자가 줄 때만 — 기본값을 reason 으로 두면 이름을 넘기지 않던 곳(상태 「+ 추가」·사람 카드 「메일」)의
       // 컨트롤 이름이 사유로 덮인다. reason 이 없으면 이름 없음.
-      aria-label={reason != null ? spanProps['aria-label'] : undefined}
+      aria-label={accessibleName}
+      // 역할 없는 span(generic)은 ARIA 상 이름을 붙일 수 없어 스크린리더가 aria-label 을 무시할 수 있다.
+      // 그래서 이유가 있고 이름이 있는 동안만 button 역할 + aria-disabled 로 「막힌 버튼」 하나로 노출한다.
+      // 이름이 없으면(이름 없이 쓰던 호출자) 지금처럼 역할을 달지 않는다. reason 이 없으면 역할도 없어 안의 진짜 버튼이 그대로 노출된다.
+      role={accessibleName ? 'button' : spanProps.role}
+      aria-disabled={accessibleName ? true : spanProps['aria-disabled']}
       className={cn(
         'inline-flex rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
         className,
       )}
     >
-      {children}
+      {/* 막혀 이름을 가진 동안은 안쪽을 inert 로 막는다 — 보조기기에서 숨기고(감싸개가 버튼 하나로 읽힌다) 초점·클릭도 막아,
+          aria-disabled + tabIndex -1 로 남은 안의 단추가 숨겨진 채 초점을 받는 일이 없다. 클릭·호버는 감싸개로 간다.
+          reason 이 바뀌어도 같은 노드를 두고 속성만 바꾸어 다시 만들어지지 않게 한다. 안쪽 칸은 감싸개 폭을 채워(flex) 배치를 그대로 둔다. */}
+      <span className="flex min-w-0 flex-1" inert={accessibleName ? true : undefined}>
+        {children}
+      </span>
     </span>
   )
 

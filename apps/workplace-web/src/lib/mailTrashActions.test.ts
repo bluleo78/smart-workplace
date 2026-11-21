@@ -4,12 +4,14 @@ import { describe, expect, it } from 'vitest'
 import type { MailServerFolder, MailTrashEmptyStatus } from '@/types/mailFolder'
 
 import {
+  PERMANENT_DELETE_PENDING_REASON,
   PERMANENT_DELETE_UNSUPPORTED_REASON,
   permanentDeleteConfirmBody,
   permanentDeleteFailureToast,
   permanentDeleteState,
   TRASH_COPY_NOTE,
   TRASH_EMPTY_REASON,
+  TRASH_EMPTY_RUNNING_REASON,
   trashEmptyConfirmBody,
   trashEmptyRowText,
   trashEmptyState,
@@ -40,9 +42,9 @@ describe('trashEmptyState', () => {
     const s = trashEmptyState(folder({ permanentDeleteUnsupported: true }), undefined, false, null)
     expect(s).toMatchObject({ enabled: false, reason: PERMANENT_DELETE_UNSUPPORTED_REASON, running: false, label: '휴지통 비우기' })
   })
-  it('진행 중이면 비활성, 이유 없음, 라벨 비우는 중…', () => {
+  it('진행 중이면 비활성, 진행 이유, 라벨 비우는 중…', () => {
     const s = trashEmptyState(folder(), status({ state: 'RUNNING' }), false, null)
-    expect(s).toEqual({ enabled: false, reason: null, running: true, label: '비우는 중…' })
+    expect(s).toEqual({ enabled: false, reason: TRASH_EMPTY_RUNNING_REASON, running: true, label: '비우는 중…' })
   })
   it('live count 를 모르는 동안(로딩·오류)은 기존 folder.totalCount 판정 그대로 — null + totalCount 0 + 목록 빔이면 비활성(회귀)', () => {
     const s = trashEmptyState(folder({ totalCount: 0 }), undefined, true, null)
@@ -140,5 +142,28 @@ describe('trashEmptyTransitionToast', () => {
     expect(trashEmptyTransitionToast(running, status({ state: 'IDLE' }))).toEqual({
       kind: 'warning', message: '휴지통 비우기가 중단됐습니다. 남은 메일이 있으면 다시 비워 주세요.',
     })
+  })
+})
+
+// WP-1856 상태 함수가 처리 중(pending) 이유까지 접어 준다 — 기존 이유가 처리 중 이유보다 먼저다.
+describe('처리 중(pending) 이유', () => {
+  it('켜져 있고 처리 중이 아니면 이유 없음', () => {
+    expect(permanentDeleteState(folder(), false)).toEqual({ enabled: true, reason: null })
+  })
+  it('켜져 있어도 처리 중이면 처리 중 이유로 막힌다', () => {
+    expect(permanentDeleteState(folder(), true)).toEqual({ enabled: false, reason: PERMANENT_DELETE_PENDING_REASON })
+    expect(PERMANENT_DELETE_PENDING_REASON).toBe('삭제하는 중이에요')
+  })
+  it('미지원이면 처리 중이어도 미지원 이유가 먼저', () => {
+    expect(permanentDeleteState(folder({ permanentDeleteUnsupported: true }), true).reason).toBe(PERMANENT_DELETE_UNSUPPORTED_REASON)
+  })
+  it('비우기 시작 요청 중이면 진행 이유로 막히되 라벨은 그대로', () => {
+    expect(trashEmptyState(folder({ totalCount: 5 }), undefined, false, null, true)).toMatchObject({
+      enabled: false, reason: TRASH_EMPTY_RUNNING_REASON, running: false, label: '휴지통 비우기',
+    })
+  })
+  it('비우기 진행은 상태가 진행 이유를 직접 갖고 있어 pending 이 아니어도 그 이유', () => {
+    const state = trashEmptyState(undefined, { state: 'RUNNING', total: 10, deleted: 1, failed: 0, startedAt: null, finishedAt: null, errorCode: null, error: null }, false, null)
+    expect(state.reason).toBe('휴지통을 비우는 중이에요')
   })
 })

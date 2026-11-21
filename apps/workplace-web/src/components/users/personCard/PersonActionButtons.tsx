@@ -137,12 +137,16 @@ export function PersonActionButtons({
             일 맡기기
           </Button>
         )
-      ) : shownReason ? (
-        <DisabledReasonTooltip reason={shownReason} className="min-w-0 flex-1">
+      ) : (
+        // 늘 같은 감싸개로 감싼다(WP-1856) — 이유가 생기고 사라져도 단추가 다시 만들어지지 않아 키보드 초점을 잃지 않는다.
+        // 이름은 이유가 있을 때만 `메일 쓰기 — <이유>`.
+        <DisabledReasonTooltip
+          reason={shownReason}
+          label="메일 쓰기"
+          className="min-w-0 flex-1"
+        >
           {mailButton}
         </DisabledReasonTooltip>
-      ) : (
-        <span className="flex min-w-0 flex-1">{mailButton}</span>
       )}
       <Button type="button" variant="outline" size="sm" className={ACTION_CLASS} onClick={goCalendar}>
         일정 잡기

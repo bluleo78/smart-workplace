@@ -49,7 +49,7 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus,
     removeFile,
     removeDrive,
     addDrive,
-    reset,
+    commitSent,
     hasAny,
     fileIds,
     driveFileIds,
@@ -66,7 +66,8 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus,
     const converted = convertPlaintextMentions(body, members);
     if (!converted.trim() && !hasAny) return;
     await onSubmit(converted, fileIds, driveFileIds);
-    reset();
+    // 성공 경로에서만 도달(실패면 throw 로 초안 유지). 이 render 의 id 가 곧 보낸 목록이라 전송 중 붙인 첨부는 남는다(WP-1868).
+    commitSent(fileIds, driveFileIds);
   };
 
   return (

@@ -3,12 +3,13 @@
 // 세로 스크롤에도 위에 붙어 있다(sticky, 높이 BAND_HEIGHT_CLASS) — 컬럼 헤더는 그 바로 아래(top-9)에 붙는다.
 // OWNER(canEdit)에게만 띠 끝 ＋ — 그 범주 맨 뒤에 이름만 입력해 상태를 만든다(범주는 위치로 정해진다). 상태 20개면 막고 이유를 툴팁으로.
 import { Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { CATEGORY_COLOR } from '@/components/issues/issueCategoryColor';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
 import { DisabledReasonTooltip } from '@/components/ui/disabled-reason-tooltip';
+import { DISABLED_REASON_WRAPPER_ATTR } from '@/hooks/useDialogFocusRestore';
 import { type CategorySpan, statusAddBlockedReason } from '@/lib/projectStatuses';
 import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types/issue';
@@ -67,51 +68,57 @@ function BandAddButton({
   // 상한(20개)이면 설정 「+ 추가」처럼 막고 같은 이유를 툴팁으로 보인다 — 막힌 버튼은 포인터 이벤트를 받지 않아 감싼 span 이 툴팁을 띄운다.
   // 띠는 데스크톱 보드에만 있다(모바일은 탭 ⋯ 시트가 같은 상한을 글로 보인다).
   const blocked = statusAddBlockedReason(statuses);
-  if (blocked) {
-    return (
-      <DisabledReasonTooltip
-        reason={blocked}
-        aria-label={`${span.label}에 상태 추가 — ${blocked}`}
-        data-testid={`board-band-add-limit-${span.category}`}
-        className="sticky right-0 shrink-0 bg-background"
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          disabled
-          tabIndex={-1}
-          // 막힌 ＋ 는 범주 색 대신 보조 글자색 — 투명도만으로는 범주 색이 남아 활성 ＋ 와 구분이 약했다(WP-809 디자이너 리뷰).
-          className="h-6 w-6 text-muted-foreground"
-          aria-label={`${span.label}에 상태 추가`}
-          data-testid={`board-band-add-${span.category}`}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </DisabledReasonTooltip>
-    );
-  }
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // 막히면 열린 팝오버를 닫아 상태까지 접는다 — 가리기만 하면 상한이 풀릴 때 팝오버가 저절로 다시 열린다.
+  // (렌더 중 setState — 같은 렌더 안에서 곧바로 다시 그려 깜빡임이 없다.)
+  if (blocked && open) setOpen(false);
+  // 늘 같은 트리로 감싼다(WP-1856, 설정 「+ 추가」와 같은 방식) — 상한에 닿았다 풀려도 감싸개·버튼이 다시 만들어지지 않아 키보드 초점을 잃지 않는다.
+  // 이름은 막혔을 때만 `<컨트롤 이름> — <이유>`. 막히면 버튼은 disabled(Popover 도 열리지 않는다)이고 감싸개가 Tab 정지·툴팁을 맡는다.
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          // sticky right-0 — 띠가 화면보다 넓어도(진행 중 컬럼이 많을 때) 보이는 오른쪽 끝에 붙어 늘 누를 수 있다.
-          className="sticky right-0 h-6 w-6 shrink-0 bg-background text-current hover:text-current"
-          aria-label={`${span.label}에 상태 추가`}
-          data-testid={`board-band-add-${span.category}`}
+    <DisabledReasonTooltip
+      reason={blocked ?? null}
+      label={`${span.label}에 상태 추가`}
+      data-testid={blocked ? `board-band-add-limit-${span.category}` : undefined}
+      // sticky right-0 — 띠가 화면보다 넓어도(진행 중 컬럼이 많을 때) 보이는 오른쪽 끝에 붙어 늘 누를 수 있다.
+      className="sticky right-0 shrink-0 bg-background"
+    >
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            ref={buttonRef}
+            variant="ghost"
+            size="icon"
+            disabled={!!blocked}
+            tabIndex={blocked ? -1 : undefined}
+            // 막힌 ＋ 는 범주 색 대신 보조 글자색 — 투명도만으로는 범주 색이 남아 활성 ＋ 와 구분이 약했다(WP-809 디자이너 리뷰).
+            className={cn('h-6 w-6', blocked ? 'text-muted-foreground' : 'text-current hover:text-current')}
+            aria-label={`${span.label}에 상태 추가`}
+            data-testid={`board-band-add-${span.category}`}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="w-72 space-y-2 p-3"
+          // 닫히며 Radix 가 초점을 트리거로 돌리는데, 20번째 상태를 저장해 트리거가 막힌 뒤면 막힌 버튼은 초점을 못 받아 body 로 빠진다.
+          // 막혔을 때만 감싼 툴팁 칸으로 직접 돌려준다. 막히지 않았으면 Radix 기본 동작에 맡긴다 — 바깥을 눌러 닫은 경우
+          // 트리거로 초점을 되돌리지 않는 기본 판단을 덮어 클릭한 곳의 초점을 빼앗지 않게.
+          onCloseAutoFocus={(e) => {
+            const button = buttonRef.current;
+            if (!button?.disabled) return;
+            e.preventDefault();
+            button.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`)?.focus();
+          }}
         >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-2 p-3">
-        <NewStatusPopoverBody
-          subtitle={span.label}
-          statuses={statuses}
-          onSubmit={(name) => onAdd(span.category, name)}
-          onClose={() => setOpen(false)}
-        />
-      </PopoverContent>
-    </Popover>
+          <NewStatusPopoverBody
+            subtitle={span.label}
+            statuses={statuses}
+            onSubmit={(name) => onAdd(span.category, name)}
+            onClose={() => setOpen(false)}
+          />
+        </PopoverContent>
+      </Popover>
+    </DisabledReasonTooltip>
   );
 }
