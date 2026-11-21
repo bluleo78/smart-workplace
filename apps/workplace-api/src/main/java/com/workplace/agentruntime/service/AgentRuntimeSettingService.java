@@ -438,10 +438,14 @@ public class AgentRuntimeSettingService {
     }
   }
 
-  /** 저장 행의 화면용 실행 상태 — 진입점 차단 메시지가 있으면 읽을 때만 합쳐 FAILED(WP-1913). */
+  /** 저장 행의 화면용 실행 상태 — 지금 Pod 의 진입점 차단 메시지면 읽을 때만 합쳐 FAILED(WP-1913). */
   private static AgentRuntimeStatus statusOf(Row r) {
     return AgentRuntimeStatusResolver.resolve(
-        r.desired(), r.generation(), r.observedGeneration(), r.phase(), r.paneBlockedMessage());
+        r.desired(),
+        r.generation(),
+        r.observedGeneration(),
+        r.phase(),
+        AgentRuntimeStatusResolver.currentPaneBlocked(r));
   }
 
   /** 구성원 확인 뒤 설정 행을 잠가 읽는다 — 없으면 404. */
@@ -530,8 +534,9 @@ public class AgentRuntimeSettingService {
         new ObservedState(
             r.observedGeneration(),
             r.phase(),
-            // 관찰 메시지 자리에 차단 메시지를 먼저 합친다(WP-1913) — 상태가 FAILED 인 사유가 같은 곳에서 보이게.
-            AgentRuntimeStatusResolver.reason(r.paneBlockedMessage(), r.observedMessage()),
+            // 관찰 메시지 자리에 지금 Pod 의 차단 메시지를 먼저 합친다(WP-1913) — 상태가 FAILED 인 사유가 같은 곳에서 보이게.
+            AgentRuntimeStatusResolver.reason(
+                AgentRuntimeStatusResolver.currentPaneBlocked(r), r.observedMessage()),
             r.cpuMillicores(),
             r.memoryBytes(),
             r.startedAt(),

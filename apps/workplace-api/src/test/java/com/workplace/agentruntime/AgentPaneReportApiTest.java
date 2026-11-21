@@ -203,6 +203,52 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
   }
 
+  /**
+   * 지금 generation 에서 온 차단 보고는 사유와 함께 generation 을 저장한다 — 읽는 쪽이 지금 generation 의 것만 합치게(WP-1913 리뷰 반려
+   * ①).
+   */
+  @Test
+  void 차단_보고의_generation을_저장한다() throws Exception {
+    long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
+
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"generation\":" + gen + "}")
+        .andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION)).isEqualTo(gen);
+  }
+
+  /**
+   * 지금 generation 과 다른 Pod 의 늦은 차단 보고는 무시한다 — 끝나는 중인 옛 Pod 가 설정을 바꾼 뒤의 새 generation 을 자기 사유로 덮지
+   * 않게(WP-1913 리뷰 반려 ①). 보고는 최선 노력이라 응답은 그대로 204 다.
+   */
+  @Test
+  void 지금_generation과_다른_차단_보고는_무시한다() throws Exception {
+    long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
+
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"옛 Pod 의 차단\",\"generation\":" + (gen - 1) + "}")
+        .andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION)).isNull();
+  }
+
+  /** 옛 Pod 의 늦은 OK 보고도 지금 차단을 지우지 못한다 — 지금 generation 을 지우는 것은 지금 Pod 의 OK 뿐이다(WP-1913 리뷰 반려 ①). */
+  @Test
+  void 지금_generation과_다른_OK_보고는_차단을_지우지_못한다() throws Exception {
+    long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"지금 차단\",\"generation\":" + gen + "}")
+        .andExpect(status().isNoContent());
+    appEvents.clear();
+
+    report(key, "{\"state\":\"OK\",\"generation\":" + (gen - 1) + "}")
+        .andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("지금 차단");
+    assertThat(runtimeEvents()).isZero();
+  }
+
   /** 사람은 보고할 수 없다 — 403 AGENT_ONLY. */
   @Test
   void AI_키가_아니면_거절된다() throws Exception {

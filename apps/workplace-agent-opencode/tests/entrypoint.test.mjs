@@ -795,15 +795,22 @@ tmuxTest('정상 기동하면 차단을 보고하지 않는다(pane-boot-ok-sent
 });
 
 /**
- * 기록만 하는 가짜 gw-boot(WP-1913) — 받은 인자를 한 줄씩 FAKE_OUT/gw-boot-calls 에 이어 붙이고 늘 0 으로 끝난다(진짜 계약과 같음).
- * gw-boot-fail 파일이 있는 동안만 stderr 에 경고 한 줄을 더한다 — 진짜 gw-boot 의 실패(출력 있음·종료 0)를 흉내 낸다.
+ * 기록만 하는 가짜 gw-boot(WP-1913) — 받은 인자를 한 줄씩 FAKE_OUT/gw-boot-calls 에 이어 붙인다. 성공은 종료 0, 실패는 표준 오류 한 줄과 함께
+ * 종료 1 — 진짜 계약과 같다(WP-1913 리뷰 반려 ③). gw-boot-fail 파일이 있는 동안만 실패하고, gw-boot-warn 파일이 있는 동안은 성공이면서
+ * 표준 오류에 무해한 경고 한 줄을 더한다(성공을 표준 오류가 가리지 않는지 보는 자리).
  */
 function fakeBoot(f) {
   const dir = f.d('fake-scripts');
   mkdirSync(dir, { recursive: true });
   exe(join(dir, 'gw-boot'), `#!/bin/sh
 printf '%s\\n' "$*" >> "$FAKE_OUT/gw-boot-calls"
-[ -f "$FAKE_OUT/gw-boot-fail" ] && echo "gw-boot: 칸 차단 보고 실패(HTTP 500) — 보고하지 않고 계속합니다" >&2
+if [ -f "$FAKE_OUT/gw-boot-fail" ]; then
+  echo "gw-boot: 칸 차단 보고 실패(HTTP 500) — 보고하지 않고 계속합니다" >&2
+  exit 1
+fi
+if [ -f "$FAKE_OUT/gw-boot-warn" ]; then
+  echo "gw-boot: 무해한 표준 오류 경고 한 줄" >&2
+fi
 exit 0
 `);
   return dir;
@@ -813,8 +820,8 @@ exit 0
 const tickRun = (f, fake, tail = 'tick') => callLib(f.env, `${BOOT} && GW_SCRIPTS="${fake}" && can_launch() { return 0; } && supervise_once() { :; } && ${tail}`);
 
 test('ok 보고가 실패하면 표식을 남기지 않고 다음 회차에 다시 보고한다', (t) => {
-  // gw-boot 는 실패해도 늘 종료 0 이라(최선 노력 계약) 종료 코드로는 성공을 못 본다 — 출력(경고 한 줄)으로만 성공을 판정한다.
-  // 실패하면 표식을 남기지 않아야 다음 회차가 다시 보고한다(한 번 시도로 끝나면 서버에 차단 표시가 남는다).
+  // 성공 판정은 gw-boot 의 종료 코드다(0 성공·1 실패 — WP-1913 리뷰 반려 ③). 실패하면 표식을 남기지 않아야 다음 회차가 다시
+  // 보고한다(한 번 시도로 끝나면 서버에 차단 표시가 남는다).
   const f = fixture(t);
   const fake = fakeBoot(f);
   const mark = f.d('work', 'agents', 'kodi', 'state', 'pane-boot-ok-sent');
@@ -834,6 +841,21 @@ test('ok 보고가 실패하면 표식을 남기지 않고 다음 회차에 다�
   assert.deepEqual(readFileSync(f.d('out', 'gw-boot-calls'), 'utf8').trim().split('\n'), ['ok', 'ok']);
 });
 
+test('성공인데 표준 오류에 무해한 경고가 있어도 표식을 남긴다', (t) => {
+  // 「출력 없음 = 성공」으로는 서버가 204 로 받아도 표준 오류의 무해한 경고 한 줄이 실패가 돼, 회차마다 헛나가 서버의 오류 표시가 계속 남았다.
+  // 성공은 종료 코드로만 본다(WP-1913 리뷰 반려 ③) — 경고는 로그로만 남기고 표식은 그대로 남는다.
+  const f = fixture(t);
+  const fake = fakeBoot(f);
+  const mark = f.d('work', 'agents', 'kodi', 'state', 'pane-boot-ok-sent');
+  writeFileSync(f.d('out', 'gw-boot-warn'), '');
+
+  const r = tickRun(f, fake);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /무해한 표준 오류 경고/);
+  assert.equal(existsSync(mark), true);
+  assert.deepEqual(readFileSync(f.d('out', 'gw-boot-calls'), 'utf8').trim().split('\n'), ['ok']);
+});
+
 test('차단이 풀리면 표식과 무관하게 ok 를 다시 보고하고 차단 사유 파일을 지운다', (t) => {
   // 같은 부팅에서 정상(ok·표식) → 막힘(차단 사유·blocked 보고) → 다시 띄움으로 바뀌는 경우 — 표식만 보면 서버가 FAILED 에 갇힌다.
   // 그래서 차단 사유 파일이 남아 있는 성공 회차는 표식과 무관하게 ok 를 다시 보내고 파일을 지운다(서버 표시 cleared).
@@ -846,8 +868,9 @@ test('차단이 풀리면 표식과 무관하게 ok 를 다시 보고하고 차�
   assert.equal(healthy.status, 0, healthy.stderr);
   assert.equal(existsSync(join(state, 'pane-boot-ok-sent')), true);
 
-  // 2) 같은 부팅에서 막힘 — 차단 사유를 남기고 회차는 blocked 를 보고한다(표식은 이미 있는 상태).
-  const blocked = tickRun(f, fake, 'can_launch() { return 1; } && pane_blocked "설정을 바꿨습니다 — 칸을 띄우지 않습니다" && tick');
+  // 2) 같은 부팅에서 막힘 — 지난 사유를 남겨 둔 채 회차를 돌면 tick 이 이번 까닭으로 다시 판정해(pane_blocked_reason — 리뷰 반려 ②)
+  //    그대로 보고한다. 이 이미지의 판정 경로는 write_opencode_config 이라 연결 정보가 없어 나온 사유로 바뀌어 나간다.
+  const blocked = tickRun(f, fake, 'can_launch() { return 1; } && pane_blocked "지난 회차의 사유" && tick');
   assert.equal(blocked.status, 0, blocked.stderr);
   assert.equal(existsSync(join(state, 'pane-blocked')), true);
 
@@ -856,9 +879,10 @@ test('차단이 풀리면 표식과 무관하게 ok 를 다시 보고하고 차�
   assert.equal(cleared.status, 0, cleared.stderr);
   assert.equal(existsSync(join(state, 'pane-blocked')), false);
   assert.equal(existsSync(join(state, 'pane-boot-ok-sent')), true);
-  assert.deepEqual(readFileSync(f.d('out', 'gw-boot-calls'), 'utf8').trim().split('\n'), [
-    'ok',
-    'blocked 설정을 바꿨습니다 — 칸을 띄우지 않습니다',
-    'ok',
-  ]);
+  const calls = readFileSync(f.d('out', 'gw-boot-calls'), 'utf8').trim().split('\n');
+  assert.equal(calls.length, 3, JSON.stringify(calls));
+  assert.equal(calls[0], 'ok');
+  // 지난 사유(지난 회차의 사유) 대신 이번 회차의 실패 경로가 다시 적은 사유가 나갔다(WP-1913 리뷰 반려 ②).
+  assert.match(calls[1], /^blocked .*연결 정보가 연결되지 않았습니다/);
+  assert.equal(calls[2], 'ok');
 });

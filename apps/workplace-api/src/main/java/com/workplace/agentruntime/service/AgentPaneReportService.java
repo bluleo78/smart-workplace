@@ -55,9 +55,13 @@ public class AgentPaneReportService {
     Optional<Row> locked = settings.findForUpdate(userId);
     if (locked.isEmpty()) return;
     Row before = locked.get();
-    // OK 는 칸 비움(null) — BLOCKED 는 이유와 지금 시각을 함께 기록한다.
+    // 옛 Pod 의 늦은 보고는 지금 generation 이 아니라 — 새 generation 이 뜬 뒤에 도착한 옛 Pod 의 차단(늦은 blocked)이 지금 사유를
+    // 덮거나, 옛 Pod 의 OK 가 지금 차단을 지우지 않게 무시한다(WP-1913 리뷰 반려 ①). 보고는 최선 노력이라 조용히 204 로 끝낸다.
+    if (req.generation() != null && req.generation() != before.generation()) return;
+    // OK 는 칸 비움(null) — BLOCKED 는 이유·지금 시각·보고한 Pod 의 generation 을 함께 기록한다.
     String nextMessage = blocked ? message : null;
-    settings.updatePaneBlocked(userId, nextMessage, blocked ? OffsetDateTime.now() : null);
+    settings.updatePaneBlocked(
+        userId, nextMessage, blocked ? OffsetDateTime.now() : null, req.generation());
     // 화면에 보이는 것(「오류」+사유)이 실제로 바뀔 때만 알린다 — 같은 메시지의 거듭된 보고(진입점 재시도)는
     // paneBlockedAt 만 갱신할 뿐 화면이 그대로라 알리지 않는다(변경 알림 계약: 바뀐 것이 없으면 보지 않는다).
     if (!Objects.equals(before.paneBlockedMessage(), nextMessage)) {

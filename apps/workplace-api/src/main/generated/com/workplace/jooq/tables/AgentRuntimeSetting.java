@@ -218,6 +218,12 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, OffsetDateTime> PANE_BLOCKED_AT = createField(DSL.name("pane_blocked_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column
+     * <code>public.agent_runtime_setting.pane_blocked_generation</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, Long> PANE_BLOCKED_GENERATION = createField(DSL.name("pane_blocked_generation"), SQLDataType.BIGINT, this, "");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

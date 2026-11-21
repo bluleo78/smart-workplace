@@ -314,6 +314,21 @@ test('seedLogin_removesCopyAndMarkerWhenMountDisappears', (t) => {
   assert.match(r.stderr, /ChatGPT 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요\(연결 전에는 칸을 띄우지 않습니다\)/);
 });
 
+/**
+ * 막힌 회차에 지난 사유 파일이 없어도 이번 까닭을 다시 적어 보고한다(WP-1913 리뷰 반려 ②) — sync_login 뒤 auth.json 이 못 쓰게 되면
+ * 오류가 아예 안 뜨던 것을 막는다. 이번 회차에 로그인 파일이 없는 게 사유다.
+ */
+test('paneBlockedReason_writesLoginReasonWhenAuthFileUnusable', (t) => {
+  const f = fixture(t);
+  const state = f.d('work', 'agents', 'kodi', 'state');
+  mkdirSync(state, { recursive: true });
+  rmSync(join(state, 'pane-blocked'), { force: true });
+
+  const r = callLib(f.env, `${BOOT} && pane_blocked_reason && cat "$AI_DIR/state/pane-blocked"`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ChatGPT 로그인 정보가 연결되지 않았습니다/);
+});
+
 // ---------------------------------------------------------------- 모델 목록 보고(report_models)
 
 test('reportModels_sendsListedModelsSortedByPriorityAsThisAgent', (t) => {

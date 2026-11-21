@@ -138,7 +138,11 @@ public class AgentScreenService {
   private static boolean isRunning(Row r) {
     AgentRuntimeStatus s =
         AgentRuntimeStatusResolver.resolve(
-            r.desired(), r.generation(), r.observedGeneration(), r.phase(), r.paneBlockedMessage());
+            r.desired(),
+            r.generation(),
+            r.observedGeneration(),
+            r.phase(),
+            AgentRuntimeStatusResolver.currentPaneBlocked(r));
     return s == AgentRuntimeStatus.RUNNING || s == AgentRuntimeStatus.APPLY_PENDING;
   }
 

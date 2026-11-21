@@ -77,7 +77,7 @@ public class AgentStatusReportService {
     // VisibleRuntimeState 에 없으므로, 비워도 아래 비교로는 잡히지 않는다(비우지 않는 거듭된 보고는 알리지 않는다).
     boolean paneCleared = AgentRuntimeStatusResolver.blocked(before.paneBlockedMessage());
     if (paneCleared) {
-      settings.updatePaneBlocked(userId, null, null);
+      settings.updatePaneBlocked(userId, null, null, null);
     }
 
     // 「쉬는 중으로 막 바뀜」은 합친 상태로 판정한다 — 모든 칸이 쉬게 된 보고에서만 이벤트가 나간다.

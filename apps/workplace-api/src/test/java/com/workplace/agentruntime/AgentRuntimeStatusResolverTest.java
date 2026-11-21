@@ -2,6 +2,7 @@ package com.workplace.agentruntime;
 
 import static com.workplace.agentruntime.dto.Desired.RUN;
 import static com.workplace.agentruntime.dto.Desired.STOP;
+import static com.workplace.agentruntime.service.AgentRuntimeStatusResolver.currentPaneBlocked;
 import static com.workplace.agentruntime.service.AgentRuntimeStatusResolver.resolve;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -133,5 +134,41 @@ class AgentRuntimeStatusResolverTest {
   void 켜기를_원하고_멈췄다면_차단이_먼저다() {
     assertThat(resolve(RUN, 4, 4L, "STOPPED", "설정 오류로 칸을 못 띄웠어요"))
         .isEqualTo(AgentRuntimeStatus.FAILED);
+  }
+
+  /** 지금 generation 에서 보고한 차단 사유는 그대로 읽는다(WP-1913 리뷰 반려 ①). */
+  @Test
+  void 지금_generation에서_보고한_차단만_합친다() {
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), at(1))).isEqualTo("설정 오류");
+    // 모를 때(플러그인을 갈아끼우기 전 이미지)는 지금 것을 본다 — 계약이 날로 없어지지 않게.
+    assertThat(currentPaneBlocked("설정 오류", null, 3L, at(10), at(1))).isEqualTo("설정 오류");
+    // 시각을 모를 때(관찰 전)도 견주지 않는다.
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, at(1))).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), null)).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked(null, 3L, 3L, null, null)).isNull();
+  }
+
+  /**
+   * 옛 generation 에서 보고한 차단 사유는 읽지 않는다 — 설정을 고쳐 새 generation 이 뜬 뒤에 옛 사유가 「오류」로 남지 않게(WP-1913 리뷰 반려
+   * ①).
+   */
+  @Test
+  void 옛_generation에서_보고한_차단은_합치지_않는다() {
+    assertThat(currentPaneBlocked("설정 오류", 3L, 4L, at(10), at(1))).isNull();
+  }
+
+  /**
+   * 지금 Pod 가 뜬 시각보다 먼저 남은 차단 사유는 읽지 않는다 — 재시작해 같은 generation 으로 새 Pod 가 뜬 뒤에도 옛 Pod 의 사유가 「오류」로 남지
+   * 않게 (WP-1913 리뷰 반려 ①). 지금 Pod 가 뜨고 난 뒤의 보고(차단 시각 ≥ 시작 시각)는 그대로다.
+   */
+  @Test
+  void 새_Pod가_뜬_뒤_남은_옛_차단은_합치지_않는다() {
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(1), at(10))).isNull();
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), at(10))).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(20), at(10))).isEqualTo("설정 오류");
+  }
+
+  private static java.time.OffsetDateTime at(int second) {
+    return java.time.OffsetDateTime.of(2026, 11, 21, 20, 0, second, 0, java.time.ZoneOffset.UTC);
   }
 }

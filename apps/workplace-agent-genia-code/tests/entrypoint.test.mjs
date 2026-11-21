@@ -359,6 +359,24 @@ test('seedLogin_removesCopyAndMarkerWhenMountDisappears', (t) => {
   assert.match(r.stderr, /Gen:iA 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요\(연결 전에는 칸을 띄우지 않습니다\)/);
 });
 
+/**
+ * 막힌 회차의 사유를 이번 까닭으로 다시 판정한다(WP-1913 리뷰 반려 ②) — 로그인을 고쳐 둔 사이 genia 를 받지 못해도 지난 「로그인 미연결」이
+ * 그대로 보내지면 화면에 틀린 사유가 남는다. 이번 회차엔 genia 받기가 실패한 게 사유다.
+ */
+test('paneBlockedReason_writesCurrentReasonOverStaleLoginCopy', (t) => {
+  const f = fixture(t);
+  const state = f.d('work', 'agents', 'kodi', 'state');
+  mkdirSync(state, { recursive: true });
+  // 부팅 때 남긴 지난 사유 — 로그인 정보는 이미 있는데 genia 를 받지 못한 경우에 그대로 두면 틀린 오류가 된다.
+  writeFileSync(join(state, 'pane-blocked'), '경고: Gen:iA 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)\n');
+  writeFileSync(f.d('run', 'login-info'), LOGIN);
+
+  const r = callLib(f.env, `${BOOT} && genia_env && pane_blocked_reason && cat "$AI_DIR/state/pane-blocked"`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /genia 프로그램을 받지 못했습니다/);
+  assert.doesNotMatch(r.stdout, /로그인 정보가 연결되지 않았습니다/);
+});
+
 // ---------------------------------------------------------------- 플러그인(use_plugin)
 
 /** 마켓플레이스가 가리킬 원격 저장소 — 태그 genia-works--v0.0.1(genia/ 없음)과 v0.0.2(genia/ 있음), 브랜치 main(= v0.0.2). 스크립트는 진짜 gw-lib.sh 를 쓴다. */

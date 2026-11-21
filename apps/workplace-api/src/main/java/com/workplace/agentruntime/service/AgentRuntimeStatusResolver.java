@@ -2,6 +2,8 @@ package com.workplace.agentruntime.service;
 
 import com.workplace.agentruntime.dto.AgentRuntimeStatus;
 import com.workplace.agentruntime.dto.Desired;
+import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
+import java.time.OffsetDateTime;
 
 /**
  * 원하는 상태와 관찰 상태로 화면용 실행 상태를 정하는 순수 함수(WP-1247). 저장 값만으로 계산하므로 상태 칸을 따로 두지 않는다 — runner 보고와 관리자 변경이
@@ -77,8 +79,48 @@ public final class AgentRuntimeStatusResolver {
   }
 
   /**
+   * 지금 Pod 의 차단 사유인지 — 저장 행({@link Row})에서 지금 반영할 차단 사유를 고른다. 읽는 셋(목록·상세·화면 중계)이 한 판정을 쓰게 여기만
+   * 정의한다(WP-1913 리뷰 반려 ①).
+   */
+  public static String currentPaneBlocked(Row r) {
+    return currentPaneBlocked(
+        r.paneBlockedMessage(),
+        r.paneBlockedGeneration(),
+        r.generation(),
+        r.paneBlockedAt(),
+        r.startedAt());
+  }
+
+  /**
+   * 지금 반영할 진입점 차단 사유(WP-1913) — 저장한 사유가 지금 generation 에서 보고한 것일 때, 그리고 지금 Pod 가 뜬 뒤에 남은 것일 때만 읽는다.
+   * 그래서 설정을 고쳐 새 generation 이 뜨거나 재시작해 새 Pod 가 뜨면 옛 사유가 「오류」로 그대로 남지 않고, 끝나는 중인 옛 Pod 가 늦게 보고한 사유도
+   * 가려진다(리뷰 반려 ①). 빈 자리(모르는 값)는 계약을 넘겨 쓰지 않게 그대로 믿는다.
+   *
+   * @param message 저장한 차단 이유 — null·공백이면 차단 없음
+   * @param messageGeneration 그 사유를 보고한 Pod 의 generation — null(모르는 값)은 지금 것을 본다
+   * @param generation 지금 원하는 generation
+   * @param blockedAt 차단을 보고한 시각 — null(모르는 값)은 견주지 않는다
+   * @param startedAt 지금 Pod 가 뜬 시각 — null(관찰 전)은 견주지 않는다
+   * @return 화면에 합칠 차단 사유, 합치지 않을 때(차단 없음·옛 사유)는 null
+   */
+  public static String currentPaneBlocked(
+      String message,
+      Long messageGeneration,
+      long generation,
+      OffsetDateTime blockedAt,
+      OffsetDateTime startedAt) {
+    if (!blocked(message)) return null;
+    if (messageGeneration != null && messageGeneration != generation) return null;
+    if (blockedAt != null && startedAt != null && blockedAt.isBefore(startedAt)) return null;
+    return message;
+  }
+
+  /**
    * 진입점 차단 메시지가 화면에 영향을 주는지 — null·공백이면 차단 없음(WP-1913). 상태 계산({@link #resolve})·사유 합치기(요약·상세)·백스톱 칸
    * 비움이 같은 판정을 쓰도록 한 곳에서만 정의한다 — 판정이 갈리면 공백 메시지인데 상태는 차단이 아닌 채 사유 자리만 비는 화면이 나온다.
+   *
+   * <p>지금 Pod 의 것인지({@link #currentPaneBlocked})까지 따진 값에만 쓴다 — 저장한 값 그대로 쓰면 옛 generation 의 사유가 다시
+   * 살아난다.
    */
   public static boolean blocked(String paneBlockedMessage) {
     return paneBlockedMessage != null && !paneBlockedMessage.isBlank();

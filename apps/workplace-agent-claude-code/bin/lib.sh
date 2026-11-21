@@ -739,25 +739,34 @@ pane_blocked() {
   mkdir -p "$AI_DIR/state" && printf '%s\n' "$1" > "$AI_DIR/state/pane-blocked"
 }
 
+# can_launch 를 막힌 회차의 차단 사유를 이번 회차의 까닭으로 다시 판정한다(WP-1913 리뷰 반려 ②) — tick 이 막힌 자리에서만 부른다.
+# 지난 사유 파일이 그대로 보내지면, can_launch 를 막는 까닭이 바뀐 뒤(로그인을 고치는 사이 genia 를 받지 못하는 등) 화면에 틀린 사유가 남고,
+# 사유를 새로 만들지 못하는 이미지는 오류가 아예 안 뜬다. 기본은 할 일 없음이고(claude-code 는 can_launch 가 늘 참이라 이 자리에 오지 않는다)
+# 이미지가 덮어써 이번 회차의 실패 경로가 다시 쓰게 한다. 늘 0.
+pane_blocked_reason() { return 0; }
+
 # gw-boot ok 보고 — (a) 차단 없이 띄우는 부팅의 첫 회차에 한 번(표식 $AI_DIR/state/pane-boot-ok-sent), 그리고 (b) 차단 사유 파일이 아직 남아 있는
 # 성공 회차에는 표식과 무관하게 또 보고해 서버의 FAILED 표시를 지운다(막혔다 다시 띄우는 경우 — 표식만으로 짧으면 서버가 차단 사유에 갇힌다).
 # 신원은 GENIA_WORKS_AS 로 넘긴다 — 엔트리포인트 셸에는 칸처럼 신원이 없다(lib-codex.sh 의 gw-models 보고와 같은 방식).
-# 성공 판정: gw-boot 는 실패해도 늘 종료 0 이라(최선 노력 계약) 종료 코드로는 성공을 못 본다 — stdout 은 늘 비고 경고 한 줄만 stderr 로 나오므로
-# 출력이 없어야 성공이다. 실패면 표식도 차단 파일도 건드리지 않고 뒤로 미룬다 — 다음 회차가 다시 보고한다(pane_report_blocked 와 같은 재시도,
-# gw-boot 없음·보고 실패에도 늘 0 이라 감독은 멈추지 않는다 — 진입점은 끝내지 않는다).
+# 성공 판정은 gw-boot 의 종료 코드다(0 성공·1 실패 — WP-1913 리뷰 반려 ③). 「출력 없음 = 성공」으로는 표준 오류에 실린 무해한 경고까지 실패로
+# 봐서, 서버가 204 로 받아도 회차가 헛나가 서버의 오류 표시가 계속 남았다. 실패면 표식도 차단 파일도 건드리지 않고 뒤로 미룬다 — 다음 회차가
+# 다시 보고한다(pane_report_blocked 와 같은 재시도). gw-boot 없음·보고 실패에도 tick 은 늘 0 이라 감독은 멈추지 않는다 — 진입점은 끝내지 않는다).
 pane_report_ok_once() {
-  local gw="$GW_SCRIPTS/gw-boot" mark="$AI_DIR/state/pane-boot-ok-sent" blocked="$AI_DIR/state/pane-blocked" out
+  local gw="$GW_SCRIPTS/gw-boot" mark="$AI_DIR/state/pane-boot-ok-sent" blocked="$AI_DIR/state/pane-blocked" out rc=0
   [ -x "$gw" ] || return 0
   # 차단 파일도 표식도 없으면 이미 보고한 정상 상태 — 매 회차 중복 ok 를 보내지 않는다(표식의 본래 뜻).
   if [ ! -f "$blocked" ] && [ -e "$mark" ]; then
     return 0
   fi
-  out=$(GENIA_WORKS_AS="$GENIA_AGENT_NAME" "$gw" ok 2>&1) || true
-  if [ -n "$out" ]; then
-    log "$out" # 경고 한 줄을 진입점 로그로 남긴다 — 표식·차단 파일은 그대로 두어 다음 회차에 다시 보게 한다
+  out=$(GENIA_WORKS_AS="$GENIA_AGENT_NAME" "$gw" ok 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # 실패 한 줄을 진입점 로그로 남긴다 — 표식·차단 파일은 그대로 두어 다음 회차에 다시 보게 한다.
+    [ -n "$out" ] && log "$out"
     return 0
   fi
-  # 보고 성공 — 정상으로 띄웠으니 지난 차단 사유는 남기지 않는다(서버 표시와 로컬 상태를 함께 지운다).
+  # 보고 성공 — 정상으로 띄웠으니 지난 차단 사유는 남기지 않는다(서버 표시와 로컬 상태를 함께 지운다). 표준 오류에 무해한 경고가 실려도
+  # 성공은 성공이다(판정은 종료 코드 — gw-boot 가 서버 응답으로 이미 정한 값). 그 경고 한 줄은 로그로만 남긴다.
+  [ -n "$out" ] && log "$out"
   rm -f "$blocked"
   mkdir -p "$AI_DIR/state" && printf '%s\n' "$(date +%s)" > "$mark" 2>/dev/null
   return 0
@@ -782,6 +791,7 @@ tick() {
     supervise_once
     pane_report_ok_once # 첫 정상 회차·차단 해제 회차에 gw-boot ok — 서버의 차단 표시를 지운다(실패하면 다음 회차 재시도)
   else
+    pane_blocked_reason # 이번 회차의 까닭으로 다시 판정하고(WP-1913 리뷰 반려 ②) 그 상태 파일을 서버에 보고한다
     pane_report_blocked # 상태 파일이 있을 때만 매 회차 gw-boot blocked
   fi
   sweep_tmp_due

@@ -238,18 +238,19 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 작업 공간 진입점이 칸을 띄우지 못하면(설정 오류·로그인 오류 등) **못 띄운 사실과 이유**를 자기 AI 키(`Authorization: Bearer ak_…`)로 알려 서버에 남긴다(WP-1913) — 관리자 화면의 AI 목록이 「오류」와 이유를 보여 주기 위해서다. 위 「AI 상태 보고」와 달리 보고하는 쪽이 Pod 안 **진입점(스크립트)** 이다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다.
 
 ```json
-{ "state": "BLOCKED", "message": "설정 오류: …" }
+{ "state": "BLOCKED", "message": "설정 오류: …", "generation": 7 }
 ```
 
 ```json
-{ "state": "OK" }
+{ "state": "OK", "generation": 7 }
 ```
 
 - `state`: `BLOCKED`(칸을 못 띄움) 또는 `OK`(다시 띄웠다 — 앞서 남긴 차단 보고를 지운다). 그 밖의 값은 400.
-- `message`: 차단 이유, 500자 이하(501자를 넘으면 400). `BLOCKED` 일 때만 필요(없으면 400), `OK` 에는 쓰지 않는다.
+- `message`: 차단 이유, 500자 이하(501자를 넘으면 400). `BLOCKED` 일 때만 필요(없으면 400), `OK` 에는 쓰지 않는다. 길이·제어 문자 정제는 UTF-16 코드 유닛 기준이다(자바 `String.length()`) — 늘리는 쪽은 없다고 믿고 호출 쪽이 같은 단위로 자른다.
+- `generation`: 그 Pod 의 `GENIA_AGENT_GENERATION`(숫자). **지금 실행 설정의 `generation` 과 다르면 그 보고는 무시한다**(저장도 지우지도 않음) — 끝나는 중인 옛 Pod 의 늦은 차단이 새 generation 을 덮거나, 옛 Pod 의 `OK` 가 지금 차단을 지우지 않게(WP-1913 리뷰 반려 ①). 없으면(null) 그대로 믿는다 — 플러그인을 아직 갈아끼우지 않은 이미지가 계속 보고할 수 있게.
 - 응답은 늘 `204`(본문 없음) — **보고는 최선 노력이라 실패해도 진입점은 계속된다**(gw-models 와 같다). 워크스페이스가 정해지지 않았거나 실행 설정이 없는 AI 는 저장 없이 204.
 - 본문 검증 실패는 400, AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
-- 저장 위치: 실행 설정 행의 `pane_blocked_message`(500자)·`pane_blocked_at` 칸. runner 가 쓰는 관찰 보고 칸과 **분리해 두고 읽을 때만 합친다** — 진입점 보고와 runner 관찰 보고가 서로의 값을 덮어쓰지 않는다.
+- 저장 위치: 실행 설정 행의 `pane_blocked_message`(500자)·`pane_blocked_at`·`pane_blocked_generation` 칸. runner 가 쓰는 관찰 보고 칸과 **분리해 두고 읽을 때만 합친다** — 진입점 보고와 runner 관찰 보고가 서로의 값을 덮어쓰지 않는다. 읽는 쪽은 저장한 사유가 지금 `generation` 과 같고 지금 Pod 가 뜬 뒤(`pane_blocked_at` ≥ `started_at`)에 남은 것만 합친다 — 설정을 고쳐 새 generation 이 뜨거나 재시작해 새 Pod 가 뜨면 옛 사유가 「오류」로 남지 않는다.
 
 ## 로그인 계정 모델 목록 보고 — `PUT /api/v1/agent-runtime/me/models` (Pod 안의 AI 가 부름)
 

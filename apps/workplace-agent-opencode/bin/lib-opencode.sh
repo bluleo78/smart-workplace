@@ -205,3 +205,13 @@ write_opencode_agents_md() {
 # 칸을 띄울 수 있는지(lib.sh tick 의 훅) — 이번 부팅에서 opencode.json 을 만들었을 때만. 연결 정보가 없거나 모델을 못 정했으면 칸도 알림 감시
 # 창도 띄우지 않는다(opencode run 이 모델 없음 오류로 끝나 work-loop 가 돌지 않는다). 연결·설정을 바꾸면 runner 가 Pod 를 다시 만든다.
 can_launch() { [ -s "$OPENCODE_CONFIG_FILE" ]; }
+
+# 막힌 이번 회차의 까닭을 다시 판정한다(lib.sh tick 의 훅, WP-1913 리뷰 반려 ②) — 부팅 때 한 번 적힌 사유가 회차마다 사실인지 다시 본다.
+# 설정을 다시 만들면 실패 경로가 이번 까닭을 pane_blocked 로 덮어쓰고(부팅과 같은 판정), 성공하면 지난 사유를 지운다.
+# 거꾸로 되었을 때(설정은 되는데 can_launch 이 막힌)에도 지난 사유를 남기지 않는다 — 다음 회차에 can_launch 이 다시 참이다.
+pane_blocked_reason() {
+  # 실패하면 write_opencode_config 가 이번 까닭을 pane_blocked 로 남긴다(부팅과 같은 판정) — 그대로 둔다.
+  write_opencode_config || return 0
+  # 이번엔 설정이 됐다 — 지난 사유를 남기지 않는다(다음 회차에 can_launch 이 다시 참이다).
+  rm -f "$AI_DIR/state/pane-blocked"
+}

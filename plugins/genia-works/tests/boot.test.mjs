@@ -1,5 +1,6 @@
 // genia-works 플러그인 gw-boot 테스트 — 칸 차단 보고(WP-1913): 가짜 pane 서버로 요청(메서드·주소·본문)을,
-// 가짜 HOME·가짜 ps 로 AI 키 신원을 검증한다. 스크립트는 늘 종료 0 이고 표준 출력은 늘 비어야 한다(경고는 표준 오류로만).
+// 가짜 HOME·가짜 ps 로 AI 키 신원을 검증한다. 성공은 종료 0, 실패는 종료 1 — 감독 회차가 이 코드로 성공을 판정한다(표준 오류의 무해한
+// 경고까지 실패로 보지 않게, WP-1913 리뷰 반려 ③). 표준 출력은 어느 쪽이든 늘 비어 있고 경고는 표준 오류로만 낸다.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -94,7 +95,8 @@ test('blocked 는 PUT /agent-runtime/me/pane 에 state·message 를 보낸다', 
     assert.equal(q.url, '/api/v1/agent-runtime/me/pane');
     assert.equal(q.headers.authorization, 'Bearer ak_FAKE_DEV');
     assert.equal(q.headers['content-type'], 'application/json');
-    assert.deepEqual(JSON.parse(q.body), { state: 'BLOCKED', message: '네트워크 탓에 진입하지 못했습니다' });
+    // 본문에 generation 을 함께 실어 옛 Pod 의 늦은 보고를 서버가 걸러 내게 한다(WP-1913 리뷰 반려 ①).
+    assert.deepEqual(JSON.parse(q.body), { state: 'BLOCKED', message: '네트워크 탓에 진입하지 못했습니다', generation: 7 });
     assert.doesNotMatch(r.stdout + r.stderr, /ak_FAKE_DEV/);
   } finally {
     srv.close();
@@ -118,6 +120,18 @@ test('메시지가 501자면 500자로 잘라 보낸다', async () => {
     // 정확히 500 자면 그대로 보낸다.
     await runAsync('gw-boot', ['blocked', '나'.repeat(500)], { ...WORKS, GENIA_WORKS_API_URL: srv.url });
     assert.equal(JSON.parse(srv.reqs[2].body).message, '나'.repeat(500));
+
+    // 서버 @Size 는 UTF-16 코드 유닛으로 센다 — 이모지(글자 1개 = 유닛 2개)는 글자 수로 자르면 500 유닛을 넘겨 400 이 난다(WP-1913 리뷰 반려 ③).
+    await runAsync('gw-boot', ['blocked', '😀'.repeat(300)], { ...WORKS, GENIA_WORKS_API_URL: srv.url });
+    const emoji = JSON.parse(srv.reqs[3].body).message;
+    assert.equal(emoji.length, 500, 'UTF-16 코드 유닛 500 자로 잘라야 한다');
+    assert.equal(emoji, '😀'.repeat(250));
+
+    // 유닛이 남지 않는 자리에서 자른다 — 499 유닛 뒤에 이모지(2 유닛)를 못 넣고 498 유닛에서 멈춘다.
+    await runAsync('gw-boot', ['blocked', 'a' + '😀'.repeat(300)], { ...WORKS, GENIA_WORKS_API_URL: srv.url });
+    const mixedEmoji = JSON.parse(srv.reqs[4].body).message;
+    assert.equal(mixedEmoji.length, 499);
+    assert.equal(mixedEmoji, 'a' + '😀'.repeat(249));
   } finally {
     srv.close();
   }
@@ -131,7 +145,7 @@ test('ok 는 state:OK 만 보낸다(메시지 없음)', async () => {
     assert.deepEqual([r.status, r.stdout, r.stderr], [0, '', '']);
     assert.equal(srv.reqs.length, 1);
     assert.equal(srv.reqs[0].url, '/api/v1/agent-runtime/me/pane');
-    assert.deepEqual(JSON.parse(srv.reqs[0].body), { state: 'OK' });
+    assert.deepEqual(JSON.parse(srv.reqs[0].body), { state: 'OK', generation: 7 });
     assert.equal('message' in JSON.parse(srv.reqs[0].body), false);
   } finally {
     srv.close();
@@ -150,12 +164,12 @@ test('GENIA_AGENT_GENERATION 이 없으면(외부 실행) 아무것도 보내지
   }
 });
 
-test('AI 키 신원이 없으면 한 줄 경고 후 종료 0(출력 없음)', async () => {
+test('AI 키 신원이 없으면 한 줄 경고 후 종료 1(실패 — 감독 회차가 재시도하게)', async () => {
   const srv = await fakePaneServer();
   try {
     // GENIA_WORKS_AS 도 세션 선택도 없다 — gw_identity_key 가 키를 못 낸다.
     const r = await runAsync('gw-boot', ['blocked', '신원 없음'], { GENIA_AGENT_GENERATION: '7', GENIA_WORKS_API_URL: srv.url });
-    assert.equal(r.status, 0);
+    assert.equal(r.status, 1);
     assert.equal(r.stdout, '');
     assert.match(r.stderr, /^gw-boot: /);
     assert.equal(r.stderr.trim().split('\n').length, 1);
@@ -165,12 +179,12 @@ test('AI 키 신원이 없으면 한 줄 경고 후 종료 0(출력 없음)', as
   }
 });
 
-test('서버가 거절해도(500) 종료 0', async () => {
+test('서버가 거절해도(500) 종료 1 — 출력이 아니라 종료 코드가 실패다', async () => {
   addKey();
   const srv = await fakePaneServer({ status: 500, body: '{}' });
   try {
     const r = await runAsync('gw-boot', ['blocked', '서버 오류'], { ...WORKS, GENIA_WORKS_API_URL: srv.url });
-    assert.equal(r.status, 0);
+    assert.equal(r.status, 1);
     assert.equal(r.stdout, '');
     assert.match(r.stderr, /^gw-boot: /);
     assert.equal(r.stderr.trim().split('\n').length, 1);
