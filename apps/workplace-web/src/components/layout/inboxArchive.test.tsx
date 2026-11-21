@@ -8,6 +8,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { InboxList, type InboxView, InboxViewTabs } from '@/components/layout/InboxList'
 import { controlIntersection } from '@/test/kits/layout'
 import { InboxHarness, inboxSupportHandlers, notif, renderInbox } from '@/test/kits/notifications/inboxTestKit'
+import { gate } from '@/test/loadErrorRetry'
 import { renderScreen } from '@/test/renderScreen'
 
 /**
@@ -237,36 +238,57 @@ describe('알림 창 보관함 전환', () => {
 })
 
 describe('보관함 줄 되돌리기 — 처리 중 비활성은 그 줄만', () => {
-  // 한 줄 되돌리기 요청이 걸려 있는 동안에도 다른 줄의 「되돌리기」는 눌리고 요청이 나간다(전체 비활성이면 클릭이 소리 없이 무시됨).
-  test('한 줄이 처리 중이어도 다른 줄 단추는 눌린다', async () => {
+  /**
+   * 보관함 두 줄(5 「첫째」·6 「둘째」)을 띄운다. 줄 5 의 되돌리기 요청은 `release5()` 까지 걸어 두고, 줄 6 은 바로 끝낸다.
+   * 서버는 되돌린 id 를 기억해 그 뒤 보관함 조회에서 뺀다 — 조회는 요청을 받은 순간의 목록으로 답한다.
+   * `holdGets()` 뒤 보관함 조회는 `releaseGets()` 까지 걸린다(늦게 도착하는 재조회 재현).
+   */
+  async function renderTwoRows() {
     const requested: number[][] = []
-    let release: () => void = () => {}
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const { user } = renderScreen(<InboxHarness />, {
+    const restored = new Set<number>()
+    const unarchive5 = gate()
+    const gets = gate()
+    let holding = false
+    const view = renderScreen(<InboxHarness />, {
       path: '/',
       handlers: [
         http.get('/api/v1/notifications', () => HttpResponse.json([])),
-        http.get('/api/v1/notifications/archived', () =>
-          HttpResponse.json([
-            notif({ id: 5, issueTitle: '첫째' }),
-            notif({ id: 6, issueTitle: '둘째' }),
-          ]),
-        ),
+        http.get('/api/v1/notifications/archived', async () => {
+          const snapshot = [notif({ id: 5, issueTitle: '첫째' }), notif({ id: 6, issueTitle: '둘째' })].filter(
+            (n) => !restored.has(n.id),
+          )
+          if (holding) await gets.promise
+          return HttpResponse.json(snapshot)
+        }),
         ...inboxSupportHandlers(),
         http.post('/api/v1/notifications/unarchive', async ({ request }) => {
           const body = (await request.json()) as { ids: number[] }
           requested.push(body.ids)
-          // 첫 요청(5)은 풀어 줄 때까지 걸어 둔다 — 그동안 다른 줄 단추가 살아 있는지 본다.
-          if (body.ids[0] === 5) await gate
+          if (body.ids[0] === 5) await unarchive5.promise
+          body.ids.forEach((id) => restored.add(id))
           return HttpResponse.json({ restoredIds: body.ids })
         }),
       ],
     })
-    await user.click(await screen.findByTestId('inbox-tab-archive'))
+    await view.user.click(await screen.findByTestId('inbox-tab-archive'))
     await screen.findByText(/둘째/)
     const [first, second] = screen.getAllByTestId('inbox-unarchive')
+    return {
+      user: view.user,
+      first,
+      second,
+      requested,
+      release5: unarchive5.release,
+      holdGets: () => {
+        holding = true
+      },
+      releaseGets: gets.release,
+    }
+  }
+
+  // 한 줄 되돌리기 요청이 걸려 있는 동안에도 다른 줄의 「되돌리기」는 눌리고 요청이 나간다(전체 비활성이면 클릭이 소리 없이 무시됨).
+  test('한 줄이 처리 중이어도 다른 줄 단추는 눌린다', async () => {
+    const { user, first, second, requested, release5 } = await renderTwoRows()
     await user.click(first)
     await waitFor(() => expect(requested).toEqual([[5]]))
     // 처리 중인 그 줄만 aria-disabled(포커스를 빼지 않는 잠금), 다른 줄은 눌린다.
@@ -279,52 +301,46 @@ describe('보관함 줄 되돌리기 — 처리 중 비활성은 그 줄만', ()
     expect(requested).toEqual([[5]])
     await user.click(second)
     await waitFor(() => expect(requested).toEqual([[5], [6]]))
-    release()
+    release5()
   })
 
   // 두 줄을 빠르게 되돌리면 마지막 호출(6)만 잠그던 판정으로는 앞 줄(5)이 요청이 끝나기 전에 다시 눌렸다(WP-1845 리뷰).
-  // 처리 중인 id 를 모두 기억하므로 뒤 줄 요청이 먼저 끝나도 앞 줄은 잠긴 채다.
-  test('두 줄을 빠르게 되돌리면 뒤 줄이 끝나도 아직 처리 중인 앞 줄은 잠겨 있다', async () => {
-    const requested: number[][] = []
-    let release: () => void = () => {}
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const { user } = renderScreen(<InboxHarness />, {
-      path: '/',
-      handlers: [
-        http.get('/api/v1/notifications', () => HttpResponse.json([])),
-        http.get('/api/v1/notifications/archived', () =>
-          HttpResponse.json([
-            notif({ id: 5, issueTitle: '첫째' }),
-            notif({ id: 6, issueTitle: '둘째' }),
-          ]),
-        ),
-        ...inboxSupportHandlers(),
-        http.post('/api/v1/notifications/unarchive', async ({ request }) => {
-          const body = (await request.json()) as { ids: number[] }
-          requested.push(body.ids)
-          // 앞 줄(5) 요청만 걸어 두고, 뒤 줄(6)은 바로 끝낸다.
-          if (body.ids[0] === 5) await gate
-          return HttpResponse.json({ restoredIds: body.ids })
-        }),
-      ],
-    })
-    await user.click(await screen.findByTestId('inbox-tab-archive'))
-    await screen.findByText(/둘째/)
-    const [first, second] = screen.getAllByTestId('inbox-unarchive')
+  // 진행 중인 호출을 모두 뮤테이션 캐시에서 읽으므로 뒤 줄 요청이 먼저 끝나 빠져도 앞 줄은 잠긴 채다.
+  test('두 줄을 빠르게 되돌리면 뒤 줄이 먼저 끝나 빠져도 아직 처리 중인 앞 줄은 잠겨 있다', async () => {
+    const { user, first, second, requested, release5 } = await renderTwoRows()
     await user.click(first)
     await user.click(second)
     await waitFor(() => expect(requested).toEqual([[5], [6]]))
-    // 뒤 줄 요청이 끝났다(성공 토스트) — 그 줄의 잠금은 풀리고, 앞 줄은 여전히 처리 중이다.
-    expect(await screen.findByText('되돌렸습니다')).toBeInTheDocument()
-    await waitFor(() => expect(second).not.toHaveAttribute('aria-disabled'))
+    await waitFor(() => expect(screen.queryByText(/둘째/)).not.toBeInTheDocument())
     expect(first).toHaveAttribute('aria-disabled', 'true')
     // 앞 줄을 다시 눌러도 요청이 나가지 않는다.
     await user.click(first)
     expect(requested).toEqual([[5], [6]])
-    release()
-    await waitFor(() => expect(first).not.toHaveAttribute('aria-disabled'))
+    release5()
+    await waitFor(() => expect(screen.queryByText(/첫째/)).not.toBeInTheDocument())
+    expect(requested).toEqual([[5], [6]])
+  })
+
+  // 리뷰 후속(WP-1845): 요청 「끝남」으로 잠금을 풀면, 뒤 줄의 무효화가 앞 줄의 재조회를 취소했을 때 앞 줄의 약속이 먼저 끝나
+  // 줄이 목록에 남은 채 풀려 같은 id 를 다시 보낼 수 있었다. 성공한 줄은 재조회를 기다리지 않고 캐시에서 바로 빠지는지 본다.
+  // 순서: 5 요청을 걸어 둠 → 6 성공(그 재조회 R1 을 서버 반영 전 목록으로 걸어 둠) → 5 성공이 R1 을 취소 → 늦게 온 R1 이 줄을 되살리지 않음.
+  test('뒤 줄 성공이 앞 재조회를 취소해도 성공한 줄은 바로 빠지고 다시 보내지 않는다', async () => {
+    const { user, first, second, requested, release5, holdGets, releaseGets } = await renderTwoRows()
+    await user.click(first)
+    // 이제부터 보관함 재조회는 걸어 둔다 — 6 의 재조회 R1 은 「5 가 아직 보관된」 목록을 들고 기다린다.
+    holdGets()
+    await user.click(second)
+    await waitFor(() => expect(requested).toEqual([[5], [6]]))
+    // 6 은 재조회를 기다리지 않고 바로 빠진다.
+    await waitFor(() => expect(screen.queryByText(/둘째/)).not.toBeInTheDocument())
+    expect(first).toHaveAttribute('aria-disabled', 'true')
+    // 5 가 성공하면 R1 을 취소하고 바로 빠진다 — 재조회(R1·R2)는 아직 걸려 있다.
+    release5()
+    await waitFor(() => expect(screen.queryByText(/첫째/)).not.toBeInTheDocument())
+    // 걸어 둔 재조회가 늦게 와도(취소된 R1 은 5 를 담고 있다) 줄이 되살아나지 않고, 요청은 줄마다 한 번이다.
+    releaseGets()
+    expect(await screen.findByTestId('inbox-empty')).toBeInTheDocument()
+    expect(requested).toEqual([[5], [6]])
   })
 })
 
