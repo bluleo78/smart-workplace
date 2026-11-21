@@ -2,7 +2,7 @@
 // 설정 > 개인 > 프로필 — 아바타(WP-1222) + 프로필 정보 수정 + 비밀번호 변경. (구 ProfilePage 에서 이전)
 // WP-48: SSO 전용 계정이면 "비밀번호 설정" 섹션으로 대체.
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useLocation } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -62,6 +62,9 @@ export default function ProfileSettingsPage() {
   // 아바타를 바꾸거나 지운 뒤 — 앱 곳곳이 읽는 아바타 목록과 내 정보(레일 메뉴·이 화면의 미리보기)를 함께 새로 받는다(실패는 삼킨다).
   const afterAvatarChange = useAfterAvatarChange(refreshUser)
 
+  // 비밀번호 설정 쓰기가 성공한 순간 켠다 — 갱신이 실패해도 같은 계정에 다시 설정하지 않도록(WP-1912).
+  const [passwordSet, setPasswordSet] = useState(false)
+
   const profileForm = useForm<UpdateProfileFormData>({
     resolver: zodResolver(updateProfileSchema),
     defaultValues: { name: '', email: '' },
@@ -81,15 +84,30 @@ export default function ProfileSettingsPage() {
     }
   }, [user, profileForm])
 
+  // 저장(쓰기)이 성공한 뒤의 내 정보 새로고침 — 실패해도 쓰기 성공은 되돌리지 않고 별도 안내만 한다(WP-1912).
+  const refreshAfterWrite = async (warning: string) => {
+    try {
+      await refreshUser()
+    } catch {
+      toast.warning(warning)
+    }
+  }
+
+  const onPasswordSet = async () => {
+    setPasswordSet(true)
+    await refreshAfterWrite('비밀번호는 설정됐지만 화면을 새로 고치지 못했습니다. 새로고침하면 반영됩니다.')
+  }
+
   const onProfileSubmit = async (data: UpdateProfileFormData) => {
     try {
       profileForm.clearErrors()
       await usersApi.updateMe({ name: data.name, email: data.email || undefined })
-      await refreshUser()
-      toast.success('프로필이 업데이트되었습니다.')
     } catch (error) {
       profileForm.setError('root', { message: formErrorMessage(error, '입력값을 확인하세요.') })
+      return
     }
+    toast.success('프로필이 업데이트되었습니다.')
+    await refreshAfterWrite('프로필은 저장됐지만 화면을 새로 고치지 못했습니다. 새로고침하면 반영됩니다.')
   }
 
   const onPasswordSubmit = async (data: ChangePasswordFormData) => {
@@ -177,8 +195,8 @@ export default function ProfileSettingsPage() {
         </form>
       </SettingsSection>
 
-      {user?.hasPassword === false ? (
-        <SetPasswordCard onDone={refreshUser} />
+      {user?.hasPassword === false && !passwordSet ? (
+        <SetPasswordCard onDone={onPasswordSet} />
       ) : (
         <SettingsSection data-help="profile.password" title="비밀번호 변경" description="현재 비밀번호를 확인한 뒤 새 비밀번호로 바꿔요.">
           <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className={cn('space-y-4', settingsFieldClass)}>
