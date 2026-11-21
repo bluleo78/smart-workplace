@@ -49,8 +49,18 @@ export function currentAppFromPath(pathname: string): SearchAppId | null {
   return APP_BY_SEGMENT[segment] ?? null
 }
 
-/** 「전체」 탭의 그룹 순서 — 탭 순서에서 현재 앱을 맨 앞으로(나머지 상대 순서는 유지). */
-export function groupOrder(current: SearchAppId | null): SearchAppId[] {
-  const all = SEARCH_TABS.filter((t): t is (typeof SEARCH_TABS)[number] & { id: SearchAppId } => t.id !== 'all').map((t) => t.id)
-  return current ? [current, ...all.filter((id) => id !== current)] : all
+/**
+ * 쓸 수 있는 탭 — AI 를 못 쓰는 사용자는 앱 셸이 AI 대화를 열 수 없어(결과를 골라도 갈 곳이 없다) 「AI 대화」 탭을 뺀다(WP-1898).
+ * 순서는 SEARCH_TABS 그대로. 라벨·아이콘 조회는 전체 SEARCH_TABS 를 쓴다.
+ */
+export function visibleSearchTabs(aiAvailable: boolean): typeof SEARCH_TABS {
+  return aiAvailable ? SEARCH_TABS : SEARCH_TABS.filter((t) => t.id !== 'ai')
+}
+
+/** 「전체」 탭의 그룹 순서 — 탭 순서에서 현재 앱을 맨 앞으로(나머지 상대 순서는 유지). AI 를 못 쓰면 'ai' 묶음(과 그 조회)을 뺀다(WP-1898). */
+export function groupOrder(current: SearchAppId | null, aiAvailable: boolean): SearchAppId[] {
+  const all = visibleSearchTabs(aiAvailable)
+    .filter((t): t is (typeof SEARCH_TABS)[number] & { id: SearchAppId } => t.id !== 'all')
+    .map((t) => t.id)
+  return current && all.includes(current) ? [current, ...all.filter((id) => id !== current)] : all
 }

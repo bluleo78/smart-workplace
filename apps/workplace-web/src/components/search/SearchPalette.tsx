@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils'
 import { pushRecent } from './recentSearches'
 import { RecentSearchList } from './RecentSearchList'
 import { SearchAllResults } from './SearchAllResults'
-import { currentAppFromPath, groupOrder, SEARCH_TABS, type SearchTabId } from './searchApps'
+import { currentAppFromPath, groupOrder, SEARCH_TABS, type SearchTabId, visibleSearchTabs } from './searchApps'
 import { SearchKindResults } from './SearchKindResults'
 import { SEARCH_PALETTE_HISTORY_KEY, type SearchPaletteSession } from './searchPaletteStore'
 import type { SearchHit } from './searchProviders'
@@ -127,17 +127,23 @@ function PaletteBody({
   const tabListRef = useRef<HTMLDivElement>(null)
   // 열 때의 현재 앱 — 탭 초기값과 「전체」 묶음 순서의 기준(열려 있는 동안 고정).
   const [current] = useState(() => currentAppFromPath(location.pathname))
-  const [tab, setTab] = useState<SearchTabId>(initialTab ?? current ?? 'all')
+  // AI 를 못 쓰면 「AI 대화」 탭·묶음도 뺀다(WP-1898) — 처음 탭과 「전체」 묶음 순서가 이 값에 달려 있어 useState 앞에서 읽는다.
+  const aiAvailable = useAiAvailable()
+  const tabs = visibleSearchTabs(aiAvailable)
+  const [tab, setTab] = useState<SearchTabId>(() => {
+    const first = initialTab ?? current ?? 'all'
+    // 보이지 않는 탭(AI 대화)으로 열라고 해도 「전체」로 연다 — 없는 탭을 고른 채 조회하지 않게.
+    return tabs.some((t) => t.id === first) ? first : 'all'
+  })
   // 바깥에서 준 검색어도 입력 길이 상한을 지킨다 — 입력란 maxLength 는 타이핑에만 걸린다.
   const [q, setQ] = useState(() => initialQ.slice(0, SEARCH_QUERY_MAX_LENGTH))
   const [active, setActive] = useState(-1)
-  const [order] = useState(() => groupOrder(current))
+  const [order] = useState(() => groupOrder(current, aiAvailable))
 
-  // AI 표면 — AI 를 쓸 수 없는 사용자(앱 셸이 AI 시트를 그리지 않음)·비서 없는 워크스페이스·테스트에서는
-  // 「AI에게 검색 요청하기」를 숨긴다. 공급자 컨텍스트는 늘 있어 훅 존재만으로는 판정할 수 없다(WP-1894).
-  const aiAvailable = useAiAvailable()
   const ai = useOptionalAssistant()
   const chat = useContext(ChatSessionContext)
+  // AI 표면 — AI 를 쓸 수 없는 사용자(앱 셸이 AI 시트를 그리지 않음)·비서 없는 워크스페이스·테스트에서는
+  // 「AI에게 검색 요청하기」를 숨긴다. 공급자 컨텍스트는 늘 있어 훅 존재만으로는 판정할 수 없다(WP-1894).
   const canAskAi = aiAvailable && ai != null && chat != null
 
   const trimmed = q.trim()
@@ -251,8 +257,8 @@ function PaletteBody({
       setActive((cur) => moveActive(cur, down ? 1 : -1, visible.length))
     } else if (plainTab) {
       // 다음/이전 탭.
-      const i = SEARCH_TABS.findIndex((t) => t.id === tab)
-      changeTab(SEARCH_TABS[moveActive(i, e.shiftKey ? -1 : 1, SEARCH_TABS.length)].id)
+      const i = tabs.findIndex((t) => t.id === tab)
+      changeTab(tabs[moveActive(i, e.shiftKey ? -1 : 1, tabs.length)].id)
     } else if (e.key === 'Enter') {
       if (e.shiftKey) {
         e.preventDefault()
@@ -327,7 +333,7 @@ function PaletteBody({
         </span>
       </div>
       <div ref={tabListRef} role="tablist" aria-label="검색할 앱" className="flex shrink-0 gap-1 overflow-x-auto border-b px-2 py-1.5">
-        {SEARCH_TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
