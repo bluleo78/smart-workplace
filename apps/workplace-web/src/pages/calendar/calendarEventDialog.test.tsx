@@ -383,6 +383,32 @@ describe('반복 입력 → 요청', () => {
     expect(requests.posts).toHaveLength(0)
   })
 
+  // WP-1916 — 0 은 브라우저 기본 제출 검증이 zod 를 앞서면 앱 안내·요청 차단이 한 번에 사라진다.
+  test('반복 횟수 0 은 앱 안내가 뜨고 요청이 없다 (WP-1916)', async () => {
+    const { user, requests } = await openNew('주간 스탠드업')
+    setValue('calendar-form-start', '2026-06-15T09:00')
+    setValue('calendar-form-end', '2026-06-15T09:30')
+    await pick(user, 'calendar-form-recurrence-freq', '매주')
+    await pick(user, 'calendar-form-recurrence-end', '횟수')
+    setValue('calendar-form-recurrence-count', '0')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    expect(await screen.findByText('횟수는 1 이상이어야 합니다')).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-form-recurrence-count')).toHaveAttribute('aria-invalid', 'true')
+    expect(requests.posts).toHaveLength(0)
+  })
+
+  // WP-1916 — 빈 칸(간격)도 같은 방식 — zod 의 한국어 문구가 뜨고 요청은 없다.
+  test('반복 간격 빈 칸은 앱 안내가 뜨고 요청이 없다 (WP-1916)', async () => {
+    const { user, requests } = await openNew('주간 회의')
+    setValue('calendar-form-start', '2026-06-15T09:00')
+    setValue('calendar-form-end', '2026-06-15T09:30')
+    await pick(user, 'calendar-form-recurrence-freq', '매주')
+    setValue('calendar-form-recurrence-interval', '')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    expect(await screen.findByText('간격은 1 이상이어야 합니다')).toBeInTheDocument()
+    expect(requests.posts).toHaveLength(0)
+  })
+
   // WP-904 — 종료 날짜 칸이 내보내는 5자리 연도는 RRULE 조립에서 깨져 「저장」이 아무 반응도 없었다.
   test('반복 종료 날짜 연도가 5자리면 범위 안내를 보이고 저장하지 않는다 (WP-904)', async () => {
     const { user, requests } = await openNew('주간 회의')
