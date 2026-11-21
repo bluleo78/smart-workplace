@@ -684,4 +684,33 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
     assertThat(ctx.sourceAt().toInstant()).isEqualTo(received.toInstant());
     assertThat(AiRunScope.current()).isEqualTo(AiRunContext.empty());
   }
+
+  /**
+   * WP-1829 리뷰 후속: 열람 시 요약 GET 이 미분석 사본이면 선제 분석을 부르는데, 사람이 시작한 처리라 자동 분석 맥락(AUTO+수신 시각)이 아니라 사용자
+   * 맥락(주체 기본값·원본 시각 비움)으로 기록된다.
+   */
+  @Test
+  void summarizeBeforeAnalyzed_leavesActorAndSourceAtUnset() {
+    when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    java.util.concurrent.atomic.AtomicReference<AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    when(mailClient.analyzePersonal(any()))
+        .thenAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              return reply(true);
+            });
+
+    analysis.generatePersonalSummary(box.userId(), env, false);
+
+    AiRunContext ctx = seen.get();
+    assertThat(ctx.targetType()).isEqualTo("MAIL_MESSAGE");
+    assertThat(ctx.actorType()).isNull();
+    assertThat(ctx.actorId()).isNull();
+    assertThat(ctx.sourceAt()).isNull();
+  }
 }

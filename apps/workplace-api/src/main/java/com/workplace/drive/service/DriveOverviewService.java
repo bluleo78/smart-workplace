@@ -131,7 +131,7 @@ public class DriveOverviewService {
 
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
     // 주체는 요청 스레드에서 잡아 넘긴다 — executor 스레드에는 SecurityContext 가 없어 AUTO 로 떨어지기 때문이다(WP-1829 리뷰 반영).
-    AiRunContext actor = AiRunContext.actorFromSecurity();
+    AiRunContext actor = AiRunContext.actorFromSecurity(callerId);
     return registry.start(
         callerId,
         executor,

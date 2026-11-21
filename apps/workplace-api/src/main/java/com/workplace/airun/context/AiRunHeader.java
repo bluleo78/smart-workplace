@@ -39,7 +39,8 @@ public final class AiRunHeader {
 
   /**
    * 경로에 대한 호출 정보를 새로 만든다. 주체는 범위가 정했으면 그것, 아니면 SecurityContext ({@link
-   * AiRunContext#actorFromSecurity()} — ROLE_AGENT 권한이면 AGENT, 그 밖의 사용자 id 는 USER, 없으면 AUTO).
+   * AiRunContext#actorFromSecurity()} — Internal 대행·ROLE_AGENT 권한이면 AGENT, 그 밖의 사용자 id 는 USER, 없으면
+   * AUTO).
    */
   public static Call begin(String path) {
     AiRunContext ctx = AiRunScope.current();

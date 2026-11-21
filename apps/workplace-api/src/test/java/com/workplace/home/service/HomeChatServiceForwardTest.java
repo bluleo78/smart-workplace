@@ -636,4 +636,37 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     assertThat(seen.get().actorType()).isEqualTo("USER");
     assertThat(seen.get().actorId()).isEqualTo(uid);
   }
+
+  /** WP-1829 리뷰 후속: SecurityContext 가 없어도 callerId 로 요청자(USER)가 잡힌다 — 주체가 AUTO 로 떨어지지 않는다. */
+  @Test
+  void SecurityContext가없으면_callerId로_USER() throws Exception {
+    long uid = seedAgent("fwd-actor-no-secctx");
+    stubAssistant();
+
+    CountDownLatch latch = new CountDownLatch(1);
+    java.util.concurrent.atomic.AtomicReference<com.workplace.airun.context.AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    doAnswer(
+            inv -> {
+              seen.set(com.workplace.airun.context.AiRunScope.current());
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("처리했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    try {
+      serviceCapturing(new ArrayList<>())
+          .startChat(uid, null, "안녕", null, List.of(), null, null, null);
+      assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    } finally {
+      org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    assertThat(seen.get().actorType()).isEqualTo("USER");
+    assertThat(seen.get().actorId()).isEqualTo(uid);
+  }
 }

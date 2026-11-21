@@ -419,4 +419,31 @@ class MailContentAnalysisTest extends ExternalClientMockedTestBase {
     assertThat(ctx.actorType()).isNull();
     assertThat(ctx.actorId()).isNull();
   }
+
+  /**
+   * WP-1829 리뷰 후속: 열람 시 요약 GET 이 분석 전이면 선제 분석을 부르는데, 사람이 시작한 처리라 자동 분석 맥락(AUTO+수신 시각)이 아니라 사용자
+   * 맥락(주체 기본값·원본 시각 비움)으로 기록된다.
+   */
+  @Test
+  void summarizeBeforeAnalyzed_leavesActorAndSourceAtUnset() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env = MailAnalysisFixtures.envelope(dsl, a, content, "boss@corp.com", a.address(), null);
+    java.util.concurrent.atomic.AtomicReference<AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    when(mailClient.analyzeContent(any()))
+        .thenAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              return new AnalyzeContentResult("업무", "• 요약");
+            });
+
+    analysis.generateContentSummary(a.userId(), env, false);
+
+    AiRunContext ctx = seen.get();
+    assertThat(ctx.targetType()).isEqualTo("MAIL_MESSAGE");
+    assertThat(ctx.actorType()).isNull();
+    assertThat(ctx.actorId()).isNull();
+    assertThat(ctx.sourceAt()).isNull();
+  }
 }
