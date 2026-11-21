@@ -171,8 +171,8 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - 원격은 **origin**(`git@github.com:bluleo78/smart-workplace.git`), PR 대상 브랜치는 `main`, 도구는 `gh`(세션의 `GH_TOKEN` — 준비는 플러그인 README 「PR 흐름 준비」). gitlab 원격에는 push 하지 않는다 — 사람이 origin main 을 받아 맞춘다.
 - 브랜치: 이슈마다 feature `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123` — push 하지 않는다), PR 은 기차 `integ/<AI 이름>-<번호>`(3절 「기차」). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
 - PR 제목 `통합 <키1>·<키2>·…`, 머지 커밋 제목 `merge: 통합 <키1>·<키2>·…`(`gh pr merge --merge` — 지금 main 이력 모양을 지킨다). 기차가 생기기 전에 올린 이슈 PR(제목 `<이슈 키> <이슈 제목>`, 머지 커밋 `merge: <이슈 키> <이슈 제목>`)은 그대로 리뷰·머지한다.
-- **통합 PR 리뷰(WP-1216)**: 이슈 단위로 리뷰하고(이슈 하나 = 커밋 하나 + 그 키를 단 수정 커밋) 게이트 통과·마이그레이션 번호(아래 0번)·합친 상태 검사(아래 1번)를 확인한다. 하나라도 문제면 PR 전체를 반려하고 어느 이슈가 왜 문제인지 적는다 — 개발자는 같은 PR 에 수정 커밋을 더한다. 통과하면 머지하고(8절 순서 머지) 실린 이슈마다 검토 대기(REVIEW)로 올린다 — 머지 커밋은 `message` 에.
-- 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. 전체 E2E·api JUnit 은 이 게이트만 돌린다 — 검토자는 origin/main 과 **충돌하는** 브랜치만 개발자에게 rebase 를 요청하고(검토자는 push 하지 않는다), 충돌 없이 main 이 앞서 있기만 한 브랜치는 rebase 없이 머지한다 — 머지 순서는 8절 순서 머지(WP-998 — 낡았다는 이유로 돌려보내면 rebase 마다 게이트를 다시 돌아 머지가 멈춘다). 다만 마이그레이션 번호와, main 이 같은 앱을 고친 경우는 아래 「검토자 머지 판단」대로 머지 전에 본다. 그 밖의 합친 결과의 회귀는 머지 뒤 아래 CI 와 다음 push 게이트가 잡는다.
+- **통합 PR 리뷰(WP-1216)**: 이슈 단위로 리뷰하고(이슈 하나 = 커밋 하나 + 그 키를 단 수정 커밋) 게이트 통과·마이그레이션 번호(아래 0번)·테스트 근거(아래 1번)를 확인한다. 하나라도 문제면 PR 전체를 반려하고 어느 이슈가 왜 문제인지 적는다 — 개발자는 같은 PR 에 수정 커밋을 더한다. 통과하면 머지하고(8절 순서 머지) 실린 이슈마다 검토 대기(REVIEW)로 올린다 — 머지 커밋은 `message` 에.
+- 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. 전체 E2E·api JUnit 은 이 게이트만 돌린다 — 검토자는 origin/main 과 **충돌하는** 브랜치만 개발자에게 rebase 를 요청하고(검토자는 push 하지 않는다), 충돌 없이 main 이 앞서 있기만 한 브랜치는 rebase 없이 머지한다 — 머지 순서는 8절 순서 머지(WP-998 — 낡았다는 이유로 돌려보내면 rebase 마다 게이트를 다시 돌아 머지가 멈춘다). 다만 마이그레이션 번호와 테스트 근거는 아래 「검토자 머지 판단」대로 머지 전에 본다. 검토자는 테스트를 직접 돌리지 않는다(WP-1959) — 합친 결과의 회귀는 머지 뒤 아래 CI 와 다음 push 게이트가 잡는다.
 - **CI(GitHub Actions, WP-993)**: PR(main 대상)·main push 마다 `.github/workflows/ci.yml` 의 `verify`(전체 `pnpm lint`·`pnpm typecheck`, 웹 vitest 는 main push 에서만 — WP-1218)가 돈다. `main` 브랜치 보호가 `verify` 를 required check 로 건다 — 최신 main 포함 요구(strict)는 끈다(충돌 없는 낡은 브랜치도 머지 — WP-998), PR 필수는 아니고 관리자 직접 push 는 막지 않는다.
   - 검토자는 머지 전에 `gh pr checks <번호>` 로 `verify` 통과를 확인한다(진행 중이면 기다리고, 실패면 실패한 단계·로그 요지를 적어 반려한다).
   - 머지는 **`--admin` 없이** `gh pr merge --merge …` 로만 한다. AI 들이 관리자 계정을 함께 쓰므로 `--admin` 을 붙이면 보호가 뚫린다 — 어떤 경우에도 붙이지 않는다(거절되면 이유를 보고 고치거나 BLOCKED).
@@ -180,20 +180,20 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - 검토자는 PR 이 더한 E2E 마다 판정 태그가 그 테스트에 맞는지 본다 — 태그가 붙어 있어도 실제로는 payload·권한·문구만 보는 테스트면 vitest 로 옮기라고 반려한다(2절 「웹 테스트를 어디에 쓰나」).
 - 마이그레이션(`db/migration/`)이 든 PR 을 rebase 하면 버전 번호(`V<n>__`)가 origin/main 의 마지막보다 큰지 다시 보고(`pnpm check:migrations origin/main`), 겹치면 올린 뒤 `./gradlew generateJooq` 결과를 함께 커밋한다.
 
-### 검토자 머지 판단 (WP-1081)
+### 검토자 머지 판단 (WP-1081·WP-1959)
 
-PR 의 `verify` 는 「그 PR + 갈라진 시점의 main」만 본다 — 줄 충돌은 없지만 함께 들어가면 깨지는 경우(의미 충돌)는 머지 뒤 main CI 에서야 드러난다. 그렇다고 PR 마다 합친 상태로 전체 테스트를 돌리면 머지가 크게 늦어지므로(웹 vitest 전체 약 11분), 위험이 있을 때만 돌린다.
+**검토자는 테스트를 직접 돌리지 않는다(WP-1959)** — 로컬 합친 검사·격리 스택·vitest·gradle 어느 것도 검토자가 돌리지 않는다. 테스트는 개발자의 push 게이트(기차 출발 때 최신 origin/main 위에서 전체 회귀)와 CI `verify` 가 돌리고, 검토자는 그 결과와 근거를 보고 머지하거나 반려한다. 예전에는 main 이 같은 앱을 고쳤으면 검토자가 최신 main 과 합친 상태로 그 앱 테스트를 돌렸는데(WP-1081), 요즘 PR 은 거의 다 api 를 고치고 main 도 `global`·마이그레이션을 자주 고쳐 PR 마다 `./gradlew test` 전체(약 45분)를 검토자 한 명이 줄지어 돌았다 — 검토자 줄이 막히면 「앞 기차가 머지돼야 다음 기차 출발」 때문에 모든 개발자가 함께 멈췄다(2026-11-22 PR #1604).
 
-0. **마이그레이션 번호 확인(늘, 머지 직전)**: `git fetch origin main <PR 브랜치>` 뒤 `node scripts/check-migration-versions.mjs origin/main origin/<PR 브랜치>`(`pnpm check:migrations …` 와 같다). PR 이 더한 `V<n>__*.sql` 이 origin/main 의 가장 큰 번호보다 크고 서로·main 과 겹치지 않는지 본다 — 두 PR 이 같은 번호를 각자 더하면 git 충돌도 각 PR 의 `verify` 실패도 없이 합친 main 에서 Flyway 가 깨진다. 실패(종료 코드 1)면 머지하지 않고 겹친 번호를 적어 개발자에게 번호를 옮겨 달라고 돌려보낸다. 마이그레이션을 더한 PR 이 둘 이상이면 묶지 않고 하나씩 머지하며, 앞의 것이 머지된 뒤 다음 PR 을 다시 확인한다. 같은 스크립트가 개발자의 pre-push 게이트(원격 main 기준)와 CI `verify`(머지 커밋의 첫 부모 기준)에서도 돈다 — PR 을 연 뒤 main 이 움직일 수 있어 검토자 확인은 그대로 한다.
-1. **조건부 합친 검사**: PR 과 **같은 앱**(`apps/<앱>/` — workplace-web·workplace-api·workplace-admin 등)을 main 이 아래 기준 시점 뒤에 고쳤으면, 최신 main 과 로컬에서 합친 상태(임시 워크트리에서 `git merge --no-ff` — 커밋하지 않고 검사용으로만 쓴다)로 그 앱의 테스트를 돌린다. 다른 앱만 바뀌었으면 지금처럼 바로 머지한다. 합친 상태로 API 전체를 돌리면 부하 속에서 47분까지 걸렸다(PR #952, 6634개) — 아래처럼 범위를 고른다.
-   - **웹·admin(lint·typecheck — CI 가 도는 것)**: `verify` 는 pull_request 의 merge ref(그때 main 과 합친 상태)로 돌았으니 lint·typecheck 는 그 결과를 쓴다. 웹 vitest 는 PR `verify` 에서 돌지 않고 main push 에서만 돈다(WP-1218) — PR 의 웹 vitest 는 개발자 push 게이트 결과로 본다. **verify 이후** main 이 같은 앱을 고쳤을 때만(`git log --first-parent --since=<verify 시작 시각> --name-only origin/main -- apps/<앱>/`, 시각은 `gh pr checks <번호> --json name,startedAt`) 다시 돌린다 — 웹: `pnpm --filter @smart-workplace/workplace-web test` + `pnpm --filter @smart-workplace/workplace-web typecheck`.
-   - **push 게이트를 건너뛴 PR(`--no-verify` — 사람 지시)**: 웹(`apps/workplace-web/`)을 바꿨으면 위 시점 조건과 상관없이 최신 main 과 합친 상태로 웹 vitest 전체(`pnpm --filter @smart-workplace/workplace-web test` — 바뀐 범위가 아니라 전체)를 돌린 뒤 머지한다. 지금까지 CI 의 웹 vitest 가 이런 PR 의 안전망이었는데 PR 에서 빠졌기 때문이다(WP-1218).
-   - **API(CI 에 없고 개발자 push 게이트에서만 돈다 — 합친 검사의 주 대상)**: PR 이 **갈라진 뒤** main 이 api 를 고쳤으면(`git diff --name-only $(git merge-base origin/main <PR>) origin/main -- apps/workplace-api/`) 돌린다. 기본은 양쪽이 바꾼 패키지의 테스트만(`./gradlew test --tests 'com.workplace.<패키지>.*'`, `apps/workplace-api`), 공용 코드(`global`(보안 `global/security` 포함)·DB 스키마 — 마이그레이션·jOOQ)가 바뀌었을 때만 `./gradlew test` 전체.
-2. **묶음**: 비슷한 때 준비된 PR 들(그때 함께 준비된 2~4개 — 묶으려고 일부러 기다리지 않는다)이 같은 앱을 고치면, 머지할 순서대로 로컬에서 모두 합쳐 1번 검사를 한 번만 한다. 통과하면 같은 순서로 GitHub 에서 하나씩 머지하고(줄 맨 앞부터 — 8절 순서 머지), 실패하면 원인 PR 을 가려 그 PR 만 돌려보낸다. 줄에서 이웃한 PR 만 묶는다(비킨 PR 을 뺀 줄 순서로 맨 앞부터 이어진 것). 묶음을 머지하는 사이 줄이 바뀌면(사이에 PR 이 끼거나 앞 PR 이 돌아옴) 남은 묶음은 다시 검사한다 (WP-1763).
-3. **하나씩**: 같은 파일·영역(DB 마이그레이션, 공통 토큰, 공통 유틸·테스트 헬퍼)을 고치는 PR 은 묶지 않고 하나씩 머지한다.
-4. **판단은 검토자 몫**: 1~3 은 기준이고, 바뀐 범위가 작거나 명백히 무관하면 검토자가 범위를 줄일 수 있다(0번은 줄이지 않는다). 무엇을 왜 돌렸는지(또는 건너뛰었는지)를 리뷰 보고에 한 줄 남긴다(예: 「main 이 web 을 고쳐 합친 상태로 web vitest·tsc 통과」, 「main 변경은 api 만 — 합친 검사 생략」).
-5. **불안정한 테스트**: 합친 검사에서 실패한 테스트가 해당 PR 들과 무관하고 다시 돌려 통과하면 반려 사유로 삼지 않고, 불안정 테스트 이슈로 등록한다(`SKILL.md` 「이슈 만들기·담당 바꾸기」).
-6. 검토자는 여전히 push 하지 않는다 — 로컬에서 합친 상태는 검사용으로만 쓰고 버린다(임시 워크트리 정리).
+0. **마이그레이션 번호 확인(늘, 머지 직전)**: `git fetch origin main <PR 브랜치>` 뒤 `node scripts/check-migration-versions.mjs origin/main origin/<PR 브랜치>`(`pnpm check:migrations …` 와 같다 — 테스트가 아니라 몇 초 걸리는 번호 비교다). PR 이 더한 `V<n>__*.sql` 이 origin/main 의 가장 큰 번호보다 크고 서로·main 과 겹치지 않는지 본다 — 두 PR 이 같은 번호를 각자 더하면 git 충돌도 각 PR 의 `verify` 실패도 없이 합친 main 에서 Flyway 가 깨진다. 실패(종료 코드 1)면 머지하지 않고 겹친 번호를 적어 개발자에게 번호를 옮겨 달라고 돌려보낸다. 마이그레이션을 더한 PR 이 둘 이상이면 하나씩 머지하며, 앞의 것이 머지된 뒤 다음 PR 을 다시 확인한다. 같은 스크립트가 개발자의 pre-push 게이트(원격 main 기준)와 CI `verify`(머지 커밋의 첫 부모 기준)에서도 돈다 — PR 을 연 뒤 main 이 움직일 수 있어 검토자 확인은 그대로 한다.
+1. **테스트 근거 확인**: PR 본문의 push 게이트 결과(통과한 트리·범위, 생략했으면 `process-issue.md` 9번 근거)와 `gh pr checks <번호>` 의 `verify` 통과를 본다. 충돌 없이 main 이 앞서 있기만 한 것은 다시 테스트할 사유가 아니다 — 게이트 뒤 main 이 움직여 생기는 의미 충돌(줄 충돌 없이 함께 들어가면 깨지는 경우)은 드물고, 머지 뒤 main CI 와 다음 기차의 push 게이트(출발 때 최신 main 으로 rebase 해 전체 회귀)가 잡는다.
+2. **테스트가 필요하면 반려한다**: 검토자가 보기에 테스트가 더 필요하면 직접 돌리지 않고 무엇을 왜 돌려야 하는지 적어 반려한다 — 개발자가 돌리고 결과를 PR 에 적어 다시 부탁한다. 반려하는 때:
+   - 게이트 결과가 PR 에 없거나, 게이트를 생략한 근거가 맞지 않을 때(목록 밖 파일이 바뀜 — 「push 게이트를 돌려 주세요」)
+   - 완료 기준의 근거(테스트·캡처·라이브 검증)가 모자라거나 의심스러울 때 — 어느 기준에 무엇이 모자란지 적는다
+   - push 게이트를 건너뛴 PR(`--no-verify` — 사람 지시)이 웹(`apps/workplace-web/`)을 바꿨을 때 — 웹 vitest 는 PR `verify` 에서 돌지 않는다(WP-1218). 개발자가 최신 main 위에서 웹 vitest 전체를 돌린 결과를 요청한다
+   - 게이트 뒤 main 이 **이 PR 이 기대는 같은 코드**(같은 클래스·API 계약·DB 스키마·공용 헬퍼)를 바꿔 함께 들어가면 깨질 구체적 근거가 보일 때 — 「main 반영 필요 — 최신 origin/main 위로 rebase 해 <범위> 테스트를 돌려 주세요」와 겹친 곳을 적는다. main 이 같은 앱을 고쳤다는 것만으로는 반려하지 않는다(WP-998 — 반려마다 rebase·게이트가 되풀이된다)
+3. **하나씩**: 같은 파일·영역(DB 마이그레이션, 공통 토큰, 공통 유틸·테스트 헬퍼)을 고치는 PR 은 앞의 것이 머지된 뒤 다음 PR 의 충돌·마이그레이션 번호를 다시 보고 머지한다.
+4. **main 이 깨졌을 때**: 머지 뒤 main CI 가 실패하거나, 개발자가 기차 게이트에서 내 기차가 바꾸지 않은 곳의 실패를 보면 그 테스트를 origin/main 만으로 돌려 본다(개발자 몫 — 검토자는 돌리지 않는다). main 에서도 실패하면 내 기차의 반려 사유가 아니라 main 회귀다 — 최근 머지에서 원인을 가려(`git log --first-parent origin/main`) 그 이슈를 연 개발자 앞으로 회귀 이슈를 만들고(`SKILL.md` 「이슈 만들기·담당 바꾸기」), 불안정해서 다시 돌려 통과하면 불안정 테스트 이슈로 등록한다.
+5. 검토자는 push 하지 않는다. 리뷰 보고에 테스트 근거를 어떻게 확인했는지 한 줄 남긴다(예: 「게이트 통과 트리 abc123·verify 통과 — main 변경은 calendar 만, 겹침 없음」).
 
 ## 8. 검토자
 

@@ -1531,12 +1531,23 @@ test('process-issue.md: 머지 순서 경계 사례 — 차단 재발·승인 �
   assert.ok(!pi.includes('먼저 답하고(상태는 바꾸지 않는다)'));
 });
 
-// WP-1763 — 묶음은 줄에서 이웃한 PR 만 묶고, 줄이 바뀌면 남은 묶음을 다시 검사한다.
-test('.work-loop/project.md 묶음은 줄에서 이웃한 PR 만 묶고 줄이 바뀌면 다시 검사한다 (WP-1763)', () => {
+// WP-1959 — 검토자는 테스트를 직접 돌리지 않는다. 테스트가 더 필요하면 반려하고 개발자가 돌린다.
+// (WP-1081 의 검토자 로컬 합친 검사·WP-1763 묶음 검사를 없앴다 — 검토자 한 명이 PR 마다 45분씩 줄지어 돌아 모든 기차가 멈췄다.)
+test('.work-loop/project.md 검토자는 테스트를 직접 돌리지 않고, 필요하면 반려한다 (WP-1959)', () => {
   const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
-  const sec = section(project, '\n### 검토자 머지 판단 (WP-1081)\n', '\n## 8. ');
-  assert.ok(sec.includes('줄에서 이웃한 PR 만 묶는다'));
-  assert.ok(sec.includes('남은 묶음은 다시 검사한다'));
+  const sec = section(project, '\n### 검토자 머지 판단 (WP-1081·WP-1959)\n', '\n## 8. ');
+  assert.ok(sec.includes('**검토자는 테스트를 직접 돌리지 않는다(WP-1959)**'));
+  assert.ok(sec.includes('**테스트가 필요하면 반려한다**'));
+  assert.ok(sec.includes('main 이 같은 앱을 고쳤다는 것만으로는 반려하지 않는다'));
+  // 마이그레이션 번호 확인(스크립트)은 남긴다.
+  assert.ok(sec.includes('check-migration-versions.mjs'));
+  // 검토자가 돌리던 명령이 남아 있지 않다.
+  for (const gone of ['git merge --no-ff', "./gradlew test --tests", 'pnpm --filter @smart-workplace/workplace-web test', '남은 묶음은 다시 검사한다']) {
+    assert.ok(!sec.includes(gone), gone);
+  }
+  // 리뷰 절차(플러그인)도 근거가 모자라면 직접 확인하지 않고 반려한다.
+  assert.ok(!pi.includes('8번처럼 격리 스택으로 직접 확인한다'));
+  assert.ok(pi.includes('검토자는 테스트·격리 스택을 직접 돌리지 않는다(WP-1959)'));
 });
 
 // WP-1720 — 출발한 기차는 줄에서 기다리는 동안 스스로 rebase 하지 않고, 기차마다 측정을 남긴다.
