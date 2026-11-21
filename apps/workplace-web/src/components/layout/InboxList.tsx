@@ -40,7 +40,10 @@ import {
   useArchivedNotifications,
   useNotifications,
 } from "@/hooks/queries/useNotifications";
-import { useUnarchiveNotification } from "@/hooks/queries/useUnarchiveNotification";
+import {
+  useUnarchiveNotification,
+  useUnarchivingIds,
+} from "@/hooks/queries/useUnarchiveNotification";
 import { useUnreadCount } from "@/hooks/queries/useUnreadCount";
 import { useListFocusRescue } from "@/hooks/useListFocusRescue";
 import { focusLost } from "@/hooks/useRestoreFocusOnExit";
@@ -248,27 +251,17 @@ export function InboxList({
     [data?.pages],
   );
   const unarchive = useUnarchiveNotification();
-  // 되돌리는 중인 줄 id 들 — 여러 줄을 빠르게 되돌리면 요청이 겹치므로, 마지막 호출(unarchive.variables)만 보면 앞 줄의 잠금이
-  // 요청이 끝나기 전에 풀린다. 호출마다 넣고 그 호출이 끝나면(성공·실패) 뺀다(WP-1845).
-  const [unarchivingIds, setUnarchivingIds] = useState<ReadonlySet<number>>(() => new Set());
+  // 요청이 진행 중인 줄 id 들 — 뮤테이션 캐시에서 모든 진행 중 호출을 읽는다(마지막 호출만 보면 앞 줄 잠금이 일찍 풀린다, WP-1845).
+  // 성공한 줄은 훅이 끝나기 전에 캐시에서 빼므로 잠금이 풀릴 때 이미 목록에 없다(까닭은 useUnarchiveNotification 주석).
+  const pendingIds = useUnarchivingIds();
   // 그 줄을 되돌리는 중인지 — 클릭 무시와 aria-disabled 가 같은 판정을 쓴다.
-  const isUnarchiving = (id: number) => unarchivingIds.has(id);
+  const isUnarchiving = (id: number) => pendingIds.includes(id);
   /**
-   * 한 줄을 되돌린다. mutate 의 호출별 콜백은 마지막 호출에만 불리므로(TanStack) 호출마다 끝을 알 수 있는 mutateAsync 를 쓴다.
+   * 한 줄을 되돌린다. 여러 줄을 함께 누를 수 있어 호출마다 따로 끝나는 mutateAsync 를 쓴다.
    * 실패 안내는 훅의 onError 토스트가 맡으니 여기서는 거부를 삼키기만 한다.
    */
   const startUnarchive = (id: number) => {
-    setUnarchivingIds((prev) => new Set(prev).add(id));
-    unarchive
-      .mutateAsync(id)
-      .catch(() => {})
-      .finally(() =>
-        setUnarchivingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        }),
-      );
+    unarchive.mutateAsync(id).catch(() => {});
   };
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
@@ -282,7 +275,7 @@ export function InboxList({
   const committedView = useRef(view);
   /**
    * 행이 모두 빠졌을 때(하나뿐인 행을 되돌림) 복구 훅이 포커스를 둘 곳 — 이 인스턴스의 목록 영역(tabpanel)(WP-1845).
-   * 패널은 늘 tabIndex 가 있어(빈 목록이면 0) 훅이 그대로 focus() 하면 된다.
+   * 패널은 늘 tabIndex 가 있어(불러오는 중이면 0, 그 밖에는 -1 — WP-1843) -1 이어도 프로그램 포커스는 받으므로 훅이 그대로 focus() 하면 된다.
    * 보기가 방금 바뀐 커밋에서는 null — 보관함 빈 상태 CTA(「받은 알림 보기」)로 사라진 버튼의 포커스는 InboxViewTabs 가 받은 탭으로
    * 옮긴다(WP-1848). 여기서 패널로 먼저 옮기면, 탭이 InboxList 밖(모바일 머리)에 있어 그 효과가 나중에 돌 때 body 가 아니라서
    * 탭으로 가지 못한다. 보기 전환으로 생긴 포커스 잃음은 탭이, 같은 보기 안에서 행이 빠진 것은 이 훅이 맡는다.
