@@ -31,6 +31,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
+import { useLatest } from '@/hooks/useLatest'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { useMarkReadOnOpen } from '@/hooks/useMarkReadOnOpen'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
@@ -1302,7 +1303,7 @@ function MailInbox() {
 
   const {
     data: fetchedMessages, isLoading, isError, refetch: refetchMessages,
-    fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching,
+    fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
   } = useMailMessages(
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
     { folderId: view.folderId, flagged: flaggedView },
@@ -1541,22 +1542,33 @@ function MailInbox() {
   // 서버에 더 없음·실패는 계정·폴더 키별로 기억한다 — 다른 계정·폴더로 옮기면 그 키의 기록이 없어 처음부터 다시 본다.
   const olderFolder = serverOlderFolder(view, search)
   const olderKey = `${accountIdNum ?? ''}|${olderFolder ?? ''}`
-  const [olderEnded, setOlderEnded] = useState<Record<string, 'done' | 'failed'>>({})
-  const olderStatus = olderEnded[olderKey]
+  // WP-1878 waiting — 서버가 「아직 가져올 수 없음(running)」이라 답한 기록. at 은 그때 목록 query 의 dataUpdatedAt 이다.
+  // 목록이 다시 받아져 dataUpdatedAt 이 달라질 때까지만 이전 메일 푸터를 끈다(받은편지함 행이 없는 계정이 3초 주기로 무한 재요청하던 문제).
+  // done 으로 굳히지 않는다 — 첫 동기화가 끝나면 옛 메일을 다시 가져올 수 있어야 한다.
+  const [olderEnded, setOlderEnded] = useState<Record<string, 'done' | 'failed' | { waiting: true; at: number }>>({})
+  const olderRaw = olderEnded[olderKey]
+  const olderWaiting = typeof olderRaw === 'object' && olderRaw.at === listUpdatedAt
+  // 기다림이 끝난(목록이 다시 받아진) 기록은 없는 것과 같다 — 상태를 따로 지우지 않아도 아래 판정이 알아서 다시 묻게 한다.
+  const olderStatus = typeof olderRaw === 'string' ? olderRaw : undefined
+  // 응답 시점의 목록 dataUpdatedAt — 요청 중에 목록이 다시 받아졌으면 그 값으로 적어야 곧바로 한 번 더 묻지 않는다.
+  const listUpdatedAtRef = useLatest(listUpdatedAt)
   const olderMail = useFetchOlderMail(accountIdNum)
   const fetchOlderMail = (key: string) => {
     if (olderFolder == null || olderMail.isPending) return
     olderMail.mutate(olderFolder, {
-      // 성공하면 실패 기록을 함께 정리한다 — 끝이면 'done', 아니면 키를 지운다(다시 시도 성공 시 'failed' 해제).
-      onSuccess: (r) =>
+      // 성공하면 기록을 바꾼다 — running 이면 기다림(WP-1878), 끝이면 'done', 아니면 키를 지운다(다시 시도 성공 시 'failed' 해제).
+      onSuccess: (r) => {
+        const at = listUpdatedAtRef.current
         setOlderEnded((m) => {
+          if (r.running) return { ...m, [key]: { waiting: true, at } }
           if (!r.hasMore) return { ...m, [key]: 'done' }
           // 지울 기록이 없으면 그대로 — 새 객체를 만들어 큰 메일함 화면을 괜히 다시 그리지 않는다.
           if (!(key in m)) return m
           const next = { ...m }
           delete next[key]
           return next
-        }),
+        })
+      },
       onError: () => setOlderEnded((m) => ({ ...m, [key]: 'failed' })),
     })
   }
@@ -1565,7 +1577,7 @@ function MailInbox() {
   // 공용 목록 끝 푸터(LoadMoreFooter) 어댑터 — 로컬 다음 페이지가 있으면 그것을, 없으면 서버 이전 메일을 「다음 페이지」로 본다(캘린더 목록과 같은 방식).
   const olderFailed = !hasNextPage && olderStatus === 'failed'
   const footerQuery = {
-    hasNextPage: !!hasNextPage || (olderFolder != null && olderStatus !== 'done'),
+    hasNextPage: !!hasNextPage || (olderFolder != null && olderStatus !== 'done' && !olderWaiting),
     isFetching: listFetching || olderMail.isPending,
     isFetchNextPageError: hasNextPage ? isFetchNextPageError : olderFailed,
     isFetchingNextPage: isFetchingNextPage || olderMail.isPending,

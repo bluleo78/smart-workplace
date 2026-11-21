@@ -71,13 +71,10 @@ function selectFlatPages(data: InfiniteData<EmailMessageSummary[], MailListCurso
 /** 60초 주기 재조회를 하는 최대 페이지 수 — 넘게 내린 목록은 주기 재조회를 멈춘다(재조회 한 번에 페이지 수만큼 요청이 나간다). */
 const POLL_MAX_PAGES = 3;
 
-/** 이미 가져오는 중(running)일 때 다시 부르기 전 기다리는 시간 — 그사이 목록 끝 표시는 「가져오는 중」으로 남는다. */
-const OLDER_RUNNING_WAIT_MS = 3_000;
-
 /**
  * WP-965 받은편지함·보낸편지함 이전 메일 더 가져오기 — 목록을 끝까지 내려 로컬이 바닥났을 때 부른다.
  * 새로 넣은 메일이 있으면 그 계정 목록을 다시 받은 뒤에 끝난다 — 끝난 직후 목록 끝이 아직 보여도 옛 목록으로 한 번 더 부르지 않게.
- * 같은 폴더를 이미 가져오는 중이거나 아직 가져올 수 없으면(running — 첫 동기화 전 등) 잠시 기다렸다 끝나 화면이 곧바로 다시 부르지 않게 한다.
+ * 같은 폴더를 이미 가져오는 중이거나 아직 가져올 수 없으면(running — 첫 동기화 전 등) 바로 결과를 돌려준다 — 다시 묻는 때는 화면이 정한다(WP-1878).
  * 실패는 화면이 목록 끝에 「다시 시도」로 보인다(토스트 없음).
  */
 export function useFetchOlderMail(accountId: number | undefined) {
@@ -93,9 +90,8 @@ export function useFetchOlderMail(accountId: number | undefined) {
         await refreshList();
         throw e;
       }
-      if (result.running) {
-        await new Promise((resolve) => setTimeout(resolve, OLDER_RUNNING_WAIT_MS));
-      } else if (result.saved > 0) {
+      // running 이면 기다리지 않는다 — 다시 묻는 때는 화면이 목록 갱신으로 정한다(WP-1878).
+      if (!result.running && result.saved > 0) {
         await refreshList();
       }
       return result;

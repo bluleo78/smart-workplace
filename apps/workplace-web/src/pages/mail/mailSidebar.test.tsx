@@ -455,6 +455,30 @@ test('다시 시도 중에도 같은 버튼이 남아 포커스를 지키고, �
   expect(retry).not.toBeInTheDocument()
 })
 
+test('이전 메일이 아직 가져올 수 없음(running)이면 빈 목록에 「불러오는 중…」 없이 빈 상태만, 되풀이해 묻지 않는다 (WP-1878)', async () => {
+  const olders = record('post', OLDER, () => HttpResponse.json(olderResult({ running: true, hasMore: true })))
+  renderMail('/mail/1', { handlers: [http.get(LIST, () => HttpResponse.json([])), olders.handler] })
+  expect(await screen.findByTestId('mail-list-empty')).toBeInTheDocument()
+  await waitFor(() => expect(olders.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument())
+  await act(() => new Promise((r) => setTimeout(r, 300)))
+  expect(olders.calls).toHaveLength(1)
+  expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument()
+})
+
+test('running 으로 기다리던 중 목록이 다시 받아지면 이전 메일을 다시 묻는다 (WP-1878)', async () => {
+  const olders = record('post', OLDER, () => HttpResponse.json(olderResult({ running: true, hasMore: true })))
+  const { queryClient } = renderMail('/mail/1', { handlers: [http.get(LIST, () => HttpResponse.json([])), olders.handler] })
+  await waitFor(() => expect(olders.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument())
+  // 목록이 다시 받아지기 전에는 되풀이하지 않는다.
+  await act(() => new Promise((r) => setTimeout(r, 200)))
+  expect(olders.calls).toHaveLength(1)
+  // 목록 재조회(동기화·메일 변경 알림·주기 재조회가 하는 일) → 기다림이 끝나 다시 묻는다.
+  await act(() => queryClient.invalidateQueries({ queryKey: ['mail-messages', 1] }))
+  await waitFor(() => expect(olders.calls).toHaveLength(2))
+})
+
 test('사이드바·메일함 nav 에 이름이 있고 회신필요가 있으면 AI 필터 nav 도 있다 — 랜드마크 이름(WP-1774)', async () => {
   const list = record('get', LIST, () => HttpResponse.json([]))
   renderMail('/mail/1', { handlers: [list.handler, countsHandler(unreadCounts({ inbox: 4, needsReply: 2 }))] })

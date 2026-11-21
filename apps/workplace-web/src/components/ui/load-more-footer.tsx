@@ -106,8 +106,10 @@ export function LoadMoreFooter({
   return (
     <>
       {/* WP-1862: 실패 안내를 알리는 polite live region — 처음부터 붙어 있어야 내용 변화가 읽히므로 다음 페이지가 없을 때도
-          빈 채로 둔다(실패와 함께 hasNextPage 가 켜지는 어댑터 — 캘린더 일정 목록). 재시도 중엔 비워 다시 실패하면 다시 읽힌다. */}
-      <span role="status" className="sr-only">
+          빈 채로 둔다(실패와 함께 hasNextPage 가 켜지는 어댑터 — 캘린더 일정 목록). 재시도 중엔 비워 다시 실패하면 다시 읽힌다.
+          fixed top-0 left-0 으로 스크롤 범위에서 뺀다 — sr-only(absolute)만이면 칸 안 정적 위치에 놓인 채 담는 블록(앱 셸 main)의
+          숨은 스크롤 범위를 늘린다. relative 감싸개는 flex·grid 부모에 빈 항목을 더해 gap 이 생길 수 있어 쓰지 않는다. */}
+      <span role="status" className="sr-only fixed top-0 left-0">
         {query.isFetchNextPageError && !retrying ? errorLabel : ''}
       </span>
       {query.hasNextPage && (
