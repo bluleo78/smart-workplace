@@ -516,7 +516,8 @@ public class GlobalExceptionHandler {
     com.workplace.help.exception.HelpSectionNotFoundException.class,
     com.workplace.drive.exception.DriveUploadSessionException.class,
     com.workplace.wiki.report.ProjectReportGenerateException.class,
-    com.workplace.issue.exception.IssueAiDisabledException.class
+    com.workplace.issue.exception.IssueAiDisabledException.class,
+    com.workplace.calendar.exception.CalendarEventConflictException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {

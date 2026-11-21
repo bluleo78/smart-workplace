@@ -10,6 +10,7 @@ import com.workplace.calendar.dto.EventNoteLinkResponse;
 import com.workplace.calendar.dto.EventNoteRef;
 import com.workplace.calendar.dto.NoteKey;
 import com.workplace.calendar.dto.OnlineMeeting;
+import com.workplace.calendar.exception.CalendarEventConflictException;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.EventNotOrganizerException;
 import com.workplace.calendar.exception.ExternalCalendarWriteException;
@@ -1048,10 +1049,25 @@ public class CalendarEventService {
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate) {
+    return update(callerId, id, req, scope, occurrenceDate, null);
+  }
+
+  /**
+   * 일정 수정 — expectedUpdatedAt(WP-1920)이 있으면 화면이 본 뒤 바뀐 일정은 409 로 막는다. null 이면 검사하지 않는다(AI·MCP 경로).
+   * 외부 일정은 Graph PATCH 전(checkUpdatable)에, 로컬 일정은 FOR UPDATE 잠금 아래(doUpdateLocal)에서 한 번만 본다.
+   */
+  public CalendarEventResponse update(
+      long callerId,
+      long id,
+      CalendarEventRequest req,
+      EditScope scope,
+      OffsetDateTime occurrenceDate,
+      OffsetDateTime expectedUpdatedAt) {
     // ① resolve — 사전검증과 같은 술어(checkUpdatable: RRULE·색·owner(404)·RO(409)·회차 식별자·이동 대상 캘린더·외부
     // 일정 제약)를 돌리고 외부 쓰기 컨텍스트를 얻는다. 검증은 RLS 읽기를 포함하므로 반드시 tx 안에서 수행한다(#492).
     ExternalWriteCtx ctx =
-        txTemplate.execute(s -> checkUpdatable(callerId, id, req, scope, occurrenceDate));
+        txTemplate.execute(
+            s -> checkUpdatable(callerId, id, req, scope, occurrenceDate, expectedUpdatedAt));
 
     if (ctx.external()) {
       // ② 외부 쓰기 → Graph HTTP (tx 밖). 가드: 호출자 ambient tx(AI·채팅 confirm) 안이면 REQUIRED txTemplate 이 그
@@ -1113,7 +1129,8 @@ public class CalendarEventService {
     return txTemplate.execute(
         s -> {
           List<Long> beforeAttendees = internalAttendeeIds(id);
-          CalendarEventResponse updated = doUpdateLocal(callerId, id, req, scope, occurrenceDate);
+          CalendarEventResponse updated =
+              doUpdateLocal(callerId, id, req, scope, occurrenceDate, expectedUpdatedAt);
           // THIS/THIS_AND_FOLLOWING 은 새 행(id)이 생길 수 있으나 ids 는 원본 id — 프론트가 ['calendar'] 전체를 무효화한다.
           publishEventChanged(
               ResourceChangedEvent.OP_UPDATED,
@@ -1136,9 +1153,13 @@ public class CalendarEventService {
       long id,
       CalendarEventRequest req,
       EditScope scope,
-      OffsetDateTime occurrenceDate) {
+      OffsetDateTime occurrenceDate,
+      OffsetDateTime expectedUpdatedAt) {
     CalendarEventResponse target =
         lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate).target();
+    // 로컬 일정의 버전 비교는 여기 한 곳뿐이다 — 잠금 아래에서 보므로 거의 동시에 들어온 두 저장 중 뒤의 것은 앞 저장이 올린
+    // updatedAt 을 읽고 막힌다(WP-1920).
+    requireVersion(callerId, target, occurrenceDate, expectedUpdatedAt);
 
     // 단일 일정 또는 ALL → 마스터 행 전체 교체(RRULE 포함). 기존 예외는 유지(v1b 한계).
     if (target.recurrenceRule() == null || scope == EditScope.ALL) {
@@ -2026,7 +2047,7 @@ public class CalendarEventService {
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate) {
-    checkUpdatable(callerId, id, req, scope, occurrenceDate);
+    checkUpdatable(callerId, id, req, scope, occurrenceDate, null);
   }
 
   /**
@@ -2041,7 +2062,8 @@ public class CalendarEventService {
       long id,
       CalendarEventRequest req,
       EditScope scope,
-      OffsetDateTime occurrenceDate) {
+      OffsetDateTime occurrenceDate,
+      OffsetDateTime expectedUpdatedAt) {
     // #852: 수정은 참석자를 바꾸지 않는다(로컬·외부 모두). 받아서 무시하면 "수정했는데 참석자 반영 안 됨"이 조용히 생기므로 거절하고
     // 참석자 API 로 안내한다. 웹 편집 폼은 수정 시 attendeeUserIds 를 보내지 않는다.
     if (!req.attendeeUserIdsOrEmpty().isEmpty()) {
@@ -2074,6 +2096,9 @@ public class CalendarEventService {
     if (req.tagIds() != null) tagService.validateEventTags(callerId, id, req.tagIds());
     ExternalWriteCtx ctx = resolveExternalCtx(callerId, cur);
     if (ctx.external()) {
+      // 버전 확인(WP-1920) — 외부 일정만 Graph PATCH 를 보내기 전에 여기서 본다. 로컬 일정은 잠금 아래 doUpdateLocal 에서 보므로
+      // 사전 읽기를 하지 않는다.
+      requireVersion(callerId, cur, occurrenceDate, expectedUpdatedAt);
       // 외부 일정은 단일 — 반복 전환 차단(#546).
       if (req.recurrenceRule() != null && !req.recurrenceRule().isBlank()) {
         throw new RecurringNotSupportedOnExternalCalendarException();
@@ -2087,6 +2112,42 @@ public class CalendarEventService {
       calendarService.requireWritableCalendar(callerId, req.calendarId());
     }
     return ctx;
+  }
+
+  /**
+   * 버전 비교 대상 행(WP-1920) — 반복 일정에 occurrenceDate 가 있고 그 회차의 override 행(「이 일정만」 고친 회차)이 이미 있으면 그 행의
+   * updatedAt, 아니면 요청 id 의 행(cur)과 비교한다. 웹은 이미 고친 회차를 override 행 자기 id 로 가리키므로 보통 이 분기를 타지 않는다. 이
+   * 분기는 화면을 연 뒤에 그 회차가 override 로 바뀐 경우(오래된 화면의 요청)나 웹이 아닌 호출자를 위한 것으로, 이때 마스터 기준 값이 통과해 조용히 덮어쓰지
+   * 않고 정상적으로 409 가 나게 한다.
+   */
+  private CalendarEventResponse versionRow(
+      long callerId, CalendarEventResponse cur, OffsetDateTime occurrenceDate) {
+    if (occurrenceDate == null || cur.recurrenceRule() == null) {
+      return cur;
+    }
+    return exceptionRepo
+        .findOverrideEventId(cur.id(), occurrenceDate)
+        .flatMap(overrideId -> repo.findById(callerId, overrideId))
+        .orElse(cur);
+  }
+
+  /**
+   * 기대 버전과 대상 행의 updatedAt 이 다르면 409(WP-1920). expected 가 null 이면(AI·MCP) 비교 대상 행(override 조회)도 읽지
+   * 않고 바로 통과한다. 밀리초로 비교한다 — DB 는 마이크로초이고 클라이언트가 JSON 문자열을 돌려보낼 때 정밀도가 달라져도 거짓 충돌이 나지 않게 하려는 것.
+   * updated_at 은 NOT NULL 이라 actual 의 null 은 고려하지 않는다.
+   */
+  private void requireVersion(
+      long callerId,
+      CalendarEventResponse cur,
+      OffsetDateTime occurrenceDate,
+      OffsetDateTime expectedUpdatedAt) {
+    if (expectedUpdatedAt == null) {
+      return;
+    }
+    OffsetDateTime actual = versionRow(callerId, cur, occurrenceDate).updatedAt();
+    if (expectedUpdatedAt.toInstant().toEpochMilli() != actual.toInstant().toEpochMilli()) {
+      throw new CalendarEventConflictException();
+    }
   }
 
   /** 외부 쓰기 컨텍스트 조회 — 연동 계정·외부 id 가 모두 살아 있을 때만 외부 일정으로 본다. 읽기 전용. */

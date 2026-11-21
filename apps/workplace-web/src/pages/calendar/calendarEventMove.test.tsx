@@ -307,6 +307,54 @@ describe('옮길 수 없는 일정', () => {
   })
 })
 
+describe('저장 충돌 감지 (WP-1920)', () => {
+  test('일정을 끌어 옮기면 그 일정의 updatedAt 을 expectedUpdatedAt 으로 보낸다', async () => {
+    const stamped = { ...meeting, updatedAt: '2026-06-10T03:21:45Z' }
+    const { requests } = await renderCalendar({ events: [stamped] })
+    drag(await screen.findByTestId('calendar-event-1'), screen.getByTestId('calendar-cell-2026-06-12'))
+
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    expect(requests.patches[0].url.searchParams.get('expectedUpdatedAt')).toBe('2026-06-10T03:21:45Z')
+  })
+
+  test('저장 직후 목록 재조회가 끝나기 전에 다시 끌어도 새 updatedAt 을 보내 자기 변경과 충돌하지 않는다', async () => {
+    const stamped = { ...meeting, updatedAt: '2026-06-10T03:21:45Z' }
+    const fresh = '2026-06-10T04:00:00Z'
+    let patched = false
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { requests } = await renderCalendar(
+      { events: [stamped] },
+      {
+        handlers: [
+          // 첫 저장 뒤의 목록 재조회는 붙잡아 둬 캐시가 낡은 updatedAt 인 채로 두 번째 끌기를 한다
+          http.get('/api/v1/calendar/events', async () => {
+            if (patched) await gate
+            return HttpResponse.json([stamped])
+          }),
+          http.patch('/api/v1/calendar/events/:id', async ({ request }) => {
+            const body = (await request.json()) as Record<string, unknown>
+            requests.patches.push({ url: new URL(request.url), body })
+            patched = true
+            return HttpResponse.json({ ...stamped, ...body, updatedAt: fresh })
+          }),
+        ],
+      },
+    )
+    drag(await screen.findByTestId('calendar-event-1'), screen.getByTestId('calendar-cell-2026-06-12'))
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    expect(requests.patches[0].url.searchParams.get('expectedUpdatedAt')).toBe('2026-06-10T03:21:45Z')
+
+    // 새 버전이 목록 캐시에 반영될 때까지(재조회는 아직 붙잡힘) 기다린 뒤 다시 끈다
+    drag(await screen.findByTestId('calendar-event-1'), screen.getByTestId('calendar-cell-2026-06-13'))
+    await waitFor(() => expect(requests.patches).toHaveLength(2))
+    expect(requests.patches[1].url.searchParams.get('expectedUpdatedAt')).toBe(fresh)
+    release()
+  })
+})
+
 describe('저장 실패', () => {
   test('서버가 거절하면 오류 토스트를 띄우고 일정은 원래 칸에 남는다', async () => {
     let patched = 0

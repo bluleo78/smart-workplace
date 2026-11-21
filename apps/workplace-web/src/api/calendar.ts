@@ -6,6 +6,8 @@ export interface ScopeParams {
   scope?: EditScope
   // 가상 회차의 시작 시각(불투명 문자열) — 서버가 준 값을 그대로 전달.
   occurrenceDate?: string | null
+  // 연 때 보고 있던 일정의 updatedAt(서버가 준 문자열 그대로) — 수정에서만 쓴다. 그 사이 바뀌었으면 서버가 409 로 막는다(WP-1920).
+  expectedUpdatedAt?: string
 }
 
 export const calendarApi = {
@@ -20,7 +22,7 @@ export const calendarApi = {
     }),
   get: (id: number) => client.get<CalendarEvent>(`/calendar/events/${id}`),
   create: (body: CalendarEventRequest) => client.post<CalendarEvent>('/calendar/events', body),
-  // PATCH — scope/occurrenceDate 는 제공된 경우에만 쿼리 파라미터로 전달.
+  // PATCH — scope/occurrenceDate/expectedUpdatedAt 은 제공된 경우에만 쿼리 파라미터로 전달.
   update: (id: number, body: CalendarEventRequest, params?: ScopeParams) =>
     client.patch<CalendarEvent>(`/calendar/events/${id}`, body, { params }),
   remove: (id: number, params?: ScopeParams) =>

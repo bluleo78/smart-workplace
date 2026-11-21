@@ -393,6 +393,27 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
     assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(extCalId);
   }
 
+  /** 화면이 본 뒤 바뀐 외부 일정(expectedUpdatedAt 불일치)은 409 로 막고 Graph PATCH 를 부르지 않는다(WP-1920). */
+  @Test
+  void update_external_event_with_stale_expectedUpdatedAt_is_409_and_skips_graph() {
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-evt-conflict");
+    CalendarEventResponse created = eventService.create(ownerId, req(extCalId, null));
+    OffsetDateTime stale = created.updatedAt().minusSeconds(5);
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    req(extCalId, null),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null,
+                    stale))
+        .isInstanceOf(com.workplace.calendar.exception.CalendarEventConflictException.class);
+    verify(calendarTransport, never()).updateEvent(anyLong(), any(), any(), any());
+  }
+
   /** 외부 동기화 일정에 반복 전환 시도 → 422(외부는 단일 일정만), Graph PATCH 미호출. */
   @Test
   void update_external_event_to_recurring_is_rejected_422() {

@@ -182,7 +182,7 @@ class CalendarEventControllerTest extends WebMvcSliceTestBase {
   @Test
   void update_withScopeAndOccurrence_delegatesParsedParams() throws Exception {
     // scope/occurrenceDate 쿼리 파라미터가 서비스로 그대로 전달되는지 확인.
-    when(service.update(eq(1L), eq(1L), any(), any(), any())).thenReturn(sample());
+    when(service.update(eq(1L), eq(1L), any(), any(), any(), any())).thenReturn(sample());
     CalendarEventRequest req =
         new CalendarEventRequest(
             "회의", null, STARTS, ENDS, false, null, null, null, null, null, null);
@@ -199,7 +199,8 @@ class CalendarEventControllerTest extends WebMvcSliceTestBase {
 
     ArgumentCaptor<EditScope> scopeCaptor = ArgumentCaptor.forClass(EditScope.class);
     ArgumentCaptor<OffsetDateTime> dateCaptor = ArgumentCaptor.forClass(OffsetDateTime.class);
-    verify(service).update(eq(1L), eq(1L), any(), scopeCaptor.capture(), dateCaptor.capture());
+    verify(service)
+        .update(eq(1L), eq(1L), any(), scopeCaptor.capture(), dateCaptor.capture(), isNull());
     assertThat(scopeCaptor.getValue()).isEqualTo(EditScope.THIS);
     assertThat(dateCaptor.getValue()).isEqualTo(STARTS);
   }
@@ -209,7 +210,7 @@ class CalendarEventControllerTest extends WebMvcSliceTestBase {
     // 서버가 OffsetDateTime.toString() 으로 내보내는 분 단위 정시 값은 초가 생략된다
     // (예: 2026-06-10T09:00Z). 프론트가 이를 그대로 occurrenceDate 로 되돌려보낼 때
     // @DateTimeFormat(ISO.DATE_TIME) 이 초 생략 형식을 동일 instant 로 바인딩하는지 검증.
-    when(service.update(eq(1L), eq(1L), any(), any(), any())).thenReturn(sample());
+    when(service.update(eq(1L), eq(1L), any(), any(), any(), any())).thenReturn(sample());
     CalendarEventRequest req =
         new CalendarEventRequest(
             "회의", null, STARTS, ENDS, false, null, null, null, null, null, null);
@@ -225,14 +226,36 @@ class CalendarEventControllerTest extends WebMvcSliceTestBase {
         .andExpect(status().isOk());
 
     ArgumentCaptor<OffsetDateTime> dateCaptor = ArgumentCaptor.forClass(OffsetDateTime.class);
-    verify(service).update(eq(1L), eq(1L), any(), any(), dateCaptor.capture());
+    verify(service).update(eq(1L), eq(1L), any(), any(), dateCaptor.capture(), isNull());
     assertThat(dateCaptor.getValue()).isEqualTo(OffsetDateTime.parse("2026-06-10T09:00:00Z"));
+  }
+
+  @Test
+  void update_expectedUpdatedAt_bindsToSameInstant() throws Exception {
+    // expectedUpdatedAt 쿼리(ISO-8601, 마이크로초 포함)가 서비스에 같은 시각으로 전달된다(WP-1920).
+    when(service.update(eq(1L), eq(1L), any(), any(), any(), any())).thenReturn(sample());
+    CalendarEventRequest req =
+        new CalendarEventRequest(
+            "회의", null, STARTS, ENDS, false, null, null, null, null, null, null);
+
+    mockMvc
+        .perform(
+            patch("/api/v1/calendar/events/1")
+                .header("Authorization", "Bearer v")
+                .param("expectedUpdatedAt", "2026-06-10T09:00:00.123456Z")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<OffsetDateTime> expected = ArgumentCaptor.forClass(OffsetDateTime.class);
+    verify(service).update(eq(1L), eq(1L), any(), any(), any(), expected.capture());
+    assertThat(expected.getValue()).isEqualTo(OffsetDateTime.parse("2026-06-10T09:00:00.123456Z"));
   }
 
   @Test
   void update_withoutScopeParam_defaultsToAll() throws Exception {
     // scope 미지정 시 ALL, occurrenceDate 미지정 시 null.
-    when(service.update(eq(1L), eq(1L), any(), any(), isNull())).thenReturn(sample());
+    when(service.update(eq(1L), eq(1L), any(), any(), isNull(), isNull())).thenReturn(sample());
     CalendarEventRequest req =
         new CalendarEventRequest(
             "회의", null, STARTS, ENDS, false, null, null, null, null, null, null);
@@ -245,7 +268,7 @@ class CalendarEventControllerTest extends WebMvcSliceTestBase {
                 .content(objectMapper.writeValueAsString(req)))
         .andExpect(status().isOk());
 
-    verify(service).update(eq(1L), eq(1L), any(), eq(EditScope.ALL), isNull());
+    verify(service).update(eq(1L), eq(1L), any(), eq(EditScope.ALL), isNull(), isNull());
   }
 
   @Test
