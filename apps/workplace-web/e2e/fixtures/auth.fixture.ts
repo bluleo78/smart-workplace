@@ -12,15 +12,13 @@ import { createEmptyWorkProfile } from '../factories/workProfile.factory'
 import { mockApi } from './api-mock'
 import { beginReusedTest, endReusedTest, REUSE_APP, type ReuseHolder, reusedSlot, reuseSlotFixture, setReusedStorage, slotOfContext } from './reuse-app'
 import { collabTestToken, injectCollabNamespace, useCollabNamespaceForReusedPage } from './collab'
+import { installOpenEventStreamWrapper, routeOpenEventStream } from './openEventStream'
 import { stubDraftsDefault } from './mail-drafts-mock'
 import { DEFAULT_REMEMBERED_PROJECT_TABS, type RememberedProjectTabs, seedProjectTabs, seedProjectTabsForReusedPage } from './project-tab'
 
 // 인증 모킹 fixture.
 // - 실제 백엔드 없이 인증된 상태 / 관리자 권한 상태의 page 를 제공.
 // - 모든 시나리오에서 /api/v1/auth/refresh 도 미리 모킹 (StrictMode 마운트 시 호출).
-
-// 기본 /api/v1/events 스텁 응답을 '열린 스트림'으로 바꿔치기하라는 표식 헤더(아래 fetch 래퍼가 인식).
-const SSE_HOLD_HEADER = 'x-e2e-sse-hold'
 
 const MOCK_USER_ROLE: RoleResponse = {
   id: 2, name: 'USER', description: '일반 사용자', isSystem: true,
@@ -287,25 +285,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
     (route) =>
       route.request().method() === 'POST' ? route.fulfill({ status: 204, body: '' }) : route.fallback(),
   )
-  // 통합 SSE 단일 스트림 (#506): /api/v1/events 가 chat·messaging·notify 모두 대체.
-  // 미스텁 시 백엔드 프록시로 누수되며, 백엔드 부재 시 503 재연결이 페이지 네비게이션과 레이스를
-  // 일으켜(page.goto ERR_ABORTED/frame detached) 상세→목록 이동 테스트가 타임아웃된다.
-  // 기본 스텁은 '열린 채 유지되는' 스트림이어야 한다(WP-59): 유한 본문은 응답 직후 끝나 클라이언트가 ~1초 뒤
-  // 재연결하고, 재연결 catch-up(활성 쿼리 전체 재조회)이 스펙의 요청 카운트·시도 카운터·캐시를 흔든다.
-  // route.fulfill 은 스트리밍 본문을 지원하지 않으므로 마커 헤더만 붙여 응답하고, 아래 fetch 래퍼가
-  // 마커 응답을 '닫히지 않는 본문'으로 바꿔치기한다(onOpen 은 첫 연결 1회만 → catch-up 없음, isConnected=true 유지).
-  // 미완료 route 핸들러를 남기지 않으므로 teardown 이 멈추지 않는다. SSE 를 검증하는 스펙은 자체 route 를
-  // 나중에 등록(LIFO 우선)하며, 마커가 없으므로 기존처럼 동작한다.
-  // 스펙에서 /api/v1/events 를 유한 본문(`:\n\n` 등)으로 덮어쓰지 않는다 — 이벤트를 보내야 하면
-  // e2e/fixtures/gatedEvents.ts 의 mockGatedEvents·pushHeldEvents 를 쓴다(WP-1861).
-  await page.route('**/api/v1/events', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      headers: { [SSE_HOLD_HEADER]: '1' },
-      body: '',
-    }),
-  )
+  // 통합 SSE 단일 스트림 — '열린 채 유지되는' 스텁(이유·상세는 openEventStream.ts).
+  await routeOpenEventStream(page)
   // 인증 컨텍스트가 마운트 시점에 hasSession 플래그를 보고 refresh 를 시도하므로
   // 미리 스토리지에 플래그를 심는다. 이어 쓰는 page(WP-1002)는 앱을 다시 띄울 때 넣는다.
   if (reusedSlot(page)) setReusedStorage(page, 'hasSession', '1')
@@ -342,34 +323,8 @@ async function installPageInitScripts(page: Page) {
     if (document.head) inject()
     else document.addEventListener('DOMContentLoaded', inject)
   })
-  await page.addInitScript((holdHeader) => {
-    const origFetch = window.fetch.bind(window)
-    window.fetch = async (input, init) => {
-      const res = await origFetch(input, init)
-      if (res.headers.get(holdHeader) !== '1') return res
-      // 요청 signal abort(언마운트·재연결 정리) 시에만 본문을 에러로 끝내 reader.read() 루프를 풀어준다.
-      const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
-      // 열린 스트림 controller 모음 — pushHeldEvents(gatedEvents.ts)가 연결을 끊지 않고 프레임을 밀어 넣을 때 쓴다.
-      const w = window as unknown as { __e2eHeldSse?: Set<ReadableStreamDefaultController<Uint8Array>> }
-      const held = (w.__e2eHeldSse ??= new Set())
-      const body = new ReadableStream<Uint8Array>({
-        start(controller) {
-          held.add(controller)
-          const abort = () => {
-            held.delete(controller)
-            try {
-              controller.error(new DOMException('Aborted', 'AbortError'))
-            } catch {
-              // 이미 닫힌 스트림이면 무시
-            }
-          }
-          if (signal?.aborted) abort()
-          else signal?.addEventListener('abort', abort, { once: true })
-        },
-      })
-      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers })
-    }
-  }, SSE_HOLD_HEADER)
+  // SSE 열린 스트림 fetch 래퍼(상세는 openEventStream.ts).
+  await installOpenEventStreamWrapper(page)
 }
 
 /**

@@ -3,10 +3,11 @@
 // 펼치면 배지 사라지고 메시지 표시 확인.
 //
 // dedup 검증: useChatStream 은 AppLayout 전역 1개 스트림으로, React StrictMode 이중 마운트 +
-//   스트림 재연결 때마다 동일 created 를 다시 받는다. messageId 기반 dedup 이 없으면 배지가
+//   중복 전달(한 스트림에 같은 created 2번 + 열린 스트림이 둘일 때의 추가 전달)로 동일 created 를 다시 받는다. messageId 기반 dedup 이 없으면 배지가
 //   2,3,… 으로 부풀어오른다. 따라서 "배지 == 1" 단언이 곧 dedup 검증이다.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { PUSH_RETRY_ASSERT_MS, pushHeldEventsUntil } from '../../fixtures/gatedEvents';
 import { expectStays } from '../../fixtures/wait';
 import { createChatMember, createChatMessage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
@@ -21,7 +22,7 @@ const MSG_ID = 9001;
 
 test(
   '접힘 채팅 패널: 타인 메시지 도착 시 미읽음 배지 표시, 펼치면 사라진다',
-  // 실제 SSE 스트림(재연결 포함)으로 같은 created 를 거듭 받아 dedup 을 본다 — @platform(WP-980).
+  // 실제 열린 SSE 스트림으로 같은 created 를 거듭 받아 dedup 을 본다 — @platform(WP-980).
   { tag: ['@platform', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     // ── 공통 스텁 ─────────────────────────────────────────────────────────
@@ -63,7 +64,7 @@ test(
       ],
       recentMessages: [],
     });
-    // threadReady: thread 응답 완료 후에야 ChatPanelInner(접힘) 가 마운트되어 onChatMessageCreated 를
+    // threadReady: thread 응답 완료 후에야 IssueChatButton 이 threadId 를 얻어 onChatMessageCreated 를
     // 구독한다. 그 전에 SSE created 를 흘리면 구독 전이라 놓친다.
     let resolveThreadReady!: () => void;
     const threadReady = new Promise<void>((resolve) => {
@@ -104,45 +105,28 @@ test(
     );
 
     // ── SSE — 동일 created 를 한 스트림에 2번 전달 ───────────────────────
-    // 단일 연결에서도 중복 전달되므로 dedup 이 없으면 배지가 '2' 가 된다(결정적 dedup 검증).
+    // dedup 이 없으면 배지가 '2' 이상이 된다(결정적 dedup 검증). events 는 route 하지 않고 auth.fixture 의 열린 스트림에 밀어 넣는다(WP-1877).
+    // StrictMode 로 열린 스트림이 둘이면 중복이 늘 뿐 dedup 검증만 강해진다.
     const oneCreated = `event: chat.message.created\ndata: ${JSON.stringify(incoming)}\n\n`;
     const sseCreated = oneCreated + oneCreated;
-    // 응답을 실제로 내보낸 횟수 — 재연결 응답이 브라우저에 닿은 뒤에 배지를 지켜보기 위해 fulfill 이후에 센다.
-    let eventsDelivered = 0;
-    await page.route(
-      (url) => url.pathname === '/api/v1/events',
-      async (route) => {
-        await threadReady;
-        // 접힘 패널의 onChatMessageCreated 구독 등록 대기.
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        await route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          headers: { 'cache-control': 'no-cache' },
-          body: sseCreated,
-        });
-        eventsDelivered += 1;
-      },
-    );
-
-    // SSE 재연결 백오프(1~2s)를 가상 시계로 넘긴다
-    await page.clock.install();
 
     // ── 페이지 진입 — 채팅 드로워 닫힘, 헤더 채팅 버튼 노출 ──────────────
     // 채팅 버튼은 제목 '앞'(최좌측) 고정이라 중앙 상단 AI 런처 칩과 겹치지 않는다(뷰포트 우회 불필요).
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await expect(page.getByTestId('issue-chat-open')).toBeVisible();
 
+    // IssueChatButton 은 threadId 가 생긴 뒤에야 구독하므로 push 와 첫 단언을 함께 재시도한다(재시도는 dedup 검증을 오히려 강하게 한다).
+    await threadReady;
+
     // ── 단언 1: 미읽음 배지가 '1' 로 표시(개수 정확 = dedup 검증) ───────────
     const badge = page.getByTestId('issue-chat-unread-badge');
-    await expect(badge).toBeVisible();
-    await expect(badge).toHaveText('1');
-    // 재연결 사이클 한 번 지나도 동일 메시지가 중복 카운트되지 않는다.
-    // 스트림 종료 후 재연결 지연은 1000ms + random(<1000ms) — 2s 를 흘려 재연결을 확실히 일으킨다.
-    const deliveredBefore = eventsDelivered;
-    await page.clock.runFor(2_000);
-    await expect.poll(() => eventsDelivered).toBeGreaterThan(deliveredBefore);
+    await pushHeldEventsUntil(page, sseCreated, () => expect(badge).toHaveText('1', { timeout: PUSH_RETRY_ASSERT_MS }));
+    // push 가 끝난 뒤에도 같은 메시지가 중복 카운트되지 않는다(두 프레임이 모두 처리된 뒤 일정 시간 '1' 유지).
     await expectStays(page, () => badge.textContent(), '1', { ms: 200 });
+
+    // 시드(staleTime 5s)가 신선하면 드로워가 refetch 하지 않아 빈 목록이 남는다 — 시계를 6초 넘겨 낡게 한다(앱 빈틈 WP-1914, 고치면 이 우회를 없앤다).
+    await page.clock.install();
+    await page.clock.fastForward(6_000);
 
     // ── Phase 2: 드로워 열기 → 배지 사라지고 메시지 본문 표시 ─────────────────
     await page.getByTestId('issue-chat-open').click();
