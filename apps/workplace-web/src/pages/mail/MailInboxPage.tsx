@@ -627,6 +627,29 @@ function MailDetailSrHeading() {
   return <h2 className="sr-only">메일 상세</h2>
 }
 
+/**
+ * 다시 시도 성공 뒤 초점을 넘길 상세의 첫 조작 요소(WP-1911 리뷰 반려) — LoadErrorState 의 기본 순서는 안내 자리의
+ * 첫 조작 요소를 골라 휴대폰에선 상단바 뒤로 단추로 떨어진다. 상세의 첫 조작 요소(답장 단추)를 먼저 고르고,
+ * 아직 없으면 뒤로 단추를 건너뛴다. jsdom 은 getClientRects 를 못 재어 null — LoadErrorState 는 기본 순서로 내려간다.
+ */
+function focusAfterDetailRetry(): HTMLElement | null {
+  const pane = document.querySelector<HTMLElement>('[data-testid="mail-detail-pane"]')
+  if (!pane) return null
+  const visible = (el: HTMLElement) => el.getClientRects().length > 0
+  const reply = Array.from(pane.querySelectorAll<HTMLElement>('[data-testid="mail-reply"]')).find(visible)
+  if (reply) return reply
+  const FOCUSABLE =
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  // 뒤로 단추는 상단바 밖으로 나가는 길이라 초점 대상이 아니다(모바일 셸 `mobile-back` — 메일 자체 바는
+  // 성공 화면에선 그리지 않지만 testId 를 함께 걸어 두어 새 상단바가 생겨도 초점이 거기 가지 않게 한다).
+  const BACK = new Set(['mobile-back', 'mail-back'])
+  return (
+    Array.from(pane.querySelectorAll<HTMLElement>(FOCUSABLE)).find(
+      (el) => visible(el) && !BACK.has(el.getAttribute('data-testid') ?? ''),
+    ) ?? null
+  )
+}
+
 // 선택한 메시지의 본문 패널 — text 우선, HTML 만 있으면 스크립트 차단 iframe 으로 렌더.
 function MessageDetailPanel({
   messageId,
@@ -793,20 +816,29 @@ function MessageDetailPanel({
       withMobileBar(
         <>
           <MailDetailSrHeading />
-          <LoadErrorState title="메일을 불러오지 못했습니다" queries={[messageQuery]} testId="mail-detail-error" className="px-6" />
+          <LoadErrorState
+            title="메일을 불러오지 못했습니다"
+            queries={[messageQuery]}
+            testId="mail-detail-error"
+            className="px-6"
+            // 성공 뒤 초점이 상단바 뒤로 단추로 떨어지지 않게 상세 첫 조작 요소로 넘긴다(리뷰 반려 — E2E 로 고정).
+            focusAfterRetry={focusAfterDetailRetry}
+          />
         </>,
       ),
     )
   }
   // WP-1911 데이터 있는 재조회 실패 — 상세는 그대로 두고(본문을 오류로 덮지 않게) 상단 한 줄 배너로만 알린다.
   // 데스크톱은 #mail-detail 첫 자식, 모바일은 MailMobileDetail 상단바 아래 같은 값을 그린다.
-  const detailRetryBanner = showsLoadError(messageQuery) ? (
+  // 실패 판정은 위에서 골라 둔 loadFailed 를 그대로 쓴다(같은 쿼리를 두 번 계산하지 않게 — 리뷰 반려).
+  // border-b 는 banner 변형이 이미 준다(목록 배너와 같은 모양 — 리뷰 반려).
+  const detailRetryBanner = loadFailed ? (
     <LoadErrorState
       title="메일을 다시 불러오지 못했습니다"
       queries={[messageQuery]}
       testId="mail-detail-error"
       variant="banner"
-      className="border-b px-4 py-3"
+      className="px-4 py-3"
     />
   ) : null
 
@@ -2160,9 +2192,11 @@ function MailInbox() {
             <LoadErrorState title="목록을 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" />
           ) : (
             <>
-              {/* WP-1911 데이터 있는 재조회 실패 — 행을 지우지 않고 목록 위 배너 한 줄로만 알린다. */}
-              {showsLoadError(messagesQuery) && (
-                <LoadErrorState title="목록을 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" variant="banner" className="px-4 py-3" />
+              {/* WP-1911 데이터 있는 재조회 실패 — 행을 지우지 않고 목록 위 배너 한 줄로만 알린다.
+                  다음 페이지 받기만 실패한 경우(isFetchNextPageError)는 목록 끝 푸터가 이미 실패를 알리므로 배너를 띄우지 않는다 —
+                  두 안내가 함께 뜨고 배너의 다시 시도가 이미 받은 페이지까지 다시 받게 하던 것을 막는다(리뷰 반려). */}
+              {showsLoadError(messagesQuery) && !messagesQuery.isFetchNextPageError && (
+                <LoadErrorState title="목록을 다시 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" variant="banner" className="px-4 py-3" />
               )}
               {!messages || messages.length === 0 ? (
                 // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.

@@ -24,11 +24,17 @@ test.describe('메일 조회 실패 복원', () => {
     await expect(retry).toBeVisible()
     await retry.click()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
-    const active = await page.evaluate(() => ({
-      isBody: document.activeElement === document.body,
-      inPane: !!document.activeElement?.closest('[data-testid="mail-detail-pane"]'),
-    }))
-    expect(active.isBody).toBe(false)
-    expect(active.inPane).toBe(true)
+    // LoadErrorState 가 안내를 떼고 requestAnimationFrame 뒤에 초점을 옮기므로, 그 사이를 poll 로 기다린다.
+    // 기대 초점 대상은 상세의 첫 조작 요소(답장 단추)다 — pane 안에 있기만 하면 상단바 뒤로 단추로 떨어져도
+    // 통과해 버리던 것을 막는다(WP-1911 리뷰 반려). 뒤로 단추로 가면 LoadErrorState 의 focusAfterRetry 로 골라 넘긴다.
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          isBody: document.activeElement === document.body,
+          inPane: !!document.activeElement?.closest('[data-testid="mail-detail-pane"]'),
+          testId: document.activeElement?.getAttribute('data-testid') ?? null,
+        })),
+      )
+      .toEqual({ isBody: false, inPane: true, testId: 'mail-reply' })
   })
 })
