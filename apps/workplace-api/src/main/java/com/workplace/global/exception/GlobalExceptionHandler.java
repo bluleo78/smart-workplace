@@ -106,6 +106,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.postgresql.util.PSQLException;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
@@ -1284,6 +1285,19 @@ public class GlobalExceptionHandler {
       IllegalArgumentException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
     return ResponseEntity.badRequest().body(response);
+  }
+
+  /**
+   * Tomcat 의 InvalidParameterException(쿼리·본문 매개변수 파싱 실패) → 원인별 400/413 + 고정 한국어(WP-1949).
+   * IllegalStateException 하위라 아래 handleIllegalState 에 잡혀 409 와 영어 원문이 노출되던 것을 막는다 — 더 구체적인 타입이라 이
+   * 핸들러가 우선한다. 판정은 디스패처 앞 필터와 공유하는 {@link InvalidParameterResponses} 가 한다.
+   */
+  @ExceptionHandler(InvalidParameterException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidParameter(
+      InvalidParameterException ex, HttpServletRequest request) {
+    InvalidParameterResponses.Decision d = InvalidParameterResponses.decide(ex);
+    return ResponseEntity.status(d.status())
+        .body(buildError(d.status(), d.message(), null, request));
   }
 
   /**

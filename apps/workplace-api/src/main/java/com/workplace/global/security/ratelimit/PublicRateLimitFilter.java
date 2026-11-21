@@ -2,6 +2,7 @@ package com.workplace.global.security.ratelimit;
 
 import com.workplace.drive.service.DrivePlaybackService;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.global.exception.InvalidParameterResponses;
 import com.workplace.global.json.JsonMappers;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.ClientIpExtractor;
@@ -17,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.lang.NonNull;
@@ -104,7 +106,15 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
       @NonNull HttpServletResponse response,
       @NonNull FilterChain chain)
       throws ServletException, IOException {
-    Policy policy = properties.enabled() ? policyOf(request) : null;
+    Policy policy;
+    try {
+      policy = properties.enabled() ? policyOf(request) : null;
+    } catch (InvalidParameterException e) {
+      // 쿼리 디코딩 실패는 Tomcat 이 첫 읽기에서 한 번만 던지고, 이후 getParameter 는 일부만 파싱된 값을 조용히 돌려준다(WP-1949).
+      // 첫 읽기 주체인 여기서 삼키면 속도 제한을 건너뛰고 컨트롤러가 start=true 로 실행되므로 직접 거절한다.
+      rejectInvalidParameter(request, response, e);
+      return;
+    }
     String ip = policy == null ? null : ClientIpExtractor.extract(request);
     if (policy == null || ip == null || isLoopback(ip)) {
       chain.doFilter(request, response);
@@ -200,9 +210,26 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
   private static void reject(
       HttpServletRequest request, HttpServletResponse response, long retryAfter)
       throws IOException {
-    HttpStatus status = HttpStatus.TOO_MANY_REQUESTS;
-    response.setStatus(status.value());
     response.setHeader("Retry-After", Long.toString(retryAfter));
+    writeError(request, response, HttpStatus.TOO_MANY_REQUESTS, MESSAGE);
+  }
+
+  /**
+   * 깨진 쿼리(InvalidParameterException)를 전역 핸들러와 같은 상태·문구로 직접 거절한다(WP-1949). 속도 제한이 아니므로 Retry-After 는
+   * 없고 chain 은 부르지 않는다.
+   */
+  private static void rejectInvalidParameter(
+      HttpServletRequest request, HttpServletResponse response, InvalidParameterException ex)
+      throws IOException {
+    InvalidParameterResponses.Decision d = InvalidParameterResponses.decide(ex);
+    writeError(request, response, d.status(), d.message());
+  }
+
+  /** 앱 공통 형식({@link ErrorResponse})의 한국어 JSON 오류 본문을 쓴다. */
+  private static void writeError(
+      HttpServletRequest request, HttpServletResponse response, HttpStatus status, String message)
+      throws IOException {
+    response.setStatus(status.value());
     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
     JsonMappers.writeTo(
@@ -210,7 +237,7 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
         new ErrorResponse(
             status.value(),
             status.getReasonPhrase(),
-            MESSAGE,
+            message,
             null,
             Instant.now().toString(),
             request.getRequestURI()));
