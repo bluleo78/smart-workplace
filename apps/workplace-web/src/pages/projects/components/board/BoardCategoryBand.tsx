@@ -9,7 +9,7 @@ import { CATEGORY_COLOR } from '@/components/issues/issueCategoryColor';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
 import { DisabledReasonTooltip } from '@/components/ui/disabled-reason-tooltip';
-import { DISABLED_REASON_WRAPPER_ATTR } from '@/hooks/useDialogFocusRestore';
+import { focusDisabledReasonWrapper } from '@/hooks/useDialogFocusRestore';
 import { type CategorySpan, statusAddBlockedReason } from '@/lib/projectStatuses';
 import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types/issue';
@@ -69,6 +69,8 @@ function BandAddButton({
   // 띠는 데스크톱 보드에만 있다(모바일은 탭 ⋯ 시트가 같은 상한을 글로 보인다).
   const blocked = statusAddBlockedReason(statuses);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  // 팝오버가 열린 동안 마지막 입력 수단이 키보드였는지 — 닫힐 때 막힌 트리거 대신 감싸개로 초점을 보낼지 가른다.
+  const lastInputKeyboard = useRef(false);
   // 막히면 열린 팝오버를 닫아 상태까지 접는다 — 가리기만 하면 상한이 풀릴 때 팝오버가 저절로 다시 열린다.
   // (렌더 중 setState — 같은 렌더 안에서 곧바로 다시 그려 깜빡임이 없다.)
   if (blocked && open) setOpen(false);
@@ -104,11 +106,19 @@ function BandAddButton({
           // 닫히며 Radix 가 초점을 트리거로 돌리는데, 20번째 상태를 저장해 트리거가 막힌 뒤면 막힌 버튼은 초점을 못 받아 body 로 빠진다.
           // 막혔을 때만 감싼 툴팁 칸으로 직접 돌려준다. 막히지 않았으면 Radix 기본 동작에 맡긴다 — 바깥을 눌러 닫은 경우
           // 트리거로 초점을 되돌리지 않는 기본 판단을 덮어 클릭한 곳의 초점을 빼앗지 않게.
+          // 감싸개로 보낼지는 대화상자 복원과 같은 정책(focusDisabledReasonWrapper) — 팝오버가 열린 동안 마지막 입력이 키보드였을 때만.
+          // 마우스로 저장했으면 감싸개가 초점을 받아 툴팁이 억지로 뜨지 않게 그대로 둔다.
+          onKeyDownCapture={() => {
+            lastInputKeyboard.current = true;
+          }}
+          onPointerDownCapture={() => {
+            lastInputKeyboard.current = false;
+          }}
           onCloseAutoFocus={(e) => {
             const button = buttonRef.current;
             if (!button?.disabled) return;
             e.preventDefault();
-            button.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`)?.focus();
+            focusDisabledReasonWrapper(button, lastInputKeyboard.current);
           }}
         >
           <NewStatusPopoverBody
