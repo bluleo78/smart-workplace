@@ -9,6 +9,7 @@ import tseslint from 'typescript-eslint'
 
 import noDirectSparkles from './eslint-rules/no-direct-sparkles.js'
 import noRawAiHue from './eslint-rules/no-raw-ai-hue.js'
+import noClosingEventStream from './eslint-rules/no-closing-event-stream.js'
 import requireE2eReasonTag from './eslint-rules/require-e2e-reason-tag.js'
 import untaggedBaseline from './e2e/untagged-baseline.json' with { type: 'json' }
 
@@ -106,6 +107,9 @@ const sortableHookRule = {
 const aiMarkerPlugin = {
   rules: { 'no-direct-sparkles': noDirectSparkles, 'no-raw-ai-hue': noRawAiHue },
 }
+
+// e2e 로컬 규칙 플러그인 — 두 config 객체가 같은 플러그인 객체를 공유해야 한다(이름 충돌 방지).
+const e2ePlugin = { rules: { 'require-reason-tag': requireE2eReasonTag, 'no-closing-event-stream': noClosingEventStream } }
 
 // 테스트 면제 glob — 단위 테스트와 e2e 를 나눠 면제 범위를 다르게 둔다.
 const UNIT_TEST_GLOBS = ['src/**/*.test.{ts,tsx}', 'src/test/**']
@@ -206,7 +210,7 @@ export default defineConfig([
     files: ['e2e/**/*.ts'],
     extends: [playwright.configs['flat/recommended']],
     languageOptions: { parser: tseslint.parser },
-    plugins: { e2e: { rules: { 'require-reason-tag': requireE2eReasonTag } } },
+    plugins: { e2e: e2ePlugin },
     rules: {
       // 테스트마다 브라우저가 필요한 이유 태그 — 이관 전 테스트는 파일별 기준선만큼 허용(WP-971, 규칙 머리 주석).
       'e2e/require-reason-tag': ['error', { baseline: untaggedBaseline }],
@@ -223,5 +227,12 @@ export default defineConfig([
       'playwright/no-skipped-test': 'off',
       'playwright/expect-expect': 'off',
     },
+  },
+  // 바로 닫히는 /api/v1/events 스텁 금지(WP-1877) — 모든 e2e 스펙(*.spec.ts)에 켠다. fixtures 의 도우미는 의도적으로 body '' 를 쓴다.
+  {
+    files: ['e2e/**/*.spec.ts'],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { e2e: e2ePlugin },
+    rules: { 'e2e/no-closing-event-stream': 'error' },
   },
 ])

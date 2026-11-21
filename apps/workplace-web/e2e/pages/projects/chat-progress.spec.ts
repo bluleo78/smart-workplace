@@ -1,22 +1,22 @@
-// AI 진행 유령 버블 E2E(@platform) — 실제 SSE 스트림 프레임·재연결·IntersectionObserver 읽음 처리를 브라우저에서 본다. SSE 로 chat.message.progress 를 주입 → AiWorkingBubble 렌더 확인 →
+// AI 진행 유령 버블 E2E(@platform) — 실제 열린 SSE 스트림으로 들어오는 프레임을 브라우저에서 본다. SSE 로 chat.message.progress 를 주입 → AiWorkingBubble 렌더 확인 →
 // chat.message.created 주입 → 유령 버블 사라지고 실제 메시지 표시 확인.
 //
 // 전략:
-//   1. SSE 첫 연결에 progress 프레임 전달 (threadReady 이후). 스트림 닫힘.
+//   1. /api/v1/events 는 route 하지 않는다 — auth.fixture 의 열린 SSE 스트림에 pushHeldEvents 로 프레임을 밀어 넣는다.
+//      채팅 패널이 열려 구독할 화면이 준비된 뒤 progress 프레임 전달.
 //   2. 유령 버블이 보이는지 단언 (Playwright 자동 대기).
-//   3. 버블 확인 후 SSE 핸들러를 업데이트 → 다음 재연결(~1s 백오프)에 created 전달.
+//   3. 버블 확인 후 같은 열린 스트림에 created 전달 (재연결 백오프에 기대지 않는다 — WP-1877).
 //   4. 버블이 사라지고 실제 메시지 텍스트가 보이는지 단언.
 //
 // React StrictMode 이중 마운트 대응:
-//   useChatStream 이 거의 동시에 두 번 연결을 시도한다(StrictMode 첫 마운트+정리+재마운트).
-//   첫 연결(StrictMode 이 abort할 연결)도 progress 를 받도록 모든 초기 연결에 progress 전달.
-//   live 인스턴스는 두 번째 연결이므로 두 연결 모두 progress 를 받아 live 인스턴스에 도달 보장.
+//   열린 스트림이 둘 생길 수 있으나 pushHeldEvents 는 열린 모든 controller 에 넣는다.
+//   live 인스턴스가 어느 쪽이든 프레임이 도달한다.
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChatMember, createChatMessage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
-import { pushHeldEvents } from '../../fixtures/gatedEvents';
+import { PUSH_RETRY_ASSERT_MS, pushHeldEvents, pushHeldEventsUntil } from '../../fixtures/gatedEvents';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 
@@ -151,25 +151,6 @@ test(
     const sseCreated =
       `event: chat.message.created\ndata: ${JSON.stringify(aiMessage)}\n\n`;
 
-    // ── Phase 1 SSE 핸들러: 모든 초기 연결에 progress 전달 ─────────────────
-    // React StrictMode 이중 마운트로 인해 두 연결이 거의 동시에 들어온다.
-    // 두 연결 모두 progress 를 받아 live 인스턴스가 확실히 수신하도록 한다.
-    // threadReady 이후 React 리렌더 시간(200ms)을 두어 threadId=100 listener 등록 보장.
-    await page.route(
-      (url) => url.pathname === '/api/v1/events',
-      async (route) => {
-        await threadReady;
-        // React useEffect 재실행(threadId=100 listener 등록) 대기
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        return route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          headers: { 'cache-control': 'no-cache' },
-          body: sseProgress,
-        });
-      },
-    );
-
     // ── 페이지 진입 ────────────────────────────────────────────────────────
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
@@ -178,28 +159,23 @@ test(
     // (접힘 상태에서의 라이브 AI 반영·미읽음 배지는 #352에서 개선 예정)
     await page.getByTestId('issue-chat-open').click();
 
+    // 구독은 thread 응답 뒤에 걸리고 chat-section 은 로딩 중에도 보이므로, push 와 첫 단언을 함께 재시도한다.
+    await threadReady;
+    await expect(page.getByTestId('chat-section')).toBeVisible();
+
     // ── 단언 1: 유령 버블이 보이고 도구 단계 레이블 포함 ─────────────────
-    // Playwright 자동 대기 — live SSE 인스턴스가 progress 수신 후 React 렌더 완료까지 대기.
-    await expect(page.getByTestId('ai-working-bubble')).toBeVisible();
+    await pushHeldEventsUntil(page, sseProgress, () =>
+      expect(page.getByTestId('ai-working-bubble')).toBeVisible({ timeout: PUSH_RETRY_ASSERT_MS }),
+    );
     await expect(page.getByTestId('ai-working-bubble')).toContainText('위키 검색');
 
-    // ── Phase 2: bubble 확인 완료 → created 핸들러로 교체 ────────────────
-    // page.route()는 LIFO — 새 핸들러가 기존 핸들러보다 먼저 매칭된다.
-    // 다음 SSE 재연결(~1s 백오프)이 이 핸들러에 걸려 created 수신 → 버블 제거.
-    await page.route(
-      (url) => url.pathname === '/api/v1/events',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          headers: { 'cache-control': 'no-cache' },
-          body: sseCreated,
-        }),
-    );
+    // ── Phase 2: bubble 확인 완료 → 같은 열린 스트림에 created 전달 ────────────
+    // 재연결 백오프(~1s)에 기대지 않고 열린 스트림에 곧바로 밀어 넣는다(WP-1877·팀장 리뷰 16632).
+    await pushHeldEvents(page, sseCreated);
 
-    // ── 단언 2: 재연결 후 created 프레임 → 유령 버블 사라지고 실제 메시지 표시
-    // toHaveCount(0) 자동 대기 → 재연결 + 버블 제거까지 기다림 (timeout=15s).
-    await expect(page.getByTestId('ai-working-bubble')).toHaveCount(0, { timeout: 15000 });
+    // ── 단언 2: created 프레임 → 유령 버블 사라지고 실제 메시지 표시
+    // toHaveCount(0) 자동 대기 → 버블 제거까지 기다림.
+    await expect(page.getByTestId('ai-working-bubble')).toHaveCount(0);
     await expect(page.getByText('AI 최종 답변')).toBeVisible();
   },
 );
@@ -325,13 +301,11 @@ test('이슈 채팅 — done 뒤 늦게 도착한 진행 이벤트는 유령 버
   const section = page.getByTestId('chat-section');
   await expect(section.getByText('스레드 로드 표식 메시지')).toBeVisible();
 
-  // 1) started → 버블 등장. 구독 effect 가 표식 렌더 직후에 걸리므로, 혹시 그보다 먼저 도착해 놓친 경우를 대비해
-  //    버블이 보일 때까지 started 를 다시 보낸다(같은 streamId 의 started 반복은 같은 버블 갱신이라 무해).
+  // 1) started → 버블 등장. 구독이 표식 렌더보다 늦을 수 있어 버블이 보일 때까지 started 를 다시 보낸다.
   const bubble = page.getByTestId('ai-working-bubble');
-  await expect(async () => {
-    await pushHeldEvents(page, progressFrame('started'));
-    await expect(bubble).toBeVisible({ timeout: 1_000 });
-  }).toPass();
+  await pushHeldEventsUntil(page, progressFrame('started'), () =>
+    expect(bubble).toBeVisible({ timeout: PUSH_RETRY_ASSERT_MS }),
+  );
 
   // 2) done → 버블 제거.
   await pushHeldEvents(page, progressFrame('done'));
@@ -389,19 +363,6 @@ test('이슈 채팅 — AI 작업 중 다른 이슈로 옮기면 이전 이슈�
 
   // 첫 이슈 스레드의 진행 이벤트만(끝도 AGENT 메시지도 없음) — 첫 이슈에선 버블이 남아 있는 상태.
   const body = sseFrames([{ event: 'chat.message.progress', data: progressOf(THREAD_ID, STREAM_ID, 'tool') }]);
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    async (route) => {
-      await threadReady;
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      return route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body,
-      });
-    },
-  );
 
   // 두 번째 이슈를 먼저 열어 상세를 캐시해 둔다 — 캐시가 있어야 이슈 전환 때 상세 화면이 로딩으로 내려가지 않고
   // 채팅 드로워(IssueChatSection)가 같은 자리에 재사용된다(결함이 드러나는 경로).
@@ -409,7 +370,12 @@ test('이슈 채팅 — AI 작업 중 다른 이슈로 옮기면 이전 이슈�
   await expect(page.getByText('옮겨 간 이슈').first()).toBeVisible();
 
   await clientNavigate(page, `/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}?chat=1`);
-  await expect(page.getByTestId('ai-working-bubble')).toBeVisible();
+  // 구독은 스레드 응답 뒤에 걸리므로 push 와 첫 단언을 함께 재시도한다.
+  await threadReady;
+  await expect(page.getByTestId('chat-section')).toBeVisible();
+  await pushHeldEventsUntil(page, body, () =>
+    expect(page.getByTestId('ai-working-bubble')).toBeVisible({ timeout: PUSH_RETRY_ASSERT_MS }),
+  );
   await expect(page.getByTestId('ai-working-bubble')).toContainText('위키 검색');
 
   await clientNavigate(page, `/projects/${PROJECT_KEY}/issues/${OTHER_NUMBER}?chat=1`);
