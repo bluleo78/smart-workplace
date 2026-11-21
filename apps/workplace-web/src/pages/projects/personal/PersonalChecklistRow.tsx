@@ -60,9 +60,9 @@ export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string
           disabled={update.isPending}
           data-testid={`personal-task-check-${issue.number}`}
           onClick={toggleDone}
-          // 누름 영역 24×24 이상(WCAG 2.5.8, WP-1544) — 아이콘 크기는 그대로 두고 버튼만 키워 가운데 놓는다.
-          // 음수 여백으로 늘어난 만큼 상쇄해 행 높이·간격이 바뀌지 않게 한다.
-          className="-m-[3px] inline-flex size-6 shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          // 누름 영역 32×32(디자인 기준 클릭 타겟 최소 32, WP-1925) — 아이콘 크기는 그대로 두고 버튼만 키워 가운데 놓는다.
+          // 음수 여백 -7px 로 레이아웃 점유(18px)를 그대로 잡아 행 높이 32px 가 변하지 않게 한다.
+          className="-m-[7px] inline-flex size-8 shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <IssueStatusIcon status={issue.status} name={issue.statusName} color={issue.statusColor} />
         </button>

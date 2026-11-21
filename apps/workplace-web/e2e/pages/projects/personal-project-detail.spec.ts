@@ -630,3 +630,24 @@ test('「다음 실행」 문구가 없어도 지금 실행 버튼 끝은 카드
   await expect(page.getByTestId('task-recurrence-status-row').getByTestId('task-recurrence-status')).toHaveCount(0);
   await expectEndAligned(runNow, page.getByTestId('task-recurrence-trigger'));
 });
+
+// WP-1925 — 완료 토글 클릭 타겟 32×32(디자인 기준), 행 높이 32px 는 그대로.
+test('완료 토글 클릭 영역은 32×32 이고 행 높이는 32px 이다 (WP-1925)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1 }), createIssue({ projectKey: KEY, number: 2 })]);
+  await page.goto(`/projects/${KEY}`);
+
+  const check = page.getByTestId('personal-task-check-1');
+  const box = await boxOf(check);
+  expect(box.width).toBeGreaterThanOrEqual(32);
+  expect(box.height).toBeGreaterThanOrEqual(32);
+
+  // 행 높이는 32px 그대로 — 토글만 커져 행이 자라지 않았는지.
+  const row = page.getByTestId('personal-task-row-1');
+  expect(Math.round((await boxOf(row)).height)).toBe(32);
+
+  // 토글 오른쪽 끝이 이웃(우선순위 막대)에 닿지 않고, 인접 행과 세로로 겹치지 않는다.
+  const bars = row.getByRole('img', { name: /^우선순위/ }).first();
+  expect(box.x + box.width).toBeLessThan((await boxOf(bars)).x);
+  const nextRow = page.getByTestId('personal-task-row-2');
+  expect(box.y + box.height).toBeLessThanOrEqual((await boxOf(nextRow)).y);
+});
