@@ -1,7 +1,7 @@
 // 이슈 채팅 드로워 토글 버튼 — 헤더 액션에 위치. 미읽음 배지 포함(구 IssueChatPanel 로직 이관).
 // 무엇을: MessageSquare 아이콘 + "채팅" + 미읽음 배지. 드로워가 닫혀 있는 동안 도착한 '타인' 메시지를 카운트, 열면 0 리셋.
 // 왜: 채팅을 드로워로 옮기면서도 새 메시지 도착 신호를 헤더에서 유지.
-// 미읽음은 메시지 id 로 센다(WP-1372) — 스레드 캐시의 내 읽음 워터마크(useMarkChatRead 가 읽음 성공 때 올린다)보다 큰 것만.
+// 미읽음은 메시지 id 로 센다(WP-1372) — 스레드 캐시의 내 읽음 워터마크(useMarkChatRead 가 읽음을 보낼 때 올린다)보다 큰 것만.
 // 그래서 실제로 읽으면(드로워·개인 작업 상세 안 채팅에서 마지막 메시지가 보이면) 배지가 지워지고, 읽은 메시지는 다시 세지 않는다.
 
 import { MessageSquare } from 'lucide-react';
@@ -35,7 +35,7 @@ export function IssueChatButton({
   const { user } = useAuth();
   const threadId = threadQ.data?.threadId ?? 0;
   const currentUserId = user?.id ?? 0;
-  // 내 읽음 워터마크 — 스레드 캐시의 내 lastReadMessageId. 읽음 표시가 성공하면 useMarkChatRead 가 올린다.
+  // 내 읽음 워터마크 — 스레드 캐시의 내 lastReadMessageId. 읽음을 보낼 때 useMarkChatRead 가 올린다(실패하면 되돌린다).
   const myLastRead = threadQ.data?.members?.find((m) => m.userId === currentUserId)?.lastReadMessageId ?? 0;
   // 로드 시점 '타인'의 미삭제 메시지 id(recentMessages 범위 근사치). 스레드 응답이 없거나 형태가 어긋나면(빈/비정상 페이로드) 빈 목록 —
   // 헤더 버튼이 이슈 상세 진입 시 항상 마운트되므로, 깨진 데이터로 페이지 전체가 죽지 않도록 방어.
