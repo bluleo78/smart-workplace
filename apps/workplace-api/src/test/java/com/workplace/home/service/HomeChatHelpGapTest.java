@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.help.service.HelpGapRecorder;
 import com.workplace.home.dto.AiScreenContext;
@@ -25,7 +26,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jooq.Record;
 import org.jooq.Result;
 import org.junit.jupiter.api.AfterEach;
@@ -45,6 +47,12 @@ class HomeChatHelpGapTest extends ExternalClientMockedTestBase {
 
   @Autowired HelpGapRecorder recorder;
 
+  /** 생성 슬롯이 비었는지로 「펌프가 composeStream 에 닿기 전에 생성이 끝남」을 판정한다(WP-1905). */
+  @Autowired StreamingGenerationRegistry registry;
+
+  /** 펌프 대기 상한 — 제품 HomeChatService TIMEOUT(300초)보다 긴 hang 방지용 값이지 속도 단언이 아니다. */
+  private static final Duration PUMP_WAIT_LIMIT = Duration.ofSeconds(310);
+
   private final List<Long> createdUserIds = new ArrayList<>();
   private Executor prev;
 
@@ -55,7 +63,10 @@ class HomeChatHelpGapTest extends ExternalClientMockedTestBase {
     TenantContext.set(1L);
   }
 
-  /** 실행기 복원, 지표 행·사용자 정리. */
+  /**
+   * 실행기 복원, 지표 행·사용자 정리. 펌프는 따로 기다리지 않는다 — chat() 이 펌프가 끝날 때까지 이미 기다렸고, 그 대기가 상한으로 끝났다면 더 기다려도 소용이
+   * 없다.
+   */
   @AfterEach
   void tearDown() {
     recorder.useExecutorForTest(prev);
@@ -103,7 +114,12 @@ class HomeChatHelpGapTest extends ExternalClientMockedTestBase {
 
   /**
    * 질문을 보내고 done 이 처리될 때까지 기다린다. beforeDone 은 펌프 스레드에서 done 콜백 직전에 돈다(답 저장 실패 같은 상황을 만든다). 기록 실행기가
-   * 호출 스레드라 done 콜백이 돌아온 시점에 기록도 끝나 있다 — 래치가 순서를 보장하므로 따로 기다리지 않는다.
+   * 호출 스레드라 done 콜백이 돌아온 시점에 기록도 끝나 있다 — 래치가 순서를 보장한다.
+   *
+   * <p>대기에 실시간 데드라인을 두지 않는다 — 공유 실행기 대기열 때문에 펌프가 늦게 시작할 수 있다(WP-1905). 끝난 것은 둘 중 하나다: 래치가 풀렸다(제품은
+   * 저장 → 슬롯 반납 → done → 기록 순이라 슬롯이 비어도 기록 전일 수 있어 래치가 진짜 신호다), 또는 펌프가 composeStream 에 닿기 전에 생성이 끝나
+   * 슬롯이 비었다(래치가 영영 안 풀린다). 슬롯을 먼저 읽고 entered 를 나중에 읽는다 — 반대 순서면 entered=false 를 읽은 직후 펌프가 돌아 끝난 것을
+   * 「닿기 전 종료」로 오판한다. 펌프가 들어간 뒤 예외로 끝나도 finally 가 래치를 풀고, 실패는 단언으로 드러낸다.
    */
   private void chat(
       long uid, String question, String answer, AiScreenContext screen, Runnable beforeDone)
@@ -111,18 +127,48 @@ class HomeChatHelpGapTest extends ExternalClientMockedTestBase {
     when(assistantResolver.resolve(anyLong()))
         .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
     CountDownLatch done = new CountDownLatch(1);
+    AtomicBoolean entered = new AtomicBoolean(false);
+    AtomicReference<Throwable> pumpFailure = new AtomicReference<>();
+    // scope() 는 TenantContext(ThreadLocal)를 읽는다 — await 의 폴링 스레드엔 테넌트가 없어 항상 빈 값이 되므로 호출 스레드에서 미리
+    // 잡는다.
+    String scope = HomeChatService.scope();
     doAnswer(
             inv -> {
+              entered.set(true);
               AiAgentChatClient.DoneHandler onDone = inv.getArgument(2);
-              beforeDone.run();
-              onDone.accept(answer, null, null);
-              done.countDown();
+              try {
+                beforeDone.run();
+                onDone.accept(answer, null, null);
+              } catch (Throwable t) {
+                pumpFailure.set(t); // 대기 쪽 단언이 원인을 보이게 남기고 다시 던진다
+                throw t;
+              } finally {
+                done.countDown(); // 성공이든 실패든 대기를 풀어 상한까지 헛기다리지 않게 한다
+              }
               return null;
             })
         .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
     composeService.startChat(uid, null, question, screen, List.of(), null, null, null);
-    assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
+    await()
+        .atMost(PUMP_WAIT_LIMIT)
+        .pollInterval(Duration.ofMillis(20))
+        .until(
+            () -> {
+              boolean slotEmpty = registry.active(uid, scope).isEmpty(); // entered 보다 먼저 읽는다
+              return done.getCount() == 0 || (slotEmpty && !entered.get());
+            });
+    assertThat(pumpFailure.get()).as("펌프가 composeStream 응답 처리 중 예외로 끝났다").isNull();
+    assertThat(done.getCount()).as("펌프가 composeStream 에 닿기 전에 생성이 끝났다").isZero();
+  }
+
+  /** 지정 시간만 잔다(인터럽트면 플래그를 되세우고 반환). */
+  private static void sleepQuietly(long ms) {
+    try {
+      Thread.sleep(ms);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   private Result<Record> rows() {
@@ -165,6 +211,16 @@ class HomeChatHelpGapTest extends ExternalClientMockedTestBase {
     Result<Record> r = rows();
     assertThat(r).hasSize(1);
     assertThat(r.get(0).get(HELP_METRIC_DAILY.HELP_ID)).isEmpty();
+  }
+
+  /** 펌프가 5초 넘게 늦어도(부하 속 실행기 대기와 같은 상황) 실시간 데드라인 없이 끝까지 기다려 기록을 확인한다(WP-1905). */
+  @Test
+  void slowPumpStillRecordsGap() throws Exception {
+    long uid = user("slow" + System.nanoTime());
+    chat(uid, "느린 질문", "못 찾았어요\n\n[매뉴얼 보강](manual-gap:)", ctx(), () -> sleepQuietly(6000));
+    Result<Record> r = rows();
+    assertThat(r).hasSize(1);
+    assertThat(r.get(0).get(HELP_METRIC_DAILY.TERM)).isEqualTo("느린 질문");
   }
 
   /** 답이 저장되지 않았으면(대화가 생성 중 지워져 messageId 가 null) 공백 표식이 있어도 기록하지 않는다 — 「답을 저장한 뒤」 기록. */
