@@ -30,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { extractApiError } from '@/lib/api-error'
@@ -468,11 +469,7 @@ export function DriveSidebar() {
             aria-invalid={!!spaceNameError}
             data-testid="space-name-input"
           />
-          {spaceNameError && (
-            <p className="text-sm text-destructive" data-testid="space-name-error">
-              {spaceNameError}
-            </p>
-          )}
+          <FormError data-testid="space-name-error">{spaceNameError}</FormError>
           <DialogFooter>
             <Button
               variant="outline"

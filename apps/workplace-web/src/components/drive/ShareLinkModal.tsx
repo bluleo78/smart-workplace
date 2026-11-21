@@ -31,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -419,11 +420,9 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
                 aria-invalid={passwordError != null}
                 aria-describedby={passwordError ? 'share-password-error' : undefined}
               />
-              {passwordError && (
-                <p id="share-password-error" className="text-xs text-destructive" data-testid="share-password-error">
-                  {passwordError}
-                </p>
-              )}
+              <FormError id="share-password-error" className="text-xs" data-testid="share-password-error">
+                {passwordError}
+              </FormError>
             </div>
 
             {/* 만료일 입력 (선택) */}
@@ -450,11 +449,9 @@ export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkM
                 aria-describedby={expiresAtError ? 'share-expires-error' : undefined}
               />
               {guide.expiryHint && !expiresTouched && <p className="text-xs text-muted-foreground">{guide.expiryHint}</p>}
-              {expiresAtError && (
-                <p id="share-expires-error" className="text-xs text-destructive" data-testid="share-expires-error">
-                  {expiresAtError}
-                </p>
-              )}
+              <FormError id="share-expires-error" className="text-xs" data-testid="share-expires-error">
+                {expiresAtError}
+              </FormError>
             </div>
 
             {/* 접을 수 있으면 [취소] + [링크 생성] 을 오른쪽에, 아니면 [링크 생성] 을 꽉 채운다 */}

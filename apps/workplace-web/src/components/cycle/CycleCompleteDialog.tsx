@@ -24,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -343,15 +344,9 @@ function CompleteBody({
                       aria-invalid={nameMessage != null}
                       aria-describedby={nameMessage ? `${labelId}-name-error` : undefined}
                     />
-                    {nameMessage && (
-                      <p
-                        id={`${labelId}-name-error`}
-                        className="text-sm text-destructive"
-                        data-testid="cycle-complete-name-error"
-                      >
-                        {nameMessage}
-                      </p>
-                    )}
+                    <FormError id={`${labelId}-name-error`} data-testid="cycle-complete-name-error">
+                      {nameMessage}
+                    </FormError>
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground">기간</span>
@@ -374,7 +369,7 @@ function CompleteBody({
                       />
                     </div>
                     {newRangeInvalid && (
-                      <p className="text-sm text-destructive">종료일은 시작일 이후여야 합니다</p>
+                      <FormError>종료일은 시작일 이후여야 합니다</FormError>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">새 사이클은 바로 진행 중으로 시작합니다.</p>
@@ -429,11 +424,7 @@ function CompleteBody({
           </div>
         )}
 
-        {formError && (
-          <p role="alert" className="text-sm text-destructive">
-            {formError}
-          </p>
-        )}
+        <FormError>{formError}</FormError>
       </div>
 
       <DialogFooter>

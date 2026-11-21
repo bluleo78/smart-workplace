@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/ui/form-field';
 import { cn } from '@/lib/utils';
 
 export function PeriodRangeForm({
@@ -33,10 +34,11 @@ export function PeriodRangeForm({
         <span className="text-muted-foreground" aria-hidden="true">–</span>
         <input type="date" aria-label="종료일" data-testid="period-range-to" value={to} onChange={(e) => setTo(e.target.value)} className={input} />
       </div>
+      {/* 뒤집힌 기간 안내 — 적용을 막는 검증 실패라 role=alert 로 읽히게 한다(WP-1901). 시각은 그대로 text-xs. */}
       {reversed && (
-        <p data-testid="period-range-error" className="text-xs text-destructive">
+        <FormError data-testid="period-range-error" className="text-xs">
           시작일이 종료일보다 늦어요
-        </p>
+        </FormError>
       )}
       <Button type="submit" size="sm" disabled={!valid} data-testid="period-range-apply" className={buttonClassName}>
         적용

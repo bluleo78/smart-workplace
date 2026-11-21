@@ -605,6 +605,40 @@ describe('Outlook 연결 팝업', () => {
     expect(calls).toHaveLength(0)
   })
 
+  // WP-1901: 팝업 차단·연결 실패 안내는 나타나는 순간 스크린리더가 읽도록 role=alert 여야 한다.
+  test('팝업 차단 안내는 alert 로 읽힌다', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    const { user } = await openOutlook()
+    await user.click(screen.getByRole('button', { name: 'Outlook 계정 연결' }))
+    const alert = await within(screen.getByTestId('mail-account-dialog')).findByRole('alert')
+    expect(alert).toHaveTextContent('팝업이 차단되었습니다')
+  })
+
+  test('연결 실패 안내는 alert 로 읽힌다', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(fakePopup() as unknown as Window)
+    const { user } = await openOutlook({ startStatus: 500 })
+    await user.click(screen.getByRole('button', { name: 'Outlook 계정 연결' }))
+    const alert = await within(screen.getByTestId('mail-account-dialog')).findByRole('alert')
+    expect(alert).toHaveTextContent('Outlook 계정 연결에 실패했습니다')
+  })
+
+  // WP-1901: 진행 안내만 polite status 리전이고, 오류 alert 는 그 밖에 있어야 같은 안내가 두 번 읽히지 않는다.
+  test('연결 실패 alert 는 status 리전 바깥에 있다', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(fakePopup() as unknown as Window)
+    const { user } = await openOutlook({ startStatus: 500 })
+    await user.click(screen.getByRole('button', { name: 'Outlook 계정 연결' }))
+    const alert = await within(screen.getByTestId('mail-account-dialog')).findByRole('alert')
+    expect(alert.closest('[role="status"]')).toBeNull()
+  })
+
+  test('진행 안내는 status 리전으로 읽힌다', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(fakePopup() as unknown as Window)
+    const { user } = await openOutlook()
+    await user.click(screen.getByRole('button', { name: 'Outlook 계정 연결' }))
+    const progress = await within(screen.getByTestId('mail-account-dialog')).findByRole('status')
+    expect(progress).toHaveTextContent(/Microsoft 창에서 인증을 진행하세요/)
+  })
+
   test('/start 조회가 실패하면 팝업 차단이 아니라 일반 연결 실패 오류를 보인다', async () => {
     vi.spyOn(window, 'open').mockReturnValue(fakePopup() as unknown as Window)
     const { user } = await openOutlook({ startStatus: 500 })

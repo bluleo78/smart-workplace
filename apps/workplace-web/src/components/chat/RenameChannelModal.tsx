@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useRenameChannel, useUnarchiveChannel } from '@/hooks/queries/useChannelMutations'
@@ -120,11 +121,9 @@ export function RenameChannelModal({
             // 오류 문구가 있을 때만 잇는다 — 없는 id 를 가리키지 않게.
             aria-describedby={nameError ? 'rename-channel-name-error' : undefined}
           />
-          {nameError && (
-            <p id="rename-channel-name-error" className="text-sm text-destructive" data-testid="rename-channel-name-error">
-              {nameError}
-            </p>
-          )}
+          <FormError id="rename-channel-name-error" data-testid="rename-channel-name-error">
+            {nameError}
+          </FormError>
         </div>
         <DialogFooter>
           <Button data-testid="rename-channel-submit" disabled={!canSubmit} onClick={() => void submit()}>

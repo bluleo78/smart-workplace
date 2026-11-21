@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -148,9 +149,7 @@ export function CycleFormDialog({
               </p>
             )}
             {dateRangeInvalid && (
-              <p className="text-sm text-destructive" data-testid="cycle-date-range-error">
-                종료일은 시작일 이후여야 합니다
-              </p>
+              <FormError data-testid="cycle-date-range-error">종료일은 시작일 이후여야 합니다</FormError>
             )}
             {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
             <Select value={status} onValueChange={(v) => setStatus(v as CycleStatus)}>

@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react';
 import { AiIcon } from '@/components/ai/AiIcon';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/ui/form-field';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { isImeComposing } from '@/lib/imeKey';
@@ -170,9 +171,7 @@ export function AiDraftPanel({
     return (
       <PanelBox testId="mail-ai-compose-error">
         <AiLabel>AI로 초안 쓰기</AiLabel>
-        <p className="text-sm text-destructive" role="alert">
-          {error?.message}
-        </p>
+        <FormError>{error?.message}</FormError>
         <div className="flex justify-end gap-2">
           {permanent ? (
             // 영구 사유 — 다시 시도해도 같으므로 닫기만.

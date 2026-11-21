@@ -202,6 +202,20 @@ async function openNew(title: string) {
   return view
 }
 
+describe('제목 검증 오류 안내 (WP-1901)', () => {
+  test('제목을 비우고 저장하면 검증 문구가 alert 하나로 읽히고, 제목을 채우면 사라진다', async () => {
+    const { user, requests } = await openNew('')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('제목을 입력하세요')
+    expect(screen.getAllByRole('alert').filter((el) => el.textContent === '제목을 입력하세요')).toHaveLength(1)
+    expect(requests.posts).toHaveLength(0)
+    await user.click(screen.getByTestId('calendar-form-title'))
+    await user.paste('점심')
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+})
+
 describe('종일', () => {
   // #575 — 종일 체크가 시작·종료를 자정 경계로 바꾸고 allDay 로 저장된다.
   // WP-1072 — 종일이면 날짜 칸만 보이고 종료는 마지막 날을 포함한다(하루 일정 = 같은 날). 저장은 그대로 배타적 끝(다음 날 0시).

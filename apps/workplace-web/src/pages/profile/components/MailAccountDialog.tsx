@@ -25,7 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { FormField } from '@/components/ui/form-field';
+import { FormError, FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import {
   useCreateMailAccount,
@@ -58,6 +58,9 @@ interface MailAccountDialogProps {
 
 // 연결 테스트 통과 = IMAP·SMTP 모두 성공 — 저장 허용과 결과 표시(통과 결과만 값 변경에 숨김)가 같은 기준을 쓴다(WP-1790).
 const testPassed = (r: ConnectionTestResult) => r.imapOk && r.smtpOk;
+
+// OAuth 오류 상자 — 팝업 차단·연결 실패를 같은 모양의 빨간 박스로 보인다(WP-1901: role=alert 로 읽힌다).
+const OAUTH_ERROR_BOX_CLASS = 'rounded-md border border-destructive/50 bg-destructive/10 p-3';
 
 /**
  * 연결 테스트 결과 한 줄(IMAP 또는 SMTP).
@@ -341,6 +344,8 @@ export function MailAccountDialog({
   const saving = create.isPending || update.isPending;
   // OAuth 공급자는 저장 버튼 자체를 숨김(콜백이 계정 생성). IMAP은 연결 테스트 성공 후 허용.
   const isOAuth = provider === 'M365_GRAPH';
+  // 인증 진행 여부 — 진행 안내 리전의 모양·내용과 「다시 시도」 단추 표시가 같은 기준을 쓴다.
+  const connecting = oauthPhase === 'connecting';
   // 추가 모드는 IMAP + SMTP 모두 성공 후에만 저장 허용; 수정 모드는 항상 허용
   const canSave = isEdit || (freshResult !== null && testPassed(freshResult));
   // 저장이 막힌 이유 — 버튼만 회색이면 값을 다 채워도 왜 저장이 안 되는지 알 수 없었다(WP-928). 저장 버튼 아래에 보이고 버튼과 잇는다.
@@ -389,31 +394,45 @@ export function MailAccountDialog({
 
           {/* Outlook(M365 Graph) OAuth 연결 — 팝업 상태 머신(idle/connecting/error/cancelled) */}
           {isOAuth ? (
-            <div className="space-y-4 py-2" role="status" aria-live="polite">
-              {oauthPhase === 'connecting' ? (
-                <div className="flex flex-col items-center gap-3 py-4 text-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
-                  <p className="text-sm font-medium">Microsoft 창에서 인증을 진행하세요…</p>
-                  <p className="text-xs text-muted-foreground">창이 보이지 않으면 팝업 차단을 확인하세요.</p>
-                </div>
-              ) : (
+            // 바깥 래퍼는 ARIA 없음 — 리전은 아래 status 하나만. 오류 alert 는 그 형제로 밖에 둔다.
+            <div className="space-y-4 py-2">
+              {/* 오류 두 개는 polite 리전 밖 — 같은 안내가 alert·status 두 경로로 두 번 읽히지 않게 (WP-1901) */}
+              {oauthPhase === 'blocked' && (
+                <FormError className={OAUTH_ERROR_BOX_CLASS}>
+                  팝업이 차단되었습니다. 팝업을 허용한 뒤 다시 시도하세요.
+                </FormError>
+              )}
+              {oauthPhase === 'error' && (
+                <FormError className={OAUTH_ERROR_BOX_CLASS}>
+                  Outlook 계정 연결에 실패했습니다. 다시 시도하세요.
+                </FormError>
+              )}
+              {/* 진행·취소 안내를 담는 polite 리전 — 대화상자가 열리는 순간부터 렌더링해 내용이 바뀔 때만 읽힌다.
+                  리전과 내용을 같은 순간에 그리면 스크린리더가 안내를 건너뛰기 때문이다(WP-1901 리뷰). */}
+              <div
+                role="status"
+                aria-live="polite"
+                className={connecting ? 'flex flex-col items-center gap-3 py-4 text-center' : 'space-y-4'}
+              >
+                {connecting ? (
+                  <>
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
+                    <p className="text-sm font-medium">Microsoft 창에서 인증을 진행하세요…</p>
+                    <p className="text-xs text-muted-foreground">창이 보이지 않으면 팝업 차단을 확인하세요.</p>
+                  </>
+                ) : (
+                  <>
+                    {oauthPhase === 'cancelled' && (
+                      <p className="text-sm text-muted-foreground">연결이 취소되었습니다.</p>
+                    )}
+                    <p className="text-sm text-muted-foreground">
+                      별도 창에서 Microsoft 로그인이 열립니다. 권한을 허용하면 자동으로 계정이 연결됩니다.
+                    </p>
+                  </>
+                )}
+              </div>
+              {!connecting && (
                 <>
-                  {oauthPhase === 'blocked' && (
-                    <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                      팝업이 차단되었습니다. 팝업을 허용한 뒤 다시 시도하세요.
-                    </div>
-                  )}
-                  {oauthPhase === 'error' && (
-                    <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                      Outlook 계정 연결에 실패했습니다. 다시 시도하세요.
-                    </div>
-                  )}
-                  {oauthPhase === 'cancelled' && (
-                    <p className="text-sm text-muted-foreground">연결이 취소되었습니다.</p>
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    별도 창에서 Microsoft 로그인이 열립니다. 권한을 허용하면 자동으로 계정이 연결됩니다.
-                  </p>
                   <Button type="button" className="w-full" onClick={handleConnectOutlook}>
                     {oauthPhase === 'error' || oauthPhase === 'blocked' || oauthPhase === 'cancelled'
                       ? '다시 시도'

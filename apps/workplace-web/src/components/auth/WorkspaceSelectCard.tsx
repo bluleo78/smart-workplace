@@ -8,6 +8,7 @@ import { useAuth } from '../../hooks/useAuth';
 import type { Membership } from '../../types/auth';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
+import { FormError } from '../ui/form-field';
 import { AuthCardTitle } from './AuthCardTitle';
 
 /**
@@ -68,7 +69,7 @@ export function WorkspaceSelectCard({ options, notice }: { options: Membership[]
               )}
             </Button>
           ))}
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <FormError>{error}</FormError>
         </CardContent>
       </Card>
     </main>

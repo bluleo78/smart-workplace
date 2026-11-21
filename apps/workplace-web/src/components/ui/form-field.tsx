@@ -14,6 +14,28 @@ interface FormFieldProps {
   className?: string;
 }
 
+interface FormErrorProps {
+  id?: string;
+  className?: string;
+  'data-testid'?: string;
+  children?: ReactNode;
+}
+
+/**
+ * 폼 오류 안내 문단 — 필드 오류와 제출 실패(루트 오류)가 같은 모양·같은 role=alert 로 읽히게 하는 공용 컴포넌트(WP-1901).
+ * 곳곳에 흩어진 `<p className="text-sm text-destructive">` 를 대체한다.
+ * children 이 null/undefined/false/'' 이면 아무것도 그리지 않아 호출부가 조건 분기를 하지 않아도 된다.
+ */
+export function FormError({ id, className, 'data-testid': testId, children }: FormErrorProps) {
+  // 빈 내용이면 빈 alert 영역을 남기지 않는다
+  if (children === null || children === undefined || children === false || children === '') return null;
+  return (
+    <p id={id} role="alert" data-testid={testId} className={cn('text-sm text-destructive', className)}>
+      {children}
+    </p>
+  );
+}
+
 /**
  * 폼 필드 래퍼 — 레이블·에러 메시지·ARIA 연결을 중앙 관리한다.
  * 에러가 있으면 children(Input/Textarea)에 aria-invalid/aria-describedby를 자동 주입해
@@ -42,9 +64,7 @@ export function FormField({ label, htmlFor, error, required, externalErrorId, ch
         {required && <span className="text-destructive ml-0.5">*</span>}
       </Label>
       {childrenWithAria}
-      {error && (
-        <p id={errorId} role="alert" className="text-sm text-destructive">{error}</p>
-      )}
+      <FormError id={errorId}>{error}</FormError>
     </div>
   );
 }

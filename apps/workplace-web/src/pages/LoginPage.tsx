@@ -10,6 +10,7 @@ import { SsoBanner } from '../components/auth/SsoBanner';
 import { WorkspaceSelectCard } from '../components/auth/WorkspaceSelectCard';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader } from '../components/ui/card';
+import { FormError } from '../components/ui/form-field';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { PasswordInput } from '../components/ui/password-input';
@@ -97,9 +98,7 @@ export default function LoginPage() {
                 {...register('username')}
               />
               {errors.username && (
-                <p id="username-error" role="alert" className="text-sm text-destructive">
-                  {errors.username.message}
-                </p>
+                <FormError id="username-error">{errors.username.message}</FormError>
               )}
             </div>
             <div className="space-y-2">
@@ -112,16 +111,12 @@ export default function LoginPage() {
                 {...register('password')}
               />
               {errors.password && (
-                <p id="password-error" role="alert" className="text-sm text-destructive">
-                  {errors.password.message}
-                </p>
+                <FormError id="password-error">{errors.password.message}</FormError>
               )}
             </div>
             {/* 제출 오류가 우선, 없으면 세션 안내(예: refresh 후 남은 워크스페이스 없음 — WP-341 후속).
                 role=alert — 실패하면 포커스가 칸에 머물러 화면을 못 보는 사용자는 실패를 알 수 없었다(WP-733). */}
-            {(serverError || authNotice) && (
-              <p role="alert" className="text-sm text-destructive">{serverError || authNotice}</p>
-            )}
+            <FormError>{serverError || authNotice}</FormError>
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? '로그인 중...' : '로그인'}
             </Button>

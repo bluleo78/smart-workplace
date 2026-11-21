@@ -16,6 +16,7 @@ import {
 } from '@/components/overlay/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { isoToLocalInput } from '@/lib/calendar';
@@ -161,10 +162,13 @@ export function MailScheduleSendMenu({ disabled, onSchedule, variant }: Props) {
             setBlocked(false);
           }}
         />
+        {/* 예약 시각 검증 실패 — 확정을 막는 안내라 role=alert 로 읽히게 한다(WP-1901). 문구·크기는 그대로. */}
         {tooFar ? (
-          <p className="text-xs text-destructive">지금부터 1년 안으로 골라 주세요</p>
+          <FormError className="text-xs">지금부터 1년 안으로 골라 주세요</FormError>
         ) : (
-          ((!valid && value !== '') || stale) && <p className="text-xs text-destructive">지금부터 2분 뒤 이후로 골라 주세요</p>
+          ((!valid && value !== '') || stale) && (
+            <FormError className="text-xs">지금부터 2분 뒤 이후로 골라 주세요</FormError>
+          )
         )}
         {blocked && <BlockedNote />}
         <DialogFooter>

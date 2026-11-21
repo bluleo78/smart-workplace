@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { FormError } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -297,7 +298,12 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
               spellCheck={false}
               data-testid="agent-repo-host"
             />
-            {hostError && <p className="text-xs text-destructive">https:// 나 경로 없이 호스트 이름만 적어 주세요. 예: github.com</p>}
+            {/* 호스트 형식 검증 실패 — 연결을 막는 안내라 role=alert 로 읽히게 한다(WP-1901). 문구·크기는 그대로. */}
+            {hostError && (
+              <FormError className="text-xs">
+                https:// 나 경로 없이 호스트 이름만 적어 주세요. 예: github.com
+              </FormError>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="agent-repo-token">토큰</Label>

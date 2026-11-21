@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -93,11 +94,7 @@ export function CreateChannelModal({
               maxLength={80}
               aria-invalid={!!nameError}
             />
-            {nameError && (
-              <p className="text-sm text-destructive" data-testid="create-channel-name-error">
-                {nameError}
-              </p>
-            )}
+            <FormError data-testid="create-channel-name-error">{nameError}</FormError>
           </div>
           <div className="flex items-center justify-between">
             <Label htmlFor="create-channel-visibility-private">비공개 채널</Label>
