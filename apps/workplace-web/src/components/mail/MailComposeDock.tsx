@@ -68,6 +68,7 @@ import {
   signatureImageIds,
   splitSignature,
 } from '@/lib/mailSignature';
+import { hasMailSubject } from '@/lib/mailSubject';
 import { cn } from '@/lib/utils';
 
 import { useCoachDraft, useSendMail } from '../../hooks/queries/useMailMessages';
@@ -137,11 +138,19 @@ const BODY_CLASS: Record<MailComposeFrameLayout, string> = {
   dock: 'flex max-h-[min(75vh,calc(100vh-3rem))] flex-col gap-2 overflow-y-auto p-3',
 };
 
-/** 모바일 상단 바 제목 — 전달(인용문이 전달용) / 회신(답장 대상 있음) / 새 메일. */
+/** 작성창 모드 제목 — 모바일 상단 바, 그리고 제목이 빈 데스크톱 머리 h2·새 창 문서 제목(composeHeadTitle). 전달(인용문이 전달용) / 회신(답장 대상 있음) / 새 메일. */
 function composeTitle(draft: ComposeDraft): string {
   if (draft.mode === 'forward') return '전달';
   if (draft.mode === 'reply') return '회신';
   return '새 메일';
+}
+
+/**
+ * 데스크톱 머리 h2·새 창 문서 제목 — 쓰는 제목, 보이는 글자가 없으면(공백·제로폭 문자뿐, hasMailSubject) 모바일과 같은 새 메일·회신·전달.
+ * 빈 헤딩·빈 탭 제목이 되지 않게 두 곳이 같은 규칙을 쓴다(WP-1935).
+ */
+function composeHeadTitle(subject: string, draft: ComposeDraft): string {
+  return hasMailSubject(subject) ? subject : composeTitle(draft);
 }
 
 /**
@@ -398,8 +407,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       bcc !== draft.bcc.join(', ') ||
       subject !== draft.subject);
 
-  // 새 창 탭 제목(WP-1535) — 쓰는 제목, 없으면 「새 메일」(머리줄 제목과 같은 규칙). 앱 안 작성창은 탭 제목을 바꾸지 않는다.
-  useDocumentTitle(popout && draft ? [subject || '새 메일'] : []);
+  // 새 창 탭 제목(WP-1535) — 머리 h2 와 같은 규칙(composeHeadTitle). 앱 안 작성창은 탭 제목을 바꾸지 않는다.
+  useDocumentTitle(popout && draft ? [composeHeadTitle(subject, draft)] : []);
   // 떠나는 중인 회차 — 새 창으로 옮기는 저장(메인 창) 또는 새 창을 닫기 전 저장·삭제를 기다리는 동안 그 회차의 작성창을 잠근다(그사이 쓴 것이 빠지지 않게).
   // 회차 id 로 가린다 — 도크 본체는 회차 사이에 다시 마운트되지 않아, 불리언이면 앞 회차의 늦은 저장이 끝날 때 지금 회차의 잠금을 풀거나
   // 앞 회차가 옮기는 동안 연 새 회차를 잠그기 때문이다.
@@ -536,7 +545,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   useEffect(() => {
     if (!draft || composeInitial.signatureSettled || signature.isPending) return;
     if (composerReadyFor !== instanceId || signatureDecidedFor === instanceId) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 서명 조회가 끝난 뒤(비동기 결과)에야 정해지고 회차마다 한 번이라 렌더 중으로 못 옮긴다.
+     
     setSignatureDecidedFor(instanceId);
     if (!sig || !shouldAutoInsertSignature(draft, sig)) return;
     if (bodyHtmlRef.current !== bodyBaselineRef.current) return;
@@ -1226,7 +1235,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
             <div className="flex min-w-0 items-baseline gap-2">
               {/* 작성 구역의 h2 헤딩(WP-1904) — 읽기 창으로 옮기면 상세의 숨은 h2 가 감춰지므로 이 제목이 그 칸의 헤딩이 된다. */}
               <h2 id="mail-compose-dock-title" className="truncate text-sm font-medium">
-                {subject || '새 메일'}
+                {composeHeadTitle(subject, draft)}
               </h2>
               {saveStatus}
             </div>

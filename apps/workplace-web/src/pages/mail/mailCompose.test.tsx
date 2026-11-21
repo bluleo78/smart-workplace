@@ -172,6 +172,33 @@ test('전달·새 메일은 지금처럼 받는 사람에 초점이 있고 본�
   expect(bodyFocused()).toBe(false)
 })
 
+test('제목을 지운 회신·전달 작성창의 머리 제목은 「회신」·「전달」이고, 제목이 있으면 그 제목이다(WP-1935)', async () => {
+  // 제목을 고치면 임시저장이 나가므로 받아 줄 핸들러를 둔다.
+  const drafts = draftPosts()
+  const view = withSource({}, [drafts.handler])
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-reply'))
+  await screen.findByTestId('mail-compose-dock')
+  const subject = screen.getByTestId('mail-compose-subject') as HTMLInputElement
+  // 제목이 있으면 그 제목 그대로(회귀 없음).
+  const original = subject.value
+  expect(original).not.toBe('')
+  expect(screen.getByRole('heading', { level: 2, name: original })).toHaveAttribute('id', 'mail-compose-dock-title')
+  // 제목을 지우면 「회신」, 공백뿐이어도 「회신」이고 구역 이름도 같다.
+  await view.user.clear(subject)
+  expect(screen.getByRole('heading', { level: 2, name: '회신' })).toHaveAttribute('id', 'mail-compose-dock-title')
+  await view.user.type(subject, '  ')
+  expect(screen.getByRole('heading', { level: 2, name: '회신' })).toBeInTheDocument()
+  expect(screen.getByTestId('mail-compose-dock')).toHaveAccessibleName('회신')
+  // 전달도 같다.
+  await view.user.click(screen.getByTestId('mail-compose-close'))
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
+  await view.user.click(screen.getByTestId('mail-forward'))
+  await screen.findByTestId('mail-compose-dock')
+  await view.user.clear(screen.getByTestId('mail-compose-subject'))
+  expect(screen.getByRole('heading', { level: 2, name: '전달' })).toHaveAttribute('id', 'mail-compose-dock-title')
+})
+
 test('답장 본문 초점은 한 번만 — 사용자가 제목으로 옮긴 뒤 다시 끌어오지 않는다', async () => {
   const view = withSource()
   await openSource(view)

@@ -254,6 +254,10 @@ test('새 창은 그 임시저장을 작성창으로 열고, 최소화·읽기 �
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(screen.getByTestId('mail-compose-dock').className).toContain('inset-0')
   await waitFor(() => expect(document.title).toContain('새 창 메일'))
+  // 제목을 공백뿐으로 지우면 창 제목도 「새 메일」로 돌아간다(WP-1935).
+  fireEvent.change(subject, { target: { value: '  ' } })
+  await waitFor(() => expect(document.title).toContain('새 메일'))
+  fireEvent.change(subject, { target: { value: '새 창 메일' } })
   // 화면 제목 h1 은 「메일 작성」 하나, 작성창 제목은 앱 안과 같은 h2 다(WP-1904).
   const h1s = screen.getAllByRole('heading', { level: 1 })
   expect(h1s).toHaveLength(1)

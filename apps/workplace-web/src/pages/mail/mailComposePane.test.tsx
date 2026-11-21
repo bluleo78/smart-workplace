@@ -129,6 +129,14 @@ test('우측 하단에서 붙인 첨부는 읽기 창으로 옮겼다 되돌려�
   await screen.findByTestId('mail-compose-dock')
   // 제목이 빈 새 메일은 「새 메일」 h2 헤딩이 작성 구역의 이름이다(WP-1904).
   expect(screen.getByRole('heading', { level: 2, name: '새 메일' })).toHaveAttribute('id', 'mail-compose-dock-title')
+  // 공백뿐인 제목도 빈 헤딩이 아니라 「새 메일」이고 구역 이름도 같다(WP-1935).
+  await view.user.type(screen.getByTestId('mail-compose-subject'), '   ')
+  expect(screen.getByRole('heading', { level: 2, name: '새 메일' })).toHaveAttribute('id', 'mail-compose-dock-title')
+  expect(screen.getByTestId('mail-compose-dock')).toHaveAccessibleName('새 메일')
+  // 제로폭 공백·단어 연결자처럼 보이지 않는 글자뿐인 제목도 「새 메일」이다(trim 이 못 지우는 글자, hasMailSubject 규칙).
+  fireEvent.change(screen.getByTestId('mail-compose-subject'), { target: { value: '​⁠' } })
+  expect(screen.getByRole('heading', { level: 2, name: '새 메일' })).toHaveAttribute('id', 'mail-compose-dock-title')
+  await view.user.clear(screen.getByTestId('mail-compose-subject'))
   await view.user.upload(
     screen.getByTestId('mail-compose-file-input') as HTMLInputElement,
     new File(['PDF-CONTENT-123'], '보고서.pdf', { type: 'application/pdf' }),
