@@ -491,22 +491,16 @@ test('합성 — 「지금 신경 쓸 일」 행은 출처 칩과 meta 를 접�
   const focus = screen.getByTestId('dashboard-attention-focus')
   // 이름은 출처 칩 때문에 늘지 않는다(WP-1902) — 여전히 제목만.
   expect(focus).toHaveAccessibleName(`알림 열기: ${A} (멘션 3건)`)
-  // 출처 칩이 설명 맨 앞에 오고 그 뒤에 meta 가 이어진다(WP-1902).
-  expect(focus).toHaveAccessibleDescription(/^멘션 멘션 3 · /)
-  const focusIds = (focus.getAttribute('aria-describedby') ?? '').split(' ')
-  expect(focusIds).toHaveLength(2)
-  expect(document.getElementById(focusIds[0])?.textContent).toBe('멘션')
+  // meta 에 「멘션」이 이미 있어 칩은 설명에서 빠진다 — 「멘션」이 한 번만 읽힌다(WP-1902).
+  expect(focus).toHaveAccessibleDescription(/^멘션 3 · /)
   const rest = attention.querySelectorAll('ul a')
-  // WP-1902: 출처 칩 + meta 가 순서대로 설명이 된다.
-  expect(rest[0]).toHaveAccessibleDescription('멘션 멘션')
-  const restIds = (rest[0].getAttribute('aria-describedby') ?? '').split(' ')
-  expect(restIds).toHaveLength(2)
-  expect(document.getElementById(restIds[0])?.textContent).toBe('멘션')
+  // WP-1902: 이 행도 meta(「멘션」)에 출처 낱말이 있어 칩 없이 meta 만 설명이 된다.
+  expect(rest[0]).toHaveAccessibleDescription('멘션')
   // 행마다 id 가 고유해 설명이 서로 섞이지 않는다(WP-1891 유지).
   expect(focus.getAttribute('aria-describedby')).not.toBe(rest[0].getAttribute('aria-describedby'))
 })
 
-test('합성 — 「지금 신경 쓸 일」 행은 출처 칩(이슈·메일·메시지)도 접근 설명으로 읽는다 (WP-1902)', async () => {
+test('합성 — 「지금 신경 쓸 일」 행은 출처 낱말이 이름·meta 에 없을 때만 칩을 접근 설명으로 읽는다 (WP-1902)', async () => {
   // 「이슈·메시지·메일 행이 AI 우선순위 점수 순서로…」 테스트와 같은 픽스처(issues 1건 · mail 1건 · messaging 1건 + priority)를 그대로 옮겨 쓴다.
   renderHome(layout(['synthesis']), {
     notifications: [],
@@ -527,9 +521,9 @@ test('합성 — 「지금 신경 쓸 일」 행은 출처 칩(이슈·메일·�
   const attention = await screen.findByTestId('dashboard-attention')
   await waitFor(() => expect(within(attention).getAllByRole('link')).toHaveLength(3))
   // DOM 순 출처 칩 = 포커스(메일) · 리스트1(이슈) · 리스트2(메시지) — 위 테스트의 정렬 결과와 같다.
-  // 설명 = 「칩 meta」. meta 는 buildAttentionRows 규칙의 확정 문구(메일 회신 필요 · 이슈 마감 지남 · 메시지 AI 발굴 확인 필요)를 그대로 적어
-  // describedby 가 다른 행의 요소를 가리키면 문구가 달라져 실패하게 한다.
-  const descriptions = ['메일 회신 필요', '이슈 마감 지남', '메시지 확인 필요']
+  // 이름(「메일 열기」「이슈 열기」)에 출처 낱말이 있는 메일·이슈 행은 meta 만, 이름에 없는 메시지 행(「대화 열기」)만 칩+meta 가 설명이 된다.
+  // 문구는 buildAttentionRows 규칙의 확정 문구를 그대로 적어 describedby 가 다른 행의 요소를 가리키면 실패하게 한다.
+  const descriptions = ['회신 필요', '마감 지남', '메시지 확인 필요']
   within(attention).getAllByRole('link').forEach((link, i) => {
     expect(link).toHaveAccessibleDescription(descriptions[i])
   })

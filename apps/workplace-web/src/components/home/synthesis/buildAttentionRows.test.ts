@@ -7,7 +7,7 @@ import type { IssueDueMarker } from '@/types/calendar'
 import type { ConversationSummaryItem, MailSummaryItem } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
-import { type AttentionRowsInput, buildAttentionRows } from './buildAttentionRows'
+import { attentionDescribedBy, type AttentionRowsInput, buildAttentionRows } from './buildAttentionRows'
 
 const TODAY = '2026-06-16'
 
@@ -99,7 +99,7 @@ describe('buildAttentionRows — 마감 이슈', () => {
       ['오늘', '오늘 마감'],
       ['지연', '마감 지남'],
     ])
-    expect(rows[1]).toMatchObject({ to: '/projects/WP/issues/7', ariaLabel: '이슈 열기: 지연', source: '이슈' })
+    expect(rows[1]).toMatchObject({ to: '/projects/WP/issues/7', ariaLabel: '이슈 열기: 지연', source: '이슈', sourceChipDescribed: false })
   })
 })
 
@@ -134,6 +134,7 @@ describe('buildAttentionRows — 메일', () => {
       meta: '회신 필요',
       to: '/mail/1?messageId=100',
       ariaLabel: '메일 열기: 계약서 회신 요청',
+      sourceChipDescribed: false,
     })
   })
 
@@ -157,7 +158,7 @@ describe('buildAttentionRows — 메시징', () => {
 
   it('채널은 /chat/channels, DM 은 /chat/dms 로 딥링크하고 AI 발굴이면 isAi', () => {
     const [ch] = build({ messagingRecent: [convo({ conversationId: 12, aiReason: '질문' })] })
-    expect(ch).toMatchObject({ to: '/chat/channels/12', ariaLabel: '대화 열기: #dev', isAi: true })
+    expect(ch).toMatchObject({ to: '/chat/channels/12', ariaLabel: '대화 열기: #dev', isAi: true, sourceChipDescribed: true })
     const [dm] = build({ messagingRecent: [convo({ kind: 'DM', conversationId: 7, label: '이대리', needsReply: true })] })
     expect(dm).toMatchObject({ to: '/chat/dms/7', ariaLabel: '대화 열기: 이대리', isAi: false })
   })
@@ -174,7 +175,7 @@ describe('buildAttentionRows — 멘션 묶음', () => {
     })
     expect(rows.map((r) => r.title)).toEqual(['A', 'B'])
     expect(rows[0].meta).toMatch(/^멘션 2 · /)
-    expect(rows[0]).toMatchObject({ to: '/projects/WP/issues/7', ariaLabel: '알림 열기: A (멘션 2건)' })
+    expect(rows[0]).toMatchObject({ to: '/projects/WP/issues/7', ariaLabel: '알림 열기: A (멘션 2건)', sourceChipDescribed: false })
     expect(rows[1]).toMatchObject({ meta: '멘션', ariaLabel: '알림 열기: B' })
   })
 
@@ -227,5 +228,12 @@ describe('buildAttentionRows — 정렬', () => {
       priorityItems: [score('MENTION', '2', 180)],
     })
     expect(rows.map((r) => r.title)).toEqual(['이슈 A', '멘션 B'])
+  })
+})
+
+describe('출처 칩 접근 설명(WP-1902) — 이름·meta 가 출처를 말하지 않는 행만 칩을 잇는다', () => {
+  it('attentionDescribedBy — 이을 행은 칩 → meta 순, 아니면 meta 만', () => {
+    expect(attentionDescribedBy({ sourceChipDescribed: true }, 'c', 'm')).toBe('c m')
+    expect(attentionDescribedBy({ sourceChipDescribed: false }, 'c', 'm')).toBe('m')
   })
 })
