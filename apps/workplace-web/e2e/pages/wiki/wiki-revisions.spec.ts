@@ -2,7 +2,7 @@
 // 여기 남은 것은 라이브 문서(동기화 서버)와 비교·복원하는 시나리오(@platform)다.
 import type { Page } from '@playwright/test'
 
-import { BACKGROUND_DISCONNECT_MS } from '../../../src/lib/collab/collabResume'
+import { AWAY_TOAST_MS } from '../../../src/lib/collab/collabResume'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { applyCollabMarkdown, changeCollabRole, leaveAllCollabPeers, readCollabMarkdown, setPageVisibility, typeAtEnd } from '../../fixtures/collab'
 import { KIM } from '../../fixtures/presence'
@@ -367,7 +367,7 @@ test.describe('노트 버전 기록', { tag: '@platform' }, () => {
     await expect(a.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'live')
   })
 
-  test('복귀 토스트 "변경 보기"는 패널을 열고 최신 판을 변경 표시로 고른다', async ({ authenticatedPage: a, newAuthedPage, collabNs }) => {
+  test('복귀 토스트 "변경 보기"는 패널을 열고 최신 판을 변경 표시로 고른다', async ({ authenticatedPage: a, newAuthedPage }) => {
     const opts = { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: LIVE }
     await mockWikiPageEditor(a, opts)
     await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: DETAILS })
@@ -380,10 +380,12 @@ test.describe('노트 버전 기록', { tag: '@platform' }, () => {
     await expect(a.getByTestId('wiki-presence')).toBeVisible()
 
     await setPageVisibility(a, 'hidden')
-    await a.clock.fastForward(BACKGROUND_DISCONNECT_MS + 1000)
-    await expect(b.getByTestId('wiki-presence')).toHaveCount(0)
+    await a.clock.fastForward(AWAY_TOAST_MS + 1000)
+    // 데스크톱은 탭을 숨겨도 접속을 유지한다(onHidden 은 모바일 폭에서만 끊음). B 의 접속 표시 0 은 시계 점프로
+    // @hocuspocus/provider 의 connectionChecker(messageReconnectTimeout 30초)가 소켓을 잠깐 닫는 부작용이라 기다리지 않는다.
     await typeAtEnd(b, '이월한다.', ' 김철수가 고침')
-    await expect.poll(() => readCollabMarkdown(collabNs, PAGE_ID)).toContain('김철수가 고침')
+    // 동기화된 채 돌아오면 그 자리에서 비운 동안의 편집자를 세므로, B 의 수정이 A 문서에 들어온 뒤 돌아온다.
+    await expect(a.locator('.ProseMirror')).toContainText('김철수가 고침')
 
     await setPageVisibility(a, 'visible')
     await expect(a.getByText('자리를 비운 동안 1명이 수정했어요')).toBeVisible()
