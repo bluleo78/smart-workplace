@@ -873,4 +873,29 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
     assertThat(created.tags()).isEmpty();
     assertThat(eventService.get(ownerId, created.id()).title()).isEqualTo("회의");
   }
+
+  /**
+   * WP-1907 — 범주 써 넣기에서 M365 토큰을 읽지 못해도(전송기가 다시 연결 안내 예외를 그대로 내보낸다) 생성은 성공으로 돌려준다. 실패로 돌려주면 다시
+   * 「저장」할 때 같은 일정(과 초대 메일)이 하나 더 생긴다.
+   */
+  @Test
+  void create_external_withTagIds_tokenUnreadableOnCategories_stillReturnsCreatedEvent() {
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("고객사", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-evt-t5");
+    liveCategories("graph-evt-t5", List.of());
+    org.mockito.Mockito.doThrow(
+            com.workplace.mail.exception.MailCredentialUnreadableException.oauthToken(null))
+        .when(calendarTransport)
+        .updateCategories(eq(ownerId), any(), eq("graph-evt-t5"), anyList());
+
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(extCalId, null), List.of(tagId)));
+
+    verify(calendarTransport, org.mockito.Mockito.times(1))
+        .createEvent(eq(ownerId), any(), eq("gcal-write"), any());
+    assertThat(created.tags()).isEmpty();
+    assertThat(eventService.get(ownerId, created.id()).title()).isEqualTo("회의");
+  }
 }

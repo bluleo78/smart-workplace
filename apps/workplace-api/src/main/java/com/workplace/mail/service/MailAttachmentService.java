@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.exception.EmailAttachmentNotFoundException;
+import com.workplace.mail.exception.MailCredentialUnreadableException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -264,7 +265,8 @@ public class MailAttachmentService {
         throw new EmailAttachmentNotFoundException(attachmentId);
       }
       return Base64.getDecoder().decode(attachment.contentBytes());
-    } catch (EmailAttachmentNotFoundException e) {
+    } catch (EmailAttachmentNotFoundException | MailCredentialUnreadableException e) {
+      // 토큰 복호화 실패도 500 으로 감싸지 않고 그대로 올려 502 + 「계정을 다시 연결」 안내가 되게 한다(WP-1907)
       throw e;
     } catch (Exception e) {
       log.warn("Graph 첨부 다운로드 실패 (attachmentId={}): {}", attachmentId, e.toString());

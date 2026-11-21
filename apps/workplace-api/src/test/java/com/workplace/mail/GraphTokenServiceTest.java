@@ -2,17 +2,23 @@ package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import com.workplace.global.security.EncryptionService;
+import com.workplace.mail.exception.MailCredentialUnreadableException;
+import com.workplace.mail.exception.MailTrashException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.GraphTokenService;
+import com.workplace.mail.service.MailServerErrors;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
@@ -108,5 +114,64 @@ class GraphTokenServiceTest extends IntegrationTestBase {
     assertThat(at).isEqualTo("CACHED_AT");
     // graphApiClient.refresh 는 호출되지 않아야 함
     org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+  }
+
+  /**
+   * WP-1907 — 저장된 refresh 토큰을 복호화하지 못하면(형식 오류·키 불일치·Base64 오류) 500 이 아니라 「다시 연결」 예외로 끊고, 갱신 호출은 하지
+   * 않는다.
+   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {"not-encrypted", "AAAAAAAAAAAAAAAA:QUJDREVGR0hJSktMTU5PUFFSU1RVVldY", "!!!:???"})
+  void unreadableRefreshToken_throwsReconnect(String stored) {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId, "RT", OffsetDateTime.now().minusMinutes(1));
+    dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, stored)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .execute();
+
+    assertThatThrownBy(() -> graphTokenService.getAccessToken(userId, accountId))
+        .isInstanceOf(MailCredentialUnreadableException.class)
+        .hasMessage(MailServerErrors.OAUTH_TOKEN_UNREADABLE)
+        .extracting(e -> ((MailCredentialUnreadableException) e).trashCode())
+        .isEqualTo(MailTrashException.OAUTH_TOKEN_UNREADABLE);
+    org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+  }
+
+  /** WP-1907 — refresh 토큰이 행에 없어도(null) NPE 가 아니라 같은 「다시 연결」 예외다. */
+  @Test
+  void nullRefreshToken_throwsReconnect() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId, "RT", OffsetDateTime.now().minusMinutes(1));
+    dsl.update(EMAIL_ACCOUNT)
+        .setNull(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .execute();
+
+    assertThatThrownBy(() -> graphTokenService.getAccessToken(userId, accountId))
+        .isInstanceOf(MailCredentialUnreadableException.class)
+        .hasMessage(MailServerErrors.OAUTH_TOKEN_UNREADABLE);
+    org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+  }
+
+  /** WP-1907 — access 토큰만 깨져 있으면 오류 없이 refresh 로 새 토큰을 받고 DB 에 회전 저장한다. */
+  @Test
+  void unreadableAccessToken_refreshesInstead() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId, "RT_OK", OffsetDateTime.now().plusHours(1));
+    dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, "not-encrypted")
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .execute();
+    when(graphApiClient.refresh("RT_OK"))
+        .thenReturn(new GraphApiClient.TokenResponse("NEW_AT", "NEW_RT", 3600, null));
+
+    String at = graphTokenService.getAccessToken(userId, accountId);
+
+    assertThat(at).isEqualTo("NEW_AT");
+    var tokens = accountRepo.findOAuthTokens(userId, accountId).orElseThrow();
+    assertThat(encryption.decrypt(tokens.accessToken())).isEqualTo("NEW_AT");
+    assertThat(encryption.decrypt(tokens.refreshToken())).isEqualTo("NEW_RT");
   }
 }

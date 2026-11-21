@@ -1,7 +1,9 @@
 package com.workplace.mail.service;
 
+import com.workplace.global.exception.CryptoException;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.mail.exception.MailCredentialUnreadableException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAccountRepository.OAuthTokens;
@@ -38,6 +40,7 @@ public class GraphTokenService {
    * @param accountId 메일 계정 ID
    * @return 유효한 access_token 평문
    * @throws EmailAccountNotFoundException 계정이 없거나 접근 불가한 경우
+   * @throws MailCredentialUnreadableException refresh_token 이 없거나 복호화할 수 없어 계정을 다시 연결해야 하는 경우(502)
    */
   @Transactional // RLS GUC 주입 필수 — 비-tx 경로는 fail-closed
   public String getAccessToken(long userId, long accountId) {
@@ -47,11 +50,13 @@ public class GraphTokenService {
             .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
 
     OffsetDateTime exp = t.expiresAt();
-    String access = t.accessToken() == null ? null : encryption.decrypt(t.accessToken());
+    // 만료 2분 전이면 어차피 버릴 값이라 복호화하지 않는다(헛 복호화·키 교체 뒤 헛 경고를 막는다).
+    // access_token 은 캐시일 뿐이라 깨져 있으면 null 로 보고 refresh 로 새로 받는다(오류로 만들지 않는다)
+    boolean fresh = exp != null && !exp.isBefore(OffsetDateTime.now().plusMinutes(2));
+    String access = fresh ? decryptAccessOrNull(accountId, t.accessToken()) : null;
 
-    // 만료 2분 전이면 갱신
-    if (access == null || exp == null || exp.isBefore(OffsetDateTime.now().plusMinutes(2))) {
-      String refresh = encryption.decrypt(t.refreshToken());
+    if (access == null) {
+      String refresh = decryptRefresh(accountId, t.refreshToken());
       GraphApiClient.TokenResponse r = graphApiClient.refresh(refresh);
       access = r.accessToken();
 
@@ -67,5 +72,46 @@ public class GraphTokenService {
     }
 
     return access;
+  }
+
+  /**
+   * 캐시된 access_token 을 복호화한다. 복호화할 수 없으면(키 교체·손상) 경고만 남기고 null 을 돌려 호출자가 refresh 하게 한다.
+   *
+   * <p>로그에는 계정 id 와 예외 클래스 이름만 남긴다(암호문·토큰 금지).
+   */
+  private String decryptAccessOrNull(long accountId, String enc) {
+    if (enc == null) {
+      return null;
+    }
+    try {
+      return encryption.decrypt(enc);
+    } catch (CryptoException | IllegalArgumentException e) {
+      log.warn(
+          "M365 access_token 복호화 실패 — refresh 로 대체: accountId={}, cause={}",
+          accountId,
+          e.getClass().getSimpleName());
+      return null;
+    }
+  }
+
+  /**
+   * refresh_token 을 복호화한다. 행에 없거나 복호화할 수 없으면 되살릴 수 없으므로 「계정 다시 연결」 안내(502)로 끊는다.
+   *
+   * <p>로그에는 계정 id 와 예외 클래스 이름만 남긴다(암호문·토큰 금지).
+   */
+  private String decryptRefresh(long accountId, String enc) {
+    if (enc == null) {
+      log.warn("M365 refresh_token 없음: accountId={}", accountId);
+      throw MailCredentialUnreadableException.oauthToken(null);
+    }
+    try {
+      return encryption.decrypt(enc);
+    } catch (CryptoException | IllegalArgumentException e) {
+      log.warn(
+          "M365 refresh_token 복호화 실패: accountId={}, cause={}",
+          accountId,
+          e.getClass().getSimpleName());
+      throw MailCredentialUnreadableException.oauthToken(e);
+    }
   }
 }

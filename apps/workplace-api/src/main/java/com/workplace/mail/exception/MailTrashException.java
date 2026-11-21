@@ -35,6 +35,12 @@ public class MailTrashException extends RuntimeException {
   /** 비우는 도중 메일 계정 연결이 해제됐다. */
   public static final String ACCOUNT_GONE = "ACCOUNT_GONE";
 
+  /** 저장된 메일 계정 비밀번호를 읽지 못했다(WP-1907) — 계정 설정에서 비밀번호를 다시 입력해야 한다. */
+  public static final String CREDENTIAL_UNREADABLE = "CREDENTIAL_UNREADABLE";
+
+  /** 저장된 Microsoft 365 계정 토큰을 읽지 못했다(WP-1907) — 계정을 다시 연결해야 한다. */
+  public static final String OAUTH_TOKEN_UNREADABLE = "OAUTH_TOKEN_UNREADABLE";
+
   /** 코드별 응답 상태와 화면 문구(spec 「문구」 표 글자 그대로). */
   private record Spec(HttpStatus status, String message) {}
 
@@ -56,7 +62,11 @@ public class MailTrashException extends RuntimeException {
           INTERRUPTED,
           new Spec(HttpStatus.BAD_GATEWAY, "서버가 다시 시작되어 멈췄습니다"),
           ACCOUNT_GONE,
-          new Spec(HttpStatus.NOT_FOUND, "메일 계정 연결이 해제되어 멈췄습니다"));
+          new Spec(HttpStatus.NOT_FOUND, "메일 계정 연결이 해제되어 멈췄습니다"),
+          CREDENTIAL_UNREADABLE,
+          new Spec(HttpStatus.BAD_GATEWAY, MailServerErrors.CREDENTIAL_UNREADABLE),
+          OAUTH_TOKEN_UNREADABLE,
+          new Spec(HttpStatus.BAD_GATEWAY, MailServerErrors.OAUTH_TOKEN_UNREADABLE));
 
   private final String code;
   private final HttpStatus status;

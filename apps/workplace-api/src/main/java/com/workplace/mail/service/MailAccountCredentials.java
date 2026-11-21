@@ -3,7 +3,7 @@ package com.workplace.mail.service;
 import com.workplace.global.exception.CryptoException;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
-import com.workplace.mail.exception.MailSyncException;
+import com.workplace.mail.exception.MailCredentialUnreadableException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +28,7 @@ public class MailAccountCredentials {
    * 내 계정의 평문 비밀번호.
    *
    * @throws EmailAccountNotFoundException 내 계정이 아니거나 비밀번호가 없음
-   * @throws MailSyncException 저장된 암호문을 복호화하지 못함(502, WP-1892)
+   * @throws MailCredentialUnreadableException 저장된 암호문을 복호화하지 못함(502, WP-1892)
    */
   @Transactional(readOnly = true)
   public String password(long userId, long accountId) {
@@ -42,7 +42,7 @@ public class MailAccountCredentials {
   /**
    * 저장된 암호문을 복호화한다(WP-1892) — 메일 경로가 같은 컬럼을 직접 복호화하다 500/400 으로 새지 않도록 매핑을 한 곳에 둔다. 트랜잭션이 필요 없다.
    *
-   * @throws MailSyncException 암호문 형식 오류·키 불일치로 복호화하지 못함(502)
+   * @throws MailCredentialUnreadableException 암호문 형식 오류·키 불일치로 복호화하지 못함(502)
    */
   public String decrypt(long accountId, String encrypted) {
     try {
@@ -51,7 +51,7 @@ public class MailAccountCredentials {
       // 암호문 형식 오류·키 불일치는 500/400 으로 새지 않게 설계된 502 + 한국어 안내로 돌린다.
       // 로그에는 계정 id 와 예외 종류만 남긴다(암호문·키 정보 노출 방지).
       log.warn("메일 계정 비밀번호 복호화 실패 accountId={} cause={}", accountId, e.getClass().getSimpleName());
-      throw new MailSyncException(MailServerErrors.CREDENTIAL_UNREADABLE, e);
+      throw MailCredentialUnreadableException.password(e);
     }
   }
 

@@ -3,6 +3,7 @@ package com.workplace.mail.service.trash;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.mail.exception.MailCredentialUnreadableException;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.exception.MailTrashException;
@@ -240,7 +241,9 @@ public class GraphMailEraser implements MailEraser {
    * <p>멈추는 길: 지운 편지함 id·목록 GET 실패는 {@code SERVER_UNREACHABLE}(아무것도 지우지 않았다). batch 최상위 실패를 다시 보내고도
    * 넘지 못하면 그 묶음의 남은 항목과 뒤 묶음을 실패로 세고 {@code SERVER_UNREACHABLE} — 그래서 {@code deleted + failed ==
    * total} 이 된다. 묶음 사이 인터럽트·대기 중 인터럽트(앱 종료)는 인터럽트 표시를 되살리고 {@code INTERRUPTED}. 멈출 때도 이미 지운 id 는 먼저
-   * 로컬에 반영한다. 비우는 도중 계정 연결이 해제되면(토큰 조회에 계정이 없다) {@code ACCOUNT_GONE}.
+   * 로컬에 반영한다. 비우는 도중 계정 연결이 해제되면(토큰 조회에 계정이 없다) {@code ACCOUNT_GONE}. 저장된 토큰을 읽지 못하면(WP-1907) 다시
+   * 보내지 않고 {@code MailCredentialUnreadableException} 을 그대로 던진다 — 도중이면 남은 항목을 실패로 세어 {@code deleted
+   * + failed == total} 을 지킨다.
    */
   @Override
   public void emptyTrash(
@@ -261,13 +264,13 @@ public class GraphMailEraser implements MailEraser {
             eraseChunk(userId, accountId, trashFolderId, ids.subList(from, to), erased, sink);
       } catch (InterruptedException e) {
         throw interrupted(sink, erased);
+      } catch (MailCredentialUnreadableException e) {
+        // 도중에 토큰을 읽지 못했다(refresh 토큰이 깨짐) — 연결 실패가 아닌 OAUTH_TOKEN_UNREADABLE 로 멈추게 그대로 던진다
+        stopAfter(to, ids.size(), erased, sink);
+        throw e;
       }
       if (!reachable) {
-        // 이 묶음의 남은 항목은 eraseChunk 가 셌다 — 뒤 묶음을 실패로 세고 지운 것은 반영한 뒤 멈춘다
-        flush(sink, erased);
-        if (to < ids.size()) {
-          sink.failed(ids.size() - to);
-        }
+        stopAfter(to, ids.size(), erased, sink);
         throw MailTrashException.of(MailTrashException.SERVER_UNREACHABLE);
       }
       while (erased.size() >= localFlush) {
@@ -280,12 +283,26 @@ public class GraphMailEraser implements MailEraser {
   }
 
   /**
+   * 묶음 도중 멈출 때의 정리 — 이 묶음의 남은 항목은 eraseChunk 가 이미 셌다. 지운 것은 로컬에 반영하고 뒤 묶음을 실패로 세어 {@code deleted +
+   * failed == total} 을 지킨다(연결 실패·토큰 읽기 실패가 함께 쓴다).
+   */
+  private void stopAfter(int to, int total, List<String> erased, EmptySink sink) {
+    flush(sink, erased);
+    if (to < total) {
+      sink.failed(total - to);
+    }
+  }
+
+  /**
    * 비우기의 지운 편지함 id — 실행마다 한 번 받는다. 실패는 아무것도 지우기 전이라 {@code SERVER_UNREACHABLE}(인터럽트로 끊겼으면 {@code
    * INTERRUPTED}), 계정이 그새 해제됐으면 {@code ACCOUNT_GONE}.
    */
   private String emptyTrashFolderId(long userId, long accountId) {
     try {
       return trashFolderId(token(userId, accountId));
+    } catch (MailCredentialUnreadableException e) {
+      // 토큰을 읽지 못함은 접속 실패가 아니다 — 서버 호출 전이고 아무것도 지우지 않았다. 그대로 던져 작업이 OAUTH_TOKEN_UNREADABLE 로 멈추게 한다
+      throw e;
     } catch (MailSyncException e) {
       log.warn("Graph 지운 편지함 id 조회 실패: accountId={} {}", accountId, e.getClass().getSimpleName());
       throw unreachableOrInterrupted();
@@ -320,6 +337,9 @@ public class GraphMailEraser implements MailEraser {
         }
         next = page.nextLink();
       }
+    } catch (MailCredentialUnreadableException e) {
+      // 토큰을 읽지 못함은 접속 실패가 아니다 — 서버 호출 전이고 아무것도 지우지 않았다. 그대로 던져 작업이 OAUTH_TOKEN_UNREADABLE 로 멈추게 한다
+      throw e;
     } catch (MailSyncException e) {
       log.warn("Graph 휴지통 id 목록 실패: accountId={} {}", accountId, e.getClass().getSimpleName());
       throw unreachableOrInterrupted();
@@ -355,24 +375,27 @@ public class GraphMailEraser implements MailEraser {
       EmptySink sink)
       throws InterruptedException {
     List<String> inTrash = new ArrayList<>();
-    boolean reachable =
-        sendWithItemRetry(
-            userId,
-            accountId,
-            chunk,
-            GraphMailEraser::locateRequest,
-            (pid, r) -> {
-              if (r.status() == 404) {
-                erased.add(pid); // 다른 곳에서 이미 지웠다 — 목표 상태
-                return true;
-              }
-              if (inFolder(r, trashFolderId)) {
-                inTrash.add(pid);
-                return true;
-              }
-              return false; // 스냅샷 뒤 다른 메일함으로 옮겨졌거나 확인 실패 — 지우지 않는다
-            },
-            sink);
+    ItemVerdict located =
+        (pid, r) -> {
+          if (r.status() == 404) {
+            erased.add(pid); // 다른 곳에서 이미 지웠다 — 목표 상태
+            return true;
+          }
+          if (inFolder(r, trashFolderId)) {
+            inTrash.add(pid);
+            return true;
+          }
+          return false; // 스냅샷 뒤 다른 메일함으로 옮겨졌거나 확인 실패 — 지우지 않는다
+        };
+    boolean reachable;
+    try {
+      reachable =
+          sendWithItemRetry(
+              userId, accountId, chunk, GraphMailEraser::locateRequest, located, sink);
+    } catch (MailCredentialUnreadableException e) {
+      sink.failed(inTrash.size()); // 확인은 마쳤지만 토큰을 읽지 못해 지우지 못했다
+      throw e;
+    }
     if (!reachable) {
       sink.failed(inTrash.size()); // 확인은 마쳤지만 지우지 못했다
       return false;
@@ -425,8 +448,14 @@ public class GraphMailEraser implements MailEraser {
       for (int i = 0; i < pending.size(); i++) {
         providerIdByReqId.put(String.valueOf(i), pending.get(i));
       }
-      List<GraphBatchResponse> responses =
-          sendWithTopRetry(userId, accountId, requests(providerIdByReqId, request));
+      List<GraphBatchResponse> responses;
+      try {
+        responses = sendWithTopRetry(userId, accountId, requests(providerIdByReqId, request));
+      } catch (MailCredentialUnreadableException e) {
+        // 토큰을 읽지 못해 이 단계의 남은 항목은 결과가 없다 — 실패로 세어 deleted + failed == total 을 지킨 뒤 던진다
+        sink.failed(pending.size());
+        throw e;
+      }
       if (responses == null) {
         sink.failed(pending.size());
         return false;
@@ -475,6 +504,10 @@ public class GraphMailEraser implements MailEraser {
     for (int attempt = 0; ; attempt++) {
       try {
         return graphApiClient.batch(token(userId, accountId), reqs);
+      } catch (MailCredentialUnreadableException e) {
+        // 저장된 토큰을 읽지 못함은 다시 보내도 낫지 않는다(접속 실패가 아니다) — 기다리지 않고 바로 던져 작업이 OAUTH_TOKEN_UNREADABLE 로 멈추게
+        // 한다
+        throw e;
       } catch (MailSendException | MailSyncException e) {
         if (Thread.interrupted()) {
           // 클라이언트가 인터럽트로 끊긴 요청을 실패로 바꿔 던졌다 — 연결 실패가 아니라 종료다
