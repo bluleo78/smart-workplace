@@ -1,6 +1,7 @@
 import { Star, Users,UserX } from 'lucide-react'
 import { useState } from 'react'
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
@@ -68,10 +69,10 @@ export function ContactDetailPanel({
         className="flex h-full flex-col items-center justify-center gap-3 text-center"
       >
         <ContactDetailSrHeading />
-        <Users className="h-10 w-10 text-muted-foreground/50" />
+        <Users className={emptyStateIconClass} aria-hidden="true" />
         <div>
-          <p className="text-sm font-medium">연락처를 선택하세요</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className={emptyStateTitleClass}>연락처를 선택하세요</p>
+          <p className={cn('mt-1', emptyStateDescriptionClass)}>
             왼쪽 목록에서 연락처를 클릭하면 상세 정보가 표시됩니다
           </p>
         </div>
@@ -86,10 +87,10 @@ export function ContactDetailPanel({
         className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center"
       >
         <ContactDetailSrHeading />
-        <UserX className="h-10 w-10 text-muted-foreground/50" />
+        <UserX className={emptyStateIconClass} aria-hidden="true" />
         <div>
-          <p className="text-sm font-medium">연락처를 찾을 수 없거나 볼 수 없습니다</p>
-          <p className="mt-1 text-xs text-muted-foreground">삭제되었거나 볼 수 있는 권한이 없는 연락처입니다</p>
+          <p className={emptyStateTitleClass}>연락처를 찾을 수 없거나 볼 수 없습니다</p>
+          <p className={cn('mt-1', emptyStateDescriptionClass)}>삭제되었거나 볼 수 있는 권한이 없는 연락처입니다</p>
         </div>
         {onClose && (
           <Button variant="outline" size="sm" data-testid="contact-detail-back-to-list" onClick={onClose}>

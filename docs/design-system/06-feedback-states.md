@@ -170,6 +170,8 @@ function EmptyState({ icon: Icon, title, description, action }: {
 
 **코드 원본(WP-1924)**: 이 규격의 클래스는 `@/components/layout/empty-state` 의 `emptyStateIconClass`(아이콘 40px muted)·`emptyStateTitleClass`(제목 14px/500)·`emptyStateDescriptionClass`(본문 12px muted) 한 곳에 둔다. `ListEmptyState`·`ChatEmptyState` 와 손으로 만든 빈 상태(드라이브 폴더·최근·필터 0건·공유 안내, 노트 빈 화면·최근·즐겨찾기)가 이 상수를 쓴다 — 빈 상태 제목에 섹션 제목(`bodySectionTitleClass`, 600)을 쓰지 않는다.
 
+**모바일 전체 화면 변형(WP-1939)**: 하단 탭바 화면의 전체 화면 빈 상태는 `MobileEmptyState` 가 쓰며, 아이콘 48px · 제목 17px semibold · 설명 14px 이다. 색은 데스크톱과 같은 muted 이고 흐린 색(`/40`·`/50`)은 쓰지 않는다. 클래스는 `empty-state` 의 `mobileEmptyStateIconClass`·`mobileEmptyStateTitleClass`·`mobileEmptyStateDescriptionClass` 세 상수가 원본이다.
+
 ---
 
 ## C. Error States (에러 상태)

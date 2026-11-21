@@ -1,6 +1,14 @@
 import type { LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import {
+  emptyStateDescriptionClass,
+  emptyStateIconClass,
+  emptyStatePositiveIconClass,
+  emptyStateTitleClass,
+} from '@/components/layout/empty-state'
+import { cn } from '@/lib/utils'
+
 /**
  * 대시보드 위젯 공용 빈 상태(empty state) — 아이콘 + 제목 + 보조설명 + CTA 4단 구성(#653).
  * MyTasksBody/CalendarTodayBody 가 각자 empty state 마크업을 갖고 있어 위젯마다 정보 밀도가
@@ -14,21 +22,27 @@ export function WidgetEmptyState({
   description,
   cta,
   testId,
+  tone = 'default',
 }: {
   icon: LucideIcon
   title: string
   description: string
   cta: { label: string; to: string }
   testId?: string
+  /** 'positive' = 긍정 빈 상태(할 일 없음 = 다 끝냄) — 아이콘을 muted 대신 primary 로 둔다(06 §B 의 유일한 색 예외). */
+  tone?: 'default' | 'positive'
 }) {
   return (
     <div className="flex flex-col items-center gap-1 py-6 text-center" data-testid={testId}>
-      <Icon className="h-8 w-8 text-ai-accent" aria-hidden />
+      <Icon
+        className={tone === 'positive' ? emptyStatePositiveIconClass : emptyStateIconClass}
+        aria-hidden="true"
+      />
       {/* I3(a11y): 제목·설명만 role="status"(polite live region)로 알리고 CTA 링크는 그 밖에 둔다 — 안에 두면 링크 글자까지
           읽힌다(WP-1853). display:contents 는 일부 브라우저가 role 을 지워 쓰지 않고, 블록 감싸개 + space-y-1 로 간격을 맞춘다. */}
       <div role="status" className="space-y-1">
-        <div className="mt-1 text-sm font-medium">{title}</div>
-        <div className="text-xs text-muted-foreground">{description}</div>
+        <div className={cn('mt-1', emptyStateTitleClass)}>{title}</div>
+        <div className={emptyStateDescriptionClass}>{description}</div>
       </div>
       <Link
         to={cta.to}

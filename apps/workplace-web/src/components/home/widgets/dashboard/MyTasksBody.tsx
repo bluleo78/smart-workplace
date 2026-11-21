@@ -151,6 +151,9 @@ export default function MyTasksBody({
         // 긍정적 빈 상태 — "0"을 결핍이 아닌 안심 신호로(#653: 공용 WidgetEmptyState 사용).
         <WidgetEmptyState
           icon={CheckCircle2}
+          // 긍정 빈 상태는 '비었다'가 아니라 '다 끝냈다'를 뜻하므로 체크 아이콘은 muted 가 아닌 primary 로 둔다
+          // (디자인 시스템 06 §B 예외 — 메일 회신필요 0건 체크와 동일).
+          tone="positive"
           title="지금 손댈 일이 없어요"
           description="담당한 작업을 모두 위임했거나 끝냈어요"
           // 빈 상태는 늘 다음 행동을 둔다(WP-1853). 오늘 구독 변동이 있으면 그 링크, 없으면 새 이슈 —

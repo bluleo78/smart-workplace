@@ -1,8 +1,10 @@
 import { Contact } from 'lucide-react'
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useContactDetail } from '@/hooks/queries/useContactDetail'
 import { showsLoadError } from '@/lib/queryFailure'
+import { cn } from '@/lib/utils';
 import type { ExternalContactDetail } from '@/types/contact'
 
 import { WidgetError } from './WidgetError'
@@ -28,9 +30,9 @@ export default function ContactWidget({ params }: { params?: Record<string, unkn
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="contact-error"
         >
-          <Contact className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm font-semibold">연락처 ID가 없습니다</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
+          <Contact className={emptyStateIconClass} aria-hidden="true" />
+          <p className={emptyStateTitleClass}>연락처 ID가 없습니다</p>
+          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
             연락처 ID를 지정하여 다시 요청해 보세요.
           </p>
         </div>

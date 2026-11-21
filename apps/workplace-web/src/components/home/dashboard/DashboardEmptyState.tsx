@@ -3,6 +3,7 @@
 // 모바일은 다른 모바일 전체 화면 빈 상태와 같은 규격(MobileEmptyState)을 쓴다.
 import { LayoutGrid } from 'lucide-react'
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
 
@@ -50,10 +51,10 @@ export function DashboardEmptyState({ isMobile, mode, onAction }: Props) {
       className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center"
       data-testid="dashboard-empty"
     >
-      <LayoutGrid className="h-10 w-10 text-muted-foreground" aria-hidden />
+      <LayoutGrid className={emptyStateIconClass} aria-hidden="true" />
       <div className="space-y-1">
-        <p className="text-sm font-medium">{copy.title}</p>
-        <p className="text-xs text-muted-foreground">{copy.description}</p>
+        <p className={emptyStateTitleClass}>{copy.title}</p>
+        <p className={emptyStateDescriptionClass}>{copy.description}</p>
       </div>
       <Button type="button" size="sm" data-testid="dashboard-empty-action" onClick={onAction}>
         {copy.action}

@@ -2,6 +2,7 @@
 // 삭제는 행 hover·모바일 스와이프 대신 ⋯ 메뉴에 둔다(데스크톱·터치 같은 방법). 지운 뒤 토스트 「되돌리기」로 다시 만든다.
 import { FilePen, PenLine, Trash2 } from 'lucide-react'
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { DropdownMenuItem } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { draftRecipientsLabel } from '@/lib/mailDraftCompose'
@@ -79,10 +80,10 @@ export function MailDraftsList({ accountId }: { accountId: number }) {
   }
   if (!data || data.length === 0) {
     return (
-      <div data-testid="mail-drafts-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-        <FilePen className="h-8 w-8" />
-        <p className="text-sm font-medium">임시저장한 메일이 없어요</p>
-        <p className="text-xs">쓰다가 닫은 메일은 여기에 저장돼요.</p>
+      <div data-testid="mail-drafts-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+        <FilePen className={emptyStateIconClass} aria-hidden="true" />
+        <p className={emptyStateTitleClass}>임시저장한 메일이 없어요</p>
+        <p className={emptyStateDescriptionClass}>쓰다가 닫은 메일은 여기에 저장돼요.</p>
       </div>
     )
   }
@@ -100,10 +101,10 @@ export function MailDraftsList({ accountId }: { accountId: number }) {
 export function MailDraftsDetailEmpty() {
   return (
     <div data-testid="mail-drafts-detail-empty" className="flex h-full flex-col items-center justify-center gap-3 text-center">
-      <FilePen className="h-10 w-10 text-muted-foreground/50" />
+      <FilePen className={emptyStateIconClass} aria-hidden="true" />
       <div>
-        <p className="text-sm font-medium">임시저장한 메일을 고르세요</p>
-        <p className="mt-1 text-xs text-muted-foreground">누르면 작성창에서 이어 쓸 수 있어요</p>
+        <p className={emptyStateTitleClass}>임시저장한 메일을 고르세요</p>
+        <p className={cn('mt-1', emptyStateDescriptionClass)}>누르면 작성창에서 이어 쓸 수 있어요</p>
       </div>
     </div>
   )

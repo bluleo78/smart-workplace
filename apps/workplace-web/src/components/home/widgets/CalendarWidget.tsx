@@ -1,11 +1,13 @@
 import { CalendarDays } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents';
 import { resolveCalendarRange } from '@/lib/calendarRange';
 import { formatLocalClockTime24 } from '@/lib/formatters';
 import { showsLoadError } from '@/lib/queryFailure'
+import { cn } from '@/lib/utils';
 import type { CalendarEvent } from '@/types/calendar';
 
 import { WidgetError } from './WidgetError';
@@ -72,9 +74,9 @@ export default function CalendarWidget({
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="calendar-empty"
         >
-          <CalendarDays className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm font-semibold">일정이 없어요</p>
-          <p className="max-w-xs text-xs text-muted-foreground">이 기간에 등록된 일정이 없습니다.</p>
+          <CalendarDays className={emptyStateIconClass} aria-hidden="true" />
+          <p className={emptyStateTitleClass}>일정이 없어요</p>
+          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>이 기간에 등록된 일정이 없습니다.</p>
         </div>
       )}
     </WidgetFrame>

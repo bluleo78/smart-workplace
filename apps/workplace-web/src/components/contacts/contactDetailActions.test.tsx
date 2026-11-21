@@ -119,3 +119,11 @@ test('핸들 username 멤버는 @ 를 붙인다 (WP-1880)', async () => {
   setup()
   expect(await screen.findByText('멤버 · @minsu')).toBeInTheDocument()
 })
+
+test('미선택 빈 칸 아이콘은 규격 muted 40px — 흐린 /50 색을 쓰지 않는다 (WP-1939)', async () => {
+  renderScreen(<ContactDetailPanel selected={null} />)
+  const icon = (await screen.findByTestId('contact-detail-empty')).querySelector('svg')!
+  expect(icon).toHaveClass('h-10', 'w-10', 'text-muted-foreground')
+  expect(icon.getAttribute('class')).not.toContain('/50')
+  expect(icon).toHaveAttribute('aria-hidden', 'true')
+})

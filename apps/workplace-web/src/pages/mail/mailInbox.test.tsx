@@ -581,7 +581,12 @@ test('보낸편지함은 안 읽은 메일만 토글·분류 전 배지가 없�
 
 test('보기별 빈 상태 문구 — 업무 + 안 읽은 메일만', async () => {
   renderMail('/mail/1?unread=true', { handlers: [countsHandler] })
-  expect(await screen.findByTestId('mail-view-empty')).toHaveTextContent('업무 메일 중 안 읽은 메일이 없어요.')
+  const empty = await screen.findByTestId('mail-view-empty')
+  expect(empty).toHaveTextContent('업무 메일 중 안 읽은 메일이 없어요.')
+  // WP-1939: 안 읽은 메일 없음도 긍정 체크 — primary 색이고 muted 가 아니다.
+  const icon = empty.querySelector('svg')!
+  expect(icon).toHaveClass('text-primary')
+  expect(icon).not.toHaveClass('text-muted-foreground')
 })
 
 // ── 사이드바 필터·회신필요(mail.spec) ─────────────────────────────────────────────
@@ -634,7 +639,13 @@ test('회신필요 메일을 열면 배지가 사라지고 안 읽은 수를 다
 
 test('회신필요 0건 → 긍정 빈 상태', async () => {
   renderMail('/mail/1?needsReply=true', { accounts: aiAccount })
-  expect(await screen.findByTestId('mail-needsreply-empty')).toBeInTheDocument()
+  const empty = await screen.findByTestId('mail-needsreply-empty')
+  expect(empty).toBeInTheDocument()
+  // WP-1939: 긍정 체크는 규격 크기(h-10)에 primary 색 — muted 가 primary 보다 뒤에 오면 muted 가 이기므로 뒤에 없어야 한다.
+  const icon = empty.querySelector('svg')!
+  expect(icon).toHaveClass('h-10', 'text-primary')
+  expect(icon).toHaveClass('text-primary')
+  expect(icon).not.toHaveClass('text-muted-foreground')
 })
 
 test('분류(개인) 0건 → 중립 빈 상태만 보인다', async () => {

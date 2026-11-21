@@ -1,9 +1,11 @@
 import { FolderKanban } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjects } from '@/hooks/queries/useProjects'
 import { showsLoadError } from '@/lib/queryFailure'
+import { cn } from '@/lib/utils';
 import type { ProjectResponse } from '@/types/project'
 
 import { WidgetError } from './WidgetError'
@@ -56,9 +58,9 @@ export default function ProjectsWidget({
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="projects-empty"
         >
-          <FolderKanban className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm font-semibold">프로젝트가 없어요</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
+          <FolderKanban className={emptyStateIconClass} aria-hidden="true" />
+          <p className={emptyStateTitleClass}>프로젝트가 없어요</p>
+          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
             아직 참여 중인 프로젝트가 없습니다.
           </p>
         </div>

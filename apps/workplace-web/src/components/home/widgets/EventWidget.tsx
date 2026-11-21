@@ -1,9 +1,11 @@
 import { MapPin } from 'lucide-react';
 
+import { emptyStateDescriptionClass, emptyStateTitleClass } from '@/components/layout/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent';
 import { formatDateMonthDay, formatLocalClockRange24, formatLocalClockTime24, isNextMidnightEnd } from '@/lib/formatters';
 import { showsLoadError } from '@/lib/queryFailure';
+import { cn } from '@/lib/utils';
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
@@ -39,8 +41,8 @@ export default function EventWidget({ params }: { params?: Record<string, unknow
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="event-error"
         >
-          <p className="text-sm font-semibold">일정 ID가 없습니다</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
+          <p className={emptyStateTitleClass}>일정 ID가 없습니다</p>
+          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
             일정 ID를 지정하여 다시 요청해 보세요.
           </p>
         </div>

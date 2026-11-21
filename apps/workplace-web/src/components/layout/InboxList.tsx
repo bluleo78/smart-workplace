@@ -22,6 +22,11 @@ import {
   notifTarget,
 } from "@/components/home/notifTarget";
 import {
+  emptyStateDescriptionClass,
+  emptyStateIconClass,
+  emptyStateTitleClass,
+} from "@/components/layout/empty-state";
+import {
   focusInboxList,
   INBOX_SCROLL_TESTID,
 } from "@/components/layout/inboxFocus";
@@ -409,13 +414,14 @@ export function InboxList({
           />
         ) : items.length === 0 ? (
           // 빈 상태: 아이콘 + 제목 + 설명 + CTA (디자인 시스템 §2.5 Empty State 4요소, WP-1848)
+          // 아이콘·제목·본문은 디자인 시스템 06 §B 규격 상수 — 흐린 opacity-30 아이콘을 없애고 모바일 분기와 같은 색으로 맞춘다(WP-1939).
           <div
             data-testid="inbox-empty"
-            className="flex flex-col items-center gap-2 px-3 py-8 text-center text-muted-foreground"
+            className="flex flex-col items-center gap-2 px-3 py-8 text-center"
           >
-            <Bell className="h-8 w-8 opacity-30" />
-            <p className="text-sm font-medium">{emptyTitle}</p>
-            <p className="text-xs">{emptyDesc}</p>
+            <Bell className={emptyStateIconClass} aria-hidden="true" />
+            <p className={emptyStateTitleClass}>{emptyTitle}</p>
+            <p className={emptyStateDescriptionClass}>{emptyDesc}</p>
             <div className="mt-2">{emptyActionButton}</div>
           </div>
         ) : (
