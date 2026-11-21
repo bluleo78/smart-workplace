@@ -2,6 +2,12 @@
 // 고정 앱 교체(우클릭 메뉴)·계정 시트 내용·테마 전환·로그아웃·탭 편집 저장 비활성·홈 멘션 셀 이동·알림 빈 상태는
 // 브라우저 없이 판정되므로 e2e/pages/mobile/apps.spec.ts 에서 옮겼다. 길게 누르기(@input)·새로고침 뒤 유지(@platform)·
 // 앱 목록과 알림 화면 배선(@wiring)은 E2E 에 남는다. 데스크톱 폭 /apps → 홈은 mobileAppsDesktop.test.tsx.
+// App 에서 lazy 로 여는 이 테스트의 화면을 미리 불러 둔다(WP-1874) — 과부하(load 32/16코어) 속에서 처음 여는 순간
+// 모듈 트리를 변환·불러오느라 프로필 이동 대기(5초)와 홈 첫 화면 대기(45초)를 넘겨 기차 게이트에서 간헐 실패했다.
+// 미리 import 하면 lazy 는 한 틱 뒤 바로 풀려 대기는 데이터 렌더만 기다린다.
+import '@/pages/HomePage'
+import '@/pages/settings/ProfileSettingsPage'
+
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
