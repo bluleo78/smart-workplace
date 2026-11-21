@@ -3,6 +3,13 @@
 
 import { isIOSDevice, isStandaloneDisplay } from '../platform'
 
+/**
+ * 알림 권한이 차단됐을 때의 안내 문장 — 설정 > 알림과 인박스 배너(WP-1933)가 같은 문장을 쓰도록 한 곳에 둔다.
+ * 문구를 바꾸면 매뉴얼 18장(문제 해결)의 같은 문장도 함께 고친다.
+ */
+export const PUSH_DENIED_GUIDE =
+  '알림 권한이 차단되어 있습니다. 브라우저 주소창의 사이트 설정(또는 OS 설정 > 알림)에서 이 사이트의 알림을 허용해 주세요.'
+
 export type PushSupport = 'unsupported' | 'ios-needs-install' | 'denied' | 'default' | 'granted'
 
 export interface PushEnv {

@@ -42,7 +42,9 @@ export function useEnablePush({ successToast = true }: { successToast?: boolean 
       if (successToast) toast.success('이 기기에서 알림을 받습니다')
     },
     onError: (e) => {
-      if (e instanceof Error && e.message === 'PERMISSION_DENIED') return // 화면이 거부 안내를 보여준다
+      // 권한이 denied 면 설정 > 알림·인박스 배너가 차단 안내를 보여준다.
+      // 요청 창을 그냥 닫아 default 로 남은 경우는 안내 없이 다시 누를 수 있다.
+      if (e instanceof Error && e.message === 'PERMISSION_DENIED') return
       handleApiError(e, '알림을 켜지 못했습니다')
     },
   })
