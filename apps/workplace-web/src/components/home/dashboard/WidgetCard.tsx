@@ -2,6 +2,7 @@
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
+import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 
@@ -26,8 +27,9 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
     <>
       {/* shrink-0: 표시 이름이 길어 두 줄이 돼도 아이콘이 flex 축소로 찌그러지지 않게(WP-519). */}
       <Icon className="h-4 w-4 shrink-0" />
-      {/* WP-1885: CardTitle(div) 대신 같은 모양의 span — 헤딩 의미는 바깥 h2 가 맡는다. */}
-      <span data-slot="card-title" className="leading-none text-sm font-medium">
+      {/* WP-1885: CardTitle(div) 대신 span — 헤딩 의미는 바깥 h2 가 맡는다.
+          WP-1941: 글꼴 클래스는 두지 않는다 — h2 의 섹션 제목 토큰을 상속(span 이 덮으면 토큰이 무력화). */}
+      <span data-slot="card-title">
         {title}
       </span>
     </>
@@ -64,10 +66,12 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
       data-widget-id={entry.cfg.id}
     >
       <CardHeader className="pb-2">
-        {/* WP-1885: 위젯 제목을 h2 로 — 링크·단추를 헤딩이 감싼다(단추 안에 헤딩 금지). 글꼴은 안쪽 span 이 유지.
+        {/* WP-1885: 위젯 제목을 h2 로 — 링크·단추를 헤딩이 감싼다(단추 안에 헤딩 금지). 글꼴은 h2 가 정하고 안쪽 span 은 상속.
             링크 없는 머리는 헤딩 안이라 div 대신 flex span(헤딩 안에는 구문 콘텐츠만 허용).
-            h2 는 grid — 자식(알림 단추 등)이 이전처럼 폭 전체로 늘어 눌림 영역이 줄지 않게. */}
-        <h2 className="grid">
+            h2 는 grid — 자식(알림 단추 등)이 이전처럼 폭 전체로 늘어 눌림 영역이 줄지 않게.
+            WP-1941: 글꼴은 섹션 제목 토큰(14px/20px/600) — 이전엔 본문 상속 16px/400 이라 홈 제목보다 컸다.
+            링크·단추·span 은 글꼴을 상속하므로 h2 한 곳에서 정한다. */}
+        <h2 className={`grid ${bodySectionTitleClass}`}>
           {deepLink ? (
             <Link to={deepLink} className={headerClassName}>
               {headerInner}
