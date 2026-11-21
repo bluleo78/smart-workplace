@@ -1,5 +1,8 @@
 package com.workplace.drive.outbound;
 
+import com.workplace.airun.context.AiRunHeader;
+import com.workplace.airun.outbound.AiRunFailures;
+import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.global.json.JsonMappers;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.InternalHttp;
@@ -30,18 +33,24 @@ public class DriveOverviewStreamClient {
 
   private final HttpClient http;
   private final AiAgentProperties props;
+
+  /** 호출 전 실패(연결 거부·시간 초과·5xx)를 AI 처리 기록으로 남기는 기록기 (WP-1829). */
+  private final AiRunRecorder aiRunRecorder;
+
   private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   @Autowired
-  public DriveOverviewStreamClient(AiAgentProperties props) {
+  public DriveOverviewStreamClient(AiAgentProperties props, AiRunRecorder aiRunRecorder) {
     this.props = props;
+    this.aiRunRecorder = aiRunRecorder;
     // HTTP/1.1 고정 — InternalHttp 참조
     this.http = InternalHttp.httpClientBuilder().connectTimeout(CONNECT_TIMEOUT).build();
   }
 
   /** 테스트용 — HttpClient 주입(로컬 HttpServer 스텁 대상). */
-  DriveOverviewStreamClient(AiAgentProperties props, HttpClient http) {
+  DriveOverviewStreamClient(AiAgentProperties props, HttpClient http, AiRunRecorder aiRunRecorder) {
     this.props = props;
+    this.aiRunRecorder = aiRunRecorder;
     this.http = http;
   }
 
@@ -53,17 +62,24 @@ public class DriveOverviewStreamClient {
    */
   public void stream(Object requestBody, Consumer<String> onDelta, Runnable onDone)
       throws Exception {
-    HttpRequest req =
-        HttpRequest.newBuilder()
-            .uri(URI.create(props.baseUrl() + "/drive/overview"))
-            .timeout(REQUEST_TIMEOUT)
-            .header("Authorization", "Internal " + props.internalToken())
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream")
-            .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(requestBody)))
-            .build();
-
-    HttpResponse<Stream<String>> resp = http.send(req, HttpResponse.BodyHandlers.ofLines());
+    // X-AI-Run: 호출마다 새 runId — ai-agent 기록과 API 의 실패 기록이 같은 runId 로 합쳐진다(전송·5xx 기록은 send 가 한다,
+    // WP-1829).
+    HttpResponse<Stream<String>> resp =
+        AiRunFailures.send(
+            http,
+            aiRunRecorder,
+            "/drive/overview",
+            aiRun ->
+                HttpRequest.newBuilder()
+                    .uri(URI.create(props.baseUrl() + "/drive/overview"))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("Authorization", "Internal " + props.internalToken())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "text/event-stream")
+                    .header(AiRunHeader.NAME, aiRun)
+                    .POST(
+                        HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(requestBody)))
+                    .build());
     if (resp.statusCode() != 200) {
       // 에러 본문을 SSE 로 오인 파싱하지 않도록 상태코드 먼저 검사.
       throw new RuntimeException("ai-agent /drive/overview 비정상 상태: " + resp.statusCode());

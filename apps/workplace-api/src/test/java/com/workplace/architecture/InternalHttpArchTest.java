@@ -15,8 +15,11 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import com.workplace.auth.outbound.AssistantModelsConfig;
 import com.workplace.auth.sso.M365OidcClient;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.InternalHttp;
+import com.workplace.global.outbound.OutboundConfig;
 import com.workplace.global.outbound.OutboundJson;
 import java.net.http.HttpClient;
 import java.util.function.Predicate;
@@ -184,4 +187,39 @@ public class InternalHttpArchTest {
           .should(CONSTRUCTS_REST_TEMPLATE)
           .because(
               "정적 RestTemplate 는 Boot 설정을 거치지 않은 Jackson 3 기본값 변환기를 쓴다 — JSON 을 쓰지 않는 JWKS 용 한 곳만 허용(WP-1608)");
+
+  /** {@code InternalHttp.restClient(..)} 의 호출 또는 메서드 참조. */
+  private static final ArchCondition<JavaClass> USES_INTERNAL_HTTP_REST_CLIENT =
+      accessesTarget(
+          "InternalHttp.restClient(..) 를 호출하거나 참조한다",
+          a ->
+              a.getTargetOwner().isEquivalentTo(InternalHttp.class)
+                  && a.getTarget().getName().equals("restClient"));
+
+  /**
+   * ai-agent 호출 클라이언트({@link AiAgentProperties} 에 의존하는 {@code ..outbound..} 클래스)는 {@code
+   * InternalHttp.restClient(..)} 를 직접 부르지 않고 {@code AiAgentHttp} 공장으로 만든다(WP-1829).
+   *
+   * <p>왜: 공장이 X-AI-Run 헤더(tenantId 등)와 닿기 전 실패 기록 인터셉터를 붙인다. 직접 만들면 헤더에 tenantId 가 없어 ai-agent 가 만든
+   * AI 처리 기록이 버려지고 닿기 전 실패도 남지 않는다.
+   *
+   * <p>허용 목록: {@code OutboundConfig} 는 이벤트 클라이언트라 tenantId 만 담은 별도 헤더를 쓰는 설계 7번 예외이고, {@code
+   * AssistantModelsConfig} 는 호출 경로가 AI 처리 종류 표(kinds)에 없어 기록 대상이 아니다.
+   */
+  @ArchTest
+  public static final ArchRule ai_agent_클라이언트는_AiAgentHttp_공장으로_RestClient_를_만든다 =
+      noClasses()
+          .that()
+          .resideInAPackage("..outbound..")
+          .and(
+              DescribedPredicate.describe(
+                  "AiAgentProperties 에 의존하는",
+                  (JavaClass c) ->
+                      c.getDirectDependenciesFromSelf().stream()
+                          .anyMatch(
+                              d -> d.getTargetClass().isEquivalentTo(AiAgentProperties.class))))
+          .and()
+          .doNotBelongToAnyOf(OutboundConfig.class, AssistantModelsConfig.class)
+          .should(USES_INTERNAL_HTTP_REST_CLIENT)
+          .because("ai-agent 호출은 AiAgentHttp 공장으로 X-AI-Run 헤더·실패 기록을 붙여야 한다(WP-1829)");
 }

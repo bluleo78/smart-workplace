@@ -1,5 +1,9 @@
 package com.workplace.wiki.report;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
+import com.workplace.airun.service.AiRunRecorder;
+import com.workplace.airun.service.AiRunSkips;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -117,6 +121,7 @@ public class ProjectReportGenerator {
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient client;
   private final AiAgentProperties aiAgentProperties;
+  private final AiRunRecorder aiRunRecorder;
   private final TransactionTemplate tx;
   private final String issueUrlPrefix;
 
@@ -132,6 +137,7 @@ public class ProjectReportGenerator {
       AssistantResolver assistantResolver,
       AiAgentIssueClient client,
       AiAgentProperties aiAgentProperties,
+      AiRunRecorder aiRunRecorder,
       PlatformTransactionManager txManager,
       @Value("${workplace.public-base-url:}") String publicBaseUrl) {
     this.projectRepository = projectRepository;
@@ -147,6 +153,7 @@ public class ProjectReportGenerator {
     this.assistantResolver = assistantResolver;
     this.client = client;
     this.aiAgentProperties = aiAgentProperties;
+    this.aiRunRecorder = aiRunRecorder;
     this.tx = new TransactionTemplate(txManager);
     this.issueUrlPrefix = issueUrlPrefix(publicBaseUrl);
     if (this.issueUrlPrefix.isEmpty()) {
@@ -195,6 +202,11 @@ public class ProjectReportGenerator {
       if (spec.isEmpty()) {
         log.debug("공통 비서가 없어 프로젝트 리포트를 건너뜀 projectId={}", projectId);
         tx.executeWithoutResult(s -> reports.release(projectId, period));
+        AiRunSkips.record(
+            aiRunRecorder,
+            AiRunSkips.PROJECT_REPORT,
+            aiRunContext(project, now, false),
+            AiRunSkips.NO_ASSISTANT);
         return Outcome.SKIPPED_NO_ASSISTANT;
       }
       return generate(project, period, now, spec.get(), false).outcome();
@@ -277,6 +289,17 @@ public class ProjectReportGenerator {
     return "예상하지 못한 오류가 났어요. 잠시 뒤 다시 시도해 주세요.";
   }
 
+  /** AI 처리 기록의 호출 맥락(WP-1829) — 대상은 이 프로젝트. 정기 회차는 AUTO + sourceAt=now, 수동은 주체를 비워 요청자로 정한다. */
+  private static AiRunContext aiRunContext(ProjectRow project, OffsetDateTime now, boolean manual) {
+    return new AiRunContext(
+        "PROJECT",
+        String.valueOf(project.id()),
+        project.name(),
+        manual ? null : "AUTO",
+        null,
+        manual ? null : now);
+  }
+
   /** 워크스페이스 공통 비서(없으면 empty) — 짧은 tx 로 읽는다. */
   private Optional<AssistantSpec> workspaceAssistant() {
     Optional<AssistantSpec> spec = tx.execute(s -> assistantResolver.resolveWorkspaceOrEmpty());
@@ -334,6 +357,11 @@ public class ProjectReportGenerator {
             reports.markSkipped(projectId, period, facts.snapshot(), now);
             settings.resetFailures(projectId);
           });
+      AiRunSkips.record(
+          aiRunRecorder,
+          AiRunSkips.PROJECT_REPORT,
+          aiRunContext(project, now, false),
+          AiRunSkips.NO_CHANGE);
       return new Written(Outcome.SKIPPED_NO_CHANGE, null, false);
     }
 
@@ -349,7 +377,10 @@ public class ProjectReportGenerator {
 
     // tx 밖 AI — 커넥션을 붙잡지 않는다.
     ProjectReportAiResult result =
-        client.writeProjectReport(request(project, period, facts, templateMarkdown, spec));
+        AiRunScope.call(
+            aiRunContext(project, now, manual),
+            () ->
+                client.writeProjectReport(request(project, period, facts, templateMarkdown, spec)));
     String markdown = result == null || result.markdown() == null ? "" : result.markdown().strip();
     if (markdown.isEmpty()) throw new ReportFailure("AI 가 빈 리포트를 돌려줬어요.");
     if (ReportPageWriter.codePoints(markdown) > OUTPUT_MAX) {

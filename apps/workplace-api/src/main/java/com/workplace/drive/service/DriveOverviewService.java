@@ -1,6 +1,8 @@
 package com.workplace.drive.service;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.drive.outbound.DriveOverviewStreamClient;
@@ -128,37 +130,42 @@ public class DriveOverviewService {
             shared.moreCount());
 
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
+    // 주체는 요청 스레드에서 잡아 넘긴다 — executor 스레드에는 SecurityContext 가 없어 AUTO 로 떨어지기 때문이다(WP-1829 리뷰 반영).
+    AiRunContext actor = AiRunContext.actorFromSecurity();
     return registry.start(
         callerId,
         executor,
         TIMEOUT,
         correlationId ->
-            () -> {
-              try {
-                agent.stream(
-                    body,
-                    text ->
-                        sseRegistry.fanOut(
-                            Set.of(callerId),
-                            "drive.overview.delta",
-                            Map.of("correlationId", correlationId, "text", text)),
-                    () ->
-                        sseRegistry.fanOut(
-                            Set.of(callerId),
-                            "drive.overview.done",
-                            Map.of("correlationId", correlationId)));
-              } catch (Exception e) {
-                // 취소(Future.cancel(true))가 펌프 스레드를 인터럽트할 때, 블로킹 중이던 JDK HttpClient 의
-                // ofLines() read 는 InterruptedException 이 감싸인 예외를 던진다(WikiAiService 동일 패턴) —
-                // 원인 체인을 순회해 취소와 실제 오류를 구분한다.
-                boolean cancelled = isInterruption(e);
-                Map<String, Object> payload =
-                    cancelled
-                        ? Map.of("correlationId", correlationId, "cancelled", true)
-                        : Map.of("correlationId", correlationId, "message", e.getMessage());
-                sseRegistry.fanOut(Set.of(callerId), "drive.overview.error", payload);
-              }
-            });
+            () ->
+                AiRunScope.run(
+                    actor,
+                    () -> {
+                      try {
+                        agent.stream(
+                            body,
+                            text ->
+                                sseRegistry.fanOut(
+                                    Set.of(callerId),
+                                    "drive.overview.delta",
+                                    Map.of("correlationId", correlationId, "text", text)),
+                            () ->
+                                sseRegistry.fanOut(
+                                    Set.of(callerId),
+                                    "drive.overview.done",
+                                    Map.of("correlationId", correlationId)));
+                      } catch (Exception e) {
+                        // 취소(Future.cancel(true))가 펌프 스레드를 인터럽트할 때, 블로킹 중이던 JDK HttpClient
+                        // 의 ofLines() read 는 InterruptedException 이 감싸인 예외를 던진다(WikiAiService 와 같은
+                        // 패턴) — 원인 체인을 순회해 취소와 실제 오류를 구분한다.
+                        boolean cancelled = isInterruption(e);
+                        Map<String, Object> payload =
+                            cancelled
+                                ? Map.of("correlationId", correlationId, "cancelled", true)
+                                : Map.of("correlationId", correlationId, "message", e.getMessage());
+                        sseRegistry.fanOut(Set.of(callerId), "drive.overview.error", payload);
+                      }
+                    }));
   }
 
   /** 진행 중인 생성을 취소한다. 소유자 불일치/미존재면 레지스트리가 403/404 예외를 던진다. */

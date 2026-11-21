@@ -14,6 +14,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
@@ -645,5 +647,41 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
     assertThat(me.name()).isEqualTo("홍길동");
     assertThat(me.title()).isEqualTo("팀장");
     assertThat(me.groups()).containsExactly(dev);
+  }
+
+  /** WP-1829: ④ 개인 분석 호출도 같은 메일 맥락(대상·수신 시각·AUTO)으로 나가고 호출 뒤 비워진다. */
+  @Test
+  void analyzePersonal_runsInsideMailAiRunContext() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.SUBJECT, "분기 보고")
+        .where(EMAIL_CONTENT.ID.eq(content))
+        .execute();
+    java.time.OffsetDateTime received =
+        dsl.select(EMAIL_MESSAGE.RECEIVED_AT)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ID.eq(env))
+            .fetchOne(EMAIL_MESSAGE.RECEIVED_AT);
+    java.util.concurrent.atomic.AtomicReference<AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    when(mailClient.analyzePersonal(any()))
+        .thenAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              return reply(true);
+            });
+
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+
+    AiRunContext ctx = seen.get();
+    assertThat(ctx.targetType()).isEqualTo("MAIL_MESSAGE");
+    assertThat(ctx.targetId()).isEqualTo(String.valueOf(env));
+    assertThat(ctx.targetLabel()).isEqualTo("분기 보고");
+    assertThat(ctx.actorType()).isEqualTo("AUTO");
+    assertThat(ctx.sourceAt().toInstant()).isEqualTo(received.toInstant());
+    assertThat(AiRunScope.current()).isEqualTo(AiRunContext.empty());
   }
 }

@@ -1,7 +1,7 @@
 package com.workplace.wiki.outbound;
 
+import com.workplace.airun.outbound.AiAgentHttp;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,9 +14,11 @@ import org.springframework.context.annotation.Configuration;
 public class WikiAiAgentSummaryConfig {
 
   @Bean
-  public WikiAiAgentSummaryClient wikiAiAgentSummaryClient(AiAgentProperties props) {
+  public WikiAiAgentSummaryClient wikiAiAgentSummaryClient(
+      AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     var restClient =
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(200))
+        aiAgentHttp
+            .restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(200))
             .build();
     return new WikiAiAgentSummaryClient(restClient, props.internalToken());
   }

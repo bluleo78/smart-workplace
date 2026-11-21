@@ -599,4 +599,41 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     assertThat(assistant.toolCalls().toString()).contains("get_issue");
     assertThat(assistant.toolCalls().toString()).contains("delegation");
   }
+
+  /** WP-1829: 펌프 스레드로 넘어가도 AI 처리 기록의 실행 주체가 요청자(USER)로 잡힌다. */
+  @Test
+  void 펌프_스레드에서_실행_주체는_요청자_USER_다() throws Exception {
+    long uid = seedAgent("fwd-actor-scope");
+    stubAssistant();
+
+    CountDownLatch latch = new CountDownLatch(1);
+    java.util.concurrent.atomic.AtomicReference<com.workplace.airun.context.AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    doAnswer(
+            inv -> {
+              seen.set(com.workplace.airun.context.AiRunScope.current());
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("처리했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    // 요청 스레드에 SecurityContext 를 둔다 — 주체는 여기서 잡아 스레드 풀로 넘어가야 한다(WP-1829 리뷰 반영).
+    org.springframework.security.core.context.SecurityContextHolder.getContext()
+        .setAuthentication(
+            new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                uid, null, java.util.List.of()));
+    try {
+      serviceCapturing(new ArrayList<>())
+          .startChat(uid, null, "안녕", null, List.of(), null, null, null);
+      assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    } finally {
+      org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    assertThat(seen.get().actorType()).isEqualTo("USER");
+    assertThat(seen.get().actorId()).isEqualTo(uid);
+  }
 }

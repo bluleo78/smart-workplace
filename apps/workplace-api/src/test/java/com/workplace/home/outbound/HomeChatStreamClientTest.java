@@ -1,8 +1,10 @@
 package com.workplace.home.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.sun.net.httpserver.HttpServer;
+import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import java.io.OutputStream;
@@ -29,6 +31,7 @@ class HomeChatStreamClientTest {
 
   private HttpServer server;
   private AiAgentChatClient client;
+  private final AiRunRecorder recorder = mock(AiRunRecorder.class);
 
   @BeforeEach
   void start() throws Exception {
@@ -58,7 +61,7 @@ class HomeChatStreamClientTest {
     int port = server.getAddress().getPort();
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + port, "changeme-local", true);
-    client = new AiAgentChatClient(props, HttpClient.newHttpClient());
+    client = new AiAgentChatClient(props, HttpClient.newHttpClient(), recorder);
   }
 
   private ChatRequest dummyReq() {
@@ -152,7 +155,7 @@ class HomeChatStreamClientTest {
     int port = server.getAddress().getPort();
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + port, "changeme-local", true);
-    client = new AiAgentChatClient(props, HttpClient.newHttpClient());
+    client = new AiAgentChatClient(props, HttpClient.newHttpClient(), recorder);
 
     List<String> deltas = new ArrayList<>();
     AtomicBoolean done = new AtomicBoolean(false);

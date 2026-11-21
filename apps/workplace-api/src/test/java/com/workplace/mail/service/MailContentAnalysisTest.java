@@ -12,6 +12,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.mail.exception.MailAiException;
@@ -355,5 +357,66 @@ class MailContentAnalysisTest extends ExternalClientMockedTestBase {
     verify(mailClient).analyzeContent(req.capture());
     assertThat(req.getValue().senderIsMember()).isTrue();
     assertThat(contentRow(content).value1()).isEqualTo("업무");
+  }
+
+  /** WP-1829: ③ 원본 분석 호출은 메일 대상·수신 시각·AUTO 주체 맥락 안에서 나가고, 호출 뒤 맥락은 비워진다. */
+  @Test
+  void analyzeContent_runsInsideMailAiRunContext() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env = MailAnalysisFixtures.envelope(dsl, a, content, "boss@corp.com", a.address(), null);
+    String longSubject = "가".repeat(250);
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.SUBJECT, longSubject)
+        .where(EMAIL_CONTENT.ID.eq(content))
+        .execute();
+    java.time.OffsetDateTime received =
+        dsl.select(EMAIL_MESSAGE.RECEIVED_AT)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ID.eq(env))
+            .fetchOne(EMAIL_MESSAGE.RECEIVED_AT);
+    java.util.concurrent.atomic.AtomicReference<AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    when(mailClient.analyzeContent(any()))
+        .thenAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              return new AnalyzeContentResult("업무", "• 요약");
+            });
+
+    analysis.analyzeContent(a.userId(), env);
+
+    AiRunContext ctx = seen.get();
+    assertThat(ctx.targetType()).isEqualTo("MAIL_MESSAGE");
+    assertThat(ctx.targetId()).isEqualTo(String.valueOf(env));
+    assertThat(ctx.targetLabel()).isEqualTo(longSubject.substring(0, 200));
+    assertThat(ctx.actorType()).isEqualTo("AUTO");
+    assertThat(ctx.sourceAt().toInstant()).isEqualTo(received.toInstant());
+    assertThat(AiRunScope.current()).isEqualTo(AiRunContext.empty());
+  }
+
+  /**
+   * WP-1829: 사용자가 누른 강제 요약은 주체를 AUTO 로 고정하지 않는다 — actorType 이 비어 SecurityContext 기본값(USER)이 적용된다.
+   */
+  @Test
+  void forcedSummary_leavesActorUnsetForUserDefault() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env = MailAnalysisFixtures.envelope(dsl, a, content, "boss@corp.com", a.address(), null);
+    java.util.concurrent.atomic.AtomicReference<AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    when(mailClient.analyzeContent(any()))
+        .thenAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              return new AnalyzeContentResult("업무", "• 강제 요약");
+            });
+
+    analysis.generateContentSummary(a.userId(), env, true);
+
+    AiRunContext ctx = seen.get();
+    assertThat(ctx.targetType()).isEqualTo("MAIL_MESSAGE");
+    assertThat(ctx.actorType()).isNull();
+    assertThat(ctx.actorId()).isNull();
   }
 }

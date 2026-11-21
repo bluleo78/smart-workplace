@@ -4,6 +4,8 @@ import static com.workplace.fileai.repository.WorkerJobRepository.MAX_SUMMARY_AT
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.event.FileExtractionDoneEvent;
@@ -381,16 +383,23 @@ public class FileExtractionPipeline {
     // ② ai-agent 요약 호출 (트랜잭션 밖 — DB 커넥션 비점유)
     AiAgentDriveClient.Res res;
     try {
+      // WP-1829: 요약 호출에 대상(드라이브 파일)·이름·파일 생성 시각·백그라운드(AUTO) 주체 맥락을 싣는다.
+      AiRunContext runCtx =
+          new AiRunContext(
+              "DRIVE_FILE", String.valueOf(fileId), ctx.fileName(), "AUTO", null, ctx.createdAt());
       res =
-          driveClient.summarize(
-              new AiAgentDriveClient.Req(
-                  ctx.text() != null ? ctx.text() : "",
-                  ctx.fileName() != null ? ctx.fileName() : "",
-                  ctx.mime() != null ? ctx.mime() : "",
-                  spec.agentUserId(),
-                  spec.model(),
-                  MAX_TURNS,
-                  spec.timeoutMs()));
+          AiRunScope.call(
+              runCtx,
+              () ->
+                  driveClient.summarize(
+                      new AiAgentDriveClient.Req(
+                          ctx.text() != null ? ctx.text() : "",
+                          ctx.fileName() != null ? ctx.fileName() : "",
+                          ctx.mime() != null ? ctx.mime() : "",
+                          spec.agentUserId(),
+                          spec.model(),
+                          MAX_TURNS,
+                          spec.timeoutMs())));
     } catch (RuntimeException ex) {
       FileAiException aiError = ex instanceof FileAiException f ? f : null;
       boolean agentDown = aiError != null && aiError.isAgentDown();

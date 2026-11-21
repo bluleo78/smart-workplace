@@ -1,6 +1,8 @@
 package com.workplace.wiki.service;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
@@ -100,81 +102,92 @@ public class WikiAiService {
     AssistantSpec spec = assistantResolver.resolve(callerId);
 
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
+    // 주체는 요청 스레드에서 잡아 넘긴다 — executor 스레드에는 SecurityContext 가 없어 AUTO 로 떨어지기 때문이다(WP-1829 리뷰 반영).
+    AiRunContext actor = AiRunContext.actorFromSecurity();
     return registry.start(
         callerId,
         executor,
         TIMEOUT,
         correlationId ->
-            () -> {
-              // WP-381: 공통 + 노트 메모리(읽기 전용, 실패해도 빈 목록 — 작성은 그대로). 트랜잭션이 없는 펌프 스레드(권한 확인 뒤)에서
-              // 읽는다 — 이유는 AiMemoryReader#readForEntry.
-              // WP-383: 지시문(draft 의 prompt)으로 관련 메모리를 고른다 — 없으면 고정 + 최신.
-              List<AiMemoryLine> memories =
-                  memoryReader.readForEntry(
-                      callerId,
-                      AiMemoryReader.WIKI,
-                      req.prompt() == null || req.prompt().isBlank() ? null : req.prompt());
-              // WP-386: 조직 + 이 페이지 스페이스 공용 메모리(팀 스페이스이고 구성원일 때만 — 리더가 권한을 다시 본다).
-              SharedMemories shared =
-                  SharedMemories.orEmpty(
-                      sharedReader.readForUser(callerId, "WIKI_SPACE", page.spaceId()));
-              AgentBody body =
-                  new AgentBody(
-                      req.action(),
-                      page.title(),
-                      // WP-1302: 노트 본문을 쓰지 않는 액션(fix_html — 블록 소스만 고친다)에는 큰 본문을 싣지 않는다.
-                      page.body() == null || !req.action().usesPageBody() ? "" : page.body(),
-                      req.selection(),
-                      req.prompt(),
-                      // WP-1302: 고른 요소가 없으면 필드를 뺀다(빈 목록도 null — zod optional 은 null 을 거절, 빈 배열은 뜻이
-                      // 없다).
-                      req.targets() == null || req.targets().isEmpty() ? null : req.targets(),
-                      spec.agentUserId(),
-                      spec.model(),
-                      spec.thinkingDepth(),
-                      spec.maxTurns(),
-                      spec.timeoutMs(),
-                      memories,
-                      shared.items(),
-                      shared.moreCount());
-              // #736: 델타가 한 번이라도 전달됐으면(부분 텍스트가 이미 에디터에 삽입·자동저장 예정) 정상
-              // 완료/취소/에러 어느 경로로 끝나든 attribution 을 기록한다 — "정상 종료만 기록"하면 취소·
-              // 타임아웃으로 끝난 스트림도 실제로는 AI 텍스트가 남는데 신호가 빠지는 false negative 가 생긴다.
-              AtomicBoolean delivered = new AtomicBoolean(false);
-              try {
-                agent.stream(
-                    body,
-                    text -> {
-                      delivered.set(true);
-                      sseRegistry.fanOut(
-                          Set.of(callerId),
-                          "wiki.ai.delta",
-                          Map.of("correlationId", correlationId, "text", text));
-                    },
+            () ->
+                AiRunScope.run(
+                    actor,
                     () -> {
-                      if (delivered.get()) {
-                        recordAiUsageSafely(pageId, req.action());
+                      // WP-381: 공통 + 노트 메모리(읽기 전용, 실패해도 빈 목록 — 작성은 그대로). 트랜잭션이 없는 펌프 스레드(권한 확인 뒤)에서
+                      // 읽는다 — 이유는 AiMemoryReader#readForEntry.
+                      // WP-383: 지시문(draft 의 prompt)으로 관련 메모리를 고른다 — 없으면 고정 + 최신.
+                      List<AiMemoryLine> memories =
+                          memoryReader.readForEntry(
+                              callerId,
+                              AiMemoryReader.WIKI,
+                              req.prompt() == null || req.prompt().isBlank() ? null : req.prompt());
+                      // WP-386: 조직 + 이 페이지 스페이스 공용 메모리(팀 스페이스이고 구성원일 때만 — 리더가 권한을 다시 본다).
+                      SharedMemories shared =
+                          SharedMemories.orEmpty(
+                              sharedReader.readForUser(callerId, "WIKI_SPACE", page.spaceId()));
+                      AgentBody body =
+                          new AgentBody(
+                              req.action(),
+                              page.title(),
+                              // WP-1302: 노트 본문을 쓰지 않는 액션(fix_html — 블록 소스만 고친다)에는 큰 본문을 싣지 않는다.
+                              page.body() == null || !req.action().usesPageBody()
+                                  ? ""
+                                  : page.body(),
+                              req.selection(),
+                              req.prompt(),
+                              // WP-1302: 고른 요소가 없으면 필드를 뺀다(빈 목록도 null — zod optional 은 null 을
+                              // 거절하고, 빈 배열은 뜻이 없다).
+                              req.targets() == null || req.targets().isEmpty()
+                                  ? null
+                                  : req.targets(),
+                              spec.agentUserId(),
+                              spec.model(),
+                              spec.thinkingDepth(),
+                              spec.maxTurns(),
+                              spec.timeoutMs(),
+                              memories,
+                              shared.items(),
+                              shared.moreCount());
+                      // #736: 델타가 한 번이라도 전달됐으면(부분 텍스트가 이미 에디터에 삽입·자동저장 예정) 정상
+                      // 완료/취소/에러 어느 경로로 끝나든 attribution 을 기록한다 — "정상 종료만 기록"하면 취소·
+                      // 타임아웃으로 끝난 스트림도 실제로는 AI 텍스트가 남는데 신호가 빠지는 false negative 가 생긴다.
+                      AtomicBoolean delivered = new AtomicBoolean(false);
+                      try {
+                        agent.stream(
+                            body,
+                            text -> {
+                              delivered.set(true);
+                              sseRegistry.fanOut(
+                                  Set.of(callerId),
+                                  "wiki.ai.delta",
+                                  Map.of("correlationId", correlationId, "text", text));
+                            },
+                            () -> {
+                              if (delivered.get()) {
+                                recordAiUsageSafely(pageId, req.action());
+                              }
+                              sseRegistry.fanOut(
+                                  Set.of(callerId),
+                                  "wiki.ai.done",
+                                  Map.of("correlationId", correlationId));
+                            });
+                      } catch (Exception e) {
+                        if (delivered.get()) {
+                          recordAiUsageSafely(pageId, req.action());
+                        }
+                        // 취소(Future.cancel(true))가 펌프 스레드를 인터럽트할 때, 블로킹 중이던 JDK HttpClient 의
+                        // ofLines() read 는 isInterrupted() 로 조용히 리턴하지 않고 InterruptedException 이 감싸인
+                        // 예외(UncheckedIOException/InterruptedIOException 등)를 던진다 — catch 진입 시점엔 이미
+                        // 인터럽트 플래그도 소비돼 있어 Thread.currentThread().isInterrupted() 로는 취소 여부를 판별할
+                        // 수 없다. 원인 체인을 순회해 InterruptedException/InterruptedIOException 을 찾아 구분한다.
+                        boolean cancelled = isInterruption(e);
+                        Map<String, Object> payload =
+                            cancelled
+                                ? Map.of("correlationId", correlationId, "cancelled", true)
+                                : Map.of("correlationId", correlationId, "message", e.getMessage());
+                        sseRegistry.fanOut(Set.of(callerId), "wiki.ai.error", payload);
                       }
-                      sseRegistry.fanOut(
-                          Set.of(callerId), "wiki.ai.done", Map.of("correlationId", correlationId));
-                    });
-              } catch (Exception e) {
-                if (delivered.get()) {
-                  recordAiUsageSafely(pageId, req.action());
-                }
-                // 취소(Future.cancel(true))가 펌프 스레드를 인터럽트할 때, 블로킹 중이던 JDK HttpClient 의
-                // ofLines() read 는 isInterrupted() 로 조용히 리턴하지 않고 InterruptedException 이 감싸인
-                // 예외(UncheckedIOException/InterruptedIOException 등)를 던진다 — catch 진입 시점엔 이미
-                // 인터럽트 플래그도 소비돼 있어 Thread.currentThread().isInterrupted() 로는 취소 여부를 판별할
-                // 수 없다. 원인 체인을 순회해 InterruptedException/InterruptedIOException 을 찾아 구분한다.
-                boolean cancelled = isInterruption(e);
-                Map<String, Object> payload =
-                    cancelled
-                        ? Map.of("correlationId", correlationId, "cancelled", true)
-                        : Map.of("correlationId", correlationId, "message", e.getMessage());
-                sseRegistry.fanOut(Set.of(callerId), "wiki.ai.error", payload);
-              }
-            });
+                    }));
   }
 
   /**

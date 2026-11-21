@@ -1,7 +1,7 @@
 package com.workplace.messaging.outbound;
 
+import com.workplace.airun.outbound.AiAgentHttp;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,9 +20,10 @@ public class MessagingAiConfig {
    * <p>connect 5s / read 90s — read timeout 은 ai-agent 의 CLI 예산을 반드시 초과해야 한다.
    */
   @Bean
-  public AiAgentMessagingClient aiAgentMessagingClient(AiAgentProperties props) {
+  public AiAgentMessagingClient aiAgentMessagingClient(
+      AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     var builder =
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
+        aiAgentHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
     return new AiAgentMessagingClient(builder, props.internalToken());
   }
 
@@ -31,9 +32,10 @@ public class MessagingAiConfig {
    * /messaging/catchup 호출.
    */
   @Bean
-  public AiAgentCatchupClient aiAgentCatchupClient(AiAgentProperties props) {
+  public AiAgentCatchupClient aiAgentCatchupClient(
+      AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     var builder =
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
+        aiAgentHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
     return new AiAgentCatchupClient(builder, props.internalToken());
   }
 }

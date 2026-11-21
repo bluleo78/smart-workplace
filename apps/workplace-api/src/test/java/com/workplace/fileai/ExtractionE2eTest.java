@@ -14,6 +14,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.exception.FileAiException;
@@ -694,6 +696,51 @@ class ExtractionE2eTest extends ExternalClientMockedTestBase {
                 createdFileIds.add(fileId);
                 return fileId;
               });
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
+  /** WP-1829: 드라이브 요약 호출은 파일 대상·이름·생성 시각·AUTO 주체 맥락 안에서 나가고 호출 뒤 비워진다. */
+  @Test
+  void summarize_runsInsideDriveFileAiRunContext() {
+    long fileId = createTextReadyFile(1L);
+    java.time.OffsetDateTime created =
+        inTenantRead(
+            1L,
+            () ->
+                dsl.select(FILE.CREATED_AT)
+                    .from(FILE)
+                    .where(FILE.ID.eq(fileId))
+                    .fetchOne(FILE.CREATED_AT));
+    java.util.concurrent.atomic.AtomicReference<AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    org.mockito.Mockito.doAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              return new AiAgentDriveClient.Res("요약");
+            })
+        .when(aiAgentDriveClient)
+        .summarize(any());
+
+    assertThat(summarizeInTenant(fileId)).isEqualTo(SummaryOutcome.SUMMARIZED);
+
+    AiRunContext ctx = seen.get();
+    assertThat(ctx.targetType()).isEqualTo("DRIVE_FILE");
+    assertThat(ctx.targetId()).isEqualTo(String.valueOf(fileId));
+    assertThat(ctx.targetLabel()).startsWith("test-").endsWith(".pdf");
+    assertThat(ctx.actorType()).isEqualTo("AUTO");
+    assertThat(ctx.sourceAt().toInstant()).isEqualTo(created.toInstant());
+    assertThat(AiRunScope.current()).isEqualTo(AiRunContext.empty());
+  }
+
+  /** 테넌트 컨텍스트를 세운 채 값을 읽는다(WP-1829 테스트용). */
+  private <T> T inTenantRead(long tenantId, java.util.function.Supplier<T> reader) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      return new TransactionTemplate(txManager).execute(s -> reader.get());
     } finally {
       if (prev == null) TenantContext.clear();
       else TenantContext.set(prev);

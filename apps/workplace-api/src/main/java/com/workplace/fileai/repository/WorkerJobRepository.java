@@ -338,7 +338,8 @@ public class WorkerJobRepository {
    * 요약 컨텍스트 조회(요약 단계에서 ai-agent 에 전달할 정보).
    *
    * @param fileId 대상 파일 id
-   * @return {extracted_text, 이름(드라이브 이름 우선), mime_type, tenant_id}
+   * @return {extracted_text, 이름(드라이브 이름 우선), mime_type, tenant_id, 파일 생성 시각(WP-1829 — 요약 호출의 원본
+   *     시각)}
    */
   public SummaryContext findSummaryContext(long fileId) {
     // 드라이브 파일이면 지금 드라이브 이름(이름 변경 반영), 아니면 업로드 당시 이름(WP-339). 같은 core 파일을 가리키는 드라이브 파일이 여럿이면 휴지통
@@ -353,7 +354,11 @@ public class WorkerJobRepository {
                     .limit(1)),
             FILE.ORIGINAL_NAME);
     return dsl.select(
-            FILE_EXTRACTION.EXTRACTED_TEXT, name, FILE.MIME_TYPE, FILE_EXTRACTION.TENANT_ID)
+            FILE_EXTRACTION.EXTRACTED_TEXT,
+            name,
+            FILE.MIME_TYPE,
+            FILE_EXTRACTION.TENANT_ID,
+            FILE.CREATED_AT)
         .from(FILE_EXTRACTION)
         .join(FILE)
         .on(FILE.ID.eq(FILE_EXTRACTION.FILE_ID))
@@ -364,7 +369,8 @@ public class WorkerJobRepository {
                     r.get(FILE_EXTRACTION.EXTRACTED_TEXT),
                     r.get(name),
                     r.get(FILE.MIME_TYPE),
-                    r.get(FILE_EXTRACTION.TENANT_ID)));
+                    r.get(FILE_EXTRACTION.TENANT_ID),
+                    r.get(FILE.CREATED_AT)));
   }
 
   /**
@@ -438,7 +444,8 @@ public class WorkerJobRepository {
   }
 
   /** 요약 컨텍스트 — ai-agent 호출에 필요한 파일 정보. */
-  public record SummaryContext(String text, String fileName, String mime, long tenantId) {}
+  public record SummaryContext(
+      String text, String fileName, String mime, long tenantId, OffsetDateTime createdAt) {}
 
   // ─────────────────── 임베딩 큐 메서드 ───────────────────
 

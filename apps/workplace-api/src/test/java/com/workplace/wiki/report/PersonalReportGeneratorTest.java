@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.jooq.Tables.AI_RUN;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
@@ -10,12 +11,15 @@ import static org.jooq.impl.DSL.field;
 import static org.jooq.impl.DSL.name;
 import static org.jooq.impl.DSL.table;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
@@ -43,6 +47,7 @@ import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -269,6 +274,111 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
   private void failAi() {
     when(client.writePersonalReport(any()))
         .thenThrow(new IssueAiException("AI 보고 작성 요청에 실패했어요.", null));
+  }
+
+  // ───────────── AI 처리 기록(WP-1829) ─────────────
+
+  /** 이 사용자의 개인 보고 ai_run 행(대상 id 로 거른다 — 다른 테스트가 커밋한 행과 섞이지 않게). */
+  private List<org.jooq.Record> aiRuns() {
+    return dsl
+        .select()
+        .from(AI_RUN)
+        .where(AI_RUN.TARGET_TYPE.eq("USER"))
+        .and(AI_RUN.TARGET_ID.eq(String.valueOf(me)))
+        .and(AI_RUN.KIND.eq("PERSONAL_REPORT"))
+        .fetch()
+        .stream()
+        .map(r -> (org.jooq.Record) r)
+        .toList();
+  }
+
+  private AtomicReference<AiRunContext> captureScope() {
+    AtomicReference<AiRunContext> seen = new AtomicReference<>();
+    doAnswer(
+            inv -> {
+              seen.set(AiRunScope.current());
+              return new PersonalReportAiResult("## 요약\n\n잘 끝냈어요.");
+            })
+        .when(client)
+        .writePersonalReport(any());
+    return seen;
+  }
+
+  /** 자동 일일의 AI 호출은 USER 대상·AUTO·sourceAt=now 범위 안에서 일어나고, 정상 생성은 SKIPPED 행이 없다. */
+  @Test
+  void daily_aiCallScope_userAutoWithSourceAt() {
+    closedYesterday("DONE");
+    var seen = captureScope();
+
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.GENERATED);
+
+    AiRunContext c = seen.get();
+    assertThat(c.targetType()).isEqualTo("USER");
+    assertThat(c.targetId()).isEqualTo(String.valueOf(me));
+    assertThat(c.actorType()).isEqualTo("AUTO");
+    assertThat(c.sourceAt().toInstant()).isEqualTo(NOW.toInstant());
+    assertThat(aiRuns()).isEmpty();
+  }
+
+  /** 수동 보고의 AI 호출은 USER 주체(보고 주인)·sourceAt 없음. */
+  @Test
+  void manual_aiCallScope_userActorWithoutSourceAt() {
+    closedYesterday("DONE");
+    var seen = captureScope();
+
+    assertThat(generator.runManual(reserveManual(YESTERDAY), NOW)).isEqualTo(Outcome.GENERATED);
+
+    AiRunContext c = seen.get();
+    assertThat(c.targetType()).isEqualTo("USER");
+    assertThat(c.targetId()).isEqualTo(String.valueOf(me));
+    assertThat(c.actorType()).isEqualTo("USER");
+    assertThat(c.actorId()).isEqualTo(me);
+    assertThat(c.sourceAt()).isNull();
+    assertThat(aiRuns()).isEmpty();
+  }
+
+  /** 한 일이 없어 건너뛴 자동 일일은 SKIPPED/empty 행으로 남는다. */
+  @Test
+  void daily_empty_recordsSkippedAiRun() {
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.SKIPPED_EMPTY);
+    assertSkippedRow("empty", "AUTO", null, NOW);
+  }
+
+  /** 비서가 없어 건너뛴 자동 일일은 SKIPPED/no_assistant 행으로 남는다. */
+  @Test
+  void daily_noAssistant_recordsSkippedAiRun() {
+    when(assistantResolver.resolveOrEmpty(me)).thenReturn(Optional.empty());
+    closedYesterday("DONE");
+
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.SKIPPED_NO_ASSISTANT);
+    assertSkippedRow("no_assistant", "AUTO", null, NOW);
+  }
+
+  /** 비서가 없어 막힌 수동 보고도 SKIPPED/no_assistant 행(주체 USER)으로 남는다. */
+  @Test
+  void manual_noAssistant_recordsSkippedAiRun() {
+    when(assistantResolver.resolveOrEmpty(me)).thenReturn(Optional.empty());
+    long id = reserveManual(YESTERDAY);
+
+    assertThat(generator.runManual(id, NOW)).isEqualTo(Outcome.SKIPPED_NO_ASSISTANT);
+    assertSkippedRow("no_assistant", "USER", me, null);
+  }
+
+  private void assertSkippedRow(
+      String reason, String actorType, Long actorId, OffsetDateTime sourceAt) {
+    var rows = aiRuns();
+    assertThat(rows).hasSize(1);
+    var r = rows.get(0);
+    assertThat(r.get(AI_RUN.STATUS)).isEqualTo("SKIPPED");
+    assertThat(r.get(AI_RUN.ERROR_REASON)).isEqualTo(reason);
+    assertThat(r.get(AI_RUN.ACTOR_TYPE)).isEqualTo(actorType);
+    assertThat(r.get(AI_RUN.ACTOR_ID)).isEqualTo(actorId);
+    if (sourceAt == null) {
+      assertThat(r.get(AI_RUN.SOURCE_AT)).isNull();
+    } else {
+      assertThat(r.get(AI_RUN.SOURCE_AT).toInstant()).isEqualTo(sourceAt.toInstant());
+    }
+    assertThat(r.get(AI_RUN.STARTED_AT)).isEqualTo(r.get(AI_RUN.ENDED_AT));
   }
 
   // ───────────── 일일 자동 건너뜀 조건 ─────────────

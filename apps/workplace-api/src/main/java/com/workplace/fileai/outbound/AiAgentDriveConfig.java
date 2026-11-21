@@ -1,7 +1,7 @@
 package com.workplace.fileai.outbound;
 
+import com.workplace.airun.outbound.AiAgentHttp;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,9 +22,10 @@ public class AiAgentDriveConfig {
    * 방지한다.
    */
   @Bean
-  public AiAgentDriveClient aiAgentDriveClient(AiAgentProperties props) {
+  public AiAgentDriveClient aiAgentDriveClient(AiAgentProperties props, AiAgentHttp aiAgentHttp) {
     var restClient =
-        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(200))
+        aiAgentHttp
+            .restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(200))
             .build();
     return new AiAgentDriveClient(restClient, props.internalToken());
   }

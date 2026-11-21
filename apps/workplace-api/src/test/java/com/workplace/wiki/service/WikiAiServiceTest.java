@@ -481,4 +481,69 @@ class WikiAiServiceTest {
   private WikiAiRequest continueAction() {
     return new WikiAiRequest(WikiAiAction.CONTINUE, null, null);
   }
+
+  /** WP-1829: executor 스레드로 넘어가도 AI 처리 기록의 실행 주체가 요청자(USER)로 잡힌다. */
+  @Test
+  void startCompose_실행_주체를_요청자_USER_로_넘긴다() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    java.util.concurrent.atomic.AtomicReference<com.workplace.airun.context.AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    doAnswer(
+        inv -> {
+          seen.set(com.workplace.airun.context.AiRunScope.current());
+          return null;
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    // 요청 스레드에 SecurityContext 를 둔다 — 주체는 여기서 잡아 스레드 풀로 넘어가야 한다(WP-1829 리뷰 반영).
+    org.springframework.security.core.context.SecurityContextHolder.getContext()
+        .setAuthentication(
+            new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                CALLER, null, java.util.List.of()));
+    try {
+      service.startCompose(CALLER, PAGE_ID, continueAction());
+    } finally {
+      org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    assertThat(seen.get().actorType()).isEqualTo("USER");
+    assertThat(seen.get().actorId()).isEqualTo(CALLER);
+  }
+
+  /** WP-1829 리뷰 반영: AI 키(ROLE_AGENT)로 시작한 요청은 사람의 일(USER)이 아니라 AGENT 로 기록된다. */
+  @Test
+  void startCompose_AI키_요청은_실행_주체가_AGENT_다() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    java.util.concurrent.atomic.AtomicReference<com.workplace.airun.context.AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    doAnswer(
+        inv -> {
+          seen.set(com.workplace.airun.context.AiRunScope.current());
+          return null;
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    org.springframework.security.core.context.SecurityContextHolder.getContext()
+        .setAuthentication(
+            new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                CALLER,
+                null,
+                java.util.List.of(
+                    new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                        "ROLE_AGENT"))));
+    try {
+      service.startCompose(CALLER, PAGE_ID, continueAction());
+    } finally {
+      org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    assertThat(seen.get().actorType()).isEqualTo("AGENT");
+    assertThat(seen.get().actorId()).isEqualTo(CALLER);
+  }
 }

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpServer;
+import com.workplace.airun.outbound.AiAgentHttp;
+import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.auth.outbound.AssistantModelsConfig;
 import com.workplace.drive.outbound.DriveOverviewStreamClient;
 import com.workplace.drive.outbound.WorkerEmbedClient;
@@ -100,23 +102,29 @@ class InternalHttpRealSocketTest {
                 true,
                 new WorkerProperties.Embed("m", 3, 1000, true),
                 new WorkerProperties.Render(1568, 20));
+    // WP-1829: ai-agent 설정은 X-AI-Run 인터셉터를 얹는 공장 빈을 받는다(레코더는 목).
+    AiRunRecorder rec = org.mockito.Mockito.mock(AiRunRecorder.class);
+    AiAgentHttp http = new AiAgentHttp(rec);
     return Stream.of(
         client(
-            "HomeChat 누적 요약", u -> new HomeChatConfig().aiAgentContextSummaryClient(ai.apply(u))),
-        client("HomeChat 스트림", u -> new AiAgentChatClient(ai.apply(u))),
-        client("PriorityAi", u -> new PriorityAiConfig().aiAgentPriorityClient(ai.apply(u))),
+            "HomeChat 누적 요약",
+            u -> new HomeChatConfig().aiAgentContextSummaryClient(ai.apply(u), http)),
+        client("HomeChat 스트림", u -> new AiAgentChatClient(ai.apply(u), rec)),
+        client("PriorityAi", u -> new PriorityAiConfig().aiAgentPriorityClient(ai.apply(u), http)),
         client(
             "AssistantModels", u -> new AssistantModelsConfig().aiAgentModelsClient(ai.apply(u))),
-        client("MailAi", u -> new MailAiConfig().aiAgentMailClient(ai.apply(u))),
+        client("MailAi", u -> new MailAiConfig().aiAgentMailClient(ai.apply(u), http)),
         client(
-            "WikiAi 요약", u -> new WikiAiAgentSummaryConfig().wikiAiAgentSummaryClient(ai.apply(u))),
-        client("WikiAi 스트림", u -> new WikiAiAgentStreamClient(ai.apply(u))),
-        client("IssueAi", u -> new IssueAiConfig().aiAgentIssueClient(ai.apply(u))),
-        client("AiAgentDrive", u -> new AiAgentDriveConfig().aiAgentDriveClient(ai.apply(u))),
-        client("MessagingAi", u -> new MessagingAiConfig().aiAgentMessagingClient(ai.apply(u))),
-        client("Catchup", u -> new MessagingAiConfig().aiAgentCatchupClient(ai.apply(u))),
+            "WikiAi 요약",
+            u -> new WikiAiAgentSummaryConfig().wikiAiAgentSummaryClient(ai.apply(u), http)),
+        client("WikiAi 스트림", u -> new WikiAiAgentStreamClient(ai.apply(u), rec)),
+        client("IssueAi", u -> new IssueAiConfig().aiAgentIssueClient(ai.apply(u), http)),
+        client("AiAgentDrive", u -> new AiAgentDriveConfig().aiAgentDriveClient(ai.apply(u), http)),
+        client(
+            "MessagingAi", u -> new MessagingAiConfig().aiAgentMessagingClient(ai.apply(u), http)),
+        client("Catchup", u -> new MessagingAiConfig().aiAgentCatchupClient(ai.apply(u), http)),
         client("AiAgentEvent", u -> new OutboundConfig().aiAgentEventClient(ai.apply(u))),
-        client("DriveOverview 스트림", u -> new DriveOverviewStreamClient(ai.apply(u))),
+        client("DriveOverview 스트림", u -> new DriveOverviewStreamClient(ai.apply(u), rec)),
         client("Worker", u -> new WorkerClientConfig().workerClient(worker.apply(u))),
         client("WorkerEmbed", u -> new WorkerEmbedClient(worker.apply(u))),
         client("WorkerRender", u -> new WorkerRenderClient(worker.apply(u))));

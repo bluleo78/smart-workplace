@@ -388,4 +388,35 @@ class DriveOverviewServiceTest {
 
     verify(mockRegistry).cancel("corr-1", CALLER);
   }
+
+  /** WP-1829: executor 스레드로 넘어가도 AI 처리 기록의 실행 주체가 요청자(USER)로 잡힌다. */
+  @Test
+  void startOverview_실행_주체를_요청자_USER_로_넘긴다() throws Exception {
+    when(search.search(eq(CALLER), eq("매출"), eq(5), isNull()))
+        .thenReturn(new DriveContentSearchResponse(List.of(), false));
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    java.util.concurrent.atomic.AtomicReference<com.workplace.airun.context.AiRunContext> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    doAnswer(
+        inv -> {
+          seen.set(com.workplace.airun.context.AiRunScope.current());
+          return null;
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    // 요청 스레드에 SecurityContext 를 둔다 — 주체는 여기서 잡아 스레드 풀로 넘어가야 한다(WP-1829 리뷰 반영).
+    org.springframework.security.core.context.SecurityContextHolder.getContext()
+        .setAuthentication(
+            new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                CALLER, null, java.util.List.of()));
+    try {
+      service.startOverview(CALLER, "매출", null);
+    } finally {
+      org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    assertThat(seen.get().actorType()).isEqualTo("USER");
+    assertThat(seen.get().actorId()).isEqualTo(CALLER);
+  }
 }
