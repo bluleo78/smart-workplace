@@ -70,7 +70,8 @@ test('상세 「완전히 삭제」 → 확인 창 제목·본문·사본 안내
   const button = await openDetail(user)
   expect(button).toHaveTextContent('완전히 삭제')
   // 「되살리기」 바로 뒤에 둔다.
-  expect(screen.getByTestId('mail-restore').nextElementSibling).toBe(button)
+  // 늘 감싸개 안에 있으므로(WP-1856) 되살리기의 다음 형제는 감싸개다.
+  expect(screen.getByTestId('mail-restore').nextElementSibling).toBe(screen.getByTestId('mail-permanent-delete-reason'))
   await user.click(button)
   const dialog = await screen.findByTestId('mail-permanent-delete-confirm')
   expect(within(dialog).getByRole('heading')).toHaveTextContent('메일을 완전히 삭제할까요?')
@@ -192,6 +193,32 @@ test('처리 중에는 「완전히 삭제」가 비활성이고 확인을 두 �
   expect(await screen.findByText('완전히 삭제했습니다')).toBeInTheDocument()
   await waitFor(() => expect(screen.queryByTestId('mail-permanent-delete-confirm')).not.toBeInTheDocument())
   expect(deletes.calls).toHaveLength(1)
+})
+
+test('처리 중 「완전히 삭제」 감싸개 이름은 삭제 중 이유이고 처리 전·중·후 단추는 같은 노드다 (WP-1856)', async () => {
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => (release = r))
+  // 실패(ok=false)로 끝나 상세가 남게 한다 — 처리 후에도 같은 노드인지 보려는 것.
+  const { user, deletes } = renderTrash('/mail/1?box=9', {
+    deleteReply: async (ids) => {
+      await held
+      return HttpResponse.json({ results: ids.map((id) => ({ messageId: id, ok: false, error: '실패' })) } satisfies MailMoveResponse)
+    },
+  })
+  const before = await openDetail(user)
+  const wrapper = screen.getByTestId('mail-permanent-delete-reason')
+  expect(wrapper).not.toHaveAttribute('aria-label')
+  await user.click(before)
+  await user.click(within(await screen.findByTestId('mail-permanent-delete-confirm')).getByTestId('mail-permanent-delete-confirm-ok'))
+  await waitFor(() => expect(deletes.calls).toHaveLength(1))
+  await waitFor(() => expect(screen.getByTestId('mail-permanent-delete-reason')).toHaveAccessibleName('완전히 삭제 — 삭제하는 중이에요'))
+  fireEvent.focus(screen.getByTestId('mail-permanent-delete-reason'))
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('삭제하는 중이에요')
+  expect(screen.getByTestId('mail-permanent-delete')).toBe(before)
+  release()
+  await waitFor(() => expect(screen.getByTestId('mail-permanent-delete-reason')).not.toHaveAttribute('aria-label'))
+  expect(screen.getByTestId('mail-permanent-delete')).toBe(before)
+  expect(screen.getByTestId('mail-permanent-delete-reason')).toBe(wrapper)
 })
 
 test('처리 중 확인 창을 닫고 다른 메일을 열었으면, 지워진 뒤에도 지금 연 메일의 상세는 닫지 않는다', async () => {

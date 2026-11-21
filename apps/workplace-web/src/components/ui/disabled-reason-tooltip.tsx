@@ -6,29 +6,27 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
 
-import { FOCUSABLE } from '@/hooks/useDialogFocusRestore'
-import { focusLost } from '@/hooks/useRestoreFocusOnExit'
+import { DISABLED_REASON_WRAPPER_ATTR, FOCUSABLE } from '@/hooks/useDialogFocusRestore'
+import { focusLost, isKeyboardFocused } from '@/hooks/useRestoreFocusOnExit'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
-/** 그 요소가 키보드 초점(:focus-visible)인지 — 마우스 클릭 초점에는 툴팁·초점 이동을 하지 않으려는 판정. 지원 안 하면 false(옮기지 않음). */
-function hasKeyboardFocus(el: Element): boolean {
-  try {
-    return el.matches(':focus-visible')
-  } catch {
-    return false
-  }
-}
 
 export function DisabledReasonTooltip({
   reason,
+  label,
   className,
   children,
   onFocusCapture,
   onBlurCapture,
   onPointerDownCapture,
   ...spanProps
-}: { reason: string | null; children: ReactNode } & Omit<ComponentProps<'span'>, 'children'>) {
+}: {
+  reason: string | null
+  /** 컨트롤 이름 — 주면 막혔을 때 이름이 `<label> — <reason>` 이 된다. 명시한 aria-label 이 있으면 그것이 이긴다. */
+  label?: string
+  children: ReactNode
+} & Omit<ComponentProps<'span'>, 'children'>) {
   const spanRef = useRef<HTMLSpanElement>(null)
   const prevReason = useRef<string | null>(reason)
   const [open, setOpen] = useState(false)
@@ -63,8 +61,10 @@ export function DisabledReasonTooltip({
     <span
       ref={spanRef}
       {...spanProps}
+      // 감싸개 표지 — 초점 복원이 막힌 트리거의 부모 중 이 감싸개만 골라 초점을 옮기게 한다.
+      {...{ [DISABLED_REASON_WRAPPER_ATTR]: '' }}
       onFocusCapture={(e) => {
-        keyboardFocus.current = hasKeyboardFocus(e.target as Element)
+        keyboardFocus.current = isKeyboardFocused(e.target as Element)
         onFocusCapture?.(e)
       }}
       onBlurCapture={(e) => {
@@ -83,7 +83,7 @@ export function DisabledReasonTooltip({
       tabIndex={reason != null ? (spanProps.tabIndex ?? 0) : -1}
       // 이름은 호출자가 줄 때만 — 기본값을 reason 으로 두면 이름을 넘기지 않던 곳(상태 「+ 추가」·사람 카드 「메일」)의
       // 컨트롤 이름이 사유로 덮인다. reason 이 없으면 이름 없음.
-      aria-label={reason != null ? spanProps['aria-label'] : undefined}
+      aria-label={reason != null ? (spanProps['aria-label'] ?? (label ? `${label} — ${reason}` : undefined)) : undefined}
       className={cn(
         'inline-flex rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
         className,

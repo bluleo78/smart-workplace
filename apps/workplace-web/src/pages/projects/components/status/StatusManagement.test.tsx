@@ -97,6 +97,25 @@ describe('StatusManagement', () => {
     expect((await screen.findAllByText('상태는 프로젝트당 20개까지예요')).length).toBeGreaterThan(0)
   })
 
+  // WP-1856: 상한으로 막혔다 풀려도 「+ 추가」 버튼이 다시 만들어지지 않고(초점 유지), 막힌 감싸개에 이름이 붙는다.
+  it('막힌 감싸개에는 `<이름> — <이유>` 이름이 붙고, 풀려도 버튼은 같은 노드이며 data-add-slot 이 감싸개에서 버튼으로 옮겨 간다', () => {
+    h.statuses = [...base(), ...extraTodo(15)]
+    const { rerender } = renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
+    const button = screen.getByTestId('status-add-TODO')
+    const wrapper = button.parentElement!
+    expect(wrapper).toHaveAttribute('aria-label', '할 일 범주에 상태 추가 — 상태는 프로젝트당 20개까지예요')
+    expect(wrapper).toHaveAttribute('data-add-slot', 'TODO')
+    expect(button).not.toHaveAttribute('data-add-slot')
+
+    h.statuses = [...base(), ...extraTodo(14)]
+    rerender(<StatusManagement projectKey="WP" canEdit />)
+    expect(screen.getByTestId('status-add-TODO')).toBe(button)
+    expect(button.parentElement).toBe(wrapper)
+    expect(wrapper).not.toHaveAttribute('aria-label')
+    expect(wrapper).not.toHaveAttribute('data-add-slot')
+    expect(button).toHaveAttribute('data-add-slot', 'TODO')
+  })
+
   it('19개면 추가할 수 있다', () => {
     h.statuses = [
       ...base(),

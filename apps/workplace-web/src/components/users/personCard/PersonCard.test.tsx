@@ -109,6 +109,8 @@ test('메일 계정이 0개면 「메일 쓰기」는 흐리고 「메일 계정
   const card = await openCard(human, view)
   const mail = await settledMailButton(card, true)
   expect(mail).toHaveAttribute('aria-disabled', 'true')
+  // WP-1856: 막힌 감싸개는 `메일 쓰기 — <이유>` 이름을 갖는다.
+  expect(mail.parentElement).toHaveAttribute('aria-label', '메일 쓰기 — 메일 계정 연결 필요')
   await view.user.hover(mail)
   expect(await screen.findByRole('tooltip')).toHaveTextContent('메일 계정 연결 필요')
   await view.user.click(mail)

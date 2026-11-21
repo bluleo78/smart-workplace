@@ -8,6 +8,15 @@ export function focusLost(): boolean {
   return el === null || el === document.body;
 }
 
+/** 그 요소가 키보드 초점(:focus-visible)인지 — 마우스 초점은 거짓. 모르는 환경이면 던지므로 거짓(키보드로 보지 않음). */
+export function isKeyboardFocused(el: Element | null): boolean {
+  try {
+    return el?.matches(':focus-visible') ?? false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * active 가 true → false 로 바뀐 직후, 포커스가 body 로 빠져 있으면 target 으로 돌린다.
  * 예: 편집 중(true) → 저장·취소(false) 뒤 「편집」 버튼으로. target 은 그 시점에 그려져 있어야 한다(효과는 커밋 뒤에 돈다).

@@ -12,6 +12,10 @@ export const PERMANENT_DELETE_UNSUPPORTED_REASON =
 export const PERMANENT_DELETE_UNSUPPORTED_SHORT = '이 메일 서버는 지원하지 않아요'
 /** 빈 휴지통에서 「휴지통 비우기」가 꺼진 이유. */
 export const TRASH_EMPTY_REASON = '휴지통이 비어 있어요'
+/** 비우기가 진행 중일 때 감싸개(툴팁·이름)에 쓰는 이유 — 단추 라벨은 「비우는 중…」이지만 왜 못 누르는지는 이름으로 알린다(WP-1856). */
+export const TRASH_EMPTY_RUNNING_REASON = '휴지통을 비우는 중이에요'
+/** 한 통 완전 삭제 요청이 처리 중일 때 감싸개에 쓰는 이유(WP-1856). */
+export const PERMANENT_DELETE_PENDING_REASON = '삭제하는 중이에요'
 /** 확인 창 영향 안내(두 확인 창 공통) — 드라이브·이슈로 가져간 첨부는 새 파일이라 메일을 지워도 남는다. */
 export const TRASH_COPY_NOTE = '드라이브·이슈로 가져간 첨부 사본은 그대로 남습니다.'
 
@@ -22,13 +26,22 @@ export interface TrashButtonState {
 }
 
 /**
+ * 처리 요청 중(pending)이면 이유 없는 켜짐 상태를 「처리 중 이유」로 막는다 — 상태가 이미 가진 이유(미지원 등)가 먼저다.
+ * 모든 막힘이 이유를 가지므로 호출부는 reason 하나로 감싸개·이름·disabled 를 정한다(WP-1852·1856).
+ */
+export function foldPendingReason(state: TrashButtonState, pending: boolean, pendingReason: string): TrashButtonState {
+  return pending && state.reason == null ? { enabled: false, reason: pendingReason } : state
+}
+
+/**
  * 상세 「완전히 삭제」 단추 — UIDPLUS 없음으로 기록된 서버면 비활성 + 이유.
  * 휴지통 행을 모르거나(undefined) 모름(null 기록)이면 켜 둔다 — 실행이 서버에서 확인해 막는다(PERMANENT_DELETE_UNSUPPORTED).
  */
-export function permanentDeleteState(folder: MailServerFolder | undefined): TrashButtonState {
-  return folder?.permanentDeleteUnsupported
+export function permanentDeleteState(folder: MailServerFolder | undefined, pending = false): TrashButtonState {
+  const base: TrashButtonState = folder?.permanentDeleteUnsupported
     ? { enabled: false, reason: PERMANENT_DELETE_UNSUPPORTED_REASON }
     : { enabled: true, reason: null }
+  return foldPendingReason(base, pending, PERMANENT_DELETE_PENDING_REASON)
 }
 
 /**
@@ -36,26 +49,29 @@ export function permanentDeleteState(folder: MailServerFolder | undefined): Tras
  * 빈 휴지통은 전체 수가 0 이고 보이는 목록도 비었을 때만이다. 전체 수는 liveCount(서버 실시간 수) 가 먼저고 모르는 동안(로딩·오류)은
  * folder.totalCount(마지막 목록 갱신 값) 로 판정한다 — 줄 글자(trashEmptyRowText) 와 같은 폴백 패턴이라, live 302통인데 로컬 목록만
  * 비어 있으면 줄은 「302통」인데 단추만 「비어 있어요」로 잠기지 않게 한다(새 정보를 모를 땐 기존 동작 유지).
- * 진행 중은 이유 없이 비활성이고 라벨만 「비우는 중…」으로 바뀐다.
+ * 진행 중은 이유(TRASH_EMPTY_RUNNING_REASON)와 함께 비활성이고 라벨은 「비우는 중…」으로 바뀐다.
  */
 export function trashEmptyState(
   folder: MailServerFolder | undefined,
   status: MailTrashEmptyStatus | undefined,
   listEmpty: boolean,
   liveCount: number | null,
+  pending = false,
 ): TrashButtonState & { running: boolean; label: '휴지통 비우기' | '비우는 중…' } {
   if (folder?.permanentDeleteUnsupported) {
     return { enabled: false, reason: PERMANENT_DELETE_UNSUPPORTED_REASON, running: false, label: '휴지통 비우기' }
   }
   if (status?.state === 'RUNNING') {
-    return { enabled: false, reason: null, running: true, label: '비우는 중…' }
+    return { enabled: false, reason: TRASH_EMPTY_RUNNING_REASON, running: true, label: '비우는 중…' }
   }
   // live count 를 먼저 쓴다 — folder.totalCount 는 마지막 목록 동기화 값이라 실제와 어긋날 수 있다(수는 낡았을 수 있어 목록에 메일이 보이면 켠다).
   const total = liveCount ?? folder?.totalCount
   if (total === 0 && listEmpty) {
     return { enabled: false, reason: TRASH_EMPTY_REASON, running: false, label: '휴지통 비우기' }
   }
-  return { enabled: true, reason: null, running: false, label: '휴지통 비우기' }
+  // 시작 요청 중이면 이유와 함께 막는다(WP-1856) — 진행(RUNNING)은 아니라 라벨은 그대로.
+  const idle = foldPendingReason({ enabled: true, reason: null }, pending, TRASH_EMPTY_RUNNING_REASON)
+  return { ...idle, running: false, label: '휴지통 비우기' }
 }
 
 /**

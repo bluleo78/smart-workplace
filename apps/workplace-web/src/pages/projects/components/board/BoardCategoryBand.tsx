@@ -71,7 +71,7 @@ function BandAddButton({
     return (
       <DisabledReasonTooltip
         reason={blocked}
-        aria-label={`${span.label}에 상태 추가 — ${blocked}`}
+        label={`${span.label}에 상태 추가`}
         data-testid={`board-band-add-limit-${span.category}`}
         className="sticky right-0 shrink-0 bg-background"
       >

@@ -48,6 +48,20 @@ describe('DisabledReasonTooltip', () => {
     expect(wrap).not.toHaveAttribute('aria-label')
   })
 
+  it('label 을 주면 막혔을 때 이름이 `label — reason` 이고, 명시한 aria-label 이 이기며, reason 이 없으면 이름이 없다', () => {
+    const view = (props: { reason: string | null; 'aria-label'?: string }) => (
+      <DisabledReasonTooltip label="상태 추가" data-testid="wrap" {...props}>
+        <button>추가</button>
+      </DisabledReasonTooltip>
+    )
+    const { getByTestId, rerender } = render(view({ reason: '꽉 찼어요' }))
+    expect(getByTestId('wrap')).toHaveAttribute('aria-label', '상태 추가 — 꽉 찼어요')
+    rerender(view({ reason: '꽉 찼어요', 'aria-label': '직접' }))
+    expect(getByTestId('wrap')).toHaveAttribute('aria-label', '직접')
+    rerender(view({ reason: null }))
+    expect(getByTestId('wrap')).not.toHaveAttribute('aria-label')
+  })
+
   it('reason 이 생길 때 초점이 안의 버튼에 있으면 감싸개로 옮긴다', () => {
     mockFocusVisible(true)
     const { getByTestId, rerender } = render(<Harness reason={null} />)
