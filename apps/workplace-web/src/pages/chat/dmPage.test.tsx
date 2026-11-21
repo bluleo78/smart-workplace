@@ -8,7 +8,8 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { API, renderChat } from '@/test/kits/chat/testkit-b5'
+import { API, recorder, renderChat } from '@/test/kits/chat/testkit-b5'
+import { gate } from '@/test/loadErrorRetry'
 import { testAuthValue } from '@/test/renderWithProviders'
 import type { DmResponse } from '@/types/messaging'
 
@@ -454,6 +455,117 @@ describe('새 메시지 — 받는 사람', () => {
     await waitFor(() => expect(view.location()).toBe(`/chat/dms/${DM_ID}`))
     expect(steps).toEqual(['dm', 'upload', 'message'])
     expect(sends).toEqual([expect.objectContaining({ fileIds: [77] })])
+  })
+
+  // WP-1922: 전송 중(DM 생성 대기 중)에 붙인 첨부 칩은 실패 뒤 다시 보내기를 깨지 않고, 성공 시에는 함께 보내지 않은 개수를 안내한다.
+  describe('전송 중 붙인 첨부(WP-1922)', () => {
+    const NOTICE = '보내는 동안 붙인 첨부 1개는 함께 보내지 않았습니다. 대화에서 다시 붙여 주세요.'
+    const DM_ID = 201
+    const dm = createDm({ id: DM_ID, participants: [createDmParticipant({ userId: 1, name: MY_NAME }), createDmParticipant({ userId: 2, name: '밥' })] })
+    const fail500 = () => HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 })
+
+    /** 새 메시지 화면 — createDm 은 dmGate 로 늦추고(첫 호출만 dmFirst 가 응답을 정함), 업로드·전송 요청을 기록한다. 업로드 응답 id 는 100 부터. */
+    function openNew(opts: { dmGate?: Promise<void>; dmFirst?: () => Response; messageFirst?: () => Response } = {}) {
+      const uploads: string[][] = []
+      const sends = recorder<{ fileIds?: number[] }>()
+      let dmCalls = 0
+      let messageCalls = 0
+      let nextFileId = 100
+      const view = renderChat('/chat/new', {
+        auth,
+        handlers: [
+          membersHandler([{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }]),
+          http.get(`${API}/messaging/dms`, () => HttpResponse.json([dm])),
+          http.post(`${API}/messaging/dms`, async () => {
+            await opts.dmGate
+            return (dmCalls++ === 0 && opts.dmFirst?.()) || HttpResponse.json(dm, { status: 201 })
+          }),
+          http.get(`${API}/messaging/channels/${DM_ID}`, () => HttpResponse.json(createChannel({ id: DM_ID, kind: 'DM', member: true }))),
+          http.post(`${API}/messaging/channels/${DM_ID}/attachments`, async ({ request }) => {
+            const files = (await request.formData()).getAll('files') as File[]
+            uploads.push(files.map((f) => f.name))
+            return HttpResponse.json(files.map((f) => ({ fileId: nextFileId++, originalName: f.name, mimeType: 'text/plain', sizeBytes: f.size })))
+          }),
+          http.post(`${API}/messaging/channels/${DM_ID}/messages`, async ({ request }) => {
+            sends.push((await request.json()) as { fileIds?: number[] })
+            return (messageCalls++ === 0 && opts.messageFirst?.()) || HttpResponse.json(createMessage({ id: 11, channelId: DM_ID, authorId: 1, body: '' }), { status: 201 })
+          }),
+        ],
+      })
+      return { ...view, uploads, sends: sends.bodies }
+    }
+
+    /** 받는 사람(밥)을 고른다. */
+    async function pickBob(view: ReturnType<typeof openNew>) {
+      const input = await screen.findByTestId('new-message-recipient-input')
+      await view.user.click(input)
+      await view.user.paste('밥')
+      await view.user.click(await screen.findByTestId('member-search-row-2'))
+    }
+
+    /** 첨부 하나를 붙이고 칩이 보일 때까지 기다린다. */
+    async function attach(view: ReturnType<typeof openNew>, name: string) {
+      await view.user.upload(await screen.findByTestId('composer-file-input'), new File([name], name, { type: 'text/plain' }))
+      await waitFor(() => expect(screen.getByTestId('composer-attachments')).toHaveTextContent(name))
+    }
+
+    // 정리 반복은 DM 생성 직후 돌았으므로 B 는 DM 생성 전(전송 중)에 붙인다 — 지우면 다시 보낼 때 보관분이 없어 깨졌다.
+    test('메시지 전송 실패 뒤 전송 중 붙인 첨부와 함께 다시 보내면 전송된다', async () => {
+      const g = gate()
+      const view = openNew({ dmGate: g.promise, messageFirst: fail500 })
+      await pickBob(view)
+      await attach(view, 'a.txt')
+      await view.user.click(screen.getByTestId('message-composer-submit'))
+      await attach(view, 'b.txt')
+      g.release()
+      await screen.findByText('서버 오류')
+      expect(screen.getByTestId('composer-attachments')).toHaveTextContent('a.txt')
+      expect(screen.getByTestId('composer-attachments')).toHaveTextContent('b.txt')
+      await view.user.click(screen.getByTestId('message-composer-submit'))
+      await waitFor(() => expect(view.location()).toBe(`/chat/dms/${DM_ID}`))
+      // A 는 이미 올라가 있어 B 만 새로 올리고, 두 번째 전송에는 A·B 서버 id 가 모두 실린다.
+      expect(view.uploads).toEqual([['a.txt'], ['b.txt']])
+      expect(view.sends[1].fileIds).toEqual([100, 101])
+    })
+
+    test('DM 만들기 실패 뒤 전송 중 붙인 첨부와 함께 다시 보내면 전송된다', async () => {
+      const g = gate()
+      const view = openNew({ dmGate: g.promise, dmFirst: fail500 })
+      await pickBob(view)
+      await attach(view, 'a.txt')
+      await view.user.click(screen.getByTestId('message-composer-submit'))
+      await attach(view, 'b.txt')
+      g.release()
+      await screen.findByText('서버 오류')
+      expect(screen.getByTestId('composer-attachments')).toHaveTextContent('a.txt')
+      expect(screen.getByTestId('composer-attachments')).toHaveTextContent('b.txt')
+      await view.user.click(screen.getByTestId('message-composer-submit'))
+      await waitFor(() => expect(view.location()).toBe(`/chat/dms/${DM_ID}`))
+      expect(view.uploads).toEqual([['a.txt', 'b.txt']])
+      expect(view.sends[0].fileIds).toEqual([100, 101])
+    })
+
+    test('성공 시 전송 중 붙인 첨부 수를 안내하고 그 첨부는 보내지 않는다', async () => {
+      const g = gate()
+      const view = openNew({ dmGate: g.promise })
+      await pickBob(view)
+      await attach(view, 'a.txt')
+      await view.user.click(screen.getByTestId('message-composer-submit'))
+      await attach(view, 'b.txt')
+      g.release()
+      await waitFor(() => expect(view.location()).toBe(`/chat/dms/${DM_ID}`))
+      expect(await screen.findByText(NOTICE)).toBeInTheDocument()
+      expect(view.sends[0].fileIds).toEqual([100])
+    })
+
+    test('전송 중 붙인 첨부가 없으면 안내하지 않는다', async () => {
+      const view = openNew()
+      await pickBob(view)
+      await attach(view, 'a.txt')
+      await view.user.click(screen.getByTestId('message-composer-submit'))
+      await waitFor(() => expect(view.location()).toBe(`/chat/dms/${DM_ID}`))
+      expect(screen.queryByText(NOTICE)).not.toBeInTheDocument()
+    })
   })
 })
 

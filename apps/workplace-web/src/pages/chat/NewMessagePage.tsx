@@ -3,6 +3,7 @@
 // 첫 전송 시 find-or-create DM → (첨부 있으면) 그 DM 으로 업로드 → 메시지 전송 → /chat/dms/{id} 이동.
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { messagingApi } from '@/api/messaging'
 import { MessageComposer } from '@/components/chat/MessageComposer'
@@ -65,6 +66,9 @@ export default function NewMessagePage() {
   const handleSend = async (body: string, fileIds: number[], driveFileIds: number[]) => {
     if (selected.length === 0 || sending) return
     setSending(true)
+    // 전송 시작 시점의 보관 목록 사본 — 여기 없는 보관분은 전송 중에 붙인 것이라 이번 전송에 실리지 않는다(id 순서에 기대지 않는다).
+    const held = heldFiles.current
+    const heldBeforeSend = new Set(held.keys())
     // DM find-or-create — 실패 시 useCreateDm.onError 가 토스트하므로 여기선 토스트 없이 중단.
     // 실패는 reject 로 전파 — MessageComposer 가 성공으로 오인해 보관 중인 첨부 칩을 비우지 않게 한다.
     let dm
@@ -76,9 +80,9 @@ export default function NewMessagePage() {
     }
     // 첨부 업로드 + 첫 메시지 전송 — 이 호출들은 hook-level onError 가 없으므로 여기서 처리.
     try {
-      // 칩에서 제거돼 fileIds 에 없는 보관분은 버리고, 남은 것 중 이 DM 에 아직 안 올린 것만 업로드한다.
-      const held = heldFiles.current
-      for (const id of held.keys()) if (!fileIds.includes(id)) held.delete(id)
+      // fileIds 에 있는 것 중 이 DM 에 아직 안 올린 것만 업로드한다.
+      // 칩에서 제거된 보관분은 지우지 않는다 — 전송 중 붙인 칩의 보관분까지 지우면 실패 뒤 다시 보내기에서
+      // held.get(id) 가 undefined 가 돼 깨진다. 한 번 쓰고 떠나는 화면이라 남겨 둬도 무해하다.
       const toUpload = fileIds.filter((id) => held.get(id)!.uploaded?.dmId !== dm.id)
       if (toUpload.length) {
         const { data } = await messagingApi.uploadAttachments(
@@ -98,6 +102,11 @@ export default function NewMessagePage() {
       })
       // replace — 새 메시지 작성 화면은 일회성이다. push 하면 DM 에서 뒤로가기가 빈 작성 화면으로 돌아간다.
       navigate(`/chat/dms/${dm.id}`, { replace: true })
+      // 전송 중 붙인 첨부는 이번 메시지에 실리지 않았다 — 조용히 사라지지 않게 개수를 알린다.
+      const skipped = [...held.keys()].filter((id) => !heldBeforeSend.has(id)).length
+      if (skipped > 0) {
+        toast.info(`보내는 동안 붙인 첨부 ${skipped}개는 함께 보내지 않았습니다. 대화에서 다시 붙여 주세요.`)
+      }
     } catch (err) {
       handleApiError(err, '메시지를 보낼 수 없습니다')
       setSending(false)
