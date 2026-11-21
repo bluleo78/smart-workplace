@@ -59,8 +59,16 @@ async function openCard(person: PersonRef, view: ReturnType<typeof setup>) {
 
 /** 「메일 쓰기」 — 프로필·계정 응답이 끝나 이유가 정해질 때까지(막힌 단추는 툴팁 래퍼가 탭 정지점이 된다) 기다린 뒤 잡는다. */
 async function settledMailButton(card: HTMLElement, blocked: boolean) {
-  if (blocked) await waitFor(() => expect(within(card).getByRole('button', { name: '메일 쓰기' })).toHaveAttribute('tabindex', '-1'))
-  else await waitFor(() => expect(within(card).getByRole('button', { name: '메일 쓰기' })).not.toHaveAttribute('aria-disabled'))
+  // 막힌 동안은 감싸개가 `메일 쓰기 — <이유>` 이름의 button 역할이고 안의 단추는 숨겨진다(WP-1856).
+  if (blocked) {
+    const wrapper = await within(card).findByRole('button', { name: /^메일 쓰기 — / })
+    // 막힌 동안은 감싸개가 Tab 정지점이다.
+    await waitFor(() => expect(wrapper).toHaveAttribute('tabindex', '0'))
+    // 안의 막힌 단추는 따로 노출되지 않는다.
+    expect(within(card).queryByRole('button', { name: '메일 쓰기' })).not.toBeInTheDocument()
+    return wrapper
+  }
+  await waitFor(() => expect(within(card).getByRole('button', { name: '메일 쓰기' })).not.toHaveAttribute('aria-disabled'))
   return within(card).getByRole('button', { name: '메일 쓰기' })
 }
 
@@ -110,7 +118,7 @@ test('메일 계정이 0개면 「메일 쓰기」는 흐리고 「메일 계정
   const mail = await settledMailButton(card, true)
   expect(mail).toHaveAttribute('aria-disabled', 'true')
   // WP-1856: 막힌 감싸개는 `메일 쓰기 — <이유>` 이름을 갖는다.
-  expect(mail.parentElement).toHaveAttribute('aria-label', '메일 쓰기 — 메일 계정 연결 필요')
+  expect(within(card).getByRole('button', { name: '메일 쓰기 — 메일 계정 연결 필요' })).toBe(mail)
   await view.user.hover(mail)
   expect(await screen.findByRole('tooltip')).toHaveTextContent('메일 계정 연결 필요')
   await view.user.click(mail)

@@ -6,7 +6,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
 
-import { DISABLED_REASON_WRAPPER_ATTR, FOCUSABLE } from '@/hooks/useDialogFocusRestore'
+import { DISABLED_REASON_INNER_ATTR, DISABLED_REASON_WRAPPER_ATTR, FOCUSABLE } from '@/hooks/useDialogFocusRestore'
 import { focusLost, isKeyboardFocused } from '@/hooks/useRestoreFocusOnExit'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -57,6 +57,10 @@ export function DisabledReasonTooltip({
     }
   }, [reason])
 
+  // 막혔을 때의 접근 가능한 이름 — 호출자가 명시한 aria-label 이 이기고, 없으면 `label — reason`. reason 이 없으면 없음.
+  const accessibleName =
+    reason != null ? (spanProps['aria-label'] ?? (label ? `${label} — ${reason}` : undefined)) : undefined
+
   const span = (
     <span
       ref={spanRef}
@@ -83,13 +87,22 @@ export function DisabledReasonTooltip({
       tabIndex={reason != null ? (spanProps.tabIndex ?? 0) : -1}
       // 이름은 호출자가 줄 때만 — 기본값을 reason 으로 두면 이름을 넘기지 않던 곳(상태 「+ 추가」·사람 카드 「메일」)의
       // 컨트롤 이름이 사유로 덮인다. reason 이 없으면 이름 없음.
-      aria-label={reason != null ? (spanProps['aria-label'] ?? (label ? `${label} — ${reason}` : undefined)) : undefined}
+      aria-label={accessibleName}
+      // 역할 없는 span(generic)은 ARIA 상 이름을 붙일 수 없어 스크린리더가 aria-label 을 무시할 수 있다.
+      // 그래서 이유가 있고 이름이 있는 동안만 button 역할 + aria-disabled 로 「막힌 버튼」 하나로 노출한다.
+      // 이름이 없으면(이름 없이 쓰던 호출자) 지금처럼 역할을 달지 않는다. reason 이 없으면 역할도 없어 안의 진짜 버튼이 그대로 노출된다.
+      role={accessibleName ? 'button' : spanProps.role}
+      aria-disabled={accessibleName ? true : spanProps['aria-disabled']}
       className={cn(
         'inline-flex rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
         className,
       )}
     >
-      {children}
+      {/* 막혀 이름을 가진 동안은 안의 막힌 버튼을 보조기기에서 숨긴다 — 감싸개가 버튼 하나로 읽히므로 중첩·중복 버튼을 만들지 않는다.
+          reason 이 바뀌어도 같은 노드를 두고 속성만 바꾸어 다시 만들어지지 않게 한다. display: contents 라 배치는 그대로. */}
+      <span {...{ [DISABLED_REASON_INNER_ATTR]: '' }} className="contents" aria-hidden={accessibleName ? true : undefined}>
+        {children}
+      </span>
     </span>
   )
 

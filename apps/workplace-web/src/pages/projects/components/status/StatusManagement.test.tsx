@@ -93,7 +93,7 @@ describe('StatusManagement', () => {
     renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
     for (const c of ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']) expect(screen.getByTestId(`status-add-${c}`)).toBeDisabled()
     // 막힌 버튼은 포인터·포커스를 받지 않아 감싼 칸이 툴팁을 띄운다.
-    await userEvent.hover(screen.getByTestId('status-add-TODO').parentElement!)
+    await userEvent.hover(screen.getByTestId('status-add-TODO').closest('[data-disabled-reason-wrapper]')!)
     expect((await screen.findAllByText('상태는 프로젝트당 20개까지예요')).length).toBeGreaterThan(0)
   })
 
@@ -102,16 +102,21 @@ describe('StatusManagement', () => {
     h.statuses = [...base(), ...extraTodo(15)]
     const { rerender } = renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
     const button = screen.getByTestId('status-add-TODO')
-    const wrapper = button.parentElement!
+    const wrapper = button.closest('[data-disabled-reason-wrapper]')!
     expect(wrapper).toHaveAttribute('aria-label', '할 일 범주에 상태 추가 — 상태는 프로젝트당 20개까지예요')
+    // 막힌 동안은 감싸개가 이름 있는 button 역할이고 안의 disabled 버튼은 따로 노출되지 않는다.
+    expect(screen.getByRole('button', { name: '할 일 범주에 상태 추가 — 상태는 프로젝트당 20개까지예요' })).toBe(wrapper)
+    expect(screen.queryByRole('button', { name: '할 일 범주에 상태 추가' })).not.toBeInTheDocument()
     expect(wrapper).toHaveAttribute('data-add-slot', 'TODO')
     expect(button).not.toHaveAttribute('data-add-slot')
 
     h.statuses = [...base(), ...extraTodo(14)]
     rerender(<StatusManagement projectKey="WP" canEdit />)
     expect(screen.getByTestId('status-add-TODO')).toBe(button)
-    expect(button.parentElement).toBe(wrapper)
+    expect(button.closest('[data-disabled-reason-wrapper]')).toBe(wrapper)
     expect(wrapper).not.toHaveAttribute('aria-label')
+    expect(wrapper).not.toHaveAttribute('role')
+    expect(screen.getByRole('button', { name: '할 일 범주에 상태 추가' })).toBe(button)
     expect(wrapper).not.toHaveAttribute('data-add-slot')
     expect(button).toHaveAttribute('data-add-slot', 'TODO')
   })
@@ -220,7 +225,7 @@ describe('StatusManagement', () => {
       await waitFor(() => expect(screen.queryByTestId('status-add-form-TODO')).toBeNull())
       const button = screen.getByTestId('status-add-TODO')
       expect(button).toBeDisabled()
-      expect(button.parentElement).toHaveFocus()
+      expect(button.closest('[data-disabled-reason-wrapper]')).toHaveFocus()
     })
 
     it('입력 줄을 연 사이 상한에 닿은 뒤 Esc 로 닫으면 툴팁 칸으로 돌아온다', async () => {
@@ -233,7 +238,7 @@ describe('StatusManagement', () => {
       await userEvent.click(screen.getByLabelText('새 상태 이름'))
       await userEvent.keyboard('{Escape}')
       expect(screen.queryByTestId('status-add-form-TODO')).toBeNull()
-      expect(screen.getByTestId('status-add-TODO').parentElement).toHaveFocus()
+      expect(screen.getByTestId('status-add-TODO').closest('[data-disabled-reason-wrapper]')).toHaveFocus()
     })
 
     it('늦게 끝난 저장은 그 사이 연 다른 범주 입력 줄을 닫거나 포커스를 뺏지 않는다', async () => {

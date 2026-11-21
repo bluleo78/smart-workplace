@@ -56,7 +56,7 @@ test('모바일 시트도 마지막 칸에서 Tab 을 누르면 첫 단추로 �
   const sheet = await screen.findByTestId('person-card-sheet')
   const card = within(sheet).getByTestId('person-card')
   // 메일 계정이 없어 「메일 쓰기」는 툴팁 래퍼가 탭 정지점이 된다 — 이유가 정해질 때까지 기다린다.
-  await waitFor(() => expect(within(card).getByRole('button', { name: '메일 쓰기' })).toHaveAttribute('tabindex', '-1'))
+  await waitFor(() => expect(within(card).getByRole('button', { name: /^메일 쓰기 — / })).toHaveAttribute('tabindex', '0'))
   const last = within(card).getByRole('link', { name: '연락처에서 보기' })
   last.focus()
   await user.tab()

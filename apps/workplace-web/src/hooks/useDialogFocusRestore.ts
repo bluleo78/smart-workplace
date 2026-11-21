@@ -8,6 +8,8 @@ export const FOCUSABLE =
 
 /** 이유 감싸개(DisabledReasonTooltip)가 다는 표지 속성 — 순환 import 를 피하려 훅 쪽에 두고 감싸개가 가져다 쓴다. */
 export const DISABLED_REASON_WRAPPER_ATTR = 'data-disabled-reason-wrapper';
+/** 이유 감싸개가 안쪽 내용을 한 번 더 감싸는 보조 span 의 표지 — 막힌 동안 보조기기에서 숨기려고 둔다(그 부모가 진짜 감싸개). */
+export const DISABLED_REASON_INNER_ATTR = 'data-disabled-reason-inner';
 
 /** 대상 안에서 포커스가 머물 행 — 숨은 대상이면 이 안에서 대신 받을 곳을 찾는다. */
 const ROW = 'li, tr, [role="row"], [role="listitem"]';
@@ -46,7 +48,9 @@ function focusNearest(el: HTMLElement, keyboard: boolean) {
   // WP-1856: 처리 중이라 트리거가 막혀 있으면(disabled 는 초점을 받지 않는다) 그냥 두면 body 로 떨어진다.
   // 키보드를 쓴 경우에만, 막힌 버튼의 직접 부모인 이유 감싸개(표지로 식별)가 대신 받는다 — 마우스 사용자는 감싸개가 초점을
   // 받으면 툴팁이 억지로 뜨므로 건너뛴다. reason 이 없어 tabindex -1 인 감싸개는 Tab 정지가 아니므로 제외한다(tabIndex >= 0).
-  const parent = el.parentElement;
+  // 감싸개는 안쪽 내용을 보조 span 으로 한 번 더 감싸므로, 직접 부모가 그 보조 span 이면 한 단계 더 오른다.
+  const direct = el.parentElement;
+  const parent = direct?.hasAttribute(DISABLED_REASON_INNER_ATTR) ? direct.parentElement : direct;
   if (keyboard && parent?.hasAttribute(DISABLED_REASON_WRAPPER_ATTR) && parent.tabIndex >= 0) {
     parent.focus();
     if (document.activeElement === parent) return;

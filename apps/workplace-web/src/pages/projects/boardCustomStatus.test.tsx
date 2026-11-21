@@ -167,6 +167,30 @@ describe('보드 — 프로젝트 상태 컬럼', () => {
     expect(api.posts).toEqual([])
   })
 
+  // WP-1856: 저장으로 상한에 닿아 막혀도 띠 ＋ 와 감싸개가 같은 노드로 남는다(다시 만들어지면 키보드 초점을 잃는다).
+  test('범주 띠 ＋ 는 상한에 닿아 막혀도 같은 노드이고, 막힌 동안 감싸개가 `<이름> — <이유>` 의 단일 button 이다', async () => {
+    const statuses = boardStatuses()
+    // 8개 + 진행 중 11개 = 19개 — 하나만 더 추가하면 상한(20).
+    for (let i = 0; i < 11; i++) statuses.push(makeProjectStatus({ id: 100 + i, name: `추가 상태 ${i + 1}`, category: 'IN_PROGRESS', position: 20 + i }))
+    const api = boardApi({ statuses })
+    const { user } = await openBoard(api)
+    const add = screen.getByTestId('board-band-add-IN_PROGRESS')
+    const wrapper = add.closest('[data-disabled-reason-wrapper]')!
+    expect(add).toBeEnabled()
+    expect(wrapper).not.toHaveAttribute('role')
+    await user.click(add)
+    await submitName(user, '마지막')
+    await waitFor(() => expect(api.posts).toHaveLength(1))
+    await waitFor(() => expect(screen.getByTestId('board-band-add-IN_PROGRESS')).toBeDisabled())
+    expect(screen.getByTestId('board-band-add-IN_PROGRESS')).toBe(add)
+    expect(add.closest('[data-disabled-reason-wrapper]')).toBe(wrapper)
+    expect(wrapper).toHaveAttribute('data-testid', 'board-band-add-limit-IN_PROGRESS')
+    const name = '진행 중에 상태 추가 — 상태는 프로젝트당 20개까지예요'
+    expect(screen.getByRole('button', { name })).toBe(wrapper)
+    // 안의 막힌 ＋ 는 따로 노출되지 않는다.
+    expect(screen.queryByRole('button', { name: '진행 중에 상태 추가' })).not.toBeInTheDocument()
+  })
+
   test('서버가 중복 이름(409)으로 거절하면 그 자리에 오류를 보이고 입력을 남긴다', async () => {
     const api = boardApi()
     const { user } = await openBoard(api, {

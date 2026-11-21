@@ -1,6 +1,6 @@
 // DisabledReasonTooltip 테스트 (WP-1852) — reason 이 없으면 감싸개가 Tab 정지·이름 없이 남고,
 // reason 이 생기고 사라질 때 초점이 버튼 ↔ 감싸개로 넘어가는지 확인한다.
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DisabledReasonTooltip } from './disabled-reason-tooltip'
@@ -135,6 +135,36 @@ describe('DisabledReasonTooltip', () => {
     expect(getByTestId('w')).toHaveAttribute('tabindex', '5')
     rerender(wrapEl({ reason: '이유' }))
     expect(getByTestId('w')).toHaveAttribute('tabindex', '0')
+  })
+
+  it('막혀 이름이 있는 동안 감싸개가 button 역할로 `label — reason` 이름을 갖고, 안의 막힌 버튼은 따로 노출되지 않는다', () => {
+    const view = (reason: string | null) => (
+      <DisabledReasonTooltip label="상태 추가" reason={reason} data-testid="wrap">
+        <button disabled={reason != null}>추가</button>
+      </DisabledReasonTooltip>
+    )
+    const { getByTestId, rerender } = render(view('꽉 찼어요'))
+    const wrap = getByTestId('wrap')
+    expect(screen.getByRole('button', { name: '상태 추가 — 꽉 찼어요' })).toBe(wrap)
+    expect(wrap).toHaveAttribute('aria-disabled', 'true')
+    // 안의 막힌 버튼은 숨겨져 버튼이 하나만 노출된다(중첩·중복 없음).
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    const inner = wrap.querySelector('button')!
+    // 풀리면 같은 노드가 남은 채 역할·숨김이 사라지고 진짜 버튼이 이름 「추가」로 노출된다.
+    rerender(view(null))
+    expect(getByTestId('wrap')).toBe(wrap)
+    expect(wrap.querySelector('button')).toBe(inner)
+    expect(wrap).not.toHaveAttribute('role')
+    expect(wrap).not.toHaveAttribute('aria-disabled')
+    expect(wrap.querySelector('[aria-hidden]')).toBeNull()
+    expect(screen.getByRole('button', { name: '추가' })).toBe(inner)
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('이름이 없으면(label·aria-label 없음) 막혀도 역할·숨김을 달지 않는다', () => {
+    const { getByTestId } = render(wrapEl({ reason: '이유' }))
+    expect(getByTestId('w')).not.toHaveAttribute('role')
+    expect(getByTestId('w').querySelector('[aria-hidden]')).toBeNull()
   })
 
   it('aria-label 은 호출자가 줄 때만 있고(기본값 없음), reason 이 null 이면 없다', () => {

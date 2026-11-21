@@ -67,51 +67,40 @@ function BandAddButton({
   // 상한(20개)이면 설정 「+ 추가」처럼 막고 같은 이유를 툴팁으로 보인다 — 막힌 버튼은 포인터 이벤트를 받지 않아 감싼 span 이 툴팁을 띄운다.
   // 띠는 데스크톱 보드에만 있다(모바일은 탭 ⋯ 시트가 같은 상한을 글로 보인다).
   const blocked = statusAddBlockedReason(statuses);
-  if (blocked) {
-    return (
-      <DisabledReasonTooltip
-        reason={blocked}
-        label={`${span.label}에 상태 추가`}
-        data-testid={`board-band-add-limit-${span.category}`}
-        className="sticky right-0 shrink-0 bg-background"
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          disabled
-          tabIndex={-1}
-          // 막힌 ＋ 는 범주 색 대신 보조 글자색 — 투명도만으로는 범주 색이 남아 활성 ＋ 와 구분이 약했다(WP-809 디자이너 리뷰).
-          className="h-6 w-6 text-muted-foreground"
-          aria-label={`${span.label}에 상태 추가`}
-          data-testid={`board-band-add-${span.category}`}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </DisabledReasonTooltip>
-    );
-  }
+  // 늘 같은 트리로 감싼다(WP-1856, 설정 「+ 추가」와 같은 방식) — 상한에 닿았다 풀려도 감싸개·버튼이 다시 만들어지지 않아 키보드 초점을 잃지 않는다.
+  // 이름은 막혔을 때만 `<컨트롤 이름> — <이유>`. 막히면 버튼은 disabled(Popover 도 열리지 않는다)이고 감싸개가 Tab 정지·툴팁을 맡는다.
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          // sticky right-0 — 띠가 화면보다 넓어도(진행 중 컬럼이 많을 때) 보이는 오른쪽 끝에 붙어 늘 누를 수 있다.
-          className="sticky right-0 h-6 w-6 shrink-0 bg-background text-current hover:text-current"
-          aria-label={`${span.label}에 상태 추가`}
-          data-testid={`board-band-add-${span.category}`}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-2 p-3">
-        <NewStatusPopoverBody
-          subtitle={span.label}
-          statuses={statuses}
-          onSubmit={(name) => onAdd(span.category, name)}
-          onClose={() => setOpen(false)}
-        />
-      </PopoverContent>
-    </Popover>
+    <DisabledReasonTooltip
+      reason={blocked ?? null}
+      label={`${span.label}에 상태 추가`}
+      data-testid={blocked ? `board-band-add-limit-${span.category}` : undefined}
+      // sticky right-0 — 띠가 화면보다 넓어도(진행 중 컬럼이 많을 때) 보이는 오른쪽 끝에 붙어 늘 누를 수 있다.
+      className="sticky right-0 shrink-0 bg-background"
+    >
+      <Popover open={open && !blocked} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={!!blocked}
+            tabIndex={blocked ? -1 : undefined}
+            // 막힌 ＋ 는 범주 색 대신 보조 글자색 — 투명도만으로는 범주 색이 남아 활성 ＋ 와 구분이 약했다(WP-809 디자이너 리뷰).
+            className={cn('h-6 w-6', blocked ? 'text-muted-foreground' : 'text-current hover:text-current')}
+            aria-label={`${span.label}에 상태 추가`}
+            data-testid={`board-band-add-${span.category}`}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-72 space-y-2 p-3">
+          <NewStatusPopoverBody
+            subtitle={span.label}
+            statuses={statuses}
+            onSubmit={(name) => onAdd(span.category, name)}
+            onClose={() => setOpen(false)}
+          />
+        </PopoverContent>
+      </Popover>
+    </DisabledReasonTooltip>
   );
 }
