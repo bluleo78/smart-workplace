@@ -198,6 +198,8 @@ function MailComposeWindow() {
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground" data-testid="mail-compose-window">
+      {/* 화면 제목 h1 — 불러오는 중·오류·보냄 안내 등 어느 상태에서도 있게 늘 둔다(WP-1904, WP-1429 방식). */}
+      <h1 className="sr-only">메일 작성</h1>
       {phase === 'loading' && !showError && (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground" data-testid="mail-compose-window-loading">
           불러오는 중…

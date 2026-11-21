@@ -3,7 +3,7 @@
 // 테스트는 (1) 전후에 같은 편집기 노드(contenteditable)가 살아 있는가, (2) 호스트가 어디에 붙어 있는가,
 // (3) 뒤 화면이 잠기지 않는가(대화상자·inert 없음) 를 나란히 본다.
 // 화면은 testkit-b4 renderMail — 메일 모듈 + 작성 도크가 같이 뜬다.
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
@@ -44,6 +44,10 @@ test('「읽기 창으로」 를 누르면 읽기 자리에서 쓰던 본문과 
   // 첨부·AI 단추 영역도 슬롯 안(읽기 자리)에 있다 — 호스트 전체가 함께 움직인다.
   expect(slot!.contains(screen.getByTestId('mail-compose-attach'))).toBe(true)
   expect(slot!.contains(screen.getByTestId('mail-review-tab'))).toBe(true)
+  // 읽기 자리에서도 작성창 제목이 h2 헤딩이고 작성 구역의 이름이다(WP-1904).
+  const heading = within(slot as HTMLElement).getByRole('heading', { level: 2 })
+  expect(heading).toHaveAttribute('id', 'mail-compose-dock-title')
+  expect(screen.getByTestId('mail-compose-dock')).toHaveAccessibleName(heading.textContent!)
 })
 
 test('읽기 창에서는 뒤를 잠그지 않아 왼쪽 목록을 누를 수 있다', async () => {
@@ -123,6 +127,8 @@ test('우측 하단에서 붙인 첨부는 읽기 창으로 옮겼다 되돌려�
   const view = withMessages([upload])
   await view.user.click(await screen.findByTestId('mail-compose-new'))
   await screen.findByTestId('mail-compose-dock')
+  // 제목이 빈 새 메일은 「새 메일」 h2 헤딩이 작성 구역의 이름이다(WP-1904).
+  expect(screen.getByRole('heading', { level: 2, name: '새 메일' })).toHaveAttribute('id', 'mail-compose-dock-title')
   await view.user.upload(
     screen.getByTestId('mail-compose-file-input') as HTMLInputElement,
     new File(['PDF-CONTENT-123'], '보고서.pdf', { type: 'application/pdf' }),

@@ -254,6 +254,11 @@ test('새 창은 그 임시저장을 작성창으로 열고, 최소화·읽기 �
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(screen.getByTestId('mail-compose-dock').className).toContain('inset-0')
   await waitFor(() => expect(document.title).toContain('새 창 메일'))
+  // 화면 제목 h1 은 「메일 작성」 하나, 작성창 제목은 앱 안과 같은 h2 다(WP-1904).
+  const h1s = screen.getAllByRole('heading', { level: 1 })
+  expect(h1s).toHaveLength(1)
+  expect(h1s[0]).toHaveAccessibleName('메일 작성')
+  expect(screen.getByRole('heading', { level: 2, name: '새 창 메일' })).toHaveAttribute('id', 'mail-compose-dock-title')
 })
 
 test('새 창에서 보내면 draftId 를 실어 보내고, 메인 창에 sent 를 알린 뒤 창을 닫는다', async () => {
@@ -323,6 +328,8 @@ test('없는 임시저장이면 빈 창 대신 안내를 보인다', async () =>
   ])
   expect(await screen.findByTestId('mail-compose-window-error')).toBeInTheDocument()
   expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+  // 오류 상태에도 화면 제목 h1 은 남는다(WP-1904).
+  expect(screen.getByRole('heading', { level: 1, name: '메일 작성' })).toBeInTheDocument()
 })
 
 test('새 창에서 버리기가 실패하면 창을 남기고, 이어 쓴 내용은 ✕ 로 저장된 뒤 saved 로 닫힌다', async () => {
