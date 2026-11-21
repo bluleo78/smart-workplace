@@ -9,7 +9,8 @@ import type { Page } from '@playwright/test'
 import { createLoginResponse, createMembership, createTokenResponse, createUserDetail } from '../factories/auth.factory'
 import { mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
-import { stubOpenEventStream } from '../fixtures/openEventStream'
+import { reusedSlot } from '../fixtures/reuse-app'
+import { routeOpenEventStream, stubOpenEventStream } from '../fixtures/openEventStream'
 
 // "/" 홈 셸 착지에 필요한 기본 스텁 일괄 등록(setupAuthMocks 비공개라 핵심만 재현).
 // 미스텁 시 백엔드 프록시 ECONNREFUSED 누수/레이스(특히 SSE)가 리로드 후 "/" 착지를 깨뜨린다.
@@ -40,8 +41,9 @@ async function setupHomeBattery(page: Page) {
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   // 맨 page 라 setupAuthMocks 가 없어 열린 SSE 스트림을 직접 깐다 — 프록시 누수(503)·재연결 방지.
-  // 이어 쓰는 page(기본)에서는 워커가 이미 래퍼를 깔았어도 래퍼가 window 플래그로 중복 설치를 막아 fetch 가 겹겹이 감기지 않는다.
-  await stubOpenEventStream(page)
+  // 이어 쓰는 슬롯 page 는 워커가 이미 래퍼를 깔았다 — addInitScript 가 reuse-app 의 DIRTY_PAGE_METHODS 에 걸려 매번 새 문서를 강제하므로 route 만 건다.
+  if (reusedSlot(page)) await routeOpenEventStream(page)
+  else await stubOpenEventStream(page)
 }
 
 test('다중소속 로그인 → 워크스페이스 선택 → select-tenant 호출 후 홈 착지', { tag: '@flow' }, async ({ page }) => {

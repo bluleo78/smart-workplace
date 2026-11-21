@@ -2,7 +2,7 @@
 // 왜: events 를 빈 본문·SSE 주석 같은 유한 본문으로 fulfill 하면 응답 직후 스트림이 끝나 클라이언트가 재연결하고,
 //   재연결 catch-up(활성 쿼리 전체 재조회)이 스펙의 요청 카운트·캐시를 흔든다.
 // 잡는 것: `<무엇>.route(events 경로, 핸들러)` 안의 `fulfill({...})` 가 body 를 빈 문자열/공백/SSE 주석 줄뿐으로 주거나,
-//   body·json·path·response 키가 모두 없을 때.
+//   body·json·path·response 키가 모두 없을 때(단, 정적 status 가 2xx 가 아닌 오류 응답은 body 가 비어도 전부 제외).
 // 안 잡는 것: 값을 알 수 없는 본문(변수·호출), 프레임이 담긴 본문, 변수 경로·이름 붙은 핸들러,
 //   열린 스트림 마커(SSE_HOLD_HEADER·'x-e2e-sse-hold')를 headers 에 단 fulfill.
 // 대안: 맨 page 는 stubOpenEventStream, 이벤트 전달은 pushHeldEvents·mockGatedEvents(e2e/fixtures).
@@ -71,6 +71,10 @@ function checkFulfillObject(context, obj) {
   if (hasHoldMarker(obj)) return
   // 스프레드·계산 키가 있으면 키를 알 수 없으므로 '키 없음' 판정에서 제외한다.
   const names = obj.properties.map(propName)
+  // 정적 status 가 2xx 가 아니면 의도한 오류 응답(예: `{ status: 503, body: '' }`)이라 닫히는 스트림 검사 전체를 건너뛴다.
+  const statusProp = obj.properties.find((p) => propName(p) === 'status')
+  const status = statusProp && statusProp.value.type === 'Literal' && typeof statusProp.value.value === 'number' ? statusProp.value.value : null
+  if (status !== null && (status < 200 || status >= 300)) return
   if (!names.includes(null) && !names.some((k) => BODY_KEYS.includes(k))) context.report({ node: obj, messageId: 'closingStream' })
   for (const p of obj.properties) {
     if (propName(p) !== 'body') continue
@@ -87,7 +91,11 @@ function targetsEvents(arg) {
   // 정규식 리터럴 — source 가 `api\/v1\/events` 또는 `api/v1/events` 를 담으면 events route.
   if (arg.type === 'Literal' && arg.regex) return /api\\?\/v1\\?\/events/.test(arg.regex.pattern)
   if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-    return someNode(arg.body, (n) => n.type === 'Literal' && n.value === EVENTS_PATH)
+    // 리터럴뿐 아니라 식 없는 템플릿 리터럴(`/api/v1/events`)도 경로로 본다.
+    return someNode(arg.body, (n) => {
+      const v = staticString(n)
+      return v !== null && v.includes(EVENTS_PATH)
+    })
   }
   return false
 }

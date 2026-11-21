@@ -33,8 +33,28 @@ tester.run('no-closing-event-stream', rule, {
     // 열린 스트림 마커 헤더가 붙은 fulfill 은 래퍼가 열린 스트림으로 바꾼다 — 잡지 않는다.
     "page.route('**/api/v1/events', (route) => route.fulfill({ status: 200, headers: { [SSE_HOLD_HEADER]: '1' }, body: '' }))",
     "page.route('**/api/v1/events', (route) => route.fulfill({ headers: { 'x-e2e-sse-hold': '1' }, body: '' }))",
+    // 의도한 오류 응답(정적 비-2xx status, 바디 없음)은 잡지 않는다.
+    "page.route('**/api/v1/events', (route) => route.fulfill({ status: 503 }))",
+    // 정적 비-2xx status 면 빈 본문·SSE 주석 본문도 의도한 오류 응답이다.
+    "page.route('**/api/v1/events', (route) => route.fulfill({ status: 503, body: '' }))",
+    "page.route('**/api/v1/events', (route) => route.fulfill({ status: 503, body: ':\\n\\n' }))",
   ],
   invalid: [
+    // 템플릿 리터럴 경로(식 없음)도 events route 다.
+    {
+      code: 'page.route(`**/api/v1/events`, (route) => route.fulfill({ body: \'\' }))',
+      errors: err,
+    },
+    // 함수 매처의 템플릿 리터럴 경로도 events route 다.
+    {
+      code: "page.route((url) => url.pathname === `/api/v1/events`, (route) => route.fulfill({ body: '' }))",
+      errors: err,
+    },
+    // 2xx status 의 바디 없는 응답은 여전히 닫힌다.
+    {
+      code: "page.route('**/api/v1/events', (route) => route.fulfill({ status: 200 }))",
+      errors: err,
+    },
     // 정규식 경로 매처도 events route 로 본다.
     {
       code: "page.route(/api\\/v1\\/events/, (route) => route.fulfill({ body: '' }))",

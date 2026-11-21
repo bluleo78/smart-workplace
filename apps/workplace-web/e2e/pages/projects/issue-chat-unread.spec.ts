@@ -7,7 +7,7 @@
 //   2,3,… 으로 부풀어오른다. 따라서 "배지 == 1" 단언이 곧 dedup 검증이다.
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import { PUSH_RETRY_ASSERT_MS, pushHeldEventsUntil } from '../../fixtures/gatedEvents';
+import { PUSH_RETRY_ASSERT_MS, pushHeldEvents, pushHeldEventsUntil, reconnectHeldEvents } from '../../fixtures/gatedEvents';
 import { expectStays } from '../../fixtures/wait';
 import { createChatMember, createChatMessage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
@@ -124,8 +124,20 @@ test(
     // push 가 끝난 뒤에도 같은 메시지가 중복 카운트되지 않는다(두 프레임이 모두 처리된 뒤 일정 시간 '1' 유지).
     await expectStays(page, () => badge.textContent(), '1', { ms: 200 });
 
-    // 시드(staleTime 5s)가 신선하면 드로워가 refetch 하지 않아 빈 목록이 남는다 — 시계를 6초 넘겨 낡게 한다(앱 빈틈 WP-1914, 고치면 이 우회를 없앤다).
+    // 재연결 사이클 한 번 지나도 동일 메시지가 중복 카운트되지 않는다 — 열린 스트림을 끊어 재연결시킨 뒤 같은 created 를 새 스트림에 다시 보낸다.
+    // 재연결 catch-up(reconnectCatchUp)은 보호 키(chat)를 뺀 활성 쿼리 — 화면에 떠 있는 이슈 상세 — 를 다시 받아 온다. 그 응답을 재연결 전에 걸어 둔다.
+    // 앱 재연결 백오프(1~2s)는 가짜 시계로 넘기고(여기서 설치한 시계를 아래에서 fastForward 가 이어 쓴다), 실시간 대기를 없앤다.
     await page.clock.install();
+    const catchUpRefetched = page.waitForResponse(
+      (res) => new URL(res.url()).pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
+    );
+    await reconnectHeldEvents(page, { advance: () => page.clock.runFor(2_000) });
+    await catchUpRefetched;
+    // 새 스트림에 같은 created 를 다시 보낸다 — 프레임이 소비돼 배지에 반영될 시간을 stays 창으로 준다.
+    await pushHeldEvents(page, oneCreated);
+    await expectStays(page, () => badge.textContent(), '1', { ms: 500 });
+
+    // 시드(staleTime 5s)가 신선하면 드로워가 refetch 하지 않아 빈 목록이 남는다 — 시계를 6초 넘겨 낡게 한다(앱 빈틈 WP-1914, 고치면 이 우회를 없앤다).
     await page.clock.fastForward(6_000);
 
     // ── Phase 2: 드로워 열기 → 배지 사라지고 메시지 본문 표시 ─────────────────
