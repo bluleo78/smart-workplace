@@ -208,7 +208,8 @@ test(
     await expect.poll(() => month.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
 
     // 요일 줄은 sticky — 스크롤 뒤에도 틀의 top 에 붙어 있다
-    const weekdayRow = month.locator('> :first-child')
+    // 머리글 행 묶음(rowgroup)이 sticky 다 — role=grid 래퍼 안으로 들어가 직계 첫 자식이 아니다(WP-1906).
+    const weekdayRow = month.getByRole('rowgroup').first()
     await expect(async () => {
       const monthBox = await measureBox(month)
       const rowBox = await measureBox(weekdayRow)

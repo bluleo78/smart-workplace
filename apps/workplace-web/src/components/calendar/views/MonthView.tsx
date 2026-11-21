@@ -1,14 +1,17 @@
 // 월간 뷰 — 7열 × 6행(42칸) 달력 그리드.
 // monthMatrix()로 일요일 시작 6주를 생성한다.
 import { format, isSameMonth, isToday } from 'date-fns'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { ko } from 'date-fns/locale'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { eventDisplayColor, eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
+import { calendarDayLabel, defaultMonthFocusIndex, nextMonthCellIndex } from '@/lib/calendarGridNav'
 import { withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
+import { WEEKDAY_KO } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import { fitMonthCell, MONTH_MIN_ROW_H } from './monthCellFit'
@@ -16,8 +19,6 @@ import { MovePreviewChip } from './MovePreviewChip'
 import type { ViewProps } from './TimeGrid'
 import { isMovingEvent, useEventMoveDrag } from './useEventMoveDrag'
 
-// 요일 헤더 (일~토)
-const WEEK_DAYS = ['일', '월', '화', '수', '목', '금', '토']
 
 // 월간 뷰 컴포넌트
 export function MonthView({
@@ -36,6 +37,17 @@ export function MonthView({
   const movedEvent = move.preview?.range ? withRange(move.preview.event, move.preview.range) : null
   // anchor 기준 42칸 날짜 배열
   const cells = monthMatrix(anchor)
+  // 7칸씩 끊은 주 6개 — 주마다 role=row 로 감싼다.
+  const weeks = Array.from({ length: 6 }, (_, w) => cells.slice(w * 7, w * 7 + 7))
+
+  // 로빙 tabIndex(WP-1906) — 격자 전체에서 Tab 정지점은 초점 칸 하나. 기본은 오늘, 없으면 그달 1일.
+  // 고른 칸은 그때의 달과 함께 둔다 — 달이 바뀌면 사라진 날짜를 가리키지 않게 기본값으로 읽는다(다시 set 하지 않음).
+  const monthKey = format(anchor, 'yyyy-MM')
+  const [focusPick, setFocusPick] = useState<{ key: string; index: number } | null>(null)
+  const focusIndex = focusPick?.key === monthKey ? focusPick.index : defaultMonthFocusIndex(cells, anchor, new Date())
+  const setFocusIndex = (index: number) => setFocusPick({ key: monthKey, index })
+  // 칸 설명(aria-describedby) id 접두 — 날짜(yyyy-MM-dd)를 붙여 칸마다 유일하게 한다.
+  const descId = useId()
 
   // 6행이 모두 minmax(0,1fr) 균등 높이이므로 그리드 높이/6 = 한 셀 높이.
   // ResizeObserver 로 셀 높이를 재서 셀별 칩(일정+마감 이슈) 표시 개수 계산에 사용한다.
@@ -58,113 +70,168 @@ export function MonthView({
   return (
     // 스크롤 틀은 바깥 스와이프 영역의 touch-action(pan-y)을 끊으므로 모바일에서는 여기에 다시 건다 —
     // 없으면 브라우저가 가로 제스처를 가져가(pointercancel) 좌우 스와이프로 달이 바뀌지 않는다(TimeGrid 와 같음).
-    <div data-testid="calendar-view-month" className="flex h-full min-h-0 flex-col overflow-y-auto max-lg:touch-pan-y">
-      {/* ── 요일 헤더 ── 창이 낮아 스크롤될 때도 보이게 sticky. 끌어 옮기기 미리보기(z-10) 위(z-20). */}
-      <div className="sticky top-0 z-20 grid shrink-0 grid-cols-7 border-b bg-background">
-        {WEEK_DAYS.map((d) => (
-          <div key={d} className="text-center text-xs font-medium py-2 text-muted-foreground">
-            {d}
-          </div>
-        ))}
-      </div>
-
-      {/* ── 6행 × 7열 날짜 셀 ── 행 최소 높이를 보장해(minHeight) 마감 이슈가 몰려도 6주가 늘어나지 않고,
-          창이 낮으면 행을 줄이는 대신 바깥 컨테이너가 세로 스크롤된다(WP-1541). */}
-      <div
-        ref={gridRef}
-        className="grid flex-1 grid-cols-7"
-        style={{ gridTemplateRows: 'repeat(6, minmax(0, 1fr))', minHeight: MONTH_MIN_ROW_H * 6 }}
-      >
-        {cells.map((day) => {
-          const dateLabel = format(day, 'yyyy-MM-dd')
-          const dayEvents = eventsOnDay(events, day)
-          // 해당 날 마감 이슈 마커(읽기전용 오버레이)
-          const dayDues = issueDuesOnDay(issueDues, day)
-          // 일정 먼저, 마감 이슈 다음 순서로 칸 높이만큼만 채우고 넘치면 「+N」(마감 이슈도 포함).
-          const { visibleEvents, visibleDues, overflow } = fitMonthCell({
-            rowHeight,
-            eventCount: dayEvents.length,
-            dueCount: dayDues.length,
-          })
-          const visible = dayEvents.slice(0, visibleEvents)
-          const visibleDueMarkers = dayDues.slice(0, visibleDues)
-          const inMonth = isSameMonth(day, anchor)
-          const today = isToday(day)
-
-          return (
-            <div
-              key={dateLabel}
-              data-testid={`calendar-cell-${dateLabel}`}
-              data-move-day={dateLabel}
-              data-move-kind="day"
-              onClick={() => {
-                // 일정을 끌어 옮긴 직후 칸으로 온 click 이면 새 일정을 열지 않는다(WP-1328).
-                if (move.consumeClick()) return
-                onCreateAt(day)
-              }}
-              className={`relative border-b border-r p-1 cursor-pointer overflow-hidden select-none ${
-                inMonth ? '' : 'bg-muted/30'
-              }`}
-            >
-              {/* 날짜 숫자 — 오늘은 primary 원형 강조 */}
+    <div data-testid="calendar-view-month" className="flex h-full min-h-0 scroll-pt-9 flex-col overflow-y-auto max-lg:touch-pan-y">
+      {/* 머리글 행과 6개 주 행을 하나의 role=grid 안에 둔다(스크린리더가 열 머리글과 칸을 잇는다, WP-1906).
+          display: contents 는 접근성 트리에서 role 이 사라지는 브라우저가 있어 쓰지 않는다. */}
+      <div role="grid" aria-label={format(anchor, 'yyyy년 M월', { locale: ko })} className="flex min-h-full flex-1 flex-col">
+        {/* ── 요일 헤더 ── 창이 낮아 스크롤될 때도 보이게 sticky. 끌어 옮기기 미리보기(z-10) 위(z-20). */}
+        <div role="rowgroup" className="sticky top-0 z-20 shrink-0 bg-background">
+          <div role="row" className="grid grid-cols-7 border-b">
+            {WEEKDAY_KO.map((d) => (
               <div
-                className={`text-xs mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
-                  today
-                    ? 'bg-primary text-primary-foreground font-bold'
-                    : inMonth
-                      ? ''
-                      : 'text-muted-foreground'
-                }`}
+                key={d}
+                role="columnheader"
+                aria-label={`${d}요일`}
+                className="text-center text-xs font-medium py-2 text-muted-foreground"
               >
-                {format(day, 'd')}
+                {d}
               </div>
+            ))}
+          </div>
+        </div>
 
-              {/* 이벤트 칩 (셀 높이만큼) — DECLINED 는 반투명 처리 (이슈 #489) */}
-              {/* 끌어 옮기는 일정이 놓일 날 — 칸 전체를 덮는 반투명 테두리와 제목(WP-1328). 칸 안 칩을 밀어내지 않게 겹쳐 그린다. */}
-              {movedEvent && eventsOnDay([movedEvent], day).length > 0 && (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-end bg-primary/10 p-1 ring-2 ring-inset ring-primary">
-                  <MovePreviewChip preview={move.preview} />
-                </div>
-              )}
+        {/* ── 6행 × 7열 날짜 셀 ── 행 최소 높이를 보장해(minHeight) 마감 이슈가 몰려도 6주가 늘어나지 않고,
+            창이 낮으면 행을 줄이는 대신 바깥 컨테이너가 세로 스크롤된다(WP-1541). 주마다 role=row 로 감싼다. */}
+        <div
+          ref={gridRef}
+          role="rowgroup"
+          className="grid flex-1"
+          style={{ gridTemplateRows: 'repeat(6, minmax(0, 1fr))', minHeight: MONTH_MIN_ROW_H * 6 }}
+        >
+          {weeks.map((week, w) => (
+            <div key={format(week[0], 'yyyy-MM-dd')} role="row" className="grid min-h-0 grid-cols-7 grid-rows-[minmax(0,1fr)]">
+              {week.map((day, c) => {
+                const idx = w * 7 + c
+                const dateLabel = format(day, 'yyyy-MM-dd')
+                const dayEvents = eventsOnDay(events, day)
+                // 해당 날 마감 이슈 마커(읽기전용 오버레이)
+                const dayDues = issueDuesOnDay(issueDues, day)
+                // 일정 먼저, 마감 이슈 다음 순서로 칸 높이만큼만 채우고 넘치면 「+N」(마감 이슈도 포함).
+                const { visibleEvents, visibleDues, overflow } = fitMonthCell({
+                  rowHeight,
+                  eventCount: dayEvents.length,
+                  dueCount: dayDues.length,
+                })
+                const visible = dayEvents.slice(0, visibleEvents)
+                const visibleDueMarkers = dayDues.slice(0, visibleDues)
+                const inMonth = isSameMonth(day, anchor)
+                const today = isToday(day)
+                // 스크린리더용 그날 요약 — 화면에 다 못 그려도 전체 개수. 둘 다 0 이면 설명을 잇지 않는다.
+                const summary = [
+                  dayEvents.length > 0 ? `일정 ${dayEvents.length}개` : null,
+                  dayDues.length > 0 ? `마감 이슈 ${dayDues.length}개` : null,
+                ]
+                  .filter(Boolean)
+                  .join(', ')
+                const summaryId = `${descId}-${dateLabel}`
 
-              {visible.map((e) => (
-                <EventChip
-                  key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
-                  event={e}
-                  testId={`calendar-event-${eventKey(e)}`}
-                  dragHandlers={move.bind(e, day, 'day')}
-                  moving={isMovingEvent(move.preview, e)}
-                  onSelect={(picked) => {
-                    // 끌어 옮긴 직후의 click 이면 일정을 열지 않는다.
-                    if (move.consumeClick()) return
-                    onSelectEvent(picked)
-                  }}
-                />
-              ))}
+                return (
+                  <div
+                    key={dateLabel}
+                    role="gridcell"
+                    aria-label={calendarDayLabel(day, today)}
+                    aria-describedby={summary ? summaryId : undefined}
+                    tabIndex={idx === focusIndex ? 0 : -1}
+                    data-testid={`calendar-cell-${dateLabel}`}
+                    data-move-day={dateLabel}
+                    data-move-kind="day"
+                    onClick={() => {
+                      // 마우스로 눌러도 그 칸이 로빙 초점 칸이 되어 다음 Tab 진입이 그 칸으로 간다.
+                      setFocusIndex(idx)
+                      // 일정을 끌어 옮긴 직후 칸으로 온 click 이면 새 일정을 열지 않는다(WP-1328).
+                      if (move.consumeClick()) return
+                      onCreateAt(day)
+                    }}
+                    onKeyDown={(ev) => {
+                      // 브라우저·OS 단축키(Alt+←: 뒤로 등)는 가로채지 않는다.
+                      if (ev.altKey || ev.ctrlKey || ev.metaKey) return
+                      // 칸 안 일정 칩·「+N」 버튼에서 올라온 키는 버튼 자체 동작에 맡긴다.
+                      if (ev.target !== ev.currentTarget) return
+                      const next = nextMonthCellIndex(idx, ev.key)
+                      if (next !== null) {
+                        // 방향키가 스크롤 틀을 움직이지 않게 막고 초점만 옮긴다(격자 끝에서는 그대로).
+                        ev.preventDefault()
+                        setFocusIndex(next)
+                        // 옮길 칸은 날짜 표식으로 찾는다 — 칸마다 ref 콜백을 두면 다시 그릴 때마다 42개가 떼었다 붙는다.
+                        const nextDay = format(cells[next], 'yyyy-MM-dd')
+                        gridRef.current?.querySelector<HTMLElement>(`[data-move-day="${nextDay}"]`)?.focus()
+                      } else if (ev.key === 'Enter' || ev.key === ' ') {
+                        // Space 의 페이지 스크롤을 막고 클릭과 같은 경로로 새 일정을 연다.
+                        ev.preventDefault()
+                        onCreateAt(day)
+                      }
+                    }}
+                    className={`relative border-b border-r p-1 cursor-pointer overflow-hidden select-none focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 ${
+                      inMonth ? '' : 'bg-muted/30'
+                    }`}
+                  >
+                    {summary && (
+                      <span id={summaryId} className="sr-only">
+                        {summary}
+                      </span>
+                    )}
+                    {/* 날짜 숫자 — 오늘은 primary 원형 강조 */}
+                    <div
+                      className={`text-xs mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
+                        today
+                          ? 'bg-primary text-primary-foreground font-bold'
+                          : inMonth
+                            ? ''
+                            : 'text-muted-foreground'
+                      }`}
+                    >
+                      {format(day, 'd')}
+                    </div>
 
-              {/* 이슈 마감일 칩 (읽기전용, 일정과 구분) — 칸에 들어가는 만큼만 */}
-              {visibleDueMarkers.map((m) => (
-                <div key={m.issueId} className="mb-0.5">
-                  <IssueDueChip marker={m} onSelect={onSelectIssue} />
-                </div>
-              ))}
+                    {/* 이벤트 칩 (셀 높이만큼) — DECLINED 는 반투명 처리 (이슈 #489) */}
+                    {/* 끌어 옮기는 일정이 놓일 날 — 칸 전체를 덮는 반투명 테두리와 제목(WP-1328). 칸 안 칩을 밀어내지 않게 겹쳐 그린다. */}
+                    {movedEvent && eventsOnDay([movedEvent], day).length > 0 && (
+                      <div className="pointer-events-none absolute inset-0 z-10 flex items-end bg-primary/10 p-1 ring-2 ring-inset ring-primary">
+                        <MovePreviewChip preview={move.preview} />
+                      </div>
+                    )}
 
-              {/* +N — 일정·마감 이슈 칩 다음 맨 끝. 누르면 그날 일정과 마감 이슈 전체를 팝오버로 보인다(WP-1139, WP-1541).
-                  칸의 「새 일정」으로 올라가지 않는다 */}
-              {overflow > 0 && (
-                <MoreEvents
-                  day={day}
-                  dateLabel={dateLabel}
-                  events={dayEvents}
-                  dues={dayDues}
-                  overflow={overflow}
-                  onSelect={onSelectEvent}
-                  onSelectIssue={onSelectIssue}
-                />
-              )}
+                    {visible.map((e) => (
+                      <EventChip
+                        key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
+                        event={e}
+                        testId={`calendar-event-${eventKey(e)}`}
+                        dragHandlers={move.bind(e, day, 'day')}
+                        moving={isMovingEvent(move.preview, e)}
+                        onSelect={(picked) => {
+                          // 끌어 옮긴 직후의 click 이면 일정을 열지 않는다.
+                          if (move.consumeClick()) return
+                          onSelectEvent(picked)
+                        }}
+                      />
+                    ))}
+
+                    {/* 이슈 마감일 칩 (읽기전용, 일정과 구분) — 칸에 들어가는 만큼만 */}
+                    {visibleDueMarkers.map((m) => (
+                      <div key={m.issueId} className="mb-0.5">
+                        <IssueDueChip marker={m} onSelect={onSelectIssue} />
+                      </div>
+                    ))}
+
+                    {/* +N — 일정·마감 이슈 칩 다음 맨 끝. 누르면 그날 일정과 마감 이슈 전체를 팝오버로 보인다(WP-1139, WP-1541).
+                        칸의 「새 일정」으로 올라가지 않는다 */}
+                    {overflow > 0 && (
+                      <MoreEvents
+                        day={day}
+                        dateLabel={dateLabel}
+                        events={dayEvents}
+                        dues={dayDues}
+                        overflow={overflow}
+                        onSelect={onSelectEvent}
+                        onSelectIssue={onSelectIssue}
+                      />
+                    )}
+                  </div>
+                )
+              })}
             </div>
-          )
-        })}
+          ))}
+        </div>
       </div>
     </div>
   )
