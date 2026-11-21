@@ -664,4 +664,26 @@ describe('개인 비서 — 늦게 온 프로브 응답 (WP-1893)', () => {
     await user.type(screen.getByTestId('credential-base-url'), 'x')
     expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
   })
+
+  // WP-1900 리뷰 후속: 연결 종류를 바꿔도 clear 를 부르지 않으면 앞 요청이 계속 돌아, 응답이 오면 늦은 목록·오류가
+  // 남아 다시 opencode 로 돌아왔을 때 그대로 보인다.
+  test('연결 종류를 바꾸면 진행 중이던 프로브가 끊기고 늦은 목록·오류가 남지 않는다 (WP-1900)', async () => {
+    const { promise: held, release } = gate()
+    const { user } = open({
+      status: unconfigured,
+      probeReply: async () => {
+        await held
+        return HttpResponse.json({ models: BEDROCK_MODELS })
+      },
+    })
+    await probeOpenAi(user)
+    await waitFor(() => expect(screen.getByTestId('credential-probe-models')).toHaveTextContent('불러오는 중…'))
+    await user.click(await screen.findByTestId('credential-provider-anthropic'))
+    release()
+    await user.click(await screen.findByTestId('credential-provider-opencode'))
+    expect(screen.queryByTestId('credential-model-select')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('credential-model-manual')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByTestId('credential-probe-models')).toHaveTextContent('모델 불러오기')
+  })
 })

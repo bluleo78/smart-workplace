@@ -146,7 +146,7 @@ export function PersonalAssistantSection() {
     setSelectedModel('');
     resetVision();
     // 목록이 있어(빈 목록이 아닐 때) Select 가 직접 입력 칸을 대체하므로 그때만 비운다 — 칸이 사라지는데 값이 남아
-    // resolvedModel 이 숀은 id 로 정해져 등록되지 않게(WP-1893·WP-1895, 관리자 WP-1622 와 같은 뜻).
+    // resolvedModel 이 숨은 id 로 정해져 등록되지 않게(WP-1893·WP-1895, 관리자 WP-1622 와 같은 뜻).
     // 끊기거나 실패·빈 목록이면 입력을 그대로 둔다.
     const loadedModels = await probe.load();
     if (loadedModels && loadedModels.length > 0) setManualModel('');
@@ -451,7 +451,12 @@ export function PersonalAssistantSection() {
               <Label>연결 방식</Label>
               <RadioGroup
                 value={connectionType}
-                onValueChange={(v) => setConnectionType(v as CredentialProvider)}
+                onValueChange={(v) => {
+                  setConnectionType(v as CredentialProvider);
+                  // 연결 종류를 바꾸면 앞 요청을 끊고 목록·오류·진행 표시를 비운다 — 남긴 채 opencode 로
+                  // 돌아오면 늦게 온 목록·오류가 그대로 보인다(WP-1900 리뷰 후속).
+                  probe.clear();
+                }}
                 className="grid grid-cols-1 gap-2 sm:grid-cols-2"
               >
                 <Label
