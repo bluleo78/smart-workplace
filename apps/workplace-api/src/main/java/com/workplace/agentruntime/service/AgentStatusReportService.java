@@ -54,8 +54,8 @@ public class AgentStatusReportService {
 
   /**
    * 상태 보고 처리. 순서: 테넌트가 없으면 RUN → 설정 행을 잠가 읽음(없으면 RUN — 칸도 저장하지 않는다) → 칸 저장 → 옛 Pod 칸 정리 → 모든 칸을 합쳐
-   * agent_* 칸에 씀 → 남아 있던 진입점 차단 메시지 비움(지금 generation 이상의 보고일 때만, 화면에 보이던 것을 비우면 알림 포함) → 합친 상태가 쉬는
-   * 중으로 막 바뀌었고 교체 대기면 이벤트 → 화면 값이 바뀌었거나 칸 차단을 비웠으면 알림(한 보고에 한 번) → 원하는 상태 계산.
+   * agent_* 칸에 씀 → 남아 있던 진입점 차단 메시지 비움(지금 generation 이상이고 지금 Pod 의 보고일 때만, 화면에 보이던 것을 비우면 알림 포함) →
+   * 합친 상태가 쉬는 중으로 막 바뀌었고 교체 대기면 이벤트 → 화면 값이 바뀌었거나 칸 차단을 비웠으면 알림(한 보고에 한 번) → 원하는 상태 계산.
    *
    * <p>설정 행을 먼저 잠그므로 같은 AI 의 두 칸이 동시에 보고해도 칸 쓰기·합치기가 차례로 서서 합친 값이 어긋나지 않는다.
    */
@@ -73,29 +73,46 @@ public class AgentStatusReportService {
     // 시각이 지금이라 오래되지도 않으므로 늘 남는다 — 그래서 agent_reported_at(살아 있는 칸의 가장 늦은 보고 시각)도 지금이다.
     Row row = slotWriter.write(userId, slots.findAll(userId), before.startedAt(), now, key);
     // 칸이 도는 중인 보고 = 칸이 띄워졌다는 증거 — 남아 있던 진입점 차단 보고를 비운다(WP-1913 백스톱).
-    // 진입점이 다시 차단되면 그때 다시 쌓인다. 단 보고한 generation 이 저장한 차단의 generation 이상일 때만
-    // 비운다 — 옛 Pod 칸의 상태 보고가 지금 새 차단을 지우지 않게(WP-1913 리뷰 반려 ③).
-    // generation 을 모르는 옛 보고는 지금처럼 비운다.
+    // 진입점이 다시 차단되면 그때 다시 쌓인다. 비우려면 아래 두 조건을 **모두** 만족해야 한다.
+    // ① generation — 보고한 generation 이 차단의 generation 이상일 때만. 차단 generation 을 모르는(_null) 옛 이미지의
+    //    차단은 **지금 돌고 있는 Pod 의 generation(관찰 generation)** 과 견준다 — 원하는 generation 과 견주면 교체가
+    //    미뤄진 동안 지금 Pod 가 gen-1 로 보고해 칸이 영영 비워지지 않고 건강한 AI 가 FAILED 로 남는다(리뷰 반려 ②).
+    //    관찰 generation 도 모르면 견주지 않는다. generation 을 싣지 않은 보고(옛 플러그인)도 견주지 않고 그대로 믿는다.
+    // ② 지금 Pod — 보고에 실은 **Pod 시작 시각**이 지금 Pod 의 시작 시각보다 30초 이상 뒤일 때만(= podStartCutoff(startedAt)
+    //    이후). 그보다 앞선 보고는 끝나는 중인 옛 Pod 의 것이라 새 Pod 진입점이 다시 보고하기 전에 「오류」를 지우면 안 된다(WP-1253
+    //    칸 거르기와 같은 여유). 서버가 보고를 받은 시각으로는 이 판정을 못 한다 — 옛 Pod 의 늦은 보고도 새 Pod 가 뜬 뒤에 도착해
+    //    받은 시각이 늘 지금이기 때문이다(리뷰 반려 ①). 지금 Pod 를 아직 관찰 전(시작 시각 null)이거나, 보고가 시각을 모르면
+    //    그대로 믿는다.
     // 알림은 실제로 화면에 보이던 사유(currentPaneBlocked)를 비울 때만 보낸다 — 차단은 읽을 때
     // FAILED+사유로 합쳐져 VisibleRuntimeState 에 없으므로 아래 비교로는 잡히지 않는데,
-    // 가려진 옛 사유를 비우는 동작은 화면이 그대로라 알림이 나가면 안 된다(같은 반려 ③).
+    // 가려진 옛 사유를 비우는 동작은 화면이 그대로라 알림이 나가면 안 된다(리뷰 반려 ③).
     boolean paneStored = AgentRuntimeStatusResolver.blocked(before.paneBlockedMessage());
     boolean paneVisible =
         AgentRuntimeStatusResolver.blocked(AgentRuntimeStatusResolver.currentPaneBlocked(before));
+    Long blockedGeneration =
+        before.paneBlockedGeneration() != null
+            ? before.paneBlockedGeneration()
+            : before.observedGeneration();
     boolean fromCurrentGeneration =
-        before.paneBlockedGeneration() == null
-            || req.generation() == null
-            || req.generation() >= before.paneBlockedGeneration();
-    if (paneStored && fromCurrentGeneration) {
+        req.generation() == null
+            || blockedGeneration == null
+            || req.generation() >= blockedGeneration;
+    boolean fromCurrentPod =
+        before.startedAt() == null
+            || req.podStartedAt() == null
+            || !req.podStartedAt()
+                .isBefore(AgentRuntimeSlotRepository.podStartCutoff(before.startedAt()));
+    boolean mayClearPane = fromCurrentGeneration && fromCurrentPod;
+    if (paneStored && mayClearPane) {
       settings.updatePaneBlocked(userId, null, null, null);
     }
-    boolean paneCleared = paneVisible && fromCurrentGeneration;
+    boolean visiblePaneCleared = paneVisible && mayClearPane;
 
     // 「쉬는 중으로 막 바뀜」은 합친 상태로 판정한다 — 모든 칸이 쉬게 된 보고에서만 이벤트가 나간다.
     boolean becameIdle = row.isIdle() && !before.isIdle();
     if (becameIdle && row.hasUnappliedGeneration()) publishChanged(tenantId, row.locationId());
     // 한 보고에서 관리자 알림은 한 번 — 화면 상태가 바뀌었거나 칸 차단을 비웠을 때만(같은 내용의 거듭된 보고는 알리지 않음).
-    if (paneCleared || VisibleRuntimeState.of(before).differsFrom(row)) {
+    if (visiblePaneCleared || VisibleRuntimeState.of(before).differsFrom(row)) {
       changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, userId, null);
     }
     return new AgentStatusReportResponse(desiredFor(row, req.generation(), tenantId));

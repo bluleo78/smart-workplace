@@ -410,12 +410,34 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   private String slotReport(
       String state, String slot, String issueKey, Long generation, String nextCheckAt)
       throws Exception {
+    return slotReportBody(state, slot, issueKey, generation, nextCheckAt, null);
+  }
+
+  /**
+   * 칸 보고 본문(보고한 Pod 시작 시각 포함) — 서버가 끝나는 중인 옛 Pod 의 늦은 보고를 지금 Pod 의 보고와 갈라 보는 데 쓴다(WP-1913 리뷰 반려 ①).
+   */
+  private String slotReportWithPod(
+      String state, String slot, String issueKey, Long generation, OffsetDateTime podStartedAt)
+      throws Exception {
+    return slotReportBody(state, slot, issueKey, generation, null, podStartedAt);
+  }
+
+  /** 칸 보고 본문 — null 인 값은 싣지 않는다. 선택 값(다음 확인 시각·Pod 시작 시각)은 한 군데서만 쌓아 본문이 어긋나지 않게 한다. */
+  private String slotReportBody(
+      String state,
+      String slot,
+      String issueKey,
+      Long generation,
+      String nextCheckAt,
+      OffsetDateTime podStartedAt)
+      throws Exception {
     Map<String, Object> body = new java.util.LinkedHashMap<>();
     body.put("state", state);
     if (slot != null) body.put("slot", slot);
     if (issueKey != null) body.put("issueKey", issueKey);
     if (generation != null) body.put("generation", generation);
     if (nextCheckAt != null) body.put("nextCheckAt", nextCheckAt);
+    if (podStartedAt != null) body.put("podStartedAt", podStartedAt);
     return om.writeValueAsString(body);
   }
 
@@ -618,6 +640,146 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
 
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
     assertThat(runtimeEvents()).isZero();
+  }
+
+  /**
+   * 새 Pod 가 과거에 뜬 뒤 진입점이 차단을 남기고, 그 다음 도착한 **옛 Pod 의 늦은 IDLE 보고**는 칸을 그대로 둔다(WP-1913 리뷰 반려 ①) —
+   * 옛/새는 보고에 실은 **Pod 시작 시각**으로 가른다. 서버가 보고를 받은 시각으로는 이 판정을 못 한다(옛 Pod 의 늦은 보고도 새 Pod 가 뜬 뒤에 도착해 받은
+   * 시각이 늘 지금이다). 반대로 지금 Pod 자신의 보고는 칸을 비우고, 화면에 보이던 사유가 바뀌었으니 알림도 한 번 나간다.
+   */
+  @Test
+  void status_새_파드가_과거에_뜬_뒤_도착한_옛_파드의_보고는_차단을_지우지_못한다() throws Exception {
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+
+    // 새 Pod 가 과거에 떴다(10분 전) — 시각을 바꾼 뒤 화면 상태를 먼저 맞춘다(시각 변경이 알림에 섞이지 않게).
+    OffsetDateTime newPodStartedAt = OffsetDateTime.now().minusMinutes(10);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, newPodStartedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    report(key, slotReport("IDLE", "WP", null, gen)).andExpect(status().isOk());
+
+    // 그 뒤 진입점이 차단을 남겼다.
+    setPaneBlocked(gen);
+
+    // 끝나는 중인 옛 Pod(1시간 전에 시작)의 늦은 IDLE 보고 — 같은 generation 이라도 칸을 비우지 않고 알리지도 않는다.
+    report(key, slotReportWithPod("IDLE", "WP", null, gen, OffsetDateTime.now().minusHours(1)))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+        .isEqualTo("설정 오류로 칸을 못 띄웠어요");
+    assertThat(runtimeEvents()).isZero();
+
+    // 지금 Pod(시작 시각이 같다)의 보고는 칸을 비우고 화면에 보이던 사유가 바뀌었으니 알린다.
+    report(key, slotReportWithPod("IDLE", "WP", null, gen, newPodStartedAt))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT)).isNull();
+    assertThat(runtimeEvents()).isEqualTo(1);
+  }
+
+  /**
+   * Pod 시작 시각을 모르는 보고(옛 플러그인)는 그대로 믿는다(WP-1913 리뷰 반려 ①) — 플러그인을 아직 갈아끼우지 않은 이미지도 칸을 비워 화면이 FAILED 에
+   * 갇히지 않게 한다(generation 없는 보고와 같은 취급).
+   */
+  @Test
+  void status_파드_시각을_모르는_보고는_칸_차단을_비운다() throws Exception {
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, OffsetDateTime.now().minusMinutes(10))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    report(key, slotReport("IDLE", "WP", null, gen)).andExpect(status().isOk());
+    setPaneBlocked(gen);
+
+    report(key, slotReport("IDLE", "WP", null, gen)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isEqualTo(1);
+  }
+
+  /**
+   * 30초 여유의 경계(WP-1913 리뷰 반려 ①) — `podStartedAt` 이 `started_at − 30초`(= {@code podStartCutoff})와
+   * 같거나 뒤면 지금 Pod 로 보고, 그보다 앞서면 옛 Pod 로 본다(WP-1253 칸 거르기와 같은 여유). 문서가 말하는 경계를 코드가 지키는지 여기서 고정한다.
+   */
+  @Test
+  void status_파드_시각은_시작_시각_30초_여유_경계로_가른다() throws Exception {
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    // 초 단위로 끊는다 — 클라이언트(gw-status)·kubelet startTime 을 모두 초 정밀로 보내므로 경계(정확히 30초)가
+    // 나노초 때문에 어긋나지 않게 한다. 나노초를 남기면 DB 반올림이 시작 시각을 조금 늘려 -30초 보고가 걸러진다.
+    OffsetDateTime startedAt = OffsetDateTime.now().withNano(0).minusMinutes(10);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, startedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    report(key, slotReport("IDLE", "WP", null, gen)).andExpect(status().isOk());
+    setPaneBlocked(gen);
+
+    // 여유 안(시작 − 29초) — 지금 Pod 로 보아 칸을 비우고 화면이 바뀌었으니 알린다.
+    report(key, slotReportWithPod("IDLE", "WP", null, gen, startedAt.minusSeconds(29)))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isEqualTo(1);
+
+    // 경계값 그 자체(시작 − 30초) — 문서가 말하는 「이후」(같거나 뒤)에 들어가므로 지우고 알린다.
+    setPaneBlocked(gen);
+    report(key, slotReportWithPod("IDLE", "WP", null, gen, startedAt.minusSeconds(30)))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isEqualTo(1);
+
+    // 여유 밖(시작 − 31초) — 옛 Pod 로 보아 칸을 그대로 두고 알리지도 않는다(setPaneBlocked 가 알림 기록을 비운다).
+    setPaneBlocked(gen);
+    report(key, slotReportWithPod("IDLE", "WP", null, gen, startedAt.minusSeconds(31)))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+        .isEqualTo("설정 오류로 칸을 못 띄웠어요");
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /**
+   * generation 을 싣지 않은 옛 이미지의 차단(null)은 **지금 돌고 있는 Pod 의 generation(관찰 generation)** 과 견준다(WP-1913
+   * 리뷰 반려 ②) — 원하는 generation 과 견주면 교체가 미뤄진 동안 지금 Pod 가 gen-1 로 보고해 칸이 영영 비워지지 않고 건강한 AI 가 FAILED 로
+   * 남는다. 반대로 관찰 generation 보다 옛 generation 의 보고는 칸을 비우지 못한다(옛 Pod 늦은 보고 가림).
+   */
+  @Test
+  void status_generation_없는_차단은_관찰_generation_과_겨룬다() throws Exception {
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+
+    // 교체가 미뤄진 동안 지금 Pod 는 gen-1 로 떠 있다(관찰 generation = gen-1).
+    setRow(agent, gen - 1, "IDLE", "RUN");
+    report(key, slotReport("IDLE", "WP", null, gen - 1)).andExpect(status().isOk());
+    // 옛 이미지가 generation 없이 남긴 차단 — pane_blocked_generation 칸이 비어 있다.
+    setPaneBlocked(null);
+
+    // 지금 Pod(gen-1)의 보고는 칸을 비우고 화면에 보이던 사유가 바뀌었으니 알린다.
+    report(key, slotReport("IDLE", "WP", null, gen - 1)).andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isEqualTo(1);
+
+    // 관찰 generation 은 gen 인데 옛 generation(gen-1)의 보고 — 칸을 비우지 못하고 알리지도 않는다.
+    setRow(agent, gen, "IDLE", "RUN");
+    report(key, slotReport("IDLE", "WP", null, gen)).andExpect(status().isOk());
+    setPaneBlocked(null);
+    report(key, slotReport("IDLE", "WP", null, gen - 1)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+        .isEqualTo("설정 오류로 칸을 못 띄웠어요");
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /** 진입점 차단을 심어 둔다 — 보고 generation 은 null(옛 이미지)도 받는다. */
+  private void setPaneBlocked(Long blockedGeneration) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, blockedGeneration)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
   }
 
   /** 두 워크스페이스에 속한 AI — 설정은 테넌트 2 에만 있다. [tenant2, loc2, agent] */
