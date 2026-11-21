@@ -6,13 +6,12 @@ import { connectCollabPeer, leaveAllCollabPeers, presenceShot, typeAtEnd } from 
 import { expectTheme, textContrast, withTheme } from '../../fixtures/contrast'
 import { LAYOUT_BODY as BODY, LAYOUT_PEERS as PEERS, tagsDisjoint } from '../../fixtures/presence'
 import { stableBox } from '../../fixtures/wait'
-import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, openWikiEditor } from '../../fixtures/wiki-mock'
 
 // 다수 접속자(8명)·긴 이름·실제 같은 노트로 헤더·팝오버·이름표가 넘치거나 겹치지 않고, 라이트·다크 대비를 지키는지(WP-173 시각 검증).
 // PRESENCE_SHOTS 를 주면 스크린샷을 남긴다(presenceShot).
 
 const SPACE_ID = 1
-const pagePath = (pageId: number) => `/wiki/spaces/${SPACE_ID}/pages/${pageId}`
 const presence = (p: Page) => p.getByTestId('wiki-presence')
 
 test.afterEach(() => leaveAllCollabPeers())
@@ -30,12 +29,14 @@ for (const theme of ['light', 'dark'] as const) {
     const b = await newAuthedPage({ user: { id: 2, name: '김철수철수 (모바일앱개발팀)' } })
     await mockWikiPageEditor(b, { ...opts, seed: false })
     await a.clock.install()
-    await a.goto(pagePath(90))
+    // a·b 모두 새 문서 첫 로드라 openWikiEditor 로 연다 — 부하 속 첫 로드를 공용 한도로 기다리고 그만큼 테스트 제한을 늘리며,
+    // 멈추면 기다린 상세 요청을 밝힌다(WP-1950).
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 90 })
     await expectTheme(a, theme)
     await expect(a.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'live')
     // 접속자가 붙기 전에 A 의 시계를 멈춘다 — 이름표가 켜진 채(3초가 지나지 않은 채) 배치·대비를 잰다. 수신 메시지 처리는 타이머와 무관하다.
     await pauseClockAhead(a, 50)
-    await b.goto(pagePath(90))
+    await openWikiEditor(b, { spaceId: SPACE_ID, pageId: 90 })
     const peers = []
     for (const u of PEERS) peers.push(await connectCollabPeer(collabNs, 90, u))
     // 블록 3 = 마지막 일반 문단(0 제목·1 번호 목록·2 제목) — 가까운 자리에 커서 둘 + ✦ 하나로 이름표 쌓기를 강제한다.

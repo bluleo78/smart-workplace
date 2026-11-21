@@ -1,7 +1,7 @@
 // 노트 스페이스 0개 → 생성 흐름 모킹(WP-143) — 데스크톱·모바일 빈 상태 spec 이 공유한다.
 import { createHash } from 'node:crypto'
 
-import { expect, type Locator, type Page } from '@playwright/test'
+import { expect, type Locator, type Page, test } from '@playwright/test'
 
 import type { SecurityCheckView } from '../../src/types/securityCheck'
 import type {
@@ -99,24 +99,50 @@ export async function mockWikiPageEditor(
 }
 
 /**
+ * 노트 편집기를 처음 여는 데 주는 공용 한도(ms).
+ * 새 문서에서 노트 편집기를 열면 dev 서버가 번들하지 않은 모듈을 상세 GET 전에 915개 요청한다.
+ * 계측: 상세 전 요청 915개, 부하 속 상세 max 18.4s·편집 가능 max 26.7s (목은 즉시 응답) — 이전 20초 마감·30초 테스트 한도로는 부족했다.
+ */
+const WIKI_FIRST_LOAD_TIMEOUT = 40_000
+
+/**
+ * 노트 편집기 첫 로드 한도만큼 이 테스트의 제한을 늘린다.
+ * 한도 0(무제한 — --debug / --timeout 0)은 건드리지 않는다. 선례: fixtures/pdf.ts.
+ */
+function extendForWikiFirstLoad(): void {
+  const info = test.info()
+  if (info.timeout > 0) info.setTimeout(info.timeout + WIKI_FIRST_LOAD_TIMEOUT)
+}
+
+/**
  * 노트 에디터 화면을 열고(또는 새로고침하고) 본문을 조작할 수 있을 때까지 단계별로 기다린다.
  * 「주소 이동 → 본문 표시」를 단언 하나(10초)로 기다리면 앱 부팅·노트 화면 코드 로드(dev 서버 변환 — 부하 때 가장 오래 걸린다)와
  * 첫 동기화가 한 창을 나눠 써서, 전체 스위트 부하에서만 본문이 늦게 떠 깨졌다. 각 단계를 그 단계가 끝났다는 신호로 기다린다.
- * 1) 페이지 상세 GET 응답 — 노트 화면 코드가 올라와 상세를 불렀다(이 대기는 단언 창이 아니라 따로 둔 20초 마감으로 기다리고,
+ * 첫 로드 단계(1·2)는 둘을 합쳐 WIKI_FIRST_LOAD_TIMEOUT(40초) 안에 기다리고, 부를 때마다 그만큼 테스트 제한도 늘린다
+ * (차례로 여는 첫 로드는 대기가 더해진다 — 병렬로 여는 openWikiEditors 는 한 번만 늘린다).
+ * 1) 페이지 상세 GET 응답 — 노트 화면 코드가 올라와 상세를 불렀다(이 대기는 단언 창이 아니라 따로 둔 마감으로 기다리고,
  *    넘기면 기다린 요청을 이름으로 밝히며 실패한다).
  * 2) 본문(.ProseMirror) 표시 — 동기화 서버와 첫 동기화를 마쳤다(그 전엔 본문 자리에 skeleton).
  * 3) 편집 가능 여부 확정 — 에디터는 첫 동기화 전(편집 불가)에 만들어지고 편집 가능 전환은 렌더 뒤 effect 가 하므로, 보이자마자
  *    붙여넣기·우클릭하면 편집 불가 뷰가 이벤트를 버릴 수 있다. 편집자는 contenteditable="true", 보기 전용은 동기화 칩 readonly 까지.
  */
-export async function openWikiEditor(
-  page: Page,
-  { spaceId, pageId, readOnly = false, reload = false }: { spaceId: number; pageId: number; readOnly?: boolean; reload?: boolean },
-) {
+export async function openWikiEditor(page: Page, opts: WikiEditorOpenOptions) {
+  extendForWikiFirstLoad()
+  await loadWikiEditor(page, opts)
+}
+
+type WikiEditorOpenOptions = { spaceId: number; pageId: number; readOnly?: boolean; reload?: boolean }
+
+/** openWikiEditor 의 1~3 단계 — 테스트 제한은 늘리지 않는다(늘리는 것은 부르는 쪽이 한 번 정한다). */
+async function loadWikiEditor(page: Page, { spaceId, pageId, readOnly = false, reload = false }: WikiEditorOpenOptions) {
   const detailPath = `/api/v1/wiki/pages/${pageId}`
   // 응답 대기와 이동을 한 Promise.all 로 묶는다 — 대기를 이동 전에 등록하면서도, 이동이 실패하면 매달린 대기 없이 그 실패가 바로 올라온다.
-  // 마감은 액션 제한(15초)보다 길고 테스트 제한(30초)보다 짧게 따로 둔다 — 부하 때 dev 서버의 노트 화면 코드 변환이 오래 걸리는 것 자체는
-  // 결함이 아니지만, 끝없이 기다리지 않고 어느 요청을 기다리다 멈췄는지 드러나게 실패한다.
-  const timeout = 20_000
+  // 부하 때 dev 서버의 노트 화면 코드 변환이 오래 걸리는 것 자체는 결함이 아니지만, 끝없이 기다리지 않고
+  // 어느 요청을 기다리다 멈췄는지 드러나게 실패한다.
+  const timeout = WIKI_FIRST_LOAD_TIMEOUT
+  // 1·2 단계는 마감 하나를 나눠 쓴다 — 테스트 제한을 한도 한 번만큼만 늘렸으므로, 단계마다 40초를 따로 주면 2단계가 테스트 제한에 먼저 걸려
+  // 어느 단계에서 멈췄는지 밝히지 못한 채 「테스트 시간 초과」로 끝난다.
+  const deadline = Date.now() + timeout
   await Promise.all([
     page
       .waitForResponse(
@@ -128,22 +154,27 @@ export async function openWikiEditor(
       }),
     reload ? page.reload() : page.goto(`/wiki/spaces/${spaceId}/pages/${pageId}`),
   ])
+  const rest = Math.max(1, deadline - Date.now())
   if (readOnly) {
     // 보기 전용은 편집 불가(contenteditable="false")까지 확인한다 — 읽기 전용 상태 자체를 단언으로 남긴다.
-    await expect(page.locator('.ProseMirror[contenteditable="false"]')).toBeVisible()
+    await expect(page.locator('.ProseMirror[contenteditable="false"]')).toBeVisible({ timeout: rest })
     await expect(page.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'readonly')
   } else {
     // 편집자는 contenteditable="true" 인 에디터가 보일 때까지 한 번에 기다린다(보임 → 편집 가능 두 단계를 따로 두지 않는다).
-    await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+    await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible({ timeout: rest })
   }
 }
 
 /**
- * 같은 노트를 여러 피어(탭·컨텍스트)로 동시에 연다 — 하나씩 열면 첫 피어의 상세 GET 대기(최대 20초)가 테스트 제한(30초)을 나눠 먹는다.
+ * 같은 노트를 여러 피어(탭·컨텍스트)로 동시에 연다 — 하나씩 열면 첫 피어의 첫 로드 대기(최대 40초)가 테스트 제한을 나눠 먹는다.
+ * 병렬이라 대기 시간이 겹치므로 테스트 제한은 한 번만 늘린다.
  * 보기 전용 피어는 { page, readOnly: true } 로 넘긴다. 접속 칩 live 같은 그 테스트만의 기대는 호출한 쪽이 이어서 건다.
  */
 export async function openWikiEditors(spaceId: number, pageId: number, peers: Array<Page | { page: Page; readOnly?: boolean }>) {
-  await Promise.all(peers.map((p) => openWikiEditor('page' in p ? p.page : p, { spaceId, pageId, readOnly: 'page' in p && p.readOnly })))
+  extendForWikiFirstLoad()
+  await Promise.all(
+    peers.map((p) => loadWikiEditor('page' in p ? p.page : p, { spaceId, pageId, readOnly: 'page' in p && p.readOnly })),
+  )
 }
 
 /** 한 spec 이 늘 같은 노트를 여는 경우를 위해 스페이스·페이지를 고정한 openWikiEditor 를 만든다. */
