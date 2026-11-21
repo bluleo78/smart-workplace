@@ -29,6 +29,9 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
 
   private static final OffsetDateTime BASE = OffsetDateTime.parse("2026-06-10T09:00:00Z");
 
+  /** 「전체 일정」 이동(WP-1915) 테스트 9개가 공통으로 쓰는 시리즈 첫 회차. */
+  private static final OffsetDateTime SERIES_FIRST = OffsetDateTime.parse("2026-11-24T03:00:00Z");
+
   /** 테스트용 사용자 삽입 후 ID 반환. */
   private long user() {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -520,5 +523,205 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
     assertThat(service.list(u, BASE.minusDays(1), BASE.plusWeeks(2)))
         .extracting(CalendarEventResponse::title)
         .containsOnly("회의");
+  }
+
+  /** WP-1915: 「전체 일정」은 끌린 회차의 절대 시각이 아니라 이동량만큼 시리즈 전체를 밀어야 한다. */
+  @Test
+  void updateScopeAll_withOccurrenceDate_shiftsSeriesByDelta() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+
+    // 가운데 회차를 하루 뒤로 끌어 옮긴 뒤 「전체 일정」 — 이슈 본문 재현 4번.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", second.plusDays(1)),
+        EditScope.ALL,
+        second);
+
+    assertThat(service.get(u, master.id()).startsAt()).isEqualTo(first.plusDays(1));
+    assertThat(service.list(u, first.minusDays(1), first.plusWeeks(3).plusDays(1)))
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactly(
+            first.plusDays(1).toInstant(),
+            second.plusDays(1).toInstant(),
+            first.plusWeeks(2).plusDays(1).toInstant());
+  }
+
+  /** WP-1915: 이동량이 0 이면(제목만 고친 뒤 「전체 일정」) 기준일은 그대로여야 한다 — 재기준이 앞 회차를 지우지 않는다. */
+  @Test
+  void updateScopeAll_withOccurrenceDate_zeroDeltaKeepsMasterStart() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+
+    service.update(
+        u, master.id(), editReq("제목만 변경", "FREQ=WEEKLY;COUNT=3", second), EditScope.ALL, second);
+
+    assertThat(service.get(u, master.id()).startsAt()).isEqualTo(first);
+    assertThat(service.list(u, first.minusDays(1), first.plusWeeks(3)))
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactly(first.toInstant(), second.toInstant(), first.plusWeeks(2).toInstant());
+    assertThat(service.get(u, master.id()).title()).isEqualTo("제목만 변경");
+  }
+
+  /** WP-1915: override 행(이 회차만 고친 행, RRULE 없음)에 「전체 일정」을 주면 그 행만 바뀐다 — 마스터 기준일은 이동하지 않는다. */
+  @Test
+  void updateScopeAll_onOverrideRow_doesNotShift() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    service.update(
+        u, master.id(), editReq("이 회차만", "FREQ=WEEKLY;COUNT=3", second), EditScope.THIS, second);
+    Long overrideId = overrideEventId(master.id());
+
+    service.update(
+        u, overrideId, editReq("이 회차만 다시", null, second.plusDays(1)), EditScope.ALL, second);
+
+    assertThat(service.get(u, overrideId).startsAt()).isEqualTo(second.plusDays(1));
+    assertThat(service.get(u, master.id()).startsAt()).isEqualTo(first);
+  }
+
+  /** WP-1915: occurrenceDate 가 실제 회차가 아니면 「전체 일정」도 거절한다 — 아니면 엉뚱한 이동량으로 시리즈가 밀린다. */
+  @Test
+  void updateScopeAll_withNonOccurrenceDate_isRejected() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime fake = first.plusDays(1).plusMinutes(33);
+
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    u,
+                    master.id(),
+                    editReq("가짜 회차", "FREQ=WEEKLY;COUNT=3", fake),
+                    EditScope.ALL,
+                    fake))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(service.get(u, master.id()).startsAt()).isEqualTo(first);
+  }
+
+  /**
+   * WP-1915 반려 1·2: 원래 UNTIL 을 넘어선 자리로 옮겨도 통과해야 한다 — UNTIL 을 이동량만큼 함께 옮기고(WP-1915 반려 1), 사전검증도 이동 뒤
+   * 조합(새 시작 + 옮긴 UNTIL)으로 검증하기 때문이다(WP-1915 반려 2). 이동 전 req.startsAt 기준으로 검증하면 맞는 이동도 400 으로 막혔다.
+   */
+  @Test
+  void updateScopeAll_shiftPastUntil_movesUntilToo() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    String until = "FREQ=WEEKLY;UNTIL=20261206T235959Z";
+    CalendarEventResponse master =
+        service.create(u, recurringReq(until, first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+
+    // 가운데 회차(12-01)를 12-20 으로 끌어 옮긴다 — 이동량 +19일, 원래 UNTIL(12-06)을 넘어선다.
+    service.update(
+        u, master.id(), editReq("회의", until, second.plusDays(19)), EditScope.ALL, second);
+
+    CalendarEventResponse moved = service.get(u, master.id());
+    assertThat(moved.startsAt()).isEqualTo(first.plusDays(19));
+    // UNTIL 도 같은 이동량만큼 밀렸다 — 옮기지 않으면 새 범위(12-13~) 밖이라 마지막 회차가 잘린다.
+    assertThat(moved.recurrenceRule()).contains("UNTIL=20261225T235959Z");
+    assertThat(service.list(u, first.minusDays(1), first.plusDays(40)))
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactly(
+            first.plusDays(19).toInstant(), first.plusDays(19).plusWeeks(1).toInstant());
+  }
+
+  /** WP-1915 반려 3: 「전체 일정」 + 실제가 아닌 회차는 실행이 아니라 사전검증(확인 카드)에서 걸린다 — 카드가 뜨고 승인해야 400 이 났다. */
+  @Test
+  void validateUpdatable_scopeAllWithNonOccurrenceDate_isRejectedBeforeCard() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime fake = first.plusDays(1).plusMinutes(33);
+
+    assertThatThrownBy(
+            () ->
+                service.validateUpdatable(
+                    u,
+                    master.id(),
+                    editReq("가짜 회차", "FREQ=WEEKLY;COUNT=3", fake),
+                    EditScope.ALL,
+                    fake))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(service.get(u, master.id()).startsAt()).isEqualTo(first);
+  }
+
+  /**
+   * WP-1590 회귀 가드(코드 리뷰): 이동 경로는 UNTIL 을 먼저 밀어야 해 잘못된 값을 통과시킬 수 있다 — 밀어 버리면 validate 가 못 잡고 전역
+   * 핸들러에서 500 이 된다. shiftUntil 이 원문을 그대로 두면 validateRecurrence 가 IllegalArgumentException(400)으로
+   * 거절한다.
+   */
+  @Test
+  void updateScopeAll_withMalformedUntil_isRejectedWithIllegalArgument() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(
+            u, recurringReq("FREQ=WEEKLY;UNTIL=20261206T235959Z", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+
+    assertThatThrownBy(
+            () ->
+                service.validateUpdatable(
+                    u,
+                    master.id(),
+                    editReq("회의", "FREQ=WEEKLY;UNTIL=20261301T000000Z", second.plusDays(19)),
+                    EditScope.ALL,
+                    second))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(service.get(u, master.id()).startsAt()).isEqualTo(first);
+  }
+
+  /** WP-1915 후속: 반복을 푸는 「전체 일정」(req 에 RRULE 없음)은 이동량을 적용하지 않는다 — 편집한 회차 자리에 단일 일정이 남는다. */
+  @Test
+  void updateScopeAll_removingRecurrence_keepsEditedOccurrence() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime third = first.plusWeeks(2);
+
+    service.update(u, master.id(), editReq("반복 끔", null, third), EditScope.ALL, third);
+
+    CalendarEventResponse single = service.get(u, master.id());
+    assertThat(single.recurrenceRule()).isNull();
+    assertThat(single.startsAt()).isEqualTo(third);
+  }
+
+  /** WP-1915: 뒤로 끌어 옮겨도 이동량이 음수로 그대로 적용된다(앞으로 옮긴 경우의 거울). */
+  @Test
+  void updateScopeAll_withOccurrenceDate_negativeDeltaShiftsBackward() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", second.minusDays(2)),
+        EditScope.ALL,
+        second);
+
+    assertThat(service.get(u, master.id()).startsAt()).isEqualTo(first.minusDays(2));
+    assertThat(service.list(u, first.minusDays(3), first.plusWeeks(3)))
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactly(
+            first.minusDays(2).toInstant(),
+            second.minusDays(2).toInstant(),
+            first.plusWeeks(2).minusDays(2).toInstant());
   }
 }

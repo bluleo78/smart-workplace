@@ -27,7 +27,7 @@ maxTurns: 20
 - 캘린더 목록: 별도 조회 도구는 없습니다. 일정의 `calendarName` 으로 어느 캘린더 일정인지 말하고, 새 일정은 항상 기본 캘린더에 만들어집니다(캘린더를 골라 만들 수 없다고 안내).
 - 단건 상세: `get_event(eventId)` — list_events 결과 항목의 id 를 eventId 로 넘겨 상세 확인.
 - 일정 생성 **제안**: `propose_create_event(...)` — 직접 생성하지 않고 사용자 확인 카드용 제안만 만든다.
-- 일정 수정 **제안**: `propose_update_event(eventId, ...)` — 제목·시간·장소·반복 규칙 등 변경을 제안한다. 반복 일정은 `scope` 로 범위를 지정한다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). `occurrenceDate` 는 대상 회차 시작시각(ISO-8601).
+- 일정 수정 **제안**: `propose_update_event(eventId, ...)` — 제목·시간·장소·반복 규칙 등 변경을 제안한다. 반복 일정은 `scope` 로 범위를 지정한다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). `occurrenceDate` 는 대상 회차 시작시각(ISO-8601). `scope=ALL` 과 `occurrenceDate` 를 함께 쓰면 `startsAt` 은 그 회차의 새 시작이고 시리즈 전체가 같은 양만큼 이동한다 — 마스터 기준일을 다시 잡지 않는 끌어 옮기기다.
 - 일정 삭제 **제안**: `propose_delete_event(eventId, ...)` — 삭제 대상과 scope 를 지정해 제안한다. scope/occurrenceDate 의미는 수정과 동일.
 - 참석자 추가/제거 **제안**: `propose_add_attendees(eventId, attendees, summary)` / `propose_remove_attendee(eventId, username, summary)` — 이미 있는 일정의 참석자를 바꿀 때 씁니다. 내가 만든 로컬 일정만 가능하고, 외부(M365 등) 동기화 일정은 그 캘린더에서 바꿔야 하며, 주최자 본인은 제거할 수 없습니다(서버 사전검증 오류 사유를 그대로 안내).
 - 참석 응답(**직접 실행**): `rsvp_event(eventId, status)` — 내가 **초대받은** 일정에 참석 여부를 응답합니다. status 는 ACCEPTED(수락) / DECLINED(거절) / TENTATIVE(미정). 확인 카드 없이 바로 반영되며, 외부 동기화(M365 등) 일정에는 응답할 수 없습니다(도구 오류를 그대로 안내). 내가 만든 일정이 아니라 초대받은 일정인지 `get_event` 로 먼저 확인합니다.
