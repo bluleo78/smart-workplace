@@ -54,7 +54,8 @@ public class AgentStatusReportService {
 
   /**
    * 상태 보고 처리. 순서: 테넌트가 없으면 RUN → 설정 행을 잠가 읽음(없으면 RUN — 칸도 저장하지 않는다) → 칸 저장 → 옛 Pod 칸 정리 → 모든 칸을 합쳐
-   * agent_* 칸에 씀 → 합친 상태가 쉬는 중으로 막 바뀌었고 교체 대기면 이벤트 → 화면 값이 바뀌었으면 알림 → 원하는 상태 계산.
+   * agent_* 칸에 씀 → 남아 있던 진입점 차단 메시지 비움(지금 generation 이상의 보고일 때만, 화면에 보이던 것을 비우면 알림 포함) → 합친 상태가 쉬는
+   * 중으로 막 바뀌었고 교체 대기면 이벤트 → 화면 값이 바뀌었거나 칸 차단을 비웠으면 알림(한 보고에 한 번) → 원하는 상태 계산.
    *
    * <p>설정 행을 먼저 잠그므로 같은 AI 의 두 칸이 동시에 보고해도 칸 쓰기·합치기가 차례로 서서 합친 값이 어긋나지 않는다.
    */
@@ -71,11 +72,30 @@ public class AgentStatusReportService {
     // 옛 Pod 칸은 빼고(있을 때만 지움), 오래 보고가 끊긴 칸(죽은 칸)도 빼고 합쳐 쓴다. 방금 보고한 칸은 옛 Pod 거르기에서 늘 제외되고 보고
     // 시각이 지금이라 오래되지도 않으므로 늘 남는다 — 그래서 agent_reported_at(살아 있는 칸의 가장 늦은 보고 시각)도 지금이다.
     Row row = slotWriter.write(userId, slots.findAll(userId), before.startedAt(), now, key);
+    // 칸이 도는 중인 보고 = 칸이 띄워졌다는 증거 — 남아 있던 진입점 차단 보고를 비운다(WP-1913 백스톱).
+    // 진입점이 다시 차단되면 그때 다시 쌓인다. 단 보고한 generation 이 저장한 차단의 generation 이상일 때만
+    // 비운다 — 옛 Pod 칸의 상태 보고가 지금 새 차단을 지우지 않게(WP-1913 리뷰 반려 ③).
+    // generation 을 모르는 옛 보고는 지금처럼 비운다.
+    // 알림은 실제로 화면에 보이던 사유(currentPaneBlocked)를 비울 때만 보낸다 — 차단은 읽을 때
+    // FAILED+사유로 합쳐져 VisibleRuntimeState 에 없으므로 아래 비교로는 잡히지 않는데,
+    // 가려진 옛 사유를 비우는 동작은 화면이 그대로라 알림이 나가면 안 된다(같은 반려 ③).
+    boolean paneStored = AgentRuntimeStatusResolver.blocked(before.paneBlockedMessage());
+    boolean paneVisible =
+        AgentRuntimeStatusResolver.blocked(AgentRuntimeStatusResolver.currentPaneBlocked(before));
+    boolean fromCurrentGeneration =
+        before.paneBlockedGeneration() == null
+            || req.generation() == null
+            || req.generation() >= before.paneBlockedGeneration();
+    if (paneStored && fromCurrentGeneration) {
+      settings.updatePaneBlocked(userId, null, null, null);
+    }
+    boolean paneCleared = paneVisible && fromCurrentGeneration;
 
     // 「쉬는 중으로 막 바뀜」은 합친 상태로 판정한다 — 모든 칸이 쉬게 된 보고에서만 이벤트가 나간다.
     boolean becameIdle = row.isIdle() && !before.isIdle();
     if (becameIdle && row.hasUnappliedGeneration()) publishChanged(tenantId, row.locationId());
-    if (VisibleRuntimeState.of(before).differsFrom(row)) {
+    // 한 보고에서 관리자 알림은 한 번 — 화면 상태가 바뀌었거나 칸 차단을 비웠을 때만(같은 내용의 거듭된 보고는 알리지 않음).
+    if (paneCleared || VisibleRuntimeState.of(before).differsFrom(row)) {
       changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, userId, null);
     }
     return new AgentStatusReportResponse(desiredFor(row, req.generation(), tenantId));

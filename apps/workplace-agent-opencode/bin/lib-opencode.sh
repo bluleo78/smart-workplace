@@ -68,17 +68,18 @@ opencode_login_ok() {
 #      않으면 만들지 않고 이유를 로그로 남겨 칸을 띄우지 않는다.
 #    - permission "allow"·autoupdate false·share "disabled": 사람 없는 칸이라 도구가 묻지 않고, 버전은 이미지가 고정하며, 대화를 공유 서버로 올리지 않는다.
 #    MCP·플러그인(키 보호)은 구동기가 OPENCODE_CONFIG_CONTENT 로 넘긴다 — 두 곳이 어긋나지 않게 여기 적지 않는다(설정은 병합된다).
-#    로그인 정보(연결)가 없거나 꼴이 이상하거나 모델을 정할 수 없으면 옛 설정을 지우고 1 을 돌려준다(can_launch 가 막는다).
+#    로그인 정보(연결)가 없거나 꼴이 이상하거나 모델을 정할 수 없으면 옛 설정을 지우고 1 을 돌려준다(can_launch 가 막는다) — 그때 log 대신
+#    pane_blocked 로 남겨 감독 회차(tick)가 서버에 차단 사유를 보고한다(WP-1913). 메시지는 로그 한 줄과 같다.
 write_opencode_config() {
   local src="$GENIA_RUN_DIR/login-info" dst="$OPENCODE_CONFIG_FILE" pid cfg_model def_model full mid limit out
   if [ ! -s "$src" ]; then
     rm -f "$dst"
-    log "경고: OpenAI 호환 연결 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
+    pane_blocked "경고: OpenAI 호환 연결 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
     return 1
   fi
   if ! opencode_login_ok "$src"; then
     rm -f "$dst"
-    log "오류: 연결 정보의 꼴이 올바르지 않습니다(providerId 문자열·options 객체가 필요합니다) — 연결을 다시 하세요. 칸을 띄우지 않습니다"
+    pane_blocked "오류: 연결 정보의 꼴이 올바르지 않습니다(providerId 문자열·options 객체가 필요합니다) — 연결을 다시 하세요. 칸을 띄우지 않습니다"
     return 1
   fi
   pid=$(jq -r '.providerId' "$src")
@@ -98,7 +99,7 @@ write_opencode_config() {
       "$pid"/?*) full=$def_model ;;
       *)
         rm -f "$dst"
-        log "오류: 모델을 정할 수 없습니다 — 연결에 지정한 모델 $def_model 이 이 연결($pid)의 모델이 아닙니다. AI 설정에서 이 연결의 모델을 고르세요. 칸을 띄우지 않습니다"
+        pane_blocked "오류: 모델을 정할 수 없습니다 — 연결에 지정한 모델 $def_model 이 이 연결($pid)의 모델이 아닙니다. AI 설정에서 이 연결의 모델을 고르세요. 칸을 띄우지 않습니다"
         return 1
         ;;
     esac
@@ -106,12 +107,12 @@ write_opencode_config() {
   mid=${full#"$pid"/}
   if [ -z "$full" ]; then
     rm -f "$dst"
-    log "오류: 모델을 정할 수 없습니다 — 설정의 모델이 auto 인데 OpenAI 호환 연결에도 지정한 모델이 없습니다. 연결에 모델을 지정하거나 AI 설정에서 모델을 고르세요. 칸을 띄우지 않습니다"
+    pane_blocked "오류: 모델을 정할 수 없습니다 — 설정의 모델이 auto 인데 OpenAI 호환 연결에도 지정한 모델이 없습니다. 연결에 모델을 지정하거나 AI 설정에서 모델을 고르세요. 칸을 띄우지 않습니다"
     return 1
   fi
   if ! safe_model_id "$mid"; then
     rm -f "$dst"
-    log "오류: 모델 값의 꼴이 올바르지 않습니다 — 모델 id 는 영문·숫자와 . _ : / @ [ ] - 만 쓸 수 있습니다. 칸을 띄우지 않습니다"
+    pane_blocked "오류: 모델 값의 꼴이 올바르지 않습니다 — 모델 id 는 영문·숫자와 . _ : / @ [ ] - 만 쓸 수 있습니다. 칸을 띄우지 않습니다"
     return 1
   fi
   limit=$(opencode_model_limit "$src" "$mid")
@@ -142,13 +143,13 @@ write_opencode_config() {
         model: $full
       }' "$src") || {
     rm -f "$dst"
-    log "오류: opencode.json 을 만들지 못했습니다(연결 정보를 읽지 못했습니다). 칸을 띄우지 않습니다"
+    pane_blocked "오류: opencode.json 을 만들지 못했습니다(연결 정보를 읽지 못했습니다). 칸을 띄우지 않습니다"
     return 1
   }
   mkdir -p "$(dirname "$dst")" && gw_write_atomic "$dst" "$out" || {
     # 같은 Pod 안에서 컨테이너만 다시 뜨면 옛 설정이 남는다 — 지워야 칸 띄우기 확인이 옛 모델·연결로 통과하지 않는다.
     rm -f "$dst"
-    log "오류: $dst 를 쓰지 못했습니다. 칸을 띄우지 않습니다"
+    pane_blocked "오류: $dst 를 쓰지 못했습니다. 칸을 띄우지 않습니다"
     return 1
   }
   log "OpenCode 설정을 썼습니다(연결 $pid, 모델 $full)"
@@ -204,3 +205,13 @@ write_opencode_agents_md() {
 # 칸을 띄울 수 있는지(lib.sh tick 의 훅) — 이번 부팅에서 opencode.json 을 만들었을 때만. 연결 정보가 없거나 모델을 못 정했으면 칸도 알림 감시
 # 창도 띄우지 않는다(opencode run 이 모델 없음 오류로 끝나 work-loop 가 돌지 않는다). 연결·설정을 바꾸면 runner 가 Pod 를 다시 만든다.
 can_launch() { [ -s "$OPENCODE_CONFIG_FILE" ]; }
+
+# 막힌 이번 회차의 까닭을 다시 판정한다(lib.sh tick 의 훅, WP-1913 리뷰 반려 ②) — 부팅 때 한 번 적힌 사유가 회차마다 사실인지 다시 본다.
+# 설정을 다시 만들면 실패 경로가 이번 까닭을 pane_blocked 로 덮어쓰고(부팅과 같은 판정), 성공하면 지난 사유를 지운다.
+# 거꾸로 되었을 때(설정은 되는데 can_launch 이 막힌)에도 지난 사유를 남기지 않는다 — 다음 회차에 can_launch 이 다시 참이다.
+pane_blocked_reason() {
+  # 실패하면 write_opencode_config 가 이번 까닭을 pane_blocked 로 남긴다(부팅과 같은 판정) — 그대로 둔다.
+  write_opencode_config || return 0
+  # 이번엔 설정이 됐다 — 지난 사유를 남기지 않는다(다음 회차에 can_launch 이 다시 참이다).
+  rm -f "$AI_DIR/state/pane-blocked"
+}

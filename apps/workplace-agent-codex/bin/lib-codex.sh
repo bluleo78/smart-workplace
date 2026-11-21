@@ -233,6 +233,16 @@ login_sync_once() {
 # 칸을 띄울 수 있는지(lib.sh tick 의 훅) — 로그인 정보가 있을 때만. 아니면 칸도 알림 감시 창도 띄우지 않고 모델 목록도 묻지 않는다.
 can_launch() { login_file_ready "$CODEX_HOME/auth.json"; }
 
+# 막힌 이번 회차의 까닭을 다시 판정한다(lib.sh tick 의 훅, WP-1913 리뷰 반려 ②) — sync_login 을 거친 뒤 auth.json 이 못 쓰게 되면
+# 지난 사유 파일이 아예 없어 오류가 안 뜨던 것을 막는다. 이번 회차에 로그인 파일이 없으면 그 까닭을 다시 적는다.
+pane_blocked_reason() {
+  if ! login_file_ready "$CODEX_HOME/auth.json"; then
+    pane_blocked "경고: ChatGPT 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
+  else
+    rm -f "$AI_DIR/state/pane-blocked"
+  fi
+}
+
 # 감독 회차마다 칸 살피기 전(lib.sh tick 의 훅) — 로그인이 있으면 때가 된 모델 목록 보고(report_models). 첫 회차에는 칸이 아직 없어 로그인
 # 갱신이 겹치지 않고(report_models 머리 주석), 받은 목록으로 맞춘 추론 강도로 칸이 처음부터 뜨며, start_projects(저장소 받기)가 길어도
 # 화면의 모델 선택지가 일찍 채워진다.

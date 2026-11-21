@@ -417,6 +417,52 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (Short) get(27);
     }
 
+    /**
+     * Setter for
+     * <code>public.agent_runtime_setting.pane_blocked_message</code>.
+     */
+    public void setPaneBlockedMessage(String value) {
+        set(28, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.agent_runtime_setting.pane_blocked_message</code>.
+     */
+    public String getPaneBlockedMessage() {
+        return (String) get(28);
+    }
+
+    /**
+     * Setter for <code>public.agent_runtime_setting.pane_blocked_at</code>.
+     */
+    public void setPaneBlockedAt(OffsetDateTime value) {
+        set(29, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.pane_blocked_at</code>.
+     */
+    public OffsetDateTime getPaneBlockedAt() {
+        return (OffsetDateTime) get(29);
+    }
+
+    /**
+     * Setter for
+     * <code>public.agent_runtime_setting.pane_blocked_generation</code>.
+     */
+    public void setPaneBlockedGeneration(Long value) {
+        set(30, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.agent_runtime_setting.pane_blocked_generation</code>.
+     */
+    public Long getPaneBlockedGeneration() {
+        return (Long) get(30);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -440,7 +486,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -471,6 +517,9 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setRuntimeImage(runtimeImage);
         setRuntimePluginVersion(runtimePluginVersion);
         setSlotLimit(slotLimit);
+        setPaneBlockedMessage(paneBlockedMessage);
+        setPaneBlockedAt(paneBlockedAt);
+        setPaneBlockedGeneration(paneBlockedGeneration);
         resetTouchedOnNotNull();
     }
 }

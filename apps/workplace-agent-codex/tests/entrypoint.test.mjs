@@ -2,7 +2,7 @@
 // codex 는 PATH 앞의 가짜(모델 목록 JSON 을 내고, exec 면 받은 인자·env 를 남기고 기다린다)로, gh·npx·curl(맡는 프로젝트 조회만)도 가짜로 바꾼다.
 // tmux 는 진짜를 테스트마다 격리한 서버(-L)로 쓰고, 플러그인은 저장소의 진짜 것(scripts·codex 구동기·genia/loop.js·hooks·skills)을 링크한다 —
 // 칸 명령(agent-project 의 codex 분기 → gw-codex-loop → codex/driver.mjs)과 칸이 물려받는 env 를 진짜로 확인하려는 것이다.
-// gw-models 만 가짜(받은 본문·신원을 남긴다)로 바꾼다. 키·로그인 정보는 모두 가짜 값이다.
+// gw-models·gw-boot 만 가짜(받은 본문·신원을 남긴다)로 바꾼다 — gw-boot 는 칸 차단 보고(WP-1913)를 파일로 받는다. 키·로그인 정보는 모두 가짜 값이다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -120,7 +120,7 @@ exec ${realCurl} "$@"
   // ../hooks/lib.js·../skills 를 찾는다.
   for (const p of ['codex', 'genia', 'hooks', 'skills', '.claude-plugin', 'package.json']) symlinkSync(join(pluginRoot, p), d('plugin', p));
   for (const f of readdirSync(pluginScripts)) {
-    if (f === 'gw-models') continue;
+    if (f === 'gw-models' || f === 'gw-boot') continue;
     symlinkSync(join(pluginScripts, f), d('plugin', 'scripts', f));
   }
   if (gwModels) {
@@ -131,6 +131,12 @@ n=$(ls "$FAKE_OUT" | grep -c '^gw-models-[0-9]')
 exit 0
 `);
   }
+  // gw-boot 만 가짜(받은 신원·인자를 FAKE_OUT/gw-boot-N 파일로 남긴다) — 진입점의 칸 차단 보고(WP-1913)를 파일로 확인한다.
+  exe(d('plugin', 'scripts', 'gw-boot'), `#!/bin/sh
+n=$(ls "$FAKE_OUT" | grep -c '^gw-boot-[0-9]')
+{ printf 'as=%s\\n' "$GENIA_WORKS_AS"; for a in "$@"; do printf '%s\\n' "$a"; done; } > "$FAKE_OUT/gw-boot-$((n + 1))"
+exit 0
+`);
   writeFileSync(d('out', 'projects.json'), '[]');
 
   const { wrapper, tmux } = h.isolatedTmux(d('bin'), 'gwcodex');
@@ -306,6 +312,21 @@ test('seedLogin_removesCopyAndMarkerWhenMountDisappears', (t) => {
   assert.equal(existsSync(f.d('work', 'agents', 'kodi', 'codex', 'auth.json')), false);
   assert.equal(existsSync(f.d('work', 'agents', 'kodi', 'state', 'login-version')), false);
   assert.match(r.stderr, /ChatGPT 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요\(연결 전에는 칸을 띄우지 않습니다\)/);
+});
+
+/**
+ * 막힌 회차에 지난 사유 파일이 없어도 이번 까닭을 다시 적어 보고한다(WP-1913 리뷰 반려 ②) — sync_login 뒤 auth.json 이 못 쓰게 되면
+ * 오류가 아예 안 뜨던 것을 막는다. 이번 회차에 로그인 파일이 없는 게 사유다.
+ */
+test('paneBlockedReason_writesLoginReasonWhenAuthFileUnusable', (t) => {
+  const f = fixture(t);
+  const state = f.d('work', 'agents', 'kodi', 'state');
+  mkdirSync(state, { recursive: true });
+  rmSync(join(state, 'pane-blocked'), { force: true });
+
+  const r = callLib(f.env, `${BOOT} && pane_blocked_reason && cat "$AI_DIR/state/pane-blocked"`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ChatGPT 로그인 정보가 연결되지 않았습니다/);
 });
 
 // ---------------------------------------------------------------- 모델 목록 보고(report_models)
@@ -878,6 +899,8 @@ tmuxTest('entrypoint_doesNotLaunchPaneOrReportModelsWithoutLoginInfo', async (t)
   assert.equal(existsSync(f.d('out', 'exec-WP.env')), false);
   assert.equal(existsSync(f.d('work', 'agents', 'kodi', 'repos', 'WP')), false);
   assert.equal(f.modelsCalls(), 0);
+  // 차단 보고(WP-1913) — tick 이 매 회차 gw-boot 에 로그인 미연결 사유를 넘긴다(신원은 GENIA_WORKS_AS).
+  assert.match(f.read('out', 'gw-boot-1'), /^as=kodi\nblocked\n.*로그인 정보가 연결되지 않았습니다/m);
   assert.notEqual(f.tmux('list-sessions').status, 0);
   e.child.kill('SIGTERM');
   assert.equal((await e.exited).code, 0);
