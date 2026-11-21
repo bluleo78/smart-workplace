@@ -212,7 +212,7 @@ function ConnectedAppsTable({ rows, showError }: { rows: OAuthConnection[]; show
         <AlertDialogContent data-testid="oauth-connection-confirm-dialog" data-help="tokens.apps">
           <AlertDialogHeader>
             <AlertDialogTitle>앱 연결 끊기</AlertDialogTitle>
-            {/* 닫히는 애니메이션 동안 target 이 null 이 되므로 본문은 target 이 있을 때만 그린다. 앱 이름은 임의 문자열이지만 줄바꿈은 공용 AlertDialogDescription(wrap-anywhere)이 맡는다(WP-1921). */}
+            {/* 닫히는 애니메이션 동안 target 이 null 이 되므로 본문은 target 이 있을 때만 그린다. 앱 이름은 임의 문자열이지만 줄바꿈은 공용 AlertDialogHeader(wrap-anywhere — 머리 안 제목·설명이 물려받음)가 맡는다(WP-1921). */}
             {target && (
               <AlertDialogDescription>
                 {`${target.clientName}의 ${target.tenantName} 연결을 끊으시겠습니까? 이 앱은 바로 Gen:iA Works 에 접근할 수 없게 되고, 다시 쓰려면 앱에서 다시 연결해야 합니다.`}
