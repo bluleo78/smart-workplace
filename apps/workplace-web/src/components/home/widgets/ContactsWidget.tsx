@@ -1,11 +1,10 @@
 import { Contact } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useContacts } from '@/hooks/queries/useContacts'
 import { showsLoadError } from '@/lib/queryFailure'
-import { cn } from '@/lib/utils';
 import type { ContactSummary, ContactTypeFilter } from '@/types/contact'
 
 import { WidgetError } from './WidgetError'
@@ -83,16 +82,14 @@ export default function ContactsWidget({
           ))}
         </ul>
       ) : (
-        <div
-          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-          data-testid="contacts-empty"
-        >
-          <Contact className={emptyStateIconClass} aria-hidden="true" />
-          <p className={emptyStateTitleClass}>연락처가 없어요</p>
-          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
-            조건에 맞는 연락처가 없습니다.
-          </p>
-        </div>
+        <EmptyState
+          icon={Contact}
+          title="연락처가 없어요"
+          description="조건에 맞는 연락처가 없습니다."
+          testId="contacts-empty"
+          className="gap-2 px-4 py-8"
+          descriptionClassName="max-w-xs"
+        />
       )}
     </WidgetFrame>
   )

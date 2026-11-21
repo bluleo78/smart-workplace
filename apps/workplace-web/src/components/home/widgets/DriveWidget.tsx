@@ -1,13 +1,12 @@
 import { File, Folder, HardDrive } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDriveItems } from '@/hooks/queries/useDriveItems'
 import { useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
 import { driveSpaceTypeLabel } from '@/lib/driveSpaces'
 import { showsLoadError } from '@/lib/queryFailure'
-import { cn } from '@/lib/utils';
 import type { DriveSpace } from '@/types/drive'
 
 import { WidgetError } from './WidgetError'
@@ -75,14 +74,14 @@ export default function DriveWidget({
             ))}
           </ul>
         ) : (
-          <div
-            className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-            data-testid="drive-empty"
-          >
-            <HardDrive className={emptyStateIconClass} aria-hidden="true" />
-            <p className={emptyStateTitleClass}>드라이브가 없어요</p>
-            <p className={cn('max-w-xs', emptyStateDescriptionClass)}>아직 접근 가능한 드라이브 스페이스가 없습니다.</p>
-          </div>
+          <EmptyState
+            icon={HardDrive}
+            title="드라이브가 없어요"
+            description="아직 접근 가능한 드라이브 스페이스가 없습니다."
+            testId="drive-empty"
+            className="gap-2 px-4 py-8"
+            descriptionClassName="max-w-xs"
+          />
         )}
       </WidgetFrame>
     )
@@ -140,14 +139,14 @@ export default function DriveWidget({
           ))}
         </ul>
       ) : (
-        <div
-          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-          data-testid="drive-empty"
-        >
-          <HardDrive className={emptyStateIconClass} aria-hidden="true" />
-          <p className={emptyStateTitleClass}>파일이 없어요</p>
-          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>이 폴더에 표시할 파일이 없습니다.</p>
-        </div>
+        <EmptyState
+          icon={HardDrive}
+          title="파일이 없어요"
+          description="이 폴더에 표시할 파일이 없습니다."
+          testId="drive-empty"
+          className="gap-2 px-4 py-8"
+          descriptionClassName="max-w-xs"
+        />
       )}
     </WidgetFrame>
   )

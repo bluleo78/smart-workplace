@@ -3,6 +3,7 @@
 import { FilePen, PenLine, Trash2 } from 'lucide-react'
 
 import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { DropdownMenuItem } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { draftRecipientsLabel } from '@/lib/mailDraftCompose'
@@ -80,11 +81,13 @@ export function MailDraftsList({ accountId }: { accountId: number }) {
   }
   if (!data || data.length === 0) {
     return (
-      <div data-testid="mail-drafts-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-        <FilePen className={emptyStateIconClass} aria-hidden="true" />
-        <p className={emptyStateTitleClass}>임시저장한 메일이 없어요</p>
-        <p className={emptyStateDescriptionClass}>쓰다가 닫은 메일은 여기에 저장돼요.</p>
-      </div>
+      <EmptyState
+        testId="mail-drafts-empty"
+        className="gap-2 py-16"
+        icon={FilePen}
+        title="임시저장한 메일이 없어요"
+        description="쓰다가 닫은 메일은 여기에 저장돼요."
+      />
     )
   }
   return (

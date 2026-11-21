@@ -8,6 +8,7 @@ import { Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { emptyStateIconClass } from '@/components/layout/empty-state';
 import { RefreshingResults } from '@/components/RefreshingResults';
 import { RemainingPagesError } from '@/components/RemainingPagesError';
 import { Button } from '@/components/ui/button';
@@ -606,7 +607,7 @@ function BoardColumn({
               className="flex flex-col items-center justify-center py-8 gap-3 text-center"
               data-testid={`board-col-empty-${status.id}`}
             >
-              <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+              <Inbox className={emptyStateIconClass} aria-hidden="true" />
               <div className="space-y-1">
                 <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
                 {/* 좁은 열에서 음절 단위로 끊기지 않게 어절 단위 줄바꿈(break-keep) */}
@@ -666,7 +667,7 @@ function MobileBoardEmpty({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-testid={`board-col-empty-${status}`}>
-      <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+      <Inbox className={emptyStateIconClass} aria-hidden="true" />
       <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
       {onShowAllClosed && (
         <>

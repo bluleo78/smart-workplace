@@ -1,12 +1,11 @@
 import { BookText } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWikiSpaces } from '@/hooks/queries/useWikiSpaces'
 import { useWikiTree } from '@/hooks/queries/useWikiTree'
 import { showsLoadError } from '@/lib/queryFailure'
-import { cn } from '@/lib/utils';
 import type { WikiSpace } from '@/types/wiki'
 
 import { WidgetError } from './WidgetError'
@@ -77,16 +76,14 @@ export default function WikiWidget({
             ))}
           </ul>
         ) : (
-          <div
-            className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-            data-testid="wiki-empty"
-          >
-            <BookText className={emptyStateIconClass} aria-hidden="true" />
-            <p className={emptyStateTitleClass}>노트가 없어요</p>
-            <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
-              노트 화면에서 새 스페이스를 만들어 보세요.
-            </p>
-          </div>
+          <EmptyState
+            icon={BookText}
+            title="노트가 없어요"
+            description="노트 화면에서 새 스페이스를 만들어 보세요."
+            testId="wiki-empty"
+            className="gap-2 px-4 py-8"
+            descriptionClassName="max-w-xs"
+          />
         )}
       </WidgetFrame>
     )
@@ -131,16 +128,14 @@ export default function WikiWidget({
           ))}
         </ul>
       ) : (
-        <div
-          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-          data-testid="wiki-empty"
-        >
-          <BookText className={emptyStateIconClass} aria-hidden="true" />
-          <p className={emptyStateTitleClass}>페이지가 없어요</p>
-          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
-            이 스페이스에 표시할 페이지가 없습니다.
-          </p>
-        </div>
+        <EmptyState
+          icon={BookText}
+          title="페이지가 없어요"
+          description="이 스페이스에 표시할 페이지가 없습니다."
+          testId="wiki-empty"
+          className="gap-2 px-4 py-8"
+          descriptionClassName="max-w-xs"
+        />
       )}
     </WidgetFrame>
   )

@@ -1,11 +1,10 @@
 import { BookText } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWikiPage } from '@/hooks/queries/useWikiPage'
 import { showsLoadError } from '@/lib/queryFailure'
-import { cn } from '@/lib/utils';
 
 import { WidgetError } from './WidgetError'
 import { WidgetFrame } from './WidgetFrame'
@@ -35,16 +34,14 @@ export default function WikiPageWidget({ params }: { params?: Record<string, unk
   if (pageId === null) {
     return (
       <WidgetFrame title="노트 페이지">
-        <div
-          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-          data-testid="wiki_page-error"
-        >
-          <BookText className={emptyStateIconClass} aria-hidden="true" />
-          <p className={emptyStateTitleClass}>페이지 ID가 없습니다</p>
-          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
-            페이지 ID를 지정하여 다시 요청해 보세요.
-          </p>
-        </div>
+        <EmptyState
+          icon={BookText}
+          title="페이지 ID가 없습니다"
+          description="페이지 ID를 지정하여 다시 요청해 보세요."
+          testId="wiki_page-error"
+          className="gap-2 px-4 py-8"
+          descriptionClassName="max-w-xs"
+        />
       </WidgetFrame>
     )
   }

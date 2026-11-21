@@ -9,6 +9,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { ChevronRight, Inbox } from 'lucide-react';
 import { useId, useState } from 'react';
 
+import { emptyStateIconClass } from '@/components/layout/empty-state';
 import { cn } from '@/lib/utils';
 
 import { IssueStatusIcon } from '../../../../components/issues/IssueStatusIcon';
@@ -138,7 +139,7 @@ export function BoardSwimlanes({
       {empty && !pending && (
         /* 이슈가 하나도 없을 때 — 디자인 시스템 §2.5 빈 상태 패턴(아이콘 + 제목 + 설명). */
         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-testid="board-lanes-empty">
-          <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+          <Inbox className={emptyStateIconClass} aria-hidden="true" />
           <div className="space-y-1">
             <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
             <p className="text-xs text-muted-foreground">조건에 맞는 이슈가 없습니다</p>

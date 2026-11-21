@@ -138,33 +138,31 @@ function FullPageLoading() {
 
 목록이 카드/그리드 형태일 때는 아이콘 + 메시지 + 액션 패턴을 사용한다. 빈 상태에는 **항상 다음 행동(예: "새로 만들기")을 제공**한다.
 
+공통 컴포넌트 `EmptyState`(`@/components/layout/EmptyState`)를 사용한다. 새 빈 상태는 직접 `div` 를 짜지 않고 이 부품을 쓴다. 아래 「보드 빈 열·스윔레인·`TableEmptyRow`」처럼 자체 레이아웃이 남은 자리는 예외다. 아직 이 부품으로 옮기지 않고 상수만 쓰는 손 마크업도 남아 있다 — 메일·연락처 상세 칸(sr-only 헤딩이 아이콘 앞에 있음), 드라이브·노트 빈 화면, `ChatEmptyState`, 데스크톱 `DashboardEmptyState`, 프로젝트 목록. 고칠 때 이 부품으로 옮긴다.
+
 ```tsx
-function EmptyState({ icon: Icon, title, description, action }: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  description?: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-      <Icon className="h-10 w-10 text-muted-foreground" />
-      <div className="space-y-1">
-        <p className="text-sm font-medium">{title}</p>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
-      </div>
-      {action}
-    </div>
-  );
-}
+import { EmptyState } from "@/components/layout/EmptyState";
 
 // 사용 예시 — 메일함이 비었을 때
 <EmptyState
   icon={Inbox}
   title="받은 메일이 없습니다"
   description="새 메일이 도착하면 여기에 표시됩니다"
+  grouped
+  className="justify-center gap-3 py-16"
   action={<Button size="sm" onClick={onCompose}><Plus /> 메일 작성</Button>}
 />
 ```
+
+주요 props:
+
+- `icon`, `title`, `description`, `action` — 아이콘(40px muted)·제목·설명·다음 행동 버튼.
+- `size` — `'desktop'`(기본) 또는 `'mobile'`(전체 화면 변형, 아이콘 48px).
+- `tone` — `'default'`(muted) 또는 `'positive'`. positive 는 `size="desktop"` 에서만 적용되고(mobile 은 무시) **완료·처리할 것 없음**처럼 "다 끝냈다"를 뜻할 때만 쓰며, 아이콘이 `text-primary` 가 되는 이 규격의 **유일한 색 예외**다. 그냥 "비었다"는 default.
+- `grouped` — 참이면 제목·설명을 `space-y-1` 한 묶음으로 감싼다(action 은 묶음 밖).
+- `className` — 바깥 여백·높이 등 바깥 클래스. 부품 자체에는 기본 간격·패딩이 없다(바탕은 `flex flex-col items-center text-center` 뿐) — 자리마다 gap·padding 을 `className` 으로 넘긴다(위 예시의 `justify-center gap-3 py-16` 처럼).
+
+`ListEmptyState`(목록)·`WidgetEmptyState`(홈 위젯)·`MobileEmptyState`(모바일 전체 화면)는 모두 `EmptyState` 를 감싼 얇은 래퍼다. 보드 빈 열·스윔레인 빈 상태와 `TableEmptyRow` 검색 빈 상태는 자체 레이아웃을 쓰되 아이콘은 `emptyStateIconClass`(40px muted)를 쓴다 — 흐린 색(`/50`·`/60`)이나 32px 는 쓰지 않는다.
 
 **원칙**: 빈 상태는 항상 생산적인 액션을 포함한다.
 

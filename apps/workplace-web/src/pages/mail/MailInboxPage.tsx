@@ -12,7 +12,8 @@ import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
 import { FilterLine } from '@/components/filter/FilterLine'
 import { Breadcrumb } from '@/components/layout/Breadcrumb'
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStatePositiveIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { LoadErrorState } from '@/components/LoadErrorState'
@@ -2218,39 +2219,47 @@ function MailInbox() {
               {!messages || messages.length === 0 ? (
                 // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
                 view.kind === 'needsReply' ? (
-                  <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-                    <Check className={emptyStatePositiveIconClass} aria-hidden="true" />
-                    <p className={emptyStateTitleClass}>회신이 필요한 안 읽은 메일이 없어요 🎉</p>
-                    {/* WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다. */}
-                    <p className={emptyStateDescriptionClass}>메일을 열면 회신필요에서 빠져요.</p>
-                  </div>
+                  // WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다.
+                  <EmptyState
+                    testId="mail-needsreply-empty"
+                    className="gap-2 py-16"
+                    icon={Check}
+                    tone="positive"
+                    title="회신이 필요한 안 읽은 메일이 없어요 🎉"
+                    description="메일을 열면 회신필요에서 빠져요."
+                  />
                 ) : view.unreadOnly ? (
                   // WP-186: 안 읽은 메일만 보기 0건 — 보기별 문구.
-                  <div data-testid="mail-view-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-                    <Check className={emptyStatePositiveIconClass} aria-hidden="true" />
-                    <p className={emptyStateTitleClass}>
-                      {view.kind === 'all' ? '안 읽은 메일이 없어요.' : `${view.title} 메일 중 안 읽은 메일이 없어요.`}
-                    </p>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      data-testid="mail-view-empty-show-all"
-                      onClick={() => {
-                        const next = new URLSearchParams(params)
-                        next.delete('unread')
-                        setParams(next)
-                      }}
-                    >
-                      모든 메일 보기
-                    </Button>
-                  </div>
+                  <EmptyState
+                    testId="mail-view-empty"
+                    className="gap-2 py-16"
+                    icon={Check}
+                    tone="positive"
+                    title={view.kind === 'all' ? '안 읽은 메일이 없어요.' : `${view.title} 메일 중 안 읽은 메일이 없어요.`}
+                    action={
+                      <Button
+                        variant="link"
+                        size="sm"
+                        data-testid="mail-view-empty-show-all"
+                        onClick={() => {
+                          const next = new URLSearchParams(params)
+                          next.delete('unread')
+                          setParams(next)
+                        }}
+                      >
+                        모든 메일 보기
+                      </Button>
+                    }
+                  />
                 ) : flaggedView && !search ? (
                   // WP-1742 별표 모아 보기 0건 — 별표를 다는 방법을 함께 알린다.
-                  <div data-testid="mail-flagged-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-                    <Star className={emptyStateIconClass} aria-hidden="true" />
-                    <p className={emptyStateTitleClass}>별표한 메일 없음</p>
-                    <p className={emptyStateDescriptionClass}>메일 목록의 별을 누르면 여기에 모여요.</p>
-                  </div>
+                  <EmptyState
+                    testId="mail-flagged-empty"
+                    className="gap-2 py-16"
+                    icon={Star}
+                    title="별표한 메일 없음"
+                    description="메일 목록의 별을 누르면 여기에 모여요."
+                  />
                 ) : folderView && !search ? (
                   // WP-961 서버 메일함 0건 — 처음 가져오는 중이면 그렇게, 아니면 중립 문구(「동기화를 눌러보세요」는 받은편지함 안내).
                   <div data-testid="mail-box-empty" className="p-6 text-sm text-muted-foreground">
@@ -2258,10 +2267,12 @@ function MailInbox() {
                   </div>
                 ) : view.kind === 'category' ? (
                   // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
-                  <div data-testid="mail-category-empty" className="flex flex-col items-center gap-2 py-16 text-center">
-                    <Inbox className={emptyStateIconClass} aria-hidden="true" />
-                    <p className={emptyStateTitleClass}>이 분류에 해당하는 메일이 없어요.</p>
-                  </div>
+                  <EmptyState
+                    testId="mail-category-empty"
+                    className="gap-2 py-16"
+                    icon={Inbox}
+                    title="이 분류에 해당하는 메일이 없어요."
+                  />
                 ) : (
                   <>
                     <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
