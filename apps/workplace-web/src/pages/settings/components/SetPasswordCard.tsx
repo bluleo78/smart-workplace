@@ -23,8 +23,16 @@ const schema = z
 
 type FormData = z.infer<typeof schema>
 
+type SetPasswordCardProps = {
+  /**
+   * 쓰기가 성공한 뒤 부모가 이어 하는 일(세션에 hasPassword 반영·내 정보 갱신) — **throw 하지 않는다**.
+   * 갱신 실패까지 설정 실패로 되돌리지 않기로 한 계약이라(WP-1912) 실패는 부모가 경고 토스트로만 알린다.
+   */
+  onDone: () => Promise<void>
+}
+
 // 설정 성공 시 onDone(부모 핸들러)을 불러 — 성공을 기억하고 기존 "비밀번호 변경" 섹션으로 전환한다(WP-1912).
-export function SetPasswordCard({ onDone }: { onDone: () => Promise<void> }) {
+export function SetPasswordCard({ onDone }: SetPasswordCardProps) {
   const form = useForm<FormData>({ resolver: zodResolver(schema), mode: 'onChange', defaultValues: { newPassword: '', confirmPassword: '' } })
 
   const onSubmit = async (data: FormData) => {
@@ -37,7 +45,15 @@ export function SetPasswordCard({ onDone }: { onDone: () => Promise<void> }) {
       return
     }
     // 쓰기가 성공하면 여기서 끝난다 — 갱신(onDone) 실패는 설정 실패로 되돌리지 않는다(WP-1912).
-    await onDone()
+    // 계약(throw 하지 않음)을 카드도 함께 지켜, 혹시 넘겨받은 핸들러가 throw 해도 설정 성공 안내가 뒤에
+    // 실패 안내로 덮이거나 처리 안 된 rejection 으로 남지 않게 한다.
+    try {
+      await onDone()
+    } catch (error) {
+      // 부모가 실패를 경고 토스트로 알리므로 여기서는 안내를 다시 띄우지 않는다 — 대신 원인만 콘솔에 남긴다
+      // (`useAfterAvatarChange` 와 같은 방식 — 조용히 삼키면 다음에 디자인 단서가 없다).
+      console.warn('비밀번호 설정 성공을 이어 반영하지 못했습니다', error)
+    }
   }
 
   return (

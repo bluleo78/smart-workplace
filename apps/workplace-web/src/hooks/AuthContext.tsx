@@ -298,13 +298,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetchUserWithRoles();
   }, [fetchUserWithRoles]);
 
+  // 쓰기 성공 결과를 세션 상태에 바로 반영한다(WP-1912) — 갱신(refreshUser)이 뒤에 실패해도 이름·hasPassword 가
+  // 옛 값으로 되돌아 프로필·비밀번호 설정 카드가 다시 나오지 않게. 로그인 전(user 없음)에는 아무 일도 하지 않는다.
+  const patchUser = useCallback((patch: Partial<UserResponse>) => {
+    setUser((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
   const ctxValue = useMemo(
     () => ({
       user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions, authNotice, connectionError, retryAuth,
-      login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser,
+      login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser, patchUser,
     }),
     [user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions, authNotice, connectionError, retryAuth,
-      login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser]
+      login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser, patchUser]
   );
 
   return (

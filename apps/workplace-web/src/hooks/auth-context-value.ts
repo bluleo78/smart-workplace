@@ -38,6 +38,12 @@ export interface AuthContextValue {
   hasRole: (roleName: string) => boolean;
   isAdmin: boolean;
   refreshUser: () => Promise<void>;
+  /**
+   * 쓰기 성공을 서버 재요청 없이 세션 상태에 바로 반영한다(WP-1912) — 갱신(refreshUser)이 실패한 뒤에도
+   * 아는 결과(이름·이메일·hasPassword 등)가 옛 값으로 되돌아 이 화면·레일 메뉴가 옛 값을 보여 주지 않게 한다.
+   * 알지 못하는 필드는 넘기지 않는다 — 새 값만 고쳐 나머지는 그대로 둔다.
+   */
+  patchUser: (patch: Partial<UserResponse>) => void;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
