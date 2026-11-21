@@ -405,7 +405,16 @@ class DriveOverviewServiceTest {
         .when(agent)
         .stream(any(), any(), any());
 
-    service.startOverview(CALLER, "매출", null);
+    // 요청 스레드에 SecurityContext 를 둔다 — 주체는 여기서 잡아 스레드 풀로 넘어가야 한다(WP-1829 리뷰 반영).
+    org.springframework.security.core.context.SecurityContextHolder.getContext()
+        .setAuthentication(
+            new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                CALLER, null, java.util.List.of()));
+    try {
+      service.startOverview(CALLER, "매출", null);
+    } finally {
+      org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
 
     assertThat(seen.get().actorType()).isEqualTo("USER");
     assertThat(seen.get().actorId()).isEqualTo(CALLER);

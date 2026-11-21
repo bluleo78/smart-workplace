@@ -1,6 +1,9 @@
 package com.workplace.airun.context;
 
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import java.time.OffsetDateTime;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
  * AI 처리 한 건의 맥락 — 무엇(target)을 누가(actor) 언제 일어난 일(sourceAt)로 처리하는지 (WP-1829).
@@ -25,6 +28,28 @@ public record AiRunContext(
   /** 요청자(사용자 id)가 직접 한 일 — 대상 없이 주체만 USER 로 정한다. */
   public static AiRunContext user(long id) {
     return new AiRunContext(null, null, null, "USER", id, null);
+  }
+
+  /**
+   * 지금 이 스레드의 SecurityContext 로 주체만 정한 맥락 — **요청 스레드**에서 만들어 스레드 풀로 넘긴다(WP-1829 리뷰 반영).
+   *
+   * <p>왜: 펌프·SSE 처럼 스레드 풀로 도는 작업에는 SecurityContext 가 없어 주체가 AUTO 로 떨어진다. 이전에는 호출부가 {@link
+   * #user(long)} 로 USER 를 고정해, AI 키(ROLE_AGENT) 로 시작한 처리까지 사람의 일로 기록됐다. 요청 스레드에서 주체를 잡아 범위로 넘기면 AI
+   * 키 호출은 AGENT, 사람 호출은 USER 로 남는다.
+   *
+   * <p>principal 이 사용자 id(Long)면 ROLE_AGENT 권한이 있으면 AGENT, 없으면 USER. 인증이 없거나 principal 이 사용자 id 가
+   * 아니면 AUTO.
+   */
+  public static AiRunContext actorFromSecurity() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null || !(auth.getPrincipal() instanceof Long userId)) {
+      return auto();
+    }
+    // AI 키·PAT 인증은 principal 이 사용자 id 지만 ROLE_AGENT 권한이 붙는다 — 사람이 아니라 AGENT 가 한 일로 남긴다.
+    boolean agent =
+        auth.getAuthorities().stream()
+            .anyMatch(a -> ApiKeyAuthenticationFilter.ROLE_AGENT.equals(a.getAuthority()));
+    return new AiRunContext(null, null, null, agent ? "AGENT" : "USER", userId, null);
   }
 
   /** 백그라운드(AUTO) 주체만 정한 맥락 — 대상·원천 시각 없음. */

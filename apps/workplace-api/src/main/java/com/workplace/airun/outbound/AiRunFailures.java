@@ -61,14 +61,15 @@ public final class AiRunFailures {
   }
 
   /**
-   * 5xx 응답을 FAILED 로 기록한다. 사유(error_reason)는 비우고 상세에 {@code http_<코드>} 만 남긴다.
+   * 5xx 응답을 FAILED 로 기록한다. 사유(error_reason)에는 {@code http_<코드>} 표지를 남기고 상세(error_detail)는 비운다.
    *
-   * <p>왜: error_reason 은 먼저 들어온 값을 유지(keep-first)하지만 NULL 이면 나중 값으로 채워진다. 여기서 사유를 채우면 같은 runId 로
-   * 뒤늦게 온 ai-agent 의 더 구체적인 사유(runner_error 등)가 묻히므로, 사유는 ai-agent 에 양보하고 ai-agent 가 끝내 보고하지 않을 때를
-   * 위해 상세에 HTTP 상태 흔적만 남긴다(WP-1829).
+   * <p>왜: error_* 두 칸은 모두 먼저 들어온 값이 이긴다(keep-first). 옛 구현은 사유를 비우고 상세에 {@code http_<코드>} 를 먼저 채웠는데,
+   * 그 결과 ① ai-agent 가 뒤늦게 보고한 실제 오류 상세가 영구히 묻히고 ② ai-agent 가 runner 를 시작하기 전에 난 5xx(503·프록시 502)는
+   * 사유 없는 FAILED 로 영구히 남았다(WP-1827 규칙 위반). 그래서 표지는 사유에 두어 사유 없는 FAILED 를 막고, 상세는 ai-agent 의 늦은 보고가
+   * 채울 수 있게 비워 둔다(WP-1829 리뷰 반영).
    */
   private static void recordServerError(AiRunRecorder r, AiRunHeader.Call call, int status) {
-    recordFailure(r, call, null, "http_" + status);
+    recordFailure(r, call, "http_" + status, null);
   }
 
   /** 응답이 5xx 면 {@link #recordServerError} 로 기록한다. 4xx·200 은 기록하지 않는다. */

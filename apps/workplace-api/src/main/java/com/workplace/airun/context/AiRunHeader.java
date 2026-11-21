@@ -1,7 +1,6 @@
 package com.workplace.airun.context;
 
 import com.workplace.global.json.JsonMappers;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.tenant.TenantContext;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -9,8 +8,6 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
  * API → ai-agent 호출에 싣는 X-AI-Run 헤더 값을 만든다 (WP-1829).
@@ -41,26 +38,17 @@ public final class AiRunHeader {
   }
 
   /**
-   * 경로에 대한 호출 정보를 새로 만든다. 주체는 범위가 정했으면 그것, 아니면 SecurityContext principal(Long) → USER(ROLE_AGENT
-   * 권한이면 AGENT), 그 밖엔 AUTO.
+   * 경로에 대한 호출 정보를 새로 만든다. 주체는 범위가 정했으면 그것, 아니면 SecurityContext ({@link
+   * AiRunContext#actorFromSecurity()} — ROLE_AGENT 권한이면 AGENT, 그 밖의 사용자 id 는 USER, 없으면 AUTO).
    */
   public static Call begin(String path) {
     AiRunContext ctx = AiRunScope.current();
     String actorType = ctx.actorType();
     Long actorId = ctx.actorId();
     if (actorType == null) {
-      Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-      if (auth != null && auth.getPrincipal() instanceof Long userId) {
-        // AI 키·PAT 인증은 principal 이 사용자 id 지만 ROLE_AGENT 권한이 붙는다 — 사람이 아니라 AGENT 가 한 일로 남긴다.
-        boolean agent =
-            auth.getAuthorities().stream()
-                .anyMatch(a -> ApiKeyAuthenticationFilter.ROLE_AGENT.equals(a.getAuthority()));
-        actorType = agent ? "AGENT" : "USER";
-        actorId = userId;
-      } else {
-        actorType = "AUTO";
-        actorId = null;
-      }
+      AiRunContext actor = AiRunContext.actorFromSecurity();
+      actorType = actor.actorType();
+      actorId = actor.actorId();
     }
     return new Call(
         UUID.randomUUID(),

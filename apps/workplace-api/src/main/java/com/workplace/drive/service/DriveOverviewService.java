@@ -130,15 +130,16 @@ public class DriveOverviewService {
             shared.moreCount());
 
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
+    // 주체는 요청 스레드에서 잡아 넘긴다 — executor 스레드에는 SecurityContext 가 없어 AUTO 로 떨어지기 때문이다(WP-1829 리뷰 반영).
+    AiRunContext actor = AiRunContext.actorFromSecurity();
     return registry.start(
         callerId,
         executor,
         TIMEOUT,
         correlationId ->
             () ->
-                // executor 스레드는 SecurityContext 를 잃어 AUTO 로 기록되므로 요청자를 USER 로 명시한다 (WP-1829).
                 AiRunScope.run(
-                    AiRunContext.user(callerId),
+                    actor,
                     () -> {
                       try {
                         agent.stream(
@@ -154,10 +155,9 @@ public class DriveOverviewService {
                                     "drive.overview.done",
                                     Map.of("correlationId", correlationId)));
                       } catch (Exception e) {
-                        // 취소(Future.cancel(true))가 펌프 스레드를 인터럽트할 때, 블로킹 중이던 JDK HttpClient 의
-                        // ofLines() read 는 InterruptedException 이 감싸인 예외를 던진다(WikiAiService 동일 패턴)
-                        // —
-                        // 원인 체인을 순회해 취소와 실제 오류를 구분한다.
+                        // 취소(Future.cancel(true))가 펌프 스레드를 인터럽트할 때, 블로킹 중이던 JDK HttpClient
+                        // 의 ofLines() read 는 InterruptedException 이 감싸인 예외를 던진다(WikiAiService 와 같은
+                        // 패턴) — 원인 체인을 순회해 취소와 실제 오류를 구분한다.
                         boolean cancelled = isInterruption(e);
                         Map<String, Object> payload =
                             cancelled

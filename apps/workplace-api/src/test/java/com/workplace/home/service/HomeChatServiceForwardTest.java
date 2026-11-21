@@ -620,10 +620,19 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
         .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    serviceCapturing(new ArrayList<>())
-        .startChat(uid, null, "안녕", null, List.of(), null, null, null);
+    // 요청 스레드에 SecurityContext 를 둔다 — 주체는 여기서 잡아 스레드 풀로 넘어가야 한다(WP-1829 리뷰 반영).
+    org.springframework.security.core.context.SecurityContextHolder.getContext()
+        .setAuthentication(
+            new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                uid, null, java.util.List.of()));
+    try {
+      serviceCapturing(new ArrayList<>())
+          .startChat(uid, null, "안녕", null, List.of(), null, null, null);
+      assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    } finally {
+      org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
 
-    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
     assertThat(seen.get().actorType()).isEqualTo("USER");
     assertThat(seen.get().actorId()).isEqualTo(uid);
   }

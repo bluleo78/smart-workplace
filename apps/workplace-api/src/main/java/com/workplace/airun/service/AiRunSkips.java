@@ -1,6 +1,7 @@
 package com.workplace.airun.service;
 
 import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
 import com.workplace.airun.dto.AiRunRecord;
 import com.workplace.global.tenant.TenantContext;
 import java.time.OffsetDateTime;
@@ -18,11 +19,11 @@ public final class AiRunSkips {
 
   private static final Logger log = LoggerFactory.getLogger(AiRunSkips.class);
 
-  /** 처리 종류 — 프로젝트 리포트(ai-agent AiRunKinds 의 /issue/project-report 와 같은 값). */
-  public static final String PROJECT_REPORT = "PROJECT_REPORT";
+  /** 처리 종류 — 프로젝트 리포트. 값은 {@link AiRunKinds} 표에서 받는다(표와 코드가 갈라지지 않게). */
+  public static final String PROJECT_REPORT = AiRunKinds.PROJECT_REPORT;
 
-  /** 처리 종류 — 개인 보고(/issue/personal-report 와 같은 값). */
-  public static final String PERSONAL_REPORT = "PERSONAL_REPORT";
+  /** 처리 종류 — 개인 보고. 값은 {@link AiRunKinds} 표에서 받는다. */
+  public static final String PERSONAL_REPORT = AiRunKinds.PERSONAL_REPORT;
 
   /** 건너뜀 사유 — 공통 비서가 없다. */
   public static final String NO_ASSISTANT = "no_assistant";

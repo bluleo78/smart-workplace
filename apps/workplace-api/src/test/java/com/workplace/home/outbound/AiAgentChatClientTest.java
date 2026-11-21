@@ -427,8 +427,8 @@ class AiAgentChatClientTest {
     org.mockito.ArgumentCaptor<com.workplace.airun.dto.AiRunRecord> cap =
         org.mockito.ArgumentCaptor.forClass(com.workplace.airun.dto.AiRunRecord.class);
     org.mockito.Mockito.verify(recorder, org.mockito.Mockito.times(1)).upsert(cap.capture());
-    assertThat(cap.getValue().errorReason()).isNull();
-    assertThat(cap.getValue().errorDetail()).isEqualTo("http_502");
+    assertThat(cap.getValue().errorReason()).isEqualTo("http_502");
+    assertThat(cap.getValue().errorDetail()).isNull();
     assertThat(cap.getValue().kind()).isEqualTo("AI_CHAT");
     assertThat(cap.getValue().status()).isEqualTo("FAILED");
   }

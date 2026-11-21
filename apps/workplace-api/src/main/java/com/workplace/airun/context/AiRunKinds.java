@@ -14,6 +14,12 @@ import java.util.Optional;
  */
 public final class AiRunKinds {
 
+  /** 처리 종류 — 프로젝트 리포트(경로 /issue/project-report 와 같은 값). 건너뜀 기록(AiRunSkips)도 이 표를 쓴다. */
+  public static final String PROJECT_REPORT = "PROJECT_REPORT";
+
+  /** 처리 종류 — 개인 보고(경로 /issue/personal-report 와 같은 값). */
+  public static final String PERSONAL_REPORT = "PERSONAL_REPORT";
+
   private static final Map<String, String> ROUTE_KINDS =
       Map.ofEntries(
           entry("/ai/chat", "AI_CHAT"),
@@ -39,8 +45,8 @@ public final class AiRunKinds {
           entry("/issue/classify", "ISSUE_CLASSIFY"),
           entry("/issue/work-profile", "WORK_PROFILE"),
           entry("/issue/project-status", "PROJECT_STATUS"),
-          entry("/issue/project-report", "PROJECT_REPORT"),
-          entry("/issue/personal-report", "PERSONAL_REPORT"),
+          entry("/issue/project-report", PROJECT_REPORT),
+          entry("/issue/personal-report", PERSONAL_REPORT),
           entry("/drive/summarize", "DRIVE_SUMMARIZE"),
           entry("/drive/security-check", "DRIVE_SECURITY_CHECK"),
           entry("/drive/overview", "DRIVE_OVERVIEW"));

@@ -315,14 +315,16 @@ public class HomeChatService {
     HomeChatTurn turn =
         new HomeChatTurn(callerId, sid, reservation, sessionService, sseRegistry, objectMapper);
 
+    // 주체는 요청 스레드에서 잡아 넘긴다 — executor 스레드에는 SecurityContext 가 없어 AUTO 로 떨어지기 때문이다(WP-1829 리뷰 반영).
+    AiRunContext actor = AiRunContext.actorFromSecurity();
+
     registry.launch(
         reservation,
         executor,
         TIMEOUT,
-        // executor 스레드는 SecurityContext 를 잃어 AUTO 로 기록되므로 요청자를 USER 로 명시한다 (WP-1829).
         () ->
             AiRunScope.run(
-                AiRunContext.user(callerId),
+                actor,
                 () ->
                     pump(
                         turn,

@@ -114,8 +114,8 @@ class AiRunClientInterceptorTest {
 
     AiRunRecord r = captured();
     assertThat(r.status()).isEqualTo("FAILED");
-    assertThat(r.errorReason()).isNull();
-    assertThat(r.errorDetail()).isEqualTo("http_503");
+    assertThat(r.errorReason()).isEqualTo("http_503");
+    assertThat(r.errorDetail()).isNull();
     assertThat(r.kind()).isEqualTo("MAIL_CLASSIFY_BATCH");
     assertThat(r.runId().toString()).isEqualTo(decode(seenHeader.get()).get("runId"));
   }
@@ -218,6 +218,8 @@ class AiRunClientInterceptorTest {
         .isInstanceOf(HttpServerErrorException.ServiceUnavailable.class);
 
     assertThat(decode(seenHeader.get())).containsEntry("kind", "MAIL_CLASSIFY_BATCH");
-    assertThat(captured().errorDetail()).isEqualTo("http_503");
+    AiRunRecord buffered = captured();
+    assertThat(buffered.errorReason()).isEqualTo("http_503");
+    assertThat(buffered.errorDetail()).isNull();
   }
 }

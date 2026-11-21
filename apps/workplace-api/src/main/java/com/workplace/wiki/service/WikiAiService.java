@@ -102,15 +102,16 @@ public class WikiAiService {
     AssistantSpec spec = assistantResolver.resolve(callerId);
 
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
+    // 주체는 요청 스레드에서 잡아 넘긴다 — executor 스레드에는 SecurityContext 가 없어 AUTO 로 떨어지기 때문이다(WP-1829 리뷰 반영).
+    AiRunContext actor = AiRunContext.actorFromSecurity();
     return registry.start(
         callerId,
         executor,
         TIMEOUT,
         correlationId ->
             () ->
-                // executor 스레드는 SecurityContext 를 잃어 AUTO 로 기록되므로 요청자를 USER 로 명시한다 (WP-1829).
                 AiRunScope.run(
-                    AiRunContext.user(callerId),
+                    actor,
                     () -> {
                       // WP-381: 공통 + 노트 메모리(읽기 전용, 실패해도 빈 목록 — 작성은 그대로). 트랜잭션이 없는 펌프 스레드(권한 확인 뒤)에서
                       // 읽는다 — 이유는 AiMemoryReader#readForEntry.
@@ -134,9 +135,8 @@ public class WikiAiService {
                                   : page.body(),
                               req.selection(),
                               req.prompt(),
-                              // WP-1302: 고른 요소가 없으면 필드를 뺀다(빈 목록도 null — zod optional 은 null 을 거절, 빈
-                              // 배열은 뜻이
-                              // 없다).
+                              // WP-1302: 고른 요소가 없으면 필드를 뺀다(빈 목록도 null — zod optional 은 null 을
+                              // 거절하고, 빈 배열은 뜻이 없다).
                               req.targets() == null || req.targets().isEmpty()
                                   ? null
                                   : req.targets(),

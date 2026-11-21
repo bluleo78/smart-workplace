@@ -478,9 +478,12 @@ class AiRunRepositoryTest extends IntegrationTestBase {
     assertThat(r.getErrorReason()).isEqualTo("rate_limit");
   }
 
-  /** API 의 5xx 기록(사유 없음·상세 http_5xx)이 먼저 들어와도 ai-agent 의 구체적 사유(runner_error)가 사유로 남는다(WP-1829). */
+  /**
+   * 5xx 표지가 사유(http_503)로 먼저 들어와도, 그 뒤 온 ai-agent 의 실제 오류 상세(boom)는 남아야 한다 — 표지를 상세에 먼저 채우면
+   * keep-first 때문에 영구히 묻히기 때문이다(WP-1829 리뷰 반영).
+   */
   @Test
-  void upsert_apiServerError_thenAgentFailed_keepsAgentReason() {
+  void upsert_apiServerError_thenAgentFailed_keepsAgentDetail() {
     UUID id = UUID.randomUUID();
     repo.upsert(
         new AiRunRecord(
@@ -502,8 +505,8 @@ class AiRunRepositoryTest extends IntegrationTestBase {
             null,
             null,
             "FAILED",
-            null,
             "http_503",
+            null,
             null));
     repo.upsert(
         new AiRunRecord(
@@ -531,12 +534,16 @@ class AiRunRepositoryTest extends IntegrationTestBase {
     assertThat(count(id)).isEqualTo(1);
     var r = row(id);
     assertThat(r.getStatus()).isEqualTo("FAILED");
-    assertThat(r.getErrorReason()).isEqualTo("runner_error");
+    assertThat(r.getErrorDetail()).isEqualTo("boom");
+    assertThat(r.getErrorReason()).isEqualTo("http_503");
   }
 
-  /** ai-agent 가 끝내 보고하지 않으면 FAILED + 상세 http_5xx 흔적이 남는다. */
+  /**
+   * ai-agent 가 끝내 보고하지 않으면(503·프록시 502 로 runner 를 시작 못 함) 사유 없는 FAILED 가 남지 않아야 한다 — 표지 사유 http_503
+   * 이 그대로 남는다(WP-1829 리뷰 반영).
+   */
   @Test
-  void upsert_apiServerErrorOnly_keepsHttpTraceInDetail() {
+  void upsert_apiServerErrorOnly_keepsMarkerReason() {
     UUID id = UUID.randomUUID();
     repo.upsert(
         new AiRunRecord(
@@ -558,13 +565,13 @@ class AiRunRepositoryTest extends IntegrationTestBase {
             null,
             null,
             "FAILED",
-            null,
             "http_503",
+            null,
             null));
     var r = row(id);
     assertThat(r.getStatus()).isEqualTo("FAILED");
-    assertThat(r.getErrorReason()).isNull();
-    assertThat(r.getErrorDetail()).isEqualTo("http_503");
+    assertThat(r.getErrorReason()).isEqualTo("http_503");
+    assertThat(r.getErrorDetail()).isNull();
   }
 
   /** NUL 문자는 Postgres 가 거절하므로 저장 전에 제거한다. */
