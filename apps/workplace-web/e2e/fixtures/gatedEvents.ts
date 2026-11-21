@@ -44,12 +44,15 @@ export async function pushHeldEvents(page: Page, body: string): Promise<void> {
  * 열린 SSE 스트림을 서버가 끊은 것처럼 정상 종료하고, 클라이언트가 /api/v1/events 로 다시 붙는 요청을 기다린다.
  * 왜: 재연결 뒤 같은 프레임을 다시 받아도 중복 반영되지 않는지 보려면 '끊김→재연결'을 실제로 일으켜야 한다.
  * 종료 후 재연결 지연은 1000ms + random(<1000ms)이다. 기본은 실시간으로 기다린다(최대 RECONNECT_WAIT_MS).
- * page.clock 이 설치된 페이지는 앱 타이머가 가짜 시계라 호출 측이 advance(예: clock.runFor(500))로 백오프를 넘긴다 —
+ * page.clock 이 설치된 페이지는 앱 타이머가 가짜 시계라 호출 측이 advance(ms)(예: ms => clock.runFor(ms))로 백오프를 넘긴다 —
  * advance 는 재연결 요청이 관찰될 때까지 반복 호출되므로 한 번에 백오프 전체를 넘길 필요가 없다.
  * 재연결 응답은 래퍼가 새 열린 스트림으로 바꿔치기하므로, 이어서 pushHeldEvents(Until)로 프레임을 밀어 넣을 수 있다.
  */
 export const RECONNECT_WAIT_MS = 8000;
-export async function reconnectHeldEvents(page: Page, opts: { advance?: () => Promise<void> } = {}): Promise<void> {
+/** 앱 재연결 백오프 상한(1000ms + random(<1000ms))과, 가짜 시계를 한 번에 넘기는 걸음(ms). */
+export const RECONNECT_BACKOFF_MAX_MS = 2000;
+export const RECONNECT_ADVANCE_STEP_MS = 500;
+export async function reconnectHeldEvents(page: Page, opts: { advance?: (ms: number) => Promise<void> } = {}): Promise<void> {
   await waitForHeldStream(page);
   // 재연결 요청 관찰을 종료보다 먼저 걸어 둔다 — 종료 직후의 빠른 재연결을 놓치지 않게.
   let reconnected = false;
@@ -72,9 +75,14 @@ export async function reconnectHeldEvents(page: Page, opts: { advance?: () => Pr
     });
     if (opts.advance) {
       // 앱이 재연결 타이머를 거는 시점은 스트림 종료 뒤 비동기라, 한 번만 넘기면 타이머가 걸리기 전에 시계가 끝날 수 있다.
-      // 재연결 요청이 관찰될 때까지 시계를 조금씩 반복해 넘긴다(백오프 최대 2s 이므로 모자라지 않게 넘긴다).
+      // 그래서 매 시도마다 먼저 재연결 요청을 확인하고, 아직이면 시계를 조금씩 넘긴다.
+      // 넘긴 가짜 시간은 백오프 최대치(2s)까지만 — 그 뒤에는 시계를 더 넘기지 않고 요청만 기다려(앱 쪽 다른 타이머를 건드리지 않게) 검증을 흐리지 않는다.
+      let advanced = 0;
       await expect(async () => {
-        await opts.advance!();
+        if (!reconnected && advanced < RECONNECT_BACKOFF_MAX_MS) {
+          advanced += RECONNECT_ADVANCE_STEP_MS;
+          await opts.advance!(RECONNECT_ADVANCE_STEP_MS);
+        }
         expect(reconnected).toBe(true);
       }).toPass({ timeout: RECONNECT_WAIT_MS });
     } else {
