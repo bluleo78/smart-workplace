@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
+import { bodySectionTitleClass } from '@/components/layout/sidebar-link';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,7 +94,7 @@ export function ConnectedAppsSection({ scrollReady }: ConnectedAppsSectionProps)
       data-testid="connected-apps"
       className="space-y-3"
     >
-      <h2 id="connected-apps-title" className="text-base leading-6 font-semibold">
+      <h2 id="connected-apps-title" className={bodySectionTitleClass}>
         연결된 앱
       </h2>
       <ConnectedAppsTable rows={connections.data ?? []} showError={showError} />

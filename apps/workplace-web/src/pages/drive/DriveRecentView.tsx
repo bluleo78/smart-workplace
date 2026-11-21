@@ -11,6 +11,7 @@ import { driveApi } from '@/api/drive'
 import { ActionMenuItems } from '@/components/ActionMenuItems'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
 import { Page, pageGutterClass } from '@/components/layout/Page'
+import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
@@ -158,7 +159,7 @@ export function DriveRecentView() {
       // 설명 문장 없이 아이콘과 제목만 둔다(ChatEmptyState 는 설명이 필수라 쓰지 않는다).
       <div data-testid="drive-recent-empty" className="flex flex-col items-center gap-2 px-4 py-12 text-center">
         <Clock aria-hidden className="h-10 w-10 text-muted-foreground" />
-        <div className="text-base font-semibold">최근 파일 없음</div>
+        <div className={bodySectionTitleClass}>최근 파일 없음</div>
       </div>
     )
   } else {

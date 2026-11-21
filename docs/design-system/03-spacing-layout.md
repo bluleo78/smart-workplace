@@ -308,7 +308,7 @@ export function IssueModuleLayout() {
 설정·관리 폼 화면은 `SettingsSection`(`src/components/layout/SettingsSection.tsx`)으로 섹션을 쌓는다.
 
 - 왼쪽 240px 제목(h2)·설명 / 오른쪽 입력. 섹션 사이 1px 구분선, **Card 를 쓰지 않는다**.
-- 섹션 제목(h2)은 heading-group 위계 `text-base leading-6 font-semibold`(16/24px, [02-typography §2.1](02-typography.md)) — 필드 라벨(`text-sm font-medium`)과 한 단계 구분한다.
+- 섹션 제목(h2)은 `heading-body-section` 위계 `text-sm leading-5 font-semibold`(14/20px, [02-typography §2.1](02-typography.md)) — 헤더 바 페이지 제목 h1(15px)보다 작게 둔다(WP-1881). 필드 라벨(`text-sm font-medium`)도 14px 이므로 굵기(600 vs 500)로 구분한다.
 - 본문 컨테이너 폭 768px 미만(AI 패널 연 노트북·모바일)이면 세로 스택 — 뷰포트가 아닌 `@container` 기준.
 - 필드는 한 줄 하나·라벨 위. 텍스트 입력 묶음은 `settingsFieldClass`(`max-w-md` 448px), 설명·URL·textarea 는 입력 열 전체 폭.
   - 예외: 목록 관리 섹션(라벨·이슈 유형·사용자 정의 필드)의 **인라인 추가 줄**(이름 + 색상/타입 + 추가)은 한 줄에 여러 필드를 둔다. 줄은 `items-end`, 각 필드는 라벨 위, 입력이 아닌 컨트롤(색상 견본 등)은 `min-h-9 items-center` 로 입력 높이(h-9)에 맞추고, 필드 열은 `flex flex-col gap-1`(또는 라벨 `block`)로 둬 inline 라벨·`SelectTrigger`(inline-flex)의 줄 상자 여백 없이 라벨 기준선을 맞춘다.

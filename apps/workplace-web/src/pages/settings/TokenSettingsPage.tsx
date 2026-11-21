@@ -10,6 +10,7 @@
 import { useState } from 'react';
 
 import { SettingsPage } from '@/components/layout/SettingsPage';
+import { bodySectionTitleClass } from '@/components/layout/sidebar-link';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -194,7 +195,7 @@ export default function TokenSettingsPage() {
           data-help="tokens.connect"
         >
           <div className="space-y-1">
-            <h2 id="token-connect-guide-title" className="text-base leading-6 font-semibold">
+            <h2 id="token-connect-guide-title" className={bodySectionTitleClass}>
               도구에 연결하기
             </h2>
             <p className="text-sm text-muted-foreground">

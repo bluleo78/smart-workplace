@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 
 import { ActionMenuItems } from '@/components/ActionMenuItems'
 import { Page, pageGutterClass } from '@/components/layout/Page'
+import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
@@ -54,7 +55,7 @@ export function WikiRecentView() {
     body = (
       <div data-testid="wiki-recent-empty" className="flex flex-col items-center gap-2 px-4 py-12 text-center">
         <Clock aria-hidden className="h-10 w-10 text-muted-foreground" />
-        <div className="text-base font-semibold">최근 노트 없음</div>
+        <div className={bodySectionTitleClass}>최근 노트 없음</div>
       </div>
     )
   } else {

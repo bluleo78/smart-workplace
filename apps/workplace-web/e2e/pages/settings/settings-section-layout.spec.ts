@@ -145,9 +145,9 @@ test.describe('설정 레이아웃 — 관리 상세', () => {
     for (const t of ['기본 정보', '활성 상태', '역할 할당']) await expectSideBySide(settingsSection(page, t))
     // 데스크톱은 제목 앞 ← 로 목록 복귀(모바일은 ‹ 가 대신해 숨김).
     await expect(page.getByRole('button', { name: '목록으로 돌아가기' })).toBeVisible()
-    // 섹션 제목은 heading-group 위계(16/24px semibold, 02-typography §2.1).
+    // 섹션 제목은 heading-body-section 위계(14/20px semibold, 02-typography §2.1) — 헤더 바 h1(15px)보다 작게(WP-1881).
     const h2 = settingsSection(page, '기본 정보').getByRole('heading', { level: 2 })
-    expect(await h2.evaluate((el) => [getComputedStyle(el).fontSize, getComputedStyle(el).lineHeight, getComputedStyle(el).fontWeight])).toEqual(['16px', '24px', '600'])
+    expect(await h2.evaluate((el) => [getComputedStyle(el).fontSize, getComputedStyle(el).lineHeight, getComputedStyle(el).fontWeight])).toEqual(['14px', '20px', '600'])
   })
 })
 
