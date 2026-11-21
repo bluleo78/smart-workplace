@@ -74,25 +74,33 @@ public class AgentStatusReportService {
     Row row = slotWriter.write(userId, slots.findAll(userId), before.startedAt(), now, key);
     // 칸이 도는 중인 보고 = 칸이 띄워졌다는 증거 — 남아 있던 진입점 차단 보고를 비운다(WP-1913 백스톱).
     // 진입점이 다시 차단되면 그때 다시 쌓인다. 비우려면 아래 두 조건을 **모두** 만족해야 한다.
-    // ① generation — 보고한 generation 이 차단의 generation 이상일 때만(차단 generation 이 null 인 옛 이미지는 지금
-    //    원하는 generation 으로 간주). generation 을 싣지 않은 보고(옛 플러그인)는 견주지 않고 그대로 믿는다.
-    // ② 지금 Pod — 이번 보고(칸에 방금 기록한 시각)가 지금 Pod 가 뜨기 30초 뒤 이후일 때만. 그보다 앞선 보고는 끝나는
+    // ① generation — 보고한 generation 이 차단의 generation 이상일 때만. 차단 generation 을 모르는(_null) 옛 이미지의
+    //    차단은 **지금 돌고 있는 Pod 의 generation(관찰 generation)** 과 견준다 — 원하는 generation 과 견주면 교체가
+    //    미뤄진 동안 지금 Pod 가 gen-1 로 보고해 칸이 영영 비워지지 않고 건강한 AI 가 FAILED 로 남는다(리뷰 반려 ②).
+    //    관찰 generation 도 모르면 견주지 않는다. generation 을 싣지 않은 보고(옛 플러그인)도 견주지 않고 그대로 믿는다.
+    // ② 지금 Pod — 보고에 실은 **Pod 시작 시각**이 지금 Pod 가 뜨기 30초 뒤 이후일 때만. 그보다 앞선 보고는 끝나는
     //    중인 옛 Pod 의 것이라 새 Pod 진입점이 다시 보고하기 전에 「오류」를 지우면 안 된다(WP-1253 칸 거르기와 같은 여유).
+    //    서버가 보고를 받은 시각으로는 이 판정을 못 한다 — 옛 Pod 의 늦은 보고도 새 Pod 가 뜬 뒤에 도착해 받은 시각이
+    //    늘 지금이기 때문이다(리뷰 반려 ①). 시작 시각을 모르는 보고는 그대로 믿는다.
     // 알림은 실제로 화면에 보이던 사유(currentPaneBlocked)를 비울 때만 보낸다 — 차단은 읽을 때
     // FAILED+사유로 합쳐져 VisibleRuntimeState 에 없으므로 아래 비교로는 잡히지 않는데,
     // 가려진 옛 사유를 비우는 동작은 화면이 그대로라 알림이 나가면 안 된다(리뷰 반려 ③).
     boolean paneStored = AgentRuntimeStatusResolver.blocked(before.paneBlockedMessage());
     boolean paneVisible =
         AgentRuntimeStatusResolver.blocked(AgentRuntimeStatusResolver.currentPaneBlocked(before));
-    long blockedGeneration =
-        before.paneBlockedGeneration() == null
-            ? before.generation()
-            : before.paneBlockedGeneration();
+    Long blockedGeneration =
+        before.paneBlockedGeneration() != null
+            ? before.paneBlockedGeneration()
+            : before.observedGeneration();
     boolean fromCurrentGeneration =
-        req.generation() == null || req.generation() >= blockedGeneration;
+        req.generation() == null
+            || blockedGeneration == null
+            || req.generation() >= blockedGeneration;
     boolean fromCurrentPod =
         before.startedAt() == null
-            || !now.isBefore(AgentRuntimeSlotRepository.podStartCutoff(before.startedAt()));
+            || req.podStartedAt() == null
+            || !req.podStartedAt()
+                .isBefore(AgentRuntimeSlotRepository.podStartCutoff(before.startedAt()));
     boolean mayClearPane = fromCurrentGeneration && fromCurrentPod;
     if (paneStored && mayClearPane) {
       settings.updatePaneBlocked(userId, null, null, null);

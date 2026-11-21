@@ -1499,6 +1499,14 @@ async function fakeStatusServer({ status = 200, body = '{"desired":"RUN"}' } = {
   return { url: `http://127.0.0.1:${server.address().port}/api/v1`, reqs, close: () => server.close() };
 }
 
+/** 상태 보고 본문 — Pod 시작 시각(/proc/1)은 실행 환경 값이라 형식만 확인하고 비교에서 뺀다(WP-1913 리뷰 반려 ①). */
+function statusBody(raw) {
+  const body = JSON.parse(raw);
+  assert.match(body.podStartedAt ?? '', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  delete body.podStartedAt;
+  return body;
+}
+
 test('gw-status: GENIA_AGENT_GENERATION 이 없으면(Works 가 띄운 AI 아님) 서버에 묻지 않고 RUN', async () => {
   run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
   const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });
@@ -1524,6 +1532,19 @@ test('gw-status: 서버가 HOLD(새 작업 받지 않음, WP-1514)를 주면 HOL
   }
 });
 
+test('gw-status: 보고에 Pod 시작 시각(/proc/1)을 싣는다 — 서버가 옛 Pod 늦은 보고를 가르는 데 쓴다 (WP-1913 리뷰 반려 ①)', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '{"desired":"RUN"}' });
+  try {
+    const r = await runAsync('gw-status', ['IDLE'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' });
+    assert.equal(r.status, 0);
+    const epoch = Number(spawnSync('stat', ['-c', '%Y', '/proc/1'], { encoding: 'utf8' }).stdout.trim());
+    assert.equal(Date.parse(JSON.parse(srv.reqs[0].body).podStartedAt), epoch * 1000);
+  } finally {
+    srv.close();
+  }
+});
+
 test('gw-status: GENIA_WORKS_PROJECT 가 있으면 대문자 slot 을 싣고, 형식이 아니면 빼고 보고한다 (WP-1409)', async () => {
   run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
   const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });
@@ -1531,17 +1552,17 @@ test('gw-status: GENIA_WORKS_PROJECT 가 있으면 대문자 slot 을 싣고, �
   try {
     const ok = await runAsync('gw-status', ['WORKING', 'WP-3'], { ...env, GENIA_WORKS_PROJECT: 'wp' });
     assert.equal(ok.stdout, 'DRAIN\n');
-    assert.deepEqual(JSON.parse(srv.reqs[0].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3', slot: 'WP' });
+    assert.deepEqual(statusBody(srv.reqs[0].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3', slot: 'WP' });
 
     // 형식이 아니면 slot 없이 보고하고 서버 응답을 그대로 낸다(RUN 대체 아님).
     const bad = await runAsync('gw-status', ['WORKING', 'WP-3'], { ...env, GENIA_WORKS_PROJECT: 'W P' });
     assert.equal(bad.stdout, 'DRAIN\n');
-    assert.deepEqual(JSON.parse(srv.reqs[1].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3' });
+    assert.deepEqual(statusBody(srv.reqs[1].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3' });
 
     // 32자를 넘으면 서버 @Pattern 이 400 을 내므로 slot 을 빼고 보고한다 — 33자는 빼고, 32자는 싣는다.
     const long = await runAsync('gw-status', ['WORKING', 'WP-3'], { ...env, GENIA_WORKS_PROJECT: 'a'.repeat(33) });
     assert.equal(long.stdout, 'DRAIN\n');
-    assert.deepEqual(JSON.parse(srv.reqs[2].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3' });
+    assert.deepEqual(statusBody(srv.reqs[2].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3' });
     const max = await runAsync('gw-status', ['WORKING', 'WP-3'], { ...env, GENIA_WORKS_PROJECT: 'a'.repeat(32) });
     assert.equal(max.stdout, 'DRAIN\n');
     assert.equal(JSON.parse(srv.reqs[3].body).slot, 'A'.repeat(32));
@@ -1564,12 +1585,12 @@ test('gw-status: generation 이 있으면 AI 키·워크스페이스 헤더로 P
     assert.equal(q.url, '/api/v1/agent-runtime/me/status');
     assert.equal(q.headers.authorization, 'Bearer ak_FAKE_DEV');
     assert.equal(q.headers['x-on-behalf-of-tenant'], '3');
-    assert.deepEqual(JSON.parse(q.body), { state: 'WORKING', generation: 7, issueKey: 'WD-12' });
+    assert.deepEqual(statusBody(q.body), { state: 'WORKING', generation: 7, issueKey: 'WD-12' });
 
     // 쉬는 중 — 빈 이슈 키는 빼고 다음 확인 시각을 싣는다. 워크스페이스가 없으면 헤더도 없다.
     const idle = await runAsync('gw-status', ['IDLE', '', '2026-11-01T12:00:00+09:00'], { ...env, GENIA_WORKS_TENANT: '' });
     assert.equal(idle.stdout, 'DRAIN\n');
-    assert.deepEqual(JSON.parse(srv.reqs[1].body), { state: 'IDLE', generation: 7, nextCheckAt: '2026-11-01T12:00:00+09:00' });
+    assert.deepEqual(statusBody(srv.reqs[1].body), { state: 'IDLE', generation: 7, nextCheckAt: '2026-11-01T12:00:00+09:00' });
     assert.equal(srv.reqs[1].headers['x-on-behalf-of-tenant'], undefined);
   } finally {
     srv.close();

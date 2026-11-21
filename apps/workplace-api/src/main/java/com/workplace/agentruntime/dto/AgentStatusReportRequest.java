@@ -15,6 +15,9 @@ import java.time.OffsetDateTime;
  * @param slot 보고한 칸(한 Pod 안의 work-loop 하나 — 프로젝트 키, WP-1409). 서버는 대문자로 바꿔 칸별로 저장하고 모든 칸을 합쳐 AI 상태를
  *     정한다. 없거나 빈 값이면 {@code ''} 칸(옛 플러그인·외부 구성 — 한 칸처럼 동작). 형식({@code [A-Za-z0-9_-]} 32자 이내)이 아니면
  *     400. 옛 클라이언트와 호환되도록 끝에 둔다.
+ * @param podStartedAt 보고한 Pod(컨테이너)가 뜬 시각 — 서버가 끝나는 중인 옛 Pod 의 늦은 보고를 지금 Pod 의 보고와 갈라 쓴다(WP-1913 리뷰
+ *     반려 ①). 서버가 보고를 받은 시각으로는 이 판정을 못 한다(옛 Pod 의 늦은 보고도 새 Pod 가 뜬 뒤에 도착해 받은 시각이 항상 지금이기 때문). 없으면(옛
+ *     플러그인·시각을 못 읽은 이미지) 견주지 않고 그대로 믿는다.
  */
 public record AgentStatusReportRequest(
     @NotNull AgentState state,
@@ -23,4 +26,5 @@ public record AgentStatusReportRequest(
     Long generation,
     // 이 형식(영문·숫자·_·- 32자 이내)은 클라이언트 plugins/genia-works/scripts/gw-status 의 칸 키 검사와 같아야 한다 — 바꾸면 함께
     // 바꾼다. gw-status 는 형식이 아니면 slot 을 빼고 보내 400 대신 '' 칸으로 RUN 을 받는다.
-    @Pattern(regexp = "^[A-Za-z0-9_-]{0,32}$") String slot) {}
+    @Pattern(regexp = "^[A-Za-z0-9_-]{0,32}$") String slot,
+    OffsetDateTime podStartedAt) {}
