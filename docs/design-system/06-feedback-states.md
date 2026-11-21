@@ -172,6 +172,8 @@ function EmptyState({ icon: Icon, title, description, action }: {
 
 **모바일 전체 화면 변형(WP-1939)**: 하단 탭바 화면의 전체 화면 빈 상태는 `MobileEmptyState` 가 쓰며, 아이콘 48px · 제목 17px semibold · 설명 14px 이다. 색은 데스크톱과 같은 muted 이고 흐린 색(`/40`·`/50`)은 쓰지 않는다. 클래스는 `empty-state` 의 `mobileEmptyStateIconClass`·`mobileEmptyStateTitleClass`·`mobileEmptyStateDescriptionClass` 세 상수가 원본이다.
 
+**긍정 빈 상태 색 예외(WP-1939)**: 빈 상태의 아이콘 색은 muted 가 원칙이고, 유일한 예외는 「비었다」가 아니라 「다 끝냈다」를 알리는 긍정 빈 상태다 — 이때만 아이콘을 primary 로 둔다(크기는 같은 40px). 해당하는 곳은 메일 회신필요·안 읽음 0건, 홈 위젯 「내 할 일」 다 끝냄, 알림 위젯 「다 따라잡았어요」다. 클래스는 `empty-state` 의 `emptyStatePositiveIconClass` 가 원본이고, 홈 위젯은 `WidgetEmptyState` 의 `tone="positive"` 로 쓴다. 단순히 데이터가 없는 빈 상태(검색 0건·폴더 비어 있음 등)에는 쓰지 않는다. muted 와 primary 클래스를 함께 붙이지 않는다 — 어느 쪽이 이길지는 class 순서가 아니라 생성된 CSS 순서로 정해진다.
+
 ---
 
 ## C. Error States (에러 상태)

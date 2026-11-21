@@ -247,13 +247,17 @@ test('알림 위젯 — 행 ✓ 는 그 알림을, 「모두 읽음」은 read-a
   await waitFor(() => expect(state.reads).toContain('all'))
 })
 
-test('알림 위젯 — 빈 상태는 제목·설명·「알림 설정」 CTA(/settings/notifications) 하나를 보인다 (WP-1853)', async () => {
+test('알림 위젯 — 빈 상태는 제목·설명·「알림 설정」 CTA(/settings/notifications) 하나와 primary 아이콘을 보인다 (WP-1853·1939)', async () => {
   renderHome(layout(['notifications']), { notifications: [notif({ id: 31, type: 'COMMENTED', read: true })] })
   const empty = await screen.findByTestId('dash-notif-empty')
   expect(empty).toHaveTextContent('다 따라잡았어요')
   expect(empty).toHaveTextContent('새로운 알림이 생기면 여기에 모여요')
   expect(within(empty).getAllByRole('link')).toHaveLength(1)
   expect(within(empty).getByRole('link', { name: /알림 설정/ })).toHaveAttribute('href', '/settings/notifications')
+  // 다 읽음은 긍정 빈 상태라 아이콘이 primary 다(06 §B 예외, WP-1939).
+  const icon = empty.querySelector('svg')
+  expect(icon).toHaveClass('h-10', 'w-10', 'text-primary')
+  expect(icon).not.toHaveClass('text-muted-foreground')
 })
 
 test('대화 위젯 — 빈 상태는 제목·설명·「새 대화」 CTA(/chat/new) 하나를 보인다 (WP-1853)', async () => {

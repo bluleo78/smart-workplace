@@ -11,6 +11,8 @@ import ChannelsWidget from '@/components/home/widgets/ChannelsWidget'
 import ContactsWidget from '@/components/home/widgets/ContactsWidget'
 import ContactWidget from '@/components/home/widgets/ContactWidget'
 import DriveWidget from '@/components/home/widgets/DriveWidget'
+import EventWidget from '@/components/home/widgets/EventWidget'
+import { emptyStateIconClass } from '@/components/layout/empty-state'
 import { renderScreen } from '@/test/renderScreen'
 import type { DriveItemList, DriveSpace } from '@/types/drive'
 
@@ -116,6 +118,15 @@ test('연락처 상세 위젯 — externalId 가 없으면 조회 없이 안내 
   // 핸들러를 주지 않는다 — 조회가 나가면 처리 안 된 요청으로 테스트가 실패한다.
   renderScreen(<ContactWidget params={{}} />)
   expect(await screen.findByTestId('contact-error')).toHaveTextContent('연락처 ID가 없습니다')
+})
+
+// 일정 상세의 ID 없음 안내도 06 §B 빈 상태 아이콘을 둔다(WP-1939).
+test('일정 상세 위젯 — eventId 가 없으면 조회 없이 규격 아이콘과 안내 메시지를 보인다', async () => {
+  // 핸들러를 주지 않는다 — 조회가 나가면 처리 안 된 요청으로 테스트가 실패한다.
+  renderScreen(<EventWidget params={{}} />)
+  const error = await screen.findByTestId('event-error')
+  expect(error).toHaveTextContent('일정 ID가 없습니다')
+  expect(error.querySelector('svg')).toHaveClass(...emptyStateIconClass.split(' '))
 })
 
 // ── 드라이브 위젯 ──────────────────────────────────────────────────────────

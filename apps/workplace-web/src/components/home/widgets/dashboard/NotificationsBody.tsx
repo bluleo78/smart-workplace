@@ -59,10 +59,12 @@ export default function NotificationsBody({
   const ack = (ids: number[]) => ids.forEach((id) => markRead.mutate(id))
 
   // 정직한 빈 상태: 미읽음이 전혀 없을 때만 축하형. 다음 행동은 알림 설정(WP-1853).
+  // 다 읽음 = 긍정 빈 상태라 아이콘을 primary 로 둔다(06 §B 예외).
   if (!hasUnread)
     return (
       <WidgetEmptyState
         icon={Bell}
+        tone="positive"
         title="다 따라잡았어요 🎉"
         description="새로운 알림이 생기면 여기에 모여요"
         cta={{ label: '알림 설정', to: '/settings/notifications' }}

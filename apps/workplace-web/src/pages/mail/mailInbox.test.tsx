@@ -641,10 +641,9 @@ test('회신필요 0건 → 긍정 빈 상태', async () => {
   renderMail('/mail/1?needsReply=true', { accounts: aiAccount })
   const empty = await screen.findByTestId('mail-needsreply-empty')
   expect(empty).toBeInTheDocument()
-  // WP-1939: 긍정 체크는 규격 크기(h-10)에 primary 색 — muted 가 primary 보다 뒤에 오면 muted 가 이기므로 뒤에 없어야 한다.
+  // WP-1939: 긍정 체크는 규격 크기(h-10)에 primary — muted 와 함께 붙이지 않는다(06 §B, 이기는 쪽은 class 순서가 아니라 CSS 순서).
   const icon = empty.querySelector('svg')!
   expect(icon).toHaveClass('h-10', 'text-primary')
-  expect(icon).toHaveClass('text-primary')
   expect(icon).not.toHaveClass('text-muted-foreground')
 })
 

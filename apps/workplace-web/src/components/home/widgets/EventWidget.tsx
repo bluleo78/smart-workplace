@@ -1,6 +1,6 @@
-import { MapPin } from 'lucide-react';
+import { CalendarDays, MapPin } from 'lucide-react';
 
-import { emptyStateDescriptionClass, emptyStateTitleClass } from '@/components/layout/empty-state';
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent';
 import { formatDateMonthDay, formatLocalClockRange24, formatLocalClockTime24, isNextMidnightEnd } from '@/lib/formatters';
@@ -41,6 +41,8 @@ export default function EventWidget({ params }: { params?: Record<string, unknow
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="event-error"
         >
+          {/* ID 없음 안내도 옆 위젯처럼 06 §B 빈 상태 아이콘을 둔다. */}
+          <CalendarDays className={emptyStateIconClass} aria-hidden="true" />
           <p className={emptyStateTitleClass}>일정 ID가 없습니다</p>
           <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
             일정 ID를 지정하여 다시 요청해 보세요.
