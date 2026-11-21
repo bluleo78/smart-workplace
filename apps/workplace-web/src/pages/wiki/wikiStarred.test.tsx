@@ -5,7 +5,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, onTestFinished, test } from 'vitest'
 
 import { controlIntersection } from '@/test/kits/layout'
 import { clickRetryAndExpectErrorKept, gate } from '@/test/loadErrorRetry'
@@ -62,7 +62,12 @@ const settle = (queryClient: QueryClient) =>
  * 「토글이 서버에 닿기 전까지 id 받기는 계속 500」 핸들러 세트 — 마운트 재시도가 결과를 가리지 않게 한다.
  * 닿은 뒤(PUT 응답 직전)엔 pageIds 를 준다. counts 로 id 받기·PUT 호출 수를 센다.
  */
-function idsFailUntilToggle({ putStatus = 204, putDelay = 0, pageIds = [1, 2] }: { putStatus?: number; putDelay?: number; pageIds?: number[] } = {}) {
+function idsFailUntilToggle({
+  putStatus = 204,
+  putDelay = 0,
+  putGate,
+  pageIds = [1, 2],
+}: { putStatus?: number; putDelay?: number; putGate?: Promise<void>; pageIds?: number[] } = {}) {
   const counts = { ids: 0, puts: 0 }
   let toggled = false
   const handlers = [
@@ -73,6 +78,8 @@ function idsFailUntilToggle({ putStatus = 204, putDelay = 0, pageIds = [1, 2] }:
     http.put('/api/v1/wiki/pages/:id/star', async () => {
       counts.puts += 1
       if (putDelay) await delay(putDelay)
+      // putGate 가 있으면 풀릴 때까지 PUT 을 붙든다 — 고정 지연과 달리 부하와 무관하게 「첫 PUT 이 끝나기 전」 구간을 보장한다.
+      if (putGate) await putGate
       toggled = true
       return putStatus === 204 ? new HttpResponse(null, { status: 204 }) : HttpResponse.json({ message: 'x' }, { status: putStatus })
     }),
@@ -177,14 +184,18 @@ describe('노트 즐겨찾기 화면', () => {
   // 별 토글 뒤 id 목록 다시 받기 — 낙관 갱신이 받는 중/실패한 캐시 위에 얹혀도 끝나면 서버 기준으로 맞춰야 한다(WP-1765 리뷰 후속).
   test('refetchesIdsAfterToggleWhileIdsLoading — id 목록을 받는 중 별을 눌러도 끝나면 다른 페이지 별이 채워진다', async () => {
     let idsCalls = 0
+    // 첫 id 응답을 게이트로 붙든다. 고정 지연(300ms)은 부하로 클릭이 늦으면 id 가 먼저 도착해
+    // 「받는 중」 전제가 깨지고 PUT 대신 DELETE 가 나간다(WP-1944).
+    const { promise: firstIds, release } = gate()
+    // 단언에 실패해도 붙든 요청이 남지 않게 테스트가 끝나면 푼다. 단언 전에 풀면 첫 응답만으로 별이 채워져 다시 받기를 확인하지 못한다.
+    onTestFinished(release)
     const { user } = renderScreen(<WikiStarredView />, {
       path: '/wiki/starred',
       handlers: [
         starredHandler([item(1), item(2)]),
         http.get('/api/v1/wiki/starred/ids', async () => {
           idsCalls += 1
-          // 첫 응답만 늦춰 받는 중에 누르게 한다.
-          if (idsCalls === 1) await delay(300)
+          if (idsCalls === 1) await firstIds
           return HttpResponse.json({ pageIds: [1, 2] })
         }),
         http.put('/api/v1/wiki/pages/:id/star', async () => {
@@ -195,6 +206,8 @@ describe('노트 즐겨찾기 화면', () => {
       ],
     })
     const row1 = await screen.findByTestId('wiki-starred-row-1')
+    // 첫 id 요청이 나가 붙들린 상태에서만 누른다.
+    await waitFor(() => expect(idsCalls).toBeGreaterThanOrEqual(1))
     const wasGone = watchRowGone('wiki-starred-row-2')
     await user.click(within(row1).getByRole('button', { name: '즐겨찾기' }))
     const row2 = screen.getByTestId('wiki-starred-row-2')
@@ -223,7 +236,11 @@ describe('노트 즐겨찾기 화면', () => {
 
   test('burstTogglesRefetchIdsOnce — id 를 받은 적 없을 때 연타하면 id 목록은 마지막 뒤 한 번만 다시 받는다', async () => {
     // 서버 값을 받은 적 없는 상태에서 눌러 「다시 받기」 표지가 켜지게 한다.
-    const { handlers, counts } = idsFailUntilToggle({ putDelay: 100 })
+    // 첫 PUT 을 게이트로 붙들어, 부하로 두 번째 클릭이 늦어도 첫 PUT 이 먼저 끝나지 않게 한다(WP-1944).
+    const { promise: putGate, release } = gate()
+    // 클릭이 실패해도 붙든 PUT 이 남지 않게 테스트가 끝나면 푼다(두 클릭 뒤에도 바로 푼다 — 두 번 풀어도 무해).
+    onTestFinished(release)
+    const { handlers, counts } = idsFailUntilToggle({ putGate })
     const { user, queryClient } = renderScreen(<WikiStarredView />, {
       path: '/wiki/starred',
       handlers: [starredHandler([item(1), item(2)]), ...handlers],
@@ -235,6 +252,7 @@ describe('노트 즐겨찾기 화면', () => {
     counts.ids = 0
     await user.click(within(row2).getByRole('button', { name: '즐겨찾기' }))
     await user.click(within(row1).getByRole('button', { name: '즐겨찾기' }))
+    release()
     await waitFor(() => expect(counts.puts).toBe(2))
     await settle(queryClient)
     expect(counts.ids).toBe(1)
