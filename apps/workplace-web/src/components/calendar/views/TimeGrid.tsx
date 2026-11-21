@@ -12,7 +12,7 @@ import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_
 import { dayColumnLabel, defaultTimeSlot, nextTimeSlot, timeSlotLabel, type TimeSlotPos } from '@/lib/calendarGridNav'
 import { type MovedRange, type ResizeEdge, resizeHandles, withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
-import { formatHourLabel24, formatLocalClockRange24 } from '@/lib/formatters'
+import { formatHourLabel24, formatLocalClockRange24, formatLocalMoveRange24 } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import { MovePreviewChip } from './MovePreviewChip'
@@ -417,8 +417,8 @@ export function TimeGrid({
                   style={timedEventBox(movedEvent, day)}
                 >
                   {/* 옮기기·늘이기 모두 놓이면 갈 시각 범위와 제목을 보인다(시각은 formatters 로만 그린다) */}
-                  {/* 옮기기 미리보기도 24시간 HH:mm — 끝이 다음 날 0시면 24:00 */}
-                  {formatLocalClockRange24(new Date(movedEvent.startsAt), new Date(movedEvent.endsAt))} {movedEvent.title}
+                  {/* 옮기기 미리보기도 24시간 HH:mm — 하루 안이면 자정 끝 24:00, 여러 날이면 양 끝에 날짜(WP-1909 리뷰 후속) */}
+                  {formatLocalMoveRange24(new Date(movedEvent.startsAt), new Date(movedEvent.endsAt))} {movedEvent.title}
                 </div>
               )}
             </div>

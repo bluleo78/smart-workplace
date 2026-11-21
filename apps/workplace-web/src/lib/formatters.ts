@@ -6,7 +6,7 @@
  * ESLint(no-restricted-syntax)로 금지(#632). 용도별 선택 기준은 docs/CODING_CONVENTION.md
  * "날짜/시간 표시 포맷" 표 참조. 이 파일만 규칙 예외.
  */
-import { format, isValid, parse } from 'date-fns';
+import { format, isSameDay, isValid, parse } from 'date-fns';
 
 /** 타임존 정보가 이미 붙어 있는지 판별 — 'Z' 또는 ±HH:MM / ±HHMM 오프셋(#617). */
 const TZ_SUFFIX_RE = /Z$|[+-]\d{2}:?\d{2}$/;
@@ -485,9 +485,19 @@ export function formatHourLabel24(hour: number): string {
   return `${pad2(hour)}:00`;
 }
 
-/** 끝이 시작보다 뒤이면서 정확히 로컬 0시인가(= 「24:00」으로 써야 하는 끝). 길이 0 구간은 false. */
+/**
+ * 끝이 시작보다 뒤이면서 정확히 로컬 0시(초·밀리초까지 0)인가(= 「24:00」으로 써야 하는 끝). 길이 0 구간은 false.
+ * 초를 보지 않으면 끝이 00:00:30 인 가져온 일정을 목록은 전날 끝(24:00)으로, 주 격자(정확한 시각 비교)는 다음 날 조각으로 보여
+ * 두 화면이 어긋났다(WP-1909 리뷰 후속) — 24:00 판정은 모두 이 함수 하나를 쓴다.
+ */
 export function isNextMidnightEnd(start: Date, end: Date): boolean {
-  return end > start && end.getHours() === 0 && end.getMinutes() === 0;
+  return (
+    end > start &&
+    end.getHours() === 0 &&
+    end.getMinutes() === 0 &&
+    end.getSeconds() === 0 &&
+    end.getMilliseconds() === 0
+  );
 }
 
 /** 끝 시각 문구 — 다음 날 0시에 끝나면 「24:00」, 아니면 clock24(end). */
@@ -502,6 +512,18 @@ export function endClock24(start: Date, end: Date): string {
  */
 export function formatLocalClockRange24(start: Date, end: Date): string {
   return `${clock24(start)} – ${endClock24(start, end)}`;
+}
+
+/**
+ * 옮기기 미리보기의 시각 범위 — 하루 안(자정 종료 포함)이면 {@link formatLocalClockRange24}, 여러 날에 걸치면 양 끝에
+ * 「M/d」 날짜를 붙인다(「10/21 22:00 – 10/23 00:00」). 시각만 쓰면 이틀짜리 일정이 「22:00 – 24:00」처럼 그날 두 시간짜리로
+ * 읽혔다(WP-1909 리뷰 후속). 여러 날의 끝은 24:00 이 아니라 그 날짜의 00:00 — 24:00 규칙은 같은 날일 때만 쓴다.
+ */
+export function formatLocalMoveRange24(start: Date, end: Date): string {
+  const sameDay = isSameDay(start, end) || (isNextMidnightEnd(start, end) && isSameDay(start, new Date(end.getTime() - 1)));
+  if (sameDay) return formatLocalClockRange24(start, end);
+  // 해가 바뀌는 범위는 양 끝에 연도를 붙인다 — 조각 라벨(formatLocalMonthDaySlash)과 같은 slashDate 규칙.
+  return `${slashDate(start, end)} ${clock24(start)} – ${slashDate(end, start)} ${clock24(end)}`;
 }
 
 /** 날짜·요일 + 시각 조립 공통부 — 파싱·무효 가드는 한 곳에서, 시각 부분만 clockPart 로 바꾼다. */
@@ -769,5 +791,10 @@ export function formatKstMonthDayWeekdayClock(dateStr: string | null | undefined
 export function formatLocalMonthDaySlash(dateStr: string | null | undefined, ref: Date): string {
   const d = parseUtcDate(dateStr)
   if (Number.isNaN(d.getTime())) return ''
+  return slashDate(d, ref)
+}
+
+/** 「M/d」 — ref 와 해가 다르면 「yyyy/M/d」. 조각 라벨·옮기기 미리보기가 같은 연도 규칙을 쓴다. */
+function slashDate(d: Date, ref: Date): string {
   return d.getFullYear() === ref.getFullYear() ? format(d, 'M/d') : format(d, 'yyyy/M/d')
 }

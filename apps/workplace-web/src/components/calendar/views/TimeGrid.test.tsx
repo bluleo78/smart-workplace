@@ -10,7 +10,7 @@ import { calendarEvent } from '../../../../e2e/factories/calendar.factory'
 import { TimeGrid } from './TimeGrid'
 
 const SLOT = /새 일정$/
-const TODAY_10 = '11월 21일 토요일 오전 10시 새 일정'
+const TODAY_10 = '11월 21일 토요일 10:00 새 일정'
 
 const weekOf = (startDay: number) => Array.from({ length: 7 }, (_, i) => new Date(2026, 10, startDay + i))
 
@@ -59,9 +59,9 @@ describe('TimeGrid 접근성', () => {
     setup()
     screen.getByRole('button', { name: TODAY_10 }).focus()
     await user.keyboard('{ArrowUp}')
-    expect(document.activeElement).toHaveAccessibleName('11월 21일 토요일 오전 9시 새 일정')
+    expect(document.activeElement).toHaveAccessibleName('11월 21일 토요일 09:00 새 일정')
     await user.keyboard('{ArrowLeft}')
-    expect(document.activeElement).toHaveAccessibleName('11월 20일 금요일 오전 9시 새 일정')
+    expect(document.activeElement).toHaveAccessibleName('11월 20일 금요일 09:00 새 일정')
     expect(zeroTabSlots()).toHaveLength(1)
     expect(zeroTabSlots()[0]).toBe(document.activeElement)
   })
@@ -105,13 +105,13 @@ describe('TimeGrid 접근성', () => {
     const { rerenderDays } = setup()
     rerenderDays(weekOf(22))
     expect(zeroTabSlots()).toHaveLength(1)
-    expect(zeroTabSlots()[0]).toHaveAccessibleName('11월 22일 일요일 오전 8시 새 일정')
+    expect(zeroTabSlots()[0]).toHaveAccessibleName('11월 22일 일요일 08:00 새 일정')
   })
 
   it('칸을 클릭하면 정각으로 열리고 그 칸이 초점 칸이 된다', async () => {
     const user = userEvent.setup()
     const { onCreateAt } = setup()
-    const cell = screen.getByRole('button', { name: '11월 18일 수요일 오후 3시 새 일정' })
+    const cell = screen.getByRole('button', { name: '11월 18일 수요일 15:00 새 일정' })
     await user.click(cell)
     expect(onCreateAt).toHaveBeenCalledTimes(1)
     expect(onCreateAt.mock.calls[0][0].getHours()).toBe(15)
@@ -121,7 +121,7 @@ describe('TimeGrid 접근성', () => {
 
   it('마우스로 누른 칸에서 키를 쓰면 초점 링이 켜진다 — 클릭 초점에는 링이 없다가 키보드로 넘어오면 보인다', async () => {
     setup()
-    const cell = screen.getByRole('button', { name: '11월 18일 수요일 오후 3시 새 일정' })
+    const cell = screen.getByRole('button', { name: '11월 18일 수요일 15:00 새 일정' })
     // 마우스 클릭과 같은 초점 — jsdom 은 프로그램 초점도 :focus-visible 로 보므로 그 판정을 「아님」으로 바꿔 흉내 낸다.
     vi.spyOn(cell, 'matches').mockReturnValue(false)
     act(() => cell.focus())
@@ -151,7 +151,7 @@ describe('TimeGrid 접근성', () => {
 
   it('초점이 tabIndex=-1 칸에도 가면 그 칸이 로빙 초점 칸이 된다(리뷰 후속 1)', () => {
     setup()
-    const cell = screen.getByRole('button', { name: '11월 18일 수요일 오후 3시 새 일정' })
+    const cell = screen.getByRole('button', { name: '11월 18일 수요일 15:00 새 일정' })
     expect(cell.tabIndex).toBe(-1)
     act(() => cell.focus())
     expect(cell.tabIndex).toBe(0)
@@ -173,7 +173,7 @@ describe('TimeGrid 접근성', () => {
     // 반복 막음은 Enter·Space 만 — 방향키 길게 누르기(시간 이동)는 그대로여야 한다.
     fireEvent.keyDown(cell, { key: 'ArrowUp', repeat: true })
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowUp', repeat: true })
-    expect(document.activeElement).toHaveAccessibleName('11월 21일 토요일 오전 8시 새 일정')
+    expect(document.activeElement).toHaveAccessibleName('11월 21일 토요일 08:00 새 일정')
     expect(zeroTabSlots()).toHaveLength(1)
   })
 
