@@ -102,13 +102,13 @@ function BandAddButton({
           align="end"
           className="w-72 space-y-2 p-3"
           // 닫히며 Radix 가 초점을 트리거로 돌리는데, 20번째 상태를 저장해 트리거가 막힌 뒤면 막힌 버튼은 초점을 못 받아 body 로 빠진다.
-          // 직접 돌려준다: 막혔으면 감싼 툴팁 칸, 아니면 버튼.
+          // 막혔을 때만 감싼 툴팁 칸으로 직접 돌려준다. 막히지 않았으면 Radix 기본 동작에 맡긴다 — 바깥을 눌러 닫은 경우
+          // 트리거로 초점을 되돌리지 않는 기본 판단을 덮어 클릭한 곳의 초점을 빼앗지 않게.
           onCloseAutoFocus={(e) => {
-            e.preventDefault();
             const button = buttonRef.current;
-            if (!button) return;
-            if (button.disabled) button.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`)?.focus();
-            else button.focus();
+            if (!button?.disabled) return;
+            e.preventDefault();
+            button.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`)?.focus();
           }}
         >
           <NewStatusPopoverBody
