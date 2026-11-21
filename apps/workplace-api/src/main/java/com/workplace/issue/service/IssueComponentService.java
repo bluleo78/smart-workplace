@@ -82,6 +82,8 @@ public class IssueComponentService {
     if (!toAdd.isEmpty() || !removed.isEmpty()) {
       List<ComponentSummary> added = toAdd.stream().map(ComponentRow::toSummary).toList();
       historyRecorder.recordComponentsChanged(callerId, issue.id(), added, removed);
+      // 최근 수정 순 정렬·최근 변동에 반영(WP-1932) — version 은 올리지 않음
+      issueRepository.touchUpdatedAt(issue.id());
       changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }
 

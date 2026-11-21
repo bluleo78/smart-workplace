@@ -87,25 +87,32 @@ public class IssueVersionService {
     // 새로 붙일 행은 목록 순서로 한 번 읽는다 — 이력의 added 순서가 버전 목록 순서가 되게.
     List<VersionRow> addRows = versionRepository.findByIds(project.id(), toAddIds);
     // 쓰기는 공통 경로(applyChange)로 — 행·이력·알림이 출시·삭제 옮기기와 같은 모양이 된다.
+    boolean changed = false;
     if (fixIds != null) {
-      applyChange(
-          issue,
-          project,
-          VersionKind.FIX,
-          before.fix(),
-          within(addRows, fixIds),
-          detached(before.fix(), fixIds),
-          callerId);
+      changed |=
+          applyChange(
+              issue,
+              project,
+              VersionKind.FIX,
+              before.fix(),
+              within(addRows, fixIds),
+              detached(before.fix(), fixIds),
+              callerId);
     }
     if (affectsIds != null) {
-      applyChange(
-          issue,
-          project,
-          VersionKind.AFFECTS,
-          before.affects(),
-          within(addRows, affectsIds),
-          detached(before.affects(), affectsIds),
-          callerId);
+      changed |=
+          applyChange(
+              issue,
+              project,
+              VersionKind.AFFECTS,
+              before.affects(),
+              within(addRows, affectsIds),
+              detached(before.affects(), affectsIds),
+              callerId);
+    }
+    // 최근 수정 순 정렬·최근 변동에 반영(WP-1932) — version 은 올리지 않음. applyChange 가 아니라 여기서 올리는 이유는 그 Javadoc 참고
+    if (changed) {
+      issueRepository.touchUpdatedAt(issue.id());
     }
 
     var both = currentSummaries(issue.id());
@@ -157,6 +164,9 @@ public class IssueVersionService {
    * <p>{@code add} 대상의 유효성은 <b>호출자가 쓰기 전에 검증</b>한다 — 이 메서드는 이슈와 다른 프로젝트의 id 를 조용히 버리고, 보관된(또는 출시
    * 옮기기에서 이미 출시된) 버전도 거절하지 않는다. 교체는 VERSION_NOT_FOUND·VERSION_ARCHIVED 로, 출시·삭제 옮기기는
    * VERSION_MOVE_TARGET_INVALID 로 미리 막는다.
+   *
+   * <p>이슈 수정 시각(updated_at)은 올리지 않는다 — 출시·삭제 일괄 옮기기도 이 경로를 타기 때문이다. 사용자가 직접 바꾸는 {@link #replace} 만
+   * 올린다(WP-1932).
    *
    * @return 실제로 바뀐 게 있으면 true
    */

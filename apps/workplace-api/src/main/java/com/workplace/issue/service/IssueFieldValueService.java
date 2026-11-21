@@ -71,6 +71,8 @@ public class IssueFieldValueService {
 
     // 실시간 무효화 — 실제로 바뀐 필드가 있을 때만
     if (changed) {
+      // 최근 수정 순 정렬·최근 변동에 반영(WP-1932) — version 은 올리지 않음
+      issueRepository.touchUpdatedAt(issue.id());
       changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }
 

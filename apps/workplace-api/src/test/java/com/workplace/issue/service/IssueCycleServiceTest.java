@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -7,16 +8,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
+import com.workplace.cycle.dto.CycleCompleteRequest;
 import com.workplace.cycle.dto.CycleResponse;
 import com.workplace.cycle.exception.CompletedCycleNotAssignableException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.service.CycleService;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -283,5 +288,98 @@ class IssueCycleServiceTest extends IntegrationTestBase {
     // 클라이언트 규칙: from = addedTo ? to : null, to = removedFrom ? from : null
     var undone = issueCycleService.move(owner, p.key(), number, null, a.id());
     assertThat(undone.cycles()).extracting("id").containsExactlyInAnyOrder(a.id(), b.id());
+  }
+
+  // --- WP-1932: 사이클 변경도 이슈 수정 시각을 올린다(version 은 그대로) ---
+
+  /** 번호로 이슈 행 id 를 읽는다 — 수정 시각·version 직접 조회용. */
+  private Long issueId(ProjectResponse p, int number) {
+    return dsl.select(ISSUE.ID)
+        .from(ISSUE)
+        .where(ISSUE.PROJECT_ID.eq(p.id()).and(ISSUE.NUMBER.eq(number)))
+        .fetchOne(ISSUE.ID);
+  }
+
+  /** 사이클 교체로 연결이 바뀌면 수정 시각은 올라가고 version 은 그대로다. */
+  @Test
+  void cycle_replace_bumps_updated_at_but_not_version() {
+    Long owner = createUser("tu1");
+    ProjectResponse p = newProject(owner, "TU1");
+    var c = newCycle(owner, p, "A");
+    int number = newIssue(owner, p, "T");
+    Long id = issueId(p, number);
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, id);
+    Integer versionBefore = IssueSeeds.version(dsl, id);
+
+    issueCycleService.replace(owner, p.key(), number, List.of(c.id()));
+
+    assertThat(IssueSeeds.updatedAt(dsl, id)).isAfter(before);
+    assertThat(IssueSeeds.version(dsl, id)).isEqualTo(versionBefore);
+  }
+
+  /** 사이클에서 백로그로 옮기기(떼기만)도 수정 시각을 올린다. */
+  @Test
+  void cycle_move_remove_only_bumps_updated_at() {
+    Long owner = createUser("tu2");
+    ProjectResponse p = newProject(owner, "TU2");
+    var a = newCycle(owner, p, "A");
+    int number = newIssue(owner, p, "T");
+    issueCycleService.replace(owner, p.key(), number, List.of(a.id()));
+    Long id = issueId(p, number);
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, id);
+    Integer versionBefore = IssueSeeds.version(dsl, id);
+
+    // A → 백로그: 끊기만 하는 이동
+    issueCycleService.move(owner, p.key(), number, a.id(), null);
+
+    assertThat(IssueSeeds.updatedAt(dsl, id)).isAfter(before);
+    assertThat(IssueSeeds.version(dsl, id)).isEqualTo(versionBefore);
+  }
+
+  /** 같은 사이클 집합으로 교체(diff 0)하면 수정 시각을 올리지 않는다. */
+  @Test
+  void noop_cycle_replace_keeps_updated_at() {
+    Long owner = createUser("tu3");
+    ProjectResponse p = newProject(owner, "TU3");
+    var c = newCycle(owner, p, "A");
+    int number = newIssue(owner, p, "T");
+    issueCycleService.replace(owner, p.key(), number, List.of(c.id()));
+    Long id = issueId(p, number);
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, id);
+
+    issueCycleService.replace(owner, p.key(), number, List.of(c.id()));
+
+    assertThat(IssueSeeds.updatedAt(dsl, id)).isEqualTo(before);
+  }
+
+  /** 사이클 완료의 미완료 이슈 일괄 이동은 일괄 부수 효과라 수정 시각을 올리지 않는다. */
+  @Test
+  void cycle_complete_attach_incomplete_keeps_updated_at() {
+    Long owner = createUser("tu4");
+    ProjectResponse p = newProject(owner, "TU4");
+    var active = newCycle(owner, p, "A", "ACTIVE");
+    int number = newIssue(owner, p, "T");
+    issueCycleService.replace(owner, p.key(), number, List.of(active.id()));
+    Long id = issueId(p, number);
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, id);
+
+    var res =
+        cycleService.complete(
+            owner,
+            p.key(),
+            active.id(),
+            new CycleCompleteRequest(
+                CycleCompleteRequest.Destination.NEW,
+                null,
+                null,
+                "B",
+                LocalDate.now(),
+                LocalDate.now().plusDays(14)));
+
+    // 실제로 새 사이클에 붙었는데도 수정 시각은 그대로여야 한다
+    assertThat(issueCycleService.list(owner, p.key(), number))
+        .extracting("id")
+        .contains(res.targetCycle().id());
+    assertThat(IssueSeeds.updatedAt(dsl, id)).isEqualTo(before);
   }
 }

@@ -6,7 +6,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.support.IssueSeeds;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -107,6 +109,22 @@ class VersionReleaseTest extends VersionOpsTestSupport {
     }
     assertThat(versionIds(affected, "AFFECTS")).containsExactly(v);
     assertThat(history(affected, "AFFECTS_VERSIONS_CHANGED")).isEmpty();
+  }
+
+  /** WP-1932: 출시 때 미해결 이슈를 옮기는 일괄 부수 효과는 이슈 수정 시각을 올리지 않는다. */
+  @Test
+  void version_release_move_keeps_updated_at() throws Exception {
+    long v = version("1.0");
+    long next = version("1.1");
+    long todo = seedIssue(1, "TODO");
+    link(todo, v, "FIX");
+    OffsetDateTime before = IssueSeeds.rewindUpdatedAt(dsl, todo);
+
+    release(v, null, next).andExpect(status().isOk());
+
+    // 실제로 옮겨졌는데도 수정 시각은 그대로여야 한다
+    assertThat(versionIds(todo, "FIX")).containsExactly(next);
+    assertThat(IssueSeeds.updatedAt(dsl, todo)).isEqualTo(before);
   }
 
   /** 대상 버전이 이미 붙은 이슈는 원래 버전만 빠지고 대상 행은 하나로 남는다. */
