@@ -32,7 +32,8 @@ export function IssueAttachmentItem({
   number: number;
   attachment: IssueAttachment;
   canDelete: boolean;
-  onDelete: (fileId: number) => void;
+  /** 삭제 × — 대상 첨부는 부모가 이미 들고 있어 인자를 넘기지 않는다(WP-1919). */
+  onDelete: () => void;
   /** 파일명 클릭 — 프리뷰 모달 열기(모달 상태는 목록이 소유). */
   onPreview: (attachment: IssueAttachment) => void;
   layout?: 'list' | 'strip';
@@ -78,7 +79,7 @@ export function IssueAttachmentItem({
           variant="ghost"
           size="icon-xs"
           className={cn(iconBtn, 'hover:text-destructive')}
-          onClick={() => onDelete(attachment.fileId)}
+          onClick={onDelete}
           aria-label={`${name} 삭제`}
           title="삭제"
         >

@@ -22,6 +22,7 @@ import { driveViewerKey, fileViewerKey } from '../../../components/viewer/viewer
 import { useDeleteIssueAttachment } from '../../../hooks/queries/useDeleteIssueAttachment';
 import { useIssueAttachments } from '../../../hooks/queries/useIssueAttachments';
 import { useIssueDriveLinks, useRemoveIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
+import type { IssueAttachment } from '../../../types/attachment';
 import type { DriveLink } from '../../../types/drive';
 import { IssueAttachmentItem } from './IssueAttachmentItem';
 import { IssueDriveLinkItem } from './IssueDriveLinkItem';
@@ -52,8 +53,10 @@ export function IssueAttachmentList({
   // #80: 드라이브 링크 쿼리 + 제거 mutation.
   const driveQ = useIssueDriveLinks(projectKey, number);
   const removeLink = useRemoveIssueDriveLink(projectKey, number);
-  // 삭제 확인 다이얼로그 — window.confirm 대체 (#148).
-  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  // 첨부 삭제 확인 다이얼로그 — window.confirm 대체 (#148). 대상은 누른 첨부 그대로 들고(WP-1919), 열림은 따로 둔다.
+  // 대상을 닫을 때 비우지 않는 까닭: 닫히는 애니메이션 동안이나 목록이 다시 불려 첨부가 빠져도 확인창 글이 다른 파일·빈 이름으로 바뀌지 않게.
+  const [deleteTarget, setDeleteTarget] = useState<IssueAttachment | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   // 드라이브 링크 제거 확인 다이얼로그 — 대상은 누른 링크 그대로 들고(WP-1871), 열림은 따로 둔다.
   // 대상을 닫을 때 비우지 않는 까닭: 닫히는 애니메이션 동안이나 목록이 다시 불려 링크가 빠져도 확인창 글이 다른 파일·빈 이름으로 바뀌지 않게.
   const [removeTarget, setRemoveTarget] = useState<DriveLink | null>(null);
@@ -91,9 +94,10 @@ export function IssueAttachmentList({
             canDelete={a.attachedById === currentUserId || isOwner}
             layout={layout}
             onPreview={(att) => onPreview(fileViewerKey(att.fileId))}
-            onDelete={(fileId) => {
-              // 삭제 확인은 AlertDialog 에서 처리 — window.confirm 대체 (#148).
-              setPendingDeleteId(fileId);
+            onDelete={() => {
+              // 삭제 확인은 AlertDialog 에서 처리 — window.confirm 대체 (#148). 이름을 보이려고 첨부 객체를 대상으로 든다.
+              setDeleteTarget(a);
+              setDeleteOpen(true);
             }}
           />
         ))}
@@ -116,21 +120,23 @@ export function IssueAttachmentList({
 
       {/* 첨부 삭제 확인 AlertDialog — window.confirm 대체 (#148) */}
       <AlertDialog
-        open={pendingDeleteId != null}
-        onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
       >
         <AlertDialogContent data-testid="attachment-delete-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>첨부 삭제</AlertDialogTitle>
-            <AlertDialogDescription>
-              첨부를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+            {/* 첨부가 여럿이어도 어느 파일을 지우는지 다시 확인하게 이름을 넣는다(WP-1919). 헤더가 place-items-center 그리드라
+                break-words 로는 min-content 가 줄지 않아 긴 이름이 창 밖으로 나가므로 wrap-anywhere 를 쓴다. */}
+            <AlertDialogDescription className="wrap-anywhere">
+              「{deleteTarget?.originalName}」 첨부를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => { if (pendingDeleteId != null) del.mutate(pendingDeleteId); }}
+              onClick={() => { if (deleteTarget) del.mutate(deleteTarget.fileId); }}
               data-testid="attachment-delete-confirm"
             >
               삭제
@@ -147,8 +153,8 @@ export function IssueAttachmentList({
         <AlertDialogContent data-testid="drive-link-remove-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>드라이브 링크 제거</AlertDialogTitle>
-            {/* 링크가 여럿이어도 어느 파일을 빼는지 다시 확인하게 이름을 넣는다(WP-1871). 띄어쓰기 없는 긴 이름도 줄을 바꿔 창 안에 둔다. */}
-            <AlertDialogDescription className="break-words">
+            {/* 링크가 여럿이어도 어느 파일을 빼는지 다시 확인하게 이름을 넣는다(WP-1871). 띄어쓰기 없는 긴 이름도 줄을 바꿔 창 안에 둔다(헤더 그리드라 break-words 가 아닌 wrap-anywhere). */}
+            <AlertDialogDescription className="wrap-anywhere">
               「{removeTarget?.name}」 링크를 이슈에서 제거하시겠습니까? 드라이브 파일 자체는 삭제되지 않습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
