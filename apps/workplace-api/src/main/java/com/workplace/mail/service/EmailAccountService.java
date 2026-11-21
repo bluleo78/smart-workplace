@@ -12,6 +12,7 @@ import com.workplace.mail.dto.MailNotifyModes;
 import com.workplace.mail.exception.DuplicateEmailAccountException;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailConnectionException;
+import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.outbound.MailDomainEvents.MailAccountConnectedEvent;
@@ -37,6 +38,7 @@ public class EmailAccountService {
 
   private final EmailAccountRepository repo;
   private final EncryptionService encryption;
+  private final MailAccountCredentials credentials;
   private final MailConnectionTester tester;
 
   /** AI 분류 off→on 전환 시 최근 안읽음 classify 를 비동기로 수행하는 서비스. */
@@ -79,8 +81,20 @@ public class EmailAccountService {
         repo.findEncryptedPassword(userId, id)
             .orElseThrow(() -> new EmailAccountNotFoundException(id));
     String effectivePassword =
-        isBlank(req.password()) ? encryption.decrypt(storedEnc) : req.password();
+        isBlank(req.password()) ? decryptStored(id, storedEnc) : req.password();
     return runTest(req, effectivePassword);
+  }
+
+  /**
+   * 요청 비밀번호가 비어 저장값으로 폴백할 때의 복호화(WP-1892). 복호화 실패는 메일 서버 접속 실패(502)가 아니라 사용자가 비밀번호를 다시 입력해야 하는 입력
+   * 문제이므로 400({@link MailValidationException}, 한국어 안내 그대로 노출)로 바꾼다.
+   */
+  private String decryptStored(long id, String storedEnc) {
+    try {
+      return credentials.decrypt(id, storedEnc);
+    } catch (MailSyncException e) {
+      throw new MailValidationException(MailServerErrors.CREDENTIAL_UNREADABLE);
+    }
   }
 
   /** 계정 등록 — 비밀번호 필수, 중복 금지, 연결 테스트 통과 필수. */
@@ -133,7 +147,7 @@ public class EmailAccountService {
       throw new DuplicateEmailAccountException(req.emailAddress());
     }
     String effectivePassword =
-        isBlank(req.password()) ? encryption.decrypt(storedEnc) : req.password();
+        isBlank(req.password()) ? decryptStored(id, storedEnc) : req.password();
 
     ConnectionTestResult result = runTest(req, effectivePassword);
     if (!result.success()) {

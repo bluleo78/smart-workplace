@@ -20,4 +20,11 @@ public final class MailServerErrors {
 
   /** 메일 서버 접속·로그인·LIST 가 실패했다(아무것도 바꾸지 않았다). */
   public static final String CONNECT_FAILED = "메일 서버에 연결하지 못했습니다";
+
+  /**
+   * 저장된 계정 비밀번호를 복호화하지 못했다(WP-1892) — 암호문 형식 오류·암호화 키 불일치 등. 서버에 접속하기 전에 실패하며, 사용자가 계정 설정에서 비밀번호를
+   * 다시 입력해야 풀린다.
+   */
+  public static final String CREDENTIAL_UNREADABLE =
+      "메일 계정 비밀번호를 읽지 못했습니다 — 메일 계정 설정에서 비밀번호를 다시 입력해 주세요";
 }

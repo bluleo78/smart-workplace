@@ -9,18 +9,23 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.global.security.EncryptionService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
+import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.service.GraphTokenService;
+import com.workplace.mail.service.MailServerErrors;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.stream.LongStream;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -38,6 +43,8 @@ class MailMoveControllerTest extends ExternalClientMockedTestBase {
   @Autowired DSLContext dsl;
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired EmailFolderRepository folderRepo;
+  @Autowired EmailAccountRepository accountRepo;
+  @Autowired EncryptionService encryption;
 
   @Autowired GraphApiClient graphApiClient;
   @Autowired GraphTokenService graphTokenService;
@@ -115,5 +122,23 @@ class MailMoveControllerTest extends ExternalClientMockedTestBase {
     long other = TestFixtures.createHuman(dsl);
     move(other, accountId, "{\"messageIds\":[" + id + "],\"target\":{\"kind\":\"TRASH\"}}")
         .andExpect(status().isNotFound());
+  }
+
+  /**
+   * WP-1892 — 저장된 비밀번호를 복호화하지 못하면(형식 오류·키 불일치·Base64 오류) 500/400 이 아니라 502 와 한국어 안내로 응답한다. 서버에 접속하기
+   * 전에 실패하므로 GreenMail 이 필요 없다.
+   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {"not-encrypted", "AAAAAAAAAAAAAAAA:QUJDREVGR0hJSktMTU5PUFFSU1RVVldY", "!!!:???"})
+  void imapCredentialUnreadable_is502WithKoreanMessage(String stored) throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    MailTestSupport.setStoredPassword(dsl, accountId, stored);
+    long id = message(accountId, "INBOX", "I1");
+
+    move(user, accountId, "{\"messageIds\":[" + id + "],\"target\":{\"kind\":\"TRASH\"}}")
+        .andExpect(status().isBadGateway())
+        .andExpect(jsonPath("$.message").value(MailServerErrors.CREDENTIAL_UNREADABLE));
   }
 }

@@ -103,6 +103,14 @@ final class MailTestSupport {
     return repo.insert(userId, req, enc.encrypt("pw"));
   }
 
+  /** WP-1892: 저장된 비밀번호를 복호화되지 않는 값으로 바꾼다(형식 오류·키 불일치·Base64 오류 재현). */
+  static void setStoredPassword(DSLContext dsl, long accountId, String stored) {
+    dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.ENCRYPTED_PASSWORD, stored)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .execute();
+  }
+
   /**
    * 분류 결과 시드 — category 는 공유 content(자기 사본을 적재한 envelope 만), needs_reply 는 envelope. 운영 저장 경로는
    * MailAnalysisService.

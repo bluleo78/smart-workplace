@@ -1,6 +1,5 @@
 package com.workplace.mail.service;
 
-import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSyncResult;
@@ -86,7 +85,7 @@ public class ImapMailFetcher implements MailFetcher {
 
   private final EmailFolderRepository folderRepo;
   private final EmailMessageRepository messageRepo;
-  private final EncryptionService encryption;
+  private final MailAccountCredentials credentials;
   private final ImapConnector imapConnector;
   private final MailMessageParser parser;
 
@@ -103,14 +102,14 @@ public class ImapMailFetcher implements MailFetcher {
       com.workplace.mail.repository.EmailAccountRepository accountRepo,
       EmailFolderRepository folderRepo,
       EmailMessageRepository messageRepo,
-      EncryptionService encryption,
+      MailAccountCredentials credentials,
       ImapConnector imapConnector,
       MailMessageParser parser,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.folderRepo = folderRepo;
     this.messageRepo = messageRepo;
-    this.encryption = encryption;
+    this.credentials = credentials;
     this.imapConnector = imapConnector;
     this.parser = parser;
     this.txTemplate = new TransactionTemplate(txManager);
@@ -216,7 +215,7 @@ public class ImapMailFetcher implements MailFetcher {
         status ->
             accountRepo
                 .findEncryptedPassword(userId, accountId)
-                .map(encryption::decrypt)
+                .map(enc -> credentials.decrypt(accountId, enc))
                 .orElseThrow(() -> new EmailAccountNotFoundException(accountId)));
   }
 

@@ -1,6 +1,5 @@
 package com.workplace.mail.service;
 
-import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.SeenSyncItem;
@@ -38,7 +37,7 @@ public class ImapReadSyncer implements MailReadSyncer {
 
   private final ImapConnector imapConnector;
   private final EmailAccountRepository accountRepo;
-  private final EncryptionService encryption;
+  private final MailAccountCredentials credentials;
 
   @Override
   public MailProvider provider() {
@@ -56,7 +55,7 @@ public class ImapReadSyncer implements MailReadSyncer {
     String password =
         accountRepo
             .findEncryptedPassword(userId, account.id())
-            .map(encryption::decrypt)
+            .map(enc -> credentials.decrypt(account.id(), enc))
             .orElse(null);
     if (password == null) {
       log.debug("IMAP 읽음 역동기화 스킵: 비밀번호 없음 accountId={}", account.id());
