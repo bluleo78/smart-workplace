@@ -12,6 +12,7 @@ import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
 import { FilterLine } from '@/components/filter/FilterLine'
 import { Breadcrumb } from '@/components/layout/Breadcrumb'
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStatePositiveIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { LoadErrorState } from '@/components/LoadErrorState'
@@ -751,10 +752,10 @@ function MessageDetailPanel({
         className="flex h-full flex-col items-center justify-center gap-3 text-center"
       >
         <MailDetailSrHeading />
-        <Mail className="h-10 w-10 text-muted-foreground/50" />
+        <Mail className={emptyStateIconClass} aria-hidden="true" />
         <div>
-          <p className="text-sm font-medium">메일을 선택하세요</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className={emptyStateTitleClass}>메일을 선택하세요</p>
+          <p className={cn('mt-1', emptyStateDescriptionClass)}>
             왼쪽 목록에서 메일을 클릭하면 내용이 표시됩니다
           </p>
         </div>
@@ -2142,17 +2143,17 @@ function MailInbox() {
           ) : !messages || messages.length === 0 ? (
             // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
             view.kind === 'needsReply' ? (
-              <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-                <Check className="h-8 w-8 text-primary" />
-                <p className="text-sm font-medium">회신이 필요한 안 읽은 메일이 없어요 🎉</p>
+              <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+                <Check className={emptyStatePositiveIconClass} aria-hidden="true" />
+                <p className={emptyStateTitleClass}>회신이 필요한 안 읽은 메일이 없어요 🎉</p>
                 {/* WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다. */}
-                <p className="text-xs">메일을 열면 회신필요에서 빠져요.</p>
+                <p className={emptyStateDescriptionClass}>메일을 열면 회신필요에서 빠져요.</p>
               </div>
             ) : view.unreadOnly ? (
               // WP-186: 안 읽은 메일만 보기 0건 — 보기별 문구.
-              <div data-testid="mail-view-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-                <Check className="h-8 w-8 text-primary" />
-                <p className="text-sm font-medium">
+              <div data-testid="mail-view-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+                <Check className={emptyStatePositiveIconClass} aria-hidden="true" />
+                <p className={emptyStateTitleClass}>
                   {view.kind === 'all' ? '안 읽은 메일이 없어요.' : `${view.title} 메일 중 안 읽은 메일이 없어요.`}
                 </p>
                 <Button
@@ -2170,10 +2171,10 @@ function MailInbox() {
               </div>
             ) : flaggedView && !search ? (
               // WP-1742 별표 모아 보기 0건 — 별표를 다는 방법을 함께 알린다.
-              <div data-testid="mail-flagged-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-                <Star className="h-8 w-8" />
-                <p className="text-sm font-medium">별표한 메일 없음</p>
-                <p className="text-xs">메일 목록의 별을 누르면 여기에 모여요.</p>
+              <div data-testid="mail-flagged-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+                <Star className={emptyStateIconClass} aria-hidden="true" />
+                <p className={emptyStateTitleClass}>별표한 메일 없음</p>
+                <p className={emptyStateDescriptionClass}>메일 목록의 별을 누르면 여기에 모여요.</p>
               </div>
             ) : folderView && !search ? (
               // WP-961 서버 메일함 0건 — 처음 가져오는 중이면 그렇게, 아니면 중립 문구(「동기화를 눌러보세요」는 받은편지함 안내).
@@ -2182,9 +2183,9 @@ function MailInbox() {
               </div>
             ) : view.kind === 'category' ? (
               // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
-              <div data-testid="mail-category-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-                <Inbox className="h-8 w-8" />
-                <p className="text-sm font-medium">이 분류에 해당하는 메일이 없어요.</p>
+              <div data-testid="mail-category-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+                <Inbox className={emptyStateIconClass} aria-hidden="true" />
+                <p className={emptyStateTitleClass}>이 분류에 해당하는 메일이 없어요.</p>
               </div>
             ) : (
               <>

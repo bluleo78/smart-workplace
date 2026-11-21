@@ -2,6 +2,7 @@
 import { ArrowUpDown, FolderOpen, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { Button } from '@/components/ui/button'
@@ -66,9 +67,9 @@ export default function ProjectListPage() {
         ) : data && data.content.length === 0 ? (
           // 빈 상태 — 디자인 시스템 §2.5: 아이콘 + 제목 + 설명 + CTA 4요소
           <div className="flex flex-col items-center gap-3 py-16 text-center" data-testid="projects-empty">
-            <FolderOpen className="h-10 w-10 text-muted-foreground" />
-            <p className="text-sm font-semibold">아직 프로젝트가 없어요</p>
-            <p className="text-xs text-muted-foreground">팀원과 함께 작업할 프로젝트를 만들어 보세요.</p>
+            <FolderOpen className={emptyStateIconClass} aria-hidden="true" />
+            <p className={emptyStateTitleClass}>아직 프로젝트가 없어요</p>
+            <p className={emptyStateDescriptionClass}>팀원과 함께 작업할 프로젝트를 만들어 보세요.</p>
             <Button onClick={() => setOpen(true)}>새 프로젝트 만들기</Button>
           </div>
         ) : (

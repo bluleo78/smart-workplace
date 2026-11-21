@@ -56,7 +56,12 @@ test('calendar 위젯 — date-only params 를 ISO 범위로 바꿔 조회하고
 
 test('calendar 위젯 — 일정이 없으면 빈 상태를 보인다', async () => {
   renderChatWidget('calendar', {}, [http.get('/api/v1/calendar/events', () => HttpResponse.json([]))])
-  expect(await screen.findByTestId('calendar-empty', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent('일정이 없어요')
+  const empty = await screen.findByTestId('calendar-empty', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  expect(empty).toHaveTextContent('일정이 없어요')
+  // 빈 상태 규격(WP-1939): 아이콘 40px muted, 제목은 semibold 가 아니라 medium.
+  expect(empty.querySelector('svg')).toHaveClass('h-10', 'w-10', 'text-muted-foreground')
+  expect(screen.getByText('일정이 없어요')).toHaveClass('text-sm', 'font-medium')
+  expect(screen.getByText('일정이 없어요')).not.toHaveClass('font-semibold')
 })
 
 test('event 위젯 — 단일 일정의 제목·장소·설명을 그린다', async () => {

@@ -1,10 +1,12 @@
 import { BookText } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWikiSpaces } from '@/hooks/queries/useWikiSpaces'
 import { useWikiTree } from '@/hooks/queries/useWikiTree'
 import { showsLoadError } from '@/lib/queryFailure'
+import { cn } from '@/lib/utils';
 import type { WikiSpace } from '@/types/wiki'
 
 import { WidgetError } from './WidgetError'
@@ -79,9 +81,9 @@ export default function WikiWidget({
             className="flex flex-col items-center gap-2 px-4 py-8 text-center"
             data-testid="wiki-empty"
           >
-            <BookText className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-semibold">노트가 없어요</p>
-            <p className="max-w-xs text-xs text-muted-foreground">
+            <BookText className={emptyStateIconClass} aria-hidden="true" />
+            <p className={emptyStateTitleClass}>노트가 없어요</p>
+            <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
               노트 화면에서 새 스페이스를 만들어 보세요.
             </p>
           </div>
@@ -133,9 +135,9 @@ export default function WikiWidget({
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="wiki-empty"
         >
-          <BookText className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm font-semibold">페이지가 없어요</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
+          <BookText className={emptyStateIconClass} aria-hidden="true" />
+          <p className={emptyStateTitleClass}>페이지가 없어요</p>
+          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
             이 스페이스에 표시할 페이지가 없습니다.
           </p>
         </div>

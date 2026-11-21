@@ -1,11 +1,13 @@
 import { Mail, Paperclip } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMailAccounts } from '@/hooks/queries/useMailAccounts';
 import { useMailMessages } from '@/hooks/queries/useMailMessages';
 import { mailSubjectText } from '@/lib/mailSubject'
 import { showsLoadError } from '@/lib/queryFailure';
+import { cn } from '@/lib/utils';
 import type { EmailMessageSummary, MailFolder } from '@/types/mailMessage';
 
 import { WidgetError } from './WidgetError';
@@ -67,9 +69,9 @@ function EmptyState({ title }: { title: string }) {
       className="flex flex-col items-center gap-2 px-4 py-8 text-center"
       data-testid="maillist-empty"
     >
-      <Mail className="h-8 w-8 text-muted-foreground" />
-      <p className="text-sm font-semibold">메일이 없어요</p>
-      <p className="max-w-xs text-xs text-muted-foreground">
+      <Mail className={emptyStateIconClass} aria-hidden="true" />
+      <p className={emptyStateTitleClass}>메일이 없어요</p>
+      <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
         {title}에 표시할 메일이 없습니다.
       </p>
     </div>
@@ -151,9 +153,9 @@ export default function MailListWidget({
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="maillist-no-account"
         >
-          <Mail className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm font-semibold">연결된 메일 계정이 없어요</p>
-          <p className="max-w-xs text-xs text-muted-foreground">메일 화면에서 계정을 추가해 보세요.</p>
+          <Mail className={emptyStateIconClass} aria-hidden="true" />
+          <p className={emptyStateTitleClass}>연결된 메일 계정이 없어요</p>
+          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>메일 화면에서 계정을 추가해 보세요.</p>
         </div>
       </WidgetFrame>
     );

@@ -88,6 +88,9 @@ describe('프로젝트 목록', () => {
     const { user } = renderProjects('/projects', { handlers: projectsApi([]).handlers })
     const empty = await screen.findByTestId('projects-empty')
     expect(within(empty).getByText('아직 프로젝트가 없어요')).toBeInTheDocument()
+    // WP-1939: 제목은 빈 상태 규격(font-medium), 옛 font-semibold 아님
+    expect(within(empty).getByText('아직 프로젝트가 없어요')).toHaveClass('font-medium')
+    expect(within(empty).getByText('아직 프로젝트가 없어요')).not.toHaveClass('font-semibold')
     expect(within(empty).getByText('팀원과 함께 작업할 프로젝트를 만들어 보세요.')).toBeInTheDocument()
     await user.click(within(empty).getByRole('button', { name: '새 프로젝트 만들기' }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()

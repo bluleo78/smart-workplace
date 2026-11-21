@@ -2,12 +2,14 @@ import axios from 'axios';
 import { ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyIssues } from '@/hooks/queries/useHomeQueries';
 import { extractApiError } from '@/lib/api-error';
 import { countOverdue } from '@/lib/issueOverdue';
 import { showsLoadError } from '@/lib/queryFailure';
+import { cn } from '@/lib/utils';
 // 이슈 상태 전용 배지 — 범용 StatusBadge(type 기반)가 아니라 IssueStatus 를 직접 받는다.
 import { IssueStatusBadge } from '@/pages/projects/components/IssueStatusBadge';
 import type { IssueSearchResponse } from '@/types/issue';
@@ -84,9 +86,9 @@ export default function IssueListWidget({
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="issuelist-empty"
         >
-          <ClipboardList className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm font-semibold">배정된 이슈가 없어요</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
+          <ClipboardList className={emptyStateIconClass} aria-hidden="true" />
+          <p className={emptyStateTitleClass}>배정된 이슈가 없어요</p>
+          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
             나에게 할당된 이슈가 여기에 표시됩니다.
           </p>
           <Button variant="outline" size="sm" asChild className="mt-1">

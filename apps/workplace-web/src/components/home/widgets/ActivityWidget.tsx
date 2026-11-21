@@ -1,10 +1,12 @@
 import { Activity } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActivity } from '@/hooks/queries/useHomeQueries';
 import { showsLoadError } from '@/lib/queryFailure'
+import { cn } from '@/lib/utils';
 import { historyEventPhrase } from '@/pages/projects/components/issueHistoryLabels';
 import type { ActivityPage } from '@/types/home';
 
@@ -58,9 +60,9 @@ export default function ActivityWidget({
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="activity-empty"
         >
-          <Activity className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm font-semibold">최근 활동이 없어요</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
+          <Activity className={emptyStateIconClass} aria-hidden="true" />
+          <p className={emptyStateTitleClass}>최근 활동이 없어요</p>
+          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
             이슈가 생성·변경되면 여기에 표시됩니다.
           </p>
         </div>

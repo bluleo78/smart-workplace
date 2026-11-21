@@ -5,6 +5,7 @@ import { Clock, Send, Undo2 } from 'lucide-react'
 import { useRef } from 'react'
 import { toast } from 'sonner'
 
+import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { DropdownMenuItem } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { parseAddressList, recipientShortName } from '@/lib/mailRecipients'
@@ -107,10 +108,10 @@ export function MailScheduledList({ accountId }: { accountId: number }) {
   }
   if (!data || data.length === 0) {
     return (
-      <div data-testid="mail-scheduled-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-        <Clock className="h-8 w-8" />
-        <p className="text-sm font-medium">예약한 메일 없음</p>
-        <p className="text-xs">쓰기 창의 보내기 옆 ▾ 에서 보낼 시각을 정할 수 있어요.</p>
+      <div data-testid="mail-scheduled-empty" className="flex flex-col items-center gap-2 py-16 text-center">
+        <Clock className={emptyStateIconClass} aria-hidden="true" />
+        <p className={emptyStateTitleClass}>예약한 메일 없음</p>
+        <p className={emptyStateDescriptionClass}>쓰기 창의 보내기 옆 ▾ 에서 보낼 시각을 정할 수 있어요.</p>
       </div>
     )
   }
@@ -159,8 +160,8 @@ export function MailScheduledList({ accountId }: { accountId: number }) {
 export function MailScheduledDetailEmpty() {
   return (
     <div data-testid="mail-scheduled-detail-empty" className="flex h-full flex-col items-center justify-center gap-3 text-center">
-      <Clock className="h-10 w-10 text-muted-foreground/50" />
-      <p className="text-sm font-medium">예약한 메일 선택</p>
+      <Clock className={emptyStateIconClass} aria-hidden="true" />
+      <p className={emptyStateTitleClass}>예약한 메일 선택</p>
     </div>
   )
 }

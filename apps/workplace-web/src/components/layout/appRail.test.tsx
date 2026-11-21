@@ -385,7 +385,11 @@ describe('알림 인박스', () => {
     const empty = await screen.findByTestId('inbox-empty')
     expect(empty).toHaveTextContent('새 알림이 없습니다')
     expect(empty).toHaveTextContent('이슈 배정, 코멘트, 상태 변경 알림이 여기에 표시됩니다.')
-    expect(empty.querySelector('svg')).not.toBeNull()
+    // 06 §B 규격(WP-1939): 아이콘 40px muted — 흐린 opacity-30 이 남지 않는다.
+    const icon = empty.querySelector('svg')
+    expect(icon).not.toBeNull()
+    expect(icon).toHaveClass('h-10', 'w-10', 'text-muted-foreground')
+    expect(icon).not.toHaveClass('opacity-30')
     expect(screen.getByTestId('inbox-mark-all')).toBeDisabled()
   })
 
