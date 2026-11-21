@@ -23,7 +23,7 @@ const schema = z
 
 type FormData = z.infer<typeof schema>
 
-// 설정 성공 시 onDone(refreshUser) 으로 hasPassword 를 갱신해 기존 "비밀번호 변경" 섹션으로 전환한다.
+// 설정 성공 시 onDone(부모 핸들러)을 불러 — 성공을 기억하고 기존 "비밀번호 변경" 섹션으로 전환한다(WP-1912).
 export function SetPasswordCard({ onDone }: { onDone: () => Promise<void> }) {
   const form = useForm<FormData>({ resolver: zodResolver(schema), mode: 'onChange', defaultValues: { newPassword: '', confirmPassword: '' } })
 
@@ -32,10 +32,12 @@ export function SetPasswordCard({ onDone }: { onDone: () => Promise<void> }) {
       await usersApi.changePassword({ newPassword: data.newPassword })
       form.reset()
       toast.success('비밀번호를 설정했습니다.')
-      await onDone()
     } catch (error) {
       form.setError('root', { message: extractApiError(error, '비밀번호 설정에 실패했습니다.') })
+      return
     }
+    // 쓰기가 성공하면 여기서 끝난다 — 갱신(onDone) 실패는 설정 실패로 되돌리지 않는다(WP-1912).
+    await onDone()
   }
 
   return (
