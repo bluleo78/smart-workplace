@@ -249,6 +249,32 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     assertThat(runtimeEvents()).isZero();
   }
 
+  /**
+   * 설정을 고쳐 generation 이 오른 뒤 새 generation Pod 가 같은 사유를 다시 보고하면 알림이 나간다 — 저장 원문은 그대로지만 읽을 때 화면이 「시작
+   * 중」 → 「오류」로 바뀌기 때문이다. 알림이 빠지면 목록·상세가 새로고침 전까지 계속 「시작 중」으로 남아 이슈의 원래 증상이 되살아난다 (WP-1913 리뷰 반려 ① —
+   * 알림 기준을 저장 원문이 아니라 갱신 전·후 currentPaneBlocked 로 바꾼 것을 고정).
+   */
+  @Test
+  void generation이_오른_뒤_같은_사유를_다시_보고하면_알림이_나간다() throws Exception {
+    long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"generation\":" + gen + "}")
+        .andExpect(status().isNoContent());
+    // 관리자가 설정을 고쳐 generation 이 오르면 옛 사유는 읽을 때 가려진다 — 저장 원문은 그대로 「설정 오류」다.
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.GENERATION, gen + 1)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"generation\":" + (gen + 1) + "}")
+        .andExpect(status().isNoContent());
+
+    assertThat(runtimeEvents()).isEqualTo(1);
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("설정 오류");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION)).isEqualTo(gen + 1);
+  }
+
   /** 사람은 보고할 수 없다 — 403 AGENT_ONLY. */
   @Test
   void AI_키가_아니면_거절된다() throws Exception {

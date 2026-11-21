@@ -158,14 +158,17 @@ class AgentRuntimeStatusResolverTest {
   }
 
   /**
-   * 지금 Pod 가 뜬 시각보다 먼저 남은 차단 사유는 읽지 않는다 — 재시작해 같은 generation 으로 새 Pod 가 뜬 뒤에도 옛 Pod 의 사유가 「오류」로 남지
-   * 않게 (WP-1913 리뷰 반려 ①). 지금 Pod 가 뜨고 난 뒤의 보고(차단 시각 ≥ 시작 시각)는 그대로다.
+   * 지금 Pod 가 뜬 시각보다 30초 넘게 먼저 남은 차단 사유는 읽지 않는다 — 재시작해 같은 generation 으로 새 Pod 가 뜬 뒤에도 옛 Pod 의 사유가
+   * 「오류」로 남지 않게 (WP-1913 리뷰 반려 ①). 반대로 시작 시각 30초 안의 차단은 지금 Pod 의 것으로 읽는다 — 진입점 차단은 Pod 가 뜬 뒤 몇 초 안에
+   * 오는데 blockedAt 은 API 서버 시계, startedAt 은 runner·kubelet 시계라 몇 초만 어긋나도 진짜 차단이 「Pod 시작 전 보고」로 잘못
+   * 가려졌다(WP-1913 리뷰 반려 ② — WP-1253 칸 거르기와 같은 30초 여유). 시작 시각 이후의 보고는 그대로다.
    */
   @Test
   void 새_Pod가_뜬_뒤_남은_옛_차단은_합치지_않는다() {
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(1), at(10))).isNull();
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), at(10))).isEqualTo("설정 오류");
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(20), at(10))).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(1), at(40))).isNull();
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(11), at(40))).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(40), at(40))).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(50), at(40))).isEqualTo("설정 오류");
   }
 
   private static java.time.OffsetDateTime at(int second) {

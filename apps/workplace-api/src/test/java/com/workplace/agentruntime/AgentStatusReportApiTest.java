@@ -573,6 +573,53 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     assertThat(runtimeEvents()).isEqualTo(1);
   }
 
+  /**
+   * 옛 generation 의 칸 보고는 지금 차단을 지우지 못한다 — 백스톱이 generation 을 보지 않으면 끝나는 중인 옛 Pod 의 상태 보고가 지금 새 차단을
+   * 지워 화면이 「오류」를 잃는다(WP-1913 리뷰 반려 ③).
+   */
+  @Test
+  void status_옛_generation_보고는_칸_차단을_지우지_못한다() throws Exception {
+    // 먼저 정상 보고로 화면 상태를 맞춘다 — 그 뒤에는 칸 차단만 바뀌므로, 알림이 칸에서만 나는지 가릴 수 있다.
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, gen)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, slotReport("IDLE", "WP", null, gen - 1)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+        .isEqualTo("설정 오류로 칸을 못 띄웠어요");
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /**
+   * 가려진 옛 차단 사유를 비워도 실시간 알림은 나지 않는다 — 화면에 보이는 것이 그대로라서다(WP-1913 리뷰 반려 ③, 칸 비움 알림을 저장 원문이 아니라 읽을 때
+   * 합치는 currentPaneBlocked 기준으로 바꾼 것을 고정). 칸 자체는 지금 generation 보고가 오면 비워 둔다.
+   */
+  @Test
+  void status_가려진_칸_차단을_비워도_알리지_않는다() throws Exception {
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    // 옛 generation 에서 남은 차단 — 읽을 때 가려져 화면에는 보이지 않는다.
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "옛 Pod 의 차단")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, gen - 1)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isZero();
+  }
+
   /** 두 워크스페이스에 속한 AI — 설정은 테넌트 2 에만 있다. [tenant2, loc2, agent] */
   private long[] agentInTwoTenants() {
     long tenant2 = TestFixtures.createTenant(dsl, "ACTIVE");

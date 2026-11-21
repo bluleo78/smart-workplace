@@ -20,8 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>보고는 최선 노력이다 — 워크스페이스가 정해지지 않았거나 실행 설정이 없는 AI(외부 실행)는 조용히 끝낸다(진입점은 보고 실패로 멈추지 않는다). 본문이 잘못됐을 때만
  * 400 으로 알려 준다(호출 스크립트 버그). 호출자가 AI 인지는 컨트롤러가 인증 권한으로 먼저 확인한다.
  *
- * <p>칸 차단은 읽을 때만 합치므로 VisibleRuntimeState 가 잡지 못한다 — 그래서 저장한 메시지가 실제로 바뀔 때만 관리자 화면 실시간 알림을 보내, 이미
- * 열려 있는 화면이 「오류」+사유를 놓치지 않는다(WP-1913).
+ * <p>칸 차단은 읽을 때만 합치므로 VisibleRuntimeState 가 잡지 못한다 — 그래서 화면에 합치는 값({@link
+ * AgentRuntimeStatusResolver#currentPaneBlocked})이 실제로 바뀔 때만 관리자 화면 실시간 알림을 보내, 이미 열려 있는 화면이
+ * 「오류」+사유를 놓치지 않는다(WP-1913). 저장 원문이 아니라 화면 기준으로 비교하므로, 같은 사유를 다른 generation 에서 다시 보고해 화면이 「시작 중」 →
+ * 「오류」로 바뀔 때도 알림이 나간다(WP-1913 리뷰 반려 ①).
  */
 @Service
 @Transactional
@@ -33,8 +35,8 @@ public class AgentPaneReportService {
 
   /**
    * 칸 차단 보고 처리. 순서: 본문 검증(state 는 BLOCKED·OK 만) → 메시지에서 제어 문자 정제(아래 {@link #sanitizeMessage} — 정제 뒤
-   * 공백뿐이면 400) → 테넌트 없으면 조용히 return → 설정 행을 잠가 읽고(없으면 조용히 return) message·시각 기록 → OK 면 칸 비움 → 저장한
-   * 메시지가 바뀌었으면 관리자 화면에 알림.
+   * 공백뿐이면 400) → 테넌트 없으면 조용히 return → 설정 행을 잠가 읽고(없으면 조용히 return) message·시각 기록 → OK 면 칸 비움 → 화면에
+   * 합치는 값이 바뀌었으면 관리자 화면에 알림.
    *
    * <p>500자 상한은 매개변수 바인딩({@code @Size})에서 이미 먼저 검증된다 — 검증을 통과한 값을 정제하므로, 정제가 길이를 늘리지 않는 한 500자를 넘는
    * 값은 저장될 수 없고, 정제는 제어 문자를 같은 수의 공백으로 바꾸고 앞뒤를 떼기만 하므로 길이가 늘지 않는다.
@@ -60,11 +62,30 @@ public class AgentPaneReportService {
     if (req.generation() != null && req.generation() != before.generation()) return;
     // OK 는 칸 비움(null) — BLOCKED 는 이유·지금 시각·보고한 Pod 의 generation 을 함께 기록한다.
     String nextMessage = blocked ? message : null;
-    settings.updatePaneBlocked(
-        userId, nextMessage, blocked ? OffsetDateTime.now() : null, req.generation());
-    // 화면에 보이는 것(「오류」+사유)이 실제로 바뀔 때만 알린다 — 같은 메시지의 거듭된 보고(진입점 재시도)는
-    // paneBlockedAt 만 갱신할 뿐 화면이 그대로라 알리지 않는다(변경 알림 계약: 바뀐 것이 없으면 보지 않는다).
-    if (!Objects.equals(before.paneBlockedMessage(), nextMessage)) {
+    OffsetDateTime nextBlockedAt = blocked ? OffsetDateTime.now() : null;
+    Long nextBlockedGeneration = blocked ? req.generation() : null;
+    settings.updatePaneBlocked(userId, nextMessage, nextBlockedAt, nextBlockedGeneration);
+    // 화면에 보이는 것(「오류」+사유)이 실제로 바뀔 때만 알린다 — 바뀌는 기준은 저장 원문이 아니라 읽을 때 화면에 합치는 값
+    // AgentRuntimeStatusResolver.currentPaneBlocked 이다. gen 3 이 막힌 뒤 설정을 고쳐 gen 4 가 되고 gen 4 Pod 가
+    // 같은 사유를
+    // 보고하면 저장 원문은 그대로여도 화면이 「시작 중」 → 「오류」로 바뀌는데, 원문 기준이면 알림이 나가지 않아 목록·상세가 새로고침 전까지
+    // 「시작 중」으로 남는다(WP-1913 리뷰 반려 ①·③).
+    String visibleBefore =
+        AgentRuntimeStatusResolver.currentPaneBlocked(
+            before.paneBlockedMessage(),
+            before.paneBlockedGeneration(),
+            before.generation(),
+            before.paneBlockedAt(),
+            before.startedAt());
+    String visibleAfter =
+        AgentRuntimeStatusResolver.currentPaneBlocked(
+            nextMessage,
+            nextBlockedGeneration,
+            before.generation(),
+            nextBlockedAt,
+            before.startedAt());
+    // 같은 메시지의 거듭된 보고(진입점 재시도)는 보이는 값이 그대로라 알리지 않는다(변경 알림 계약: 바뀐 것이 없으면 보지 않는다).
+    if (!Objects.equals(visibleBefore, visibleAfter)) {
       changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, userId, null);
     }
   }
