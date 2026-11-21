@@ -65,9 +65,9 @@ describe('nextTimeSlot', () => {
 
 describe('timeSlotLabel · dayColumnLabel', () => {
   it('시간 칸 이름', () => {
-    expect(timeSlotLabel(dayColumnLabel(new Date(2026, 10, 21)), 9)).toBe('11월 21일 토요일 오전 9시 새 일정')
-    expect(timeSlotLabel(dayColumnLabel(new Date(2026, 10, 21)), 0)).toBe('11월 21일 토요일 오전 12시 새 일정')
-    expect(timeSlotLabel(dayColumnLabel(new Date(2026, 10, 21)), 13)).toBe('11월 21일 토요일 오후 1시 새 일정')
+    expect(timeSlotLabel(dayColumnLabel(new Date(2026, 10, 21)), 9)).toBe('11월 21일 토요일 09:00 새 일정')
+    expect(timeSlotLabel(dayColumnLabel(new Date(2026, 10, 21)), 0)).toBe('11월 21일 토요일 00:00 새 일정')
+    expect(timeSlotLabel(dayColumnLabel(new Date(2026, 10, 21)), 13)).toBe('11월 21일 토요일 13:00 새 일정')
   })
   it('날짜 열 이름', () => {
     expect(dayColumnLabel(new Date(2026, 10, 21))).toBe('11월 21일 토요일')

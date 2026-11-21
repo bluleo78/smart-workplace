@@ -182,10 +182,9 @@ export function timedSegmentLabel(event: CalendarEvent, day: Date): string {
   const end = new Date(event.endsAt)
   // 시작이 그날 0시 이후면 시작한 날 조각 — 시작 시각을 그대로 보인다.
   if (start >= dayStart) return formatLocalClockTime24(event.startsAt)
-  // 끝이 그날 안(다음 날 0시 전)이면 마지막 날 조각 — 끝 시각을 「~」와 함께 보인다.
-  if (end < nextDay) return `~${formatLocalClockTime24(event.endsAt)}`
-  // 끝이 정확히 다음 날 0시면 그 날이 마지막 날 — 자정 종료는 「24:00」으로 보인다.
-  if (end.getTime() === nextDay.getTime()) return '~24:00'
+  // 끝이 다음 날 0시까지면 마지막 날 조각 — 끝 시각을 「~」와 함께 보인다. 자정 종료의 「24:00」은 목록과 같은
+  // endClock24(isNextMidnightEnd) 한 규칙으로 정한다(WP-1909 리뷰 후속 — 판정이 두 곳이면 초가 붙은 끝에서 어긋났다).
+  if (end <= nextDay) return `~${endClock24(start, end)}`
   // 그 밖은 하루 전체를 덮는 가운데 날 — 시작 날짜부터 이어진다고 보인다(해가 다르면 연도 포함).
   return `${formatLocalMonthDaySlash(event.startsAt, day)}부터`
 }

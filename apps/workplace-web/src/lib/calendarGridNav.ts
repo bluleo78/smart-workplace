@@ -2,6 +2,8 @@
 import { format, isSameDay } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
+import { formatHourLabel24 } from './formatters'
+
 /** 월 보기 칸 수(6주 × 7일). */
 const MONTH_CELLS = 42
 /** 한 주의 칸 수. */
@@ -90,16 +92,16 @@ export function dayColumnLabel(day: Date): string {
   return format(day, 'M월 d일 EEEE', { locale: ko })
 }
 
-/** 시간 칸의 접근 이름 — 「11월 21일 토요일 오전 9시 새 일정」. dayLabel 은 열마다 한 번 만든 dayColumnLabel 값. */
+/** 시간 칸의 접근 이름 — 「11월 21일 토요일 09:00 새 일정」. dayLabel 은 열마다 한 번 만든 dayColumnLabel 값. */
 export function timeSlotLabel(dayLabel: string, hour: number): string {
   return `${dayLabel} ${HOUR_LABELS[hour]} 새 일정`
 }
 
 /**
- * 0~23시의 「오전 9시」 꼴 문구 — 날짜와 무관해 모듈을 읽을 때 한 번만 만든다.
- * 시간 격자는 끌어 만들기 중 pointermove 마다 다시 그려져, 칸 168개마다 format 을 부르면 프레임마다 수백 번이 된다.
+ * 0~23시의 「09:00」 꼴 문구 — 보이는 시간 축(formatHourLabel24)과 같은 24시간 표기라 스크린리더도 같은 시각을 읽는다(WP-1909 리뷰 후속).
+ * 날짜와 무관해 모듈을 읽을 때 한 번만 만든다 — 시간 격자는 끌어 만들기 중 pointermove 마다 다시 그려진다.
  */
-const HOUR_LABELS = Array.from({ length: 24 }, (_, h) => format(new Date(2000, 0, 1, h), 'a h시', { locale: ko }))
+const HOUR_LABELS = Array.from({ length: 24 }, (_, h) => formatHourLabel24(h))
 
 /**
  * 시간 격자의 기본 초점 칸 — 오늘 열이 있으면 그 열의 지금 시, 없으면 첫 열 오전 8시(스크롤 기본 위치와 맞춘다).

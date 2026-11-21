@@ -11,8 +11,10 @@ import {
   formatHourLabel24,
   formatLocalClockRange24,
   formatLocalClockTime24,
+  formatLocalMoveRange24,
   formatMonthDayWeekdayClock24,
   formatNumber,
+  isNextMidnightEnd,
 } from './formatters'
 
 const INVALID = [null, undefined, '', 'not-a-date']
@@ -103,6 +105,38 @@ describe('formatLocalClockRange24', () => {
   })
   it('길이 0 구간은 00:00 – 00:00 그대로', () => {
     expect(formatLocalClockRange24(new Date(2026, 6, 15, 0, 0), new Date(2026, 6, 15, 0, 0))).toBe('00:00 – 00:00')
+  })
+})
+
+describe('isNextMidnightEnd (WP-1909 리뷰 후속)', () => {
+  it('정확한 다음 날 0시만 참 — 초·밀리초가 붙으면 거짓', () => {
+    const start = new Date(2026, 6, 15, 22, 0)
+    expect(isNextMidnightEnd(start, new Date(2026, 6, 16, 0, 0, 0, 0))).toBe(true)
+    expect(isNextMidnightEnd(start, new Date(2026, 6, 16, 0, 0, 30))).toBe(false)
+    expect(isNextMidnightEnd(start, new Date(2026, 6, 16, 0, 0, 0, 1))).toBe(false)
+  })
+  it('길이 0 구간은 거짓', () => {
+    const t = new Date(2026, 6, 15, 0, 0)
+    expect(isNextMidnightEnd(t, t)).toBe(false)
+  })
+})
+
+describe('formatLocalMoveRange24 (WP-1909 리뷰 후속)', () => {
+  it('하루 안·자정 종료는 날짜 없이(자정 끝 24:00)', () => {
+    expect(formatLocalMoveRange24(new Date(2026, 9, 21, 9, 0), new Date(2026, 9, 21, 10, 30))).toBe('09:00 – 10:30')
+    expect(formatLocalMoveRange24(new Date(2026, 9, 21, 22, 0), new Date(2026, 9, 22, 0, 0))).toBe('22:00 – 24:00')
+  })
+  it('여러 날이면 양 끝에 날짜 — 끝은 24:00 이 아니라 그 날짜 00:00', () => {
+    expect(formatLocalMoveRange24(new Date(2026, 9, 21, 22, 0), new Date(2026, 9, 23, 0, 0))).toBe('10/21 22:00 – 10/23 00:00')
+    expect(formatLocalMoveRange24(new Date(2026, 9, 21, 22, 0), new Date(2026, 9, 22, 1, 0))).toBe('10/21 22:00 – 10/22 01:00')
+  })
+  it('길이 0·끝이 시작보다 앞선 구간은 날짜 없이 그대로', () => {
+    expect(formatLocalMoveRange24(new Date(2026, 9, 21, 0, 0), new Date(2026, 9, 21, 0, 0))).toBe('00:00 – 00:00')
+    expect(formatLocalMoveRange24(new Date(2026, 9, 21, 10, 0), new Date(2026, 9, 21, 9, 0))).toBe('10:00 – 09:00')
+  })
+  it('해가 바뀌면 양 끝에 연도', () => {
+    expect(formatLocalMoveRange24(new Date(2026, 11, 31, 22, 0), new Date(2027, 0, 2, 1, 0))).toBe('2026/12/31 22:00 – 2027/1/2 01:00')
+    expect(formatLocalMoveRange24(new Date(2026, 11, 31, 22, 0), new Date(2027, 0, 1, 0, 0))).toBe('22:00 – 24:00')
   })
 })
 

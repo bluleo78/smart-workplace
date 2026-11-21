@@ -398,6 +398,10 @@ describe('timedSegmentLabel (WP-1910)', () => {
     const twoDay = ev(5, '2026-12-02T22:00:00+09:00', '2026-12-04T00:00:00+09:00')
     expect(timedSegmentLabel(twoDay, new Date('2026-12-03T00:00:00'))).toBe('~24:00')
   })
+  it('(b2) 끝이 0시를 몇 초 넘기면 24:00 이 아니라 다음 날 조각 「~00:00」 — 목록(timedLastDay)과 같은 판정(WP-1909 리뷰 후속)', () => {
+    const imported = ev(7, '2026-12-02T22:00:00+09:00', '2026-12-03T00:00:30+09:00')
+    expect(timedSegmentLabel(imported, new Date('2026-12-03T00:00:00'))).toBe('~00:00')
+  })
   it('(c) 해가 바뀌면 시작 날짜에 연도를 붙인다', () => {
     const years = ev(6, '2026-12-30T10:00:00+09:00', '2027-01-03T18:00:00+09:00')
     expect(timedSegmentLabel(years, new Date('2027-01-01T00:00:00'))).toBe('2026/12/30부터')

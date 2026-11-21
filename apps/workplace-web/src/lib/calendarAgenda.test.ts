@@ -243,6 +243,11 @@ describe('agendaTimeLabels(시작일 행)', () => {
     expect(agendaTimeLabels(e, null)).toEqual({ start: '22:00', end: '24:00' })
   })
 
+  it('끝이 0시를 몇 초 넘기면(가져온 일정) 자정 끝이 아니라 다음 날까지 — 주 격자 조각과 같은 판정(WP-1909 리뷰 후속)', () => {
+    const e = ev({ id: 15, startsAt: '2026-10-13T13:00:00Z', endsAt: '2026-10-13T15:00:30Z' }) // 22:00 → 10/14 00:00:30 KST
+    expect(agendaTimeLabels(e, null)).toEqual({ start: '22:00', end: '~10/14' })
+  })
+
   it('다음 날 이후에 끝나면 "~M/d" — 자정 끝은 그 전날이 마지막 날', () => {
     const overnight = ev({ id: 6, startsAt: '2026-10-13T13:00:00Z', endsAt: '2026-10-13T17:00:00Z' }) // 22:00 → 10/14 02:00
     expect(agendaTimeLabels(overnight, null)).toEqual({ start: '22:00', end: '~10/14' })
