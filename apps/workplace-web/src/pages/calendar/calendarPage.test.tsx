@@ -155,7 +155,7 @@ describe('헤더·보기·표기', () => {
     await screen.findByTestId('calendar-view-week')
     await waitFor(() => expect(screen.getAllByTestId('calendar-event-1')).toHaveLength(3))
     expect(screen.getAllByTestId('calendar-event-1').map((b) => b.textContent)).toEqual([
-      '오전 09:00 부산 출장', '6/8부터 부산 출장', '~오후 06:00 부산 출장',
+      '09:00 부산 출장', '6/8부터 부산 출장', '~18:00 부산 출장',
     ])
   })
 
