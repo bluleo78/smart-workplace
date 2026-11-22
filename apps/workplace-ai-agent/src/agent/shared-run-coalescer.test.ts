@@ -433,6 +433,37 @@ describe('createSharedRunCoalescer (WP-1979)', () => {
     expect(row).toEqual({ owner: null, lastStarted: 3, pending: null });
   });
 
+  it('소유 중 온 이벤트의 acquire 가 서버 대기(QUEUED)로 커밋된 뒤 응답만 잃어도 release 로 넘겨받아 한 번만 답한다', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { row, store } = fakeServer();
+    const realAcquire = store.acquire.getMockImplementation()!;
+    let lost = false;
+    store.acquire.mockImplementation(async (id, lease, token) => {
+      if (id !== 3 || lost) return realAcquire(id, lease, token);
+      lost = true;
+      await realAcquire(id, lease, token);
+      throw new Error('timeout');
+    });
+    const fb = fakeFallback();
+    fb.submit.mockImplementation(() => Promise.resolve());
+    let finish!: () => void;
+    const blocked = new Promise<void>((r) => (finish = r));
+    const run = vi.fn(async (e: number) => {
+      if (e === 1) await blocked;
+    });
+    const podA = createSharedRunCoalescer<number>({ store: () => store, fallback: fb, run, onError: vi.fn(), key: () => 'a', order: (e) => e });
+    const p1 = podA.submit(1);
+    await new Promise((r) => setTimeout(r, 0));
+    await podA.submit(3);
+    expect(row.pending).toBe(3);
+    finish();
+    await p1;
+    // e1 의 release 가 e3 를 넘겨 돌았고, 실패한 acquire 의 처리(recover)는 폴백으로 또 답하지 않는다
+    expect(run.mock.calls.map((x) => x[0])).toEqual([1, 3]);
+    expect(fb.submit).not.toHaveBeenCalled();
+    expect(row).toEqual({ owner: null, lastStarted: 3, pending: null });
+  });
+
   it('acquire 응답을 기다리는 동안 대기 칸에 온 새 이벤트도 반납 전에 서버 대기로 보내 다른 파드의 옛 대기와 두 번 답하지 않는다', async () => {
     const { row, store } = fakeServer();
     const realAcquire = store.acquire.getMockImplementation()!;

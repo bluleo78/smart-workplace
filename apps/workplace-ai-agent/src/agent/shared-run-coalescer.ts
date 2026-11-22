@@ -66,6 +66,12 @@ export function createSharedRunCoalescer<E>(opts: {
   key?: (event: E) => string;
   /** acquire 실패가 서버 커밋 뒤 응답 유실일 수 있는가 — 아니면(확실한 HTTP 거절) 반납을 건너뛴다. 기본은 항상 true. */
   mayHaveCommitted?: (error: unknown) => boolean;
+  /**
+   * 이벤트 순번(메시지 id — 클수록 새 것, 서버 acquire 의 DUPLICATE 판정과 같은 기준). 있으면 소유 중 온 이벤트의 acquire 가 실패했을 때,
+   * 이 파드가 그 뒤 release 로 같거나 더 새 이벤트를 이미 넘겨받아 돌았으면 fallback 을 건너뛴다 — 서버가 실은 QUEUED 를 커밋하고 응답만
+   * 잃었으면 그 이벤트(또는 그것을 덮은 더 새 것)는 release 로 이미 답했기 때문이다. 없으면 늘 fallback 으로 답한다.
+   */
+  order?: (event: E) => number;
 }): { submit(event: E): Promise<void> | undefined } {
   const maxRunMs = opts.maxRunMs ?? DEFAULT_MAX_RUN_MS;
   const leaseMs = maxRunMs + LEASE_MARGIN_MS;
@@ -75,6 +81,10 @@ export function createSharedRunCoalescer<E>(opts: {
    * 한 파드 안에서 같은 대화의 답이 겹친다(공유 임대는 파드 사이만 막는다).
    */
   const heldKeys = new Map<string, HeldSlot<E>>();
+  /** 대화 키 → 이 파드의 소유 루프가 release 로 넘겨받은 이벤트 중 가장 큰 순번(order 가 있을 때만) — recover 가 이미 답한 이벤트를 거른다. */
+  const handedMax = new Map<string, number>();
+  /** 대화 키 → 진행 중인 forward 수 — 키를 놓아도 진행 중인 forward 가 있으면 handedMax 를 남겨 둔다(그 forward 의 recover 가 쓴다). */
+  const forwarding = new Map<string, number>();
 
   /**
    * 임대를 얻은 뒤의 실행 루프 — 실행 → (대기 칸을 서버 대기로) → release → 넘겨받은 밀린 이벤트로 다시 실행.
@@ -113,6 +123,7 @@ export function createSharedRunCoalescer<E>(opts: {
         // 반납 실패는 임대 만료가 정리해 주므로 경고만 하고 끝낸다.
         console.warn('[shared-run-coalescer] release 실패', e instanceof Error ? e.message : String(e));
       }
+      if (next && k !== undefined && opts.order) handedMax.set(k, Math.max(handedMax.get(k) ?? -Infinity, opts.order(next)));
       current = next;
     }
     if (firstErr) throw firstErr.e;
@@ -174,7 +185,7 @@ export function createSharedRunCoalescer<E>(opts: {
     while (item) {
       try {
         if (item.kind === 'owned') await runOwned(item.event, item.token);
-        else if (item.kind === 'recover') await fallbackThenRelease(item.event, item.token, item.mayRelease);
+        else if (item.kind === 'recover') await recover(k, item.event, item.token, item.mayRelease);
         else await processOne(item.event);
       } catch (e) {
         firstErr ??= { e };
@@ -183,7 +194,27 @@ export function createSharedRunCoalescer<E>(opts: {
     }
     // 대기 칸 확인과 삭제 사이에 await 가 없어 그 틈에 온 이벤트를 잃지 않는다(단일 스레드).
     heldKeys.delete(k);
+    forgetHanded(k);
     if (firstErr) throw firstErr.e;
+  }
+
+  /**
+   * acquire 가 실패한 소유 중 이벤트를 처리한다 — 이 파드가 그 뒤 release 로 같거나 더 새 이벤트를 넘겨받아 돌았으면(서버가 QUEUED 를 커밋하고
+   * 응답만 잃은 경우) fallback 없이 그 토큰으로 반납만 하고(소유자가 아니면 서버는 아무것도 바꾸지 않는다), 아니면 processOne 처럼 fallback 뒤 반납한다.
+   */
+  async function recover(k: string, event: E, token: string, mayRelease: boolean): Promise<void> {
+    const handed = handedMax.get(k);
+    if (opts.order && handed !== undefined && handed >= opts.order(event)) {
+      const next = mayRelease ? await releaseAfterFailedAcquire(event, token) : null;
+      if (next) await runOwned(next, token);
+      return;
+    }
+    await fallbackThenRelease(event, token, mayRelease);
+  }
+
+  /** 키를 쥔 처리도 진행 중인 forward 도 없으면 넘겨받은 순번 기록을 지운다(대화마다 쌓이지 않게). */
+  function forgetHanded(k: string): void {
+    if (!heldKeys.has(k) && !forwarding.get(k)) handedMax.delete(k);
   }
 
   /** 대기 칸에서 다음 처리를 꺼낸다 — 차례대로 할 처리 먼저, 없으면 가장 최근 이벤트. 비었으면 null. */
@@ -204,6 +235,18 @@ export function createSharedRunCoalescer<E>(opts: {
    * DUPLICATE 로 답이 사라진다.
    */
   async function forward(k: string, event: E): Promise<void> {
+    forwarding.set(k, (forwarding.get(k) ?? 0) + 1);
+    try {
+      await forwardOnce(k, event);
+    } finally {
+      const left = (forwarding.get(k) ?? 1) - 1;
+      if (left > 0) forwarding.set(k, left);
+      else forwarding.delete(k);
+      forgetHanded(k);
+    }
+  }
+
+  async function forwardOnce(k: string, event: E): Promise<void> {
     const token = randomUUID();
     let res: Awaited<ReturnType<RunLeaseStore<E>['acquire']>>;
     try {
