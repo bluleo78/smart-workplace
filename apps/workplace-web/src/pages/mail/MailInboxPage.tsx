@@ -1385,6 +1385,14 @@ function MailInbox() {
     data: fetchedMessages, isLoading, isPending: listPending,
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
   } = messagesQuery
+  // 메일함 첫 목록을 한 번 받은 뒤에는 필터 키 변경이 메일함 가져오기 상태를 다시 로딩으로 바꾸지 않게 기억한다.
+  const folderListTarget = `${accountIdNum ?? ''}:${view.folderId ?? ''}`
+  const loadedFolderLists = useRef(new Set<string>())
+  useEffect(() => {
+    if (!folderView || fetchedMessages === undefined) return
+    loadedFolderLists.current.add(folderListTarget)
+  }, [folderView, folderListTarget, fetchedMessages])
+  const folderListAlreadyLoaded = loadedFolderLists.current.has(folderListTarget) || fetchedMessages !== undefined
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
@@ -1630,27 +1638,19 @@ function MailInbox() {
     else if (syncForFolder && syncFolder.isError) folderState = 'sync-failed'
     // 다시 시도하는 동안은 실패 안내와 버튼을 유지해 초점이 사라지지 않게 한다.
     else if (listFailed) folderState = 'list-failed'
-    // 오프라인으로 멈춘 첫 조회도 진행 중으로 유지해 빈 결과로 오해하지 않게 한다.
-    else if (listPending) folderState = 'loading'
+    // 첫 목록 응답·오프라인 보류는 로딩으로 알리고, 이미 연 메일함의 필터 조회는 별도 목록 로딩으로 알린다.
+    else if (listPending && !folderListAlreadyLoaded) folderState = 'loading'
     else folderState = currentFolder.folderSyncedAt || syncCompleted ? 'ready' : 'not-synced'
   }
   const olderSyncing = folderState === 'syncing' && syncForFolder && syncFolder.variables?.older === true
-  // 조회가 끝난 뒤에는 검색·안 읽은 메일 필터의 기존 빈 안내를 쓴다.
-  const folderEmpty = folderState && !messages?.length && (folderState !== 'ready' || (!search && !view.unreadOnly))
+  // 필터 목록을 처음 받는 중에는 서버 메일함의 완료 안내를 숨겨 빈 결과로 오해하지 않게 한다.
+  const folderEmpty = folderState && !messages?.length && (folderState !== 'ready' || (!listPending && !search && !view.unreadOnly))
     ? MAIL_FOLDER_STATE_COPY[folderState]
     : null
   // 「더 가져오기」 — 직접 누른 것이라 결과를 토스트로 알린다(열 때 자동 가져오기는 조용히).
   const fetchOlder = () => {
     if (!currentFolder) return
-    runFolderSync(
-      { folderId: currentFolder.id, older: true, mailListQueryKey, waitForTrashCount: currentFolder.role === 'TRASH' },
-      {
-        onSuccess: (r) => {
-          if (r.running) return
-          toast(r.saved > 0 ? `이전 메일 ${r.saved}통을 더 가져왔어요` : '이전 90일에는 가져올 메일이 없어요')
-        },
-      },
-    )
+    runFolderSync({ folderId: currentFolder.id, older: true, mailListQueryKey, waitForTrashCount: currentFolder.role === 'TRASH' })
   }
   // WP-965 목록 이어 보기 — 끝까지 내리면 로컬 다음 페이지, 로컬이 바닥나면 받은편지함(전체·업무)·보낸편지함은 서버에서 이전 90일을 더 가져온다.
   // 서버에 더 없음·실패는 계정·폴더 키별로 기억한다 — 다른 계정·폴더로 옮기면 그 키의 기록이 없어 처음부터 다시 본다.
@@ -2244,7 +2244,7 @@ function MailInbox() {
               className="px-4 py-3"
             />
           )}
-          {!folderEmpty && isLoading && !failedWithoutData(messagesQuery) ? (
+          {!folderEmpty && (isLoading || (folderView && listPending)) && !failedWithoutData(messagesQuery) ? (
             <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
           ) : !folderEmpty && failedWithoutData(messagesQuery) ? (
             // 데이터 없이 첫 조회에 실패했을 때만 본문 자리 block 안내 — 다시 부르는 중에도 안내·초점을 유지한다(WP-1908).

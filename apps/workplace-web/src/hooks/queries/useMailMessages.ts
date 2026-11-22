@@ -155,7 +155,16 @@ export function useSyncMailFolder(accountId: number | undefined) {
     mutationFn: ({ folderId, older }: { folderId: number; older: boolean; mailListQueryKey: readonly unknown[]; waitForTrashCount?: boolean }) =>
       syncMailFolder(accountId as number, folderId, older),
     onSuccess: async (result, variables) => {
-      const currentListHash = hashKey(variables.mailListQueryKey);
+      // 호출이 겹쳐도 직접 누른 「더 가져오기」 결과를 빠뜨리지 않게 모든 mutation의 훅 수준에서 알린다.
+      if (variables.older && !result.running) {
+        toast(result.saved > 0 ? `이전 메일 ${result.saved}통을 더 가져왔어요` : '이전 90일에는 가져올 메일이 없어요');
+      }
+      // 응답 전에 같은 메일함에서 필터를 바꿨다면, 지금 보이는 목록 조회까지 기다려 빈 상태를 일찍 확정하지 않는다.
+      const activeFolderListKey = qc.getQueryCache()
+        .findAll({ queryKey: ['mail-messages', accountId ?? 0] })
+        .find((query) => query.isActive() && query.queryKey[7] === variables.folderId)?.queryKey;
+      const currentListKey = activeFolderListKey ?? variables.mailListQueryKey;
+      const currentListHash = hashKey(currentListKey);
       const refresh = async () => {
         // 현재 목록은 아래에서 기다리므로 빼고, 다른 폴더·홈 위젯만 기다리지 않고 갱신한다.
         void qc.invalidateQueries({
@@ -163,7 +172,7 @@ export function useSyncMailFolder(accountId: number | undefined) {
           predicate: (query) => query.queryHash !== currentListHash,
         });
         const currentView = Promise.all([
-          qc.invalidateQueries({ queryKey: variables.mailListQueryKey, exact: true }),
+          qc.invalidateQueries({ queryKey: currentListKey, exact: true }),
           qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0), exact: true }),
         ]);
         const trashCount = qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0), exact: true });

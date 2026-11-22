@@ -269,6 +269,105 @@ test('메일함 클릭 → folderId 로만 목록, 열 때 가져오기(older=fa
   expect(location()).toMatch(/box=6/)
 })
 
+test('더 가져오기 결과는 다른 메일함을 연 뒤에도 토스트로 알린다', async () => {
+  const { handlers } = folderHandlers(() => folderList({ 6: { folderSyncedAt: syncedAt(), syncedSince: since(90) } }))
+  let releaseOlder!: () => void
+  const olderPending = new Promise<void>((resolve) => (releaseOlder = resolve))
+  const folderSync = record('post', '/api/v1/mail/accounts/1/folders/6/sync', async ({ url }) => {
+    const older = url.searchParams.get('older') === 'true'
+    if (older) await olderPending
+    return HttpResponse.json(syncResult(older ? { saved: 2, syncedSince: since(180) } : {}))
+  })
+  const archiveSync = record('post', '/api/v1/mail/accounts/1/folders/1/sync', () => HttpResponse.json(syncResult()))
+  const { user } = renderMail('/mail/1?box=6', { handlers: [folderSync.handler, archiveSync.handler, ...handlers] })
+
+  try {
+    await waitFor(() => expect(screen.getByTestId('mail-box-status-text').textContent).toMatch(/^최근 90일 · .+에 가져옴$/))
+    await user.click(screen.getByTestId('mail-box-older'))
+    await waitFor(() => expect(folderSync.calls).toHaveLength(2))
+    await user.click(await screen.findByTestId('mail-folder-archive'))
+    await waitFor(() => expect(archiveSync.calls).toHaveLength(1))
+
+    releaseOlder()
+    expect(await screen.findByText('이전 메일 2통을 더 가져왔어요')).toBeInTheDocument()
+  } finally {
+    releaseOlder()
+  }
+})
+
+test('더 가져오기 중 필터를 지우면 현재 메일 목록 재조회가 끝날 때까지 빈 메일함으로 확정하지 않는다', async () => {
+  const older = gate()
+  const visibleRefresh = gate()
+  let holdVisibleRefresh = false
+  const list = record('get', LIST, async ({ url }) => {
+    if (holdVisibleRefresh && !url.searchParams.has('unread')) await visibleRefresh.promise
+    return HttpResponse.json([])
+  })
+  const folders = http.get('/api/v1/mail/accounts/1/folders', () =>
+    HttpResponse.json(folderList({ 6: { folderSyncedAt: syncedAt(), syncedSince: since(90) } })),
+  )
+  const sync = record('post', '/api/v1/mail/accounts/1/folders/6/sync', async ({ url }) => {
+    if (url.searchParams.get('older') === 'true') await older.promise
+    return HttpResponse.json(syncResult(url.searchParams.get('older') === 'true' ? { saved: 1 } : { fetched: 0, saved: 0 }))
+  })
+  const { user, location } = renderMail('/mail/1?box=6', { handlers: [list.handler, folders, sync.handler] })
+
+  try {
+    await waitFor(() => expect(screen.getByTestId('mail-box-status-text').textContent).toMatch(/^최근 90일 · .+에 가져옴$/))
+    await user.click(screen.getByTestId('mail-unread-toggle'))
+    await waitFor(() => expect(location()).toMatch(/unread=true/))
+    await waitFor(() => expect(list.calls.some((call) => call.url.searchParams.get('unread') === 'true')).toBe(true))
+
+    await user.click(screen.getByTestId('mail-box-older'))
+    await waitFor(() => expect(sync.calls.some((call) => call.url.searchParams.get('older') === 'true')).toBe(true))
+    const unfilteredCalls = list.calls.filter((call) => !call.url.searchParams.has('unread')).length
+    holdVisibleRefresh = true
+    await user.click(screen.getByTestId('mail-unread-toggle'))
+    await waitFor(() => expect(location()).not.toMatch(/unread=true/))
+
+    older.release()
+    await waitFor(() => expect(list.calls.filter((call) => !call.url.searchParams.has('unread')).length).toBeGreaterThan(unfilteredCalls))
+    expect(screen.getByTestId('mail-box-status-text')).toHaveTextContent('메일함을 가져오는 중…')
+    expect(screen.queryByText('이 메일함에 메일이 없어요')).not.toBeInTheDocument()
+
+    visibleRefresh.release()
+    await waitFor(() => expect(screen.getByTestId('mail-box-status-text').textContent).toMatch(/^최근 90일 · .+에 가져옴$/))
+    expect(await screen.findByText('이 메일함에 메일이 없어요')).toBeInTheDocument()
+  } finally {
+    older.release()
+    visibleRefresh.release()
+  }
+})
+
+test('이미 가져온 메일함에서 필터 목록을 다시 받는 동안 상태 줄은 가져오는 중으로 바뀌지 않는다', async () => {
+  let releaseUnread!: () => void
+  const unreadPending = new Promise<void>((resolve) => (releaseUnread = resolve))
+  const list = record('get', LIST, async ({ url }) => {
+    if (url.searchParams.get('unread') === 'true') await unreadPending
+    return HttpResponse.json([])
+  })
+  const folders = http.get('/api/v1/mail/accounts/1/folders', () =>
+    HttpResponse.json(folderList({ 6: { unreadCount: 3, folderSyncedAt: syncedAt(), syncedSince: since(90) } })),
+  )
+  const sync = http.post('/api/v1/mail/accounts/1/folders/6/sync', () => HttpResponse.json(syncResult({ fetched: 0, saved: 0 })))
+  const { user } = renderMail('/mail/1?box=6', { handlers: [list.handler, countsHandler(), folders, sync] })
+
+  try {
+    const status = await screen.findByTestId('mail-box-status-text')
+    await waitFor(() => expect(status.textContent).toMatch(/^최근 90일 · .+에 가져옴$/))
+    const initialCalls = list.calls.length
+    await user.click(screen.getByTestId('mail-unread-toggle'))
+    await waitFor(() => expect(list.calls.length).toBeGreaterThan(initialCalls))
+    await waitFor(() => expect(list.last().url.searchParams.get('unread')).toBe('true'))
+
+    expect(status).toHaveTextContent(/^최근 90일 · .+에 가져옴$/)
+    expect(status).not.toHaveTextContent('메일함을 가져오는 중…')
+    expect(screen.getByText('불러오는 중…')).toBeInTheDocument()
+  } finally {
+    releaseUnread()
+  }
+})
+
 test('보관을 열면 제목 「보관」, 가져오기는 보관 id 로 — 다른 보기에 갔다 다시 열면 또 가져온다', async () => {
   const { list, handlers } = folderHandlers(() => folderList())
   const syncs = record('post', '/api/v1/mail/accounts/1/folders/1/sync', () => HttpResponse.json(syncResult()))
@@ -746,6 +845,7 @@ test.each([
     await user.click(screen.getByTestId(button))
     await waitFor(() => expect(list.calls.length).toBeGreaterThan(previousListCalls))
     expect(await expectBoxState('메일함을 가져오는 중…', '메일함을 가져오는 중…')).toBe(ready)
+    expect(within(ready).getByText('잠시만 기다려 주세요.', { exact: true })).toBeInTheDocument()
     expect(ready).not.toHaveTextContent('이 메일함에 메일이 없어요')
     requery.release()
     if (result === 'failure') {

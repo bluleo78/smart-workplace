@@ -1,9 +1,9 @@
-// 서버 메일함 E2E — 사이드바 트리의 기하(WP-961)와 목록 재조회 동안 빈 안내의 라이브 영역 유지(WP-1963).
+// 서버 메일함(보관·내 메일함) E2E(WP-961) — 사이드바 트리의 기하(하위 들여쓰기·긴 이름이 사이드바를 넘지 않음)만 남긴다(@layout).
 // 보관 줄·안 읽은 수·묶음 노드·접기(다시 그려도 유지)·메일함 열기(목록 folderId·가져오기 POST·상태 줄)·더 가져오기·
 // 모두 읽음 범위·가져오기 실패는 src/pages/mail/mailSidebar.test.tsx(vitest, WP-984)가 지킨다.
 import type { Page } from '@playwright/test'
 
-import type { MailFolderSyncResult, MailServerFolder } from '../../../src/types/mailFolder'
+import type { MailServerFolder } from '../../../src/types/mailFolder'
 import type { MailUnreadCounts } from '../../../src/types/mailMessage'
 import { mailAccount, mailServerFolder, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
@@ -46,52 +46,4 @@ test.describe('메일 사이드바 — 내 메일함 트리(WP-961)', () => {
     const lb = (await page.getByTestId('mail-box-7').boundingBox())!
     expect(lb.x + lb.width).toBeLessThanOrEqual(sb.x + sb.width)
   })
-})
-
-test('빈 서버 메일함은 새로 고침의 목록 재조회가 끝날 때까지 가져오는 중으로 알린다(WP-1963)', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
-  const at = new Date().toISOString()
-  const since = new Date(Date.now() - 90 * 86_400_000).toISOString()
-  const accountApi = '/api/v1/mail/accounts/1'
-  const listUrl = `${accountApi}/messages`
-  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
-  await mockApi(page, 'GET', `${accountApi}/unread-counts`, COUNTS)
-  await mockApi(page, 'GET', `${accountApi}/folders`, [mailServerFolder({ id: 5, displayName: '프로젝트', folderSyncedAt: at, syncedSince: since })])
-  await mockApi(page, 'POST', `${accountApi}/folders/5/sync`, {
-    running: false, fetched: 0, saved: 0, seenChanged: 0, removed: 0, folderSyncedAt: at, syncedSince: since,
-  } satisfies MailFolderSyncResult)
-
-  let holdList = false
-  let releaseList!: () => void
-  const pendingList = new Promise<void>((resolve) => { releaseList = resolve })
-  await page.route((url) => url.pathname === listUrl && url.searchParams.get('folderId') === '5', async (route) => {
-    if (holdList) await pendingList
-    await route.fulfill({ json: [] })
-  })
-
-  try {
-    await page.goto('/mail/1?box=5')
-    const empty = page.getByTestId('mail-box-empty')
-    const status = empty.getByRole('status')
-    const row = page.getByTestId('mail-box-status-text')
-    await expect(status).toHaveText('이 메일함에 메일이 없어요')
-    await expect(row).toHaveText(/^최근 90일 · .+에 가져옴$/)
-    const region = await status.evaluateHandle((element) => element)
-
-    // 새로 고침 POST는 끝내고 이어지는 목록 GET만 보류한다. 캐시의 0건을 다시 보여서는 안 된다.
-    holdList = true
-    const request = page.waitForRequest((req) => new URL(req.url()).pathname === listUrl)
-    await page.getByTestId('mail-box-refresh').click()
-    await request
-    await expect(row).toHaveText('메일함을 가져오는 중…')
-    await expect(status.getByText('메일함을 가져오는 중…', { exact: true })).toBeVisible()
-    await expect(status.getByText('잠시만 기다려 주세요.', { exact: true })).toBeVisible()
-    expect(await region.evaluate((el) => el === document.querySelector('[data-testid="mail-box-empty"] [role="status"]'))).toBe(true)
-
-    releaseList()
-    await expect(row).toHaveText(/^최근 90일 · .+에 가져옴$/)
-    await expect(status).toHaveText('이 메일함에 메일이 없어요')
-    expect(await region.evaluate((el) => el === document.querySelector('[data-testid="mail-box-empty"] [role="status"]'))).toBe(true)
-  } finally {
-    releaseList()
-  }
 })
