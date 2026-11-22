@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 
+import { pauseClockAhead } from '../../fixtures/clock'
 import { connectCollabPeer, leaveAllCollabPeers, presenceShot } from '../../fixtures/collab'
 import { expectTheme, textContrast, withTheme } from '../../fixtures/contrast'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
@@ -28,7 +29,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expectTheme(a, theme)
     await expect(a.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'live')
     // 데스크톱 스펙과 같은 이유로 접속자가 붙기 전에 시계를 멈춘다.
-    await a.clock.pauseAt((await a.evaluate(() => Date.now())) + 50)
+    await pauseClockAhead(a, 50)
     const peers = []
     for (const u of PEERS) peers.push(await connectCollabPeer(collabNs, 91, u))
     // 블록 3 = 마지막 일반 문단(번호 목록 블록은 글 상자가 아니다).
