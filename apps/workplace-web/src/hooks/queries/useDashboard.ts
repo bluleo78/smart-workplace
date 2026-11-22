@@ -1,13 +1,23 @@
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { dashboardApi } from '../../api/dashboard'
-import { handleApiError } from '../../lib/api-error'
+import { handleApiError, isConflictError } from '../../lib/api-error'
 import type { DashboardDevice, DashboardLayout, DashboardWidgetConfig } from '../../types/dashboard'
 import { dashboardKeys } from './dashboardKeys'
 
-/** 기기별 대시보드 레이아웃 조회 — 쿼리 키에 device 를 넣어 모바일·데스크톱 캐시를 분리한다(WP-142). */
+/**
+ * 기기별 대시보드 레이아웃 조회 — 쿼리 키에 device 를 넣어 모바일·데스크톱 캐시를 분리한다(WP-142).
+ * 창 포커스 때 다시 불러와 다른 기기·탭의 변경을 따라잡는다(WP-1953 — 낡은 version 으로 저장해 409 를 맞는 일을 줄임).
+ * 단, 저장(편집 저장·접기)이 진행 중이면 건너뛴다 — PUT 이전 위젯·version 으로 캐시가 되돌아가 뒤 PUT 이 409 를 맞지 않게.
+ */
 export function useDashboardLayout(device: DashboardDevice) {
-  return useQuery({ queryKey: dashboardKeys.layout(device), queryFn: () => dashboardApi.get(device) })
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: dashboardKeys.layout(device),
+    queryFn: () => dashboardApi.get(device),
+    // dashboardKeys.all 접두로 저장·접기 mutation 을 모두 센다.
+    refetchOnWindowFocus: () => qc.isMutating({ mutationKey: dashboardKeys.all }) === 0,
+  })
 }
 
 /**
@@ -17,6 +27,8 @@ export function useDashboardLayout(device: DashboardDevice) {
 interface SaveDashboardVars {
   device: DashboardDevice
   widgets: DashboardWidgetConfig[]
+  /** 편집을 시작할 때 읽은 레이아웃 version — 서버가 현재 값과 견줘 다르면 409(WP-1953). */
+  version?: number
 }
 
 // 편집 저장 mutation 식별 키 — 진행 여부를 컴포넌트 수명과 무관하게 본다(useIsDashboardSaving).
@@ -27,8 +39,17 @@ export function useSaveDashboardLayout() {
   const qc = useQueryClient()
   return useMutation({
     mutationKey: SAVE_MUTATION_KEY,
-    mutationFn: ({ device, widgets }: SaveDashboardVars) => dashboardApi.save(device, widgets),
+    mutationFn: ({ device, widgets, version }: SaveDashboardVars) => dashboardApi.save(device, widgets, version),
+    // 저장 시작 시점에 이미 날아가던 GET(직전 포커스 재조회 등)을 취소한다 — 그 응답이 PUT 의 onSuccess 뒤에 도착해
+    // 더 오래된 위젯·version 으로 캐시를 덮는 일을 막는다. 저장 중 새로 시작되는 재조회는 refetchOnWindowFocus 가드가 막는다.
+    onMutate: async ({ device }) => {
+      await qc.cancelQueries({ queryKey: dashboardKeys.layout(device) })
+    },
     onSuccess: (data, { device }) => qc.setQueryData(dashboardKeys.layout(device), data),
+    // 409 = 다른 곳에서 먼저 저장됨 — 최신 레이아웃을 다시 불러온다. 편집을 끝내고 문구를 보이는 일은 호출부(saveEdit)가 한다.
+    onError: (err, { device }) => {
+      if (isConflictError(err)) void qc.invalidateQueries({ queryKey: dashboardKeys.layout(device) })
+    },
   })
 }
 
@@ -50,7 +71,7 @@ const latestCollapseSeq = new Map<string, number>()
 /** 레이아웃 캐시에서 한 위젯의 collapsed 만 바꾼다(없으면 그대로). */
 function patchCollapsed(layout: DashboardLayout | undefined, id: string, collapsed: boolean) {
   if (!layout) return layout
-  return { widgets: layout.widgets.map((w) => (w.id === id ? { ...w, collapsed } : w)) }
+  return { ...layout, widgets: layout.widgets.map((w) => (w.id === id ? { ...w, collapsed } : w)) }
 }
 
 /**
@@ -61,6 +82,9 @@ function patchCollapsed(layout: DashboardLayout | undefined, id: string, collaps
  * - 중간 토글의 성공 응답으로는 캐시를 덮지 않는다: 늦게 온 앞 응답이 뒤 토글의 낙관 상태를 되돌리는 깜빡임을 막는다.
  *   마지막 토글이 끝났을 때만 서버 상태와 맞춘다 — 성공이면 그 PUT 응답(=저장된 최신 레이아웃)을 캐시에 넣어 재조회(GET)를
  *   아끼고, 실패면 무엇이 저장됐는지 모르므로 재조회한다(그 사이 창 포커스 재조회는 onMutate 의 cancel 로 막힘).
+ * - 연속 PUT 은 version 을 이어 보낸다(WP-1953): 각 PUT 은 실행 시점 캐시의 version 을 싣고, 성공하면 서버가 올린 version 을
+ *   캐시에 반영한다(위젯은 그대로 — 위 낙관 상태 보호). 안 그러면 두 번째 PUT 이 낡은 version 으로 409 를 맞는다.
+ *   409(다른 곳에서 바뀜)는 일반 실패와 같은 경로 — 롤백·(마지막이면)재조회 — 에 서버 문구 토스트가 나간다.
  * - 실패하면 그 위젯만 이전 값으로 되돌리고 토스트. 단, 같은 위젯을 그 뒤에 또 눌렀다면 롤백하지 않는다 —
  *   뒤 탭의 낙관 상태가 사용자의 마지막 의도이고, 뒤 PUT 이 그 상태(실행 시점 캐시)를 저장한다.
  *   토스트는 mutate 개별 콜백이 아닌 여기 둔다 —
@@ -79,12 +103,22 @@ export function useToggleWidgetCollapsed() {
       latestCollapseSeq.set(id, seq)
       return { seq }
     },
-    mutationFn: () => dashboardApi.save('mobile', qc.getQueryData<DashboardLayout>(key)?.widgets ?? []),
+    mutationFn: () => {
+      const cur = qc.getQueryData<DashboardLayout>(key)
+      return dashboardApi.save('mobile', cur?.widgets ?? [], cur?.version)
+    },
+    onSuccess: (data) => {
+      // 마지막 토글이 아니어도 version 만 서버 값으로 올린다 — 위젯은 뒤 토글의 낙관 상태라 응답으로 덮지 않는다.
+      qc.setQueryData<DashboardLayout>(key, (old) => (old ? { ...old, version: data.version } : old))
+    },
     onError: (err, { id, collapsed }, ctx) => {
       // 이 위젯의 마지막 토글일 때만 이전 값으로 되돌린다(뒤에 누른 탭을 덮어쓰지 않게).
       if (ctx && latestCollapseSeq.get(id) === ctx.seq) {
         qc.setQueryData<DashboardLayout>(key, (old) => patchCollapsed(old, id, !collapsed))
       }
+      // 409 는 뒤에 대기 중인 PUT 도 같은 낡은 version 이라 줄줄이 409 가 난다 — 같은 문구가 연달아 뜨지 않게 마지막 것에서만
+      // 알린다(그때 onSettled 가 재조회해 "최신을 불러왔다"는 서버 문구도 사실이 된다). 그 밖의 오류는 매번 알린다.
+      if (isConflictError(err) && qc.isMutating({ mutationKey: COLLAPSE_MUTATION_KEY }) > 1) return
       handleApiError(err, '위젯 접기 상태를 저장하지 못했습니다')
     },
     onSettled: (data, err, { id }, ctx) => {

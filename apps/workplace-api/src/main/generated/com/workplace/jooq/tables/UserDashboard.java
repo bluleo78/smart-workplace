@@ -94,6 +94,11 @@ public class UserDashboard extends TableImpl<UserDashboardRecord> {
      */
     public final TableField<UserDashboardRecord, String> DEVICE = createField(DSL.name("device"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'DESKTOP'::character varying"), SQLDataType.VARCHAR)), this, "");
 
+    /**
+     * The column <code>public.user_dashboard.version</code>.
+     */
+    public final TableField<UserDashboardRecord, Long> VERSION = createField(DSL.name("version"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("0"), SQLDataType.BIGINT)), this, "");
+
     private UserDashboard(Name alias, Table<UserDashboardRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

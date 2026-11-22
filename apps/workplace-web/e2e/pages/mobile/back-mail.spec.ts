@@ -71,7 +71,7 @@ test('딥링크(?messageId) 진입 후 ‹ → 같은 모듈 목록(앱 밖으�
 test('홈 위젯 → 메일: ‹ 와 goBack 이 모두 홈으로 돌아간다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   // unread_mail 은 본문형 위젯 — collapsed:false 면 행(dash-mail-row)이 보인다.
-  const layout: DashboardLayout = { widgets: [{ id: 'unread_mail', type: 'unread_mail', count: 3, hidden: false, collapsed: false }] }
+  const layout: DashboardLayout = { widgets: [{ id: 'unread_mail', type: 'unread_mail', count: 3, hidden: false, collapsed: false }], version: 0 }
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout)
   const mail: MailSummary = { unreadCount: 1, needsReplyCount: 0, classificationActive: false, recent: [summary()] }
   await mockApi(page, 'GET', '/api/v1/me/mail-summary', mail)

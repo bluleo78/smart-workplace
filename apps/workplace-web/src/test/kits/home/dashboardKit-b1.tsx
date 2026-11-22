@@ -19,7 +19,7 @@ import { createIssue, createIssueSearchResponse } from '../../../../e2e/factorie
 
 /** 저장 레이아웃 — 문자열은 {id=type, count 5, 보임} 으로 정규화. 순서가 곧 렌더 순서. */
 export function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {
-  return { widgets: widgets.map((w) => (typeof w === 'string' ? { id: w, type: w, count: 5, hidden: false } : w)) }
+  return { widgets: widgets.map((w) => (typeof w === 'string' ? { id: w, type: w, count: 5, hidden: false } : w)), version: 0 }
 }
 
 /** 카탈로그 위젯 설정 한 줄. */

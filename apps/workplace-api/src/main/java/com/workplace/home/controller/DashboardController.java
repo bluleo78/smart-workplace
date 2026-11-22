@@ -31,13 +31,16 @@ public class DashboardController {
     return ResponseEntity.ok(service.get(callerId, DashboardDevice.fromParam(device)));
   }
 
-  /** 내 대시보드 레이아웃 저장(기기별 전체 교체). 다른 기기 레이아웃은 그대로. 알 수 없는/중복 위젯·비면 400. */
+  /**
+   * 내 대시보드 레이아웃 저장(기기별 전체 교체). 다른 기기 레이아웃은 그대로. 알 수 없는/중복 위젯·비면 400, 읽은 뒤 바뀐 레이아웃이면(version 불일치)
+   * 409.
+   */
   @PutMapping
   public ResponseEntity<DashboardResponse> put(
       @AuthenticationPrincipal Long callerId,
       @RequestParam(name = "device", required = false) String device,
       @Valid @RequestBody DashboardUpdateRequest req) {
     return ResponseEntity.ok(
-        service.save(callerId, DashboardDevice.fromParam(device), req.widgets()));
+        service.save(callerId, DashboardDevice.fromParam(device), req.widgets(), req.version()));
   }
 }

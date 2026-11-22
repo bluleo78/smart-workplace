@@ -30,7 +30,7 @@ afterEach(() => {
 
 /** 레이아웃 — 문자열은 {type, count 5, 보임} 으로 정규화(E2E home.spec 의 layout 과 같음). */
 function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {
-  return { widgets: widgets.map((w) => (typeof w === 'string' ? { id: w, type: w, count: 5, hidden: false } : w)) }
+  return { widgets: widgets.map((w) => (typeof w === 'string' ? { id: w, type: w, count: 5, hidden: false } : w)), version: 0 }
 }
 
 /** 알림 한 건 — 이슈 알림 기본값에 필요한 칸만 덮어쓴다. */

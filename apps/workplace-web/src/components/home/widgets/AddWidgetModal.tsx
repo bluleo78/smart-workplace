@@ -1,7 +1,7 @@
 // 위젯 추가 모달 — 좌: 카테고리, 중: 카드 목록, 우: 선택한 위젯의 라이브 프리뷰(목데이터).
 // 카드 클릭은 선택(하이라이트)만 하고, 프리뷰 패널의 "+ 위젯 추가" 버튼을 눌러야 실제로 추가된다
 // (예전엔 카드 클릭 = 즉시 추가였으나, 어떤 위젯인지 모르고 고르는 문제를 해결하기 위해 변경).
-import { createElement, Suspense, useEffect, useState } from 'react'
+import { createElement, Suspense, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -74,8 +74,19 @@ export function AddWidgetModal({
 
   const selectedEntry = visible.find((e) => e.widget.type === selectedType) ?? null
 
+  // 확인 버튼 재진입 가드(WP-1954). 상태(useState)는 비동기 반영이라 같은 틱의 두 번째 클릭을 못 막고,
+  // Radix Dialog 는 종료 애니메이션(Presence) 동안 내용을 남겨 더블 클릭의 두 번째 클릭이 버튼에 닿는다 → ref 로 즉시 막는다.
+  const addingRef = useRef(false)
+
+  // 가드는 모달이 열릴 때만 푼다 — 카테고리 전환 때 첫 카드를 다시 고르는 자동 선택 effect 에 합치면
+  // 카테고리 전환만으로도 가드가 풀리므로, 그와 분리된 effect 로 따로 둔다.
+  useEffect(() => {
+    if (open) addingRef.current = false
+  }, [open])
+
   function handleAdd() {
-    if (disabled || !selectedType) return
+    if (addingRef.current || disabled || !selectedType) return
+    addingRef.current = true
     onAdd(selectedType)
     onOpenChange(false)
   }

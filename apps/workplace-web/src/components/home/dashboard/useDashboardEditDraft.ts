@@ -6,7 +6,7 @@ import { type SetStateAction, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useIsDashboardSaving, useSaveDashboardLayout } from '@/hooks/queries/useDashboard'
-import { handleApiError } from '@/lib/api-error'
+import { handleApiError, isConflictError } from '@/lib/api-error'
 import type { DashboardDevice, DashboardWidgetConfig } from '@/types/dashboard'
 
 import { getCatalogWidget } from '../widgets/catalogRegistry'
@@ -45,6 +45,19 @@ export function pushUndo(stack: DashboardWidgetConfig[][], snap: DashboardWidget
   return [...stack, snap].slice(-MAX_UNDO)
 }
 
+/**
+ * 초안 끝에 위젯 하나를 붙이는 순수 함수(WP-1954) — 상한·싱글턴을 최신 초안(prev)으로 검사한다.
+ * 렌더 시점의 낡은 클로저 draft 로 검사하면 같은 틱에 연속 호출(「+ 위젯 추가」 더블 클릭)에서
+ * 두 번째 추가가 첫 추가를 보지 못해 상한(12)을 넘거나 시스템 위젯이 중복된다. 업데이터의 prev 는
+ * 같은 틱의 연속 호출도 순서대로 반영한 값이라 여기서 막아야 확실하다.
+ * 막았을 때는 새 배열 대신 prev 를 그대로(같은 참조) 돌려 React 가 불필요하게 다시 그리지 않게 한다.
+ */
+export function appendWidget(prev: DashboardWidgetConfig[], entry: DashboardWidgetConfig): DashboardWidgetConfig[] {
+  if (prev.length >= MAX_WIDGETS) return prev
+  if (prev.some((w) => w.id === entry.id)) return prev
+  return [...prev, entry]
+}
+
 // 편집 세션 번호 발급기 — 모듈 수준이라 재마운트·주인(계정) 전환을 넘어 번호가 겹치지 않는다.
 let editSessionSeq = 0
 
@@ -60,6 +73,8 @@ interface Options {
   device: DashboardDevice
   /** 현재 기기의 저장된 위젯 목록(아직 못 받았으면 undefined) — 편집 시작 시 초안으로 복사한다. */
   savedWidgets: DashboardWidgetConfig[] | undefined
+  /** 현재 기기 저장 레이아웃의 version — 편집 시작 때 세션에 기록해 저장에 싣는다(WP-1953). */
+  savedVersion?: number
   /** 접기 저장 중이면 편집 진입을 막는다(늦게 도착한 접기 PUT 이 편집 저장을 덮어쓰지 않게). */
   collapseSaving: boolean
   /** 현재 기기의 레이아웃 조회가 데이터 없이 실패했는가(failedWithoutData) — 실패면 기준 레이아웃이 없는 것으로 본다. */
@@ -74,12 +89,12 @@ interface Options {
  *   레이아웃에 저장되지 않도록 하는 안전장치다(WP-142).
  * - 저장 전까지 아무것도 영속화되지 않는다.
  */
-export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, layoutFailed }: Options) {
+export function useDashboardEditDraft({ device, savedWidgets, savedVersion, collapseSaving, layoutFailed }: Options) {
   const save = useSaveDashboardLayout()
   // 진행 중 저장은 전역 mutation 캐시로 본다 — 저장 중 재마운트돼도 저장 버튼이 다시 살아나 이중 PUT 하지 않게.
   const isSaving = useIsDashboardSaving()
   // 시작 기기·초안·undo 는 셸 교체(lg 경계 리사이즈로 인한 Dashboard 재마운트)에도 살아 있는 저장소에 둔다(WP-162).
-  const [{ editDevice, draft, undoStack, session }, setStore] = useDashboardEditDraftStore()
+  const [{ editDevice, draft, undoStack, session, baseVersion }, setStore] = useDashboardEditDraftStore()
   // 기준 레이아웃 — 조회 실패면 없는 것으로 본다. 편집 가능 판정(editing·canEnterEdit)은 이 값 하나로 여기서만 정한다
   // (WP-1850 리뷰 후속 — 화면과 훅이 따로 판정하지 않게). 기준이 없는데 남은 초안을 저장하면 볼 수 없는 서버 레이아웃을 덮어쓴다.
   const baseWidgets = layoutFailed ? undefined : savedWidgets
@@ -140,6 +155,7 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, la
       draft: baseWidgets.map((w) => ({ ...w })),
       undoStack: [],
       session: editSessionSeq,
+      baseVersion: savedVersion,
     })
     setLiveMsg('')
     setAddModalOpen(false)
@@ -223,7 +239,8 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, la
   }
 
   // 위젯 추가 — 시스템 위젯은 이미 draft 에 있으면 무시(싱글턴), 카탈로그 위젯은 새 UUID 인스턴스로 추가.
-  // 상한(MAX_WIDGETS) 도달 시 무시(모달 쪽에서도 버튼 비활성화로 방지, 여기는 방어적 가드).
+  // 아래 바깥 가드(draft.length·draft.some)는 공지·undo 스냅샷을 만들기 전에 빠르게 끊기 위한 것(WP-1954) —
+  // 같은 틱 연속 호출에서는 낡을 수 있으므로, 실제로 추가할지는 최신 prev 로 검사하는 appendWidget 이 결정한다.
   function addWidget(type: string) {
     if (draft.length >= MAX_WIDGETS) return
     const sys = getDashboardWidget(type)
@@ -232,7 +249,8 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, la
       snapshot()
       // 편집 중인 기기의 기본 항목 수(편집 밖 호출은 없지만 null 이면 기존처럼 데스크톱 5).
       const count = DEFAULT_COUNT[editDevice ?? 'desktop']
-      setDraft((prev) => [...prev, { id: type, type, count, hidden: false }])
+      // 상한·싱글턴은 최신 초안(prev)으로 검사한다(appendWidget) — 렌더 시점 draft 는 같은 틱 연속 호출에 낡을 수 있다.
+      setDraft((prev) => appendWidget(prev, { id: type, type, count, hidden: false }))
       setLiveMsg(`${sys.title} 위젯을 추가했습니다`)
       setRecentlyAddedId(type)
       return
@@ -241,10 +259,10 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, la
     if (!cat) return
     const id = crypto.randomUUID()
     snapshot()
-    setDraft((prev) => [
-      ...prev,
-      { id, type, count: 0, hidden: false, params: cat.defaultParams, label: null },
-    ])
+    // 상한·싱글턴은 최신 초안(prev)으로 검사한다(appendWidget) — 카탈로그 위젯은 id 가 매번 달라 싱글턴 검사는 사실상 상한 검사.
+    setDraft((prev) =>
+      appendWidget(prev, { id, type, count: 0, hidden: false, params: cat.defaultParams, label: null }),
+    )
     setLiveMsg(`${cat.title} 위젯을 추가했습니다`)
     setRecentlyAddedId(id)
   }
@@ -313,16 +331,21 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, la
     // 편집 모드가 되살아난다. 프라미스로 받아 저장소(셸 밖 provider) 갱신이 재마운트와 무관하게 실행되게 한다(WP-162).
     // 단, 그사이 새 편집 세션이 시작됐으면 그 편집은 건드리지 않는다(session 비교).
     const savedSession = session
-    save.mutateAsync({ device: editDevice, widgets: draft }).then(
+    // 같은 세션일 때만 편집을 끝낸다 — 그사이 시작된 새 편집은 건드리지 않는다.
+    const endSession = () => setStore((s) => (s.session === savedSession ? { ...s, editDevice: null, undoStack: [] } : s))
+    save.mutateAsync({ device: editDevice, widgets: draft, version: baseVersion }).then(
       () => {
         // 저장 종료 — 성공·실패 양쪽에서 풀어야 실패 뒤 재시도가 막히지 않는다(WP-1957).
         saveInFlightRef.current = false
-        setStore((s) => (s.session === savedSession ? { ...s, editDevice: null, undoStack: [] } : s))
+        endSession()
         setLiveMsg('대시보드 레이아웃을 저장했습니다')
       },
       (err: unknown) => {
         // 저장 종료 — 성공·실패 양쪽에서 풀어야 실패 뒤 재시도가 막히지 않는다(WP-1957).
         saveInFlightRef.current = false
+        // 409 = 다른 곳에서 먼저 바뀐 낡은 초안 — 편집을 끝내고(최신은 훅이 재조회) 사용자가 최신 레이아웃에서 다시 편집한다.
+        // 그 밖 실패는 초안을 남겨 다시 저장할 수 있게 둔다.
+        if (isConflictError(err)) endSession()
         handleApiError(err, '대시보드 저장에 실패했습니다')
       },
     )

@@ -39,6 +39,7 @@ function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {
     widgets: widgets.map((w) =>
       typeof w === 'string' ? { id: w, type: w, count: 5, hidden: false } : w,
     ),
+    version: 0,
   }
 }
 

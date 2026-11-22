@@ -36,6 +36,14 @@ async function save(view: Awaited<ReturnType<typeof openEdit>>) {
   await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
 }
 
+/** 모달을 열어 type 카드를 고르고 확인한 뒤 모달이 닫힐 때까지 기다린다 — 「열고 → 추가 → 닫기」를 반복할 때 쓴다(WP-1954). */
+async function addViaModal(view: Awaited<ReturnType<typeof openEdit>>, type: string) {
+  const modal = await openAddModal(view)
+  await view.user.click(modalCard(modal, type))
+  await view.user.click(within(modal).getByTestId('add-widget-confirm'))
+  await waitFor(() => expect(screen.queryByTestId('add-widget-modal')).not.toBeInTheDocument())
+}
+
 test('아래로 이동 → 저장하면 PUT payload 순서가 바뀌고 일반 뷰도 응답으로 새 순서를 그린다', async () => {
   const view = await openEdit(['my_tasks', 'unread_mail'])
   await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down'))
@@ -214,6 +222,31 @@ test('위젯 추가 모달 — 카탈로그 카드는 선택만 하고, 확인�
   await waitFor(() => expect(screen.queryByTestId('add-widget-modal')).not.toBeInTheDocument())
   await save(view)
   expect(view.dash.state.puts.at(-1)!.body.widgets.map((w) => w.type)).toContain('issue_list')
+})
+
+// WP-1954 — Radix 가 종료 애니메이션 동안 확인 버튼을 남겨 더블 클릭의 두 번째 클릭이 handleAdd 를 다시 부르던 버그.
+test('위젯 추가 모달 — 「+ 위젯 추가」를 더블 클릭해도 위젯은 1개만 추가된다(WP-1954)', async () => {
+  const view = await openEdit(['my_tasks'])
+  const modal = await openAddModal(view)
+  await view.user.click(modalCard(modal, 'issue_list'))
+  const btn = within(modal).getByTestId('add-widget-confirm')
+  // 같은 틱에 두 번 — 상태 갱신 전이라 disabled 로는 막히지 않는다.
+  act(() => {
+    btn.click()
+    btn.click()
+  })
+  await waitFor(() => expect(screen.queryByTestId('add-widget-modal')).not.toBeInTheDocument())
+  await save(view)
+  expect(view.dash.state.puts.at(-1)!.body.widgets.filter((w) => w.type === 'issue_list')).toHaveLength(1)
+})
+
+// 가드는 모달이 다시 열릴 때 풀려야 한다 — 같은 카탈로그 위젯을 또 추가할 수 있다.
+test('위젯 추가 모달 — 닫았다 다시 열면 같은 카탈로그 위젯을 다시 추가할 수 있다(WP-1954)', async () => {
+  const view = await openEdit(['my_tasks'])
+  await addViaModal(view, 'issue_list') // 첫 번째 추가
+  await addViaModal(view, 'issue_list') // 닫았다가 다시 열어 같은 위젯 추가
+  await save(view)
+  expect(view.dash.state.puts.at(-1)!.body.widgets.filter((w) => w.type === 'issue_list')).toHaveLength(2)
 })
 
 test('위젯 추가 모달 — 처음엔 첫 카드 프리뷰, 카드를 고르면 그 위젯 목데이터 프리뷰, 카테고리를 바꾸면 첫 카드가 자동 선택된다', async () => {
