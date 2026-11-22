@@ -2,7 +2,11 @@ package com.workplace.airun.capacity;
 
 import static com.workplace.jooq.Tables.AI_CAPACITY_SAMPLE;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
@@ -37,5 +41,39 @@ public class AiCapacitySampleRepository {
     return dsl.deleteFrom(AI_CAPACITY_SAMPLE)
         .where(AI_CAPACITY_SAMPLE.SAMPLED_AT.lt(OffsetDateTime.now().minusDays(days)))
         .execute();
+  }
+
+  /** {@code since} 이후(포함)의 가장 최근 표본. 없으면 비어 있다 — 「최근 10분 표본」 판정에 쓴다. */
+  public Optional<AiCapacitySample> findLatestSince(Instant since) {
+    return dsl.selectFrom(AI_CAPACITY_SAMPLE)
+        .where(AI_CAPACITY_SAMPLE.SAMPLED_AT.ge(utc(since)))
+        .orderBy(AI_CAPACITY_SAMPLE.SAMPLED_AT.desc())
+        .limit(1)
+        .fetchOptional(AiCapacitySampleRepository::toSample);
+  }
+
+  /** [from, to] 구간 표본을 시각 오름차순으로 돌려준다(양 끝 포함 — 호출자가 구간 경계를 정한다). */
+  public List<AiCapacitySample> findBetween(Instant from, Instant to) {
+    return dsl.selectFrom(AI_CAPACITY_SAMPLE)
+        .where(AI_CAPACITY_SAMPLE.SAMPLED_AT.ge(utc(from)))
+        .and(AI_CAPACITY_SAMPLE.SAMPLED_AT.le(utc(to)))
+        .orderBy(AI_CAPACITY_SAMPLE.SAMPLED_AT.asc())
+        .fetch(AiCapacitySampleRepository::toSample);
+  }
+
+  private static OffsetDateTime utc(Instant t) {
+    return t.atOffset(ZoneOffset.UTC);
+  }
+
+  /** 행을 표본 레코드로 바꾼다(JSON 칸은 문자열 그대로). */
+  private static AiCapacitySample toSample(org.jooq.Record r) {
+    return new AiCapacitySample(
+        r.get(AI_CAPACITY_SAMPLE.SAMPLED_AT),
+        r.get(AI_CAPACITY_SAMPLE.SLOT_USED),
+        r.get(AI_CAPACITY_SAMPLE.SLOT_LIMIT),
+        r.get(AI_CAPACITY_SAMPLE.QUEUE_WAITING),
+        r.get(AI_CAPACITY_SAMPLE.QUEUE_OLDEST_WAIT_SEC),
+        r.get(AI_CAPACITY_SAMPLE.ACCOUNT_USAGE).data(),
+        r.get(AI_CAPACITY_SAMPLE.BACKLOG).data());
   }
 }

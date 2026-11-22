@@ -209,7 +209,7 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.AGENT_WORK_ACTIVE_UQ, Indexes.AGENT_WORK_ISSUE_IDX, Indexes.AGENT_WORK_WORKER_ACTIVE_IDX, Indexes.AGENT_WORK_WORKER_ENDED_IDX, Indexes.IDX_AGENT_WORK_TENANT);
+        return Arrays.asList(Indexes.AGENT_WORK_ACTIVE_UQ, Indexes.AGENT_WORK_ISSUE_IDX, Indexes.AGENT_WORK_TENANT_STARTED_IDX, Indexes.AGENT_WORK_WORKER_ACTIVE_IDX, Indexes.AGENT_WORK_WORKER_ENDED_IDX, Indexes.IDX_AGENT_WORK_TENANT);
     }
 
     @Override
