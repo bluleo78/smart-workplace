@@ -254,7 +254,7 @@ test('db 는 max_connections 를 args 로 받는다 — 기본 100, 값을 바�
 });
 
 test('api 대수 × 풀 + 롤링 여유 + 예비가 max_connections 를 넘으면 렌더가 실패한다 (WP-1972)', () => {
-  // (8+2)×10+15 = 115 > 100
+  // (8+2)×10+2+13 = 115 > 100
   const { ok, err } = render('-f', IMAGES, '--set', 'appReplicas=8');
   assert.equal(ok, false);
   assert.match(err, /DB 커넥션 합계/);
@@ -273,15 +273,15 @@ test('정수 문자열 maxSurge("1") 는 허용된다 (WP-1972)', () => {
 });
 
 test('풀 크기만 키워도 합계가 넘으면 렌더가 실패한다 (WP-1972)', () => {
-  // (1+2)×50+15 = 165 > 100
+  // (1+2)×50+2+13 = 165 > 100
   const { ok, err } = render('-f', IMAGES, '--set', 'api.dbPoolMaxSize=50');
   assert.equal(ok, false);
   assert.match(err, /165/);
 });
 
 test('합계가 max_connections 와 같으면 렌더된다 (WP-1972)', () => {
-  // (6+2)×10+20 = 100
-  const r = render('-f', IMAGES, '--set', 'appReplicas=6', '--set', 'db.reservedConnections=20');
+  // (6+2)×10+18+Flyway 2×1 = 100
+  const r = render('-f', IMAGES, '--set', 'appReplicas=6', '--set', 'db.reservedConnections=18');
   assert.ok(r.ok, r.err);
 });
 
@@ -290,3 +290,27 @@ test('api.dbPoolMaxSize 가 숫자가 아니면 가드가 조용히 지나지 �
   assert.equal(ok, false);
   assert.match(err, /api\.dbPoolMaxSize/);
 });
+
+test('appReplicas 가 정수가 아니면(8x) int 가 0 으로 읽어 합계를 적게 세므로 렌더가 실패한다 (WP-1972)', () => {
+  const { ok, err } = render('-f', IMAGES, '--set-string', 'appReplicas=8x');
+  assert.equal(ok, false);
+  assert.match(err, /appReplicas 는 DB 커넥션 합계 계산을 위해 정수여야 합니다/);
+});
+
+test('api.dbPoolMaxSize=0 은 거절한다 — Hikari 는 1 미만이면 기본 10 을 써서 가드가 0 으로 세는 동안 파드마다 10 개를 연다 (WP-1972)', () => {
+  const { ok, err } = render('-f', IMAGES, '--set', 'api.dbPoolMaxSize=0');
+  assert.equal(ok, false);
+  assert.match(err, /api\.dbPoolMaxSize 는 1 이상/);
+});
+
+// Flyway 접속 몫(maxSurge × 2)이 합계에 들어가고 maxSurge 에 비례해 는다 — 예비 13 + 풀 1 일 때
+// maxSurge 1: (1+2)×1+2+13 = 18, maxSurge 3: (1+6)×1+6+13 = 26. Flyway 몫을 안 세면 각각 16·20 이라 한계-1 에서 통과해 버린다
+for (const [surge, limit] of [[1, 18], [3, 26]]) {
+  test(`Flyway 접속 몫이 합계에 들어간다 — maxSurge ${surge} 이면 합계 ${limit} (WP-1972)`, () => {
+    const base = ['-f', IMAGES, '--set', 'api.dbPoolMaxSize=1', '--set', 'db.reservedConnections=13', '--set', `rollout.maxSurge=${surge}`];
+    const low = render(...base, '--set', `db.maxConnections=${limit - 1}`);
+    assert.equal(low.ok, false);
+    assert.match(low.err, new RegExp(`DB 커넥션 합계 ${limit} `));
+    assert.ok(render(...base, '--set', `db.maxConnections=${limit}`).ok);
+  });
+}
