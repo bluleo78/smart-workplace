@@ -261,7 +261,7 @@ public class GeniaLoginSessionRepository {
    * 끝났으면 0건) 반영하고 비밀을 지우며 임대를 푼다.
    */
   public boolean finishPendingWithoutLease(
-      String loginId, Instant now, long resultAccountId, String resultEmail) {
+      String loginId, long userId, Instant now, long resultAccountId, String resultEmail) {
     return dsl.update(GENIA_LOGIN_SESSION)
             .set(GENIA_LOGIN_SESSION.STATUS, "SUCCEEDED")
             .setNull(GENIA_LOGIN_SESSION.ERROR_MESSAGE)
@@ -273,6 +273,8 @@ public class GeniaLoginSessionRepository {
             .setNull(GENIA_LOGIN_SESSION.POLL_LEASE_UNTIL)
             .set(GENIA_LOGIN_SESSION.UPDATED_AT, ts(now))
             .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(loginId))
+            // 남의 진행은 사용자 조건으로 거른다(find·claimForSave·deleteByLoginId 와 같은 가드).
+            .and(GENIA_LOGIN_SESSION.USER_ID.eq(userId))
             .and(GENIA_LOGIN_SESSION.STATUS.eq("PENDING"))
             .execute()
         == 1;

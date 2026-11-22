@@ -332,11 +332,14 @@ class GeniaLoginServiceMultiInstanceTest extends IntegrationTestBase {
 
   /**
    * 저장 직전 임대 연장은 Gen:iA 응답을 받은 뒤의 시각으로 한다 — 폴링 전 시각으로 연장하면 응답을 기다린 만큼 임대가 짧아져 계정 저장 중에 다른 파드가 이어받을
-   * 수 있다. 시계를 폴링 응답 때 옮겨 연장한 임대 만료가 옮긴 시각 + 임대인지 본다.
+   * 수 있다. 시계를 폴링 응답 때 옮겨(진행 만료 뒤) 연장한 임대 만료가 옮긴 시각 + 임대인지 본다.
    */
   @Test
   void claimForSave_extendsLeaseFromNow_notPollStart() throws Exception {
-    stubStart();
+    // 진행이 폴링 응답 전에 만료되게(t0+20) 둬 「만료 시각과 지금 중 늦은 쪽」이 지금(응답 받은 시각)이 되게 한다.
+    doReturn(new LoginStart(AUTHORIZE_URL, STATE, 1, t0.plusSeconds(20)))
+        .when(client)
+        .start(anyString());
     MutableClock clock = new MutableClock(t0.plusSeconds(5));
     Instant afterPoll = t0.plusSeconds(25);
     doAnswer(
@@ -417,6 +420,152 @@ class GeniaLoginServiceMultiInstanceTest extends IntegrationTestBase {
                     .fetchOne());
     assertThat(row.getVerifierEnc()).isNull();
     assertThat(row.getPollLeaseToken()).isNull();
+  }
+
+  /**
+   * 계정을 저장하는 동안은 폴링 임대(30초)가 지나도 다른 파드가 이어받아 다시 폴링하지 않는다 — 이어받은 파드가 이미 쓴 device code 로 FAILED 를 먼저
+   * 내보내면 계정은 저장됐는데 화면은 실패로 멈춘다(WP-1976 리뷰 후속 ①). 임대는 진행 만료 시각 + 폴링 임대까지 늘어난다.
+   */
+  @Test
+  void saveInProgress_blocksTakeoverUntilSessionExpiry() throws Exception {
+    stubStart();
+    doReturn(success("a@iacloud.kr")).when(client).poll(anyString(), anyString());
+    CountDownLatch saving = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    GeniaLoginSessionRepository spyRepo =
+        org.mockito.Mockito.spy(new GeniaLoginSessionRepository(baseDsl));
+    // 계정 저장이 끝나 성공을 반영하기 직전에 멈춰 「저장 중」을 길게 흉내 낸다(SQL 전이라 행 잠금은 쥐지 않는다).
+    doAnswer(
+            inv -> {
+              saving.countDown();
+              release.await(10, TimeUnit.SECONDS);
+              return inv.callRealMethod();
+            })
+        .when(spyRepo)
+        .finish(
+            anyString(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq("SUCCEEDED"),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any());
+    GeniaLoginService saver =
+        new GeniaLoginService(
+            client,
+            accountService,
+            spyRepo,
+            encryption,
+            txManager,
+            Clock.fixed(t0.plusSeconds(5), ZoneOffset.UTC),
+            GeniaLoginService.MIN_POLL_LEASE);
+    String id = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
+
+    CompletableFuture<GeniaLoginResponse> saving1 =
+        CompletableFuture.supplyAsync(
+            () -> {
+              TenantContext.set(1L);
+              try {
+                return saver.status(user, id);
+              } finally {
+                TenantContext.clear();
+              }
+            });
+    assertThat(saving.await(10, TimeUnit.SECONDS)).isTrue();
+    // 폴링 임대(30초)가 한참 지난 t0+100 — 진행 만료(약 10분 뒤) 전이라 다른 파드는 이어받지 않는다.
+    GeniaLoginResponse during = instance(t0.plusSeconds(100)).status(user, id);
+    assertThat(during.status()).isEqualTo("PENDING");
+    verify(client, times(1)).poll(anyString(), anyString());
+    release.countDown();
+
+    assertThat(saving1.get(10, TimeUnit.SECONDS).status()).isEqualTo("SUCCEEDED");
+    assertThat(accountCount()).isEqualTo(1);
+  }
+
+  /** 토큰 없는 성공 반영은 대기 중인 이 사용자의 진행만 바꾼다 — 끝난 결과·남의 진행은 그대로(한 번 내보낸 결과가 바뀌지 않게). */
+  @Test
+  void finishPendingWithoutLease_onlyPendingRowOfThatUser() throws Exception {
+    stubStart();
+    doReturn(success("a@iacloud.kr")).when(client).poll(anyString(), anyString());
+    String pending = instanceA().start(user2, new GeniaLoginStartRequest(null, null)).id();
+    String done = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
+    GeniaLoginResponse finished = instanceB().status(user, done);
+    assertThat(finished.status()).isEqualTo("SUCCEEDED");
+
+    Boolean overFinished =
+        callInTenant(
+            1L,
+            () ->
+                repo.finishPendingWithoutLease(
+                    done, user, t0.plusSeconds(9), 999_999L, "x@iacloud.kr"));
+    Boolean otherUser =
+        callInTenant(
+            1L,
+            () ->
+                repo.finishPendingWithoutLease(
+                    pending, user, t0.plusSeconds(9), 999_999L, "x@iacloud.kr"));
+
+    assertThat(overFinished).isFalse();
+    assertThat(otherUser).isFalse();
+    assertThat(instance(t0.plusSeconds(10)).status(user, done).accountId())
+        .isEqualTo(finished.accountId());
+  }
+
+  /**
+   * 폴링 중에 그 파드가 멈추면(응답이 오지 않음) 임대 안에서는 다른 파드가 폴링하지 않고, 임대가 끝나면 다른 파드가 이어받아 폴링한다. 멈췄던 파드가 뒤늦게 돌아와도
+   * 임대 토큰이 달라 결과를 덮지 않는다(WP-1976 리뷰 후속 ②).
+   */
+  @Test
+  void podHangsDuringPoll_otherInstanceTakesOverAfterLease() throws Exception {
+    stubStart();
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    java.util.concurrent.atomic.AtomicInteger calls =
+        new java.util.concurrent.atomic.AtomicInteger();
+    doAnswer(
+            inv -> {
+              if (calls.getAndIncrement() == 0) {
+                entered.countDown();
+                release.await(10, TimeUnit.SECONDS); // 멈춘 파드
+                return new PollResult.Pending();
+              }
+              return new PollResult.SlowDown();
+            })
+        .when(client)
+        .poll(anyString(), anyString());
+    String id = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
+    GeniaLoginService hung = instanceB(); // t0+5 에 임대(30초)
+
+    CompletableFuture<GeniaLoginResponse> polling =
+        CompletableFuture.supplyAsync(
+            () -> {
+              TenantContext.set(1L);
+              try {
+                return hung.status(user, id);
+              } finally {
+                TenantContext.clear();
+              }
+            });
+    assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+    // 임대 안(t0+20)에서는 다른 파드도 폴링하지 않는다.
+    assertThat(instance(t0.plusSeconds(20)).status(user, id).status()).isEqualTo("PENDING");
+    assertThat(calls.get()).isEqualTo(1);
+    // 임대가 끝난 뒤(t0+36) 다른 파드가 이어받아 폴링한다(SlowDown → 간격이 1+5초로 늘어난다).
+    assertThat(instance(t0.plusSeconds(36)).status(user, id).status()).isEqualTo("PENDING");
+    assertThat(calls.get()).isEqualTo(2);
+    // 멈췄던 파드가 돌아와도 토큰이 달라 이어받은 쪽이 늘린 간격을 덮지 않는다.
+    release.countDown();
+    polling.get(10, TimeUnit.SECONDS);
+    int interval =
+        callInTenant(
+            1L,
+            () ->
+                baseDsl
+                    .select(GENIA_LOGIN_SESSION.INTERVAL_SECONDS)
+                    .from(GENIA_LOGIN_SESSION)
+                    .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(id))
+                    .fetchOne(GENIA_LOGIN_SESSION.INTERVAL_SECONDS));
+    assertThat(interval).isEqualTo(6);
   }
 
   /** 창을 닫아 버려진(만료가 지난) 진행의 암호문은 쓸기(만료 + 10분) 전이라도 다음 시작 때 지운다. */
