@@ -242,6 +242,10 @@ $runner_items"
 #    추론 강도(WP-1542)는 설정 칸 effort 를 effortLevel 로 적는다. Claude Code 는 low·medium·high·xhigh·max 다섯 값만 받고 그 밖은 거부하므로 그 값만 통과시킨다.
 #    effort 키가 아예 없는 옛 에이전트는 설정 화면이 보여 주는 기본(high)과 동작을 맞추려 high. 키는 있는데 비었거나 다섯 값이 아니면 effortLevel 을 빼고
 #    경고 한 줄만 남긴다(값 원문은 로그에 싣지 않는다). 모델별 맞춤은 하지 않는다 — 지원 안 하는 강도는 Claude Code 가 알아서 낮춘다.
+#    Code Mode(실험, WP-1960)는 env 블록의 CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 로 켠다 — 모델이 REPL 코드로 여러 도구를 한 턴에 묶어 불러
+#    같은 과제에서 API 시간·비용이 줄었다(WP-1879 벤치). 대화형 칸은 이 파일의 env 만으로 켜져 셸에는 내보내지 않는다(실측) — 셸 env 만 있는
+#    헤드리스 `claude -p` 는 Code Mode 를 거부하고 경고를 내므로 칸 밖 호출에 새지 않게. 모델(Opus 5.5 미만)·계정 게이트 등 조건이 안 맞으면
+#    Claude Code 가 스스로 일반 모드로 뜬다. 확인 창은 mark_trust 의 플래그가 막는다.
 write_settings() {
   local effort out
   mkdir -p "$HOME/.claude" || return 1
@@ -274,16 +278,20 @@ write_settings() {
             "claude-plugins-official": { source: { source: "github", repo: "anthropics/claude-plugins-official" } },
             "superpowers-marketplace": { source: { source: "github", repo: "obra/superpowers-marketplace" } } } }
       + { skipDangerousModePermissionPrompt: true }
+      + { env: { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: "1" } }
       + (if $mcp != "" then { pluginConfigs: { "genia-works@genia-works": { options: { server_url: $mcp } } } } else {} end)
     ') && gw_write_atomic "$HOME/.claude/settings.json" "$out"
 }
 
 # 4. ~/.claude.json — 첫 실행 창(온보딩·bypass 확인·폴더 신뢰)이 사람 없는 칸을 막지 않게. 키 이름은 DH-VM 의 것 그대로.
 #    claude 가 적은 다른 값은 둔다. 폴더 신뢰는 상위 폴더 신뢰가 하위에도 미친다(실측) — AI 폴더를 신뢰해 두면 work-loop 가 나중에 받는 저장소도 덮는다.
+#    Code Mode 확인 창(WP-1960): 두 플래그가 없으면 대화형 칸이 「Code Mode (experimental)」 opt-in 창에서 멈춘다(2.1.330 실측). 키 이름 끝의
+#    V1 은 Claude Code 가 안내문을 바꾸면 올라갈 수 있다 — CLAUDE_CODE_VERSION 을 올릴 때 tmux 로 칸이 창 없이 뜨는지 다시 본다(README).
 mark_trust() {
   f="$HOME/.claude.json"
   [ -s "$f" ] || printf '{}\n' > "$f"
   out=$(jq '.hasCompletedOnboarding = true | .bypassPermissionsModeAccepted = true
+         | .codeModeCaveatsAcceptedV1 = true | .codeModeAutoModeCaveatAcceptedV1 = true
          | reduce $ARGS.positional[] as $p (.; .projects[$p].hasTrustDialogAccepted = true)' "$f" --args "$@") &&
     gw_write_atomic "$f" "$out"
 }
