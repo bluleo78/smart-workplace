@@ -13,6 +13,7 @@ export function AiContent({
   collapsible = false,
   defaultOpen = true,
   preview,
+  labelId,
   className,
   'data-testid': dataTestId,
   children,
@@ -23,6 +24,8 @@ export function AiContent({
   defaultOpen?: boolean
   /** collapsible 일 때 접힌 동안 라벨 옆에 한 줄로 보이는 미리보기(말줄임). 펼치면 숨는다 — 모바일 메일 요약(WP-400). */
   preview?: React.ReactNode
+  /** 라벨(「AI 발굴」 등)에만 붙는 id — 안의 링크가 aria-describedby 로 라벨을 읽게 한다(근거 툴팁 버튼은 제외, WP-1938). */
+  labelId?: string
   className?: string
   'data-testid'?: string
   children: React.ReactNode
@@ -33,7 +36,8 @@ export function AiContent({
 
   const header = (
     <span className="inline-flex items-center gap-1">
-      <AiLabel>{label}</AiLabel>
+      {/* WP-1938: 라벨에만 id — 근거 툴팁 버튼이 설명에 섞이지 않게. 없으면 id 속성이 붙지 않아 다른 호출부 DOM 은 그대로. */}
+      <AiLabel id={labelId}>{label}</AiLabel>
       {reason && (
         <Tooltip>
           <TooltipTrigger asChild>

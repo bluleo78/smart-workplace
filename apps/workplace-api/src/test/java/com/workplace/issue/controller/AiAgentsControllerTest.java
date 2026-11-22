@@ -296,6 +296,39 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(texts(slots.get("issues"))).containsExactly(issueKey(child), issueKey(review));
   }
 
+  /**
+   * 선행이 풀렸지만 자리가 차 기다리는 대기 중(WP-1956)은 저장된 note 로 가려 두 조회 모두 자리에서 뺀다 — 세면 그 행이 스스로를 막는다. 목록에는 그대로
+   * 남고, 다른 note 의 대기 중과 같은 note 로 다시 작업 중이 된 행은 센다.
+   */
+  @Test
+  void slots_excludeSlotWaitAfterBlockerInBothQueries() throws Exception {
+    long agent = createAgentUserWithMembership("ag-slot-wait");
+    projectMember(projectId, agent);
+    long full = issue(projectId, "자리 대기", me);
+    long hold = issue(projectId, "새 작업 안 받음", me);
+    long review = issue(projectId, "리뷰 대기", me);
+    long resumed = issue(projectId, "다시 작업 중", me);
+    long asking = issue(projectId, "답 기다림", me);
+    // AiAgentStatusService.SLOT_WAIT_NOTE_PREFIX(패키지 전용)로 시작하는, 스킬이 남기는 두 문구.
+    String slotWait = "선행 풀림 — 자리 대기(앞 WP-1)";
+    work(full, agent, "WAITING", Instant.now(), slotWait);
+    work(hold, agent, "WAITING", Instant.now(), "선행 풀림 — 자리 대기(새 작업 받지 않는 중)");
+    work(review, agent, "WAITING", Instant.now(), "AI 팀장 리뷰 — 통합 PR 에 실림");
+    work(resumed, agent, "WORKING", Instant.now(), slotWait);
+    // 빼는 행(2)과 세는 행(3)의 수를 다르게 둔다 — 거꾸로 세도 같은 숫자가 되지 않게.
+    work(asking, agent, "INPUT_REQUIRED", Instant.now());
+
+    JsonNode slots = getJson("/api/v1/members/" + agent, agent).get("slots");
+    JsonNode roster = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
+
+    assertThat(slots.get("used").asInt()).isEqualTo(3);
+    assertThat(roster.get("slotsUsed").asInt()).isEqualTo(3);
+    assertThat(texts(slots.get("issues")))
+        .containsExactlyInAnyOrder(issueKey(review), issueKey(resumed), issueKey(asking));
+    assertThat(field(roster.get("works"), "title"))
+        .containsExactlyInAnyOrder("자리 대기", "새 작업 안 받음", "리뷰 대기", "다시 작업 중", "답 기다림");
+  }
+
   /** 실행 설정 행을 만든다(WP-1754) — slotLimit 이 null 이면 덮어쓴 값 없음(템플릿 기본을 따른다). */
   private void seedSetting(long agent, String template, Integer slotLimit) {
     dsl.insertInto(AGENT_RUNTIME_SETTING)
@@ -476,11 +509,17 @@ class AiAgentsControllerTest extends IntegrationTestBase {
 
   /** 진행 중 작업 시드 — 마지막 보고·상태 시각을 같은 값으로. */
   private void work(long issueId, long workerId, String state, Instant at) {
+    work(issueId, workerId, state, at, null);
+  }
+
+  /** 메모까지 있는 진행 중 작업 시드 — 메모로 갈리는 자리 규칙을 DB 값으로 확인할 때. */
+  private void work(long issueId, long workerId, String state, Instant at, String note) {
     dsl.insertInto(AGENT_WORK)
         .set(AGENT_WORK.ISSUE_ID, issueId)
         .set(AGENT_WORK.WORKER_ID, workerId)
         .set(AGENT_WORK.TOOL, "claude-code")
         .set(AGENT_WORK.STATE, state)
+        .set(AGENT_WORK.NOTE, note)
         .set(AGENT_WORK.UPDATED_AT, at.atOffset(ZoneOffset.UTC))
         .set(AGENT_WORK.STATE_CHANGED_AT, at.atOffset(ZoneOffset.UTC))
         .execute();

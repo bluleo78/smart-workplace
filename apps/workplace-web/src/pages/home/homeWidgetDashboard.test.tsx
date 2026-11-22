@@ -426,6 +426,37 @@ test('합성 — AI 발굴 채널·DM 회신 대화가 「지금 신경 쓸 일�
   await waitFor(() => expect(location()).toBe('/chat/dms/7'))
 })
 
+test('합성 — AI 발굴 행은 링크 설명에 「AI 발굴」이 읽히고 리스트 행은 AI 아이콘을 갖는다 (WP-1938)', async () => {
+  const now = Date.now()
+  renderHome(layout(['synthesis']), {
+    messaging: {
+      unreadConversationCount: 3, needsReplyCount: 1, aiAttentionCount: 2, attentionCount: 3,
+      recent: [
+        { kind: 'CHANNEL', conversationId: 12, label: '#dev', lastAuthorName: '박서연', lastMessagePreview: '배포 여부 확인', lastMessageAt: new Date(now - 5 * 60_000).toISOString(), unreadCount: 1, mentioned: false, needsReply: false, newThreadReplyCount: 0, aiReason: '배포 여부 질문' },
+        { kind: 'CHANNEL', conversationId: 13, label: '#ops', lastAuthorName: '최운영', lastMessagePreview: '장애 문의', lastMessageAt: new Date(now - 9 * 60_000).toISOString(), unreadCount: 1, mentioned: false, needsReply: false, newThreadReplyCount: 0, aiReason: '장애 질문' },
+        { kind: 'DM', conversationId: 7, label: '이대리', lastAuthorName: '이대리', lastMessagePreview: '확인해주세요', lastMessageAt: new Date(now - 20 * 60_000).toISOString(), unreadCount: 1, mentioned: false, needsReply: true, newThreadReplyCount: 0, aiReason: null },
+      ],
+    },
+    notifications: [],
+  })
+  const attention = await screen.findByTestId('dashboard-attention')
+  await waitFor(() => expect(within(attention).getAllByRole('link')).toHaveLength(3))
+  // 정렬은 같은 urgency·점수 없음 → 최신순이라 가장 최근인 #dev(5분 전)가 포커스, #ops(9분 전)·DM(20분 전)이 리스트다.
+  const focus = screen.getByTestId('dashboard-attention-focus')
+  expect(focus).toHaveTextContent('#dev')
+  // 포커스 카드(AI 행) — 설명이 「AI 발굴」로 시작하고 한 번만 읽힌다.
+  expect(focus).toHaveAccessibleDescription(/^AI 발굴/)
+  expect(focus).toHaveAccessibleDescription(expect.not.stringMatching(/AI 발굴.*AI 발굴/))
+  // 리스트 AI 행(#ops) — 설명에 AI 발굴이 있고 링크 안에 AI 표식이 있다.
+  const ops = within(attention).getByRole('link', { name: /대화 열기: #ops/ })
+  expect(ops).toHaveAccessibleDescription(expect.stringContaining('AI 발굴'))
+  expect(ops.querySelector('[data-testid="dashboard-attention-ai-mark"]')).not.toBeNull()
+  // 비 AI 행(DM)은 설명에도 표식에도 AI 발굴이 없다.
+  const dm = within(attention).getByRole('link', { name: /대화 열기: 이대리/ })
+  expect(dm).toHaveAccessibleDescription(expect.not.stringContaining('AI 발굴'))
+  expect(dm.querySelector('[data-testid="dashboard-attention-ai-mark"]')).toBeNull()
+})
+
 test('합성 — 이슈·메시지·메일 행이 AI 우선순위 점수 순서로 그려지고 최상위(메일)는 포커스 카드가 된다', async () => {
   renderHome(layout(['synthesis']), {
     notifications: [],
@@ -527,7 +558,8 @@ test('합성 — 「지금 신경 쓸 일」 행은 출처 낱말이 이름·met
   // DOM 순 출처 칩 = 포커스(메일) · 리스트1(이슈) · 리스트2(메시지) — 위 테스트의 정렬 결과와 같다.
   // 이름(「메일 열기」「이슈 열기」)에 출처 낱말이 있는 메일·이슈 행은 meta 만, 이름에 없는 메시지 행(「대화 열기」)만 칩+meta 가 설명이 된다.
   // 문구는 buildAttentionRows 규칙의 확정 문구를 그대로 적어 describedby 가 다른 행의 요소를 가리키면 실패하게 한다.
-  const descriptions = ['회신 필요', '마감 지남', '메시지 확인 필요']
+  // 메시지 행은 aiReason 이 있는 AI 발굴 행이라 칩과 meta 사이에 「AI 발굴」이 낀다(WP-1938).
+  const descriptions = ['회신 필요', '마감 지남', '메시지 AI 발굴 확인 필요']
   within(attention).getAllByRole('link').forEach((link, i) => {
     expect(link).toHaveAccessibleDescription(descriptions[i])
   })

@@ -233,7 +233,13 @@ describe('buildAttentionRows — 정렬', () => {
 
 describe('출처 칩 접근 설명(WP-1902) — 이름·meta 가 출처를 말하지 않는 행만 칩을 잇는다', () => {
   it('attentionDescribedBy — 이을 행은 칩 → meta 순, 아니면 meta 만', () => {
-    expect(attentionDescribedBy({ sourceChipDescribed: true }, 'c', 'm')).toBe('c m')
-    expect(attentionDescribedBy({ sourceChipDescribed: false }, 'c', 'm')).toBe('m')
+    expect(attentionDescribedBy({ sourceChipDescribed: true, isAi: false }, 'c', 'm')).toBe('c m')
+    expect(attentionDescribedBy({ sourceChipDescribed: false, isAi: false }, 'c', 'm')).toBe('m')
+  })
+  it('attentionDescribedBy — AI 발굴 행은 칩 → AI → meta 순(WP-1938)', () => {
+    expect(attentionDescribedBy({ sourceChipDescribed: true, isAi: true }, 'c', 'm', 'a')).toBe('c a m')
+    expect(attentionDescribedBy({ sourceChipDescribed: false, isAi: true }, 'c', 'm', 'a')).toBe('a m')
+    expect(attentionDescribedBy({ sourceChipDescribed: false, isAi: false }, 'c', 'm', 'a')).toBe('m')
+    expect(attentionDescribedBy({ sourceChipDescribed: true, isAi: true }, 'c', 'm')).toBe('c m')
   })
 })
