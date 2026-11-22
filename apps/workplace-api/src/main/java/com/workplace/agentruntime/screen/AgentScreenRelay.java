@@ -12,7 +12,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -62,11 +64,15 @@ public class AgentScreenRelay {
 
   /**
    * 끝남 알림 보낸 뒤 소켓을 닫기 전에 데코레이터 버퍼가 비기를 기다리는 상한(WP-2015) — 보내는 중에 닫으면 남은 프레임이 버려진다. 기한이 지나면 그냥
-   * 닫는다(닫기는 타이머·핸들러 스레드에서 불리므로 오래 멈추지 않는다).
+   * 닫는다(핸들러 스레드에서 불리므로 오래 멈추지 않는다 — 타이머·종료 경로는 아래 {@link #browserCloser} 로 넘긴다).
    */
   private static final int ENDED_DRAIN_TIMEOUT_MS = 2_000;
 
-  /** 위 드레인 대기의 폴링 간격 — 프레임이 나가는 순간을 놓치지 않게 짧게 확인한다. */
+  /**
+   * 위 드레인 대기의 폴링 간격 — 프레임이 나가는 순간을 놓치지 않게 짧게 확인한다. 라이브러리는 쓰기 시작한 그 밀리초에 진행 중인 보내기를 0 으로 보여 줘 첫 관찰의
+   * 유휴은 오판일 수 있어, 유휴를 두 번 관찰할 때까지 한 번은 반드시 이 간격만큼 기다린다 — 그래서 보내는 중이 아닌 닫기에도 이 간격 한 번(최소 한 폴링)이
+   * 든다(WP-2015 리뷰 후속 ④ — 유휴 오판을 막는 값이라 줄이지 않는다).
+   */
   private static final int ENDED_DRAIN_POLL_MS = 20;
 
   static final String REASON_RUNNER_JOIN = "실행 환경에 연결하지 못했어요";
@@ -124,6 +130,21 @@ public class AgentScreenRelay {
   private final AgentScreenTickets tickets;
   private final ObjectMapper objectMapper;
   private final ScheduledExecutorService timer;
+
+  /**
+   * 브라우저 드레인 뒤 닫기를 맡는 별도 스레드들(WP-2015 리뷰 후속 ①) — 타이머는 단일 스레드라 거기서 드레인 대기(세션당 최대 2초)를 직접 하면 같은 스레드의
+   * 핑·만료 확인과 뒤 세션의 닫기가 밀린다. 타이머·종료 경로에서 오는 닫기는 여기로 넘기고, 브라우저·runner 가 직접 닫힌 핸들러 경로는 그 스레드가 곧 닫힘이라
+   * 그대로 기다린다. 세션마다 작업 하나씩 넣어 같이 돌리므로, 종료 때 기다리는 시간은 세션 수만큼 곱해지지 않고 가장 긴 드레인 하나(2초)만큼이다 — 붙여 놓으면 빠른
+   * 세션의 끝남 프레임이 막힌 세션 뒤에서 기다리다 종료에 밀린다.
+   */
+  private final ExecutorService browserCloser;
+
+  /** tick 안에서 오는 닫기 표시 — 그 안의 닫기만 드레인을 {@link #browserCloser} 로 넘긴다(수동 tick 도 같다). */
+  private final ThreadLocal<Boolean> closingFromTimer = ThreadLocal.withInitial(() -> false);
+
+  /** 서버 종료 중 표시 — 종료 경로의 닫기도 드레인을 직접 기다리지 않게 한다. */
+  private volatile boolean shuttingDown;
+
   private volatile Instant lastPing = Instant.now();
   // 세션 행·입력 기록 쓰기 — 서비스가 생성 때 넣는다(서비스가 이 레지스트리를 쓰므로 생성자로 받으면 순환이 된다).
   private volatile AgentScreenService service;
@@ -137,6 +158,13 @@ public class AgentScreenRelay {
         Executors.newSingleThreadScheduledExecutor(
             r -> {
               Thread t = new Thread(r, "agent-screen-timer");
+              t.setDaemon(true);
+              return t;
+            });
+    this.browserCloser =
+        Executors.newCachedThreadPool(
+            r -> {
+              Thread t = new Thread(r, "agent-screen-closer");
               t.setDaemon(true);
               return t;
             });
@@ -157,13 +185,23 @@ public class AgentScreenRelay {
     return pairs.get(id);
   }
 
-  /** 서버가 멈출 때 열린 화면을 모두 닫고 타이머를 멈춘다(남은 입력 기록도 꺼내 쓴다). 닫기 반복이 끊겨도 타이머는 멈춘다. */
+  /**
+   * 서버가 멈출 때 열린 화면을 모두 닫고 타이머를 멈춘다(남은 입력 기록도 꺼내 쓴다). 닫기 반복이 끊겨도 타이머는 멈춘다. 브라우저 드레인 뒤 닫기는 별도 스레드에 넘겨
+   * 세션당 2초를 차례로 기다리지 않고(WP-2015 리뷰 후속 ①), 넘겨 둔 것이 끝날 시간만 상한을 두어 준다.
+   */
   @PreDestroy
   void shutdown() {
+    shuttingDown = true;
     try {
       pairs.values().forEach(p -> close(p, REASON_SHUTDOWN, true));
     } finally {
       timer.shutdownNow();
+      browserCloser.shutdown();
+      try {
+        browserCloser.awaitTermination(3, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
     }
   }
 
@@ -443,23 +481,49 @@ public class AgentScreenRelay {
     }
     closeStep(p, "표 정리", () -> tickets.removeForSession(p.id));
     closeStep(p, "입력 기록", () -> flushInput(p, true));
+    // 끝남 알림이 실제로 버퍼에 들어갔는지까지 본다 — 보내기가 거절되면(예: 데코레이터 한도 초과) 기다려도 나갈 프레임이 없다(WP-2015 리뷰 후속 ②).
+    AtomicBoolean endedQueued = new AtomicBoolean();
     if (notifyBrowser) {
       closeStep(
           p,
           "끝남 알림",
           () ->
-              sendJson(p, p.browser, Map.of("type", "status", "state", "ended", "reason", reason)));
+              endedQueued.set(
+                  sendJson(
+                      p, p.browser, Map.of("type", "status", "state", "ended", "reason", reason))));
     }
     // 끝남 알림이 아직 버퍼에 남아 있으면 바로 닫는 순간 그 프레임이 버려진다(WP-2015) — 나갈 때까지만 기다렸다가 닫는다.
-    closeStep(
-        p,
-        "브라우저 닫기",
-        () -> closeQuietlyAfterDrain(p.browser, CloseStatus.NORMAL.withReason("screen ended")));
+    // 브라우저가 스스로 닫은 경로(notifyBrowser=false)에는 기다릴 프레임이 없으니 대기하지 않는다(WP-2015 리뷰 후속 ③).
+    closeStep(p, "브라우저 닫기", () -> closeBrowser(p.browser, endedQueued.get()));
     closeStep(
         p,
         "runner 닫기",
         () -> closeQuietly(p.runner, CloseStatus.NORMAL.withReason("screen ended")));
     closeStep(p, "닫힘 기록", () -> service.recordClosed(p.tenantId, p.id, reason));
+  }
+
+  /**
+   * 브라우저 소켓을 닫는다 — 끝남 알림이 버퍼에 들어갔으면 나갈 때까지만 기다렸다 닫고, 아니면 바로 닫는다. 타이머(단일 스레드)·종료 경로에서 온 닫기라면 기다리는 일을
+   * 별도 스레드에 넘겨 그 스레드의 핑·만료 확인·다른 세션 닫기를 붙들지 않는다(WP-2015 리뷰 후속 ①).
+   */
+  private void closeBrowser(WebSocketSession browser, boolean endedQueued) {
+    if (!endedQueued) {
+      closeQuietly(browser, CloseStatus.NORMAL.withReason("screen ended"));
+      return;
+    }
+    Runnable drainAndClose =
+        () -> closeQuietlyAfterDrain(browser, CloseStatus.NORMAL.withReason("screen ended"));
+    boolean defer = closingFromTimer.get() || shuttingDown;
+    if (!defer) {
+      drainAndClose.run();
+      return;
+    }
+    try {
+      browserCloser.execute(drainAndClose);
+    } catch (RejectedExecutionException e) {
+      // 종료로 실행기를 닫은 뒤 온 닫기 — 넘길 곳이 없어 기다리는 대신 그 자리에서 기다린다(유한 시간, 끊김이면 즉시 나감).
+      drainAndClose.run();
+    }
   }
 
   /**
@@ -493,7 +557,17 @@ public class AgentScreenRelay {
       // 만료·닫기를 입력 기록보다 먼저, 따로 잡는다 — 입력 기록이 매번 실패해도 기한이 지난 세션은 닫힌다.
       // 닫힌 세션은 close 가 마지막 입력 기록을 이미 했으므로 주기 기록을 건너뛴다.
       try {
-        expiry(p, now).ifPresent(r -> close(p, r, true));
+        Optional<String> expired = expiry(p, now);
+        if (expired.isPresent()) {
+          // 이 닫기의 브라우저 드레인은 별도 스레드로 넘긴다 — 타이머는 단일 스레드라 세션당 최대 2초를 기다리면
+          // 핑·만료 확인과 뒤 세션의 닫기가 밀린다(WP-2015 리뷰 후속 ①).
+          closingFromTimer.set(true);
+          try {
+            close(p, expired.get(), true);
+          } finally {
+            closingFromTimer.remove();
+          }
+        }
       } catch (Throwable e) {
         log.warn("작업 화면 만료 검사 실패 session={}", p.id, e);
       }
@@ -621,12 +695,18 @@ public class AgentScreenRelay {
     }
   }
 
-  private void sendJson(Pair p, WebSocketSession target, Map<String, ?> body) {
-    if (target == null || !target.isOpen()) return;
+  /**
+   * 상태 프레임 하나를 보낸다 — 실제로 소켓에 들어갔으면 true. 못 들어갔으면(소켓 없음·이미 닫힘·보내기 거절) false 이고, 닫기 는 기다릴 프레임이 없으니
+   * 드레인을 건너뛴다(WP-2015 리뷰 후속 ②).
+   */
+  private boolean sendJson(Pair p, WebSocketSession target, Map<String, ?> body) {
+    if (target == null || !target.isOpen()) return false;
     try {
       target.sendMessage(new TextMessage(objectMapper.writeValueAsString(body)));
+      return true;
     } catch (IOException | RuntimeException e) {
       log.debug("작업 화면 상태 보내기 실패 session={}", p.id, e);
+      return false;
     }
   }
 
@@ -645,7 +725,10 @@ public class AgentScreenRelay {
     closeQuietly(s, status);
   }
 
-  /** 닫기 전에 데코레이터에 남은 마지막 프레임이 나갈 때만 기다린다 — 느린 소켓을 무한히 기다리지 않는다. */
+  /**
+   * 닫기 전에 데코레이터에 남은 마지막 프레임이 나갈 때만 기다린다 — 느린 소켓을 무한히 기다리지 않는다. 보내는 중이 아닌 닫기에서도 유휴를 두 번 관찰할 때까지
+   * {@link #ENDED_DRAIN_POLL_MS} 한 번은 기다린다(첫 관찰의 유휴가 오판일 수 있어 — 위 상수 설명, WP-2015 리뷰 후속 ④).
+   */
   private static void drainBeforeClose(WebSocketSession s) {
     if (s == null || !s.isOpen()) return;
     if (!(s instanceof ConcurrentWebSocketSessionDecorator d)) return;
@@ -654,10 +737,17 @@ public class AgentScreenRelay {
     // 라이브러리는 쓰기 시작한 그 밀리초에 진행 중인 보내기를 0 으로 보여 줘 오판할 수 있으므로(WP-2015),
     // 한 번 유휴을 관찰한 뒤 ENDED_DRAIN_POLL_MS 가 지난 재확인에서도 유휴일 때만 나간다(오탐은 그 재확인에서 잡는다).
     boolean idleOnPreviousPoll = false;
+    int previousBuffer = -1;
     while (System.nanoTime() < deadline) {
-      boolean idle = d.getBufferSize() == 0 && d.getTimeSinceSendStarted() == 0;
+      int buffer = d.getBufferSize();
+      long sinceSendStarted = d.getTimeSinceSendStarted();
+      boolean idle = buffer == 0 && sinceSendStarted == 0;
       if (idle && idleOnPreviousPoll) return;
       idleOnPreviousPoll = idle;
+      // 진행 중인 보내기는 없는데 버퍼만 남아 두 폴링 동안 줄지 않으면 — 그 버퍼를 비울 주체가 없어 기한을 채워도 프레임은 나가지 않는다.
+      // 보내기 실패(한도 초과 등) 뒤에 닫히는 스레드가 2초를 헛대기하지 않게 한다(WP-2015 리뷰 후속 ②).
+      if (!idle && sinceSendStarted == 0 && buffer > 0 && buffer == previousBuffer) return;
+      previousBuffer = buffer;
       try {
         Thread.sleep(ENDED_DRAIN_POLL_MS);
       } catch (InterruptedException e) {
