@@ -8,6 +8,9 @@ import { coarsePointerStore, mobileWidthStore } from './mediaQueryStore'
 /** 지금 터치 셸인지 동기적으로 읽는다 — 키 입력 시점 판정(Enter 처리)처럼 렌더 밖에서도 쓴다. */
 export const getIsTouchShell = (): boolean => mobileWidthStore.get() && coarsePointerStore.get()
 
+/** 렌더용 터치 셸 스냅샷 — 두 스토어의 change 기반 스냅샷의 AND(WP-1966). useSyncExternalStore 의 getSnapshot 용. */
+export const getTouchShellSnapshot = (): boolean => mobileWidthStore.getSnapshot() && coarsePointerStore.getSnapshot()
+
 /** 두 조건 중 하나라도 바뀌면 onChange — useSyncExternalStore 구독용. */
 export function subscribeTouchShell(onChange: () => void): () => void {
   const offWidth = mobileWidthStore.subscribe(onChange)

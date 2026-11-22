@@ -5,5 +5,6 @@ import { tabBarWideStore } from '@/lib/mobile/mediaQueryStore'
 
 /** 넓은 폰(390pt 이상) 여부. 초기 스냅샷이 없는 환경에선 좁은 폰(false)으로 본다. */
 export function useIsTabBarWide(): boolean {
-  return useSyncExternalStore(tabBarWideStore.subscribe, tabBarWideStore.get, () => false)
+  // 렌더 스냅샷 — mediaQueryStore 참조(WP-1966)
+  return useSyncExternalStore(tabBarWideStore.subscribe, tabBarWideStore.getSnapshot, () => false)
 }

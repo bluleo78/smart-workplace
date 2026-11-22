@@ -5,5 +5,6 @@ import { sidebarCompactStore } from '@/lib/mobile/mediaQueryStore'
 
 /** 1280px 미만 여부. 모바일 폭에서도 true 이므로 데스크톱 분기 안에서만 쓴다. 초기 스냅샷이 없는 환경에선 넓은 창(false)으로 본다. */
 export function useIsSidebarCompact(): boolean {
-  return useSyncExternalStore(sidebarCompactStore.subscribe, sidebarCompactStore.get, () => false)
+  // 렌더 스냅샷 — mediaQueryStore 참조(WP-1966)
+  return useSyncExternalStore(sidebarCompactStore.subscribe, sidebarCompactStore.getSnapshot, () => false)
 }
