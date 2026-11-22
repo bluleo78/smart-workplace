@@ -29,6 +29,7 @@ import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
+import com.workplace.jooq.tables.Workflow.WorkflowPath;
 import com.workplace.jooq.tables.records.ProjectRecord;
 
 import java.time.OffsetDateTime;
@@ -516,6 +517,19 @@ public class Project extends TableImpl<ProjectRecord> {
             _wikiSpace = new WikiSpacePath(this, null, Keys.WIKI_SPACE__WIKI_SPACE_LINKED_PROJECT_ID_FKEY.getInverseKey());
 
         return _wikiSpace;
+    }
+
+    private transient WorkflowPath _workflow;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.workflow</code>
+     * table
+     */
+    public WorkflowPath workflow() {
+        if (_workflow == null)
+            _workflow = new WorkflowPath(this, null, Keys.WORKFLOW__WORKFLOW_PROJECT_ID_FKEY.getInverseKey());
+
+        return _workflow;
     }
 
     /**

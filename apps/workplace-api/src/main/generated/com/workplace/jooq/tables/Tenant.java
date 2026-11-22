@@ -167,6 +167,8 @@ import com.workplace.jooq.tables.WikiSpaceMember.WikiSpaceMemberPath;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup.WikiSpaceMemberGroupPath;
 import com.workplace.jooq.tables.WorkProfile.WorkProfilePath;
 import com.workplace.jooq.tables.WorkerJob.WorkerJobPath;
+import com.workplace.jooq.tables.Workflow.WorkflowPath;
+import com.workplace.jooq.tables.WorkflowVersion.WorkflowVersionPath;
 import com.workplace.jooq.tables.WorkspaceAssistant.WorkspaceAssistantPath;
 import com.workplace.jooq.tables.records.TenantRecord;
 
@@ -2442,6 +2444,32 @@ public class Tenant extends TableImpl<TenantRecord> {
             _workerJob = new WorkerJobPath(this, null, Keys.WORKER_JOB__WORKER_JOB_TENANT_ID_FKEY.getInverseKey());
 
         return _workerJob;
+    }
+
+    private transient WorkflowPath _workflow;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.workflow</code>
+     * table
+     */
+    public WorkflowPath workflow() {
+        if (_workflow == null)
+            _workflow = new WorkflowPath(this, null, Keys.WORKFLOW__WORKFLOW_TENANT_ID_FKEY.getInverseKey());
+
+        return _workflow;
+    }
+
+    private transient WorkflowVersionPath _workflowVersion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.workflow_version</code> table
+     */
+    public WorkflowVersionPath workflowVersion() {
+        if (_workflowVersion == null)
+            _workflowVersion = new WorkflowVersionPath(this, null, Keys.WORKFLOW_VERSION__WORKFLOW_VERSION_TENANT_ID_FKEY.getInverseKey());
+
+        return _workflowVersion;
     }
 
     /**

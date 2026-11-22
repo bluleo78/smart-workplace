@@ -154,6 +154,13 @@ tasks.withType<Test> {
     // 깨지지 않도록 한다(누락분은 pre-push 의 필터 없는 전체 test 가 잡는다).
     // 필터가 없는 전체 실행(pre-push)에는 영향 없음.
     filter { isFailOnNoMatchingTests = false }
+    // WorkflowSchemaTest 가 저장소의 스키마 원본을 읽어 서버 사본과 바이트로 견준다(WP-1984). 입력으로 알리지 않으면
+    // 원본만 바뀐 변경에서 test 가 UP-TO-DATE·FROM-CACHE 로 건너뛰어 사본이 어긋난 채 남는다. 이미지 빌드처럼
+    // packages 가 없는 환경도 있어 없어도 된다.
+    inputs.files(rootProject.file("../../packages/mcp-tools-shared/src/workflow-schema.json"))
+        .withPropertyName("workflowSchemaSource")
+        .withPathSensitivity(PathSensitivity.NONE)
+        .optional()
     // 운영·bootRun 과 같은 UTC 기본 시간대로 테스트 JVM 을 띄운다(WP-939) — 테스트는 WorkplaceApplication.main 을
     // 거치지 않아 거기서 고정한 시간대가 적용되지 않는다. pgjdbc 가 이 값으로 DB 세션 TimeZone 을 맞춘다.
     systemProperty("user.timezone", "UTC")

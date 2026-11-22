@@ -102,6 +102,12 @@ public final class TenantPurgePlan {
           // 개인 보고(WP-1486) — 회차·설정이 wiki_page·user 를 참조하므로 둘보다 먼저. 코드젠 없이 이름으로 가리킨다
           DSL.table(DSL.name("personal_report")),
           DSL.table(DSL.name("personal_report_setting")),
+          // 워크플로우 정의·버전(WP-1984) — project 를 참조(CASCADE). 두 표의 FK 가 서로를 가리키므로(version→workflow
+          // CASCADE,
+          // workflow.active_version_id→version SET NULL) 어느 순서든 막히지 않는다. 버전을 먼저 지우면 정의의 활성 버전이 SET
+          // NULL 된다.
+          WORKFLOW_VERSION,
+          WORKFLOW,
           ISSUE_RELATION_TYPE, // 관계·외부 링크가 모두 지워진 뒤(type_id RESTRICT)
           ISSUE_TYPE_DEF,
           PROJECT_STATUS,
