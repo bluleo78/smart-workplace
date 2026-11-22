@@ -337,7 +337,9 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   /** BLOCKED 는 보고한 Pod 시작 시각을 저장하고, 보고한 시각만큼 지금 Pod 시작도 올린다(WP-1958). */
   @Test
   void BLOCKED_는_보고한_파드_시각을_저장한다() throws Exception {
-    OffsetDateTime t = OffsetDateTime.now().minusMinutes(2);
+    // PG timestamptz 는 마이크로초로 반올림해 저장하므로, 나노초가 남은 값을 보내면 비교 쪽 truncatedTo 와 1µs 어긋날 수 있다 — 보낼 값부터
+    // 마이크로초로 맞춘다.
+    OffsetDateTime t = OffsetDateTime.now().minusMinutes(2).truncatedTo(ChronoUnit.MICROS);
 
     report(key, "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"podStartedAt\":\"" + t + "\"}")
         .andExpect(status().isNoContent());
