@@ -1,6 +1,6 @@
 // 받은편지함/보낸편지함 목록·상세 조회 + 동기화·발송 mutation.
 
-import { type InfiniteData, type QueryClient, queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { hashKey, type InfiniteData, type QueryClient, queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { useMemo } from 'react';
 import { toast } from 'sonner';
@@ -152,23 +152,30 @@ export function useMailFolders(accountId: number | undefined) {
 export function useSyncMailFolder(accountId: number | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ folderId, older }: { folderId: number; older: boolean; mailListQueryKey: readonly unknown[] }) =>
+    mutationFn: ({ folderId, older }: { folderId: number; older: boolean; mailListQueryKey: readonly unknown[]; waitForTrashCount?: boolean }) =>
       syncMailFolder(accountId as number, folderId, older),
     onSuccess: async (result, variables) => {
-      // 현재 메일함 목록과 폴더 정보만 기다린다 — 다른 보기의 재조회가 동기화 완료를 늦추지 않게 한다.
-      const refresh = () => Promise.all([
-        qc.invalidateQueries({ queryKey: variables.mailListQueryKey, exact: true }),
-        qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0), exact: true }),
-      ]);
-      const refreshTrashCount = () => {
-        // 휴지통 수는 최신화하되 이 쿼리 응답을 동기화 완료 조건으로 삼지 않는다.
-        void qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0), exact: true });
+      const currentListHash = hashKey(variables.mailListQueryKey);
+      const refresh = async () => {
+        // 현재 목록은 아래에서 기다리므로 빼고, 다른 폴더·홈 위젯만 기다리지 않고 갱신한다.
+        void qc.invalidateQueries({
+          queryKey: ['mail-messages', accountId ?? 0],
+          predicate: (query) => query.queryHash !== currentListHash,
+        });
+        const currentView = Promise.all([
+          qc.invalidateQueries({ queryKey: variables.mailListQueryKey, exact: true }),
+          qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0), exact: true }),
+        ]);
+        const trashCount = qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0), exact: true });
+        if (variables.waitForTrashCount) await Promise.all([currentView, trashCount]);
+        else {
+          await currentView;
+          void trashCount;
+        }
       };
-      refreshTrashCount();
       await refresh();
       if (result.running) {
         await new Promise<void>((resolve) => setTimeout(resolve, FOLDER_SYNC_RETRY_MS));
-        refreshTrashCount();
         await refresh();
       }
     },

@@ -3,6 +3,7 @@
 // 서버 이전 메일 가져오기(짧은 목록)는 브라우저 없이 판정되므로 mail-sidebar.spec.ts·mail-folders.spec.ts·mail-older.spec.ts 에서 옮겼다.
 // 남은 E2E: 선택 행의 계산된 배경(@layout), 트리 들여쓰기·긴 이름 넘침(@layout), 스크롤로 다음 페이지 잇기(@layout).
 // 메일 모듈만 renderScreen 으로 띄운다(testkit-b4).
+import { onlineManager, useQueryClient } from '@tanstack/react-query'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { useLayoutEffect } from 'react'
@@ -329,6 +330,37 @@ test('휴지통 보기 — 제목 「휴지통」·활성, 상태 줄은 「최�
   expect(syncs.last().url.searchParams.get('older')).toBe('false')
 })
 
+test('휴지통을 동기화하면 휴지통 수를 다시 받을 때까지 진행 중으로 표시한다', async () => {
+  const trashRefresh = gate()
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  const trashCount = record('get', '/api/v1/mail/accounts/1/trash/count', async (_call, count) => {
+    if (count > 1) await trashRefresh.promise
+    return HttpResponse.json({ count: 5 })
+  })
+  const sync = record('post', '/api/v1/mail/accounts/1/folders/20/sync', () =>
+    HttpResponse.json(syncResult({ syncedSince: since(30) })),
+  )
+  const { user } = renderMail('/mail/1', {
+    handlers: [
+      list.handler,
+      trashCount.handler,
+      http.get(FOLDERS, () => HttpResponse.json(withTrash({ folderSyncedAt: syncedAt(), syncedSince: since(30) })())),
+      sync.handler,
+    ],
+  })
+  try {
+    await user.click(await screen.findByTestId('mail-folder-trash'))
+    await waitFor(() => expect(sync.calls).toHaveLength(1))
+    await waitFor(() => expect(trashCount.calls).toHaveLength(2))
+    expect(screen.getByTestId('mail-box-status-text')).toHaveTextContent('메일함을 가져오는 중…')
+
+    trashRefresh.release()
+    await waitFor(() => expect(screen.getByTestId('mail-box-status-text').textContent).toMatch(/^최근 30일 · .+에 가져옴$/))
+  } finally {
+    trashRefresh.release()
+  }
+})
+
 test('목록에 없는 메일함 id 는 「찾을 수 없어요」, 더 가져오기 비활성, 가져오기를 보내지 않는다', async () => {
   const { handlers } = folderHandlers(() => folderList())
   const syncs = record('post', '/api/v1/mail/accounts/1/folders/:id/sync', () => HttpResponse.json(syncResult()))
@@ -418,7 +450,7 @@ test.each([
   }
 })
 
-test.each(['메일함 목록', '메일 목록'])('빈 메일함의 $0 배경 재조회는 상태 안내를 바꾸지 않는다', async (target) => {
+test.each(['메일함 목록', '메일 목록'])('빈 메일함의 %s 배경 재조회는 상태 안내를 바꾸지 않는다', async (target) => {
   const requery = gate()
   const syncedFolder = { 8: { folderSyncedAt: syncedAt(), syncedSince: since(90) } }
   let holdRequery = false
@@ -513,6 +545,80 @@ test('폴더와 메일 목록을 처음 받지 못해도 두 오류에 재시도
   await waitFor(() => expect(list.calls).toHaveLength(2))
   await waitFor(() => expect(screen.queryByTestId('mail-list-error')).not.toBeInTheDocument())
   expect(screen.getByTestId('mail-box-empty')).toBeInTheDocument()
+})
+
+test('메일함 목록 오류 안내는 서버 메일함 보기에서만 표시한다', async () => {
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  renderMail('/mail/1', {
+    handlers: [
+      list.handler,
+      http.get(FOLDERS, () => new HttpResponse(null, { status: 500 })),
+    ],
+  })
+
+  await waitFor(() => expect(list.calls).toHaveLength(1))
+  expect(screen.queryByTestId('mail-box-folders-error')).not.toBeInTheDocument()
+})
+
+test.each(['syncing', 'sync-failed', 'missing'] as const)('%s 상태의 메일함에는 목록 오류 배너를 겹쳐 보이지 않는다', async (state) => {
+  const sync = gate()
+  const list = record('get', LIST, (_call, count) => count === 1
+    ? HttpResponse.json([])
+    : new HttpResponse(null, { status: 500 }))
+  const folders = http.get(FOLDERS, () => HttpResponse.json(state === 'missing' ? [] : folderList()))
+  const syncHandler = http.post(BOX_SYNC, async () => {
+    if (state === 'syncing') await sync.promise
+    return state === 'syncing' ? HttpResponse.json(syncResult()) : new HttpResponse(null, { status: 500 })
+  })
+  const view = renderMail('/mail/1?box=5', { handlers: [list.handler, folders, syncHandler] })
+  const { queryClient } = view
+  const copy = state === 'syncing'
+    ? '메일함을 가져오는 중…'
+    : state === 'sync-failed'
+      ? '메일함을 가져오지 못했어요'
+      : '메일함을 찾을 수 없어요'
+
+  try {
+    await expectBoxState(copy, copy)
+    const listQuery = queryClient.getQueryCache().findAll({ queryKey: ['mail-messages', 1] })
+      .find((query) => query.queryKey[7] === 5)
+    expect(listQuery).toBeDefined()
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: listQuery!.queryKey, exact: true })
+    })
+    expect(list.calls).toHaveLength(2)
+    expect(screen.queryByTestId('mail-list-error')).not.toBeInTheDocument()
+    const status = await expectBoxState(copy, copy)
+    expect(status).toBeInTheDocument()
+  } finally {
+    view.unmount()
+    sync.release()
+  }
+})
+
+/** 네트워크를 끈 첫 렌더에서도 메일함 메타데이터는 캐시에 있는 상태를 만든다. */
+function SeedCachedMailFolder() {
+  const queryClient = useQueryClient()
+  queryClient.setQueryData(
+    ['mail-unread-counts', 1, 'folders'],
+    folderList({ 5: { selectable: false, folderSyncedAt: syncedAt(), syncedSince: since(90) } }),
+  )
+  return null
+}
+
+test('오프라인으로 멈춘 첫 메일 조회는 빈 메일함 완료로 보이지 않는다', async () => {
+  onlineManager.setOnline(false)
+  const view = renderMail('/mail/1?box=5', { extra: <SeedCachedMailFolder /> })
+  try {
+    const listQuery = view.queryClient.getQueryCache().findAll({ queryKey: ['mail-messages', 1] })
+      .find((query) => query.queryKey[7] === 5)
+    expect(listQuery?.state.status).toBe('pending')
+    expect(listQuery?.state.fetchStatus).toBe('paused')
+    await expectBoxState('메일함을 가져오는 중…', '메일함을 가져오는 중…')
+  } finally {
+    view.unmount()
+    act(() => onlineManager.setOnline(true))
+  }
 })
 
 test('동기화가 500으로 실패하면 빈 목록에서도 실패를 알리고 새로 고침으로 복구한다', async () => {

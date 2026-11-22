@@ -1382,7 +1382,7 @@ function MailInbox() {
     [accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind, view.folderId, flaggedView],
   )
   const {
-    data: fetchedMessages, isLoading,
+    data: fetchedMessages, isLoading, isPending: listPending,
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
   } = messagesQuery
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
@@ -1599,6 +1599,7 @@ function MailInbox() {
   // 열 수 있는 메일함일 때만 자동으로 가져온다 — 묶음 메일함·없는 id 는 서버가 400/404 로 거절한다.
   const autoSyncFolderId = currentFolder?.selectable ? currentFolder.id : null
   const autoSyncTarget = accountIdNum != null && autoSyncFolderId != null ? `${accountIdNum}:${autoSyncFolderId}` : null
+  const waitForTrashCount = currentFolder?.role === 'TRASH'
   // 재진입 첫 렌더에서 이전 가져오기 결과를 사용하지 않는다. 새 요청은 이펙트가 보낸 뒤 새 인자로 구분한다(WP-1963).
   const [folderEntry, setFolderEntry] = useState({ target: autoSyncTarget, previousSync: syncFolder.variables })
   // 주소가 메일함 보기인 동안에는 폴더 목록에서 잠시 사라져도 같은 진입을 유지한다.
@@ -1613,8 +1614,8 @@ function MailInbox() {
     if (!folderView) autoSyncedRef.current = null
     if (autoSyncTarget == null || autoSyncFolderId == null || autoSyncedRef.current === autoSyncTarget) return
     autoSyncedRef.current = autoSyncTarget
-    runFolderSync({ folderId: autoSyncFolderId, older: false, mailListQueryKey })
-  }, [autoSyncTarget, autoSyncFolderId, folderView, mailListQueryKey, runFolderSync])
+    runFolderSync({ folderId: autoSyncFolderId, older: false, mailListQueryKey, waitForTrashCount })
+  }, [autoSyncTarget, autoSyncFolderId, folderView, mailListQueryKey, runFolderSync, waitForTrashCount])
   // 현재 메일함의 동기화와 이어지는 재조회가 끝날 때까지 이전 0건을 확정하지 않는다(WP-1963).
   // 다른 메일함의 mutation 은 섞지 않고, 다음 페이지만 실패한 경우에는 기존 목록 끝의 오류 안내를 쓴다.
   const syncForFolder = !autoSyncWaiting && syncFolder.variables?.folderId === view.folderId
@@ -1629,7 +1630,8 @@ function MailInbox() {
     else if (syncForFolder && syncFolder.isError) folderState = 'sync-failed'
     // 다시 시도하는 동안은 실패 안내와 버튼을 유지해 초점이 사라지지 않게 한다.
     else if (listFailed) folderState = 'list-failed'
-    else if (isLoading) folderState = 'loading'
+    // 오프라인으로 멈춘 첫 조회도 진행 중으로 유지해 빈 결과로 오해하지 않게 한다.
+    else if (listPending) folderState = 'loading'
     else folderState = currentFolder.folderSyncedAt || syncCompleted ? 'ready' : 'not-synced'
   }
   const olderSyncing = folderState === 'syncing' && syncForFolder && syncFolder.variables?.older === true
@@ -1641,7 +1643,7 @@ function MailInbox() {
   const fetchOlder = () => {
     if (!currentFolder) return
     runFolderSync(
-      { folderId: currentFolder.id, older: true, mailListQueryKey },
+      { folderId: currentFolder.id, older: true, mailListQueryKey, waitForTrashCount: currentFolder.role === 'TRASH' },
       {
         onSuccess: (r) => {
           if (r.running) return
@@ -2228,11 +2230,11 @@ function MailInbox() {
               folder={currentFolder}
               state={folderState}
               olderSyncing={olderSyncing}
-              onRefresh={() => currentFolder && runFolderSync({ folderId: currentFolder.id, older: false, mailListQueryKey })}
+              onRefresh={() => currentFolder && runFolderSync({ folderId: currentFolder.id, older: false, mailListQueryKey, waitForTrashCount: currentFolder.role === 'TRASH' })}
               onFetchOlder={fetchOlder}
             />
           )}
-          {failedWithoutData(foldersQuery) && (
+          {folderView && failedWithoutData(foldersQuery) && (
             // 메일함 목록 첫 조회 실패는 상태 줄만으로 재시도할 수 없으므로 명시적 복구 동작을 함께 둔다.
             <LoadErrorState
               title="메일함 목록을 불러오지 못했습니다"
@@ -2254,7 +2256,7 @@ function MailInbox() {
                   두 안내가 함께 뜨고 배너의 다시 시도가 이미 받은 페이지까지 다시 받게 하던 것을 막는다(리뷰 반려).
                   다음 페이지 실패였다는 기록(nextPageFailed)도 함께 본다 — 배경 재조회 중에는 fetchMeta 가 비어
                   isFetchNextPageError 가 풀려 배너가 되살아나기 때문이다(리뷰 반려 2차). */}
-              {listFailed && (
+              {listFailed && (!folderView || folderState === 'list-failed' || folderState === 'folders-failed') && (
                 <LoadErrorState
                   title={failedWithoutData(messagesQuery) ? '목록을 불러오지 못했습니다' : '목록을 다시 불러오지 못했습니다'}
                   queries={[messagesQuery]}

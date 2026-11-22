@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // WP-1682 휴지통 훅 — 완전 삭제 결과별 토스트·무효화, 비우기 시작(대기 옮기기 먼저·이미 끝난 응답), 상태 전이 토스트.
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { AxiosError, type AxiosResponse } from 'axios'
 import type { ReactNode } from 'react'
@@ -228,8 +228,93 @@ describe('동기화 뒤 실시간 휴지통 수 무효화', () => {
   })
 })
 
+describe('메일함 동기화 캐시 갱신 범위', () => {
+  it('현재 화면 밖의 같은 계정 메일 목록도 무효화해 다시 받는다', async () => {
+    syncMailFolder.mockResolvedValue({ running: false })
+    const { wrapper } = setup()
+    const currentKey = ['mail-messages', 3, 'ARCHIVE', '', false, '', false, 9, false] as const
+    const siblingKey = ['mail-messages', 3, 'INBOX', '', false, '', false, null, false] as const
+    let currentCalls = 0
+    let siblingCalls = 0
+    let releaseSibling!: () => void
+    const siblingRefresh = new Promise<void>((resolve) => { releaseSibling = resolve })
+    const { result } = renderHook(() => {
+      useQuery({
+        queryKey: currentKey,
+        queryFn: async () => {
+          currentCalls += 1
+          return []
+        },
+        staleTime: Infinity,
+      })
+      useQuery({
+        queryKey: siblingKey,
+        queryFn: async () => {
+          siblingCalls += 1
+          if (siblingCalls > 1) await siblingRefresh
+          return []
+        },
+        staleTime: Infinity,
+      })
+      return useSyncMailFolder(3)
+    }, { wrapper })
+    try {
+      await waitFor(() => expect(siblingCalls).toBe(1))
+      let operation!: ReturnType<typeof result.current.mutateAsync>
+      act(() => {
+        operation = result.current.mutateAsync({
+          folderId: 9,
+          older: false,
+          mailListQueryKey: currentKey,
+        })
+      })
+      await act(async () => { await operation })
+      expect(currentCalls).toBe(2)
+      expect(siblingCalls).toBe(2)
+      expect(result.current.isSuccess).toBe(true)
+    } finally {
+      releaseSibling()
+    }
+  })
+
+  it('휴지통 폴더는 휴지통 수 재조회가 끝날 때까지 동기화 중으로 둔다', async () => {
+    syncMailFolder.mockResolvedValue({ running: false })
+    const { qc, wrapper } = setup()
+    const trashCountKey = ['mail-trash-count', 3]
+    let releaseTrashCount!: () => void
+    const trashCountRefresh = new Promise<void>((resolve) => { releaseTrashCount = resolve })
+    const invalidate = vi.spyOn(qc, 'invalidateQueries').mockImplementation((filters) =>
+      JSON.stringify(filters?.queryKey) === JSON.stringify(trashCountKey) ? trashCountRefresh : Promise.resolve(),
+    )
+    const { result } = renderHook(() => useSyncMailFolder(3), { wrapper })
+    let done = false
+    let operation!: Promise<void>
+    act(() => {
+      operation = result.current.mutateAsync({
+        folderId: 20,
+        older: false,
+        waitForTrashCount: true,
+        mailListQueryKey: ['mail-messages', 3, 'INBOX', '', false, '', false, 20, false],
+      }).then(() => { done = true })
+    })
+    try {
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: trashCountKey, exact: true }))
+      await act(async () => { await Promise.resolve() })
+      expect(done).toBe(false)
+      await act(async () => {
+        releaseTrashCount()
+        await operation
+      })
+      expect(done).toBe(true)
+    } finally {
+      releaseTrashCount()
+    }
+  })
+})
+
 describe('useSyncMailFolder 완료 시점', () => {
   const currentListKey = ['mail-messages', 3, 'INBOX', '', false, '', false, 9, false] as const
+  const relatedListsKey = ['mail-messages', 3] as const
   const foldersKey = ['mail-unread-counts', 3, 'folders'] as const
   const trashCountKey = ['mail-trash-count', 3] as const
 
@@ -257,14 +342,20 @@ describe('useSyncMailFolder 완료 시점', () => {
         }
         await vi.advanceTimersByTimeAsync(1)
       })
-      const releaseTrashCount = () => {
-        const pending = finishRefreshes.get(JSON.stringify(trashCountKey)) ?? []
-        pending.splice(0).forEach((finish) => finish())
+      const releaseBackgroundRefreshes = () => {
+        for (const key of [relatedListsKey, trashCountKey]) {
+          const pending = finishRefreshes.get(JSON.stringify(key)) ?? []
+          pending.splice(0).forEach((finish) => finish())
+        }
       }
 
       act(() => { result.current.mutate({ folderId: 9, older: false, mailListQueryKey: currentListKey }) })
       await advance(1)
-      expect(inval).toHaveBeenCalledTimes(3)
+      expect(inval).toHaveBeenCalledTimes(4)
+      expect(inval).toHaveBeenCalledWith(expect.objectContaining({
+        queryKey: relatedListsKey,
+        predicate: expect.any(Function),
+      }))
       expect(inval).toHaveBeenCalledWith({ queryKey: currentListKey, exact: true })
       expect(inval).toHaveBeenCalledWith({ queryKey: foldersKey, exact: true })
       expect(inval).toHaveBeenCalledWith({ queryKey: trashCountKey, exact: true })
@@ -275,10 +366,10 @@ describe('useSyncMailFolder 완료 시점', () => {
         // 재조회 이후 3초 대기는 목록·폴더 재조회 뒤에 시작한다.
         expect(result.current.isPending).toBe(true)
         await advance(2_998)
-        expect(inval).toHaveBeenCalledTimes(3)
+        expect(inval).toHaveBeenCalledTimes(4)
         expect(result.current.isPending).toBe(true)
         await advance(1)
-        expect(inval).toHaveBeenCalledTimes(6)
+        expect(inval).toHaveBeenCalledTimes(8)
         expect(result.current.isPending).toBe(true)
         await finishRefreshesFor([currentListKey, foldersKey])
       } else {
@@ -286,8 +377,8 @@ describe('useSyncMailFolder 완료 시점', () => {
       }
 
       expect(result.current.isSuccess).toBe(true)
-      // 휴지통 수는 갱신하지만 이 응답은 동기화 완료를 막지 않는다.
-      releaseTrashCount()
+      // 다른 보기와 휴지통 수는 최신화하되, 일반 폴더의 완료를 막지 않는다.
+      releaseBackgroundRefreshes()
     } finally {
       vi.useRealTimers()
     }
