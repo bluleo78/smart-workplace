@@ -1,6 +1,8 @@
 import { SearchX } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+import { emptyStateIconClass } from '@/components/layout/empty-state';
+
 import { Button } from './button';
 import { TableCell,TableRow } from './table';
 
@@ -46,7 +48,8 @@ export function TableEmptyRow({
       <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-12 whitespace-normal">
         {isSearchEmpty ? (
           <div className="flex flex-col items-center gap-3">
-            <SearchX className="h-8 w-8 text-muted-foreground/60" aria-hidden="true" />
+            {/* 이 파일은 shadcn 생성물이 아닌 손으로 만든 파일이라 아이콘을 빈 상태 규격(40px muted)에 맞춰 고친다(WP-1947). */}
+            <SearchX className={emptyStateIconClass} aria-hidden="true" />
             <div className="space-y-1">
               <p className="text-sm">
                 <span className="font-medium text-foreground break-all">'{shortenKeyword(searchKeyword)}'</span>

@@ -460,7 +460,11 @@ test('다시 시도 중에도 같은 버튼이 남아 포커스를 지키고, �
 test('이전 메일이 아직 가져올 수 없음(running)이면 빈 목록에 「불러오는 중…」 없이 빈 상태만, 되풀이해 묻지 않는다 (WP-1878)', async () => {
   const olders = record('post', OLDER, () => HttpResponse.json(olderResult({ running: true, hasMore: true })))
   renderMail('/mail/1', { handlers: [http.get(LIST, () => HttpResponse.json([])), olders.handler] })
-  expect(await screen.findByTestId('mail-list-empty')).toBeInTheDocument()
+  // WP-1947: 규격 레이아웃(아이콘+제목+설명)으로 그려진다.
+  const emptyBox = await screen.findByTestId('mail-list-empty')
+  expect(emptyBox.querySelector('svg')).not.toBeNull()
+  expect(within(emptyBox).getByText('받은 메일이 없어요')).toBeInTheDocument()
+  expect(within(emptyBox).getByText('동기화를 눌러보세요.')).toBeInTheDocument()
   await waitFor(() => expect(olders.calls).toHaveLength(1))
   await waitFor(() => expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument())
   await act(() => new Promise((r) => setTimeout(r, 300)))

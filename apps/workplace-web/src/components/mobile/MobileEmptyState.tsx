@@ -4,11 +4,7 @@
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
-import {
-  mobileEmptyStateDescriptionClass,
-  mobileEmptyStateIconClass,
-  mobileEmptyStateTitleClass,
-} from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { cn } from '@/lib/utils'
 
 export function MobileEmptyState({
@@ -29,14 +25,14 @@ export function MobileEmptyState({
   'data-testid'?: string
 }) {
   return (
-    <div
-      data-testid={testId}
-      className={cn('flex flex-col items-center justify-center gap-2 px-8 pb-16 text-center', className)}
-    >
-      <Icon className={mobileEmptyStateIconClass} aria-hidden="true" />
-      <p className={mobileEmptyStateTitleClass}>{title}</p>
-      {description != null && <p className={mobileEmptyStateDescriptionClass}>{description}</p>}
-      {action != null && <div className="mt-3">{action}</div>}
-    </div>
+    <EmptyState
+      size="mobile"
+      icon={Icon}
+      title={title}
+      description={description}
+      action={action != null ? <div className="mt-3">{action}</div> : undefined}
+      className={cn('justify-center gap-2 px-8 pb-16', className)}
+      testId={testId}
+    />
   )
 }

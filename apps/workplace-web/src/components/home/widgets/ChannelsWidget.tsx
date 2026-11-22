@@ -1,12 +1,11 @@
 import { MessageSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state';
+import { EmptyState } from '@/components/layout/EmptyState';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyChannels } from '@/hooks/queries/useMyChannels';
 import { showsLoadError } from '@/lib/queryFailure';
-import { cn } from '@/lib/utils';
 import type { ChannelResponse } from '@/types/messaging';
 
 import { WidgetError } from './WidgetError';
@@ -75,17 +74,13 @@ export default function ChannelsWidget({
           ))}
         </ul>
       ) : (
-        <div
-          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-          data-testid="channels-empty"
-        >
-          {/* 빈 상태 아이콘·제목·설명은 디자인 시스템 06 규격 상수(WP-1939) — 40px muted */}
-          <MessageSquare className={emptyStateIconClass} aria-hidden="true" />
-          <p className={emptyStateTitleClass}>채널이 없어요</p>
-          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
-            참여한 채널이 없습니다. 채팅 화면에서 채널에 참여해 보세요.
-          </p>
-        </div>
+        <EmptyState
+          icon={MessageSquare}
+          title="채널이 없어요"
+          description="참여한 채널이 없습니다. 채팅 화면에서 채널에 참여해 보세요."
+          testId="channels-empty"
+          variant="widget"
+        />
       )}
     </WidgetFrame>
   );

@@ -1,13 +1,12 @@
 import { Mail, Paperclip } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state';
+import { EmptyState } from '@/components/layout/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMailAccounts } from '@/hooks/queries/useMailAccounts';
 import { useMailMessages } from '@/hooks/queries/useMailMessages';
 import { mailSubjectText } from '@/lib/mailSubject'
 import { showsLoadError } from '@/lib/queryFailure';
-import { cn } from '@/lib/utils';
 import type { EmailMessageSummary, MailFolder } from '@/types/mailMessage';
 
 import { WidgetError } from './WidgetError';
@@ -63,18 +62,15 @@ function MessageRows({ items }: { items: EmailMessageSummary[] }) {
 }
 
 // 메일 없음 빈 상태 — 실데이터/프리뷰 공유.
-function EmptyState({ title }: { title: string }) {
+function MailEmptyState({ title }: { title: string }) {
   return (
-    <div
-      className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-      data-testid="maillist-empty"
-    >
-      <Mail className={emptyStateIconClass} aria-hidden="true" />
-      <p className={emptyStateTitleClass}>메일이 없어요</p>
-      <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
-        {title}에 표시할 메일이 없습니다.
-      </p>
-    </div>
+    <EmptyState
+      icon={Mail}
+      title="메일이 없어요"
+      description={<>{title}에 표시할 메일이 없습니다.</>}
+      testId="maillist-empty"
+      variant="widget"
+    />
   );
 }
 
@@ -114,7 +110,7 @@ export default function MailListWidget({
         {previewData.length > 0 ? (
           <MessageRows items={previewData.slice(0, limit)} />
         ) : (
-          <EmptyState title={title} />
+          <MailEmptyState title={title} />
         )}
       </WidgetFrame>
     );
@@ -149,14 +145,13 @@ export default function MailListWidget({
   if (!accountId) {
     return (
       <WidgetFrame title={title}>
-        <div
-          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-          data-testid="maillist-no-account"
-        >
-          <Mail className={emptyStateIconClass} aria-hidden="true" />
-          <p className={emptyStateTitleClass}>연결된 메일 계정이 없어요</p>
-          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>메일 화면에서 계정을 추가해 보세요.</p>
-        </div>
+        <EmptyState
+          icon={Mail}
+          title="연결된 메일 계정이 없어요"
+          description="메일 화면에서 계정을 추가해 보세요."
+          testId="maillist-no-account"
+          variant="widget"
+        />
       </WidgetFrame>
     );
   }
@@ -164,7 +159,7 @@ export default function MailListWidget({
   const items = (messages.data ?? []).slice(0, limit);
   return (
     <WidgetFrame title={title}>
-      {items.length > 0 ? <MessageRows items={items} /> : <EmptyState title={title} />}
+      {items.length > 0 ? <MessageRows items={items} /> : <MailEmptyState title={title} />}
     </WidgetFrame>
   );
 }

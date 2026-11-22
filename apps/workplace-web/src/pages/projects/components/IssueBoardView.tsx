@@ -8,6 +8,7 @@ import { Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { EmptyState } from '@/components/layout/EmptyState';
 import { RefreshingResults } from '@/components/RefreshingResults';
 import { RemainingPagesError } from '@/components/RemainingPagesError';
 import { Button } from '@/components/ui/button';
@@ -602,27 +603,29 @@ function BoardColumn({
             </div>
           ) : issues.length === 0 ? (
             /* 빈 컬럼 — 디자인 시스템 §2.5 빈 상태 패턴: 아이콘 + 제목 + 설명 + CTA */
-            <div
-              className="flex flex-col items-center justify-center py-8 gap-3 text-center"
-              data-testid={`board-col-empty-${status.id}`}
-            >
-              <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
-                {/* 좁은 열에서 음절 단위로 끊기지 않게 어절 단위 줄바꿈(break-keep) */}
-                <p className="break-keep px-2 text-xs text-muted-foreground">
-                  {onShowAllClosed ? CLOSED_HIDDEN_NOTE : '드래그하거나 새 이슈를 추가하세요'}
-                </p>
-              </div>
-              {onShowAllClosed && <ShowAllClosedButton testKey={status.id} onClick={onShowAllClosed} />}
-              {onOpenCreate && (
-                // 컬럼 상태로 만든다(WP-464, WP-808) — 「검토 중」 컬럼에서 누르면 검토 중으로 만들어진다.
-                <Button size="sm" variant="ghost" onClick={() => onOpenCreate(status.id)} data-testid={`board-col-add-${status.id}`}>
-                  <Plus className="h-4 w-4" />
-                  이슈 추가
-                </Button>
-              )}
-            </div>
+            // WP-1947: 공용 EmptyState — 보드는 제목이 muted 색이라 titleClassName 으로 덧붙인다. 좁은 열이라 설명은 break-keep.
+            <EmptyState
+              testId={`board-col-empty-${status.id}`}
+              className="justify-center py-8 gap-3"
+              icon={Inbox}
+              grouped
+              title="이슈 없음"
+              titleClassName="text-muted-foreground"
+              description={onShowAllClosed ? CLOSED_HIDDEN_NOTE : '드래그하거나 새 이슈를 추가하세요'}
+              descriptionClassName="break-keep px-2"
+              action={
+                <>
+                  {onShowAllClosed && <ShowAllClosedButton testKey={status.id} onClick={onShowAllClosed} />}
+                  {onOpenCreate && (
+                    // 컬럼 상태로 만든다(WP-464, WP-808) — 「검토 중」 컬럼에서 누르면 검토 중으로 만들어진다.
+                    <Button size="sm" variant="ghost" onClick={() => onOpenCreate(status.id)} data-testid={`board-col-add-${status.id}`}>
+                      <Plus className="h-4 w-4" />
+                      이슈 추가
+                    </Button>
+                  )}
+                </>
+              }
+            />
           ) : (
             <div className="flex flex-col gap-2">
               {issues.map((it) => (
@@ -665,22 +668,27 @@ function MobileBoardEmpty({
   onShowAllClosed?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-testid={`board-col-empty-${status}`}>
-      <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
-      <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
-      {onShowAllClosed && (
+    // WP-1947: 공용 EmptyState(묶음 없음 — 제목·설명·단추가 바깥 div 직계 자식인 기존 DOM 유지).
+    <EmptyState
+      testId={`board-col-empty-${status}`}
+      className="justify-center gap-3 py-12"
+      icon={Inbox}
+      title="이슈 없음"
+      titleClassName="text-muted-foreground"
+      description={onShowAllClosed ? CLOSED_HIDDEN_NOTE : undefined}
+      descriptionClassName="break-keep px-6"
+      action={
         <>
-          <p className="break-keep px-6 text-xs text-muted-foreground">{CLOSED_HIDDEN_NOTE}</p>
-          <ShowAllClosedButton testKey={status} onClick={onShowAllClosed} className="h-11 px-4" />
+          {onShowAllClosed && <ShowAllClosedButton testKey={status} onClick={onShowAllClosed} className="h-11 px-4" />}
+          {onOpenCreate && (
+            <Button size="sm" variant="ghost" className="h-11 px-4" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
+              <Plus className="h-4 w-4" />
+              이슈 추가
+            </Button>
+          )}
         </>
-      )}
-      {onOpenCreate && (
-        <Button size="sm" variant="ghost" className="h-11 px-4" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
-          <Plus className="h-4 w-4" />
-          이슈 추가
-        </Button>
-      )}
-    </div>
+      }
+    />
   );
 }
 

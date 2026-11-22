@@ -1,13 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import {
-  emptyStateDescriptionClass,
-  emptyStateIconClass,
-  emptyStatePositiveIconClass,
-  emptyStateTitleClass,
-} from '@/components/layout/empty-state'
-import { cn } from '@/lib/utils'
+import { EmptyState } from '@/components/layout/EmptyState'
 
 /**
  * 대시보드 위젯 공용 빈 상태(empty state) — 아이콘 + 제목 + 보조설명 + CTA 4단 구성(#653).
@@ -33,23 +27,26 @@ export function WidgetEmptyState({
   tone?: 'default' | 'positive'
 }) {
   return (
-    <div className="flex flex-col items-center gap-1 py-6 text-center" data-testid={testId}>
-      <Icon
-        className={tone === 'positive' ? emptyStatePositiveIconClass : emptyStateIconClass}
-        aria-hidden="true"
-      />
-      {/* I3(a11y): 제목·설명만 role="status"(polite live region)로 알리고 CTA 링크는 그 밖에 둔다 — 안에 두면 링크 글자까지
-          읽힌다(WP-1853). display:contents 는 일부 브라우저가 role 을 지워 쓰지 않고, 블록 감싸개 + space-y-1 로 간격을 맞춘다. */}
-      <div role="status" className="space-y-1">
-        <div className={cn('mt-1', emptyStateTitleClass)}>{title}</div>
-        <div className={emptyStateDescriptionClass}>{description}</div>
-      </div>
-      <Link
-        to={cta.to}
-        className="mt-2 inline-block rounded px-2 py-1 text-xs text-ai-accent hover:underline"
-      >
-        {cta.label} →
-      </Link>
-    </div>
+    // I3(a11y): 제목·설명만 role="status"(polite live region)로 알리고 CTA 링크는 그 밖에 둔다 — 안에 두면 링크 글자까지
+    // 읽힌다(WP-1853). display:contents 는 일부 브라우저가 role 을 지워 쓰지 않고, 블록 감싸개 + space-y-1 로 간격을 맞춘다.
+    // 바깥 모양·아이콘 규격은 공용 EmptyState 가 그리고(WP-1947), 제목·설명 태그는 예전 그대로 div 로 둔다.
+    <EmptyState
+      icon={Icon}
+      title={title}
+      description={description}
+      tone={tone}
+      grouped
+      textRole="status"
+      titleAs="div"
+      titleClassName="mt-1"
+      descriptionAs="div"
+      className="gap-1 py-6"
+      testId={testId}
+      action={
+        <Link to={cta.to} className="mt-2 inline-block rounded px-2 py-1 text-xs text-ai-accent hover:underline">
+          {cta.label} →
+        </Link>
+      }
+    />
   )
 }

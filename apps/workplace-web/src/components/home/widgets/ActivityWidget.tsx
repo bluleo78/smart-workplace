@@ -1,12 +1,11 @@
 import { Activity } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state';
+import { EmptyState } from '@/components/layout/EmptyState';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActivity } from '@/hooks/queries/useHomeQueries';
 import { showsLoadError } from '@/lib/queryFailure'
-import { cn } from '@/lib/utils';
 import { historyEventPhrase } from '@/pages/projects/components/issueHistoryLabels';
 import type { ActivityPage } from '@/types/home';
 
@@ -56,16 +55,13 @@ export default function ActivityWidget({
       ) : (
         // 빈 상태 — 아이콘+제목+설명 구조로 맥락 제공(DS §2.5). IssueListWidget 빈 상태와 시각 정합.
         // 명확한 단일 액션이 없어 CTA 는 생략(3요소).
-        <div
-          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-          data-testid="activity-empty"
-        >
-          <Activity className={emptyStateIconClass} aria-hidden="true" />
-          <p className={emptyStateTitleClass}>최근 활동이 없어요</p>
-          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
-            이슈가 생성·변경되면 여기에 표시됩니다.
-          </p>
-        </div>
+        <EmptyState
+          icon={Activity}
+          title="최근 활동이 없어요"
+          description="이슈가 생성·변경되면 여기에 표시됩니다."
+          testId="activity-empty"
+          variant="widget"
+        />
       )}
     </WidgetFrame>
   );

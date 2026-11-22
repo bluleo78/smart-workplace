@@ -1,11 +1,10 @@
 import { FolderKanban } from 'lucide-react'
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers'
 import { useProject } from '@/hooks/queries/useProjects'
 import { showsLoadError } from '@/lib/queryFailure'
-import { cn } from '@/lib/utils';
 
 import { WidgetError } from './WidgetError'
 import { WidgetFrame } from './WidgetFrame'
@@ -25,16 +24,13 @@ export default function ProjectWidget({ params }: { params?: Record<string, unkn
   if (projectKey === null) {
     return (
       <WidgetFrame title="프로젝트 상세">
-        <div
-          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
-          data-testid="project-error"
-        >
-          <FolderKanban className={emptyStateIconClass} aria-hidden="true" />
-          <p className={emptyStateTitleClass}>프로젝트 키가 없습니다</p>
-          <p className={cn('max-w-xs', emptyStateDescriptionClass)}>
-            프로젝트 키를 지정하여 다시 요청해 보세요.
-          </p>
-        </div>
+        <EmptyState
+          icon={FolderKanban}
+          title="프로젝트 키가 없습니다"
+          description="프로젝트 키를 지정하여 다시 요청해 보세요."
+          testId="project-error"
+          variant="widget"
+        />
       </WidgetFrame>
     )
   }

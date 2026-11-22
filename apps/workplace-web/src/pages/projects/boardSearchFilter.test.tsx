@@ -346,6 +346,33 @@ describe('그룹 보드 스윔레인 (WP-1021)', () => {
   })
 })
 
+/** 빈 상태 아이콘 규격(WP-1947) — 40px muted, 흐린 색(/50)·32px 금지. */
+function expectSpecIcon(host: HTMLElement) {
+  const icon = host.querySelector('svg')
+  expect(icon).not.toBeNull()
+  const cls = icon!.getAttribute('class') ?? ''
+  expect(cls).toContain('h-10 w-10')
+  expect(cls).toContain('text-muted-foreground')
+  expect(cls).not.toContain('/50')
+  expect(cls).not.toContain('h-8')
+  expect(icon).toHaveAttribute('aria-hidden', 'true')
+}
+
+describe('보드 빈 상태 아이콘 규격 (WP-1947)', () => {
+  test('빈 열 아이콘은 40px muted 규격이다', async () => {
+    open(`/projects/${KEY}?view=board`, (url) =>
+      columnStatusOf(url) === 'TODO' ? [createIssue({ id: 1, number: 1, title: '할 일 이슈', status: 'TODO' })] : [],
+    )
+    await firstCard(1)
+    expectSpecIcon(await screen.findByTestId('board-col-empty-2'))
+  })
+
+  test('스윔레인 빈 상태 아이콘은 40px muted 규격이다', async () => {
+    open(`/projects/${KEY}?view=board&group=priority`, () => [])
+    expectSpecIcon(await screen.findByTestId('board-lanes-empty', {}, { timeout: SCREEN_LOAD_TIMEOUT }))
+  })
+})
+
 // #876 — 활성 사이클 밖 종료(완료·취소) 이슈 숨김 + 「완료 모두 보기」.
 describe('종료 이슈 숨김 (#876)', () => {
   // 숨김 해제 판정(overridesClosedHiding)은 issueFilters.test.ts 가 맡는다 — 여기선 요청·토글 UI 반영을 본다.
