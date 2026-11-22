@@ -1,5 +1,6 @@
-import { Crown, Search } from 'lucide-react'
+import { Crown, Search, UsersRound } from 'lucide-react'
 
+import { EmptyState } from '@/components/layout/EmptyState'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import type { ContactSelection } from '@/hooks/queries/useContactDetail'
@@ -7,6 +8,7 @@ import { useGroupMemberSearch } from '@/hooks/queries/useGroupMemberSearch'
 import { useUserGroupDetail } from '@/hooks/queries/useUserGroupDetail'
 import { useSetGroupLeader } from '@/hooks/queries/useUserGroupMutations'
 import { useAuth } from '@/hooks/useAuth'
+import { failedWithoutData, useNotFoundWithoutData } from '@/lib/queryFailure'
 import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import type { UserGroupMemberHit } from '@/types/userGroup'
@@ -19,6 +21,8 @@ interface Props {
   search?: string
   /** 「전체에서 찾기」 — 그룹 범위를 풀고 같은 검색어로 전체 연락처를 찾는다(범위 칩 × 와 같은 동작). */
   onSearchAll?: () => void
+  /** 「전체 연락처 보기」 — 그룹이 없거나 볼 수 없을 때(404) 그룹 범위를 풀고 전체 연락처로 돌아간다(WP-1937). 없으면 버튼을 그리지 않는다. */
+  onLeaveGroup?: () => void
 }
 
 /**
@@ -29,15 +33,49 @@ interface Props {
  * 조직 리더는 이름 옆 「리더」 배지로 구분하고 서버 정렬대로 맨 위에 온다(WP-1327). 조직도 조직의 직속 구성원 행에는 관리자에게만
  * 리더 지정·해제 버튼을 둔다(트리 ⋯ 관리와 같은 isAdmin 기준).
  */
-export function GroupContactView({ groupId, selected, onSelect, search = '', onSearchAll }: Props) {
-  const { data: detail, isLoading, isError } = useUserGroupDetail(groupId)
+export function GroupContactView({ groupId, selected, onSelect, search = '', onSearchAll, onLeaveGroup }: Props) {
+  const query = useUserGroupDetail(groupId)
+  const { data: detail, isLoading } = query
   const searching = search.trim() !== ''
   const found = useGroupMemberSearch(groupId, search)
   const { isAdmin } = useAuth()
   const setLeader = useSetGroupLeader()
 
-  if (isLoading || (searching && found.isLoading)) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
-  if (isError || !detail) return <div className="p-6 text-sm text-destructive">그룹을 불러오지 못했습니다</div>
+  // 404 = 삭제됐거나 볼 수 없는 그룹(예전 주소) — 다시 시도해도 같으므로 사유와 전체 연락처 보기만 둔다. 다시 부르는 동안에도
+  // 일반 오류 안내로 번쩍 바뀌지 않게 공용 판정을 쓰고, role=status 로 그려 스크린리더가 사유를 읽게 한다(WP-1937).
+  const showNotFound = useNotFoundWithoutData(query, groupId)
+  if (showNotFound) {
+    return (
+      <EmptyState
+        testId="group-not-found"
+        className="h-full justify-center gap-3 p-4"
+        icon={UsersRound}
+        textRole="status"
+        title="그룹을 찾을 수 없거나 볼 수 없습니다"
+        description="삭제되었거나 볼 수 있는 권한이 없는 그룹입니다"
+        action={
+          onLeaveGroup && (
+            <Button variant="outline" size="sm" data-testid="group-not-found-leave" onClick={onLeaveGroup}>
+              전체 연락처 보기
+            </Button>
+          )
+        }
+      />
+    )
+  }
+  // 로딩 판정 — 실패 뒤 다시 시도 중(pending)에도 isLoading 이 참이라 failedWithoutData 로 오류 안내·초점을 유지한다
+  // (그룹 상세는 WP-1937, 검색은 WP-881 — ContactDetailPanel 과 같은 규칙).
+  const loadingGroup = isLoading && !failedWithoutData(query)
+  const loadingSearch = searching && found.isLoading && !failedWithoutData(found)
+  if (loadingGroup || loadingSearch)
+    return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
+  // detail 만 본다 — 이미 불러온 멤버는 백그라운드 재조회가 실패해도 오류로 덮지 않는다(ContactDetailPanel 과 같은 규칙, WP-1937).
+  if (!detail)
+    return (
+      <div className="p-6">
+        <LoadErrorState variant="inline" title="그룹을 불러오지 못했습니다" queries={[query]} testId="group-load-error" />
+      </div>
+    )
   // 검색만 실패 — 그룹은 불러왔으니 그룹 오류로 보이지 않고 검색을 다시 하게 한다. 전체에서 찾기도 남긴다.
   if (searching && !found.data)
     return (

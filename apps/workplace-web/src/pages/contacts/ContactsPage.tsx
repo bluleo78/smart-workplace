@@ -537,6 +537,8 @@ export function ContactsPage() {
                 onSelect={selectContact}
                 search={search}
                 onSearchAll={leaveGroup}
+                // WP-1937 — 삭제된 그룹 주소(404) 안내의 「전체 연락처 보기」: 그룹 범위를 풀어 통합 목록으로 돌아간다.
+                onLeaveGroup={leaveGroup}
               />
             ) : failedWithoutData(contactsQuery) ? (
               // 실패 먼저 — 다시 시도하면 status 가 pending 으로 돌아가 안내·초점을 잃는다(WP-881·WP-1820, lib/queryFailure).
