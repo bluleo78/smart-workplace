@@ -35,7 +35,16 @@ spec:
           command:
             - sh
             - -c
-            - chown -R 65532:65532 /data/storage-data
+            - |
+              set -e
+              # 표식이 없을 때만 전체 소유권을 맞춘다(최초 1회) — 그 뒤는 루트 디렉터리만 상수 시간으로 맞춘다(WP-1981)
+              # 전체 재맞춤이 필요하면(볼륨 복원·외부 변경 후) .perms-fixed 를 지우고 파드를 재시작한다
+              if [ ! -e /data/storage-data/.perms-fixed ]; then
+                chown -R 65532:65532 /data/storage-data
+                touch /data/storage-data/.perms-fixed
+              else
+                chown 65532:65532 /data/storage-data
+              fi
           volumeMounts:
             - name: storage
               mountPath: /data/storage-data

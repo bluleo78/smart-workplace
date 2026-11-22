@@ -233,3 +233,27 @@ test('mcpPathOnWeb=false 면 webHost 에 보호 리소스 메타데이터는 없
 test('mcp 는 인가 서버 주소(WORKPLACE_OAUTH_ISSUER)로 config.webBaseUrl 을 받는다(WP-1685)', () => {
   assert.match(BASE_DOCS.get('Deployment/mcp'), /- name: WORKPLACE_OAUTH_ISSUER\n\s+value: "https:\/\/genia-works\.iacloud\.kr"\n/);
 });
+
+test('api 볼륨 권한 init 컨테이너는 표식 파일이 있을 때 전체 chown 을 건너뛴다(WP-1981)', () => {
+  const api = BASE_DOCS.get('Deployment/api');
+  assert.ok(api, 'Deployment/api 렌더 없음');
+  // 검사는 fix-storage-perms init 컨테이너 블록만 잘라 그 안에서 — 문서 전체 기준이면 미래 템플릿이
+  // 앞에 literal else 를 내면 옳은 코드가 잘못 실패한다(시작부터 다음 containers: 까지의 구간)
+  const start = api.indexOf('fix-storage-perms');
+  assert.ok(start >= 0, 'fix-storage-perms init 컨테이너 없음');
+  const end = api.indexOf('containers:', start);
+  assert.ok(end > start, 'fix-storage-perms 뒤의 containers: 없음 — 블록 끝을 찾지 못했다');
+  const block = api.slice(start, end);
+  // 표식 없을 때만 전체 chown — 표식이 있으면 루트 디렉터리 하나만 맞춘다(파일 수와 무관한 기동)
+  assert.match(block, /if \[ ! -e \/data\/storage-data\/\.perms-fixed \]/);
+  assert.match(block, /chown -R 65532:65532 \/data\/storage-data/);
+  assert.match(block, /touch \/data\/storage-data\/\.perms-fixed/);
+  assert.match(block, /else\s+chown 65532:65532 \/data\/storage-data\s+fi/);
+  // 전체 chown 은 표식 가드 안에 딱 한 번만 나온다
+  assert.equal(block.match(/chown -R/g).length, 1);
+  assert.ok(block.indexOf('if [ ! -e') < block.indexOf('chown -R'));
+  // then 블록 안(else 보다 앞) — fi 뒤로 빠진 조건 없는 chown -R 회귀를 잡는다(WP-1981)
+  assert.ok(block.indexOf('chown -R') < block.indexOf('else'));
+  // then 블록 안에서 chown -R 이 touch 보다 앞서야 한다 — touch 가 먼저면 실패 시 표식이 남아 무음으로 깨진다
+  assert.ok(block.indexOf('chown -R') < block.indexOf('touch'));
+});

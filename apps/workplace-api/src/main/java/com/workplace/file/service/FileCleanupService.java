@@ -5,7 +5,6 @@ import static com.workplace.jooq.Tables.FILE;
 import com.workplace.file.api.ExpiredFileRetentionPolicy;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.tenant.TenantScopedRunner;
-import jakarta.annotation.PostConstruct;
 import java.io.UncheckedIOException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -41,12 +40,6 @@ public class FileCleanupService {
    * 잠금을 들고 있게 되고, 그 사이 같은 파일을 승격하려는 페이지 저장이 줄을 선다. 남은 것은 다음 사이클(1시간)에 처리된다.
    */
   private static final int MAX_PER_CYCLE = 500;
-
-  @PostConstruct
-  public void cleanupOnStartup() {
-    log.info("Running file cleanup on startup...");
-    cleanupExpiredFiles();
-  }
 
   /**
    * 만료된 업로드 파일을 정리한다 — 활성 테넌트별로 순회하며 각 테넌트의 만료 파일을 삭제한다. 스케줄러 본체는 비-트랜잭션이며, 테넌트별 트랜잭션 경계는
