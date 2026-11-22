@@ -74,6 +74,7 @@ import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.FilePreview;
 import com.workplace.jooq.tables.FileSecurityCheck;
+import com.workplace.jooq.tables.GeniaLoginSession;
 import com.workplace.jooq.tables.HelpManualSection;
 import com.workplace.jooq.tables.HelpMetricDaily;
 import com.workplace.jooq.tables.HomeActionProposal;
@@ -109,6 +110,7 @@ import com.workplace.jooq.tables.MailDraft;
 import com.workplace.jooq.tables.MailDraftAttachment;
 import com.workplace.jooq.tables.MailDraftForward;
 import com.workplace.jooq.tables.MailInbox;
+import com.workplace.jooq.tables.MailOauthState;
 import com.workplace.jooq.tables.MailSignature;
 import com.workplace.jooq.tables.MailSignatureImage;
 import com.workplace.jooq.tables.MailUserSetting;
@@ -565,6 +567,11 @@ public class Public extends SchemaImpl {
     public final FileSecurityCheck FILE_SECURITY_CHECK = FileSecurityCheck.FILE_SECURITY_CHECK;
 
     /**
+     * Gen:iA 로그인(디바이스 코드 흐름) 세션 — 사용자당 한 건, 여러 파드 중 임대를 잡은 곳만 폴링
+     */
+    public final GeniaLoginSession GENIA_LOGIN_SESSION = GeniaLoginSession.GENIA_LOGIN_SESSION;
+
+    /**
      * The table <code>public.help_manual_section</code>.
      */
     public final HelpManualSection HELP_MANUAL_SECTION = HelpManualSection.HELP_MANUAL_SECTION;
@@ -739,6 +746,11 @@ public class Public extends SchemaImpl {
      * 쿼리에서 account_id 조건으로 추가한다.
      */
     public final MailInbox MAIL_INBOX = MailInbox.MAIL_INBOX;
+
+    /**
+     * M365 메일 연결 OAuth state — 시작·완료가 다른 파드여도 찾도록 DB 에 둔 10분짜리 1회용 행
+     */
+    public final MailOauthState MAIL_OAUTH_STATE = MailOauthState.MAIL_OAUTH_STATE;
 
     /**
      * The table <code>public.mail_signature</code>.
@@ -1234,6 +1246,7 @@ public class Public extends SchemaImpl {
             FileExtraction.FILE_EXTRACTION,
             FilePreview.FILE_PREVIEW,
             FileSecurityCheck.FILE_SECURITY_CHECK,
+            GeniaLoginSession.GENIA_LOGIN_SESSION,
             HelpManualSection.HELP_MANUAL_SECTION,
             HelpMetricDaily.HELP_METRIC_DAILY,
             HomeActionProposal.HOME_ACTION_PROPOSAL,
@@ -1269,6 +1282,7 @@ public class Public extends SchemaImpl {
             MailDraftAttachment.MAIL_DRAFT_ATTACHMENT,
             MailDraftForward.MAIL_DRAFT_FORWARD,
             MailInbox.MAIL_INBOX,
+            MailOauthState.MAIL_OAUTH_STATE,
             MailSignature.MAIL_SIGNATURE,
             MailSignatureImage.MAIL_SIGNATURE_IMAGE,
             MailUserSetting.MAIL_USER_SETTING,

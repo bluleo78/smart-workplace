@@ -71,6 +71,7 @@ import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.FileExtraction.FileExtractionPath;
 import com.workplace.jooq.tables.FilePreview.FilePreviewPath;
 import com.workplace.jooq.tables.FileSecurityCheck.FileSecurityCheckPath;
+import com.workplace.jooq.tables.GeniaLoginSession.GeniaLoginSessionPath;
 import com.workplace.jooq.tables.HelpMetricDaily.HelpMetricDailyPath;
 import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
@@ -102,6 +103,7 @@ import com.workplace.jooq.tables.MailAttachmentPreview.MailAttachmentPreviewPath
 import com.workplace.jooq.tables.MailDraft.MailDraftPath;
 import com.workplace.jooq.tables.MailDraftAttachment.MailDraftAttachmentPath;
 import com.workplace.jooq.tables.MailDraftForward.MailDraftForwardPath;
+import com.workplace.jooq.tables.MailOauthState.MailOauthStatePath;
 import com.workplace.jooq.tables.MailSignature.MailSignaturePath;
 import com.workplace.jooq.tables.MailSignatureImage.MailSignatureImagePath;
 import com.workplace.jooq.tables.MailUserSetting.MailUserSettingPath;
@@ -1195,6 +1197,19 @@ public class Tenant extends TableImpl<TenantRecord> {
         return _file;
     }
 
+    private transient GeniaLoginSessionPath _geniaLoginSession;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.genia_login_session</code> table
+     */
+    public GeniaLoginSessionPath geniaLoginSession() {
+        if (_geniaLoginSession == null)
+            _geniaLoginSession = new GeniaLoginSessionPath(this, null, Keys.GENIA_LOGIN_SESSION__FK_GENIA_LOGIN_SESSION_TENANT.getInverseKey());
+
+        return _geniaLoginSession;
+    }
+
     private transient HomeMessagePath _homeMessage;
 
     /**
@@ -1477,6 +1492,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _label = new LabelPath(this, null, Keys.LABEL__FK_LABEL_TENANT.getInverseKey());
 
         return _label;
+    }
+
+    private transient MailOauthStatePath _mailOauthState;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_oauth_state</code> table
+     */
+    public MailOauthStatePath mailOauthState() {
+        if (_mailOauthState == null)
+            _mailOauthState = new MailOauthStatePath(this, null, Keys.MAIL_OAUTH_STATE__FK_MAIL_OAUTH_STATE_TENANT.getInverseKey());
+
+        return _mailOauthState;
     }
 
     private transient MailSignatureImagePath _mailSignatureImage;

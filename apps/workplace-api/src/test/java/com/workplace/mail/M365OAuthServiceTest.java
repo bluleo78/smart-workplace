@@ -305,19 +305,22 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
 
   /**
    * 같은 사용자라도 다른 워크스페이스에서 발급받은 state 는 받지 않는다 — 시작하지 않은 워크스페이스에 메일함이 붙지 않게. 여러 탭으로 생기는 일이라 공격 감사 로그는
-   * 남기지 않는다.
+   * 남기지 않는다. (state 는 테넌트 RLS 로 격리돼 다른 워크스페이스에서는 아예 보이지 않으므로 403 이 아니라 invalid_request 400 으로
+   * 거절된다.)
    */
   @Test
-  void complete_withStateFromOtherTenant_isForbidden() throws Exception {
+  void complete_withStateFromOtherTenant_isInvalidRequest() throws Exception {
     long tid2 = ensureSecondTenant();
     long userId = createCommittedUser("m365-xt-");
     createdUserId = userId;
     String token = tokenFor(userId, tid2);
     String stateForTenant1 = stateStore.issue(userId, 1L);
 
+    // WP-1976: state 가 RLS 표에 있어 다른 워크스페이스 요청에는 아예 보이지 않는다 — 알 수 없는 state 와 같이 400 으로 거부된다.
+    // (컨트롤러의 tenant_mismatch 검사는 이중 방어로 남는다.)
     complete(token, stateForTenant1)
-        .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.error").value("tenant_mismatch"));
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error").value("invalid_request"));
     verifyNoInteractions(graphApiClient);
     long audits =
         callInTenant(

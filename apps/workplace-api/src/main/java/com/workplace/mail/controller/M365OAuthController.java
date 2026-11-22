@@ -126,7 +126,8 @@ public class M365OAuthController {
       boolean connected,
       /**
        * 실패 사유 코드(invalid_request/state_mismatch/tenant_mismatch/connect_failed) — 성공 시 null 로 직렬화에서
-       * 생략.
+       * 생략. state 가 RLS 로 테넌트별 격리돼(WP-1976) 다른 워크스페이스의 state 는 invalid_request 로 나오고,
+       * tenant_mismatch 는 RLS 가 막지 못했을 때를 위한 방어 코드라 보통 도달하지 않는다.
        */
       String error) {}
 
@@ -171,6 +172,8 @@ public class M365OAuthController {
     }
     // 같은 사람이라도 시작한 뒤 다른 워크스페이스로 바뀌었으면(여러 탭 — refresh 쿠키는 마지막에 고른 워크스페이스) 연결하지 않는다.
     // 시작한 워크스페이스가 아닌 곳에 메일함이 붙지 않게 한다. 공격이 아니라 감사 로그는 남기지 않는다.
+    // 방어 검사: state 가 RLS 로 테넌트별 격리돼(WP-1976) 다른 워크스페이스의 state 는 consume 이 못 찾는다.
+    // 그래서 위에서 invalid_request 로 끝나고, 이 분기는 보통 도달하지 않는다.
     if (!Objects.equals(sd.tenantId(), TenantContext.get())) {
       log.warn(
           "M365 OAuth complete: 워크스페이스 불일치 거부: userId={} stateTenant={} currentTenant={}",
