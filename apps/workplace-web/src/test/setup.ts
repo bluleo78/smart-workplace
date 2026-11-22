@@ -12,7 +12,7 @@ import { runTestResets } from '@/lib/testResets'
 import { settleHistory } from './history'
 import { memoryStorage } from './memoryStorage'
 import { server, unhandledRequests } from './msw/server'
-import { waitForPendingRequests } from './pendingRequests'
+import { describePendingRequests, settleDelayMs, waitForPendingRequests } from './pendingRequests'
 
 // React 19 개발 빌드는 JSX 요소를 만들 때마다 owner stack 용으로 Error 를 만들어 호출 스택을 잡는다(1초에 1만 개까지, 렌더마다 초기화).
 // 화면 테스트에서는 이것이 CPU 의 1할 남짓을 먹었다(issueListColumns 프로파일: jsx·jsxDEV 자체 시간 7.8초/65초, WP-1002).
@@ -98,14 +98,23 @@ server.listen({
 })
 // 진행 중인 MSW 요청(WP-1967) — 파일 끝에서 늦게 응답하는 핸들러(delay 등)가 DOM 환경이 내려간 뒤 응답하면
 // ProgressEvent 미정의로 처리 안 된 오류가 난다. 시작·종료를 추적해 afterAll 에서 비기를 기다린다.
-const pendingRequests = new Set<string>()
-server.events.on('request:start', ({ requestId }) => pendingRequests.add(requestId))
-// 핸들러가 던지면 request:end 가 나오지 않는다 — 그 요청은 응답이 오지 않으므로 unhandledException 에서도 진행 중에서 뺀다.
-const settleRequest = ({ requestId }: { requestId: string }) => pendingRequests.delete(requestId)
-server.events.on('request:end', settleRequest)
-server.events.on('unhandledException', settleRequest)
-// 테스트가 가짜 타이머를 켠 채 끝나도 아래 정리가 멈추지 않게 진짜 setTimeout 을 잡아 둔다.
+// 값은 「METHOD URL」 — 상한을 넘겨 남은 요청을 경고에 적어 다음 실패의 원인을 찾게 한다.
+const pendingRequests = new Map<string, string>()
+server.events.on('request:start', ({ request, requestId }) => pendingRequests.set(requestId, `${request.method} ${request.url}`))
+// 테스트가 가짜 타이머를 켠 채 끝나도 아래 정리가 멈추지 않게 진짜 setTimeout·시계를 잡아 둔다.
 const realSetTimeout = globalThis.setTimeout
+const realNow = Date.now.bind(Date)
+// 마지막 요청이 끝난 시각 — 끝난 직후의 응답 이벤트 전달이 afterAll 의 서버 닫기와 겹치지 않게 본다.
+let lastRequestEndedAt = 0
+// 요청이 끝난 것으로 본다 — 진행 중에서 빼고 끝난 시각을 적는다(afterAll 이 그 뒤 응답 이벤트 전달을 기다린다).
+const settleRequest = ({ requestId }: { requestId: string }) => {
+  pendingRequests.delete(requestId)
+  lastRequestEndedAt = realNow()
+}
+server.events.on('request:end', settleRequest)
+// 핸들러가 던지면 request:end 가 나오지 않지만, 인터셉터가 XHR 에 기본 500 응답을 보내 응답 이벤트는 그대로 온다 —
+// 그래서 정상 종료와 똑같이 끝난 시각을 적어 그 전달도 기다리게 한다(WP-1967 리뷰 후속 반려).
+server.events.on('unhandledException', settleRequest)
 // renderPage 가 늘린 비동기 대기(WP-1006)를 테스트마다 RTL 기본값으로 되돌린다 — 같은 워커의 다음 컴포넌트 테스트에 새지 않게.
 const DEFAULT_ASYNC_TIMEOUT = getConfig().asyncUtilTimeout
 // 닫히는 중인 알림(sonner)을 마지막으로 본 시각(WP-1259) — sonner 는 알림을 닫을 때 200ms 뒤 목록에서 빼는 타이머를 걸고,
@@ -117,7 +126,7 @@ let toastClosingSeenAt = 0
 const TOAST_REMOVE_WAIT_MS = 250
 afterEach(async () => {
   configure({ asyncUtilTimeout: DEFAULT_ASYNC_TIMEOUT })
-  if (document.querySelector('[data-sonner-toast][data-removed="true"]')) toastClosingSeenAt = Date.now()
+  if (document.querySelector('[data-sonner-toast][data-removed="true"]')) toastClosingSeenAt = realNow()
   // 화면을 핸들러 초기화보다 먼저 내린다 — RTL 의 자동 cleanup 은 이 afterEach 뒤에 돌아, 그 사이 아직 떠 있는 화면이 보낸
   // 조회(SSE·대화·공간 목록)와 내려가며 보내는 요청(임시저장·취소)이 이미 비운 핸들러에 걸려, 부하가 큰 전체 실행에서
   // 다음 테스트를 「핸들러 없는 요청」으로 실패시켰다(WP-1002). 내린 뒤 한 틱 기다려 그 요청이 이 테스트의 핸들러로 처리되게 한다.
@@ -138,13 +147,14 @@ afterAll(async () => {
   // 서버를 닫기 전에 진행 중인 요청이 끝나길 기다린다 — 닫고 나면 늦은 응답이 내려간 DOM 환경에서 터진다(WP-1164·WP-1967).
   // 상한 1.5초: 테스트에서 가장 긴 실제 delay(800ms)를 덮는다. 끝내 응답하지 않는 핸들러(new Promise(() => {})·delay('infinite'))는
   // 파일마다 이 상한까지만 기다리게 한다.
-  const hadPending = pendingRequests.size > 0
-  await waitForPendingRequests(pendingRequests, { timeoutMs: 1500, intervalMs: 10, setTimeout: realSetTimeout })
-  // request:end 는 XHR 쪽이 응답 본문을 읽고 이벤트(readystatechange·progress·load)를 내기 전에 나므로, 기다린 요청이 있었으면
-  // 전달이 끝날 만큼(20ms) 더 기다린 뒤 서버를 닫는다. 없었으면 틱 하나만 — 파일마다 붙는 시간을 늘리지 않게.
-  await new Promise((resolve) => realSetTimeout(resolve, hadPending ? 20 : 0))
+  const timeoutMs = 1500
+  const settled = await waitForPendingRequests(pendingRequests, { timeoutMs, intervalMs: 10, setTimeout: realSetTimeout })
+  if (!settled) console.warn(describePendingRequests(pendingRequests, timeoutMs))
+  // request:end 는 XHR 쪽이 응답 본문을 읽고 이벤트(readystatechange·progress·load)를 내기 전에 나므로, 직전에 끝난 요청이
+  // 있으면(위에서 기다린 요청 포함) 전달이 끝날 만큼 더 기다린 뒤 서버를 닫는다(settleDelayMs). 아니면 틱 하나만.
+  await new Promise((resolve) => realSetTimeout(resolve, settleDelayMs(lastRequestEndedAt, realNow())))
   server.close()
-  const wait = toastClosingSeenAt + TOAST_REMOVE_WAIT_MS - Date.now()
+  const wait = toastClosingSeenAt + TOAST_REMOVE_WAIT_MS - realNow()
   if (wait > 0) await new Promise((resolve) => realSetTimeout(resolve, wait))
 })
 
