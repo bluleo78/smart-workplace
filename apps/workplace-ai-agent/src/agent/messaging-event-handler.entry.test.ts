@@ -79,7 +79,7 @@ describe('handleMessagingEvent (WP-1490)', () => {
     handleMessagingEvent(ev(10), deps);
     handleMessagingEvent(ev(11), deps);
     handleMessagingEvent(ev(12), deps);
-    // WP-1979: 임대 acquire 가 먼저라(여기선 client 없음 → 메모리 합치기 대체) 한 박자 뒤에 시작한다.
+    // WP-1979: 임대 acquire 가 먼저라(acquire 가 실패해 폴백 → 메모리 합치기) 한 박자 뒤에 시작한다.
     await flush();
     expect(runMessagingAgent).toHaveBeenCalledTimes(1);
 

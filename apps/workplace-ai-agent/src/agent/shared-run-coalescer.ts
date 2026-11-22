@@ -1,5 +1,6 @@
 // WP-1979: 대화(키)별 실행을 파드 사이에서 하나만 돌리는 합치기 — 잠금은 api 의 DB 임대가 들고, 이 모듈은 흐름만 맡는다.
 //
+// 같은 파드 안에서는 대화 키를 쥔 동안 온 이벤트를 키별 대기 칸(최신 하나)에 두었다가 쥔 처리가 끝나면 이어 받는다.
 // 흐름: acquire → ACQUIRED 면 실행 → release 가 밀린 이벤트(가장 최근 것)를 주면 그것으로 다시 실행 → 없으면 끝.
 // QUEUED(서버가 대기열에 적재)·DUPLICATE(이미 처리 중인 메시지)는 실행하지 않는다.
 // acquire 가 실패하면(api 가 구버전이라 404 등) 같은 이벤트를 메모리 합치기(fallback)에 맡겨 답이 끊기지 않게 한다.
@@ -34,15 +35,22 @@ export function createSharedRunCoalescer<E>(opts: {
   run: (event: E) => Promise<unknown>;
   onError: (event: E, error: unknown) => void;
   maxRunMs?: number;
-  /** 이벤트의 대화 키 — 같은 키의 fallback 실행이 도는 동안엔 새 이벤트를 임대 없이 fallback 으로 보낸다(같은 파드 겹침 방지). */
+  /**
+   * 이벤트의 대화 키 — 이 파드가 같은 키를 쥔 동안(acquire 진행·소유 실행·fallback·release 대기) 온 새 이벤트는 키별 대기 칸에
+   * 가장 최근 것만 남겼다가 쥔 처리가 끝나면 이어 받는다(같은 파드 겹침 방지, WP-1979 반려 1). 없으면 이벤트마다 따로 처리한다.
+   */
   key?: (event: E) => string;
   /** acquire 실패가 서버 커밋 뒤 응답 유실일 수 있는가 — 아니면(확실한 HTTP 거절) 반납을 건너뛴다. 기본은 항상 true. */
   mayHaveCommitted?: (error: unknown) => boolean;
 }): { submit(event: E): Promise<void> | undefined } {
   const maxRunMs = opts.maxRunMs ?? DEFAULT_MAX_RUN_MS;
   const leaseMs = maxRunMs + LEASE_MARGIN_MS;
-  /** fallback 실행(과 뒤따르는 반납)이 진행 중인 대화 키 — 이 동안 같은 키는 임대를 얻지 않는다. */
-  const fallbackKeys = new Set<string>();
+  /**
+   * 이 파드가 쥐고 있는 대화 키 → 그동안 온 이벤트 중 가장 최근 것(없으면 null). 키를 쥔 처리가 끝나면 대기 칸을 꺼내 이어 처리한다.
+   * 왜: acquire 응답을 기다리는 동안·폴백 뒤 release 가 넘긴 밀린 이벤트를 도는 동안에도 같은 키 새 이벤트가 따로 돌면
+   * 한 파드 안에서 같은 대화의 답이 겹친다(공유 임대는 파드 사이만 막는다).
+   */
+  const heldKeys = new Map<string, E | null>();
 
   /** 임대를 얻은 뒤의 실행 루프 — 오류가 나도 release·밀린 실행을 하고 첫 오류로 거부한다(WP-1828). */
   async function runOwned(first: E, token: string): Promise<void> {
@@ -74,42 +82,61 @@ export function createSharedRunCoalescer<E>(opts: {
    * 바꾸지 않는다. 반납 실패(구버전 api 의 404 등)는 경고 한 줄로 끝낸다. 오류는 fallback·소유 루프 중 먼저 난 것으로 거부한다.
    */
   async function fallbackThenRelease(event: E, token: string, mayRelease: boolean): Promise<void> {
-    // 같은 키의 fallback 실행(과 뒤따르는 반납)이 도는 동안 키를 잡아 둔다. mayRelease 가 false 면 반납을 건너뛴다(서버에 아무것도 없다).
-    const k = opts.key?.(event);
-    if (k !== undefined) fallbackKeys.add(k);
+    // mayRelease 가 false 면 반납을 건너뛴다(서버에 아무것도 없다). 같은 키 겹침은 handle 의 키 쥐기가 막는다.
+    let firstErr: { e: unknown } | undefined;
     try {
-      let firstErr: { e: unknown } | undefined;
-      try {
-        await opts.fallback.submit(event);
-      } catch (e) {
-        firstErr = { e };
-      }
-      let next: E | null = null;
-      try {
-        if (mayRelease) next = await opts.store(event).release(event, token, leaseMs);
-      } catch (e) {
-        console.warn('[shared-run-coalescer] acquire 실패 뒤 release 도 실패', e instanceof Error ? e.message : String(e));
-      }
-      if (next) {
-        try {
-          await runOwned(next, token);
-        } catch (e) {
-          firstErr ??= { e };
-        }
-      }
-      if (firstErr) throw firstErr.e;
-    } finally {
-      if (k !== undefined) fallbackKeys.delete(k);
+      await opts.fallback.submit(event);
+    } catch (e) {
+      firstErr = { e };
     }
+    let next: E | null = null;
+    try {
+      if (mayRelease) next = await opts.store(event).release(event, token, leaseMs);
+    } catch (e) {
+      console.warn('[shared-run-coalescer] acquire 실패 뒤 release 도 실패', e instanceof Error ? e.message : String(e));
+    }
+    if (next) {
+      try {
+        await runOwned(next, token);
+      } catch (e) {
+        firstErr ??= { e };
+      }
+    }
+    if (firstErr) throw firstErr.e;
   }
 
+  /**
+   * 키를 쥐고 이벤트 하나와, 쥔 동안 대기 칸에 쌓인 가장 최근 이벤트를 차례로 처리한다. 이미 쥐고 있으면 대기 칸만 바꾸고 바로 이행한다.
+   * 오류는 처리마다 기록하고 끝까지 돈 뒤 첫 오류로 거부한다(WP-1828 — runOwned 와 같은 규칙).
+   */
   async function handle(event: E): Promise<void> {
-    // 같은 키의 fallback 실행이 도는 중이면 임대를 얻지 않고 메모리 합치기에 합친다 — 얻으면 같은 파드에서 두 답이 겹친다.
     const k = opts.key?.(event);
-    if (k !== undefined && fallbackKeys.has(k)) {
-      await opts.fallback.submit(event);
+    if (k === undefined) return processOne(event);
+    if (heldKeys.has(k)) {
+      // 쥔 처리가 끝나면 이어 받는다 — 그 사이 여러 개가 오면 가장 최근 것만 남긴다(답은 최신 맥락으로 한 번).
+      heldKeys.set(k, event);
       return;
     }
+    heldKeys.set(k, null);
+    let firstErr: { e: unknown } | undefined;
+    let current: E | null = event;
+    // processOne 오류는 안에서 삼키므로 루프를 빠져나가는 예외가 없다 — 키는 루프 뒤에 비운다.
+    while (current) {
+      try {
+        await processOne(current);
+      } catch (e) {
+        firstErr ??= { e };
+      }
+      current = heldKeys.get(k) ?? null;
+      heldKeys.set(k, null);
+    }
+    // 대기 칸 확인과 삭제 사이에 await 가 없어 그 틈에 온 이벤트를 잃지 않는다(단일 스레드).
+    heldKeys.delete(k);
+    if (firstErr) throw firstErr.e;
+  }
+
+  /** 이벤트 하나 — acquire 해 소유 루프를 돌거나, acquire 가 실패하면 fallback 뒤 반납한다. QUEUED·DUPLICATE 는 실행하지 않는다. */
+  async function processOne(event: E): Promise<void> {
     // 토큰을 먼저 만들어 보낸다 — acquire 응답을 잃어도 이 토큰으로 반납할 수 있게.
     const token = randomUUID();
     let res: Awaited<ReturnType<RunLeaseStore<E>['acquire']>>;
