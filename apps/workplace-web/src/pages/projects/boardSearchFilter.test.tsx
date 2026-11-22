@@ -216,6 +216,22 @@ describe('보드 빈 열·열 쿼리', () => {
     }
   })
 
+  // WP-1929 리뷰 Minor 5 — 보드는 컬럼별(size=50·statusId) 쿼리만 쓴다. 게이트 위 평면 프리페치(size=30)가
+  // 보드로 새면 안 보이는 요청이 계속 살아남으므로, 보드를 보는 동안 한 건도 나가지 않음을 단언으로 못 박는다.
+  test('보드를 보는 동안엔 평면 목록 요청(size=30·cycle 없음)이 하나도 나가지 않는다 (WP-1929)', async () => {
+    const { search } = open(`/projects/${KEY}?view=board`, (url) =>
+      columnStatusOf(url) === 'TODO' ? [createIssue({ id: 1, number: 1, title: '할 일 이슈', status: 'TODO' })] : [],
+    )
+    await firstCard(1)
+    const flat = () => search.urls.filter((u) => u.searchParams.get('size') === '30' && !u.searchParams.has('cycle'))
+    expect(flat()).toHaveLength(0)
+    // 필터를 바꿔도 보드엔 평면 요청이 붙지 않는다 — 그 사이 열 쿼리(q)는 새로 나간다.
+    const box = await searchBox()
+    fireEvent.change(box, { target: { value: 'login' } })
+    await waitFor(() => expect(search.urls.some((u) => u.searchParams.get('q') === 'login')).toBe(true))
+    expect(flat()).toHaveLength(0)
+  })
+
   // #875 — 그룹 열은 동적이라 열별 쿼리가 불가 → 단일 쿼리를 끝까지 순차 로드한다(2페이지 상한 제거).
   test('그룹(담당자) 보드 — 마지막 페이지까지 자동으로 모두 로드한다', async () => {
     const pages: IssueResponse[][] = [

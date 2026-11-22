@@ -12,6 +12,7 @@ import { useWikiProjectSpace } from '@/hooks/queries/useWikiProjectSpace'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useIsMobile } from '@/hooks/useIsMobile'
 
+import { useCycles } from '../../../hooks/queries/useCycles'
 import { useProject } from '../../../hooks/queries/useProjects'
 import { canCreateIssueIn } from '../../../lib/projectPermissions'
 import type { ProjectResponse } from '../../../types/project'
@@ -46,6 +47,12 @@ export function ProjectTabsLayout() {
   const noteSpace = useWikiProjectSpace(key, { enabled: team })
   const notesVisible = notesTabVisible(team, noteSpace)
   const { redirectTo, tab, waitingNotes } = useRememberedProjectTab(key, team, notesVisible)
+  // 이슈 탭의 그룹 판정(기본이 사이클 그룹이면)은 사이클 목록을 기다린다(WP-1929) — 본문 페이지 청크가 로드된 뒤에야
+  // 처음 요청이 나가면 그만큼 판정(groupPending)이 늦어 스켈레톤이 길어진다. 그래서 레이아웃에서 먼저 받아 둔다
+  // (상태 목록은 이미 레이아웃의 새 태스크 대화상자가 앞에서 받는다). 같은 쿼리 키라 본문이 다시 요청하지 않는다.
+  // redirectTo(기본 경로 → 다른 탭으로 이동)·waitingNotes(노트 판정 대기) 동안엔 이슈 본문이 그려지지 않으니 요청하지 않는다 —
+  // 개인·다른 탭에서 쓰이지 않을 요청이 붙는 것을 막는다.
+  useCycles(key, { enabled: team && tab === 'issues' && !redirectTo && !waitingNotes })
 
   // 새 태스크 대화상자 — 머리줄 「+ 새 태스크」(기본 상태)와 이슈 탭 보드 컬럼 「이슈 추가」(그 컬럼 상태 id, WP-464·WP-808)가 같이 연다.
   const [open, setOpen] = useState(false)

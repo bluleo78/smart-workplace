@@ -18,7 +18,7 @@ import { ListLoadingSkeleton } from '../../../components/issue/ListLoadingSkelet
 import { RefreshingResults } from '../../../components/RefreshingResults';
 import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
-import { useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
+import { groupCountsBy, useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
 import { useIssueSearchKeepingPrevious } from '../../../hooks/queries/useIssueSearch';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
@@ -38,9 +38,13 @@ import { useSetIssueSort } from '../hooks/useIssueSortParam';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { columnHeadCells, issueListColumnCount, issueListMinWidthRem, useColumnDefs } from './issueListColumnDefs';
+import { countsJudgments, headerCount } from './issueListHeaderCount';
 import { ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
 import { SortableTh } from './IssueSortHeader';
+
+/** 신뢰할 수 없는 총계(그룹 기준 불일치·요청 실패·오프라인 자리채움)를 대체해 넘기는 빈 맵 — headerCount 는 총계를 기다리지 않는 이 경우에만 행 수 폴백으로 내려간다. */
+const EMPTY_GROUP_COUNTS: ReadonlyMap<string, number> = new Map();
 
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 에픽(직계 부모 또는 하위 태스크의 할아버지 에픽, WP-1692) 유형 색 토큰(배경 없는 글자용 fg). */
 function epicGroupColor(first: IssueResponse | undefined): string {
@@ -89,9 +93,37 @@ export function IssueListView({
   const refreshing = searchQuery.isPlaceholderData;
   // 프로젝트 상태 목록(WP-808) — 상태 그룹 버킷(statusId)과 행 메뉴 선택지. 호출부가 ProjectStatusesGate 로 목록을 받은 뒤에 그린다(WP-870).
   const statuses = useProjectStatusList(projectKey);
-  // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다. 총계가 오기 전·에픽 그룹은 불러온 행 수.
+  // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다.
   const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy);
   const countByKey = useMemo(() => groupCountsByKey(groupCounts.data), [groupCounts.data]);
+  // headerCount 에 넘길 판정들 — 판정 규칙 전체와 근거는 components/issueListHeaderCount.ts 주석이 지킨다
+  // (괄호 안 번호는 WP-1929 리뷰 회차).
+  //  · countsLoading: 총계를 기다리는 동안에만 수를 비운다(리뷰 1·2). status=error 는 isPending 이 아니므로
+  //    isError 로 함께 보고, 그룹 기준 변경(stale — 키 체계가 달라 이전 기준 총계는 못 쓴다)도 기다림으로 본다.
+  //    오프라인(paused)만 예외로 두어 행 수로 바로 내린다 — 요청이 시작되지 않아 기다림이 끝나지 않아 목록은
+  //    캐시로 보이는데 헤더만 계속 비어 있었기 때문이다(3차 2). 'idle' 은 구독 전이라 로딩으로 둔다.
+  //  · countsMap: stale·요청 실패·오프라인 자리채움일 땐 빈 맵 — 신뢰 못 하는 총계를 헤더에 못 보게 한다. headerCount 는
+  //    그 셋(온라인 stale 은 아님 — 기다림이라 빈 수)일 때만 행 수로 내려가 헤더가 계속 비지 않고(3차 2·4차),
+  //    statusId·assignee id 등 다른 키 체계의 수가 잘못 뜨지도 않으며(3차 nit 1-3), 실패 뒤 이전 필터 총계가
+  //    최종값처럼 남지도 않는다(3차 nit 1-5).
+  //  · countsProvisional: 임시(이전 필터) 총계는 쓰는 동안 키 없는 그룹을 실제 총계가 올 때까지 비운다(3차 3) —
+  //    placeholder 는 같은 프로젝트일 때만 이어 받는다(3차 1, useIssueGroupCounts). 오프라인 자리채움(paused)에서는
+  //    총계를 신뢰하지 않아 맵과 임시 갈래가 함께 꺼진다 — 헤더가 온라인 될 때까지 계속 비던 일도(3차 2) 이전 필터
+  //    총계가 새 필터 행 위에 뜨는 일도 없다(4차). 둘 다 issueListHeaderCount.countsJudgments 가 정한다.
+  //  · rowsUpdated: 자리채움이 끝나 행이 새 결과로 바뀌었는지 — 임시 총계와 어긋나 보이는 순간인지 알린다(3차 nit 1).
+  const countsBy = groupCountsBy(groupBy);
+  const countsOffline = groupCounts.fetchStatus === 'paused';
+  const countsStaleBy = groupCounts.data != null && countsBy != null && groupCounts.data.groupBy !== countsBy;
+  const countsAwaiting = (groupCounts.data === undefined && !groupCounts.isError) || countsStaleBy;
+  const countsLoading = countsAwaiting && !countsOffline;
+  const { usable: countsUsable, provisional: countsProvisional } = countsJudgments({
+    countsStaleBy,
+    countsError: groupCounts.isError,
+    countsOffline,
+    isPlaceholderData: groupCounts.isPlaceholderData,
+  });
+  const countsMap = countsUsable ? countByKey : EMPTY_GROUP_COUNTS;
+  const rowsUpdated = !refreshing;
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
@@ -282,57 +314,64 @@ export function IssueListView({
               </thead>
             )}
             {groups ? (
-              groups.map((g) => (
-                <tbody key={g.key} data-testid={`list-group-${g.key}`}>
-                  <tr className="bg-muted/40 border-b">
-                    <td
-                      colSpan={isMobile ? ISSUE_LIST_COLUMN_COUNT_MOBILE : issueListColumnCount(columnDefs.defs)}
-                      className="px-1 py-0"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(g.key)}
-                        aria-expanded={!collapsed.has(g.key)}
-                        data-testid={`list-group-toggle-${g.key}`}
-                        className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded text-left text-xs font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-lg:min-h-11"
+              groups.map((g) => {
+                const count = headerCount(groupBy, g.key, g.issues.length, countsMap, countsLoading, countsProvisional, rowsUpdated);
+                return (
+                  <tbody key={g.key} data-testid={`list-group-${g.key}`}>
+                    <tr className="bg-muted/40 border-b">
+                      <td
+                        colSpan={isMobile ? ISSUE_LIST_COLUMN_COUNT_MOBILE : issueListColumnCount(columnDefs.defs)}
+                        className="px-1 py-0"
                       >
-                        <ChevronRight
-                          className={cn('size-3.5 shrink-0 transition-transform', !collapsed.has(g.key) && 'rotate-90')}
-                          aria-hidden="true"
-                        />
-                        {/* 에픽 그룹은 ◆ 를 에픽 유형 색으로 — 행 메타·칩과 같은 표식(색 = 첫 이슈 부모 에픽의 유형 토큰). */}
-                        {g.key.startsWith('epic-') && (
-                          <span className={cn('shrink-0', epicGroupColor(g.issues[0]))} aria-hidden="true">
-                            ◆
-                          </span>
-                        )}
-                        <span className="min-w-0 truncate">{g.label}</span>
-                        <span className="shrink-0 font-normal" data-testid={`list-group-count-${g.key}`}>
-                          {countByKey.get(g.key) ?? g.issues.length}
-                        </span>
-                      </button>
-                    </td>
-                  </tr>
-                  {!collapsed.has(g.key) && g.issues.map((it) => (
-                    <IssueRow
-                      key={it.id}
-                      issue={it}
-                      projectKey={projectKey}
-                      selected={selected.has(it.number)}
-                      onToggleSelect={toggleSelected}
-                      canDrag={canDrag}
-                      // 다중 담당자 이슈는 여러 그룹에 보이므로 그룹별로 드래그 id 를 구분한다.
-                      dragScope={g.key}
-                      onLongPress={rowActions.open}
-                      onOpenMenu={rowActions.openMenu}
-                      menuOpen={rowActions.menuIssueNumber === it.number}
-                      selectionMode={isMobile && selected.size > 0}
-                      hideEpic={hideEpic}
-                      columns={columnDefs}
-                    />
-                  ))}
-                </tbody>
-              ))
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(g.key)}
+                          aria-expanded={!collapsed.has(g.key)}
+                          data-testid={`list-group-toggle-${g.key}`}
+                          className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded text-left text-xs font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-lg:min-h-11"
+                        >
+                          <ChevronRight
+                            className={cn('size-3.5 shrink-0 transition-transform', !collapsed.has(g.key) && 'rotate-90')}
+                            aria-hidden="true"
+                          />
+                          {/* 에픽 그룹은 ◆ 를 에픽 유형 색으로 — 행 메타·칩과 같은 표식(색 = 첫 이슈 부모 에픽의 유형 토큰). */}
+                          {g.key.startsWith('epic-') && (
+                            <span className={cn('shrink-0', epicGroupColor(g.issues[0]))} aria-hidden="true">
+                              ◆
+                            </span>
+                          )}
+                          <span className="min-w-0 truncate">{g.label}</span>
+                          {/* 총계 로딩 중에만 수를 두지 않는다 — 행 수를 잠깐 보여주고 총계로 바꾸는 깜빡임 제거(WP-1929 리뷰).
+                              로딩이 끝나면 총계, 실패했거나 키가 없으면 불러온 행 수로 뜬다(headerCount). */}
+                          {count != null && (
+                            <span className="shrink-0 font-normal" data-testid={`list-group-count-${g.key}`}>
+                              {count}
+                            </span>
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                    {!collapsed.has(g.key) && g.issues.map((it) => (
+                      <IssueRow
+                        key={it.id}
+                        issue={it}
+                        projectKey={projectKey}
+                        selected={selected.has(it.number)}
+                        onToggleSelect={toggleSelected}
+                        canDrag={canDrag}
+                        // 다중 담당자 이슈는 여러 그룹에 보이므로 그룹별로 드래그 id 를 구분한다.
+                        dragScope={g.key}
+                        onLongPress={rowActions.open}
+                        onOpenMenu={rowActions.openMenu}
+                        menuOpen={rowActions.menuIssueNumber === it.number}
+                        selectionMode={isMobile && selected.size > 0}
+                        hideEpic={hideEpic}
+                        columns={columnDefs}
+                      />
+                    ))}
+                  </tbody>
+                );
+              })
             ) : (
               <tbody>
                 {items.map((it) => (

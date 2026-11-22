@@ -17,11 +17,12 @@ import { handleApiError } from '../../lib/api-error';
 import type { CycleCompleteRequest, CycleRequest } from '../../types/cycle';
 
 // 프로젝트 사이클 전체 목록.
-export function useCycles(projectKey: string) {
+// enabled 를 받는 건 레이아웃 「미리 받기」(ProjectTabsLayout, WP-1929)용 — 같은 쿼리 키라 본문이 다시 부르지 않는다.
+export function useCycles(projectKey: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['cycles', projectKey],
     queryFn: () => listCycles(projectKey),
-    enabled: !!projectKey,
+    enabled: !!projectKey && options?.enabled !== false,
   });
 }
 

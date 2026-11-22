@@ -27,7 +27,8 @@ import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { issueListMinWidthRem, useColumnDefs } from './issueListColumnDefs';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
 
-/** 목록 로딩 스켈레톤 — 구간 헤더 모양 + 행 3줄. 기본 그룹 판정 보류 중(ProjectDetailPage)에도 같은 모양을 쓴다. */
+/** 목록 로딩 스켈레톤 — 구간 헤더 모양 + 행 3줄. 초기 로딩(캐시 없음) 동안 · 명시 `?group=cycle` 진입 ·
+ * ProjectDetailPage 의 판정 대기(pending)에 쓴다(#878 — 판정이 끝나기 전엔 평면 목록을 그리지 않는다). */
 export function IssueCycleListSkeleton() {
   return (
     <div className="space-y-3" data-testid="issue-list-pending" aria-busy="true" aria-label="이슈 목록 불러오는 중">
