@@ -59,3 +59,30 @@ imagePullSecrets:
   {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end -}}
+
+{{/*
+DB 커넥션 합계 가드(WP-1972) — 출력은 없고, 합계가 db.maxConnections 를 넘으면 렌더를 실패시킨다.
+파드마다 Hikari 풀이 따로라 접속 수 = 파드 수 × 풀 크기이다. 롤링 중엔 새 파드가 maxSurge 대 더 뜨고,
+옛 파드는 preStop 10s + graceful 최대 30s 동안 풀을 쥔 채 종료 중인데 Deployment 컨트롤러는 종료 중 파드를
+maxSurge 에 세지 않아 다음 새 파드가 함께 뜬다 — 그래서 maxSurge 를 두 번(새 파드 몫 + 종료 중인 옛 파드 몫) 센다.
+대수만 늘리고 max_connections 를 안 올리면 운영에서 풀 고갈(WP-752)이 나므로 배포 전에 막는다.
+식: (appReplicas + rollout.maxSurge × 2) × api.dbPoolMaxSize + db.reservedConnections <= db.maxConnections
+*/}}
+{{- define "swp.dbConnectionBudget" -}}
+{{- /* "50%"·"20x" 같은 값은 int 변환이 0 으로 읽어 합계를 적게 세므로 정수가 아니면 거절한다("1" 같은 숫자 문자열은 허용) */ -}}
+{{- range $k, $v := dict "rollout.maxSurge" .Values.rollout.maxSurge "api.dbPoolMaxSize" .Values.api.dbPoolMaxSize "db.maxConnections" .Values.db.maxConnections "db.reservedConnections" .Values.db.reservedConnections -}}
+{{- if not (regexMatch "^[0-9]+$" (toString $v)) -}}
+{{- fail (printf "%s 는 DB 커넥션 합계 계산을 위해 정수여야 합니다(현재 값: %v)" $k $v) -}}
+{{- end -}}
+{{- end -}}
+{{- /* api 대수는 지금 appReplicas 한 값이다 — 앱별 replicas 로 나누면(WP-1970) api 값으로 바꿔야 한다 */ -}}
+{{- $replicas := int .Values.appReplicas -}}
+{{- $surge := int .Values.rollout.maxSurge -}}
+{{- $pool := int .Values.api.dbPoolMaxSize -}}
+{{- $reserved := int .Values.db.reservedConnections -}}
+{{- $max := int .Values.db.maxConnections -}}
+{{- $total := add (mul (add $replicas (mul 2 $surge)) $pool) $reserved -}}
+{{- if gt $total $max -}}
+{{- fail (printf "DB 커넥션 합계 %d > db.maxConnections %d: (appReplicas %d + rollout.maxSurge %d × 2) × api.dbPoolMaxSize %d + db.reservedConnections %d. 대수·풀을 줄이거나 db.maxConnections 를 올리세요(docs/ops/multi-instance.md)" $total $max $replicas $surge $pool $reserved) -}}
+{{- end -}}
+{{- end -}}

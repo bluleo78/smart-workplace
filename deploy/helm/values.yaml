@@ -102,6 +102,11 @@ db:
   # 이미지는 images.db(PG18 + pgvector 커스텀 하드닝, nonroot uid 70, PGDATA=/var/lib/postgresql/18/data).
   # 2026-07-11 PG16→PG18 dump/restore 마이그레이션 완료. 구 pgvector/pgvector:pg16에서 이관.
   storage: 10Gi
+  # PostgreSQL max_connections(WP-1972) — 컨테이너 args 로 명시해 이미지 기본값이 바뀌어도 한도가 흔들리지 않게 한다.
+  maxConnections: 100
+  # 앱 풀 밖에서 쓰는 접속 예비분: superuser_reserved_connections 3 + Flyway 2(기동 중인 새 파드(maxSurge 대)의 Flyway 접속 — Flyway 는 기동 때만 붙는다) + 사람·운영 접속 10.
+  # 이 값까지 더한 합계가 maxConnections 를 넘으면 렌더 가드(swp.dbConnectionBudget)가 막는다 — 합계식은 docs/ops/multi-instance.md.
+  reservedConnections: 15
   resources:
     requests:
       cpu: 100m
@@ -118,6 +123,9 @@ api:
   # aiAgent.recurringTimeoutMs + 결과 보고 재시도(약 4분)보다 길어야 한다. 두 값은 따로의 설정이라 반드시 함께 옮긴다
   # (aiAgent.recurringTimeoutMs 를 바꾸면 이 값도 바꾼다).
   recurrencePendingTimeout: PT40M
+  # 파드 하나의 DB 커넥션 풀 최대 크기(WP-1972, Hikari maximum-pool-size). 파드마다 풀이라 DB 접속 합계 = 파드 수 × 이 값이며,
+  # 롤아웃 중엔 maxSurge 만큼 새 파드가 더 뜨고 종료 중인 옛 파드도 풀을 쥔다 — 합계식은 docs/ops/multi-instance.md. 값은 문자열로 ConfigMap 에 들어간다.
+  dbPoolMaxSize: 10
   resources:
     requests:
       cpu: 250m

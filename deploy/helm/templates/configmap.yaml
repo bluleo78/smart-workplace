@@ -9,6 +9,7 @@ data:
   POSTGRES_USER: {{ .Values.config.postgresUser | quote }}
   POSTGRES_HOST: "db"
   POSTGRES_PORT: "5432"
+  DB_POOL_MAX_SIZE: {{ .Values.api.dbPoolMaxSize | int | quote }}
   M365_CLIENT_ID: {{ .Values.config.m365ClientId | quote }}
   M365_TENANT_ID: {{ .Values.config.m365TenantId | quote }}
   M365_REDIRECT_URI: {{ .Values.config.m365RedirectUri | quote }}
