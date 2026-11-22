@@ -308,7 +308,7 @@ describe('POST /events', () => {
     occurredAt: '2026-06-03T09:00:00Z',
   };
 
-  it('messaging.message.posted 정상 → 202 + handleMessagingEvent 호출', async () => {
+  it('messaging.message.posted 구버전 이벤트(테넌트 없음) → 202 + handleMessagingEvent 호출', async () => {
     const res = await request(buildApp())
       .post('/events')
       .set('Authorization', AUTH)
@@ -316,8 +316,29 @@ describe('POST /events', () => {
     expect(res.status).toBe(202);
     expect(res.body).toEqual({ received: true });
     expect(handleMessagingEvent).toHaveBeenCalledOnce();
+    expect(vi.mocked(handleMessagingEvent).mock.calls[0][0].payload).toEqual(validMessagingPayload);
     expect(runAgent).not.toHaveBeenCalled();
     expect(handleChatEvent).not.toHaveBeenCalled();
+  });
+
+  it('messaging.message.posted 테넌트가 있는 이벤트 → 202 + 테넌트를 핸들러에 전달', async () => {
+    const payload = { ...validMessagingPayload, tenantId: 42 };
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'messaging.message.posted', payload });
+    expect(res.status).toBe(202);
+    expect(vi.mocked(handleMessagingEvent).mock.calls[0][0].payload).toEqual(payload);
+  });
+
+  it.each([0, -1, 1.5, '42', null])('messaging.message.posted 잘못된 tenantId %j → 400', async (tenantId) => {
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'messaging.message.posted', payload: { ...validMessagingPayload, tenantId } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+    expect(handleMessagingEvent).not.toHaveBeenCalled();
   });
 
   it('messaging.message.posted 잘못된 payload → 400 invalid_payload', async () => {

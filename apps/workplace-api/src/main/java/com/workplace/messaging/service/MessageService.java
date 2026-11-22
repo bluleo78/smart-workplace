@@ -191,10 +191,11 @@ public class MessageService {
   private void maybeTriggerAi(long callerId, long channelId, MessageResponse saved) {
     // AI 비활성 시 트리거뿐 아니라 AGENT 자동 멤버추가도 하지 않는다(비활성 환경에서 응답 없는 유령 멤버 방지).
     if (!aiAgentProps.enabled()) return;
-    if ("AGENT".equals(saved.authorKind())) return; // self-loop 가드 (1:1 DM 의 유일한 가드)
-    String kind = channelRepo.findKind(channelId);
-    // WP-417: 서버 응답 에이전트는 이 워크스페이스에서 활성이어야 한다 — 요청 테넌트를 명시해 넘긴다.
+    if ("AGENT".equals(saved.authorKind())) return; // 에이전트가 보낸 메시지의 응답 루프 차단
+    // 응답자 선택과 AI 실행을 같은 워크스페이스로 제한한다(WP-417, WP-2006).
     Long tenantId = TenantContext.get();
+    if (tenantId == null) return;
+    String kind = channelRepo.findKind(channelId);
     Long respondAsAgentId;
     if ("DM".equals(kind)) {
       java.util.List<ChannelMemberResponse> members = memberRepo.listMembers(channelId);
@@ -235,10 +236,9 @@ public class MessageService {
               .map(MentionResponse::id)
               .toList();
       // 멘션된 AGENT 중 현재 테넌트의 활성 멤버만 채널에 추가·트리거 — 교차테넌트 에이전트 멘션은 조용히 무시(메시지 전송은 막지 않음).
-      // (tenantId == null 이면 어떤 에이전트도 추가하지 않음 — fail-closed)
       java.util.List<Long> eligibleAgentIds =
           agentMentionIds.stream()
-              .filter(aid -> tenantId != null && membershipRepo.hasActiveMembership(aid, tenantId))
+              .filter(aid -> membershipRepo.hasActiveMembership(aid, tenantId))
               .toList();
       for (Long agentId : eligibleAgentIds) memberRepo.add(channelId, agentId, "MEMBER");
       // 외부(EXTERNAL) 에이전트도 채널 멤버로는 추가하되(외부 AI 가 API 로 읽고 답하도록), 서버 응답자는 내부(INTERNAL) 에이전트만 고른다.
@@ -247,6 +247,7 @@ public class MessageService {
     if (respondAsAgentId == null) return;
     publisher.publishEvent(
         new MessageAiTriggerEvent(
+            tenantId,
             channelId,
             kind,
             saved.id(),
