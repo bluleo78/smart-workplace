@@ -60,6 +60,15 @@ public class AgentScreenRelay {
 
   private static final int SEND_BUFFER_LIMIT = 1024 * 1024;
 
+  /**
+   * 끝남 알림 보낸 뒤 소켓을 닫기 전에 데코레이터 버퍼가 비기를 기다리는 상한(WP-2015) — 보내는 중에 닫으면 남은 프레임이 버려진다. 기한이 지나면 그냥
+   * 닫는다(닫기는 타이머·핸들러 스레드에서 불리므로 오래 멈추지 않는다).
+   */
+  private static final int ENDED_DRAIN_TIMEOUT_MS = 2_000;
+
+  /** 위 드레인 대기의 폴링 간격 — 프레임이 나가는 순간을 놓치지 않게 짧게 확인한다. */
+  private static final int ENDED_DRAIN_POLL_MS = 20;
+
   static final String REASON_RUNNER_JOIN = "실행 환경에 연결하지 못했어요";
   static final String REASON_NOT_OPENED = "작업 화면을 열지 않았어요";
   static final String REASON_BROWSER_CLOSED = "관리자가 화면을 닫았어요";
@@ -391,7 +400,8 @@ public class AgentScreenRelay {
     if (notifyBrowser) {
       sendJson(p, p.browser, Map.of("type", "status", "state", "ended", "reason", reason));
     }
-    closeQuietly(p.browser, CloseStatus.NORMAL.withReason("screen ended"));
+    // 끝남 알림이 아직 버퍼에 남아 있으면 바로 닫는 순간 그 프레임이 버려진다(WP-2015) — 나갈 때까지만 기다렸다가 닫는다.
+    closeQuietlyAfterDrain(p.browser, CloseStatus.NORMAL.withReason("screen ended"));
     closeQuietly(p.runner, CloseStatus.NORMAL.withReason("screen ended"));
     try {
       service.recordClosed(p.tenantId, p.id, reason);
@@ -486,5 +496,39 @@ public class AgentScreenRelay {
     } catch (IOException | RuntimeException e) {
       // 이미 끊긴 소켓 — 더 할 것이 없다.
     }
+  }
+
+  /** 끝남 알림이 데코레이터 버퍼에 남아 있는 동안 소켓을 닫으면 그 프레임이 사라진다(WP-2015) — 나갈 때까지만 기다리고, 기한이 지나면 그냥 닫는다. */
+  private static void closeQuietlyAfterDrain(WebSocketSession s, CloseStatus status) {
+    drainBeforeClose(s);
+    closeQuietly(s, status);
+  }
+
+  /** 닫기 전에 데코레이터에 남은 마지막 프레임이 나갈 때만 기다린다 — 느린 소켓을 무한히 기다리지 않는다. */
+  private static void drainBeforeClose(WebSocketSession s) {
+    if (s == null || !s.isOpen()) return;
+    if (!(s instanceof ConcurrentWebSocketSessionDecorator d)) return;
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(ENDED_DRAIN_TIMEOUT_MS);
+    // 버퍼가 비고 진행 중인 보내기가 끝날 때까지 기다린다 — 그 동안 앞선 보내기 스레드가 끝남 알림까지 밀어낸다.
+    // 라이브러리는 쓰기 시작한 그 밀리초에 진행 중인 보내기를 0 으로 보여 줘 오판할 수 있으므로(WP-2015),
+    // 한 번 유휴을 관찰한 뒤 ENDED_DRAIN_POLL_MS 가 지난 재확인에서도 유휴일 때만 나간다(오탐은 그 재확인에서 잡는다).
+    boolean idleOnPreviousPoll = false;
+    while (System.nanoTime() < deadline) {
+      boolean idle = d.getBufferSize() == 0 && d.getTimeSinceSendStarted() == 0;
+      if (idle && idleOnPreviousPoll) return;
+      idleOnPreviousPoll = idle;
+      try {
+        Thread.sleep(ENDED_DRAIN_POLL_MS);
+      } catch (InterruptedException e) {
+        // 대기 중 끊김 — 플래그를 되돌리고 닫기를 미루지 않는다.
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+    // 기한을 채워 나간다 — 끝남 프레임이 아직 나가지 못했을 수 있다(WP-2015): 유실 흔적을 남긴다.
+    log.debug(
+        "작업 화면 끝남 프레임 대기 초과 buffer={} timeSince={}",
+        d.getBufferSize(),
+        d.getTimeSinceSendStarted());
   }
 }
