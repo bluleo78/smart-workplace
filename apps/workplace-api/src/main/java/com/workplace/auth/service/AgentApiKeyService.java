@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,6 +57,7 @@ public class AgentApiKeyService {
   private final UserRepository userRepository;
   private final WorkspaceMemberGuard memberGuard;
   private final AuditLogService auditLogService;
+  private final ApplicationEventPublisher publisher;
   private final SecureRandom secureRandom = new SecureRandom();
 
   /** AGENT 의 키 목록. HUMAN 대상이면 400. 평문/해시는 응답에 포함되지 않는다. */
@@ -147,6 +149,8 @@ public class AgentApiKeyService {
     if (!key.userId().equals(userId)) throw new KeyNotFoundException(keyId);
     int updated = repo.revoke(keyId, tenantId);
     if (updated == 0) throw new KeyNotFoundException(keyId);
+    // 커밋 뒤 이 키로 연 이벤트 스트림을 닫는다(WP-2008).
+    publisher.publishEvent(new AgentKeyStreamEvents.AgentKeyRevoked(keyId));
     String agentUsername = resolveUsername(userId);
 
     auditLogService.log(

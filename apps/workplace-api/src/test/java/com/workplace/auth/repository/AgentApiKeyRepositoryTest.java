@@ -51,6 +51,21 @@ class AgentApiKeyRepositoryTest extends IntegrationTestBase {
             .getId();
   }
 
+  /** WP-2008: 활성(회수 안 됨·만료 안 됨)인 키 id 만 골라낸다 — 회수·만료·없는 id 는 빠진다. 빈 입력은 쿼리 없이 빈 집합. */
+  @Test
+  void findActiveIds_returnsOnlyActive() {
+    Long a = repo.insert(agentId, "ak_aaaaaaaa", "hash-a", "a", adminId);
+    Long b = repo.insert(agentId, "ak_bbbbbbbb", "hash-b", "b", adminId);
+    repo.revoke(b, 1L);
+    Long c =
+        repo.insertManaged(
+            agentId, 1L, "ak_cccccccc", "hash-c", "c", OffsetDateTime.now().minusMinutes(1), null);
+
+    assertThat(repo.findActiveIds(List.of(a, b, c, 999_999_999L), OffsetDateTime.now()))
+        .containsExactly(a);
+    assertThat(repo.findActiveIds(List.of(), OffsetDateTime.now())).isEmpty();
+  }
+
   @Test
   void insert_and_find_by_user() {
     Long id = repo.insert(agentId, "ak_abc12345", "hash-1", "ci-key", adminId);

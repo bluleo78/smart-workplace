@@ -61,12 +61,12 @@ class EventStreamControllerTest extends WebMvcSliceTestBase {
 
   @Test
   void stream_registersEmitterForCaller() throws Exception {
-    when(registry.register(1L)).thenReturn(new SseEmitter());
+    when(registry.register(1L, null)).thenReturn(new SseEmitter());
     mockMvc
         .perform(get("/api/v1/events").header("Authorization", "Bearer v"))
         .andExpect(request().asyncStarted())
         .andExpect(status().isOk());
-    verify(registry).register(1L);
+    verify(registry).register(1L, null);
     // 사람 토큰은 DB 를 부르지 않는다.
     verifyNoInteractions(tracker);
   }
@@ -87,7 +87,7 @@ class EventStreamControllerTest extends WebMvcSliceTestBase {
                     LocalDateTime.now(),
                     UserKind.AGENT)));
     when(permissionService.getUserPermissions(42L)).thenReturn(Set.of("project:read"));
-    when(registry.register(42L)).thenReturn(new SseEmitter());
+    when(registry.register(42L, 7L)).thenReturn(new SseEmitter());
 
     mockMvc
         .perform(get("/api/v1/events").header("Authorization", "Bearer ak_test"))
@@ -95,8 +95,28 @@ class EventStreamControllerTest extends WebMvcSliceTestBase {
         .andExpect(status().isOk());
 
     InOrder order = inOrder(registry, tracker);
-    order.verify(registry).register(42L);
+    order.verify(registry).register(42L, 7L);
     order.verify(tracker).connected(42L);
+  }
+
+  /** WP-2008: ak_ 키로 열면 키 id 를 함께 등록하고, JWT 로 열면 키 id 없이 등록한다. */
+  @Test
+  void agentKeyStream_registersWithKeyId() throws Exception {
+    when(agentApiKeyRepository.findActiveByHash(anyString()))
+        .thenReturn(Optional.of(new AgentApiKeyRepository.ActiveKey(55L, 9L, null)));
+    when(userRepository.findById(9L))
+        .thenReturn(
+            Optional.of(
+                new UserResponse(
+                    9L, "bot", "bot@bot.local", "Bot", true, LocalDateTime.now(), UserKind.AGENT)));
+    when(permissionService.getUserPermissions(9L)).thenReturn(Set.of("project:read"));
+    when(registry.register(9L, 55L)).thenReturn(new SseEmitter());
+
+    mockMvc
+        .perform(get("/api/v1/events").header("Authorization", "Bearer ak_testkey"))
+        .andExpect(request().asyncStarted());
+
+    verify(registry).register(9L, 55L);
   }
 
   @Test

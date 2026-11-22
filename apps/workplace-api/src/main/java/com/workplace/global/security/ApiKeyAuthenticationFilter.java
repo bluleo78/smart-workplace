@@ -125,6 +125,8 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                               UsernamePasswordAuthenticationToken token =
                                   new UsernamePasswordAuthenticationToken(
                                       user.id(), null, authorities);
+                              // WP-2008: 어떤 키로 들어왔는지 남긴다 — 키 폐기 시 그 키의 SSE 스트림만 닫는 데 쓴다.
+                              token.setDetails(new AgentKeyAuthDetails(key.id()));
                               SecurityContextHolder.getContext().setAuthentication(token);
                               // WP-377: MCP 가 실은 수행 도구 — PAT·AI 키 요청에서만 채택(브라우저·Internal 은 무시).
                               AgentToolContext.set(

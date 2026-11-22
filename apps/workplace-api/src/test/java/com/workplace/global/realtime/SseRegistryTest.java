@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -19,6 +20,98 @@ class SseRegistryTest {
 
   private final SseRegistry registry =
       new SseRegistry(JsonMapper.builderWithJackson2Defaults().build());
+
+  /** emitter 가 서버 쪽에서 닫혔는지 — 닫힌 emitter 에 보내면 IllegalStateException. */
+  private static boolean isClosed(SseEmitter emitter) {
+    try {
+      emitter.send(SseEmitter.event().comment("probe"));
+      return false;
+    } catch (IllegalStateException e) {
+      return true;
+    } catch (java.io.IOException e) {
+      return false;
+    }
+  }
+
+  /** WP-2008: 키 폐기 시 그 키로 연 스트림만 닫는다 — 같은 사용자의 다른 키·JWT 연결은 그대로. */
+  @Test
+  void closeByKey_closesOnlyThatKeysStreams() {
+    SseEmitter k101 = registry.register(7L, 101L);
+    SseEmitter k102 = registry.register(7L, 102L);
+    SseEmitter jwt = registry.register(7L, null);
+
+    registry.closeByKey(101L);
+
+    assertThat(isClosed(k101)).isTrue();
+    assertThat(isClosed(k102)).isFalse();
+    assertThat(isClosed(jwt)).isFalse();
+    assertThat(registry.connectedUserCount()).isEqualTo(1);
+    assertThat(registry.openAgentKeyIds()).containsExactly(102L);
+  }
+
+  /** WP-2008: 활성 키 집합에 없는 키의 스트림을 모두 닫고 닫은 수를 돌려준다. */
+  @Test
+  void closeInactiveKeys_closesKeysNotActive() {
+    SseEmitter inactive = registry.register(7L, 101L);
+    SseEmitter active = registry.register(8L, 201L);
+
+    int closed = registry.closeInactiveKeys(Set.of(101L, 201L), Set.of(201L));
+
+    assertThat(closed).isEqualTo(1);
+    assertThat(isClosed(inactive)).isTrue();
+    assertThat(isClosed(active)).isFalse();
+    assertThat(registry.openAgentKeyIds()).containsExactly(201L);
+  }
+
+  /** WP-2008: 확인 시점 목록에 없던 키(확인 중 새로 열린 스트림)는 활성 목록에 없어도 닫지 않는다. */
+  @Test
+  void closeInactiveKeys_keepsKeyNotInCheckedSnapshot() {
+    SseEmitter checkedInactive = registry.register(7L, 101L);
+    SseEmitter opened = registry.register(8L, 301L);
+
+    int closed = registry.closeInactiveKeys(Set.of(101L), Set.of());
+
+    assertThat(closed).isEqualTo(1);
+    assertThat(isClosed(checkedInactive)).isTrue();
+    assertThat(isClosed(opened)).isFalse();
+    assertThat(registry.openAgentKeyIds()).containsExactly(301L);
+  }
+
+  /** WP-2008: 키 없이 연 스트림(JWT 등)은 안전망이 건드리지 않는다. */
+  @Test
+  void closeInactiveKeys_ignoresStreamsWithoutKey() {
+    SseEmitter jwt = registry.register(7L, null);
+
+    assertThat(registry.closeInactiveKeys(Set.of(), Set.of())).isZero();
+
+    assertThat(isClosed(jwt)).isFalse();
+    assertThat(registry.isConnected(7L)).isTrue();
+    assertThat(registry.connectedUserCount()).isEqualTo(1);
+  }
+
+  /** WP-2008: 끊긴 emitter 의 키 기억이 남지 않는다 — 하트비트 전송 실패로 정리되는 경로. */
+  @Test
+  void completedEmitter_forgetsKey() {
+    SseEmitter e = registry.register(7L, 101L);
+    assertThat(registry.openAgentKeyIds()).containsExactly(101L);
+
+    e.complete();
+    registry.sendHeartbeat();
+
+    assertThat(registry.openAgentKeyIds()).isEmpty();
+  }
+
+  /** WP-2008: 사용자 단위 닫기·한도 초과 퇴출 때도 키 기억이 같이 지워진다. */
+  @Test
+  void closeAllAndEviction_forgetKeys() {
+    registry.register(7L, 101L);
+    registry.closeAll(7L);
+    assertThat(registry.openAgentKeyIds()).isEmpty();
+
+    // 한도(5) 초과 시 가장 오래된 연결(키 1)이 퇴출된다.
+    for (long key = 1; key <= 6; key++) registry.register(9L, key);
+    assertThat(registry.openAgentKeyIds()).containsExactlyInAnyOrder(2L, 3L, 4L, 5L, 6L);
+  }
 
   @Test
   void register_returnsEmitterAndCounts() {

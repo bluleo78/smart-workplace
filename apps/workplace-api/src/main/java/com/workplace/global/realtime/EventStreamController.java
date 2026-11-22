@@ -1,5 +1,6 @@
 package com.workplace.global.realtime;
 
+import com.workplace.global.security.AgentKeyAuthDetails;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.PermissionInterceptor;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +31,8 @@ public class EventStreamController {
 
   @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
   public SseEmitter stream(@AuthenticationPrincipal Long callerId, Authentication authentication) {
-    SseEmitter emitter = registry.register(callerId);
+    // AI 키 인증이면 키 id 도 함께 기억한다(WP-2008) — 키가 폐기되면 그 키로 연 스트림만 닫기 위해.
+    SseEmitter emitter = registry.register(callerId, AgentKeyAuthDetails.currentKeyId());
     // AI 키(ak_) 인증만 ROLE_AGENT 가 붙는다 — 그 권한만으로 AI 를 가려 사람 연결은 DB 를 부르지 않는다. 등록 뒤 컨트롤러에서
     // 불러, SSE map compute 락 안에서 DB 를 부르지 않는다(WP-751).
     if (authentication != null
