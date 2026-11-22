@@ -9,7 +9,7 @@ import java.time.Instant;
  * @param kind 종류 코드(위임 작업은 DELEGATED_WORK)
  * @param target 처리 대상(없으면 type·id·label 이 null)
  * @param actor 실행 주체(AUTO 는 id·name 없음)
- * @param status RUNNING·SUCCEEDED·FAILED·SKIPPED
+ * @param status PENDING(아직 착수 전)·RUNNING·SUCCEEDED·FAILED·SKIPPED
  * @param startedAt 시작 시각(위임 작업은 배정 시각)
  * @param endedAt 종료 시각(진행 중이면 null)
  * @param waitMs 기다린 시간(밀리초). 알 수 없으면 null

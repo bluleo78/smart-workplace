@@ -253,7 +253,7 @@ public class AiStatusQueryRepository {
         r.get("wait_p95", Double.class));
   }
 
-  /** [from, to] 구간별 슬롯·대기열 칸의 최댓값(DB 에서 date_bin 으로 묶는다 — 표본 행을 옮기지 않는다). */
+  /** [from, to) 구간별 슬롯·대기열 칸의 최댓값(DB 에서 date_bin 으로 묶는다 — 표본 행을 옮기지 않는다). */
   public List<BucketSample> sampleBuckets(Instant from, Instant to, Duration bucket) {
     List<BucketSample> out = new ArrayList<>();
     for (Record r :
@@ -262,7 +262,7 @@ public class AiStatusQueryRepository {
                 + BIN_ORIGIN_SQL
                 + ") AS bucket, max(slot_used) AS used, max(slot_limit) AS lim, "
                 + "max(queue_waiting) AS queue FROM ai_capacity_sample "
-                + "WHERE sampled_at >= ?::timestamptz AND sampled_at <= ?::timestamptz GROUP BY 1",
+                + "WHERE sampled_at >= ?::timestamptz AND sampled_at < ?::timestamptz GROUP BY 1",
             bucket.toSeconds(),
             ts(from),
             ts(to))) {
@@ -276,7 +276,7 @@ public class AiStatusQueryRepository {
     return out;
   }
 
-  /** [from, to] 구간 × 종류 밀린 건수 최댓값. backlog JSON 객체를 jsonb_each_text 로 풀어 묶는다(모양이 틀린 칸은 건너뜀). */
+  /** [from, to) 구간 × 종류 밀린 건수 최댓값. backlog JSON 객체를 jsonb_each_text 로 풀어 묶는다(모양이 틀린 칸은 건너뜀). */
   public List<BucketBacklog> backlogBuckets(Instant from, Instant to, Duration bucket) {
     List<BucketBacklog> out = new ArrayList<>();
     for (Record r :
@@ -287,7 +287,7 @@ public class AiStatusQueryRepository {
                 + "max(CASE WHEN b.value ~ '^[0-9]{1,9}$' THEN b.value::int END) AS mx "
                 + "FROM ai_capacity_sample s CROSS JOIN LATERAL jsonb_each_text("
                 + "CASE WHEN jsonb_typeof(s.backlog) = 'object' THEN s.backlog ELSE '{}'::jsonb END) b "
-                + "WHERE s.sampled_at >= ?::timestamptz AND s.sampled_at <= ?::timestamptz "
+                + "WHERE s.sampled_at >= ?::timestamptz AND s.sampled_at < ?::timestamptz "
                 + "GROUP BY 1, 2",
             bucket.toSeconds(),
             ts(from),
@@ -305,8 +305,11 @@ public class AiStatusQueryRepository {
   }
 
   /**
-   * [from, to] 구간 × 계정 5h 사용률 최댓값. account_usage JSON 배열을 jsonb_array_elements 로 풀어 window=5h 만
+   * [from, to) 구간 × 계정 5h 사용률 최댓값. account_usage JSON 배열을 jsonb_array_elements 로 풀어 window=5h 만
    * 묶는다.
+   *
+   * <p>accountId 는 자릿수까지 형식을 본다 — 소수·지수·너무 큰 수 표본 하나가 {@code ::bigint} 를 깨면 이 쿼리 전체가 실패해 개요 응답이 500
+   * 이 된다. usedPercent 도 같은 까닭으로 일반 소수 형식만 받아 들인다.
    */
   public List<BucketAccount> account5hBuckets(Instant from, Instant to, Duration bucket) {
     List<BucketAccount> out = new ArrayList<>();
@@ -319,9 +322,15 @@ public class AiStatusQueryRepository {
                 + "max((a->>'usedPercent')::double precision) AS mx "
                 + "FROM ai_capacity_sample s CROSS JOIN LATERAL jsonb_array_elements("
                 + "CASE WHEN jsonb_typeof(s.account_usage) = 'array' THEN s.account_usage ELSE '[]'::jsonb END) a "
-                + "WHERE s.sampled_at >= ?::timestamptz AND s.sampled_at <= ?::timestamptz "
+                + "WHERE s.sampled_at >= ?::timestamptz AND s.sampled_at < ?::timestamptz "
                 + "AND a->>'window' = '5h' AND jsonb_typeof(a->'accountId') = 'number' "
-                + "AND jsonb_typeof(a->'usedPercent') = 'number' GROUP BY 1, 2",
+                + "AND a->>'accountId' ~ '^[0-9]{1,18}$' "
+                + "AND jsonb_typeof(a->'usedPercent') = 'number' "
+                // 반복 한계(RE_DUP_MAX=255)를 넘는 {m,n} 은 PG 가 문법 오류로 거부한다 — 자릿수 상한을 길이로 두고 형식은 반복 없는
+                // 패턴으로 본다.
+                + "AND length(a->>'usedPercent') <= 40 "
+                + "AND a->>'usedPercent' ~ '^-?[0-9]+([.][0-9]+)?$' "
+                + "GROUP BY 1, 2",
             bucket.toSeconds(),
             ts(from),
             ts(to))) {
@@ -381,13 +390,20 @@ public class AiStatusQueryRepository {
           + "round(extract(epoch from (r.ended_at - r.started_at)) * 1000)::bigint AS duration_ms, "
           + "r.input_tokens, r.output_tokens, r.model, r.error_reason, NULL::text AS q_extra";
 
-  /** 위임 작업 쪽 선택 열(같은 열 모양). 실제 시작은 lateral rs.real_start, 이슈 키는 프로젝트 키-번호. */
+  /**
+   * 위임 작업 쪽 선택 열(같은 열 모양). 실제 시작은 lateral rs.real_start, 이슈 키는 프로젝트 키-번호.
+   *
+   * <p>주체 종류는 작업자의 {@code user.kind} 로 가른다 — 사람이 AI 도구를 시켜 만든 행이라도 AGENT 로 뭉뚱그리면 actorType=USER
+   * 필터에서 빠진다. 시작 전 상태는 별도 값으로 둔다 — 실제 시작 전 행까지 RUNNING 으로 세면 「진행 중」 건수가 부풀려 보인다.
+   */
   private static final String WORK_COLUMNS =
       "'W' AS source, w.id AS sort_id, w.id::text AS ref, 'DELEGATED_WORK' AS kind, "
           + "'ISSUE' AS target_type, p.key || '-' || i.number AS target_id, i.title AS target_label, "
-          + "'AGENT' AS actor_type, w.worker_id AS actor_id, u.name AS actor_name, "
-          + "CASE w.state WHEN 'COMPLETED' THEN 'SUCCEEDED' WHEN 'FAILED' THEN 'FAILED' "
-          + "WHEN 'CANCELED' THEN 'SKIPPED' WHEN 'REJECTED' THEN 'SKIPPED' ELSE 'RUNNING' END AS status, "
+          + "CASE u.kind WHEN 'HUMAN' THEN 'USER' ELSE 'AGENT' END AS actor_type, "
+          + "w.worker_id AS actor_id, u.name AS actor_name, "
+          + "CASE WHEN w.state = 'COMPLETED' THEN 'SUCCEEDED' WHEN w.state = 'FAILED' THEN 'FAILED' "
+          + "WHEN w.state IN ('CANCELED', 'REJECTED') THEN 'SKIPPED' "
+          + "WHEN rs.real_start IS NULL THEN 'PENDING' ELSE 'RUNNING' END AS status, "
           + "w.started_at, w.ended_at, "
           + "CASE WHEN rs.real_start IS NOT NULL THEN round(greatest(extract(epoch from (rs.real_start - w.started_at)), 0) * 1000)::bigint END AS wait_ms, "
           + "round(extract(epoch from (w.ended_at - rs.real_start)) * 1000)::bigint AS duration_ms, "
@@ -428,8 +444,9 @@ public class AiStatusQueryRepository {
 
   /**
    * 처리 이력 목록 — ai_run 과 위임 작업을 같은 열 모양으로 합쳐(UNION ALL) (시작 시각, 출처, id) 내림차순 키셋으로 limit 건 읽는다. 기간은 두
-   * 쪽 모두 [from, to). 나머지 필터는 합친 열에 건다 — 위임 작업은 model 이 null·actor_type 이 AGENT·kind 가
-   * DELEGATED_WORK 라 같은 조건으로 자연히 걸러진다. 값은 모두 바인드 변수이고 q 의 LIKE 예약 글자는 이스케이프한다.
+   * 쪽 모두 [from, to). 나머지 필터는 합친 열에 건다 — 위임 작업은 model 이 null·kind 가 DELEGATED_WORK 라 같은 조건으로 자연히
+   * 걸러지고, actorType 은 사람 작업자 위임 행도 USER 로 나와 그 필터에 함께 걸린다(주체 종류는 {@link #WORK_COLUMNS} 의 user.kind
+   * 기준). 값은 모두 바인드 변수이고 q 의 LIKE 예약 글자는 이스케이프한다.
    */
   public List<RunRow> listRuns(AiRunFilter f, AiRunCursor after, int limit) {
     List<Object> p = new ArrayList<>();

@@ -445,7 +445,46 @@ class AiStatusRunsApiTest extends AiStatusTestSupport {
     JsonNode pending = byId(items, "W-" + notStarted.id());
     assertThat(pending.get("waitMs").isNull()).isTrue();
     assertThat(pending.get("durationMs").isNull()).isTrue();
-    assertThat(pending.get("status").asString()).isEqualTo("RUNNING");
+    // 실제 시작 전 행은 RUNNING 이 아니라 PENDING 으로 세어진다(WP-1831 리뷰 ③).
+    assertThat(pending.get("status").asString()).isEqualTo("PENDING");
+  }
+
+  /** 실제 시작 전(status=PENDING) 위임 작업만 골라 낸다 — RUNNING 과 섞이지 않는다(WP-1831 리뷰 ③). */
+  @Test
+  void runs_filterStatus_pendingOnlyNotStartedWork() throws Exception {
+    run().status("RUNNING").ago(Duration.ofHours(1)).save();
+    Work notStarted = work(now.minus(Duration.ofHours(2)), "시작 전", "SUBMITTED", null, null);
+    Work started = work(now.minus(Duration.ofHours(2)), "시작함", "WORKING", 1, null);
+
+    JsonNode page = runs("status", "PENDING");
+
+    assertThat(ids(page)).containsExactly("W-" + notStarted.id());
+    assertThat(ids(runs("status", "RUNNING"))).doesNotContain("W-" + notStarted.id());
+    assertThat(ids(runs("status", "RUNNING"))).contains("W-" + started.id());
+  }
+
+  /**
+   * 위임 작업의 주체 종류는 작업자 user.kind 로 가른다 — 사람이 직접 일한 행도 AGENT 로 뭉뚱그리면 actorType=USER 필터에서 빠진다(WP-1831
+   * 리뷰 ②).
+   */
+  @Test
+  void runs_delegatedHumanWorker_actorTypeUser() throws Exception {
+    Work human = work(now.minus(Duration.ofHours(2)), "사람 작업", "WORKING", 1, null);
+    baseDsl
+        .update(AGENT_WORK)
+        .set(AGENT_WORK.WORKER_ID, member)
+        .where(AGENT_WORK.ID.eq(human.id()))
+        .execute();
+    Work agent = work(now.minus(Duration.ofHours(3)), "AI 작업", "WORKING", 1, null);
+
+    JsonNode userPage = runs("actorType", "USER");
+    JsonNode agentPage = runs("actorType", "AGENT");
+
+    assertThat(ids(userPage)).containsExactly("W-" + human.id());
+    assertThat(userPage.get("items").get(0).get("actor").get("type").asString()).isEqualTo("USER");
+    assertThat(ids(agentPage)).containsExactly("W-" + agent.id());
+    assertThat(agentPage.get("items").get(0).get("actor").get("type").asString())
+        .isEqualTo("AGENT");
   }
 
   private static JsonNode byLabel(JsonNode items, String label) {

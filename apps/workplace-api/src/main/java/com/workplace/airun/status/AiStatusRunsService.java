@@ -39,7 +39,13 @@ public class AiStatusRunsService {
 
   private static final int MAX_SIZE = 100;
 
-  private static final Set<String> STATUSES = Set.of("RUNNING", "SUCCEEDED", "FAILED", "SKIPPED");
+  /**
+   * 처리 이력 status 필터 허용값 — 위임 작업은 시작 전(real_start 없음) 행을 RUNNING 과 따로 세므로 PENDING 을 함께 받는다(WP-1831
+   * 리뷰). ai_run 에는 PENDING 행이 없어 그 필터는 위임 작업 시작 전 행만 나온다.
+   */
+  private static final Set<String> STATUSES =
+      Set.of("RUNNING", "PENDING", "SUCCEEDED", "FAILED", "SKIPPED");
+
   private static final Set<String> ACTOR_TYPES = Set.of("AUTO", "USER", "AGENT");
 
   private final AiStatusQueryRepository repo;
@@ -91,7 +97,8 @@ public class AiStatusRunsService {
   private static AiRunFilter normalize(AiRunFilter in, Instant now) {
     String status = blankToNull(in.status());
     if (status != null && !STATUSES.contains(status)) {
-      throw new IllegalArgumentException("status 는 RUNNING·SUCCEEDED·FAILED·SKIPPED 중 하나여야 합니다");
+      throw new IllegalArgumentException(
+          "status 는 RUNNING·PENDING·SUCCEEDED·FAILED·SKIPPED 중 하나여야 합니다");
     }
     String actorType = blankToNull(in.actorType());
     if (actorType != null && !ACTOR_TYPES.contains(actorType)) {
