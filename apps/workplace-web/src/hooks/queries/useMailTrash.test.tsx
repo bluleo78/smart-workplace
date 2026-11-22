@@ -271,7 +271,8 @@ describe('메일함 동기화 캐시 갱신 범위', () => {
       await act(async () => { await operation })
       expect(currentCalls).toBe(2)
       expect(siblingCalls).toBe(2)
-      expect(result.current.isSuccess).toBe(true)
+      // mutateAsync 가 끝나도 훅 재렌더는 notifyManager 타이머로 미뤄져 부하 때 act 뒤로 밀리므로 상태 전이를 기다린다 (WP-2005)
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
     } finally {
       releaseSibling()
     }
