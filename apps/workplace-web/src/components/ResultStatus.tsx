@@ -3,9 +3,8 @@ import { useEffect, useState } from 'react'
 
 /**
  * 결과 안내 영역. 화면에는 보이지 않는다.
- * - 첫 렌더의 conditionKey 는 읽지 않는다. 키가 한 번이라도 바뀐 뒤부터 안내한다.
- *   모드가 바뀌어 영역 자체가 새로 만들어지는 경우(연락처 목록↔그룹)는 announceInitial 로 그 모드의
- *   결과를 첫 렌더부터 이어 알린다 — 갈림마다 안내가 끊기지 않게(WP-1943 리뷰 후속).
+ * - 첫 렌더의 conditionKey 는 읽지 않는다. 키가 한 번이라도 바뀐 뒤부터 안내한다
+ *   (연락처 목록↔그룹 전환도 키가 달라져 이 규칙으로 안내가 이어진다 — 영역은 늘 하나만 마운트돼 있으므로).
  * - 키가 바뀌면 문구를 먼저 비우고, ready 이면서 text 가 있을 때 한 틱 뒤 채운다 — 같은 문구도 다시 낭독되게 한다.
  * - 같은 키에서 이미 알렸다면 text 가 달라져도 다시 채우지 않는다(조작 중 불쑥 읽히는 것 방지).
  */
@@ -14,20 +13,17 @@ export function ResultStatus({
   ready,
   text,
   testId,
-  announceInitial = false,
 }: {
   conditionKey: string
   ready: boolean
   text: string
   testId: string
-  /** 첫 렌더부터 안내를 켠다(모드 갈림으로 영역이 새로 만들어질 때만 쓴다). */
-  announceInitial?: boolean
 }) {
   // 렌더 중 상태 보정 패턴 — 키가 처음 바뀐 순간부터 안내를 켠다(한 번 켜면 유지).
   // filled = 이번 키에서 이미 알린 문구. 키가 바뀌면 비우므로 키를 따로 저장하지 않는다.
   const [filled, setFilled] = useState<string | null>(null)
   const [prevKey, setPrevKey] = useState(conditionKey)
-  const [changed, setChanged] = useState(announceInitial)
+  const [changed, setChanged] = useState(false)
   if (prevKey !== conditionKey) {
     setPrevKey(conditionKey)
     setChanged(true)

@@ -30,17 +30,6 @@ describe('ResultStatus', () => {
     expect(el().className).toContain('left-0')
   })
 
-  it('announceInitial 이면 첫 키에서도 준비되면 채운다(모드 갈림)', async () => {
-    render(<ResultStatus conditionKey="group|10|kim" ready text="하위 조직 포함 검색 결과 2명" testId="rs" announceInitial />)
-    await waitFor(() => expect(el().textContent).toBe('하위 조직 포함 검색 결과 2명'))
-  })
-
-  it('announceInitial 이 없으면 준비돼 있어도 첫 키는 비워 둔다', async () => {
-    render(<ResultStatus conditionKey="group|10|kim" ready text="하위 조직 포함 검색 결과 2명" testId="rs" />)
-    await nextFrames()
-    expect(el().textContent).toBe('')
-  })
-
   it('키가 바뀌고 준비되면 채운다', async () => {
     const { update } = setup({ conditionKey: 'a', ready: true, text: '연락처 3명' })
     update({ conditionKey: 'b', ready: true, text: '연락처 1명' })
