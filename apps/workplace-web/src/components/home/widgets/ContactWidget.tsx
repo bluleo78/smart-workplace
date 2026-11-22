@@ -30,8 +30,7 @@ export default function ContactWidget({ params }: { params?: Record<string, unkn
           title="연락처 ID가 없습니다"
           description="연락처 ID를 지정하여 다시 요청해 보세요."
           testId="contact-error"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       </WidgetFrame>
     )

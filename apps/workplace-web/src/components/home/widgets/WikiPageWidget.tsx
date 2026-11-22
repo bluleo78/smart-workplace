@@ -39,8 +39,7 @@ export default function WikiPageWidget({ params }: { params?: Record<string, unk
           title="페이지 ID가 없습니다"
           description="페이지 ID를 지정하여 다시 요청해 보세요."
           testId="wiki_page-error"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       </WidgetFrame>
     )

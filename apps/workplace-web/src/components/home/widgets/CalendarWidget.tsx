@@ -74,8 +74,7 @@ export default function CalendarWidget({
           title="일정이 없어요"
           description="이 기간에 등록된 일정이 없습니다."
           testId="calendar-empty"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       )}
     </WidgetFrame>

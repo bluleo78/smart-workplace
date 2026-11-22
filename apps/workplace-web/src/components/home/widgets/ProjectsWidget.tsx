@@ -58,8 +58,7 @@ export default function ProjectsWidget({
           title="프로젝트가 없어요"
           description="아직 참여 중인 프로젝트가 없습니다."
           testId="projects-empty"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       )}
     </WidgetFrame>

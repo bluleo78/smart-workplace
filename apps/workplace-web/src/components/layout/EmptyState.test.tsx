@@ -75,4 +75,34 @@ describe('EmptyState', () => {
     expect(getByText('설명').tagName).toBe('DIV')
     expect(getByText('설명').className).toContain('text-xs text-muted-foreground')
   })
+
+  // WP-1947 리뷰 반영 — leading·textRole 묶음·mobile positive·widget 변형.
+  it('leading: 아이콘보다 앞에 그린다', () => {
+    const { container } = render(<EmptyState leading={<h2 className="sr-only">헤딩</h2>} icon={Inbox} title="제목" />)
+    const root = container.firstElementChild!
+    expect(root.firstElementChild!.tagName).toBe('H2')
+    expect(root.children[1].tagName).toBe('svg')
+  })
+
+  it('textRole 만 줘도 묶음 div 가 생기고 role 이 붙는다', () => {
+    const { getByText } = render(<EmptyState textRole="status" title="제목" description="설명" />)
+    const group = getByText('제목').parentElement!
+    expect(group.getAttribute('role')).toBe('status')
+    expect(group.className).toContain('space-y-1')
+  })
+
+  it('mobile + positive: 모바일 크기에 primary 색', () => {
+    const { container } = render(<EmptyState size="mobile" tone="positive" icon={Inbox} title="제목" />)
+    const cls = container.querySelector('svg')!.getAttribute('class')!
+    expect(cls).toContain('h-12 w-12')
+    expect(cls).toContain('text-primary')
+    expect(cls).not.toContain('text-muted-foreground')
+  })
+
+  it('variant=widget: 위젯 공통 gap·padding 과 설명 max-w-xs, className 은 뒤에 덧붙는다', () => {
+    const { container, getByText } = render(<EmptyState variant="widget" className="extra" title="제목" description="설명" />)
+    const root = container.firstElementChild as HTMLElement
+    expect(root.className).toBe('flex flex-col items-center text-center gap-2 px-4 py-8 extra')
+    expect(getByText('설명').className).toContain('max-w-xs')
+  })
 })

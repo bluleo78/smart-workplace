@@ -79,8 +79,7 @@ export default function DriveWidget({
             title="드라이브가 없어요"
             description="아직 접근 가능한 드라이브 스페이스가 없습니다."
             testId="drive-empty"
-            className="gap-2 px-4 py-8"
-            descriptionClassName="max-w-xs"
+            variant="widget"
           />
         )}
       </WidgetFrame>
@@ -144,8 +143,7 @@ export default function DriveWidget({
           title="파일이 없어요"
           description="이 폴더에 표시할 파일이 없습니다."
           testId="drive-empty"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       )}
     </WidgetFrame>

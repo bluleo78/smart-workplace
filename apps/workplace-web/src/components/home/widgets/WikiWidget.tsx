@@ -81,8 +81,7 @@ export default function WikiWidget({
             title="노트가 없어요"
             description="노트 화면에서 새 스페이스를 만들어 보세요."
             testId="wiki-empty"
-            className="gap-2 px-4 py-8"
-            descriptionClassName="max-w-xs"
+            variant="widget"
           />
         )}
       </WidgetFrame>
@@ -133,8 +132,7 @@ export default function WikiWidget({
           title="페이지가 없어요"
           description="이 스페이스에 표시할 페이지가 없습니다."
           testId="wiki-empty"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       )}
     </WidgetFrame>

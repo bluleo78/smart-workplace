@@ -2,7 +2,6 @@
 // 삭제는 행 hover·모바일 스와이프 대신 ⋯ 메뉴에 둔다(데스크톱·터치 같은 방법). 지운 뒤 토스트 「되돌리기」로 다시 만든다.
 import { FilePen, PenLine, Trash2 } from 'lucide-react'
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { EmptyState } from '@/components/layout/EmptyState'
 import { DropdownMenuItem } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
@@ -103,12 +102,14 @@ export function MailDraftsList({ accountId }: { accountId: number }) {
 /** 임시보관함의 오른쪽 칸(데스크톱) — 행을 누르면 작성창이 열리므로 상세 대신 안내만. */
 export function MailDraftsDetailEmpty() {
   return (
-    <div data-testid="mail-drafts-detail-empty" className="flex h-full flex-col items-center justify-center gap-3 text-center">
-      <FilePen className={emptyStateIconClass} aria-hidden="true" />
-      <div>
-        <p className={emptyStateTitleClass}>임시저장한 메일을 고르세요</p>
-        <p className={cn('mt-1', emptyStateDescriptionClass)}>누르면 작성창에서 이어 쓸 수 있어요</p>
-      </div>
-    </div>
+    // WP-1947: 공용 EmptyState(짝인 MailScheduledDetailEmpty 와 같은 부품).
+    <EmptyState
+      testId="mail-drafts-detail-empty"
+      className="h-full justify-center gap-3"
+      icon={FilePen}
+      grouped
+      title="임시저장한 메일을 고르세요"
+      description="누르면 작성창에서 이어 쓸 수 있어요"
+    />
   )
 }

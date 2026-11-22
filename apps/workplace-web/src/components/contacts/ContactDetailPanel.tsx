@@ -1,7 +1,7 @@
 import { Star, Users,UserX } from 'lucide-react'
 import { useState } from 'react'
 
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
+import { EmptyState } from '@/components/layout/EmptyState'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
@@ -64,40 +64,37 @@ export function ContactDetailPanel({
   if (!selected) {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 (CTA는 단순 안내이므로 생략) */
     return (
-      <div
-        data-testid="contact-detail-empty"
-        className="flex h-full flex-col items-center justify-center gap-3 text-center"
-      >
-        <ContactDetailSrHeading />
-        <Users className={emptyStateIconClass} aria-hidden="true" />
-        <div>
-          <p className={emptyStateTitleClass}>연락처를 선택하세요</p>
-          <p className={cn('mt-1', emptyStateDescriptionClass)}>
-            왼쪽 목록에서 연락처를 클릭하면 상세 정보가 표시됩니다
-          </p>
-        </div>
-      </div>
+      // WP-1947: 공용 EmptyState — sr-only 헤딩은 leading 으로 아이콘 앞에 둔다. 글 묶음의 mt-1 은 grouped 의 space-y-1 이 낸다.
+      <EmptyState
+        testId="contact-detail-empty"
+        className="h-full justify-center gap-3"
+        leading={<ContactDetailSrHeading />}
+        icon={Users}
+        grouped
+        title="연락처를 선택하세요"
+        description="왼쪽 목록에서 연락처를 클릭하면 상세 정보가 표시됩니다"
+      />
     )
   }
   // 404 = 없거나(삭제) 볼 수 없는(남의 개인) 연락처 — 다시 시도해도 같으므로 안내와 목록으로 돌아가기만 둔다(WP-555).
   if (isError && isNotFoundError(error)) {
     return (
-      <div
-        data-testid="contact-detail-not-found"
-        className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center"
-      >
-        <ContactDetailSrHeading />
-        <UserX className={emptyStateIconClass} aria-hidden="true" />
-        <div>
-          <p className={emptyStateTitleClass}>연락처를 찾을 수 없거나 볼 수 없습니다</p>
-          <p className={cn('mt-1', emptyStateDescriptionClass)}>삭제되었거나 볼 수 있는 권한이 없는 연락처입니다</p>
-        </div>
-        {onClose && (
-          <Button variant="outline" size="sm" data-testid="contact-detail-back-to-list" onClick={onClose}>
-            목록으로
-          </Button>
-        )}
-      </div>
+      <EmptyState
+        testId="contact-detail-not-found"
+        className="h-full justify-center gap-3 p-4"
+        leading={<ContactDetailSrHeading />}
+        icon={UserX}
+        grouped
+        title="연락처를 찾을 수 없거나 볼 수 없습니다"
+        description="삭제되었거나 볼 수 있는 권한이 없는 연락처입니다"
+        action={
+          onClose && (
+            <Button variant="outline" size="sm" data-testid="contact-detail-back-to-list" onClick={onClose}>
+              목록으로
+            </Button>
+          )
+        }
+      />
     )
   }
   // 보일 데이터가 없으면 로딩 또는 불러오기 실패 안내 — 한 곳에서 가른다(WP-1903).

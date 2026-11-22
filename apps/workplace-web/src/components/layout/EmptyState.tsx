@@ -13,9 +13,26 @@ import {
   emptyStateTitleClass,
   mobileEmptyStateDescriptionClass,
   mobileEmptyStateIconClass,
+  mobileEmptyStatePositiveIconClass,
   mobileEmptyStateTitleClass,
 } from '@/components/layout/empty-state'
 import { cn } from '@/lib/utils'
+
+// WP-1947: 상수 파일(empty-state.ts)과 부품 파일(EmptyState.tsx)의 이름이 대소문자·하이픈만 달라 자동 import 가 헷갈리므로,
+// 부품 모듈에서도 같은 상수를 다시 내보낸다. 원본은 여전히 empty-state.ts 한 곳이다(기존 import 는 그대로 둔다).
+// 상수 재내보내기는 컴포넌트 export 가 아니라 fast-refresh 규칙 대상이 아닌 순수 문자열이므로 규칙을 이 블록에서만 끈다.
+/* eslint-disable react-refresh/only-export-components */
+export {
+  emptyStateDescriptionClass,
+  emptyStateIconClass,
+  emptyStatePositiveIconClass,
+  emptyStateTitleClass,
+  mobileEmptyStateDescriptionClass,
+  mobileEmptyStateIconClass,
+  mobileEmptyStatePositiveIconClass,
+  mobileEmptyStateTitleClass,
+} from '@/components/layout/empty-state'
+/* eslint-enable react-refresh/only-export-components */
 
 /** EmptyState props — 바깥 레이아웃(gap·padding·정렬)은 className 으로 받고, 4요소 규격만 부품이 정한다. */
 export interface EmptyStateProps {
@@ -29,13 +46,20 @@ export interface EmptyStateProps {
   action?: ReactNode
   /** 기본 desktop — 아이콘·제목·설명 상수 세트 선택. */
   size?: 'desktop' | 'mobile'
-  /** 기본 default — positive 는 데스크톱 아이콘만 emptyStatePositiveIconClass. */
+  /** 기본 default — positive 는 아이콘만 primary 색(데스크톱·모바일 모두, 크기는 size 규격 그대로). */
   tone?: 'default' | 'positive'
-  /** 참이면 제목·설명을 space-y-1 div(role=textRole)로 묶는다. action 은 묶음 밖. */
+  /** 아이콘 앞에 그대로 붙일 노드(예: sr-only 헤딩). 아이콘이 없어도 맨 앞에 그린다. */
+  leading?: ReactNode
+  /**
+   * 레이아웃 변형 — 'widget' 은 홈 위젯 빈 상태 공통 모양(gap-2 px-4 py-8 + 설명 max-w-xs)을 깐다.
+   * 위젯 16곳이 같은 className 쌍을 반복하던 것을 모은다(WP-1947). className·descriptionClassName 은 그 뒤에 덧붙는다.
+   */
+  variant?: 'widget'
+  /** 참이면 제목·설명을 space-y-1 div(role=textRole)로 묶는다. action 은 묶음 밖. textRole 이 있으면 자동으로 묶는다. */
   grouped?: boolean
-  /** 묶음 div 의 role — grouped 일 때만 쓰인다(묶지 않으면 붙일 요소가 없어 무시된다). */
+  /** 묶음 div 의 role — 지정하면 grouped 없이도 묶음 div 가 생긴다(role 을 붙일 요소가 필요하므로). */
   textRole?: 'status'
-  /** 묶음 div 에 덧붙일 클래스 — grouped 일 때만 쓰인다. */
+  /** 묶음 div 에 덧붙일 클래스 — 묶음이 있을 때만 쓰인다. */
   textClassName?: string
   /** 제목 태그. 기본 'p'. */
   titleAs?: 'p' | 'div'
@@ -57,6 +81,8 @@ export function EmptyState({
   title,
   description,
   action,
+  leading,
+  variant,
   size = 'desktop',
   tone = 'default',
   grouped = false,
@@ -70,11 +96,17 @@ export function EmptyState({
   testId,
 }: EmptyStateProps) {
   const mobile = size === 'mobile'
+  // positive 는 크기 규격(size)과 색(tone)을 따로 고른다 — 모바일도 positive 면 primary 색(WP-1947, 예전엔 조용히 muted).
   const iconClass = mobile
-    ? mobileEmptyStateIconClass
+    ? tone === 'positive'
+      ? mobileEmptyStatePositiveIconClass
+      : mobileEmptyStateIconClass
     : tone === 'positive'
       ? emptyStatePositiveIconClass
       : emptyStateIconClass
+  const widget = variant === 'widget'
+  // textRole 은 묶음 div 에만 붙일 수 있으므로 textRole 이 있으면 grouped 와 같게 묶는다(WP-1947).
+  const wrapped = grouped || textRole != null
   const TitleTag = titleAs
   const titleEl = (
     <TitleTag className={cn(mobile ? mobileEmptyStateTitleClass : emptyStateTitleClass, titleClassName)}>{title}</TitleTag>
@@ -83,7 +115,7 @@ export function EmptyState({
   const descriptionEl =
     description != null ? (
       <DescriptionTag
-        className={cn(mobile ? mobileEmptyStateDescriptionClass : emptyStateDescriptionClass, descriptionClassName)}
+        className={cn(mobile ? mobileEmptyStateDescriptionClass : emptyStateDescriptionClass, widget && 'max-w-xs', descriptionClassName)}
       >
         {description}
       </DescriptionTag>
@@ -97,9 +129,13 @@ export function EmptyState({
   )
 
   return (
-    <div className={cn('flex flex-col items-center text-center', className)} data-testid={testId}>
+    <div
+      className={cn('flex flex-col items-center text-center', widget && 'gap-2 px-4 py-8', className)}
+      data-testid={testId}
+    >
+      {leading}
       {Icon && <Icon className={iconClass} aria-hidden="true" />}
-      {grouped ? (
+      {wrapped ? (
         <div className={cn('space-y-1', textClassName)} role={textRole}>
           {body}
         </div>

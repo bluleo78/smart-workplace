@@ -79,8 +79,7 @@ export default function ChannelsWidget({
           title="채널이 없어요"
           description="참여한 채널이 없습니다. 채팅 화면에서 채널에 참여해 보세요."
           testId="channels-empty"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       )}
     </WidgetFrame>

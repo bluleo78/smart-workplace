@@ -91,8 +91,7 @@ export default function IssueListWidget({
             </Button>
           }
           testId="issuelist-empty"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       )}
     </WidgetFrame>

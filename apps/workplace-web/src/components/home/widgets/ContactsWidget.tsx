@@ -87,8 +87,7 @@ export default function ContactsWidget({
           title="연락처가 없어요"
           description="조건에 맞는 연락처가 없습니다."
           testId="contacts-empty"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       )}
     </WidgetFrame>

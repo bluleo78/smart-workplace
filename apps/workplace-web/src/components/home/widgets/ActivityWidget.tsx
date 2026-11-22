@@ -60,8 +60,7 @@ export default function ActivityWidget({
           title="최근 활동이 없어요"
           description="이슈가 생성·변경되면 여기에 표시됩니다."
           testId="activity-empty"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       )}
     </WidgetFrame>

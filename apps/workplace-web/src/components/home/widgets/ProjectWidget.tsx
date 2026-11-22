@@ -29,8 +29,7 @@ export default function ProjectWidget({ params }: { params?: Record<string, unkn
           title="프로젝트 키가 없습니다"
           description="프로젝트 키를 지정하여 다시 요청해 보세요."
           testId="project-error"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       </WidgetFrame>
     )

@@ -69,8 +69,7 @@ function MailEmptyState({ title }: { title: string }) {
       title="메일이 없어요"
       description={<>{title}에 표시할 메일이 없습니다.</>}
       testId="maillist-empty"
-      className="gap-2 px-4 py-8"
-      descriptionClassName="max-w-xs"
+      variant="widget"
     />
   );
 }
@@ -151,8 +150,7 @@ export default function MailListWidget({
           title="연결된 메일 계정이 없어요"
           description="메일 화면에서 계정을 추가해 보세요."
           testId="maillist-no-account"
-          className="gap-2 px-4 py-8"
-          descriptionClassName="max-w-xs"
+          variant="widget"
         />
       </WidgetFrame>
     );

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Archive, ArchiveRestore, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Star, Sun, Tag, Trash2, User } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, SearchX, Send, Star, Sun, Tag, Trash2, User } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -12,7 +12,6 @@ import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
 import { FilterLine } from '@/components/filter/FilterLine'
 import { Breadcrumb } from '@/components/layout/Breadcrumb'
-import { emptyStateDescriptionClass, emptyStateIconClass, emptyStateTitleClass } from '@/components/layout/empty-state'
 import { EmptyState } from '@/components/layout/EmptyState'
 import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
@@ -773,19 +772,16 @@ function MessageDetailPanel({
   if (!messageId) {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 (CTA는 단순 안내이므로 생략) */
     return withViewer(
-      <div
-        data-testid="mail-detail-empty"
-        className="flex h-full flex-col items-center justify-center gap-3 text-center"
-      >
-        <MailDetailSrHeading />
-        <Mail className={emptyStateIconClass} aria-hidden="true" />
-        <div>
-          <p className={emptyStateTitleClass}>메일을 선택하세요</p>
-          <p className={cn('mt-1', emptyStateDescriptionClass)}>
-            왼쪽 목록에서 메일을 클릭하면 내용이 표시됩니다
-          </p>
-        </div>
-      </div>,
+      // WP-1947: 공용 EmptyState — sr-only 헤딩은 leading, 글 묶음 간격은 grouped(space-y-1).
+      <EmptyState
+        testId="mail-detail-empty"
+        className="h-full justify-center gap-3"
+        leading={<MailDetailSrHeading />}
+        icon={Mail}
+        grouped
+        title="메일을 선택하세요"
+        description="왼쪽 목록에서 메일을 클릭하면 내용이 표시됩니다"
+      />,
     )
   }
   // 모바일은 로딩·오류 화면에도 상단바(‹·안 읽음)를 둔다 — 상세가 화면 전체라 바가 없으면 돌아갈 길이 없다.
@@ -2262,9 +2258,14 @@ function MailInbox() {
                   />
                 ) : folderView && !search ? (
                   // WP-961 서버 메일함 0건 — 처음 가져오는 중이면 그렇게, 아니면 중립 문구(「동기화를 눌러보세요」는 받은편지함 안내).
-                  <div data-testid="mail-box-empty" className="p-6 text-sm text-muted-foreground">
-                    {folderSyncing ? '메일함을 가져오는 중…' : '이 메일함에 메일이 없습니다.'}
-                  </div>
+                  // WP-1947: 이웃 빈 상태(별표·분류·회신필요)와 같은 규격 레이아웃(아이콘+제목+설명).
+                  <EmptyState
+                    testId="mail-box-empty"
+                    className="gap-2 py-16"
+                    icon={Inbox}
+                    title={folderSyncing ? '메일함을 가져오는 중…' : '이 메일함에 메일이 없어요'}
+                    description={folderSyncing ? '잠시만 기다려 주세요.' : '메일이 오면 여기에 모여요.'}
+                  />
                 ) : view.kind === 'category' ? (
                   // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
                   <EmptyState
@@ -2275,13 +2276,20 @@ function MailInbox() {
                   />
                 ) : (
                   <>
-                    <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
-                      {search
-                        ? '검색 결과가 없습니다'
-                        : folderParam === 'SENT'
-                          ? '보낸 메일이 없습니다.'
-                          : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
-                    </div>
+                    {/* WP-1947: 이웃 빈 상태와 같은 규격 레이아웃(아이콘+제목+설명). 검색 0건은 SearchX, 보낸편지함은 Send, 나머지는 Inbox. */}
+                    <EmptyState
+                      testId="mail-list-empty"
+                      className="gap-2 py-16"
+                      icon={search ? SearchX : folderParam === 'SENT' ? Send : Inbox}
+                      title={search ? '검색 결과가 없어요' : folderParam === 'SENT' ? '보낸 메일이 없어요' : '받은 메일이 없어요'}
+                      description={
+                        search
+                          ? '다른 검색어로 찾아보세요.'
+                          : folderParam === 'SENT'
+                            ? '메일을 보내면 여기에 모여요.'
+                            : '동기화를 눌러보세요.'
+                      }
+                    />
                     {/* WP-965 최근 범위에 메일이 없어도 그 이전 메일은 서버에 있을 수 있다 — 빈 목록에서도 이어 받는다. */}
                     {olderFolder != null && listEnd}
                   </>

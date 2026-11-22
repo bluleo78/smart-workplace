@@ -19,5 +19,7 @@ export const emptyStatePositiveIconClass = `${emptyStateIconSize} text-primary`
  * 아이콘 48px · 제목 17px semibold · 본문 14px. 색은 데스크톱 규격과 같은 muted(흐린 /40 색 금지).
  */
 export const mobileEmptyStateIconClass = 'h-12 w-12 text-muted-foreground'
+/** 모바일 긍정 빈 상태 아이콘 — 크기는 모바일 규격(48px), 색만 primary(WP-1947). */
+export const mobileEmptyStatePositiveIconClass = 'h-12 w-12 text-primary'
 export const mobileEmptyStateTitleClass = 'text-[17px] font-semibold'
 export const mobileEmptyStateDescriptionClass = 'text-sm text-muted-foreground'

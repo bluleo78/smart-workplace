@@ -323,7 +323,11 @@ test('실행 취소 토스트 중인 되살리기가 있으면 비우기 POST �
 
 test('totalCount 0 이고 목록이 비면 비우기 비활성 + 「휴지통이 비어 있어요」', async () => {
   const { starts } = renderTrash({ folder: { totalCount: 0 }, rows: [] })
-  await screen.findByTestId('mail-box-empty')
+  // WP-1947: 규격 레이아웃(아이콘+제목+설명).
+  const emptyBox = await screen.findByTestId('mail-box-empty')
+  expect(emptyBox.querySelector('svg')).not.toBeNull()
+  expect(within(emptyBox).getByText('이 메일함에 메일이 없어요')).toBeInTheDocument()
+  expect(within(emptyBox).getByText('메일이 오면 여기에 모여요.')).toBeInTheDocument()
   await waitFor(() => expect(screen.getByTestId('mail-trash-empty-text')).toHaveTextContent(/^메일 서버 휴지통 0통$/))
   expect(screen.getByTestId('mail-trash-empty')).toBeDisabled()
   fireEvent.focus(screen.getByTestId('mail-trash-empty-reason'))
