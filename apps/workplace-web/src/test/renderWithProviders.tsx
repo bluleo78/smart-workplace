@@ -45,6 +45,8 @@ export const testAuthValue: AuthContextValue = {
   hasRole: () => false,
   isAdmin: false,
   refreshUser: noop,
+  // 고정 값이라 쓰기 성공이 세션에 반영되진 않아도 — 화면이 patchUser 를 부를 수는 있어야 한다(WP-1912).
+  patchUser: () => {},
 }
 
 /** QueryClient(재시도 끔) + MemoryRouter + AuthContext + TooltipProvider 로 감싸 렌더한다. */

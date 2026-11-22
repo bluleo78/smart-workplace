@@ -6,15 +6,19 @@
 // 화면 컴포넌트만 renderScreen 으로 띄운다 — 프로필 화면은 사용자 정보를 AuthContext 에서 읽고 저장만 API 로 보낸다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { useEffect, useReducer } from 'react'
 import { expect, test, vi } from 'vitest'
 
+import { AuthContext, type AuthContextValue } from '@/hooks/auth-context-value'
 import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
 import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
 import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import { testAuthValue } from '@/test/renderWithProviders'
+import type { UserResponse } from '@/types/auth'
 
+import { SetPasswordCard } from './components/SetPasswordCard'
 import ProfileSettingsPage from './ProfileSettingsPage'
 
 /** 쓰기 API 하나의 흉내 응답 — status 0 은 응답 없는 네트워크 오류(ERR_NETWORK), body 를 주면 그 JSON 을 돌려준다. */
@@ -28,8 +32,8 @@ function toResponse({ status, body }: Reply) {
   return new HttpResponse(null, { status })
 }
 
-/** 프로필 화면이 부르는 쓰기 API — 받은 요청을 calls 에 모은다(나가면 안 되는 요청도 이것으로 센다). */
-function writeHandlers({ password = { status: 204 }, profile = { status: 200, body: {} } }: { password?: Reply; profile?: Reply }) {
+/** 프로필 화면이 부르는 쓰기 API — 받은 요청을 calls 에 모은다(나가면 안 되는 요청도 이것으로 센다). 프로필 저장 응답은 실제 서버처럼 본문 없는 204. */
+function writeHandlers({ password = { status: 204 }, profile = { status: 204 } }: { password?: Reply; profile?: Reply }) {
   const calls: { method: string; path: string; body: unknown }[] = []
   const record = async (request: Request) => {
     const text = await request.text()
@@ -53,11 +57,12 @@ function writeHandlers({ password = { status: 204 }, profile = { status: 200, bo
 /**
  * 프로필 화면을 띄운다 — hasPassword 를 주면 그 계정으로 그리고, replies 로 쓰기 API 응답을 정한다.
  * opts.refreshFails 를 주면 저장 뒤 내 정보 갱신(refreshUser)이 실패하는 경우를 흉내 낸다(WP-1912).
+ * opts.patchUser 를 주면 쓰기 성공이 세션에 반영되는지 확인하는 스파이로 쓴다(WP-1912 리뷰 후속).
  */
 async function openProfile(
   hasPassword = true,
   replies: { password?: Reply; profile?: Reply } = {},
-  opts: { refreshFails?: boolean } = {},
+  opts: { refreshFails?: boolean; patchUser?: AuthContextValue['patchUser'] } = {},
 ) {
   const api = writeHandlers(replies)
   // refreshUser — 갱신이 부른 횟수를 세고, refreshFails 면 throw 한다(openAvatar 의 목업과 같은 모양).
@@ -67,7 +72,7 @@ async function openProfile(
   const view = renderScreen(<ProfileSettingsPage />, {
     path: '/settings/profile',
     handlers: api.handlers,
-    auth: { user: { ...testAuthValue.user!, hasPassword }, refreshUser },
+    auth: { user: { ...testAuthValue.user!, hasPassword }, refreshUser, patchUser: opts.patchUser ?? (() => {}) },
   })
   await screen.findByRole('heading', { level: 2, name: hasPassword ? '비밀번호 변경' : '비밀번호 설정' })
   return { ...view, calls: api.calls, refreshUser }
@@ -257,6 +262,128 @@ test('비밀번호 설정과 갱신이 모두 성공하면 칸이 전환되고 �
   await waitFor(() => expect(refreshUser).toHaveBeenCalledTimes(1))
   expect(screen.queryByText(/화면을 새로 고치지 못했습니다/)).not.toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+// ── 리뷰 후속: 쓰기 성공을 세션(AuthContext)에 반영한다(WP-1912) ──────────────────────
+// 쓰기는 성공했는데 갱신만 실패하면 세션에 남기지 않으면 옛 값으로 되돌아온다 — 리마운트 뒤 카드 재노출(리뷰 지적 1).
+
+/** 리마운트에도 남는 세션 — 실제 AuthContext 의 user 상태가 화면 밖에 있는 것과 같은 자리를 흉내 낸다(WP-1912 리뷰 후속). */
+async function openProfileInSession(opts: { hasPassword?: boolean; refreshFails?: boolean } = {}) {
+  const hasPassword = opts.hasPassword ?? false
+  const session = { user: { ...testAuthValue.user!, hasPassword } as UserResponse }
+  // 쓰기 성공을 세션에 반영하고 듣는 화면을 다시 그린다 — 실제 AuthContext.patchUser 와 같은 역할.
+  const listeners = new Set<() => void>()
+  const write = (patch: Partial<UserResponse>) => {
+    session.user = { ...session.user, ...patch }
+    listeners.forEach((notify) => notify())
+  }
+  const refreshUser = vi.fn(async () => {
+    if (opts.refreshFails) throw new Error('refresh failed')
+    // 실제 갱신(refreshUser)은 GET /users/me 로 세션을 고친다 — 서버가 새 값을 준 상황으로 흉내 낸다.
+    write({ hasPassword: true })
+  })
+  const api = writeHandlers({})
+
+  // 세션 Provider 가 화면을 직접 그린다(children 통과가 아니라) — 세션이 바뀌면 화면도 다시 그려진다.
+  function SessionProfilePage() {
+    const [, rerender] = useReducer((n: number) => n + 1, 0)
+    useEffect(() => {
+      listeners.add(rerender)
+      return () => {
+        listeners.delete(rerender)
+      }
+    }, [])
+    const value: AuthContextValue = { ...testAuthValue, user: session.user, refreshUser, patchUser: write }
+    return (
+      <AuthContext.Provider value={value}>
+        <ProfileSettingsPage />
+      </AuthContext.Provider>
+    )
+  }
+
+  const render = () => renderScreen(<SessionProfilePage />, { path: '/settings/profile', handlers: api.handlers })
+  let view = render()
+  await screen.findByRole('heading', { level: 2, name: hasPassword ? '비밀번호 변경' : '비밀번호 설정' })
+  return {
+    user: view.user,
+    calls: api.calls,
+    refreshUser,
+    /** 화면만 지웠다 다시 그린다 — 리마운트(세션은 남는다). */
+    remount: () => {
+      view.unmount()
+      view = render()
+    },
+  }
+}
+
+// WP-1912 리뷰 후속(지적 1) — 비밀번호 설정 쓰기가 성공하면 갱신 전에 세션에 hasPassword 를 반영한다.
+test('비밀번호 설정 성공은 세션에 hasPassword 를 바로 반영한다 (WP-1912 리뷰 후속)', async () => {
+  const patchUser = vi.fn()
+  const { user, calls } = await openProfile(false, {}, { refreshFails: true, patchUser })
+  await submitSetPassword(user)
+  await waitFor(() => expect(calls).toHaveLength(1))
+  await waitFor(() => expect(patchUser).toHaveBeenCalledWith({ hasPassword: true }))
+})
+
+// WP-1912 리뷰 후속(지적 1) — 프로필 저장도 쓴 이름·이메일을 세션에 반영해 갱신 실패 때 레일 메뉴 이름이 옛 값에 남지 않는다.
+test('프로필 저장 성공은 세션에 이름·이메일을 바로 반영한다 (WP-1912 리뷰 후속)', async () => {
+  const patchUser = vi.fn()
+  const { user, calls } = await openProfile(true, {}, { refreshFails: true, patchUser })
+  const name = screen.getByLabelText('이름') as HTMLInputElement
+  await user.clear(name)
+  await user.paste('리뷰후속')
+  await submitProfileSave(user, calls)
+  await waitFor(() => expect(patchUser).toHaveBeenCalledWith({ name: '리뷰후속', email: 'tester@example.com' }))
+})
+
+// WP-1912 리뷰 후속(지적 1·2) — 갱신이 실패해도 세션에 남으므로, 화면을 지웠다 다시 띄워도(리마운트) 카드가 되살아나지 않는다.
+test('비밀번호 설정은 갱신이 실패해도 리마운트 뒤에 카드가 다시 나오지 않는다 (WP-1912 리뷰 후속)', async () => {
+  const { user, calls, refreshUser, remount } = await openProfileInSession({ refreshFails: true })
+  await submitSetPassword(user)
+  await waitFor(() => expect(calls).toHaveLength(1))
+  expect(await screen.findByText('비밀번호를 설정했습니다.')).toBeInTheDocument()
+  await waitFor(() => expect(refreshUser).toHaveBeenCalledTimes(1))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+  // 리마운트 — 화면의 지역 상태(passwordSet)는 사라지고 세션만 남는다.
+  remount()
+  expect(await screen.findByRole('heading', { level: 2, name: '비밀번호 변경' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '비밀번호 설정' })).not.toBeInTheDocument()
+  expect(document.getElementById('set-new-password')).toBeNull()
+})
+
+// WP-1912 리뷰 후속(지적 1) — 프로필 이름도 세션에 남으므로, 갱신이 실패한 뒤 리마운트해도 레일·이 화면에 옛 이름이 되살아나지 않는다.
+test('프로필 저장은 갱신이 실패해도 리마운트 뒤에 새 이름이 남는다 (WP-1912 리뷰 후속)', async () => {
+  const { user, calls, refreshUser, remount } = await openProfileInSession({ hasPassword: true, refreshFails: true })
+  const name = screen.getByLabelText('이름') as HTMLInputElement
+  await user.clear(name)
+  await user.paste('리뷰후속')
+  await submitProfileSave(user, calls)
+  expect(await screen.findByText('프로필이 업데이트되었습니다.')).toBeInTheDocument()
+  await waitFor(() => expect(refreshUser).toHaveBeenCalledTimes(1))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+  remount()
+  await screen.findByRole('heading', { level: 2, name: '비밀번호 변경' })
+  expect((screen.getByLabelText('이름') as HTMLInputElement).value).toBe('리뷰후속')
+})
+
+// WP-1912 리뷰 후속(지적 3) — onDone 이 reject 해도 설정 성공 안내는 남고 실패 안내로 덮이지 않는다(카드가 그 결과를 맡지 않는다).
+test('onDone 이 실패해도 설정 성공 안내를 유지하고 실패 안내를 띄우지 않는다 (WP-1912 리뷰 후속)', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const onDone = vi.fn().mockRejectedValue(new Error('이어 일 실패'))
+  const api = writeHandlers({})
+  const { user } = renderScreen(<SetPasswordCard onDone={onDone} />, { path: '/settings/profile', handlers: api.handlers })
+  await screen.findByRole('heading', { level: 2, name: '비밀번호 설정' })
+
+  await submitSetPassword(user)
+  await waitFor(() => expect(api.calls).toHaveLength(1))
+  await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
+  expect(await screen.findByText('비밀번호를 설정했습니다.')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.queryByText(/설정에 실패했습니다/)).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '비밀번호 설정' })).toBeEnabled()
+  warn.mockRestore()
 })
 
 test('비밀번호 설정이 실패하면 안내를 스크린리더 알림으로 읽는다 (WP-1896)', async () => {

@@ -51,7 +51,7 @@ function formErrorMessage(error: unknown, clientText: string): string {
 }
 
 export default function ProfileSettingsPage() {
-  const { user, refreshUser } = useAuth()
+  const { user, refreshUser, patchUser } = useAuth()
   const { hash } = useLocation()
 
   // `#avatar` 로 들어오면 아바타 섹션으로 내린다 — SPA 이동은 브라우저가 해시 위치로 스크롤해 주지 않는다.
@@ -62,7 +62,7 @@ export default function ProfileSettingsPage() {
   // 아바타를 바꾸거나 지운 뒤 — 앱 곳곳이 읽는 아바타 목록과 내 정보(레일 메뉴·이 화면의 미리보기)를 함께 새로 받는다(실패는 삼킨다).
   const afterAvatarChange = useAfterAvatarChange(refreshUser)
 
-  // 비밀번호 설정 쓰기가 성공한 순간 켠다 — 갱신이 실패해도 같은 계정에 다시 설정하지 않도록(WP-1912).
+  // 비밀번호 설정 쓰기가 성공한 순간 켠다 — 같은 화면의 리렌더를 바로 막고, 리마운트까지는 patchUser 가 막는다(WP-1912).
   const [passwordSet, setPasswordSet] = useState(false)
 
   const profileForm = useForm<UpdateProfileFormData>({
@@ -95,6 +95,8 @@ export default function ProfileSettingsPage() {
 
   const onPasswordSet = async () => {
     setPasswordSet(true)
+    // 쓰기 성공을 세션에 먼저 반영한다 — 갱신이 실패해도 리마운트 뒤에 「비밀번호 설정」 카드가 다시 나오지 않는다(WP-1912).
+    patchUser({ hasPassword: true })
     await refreshAfterWrite('비밀번호는 설정됐지만 화면을 새로 고치지 못했습니다. 새로고침하면 반영됩니다.')
   }
 
@@ -106,6 +108,9 @@ export default function ProfileSettingsPage() {
       profileForm.setError('root', { message: formErrorMessage(error, '입력값을 확인하세요.') })
       return
     }
+    // 쓴 이름·이메일을 세션에 바로 반영한다(WP-1912) — 갱신이 실패해도 레일 메뉴·이 화면이 옛 이름으로 남지 않는다.
+    // 응답은 본문 없는 204 라 요청에 넣은 값을 그대로 반영한다. 이메일은 서버와 같은 규칙(공란 → 없음 null)으로 적는다.
+    patchUser({ name: data.name, email: data.email || null })
     toast.success('프로필이 업데이트되었습니다.')
     await refreshAfterWrite('프로필은 저장됐지만 화면을 새로 고치지 못했습니다. 새로고침하면 반영됩니다.')
   }

@@ -31,6 +31,7 @@ const signedOut: AuthContextValue = {
   hasRole: () => false,
   isAdmin: false,
   refreshUser: noop,
+  patchUser: () => {},
 }
 
 /** 미인증으로 path 를 열어 ProtectedRoute 가 로그인으로 보내게 한다. overrides 로 인증 상태 일부를 바꾼다(WP-859 연결 실패 등). */
