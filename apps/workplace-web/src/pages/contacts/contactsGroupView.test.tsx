@@ -115,3 +115,57 @@ test('그룹 상세가 실패하면 검색 결과를 알리지 않는다 (WP-194
   await nextFrames()
   expect(screen.getByTestId('contact-result-status').textContent).toBe('')
 })
+
+// WP-1943 리뷰 후속 — 목록↔그룹 갈림에서 안내 영역이 새로 만들어져도 이전 모드의 결과를 이어 알린다.
+// (모드 자식으로 갈라 둔 뒤에도 갈림마다 안내가 끊기지 않는지 — announceInitial)
+test('그룹에서 나가면 목록 결과를 이어 알린다 (WP-1943 리뷰 후속)', async () => {
+  renderPage('/contacts?group=10', {
+    handlers: [
+      http.get('/api/v1/user-groups/:id/members/search', () => HttpResponse.json([hit(2, '이개발')])),
+      http.get('/api/v1/contacts', () => HttpResponse.json(page([]))),
+      ...handlers(),
+    ],
+  })
+  await screen.findByTestId('contact-search', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '개발' } })
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('하위 조직 포함 검색 결과 1명'))
+  // 범위 칩 × — 그룹을 풀고 검색어는 남겨 통합 목록에서 같은 말로 찾는다(leaveGroup).
+  fireEvent.click(screen.getByTestId('contact-search-scope'))
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('검색 결과가 없습니다'))
+})
+
+// WP-1943 리뷰 후속 — 통합 목록에서 검색해도 그룹 멤버 조회가 돌지 않는지 가드한다.
+// (분리 전에는 목록 모드에서도 그룹 훅이 호출되던 자리다 — 구조적으로 더는 훅 자체를 부르지 않는다.)
+test('통합 목록 검색은 그룹 멤버 조회를 부르지 않는다 (WP-1943 리뷰 후속)', async () => {
+  let groupSearched = false
+  renderPage('/contacts', {
+    handlers: [
+      http.get('/api/v1/user-groups/:id/members/search', () => {
+        groupSearched = true
+        return HttpResponse.json([])
+      }),
+      ...handlers(),
+    ],
+  })
+  await screen.findByTestId('contact-search', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '개발' } })
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('검색 결과가 없습니다'))
+  await nextFrames()
+  expect(groupSearched).toBe(false)
+})
+
+// WP-1943 리뷰 후속 — 목록→그룹 갈림(announceInitial 의 반대 방향)에서도 그룹 결과를 곧바로 알린다.
+// 목록에서 검색어를 친 뒤 사이드바 그룹을 누르면 q 가 남아(WP-976) 그룹 안내 영역이 첫 키부터 그 결과를 읽어야 한다.
+test('목록에서 그룹으로 가면 그룹 결과를 이어 알린다 (WP-1943 리뷰 후속)', async () => {
+  renderPage('/contacts', {
+    handlers: [
+      http.get('/api/v1/user-groups/:id/members/search', () => HttpResponse.json([hit(2, '이개발'), hit(3, '최개발')])),
+      ...handlers(),
+    ],
+  })
+  await screen.findByTestId('group-node-10', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '개발' } })
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('검색 결과가 없습니다'))
+  fireEvent.click(screen.getByTestId('group-node-10'))
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('하위 조직 포함 검색 결과 2명'))
+})
