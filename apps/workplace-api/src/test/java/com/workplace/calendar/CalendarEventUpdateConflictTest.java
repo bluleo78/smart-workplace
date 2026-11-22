@@ -5,6 +5,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -52,10 +53,15 @@ class CalendarEventUpdateConflictTest extends IntegrationTestBase {
 
   /** 일정 읽기·쓰기 권한을 가진 사람 요청으로 꾸민다(요청마다 테넌트를 되돌려 놓는다). */
   private RequestPostProcessor asMe() {
+    return asUser(me);
+  }
+
+  /** 일정 읽기·쓰기 권한을 가진 지정 사용자 요청으로 꾸민다. */
+  private RequestPostProcessor asUser(long userId) {
     RequestPostProcessor auth =
         authentication(
             new UsernamePasswordAuthenticationToken(
-                me,
+                userId,
                 "n/a",
                 List.of(
                     new SimpleGrantedAuthority("calendar:read"),
@@ -241,5 +247,108 @@ class CalendarEventUpdateConflictTest extends IntegrationTestBase {
     // override 의 값 → 200
     mvc.perform(edit(masterId, "전체", "ALL", occ, overrideVersion).with(asMe()))
         .andExpect(status().isOk());
+  }
+
+  /** 태그 하나를 만들어 id 를 돌려준다. */
+  private long createTag(String name) throws Exception {
+    return JSON.readTree(
+            mvc.perform(
+                    post("/api/v1/calendar/tags")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\"}")
+                        .with(asMe()))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString())
+        .path("id")
+        .asLong();
+  }
+
+  /** PUT /events/{id}/tags 로 태그를 통째로 바꾼다. */
+  private void putTags(long id, long... tagIds) throws Exception {
+    StringBuilder ids = new StringBuilder();
+    for (long t : tagIds) ids.append(ids.length() == 0 ? "" : ",").append(t);
+    mvc.perform(
+            put("/api/v1/calendar/events/" + id + "/tags")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"tagIds\":[" + ids + "]}")
+                .with(asMe()))
+        .andExpect(status().is2xxSuccessful());
+  }
+
+  /**
+   * 태그 연결은 사람마다 따로라, 초대받은 사람이 자기 태그를 붙여도 일정의 공유 버전(updatedAt)이 움직이지 않는다 — 주최자의 열린 폼이 거짓 409 로 막히면 안
+   * 된다(WP-1920).
+   */
+  @Test
+  void 초대받은_사람이_자기_태그를_붙여도_주최자의_낡은_버전_저장은_200_이다() throws Exception {
+    long invitee = withMembership(TestFixtures.createHuman(dsl));
+    long organizerTag = createTag("주최자태그");
+    JsonNode created =
+        JSON.readTree(
+            mvc.perform(
+                    post("/api/v1/calendar/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            "{\"title\":\"회의\",\"startsAt\":\"2026-11-20T01:00:00Z\","
+                                + "\"endsAt\":\"2026-11-20T02:00:00Z\",\"attendeeUserIds\":["
+                                + invitee
+                                + "],\"tagIds\":["
+                                + organizerTag
+                                + "]}")
+                        .with(asMe()))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    long id = created.path("id").asLong();
+    String openedVersion = send(get("/api/v1/calendar/events/" + id)).path("updatedAt").asText();
+    tick();
+
+    // 초대받은 사람이 자기 태그를 만들어 읽기 전용 상세에서 붙인다(PUT /events/{id}/tags).
+    long inviteeTag =
+        JSON.readTree(
+                mvc.perform(
+                        post("/api/v1/calendar/tags")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"초대받은이태그\"}")
+                            .with(asUser(invitee)))
+                    .andExpect(status().isCreated())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .path("id")
+            .asLong();
+    mvc.perform(
+            put("/api/v1/calendar/events/" + id + "/tags")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"tagIds\":[" + inviteeTag + "]}")
+                .with(asUser(invitee)))
+        .andExpect(status().is2xxSuccessful());
+    tick();
+
+    // 주최자가 폼을 연 뒤의 버전으로 저장 — 남의 태그 변경으로 거짓 충돌이 나면 안 된다.
+    String save =
+        "{\"title\":\"주최자저장\",\"startsAt\":\"2026-11-20T01:00:00Z\",\"endsAt\":\"2026-11-20T02:00:00Z\","
+            + "\"tagIds\":["
+            + organizerTag
+            + "]}";
+    mvc.perform(
+            patch("/api/v1/calendar/events/" + id)
+                .param("expectedUpdatedAt", openedVersion)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(save)
+                .with(asMe()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value("주최자저장"))
+        .andExpect(jsonPath("$.tags.length()").value(1))
+        .andExpect(jsonPath("$.tags[0].id").value(organizerTag));
+
+    // 초대받은 사람의 태그 연결은 그대로 남는다.
+    mvc.perform(get("/api/v1/calendar/events/" + id).with(asUser(invitee)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tags.length()").value(1))
+        .andExpect(jsonPath("$.tags[0].id").value(inviteeTag));
   }
 }

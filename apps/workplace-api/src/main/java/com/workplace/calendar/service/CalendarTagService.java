@@ -254,6 +254,8 @@ public class CalendarTagService {
             .findMasterOccurrenceByOverride(eventId)
             .map(MasterOccurrence::eventId)
             .orElse(eventId);
+    // 앱 태그는 사람마다 따로 붙는 개인 데이터라 일정의 공유 버전(updated_at)을 올리지 않는다(WP-1920) — 올리면 초대받은 사람이 자기 태그를 붙일 때
+    // 주최자의 열린 폼이 거짓 409 로 막힌다. 내 태그는 나만 바꾸므로 낡은 폼이 덮어쓸 다른 사람의 변경도 없다.
     tagRepo.replaceAppLinks(callerId, masterId, wanted);
   }
 
@@ -325,6 +327,8 @@ public class CalendarTagService {
     }
     // 먼저 표시해 행 잠금을 잡는다 — 동시에 도는 동기화의 같은 행 upsert 는 이 tx 가 끝난 뒤에 이어지고, 그때 이 표시를 보고 범주 연결을 건너뛴다.
     eventRepo.markCategoriesWritten(rows, writtenAt);
+    // 범주를 바꿨으니 버전도 올린다(WP-1920) — 낡은 폼 저장이 바뀐 범주를 덮어쓰지 않게(앱 일정 replaceAppTags 와 같은 이유).
+    eventRepo.touchUpdatedAt(rows);
     eventRepo.updateExternalSeries(eventId, live.seriesMasterId(), live.type());
     Set<Long> addable = tagRepo.ownedIds(callerId, write.addedIds());
     List<EventTagLink> adds = new ArrayList<>();

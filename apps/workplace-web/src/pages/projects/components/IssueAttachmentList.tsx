@@ -126,7 +126,7 @@ export function IssueAttachmentList({
         <AlertDialogContent data-testid="attachment-delete-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>첨부 삭제</AlertDialogTitle>
-            {/* 첨부가 여럿이어도 어느 파일을 지우는지 다시 확인하게 이름을 넣는다(WP-1919). 줄바꿈은 공용 AlertDialogDescription 이 맡는다(WP-1921). */}
+            {/* 첨부가 여럿이어도 어느 파일을 지우는지 다시 확인하게 이름을 넣는다(WP-1919). 줄바꿈은 공용 AlertDialogHeader(wrap-anywhere — 머리 안 제목·설명이 물려받음)가 맡는다(WP-1921). */}
             <AlertDialogDescription>
               「{deleteTarget?.originalName}」 첨부를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
             </AlertDialogDescription>
