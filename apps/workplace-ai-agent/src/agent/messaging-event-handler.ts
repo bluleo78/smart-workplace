@@ -11,7 +11,15 @@ import { createSharedRunCoalescer, type RunLeaseStore } from './shared-run-coale
 /** 이벤트와 그때의 의존성을 함께 기억한다(다시 실행할 때 같은 deps 로 돈다). */
 interface QueuedRun {
   env: MessagingEventEnvelope;
+  baseDeps: EventHandlerDeps;
   deps: EventHandlerDeps;
+}
+
+/** 이벤트에 테넌트가 있으면 원본 client 에서 해당 이벤트 전용 client 를 만든다. */
+function messagingEventDeps(env: MessagingEventEnvelope, baseDeps: EventHandlerDeps): EventHandlerDeps {
+  const tenantId = env.payload.tenantId;
+  if (tenantId === undefined) return baseDeps;
+  return { ...baseDeps, client: baseDeps.client.withOnBehalfOfTenant(tenantId) };
 }
 
 /** 실행 실패 로그 — 메모리 합치기와 공유 임대 합치기가 같이 쓴다. */
@@ -73,7 +81,10 @@ function messagingLeaseStore(q: QueuedRun): RunLeaseStore<QueuedRun> {
         const { next } = await q.deps.client.releaseMessagingRun(key, { token, leaseMs });
         if (next == null) return null;
         const parsed = messagingEventEnvelope.safeParse(next);
-        if (parsed.success) return { env: parsed.data, deps: e.deps };
+        if (parsed.success) {
+          // release 가 돌려준 이벤트마다 그 이벤트의 테넌트로 범위를 다시 정한다 — 앞 이벤트의 범위를 이어 쓰지 않는다.
+          return { env: parsed.data, baseDeps: e.baseDeps, deps: messagingEventDeps(parsed.data, e.baseDeps) };
+        }
         console.warn('[messaging-event-handler] 밀린 이벤트 검증 실패 — 버리고 다시 반납', { channelId: p.channelId });
       }
       // 상한까지 다시 반납해도 검증 못 한 이벤트만 왔다 — 더 반납하지 않으므로 임대는 만료될 때까지 잡힌 채 남는다.
@@ -116,6 +127,9 @@ export function handleMessagingEvent(
   // AGENT 가 작성한 메시지엔 응답하지 않음 (API 에서 이미 걸러지지만 이중 방어).
   if (env.payload.actor.kind === 'AGENT') return undefined;
 
+  // 임대와 실행이 같은 워크스페이스를 보도록 이벤트 범위를 저장한다 — release 가 준 다음 이벤트에는 다시 적용한다.
+  const queued: QueuedRun = { env, baseDeps: deps, deps: messagingEventDeps(env, deps) };
+
   // 종료 대기 등록(WP-167)은 합치기가 다시 실행까지 묶어 한다.
-  return runner.submit({ env, deps });
+  return runner.submit(queued);
 }

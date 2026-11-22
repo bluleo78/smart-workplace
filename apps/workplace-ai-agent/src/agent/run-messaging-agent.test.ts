@@ -15,6 +15,7 @@ import { REPLY_IN_FLIGHT_WAIT_MS, runMessagingAgent } from './run-messaging-agen
 import { log } from '../logger.js';
 import { MESSAGING_SYSTEM_PROMPT } from './messaging-system-prompt.js';
 import { AGENT_INSTRUCTIONS_HEADER } from './agent-instructions.js';
+import { buildOpencodeConfig } from './opencode-config.js';
 import type { MessagingEventEnvelope } from '../types/messaging-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
@@ -78,6 +79,27 @@ describe('runMessagingAgent', () => {
       onBehalfOfId: 99,
       delegationContext: expect.objectContaining({ actorId: 7, channelId: 42 }),
     });
+  });
+
+  it.each([
+    { tenantId: 42, expected: '42' },
+    { tenantId: undefined, expected: undefined },
+  ])('opencode stdio MCP 환경에 이벤트 테넌트 $tenantId 를 반영한다', async ({ tenantId, expected }) => {
+    const d = deps();
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({
+      provider: 'opencode',
+      payload: { providerId: 'openai', options: { apiKey: 'test' } },
+      model: 'openai/gpt-5',
+    });
+    const event = tenantId === undefined ? env : { ...env, payload: { ...env.payload, tenantId } };
+
+    await runMessagingAgent(event, d);
+
+    const [input] = streamSpy.mock.calls[0];
+    const config = buildOpencodeConfig(input, 'run-1', ['cmd'], { vision: undefined, limit: undefined });
+    const mcp = config.mcp?.workplace;
+    expect(mcp?.type).toBe('local');
+    if (mcp?.type === 'local') expect(mcp.environment?.MCP_ON_BEHALF_OF_TENANT).toBe(expected);
   });
 
   it('WP-352: 최근 메시지 프리페치는 listChannelMessages(channelId, {limit}) 의 items 로 대화 흐름을 만든다', async () => {

@@ -28,6 +28,9 @@ function ev(
 
 const deps = {} as EventHandlerDeps;
 
+/** 직접 submit 테스트도 임대 이벤트와 함께 원본 의존성을 넘기도록 구성한다. */
+const queued = (env: MessagingEventEnvelope) => ({ env, baseDeps: deps, deps });
+
 /** 손으로 끝낼 수 있는 실행기 — 시작된 실행의 메시지 id 와 끝내기 함수를 모은다. */
 function manualRun() {
   const started: number[] = [];
@@ -49,8 +52,8 @@ describe('messaging 실행 합치기 — submit 반환 promise (WP-1828)', () =>
   it('합쳐진 이벤트는 undefined, 첫 이벤트 promise 는 합쳐진 재실행이 끝난 뒤에야 이행한다', async () => {
     const { run, started, finishers } = manualRun();
     const runner = createMessagingRunner(run);
-    const a = runner.submit({ env: ev(1), deps });
-    const b = runner.submit({ env: ev(2), deps });
+    const a = runner.submit(queued(ev(1)));
+    const b = runner.submit(queued(ev(2)));
     expect(a).toBeInstanceOf(Promise);
     expect(b).toBeUndefined();
     let settled = false;
@@ -69,14 +72,14 @@ describe('messaging 실행 합치기 — submit 반환 promise (WP-1828)', () =>
   it('성공하면 이행, 실패하면 첫 오류로 거부한다', async () => {
     const ok = manualRun();
     const r1 = createMessagingRunner(ok.run);
-    const p1 = r1.submit({ env: ev(1), deps })!;
+    const p1 = r1.submit(queued(ev(1)))!;
     ok.finishers[0](true);
     await expect(p1).resolves.toBeUndefined();
 
     const bad = manualRun();
     const r2 = createMessagingRunner(bad.run);
-    const p2 = r2.submit({ env: ev(1), deps })!;
-    r2.submit({ env: ev(2), deps });
+    const p2 = r2.submit(queued(ev(1)))!;
+    r2.submit(queued(ev(2)));
     bad.finishers[0](false);
     await flush();
     bad.finishers[1](true);
@@ -90,7 +93,7 @@ describe('messaging 실행 합치기 — submit 반환 promise (WP-1828)', () =>
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { run, finishers } = manualRun();
     const runner = createMessagingRunner(run);
-    runner.submit({ env: ev(1), deps });
+    runner.submit(queued(ev(1)));
     finishers[0](false);
     await flush();
     await flush();
@@ -101,7 +104,7 @@ describe('messaging 실행 합치기 — submit 반환 promise (WP-1828)', () =>
   it('상한 시간을 넘겨도 키가 풀리고 첫 promise 가 거부된다', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const runner = createMessagingRunner(() => new Promise<void>(() => {}), 20);
-    const p = runner.submit({ env: ev(1), deps })!;
+    const p = runner.submit(queued(ev(1)))!;
     await expect(p).rejects.toThrow('안에 끝나지 않음');
     expect(runner.activeKeys()).toBe(0);
   });
@@ -112,10 +115,10 @@ describe('messaging 실행 합치기 (WP-1490)', () => {
     const { run, started, finishers } = manualRun();
     const runner = createMessagingRunner(run);
 
-    runner.submit({ env: ev(1), deps });
-    runner.submit({ env: ev(2), deps });
-    runner.submit({ env: ev(3), deps });
-    runner.submit({ env: ev(4), deps });
+    runner.submit(queued(ev(1)));
+    runner.submit(queued(ev(2)));
+    runner.submit(queued(ev(3)));
+    runner.submit(queued(ev(4)));
     expect(started).toEqual([1]);
 
     finishers[0](true);
@@ -132,10 +135,10 @@ describe('messaging 실행 합치기 (WP-1490)', () => {
     const { started, finishers, run } = manualRun();
     const runner = createMessagingRunner(run);
 
-    runner.submit({ env: ev(1), deps });
-    runner.submit({ env: ev(2, { channelId: 2 }), deps });
-    runner.submit({ env: ev(3, { parent: 100 }), deps });
-    runner.submit({ env: ev(4, { agent: 10 }), deps });
+    runner.submit(queued(ev(1)));
+    runner.submit(queued(ev(2, { channelId: 2 })));
+    runner.submit(queued(ev(3, { parent: 100 })));
+    runner.submit(queued(ev(4, { agent: 10 })));
     expect(started).toEqual([1, 2, 3, 4]);
     expect(runner.activeKeys()).toBe(4);
 
@@ -149,8 +152,8 @@ describe('messaging 실행 합치기 (WP-1490)', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const runner = createMessagingRunner(run);
 
-    runner.submit({ env: ev(1), deps });
-    runner.submit({ env: ev(2), deps });
+    runner.submit(queued(ev(1)));
+    runner.submit(queued(ev(2)));
     finishers[0](false);
     await flush();
     expect(started).toEqual([1, 2]);
@@ -166,12 +169,12 @@ describe('messaging 실행 합치기 (WP-1490)', () => {
     const { started, finishers, run } = manualRun();
     const runner = createMessagingRunner(run);
 
-    runner.submit({ env: ev(1), deps });
+    runner.submit(queued(ev(1)));
     finishers[0](true);
     await flush();
     expect(runner.activeKeys()).toBe(0);
 
-    runner.submit({ env: ev(2), deps });
+    runner.submit(queued(ev(2)));
     expect(started).toEqual([1, 2]);
     finishers[1](true);
     await flush();
@@ -182,8 +185,8 @@ describe('messaging 실행 합치기 (WP-1490)', () => {
     const runner = createMessagingRunner(run);
     const before = inflightCount();
 
-    runner.submit({ env: ev(1), deps });
-    runner.submit({ env: ev(2), deps });
+    runner.submit(queued(ev(1)));
+    runner.submit(queued(ev(2)));
     expect(inflightCount()).toBe(before + 1);
 
     finishers[0](true);
@@ -201,8 +204,8 @@ describe('messaging 실행 합치기 (WP-1490)', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const runner = createMessagingRunner(run, 20);
 
-    runner.submit({ env: ev(1), deps });
-    runner.submit({ env: ev(2), deps });
+    runner.submit(queued(ev(1)));
+    runner.submit(queued(ev(2)));
     await new Promise((r) => setTimeout(r, 40));
     expect(started).toEqual([1, 2]);
     expect(errSpy).toHaveBeenCalled();

@@ -15,6 +15,8 @@ const actor = z.object({
 });
 
 export const messagingMessagePostedPayload = z.object({
+  // 이전 API 에서 보낸 이벤트도 받을 수 있게 생략을 허용한다.
+  tenantId: z.number().int().positive().optional(),
   channelId: z.number(),
   channelKind: z.string(),
   messageId: z.number(),

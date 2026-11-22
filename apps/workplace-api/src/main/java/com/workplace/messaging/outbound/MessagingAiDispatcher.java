@@ -35,6 +35,7 @@ public class MessagingAiDispatcher {
 
   private Map<String, Object> buildPayload(MessageAiTriggerEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
+    p.put("tenantId", e.tenantId());
     p.put("channelId", e.channelId());
     p.put("channelKind", e.channelKind());
     p.put("messageId", e.messageId());

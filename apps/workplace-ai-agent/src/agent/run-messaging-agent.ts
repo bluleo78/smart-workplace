@@ -63,6 +63,8 @@ export async function runMessagingAgent(
   const mcp = {
     client: deps.client,
     onBehalfOfId: agentId,
+    // opencode 의 별도 MCP 프로세스도 실행 클라이언트와 같은 워크스페이스로 호출한다.
+    onBehalfOfTenantId: p.tenantId,
     profile: 'messaging' as const,
     threadBinding,
     delegationContext: {

@@ -21,11 +21,12 @@ import type { MessagingEventEnvelope } from '../types/messaging-events.js';
 function ev(
   messageId: number,
   kind: 'HUMAN' | 'AGENT' = 'HUMAN',
-  opts: { channelId?: number; parent?: number | null } = {},
+  opts: { channelId?: number; parent?: number | null; tenantId?: number } = {},
 ): MessagingEventEnvelope {
   return {
     type: 'messaging.message.posted',
     payload: {
+      ...(opts.tenantId === undefined ? {} : { tenantId: opts.tenantId }),
       channelId: opts.channelId ?? 77,
       channelKind: 'DM',
       messageId,
@@ -107,6 +108,108 @@ describe('handleMessagingEvent (WP-1490)', () => {
       { channelId: 201, parentMessageId: 5, agentId: 9 },
       { token: 'tk', leaseMs: 15 * 60 * 1000 + 60000 },
     );
+    expect(vi.mocked(runMessagingAgent).mock.calls[0][1]).toBe(deps);
+  });
+
+  it('테넌트가 있는 이벤트는 한 번 스코프한 client 로 임대를 얻고 실행하고 반납한다', async () => {
+    const acquire = async () => ({ status: 'ACQUIRED', token: 'tk' });
+    const { client } = fakeDeps(acquire);
+    const { client: scopedClient } = fakeDeps(acquire);
+    const withOnBehalfOfTenant = vi.fn(() => scopedClient);
+    const deps = { client: { ...client, withOnBehalfOfTenant } } as unknown as EventHandlerDeps;
+    const env = ev(26, 'HUMAN', { channelId: 206, tenantId: 42 });
+
+    const p = handleMessagingEvent(env, deps);
+    await flush();
+    finishers.shift()?.();
+    await p;
+
+    expect(scopedClient.acquireMessagingRun).toHaveBeenCalledOnce();
+    expect(scopedClient.releaseMessagingRun).toHaveBeenCalledOnce();
+    expect(vi.mocked(runMessagingAgent).mock.calls[0][1].client).toBe(scopedClient);
+    expect(withOnBehalfOfTenant).toHaveBeenCalledExactlyOnceWith(42);
+    expect(client.acquireMessagingRun).not.toHaveBeenCalled();
+    expect(client.releaseMessagingRun).not.toHaveBeenCalled();
+  });
+
+  it('release 가 준 테넌트 이벤트도 처음 스코프한 client 로 실행하고 반납한다', async () => {
+    const next = ev(28, 'HUMAN', { channelId: 207, tenantId: 42 });
+    const acquire = async () => ({ status: 'ACQUIRED', token: 'tk' });
+    const releases = [{ next }, { next: null }];
+    const { client } = fakeDeps(acquire, releases);
+    const { client: scopedClient } = fakeDeps(acquire, releases);
+    const withOnBehalfOfTenant = vi.fn(() => scopedClient);
+    const deps = { client: { ...client, withOnBehalfOfTenant } } as unknown as EventHandlerDeps;
+    const env = ev(27, 'HUMAN', { channelId: 207, tenantId: 42 });
+
+    const p = handleMessagingEvent(env, deps);
+    await flush();
+    finishers.shift()?.();
+    await flush();
+    finishers.shift()?.();
+    await p;
+
+    expect(runMessagingAgent).toHaveBeenCalledTimes(2);
+    const [nextEnv, nextDeps] = vi.mocked(runMessagingAgent).mock.calls[1];
+    expect(nextEnv).toEqual(next);
+    expect(nextDeps.client).toBe(scopedClient);
+    expect(scopedClient.acquireMessagingRun).toHaveBeenCalledOnce();
+    expect(scopedClient.releaseMessagingRun).toHaveBeenCalledTimes(2);
+    expect(withOnBehalfOfTenant).toHaveBeenCalledTimes(2);
+    expect(withOnBehalfOfTenant).toHaveBeenNthCalledWith(1, 42);
+    expect(withOnBehalfOfTenant).toHaveBeenNthCalledWith(2, 42);
+  });
+
+  it('구버전 이벤트의 release 가 테넌트 이벤트를 주면 그 이벤트의 테넌트 client 로 실행한다', async () => {
+    const next = ev(30, 'HUMAN', { channelId: 208, tenantId: 43 });
+    const acquire = async () => ({ status: 'ACQUIRED', token: 'tk' });
+    const { client: baseClient } = fakeDeps(acquire, [{ next }]);
+    const { client: scopedClient } = fakeDeps(acquire);
+    const withOnBehalfOfTenant = vi.fn(() => scopedClient);
+    const deps = { client: { ...baseClient, withOnBehalfOfTenant } } as unknown as EventHandlerDeps;
+
+    const p = handleMessagingEvent(ev(29, 'HUMAN', { channelId: 208 }), deps)!;
+    await flush();
+    finishers.shift()?.();
+    await flush();
+    finishers.shift()?.();
+    await p;
+
+    const calls = vi.mocked(runMessagingAgent).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][1].client).toBe(deps.client);
+    expect(calls[1][0]).toEqual(next);
+    expect(calls[1][1].client).toBe(scopedClient);
+    expect(withOnBehalfOfTenant).toHaveBeenCalledExactlyOnceWith(43);
+    expect(baseClient.releaseMessagingRun).toHaveBeenCalledOnce();
+    expect(scopedClient.acquireMessagingRun).not.toHaveBeenCalled();
+    expect(scopedClient.releaseMessagingRun).toHaveBeenCalledOnce();
+  });
+
+  it('테넌트 이벤트의 release 가 구버전 이벤트를 주면 기본 client 로 실행한다', async () => {
+    const next = ev(32, 'HUMAN', { channelId: 209 });
+    const acquire = async () => ({ status: 'ACQUIRED', token: 'tk' });
+    const { client: baseClient } = fakeDeps(acquire);
+    const { client: scopedClient } = fakeDeps(acquire, [{ next }]);
+    const withOnBehalfOfTenant = vi.fn(() => scopedClient);
+    const deps = { client: { ...baseClient, withOnBehalfOfTenant } } as unknown as EventHandlerDeps;
+
+    const p = handleMessagingEvent(ev(31, 'HUMAN', { channelId: 209, tenantId: 43 }), deps)!;
+    await flush();
+    finishers.shift()?.();
+    await flush();
+    finishers.shift()?.();
+    await p;
+
+    const calls = vi.mocked(runMessagingAgent).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][1].client).toBe(scopedClient);
+    expect(calls[1][0]).toEqual(next);
+    expect(calls[1][1].client).toBe(deps.client);
+    expect(withOnBehalfOfTenant).toHaveBeenCalledExactlyOnceWith(43);
+    expect(scopedClient.releaseMessagingRun).toHaveBeenCalledOnce();
+    expect(baseClient.acquireMessagingRun).not.toHaveBeenCalled();
+    expect(baseClient.releaseMessagingRun).toHaveBeenCalledOnce();
   });
 
   it('인라인 멘션(스레드 없음)은 parentMessageId 를 null 로 보낸다', async () => {

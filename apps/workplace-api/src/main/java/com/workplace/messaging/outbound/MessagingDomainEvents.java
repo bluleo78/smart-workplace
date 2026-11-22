@@ -60,10 +60,12 @@ public final class MessagingDomainEvents {
    * messaging 메시지가 AI 응답을 유발할 때만 발행. MessageService.create 가 트리거 조건을 판단해(채널 kind·멤버 정보 보유)
    * respondAsAgentId 를 확정하고 발행한다. AFTER_COMMIT async 디스패처는 단순 forward.
    *
+   * @param tenantId 메시지가 작성된 워크스페이스 ID. AI 실행 범위를 같은 워크스페이스로 지정한다.
    * @param channelKind "CHANNEL" 또는 "DM"
    * @param respondAsAgentId 응답을 작성할 AGENT user id
    */
   public record MessageAiTriggerEvent(
+      long tenantId,
       long channelId,
       String channelKind,
       long messageId,

@@ -2,8 +2,10 @@ package com.workplace.messaging.integration;
 
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -13,6 +15,7 @@ import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
+import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
@@ -33,6 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** 메시지 → ai-agent 발사 결정 테이블 검증. client 를 MockitoBean 으로 가로채 호출 검증. enabled=true 강제. */
 class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
@@ -162,6 +166,7 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
             "actor",
             "mentions",
             "body");
+    assertThat(captor.getValue().payload()).containsEntry("tenantId", 1L);
     assertThat(captor.getValue().payload().get("respondAsAgentId")).isEqualTo(agent);
     assertThat(memberRepo.isMember(channelId, agent)).isTrue();
   }
@@ -196,6 +201,33 @@ class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
     long channelId = channelRepo.insertPublic("c7b", human);
     channelService.join(human, channelId);
     messageService.create(human, channelId, new CreateMessageRequest("그냥 메시지"));
+    awaitAsyncIdle();
+    verify(client, never()).publish(any());
+  }
+
+  /** TenantContext 와 RLS 테넌트가 없으면 메시지 작성은 차단되고 AI 응답도 발사되지 않는다(WP-2006). */
+  @Test
+  void channel_humanMentionsAgent_withoutTenantContext_isRejectedByRlsAndDoesNotPublish() {
+    long human = seedUser("HUMAN");
+    long agent = seedUser("AGENT");
+    long channelId = channelRepo.insertPublic("c7nt", human);
+    channelService.join(human, channelId);
+
+    TenantContext.clear();
+    assertThatThrownBy(
+            () ->
+                new TransactionTemplate(txManager)
+                    .executeWithoutResult(
+                        status -> {
+                          // 트랜잭션의 RLS GUC 도 비워 운영의 tenantless 상태를 재현한다.
+                          dsl.execute("SELECT set_config('app.tenant_id', '', true)");
+                          messageService.create(
+                              human, channelId, new CreateMessageRequest("<@" + agent + "> 처리해줘"));
+                        }))
+        .isInstanceOf(ChannelNotMemberException.class);
+    assertThat(
+            dsl.fetchExists(dsl.selectOne().from(MESSAGE).where(MESSAGE.CHANNEL_ID.eq(channelId))))
+        .isFalse();
     awaitAsyncIdle();
     verify(client, never()).publish(any());
   }
