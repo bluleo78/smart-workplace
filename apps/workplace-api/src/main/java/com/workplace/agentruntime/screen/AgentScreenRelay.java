@@ -67,6 +67,9 @@ public class AgentScreenRelay {
   static final String REASON_IDLE = "30분 동안 주고받은 것이 없어 닫았어요";
   static final String REASON_MAX = "4시간이 지나 닫았어요";
   static final String REASON_SHUTDOWN = "서버가 멈춰 닫았어요";
+  // 타이머 쓰기가 연속 이만큼(타이머 30번 — DB 호출이 늦으면 30초보다 길다) 실패하면 되돌려 모아 둔 덩어리 전부를 버린다 — 영구 실패 덩어리가 뒤 입력 전체를
+  // 막고 닫을 때 세션 입력을 모두 잃는 것을 막는다.
+  static final int MAX_FLUSH_RETRIES = 30;
   static final String INPUT_TAKEN = "다른 관리자가 이미 입력 중이에요";
 
   /** 세션 하나의 중계 상태. 소켓은 동시 보내기에 안전하도록 {@link ConcurrentWebSocketSessionDecorator} 로 감싼 것이다. */
@@ -80,6 +83,10 @@ public class AgentScreenRelay {
     final Instant ticketDeadline;
     final AtomicBoolean closed = new AtomicBoolean();
     final ScreenInputRecorder recorder = new ScreenInputRecorder();
+    // 입력 기록 꺼내기·쓰기를 한 번에 하나만 — 타이머 꺼내기와 닫을 때의 마지막 꺼내기가 겹쳐 순서가 뒤바뀌지 않게.
+    final Object flushLock = new Object();
+    // 타이머 쓰기가 연속으로 실패한 횟수 — flushLock 아래에서만 읽고 쓴다. 성공하거나 포기하면 0.
+    int flushFailures;
     volatile WebSocketSession browser;
     volatile WebSocketSession runner;
     volatile Instant browserAttachedAt;
@@ -129,6 +136,16 @@ public class AgentScreenRelay {
 
   void setService(AgentScreenService service) {
     this.service = service;
+  }
+
+  /** 1초 타이머를 멈춘다(테스트용 — 타이머가 끼어들어 결과가 흔들리지 않게 테스트가 tick 을 직접 부른다). */
+  void stopTimerForTest() {
+    timer.shutdownNow();
+  }
+
+  /** 세션 id 로 중계 상태를 찾는다(테스트용 접근자). */
+  Pair pairOf(UUID id) {
+    return pairs.get(id);
   }
 
   /** 서버가 멈출 때 열린 화면을 모두 닫고 타이머를 멈춘다(남은 입력 기록도 꺼내 쓴다). */
@@ -349,15 +366,18 @@ public class AgentScreenRelay {
     send(p, p.runner, message);
   }
 
-  /** 브라우저 → runner 바이너리(키 입력): runner 가 입력을 켰다고 알린 동안에만 넘기고 기록 버퍼에 더한다. 아니면 버린다. */
+  /**
+   * 브라우저 → runner 바이너리(키 입력): runner 가 입력을 켰다고 알린 동안에만 처리한다. 기록 버퍼에 먼저 더하고, 받아들여졌을 때만 runner 로 넘긴다
+   * — 닫는 중(마지막 꺼내기로 봉인된 뒤)에 들어온 키가 기록 없이 터미널에 닿지 않게. 아니면 버린다.
+   */
   void fromBrowserBinary(UUID id, BinaryMessage message) {
     Pair p = pairs.get(id);
     if (p == null || p.closed.get()) return;
     p.lastActivity = Instant.now();
     if (!p.inputEnabled) return;
     byte[] bytes = copy(message);
+    if (!p.recorder.append(bytes)) return;
     send(p, p.runner, new BinaryMessage(bytes));
-    p.recorder.append(bytes);
   }
 
   // ---------------------------------------------------------------- 닫기
@@ -436,14 +456,68 @@ public class AgentScreenRelay {
     return Optional.empty();
   }
 
+  /**
+   * 입력 기록 버퍼를 꺼내 DB 에 쓴다. 타이머 꺼내기가 실패하면 {@link #retryLater} 가 덩어리를 되돌려 넣어 다음 꺼내기가 순서대로 다시 쓰게 한다.
+   * 마지막 꺼내기(닫을 때)는 다시 기회가 없어 한 번 더 쓰고, 그래도 실패하면 유실을 ERROR 로 남긴다. 잠금은 꺼내기·쓰기만 감싼다(소켓 보내기는 잠금 밖).
+   */
   private void flushInput(Pair p, boolean finalFlush) {
-    List<String> chunks = p.recorder.drain(finalFlush);
-    if (chunks.isEmpty()) return;
-    try {
-      service.recordInput(p.tenantId, p.id, chunks);
-    } catch (RuntimeException e) {
-      log.warn("작업 화면 입력 기록 실패 session={}", p.id, e);
+    synchronized (p.flushLock) {
+      List<String> chunks = p.recorder.drain(finalFlush);
+      if (chunks.isEmpty()) return;
+      try {
+        service.recordInput(p.tenantId, p.id, chunks);
+        p.flushFailures = 0;
+        return;
+      } catch (RuntimeException e) {
+        if (!finalFlush && retryLater(p, chunks, e)) return;
+        log.warn("작업 화면 입력 기록 실패 — 다시 시도 session={}", p.id, e);
+      }
+      try {
+        service.recordInput(p.tenantId, p.id, chunks);
+        p.flushFailures = 0;
+      } catch (RuntimeException e) {
+        log.error(
+            "작업 화면 입력 기록 유실 session={} chunks={} chars={}",
+            p.id,
+            chunks.size(),
+            charCount(chunks),
+            e);
+      }
     }
+  }
+
+  /**
+   * 타이머 쓰기 실패를 처리한다(flushLock 아래에서만 부름). 연속 실패가 상한에 닿으면 모아 둔 덩어리를 버리고 ERROR, 아니면 되돌려 넣는다.
+   *
+   * @return 처리했으면 true. 되돌려 넣기가 거절되면(봉인 — flushLock 아래에선 일어나지 않는 방어용) false 라 호출자가 바로 다시 쓴다.
+   */
+  private boolean retryLater(Pair p, List<String> chunks, RuntimeException e) {
+    p.flushFailures++;
+    if (p.flushFailures >= MAX_FLUSH_RETRIES) {
+      // 상한을 넘기면 되돌리지 않고 버려 뒤 입력이 막히지 않게 한다.
+      log.error(
+          "작업 화면 입력 기록 유실(다시 시도 상한 {}회 넘음) session={} chunks={} chars={}",
+          MAX_FLUSH_RETRIES,
+          p.id,
+          chunks.size(),
+          charCount(chunks),
+          e);
+      p.flushFailures = 0;
+      return true;
+    }
+    if (!p.recorder.requeue(chunks)) return false;
+    // 연속 실패의 첫 번째만 스택과 함께 warn — DB 장애 동안 매초 찍히지 않게.
+    if (p.flushFailures == 1) {
+      log.warn("작업 화면 입력 기록 실패 — 다음 꺼내기에 다시 씀 session={}", p.id, e);
+    } else {
+      log.debug("작업 화면 입력 기록 계속 실패 session={} 연속={} 원인={}", p.id, p.flushFailures, e.toString());
+    }
+    return true;
+  }
+
+  /** 덩어리들의 글자 수 합 — 유실 로그용. */
+  private static int charCount(List<String> chunks) {
+    return chunks.stream().mapToInt(String::length).sum();
   }
 
   private void ping(Pair p) {
