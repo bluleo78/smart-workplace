@@ -72,6 +72,7 @@ public class AgentRuntimeSettingRepository {
       @With ApplyMode applyMode,
       @With long generation,
       Long observedGeneration,
+      Long failedGeneration,
       String phase,
       String observedMessage,
       Integer cpuMillicores,
@@ -113,6 +114,7 @@ public class AgentRuntimeSettingRepository {
         ApplyMode.valueOf(r.get(AGENT_RUNTIME_SETTING.APPLY_MODE)),
         r.get(AGENT_RUNTIME_SETTING.GENERATION),
         r.get(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION),
+        r.get(AGENT_RUNTIME_SETTING.FAILED_GENERATION),
         r.get(AGENT_RUNTIME_SETTING.PHASE),
         r.get(AGENT_RUNTIME_SETTING.OBSERVED_MESSAGE),
         r.get(AGENT_RUNTIME_SETTING.CPU_MILLICORES),
@@ -283,7 +285,7 @@ public class AgentRuntimeSettingRepository {
     for (RunnerObservedAgent o : reports) last.put(o.agentUserId(), o);
 
     var s = AGENT_RUNTIME_SETTING;
-    List<org.jooq.Row7<Long, Long, String, String, Integer, Long, OffsetDateTime>> rows =
+    List<org.jooq.Row8<Long, Long, String, String, Integer, Long, OffsetDateTime, Long>> rows =
         new ArrayList<>();
     for (RunnerObservedAgent o : last.values()) {
       rows.add(
@@ -294,12 +296,22 @@ public class AgentRuntimeSettingRepository {
               DSL.cast(o.message(), s.OBSERVED_MESSAGE.getDataType()),
               DSL.cast(o.cpuMillicores(), s.CPU_MILLICORES.getDataType()),
               DSL.cast(o.memoryBytes(), s.MEMORY_BYTES.getDataType()),
-              DSL.cast(o.startedAt(), s.STARTED_AT.getDataType())));
+              DSL.cast(o.startedAt(), s.STARTED_AT.getDataType()),
+              DSL.cast(o.failedGeneration(), s.FAILED_GENERATION.getDataType())));
     }
     @SuppressWarnings("unchecked")
     Table<?> v =
-        DSL.values(rows.toArray(new org.jooq.Row7[0]))
-            .as("v", "agent_user_id", "gen", "phase", "message", "cpu", "mem", "started_at");
+        DSL.values(rows.toArray(new org.jooq.Row8[0]))
+            .as(
+                "v",
+                "agent_user_id",
+                "gen",
+                "phase",
+                "message",
+                "cpu",
+                "mem",
+                "started_at",
+                "failed_gen");
     Field<Long> vId = v.field("agent_user_id", Long.class);
     Field<Long> vGen = v.field("gen", Long.class);
     Field<String> vPhase = v.field("phase", String.class);
@@ -307,6 +319,7 @@ public class AgentRuntimeSettingRepository {
     Field<Integer> vCpu = v.field("cpu", Integer.class);
     Field<Long> vMem = v.field("mem", Long.class);
     Field<OffsetDateTime> vStart = v.field("started_at", OffsetDateTime.class);
+    Field<Long> vFailedGen = v.field("failed_gen", Long.class);
 
     // 받을 행 — 이 위치의 AI, 그리고 정지 보고(STOPPING·STOPPED)를 보낸 꺼진 AI(desired STOP)는 위치와 무관하게(WP-1751). 위치가
     // 바뀐 뒤
@@ -357,6 +370,9 @@ public class AgentRuntimeSettingRepository {
     Map<Long, ObservedUpdate> out = new LinkedHashMap<>();
     dsl.update(s)
         .set(s.OBSERVED_GENERATION, DSL.greatest(s.OBSERVED_GENERATION, vGen))
+        // WP-2019 실패 generation 은 GREATEST 가 아니라 보고 값 그대로 — runner 가 기록을 지우면 null 로 같이 지워져야 옛 실패가
+        // 남지 않는다.
+        .set(s.FAILED_GENERATION, vFailedGen)
         .set(s.PHASE, vPhase)
         .set(s.OBSERVED_MESSAGE, vMessage)
         .set(s.CPU_MILLICORES, vCpu)

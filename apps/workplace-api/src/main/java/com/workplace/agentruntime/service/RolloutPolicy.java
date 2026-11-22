@@ -84,6 +84,10 @@ final class RolloutPolicy {
    * runner 관찰은 최대 한 분 늦어 observed_generation 은 아직 옛 것이지만, 그때 「쉴 때 적용」이나 「지금 적용」을 권하면 눌러도 runner 는
    * 같은 generation 이라 아무것도 하지 않는다. {@link #decide}(runner 를 깨울지)는 이 예외 없이 그대로다.
    *
+   * <p>runner 가 지금 generation 을 반영하다 실패했다고 보고했을 때({@code failedGeneration >= generation}, WP-2019)도
+   * NONE 이다 — 위 진입점 차단과 같은 까닭으로, runner 가 이미 이 generation 을 시도해 실패했으니 「쉴 때 적용」·「지금 적용」 안내를 「오류」와 함께
+   * 보이지 않는다. {@link #decide} 는 이 예외 없이 그대로다.
+   *
    * <p>또 Pod 를 만들지 못한 실패({@link #podCreateFailed})는 {@link #decide} 가 쉴 때까지 두라고 해도 화면에는 지금 적용으로 보인다
    * — runner 는 Pod 가 없으면 applyNow 와 상관없이 지금 desired 로 만들어 보기 때문이다(runner {@code plan.ts} 의 {@code
    * !pod → create}). 「쉴 때 적용」이라 안내하면 일이 있어 보여도 실제로는 곧 새 설정으로 뜬다. {@link #decide} 는 관찰이 낡은 사이 새 Pod
@@ -95,6 +99,9 @@ final class RolloutPolicy {
     if (AgentRuntimeStatusResolver.currentPaneBlocked(row) != null
         && row.paneBlockedGeneration() != null
         && row.paneBlockedGeneration() == row.generation()) {
+      return Decision.NONE;
+    }
+    if (row.failedGeneration() != null && row.failedGeneration() >= row.generation()) {
       return Decision.NONE;
     }
     Decision decision = decide(row, keys, now, slotStaleAfter);

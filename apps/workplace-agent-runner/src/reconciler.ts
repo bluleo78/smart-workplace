@@ -173,6 +173,23 @@ const sameRecord = (a: Record<string, string>, b: Record<string, string>) => {
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 };
 
+/**
+ * 미뤄 둔 generation 인지(WP-2019) — 떠 있는 Pod 의 generation ≠ desired generation 이고 applyNow=false. 라벨이 없는(null) 옛 Pod 도
+ * 다른 generation 으로 본다(plan.ts 와 같다). keep 이 Pod 를 갈지 않는 판정(swapPod)과, 그 generation 에서 난 실패에
+ * failedGeneration 을 싣지 않는 판정이 이 한 함수를 쓴다 — 두 곳이 어긋나지 않게.
+ */
+function isGenerationPending(agent: RunnerDesiredAgent, current: ActualAgent): boolean {
+  return current.pod !== undefined && current.pod.generation !== agent.generation && !agent.applyNow;
+}
+
+/**
+ * 관찰 보고에 새 설정 실패로 실을 generation(WP-2019) — 미뤄 둔 generation 의 실패면 null, 아니면 desired generation.
+ * 판정 조건은 {@link isGenerationPending} 한 곳에만 둔다.
+ */
+function failedGenerationOf(agent: RunnerDesiredAgent, current: ActualAgent): number | null {
+  return isGenerationPending(agent, current) ? null : agent.generation;
+}
+
 export class Reconciler {
   private readonly cluster: ClusterApi;
   private readonly works: WorksClient;
@@ -189,9 +206,11 @@ export class Reconciler {
    * - rejectedGeneration: 클러스터가 Pod 만들기(create)를 거절한 실패(쿼터·PodSecurity·검증)에서 거절당한 그 회차의 desired generation.
    *   관찰 보고가 이 generation 으로 실패를 알린다(report 참고). 거절이 이어지는 동안 클러스터 다시 보기가 30초마다
    *   「Pod 없음」으로 조정을 깨우지 않게 뺀다. 재시도는 actionFailed 의 'later'(30초)가 맡는다.
+   * - generation: 그 실패가 일어난 회차의 desired generation(WP-2019). 관찰 보고가 failedGeneration 으로 따로 싣는다 —
+   *   옛 Pod 가 떠 있어 observedGeneration 이 옛 것이어도 Works 가 「새 설정 자체의 실패」를 알아보게.
    * 성공·clearFailure 때 지운다.
    */
-  private readonly failures = new Map<number, { message: string; blocking: boolean; rejectedGeneration?: number }>();
+  private readonly failures = new Map<number, { message: string; blocking: boolean; rejectedGeneration?: number; generation: number | null }>();
   /** AI 별 연속 끝남 기록(WP-1501) — failures 와 따로 둔다(reconcileDesired 가 할 일을 마치면 failures 를 지우므로). */
   private readonly finishLoops = new Map<number, FinishLoop>();
   /** AI 별 「끝나 다시 띄운 Pod」 알림(WP-1794) — 관찰 보고 message 에 6시간 싣는다. 메모리뿐이라 runner 재시작 시 사라진다. */
@@ -277,7 +296,10 @@ export class Reconciler {
         }
       }
     } catch (e) {
-      return this.actionFailed(id, action.kind, e, round.desiredById.get(id)?.generation);
+      const desiredAgent = round.desiredById.get(id);
+      // 미뤄 둔 generation 에서 난 실패는 failedGeneration 을 싣지 않는다(null) — reconcileDesired 와 같은 판정(WP-2019)
+      const failedGeneration = desiredAgent ? failedGenerationOf(desiredAgent, current) : null;
+      return this.actionFailed(id, action.kind, e, desiredAgent?.generation, failedGeneration);
     }
   }
 
@@ -288,12 +310,20 @@ export class Reconciler {
    * 쿼터 초과면 사유를 사람이 읽는 문구로 다듬고, create 중 Secret 이 아닌 거절(Pod·PVC)이면 그 generation 을 실패 기록에 남겨
    * 클러스터 다시 보기가 헛 조정을 깨우지 않게 한다(recreate·delete 중 거절은 Pod 가 안 비니 깨움을 막지 않는다).
    * generation: 이 AI 의 desired generation — undefined 면 desired 에 없는 AI.
+   * failedGeneration: 관찰 보고에 새 설정 실패로 실을 generation(WP-2019). 미뤄 둔 generation 의 실패면 null — 그 실패는 WP-2000 의
+   *   「쉴 때로 미룬 실패」가 이미 FAILED 로 보이고, 실으면 API 「켜기」가 일하는 Pod 를 끊는다({@link isGenerationPending}).
    */
-  private actionFailed(id: number, action: string, e: unknown, generation: number | undefined): Retry {
+  private actionFailed(
+    id: number,
+    action: string,
+    e: unknown,
+    generation: number | undefined,
+    failedGeneration: number | null,
+  ): Retry {
     if (e instanceof ClusterError && e.rejected) {
       if (generation !== undefined) {
         const podless = action === 'create' && e.kind !== 'Secret';
-        this.fail(id, quotaReason(e.quotaExceeded ?? []) ?? e.message, { rejectedGeneration: podless ? generation : undefined });
+        this.fail(id, quotaReason(e.quotaExceeded ?? []) ?? e.message, { rejectedGeneration: podless ? generation : undefined, generation: failedGeneration });
       }
       this.log.error('클러스터가 AI 조정을 거절했습니다 — 30초 뒤 다시 봅니다', { agentUserId: id, action, error: e.message });
       return 'later';
@@ -314,8 +344,12 @@ export class Reconciler {
     // 이미지 검사는 Pod 를 지우거나 만들기 직전에 쓴다. create·recreate 는 키를 받기 전에 본다 — 띄우지 못할 AI 의 키를 받으면
     // 그 자체가 교체(generation+1)이고, recreate 는 허용 밖 이미지로 바뀐 템플릿 때문에 멀쩡히 돌던 Pod 를 지우지 않게.
     const imageProblem = checkImages(agent, this.cfg.allowedImagePrefixes);
+    // 미뤄 둔 generation 인지(Pod generation ≠ desired, applyNow=false) 한 번 계산해 실패 기록·swapPod 가 함께 쓴다(WP-2019)
+    const generationPending = isGenerationPending(agent, current);
+    // 미뤄 둔 generation 의 실패는 failedGeneration 을 싣지 않는다(null) — 쉴 때로 미룬 실패가 이미 FAILED 로 보이고, 실으면 API 켜기가 일하는 Pod 를 끊는다
+    const failedGeneration = failedGenerationOf(agent, current);
     if (kind !== 'keep' && imageProblem) {
-      this.fail(id, imageProblem, { blocking: true });
+      this.fail(id, imageProblem, { blocking: true, generation: agent.generation });
       return undefined;
     }
     // 끝나 버린 Pod 를 연속으로 다시 만드는 중이면 간격이 지날 때까지 두고 본다(재시도 없음 — 클러스터 다시 보기가 간격 뒤 깨운다)
@@ -335,7 +369,7 @@ export class Reconciler {
     if (kind === 'create') {
       const foreign = await this.findForeign(current, id);
       if (foreign) {
-        this.fail(id, foreign, { blocking: true });
+        this.fail(id, foreign, { blocking: true, generation: agent.generation });
         return undefined;
       }
     }
@@ -346,7 +380,7 @@ export class Reconciler {
       // 바뀌지 않을 실패(provider·이름 충돌)는 주기 조회에 맡기고, 키를 아직 못 받았으면 곧 다시
       // 이름 충돌·모델 연결 종류 — 둘 다 Works(또는 사람이 남의 리소스를 치움)가 바뀌어야 낫는다
       if (secret.message) {
-        this.fail(id, secret.message, { blocking: true });
+        this.fail(id, secret.message, { blocking: true, generation: failedGeneration });
         return undefined;
       }
       return 'soon';
@@ -357,8 +391,6 @@ export class Reconciler {
     // Secret 은 위에서 이미 새 값으로 고쳤고(떠 있는 Pod 의 토큰은 env 로 시작 때 고정이라 옛 계정으로 계속 일한다), 쉴 때 applyNow=true 가 되면
     // plan 이 recreate 해 새 Secret 으로 뜬다. 라벨이 없는(null) 옛 Pod 도 plan.ts 처럼 다른 generation 으로 본다.
     // 바로 적용해야 하는 교체(키·저장소 토큰 교체)는 Works 가 미뤄 둔 generation 을 NOW 로 바꿔 applyNow=true 로 온다.
-    const generationPending =
-      current.pod !== undefined && current.pod.generation !== agent.generation && !agent.applyNow;
     const swapPod =
       kind === 'keep' &&
       current.pod !== undefined &&
@@ -368,7 +400,7 @@ export class Reconciler {
         versionChanged(current.pod.loginVersion, secret.loginVersion) ||
         versionChanged(current.pod.reposVersion, secret.repos.version));
     if (swapPod && imageProblem) {
-      this.fail(id, imageProblem, { blocking: true });
+      this.fail(id, imageProblem, { blocking: true, generation: agent.generation });
       return undefined;
     }
     // 실패 기록은 이 AI 의 할 일이 끝까지 된 뒤에 지운다 — 중간(Pod apply 거절 등)에 관찰 보고가 끼어들어도 사유가 사라지지 않게
@@ -677,7 +709,7 @@ export class Reconciler {
       const chunk = sorted.slice(i, i + OBSERVED_BATCH);
       try {
         await this.works.reportObserved(
-          chunk.map((a) => ({ agentUserId: a.agentUserId, ...toObserved(undefined, true), cpuMillicores: null, memoryBytes: null })),
+          chunk.map((a) => ({ agentUserId: a.agentUserId, ...toObserved(undefined, true), failedGeneration: null, cpuMillicores: null, memoryBytes: null })),
         );
       } catch (e) {
         this.log.warn('STOPPED 보고 실패 — 다시 보냅니다', { agentUserIds: chunk.map((a) => a.agentUserId), error: errMessage(e) });
@@ -689,7 +721,7 @@ export class Reconciler {
         try {
           if (a.configMap) await this.cluster.delete('ConfigMap', configMapName(id));
         } catch (e) {
-          return this.actionFailed(id, 'reportStopped', e, undefined);
+          return this.actionFailed(id, 'reportStopped', e, undefined, null);
         }
         this.log.info('STOPPED 를 보내고 정리를 끝냈습니다', { agentUserId: id });
         // 남은 PVC·Secret 은 방금 삭제를 냈거나 지워지는 중 — 사라지기만 기다린다
@@ -703,9 +735,9 @@ export class Reconciler {
   /**
    * 실패 사유를 적는다(한 AI 의 실패는 항상 한 건 — 덮어쓴다). 옵션의 뜻은 {@link failures}.
    */
-  private fail(id: number, message: string, opts: { blocking?: boolean; rejectedGeneration?: number } = {}) {
+  private fail(id: number, message: string, opts: { blocking?: boolean; rejectedGeneration?: number; generation: number | null }) {
     if (this.failures.get(id)?.message !== message) this.log.warn('AI 를 띄우지 않습니다', { agentUserId: id, reason: message });
-    this.failures.set(id, { message, blocking: opts.blocking ?? false, rejectedGeneration: opts.rejectedGeneration });
+    this.failures.set(id, { message, blocking: opts.blocking ?? false, rejectedGeneration: opts.rejectedGeneration, generation: opts.generation });
   }
 
   private clearFailure(id: number) {
@@ -848,6 +880,8 @@ export class Reconciler {
         agentUserId: id,
         ...state,
         observedGeneration,
+        // WP-2019: 새 설정 자체의 실패(runner 실패 기록)가 일어난 desired generation — 실패 기록이 없으면(연속 끝남·관찰 FAILED 포함) null
+        failedGeneration: failureEntry?.generation ?? null,
         ...(lastFinish ? { message: clip(lastFinish) } : {}),
         ...(failure ? { phase: 'FAILED' as const, message: clip(failure) } : {}),
         cpuMillicores: u?.cpuMillicores ?? null,

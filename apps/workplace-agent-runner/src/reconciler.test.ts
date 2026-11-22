@@ -251,6 +251,45 @@ describe('Reconciler', () => {
     ], true, { capacity: null });
   });
 
+  it('옛 Pod 가 떠 있는데 새 generation 이 허용 밖 이미지면 failedGeneration 에 새 generation 을 싣는다 (WP-2019)', async () => {
+    const cluster = new FakeCluster();
+    seedRunningAgent(cluster, desiredAgent({ generation: 4 }));
+    const works = new FakeWorks(desired([desiredAgent({ generation: 5, applyNow: true, image: 'ghcr.io/evil/miner:2' })]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ phase: 'FAILED', observedGeneration: 4, failedGeneration: 5 });
+  });
+
+  it('미뤄 둔 generation(Pod 4, desired 5, applyNow=false)의 Secret 단계 실패는 FAILED 이되 failedGeneration 을 싣지 않는다 (WP-2019)', async () => {
+    const cluster = new FakeCluster();
+    seedRunningAgent(cluster, desiredAgent({ generation: 4 }));
+    const works = new FakeWorks(desired([
+      desiredAgent({
+        generation: 5,
+        applyNow: false,
+        secrets: [desiredAgent().secrets[0]!, { name: 'claude', source: 'WORKS', version: 58, rotateAfter: null }],
+      }),
+    ]));
+    // 모델 연결 종류가 Anthropic 이 아니라 ensureSecret 이 실패한다
+    works.getClaudeSecret.mockResolvedValue({ version: 57, provider: 'opencode', payload: '{}' });
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ phase: 'FAILED', failedGeneration: null });
+  });
+
+  it('실패가 없는 정상 보고는 failedGeneration 이 null 이다 (WP-2019)', async () => {
+    const cluster = new FakeCluster();
+    const agent = desiredAgent();
+    seedRunningAgent(cluster, agent);
+    const works = new FakeWorks(desired([agent]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ failedGeneration: null });
+  });
+
   it('waitsForTerminatingPvcBeforeCreatingAgain', async () => {
     const cluster = new FakeCluster();
     const agent = desiredAgent();
@@ -469,6 +508,7 @@ describe('Reconciler', () => {
       agentUserId: 42,
       phase: 'FAILED',
       observedGeneration: agent.generation,
+      failedGeneration: agent.generation, // WP-2019
       message: '클러스터 자원 상한이 차서 AI 를 띄우지 못했습니다 — CPU 상한 6코어(사용 4.57 · 요청 2.26). 자리가 나면 저절로 뜹니다.',
     });
   });
@@ -483,7 +523,7 @@ describe('Reconciler', () => {
     await r.reconcileOnce();
     await r.reportObserved();
     const sent = works.reportObserved.mock.calls.at(-1)?.[0]?.[0];
-    expect(sent).toMatchObject({ phase: 'FAILED', observedGeneration: agent.generation });
+    expect(sent).toMatchObject({ phase: 'FAILED', observedGeneration: agent.generation, failedGeneration: agent.generation });
     expect(sent?.message).toContain('violates PodSecurity');
   });
 
@@ -529,7 +569,8 @@ describe('Reconciler', () => {
     await r.reconcileOnce();
     await r.reportObserved();
     const sent = works.reportObserved.mock.calls.at(-1)?.[0]?.[0];
-    expect(sent).toMatchObject({ phase: 'FAILED', observedGeneration: null });
+    // WP-2019: observedGeneration 은 null 그대로, 실패한 generation 은 따로 싣는다
+    expect(sent).toMatchObject({ phase: 'FAILED', observedGeneration: null, failedGeneration: desiredAgent().generation });
   });
 
   it('doesNotWakeWhilePodRejectedAndWakesAgainAfterRecovery', async () => {
@@ -1719,7 +1760,7 @@ describe('계속 끝나는 Pod 의 간격·사유 보고(WP-1501)', () => {
       ],
     };
     await r.reportObserved();
-    expect(lastObserved()).toMatchObject({ phase: 'FAILED', message: expect.stringContaining('CrashLoopBackOff') });
+    expect(lastObserved()).toMatchObject({ phase: 'FAILED', message: expect.stringContaining('CrashLoopBackOff'), failedGeneration: null });
     expect(lastObserved()?.message ?? '').not.toContain('이전 Pod 가 끝나');
   });
 });

@@ -15,7 +15,7 @@ public final class AgentRuntimeStatusResolver {
   private AgentRuntimeStatusResolver() {}
 
   /**
-   * 차단 칸·미룬 실패 없이 계산하는 오버로드 — 규칙 전체는 아래 {@link #resolve(Desired, long, Long, String, String,
+   * 차단 칸·미룬 실패 없이 계산하는 오버로드 — 규칙 전체는 아래 {@link #resolve(Desired, long, Long, Long, String, String,
    * boolean)} 가 정한다(같은 판정, 차단 칸·미룬 실패만 없음).
    */
   public static AgentRuntimeStatus resolve(
@@ -24,28 +24,8 @@ public final class AgentRuntimeStatusResolver {
   }
 
   /**
-   * 차단 메시지를 함께 받는 오버로드(WP-1913) — 진입점이 칸을 띄우지 못한 사유는 runner 관찰 칸과 분리된 pane_blocked 칸에 저장하므로, 읽는
-   * 쪽에서만 화면 상태·사유로 합친다. 판정만 읽기에서 하고 저장한 칸은 건드리지 않는다(설계 결정 5, runner 관찰 보고와 무관). 규칙은 위에서부터 처음 맞는 것:
-   *
-   * <ol>
-   *   <li>차단 메시지가 있으면(공백 제외) FAILED — 끄는 중(드레인)에도 차단이 먼저다(설계 결정 4): 이유가 보여야 화면에서 무엇이 막혔는지 안다. 단,
-   *       원하는 상태가 끄기(STOP)이고 아직 멈췄거나 관찰된 바가 없으면(3번 규칙의 OFF 조건, {@link #alreadyOff}) 물러나 아래로 넘긴다 —
-   *       꺼진 뒤에도 「오류」가 영원히 남지 않게(읽기 판정, 저장한 차단 칸은 그대로 둔다)
-   *   <li>phase=FAILED 이고 관찰 generation 이 있으며 현재 generation 이상 → FAILED(실패 뒤 끄기·다시 시작으로 generation
-   *       이 오르면 아래 규칙으로 넘어가 STOPPING·STARTING 으로 보인다). 관찰 generation 이 뒤처졌어도 {@code
-   *       failureHeldUntilIdle} 이면(하던 일이 있어 새 설정을 쉴 때로 미룬 실패, WP-2000) FAILED 로 둔다 — 아직 새 설정으로 다시
-   *       뜨는 중이 아니라서
-   *   <li>desired=STOP 이고 phase 가 없거나 STOPPED → OFF
-   *   <li>desired=STOP → STOPPING(드레인 중에는 위 1번 규칙이 아직 이긴다 — 설계 결정 4)
-   *   <li>관찰 generation 이 없거나 phase=STARTING → STARTING
-   *   <li>관찰 generation 이 뒤처졌고 phase=RUNNING → APPLY_PENDING
-   *   <li>phase=RUNNING → RUNNING
-   *   <li>그 밖 → STARTING
-   * </ol>
-   *
-   * @param paneBlockedMessage 진입점이 보고한 차단 이유 — null·공백이면 차단 없음(기존 규칙대로 계산)
-   * @param failureHeldUntilIdle 서버 판정({@code RolloutPolicy.pending})이 「쉴 때 적용」이라 옛 generation 의 실패가
-   *     그대로 남아 있는 경우 — 판정은 호출자가 한 곳에서 내려 넘기고 여기서는 다시 계산하지 않는다
+   * 실패 generation 없이 계산하는 오버로드 — 옛 호출·테스트용. 규칙은 아래 7인자 {@link #resolve(Desired, long, Long, Long,
+   * String, String, boolean)} 가 정한다(failedGeneration=null).
    */
   public static AgentRuntimeStatus resolve(
       Desired desired,
@@ -54,14 +34,61 @@ public final class AgentRuntimeStatusResolver {
       String phase,
       String paneBlockedMessage,
       boolean failureHeldUntilIdle) {
+    return resolve(
+        desired,
+        generation,
+        observedGeneration,
+        null,
+        phase,
+        paneBlockedMessage,
+        failureHeldUntilIdle);
+  }
+
+  /**
+   * 차단 메시지·실패 generation 을 함께 받는 판정(WP-1913·WP-2019) — 진입점이 칸을 띄우지 못한 사유는 runner 관찰 칸과 분리된
+   * pane_blocked 칸에 저장하므로, 읽는 쪽에서만 화면 상태·사유로 합친다. 판정만 읽기에서 하고 저장한 칸은 건드리지 않는다(설계 결정 5, runner 관찰
+   * 보고와 무관). 규칙은 위에서부터 처음 맞는 것:
+   *
+   * <ol>
+   *   <li>차단 메시지가 있으면(공백 제외) FAILED — 끄는 중(드레인)에도 차단이 먼저다(설계 결정 4): 이유가 보여야 화면에서 무엇이 막혔는지 안다. 단,
+   *       원하는 상태가 끄기(STOP)이고 아직 멈췄거나 관찰된 바가 없으면(3번 규칙의 OFF 조건, {@link #alreadyOff}) 물러나 아래로 넘긴다 —
+   *       꺼진 뒤에도 「오류」가 영원히 남지 않게(읽기 판정, 저장한 차단 칸은 그대로 둔다)
+   *   <li>phase=FAILED 이고 (관찰 generation 이 있으며 현재 generation 이상, 또는 runner 가 보고한 실패 generation 이 현재
+   *       generation 이상) → FAILED(실패 뒤 끄기·다시 시작으로 generation 이 오르면 아래 규칙으로 넘어가 STOPPING·STARTING 으로
+   *       보인다). 실패 generation 은 옛 Pod 가 남아 관찰 generation 이 뒤처져도 새 설정 실패를 알리는 칸이다(WP-2019 — 관찰
+   *       generation 이 없어도 된다). 관찰 generation 이 뒤처졌어도 {@code failureHeldUntilIdle} 이면(하던 일이 있어 새
+   *       설정을 쉴 때로 미룬 실패, WP-2000) FAILED 로 둔다 — 아직 새 설정으로 다시 뜨는 중이 아니라서
+   *   <li>desired=STOP 이고 phase 가 없거나 STOPPED → OFF
+   *   <li>desired=STOP → STOPPING(드레인 중에는 위 1번 규칙이 아직 이긴다 — 설계 결정 4)
+   *   <li>관찰 generation 이 없거나 phase=STARTING → STARTING
+   *   <li>관찰 generation 이 뒤처졌고 phase=RUNNING → APPLY_PENDING
+   *   <li>phase=RUNNING → RUNNING
+   *   <li>그 밖 → STARTING
+   * </ol>
+   *
+   * @param failedGeneration runner 가 보고한 실패가 난 desired generation — null 이면 기록 없음(옛 runner 포함)
+   * @param paneBlockedMessage 진입점이 보고한 차단 이유 — null·공백이면 차단 없음(기존 규칙대로 계산)
+   * @param failureHeldUntilIdle 서버 판정({@code RolloutPolicy.pending})이 「쉴 때 적용」이라 옛 generation 의 실패가
+   *     그대로 남아 있는 경우 — 판정은 호출자가 한 곳에서 내려 넘기고 여기서는 다시 계산하지 않는다
+   */
+  public static AgentRuntimeStatus resolve(
+      Desired desired,
+      long generation,
+      Long observedGeneration,
+      Long failedGeneration,
+      String phase,
+      String paneBlockedMessage,
+      boolean failureHeldUntilIdle) {
     if (blocked(paneBlockedMessage) && !alreadyOff(desired, phase)) {
       return AgentRuntimeStatus.FAILED;
     }
     // 실패는 지금 원하는 상태(generation)를 runner 가 반영한 뒤의 실패일 때만 보여 준다 — 옛 generation 의 실패가 새 요청을 가리지 않게.
     // 단 새 설정을 쉴 때로 미뤘다면(failureHeldUntilIdle) 옛 실패를 그대로 보여 준다 — 새로 뜨는 중이 아니다(WP-2000).
+    // 새 설정의 실패는 옛 Pod 가 남아 observedGeneration 이 뒤처져도 failedGeneration 으로 보인다(WP-2019).
     if ("FAILED".equals(phase)
-        && observedGeneration != null
-        && (observedGeneration >= generation || failureHeldUntilIdle)) {
+        && ((observedGeneration != null
+                && (observedGeneration >= generation || failureHeldUntilIdle))
+            || (failedGeneration != null && failedGeneration >= generation))) {
       return AgentRuntimeStatus.FAILED;
     }
     if (desired == Desired.STOP) {

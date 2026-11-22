@@ -566,6 +566,63 @@ class RunnerApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.observed.observedAt").isNotEmpty());
   }
 
+  /**
+   * 새 설정(generation)을 반영하다 실패한 보고(옛 Pod observedGeneration 은 한 단계 뒤, failedGeneration = 지금)는 FAILED
+   * 와 사유로 보이고(WP-2019), 이어 failedGeneration 없는 정상 보고가 오면 저장 칸이 지워진다. failedGeneration 없는 같은 보고(옛
+   * runner)는 FAILED 가 아니다.
+   */
+  @Test
+  void observed_failedGenerationShowsFailedAndClearsOnNextReport() throws Exception {
+    long g = fx.generationOf(a1);
+    String base = "{\"agents\":[{\"agentUserId\":" + a1 + ",\"observedGeneration\":" + (g - 1);
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(5);
+    String started = ",\"startedAt\":\"" + podStart + "\"";
+
+    // 옛 runner — failedGeneration 없음: 옛 요청 실패로 가려 FAILED 가 아니다.
+    observed(t1, base + ",\"phase\":\"FAILED\",\"message\":\"허용 밖 이미지\"" + started + "}]}")
+        .andExpect(status().isOk());
+    assertThat(adminStatusOf(a1)).isNotEqualTo("FAILED");
+
+    // 새 runner — failedGeneration = 지금 generation: FAILED 와 사유.
+    observed(
+            t1,
+            base
+                + ",\"phase\":\"FAILED\",\"message\":\"허용 밖 이미지\",\"failedGeneration\":"
+                + g
+                + started
+                + "}]}")
+        .andExpect(status().isOk());
+    assertThat(adminStatusOf(a1)).isEqualTo("FAILED");
+    // 관리자 상세의 observed.message 가 보고한 사유 문구다(관리 조회는 테넌트 컨텍스트가 필요하다).
+    TenantContext.set(1L);
+    mvc.perform(
+            get("/api/v1/admin/agents/" + a1 + "/runtime-setting")
+                .with(
+                    authentication(
+                        WebSessionAuth.of(
+                            admin, List.of(new SimpleGrantedAuthority("user:write"))))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.observed.message").value("허용 밖 이미지"))
+        // 관찰 generation 이 뒤처졌어도 runner 가 이 generation 을 시도해 실패했으니 적용 안내(pendingApply)는 없다(WP-2019).
+        .andExpect(jsonPath("$.pendingApply").doesNotExist());
+    assertThat(
+            dsl.select(AGENT_RUNTIME_SETTING.FAILED_GENERATION)
+                .from(AGENT_RUNTIME_SETTING)
+                .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
+                .fetchOne(0, Long.class))
+        .isEqualTo(g);
+
+    // 이어 RUNNING·failedGeneration 없음 — 저장 칸이 null 로 지워진다.
+    observed(t1, base + ",\"phase\":\"RUNNING\"" + started + "}]}").andExpect(status().isOk());
+    assertThat(adminStatusOf(a1)).isNotEqualTo("FAILED");
+    assertThat(
+            dsl.select(AGENT_RUNTIME_SETTING.FAILED_GENERATION)
+                .from(AGENT_RUNTIME_SETTING)
+                .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
+                .fetchOne(0, Long.class))
+        .isNull();
+  }
+
   /** 꺼진 AI(desired STOP)라도 이 위치의 AI 면 정지 보고를 받는다 — 상태가 「끄는 중」에 머물지 않게. */
   @Test
   void observed_acceptsStoppedReportForStoppedAgentOfThisLocation() throws Exception {
