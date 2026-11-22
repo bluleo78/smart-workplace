@@ -25,6 +25,7 @@ import com.workplace.mail.outbound.MailInviteCalendarPort;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailMessageService;
+import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.invite.MailInviteService;
 import com.workplace.support.ExternalClientMockedTestBase;
@@ -62,6 +63,7 @@ class MailCalendarInviteImapTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired MailSyncService syncService;
+  @Autowired MailSyncProgress progress;
   @Autowired MailMessageService messageService;
   @Autowired MailInviteService inviteService;
   @Autowired EmailAccountRepository accountRepo;
@@ -159,6 +161,9 @@ class MailCalendarInviteImapTest extends ExternalClientMockedTestBase {
     GreenMailUtil.sendMimeMessage(msg);
     greenMail.waitForIncomingEmail(before + 1);
     syncService.sync(user, accountId);
+    // WP-1977: 동기화 진행 가드가 DB 행이 되어 테스트 트랜잭션 안에 남는다 — 비동기 본문 보충은 그 행을 보지 못해 끝내지 못하므로,
+    // 같은 계정의 다음 동기화가 가드에 막혀 빈 결과가 되지 않게 여기서 진행을 지운다.
+    progress.discardForTest(accountId);
     return messageRepo.listByAccount(accountId, "INBOX", subject, 10).get(0).id();
   }
 

@@ -189,6 +189,8 @@ public final class TenantPurgePlan {
           EMAIL_CALENDAR_INVITE, // WP-986 메일 일정 초대 — email_message 보다 먼저
           EMAIL_MESSAGE,
           EMAIL_FOLDER,
+          // 메일 계정별 작업 진행(WP-1977) — email_account 를 참조하므로 그보다 먼저
+          MAIL_ACCOUNT_JOB,
           EMAIL_ACCOUNT,
           CONTENT_ATTACHMENT,
           EMAIL_CONTENT,
