@@ -405,7 +405,7 @@ test('SKILL.md·process-issue.md: 사람을 기다리면 답변 필요, 다른 A
 test('process-issue.md: 오래 걸리는 테스트·push 는 포그라운드로 기다리지 않고, 거듭 사라진 작업만 예외다', () => {
   const p = workLoop('process-issue.md');
   assert.ok(p.includes('그 명령이 아래 「오래 걸리는 작업」에 해당하면 기다리지 않고 백그라운드로 띄운다'));
-  assert.ok(p.includes('테스트를 다시 돌린다(6번처럼 오래 걸리면 백그라운드로)'));
+  assert.ok(p.includes('`bg-job start "<MAIN>" green <green 워크트리> -- <명령>`'));
   assert.ok(p.includes('기록 방법이 없는 저장소면 이 push 를 「오래 걸리는 작업」으로 띄운다'));
   assert.ok(!p.includes('여기서 게이트가 돈다'));
   assert.ok(p.includes('기다리며 돌리는 유일한 예외다'));
@@ -549,30 +549,45 @@ test('상태를 보내는 보고 틀은 note 를 함께 보낸다 — 빼면 mes
   for (const state of ['CANCELED', 'REJECTED', 'FAILED']) assert.ok(lineWith(workDoneSkill, `'${state}'`).includes('note'), `${state} 틀에 note 가 없다`);
 });
 
-test('process-issue.md 검토자: 리뷰 → main 충돌 확인 → 머지 순서이고 rebase·push 는 하지 않는다 (WP-964·998)', () => {
-  const lead = pi.slice(pi.indexOf('\n### PR 리뷰·머지 (검토자)\n'), pi.indexOf('\n### 차단됨\n'));
+test('process-issue.md 검토자: 리뷰 → 충돌 확인 → 머지이고, 충돌은 손 머지로 풀며 rebase 하지 않는다 (WP-2003)', () => {
+  const lead = pi.slice(pi.indexOf('\n### PR 리뷰·머지 (검토자)\n'), pi.indexOf('\n### 풀테스트·green (검토자)\n'));
   assert.ok(lead.length > 100, '검토자 절이 없다');
-  assertBefore(lead, '**리뷰**', '**main 충돌 확인**');
-  assertBefore(lead, '**main 충돌 확인**', '`gw-repo pr-merge');
-  // 검토자가 브랜치를 고치면 게이트가 두 번 돌고, 충돌을 코드를 모르는 쪽이 푼다.
+  assertBefore(lead, '**리뷰**', '**main 충돌·마이그레이션 번호**(WP-2003)');
+  assertBefore(lead, '**main 충돌·마이그레이션 번호**(WP-2003)', '`gw-repo pr-merge');
+  // 검토자는 PR 브랜치를 rebase 하지 않는다 — 충돌은 origin/main 위의 머지 커밋으로 푼다.
   assert.ok(!lead.includes('`git rebase origin/main`'), '검토자가 rebase 한다');
-  assert.ok(!lead.includes('git push'), '검토자가 push 한다');
-  // 충돌이 날 때만 돌려보낸다 — 낡았다는 이유로 돌려보내면 rebase → 게이트가 끝없이 되풀이된다(WP-998).
+  for (const s of ['`git switch --detach origin/main`', '`git merge --no-ff --no-commit origin/<headRefName>`', '`git push --no-verify origin HEAD:main`', '강제 push 하지 않는다', '`git rev-parse HEAD^2`']) {
+    assert.ok(lead.includes(s), s);
+  }
+  // 뜻 충돌만 개발자에게 돌려보낸다.
+  assert.ok(lead.includes('**뜻 충돌**') && lead.includes('`git merge --abort`'));
+  // 생성 코드(jOOQ) 충돌은 손으로 합치지 않고 다시 만든다.
+  assert.ok(lead.includes('생성 코드') && lead.includes('다시 만들어 넣는다'));
+  // 낡았다는 이유로는 아무것도 하지 않는다(WP-998).
   assert.ok(lead.includes('`git merge-tree --write-tree origin/main HEAD`'));
-  assert.ok(lead.includes('충돌이 없으면 main 이 앞서 있어도 반려하지 않고'));
-  assert.ok(!lead.includes('충돌이 없어도 그렇다'));
+  assert.ok(lead.includes('main 이 앞서 있기만 한 것은 아무 일도 아니다'));
   assert.ok(lead.includes("state: 'WAITING', note: '<개발자 이름> 수정 — <고칠 것 한 줄>'"));
   // 다시 받은 PR 은 지난 리뷰 뒤 달라진 것만 본다.
   assert.ok(lead.includes('`git range-diff <리뷰한 base>..<리뷰한 HEAD> origin/main..HEAD`'));
 });
 
-test('process-issue.md 개발자: main 과 충돌할 때만 rebase 해 충돌을 모두 풀고, 올리기 직전에 충돌을 확인한다 (WP-964·998)', () => {
+test('process-issue.md 개발자: green 에서 시작하고 게이트 없이 올리며, 뜻 충돌 반려 때만 rebase 한다 (WP-2003)', () => {
+  const s2 = section(pi, '\n### 2. 워크트리\n', '\n### 3. ');
+  assert.ok(s2.includes('**시작점**(WP-2003)') && s2.includes('`origin/green`') && s2.includes('-b <브랜치> <시작점>'));
   const s7 = section(pi, '\n### 7. 커밋 하나로 합치기\n', '\n### 8. ');
+  assert.ok(s7.includes('**rebase 하지 않는다**(WP-2003)'));
+  assert.ok(s7.includes('「뜻 충돌」로 반려했을 때만'));
   assert.ok(s7.includes('`git rebase origin/main`'));
-  assert.ok(s7.includes('충돌은 내가 모두 푼다'));
   const s9 = section(pi, '\n### 9. PR\n', '\n### 10. ');
-  assert.ok(s9.includes('origin/main 과 충돌하면 7번으로 돌아간다'));
-  assert.ok(s7.includes('`git merge-tree --write-tree origin/main HEAD`'));
+  assert.ok(s9.includes('**push 게이트를 돌리지 않는다**(WP-2003)'));
+  assert.ok(s9.includes('`git push --no-verify --force-with-lease -u origin <브랜치>`'));
+  // 게이트 판단은 검토자가 없는 저장소에만 남는다.
+  assert.ok(s9.includes('**검토자가 없는 저장소**에서만'));
+  assertBefore(s9, '**push 게이트를 돌리지 않는다**', '**게이트를 띄우기 전에 돌릴지부터 판단한다**');
+  // 풀테스트로 되돌려진 머지는 cherry-pick 으로 다시 얹는다.
+  const s3 = section(pi, '\n### 3. 이해\n', '\n### 4. ');
+  assert.ok(s3.includes('`[풀테스트 실패]`') && s3.includes('`git cherry-pick -m 1 <되돌린 머지 커밋>`'));
+  assert.ok(!s3.includes('「리뷰 통과 — 순서 대기」'));
 });
 
 test('SKILL.md: 대기 중(PR 을 두고 기다리는 이슈 등)은 새 글이 있을 때만 고르고, 답하지 않고 넘긴 글을 적어 둔다', () => {
@@ -797,14 +812,15 @@ test('process-issue.md 9번: 게이트를 띄우기 전에 돌릴지부터 판�
   // 판단이 게이트 띄우기보다 먼저다.
   assertBefore(text, '**게이트를 띄우기 전에 돌릴지부터 판단한다**', '**push 게이트는 백그라운드로 먼저 돌린다**');
   // 두 경우 — 처음부터 커밋 훅으로 충분한 변경, 앞서 통과한 뒤 충돌 없는 rebase 와 그런 변경.
-  for (const s of ['**커밋 훅으로 충분**', '처음 올리는 브랜치도 된다', '**앞서 통과**', '충돌 없이 끝난 main 반영', '`git range-diff`', '`git push --no-verify --force-with-lease -u origin <브랜치>`', '판단이 서지 않으면 아래대로 게이트를 돌린다']) {
+  for (const s of ['**커밋 훅으로 충분**', '처음 올리는 브랜치도 된다', '**앞서 통과**', '충돌 없이 끝난 rebase(7번)와', '`git range-diff`', '`git push --no-verify --force-with-lease -u origin <브랜치>`', '판단이 서지 않으면 아래대로 게이트를 돌린다']) {
     assert.ok(text.includes(s), s);
   }
   // 검토자는 건너뛴 근거를 확인해 통과로 보거나 게이트를 돌려 달라고 반려한다.
   const review = section(text, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업');
-  assert.ok(review.includes('9번 판단으로 게이트를 돌리지 않고 올렸으면'));
-  assert.ok(review.includes('「push 게이트를 돌려 주세요」로 반려한다'));
-  assert.ok(workLoopSkill.includes('게이트를 띄우기 전에 돌릴지부터 판단한다'));
+  // WP-2003 — 검토자는 게이트 근거를 보지 않는다(개발자는 게이트 없이 올린다).
+  assert.ok(review.includes('**게이트 근거는 보지 않는다**(WP-2003)'));
+  assert.ok(!review.includes('「push 게이트를 돌려 주세요」로 반려한다'));
+  assert.ok(workLoopSkill.includes('검토자가 없는 저장소는 예전처럼 push 게이트를 거친다'));
   const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
   // 저장소 안내가 커밋 훅으로 충분한 것을 적어 둔다.
   assert.ok(project.includes('### 커밋 훅으로 충분한 것'));
@@ -1132,7 +1148,7 @@ test('끝난 이슈 정리: 잠금 뒤 부를 때마다 worktree-sweep 으로 DO
   const understand = section(pi, '\n### 3. 이해\n', '\n### 4. 질문 판단\n');
   assert.ok(understand.includes('이 이슈 워크트리가 남아 있으면 1번 「11. 검토 대기」 갈래대로, 없으면 2번대로 새로 만든다'));
   // 다시 시작하는 절차와 `-2` 이름 규칙은 1번 갈래 한 곳에만 둔다.
-  assert.equal(pi.split('`git switch -c <브랜치>-2 origin/main`').length - 1, 1);
+  assert.equal(pi.split('`git switch -c <브랜치>-2 <시작점>`').length - 1, 1);
   // 남은 워크트리의 커밋 안 한 변경은 보고 가른다 — 이 요청의 것이면 가져가고, 아니면 버리지 않고 BLOCKED 로 멈춘다.
   const restart = lineWith(start, '「11. 검토 대기」(머지 뒤');
   assert.ok(!restart.includes('커밋 안 한 변경이 없을 때만'));
@@ -1184,10 +1200,10 @@ test('process-issue.md: 반영 근거에 사용 가이드가 있고 11번 보고
   assert.ok(section(pi, '\n### 기차 (저장소가 켰을 때)\n', '\n### 분류 (분류 역할 AI)\n').includes('사용 가이드'));
 });
 // WP-1705 보충 1 — 캡처가 머지할 HEAD 화면이 아니면 요청자에게 옮겨 쓰이는 반영 댓글에 낡은 화면이 간다.
-test('process-issue.md: 반영 근거 캡처는 머지할 HEAD 화면으로 찍고 rebase 로 화면이 바뀌면 다시 찍는다 (WP-1705)', () => {
+test('process-issue.md: 반영 근거 캡처는 머지할 HEAD 화면으로 찍는다 (WP-1705)', () => {
   const ground = section(pi, '\n- **반영 근거**(WP-1659)', '\n- 통과하면 notes 파일에 `검증한 HEAD SHA`');
   const shot = lineWith(ground, '**캡처는 머지할 그 HEAD 화면**(WP-1705)');
-  for (const s of ['`검증한 HEAD SHA`', '7번 rebase', '다시 찍어 바꾼다', '같은 화면 크기·같은 자리', '「전」은 고치기 전에']) {
+  for (const s of ['`검증한 HEAD SHA`', '옛 커밋의 화면을 붙여 넣지 않는다', '「전」은 고치기 전에']) {
     assert.ok(shot.includes(s), `캡처 시점 줄에 「${s}」 가 없다`);
   }
   assertBefore(pi, '**캡처는 머지할 그 HEAD 화면**', '- 통과하면 notes 파일에 `검증한 HEAD SHA`');
@@ -1416,142 +1432,69 @@ test('process-issue.md: 0.1.55 전에 시작한 PR 은 원장 줄을 요구하�
 const queueReview = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업');
 const queueTrain = section(pi, '### 기차 (저장소가 켰을 때)', '### 반영 안내 보충 (끝난 이슈)');
 
-test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 막히면 정해진 규칙으로 비킨다 (WP-1720)', () => {
+test('process-issue.md: 검토자는 순서 없이 바로 머지하고, 옛 줄 상태는 지운다 (WP-2003)', () => {
   const review = queueReview;
-  const merge = review.split('\n6. **머지**')[1].split('\n7. ')[0];
-  const wait = review.split('**순서 대기**(WP-1720)')[1].split('\n4. **반려**')[0];
-  const check = review.split('**줄 확인**(WP-1720')[1];
-  for (const anchor of [
-    // 줄·맨 앞 — 머지 게이트는 「머지 순서」 한 곳에 있다
-    '**머지 순서**(WP-1720)',
-    '번호 오름차순',
-    '매번 `gw-repo pr-list` 로 다시 읽는다',
-    '`개발:` 이 없는 PR 은 줄 밖',
-    '줄 밖 PR 은 맨 앞 조건 없이',
-    // WP-1999 — 앞지르기 PR 이 더해졌다
-    '5·6번 머지(통합 PR 포함)는 줄 맨 앞 PR·줄 밖 PR·앞지르기 PR(아래)만 한다',
-    '3번 「순서 대기」에서 끝난다',
-    // 비킨 PR — 사유별 적는 때·지우는 때
-    '`순서: 비킴 — 내용 반려 <KST 시각>`',
-    '`순서: 비킴 — main 반영 2시간 넘김 <KST 시각>`',
-    '`순서: 비킴 — 차단 <KST 시각>`',
-    '원래 자리',
-    '새 글이 왔다는 것만으로는 지우지 않는다',
-    '내가 1번/2번에서 그 PR 을 받을 때만 지운다',
-    '「main 반영 요청」 뒤 4시간이 넘으면 행과 상관없이 비킨다',
-    '`줄 맨 앞 처음 봄 <KST 시각> HEAD <sha>`',
-    // 리뷰 지적 — 맨 앞 다시 확인·차단 해제·main 반영 요청 지우기·줄 상태 파일
-    '**맨 앞 다시 확인**(WP-1720)',
-    'notes 에 `승인한 HEAD <sha>` 를 적는다',
-    'notes `승인한 HEAD` 가 지금 HEAD 와 같으면(이 HEAD 의 리뷰 글·승인이 이미 있다)',
-    '적힌 HEAD 가 지금 HEAD 와 같으면 시각·HEAD 를 그대로 둔다',
-    '줄을 믿을 수 없으면(위 「줄」) 아무것도 하지 않고 건너뛴다',
-    'PR HEAD 가 줄에 적힌 HEAD 와 다르면(새 커밋이 올라옴) 지금 시각·HEAD 로 새로 적는다',
-    '`git merge-tree --write-tree origin/main origin/<headRefName>`',
-    '늘 notes 에 `승인한 HEAD <sha>` 를 적은 뒤',
-    // 4회차 리뷰 — 반려하면 승인한 HEAD 를 지우고, 건너뛰는 머지도 승인한 HEAD 로, 다시 부탁 정의는 한 곳
-    'notes 의 `승인한 HEAD` 줄을 지운 뒤 끝낸다',
-    '바로 `pr-merge` 한다(`--sha <승인한 HEAD>`',
-    '`--sha <승인한 HEAD>` 로 머지한다',
-    '「머지 순서」의 정의 그대로 — main 쪽이 바뀌어 막힘이 사라진 예외까지',
-    '새로 적는 때는 아래 「막힘 확인」 한 곳을 따른다',
-    '그 커밋이 PR 의 `headRefOid` 와 다르면 이 예외를 쓰지 않는다',
-    '리뷰 부탁을 처음 받았거나 내가 그 이슈 담당으로 지정됐을 때',
-    '**다시 부탁**(위 「머지 순서」)을 받아 받기를 할 때만 지운다',
-    'HEAD 가 그대로인 글은 다시 부탁이 아니다',
-    '결과가 잘렸을 수 있으면',
-    '3번 「순서 대기」 전체',
-    '`MAIN/.work-loop/state/queue/<PR 번호>`',
-    // 맨 앞이 main 반영을 기다리는 동안 뒤 PR 도 머지하지 않는다
-    '`main 반영 요청 <KST 시각>`',
-    '뒤 PR 도 머지하지 않는다',
-    // 맨 앞이 아니어도 내용 반려면 비킴
-    '맨 앞이든 아니든',
-    // 통합 PR 도 같은 순서 규칙
-    '실린 이슈마다 `WAITING`(note 「순서 대기 — 앞 #<n>」)',
-    '리뷰 통과 — 순서 대기(앞 #<n>)',
-  ]) assert.ok(review.includes(anchor), anchor);
-  // 리뷰는 순서와 무관하게 바로 한다 — 머지 순서(줄 규칙)가 1번 시작보다 앞
-  assertBefore(review, '**머지 순서**(WP-1720)', '1. **시작**');
-  // 순서 대기는 3번의 마지막 확인 뒤에 오고, 리뷰 글·승인을 바로 남긴다
-  assertBefore(review, '개발자가 9번 판단으로 게이트를 돌리지 않고 올렸으면', '**순서 대기**(WP-1720): 위 확인을 모두 마친 뒤');
-  for (const anchor of ['--approve --sha <리뷰한 HEAD>', '--comment --body-file', '3번을 range-diff 규칙대로 다시 한다', '머지 전 확인']) {
-    assert.ok(wait.includes(anchor), anchor);
+  assert.ok(review.includes('**바로 머지**(WP-2003)'));
+  assert.ok(review.includes('리뷰를 통과한 PR 은 받는 대로 바로 머지한다 — 순서가 없다'));
+  // 옛 순서 머지·앞지르기의 남은 상태를 지운다.
+  assert.ok(review.includes('`MAIN/.work-loop/state/queue/` 폴더가 있으면 통째로 지운다'));
+  for (const gone of ['**머지 순서**(WP-1720)', '**줄 확인**(WP-1720', '**앞지르기**(WP-1999)', '**순서 대기**(WP-1720)', '`순서: 비킴', '**맨 앞 다시 확인**']) {
+    assert.ok(!review.includes(gone), gone);
   }
-  // 6번은 순서 대기로 이미 올린 글을 다시 올리지 않고 바로 머지
-  assert.ok(merge.includes('바로 `pr-merge` 한다(`--sha <승인한 HEAD>`'));
-  assert.ok(merge.includes('승인한 커밋을 머지한다). 그렇지 않으면 먼저'));
-  // 줄 확인 — 맨 앞 정하기·막힘 확인·다음 후보 고르기
-  for (const anchor of [
-    '`main 반영 요청 <KST 시각>` 줄이 있으면',
-    '2시간이 넘었으면',
-    '2번(받기)부터',
-    '이번 이슈 다음 후보로 고른다',
-    '그 시각 뒤에 **다시 부탁**',
-    '`SKILL.md` 4번대로',
-  ]) assert.ok(check.includes(anchor), anchor);
-  // 개발자 쪽 — 순서 대기 글에 rebase 하지 않고, 처음 시작 갈래에 순서 대기가 있다
-  for (const anchor of [
-    '「리뷰 통과 — 순서 대기」 → 고칠 것이 아니라',
-    '  - 「순서 대기」(검토자가',
-    '「PR 리뷰·머지」 5번부터, 다르면 「PR 리뷰·머지」 3번(range-diff)부터',
-  ]) assert.ok(pi.includes(anchor), anchor);
-});
-
-test('.work-loop/project.md 검토자 절에 순서 머지 한 줄이 있다 (WP-1720)', () => {
-  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
-  assert.ok(section(project, '\n## 8. 검토자\n', '\n## 9. ').includes('**순서 머지(WP-1720)**'));
-  assert.ok(project.includes('검토자의 「main 반영 필요」 요청 때만'));
-});
-
-// WP-1999 — 앞 PR 들과 바뀐 파일이 겹치지 않는 승인 PR 은 순서를 기다리지 않고 머지한다(앞지르기).
-// 맨 앞이 rebase 를 기다리는 동안 겹치지 않는 PR 까지 묶이지 않게 하되, 겹치는 PR 은 지금처럼 기다린다.
-test('process-issue.md: 앞 PR 과 파일이 겹치지 않는 승인 PR 은 앞지르기로 머지하고, 겹치면 순서 대기한다 (WP-1999)', () => {
-  const review = queueReview;
-  const order = review.split('**머지 순서**(WP-1720)')[1].split('\n1. **시작**')[0];
-  const overtake = order.split('**앞지르기**(WP-1999)')[1].split('\n- **')[0];
-  const wait = review.split('**순서 대기**(WP-1720)')[1].split('\n4. **반려**')[0];
-  const conflict = review.split('\n5. **main 충돌 확인**')[1].split('\n6. **머지**')[0];
+  // main push 는 세 예외만.
+  assert.ok(review.includes('**main push 는 검토자만, 이 셋만**(WP-2003)'));
+  // 6번 — 충돌 없으면 호스트 머지, 충돌이면 손 머지.
   const merge = review.split('\n6. **머지**')[1].split('\n7. ')[0];
-  const check = review.split('**줄 확인**(WP-1720')[1].split('\n- **통합 PR')[0];
-  const train = review.split('\n- **통합 PR(기차')[1];
-  // 머지 게이트 한 곳 — 맨 앞·줄 밖에 더해 앞지르기 PR 도 머지한다
-  assert.ok(order.includes('5·6번 머지(통합 PR 포함)는 줄 맨 앞 PR·줄 밖 PR·앞지르기 PR(아래)만 한다'));
-  // 정의 — 앞 PR(비킨 PR 제외)과 바뀐 파일 교집합, 마이그레이션은 둘 다 더하면 겹침, 못 재면 겹침
-  for (const anchor of [
-    '번호가 더 작은 줄 안 PR(비킨 PR 은 뺀다',
-    '`git diff --name-only origin/main...origin/<headRefName>`',
-    '둘 다 마이그레이션 파일을 더하면 이름이 달라도 겹침',
-    '겹침으로 본다',
-    '`headRefOid` 와 다르면',
-    '2시간·4시간 비킴은 그대로',
-  ]) assert.ok(overtake.includes(anchor), anchor);
-  // 3번 순서 대기 — 앞지르기가 되면 기다리지 않고 5번으로, 안 되면 겹친 PR·파일을 리뷰 글에 적는다
-  assert.ok(wait.includes('앞지르기(위 「머지 순서」)가 되면 순서 대기하지 않고 5번으로 간다'));
-  assert.ok(wait.includes('겹친 앞 PR·파일'));
-  // 5번 맨 앞 다시 확인 — 앞지르기 PR 은 맨 앞이 아니어도 머지로 간다, 맨 앞 막힘 중에도 앞지르기는 머지
-  assert.ok(conflict.includes('맨 앞이 아니고 앞지르기도 되지 않으면 머지하지 않는다'));
-  assert.ok(conflict.includes('뒤 PR 도 머지하지 않는다(앞지르기 PR 은 뺀다'));
-  // 6번 — fetch 뒤 머지 직전에 앞지르기를 다시 잰다(그 사이 앞 PR 이 돌아오거나 rebase 됐을 수 있다)
-  assert.ok(merge.includes('앞지르기 다시 확인'));
-  // 줄 확인 — 이미 순서 대기 중인 PR 도 앞지르기가 되면 후보로 고른다
-  assert.ok(check.includes('**앞지르기 후보**'));
-  assertBefore(review, '**앞지르기 후보**', '**다음 후보 고르기**');
-  // 통합 PR — 맨 앞이 아니고 앞지르기도 안 될 때만 순서 대기
-  assert.ok(train.includes('맨 앞이 아니고 앞지르기도 되지 않으면(위 「머지 순서」) 3번 「순서 대기」로 간다'));
-  // 저장소 안내 한 줄도 맞춘다
+  assert.ok(merge.includes('**호스트 머지**(충돌 없음)') && merge.includes('**손 머지**(5번)'));
+  assertBefore(merge, '**호스트 머지**(충돌 없음)', '**손 머지**(5번)');
+  assert.ok(merge.includes('`state` 가 `MERGED` 인지 본다'));
+  // 개발자 쪽 — 옛 「순서 대기」 notes 는 바로 이어 한다.
+  assert.ok(pi.includes('  - 「순서 대기」(WP-2003 전 순서 머지에서 남은 검토자 notes)'));
+});
+
+test('process-issue.md: 검토자는 리뷰할 것이 없을 때 main 을 풀테스트해 통과한 커밋으로 green 을 옮긴다 (WP-2003)', () => {
+  const green = section(pi, '\n### 풀테스트·green (검토자)\n', '\n### 오래 걸리는 작업');
+  assert.ok(green.length > 100, '풀테스트 절이 없다');
+  for (const s of [
+    '`MAIN/.work-loop/state/notes/green.md`',
+    '`bg-job status "<MAIN>" green`',
+    '`git -C MAIN worktree add --detach .claude/worktrees/green <sha>`',
+    // 도는 동안에도 리뷰·머지는 한다 — 테스트하는 커밋이 정해져 있다.
+    '도는 동안 새 리뷰 부탁이 오면 리뷰·머지한다',
+    // 통과 — 강제 없이 fast-forward.
+    '`git push --no-verify origin <sha>:refs/heads/green`',
+    // 실패 — 불안정 먼저, 원인 머지 찾기, 작게 고치기·되돌리기.
+    '**불안정 먼저**',
+    '`git log --first-parent --oneline origin/green..<sha>`',
+    '`git revert --no-commit -m 1 <머지 커밋>`',
+    '[풀테스트 실패]',
+    '같은 실패가 세 번 이어지면',
+    // main 이 깨져 PR 검사가 함께 실패하면 PR 을 반려하지 않고 main 을 먼저 고친다.
+    '6. **main 이 깨져 PR 검사가 실패할 때**',
+  ]) assert.ok(green.includes(s), s);
+  assertBefore(green, '1. **언제**', '2. **띄우기**');
+  assertBefore(green, '3. **통과**', '4. **실패**');
+  // SKILL.md 할 일 없음이 이 절을 부른다.
+  assert.ok(workLoopSkill.includes('3. **내가 검토자면 풀테스트**(WP-2003)'));
+  assert.ok(workLoopSkill.includes('검토자 풀테스트는 3번 「할 일 없음」 3 예외'));
+  // project.md 에 풀테스트 절과 명령이 있다.
   const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
-  assert.ok(section(project, '\n## 8. 검토자\n', '\n## 9. ').includes('앞 PR 과 파일이 겹치지 않는 승인 PR 은 앞지르기(WP-1999)'));
+  assert.ok(project.includes('### 풀테스트 (WP-2003'));
+  assert.ok(project.includes('FULL_REGRESSION_SCOPE=full pnpm test:full'));
+  // project.md 에 「기차」 절이 없다 — process-issue.md 가 기차 흐름을 켜지 않는다.
+  assert.ok(!/\n### 기차/.test(project));
+});
+
+test('.work-loop/project.md 검토자 절에 바로 머지 한 줄이 있다 (WP-2003)', () => {
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  const sec8 = section(project, '\n## 8. 검토자\n', '\n## 9. ');
+  assert.ok(sec8.includes('**바로 머지·풀테스트(WP-2003)**'));
+  assert.ok(!sec8.includes('**순서 머지(WP-1720)**'));
 });
 
 // WP-1763 — 머지 순서 경계 사례(차단 재발·승인 해제·줄 확인 fetch·순서 대기 문구).
-test('process-issue.md: 머지 순서 경계 사례 — 차단 재발·승인 해제·줄 확인 fetch·순서 대기 문구 (WP-1763)', () => {
+test('process-issue.md: 승인 경계 사례 — 승인 해제·잠깐의 거절 (WP-1763)', () => {
   const merge = queueReview.split('\n6. **머지**')[1].split('\n7. ')[0];
-  const check = queueReview.split('**줄 확인**(WP-1720')[1];
-  for (const anchor of [
-    '이미 `차단` 으로 비킨 PR',
-    '`줄 맨 앞 처음 봄` 도 지금 시각·HEAD 로 새로 적는다',
-  ]) assert.ok(queueReview.includes(anchor), anchor);
   for (const anchor of [
     '`reviewDecision`',
     '`승인한 HEAD <sha> 글`',
@@ -1563,12 +1506,7 @@ test('process-issue.md: 머지 순서 경계 사례 — 차단 재발·승인 �
     // 체크 대기 같은 잠깐의 거절은 줄을 두어 같은 HEAD 에 글·승인을 되풀이하지 않는다.
     'HEAD 가 그대로인 잠깐의 거절이면 줄을 두고',
   ]) assert.ok(merge.includes(anchor), anchor);
-  assert.ok(check.includes('`git fetch origin` 도 먼저 한다'));
   assert.ok(!merge.includes('(거절돼 글이 승인 기록인 때도) 늘 notes 에'));
-  const wait = queueReview.split('**순서 대기**(WP-1720)')[1].split('\n4. ')[0];
-  assert.ok(wait.includes('`승인한 HEAD <sha> 글`'));
-  assert.ok(queueReview.includes('끝의 ` 글` 은 빼고 sha 로 견준다'));
-  assert.ok(pi.includes('답은 아래 일반 규칙의 `WORKING` 보고 한 번에 싣는다'));
   assert.ok(!pi.includes('먼저 답하고(상태는 바꾸지 않는다)'));
 });
 
@@ -1579,7 +1517,7 @@ test('.work-loop/project.md 검토자는 테스트를 직접 돌리지 않고, �
   const sec = section(project, '\n### 검토자 머지 판단 (WP-1081·WP-1959)\n', '\n## 8. ');
   assert.ok(sec.includes('**검토자는 테스트를 직접 돌리지 않는다(WP-1959)**'));
   assert.ok(sec.includes('**테스트가 필요하면 반려한다**'));
-  assert.ok(sec.includes('main 이 같은 앱을 고쳤다는 것만으로는 반려하지 않는다'));
+  assert.ok(sec.includes('push 게이트 결과는 요구하지 않는다(WP-2003)'));
   // 마이그레이션 번호 확인(스크립트)은 남긴다.
   assert.ok(sec.includes('check-migration-versions.mjs'));
   // 검토자가 돌리던 명령이 남아 있지 않다.
@@ -1606,24 +1544,19 @@ test('process-issue.md 기차: 출발한 기차는 검토자 요청 때만 rebas
   ]) assert.ok(queueTrain.includes(anchor), anchor);
 });
 
-test('SKILL.md 3번 할 일 없음: 출발한 내 통합 PR 이 CONFLICTING 이어도 스스로 고르지 않는다 (WP-1720)', () => {
+test('SKILL.md 3번 할 일 없음: 내 PR 이 CONFLICTING 이어도 검토자가 있으면 고르지 않고, 검토자는 풀테스트를 본다 (WP-2003)', () => {
   const idle = s3.split('**할 일 없음**')[1];
   for (const anchor of [
-    '`CONFLICTING` 이어도 스스로 고르지 않는다',
+    '`CONFLICTING` 이어도 스스로 고르지 않는다 — 검토자가 머지하며 푼다(WP-2003)',
     '통합 PR 이든 아니든',
     '검토자가 없으면 위처럼 고른다',
-    '`CHANGES_REQUESTED` 여도 고르지 않는다',
-    '「main 반영 필요」 요청 없이 rebase 하지 않는다',
     '`checks` 가 `FAIL`',
-    // 검토자는 할 일이 없을 때 줄 확인으로 맨 앞의 순서 대기 PR 을 머지한다
-    '**줄 확인**',
-    '「PR 리뷰·머지」',
+    '「풀테스트·green (검토자)」',
     '모두 할 것이 없으면',
     '통합 PR 의 충돌도 요청할 검토자가 없으니',
-    '`main 반영 요청`',
     '이 확인을 위해서만',
   ]) assert.ok(idle.includes(anchor), anchor);
-  assert.ok(workLoopSkill.includes('검토자 줄 확인은 3번 「할 일 없음」 3 예외'));
+  for (const gone of ['**줄 확인**', '`main 반영 요청`', '「main 반영 필요」 요청 없이 rebase 하지 않는다']) assert.ok(!idle.includes(gone), gone);
 });
 
 // WP-1754 — 긴 작업 중 30분마다 진행 보고(2시간 무소식이면 자리에서 빠져 상한이 안 지켜진다), 끊긴 작업은 최근 손댄 것부터

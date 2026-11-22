@@ -17,7 +17,7 @@ pnpm --filter @smart-workplace/mcp-tools-shared build   # dist 는 git 무시라
 | 바뀐 곳 | 명령 |
 |---|---|
 | `apps/workplace-api/` | `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-api && ./gradlew test --tests "<패키지>.*"'` (예: `"com.workplace.issue.*"`) · 커밋 전 `./gradlew spotlessApply` |
-| ↳ `db/migration/` | 위에 더해 `./gradlew generateJooq` 로 `src/main/generated` 를 다시 만들어 함께 커밋. 버전 번호(`V<n>__`)가 main 의 마지막보다 큰지 rebase 뒤 다시 확인 |
+| ↳ `db/migration/` | 위에 더해 `./gradlew generateJooq` 로 `src/main/generated` 를 다시 만들어 함께 커밋. 버전 번호(`V<n>__`)가 main 의 마지막보다 큰지 커밋 전에 확인(그 뒤 main 과 겹치면 검토자가 머지 때 옮긴다 — 7절) |
 | `apps/workplace-web/` | `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && pnpm test'`(vitest 전체, 40초 안팎) · `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && pnpm test:e2e e2e/<바꾼 화면 spec>'` · `pnpm typecheck` |
 | ↳ `vite.config.ts`·`src/App.tsx`·`src/main.tsx`·`e2e/fixtures/` 등 공유 설정 | `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e'`(E2E 전체) |
 | `apps/workplace-admin/` | `cd apps/workplace-admin && pnpm test && pnpm test:e2e` |
@@ -51,7 +51,7 @@ payload·쿼리·4xx/5xx 메시지·권한/조건부 렌더·유효성·빈/로�
 
 ## 3. 전체 회귀
 
-여러 앱에 걸치거나 공유 영역(위 표의 「공유 설정」, `packages/`, 마이그레이션, 보안 설정)을 바꿨으면 머지 전에 돌린다.
+여러 앱에 걸치거나 공유 영역(위 표의 「공유 설정」, `packages/`, 마이그레이션, 보안 설정)을 바꾸는 회귀는 검토자가 머지 뒤 아래 「풀테스트」로 돌린다(WP-2003 — 개발자는 1절 범위 테스트만 돌린다). 사람 세션이 직접 돌릴 때는 아래 명령이다.
 
 ```sh
 pnpm lint && pnpm typecheck && pnpm test:plugin
@@ -65,26 +65,31 @@ pnpm test:full   # 이미지 입력 타입 검사 → web vitest → web E2E 전
 - 락을 기다리는 게이트는 로그에 `[test-lock] 다른 세션이 테스트 게이트 실행 중 — 대기합니다` 만 있고, 잡으면 `[test-lock] 락 획득 — 게이트 실행` 이 찍힌다.
 - 병렬·부하에서만 깨지는 테스트는 제외하지 말고 원인을 고친다(시간 단언·실시간 데드라인을 없애 결정적으로).
 
-### 기차 (WP-1216 — 개발 PR 의 기본 경로)
+### 풀테스트 (WP-2003 — 검토자, `process-issue.md` 「풀테스트·green (검토자)」)
 
-이 저장소는 기차 흐름을 켠다(`process-issue.md` 「기차」). 이슈마다 PR 을 내지 않고, 끝낸 이슈를 내 통합 브랜치 `integ/<AI 이름>-<번호>`(AI 이름 = 내 username 의 `@` 앞, 예: `integ/developer3-4`)에 커밋 하나씩 쌓아 기차마다 push 게이트 한 번·PR 하나로 올린다. 게이트 락이 이 저장소 사본마다 하나라 이슈마다 게이트를 띄우면 한 AI 의 이슈들이 한 줄로 기다리고, 예전 묶음 게이트(WP-1208)는 게이트만 합쳐 돌고 PR 은 이슈마다 내서 A+B 로 통과한 뒤 B 가 반려되면 A 혼자의 트리가 검증 없이 머지됐다.
+개발자는 push 게이트 없이(`--no-verify`) 올리고 검토자는 받는 대로 머지한다. 합친 main 은 검토자가 리뷰할 것이 없을 때 아래로 한 번에 돌리고, 통과한 커밋으로 `green` 브랜치를 옮긴다. 개발자는 `origin/green` 에서 브랜치를 딴다.
 
 ```sh
-pnpm train stack <AI 이름> <feature 브랜치> <이슈 키>   # 다음 기차에 커밋 하나로 쌓는다(출발한 기차는 건너뛰고, 없으면 새 번호를 origin/main 에서). 절차 검사(procedure-check)를 통과해야 쌓인다 — 사람 세션은 TRAIN_NO_PROCEDURE_CHECK=1(check 도 건너뜀)
-pnpm train rebase <기차 브랜치>                         # 최신 origin/main 으로 rebase(출발한 기차는 아래 「게이트 실패·반려」)
-pnpm train next <AI 이름>                               # 아직 출발하지 않은 기차(없으면 빈 출력)
-pnpm train check <기차 브랜치>                          # 실린 이슈마다 절차 검사(출발 전 — 게이트 띄우기 전)
-pnpm train keys <기차 브랜치>                           # 실린 이슈 키 「K1·K2」 — PR 제목 `통합 K1·K2`
-pnpm train depart <기차 브랜치>                         # 출발 표시(rebase 뒤·게이트 전) — 이후 stack·next 는 이 기차를 건너뛴다. 최신 main 이 아니거나 앞 기차가 머지되지 않았으면 거절
+FULL_REGRESSION_SCOPE=full pnpm test:full   # green 워크트리(MAIN/.claude/worktrees/green, main 의 정한 커밋에 detach)에서. 범위 판정은 origin/main 기준이라 main HEAD 에서는 빈 범위가 나오므로 전체를 강제한다
 ```
 
-- 스크립트는 `scripts/husky/train.sh`(테스트 `train.test.sh`). 「출발」 = 기차 브랜치를 `train depart` 로 표시했거나 origin 에 push 한 것(`process-issue.md` 「기차」 3번). 기차마다 워크트리 `MAIN/.claude/worktrees/integ-<AI 이름>-<번호>` 를 스크립트가 만든다 — 게이트·수정 커밋·push 는 그 안에서 한다. 처음 게이트를 돌기 전에 1절처럼 설치·빌드한다.
-- 쌓기는 feature 의 커밋 하나(제목 끝 `(<이슈 키>)`, 작성자 유지)를 그대로 옮긴다. 마이그레이션 번호가 origin/main·앞서 실린 이슈와 겹치거나 앞서 실린 이슈와 충돌하면 쌓지 않고 멈춘다 — feature 에서 고쳐 다시 쌓는다.
-- 출발: 내 앞 기차의 PR 이 main 에 머지됐거나 처음일 때만. 최신 origin/main 으로 rebase → `pnpm train depart <기차>` → 기차 워크트리에서 `pnpm test:full`(백그라운드) → `git push -u origin <기차>` → PR(제목 `통합 <키>·…`, 본문 첫 줄 `개발: <username>`, 이슈마다 요약·검증 근거·라이브 검증).
-- 게이트 실패·반려: 같은 기차에 수정 커밋(제목 끝에 고친 이슈 키)을 더해 다시 돈다. 출발한 기차는 검토자의 「main 반영 필요」 요청 때만 반영한다 — 충돌이면 rebase(게이트를 다시 돌고 `--force-with-lease`), 마이그레이션 번호 겹침이면 번호 옮기기(7절 — 수정 커밋을 더하고 게이트를 다시 돌고 push).
-- 다른 AI 의 이슈는 내 기차에 싣지 않는다.
+- 실패한 테스트만 다시 돌릴 때(불안정 확인·수정 확인): api `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-api && ./gradlew test --tests "<클래스>"'`, web vitest `cd apps/workplace-web && npx vitest run <파일>`, web E2E `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e <spec>'`, admin E2E `cd apps/workplace-admin && pnpm test:e2e <spec>`.
+- green 의 첫 위치는 v0.9.82 릴리스 커밋이다(WP-2003). 릴리스 태그는 green 이 가리키는 커밋에 찍는다.
+- **생성 코드**(손 머지가 다시 만드는 것): `apps/workplace-api/src/main/generated`(jOOQ) — 충돌하면 머지 워크트리에서 `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-api && ./gradlew generateJooq'`(Docker 필요 — 임시 Postgres 에 마이그레이션을 적용해 만든다)로 다시 만들어 넣는다.
+
+### 통합 PR 정리 (WP-2003 — 예전 묶음 흐름을 끔)
+
+이 절은 `process-issue.md` 가 찾는 「기차」 절이 아니다 — 이 저장소에는 「기차」 절이 없으니 개발자는 이슈마다 PR 을 낸다.
+
+기차(WP-1216 — 이슈를 `integ/<AI 이름>-<번호>` 에 쌓아 게이트 한 번·PR 하나)는 껐다. 게이트를 묶어 돌리려던 것인데 개발자 게이트가 없어졌고, 「앞 기차가 머지돼야 다음 출발」이 줄을 하나 더 만들었다. 새 이슈는 이슈마다 PR 이다(`process-issue.md` 9번 — 브랜치 `<커밋 타입>/<소문자 이슈 키>` 를 push 하고 PR 제목 `<이슈 키> <이슈 제목>`).
+
+- 쌓았지만 아직 출발하지 않은 내 기차가 있으면(`pnpm train next <AI 이름>`) 출발 게이트 없이 기차 워크트리에서 `git push --no-verify -u origin <기차>` 하고 통합 PR(제목 `통합 <키>·…` — `pnpm train keys <기차>`, 본문 첫 줄 `개발: <username>`, 이슈마다 요약·검증 근거·라이브 검증)로 올린다. rebase 하지 않는다.
+- 이미 올린 통합 PR 은 검토자가 그대로 리뷰·머지한다. 반려되면 같은 기차에 수정 커밋을 더해 `--no-verify` 로 push 한다.
+- 스크립트 `scripts/husky/train.sh` 는 이 정리에만 쓴다.
 
 ### 커밋 훅으로 충분한 것 (`process-issue.md` 9번 「돌릴지부터 판단」, WP-1209)
+
+WP-2003 뒤 이 저장소는 검토자가 있어 개발자가 push 게이트를 돌리지 않으므로 이 목록은 「바뀐 범위 테스트」를 고를 때만 참고한다.
 
 push 게이트(`pnpm test:full`)가 커밋 훅보다 더 돌리는 것은 web 페이지 테스트·web E2E 전체·admin E2E·api gradle 전체다(이미지 입력 타입 검사는 테스트 파일을 빼고 본다). 브랜치가 바꾼 파일이 모두 아래에 들면 게이트가 더 확인할 것이 없으니 돌리지 않고 옆의 테스트만 돌린다. web·admin·api·collab 의 제품 코드나 `scripts/` 가 하나라도 바뀌었으면 해당하지 않는다.
 
@@ -102,11 +107,11 @@ work-loop 는 아래 명령을 기다리지 않고 이슈 워크트리에서 백
 |---|---|
 | `pnpm test:full`(push 게이트) | 45분 |
 | `pnpm test:full` — web 만 바꾼 범위(admin E2E·gradle 빠짐) | 36분 |
-| 기차 출발 게이트(`pnpm test:full`, 기차 워크트리) | 실린 이슈들의 범위에 따라 위와 같음 |
+| 풀테스트(`FULL_REGRESSION_SCOPE=full pnpm test:full`, green 워크트리 — 검토자) | 50분 |
 | `E2E_SERVER=preview pnpm test:e2e`(웹 E2E 전체, `apps/workplace-web`) | 35분 |
 | `./gradlew test`(api 전체, `apps/workplace-api`) | 10분 |
 
-- **push 게이트 미리 돌리기(9번)**: 커밋한 상태에서 `pnpm test:full` 을 띄운다. 통과하면 그 트리가 기록돼 뒤의 `git push` 가 회귀를 다시 돌지 않는다. 지금 HEAD 트리가 이미 기록돼 있는지는 워크트리에서 `sh -c '. scripts/husky/noncode.sh && . scripts/husky/gate-scope.sh && . scripts/husky/verified-trees.sh && is_verified_head'` 로 본다(성공이면 기록됨 — 다시 돌리지 않는다. HEAD 에 필요한 범위를 origin/main 기준으로 구해 pre-push 와 같게 판정한다). 기차는 기차 워크트리에서 이렇게 돌린다(위 「기차」).
+- **push 게이트 미리 돌리기(9번 — 검토자가 없을 때만, WP-2003 뒤 이 저장소에서는 쓰지 않는다)**: 커밋한 상태에서 `pnpm test:full` 을 띄운다. 통과하면 그 트리가 기록돼 뒤의 `git push` 가 회귀를 다시 돌지 않는다. 지금 HEAD 트리가 이미 기록돼 있는지는 워크트리에서 `sh -c '. scripts/husky/noncode.sh && . scripts/husky/gate-scope.sh && . scripts/husky/verified-trees.sh && is_verified_head'` 로 본다(성공이면 기록됨 — 다시 돌리지 않는다. HEAD 에 필요한 범위를 origin/main 기준으로 구해 pre-push 와 같게 판정한다). 기차는 기차 워크트리에서 이렇게 돌린다(위 「기차」).
 - 한 번에 `test:full` 하나만 돈다(전역 락). 다른 이슈의 게이트를 띄우면 락을 기다리느라 그만큼 늦게 끝난다.
 - 무거운 테스트(api `./gradlew test`·web vitest 전체·E2E)를 게이트 밖에서 직접 돌릴 때는 `scripts/husky/run-locked.sh <명령>` 로 감싸고 `-PtestForks` 를 2 넘게 주지 않는다 — AI Pod 에서는 이 락이 저장소를 넘어 하나라 다른 저장소 게이트와 겹치지 않는다(WP-1811). 게이트(`pnpm test:full`·커밋·push)는 스스로 이 락을 잡으므로 감쌀 필요가 없다(감싸도 안쪽은 다시 잡지 않아 멈추지 않는다).
 
@@ -169,31 +174,28 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 ## 7. PR (`process-issue.md` 9번·「PR 리뷰·머지」)
 
 - 원격은 **origin**(`git@github.com:bluleo78/smart-workplace.git`), PR 대상 브랜치는 `main`, 도구는 `gh`(세션의 `GH_TOKEN` — 준비는 플러그인 README 「PR 흐름 준비」). gitlab 원격에는 push 하지 않는다 — 사람이 origin main 을 받아 맞춘다.
-- 브랜치: 이슈마다 feature `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123` — push 하지 않는다), PR 은 기차 `integ/<AI 이름>-<번호>`(3절 「기차」). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
-- PR 제목 `통합 <키1>·<키2>·…`, 머지 커밋 제목 `merge: 통합 <키1>·<키2>·…`(`gh pr merge --merge` — 지금 main 이력 모양을 지킨다). 기차가 생기기 전에 올린 이슈 PR(제목 `<이슈 키> <이슈 제목>`, 머지 커밋 `merge: <이슈 키> <이슈 제목>`)은 그대로 리뷰·머지한다.
-- **통합 PR 리뷰(WP-1216)**: 이슈 단위로 리뷰하고(이슈 하나 = 커밋 하나 + 그 키를 단 수정 커밋) 게이트 통과·마이그레이션 번호(아래 0번)·테스트 근거(아래 1번)를 확인한다. 하나라도 문제면 PR 전체를 반려하고 어느 이슈가 왜 문제인지 적는다 — 개발자는 같은 PR 에 수정 커밋을 더한다. 통과하면 머지하고(8절 순서 머지) 실린 이슈마다 검토 대기(REVIEW)로 올린다 — 머지 커밋은 `message` 에.
-- 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. 전체 E2E·api JUnit 은 이 게이트만 돌린다 — 검토자는 origin/main 과 **충돌하는** 브랜치만 개발자에게 rebase 를 요청하고(검토자는 push 하지 않는다), 충돌 없이 main 이 앞서 있기만 한 브랜치는 rebase 없이 머지한다 — 머지 순서는 8절 순서 머지(WP-998 — 낡았다는 이유로 돌려보내면 rebase 마다 게이트를 다시 돌아 머지가 멈춘다). 다만 마이그레이션 번호와 테스트 근거는 아래 「검토자 머지 판단」대로 머지 전에 본다. 검토자는 테스트를 직접 돌리지 않는다(WP-1959) — 합친 결과의 회귀는 머지 뒤 아래 CI 와 다음 push 게이트가 잡는다.
-- **CI(GitHub Actions, WP-993)**: PR(main 대상)·main push 마다 `.github/workflows/ci.yml` 의 `verify`(전체 `pnpm lint`·`pnpm typecheck`, 웹 vitest 는 main push 에서만 — WP-1218)가 돈다. `main` 브랜치 보호가 `verify` 를 required check 로 건다 — 최신 main 포함 요구(strict)는 끈다(충돌 없는 낡은 브랜치도 머지 — WP-998), PR 필수는 아니고 관리자 직접 push 는 막지 않는다.
-  - 검토자는 머지 전에 `gh pr checks <번호>` 로 `verify` 통과를 확인한다(진행 중이면 기다리고, 실패면 실패한 단계·로그 요지를 적어 반려한다).
+- 브랜치: 이슈마다 `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123`)를 `origin/green` 에서 따서 push 하고 PR 로 올린다(WP-2003 — 기차는 껐다, 3절 「통합 PR 정리」). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
+- PR 제목 `<이슈 키> <이슈 제목>`, 머지 커밋 제목 `merge: <이슈 키> <이슈 제목>`(`gh pr merge --merge` 또는 검토자의 손 머지 — 지금 main 이력 모양을 지킨다). 남은 통합 PR(제목 `통합 <키1>·<키2>·…`)은 머지 커밋 `merge: 통합 <키1>·<키2>·…` 로 그대로 리뷰·머지한다.
+- **통합 PR 리뷰(WP-1216)**: 이슈 단위로 리뷰하고(이슈 하나 = 커밋 하나 + 그 키를 단 수정 커밋) 마이그레이션 번호(아래 0번)·테스트 근거(아래 1번)를 확인한다. 하나라도 문제면 PR 전체를 반려하고 어느 이슈가 왜 문제인지 적는다 — 개발자는 같은 PR 에 수정 커밋을 더한다. 통과하면 머지하고(8절 바로 머지) 실린 이슈마다 검토 대기(REVIEW)로 올린다 — 머지 커밋은 `message` 에.
+- **바로 머지(WP-2003)**: 개발자는 바뀐 범위 테스트(1절)만 돌리고 `git push --no-verify` 로 올리며 rebase 하지 않는다. 검토자는 리뷰를 통과한 PR 을 받는 대로 머지한다 — 충돌 없으면 `gh pr merge`(gw-repo), main 과 충돌하거나 마이그레이션 번호가 겹치면 검토자가 이슈 워크트리에서 origin/main 에 머지 커밋을 만들어 풀고 `git push --no-verify origin HEAD:main`(손 머지 — GitHub 가 PR 을 머지됨으로 닫는다). 양쪽 뜻을 함께 살릴 수 없는 「뜻 충돌」만 개발자에게 rebase 로 돌려보낸다. 합친 결과의 회귀는 3절 「풀테스트」가 잡는다.
+- **CI(GitHub Actions, WP-993)**: PR(main 대상)·main push 마다 `.github/workflows/ci.yml` 의 `verify`(전체 `pnpm lint`·`pnpm typecheck`, 웹 vitest 는 main push 에서만 — WP-1218)가 돈다. `main` 브랜치 보호가 `verify` 를 required check 로 건다 — 최신 main 포함 요구(strict)는 끈다(충돌 없는 낡은 브랜치도 머지 — WP-998), PR 필수는 아니고 관리자 직접 push 는 막지 않는다 — AI 의 main 직접 push 는 검토자의 세 예외(손 머지·풀테스트 수정·되돌리기 — `green` 은 main 이 아니다)뿐이다(WP-2003).
+  - 검토자는 머지 전에 `gh pr checks <번호>` 로 `verify` 통과를 확인한다(진행 중이면 기다리고, 실패면 실패한 단계·로그 요지를 적어 반려한다). 다만 실패가 그 PR 이 바꾸지 않은 파일에서 났으면 main 이 깨진 것이다 — 반려하지 않고 main 을 먼저 고친다(`process-issue.md` 「풀테스트·green (검토자)」 6번, WP-2003).
   - 머지는 **`--admin` 없이** `gh pr merge --merge …` 로만 한다. AI 들이 관리자 계정을 함께 쓰므로 `--admin` 을 붙이면 보호가 뚫린다 — 어떤 경우에도 붙이지 않는다(거절되면 이유를 보고 고치거나 BLOCKED).
   - main push 의 CI 실패는 9절 「할 일 없을 때」에서 확인해 알린다.
 - 검토자는 PR 이 더한 E2E 마다 판정 태그가 그 테스트에 맞는지 본다 — 태그가 붙어 있어도 실제로는 payload·권한·문구만 보는 테스트면 vitest 로 옮기라고 반려한다(2절 「웹 테스트를 어디에 쓰나」).
-- 마이그레이션(`db/migration/`)이 든 PR 을 rebase 하면 버전 번호(`V<n>__`)가 origin/main 의 마지막보다 큰지 다시 보고(`pnpm check:migrations origin/main`), 겹치면 올린 뒤 `./gradlew generateJooq` 결과를 함께 커밋한다.
+- 마이그레이션(`db/migration/`) 번호가 main 과 겹치면 검토자가 손 머지에서 PR 쪽 파일 이름의 번호를 옮긴다(내용 그대로 — jOOQ 생성 코드는 스키마가 같아 바뀌지 않는다). 두 마이그레이션이 같은 테이블을 고쳐 순서가 결과를 바꾸면 「뜻 충돌」로 돌려보낸다.
 
 ### 검토자 머지 판단 (WP-1081·WP-1959)
 
-**검토자는 테스트를 직접 돌리지 않는다(WP-1959)** — 로컬 합친 검사·격리 스택·vitest·gradle 어느 것도 검토자가 돌리지 않는다. 테스트는 개발자의 push 게이트(기차 출발 때 최신 origin/main 위에서 전체 회귀)와 CI `verify` 가 돌리고, 검토자는 그 결과와 근거를 보고 머지하거나 반려한다. 예전에는 main 이 같은 앱을 고쳤으면 검토자가 최신 main 과 합친 상태로 그 앱 테스트를 돌렸는데(WP-1081), 요즘 PR 은 거의 다 api 를 고치고 main 도 `global`·마이그레이션을 자주 고쳐 PR 마다 `./gradlew test` 전체(약 45분)를 검토자 한 명이 줄지어 돌았다 — 검토자 줄이 막히면 「앞 기차가 머지돼야 다음 기차 출발」 때문에 모든 개발자가 함께 멈췄다(2026-11-22 PR #1604).
+**검토자는 테스트를 직접 돌리지 않는다(WP-1959)** — 로컬 합친 검사·격리 스택·vitest·gradle 어느 것도 검토자가 돌리지 않는다. 테스트는 개발자의 바뀐 범위 테스트와 CI `verify`, 머지 뒤 검토자의 풀테스트(3절 — WP-2003, 리뷰와 따로 리뷰할 것이 없을 때)가 돌리고, 검토자는 리뷰 때 그 결과와 근거를 보고 머지하거나 반려한다. 예전에는 main 이 같은 앱을 고쳤으면 검토자가 최신 main 과 합친 상태로 그 앱 테스트를 돌렸는데(WP-1081), 요즘 PR 은 거의 다 api 를 고치고 main 도 `global`·마이그레이션을 자주 고쳐 PR 마다 `./gradlew test` 전체(약 45분)를 검토자 한 명이 줄지어 돌았다 — 검토자 줄이 막히면 「앞 기차가 머지돼야 다음 기차 출발」 때문에 모든 개발자가 함께 멈췄다(2026-11-22 PR #1604).
 
-0. **마이그레이션 번호 확인(늘, 머지 직전)**: `git fetch origin main <PR 브랜치>` 뒤 `node scripts/check-migration-versions.mjs origin/main origin/<PR 브랜치>`(`pnpm check:migrations …` 와 같다 — 테스트가 아니라 몇 초 걸리는 번호 비교다). PR 이 더한 `V<n>__*.sql` 이 origin/main 의 가장 큰 번호보다 크고 서로·main 과 겹치지 않는지 본다 — 두 PR 이 같은 번호를 각자 더하면 git 충돌도 각 PR 의 `verify` 실패도 없이 합친 main 에서 Flyway 가 깨진다. 실패(종료 코드 1)면 머지하지 않고 겹친 번호를 적어 개발자에게 번호를 옮겨 달라고 돌려보낸다. 마이그레이션을 더한 PR 이 둘 이상이면 하나씩 머지하며, 앞의 것이 머지된 뒤 다음 PR 을 다시 확인한다. 같은 스크립트가 개발자의 pre-push 게이트(원격 main 기준)와 CI `verify`(머지 커밋의 첫 부모 기준)에서도 돈다 — PR 을 연 뒤 main 이 움직일 수 있어 검토자 확인은 그대로 한다.
-1. **테스트 근거 확인**: PR 본문의 push 게이트 결과(통과한 트리·범위, 생략했으면 `process-issue.md` 9번 근거)와 `gh pr checks <번호>` 의 `verify` 통과를 본다. 충돌 없이 main 이 앞서 있기만 한 것은 다시 테스트할 사유가 아니다 — 게이트 뒤 main 이 움직여 생기는 의미 충돌(줄 충돌 없이 함께 들어가면 깨지는 경우)은 드물고, 머지 뒤 main CI 와 다음 기차의 push 게이트(출발 때 최신 main 으로 rebase 해 전체 회귀)가 잡는다.
+0. **마이그레이션 번호 확인(늘, 머지 직전)**: `git fetch origin main <PR 브랜치>` 뒤 `node scripts/check-migration-versions.mjs origin/main origin/<PR 브랜치>`(`pnpm check:migrations …` 와 같다 — 테스트가 아니라 몇 초 걸리는 번호 비교다). PR 이 더한 `V<n>__*.sql` 이 origin/main 의 가장 큰 번호보다 크고 서로·main 과 겹치지 않는지 본다 — 두 PR 이 같은 번호를 각자 더하면 git 충돌도 각 PR 의 `verify` 실패도 없이 합친 main 에서 Flyway 가 깨진다. 실패(종료 코드 1)면 손 머지(위 「바로 머지」)에서 PR 쪽 번호를 옮겨 머지한다(WP-2003 — 개발자에게 돌려보내지 않는다). 마이그레이션을 더한 PR 이 둘 이상이면 하나씩 머지하며, 앞의 것이 머지된 뒤 다음 PR 을 다시 확인한다. 같은 스크립트가 CI `verify`(머지 커밋의 첫 부모 기준)에서도 돈다 — PR 을 연 뒤 main 이 움직일 수 있어 검토자 확인은 그대로 한다.
+1. **테스트 근거 확인**: PR 본문의 바뀐 범위 테스트 결과(1절 표대로 돌렸는지)와 `gh pr checks <번호>` 의 `verify` 통과를 본다. push 게이트 결과는 요구하지 않는다(WP-2003). 함께 들어가 깨지는 의미 충돌은 머지 뒤 main CI 와 풀테스트(3절)가 잡는다.
 2. **테스트가 필요하면 반려한다**: 검토자가 보기에 테스트가 더 필요하면 직접 돌리지 않고 무엇을 왜 돌려야 하는지 적어 반려한다 — 개발자가 돌리고 결과를 PR 에 적어 다시 부탁한다. 반려하는 때:
-   - 게이트 결과가 PR 에 없거나, 게이트를 생략한 근거가 맞지 않을 때(목록 밖 파일이 바뀜 — 「push 게이트를 돌려 주세요」)
    - 완료 기준의 근거(테스트·캡처·라이브 검증)가 모자라거나 의심스러울 때 — 어느 기준에 무엇이 모자란지 적는다
-   - push 게이트를 건너뛴 PR(`--no-verify` — 사람 지시)이 웹(`apps/workplace-web/`)을 바꿨을 때 — 웹 vitest 는 PR `verify` 에서 돌지 않는다(WP-1218). 개발자가 최신 main 위에서 웹 vitest 전체를 돌린 결과를 요청한다
-   - 게이트 뒤 main 이 **이 PR 이 기대는 같은 코드**(같은 클래스·API 계약·DB 스키마·공용 헬퍼)를 바꿔 함께 들어가면 깨질 구체적 근거가 보일 때 — 「main 반영 필요 — 최신 origin/main 위로 rebase 해 <범위> 테스트를 돌려 주세요」와 겹친 곳을 적는다. main 이 같은 앱을 고쳤다는 것만으로는 반려하지 않는다(WP-998 — 반려마다 rebase·게이트가 되풀이된다)
 3. **하나씩**: 같은 파일·영역(DB 마이그레이션, 공통 토큰, 공통 유틸·테스트 헬퍼)을 고치는 PR 은 앞의 것이 머지된 뒤 다음 PR 의 충돌·마이그레이션 번호를 다시 보고 머지한다.
-4. **main 이 깨졌을 때**: 머지 뒤 main CI 가 실패하거나, 개발자가 기차 게이트에서 내 기차가 바꾸지 않은 곳의 실패를 보면 그 테스트를 origin/main 만으로 돌려 본다(개발자 몫 — 검토자는 돌리지 않는다). main 에서도 실패하면 내 기차의 반려 사유가 아니라 main 회귀다 — 최근 머지에서 원인을 가려(`git log --first-parent origin/main`) 그 이슈를 연 개발자 앞으로 회귀 이슈를 만들고(`SKILL.md` 「이슈 만들기·담당 바꾸기」), 불안정해서 다시 돌려 통과하면 불안정 테스트 이슈로 등록한다.
-5. 검토자는 push 하지 않는다. 리뷰 보고에 테스트 근거를 어떻게 확인했는지 한 줄 남긴다(예: 「게이트 통과 트리 abc123·verify 통과 — main 변경은 calendar 만, 겹침 없음」).
+4. **main 이 깨졌을 때**: 머지 뒤 main CI 가 실패하거나 풀테스트(3절)가 실패하면 검토자가 `process-issue.md` 「풀테스트·green (검토자)」 4번대로 원인 머지를 찾아 작게 고치거나 되돌린다(WP-2003). 개발자는 green 에서 시작하므로 main 이 깨져 있어도 그 실패를 고치지 않는다 — 내가 바꾸지 않은 곳의 테스트가 실패하면 PR 본문에 적고 넘어간다.
+5. 검토자의 push 는 손 머지·풀테스트 수정·되돌리기·green 옮기기뿐이다(WP-2003). 리뷰 보고에 테스트 근거를 어떻게 확인했는지 한 줄 남긴다(예: 「바뀐 범위 테스트(api issue 패키지) 통과·verify 통과」).
 
 ## 8. 검토자
 
@@ -204,7 +206,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
   - 개발자 PR 본문의 「절차」 줄을 확인한다(`process-issue.md` 5번 형식, 흉내만 낸 줄이면 반려).
   - 브랜치 전체에 `/code-review medium` 을 실제로 돌리고(다시 부탁받으면 달라진 부분 — process-issue.md 「PR 리뷰·머지」 3번) 그 결과를 적는다.
   - 완료 기준 대조표를 적는다(미충족·확인 불가가 있으면 반려, 통합 PR 은 이슈마다).
-- **순서 머지(WP-1720)** — 열린 AI PR 은 번호 순으로 맨 앞만 머지한다. 다만 앞 PR 과 파일이 겹치지 않는 승인 PR 은 앞지르기(WP-1999)로 순서를 기다리지 않고 머지한다(리뷰는 받는 대로, 막힘 풀기·앞지르기 판단은 process-issue.md 「PR 리뷰·머지」 「머지 순서」).
+- **바로 머지·풀테스트(WP-2003)** — 리뷰를 통과한 PR 은 받는 대로 머지한다(순서 머지 WP-1720·앞지르기 WP-1999 는 없앴다). 충돌은 검토자가 손 머지로 푼다(7절). 리뷰할 것이 없으면 main 을 풀테스트하고 통과한 커밋으로 `green` 을 옮긴다(3절 「풀테스트」, process-issue.md 「풀테스트·green (검토자)」).
 
 ## 9. 할 일 없을 때 (`SKILL.md` 3번 「할 일 없음」)
 
