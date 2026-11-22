@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import net.javacrumbs.shedlock.core.DefaultLockingTaskExecutor;
 import net.javacrumbs.shedlock.core.LockConfiguration;
+import net.javacrumbs.shedlock.core.LockExtender;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.LockingTaskExecutor;
 import net.javacrumbs.shedlock.core.LockingTaskExecutor.TaskResult;
@@ -129,6 +130,39 @@ class SchedulerLockIntegrationTest extends IntegrationTestBase {
                         Instant.now(), "test.sequential", Duration.ofMinutes(1), Duration.ZERO))
                 .wasExecuted())
         .isTrue();
+  }
+
+  /** 성공 연장은 최초 잠금 시각부터 10분을 유지하고, 연장하지 않은 실패 경로는 10초만 유지한다. */
+  @Test
+  void 성공한_회차만_최소_잠금_시간을_10분으로_연장한다() {
+    JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+    LockingTaskExecutor executor = new DefaultLockingTaskExecutor(lockProvider);
+
+    String successName = "test.success-extension";
+    executor.executeWithLock(
+        (Runnable)
+            () -> LockExtender.extendActiveLock(Duration.ofMinutes(30), Duration.ofMinutes(10)),
+        new LockConfiguration(
+            Instant.now(), successName, Duration.ofMinutes(30), Duration.ofSeconds(10)));
+    Long successLockSeconds =
+        jdbc.queryForObject(
+            "SELECT CAST(EXTRACT(EPOCH FROM lock_until - locked_at) AS BIGINT) FROM shedlock WHERE name = ?",
+            Long.class,
+            successName);
+
+    String failureName = "test.failure-no-extension";
+    executor.executeWithLock(
+        (Runnable) () -> {},
+        new LockConfiguration(
+            Instant.now(), failureName, Duration.ofMinutes(30), Duration.ofSeconds(10)));
+    Long failureLockSeconds =
+        jdbc.queryForObject(
+            "SELECT CAST(EXTRACT(EPOCH FROM lock_until - locked_at) AS BIGINT) FROM shedlock WHERE name = ?",
+            Long.class,
+            failureName);
+
+    assertThat(successLockSeconds).isEqualTo(600L);
+    assertThat(failureLockSeconds).isBetween(10L, 11L);
   }
 
   /** executeWithLock 은 Throwable 을 던진다 — 스레드 풀 Callable 에서 쓰도록 런타임 예외로 감싼다. */

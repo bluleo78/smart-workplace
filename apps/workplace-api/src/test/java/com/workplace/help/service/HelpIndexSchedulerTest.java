@@ -1,7 +1,9 @@
 package com.workplace.help.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,11 +12,21 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Optional;
+import net.javacrumbs.shedlock.core.ClockProvider;
+import net.javacrumbs.shedlock.core.DefaultLockingTaskExecutor;
+import net.javacrumbs.shedlock.core.LockConfiguration;
+import net.javacrumbs.shedlock.core.LockProvider;
+import net.javacrumbs.shedlock.core.SimpleLock;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.junit.jupiter.api.Test;
 
-/** HelpIndexScheduler — 10분 간격 판단(첫 틱·성공 뒤 건너뜀·실패 뒤 재시도)을 가짜 시계로 확인한다. */
+/** HelpIndexScheduler — 성공한 실행은 10분 간격으로, 실패한 실행은 다음 틱부터 재시도한다. */
 class HelpIndexSchedulerTest {
+
+  private static final String LOCK_NAME = "HelpIndexScheduler.refresh";
+  private static final Duration LOCK_AT_MOST = Duration.ofMinutes(30);
+  private static final Duration LOCK_AT_LEAST = Duration.ofSeconds(10);
 
   /** 손으로 앞으로 감는 시계. */
   static class MutableClock extends Clock {
@@ -36,13 +48,70 @@ class HelpIndexSchedulerTest {
     }
   }
 
-  /** 파드가 여러 개여도 재색인 시작 간격이 10분보다 짧아지지 않도록 잠금 설정을 검증한다. */
+  /** 실패 재시도를 위해 최소 잠금은 10초, 비정상 종료 대비 최대 잠금은 30분인지 확인한다. */
   @Test
-  void schedulerLockMinimumDurationEqualsReindexInterval() throws NoSuchMethodException {
+  void schedulerLockMinimumDurationAllowsRetryOnNextTick() throws NoSuchMethodException {
     SchedulerLock schedulerLock =
         HelpIndexScheduler.class.getMethod("refresh").getAnnotation(SchedulerLock.class);
-    assertThat(schedulerLock.lockAtLeastFor()).isNotBlank();
-    assertThat(Duration.parse(schedulerLock.lockAtLeastFor())).isEqualTo(Duration.ofMinutes(10));
+    assertThat(Duration.parse(schedulerLock.lockAtLeastFor())).isEqualTo(LOCK_AT_LEAST);
+    assertThat(Duration.parse(schedulerLock.lockAtMostFor())).isEqualTo(LOCK_AT_MOST);
+  }
+
+  @Test
+  void extendsLockOnSuccessfulRefreshForFullMinimumInterval() {
+    HelpManualIndexer idx = mock(HelpManualIndexer.class);
+    MutableClock clock = new MutableClock();
+    when(idx.refresh())
+        .thenAnswer(
+            invocation -> {
+              clock.now = clock.now.plus(Duration.ofMinutes(2));
+              return true;
+            });
+    LockProvider provider = mock(LockProvider.class);
+    SimpleLock lock = mock(SimpleLock.class);
+    SimpleLock extendedLock = mock(SimpleLock.class);
+    when(provider.lock(any())).thenReturn(Optional.of(lock));
+    when(lock.extend(LOCK_AT_MOST, Duration.ofMinutes(10))).thenReturn(Optional.of(extendedLock));
+
+    runUnderLock(new HelpIndexScheduler(idx, clock), provider);
+
+    verify(lock).extend(LOCK_AT_MOST, Duration.ofMinutes(10));
+    verify(lock, never()).unlock();
+    verify(extendedLock).unlock();
+  }
+
+  @Test
+  void doesNotExtendLockWhenSuccessfulRefreshAlreadyTookTenMinutes() {
+    HelpManualIndexer idx = mock(HelpManualIndexer.class);
+    MutableClock clock = new MutableClock();
+    when(idx.refresh())
+        .thenAnswer(
+            invocation -> {
+              clock.now = clock.now.plus(Duration.ofMinutes(11));
+              return true;
+            });
+    LockProvider provider = mock(LockProvider.class);
+    SimpleLock lock = mock(SimpleLock.class);
+    when(provider.lock(any())).thenReturn(Optional.of(lock));
+
+    runUnderLock(new HelpIndexScheduler(idx, clock), provider);
+
+    verify(lock, never()).extend(any(Duration.class), any(Duration.class));
+    verify(lock).unlock();
+  }
+
+  @Test
+  void failedRefreshReleasesWithoutExtendingTheLock() {
+    HelpManualIndexer idx = mock(HelpManualIndexer.class);
+    when(idx.refresh()).thenReturn(false);
+    LockProvider provider = mock(LockProvider.class);
+    SimpleLock lock = mock(SimpleLock.class);
+    when(provider.lock(any())).thenReturn(Optional.of(lock));
+
+    runUnderLock(new HelpIndexScheduler(idx, new MutableClock()), provider);
+
+    verify(lock, never()).extend(any(Duration.class), any(Duration.class));
+    verify(lock).unlock();
   }
 
   @Test
@@ -68,8 +137,9 @@ class HelpIndexSchedulerTest {
     verify(idx, times(2)).refresh();
   }
 
+  /** 실패는 성공 시각을 갱신하지 않아 다음 1분 틱에 재시도한다. */
   @Test
-  void retriesNextTickAfterFailure() {
+  void retriesOnNextTickAfterFailure() {
     HelpManualIndexer idx = mock(HelpManualIndexer.class);
     when(idx.refresh()).thenReturn(false, true);
     MutableClock clock = new MutableClock();
@@ -78,6 +148,12 @@ class HelpIndexSchedulerTest {
     clock.now = clock.now.plusSeconds(60);
     s.refresh();
     verify(idx, times(2)).refresh();
-    assertThat(clock.now).isNotNull();
+  }
+
+  private static void runUnderLock(HelpIndexScheduler scheduler, LockProvider provider) {
+    new DefaultLockingTaskExecutor(provider)
+        .executeWithLock(
+            (Runnable) scheduler::refresh,
+            new LockConfiguration(ClockProvider.now(), LOCK_NAME, LOCK_AT_MOST, LOCK_AT_LEAST));
   }
 }
