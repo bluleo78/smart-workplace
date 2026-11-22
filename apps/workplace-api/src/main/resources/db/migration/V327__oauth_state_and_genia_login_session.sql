@@ -34,7 +34,6 @@ CREATE TABLE genia_login_session (
   poll_lease_token  UUID,
   poll_lease_until  TIMESTAMPTZ,
   status            VARCHAR(16)  NOT NULL CHECK (status IN ('PENDING','SUCCEEDED','EXPIRED','FAILED')),
-  canceled          BOOLEAN      NOT NULL DEFAULT false,
   result_account_id BIGINT,
   result_email      TEXT,
   error_message     TEXT,
@@ -88,7 +87,6 @@ COMMENT ON COLUMN genia_login_session.next_poll_at IS '다음 폴링 가능 시�
 COMMENT ON COLUMN genia_login_session.poll_lease_token IS '폴링 임대 토큰(UUID) — 임대를 잡은 파드만 결과를 기록한다';
 COMMENT ON COLUMN genia_login_session.poll_lease_until IS '폴링 임대 만료 시각 — 지나면 다른 파드가 임대를 다시 잡을 수 있다';
 COMMENT ON COLUMN genia_login_session.status IS '진행 상태 PENDING(대기)·SUCCEEDED(성공)·EXPIRED(만료)·FAILED(실패)';
-COMMENT ON COLUMN genia_login_session.canceled IS '사용자가 취소했는지 — true 면 폴링을 멈춘다';
 COMMENT ON COLUMN genia_login_session.result_account_id IS '성공 시 연결된 메일 계정 ID';
 COMMENT ON COLUMN genia_login_session.result_email IS '성공 시 연결된 메일 주소';
 COMMENT ON COLUMN genia_login_session.error_message IS '실패 사유(사용자에게 보여줄 수 있는 문구)';

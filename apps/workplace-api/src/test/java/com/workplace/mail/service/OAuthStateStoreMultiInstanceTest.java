@@ -132,16 +132,53 @@ class OAuthStateStoreMultiInstanceTest extends IntegrationTestBase {
     }
   }
 
+  /**
+   * 다른 워크스페이스에서 마친 콜백도 state 를 찾아 발급 테넌트를 돌려준다 — 컨트롤러가 403 tenant_mismatch 로 가르게(RLS 로 못 찾아 400 이
+   * 되면 웹이 「다시 시도」로 잘못 안내한다). 요청의 TenantContext 는 그대로 되돌아오고, 행은 지우지 않아 시작한 워크스페이스에서 마칠 수 있다.
+   */
   @Test
-  void otherTenant_cannotConsume() {
+  void otherTenant_consumeFindsIssuingTenant_withoutUsingItUp() {
     long t2 = newTenant();
     TenantContext.set(1L);
     String state = storeA.issue(42L, 1L);
 
     TenantContext.set(t2);
+    Optional<StateData> got = storeB().consume(state);
+    assertThat(got).isPresent();
+    assertThat(got.get().tenantId()).isEqualTo(1L);
+    assertThat(TenantContext.get()).isEqualTo(t2);
+
+    // 다른 워크스페이스에서는 읽기만 했으니 시작한 워크스페이스에서 한 번 마칠 수 있다.
+    TenantContext.set(1L);
+    assertThat(storeA.consume(state)).isPresent();
     assertThat(storeA.consume(state)).isEmpty();
+  }
+
+  /** 다른 워크스페이스에서 읽은 남의 state 는 discard 로 발급 테넌트에서 지워 더 쓸 수 없다. */
+  @Test
+  void discard_fromOtherTenant_removesState() {
+    long t2 = newTenant();
+    TenantContext.set(1L);
+    String state = storeA.issue(42L, 1L);
+
+    TenantContext.set(t2);
+    storeB().discard(state);
+    assertThat(TenantContext.get()).isEqualTo(t2);
 
     TenantContext.set(1L);
+    assertThat(storeA.consume(state)).isEmpty();
+  }
+
+  /** 접두(발급 테넌트)를 바꾼 state 는 해시가 달라 어느 테넌트에서도 행을 찾지 못한다 — 원래 state 는 그대로 남는다. */
+  @Test
+  void tamperedTenantPrefix_isRejected() {
+    long t2 = newTenant();
+    TenantContext.set(1L);
+    String state = storeA.issue(42L, 1L);
+    String tampered = t2 + state.substring(state.indexOf('.'));
+
+    assertThat(storeA.consume(tampered)).isEmpty();
+    assertThat(storeA.consume("abc" + state.substring(state.indexOf('.')))).isEmpty();
     assertThat(storeA.consume(state)).isPresent();
   }
 

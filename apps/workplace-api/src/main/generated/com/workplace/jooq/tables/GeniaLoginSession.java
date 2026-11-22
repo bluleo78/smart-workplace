@@ -159,12 +159,6 @@ public class GeniaLoginSession extends TableImpl<GeniaLoginSessionRecord> {
     public final TableField<GeniaLoginSessionRecord, String> STATUS = createField(DSL.name("status"), SQLDataType.VARCHAR(16).nullable(false), this, "진행 상태 PENDING(대기)·SUCCEEDED(성공)·EXPIRED(만료)·FAILED(실패)");
 
     /**
-     * The column <code>public.genia_login_session.canceled</code>. 사용자가 취소했는지 —
-     * true 면 폴링을 멈춘다
-     */
-    public final TableField<GeniaLoginSessionRecord, Boolean> CANCELED = createField(DSL.name("canceled"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "사용자가 취소했는지 — true 면 폴링을 멈춘다");
-
-    /**
      * The column <code>public.genia_login_session.result_account_id</code>. 성공
      * 시 연결된 메일 계정 ID
      */

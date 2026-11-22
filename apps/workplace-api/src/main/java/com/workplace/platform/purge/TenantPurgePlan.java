@@ -194,7 +194,8 @@ public final class TenantPurgePlan {
           // 메일 첨부 변환 미리보기 상태(WP-432) — FK 없음. 파일은 테넌트 디렉터리 삭제로 함께 지워진다.
           MAIL_ATTACHMENT_PREVIEW,
           MAIL_ATTACHMENT_BLOB,
-          // 메일 연결 OAuth state·Gen:iA 로그인 세션(WP-1976) — FK 없음(tenant 만 참조), 순서 무관
+          // 메일 연결 OAuth state·Gen:iA 로그인 세션(WP-1976) — tenant FK 만 있다(다른 FK 없음). tenant 행보다 먼저 비우며
+          // 그 밖의 순서는 무관
           MAIL_OAUTH_STATE,
           GENIA_LOGIN_SESSION,
           // 드라이브 → 파일 (drive_file·drive_file_version.file_id NO ACTION)

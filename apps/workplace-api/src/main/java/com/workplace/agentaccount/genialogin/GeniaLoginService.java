@@ -78,6 +78,7 @@ public class GeniaLoginService {
   static final String MSG_ACCOUNT_GONE = "다시 로그인할 계정을 찾지 못했어요";
   static final String MSG_SAVE_FAILED = "Gen:iA 계정을 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요";
   static final String MSG_NOT_GENIA = "Gen:iA 로그인 계정만 다시 로그인할 수 있어요";
+  static final String MSG_POLL_ERROR = "Gen:iA 로그인을 확인하지 못했어요. 다시 시도해 주세요";
 
   /** 다시 로그인 창에서 다른 Gen:iA 계정으로 로그인했을 때 — 뒤에 기존 이메일을 넣는다. */
   static final String MSG_OTHER_IDENTITY = "다른 Gen:iA 계정으로 로그인했어요 — %s 로 로그인해 주세요";
@@ -203,6 +204,8 @@ public class GeniaLoginService {
         tx.execute(
             status -> {
               repo.sweep(now, RETAIN_AFTER_EXPIRY);
+              // 창을 닫아 버려진(만료가 지난) 진행의 암호문은 쓸 일이 없으니 쓸기 전이라도 먼저 지운다.
+              repo.clearExpiredSecrets(now);
               repo.deleteByUser(row.tenantId(), row.userId());
               return repo.insert(row);
             }));
@@ -235,7 +238,11 @@ public class GeniaLoginService {
         poll(row, token, now);
       }
     }
-    if (!wrote) return toResponse(row);
+    if (!wrote) {
+      // 만료가 지났는데 다른 파드의 임대가 살아 있어 EXPIRED 로 끝내지 못했으면, 진행은 대기 중으로 두되 이미 만료된 로그인 링크는 내보내지 않는다.
+      if (!now.isBefore(row.expiresAt())) return withoutAuthorizeUrl(toResponse(row));
+      return toResponse(row);
+    }
     // 반영 결과를 다시 읽는다. 그사이 취소돼 행이 없어졌을 때, 폴링한 조회는 취소로 끝난 상태(FAILED)를 돌려주고(이 조회가 시작될 때는 진행이
     // 있었다) 폴링하지 않은 조회는 404 다.
     Row after = read(userId, loginId);
@@ -279,14 +286,28 @@ public class GeniaLoginService {
   }
 
   /**
-   * 임대를 쥔 채 Gen:iA 를 한 번 폴링하고 결과를 반영한다 — 외부 HTTP 는 트랜잭션 밖에서 부른다. 폴링 중 예외로 끝나면 임대를 풀지 않고 두어 {@link
-   * #MIN_POLL_LEASE} 이상의 임대 시간이 지나면 다른 조회가 이어받게 한다.
+   * 임대를 쥔 채 Gen:iA 를 한 번 폴링하고 결과를 반영한다 — 외부 HTTP 는 트랜잭션 밖에서 부른다. 예상하지 못한 예외(복호화 실패·클라이언트 오류 등)는 조회를
+   * 500 으로 끝내지 않고 FAILED 로 끝내 임대를 푼다 — 같은 예외를 임대 시간마다 되풀이하며 사용자를 기다리게 하지 않는다.
    */
   private void poll(Row row, UUID token, Instant now) {
-    String verifier = encryption.decrypt(row.verifierEnc());
-    String state = encryption.decrypt(row.stateEnc());
-    PollResult result = client.poll(state, verifier);
     String loginId = row.loginId();
+    if (row.verifierEnc() == null || row.stateEnc() == null) {
+      // 만료가 지나 다른 파드가 비밀을 지웠다(시계가 조금 어긋난 파드) — 폴링할 수 없으니 만료로 끝낸다.
+      end(loginId, token, now, EXPIRED, null, null, null);
+      return;
+    }
+    PollResult result;
+    try {
+      String verifier = encryption.decrypt(row.verifierEnc());
+      String state = encryption.decrypt(row.stateEnc());
+      result = client.poll(state, verifier);
+    } catch (RuntimeException e) {
+      // 복호화·클라이언트의 예상 못 한 예외만 여기서 FAILED 로 끝낸다(문구에 내부 정보가 섞일 수 있어 종류만 남긴다). 계정 저장 뒤의 예외는 잡지
+      // 않는다 — 저장된 로그인을 FAILED 로 바꾸면 다시 시도가 중복(409)·두 번째 계정으로 이어진다.
+      log.warn("Gen:iA 로그인 폴링 오류 userId={} error={}", row.userId(), e.getClass().getSimpleName());
+      fail(loginId, token, clock.instant(), MSG_POLL_ERROR);
+      return;
+    }
     switch (result) {
       case PollResult.Pending p -> keepWaiting(row, token, now, row.intervalSeconds());
       case PollResult.SlowDown d ->
@@ -307,7 +328,7 @@ public class GeniaLoginService {
                 ? MSG_BAD_RESPONSE
                 : "Gen:iA 로그인에 실패했어요 (" + f.code() + ")");
       }
-      case PollResult.Success ok -> save(row, token, ok, now);
+      case PollResult.Success ok -> save(row, token, ok);
     }
   }
 
@@ -319,18 +340,30 @@ public class GeniaLoginService {
                 row.loginId(), token, now, now.plusSeconds(intervalSeconds), intervalSeconds));
   }
 
-  /** 실패로 끝낸다 — 사용자에게 보일 문구와 함께. */
+  /** 실패로 끝낸다 — 사용자에게 보일 문구와 함께. 임대를 잃어 0건이면 남기기만 한다(이어받은 쪽이 끝낸다). */
   private void fail(String loginId, UUID token, Instant now, String errorMessage) {
-    end(loginId, token, now, FAILED, errorMessage, null, null);
+    if (!end(loginId, token, now, FAILED, errorMessage, null, null)) {
+      log.info("Gen:iA 로그인 실패 반영 0건(임대 잃음·취소) — 이어받은 쪽 결과를 둔다");
+    }
   }
 
-  /** 성공으로 끝낸다 — 저장된 계정 id·이메일과 함께. */
+  /**
+   * 성공으로 끝낸다 — 저장된 계정 id·이메일과 함께. 계정은 이미 저장됐으므로, 저장하는 사이 임대가 끊겨 다른 파드가 이어받았으면(토큰 불일치로 0건) 아직 대기 중인
+   * 행에 토큰 없이 성공을 반영한다 — 이어받은 쪽이 이미 쓴 device code 로 다시 폴링해 FAILED 를 띄우면 계정은 저장됐는데 화면은 실패인 불일치가 남는다.
+   * 행이 없으면(취소) 저장된 계정만 남는다(스펙이 받아들인 한계).
+   */
   private void succeed(String loginId, UUID token, Instant now, long accountId, String email) {
-    end(loginId, token, now, SUCCEEDED, null, accountId, email);
+    if (end(loginId, token, now, SUCCEEDED, null, accountId, email)) return;
+    Boolean recovered =
+        tx.execute(s -> repo.finishPendingWithoutLease(loginId, now, accountId, email));
+    log.warn(
+        "Gen:iA 로그인 성공 반영 0건(임대 잃음·취소) accountId={} 대기 행에 반영={}",
+        accountId,
+        Boolean.TRUE.equals(recovered));
   }
 
-  /** 진행 끝 반영 — 임대 토큰이 일치할 때만(비밀 NULL·임대 해제 포함). fail·succeed 와 EXPIRED 호출만 쓴다. */
-  private void end(
+  /** 진행 끝 반영 — 임대 토큰이 일치할 때만(비밀 NULL·임대 해제 포함). 반영했으면 true. fail·succeed 와 EXPIRED 호출만 쓴다. */
+  private boolean end(
       String loginId,
       UUID token,
       Instant now,
@@ -338,8 +371,11 @@ public class GeniaLoginService {
       String errorMessage,
       Long resultAccountId,
       String resultEmail) {
-    tx.executeWithoutResult(
-        s -> repo.finish(loginId, token, now, status, errorMessage, resultAccountId, resultEmail));
+    return Boolean.TRUE.equals(
+        tx.execute(
+            s ->
+                repo.finish(
+                    loginId, token, now, status, errorMessage, resultAccountId, resultEmail)));
   }
 
   /**
@@ -347,8 +383,10 @@ public class GeniaLoginService {
    * 끝났으면(행이 없거나 대기 중이 아님) 저장하지 않는다. 다시 로그인인데 다른 Gen:iA 계정(이메일)으로 로그인했으면 기존 로그인 정보를 지키고 FAILED 로
    * 알린다. 계정 저장은 트랜잭션 밖에서(자기 트랜잭션으로) 한다.
    */
-  private void save(Row row, UUID token, PollResult.Success ok, Instant now) {
+  private void save(Row row, UUID token, PollResult.Success ok) {
     String loginId = row.loginId();
+    // 임대 연장·끝 반영은 지금 시각으로 한다 — 폴링 전 시각으로 연장하면 Gen:iA 응답을 기다린 만큼 임대가 짧아져 계정 저장 중에 풀릴 수 있다.
+    Instant now = clock.instant();
     // 저장 직전에 임대를 다시 확인·연장한다 — 폴링 응답을 기다리는 사이 임대가 끊겨 다른 파드가 이어받았거나 취소·만료로 끝났으면 0건이라 저장하지 않는다
     // (저장하고도 UI 는 FAILED/EXPIRED 를 보거나 두 번 등록되는 불일치를 막는다). 연장한 임대로 아래 계정 저장 동안 임대가 유지된다.
     // 알려진 한계(스펙이 받아들임): 이 확인 뒤 register/update 도중에 오는 취소는 막지 못한다 — 저장은 끝나고 행은 취소로 지워진다.
@@ -366,7 +404,7 @@ public class GeniaLoginService {
         String expected = row.expectedEmail();
         if (expected != null && (ok.email() == null || !expected.equalsIgnoreCase(ok.email()))) {
           log.info("Gen:iA 다시 로그인 계정 불일치 userId={} accountId={}", row.userId(), accountId);
-          fail(loginId, token, now, String.format(MSG_OTHER_IDENTITY, expected));
+          fail(loginId, token, clock.instant(), String.format(MSG_OTHER_IDENTITY, expected));
           return;
         }
       }
@@ -380,19 +418,25 @@ public class GeniaLoginService {
                   row.userId(),
                   new AgentAccountRequest(
                       AgentProviders.GENIA, null, null, row.label(), loginInfo, null));
-      succeed(loginId, token, now, saved.id(), saved.accountEmail());
+      succeed(loginId, token, clock.instant(), saved.id(), saved.accountEmail());
       log.info("Gen:iA 로그인 계정 저장 userId={} accountId={}", row.userId(), saved.id());
     } catch (AgentAccountNotFoundException e) {
-      fail(loginId, token, now, MSG_ACCOUNT_GONE);
+      fail(loginId, token, clock.instant(), MSG_ACCOUNT_GONE);
     } catch (AgentAccountDuplicateException | InvalidProviderCredentialException e) {
       // 같은 계정 409·형식 400 — 사용자에게 보일 문구라 그대로 싣는다(평문을 담지 않는 고정 문구).
-      fail(loginId, token, now, e.getMessage());
+      fail(loginId, token, clock.instant(), e.getMessage());
     } catch (RuntimeException e) {
       // 그 밖의 예외 문구에는 SQL·내부 정보가 섞일 수 있어 종류만 남기고 일반 문구로 답한다.
       log.warn(
           "Gen:iA 로그인 계정 저장 실패 userId={} error={}", row.userId(), e.getClass().getSimpleName());
-      fail(loginId, token, now, MSG_SAVE_FAILED);
+      fail(loginId, token, clock.instant(), MSG_SAVE_FAILED);
     }
+  }
+
+  /** 로그인 링크만 뺀 응답 — 만료가 지난 대기 진행에 쓴다. */
+  private static GeniaLoginResponse withoutAuthorizeUrl(GeniaLoginResponse r) {
+    return new GeniaLoginResponse(
+        r.id(), r.status(), null, r.expiresAt(), r.accountId(), r.accountEmail(), r.errorMessage());
   }
 
   /** 응답 매핑 — 대기 중일 때만 authorizeUrl, 결과 계정이 없으면 다시 로그인 대상 accountId. */

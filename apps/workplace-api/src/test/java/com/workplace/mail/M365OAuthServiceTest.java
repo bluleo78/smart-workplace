@@ -305,22 +305,23 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
 
   /**
    * 같은 사용자라도 다른 워크스페이스에서 발급받은 state 는 받지 않는다 — 시작하지 않은 워크스페이스에 메일함이 붙지 않게. 여러 탭으로 생기는 일이라 공격 감사 로그는
-   * 남기지 않는다. (state 는 테넌트 RLS 로 격리돼 다른 워크스페이스에서는 아예 보이지 않으므로 403 이 아니라 invalid_request 400 으로
-   * 거절된다.)
+   * 남기지 않는다. 웹 콜백 화면이 403 일 때만 「시작한 워크스페이스에서 마치세요」를 안내하므로 state 가 RLS 표로 옮겨 간 뒤에도(WP-1976) 403
+   * tenant_mismatch 를 지킨다.
    */
   @Test
-  void complete_withStateFromOtherTenant_isInvalidRequest() throws Exception {
+  void complete_withStateFromOtherTenant_isForbiddenTenantMismatch() throws Exception {
     long tid2 = ensureSecondTenant();
     long userId = createCommittedUser("m365-xt-");
     createdUserId = userId;
     String token = tokenFor(userId, tid2);
     String stateForTenant1 = stateStore.issue(userId, 1L);
 
-    // WP-1976: state 가 RLS 표에 있어 다른 워크스페이스 요청에는 아예 보이지 않는다 — 알 수 없는 state 와 같이 400 으로 거부된다.
-    // (컨트롤러의 tenant_mismatch 검사는 이중 방어로 남는다.)
+    // WP-1976: state 는 RLS 표에 있지만 발급 테넌트 접두로 그 테넌트에서 찾으므로 다른 워크스페이스에서 마쳐도 403 tenant_mismatch 다.
     complete(token, stateForTenant1)
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.error").value("invalid_request"));
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.error").value("tenant_mismatch"));
+    // state 는 남아 있어 시작한 워크스페이스(1)의 탭에서 마칠 수 있다.
+    assertThat(callInTenant(1L, () -> stateStore.consume(stateForTenant1))).isPresent();
     verifyNoInteractions(graphApiClient);
     long audits =
         callInTenant(

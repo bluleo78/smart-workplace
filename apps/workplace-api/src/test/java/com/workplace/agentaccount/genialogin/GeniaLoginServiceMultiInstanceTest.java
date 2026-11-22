@@ -269,29 +269,266 @@ class GeniaLoginServiceMultiInstanceTest extends IntegrationTestBase {
     assertThat(accountCount()).isEqualTo(1);
   }
 
+  /**
+   * 임대를 쥔 파드가 폴링 중에 죽으면(임대만 남음) 임대 안에서는 다른 파드도 폴링하지 않고, 임대가 지나면 이어받아 폴링한다. 죽은 파드는 임대를 직접 잡아 흉내
+   * 낸다(폴링 예외는 이제 FAILED 로 끝내 임대를 풀기 때문이다).
+   */
   @Test
   void leaseExpired_otherInstanceContinues() throws Exception {
     stubStart();
-    AtomicReference<Integer> calls = new AtomicReference<>(0);
+    doReturn(new PollResult.Pending()).when(client).poll(anyString(), anyString());
+    String id = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
+
+    // 죽은 파드가 t0+5 에 잡은 임대(30초)가 남아 있다.
+    Boolean leased =
+        callInTenant(
+            1L,
+            () ->
+                repo.tryAcquireLease(
+                    id,
+                    java.util.UUID.randomUUID(),
+                    t0.plusSeconds(5),
+                    t0.plusSeconds(5).plus(GeniaLoginService.MIN_POLL_LEASE)));
+    assertThat(leased).isTrue();
+    // 임대 안에서는 다른 파드도 폴링하지 않는다.
+    assertThat(instance(t0.plusSeconds(20)).status(user, id).status()).isEqualTo("PENDING");
+    verify(client, times(0)).poll(anyString(), anyString());
+    // 임대가 지나면 이어받아 폴링한다.
+    assertThat(instance(t0.plusSeconds(36)).status(user, id).status()).isEqualTo("PENDING");
+    verify(client, times(1)).poll(anyString(), anyString());
+  }
+
+  /** 폴링 중 예상하지 못한 예외는 조회를 500 으로 끝내지 않고 FAILED 로 끝내며 비밀·임대를 푼다 — 같은 예외를 임대 시간마다 되풀이하지 않는다. */
+  @Test
+  void pollThrows_endsFailed_andReleasesLease() throws Exception {
+    stubStart();
     doAnswer(
             inv -> {
-              if (calls.getAndUpdate(n -> n + 1) == 0)
-                throw new IllegalStateException("poll 중 파드 장애");
-              return new PollResult.Pending();
+              throw new IllegalStateException("예상 못 한 오류");
             })
         .when(client)
         .poll(anyString(), anyString());
     String id = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
 
-    // 첫 폴링이 예외로 끝나 임대가 남는다(t0+5 부터 30초).
-    assertThatThrownBy(() -> instanceB().status(user, id))
-        .isInstanceOf(IllegalStateException.class);
-    // 임대 안에서는 다른 파드도 폴링하지 않는다.
-    assertThat(instance(t0.plusSeconds(20)).status(user, id).status()).isEqualTo("PENDING");
+    GeniaLoginResponse res = instanceB().status(user, id);
+
+    assertThat(res.status()).isEqualTo("FAILED");
+    assertThat(res.errorMessage()).isEqualTo(GeniaLoginService.MSG_POLL_ERROR);
+    var row =
+        callInTenant(
+            1L,
+            () ->
+                baseDsl
+                    .selectFrom(GENIA_LOGIN_SESSION)
+                    .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(id))
+                    .fetchOne());
+    assertThat(row.getPollLeaseToken()).isNull();
+    assertThat(row.getVerifierEnc()).isNull();
+    assertThat(row.getStateEnc()).isNull();
+    // 끝났으니 다른 파드가 다시 폴링하지 않는다.
+    assertThat(instance(t0.plusSeconds(60)).status(user, id).status()).isEqualTo("FAILED");
     verify(client, times(1)).poll(anyString(), anyString());
-    // 임대가 지나면 이어받아 폴링한다.
-    assertThat(instance(t0.plusSeconds(36)).status(user, id).status()).isEqualTo("PENDING");
-    verify(client, times(2)).poll(anyString(), anyString());
+  }
+
+  /**
+   * 저장 직전 임대 연장은 Gen:iA 응답을 받은 뒤의 시각으로 한다 — 폴링 전 시각으로 연장하면 응답을 기다린 만큼 임대가 짧아져 계정 저장 중에 다른 파드가 이어받을
+   * 수 있다. 시계를 폴링 응답 때 옮겨 연장한 임대 만료가 옮긴 시각 + 임대인지 본다.
+   */
+  @Test
+  void claimForSave_extendsLeaseFromNow_notPollStart() throws Exception {
+    stubStart();
+    MutableClock clock = new MutableClock(t0.plusSeconds(5));
+    Instant afterPoll = t0.plusSeconds(25);
+    doAnswer(
+            inv -> {
+              clock.set(afterPoll); // Gen:iA 응답에 20초 걸렸다.
+              return success("a@iacloud.kr");
+            })
+        .when(client)
+        .poll(anyString(), anyString());
+    GeniaLoginSessionRepository spyRepo =
+        org.mockito.Mockito.spy(new GeniaLoginSessionRepository(baseDsl));
+    GeniaLoginService svc =
+        new GeniaLoginService(
+            client,
+            accountService,
+            spyRepo,
+            encryption,
+            txManager,
+            clock,
+            GeniaLoginService.MIN_POLL_LEASE);
+    String id = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
+
+    assertThat(svc.status(user, id).status()).isEqualTo("SUCCEEDED");
+
+    verify(spyRepo)
+        .claimForSave(
+            org.mockito.ArgumentMatchers.eq(id),
+            org.mockito.ArgumentMatchers.eq(user),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq(afterPoll),
+            org.mockito.ArgumentMatchers.eq(afterPoll.plus(GeniaLoginService.MIN_POLL_LEASE)));
+    assertThat(accountCount()).isEqualTo(1);
+  }
+
+  /**
+   * 계정을 저장한 뒤 성공 반영이 임대 토큰 불일치로 0건이면(저장하는 사이 다른 파드가 이어받음) 아직 대기 중인 행에 토큰 없이 성공을 반영한다 — 계정은 저장됐는데
+   * 화면은 대기·실패로 남는 불일치를 막는다.
+   */
+  @Test
+  void finishZeroRowsAfterSave_recordsSuccessOnPendingRow() throws Exception {
+    stubStart();
+    doReturn(success("a@iacloud.kr")).when(client).poll(anyString(), anyString());
+    GeniaLoginSessionRepository spyRepo =
+        org.mockito.Mockito.spy(new GeniaLoginSessionRepository(baseDsl));
+    doReturn(false)
+        .when(spyRepo)
+        .finish(
+            anyString(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq("SUCCEEDED"),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any());
+    GeniaLoginService svc =
+        new GeniaLoginService(
+            client,
+            accountService,
+            spyRepo,
+            encryption,
+            txManager,
+            Clock.fixed(t0.plusSeconds(5), ZoneOffset.UTC),
+            GeniaLoginService.MIN_POLL_LEASE);
+    String id = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
+
+    GeniaLoginResponse res = svc.status(user, id);
+
+    assertThat(res.status()).isEqualTo("SUCCEEDED");
+    assertThat(res.accountId()).isNotNull();
+    assertThat(accountCount()).isEqualTo(1);
+    var row =
+        callInTenant(
+            1L,
+            () ->
+                baseDsl
+                    .selectFrom(GENIA_LOGIN_SESSION)
+                    .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(id))
+                    .fetchOne());
+    assertThat(row.getVerifierEnc()).isNull();
+    assertThat(row.getPollLeaseToken()).isNull();
+  }
+
+  /** 창을 닫아 버려진(만료가 지난) 진행의 암호문은 쓸기(만료 + 10분) 전이라도 다음 시작 때 지운다. */
+  @Test
+  void abandonedSession_secretsClearedOnNextStart() throws Exception {
+    doReturn(new LoginStart(AUTHORIZE_URL, STATE, 1, t0.plusSeconds(20)))
+        .when(client)
+        .start(anyString());
+    String abandoned = instanceA().start(user2, new GeniaLoginStartRequest(null, null)).id();
+
+    // 만료(t0+20)와 여유(1분) 뒤, 쓸기(t0+20+10분) 전에 다른 사용자가 시작한다.
+    instance(t0.plusSeconds(120)).start(user, new GeniaLoginStartRequest(null, null));
+
+    var row =
+        callInTenant(
+            1L,
+            () ->
+                baseDsl
+                    .selectFrom(GENIA_LOGIN_SESSION)
+                    .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(abandoned))
+                    .fetchOne());
+    assertThat(row).isNotNull();
+    assertThat(row.getVerifierEnc()).isNull();
+    assertThat(row.getStateEnc()).isNull();
+  }
+
+  /** 만료가 지난 지 여유(1분)가 안 됐으면 다른 사용자의 시작이 비밀을 지우지 않는다 — 시계가 조금 늦은 파드가 아직 폴링할 수 있다. */
+  @Test
+  void justExpiredSession_secretsKeptWithinGrace() throws Exception {
+    doReturn(new LoginStart(AUTHORIZE_URL, STATE, 1, t0.plusSeconds(20)))
+        .when(client)
+        .start(anyString());
+    String id = instanceA().start(user2, new GeniaLoginStartRequest(null, null)).id();
+
+    instance(t0.plusSeconds(30)).start(user, new GeniaLoginStartRequest(null, null));
+
+    var row =
+        callInTenant(
+            1L,
+            () ->
+                baseDsl
+                    .selectFrom(GENIA_LOGIN_SESSION)
+                    .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(id))
+                    .fetchOne());
+    assertThat(row.getVerifierEnc()).isNotNull();
+    assertThat(row.getStateEnc()).isNotNull();
+  }
+
+  /** 비밀이 지워진 대기 진행을 폴링하게 되면(시계가 어긋난 파드) 복호화 오류 대신 EXPIRED 로 끝낸다. */
+  @Test
+  void pollWithClearedSecrets_endsExpired() throws Exception {
+    stubStart();
+    String id = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
+    callInTenant(
+        1L,
+        () ->
+            baseDsl
+                .update(GENIA_LOGIN_SESSION)
+                .setNull(GENIA_LOGIN_SESSION.VERIFIER_ENC)
+                .setNull(GENIA_LOGIN_SESSION.STATE_ENC)
+                .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(id))
+                .execute());
+
+    assertThat(instanceB().status(user, id).status()).isEqualTo("EXPIRED");
+    verify(client, times(0)).poll(anyString(), anyString());
+  }
+
+  /** 만료가 지났는데 다른 파드의 임대가 살아 있어 EXPIRED 로 끝내지 못해도, 이미 만료된 로그인 링크는 내보내지 않는다. */
+  @Test
+  void expiredWithLiveLease_hidesAuthorizeUrl() throws Exception {
+    doReturn(new LoginStart(AUTHORIZE_URL, STATE, 1, t0.plusSeconds(20)))
+        .when(client)
+        .start(anyString());
+    String id = instanceA().start(user, new GeniaLoginStartRequest(null, null)).id();
+    callInTenant(
+        1L,
+        () ->
+            repo.tryAcquireLease(
+                id, java.util.UUID.randomUUID(), t0.plusSeconds(15), t0.plusSeconds(45)));
+
+    GeniaLoginResponse res = instance(t0.plusSeconds(25)).status(user, id);
+
+    assertThat(res.status()).isEqualTo("PENDING");
+    assertThat(res.authorizeUrl()).isNull();
+  }
+
+  /** 테스트 안에서 옮길 수 있는 시계 — 폴링 응답을 기다린 시간을 흉내 낸다. */
+  private static final class MutableClock extends Clock {
+    private volatile Instant now;
+
+    MutableClock(Instant start) {
+      this.now = start;
+    }
+
+    void set(Instant t) {
+      this.now = t;
+    }
+
+    @Override
+    public java.time.ZoneId getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(java.time.ZoneId zone) {
+      return this;
+    }
+
+    @Override
+    public Instant instant() {
+      return now;
+    }
   }
 
   @Test

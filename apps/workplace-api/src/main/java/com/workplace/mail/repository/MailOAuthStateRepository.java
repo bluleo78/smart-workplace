@@ -44,6 +44,16 @@ public class MailOAuthStateRepository {
         .map(r -> new Row(r.getUserId(), r.getTenantId(), r.getExpiresAt().toInstant()));
   }
 
+  /** 해시로 행을 지우지 않고 읽는다 — 다른 워크스페이스에서 마친 콜백을 tenant_mismatch 로 가를 때 state 를 남겨 두려고 쓴다. */
+  public Optional<Row> findByHash(String stateHash) {
+    return dsl.select(
+            MAIL_OAUTH_STATE.USER_ID, MAIL_OAUTH_STATE.TENANT_ID, MAIL_OAUTH_STATE.EXPIRES_AT)
+        .from(MAIL_OAUTH_STATE)
+        .where(MAIL_OAUTH_STATE.STATE_HASH.eq(stateHash))
+        .fetchOptional()
+        .map(r -> new Row(r.value1(), r.value2(), r.value3().toInstant()));
+  }
+
   /** 현재 테넌트(RLS)의 만료된 행을 지우고 지운 건수를 돌려준다. */
   public int deleteExpired(Instant now) {
     return dsl.deleteFrom(MAIL_OAUTH_STATE)

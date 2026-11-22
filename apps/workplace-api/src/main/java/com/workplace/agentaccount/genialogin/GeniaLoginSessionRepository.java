@@ -133,6 +133,31 @@ public class GeniaLoginSessionRepository {
         .execute();
   }
 
+  /** 비밀 지우기 여유 — 파드 사이 시계가 조금 어긋나도 아직 만료 전으로 보는 파드가 폴링할 진행의 비밀을 지우지 않게. */
+  static final Duration CLEAR_SECRETS_GRACE = Duration.ofMinutes(1);
+
+  /**
+   * 만료 시각이 여유({@link #CLEAR_SECRETS_GRACE})만큼 지났고 폴링 임대가 없거나 끝난 현재 테넌트(RLS) 진행의
+   * 암호문(verifier·state)을 지운다 — 창을 닫아 버려진 진행의 비밀이 쓸기 전까지 남지 않게.
+   */
+  public int clearExpiredSecrets(Instant now) {
+    return dsl.update(GENIA_LOGIN_SESSION)
+        .setNull(GENIA_LOGIN_SESSION.VERIFIER_ENC)
+        .setNull(GENIA_LOGIN_SESSION.STATE_ENC)
+        .where(GENIA_LOGIN_SESSION.EXPIRES_AT.lt(ts(now.minus(CLEAR_SECRETS_GRACE))))
+        .and(
+            GENIA_LOGIN_SESSION
+                .POLL_LEASE_UNTIL
+                .isNull()
+                .or(GENIA_LOGIN_SESSION.POLL_LEASE_UNTIL.lt(ts(now))))
+        .and(
+            GENIA_LOGIN_SESSION
+                .VERIFIER_ENC
+                .isNotNull()
+                .or(GENIA_LOGIN_SESSION.STATE_ENC.isNotNull()))
+        .execute();
+  }
+
   /**
    * 대기 중인 진행을 EXPIRED 로 끝낸다(조건부 — 이미 끝났으면 0건). 비밀을 지우고 임대를 푼다. 폴링 임대가 아직 살아 있으면(임대 없음 또는 만료 시각 경과만
    * 허용) 끝내지 않는다 — 폴링 중인 쪽이 성공해 계정을 저장하는데 EXPIRED 로 보이는 불일치를 막고, 폴링이 먼저 끝나게 한다.
@@ -227,6 +252,28 @@ public class GeniaLoginSessionRepository {
             .set(GENIA_LOGIN_SESSION.UPDATED_AT, ts(now))
             .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(loginId))
             .and(GENIA_LOGIN_SESSION.POLL_LEASE_TOKEN.eq(token))
+            .execute()
+        == 1;
+  }
+
+  /**
+   * 임대 토큰 없이 대기 중인 진행을 성공으로 끝낸다 — 계정을 저장한 뒤 임대가 끊겨 토큰 조건 {@link #finish} 가 0건일 때만 쓴다. 대기 중일 때만(이미
+   * 끝났으면 0건) 반영하고 비밀을 지우며 임대를 푼다.
+   */
+  public boolean finishPendingWithoutLease(
+      String loginId, Instant now, long resultAccountId, String resultEmail) {
+    return dsl.update(GENIA_LOGIN_SESSION)
+            .set(GENIA_LOGIN_SESSION.STATUS, "SUCCEEDED")
+            .setNull(GENIA_LOGIN_SESSION.ERROR_MESSAGE)
+            .set(GENIA_LOGIN_SESSION.RESULT_ACCOUNT_ID, resultAccountId)
+            .set(GENIA_LOGIN_SESSION.RESULT_EMAIL, resultEmail)
+            .setNull(GENIA_LOGIN_SESSION.VERIFIER_ENC)
+            .setNull(GENIA_LOGIN_SESSION.STATE_ENC)
+            .setNull(GENIA_LOGIN_SESSION.POLL_LEASE_TOKEN)
+            .setNull(GENIA_LOGIN_SESSION.POLL_LEASE_UNTIL)
+            .set(GENIA_LOGIN_SESSION.UPDATED_AT, ts(now))
+            .where(GENIA_LOGIN_SESSION.LOGIN_ID.eq(loginId))
+            .and(GENIA_LOGIN_SESSION.STATUS.eq("PENDING"))
             .execute()
         == 1;
   }

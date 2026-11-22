@@ -276,27 +276,11 @@ public class GeniaLoginSessionRecord extends UpdatableRecordImpl<GeniaLoginSessi
     }
 
     /**
-     * Setter for <code>public.genia_login_session.canceled</code>. 사용자가 취소했는지 —
-     * true 면 폴링을 멈춘다
-     */
-    public void setCanceled(Boolean value) {
-        set(16, value);
-    }
-
-    /**
-     * Getter for <code>public.genia_login_session.canceled</code>. 사용자가 취소했는지 —
-     * true 면 폴링을 멈춘다
-     */
-    public Boolean getCanceled() {
-        return (Boolean) get(16);
-    }
-
-    /**
      * Setter for <code>public.genia_login_session.result_account_id</code>. 성공
      * 시 연결된 메일 계정 ID
      */
     public void setResultAccountId(Long value) {
-        set(17, value);
+        set(16, value);
     }
 
     /**
@@ -304,7 +288,7 @@ public class GeniaLoginSessionRecord extends UpdatableRecordImpl<GeniaLoginSessi
      * 시 연결된 메일 계정 ID
      */
     public Long getResultAccountId() {
-        return (Long) get(17);
+        return (Long) get(16);
     }
 
     /**
@@ -312,7 +296,7 @@ public class GeniaLoginSessionRecord extends UpdatableRecordImpl<GeniaLoginSessi
      * 메일 주소
      */
     public void setResultEmail(String value) {
-        set(18, value);
+        set(17, value);
     }
 
     /**
@@ -320,7 +304,7 @@ public class GeniaLoginSessionRecord extends UpdatableRecordImpl<GeniaLoginSessi
      * 메일 주소
      */
     public String getResultEmail() {
-        return (String) get(18);
+        return (String) get(17);
     }
 
     /**
@@ -328,7 +312,7 @@ public class GeniaLoginSessionRecord extends UpdatableRecordImpl<GeniaLoginSessi
      * 사유(사용자에게 보여줄 수 있는 문구)
      */
     public void setErrorMessage(String value) {
-        set(19, value);
+        set(18, value);
     }
 
     /**
@@ -336,35 +320,35 @@ public class GeniaLoginSessionRecord extends UpdatableRecordImpl<GeniaLoginSessi
      * 사유(사용자에게 보여줄 수 있는 문구)
      */
     public String getErrorMessage() {
-        return (String) get(19);
+        return (String) get(18);
     }
 
     /**
      * Setter for <code>public.genia_login_session.created_at</code>. 생성 시각
      */
     public void setCreatedAt(OffsetDateTime value) {
-        set(20, value);
+        set(19, value);
     }
 
     /**
      * Getter for <code>public.genia_login_session.created_at</code>. 생성 시각
      */
     public OffsetDateTime getCreatedAt() {
-        return (OffsetDateTime) get(20);
+        return (OffsetDateTime) get(19);
     }
 
     /**
      * Setter for <code>public.genia_login_session.updated_at</code>. 마지막 갱신 시각
      */
     public void setUpdatedAt(OffsetDateTime value) {
-        set(21, value);
+        set(20, value);
     }
 
     /**
      * Getter for <code>public.genia_login_session.updated_at</code>. 마지막 갱신 시각
      */
     public OffsetDateTime getUpdatedAt() {
-        return (OffsetDateTime) get(21);
+        return (OffsetDateTime) get(20);
     }
 
     // -------------------------------------------------------------------------
@@ -390,7 +374,7 @@ public class GeniaLoginSessionRecord extends UpdatableRecordImpl<GeniaLoginSessi
     /**
      * Create a detached, initialised GeniaLoginSessionRecord
      */
-    public GeniaLoginSessionRecord(Long id, Long tenantId, String loginId, Long userId, Long accountId, String expectedEmail, String label, String verifierEnc, String stateEnc, String authorizeUrl, OffsetDateTime expiresAt, Integer intervalSeconds, OffsetDateTime nextPollAt, UUID pollLeaseToken, OffsetDateTime pollLeaseUntil, String status, Boolean canceled, Long resultAccountId, String resultEmail, String errorMessage, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public GeniaLoginSessionRecord(Long id, Long tenantId, String loginId, Long userId, Long accountId, String expectedEmail, String label, String verifierEnc, String stateEnc, String authorizeUrl, OffsetDateTime expiresAt, Integer intervalSeconds, OffsetDateTime nextPollAt, UUID pollLeaseToken, OffsetDateTime pollLeaseUntil, String status, Long resultAccountId, String resultEmail, String errorMessage, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         super(GeniaLoginSession.GENIA_LOGIN_SESSION);
 
         setId(id);
@@ -409,7 +393,6 @@ public class GeniaLoginSessionRecord extends UpdatableRecordImpl<GeniaLoginSessi
         setPollLeaseToken(pollLeaseToken);
         setPollLeaseUntil(pollLeaseUntil);
         setStatus(status);
-        setCanceled(canceled);
         setResultAccountId(resultAccountId);
         setResultEmail(resultEmail);
         setErrorMessage(errorMessage);
