@@ -2263,8 +2263,11 @@ function MailInbox() {
                     testId="mail-box-empty"
                     className="gap-2 py-16"
                     icon={Inbox}
+                    // 휴지통·보관·내 메일함도 이 갈래라 「메일이 오면 모여요」 같은 받은편지함 문구 대신 중립 제목만 둔다(WP-961).
+                    // 처음 가져오는 중이면 글 묶음을 role=status 로 두어 빈 화면이 아니라 불러오는 중임을 읽어 준다.
                     title={folderSyncing ? '메일함을 가져오는 중…' : '이 메일함에 메일이 없어요'}
-                    description={folderSyncing ? '잠시만 기다려 주세요.' : '메일이 오면 여기에 모여요.'}
+                    description={folderSyncing ? '잠시만 기다려 주세요.' : undefined}
+                    textRole={folderSyncing ? 'status' : undefined}
                   />
                 ) : view.kind === 'category' ? (
                   // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.

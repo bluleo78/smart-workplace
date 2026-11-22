@@ -18,22 +18,6 @@ import {
 } from '@/components/layout/empty-state'
 import { cn } from '@/lib/utils'
 
-// WP-1947: 상수 파일(empty-state.ts)과 부품 파일(EmptyState.tsx)의 이름이 대소문자·하이픈만 달라 자동 import 가 헷갈리므로,
-// 부품 모듈에서도 같은 상수를 다시 내보낸다. 원본은 여전히 empty-state.ts 한 곳이다(기존 import 는 그대로 둔다).
-// 상수 재내보내기는 컴포넌트 export 가 아니라 fast-refresh 규칙 대상이 아닌 순수 문자열이므로 규칙을 이 블록에서만 끈다.
-/* eslint-disable react-refresh/only-export-components */
-export {
-  emptyStateDescriptionClass,
-  emptyStateIconClass,
-  emptyStatePositiveIconClass,
-  emptyStateTitleClass,
-  mobileEmptyStateDescriptionClass,
-  mobileEmptyStateIconClass,
-  mobileEmptyStatePositiveIconClass,
-  mobileEmptyStateTitleClass,
-} from '@/components/layout/empty-state'
-/* eslint-enable react-refresh/only-export-components */
-
 /** EmptyState props — 바깥 레이아웃(gap·padding·정렬)은 className 으로 받고, 4요소 규격만 부품이 정한다. */
 export interface EmptyStateProps {
   /** 아이콘. 없으면 그리지 않는다. 늘 aria-hidden. */

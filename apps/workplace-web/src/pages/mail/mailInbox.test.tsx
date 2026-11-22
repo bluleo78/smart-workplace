@@ -172,6 +172,8 @@ test.each(['/mail/99999', '/mail/abc', '/mail/99999?folder=drafts'])(
     renderMail(path, { handlers: [list.handler] })
     expect(await screen.findByText('메일 계정을 찾을 수 없습니다')).toBeInTheDocument()
     expect(screen.queryByText('동기화를 눌러보세요.')).not.toBeInTheDocument()
+    // WP-1947 리뷰: 문구가 바뀌어도 빈 목록 자체가 없음을 지키도록 testid 로도 본다.
+    expect(screen.queryByTestId('mail-list-empty')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '다시 시도' })).not.toBeInTheDocument()
     await waitFor(() => expect(document.title).toBe('메일 계정을 찾을 수 없음 · 메일 · Gen:iA Works'))
     expect(list.calls).toEqual([])
