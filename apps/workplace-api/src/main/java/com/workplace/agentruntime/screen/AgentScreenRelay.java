@@ -131,11 +131,14 @@ public class AgentScreenRelay {
     this.service = service;
   }
 
-  /** 서버가 멈출 때 열린 화면을 모두 닫고 타이머를 멈춘다(남은 입력 기록도 꺼내 쓴다). */
+  /** 서버가 멈출 때 열린 화면을 모두 닫고 타이머를 멈춘다(남은 입력 기록도 꺼내 쓴다). 닫기 반복이 끊겨도 타이머는 멈춘다. */
   @PreDestroy
   void shutdown() {
-    pairs.values().forEach(p -> close(p, REASON_SHUTDOWN, true));
-    timer.shutdownNow();
+    try {
+      pairs.values().forEach(p -> close(p, REASON_SHUTDOWN, true));
+    } finally {
+      timer.shutdownNow();
+    }
   }
 
   // ---------------------------------------------------------------- 자리·연결
@@ -381,22 +384,39 @@ public class AgentScreenRelay {
 
   /**
    * 세션을 한 번만 닫는다: 레지스트리·표에서 빼고, 남은 입력 기록을 쓰고, 브라우저에 끝남 상태를 알린 뒤(브라우저가 닫은 것이 아니면) 두 소켓을 닫고, 세션 행에 닫힌
-   * 때·까닭을 남긴다. 한국어 까닭은 상태 프레임에 싣는다 — 닫기 프레임의 까닭은 123바이트까지라 짧은 영문만 쓴다.
+   * 때·까닭을 남긴다. 한국어 까닭은 상태 프레임에 싣는다 — 닫기 프레임의 까닭은 123바이트까지라 짧은 영문만 쓴다. 한 단계가 실패해도 나머지 단계는 실행하고 단계
+   * 실패는 던지지 않는다({@link #closeStep}).
    */
   void close(Pair p, String reason, boolean notifyBrowser) {
     if (!p.closed.compareAndSet(false, true)) return;
     pairs.remove(p.id);
-    tickets.removeForSession(p.id);
-    flushInput(p, true);
+    closeStep(p, "표 정리", () -> tickets.removeForSession(p.id));
+    closeStep(p, "입력 기록", () -> flushInput(p, true));
     if (notifyBrowser) {
-      sendJson(p, p.browser, Map.of("type", "status", "state", "ended", "reason", reason));
+      closeStep(
+          p,
+          "끝남 알림",
+          () ->
+              sendJson(p, p.browser, Map.of("type", "status", "state", "ended", "reason", reason)));
     }
-    closeQuietly(p.browser, CloseStatus.NORMAL.withReason("screen ended"));
-    closeQuietly(p.runner, CloseStatus.NORMAL.withReason("screen ended"));
+    closeStep(
+        p, "브라우저 닫기", () -> closeQuietly(p.browser, CloseStatus.NORMAL.withReason("screen ended")));
+    closeStep(
+        p,
+        "runner 닫기",
+        () -> closeQuietly(p.runner, CloseStatus.NORMAL.withReason("screen ended")));
+    closeStep(p, "닫힘 기록", () -> service.recordClosed(p.tenantId, p.id, reason));
+  }
+
+  /**
+   * close 의 한 단계를 실행하고 실패는 로그로만 남긴다. closed 를 이미 표시하고 세션을 레지스트리에서 뺀 뒤라 뒤에서 다시 시도할 기회가 없으므로, 뒤 단계(소켓
+   * 닫기·닫힘 기록)가 건너뛰어지지 않게 Error 까지 잡는다. 로그에는 입력·화면 내용을 싣지 않고 단계 이름·세션 id·예외만 남긴다.
+   */
+  private void closeStep(Pair p, String step, Runnable work) {
     try {
-      service.recordClosed(p.tenantId, p.id, reason);
-    } catch (RuntimeException e) {
-      log.warn("작업 화면 닫힘 기록 실패 session={}", p.id, e);
+      work.run();
+    } catch (Throwable e) {
+      log.warn("작업 화면 닫기 단계 실패 step={} session={}", step, p.id, e);
     }
   }
 
