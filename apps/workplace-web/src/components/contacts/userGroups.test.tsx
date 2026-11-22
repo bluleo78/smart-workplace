@@ -5,10 +5,13 @@
 // 사이드바 트리와 본문 그룹 뷰가 URL ?group 으로 이어지므로 모듈 레이아웃 + ContactsPage 를 renderScreen 으로 띄운다(testkit-b8).
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 
 import type { AuthContextValue } from '@/hooks/auth-context-value'
+import { userGroupKeys } from '@/hooks/queries/userGroupKeys'
 import { ADMIN, record, type Recorded, renderContacts } from '@/test/kits/contacts/testkit-b8'
+import { server } from '@/test/msw/server'
+import { renderScreen } from '@/test/renderScreen'
 
 import { page as makePage } from '../../../e2e/factories/contacts.factory'
 import {
@@ -19,6 +22,7 @@ import {
   tree,
 } from '../../../e2e/factories/userGroups.factory'
 import type { UserGroupTree } from '../../types/userGroup'
+import { GroupContactView } from './GroupContactView'
 
 /** 연락처 목록(빈)·그룹 트리·그룹 10/20 상세 GET. 쓰기 핸들러는 테스트가 앞에 둔다(먼저 둔 핸들러가 우선). */
 const base = (t: UserGroupTree = tree()): RequestHandler[] => [
@@ -232,4 +236,84 @@ test('WP-1870 admin: 조직도 + 단추에 Tab 으로 초점을 옮기면 툴팁
   for (let i = 0; i < 50 && document.activeElement !== add; i++) await user.tab()
   expect(add).toHaveFocus()
   expect(await screen.findByRole('tooltip')).toHaveTextContent('새 조직 그룹')
+})
+
+// WP-1937 — 삭제된 그룹 주소(404)의 안내에서 「전체 연락처 보기」를 누르면 ContactsPage 의 leaveGroup 으로 그룹 범위가 풀린다.
+test('삭제된 그룹 주소에서 전체 연락처 보기를 누르면 그룹 범위가 풀린다 (WP-1937)', async () => {
+  const { user, location } = await open('/contacts?group=99', [
+    http.get('/api/v1/user-groups/99', () => new HttpResponse(null, { status: 404 })),
+    ...base(),
+  ])
+  await screen.findByTestId('group-not-found')
+
+  await user.click(screen.getByTestId('group-not-found-leave'))
+
+  await waitFor(() => expect(screen.queryByTestId('group-not-found')).not.toBeInTheDocument())
+  expect(location()).toBe('/contacts')
+})
+
+// ── GroupContactView 오류 분기(WP-1937) — 404 는 사유 + 전체 연락처 보기, 일시 오류는 다시 시도로 복구 ──────────
+
+const URL77 = '/api/v1/user-groups/77'
+
+test('404 면 사유와 전체 연락처 보기, 다시 시도는 없다', async () => {
+  const onLeaveGroup = vi.fn()
+  const { user } = renderScreen(
+    <GroupContactView groupId={77} selected={null} onSelect={() => {}} onLeaveGroup={onLeaveGroup} />,
+    { handlers: [http.get(URL77, () => HttpResponse.json({ message: 'not found' }, { status: 404 }))] },
+  )
+  const box = await screen.findByTestId('group-not-found')
+  expect(box).toHaveTextContent('그룹을 찾을 수 없거나 볼 수 없습니다')
+  expect(box).toHaveTextContent('삭제되었거나 볼 수 있는 권한이 없는 그룹입니다')
+  // 스크린리더에 알려지도록 role=status 안에 사유가 있다.
+  expect(screen.getByRole('status')).toHaveTextContent('그룹을 찾을 수 없거나 볼 수 없습니다')
+  expect(screen.queryByRole('button', { name: '다시 시도' })).toBeNull()
+  await user.click(screen.getByTestId('group-not-found-leave'))
+  expect(onLeaveGroup).toHaveBeenCalledTimes(1)
+})
+
+test('404 에 onLeaveGroup 이 없으면 버튼을 그리지 않는다', async () => {
+  renderScreen(<GroupContactView groupId={77} selected={null} onSelect={() => {}} />, {
+    handlers: [http.get(URL77, () => HttpResponse.json({ message: 'not found' }, { status: 404 }))],
+  })
+  await screen.findByTestId('group-not-found')
+  expect(screen.queryByTestId('group-not-found-leave')).toBeNull()
+})
+
+test('일시 오류는 다시 시도로 복구된다', async () => {
+  let calls = 0
+  const { user } = renderScreen(<GroupContactView groupId={77} selected={null} onSelect={() => {}} />, {
+    handlers: [
+      http.get(URL77, () => (++calls === 1 ? HttpResponse.json({ message: 'boom' }, { status: 500 }) : HttpResponse.json(sharedDetail({ id: 77 })))),
+    ],
+  })
+  const err = await screen.findByTestId('group-load-error')
+  expect(err).toHaveTextContent('그룹을 불러오지 못했습니다')
+  await user.click(screen.getByRole('button', { name: '다시 시도' }))
+  expect(await screen.findByTestId('group-member-MEMBER-2')).toBeInTheDocument()
+})
+
+test('404 그룹을 다시 부르는 동안에도 없음 안내를 유지한다 (WP-1937)', async () => {
+  const { queryClient } = renderScreen(<GroupContactView groupId={77} selected={null} onSelect={() => {}} />, {
+    handlers: [http.get(URL77, () => HttpResponse.json({ message: 'not found' }, { status: 404 }))],
+  })
+  await screen.findByTestId('group-not-found')
+  // 다시 부르는 응답을 붙들어 둔다 — 그동안 쿼리는 pending(error 비움)이다.
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  server.use(
+    http.get(URL77, async () => {
+      await gate
+      return HttpResponse.json({ message: 'not found' }, { status: 404 })
+    }),
+  )
+  const refetch = queryClient.invalidateQueries({ queryKey: userGroupKeys.all })
+  await waitFor(() => expect(queryClient.isFetching()).toBeGreaterThan(0))
+  expect(screen.getByTestId('group-not-found')).toBeInTheDocument()
+  expect(screen.queryByTestId('group-load-error')).toBeNull()
+  release()
+  await refetch
+  expect(await screen.findByTestId('group-not-found')).toBeInTheDocument()
 })
