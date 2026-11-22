@@ -74,6 +74,7 @@ import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.FilePreview;
 import com.workplace.jooq.tables.FileSecurityCheck;
+import com.workplace.jooq.tables.GeniaLoginSession;
 import com.workplace.jooq.tables.HelpManualSection;
 import com.workplace.jooq.tables.HelpMetricDaily;
 import com.workplace.jooq.tables.HomeActionProposal;
@@ -109,6 +110,7 @@ import com.workplace.jooq.tables.MailDraft;
 import com.workplace.jooq.tables.MailDraftAttachment;
 import com.workplace.jooq.tables.MailDraftForward;
 import com.workplace.jooq.tables.MailInbox;
+import com.workplace.jooq.tables.MailOauthState;
 import com.workplace.jooq.tables.MailSignature;
 import com.workplace.jooq.tables.MailSignatureImage;
 import com.workplace.jooq.tables.MailUserSetting;
@@ -550,6 +552,11 @@ public class Tables {
     public static final FileSecurityCheck FILE_SECURITY_CHECK = FileSecurityCheck.FILE_SECURITY_CHECK;
 
     /**
+     * Gen:iA 로그인(디바이스 코드 흐름) 세션 — 사용자당 한 건, 여러 파드 중 임대를 잡은 곳만 폴링
+     */
+    public static final GeniaLoginSession GENIA_LOGIN_SESSION = GeniaLoginSession.GENIA_LOGIN_SESSION;
+
+    /**
      * The table <code>public.help_manual_section</code>.
      */
     public static final HelpManualSection HELP_MANUAL_SECTION = HelpManualSection.HELP_MANUAL_SECTION;
@@ -724,6 +731,11 @@ public class Tables {
      * 쿼리에서 account_id 조건으로 추가한다.
      */
     public static final MailInbox MAIL_INBOX = MailInbox.MAIL_INBOX;
+
+    /**
+     * M365 메일 연결 OAuth state — 시작·완료가 다른 파드여도 찾도록 DB 에 둔 10분짜리 1회용 행
+     */
+    public static final MailOauthState MAIL_OAUTH_STATE = MailOauthState.MAIL_OAUTH_STATE;
 
     /**
      * The table <code>public.mail_signature</code>.

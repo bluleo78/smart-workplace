@@ -83,7 +83,7 @@ public class M365OAuthController {
     }
 
     // JWT 필터가 이미 TenantContext.set 을 완료 — 현재 테넌트 ID 읽기
-    Long tenantId = TenantContext.get();
+    long tenantId = TenantContext.require();
     String state = stateStore.issue(userId, tenantId);
 
     // AAD 인가 URL 조립 — M365GraphProperties.SCOPE 단일 출처 참조(openid 포함 → id_token 수신)
@@ -126,7 +126,7 @@ public class M365OAuthController {
       boolean connected,
       /**
        * 실패 사유 코드(invalid_request/state_mismatch/tenant_mismatch/connect_failed) — 성공 시 null 로 직렬화에서
-       * 생략.
+       * 생략. 다른 워크스페이스에서 마친 콜백은 tenant_mismatch(403) — state 의 발급 테넌트 접두로 행을 찾는다(WP-1976).
        */
       String error) {}
 
@@ -162,8 +162,9 @@ public class M365OAuthController {
 
     StateData sd = stateData.get();
     // state 주인이 지금 로그인한 사람이 아니면 남의 연결 링크다 — 거부하고 감사 로그를 남긴다.
-    // state 는 이미 소비됐으므로 그 링크는 더 쓸 수 없다.
+    // state 를 지워(같은 워크스페이스면 consume 이 이미 지웠다) 그 링크는 더 쓸 수 없다.
     if (sd.userId() != userId) {
+      stateStore.discard(req.state());
       log.warn("M365 OAuth complete: state 주인 불일치 거부: caller={} stateUser={}", userId, sd.userId());
       oauthService.auditForeignState(userId, sd);
       return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -171,6 +172,8 @@ public class M365OAuthController {
     }
     // 같은 사람이라도 시작한 뒤 다른 워크스페이스로 바뀌었으면(여러 탭 — refresh 쿠키는 마지막에 고른 워크스페이스) 연결하지 않는다.
     // 시작한 워크스페이스가 아닌 곳에 메일함이 붙지 않게 한다. 공격이 아니라 감사 로그는 남기지 않는다.
+    // state 는 발급 테넌트 접두로 그 테넌트에서 찾으므로(WP-1976 — RLS 표) 다른 워크스페이스에서 마쳐도 여기까지 온다.
+    // 이때 state 는 지우지 않았으므로 시작한 워크스페이스의 탭에서 다시 마칠 수 있다.
     if (!Objects.equals(sd.tenantId(), TenantContext.get())) {
       log.warn(
           "M365 OAuth complete: 워크스페이스 불일치 거부: userId={} stateTenant={} currentTenant={}",

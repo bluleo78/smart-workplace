@@ -195,6 +195,10 @@ public final class TenantPurgePlan {
           // 메일 첨부 변환 미리보기 상태(WP-432) — FK 없음. 파일은 테넌트 디렉터리 삭제로 함께 지워진다.
           MAIL_ATTACHMENT_PREVIEW,
           MAIL_ATTACHMENT_BLOB,
+          // 메일 연결 OAuth state·Gen:iA 로그인 세션(WP-1976) — tenant FK 만 있다(다른 FK 없음). tenant 행보다 먼저 비우며
+          // 그 밖의 순서는 무관
+          MAIL_OAUTH_STATE,
+          GENIA_LOGIN_SESSION,
           // 드라이브 → 파일 (drive_file·drive_file_version.file_id NO ACTION)
           // 공유받은 항목 기록(WP-1539) — drive_share_link 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 링크보다 먼저 비운다.
           DRIVE_SHARE_LINK_VISIT,
