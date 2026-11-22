@@ -157,7 +157,7 @@ function addDaysToDateOnly(dateOnly: string, days: number): string {
 /**
  * "종일" 체크 시 시작/종료를 자정 경계(half-open [start, end))로 정규화한다.
  *
- * calendar.ts eventsOnDay() 의 종일 비교가 `cellKey < dateKey(endsAt)` (배타적 end) 라서
+ * calendar.ts eventsOnDay() 의 종일 비교가 `cellKey < dayKey(endsAt)` (배타적 end) 라서
  * 시작·종료가 같은 날짜이면 항상 false 가 되어 월/TimeGrid 뷰에서 사라진다 (이슈 #575).
  * - 시작 날짜는 그대로, 시각만 00:00 으로
  * - 종료가 시작과 같은 날(또는 그 이전)이면 다음날 00:00 으로 밀어 최소 하루 범위를 보장

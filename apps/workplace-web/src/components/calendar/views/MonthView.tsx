@@ -2,16 +2,17 @@
 // monthMatrix()로 일요일 시작 6주를 생성한다.
 import { format, isSameMonth, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
-import { eventDisplayColor, eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
+import { dayKey, eventDisplayColor, eventsByDayKey, eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
 import { calendarDayLabel, defaultMonthFocusIndex, nextMonthCellIndex } from '@/lib/calendarGridNav'
 import { withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { WEEKDAY_KO } from '@/lib/formatters'
+import { getRememberedMonthRowHeight, rememberMonthRowHeight } from '@/lib/monthRowHeight'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import { fitMonthCell, MONTH_MIN_ROW_H } from './monthCellFit'
@@ -19,6 +20,8 @@ import { MovePreviewChip } from './MovePreviewChip'
 import type { ViewProps } from './TimeGrid'
 import { isMovingEvent, useEventMoveDrag } from './useEventMoveDrag'
 
+// 한 칸도 없는 날이 칸마다 새 빈 배열을 만들지 않게 공유한다(읽기 전용으로만 쓴다).
+const NO_EVENTS: CalendarEvent[] = []
 
 // 월간 뷰 컴포넌트
 export function MonthView({
@@ -36,7 +39,11 @@ export function MonthView({
   // 놓일 날 판정용 사본 — 옮긴 범위로 바꾼 일정이 걸친 칸마다 반투명 사본을 그린다.
   const movedEvent = move.preview?.range ? withRange(move.preview.event, move.preview.range) : null
   // anchor 기준 42칸 날짜 배열
-  const cells = monthMatrix(anchor)
+  // anchor 는 렌더마다 새 Date 일 수 있어 시각 값(숫자)으로 묶어 42칸을 다시 만들지 않는다.
+  const anchorTime = anchor.getTime()
+  const cells = useMemo(() => monthMatrix(new Date(anchorTime)), [anchorTime])
+  // 일정을 날짜별로 한 번만 나눠 칸마다 전체를 훑지 않는다(WP-1917).
+  const byDay = useMemo(() => eventsByDayKey(events, cells), [events, cells])
   // 7칸씩 끊은 주 6개 — 주마다 role=row 로 감싼다.
   const weeks = Array.from({ length: 6 }, (_, w) => cells.slice(w * 7, w * 7 + 7))
 
@@ -52,7 +59,7 @@ export function MonthView({
   // 6행이 모두 minmax(0,1fr) 균등 높이이므로 그리드 높이/6 = 한 셀 높이.
   // ResizeObserver 로 셀 높이를 재서 셀별 칩(일정+마감 이슈) 표시 개수 계산에 사용한다.
   const gridRef = useRef<HTMLDivElement>(null)
-  const [rowHeight, setRowHeight] = useState(0)
+  const [rowHeight, setRowHeight] = useState(getRememberedMonthRowHeight)
   useLayoutEffect(() => {
     const el = gridRef.current
     if (!el) return
@@ -60,7 +67,13 @@ export function MonthView({
     // 칩도 같은 비율로 커지므로, 잰 높이를 16px 기준으로 환산해 개수가 어긋나지 않게 한다.
     // 글자 크기는 크기 바뀜마다 바뀌지 않으므로 처음 한 번만 읽는다(스타일 재계산 줄이기).
     const fontScale = (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) / 16
-    const update = () => setRowHeight(el.clientHeight / 6 / fontScale)
+    const update = () => {
+      const h = el.clientHeight / 6 / fontScale
+      // 레이아웃이 없어 0 이 잰 경우(숨김·jsdom)는 기억한 값을 덮어쓰지 않는다. 잰 값은 다음 마운트가 쓰도록 기억한다.
+      if (h <= 0) return
+      rememberMonthRowHeight(h)
+      setRowHeight(h)
+    }
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
@@ -103,7 +116,7 @@ export function MonthView({
               {week.map((day, c) => {
                 const idx = w * 7 + c
                 const dateLabel = format(day, 'yyyy-MM-dd')
-                const dayEvents = eventsOnDay(events, day)
+                const dayEvents = byDay.get(dayKey(day)) ?? NO_EVENTS
                 // 해당 날 마감 이슈 마커(읽기전용 오버레이)
                 const dayDues = issueDuesOnDay(issueDues, day)
                 // 일정 먼저, 마감 이슈 다음 순서로 칸 높이만큼만 채우고 넘치면 「+N」(마감 이슈도 포함).
