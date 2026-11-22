@@ -222,6 +222,54 @@ describe('createSharedRunCoalescer (WP-1979)', () => {
     expect(maxRunning).toBe(1);
   });
 
+  // WP-1979 2차 반려: 대기 칸의 옛 이벤트(e3)가 다른 파드로 간 더 새 이벤트(e4)의 답 뒤에 두 번째 답을 내지 않는다 —
+  // 서버 acquire 가 last_started 이하 메시지를 DUPLICATE 로 거르는 판정(MessagingAgentRunService.acquire)을 가짜 저장소로 옮겨 확인한다.
+  it('대기 칸의 옛 이벤트는 다른 파드의 더 새 이벤트가 먼저 돌았으면 서버 DUPLICATE 로 다시 돌지 않는다', async () => {
+    // 서버 행 하나를 흉내 낸다 — 이벤트 값이 곧 messageId
+    const row = { owner: null as string | null, lastStarted: 0, pending: null as number | null };
+    const server: RunLeaseStore<number> = {
+      acquire: vi.fn(async (id: number, _lease: number, token: string): Promise<Acq> => {
+        if (id <= row.lastStarted || (row.pending !== null && id <= row.pending)) return { status: 'DUPLICATE' };
+        if (row.owner === null) {
+          row.owner = token;
+          row.lastStarted = id;
+          row.pending = null;
+          return { status: 'ACQUIRED', token };
+        }
+        row.pending = id;
+        return { status: 'QUEUED' };
+      }),
+      release: vi.fn(async (_id: number, token: string) => {
+        if (row.owner !== token) return null;
+        if (row.pending !== null) {
+          const next = row.pending;
+          row.lastStarted = next;
+          row.pending = null;
+          return next;
+        }
+        row.owner = null;
+        return null;
+      }),
+    };
+    let finish!: () => void;
+    const blocked = new Promise<void>((r) => (finish = r));
+    const run = vi.fn(async (e: number) => {
+      if (e === 1) await blocked;
+    });
+    const podA = createSharedRunCoalescer<number>({ store: () => server, fallback: fakeFallback(), run, onError: vi.fn(), key: () => 'a' });
+    const p1 = podA.submit(1);
+    await new Promise((r) => setTimeout(r, 0));
+    // e1 이 도는 동안 e3 는 파드 A 의 대기 칸에, 더 새 e4 는 파드 B 가 보내 서버 대기(QUEUED)로
+    await podA.submit(3);
+    await expect(server.acquire(4, 1000, 'pod-b')).resolves.toEqual({ status: 'QUEUED' });
+    finish();
+    await p1;
+    // e1 → (release 가 넘긴) e4 로 끝나고, 대기 칸의 e3 는 acquire 에서 DUPLICATE 라 돌지 않는다
+    expect(run.mock.calls.map((x) => x[0])).toEqual([1, 4]);
+    expect(server.acquire).toHaveBeenLastCalledWith(3, expect.any(Number), expect.any(String));
+    expect(row).toEqual({ owner: null, lastStarted: 4, pending: null });
+  });
+
   it('다른 키는 서로 기다리지 않는다', async () => {
     let finish!: () => void;
     const blocked = new Promise<void>((r) => (finish = r));
