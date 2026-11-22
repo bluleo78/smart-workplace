@@ -18,7 +18,7 @@ import { ListLoadingSkeleton } from '../../../components/issue/ListLoadingSkelet
 import { RefreshingResults } from '../../../components/RefreshingResults';
 import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
-import { useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
+import { groupCountsBy, useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
 import { useIssueSearchKeepingPrevious } from '../../../hooks/queries/useIssueSearch';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
@@ -48,18 +48,24 @@ function epicGroupColor(first: IssueResponse | undefined): string {
 }
 
 /**
- * 그룹 헤더에 쓸 수(WP-472) — 서버 총계가 있는 그룹은 총계가 올 때까지 수를 두지 않는다.
+ * 그룹 헤더에 쓸 수(WP-472) — 서버 총계가 있는 그룹은 총계가 **로딩 중일 때만** 수를 두지 않는다.
  * 「불러온 행 수를 잠깐 보여주고 총계로 바꾸는」 깜빡임을 없애기 위한 것이다(WP-1929 리뷰 — 캐시에서 행이 먼저 와
- * 헤더가 먼저 그려질 수 있다). 에픽 그룹만 별도 집계 API 가 없어(IssueCountableGroupBy — 에픽 필터가 없다) 불러온 행 수를 쓴다.
+ * 헤더가 먼저 그려질 수 있다). 다만 총계 요청이 실패하거나(4xx/5xx·오프라인) 응답에 그룹 키가 없으면
+ * (0건 그룹은 서버가 내려주지 않고, 낙관적 변경으로 새로 생긴 그룹도 그렇다) 빈 수로 두지 않고 불러온 행 수로
+ * 대체한다 — 요청이 실패했다고 헤더 수가 영영 안 뜨는 일을 막기 위해서다(WP-1929 리뷰 1·2).
+ * 에픽 그룹만 별도 집계 API 가 없어(IssueCountableGroupBy — 에픽 필터가 없다) 늘 불러온 행 수를 쓴다.
  */
 function headerCount(
   groupBy: IssueClientGroupBy | null,
   key: string,
   rowCount: number,
   counts: ReadonlyMap<string, number>,
+  countsLoading: boolean,
 ): number | null {
   if (groupBy === 'epic') return rowCount;
-  return counts.get(key) ?? null;
+  // 총계를 기다리는 동안만 비운다 — 실패·로드 이후엔 키 유무와 상관없이 아래 폴백으로 간다.
+  if (countsLoading) return null;
+  return counts.get(key) ?? rowCount;
 }
 
 export function IssueListView({
@@ -105,9 +111,20 @@ export function IssueListView({
   // 프로젝트 상태 목록(WP-808) — 상태 그룹 버킷(statusId)과 행 메뉴 선택지. 호출부가 ProjectStatusesGate 로 목록을 받은 뒤에 그린다(WP-870).
   const statuses = useProjectStatusList(projectKey);
   // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다.
-  // 총계가 오기 전엔 헤더 수를 비운다(아래 headerCount — 행 수로 그렸다가 총계로 바뀌는 깜빡임 제거, WP-1929 리뷰).
   const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy);
   const countByKey = useMemo(() => groupCountsByKey(groupCounts.data), [groupCounts.data]);
+  // 총계를 기다리는 동안에만 헤더 수를 비운다(WP-1929 리뷰 1·2) — 총계가 이미 있으면(이전 필터 값 유지 중 포함),
+  // 또는 요청이 실패했으면(오류) 즉시 행 수 폴백으로 간다. status=error 로는 isPending 이 아니라 isError 로 함께 본다.
+  //  · 필터·검색을 바꿔서는 이전 총계를 그대로 두고 다음 총계로 바꾼다(placeholderData — 헤더 수가 사라졌다 뜨는
+  //    깜빡임을 없애기 위해서다).
+  //  · 그룹 기준을 바꿔 이전 기준 총계(placeholder)를 들고 오는 동안은 총계 자리가 아니다 — 키 체계가 달라 행 수로
+  //    비우지 않으면 「행 수 → 총계」 깜빡임이 바꾸는 순간마다 되살아난다(같은 기준의 필터 변경 총계는 그대로 쓴다).
+  //  · 오프라인(fetchStatus 'paused')은 요청이 시작되지 않아 기다림이 끝나지 않으니, 목록은 캐시로 보이는데 헤더만
+  //    계속 비어 있으므로 그때는 행 수로 바로 내려간다('idle' 은 아직 구독 전이므로 로딩으로 둔다).
+  const countsBy = groupCountsBy(groupBy);
+  const countsStaleBy = groupCounts.data != null && countsBy != null && groupCounts.data.groupBy !== countsBy;
+  const countsLoading =
+    (groupCounts.data === undefined && !groupCounts.isError && groupCounts.fetchStatus !== 'paused') || countsStaleBy;
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
@@ -299,7 +316,7 @@ export function IssueListView({
             )}
             {groups ? (
               groups.map((g) => {
-                const count = headerCount(groupBy, g.key, g.issues.length, countByKey);
+                const count = headerCount(groupBy, g.key, g.issues.length, countByKey, countsLoading);
                 return (
                   <tbody key={g.key} data-testid={`list-group-${g.key}`}>
                     <tr className="bg-muted/40 border-b">
@@ -325,7 +342,8 @@ export function IssueListView({
                             </span>
                           )}
                           <span className="min-w-0 truncate">{g.label}</span>
-                          {/* 서버 총계가 오기 전엔 수를 두지 않는다 — 행 수를 잠깐 보여주고 총계로 바꾸는 깜빡임 제거(WP-1929 리뷰). */}
+                          {/* 총계 로딩 중에만 수를 두지 않는다 — 행 수를 잠깐 보여주고 총계로 바꾸는 깜빡임 제거(WP-1929 리뷰).
+                              로딩이 끝나면 총계, 실패했거나 키가 없으면 불러온 행 수로 뜬다(headerCount). */}
                           {count != null && (
                             <span className="shrink-0 font-normal" data-testid={`list-group-count-${g.key}`}>
                               {count}

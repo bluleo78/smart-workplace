@@ -7,6 +7,7 @@ import { expect, test } from 'vitest'
 
 import { issueListHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 
@@ -87,4 +88,75 @@ test('group 설정 상태에서 뷰 저장 → POST query 에 group 이 실린�
   await waitFor(() => expect(posts).toHaveLength(1))
   expect(posts[0].query).toContain('group=assignee')
   expect(posts[0].name).toBe('담당자 그룹')
+})
+
+// WP-1929 리뷰 1 — 그룹 총계 요청이 실패(4xx/5xx·오프라인)해도 헤더 수가 영영 사라지지 않는다.
+// 로딩 중에만 수를 비우고, 실패한 뒤에는 불러온 행 수로 남는다(IssueListView headerCount).
+test('그룹 총계 요청이 실패하면 헤더 수는 불러온 행 수로 남는다 (WP-1929 리뷰)', async () => {
+  const issues = [
+    createIssue({ id: 1, number: 1, title: 'Todo one', status: 'TODO' }),
+    createIssue({ id: 2, number: 2, title: 'Todo two', status: 'TODO' }),
+  ]
+  renderProjectScreen(`/projects/${KEY}?group=status`, {
+    handlers: [
+      http.get(`/api/v1/projects/${KEY}/issues/group-counts`, () => HttpResponse.json({ message: 'boom' }, { status: 500 })),
+      ...issueListHandlers({ issues: () => createIssueSearchResponse(issues) }),
+    ],
+  })
+  // 로딩이 끝난 뒤(실패)에도 수는 그대로 뜬다 — 500 응답이라 서버 총계가 없으니 불러온 행 수 2.
+  expect(await screen.findByTestId('list-group-count-1', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toHaveTextContent(/^2$/)
+})
+
+// WP-1929 리뷰 2 — 서버는 0건 그룹을 내려주지 않으므로, 낙관적 변경으로 새로 생긴 그룹(총계에 키가 없는 그룹)도
+// 총계가 다시 올 때까지 수가 비면 안 된다 — 로드됐는데 키가 없으면 불러온 행 수로 대체한다.
+test('총계가 로드됐는데 그룹 키가 없으면 헤더 수는 불러온 행 수다 (WP-1929 리뷰)', async () => {
+  const issues = [
+    createIssue({ id: 1, number: 1, title: 'Todo one', status: 'TODO' }),
+    createIssue({ id: 2, number: 2, title: 'Todo two', status: 'TODO' }),
+  ]
+  renderProjectScreen(`/projects/${KEY}?group=status`, {
+    handlers: [
+      // 「할 일」(id 1) 키가 없는 총계 — 새 상태 그룹·낙관적 변경으로 생긴 그룹이 이 모양이다.
+      http.get(`/api/v1/projects/${KEY}/issues/group-counts`, () =>
+        HttpResponse.json({ groupBy: 'statusId', groups: [{ key: '3', count: 3 }] }),
+      ),
+      ...issueListHandlers({ issues: () => createIssueSearchResponse(issues) }),
+    ],
+  })
+  expect(await screen.findByTestId('list-group-count-1', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toHaveTextContent(/^2$/)
+})
+
+// WP-1929 리뷰 3 — 필터·검색을 바꿀 때마다 헤더 수가 모두 사라졌다가 다시 뜨지 않는다(useIssueGroupCounts
+// placeholderData) — 다음 총계가 올 때까지 이전 총계를 그대로 두고, 새 총계가 오면 값만 바꾼다.
+test('필터를 바꿔도 이전 총계가 다음 총계가 올 때까지 남는다 (WP-1929 리뷰)', async () => {
+  let releaseCounts: () => void = () => {}
+  const secondCounts = new Promise<void>((r) => (releaseCounts = r))
+  let countsRequests = 0
+  const issues = [
+    createIssue({ id: 1, number: 1, title: 'Todo one', status: 'TODO' }),
+    createIssue({ id: 2, number: 2, title: 'Todo two', status: 'TODO' }),
+  ]
+  const { user } = renderProjectScreen(`/projects/${KEY}?group=status&q=todo`, {
+    handlers: [
+      http.get(`/api/v1/projects/${KEY}/issues/group-counts`, async () => {
+        countsRequests += 1
+        const attempt = countsRequests
+        // 첫 요청 이후(검색어 변경으로 갈아탄 총계 쿼리)는 전부 게이트에 묶어 — 그동안 이전 총계가 남아 있는지 본다.
+        if (attempt >= 2) await secondCounts
+        return HttpResponse.json({ groupBy: 'statusId', groups: [{ key: '1', count: attempt === 1 ? 32 : 7 }] })
+      }),
+      ...issueListHandlers({ issues: () => createIssueSearchResponse(issues) }),
+    ],
+  })
+  expect(await screen.findByTestId('list-group-count-1', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toHaveTextContent(/^32$/)
+
+  // 검색어를 바꾸면 총계 쿼리 키가 바뀌어 새 요청이 나간다 — 그 응답이 오기 전에도 헤더 수는 32 로 남아 있어야 한다.
+  await user.type(screen.getByPlaceholderText('제목·키'), 'x')
+  await waitFor(() => expect(countsRequests).toBeGreaterThanOrEqual(2), { timeout: SCREEN_LOAD_TIMEOUT })
+  expect(screen.getByTestId('list-group-count-1')).toHaveTextContent(/^32$/)
+
+  releaseCounts()
+  await waitFor(() => expect(screen.getByTestId('list-group-count-1')).toHaveTextContent(/^7$/), {
+    timeout: SCREEN_LOAD_TIMEOUT,
+  })
 })

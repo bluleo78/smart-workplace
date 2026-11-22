@@ -1,5 +1,5 @@
 // 목록 그룹별 총계(WP-472) — 헤더에 「불러온 행 수」 대신 서버가 같은 필터로 센 정확한 수를 보인다.
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { getIssueGroupCounts } from '../../api/issues';
 import { withoutSort } from '../../lib/issueFilters';
@@ -31,6 +31,10 @@ export function useIssueGroupCounts(
     queryKey: groupCountsQueryKey(projectKey, serverGroupBy, filters),
     queryFn: () => getIssueGroupCounts(projectKey, filters, serverGroupBy!),
     enabled: !!projectKey && serverGroupBy != null,
+    // 필터·검색을 바꿀 때 이전 총계를 다음 총계가 올 때까지 유지한다(WP-1929 리뷰 3) —
+    // 행은 이전 결과로 자리를 채우는데(useIssueSearchKeepingPrevious 와 같은 방식) 헤더 수만 비워 두면
+    // 「총계가 사라졌다가 다시 뜨는」 다른 깜빡임이 생긴다. 새 총계가 오면 그 값으로 대체된다.
+    placeholderData: keepPreviousData,
   });
 }
 

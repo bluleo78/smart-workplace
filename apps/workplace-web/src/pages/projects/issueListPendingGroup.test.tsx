@@ -33,6 +33,8 @@ function cyclesGate() {
  */
 function setupHandlers(held: Promise<void>, cycles: () => CycleResponse[]) {
   const flatParams: URLSearchParams[] = []
+  // 사이클 요청 횟수 — 레이아웃「미리 받기」(ProjectTabsLayout)와 본문이 같은 쿼리 키라 1건으로 합쳐지는지 본다(WP-1929).
+  const cyclesRequests: string[] = []
   const handlers = [
     http.get(`${API}/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY, name: 'WP-1929 검증 프로젝트' }))),
     http.get(`${API}/projects/${KEY}/issues`, ({ request }) => {
@@ -43,17 +45,18 @@ function setupHandlers(held: Promise<void>, cycles: () => CycleResponse[]) {
       return HttpResponse.json(createIssueSearchResponse(items, null))
     }),
     http.get(`${API}/projects/${KEY}/cycles`, async () => {
+      cyclesRequests.push('GET')
       await held
       return HttpResponse.json(cycles())
     }),
   ]
-  return { handlers, flatParams }
+  return { handlers, flatParams, cyclesRequests }
 }
 
 test('판정 대기 동안엔 스켈레톤이고, 판정이 끝나야 이슈 행이 보인다', async () => {
   const gate = cyclesGate()
   // 진행 중 사이클 없음 → 판정 결과는 그룹 없음, 평면 목록이 이어진다.
-  const { handlers, flatParams } = setupHandlers(gate.held, () => [])
+  const { handlers, flatParams, cyclesRequests } = setupHandlers(gate.held, () => [])
   const { queryClient } = renderPage(`/projects/${KEY}`, { handlers, projectTabs: { [KEY]: 'issues' } })
 
   // 게이트가 닫혀 있는 사이엔 스켈레톤이 보이고 행은 아직 없다(#878 복원 — WP-1929 리뷰 반려).
@@ -73,6 +76,8 @@ test('판정 대기 동안엔 스켈레톤이고, 판정이 끝나야 이슈 행
   expect(screen.queryAllByTestId(/^list-cycle-section-/)).toHaveLength(0)
   // 판정 뒤에 평면 요청이 한 번 더 나가지 않는다 — 이미 캐시에 있던 그 요청을 다시 쓴다.
   expect(flatParams.filter((p) => p.get('size') === '30')).toHaveLength(1)
+  // 사이클도 1건뿐이다 — 레이아웃 미리 받기와 본문이 같은 쿼리 키라 두 번 나지 않는다(WP-1929 리뷰 항목 4).
+  expect(cyclesRequests).toHaveLength(1)
 })
 
 test('진행 중 사이클이 오면 그때 구간 목록으로 전환된다', async () => {

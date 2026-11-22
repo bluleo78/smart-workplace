@@ -9,7 +9,7 @@ import { describe, expect, test, vi } from 'vitest'
 
 import { PROJECT_TABS, type ProjectTabId } from '@/pages/projects/tabs/projectTabs'
 import { ProjectTabsLayout } from '@/pages/projects/tabs/ProjectTabsLayout'
-import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
+import { issueDetailSubHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { projectScreen } from '@/test/kits/projects/projectScreens'
 import { renderRoutesScreen, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { rememberProjectTab } from '@/test/projectTabMemory'
@@ -360,5 +360,40 @@ describe('프로젝트 탭 — 마지막 탭으로 되돌리기', () => {
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(getItem.mock.calls.filter(([k]) => k === STORE_KEY)).toEqual([])
     expect(stored()).toBeNull()
+  })
+})
+
+// ── 사이클 미리 받기(WP-1929 리뷰 항목 4) ───────────────────────────────────
+// 이슈 탭의 그룹 판정(기본이 사이클 그룹이면)이 본문 청크 로딩에 묶이지 않도록 레이아웃이 사이클을 앞에서 받는다.
+// 붙는 범위를 고정한다 — 이슈 탭이면 1건(레이아웃 한 번), 기본 경로에서 다른 탭으로 보내는 중(redirect)과
+// 다른 탭 주소에서는 0건(그 탭에서 쓰이지 않을 요청이 붙지 않는다).
+describe('프로젝트 탭 — 사이클 미리 받기(WP-1929)', () => {
+  const CYCLES = `/api/v1/projects/${KEY}/cycles`
+
+  test('이슈 탭에서만 사이클을 1건 받는다 — 레이아웃 미리 받기', async () => {
+    rememberProjectTab(KEY, 'issues')
+    const requests = recordRequests()
+    openLayout(`/projects/${KEY}`)
+    await screen.findByText('이슈 본문', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    await waitFor(() => expect(requests.count('GET', CYCLES)).toBe(1))
+    expect(requests.count('GET', CYCLES)).toBe(1)
+  })
+
+  test('기본 경로에서 기본 탭(개요)으로 보내는 동안에는 사이클을 요청하지 않는다 — redirect 가 끝난 뒤에도 0건', async () => {
+    const requests = recordRequests()
+    const { location } = openLayout(`/projects/${KEY}`)
+    await screen.findByText('개요 본문', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    await settleHistory()
+    expect(location()).toBe(`/projects/${KEY}/overview`)
+    // 이슈 본문은 그리지 않았고, 쓰지도 않을 사이클도 부르지 않았다.
+    expect(screen.queryByText('이슈 본문')).not.toBeInTheDocument()
+    expect(requests.count('GET', CYCLES)).toBe(0)
+  })
+
+  test('다른 탭 주소로 열면 사이클을 요청하지 않는다', async () => {
+    const requests = recordRequests()
+    openLayout(`/projects/${KEY}/cycles`)
+    await screen.findByText('사이클 본문', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    expect(requests.count('GET', CYCLES)).toBe(0)
   })
 })

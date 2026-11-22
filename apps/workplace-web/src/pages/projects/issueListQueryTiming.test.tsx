@@ -50,7 +50,7 @@ test('상태 목록이 오기 전에 이슈 목록 요청이 나간다', async (
       return HttpResponse.json(createIssueSearchResponse([createIssue({ id: 1, number: 1, title: SEED_TITLE })], null))
     }),
   ]
-  renderPage(`/projects/${KEY}`, { handlers, projectTabs: { PRF1: 'issues' } })
+  renderPage(`/projects/${KEY}`, { handlers, projectTabs: { [KEY]: 'issues' } })
 
   // 게이트가 닫혀 있는 동안(상태 목록 응답이 아직 안 나간 상태)에 평면 요청이 이미 도착해야 한다 —
   // 게이트 아래에서만 발사하는 회귀라면 이 대기가 시간초과로 실패한다.
@@ -92,14 +92,16 @@ test('목록이 상태 목록보다 먼저 와도, 상태 목록이 오면 모�
       )
     }),
   ]
-  renderPage(`/projects/${KEY}`, { handlers, projectTabs: { PRF1: 'issues' } })
+  renderPage(`/projects/${KEY}`, { handlers, projectTabs: { [KEY]: 'issues' } })
 
   // 목록 응답이 상태 목록보다 먼저 도착했음을 확인한다 — 이 시점에 refreshStatusesOnUnknown 은 캐시가 비어 있어 판정하지 못한다.
   await waitFor(() => expect(issuesArrivedAt).not.toBeNull(), { timeout: PAGE_LOAD_TIMEOUT })
   expect(statusesRequests).toBe(1)
   // 게이트 해제 — 상태 목록이 오면 캐시된 목록 페이지를 훑어 모르는 상태(99)를 발견, 한 번 더 받아야 한다.
   releaseStatuses()
-  await waitFor(() => expect(statusesRequests).toBeGreaterThanOrEqual(2), { timeout: PAGE_LOAD_TIMEOUT })
+  // 정확히 두 번(처음 조회 + 모르는 상태 발견으로 인한 재검사) — 재검사(useProjectStatuses 도착 시 캐시 검사)를
+  // 지우면 이 단언이 실패해야 한다(WP-1929 리뷰 nit — >= 는 다른 재요청으로도 통과해 허용했다).
+  await waitFor(() => expect(statusesRequests).toBe(2), { timeout: PAGE_LOAD_TIMEOUT })
   // 목록은 그대로 화면에 있다(깨지지 않는다).
   expect(await screen.findByText(SEED_TITLE, {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
 })
