@@ -301,6 +301,22 @@ describe('eventFormSchema 반복 숫자 칸 NaN 정규화 (WP-1916)', () => {
     expect(r.error?.issues.some((i) => i.path.includes('recurrenceCount'))).toBeFalsy()
     expect(r.error?.issues.some((i) => i.path.includes('recurrenceInterval'))).toBe(true)
   })
+
+  // 리뷰 후속 — catch(undefined) 로 바꾼 뒤 숫자가 아닌 입력도 비운 값이 되어 같은 한국어 문구로 간다(preprocess 는 숫자가 아니면 영문 원문이었다).
+  it('숫자가 아닌 입력도 비운 값으로 넘겨 한국어 문구로 간다 (WP-1916 리뷰 후속)', () => {
+    const r = eventFormSchema.safeParse({
+      ...base,
+      recurrenceFreq: 'WEEKLY' as const,
+      recurrenceEnd: 'count' as const,
+      recurrenceInterval: 'abc',
+      recurrenceCount: '3회',
+    })
+    expect(r.success).toBe(false)
+    const msgs = (r.error?.issues ?? []).map((i) => i.message)
+    expect(msgs).toContain('간격은 1 이상이어야 합니다')
+    expect(msgs).toContain('횟수는 1 이상이어야 합니다')
+    expect(msgs.join(' ')).not.toContain('Invalid input')
+  })
 })
 
 describe('eventFormSchema 설명 길이 (WP-543)', () => {

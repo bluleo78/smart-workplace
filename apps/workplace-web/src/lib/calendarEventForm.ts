@@ -18,13 +18,11 @@ export const MAX_RECURRENCE_INTERVAL = 999
 export const MAX_RECURRENCE_COUNT = 999
 
 // 반복 숫자 칸(간격·횟수) 공용 스키마 — RHF valueAsNumber 는 빈 칸을 NaN 으로 주고 z.number() 는 그걸 영문 원문(Invalid input: … received NaN)으로
-// 거절해 화면에 그대로 뜬다 → undefined 로 바꿔 아래 superRefine 의 한국어 문구가 뜨게 한다(WP-1916).
-// 단, zod v4 preprocess 는 z.input 을 unknown 으로 넓혀 useForm<EventFormValues> + zodResolver 타입을 깨뜨리므로,
-// 타입 단언으로 z.number().optional() 의 입력·출력을 그대로 선언한다.
-const nanSafeRecurrenceNumber = z.preprocess(
-  (v) => (typeof v === 'number' && Number.isNaN(v) ? undefined : v),
-  z.number().optional(),
-) as unknown as z.ZodOptional<z.ZodNumber>
+// 거절해 화면에 그대로 뜬다. catch(undefined) 는 파싱에 실패하는 모든 입력(빈 칸 NaN·숫자가 아닌 값)을 비운 값으로 넘겨,
+// 아래 superRefine 의 한국어 문구가 뜨게 한다(WP-1916).
+// preprocess 대신 catch 를 쓰는 까닭: preprocess 는 z.input 을 unknown 으로 넓혀 useForm<EventFormValues> + zodResolver 타입을 깨뜨려
+// 타입 단언이 필요했고, 숫자가 아닌 입력도 처리하지 못했다. catch 는 입출력 타입(number | undefined)을 그대로 지킨다(WP-1916 리뷰 후속).
+const nanSafeRecurrenceNumber = z.number().optional().catch(undefined)
 
 export const eventFormSchema = z
   .object({
