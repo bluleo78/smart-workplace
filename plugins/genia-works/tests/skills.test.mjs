@@ -1428,7 +1428,8 @@ test('process-issue.md: 검토자는 번호 순 줄의 맨 앞만 머지하고, 
     '매번 `gw-repo pr-list` 로 다시 읽는다',
     '`개발:` 이 없는 PR 은 줄 밖',
     '줄 밖 PR 은 맨 앞 조건 없이',
-    '5·6번 머지(통합 PR 포함)는 줄 맨 앞 PR 과 줄 밖 PR 만 한다',
+    // WP-1999 — 앞지르기 PR 이 더해졌다
+    '5·6번 머지(통합 PR 포함)는 줄 맨 앞 PR·줄 밖 PR·앞지르기 PR(아래)만 한다',
     '3번 「순서 대기」에서 끝난다',
     // 비킨 PR — 사유별 적는 때·지우는 때
     '`순서: 비킴 — 내용 반려 <KST 시각>`',
@@ -1501,6 +1502,46 @@ test('.work-loop/project.md 검토자 절에 순서 머지 한 줄이 있다 (WP
   const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
   assert.ok(section(project, '\n## 8. 검토자\n', '\n## 9. ').includes('**순서 머지(WP-1720)**'));
   assert.ok(project.includes('검토자의 「main 반영 필요」 요청 때만'));
+});
+
+// WP-1999 — 앞 PR 들과 바뀐 파일이 겹치지 않는 승인 PR 은 순서를 기다리지 않고 머지한다(앞지르기).
+// 맨 앞이 rebase 를 기다리는 동안 겹치지 않는 PR 까지 묶이지 않게 하되, 겹치는 PR 은 지금처럼 기다린다.
+test('process-issue.md: 앞 PR 과 파일이 겹치지 않는 승인 PR 은 앞지르기로 머지하고, 겹치면 순서 대기한다 (WP-1999)', () => {
+  const review = queueReview;
+  const order = review.split('**머지 순서**(WP-1720)')[1].split('\n1. **시작**')[0];
+  const overtake = order.split('**앞지르기**(WP-1999)')[1].split('\n- **')[0];
+  const wait = review.split('**순서 대기**(WP-1720)')[1].split('\n4. **반려**')[0];
+  const conflict = review.split('\n5. **main 충돌 확인**')[1].split('\n6. **머지**')[0];
+  const merge = review.split('\n6. **머지**')[1].split('\n7. ')[0];
+  const check = review.split('**줄 확인**(WP-1720')[1].split('\n- **통합 PR')[0];
+  const train = review.split('\n- **통합 PR(기차')[1];
+  // 머지 게이트 한 곳 — 맨 앞·줄 밖에 더해 앞지르기 PR 도 머지한다
+  assert.ok(order.includes('5·6번 머지(통합 PR 포함)는 줄 맨 앞 PR·줄 밖 PR·앞지르기 PR(아래)만 한다'));
+  // 정의 — 앞 PR(비킨 PR 제외)과 바뀐 파일 교집합, 마이그레이션은 둘 다 더하면 겹침, 못 재면 겹침
+  for (const anchor of [
+    '번호가 더 작은 줄 안 PR(비킨 PR 은 뺀다',
+    '`git diff --name-only origin/main...origin/<headRefName>`',
+    '둘 다 마이그레이션 파일을 더하면 이름이 달라도 겹침',
+    '겹침으로 본다',
+    '`headRefOid` 와 다르면',
+    '2시간·4시간 비킴은 그대로',
+  ]) assert.ok(overtake.includes(anchor), anchor);
+  // 3번 순서 대기 — 앞지르기가 되면 기다리지 않고 5번으로, 안 되면 겹친 PR·파일을 리뷰 글에 적는다
+  assert.ok(wait.includes('앞지르기(위 「머지 순서」)가 되면 순서 대기하지 않고 5번으로 간다'));
+  assert.ok(wait.includes('겹친 앞 PR·파일'));
+  // 5번 맨 앞 다시 확인 — 앞지르기 PR 은 맨 앞이 아니어도 머지로 간다, 맨 앞 막힘 중에도 앞지르기는 머지
+  assert.ok(conflict.includes('맨 앞이 아니고 앞지르기도 되지 않으면 머지하지 않는다'));
+  assert.ok(conflict.includes('뒤 PR 도 머지하지 않는다(앞지르기 PR 은 뺀다'));
+  // 6번 — fetch 뒤 머지 직전에 앞지르기를 다시 잰다(그 사이 앞 PR 이 돌아오거나 rebase 됐을 수 있다)
+  assert.ok(merge.includes('앞지르기 다시 확인'));
+  // 줄 확인 — 이미 순서 대기 중인 PR 도 앞지르기가 되면 후보로 고른다
+  assert.ok(check.includes('**앞지르기 후보**'));
+  assertBefore(review, '**앞지르기 후보**', '**다음 후보 고르기**');
+  // 통합 PR — 맨 앞이 아니고 앞지르기도 안 될 때만 순서 대기
+  assert.ok(train.includes('맨 앞이 아니고 앞지르기도 되지 않으면(위 「머지 순서」) 3번 「순서 대기」로 간다'));
+  // 저장소 안내 한 줄도 맞춘다
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  assert.ok(section(project, '\n## 8. 검토자\n', '\n## 9. ').includes('앞 PR 과 파일이 겹치지 않는 승인 PR 은 앞지르기(WP-1999)'));
 });
 
 // WP-1763 — 머지 순서 경계 사례(차단 재발·승인 해제·줄 확인 fetch·순서 대기 문구).
