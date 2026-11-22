@@ -14,7 +14,7 @@ import { groupMentionNotifs } from './groupMentions'
 
 // 지금 신경 쓸 일 한 행의 표준 모델.
 // source: 소스 앱 구분 — '이슈'(urgency 0), '멘션'·'메시지'(urgency 1), '메일'(urgency 2, AI 회신 필요).
-// isAi: AI 발굴 신호 — meta 를 text-ai-accent 로 강조 표시.
+// isAi: AI 발굴 신호(대화 행의 aiReason) — meta 를 text-ai-accent 로 강조하고, 접근 설명에 「AI 발굴」·리스트 행 AI 아이콘을 둔다(WP-1938).
 export interface AttentionRow {
   key: string
   source: '이슈' | '멘션' | '메일' | '메시지'
@@ -27,7 +27,7 @@ export interface AttentionRow {
   sourceChipDescribed: boolean
   urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션·메시지, 2=회신필요메일)
   recency: number // 동일 urgency 내 최신순(epoch ms, 클수록 위)
-  isAi?: boolean // AI 발굴 신호(메시지 aiReason, 메일 aiNeedsReply)
+  isAi?: boolean // AI 발굴 신호(대화 행 aiReason)
   aiScore: number | null // AI 배치 점수합산(없으면 null, 정렬 시 urgency 폴백)
 }
 
@@ -171,8 +171,14 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
 
 /**
  * 행 Link 의 aria-describedby 값 — 출처 칩을 이을 행이면 「칩 id meta id」(보이는 순서), 아니면 meta id 만(WP-1902).
- * 포커스 카드와 목록 행이 같은 규칙을 쓰도록 한 곳에 둔다.
+ * AI 발굴 행(isAi)이고 aiId 가 주어지면 칩 다음·meta 앞에 AI 표식 id 를 낀다(WP-1938).
+ * 포커스 카드와 목록 행이 같은 규칙을 쓰도록 한 곳에 둔다 — 다만 포커스 카드의 AI 라벨은 카드 위에 보이므로
+ * aiId 를 넘기지 않고 호출부가 맨 앞에 붙인다(WP-1938).
  */
-export function attentionDescribedBy(row: Pick<AttentionRow, 'sourceChipDescribed'>, chipId: string, metaId: string): string {
-  return row.sourceChipDescribed ? `${chipId} ${metaId}` : metaId
+export function attentionDescribedBy(row: Pick<AttentionRow, 'sourceChipDescribed' | 'isAi'>, chipId: string, metaId: string, aiId?: string): string {
+  const ids: string[] = []
+  if (row.sourceChipDescribed) ids.push(chipId)
+  if (row.isAi && aiId) ids.push(aiId)
+  ids.push(metaId)
+  return ids.join(' ')
 }
