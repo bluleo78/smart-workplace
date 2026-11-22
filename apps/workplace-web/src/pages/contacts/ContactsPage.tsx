@@ -13,14 +13,17 @@ import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileSidebarSheetTrigger } from '@/components/mobile/MobileSidebarSheetTrigger'
 import { useMobileBack } from '@/components/mobile/useMobileBack'
+import { ResultStatus } from '@/components/ResultStatus'
 import { Button } from '@/components/ui/button'
 import { FilterInput } from '@/components/ui/filter-input'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
+import { useUserGroupDetail } from '@/hooks/queries/useUserGroupDetail'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
+import { contactResultAnnouncement } from '@/lib/contactResultAnnouncement'
 import { failedWithoutData } from '@/lib/queryFailure'
 import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
 import { andParticle, cn } from '@/lib/utils'
@@ -33,6 +36,7 @@ import type { ContactSelection } from '../../hooks/queries/useContactDetail'
 import { useContactDetail } from '../../hooks/queries/useContactDetail'
 import { useContacts } from '../../hooks/queries/useContacts'
 import { useToggleFavorite } from '../../hooks/queries/useFavoriteMutations'
+import { useGroupMemberSearch } from '../../hooks/queries/useGroupMemberSearch'
 import { useUserGroups } from '../../hooks/queries/useUserGroups'
 import type { ContactSummary, ContactTypeFilter } from '../../types/contact'
 
@@ -206,6 +210,53 @@ function SearchScopeChip({ name, onClear, className }: { name: string; onClear: 
   )
 }
 
+/**
+ * 결과 건수를 스크린리더에 알리는 안내(WP-1943, SC 4.1.3).
+ * 그룹 조회 훅을 여기서 호출해 조회 상태 변화로 페이지 전체가 아니라 이 컴포넌트만 다시 그린다.
+ * 그룹 검색·상세는 GroupContactView 와 같은 쿼리 키라 캐시를 공유한다(검색어가 비면 꺼짐).
+ * 상세가 실패하면 화면에 오류가 보이므로 검색이 성공해도 안내하지 않는다.
+ * 그룹 보기는 검색어가 없으면 안내할 결과가 없어 ready 가 거짓이다.
+ */
+function ContactResultStatus({
+  groupId,
+  search,
+  shownQuery,
+  type,
+  organization,
+  title,
+  searching,
+  itemCount,
+  hasNextPage,
+  listReady,
+}: {
+  groupId: number | null
+  search: string
+  shownQuery: string
+  type: ContactTypeFilter
+  organization: string
+  title: string
+  searching: boolean
+  itemCount: number
+  hasNextPage: boolean
+  listReady: boolean
+}) {
+  const groupFound = useGroupMemberSearch(groupId ?? 0, groupId != null ? search : '')
+  const groupDetail = useUserGroupDetail(groupId)
+  const { key, ready, text } =
+    groupId != null
+      ? {
+          key: `group|${groupId}|${shownQuery}`,
+          ready: shownQuery !== '' && groupDetail.isSuccess && groupFound.isSuccess && !groupFound.isFetching && !groupFound.isPlaceholderData,
+          text: contactResultAnnouncement({ mode: 'group', count: groupFound.data?.length ?? 0 }),
+        }
+      : {
+          key: `list|${shownQuery}|${type}|${organization}|${title}`,
+          ready: listReady,
+          text: contactResultAnnouncement({ mode: 'list', count: itemCount, more: hasNextPage, searching, favorite: type === 'FAVORITE' }),
+        }
+  return <ResultStatus conditionKey={key} ready={ready} text={text} testId="contact-result-status" />
+}
+
 /** 통합 연락처 목록 + 마스터-디테일. 보기(type·group)는 ContactSidebar 와 URL searchParams 로 공유하고, 검색(q)은 목록 위 키워드 필터 줄이 쓴다(WP-976, WP-1355). */
 export function ContactsPage() {
   const [params, setParams] = useSearchParams()
@@ -366,6 +417,20 @@ export function ContactsPage() {
         )}
         {/* 본문 — 목록·상세 마스터-디테일이라 스크롤·여백은 각 칸이 소유(padded=false), 행은 px-4 페이지 여백. */}
         <Page.Body padded={false}>
+          {/* 결과 안내(WP-1943, SC 4.1.3) — live region 은 바뀌기 전에 이미 있어야 읽히므로 분기 밖에 늘 두고,
+              좁은 화면에서 display:none 이 되는 목록 칸이 아닌 Body 직속에 둔다. */}
+          <ContactResultStatus
+            groupId={groupId}
+            search={search}
+            shownQuery={shownQuery}
+            type={type}
+            organization={organization}
+            title={title}
+            searching={searching}
+            itemCount={items.length}
+            hasNextPage={!!hasNextPage}
+            listReady={contactsQuery.isSuccess && !contactsQuery.isFetching}
+          />
           {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
           <div
             className={cn(
