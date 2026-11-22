@@ -23,7 +23,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
-import { contactResultAnnouncement } from '@/lib/contactResultAnnouncement'
+import { contactResultAnnouncement, contactResultKey } from '@/lib/contactResultAnnouncement'
 import { failedWithoutData } from '@/lib/queryFailure'
 import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
 import { andParticle, cn } from '@/lib/utils'
@@ -210,25 +210,8 @@ function SearchScopeChip({ name, onClear, className }: { name: string; onClear: 
   )
 }
 
-/**
- * 결과 건수를 스크린리더에 알리는 안내(WP-1943, SC 4.1.3).
- * 그룹 조회 훅을 여기서 호출해 조회 상태 변화로 페이지 전체가 아니라 이 컴포넌트만 다시 그린다.
- * 그룹 검색·상세는 GroupContactView 와 같은 쿼리 키라 캐시를 공유한다(검색어가 비면 꺼짐).
- * 상세가 실패하면 화면에 오류가 보이므로 검색이 성공해도 안내하지 않는다.
- * 그룹 보기는 검색어가 없으면 안내할 결과가 없어 ready 가 거짓이다.
- */
-function ContactResultStatus({
-  groupId,
-  search,
-  shownQuery,
-  type,
-  organization,
-  title,
-  searching,
-  itemCount,
-  hasNextPage,
-  listReady,
-}: {
+/** 결과 안내가 쓰는 값 — 목록·그룹 모드가 함께 받는다. */
+type ContactResultStatusProps = {
   groupId: number | null
   search: string
   shownQuery: string
@@ -239,22 +222,76 @@ function ContactResultStatus({
   itemCount: number
   hasNextPage: boolean
   listReady: boolean
-}) {
-  const groupFound = useGroupMemberSearch(groupId ?? 0, groupId != null ? search : '')
+}
+
+/** 모드별 안내 값 — 안내 영역이 아니라 조건 키·준비 여부·문구만 갈라 올린다. */
+type ContactResultStatusValue = {
+  key: string
+  ready: boolean
+  text: string
+}
+
+/**
+ * 결과 건수를 스크린리더에 알리는 안내(WP-1943, SC 4.1.3) — 목록·그룹 모드를 갈라 둔다(리뷰 후속).
+ * <ResultStatus>(role=status live region)는 늘 하나만 마운트해 두고 모드별 값(훅)은 {key, ready, text} 만 계산한다 —
+ * 스크린리더는 미리 등록되지 않은 live region 의 글을 자주 읽지 않아, 모드 전환 때 영역이 새로 만들어지면
+ * 안내가 main(#1614)의 늘 마운트된 영역보다 나빠진다(통합 PR #1622 반려).
+ * 모드가 바뀌면 조건 키가 달라져 안내 영역이 스스로 다시 채운다(첫 키는 읽지 않는다 — 첫 진입 안내 없음은 그대로).
+ */
+function ContactResultStatus(props: ContactResultStatusProps) {
+  const list = useListResultStatus(props)
+  const group = useGroupResultStatus(props)
+  // 훅은 늘 같은 순서로 부르고, 모드는 여기서만 가른다(모드별 값은 DOM 없이 계산만 한다).
+  const status = props.groupId != null ? group : list
+  return (
+    <ResultStatus conditionKey={status.key} ready={status.ready} text={status.text} testId="contact-result-status" />
+  )
+}
+
+/**
+ * 통합 목록 모드 안내 값 — 조회를 부르지 않고 지금 보이는 목록에서만 계산한다
+ * (그룹 조회 훅이 목록 모드에서 돌지 않게 하는 앞 지적 ③은 이 자리에 없다 — 아래 그룹 값(훅)에서 꺼 둔다).
+ */
+function useListResultStatus(props: ContactResultStatusProps): ContactResultStatusValue {
+  return {
+    key: contactResultKey({
+      mode: 'list',
+      query: props.shownQuery,
+      type: props.type,
+      organization: props.organization,
+      title: props.title,
+    }),
+    ready: props.listReady,
+    text: contactResultAnnouncement({
+      mode: 'list',
+      count: props.itemCount,
+      more: props.hasNextPage,
+      searching: props.searching,
+      favorite: props.type === 'FAVORITE',
+    }),
+  }
+}
+
+/**
+ * 그룹 모드 안내 값(WP-1943, SC 4.1.3) — 그룹 조회 훅을 그룹 모드에서만 켠다(목록 모드에서는 요청이 나가지 않는다).
+ * 그룹 조회·안내는 값만 계산하고 안내 영역은 ContactResultStatus 가 그린다. 그룹 검색·상세는 GroupContactView 와
+ * 같은 쿼리 키라 캐시를 공유한다(검색어가 비면 꺼짐). 상세가 실패하면 화면에 오류가 보이므로 검색이 성공해도 안내하지 않는다.
+ * 그룹 보기는 검색어가 없으면 안내할 결과가 없어 ready 가 거짓이다.
+ */
+function useGroupResultStatus(props: ContactResultStatusProps): ContactResultStatusValue {
+  const groupId = props.groupId
+  const groupFound = useGroupMemberSearch(groupId ?? 0, props.search, groupId != null)
   const groupDetail = useUserGroupDetail(groupId)
-  const { key, ready, text } =
-    groupId != null
-      ? {
-          key: `group|${groupId}|${shownQuery}`,
-          ready: shownQuery !== '' && groupDetail.isSuccess && groupFound.isSuccess && !groupFound.isFetching && !groupFound.isPlaceholderData,
-          text: contactResultAnnouncement({ mode: 'group', count: groupFound.data?.length ?? 0 }),
-        }
-      : {
-          key: `list|${shownQuery}|${type}|${organization}|${title}`,
-          ready: listReady,
-          text: contactResultAnnouncement({ mode: 'list', count: itemCount, more: hasNextPage, searching, favorite: type === 'FAVORITE' }),
-        }
-  return <ResultStatus conditionKey={key} ready={ready} text={text} testId="contact-result-status" />
+  return {
+    key: contactResultKey({ mode: 'group', groupId: groupId ?? 0, query: props.shownQuery }),
+    ready:
+      props.shownQuery !== '' &&
+      groupDetail.isSuccess &&
+      groupFound.isSuccess &&
+      !groupFound.isFetching &&
+      !groupFound.isPlaceholderData,
+    text: contactResultAnnouncement({ mode: 'group', count: groupFound.data?.length ?? 0 }),
+  }
 }
 
 /** 통합 연락처 목록 + 마스터-디테일. 보기(type·group)는 ContactSidebar 와 URL searchParams 로 공유하고, 검색(q)은 목록 위 키워드 필터 줄이 쓴다(WP-976, WP-1355). */
