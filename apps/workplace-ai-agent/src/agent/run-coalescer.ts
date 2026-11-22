@@ -1,11 +1,24 @@
 // WP-1490: 대화(키)마다 실행을 하나만 돌리고, 실행 중에 온 이벤트는 끝난 뒤 가장 최근 것으로 한 번만 다시 실행한다.
 //
-// 잠금은 이 프로세스의 메모리 Map 이다 — 운영 ai-agent 는 Pod 1개라 충분하다.
-// Pod 를 늘리면 Pod 마다 Map 이 따로 생겨 같은 대화가 동시에 돌 수 있으므로, 그때는 API·DB 잠금으로 옮겨야 한다.
+// 잠금은 이 프로세스의 메모리 Map 이다 — Pod 마다 Map 이 따로라 Pod 를 늘리면 같은 대화가 동시에 돌 수 있다.
+// 메시징은 shared-run-coalescer 가 API·DB 공유 임대로 파드 사이에서 하나만 돌리고(WP-1979), 이 메모리 합치기는 그 임대를 못 쓸 때의 대체로 남는다.
 import { trackInflight } from '../graceful-shutdown.js';
 
 /** 한 실행을 기다리는 기본 상한 — 대화형 실행 상한(기본 5분, WORKPLACE_AI_TIMEOUT_MS)보다 넉넉히 둔다. */
 export const DEFAULT_MAX_RUN_MS = 15 * 60 * 1000;
+
+/** 실행 하나를 상한 시간 안에서 기다린다 — 넘으면 오류로 끝난 것으로 본다(멈춘 실행 자체는 끊지 못한다). */
+export async function runWithLimit<E>(run: (event: E) => Promise<unknown>, event: E, maxRunMs: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`실행이 ${maxRunMs}ms 안에 끝나지 않음`)), maxRunMs);
+  });
+  try {
+    await Promise.race([run(event), limit]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** 키 하나의 상태 — 실행 중에 온 가장 최근 이벤트(없으면 null). */
 interface Slot<E> {
@@ -40,19 +53,6 @@ export function createRunCoalescer<E>(
 ): RunCoalescer<E> {
   const slots = new Map<string, Slot<E>>();
 
-  /** 실행 하나를 상한 시간 안에서 기다린다 — 넘으면 오류로 끝난 것으로 본다. */
-  async function runWithLimit(event: E): Promise<void> {
-    let timer: NodeJS.Timeout | undefined;
-    const limit = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`실행이 ${maxRunMs}ms 안에 끝나지 않음`)), maxRunMs);
-    });
-    try {
-      await Promise.race([run(event), limit]);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   /**
    * 키의 실행을 밀린 이벤트가 없을 때까지 차례로 돌린다.
    * WP-1828: 첫 실패를 기억해 키를 비운 뒤 다시 던진다 — 그래야 첫 이벤트의 promise 가 합쳐진 재실행까지 끝난 뒤 정해져
@@ -64,7 +64,7 @@ export function createRunCoalescer<E>(
     let firstErr: unknown;
     while (current) {
       try {
-        await runWithLimit(current);
+        await runWithLimit(run, current, maxRunMs);
       } catch (e) {
         // 오류로 끝나도 밀린 이벤트는 돌리고 키는 정리해야 하므로 여기서 삼킨다.
         onError(current, e);

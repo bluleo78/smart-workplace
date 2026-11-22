@@ -265,6 +265,17 @@ export interface WorkplaceApiClient {
   ): Promise<void>;
   // WP-1828: AI 처리 기록 묶음 전송 — 사용자 대행이 아닌 시스템 호출이라 Internal 토큰만 쓴다.
   reportAiRuns(runs: AiRunRecord[]): Promise<{ accepted: number; dropped: number }>;
+  // WP-1979: 채널·DM 대화별 실행 임대를 파드 사이에서 공유하는 api 호출 — 대행 헤더와 본문 agentId 는 둘 다 key.agentId(서버가 불일치를 403).
+  // token 은 호출부가 미리 만든 소유 토큰(UUID) — 응답을 잃어도 그 토큰으로 반납할 수 있게 보낸다(구버전 api 는 무시).
+  acquireMessagingRun(
+    key: MessagingRunKey,
+    body: { messageId: number; leaseMs: number; event: unknown; token: string },
+  ): Promise<MessagingRunAcquire>;
+  // WP-1979: 임대 반납 — next 는 기다리던 이벤트(없으면 null)이고, 있으면 서버가 임대를 이어서 갱신해 둔 것이다.
+  releaseMessagingRun(
+    key: MessagingRunKey,
+    body: { token: string; leaseMs: number },
+  ): Promise<{ next: unknown | null }>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
@@ -279,6 +290,19 @@ function rangeParams(offset?: number, limit?: number): Record<string, number> {
   if (limit !== undefined) p.limit = limit;
   return p;
 }
+
+// WP-1979: 메시징 AI 대화별 실행 임대 키 — 스레드가 없는 인라인 멘션은 parentMessageId 를 null 로 보낸다(서버가 0 으로 바꾼다).
+export interface MessagingRunKey {
+  channelId: number;
+  parentMessageId: number | null;
+  agentId: number;
+}
+
+// WP-1979: 임대 획득 결과 — ACQUIRED 면 token 을 받고, QUEUED(대기열 적재)·DUPLICATE(이미 처리 중인 메시지)면 실행하지 않는다.
+export type MessagingRunAcquire = { status: 'ACQUIRED'; token: string } | { status: 'QUEUED' | 'DUPLICATE' };
+
+// WP-1979: 임대 호출 한 번의 시간 상한 — 응답 없는 연결에 실행 시작·마무리가 걸리지 않게.
+const MESSAGING_RUN_LEASE_TIMEOUT_MS = 10_000;
 
 export function createWorkplaceApiClient(opts: {
   baseURL?: string;
@@ -528,6 +552,22 @@ export function createWorkplaceApiClient(opts: {
         ...onBehalfOf(agentId),
         timeout: opts.recurringReportTimeoutMs ?? RECURRING_REPORT_TIMEOUT_MS,
       });
+    },
+    async acquireMessagingRun(key, body) {
+      const r = await http.post(
+        '/internal/messaging/agent-runs/acquire',
+        { ...key, ...body },
+        { ...onBehalfOf(key.agentId), timeout: MESSAGING_RUN_LEASE_TIMEOUT_MS },
+      );
+      return r.data as MessagingRunAcquire;
+    },
+    async releaseMessagingRun(key, body) {
+      const r = await http.post(
+        '/internal/messaging/agent-runs/release',
+        { ...key, ...body },
+        { ...onBehalfOf(key.agentId), timeout: MESSAGING_RUN_LEASE_TIMEOUT_MS },
+      );
+      return r.data as { next: unknown | null };
     },
     async reportAiRuns(runs) {
       // X-On-Behalf-Of 없이 Internal 토큰만 — 기본 헤더가 이미 싣는다. 응답 없는 연결에 flush 가 걸리지 않게 10초 상한.

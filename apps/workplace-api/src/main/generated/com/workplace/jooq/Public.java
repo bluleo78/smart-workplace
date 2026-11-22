@@ -118,6 +118,7 @@ import com.workplace.jooq.tables.MessageActionProposal;
 import com.workplace.jooq.tables.MessageAttachment;
 import com.workplace.jooq.tables.MessageLinkPreview;
 import com.workplace.jooq.tables.MessageReaction;
+import com.workplace.jooq.tables.MessagingAgentRun;
 import com.workplace.jooq.tables.MessagingClassifyWatermark;
 import com.workplace.jooq.tables.Milestone;
 import com.workplace.jooq.tables.Notification;
@@ -786,6 +787,11 @@ public class Public extends SchemaImpl {
     public final MessageReaction MESSAGE_REACTION = MessageReaction.MESSAGE_REACTION;
 
     /**
+     * 메시징 AI 대화별 실행 임대 — (채널, 스레드, AI) 하나당 한 행
+     */
+    public final MessagingAgentRun MESSAGING_AGENT_RUN = MessagingAgentRun.MESSAGING_AGENT_RUN;
+
+    /**
      * The table <code>public.messaging_classify_watermark</code>.
      */
     public final MessagingClassifyWatermark MESSAGING_CLASSIFY_WATERMARK = MessagingClassifyWatermark.MESSAGING_CLASSIFY_WATERMARK;
@@ -1278,6 +1284,7 @@ public class Public extends SchemaImpl {
             MessageAttachment.MESSAGE_ATTACHMENT,
             MessageLinkPreview.MESSAGE_LINK_PREVIEW,
             MessageReaction.MESSAGE_REACTION,
+            MessagingAgentRun.MESSAGING_AGENT_RUN,
             MessagingClassifyWatermark.MESSAGING_CLASSIFY_WATERMARK,
             Milestone.MILESTONE,
             Notification.NOTIFICATION,

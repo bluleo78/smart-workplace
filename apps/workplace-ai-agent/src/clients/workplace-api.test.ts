@@ -63,6 +63,60 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(scope.isDone()).toBe(true);
   });
 
+  // WP-1979: 메시징 AI 대화별 실행 임대 — 키·본문을 대행 헤더(key.agentId)와 함께 보낸다. 서버는 본문 agentId 와 헤더가 다르면 403.
+  it('acquireMessagingRun 은 /internal/messaging/agent-runs/acquire 에 키·messageId·leaseMs·event 를 X-On-Behalf-Of 와 함께 보낸다', async () => {
+    const event = { type: 'chat.message.posted', payload: { messageId: 9 } };
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .matchHeader('authorization', 'Internal tk-internal')
+      .post(`${PREFIX}/internal/messaging/agent-runs/acquire`, {
+        channelId: 5,
+        parentMessageId: null,
+        agentId: AGENT_ID,
+        messageId: 9,
+        leaseMs: 60_000,
+        event,
+        token: 'tok-1',
+      })
+      .reply(200, { status: 'ACQUIRED', token: 'tok-1' });
+    const r = await newClient().acquireMessagingRun(
+      { channelId: 5, parentMessageId: null, agentId: AGENT_ID },
+      { messageId: 9, leaseMs: 60_000, event, token: 'tok-1' },
+    );
+    expect(r).toEqual({ status: 'ACQUIRED', token: 'tok-1' });
+    expect(scope.isDone()).toBe(true);
+  });
+
+  it('releaseMessagingRun 은 키·token·leaseMs 를 보내고 next 를 돌려준다', async () => {
+    const next = { type: 'chat.message.posted', payload: { messageId: 10 } };
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .post(`${PREFIX}/internal/messaging/agent-runs/release`, {
+        channelId: 5,
+        parentMessageId: 7,
+        agentId: AGENT_ID,
+        token: 'tok-1',
+        leaseMs: 60_000,
+      })
+      .reply(200, { next });
+    const r = await newClient().releaseMessagingRun(
+      { channelId: 5, parentMessageId: 7, agentId: AGENT_ID },
+      { token: 'tok-1', leaseMs: 60_000 },
+    );
+    expect(r).toEqual({ next });
+    expect(scope.isDone()).toBe(true);
+  });
+
+  it('messaging 임대 호출은 404 를 던진다', async () => {
+    nock(BASE).post(`${PREFIX}/internal/messaging/agent-runs/acquire`).reply(404, {});
+    await expect(
+      newClient().acquireMessagingRun(
+        { channelId: 5, parentMessageId: null, agentId: AGENT_ID },
+        { messageId: 9, leaseMs: 1, event: {}, token: 'tok-1' },
+      ),
+    ).rejects.toThrow();
+  });
+
   // #842: 확인카드 사전검증 — POST /actions/validate 로 actionType+params 를 그대로 보낸다.
   it('validateAction 은 /actions/validate 에 actionType·params 를 보낸다', async () => {
     const scope = nock(BASE)
