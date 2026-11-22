@@ -16,6 +16,7 @@ import com.workplace.calendar.dto.OutlookTagScope;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.jooq.tables.CalendarEvent;
 import com.workplace.jooq.tables.EmailAccount;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -708,6 +709,33 @@ public class CalendarEventRepository {
         .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
         .where(CALENDAR_EVENT.ID.in(eventIds))
         .execute();
+  }
+
+  /**
+   * 일정들의 시작·종료 시각을 이동량만큼 함께 옮긴다(WP-1927) — 「전체 일정」 끌어 옮기기 때 오버라이드 별도 일정도 같은 양만큼 밀어야, 회차 자리(예외 키)와
+   * 일정 날짜가 어긋나 옛 날짜 일정이 하나 더 남지 않는다. 제목·내용 등 나머지 필드는 그대로 두고 updated_at 만 올린다(버전 비교용). 빈 목록이면 쿼리 없이
+   * 끝낸다.
+   *
+   * <p>시각 덧셈은 읽은 값을 자바에서 계산해 다시 쓴다 — 방언에 따라 타임스탬프 덧셈 식이 달라서다. 같은 delta 라 시작·종료 길이는 그대로라 {@code
+   * ends_at > starts_at} 제약도 유지된다.
+   */
+  public void shiftTimes(Collection<Long> ids, Duration delta) {
+    if (ids == null || ids.isEmpty() || delta == null || delta.isZero()) {
+      return;
+    }
+    // 행을 먼저 읽어 두고 자바에서 더한 뒤 쓴다 — 이미 조회한 결과를 순회하는 중 갱신해도 안전하다.
+    dsl.select(CALENDAR_EVENT.ID, CALENDAR_EVENT.STARTS_AT, CALENDAR_EVENT.ENDS_AT)
+        .from(CALENDAR_EVENT)
+        .where(CALENDAR_EVENT.ID.in(ids))
+        .fetch()
+        .forEach(
+            r ->
+                dsl.update(CALENDAR_EVENT)
+                    .set(CALENDAR_EVENT.STARTS_AT, r.get(CALENDAR_EVENT.STARTS_AT).plus(delta))
+                    .set(CALENDAR_EVENT.ENDS_AT, r.get(CALENDAR_EVENT.ENDS_AT).plus(delta))
+                    .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
+                    .where(CALENDAR_EVENT.ID.eq(r.get(CALENDAR_EVENT.ID)))
+                    .execute());
   }
 
   /**

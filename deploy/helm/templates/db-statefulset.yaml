@@ -39,6 +39,10 @@ spec:
       containers:
         - name: postgres
           image: {{ $dbImage | quote }}
+          # 이미지 entrypoint 가 인자를 postgres 로 넘기므로 -c 로 시작한다(WP-1972)
+          args:
+            - "-c"
+            - {{ printf "max_connections=%d" (int .Values.db.maxConnections) | quote }}
           ports:
             - containerPort: 5432
               name: postgres

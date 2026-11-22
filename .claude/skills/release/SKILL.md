@@ -15,9 +15,9 @@ description: Gen:iA Works(smart-workplace) 릴리스를 준비한다 — `/relea
 
 ```sh
 git fetch origin --tags
-git worktree add .claude/worktrees/release-next -b release/next main   # 핫픽스는 4절
+git worktree add .claude/worktrees/release-next -b release/next origin/green   # green 에서 딴다(아래). 핫픽스는 4절
 cd .claude/worktrees/release-next
-node deploy/release/prepare.mjs plan            # 기준 = 조상 중 가장 높은 vX.Y.Z 태그
+node deploy/release/prepare.mjs plan            # to = HEAD(=origin/green), 기준 = 조상 중 가장 높은 vX.Y.Z 태그
 # 첫 전환 전(v* 태그 없음): node deploy/release/prepare.mjs plan --base <운영 이미지 커밋> --base-version 0.8.0
 ```
 
@@ -26,7 +26,7 @@ node deploy/release/prepare.mjs plan            # 기준 = 조상 중 가장 높
 - `conflict` 가 있으면(제안 버전의 태그가 이미 있음) 멈추고 알린다 — 대개 로컬 main 이 뒤처졌다(`git fetch`).
 - 이슈 키는 커밋 제목과 본문 `Refs:` 줄에서만 모은다.
 - `to` 는 이 릴리스에 담을 마지막 커밋이다. 노트 커밋은 이 커밋 바로 위에 올리고, 태그는 노트 커밋에 찍는다(그 사이 main 에 들어온 다른 머지가 섞이지 않게).
-- `local main` 이 `origin/main` 보다 앞서 있으면(`git log origin/main..main`) 그 커밋도 범위에 든다 — 그대로 내보낼지 사용자에게 알린다.
+- **릴리스는 `origin/green` 에서 한다**(WP-2003). 개발 PR 은 push 게이트 없이 main 에 바로 머지되고, 검토자 AI 가 main 을 풀테스트해 통과한 커밋으로만 `green` 을 fast-forward 한다 — main 끝은 아직 검증 전이라 깨져 있을 수 있다. 그래서 `to` 는 `origin/green` 이고, `origin/green..origin/main` 의 커밋은 다음 릴리스로 넘긴다(몇 개 남았는지 사용자에게 알린다). green 이 지난 태그에서 움직이지 않았으면(`git log v<지난 버전>..origin/green` 이 노트 커밋뿐) 낼 것이 없다고 알리고 멈춘다. `origin/green` 이 없을 때만 main 에서 딴다.
 
 ## 2. 노트 초안
 

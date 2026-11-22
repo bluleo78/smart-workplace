@@ -111,6 +111,30 @@ class IssueCycleServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void replace_duplicateIds_stillValid() {
+    Long owner = createUser("od");
+    ProjectResponse p = newProject(owner, "IF");
+    var c1 = newCycle(owner, p, "D1");
+    int number = newIssue(owner, p, "T");
+
+    var after = issueCycleService.replace(owner, p.key(), number, List.of(c1.id(), c1.id()));
+    assertThat(after).extracting("id").containsExactly(c1.id());
+  }
+
+  @Test
+  void replace_emptyOrNull_detachesAll() {
+    Long owner = createUser("oe");
+    ProjectResponse p = newProject(owner, "IG");
+    var c1 = newCycle(owner, p, "E1");
+    int number = newIssue(owner, p, "T");
+    issueCycleService.replace(owner, p.key(), number, List.of(c1.id()));
+
+    assertThat(issueCycleService.replace(owner, p.key(), number, List.of())).isEmpty();
+    issueCycleService.replace(owner, p.key(), number, List.of(c1.id()));
+    assertThat(issueCycleService.replace(owner, p.key(), number, null)).isEmpty();
+  }
+
+  @Test
   void replace_with_cycle_from_other_project_throws_400() {
     Long owner = createUser("o2");
     ProjectResponse p1 = newProject(owner, "ID");

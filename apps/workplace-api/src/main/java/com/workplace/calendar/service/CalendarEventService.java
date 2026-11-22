@@ -1156,7 +1156,9 @@ public class CalendarEventService {
       OffsetDateTime occurrenceDate,
       OffsetDateTime expectedUpdatedAt) {
     CalendarEventResponse target =
-        lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate).target();
+        lockAndRecheckOccurrence(
+                callerId, id, scope, occurrenceDate, isShiftRequest(scope, occurrenceDate, req))
+            .target();
     // 로컬 일정의 버전 비교는 여기 한 곳뿐이다 — 잠금 아래에서 보므로 거의 동시에 들어온 두 저장 중 뒤의 것은 앞 저장이 올린
     // updatedAt 을 읽고 막힌다(WP-1920).
     requireVersion(callerId, target, occurrenceDate, expectedUpdatedAt);
@@ -1170,11 +1172,13 @@ public class CalendarEventService {
       // 「전체 일정」은 대상 회차를 옮긴 만큼만 시리즈 전체를 밀어 재기준하지 않는다(WP-1915).
       // 반복 해제(req 에 RRULE 없음)·occurrenceDate 없는 ALL 은 이동량 재조립 대상이 아니다 — 조건이 없으면
       // delta 0 이어도 마스터 기준일로 재조립돼 편집한 회차가 아니라 시리즈 첫 회차로 일정이 끌려간다.
-      CalendarEventRequest writeReq =
-          isShiftedAllScope(target, req, scope, occurrenceDate)
-              ? shiftAllScope(target, req, occurrenceDate)
-              : req;
+      boolean shifted = isShiftedAllScope(target, req, scope, occurrenceDate);
+      CalendarEventRequest writeReq = shifted ? shiftAllScope(target, req, occurrenceDate) : req;
       repo.update(id, writeReq);
+      // 마스터와 같은 tx 안에서 — 부분 적용을 남기지 않는다(옮기는 대상·이유는 shiftOccurrenceArtifacts javadoc).
+      if (shifted) {
+        shiftOccurrenceArtifacts(id, Duration.between(occurrenceDate, req.startsAt()));
+      }
       boolean scheduleChanged =
           !target.startsAt().equals(writeReq.startsAt())
               || !Objects.equals(target.recurrenceRule(), writeReq.recurrenceRule());
@@ -1521,7 +1525,7 @@ public class CalendarEventService {
    */
   private void doDeleteLocal(
       long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
-    LockedTarget locked = lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate);
+    LockedTarget locked = lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate, false);
     CalendarEventResponse target = locked.target();
 
     // override 별도 일정 자신의 id 를 occurrenceDate 없이(=scope 인지 못하고 "독립 삭제"로) 요청받은 경우(#816).
@@ -2083,9 +2087,10 @@ public class CalendarEventService {
     // 대상 행은 한 번만 읽어 회차 식별자 판정·이동 뒤 규칙 검증·외부 컨텍스트 해석에 함께 쓴다.
     CalendarEventResponse cur =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
-    requireOccurrenceDateIfRecurring(cur, scope, occurrenceDate);
-    // 이동 뒤 조합(새 시작 + 옮긴 UNTIL)으로 검증한다 — 이동 전 req.startsAt 기준이면 UNTIL 이 겹쳐 맞는 이동도 400 으로 막혔다
-    // (WP-1915 반려 2). 이동 요청이어도 대상이 반복 행이 아니면(단일 일정) 요청 그대로 본다.
+    requireOccurrenceDateIfRecurring(cur, scope, occurrenceDate, maybeShift);
+    // 이동 뒤 조합(새 시작 + 옮긴 규칙)으로 검증한다 — 이동 전 req.startsAt 기준이면 UNTIL 이 겹쳐 맞는 이동도 400 으로 막혔다
+    // (WP-1915 반려 2). 규칙 후보의 전개 견적 검증(WP-1927)도 seriesShift 안에서 먼저 걸려, 옮길 수 없는 반복 규칙의 이동은
+    // 쓰기가 일어나기 전에 여기서 400 이 나온다. 이동 요청이어도 대상이 반복 행이 아니면(단일 일정) 요청 그대로 본다.
     if (isShiftedAllScope(cur, req, scope, occurrenceDate)) {
       SeriesShift shift = seriesShift(cur, req, occurrenceDate);
       validateRecurrence(shift.recurrenceRule(), shift.start());
@@ -2193,11 +2198,15 @@ public class CalendarEventService {
    * 갈래)가 같은 역조회를 잠금 밖에서 다시 하지 않게 한다.
    */
   private LockedTarget lockAndRecheckOccurrence(
-      long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
+      long callerId,
+      long id,
+      EditScope scope,
+      OffsetDateTime occurrenceDate,
+      boolean shiftRequest) {
     Optional<MasterOccurrence> master = lockSeriesFor(id, true);
     CalendarEventResponse target =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
-    requireOccurrenceDateIfRecurring(target, scope, occurrenceDate);
+    requireOccurrenceDateIfRecurring(target, scope, occurrenceDate, shiftRequest);
     return new LockedTarget(target, master);
   }
 
@@ -2247,6 +2256,12 @@ public class CalendarEventService {
     return master;
   }
 
+  /** 삭제·범위 없는 전체 교체처럼 이동이 아닌 호출이 쓰는 형태 — 이동이 아닐 때만 취소 회차를 그대로 통과시킨다. */
+  private void requireOccurrenceDateIfRecurring(
+      CalendarEventResponse target, EditScope scope, OffsetDateTime occurrenceDate) {
+    requireOccurrenceDateIfRecurring(target, scope, occurrenceDate, false);
+  }
+
   /**
    * 회차 식별자 필요 여부 판정 — doUpdateLocal/doDeleteLocal 의 분기 조건을 그대로 미러링한다. 단일 일정은 마스터 행 전체를 다루므로
    * occurrenceDate 가 필요 없다. scope=ALL 은 occurrenceDate 없이도 쓰므로(시리즈 전체 삭제) 요구하지 않되, 주면 실제 회차여야 한다 —
@@ -2254,9 +2269,15 @@ public class CalendarEventService {
    *
    * <p>#816 의 "오버라이드 일정 직접 삭제" 경로도 이 조건에 포섭된다 — 오버라이드 일정은 withoutRecurrence 로 만들어져
    * recurrenceRule=null 이기 때문.
+   *
+   * @param shiftRequest 「전체 일정」 끌어 옮기기 요청인지 — 옮길 때만 취소 회차 거절을 한다(WP-1927). 삭제·범위 없는 전체 교체는
+   *     occurrenceDate 를 기준일로만 쓰므로 취소 회차도 그대로 통과시킨다.
    */
   private void requireOccurrenceDateIfRecurring(
-      CalendarEventResponse target, EditScope scope, OffsetDateTime occurrenceDate) {
+      CalendarEventResponse target,
+      EditScope scope,
+      OffsetDateTime occurrenceDate,
+      boolean shiftRequest) {
     if (target.recurrenceRule() == null) {
       return;
     }
@@ -2272,6 +2293,12 @@ public class CalendarEventService {
     if (!expander.producesOccurrence(
         target.recurrenceRule(), target.startsAt(), occurrenceDate.toInstant())) {
       throw new IllegalArgumentException("반복 일정에 없는 회차입니다. 회차 날짜(occurrenceDate)를 확인해 주세요");
+    }
+    // 이미 취소된 회차는 「전체 일정」 이동의 기준이 될 수 없다(WP-1927) — 취소를 출발점으로 삼으면 이동량이 그 회차에 다시 붙어
+    // 취소 기록이 어긋나고, 시리즈가 사라진 회차를 기준으로 전체가 밀린다. 사전검증과 실행 두 곳이 같은 술어를 쓰므로 확인 카드와
+    // 실행의 판정이 어긋나지 않는다(WP-1915 반려 3).
+    if (shiftRequest && exceptionRepo.isCancelled(target.id(), occurrenceDate)) {
+      throw new IllegalArgumentException("취소된 회차는 옮길 수 없습니다 — 회차 날짜를 확인해 주세요");
     }
   }
 
@@ -2358,14 +2385,42 @@ public class CalendarEventService {
   }
 
   /**
-   * 「전체 일정」 이동이 마스터에 적용된 뒤의 (시작, RRULE) — 대상 회차를 occurrenceDate 에서 req.startsAt 으로 옮긴 만큼 기준일을 밀고,
-   * UNTIL 도 같은 이동량만큼 옮긴다(WP-1915 반려 1: UNTIL 을 그대로 두면 앞으로 옮긴 시리즈에서 마지막 회차가 잘린다).
+   * 「전체 일정」 이동이 마스터에 적용된 뒤의 (시작, RRULE) — 대상 회차를 occurrenceDate 에서 req.startsAt 으로 옮긴 만큼 기준일을
+   * 밀고(WP-1915 반려 1), 규칙은 이동량을 따라가는 후보 중 전개 견적 검증에 통과한 것을 쓴다(WP-1927).
+   *
+   * <p>후보 1 은 UNTIL 만 옮긴 원문 — 요일·날짜 파트가 없는 규칙은 전개가 DTSTART 에 묶여 이동량을 그대로 따른다. 후보 2 는 {@link
+   * RecurrenceExpander#shiftRule} 로 BYDAY·BYMONTHDAY 까지 옮긴 규칙(옮길 수 없는 이동이면 없음). 두 후보를 모두 {@link
+   * RecurrenceExpander#shiftsBy} 로 견본 뒤 통과한 것을 쓰고, 둘 다 탈락하면 IllegalArgumentException — 회차가 이동량과
+   * 어긋나는 규칙을 그대로 쓰면 앞 회차가 사라지고 새 회차가 생긴다.
+   *
+   * <p>사전검증(checkUpdatable)과 실행(shiftAllScope)이 이 메서드 하나를 공유하므로 확인 카드와 실행의 판정이 어긋나지 않는다 (WP-1915 반려
+   * 2·3 의 원칙).
    */
-  private static SeriesShift seriesShift(
+  private SeriesShift seriesShift(
       CalendarEventResponse master, CalendarEventRequest req, OffsetDateTime occurrenceDate) {
     Duration delta = Duration.between(occurrenceDate, req.startsAt());
-    return new SeriesShift(
-        master.startsAt().plus(delta), RecurrenceExpander.shiftUntil(req.recurrenceRule(), delta));
+    OffsetDateTime oldStart = master.startsAt();
+    OffsetDateTime newStart = oldStart.plus(delta);
+    String oldRule = req.recurrenceRule();
+    // 후보 1 — UNTIL 만 옮긴 원문.
+    String candidate1 = RecurrenceExpander.shiftUntil(oldRule, delta);
+    // 후보 2 — 요일·날짜 파트까지 옮긴 규칙. 옮길 수 없는 이동(서브일 단위 이동·nth 요일 등)이면 후보를 만들지 않고
+    // 후보 1 의 견적 검증으로 넘긴다 — 후보 1 이 맞는 이동(예: 같은 요일에 3시간 밀기)은 그대로 통과한다.
+    String candidate2 = null;
+    try {
+      candidate2 = RecurrenceExpander.shiftRule(oldRule, delta, newStart);
+    } catch (IllegalArgumentException unshiftable) {
+      // 후보 2 없음 — 아래 후보 1 검증이 곧 판정이다.
+    }
+    if (expander.shiftsBy(oldRule, oldStart, candidate1, newStart, delta)) {
+      return new SeriesShift(newStart, candidate1);
+    }
+    if (candidate2 != null
+        && !candidate2.equals(candidate1)
+        && expander.shiftsBy(oldRule, oldStart, candidate2, newStart, delta)) {
+      return new SeriesShift(newStart, candidate2);
+    }
+    throw new IllegalArgumentException(RecurrenceExpander.SHIFT_RULE_MESSAGE);
   }
 
   /** 이동이 마스터에 적용된 뒤의 시작·규칙 한 짝. */
@@ -2381,7 +2436,7 @@ public class CalendarEventService {
    * 뒤 재검증에서 보고, 규칙은 checkUpdatable 이 {@link #seriesShift} 로 만든 이동 뒤 조합으로 본다. 두 곳에서 한 번씩만 검사해야 확인
    * 카드와 실행이 어긋나지 않는다.
    */
-  private static CalendarEventRequest shiftAllScope(
+  private CalendarEventRequest shiftAllScope(
       CalendarEventResponse master, CalendarEventRequest req, OffsetDateTime occurrenceDate) {
     SeriesShift shift = seriesShift(master, req, occurrenceDate);
     OffsetDateTime newEnd = shift.start().plus(Duration.between(req.startsAt(), req.endsAt()));
@@ -2398,6 +2453,41 @@ public class CalendarEventService {
         req.attendeeUserIds(),
         req.calendarId(),
         req.tagIds());
+  }
+
+  /**
+   * 「전체 일정」 이동 때 시리즈에 딸린 것들을 같은 이동량만큼 함께 옮긴다(WP-1927) — ① 취소·오버라이드 예외 키, ② 회차 노트 연결 키, ③ 오버라이드 별도
+   * 일정의 시작·종료(이어서 리마인더 재무장). 이동하지 않으면 예외 키가 옛날짜에 남아 취소했던 회차가 되살아나고, 오버라이드 일정과 회차 노트가 어느 회차에도 붙지
+   * 않는다.
+   *
+   * <p>반복이 아닌 일정·이동이 아닌 ALL 편집에서는 부르지 않는다(호출자가 {@link #isShiftedAllScope} 로 가른다). 마스터 {@code
+   * repo.update} 와 같은 tx 안에서만 불려 부분 적용을 남기지 않는다.
+   */
+  private void shiftOccurrenceArtifacts(long masterId, Duration delta) {
+    if (delta == null || delta.isZero()) {
+      return;
+    }
+    // ① 예외 행 키 — 취소는 키만 옮기면 되고, 오버라이드는 ③ 과 함께 옮긴다.
+    exceptionRepo.shiftOccurrenceDates(masterId, delta);
+    // ② 회차 노트 연결 키 — 회차 없는 단일 일정 연결(occurrence_start null)은 저장소가 건드리지 않는다.
+    noteRepo.shiftOccurrenceStarts(masterId, delta);
+    // ③ 오버라이드 별도 일정 — 키만 옮기고 시각을 두면 그 회차 자리에 옛 날짜 일정이 하나 더 남는다.
+    List<Long> overrides = exceptionRepo.overrideEventIds(masterId);
+    if (overrides.isEmpty()) {
+      return;
+    }
+    repo.shiftTimes(overrides, delta);
+    // 리마인더는 옮긴 뒤의 시각으로 다시 건다 — 그대로 두면 발화 시각이 옛날짜에 남는다. 오버라이드 일정은 마스터와 같은 주인이므로
+    // 마스터 owner 로 읽는다(쓰기 가드는 이미 통과한 상태).
+    long owner =
+        repo.findOwnerId(masterId).orElseThrow(() -> new CalendarEventNotFoundException(masterId));
+    for (long overrideId : overrides) {
+      CalendarEventResponse moved =
+          repo.findById(owner, overrideId)
+              .orElseThrow(() -> new CalendarEventNotFoundException(overrideId));
+      // 오버라이드 일정은 항상 단일 일정이라 규칙은 null — 시작 시각 기준으로 리마인더를 다시 무장한다.
+      applyReminder(overrideId, moved.reminderMinutes(), moved.startsAt(), null, true);
+    }
   }
 
   /**

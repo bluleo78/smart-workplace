@@ -24,6 +24,10 @@ describe('ResultStatus', () => {
     expect(el().getAttribute('aria-live')).toBe('polite')
     expect(el().getAttribute('aria-atomic')).toBe('true')
     expect(el().className).toContain('sr-only')
+    // WP-1862 관례 — 스크롤·레이아웃에 영향 주지 않게 고정 위치(WP-1943 리뷰 후속).
+    expect(el().className).toContain('fixed')
+    expect(el().className).toContain('top-0')
+    expect(el().className).toContain('left-0')
   })
 
   it('키가 바뀌고 준비되면 채운다', async () => {

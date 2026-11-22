@@ -181,6 +181,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   // WP-1902 — 출처 칩 id. 이름·meta 가 출처를 말하지 않는 행(메시지)만 설명에 잇는다(attentionDescribedBy).
   const focusChipId = `${metaIdBase}-focus-chip`
   const focusMetaId = `${metaIdBase}-focus`
+  const focusAiId = `${metaIdBase}-focus-ai`
   // 행을 만드는 소스 중 실패한 것(WP-865) — 하나라도 실패하면 0건이어도 「다 확인했습니다」라고 말할 수 없고,
   // 행이 있어도 빠진 소스가 있음을 알린다. AI 우선순위(priority)는 정렬 점수만 주고 행을 만들지 않아(없으면 고정 순위로 폴백) 넣지 않는다.
   // 다시 시도는 실패한 소스만 다시 부른다.
@@ -280,11 +281,13 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
               {(() => {
                 const f = top[0]
                 const FIcon = SOURCE_ICON[f.source]
+                const focusDescribedBy = attentionDescribedBy(f, focusChipId, focusMetaId)
                 const linkEl = (
                   <Link
                     to={f.to}
                     aria-label={f.ariaLabel}
-                    aria-describedby={attentionDescribedBy(f, focusChipId, focusMetaId)}
+                    // WP-1938: 포커스 카드는 「AI 발굴」 라벨이 카드 위에 보이므로 리스트 행(칩 → AI → meta)과 달리 맨 앞에 잇는다.
+                    aria-describedby={f.isAi ? `${focusAiId} ${focusDescribedBy}` : focusDescribedBy}
                     data-testid="dashboard-attention-focus"
                     className="flex items-center gap-3 rounded-lg border border-ai-accent bg-ai-accent-subtle px-3 py-2.5 hover:bg-ai-accent-subtle/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
@@ -298,7 +301,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                 )
                 // AI 발굴 신호가 있을 때만 AiContent 아우라 추가(aiReason 이 있는 대화 행).
                 return f.isAi ? (
-                  <AiContent label="AI 발굴" data-testid="dashboard-synthesis-ai-focus">
+                  <AiContent label="AI 발굴" labelId={focusAiId} data-testid="dashboard-synthesis-ai-focus">
                     {linkEl}
                   </AiContent>
                 ) : linkEl
@@ -311,12 +314,13 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                     const metaId = `${metaIdBase}-${i}`
                     // WP-1902 — 출처 낱말이 이름·meta 에 없을 때만 칩을 설명에 잇는다(attentionDescribedBy, 시각 순: 칩 → meta).
                     const chipId = `${metaIdBase}-chip-${i}`
+                    const aiId = `${metaIdBase}-ai-${i}`
                     return (
                       <li key={r.key}>
                         <Link
                           to={r.to}
                           aria-label={r.ariaLabel}
-                          aria-describedby={attentionDescribedBy(r, chipId, metaId)}
+                          aria-describedby={attentionDescribedBy(r, chipId, metaId, aiId)}
                           className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                         >
                           <span id={chipId} className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -324,6 +328,13 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                             {r.source}
                           </span>
                           <span className="truncate">{r.title}</span>
+                          {/* WP-1938 — 색만으로 AI 를 가리지 않도록 AI 아이콘 + 읽히는 「AI 발굴」(링크 설명에 이어짐). */}
+                          {r.isAi && (
+                            <span id={aiId} data-testid="dashboard-attention-ai-mark" className="inline-flex shrink-0 items-center">
+                              <AiIcon aria-hidden="true" className="size-3 text-ai-accent" />
+                              <span className="sr-only">AI 발굴</span>
+                            </span>
+                          )}
                           {/* AI 발굴 신호 행은 meta 를 ai-accent 로 강조. */}
                           <span id={metaId} className={`ml-auto shrink-0 text-xs ${r.isAi ? 'text-ai-accent' : 'text-muted-foreground'}`}>{r.meta}</span>
                         </Link>

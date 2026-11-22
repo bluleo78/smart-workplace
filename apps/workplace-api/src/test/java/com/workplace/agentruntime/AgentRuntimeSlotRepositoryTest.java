@@ -281,7 +281,7 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
         List.of(new RunnerObservedAgent(agent, null, "RUNNING", null, null, null, startedAt)));
   }
 
-  /** runner 가 관찰한 started_at 이 보고한 Pod 시작보다 늦으면(새 Pod) 보고한 값을 비운다 — 같은 값·더 이른 값이면 그대로(WP-1958). */
+  /** runner 가 관찰한 started_at 이 보고한 Pod 시작보다 30초 넘게 늦으면 보고한 값을 비운다 — 더 이른 값이면 그대로(WP-1958). */
   @Test
   void updateObserved_newStartedAt_clearsReportedPodStart() {
     observe(T0);
@@ -305,6 +305,29 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
 
     assertThat(settings.find(agent).orElseThrow().reportedPodStartedAt().toInstant())
         .isEqualTo(T2.toInstant());
+  }
+
+  /** 보고값이 관찰값보다 시계 여유(30초) 안에서 앞서면 비우지 않는다 — 경계 30초는 안이다(WP-1958). */
+  @Test
+  void updateObserved_withinGrace_keepsReportedPodStart() {
+    observe(T1);
+    settings.raiseReportedPodStart(agent, T1.minusSeconds(30));
+
+    observe(T1);
+
+    assertThat(settings.find(agent).orElseThrow().reportedPodStartedAt().toInstant())
+        .isEqualTo(T1.minusSeconds(30).toInstant());
+  }
+
+  /** 보고값이 관찰값보다 여유를 넘게(31초) 앞서면 시작 시각이 그대로여도 비운다(WP-1958). */
+  @Test
+  void updateObserved_beyondGrace_clearsReportedPodStart() {
+    observe(T1);
+    settings.raiseReportedPodStart(agent, T1.minusSeconds(31));
+
+    observe(T1);
+
+    assertThat(settings.find(agent).orElseThrow().reportedPodStartedAt()).isNull();
   }
 
   /** runner 가 순간적으로 started_at 을 null 로 보고(STARTING 등)해도 보고한 Pod 시작 시각은 비우지 않는다. */

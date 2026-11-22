@@ -126,6 +126,215 @@ public class RecurrenceExpander {
     return rrule.substring(0, m.start(2)) + moved + rrule.substring(m.end(2));
   }
 
+  /**
+   * 「전체 일정」 이동이 요일·날짜 규칙을 이동량만큼 따라가지 못할 때의 거절 문구(WP-1927) — {@link #shiftRule}(후보 생성)과 호출자(후보 둘 다
+   * 탈락할 때)가 같은 문구를 써야 확인 카드와 실행의 400 이 어긋나지 않는다.
+   */
+  public static final String SHIFT_RULE_MESSAGE =
+      "이동할 수 없는 반복 규칙입니다 — 요일·날짜 규칙이 이동량을 따르지 못합니다(예: 매월 nth 요일). 이 일정만 옮기거나 규칙을 다시 지정해 주세요";
+
+  /**
+   * BYDAY 요일 순서 — 순환 이동의 기준(MO → TU → … → SU → MO). 2글자씩이라 짝수 위치가 곧 문자 인덱스다(요일 인덱스 = 문자 인덱스 / 2).
+   */
+  private static final String WEEKDAY_ORDER = "MOTUWETHFRSASU";
+
+  /**
+   * 이동량으로 옮길 수 없는 위치 파트(WP-1927) — BYSETPOS·BYWEEKNO·BYYEARDAY·BYMONTH 는 상대 위치나 월에 얽혀 있어 날짜 이동량을
+   * 그대로 반영할 방법이 없어, 이런 파트와 함께 있을 때는 후보 2 를 만들지 않고 거절한다.
+   */
+  private static final Set<String> UNSHIFTABLE_POSITIONAL_PARTS =
+      Set.of("BYSETPOS", "BYWEEKNO", "BYYEARDAY", "BYMONTH");
+
+  /**
+   * 전개 견적 검증 창의 탐색 상한(년) — 유한 규칙(UNTIL·COUNT)의 끝을 찾기에 넉넉한 기간. 무한 규칙은 {@link #SAFETY_CAP} 으로 끊겨 그
+   * 마지막 회차가 곧 「끝」이 된다.
+   */
+  private static final int SHIFT_CHECK_HORIZON_YEARS = 10_000;
+
+  /**
+   * 「전체 일정」 이동량만큼 RRULE 의 요일·날짜 파트를 옮긴 규칙 <b>후보</b>(WP-1927) — {@link #shiftUntil} 로 마스터 시작·UNTIL 을
+   * 옮긴 뒤, BYDAY 요일은 7일 주기로 순환 이동하고(월요일 +1일 → 화요일) BYMONTHDAY 날짜는 이동량을 더한다(15일 +2일 → 17일).
+   *
+   * <p>후보는 그대로 쓰지 않는다 — 호출자가 {@link #shiftsBy} 로 (옛 시작, 옛 규칙) 과 (새 시작, 이 후보) 의 전개를 견본 뒤 통과한 쪽을 쓴다.
+   * 옮길 수 없는 조건에서는 IllegalArgumentException 을 던진다: nth 요일(BYDAY=1MO — 「이달의 첫 월요일 +1일 ≠ 첫 화요일」), 정수
+   * 날짜가 아닌 이동량(요일·날짜를 시간 단위로 못 민다), 그리고 {@link #UNSHIFTABLE_POSITIONAL_PARTS}. 전개가 이동량을 따라가지 못하는
+   * 규칙을 조용히 고치면 회차가 어긋나 앞 회차가 사라지고 새 회차가 생기기 때문이다.
+   *
+   * @param rrule 이동 전 규칙(요청 본문의 원문)
+   * @param delta 이동량
+   * @param newStart 이동 뒤 마스터 시작 — 후보 <b>생성</b>에는 쓰지 않는다(검증은 호출자의 {@link #shiftsBy} 몫). 호출자가 같은 값으로
+   *     견적 검증을 돌릴 수 있게 함께 받는다.
+   * @return 이동량을 반영한 규칙 후보(요일·날짜 파트가 없으면 UNTIL 만 옮긴 원문)
+   * @throws IllegalArgumentException 이동할 수 없는 반복 규칙일 때 — 메시지는 {@link #SHIFT_RULE_MESSAGE}
+   */
+  public static String shiftRule(String rrule, Duration delta, OffsetDateTime newStart) {
+    // a. 빈 규칙·null·제로 이동은 원문 그대로 — 바꿀 이동이 없다.
+    if (rrule == null || rrule.isBlank() || delta == null || delta.isZero()) {
+      return rrule;
+    }
+    // b. UNTIL 을 이동량만큼 옮긴다(WP-1915 반려 1) — 옮기지 않으면 앞으로 끌어도 마지막 회차가 새 범위 밖으로 잘린다.
+    String moved = shiftUntil(rrule, delta);
+    List<String> parts = new ArrayList<>();
+    for (String raw : moved.split(";")) {
+      if (!raw.trim().isEmpty()) {
+        parts.add(raw.trim());
+      }
+    }
+    int bydayIdx = -1;
+    int bymonthdayIdx = -1;
+    for (int i = 0; i < parts.size(); i++) {
+      String key = partKey(parts.get(i));
+      if (key.equals("BYDAY")) {
+        bydayIdx = i;
+      } else if (key.equals("BYMONTHDAY")) {
+        bymonthdayIdx = i;
+      }
+    }
+    // 요일·날짜 파트가 없으면 UNTIL 만 옮긴 규칙이 그 자체로 후보 1 이다 — 전개가 DTSTART 에 묶여 이동량을 그대로 따른다.
+    if (bydayIdx < 0 && bymonthdayIdx < 0) {
+      return moved;
+    }
+    // c. 파트를 옮기려면 이동량이 정수 날짜여야 한다 — 3시간 이동은 요일·날짜를 밀 수 없다.
+    if (!Duration.ofDays(delta.toDays()).equals(delta)) {
+      throw new IllegalArgumentException(SHIFT_RULE_MESSAGE);
+    }
+    // e-1. 그 밖의 위치 파트는 이동량을 따로 옮길 수 없다 — 후보를 만들지 않고 거절한다.
+    for (String part : parts) {
+      if (UNSHIFTABLE_POSITIONAL_PARTS.contains(partKey(part))) {
+        throw new IllegalArgumentException(SHIFT_RULE_MESSAGE);
+      }
+    }
+    long dayDelta = delta.toDays();
+    if (bydayIdx >= 0) {
+      parts.set(bydayIdx, "BYDAY=" + shiftByDayValues(partValue(parts.get(bydayIdx)), dayDelta));
+    }
+    if (bymonthdayIdx >= 0) {
+      parts.set(
+          bymonthdayIdx,
+          "BYMONTHDAY=" + shiftByMonthDayValues(partValue(parts.get(bymonthdayIdx)), dayDelta));
+    }
+    // d. 후보만 만든다 — 실제로 이동량을 따르는지 검증은 호출자가 shiftsBy 로 한다.
+    return String.join(";", parts);
+  }
+
+  /**
+   * BYDAY 값을 한 개씩 dayDelta 만큼 요일 순환 이동한다(WP-1927) — nth 서수(1MO·-1FR)가 붙으면 이동량으로 옮길 수 없어
+   * IllegalArgumentException. 요일이 아닌 값도 넘겨지지 않게 같은 문구로 거절한다.
+   */
+  private static String shiftByDayValues(String value, long dayDelta) {
+    List<String> moved = new ArrayList<>();
+    for (String raw : value.split(",")) {
+      String day = raw.trim().toUpperCase(Locale.ROOT);
+      Matcher m = BYDAY_VALUE.matcher(day);
+      // nth 요일은 「이달의 첫 월요일 +1일」이 첫 화요일이 아니다 — 날짜 이동량으로 대응되는 nth 를 찾을 수 없다.
+      if (!m.matches() || m.group(1) != null) {
+        throw new IllegalArgumentException(SHIFT_RULE_MESSAGE);
+      }
+      int from = WEEKDAY_ORDER.indexOf(day) / 2; // 요일 인덱스(0=MO … 6=SU)
+      int to = (int) Math.floorMod(from + dayDelta, WEEKDAY_ORDER.length() / 2) * 2;
+      moved.add(WEEKDAY_ORDER.substring(to, to + 2));
+    }
+    return String.join(",", moved);
+  }
+
+  /**
+   * BYMONTHDAY 값을 한 개씩 dayDelta 만큼 더한다(WP-1927) — 결과가 1..31 밖이면(예: 31일 +2일 = 33일) 그 달에 없는 날짜라
+   * IllegalArgumentException.
+   */
+  private static String shiftByMonthDayValues(String value, long dayDelta) {
+    List<String> moved = new ArrayList<>();
+    for (String raw : value.split(",")) {
+      String text = raw.trim();
+      if (text.startsWith("+")) {
+        text = text.substring(1);
+      }
+      int day;
+      try {
+        day = Integer.parseInt(text);
+      } catch (NumberFormatException e) {
+        throw new IllegalArgumentException(SHIFT_RULE_MESSAGE, e);
+      }
+      long next = day + dayDelta;
+      if (next < 1 || next > 31) {
+        throw new IllegalArgumentException(SHIFT_RULE_MESSAGE);
+      }
+      moved.add(Long.toString(next));
+    }
+    return String.join(",", moved);
+  }
+
+  /** RRULE 파트의 키(= 앞부분) — 대문자로 맞춰 비교한다(원문 키는 소문자일 수 있다). */
+  private static String partKey(String part) {
+    int eq = part.indexOf('=');
+    return (eq < 0 ? part : part.substring(0, eq)).trim().toUpperCase(Locale.ROOT);
+  }
+
+  /** RRULE 파트의 값(= 뒷부분) — '=' 가 없으면 빈 문자열. */
+  private static String partValue(String part) {
+    int eq = part.indexOf('=');
+    return eq < 0 ? "" : part.substring(eq + 1);
+  }
+
+  /**
+   * 두 규칙이 이동량만큼 어긋나지 않는지 <b>전개 견적</b>으로 검증한다(WP-1927) — 「전체 일정」 이동의 규칙 후보 판정. 규칙 문자열을 머리로 바꾸는 것만으로는
+   * COUNT·UNTIL·월 길이가 얽혀 못 믿으므로, 실제 전개 목록을 견본다.
+   *
+   * <p>옛 규칙과 후보 규칙을 <b>같은 창</b> — {@code min(옛 시작, 새 시작)} 에서 하루 앞부터 두 시리즈의 끝 중 늦은 쪽(+1일)까지, 끝 찾기는
+   * {@link #SHIFT_CHECK_HORIZON_YEARS} 상한, 전개는 {@link #SAFETY_CAP} 한정 — 에서 펼쳐, 두 목록의 길이가 같고 원소가 전부
+   * {@code 새 = 옛 + delta} 일 때만 참을 돌려준다. 창을 같이 쓰므로 무한 규칙은 양쪽이 같은 지점({@link #SAFETY_CAP})에서 잘리고, 유한
+   * 규칙도 회차 수가 상한을 넘으면 그 지점까지만 비교한다.
+   *
+   * @param oldRule 이동 전 규칙
+   * @param oldStart 이동 전 마스터 시작
+   * @param newRule 이동 후 규칙 후보
+   * @param newStart 이동 후 마스터 시작
+   * @param delta 이동량
+   * @return 전개 목록이 길이·원소 모두 이동량만큼 일치하면 참
+   */
+  public boolean shiftsBy(
+      String oldRule,
+      OffsetDateTime oldStart,
+      String newRule,
+      OffsetDateTime newStart,
+      Duration delta) {
+    Duration step = delta == null ? Duration.ZERO : delta;
+    // 두 규칙이 유효한지 먼저 본다 — 손상된 규칙(범위 밖 UNTIL 등)은 전개 도중 런타임 예외를 내어 500 이 되기 때문이다(WP-1590 원칙).
+    // 쓰기 경로의 validateRecurrence 는 후보를 고른 뒤에 오므로, 전개가 먼저 도는 이 자리에서 먼저 걸러야 한다.
+    if (oldRule != null && !oldRule.isBlank()) {
+      validate(oldRule, oldStart);
+    }
+    if (newRule != null && !newRule.isBlank()) {
+      validate(newRule, newStart);
+    }
+    // 창 시작 — 두 시작 중 이른 날에서 하루 앞: 어느 쪽 첫 회차도 창 밖으로 빠지지 않는다.
+    OffsetDateTime from = (oldStart.isBefore(newStart) ? oldStart : newStart).minusDays(1);
+    // 창 끝 후보 — 두 시리즈의 마지막 회차를 같은 창에서 먼저 알아낸다(무한 규칙은 SAFETY_CAP 으로 끊긴 마지막이 곧 끝).
+    OffsetDateTime probeTo =
+        (oldStart.isAfter(newStart) ? oldStart : newStart).plusYears(SHIFT_CHECK_HORIZON_YEARS);
+    OffsetDateTime oldEnd = lastOf(expand(oldRule, oldStart, from, probeTo)).orElse(oldStart);
+    OffsetDateTime newEnd = lastOf(expand(newRule, newStart, from, probeTo)).orElse(newStart);
+    // 늦은 끝을 창에 담도록 하루 더한다 — expand 는 [from, to) 반개 구간이라 끝 회차가 포함되려면 to 가 그보다 커야 한다.
+    OffsetDateTime to = (oldEnd.isAfter(newEnd) ? oldEnd : newEnd).plusDays(1);
+    List<OffsetDateTime> oldOcc = expand(oldRule, oldStart, from, to);
+    List<OffsetDateTime> newOcc = expand(newRule, newStart, from, to);
+    if (oldOcc.size() != newOcc.size()) {
+      return false;
+    }
+    for (int i = 0; i < oldOcc.size(); i++) {
+      if (!newOcc.get(i).toInstant().equals(oldOcc.get(i).plus(step).toInstant())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** 전개 목록의 마지막 회차 — 창에 회차가 하나도 없으면 empty. */
+  private static Optional<OffsetDateTime> lastOf(List<OffsetDateTime> occurrences) {
+    return occurrences.isEmpty()
+        ? Optional.empty()
+        : Optional.of(occurrences.get(occurrences.size() - 1));
+  }
+
   /** RRULE 원문의 COUNT 값 — 없거나 숫자가 아니면 null. 원문 토큰으로 본다(관용 파싱은 잘못된 값을 기본값으로 바꿔 읽는다). */
   public static Integer countOf(String rrule) {
     if (rrule == null) return null;

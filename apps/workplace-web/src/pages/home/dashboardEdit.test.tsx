@@ -3,6 +3,7 @@
 // 표시 이름 40자 상한, 위젯 추가 모달의 선택·카테고리·프리뷰·강조 타이머는 브라우저 없이 판정되므로 e2e/pages/home.spec.ts 에서 옮겼다.
 // 드래그(포인터·키보드 센서)·포커스 복원·lg 경계 리사이즈·좁은 폭 스택·선택 탭 배경색은 그 spec 이 @input·@layout 으로 지킨다.
 import { act, screen, waitFor, within } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { SORTABLE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
@@ -322,4 +323,66 @@ test('위젯 추가 미리보기의 카탈로그 위젯 제목은 대화상자 �
   const preview = within(modal).getByTestId('add-widget-preview')
   expect(await within(preview).findByRole('heading', { level: 3, name: '프로젝트' })).toBeInTheDocument()
   expect([...modal.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['위젯 추가'])
+})
+
+// WP-1957 — 같은 틱 두 클릭은 re-render 전이라 단추 disabled 로는 막히지 않는다.
+// 응답을 붙잡아 두어 두 번째 요청도 기록될 시간을 준다(cycles.test.tsx 와 같은 방식).
+test('저장을 같은 틱에 두 번 눌러도 PUT 은 한 번만 나간다 (WP-1957)', async () => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const puts: DashboardWidgetConfig[][] = []
+  const view = await renderDashboard(layout(['my_tasks', 'unread_mail']), {
+    handlers: [
+      http.put('/api/v1/me/dashboard', async ({ request }) => {
+        const body = (await request.json()) as { widgets: DashboardWidgetConfig[] }
+        puts.push(body.widgets)
+        await gate
+        return HttpResponse.json(body)
+      }),
+    ],
+  })
+  await view.user.click(await screen.findByTestId('dashboard-edit-toggle'))
+  await screen.findByTestId('dashboard-edit-banner')
+  await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down'))
+  const save = screen.getByTestId('dashboard-edit-save')
+  // fireEvent 는 매번 다시 그려 두 번째 클릭이 disabled 에 막힌다 — 같은 틱 두 번 클릭은 act 안에서 dispatch 한다.
+  act(() => {
+    save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  release()
+  await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
+  expect(puts).toHaveLength(1)
+  expect(puts[0]!.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
+})
+
+// WP-1957 — 가드를 성공에서만 풀면 실패 뒤 「저장」 이 조용히 무시된다.
+test('저장이 5xx 로 끝나도 다시 눌러 재시도할 수 있다 (WP-1957)', async () => {
+  let failNext = true
+  const attempts: unknown[] = []
+  const view = await renderDashboard(layout(['my_tasks', 'unread_mail']), {
+    handlers: [
+      http.put('/api/v1/me/dashboard', async ({ request }) => {
+        const body = await request.json()
+        attempts.push(body)
+        if (failNext) {
+          failNext = false
+          return HttpResponse.json({ message: '저장 실패' }, { status: 500 })
+        }
+        return HttpResponse.json(body)
+      }),
+    ],
+  })
+  await view.user.click(await screen.findByTestId('dashboard-edit-toggle'))
+  await screen.findByTestId('dashboard-edit-banner')
+  await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down'))
+  await view.user.click(screen.getByTestId('dashboard-edit-save'))
+  await waitFor(() => expect(attempts).toHaveLength(1))
+  // 편집 모드는 그대로 남아 있어야 재시도할 수 있다.
+  expect(screen.getByTestId('dashboard-edit-banner')).toBeInTheDocument()
+  await view.user.click(screen.getByTestId('dashboard-edit-save'))
+  await waitFor(() => expect(attempts).toHaveLength(2))
+  await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
 })

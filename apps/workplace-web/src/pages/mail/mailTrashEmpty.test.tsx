@@ -326,7 +326,7 @@ test('totalCount 0 이고 목록이 비면 비우기 비활성 + 중립 빈 상�
   // WP-1947: 규격 레이아웃(아이콘+제목+설명).
   const emptyBox = await screen.findByTestId('mail-box-empty')
   expect(emptyBox.querySelector('svg')).not.toBeNull()
-  expect(within(emptyBox).getByText('이 메일함에 메일이 없어요')).toBeInTheDocument()
+  expect(await within(emptyBox).findByText('이 메일함에 메일이 없어요')).toBeInTheDocument()
   // WP-1947 리뷰: 휴지통에는 「메일이 오면 모여요」 같은 받은편지함 문구를 두지 않는다(중립 문구).
   expect(within(emptyBox).queryByText(/여기에 모여요/)).not.toBeInTheDocument()
   await waitFor(() => expect(screen.getByTestId('mail-trash-empty-text')).toHaveTextContent(/^메일 서버 휴지통 0통$/))

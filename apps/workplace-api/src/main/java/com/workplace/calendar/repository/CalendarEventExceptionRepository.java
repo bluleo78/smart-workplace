@@ -2,9 +2,11 @@ package com.workplace.calendar.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR_EVENT_EXCEPTION;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -211,5 +213,37 @@ public class CalendarEventExceptionRepository {
         .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(eventId))
         .and(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE.ge(occurrenceDate))
         .execute();
+  }
+
+  /**
+   * 해당 마스터의 모든 예외 행 키(occurrence_date)를 이동량만큼 옮긴다(WP-1927) — 「전체 일정」 끌어 옮기기가 시리즈를 민 만큼 예외 키도 밀리지
+   * 않으면 취소했던 회차가 원래 자리에 되살아나고, 오버라이드 일정과 키가 어긋나 원본 회차가 하나 더 생긴다.
+   *
+   * <p>먼저 대상 행의 옛 키를 읽어 두고, 각 행을 {@code (event_id, occurrence_date) = 옛 키} 조건으로 새 키 하나씩 갱신한다 — 갱신이
+   * 행마다 자기 키를 조건으로 삼아 중간에 다른 행이 바뀌어도 빠뜨리지 않는다. delta 가 없으면 쿼리 없이 끝낸다.
+   *
+   * <p>갱신 순서는 이동 방향과 반대로 잡는다 — {@code (event_id, occurrence_date)} 유니크라서 이동량이 주기의 배수일 때(주간 시리즈 +7일
+   * 등) 앞 행을 먼저 옮기면 아직 안 옮긴 뒷 행의 자리에 부딪혀 유니크 위반으로 500 이 나기 때문이다. 뒤에서 앞으로 옮기면 그 자리는 이미 비어 있다.
+   */
+  public void shiftOccurrenceDates(long eventId, Duration delta) {
+    if (delta == null || delta.isZero()) {
+      return;
+    }
+    List<OffsetDateTime> oldKeys =
+        dsl.select(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE)
+            .from(CALENDAR_EVENT_EXCEPTION)
+            .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(eventId))
+            .fetch(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE);
+    // 갱신 순서를 이동 방향과 반대로 잡는다 — (event_id, occurrence_date) 유니크라서 이동량이 주기의 배수일 때
+    // (예: 주간 시리즈 +7일) 앞 행을 먼저 옮기면 아직 안 옮긴 뒷 행의 자리에 부딪혀 유니크 위반으로 500 이 난다.
+    // 뒤에서 앞으로 옮기면 그 자리는 이미 비어 있어 한 방향으로 밀어도 충돌이 없다(WP-1927).
+    oldKeys.sort(delta.isNegative() ? Comparator.naturalOrder() : Comparator.reverseOrder());
+    for (OffsetDateTime oldKey : oldKeys) {
+      dsl.update(CALENDAR_EVENT_EXCEPTION)
+          .set(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE, oldKey.plus(delta))
+          .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(eventId))
+          .and(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE.eq(oldKey))
+          .execute();
+    }
   }
 }

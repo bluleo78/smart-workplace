@@ -298,20 +298,33 @@ export function useDashboardEditDraft({ device, savedWidgets, collapseSaving, la
     setLiveMsg(left > 0 ? `마지막 편집을 되돌렸습니다. ${left}단계 더 되돌릴 수 있습니다` : '편집을 시작한 상태로 모두 되돌렸습니다')
   }
 
+  // 저장 재진입 가드 — 단추의 disabled 는 isSaving(렌더)이 켜진 뒤라 같은 틱 두 번째 클릭을 막지 못한다(WP-1957).
+  const saveInFlightRef = useRef(false)
+
   function saveEdit() {
     // 편집 중(시작 기기 화면이고 기준 레이아웃이 있음)일 때만 저장한다 — 기준이 없으면 볼 수 없는 서버 레이아웃을 남은 초안으로
     // 덮어쓴다(WP-1850 리뷰 후속). editDevice 검사는 editing 에 들어 있지만 아래 저장 대상의 타입 좁히기에 필요하다.
     if (!editDevice || !editing) return
+    // 같은 틱 두 번째 클릭은 disabled 가 아직 꺼진 상태로 들어온다 — ref 로 즉시 막는다.
+    // isSaving 은 저장 중 재마운트(lg 경계 리사이즈) 뒤 남아 있는 저장을 막는다(WP-162).
+    if (saveInFlightRef.current || isSaving) return
+    saveInFlightRef.current = true
     // mutate 의 호출별 콜백은 저장 중 Dashboard 가 재마운트(lg 경계 리사이즈)되면 불리지 않아, 이미 저장된 초안으로
     // 편집 모드가 되살아난다. 프라미스로 받아 저장소(셸 밖 provider) 갱신이 재마운트와 무관하게 실행되게 한다(WP-162).
     // 단, 그사이 새 편집 세션이 시작됐으면 그 편집은 건드리지 않는다(session 비교).
     const savedSession = session
     save.mutateAsync({ device: editDevice, widgets: draft }).then(
       () => {
+        // 저장 종료 — 성공·실패 양쪽에서 풀어야 실패 뒤 재시도가 막히지 않는다(WP-1957).
+        saveInFlightRef.current = false
         setStore((s) => (s.session === savedSession ? { ...s, editDevice: null, undoStack: [] } : s))
         setLiveMsg('대시보드 레이아웃을 저장했습니다')
       },
-      (err: unknown) => handleApiError(err, '대시보드 저장에 실패했습니다'),
+      (err: unknown) => {
+        // 저장 종료 — 성공·실패 양쪽에서 풀어야 실패 뒤 재시도가 막히지 않는다(WP-1957).
+        saveInFlightRef.current = false
+        handleApiError(err, '대시보드 저장에 실패했습니다')
+      },
     )
   }
 

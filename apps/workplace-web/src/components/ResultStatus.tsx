@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 
 /**
  * 결과 안내 영역. 화면에는 보이지 않는다.
- * - 첫 렌더의 conditionKey 는 읽지 않는다. 키가 한 번이라도 바뀐 뒤부터 안내한다.
+ * - 첫 렌더의 conditionKey 는 읽지 않는다. 키가 한 번이라도 바뀐 뒤부터 안내한다
+ *   (연락처 목록↔그룹 전환도 키가 달라져 이 규칙으로 안내가 이어진다 — 영역은 늘 하나만 마운트돼 있으므로).
  * - 키가 바뀌면 문구를 먼저 비우고, ready 이면서 text 가 있을 때 한 틱 뒤 채운다 — 같은 문구도 다시 낭독되게 한다.
  * - 같은 키에서 이미 알렸다면 text 가 달라져도 다시 채우지 않는다(조작 중 불쑥 읽히는 것 방지).
  */
@@ -39,7 +40,14 @@ export function ResultStatus({
   }, [canFill, text])
 
   return (
-    <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid={testId}>
+    // fixed top-0 left-0 — 스크롤·레이아웃에 영향 주지 않는 WP-1862 관례(load-more-footer 안내와 같다).
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className="sr-only fixed top-0 left-0"
+      data-testid={testId}
+    >
       {shown}
     </div>
   )

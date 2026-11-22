@@ -143,13 +143,18 @@ function LeadWork({ row, tid }: { row: RosterRow; tid: string }) {
   )
 }
 
-/** 상태 칸 — 대표 상태 배지 + 「n분째」. 모바일 카드는 오른쪽 정렬(align=end). */
+/** 상태 칸 — 대표 상태 배지 + 「n분째」 + (대표가 차단됨이 아닐 때) 「차단 n」. 모바일 카드는 오른쪽 정렬(align=end). */
 function StateCell({ row, tid, now, align = 'start' }: { row: RosterRow; tid: string; now: number; align?: 'start' | 'end' }) {
   const line = sinceLine(row, now)
   return (
     <div className={cn('flex flex-col gap-1', align === 'end' ? 'shrink-0 items-end' : 'items-start')}>
       <RosterStateBadge state={row.state} data-testid={`${tid}-state`} />
       {line && <span className="text-xs text-muted-foreground" data-testid={`${tid}-since`}>{line}</span>}
+      {/* 대표 상태가 차단됨이 아닌데 막힌 행이 있으면 건수를 따로 보인다 — 작업 중인 AI 를 「차단됨」으로 덮지 않으면서
+          막힌 일이 있다는 사실은 숨기지 않는다. 대표 상태가 차단됨이면 배지가 이미 말하므로 세지 않는다. */}
+      {row.state !== 'blocked' && row.blocked > 0 && (
+        <span className="text-xs text-warning-text" data-testid={`${tid}-blocked`}>차단 {row.blocked}</span>
+      )}
     </div>
   )
 }

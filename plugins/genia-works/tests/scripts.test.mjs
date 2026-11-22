@@ -484,6 +484,11 @@ test('bg-job start: 돌고 있으면 새로 띄우지 않고 running 으로 exit
   assert.equal(job(['status', main, 'WP-2']).stdout.trim(), 'none');
 });
 
+/** dash 경로(없으면 빈 문자열). /bin/sh 는 macOS 에서 bash 라, dash 동작(BASH_SOURCE 없음·kill 인자 해석)이 필요한 테스트는 이름으로 부른다. */
+const DASH = spawnSync('sh', ['-c', 'command -v dash']).stdout.toString().trim();
+/** dash 가 필요한 테스트의 옵션 — 없는 컴퓨터에서는 실패가 아니라 까닭과 함께 건너뛴다. */
+const DASH_ONLY = { skip: !DASH && 'dash 가 없다' };
+
 // WP-1207 — dash(우분투 /bin/sh)의 kill 은 `kill -TERM -- <음수>`·`kill -TERM -<pgid>` 같은 꼴을 「Illegal number」로 거절해, stop 이 아무것도
 // 끝내지 못하고 「ok」만 냈다. 위 테스트는 /bin/sh 가 dash 인 곳에서만 이 회귀를 잡는다(macOS 는 bash 라 통과) — 어디서나 잡히게 꼴도 고정한다.
 test('bg-job stop: 어느 sh 에서나 받는 `kill -s <신호> -- <그룹>` 꼴로만 신호를 보낸다 (WP-1207)', () => {
@@ -495,18 +500,16 @@ test('bg-job stop: 어느 sh 에서나 받는 `kill -s <신호> -- <그룹>` 꼴
   assert.ok(!/kill -(?!s\b)[A-Za-z0-9]+\s+(--\s+)?"?-/.test(code), 'dash 가 거절하는 `kill -<신호> [--] -<그룹>` 꼴이 남아 있다');
 });
 
-test('bg-job stop: dash 로 불러도 그룹이 실제로 끝난 뒤에 ok 를 낸다 (WP-1207)', (t) => {
-  const dash = spawnSync('sh', ['-c', 'command -v dash']).stdout.toString().trim();
-  if (!dash) return t.skip('dash 가 없다');
+test('bg-job stop: dash 로 불러도 그룹이 실제로 끝난 뒤에 ok 를 낸다 (WP-1207)', DASH_ONLY, () => {
   const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
   const work = mkdtempSync(join(tmpdir(), 'gw-work-'));
   let pid = '';
   try {
-    const started = spawnSync(dash, [join(scripts, 'bg-job'), 'start', main, 'WP-3', work, '--', 'sleep', '30']);
+    const started = spawnSync(DASH, [join(scripts, 'bg-job'), 'start', main, 'WP-3', work, '--', 'sleep', '30']);
     assert.match(started.stdout.toString(), /^started \d+/);
     pid = readFileSync(join(main, '.work-loop', 'state', 'jobs', 'WP-3.pid'), 'utf8').split('-')[0];
     assert.ok(groupAlive(pid), '띄운 그룹이 돌고 있어야 한다');
-    const r = spawnSync(dash, [join(scripts, 'bg-job'), 'stop', main, 'WP-3']);
+    const r = spawnSync(DASH, [join(scripts, 'bg-job'), 'stop', main, 'WP-3']);
     assert.equal(r.stdout.toString().trim(), 'ok', r.stderr.toString());
     // stop 이 끝날 때까지 기다리므로 ok 를 낸 때 이미 그룹이 없다.
     assert.equal(groupAlive(pid), false, 'dash 로 부른 stop 이 그룹을 끝내지 않고 ok 를 냈다');
@@ -1872,7 +1875,7 @@ for (const [name, manifest] of [
   });
 }
 
-/** 플러그인 밖에서 gw-lib.sh 를 source 하고 gw_plugin_version 을 부른다 — $0 은 셸 이름(sh·bash)이라 scripts/ 가 아니다. */
+/** 플러그인 밖에서 gw-lib.sh 를 source 하고 gw_plugin_version 을 부른다 — $0 은 넘긴 셸(dash 경로·bash·sh)이라 그 폴더에 gw-lib.sh 가 없다. */
 function sourcedPluginVersion(shell, env = {}) {
   const outside = mkdtempSync(join(tmpdir(), 'gw-outside-'));
   return spawnSync(shell, ['-c', '. "$1" && cd / && gw_plugin_version', shell, join(scripts, 'gw-lib.sh')], {
@@ -1882,8 +1885,14 @@ function sourcedPluginVersion(shell, env = {}) {
   });
 }
 
-test('gw_plugin_version: 플러그인 밖에서 source 해도 GW_SCRIPTS 로 gw-lib.sh 자신의 plugin.json 을 읽는다 (WP-1707)', () => {
-  // 작업 공간 lib.sh·lib-codex.sh 처럼 GW_SCRIPTS 를 정하고 source 하는 경우(sh = dash 라 BASH_SOURCE 가 없다).
+test('gw_plugin_version: 플러그인 밖에서 dash 로 source 해도 GW_SCRIPTS 로 gw-lib.sh 자신의 plugin.json 을 읽는다 (WP-1707)', DASH_ONLY, () => {
+  // 작업 공간 lib.sh·lib-codex.sh 처럼 GW_SCRIPTS 를 정하고 source 하는 경우. BASH_SOURCE 가 없는 셸(dash)을 명시해야 한다 — sh 는 macOS 에서 bash 다.
+  const r = sourcedPluginVersion(DASH, { GW_SCRIPTS: scripts });
+  assert.deepEqual([r.status, r.stdout], [0, `${pluginVersion}\n`]);
+});
+
+test('gw_plugin_version: sh 로 source 해도 GW_SCRIPTS 를 주면 plugin.json 을 읽는다 (WP-1962)', () => {
+  // 작업 공간은 sh 로 부른다 — sh 가 무엇이든(dash·bash 의 POSIX 모드·ash) 같은 답이어야 한다. dash 없는 컴퓨터에서도 돈다.
   const r = sourcedPluginVersion('sh', { GW_SCRIPTS: scripts });
   assert.deepEqual([r.status, r.stdout], [0, `${pluginVersion}\n`]);
 });
@@ -1893,8 +1902,8 @@ test('gw_plugin_version: bash 로 source 하면 GW_SCRIPTS 없이도 BASH_SOURCE
   assert.deepEqual([r.status, r.stdout], [0, `${pluginVersion}\n`]);
 });
 
-test('gw_plugin_version: sh 로 source 하고 위치를 알 길이 없으면 아무것도 내지 않는다(헤더 없음) (WP-1707)', () => {
-  const r = sourcedPluginVersion('sh');
+test('gw_plugin_version: dash 로 source 하고 위치를 알 길이 없으면 아무것도 내지 않는다(헤더 없음) (WP-1707)', DASH_ONLY, () => {
+  const r = sourcedPluginVersion(DASH);
   assert.deepEqual([r.status, r.stdout], [1, '']);
 });
 

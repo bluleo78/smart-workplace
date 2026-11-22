@@ -1,10 +1,15 @@
 package com.workplace.agentruntime.service;
 
 import com.workplace.agentruntime.dto.AgentPaneReportRequest;
+import com.workplace.agentruntime.dto.ApplyMode;
+import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
+import com.workplace.agentruntime.repository.VisibleRuntimeState;
+import com.workplace.auth.dto.ManagedKeyChain;
+import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import java.time.OffsetDateTime;
@@ -35,11 +40,16 @@ public class AgentPaneReportService {
 
   private final AgentRuntimeSettingRepository settings;
   private final AgentRuntimeChangeNotifier changeNotifier;
+  private final AgentRuntimeSlotRepository slots;
+  private final AgentSlotStateWriter slotWriter;
+  private final RunnerWakeup wakeup;
+  private final AgentApiKeyService agentKeys;
 
   /**
    * 칸 차단 보고 처리. 순서: 본문 검증(state 는 BLOCKED·OK 만) → 메시지에서 제어 문자 정제(아래 {@link #sanitizeMessage} — 정제 뒤
-   * 공백뿐이면 400) → 테넌트 없으면 조용히 return → 설정 행을 잠가 읽고(없으면 조용히 return) message·시각 기록 → OK 면 칸 비움 → 화면에
-   * 합치는 값이 바뀌었으면 관리자 화면에 알림.
+   * 공백뿐이면 400) → 테넌트 없으면 조용히 return → 설정 행을 잠가 읽고(없으면 조용히 return) generation 거르기({@link
+   * #acceptableGeneration}) → 옛 Pod 보고 거르기 → message·시각 기록(OK 면 칸 비움) → BLOCKED 면 칸 합침({@link
+   * #mergeSlotsOnBlock}) → 미뤄 둔 generation 이 지금 적용이 되면 runner 깨움 → 보이는 값이 바뀌면 관리자 화면에 알림.
    *
    * <p>500자 상한은 매개변수 바인딩({@code @Size})에서 이미 먼저 검증된다 — 검증을 통과한 값을 정제하므로, 정제가 길이를 늘리지 않는 한 500자를 넘는
    * 값은 저장될 수 없고, 정제는 제어 문자를 같은 수의 공백으로 바꾸고 앞뒤를 떼기만 하므로 길이가 늘지 않는다.
@@ -60,9 +70,11 @@ public class AgentPaneReportService {
     Optional<Row> locked = settings.findForUpdate(userId);
     if (locked.isEmpty()) return;
     Row before = locked.get();
-    // 옛 Pod 의 늦은 보고는 지금 generation 이 아니라 — 새 generation 이 뜬 뒤에 도착한 옛 Pod 의 차단(늦은 blocked)이 지금 사유를
-    // 덮거나, 옛 Pod 의 OK 가 지금 차단을 지우지 않게 무시한다(WP-1913 리뷰 반려 ①). 보고는 최선 노력이라 조용히 204 로 끝낸다.
-    if (req.generation() != null && req.generation() != before.generation()) return;
+    // 옛 Pod 의 늦은 보고는 지금 generation 이 아니라서 버린다(WP-1913 리뷰 반려 ①).
+    // 새 generation 이 뜬 뒤에 온 옛 Pod 의 차단이 지금 사유를 덮거나, 옛 OK 가 지금 차단을 지우면 안 된다.
+    // 보고는 최선 노력이라 조용히 204 로 끝낸다.
+    // 예외는 쉴 때 적용이 미뤄진 동안 지금 도는 Pod 의 BLOCKED 하나다(WP-1969, acceptableGeneration).
+    if (!acceptableGeneration(req.generation(), blocked, before)) return;
     // 보고한 Pod 시작 시각(WP-1958) — 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(시각 없는 보고처럼 다룬다).
     OffsetDateTime now = OffsetDateTime.now();
     OffsetDateTime pod = AgentRuntimeSlotRepository.acceptedPodStart(req.podStartedAt(), now);
@@ -92,6 +104,23 @@ public class AgentPaneReportService {
     OffsetDateTime nextBlockedPod = blocked ? pod : null;
     settings.updatePaneBlocked(
         userId, nextMessage, nextBlockedAt, nextBlockedGeneration, nextBlockedPod);
+    // 이번 보고로 올라간 뒤의 보고 Pod 시작 — 칸 합치기와 화면 판정이 같은 값을 쓴다(WP-1958).
+    OffsetDateTime raisedPodStart =
+        AgentRuntimeSlotRepository.laterOf(before.reportedPodStartedAt(), pod);
+    // OK 는 칸을 합치지 않고, 아래 깨움·상태 변화 판정도 BLOCKED 에서만 한다(WP-1969).
+    Row merged = blocked ? mergeSlotsOnBlock(userId, before, raisedPodStart, now) : before;
+    // 이 보고로 미뤄 둔 generation 이 지금 적용으로 바뀌면 runner 를 한 번 깨운다(WP-1969).
+    // 보고 전(before)과 최종 저장 행(merged — 차단·올라간 Pod 시작·합친 AI 상태 반영)의 판정을 견준다.
+    // 이미 지금 적용이던 AI 나 거듭된 같은 보고는 전이가 아니라 알리지 않는다.
+    // 같은 컨테이너가 아직 일하면(WORKING 칸이 남음) 지금 적용이 되지 않아 알리지 않는다.
+    // 꺼 둔 AI 는 깨우지 않는다 — desired 가 RUN 일 때만 알린다.
+    if (blocked && before.desired() == Desired.RUN && before.hasUnappliedGeneration()) {
+      long tenantId = TenantContext.get();
+      ManagedKeyChain keys = agentKeys.managedChain(userId, tenantId);
+      boolean wasNow = RolloutPolicy.decide(before, keys, now) == RolloutPolicy.Decision.NOW;
+      boolean isNow = RolloutPolicy.decide(merged, keys, now) == RolloutPolicy.Decision.NOW;
+      if (!wasNow && isNow) wakeup.publishChanged(tenantId, merged.locationId());
+    }
     // 화면에 보이는 것(「오류」+사유)이 실제로 바뀔 때만 알린다 — 바뀌는 기준은 저장 원문이 아니라,
     // 읽을 때 화면에 합치는 AgentRuntimeStatusResolver.currentPaneBlocked 이다.
     // gen 3 이 막힌 뒤 설정을 고쳐 gen 4 가 되고, gen 4 Pod 가 같은 사유를 보고하면 저장 원문은 그대로여도
@@ -107,12 +136,44 @@ public class AgentPaneReportService {
             nextBlockedAt,
             before.startedAt(),
             nextBlockedPod,
-            // 이번 보고로 올라간 뒤의 보고 Pod 시작(화면이 읽을 때 쓰는 값과 같게, WP-1958).
-            AgentRuntimeSlotRepository.laterOf(before.reportedPodStartedAt(), pod));
+            raisedPodStart);
     // 같은 메시지의 거듭된 보고(진입점 재시도)는 보이는 값이 그대로라 알리지 않는다(변경 알림 계약: 바뀐 것이 없으면 보지 않는다).
-    if (!Objects.equals(visibleBefore, visibleAfter)) {
+    // 합쳐 쓴 AI 상태가 바뀐 경우(WP-1969)도 같은 한 번의 알림이다.
+    boolean stateChanged = blocked && VisibleRuntimeState.of(before).differsFrom(merged);
+    if (!Objects.equals(visibleBefore, visibleAfter) || stateChanged) {
       changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, userId, null);
     }
+  }
+
+  /**
+   * 받아들인 BLOCKED 뒤에 칸을 다시 합쳐 쓴 행을 돌려준다(WP-1969).
+   *
+   * <p>컨테이너만 재시작해 새 컨테이너가 시작에 실패하면 BLOCKED 만 오고 칸 보고는 오지 않는다. 그래서 올라간 Pod 시작으로 앞 컨테이너의 WORKING 칸을
+   * 빼지 않으면 AI 가 영영 작업 중으로 보이고 「쉴 때 적용」 설정이 나가지 않는다.
+   *
+   * <p>관찰한 Pod 시작(started_at)이 없으면 시각 없는 옛 칸은 가를 수 없다. 이때 AI 상태까지 비어 있으면 합쳐 봐야 이미 지운 상태가 그 칸에서 되살아날
+   * 뿐이라, 합치지 않고 차단을 쓴 뒤의 행을 읽는다. AI 상태가 남아 있으면 시각 있는 옛 칸을 빼야 하므로 합친다.
+   */
+  private Row mergeSlotsOnBlock(
+      long userId, Row before, OffsetDateTime raisedPodStart, OffsetDateTime now) {
+    if (before.startedAt() == null && before.agentState() == null) {
+      return settings.find(userId).orElse(before);
+    }
+    OffsetDateTime current =
+        AgentRuntimeSlotRepository.currentPodStart(before.startedAt(), raisedPodStart);
+    return slotWriter.write(userId, slots.findAll(userId), before.startedAt(), current, now, null);
+  }
+
+  /**
+   * 보고의 generation 을 받을지(WP-1969) — 없거나 지금 generation 이면 받는다. 그 밖에는 BLOCKED 가 지금 도는 Pod 의
+   * generation(관찰 generation)이고, AI 가 켜져 있으며(RUN) 쉴 때 적용 중이고, 저장된 차단이 없거나 그보다 새롭지 않을 때만 받는다. 바로
+   * 적용(NOW)이면 이미 지금 적용이 정해졌고, 꺼졌거나 다시 시작 중이면 끝나는 Pod 의 늦은 쓰기라 WP-1913 대로 버린다.
+   */
+  private static boolean acceptableGeneration(Long reported, boolean blocked, Row before) {
+    if (reported == null || reported == before.generation()) return true;
+    if (!blocked || !reported.equals(before.observedGeneration())) return false;
+    if (before.desired() != Desired.RUN || before.applyMode() != ApplyMode.IDLE) return false;
+    return before.paneBlockedGeneration() == null || before.paneBlockedGeneration() <= reported;
   }
 
   /**

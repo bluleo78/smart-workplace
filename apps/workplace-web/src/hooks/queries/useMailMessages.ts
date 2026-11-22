@@ -1,6 +1,6 @@
 // 받은편지함/보낸편지함 목록·상세 조회 + 동기화·발송 mutation.
 
-import { type InfiniteData, type QueryClient, queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { hashKey, type InfiniteData, type QueryClient, queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { useMemo } from 'react';
 import { toast } from 'sonner';
@@ -152,17 +152,41 @@ export function useMailFolders(accountId: number | undefined) {
 export function useSyncMailFolder(accountId: number | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ folderId, older }: { folderId: number; older: boolean }) =>
+    mutationFn: ({ folderId, older }: { folderId: number; older: boolean; mailListQueryKey: readonly unknown[]; waitForTrashCount?: boolean }) =>
       syncMailFolder(accountId as number, folderId, older),
-    onSuccess: (result) => {
-      const refresh = () => {
-        qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
-        qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0) });
-        // WP-1708 동기화로 휴지통 메일이 바뀔 수 있다 — 실시간 휴지통 수도 다시 받는다(30초 staleTime 안에 낡은 수를 보이지 않게).
-        qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0) });
+    onSuccess: async (result, variables) => {
+      // 호출이 겹쳐도 직접 누른 「더 가져오기」 결과를 빠뜨리지 않게 모든 mutation의 훅 수준에서 알린다.
+      if (variables.older && !result.running) {
+        toast(result.saved > 0 ? `이전 메일 ${result.saved}통을 더 가져왔어요` : '이전 90일에는 가져올 메일이 없어요');
+      }
+      // 응답 전에 같은 메일함에서 필터를 바꿨다면, 지금 보이는 목록 조회까지 기다려 빈 상태를 일찍 확정하지 않는다.
+      const activeFolderListKey = qc.getQueryCache()
+        .findAll({ queryKey: ['mail-messages', accountId ?? 0] })
+        .find((query) => query.isActive() && query.queryKey[7] === variables.folderId)?.queryKey;
+      const currentListKey = activeFolderListKey ?? variables.mailListQueryKey;
+      const currentListHash = hashKey(currentListKey);
+      const refresh = async () => {
+        // 현재 목록은 아래에서 기다리므로 빼고, 다른 폴더·홈 위젯만 기다리지 않고 갱신한다.
+        void qc.invalidateQueries({
+          queryKey: ['mail-messages', accountId ?? 0],
+          predicate: (query) => query.queryHash !== currentListHash,
+        });
+        const currentView = Promise.all([
+          qc.invalidateQueries({ queryKey: currentListKey, exact: true }),
+          qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0), exact: true }),
+        ]);
+        const trashCount = qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0), exact: true });
+        if (variables.waitForTrashCount) await Promise.all([currentView, trashCount]);
+        else {
+          await currentView;
+          void trashCount;
+        }
       };
-      refresh();
-      if (result.running) setTimeout(refresh, FOLDER_SYNC_RETRY_MS);
+      await refresh();
+      if (result.running) {
+        await new Promise<void>((resolve) => setTimeout(resolve, FOLDER_SYNC_RETRY_MS));
+        await refresh();
+      }
     },
     onError: (e) => handleApiError(e, '메일함을 가져오지 못했어요'),
   });

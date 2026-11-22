@@ -143,11 +143,11 @@ public class IssueImportService {
     CreateIssueRequest createReq =
         toCreateRequest(
             req, assigneeIds, componentIds, importLabelNames(project, req.labelNames()));
-    CreateIssuePlan plan =
-        issueService.lockComponentsForShare(
-            issueService.planCreate(
-                callerId, projectKey, createReq, IssueService.CreateMode.IMPORT),
-            true);
+    CreateIssuePlan planned =
+        issueService.planCreate(callerId, projectKey, createReq, IssueService.CreateMode.IMPORT);
+    // WP-1945 사이클 → 구성요소 순 공유 잠금 — 완료 사이클은 허용하되 소속을 다시 보고 완료와의 교착을 막는다.
+    issueService.lockCyclesForShare(planned, true);
+    CreateIssuePlan plan = issueService.lockComponentsForShare(planned, true);
     OffsetDateTime closedAt = resolveClosedAt(req, plan.status().category());
     // 부모가 지금도 살아 있는지 공유 잠금으로 다시 본다(WP-759, 일반 생성과 같음). 완료 에픽 규칙은 가져오기라 다시 보지 않는다.
     IssueRow parent = issueService.lockParentForShare(plan);

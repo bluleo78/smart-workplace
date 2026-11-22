@@ -18,12 +18,40 @@ describe('toRosterRow — 대표 상태', () => {
     expect(row.active).toEqual([])
   })
 
-  it('급한 순 — 답변 필요 > 차단됨(인증 필요 포함) > 작업 중 > 기다림', () => {
+  it('급한 순 — 답변 필요 > 인증 필요 > 작업 중 > 차단됨 > 기다림 (WP-1955)', () => {
     expect(state(ag(1, 'A', { works: [w({ state: 'BLOCKED' }), w({ state: 'INPUT_REQUIRED' })] }))).toBe('needs')
     expect(state(ag(1, 'A', { works: [w({ state: 'WORKING' }), w({ state: 'AUTH_REQUIRED' })] }))).toBe('blocked')
+    expect(state(ag(1, 'A', { works: [w({ state: 'BLOCKED' }), w({ state: 'WORKING' })] }))).toBe('working')
+    expect(state(ag(1, 'A', { works: [w({ state: 'BLOCKED' }), w({ state: 'SUBMITTED' })] }))).toBe('working')
+    expect(state(ag(1, 'A', { works: [w({ state: 'WAITING' }), w({ state: 'BLOCKED' })] }))).toBe('blocked')
     expect(state(ag(1, 'A', { works: [w({ state: 'SCHEDULED' }), w({ state: 'WORKING' })] }))).toBe('working')
     expect(state(ag(1, 'A', { works: [w({ state: 'PAUSED' }), w({ state: 'WAITING' })] }))).toBe('waiting')
     expect(state(ag(1, 'A', { works: [w({ state: 'SUBMITTED' })] }))).toBe('working')
+  })
+
+  it('작업 중 행이 있으면 대표 작업·시각은 작업 중 행 — 더 오래 막힌 행이 있어도 (WP-1955)', () => {
+    const row = toRosterRow(ag(1, 'A', { works: [
+      w({ number: 1, state: 'BLOCKED', stateChangedAt: ago(600) }),
+      w({ number: 2, state: 'WORKING', stateChangedAt: ago(20) }),
+    ] }))
+    expect(row.lead?.number).toBe(2)
+    expect(row.since).toBe(ago(20))
+    expect(row.blocked).toBe(1)
+  })
+
+  it('차단 묶음 안에서는 인증 필요 행이 더 새도 차단 행보다 앞서 대표 — 상태는 차단됨 (WP-1955)', () => {
+    const row = toRosterRow(ag(1, 'A', { works: [
+      w({ number: 1, state: 'BLOCKED', stateChangedAt: ago(600) }),
+      w({ number: 2, state: 'AUTH_REQUIRED', stateChangedAt: ago(20) }),
+    ] }))
+    expect(row.lead?.number).toBe(2)
+    expect(row.state).toBe('blocked')
+  })
+
+  it('차단 수 — 차단·인증 필요 행을 센다, 없으면 0 (WP-1955)', () => {
+    expect(toRosterRow(ag(1, 'A', { works: [w({ state: 'BLOCKED' }), w({ state: 'AUTH_REQUIRED' }), w({ state: 'WORKING' }), w({ state: 'REVIEW' })] })).blocked).toBe(2)
+    expect(toRosterRow(ag(1, 'A', { works: [w()] })).blocked).toBe(0)
+    expect(toRosterRow(ag(1, 'A', { connected: false, works: [w({ state: 'BLOCKED' }), w()] })).blocked).toBe(1)
   })
 
   it('외부 AI 연결이 끊기면 연결 끊김 — 답변 필요는 가리지 않는다, 서버 안 AI(null)는 판단하지 않는다', () => {
@@ -93,14 +121,16 @@ describe('rosterRows·rosterCounts', () => {
   const workNew = ag(4, '라', { works: [w({ stateChangedAt: ago(5) })] })
   const workOld = ag(5, '마', { works: [w({ stateChangedAt: ago(50) })] })
   const idle = ag(6, '바')
-  const rows = rosterRows([idle, workNew, blocked, off, workOld, needs])
+  // 작업 중 행과 더 오래 막힌 행을 함께 가진 AI — 작업 중 묶음에 들어간다(WP-1955)
+  const busy = ag(7, '사', { works: [w({ state: 'BLOCKED', stateChangedAt: ago(90) }), w({ stateChangedAt: ago(15) })] })
+  const rows = rosterRows([idle, workNew, blocked, off, workOld, needs, busy])
 
   it('급한 상태 먼저, 같은 급함이면 그 상태로 오래 있은 AI 먼저, 시각 모름은 뒤', () => {
-    expect(rows.map((r) => r.agent.agent.id)).toEqual([1, 2, 3, 5, 4, 6])
+    expect(rows.map((r) => r.agent.agent.id)).toEqual([1, 2, 3, 5, 7, 4, 6])
   })
 
   it('상태별 AI 수', () => {
-    expect(rosterCounts(rows)).toEqual({ all: 6, needs: 1, blocked: 1, offline: 1, working: 2, waiting: 0, idle: 1 })
+    expect(rosterCounts(rows)).toEqual({ all: 7, needs: 1, blocked: 1, offline: 1, working: 3, waiting: 0, idle: 1 })
   })
 })
 

@@ -34,7 +34,7 @@
 | AI 요약 등 재생성 가능한 캐시 | `messaging/service/CatchupSummaryCache` 등 | 파드마다 따로 만들어 적중률이 떨어지고 AI 호출이 늘어납니다 | 괜찮음 | 비용이 문제 되면 공유 캐시로 |
 | 예약 작업(`@Scheduled`) | `*Scheduler`, `*Job` | ShedLock(`V148__shedlock.sql`)으로 한 파드만 실행합니다. 새 예약 작업에도 `@SchedulerLock` 을 꼭 붙입니다 | 괜찮음 | 파드 안 주기 작업(SSE heartbeat 등)은 잠금 없이 파드마다 도는 게 맞습니다 |
 | 업로드 파일 | `/data/storage-data`(PVC `storage-data`) | RWX(NFS)라 여러 파드가 함께 마운트할 수 있습니다 | 괜찮음 | — |
-| DB 커넥션 | Hikari 풀(파드마다) | 커넥션 수가 `대수 × 풀 크기` 가 됩니다 | 바꿔야 함 | PostgreSQL `max_connections` 안에 드는지 확인합니다(WP-752 풀 고갈 참고) |
+| DB 커넥션 | Hikari 풀(파드마다) | 커넥션 수가 `대수 × 풀 크기` 가 됩니다 | 바꿔야 함 | 합계가 `db.maxConnections` 안인지 helm 렌더 가드가 막아 줍니다. 식과 고칠 값은 아래 「DB 커넥션 합계」(WP-752 풀 고갈 참고) |
 
 ### mcp
 
@@ -66,10 +66,26 @@
 3. api 는 「막힘」 세 가지(SSE 중계, 생성 취소, OAuth state)를 고친 뒤 늘립니다. 공유 저장소(Redis)를 들이면 속도 제한·MCP 토큰 캐시도 같은 저장소로 옮길 수 있습니다.
 4. collab 은 별도 설계 전까지 1대로 둡니다.
 
+## DB 커넥션 합계
+
+파드마다 Hikari 풀이 따로라, DB 접속 수는 파드 수에 비례합니다. 롤링 배포 중에는 `rollout.maxSurge` 만큼 새 파드가 더 뜨고, 옛 파드는 종료 중(preStop 10초 + graceful 최대 30초)에도 풀을 쥐고 있습니다. 종료 중 파드는 maxSurge 에 세지 않으므로 다음 새 파드가 함께 뜹니다. 그래서 maxSurge 를 두 번 셉니다.
+
+```
+(appReplicas + rollout.maxSurge × 2) × api.dbPoolMaxSize + db.reservedConnections ≤ db.maxConnections
+```
+
+- 지금 값: (1+2)×10+15 = 45 ≤ 100. 이 값(풀 10, 예비 15, 상한 100)으로 api 는 최대 6대까지 갑니다((6+2)×10+15 = 95).
+- 예비(`db.reservedConnections` 15)는 superuser 예약 3 + Flyway 2(기동 중인 새 파드(maxSurge 대)의 Flyway 접속 — Flyway 는 기동 때만 붙습니다) + 사람·운영 접속 10 입니다.
+- 대수를 늘릴 때 고칠 값: `db.maxConnections`(PostgreSQL 메모리도 함께 봅니다), 또는 `api.dbPoolMaxSize` 를 줄입니다. 값은 `deploy/helm/values.yaml` 에 있습니다.
+- helm 이 이 식을 렌더 때 검사해, 넘으면 계산식과 값을 보여 주며 실패합니다(`swp.dbConnectionBudget`).
+- db StatefulSet 의 args(`max_connections`)를 바꾸면 파드 템플릿이 바뀌어 반영 때 db 파드가 한 번 다시 뜹니다(잠깐 DB 끊김, api 재접속). 반영 전에 알립니다. 같은 반영에서 ConfigMap 키가 바뀌면 checksum/config 로 앱 파드도 함께 다시 뜨고, 새 api 파드는 db 가 Ready 될 때까지 Flyway 접속에 실패해 몇 번 재시작할 수 있습니다 — 반영 시간이 그만큼 길어집니다.
+- DB 에 붙는 앱은 api 뿐입니다(WP-1972 확인). 다른 앱이 DB 에 붙게 되면 식에 더합니다.
+- 배경: 풀 고갈 사례는 WP-752.
+
 ## 바꿀 때 체크리스트
 
 - [ ] 늘릴 앱의 「막힘」 항목을 모두 고쳤다
-- [ ] DB 커넥션 합계(`대수 × 풀 크기`)가 `max_connections` 안이다
+- [ ] DB 커넥션 합계가 `max_connections` 안이다(helm 가드가 넘으면 렌더를 막는다 — 「DB 커넥션 합계」)
 - [ ] 새 `@Scheduled` 작업에 `@SchedulerLock` 이 붙어 있다
 - [ ] 2대로 띄운 격리 스택이나 스테이징에서 실시간 이벤트·AI 답변 취소·메일 계정 연결을 확인했다
 - [ ] 이 문서의 표를 새 구성에 맞게 고쳤다

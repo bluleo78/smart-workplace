@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.cycle.dto.CycleRow;
 import com.workplace.cycle.dto.CycleStatus;
 import com.workplace.cycle.dto.CycleSummary;
 import com.workplace.cycle.exception.CompletedCycleNotAssignableException;
@@ -12,6 +13,7 @@ import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -53,37 +55,30 @@ public class IssueCycleService {
   public List<CycleSummary> replace(
       Long callerId, String projectKey, int number, List<Long> cycleIds) {
     var project = accessGuard.assertMember(projectKey, callerId);
-    // 잠금 순서: 이슈 행 → 매핑 행(라벨·담당자·구성요소·버전과 같다, WP-1932)
+    // 잠금 순서: 사이클 행(공유, WP-1945) → 이슈 행 → 매핑 행(라벨·담당자·구성요소·버전과 같다, WP-1932)
+    // 요청한 사이클 행을 이슈 행보다 먼저 id 오름차순 공유 잠금으로 잡고 같은 프로젝트 소속인지 본다(WP-1945) — 사이클 완료(사이클 행 → 이슈 행)와 같은
+    // 방향을 지켜 붙이기의 잠금 순서를 한 가지로 둔다. 완료가 먼저 잡았으면 그 커밋 뒤 상태(COMPLETED)로 판정하며, 완료 여부는 diff 뒤 새로 붙는 것만
+    // 본다.
+    // 요청 id 의 중복은 잠금·검증 전에 제거한다. 떼기만 하는 사이클(요청에 없는 현재 연결)은 잠그지 않는다 — 떼기는 사이클 행에 잠금을 걸지 않는다.
+    Set<Long> requested = new HashSet<>(cycleIds == null ? List.of() : cycleIds);
+    Set<Long> completedIds = new HashSet<>();
+    if (!requested.isEmpty()) {
+      for (var c : lockInProject(cycleRepository, project.id(), requested)) {
+        if (CycleStatus.COMPLETED.equals(c.status())) completedIds.add(c.id());
+      }
+    }
+
     var issue =
         issueRepository
             .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
-    List<Long> normalized = cycleIds == null ? List.of() : cycleIds;
-
-    // 1) 모든 cycleIds 가 같은 프로젝트 소속인지 검증 — 완료 여부는 diff 뒤 새로 붙는 것만 본다.
-    Set<Long> completedIds = new HashSet<>();
-    if (!normalized.isEmpty()) {
-      var cycles = cycleRepository.findByIds(normalized);
-      Set<Long> normalizedSet = new HashSet<>(normalized);
-      if (cycles.size() != normalizedSet.size()) {
-        throw new InvalidCycleForProjectException();
-      }
-      for (var c : cycles) {
-        if (!c.projectId().equals(project.id())) {
-          throw new InvalidCycleForProjectException();
-        }
-        if (CycleStatus.COMPLETED.equals(c.status())) completedIds.add(c.id());
-      }
-    }
-
     // 2) 현재 연결과 diff
     Set<Long> current = new HashSet<>(issueCycleRepository.findCycleIdsByIssue(issue.id()));
-    Set<Long> target = new HashSet<>(normalized);
-    Set<Long> toAdd = new HashSet<>(target);
+    Set<Long> toAdd = new HashSet<>(requested);
     toAdd.removeAll(current);
     Set<Long> toRemove = new HashSet<>(current);
-    toRemove.removeAll(target);
+    toRemove.removeAll(requested);
     if (toAdd.stream().anyMatch(completedIds::contains)) {
       throw new CompletedCycleNotAssignableException();
     }
@@ -103,6 +98,22 @@ public class IssueCycleService {
   }
 
   /**
+   * 이 프로젝트의 사이클 행을 id 오름차순 공유 잠금으로 잡고, 하나라도 없거나 다른 프로젝트 것이면 거절한다(WP-1945).
+   *
+   * <p>사이클 → 이슈 행 잠금 순서 규칙(사이클 완료와 같은 방향)을 붙이기 경로(만들기·가져오기·교체·이동)가 한 곳에서 지키게 하는 공용 진입점이다. 이 프로젝트 것만
+   * 잠가 오므로 읽힌 수가 요청 수보다 적으면 없거나 다른 프로젝트 사이클이 섞인 것이다. 완료(COMPLETED) 판정은 호출처 규칙이 달라 호출처가 돌려받은 행으로 한다.
+   *
+   * @param ids 중복 없는 사이클 id
+   * @throws InvalidCycleForProjectException 읽힌 행 수가 ids 수와 다를 때
+   */
+  static List<CycleRow> lockInProject(
+      CycleRepository cycleRepository, long projectId, Collection<Long> ids) {
+    List<CycleRow> locked = cycleRepository.findInProjectForShare(projectId, ids);
+    if (locked.size() != ids.size()) throw new InvalidCycleForProjectException();
+    return locked;
+  }
+
+  /**
    * 사이클 간 이동 — 사이클 페이지 드래그 앤 드롭(#881).
    *
    * <p>from 연결만 끊고 to 연결만 추가한다(그 외 사이클 연결은 유지). null 은 백로그(사이클 없음)를 뜻한다. 집합 통째 교체(replace)를 쓰면
@@ -115,7 +126,17 @@ public class IssueCycleService {
   public MoveResult move(
       Long callerId, String projectKey, int number, Long fromCycleId, Long toCycleId) {
     var project = accessGuard.assertMember(projectKey, callerId);
-    // 잠금 순서: 이슈 행 → 매핑 행(라벨·담당자·구성요소·버전과 같다, WP-1932)
+    // 잠금 순서: 사이클 행(공유, WP-1945) → 이슈 행 → 매핑 행(라벨·담당자·구성요소·버전과 같다, WP-1932)
+    // 대상 사이클 검증 — 같은 프로젝트 소속 + 완료 사이클 차단. 이슈 행보다 먼저 공유 잠금해 읽는다(WP-1945): 순서 규칙은
+    // 사이클 행 → 이슈 행(사이클 완료와 같은 순서, lockInProject 참고). to=null(백로그)은 붙일 사이클이 없어 잠금이 없다.
+    // from 은 끊기만 하므로 연결 여부로 충분하다. 같은 섹션 이동은 변화 없음이라 검증 없이 건너뛴다.
+    if (toCycleId != null && !Objects.equals(fromCycleId, toCycleId)) {
+      var to = lockInProject(cycleRepository, project.id(), List.of(toCycleId)).get(0);
+      if (CycleStatus.COMPLETED.equals(to.status())) {
+        throw new CompletedCycleNotAssignableException();
+      }
+    }
+
     var issue =
         issueRepository
             .findByProjectAndNumberForUpdate(project.id(), number)
@@ -124,18 +145,6 @@ public class IssueCycleService {
     // 같은 섹션으로의 이동은 변화 없음.
     if (Objects.equals(fromCycleId, toCycleId)) {
       return new MoveResult(issueCycleRepository.findCyclesByIssue(issue.id()), false, false);
-    }
-
-    // 대상 사이클 검증 — 같은 프로젝트 소속 + 완료 사이클 차단. from 은 끊기만 하므로 연결 여부로 충분하다.
-    if (toCycleId != null) {
-      var to =
-          cycleRepository
-              .findById(toCycleId)
-              .filter(c -> c.projectId().equals(project.id()))
-              .orElseThrow(InvalidCycleForProjectException::new);
-      if (CycleStatus.COMPLETED.equals(to.status())) {
-        throw new CompletedCycleNotAssignableException();
-      }
     }
 
     // add/remove 는 멱등이고 영향 행 수를 돌려주므로 사전 조회 없이 실제 적용 여부를 얻는다.

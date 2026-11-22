@@ -115,3 +115,98 @@ test('그룹 상세가 실패하면 검색 결과를 알리지 않는다 (WP-194
   await nextFrames()
   expect(screen.getByTestId('contact-result-status').textContent).toBe('')
 })
+
+// WP-1943 리뷰 후속 — 목록↔그룹 전환 때 안내 영역은 그대로 두고(통합 PR #1622 반려) 조건 키가 바뀌어
+// 이전 모드의 결과를 잇는다.
+test('그룹에서 나가면 목록 결과를 이어 알린다 (WP-1943 리뷰 후속)', async () => {
+  renderPage('/contacts?group=10', {
+    handlers: [
+      http.get('/api/v1/user-groups/:id/members/search', () => HttpResponse.json([hit(2, '이개발')])),
+      http.get('/api/v1/contacts', () => HttpResponse.json(page([]))),
+      ...handlers(),
+    ],
+  })
+  await screen.findByTestId('contact-search', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '개발' } })
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('하위 조직 포함 검색 결과 1명'))
+  // 범위 칩 × — 그룹을 풀고 검색어는 남겨 통합 목록에서 같은 말로 찾는다(leaveGroup).
+  fireEvent.click(screen.getByTestId('contact-search-scope'))
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('검색 결과가 없습니다'))
+})
+
+// WP-1943 리뷰 후속 — 통합 목록에서 검색해도 그룹 멤버 조회가 돌지 않는지 가드한다.
+// (분리 전에는 목록 모드에서도 그룹 훅이 호출되던 자리다 — 구조적으로 더는 훅 자체를 부르지 않는다.)
+test('통합 목록 검색은 그룹 멤버 조회를 부르지 않는다 (WP-1943 리뷰 후속)', async () => {
+  let groupSearched = false
+  renderPage('/contacts', {
+    handlers: [
+      http.get('/api/v1/user-groups/:id/members/search', () => {
+        groupSearched = true
+        return HttpResponse.json([])
+      }),
+      ...handlers(),
+    ],
+  })
+  await screen.findByTestId('contact-search', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '개발' } })
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('검색 결과가 없습니다'))
+  await nextFrames()
+  expect(groupSearched).toBe(false)
+})
+
+// WP-1943 리뷰 후속 — 목록→그룹 전환에서도 그룹 결과를 곧바로 알린다(안내 영역은 그대로, 키만 바뀐다).
+// 목록에서 검색어를 친 뒤 사이드바 그룹을 누르면 q 가 남아(WP-976) 그룹 안내 영역이 첫 키부터 그 결과를 읽어야 한다.
+test('목록에서 그룹으로 가면 그룹 결과를 이어 알린다 (WP-1943 리뷰 후속)', async () => {
+  renderPage('/contacts', {
+    handlers: [
+      http.get('/api/v1/user-groups/:id/members/search', () => HttpResponse.json([hit(2, '이개발'), hit(3, '최개발')])),
+      ...handlers(),
+    ],
+  })
+  await screen.findByTestId('group-node-10', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '개발' } })
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('검색 결과가 없습니다'))
+  fireEvent.click(screen.getByTestId('group-node-10'))
+  await waitFor(() => expect(screen.getByTestId('contact-result-status').textContent).toBe('하위 조직 포함 검색 결과 2명'))
+})
+
+// WP-1943 반려(통합 PR #1622) — 스크린리더는 미리 등록되지 않은 live region 의 글을 자주 읽지 않으므로,
+// 목록↔그룹 전환 때 role=status 안내 영역이 새로 만들어지면 안내가 끊긴다. 늘 같은 노드여야 한다.
+test('목록↔그룹을 오가도 안내 영역은 새로 만들어지지 않는다 (WP-1943 반려)', async () => {
+  renderPage('/contacts?group=10', {
+    handlers: [
+      http.get('/api/v1/user-groups/:id/members/search', () => HttpResponse.json([hit(2, '이개발')])),
+      ...handlers(),
+    ],
+  })
+  await screen.findByTestId('contact-search', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const region = screen.getByTestId('contact-result-status')
+  expect(region).toHaveAttribute('role', 'status')
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '개발' } })
+  await waitFor(() => expect(region.textContent).toBe('하위 조직 포함 검색 결과 1명'))
+  // 그룹 나가기 — 목록으로(검색어는 남는다).
+  fireEvent.click(screen.getByTestId('contact-search-scope'))
+  await waitFor(() => expect(region.textContent).toBe('검색 결과가 없습니다'))
+  expect(screen.getByTestId('contact-result-status')).toBe(region)
+  // 목록에서 다시 그룹으로.
+  fireEvent.click(screen.getByTestId('group-node-10'))
+  await waitFor(() => expect(region.textContent).toBe('하위 조직 포함 검색 결과 1명'))
+  expect(screen.getByTestId('contact-result-status')).toBe(region)
+})
+
+// WP-1943 — 그룹 보기는 검색어가 없으면 안내할 결과가 없어 안내하지 않는다(ready 가드).
+// 검색어를 지워도 다른 화면이 채워 둔 같은 쿼리 키 캐시로 「검색 결과 N명」이 잘못 안내되면 안 된다.
+test('그룹에서 검색어를 지우면 안내하지 않는다 (WP-1943)', async () => {
+  renderPage('/contacts?group=10', {
+    handlers: [
+      http.get('/api/v1/user-groups/:id/members/search', () => HttpResponse.json([hit(2, '이개발')])),
+      ...handlers(),
+    ],
+  })
+  await screen.findByTestId('contact-search', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const region = screen.getByTestId('contact-result-status')
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '개발' } })
+  await waitFor(() => expect(region.textContent).toBe('하위 조직 포함 검색 결과 1명'))
+  fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '' } })
+  await waitFor(() => expect(region.textContent).toBe(''))
+})

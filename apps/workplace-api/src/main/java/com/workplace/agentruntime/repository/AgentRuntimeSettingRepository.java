@@ -372,17 +372,13 @@ public class AgentRuntimeSettingRepository {
         .set(s.CPU_MILLICORES, vCpu)
         .set(s.MEMORY_BYTES, vMem)
         .set(s.STARTED_AT, vStart)
-        // WP-1958 새 started_at 이 null 이 아니고 보고한 값보다 늦을 때만 비운다.
-        // null·옛 Pod 관찰이 새 Pod 가 올린 값을 지우면 안 된다.
+        // WP-1958 보고값이 새 started_at 보다 시계 여유를 넘게 앞설 때만 비운다(null 관찰이면 그대로).
+        // 여유가 없으면 초 단위로 내린 보고값을 관찰마다 비우고 다음 보고가 다시 올린다.
+        // started_at 이 바뀐 것만으로 비우면 낡은 관찰이나 새 Pod 자신의 startTime 이 새 Pod 의 보고값을 지운다.
         .set(
             s.REPORTED_POD_STARTED_AT,
             clearedIf(
-                vStart
-                    .isNotNull()
-                    .and(
-                        s.REPORTED_POD_STARTED_AT
-                            .isNull()
-                            .or(s.REPORTED_POD_STARTED_AT.lt(vStart))),
+                s.REPORTED_POD_STARTED_AT.lt(AgentRuntimeSlotRepository.podStartCutoff(vStart)),
                 s.REPORTED_POD_STARTED_AT))
         .set(s.OBSERVED_AT, OffsetDateTime.now())
         .set(s.AGENT_STATE, clearedIf(newPod, s.AGENT_STATE))
@@ -461,7 +457,8 @@ public class AgentRuntimeSettingRepository {
    * @param podStartedAt 그 사유를 보고한 Pod 의 시작 시각(WP-1958, 보고에 없으면 null) — message 가 null 이면 함께 지운다.
    *     끝나는 중인 옛 Pod 의 늦은 보고가 새 Pod 의 차단 사유를 덮지 않게 서비스가 비교한다
    * @param generation 그 사유를 보고한 Pod 의 generation — null(보고에 없음)도 그대로 남긴다. 지금 generation 과 다른 값을 들고
-   *     있는 보고는 서비스가 이 메서드를 부르기 전에 걸러 낸다(끝나는 중인 옛 Pod 의 늦은 보고가 새 generation 을 덮지 않게)
+   *     있는 보고는 서비스가 이 메서드를 부르기 전에 걸러 낸다(끝나는 중인 옛 Pod 의 늦은 보고가 새 generation 을 덮지 않게 — 예외는 {@code
+   *     AgentPaneReportService#acceptableGeneration}, WP-1969)
    */
   public void updatePaneBlocked(
       long agentUserId,

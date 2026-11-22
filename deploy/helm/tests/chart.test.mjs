@@ -233,3 +233,60 @@ test('mcpPathOnWeb=false 면 webHost 에 보호 리소스 메타데이터는 없
 test('mcp 는 인가 서버 주소(WORKPLACE_OAUTH_ISSUER)로 config.webBaseUrl 을 받는다(WP-1685)', () => {
   assert.match(BASE_DOCS.get('Deployment/mcp'), /- name: WORKPLACE_OAUTH_ISSUER\n\s+value: "https:\/\/genia-works\.iacloud\.kr"\n/);
 });
+
+test('api DB 풀 크기는 ConfigMap DB_POOL_MAX_SIZE 로 들어가고 기본 10, 값을 바꾸면 따라간다 (WP-1972)', () => {
+  assert.match(BASE_DOCS.get('ConfigMap/smart-workplace-config'), /DB_POOL_MAX_SIZE: "10"\n/);
+  const r = render('-f', IMAGES, '--set', 'api.dbPoolMaxSize=20');
+  assert.ok(r.ok, r.err);
+  assert.match(docs(r.out).get('ConfigMap/smart-workplace-config'), /DB_POOL_MAX_SIZE: "20"\n/);
+});
+
+test('api 가 읽는 풀 크기 환경 변수 이름이 차트가 넣는 이름과 같다 (WP-1972)', () => {
+  const yml = readFileSync(new URL('../../../apps/workplace-api/src/main/resources/application-prod.yml', import.meta.url), 'utf8');
+  assert.match(yml, /maximum-pool-size: \$\{DB_POOL_MAX_SIZE:10\}/);
+});
+
+test('db 는 max_connections 를 args 로 받는다 — 기본 100, 값을 바꾸면 따라간다 (WP-1972)', () => {
+  assert.match(BASE_DOCS.get('StatefulSet/db'), /args:\s*\n\s*- "?-c"?\n\s*- "?max_connections=100"?/);
+  const r = render('-f', IMAGES, '--set', 'db.maxConnections=200');
+  assert.ok(r.ok, r.err);
+  assert.match(docs(r.out).get('StatefulSet/db'), /args:\s*\n\s*- "?-c"?\n\s*- "?max_connections=200"?/);
+});
+
+test('api 대수 × 풀 + 롤링 여유 + 예비가 max_connections 를 넘으면 렌더가 실패한다 (WP-1972)', () => {
+  // (8+2)×10+15 = 115 > 100
+  const { ok, err } = render('-f', IMAGES, '--set', 'appReplicas=8');
+  assert.equal(ok, false);
+  assert.match(err, /DB 커넥션 합계/);
+  assert.match(err, /115/);
+});
+
+test('rollout.maxSurge 가 백분율이면 합계를 셀 수 없어 렌더가 실패한다 (WP-1972)', () => {
+  const { ok, err } = render('-f', IMAGES, '--set-string', 'rollout.maxSurge=50%');
+  assert.equal(ok, false);
+  assert.match(err, /rollout\.maxSurge 는 DB 커넥션 합계 계산을 위해 정수여야 합니다/);
+});
+
+test('정수 문자열 maxSurge("1") 는 허용된다 (WP-1972)', () => {
+  const r = render('-f', IMAGES, '--set-string', 'rollout.maxSurge=1');
+  assert.ok(r.ok, r.err);
+});
+
+test('풀 크기만 키워도 합계가 넘으면 렌더가 실패한다 (WP-1972)', () => {
+  // (1+2)×50+15 = 165 > 100
+  const { ok, err } = render('-f', IMAGES, '--set', 'api.dbPoolMaxSize=50');
+  assert.equal(ok, false);
+  assert.match(err, /165/);
+});
+
+test('합계가 max_connections 와 같으면 렌더된다 (WP-1972)', () => {
+  // (6+2)×10+20 = 100
+  const r = render('-f', IMAGES, '--set', 'appReplicas=6', '--set', 'db.reservedConnections=20');
+  assert.ok(r.ok, r.err);
+});
+
+test('api.dbPoolMaxSize 가 숫자가 아니면 가드가 조용히 지나지 않고 렌더가 실패한다 (WP-1972)', () => {
+  const { ok, err } = render('-f', IMAGES, '--set-string', 'api.dbPoolMaxSize=20x');
+  assert.equal(ok, false);
+  assert.match(err, /api\.dbPoolMaxSize/);
+});

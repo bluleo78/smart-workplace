@@ -5,7 +5,7 @@ import type { AiAgentStatus, AiAgentWork } from '../api/aiAgents'
 import type { AgentWorkState } from '../types/issue'
 import { AGENT_STATE_LABEL } from './agentWork'
 
-/** AI 한 명의 대표 상태 — 급한 순. 연결 끊김은 차단됨과 같은 급함. */
+/** AI 한 명의 대표 상태 — 칩·AI 간 정렬은 이 순서(연결 끊김은 차단됨과 같은 급함). 한 AI 안에서 대표 작업을 고르는 순서는 WORK.lead 로 따로 둔다. */
 export type RosterState = 'needs' | 'blocked' | 'offline' | 'working' | 'waiting' | 'idle'
 
 export const ROSTER_STATES: RosterState[] = ['needs', 'blocked', 'offline', 'working', 'waiting', 'idle']
@@ -20,20 +20,29 @@ export const ROSTER_LABEL: Record<RosterState, string> = {
   idle: '쉬는 중',
 }
 
-// 작업 행 상태 → 대표 상태 묶음. 인증 필요는 이슈별 빠른 필터 칩처럼 「차단됨」에 묶는다(같은 행이 보기마다 다른 칩에 들어가지 않게).
-// 검토 필요(REVIEW)는 AI 가 일을 끝내고 사람 검토·배포를 기다리는 행이라 AI 를 바쁘게 보이지 않는다(따로 건수).
-const GROUP: Partial<Record<AgentWorkState, RosterState>> = {
-  INPUT_REQUIRED: 'needs',
-  AUTH_REQUIRED: 'blocked',
-  BLOCKED: 'blocked',
-  WORKING: 'working',
-  SUBMITTED: 'working',
-  WAITING: 'waiting',
-  SCHEDULED: 'waiting',
-  PAUSED: 'waiting',
-}
-
 const RANK: Record<RosterState, number> = { needs: 0, blocked: 1, offline: 1, working: 2, waiting: 3, idle: 4 }
+
+// 진행 중으로 치는 작업 행 상태 한 표 — group: 대표 상태 묶음, lead: 한 AI 안에서 대표 작업을 고르는 순서(작을수록 앞, AI 간 정렬 RANK 와 다르다 — WP-1955).
+// 묶음: 인증 필요는 이슈별 빠른 필터 칩처럼 「차단됨」에 묶는다(같은 행이 보기마다 다른 칩에 들어가지 않게).
+// 검토 필요(REVIEW)는 AI 가 일을 끝내고 사람 검토·배포를 기다리는 행이라 AI 를 바쁘게 보이지 않으므로 이 표에 없다(따로 건수).
+// 순서: 인증 필요는 사람이 풀어 주기 전엔 AI 가 일을 못 하므로 작업 중보다 앞, 선행 대기로 막힌 BLOCKED 는
+// 다른 행이 일하고 있으면 그 AI 는 일하는 중이므로 작업 중 뒤(작업 중 > 차단 은 서버 AgentSlotAggregate 와 같다 — 서버는 IDLE·WORKING·BLOCKED 만 합친다).
+const WORK = {
+  INPUT_REQUIRED: { group: 'needs', lead: 0 },
+  AUTH_REQUIRED: { group: 'blocked', lead: 1 },
+  WORKING: { group: 'working', lead: 2 },
+  SUBMITTED: { group: 'working', lead: 2 },
+  BLOCKED: { group: 'blocked', lead: 3 },
+  WAITING: { group: 'waiting', lead: 4 },
+  SCHEDULED: { group: 'waiting', lead: 4 },
+  PAUSED: { group: 'waiting', lead: 4 },
+} as const satisfies Partial<Record<AgentWorkState, { group: RosterState; lead: number }>>
+
+/** 진행 중 작업 행 — 상태가 WORK 의 키(진행 중으로 치는 상태)로 좁혀져 WORK 조회에 캐스트가 필요 없다. */
+type ActiveWork = AiAgentWork & { state: keyof typeof WORK }
+
+/** 타입 가드 — 거르는 기준과 타입 좁힘이 같은 표(WORK)를 읽으므로 둘이 어긋나지 않는다. */
+const isActiveWork = (w: AiAgentWork): w is ActiveWork => w.state in WORK
 
 /** 서버 시각(ISO) → ms. 소수 초 자릿수가 달라 문자열 비교는 시간 순서와 어긋난다(「…03Z」 > 「…03.120Z」). */
 const ms = (iso: string) => Date.parse(iso)
@@ -44,10 +53,12 @@ export interface RosterRow {
   state: RosterState
   /** 그 상태로 있게 된 시각 — 모르면 null. */
   since: string | null
-  /** 대표 작업 — 가장 급한 묶음에서 그 상태로 가장 오래 있은 행. 없으면 null. */
+  /** 대표 작업 — WORK.lead 가 가장 앞선 행 중 그 상태로 가장 오래 있은 행. 없으면 null. */
   lead: AiAgentWork | null
   /** 진행 중인 작업(검토 필요 제외). */
   active: AiAgentWork[]
+  /** 막힌 행 수 — active 중 차단됨 묶음(BLOCKED·AUTH_REQUIRED). 작업 중이라 대표가 작업 중이어도 막힌 행이 있음을 보이는 데 쓴다. */
+  blocked: number
   /** 검토를 기다리는 행 수 — AI 는 끝냈고 사람이 볼 차례. */
   reviews: number
   /** 마지막으로 보고한 작업 — 열린 행 중 보고가 가장 최근. 없으면 null. */
@@ -56,17 +67,18 @@ export interface RosterRow {
 
 /** AI 한 명을 판정한다. 답변 필요는 연결과 무관하게 그대로(사람이 답할 일이 끊김에 가리지 않게), 그 밖에 연결이 끊겼으면(외부 AI 만) 끊김. */
 export function toRosterRow(a: AiAgentStatus): RosterRow {
-  const active = a.works.filter((w) => GROUP[w.state] !== undefined)
-  const lead = active.reduce<AiAgentWork | null>((best, w) => {
+  const active = a.works.filter(isActiveWork)
+  const lead = active.reduce<ActiveWork | null>((best, w) => {
     if (!best) return w
-    const r = RANK[GROUP[w.state]!] - RANK[GROUP[best.state]!]
+    const r = WORK[w.state].lead - WORK[best.state].lead
     return r < 0 || (r === 0 && ms(w.stateChangedAt) < ms(best.stateChangedAt)) ? w : best
   }, null)
-  const group = lead ? GROUP[lead.state]! : 'idle'
+  const group = lead ? WORK[lead.state].group : 'idle'
   const state = group !== 'needs' && a.connected === false ? 'offline' : group
   const since = state === 'offline' ? a.disconnectedAt : state === 'idle' ? a.lastEndedAt : (lead?.stateChangedAt ?? null)
   const latest = a.works.reduce<AiAgentWork | null>((l, w) => (!l || ms(w.updatedAt) > ms(l.updatedAt) ? w : l), null)
-  return { agent: a, state, since, lead, active, reviews: a.works.filter((w) => w.state === 'REVIEW').length, latest }
+  const blocked = active.filter((w) => WORK[w.state].group === 'blocked').length
+  return { agent: a, state, since, lead, active, blocked, reviews: a.works.filter((w) => w.state === 'REVIEW').length, latest }
 }
 
 /** 판정 + 정렬 — 급한 상태 먼저, 같은 상태면 그 상태로 오래 있은 AI 먼저(시각 모름은 뒤), 마지막은 이름. */

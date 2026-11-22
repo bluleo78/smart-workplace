@@ -4,10 +4,12 @@ import static com.workplace.jooq.Tables.CALENDAR_EVENT_NOTE;
 
 import com.workplace.calendar.dto.NoteKey;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -177,5 +179,38 @@ public class CalendarEventNoteRepository {
         .where(CALENDAR_EVENT_NOTE.EVENT_ID.eq(eventId))
         .and(CALENDAR_EVENT_NOTE.OCCURRENCE_START.ge(fromInclusive))
         .execute();
+  }
+
+  /**
+   * 해당 일정의 회차 노트 연결 키(occurrence_start)를 이동량만큼 옮긴다(WP-1927) — 「전체 일정」 끌어 옮기기가 시리즈를 민 만큼 노트 키도 밀리지
+   * 않으면 어느 회차에도 붙지 않아 회차 화면에서 노트가 사라진다.
+   *
+   * <p>회차 없는 단일 일정 연결(occurrence_start IS NULL)은 키가 아니므로 건드리지 않는다. 옛 키를 읽어 두고 각 행을 {@code
+   * (event_id, occurrence_start) = 옛 키} 조건으로 새 키씩 갱신한다 — 갱신 대상은 자기 키 조건이라 중간에 다른 행이 바뀌어도 빠뜨리지 않는다.
+   * delta 가 없으면 쿼리 없이 끝낸다.
+   *
+   * <p>갱신 순서는 이동 방향과 반대로 — {@code (event_id, occurrence_start)} 유니크라 이동량이 주기의 배수일 때(주간 시리즈 +7일 등) 앞
+   * 행을 먼저 옮기면 안 옮긴 뒷 행의 자리에 부딪혀 유니크 위반으로 500 이 나기 때문이다.
+   */
+  public void shiftOccurrenceStarts(long eventId, Duration delta) {
+    if (delta == null || delta.isZero()) {
+      return;
+    }
+    List<OffsetDateTime> oldKeys =
+        dsl.select(CALENDAR_EVENT_NOTE.OCCURRENCE_START)
+            .from(CALENDAR_EVENT_NOTE)
+            .where(CALENDAR_EVENT_NOTE.EVENT_ID.eq(eventId))
+            .and(CALENDAR_EVENT_NOTE.OCCURRENCE_START.isNotNull())
+            .fetch(CALENDAR_EVENT_NOTE.OCCURRENCE_START);
+    // 갱신 순서를 이동 방향과 반대로 — (event_id, occurrence_start) 유니크라 이동량이 주기의 배수일 때(주간 시리즈 +7일 등)
+    // 앞 행을 먼저 옮기면 안 옮긴 뒷 행의 자리에 부딪혀 유니크 위반으로 500 이 나기 때문이다(WP-1927).
+    oldKeys.sort(delta.isNegative() ? Comparator.naturalOrder() : Comparator.reverseOrder());
+    for (OffsetDateTime oldKey : oldKeys) {
+      dsl.update(CALENDAR_EVENT_NOTE)
+          .set(CALENDAR_EVENT_NOTE.OCCURRENCE_START, oldKey.plus(delta))
+          .where(CALENDAR_EVENT_NOTE.EVENT_ID.eq(eventId))
+          .and(CALENDAR_EVENT_NOTE.OCCURRENCE_START.eq(oldKey))
+          .execute();
+    }
   }
 }

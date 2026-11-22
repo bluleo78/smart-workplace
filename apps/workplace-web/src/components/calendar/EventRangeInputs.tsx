@@ -1,10 +1,12 @@
 // 일정 폼의 시작·종료 칸(WP-1072) — 시각 일정은 날짜·시각(datetime-local), 종일 일정은 날짜만(종료는 마지막 날 포함) 보인다.
 // 폼 값은 둘 다 같은 형식(종일은 자정 경계 half-open [start, end))이고, 종일 날짜 칸은 보일 때·고칠 때만 바꿔 쓴다.
 // 시작·종료를 여기서만 구독한다 — 대화상자(EventDialog)에서 구독하면 시각 한 자리를 칠 때마다 대화상자 전체가 다시 그려진다(WP-801).
+import { useRef } from 'react'
 import { Controller, type UseFormReturn, useWatch } from 'react-hook-form'
 
 import { Input } from '@/components/ui/input'
 import { allDayDisplayDates, allDayRangeFromDates, type EventFormValues } from '@/lib/calendarEventForm'
+import { INCOMPLETE_DATE_MESSAGE, isIncompleteDateInput } from '@/lib/dateInput'
 import { parseValidDateKey } from '@/lib/formatters'
 
 /** YYYY-MM-DD 이고 실제 달력 날짜인가. */
@@ -20,6 +22,10 @@ interface Props {
 export function EventRangeInputs({ form, allDay }: Props) {
   const [start, end] = useWatch({ control: form.control, name: ['start', 'end'] })
   const dates = allDay ? allDayDisplayDates(start, end) : null
+  // 칸 요소를 잡아 제출 전·검사 뒤 validity.badInput 을 직접 읽는다(값은 '' 로 올라 폼 상태로는 가를 수 없다 — lib/dateInput).
+  const startRef = useRef<HTMLInputElement | null>(null)
+  const endRef = useRef<HTMLInputElement | null>(null)
+  const inputRef = (name: 'start' | 'end') => (name === 'start' ? startRef : endRef)
 
   /**
    * 종일 날짜 칸 하나를 고치면 그 칸의 폼 값(자정 경계)만 바꾼다 — 다른 칸을 화면 값에서 되돌려 다시 쓰면, 화면 값과 폼 값이 정확히 왕복하지 않는
@@ -30,7 +36,28 @@ export function EventRangeInputs({ form, allDay }: Props) {
   function setAllDayDate(name: 'start' | 'end', date: string) {
     const next = allDayRangeFromDates(name === 'start' ? date : '', name === 'end' ? date : '')
     form.setValue(name, next[name])
-    void form.trigger(['start', 'end'])
+    // trigger 는 resolver 가 모르는 「덜 넣은 날짜」 수동 안내까지 지운다 — 검사를 마친 뒤 지금 validity 로 다시 얹어야
+    // 다른 칸을 고치는 순간 완성하지 않은 칸의 안내·aria-invalid 가 사라지지 않는다(WP-1916 리뷰 후속).
+    void form.trigger(['start', 'end']).then(syncIncompleteDate)
+  }
+
+  /** 지금 각 칸의 validity 에 맞춰 「덜 넣은 날짜」 안내를 얹거나 지운다 — 완성된 칸의 안내는 남지 않고, 완성하지 않은 칸은 검사 뒤에도 남는다. */
+  function syncIncompleteDate() {
+    for (const n of ['start', 'end'] as const) {
+      if (isIncompleteDateInput(inputRef(n).current)) {
+        form.setError(n, { type: 'validate', message: INCOMPLETE_DATE_MESSAGE })
+      } else {
+        clearIncompleteDate(n)
+      }
+    }
+  }
+
+  /**
+   * 덜 넣은 날짜 안내(제출 때 읽은 validity 로 EventDialog 가 setError 한 것)는 칸이 완성돼 값이 바뀌는 순간 지운다 —
+   * 이 폼은 mode=onSubmit 이라 값만 고치면 재검증이 돌아오지 않아 안내가 남아 있었다. 다음 저장 때 다시 검사한다(WP-1916 리뷰 후속).
+   */
+  function clearIncompleteDate(name: 'start' | 'end') {
+    if (form.formState.errors[name]?.message === INCOMPLETE_DATE_MESSAGE) form.clearErrors(name)
   }
 
   /** 한 칸 — 종일이면 날짜 칸(제어 값은 dates), 아니면 날짜·시각 칸(Controller). 둘 다 제어 칸이라 종일을 켜고 끌 때 값이 남지 않는다. */
@@ -45,12 +72,14 @@ export function EventRangeInputs({ form, allDay }: Props) {
       return (
         <Input
           {...common}
+          ref={inputRef(name)}
           type="date"
           aria-label={name === 'start' ? '시작일' : '종료일'}
           value={name === 'start' ? dates.startDate : dates.endDate}
           onChange={(e) => {
             const v = e.target.value
             setAllDayDate(name, v)
+            clearIncompleteDate(name)
             // 시작을 종료 뒤로 옮기면 종료를 시작일로 끌어온다 — 하루 일정의 날짜를 옮길 때 종료를 따로 고치지 않게.
             // 둘 다 올바른 날짜일 때만 비교한다 — 빈 종료·연도 5자리를 글자로 비교해 사람이 고르지 않은 종료로 덮어쓰지 않게(WP-1103).
             if (name === 'start' && isValidDateKey(v) && isValidDateKey(dates.endDate) && v > dates.endDate) setAllDayDate('end', v)
@@ -62,7 +91,22 @@ export function EventRangeInputs({ form, allDay }: Props) {
       <Controller
         control={form.control}
         name={name}
-        render={({ field }) => <Input {...common} {...field} type="datetime-local" aria-label={name === 'start' ? '시작' : '종료'} />}
+        render={({ field }) => (
+          <Input
+            {...common}
+            {...field}
+            ref={(el) => {
+              field.ref(el)
+              inputRef(name).current = el
+            }}
+            type="datetime-local"
+            aria-label={name === 'start' ? '시작' : '종료'}
+            onChange={(e) => {
+              field.onChange(e)
+              clearIncompleteDate(name)
+            }}
+          />
+        )}
       />
     )
   }
