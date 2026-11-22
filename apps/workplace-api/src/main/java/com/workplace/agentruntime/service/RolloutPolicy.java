@@ -35,6 +35,9 @@ final class RolloutPolicy {
    *   <li>바로 적용(NOW)이거나 한 번도 뜬 적이 없다(관찰 generation 없음).
    *   <li>AI 가 쉬는 중(IDLE)이라고 보고했다 — 단 그 보고가 지금 Pod 가 뜨기 전에 온 것이면(agent_reported_at &lt; started_at)
    *       옛 Pod 의 보고라 믿지 않는다(WP-1253).
+   *   <li>지금 Pod 의 컨테이너가 시작에 실패했다고 보고했는데({@link AgentRuntimeStatusResolver#blocksRunningPod}) 진행 중인
+   *       일이 없다(AI 상태가 없거나 IDLE) — 시작도 못 한 컨테이너는 IDLE 을 보고할 수 없어 기다리면 미뤄 둔 설정이 영영 나가지 않는다(WP-1969).
+   *       WORKING·BLOCKED 는 진행 중인 일이라 끊지 않는다.
    *   <li>키 교체가 아직 확인되지 않았는데 지금 Pod 가 쓰는 옛 키가 {@link #POD_KEY_EXPIRY_MARGIN} 안에 만료된다(WP-1253) — 오래
    *       일하는 중이라도 죽을 키로 계속 돌지 않게.
    * </ul>
@@ -45,6 +48,11 @@ final class RolloutPolicy {
     if (!row.hasUnappliedGeneration()) return Decision.NONE;
     if (row.applyMode() == ApplyMode.NOW || row.observedGeneration() == null) return Decision.NOW;
     if (row.isIdle() && !reportedBeforePodStart(row)) return Decision.NOW;
+    // 같은 컨테이너의 다른 칸이 일하는 중일 수 있어 WORKING·BLOCKED 면 여기서 NOW 로 올리지 않는다.
+    if ((row.agentState() == null || row.isIdle())
+        && AgentRuntimeStatusResolver.blocksRunningPod(row)) {
+      return Decision.NOW;
+    }
     if (keys.podKeyExpiresBy(row.observedGeneration(), now.plus(POD_KEY_EXPIRY_MARGIN))) {
       return Decision.NOW;
     }

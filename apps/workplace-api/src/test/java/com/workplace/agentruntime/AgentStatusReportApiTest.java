@@ -1028,4 +1028,42 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
         .andExpect(status().isUnauthorized());
     useTenant(1L);
   }
+
+  /**
+   * 이번 보고가 지우는 차단으로 응답을 정하지 않는다(WP-1969) — 도는 Pod 의 저장된 차단이 있고 적용이 쉴 때로 미뤄진 AI 의 IDLE 보고가 와도, 보고
+   * 시각이 관찰한 시작 시각(30초 여유 안)보다 앞서면 쉬는 중으로 치지 않으므로 지운 뒤에는 DRAIN 이고 runner 의 applyNow 도 거짓이다.
+   */
+  @Test
+  void status_차단을_지우는_보고의_응답은_지운_뒤_행으로_정한다() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g - 1, "IDLE", "RUN");
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, OffsetDateTime.now().plusSeconds(5))
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, g - 1)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    report(key, slotReport("IDLE", "WP", null, g - 1))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("DRAIN"));
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    String runnerToken = locationService.rotateToken(admin, location).plaintextToken();
+    useTenant(1L);
+    String json =
+        mvc.perform(
+                get("/api/v1/agent-runtime/runner/desired")
+                    .header("Authorization", "Bearer " + runnerToken))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    useTenant(1L);
+    tools.jackson.databind.JsonNode agents = om.readTree(json).get("agents");
+    assertThat(agents).hasSize(1);
+    assertThat(agents.get(0).get("applyNow").asBoolean()).isFalse();
+  }
 }
