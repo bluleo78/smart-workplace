@@ -139,13 +139,13 @@ class AgentRuntimeStatusResolverTest {
   /** 지금 generation 에서 보고한 차단 사유는 그대로 읽는다(WP-1913 리뷰 반려 ①). */
   @Test
   void 지금_generation에서_보고한_차단만_합친다() {
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), at(1))).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), at(1), null, null)).isEqualTo("설정 오류");
     // 모를 때(플러그인을 갈아끼우기 전 이미지)는 지금 것을 본다 — 계약이 날로 없어지지 않게.
-    assertThat(currentPaneBlocked("설정 오류", null, 3L, at(10), at(1))).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", null, 3L, at(10), at(1), null, null)).isEqualTo("설정 오류");
     // 시각을 모를 때(관찰 전)도 견주지 않는다.
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, at(1))).isEqualTo("설정 오류");
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), null)).isEqualTo("설정 오류");
-    assertThat(currentPaneBlocked(null, 3L, 3L, null, null)).isNull();
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, at(1), null, null)).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), null, null, null)).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked(null, 3L, 3L, null, null, null, null)).isNull();
   }
 
   /**
@@ -154,7 +154,7 @@ class AgentRuntimeStatusResolverTest {
    */
   @Test
   void 옛_generation에서_보고한_차단은_합치지_않는다() {
-    assertThat(currentPaneBlocked("설정 오류", 3L, 4L, at(10), at(1))).isNull();
+    assertThat(currentPaneBlocked("설정 오류", 3L, 4L, at(10), at(1), null, null)).isNull();
   }
 
   /**
@@ -165,12 +165,28 @@ class AgentRuntimeStatusResolverTest {
    */
   @Test
   void 새_Pod가_뜬_뒤_남은_옛_차단은_합치지_않는다() {
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(1), at(40))).isNull();
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(1), at(40), null, null)).isNull();
     // 정확히 30초 차이(isBefore 가 거짓)는 경계 안 — 지금 Pod 의 것으로 합친다.
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), at(40))).isEqualTo("설정 오류");
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(11), at(40))).isEqualTo("설정 오류");
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(40), at(40))).isEqualTo("설정 오류");
-    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(50), at(40))).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(10), at(40), null, null)).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(11), at(40), null, null)).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(40), at(40), null, null)).isEqualTo("설정 오류");
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, at(50), at(40), null, null)).isEqualTo("설정 오류");
+  }
+
+  /**
+   * 차단한 Pod 시작 시각(WP-1958)이 지금 Pod 시작보다 30초 넘게 앞서면 옛 Pod 의 차단이라 가린다 — 관찰 started_at 이 옛 Pod 인 채로 새
+   * Pod 가 보고해 기준이 올라간 경우도 포함. 시각을 모르거나 경계 안이면 읽는다.
+   */
+  @Test
+  void currentPaneBlocked_차단한_파드가_지금_파드보다_앞서면_가린다() {
+    // 관찰 started_at=at(1)(옛 Pod), 보고로 올라간 지금 Pod=at(50) — 차단한 Pod at(1) 은 옛 것
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, at(1), at(1), at(50))).isNull();
+    // 정확히 30초 앞선 차단(at(20) vs at(50))은 경계 안
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, at(1), at(20), at(50))).isEqualTo("설정 오류");
+    // 차단한 Pod 시각을 모르면(옛 이미지) 이 판정은 건너뛴다
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, at(1), null, at(50))).isEqualTo("설정 오류");
+    // 지금 Pod 시작을 둘 다 모르면 견줄 수 없다
+    assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, null, at(1), null)).isEqualTo("설정 오류");
   }
 
   private static java.time.OffsetDateTime at(int second) {

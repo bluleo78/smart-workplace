@@ -65,9 +65,15 @@ case "$GENIA_AGENT_GENERATION" in
   *[!0-9]*) fallback "GENIA_AGENT_GENERATION 이 숫자가 아닙니다" ;;
 esac
 
+# Pod 시작 시각(WP-1958) — 서버가 같은 generation 으로 재시작한 뒤 옛 Pod 의 늦은 보고를 거르는 데 쓴다. 모르거나 미래면 빈 값 → 싣지 않는다.
+# 도우미가 실패해도 보고는 계속한다.
+pod_started=$("$here/gw-pod-start" 2>/dev/null) || pod_started=""
+pod_field=""
+[ -z "$pod_started" ] || pod_field=$(printf ',"podStartedAt":"%s"' "$pod_started")
+
 case "${1:-}" in
-  blocked) body=$(printf '{"state":"BLOCKED","message":"%s","generation":%s}' "$msg" "$GENIA_AGENT_GENERATION") ;;
-  *) body=$(printf '{"state":"OK","generation":%s}' "$GENIA_AGENT_GENERATION") ;;
+  blocked) body=$(printf '{"state":"BLOCKED","message":"%s","generation":%s%s}' "$msg" "$GENIA_AGENT_GENERATION" "$pod_field") ;;
+  *) body=$(printf '{"state":"OK","generation":%s%s}' "$GENIA_AGENT_GENERATION" "$pod_field") ;;
 esac
 
 key=$(gw_identity_key) || key=""

@@ -86,6 +86,8 @@ public class AgentRuntimeSettingRepository {
       String paneBlockedMessage,
       OffsetDateTime paneBlockedAt,
       Long paneBlockedGeneration,
+      OffsetDateTime reportedPodStartedAt,
+      OffsetDateTime paneBlockedPodStartedAt,
       @With boolean acceptNewWork,
       @With Integer slotLimit) {
 
@@ -127,6 +129,8 @@ public class AgentRuntimeSettingRepository {
         r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE),
         r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT),
         r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION),
+        r.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT),
+        r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT),
         r.get(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK),
         Optional.ofNullable(r.get(AGENT_RUNTIME_SETTING.SLOT_LIMIT))
             .map(Short::intValue)
@@ -368,6 +372,18 @@ public class AgentRuntimeSettingRepository {
         .set(s.CPU_MILLICORES, vCpu)
         .set(s.MEMORY_BYTES, vMem)
         .set(s.STARTED_AT, vStart)
+        // WP-1958 새 started_at 이 null 이 아니고 보고한 값보다 늦을 때만 비운다.
+        // null·옛 Pod 관찰이 새 Pod 가 올린 값을 지우면 안 된다.
+        .set(
+            s.REPORTED_POD_STARTED_AT,
+            clearedIf(
+                vStart
+                    .isNotNull()
+                    .and(
+                        s.REPORTED_POD_STARTED_AT
+                            .isNull()
+                            .or(s.REPORTED_POD_STARTED_AT.lt(vStart))),
+                s.REPORTED_POD_STARTED_AT))
         .set(s.OBSERVED_AT, OffsetDateTime.now())
         .set(s.AGENT_STATE, clearedIf(newPod, s.AGENT_STATE))
         .set(s.AGENT_ISSUE_KEY, clearedIf(newPod, s.AGENT_ISSUE_KEY))
@@ -442,17 +458,40 @@ public class AgentRuntimeSettingRepository {
    *
    * @param message 차단 이유(최대 500자 — DTO 에서 검증) 또는 null(칸 비움)
    * @param at 차단을 보고한 시각 — message 가 null 이면 함께 지운다
+   * @param podStartedAt 그 사유를 보고한 Pod 의 시작 시각(WP-1958, 보고에 없으면 null) — message 가 null 이면 함께 지운다.
+   *     끝나는 중인 옛 Pod 의 늦은 보고가 새 Pod 의 차단 사유를 덮지 않게 서비스가 비교한다
    * @param generation 그 사유를 보고한 Pod 의 generation — null(보고에 없음)도 그대로 남긴다. 지금 generation 과 다른 값을 들고
    *     있는 보고는 서비스가 이 메서드를 부르기 전에 걸러 낸다(끝나는 중인 옛 Pod 의 늦은 보고가 새 generation 을 덮지 않게)
    */
   public void updatePaneBlocked(
-      long agentUserId, String message, OffsetDateTime at, Long generation) {
+      long agentUserId,
+      String message,
+      OffsetDateTime at,
+      Long generation,
+      OffsetDateTime podStartedAt) {
     var s = AGENT_RUNTIME_SETTING;
     OffsetDateTime savedAt = message == null ? null : at;
     dsl.update(s)
         .set(s.PANE_BLOCKED_MESSAGE, message)
         .set(s.PANE_BLOCKED_AT, savedAt)
         .set(s.PANE_BLOCKED_GENERATION, message == null ? null : generation)
+        .set(s.PANE_BLOCKED_POD_STARTED_AT, message == null ? null : podStartedAt)
+        .where(s.AGENT_USER_ID.eq(agentUserId))
+        .execute();
+  }
+
+  /**
+   * 보고가 알려 준 Pod 시작 시각을 올린다(WP-1958) — {@code GREATEST} 한 문장이라 올라가기만 하고(Postgres GREATEST 는 NULL 을
+   * 무시해 첫 값도 들어간다) 동시 보고가 내려 쓰지 않는다. null 이면 아무것도 하지 않는다. runner 관찰이 새 Pod 를 아직 못 봤을 때 지금 Pod 시작의
+   * 근거가 된다.
+   */
+  public void raiseReportedPodStart(long agentUserId, OffsetDateTime podStartedAt) {
+    if (podStartedAt == null) return;
+    var s = AGENT_RUNTIME_SETTING;
+    dsl.update(s)
+        .set(
+            s.REPORTED_POD_STARTED_AT,
+            DSL.greatest(s.REPORTED_POD_STARTED_AT, DSL.val(podStartedAt)))
         .where(s.AGENT_USER_ID.eq(agentUserId))
         .execute();
   }

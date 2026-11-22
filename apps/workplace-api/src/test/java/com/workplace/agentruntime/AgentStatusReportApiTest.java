@@ -536,7 +536,8 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   void status_staleWorkingSlot_doesNotBlockIdleAggregate() throws Exception {
     long g = fx.generationOf(agent);
     setRow(agent, g - 1, "IDLE", "RUN");
-    slots.upsert(agent, "HR", AgentState.WORKING, "HR-2", null, OffsetDateTime.now().minusHours(7));
+    slots.upsert(
+        agent, "HR", AgentState.WORKING, "HR-2", null, OffsetDateTime.now().minusHours(7), null);
 
     report(key, slotReport("IDLE", "WP", null, g - 1))
         .andExpect(status().isOk())
@@ -769,6 +770,152 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
         .isEqualTo("설정 오류로 칸을 못 띄웠어요");
     assertThat(runtimeEvents()).isZero();
+  }
+
+  // ---- WP-1958 옛 Pod 의 늦은 보고 거르기 ----
+
+  private static final OffsetDateTime POD_NEW = OffsetDateTime.now().withNano(0).minusMinutes(10);
+  private static final OffsetDateTime POD_OLD = POD_NEW.minusMinutes(5);
+
+  /** 관찰한 시작 시각(started_at)을 직접 맞춘다 — null 이면 runner 가 아직 관찰하지 못한 상태. */
+  private void setStartedAt(OffsetDateTime startedAt) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, startedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /** 진입점 차단을 차단한 Pod 시작 시각과 함께 심어 둔다(시각 null 이면 옛 이미지의 차단). */
+  private void setPaneBlockedByPod(OffsetDateTime podStartedAt) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT, podStartedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  private String slotState(String slotKey) {
+    return dsl.select(AGENT_RUNTIME_SLOT_STATE.STATE)
+        .from(AGENT_RUNTIME_SLOT_STATE)
+        .where(AGENT_RUNTIME_SLOT_STATE.AGENT_USER_ID.eq(agent))
+        .and(AGENT_RUNTIME_SLOT_STATE.SLOT_KEY.eq(slotKey))
+        .fetchOne(AGENT_RUNTIME_SLOT_STATE.STATE);
+  }
+
+  /** 같은 generation 으로 재시작해도 새 Pod 가 먼저 보고했으면 옛 Pod 의 늦은 WORKING 은 저장되지 않는다. */
+  @Test
+  void status_같은_generation_재시작_뒤_옛_파드의_늦은_WORKING_은_저장되지_않는다() throws Exception {
+    report(key, slotReportWithPod("IDLE", "X", null, null, POD_NEW)).andExpect(status().isOk());
+
+    report(key, slotReportWithPod("WORKING", "X", "WP-9", null, POD_OLD))
+        .andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    assertThat(slotState("X")).isEqualTo("IDLE");
+  }
+
+  /** runner 가 새 Pod 를 아직 관찰하지 못해도(started_at=옛 Pod) 새 Pod 가 보고한 뒤의 옛 Pod 보고는 버려진다. */
+  @Test
+  void status_runner_관찰_전에도_새_파드_보고_뒤_옛_파드_보고는_버려진다() throws Exception {
+    setStartedAt(POD_OLD);
+    report(key, slotReportWithPod("IDLE", "A", null, null, POD_NEW)).andExpect(status().isOk());
+
+    report(key, slotReportWithPod("WORKING", "B", "WP-9", null, POD_OLD))
+        .andExpect(status().isOk());
+
+    assertThat(slotKeysOf(agent)).containsExactly("A");
+  }
+
+  /** 옛 Pod 칸이 새 Pod 첫 보고보다 먼저 저장돼 있었으면 새 Pod 첫 보고가 그 칸을 뺀다. */
+  @Test
+  void status_새_파드_첫_보고가_먼저_늦게_저장된_옛_파드_칸을_뺀다() throws Exception {
+    setStartedAt(POD_OLD);
+    report(key, slotReportWithPod("WORKING", "B", "WP-9", null, POD_OLD))
+        .andExpect(status().isOk());
+    assertThat(slotKeysOf(agent)).containsExactly("B");
+
+    report(key, slotReportWithPod("IDLE", "A", null, null, POD_NEW)).andExpect(status().isOk());
+
+    assertThat(slotKeysOf(agent)).containsExactly("A");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+  }
+
+  /** 서버 시각보다 30초 넘게 앞선 Pod 시각은 시계 이상으로 보고 버린다 — 시각 없는 보고처럼 저장하고, 기준을 올리지 않는다. */
+  @Test
+  void status_미래_파드_시각은_무시된다() throws Exception {
+    report(key, slotReportWithPod("IDLE", "A", null, null, OffsetDateTime.now().plusMinutes(10)))
+        .andExpect(status().isOk());
+
+    assertThat(slotKeysOf(agent)).containsExactly("A");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+
+    report(key, slotReportWithPod("IDLE", "B", null, null, POD_NEW)).andExpect(status().isOk());
+    assertThat(slotKeysOf(agent)).contains("B");
+  }
+
+  /** 차단한 Pod 보다 앞선 Pod 의 칸 보고는 차단을 비우지 못하고, 같은 Pod 의 보고는 비운다. */
+  @Test
+  void status_백스톱_차단한_파드보다_앞선_파드의_칸_보고는_차단을_비우지_못한다() throws Exception {
+    setStartedAt(POD_OLD);
+    setPaneBlockedByPod(POD_NEW);
+
+    report(key, slotReportWithPod("IDLE", "A", null, null, POD_OLD)).andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+        .isEqualTo("설정 오류로 칸을 못 띄웠어요");
+
+    report(key, slotReportWithPod("IDLE", "A", null, null, POD_NEW)).andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /**
+   * WP-1958 실제 흐름 — 새 Pod(T2)의 BLOCKED 가 칸 차단 보고로 지금 Pod 시작을 올린 뒤, 옛 Pod(T1 &lt; T2 − 30초)의 늦은 칸 상태
+   * 보고가 오면 보고 전체가 버려진다: 차단은 남고 칸 행도 쓰이지 않는다.
+   */
+  @Test
+  void status_칸_차단_보고로_올라간_파드_시각보다_앞선_상태_보고는_통째로_버려진다() throws Exception {
+    useTenant(1L);
+    mvc.perform(
+            put("/api/v1/agent-runtime/me/pane")
+                .header("Authorization", "Bearer " + key)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    om.writeValueAsString(
+                        Map.of(
+                            "state", "BLOCKED",
+                            "message", "설정 오류로 칸을 못 띄웠어요",
+                            "podStartedAt", POD_NEW))))
+        .andExpect(status().isNoContent());
+    useTenant(1L);
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNotNull();
+
+    report(key, slotReportWithPod("IDLE", "A", null, null, POD_OLD)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+        .isEqualTo("설정 오류로 칸을 못 띄웠어요");
+    assertThat(slotKeysOf(agent)).isEmpty();
+  }
+
+  /** 차단한 Pod 시각이 없는 차단(옛 이미지)은 지금 규칙대로 관찰한 시작 시각과 견준다. */
+  @Test
+  void status_시각_없는_차단은_지금_백스톱_규칙대로() throws Exception {
+    setStartedAt(POD_OLD);
+    setPaneBlockedByPod(null);
+
+    report(key, slotReportWithPod("IDLE", "A", null, null, POD_OLD)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /** 지금 Pod 시작보다 29초 앞선 Pod 시각은 시계 차이 여유 안이라 지금 Pod 로 본다(버리지 않는다). */
+  @Test
+  void status_29초_앞선_파드_시각은_지금_파드로_본다() throws Exception {
+    setStartedAt(POD_NEW);
+
+    report(key, slotReportWithPod("WORKING", "A", "WP-9", null, POD_NEW.minusSeconds(29)))
+        .andExpect(status().isOk());
+
+    assertThat(slotState("A")).isEqualTo("WORKING");
   }
 
   /** 진입점 차단을 심어 둔다 — 보고 generation 은 null(옛 이미지)도 받는다. */

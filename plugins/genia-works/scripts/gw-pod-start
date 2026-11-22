@@ -1,0 +1,33 @@
+#!/bin/sh
+# gw-pod-start — 이 Pod(컨테이너 PID 1)의 시작 시각을 ISO-8601 UTC(예: 2026-11-22T01:02:03Z) 한 줄로 낸다(WP-1958).
+# 왜: gw-status·gw-boot 가 보고에 Pod 시작 시각을 실어, 서버가 끝나는 중인 옛 Pod 의 늦은 보고를 지금 Pod 의 보고와 갈라 보게 한다.
+#   계산이 한 곳에 있어야 두 명령이 같은 값을 낸다(WP-1913 리뷰 반려 ①에서 gw-status 에 있던 계산을 옮김).
+# - 시각은 `stat /proc/1` 로 가져오지 않는다 — /proc 항목의 mtime 은 inode 가 만들어진(경로를 처음 조회한) 시각이라 컨테이너 시작보다 늦을 수 있다(실측 16시간 차).
+#   `now - uptime + starttime/Hz` 로 계산한다(둘 다 /proc 에서 읽어 같은 시계).
+# - 모르면(비 Linux·hidepid·값 이상) 빈 출력이다. **계산 결과가 지금보다 뒤(미래)여도 빈 출력**이다 — 시계가 어긋난 값을 실으면 서버가
+#   그 Pod 를 「가장 새 Pod」 로 믿어 이후 정상 Pod 의 보고를 옛 것으로 거를 수 있다. 서버는 없는 값을 그대로 믿는다(옛 이미지와 같은 취급).
+# - 어떤 경우에도 종료 0 이다 — 부르는 쪽의 「RUN·종료 0」 같은 약속을 깨지 않는다.
+# - 테스트에서 /proc 을 흉내 낼 수 있게 GW_PROC_DIR(기본 /proc)로 위치를 바꾼다.
+proc="${GW_PROC_DIR:-/proc}"
+if [ -r "$proc/1/stat" ] && [ -r "$proc/uptime" ]; then
+  hz=$(getconf CLK_TCK 2>/dev/null) || hz=""
+  # comm 에는 공백·괄호가 들어갈 수 있어 ") " 뒤부터 필드를 센다 — starttime 은 그 뒤 20번째(전체 22번째)다.
+  ticks=$(sed 's/.*) //' "$proc/1/stat" 2>/dev/null | awk '{print $20}')
+  up=$(cut -d' ' -f1 "$proc/uptime" 2>/dev/null)
+  up=${up%%.*}
+  now=$(date +%s 2>/dev/null)
+  bad=0
+  for v in "$hz" "$ticks" "$up" "$now"; do
+    case "$v" in "" | *[!0-9]*) bad=1 ;; esac
+  done
+  # hz 는 0 일 수 없다(getconf CLK_TCK ≥ 100) — 그래도 0 으로 나누면 셸이 죽는다.
+  if [ "$bad" = 0 ] && [ "$hz" -gt 0 ]; then
+    pod_start=$((now - up + ticks / hz))
+    # 0 이하(계산 이상)와 지금보다 뒤(미래)는 싣지 않는다.
+    if [ "$pod_start" -gt 0 ] && [ "$pod_start" -le "$now" ]; then
+      # GNU date(-d) 우선, 없으면 BSD date(-r) — 개발 환경(macOS)에서 가짜 /proc 으로 시험할 수 있게.
+      date -u -d "@$pod_start" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$pod_start" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true
+    fi
+  fi
+fi
+exit 0

@@ -18,6 +18,8 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.support.WebSessionAuth;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import org.jooq.DSLContext;
@@ -273,6 +275,103 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     Record row = settingOf();
     assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("설정 오류");
     assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION)).isEqualTo(gen + 1);
+  }
+
+  /** 새 Pod 시작 시각을 칸 보고가 올려 둔 값(reported_pod_started_at)으로 심는다(WP-1958) — 새 Pod 가 먼저 상태를 보고한 상황. */
+  private void setReportedPodStart(OffsetDateTime t) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT, t)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /** 같은 generation 의 옛 Pod(T1) 가 새 Pod(T2) 상태 보고 뒤 늦게 보낸 BLOCKED 는 무시한다(WP-1958). */
+  @Test
+  void 같은_generation_에서_옛_파드의_늦은_BLOCKED_는_무시한다() throws Exception {
+    long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
+    OffsetDateTime t2 = OffsetDateTime.now().minusMinutes(1);
+    setReportedPodStart(t2);
+    appEvents.clear();
+
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"옛 Pod 차단\",\"generation\":"
+                + gen
+                + ",\"podStartedAt\":\""
+                + t2.minusMinutes(10)
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /** 옛 Pod(T1) 의 늦은 OK 는 새 Pod(T2) 의 차단을 지우지 못한다(WP-1958). */
+  @Test
+  void 같은_generation_에서_옛_파드의_늦은_OK_는_새_파드_차단을_지우지_못한다() throws Exception {
+    long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
+    OffsetDateTime t2 = OffsetDateTime.now().minusMinutes(1);
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"새 Pod 차단\",\"generation\":"
+                + gen
+                + ",\"podStartedAt\":\""
+                + t2
+                + "\"}")
+        .andExpect(status().isNoContent());
+    appEvents.clear();
+
+    report(
+            key,
+            "{\"state\":\"OK\",\"generation\":"
+                + gen
+                + ",\"podStartedAt\":\""
+                + t2.minusMinutes(10)
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("새 Pod 차단");
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /** BLOCKED 는 보고한 Pod 시작 시각을 저장하고, 보고한 시각만큼 지금 Pod 시작도 올린다(WP-1958). */
+  @Test
+  void BLOCKED_는_보고한_파드_시각을_저장한다() throws Exception {
+    OffsetDateTime t = OffsetDateTime.now().minusMinutes(2);
+
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"podStartedAt\":\"" + t + "\"}")
+        .andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT).toInstant())
+        .isEqualTo(t.toInstant().truncatedTo(ChronoUnit.MICROS));
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNotNull();
+  }
+
+  /** 서버 시각보다 30초 넘게 미래인 podStartedAt 은 시계 이상이라 시각 없는 보고처럼 다룬다 — 차단은 저장하되 시각은 남기지 않는다(WP-1958). */
+  @Test
+  void 미래_파드_시각의_BLOCKED_는_시각_없는_보고처럼_저장한다() throws Exception {
+    OffsetDateTime future = OffsetDateTime.now().plusMinutes(5);
+
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"podStartedAt\":\"" + future + "\"}")
+        .andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("설정 오류");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT)).isNull();
+  }
+
+  /** 시각 없는 BLOCKED·OK 는 지금처럼 동작한다 — 저장도 거르기도 없다(WP-1958). */
+  @Test
+  void 시각_없는_BLOCKED_OK_는_지금처럼_동작한다() throws Exception {
+    setReportedPodStart(OffsetDateTime.now().minusMinutes(1));
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"차단\"}").andExpect(status().isNoContent());
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("차단");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT)).isNull();
+
+    report(key, "{\"state\":\"OK\"}").andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
   }
 
   /** 사람은 보고할 수 없다 — 403 AGENT_ONLY. */
