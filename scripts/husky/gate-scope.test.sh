@@ -153,4 +153,36 @@ git checkout -q -b p-web-api p-web; commit_file apps/workplace-api/src/Q.java 'q
 check "HEAD(api 포함) push → 전체로 회귀" "$(decide "$(line p-web-api)")" "범위 full"
 git checkout -q main
 
+# ---- 4) 검토자 풀테스트 — 기준을 green 으로(FULL_REGRESSION_BASE), web vitest 는 main CI 결과로(WP-2003) ----
+# green 은 main 을 가리키고, 그 뒤 web 만 바꾼 커밋 → web 범위. api 를 바꾸면 full. 문서만이면 돌 단계 없이 통과.
+git branch -f green main
+git checkout -q -b g-web main; commit_file apps/workplace-web/src/g.ts 'g'
+out=$(FULL_REGRESSION_BASE=green FULL_REGRESSION_CMD='echo "scope=$GATE_SCOPE"' sh "$HOOKS/full-regression.sh" 2>&1)
+check "green 뒤 web 만 바뀌면 web 범위" "$out" "scope=web" "scope=full"
+check "범위 안내에 기준이 나온다" "$out" "기준 green"
+commit_file apps/workplace-api/src/G.java 'g'
+out=$(FULL_REGRESSION_BASE=green FULL_REGRESSION_CMD='echo "scope=$GATE_SCOPE"' sh "$HOOKS/full-regression.sh" 2>&1)
+check "green 뒤 api 가 바뀌면 full" "$out" "scope=full"
+git checkout -q -b g-doc main; commit_file docs/g.md 'g'
+out=$(FULL_REGRESSION_BASE=green FULL_REGRESSION_CMD='echo "scope=$GATE_SCOPE"' sh "$HOOKS/full-regression.sh" 2>&1; echo "exit=$?")
+check "green 뒤 문서만이면 돌 단계 없이 통과" "$out" "범위: 없음" "scope="
+check "문서만 통과는 종료 0" "$out" "exit=0"
+out=$(FULL_REGRESSION_CMD='echo "scope=$GATE_SCOPE"' sh "$HOOKS/full-regression.sh" 2>&1)
+check "기준을 주지 않으면 예전처럼(origin/main 없음 → 전체 — 문서만이어도 생략하지 않는다)" "$out" "scope=full" "범위: 없음"
+out=$(FULL_REGRESSION_CI_VITEST=1 FULL_REGRESSION_CMD='echo "ci=$FULL_REGRESSION_CI_VITEST"' sh "$HOOKS/full-regression.sh" 2>&1)
+check "CI vitest 대신 표시가 회귀로 넘어간다" "$out" "ci=1"
+check "단계 안내에 vitest 대신이 나온다" "$out" "web vitest 는 main CI 결과로 대신"
+git checkout -q main
+
+# ci-vitest-result.sh — 가짜 gh 로 CI 상태별 종료 코드를 본다(0 통과 · 1 실패 · 2 모름 → 직접 vitest).
+mkdir -p "$TMP/bin"
+fake_gh() { printf '#!/bin/sh\n%s\n' "$1" > "$TMP/bin/gh"; chmod +x "$TMP/bin/gh"; }
+ci() { PATH="$TMP/bin:$PATH" CI_VITEST_WAIT_SECONDS=0 CI_VITEST_POLL_SECONDS=0 sh "$HOOKS/ci-vitest-result.sh" abc >/dev/null 2>&1 && echo "exit=0" || echo "exit=$?"; }
+fake_gh 'echo "completed success"'; check "CI 통과 → 0" "$(ci)" "exit=0"
+fake_gh 'echo "completed failure"'; check "CI 실패 → 1" "$(ci)" "exit=1"
+fake_gh 'echo "null null"';         check "push 실행 없음 → 2" "$(ci)" "exit=2"
+fake_gh 'exit 1';                    check "조회 실패 → 2" "$(ci)" "exit=2"
+fake_gh 'echo "in_progress "';       check "기다림 초과 → 2" "$(ci)" "exit=2"
+check "sha 없이 부르면 2" "$(sh "$HOOKS/ci-vitest-result.sh" >/dev/null 2>&1 && echo "exit=0" || echo "exit=$?")" "exit=2"
+
 finish

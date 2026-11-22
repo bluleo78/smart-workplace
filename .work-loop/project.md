@@ -70,8 +70,11 @@ pnpm test:full   # 이미지 입력 타입 검사 → web vitest → web E2E 전
 개발자는 push 게이트 없이(`--no-verify`) 올리고 검토자는 받는 대로 머지한다. 합친 main 은 검토자가 리뷰할 것이 없을 때 아래로 한 번에 돌리고, 통과한 커밋으로 `green` 브랜치를 옮긴다. 개발자는 `origin/green` 에서 브랜치를 딴다. **풀테스트를 띄운 뒤 green 을 옮길 때까지(실패해 고치는 동안 포함) 검토자는 PR 을 머지하지 않는다** — 리뷰·승인만 하고, green 을 옮긴 뒤 승인한 순서대로 머지한다. 그동안 main 에는 풀테스트 실패의 고침·되돌리기만 들어가, 다시 돌린 풀테스트가 고침만 검사한다.
 
 ```sh
-FULL_REGRESSION_SCOPE=full pnpm test:full   # green 워크트리(MAIN/.claude/worktrees/green, main 의 정한 커밋에 detach)에서. 범위 판정은 origin/main 기준이라 main HEAD 에서는 빈 범위가 나오므로 전체를 강제한다
+FULL_REGRESSION_BASE=origin/green FULL_REGRESSION_CI_VITEST=1 pnpm test:full   # green 워크트리(MAIN/.claude/worktrees/green, main 의 정한 커밋에 detach)에서
 ```
+
+- **범위는 green 뒤 바뀐 앱만**: green 은 이미 전체를 통과한 커밋이라 `origin/green` 과 갈라진 뒤 바뀐 코드 파일로 범위를 고른다(web 만 → web 단계만 15~18분, api·공유 영역이 바뀌면 전체 33~45분, 문서만이면 돌 단계 없이 통과). 띄우기 전에 `git fetch origin` 으로 `origin/green` 을 새로 받는다.
+- **web vitest 는 main CI 결과로 대신**: main push 마다 CI `verify` 가 웹 vitest 를 돈다. 풀테스트는 그 커밋의 CI 결과를 기다려 보고(`scripts/husky/ci-vitest-result.sh`) 통과면 다시 돌지 않는다 — CI 실패면 풀테스트도 실패(main 이 깨졌다), 결과를 못 찾으면 vitest 를 직접 돈다.
 
 - 실패한 테스트만 다시 돌릴 때(불안정 확인·수정 확인): api `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-api && ./gradlew test --tests "<클래스>"'`, web vitest `cd apps/workplace-web && npx vitest run <파일>`, web E2E `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e <spec>'`, admin E2E `cd apps/workplace-admin && pnpm test:e2e <spec>`.
 - green 의 첫 위치는 v0.9.82 릴리스 커밋이다(WP-2003). 릴리스 태그는 green 이 가리키는 커밋에 찍는다.
@@ -107,7 +110,8 @@ work-loop 는 아래 명령을 기다리지 않고 이슈 워크트리에서 백
 |---|---|
 | `pnpm test:full`(push 게이트) | 45분 |
 | `pnpm test:full` — web 만 바꾼 범위(admin E2E·gradle 빠짐) | 36분 |
-| 풀테스트(`FULL_REGRESSION_SCOPE=full pnpm test:full`, green 워크트리 — 검토자) | 50분 |
+| 풀테스트(3절 「풀테스트」 명령, green 워크트리 — 검토자) — web 만 바뀐 회차 | 18분 |
+| 풀테스트 — api·공유 영역이 바뀐 회차(전체) | 40분 |
 | `E2E_SERVER=preview pnpm test:e2e`(웹 E2E 전체, `apps/workplace-web`) | 35분 |
 | `./gradlew test`(api 전체, `apps/workplace-api`) | 10분 |
 

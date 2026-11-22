@@ -1484,7 +1484,7 @@ test('process-issue.md: 검토자는 리뷰할 것이 없을 때 main 을 풀테
   // project.md 에 풀테스트 절과 명령이 있다.
   const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
   assert.ok(project.includes('### 풀테스트 (WP-2003'));
-  assert.ok(project.includes('FULL_REGRESSION_SCOPE=full pnpm test:full'));
+  assert.ok(project.includes('FULL_REGRESSION_BASE=origin/green FULL_REGRESSION_CI_VITEST=1 pnpm test:full'));
   // project.md 에 「기차」 절이 없다 — process-issue.md 가 기차 흐름을 켜지 않는다.
   assert.ok(!/\n### 기차/.test(project));
 });
