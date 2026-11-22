@@ -67,7 +67,7 @@ case "$1" in
     case "$*" in *"\${FAKE_FAIL_PLUGIN:-@@none@@}"*) exit 1 ;; esac
     [ "$2" = list ] && cat "$FAKE_PLUGIN_LIST"
     exit 0 ;;
-  --version) echo "2.1.316 (Claude Code)"; exit 0 ;;
+  --version) echo "2.1.330 (Claude Code)"; exit 0 ;;
 esac
 k=$(basename "$PWD")
 { env | grep -E '^GENIA_' | sort; [ -n "\${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && echo CLAUDE_CODE_OAUTH_TOKEN=set; for a in "$@"; do printf 'arg %s\\n' "$a"; done; } > "$FAKE_OUT/pane-$k.tmp"
@@ -253,6 +253,16 @@ test('writesSettingsFromConfig', (t) => {
   assert.deepEqual(s.extraKnownMarketplaces['superpowers-marketplace'].source, { source: 'github', repo: 'obra/superpowers-marketplace' });
   assert.equal(s.skipDangerousModePermissionPrompt, true);
   assert.equal(s.pluginConfigs['genia-works@genia-works'].options.server_url, 'http://127.0.0.1:9/mcp');
+  // Code Mode(WP-1960)는 settings.json 의 env 로만 켠다 — 대화형 칸은 이것만으로 켜진다(실측)
+  assert.deepEqual(s.env, { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '1' });
+});
+
+test('doesNotExportCodeModeToShell', (t) => {
+  // 셸 env 로 새면 칸 밖의 헤드리스 `claude -p` 가 Code Mode 를 거부하며 경고를 낸다(WP-1960)
+  const f = fixture(t);
+  const r = callLib(f.env, 'check_required && update_plugins && resolve_plugin_scripts && write_settings && printf "CM=%s\\n" "${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE-unset}"');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^CM=unset$/m);
 });
 
 // write_settings 뒤 셸에 남은 CLAUDE_CODE_EFFORT_LEVEL 을 표식 줄로 찍는다 — 칸(tmux)이 물려받는 값(WP-1542). 없으면 빈 값.
@@ -351,6 +361,9 @@ test('marksOnboardingAndTrustForRepos', (t) => {
   const j = JSON.parse(f.read('home', '.claude.json'));
   assert.equal(j.hasCompletedOnboarding, true);
   assert.equal(j.bypassPermissionsModeAccepted, true);
+  // Code Mode opt-in 확인 창이 사람 없는 칸을 막지 않게(WP-1960)
+  assert.equal(j.codeModeCaveatsAcceptedV1, true);
+  assert.equal(j.codeModeAutoModeCaveatAcceptedV1, true);
   assert.equal(j.userID, 'u1'); // claude 가 적은 값은 그대로
   assert.deepEqual(j.projects['/x'], { allowedTools: ['Bash'] });
   assert.equal(j.projects['/work/agents/kodi'].hasTrustDialogAccepted, true);

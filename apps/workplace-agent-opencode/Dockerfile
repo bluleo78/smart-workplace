@@ -13,7 +13,7 @@ ARG GLAB_SHA256_AMD64=0effb3e550b80fd826b5a50655acc7fe7142728d0afe9a1d5d857aa2fc
 ARG GLAB_SHA256_ARM64=f7c1930977fdd75bea6735eed0b628d4411536b3208c124101db42d6cfb9378e
 
 # Claude Code — 실행하지 않고 빌드 때 플러그인을 받는 데만 쓴다(아래). Claude 이미지와 같은 버전으로 둔다.
-ARG CLAUDE_CODE_VERSION=2.1.316
+ARG CLAUDE_CODE_VERSION=2.1.330
 # npm 11 최신 — 베이스 npm 11.12 의 CVE(WP-1574). apt-get upgrade 도 같은 이유. Claude 이미지와 같은 버전(테스트가 확인).
 ARG NPM_VERSION=11.21.2
 # playwright-cli(WP-1404) — 화면 탐색 스킬이 쓰는 브라우저 명령. 작업 공간 이미지들이 같은 버전을 쓴다.

@@ -6,7 +6,8 @@
 # node 24 를 이미 갖춰, DHI dev 변형에 같은 것을 손으로 쌓는 것보다 작고 맞는다. 컨텍스트는 이 폴더(image-catalog.json) — COPY 는 이 폴더 안만 쓴다.
 FROM mcr.microsoft.com/playwright:v1.60.0-noble
 
-ARG CLAUDE_CODE_VERSION=2.1.316
+# Claude Code — Code Mode(실험, WP-1960)가 2.1.319 부터 있어 그 이상이어야 한다. 엔트리포인트가 설정으로 켠다(bin/lib.sh write_settings).
+ARG CLAUDE_CODE_VERSION=2.1.330
 ARG JDTLS_VERSION=1.62.0
 ARG JDTLS_BUILD=202610131109
 ARG JDTLS_SHA256=f587dafd8410633c2c2bf005e853a2bbb03cddee88933d49bfe6d9cb1cf09342
