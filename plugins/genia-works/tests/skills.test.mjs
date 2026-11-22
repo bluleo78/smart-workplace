@@ -281,7 +281,7 @@ test('SKILL.md 하위를 차례로 맡기: 머지된(내 행 REVIEW) 형제 선�
   const chain = lineWith(workLoopSkill, '- **하위를 차례로 맡는 이슈**');
   const rule = lineWith(workLoopSkill, '  - **「차례 막힘만」**');
   // 하위를 고르는 줄이 정의를 가리키고, 판정은 하나 맡기 전에 한다
-  assert.ok(chain.includes('아래 「차례 막힘만」인 것'));
+  assert.ok(chain.includes('아래 「차례 막힘만」이거나'));
   assertBefore(chain, '「차례 막힘만」', '**하나만**');
   // 닫히지 않은 선행이 모두 조건을 만족해야 풀린다 — 싼 확인부터, 하나라도 아니면 막힘
   assert.ok(rule.includes('닫히지 않은(DONE·CANCELED 아닌) 선행이 **모두**'));
@@ -1757,7 +1757,7 @@ const blockDef = lineWith(workLoopSkill, '**선행 대기 차단**');
 test('SKILL.md 3번: 선행 대기 차단은 깨어날 때 선행 풀림을 다시 보고 풀리면 새 글 없이 고른다 (WP-1851)', () => {
   includesAll(blockDef, [
     '선행 대기: <키>', '`선행 ` 으로 시작', '**모두**', '선행마다 따로', '「차례 막힘만」 ①~④', '.work-loop/project.md',
-    '사람이 건 차단은 (a) 서버 완료만 푼다', '`선행 무시:`', '`마지막 완료 단계` 가 없는', '새 작업(⑤⑥)처럼 동시 진행 상한·`HOLD`',
+    '누가 건 차단이든 같다', '사람이 건 차단도 (c) 로 풀린다', '`선행 무시:`', '`마지막 완료 단계` 가 없는', '새 작업(⑤⑥)처럼 동시 진행 상한·`HOLD`',
     '판정은 고를 차례', '그 밖의 BLOCKED', '이어 갑니다',
   ], '정의 줄');
   const block = section(workLoopSkill, '**선행 대기 차단**', '\n순서: ⓪');
@@ -1773,6 +1773,14 @@ test('SKILL.md 3번: 선행 대기 차단은 깨어날 때 선행 풀림을 다�
   const order = lineWith(workLoopSkill, '순서: ⓪');
   assertBefore(order, '③ 끊긴 작업', '풀린 선행 대기 차단');
   assertBefore(order, '풀린 선행 대기 차단', '④');
+  // 사람이 건 차단도 project.md 기준(머지)으로 풀린다 — 「사람이 건 차단은 서버 완료만」을 되살리지 않는다
+  assert.ok(!blockDef.includes('사람이 건 차단은 (a) 서버 완료만 푼다'));
+  // 대기열에서 막힌 이슈를 가져가 쌓아 두지 않는다 — 선행이 모두 풀렸을 때만 가져간다
+  const q = section(workLoopSkill, '**대기열에서 가져오기**', '**할 일 없음**');
+  includesAll(lineWith(q, '**선행 확인**'), ['`blocked` 가 true 인 후보', '(a)·(c) 로 풀렸을 때만 가져간다', '다음 후보로 간다'], '대기열 선행 확인');
+  assertBefore(q, '**선행 확인**', '**형제 확인**');
+  // 하위를 차례로 맡을 때도 (c) 로 풀린 하위를 맡는다
+  assert.ok(lineWith(workLoopSkill, '**하위를 차례로 맡는 이슈**').includes('「선행 대기 차단」 (c) 로 풀린 것'));
   for (const k of ['- **언제 세나**', '- **상한 이상이면**', '- `HOLD`: 새 작업을 받지 않는다']) {
     includesAll(lineWith(workLoopSkill, k), ['시작 전에 막혔던 ③-1(notes 에 `마지막 완료 단계` 없음)은 새 작업처럼', '「선행 대기 차단」'], k);
   }
