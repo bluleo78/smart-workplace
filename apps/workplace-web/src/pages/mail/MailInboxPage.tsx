@@ -1345,6 +1345,7 @@ function MailInbox() {
 
   // WP-1761: 계정 목록 조회 실패를 첫 화면에서 「계정 없음」 빈 상태와 구분한다. 쿼리 결과를 통째로 둔다 —
   // LoadErrorState 가 다시 시도·잠금을 여기서 꺼낸다(판정 설명은 위 MailInboxPage 의 같은 훅 주석 참고).
+  const qc = useQueryClient()
   const accountsQuery = useMailAccounts()
   const { data: accounts, isLoading: accountsLoading } = accountsQuery
   // WP-1761: 한 번만 계산해 아래 첫 화면 분기에 쓴다.
@@ -1385,14 +1386,10 @@ function MailInbox() {
     data: fetchedMessages, isLoading, isPending: listPending,
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
   } = messagesQuery
-  // 메일함 첫 목록을 한 번 받은 뒤에는 필터 키 변경이 메일함 가져오기 상태를 다시 로딩으로 바꾸지 않게 기억한다.
-  const folderListTarget = `${accountIdNum ?? ''}:${view.folderId ?? ''}`
-  const loadedFolderLists = useRef(new Set<string>())
-  useEffect(() => {
-    if (!folderView || fetchedMessages === undefined) return
-    loadedFolderLists.current.add(folderListTarget)
-  }, [folderView, folderListTarget, fetchedMessages])
-  const folderListAlreadyLoaded = loadedFolderLists.current.has(folderListTarget) || fetchedMessages !== undefined
+  // 같은 메일함의 다른 보기에서 목록을 받은 적 있으면 필터 쿼리도 폴더 첫 로딩으로 취급하지 않는다.
+  const folderListAlreadyLoaded = fetchedMessages !== undefined || (folderView && qc.getQueryCache()
+    .findAll({ queryKey: ['mail-messages', accountIdNum ?? 0] })
+    .some((query) => query.queryKey[7] === view.folderId && query.state.data !== undefined))
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
@@ -1796,7 +1793,6 @@ function MailInbox() {
   // WP-1742 별표 보기에도 두지 않는다 — 모두 읽음 API 가 별표 범위를 몰라 받은편지함 전체를 읽음 처리하게 된다.
   const showMarkAll = folderParam === 'INBOX' && view.kind !== 'sent' && !flaggedView
   const showListActions = showMarkAll || (folderParam === 'INBOX' && view.unreadToggleVisible)
-  const qc = useQueryClient()
   // WP-962 보관·옮기기·삭제 — 보기별 노출(보낸편지함 없음·보관 보기엔 보관 없음)과 「옮기기」 대상(지금 메일함 제외).
   const moveTargets = useMemo(() => mailMoveTargets(view, folders), [view, folders])
   const moveAvail = mailMoveAvailability(view, folders)
