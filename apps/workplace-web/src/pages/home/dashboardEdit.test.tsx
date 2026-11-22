@@ -352,7 +352,10 @@ test('저장을 같은 틱에 두 번 눌러도 PUT 은 한 번만 나간다 (WP
     save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
-  release()
+  // 응답을 푸는 것도 act 안에서 — 바깥에서 풀면 뮤테이션 상태 갱신이 act 밖에서 일어나 경고·순서 흔들림을 낸다.
+  await act(async () => {
+    release()
+  })
   await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
   expect(puts).toHaveLength(1)
   expect(puts[0]!.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
@@ -380,9 +383,15 @@ test('저장이 5xx 로 끝나도 다시 눌러 재시도할 수 있다 (WP-1957
   await view.user.click(within(card('my_tasks')).getByTestId('widget-move-down'))
   await view.user.click(screen.getByTestId('dashboard-edit-save'))
   await waitFor(() => expect(attempts).toHaveLength(1))
+  // 요청이 기록된 시점은 5xx 응답이 아직 클라이언트에 처리되지 않은 순간일 수 있다 — 오류 토스트가 뜨고
+  // 「저장」 단추가 다시 활성화된 뒤에 눌러야 재시도가 먹힌다(그 전의 두 번째 클릭은 진행 중 가드에 무시된다).
+  await waitFor(() => expect(screen.getByText('저장 실패', { selector: '[data-sonner-toast] *' })).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByTestId('dashboard-edit-save')).toBeEnabled())
   // 편집 모드는 그대로 남아 있어야 재시도할 수 있다.
   expect(screen.getByTestId('dashboard-edit-banner')).toBeInTheDocument()
   await view.user.click(screen.getByTestId('dashboard-edit-save'))
   await waitFor(() => expect(attempts).toHaveLength(2))
   await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
+  // 재시도는 정확히 2회로 끝난다 — 뒤늦게 3번째 PUT 이 잡히지 않는지 끝에서 한 번 더 본다.
+  expect(attempts).toHaveLength(2)
 })
