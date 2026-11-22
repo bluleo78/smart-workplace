@@ -290,24 +290,42 @@ public class AgentScreenRelay {
       sendJson(p, p.browser, Map.of("type", "error", "message", "입력 허용을 기록하지 못했어요"));
       return false;
     }
-    synchronized (this) {
-      // 기록하는 동안 같은 AI 의 다른 화면이 먼저 켰을 수 있다 — 다시 본 뒤 연다.
-      if (rejectIfTaken(p)) return false;
-      p.inputEnabled = true;
+    // 기록하는 동안 같은 AI 의 다른 화면이 먼저 켰을 수 있다 — 다시 본 뒤 연다.
+    if (!tryClaimInput(p)) {
+      sendTakenRejection(p);
+      return false;
     }
     return true;
   }
 
-  /** 같은 AI 의 다른 화면이 이미 입력 중이면 runner 에 끄기, 브라우저에 오류를 보내고 true. */
-  private synchronized boolean rejectIfTaken(Pair p) {
-    if (!inputTakenByOther(p)) return false;
-    sendJson(p, p.runner, Map.of("type", "input", "enabled", false));
-    sendJson(p, p.browser, Map.of("type", "error", "message", INPUT_TAKEN));
+  /** 같은 AI 의 다른 화면이 입력을 쥐고 있지 않으면 이 화면의 입력을 켜고 true. 판단과 켜기를 한 잠금 안에서 해 동시에 켜는 두 화면 중 하나만 이긴다. */
+  private synchronized boolean tryClaimInput(Pair p) {
+    if (inputTakenByOther(p)) return false;
+    p.inputEnabled = true;
     return true;
   }
 
-  /** 같은 AI 의 다른 열린 화면이 runner 가 확인한 입력을 쥐고 있는지. 호출자가 이 객체의 잠금을 쥔다. */
-  private boolean inputTakenByOther(Pair p) {
+  /**
+   * 같은 AI 의 다른 화면이 이미 입력 중이면 runner 에 끄기, 브라우저에 오류를 보내고 true. 판단만 잠금 안에서 하고 보내기는 잠금을 놓은 뒤에 한다 — 느린
+   * 소켓 보내기가 같은 잠금을 잡는 close·타이머·붙기를 보내기 상한만큼 붙들지 않게(WP-2013 리뷰 후속).
+   */
+  private boolean rejectIfTaken(Pair p) {
+    if (!inputTakenByOther(p)) return false;
+    sendTakenRejection(p);
+    return true;
+  }
+
+  /** 입력 다툼 거절 알림 — runner 에 끄기, 브라우저에 오류. 잠금 밖에서 부른다. */
+  private void sendTakenRejection(Pair p) {
+    sendJson(p, p.runner, Map.of("type", "input", "enabled", false));
+    sendJson(p, p.browser, Map.of("type", "error", "message", INPUT_TAKEN));
+  }
+
+  /**
+   * 같은 AI 의 다른 열린 화면이 runner 가 확인한 입력을 쥐고 있는지. 이 객체의 잠금 안에서 본다 — 보내기는 이 판단 뒤 잠금 밖에서 한다(느린 소켓이
+   * close·타이머·붙기를 붙들지 않게, WP-2013 리뷰 후속).
+   */
+  private synchronized boolean inputTakenByOther(Pair p) {
     return pairs.values().stream()
         .anyMatch(
             o ->
@@ -360,11 +378,10 @@ public class AgentScreenRelay {
    * 것·기록·감사는 runner 가 켜졌다고 알릴 때({@link #runnerInput})다.
    */
   private void requestInput(Pair p, TextMessage message) {
-    synchronized (this) {
-      if (inputTakenByOther(p)) {
-        sendJson(p, p.browser, Map.of("type", "error", "message", INPUT_TAKEN));
-        return;
-      }
+    // 오류 보내기는 잠금 밖에서 — 느린 브라우저 소켓이 close·타이머·붙기를 붙들지 않게(WP-2013 리뷰 후속).
+    if (inputTakenByOther(p)) {
+      sendJson(p, p.browser, Map.of("type", "error", "message", INPUT_TAKEN));
+      return;
     }
     send(p, p.runner, message);
   }
