@@ -122,6 +122,7 @@ public final class TenantPurgePlan {
           // 메모리 기록·지운 기록(WP-385)과 공용 메모리 3표(WP-386)는 서로·세션과 FK 가 없다 — 메모리 표와 함께.
           AI_RUN, // AI 처리 기록(WP-1827) — 다른 표와 FK 가 없어 순서 무관
           AI_CAPACITY_SAMPLE, // AI 처리 용량 1분 표본(WP-1830) — 다른 표와 FK 가 없어 순서 무관
+          MESSAGING_AGENT_RUN, // 메시징 AI 대화별 실행 임대(WP-1979) — 다른 표와 FK 가 없어 순서 무관
           SHARED_AI_MEMORY_CHANGE,
           SHARED_AI_MEMORY_FORGOTTEN,
           SHARED_AI_MEMORY,

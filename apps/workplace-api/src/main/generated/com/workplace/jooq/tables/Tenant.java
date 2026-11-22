@@ -110,6 +110,7 @@ import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
 import com.workplace.jooq.tables.MessageLinkPreview.MessageLinkPreviewPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
+import com.workplace.jooq.tables.MessagingAgentRun.MessagingAgentRunPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.OauthConnection.OauthConnectionPath;
@@ -2022,6 +2023,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _messageLinkPreview = new MessageLinkPreviewPath(this, null, Keys.MESSAGE_LINK_PREVIEW__MESSAGE_LINK_PREVIEW_TENANT_ID_FKEY.getInverseKey());
 
         return _messageLinkPreview;
+    }
+
+    private transient MessagingAgentRunPath _messagingAgentRun;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.messaging_agent_run</code> table
+     */
+    public MessagingAgentRunPath messagingAgentRun() {
+        if (_messagingAgentRun == null)
+            _messagingAgentRun = new MessagingAgentRunPath(this, null, Keys.MESSAGING_AGENT_RUN__MESSAGING_AGENT_RUN_TENANT_ID_FKEY.getInverseKey());
+
+        return _messagingAgentRun;
     }
 
     private transient OauthConnectionPath _oauthConnection;
