@@ -1800,6 +1800,29 @@ test('SKILL.md 3번: 선행 대기 차단은 깨어날 때 선행 풀림을 다�
   }
 });
 
+// WP-1956 — 선행이 서버 완료됐는데 자리·HOLD 로 고르지 못한 시작 전 BLOCKED 행은 한 번 WAITING 「선행 풀림 — 자리 대기」로 바꾼다.
+test('SKILL.md 3번: 선행이 풀렸는데 자리가 차 못 고른 시작 전 BLOCKED 는 한 번 자리 대기 WAITING 으로 바꾸고 ③-1 이 고른다 (WP-1956)', () => {
+  const block = section(workLoopSkill, '**선행 대기 차단**', '\n순서: ⓪');
+  const rule = lineWith(block, '- **자리 대기로 바꾸기**(WP-1956)');
+  includesAll(rule, [
+    '`선행 대기:`', '`마지막 완료 단계` 가 없는', '`blocked` 가 false', '자리·`HOLD` 로 고르지 못한', '부르기 **끝**', '5번 다음 확인 예약',
+    '원격 조회는 하지 않으므로', '(b)·(c)·옛 형식은 BLOCKED 그대로', "state: 'WAITING'", '선행 풀림 — 자리 대기(앞 <slots.issues 키들>)',
+    '선행 풀림 — 자리 대기(새 작업 받지 않는 중)', '**한 번**', '다시 보고하지 않는다', '낡고', '동시 진행 자리로 세지 않는다',
+    '상한 검사는 보통과 같고', '우선순위 → 오래된 순, ⑤⑥', '`slots.issues` 에 있으면', '`used` 에서 그 수만큼 빼고',
+  ], '자리 대기 규칙');
+  assertBefore(block, '- **판정 대상**', '- **자리 대기로 바꾸기**');
+  // 서버 SLOT_WAIT_NOTE_PREFIX 와 SKILL.md 의 note 접두어가 어긋나면 서버가 자리로 세어 스스로를 막는다 — 소스에서 읽어 맞춘다.
+  const java = readFileSync(new URL('../../../apps/workplace-api/src/main/java/com/workplace/issue/service/AiAgentStatusService.java', import.meta.url), 'utf8');
+  const prefix = /SLOT_WAIT_NOTE_PREFIX\s*=\s*"([^"]+)"/.exec(java)?.[1];
+  assert.ok(prefix, 'SLOT_WAIT_NOTE_PREFIX 리터럴을 찾는다');
+  includesAll(rule, [prefix, `note: '${prefix}(앞 <slots.issues 키들>)'`, `note \`${prefix}(새 작업 받지 않는 중)\``], 'note 접두어 동기화');
+  includesAll(lineWith(block, '- **시작 절차**'), ['자리 대기 행은 note 의 `(앞 …)` 를 선행으로 읽지 않는다', '`선행 대기:` 줄·`blockedBy` 에서만'], '선행 키 출처');
+  includesAll(blockDef, ['「자리 대기로 바꾸기」', '같은 시작 절차'], '정의 줄');
+  includesAll(lineWith(workLoopSkill, '- **`slots` 가 없으면**'), ['자리 대기 행(「자리 대기로 바꾸기」)도 세지 않고'], 'slots 없을 때 세기');
+  includesAll(lineWith(workLoopSkill, '| 대기 중(WAITING) |'), ['「자리 대기로 바꾸기」', '새 글이 있으면 그것도 여전히 고른다'], 'WAITING 줄');
+  includesAll(lineWith(workLoopSkill, '- **다른 AI 의 차례를 기다리면 대기 중'), ['자리 대기', 'WP-1956'], '대기 중 정의 예외');
+});
+
 test('process-issue.md·plan-issue.md 1번: 선행 대기는 SKILL.md 「선행 대기 차단」 시작 절차를 가리키는 한 줄뿐이고 갈래 목록보다 먼저 읽힌다 (WP-1851)', () => {
   for (const [name, text, next] of [['process-issue.md', pi, '### 2. 워크트리'], ['plan-issue.md', planIssue, '| 마지막 완료 단계 |']]) {
     const ptr = lineWith(text, '고른 이슈가 새로 시작하는 것이거나');

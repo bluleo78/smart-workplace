@@ -49,7 +49,7 @@ public class AiAgentStatusService implements AgentSlotCounter {
   /**
    * 상한에 세는 상태 — 작업 중·답변 필요·인증 필요·대기 중(다음 회차 대기·차단됨·일시 중지·검토 필요는 세지 않는다). 대기 중(PR 리뷰·기차·순서·수정·다른 AI
    * 답 대기)도 세어, PR 을 올린 뒤 머지(또는 취소)될 때까지 새 일을 가져가지 않게 한다 — 한 세션에 여러 이슈 맥락이 섞이지 않게(WP-1810, 이전
-   * WP-1216 기준을 뒤집음). 다만 반복 이슈 대기열의 줄 대기는 {@link #slotRows} 가 뺀다({@link #isRecurrenceQueued}).
+   * WP-1216 기준을 뒤집음). 다만 빼는 행은 {@link #slotRows} 참고.
    */
   private static final Set<String> SLOT_STATES =
       Set.of(
@@ -116,7 +116,12 @@ public class AiAgentStatusService implements AgentSlotCounter {
     // 먼저 센 행을 고른 뒤, 그중 하위의 부모 id 를 모아 부모 행을 뺀다 — 무소식 하위는 자리를 쥔 게 아니므로 부모를 가리지 않는다.
     List<WorkRow> counted =
         rows.stream()
-            .filter(r -> SLOT_STATES.contains(r.state()) && !r.stale() && !isRecurrenceQueued(r))
+            .filter(
+                r ->
+                    SLOT_STATES.contains(r.state())
+                        && !r.stale()
+                        && !isRecurrenceQueued(r)
+                        && !isSlotWaitAfterBlocker(r))
             .toList();
     Set<Long> parentsWithCountedChild =
         counted.stream()
@@ -135,6 +140,19 @@ public class AiAgentStatusService implements AgentSlotCounter {
     return AgentWorkState.WAITING.equals(r.state())
         && IssueRecurrenceService.TOOL.equals(r.tool())
         && IssueRecurrenceService.NOTE_QUEUED.equals(r.note());
+  }
+
+  /** work-loop 가 선행이 풀린 뒤 자리 나기를 기다리는 행에 남기는 note 접두어(WP-1956). */
+  static final String SLOT_WAIT_NOTE_PREFIX = "선행 풀림 — 자리 대기";
+
+  /**
+   * 선행이 풀렸는데 동시 진행 자리가 차 못 고른 행인가(WP-1956) — 대기 중이고 note 가 {@link #SLOT_WAIT_NOTE_PREFIX} 로 시작한다. 이
+   * 행은 자리가 나기를 기다리는 중이라 자리로 세면 스스로를 막는다(상한 1이면 영영 못 고르고 화면은 n/상한 이 부푼다) — 그래서 뺀다.
+   */
+  private static boolean isSlotWaitAfterBlocker(WorkRow r) {
+    return AgentWorkState.WAITING.equals(r.state())
+        && r.note() != null
+        && r.note().startsWith(SLOT_WAIT_NOTE_PREFIX);
   }
 
   private AiAgentStatus toStatus(
