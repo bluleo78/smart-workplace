@@ -66,6 +66,7 @@ import {
 import { attendeeDisplayName, attendeeKey, reminderLabel, sortAttendeesForView } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { changedTagIds, eventTagHint } from '@/lib/calendarTag'
+import { INCOMPLETE_DATE_MESSAGE, isIncompleteDateInput } from '@/lib/dateInput'
 import { canShowNoteRow } from '@/lib/eventNote'
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 import {
@@ -523,7 +524,20 @@ export function EventDialog({
             {/* noValidate — 반복 간격·횟수 칸(min=1)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내가 그려지지 않는다. 검증은 zod 스키마 한 곳에서 한다(IssueCreateDialog 와 동일, WP-1916). */}
             <form
               noValidate
-              onSubmit={(e) => void form.handleSubmit(handleSubmit)(e)}
+              onSubmit={(e) => {
+                // noValidate 로 브라우저 기본 검증(말풍선)을 끈 자리라, 덜 넣은 날짜(badInput)는 값이 '' 로 올라
+                // 「시작을 입력하세요」 같은 엉뚱한 안내로 남는다. 제출 때 칸의 validity 를 직접 읽어 맞는 안내를
+                // 칸에 남고 저장을 멈춘다 — 칸을 고치면 EventRangeInputs 가 이 안내를 지운다(WP-1916 리뷰 후속).
+                const incomplete = (['start', 'end'] as const).filter((n) =>
+                  isIncompleteDateInput(e.currentTarget.elements.namedItem(`ev-${n}`)),
+                )
+                if (incomplete.length) {
+                  e.preventDefault()
+                  for (const n of incomplete) form.setError(n, { type: 'validate', message: INCOMPLETE_DATE_MESSAGE })
+                  return
+                }
+                void form.handleSubmit(handleSubmit)(e)
+              }}
               className="space-y-3 pointer-coarse:space-y-1.5"
             >
               {/* 제목 — 테두리 없이 아래 줄만 있는 큰 칸. 이름표가 없어 aria-label 로 「제목」을 읽힌다 */}
@@ -551,8 +565,12 @@ export function EventDialog({
                   그 아래 종일·반복. 반복을 시간 옆에 두는 건 상세 보기(시간 아래 반복 문구)와 같은 자리다. */}
               <EventFormRow icon={Clock}>
                 <EventRangeInputs form={form} allDay={allDay} />
+                {/* 시작·종료 안내도 칸마다 따로 그린다 — 한 줄에서 `??` 로 하나만 고르면 뒤 칸 오류가 앞 칸에 가려진다(반복 칸과 같은 까닭, WP-1916 리뷰 후속). */}
                 {(form.formState.errors.start || form.formState.errors.end) && (
-                  <FormError>{form.formState.errors.start?.message ?? form.formState.errors.end?.message}</FormError>
+                  <div className="space-y-1">
+                    <FormError>{form.formState.errors.start?.message}</FormError>
+                    <FormError>{form.formState.errors.end?.message}</FormError>
+                  </div>
                 )}
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -701,14 +719,16 @@ export function EventDialog({
                         </span>
                       )}
                     </div>
+                    {/* 간격·종료·횟수 안내는 칸마다 따로 그린다 — 한 줄에서 글자를 고르면(??) 간격과 횟수가 동시에 빈 값일 때
+                        앞 칸 문구가 뒤 칸 문구를 가려, 사용자는 빈 칸 두 개 중 하나만 고쳐야 하는 줄 안다(WP-1916 리뷰 후속). */}
                     {(form.formState.errors.recurrenceInterval ||
                       form.formState.errors.recurrenceUntil ||
                       form.formState.errors.recurrenceCount) && (
-                      <FormError>
-                        {form.formState.errors.recurrenceInterval?.message ??
-                          form.formState.errors.recurrenceUntil?.message ??
-                          form.formState.errors.recurrenceCount?.message}
-                      </FormError>
+                      <div className="space-y-1">
+                        <FormError>{form.formState.errors.recurrenceInterval?.message}</FormError>
+                        <FormError>{form.formState.errors.recurrenceUntil?.message}</FormError>
+                        <FormError>{form.formState.errors.recurrenceCount?.message}</FormError>
+                      </div>
                     )}
                   </>
                 )}

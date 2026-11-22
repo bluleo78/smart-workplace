@@ -12,6 +12,8 @@ import type { UserEvent } from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { INCOMPLETE_DATE_MESSAGE } from '@/lib/dateInput'
+import { setBadInput } from '@/test/dateInput'
 import { fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
 
 import { calendarEvent, recurringCalendarEvent } from '../../../e2e/factories/calendar.factory'
@@ -479,6 +481,54 @@ describe('반복 입력 → 요청', () => {
     expect(requests.posts).toHaveLength(0)
   })
 
+  // WP-1916 리뷰 후속 — 간격·횟수를 둘 다 비우면 두 안내가 각각 보이고 두 칸이 모두 막힌다(앞 안내가 뒤 안내를 가리지 않는다).
+  test('반복 간격·횟수를 둘 다 비우면 두 안내가 각각 보이고 두 칸이 막힌다 (WP-1916)', async () => {
+    const { user, requests } = await openNew('주간 회의')
+    setValue('calendar-form-start', '2026-06-15T09:00')
+    setValue('calendar-form-end', '2026-06-15T09:30')
+    await pick(user, 'calendar-form-recurrence-freq', '매주')
+    await pick(user, 'calendar-form-recurrence-end', '횟수')
+    setValue('calendar-form-recurrence-interval', '')
+    setValue('calendar-form-recurrence-count', '')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+
+    expect(await screen.findByText('간격은 1 이상이어야 합니다')).toBeInTheDocument()
+    expect(screen.getByText('횟수는 1 이상이어야 합니다')).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-form-recurrence-interval')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByTestId('calendar-form-recurrence-count')).toHaveAttribute('aria-invalid', 'true')
+    expect(requests.posts).toHaveLength(0)
+  })
+
+  // WP-1916 리뷰 후속 — 막혔던 두 칸을 채우면 안내가 사라지고(aria-invalid 풀림) 저장까지 이어진다.
+  test('간격·횟수를 채우면 안내가 사라지고 저장 성공까지 이어진다 (WP-1916)', async () => {
+    const { user, requests } = await openNew('격주 스프린트')
+    setValue('calendar-form-start', '2026-06-15T09:00')
+    setValue('calendar-form-end', '2026-06-15T09:30')
+    await pick(user, 'calendar-form-recurrence-freq', '매주')
+    await pick(user, 'calendar-form-recurrence-end', '횟수')
+    setValue('calendar-form-recurrence-interval', '')
+    setValue('calendar-form-recurrence-count', '')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    expect(await screen.findByText('간격은 1 이상이어야 합니다')).toBeInTheDocument()
+    expect(screen.getByText('횟수는 1 이상이어야 합니다')).toBeInTheDocument()
+
+    setValue('calendar-form-recurrence-interval', '2')
+    setValue('calendar-form-recurrence-count', '3')
+    await waitFor(() => expect(screen.queryByText('간격은 1 이상이어야 합니다')).not.toBeInTheDocument())
+    expect(screen.queryByText('횟수는 1 이상이어야 합니다')).not.toBeInTheDocument()
+    expect(screen.getByTestId('calendar-form-recurrence-interval')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByTestId('calendar-form-recurrence-count')).not.toHaveAttribute('aria-invalid', 'true')
+
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(requests.posts).toHaveLength(1))
+    const saved = requests.posts[0] as { startsAt: string; endsAt: string; recurrenceRule: string }
+    expect(saved.recurrenceRule).toBe('FREQ=WEEKLY;INTERVAL=2;COUNT=3')
+    // 고친 값으로 실제로 저장됐는지까지 — 09:00~09:30 KST = 자정~00:30 UTC
+    expect(new Date(saved.startsAt).toISOString()).toBe('2026-06-15T00:00:00.000Z')
+    expect(new Date(saved.endsAt).toISOString()).toBe('2026-06-15T00:30:00.000Z')
+    await waitFor(() => expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument())
+  })
+
   // WP-904 — 종료 날짜 칸이 내보내는 5자리 연도는 RRULE 조립에서 깨져 「저장」이 아무 반응도 없었다.
   test('반복 종료 날짜 연도가 5자리면 범위 안내를 보이고 저장하지 않는다 (WP-904)', async () => {
     const { user, requests } = await openNew('주간 회의')
@@ -541,5 +591,57 @@ describe('폼이 담을 수 없는 반복 규칙 (WP-708)', () => {
     await user.click(await screen.findByTestId('calendar-recurrence-scope-all'))
     await waitFor(() => expect(requests.patches).toHaveLength(1))
     expect(requests.patches[0].body.recurrenceRule ?? null).toBeNull()
+  })
+})
+
+// WP-1916 리뷰 후속 — noValidate 뒤 브라우저 기본 검증(말풍선)이 제출을 막지 않으니, 덜 넣은 날짜(값이 '' 로 올라
+// 「시작을 입력하세요」로 오안내되던 칸)는 앱이 validity.badInput 을 직접 읽어 완성 안내를 남기고 저장을 멈춘다.
+// jsdom 은 날짜를 덜 칠 수 없어 src/test/dateInput 의 setBadInput 으로 validity 를 흉내 낸다.
+describe('덜 넣은 날짜 안내 (WP-1916 리뷰 후속)', () => {
+  test('날짜를 덜 넣은 채 저장하면 완성 안내가 뜨고 요청이 없다', async () => {
+    const { user, requests } = await openNew('덜 넣은 날짜')
+    const start = screen.getByTestId('calendar-form-start') as HTMLInputElement
+    setBadInput(start, true)
+
+    await user.click(screen.getByTestId('calendar-form-submit'))
+
+    expect(await screen.findByText(INCOMPLETE_DATE_MESSAGE)).toBeInTheDocument()
+    expect(start).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.queryByText('시작을 입력하세요')).not.toBeInTheDocument()
+    expect(requests.posts).toHaveLength(0)
+  })
+
+  test('덜 넣은 칸을 완성하면 안내가 사라지고 저장 성공까지 이어진다', async () => {
+    const { user, requests } = await openNew('완성하기')
+    const start = screen.getByTestId('calendar-form-start') as HTMLInputElement
+    setBadInput(start, true)
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await screen.findByText(INCOMPLETE_DATE_MESSAGE)
+
+    // 칸을 완성하면 change 가 오고(완성 전엔 이벤트가 오지 않는다) 앱 안내를 스스로 지운다.
+    setValue('calendar-form-start', '2026-06-15T09:00')
+    setValue('calendar-form-end', '2026-06-15T09:30')
+    setBadInput(screen.getByTestId('calendar-form-start'), false)
+    await waitFor(() => expect(screen.queryByText(INCOMPLETE_DATE_MESSAGE)).not.toBeInTheDocument())
+
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(requests.posts).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument())
+  })
+
+  // 리뷰 후속 — 종일 칸은 값을 고칠 때마다 trigger 가 돌아, resolver 가 모르는 「덜 넣은 날짜」 수동 안내를 지운다.
+  // 완성하지 않은 칸의 안내·aria-invalid 는 다른 칸을 고쳐도 남아야 한다(안 지우면 안내가 조기 소멸한다).
+  test('종일에서 완성하지 않은 칸의 안내는 다른 칸을 고쳐도 유지된다 (WP-1916 리뷰 후속)', async () => {
+    const { user, requests } = await openNew('종일 덜 넣은 날짜')
+    await user.click(screen.getByTestId('calendar-form-allday'))
+    setBadInput(screen.getByTestId('calendar-form-end') as HTMLInputElement, true)
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await screen.findByText(INCOMPLETE_DATE_MESSAGE)
+    expect(screen.getByTestId('calendar-form-end')).toHaveAttribute('aria-invalid', 'true')
+
+    setValue('calendar-form-start', '2026-06-15')
+    await waitFor(() => expect(screen.getByText(INCOMPLETE_DATE_MESSAGE)).toBeInTheDocument())
+    expect(screen.getByTestId('calendar-form-end')).toHaveAttribute('aria-invalid', 'true')
+    expect(requests.posts).toHaveLength(0)
   })
 })
