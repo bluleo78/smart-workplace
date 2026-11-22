@@ -12,13 +12,16 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
  *   여기서 깎으면 「abc 」를 치는 중 메아리가 draft 의 공백을 지운다.
  * - URL 을 어떻게 쓸지(함께 지울 키·replace 여부)는 화면마다 달라 write 로 받는다. debounce 가 끝난 순간의 최신 write 를 부른다 —
  *   예약할 때의 write 는 그 사이 바뀐 다른 URL 키(열린 상세·필터)를 옛 값으로 되돌릴 수 있다.
+ * - cancelKey 가 바뀌면 남은 debounce 를 접는다(WP-1948) — 목록 행을 고르는 등 그 사이에 다른 URL 키가 바뀌는 액션에서는,
+ *   예약돼 있던 q 쓰기가 방금 연 상세(?contact)를 지우는 경합을 막는다. 접으면 draft 도 URL 값으로 되돌아간다.
  *
  * @param value 지금 URL 의 검색어(없으면 '')
  * @param write 검색어를 URL 에 쓴다 — 화면이 정한 방식으로(보통 history replace)
  * @param delay debounce 간격(ms)
+ * @param cancelKey 값이 바뀔 때마다 남은 debounce 를 접는 신호 — 쓰지 않으면(undefined) 접지 않는다
  * @returns draft(입력값)·setDraft(타이핑 — debounce 뒤 write)
  */
-export function useSearchDraft(value: string, write: (next: string) => void, delay = 300) {
+export function useSearchDraft(value: string, write: (next: string) => void, delay = 300, cancelKey?: unknown) {
   const [draft, setDraft] = useState(value)
   // 이 훅이 마지막으로 URL 에 쓴 q — 그 값이 value 로 되돌아올 때는 draft 를 덮지 않는다.
   const writtenRef = useRef<string | null>(null)
@@ -30,6 +33,15 @@ export function useSearchDraft(value: string, write: (next: string) => void, del
     // 바깥에서 q 가 바뀌면 draft 를 맞춘다(외부 소스 URL → 로컬 draft 동기화).
     if (!isEcho) setDraft(value)
   }, [value])
+
+  // cancelKey 가 바뀌면 남은 debounce 를 접는다 — draft 를 URL 값으로 되돌리면 아래 debounce 효과가 정리되며
+  // 예약된 타이머도 함께 지워진다(이미 draft 가 value 면 쓰일 q 가 없어 같은 값이라 다시 그리지 않는다).
+  // 렌더 도중 값 비교로 조정하는 방식(효과 안 setState 를 피하고, 마운트 때는 건드리지 않는다).
+  const [prevCancelKey, setPrevCancelKey] = useState(cancelKey)
+  if (cancelKey !== prevCancelKey) {
+    setPrevCancelKey(cancelKey)
+    if (cancelKey !== undefined) setDraft(value)
+  }
 
   // URL 에 쓴다. q 가 실제로 바뀔 때만 메아리를 기다린다 — 안 바뀌면 value 가 그대로라 기록이 소비되지 않고 남는다.
   const send = (next: string) => {

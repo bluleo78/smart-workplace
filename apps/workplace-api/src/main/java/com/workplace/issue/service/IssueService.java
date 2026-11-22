@@ -4,6 +4,7 @@ import com.workplace.component.dto.ComponentRow;
 import com.workplace.component.dto.ComponentSummary;
 import com.workplace.component.repository.ComponentRepository;
 import com.workplace.component.service.ComponentService;
+import com.workplace.cycle.dto.CycleRow;
 import com.workplace.cycle.dto.CycleStatus;
 import com.workplace.cycle.exception.CompletedCycleNotAssignableException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
@@ -235,7 +236,10 @@ public class IssueService {
    * parentNumber 지정 불가 (Phase 4a).
    */
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
-    CreateIssuePlan plan = lockComponentsForShare(planCreate(callerId, projectKey, req), false);
+    // WP-1945 사이클 → 구성요소 순으로 공유 잠금한다. 잠금 순서를 사이클 → 이슈 행으로 한 가지로 두어 사이클 완료(사이클 → 이슈)와 같은 방향을 지킨다.
+    CreateIssuePlan planned = planCreate(callerId, projectKey, req);
+    lockCyclesForShare(planned, false);
+    CreateIssuePlan plan = lockComponentsForShare(planned, false);
     var project = plan.project();
     IssueRow parent = lockParentForShare(plan);
     if (parent != null) {
@@ -341,7 +345,9 @@ public class IssueService {
   /**
    * 고른 구성요소 행을 공유 잠금한 채 다시 읽어 계획을 갱신한다 — planCreate 는 읽기 전용 사전검증과 공유해 잠그지 못하므로, 보관·삭제와 겹쳐 「보관된
    * 구성요소가 새로 붙거나」 「지워진 구성요소의 외래키 위반이 일반 409 로 나가는」 일이 없게 쓰는 쪽(일반 생성·가져오기)이 따로 부른다. 잠그고 읽은 최신 행으로 보관
-   * 여부·기본 담당자도 다시 보게 된다. 잠금 순서는 부모 이슈 → 구성요소 행이다(구성요소 보관·삭제는 구성요소 행만 잡아 고리가 생기지 않는다).
+   * 여부·기본 담당자도 다시 보게 된다. 잠금 순서는 사이클 → 구성요소 행 → 부모 이슈다(create 가 lockCyclesForShare →
+   * lockComponentsForShare → lockParentForShare 순 — 사이클 완료(사이클 → 이슈 행)와 같은 방향이라 교착이 없다. 구성요소 보관·삭제는
+   * 구성요소 행만 잡아 고리가 생기지 않는다).
    *
    * @param importing 가져오기면 보관된 구성요소도 허용(지난 기록)
    */
@@ -351,6 +357,22 @@ public class IssueService {
     List<ComponentRow> locked = componentRepository.findByIds(plan.project().id(), ids, true);
     ComponentService.requireAttachable(locked, ids.size(), importing);
     return plan.withComponents(locked);
+  }
+
+  /**
+   * 붙일 사이클 행을 id 오름차순으로 공유 잠금한 채 다시 읽어 소속·완료 여부를 판정한다(WP-1945) — planCreate 는 읽기 전용 사전검증과 공유해 잠그지
+   * 못하므로, 사이클 완료(작은 id → 큰 id 순 FOR UPDATE)와 겹치면 요청 순서대로 INSERT 하다 교착(40P01)이 나거나 완료 커밋 전의 「진행 중」을
+   * 보고 통과해 완료된 사이클에 붙었다. 잠금 순서는 사이클 → 이슈 행이다(완료도 사이클을 잡은 뒤 이슈 행을 잡는다). cycleIds 는 이미 중복 없다.
+   *
+   * @param importing 가져오기면 완료된 사이클도 허용(원본 그대로) — 소속만 다시 보고 잠금만 잡는다
+   */
+  void lockCyclesForShare(CreateIssuePlan plan, boolean importing) {
+    if (plan.cycleIds().isEmpty()) return;
+    List<CycleRow> locked =
+        IssueCycleService.lockInProject(cycleRepository, plan.project().id(), plan.cycleIds());
+    if (!importing && locked.stream().anyMatch(c -> CycleStatus.COMPLETED.equals(c.status()))) {
+      throw new CompletedCycleNotAssignableException();
+    }
   }
 
   /**

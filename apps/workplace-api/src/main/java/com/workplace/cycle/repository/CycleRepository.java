@@ -6,6 +6,7 @@ import com.workplace.cycle.dto.CycleRow;
 import com.workplace.global.exception.UniqueViolations;
 import com.workplace.global.share.ProjectMembership;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -77,6 +78,24 @@ public class CycleRepository {
   public List<CycleRow> findByIds(List<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();
     return dsl.selectFrom(CYCLE).where(CYCLE.ID.in(ids)).fetch(this::mapToRow);
+  }
+
+  /**
+   * 사이클 행을 id 오름차순으로 공유 잠금(FOR SHARE)하며 읽는다(WP-1945) — 이슈에 사이클을 붙이는 경로가 붙이기 전에 잠가, 사이클 완료(작은 id → 큰
+   * id 순 FOR UPDATE)와 같은 순서로 줄을 서게 한다(교착 방지). 완료가 먼저 쥐었으면 그 커밋을 기다렸다가 커밋 뒤의 상태(COMPLETED 등)를 읽으므로
+   * 완료된 사이클에 붙지 않는다. 공유 잠금끼리는 충돌하지 않아 붙이기끼리는 서로 막지 않는다.
+   *
+   * <p>이 프로젝트의 사이클만 잠근다 — 다른 프로젝트 id 를 넣은 요청이 그 프로젝트 사이클(완료·수정·삭제)을 붙들지 않게 한다. 돌려받은 행 수가 요청 id 수보다
+   * 적으면 없거나 다른 프로젝트 것이 섞인 것이다(호출자가 소속 오류로 거절).
+   */
+  public List<CycleRow> findInProjectForShare(long projectId, Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    return dsl.selectFrom(CYCLE)
+        .where(CYCLE.ID.in(ids))
+        .and(CYCLE.PROJECT_ID.eq(projectId))
+        .orderBy(CYCLE.ID)
+        .forShare()
+        .fetch(this::mapToRow);
   }
 
   /** 신규 사이클 삽입. 이름 유니크(대소문자 무시) 위반은 DuplicateKeyException 으로 전파. */
