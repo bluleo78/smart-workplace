@@ -9,9 +9,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -61,6 +63,20 @@ public class AgentApiKeyRepository {
         .REVOKED_AT
         .isNull()
         .and(AGENT_API_KEY.EXPIRES_AT.isNull().or(AGENT_API_KEY.EXPIRES_AT.gt(now)));
+  }
+
+  /**
+   * 주어진 키 id 중 지금 활성인 것만(WP-2008 — 열린 스트림의 키 주기 확인). 회수·만료·삭제된 키는 빠진다. ids 가 비면 쿼리 없이 빈 집합. 비교 시각은
+   * 호출자가 넘긴다.
+   */
+  public Set<Long> findActiveIds(Collection<Long> ids, OffsetDateTime now) {
+    if (ids.isEmpty()) return Set.of();
+    return new HashSet<>(
+        dsl.select(AGENT_API_KEY.ID)
+            .from(AGENT_API_KEY)
+            .where(AGENT_API_KEY.ID.in(ids))
+            .and(activeAt(now))
+            .fetch(AGENT_API_KEY.ID));
   }
 
   /** 키 삽입. created_at 은 DB default(now()). 반환은 신규 키 id. */

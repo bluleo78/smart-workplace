@@ -1,5 +1,6 @@
 package com.workplace.global.realtime;
 
+import com.workplace.global.security.AgentKeyAuthDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -26,6 +27,7 @@ public class EventStreamController {
 
   @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
   public SseEmitter stream(@AuthenticationPrincipal Long callerId) {
-    return registry.register(callerId);
+    // AI 키 인증이면 키 id 도 함께 기억한다(WP-2008) — 키가 폐기되면 그 키로 연 스트림만 닫기 위해.
+    return registry.register(callerId, AgentKeyAuthDetails.currentKeyId());
   }
 }

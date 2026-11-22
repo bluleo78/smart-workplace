@@ -3,7 +3,10 @@ package com.workplace.global.realtime;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -36,6 +39,12 @@ public class SseRegistry {
    */
   private final ConcurrentHashMap<Long, Instant> disconnectedAt = new ConcurrentHashMap<>();
 
+  /** AI 키로 연 emitter 가 어느 사용자·키에서 왔는지(WP-2008). 키 없는(JWT 등) 연결은 넣지 않는다. 연결이 빠지면 같이 지운다. */
+  private final ConcurrentHashMap<SseEmitter, KeyRef> keyRefs = new ConcurrentHashMap<>();
+
+  /** emitter 를 연 사용자와 AI 키 id. */
+  private record KeyRef(long userId, long keyId) {}
+
   private final KeyedSseEmitters<Long> emitters;
 
   public SseRegistry(ObjectMapper objectMapper) {
@@ -46,12 +55,57 @@ public class SseRegistry {
             MAX_EMITTERS_PER_USER,
             // 다시 붙었으니 끊김 시각을 지운다.
             disconnectedAt::remove,
-            userId -> disconnectedAt.put(userId, Instant.now()));
+            userId -> disconnectedAt.put(userId, Instant.now()),
+            // 끊기거나 닫힌 emitter 의 키 기억을 남기지 않는다.
+            keyRefs::remove);
   }
 
   /** 유저의 새 SSE 연결 등록. 한도 초과 시 가장 오래된 연결을 complete. */
   public SseEmitter register(Long userId) {
-    return emitters.register(userId);
+    return register(userId, null);
+  }
+
+  /** 유저의 새 SSE 연결 등록 + 연 AI 키 id 기억(WP-2008). agentKeyId 가 null 이면(JWT 등) 키 기억 없이 등록한다. */
+  public SseEmitter register(Long userId, Long agentKeyId) {
+    SseEmitter emitter = emitters.register(userId);
+    if (agentKeyId != null) {
+      keyRefs.put(emitter, new KeyRef(userId, agentKeyId));
+      // 등록 직후 이미 끊겨 정리 콜백이 먼저 지나갔다면 기억이 남을 수 있어, 연결이 빠졌는지 다시 확인해 지운다.
+      if (!emitters.contains(userId, emitter)) keyRefs.remove(emitter);
+    }
+    return emitter;
+  }
+
+  /** 그 AI 키로 연 스트림만 닫는다(WP-2008 — 키 폐기·AI 삭제). 같은 사용자의 다른 연결은 그대로 둔다. */
+  public void closeByKey(long agentKeyId) {
+    keyRefs.forEach(
+        (emitter, ref) -> {
+          if (ref.keyId() == agentKeyId) emitters.close(ref.userId(), emitter);
+        });
+  }
+
+  /** 지금 열려 있는 AI 키 스트림의 키 id 들(복사본). */
+  public Set<Long> openAgentKeyIds() {
+    Set<Long> ids = new HashSet<>();
+    for (KeyRef ref : keyRefs.values()) ids.add(ref.keyId());
+    return ids;
+  }
+
+  /**
+   * 확인한 키(checkedKeyIds) 중 activeKeyIds 에 없는 키(폐기됐거나 못 쓰게 된 키)의 스트림을 닫는다(WP-2008 — 이벤트를 놓친 경우의
+   * 안전망). 확인하는 동안 새로 열린 스트림의 키는 checkedKeyIds 에 없어 활성 여부를 모르므로 건드리지 않는다(다음 주기에 확인).
+   *
+   * @return 닫은 emitter 수
+   */
+  public int closeInactiveKeys(Set<Long> checkedKeyIds, Set<Long> activeKeyIds) {
+    int closed = 0;
+    for (Map.Entry<SseEmitter, KeyRef> entry : keyRefs.entrySet()) {
+      KeyRef ref = entry.getValue();
+      if (!checkedKeyIds.contains(ref.keyId()) || activeKeyIds.contains(ref.keyId())) continue;
+      // 그 사이 끊겨 이미 빠진 emitter 는 세지 않는다(로그에 실제로 닫은 수만).
+      if (emitters.close(ref.userId(), entry.getKey())) closed++;
+    }
+    return closed;
   }
 
   /** 지정 유저들의 연결된 emitter 로 이벤트 전송 (미연결 유저는 skip). best-effort. */

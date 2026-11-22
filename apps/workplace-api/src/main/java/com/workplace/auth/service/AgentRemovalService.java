@@ -7,6 +7,7 @@ import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.service.UserService;
 import java.sql.SQLException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -42,6 +43,7 @@ public class AgentRemovalService {
   private final AiAgentCredentialService credentials;
   private final PodAccountSource podAccounts;
   private final TransactionTemplate savepoint;
+  private final ApplicationEventPublisher publisher;
 
   public AgentRemovalService(
       UserService userService,
@@ -50,7 +52,9 @@ public class AgentRemovalService {
       AgentApiKeyRepository apiKeys,
       AiAgentCredentialService credentials,
       PodAccountSource podAccounts,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      ApplicationEventPublisher publisher) {
+    this.publisher = publisher;
     this.userService = userService;
     this.workspaceAssistant = workspaceAssistant;
     this.memberships = memberships;
@@ -75,6 +79,8 @@ public class AgentRemovalService {
     }
     // user 행은 전역이라 지우면 다른 워크스페이스에서도 사라진다(멤버십은 CASCADE) — 그때는 이 워크스페이스에서만 사용을 중지한다.
     if (!memberships.hasMembershipElsewhere(agentId, tenantId) && tryDelete(callerId, agentId)) {
+      // 커밋 뒤 그 AI 의 열린 이벤트 스트림을 모두 닫는다(WP-2008). 사용 중지 경로는 멤버십 정지가 이미 닫는다.
+      publisher.publishEvent(new AgentKeyStreamEvents.AgentStreamOwnerDeleted(agentId));
       return Result.DELETED;
     }
     deactivate(callerId, agent);

@@ -37,6 +37,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  *       파드에서 돌아야 한다 — 잠그면 다른 파드가 버린 건수는 경고로 남지 않는다.
  *   <li>{@code HelpCatalogRefresher.refresh} — 파드 메모리의 매뉴얼 절 목록을 그 파드에서 갈아 끼운다(WP-1510). 모든 파드에서
  *       돌아야 한다 — 잠그면 한 파드의 목록만 새로워진다.
+ *   <li>{@code AgentKeyStreamCloser.revalidate} — 파드 로컬에 열린 AI 키 스트림이 아직 활성 키인지 확인해 그 파드의 스트림을
+ *       닫는다(WP-2008). 모든 파드에서 돌아야 한다 — 잠그면 다른 파드의 스트림은 닫히지 않는다.
  * </ul>
  */
 @AnalyzeClasses(packages = "com.workplace", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -50,7 +52,8 @@ public class ScheduledLockArchTest {
           "MailReanalysisScheduler.tick",
           "MailCategoryBackfillScheduler.tick",
           "DroppedAudits.flush",
-          "HelpCatalogRefresher.refresh");
+          "HelpCatalogRefresher.refresh",
+          "AgentKeyStreamCloser.revalidate");
 
   /** 클래스의 메서드 전체 — @ArchTest 메서드는 @AnalyzeClasses 가 캐시한 임포트를 받는다(전체 클래스를 다시 임포트하지 않는다). */
   private static Stream<JavaMethod> methodsOf(JavaClasses classes) {
