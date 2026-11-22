@@ -16,6 +16,7 @@ import type { IssueResponse } from '@/types/issue'
 import { createIssue } from '../../../e2e/factories/issue.factory'
 import { createMember } from '../../../e2e/factories/project.factory'
 import { seedStatuses, withCustomStatuses } from '../../../e2e/factories/projectStatus.factory'
+import { headerCount } from './components/issueListHeaderCount'
 
 const KEY = 'WP'
 
@@ -374,5 +375,54 @@ describe('정렬 (WP-1238)', () => {
     const columnSearches = api.searches.filter((u) => u.searchParams.has('statusId'))
     expect(columnSearches.every((u) => u.searchParams.get('sort') === 'dueDate' && u.searchParams.get('direction') === 'asc')).toBe(true)
     expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent('정렬: 마감일 ↑')
+  })
+})
+
+// WP-1929 리뷰 3차 — 그룹 헤더 수(headerCount) 판정 규칙.
+// 임시(이전 필터) 총계 placeholder 는 행과 맞물려 있을 때만 쓴다 · 실패·로드 뒤에는 행 수 폴백 · 로딩 중만 비운다.
+describe('그룹 헤더 수 (WP-1929 리뷰 3차)', () => {
+  const counts = (entries: [string, number][]) => new Map(entries)
+
+  test('요청 실패·로드 완료 뒤에는 키가 없어도 행 수로 보인다(영영 비어 있지 않다)', () => {
+    expect(headerCount('status', '12', 3, counts([['12', 7]]), false, false, true)).toBe(7)
+    // 총계 응답에 키가 없는 그룹(0건·낙관적 변경) — 임시 총계가 아닐 때만 행 수 폴백.
+    expect(headerCount('status', '99', 3, counts([['12', 7]]), false, false, true)).toBe(3)
+  })
+
+  test('총계를 기다리는 동안만 비운다', () => {
+    expect(headerCount('status', '12', 3, counts([]), true, false, true)).toBeNull()
+  })
+
+  test('임시(이전 필터) 총계에 없는 그룹은 진짜 총계가 올 때까지 비운다 — 행 수로 깜빡이지 않는다', () => {
+    expect(headerCount('status', '99', 3, counts([['12', 7]]), false, true, false)).toBeNull()
+  })
+
+  test('임시 총계는 행이 아직 이전 결과일 때만, 행이 이미 바뀌었으면 비운다 — 총계와 행이 어긋나지 않게', () => {
+    // 행도 아직 이전 결과(placeholder) → 이전 총계를 그대로 써서 헤더가 사라졌다 다시 뜨지 않게 한다.
+    expect(headerCount('status', '12', 3, counts([['12', 7]]), false, true, false)).toBe(7)
+    // 행은 새 결과로 바뀌었는데 총계는 이전 필터 값 → 어긋나 보이니 비운다.
+    expect(headerCount('status', '12', 3, counts([['12', 7]]), false, true, true)).toBeNull()
+  })
+
+  test('에픽 그룹은 집계 API 가 없어 늘 행 수다', () => {
+    expect(headerCount('epic', 'epic-1', 4, counts([['epic-1', 9]]), false, false, true)).toBe(4)
+  })
+})
+
+// WP-1929 리뷰 2차 1·3차 2 — group-counts 요청이 실패하면(4xx/5xx) 헤더 수가 영영 비어 있지 않고 행 수로 내려간다.
+describe('그룹 총계 요청 실패 (WP-1929 리뷰)', () => {
+  test('그룹 총계 요청이 500 이어도 헤더 수는 행 수로 보인다', async () => {
+    openList(
+      [createIssue({ id: 1, number: 1, title: '리뷰 대기 작업', status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중' })],
+      {
+        path: `/projects/${KEY}?group=status`,
+        extra: [
+          customStatuses(),
+          http.get(`${API}/projects/${KEY}/issues/group-counts`, () => HttpResponse.json({ message: 'boom' }, { status: 500 })),
+        ],
+      },
+    )
+    expect(await screen.findByTestId('list-group-toggle-12')).toHaveTextContent('검토 중')
+    await waitFor(() => expect(screen.getByTestId('list-group-count-12')).toHaveTextContent(/^1$/))
   })
 })

@@ -225,8 +225,11 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
       // 판정이 첫 렌더에 끝나면 평면 요청은 아예 없다(0건 — 그럴 때는 cycle 파라미터로만 요청한다).
       // 옛 불변식 « 평면 목록 요청은 아예 나가지 않는다 » 는 「게이트 위 즉시 발사」 와 양립하지 않아 0~1 건으로 본다
       // (vitest 동생 테스트는 사이클 응답을 묶어 두어 판정을 늦추므로 항상 1건이다).
+      // 「0~1 건」만으로는 아무 요청도 안 하는 것으로도 통과하므로, 사이클 파라미터 요청은 반드시 나갔는지도 함께 단언한다
+      // (WP-1929 리뷰 3차 nit — 단언 약화 되돌리기).
       const flat = requests().filter((p) => !p.has('cycle'));
       expect(flat.length).toBeLessThanOrEqual(1);
+      expect(requests().some((p) => p.has('cycle'))).toBe(true);
       // 그룹 메뉴 표시도 사이클.
       await expect(page.getByTestId('group-by-trigger')).toHaveText('사이클');
     },

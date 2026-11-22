@@ -1,9 +1,10 @@
 // 목록 그룹별 총계(WP-472) — 헤더에 「불러온 행 수」 대신 서버가 같은 필터로 센 정확한 수를 보인다.
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 
 import { getIssueGroupCounts } from '../../api/issues';
 import { withoutSort } from '../../lib/issueFilters';
 import type { IssueClientGroupBy, IssueCountableGroupBy, IssueFilters, IssueGroupCountsBy } from '../../types/issue';
+import { keepPreviousInProject } from './useIssueSearch';
 
 const COUNTABLE: ReadonlySet<IssueClientGroupBy> = new Set<IssueCountableGroupBy>(['status', 'priority', 'assignee']);
 
@@ -34,7 +35,10 @@ export function useIssueGroupCounts(
     // 필터·검색을 바꿀 때 이전 총계를 다음 총계가 올 때까지 유지한다(WP-1929 리뷰 3) —
     // 행은 이전 결과로 자리를 채우는데(useIssueSearchKeepingPrevious 와 같은 방식) 헤더 수만 비워 두면
     // 「총계가 사라졌다가 다시 뜨는」 다른 깜빡임이 생긴다. 새 총계가 오면 그 값으로 대체된다.
-    placeholderData: keepPreviousData,
+    // 다만 같은 프로젝트일 때만 이어 받는다(WP-1929 리뷰 3차 1) — 프로젝트를 옮길 때 A 프로젝트의 그룹 총계가
+    // B 헤더에 잠깐 보이기 때문이다. 자리채움 규칙은 검색이 이미 쓰는 keepPreviousInProject 하나로 공유한다
+    // (키 셋째 칸이 프로젝트 키인 규칙도 거기서 함께 지킨다 — useIssueSearch.test.ts).
+    placeholderData: keepPreviousInProject(projectKey),
   });
 }
 

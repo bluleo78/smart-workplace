@@ -38,34 +38,17 @@ import { useSetIssueSort } from '../hooks/useIssueSortParam';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { columnHeadCells, issueListColumnCount, issueListMinWidthRem, useColumnDefs } from './issueListColumnDefs';
+import { headerCount } from './issueListHeaderCount';
 import { ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
 import { SortableTh } from './IssueSortHeader';
 
+/** 신뢰할 수 없는 총계(그룹 기준 불일치·요청 실패)를 대체해 넘기는 빈 맵 — headerCount 는 이때 행 수 폴백으로 내려간다. */
+const EMPTY_GROUP_COUNTS: ReadonlyMap<string, number> = new Map();
+
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 에픽(직계 부모 또는 하위 태스크의 할아버지 에픽, WP-1692) 유형 색 토큰(배경 없는 글자용 fg). */
 function epicGroupColor(first: IssueResponse | undefined): string {
   return labelFg(first ? issueEpicOf(first)?.type?.colorToken : undefined);
-}
-
-/**
- * 그룹 헤더에 쓸 수(WP-472) — 서버 총계가 있는 그룹은 총계가 **로딩 중일 때만** 수를 두지 않는다.
- * 「불러온 행 수를 잠깐 보여주고 총계로 바꾸는」 깜빡임을 없애기 위한 것이다(WP-1929 리뷰 — 캐시에서 행이 먼저 와
- * 헤더가 먼저 그려질 수 있다). 다만 총계 요청이 실패하거나(4xx/5xx·오프라인) 응답에 그룹 키가 없으면
- * (0건 그룹은 서버가 내려주지 않고, 낙관적 변경으로 새로 생긴 그룹도 그렇다) 빈 수로 두지 않고 불러온 행 수로
- * 대체한다 — 요청이 실패했다고 헤더 수가 영영 안 뜨는 일을 막기 위해서다(WP-1929 리뷰 1·2).
- * 에픽 그룹만 별도 집계 API 가 없어(IssueCountableGroupBy — 에픽 필터가 없다) 늘 불러온 행 수를 쓴다.
- */
-function headerCount(
-  groupBy: IssueClientGroupBy | null,
-  key: string,
-  rowCount: number,
-  counts: ReadonlyMap<string, number>,
-  countsLoading: boolean,
-): number | null {
-  if (groupBy === 'epic') return rowCount;
-  // 총계를 기다리는 동안만 비운다 — 실패·로드 이후엔 키 유무와 상관없이 아래 폴백으로 간다.
-  if (countsLoading) return null;
-  return counts.get(key) ?? rowCount;
 }
 
 export function IssueListView({
@@ -113,18 +96,27 @@ export function IssueListView({
   // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다.
   const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy);
   const countByKey = useMemo(() => groupCountsByKey(groupCounts.data), [groupCounts.data]);
-  // 총계를 기다리는 동안에만 헤더 수를 비운다(WP-1929 리뷰 1·2) — 총계가 이미 있으면(이전 필터 값 유지 중 포함),
-  // 또는 요청이 실패했으면(오류) 즉시 행 수 폴백으로 간다. status=error 로는 isPending 이 아니라 isError 로 함께 본다.
-  //  · 필터·검색을 바꿔서는 이전 총계를 그대로 두고 다음 총계로 바꾼다(placeholderData — 헤더 수가 사라졌다 뜨는
-  //    깜빡임을 없애기 위해서다).
-  //  · 그룹 기준을 바꿔 이전 기준 총계(placeholder)를 들고 오는 동안은 총계 자리가 아니다 — 키 체계가 달라 행 수로
-  //    비우지 않으면 「행 수 → 총계」 깜빡임이 바꾸는 순간마다 되살아난다(같은 기준의 필터 변경 총계는 그대로 쓴다).
-  //  · 오프라인(fetchStatus 'paused')은 요청이 시작되지 않아 기다림이 끝나지 않으니, 목록은 캐시로 보이는데 헤더만
-  //    계속 비어 있으므로 그때는 행 수로 바로 내려간다('idle' 은 아직 구독 전이므로 로딩으로 둔다).
+  // headerCount 에 넘길 판정들 — 판정 규칙 전체와 근거는 components/issueListHeaderCount.ts 주석이 지킨다
+  // (괄호 안 번호는 WP-1929 리뷰 회차).
+  //  · countsLoading: 총계를 기다리는 동안에만 수를 비운다(리뷰 1·2). status=error 는 isPending 이 아니므로
+  //    isError 로 함께 보고, 그룹 기준 변경(stale — 키 체계가 달라 이전 기준 총계는 못 쓴다)도 기다림으로 본다.
+  //    오프라인(paused)만 예외로 두어 행 수로 바로 내린다 — 요청이 시작되지 않아 기다림이 끝나지 않아 목록은
+  //    캐시로 보이는데 헤더만 계속 비어 있었기 때문이다(3차 2). 'idle' 은 구독 전이라 로딩으로 둔다.
+  //  · countsMap: stale·요청 실패일 땐 빈 맵 — 신뢰 못 하는 총계를 헤더에 못 보게 한다. headerCount 는 이때
+  //    (오프라인 stale·요청 실패) 행 수로 내려가 헤더가 계속 비지 않고(3차 2), statusId·assignee id 등 다른 키
+  //    체계의 수가 잘못 뜨지도 않으며(3차 nit 1-3), 실패 뒤 이전 필터 총계가 최종값처럼 남지도 않는다(3차 nit 1-5).
+  //  · countsProvisional: 임시(이전 필터) 총계는 쓰는 동안 키 없는 그룹을 실제 총계가 올 때까지 비운다(3차 3) —
+  //    placeholder 는 같은 프로젝트일 때만 이어 받는다(3차 1, useIssueGroupCounts).
+  //  · rowsUpdated: 자리채움이 끝나 행이 새 결과로 바뀌었는지 — 임시 총계와 어긋나 보이는 순간인지 알린다(3차 nit 1).
   const countsBy = groupCountsBy(groupBy);
+  const countsOffline = groupCounts.fetchStatus === 'paused';
   const countsStaleBy = groupCounts.data != null && countsBy != null && groupCounts.data.groupBy !== countsBy;
-  const countsLoading =
-    (groupCounts.data === undefined && !groupCounts.isError && groupCounts.fetchStatus !== 'paused') || countsStaleBy;
+  const countsAwaiting = (groupCounts.data === undefined && !groupCounts.isError) || countsStaleBy;
+  const countsLoading = countsAwaiting && !countsOffline;
+  const countsUsable = !countsStaleBy && !groupCounts.isError;
+  const countsMap = countsUsable ? countByKey : EMPTY_GROUP_COUNTS;
+  const countsProvisional = countsUsable && groupCounts.isPlaceholderData;
+  const rowsUpdated = !refreshing;
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
@@ -316,7 +308,7 @@ export function IssueListView({
             )}
             {groups ? (
               groups.map((g) => {
-                const count = headerCount(groupBy, g.key, g.issues.length, countByKey, countsLoading);
+                const count = headerCount(groupBy, g.key, g.issues.length, countsMap, countsLoading, countsProvisional, rowsUpdated);
                 return (
                   <tbody key={g.key} data-testid={`list-group-${g.key}`}>
                     <tr className="bg-muted/40 border-b">

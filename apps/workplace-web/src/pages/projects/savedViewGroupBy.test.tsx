@@ -132,6 +132,7 @@ test('필터를 바꿔도 이전 총계가 다음 총계가 올 때까지 남는
   let releaseCounts: () => void = () => {}
   const secondCounts = new Promise<void>((r) => (releaseCounts = r))
   let countsRequests = 0
+  let issueRequests = 0
   const issues = [
     createIssue({ id: 1, number: 1, title: 'Todo one', status: 'TODO' }),
     createIssue({ id: 2, number: 2, title: 'Todo two', status: 'TODO' }),
@@ -144,6 +145,14 @@ test('필터를 바꿔도 이전 총계가 다음 총계가 올 때까지 남는
         // 첫 요청 이후(검색어 변경으로 갈아탄 총계 쿼리)는 전부 게이트에 묶어 — 그동안 이전 총계가 남아 있는지 본다.
         if (attempt >= 2) await secondCounts
         return HttpResponse.json({ groupBy: 'statusId', groups: [{ key: '1', count: attempt === 1 ? 32 : 7 }] })
+      }),
+      // 행도 함께 게이트에 묶는다 — 실제로는 목록·총계 쿼리가 같이 나가 이전 결과가 남아 있을 때 이전 총계를 보이기
+      // 때문이다(headerCount 는 행이 이미 새 결과로 바뀌었는데 총계만 이전 필터 값이면 어긋나 보여 비운다,
+      // WP-1929 리뷰 3차 nit 1). 행을 바꾸지 않아야 이 테스트가 겨냥한 「이전 총계 유지」 조건이 만들어진다.
+      http.get(`/api/v1/projects/${KEY}/issues`, async () => {
+        issueRequests += 1
+        if (issueRequests >= 2) await secondCounts
+        return HttpResponse.json(createIssueSearchResponse(issues) as never)
       }),
       ...issueListHandlers({ issues: () => createIssueSearchResponse(issues) }),
     ],
