@@ -1372,21 +1372,20 @@ function MailInbox() {
     data: fetchedMessages, isLoading,
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
   } = messagesQuery
-  // WP-1911(리뷰 반려 2차): 다음 페이지만 실패한 뒤 배경 재조회(60초 폴링·창 포커스)가 돌면 TanStack 이 재조회를 시작하며
-  // fetchMeta 를 비워 isFetchNextPageError 가 풀리는 동안 목록 배너가 되살아난다 — 배경 재조회 중은 확정된 실패가 아니고,
-  // 그동안 푸터 오류도 꺼진다. 직전 실패가 다음 페이지 실패였으면 배너를 끈다. 재조회가 끝나 (다음 페이지 실패가 아닌) 오류로
-  // 남으면 다시 켠다 — 재조회 성공 땐 오류가 없어지고, 전체 재조회 실패 시 배너가 서는 전체 장애 신호는 그대로다(리뷰 반려).
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
   // 리뷰 반려: 목록 키가 바뀌면 앞 보기에 남은 다음 페이지 실패 기록을 이월하지 않는다 — 이월하면 새 보기의 재조회가
   // 끝나기 전까지 그 보기의 오류 배너가 가려진다(kept 와 같은 키 동기화 패턴으로 렌더 중에 바로 되돌린다).
+  // WP-1911(리뷰 반려 2차): 다음 페이지만 실패한 뒤 배경 재조회(60초 폴링·창 포커스)가 돌면 TanStack 이 재조회를 시작하며
+  // fetchMeta 를 비워 isFetchNextPageError 가 풀리는 동안 목록 배너가 되살아난다 — 배경 재조회 중은 확정된 실패가 아니고,
+  // 그동안 푸터 오류도 꺼진다. 직전 실패가 다음 페이지 실패였으면 배너를 끈다. 재조회가 끝나 (다음 페이지 실패가 아닌) 오류로
+  // 남으면 다시 켠다 — 재조회 성공 땐 오류가 없어지고, 전체 재조회 실패 시 배너가 서는 전체 장애 신호는 그대로다(리뷰 반려).
   const [nextPage, setNextPage] = useState({ key: keepKey, failed: isFetchNextPageError })
   if (nextPage.key !== keepKey) setNextPage({ key: keepKey, failed: false })
   else if (!nextPage.failed && isFetchNextPageError) setNextPage({ key: keepKey, failed: true })
   else if (nextPage.failed && !listFetching && !isFetchNextPageError) setNextPage({ key: keepKey, failed: false })
   const nextPageFailed = nextPage.key === keepKey && nextPage.failed
-  // 연 행의 스냅샷(읽음 처리본)을 읽음 처리 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다(applyToggle).
   // 연 행의 스냅샷(읽음 처리본)을 읽음 처리 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다(applyToggle).
   const [kept, setKept] = useState<{ key: string; rows: ReadonlyMap<number, EmailMessageSummary> }>({ key: keepKey, rows: new Map() })
   // 키가 바뀌면 렌더 중에 실제로 비운다(숨기기만 하면 같은 키로 돌아올 때 되살아난다).
