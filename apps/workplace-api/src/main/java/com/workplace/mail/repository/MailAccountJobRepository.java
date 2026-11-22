@@ -3,7 +3,12 @@ package com.workplace.mail.repository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -44,6 +49,18 @@ public class MailAccountJobRepository {
       Instant finishedAt,
       String errorCode,
       boolean expired) {}
+
+  /**
+   * 실행 한 건의 키 — 종류·계정·실행 토큰. 여러 실행을 한 문장으로 갱신할 때(하트비트 묶음) 대상과 결과를 나타낸다.
+   *
+   * @param kind 작업 종류
+   * @param accountId 메일 계정 id
+   * @param runId 선점 때 발급한 실행 토큰
+   */
+  public record RunKey(Kind kind, long accountId, UUID runId) {}
+
+  /** 하트비트 묶음 한 문장에 넣을 최대 실행 수 — 바인드 변수 상한(32767)을 넘지 않게 3개×이 수로 나눈다. */
+  static final int HEARTBEAT_CHUNK = 1000;
 
   private final DSLContext dsl;
 
@@ -111,13 +128,42 @@ public class MailAccountJobRepository {
   }
 
   /**
-   * 하트비트 — 이 실행이 아직 살아 있음을 알린다. RUNNING 이고 run_id 가 일치하면 updated_at 만 DB 시각으로 갱신해 만료(ttl)를 늦춘다. 오래
-   * 걸리는 작업이 진행 쓰기 없이도 다른 파드에 빼앗기지 않게 하려는 것이다.
+   * 하트비트 — 실행들이 아직 살아 있음을 한 번에 알린다(만료 ttl 을 늦춰 오래 걸리는 작업을 다른 파드에 빼앗기지 않게 한다). RUNNING 이고
+   * (account_id, kind, run_id) 가 주어진 키 중 하나와 일치하는 행의 updated_at 만 DB 시각으로 갱신한다. 실행마다 문장·트랜잭션을 따로 쓰면
+   * 풀이 붐빌 때 한 바퀴가 TTL 을 넘길 수 있어 묶는다(WP-1977 리뷰 후속). run_id 일치 조건은 그대로라 다른 실행에 넘어간 행(같은 계정·다른
+   * run_id)은 건드리지 않는다. 키가 많으면 {@link #HEARTBEAT_CHUNK} 개씩 나눠 같은 트랜잭션 안에서 여러 문장으로 보낸다. 호출자의 테넌트 문맥
+   * 트랜잭션 안에서 불러야 한다(RLS).
    *
-   * @return 갱신했으면 true — false 면 이 실행은 이미 끝났거나 다른 실행에 넘어갔거나 행이 지워졌다
+   * @return 실제로 갱신된 실행의 키 — 빠진 키는 이미 끝났거나 다른 실행에 넘어갔거나 행이 지워졌다
    */
-  public boolean heartbeat(Kind kind, long accountId, UUID runId) {
-    return updateRunning("state = state", kind, accountId, runId) == 1;
+  public Set<RunKey> heartbeatAll(Collection<RunKey> runs) {
+    Set<RunKey> alive = new HashSet<>();
+    List<RunKey> all = new ArrayList<>(runs);
+    for (int from = 0; from < all.size(); from += HEARTBEAT_CHUNK) {
+      List<RunKey> chunk = all.subList(from, Math.min(all.size(), from + HEARTBEAT_CHUNK));
+      StringBuilder sql =
+          new StringBuilder(
+              "UPDATE mail_account_job SET updated_at = now() WHERE state = 'RUNNING'"
+                  + " AND (account_id, kind, run_id) IN (");
+      Object[] binds = new Object[chunk.size() * 3];
+      for (int i = 0; i < chunk.size(); i++) {
+        RunKey k = chunk.get(i);
+        sql.append(i == 0 ? "" : ", ").append("(?, ?, ?::uuid)");
+        binds[i * 3] = k.accountId();
+        binds[i * 3 + 1] = k.kind().name();
+        binds[i * 3 + 2] = k.runId();
+      }
+      sql.append(") RETURNING account_id, kind, run_id");
+      dsl.fetch(sql.toString(), binds)
+          .forEach(
+              r ->
+                  alive.add(
+                      new RunKey(
+                          Kind.valueOf(r.get("kind", String.class)),
+                          r.get("account_id", Long.class),
+                          r.get("run_id", UUID.class))));
+    }
+    return alive;
   }
 
   /**

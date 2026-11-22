@@ -4,10 +4,14 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -18,10 +22,13 @@ import com.workplace.mail.repository.MailAccountJobRepository.Kind;
 import com.workplace.mail.service.MailJobHeartbeat;
 import com.workplace.mail.service.MailJobRun;
 import com.workplace.mail.service.MailSyncProgress;
+import com.workplace.mail.service.trash.MailTrashEmptyProgress;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -266,6 +273,178 @@ class MailSyncProgressTest extends IntegrationTestBase {
     assertThat(hb.holds(run)).isFalse();
     assertThat(p.snapshot(accountId).phase()).isEqualTo("IDLE");
     assertThat(p.tryStart(accountId)).isPresent();
+  }
+
+  /**
+   * 쥔 실행 여럿(동기화·휴지통 비우기)이 테넌트별 UPDATE 한 번으로 함께 갱신되고, 그새 다른 run_id 로 넘어간 행은 건드리지 않는다(WP-1977 리뷰 후속 —
+   * 실행마다 트랜잭션을 열던 것을 묶었다).
+   */
+  @Test
+  void heartbeat_batchesHeldRuns_andSkipsOtherRunId() {
+    MailAccountJobRepository spyRepo = spy(new MailAccountJobRepository(dsl));
+    MailJobHeartbeat shared = new MailJobHeartbeat(spyRepo, txManager);
+    MailSyncProgress sync =
+        new MailSyncProgress(spyRepo, new TransactionTemplate(txManager), shared);
+    MailTrashEmptyProgress trash =
+        new MailTrashEmptyProgress(spyRepo, new TransactionTemplate(txManager), shared);
+    long other = seedAccount();
+    try {
+      MailJobRun s = sync.tryStart(accountId).orElseThrow();
+      MailJobRun t = trash.tryStart(accountId).orElseThrow();
+      MailJobRun o = sync.tryStart(other).orElseThrow();
+      // 세 행 모두 만료 직전 상태로 되돌리고, 동기화 행 하나는 다른 실행에 넘어간 것처럼 run_id 만 바꾼다(updated_at 은 그대로 오래됨).
+      ageUpdatedAt(3);
+      ageUpdatedAt(other, 3);
+      callInTenant(
+          TENANT_ID,
+          () ->
+              dsl.execute(
+                  "update mail_account_job set run_id = ? where account_id = ? and kind = 'SYNC'",
+                  UUID.randomUUID(),
+                  accountId));
+
+      // 하트비트 스레드처럼 문맥 없이 돌린다 — beat 가 던져도 이후 정리가 문맥을 잃지 않게 finally 로 되돌린다.
+      TenantContext.clear();
+      try {
+        shared.beat();
+      } finally {
+        TenantContext.set(TENANT_ID);
+      }
+
+      // 한 테넌트의 실행 셋이 한 번의 묶음 갱신으로 처리됐다(실행별 단건 갱신은 쓰지 않는다).
+      verify(spyRepo, times(1)).heartbeatAll(anyCollection());
+      assertThat(trash.snapshot(accountId).state()).isEqualTo("RUNNING");
+      assertThat(sync.snapshot(other).running()).isTrue();
+      // run_id 가 다른 행은 갱신되지 않아 여전히 만료 상태이고, 그 핸들은 쥔 목록에서 빠진다.
+      assertThat(sync.snapshot(accountId).running()).isFalse();
+      assertThat(shared.holds(s)).isFalse();
+      assertThat(shared.holds(t)).isTrue();
+      assertThat(shared.holds(o)).isTrue();
+    } finally {
+      cleanupInTenant(
+          TENANT_ID,
+          () -> dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(other)).execute());
+    }
+  }
+
+  /**
+   * 본문 진행 25건은 1건마다 쓰지 않고 묶어 쓴다(첫 건 즉시·20건 묶음·남은 4건은 finish 때) — finish 뒤 done 은 정확히 25. total(30)에
+   * 닿지 않아 마지막 건 쓰기는 일어나지 않는다(보충이 대상보다 적게 처리한 경우).
+   */
+  @Test
+  void incBody_batchesWrites_andFinishFlushesRest() {
+    MailAccountJobRepository spyRepo = spy(new MailAccountJobRepository(dsl));
+    // 시계를 멈춰 시간 조건이 끼어들지 않게 한다 — 건수 조건만 본다.
+    MailSyncProgress q =
+        new MailSyncProgress(
+            spyRepo,
+            new TransactionTemplate(txManager),
+            new MailJobHeartbeat(spyRepo, txManager),
+            () -> 0L);
+    MailJobRun run = start(q);
+    q.startBodies(run, 30);
+    for (int i = 0; i < 25; i++) {
+      q.incBody(run);
+    }
+    verify(spyRepo, times(2)).addDone(eq(Kind.SYNC), eq(accountId), eq(run.runId()), anyInt());
+    assertThat(q.snapshot(accountId).done()).isEqualTo(21);
+
+    q.finish(run);
+    verify(spyRepo).addDone(Kind.SYNC, accountId, run.runId(), 4);
+    verify(spyRepo, times(3)).addDone(eq(Kind.SYNC), eq(accountId), eq(run.runId()), anyInt());
+    assertThat(q.snapshot(accountId).done()).isEqualTo(25);
+    assertThat(q.snapshot(accountId).running()).isFalse();
+  }
+
+  /** 마지막 건(total 도달)은 묶음을 기다리지 않고 바로 써 진행바가 끝나기 전에 total/total 을 보인다. */
+  @Test
+  void incBody_flushesOnLastItem() {
+    MailSyncProgress q =
+        new MailSyncProgress(
+            repo,
+            new TransactionTemplate(txManager),
+            new MailJobHeartbeat(repo, txManager),
+            () -> 0L);
+    MailJobRun run = start(q);
+    q.startBodies(run, 3);
+    q.incBody(run); // 첫 건은 즉시
+    q.incBody(run);
+    assertThat(q.snapshot(accountId).done()).isEqualTo(1);
+    q.incBody(run); // 마지막 건 — finish 전에 3/3
+    assertThat(q.snapshot(accountId).done()).isEqualTo(3);
+    assertThat(q.snapshot(accountId).running()).isTrue();
+  }
+
+  /** 건수가 적어도 마지막 쓰기 뒤 2초가 지나면 다음 incBody 때 쌓인 만큼 쓴다. */
+  @Test
+  void incBody_flushesAfterInterval() {
+    AtomicLong now = new AtomicLong();
+    MailSyncProgress q =
+        new MailSyncProgress(
+            repo,
+            new TransactionTemplate(txManager),
+            new MailJobHeartbeat(repo, txManager),
+            now::get);
+    MailJobRun run = start(q);
+    q.startBodies(run, 10);
+    q.incBody(run); // 첫 건은 즉시
+    q.incBody(run);
+    q.incBody(run);
+    assertThat(q.snapshot(accountId).done()).isEqualTo(1);
+    now.addAndGet(Duration.ofSeconds(3).toNanos());
+    q.incBody(run);
+    assertThat(q.snapshot(accountId).done()).isEqualTo(4);
+  }
+
+  /** 본문 진행은 실행 핸들별로 쌓여 다른 계정의 실행과 섞이지 않는다. */
+  @Test
+  void incBody_pendingIsPerRun() {
+    MailSyncProgress q =
+        new MailSyncProgress(
+            repo,
+            new TransactionTemplate(txManager),
+            new MailJobHeartbeat(repo, txManager),
+            () -> 0L);
+    long other = seedAccount();
+    try {
+      MailJobRun a = start(q);
+      MailJobRun b = q.tryStart(other).orElseThrow();
+      q.startBodies(a, 10);
+      q.startBodies(b, 10);
+      for (int i = 0; i < 5; i++) {
+        q.incBody(a);
+      }
+      for (int i = 0; i < 3; i++) {
+        q.incBody(b);
+      }
+      q.finish(a);
+      q.finish(b);
+      assertThat(q.snapshot(accountId).done()).isEqualTo(5);
+      assertThat(q.snapshot(other).done()).isEqualTo(3);
+    } finally {
+      cleanupInTenant(
+          TENANT_ID,
+          () -> dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(other)).execute());
+    }
+  }
+
+  /** 테넌트#1 에 메일 계정을 하나 더 시드한다(여러 실행을 다루는 테스트용). */
+  private long seedAccount() {
+    return callInTenant(
+        TENANT_ID,
+        () -> TestFixtures.seedMailbox(dsl, "prog2-" + System.nanoTime() + "@example.com")[1]);
+  }
+
+  /** 주어진 계정의 작업 행 updated_at 을 분 단위로 과거로 되돌린다. */
+  private void ageUpdatedAt(long account, int minutes) {
+    callInTenant(
+        TENANT_ID,
+        () ->
+            dsl.execute(
+                "update mail_account_job set updated_at = now() - make_interval(mins => ?)"
+                    + " where account_id = ?",
+                minutes,
+                account));
   }
 
   /** updated_at 을 지금보다 분 단위로 과거로 되돌린다(하트비트·쓰기가 끊긴 실행 흉내). */

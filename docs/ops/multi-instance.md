@@ -27,7 +27,7 @@
 | AI 작업 화면 중계(WebSocket) | `agentruntime/screen/AgentScreenRelay`·`AgentScreenTickets`(WP-1277) | 관리자 브라우저 소켓과 runner 소켓을 파드 메모리에서 세션 id 로 짝짓습니다. 두 소켓(과 접속 표를 받은 POST)이 다른 파드로 가면 붙지 못해 화면이 열리지 않습니다. AI 당 열린 화면 3개·「다른 관리자가 이미 입력 중」 판정도 파드마다 따로 셉니다. 새 파드가 뜨면 닫히지 않은 옛 세션 행을 닫으므로, 겹치는 동안 다른 파드의 열린 화면 기록이 먼저 닫힌 것으로 남을 수 있습니다 | 막힘 | 세션 id 로 같은 파드에 보내는(sticky) 라우팅을 두거나, 파드 사이 프레임 중계(Redis Pub/Sub 등)와 공유 표 저장소를 둡니다 |
 | AI 답변 생성 중 취소(■) | `global/realtime/DefaultStreamingGenerationRegistry` | 취소 요청이 생성 중인 파드와 다른 파드로 가면 멈추지 않습니다. 사용자당 동시 생성 상한도 파드마다 따로 셉니다 | 막힘 | 취소를 위 중계로 전파하거나, 생성 요청을 같은 파드로 보내는(sticky) 라우팅이 필요합니다 |
 | 메일 OAuth state | `mail/service/OAuthStateStore` | 시작과 콜백이 다른 파드로 가면 「state 없음」으로 메일 계정 연결이 실패합니다 | 막힘 | state 를 DB 표나 Redis 로 옮깁니다(TTL 10분, 한 번 쓰면 삭제) |
-| 메일 수동 동기화 진행률·동시 실행 가드 | `mail/service/MailSyncProgress` | 진행률 조회가 다른 파드로 가면 「대기」로 보입니다. 같은 계정 동기화가 두 파드에서 겹칠 수 있습니다 | 바꿔야 함 | 진행 상태를 DB 로 옮기거나 DB 행 잠금으로 가드합니다 |
+| 메일 수동 동기화·휴지통 비우기 진행률·동시 실행 가드 | DB `mail_account_job`(`mail/service/MailSyncProgress`·`MailTrashEmptyProgress`, WP-1977) | 어느 파드가 받아도 같은 진행률과 가드를 봅니다. 살아 있는 작업은 30초마다 하트비트로 갱신하고, 파드가 죽으면 2분(TTL) 뒤 다른 파드가 다시 시작할 수 있습니다. 다만 DB 가드로 바꾼 버전으로 처음 롤링 배포하는 동안에는 옛 파드(메모리 가드)와 새 파드(DB 가드)가 서로의 선점을 보지 못해, 그 전환 중 한 번은 같은 계정 작업이 두 파드에서 겹칠 수 있습니다 | 괜찮음 | 전환 중 겹침은 한 번뿐이라 수용합니다. 옛 파드가 모두 내려가면 사라집니다 |
 | 메일함별 동기화 가드 | `mail/service/folder/MailFolderSyncGuard` | 파드 사이 겹침은 막지 못하지만 넣기가 멱등이라 결과는 같습니다(주석에 명시) | 괜찮음 | — |
 | 테넌트 상태 캐시 | `global/tenant/TenantStatusChecker` | 다른 파드에서 정지한 테넌트를 이 파드가 최대 5초 더 ACTIVE 로 봅니다(비활성은 캐시하지 않음) | 괜찮음 | 이미 여러 대를 고려해 설계됨 |
 | AI 요약 등 재생성 가능한 캐시 | `messaging/service/CatchupSummaryCache` 등 | 파드마다 따로 만들어 적중률이 떨어지고 AI 호출이 늘어납니다 | 괜찮음 | 비용이 문제 되면 공유 캐시로 |

@@ -59,7 +59,8 @@ class ImapSeenSyncFailureTest extends MailSyncTestSupport {
   @AfterEach
   void cleanup() {
     if (seededAccount != null) {
-      progress.discardForTest(seededAccount);
+      // 테스트가 문맥을 세우기 전에 실패했어도 진행 행이 지워지게 테넌트 문맥 안에서 정리한다.
+      TenantContext.runAs(1L, () -> progress.discardForTest(seededAccount));
       // 계정 삭제가 folder·message 를 CASCADE 로 함께 지운다
       cleanupInTenant(
           1L,

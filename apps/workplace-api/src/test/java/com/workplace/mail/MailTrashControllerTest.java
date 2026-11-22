@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.service.folder.FolderRole;
@@ -62,7 +63,9 @@ class MailTrashControllerTest extends ExternalClientMockedTestBase {
   @AfterEach
   void restoreExecutor() {
     ReflectionTestUtils.setField(trashService, "emptyExecutor", originalExecutor);
-    startedAccounts.forEach(progress::discardForTest); // 진행 상태도 싱글턴 — 시작 전으로
+    // 정리는 테넌트 문맥이 있어야 지운다(없으면 discardForTest 가 건너뛴다) — 요청 처리 뒤 문맥이 비어 있을 수 있어 세운다.
+    TenantContext.runAs(
+        1L, () -> startedAccounts.forEach(progress::discardForTest)); // 진행 상태도 싱글턴 — 시작 전으로
   }
 
   private String token(long userId) {
