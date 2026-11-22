@@ -217,76 +217,77 @@ describe('동기화 뒤 실시간 휴지통 수 무효화', () => {
     const { qc, wrapper } = setup()
     const inval = vi.spyOn(qc, 'invalidateQueries')
     const { result } = renderHook(() => useSyncMailFolder(3), { wrapper })
-    await act(async () => { await result.current.mutateAsync({ folderId: 9, older: false }) })
-    expect(inval).toHaveBeenCalledWith({ queryKey: ['mail-trash-count', 3] })
+    await act(async () => {
+      await result.current.mutateAsync({
+        folderId: 9,
+        older: false,
+        mailListQueryKey: ['mail-messages', 3, 'INBOX', '', false, '', false, 9, false],
+      })
+    })
+    expect(inval).toHaveBeenCalledWith({ queryKey: ['mail-trash-count', 3], exact: true })
   })
 })
 
 describe('useSyncMailFolder 완료 시점', () => {
-  const queryKeys = [
-    ['mail-messages', 3],
-    ['mail-unread-counts', 3, 'folders'],
-    ['mail-trash-count', 3],
-  ]
-  const cases = [false, true].flatMap((running) =>
-    queryKeys.map((lastKey) => ({ running, lastKey, lastQuery: lastKey[0] })),
-  )
+  const currentListKey = ['mail-messages', 3, 'INBOX', '', false, '', false, 9, false] as const
+  const foldersKey = ['mail-unread-counts', 3, 'folders'] as const
+  const trashCountKey = ['mail-trash-count', 3] as const
 
-  it.each(cases)('running=$running — $lastQuery 재조회가 끝날 때까지 기다린다', async ({ running, lastKey }) => {
+  it.each([false, true])('running=%s — 현재 메일 목록과 폴더만 기다리고 나머지 목록은 기다리지 않는다', async (running) => {
     vi.useFakeTimers()
     try {
       syncMailFolder.mockResolvedValue({ running })
       const { qc, wrapper } = setup()
-      const finishRefreshes = new Map<string, () => void>()
+      const finishRefreshes = new Map<string, Array<() => void>>()
       const inval = vi.spyOn(qc, 'invalidateQueries').mockImplementation(
         (filters) => new Promise<void>((resolve) => {
-          finishRefreshes.set(JSON.stringify(filters?.queryKey), resolve)
+          const key = JSON.stringify(filters?.queryKey)
+          finishRefreshes.set(key, [...(finishRefreshes.get(key) ?? []), resolve])
         }),
       )
       const { result } = renderHook(() => useSyncMailFolder(3), { wrapper })
       const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
-      const finishRefreshesFor = (keys: typeof queryKeys) => act(async () => {
+      const finishRefreshesFor = (keys: readonly (readonly unknown[])[]) => act(async () => {
         for (const key of keys) {
-          const finish = finishRefreshes.get(JSON.stringify(key))
-          expect(finish).toBeDefined()
-          finish?.()
+          const keyText = JSON.stringify(key)
+          const pending = finishRefreshes.get(keyText) ?? []
+          expect(pending.length).toBeGreaterThan(0)
+          pending.shift()?.()
+          finishRefreshes.set(keyText, pending)
         }
         await vi.advanceTimersByTimeAsync(1)
       })
-      const firstKeys = queryKeys.filter((key) => key !== lastKey)
+      const releaseTrashCount = () => {
+        const pending = finishRefreshes.get(JSON.stringify(trashCountKey)) ?? []
+        pending.splice(0).forEach((finish) => finish())
+      }
 
-      act(() => { result.current.mutate({ folderId: 9, older: false }) })
+      act(() => { result.current.mutate({ folderId: 9, older: false, mailListQueryKey: currentListKey }) })
       await advance(1)
       expect(inval).toHaveBeenCalledTimes(3)
+      expect(inval).toHaveBeenCalledWith({ queryKey: currentListKey, exact: true })
+      expect(inval).toHaveBeenCalledWith({ queryKey: foldersKey, exact: true })
+      expect(inval).toHaveBeenCalledWith({ queryKey: trashCountKey, exact: true })
       expect(result.current.isPending).toBe(true)
 
-      await finishRefreshesFor(firstKeys)
-      expect(result.current.isPending).toBe(true)
+      await finishRefreshesFor([currentListKey, foldersKey])
       if (running) {
-        // 마지막 초기 재조회가 끝날 때까지 후속 재조회 타이머가 시작하지 않는다.
-        await advance(3_000)
-        expect(inval).toHaveBeenCalledTimes(3)
+        // 재조회 이후 3초 대기는 목록·폴더 재조회 뒤에 시작한다.
         expect(result.current.isPending).toBe(true)
-      }
-      await finishRefreshesFor([lastKey])
-
-      if (running) {
-        expect(result.current.isPending).toBe(true)
-        // 마지막 초기 재조회를 완료하면서 1ms를 진행했으므로 2,998ms 뒤에도 재조회 전이다.
         await advance(2_998)
         expect(inval).toHaveBeenCalledTimes(3)
         expect(result.current.isPending).toBe(true)
-
-        finishRefreshes.clear()
         await advance(1)
         expect(inval).toHaveBeenCalledTimes(6)
         expect(result.current.isPending).toBe(true)
-        await finishRefreshesFor(firstKeys)
-        expect(result.current.isPending).toBe(true)
-        await finishRefreshesFor([lastKey])
+        await finishRefreshesFor([currentListKey, foldersKey])
+      } else {
+        expect(result.current.isSuccess).toBe(true)
       }
 
       expect(result.current.isSuccess).toBe(true)
+      // 휴지통 수는 갱신하지만 이 응답은 동기화 완료를 막지 않는다.
+      releaseTrashCount()
     } finally {
       vi.useRealTimers()
     }

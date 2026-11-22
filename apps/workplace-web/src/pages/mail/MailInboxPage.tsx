@@ -1376,6 +1376,11 @@ function MailInbox() {
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
     { folderId: view.folderId, flagged: flaggedView },
   )
+  // 동기화 완료를 기다릴 목록은 현재 화면의 전체 쿼리 키로 좁힌다 — 같은 계정의 다른 검색·폴더까지 기다리지 않는다.
+  const mailListQueryKey = useMemo(
+    () => mailMessageKeys.list(accountIdNum ?? 0, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply', view.folderId, flaggedView),
+    [accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind, view.folderId, flaggedView],
+  )
   const {
     data: fetchedMessages, isLoading,
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
@@ -1608,8 +1613,8 @@ function MailInbox() {
     if (!folderView) autoSyncedRef.current = null
     if (autoSyncTarget == null || autoSyncFolderId == null || autoSyncedRef.current === autoSyncTarget) return
     autoSyncedRef.current = autoSyncTarget
-    runFolderSync({ folderId: autoSyncFolderId, older: false })
-  }, [autoSyncTarget, autoSyncFolderId, folderView, runFolderSync])
+    runFolderSync({ folderId: autoSyncFolderId, older: false, mailListQueryKey })
+  }, [autoSyncTarget, autoSyncFolderId, folderView, mailListQueryKey, runFolderSync])
   // 현재 메일함의 동기화와 이어지는 재조회가 끝날 때까지 이전 0건을 확정하지 않는다(WP-1963).
   // 다른 메일함의 mutation 은 섞지 않고, 다음 페이지만 실패한 경우에는 기존 목록 끝의 오류 안내를 쓴다.
   const syncForFolder = !autoSyncWaiting && syncFolder.variables?.folderId === view.folderId
@@ -1618,13 +1623,13 @@ function MailInbox() {
   let folderState: MailFolderState | null = null
   if (folderView) {
     if (autoSyncWaiting || (currentFolder && syncForFolder && syncFolder.isPending)) folderState = 'syncing'
-    else if (showsLoadError(foldersQuery)) folderState = 'folders-failed'
-    else if (!folders || foldersQuery.isFetching) folderState = 'loading'
+    else if (failedWithoutData(foldersQuery)) folderState = 'folders-failed'
+    else if (!folders || foldersQuery.isLoading) folderState = 'loading'
     else if (!currentFolder) folderState = 'missing'
     else if (syncForFolder && syncFolder.isError) folderState = 'sync-failed'
     // 다시 시도하는 동안은 실패 안내와 버튼을 유지해 초점이 사라지지 않게 한다.
     else if (listFailed) folderState = 'list-failed'
-    else if (messagesQuery.isPending || (listFetching && !isFetchingNextPage)) folderState = 'loading'
+    else if (isLoading) folderState = 'loading'
     else folderState = currentFolder.folderSyncedAt || syncCompleted ? 'ready' : 'not-synced'
   }
   const olderSyncing = folderState === 'syncing' && syncForFolder && syncFolder.variables?.older === true
@@ -1636,7 +1641,7 @@ function MailInbox() {
   const fetchOlder = () => {
     if (!currentFolder) return
     runFolderSync(
-      { folderId: currentFolder.id, older: true },
+      { folderId: currentFolder.id, older: true, mailListQueryKey },
       {
         onSuccess: (r) => {
           if (r.running) return
@@ -2223,8 +2228,18 @@ function MailInbox() {
               folder={currentFolder}
               state={folderState}
               olderSyncing={olderSyncing}
-              onRefresh={() => currentFolder && runFolderSync({ folderId: currentFolder.id, older: false })}
+              onRefresh={() => currentFolder && runFolderSync({ folderId: currentFolder.id, older: false, mailListQueryKey })}
               onFetchOlder={fetchOlder}
+            />
+          )}
+          {failedWithoutData(foldersQuery) && (
+            // 메일함 목록 첫 조회 실패는 상태 줄만으로 재시도할 수 없으므로 명시적 복구 동작을 함께 둔다.
+            <LoadErrorState
+              title="메일함 목록을 불러오지 못했습니다"
+              queries={[foldersQuery]}
+              testId="mail-box-folders-error"
+              variant="inline"
+              className="px-4 py-3"
             />
           )}
           {!folderEmpty && isLoading && !failedWithoutData(messagesQuery) ? (
@@ -2239,7 +2254,7 @@ function MailInbox() {
                   두 안내가 함께 뜨고 배너의 다시 시도가 이미 받은 페이지까지 다시 받게 하던 것을 막는다(리뷰 반려).
                   다음 페이지 실패였다는 기록(nextPageFailed)도 함께 본다 — 배경 재조회 중에는 fetchMeta 가 비어
                   isFetchNextPageError 가 풀려 배너가 되살아나기 때문이다(리뷰 반려 2차). */}
-              {listFailed && (!folderEmpty || folderState === 'list-failed') && (
+              {listFailed && (
                 <LoadErrorState
                   title={failedWithoutData(messagesQuery) ? '목록을 불러오지 못했습니다' : '목록을 다시 불러오지 못했습니다'}
                   queries={[messagesQuery]}

@@ -152,18 +152,23 @@ export function useMailFolders(accountId: number | undefined) {
 export function useSyncMailFolder(accountId: number | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ folderId, older }: { folderId: number; older: boolean }) =>
+    mutationFn: ({ folderId, older }: { folderId: number; older: boolean; mailListQueryKey: readonly unknown[] }) =>
       syncMailFolder(accountId as number, folderId, older),
-    onSuccess: async (result) => {
-      // 목록과 휴지통 수가 새로고침될 때까지 동기화 진행 상태를 유지한다.
+    onSuccess: async (result, variables) => {
+      // 현재 메일함 목록과 폴더 정보만 기다린다 — 다른 보기의 재조회가 동기화 완료를 늦추지 않게 한다.
       const refresh = () => Promise.all([
-        qc.invalidateQueries({ queryKey: ['mail-messages', accountId] }),
-        qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0) }),
-        qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0) }),
+        qc.invalidateQueries({ queryKey: variables.mailListQueryKey, exact: true }),
+        qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0), exact: true }),
       ]);
+      const refreshTrashCount = () => {
+        // 휴지통 수는 최신화하되 이 쿼리 응답을 동기화 완료 조건으로 삼지 않는다.
+        void qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0), exact: true });
+      };
+      refreshTrashCount();
       await refresh();
       if (result.running) {
         await new Promise<void>((resolve) => setTimeout(resolve, FOLDER_SYNC_RETRY_MS));
+        refreshTrashCount();
         await refresh();
       }
     },

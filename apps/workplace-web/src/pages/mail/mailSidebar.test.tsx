@@ -418,6 +418,103 @@ test.each([
   }
 })
 
+test.each(['메일함 목록', '메일 목록'])('빈 메일함의 $0 배경 재조회는 상태 안내를 바꾸지 않는다', async (target) => {
+  const requery = gate()
+  const syncedFolder = { 8: { folderSyncedAt: syncedAt(), syncedSince: since(90) } }
+  let holdRequery = false
+  const folders = record('get', FOLDERS, async (_call, count) => {
+    if (holdRequery && count > 1) await requery.promise
+    return HttpResponse.json(folderList(syncedFolder))
+  })
+  const list = record('get', LIST, async (_call, count) => {
+    if (holdRequery && count > 1) await requery.promise
+    return HttpResponse.json([])
+  })
+  const { queryClient } = renderMail('/mail/1?box=8', { handlers: [folders.handler, list.handler] })
+  try {
+    const status = await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')
+    const statusText = screen.getByTestId('mail-box-status-text')
+    const previousText = statusText.textContent
+    const previousLiveText = status.textContent
+    const queryKey = target === '메일함 목록'
+      ? ['mail-unread-counts', 1, 'folders']
+      : queryClient.getQueryCache().findAll({ queryKey: ['mail-messages', 1] })[0]?.queryKey
+    expect(queryKey).toBeDefined()
+    holdRequery = true
+
+    let refetch!: Promise<void>
+    await act(async () => {
+      refetch = queryClient.invalidateQueries({ queryKey, exact: true })
+    })
+    await waitFor(() => expect(target === '메일함 목록' ? folders.calls : list.calls).toHaveLength(2))
+    expect(screen.getByTestId('mail-box-status-text')).toBe(statusText)
+    expect(statusText).toHaveTextContent(previousText ?? '')
+    expect(within(screen.getByTestId('mail-box-empty')).getByRole('status')).toBe(status)
+    expect(status).toHaveTextContent(previousLiveText ?? '')
+
+    requery.release()
+    await act(async () => refetch)
+    expect(await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')).toBe(status)
+  } finally {
+    requery.release()
+  }
+})
+
+test('메일함 목록의 배경 재조회 실패는 기존 메일함 빈 상태를 유지한다', async () => {
+  const requery = gate()
+  const folders = record('get', FOLDERS, async (_call, count) => {
+    if (count > 1) {
+      await requery.promise
+      return new HttpResponse(null, { status: 500 })
+    }
+    return HttpResponse.json(folderList({ 8: { folderSyncedAt: syncedAt(), syncedSince: since(90) } }))
+  })
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  const { queryClient } = renderMail('/mail/1?box=8', { handlers: [folders.handler, list.handler] })
+  try {
+    const status = await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')
+    const statusText = screen.getByTestId('mail-box-status-text')
+    let refetch!: Promise<void>
+    await act(async () => {
+      refetch = queryClient.invalidateQueries({ queryKey: ['mail-unread-counts', 1, 'folders'], exact: true })
+    })
+    await waitFor(() => expect(folders.calls).toHaveLength(2))
+    expect(statusText).toHaveTextContent(/^최근 90일 · .+에 가져옴$/)
+    requery.release()
+    await act(async () => refetch)
+    expect(screen.getByTestId('mail-box-status-text')).toBe(statusText)
+    expect(await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')).toBe(status)
+    expect(screen.queryByTestId('mail-box-folders-error')).not.toBeInTheDocument()
+  } finally {
+    requery.release()
+  }
+})
+
+test('폴더와 메일 목록을 처음 받지 못해도 두 오류에 재시도를 보인다', async () => {
+  const folders = record('get', FOLDERS, (_call, count) => count === 1
+    ? new HttpResponse(null, { status: 500 })
+    : HttpResponse.json(folderList({ 5: { selectable: false, folderSyncedAt: syncedAt(), syncedSince: since(90) } })))
+  const list = record('get', LIST, (_call, count) => count === 1
+    ? new HttpResponse(null, { status: 500 })
+    : HttpResponse.json([]))
+  const { user } = renderMail('/mail/1?box=5', { handlers: [folders.handler, list.handler] })
+
+  await expectBoxState('메일함 목록을 불러오지 못했어요', '메일함 목록을 불러오지 못했어요')
+  expect(screen.getByTestId('mail-box-refresh')).toBeDisabled()
+  const folderRetry = within(screen.getByTestId('mail-box-folders-error')).getByRole('button', { name: /다시 시도/ })
+  expect(within(screen.getByTestId('mail-list-error')).getByRole('button', { name: /다시 시도/ })).toBeInTheDocument()
+
+  await user.click(folderRetry)
+  await waitFor(() => expect(folders.calls).toHaveLength(2))
+  await waitFor(() => expect(screen.queryByTestId('mail-box-folders-error')).not.toBeInTheDocument())
+  expect(screen.getByTestId('mail-list-error')).toBeInTheDocument()
+
+  await user.click(within(screen.getByTestId('mail-list-error')).getByRole('button', { name: /다시 시도/ }))
+  await waitFor(() => expect(list.calls).toHaveLength(2))
+  await waitFor(() => expect(screen.queryByTestId('mail-list-error')).not.toBeInTheDocument())
+  expect(screen.getByTestId('mail-box-empty')).toBeInTheDocument()
+})
+
 test('동기화가 500으로 실패하면 빈 목록에서도 실패를 알리고 새로 고침으로 복구한다', async () => {
   const sync = gate()
   let retried = false
