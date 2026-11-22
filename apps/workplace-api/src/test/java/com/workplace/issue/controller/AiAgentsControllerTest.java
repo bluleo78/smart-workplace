@@ -1,5 +1,6 @@
 package com.workplace.issue.controller;
 
+import static com.workplace.jooq.Tables.AGENT_CONNECTION;
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE;
@@ -10,6 +11,8 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
+import com.workplace.global.realtime.AgentConnectionRepository;
+import com.workplace.global.realtime.AgentConnectionTracker;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.domain.IssueKeys;
@@ -31,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,6 +60,7 @@ class AiAgentsControllerTest extends IntegrationTestBase {
   @Autowired IssueRepository issueRepository;
   @Autowired AgentWorkRepository agentWorkRepository;
   @Autowired SseRegistry sseRegistry;
+  @Autowired AgentConnectionRepository agentConnectionRepository;
 
   private static final Instant T0 = Instant.parse("2026-10-10T00:00:00Z");
 
@@ -76,8 +81,18 @@ class AiAgentsControllerTest extends IntegrationTestBase {
   /** 테스트가 SSE 연결을 연 사용자 — 끝나면 닫는다(레지스트리는 컨텍스트 공유). */
   private final List<Long> connectedUsers = new ArrayList<>();
 
+  /** 다른 파드 흉내 — 테스트가 만든 별도 레지스트리와 기록기(같은 DB). 타이머는 시작하지 않는다. */
+  private SseRegistry podA;
+
+  private AgentConnectionTracker podATracker;
+
+  /** 파드 A 에 연 사용자 — 끝나면 닫는다. */
+  private final List<Long> podAUsers = new ArrayList<>();
+
   @BeforeEach
   void seedUsersAndProjects() {
+    podA = new SseRegistry(om);
+    podATracker = new AgentConnectionTracker(podA, agentConnectionRepository);
     // 요청 토큰이 테넌트#1 을 싣으므로 호출자는 그 테넌트의 ACTIVE 멤버여야 한다.
     me = withMembership(createUser("ag-me"));
     other = createUser("ag-ot");
@@ -89,6 +104,32 @@ class AiAgentsControllerTest extends IntegrationTestBase {
   @AfterEach
   void closeStreams() {
     connectedUsers.forEach(sseRegistry::closeAll);
+    podAUsers.forEach(podA::closeAll);
+  }
+
+  /** 파드 A 에 연결을 열고 기록기에 알린다 — 요청을 받는 컨텍스트(파드 B)의 레지스트리에는 아무것도 없다. */
+  private void connectOnPodA(long agent) {
+    podA.register(agent);
+    podAUsers.add(agent);
+    podATracker.connected(agent);
+  }
+
+  /** DB now() 기준 n분 전 시각으로 행만 만든다 — 콜백 없는 죽음·재시작처럼 파드 메모리에는 흔적이 없다. */
+  private void seedLastSeenMinutesAgo(long agent, int minutes) {
+    dsl.insertInto(AGENT_CONNECTION)
+        .set(AGENT_CONNECTION.USER_ID, agent)
+        .set(
+            AGENT_CONNECTION.LAST_SEEN_AT,
+            DSL.field("now() - make_interval(mins => {0})", OffsetDateTime.class, minutes))
+        .execute();
+  }
+
+  private Instant storedLastSeen(long agent) {
+    return dsl.select(AGENT_CONNECTION.LAST_SEEN_AT)
+        .from(AGENT_CONNECTION)
+        .where(AGENT_CONNECTION.USER_ID.eq(agent))
+        .fetchOne(AGENT_CONNECTION.LAST_SEEN_AT)
+        .toInstant();
   }
 
   /** 전체 범위 — 활성 AI 가 모두 나오고, 열린 작업·검토 대기·마지막 종료 시각·자리 수(작업 중·대기 중·답변 필요만 셈)가 실린다. */
@@ -397,14 +438,29 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(a.get("slotsUsed").asInt()).isZero();
   }
 
-  /** 연결 여부 — 외부 AI 는 SSE 연결이 있으면 연결됨, 한 번도 안 붙었으면 끊김(시각 모름). 서버 안 AI 는 판단하지 않는다(null). */
+  /**
+   * 다른 파드에 붙은 외부 AI — 요청을 받는 이 컨텍스트(파드 B)의 레지스트리는 비어 있어도 DB 에 적힌 연결 시각으로 연결됨. 파드 A 는 테스트가 따로 만든
+   * 레지스트리와 기록기다.
+   */
+  @Test
+  void list_whenStreamIsOnAnotherPod_reportsConnected() throws Exception {
+    long agent = externalAgent("ag-pod-a");
+    connectOnPodA(agent);
+
+    JsonNode a = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
+
+    assertThat(sseRegistry.isConnected(agent)).isFalse();
+    assertThat(a.get("connected").asBoolean()).isTrue();
+    assertThat(a.get("disconnectedAt").isNull()).isTrue();
+  }
+
+  /** 연결 여부 — 외부 AI 만 판단한다. 한 번도 안 붙었으면 끊김(시각 모름), 서버 안 AI 는 null. */
   @Test
   void list_reportsConnectionForExternalAgentsOnly() throws Exception {
     long online = externalAgent("ag-online");
     long offline = externalAgent("ag-offline");
     long internal = createAgentUserWithMembership("ag-internal");
-    sseRegistry.register(online);
-    connectedUsers.add(online);
+    connectOnPodA(online);
 
     JsonNode body = getJson("/api/v1/me/ai-agents?scope=ALL");
 
@@ -412,20 +468,58 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(agent(body, offline).get("connected").asBoolean()).isFalse();
     assertThat(agent(body, offline).get("disconnectedAt").isNull()).isTrue();
     assertThat(agent(body, internal).get("connected").isNull()).isTrue();
+    assertThat(agent(body, internal).get("disconnectedAt").isNull()).isTrue();
   }
 
   /** 막 끊긴 외부 AI 는 다시 붙는 동안(유예 3분)에는 연결로 본다 — 1시간마다 다시 붙는 틈에 「연결 끊김」이 깜빡이지 않게. */
   @Test
   void list_whenJustDisconnected_staysConnectedWithinGrace() throws Exception {
     long agent = externalAgent("ag-blink");
-    sseRegistry.register(agent);
-    sseRegistry.closeAll(agent);
+    connectOnPodA(agent);
+    podA.closeAll(agent);
+    podATracker.flush();
 
     JsonNode a = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
 
-    assertThat(sseRegistry.lastSeen(agent)).isPresent();
     assertThat(a.get("connected").asBoolean()).isTrue();
     assertThat(a.get("disconnectedAt").isNull()).isTrue();
+  }
+
+  /** 콜백 없는 죽음·재시작 — 행만 4분 전이면 끊김, 끊긴 시각은 그 행의 값. */
+  @Test
+  void list_whenLastSeenOlderThanGrace_reportsDisconnectedWithTime() throws Exception {
+    long agent = externalAgent("ag-dead");
+    seedLastSeenMinutesAgo(agent, 4);
+
+    JsonNode a = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
+
+    assertThat(a.get("connected").asBoolean()).isFalse();
+    assertThat(Instant.parse(a.get("disconnectedAt").asString())).isEqualTo(storedLastSeen(agent));
+  }
+
+  /** 끊긴 지 하루가 넘으면 시각은 모름 — 오래 안 쓴 AI 가 목록에서 막 끊긴 AI 위로 올라오지 않게(WP-1201 의 보존 하루 그대로). */
+  @Test
+  void list_whenLastSeenOlderThanRetention_reportsDisconnectedWithoutTime() throws Exception {
+    long agent = externalAgent("ag-gone");
+    seedLastSeenMinutesAgo(agent, 25 * 60);
+
+    JsonNode a = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
+
+    assertThat(a.get("connected").asBoolean()).isFalse();
+    assertThat(a.get("disconnectedAt").isNull()).isTrue();
+  }
+
+  /** DB 가 오래됐다 하면 이 파드에 스트림이 있어도 끊김 — 파드마다 같은 답을 낸다(메모리와 OR 하지 않는다). */
+  @Test
+  void list_ignoresLocalStreamWhenDbSaysStale() throws Exception {
+    long agent = externalAgent("ag-local");
+    sseRegistry.register(agent);
+    connectedUsers.add(agent);
+    seedLastSeenMinutesAgo(agent, 4);
+
+    JsonNode a = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
+
+    assertThat(a.get("connected").asBoolean()).isFalse();
   }
 
   /** 상태 시각 — note 만 바꾼 보고는 그대로 두고, 상태를 바꾸면 올린다. 같은 상태 재보고도 그대로. */

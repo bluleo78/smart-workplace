@@ -31,6 +31,7 @@
 | 메일함별 동기화 가드 | `mail/service/folder/MailFolderSyncGuard` | 파드 사이 겹침은 막지 못하지만 넣기가 멱등이라 결과는 같습니다(주석에 명시) | 괜찮음 | — |
 | 테넌트 상태 캐시 | `global/tenant/TenantStatusChecker` | 다른 파드에서 정지한 테넌트를 이 파드가 최대 5초 더 ACTIVE 로 봅니다(비활성은 캐시하지 않음) | 괜찮음 | 이미 여러 대를 고려해 설계됨 |
 | AI 요약 등 재생성 가능한 캐시 | `messaging/service/CatchupSummaryCache` 등 | 파드마다 따로 만들어 적중률이 떨어지고 AI 호출이 늘어납니다 | 괜찮음 | 비용이 문제 되면 공유 캐시로 |
+| AI 연결 상태(외부 AI 「연결됨」) | DB `agent_connection`(WP-1975) | 파드마다 자기에게 붙은 AI 를 1분마다 적고, 읽는 쪽은 이 표 하나만 봅니다. 어느 파드가 받아도 같은 답입니다 | 괜찮음 | — |
 | 예약 작업(`@Scheduled`) | `*Scheduler`, `*Job` | 공유 DB의 ShedLock(`V148__shedlock.sql`)은 같은 작업의 동시 실행을 막습니다. 기본 최소 잠금 `PT10S`는 거의 동시에 깨어난 다른 파드가 곧바로 실행하지 못하게 하며, 작업 주기 전체를 파드 간에 보장하려면 주기에 맞는 최소 잠금이 필요합니다 | 괜찮음 | 새 예약 작업에도 `@SchedulerLock`을 붙입니다. 파드별 주기 작업(SSE heartbeat 등)은 각 파드에서 실행합니다 |
 | 업로드 파일 | `/data/storage-data`(PVC `storage-data`) | RWX(NFS)라 여러 파드가 함께 마운트할 수 있습니다 | 괜찮음 | — |
 | DB 커넥션 | Hikari 풀(파드마다) | 커넥션 수가 `대수 × 풀 크기` 가 됩니다 | 바꿔야 함 | 합계가 `db.maxConnections` 안인지 helm 렌더 가드가 막아 줍니다. 식과 고칠 값은 아래 「DB 커넥션 합계」(WP-752 풀 고갈 참고) |

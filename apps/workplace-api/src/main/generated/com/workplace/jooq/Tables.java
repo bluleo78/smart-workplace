@@ -10,6 +10,7 @@ import com.workplace.jooq.tables.AgentAccountLoginRefresh;
 import com.workplace.jooq.tables.AgentAccountUsage;
 import com.workplace.jooq.tables.AgentAccountUsageCheck;
 import com.workplace.jooq.tables.AgentApiKey;
+import com.workplace.jooq.tables.AgentConnection;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
 import com.workplace.jooq.tables.AgentReportedModel;
@@ -229,6 +230,11 @@ public class Tables {
      * The table <code>public.agent_api_key</code>.
      */
     public static final AgentApiKey AGENT_API_KEY = AgentApiKey.AGENT_API_KEY;
+
+    /**
+     * AI 사용자별 마지막 SSE 연결 확인 시각(파드 공유, 사용자당 1행)
+     */
+    public static final AgentConnection AGENT_CONNECTION = AgentConnection.AGENT_CONNECTION;
 
     /**
      * The table <code>public.agent_location</code>.

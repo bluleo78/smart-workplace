@@ -5,7 +5,6 @@ import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -16,9 +15,8 @@ import tools.jackson.databind.ObjectMapper;
  * 같은 등록·전송·정리 규칙을 나눠 쓴다. 빈이 아니라 각 레지스트리가 하나씩 만들어 들고, 하트비트 주기 작업({@code @Scheduled})은 레지스트리마다 따로 둔다.
  *
  * <p>WP-420: 목록 조회와 추가·빼기·떼어 내기를 {@code compute}/{@code computeIfPresent} 한 번으로 묶는다 — 따로 하면 같은 키의
- * 등록과 정리가 엇갈려 새 emitter 가 맵에서 떨어진 목록에 붙어 닫히지도, 이벤트를 받지도 않는 채 남는다. 첫 연결·마지막 연결 콜백도 그 안에서 불러 순서가 섞이지
- * 않게 한다(사용자 레지스트리의 끊김 시각 기록). 퇴출·닫기의 {@code complete} 는 compute 밖에서 한다 — 닫힘 콜백(remove)이 같은 키의
- * compute 를 다시 부르면 재귀 갱신 예외가 날 수 있다.
+ * 등록과 정리가 엇갈려 새 emitter 가 맵에서 떨어진 목록에 붙어 닫히지도, 이벤트를 받지도 않는 채 남는다. 퇴출·닫기의 {@code complete} 는 compute
+ * 밖에서 한다 — 닫힘 콜백(remove)이 같은 키의 compute 를 다시 부르면 재귀 갱신 예외가 날 수 있다.
  *
  * @param <K> 연결을 묶는 키
  */
@@ -31,31 +29,15 @@ public class KeyedSseEmitters<K> {
   private final ObjectMapper objectMapper;
   private final long timeoutMillis;
   private final int maxPerKey;
-  private final Consumer<K> onAttach;
-  private final Consumer<K> onLastDetach;
 
   /**
    * @param timeoutMillis emitter 수명 — 지나면 클라이언트가 다시 붙으며 인증을 다시 받는다
    * @param maxPerKey 키당 최대 연결 수 — 넘치면 가장 오래된 연결을 닫는다
-   * @param onAttach 등록할 때마다(compute 안에서) — 연결이 없던 키든 이미 있던 키든
-   * @param onLastDetach 키의 마지막 연결이 빠질 때(compute 안에서) — 끊김·서버 쪽 닫기 모두
    */
-  public KeyedSseEmitters(
-      ObjectMapper objectMapper,
-      long timeoutMillis,
-      int maxPerKey,
-      Consumer<K> onAttach,
-      Consumer<K> onLastDetach) {
+  public KeyedSseEmitters(ObjectMapper objectMapper, long timeoutMillis, int maxPerKey) {
     this.objectMapper = objectMapper;
     this.timeoutMillis = timeoutMillis;
     this.maxPerKey = maxPerKey;
-    this.onAttach = onAttach;
-    this.onLastDetach = onLastDetach;
-  }
-
-  /** 콜백 없는 묶음. */
-  public KeyedSseEmitters(ObjectMapper objectMapper, long timeoutMillis, int maxPerKey) {
-    this(objectMapper, timeoutMillis, maxPerKey, k -> {}, k -> {});
   }
 
   /**
@@ -76,7 +58,6 @@ public class KeyedSseEmitters<K> {
               list != null ? list : new CopyOnWriteArrayList<>();
           if (target.size() >= maxPerKey) evicted.set(target.remove(0));
           target.add(emitter);
-          onAttach.accept(k);
           return target;
         });
     if (evicted.get() != null) completeQuietly(evicted.get());
@@ -110,7 +91,6 @@ public class KeyedSseEmitters<K> {
         key,
         (k, list) -> {
           detached.set(list);
-          onLastDetach.accept(k);
           return null;
         });
     if (detached.get() != null) detached.get().forEach(KeyedSseEmitters::completeQuietly);
@@ -149,15 +129,13 @@ public class KeyedSseEmitters<K> {
     }
   }
 
-  /** emitter 를 빼고, 목록이 비면 키를 지우고 마지막 연결 콜백을 부른다 — 같은 키의 등록과 직렬화되게 computeIfPresent 한 번으로. */
+  /** emitter 를 빼고, 목록이 비면 키를 지운다 — 같은 키의 등록과 직렬화되게 computeIfPresent 한 번으로. */
   private void remove(K key, SseEmitter emitter) {
     emitters.computeIfPresent(
         key,
         (k, v) -> {
           v.remove(emitter);
-          if (!v.isEmpty()) return v;
-          onLastDetach.accept(k);
-          return null;
+          return v.isEmpty() ? null : v;
         });
   }
 

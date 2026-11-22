@@ -30,7 +30,7 @@ class AiAgentStatusServiceTest {
     assertThat(AiAgentStatusService.isConnected(NOW.minusSeconds(180), NOW)).isFalse();
   }
 
-  /** 끊긴 시각을 모르면(서버 재시작 뒤 아직 안 붙음) 끊김. */
+  /** 연결된 적이 없으면(기록 없음) 끊김. */
   @Test
   void isConnected_whenNeverSeen_returnsFalse() {
     assertThat(AiAgentStatusService.isConnected(null, NOW)).isFalse();
