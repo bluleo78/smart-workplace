@@ -571,3 +571,69 @@ test('예외 — 자기 선언 줄(같은 줄에 자기 이슈 키)', (t) => {
   ok(r);
   assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
 });
+
+// WP-1997 리뷰 후속 ① — 이슈 키는 프로젝트 접두어 + 숫자만 키로 본다(UTF-8 같은 낱말 제외).
+test('예외 — UTF-8·SDD-2 같은 낱말은 이슈 키가 아니다', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '리뷰 후속 수정 — 앞 PR #1623 (UTF-8 · SDD-2 확인)\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
+});
+test('예외 — 자기 프로젝트 접두어가 아닌 토큰(EIS-291)은 키 판정 범위 밖', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '리뷰 후속 수정 — 앞 PR #1623 (EIS-291 인용)\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
+});
+
+// WP-1997 리뷰 후속 ② — 머리에 다른 이슈 키가 있는 여러 줄 인용도 예외가 되지 않는다.
+test('예외 아님 — 윗줄 머리에 다른 이슈 키가 있는 여러 줄 인용', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '### WP-1958 절\n리뷰 후속 수정 — 앞 PR #1623\n');
+  fail(run(main), '절차: 줄이 없습니다');
+});
+test('예외 아님 — 두 줄 위에 다른 이슈 키가 있고 그 뒤 줄에 키가 없는 인용', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + 'WP-1958 요약\n무언가 설명 줄\n리뷰 후속 수정 — 앞 PR #1623\n');
+  fail(run(main), '절차: 줄이 없습니다');
+});
+test('예외 아님 — 빈 줄로 떨어져도 위 문단 머리에 다른 이슈 키가 있으면 인용', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '### WP-1958 절\n\n리뷰 후속 수정 — 앞 PR #1623\n');
+  fail(run(main), '절차: 줄이 없습니다');
+});
+test('예외 아님 — 목록 기호 선언인데 위 줄에 다른 이슈 키', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + 'WP-1958 정리\n- 리뷰 후속 수정 — 앞 PR #1623\n');
+  fail(run(main), '절차: 줄이 없습니다');
+});
+test('예외 — 위 문단에 다른 이슈 키가 없고 빈 줄로 떨어진 선언', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '앞 PR 메모\n\n리뷰 후속 수정 — 앞 PR #1623\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
+});
+test('예외 — 진짜 선언 뒤에 인용 선언이 와도 앞의 진짜 선언으로 통과', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '리뷰 후속 수정 — 앞 PR #1623\n리뷰 후속 수정 — 앞 PR #1623 (WP-1958 인용)\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
+});
+test('예외 아님 — notes 경로 인자로 키 형식을 못 얻으면 첫 갈래를 쓰지 않는다', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '### WP-1958 절\n리뷰 후속 수정 — 앞 PR #1623\n', 'not-a-key');
+  const p = join(main, '.work-loop/state/notes/not-a-key.md');
+  const r = spawnSync(script, [p], { cwd: main, encoding: 'utf8', env });
+  fail(r, '절차: 줄이 없습니다');
+});
+test('예외 — 윗줄에 자기 키만 있는 줄은 인용이 아니다', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + 'WP-1 자기 정리\n리뷰 후속 수정 — 앞 PR #1623\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
+});
