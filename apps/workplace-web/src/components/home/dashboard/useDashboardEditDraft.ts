@@ -17,6 +17,17 @@ import { type CatalogConfigPatch, DEFAULT_COUNT, entryTitle, HIGHLIGHT_DURATION_
 /** undo 스택 상한 — 넘으면 가장 오래된 스냅샷부터 버린다(편집이 길어져도 메모리가 무한히 늘지 않게). */
 export const MAX_UNDO = 50
 
+/**
+ * 편집 저장 409(다른 곳에서 먼저 저장됨) 때 보이는 안내(WP-1953 리뷰 후속).
+ *
+ * 서버 409 문구는 「최신 레이아웃을 불러왔으니 확인한 뒤 다시 **저장**해 주세요」인데, 이 경로는 409 를 받으면
+ * 편집 세션을 끝내 최신 레이아웃을 다시 불러온다 — 남아 있던 초안은 다음 편집 진입 때 덮어써져 저장할 것이 없어
+ * 「다시 저장」은 사실이 아니다. 그래서 서버 문구의 「다시 저장」 자리만 동작에 맞는 말로 바꿔 쓴다
+ * (접기 저장 등 초안을 남기지 않는 경로는 서버 문구 그대로 — 거기서는 「다시 저장」이 맞다).
+ */
+export const DASHBOARD_EDIT_CONFLICT_MESSAGE =
+  '다른 곳에서 대시보드 레이아웃이 바뀌었습니다. 최신 레이아웃을 불러왔으니 확인한 뒤 다시 편집해 주세요.'
+
 /** 값이 undefined 인 키를 뺀 키 목록 — JSON 으로 저장하면 사라지는 키라 「없는 키」와 같게 본다. */
 function definedKeys(o: object): string[] {
   return Object.keys(o).filter((k) => (o as Record<string, unknown>)[k] !== undefined)
@@ -345,7 +356,12 @@ export function useDashboardEditDraft({ device, savedWidgets, savedVersion, coll
         saveInFlightRef.current = false
         // 409 = 다른 곳에서 먼저 바뀐 낡은 초안 — 편집을 끝내고(최신은 훅이 재조회) 사용자가 최신 레이아웃에서 다시 편집한다.
         // 그 밖 실패는 초안을 남겨 다시 저장할 수 있게 둔다.
-        if (isConflictError(err)) endSession()
+        // 409 만 서버 문구 대신 DASHBOARD_EDIT_CONFLICT_MESSAGE 를 쓴다 — 초안을 버리는 동작과 서버의 「다시 저장」이 어긋나기 때문(WP-1953 리뷰 후속).
+        if (isConflictError(err)) {
+          endSession()
+          toast.error(DASHBOARD_EDIT_CONFLICT_MESSAGE)
+          return
+        }
         handleApiError(err, '대시보드 저장에 실패했습니다')
       },
     )
