@@ -1,6 +1,6 @@
 // 알림 창 「모두 읽음」 완료·실패 토스트(WP-1845) — InboxList 제목 행 버튼으로 본다.
 // InboxList 만 renderScreen 으로 띄우고, MSW 로 알림·카운트·모두 읽음 API 를 모킹한다.
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { http, type HttpHandler,HttpResponse } from 'msw'
 import { useState } from 'react'
 import { describe, expect, test } from 'vitest'
@@ -46,12 +46,16 @@ function InboxHarness() {
 /**
  * InboxList 를 띄운다. readAll 로 모두 읽음 핸들러를 갈아 끼울 수 있다(지연 핸들러 등 — 이후 테스트가 쓴다).
  */
-function renderInbox(opts: { readAll?: HttpHandler; beforeReadAll?: () => Promise<void> } = {}) {
+function renderInbox(
+  opts: { readAll?: HttpHandler; beforeReadAll?: () => Promise<void>; onReadAll?: () => void } = {},
+) {
   // 기본 핸들러는 처리 뒤 안 읽음 수를 0 으로 돌려 실서버처럼 버튼이 disabled 되게 한다.
+  // onReadAll 은 요청이 서버에 닿은 횟수를 세는 용도(WP-1961 — 같은 틱 연타가 실제로 두 요청인지 보인다).
   let allRead = false
   const readAll =
     opts.readAll ??
     http.post('/api/v1/notifications/read-all', async () => {
+      opts.onReadAll?.()
       await opts.beforeReadAll?.()
       allRead = true
       return new HttpResponse(null, { status: 204 })
@@ -139,6 +143,25 @@ describe('알림 창 모두 읽음 토스트', () => {
     await afterRefocusCheck()
     expect(button).toBeEnabled()
     expect(document.activeElement).toBe(button)
+  })
+
+  // 같은 틱 연타는 React 가 isPending 을 다시 그리기 전이라 isPending 으로는 못 막는다 — 훅의 재진입 막기로 요청 한 번·토스트 한 장이어야 한다.
+  // user.click 은 사이에 재렌더가 끼므로 쓰지 않고 native click 두 번을 같은 틱에 보낸다.
+  test('같은 틱에 두 번 눌러도 요청은 한 번, 「읽음 처리했습니다」 토스트는 한 장(WP-1961)', async () => {
+    let calls = 0
+    renderInbox({ onReadAll: () => { calls += 1 } })
+    await screen.findAllByTestId('inbox-item')
+    const btn = screen.getByTestId('inbox-mark-all')
+    // act 하나 안에서 두 번 — 사이에 다시 그리기가 끼지 않아 같은 틱 연타가 된다(apps/workplace-web/CLAUDE.md 「같은 틱에 두 번 클릭」).
+    act(() => {
+      btn.click()
+      btn.click()
+    })
+    expect(await screen.findByText('읽음 처리했습니다')).toBeInTheDocument()
+    await afterRefocusCheck()
+    // 두 번째 클릭은 처리 중이라 버려져 요청이 한 번만 간다(막지 않으면 2 — 고치기 전 실패로 확인).
+    expect(calls).toBe(1)
+    expect(screen.getAllByText('읽음 처리했습니다')).toHaveLength(1)
   })
 
   test('처리 중 다른 곳에 포커스를 옮겼으면 빼앗지 않는다', async () => {

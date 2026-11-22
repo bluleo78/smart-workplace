@@ -619,14 +619,14 @@ export function InboxList({
 /**
  * 모두 읽음을 실행하고, 성공하면 포커스를 알림 목록 영역으로 옮긴다(WP-1845).
  * 성공 뒤 안 읽음이 0 이 되어 버튼이 native disabled 가 되면 포커스가 BODY 로 떨어져 키보드·스크린리더 사용자가 위치를 잃기 때문이다.
- * 처리 중에는 aria-disabled 라 클릭을 무시한다 — 연속 호출이 없으니 호출별 onSuccess 가 덮이지 않고, 실패 땐 포커스가 버튼에 그대로 남는다.
+ * 처리 중 호출은 훅의 mutate 가 버린다 — isPending 이 아직 반영되기 전인 같은 틱 연타까지(WP-1961). 그래서 연속 호출이 없어
+ * 호출별 onSuccess 가 덮이지 않고, 실패 땐 포커스가 버튼에 그대로 남는다.
  * 옮기는 조건: 포커스가 갈 곳을 잃었거나(focusLost), 아직 누른 버튼에 있는데 그 버튼이 실제로 native disabled 가 됐을 때
  * (비활성 요소에서 포커스를 빼지 않는 브라우저·jsdom). 그 사이 새 안 읽음이 와서 버튼이 여전히 눌리면 포커스를 버튼에 둔다 —
  * 멀쩡한 컨트롤에서 포커스를 빼앗지 않는다. aria-disabled 는 이 버튼에서 「처리 중」만 뜻하고 성공 뒤엔 풀리므로 판정에 넣지 않는다.
  * 처리 중 사용자가 다른 곳으로 옮겼으면 빼앗지 않는다.
  */
 function markAllAndRefocus(markAll: ReturnType<typeof useMarkAllNotificationsRead>, trigger: HTMLButtonElement) {
-  if (markAll.isPending) return;
   markAll.mutate(undefined, {
     // rAF 한 번 + 매크로태스크 한 번 뒤 — React 가 안 읽음 0 으로 다시 그려 버튼이 비활성이 된 DOM 을 보고 판단한다.
     // rAF 만으로는 재조회 결과의 커밋보다 먼저 돌 수 있어(jsdom 에서 확인) 버튼이 아직 활성으로 보인다 — 그러면 비활성 여부를
