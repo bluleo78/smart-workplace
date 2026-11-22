@@ -402,22 +402,35 @@ public class AgentScreenRelay {
 
   // ---------------------------------------------------------------- 타이머
 
-  /** 1초마다: 입력 기록 꺼내 쓰기, 만료 표 치우기, 기한 검사, 25초마다 핑. 한 번의 실패가 타이머를 멈추지 않게 모두 잡는다. */
+  /**
+   * 1초마다: 입력 기록 꺼내 쓰기, 만료 표 치우기, 기한 검사, 25초마다 핑. 단계마다·세션마다 실패를 따로 잡아, 한 세션이나 한 단계의 실패가 나머지(다른
+   * 세션·핑)를 막지 않게 한다.
+   */
   void tick() {
+    // executor 는 작업이 어떤 Throwable 이든 던지면 다음 주기를 다시 돌리지 않는다. 그래서 Error 까지 잡는다. 또 한 세션이
+    // 매번 실패해도 뒤의 세션과 핑이 굶지 않도록 단계·세션별로 나눠 잡는다(WP-2009).
+    Instant now = Instant.now();
     try {
-      Instant now = Instant.now();
       tickets.removeExpired(now);
-      for (Pair p : List.copyOf(pairs.values())) {
+    } catch (Throwable e) {
+      log.warn("작업 화면 만료 표 정리 실패", e);
+    }
+    for (Pair p : List.copyOf(pairs.values())) {
+      try {
         flushInput(p, false);
         Optional<String> reason = expiry(p, now);
         reason.ifPresent(r -> close(p, r, true));
+      } catch (Throwable e) {
+        log.warn("작업 화면 타이머 실패 session={}", p.id, e);
       }
+    }
+    try {
       if (Duration.between(lastPing, now).compareTo(PING_INTERVAL) >= 0) {
         lastPing = now;
         pairs.values().forEach(this::ping);
       }
-    } catch (RuntimeException e) {
-      log.warn("작업 화면 타이머 실패", e);
+    } catch (Throwable e) {
+      log.warn("작업 화면 핑 실패", e);
     }
   }
 
