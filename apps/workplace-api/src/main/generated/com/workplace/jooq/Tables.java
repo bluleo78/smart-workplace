@@ -188,6 +188,8 @@ import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkProfile;
 import com.workplace.jooq.tables.WorkerJob;
+import com.workplace.jooq.tables.Workflow;
+import com.workplace.jooq.tables.WorkflowVersion;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 
 
@@ -1118,6 +1120,16 @@ public class Tables {
      * The table <code>public.worker_job</code>.
      */
     public static final WorkerJob WORKER_JOB = WorkerJob.WORKER_JOB;
+
+    /**
+     * 워크플로우 정의 — 프로젝트의 이름 붙은 YAML 정의(초안 하나 + 게시 버전들)
+     */
+    public static final Workflow WORKFLOW = Workflow.WORKFLOW;
+
+    /**
+     * 워크플로우 게시 버전 — 게시 때의 YAML 원문과 해석한 모델을 고치지 않고 쌓는다
+     */
+    public static final WorkflowVersion WORKFLOW_VERSION = WorkflowVersion.WORKFLOW_VERSION;
 
     /**
      * The table <code>public.workspace_assistant</code>.

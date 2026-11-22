@@ -187,6 +187,8 @@ import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkProfile;
 import com.workplace.jooq.tables.WorkerJob;
+import com.workplace.jooq.tables.Workflow;
+import com.workplace.jooq.tables.WorkflowVersion;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 import com.workplace.jooq.tables.records.AgentAccountBindingRecord;
 import com.workplace.jooq.tables.records.AgentAccountLoginRefreshRecord;
@@ -371,6 +373,8 @@ import com.workplace.jooq.tables.records.WikiSpaceMemberRecord;
 import com.workplace.jooq.tables.records.WikiSpaceRecord;
 import com.workplace.jooq.tables.records.WorkProfileRecord;
 import com.workplace.jooq.tables.records.WorkerJobRecord;
+import com.workplace.jooq.tables.records.WorkflowRecord;
+import com.workplace.jooq.tables.records.WorkflowVersionRecord;
 import com.workplace.jooq.tables.records.WorkspaceAssistantRecord;
 
 import org.jooq.ForeignKey;
@@ -624,6 +628,9 @@ public class Keys {
     public static final UniqueKey<WorkProfileRecord> UQ_WORK_PROFILE_TENANT_USER_PERIOD = Internal.createUniqueKey(WorkProfile.WORK_PROFILE, DSL.name("uq_work_profile_tenant_user_period"), new TableField[] { WorkProfile.WORK_PROFILE.TENANT_ID, WorkProfile.WORK_PROFILE.USER_ID, WorkProfile.WORK_PROFILE.PERIOD_TYPE }, true);
     public static final UniqueKey<WorkProfileRecord> WORK_PROFILE_PKEY = Internal.createUniqueKey(WorkProfile.WORK_PROFILE, DSL.name("work_profile_pkey"), new TableField[] { WorkProfile.WORK_PROFILE.ID }, true);
     public static final UniqueKey<WorkerJobRecord> WORKER_JOB_PKEY = Internal.createUniqueKey(WorkerJob.WORKER_JOB, DSL.name("worker_job_pkey"), new TableField[] { WorkerJob.WORKER_JOB.ID }, true);
+    public static final UniqueKey<WorkflowRecord> WORKFLOW_PKEY = Internal.createUniqueKey(Workflow.WORKFLOW, DSL.name("workflow_pkey"), new TableField[] { Workflow.WORKFLOW.ID }, true);
+    public static final UniqueKey<WorkflowVersionRecord> UQ_WORKFLOW_VERSION_NO = Internal.createUniqueKey(WorkflowVersion.WORKFLOW_VERSION, DSL.name("uq_workflow_version_no"), new TableField[] { WorkflowVersion.WORKFLOW_VERSION.WORKFLOW_ID, WorkflowVersion.WORKFLOW_VERSION.VERSION_NO }, true);
+    public static final UniqueKey<WorkflowVersionRecord> WORKFLOW_VERSION_PKEY = Internal.createUniqueKey(WorkflowVersion.WORKFLOW_VERSION, DSL.name("workflow_version_pkey"), new TableField[] { WorkflowVersion.WORKFLOW_VERSION.ID }, true);
     public static final UniqueKey<WorkspaceAssistantRecord> WORKSPACE_ASSISTANT_PKEY = Internal.createUniqueKey(WorkspaceAssistant.WORKSPACE_ASSISTANT, DSL.name("workspace_assistant_pkey"), new TableField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.TENANT_ID }, true);
 
     // -------------------------------------------------------------------------
@@ -1095,6 +1102,13 @@ public class Keys {
     public static final ForeignKey<WorkProfileRecord, TenantRecord> WORK_PROFILE__FK_WORK_PROFILE_TENANT = Internal.createForeignKey(WorkProfile.WORK_PROFILE, DSL.name("fk_work_profile_tenant"), new TableField[] { WorkProfile.WORK_PROFILE.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true, ForeignKeyRule.NO_ACTION, ForeignKeyRule.NO_ACTION);
     public static final ForeignKey<WorkProfileRecord, UserRecord> WORK_PROFILE__WORK_PROFILE_USER_ID_FKEY = Internal.createForeignKey(WorkProfile.WORK_PROFILE, DSL.name("work_profile_user_id_fkey"), new TableField[] { WorkProfile.WORK_PROFILE.USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true, ForeignKeyRule.CASCADE, ForeignKeyRule.NO_ACTION);
     public static final ForeignKey<WorkerJobRecord, TenantRecord> WORKER_JOB__WORKER_JOB_TENANT_ID_FKEY = Internal.createForeignKey(WorkerJob.WORKER_JOB, DSL.name("worker_job_tenant_id_fkey"), new TableField[] { WorkerJob.WORKER_JOB.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true, ForeignKeyRule.NO_ACTION, ForeignKeyRule.NO_ACTION);
+    public static final ForeignKey<WorkflowRecord, WorkflowVersionRecord> WORKFLOW__FK_WORKFLOW_ACTIVE_VERSION = Internal.createForeignKey(Workflow.WORKFLOW, DSL.name("fk_workflow_active_version"), new TableField[] { Workflow.WORKFLOW.ACTIVE_VERSION_ID }, Keys.WORKFLOW_VERSION_PKEY, new TableField[] { WorkflowVersion.WORKFLOW_VERSION.ID }, true, ForeignKeyRule.SET_NULL, ForeignKeyRule.NO_ACTION);
+    public static final ForeignKey<WorkflowRecord, UserRecord> WORKFLOW__WORKFLOW_DRAFT_UPDATED_BY_FKEY = Internal.createForeignKey(Workflow.WORKFLOW, DSL.name("workflow_draft_updated_by_fkey"), new TableField[] { Workflow.WORKFLOW.DRAFT_UPDATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true, ForeignKeyRule.SET_NULL, ForeignKeyRule.NO_ACTION);
+    public static final ForeignKey<WorkflowRecord, ProjectRecord> WORKFLOW__WORKFLOW_PROJECT_ID_FKEY = Internal.createForeignKey(Workflow.WORKFLOW, DSL.name("workflow_project_id_fkey"), new TableField[] { Workflow.WORKFLOW.PROJECT_ID }, Keys.PROJECT_PKEY, new TableField[] { Project.PROJECT.ID }, true, ForeignKeyRule.CASCADE, ForeignKeyRule.NO_ACTION);
+    public static final ForeignKey<WorkflowRecord, TenantRecord> WORKFLOW__WORKFLOW_TENANT_ID_FKEY = Internal.createForeignKey(Workflow.WORKFLOW, DSL.name("workflow_tenant_id_fkey"), new TableField[] { Workflow.WORKFLOW.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true, ForeignKeyRule.NO_ACTION, ForeignKeyRule.NO_ACTION);
+    public static final ForeignKey<WorkflowVersionRecord, UserRecord> WORKFLOW_VERSION__WORKFLOW_VERSION_CREATED_BY_FKEY = Internal.createForeignKey(WorkflowVersion.WORKFLOW_VERSION, DSL.name("workflow_version_created_by_fkey"), new TableField[] { WorkflowVersion.WORKFLOW_VERSION.CREATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true, ForeignKeyRule.SET_NULL, ForeignKeyRule.NO_ACTION);
+    public static final ForeignKey<WorkflowVersionRecord, TenantRecord> WORKFLOW_VERSION__WORKFLOW_VERSION_TENANT_ID_FKEY = Internal.createForeignKey(WorkflowVersion.WORKFLOW_VERSION, DSL.name("workflow_version_tenant_id_fkey"), new TableField[] { WorkflowVersion.WORKFLOW_VERSION.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true, ForeignKeyRule.NO_ACTION, ForeignKeyRule.NO_ACTION);
+    public static final ForeignKey<WorkflowVersionRecord, WorkflowRecord> WORKFLOW_VERSION__WORKFLOW_VERSION_WORKFLOW_ID_FKEY = Internal.createForeignKey(WorkflowVersion.WORKFLOW_VERSION, DSL.name("workflow_version_workflow_id_fkey"), new TableField[] { WorkflowVersion.WORKFLOW_VERSION.WORKFLOW_ID }, Keys.WORKFLOW_PKEY, new TableField[] { Workflow.WORKFLOW.ID }, true, ForeignKeyRule.CASCADE, ForeignKeyRule.NO_ACTION);
     public static final ForeignKey<WorkspaceAssistantRecord, TenantRecord> WORKSPACE_ASSISTANT__FK_WORKSPACE_ASSISTANT_TENANT = Internal.createForeignKey(WorkspaceAssistant.WORKSPACE_ASSISTANT, DSL.name("fk_workspace_assistant_tenant"), new TableField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true, ForeignKeyRule.NO_ACTION, ForeignKeyRule.NO_ACTION);
     public static final ForeignKey<WorkspaceAssistantRecord, UserRecord> WORKSPACE_ASSISTANT__WORKSPACE_ASSISTANT_AGENT_USER_ID_FKEY = Internal.createForeignKey(WorkspaceAssistant.WORKSPACE_ASSISTANT, DSL.name("workspace_assistant_agent_user_id_fkey"), new TableField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.AGENT_USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true, ForeignKeyRule.NO_ACTION, ForeignKeyRule.NO_ACTION);
     public static final ForeignKey<WorkspaceAssistantRecord, UserRecord> WORKSPACE_ASSISTANT__WORKSPACE_ASSISTANT_UPDATED_BY_FKEY = Internal.createForeignKey(WorkspaceAssistant.WORKSPACE_ASSISTANT, DSL.name("workspace_assistant_updated_by_fkey"), new TableField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.UPDATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true, ForeignKeyRule.NO_ACTION, ForeignKeyRule.NO_ACTION);

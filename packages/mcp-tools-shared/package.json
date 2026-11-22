@@ -18,7 +18,8 @@
     "./tool-apps": {
       "types": "./src/tool-apps.ts",
       "default": "./src/tool-apps.ts"
-    }
+    },
+    "./workflow-schema.json": "./src/workflow-schema.json"
   },
   "scripts": {
     "build": "tsc",

@@ -172,6 +172,8 @@ import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkProfile;
 import com.workplace.jooq.tables.WorkerJob;
+import com.workplace.jooq.tables.Workflow;
+import com.workplace.jooq.tables.WorkflowVersion;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 
 import org.jooq.Index;
@@ -551,6 +553,11 @@ public class Indexes {
     public static final Index IDX_WIKI_SPACE_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_member_tenant"), WikiSpaceMember.WIKI_SPACE_MEMBER, new OrderField[] { WikiSpaceMember.WIKI_SPACE_MEMBER.TENANT_ID }, false);
     public static final Index IDX_WIKI_SPACE_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_tenant"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.TENANT_ID }, false);
     public static final Index IDX_WORK_PROFILE_TENANT = Internal.createIndex(DSL.name("idx_work_profile_tenant"), WorkProfile.WORK_PROFILE, new OrderField[] { WorkProfile.WORK_PROFILE.TENANT_ID }, false);
+    public static final Index IDX_WORKFLOW_ACTIVE_VERSION_ID = Internal.createIndex(DSL.name("idx_workflow_active_version_id"), Workflow.WORKFLOW, new OrderField[] { Workflow.WORKFLOW.ACTIVE_VERSION_ID }, false);
+    public static final Index IDX_WORKFLOW_DRAFT_UPDATED_BY = Internal.createIndex(DSL.name("idx_workflow_draft_updated_by"), Workflow.WORKFLOW, new OrderField[] { Workflow.WORKFLOW.DRAFT_UPDATED_BY }, false);
+    public static final Index IDX_WORKFLOW_TENANT = Internal.createIndex(DSL.name("idx_workflow_tenant"), Workflow.WORKFLOW, new OrderField[] { Workflow.WORKFLOW.TENANT_ID }, false);
+    public static final Index IDX_WORKFLOW_VERSION_CREATED_BY = Internal.createIndex(DSL.name("idx_workflow_version_created_by"), WorkflowVersion.WORKFLOW_VERSION, new OrderField[] { WorkflowVersion.WORKFLOW_VERSION.CREATED_BY }, false);
+    public static final Index IDX_WORKFLOW_VERSION_TENANT = Internal.createIndex(DSL.name("idx_workflow_version_tenant"), WorkflowVersion.WORKFLOW_VERSION, new OrderField[] { WorkflowVersion.WORKFLOW_VERSION.TENANT_ID }, false);
     public static final Index IDX_WORKSPACE_ASSISTANT_TENANT = Internal.createIndex(DSL.name("idx_workspace_assistant_tenant"), WorkspaceAssistant.WORKSPACE_ASSISTANT, new OrderField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.TENANT_ID }, false);
     public static final Index IX_FILE_EXTRACTION_EMBEDDING = Internal.createIndex(DSL.name("ix_file_extraction_embedding"), FileExtraction.FILE_EXTRACTION, new OrderField[] { FileExtraction.FILE_EXTRACTION.EMBEDDING }, false);
     public static final Index IX_FILE_EXTRACTION_RESUME = Internal.createIndex(DSL.name("ix_file_extraction_resume"), FileExtraction.FILE_EXTRACTION, new OrderField[] { FileExtraction.FILE_EXTRACTION.STATUS, FileExtraction.FILE_EXTRACTION.LEASED_UNTIL }, false);
