@@ -1,0 +1,6 @@
+{{- /*
+렌더 전 값 검사만 하는 템플릿 — 아무 리소스도 만들지 않는다.
+특정 리소스 템플릿에 검사를 붙이면 그 파일을 지우거나 끌 때 검사도 조용히 사라지므로 따로 둔다.
+- api DB 커넥션 합계가 db.maxConnections 를 넘으면 렌더 실패(WP-1972, swp.dbConnectionBudget)
+*/ -}}
+{{- include "swp.dbConnectionBudget" . -}}
