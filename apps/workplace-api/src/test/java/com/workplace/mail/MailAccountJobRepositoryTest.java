@@ -169,7 +169,7 @@ class MailAccountJobRepositoryTest extends IntegrationTestBase {
         () -> {
           repo.addDone(Kind.SYNC, accountId, old, 3);
           repo.finish(Kind.SYNC, accountId, old);
-          assertThat(repo.heartbeat(Kind.SYNC, accountId, old)).isFalse();
+          assertThat(heartbeat(old)).isFalse();
           return null;
         });
     Job after = find(Kind.SYNC);
@@ -213,7 +213,7 @@ class MailAccountJobRepositoryTest extends IntegrationTestBase {
         .get()
         .extracting(Job::expired)
         .isEqualTo(true);
-    assertThat(callInTenant(TENANT_ID, () -> repo.heartbeat(Kind.SYNC, accountId, run))).isTrue();
+    assertThat(callInTenant(TENANT_ID, () -> heartbeat(run))).isTrue();
     // 하트비트가 updated_at 을 지금으로 당겨 1분 TTL 로 봐도 만료가 아니다.
     assertThat(callInTenant(TENANT_ID, () -> repo.find(Kind.SYNC, accountId, minute)))
         .get()
@@ -225,6 +225,54 @@ class MailAccountJobRepositoryTest extends IntegrationTestBase {
     assertThat(tryStart(Kind.SYNC)).isFalse();
   }
 
+  /**
+   * 묶음 하트비트 — 한 문장으로 여러 실행(종류가 다른 행 포함)의 updated_at 을 갱신하고 갱신된 키만 돌려준다. run_id 가 다른 키와 끝난 실행은 건드리지
+   * 않는다(WP-1977 리뷰 후속).
+   */
+  @Test
+  void heartbeatAll_refreshesMatchingRunsOnly() {
+    Duration minute = Duration.ofMinutes(1);
+    UUID sync = startOrFail(Kind.SYNC);
+    UUID trash = startOrFail(Kind.TRASH_EMPTY);
+    ageUpdatedAt(9);
+    MailAccountJobRepository.RunKey syncKey =
+        new MailAccountJobRepository.RunKey(Kind.SYNC, accountId, sync);
+    MailAccountJobRepository.RunKey trashKey =
+        new MailAccountJobRepository.RunKey(Kind.TRASH_EMPTY, accountId, trash);
+    MailAccountJobRepository.RunKey staleKey =
+        new MailAccountJobRepository.RunKey(Kind.SYNC, accountId, UUID.randomUUID());
+
+    // 먼저 run_id 가 다른 키만 보내면 아무 행도 갱신되지 않는다.
+    assertThat(callInTenant(TENANT_ID, () -> repo.heartbeatAll(List.of(staleKey)))).isEmpty();
+    assertThat(callInTenant(TENANT_ID, () -> repo.find(Kind.SYNC, accountId, minute)))
+        .get()
+        .extracting(Job::expired)
+        .isEqualTo(true);
+
+    assertThat(
+            callInTenant(TENANT_ID, () -> repo.heartbeatAll(List.of(syncKey, trashKey, staleKey))))
+        .containsExactlyInAnyOrder(syncKey, trashKey);
+    assertThat(callInTenant(TENANT_ID, () -> repo.find(Kind.SYNC, accountId, minute)))
+        .get()
+        .extracting(Job::expired)
+        .isEqualTo(false);
+    assertThat(callInTenant(TENANT_ID, () -> repo.find(Kind.TRASH_EMPTY, accountId, minute)))
+        .get()
+        .extracting(Job::expired)
+        .isEqualTo(false);
+
+    // 끝난 실행은 키가 맞아도 갱신되지 않는다.
+    callInTenant(
+        TENANT_ID,
+        () -> {
+          repo.finish(Kind.SYNC, accountId, sync);
+          return null;
+        });
+    assertThat(callInTenant(TENANT_ID, () -> repo.heartbeatAll(List.of(syncKey, trashKey))))
+        .containsExactly(trashKey);
+    assertThat(callInTenant(TENANT_ID, () -> repo.heartbeatAll(List.of()))).isEmpty();
+  }
+
   /** 끝난 실행에는 하트비트가 적용되지 않는다(행을 RUNNING 으로 되살리지 않는다). */
   @Test
   void heartbeat_afterFinish_returnsFalse() {
@@ -233,7 +281,7 @@ class MailAccountJobRepositoryTest extends IntegrationTestBase {
         TENANT_ID,
         () -> {
           repo.finish(Kind.SYNC, accountId, run);
-          assertThat(repo.heartbeat(Kind.SYNC, accountId, run)).isFalse();
+          assertThat(heartbeat(run)).isFalse();
           return null;
         });
     assertThat(find(Kind.SYNC).state()).isEqualTo("DONE");
@@ -319,7 +367,7 @@ class MailAccountJobRepositoryTest extends IntegrationTestBase {
           assertThat(repo.find(Kind.SYNC, accountId, TTL)).isEmpty();
           repo.addDone(Kind.SYNC, accountId, run, 7);
           repo.finish(Kind.SYNC, accountId, run);
-          assertThat(repo.heartbeat(Kind.SYNC, accountId, run)).isFalse();
+          assertThat(heartbeat(run)).isFalse();
           repo.delete(Kind.SYNC, accountId);
           return null;
         });
@@ -336,5 +384,12 @@ class MailAccountJobRepositoryTest extends IntegrationTestBase {
         TENANT_ID,
         () -> dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(accountId)).execute());
     assertThat(callInTenant(TENANT_ID, () -> repo.find(Kind.SYNC, accountId, TTL))).isEmpty();
+  }
+
+  /** 동기화 실행 한 건에 하트비트를 보내 갱신됐는지 돌려준다(호출자의 테넌트 문맥 안에서). */
+  private boolean heartbeat(UUID run) {
+    return !repo.heartbeatAll(
+            List.of(new MailAccountJobRepository.RunKey(Kind.SYNC, accountId, run)))
+        .isEmpty();
   }
 }

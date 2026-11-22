@@ -3,9 +3,12 @@ package com.workplace.mail.service;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.repository.MailAccountJobRepository;
 import com.workplace.mail.repository.MailAccountJobRepository.Kind;
+import com.workplace.mail.repository.MailAccountJobRepository.RunKey;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -19,8 +22,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 메일 작업 진행(동기화·휴지통 비우기) 하트비트 전용 스케줄러(WP-1977) — 이 파드가 쥔 실행({@link MailJobRun})마다 {@link #INTERVAL}
- * 주기로 updated_at 을 갱신해 살아 있는 작업이 TTL 로 만료돼 다른 파드에 빼앗기지(중복 실행) 않게 한다.
+ * 메일 작업 진행(동기화·휴지통 비우기) 하트비트 전용 스케줄러(WP-1977) — 이 파드가 쥔 실행({@link MailJobRun})들의 updated_at 을
+ * {@link #INTERVAL} 주기로 테넌트별 UPDATE 한 번에 갱신해 살아 있는 작업이 TTL 로 만료돼 다른 파드에 빼앗기지(중복 실행) 않게 한다.
  *
  * <p>왜 공용 {@code @Scheduled} 가 아닌가: 공용 스케줄러 풀은 스레드가 적고 LLM 작업이 몇 분씩 잡아 하트비트가 밀릴 수 있으며, 전역 스케줄링 플래그
  * ({@code workplace.scheduling.enabled=false})로 꺼지면 하트비트도 함께 멈춘다. 그래서 데몬 스레드 하나짜리 전용 실행기를 두고 전역
@@ -105,31 +108,44 @@ public class MailJobHeartbeat {
   }
 
   /**
-   * 쥔 실행마다 하트비트를 한 번 보낸다. 실행마다 기억한 테넌트 문맥을 세운다(하트비트 스레드에는 문맥이 없다). 갱신된 행이 없으면(이미 끝났거나 다른 실행에 넘어갔거나
-   * 계정이 지워짐) 더는 쥔 것이 아니므로 뺀다. 실행 하나의 실패는 로그만 남기고 다음 실행으로 넘어간다 — 하트비트가 작업을 깨면 안 된다.
+   * 쥔 실행들에 하트비트를 한 번 보낸다. 테넌트별로 묶어 UPDATE 한 번(트랜잭션 하나)으로 갱신한다 — 실행마다 트랜잭션을 따로 열면 풀이 붐빌 때 한 바퀴가
+   * TTL(2분)을 넘겨 살아 있는 작업이 만료될 수 있어서다(WP-1977 리뷰 후속). 테넌트마다 기억한 문맥을 세운다(하트비트 스레드에는 문맥이 없다). 갱신되지 않은
+   * 실행(이미 끝났거나 다른 실행에 넘어갔거나 계정이 지워짐)은 더는 쥔 것이 아니므로 뺀다. 한 테넌트의 실패는 로그만 남기고 다음 테넌트로 넘어간다 — 하트비트가 작업을
+   * 깨면 안 된다.
    */
   public void beat() {
+    Map<Long, Map<RunKey, MailJobRun>> byTenant = new HashMap<>();
     for (MailJobRun run : held) {
       if (run.tenantId() == null) {
         // 테넌트를 모르면 RLS 때문에 갱신할 수 없다 — 건너뛰고 TTL 만료에 맡긴다.
         log.warn("메일 작업 하트비트 건너뜀 — 테넌트 모름(kind={}, accountId={})", run.kind(), run.accountId());
         continue;
       }
-      try {
-        Boolean alive =
-            TenantContext.callAs(
-                run.tenantId(),
-                () ->
-                    txTemplate.execute(
-                        s -> repo.heartbeat(run.kind(), run.accountId(), run.runId())));
-        if (!Boolean.TRUE.equals(alive)) {
-          held.remove(run);
-          log.info(
-              "메일 작업 하트비트 대상 없음 — 쥔 실행에서 뺌(kind={}, accountId={})", run.kind(), run.accountId());
-        }
-      } catch (RuntimeException e) {
-        log.warn("메일 작업 하트비트 실패 — 무시(kind={}, accountId={})", run.kind(), run.accountId(), e);
-      }
+      byTenant
+          .computeIfAbsent(run.tenantId(), t -> new HashMap<>())
+          .put(new RunKey(run.kind(), run.accountId(), run.runId()), run);
+    }
+    byTenant.forEach(this::beatTenant);
+  }
+
+  /** 한 테넌트의 쥔 실행들을 그 테넌트 문맥의 트랜잭션 하나에서 한 번에 갱신하고, 갱신되지 않은 실행은 쥔 목록에서 뺀다. */
+  private void beatTenant(long tenantId, Map<RunKey, MailJobRun> runs) {
+    try {
+      Set<RunKey> alive =
+          TenantContext.callAs(
+              tenantId, () -> txTemplate.execute(s -> repo.heartbeatAll(runs.keySet())));
+      runs.forEach(
+          (key, run) -> {
+            if (alive == null || !alive.contains(key)) {
+              held.remove(run);
+              log.info(
+                  "메일 작업 하트비트 대상 없음 — 쥔 실행에서 뺌(kind={}, accountId={})",
+                  run.kind(),
+                  run.accountId());
+            }
+          });
+    } catch (RuntimeException e) {
+      log.warn("메일 작업 하트비트 실패 — 무시(tenantId={}, 실행 {}건)", tenantId, runs.size(), e);
     }
   }
 

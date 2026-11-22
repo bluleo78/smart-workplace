@@ -55,7 +55,8 @@ class ImapFlagSyncTest extends MailSyncTestSupport {
   @AfterEach
   void cleanup() {
     if (seededAccount != null) {
-      progress.discardForTest(seededAccount);
+      // 테스트가 문맥을 세우기 전에 실패했어도 진행 행이 지워지게 테넌트 문맥 안에서 정리한다.
+      TenantContext.runAs(1L, () -> progress.discardForTest(seededAccount));
       cleanupInTenant(
           1L,
           () -> dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(seededAccount)).execute());

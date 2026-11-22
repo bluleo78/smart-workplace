@@ -9,6 +9,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.MailTrashEmptyStatus;
 import com.workplace.mail.exception.MailCredentialUnreadableException;
 import com.workplace.mail.exception.MailSendException;
@@ -112,7 +113,8 @@ class MailTrashEmptyGraphTest extends ExternalClientMockedTestBase {
     ReflectionTestUtils.setField(graphMailEraser, "pauser", originalPauser);
     ReflectionTestUtils.setField(graphMailEraser, "localFlush", originalLocalFlush);
     // 진행 상태도 싱글턴이다 — 이 클래스가 시작한 계정은 시작 전으로 되돌린다
-    startedAccounts.forEach(progress::discardForTest);
+    // 정리는 테넌트 문맥이 있어야 지운다(없으면 discardForTest 가 건너뛴다) — 요청 처리 뒤 문맥이 비어 있을 수 있어 세운다.
+    TenantContext.runAs(1L, () -> startedAccounts.forEach(progress::discardForTest));
   }
 
   /** [user, account, trashFolderId] — Graph 계정과 휴지통(role TRASH) 행. */

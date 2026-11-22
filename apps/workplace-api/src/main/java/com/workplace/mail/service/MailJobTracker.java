@@ -18,6 +18,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>스프링 빈이 아니다 — 각 진행 클래스가 자기 종류·로그 이름표·TTL 로 하나씩 만들어 쓴다. 상태는 없고(쥔 실행 목록은 {@link MailJobHeartbeat}
  * 가 든다) 모든 저장소 호출은 짧은 트랜잭션({@code txTemplate})으로 감싼다(테넌트 GUC 가 필요하다).
+ *
+ * <p>배포 전환 주의(WP-1977 리뷰 후속): V331 주석은 「롤링 배포에 안전」이라 하지만 그것은 스키마(expand-only)에 한한 말이다. DB 가드로 바꾼
+ * 버전으로 처음 롤링 배포하는 동안에는 옛 파드(메모리 가드)와 새 파드(DB 가드)가 서로의 선점을 보지 못하므로, 그 전환 중 한 번은 같은 계정의 동기화·휴지통 비우기가
+ * 두 파드에서 겹칠 수 있다. 전환이 끝나 옛 파드가 모두 내려가면 모든 파드가 DB 가드를 공유한다(docs/ops/multi-instance.md).
  */
 public final class MailJobTracker {
 
