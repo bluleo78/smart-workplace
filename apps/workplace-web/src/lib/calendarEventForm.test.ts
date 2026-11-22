@@ -283,6 +283,26 @@ describe('eventFormSchema 반복 횟수 상한 (WP-905)', () => {
   })
 })
 
+// WP-1916 — RHF valueAsNumber 는 빈 칸을 NaN 으로 준다. NaN 이 z.number() 에 걸리면 zod 영문 원문이 화면에 그대로 나온다.
+describe('eventFormSchema 반복 숫자 칸 NaN 정규화 (WP-1916)', () => {
+  const weeklyNaN = { ...base, recurrenceFreq: 'WEEKLY' as const, recurrenceInterval: Number.NaN, recurrenceCount: Number.NaN }
+
+  it('간격·횟수 칸이 NaN(빈 칸)이면 zod 영문 원문 대신 한국어 문구로 간다 (WP-1916)', () => {
+    const r = eventFormSchema.safeParse({ ...weeklyNaN, recurrenceEnd: 'count' as const })
+    expect(r.success).toBe(false)
+    const msgs = (r.error?.issues ?? []).map((i) => i.message)
+    expect(msgs).toContain('간격은 1 이상이어야 합니다')
+    expect(msgs).toContain('횟수는 1 이상이어야 합니다')
+    expect(msgs.join(' ')).not.toContain('Invalid input')
+  })
+
+  it('종료=날짜까지 일 때 횟수 칸 NaN 은 제출을 막지 않는다 (WP-1916)', () => {
+    const r = eventFormSchema.safeParse({ ...weeklyNaN, recurrenceEnd: 'until' as const, recurrenceUntil: '2026-12-31' })
+    expect(r.error?.issues.some((i) => i.path.includes('recurrenceCount'))).toBeFalsy()
+    expect(r.error?.issues.some((i) => i.path.includes('recurrenceInterval'))).toBe(true)
+  })
+})
+
 describe('eventFormSchema 설명 길이 (WP-543)', () => {
   it('10000자까지 허용, 넘으면 description 에러', () => {
     expect(eventFormSchema.safeParse({ ...base, description: '가'.repeat(10000) }).success).toBe(true)

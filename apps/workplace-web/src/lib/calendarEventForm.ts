@@ -17,6 +17,15 @@ export const MAX_RECURRENCE_INTERVAL = 999
 /** 반복 횟수 상한 — 서버(RecurrenceExpander.MAX_COUNT, WP-905)·Outlook 과 같다. 없으면 21억 넘는 값이 서버에서 「1 이상」으로 잘못 거절됐다. */
 export const MAX_RECURRENCE_COUNT = 999
 
+// 반복 숫자 칸(간격·횟수) 공용 스키마 — RHF valueAsNumber 는 빈 칸을 NaN 으로 주고 z.number() 는 그걸 영문 원문(Invalid input: … received NaN)으로
+// 거절해 화면에 그대로 뜬다 → undefined 로 바꿔 아래 superRefine 의 한국어 문구가 뜨게 한다(WP-1916).
+// 단, zod v4 preprocess 는 z.input 을 unknown 으로 넓혀 useForm<EventFormValues> + zodResolver 타입을 깨뜨리므로,
+// 타입 단언으로 z.number().optional() 의 입력·출력을 그대로 선언한다.
+const nanSafeRecurrenceNumber = z.preprocess(
+  (v) => (typeof v === 'number' && Number.isNaN(v) ? undefined : v),
+  z.number().optional(),
+) as unknown as z.ZodOptional<z.ZodNumber>
+
 export const eventFormSchema = z
   .object({
     title: z.string().min(1, '제목을 입력하세요').max(200, '제목은 200자 이하여야 합니다'),
@@ -37,10 +46,11 @@ export const eventFormSchema = z
     recurrenceFreq: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']),
     // interval/until/count 는 조건부 필드 — base 에서는 검증하지 않고 superRefine 에서 노출 조건일 때만 검증.
     // (숨겨진 필드의 잔존 값이 제출을 조용히 막는 것을 방지)
-    recurrenceInterval: z.number().optional(),
+    // 숫자 칸 둘 다 위의 nanSafeRecurrenceNumber — NaN 은 미리 undefined 로 바꾼다(WP-1916).
+    recurrenceInterval: nanSafeRecurrenceNumber,
     recurrenceEnd: z.enum(['none', 'until', 'count']),
     recurrenceUntil: z.string().optional(),
-    recurrenceCount: z.number().optional(),
+    recurrenceCount: nanSafeRecurrenceNumber,
   })
   // 시작·종료 검증 — 연도를 5자리 이상으로 넣으면 datetime-local 값이 Date 로 해석되지 않아(Invalid Date)
   // 순서 비교가 항상 false 가 된다. 그대로 두면 순서가 맞는데도 「종료는 시작보다 뒤여야 합니다」로 오안내하므로

@@ -520,7 +520,9 @@ export function EventDialog({
 
             {/* 줄 간격 — 터치에선 컨트롤이 44px 로 커져 같은 간격이면 듬성해 보여 줄 사이를 줄인다(누르는 영역은 컨트롤 높이가 지킨다) */}
             {/* 제출 핸들러는 제출 때 만든다 — 렌더 중에 handleSubmit(중복 제출 가드 ref 를 읽음)을 넘겨 묶지 않게 */}
+            {/* noValidate — 반복 간격·횟수 칸(min=1)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내가 그려지지 않는다. 검증은 zod 스키마 한 곳에서 한다(IssueCreateDialog 와 동일, WP-1916). */}
             <form
+              noValidate
               onSubmit={(e) => void form.handleSubmit(handleSubmit)(e)}
               className="space-y-3 pointer-coarse:space-y-1.5"
             >
