@@ -41,6 +41,7 @@ import {
   formatCpu,
   formatMemory,
   formatUptime,
+  isFailureHeldUntilIdle,
   isRunningStatus,
   locationCapacityText,
   METRICS_UNAVAILABLE_REASON,
@@ -208,8 +209,8 @@ function digitParticle(text: string, withFinal: string, withoutFinal: string): s
 const keyObjectParticle = (text: string) => digitParticle(text, '을', '를') ?? objectParticle(text);
 const keySubjectParticle = (text: string) => digitParticle(text, '이', '가') ?? subjectParticle(text);
 
-/** 확인 창 ①의 종류 — 쉴 때 적용을 지금 하기 / 재시작. */
-type NowConfirm = 'apply' | 'restart' | null;
+/** 확인 창 ①의 종류 — 쉴 때 적용을 지금 하기 / 재시작 / 쉴 때까지 미룬 실패의 재시작(retry). */
+type NowConfirm = 'apply' | 'restart' | 'retry' | null;
 
 /**
  * 「실행」 묶음 — 상태 종류: 종료됨 · 시작 중 · 작업 중 · 대기 중 · 차단됨 · 오류 · 종료 중(statusPill).
@@ -221,6 +222,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const action = useAgentRuntimeAction(agent.id);
   const acceptMut = useSetAgentAcceptNewWork(agent.id);
   const [nowConfirm, setNowConfirm] = useState<NowConfirm>(null);
+  const restartConfirm = nowConfirm === 'restart' || nowConfirm === 'retry';
   // 종료 확인 창 — 열릴 때의 이슈 키를 고정해 둔다(폴링으로 키가 비어도 문구가 깨지지 않게). null 이면 닫힘.
   const [stopConfirm, setStopConfirm] = useState<string[] | null>(null);
   const confirmKeys = stopConfirm ?? [];
@@ -232,6 +234,13 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   // 원하는 상태가 RUN 인데 실패면 자리는 이미 잡혀 있어 확인 없이 「재시작」·「종료」.
   const failedOn = status === 'FAILED' && saved?.desired === 'RUN';
   const off = !running && !failedOn && status !== 'STOPPING';
+  // 시작 실패가 쉴 때까지 미뤄진 상태(FAILED + 서버 판정 AT_IDLE) — 하던 일이 있어 서버가 바꾸지 않고 기다린다.
+  // 이때도 지금 적용·재시작·종료는 하던 일을 끊으니 running 과 같은 확인을 거친다. 판정은 서버 pendingApply 만 따른다(WP-2000).
+  const held = isFailureHeldUntilIdle(saved);
+  // 「바꾼 설정은 쉴 때 적용돼요」 배너 — 서버가 쉴 때로 미뤘을 때만(바로 적용이면 말하지 않는다).
+  const applyHeld = saved?.pendingApply === 'AT_IDLE' && (status === 'APPLY_PENDING' || status === 'FAILED');
+  // 서버가 바로 적용으로 판정해 새 설정으로 다시 띄우는 중 — 이미 한 번 떠 본 작업 공간(startedAt)이 있을 때만.
+  const restartingWithNew = running && saved?.pendingApply === 'NOW' && observed?.startedAt != null;
   const pill = statusPill(status, observed?.agentState);
   const detail = saved
     ? statusDetail({
@@ -246,6 +255,9 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   // 다시 시작된 사유 경고(WP-1794) — 실행 중일 때만. 오류는 위 detail 이 사유를 보인다.
   const notice = runtimeNotice({ status, message: observed?.message });
   const working = running && observed?.agentState === 'WORKING';
+  // 하던 일을 끊게 되는지 — 지금 적용·재시작 확인 창을 거칠지(실행 중이거나 미뤄진 실패인데 AI 가 일하는 중).
+  const live = running || held; // 도는 중이거나 쉴 때로 미룬 실패 — 하던 일이 있을 수 있다
+  const interrupts = live && observed?.agentState === 'WORKING';
   // 확인 창에 적을 현재 이슈 — 여러 칸이 일하면 모두(쉼표로 이음), 조사는 마지막 키 기준. 없으면 null.
   const issueKeys = currentIssueKeys(observed ?? {});
   const issueKey = issueKeys.length > 0 ? issueKeys.join(', ') : null;
@@ -255,11 +267,13 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const acceptNewWork = acceptMut.isPending ? acceptMut.variables : (saved?.acceptNewWork ?? true);
   const newWorkPaused = acceptSwitchShown && !acceptNewWork;
   // 종료하면 끊길 하던 작업 — 상태 알약 옆에 보이는 이슈 키와 같은 값. 없으면 확인 없이 바로 종료한다.
-  const stopKeys = running ? issueKeys : [];
+  const stopKeys = live ? issueKeys : [];
   const onStop = () => (stopKeys.length > 0 ? setStopConfirm(stopKeys) : action.mutate('stop'));
   // 알약 옆 설명 — 이슈 키·다음 확인·실패 사유가 없을 때 그 상태가 무엇인지 한 줄로.
   const stateNote =
-    status === 'STARTING' || (running && observed?.agentState == null)
+    restartingWithNew
+      ? '새 설정으로 작업 공간을 다시 띄우고 있어요'
+      : status === 'STARTING' || (running && observed?.agentState == null)
       ? '작업 공간을 준비하고 있어요'
       : status === 'STOPPING'
         ? '하던 일을 정리하고 있어요'
@@ -284,10 +298,16 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
     if (dirty && draft) save.mutate(draft.body('NOW'));
     else action.mutate('start');
   };
+  // 쉴 때까지 미뤄진 실패의 재시작 — 서버 start 는 미룬 실패를 바꾸지 않으니 고친 설정은 NOW 로 저장하고, 아니면 restart.
+  const retryHeld = () => {
+    if (dirty && draft) save.mutate(draft.body('NOW'));
+    else action.mutate('restart');
+  };
+  const onRetryHeld = () => (interrupts ? setNowConfirm('retry') : retryHeld());
   // 지금 적용 — 같은 설정을 NOW 로 다시 보내 작업 중이어도 바로 다시 만든다. 일하는 중이면 확인 창 ①.
   const applyNow = () => saved && save.mutate({ templateName: saved.templateName, locationId: saved.locationId, config: saved.config, applyMode: 'NOW' });
-  const onApplyNow = () => (working ? setNowConfirm('apply') : applyNow());
-  const onRestart = () => (working ? setNowConfirm('restart') : action.mutate('restart'));
+  const onApplyNow = () => (interrupts ? setNowConfirm('apply') : applyNow());
+  const onRestart = () => (interrupts ? setNowConfirm('restart') : action.mutate('restart'));
   // 실제로 도는 실행 환경이 사용량을 잴 수 없다고 알려 왔으면 CPU·메모리를 「알 수 없음」으로(WP-1280)
   const usageUnknown = metricsUnavailable(saved?.effectiveLocation);
 
@@ -392,9 +412,9 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
       )}
 
       {/* 「동시 진행」(WP-1754) — 한 번에 맡는 이슈 수. 실행 설정이 있으면 켜져 있든 종료됐든 고를 수 있다(종료된 AI 도 다음 시작부터 적용). */}
-      {saved != null && <SlotLimitRow agentId={agent.id} saved={saved} running={running} />}
+      {saved != null && <SlotLimitRow agentId={agent.id} saved={saved} running={live} />}
 
-      {status === 'APPLY_PENDING' && (
+      {applyHeld && (
         <div
           className="flex max-w-2xl flex-wrap items-center gap-2 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-foreground"
           data-testid="agent-runtime-apply-pending"
@@ -494,7 +514,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
                 재시작
               </Button>
             ) : (
-              <Button size="sm" variant="outline" disabled={pendingReq || (draft?.missingRequired ?? false)} onClick={onRetry} data-testid="agent-runtime-start">
+              <Button size="sm" variant="outline" disabled={pendingReq || (draft?.missingRequired ?? false)} onClick={held ? onRetryHeld : onRetry} data-testid="agent-runtime-start">
                 재시작
               </Button>
             )}
@@ -517,11 +537,11 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
       <AlertDialog open={nowConfirm != null} onOpenChange={(o) => !o && setNowConfirm(null)}>
         <AlertDialogContent size="sm" data-help="agent.status.run">
           <AlertDialogHeader>
-            <AlertDialogTitle>{nowConfirm === 'restart' ? '지금 재시작할까요?' : '지금 적용할까요?'}</AlertDialogTitle>
+            <AlertDialogTitle>{restartConfirm ? '지금 재시작할까요?' : '지금 적용할까요?'}</AlertDialogTitle>
             <AlertDialogDescription>
               {agent.name}
               {subjectParticle(agent.name)} {issueKey ? `${issueKey} ${keyObjectParticle(issueKey)}` : '이슈를'} 처리하고 있어요.{' '}
-              {nowConfirm === 'restart' ? '지금 재시작하면' : '지금 적용하면'} 작업 공간을 새 설정으로 다시 띄우고, 뜬 뒤{' '}
+              {restartConfirm ? '지금 재시작하면' : '지금 적용하면'} 작업 공간을 새 설정으로 다시 띄우고, 뜬 뒤{' '}
               {issueKey ? `${issueKey} ${keyObjectParticle(issueKey)}` : '하던 이슈를'} 이어 받아요. 커밋하지 않은 변경은 작업 공간에 남아요.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -530,11 +550,12 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
             <AlertDialogAction
               onClick={() => {
                 if (nowConfirm === 'restart') action.mutate('restart');
+                else if (nowConfirm === 'retry') retryHeld();
                 else applyNow();
                 setNowConfirm(null);
               }}
             >
-              {nowConfirm === 'restart' ? '재시작' : '지금 적용'}
+              {restartConfirm ? '재시작' : '지금 적용'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -247,10 +247,10 @@ public class AgentRuntimeSettingRepository {
   }
 
   /**
-   * runner 관찰 보고 한 건을 쓴 결과(WP-1254) — 쓴 뒤 행과 쓰기 전 화면용 값. 호출자가 「화면에 보이는 것이 바뀌었는지」를 다시 읽지 않고 메모리에서
-   * 견주게 한다.
+   * runner 관찰 보고 한 건을 쓴 결과(WP-1254) — 쓴 뒤 행과 쓰기 전 행. 호출자가 「화면에 보이는 것이 바뀌었는지」·「적용 판정이
+   * 바뀌었는지(WP-2000)」를 다시 읽지 않고 메모리에서 견주게 한다. 쓰기 전 행은 쓰기 전 값(p_* 칸)만으로 만든 행이다 — 쓴 뒤 행과 섞이지 않는다.
    */
-  public record ObservedUpdate(Row row, VisibleRuntimeState before) {}
+  public record ObservedUpdate(Row row, Row before) {}
 
   /**
    * runner 가 본 관찰 상태들을 한 문장(UPDATE … FROM (VALUES …) … RETURNING)으로 쓴다(WP-1249·1254) — 실제 위치가 그 위치인
@@ -269,9 +269,9 @@ public class AgentRuntimeSettingRepository {
    * </ul>
    *
    * <p>SET 의 오른쪽은 모두 고치기 전 값을 본다(Postgres UPDATE 규칙) — 새 Pod 판정이 옛 started_at·observed_generation 과
-   * 비교된다. 쓰기 전 화면용 칸은 이 위치의 행(꺼진 AI 는 어느 위치든 — 정지 보고만 반영, WP-1751)만 잠가 읽는 FROM 부분 질의(before)에서 받아
-   * RETURNING 으로 돌려준다(WP-1254 — 전후를 다시 읽지 않는다). 한 문장 안에서 같은 행을 두 번 고칠 수 없으므로 같은 AI 의 보고가 여러 번 오면
-   * 마지막 것만 쓴다(예전 배치와 같이 뒤의 것이 이긴다).
+   * 비교된다. 쓰기 전 행(WP-2000 — 화면용 칸·적용 판정 모두 이것으로 견준다)은 이 위치의 행(꺼진 AI 는 어느 위치든 — 정지 보고만 반영, WP-1751)만
+   * 잠가 읽는 FROM 부분 질의(before)에서 받아 RETURNING 으로 돌려준다(WP-1254 — 전후를 다시 읽지 않는다). 한 문장 안에서 같은 행을 두 번 고칠
+   * 수 없으므로 같은 AI 의 보고가 여러 번 오면 마지막 것만 쓴다(예전 배치와 같이 뒤의 것이 이긴다).
    *
    * @return 고친 AI id → 결과(없는 AI·다른 위치의 AI 는 빠진다. 단 꺼진 AI 의 STOPPING·STOPPED 보고는 다른 위치에서 와도 들어간다 —
    *     WP-1751)
@@ -322,31 +322,19 @@ public class AgentRuntimeSettingRepository {
     Condition curAt =
         locatedAt(cur, locationId, isDefault)
             .or(cur.DESIRED.eq(Desired.STOP.name()).and(cur.AGENT_USER_ID.in(stopReports)));
+    // 쓰기 전 행 전체를 p_ 접두 칸으로 받는다(WP-2000 — 쓰기 전 판정까지 메모리에서 하려고). UPDATE 와 맞물릴 agent_user_id 는 접두 없이
+    // 하나 더.
+    List<SelectField<?>> beforeFields = new ArrayList<>();
+    beforeFields.add(cur.AGENT_USER_ID);
+    for (Field<?> f : cur.fields()) beforeFields.add(f.as("p_" + f.getName()));
     Table<?> before =
-        dsl.select(
-                cur.AGENT_USER_ID,
-                cur.OBSERVED_GENERATION.as("p_gen"),
-                cur.PHASE.as("p_phase"),
-                cur.OBSERVED_MESSAGE.as("p_message"),
-                cur.STARTED_AT.as("p_started_at"),
-                cur.AGENT_STATE.as("p_agent_state"),
-                cur.AGENT_ISSUE_KEY.as("p_issue_key"),
-                cur.AGENT_ISSUE_KEYS.as("p_issue_keys"),
-                cur.AGENT_NEXT_CHECK_AT.as("p_next_check_at"))
+        dsl.select(beforeFields)
             .from(cur)
             .where(cur.AGENT_USER_ID.in(last.keySet()))
             .and(curAt)
             .forUpdate()
             .asTable("before");
     Field<Long> beforeId = before.field(cur.AGENT_USER_ID.getName(), Long.class);
-    Field<Long> pGen = before.field("p_gen", Long.class);
-    Field<String> pPhase = before.field("p_phase", String.class);
-    Field<String> pMessage = before.field("p_message", String.class);
-    Field<OffsetDateTime> pStart = before.field("p_started_at", OffsetDateTime.class);
-    Field<String> pAgentState = before.field("p_agent_state", String.class);
-    Field<String> pIssueKey = before.field("p_issue_key", String.class);
-    Field<String[]> pIssueKeys = before.field("p_issue_keys", String[].class);
-    Field<OffsetDateTime> pNextCheck = before.field("p_next_check_at", OffsetDateTime.class);
 
     // 새 Pod 판정(보고 값이 없으면 그 근거는 보지 않는다) — 예전 건별 문장과 같은 규칙을 보고 값 칸으로 쓴다.
     Condition newPod =
@@ -362,8 +350,10 @@ public class AgentRuntimeSettingRepository {
     newPod = newPod.andNot(reportedByNewPod);
 
     List<SelectField<?>> returning = new ArrayList<>(List.of(s.fields()));
-    returning.addAll(
-        List.of(pGen, pPhase, pMessage, pStart, pAgentState, pIssueKey, pIssueKeys, pNextCheck));
+    // 쓴 뒤 값(s 칸)에 이어 쓰기 전 값(p_* 칸)도 같은 RETURNING 으로 받는다.
+    for (Field<?> f : before.fields()) {
+      if (f.getName().startsWith("p_")) returning.add(f);
+    }
     Map<Long, ObservedUpdate> out = new LinkedHashMap<>();
     dsl.update(s)
         .set(s.OBSERVED_GENERATION, DSL.greatest(s.OBSERVED_GENERATION, vGen))
@@ -395,21 +385,28 @@ public class AgentRuntimeSettingRepository {
         .forEach(
             r -> {
               Row row = map(r);
-              out.put(
-                  row.agentUserId(),
-                  new ObservedUpdate(
-                      row,
-                      new VisibleRuntimeState(
-                          r.get(pGen),
-                          r.get(pPhase),
-                          r.get(pMessage),
-                          VisibleRuntimeState.instant(r.get(pStart)),
-                          r.get(pAgentState),
-                          r.get(pIssueKey),
-                          visibleIssueKeys(r.get(pIssueKeys), r.get(pIssueKey)),
-                          VisibleRuntimeState.instant(r.get(pNextCheck)))));
+              out.put(row.agentUserId(), new ObservedUpdate(row, map(beforeRecord(s, before, r))));
             });
     return out;
+  }
+
+  /**
+   * RETURNING 레코드에서 쓰기 전 값(p_* 칸)만 원래 칸 이름의 레코드로 옮긴다(WP-2000). {@link #map} 이 같은 칸 이름을 읽으므로 이 레코드를
+   * map 하면 쓰기 전 행이 된다 — RETURNING 레코드를 그대로 map 하면 쓴 뒤 값이 읽혀 전 = 후가 된다.
+   */
+  private Record beforeRecord(
+      com.workplace.jooq.tables.AgentRuntimeSetting s, Table<?> before, Record returned) {
+    Record out = dsl.newRecord(s);
+    for (Field<?> f : s.fields()) copyField(out, f, returned.get(before.field("p_" + f.getName())));
+    return out;
+  }
+
+  /**
+   * 레코드의 한 칸에 값을 옮긴다(WP-2000) — RETURNING 이 돌려준 값은 칸 타입을 모르는 {@code Object} 라 칸 데이터 타입으로 변환해 넣는다.
+   * 와일드카드 필드를 타입 매개변수 하나로 묶어 형 변환 없이 옮기려고 따로 뒀다.
+   */
+  private static <T> void copyField(Record to, Field<T> field, Object value) {
+    to.set(field, field.getDataType().convert(value));
   }
 
   /** {@code when} 이면 NULL, 아니면 지금 값 그대로. */

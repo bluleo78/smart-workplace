@@ -6,9 +6,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 /**
- * runner 를 깨우는 한 경로(WP-1969) — 미뤄 둔 generation 이 지금 적용으로 바뀌었을 때 그 AI 의 실제 위치 runner 가 다시 조회하게
- * {@link AgentRuntimeDesiredChanged} 를 낸다. AI 상태 보고({@link AgentStatusReportService})와 칸 차단
- * 보고({@link AgentPaneReportService})가 같은 방법으로 알리도록 한 곳에 둔다.
+ * runner 를 깨우는 한 경로(WP-1969) — runner 가 읽는 적용 판정({@link RolloutPolicy#decide})이 지금 적용이 아니던 것에서 지금
+ * 적용(NOW)으로 바뀌면 그 AI 의 실제 위치 runner 가 다시 조회하게 {@link AgentRuntimeDesiredChanged} 를 낸다. 세 보고 경로 — AI
+ * 상태 보고({@link AgentStatusReportService}), 칸 차단·OK 보고({@link AgentPaneReportService}), runner 관찰
+ * 보고({@link RunnerDesiredStateService#observed}) — 가 같은 판정·같은 방법으로 알리도록 한 곳에 둔다. 화면에 보이는 판정({@link
+ * RolloutPolicy#pending})은 깨우기가 아니라 화면 알림의 기준이다.
  */
 @Component
 @RequiredArgsConstructor

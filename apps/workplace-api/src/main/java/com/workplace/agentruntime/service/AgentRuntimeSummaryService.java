@@ -1,17 +1,23 @@
 package com.workplace.agentruntime.service;
 
+import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSummaryResponse;
 import com.workplace.agentruntime.dto.AgentTemplate;
+import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.exception.AgentWorkspaceRequiredException;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeProjectRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
+import com.workplace.auth.dto.ManagedKeyChain;
+import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.service.WorkspaceMemberGuard;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,6 +37,8 @@ public class AgentRuntimeSummaryService {
   private final AgentRuntimeProjectRepository projects;
   private final AgentTemplateRegistry registry;
   private final WorkspaceMemberGuard memberGuard;
+  private final AgentApiKeyService agentKeys;
+  private final AgentRuntimeProperties properties;
 
   /**
    * 이 워크스페이스에서 실행 설정 행이 있는 모든 AI 의 실행 상태 요약 — AI id 순. 설정 전체 1회 + 위치 전체 1회로 읽고(AI 마다 다시 읽지 않는다),
@@ -54,6 +62,22 @@ public class AgentRuntimeSummaryService {
             .map(AgentLocationRepository.Row::name)
             .findFirst()
             .orElse(null);
+    // 시작 실패를 쉴 때로 미룬 AI 만 상태가 갈린다(WP-2000) — 켜져 있고 미반영 generation 이 있고 phase 가 FAILED 인 AI 의 키 사슬만
+    // 한 번에 읽는다.
+    Set<Long> failedPending =
+        rows.stream()
+            .filter(
+                r ->
+                    r.desired() == Desired.RUN
+                        && r.hasUnappliedGeneration()
+                        && "FAILED".equals(r.phase()))
+            .map(Row::agentUserId)
+            .collect(Collectors.toSet());
+    Map<Long, ManagedKeyChain> chains =
+        failedPending.isEmpty()
+            ? Map.of()
+            : agentKeys.managedChains(failedPending, TenantContext.get());
+    OffsetDateTime now = OffsetDateTime.now();
     return rows.stream()
         .map(
             r ->
@@ -71,7 +95,14 @@ public class AgentRuntimeSummaryService {
                         r.generation(),
                         r.observedGeneration(),
                         r.phase(),
-                        AgentRuntimeStatusResolver.currentPaneBlocked(r)),
+                        AgentRuntimeStatusResolver.currentPaneBlocked(r),
+                        failedPending.contains(r.agentUserId())
+                            && RolloutPolicy.pending(
+                                    r,
+                                    chains.getOrDefault(r.agentUserId(), ManagedKeyChain.EMPTY),
+                                    now,
+                                    properties.slotStaleAfter())
+                                == RolloutPolicy.Decision.AT_IDLE),
                     r.agentState(),
                     r.agentIssueKey(),
                     r.agentIssueKeys(),

@@ -402,6 +402,139 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.generation").value(g + 1));
   }
 
+  /**
+   * 켠 AI 를 새 설정이 미뤄진(관찰 generation 이 하나 뒤처진, 쉴 때 적용) 상태로 만든다 — phase·AI 상태는 호출자가 정한다. 도는 Pod 가 있는
+   * 상태(시작 시각 있음)다 — Pod 가 없는 실패는 runner 가 바로 새로 만들어 쉴 때로 미룬 실패가 아니므로(WP-2000 코드 리뷰) 따로 시험한다.
+   */
+  private long runningBehind(String phase, String agentState) throws Exception {
+    newLocation("운영", 3);
+    long agent = newAgent();
+    putClaude(agent);
+    action(agent, "start").andExpect(status().isOk());
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, fx.generationOf(agent) - 1)
+        .set(AGENT_RUNTIME_SETTING.PHASE, phase)
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, agentState)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, OffsetDateTime.now().minusHours(1))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    return agent;
+  }
+
+  /** 시작 실패 뒤 새 설정이 미뤄졌는데 하던 일이 없으면 지금 적용 — 응답은 판정(NOW)과 「다시 뜨는 중」(STARTING)을 함께 준다(WP-2000). */
+  @Test
+  void get_whenFailedAndNoWork_pendingNowAndStarting() throws Exception {
+    long agent = runningBehind("FAILED", null);
+
+    call(get(base(agent)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingApply").value("NOW"))
+        .andExpect(jsonPath("$.status").value("STARTING"));
+  }
+
+  /** 하던 일이 있으면 끊지 않는다 — 판정은 AT_IDLE 이고 실패는 그대로 보인다(WP-2000). */
+  @Test
+  void get_whenFailedAndWorking_pendingAtIdleAndFailed() throws Exception {
+    long agent = runningBehind("FAILED", "WORKING");
+
+    call(get(base(agent)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingApply").value("AT_IDLE"))
+        .andExpect(jsonPath("$.status").value("FAILED"));
+  }
+
+  /**
+   * Pod 를 만들지 못한 실패(FAILED·시작 시각 없음)는 하던 일이 있어 보여도 runner 가 바로 새 설정으로 만든다 — 화면은 지금 적용(NOW)·「다시 뜨는
+   * 중」 (STARTING)으로 안내하고 계정 변경도 바로 적용이다(WP-2000 코드 리뷰). runner 응답 applyNow 는 RunnerApiTest 가 그대로
+   * 거짓임을 지킨다.
+   */
+  @Test
+  void get_whenFailedWithoutPodAndWorking_pendingNowAndStarting() throws Exception {
+    long agent = runningBehind("FAILED", "WORKING");
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .setNull(AGENT_RUNTIME_SETTING.STARTED_AT)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    call(get(base(agent)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingApply").value("NOW"))
+        .andExpect(jsonPath("$.status").value("STARTING"))
+        .andExpect(jsonPath("$.accountChangeAppliesNow").value(true));
+  }
+
+  /** 도는 Pod 의 컨테이너가 시작에 실패했고 일이 없으면(WP-1969) 판정은 NOW, phase 는 RUNNING 이라 상태는 적용 대기다(WP-2000). */
+  @Test
+  void get_whenBlockedRunningPodAndNoWork_pendingNowAndApplyPending() throws Exception {
+    long agent = runningBehind("RUNNING", null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "시작 실패")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, fx.generationOf(agent) - 1)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    call(get(base(agent)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingApply").value("NOW"))
+        .andExpect(jsonPath("$.status").value("APPLY_PENDING"));
+  }
+
+  /**
+   * 새 설정(generation 4)으로 다시 뜬 Pod 의 진입점이 차단을 보고했는데 runner 관찰은 아직 옛 generation(3)이면, 판정은 「쉴 때 적용」이
+   * 아니라 없음이다 — 눌러도 runner 가 같은 generation 이라 아무것도 하지 않는 「지금 적용」을 권하지 않는다. 어느 phase 에서도 같다(WP-2000
+   * 최종 리뷰).
+   */
+  @Test
+  void get_whenNewGenerationBlockedBeforeObserved_pendingNull() throws Exception {
+    long agent = runningBehind("RUNNING", null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "시작 실패")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, fx.generationOf(agent))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    for (String phase : List.of("RUNNING", "STARTING", "STOPPING")) {
+      dsl.update(AGENT_RUNTIME_SETTING)
+          .set(AGENT_RUNTIME_SETTING.PHASE, phase)
+          .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+          .execute();
+
+      call(get(base(agent)))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.pendingApply").doesNotExist())
+          .andExpect(jsonPath("$.status").value("FAILED"));
+    }
+  }
+
+  /** 꺼져 있으면 Pod 에 닿을 설정이 없어 pendingApply 는 null, 계정 변경은 바로 반영이다(WP-2000). */
+  @Test
+  void get_whenStopped_pendingNull() throws Exception {
+    long agent = newAgent();
+    putClaude(agent);
+
+    call(get(base(agent)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingApply").doesNotExist())
+        .andExpect(jsonPath("$.accountChangeAppliesNow").value(true));
+  }
+
+  /** 하던 일 때문에 미룬 실패에 「켜기」를 눌러도 다시 시작하지 않는다 — generation·apply_mode 그대로, 실패는 그대로 보인다(WP-2000). */
+  @Test
+  void start_whenFailureHeldUntilIdle_changesNothing() throws Exception {
+    long agent = runningBehind("FAILED", "WORKING");
+    long g = fx.generationOf(agent);
+
+    action(agent, "start")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.generation").value(g))
+        .andExpect(jsonPath("$.applyMode").value("IDLE"))
+        .andExpect(jsonPath("$.status").value("FAILED"));
+    assertThat(fx.generationOf(agent)).isEqualTo(g);
+  }
+
   /** 위치를 지정하지 않았는데 기본 위치도 없으면 켤 수 없다 — 409. */
   @Test
   void start_whenNoDefaultLocation_returns409() throws Exception {

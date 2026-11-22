@@ -4,6 +4,8 @@ import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SLOT_STATE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -32,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
@@ -60,13 +63,17 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   private long admin;
   private long agent;
   private String key;
+  private String runnerToken;
 
   @BeforeEach
   void seed() {
     TenantContext.set(1L);
     admin = TestFixtures.activeMemberOfCurrentTenant(dsl, TestFixtures.createHuman(dsl));
     TestFixtures.grantRole(dsl, admin, "ADMIN");
-    locationService.create(admin, new CreateAgentLocationRequest("L1", null, 5));
+    runnerToken =
+        locationService
+            .create(admin, new CreateAgentLocationRequest("L1", null, 5))
+            .plaintextToken();
     agent = TestFixtures.activeMemberOfCurrentTenant(dsl, TestFixtures.createAgentNoToken(dsl));
     settingService.put(
         admin, agent, new PutAgentRuntimeSettingRequest("claude-code", null, Map.of(), null));
@@ -582,6 +589,59 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   }
 
   /**
+   * 보이는 칸은 그대로(차단은 관찰 generation 이라 화면 사유가 가려짐, 합친 상태도 그대로)인데 차단으로 적용 판정만 쉴 때 → 지금으로 바뀌면 화면 알림 한 번과
+   * runner 깨우기 한 번이 나간다(WP-2000).
+   */
+  @Test
+  void report_whenOnlyDecisionChanges_publishesOnce() throws Exception {
+    OffsetDateTime pod = OffsetDateTime.now().minusMinutes(5);
+    seedUnapplied(2, 1);
+    appEvents.clear();
+
+    report(key, blockedBody(pod, 1)).andExpect(status().isNoContent());
+
+    assertThat(runtimeEvents()).isEqualTo(1);
+    assertThat(desiredEvents()).isEqualTo(1);
+  }
+
+  /**
+   * OK 보고도 runner 판정(decide)이 쉴 때 → 지금으로 바뀌면 깨운다(WP-2000 코드 리뷰). Pod 를 만들지 못한 실패(FAILED·시작 시각 없음)라
+   * 화면 판정(pending)은 전후 모두 NOW 이므로 화면 알림은 나가지 않는다 — 깨우기는 decide, 화면은 pending 이라는 두 판정의 분리.
+   */
+  @Test
+  void reportOk_whenDecisionBecomesNow_wakesRunnerWithoutScreenNotice() throws Exception {
+    OffsetDateTime pod = OffsetDateTime.now().minusMinutes(5);
+    seedUnapplied(2, 1);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "FAILED")
+        .set(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT, pod.minusHours(1))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    // generation 을 싣지 않은 OK(옛 플러그인 보고)는 그대로 받는다.
+    report(key, "{\"state\":\"OK\",\"podStartedAt\":\"" + pod + "\"}")
+        .andExpect(status().isNoContent());
+
+    assertThat(desiredEvents()).isEqualTo(1);
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /** OK 가 차단을 지워 판정이 지금 → 쉴 때로 내려가면 화면 알림만 한 번 나가고 깨우지는 않는다(WP-2000). */
+  @Test
+  void reportOk_whenDecisionLeavesNow_publishesOnce() throws Exception {
+    OffsetDateTime pod = OffsetDateTime.now().minusMinutes(5);
+    seedUnapplied(2, 1);
+    seedBlock(1L, pod);
+    appEvents.clear();
+
+    report(key, okBody(pod, 1)).andExpect(status().isNoContent());
+
+    assertThat(runtimeEvents()).isEqualTo(1);
+    assertThat(desiredEvents()).isZero();
+  }
+
+  /**
    * 꺼 둔(STOP) AI 에게 온 지금 도는 Pod(관찰 generation)의 BLOCKED 는 받지 않는다(WP-1969) — 끝나는 중인 Pod 의 늦은 쓰기를
    * WP-1913 이 버리던 대로 둔다. 차단도 합친 칸도 runner 알림도 그대로다.
    */
@@ -680,8 +740,9 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
 
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
     assertThat(desiredEvents()).isEqualTo(1);
-    // 화면은 그대로다 — 옛 칸은 처음부터 합친 상태에 없었고 차단은 아직 앞 generation 이라 가려진다.
-    assertThat(runtimeEvents()).isZero();
+    // 보이는 칸은 그대로지만(옛 칸은 처음부터 합친 상태에 없었고 차단은 아직 앞 generation 이라 가려진다) 적용 판정이 쉴 때 → 지금으로 바뀌어 한 번
+    // 알린다(WP-2000).
+    assertThat(runtimeEvents()).isEqualTo(1);
   }
 
   /** 같은 컨테이너에서 일하는 칸이 남아 있으면 차단 보고가 와도 지금 적용으로 바뀌지 않아 runner 에 알리지 않는다(WP-1969). */
@@ -727,8 +788,8 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     report(key, okBody(t2, 1)).andExpect(status().isNoContent());
 
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
-    // 앞 generation 의 차단은 화면에서 이미 가려져 있었고, 지워도 지금 적용으로 바뀌지 않는다.
-    assertThat(runtimeEvents()).isZero();
+    // 앞 generation 의 차단은 화면에서 이미 가려져 있었지만, 지우면 적용 판정이 지금 → 쉴 때로 내려가 한 번 알린다(WP-2000). 깨우지는 않는다.
+    assertThat(runtimeEvents()).isEqualTo(1);
     assertThat(desiredEvents()).isZero();
   }
 
@@ -821,5 +882,76 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
                 .with(authentication(WebSessionAuth.of(admin, List.of()))))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.errors.code").value("AGENT_ONLY"));
+  }
+
+  /** 관리자 화면 응답을 읽는다 — 사람 인증으로 GET. */
+  private ResultActions adminGet() throws Exception {
+    useTenant(1L);
+    ResultActions r =
+        mvc.perform(
+            get("/api/v1/admin/agents/" + agent + "/runtime-setting")
+                .with(
+                    authentication(
+                        WebSessionAuth.of(
+                            admin, List.of(new SimpleGrantedAuthority("user:write"))))));
+    useTenant(1L);
+    return r;
+  }
+
+  /** runner 토큰으로 관찰 보고를 올린다. */
+  private void observe(long generation, String phase) throws Exception {
+    useTenant(1L);
+    mvc.perform(
+            post("/api/v1/agent-runtime/runner/observed")
+                .header("Authorization", "Bearer " + runnerToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"agents\":[{\"agentUserId\":"
+                        + agent
+                        + ",\"observedGeneration\":"
+                        + generation
+                        + ",\"phase\":\""
+                        + phase
+                        + "\"}]}"))
+        .andExpect(status().isOk());
+    useTenant(1L);
+  }
+
+  /**
+   * 저장 → 다시 만듦 → 새 generation 의 진입점 차단 보고 → runner 관찰 순서를 실제 요청으로 따라간다(WP-2000 최종 리뷰) — 차단 보고가 관찰보다
+   * 먼저 와도 「쉴 때 적용」·「지금 적용」이 아니라 오류(FAILED)만 보이고, 관찰이 따라온 뒤에도 같다.
+   */
+  @Test
+  void pendingApply_followsSaveRecreateBlockObserveSequence() throws Exception {
+    useTenant(1L);
+    long old = settingService.start(admin, agent).generation();
+    observe(old, "FAILED");
+
+    long next =
+        settingService
+            .put(
+                admin,
+                agent,
+                new PutAgentRuntimeSettingRequest(
+                    "claude-code", null, Map.of("model", "sonnet"), null))
+            .generation();
+    assertThat(next).isGreaterThan(old);
+    adminGet()
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingApply").value("NOW"))
+        .andExpect(jsonPath("$.status").value("STARTING"));
+
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"generation\":" + next + "}")
+        .andExpect(status().isNoContent());
+    adminGet()
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingApply").doesNotExist())
+        .andExpect(jsonPath("$.status").value("FAILED"));
+
+    observe(next, "RUNNING");
+    adminGet()
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingApply").doesNotExist())
+        .andExpect(jsonPath("$.status").value("FAILED"));
   }
 }

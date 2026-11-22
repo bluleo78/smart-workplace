@@ -415,6 +415,61 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
     assertThat(summaryOf(list, unassigned).get("locationName").asString()).isEqualTo("L2");
   }
 
+  /**
+   * 시작 실패 뒤 새 설정이 미뤄졌을 때(WP-2000) — 하던 일이 있으면 쉴 때까지 미루므로 목록은 FAILED, 같은 행에서 일이 없으면 바로 다시 뜨므로
+   * STARTING.
+   */
+  @Test
+  void summaries_whenFailureHeldUntilIdle_failed() throws Exception {
+    long working = fx.runningAgent(null);
+    long noWork = fx.runningAgent(null);
+    TenantContext.set(1L);
+    for (long a : List.of(working, noWork)) {
+      dsl.update(AGENT_RUNTIME_SETTING)
+          .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, fx.generationOf(a) - 1)
+          .set(AGENT_RUNTIME_SETTING.PHASE, "FAILED")
+          .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+          // 도는 Pod 가 있는 실패다 — Pod 가 없으면 하던 일이 있어도 바로 다시 뜬다(아래 별도 테스트).
+          .set(AGENT_RUNTIME_SETTING.STARTED_AT, OffsetDateTime.now().minusHours(1))
+          .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a))
+          .execute();
+    }
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(working))
+        .execute();
+
+    JsonNode list =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+
+    assertThat(summaryOf(list, working).get("status").asString()).isEqualTo("FAILED");
+    assertThat(summaryOf(list, noWork).get("status").asString()).isEqualTo("STARTING");
+  }
+
+  /**
+   * Pod 를 만들지 못한 실패(FAILED·시작 시각 없음)는 하던 일이 있어 보여도 목록이 STARTING 이다 — runner 가 바로 만든다(WP-2000 코드
+   * 리뷰).
+   */
+  @Test
+  void summaries_whenFailedWithoutPodAndWorking_starting() throws Exception {
+    long working = fx.runningAgent(null);
+    TenantContext.set(1L);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, fx.generationOf(working) - 1)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "FAILED")
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(working))
+        .execute();
+
+    JsonNode list =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+
+    assertThat(summaryOf(list, working).get("status").asString()).isEqualTo("STARTING");
+  }
+
   /** ADMIN 이 아니면 user:write 가 있어도 요약·프로젝트 API 를 부를 수 없다 — 403. */
   @Test
   void summariesAndProjects_whenNotAdmin_return403() throws Exception {
@@ -564,6 +619,49 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
 
     observed(agent, g, "FAILED", 250);
     assertThat(runtimeEvents()).hasSize(2);
+  }
+
+  /**
+   * 반영 못 한 설정(관찰 = generation-1)이 미뤄진 AI 를 만든다(WP-2000) — 지금 Pod 의 차단이 남아 있고 AI 상태는 비었지만 마지막 AI 보고
+   * 시각이 남아 하던 일을 가를 수 없다(쉴 때 적용). 새 Pod 로 보이는 관찰(phase STARTING)이 오면 그 보고 시각이 지워져 하던 일이 없는 것으로 바뀌어
+   * 판정만 NOW 로 바뀐다.
+   */
+  private long deferredWithStaleReport(String phase) {
+    long agent = fx.runningAgent(null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, fx.generationOf(agent) - 1)
+        .set(AGENT_RUNTIME_SETTING.PHASE, phase)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .set(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "시작 실패")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, fx.generationOf(agent) - 1)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    return agent;
+  }
+
+  /** 화면에 보이는 값은 그대로이고 적용 판정만 바뀌는 관찰도 화면에 한 번 알린다(WP-2000 — 판정이 상세 응답에 실린다). */
+  @Test
+  void observed_whenOnlyDecisionChanges_publishesOnce() throws Exception {
+    long agent = deferredWithStaleReport("STARTING");
+    appEvents.clear();
+
+    observed(agent, fx.generationOf(agent) - 1, "STARTING", 100);
+
+    assertThat(runtimeEvents()).hasSize(1);
+    assertThat(runtimeEvents().get(0).ids()).containsExactly(agent);
+  }
+
+  /** 보이는 값과 판정이 함께 바뀌어도 알림은 AI 당 한 번이다. */
+  @Test
+  void observed_whenVisibleAndDecisionBothChange_publishesOnce() throws Exception {
+    long agent = deferredWithStaleReport("RUNNING");
+    appEvents.clear();
+
+    observed(agent, fx.generationOf(agent) - 1, "STARTING", 100);
+
+    assertThat(runtimeEvents()).hasSize(1);
   }
 
   /** AI 상태 보고가 상태·이슈 키를 바꾸면 알리고, 같은 내용을 다시 보고하면 알리지 않는다. */

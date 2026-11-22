@@ -36,6 +36,18 @@ class AgentRuntimeStatusResolverTest {
     assertThat(resolve(RUN, 5, 4L, "FAILED")).isEqualTo(AgentRuntimeStatus.STARTING);
   }
 
+  /** 새 설정을 쉴 때로 미룬 실패(failureHeldUntilIdle)는 관찰이 뒤처져도 FAILED 로 둔다(WP-2000). */
+  @Test
+  void resolve_whenOlderFailureHeldUntilIdle_returnsFailed() {
+    assertThat(resolve(RUN, 4, 3L, "FAILED", null, true)).isEqualTo(AgentRuntimeStatus.FAILED);
+  }
+
+  /** 미루지 않은 옛 실패는 새 설정으로 뜨는 중이라 STARTING — 위와 값은 같고 플래그만 다르다(WP-2000). */
+  @Test
+  void resolve_whenOlderFailureNotHeld_returnsStarting() {
+    assertThat(resolve(RUN, 4, 3L, "FAILED", null, false)).isEqualTo(AgentRuntimeStatus.STARTING);
+  }
+
   /** 끄기를 원하고 아직 뜬 적 없거나 멈췄으면 OFF. */
   @Test
   void resolve_whenStopAndStoppedOrNeverStarted_returnsOff() {
@@ -78,27 +90,28 @@ class AgentRuntimeStatusResolverTest {
   /** 차단 메시지가 있으면 phase 가 무엇이든(시작 중·실행 중·관찰 없음) 가장 앞에서 FAILED 다(WP-1913). */
   @Test
   void 차단_메시지가_있으면_어떤_단계에서도_FAILED() {
-    assertThat(resolve(RUN, 3, 3L, "RUNNING", "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(RUN, 3, 3L, "RUNNING", "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.FAILED);
-    assertThat(resolve(RUN, 3, 3L, "STARTING", "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(RUN, 3, 3L, "STARTING", "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.FAILED);
-    assertThat(resolve(RUN, 3, null, null, "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(RUN, 3, null, null, "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.FAILED);
-    assertThat(resolve(RUN, 3, 3L, "FAILED", "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(RUN, 3, 3L, "FAILED", "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.FAILED);
   }
 
   /** 차단 메시지가 없으면(5인자 null·공백) 기존 규칙 그대로 계산된다(WP-1913). */
   @Test
   void 차단_메시지가_없으면_지금처럼_계산() {
-    assertThat(resolve(RUN, 5, 5L, "RUNNING", null)).isEqualTo(AgentRuntimeStatus.RUNNING);
-    assertThat(resolve(RUN, 5, 4L, "RUNNING", null)).isEqualTo(AgentRuntimeStatus.APPLY_PENDING);
-    assertThat(resolve(RUN, 3, 3L, "FAILED", null)).isEqualTo(AgentRuntimeStatus.FAILED);
-    assertThat(resolve(STOP, 3, 2L, "RUNNING", null)).isEqualTo(AgentRuntimeStatus.STOPPING);
-    assertThat(resolve(STOP, 4, 4L, "STOPPED", null)).isEqualTo(AgentRuntimeStatus.OFF);
-    assertThat(resolve(RUN, 2, null, null, null)).isEqualTo(AgentRuntimeStatus.STARTING);
+    assertThat(resolve(RUN, 5, 5L, "RUNNING", null, false)).isEqualTo(AgentRuntimeStatus.RUNNING);
+    assertThat(resolve(RUN, 5, 4L, "RUNNING", null, false))
+        .isEqualTo(AgentRuntimeStatus.APPLY_PENDING);
+    assertThat(resolve(RUN, 3, 3L, "FAILED", null, false)).isEqualTo(AgentRuntimeStatus.FAILED);
+    assertThat(resolve(STOP, 3, 2L, "RUNNING", null, false)).isEqualTo(AgentRuntimeStatus.STOPPING);
+    assertThat(resolve(STOP, 4, 4L, "STOPPED", null, false)).isEqualTo(AgentRuntimeStatus.OFF);
+    assertThat(resolve(RUN, 2, null, null, null, false)).isEqualTo(AgentRuntimeStatus.STARTING);
     // 공백만 있는 메시지는 없다고 본다(저장 검증이 공백을 막지만 읽기에서도 방어).
-    assertThat(resolve(RUN, 5, 5L, "RUNNING", "   ")).isEqualTo(AgentRuntimeStatus.RUNNING);
+    assertThat(resolve(RUN, 5, 5L, "RUNNING", "   ", false)).isEqualTo(AgentRuntimeStatus.RUNNING);
   }
 
   /**
@@ -107,9 +120,10 @@ class AgentRuntimeStatusResolverTest {
    */
   @Test
   void 끄기를_원하고_멈췄다면_차단이_있어도_OFF() {
-    assertThat(resolve(STOP, 4, 4L, "STOPPED", "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(STOP, 4, 4L, "STOPPED", "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.OFF);
-    assertThat(resolve(STOP, 4, null, null, "설정 오류로 칸을 못 띄웠어요")).isEqualTo(AgentRuntimeStatus.OFF);
+    assertThat(resolve(STOP, 4, null, null, "설정 오류로 칸을 못 띄웠어요", false))
+        .isEqualTo(AgentRuntimeStatus.OFF);
   }
 
   /**
@@ -118,11 +132,11 @@ class AgentRuntimeStatusResolverTest {
    */
   @Test
   void 끄는_중에는_차단이_먼저다() {
-    assertThat(resolve(STOP, 4, 3L, "STOPPING", "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(STOP, 4, 3L, "STOPPING", "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.FAILED);
-    assertThat(resolve(STOP, 4, 2L, "RUNNING", "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(STOP, 4, 2L, "RUNNING", "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.FAILED);
-    assertThat(resolve(STOP, 4, 4L, "STARTING", "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(STOP, 4, 4L, "STARTING", "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.FAILED);
   }
 
@@ -132,7 +146,7 @@ class AgentRuntimeStatusResolverTest {
    */
   @Test
   void 켜기를_원하고_멈췄다면_차단이_먼저다() {
-    assertThat(resolve(RUN, 4, 4L, "STOPPED", "설정 오류로 칸을 못 띄웠어요"))
+    assertThat(resolve(RUN, 4, 4L, "STOPPED", "설정 오류로 칸을 못 띄웠어요", false))
         .isEqualTo(AgentRuntimeStatus.FAILED);
   }
 

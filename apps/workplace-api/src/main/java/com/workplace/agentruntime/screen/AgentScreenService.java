@@ -142,7 +142,10 @@ public class AgentScreenService {
             r.generation(),
             r.observedGeneration(),
             r.phase(),
-            AgentRuntimeStatusResolver.currentPaneBlocked(r));
+            AgentRuntimeStatusResolver.currentPaneBlocked(r),
+            // phase FAILED 는 미룬 실패든 곧 다시 뜰 것이든 지금 실행 중이 아니다 — 어느 쪽이어도 허용하지 않으니 판정을 물을 필요가
+            // 없다(WP-2000).
+            false);
     return s == AgentRuntimeStatus.RUNNING || s == AgentRuntimeStatus.APPLY_PENDING;
   }
 

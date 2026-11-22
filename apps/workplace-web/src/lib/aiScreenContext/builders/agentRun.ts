@@ -20,13 +20,15 @@ export function agentRunEvidence(i: {
   /** 저장된 원하는 상태 — 오류인데 원하는 상태가 실행이면 「꺼짐」이 아니라 재시작 대상이라 실행 전 확인을 싣지 않는다. */
   desired?: AgentDesired | null;
   observed: AgentObservedState | null;
+  /** 시작 실패가 쉴 때까지 미뤄진 상태(WP-2000) — 실행 중처럼 일하던 AI 의 상태를 보이는 화면과 맞춘다. */
+  held?: boolean;
   blockReason: string | null;
 }): Array<[string, FactValue]> {
   const out: Array<[string, FactValue]> = [['실행 상태', statusPill(i.status, i.observed?.agentState).label]];
   if (i.status === 'FAILED' && i.observed?.message) out.push(['실패 사유', i.observed.message]);
-  // 화면(AgentStatusSection)과 같은 조건 — 실행 중일 때만 AI 상태를 보이고, 알약이 이미 「차단됨」이면 같은 말을 되풀이하지 않는다.
+  // 실행 중이거나 쉴 때로 미룬 실패(held, WP-2000)일 때만 AI 상태를 근거로 싣고, 알약이 이미 「차단됨」이면 같은 말을 되풀이하지 않는다.
   const pillLabel = out[0][1];
-  if (isRunningStatus(i.status) && i.observed?.agentState === 'BLOCKED' && pillLabel !== AGENT_STATE_LABEL.BLOCKED) {
+  if ((isRunningStatus(i.status) || i.held) && i.observed?.agentState === 'BLOCKED' && pillLabel !== AGENT_STATE_LABEL.BLOCKED) {
     out.push(['AI 상태', AGENT_STATE_LABEL.BLOCKED]);
   }
   // 화면의 `off`(실행 중도 아니고, 원하는 상태가 실행인 오류도 아니고, 종료 중도 아님)와 같은 판정 — 오류 + 원하는 상태 중지도 포함.

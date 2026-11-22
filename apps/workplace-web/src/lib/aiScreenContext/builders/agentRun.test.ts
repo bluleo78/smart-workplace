@@ -35,6 +35,15 @@ describe('agentRunEvidence', () => {
     ]);
   });
 
+  it('시작 실패를 쉴 때로 미룬 상태(held)면 오류여도 차단된 AI 상태를 싣고, held 가 아니면 싣지 않는다 (WP-2000)', () => {
+    const observed = { ...OBS, agentState: 'BLOCKED' as const };
+    expect(agentRunEvidence({ status: 'FAILED', desired: 'RUN', held: true, observed, blockReason: null })).toEqual([
+      ['실행 상태', '오류'],
+      ['AI 상태', '차단됨'],
+    ]);
+    expect(agentRunEvidence({ status: 'FAILED', desired: 'RUN', held: false, observed, blockReason: null })).toEqual([['실행 상태', '오류']]);
+  });
+
   it('실행 중이 아니면 AI 상태(차단)는 싣지 않는다 — 화면도 실행 중일 때만 보인다', () => {
     expect(agentRunEvidence({ status: 'OFF', observed: { ...OBS, agentState: 'BLOCKED' }, blockReason: null })).toEqual([['실행 상태', '종료됨']]);
   });

@@ -26,7 +26,7 @@ import { usernameHandle } from '@/lib/utils';
 import { useAgentRuntimeSetting, useAgentTemplates } from '../../hooks/queries/useAgentRuntime';
 import { useAgent } from '../../hooks/queries/useAgents';
 import { runModeCards } from '../../lib/agentRunMode';
-import { workResourceText } from '../../lib/agentRuntimeStatus';
+import { isFailureHeldUntilIdle, workResourceText } from '../../lib/agentRuntimeStatus';
 import type { AgentResponse } from '../../types/agent';
 import type { AgentRuntimeSetting, AgentTemplate } from '../../types/agentRuntime';
 import {
@@ -126,7 +126,7 @@ function AgentDetail({ agent, backButton }: { agent: AgentResponse; backButton: 
   // worksRun 이 null 이면(Works 가 실행하지 않음·실행 설정 403) 훅은 조회를 끄고, 근거도 싣지 않는다(받지 못한 값은 싣지 않는다).
   const { blockReason } = useAgentStartChecks(agent, worksRun);
   const runEvidence = worksRun
-    ? agentRunEvidence({ status: saved?.status ?? 'OFF', desired: saved?.desired ?? null, observed: saved?.observed ?? null, blockReason })
+    ? agentRunEvidence({ status: saved?.status ?? 'OFF', desired: saved?.desired ?? null, observed: saved?.observed ?? null, held: isFailureHeldUntilIdle(saved), blockReason })
     : [];
   return (
     <AgentDetailView

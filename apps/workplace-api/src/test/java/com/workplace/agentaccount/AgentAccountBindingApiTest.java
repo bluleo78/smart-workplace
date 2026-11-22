@@ -1,6 +1,7 @@
 package com.workplace.agentaccount;
 
 import static com.workplace.jooq.Tables.AGENT_ACCOUNT_BINDING;
+import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -12,18 +13,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.agentaccount.service.AgentAccountService;
+import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
+import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.support.WebSessionAuth;
 import com.workplace.wiki.service.WikiSpaceService;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
@@ -32,6 +40,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1448 AI → 계정 묶기 관리자 API 통합 테스트 — 작업 공간(Pod) AI 를 템플릿에 맞는 계정에 묶고(조회 포함), 실행 설정 없는 AI(409)·맞지 않는
@@ -48,6 +58,8 @@ class AgentAccountBindingApiTest extends IntegrationTestBase {
   @Autowired AgentAccountRepository accounts;
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired WikiSpaceService wikiSpaceService;
+  @Autowired AgentLocationService locationService;
+  @Autowired ObjectMapper om;
 
   private long admin;
 
@@ -201,5 +213,132 @@ class AgentAccountBindingApiTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(AGENT_ACCOUNT_BINDING, AGENT_ACCOUNT_BINDING.AGENT_USER_ID.eq(agent)))
         .isZero();
     call(delete("/api/v1/admin/agent-accounts/" + acc)).andExpect(status().isNoContent());
+  }
+
+  /**
+   * 계정 변경이 지금 적용되는지(WP-2000) — 상세 GET 의 {@code accountChangeAppliesNow} 가 기대값과 같고, 켜진 AI 는 실제로 계정을
+   * 바꾼 뒤 runner 의 desired {@code applyNow} 와도 같다(화면의 예고와 실제 적용이 한 판정이라는 계약). 인자는 이름, 꺼짐 여부, 관찰
+   * phase, AI 상태, 설정이 뒤처졌는지(걸려 있는 NOW 포함), 이미 반영된 NOW 인지(apply_mode NOW 인데 관찰 generation =
+   * generation), 기대값.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("rotationCases")
+  void accountChangeAppliesNow_matchesRotationDecision(
+      String name,
+      boolean stopped,
+      String phase,
+      String agentState,
+      boolean pendingNow,
+      boolean appliedNow,
+      boolean expected)
+      throws Exception {
+    useTenant(1L);
+    String runnerToken =
+        locationService
+            .create(admin, new CreateAgentLocationRequest("L1", null, 5))
+            .plaintextToken();
+    long agent = newAgent("claude-code");
+    if (!stopped) settingService.start(admin, agent);
+    long generation =
+        dsl.select(AGENT_RUNTIME_SETTING.GENERATION)
+            .from(AGENT_RUNTIME_SETTING)
+            .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+            .fetchOne(AGENT_RUNTIME_SETTING.GENERATION);
+    if (!stopped) {
+      dsl.update(AGENT_RUNTIME_SETTING)
+          .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, pendingNow ? generation - 1 : generation)
+          .set(AGENT_RUNTIME_SETTING.PHASE, phase)
+          .set(AGENT_RUNTIME_SETTING.AGENT_STATE, agentState)
+          .set(AGENT_RUNTIME_SETTING.APPLY_MODE, pendingNow || appliedNow ? "NOW" : "IDLE")
+          // 도는 Pod 가 있는 상태 — Pod 가 없는 실패는 runner 가 바로 만들어 따로 시험한다(WP-2000 코드 리뷰).
+          .set(AGENT_RUNTIME_SETTING.STARTED_AT, OffsetDateTime.now().minusHours(1))
+          .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+          .execute();
+    }
+
+    String body =
+        call(get("/api/v1/admin/agents/" + agent + "/runtime-setting"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    assertThat(om.readTree(body).get("accountChangeAppliesNow").asBoolean()).isEqualTo(expected);
+    if (stopped) return;
+
+    // 켜진 AI 는 실제로 계정을 바꿔 보고, runner 가 받는 applyNow 가 예고와 같은지 본다.
+    bind(agent, anthropicAccount()).andExpect(status().isOk());
+    useTenant(1L);
+    JsonNode desired =
+        om.readTree(
+            mvc.perform(
+                    get("/api/v1/agent-runtime/runner/desired")
+                        .header("Authorization", "Bearer " + runnerToken))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    useTenant(1L);
+    assertThat(desired.get("agents").get(0).get("applyNow").asBoolean()).isEqualTo(expected);
+  }
+
+  /**
+   * Pod 를 만들지 못한 실패(FAILED·시작 시각 없음)는 일하는 것으로 보여도 화면의 계정 변경 예고가 「바로 적용」이다 — runner 는 Pod 가 없으면 지금
+   * desired 로 만들기 때문이다(WP-2000 코드 리뷰). 반면 runner 응답 {@code applyNow} 는 일하는 AI 를 끊지 않도록 그대로 거짓이다.
+   */
+  @Test
+  void accountChangeAppliesNow_whenFailedWithoutPodAndWorking_trueButRunnerApplyNowFalse()
+      throws Exception {
+    useTenant(1L);
+    String runnerToken =
+        locationService
+            .create(admin, new CreateAgentLocationRequest("L1", null, 5))
+            .plaintextToken();
+    long agent = newAgent("claude-code");
+    settingService.start(admin, agent);
+    long generation =
+        dsl.select(AGENT_RUNTIME_SETTING.GENERATION)
+            .from(AGENT_RUNTIME_SETTING)
+            .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+            .fetchOne(AGENT_RUNTIME_SETTING.GENERATION);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, generation)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "FAILED")
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .setNull(AGENT_RUNTIME_SETTING.STARTED_AT)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    String body =
+        call(get("/api/v1/admin/agents/" + agent + "/runtime-setting"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    assertThat(om.readTree(body).get("accountChangeAppliesNow").asBoolean()).isTrue();
+
+    bind(agent, anthropicAccount()).andExpect(status().isOk());
+    useTenant(1L);
+    JsonNode desired =
+        om.readTree(
+            mvc.perform(
+                    get("/api/v1/agent-runtime/runner/desired")
+                        .header("Authorization", "Bearer " + runnerToken))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    useTenant(1L);
+    assertThat(desired.get("agents").get(0).get("applyNow").asBoolean()).isFalse();
+  }
+
+  static Stream<Arguments> rotationCases() {
+    return Stream.of(
+        Arguments.of("쉬는 중", false, "RUNNING", "IDLE", false, false, true),
+        Arguments.of("일하는 중", false, "RUNNING", "WORKING", false, false, false),
+        Arguments.of("관찰 실패 + 일 없음", false, "FAILED", null, false, false, true),
+        Arguments.of("관찰 실패 + 일함", false, "FAILED", "WORKING", false, false, false),
+        Arguments.of("꺼짐", true, null, null, false, false, true),
+        Arguments.of("걸려 있는 NOW", false, "RUNNING", "WORKING", true, false, true),
+        Arguments.of("이미 반영된 NOW + 일함", false, "RUNNING", "WORKING", false, true, false));
   }
 }

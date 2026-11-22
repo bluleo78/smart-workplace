@@ -1,5 +1,6 @@
 package com.workplace.agentruntime.service;
 
+import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.agentruntime.dto.AgentPaneReportRequest;
 import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.Desired;
@@ -44,12 +45,14 @@ public class AgentPaneReportService {
   private final AgentSlotStateWriter slotWriter;
   private final RunnerWakeup wakeup;
   private final AgentApiKeyService agentKeys;
+  private final AgentRuntimeProperties properties;
 
   /**
    * 칸 차단 보고 처리. 순서: 본문 검증(state 는 BLOCKED·OK 만) → 메시지에서 제어 문자 정제(아래 {@link #sanitizeMessage} — 정제 뒤
    * 공백뿐이면 400) → 테넌트 없으면 조용히 return → 설정 행을 잠가 읽고(없으면 조용히 return) generation 거르기({@link
    * #acceptableGeneration}) → 옛 Pod 보고 거르기 → message·시각 기록(OK 면 칸 비움) → BLOCKED 면 칸 합침({@link
-   * #mergeSlotsOnBlock}) → 미뤄 둔 generation 이 지금 적용이 되면 runner 깨움 → 보이는 값이 바뀌면 관리자 화면에 알림.
+   * #mergeSlotsOnBlock}) → 미뤄 둔 generation 이 지금 적용이 되면(runner 판정 decide) runner 깨움 → 보이는 값이나 화면 적용
+   * 판정(pending)이 바뀌면 관리자 화면에 알림.
    *
    * <p>500자 상한은 매개변수 바인딩({@code @Size})에서 이미 먼저 검증된다 — 검증을 통과한 값을 정제하므로, 정제가 길이를 늘리지 않는 한 500자를 넘는
    * 값은 저장될 수 없고, 정제는 제어 문자를 같은 수의 공백으로 바꾸고 앞뒤를 떼기만 하므로 길이가 늘지 않는다.
@@ -107,19 +110,24 @@ public class AgentPaneReportService {
     // 이번 보고로 올라간 뒤의 보고 Pod 시작 — 칸 합치기와 화면 판정이 같은 값을 쓴다(WP-1958).
     OffsetDateTime raisedPodStart =
         AgentRuntimeSlotRepository.laterOf(before.reportedPodStartedAt(), pod);
-    // OK 는 칸을 합치지 않고, 아래 깨움·상태 변화 판정도 BLOCKED 에서만 한다(WP-1969).
+    // OK 는 칸을 합치지 않고, 아래 상태 변화 판정만 한다(WP-1969).
     Row merged = blocked ? mergeSlotsOnBlock(userId, before, raisedPodStart, now) : before;
-    // 이 보고로 미뤄 둔 generation 이 지금 적용으로 바뀌면 runner 를 한 번 깨운다(WP-1969).
-    // 보고 전(before)과 최종 저장 행(merged — 차단·올라간 Pod 시작·합친 AI 상태 반영)의 판정을 견준다.
-    // 이미 지금 적용이던 AI 나 거듭된 같은 보고는 전이가 아니라 알리지 않는다.
+    // 이 보고로 미뤄 둔 generation 이 지금 적용으로 바뀌면 runner 를 한 번 깨운다(WP-1969) — BLOCKED 든 OK 든 같다.
+    // 보고 전(before)과 최종 저장 행(BLOCKED 는 merged — 차단·올라간 Pod 시작·합친 AI 상태 반영, OK 는 칸 차단을 지운 뒤 행)의
+    // runner 판정(decide)을 견준다. 이미 지금 적용이던 AI 나 거듭된 같은 보고는 전이가 아니라 알리지 않는다.
     // 같은 컨테이너가 아직 일하면(WORKING 칸이 남음) 지금 적용이 되지 않아 알리지 않는다.
     // 꺼 둔 AI 는 깨우지 않는다 — desired 가 RUN 일 때만 알린다.
-    if (blocked && before.desired() == Desired.RUN && before.hasUnappliedGeneration()) {
+    // 화면 알림은 따로 화면이 읽는 판정(pending)의 전후로 본다(WP-2000) — 상세 응답이 그 판정을 싣는다.
+    boolean decisionChanged = false;
+    if (before.desired() == Desired.RUN && before.hasUnappliedGeneration()) {
       long tenantId = TenantContext.get();
       ManagedKeyChain keys = agentKeys.managedChain(userId, tenantId);
-      boolean wasNow = RolloutPolicy.decide(before, keys, now) == RolloutPolicy.Decision.NOW;
-      boolean isNow = RolloutPolicy.decide(merged, keys, now) == RolloutPolicy.Decision.NOW;
-      if (!wasNow && isNow) wakeup.publishChanged(tenantId, merged.locationId());
+      Row after = blocked ? merged : settings.find(userId).orElse(before);
+      decisionChanged =
+          RolloutPolicy.pendingChanged(before, after, keys, now, properties.slotStaleAfter());
+      if (RolloutPolicy.becameNow(before, after, keys, now, properties.slotStaleAfter())) {
+        wakeup.publishChanged(tenantId, after.locationId());
+      }
     }
     // 화면에 보이는 것(「오류」+사유)이 실제로 바뀔 때만 알린다 — 바뀌는 기준은 저장 원문이 아니라,
     // 읽을 때 화면에 합치는 AgentRuntimeStatusResolver.currentPaneBlocked 이다.
@@ -140,7 +148,8 @@ public class AgentPaneReportService {
     // 같은 메시지의 거듭된 보고(진입점 재시도)는 보이는 값이 그대로라 알리지 않는다(변경 알림 계약: 바뀐 것이 없으면 보지 않는다).
     // 합쳐 쓴 AI 상태가 바뀐 경우(WP-1969)도 같은 한 번의 알림이다.
     boolean stateChanged = blocked && VisibleRuntimeState.of(before).differsFrom(merged);
-    if (!Objects.equals(visibleBefore, visibleAfter) || stateChanged) {
+    // 판정이 바뀐 경우(WP-2000)도 같은 한 번의 알림이다.
+    if (!Objects.equals(visibleBefore, visibleAfter) || stateChanged || decisionChanged) {
       changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, userId, null);
     }
   }

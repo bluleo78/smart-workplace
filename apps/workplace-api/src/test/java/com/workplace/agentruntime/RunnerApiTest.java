@@ -14,11 +14,14 @@ import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
+import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.auth.service.AgentApiKeyService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -33,6 +36,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -51,6 +56,7 @@ import tools.jackson.databind.ObjectMapper;
  * 쓰인다 — 그래서 runner 호출 전마다 토큰의 테넌트로 {@code useTenant} 를 맞춘다(실제 요청에서는 필터가 토큰의 테넌트로 세운다).
  */
 @Transactional
+@RecordApplicationEvents
 class RunnerApiTest extends IntegrationTestBase {
 
   private static final String BASE = "/api/v1/agent-runtime/runner";
@@ -64,6 +70,7 @@ class RunnerApiTest extends IntegrationTestBase {
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired AgentApiKeyService keyService;
   @Autowired AgentRuntimeSlotRepository slots;
+  @Autowired ApplicationEvents appEvents;
 
   private long admin;
   private AgentRuntimeTestFixtures fx;
@@ -213,6 +220,103 @@ class RunnerApiTest extends IntegrationTestBase {
         .set(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT, at)
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
         .execute();
+  }
+
+  /** runner 가 관찰한 phase 와 지금 Pod 시작 시각을 직접 맞춘다(WP-2000) — 시작 실패(FAILED) 판정용. */
+  private void setPhase(long agent, String phase, OffsetDateTime startedAt) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PHASE, phase)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, startedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /** 새 설정이 미뤄졌는데 도는 Pod 의 시작 실패를 runner 가 관찰했고 하던 일이 없으면(상태·보고 시각 없음) 기다리지 않고 바로 적용한다(WP-2000). */
+  @Test
+  void desired_whenObservedFailedAndNoWork_applyNowTrue() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, null, "IDLE");
+    setPhase(a1, "FAILED", null);
+    assertThat(applyNowOfA1()).isTrue();
+  }
+
+  /** 상태가 비고 남은 보고가 지금 Pod 시작보다 30초 넘게 앞서면 옛 Pod 의 일이라 하던 일이 없는 것으로 본다(WP-2000). */
+  @Test
+  void desired_whenObservedFailedAndWorkReportOfOlderPod_applyNowTrue() throws Exception {
+    OffsetDateTime started = OffsetDateTime.now().minusMinutes(5);
+    setObserved(a1, fx.generationOf(a1) - 1, null, "IDLE");
+    setPhase(a1, "FAILED", started);
+    setReportedAt(a1, started.minusSeconds(31));
+    assertThat(applyNowOfA1()).isTrue();
+  }
+
+  /** 시작 실패라도 AI 가 일하는 중(WORKING)이면 끊지 않는다(WP-2000). */
+  @Test
+  void desired_whenObservedFailedAndAgentWorking_applyNowFalse() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, "WORKING", "IDLE");
+    setPhase(a1, "FAILED", null);
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /**
+   * 일하던 Pod 가 같은 Pod 로 실패(CrashLoop)하면 칸을 다시 합치지 않아 저장 상태가 WORKING 으로 남는다 — 일하는 컨테이너는 턴마다 보고하므로 보고가
+   * slot-stale-after(6시간)보다 오래됐으면 일이 없는 것으로 보고 바로 적용한다(WP-2000).
+   */
+  @Test
+  void desired_whenObservedFailedAndWorkReportOlderThanStaleAfter_applyNowTrue() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, "WORKING", "IDLE");
+    setPhase(a1, "FAILED", null);
+    setReportedAt(a1, OffsetDateTime.now().minusHours(7));
+    assertThat(applyNowOfA1()).isTrue();
+  }
+
+  /** 같은 상황이라도 WORKING 보고가 방금이면 일하는 중으로 보아 끊지 않는다(WP-2000). */
+  @Test
+  void desired_whenObservedFailedAndRecentWorkReport_applyNowFalse() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, "WORKING", "IDLE");
+    setPhase(a1, "FAILED", null);
+    setReportedAt(a1, OffsetDateTime.now());
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /** 이슈에서 막힌(BLOCKED) 상태도 진행 중인 일이라 끊지 않는다(WP-2000). */
+  @Test
+  void desired_whenObservedFailedAndAgentBlockedOnIssue_applyNowFalse() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, "BLOCKED", "IDLE");
+    setPhase(a1, "FAILED", null);
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /**
+   * 상태가 비고 남은 보고만 있는데(최근 것) Pod 시작 시각을 모르면 그 보고가 옛 Pod 것인지 알 수 없어 기다린다(WP-2000). 오래된 보고는 상한 규칙이 따로
+   * 다룬다.
+   */
+  @Test
+  void desired_whenObservedFailedAndLeftoverReportWithoutPodStart_applyNowFalse() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, null, "IDLE");
+    setPhase(a1, "FAILED", null);
+    setReportedAt(a1, OffsetDateTime.now().minusMinutes(5));
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /**
+   * 남은 보고가 slot-stale-after(6시간)보다 오래되면 Pod 시작 시각을 몰라도 하던 일이 없다고 본다 — 보고가 그만큼 끊긴 AI 를 계속 기다리지 않도록
+   * 하는 WP-2000 상한.
+   */
+  @Test
+  void desired_whenObservedFailedAndExpiredLeftoverReportWithoutPodStart_applyNowTrue()
+      throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, null, "IDLE");
+    setPhase(a1, "FAILED", null);
+    setReportedAt(a1, OffsetDateTime.now().minusHours(7));
+    assertThat(applyNowOfA1()).isTrue();
+  }
+
+  /** 지금 generation 을 반영한 뒤의 실패는 미룬 설정이 없다 — 바로 적용할 것도 없다(WP-2000). */
+  @Test
+  void desired_whenObservedFailedAtCurrentGeneration_applyNowFalse() throws Exception {
+    setObserved(a1, fx.generationOf(a1), null, "IDLE");
+    setPhase(a1, "FAILED", null);
+    assertThat(applyNowOfA1()).isFalse();
   }
 
   /** 차단 기록이 없으면 AI 상태가 없어도 기다린다 — 평소 동작 그대로(WP-1969). */
@@ -690,5 +794,167 @@ class RunnerApiTest extends IntegrationTestBase {
   @Test
   void observed_rejectsNegativeQuotaCapacity() throws Exception {
     observed(t1, "{\"agents\":[],\"quota\":{\"capacity\":-1}}").andExpect(status().isBadRequest());
+  }
+
+  // ---- WP-2000: 관찰만으로 적용 판정이 NOW 로 바뀌면 runner 를 깨운다 ----
+
+  /** runner 를 깨운 횟수(AgentRuntimeDesiredChanged) — SSE 로 「오지 않음」을 기다려 세지 않는다. */
+  private long wakeups() {
+    return appEvents.stream(AgentRuntimeDesiredChanged.class).count();
+  }
+
+  /** 반영하지 않은 설정이 쉴 때 적용으로 미뤄져 있고(관찰 generation = generation-1, RUNNING) 하던 일이 없는 상태로 맞춘다. */
+  private void deferredIdle(long agent) {
+    setObserved(agent, fx.generationOf(agent) - 1, null, "IDLE");
+  }
+
+  private String failedReport(long agent, long generation, String message) {
+    return "{\"agents\":[{\"agentUserId\":"
+        + agent
+        + ",\"observedGeneration\":"
+        + generation
+        + ",\"phase\":\"FAILED\",\"message\":\""
+        + message
+        + "\"}]}";
+  }
+
+  /** 미뤄 둔 설정이 있고 일이 없는 AI 의 컨테이너가 시작에 실패했다고 관찰되면 runner 를 한 번 깨운다. */
+  @Test
+  void observed_whenFailureMakesApplyNow_wakesRunnerOnce() throws Exception {
+    deferredIdle(a1);
+    appEvents.clear();
+
+    observed(t1, failedReport(a1, fx.generationOf(a1) - 1, "ErrImagePull"))
+        .andExpect(status().isOk());
+
+    assertThat(wakeups()).isEqualTo(1);
+  }
+
+  /**
+   * FAILED·WORKING 인 채 보고만 오래돼 가다가 마지막 관찰 뒤 slot-stale-after 상한을 넘으면, 내용이 같은 다음 관찰 보고(60초 틱)도 판정이
+   * 시간만으로 바뀐 것을 잡아 runner 를 한 번 깨운다(WP-2000). 「전」은 직전 관찰 시각(observed_at)으로 판정한다.
+   */
+  @Test
+  void observed_whenWorkReportExpiresWithoutOtherChange_wakesRunnerOnce() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, "WORKING", "IDLE");
+    setPhase(a1, "FAILED", null);
+    OffsetDateTime now = OffsetDateTime.now();
+    // 보고는 6시간 30초 전 — 직전 관찰(60초 전) 시각엔 아직 상한 안, 지금은 상한 밖이다. 관찰 시각은 마지막에 맞춘다.
+    setReportedAt(a1, now.minusHours(6).minusSeconds(30));
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_AT, now.minusSeconds(60))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
+        .execute();
+    appEvents.clear();
+
+    observed(t1, failedReport(a1, fx.generationOf(a1) - 1, "CrashLoopBackOff"))
+        .andExpect(status().isOk());
+
+    assertThat(wakeups()).isEqualTo(1);
+    assertThat(applyNowOfA1()).isTrue();
+  }
+
+  /** 한 보고에서 AI 둘이 NOW 가 돼도 깨우기는 보고당 한 번이다. */
+  @Test
+  void observed_whenSeveralAgentsBecomeNow_wakesRunnerOncePerReport() throws Exception {
+    long a4 = fx.runningAgent(null);
+    deferredIdle(a1);
+    deferredIdle(a4);
+    appEvents.clear();
+
+    String body =
+        "{\"agents\":[{\"agentUserId\":"
+            + a1
+            + ",\"observedGeneration\":"
+            + (fx.generationOf(a1) - 1)
+            + ",\"phase\":\"FAILED\"},{\"agentUserId\":"
+            + a4
+            + ",\"observedGeneration\":"
+            + (fx.generationOf(a4) - 1)
+            + ",\"phase\":\"FAILED\"}]}";
+    observed(t1, body).andExpect(status().isOk());
+
+    assertThat(wakeups()).isEqualTo(1);
+  }
+
+  /** 이미 FAILED 로 NOW 였던 AI 는 실패 메시지만 바뀌어도 다시 깨우지 않는다. */
+  @Test
+  void observed_whenFailedMessageChangesOnly_doesNotWakeAgain() throws Exception {
+    deferredIdle(a1);
+    long g = fx.generationOf(a1) - 1;
+    observed(t1, failedReport(a1, g, "ErrImagePull")).andExpect(status().isOk());
+    appEvents.clear();
+
+    observed(t1, failedReport(a1, g, "ImagePullBackOff")).andExpect(status().isOk());
+
+    assertThat(wakeups()).isZero();
+  }
+
+  /** 하던 일이 있으면(WORKING) 실패로 관찰돼도 끊지 않아 깨우지 않는다. */
+  @Test
+  void observed_whenFailedButWorking_doesNotWake() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, "WORKING", "IDLE");
+    appEvents.clear();
+
+    observed(t1, failedReport(a1, fx.generationOf(a1) - 1, "CrashLoopBackOff"))
+        .andExpect(status().isOk());
+
+    assertThat(wakeups()).isZero();
+  }
+
+  /**
+   * 하던 일이 있는 AI 의 Pod 를 만들지 못한 실패(FAILED·시작 시각 없음)는 화면 판정(pending)이 쉴 때 → 지금으로 바뀌므로 화면 알림은 한 번
+   * 나가지만, runner 판정(decide)은 일하는 AI 를 끊지 않아 그대로라 깨우지 않는다(WP-2000 코드 리뷰). 깨우기와 화면 알림이 서로 다른 판정을 읽는다.
+   */
+  @Test
+  void observed_whenFailedWithoutPodButWorking_noticesScreenButDoesNotWake() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, "WORKING", "IDLE");
+    appEvents.clear();
+
+    observed(t1, failedReport(a1, fx.generationOf(a1) - 1, "ErrImagePull"))
+        .andExpect(status().isOk());
+
+    assertThat(wakeups()).isZero();
+    assertThat(
+            appEvents.stream(ResourceChangedEvent.class)
+                .filter(e -> AgentRuntimeChangeNotifier.RESOURCE_AGENT_RUNTIME.equals(e.resource()))
+                .count())
+        .isEqualTo(1);
+  }
+
+  /** 반영하지 않은 generation 이 없으면(관찰 = generation) 실패해도 할 일이 없어 깨우지 않는다. */
+  @Test
+  void observed_whenFailedAtUnappliedNone_doesNotWake() throws Exception {
+    setObserved(a1, fx.generationOf(a1), null, "IDLE");
+    appEvents.clear();
+
+    observed(t1, failedReport(a1, fx.generationOf(a1), "ErrImagePull")).andExpect(status().isOk());
+
+    assertThat(wakeups()).isZero();
+  }
+
+  /**
+   * 이 보고가 현재 키의 교체 generation 을 확인하면 옛 키가 정리 유예로 줄지만, 「전」 판정은 줄이기 전 키 사슬로 해야 한다 — 줄인 뒤 사슬로 보면 옛 키가
+   * 곧 만료라 이미 NOW 였던 것처럼 보여 깨우기를 놓친다.
+   */
+  @Test
+  void observed_whenFailureConfirmsRotatedKey_wakesRunner() throws Exception {
+    long g = fx.generationOf(a1);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.GENERATION, g + 3)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
+        .execute();
+    long gen4 = g + 3;
+    long gen3 = g + 2;
+    long gen2 = g + 1;
+    setObserved(a1, gen2, null, "IDLE");
+    keyService.issueManaged(a1, 1L, null, null, "L1");
+    keyService.issueManaged(a1, 1L, gen3, null, "L1");
+    appEvents.clear();
+
+    observed(t1, failedReport(a1, gen3, "ErrImagePull")).andExpect(status().isOk());
+
+    assertThat(gen4).isGreaterThan(gen3);
+    assertThat(wakeups()).isEqualTo(1);
   }
 }

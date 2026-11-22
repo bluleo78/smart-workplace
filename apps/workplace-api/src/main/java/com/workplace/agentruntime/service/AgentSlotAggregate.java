@@ -88,7 +88,15 @@ public record AgentSlotAggregate(
 
   /** 마지막 보고가 {@code now - staleAfter} 이후인(살아 있는) 칸만. */
   private static List<Slot> fresh(List<Slot> slots, OffsetDateTime now, Duration staleAfter) {
-    OffsetDateTime cutoff = now.minus(staleAfter);
-    return slots.stream().filter(s -> !s.reportedAt().isBefore(cutoff)).toList();
+    return slots.stream().filter(s -> !isStale(s.reportedAt(), now, staleAfter)).toList();
+  }
+
+  /**
+   * 보고 시각이 {@code now - staleAfter} 보다 앞서(경계 시각은 아직 살아 있음) 「죽은 보고」인지 — 칸 합치기({@code fresh})와 적용 판정(
+   * RolloutPolicy)이 같은 기준으로 죽은 보고를 가르게 한 곳에 둔다.
+   */
+  public static boolean isStale(
+      OffsetDateTime reportedAt, OffsetDateTime now, Duration staleAfter) {
+    return reportedAt.isBefore(now.minus(staleAfter));
   }
 }
