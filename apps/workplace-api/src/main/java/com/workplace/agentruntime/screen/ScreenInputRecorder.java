@@ -7,6 +7,7 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -17,6 +18,10 @@ import java.util.List;
  *
  * <p>세션당 {@link #CAP_BYTES} 까지만 기록한다. 넘으면 그 앞까지만 남기고 표시 행 {@link #CAP_MARKER} 를 한 번 내보낸 뒤 기록을
  * 멈춘다(중계는 호출자가 계속한다). 한 프레임 끝에서 잘린 UTF-8 글자는 다음 꺼내기까지 남겨 깨지지 않게 한다.
+ *
+ * <p>봉인(WP-2014): 마지막 꺼내기({@code drain(true)}) 뒤에는 {@link #append} 가 false 를 돌려주고 아무것도 더하지 않는다 — 닫는
+ * 순간 도착한 입력이 마지막 꺼내기 뒤에 버퍼에 남아 조용히 사라지는 일을 호출자가 알 수 있게 한다. 되돌려 넣기: DB 쓰기에 실패한 덩어리는 {@link #requeue}
+ * 로 돌려놓아 다음 꺼내기의 맨 앞에서 순서 그대로 다시 나가게 한다.
  */
 final class ScreenInputRecorder {
 
@@ -31,9 +36,20 @@ final class ScreenInputRecorder {
   private boolean capped;
   private boolean markerPending;
 
-  /** 넘긴 입력을 버퍼에 더한다. 상한을 넘으면 남는 만큼만 받고 이후는 버린다. */
-  synchronized void append(byte[] data) {
-    if (capped) return;
+  /** 저장에 실패해 되돌려 넣은 덩어리 — 다음 꺼내기 때 새 덩어리보다 먼저 나간다. */
+  private final ArrayDeque<String> requeued = new ArrayDeque<>();
+
+  /** 마지막 꺼내기를 마쳤는지 — true 면 더 받지 않는다. */
+  private boolean sealed;
+
+  /**
+   * 넘긴 입력을 버퍼에 더한다. 상한을 넘으면 남는 만큼만 받고 이후는 버린다.
+   *
+   * @return 봉인됐으면 false(아무것도 더하지 않음). 그 밖에는 true — 상한 뒤라 기록하지 않아도 true 이며 호출자는 중계를 계속한다.
+   */
+  synchronized boolean append(byte[] data) {
+    if (sealed) return false;
+    if (capped) return true;
     long room = CAP_BYTES - recorded;
     int take = (int) Math.min(room, data.length);
     pending.write(data, 0, take);
@@ -42,16 +58,36 @@ final class ScreenInputRecorder {
       capped = true;
       markerPending = true;
     }
+    return true;
+  }
+
+  /**
+   * 저장에 실패한 덩어리를 다음 꺼내기의 맨 앞에 순서 그대로 되돌려 놓는다.
+   *
+   * @return 이미 봉인됐으면 false(받지 않음 — 호출자가 처리), 아니면 true.
+   */
+  synchronized boolean requeue(List<String> chunks) {
+    if (sealed) return false;
+    // 앞쪽에 순서대로 끼우려면 거꾸로 addFirst 한다(이미 되돌려 둔 것이 있으면 그보다도 앞).
+    for (int i = chunks.size() - 1; i >= 0; i--) {
+      requeued.addFirst(chunks.get(i));
+    }
+    return true;
   }
 
   /**
    * 지금까지 모은 것을 저장할 글자 덩어리로 꺼낸다(없으면 빈 목록). {@code finalFlush} 가 아니면 끝에서 잘린 UTF-8 글자는 남겨 둔다. 상한에 막
-   * 닿았으면 표시 행이 뒤에 붙는다.
+   * 닿았으면 표시 행이 뒤에 붙는다. 되돌려 넣은 덩어리가 있으면 그것이 맨 앞에 먼저 나온다. {@code finalFlush} 면 꺼낸 뒤 봉인한다.
    */
   synchronized List<String> drain(boolean finalFlush) {
     // 보기 전용 화면은 매초 빈 버퍼다 — 복사하지 않고 끝낸다.
-    if (pending.size() == 0 && !markerPending) return List.of();
-    List<String> out = new ArrayList<>(2);
+    if (pending.size() == 0 && !markerPending && requeued.isEmpty()) {
+      if (finalFlush) sealed = true;
+      return List.of();
+    }
+    List<String> out = new ArrayList<>(requeued.size() + 2);
+    out.addAll(requeued);
+    requeued.clear();
     byte[] bytes = pending.toByteArray();
     int cut = (finalFlush || markerPending) ? bytes.length : completeLength(bytes);
     if (cut > 0) {
@@ -63,6 +99,7 @@ final class ScreenInputRecorder {
       out.add(CAP_MARKER);
       markerPending = false;
     }
+    if (finalFlush) sealed = true;
     return out;
   }
 
