@@ -39,10 +39,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.TreeMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -100,11 +102,12 @@ public class AiStatusOverviewService {
       samples.add(parse(s));
     }
     List<Parsed> prevEndSamples = new ArrayList<>();
+    // 직전 기간 끝 무렵은 [from−10분, from) 반열린 구간 — 경계 표본을 함께 세면 현재 기간 구간 표본과 겹친다(WP-1831 리뷰).
     for (AiCapacitySample s : sampleRepo.findBetween(from.minus(RECENT_SAMPLE), from)) {
       prevEndSamples.add(parse(s));
     }
     Optional<Parsed> latest = sampleRepo.findLatestSince(now.minus(RECENT_SAMPLE)).map(this::parse);
-    // findBetween 이 [from−10분, from] 으로 이미 거르고 오름차순으로 주므로 마지막 한 건이 그 구간의 최신 표본이다.
+    // findBetween 이 [from−10분, from) 으로 이미 거르고 오름차순으로 주므로 마지막 한 건이 그 구간의 최신 표본이다.
     Parsed prevEnd = lastOf(prevEndSamples);
 
     Metrics metrics =
@@ -165,10 +168,15 @@ public class AiStatusOverviewService {
     return Instant.ofEpochSecond(t.getEpochSecond() - off);
   }
 
-  /** 기간 첫 구간부터 지금 구간까지 모든 구간 시작 시각. */
+  /** 기간 첫 구간부터 지금 바로 앞 구간까지의 모든 구간 시작 시각. */
   private static List<Instant> axis(Instant from, Instant now, Duration bucket) {
     List<Instant> out = new ArrayList<>();
     Instant last = binStart(now, bucket);
+    // now 가 구간 경계에 정확히 놓이면 그 경계에서 시작하는 구간에는 기간([from, now)) 행이 하나도 없어
+    // 축 끝에 빈 칸이 하나 더 붙는다 — 경계 구간은 빼고 바로 앞 구간까지 둔다.
+    if (!last.isBefore(now)) {
+      last = last.minus(bucket);
+    }
     for (Instant t = binStart(from, bucket); !t.isAfter(last); t = t.plus(bucket)) {
       out.add(t);
     }
@@ -392,29 +400,67 @@ public class AiStatusOverviewService {
   /** 표본의 JSON 칸을 풀어 둔다. 모양이 틀린 항목은 건너뛴다(관리 화면이 깨지지 않게). */
   private Parsed parse(AiCapacitySample s) {
     List<AccountUsagePoint> accounts = new ArrayList<>();
-    JsonNode arr = objectMapper.readTree(s.accountUsageJson());
+    JsonNode arr = readJson(s.accountUsageJson());
     if (arr != null && arr.isArray()) {
       for (JsonNode a : arr) {
-        if (a.hasNonNull("accountId") && a.hasNonNull("window") && a.hasNonNull("usedPercent")) {
-          accounts.add(
-              new AccountUsagePoint(
-                  a.get("accountId").asLong(),
-                  a.hasNonNull("label") ? a.get("label").asString() : "",
-                  a.get("window").asString(),
-                  a.get("usedPercent").asDouble()));
+        AccountUsagePoint p = accountPoint(a);
+        if (p != null) {
+          accounts.add(p);
         }
       }
     }
     Map<String, Integer> backlog = new LinkedHashMap<>();
-    JsonNode obj = objectMapper.readTree(s.backlogJson());
+    JsonNode obj = readJson(s.backlogJson());
     if (obj != null && obj.isObject()) {
       for (Map.Entry<String, JsonNode> e : obj.properties()) {
-        if (e.getValue().isNumber()) {
+        // int 범위 밖 값도 asInt() 가 예외를 던진다 — 같은 이유로 건너뛴다.
+        if (e.getValue().isNumber() && e.getValue().canConvertToInt()) {
           backlog.put(e.getKey(), e.getValue().asInt());
         }
       }
     }
     return new Parsed(s.sampledAt().toInstant(), s, accounts, backlog);
+  }
+
+  /**
+   * 계정 사용률 항목 하나 — 모양이 틀리면 null(그 항목만 건너뛴다). accountId 는 정수 long 범위, usedPercent 는 유한 실수만 받는다.
+   * Jackson 3 의 {@code asLong()}·{@code asDouble()} 은 범위 밖 값에서 예외를 던지므로 표본 속 큰 수 하나가 개요 응답 전체를 500
+   * 으로 만들기 때문이다(WP-1831 리뷰 ④). SQL 쪽 {@link AiStatusQueryRepository#account5hBuckets} 와 같은 기준으로
+   * 거른다.
+   */
+  private static AccountUsagePoint accountPoint(JsonNode a) {
+    JsonNode id = a.get("accountId");
+    JsonNode pct = a.get("usedPercent");
+    if (id == null || pct == null || !a.hasNonNull("window")) {
+      return null;
+    }
+    if (!id.isIntegralNumber() || !id.canConvertToLong()) {
+      return null;
+    }
+    if (!pct.isNumber()) {
+      return null;
+    }
+    OptionalDouble used = pct.doubleValueOpt();
+    if (used.isEmpty() || !Double.isFinite(used.getAsDouble())) {
+      return null;
+    }
+    return new AccountUsagePoint(
+        id.asLong(),
+        a.hasNonNull("label") ? a.get("label").asString() : "",
+        a.get("window").asString(),
+        used.getAsDouble());
+  }
+
+  /** 표본 JSON 칸을 푼다. JSON 이 깨졌으면 null — 표본 하나가 개요 응답을 500 으로 만들지 않기 위해 예외를 밖으로 넘기지 않는다. */
+  private JsonNode readJson(String json) {
+    if (json == null || json.isBlank()) {
+      return null;
+    }
+    try {
+      return objectMapper.readTree(json);
+    } catch (JacksonException e) {
+      return null;
+    }
   }
 
   /** 시각 오름차순 표본 목록의 마지막(없으면 null). 구간 경계는 조회 시 이미 걸러졌으므로 여기서 다시 보지 않는다. */

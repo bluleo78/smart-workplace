@@ -52,11 +52,14 @@ public class AiCapacitySampleRepository {
         .fetchOptional(AiCapacitySampleRepository::toSample);
   }
 
-  /** [from, to] 구간 표본을 시각 오름차순으로 돌려준다(양 끝 포함 — 호출자가 구간 경계를 정한다). */
+  /**
+   * {@code [from, to)} 구간 표본을 시각 오름차순으로 돌려준다(위쪽은 미포함 — 반열린 구간). 위쪽을 포함하면 기간 경계(`from`)에 정확히 놓인 표본이
+   * 직전 기간과 현재 기간에 한 번씩 들어가 두 번 세어진다(WP-1831 리뷰).
+   */
   public List<AiCapacitySample> findBetween(Instant from, Instant to) {
     return dsl.selectFrom(AI_CAPACITY_SAMPLE)
         .where(AI_CAPACITY_SAMPLE.SAMPLED_AT.ge(utc(from)))
-        .and(AI_CAPACITY_SAMPLE.SAMPLED_AT.le(utc(to)))
+        .and(AI_CAPACITY_SAMPLE.SAMPLED_AT.lt(utc(to)))
         .orderBy(AI_CAPACITY_SAMPLE.SAMPLED_AT.asc())
         .fetch(AiCapacitySampleRepository::toSample);
   }

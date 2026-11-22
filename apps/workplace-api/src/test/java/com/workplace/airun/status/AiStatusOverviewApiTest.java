@@ -342,6 +342,114 @@ class AiStatusOverviewApiTest extends AiStatusTestSupport {
     assertThat(o.kinds().get(0).lastFailure()).isNotNull();
   }
 
+  /**
+   * 계정 표본의 accountId 가 소수·큰 수여도 개요가 실패하지 않는다 — 형식에 맞지 않는 항목은 건너뛰고 정상 항목만 남는다(WP-1831 리뷰 ④). 형식 검사가
+   * 없으면 `::bigint` 오류로 이 쿼리 전체가 실패해 응답이 500 이 된다.
+   */
+  @Test
+  void overview_malformedAccountIdSample_skippedInsteadOf500() {
+    Instant at = ago(now, Duration.ofMinutes(5)).truncatedTo(ChronoUnit.MINUTES);
+    sample(
+        at,
+        3,
+        5,
+        2,
+        null,
+        "[{\"accountId\":1.5,\"label\":\"소수\",\"window\":\"5h\",\"usedPercent\":50.0}]",
+        "{}");
+    sample(
+        at.plusSeconds(1),
+        4,
+        5,
+        3,
+        null,
+        "[{\"accountId\":99999999999999999999999999,\"label\":\"큰수\",\"window\":\"5h\","
+            + "\"usedPercent\":60.0}]",
+        "{}");
+    sample(
+        at.plusSeconds(2),
+        5,
+        5,
+        4,
+        null,
+        "[{\"accountId\":7,\"label\":\"정상\",\"window\":\"5h\",\"usedPercent\":70.0}]",
+        "{}");
+
+    var o = overview(AiStatusPeriod.H24);
+
+    assertThat(o.series().account5h()).hasSize(1);
+    assertThat(o.series().account5h().get(0).accountId()).isEqualTo(7L);
+    assertThat(o.series().account5h().get(0).label()).isEqualTo("정상");
+  }
+
+  /** 기간 경계(`from`)에 정확히 놓인 용량 표본은 한 번만 센다 — 직전 기간 마지막 표본으로도, 현재 기간 구간 표본으로도(WP-1831 리뷰 ⑤ 반열림). */
+  @Test
+  void overview_sampleExactlyAtFrom_countedOnlyInCurrentPeriod() {
+    Instant from = now.minus(Duration.ofHours(24));
+    sample(
+        from,
+        3,
+        5,
+        2,
+        1900,
+        "[{\"accountId\":7,\"label\":\"A\",\"window\":\"5h\",\"usedPercent\":40.0}]",
+        "{\"MAIL_CLASSIFY\":4}");
+
+    var o = overview(AiStatusPeriod.H24);
+
+    // 직전 기간 끝 표본으로는 쓰이지 않는다(이전에는 경계 포함이라 여기에도 잡혔다).
+    assertThat(o.metrics().slotUsage().previous()).isNull();
+    int i =
+        o.series().buckets().indexOf(AiStatusOverviewService.binStart(from, Duration.ofHours(1)));
+    assertThat(i).isNotNegative();
+    assertThat(o.series().slotUsed().get(i)).isEqualTo(3);
+    assertThat(o.series().queueWaiting().get(i)).isEqualTo(2);
+    assertThat(o.series().backlog().get("MAIL_CLASSIFY").get(i)).isEqualTo(4);
+    assertThat(o.series().account5h()).hasSize(1);
+    assertThat(o.series().account5h().get(0).values().get(i)).isEqualTo(40.0);
+  }
+
+  /** 기간 끝(`now`)에 정확히 놓인 용량 표본은 구간 시계열에 들어가지 않는다 — 반열린 구간의 끝 쪽(WP-1831 리뷰 ⑤). */
+  @Test
+  void overview_sampleExactlyAtNow_excludedFromSeries() {
+    sample(
+        now,
+        4,
+        6,
+        3,
+        1800,
+        "[{\"accountId\":8,\"label\":\"B\",\"window\":\"5h\",\"usedPercent\":66.0}]",
+        "{\"MAIL_CLASSIFY\":7}");
+
+    var o = overview(AiStatusPeriod.H24);
+
+    // 시계열 구간 조회는 [from, to) — 구간 끝 표본은 어느 칸에도 들어가지 않는다(이전에는 경계 포함이라 들어갔다).
+    assertThat(o.series().slotUsed()).containsOnly((Integer) null);
+    assertThat(o.series().queueWaiting()).containsOnly((Integer) null);
+    assertThat(o.series().backlog()).isEmpty();
+    assertThat(o.series().account5h()).isEmpty();
+    // 반면 「최근 표본」으로 보는 현재 사용률에는 그대로 나온다 — 그 쪽은 상한이 없다.
+    assertThat(o.usage().slotUsed()).isEqualTo(4);
+    assertThat(o.usage().accounts()).hasSize(1);
+    assertThat(o.usage().accounts().get(0).usedPercent5h()).isEqualTo(66.0);
+  }
+
+  /** 기준 시각이 구간 경계에 놓으면 축 끝에 데이터 없는 빈 칸이 하나 더 붙지 않는다(WP-1831 리뷰 ⑥). */
+  @Test
+  void overview_noEmptyTrailingBucketWhenNowOnBoundary() {
+    Instant boundary = Instant.parse("2026-11-22T12:00:00Z");
+    TenantContext.set(1L);
+    var o = service.overview(AiStatusPeriod.H24, boundary);
+
+    assertThat(o.throughput().buckets()).hasSize(24);
+    assertThat(o.series().buckets()).hasSameSizeAs(o.throughput().buckets());
+    assertThat(o.throughput().buckets().get(23)).isBefore(boundary);
+    assertThat(o.throughput().buckets().get(0))
+        .isEqualTo(
+            AiStatusOverviewService.binStart(
+                boundary.minus(Duration.ofHours(24)), Duration.ofHours(1)));
+  }
+
   // ------------------------------------------------------------------ HTTP·권한·RLS
 
   @Test
