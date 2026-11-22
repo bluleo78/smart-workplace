@@ -70,7 +70,8 @@ public class JsonErrorReportValve extends ErrorReportValve {
       // 맞지 않는 Accept 의 본문 없는 406(WP-1601) — 앱 처리기와 같은 문구.
       case 406 -> GlobalExceptionHandler.NOT_ACCEPTABLE_MESSAGE;
       case 408 -> "요청 시간이 초과되었습니다. 다시 시도해 주세요.";
-      case 413 -> "요청이 너무 큽니다.";
+      // 앱이 매개변수 한도 초과로 내는 413 과 같은 문구 — 한 상수로 모아 갈라지지 않게 한다(WP-1949 리뷰 후속).
+      case 413 -> GlobalExceptionHandler.PAYLOAD_TOO_LARGE_MESSAGE;
       case 414 -> "요청 주소가 너무 깁니다. 검색어 등 입력을 줄여 다시 시도해 주세요.";
       case 431 -> "요청 머리글이 너무 큽니다.";
       case 503 -> "서버를 잠시 사용할 수 없습니다. 잠시 뒤 다시 시도해 주세요.";

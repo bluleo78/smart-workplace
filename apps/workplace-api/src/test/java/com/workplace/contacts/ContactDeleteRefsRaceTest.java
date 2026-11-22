@@ -22,12 +22,6 @@ import com.workplace.user.service.UserGroupService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -125,74 +119,12 @@ class ContactDeleteRefsRaceTest extends IntegrationTestBase {
             .and(USER_GROUP_MEMBER.TARGET_ID.eq(contactId)));
   }
 
-  /**
-   * first 를 트랜잭션 안에서 실행하고 커밋 전에 멈춘 뒤 second 를 보내, second 가 그 잠금을 기다리는 것을 확인한 뒤 first 를 커밋시킨다.
-   * second 의 결과(값 또는 예외)를 돌려준다.
-   */
-  private Object race(Runnable first, Callable<Object> second) throws Exception {
-    CountDownLatch firstDone = new CountDownLatch(1);
-    CountDownLatch release = new CountDownLatch(1);
-    ExecutorService pool = Executors.newFixedThreadPool(2);
-    try {
-      Future<?> f1 =
-          pool.submit(
-              () -> {
-                TenantContext.set(1L);
-                try {
-                  new TransactionTemplate(txManager)
-                      .executeWithoutResult(
-                          st -> {
-                            first.run();
-                            firstDone.countDown();
-                            // 커밋 전에 멈춰 잠금을 쥔 채 second 가 그 잠금을 기다릴 때까지 둔다.
-                            // 상한은 main 의 잠금 대기 확인(최대 10초)보다 넉넉히 — 놓아 주기 전에 먼저 풀려 순서가 바뀌지 않게.
-                            try {
-                              if (!release.await(30, TimeUnit.SECONDS)) {
-                                throw new AssertionError("release 신호가 오지 않았다");
-                              }
-                            } catch (InterruptedException e) {
-                              Thread.currentThread().interrupt();
-                              throw new AssertionError(e);
-                            }
-                          });
-                } finally {
-                  TenantContext.clear();
-                }
-              });
-      // first 가 커밋 전 멈춤에 닿지 못했으면(예외·지연) 순서를 보장할 수 없다 — 결과를 버리지 않고 그 이유로 실패한다(WP-1647).
-      if (!firstDone.await(30, TimeUnit.SECONDS)) {
-        if (f1.isDone()) f1.get();
-        throw new AssertionError("first 가 커밋 전 멈춤에 닿지 못했다");
-      }
-      Future<Object> f2 =
-          pool.submit(
-              () -> {
-                TenantContext.set(1L);
-                try {
-                  return second.call();
-                } catch (Exception e) {
-                  return e;
-                } finally {
-                  TenantContext.clear();
-                }
-              });
-      // second 가 first 의 잠금을 실제로 기다리는 상태가 된 뒤에 first 를 커밋시킨다 — sleep 으로 가정하면 부하에서 순서가
-      // 어긋난다(WP-1646·1647).
-      RowLockWaits.awaitLockWaiter(f2);
-      release.countDown();
-      f1.get(20, TimeUnit.SECONDS);
-      return f2.get(20, TimeUnit.SECONDS);
-    } finally {
-      release.countDown();
-      pool.shutdownNow();
-      pool.awaitTermination(30, TimeUnit.SECONDS);
-    }
-  }
-
   @Test
   void 삭제가_먼저면_나중_즐겨찾기는_404이고_행이_남지_않는다() throws Exception {
     Object r =
-        race(
+        RowLockWaits.race(
+            txManager,
+            1L,
             () -> contactService.delete(owner, contactId),
             () -> {
               contactService.addFavorite(other, new FavoriteRequest("EXTERNAL", contactId));
@@ -205,7 +137,9 @@ class ContactDeleteRefsRaceTest extends IntegrationTestBase {
   @Test
   void 즐겨찾기가_먼저면_삭제가_그_행까지_지운다() throws Exception {
     Object r =
-        race(
+        RowLockWaits.race(
+            txManager,
+            1L,
             () -> contactService.addFavorite(other, new FavoriteRequest("EXTERNAL", contactId)),
             () -> {
               contactService.delete(owner, contactId);
@@ -218,7 +152,9 @@ class ContactDeleteRefsRaceTest extends IntegrationTestBase {
   @Test
   void 삭제가_먼저면_나중_그룹_편입은_400이고_행이_남지_않는다() throws Exception {
     Object r =
-        race(
+        RowLockWaits.race(
+            txManager,
+            1L,
             () -> contactService.delete(owner, contactId),
             () ->
                 groupService.addMember(
@@ -230,7 +166,9 @@ class ContactDeleteRefsRaceTest extends IntegrationTestBase {
   @Test
   void 그룹_편입이_먼저면_삭제가_그_행까지_지운다() throws Exception {
     Object r =
-        race(
+        RowLockWaits.race(
+            txManager,
+            1L,
             () ->
                 groupService.addMember(other, groupId, new AddMemberRequest("EXTERNAL", contactId)),
             () -> {

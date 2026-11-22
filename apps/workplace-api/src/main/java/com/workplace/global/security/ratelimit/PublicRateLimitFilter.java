@@ -221,8 +221,9 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
   private static void rejectInvalidParameter(
       HttpServletRequest request, HttpServletResponse response, InvalidParameterException ex)
       throws IOException {
-    InvalidParameterResponses.Decision d = InvalidParameterResponses.decide(ex);
-    writeError(request, response, d.status(), d.message());
+    InvalidParameterResponses.Cause c =
+        InvalidParameterResponses.reject(log, "공개 경로 필터", request, ex);
+    writeError(request, response, c.status(), c.message());
   }
 
   /** 앱 공통 형식({@link ErrorResponse})의 한국어 JSON 오류 본문을 쓴다. */

@@ -21,6 +21,8 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.Record2;
+import org.jooq.SelectConditionStep;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.jooq.impl.SQLDataType;
@@ -286,15 +288,34 @@ public class ContactRepository {
   /** update/delete 권한 판정용 경량 조회 결과. */
   public record OwnerVisibility(long ownerId, String visibility) {}
 
-  /** owner_id + visibility 만 조회(없으면 empty). 권한 체크 전용. */
+  /** owner_id + visibility 만 조회(없으면 empty). 권한 체크 전용 — 잠금 없음. */
   public Optional<OwnerVisibility> findOwnerVisibility(long id) {
+    return ownerVisibilityQuery(id).fetchOptional(ContactRepository::toOwnerVisibility);
+  }
+
+  /**
+   * {@link #findOwnerVisibility} 와 같은 조회에 {@code SELECT … FOR NO KEY UPDATE} 행 잠금을 건다(WP-1951) —
+   * 수정·삭제가 읽기·병합·쓰기 사이에 겹치지 않도록 같은 연락처의 쓰기를 직렬화한다. 키를 바꾸지 않는 UPDATE/DELETE 직렬화에는 FOR UPDATE 보다 약한 이
+   * 잠금이면 충분하다(MessageRepository·ChannelRepository 관례). 즐겨찾기·그룹 편입이 거는 공유 잠금({@link #lockExternal},
+   * FOR SHARE)과는 서로 기다린다.
+   *
+   * <p>잠금은 트랜잭션이 끝날 때까지 유지되므로 호출부가 트랜잭션 안에 있어야 의미가 있다(트랜잭션 밖이면 조회 직후 풀린다).
+   */
+  public Optional<OwnerVisibility> lockOwnerVisibility(long id) {
+    return ownerVisibilityQuery(id)
+        .forNoKeyUpdate()
+        .fetchOptional(ContactRepository::toOwnerVisibility);
+  }
+
+  /** owner_id + visibility 조회문 — 잠금 여부만 다른 두 조회가 함께 쓴다. */
+  private SelectConditionStep<Record2<Long, String>> ownerVisibilityQuery(long id) {
     return dsl.select(CONTACT_ENTRY.OWNER_ID, CONTACT_ENTRY.VISIBILITY)
         .from(CONTACT_ENTRY)
-        .where(CONTACT_ENTRY.ID.eq(id))
-        .fetchOptional(
-            r ->
-                new OwnerVisibility(
-                    r.get(CONTACT_ENTRY.OWNER_ID), r.get(CONTACT_ENTRY.VISIBILITY)));
+        .where(CONTACT_ENTRY.ID.eq(id));
+  }
+
+  private static OwnerVisibility toOwnerVisibility(Record2<Long, String> r) {
+    return new OwnerVisibility(r.value1(), r.value2());
   }
 
   /**

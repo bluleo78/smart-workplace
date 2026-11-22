@@ -1295,9 +1295,10 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(InvalidParameterException.class)
   public ResponseEntity<ErrorResponse> handleInvalidParameter(
       InvalidParameterException ex, HttpServletRequest request) {
-    InvalidParameterResponses.Decision d = InvalidParameterResponses.decide(ex);
-    return ResponseEntity.status(d.status())
-        .body(buildError(d.status(), d.message(), null, request));
+    InvalidParameterResponses.Cause c =
+        InvalidParameterResponses.reject(log, "전역 핸들러", request, ex);
+    return ResponseEntity.status(c.status())
+        .body(buildError(c.status(), c.message(), null, request));
   }
 
   /**
@@ -1334,6 +1335,12 @@ public class GlobalExceptionHandler {
 
   /** 406(맞지 않는 Accept) 안내 문구 — 처리기와 Tomcat 오류 밸브가 같은 문구를 쓰도록 한 곳에 둔다(WP-1601). */
   public static final String NOT_ACCEPTABLE_MESSAGE = "지원하지 않는 응답 형식입니다. Accept 헤더를 확인해 주세요.";
+
+  /**
+   * 요청이 한도를 넘은 413 의 고정 안내 — 앱의 매개변수 한도 초과(InvalidParameterResponses)와 컨테이너 단계
+   * 413(JsonErrorReportValve)이 함께 써서 두 문구가 갈라지지 않게 한다(WP-1949 리뷰 후속).
+   */
+  public static final String PAYLOAD_TOO_LARGE_MESSAGE = "요청이 너무 큽니다. 보내는 내용을 줄여 다시 시도해 주세요.";
 
   /**
    * 요청 Accept 가 매핑의 {@code produces}(SSE·HTML 등 고정 형식)와 맞지 않음(WP-1601) → 406. 처리기가 없어 catch-all 이

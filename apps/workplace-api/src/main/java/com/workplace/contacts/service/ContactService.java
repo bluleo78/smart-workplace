@@ -21,6 +21,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.user.outbound.AgentDeleted;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -125,6 +126,10 @@ public class ContactService {
    *
    * <p>생략(null) 필드는 현재 값을 유지하고, 빈 문자열은 비운다(저장 시 null 정규화). 현재 행과 병합한 전체 값으로 저장한다.
    *
+   * <p>행 잠금으로 같은 연락처에 대한 동시 수정끼리 직렬화한다 — 읽기·병합·쓰기 경합으로 앞 요청 변경이 덮이던 것(WP-1951). 권한 판정을 통과한 뒤에 잠가,
+   * 나중 요청은 앞 요청 커밋을 기다렸다가 최신 행 위에서 병합·중복 판정을 한다. 서로 다른 연락처를 동시에 같은 이름+이메일로 만들거나 고치는 경합은 이 잠금이 막지
+   * 않는다(WP-1952 범위).
+   *
    * <p>create 와 동일한 소프트 중복 경고 규칙(자기 자신은 제외) — 판정은 **병합 후** 이름+이메일로 한다. 요청 원문으로 판정하면 전화번호만 고치는
    * 요청(name=null)이 중복 검사를 건너뛰거나, 이메일만 바꿔 기존 연락처와 겹치는 경우를 놓친다.
    */
@@ -133,8 +138,9 @@ public class ContactService {
       long callerId, long id, UpdateExternalContactRequest req, boolean force) {
     // ADMIN 여부는 권한 판정과 현재 행 조회에 모두 쓰이므로 한 번만 계산한다.
     boolean admin = permissionChecker.userHasRole(callerId, "ADMIN");
-    var before = requireWritable(callerId, id, admin);
-    // requireWritable 통과 = owner 또는 ADMIN 이므로 현재 행은 반드시 보인다.
+    // 권한 판정 통과 뒤 행을 잠가 이후 읽기·병합·쓰기가 다른 수정과 겹치지 않게 한다. 반환값은 잠근 뒤의 값이다.
+    var before = requireWritableLocked(callerId, id, admin);
+    // 쓰기 권한 판정 통과 = owner 또는 ADMIN 이므로 현재 행은 반드시 보인다.
     ExternalContactDetail cur =
         repo.findExternal(callerId, admin, id)
             .orElseThrow(() -> new ContactNotFoundException("EXTERNAL", id));
@@ -166,10 +172,14 @@ public class ContactService {
     return requested != null ? requested : current;
   }
 
-  /** 외부 연락처 삭제. update 와 동일한 권한 규칙. */
+  /**
+   * 외부 연락처 삭제. update 와 동일한 권한 규칙·같은 행 잠금 — 겹친 수정(PERSONAL→SHARED)이 커밋된 뒤의 visibility 로 알림 범위를 정해야
+   * 다른 구성원에게 삭제가 전파된다(WP-1951).
+   */
   @Transactional
   public void delete(long callerId, long id) {
-    var ov = requireWritable(callerId, id);
+    boolean admin = permissionChecker.userHasRole(callerId, "ADMIN");
+    var ov = requireWritableLocked(callerId, id, admin);
     repo.delete(id);
     notifier.contactChanged(
         ResourceChangedEvent.OP_DELETED, id, ov.ownerId(), isShared(ov.visibility()), callerId);
@@ -230,17 +240,31 @@ public class ContactService {
 
   /**
    * 쓰기 권한 판정 — 읽기 격리와 일치: 미존재→404, PERSONAL & 비-owner & 비-admin→404(존재 은닉), SHARED & 비-owner &
-   * 비-admin→403.
+   * 비-admin→403. 행 잠금 없음(사전검증·잠금 전 1차 판정용).
    */
   private ContactRepository.OwnerVisibility requireWritable(long callerId, long id) {
-    return requireWritable(callerId, id, permissionChecker.userHasRole(callerId, "ADMIN"));
+    return judgeWritable(
+        callerId,
+        id,
+        permissionChecker.userHasRole(callerId, "ADMIN"),
+        repo.findOwnerVisibility(id));
   }
 
-  /** ADMIN 여부를 이미 계산한 호출부(update)용 — 역할 조회를 중복하지 않는다. */
-  private ContactRepository.OwnerVisibility requireWritable(long callerId, long id, boolean admin) {
-    var ov =
-        repo.findOwnerVisibility(id)
-            .orElseThrow(() -> new ContactNotFoundException("EXTERNAL", id));
+  /**
+   * 권한 판정 뒤에 행을 잠그는 2단계 판정(WP-1951). 먼저 잠금 없이 판정해 쓰기 권한 없는 호출자는 잠금을 잡거나 기다리지 않고 404/403 으로 즉시
+   * 끝낸다(PERSONAL 존재 은닉·타이밍 노출 방지). 통과하면 잠금 조회로 다시 읽어 같은 판정을 한 번 더 한다 — 잠금 대기 중 소유자·visibility 가
+   * 바뀌었거나 삭제됐을 수 있다(삭제됐으면 404). 반환값은 잠근 뒤의 값이다.
+   */
+  private ContactRepository.OwnerVisibility requireWritableLocked(
+      long callerId, long id, boolean admin) {
+    judgeWritable(callerId, id, admin, repo.findOwnerVisibility(id));
+    return judgeWritable(callerId, id, admin, repo.lockOwnerVisibility(id));
+  }
+
+  /** 조회 결과로 쓰기 권한을 판정한다(미존재 404 · 존재 은닉 404 · 403). */
+  private static ContactRepository.OwnerVisibility judgeWritable(
+      long callerId, long id, boolean admin, Optional<ContactRepository.OwnerVisibility> found) {
+    var ov = found.orElseThrow(() -> new ContactNotFoundException("EXTERNAL", id));
     if (ov.ownerId() == callerId || admin) return ov;
     if ("PERSONAL".equals(ov.visibility())) {
       throw new ContactNotFoundException("EXTERNAL", id); // 존재 은닉

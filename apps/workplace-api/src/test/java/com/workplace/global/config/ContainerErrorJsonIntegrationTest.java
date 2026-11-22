@@ -3,7 +3,6 @@ package com.workplace.global.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.exception.GlobalExceptionHandler;
-import com.workplace.global.exception.InvalidParameterResponses;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.support.IntegrationTestBase;
 import java.io.InputStream;
@@ -120,15 +119,17 @@ class ContainerErrorJsonIntegrationTest extends IntegrationTestBase {
     }
   }
 
-  private void assertInvalidParam400(Raw res) throws Exception {
+  /** 깨진 % 인코딩의 안내 문구 — 리터럴로 고정한다(WP-1949): 문구가 바뀌면 테스트가 실패하도록 운영 코드의 값을 쓰지 않는다. */
+  private static final String PERCENT_MSG =
+      "요청 매개변수의 퍼센트(%) 인코딩이 올바르지 않습니다. 특수문자 %는 %25 로 인코딩해 주세요.";
+
+  /** 매개변수 디코딩 실패 400 — Tomcat 영어 원문 없이 앱 공통 형식의 한국어 문구(원인별)인지. */
+  private void assertInvalidParam400(Raw res, String expectedMessage) throws Exception {
     assertThat(res.status()).as(res.body()).isEqualTo(400);
     assertThat(res.body()).doesNotContain("Character decoding").doesNotContain("debug level");
     JsonNode body = om.readTree(res.body().substring(res.body().indexOf('{')));
     assertThat(body.get("status").asInt()).isEqualTo(400);
-    assertThat(body.get("message").asString())
-        .isEqualTo(
-            "요청 주소의 매개변수 인코딩이 올바르지 않습니다. 특수문자(%)는 %25 로 인코딩해 주세요."); // 리터럴 고정(WP-1949): 문구가 바뀌면
-    // 테스트가 실패하도록 상수를 쓰지 않는다
+    assertThat(body.get("message").asString()).isEqualTo(expectedMessage);
   }
 
   private String token() {
@@ -143,9 +144,33 @@ class ContainerErrorJsonIntegrationTest extends IntegrationTestBase {
   @Test
   void 깨진_퍼센트_인코딩_쿼리는_한국어_JSON_400() throws Exception {
     String t = token();
-    assertInvalidParam400(rawGet("/api/v1/projects?search=100%", t));
-    assertInvalidParam400(rawGet("/api/v1/projects?search=%zz", t));
-    assertInvalidParam400(rawGet("/api/v1/projects?search=%%%%%%", t));
+    assertInvalidParam400(rawGet("/api/v1/projects?search=100%", t), PERCENT_MSG);
+    assertInvalidParam400(rawGet("/api/v1/projects?search=%zz", t), PERCENT_MSG);
+    assertInvalidParam400(rawGet("/api/v1/projects?search=%%%%%%", t), PERCENT_MSG);
+  }
+
+  /**
+   * % 인코딩은 맞지만 풀어 낸 바이트가 UTF-8 이 아니면(%FF 등) %25 안내가 아니라 UTF-8 안내 400 이어야 한다(WP-1949 리뷰 후속 — 원인별
+   * 문구).
+   */
+  @Test
+  void UTF8_이_아닌_바이트는_UTF8_안내_400() throws Exception {
+    assertInvalidParam400(
+        rawGet("/api/v1/projects?search=%FF%FE", token()),
+        "요청 매개변수에 UTF-8 로 읽을 수 없는 문자가 있습니다. 매개변수를 UTF-8 로 인코딩해 보내 주세요.");
+  }
+
+  /** 폼 본문의 깨진 % 인코딩도 같은 %25 안내 — 문구에 「주소」가 없어 본문에서 온 매개변수에도 맞다(WP-1949 리뷰 후속). */
+  @Test
+  void 폼_본문의_깨진_퍼센트_인코딩도_400_과_퍼센트_안내() throws Exception {
+    HttpRequest req =
+        HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/projects"))
+            .header("Authorization", "Bearer " + token())
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString("search=%zz"))
+            .build();
+    HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+    assertInvalidParam400(new Raw(res.statusCode(), res.body()), PERCENT_MSG);
   }
 
   @Test
@@ -161,22 +186,24 @@ class ContainerErrorJsonIntegrationTest extends IntegrationTestBase {
    */
   @Test
   void 필터가_먼저_읽는_공개_경로는_컨트롤러에_닿지_않고_한국어_JSON_400() throws Exception {
-    assertInvalidParam400(rawGet("/api/v1/public/drive/share/zzzz/preview?start=true&x=%zz", null));
+    assertInvalidParam400(
+        rawGet("/api/v1/public/drive/share/zzzz/preview?start=true&x=%zz", null), PERCENT_MSG);
   }
 
   /** 깨진 매개변수가 start 앞에 와도 같다(파싱 순서 무관). */
   @Test
   void 깨진_매개변수가_start_앞에_와도_공개_경로는_400() throws Exception {
-    assertInvalidParam400(rawGet("/api/v1/public/drive/share/zzzz/preview?x=%zz&start=true", null));
+    assertInvalidParam400(
+        rawGet("/api/v1/public/drive/share/zzzz/preview?x=%zz&start=true", null), PERCENT_MSG);
   }
 
   /**
-   * 매개변수 개수 초과(Tomcat 기본 한도 10000)는 디코딩 문제가 아니므로 %25 안내가 아닌 일반 안내 400 이어야 한다. 쿼리스트링으로는 요청 줄
-   * 한도(8KB)에 먼저 걸려 폼 본문(POST)으로 보낸다.
+   * 매개변수 개수 초과(Tomcat maxParameterCount 기본 한도 1000 — 이 앱은 바꾸지 않는다)는 디코딩 문제가 아니므로 %25 안내가 아닌 일반 안내
+   * 400 이어야 한다. 쿼리스트링으로는 요청 줄 한도(8KB)에 먼저 걸려 폼 본문(POST)으로 보낸다. 한도 바로 위인 1001개를 보낸다.
    */
   @Test
   void 매개변수_개수_초과는_일반_안내_400() throws Exception {
-    String form = "a&".repeat(10_001);
+    String form = "a&".repeat(1_001);
     HttpRequest req =
         HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/projects"))
             .header("Authorization", "Bearer " + token())
@@ -188,6 +215,6 @@ class ContainerErrorJsonIntegrationTest extends IntegrationTestBase {
     JsonNode body = om.readTree(res.body());
     assertThat(body.get("message").asString())
         .isEqualTo("요청 매개변수를 처리할 수 없습니다. 매개변수 개수와 형식을 확인해 주세요.")
-        .isNotEqualTo(InvalidParameterResponses.INVALID_ENCODING_MESSAGE);
+        .isNotEqualTo(PERCENT_MSG);
   }
 }
