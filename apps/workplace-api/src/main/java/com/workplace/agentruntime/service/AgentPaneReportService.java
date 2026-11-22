@@ -73,7 +73,7 @@ public class AgentPaneReportService {
     // 옛 Pod 의 늦은 보고는 지금 generation 이 아니라서 버린다(WP-1913 리뷰 반려 ①).
     // 새 generation 이 뜬 뒤에 온 옛 Pod 의 차단이 지금 사유를 덮거나, 옛 OK 가 지금 차단을 지우면 안 된다.
     // 보고는 최선 노력이라 조용히 204 로 끝낸다.
-    // 예외는 쉴 때 적용이 미뤄진 동안 지금 도는 Pod 의 BLOCKED 하나다(WP-1969, acceptableGeneration).
+    // 예외는 acceptableGeneration 에 있다(WP-1969).
     if (!acceptableGeneration(req.generation(), blocked, before)) return;
     // 보고한 Pod 시작 시각(WP-1958) — 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(시각 없는 보고처럼 다룬다).
     OffsetDateTime now = OffsetDateTime.now();
@@ -165,14 +165,21 @@ public class AgentPaneReportService {
   }
 
   /**
-   * 보고의 generation 을 받을지(WP-1969) — 없거나 지금 generation 이면 받는다. 그 밖에는 BLOCKED 가 지금 도는 Pod 의
-   * generation(관찰 generation)이고, AI 가 켜져 있으며(RUN) 쉴 때 적용 중이고, 저장된 차단이 없거나 그보다 새롭지 않을 때만 받는다. 바로
-   * 적용(NOW)이면 이미 지금 적용이 정해졌고, 꺼졌거나 다시 시작 중이면 끝나는 Pod 의 늦은 쓰기라 WP-1913 대로 버린다.
+   * 보고의 generation 을 받을지(WP-1969) — 없거나 지금 generation 이면 받는다. 그 밖에는 AI 가 켜져 있고(RUN) 쉴 때 적용 중이며 보고가
+   * 지금 도는 Pod 의 generation(관찰 generation)일 때만 아래대로 받는다. 바로 적용(NOW)이면 이미 지금 적용이 정해졌고, 꺼졌거나 다시 시작 중이면
+   * 끝나는 Pod 의 늦은 쓰기라 WP-1913 대로 버린다.
+   *
+   * <ul>
+   *   <li>BLOCKED — 저장된 차단이 없거나 그보다 새롭지 않을 때.
+   *   <li>OK — 저장된 차단이 바로 그 Pod 의 것일 때({@link AgentRuntimeStatusResolver#blocksRunningPod}). 받지 않으면
+   *       회복한 Pod 의 차단이 남아 첫 상태 보고 전에 {@link RolloutPolicy} 가 그 Pod 를 다시 띄운다.
+   * </ul>
    */
   private static boolean acceptableGeneration(Long reported, boolean blocked, Row before) {
     if (reported == null || reported == before.generation()) return true;
-    if (!blocked || !reported.equals(before.observedGeneration())) return false;
+    if (!reported.equals(before.observedGeneration())) return false;
     if (before.desired() != Desired.RUN || before.applyMode() != ApplyMode.IDLE) return false;
+    if (!blocked) return AgentRuntimeStatusResolver.blocksRunningPod(before);
     return before.paneBlockedGeneration() == null || before.paneBlockedGeneration() <= reported;
   }
 

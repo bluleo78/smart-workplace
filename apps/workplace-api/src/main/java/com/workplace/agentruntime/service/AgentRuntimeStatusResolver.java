@@ -138,10 +138,11 @@ public final class AgentRuntimeStatusResolver {
    *
    * <p>화면용 {@link #currentPaneBlocked(Row)} 는 원하는 generation 과 견주므로, 쉴 때 적용이 미뤄진 동안에는 한 단계 앞
    * generation 으로 도는 Pod 의 차단을 가린다. 이 메서드는 같은 신선도 규칙을 관찰 generation 으로 적용한다 — 적용 판정용이고 표시에는 쓰지 않는다.
-   * 차단 generation 을 모르는 값(null)은 믿고, 관찰 generation 을 모르면(뜬 적 없음) false 다.
+   * 화면과 달리 차단 generation 을 모르는 값(null — 옛 플러그인)은 어느 Pod 의 것인지 알 수 없어 믿지 않는다 — 잘못 믿으면 일하는 AI 를 다시
+   * 띄운다. 관찰 generation 을 모르면(뜬 적 없음) false 다.
    */
   public static boolean blocksRunningPod(Row r) {
-    if (r.observedGeneration() == null) return false;
+    if (r.observedGeneration() == null || r.paneBlockedGeneration() == null) return false;
     return paneBlockFresh(
         r.paneBlockedMessage(),
         r.paneBlockedGeneration(),

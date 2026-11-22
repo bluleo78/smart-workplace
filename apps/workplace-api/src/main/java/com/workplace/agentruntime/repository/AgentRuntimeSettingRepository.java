@@ -427,6 +427,7 @@ public class AgentRuntimeSettingRepository {
    * 쓰기·읽기· 합치기·이 쓰기가 한 줄로 서서 두 칸이 동시에 보고해도 합친 값이 어긋나지 않게.
    *
    * @param issueKeys 현재 이슈 키 목록(칸 키 순) — 첫 키를 agent_issue_key 에도 쓴다
+   * @param reportedAt 합친 칸의 마지막 보고 시각 — 뜻은 {@code AgentSlotAggregate#latestReportedAt}(WP-1969)
    * @return 쓴 뒤 행
    */
   public Row writeAgentState(

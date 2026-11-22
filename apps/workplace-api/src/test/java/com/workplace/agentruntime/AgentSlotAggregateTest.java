@@ -107,6 +107,37 @@ class AgentSlotAggregateTest {
     assertThat(b.state()).isEqualTo(AgentState.WORKING);
   }
 
+  /** 칸이 모두 오래되면 상태·이슈는 비우되, 일하던 칸의 마지막 보고 시각은 남긴다 — 쉬던 칸은 남길 일이 없다(WP-1969). */
+  @Test
+  void allStale_stateNullButKeepsLastReportOfSilentWork() {
+    var now = T2;
+    var last = now.minusHours(9);
+    var a =
+        AgentSlotAggregate.of(
+            List.of(
+                new Slot("HR", WORKING, "HR-1", null, last, null),
+                new Slot("WP", IDLE, null, now.plusHours(1), now.minusHours(7), null)),
+            now,
+            Duration.ofHours(6));
+    assertThat(a.state()).isNull();
+    assertThat(a.issueKeys()).isEmpty();
+    assertThat(a.nextCheckAt()).isNull();
+    assertThat(a.latestReportedAt()).isEqualTo(last);
+  }
+
+  /** 오래된 칸이 모두 쉬던 칸이면 끊긴 일이 없어 시각도 남기지 않는다 — 막힌 AI 가 설정을 영영 기다리지 않게(WP-1969). */
+  @Test
+  void allStaleIdle_allNull() {
+    var now = T2;
+    var a =
+        AgentSlotAggregate.of(
+            List.of(new Slot("WP", IDLE, null, null, now.minusHours(7), null)),
+            now,
+            Duration.ofHours(6));
+    assertThat(a.state()).isNull();
+    assertThat(a.latestReportedAt()).isNull();
+  }
+
   /** 칸이 없으면 모두 비어 있다(보고 없음). */
   @Test
   void emptySlots_allNull() {

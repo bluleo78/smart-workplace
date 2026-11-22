@@ -31,9 +31,9 @@ import java.util.Set;
  * @param state 합친 상태(살아 있는 칸이 없으면 null)
  * @param issueKeys 현재 이슈 키 목록(없으면 빈 목록) — 첫 키는 저장할 때 agent_issue_key 로도 쓴다
  * @param nextCheckAt 쉬는 칸의 가장 이른 다음 확인 시각(없으면 null)
- * @param latestReportedAt 살아 있는 칸의 가장 늦은 보고 시각(없으면 null) — agent_reported_at 으로 쓴다. 보고 흐름에서는 방금 보고한
- *     칸이라 곧 지금 시각이고, runner 정리 흐름에서는 남은 칸의 마지막 보고라 {@link RolloutPolicy} 의 「Pod 시작 전 보고」 거르기가 그대로
- *     맞는다
+ * @param latestReportedAt 살아 있는 칸의 가장 늦은 보고 시각. 모두 오래됐으면 일하거나 막혀 있던 칸의 가장 늦은 시각이고, 그런 칸이 없으면 null
+ *     이다 — 적용 판정이 「끊긴 일」과 「일 없음」을 가른다(WP-1969). agent_reported_at 으로 쓴다. 보고 흐름에서는 방금 보고한 칸이라 곧 지금
+ *     시각이고, runner 정리 흐름에서는 남은 칸의 마지막 보고라 {@link RolloutPolicy} 의 「Pod 시작 전 보고」 거르기가 그대로 맞는다
  */
 public record AgentSlotAggregate(
     AgentState state,
@@ -49,7 +49,16 @@ public record AgentSlotAggregate(
    */
   public static AgentSlotAggregate of(List<Slot> slots, OffsetDateTime now, Duration staleAfter) {
     List<Slot> live = fresh(slots, now, staleAfter);
-    if (live.isEmpty()) return new AgentSlotAggregate(null, List.of(), null, null);
+    if (live.isEmpty()) {
+      // 쉬던 칸은 남기지 않는다 — 남기면 그 뒤 막힌 AI 가 IDLE 을 다시 보고할 수 없어 설정을 영영 기다린다.
+      OffsetDateTime lastWork =
+          slots.stream()
+              .filter(s -> s.state() != AgentState.IDLE)
+              .map(Slot::reportedAt)
+              .max(Comparator.naturalOrder())
+              .orElse(null);
+      return new AgentSlotAggregate(null, List.of(), null, lastWork);
+    }
     // 입력 순서와 무관하게 칸 키 오름차순으로 정렬한 뒤 계산한다.
     List<Slot> sorted = live.stream().sorted(Comparator.comparing(Slot::slotKey)).toList();
     boolean working = false;

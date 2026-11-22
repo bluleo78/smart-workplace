@@ -62,7 +62,14 @@ Works 가 관리하는 AI(실행 템플릿이 「작업 공간」인 AI)를 실�
 - `applyNow` 는 Works 가 계산한다: `generation ≠ 마지막 보고한 observedGeneration` 이면서 다음 중 하나일 때.
   - 바로 적용(관리자가 켜기·다시 시작, 죽은 키 교체)이거나, 한 번도 뜬 적이 없다.
   - AI 가 쉬는 중(IDLE)이라고 보고했다. 단 그 보고가 지금 Pod 의 `startedAt` 보다 먼저 왔으면 옛 Pod 의 보고라 쓰지 않는다.
-  - 지금 Pod 의 컨테이너가 시작에 실패했다고 보고했고(칸 차단 보고, 아래 「칸 차단 보고」 — 차단의 `generation` 이 `observedGeneration` 과 같거나 모르는 값이고 지금 Pod 보다 앞선 Pod 의 것이 아님) 진행 중인 일이 없다(합친 AI 상태가 없거나 `IDLE`; `WORKING`·`BLOCKED` 는 아님)(WP-1969) — 시작도 못 한 컨테이너는 `IDLE` 을 보고할 수 없어 기다리면 설정이 영영 나가지 않는다.
+  - 지금 Pod 의 컨테이너가 시작에 실패했다고 보고했고(아래 「칸 차단 보고」) 진행 중인 일이 없다(WP-1969). 시작도 못 한 컨테이너는 `IDLE` 을 보고할 수 없어 기다리면 설정이 영영 나가지 않기 때문이다.
+    - 지금 Pod 의 차단: 차단의 `generation` 이 `observedGeneration` 과 같고(모르는 값이면 아님) 지금 Pod 보다 앞선 Pod 의 것이 아니다.
+    - 진행 중인 일이 없음은 셋 중 하나다.
+      1. 합친 AI 상태가 `IDLE` 이다.
+      2. 상태가 없고, 남은 칸이 없거나 쉬던 오래된 칸뿐이다.
+      3. 상태가 없고, 일하다 끊긴 칸의 마지막 보고가 차단한 Pod 의 `podStartedAt` 보다 30초 넘게 앞선다.
+    - 그 밖에는 기다린다: `WORKING`·`BLOCKED`, 그 Pod 에서 일하다 보고가 끊긴 AI, 끊긴 칸이 있는데 차단에 `podStartedAt` 이 없어 가를 수 없는 AI.
+    - 한계: 3 은 서버가 받은 시각과 Pod 시계를 견주므로 노드 시계가 30초 넘게 어긋나면 잘못 가를 수 있다(WP-1968).
   - AI 키 교체가 아직 확인되지 않았는데(새 Pod 가 관찰되지 않음) 지금 Pod 가 쓰는 옛 키(그 워크스페이스에서 가장 오래된 활성 자동 발급 키)가 **24시간 안에 만료된다** — AI 가 오래 일하는 중이어도 죽을 키로 계속 돌지 않게.
   - `applyNow=false` 면 **지금 Pod 를 그대로 둔다**(AI 가 하던 일을 마치게). AI 가 쉬는 중이라고 보고하거나, 받아들인 칸 차단 보고(`BLOCKED`)로 위 `applyNow` 가 참이 되면 Works 가 변경 이벤트를 내고(WP-1969), runner 가 다시 조회하면 `applyNow=true` 가 된다.
   - 목록에 새로 나타난 AI(Pod 없음)는 `applyNow` 와 상관없이 띄운다.
@@ -240,7 +247,7 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 
 ## 칸 차단 보고 — `PUT /api/v1/agent-runtime/me/pane` (Pod 안 진입점이 부름)
 
-작업 공간 진입점이 칸을 띄우지 못하면(설정 오류·로그인 오류 등) **못 띄운 사실과 이유**를 자기 AI 키(`Authorization: Bearer ak_…`)로 알려 서버에 남긴다(WP-1913) — 관리자 화면의 AI 목록이 「오류」와 이유를 보여 주기 위해서다. 위 「AI 상태 보고」와 달리 보고하는 쪽이 Pod 안 **진입점(스크립트)** 이다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다.
+작업 공간 진입점이 칸을 띄우지 못하면(설정 오류·로그인 오류 등) **못 띄운 사실과 이유**를 자기 AI 키(`Authorization: Bearer ak_…`)로 알려 서버에 남긴다(WP-1913) — 관리자 화면의 AI 목록이 「오류」와 이유를 보여 주기 위해서다. 위 「AI 상태 보고」와 달리 보고하는 쪽이 Pod 안 **진입점(스크립트)** 이다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다. 서버는 템플릿을 보지 않고 보고로만 판정한다 — 지금 `BLOCKED` 를 보내는 진입점은 감독을 `run_supervisor tick` 으로 도는 codex·genia-code·opencode 뿐이고, claude-code 는 `run_supervisor boot` 라 보내지 않는다(WP-1969).
 
 ```json
 { "state": "BLOCKED", "message": "설정 오류: …", "generation": 7, "podStartedAt": "2026-11-01T11:40:00Z" }
@@ -252,8 +259,10 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 
 - `state`: `BLOCKED`(칸을 못 띄움) 또는 `OK`(다시 띄웠다 — 앞서 남긴 차단 보고를 지운다). 그 밖의 값은 400.
 - `message`: 차단 이유, 500자 이하(501자를 넘으면 400). `BLOCKED` 일 때만 필요(없으면 400), `OK` 에는 쓰지 않는다. 길이·제어 문자 정제는 UTF-16 코드 유닛 기준이다(자바 `String.length()`) — 늘리는 쪽은 없다고 믿고 호출 쪽이 같은 단위로 자른다.
-- `generation`: 그 Pod 의 `GENIA_AGENT_GENERATION`(숫자). **지금 실행 설정의 `generation` 과 다르면 그 보고는 무시한다**(저장도 지우지도 않음. 예외는 아래 한 가지뿐) — 끝나는 중인 옛 Pod 의 늦은 차단이 새 generation 을 덮거나, 옛 Pod 의 `OK` 가 지금 차단을 지우지 않게(WP-1913 리뷰 반려 ①). 없으면(null) 그대로 믿는다 — 플러그인을 아직 갈아끼우지 않은 이미지가 계속 보고할 수 있게. 예외로 `BLOCKED` 는 AI 가 켜져 있고(`desired` RUN) 적용이 쉴 때 적용(IDLE)으로 미뤄진 동안 지금 도는 Pod 의 `observedGeneration` 과 같으면 받는다(저장된 차단의 `generation` 이 없거나 더 새롭지 않을 때만 — WP-1969). 꺼졌거나 다시 시작이 걸린 AI 의 같은 보고는 무시한다. 받은 `BLOCKED` 로 위 `applyNow` 가 거짓에서 참이 되는 순간(켜져 있는 AI 에 한함) 그 AI 의 실제 위치로 `agent-runtime.changed` 를 한 번 낸다(같은 보고가 거듭돼도 다시 내지 않고, 같은 컨테이너의 칸이 아직 일하면 내지 않는다).
-- `podStartedAt`(WP-1958): 보고한 Pod 가 뜬 시각(ISO-8601 UTC — 위 「AI 상태 보고」의 `podStartedAt` 과 같은 값·계산). **같은 generation 으로 재시작해도** 끝나는 중인 옛 Pod 의 늦은 `BLOCKED`·`OK` 가 새 Pod 의 차단을 덮거나 지우지 않게, 서버가 지금 Pod 시작(관찰한 `started_at` 과 칸·차단 보고가 올려 둔 Pod 시작 중 늦은 쪽)보다 **30초 넘게 앞선** 보고를 저장 없이 무시한다(204, INFO 로그). 받은 보고의 값은 지금 Pod 시작을 끌어올리고, `BLOCKED` 는 `pane_blocked_pod_started_at` 으로 저장해 읽을 때 지금 Pod 보다 30초 넘게 앞선 차단을 가린다. 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(없는 값처럼). 없으면(옛 플러그인·시각을 못 읽은 이미지) 견주지 않고 지금처럼 믿는다.
+- `generation`: 그 Pod 의 `GENIA_AGENT_GENERATION`(숫자). **지금 실행 설정의 `generation` 과 다르면 그 보고는 무시한다**(저장도 지우지도 않음. 예외는 아래뿐) — 끝나는 중인 옛 Pod 의 늦은 차단이 새 generation 을 덮거나, 옛 Pod 의 `OK` 가 지금 차단을 지우지 않게(WP-1913 리뷰 반려 ①). 없으면(null) 그대로 믿는다 — 플러그인을 아직 갈아끼우지 않은 이미지가 계속 보고할 수 있게. 예외로 AI 가 켜져 있고(`desired` RUN) 적용이 쉴 때 적용(IDLE)으로 미뤄진 동안 지금 도는 Pod 의 `observedGeneration` 과 같은 보고는 아래대로 받는다(WP-1969). 꺼졌거나 다시 시작이 걸린 AI 의 같은 보고는 무시한다.
+  - `BLOCKED`: 저장된 차단의 `generation` 이 없거나 더 새롭지 않을 때 저장한다. 받은 `BLOCKED` 로 위 `applyNow` 가 거짓에서 참이 되는 순간(켜져 있는 AI 에 한함) 그 AI 의 실제 위치로 `agent-runtime.changed` 를 한 번 낸다(같은 보고가 거듭돼도 다시 내지 않고, 같은 컨테이너의 칸이 아직 일하면 내지 않는다).
+  - `OK`: 저장된 차단이 그 Pod 의 것(위 「지금 Pod 의 차단」)일 때만 받아 지운다 — 회복한 Pod 를 다시 띄우지 않게.
+- `podStartedAt`(WP-1958): 보고한 Pod 가 뜬 시각(ISO-8601 UTC — 위 「AI 상태 보고」의 `podStartedAt` 과 같은 값·계산). **같은 generation 으로 재시작해도** 끝나는 중인 옛 Pod 의 늦은 `BLOCKED`·`OK` 가 새 Pod 의 차단을 덮거나 지우지 않게, 서버가 지금 Pod 시작(관찰한 `started_at` 과 칸·차단 보고가 올려 둔 Pod 시작 중 늦은 쪽)보다 **30초 넘게 앞선** 보고를 저장 없이 무시한다(204, INFO 로그). 받은 보고의 값은 지금 Pod 시작을 끌어올리고, `BLOCKED` 는 `pane_blocked_pod_started_at` 으로 저장해 읽을 때 지금 Pod 보다 30초 넘게 앞선 차단을 가린다. 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(없는 값처럼). 없으면(옛 플러그인·시각을 못 읽은 이미지) 견주지 않고 지금처럼 믿는다 — 다만 `applyNow` 판정은 다르다(위 「언제 Pod 를 다시 만드나」).
 - **`BLOCKED` 는 칸을 다시 합친다**(WP-1969): 받아들인 `BLOCKED`(옛 Pod 로 버려지지 않은 것)는 차단을 기록한 뒤 칸 테이블의 모든 칸을 위 「AI 상태 보고」와 같은 규칙으로 다시 합쳐 `agent_*` 칸에 쓴다 — 컨테이너만 재시작해 새 컨테이너가 시작에 실패하면 `BLOCKED` 만 오는데, 보고가 올려 둔 새 Pod 시작보다 30초 넘게 앞선 앞 컨테이너의 `WORKING` 칸이 이때 빠져 AI 가 영영 작업 중으로 남지 않는다. 직전과 같은 메시지의 거듭된 `BLOCKED` 도 합친다(옛 칸이 아직 남았을 수 있다) — 알림은 보이는 값이 바뀔 때만(차단 또는 합친 AI 상태) 한 번 나간다. runner 가 새 Pod 의 `startedAt` 을 아직 관찰하지 못했고(값 없음) 합친 AI 상태도 이미 비어 있으면 합치지 않는다 — 시각 없는 옛 칸을 가를 기준이 없어, 합치면 이미 지운 상태가 되살아나기 때문이다. AI 상태가 남아 있으면 합친다. `OK` 도 합치지 않는다.
 - 응답은 늘 `204`(본문 없음) — **보고는 최선 노력이라 실패해도 진입점은 계속된다**(gw-models 와 같다). 워크스페이스가 정해지지 않았거나 실행 설정이 없는 AI 는 저장 없이 204.
 - 본문 검증 실패는 400, AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
