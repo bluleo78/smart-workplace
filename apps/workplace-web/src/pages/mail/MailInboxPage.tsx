@@ -471,38 +471,45 @@ function MessageRow({
   )
 }
 
+/** 서버 메일함 상태 줄과 빈 목록이 함께 쓰는 조회·동기화 결과(WP-1963). */
+type MailFolderState = 'loading' | 'folders-failed' | 'missing' | 'syncing' | 'sync-failed' | 'list-failed' | 'not-synced' | 'ready'
+
+const MAIL_FOLDER_PROGRESS = { title: '메일함을 가져오는 중…', description: '잠시만 기다려 주세요.' }
+const MAIL_FOLDER_STATE_COPY: Record<MailFolderState, { title: string; description?: string }> = {
+  loading: MAIL_FOLDER_PROGRESS,
+  'folders-failed': { title: '메일함 목록을 불러오지 못했어요' },
+  missing: { title: '메일함을 찾을 수 없어요' },
+  syncing: MAIL_FOLDER_PROGRESS,
+  'sync-failed': { title: '메일함을 가져오지 못했어요' },
+  'list-failed': { title: '메일 목록을 불러오지 못했어요' },
+  'not-synced': { title: '아직 가져오지 않았어요' },
+  ready: { title: '이 메일함에 메일이 없어요' },
+}
+
 /**
- * WP-961 서버 메일함 상태 줄 — 「최근 N일 · M분 전에 가져옴」 + 새로 고침 + 더 가져오기(앞의 90일).
- * 휴지통(WP-1681)은 서버가 최근 30일만 가져오고 「더 가져오기」를 거절(400)하므로 기간을 「최근 30일」로 고정하고 그 버튼을 숨긴다.
- * 기간은 가져온 시각과 가장 오래된 경계의 차이라 더 가져올 때마다 늘어난다. 처음 가져오는 동안은 「메일함을 가져오는 중…」.
- * 메일함 목록을 아직 못 받았거나 열 수 없는 메일함이면 버튼을 끈다.
+ * 서버 메일함 상태 줄(WP-961) — 조회를 마쳤으면 가져온 기간과 시각을 표시한다.
+ * 휴지통(WP-1681)은 최근 30일만 가져오므로 「더 가져오기」를 숨긴다.
  */
 function MailFolderStatusRow({
   folder,
-  missing,
-  syncing,
+  state,
   olderSyncing,
   onRefresh,
   onFetchOlder,
 }: {
   folder: MailServerFolder | undefined
-  /** 메일함 목록은 받았는데 이 id 가 없다(지워진 메일함·옛 링크) — 「가져오는 중」에 머물지 않게 따로 알린다. */
-  missing: boolean
-  syncing: boolean
+  state: MailFolderState
   olderSyncing: boolean
   onRefresh: () => void
   onFetchOlder: () => void
 }) {
-  const at = folder?.folderSyncedAt ?? null
-  const isTrash = folder?.role === 'TRASH' // 「더 가져오기」 숨김용 — 기간 계산은 folderRangeDays 가 맡는다
+  const at = state === 'ready' ? folder?.folderSyncedAt : null
+  const isTrash = folder?.role === 'TRASH'
   const days = folder ? folderRangeDays(folder) : null
-  const text = missing
-    ? '메일함을 찾을 수 없어요'
-    : at
-    ? `${days != null ? `최근 ${days}일 · ` : ''}${formatRelativeTime(at)}에 가져옴`
-    : syncing || !folder
-      ? '메일함을 가져오는 중…'
-      : '아직 가져오지 않았어요'
+  let text = MAIL_FOLDER_STATE_COPY[state].title
+  if (at) text = `${days != null ? `최근 ${days}일 · ` : ''}${formatRelativeTime(at)}에 가져옴`
+  else if (state === 'ready') text = '메일함을 가져왔어요'
+  const syncing = state === 'syncing'
   const disabled = syncing || !folder?.selectable
   return (
     <div data-testid="mail-box-status" className="flex items-center gap-2 border-b py-1.5 pl-4 pr-3 text-xs text-muted-foreground">
@@ -1338,6 +1345,7 @@ function MailInbox() {
 
   // WP-1761: 계정 목록 조회 실패를 첫 화면에서 「계정 없음」 빈 상태와 구분한다. 쿼리 결과를 통째로 둔다 —
   // LoadErrorState 가 다시 시도·잠금을 여기서 꺼낸다(판정 설명은 위 MailInboxPage 의 같은 훅 주석 참고).
+  const qc = useQueryClient()
   const accountsQuery = useMailAccounts()
   const { data: accounts, isLoading: accountsLoading } = accountsQuery
   // WP-1761: 한 번만 계산해 아래 첫 화면 분기에 쓴다.
@@ -1350,7 +1358,8 @@ function MailInbox() {
   // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 사이드바도 같은 판정(WP-218).
   const location = useLocation()
   // WP-961 서버 메일함(보관·내 메일함) — ?box 보기의 제목·경로·안 읽은 수·가져온 시각.
-  const { data: folders } = useMailFolders(accountIdNum)
+  const foldersQuery = useMailFolders(accountIdNum)
+  const { data: folders } = foldersQuery
   const view = resolveMailView(params, classificationActive, { inAppSelection: hasOpenMark(location.state, 'messageId'), folders })
   const crumbItems = mailBreadcrumbItems(view, Number(accountId), params, search !== '')
   const folderView = view.kind === 'folder'
@@ -1368,10 +1377,19 @@ function MailInbox() {
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
     { folderId: view.folderId, flagged: flaggedView },
   )
+  // 동기화 완료를 기다릴 목록은 현재 화면의 전체 쿼리 키로 좁힌다 — 같은 계정의 다른 검색·폴더까지 기다리지 않는다.
+  const mailListQueryKey = useMemo(
+    () => mailMessageKeys.list(accountIdNum ?? 0, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply', view.folderId, flaggedView),
+    [accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind, view.folderId, flaggedView],
+  )
   const {
-    data: fetchedMessages, isLoading,
+    data: fetchedMessages, isLoading, isPending: listPending,
     fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching, dataUpdatedAt: listUpdatedAt,
   } = messagesQuery
+  // 같은 메일함의 다른 보기에서 목록을 받은 적 있으면 필터 쿼리도 폴더 첫 로딩으로 취급하지 않는다.
+  const folderListAlreadyLoaded = fetchedMessages !== undefined || (folderView && qc.getQueryCache()
+    .findAll({ queryKey: ['mail-messages', accountIdNum ?? 0] })
+    .some((query) => query.queryKey[7] === view.folderId && query.state.data !== undefined))
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
@@ -1386,6 +1404,7 @@ function MailInbox() {
   else if (!nextPage.failed && isFetchNextPageError) setNextPage({ key: keepKey, failed: true })
   else if (nextPage.failed && !listFetching && !isFetchNextPageError) setNextPage({ key: keepKey, failed: false })
   const nextPageFailed = nextPage.key === keepKey && nextPage.failed
+  const listFailed = showsLoadError(messagesQuery) && !isFetchNextPageError && !nextPageFailed
   // 연 행의 스냅샷(읽음 처리본)을 읽음 처리 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다(applyToggle).
   const [kept, setKept] = useState<{ key: string; rows: ReadonlyMap<number, EmailMessageSummary> }>({ key: keepKey, rows: new Map() })
   // 키가 바뀌면 렌더 중에 실제로 비운다(숨기기만 하면 같은 키로 돌아올 때 되살아난다).
@@ -1584,34 +1603,51 @@ function MailInbox() {
   const { mutate: runFolderSync } = syncFolder
   // 열 수 있는 메일함일 때만 자동으로 가져온다 — 묶음 메일함·없는 id 는 서버가 400/404 로 거절한다.
   const autoSyncFolderId = currentFolder?.selectable ? currentFolder.id : null
+  const autoSyncTarget = accountIdNum != null && autoSyncFolderId != null ? `${accountIdNum}:${autoSyncFolderId}` : null
+  const waitForTrashCount = currentFolder?.role === 'TRASH'
+  // 재진입 첫 렌더에서 이전 가져오기 결과를 사용하지 않는다. 새 요청은 이펙트가 보낸 뒤 새 인자로 구분한다(WP-1963).
+  const [folderEntry, setFolderEntry] = useState({ target: autoSyncTarget, previousSync: syncFolder.variables })
+  // 주소가 메일함 보기인 동안에는 폴더 목록에서 잠시 사라져도 같은 진입을 유지한다.
+  const entryTarget = folderView ? autoSyncTarget ?? folderEntry.target : null
+  if (entryTarget !== folderEntry.target) setFolderEntry({ target: entryTarget, previousSync: syncFolder.variables })
+  const autoSyncWaiting = autoSyncTarget != null && folderEntry.previousSync === syncFolder.variables
+
   // 마지막으로 자동 가져오기를 보낸 계정:메일함 — StrictMode 이중 실행·메일함 목록 재조회로 다시 보내지 않게.
   const autoSyncedRef = useRef<string | null>(null)
   useEffect(() => {
     // 메일함 보기를 떠나면 기억을 지운다 — 같은 메일함으로 다시 돌아오면(받은편지함 → 보관 → 받은편지함 → 보관) 다시 가져온다.
-    if (accountIdNum == null || autoSyncFolderId == null) {
-      if (!folderView) autoSyncedRef.current = null
-      return
-    }
-    const target = `${accountIdNum}:${autoSyncFolderId}`
-    if (autoSyncedRef.current === target) return
-    autoSyncedRef.current = target
-    runFolderSync({ folderId: autoSyncFolderId, older: false })
-  }, [accountIdNum, autoSyncFolderId, folderView, runFolderSync])
-  // 지금 보는 메일함을 가져오는 중인가 — 빠르게 다른 메일함으로 옮겨도 앞 메일함 요청을 이 메일함 것으로 보지 않게 대상 id 를 맞춘다.
-  const folderSyncing = syncFolder.isPending && syncFolder.variables?.folderId === view.folderId
-  const olderSyncing = folderSyncing && syncFolder.variables?.older === true
+    if (!folderView) autoSyncedRef.current = null
+    if (autoSyncTarget == null || autoSyncFolderId == null || autoSyncedRef.current === autoSyncTarget) return
+    autoSyncedRef.current = autoSyncTarget
+    runFolderSync({ folderId: autoSyncFolderId, older: false, mailListQueryKey, waitForTrashCount })
+  }, [autoSyncTarget, autoSyncFolderId, folderView, mailListQueryKey, runFolderSync, waitForTrashCount])
+  // 현재 메일함의 동기화와 이어지는 재조회가 끝날 때까지 이전 0건을 확정하지 않는다(WP-1963).
+  // 다른 메일함의 mutation 은 섞지 않고, 다음 페이지만 실패한 경우에는 기존 목록 끝의 오류 안내를 쓴다.
+  const syncForFolder = !autoSyncWaiting && syncFolder.variables?.folderId === view.folderId
+  // 빈 메일함은 가져오기가 성공해도 마지막 시각이 없을 수 있다. 현재 요청의 완료 응답도 성공 근거로 쓴다.
+  const syncCompleted = syncForFolder && syncFolder.isSuccess && !syncFolder.data.running
+  let folderState: MailFolderState | null = null
+  if (folderView) {
+    if (autoSyncWaiting || (currentFolder && syncForFolder && syncFolder.isPending)) folderState = 'syncing'
+    else if (failedWithoutData(foldersQuery)) folderState = 'folders-failed'
+    else if (!folders || foldersQuery.isLoading) folderState = 'loading'
+    else if (!currentFolder) folderState = 'missing'
+    else if (syncForFolder && syncFolder.isError) folderState = 'sync-failed'
+    // 다시 시도하는 동안은 실패 안내와 버튼을 유지해 초점이 사라지지 않게 한다.
+    else if (listFailed) folderState = 'list-failed'
+    // 첫 목록 응답·오프라인 보류는 로딩으로 알리고, 이미 연 메일함의 필터 조회는 별도 목록 로딩으로 알린다.
+    else if (listPending && !folderListAlreadyLoaded) folderState = 'loading'
+    else folderState = currentFolder.folderSyncedAt || syncCompleted ? 'ready' : 'not-synced'
+  }
+  const olderSyncing = folderState === 'syncing' && syncForFolder && syncFolder.variables?.older === true
+  // 필터 목록을 처음 받는 중에는 서버 메일함의 완료 안내를 숨겨 빈 결과로 오해하지 않게 한다.
+  const folderEmpty = folderState && !messages?.length && (folderState !== 'ready' || (!listPending && !search && !view.unreadOnly))
+    ? MAIL_FOLDER_STATE_COPY[folderState]
+    : null
   // 「더 가져오기」 — 직접 누른 것이라 결과를 토스트로 알린다(열 때 자동 가져오기는 조용히).
   const fetchOlder = () => {
     if (!currentFolder) return
-    runFolderSync(
-      { folderId: currentFolder.id, older: true },
-      {
-        onSuccess: (r) => {
-          if (r.running) return
-          toast(r.saved > 0 ? `이전 메일 ${r.saved}통을 더 가져왔어요` : '이전 90일에는 가져올 메일이 없어요')
-        },
-      },
-    )
+    runFolderSync({ folderId: currentFolder.id, older: true, mailListQueryKey, waitForTrashCount: currentFolder.role === 'TRASH' })
   }
   // WP-965 목록 이어 보기 — 끝까지 내리면 로컬 다음 페이지, 로컬이 바닥나면 받은편지함(전체·업무)·보낸편지함은 서버에서 이전 90일을 더 가져온다.
   // 서버에 더 없음·실패는 계정·폴더 키별로 기억한다 — 다른 계정·폴더로 옮기면 그 키의 기록이 없어 처음부터 다시 본다.
@@ -1757,7 +1793,6 @@ function MailInbox() {
   // WP-1742 별표 보기에도 두지 않는다 — 모두 읽음 API 가 별표 범위를 몰라 받은편지함 전체를 읽음 처리하게 된다.
   const showMarkAll = folderParam === 'INBOX' && view.kind !== 'sent' && !flaggedView
   const showListActions = showMarkAll || (folderParam === 'INBOX' && view.unreadToggleVisible)
-  const qc = useQueryClient()
   // WP-962 보관·옮기기·삭제 — 보기별 노출(보낸편지함 없음·보관 보기엔 보관 없음)과 「옮기기」 대상(지금 메일함 제외).
   const moveTargets = useMemo(() => mailMoveTargets(view, folders), [view, folders])
   const moveAvail = mailMoveAvailability(view, folders)
@@ -2185,20 +2220,29 @@ function MailInbox() {
           {folderView && currentFolder?.role === 'TRASH' && accountIdNum != null && (
             <MailTrashEmptyRow accountId={accountIdNum} folder={currentFolder} listEmpty={(messages?.length ?? 0) === 0} />
           )}
-          {folderView && (
+          {folderState && (
             // WP-961 서버 메일함 상태 줄 — 가져온 기간·시각 + 새로 고침 + 더 가져오기. 목록이 비어 있어도 보인다.
             <MailFolderStatusRow
               folder={currentFolder}
-              missing={folders != null && currentFolder == null}
-              syncing={folderSyncing}
+              state={folderState}
               olderSyncing={olderSyncing}
-              onRefresh={() => currentFolder && runFolderSync({ folderId: currentFolder.id, older: false })}
+              onRefresh={() => currentFolder && runFolderSync({ folderId: currentFolder.id, older: false, mailListQueryKey, waitForTrashCount: currentFolder.role === 'TRASH' })}
               onFetchOlder={fetchOlder}
             />
           )}
-          {isLoading && !failedWithoutData(messagesQuery) ? (
+          {folderView && failedWithoutData(foldersQuery) && (
+            // 메일함 목록 첫 조회 실패는 상태 줄만으로 재시도할 수 없으므로 명시적 복구 동작을 함께 둔다.
+            <LoadErrorState
+              title="메일함 목록을 불러오지 못했습니다"
+              queries={[foldersQuery]}
+              testId="mail-box-folders-error"
+              variant="inline"
+              className="px-4 py-3"
+            />
+          )}
+          {!folderEmpty && (isLoading || (folderView && listPending)) && !failedWithoutData(messagesQuery) ? (
             <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
-          ) : failedWithoutData(messagesQuery) ? (
+          ) : !folderEmpty && failedWithoutData(messagesQuery) ? (
             // 데이터 없이 첫 조회에 실패했을 때만 본문 자리 block 안내 — 다시 부르는 중에도 안내·초점을 유지한다(WP-1908).
             <LoadErrorState title="목록을 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" />
           ) : (
@@ -2208,10 +2252,26 @@ function MailInbox() {
                   두 안내가 함께 뜨고 배너의 다시 시도가 이미 받은 페이지까지 다시 받게 하던 것을 막는다(리뷰 반려).
                   다음 페이지 실패였다는 기록(nextPageFailed)도 함께 본다 — 배경 재조회 중에는 fetchMeta 가 비어
                   isFetchNextPageError 가 풀려 배너가 되살아나기 때문이다(리뷰 반려 2차). */}
-              {showsLoadError(messagesQuery) && !isFetchNextPageError && !nextPageFailed && (
-                <LoadErrorState title="목록을 다시 불러오지 못했습니다" queries={[messagesQuery]} testId="mail-list-error" variant="banner" className="px-4 py-3" />
+              {listFailed && (!folderView || folderState === 'list-failed' || folderState === 'folders-failed') && (
+                <LoadErrorState
+                  title={failedWithoutData(messagesQuery) ? '목록을 불러오지 못했습니다' : '목록을 다시 불러오지 못했습니다'}
+                  queries={[messagesQuery]}
+                  testId="mail-list-error"
+                  variant="banner"
+                  className="px-4 py-3"
+                />
               )}
-              {!messages || messages.length === 0 ? (
+              {folderEmpty ? (
+                // WP-1963 진행에서 실패·완료로 바뀌어도 같은 status 노드에서 안내한다.
+                <EmptyState
+                  testId="mail-box-empty"
+                  className="gap-2 py-16"
+                  icon={Inbox}
+                  title={folderEmpty.title}
+                  description={folderEmpty.description}
+                  textRole="status"
+                />
+              ) : !messages || messages.length === 0 ? (
                 // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
                 view.kind === 'needsReply' ? (
                   // WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다.
@@ -2254,19 +2314,6 @@ function MailInbox() {
                     icon={Star}
                     title="별표한 메일 없음"
                     description="메일 목록의 별을 누르면 여기에 모여요."
-                  />
-                ) : folderView && !search ? (
-                  // WP-961 서버 메일함 0건 — 처음 가져오는 중이면 그렇게, 아니면 중립 문구(「동기화를 눌러보세요」는 받은편지함 안내).
-                  // WP-1947: 이웃 빈 상태(별표·분류·회신필요)와 같은 규격 레이아웃(아이콘+제목+설명).
-                  <EmptyState
-                    testId="mail-box-empty"
-                    className="gap-2 py-16"
-                    icon={Inbox}
-                    // 휴지통·보관·내 메일함도 이 갈래라 「메일이 오면 모여요」 같은 받은편지함 문구 대신 중립 제목만 둔다(WP-961).
-                    // 처음 가져오는 중이면 글 묶음을 role=status 로 두어 빈 화면이 아니라 불러오는 중임을 읽어 준다.
-                    title={folderSyncing ? '메일함을 가져오는 중…' : '이 메일함에 메일이 없어요'}
-                    description={folderSyncing ? '잠시만 기다려 주세요.' : undefined}
-                    textRole={folderSyncing ? 'status' : undefined}
                   />
                 ) : view.kind === 'category' ? (
                   // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
