@@ -3,6 +3,7 @@ package com.workplace.agentruntime.service;
 import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.dto.ApplyMode;
+import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.dto.RunnerAgentKeyResponse;
 import com.workplace.agentruntime.dto.RunnerClaudeSecretResponse;
 import com.workplace.agentruntime.dto.RunnerDesiredAgent;
@@ -37,15 +38,18 @@ import com.workplace.auth.service.PodAccountSource.BoundRef;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -95,6 +99,7 @@ public class RunnerDesiredStateService {
   private final AgentRuntimeChangeNotifier changeNotifier;
   private final AgentRuntimeTransitions transitions;
   private final AgentAccountUsageTouch accountUsageTouch;
+  private final RunnerWakeup wakeup;
 
   /**
    * 템플릿 이름@버전 → runner 모양으로 바꾼 자원·보조 컨테이너·플러그인. 템플릿은 시작 때 한 번 읽혀 바뀌지 않으므로 요청마다 다시 바꾸지 않는다. 응답과 같은
@@ -211,11 +216,17 @@ public class RunnerDesiredStateService {
 
   /**
    * 관찰 상태 저장 — 실제 위치가 이 위치인 AI 만 고치고(단 꺼진 AI(desired STOP)의 STOPPING·STOPPED 보고는 어느 위치에서 와도 받는다 —
-   * WP-1751), 없는 AI·다른 위치의 AI 는 {@code ignored} 로 돌려준다. generation·원하는 상태는 바꾸지 않고 runner 변경 이벤트도 내지
-   * 않는다(관찰은 원하는 상태가 아니다). 관찰 칸 쓰기는 보고 묶음 전체를 한 번에 보낸다.
+   * WP-1751), 없는 AI·다른 위치의 AI 는 {@code ignored} 로 돌려준다. generation·원하는 상태는 바꾸지 않는다(관찰은 원하는 상태가
+   * 아니다). 관찰만으로 미뤄 둔 설정이 지금 적용으로 바뀌면 아래 「runner 깨우기」로만 runner 를 깨우고 그 밖의 runner 변경 이벤트는 내지 않는다. 관찰
+   * 칸 쓰기는 보고 묶음 전체를 한 번에 보낸다.
    *
-   * <p>관리자 화면 실시간 갱신(WP-1254): 관찰 칸을 쓰는 한 문장이 쓰기 전 화면용 값({@code VisibleRuntimeState})도 돌려주므로, 그 값이
-   * 달라진 AI 만 한 이벤트로 알린다 — 같은 상태의 거듭된 보고(60초마다)나 CPU·메모리만 바뀐 보고는 알리지 않는다. 다시 읽지 않는다.
+   * <p>관리자 화면 실시간 갱신(WP-1254): 관찰 칸을 쓰는 한 문장이 쓰기 전 행도 돌려주므로, 화면에 보이는 값({@code
+   * VisibleRuntimeState})이나 화면 적용 판정({@link RolloutPolicy#pending})이 달라진 AI 만 한 이벤트로 알린다 — 같은 상태의
+   * 거듭된 보고(60초마다)나 CPU·메모리만 바뀐 보고는 알리지 않는다. 다시 읽지 않는다.
+   *
+   * <p>runner 깨우기(WP-2000): 관찰만으로 runner 가 읽는 판정({@link RolloutPolicy#decide})이 지금 적용(NOW)이 아니던 것에서
+   * NOW 로 바뀐 AI 가 하나라도 있으면(예: 컨테이너가 시작에 실패해 일이 없는 채 FAILED) 보고당 한 번 runner 를 깨워 미뤄 둔 설정이 나가게 한다. 이미
+   * NOW 이던 AI 의 거듭된 보고는 깨우지 않는다. 화면 알림은 화면이 읽는 판정({@link RolloutPolicy#pending})의 전후가 다를 때 낸다.
    */
   public RunnerObservedResponse observed(RunnerPrincipal principal, RunnerObservedRequest req) {
     AgentLocationRepository.Row location = requireLocation(principal);
@@ -236,9 +247,33 @@ public class RunnerDesiredStateService {
       if (updated.containsKey(o.agentUserId())) applied.add(o);
       else ignored.add(o.agentUserId());
     }
-    afterObservedUpdated(principal.tenantId(), applied);
+    // 키 사슬은 정리 유예로 줄이기 전에 한 번만 읽는다 — 줄인 뒤 사슬로 「전」을 보면 옛 키 만료로 NOW 였던 것처럼 보여 전이를 놓친다.
+    long tenantId = principal.tenantId();
+    Map<Long, ManagedKeyChain> chains = readKeyChains(tenantId, applied, updated.values());
+    Set<Long> decisionChanged = new HashSet<>();
+    boolean becameNow = false;
+    OffsetDateTime now = OffsetDateTime.now();
+    Duration staleAfter = properties.slotStaleAfter();
+    for (ObservedUpdate u : updated.values()) {
+      if (!pendingApplyPossible(u)) continue;
+      ManagedKeyChain keys = chains.getOrDefault(u.row().agentUserId(), ManagedKeyChain.EMPTY);
+      // 화면 알림은 화면이 읽는 판정(pending), runner 깨우기는 runner 가 읽는 판정(decide)의 전이로 따로 본다 — 둘을 섞으면
+      // 화면만 달라지는 경우(차단 generation 만 바뀜)에 runner 를 깨우거나, runner 가 달라지는 경우를 놓친다.
+      // 「전」은 직전 관찰 시각으로 판정한다 — 시간만으로 바뀌는 판정(키 만료 여유·오래된 보고 상한)을 runner 의 60초 관찰 보고마다
+      // 잡기 위해서다(최대 지연은 한 관찰 주기).
+      OffsetDateTime beforeAt = u.before().observedAt() != null ? u.before().observedAt() : now;
+      if (RolloutPolicy.pendingChanged(u.before(), beforeAt, u.row(), keys, now, staleAfter)) {
+        decisionChanged.add(u.row().agentUserId());
+      }
+      if (!becameNow
+          && RolloutPolicy.becameNow(u.before(), beforeAt, u.row(), keys, now, staleAfter)) {
+        becameNow = true;
+      }
+    }
+    afterObservedUpdated(tenantId, applied, chains);
     touchAccountsOfRunning(applied);
-    notifyVisibleChanges(updated.values());
+    if (becameNow) wakeup.publishChanged(tenantId, location.id());
+    notifyVisibleChanges(updated.values(), decisionChanged);
     return new RunnerObservedResponse(applied.size(), ignored);
   }
 
@@ -301,10 +336,37 @@ public class RunnerDesiredStateService {
     return out;
   }
 
+  /**
+   * 켜져 있고(RUN) 쓰기 전 또는 쓴 뒤에 반영하지 않은 generation 이 있는 AI 인지 — 적용 판정이 NONE 이 아닐 수 있는 AI 만 판정·키 사슬 조회
+   * 대상이다.
+   */
+  private static boolean pendingApplyPossible(ObservedUpdate u) {
+    return u.row().desired() == Desired.RUN
+        && (u.before().hasUnappliedGeneration() || u.row().hasUnappliedGeneration());
+  }
+
+  /**
+   * 이번 관찰 보고에 필요한 키 사슬을 한 번에 읽는다(WP-2000) — 보고에 generation 이 있는 AI(키 정리 대상) ∪ 적용 판정이 필요한 AI. 둘 다
+   * 없으면 읽지 않는다.
+   */
+  private Map<Long, ManagedKeyChain> readKeyChains(
+      long tenantId, List<RunnerObservedAgent> applied, Collection<ObservedUpdate> updates) {
+    Set<Long> ids = new HashSet<>();
+    for (RunnerObservedAgent o : applied) {
+      if (o.observedGeneration() != null) ids.add(o.agentUserId());
+    }
+    for (ObservedUpdate u : updates) {
+      if (pendingApplyPossible(u)) ids.add(u.row().agentUserId());
+    }
+    if (ids.isEmpty()) return Map.of();
+    return agentKeys.managedChains(ids, tenantId);
+  }
+
   /** 이번 관찰 보고로 Pod 시작 시각이 바뀌었는지(새 Pod). */
   private static boolean podChanged(ObservedUpdate u) {
     return !Objects.equals(
-        u.before().startedAt(), VisibleRuntimeState.instant(u.row().startedAt()));
+        VisibleRuntimeState.instant(u.before().startedAt()),
+        VisibleRuntimeState.instant(u.row().startedAt()));
   }
 
   /** 관찰 UPDATE 가 새 Pod 라 AI 상태를 지웠는지 — 쓰기 전에는 있었고 쓴 뒤에는 없다. */
@@ -312,11 +374,17 @@ public class RunnerDesiredStateService {
     return u.before().agentState() != null && u.row().agentState() == null;
   }
 
-  /** 고친 AI 들 중 화면에 보이는 값이 쓰기 전과 달라진 AI 만 모아 한 번 알린다(WP-1254) — 쓰기 전 값은 같은 UPDATE 가 돌려준다. */
-  private void notifyVisibleChanges(Collection<ObservedUpdate> updates) {
+  /**
+   * 고친 AI 들 중 화면에 보이는 값이 쓰기 전과 달라졌거나(WP-1254) 적용 판정이 바뀐(WP-2000 — 상세 응답의 pendingApply) AI 만 모아 한 번
+   * 알린다 — 쓰기 전 행은 같은 UPDATE 가 돌려준다. 보이는 값과 판정이 함께 바뀌어도 AI 당 한 번이다.
+   */
+  private void notifyVisibleChanges(Collection<ObservedUpdate> updates, Set<Long> decisionChanged) {
     List<Long> changed =
         updates.stream()
-            .filter(u -> u.before().differsFrom(u.row()))
+            .filter(
+                u ->
+                    VisibleRuntimeState.of(u.before()).differsFrom(u.row())
+                        || decisionChanged.contains(u.row().agentUserId()))
             .map(u -> u.row().agentUserId())
             .toList();
     changeNotifier.agentsChanged(ResourceChangedEvent.OP_UPDATED, changed, null);
@@ -329,14 +397,13 @@ public class RunnerDesiredStateService {
    * 번씩 한다.
    *
    * @param applied 이 위치의 AI 로 확인돼 반영된 보고들
+   * @param chains 줄이기 전에 한 번 읽은 키 사슬(generation 이 있는 보고의 AI 가 모두 들어 있다)
    */
-  private void afterObservedUpdated(long tenantId, List<RunnerObservedAgent> applied) {
+  private void afterObservedUpdated(
+      long tenantId, List<RunnerObservedAgent> applied, Map<Long, ManagedKeyChain> chains) {
     List<RunnerObservedAgent> withGen =
         applied.stream().filter(o -> o.observedGeneration() != null).toList();
     if (withGen.isEmpty()) return;
-    Map<Long, ManagedKeyChain> chains =
-        agentKeys.managedChains(
-            withGen.stream().map(RunnerObservedAgent::agentUserId).toList(), tenantId);
     List<Long> confirmedAgents = new ArrayList<>();
     List<Long> keep = new ArrayList<>();
     for (RunnerObservedAgent o : withGen) {
@@ -520,7 +587,8 @@ public class RunnerDesiredStateService {
         username,
         principal.tenantId(),
         row.generation(),
-        RolloutPolicy.decide(row, keys, now) == RolloutPolicy.Decision.NOW,
+        RolloutPolicy.decide(row, keys, now, properties.slotStaleAfter())
+            == RolloutPolicy.Decision.NOW,
         t.name(),
         t.version(),
         t.image(),

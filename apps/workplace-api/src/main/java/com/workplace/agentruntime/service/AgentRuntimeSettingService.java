@@ -1,5 +1,6 @@
 package com.workplace.agentruntime.service;
 
+import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.agentruntime.dto.AgentLocationResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSettingResponse;
@@ -8,6 +9,7 @@ import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.dto.ObservedState;
+import com.workplace.agentruntime.dto.PendingApply;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingConflictException;
@@ -21,12 +23,15 @@ import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.agentruntime.service.AgentRuntimeTransitions.State;
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.auth.dto.ManagedKeyChain;
+import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
 import com.workplace.auth.service.PodAccountSource;
 import com.workplace.global.ai.AgentSlotLimits;
 import com.workplace.global.realtime.ResourceChangedEvent;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -35,6 +40,7 @@ import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.AgentRuntimePolicy;
 import com.workplace.user.service.UserService;
 import com.workplace.user.service.WorkspaceMemberGuard;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,6 +85,8 @@ public class AgentRuntimeSettingService {
   private final PodAccountSource podAccounts;
   private final AgentRuntimeChangeNotifier changeNotifier;
   private final AgentRuntimeVersions versions;
+  private final AgentApiKeyService agentKeys;
+  private final AgentRuntimeProperties properties;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
@@ -195,13 +203,17 @@ public class AgentRuntimeSettingService {
   /**
    * 켜기 — 실제 위치(지정 위치 ?? 기본, 없으면 409)에 자리가 남았는지 확인한 뒤 desired RUN·generation+1·apply_mode NOW. 템플릿
    * 버전은 레지스트리의 현재 버전으로 다시 고정한다(설정은 새 템플릿으로 다시 검증하고 없어진 칸은 버린다). 이미 켜져 있으면 변화 없음 — 단 실행에 실패한(FAILED)
-   * AI 면 다시 시작과 같다.
+   * AI 면 다시 시작과 같다. 하던 일이 있어 새 설정을 쉴 때로 미룬 실패는 다시 시작하지 않는다(WP-2000) — 일하는 AI 를 끊지 않는다.
    */
   public AgentRuntimeSettingResponse start(long callerId, long agentId) {
     Row row = lockRow(agentId);
     if (row.desired() == Desired.RUN) {
       // 실행에 실패한 AI 를 다시 켜면 다시 시작과 같다 — 어느 화면의 「켜기」든 실패한 AI 를 다시 띄우게(그대로 두면 켜져 있다며 아무것도 하지 않는다).
-      if (statusOf(row) == AgentRuntimeStatus.FAILED) return restartLocked(callerId, agentId, row);
+      // 쉴 때로 미룬 실패(하던 일이 있는 AI)는 failureHeldUntilIdle=false 로 판정해 FAILED 로 치지 않는다 — 켜기가 일하는 AI 를 끊지
+      // 않게(WP-2000).
+      if (statusOf(row, false) == AgentRuntimeStatus.FAILED) {
+        return restartLocked(callerId, agentId, row);
+      }
       return toResponse(row, locationService.effectiveLocationId(row.locationId()));
     }
     AgentTemplate template =
@@ -438,14 +450,19 @@ public class AgentRuntimeSettingService {
     }
   }
 
-  /** 저장 행의 화면용 실행 상태 — 지금 Pod 의 진입점 차단 메시지면 읽을 때만 합쳐 FAILED(WP-1913). */
-  private static AgentRuntimeStatus statusOf(Row r) {
+  /**
+   * 저장 행의 화면용 실행 상태 — 지금 Pod 의 진입점 차단 메시지면 읽을 때만 합쳐 FAILED(WP-1913).
+   *
+   * @param failureHeldUntilIdle 새 설정을 쉴 때로 미룬 옛 실패인지(WP-2000) — 응답은 서버 판정을, 「켜기」는 false 를 넘긴다
+   */
+  private static AgentRuntimeStatus statusOf(Row r, boolean failureHeldUntilIdle) {
     return AgentRuntimeStatusResolver.resolve(
         r.desired(),
         r.generation(),
         r.observedGeneration(),
         r.phase(),
-        AgentRuntimeStatusResolver.currentPaneBlocked(r));
+        AgentRuntimeStatusResolver.currentPaneBlocked(r),
+        failureHeldUntilIdle);
   }
 
   /** 구성원 확인 뒤 설정 행을 잠가 읽는다 — 없으면 404. */
@@ -518,6 +535,20 @@ public class AgentRuntimeSettingService {
     AgentLocationResponse effective = effectiveId == null ? null : locationService.get(effectiveId);
     // 템플릿 기본 상한은 한 번만 구해 실제 적용 값(덮어쓴 값 ?? 기본)에 다시 쓴다(WP-1754).
     int def = defaultSlotLimitOf(r);
+    // 적용 시점·계정 변경 판정·상태는 키 사슬 한 번으로 같은 규칙(RolloutPolicy)에서 낸다(WP-2000) — 꺼져 있으면 사슬이 필요 없다.
+    OffsetDateTime now = OffsetDateTime.now();
+    ManagedKeyChain keys =
+        r.desired() == Desired.RUN
+            ? agentKeys.managedChain(r.agentUserId(), TenantContext.get())
+            : ManagedKeyChain.EMPTY;
+    RolloutPolicy.Decision decision =
+        RolloutPolicy.pending(r, keys, now, properties.slotStaleAfter());
+    PendingApply pendingApply =
+        switch (decision) {
+          case NONE -> null;
+          case NOW -> PendingApply.NOW;
+          case AT_IDLE -> PendingApply.AT_IDLE;
+        };
     return new AgentRuntimeSettingResponse(
         r.agentUserId(),
         r.templateName(),
@@ -530,7 +561,7 @@ public class AgentRuntimeSettingService {
         r.desired(),
         r.applyMode(),
         r.generation(),
-        statusOf(r),
+        statusOf(r, pendingApply == PendingApply.AT_IDLE),
         new ObservedState(
             r.observedGeneration(),
             r.phase(),
@@ -545,6 +576,8 @@ public class AgentRuntimeSettingService {
             r.agentIssueKey(),
             r.agentIssueKeys(),
             r.agentNextCheckAt()),
+        pendingApply,
+        RolloutPolicy.accountChangeAppliesNow(r, keys, now, properties.slotStaleAfter()),
         r.acceptNewWork(),
         r.slotLimit(),
         def,

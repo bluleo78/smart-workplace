@@ -128,6 +128,9 @@ export function createSetting(
     applyMode: 'IDLE',
     generation: 3,
     status: 'OFF',
+    // 서버가 판정해 내려주는 적용 시점(WP-2000) — 기본은 기다리는 적용 없음·계정 바로 적용. 필요한 테스트가 덮어쓴다.
+    pendingApply: null,
+    accountChangeAppliesNow: true,
     observed: null,
     acceptNewWork: true,
     // 「동시 진행」(WP-1754) — 기본은 템플릿 기본값(1)을 따른다.

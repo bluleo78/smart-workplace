@@ -36,7 +36,6 @@ import {
   runModeCards,
   withSavedWorkspaceCard,
 } from '../../../../lib/agentRunMode';
-import { accountAppliesAtIdle } from '../../../../lib/agentRuntimeStatus';
 import { formatDateMonthDayPadded } from '../../../../lib/formatters';
 import { cn } from '../../../../lib/utils';
 import type { AgentResponse } from '../../../../types/agent';
@@ -320,9 +319,9 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
   const save = useSaveAgentRuntimeSetting(agent.id);
   const keys = useAgentKeys(agent.id);
   const running = saved?.desired === 'RUN';
-  // 계정을 바꾸면 쉴 때 적용되는지 — 서버 RolloutPolicy 와 같은 기준(실행 중이고 IDLE 보고가 아님, accountAppliesAtIdle).
+  // 계정을 바꾸면 쉴 때 적용되는지 — 서버가 판정해 내려준 accountChangeAppliesNow 만 따른다(화면이 상태·보고로 다시 판정하지 않는다, WP-2000).
   // 계정 고르기 창이 「쉴 때 바뀜」/「바로 다시 시작」 안내를 고르는 데 쓴다(WP-1515).
-  const appliesAtIdle = accountAppliesAtIdle(saved?.status ?? 'OFF', saved?.observed?.agentState);
+  const appliesAtIdle = saved?.accountChangeAppliesNow === false;
   // 다음 교체 무렵 — 가장 새로 받은 자동 발급 키의 만료 7일 전(서버 ManagedKeyChain.rotateAfter). 그때부터 새 키를 받아 쉴 때 적용한다.
   const latestManaged = (keys.data ?? [])
     .filter((k) => k.managed && k.revokedAt == null && k.expiresAt)

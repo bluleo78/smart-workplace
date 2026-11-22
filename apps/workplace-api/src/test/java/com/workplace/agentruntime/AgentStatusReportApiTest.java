@@ -184,6 +184,70 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)).isNull();
   }
 
+  /**
+   * 합친 상태가 IDLE → IDLE 로 그대로(화면에 보이는 칸 불변)여도 보고 시각이 지금 Pod 시작 뒤로 올라 적용 판정이 쉴 때 → 지금으로 바뀌면 화면에 한 번
+   * 알리고 runner 도 한 번 깨운다(WP-2000 코드 리뷰). 이미 쉬는 중이던 AI 라 becameIdle 은 아니지만 깨우기는 runner 가 읽는
+   * 판정(decide)의 전이를 따른다 — 옛 기대는 깨우기 0 이었다.
+   */
+  @Test
+  void report_whenOnlyDecisionChanges_publishesOnce() throws Exception {
+    long g = fx.generationOf(agent);
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(10);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, g - 1)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, podStart)
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "IDLE")
+        .set(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT, podStart.minusMinutes(5))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, "{\"state\":\"IDLE\",\"generation\":" + (g - 1) + "}").andExpect(status().isOk());
+
+    assertThat(runtimeEvents()).isEqualTo(1);
+    assertThat(changedEvents()).isEqualTo(1);
+  }
+
+  /** 막 쉬는 중이 됐고(becameIdle) 같은 보고로 decide 도 NOW 가 돼도 깨우기는 한 번이다(WP-2000 코드 리뷰). */
+  @Test
+  void report_whenBecameIdleAndDecisionNow_wakesOnce() throws Exception {
+    long g = fx.generationOf(agent);
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(10);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, g - 1)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, podStart)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    report(key, "{\"state\":\"WORKING\",\"issueKey\":\"WD-1\",\"generation\":" + (g - 1) + "}")
+        .andExpect(status().isOk());
+    appEvents.clear();
+
+    report(key, "{\"state\":\"IDLE\",\"generation\":" + (g - 1) + "}").andExpect(status().isOk());
+
+    assertThat(changedEvents()).isEqualTo(1);
+  }
+
+  /** 이미 decide 가 NOW 인 AI 의 거듭된 보고는 깨우지 않는다(WP-2000 코드 리뷰). */
+  @Test
+  void report_whenDecisionAlreadyNow_doesNotWake() throws Exception {
+    long g = fx.generationOf(agent);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, g - 1)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "IDLE")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    report(key, "{\"state\":\"IDLE\",\"generation\":" + (g - 1) + "}").andExpect(status().isOk());
+
+    assertThat(changedEvents()).isZero();
+  }
+
   /** 꺼진 AI 는 DRAIN — 지워지는 Pod 가 새 이슈를 집지 않게. */
   @Test
   void status_whenDesiredStop_returnsDrain() throws Exception {

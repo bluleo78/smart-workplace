@@ -1,5 +1,6 @@
 package com.workplace.agentruntime.service;
 
+import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.agentruntime.dto.AgentStatusReportRequest;
 import com.workplace.agentruntime.dto.AgentStatusReportResponse;
 import com.workplace.agentruntime.dto.Desired;
@@ -8,6 +9,7 @@ import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
 import com.workplace.agentruntime.repository.VisibleRuntimeState;
+import com.workplace.auth.dto.ManagedKeyChain;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
@@ -34,9 +36,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>합친 상태가 쉬는 중(IDLE — 모든 칸이 쉼)으로 막 바뀌었는데 아직 반영되지 않은 generation 이 있으면 변경 이벤트를 내 runner 가 다시 조회하게
  * 한다 — 그때 {@link RolloutPolicy} 가 지금 적용으로 판정해 미뤄 둔 교체(설정 변경·키 교체)가 적용된다. 이미 쉬는 중이던 AI 의 거듭된 IDLE
- * 보고는 이벤트를 다시 내지 않는다.
+ * 보고는 이벤트를 다시 내지 않는다. 쉬는 중이 아니어도 그 보고로 runner 판정({@link RolloutPolicy#decide})이 지금 적용으로 바뀌면 같은 이벤트를
+ * 한 번 낸다(WP-2000).
  *
  * <p>보고로 화면에 보이는 AI 상태(상태·이슈 키·다음 확인 시각)가 달라졌을 때만 관리자 화면에 알린다(WP-1254) — 같은 내용의 거듭된 보고는 알리지 않는다.
+ * 보이는 값이 그대로여도 적용 판정(RolloutPolicy)이 바뀌면(WP-2000 — 상세 응답이 판정을 싣는다) 알린다.
  */
 @Slf4j
 @Service
@@ -50,12 +54,13 @@ public class AgentStatusReportService {
   private final RunnerWakeup wakeup;
   private final AgentApiKeyService agentKeys;
   private final AgentRuntimeChangeNotifier changeNotifier;
+  private final AgentRuntimeProperties properties;
 
   /**
    * 상태 보고 처리. 순서: 테넌트가 없으면 RUN → 설정 행을 잠가 읽음(없으면 RUN — 칸도 저장하지 않는다) → 칸 저장 → 남아 있던 진입점 차단 메시지 비움(지금
    * generation 이상이고 지금 Pod 의 보고일 때만, 화면에 보이던 것을 비우면 알림 포함) → 옛 Pod 칸 정리 → 모든 칸을 합쳐 agent_* 칸에 씀(비운
    * 차단이 반영된 행 — 응답·깨움 판정에 쓴다) → 합친 상태가 쉬는 중으로 막 바뀌었고 교체 대기면 이벤트 → 화면 값이 바뀌었거나 칸 차단을 비웠으면 알림(한 보고에 한
-   * 번) → 원하는 상태 계산.
+   * 번) → 원하는 상태 계산. 깨움은 막 쉬는 중이 됐거나 runner 판정이 지금 적용으로 바뀐 보고에서 한 번만 낸다.
    *
    * <p>설정 행을 먼저 잠그므로 같은 AI 의 두 칸이 동시에 보고해도 칸 쓰기·합치기가 차례로 서서 합친 값이 어긋나지 않는다.
    */
@@ -84,7 +89,7 @@ public class AgentStatusReportService {
           key,
           pod,
           current);
-      return new AgentStatusReportResponse(desiredFor(before, req.generation(), tenantId));
+      return new AgentStatusReportResponse(desiredFor(before, req.generation(), tenantId, null));
     }
     slots.upsert(userId, key, req.state(), req.issueKey(), req.nextCheckAt(), now, pod);
     if (pod != null
@@ -142,13 +147,26 @@ public class AgentStatusReportService {
 
     // 「쉬는 중으로 막 바뀜」은 합친 상태로 판정한다 — 모든 칸이 쉬게 된 보고에서만 이벤트가 나간다.
     boolean becameIdle = row.isIdle() && !before.isIdle();
-    if (becameIdle && row.hasUnappliedGeneration())
-      wakeup.publishChanged(tenantId, row.locationId());
-    // 한 보고에서 관리자 알림은 한 번 — 화면 상태가 바뀌었거나 칸 차단을 비웠을 때만(같은 내용의 거듭된 보고는 알리지 않음).
-    if (visiblePaneCleared || VisibleRuntimeState.of(before).differsFrom(row)) {
+    boolean wake = becameIdle && row.hasUnappliedGeneration();
+    // 키 사슬은 RUN 이고 전 또는 후가 미반영일 때만 한 번 읽어 판정 전후 비교와 desiredFor 가 함께 쓴다(WP-2000) — 미반영이 아니면 decide 가
+    // NONE 이다.
+    ManagedKeyChain keys = null;
+    boolean decisionChanged = false;
+    if (row.desired() == Desired.RUN
+        && (before.hasUnappliedGeneration() || row.hasUnappliedGeneration())) {
+      keys = agentKeys.managedChain(userId, tenantId);
+      // 화면 알림은 화면이 읽는 판정(pending), 깨우기는 runner 가 읽는 판정(decide)의 전이로 본다.
+      decisionChanged =
+          RolloutPolicy.pendingChanged(before, row, keys, now, properties.slotStaleAfter());
+      // 쉬는 중이 아니어도 판정이 NOW 로 바뀌면(예: 키 만료·Pod 없는 실패) 깨운다. 위 becameIdle 과 겹쳐도 한 번만 낸다.
+      wake |= RolloutPolicy.becameNow(before, row, keys, now, properties.slotStaleAfter());
+    }
+    if (wake) wakeup.publishChanged(tenantId, row.locationId());
+    // 한 보고에서 관리자 알림은 한 번 — 화면 상태나 적용 판정이 바뀌었거나 칸 차단을 비웠을 때만(같은 내용의 거듭된 보고는 알리지 않음).
+    if (visiblePaneCleared || decisionChanged || VisibleRuntimeState.of(before).differsFrom(row)) {
       changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, userId, null);
     }
-    return new AgentStatusReportResponse(desiredFor(row, req.generation(), tenantId));
+    return new AgentStatusReportResponse(desiredFor(row, req.generation(), tenantId, keys));
   }
 
   /** 요청의 칸 → 저장 칸 키. 없거나 빈 값은 {@code ''}(옛 단일 칸), 그 밖은 대문자 — 'wp' 와 'WP' 를 같은 칸으로. */
@@ -163,16 +181,19 @@ public class AgentStatusReportService {
    * 때만 읽는다.
    *
    * @param row 이번 보고를 합쳐 쓴 뒤의 행(모든 칸이 쉬면 IDLE — 그때만 쉴 때 적용이 지금 적용으로 바뀐다)
+   * @param readKeys 이미 읽은 키 사슬(없으면 null — 뒤처졌을 때 읽는다)
    */
-  private String desiredFor(Row row, Long reportedGeneration, long tenantId) {
+  private String desiredFor(
+      Row row, Long reportedGeneration, long tenantId, ManagedKeyChain readKeys) {
     if (row.desired() == Desired.STOP) return AgentStatusReportResponse.DRAIN;
     if (reportedGeneration == null || reportedGeneration >= row.generation()) {
       // 뒤처지지 않은 경우만 HOLD 를 본다 — 뒤처졌으면 새 설정으로 다시 떠야 하므로 RESTART/DRAIN 이 먼저(WP-1514).
       return row.acceptNewWork() ? AgentStatusReportResponse.RUN : AgentStatusReportResponse.HOLD;
     }
+    ManagedKeyChain keys =
+        readKeys != null ? readKeys : agentKeys.managedChain(row.agentUserId(), tenantId);
     RolloutPolicy.Decision decision =
-        RolloutPolicy.decide(
-            row, agentKeys.managedChain(row.agentUserId(), tenantId), OffsetDateTime.now());
+        RolloutPolicy.decide(row, keys, OffsetDateTime.now(), properties.slotStaleAfter());
     return decision == RolloutPolicy.Decision.NOW
         ? AgentStatusReportResponse.RESTART
         : AgentStatusReportResponse.DRAIN;

@@ -118,6 +118,13 @@ export interface AgentRuntimeSetting {
   applyMode: AgentApplyMode;
   generation: number;
   status: AgentRuntimeStatus;
+  /**
+   * 서버가 판정한 새 설정 적용 시점(WP-2000) — NOW=바로 적용(다시 띄우는 중), AT_IDLE=쉴 때 적용(하던 일을 마치면),
+   * null=기다리는 적용 없음. 화면은 이 값만 읽고 상태·보고로 다시 판정하지 않는다.
+   */
+  pendingApply: 'NOW' | 'AT_IDLE' | null;
+  /** 지금 AI 계정을 바꾸면 바로 적용되는지(WP-2000) — false 면 쉴 때 적용. 서버가 판정한다. */
+  accountChangeAppliesNow: boolean;
   observed: AgentObservedState | null;
   /** 「새 작업 받기」(WP-1514) — false 면 하던 일은 마치고 대기열에서 새 이슈를 가져가지 않는다. 시작할 때 true 로 돌아간다. */
   acceptNewWork: boolean;

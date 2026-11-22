@@ -30,9 +30,9 @@ public class AgentAccountRuntimeNotifier {
 
   /**
    * 사람이 화면에서 AI 의 계정을 고르기·바꾸기·풀기 했다(WP-1515) — 켜져 있으면 실행 설정 저장과 같게 generation+1·쉴 때 적용(IDLE)으로 미룬다.
-   * 일하는 중인 AI 는 하던 작업을 마치고 쉴 때 새 계정으로 다시 뜨고, 쉬는 중이거나 한 번도 뜬 적 없으면 {@code RolloutPolicy} 가 바로 적용한다.
-   * 걸려 있는 바로 적용(NOW, 「지금 적용」)은 {@link AgentRuntimeSettingRepository#bumpGenerationForRotation} 이
-   * 지킨다.
+   * 일하는 중인 AI 는 하던 작업을 마치고 쉴 때 새 계정으로 다시 뜨고, 쉬는 중이거나 한 번도 뜬 적 없거나 시작에 실패했는데 하던 일이 없으면 {@code
+   * RolloutPolicy} 가 바로 적용한다(WP-2000). 걸려 있는 바로 적용(NOW, 「지금 적용」)은 {@link
+   * AgentRuntimeSettingRepository#bumpGenerationForRotation} 이 지킨다.
    *
    * <p>꺼져 있거나 실행 설정이 없으면 Pod 가 없어 generation 을 올릴 까닭이 없다 — 화면 알림만 낸다. 바로 적용 경로({@link
    * AgentRuntimeImmediateInputs})의 NOW 표시는 desired=RUN 행만 고치므로 여기서는 부르지 않는다.

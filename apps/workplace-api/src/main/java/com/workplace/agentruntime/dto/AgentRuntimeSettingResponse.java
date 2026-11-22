@@ -11,6 +11,10 @@ import java.util.Map;
  * @param effectiveLocation 실제로 쓰는 위치(기본 해석 뒤) — 기본 위치도 없으면 null
  * @param desired 원하는 상태(켜 둠·꺼 둠)
  * @param generation 원하는 상태가 바뀔 때마다 1씩 오르는 번호
+ * @param pendingApply 아직 Pod 에 닿지 않은 설정이 언제 닿는지(WP-2000) — 서버 판정({@code RolloutPolicy}) 그대로. 꺼져 있거나
+ *     반영할 설정이 없으면 null
+ * @param accountChangeAppliesNow 지금 계정을 바꾸면 바로 적용되는지(WP-2000) — 꺼져 있으면 true(기다릴 Pod 가 없어 다음 시작 때 새
+ *     값으로 뜬다)
  * @param acceptNewWork 새 작업을 받는지(WP-1514) — false 면 하던 작업만 마친다. generation 과 무관
  * @param slotLimit 동시 진행 상한을 덮어쓴 값(WP-1754) — null 이면 템플릿 기본을 따른다
  * @param defaultSlotLimit 템플릿 기본 상한
@@ -30,6 +34,8 @@ public record AgentRuntimeSettingResponse(
     long generation,
     AgentRuntimeStatus status,
     ObservedState observed,
+    PendingApply pendingApply,
+    boolean accountChangeAppliesNow,
     boolean acceptNewWork,
     Integer slotLimit,
     int defaultSlotLimit,

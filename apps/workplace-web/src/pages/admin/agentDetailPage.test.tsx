@@ -358,13 +358,131 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
 
   test('쉴 때 적용 대기면 「바꾼 설정은 쉴 때 적용돼요.」와 「지금 적용」 — 계정·작업 설정을 함께 가리키는 말 (WP-1515)', async () => {
     const observed = createObserved({ agentState: 'IDLE' })
-    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'APPLY_PENDING', desired: 'RUN', observed }) } }))
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'APPLY_PENDING', desired: 'RUN', pendingApply: 'AT_IDLE', observed }) } }))
     const banner = await screen.findByTestId('agent-runtime-apply-pending')
     expect(banner).toHaveTextContent('바꾼 설정은 쉴 때 적용돼요.')
     expect(banner).not.toHaveTextContent('작업 설정')
     // 일하는 중이 아니면 확인 창 없이 같은 설정을 NOW 로 다시 보낸다.
     await user.click(within(banner).getByTestId('agent-runtime-apply-now'))
     await waitFor(() => expect(calls.saves.map((b) => b.applyMode)).toEqual(['NOW']))
+  })
+
+  // 서버가 내려준 적용 시점(WP-2000) — 화면은 pendingApply·accountChangeAppliesNow 만 읽는다.
+  const NEW_COPY = '새 설정으로 작업 공간을 다시 띄우고 있어요'
+
+  test('쉴 때 적용 대기 + 서버 NOW 면 새 문구만 — 배너 없이 작업 화면 보기·CPU 칸은 그대로 (WP-2000)', async () => {
+    const observed = createObserved({ agentState: 'IDLE', startedAt: '2026-01-01T00:00:00Z' })
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'APPLY_PENDING', desired: 'RUN', pendingApply: 'NOW', observed }) } }))
+    expect(await screen.findByText(NEW_COPY)).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-runtime-apply-pending')).not.toBeInTheDocument()
+    expect(screen.getByTestId('agent-screen-open')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-runtime-stats')).toHaveTextContent('CPU')
+  })
+
+  test('시작 중 + 서버 NOW + startedAt 이면 새 문구와 경고 줄, 배너는 없다 (WP-2000)', async () => {
+    const observed = createObserved({ startedAt: '2026-01-01T00:00:00Z', message: '메모리 한도로 다시 시작됐어요' })
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'STARTING', desired: 'RUN', pendingApply: 'NOW', observed }) } }))
+    expect(await screen.findByText(NEW_COPY)).toBeInTheDocument()
+    expect(screen.getByTestId('agent-runtime-notice')).toHaveTextContent('메모리 한도로')
+    expect(screen.queryByTestId('agent-runtime-apply-pending')).not.toBeInTheDocument()
+  })
+
+  test('시작 중 + 서버 NOW + startedAt 없으면 「작업 공간을 준비하고 있어요」 (WP-2000)', async () => {
+    const observed = createObserved({ startedAt: null })
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'STARTING', desired: 'RUN', pendingApply: 'NOW', observed }) } }))
+    expect(await screen.findByText('작업 공간을 준비하고 있어요')).toBeInTheDocument()
+    expect(screen.queryByText(NEW_COPY)).not.toBeInTheDocument()
+  })
+
+  test('시작 중 + 서버 AT_IDLE 이어도 배너는 없다 (WP-2000)', async () => {
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'STARTING', desired: 'RUN', pendingApply: 'AT_IDLE', observed: createObserved() }) } }))
+    expect(await screen.findByTestId('agent-runtime-status')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-runtime-apply-pending')).not.toBeInTheDocument()
+  })
+
+  describe('시작 실패를 쉴 때까지 미룬 상태(FAILED + AT_IDLE) (WP-2000)', () => {
+    const heldSetting = (observed: ReturnType<typeof createObserved>, pendingApply: 'AT_IDLE' | null = 'AT_IDLE') =>
+      createSetting(id, { status: 'FAILED', desired: 'RUN', pendingApply, observed })
+    const working = () => createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319', message: 'ImagePullBackOff', startedAt: '2026-01-01T00:00:00Z' })
+
+    // 쉴 때로 미룬 실패는 하던 일이 있는 AI 라 실행 중처럼 「지금 n개 진행 중」을 보인다 — 자리 조회도 켜진다.
+    test('「동시 진행」 행에 「지금 2개 진행 중」이 보인다', async () => {
+      await renderDetail(works({ settings: { [id]: heldSetting(working()) }, slots: { [id]: { used: 2, limit: 1 } } }))
+      const row = await screen.findByTestId('agent-slot-limit')
+      await waitFor(() => expect(row).toHaveTextContent('지금 2개 진행 중'))
+    })
+
+    // 화면 참고 근거도 실행 중과 같게 — 알약은 「오류」라 차단 보고를 「AI 상태」로 따로 싣는다.
+    test('화면 참고 focus.facts 에 차단된 AI 상태가 실린다', async () => {
+      const setting = heldSetting(createObserved({ agentState: 'BLOCKED', agentIssueKey: 'WD-319', message: 'ImagePullBackOff', startedAt: '2026-01-01T00:00:00Z' }))
+      await renderDetail({ ...works({ settings: { [id]: setting } }), probe: true })
+      await waitFor(() => expect(currentScreenContext()?.focus?.facts).toContainEqual({ label: 'AI 상태', value: '차단됨' }))
+      expect(currentScreenContext()!.focus!.facts).toContainEqual({ label: '실행 상태', value: '오류' })
+    })
+
+    test('오류 알약·까닭·배너·지금 적용이 보이고 CPU 칸·경과는 없다', async () => {
+      await renderDetail(works({ settings: { [id]: heldSetting(working()) } }))
+      expect(await screen.findByTestId('agent-runtime-status')).toHaveTextContent('오류')
+      expect(screen.getByTestId('agent-runtime-detail')).toHaveTextContent('ImagePullBackOff')
+      expect(screen.getByTestId('agent-runtime-apply-pending')).toBeInTheDocument()
+      expect(screen.getByTestId('agent-runtime-apply-now')).toBeInTheDocument()
+      expect(screen.queryByTestId('agent-runtime-stats')).not.toBeInTheDocument()
+      expect(screen.queryByText(/째/)).not.toBeInTheDocument()
+    })
+
+    test('일하는 중이면 지금 적용은 확인 창을 거친다 — 확인 전엔 요청이 없다', async () => {
+      const { user, calls } = await renderDetail(works({ settings: { [id]: heldSetting(working()) } }))
+      await user.click(await screen.findByTestId('agent-runtime-apply-now'))
+      expect(await screen.findByRole('alertdialog')).toHaveTextContent('지금 적용할까요?')
+      expect(calls.saves).toEqual([])
+      expect(calls.actions).toEqual([])
+    })
+
+    test('일하는 중이면 재시작은 확인 뒤 restart 를 보낸다(start 가 아님)', async () => {
+      const { user, calls } = await renderDetail(works({ settings: { [id]: heldSetting(working()) } }))
+      await user.click(await screen.findByTestId('agent-runtime-start'))
+      const dialog = await screen.findByRole('alertdialog')
+      expect(dialog).toHaveTextContent('지금 재시작할까요?')
+      expect(calls.actions).toEqual([])
+      await user.click(within(dialog).getByRole('button', { name: '재시작' }))
+      await waitFor(() => expect(calls.actions).toEqual(['restart']))
+    })
+
+    test('일하는 중이고 초안을 고쳤으면 확인 뒤 applyMode NOW 로 저장한다', async () => {
+      const locations = [createLocation({ id: 1, isDefault: true, capacity: 4, used: 1 }), createLocation({ id: 2, name: 'PoC', isDefault: false, capacity: 4, used: 0 })]
+      const { user, calls } = await renderDetail(works({ settings: { [id]: heldSetting(working()) }, locations }))
+      await user.click(await screen.findByTestId('agent-runtime-location'))
+      await user.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /PoC/ }))
+      await user.click(screen.getByTestId('agent-runtime-start'))
+      const dialog = await screen.findByRole('alertdialog')
+      expect(calls.saves).toEqual([])
+      await user.click(within(dialog).getByRole('button', { name: '재시작' }))
+      await waitFor(() => expect(calls.saves.map((b) => b.applyMode)).toEqual(['NOW']))
+      expect(calls.actions).toEqual([])
+    })
+
+    test('일하는 중이면 종료는 종료 확인 창을 거친다', async () => {
+      const { user, calls } = await renderDetail(works({ settings: { [id]: heldSetting(working()) } }))
+      await user.click(await screen.findByTestId('agent-runtime-stop'))
+      expect(await screen.findByRole('alertdialog')).toHaveTextContent('종료할까요?')
+      expect(calls.actions).toEqual([])
+    })
+
+    test('상태 보고가 없으면 재시작은 확인 없이 restart', async () => {
+      const { user, calls } = await renderDetail(works({ settings: { [id]: heldSetting(createObserved({ agentState: null, message: 'ImagePullBackOff' })) } }))
+      await user.click(await screen.findByTestId('agent-runtime-start'))
+      await waitFor(() => expect(calls.actions).toEqual(['restart']))
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    })
+
+    test('서버 판정이 없으면(pendingApply null) 배너 없이 재시작은 기존대로 start', async () => {
+      const { user, calls } = await renderDetail(works({ settings: { [id]: heldSetting(working(), null) } }))
+      expect(await screen.findByTestId('agent-runtime-status')).toHaveTextContent('오류')
+      expect(screen.queryByTestId('agent-runtime-apply-pending')).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('agent-runtime-start'))
+      await waitFor(() => expect(calls.actions).toEqual(['start']))
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    })
   })
 
   test('옛 서버 응답(agentIssueKeys 없음)이면 확인 창은 agentIssueKey 하나로 적는다 (WP-1409)', async () => {
@@ -1393,7 +1511,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
   async function switchWhileRunning(agentState: 'WORKING' | 'BLOCKED' | 'IDLE' | null) {
     const observed = createObserved({ agentState, agentIssueKey: agentState === 'IDLE' || agentState == null ? null : 'WD-1' })
     const { user, calls } = await renderDetail(
-      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }),
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', accountChangeAppliesNow: agentState === 'IDLE', observed }) } }),
     )
     await screen.findByTestId('agent-account-bound')
     const dialog = await openChooser(user)
@@ -1418,6 +1536,23 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     const notice = await switchWhileRunning('IDLE')
     expect(notice).toBe(NOW_NOTICE)
     expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다.')).toBeInTheDocument()
+  })
+
+  test('계정 고르기 안내는 서버 accountChangeAppliesNow 만 따른다 — 꺼진 AI 라도 false 면 쉴 때 안내 (WP-2000)', async () => {
+    const { user } = await renderDetail(claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { accountChangeAppliesNow: false }) } }))
+    await screen.findByTestId('agent-account-bound')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(AT_IDLE_NOTICE)
+  })
+
+  test('일하는 중이어도 서버가 바로 적용(true)이라 하면 바로 다시 시작 안내 (WP-2000)', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-1' })
+    const { user } = await renderDetail(
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', accountChangeAppliesNow: true, observed }) } }),
+    )
+    await screen.findByTestId('agent-account-bound')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(NOW_NOTICE)
   })
 
   test('꺼져 있으면 바로 다시 시작 안내, 토스트에 쉴 때 적용을 붙이지 않는다 (WP-1515)', async () => {
