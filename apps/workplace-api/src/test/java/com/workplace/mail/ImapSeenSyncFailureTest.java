@@ -59,7 +59,7 @@ class ImapSeenSyncFailureTest extends MailSyncTestSupport {
   @AfterEach
   void cleanup() {
     if (seededAccount != null) {
-      progress.finish(seededAccount);
+      progress.discardForTest(seededAccount);
       // 계정 삭제가 folder·message 를 CASCADE 로 함께 지운다
       cleanupInTenant(
           1L,
@@ -79,7 +79,7 @@ class ImapSeenSyncFailureTest extends MailSyncTestSupport {
     MailTestPorts.sendText("box@test.local", "alice@example.com", "기존 메일", "본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(seededUser, seededAccount);
-    progress.finish(seededAccount); // 백필 목킹으로 남은 진행 상태 해제
+    progress.discardForTest(seededAccount); // 백필 목킹으로 남은 진행 상태 해제
   }
 
   /** 읽음 재조회 대상 조회가 실패해도 새 메일은 적재되고 동기화는 성공한다. */

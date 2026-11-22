@@ -99,6 +99,7 @@ import com.workplace.jooq.tables.IssueTypeDef.IssueTypeDefPath;
 import com.workplace.jooq.tables.IssueVersion.IssueVersionPath;
 import com.workplace.jooq.tables.IssueWatcher.IssueWatcherPath;
 import com.workplace.jooq.tables.Label.LabelPath;
+import com.workplace.jooq.tables.MailAccountJob.MailAccountJobPath;
 import com.workplace.jooq.tables.MailAttachmentPreview.MailAttachmentPreviewPath;
 import com.workplace.jooq.tables.MailDraft.MailDraftPath;
 import com.workplace.jooq.tables.MailDraftAttachment.MailDraftAttachmentPath;
@@ -1973,6 +1974,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _issueCommentReaction = new IssueCommentReactionPath(this, null, Keys.ISSUE_COMMENT_REACTION__ISSUE_COMMENT_REACTION_TENANT_ID_FKEY.getInverseKey());
 
         return _issueCommentReaction;
+    }
+
+    private transient MailAccountJobPath _mailAccountJob;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_account_job</code> table
+     */
+    public MailAccountJobPath mailAccountJob() {
+        if (_mailAccountJob == null)
+            _mailAccountJob = new MailAccountJobPath(this, null, Keys.MAIL_ACCOUNT_JOB__MAIL_ACCOUNT_JOB_TENANT_ID_FKEY.getInverseKey());
+
+        return _mailAccountJob;
     }
 
     private transient MailAttachmentPreviewPath _mailAttachmentPreview;

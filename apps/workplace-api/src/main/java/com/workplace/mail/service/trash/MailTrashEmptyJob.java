@@ -8,6 +8,7 @@ import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailJobRun;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.trash.MailEraser.EmptySink;
 import com.workplace.mail.service.trash.MailEraser.TrashRef;
@@ -66,13 +67,20 @@ public class MailTrashEmptyJob {
    *
    * <p>목록 갱신을 끝 상태(DONE·FAILED)를 적기 <b>전</b>에 한다 — 웹은 끝 상태를 보자마자 메일함 목록을 다시 받으므로, 그때 휴지통 수가 이미 서버에
    * 맞춰져 있어야 한다. 끝 상태는 finally 에서 한 번만 적어 Error 같은 잡지 못한 길에서도 RUNNING 이 남지 않는다.
+   *
+   * @param run 시작한 쪽이 선점한 실행 핸들 — 진행 반영·끝 상태는 이 실행에만 적는다(만료 뒤 다시 선점된 새 실행을 덮지 않게, WP-1977)
    */
-  public void run(long userId, EmailAccountResponse account, TrashRef trash, MailEraser eraser) {
+  public void run(
+      long userId,
+      EmailAccountResponse account,
+      TrashRef trash,
+      MailEraser eraser,
+      MailJobRun run) {
     long accountId = account.id();
     // 멈춘 사유 코드 — null 이면 끝까지 돌았다. 잡지 못한 길(Error 등)의 기본 사유는 연결 실패다.
     String failCode = MailTrashException.SERVER_UNREACHABLE;
     try {
-      eraser.emptyTrash(userId, account, trash, new Sink(userId, accountId, trash));
+      eraser.emptyTrash(userId, account, trash, new Sink(userId, accountId, trash, run));
       failCode = null;
     } catch (MailTrashException e) {
       failCode = e.code();
@@ -92,11 +100,21 @@ public class MailTrashEmptyJob {
         }
       } finally {
         if (failCode == null) {
-          progress.finish(accountId);
+          progress.finish(run);
         } else {
-          progress.fail(accountId, failCode);
+          progress.fail(run, failCode);
         }
       }
+      logResultQuietly(accountId);
+    }
+  }
+
+  /**
+   * 끝난 결과를 로그로 남긴다. 스냅샷은 DB 읽기라 던질 수 있는데(연결 끊김 등) {@link #run} 은 절대 던지면 안 되므로, 실패하면 경고만 남긴다 — 끝 상태는
+   * 이미 적었으니 로그를 못 남겨도 작업 결과는 그대로다.
+   */
+  private void logResultQuietly(long accountId) {
+    try {
       MailTrashEmptyStatus s = progress.snapshot(accountId);
       log.info(
           "휴지통 비우기 끝: accountId={} state={} errorCode={} total={} deleted={} failed={}",
@@ -106,6 +124,8 @@ public class MailTrashEmptyJob {
           s.total(),
           s.deleted(),
           s.failed());
+    } catch (RuntimeException e) {
+      log.warn("휴지통 비우기 끝 — 결과 조회 실패: accountId={} {}", accountId, e.getClass().getSimpleName());
     }
   }
 
@@ -151,15 +171,20 @@ public class MailTrashEmptyJob {
     private final long accountId;
     private final TrashRef trash;
 
-    Sink(long userId, long accountId, TrashRef trash) {
+    /** 이 작업의 실행 핸들 — 진행 수를 이 실행에만 더한다. */
+    private final MailJobRun run;
+
+    /** 작업 한 번의 사용자·계정·휴지통 행과 실행 핸들을 묶는다. */
+    Sink(long userId, long accountId, TrashRef trash, MailJobRun run) {
       this.userId = userId;
       this.accountId = accountId;
       this.trash = trash;
+      this.run = run;
     }
 
     @Override
     public void snapshot(int total) {
-      progress.setTotal(accountId, total);
+      progress.setTotal(run, total);
     }
 
     /**
@@ -182,7 +207,7 @@ public class MailTrashEmptyJob {
               notifier.mailChanged(userId, accountId, null, userId);
             }
           });
-      progress.addDeleted(accountId, uids.size());
+      progress.addDeleted(run, uids.size());
     }
 
     /**
@@ -199,7 +224,7 @@ public class MailTrashEmptyJob {
               notifier.mailChanged(userId, accountId, null, userId);
             }
           });
-      progress.addDeleted(accountId, providerIds.size());
+      progress.addDeleted(run, providerIds.size());
     }
 
     /** 계정이 아직 연결돼 있는지(트랜잭션 안) — 비우는 도중 해제됐으면 로컬 반영 없이 {@code ACCOUNT_GONE} 으로 멈춘다. */
@@ -211,7 +236,7 @@ public class MailTrashEmptyJob {
 
     @Override
     public void failed(int count) {
-      progress.addFailed(accountId, count);
+      progress.addFailed(run, count);
     }
   }
 }

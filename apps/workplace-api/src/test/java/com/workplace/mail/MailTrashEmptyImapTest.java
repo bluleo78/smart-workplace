@@ -102,7 +102,7 @@ class MailTrashEmptyImapTest extends MailSyncTestSupport {
     ReflectionTestUtils.setField(trashService, "erasers", originalErasers);
     ReflectionTestUtils.setField(imapMailEraser, "imapChunk", ImapMailEraser.IMAP_CHUNK);
     // 진행 상태도 싱글턴이다 — 이 클래스가 시작한 계정은 시작 전으로 되돌린다
-    startedAccounts.forEach(progress::release);
+    startedAccounts.forEach(progress::discardForTest);
   }
 
   /** [user, account] — 서버 메일함(Archive·Trash)을 만들고 받은편지함 메일을 받은 뒤 동기화하고 휴지통을 한 번 가져온다. */
@@ -357,7 +357,7 @@ class MailTrashEmptyImapTest extends MailSyncTestSupport {
   @Test
   void startWhileRunning_returnsSameRunningState_withoutTouchingServer() throws Exception {
     long[] s = trashScenario();
-    assertThat(progress.tryStart(s[1])).isTrue(); // 이미 도는 작업
+    assertThat(progress.tryStart(s[1])).isPresent(); // 이미 도는 작업
     clearInvocations(imapConnector);
 
     MailTrashEmptyStatus st = trashService.startEmpty(s[0], s[1]);

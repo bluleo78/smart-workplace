@@ -29,37 +29,4 @@ public record MailTrashEmptyStatus(
   /** 시작 전 상태(작업 기록이 없다). */
   public static final MailTrashEmptyStatus IDLE =
       new MailTrashEmptyStatus("IDLE", null, 0, 0, null, null, null, null);
-
-  // ===== 진행 반영용 사본 — MailTrashEmptyProgress 가 바꿀 때마다 쓴다. 필드 목록을 여기 한 곳에만 둔다(인자가 있어 JSON 속성이 아니다).
-  // =====
-
-  /** 시작 때 센 서버 휴지통 메일 수를 적은 사본. */
-  public MailTrashEmptyStatus withTotal(int total) {
-    return new MailTrashEmptyStatus(state, total, deleted, failed, startedAt, null, null, null);
-  }
-
-  /** 지운(또는 이미 없던) 메일 수를 더한 사본. */
-  public MailTrashEmptyStatus plusDeleted(int n) {
-    return new MailTrashEmptyStatus(state, total, deleted + n, failed, startedAt, null, null, null);
-  }
-
-  /** 지우지 못한 메일 수를 더한 사본. */
-  public MailTrashEmptyStatus plusFailed(int n) {
-    return new MailTrashEmptyStatus(state, total, deleted, failed + n, startedAt, null, null, null);
-  }
-
-  /** 끝까지 돌았다 — DONE + 끝난 시각(failed 는 그대로). */
-  public MailTrashEmptyStatus done(Instant at) {
-    return new MailTrashEmptyStatus("DONE", total, deleted, failed, startedAt, at, null, null);
-  }
-
-  /**
-   * 중간에 멈췄다 — FAILED + 끝난 시각 + 사유. total 을 알면 아직 처리하지 않은 메일을 실패로 더해 {@code deleted + failed =
-   * total} 을 맞춘다(웹이 「n통은 지우지 못했습니다」를 바로 보일 수 있게).
-   */
-  public MailTrashEmptyStatus stopped(Instant at, String code, String message) {
-    int allFailed = total == null ? failed : failed + Math.max(0, total - deleted - failed);
-    return new MailTrashEmptyStatus(
-        "FAILED", total, deleted, allFailed, startedAt, at, code, message);
-  }
 }

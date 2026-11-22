@@ -5,13 +5,16 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.MailAccountJobRepository.Kind;
 import com.workplace.mail.service.MailAnalysisBreaker;
 import com.workplace.mail.service.MailAnalysisService;
 import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailBodyFetcher;
+import com.workplace.mail.service.MailJobRun;
 import com.workplace.mail.service.MailPushService;
 import com.workplace.mail.service.MailPushService.NewMailPush;
 import com.workplace.mail.service.MailSyncProgress;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,17 +62,19 @@ class MailBackfillNullGuardTest {
   @Test
   void backfill_withoutTenantContext_skips_andFinishes() {
     TenantContext.clear(); // 비테넌트 컨텍스트
+    MailJobRun run = new MailJobRun(Kind.SYNC, 42L, UUID.randomUUID(), 1L);
 
     service.backfill(
         7L,
         42L,
-        new NewMailPush(Mockito.mock(com.workplace.mail.dto.EmailAccountResponse.class), 3L));
+        new NewMailPush(Mockito.mock(com.workplace.mail.dto.EmailAccountResponse.class), 3L),
+        run);
 
     // RLS 테이블 접근(listMissingBody)과 본문 적재가 일어나지 않아야 한다.
     verify(messageRepo, never()).listMissingBody(Mockito.anyLong(), Mockito.anyInt());
     verify(bodyFetcher, never()).fetchBody(Mockito.anyLong(), Mockito.any());
-    // 진행률은 정상 종료 처리(stuck 방지).
-    verify(progress).finish(42L);
+    // 진행률은 정상 종료 처리(stuck 방지) — 동기화가 넘긴 실행 핸들로 끝낸다(핸들의 테넌트로 문맥을 세워 쓴다, WP-1977).
+    verify(progress).finish(run);
     verify(analysis, never()).analyzeAfterLoad(Mockito.anyLong(), Mockito.anyLong(), Mockito.any());
     // 테넌트가 없으면 푸시도 싣지 못한다(RLS 후보 조회·발송 테넌트 모두 불가) — 발송하지 않는다(WP-1739).
     verify(push, never()).sendNewMail(Mockito.anyLong(), Mockito.any(), Mockito.anyLong());

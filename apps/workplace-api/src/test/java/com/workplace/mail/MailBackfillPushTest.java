@@ -15,9 +15,10 @@ import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.MailAccountJobRepository;
+import com.workplace.mail.repository.MailAccountJobRepository.Kind;
 import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailPushService.NewMailPush;
-import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.notify.push.PushDispatcher;
 import com.workplace.notify.push.PushMessage;
@@ -56,7 +57,7 @@ class MailBackfillPushTest extends ExternalClientMockedTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EncryptionService encryption;
-  @Autowired MailSyncProgress progress;
+  @Autowired MailAccountJobRepository jobRepo;
 
   /** 발송 단위 포착용 목 — 실푸시(HTTP)는 나가지 않는다. */
   @MockitoBean PushDispatcher pushDispatcher;
@@ -67,7 +68,9 @@ class MailBackfillPushTest extends ExternalClientMockedTestBase {
     MailTestPorts.sendText("box@test.local", "alice@example.com", "기존 메일", "본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(userId, accountId);
-    progress.finish(accountId); // 비동기 보충이 진행 상태를 끝내길 기다리지 않는다
+    // 비동기 보충이 진행 상태를 끝내길 기다리지 않고 가드 행을 지운다. 보충 스레드가 실행 핸들로 finish 해도 이 @Transactional 테스트의
+    // 미커밋 행을 보지 못해 DB 행은 RUNNING 으로 남기 때문이다.
+    jobRepo.delete(Kind.SYNC, accountId);
     return accountId;
   }
 

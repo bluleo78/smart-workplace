@@ -72,7 +72,7 @@ class ImapReadSyncerTest extends MailSyncTestSupport {
   @AfterEach
   void cleanup() {
     if (seededAccount != null) {
-      progress.finish(seededAccount);
+      progress.discardForTest(seededAccount);
       // 계정 삭제가 folder·message 를 CASCADE 로 함께 지운다
       cleanupInTenant(
           1L,
@@ -95,7 +95,7 @@ class ImapReadSyncerTest extends MailSyncTestSupport {
     greenMail.waitForIncomingEmail(2);
     MailTestPorts.setServerSeen("되돌릴 메일", true);
     syncService.sync(seededUser, seededAccount);
-    progress.finish(seededAccount);
+    progress.discardForTest(seededAccount);
 
     long[] ids = new long[3];
     List<SeenSyncItem>[] items = new List[1];
@@ -158,7 +158,7 @@ class ImapReadSyncerTest extends MailSyncTestSupport {
     greenMail.waitForIncomingEmail(2);
     MailTestPorts.setServerFlagged("별표 끌 메일", true);
     syncService.sync(seededUser, seededAccount);
-    progress.finish(seededAccount);
+    progress.discardForTest(seededAccount);
   }
 
   /** 두 메일의 별표를 뒤집고(켜기·끄기) 대기 항목과 계정을 돌려준다. */
@@ -267,7 +267,7 @@ class ImapReadSyncerTest extends MailSyncTestSupport {
           assertThat(messageRepo.findDueSeenSyncItems(seededAccount, 10)).isEmpty();
         });
     syncService.sync(seededUser, seededAccount);
-    progress.finish(seededAccount);
+    progress.discardForTest(seededAccount);
     cleanupInTenant(
         1L,
         () -> {

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -181,7 +182,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     MailSyncResult first = syncService.sync(user, accountId);
     // 백필이 목킹돼 첫 sync 의 진행 상태가 finish 되지 않으므로(가드 유지), 2차 sync 가 가드가 아닌
     // UID 증분 경로를 실제로 타도록 진행 상태를 수동 종료한다.
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     MailSyncResult second = syncService.sync(user, accountId);
 
     assertThat(first.saved()).isEqualTo(1);
@@ -296,7 +297,8 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     // 본문 적재 대상(미적재)으로 잡힌다.
     assertThat(messageRepo.countMissingBody(accountId)).isEqualTo(1);
     // 미적재 본문이 있으므로 비동기 백필이 트리거된다.
-    verify(backfillService).backfill(eq(user), eq(accountId), isNull()); // 첫 동기화라 발송 정보 없음(WP-1739)
+    verify(backfillService)
+        .backfill(eq(user), eq(accountId), isNull(), notNull()); // 첫 동기화라 발송 정보 없음(WP-1739)
   }
 
   @Test
@@ -327,8 +329,8 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     assertThat(r.fetched()).isZero();
     assertThat(r.saved()).isZero();
     // 가드로 즉시 반환 — 네트워크 동기화도 백필 트리거도 일어나지 않는다.
-    verify(backfillService, never()).backfill(anyLong(), anyLong(), any());
-    progress.finish(accountId);
+    verify(backfillService, never()).backfill(anyLong(), anyLong(), any(), any());
+    progress.discardForTest(accountId);
   }
 
   /**
@@ -473,7 +475,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     assertThat(localSeen(accountId, "읽음 동기화")).isFalse();
 
     // 서버에서 읽음 → 로컬 읽음
-    progress.finish(accountId); // 백필 목킹으로 남은 진행 상태 해제(2차 sync 가 가드에 막히지 않게)
+    progress.discardForTest(accountId); // 백필 목킹으로 남은 진행 상태 해제(2차 sync 가 가드에 막히지 않게)
     MailTestPorts.setServerSeen("읽음 동기화", true);
     MailSyncResult read = syncService.sync(user, accountId);
     assertThat(read.saved()).isZero();
@@ -481,14 +483,14 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     assertThat(localSeen(accountId, "읽음 동기화")).isTrue();
 
     // 서버에서 안읽음으로 되돌림 → 로컬도 안읽음
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     MailTestPorts.setServerSeen("읽음 동기화", false);
     MailSyncResult unread = syncService.sync(user, accountId);
     assertThat(unread.seenChanged()).isEqualTo(1);
     assertThat(localSeen(accountId, "읽음 동기화")).isFalse();
 
     // 변화 없으면 0건(순환 없음)
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     assertThat(syncService.sync(user, accountId).seenChanged()).isZero();
   }
 
@@ -507,7 +509,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     syncService.sync(user, accountId);
     assertThat(messageRepo.listByAccount(accountId, null, 50)).hasSize(3);
 
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     MailTestPorts.moveServerMessage("보관할 메일", "Archive");
     MailTestPorts.moveServerMessage("지울 메일", null);
     MailSyncResult r = syncService.sync(user, accountId);
@@ -520,7 +522,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
         .containsExactly("남는 메일");
 
     // 변화 없으면 0건
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     assertThat(syncService.sync(user, accountId).removed()).isZero();
   }
 
@@ -538,7 +540,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .execute();
 
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     MailTestPorts.setServerSeen("오래된 메일", true);
     MailSyncResult r = syncService.sync(user, accountId);
 
@@ -555,7 +557,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
     greenMail.waitForIncomingEmail(1);
     syncService.sync(user, accountId);
 
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     MailTestPorts.setServerSeen("기존 메일", true);
     MailTestPorts.sendText("box@test.local", "bob@example.com", "새 메일", "본문");
     greenMail.waitForIncomingEmail(2);
@@ -583,7 +585,7 @@ class MailSyncServiceTest extends MailSyncTestSupport {
             .id();
     messageRepo.markSeen(id); // 로컬 열람 — 서버 반영은 아직(\\Seen 없음)
 
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     MailSyncResult r = syncService.sync(user, accountId);
 
     assertThat(r.seenChanged()).isZero();

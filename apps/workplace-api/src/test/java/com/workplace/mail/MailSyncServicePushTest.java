@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -105,7 +106,7 @@ class MailSyncServicePushTest extends MailSyncTestSupport {
     MailTestPorts.sendText("box@test.local", "alice@example.com", "기존 메일", "본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(userId, accountId);
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
     return accountId;
   }
 
@@ -207,15 +208,15 @@ class MailSyncServicePushTest extends MailSyncTestSupport {
     MailTestPorts.sendText("box@test.local", "alice@example.com", "공용 메일", "본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(user1, account1);
-    progress.finish(account1);
+    progress.discardForTest(account1);
     syncService.sync(user2, account2);
-    progress.finish(account2);
+    progress.discardForTest(account2);
     verify(pushDispatcher, never()).dispatchMail(any(), any());
 
     // account2 의 행이 account1 경계보다 크다 — 그래도 account1 동기화의 후보가 되면 안 된다(새 메일 없음).
     assertThat(messageRepo.maxInboxId(account2)).isGreaterThan(messageRepo.maxInboxId(account1));
     syncService.sync(user1, account1);
-    progress.finish(account1);
+    progress.discardForTest(account1);
     verify(pushDispatcher, never()).dispatchMail(any(), any());
 
     // 새 메일이 생겨도 자기 계정분만 — 1건 형식(url 에 messageId)으로 나가야 account2 행이 안 섞인 것이다.
@@ -249,7 +250,7 @@ class MailSyncServicePushTest extends MailSyncTestSupport {
     verify(pushDispatcher, never()).dispatchMail(any(), any());
     verify(mailPushService, never()).sendNewMail(anyLong(), any(), anyLong());
     ArgumentCaptor<NewMailPush> push = ArgumentCaptor.forClass(NewMailPush.class);
-    verify(backfillService).backfill(eq(user), eq(accountId), push.capture());
+    verify(backfillService).backfill(eq(user), eq(accountId), push.capture(), notNull());
     assertThat(push.getValue().maxInboxId()).isEqualTo(boundary);
     assertThat(push.getValue().account().id()).isEqualTo(accountId);
   }
@@ -265,7 +266,7 @@ class MailSyncServicePushTest extends MailSyncTestSupport {
 
     syncService.sync(user, accountId);
 
-    verify(backfillService).backfill(eq(user), eq(accountId), isNull());
+    verify(backfillService).backfill(eq(user), eq(accountId), isNull(), notNull());
     verify(pushDispatcher, never()).dispatchMail(any(), any());
   }
 
