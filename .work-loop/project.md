@@ -67,7 +67,7 @@ pnpm test:full   # 이미지 입력 타입 검사 → web vitest → web E2E 전
 
 ### 풀테스트 (WP-2003 — 검토자, `process-issue.md` 「풀테스트·green (검토자)」)
 
-개발자는 push 게이트 없이(`--no-verify`) 올리고 검토자는 받는 대로 머지한다. 합친 main 은 검토자가 리뷰할 것이 없을 때 아래로 한 번에 돌리고, 통과한 커밋으로 `green` 브랜치를 옮긴다. 개발자는 `origin/green` 에서 브랜치를 딴다.
+개발자는 push 게이트 없이(`--no-verify`) 올리고 검토자는 받는 대로 머지한다. 합친 main 은 검토자가 리뷰할 것이 없을 때 아래로 한 번에 돌리고, 통과한 커밋으로 `green` 브랜치를 옮긴다. 개발자는 `origin/green` 에서 브랜치를 딴다. **풀테스트를 띄운 뒤 green 을 옮길 때까지(실패해 고치는 동안 포함) 검토자는 PR 을 머지하지 않는다** — 리뷰·승인만 하고, green 을 옮긴 뒤 승인한 순서대로 머지한다. 그동안 main 에는 풀테스트 실패의 고침·되돌리기만 들어가, 다시 돌린 풀테스트가 고침만 검사한다.
 
 ```sh
 FULL_REGRESSION_SCOPE=full pnpm test:full   # green 워크트리(MAIN/.claude/worktrees/green, main 의 정한 커밋에 detach)에서. 범위 판정은 origin/main 기준이라 main HEAD 에서는 빈 범위가 나오므로 전체를 강제한다
@@ -177,7 +177,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - 브랜치: 이슈마다 `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123`)를 `origin/green` 에서 따서 push 하고 PR 로 올린다(WP-2003 — 기차는 껐다, 3절 「통합 PR 정리」). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
 - PR 제목 `<이슈 키> <이슈 제목>`, 머지 커밋 제목 `merge: <이슈 키> <이슈 제목>`(`gh pr merge --merge` 또는 검토자의 손 머지 — 지금 main 이력 모양을 지킨다). 남은 통합 PR(제목 `통합 <키1>·<키2>·…`)은 머지 커밋 `merge: 통합 <키1>·<키2>·…` 로 그대로 리뷰·머지한다.
 - **통합 PR 리뷰(WP-1216)**: 이슈 단위로 리뷰하고(이슈 하나 = 커밋 하나 + 그 키를 단 수정 커밋) 마이그레이션 번호(아래 0번)·테스트 근거(아래 1번)를 확인한다. 하나라도 문제면 PR 전체를 반려하고 어느 이슈가 왜 문제인지 적는다 — 개발자는 같은 PR 에 수정 커밋을 더한다. 통과하면 머지하고(8절 바로 머지) 실린 이슈마다 검토 대기(REVIEW)로 올린다 — 머지 커밋은 `message` 에.
-- **바로 머지(WP-2003)**: 개발자는 바뀐 범위 테스트(1절)만 돌리고 `git push --no-verify` 로 올리며 rebase 하지 않는다. 검토자는 리뷰를 통과한 PR 을 받는 대로 머지한다 — 충돌 없으면 `gh pr merge`(gw-repo), main 과 충돌하거나 마이그레이션 번호가 겹치면 검토자가 이슈 워크트리에서 origin/main 에 머지 커밋을 만들어 풀고 `git push --no-verify origin HEAD:main`(손 머지 — GitHub 가 PR 을 머지됨으로 닫는다). 양쪽 뜻을 함께 살릴 수 없는 「뜻 충돌」만 개발자에게 rebase 로 돌려보낸다. 합친 결과의 회귀는 3절 「풀테스트」가 잡는다.
+- **바로 머지(WP-2003)**: 개발자는 바뀐 범위 테스트(1절)만 돌리고 `git push --no-verify` 로 올리며 rebase 하지 않는다. 검토자는 리뷰를 통과한 PR 을 받는 대로 머지한다 — 충돌 없으면 `gh pr merge`(gw-repo), main 과 충돌하거나 마이그레이션 번호가 겹치면 검토자가 이슈 워크트리에서 origin/main 에 머지 커밋을 만들어 풀고 `git push --no-verify origin HEAD:main`(손 머지 — GitHub 가 PR 을 머지됨으로 닫는다). 양쪽 뜻을 함께 살릴 수 없는 「뜻 충돌」만 개발자에게 rebase 로 돌려보낸다. 합친 결과의 회귀는 3절 「풀테스트」가 잡는다. 풀테스트를 띄워 green 을 옮길 때까지는 머지하지 않고 승인만 한다(3절).
 - **CI(GitHub Actions, WP-993)**: PR(main 대상)·main push 마다 `.github/workflows/ci.yml` 의 `verify`(전체 `pnpm lint`·`pnpm typecheck`, 웹 vitest 는 main push 에서만 — WP-1218)가 돈다. `main` 브랜치 보호가 `verify` 를 required check 로 건다 — 최신 main 포함 요구(strict)는 끈다(충돌 없는 낡은 브랜치도 머지 — WP-998), PR 필수는 아니고 관리자 직접 push 는 막지 않는다 — AI 의 main 직접 push 는 검토자의 세 예외(손 머지·풀테스트 수정·되돌리기 — `green` 은 main 이 아니다)뿐이다(WP-2003).
   - 검토자는 머지 전에 `gh pr checks <번호>` 로 `verify` 통과를 확인한다(진행 중이면 기다리고, 실패면 실패한 단계·로그 요지를 적어 반려한다). 다만 실패가 그 PR 이 바꾸지 않은 파일에서 났으면 main 이 깨진 것이다 — 반려하지 않고 main 을 먼저 고친다(`process-issue.md` 「풀테스트·green (검토자)」 6번, WP-2003).
   - 머지는 **`--admin` 없이** `gh pr merge --merge …` 로만 한다. AI 들이 관리자 계정을 함께 쓰므로 `--admin` 을 붙이면 보호가 뚫린다 — 어떤 경우에도 붙이지 않는다(거절되면 이유를 보고 고치거나 BLOCKED).
@@ -206,7 +206,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
   - 개발자 PR 본문의 「절차」 줄을 확인한다(`process-issue.md` 5번 형식, 흉내만 낸 줄이면 반려).
   - 브랜치 전체에 `/code-review medium` 을 실제로 돌리고(다시 부탁받으면 달라진 부분 — process-issue.md 「PR 리뷰·머지」 3번) 그 결과를 적는다.
   - 완료 기준 대조표를 적는다(미충족·확인 불가가 있으면 반려, 통합 PR 은 이슈마다).
-- **바로 머지·풀테스트(WP-2003)** — 리뷰를 통과한 PR 은 받는 대로 머지한다(순서 머지 WP-1720·앞지르기 WP-1999 는 없앴다). 충돌은 검토자가 손 머지로 푼다(7절). 리뷰할 것이 없으면 main 을 풀테스트하고 통과한 커밋으로 `green` 을 옮긴다(3절 「풀테스트」, process-issue.md 「풀테스트·green (검토자)」).
+- **바로 머지·풀테스트(WP-2003)** — 리뷰를 통과한 PR 은 받는 대로 머지한다(순서 머지 WP-1720·앞지르기 WP-1999 는 없앴다). 충돌은 검토자가 손 머지로 푼다(7절). 리뷰할 것이 없으면 main 을 풀테스트하고 통과한 커밋으로 `green` 을 옮긴다 — 풀테스트를 띄운 뒤 green 을 옮길 때까지는 머지를 멈추고 승인만 한다(3절 「풀테스트」, process-issue.md 「풀테스트·green (검토자)」).
 
 ## 9. 할 일 없을 때 (`SKILL.md` 3번 「할 일 없음」)
 

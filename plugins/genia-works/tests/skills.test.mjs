@@ -1459,8 +1459,9 @@ test('process-issue.md: 검토자는 리뷰할 것이 없을 때 main 을 풀테
     '`MAIN/.work-loop/state/notes/green.md`',
     '`bg-job status "<MAIN>" green`',
     '`git -C MAIN worktree add --detach .claude/worktrees/green <sha>`',
-    // 도는 동안에도 리뷰·머지는 한다 — 테스트하는 커밋이 정해져 있다.
-    '도는 동안 새 리뷰 부탁이 오면 리뷰·머지한다',
+    // 도는 동안에는 리뷰·승인만 하고 머지는 green 을 옮길 때까지 미룬다.
+    '도는 동안 새 리뷰 부탁이 오면 리뷰·승인까지만 하고 머지는 미룬다',
+    '`머지 대기: 풀테스트` 줄이 있는 이슈를 승인한 순서대로 하나씩 머지한다',
     // 통과 — 강제 없이 fast-forward.
     '`git push --no-verify origin <sha>:refs/heads/green`',
     // 실패 — 불안정 먼저, 원인 머지 찾기, 작게 고치기·되돌리기.
@@ -1468,10 +1469,13 @@ test('process-issue.md: 검토자는 리뷰할 것이 없을 때 main 을 풀테
     '`git log --first-parent --oneline origin/green..<sha>`',
     '`git revert --no-commit -m 1 <머지 커밋>`',
     '[풀테스트 실패]',
-    '같은 실패가 세 번 이어지면',
+    '같은 실패를 고쳐도 세 번 이어지면',
     // main 이 깨져 PR 검사가 함께 실패하면 PR 을 반려하지 않고 main 을 먼저 고친다.
     '6. **main 이 깨져 PR 검사가 실패할 때**',
   ]) assert.ok(green.includes(s), s);
+  // 머지 멈춤 — 검토자 6번에서 green.md 의 `풀테스트:` 줄을 보고 머지를 미룬다.
+  assert.ok(pi.includes('   - **머지 멈춤**(풀테스트): 머지하기 직전에 `MAIN/.work-loop/state/notes/green.md` 에 `풀테스트:` 줄이 있으면'));
+  assert.ok(pi.includes('검토자의 글이 `[머지 대기]` 로 시작하면'));
   assertBefore(green, '1. **언제**', '2. **띄우기**');
   assertBefore(green, '3. **통과**', '4. **실패**');
   // SKILL.md 할 일 없음이 이 절을 부른다.
