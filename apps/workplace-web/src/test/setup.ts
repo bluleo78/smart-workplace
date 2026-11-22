@@ -106,12 +106,15 @@ const realSetTimeout = globalThis.setTimeout
 const realNow = Date.now.bind(Date)
 // 마지막 요청이 끝난 시각 — 끝난 직후의 응답 이벤트 전달이 afterAll 의 서버 닫기와 겹치지 않게 본다.
 let lastRequestEndedAt = 0
-server.events.on('request:end', ({ requestId }) => {
+// 요청이 끝난 것으로 본다 — 진행 중에서 빼고 끝난 시각을 적는다(afterAll 이 그 뒤 응답 이벤트 전달을 기다린다).
+const settleRequest = ({ requestId }: { requestId: string }) => {
   pendingRequests.delete(requestId)
   lastRequestEndedAt = realNow()
-})
-// 핸들러가 던지면 request:end 가 나오지 않는다 — 그 요청은 응답이 오지 않으므로 진행 중에서만 빼고, 전달을 기다릴 것이 없어 시각은 적지 않는다.
-server.events.on('unhandledException', ({ requestId }) => pendingRequests.delete(requestId))
+}
+server.events.on('request:end', settleRequest)
+// 핸들러가 던지면 request:end 가 나오지 않지만, 인터셉터가 XHR 에 기본 500 응답을 보내 응답 이벤트는 그대로 온다 —
+// 그래서 정상 종료와 똑같이 끝난 시각을 적어 그 전달도 기다리게 한다(WP-1967 리뷰 후속 반려).
+server.events.on('unhandledException', settleRequest)
 // renderPage 가 늘린 비동기 대기(WP-1006)를 테스트마다 RTL 기본값으로 되돌린다 — 같은 워커의 다음 컴포넌트 테스트에 새지 않게.
 const DEFAULT_ASYNC_TIMEOUT = getConfig().asyncUtilTimeout
 // 닫히는 중인 알림(sonner)을 마지막으로 본 시각(WP-1259) — sonner 는 알림을 닫을 때 200ms 뒤 목록에서 빼는 타이머를 걸고,
@@ -123,7 +126,7 @@ let toastClosingSeenAt = 0
 const TOAST_REMOVE_WAIT_MS = 250
 afterEach(async () => {
   configure({ asyncUtilTimeout: DEFAULT_ASYNC_TIMEOUT })
-  if (document.querySelector('[data-sonner-toast][data-removed="true"]')) toastClosingSeenAt = Date.now()
+  if (document.querySelector('[data-sonner-toast][data-removed="true"]')) toastClosingSeenAt = realNow()
   // 화면을 핸들러 초기화보다 먼저 내린다 — RTL 의 자동 cleanup 은 이 afterEach 뒤에 돌아, 그 사이 아직 떠 있는 화면이 보낸
   // 조회(SSE·대화·공간 목록)와 내려가며 보내는 요청(임시저장·취소)이 이미 비운 핸들러에 걸려, 부하가 큰 전체 실행에서
   // 다음 테스트를 「핸들러 없는 요청」으로 실패시켰다(WP-1002). 내린 뒤 한 틱 기다려 그 요청이 이 테스트의 핸들러로 처리되게 한다.
@@ -151,7 +154,7 @@ afterAll(async () => {
   // 있으면(위에서 기다린 요청 포함) 전달이 끝날 만큼 더 기다린 뒤 서버를 닫는다(settleDelayMs). 아니면 틱 하나만.
   await new Promise((resolve) => realSetTimeout(resolve, settleDelayMs(lastRequestEndedAt, realNow())))
   server.close()
-  const wait = toastClosingSeenAt + TOAST_REMOVE_WAIT_MS - Date.now()
+  const wait = toastClosingSeenAt + TOAST_REMOVE_WAIT_MS - realNow()
   if (wait > 0) await new Promise((resolve) => realSetTimeout(resolve, wait))
 })
 
