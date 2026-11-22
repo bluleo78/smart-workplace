@@ -2,9 +2,10 @@
 // 판정 규칙은 lib/mobile/touchShell.ts 참조. 메시지 행마다 호출돼도 MediaQueryList·리스너는 스토어당 한 벌이다.
 import { useSyncExternalStore } from 'react'
 
-import { getIsTouchShell, subscribeTouchShell } from '@/lib/mobile/touchShell'
+import { getTouchShellSnapshot, subscribeTouchShell } from '@/lib/mobile/touchShell'
 
 /** 모바일 터치 셸 여부. SSR/초기 스냅샷이 없는 환경에선 false(데스크톱 동작). */
 export function useIsTouchShell(): boolean {
-  return useSyncExternalStore(subscribeTouchShell, getIsTouchShell, () => false)
+  // 렌더 스냅샷 — mediaQueryStore 참조(WP-1966)
+  return useSyncExternalStore(subscribeTouchShell, getTouchShellSnapshot, () => false)
 }

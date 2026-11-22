@@ -10,5 +10,6 @@ export const getIsMobile = mobileWidthStore.get
 
 /** 모바일 폭(lg 미만) 여부. SSR/초기 스냅샷이 없는 환경에선 데스크톱(false)으로 본다. */
 export function useIsMobile(): boolean {
-  return useSyncExternalStore(mobileWidthStore.subscribe, mobileWidthStore.get, () => false)
+  // 렌더 스냅샷 — mediaQueryStore 참조(WP-1966)
+  return useSyncExternalStore(mobileWidthStore.subscribe, mobileWidthStore.getSnapshot, () => false)
 }

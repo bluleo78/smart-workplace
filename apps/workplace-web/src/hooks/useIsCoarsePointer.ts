@@ -7,5 +7,6 @@ import { coarsePointerStore } from '@/lib/mobile/mediaQueryStore'
 
 /** coarse 포인터 여부. SSR/초기 스냅샷이 없는 환경에선 false(데스크톱 동작). */
 export function useIsCoarsePointer(): boolean {
-  return useSyncExternalStore(coarsePointerStore.subscribe, coarsePointerStore.get, () => false)
+  // 렌더 스냅샷 — mediaQueryStore 참조(WP-1966)
+  return useSyncExternalStore(coarsePointerStore.subscribe, coarsePointerStore.getSnapshot, () => false)
 }

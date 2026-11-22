@@ -54,7 +54,7 @@ import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useAuth } from '@/hooks/useAuth'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
-import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { useMinuteNow } from '@/hooks/useMinuteNow'
 import { useResetOnChange } from '@/hooks/useResetOnChange'
 import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
@@ -121,14 +121,13 @@ export function CalendarPage() {
   // 표시 설정·마지막 보기는 사용자·워크스페이스별 저장(WP-701). 캘린더 화면은 로그인 뒤에만 열리므로 user 가 있다.
   const { user, activeTenant } = useAuth()
   const storageOwner = { userId: user?.id ?? 0, tenantId: activeTenant?.tenantId ?? null }
-  // 첫 보기 — 마지막으로 쓴 보기(WP-948), 없으면 모바일은 일정 목록(WP-136: 월 칩이 두세 글자로 잘려 읽히지 않음), 데스크톱은 월.
-  // 마운트 때 한 번만 정한다(isMobile 선언 전이라 동기 판정).
-  const [view, setViewState] = useState<CalendarViewType>(() => {
-    const mobile = getIsMobile()
-    return loadLastView(storageOwner, mobile) ?? (mobile ? 'agenda' : 'month')
-  })
   // 모바일(<lg): 오늘/‹/› 와 뷰 전환(단일 select)을 헤더 아래 도구 줄로 내린다(U2-5) — 390px 헤더에선 제목이 잘린다.
   const isMobile = useIsMobile()
+  // 첫 보기 — 마지막으로 쓴 보기(WP-948), 없으면 모바일은 일정 목록(WP-136: 월 칩이 두세 글자로 잘려 읽히지 않음), 데스크톱은 월.
+  // 마운트 때 한 번만 정한다. 렌더 중 판정이라 나머지 화면과 같은 스냅샷을 쓴다(WP-1966).
+  const [view, setViewState] = useState<CalendarViewType>(
+    () => loadLastView(storageOwner, isMobile) ?? (isMobile ? 'agenda' : 'month'),
+  )
   // 사용자가 보기를 바꾸면 지금 화면 종류(데스크톱·모바일)의 마지막 보기로 기억한다(WP-948).
   const setView = (next: CalendarViewType) => {
     setViewState(next)

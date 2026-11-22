@@ -5,5 +5,6 @@ import { landscapeStore } from '@/lib/mobile/mediaQueryStore'
 
 /** 가로 방향 여부. 초기 스냅샷이 없는 환경에선 세로(false)로 본다. */
 export function useIsLandscape(): boolean {
-  return useSyncExternalStore(landscapeStore.subscribe, landscapeStore.get, () => false)
+  // 렌더 스냅샷 — mediaQueryStore 참조(WP-1966)
+  return useSyncExternalStore(landscapeStore.subscribe, landscapeStore.getSnapshot, () => false)
 }
