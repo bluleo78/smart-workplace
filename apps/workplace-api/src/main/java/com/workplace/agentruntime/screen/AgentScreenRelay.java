@@ -423,8 +423,8 @@ public class AgentScreenRelay {
   // ---------------------------------------------------------------- 타이머
 
   /**
-   * 1초마다: 입력 기록 꺼내 쓰기, 만료 표 치우기, 기한 검사, 25초마다 핑. 단계마다·세션마다 실패를 따로 잡아, 한 세션이나 한 단계의 실패가 나머지(다른
-   * 세션·핑)를 막지 않게 한다.
+   * 1초마다: 만료 표 치우기, 기한 검사(지난 세션 닫기), 입력 기록 꺼내 쓰기, 25초마다 핑. 단계마다·세션마다 실패를 따로 잡아, 한 세션이나 한 단계의 실패가
+   * 나머지(같은 세션의 다른 단계·다른 세션·핑)를 막지 않게 한다.
    */
   void tick() {
     // executor 는 작업이 어떤 Throwable 이든 던지면 다음 주기를 다시 돌리지 않는다. 그래서 Error 까지 잡는다. 또 한 세션이
@@ -436,21 +436,29 @@ public class AgentScreenRelay {
       log.warn("작업 화면 만료 표 정리 실패", e);
     }
     for (Pair p : List.copyOf(pairs.values())) {
+      // 만료·닫기를 입력 기록보다 먼저, 따로 잡는다 — 입력 기록이 매번 실패해도 기한이 지난 세션은 닫힌다.
+      // 닫힌 세션은 close 가 마지막 입력 기록을 이미 했으므로 주기 기록을 건너뛴다.
+      try {
+        expiry(p, now).ifPresent(r -> close(p, r, true));
+      } catch (Throwable e) {
+        log.warn("작업 화면 만료 검사 실패 session={}", p.id, e);
+      }
+      if (p.closed.get()) continue;
       try {
         flushInput(p, false);
-        Optional<String> reason = expiry(p, now);
-        reason.ifPresent(r -> close(p, r, true));
       } catch (Throwable e) {
-        log.warn("작업 화면 타이머 실패 session={}", p.id, e);
+        log.warn("작업 화면 입력 기록 단계 실패 session={}", p.id, e);
       }
     }
+    // 핑 단계도 다른 단계처럼 바깥에서 Error 까지 잡는다 — ping 안 catch 의 로그나 순회·시각 계산이 던져도 tick 밖으로 새어
+    // executor 가 주기 작업을 취소하지 않게 한다. ping 은 소켓마다도 잡아 한 세션의 실패가 뒤 세션의 핑을 막지 않는다.
     try {
       if (Duration.between(lastPing, now).compareTo(PING_INTERVAL) >= 0) {
         lastPing = now;
         pairs.values().forEach(this::ping);
       }
     } catch (Throwable e) {
-      log.warn("작업 화면 핑 실패", e);
+      log.warn("작업 화면 핑 단계 실패", e);
     }
   }
 
@@ -479,12 +487,14 @@ public class AgentScreenRelay {
     }
   }
 
-  private void ping(Pair p) {
+  /** 한 세션의 두 소켓에 핑을 보낸다. 테스트가 spy 로 실패를 넣을 수 있게 패키지 공개다. */
+  void ping(Pair p) {
     for (WebSocketSession s : new WebSocketSession[] {p.browser, p.runner}) {
-      if (s == null || !s.isOpen()) continue;
+      if (s == null) continue;
+      // 소켓마다 Error 까지 잡는다 — 한 소켓의 실패가 같은 세션의 다른 소켓·뒤 세션의 핑을 막지 않게(WP-2009).
       try {
-        s.sendMessage(new PingMessage());
-      } catch (IOException | RuntimeException e) {
+        if (s.isOpen()) s.sendMessage(new PingMessage());
+      } catch (Throwable e) {
         log.debug("작업 화면 핑 실패 session={}", p.id, e);
       }
     }
