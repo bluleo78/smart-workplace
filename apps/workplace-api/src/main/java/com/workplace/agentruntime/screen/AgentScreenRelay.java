@@ -406,10 +406,15 @@ public class AgentScreenRelay {
    * 세션을 한 번만 닫는다: 레지스트리·표에서 빼고, 남은 입력 기록을 쓰고, 브라우저에 끝남 상태를 알린 뒤(브라우저가 닫은 것이 아니면) 두 소켓을 닫고, 세션 행에 닫힌
    * 때·까닭을 남긴다. 한국어 까닭은 상태 프레임에 싣는다 — 닫기 프레임의 까닭은 123바이트까지라 짧은 영문만 쓴다. 한 단계가 실패해도 나머지 단계는 실행하고 단계
    * 실패는 던지지 않는다({@link #closeStep}).
+   *
+   * <p>closed 표시와 표 제거는 attach 와 같은 잠금 아래에서 한다. attach 가 그 잠금 아래에서 closed 를 보고 소켓 칸을 채우므로, 잠금을 놓은
+   * 뒤에는 이미 붙은 소켓은 아래 단계가 읽어 닫고 늦게 온 attach 는 스스로 닫는다(WP-2013).
    */
   void close(Pair p, String reason, boolean notifyBrowser) {
-    if (!p.closed.compareAndSet(false, true)) return;
-    pairs.remove(p.id);
+    synchronized (this) {
+      if (!p.closed.compareAndSet(false, true)) return;
+      pairs.remove(p.id);
+    }
     closeStep(p, "표 정리", () -> tickets.removeForSession(p.id));
     closeStep(p, "입력 기록", () -> flushInput(p, true));
     if (notifyBrowser) {
