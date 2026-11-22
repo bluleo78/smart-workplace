@@ -352,10 +352,11 @@ public class GeniaLoginService {
    * 행에 토큰 없이 성공을 반영한다 — 이어받은 쪽이 이미 쓴 device code 로 다시 폴링해 FAILED 를 띄우면 계정은 저장됐는데 화면은 실패인 불일치가 남는다.
    * 행이 없으면(취소) 저장된 계정만 남는다(스펙이 받아들인 한계).
    */
-  private void succeed(String loginId, UUID token, Instant now, long accountId, String email) {
+  private void succeed(
+      String loginId, long userId, UUID token, Instant now, long accountId, String email) {
     if (end(loginId, token, now, SUCCEEDED, null, accountId, email)) return;
     Boolean recovered =
-        tx.execute(s -> repo.finishPendingWithoutLease(loginId, now, accountId, email));
+        tx.execute(s -> repo.finishPendingWithoutLease(loginId, userId, now, accountId, email));
     log.warn(
         "Gen:iA 로그인 성공 반영 0건(임대 잃음·취소) accountId={} 대기 행에 반영={}",
         accountId,
@@ -390,8 +391,12 @@ public class GeniaLoginService {
     // 저장 직전에 임대를 다시 확인·연장한다 — 폴링 응답을 기다리는 사이 임대가 끊겨 다른 파드가 이어받았거나 취소·만료로 끝났으면 0건이라 저장하지 않는다
     // (저장하고도 UI 는 FAILED/EXPIRED 를 보거나 두 번 등록되는 불일치를 막는다). 연장한 임대로 아래 계정 저장 동안 임대가 유지된다.
     // 알려진 한계(스펙이 받아들임): 이 확인 뒤 register/update 도중에 오는 취소는 막지 못한다 — 저장은 끝나고 행은 취소로 지워진다.
+    // 저장 동안은 다른 파드가 이어받지 못하게 임대를 진행 만료 시각(이미 지났으면 지금) + 폴링 임대까지 늘린다(WP-1976 리뷰 후속) — 저장이 폴링 임대보다
+    // 오래 걸려 이어받은 파드가 이미 쓴 device code 로 다시 폴링해 FAILED 를 먼저 내보내면, 계정은 저장됐는데 화면은 실패로 멈춘다. 저장 중 파드가
+    // 죽으면 그 시각까지 대기로 남다가(로그인 링크는 만료 뒤 숨김) 임대가 끝나면 EXPIRED 로 끝난다.
+    Instant saveLeaseUntil = saveLeaseUntil(row.expiresAt(), now);
     Boolean claimed =
-        tx.execute(s -> repo.claimForSave(loginId, row.userId(), token, now, now.plus(pollLease)));
+        tx.execute(s -> repo.claimForSave(loginId, row.userId(), token, now, saveLeaseUntil));
     if (!Boolean.TRUE.equals(claimed)) return;
     // 서버가 만료 시각을 주지 않으면 Gen:iA 토큰 수명으로 채운다(실패로 끝내지 않는다).
     Instant tokenExpiresAt =
@@ -418,7 +423,7 @@ public class GeniaLoginService {
                   row.userId(),
                   new AgentAccountRequest(
                       AgentProviders.GENIA, null, null, row.label(), loginInfo, null));
-      succeed(loginId, token, clock.instant(), saved.id(), saved.accountEmail());
+      succeed(loginId, row.userId(), token, clock.instant(), saved.id(), saved.accountEmail());
       log.info("Gen:iA 로그인 계정 저장 userId={} accountId={}", row.userId(), saved.id());
     } catch (AgentAccountNotFoundException e) {
       fail(loginId, token, clock.instant(), MSG_ACCOUNT_GONE);
@@ -431,6 +436,11 @@ public class GeniaLoginService {
           "Gen:iA 로그인 계정 저장 실패 userId={} error={}", row.userId(), e.getClass().getSimpleName());
       fail(loginId, token, clock.instant(), MSG_SAVE_FAILED);
     }
+  }
+
+  /** 저장 중 임대 만료 — 진행 만료 시각과 지금 중 늦은 쪽 + 폴링 임대. 저장 동안 다른 파드가 이어받아 다시 폴링하지 못하게 한다. */
+  Instant saveLeaseUntil(Instant sessionExpiresAt, Instant now) {
+    return (sessionExpiresAt.isAfter(now) ? sessionExpiresAt : now).plus(pollLease);
   }
 
   /** 로그인 링크만 뺀 응답 — 만료가 지난 대기 진행에 쓴다. */
