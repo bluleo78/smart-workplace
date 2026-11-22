@@ -401,6 +401,24 @@ test('loop-lock: 인자가 모자라거나 모르는 명령이면 exit 2', () =>
 function job(args) {
   return spawnSync(join(scripts, 'bg-job'), args, { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: home } });
 }
+// pid 가 살아 있는지 / 그 번호의 프로세스 그룹이 남아 있는지 — 진짜 ps 로 본다.
+function pidAlive(pid) {
+  return spawnSync('ps', ['-o', 'pid=', '-p', pid]).stdout.toString().trim() !== '';
+}
+function groupAlive(pid) {
+  return spawnSync('ps', ['-axo', 'pgid=']).stdout.toString().split('\n').some((g) => g.trim() === pid);
+}
+// WP-1965 — setsid·perl 을 0.5초 늦게 진짜 것으로 exec 하는 shim 폴더와 그것을 PATH 앞에 둔 env — start 와 setsid 사이의 틈을 벌린다.
+function slowSetsidShim() {
+  const shim = mkdtempSync(join(tmpdir(), 'gw-shim-'));
+  for (const name of ['setsid', 'perl']) {
+    const real = spawnSync('sh', ['-c', `command -v ${name}`]).stdout.toString().trim();
+    if (!real) continue;
+    writeFileSync(join(shim, name), `#!/bin/sh\nsleep 0.5\nexec ${real} "$@"\n`);
+    chmodSync(join(shim, name), 0o755);
+  }
+  return { shim, env: { ...process.env, PATH: `${shim}:${process.env.PATH}` } };
+}
 // 끝날 때까지(running 이 아닐 때까지) 기다린 상태 — 짧은 명령만 띄우므로 몇 초면 끝난다.
 function waitDone(main, key) {
   for (let i = 0; i < 100; i++) {
@@ -467,7 +485,8 @@ test('bg-job start: 돌고 있으면 새로 띄우지 않고 running 으로 exit
 test('bg-job stop: 어느 sh 에서나 받는 `kill -s <신호> -- <그룹>` 꼴로만 신호를 보낸다 (WP-1207)', () => {
   const text = readFileSync(join(scripts, 'bg-job'), 'utf8');
   const code = text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
-  assert.ok(code.includes('kill -s TERM -- "-$_bj_pid"'));
+  // 신호는 bj_signal 한 곳에서 그룹(음수)·pid 로 보낸다(WP-1965).
+  assert.ok(code.includes('kill -s "$1" -- "-$2"'));
   // `kill -s …` 가 아닌 `kill -<신호>` 꼴로 음수(그룹)를 넘기면 dash 가 거절한다.
   assert.ok(!/kill -(?!s\b)[A-Za-z0-9]+\s+(--\s+)?"?-/.test(code), 'dash 가 거절하는 `kill -<신호> [--] -<그룹>` 꼴이 남아 있다');
 });
@@ -482,14 +501,85 @@ test('bg-job stop: dash 로 불러도 그룹이 실제로 끝난 뒤에 ok 를 �
     const started = spawnSync(dash, [join(scripts, 'bg-job'), 'start', main, 'WP-3', work, '--', 'sleep', '30']);
     assert.match(started.stdout.toString(), /^started \d+/);
     pid = readFileSync(join(main, '.work-loop', 'state', 'jobs', 'WP-3.pid'), 'utf8').split('-')[0];
-    const alive = () => spawnSync('ps', ['-axo', 'pgid=']).stdout.toString().split('\n').some((g) => g.trim() === pid);
-    assert.ok(alive(), '띄운 그룹이 돌고 있어야 한다');
+    assert.ok(groupAlive(pid), '띄운 그룹이 돌고 있어야 한다');
     const r = spawnSync(dash, [join(scripts, 'bg-job'), 'stop', main, 'WP-3']);
     assert.equal(r.stdout.toString().trim(), 'ok', r.stderr.toString());
     // stop 이 끝날 때까지 기다리므로 ok 를 낸 때 이미 그룹이 없다.
-    assert.equal(alive(), false, 'dash 로 부른 stop 이 그룹을 끝내지 않고 ok 를 냈다');
+    assert.equal(groupAlive(pid), false, 'dash 로 부른 stop 이 그룹을 끝내지 않고 ok 를 냈다');
   } finally {
     if (pid) try { process.kill(-Number(pid), 'SIGKILL'); } catch {}
+    rmSync(main, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+// WP-1965 — start 가 자식이 setsid 를 마치기 전에 started 를 내면, 곧바로 부른 stop 이 아직 없는 그룹에 신호를 보내고 ok 를 내며 작업이 계속 돌았다.
+// setsid·perl 을 0.5초 늦추는 shim 으로 그 틈을 벌려, start 가 새 세션이 선 뒤에야 돌아오고 stop 의 ok 가 작업이 끝났다는 뜻인지 본다.
+test('bg-job stop: setsid 가 늦어도 start 직후 stop 의 ok 는 작업이 끝났다는 뜻이다 (WP-1965)', () => {
+  const { shim, env } = slowSetsidShim();
+  const dash = spawnSync('sh', ['-c', 'command -v dash']).stdout.toString().trim();
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const work = mkdtempSync(join(tmpdir(), 'gw-work-'));
+  const pids = [];
+  try {
+    // 기본 sh 와(있으면) dash 로 같은 순서를 한 번씩 — 키만 다르게.
+    const runs = [[join(scripts, 'bg-job'), [], 'WP-7']];
+    if (dash) runs.push([dash, [join(scripts, 'bg-job')], 'WP-8']);
+    for (const [bin0, args, key] of runs) {
+      const started = spawnSync(bin0, [...args, 'start', main, key, work, '--', 'sleep', '30'], { env, encoding: 'utf8' });
+      assert.match(started.stdout, /^started \d+$/m, started.stderr);
+      const pid = readFileSync(join(main, '.work-loop', 'state', 'jobs', `${key}.pid`), 'utf8').split('-')[0];
+      pids.push(pid);
+      const r = spawnSync(bin0, [...args, 'stop', main, key], { env, encoding: 'utf8' });
+      assert.equal(r.stdout.trim(), 'ok', r.stderr);
+      assert.equal(pidAlive(pid), false, 'stop 이 ok 를 냈는데 작업이 살아 있다');
+      assert.equal(groupAlive(pid), false, 'stop 이 ok 를 냈는데 그룹이 남아 있다');
+      assert.equal(spawnSync(bin0, [...args, 'status', main, key], { env, encoding: 'utf8' }).stdout.trim(), 'none');
+    }
+    // 대기는 setsid 가 늦을 때만 길어진다 — 평소(shim 없음) start 는 느려지지 않는다.
+    const t0 = Date.now();
+    const quick = spawnSync(join(scripts, 'bg-job'), ['start', main, 'WP-9', work, '--', 'true'], { encoding: 'utf8' });
+    assert.match(quick.stdout, /^started (\d+)$/m, quick.stderr);
+    pids.push(quick.stdout.match(/^started (\d+)$/m)[1]);
+    assert.ok(Date.now() - t0 < 3000, `start 가 너무 오래 걸렸다: ${Date.now() - t0}ms`);
+  } finally {
+    // 정리용 SIGKILL 은 그 pid 가 아직 살아 있고 그 그룹이 남아 있을 때만 — 재사용된 남의 pid·그룹을 죽이지 않는다.
+    for (const pid of pids) {
+      if (pidAlive(pid) && groupAlive(pid)) {
+        try { process.kill(-Number(pid), 'SIGKILL'); } catch {}
+      }
+    }
+    rmSync(shim, { recursive: true, force: true });
+    rmSync(main, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+// WP-1965 — start 가 setsid 를 기다리는 동안(최대 5초) status 가 none 이 되면 worktree-sweep 이 작업 없음으로 보고 워크트리를 지우거나 같은 키로 중복 start 할 수 있다.
+// setsid 를 0.5초 늦추는 shim 아래 start 를 띄워 두고, start 가 끝나기 전(대기 중) pid 파일이 생긴 시점에 status 가 running 인지 본다.
+// 고정 시각(예: 0.3초)에 보면 느린 CI 에서 start 가 pid 파일을 쓰기 전에 봐 흔들리므로 pid 파일이 생기기를 기다린다.
+test('bg-job start: setsid 를 기다리는 동안에도 status 는 running 이다 (WP-1965)', async () => {
+  const { shim, env } = slowSetsidShim();
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const work = mkdtempSync(join(tmpdir(), 'gw-work-'));
+  let out = '';
+  const child = spawn(join(scripts, 'bg-job'), ['start', main, 'WP-6', work, '--', 'sleep', '30'], { env });
+  child.stdout.on('data', (c) => { out += c; });
+  const done = new Promise((res) => child.on('close', res));
+  try {
+    const pidFile = join(main, '.work-loop', 'state', 'jobs', 'WP-6.pid');
+    let closed = false;
+    done.then(() => { closed = true; });
+    for (let i = 0; i < 100 && !existsSync(pidFile) && !closed; i++) await new Promise((res) => setTimeout(res, 20));
+    assert.equal(closed, false, 'start 가 대기 없이 끝났다 — shim 지연이 적용되지 않았다');
+    const status = spawnSync(join(scripts, 'bg-job'), ['status', main, 'WP-6'], { encoding: 'utf8' }).stdout.trim();
+    assert.equal(status, 'running', 'start 대기 중 status 가 running 이 아니다');
+    await done;
+    assert.match(out, /^started \d+$/m);
+  } finally {
+    await done;
+    spawnSync(join(scripts, 'bg-job'), ['stop', main, 'WP-6']);
+    rmSync(shim, { recursive: true, force: true });
     rmSync(main, { recursive: true, force: true });
     rmSync(work, { recursive: true, force: true });
   }
