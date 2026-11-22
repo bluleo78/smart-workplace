@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,7 @@ class AgentScreenRelayCloseTest {
   private AgentScreenRelay relay;
 
   @BeforeEach
-  void setUp() {
+  void setUp() throws InterruptedException {
     tickets = mock(AgentScreenTickets.class);
     service = mock(AgentScreenService.class);
     browser = mock(WebSocketSession.class);
@@ -63,7 +64,10 @@ class AgentScreenRelayCloseTest {
     relay = new AgentScreenRelay(mock(RunnerSseRegistry.class), tickets, new ObjectMapper());
     relay.setService(service);
     // 실제 1초 타이머의 tick 이 tickets 목에 끼어들면 Mockito 스텁이 엉뚱한 메서드에 붙는다 — 공유 relay 의 타이머는 멈춰 둔다
-    timerOf(relay).shutdownNow();
+    var timer = timerOf(relay);
+    timer.shutdownNow();
+    // shutdownNow 는 이미 시작한 tick 을 기다리지 않는다 — 끝난 뒤에야 테스트가 목을 스텁한다
+    assertTrue(timer.awaitTermination(5, TimeUnit.SECONDS), "타이머가 5초 안에 끝나야 한다");
   }
 
   /** relay 내부 타이머를 꺼낸다. */
