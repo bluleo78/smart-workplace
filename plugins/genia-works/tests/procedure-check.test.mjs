@@ -533,3 +533,41 @@ test('원장 — 들여쓴 ## 원장 머리도 읽는다', (t) => {
   notes(main, `${GOOD}\n\n  ## 원장\nTask 1: complete (a)\nTask 2: complete (b)\n최종 리뷰: clean\n`);
   ok(run(main));
 });
+
+// WP-1997 — 다른 이슈를 인용한 문구로는 예외가 되지 않는다.
+test('예외 아님 — 다른 이슈의 리뷰 후속 문구를 prose 에 인용', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + 'PR 본문에 넣을 것(기차 28): WP-1958 절 「리뷰 후속 수정 — 앞 PR #1623」·②③·①\n');
+  fail(run(main), '절차: 줄이 없습니다');
+});
+test('예외 아님 — 목록 기호로 감싼 인용', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '- WP-1958 절 「리뷰 후속 수정 — 앞 PR #1623」\n');
+  fail(run(main), '절차: 줄이 없습니다');
+});
+test('예외 아님 — 줄머리 선언인데 다른 이슈 키가 함께 있는 줄', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '리뷰 후속 수정 — 앞 PR #1623 (WP-1958 인용)\n');
+  fail(run(main), '절차: 줄이 없습니다');
+});
+test('예외 아님 — 같은 줄에 자기 키와 다른 이슈 키가 함께 있는 선언', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '리뷰 후속 수정 — 앞 PR #1623 (WP-1 · WP-1958 인용)\n');
+  fail(run(main), '절차: 줄이 없습니다');
+});
+
+// WP-1997 — 진짜 리뷰 후속 선언은 그대로 예외로 통과한다.
+test('예외 — 자기 선언 줄(자기 키 없음)', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '리뷰 후속 수정 — 앞 PR #1623\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
+});
+test('예외 — 자기 선언 줄(같은 줄에 자기 이슈 키)', (t) => {
+  const main = repo(t);
+  notes(main, NOTES_HEAD + '리뷰 후속 수정 — 앞 PR #1623 (WP-1 선언)\n');
+  const r = run(main);
+  ok(r);
+  assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
+});
