@@ -219,14 +219,16 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 
 - `state`: `IDLE`(쉬는 중) · `WORKING`(이슈 처리 중) · `BLOCKED` 중 하나(필수, 그 밖은 400). `issueKey` 32자. `generation` 은 Pod 의 `GENIA_AGENT_GENERATION`.
 - `podStartedAt`(WP-1913): 보고한 **Pod(컨테이너)가 뜬 시각**(ISO-8601 UTC — 플러그인은 `now - /proc/uptime + /proc/1/stat 의 starttime/Hz` 로 계산한다. `/proc/1` **mtime 은 쓰지 않는다** — dentry 가 지워졌다 다시 조회되면 컨테이너 시작보다 늦게 갱신돼 옛 Pod 보고를 걸러 내지 못한다). 서버가 끝나는 중인 옛 Pod 의 늦은 보고를 지금 Pod 의 보고와 갈라 쓴다(아래 「칸 차단 백스톱」 ②). 서버가 보고를 **받은** 시각으로는 이 판정을 못 한다 — 옛 Pod 의 늦은 보고도 새 Pod 가 뜬 뒤에 도착해 받은 시각이 늘 지금이기 때문이다. 없으면(옛 플러그인·시각을 못 읽은 이미지) 견주지 않고 그대로 믿는다.
+  - (WP-1958) **같은 generation 으로 재시작해도** 끝나는 중인 옛 Pod 의 늦은 보고가 새 Pod 의 상태를 덮지 않게, 서버가 지금 Pod 시작(관찰한 `started_at` 과 칸·차단 보고가 올려 둔 Pod 시작 중 늦은 쪽 = `max(started_at, reported_pod_started_at)`)보다 **30초 넘게 앞선** 보고를 **통째로** 버린다 — 칸 쓰기·합치기·칸 차단 백스톱 모두 하지 않고 INFO 로그만 남기며, 응답은 저장된 행 기준의 원하는 상태다.
+  - 받은 보고의 값은 지금 Pod 시작을 끌어올리고(`reported_pod_started_at`), runner 가 관찰 보고로 null 이 아니면서 저장된 보고 값보다 늦은 `started_at` 을 알리면 그 값은 비워진다(보고 값이 없어도 비울 것이 없다. 같거나 더 이른 `started_at` — null 보고 뒤 옛 Pod 의 `startTime` 을 다시 관찰한 경우 — 은 비우지 않는다). 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(없는 값처럼 — 칸에 싣지도, 기준을 올리지도 않는다). 플러그인 `gw-status` 도 계산 결과가 지금보다 뒤(미래)면 `podStartedAt` 을 싣지 않는다.
 - `slot`(WP-1409): 보고한 **칸** — 한 Pod 안의 work-loop 하나, 값은 그 칸의 프로젝트 키(플러그인은 칸 env `GENIA_WORKS_PROJECT` 를 싣는다). 형식 `^[A-Za-z0-9_-]{0,32}$`(아니면 400), 서버는 대문자로 바꿔 저장한다(`wp` 와 `WP` 는 같은 칸). 없거나 빈 값이면 `''` 칸 — 옛 플러그인·외부 구성은 지금처럼 한 칸으로 동작한다.
 - **여러 칸의 보고를 합친다**(WP-1409). 서버는 칸마다 마지막 보고를 남기고, 모든 칸을 아래 규칙으로 합친 값을 AI 상태로 쓴다 — 한 칸이 일하는 중에 다른 칸이 쉬는 중을 보고해도 AI 는 작업 중이다.
   - `WORKING` 칸이 하나라도 있으면 `WORKING` · 아니면 `BLOCKED` 칸이 하나라도 있으면 `BLOCKED` · 모두 `IDLE` 이면 `IDLE`.
   - 현재 이슈 = `WORKING`·`BLOCKED` 칸의 이슈 키(칸 키 순, 중복 제외).
   - 다음 확인 = `IDLE` 칸 중 가장 이른 `nextCheckAt`(일하는 칸이 보낸 값은 쓰지 않는다).
-  - 지금 Pod 가 뜨기 전에 받은 칸 보고(`reported_at < started_at − 30초` — 옛 Pod 의 칸. 30초는 API 서버와 runner·kubelet 시계 차이 여유)는 합치기에서 빼고 지운다(방금 보고한 칸은 남긴다). runner 가 관찰 보고로 새 Pod 의 `startedAt` 을 알릴 때도 같은 규칙으로 옛 칸을 지우고 남은 칸으로 다시 합친다 — Pod 를 다시 만들면 옛 칸이 합친 상태를 붙잡지 않는다.
+  - 지금 Pod 가 뜨기 전의 칸 보고(옛 Pod 의 칸. 30초는 API 서버와 runner·kubelet 시계 차이 여유)는 합치기에서 빼고 지운다(방금 보고한 칸은 남긴다). 칸이 보고한 Pod 시작(`pod_started_at`)을 가졌으면 그 값이 지금 Pod 시작(`max(started_at, reported_pod_started_at)`) − 30초보다 앞선 칸이고(WP-1958), 값이 없는 칸(옛 플러그인)은 예전처럼 `reported_at` 이 관찰한 `started_at` − 30초보다 앞선 칸이다(관찰값이 없으면 가르지 않는다). runner 가 관찰 보고로 새 Pod 의 `startedAt` 을 알릴 때도 같은 규칙으로 옛 칸을 지우고 남은 칸으로 다시 합친다 — Pod 를 다시 만들면 옛 칸이 합친 상태를 붙잡지 않는다.
   - 마지막 보고가 6시간(`workplace.agent-runtime.slot-stale-after`)보다 오래된 칸은 죽은 칸으로 보고 합치기에서 뺀다(행은 남는다 — 다시 보고하면 이어진다). 살아 있는 칸은 매 턴 끝마다 보고하므로, 죽은 칸의 마지막 `WORKING` 이 미뤄 둔 교체를 영영 막지 않게 하는 상한이다.
-  - **칸 차단 백스톱**: 남아 있던 진입점 차단(아래 「칸 차단 보고」)은 정상 칸 보고가 오는 순간 비우지만, 아래 두 조건을 **모두** 만족할 때만 비운다 — ① 보고 `generation` 이 차단 `generation` 이상일 때(차단 `generation` 이 null 인 **옛 이미지의 차단**은 지금 원하는 `generation` 이 아니라 **지금 돌고 있는 Pod 의 `observedGeneration`** 과 견준다 — 원하는 값과 견주면 교체가 미뤄진 동안 지금 Pod 가 `gen-1` 로 보고해 칸이 영영 비워지지 않고 건강한 AI 가 FAILED 로 남는다; `observedGeneration` 도 없으면 견주지 않는다; `generation` 을 싣지 않은 보고는 견주지 않고 그대로 믿는다), ② 보고에 실은 `podStartedAt` 이 지금 Pod 의 `started_at − 30초` 이후일 때(그보다 앞선 보고는 끝나는 중인 옛 Pod 의 것이라 새 Pod 진입점이 다시 보고하기 전에 「오류」를 지우면 안 된다; `podStartedAt` 이 없으면 견주지 않고 그대로 믿는다; 지금 Pod 를 아직 관찰하지 않아 `started_at` 이 없어도 견주지 않는다). **화면에 보이던 것(`currentPaneBlocked`)을 비울 때만** 관리자 화면 알림을 보낸다(가려진 옛 사유를 비우는 동작은 화면이 그대로라 알림 없음).
+  - **칸 차단 백스톱**: 남아 있던 진입점 차단(아래 「칸 차단 보고」)은 정상 칸 보고가 오는 순간 비우지만, 아래 두 조건을 **모두** 만족할 때만 비운다 — ① 보고 `generation` 이 차단 `generation` 이상일 때(차단 `generation` 이 null 인 **옛 이미지의 차단**은 지금 원하는 `generation` 이 아니라 **지금 돌고 있는 Pod 의 `observedGeneration`** 과 견준다 — 원하는 값과 견주면 교체가 미뤄진 동안 지금 Pod 가 `gen-1` 로 보고해 칸이 영영 비워지지 않고 건강한 AI 가 FAILED 로 남는다; `observedGeneration` 도 없으면 견주지 않는다; `generation` 을 싣지 않은 보고는 견주지 않고 그대로 믿는다), ② 보고에 실은 `podStartedAt` 이 차단을 보고한 Pod 의 시작(`pane_blocked_pod_started_at`, WP-1958 — 있으면 이쪽) 또는 지금 Pod 의 `started_at`(없으면) 의 `− 30초` 이후일 때(그보다 앞선 보고는 끝나는 중인 옛 Pod 의 것이라 새 Pod 진입점이 다시 보고하기 전에 「오류」를 지우면 안 된다; `podStartedAt` 이 없으면 견주지 않고 그대로 믿는다; `pane_blocked_pod_started_at` 이 없는 차단은 지금 Pod 를 아직 관찰하지 않아 `started_at` 이 없으면 견주지 않는다; `pane_blocked_pod_started_at` 이 있으면 `started_at` 이 null 이어도 그 값과 견준다). **화면에 보이던 것(`currentPaneBlocked`)을 비울 때만** 관리자 화면 알림을 보낸다(가려진 옛 사유를 비우는 동작은 화면이 그대로라 알림 없음).
 - 응답 `{"desired": "RUN" | "DRAIN" | "RESTART"}`:
   - AI 가 꺼졌으면(desired=STOP) `DRAIN` — 지워지는 Pod 가 새 이슈를 집지 않게 하는 **안전장치일 뿐**이다. 끄기는 위 「끄기는 즉시 정지」대로 runner 가 바로 Pod 를 지운다.
   - 보낸 `generation` 이 지금 설정보다 작으면, desired 의 `applyNow` 와 같은 판정(위 「언제 Pod 를 다시 만드나」 — 이번 보고까지 반영해서)이 참이면 `RESTART`(곧 다시 띄워진다 — 바로 적용, 합친 상태가 쉬는 중(**모든 칸이 쉼**), 지금 Pod 의 옛 키가 24시간 안에 만료 등), 아니면 `DRAIN`(새 이슈를 집지 않고 쉰다 — 쉬면 runner 가 다시 띄운다).
@@ -240,19 +242,20 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 작업 공간 진입점이 칸을 띄우지 못하면(설정 오류·로그인 오류 등) **못 띄운 사실과 이유**를 자기 AI 키(`Authorization: Bearer ak_…`)로 알려 서버에 남긴다(WP-1913) — 관리자 화면의 AI 목록이 「오류」와 이유를 보여 주기 위해서다. 위 「AI 상태 보고」와 달리 보고하는 쪽이 Pod 안 **진입점(스크립트)** 이다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다.
 
 ```json
-{ "state": "BLOCKED", "message": "설정 오류: …", "generation": 7 }
+{ "state": "BLOCKED", "message": "설정 오류: …", "generation": 7, "podStartedAt": "2026-11-01T11:40:00Z" }
 ```
 
 ```json
-{ "state": "OK", "generation": 7 }
+{ "state": "OK", "generation": 7, "podStartedAt": "2026-11-01T11:40:00Z" }
 ```
 
 - `state`: `BLOCKED`(칸을 못 띄움) 또는 `OK`(다시 띄웠다 — 앞서 남긴 차단 보고를 지운다). 그 밖의 값은 400.
 - `message`: 차단 이유, 500자 이하(501자를 넘으면 400). `BLOCKED` 일 때만 필요(없으면 400), `OK` 에는 쓰지 않는다. 길이·제어 문자 정제는 UTF-16 코드 유닛 기준이다(자바 `String.length()`) — 늘리는 쪽은 없다고 믿고 호출 쪽이 같은 단위로 자른다.
 - `generation`: 그 Pod 의 `GENIA_AGENT_GENERATION`(숫자). **지금 실행 설정의 `generation` 과 다르면 그 보고는 무시한다**(저장도 지우지도 않음) — 끝나는 중인 옛 Pod 의 늦은 차단이 새 generation 을 덮거나, 옛 Pod 의 `OK` 가 지금 차단을 지우지 않게(WP-1913 리뷰 반려 ①). 없으면(null) 그대로 믿는다 — 플러그인을 아직 갈아끼우지 않은 이미지가 계속 보고할 수 있게.
+- `podStartedAt`(WP-1958): 보고한 Pod 가 뜬 시각(ISO-8601 UTC — 위 「AI 상태 보고」의 `podStartedAt` 과 같은 값·계산). **같은 generation 으로 재시작해도** 끝나는 중인 옛 Pod 의 늦은 `BLOCKED`·`OK` 가 새 Pod 의 차단을 덮거나 지우지 않게, 서버가 지금 Pod 시작(관찰한 `started_at` 과 칸·차단 보고가 올려 둔 Pod 시작 중 늦은 쪽)보다 **30초 넘게 앞선** 보고를 저장 없이 무시한다(204, INFO 로그). 받은 보고의 값은 지금 Pod 시작을 끌어올리고, `BLOCKED` 는 `pane_blocked_pod_started_at` 으로 저장해 읽을 때 지금 Pod 보다 30초 넘게 앞선 차단을 가린다. 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(없는 값처럼). 없으면(옛 플러그인·시각을 못 읽은 이미지) 견주지 않고 지금처럼 믿는다.
 - 응답은 늘 `204`(본문 없음) — **보고는 최선 노력이라 실패해도 진입점은 계속된다**(gw-models 와 같다). 워크스페이스가 정해지지 않았거나 실행 설정이 없는 AI 는 저장 없이 204.
 - 본문 검증 실패는 400, AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
-- 저장 위치: 실행 설정 행의 `pane_blocked_message`(500자)·`pane_blocked_at`·`pane_blocked_generation` 칸. runner 가 쓰는 관찰 보고 칸과 **분리해 두고 읽을 때만 합친다** — 진입점 보고와 runner 관찰 보고가 서로의 값을 덮어쓰지 않는다. 읽는 쪽은 저장한 사유가 지금 `generation` 과 같고 지금 Pod 가 뜬 뒤(`pane_blocked_at` ≥ `started_at − 30초` — API 서버와 runner·kubelet 시계 차이 여유, 위 칸 거르기와 같은 30초. 진입점 차단은 시작 몇 초 안에 오므로 시계가 몇 초만 어긋나도 지금 Pod 의 차단이 가려진다)에 남은 것만 합친다 — 설정을 고쳐 새 generation 이 뜨거나 재시작해 새 Pod 가 뜨면 옛 사유가 「오류」로 남지 않는다.
+- 저장 위치: 실행 설정 행의 `pane_blocked_message`(500자)·`pane_blocked_at`·`pane_blocked_generation`·`pane_blocked_pod_started_at` 칸. runner 가 쓰는 관찰 보고 칸과 **분리해 두고 읽을 때만 합친다** — 진입점 보고와 runner 관찰 보고가 서로의 값을 덮어쓰지 않는다. 읽는 쪽은 저장한 사유가 지금 `generation` 과 같고 지금 Pod 가 뜬 뒤(`pane_blocked_at` ≥ `started_at − 30초` — API 서버와 runner·kubelet 시계 차이 여유, 위 칸 거르기와 같은 30초. 진입점 차단은 시작 몇 초 안에 오므로 시계가 몇 초만 어긋나도 지금 Pod 의 차단이 가려진다)에 남은 것만 합친다 — 설정을 고쳐 새 generation 이 뜨거나 재시작해 새 Pod 가 뜨면 옛 사유가 「오류」로 남지 않는다.
 
 ## 로그인 계정 모델 목록 보고 — `PUT /api/v1/agent-runtime/me/models` (Pod 안의 AI 가 부름)
 

@@ -1573,6 +1573,50 @@ test('gw-status: 보고에 Pod 시작 시각을 싣는다 — /proc/1 mtime 이 
   }
 });
 
+/** 가짜 /proc — 1/stat(starttime 20번째 필드)과 uptime. startAgoSec 가 음수면 시작이 미래인 것으로 흉내 낸다(WP-1958). */
+function fakeProc({ startAgoSec, uptimeSec = 100000 }) {
+  const hz = Number(spawnSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).stdout.trim());
+  const dir = mkdtempSync(join(tmpdir(), 'gw-proc-'));
+  mkdirSync(join(dir, '1'));
+  const ticks = (uptimeSec - startAgoSec) * hz;
+  writeFileSync(join(dir, '1', 'stat'), `1 (a b) S ${'0 '.repeat(18)}${ticks} 0 0\n`);
+  writeFileSync(join(dir, 'uptime'), `${uptimeSec}.50 1.00\n`);
+  return dir;
+}
+
+test('gw-status 는 계산한 Pod 시작 시각이 지금보다 뒤면 싣지 않는다 (WP-1958)', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '{"desired":"RUN"}' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' };
+  try {
+    // 과거 시작은 싣는다(가짜 /proc 이 읽힌다는 증거), 미래 시작(uptime < starttime/Hz)은 싣지 않는다 — 어느 쪽도 RUN·종료 0.
+    const past = await runAsync('gw-status', ['IDLE'], { ...env, GW_PROC_DIR: fakeProc({ startAgoSec: 600 }) });
+    assert.deepEqual([past.status, past.stdout], [0, 'RUN\n']);
+    assert.ok(Math.abs(Date.parse(JSON.parse(srv.reqs[0].body).podStartedAt) - (Date.now() - 600000)) <= 5000);
+    const future = await runAsync('gw-status', ['IDLE'], { ...env, GW_PROC_DIR: fakeProc({ startAgoSec: -3600 }) });
+    assert.deepEqual([future.status, future.stdout], [0, 'RUN\n']);
+    assert.equal('podStartedAt' in JSON.parse(srv.reqs[1].body), false);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-boot 도 계산한 Pod 시작 시각이 지금보다 뒤면 싣지 않는다 (WP-1958)', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '', status: 204 });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' };
+  try {
+    const past = await runAsync('gw-boot', ['ok'], { ...env, GW_PROC_DIR: fakeProc({ startAgoSec: 600 }) });
+    assert.equal(past.status, 0);
+    assert.ok(Math.abs(Date.parse(JSON.parse(srv.reqs[0].body).podStartedAt) - (Date.now() - 600000)) <= 5000);
+    const future = await runAsync('gw-boot', ['blocked', '막힘'], { ...env, GW_PROC_DIR: fakeProc({ startAgoSec: -3600 }) });
+    assert.equal(future.status, 0);
+    assert.equal('podStartedAt' in JSON.parse(srv.reqs[1].body), false);
+  } finally {
+    srv.close();
+  }
+});
+
 test('gw-status: GENIA_WORKS_PROJECT 가 있으면 대문자 slot 을 싣고, 형식이 아니면 빼고 보고한다 (WP-1409)', async () => {
   run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
   const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });

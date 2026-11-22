@@ -16,6 +16,7 @@ import java.time.OffsetDateTime;
 import java.util.Locale;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>보고로 화면에 보이는 AI 상태(상태·이슈 키·다음 확인 시각)가 달라졌을 때만 관리자 화면에 알린다(WP-1254) — 같은 내용의 거듭된 보고는 알리지 않는다.
  */
+@Slf4j
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -68,10 +70,38 @@ public class AgentStatusReportService {
 
     String key = slotKeyOf(req.slot());
     OffsetDateTime now = OffsetDateTime.now();
-    slots.upsert(userId, key, req.state(), req.issueKey(), req.nextCheckAt(), now);
+    // 보고한 Pod 시작 시각(WP-1958) — 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(시각 없는 보고처럼 다룬다).
+    OffsetDateTime pod = AgentRuntimeSlotRepository.acceptedPodStart(req.podStartedAt(), now);
+    // 지금 Pod 시작 = 관찰한 시작 시각과 보고가 올려 둔 Pod 시작 시각 중 늦은 쪽 — runner 가 새 Pod 를 관찰하기 전에도 새 Pod 의 보고로
+    // 옛 Pod 를 가른다.
+    OffsetDateTime current =
+        AgentRuntimeSlotRepository.currentPodStart(
+            before.startedAt(), before.reportedPodStartedAt());
+    // 지금 Pod 보다 30초 넘게 앞선 Pod 의 보고는 끝나는 중인 옛 Pod 의 늦은 보고다 — 칸·합친 상태·차단 비움 어느 것도 쓰지 않고 버린다.
+    // 쓰면 새 Pod 가 IDLE 인데 옛 Pod 의 WORKING 이 칸을 덮어 AI 가 영영 작업 중으로 남는다. 응답(원하는 상태)은 저장된 행 기준으로 준다.
+    if (AgentRuntimeSlotRepository.isOlderPod(pod, current)) {
+      log.info(
+          "옛 Pod 의 늦은 상태 보고를 버렸어요: agentUserId={} slot={} podStartedAt={} currentPodStart={}",
+          userId,
+          key,
+          pod,
+          current);
+      return new AgentStatusReportResponse(desiredFor(before, req.generation(), tenantId));
+    }
+    slots.upsert(userId, key, req.state(), req.issueKey(), req.nextCheckAt(), now, pod);
+    if (pod != null
+        && (before.reportedPodStartedAt() == null || pod.isAfter(before.reportedPodStartedAt()))) {
+      settings.raiseReportedPodStart(userId, pod);
+    }
+    // 이번 보고로 올라간 뒤의 지금 Pod 시작(위 거르기를 통과했으니 pod 는 current 이상이거나 30초 여유 안이다).
+    OffsetDateTime newCurrent =
+        AgentRuntimeSlotRepository.currentPodStart(
+            before.startedAt(),
+            AgentRuntimeSlotRepository.laterOf(before.reportedPodStartedAt(), pod));
     // 옛 Pod 칸은 빼고(있을 때만 지움), 오래 보고가 끊긴 칸(죽은 칸)도 빼고 합쳐 쓴다. 방금 보고한 칸은 옛 Pod 거르기에서 늘 제외되고 보고
     // 시각이 지금이라 오래되지도 않으므로 늘 남는다 — 그래서 agent_reported_at(살아 있는 칸의 가장 늦은 보고 시각)도 지금이다.
-    Row row = slotWriter.write(userId, slots.findAll(userId), before.startedAt(), now, key);
+    Row row =
+        slotWriter.write(userId, slots.findAll(userId), before.startedAt(), newCurrent, now, key);
     // 칸이 도는 중인 보고 = 칸이 띄워졌다는 증거 — 남아 있던 진입점 차단 보고를 비운다(WP-1913 백스톱).
     // 진입점이 다시 차단되면 그때 다시 쌓인다. 비우려면 아래 두 조건을 **모두** 만족해야 한다.
     // ① generation — 보고한 generation 이 차단의 generation 이상일 때만. 차단 generation 을 모르는(_null) 옛 이미지의
@@ -97,14 +127,16 @@ public class AgentStatusReportService {
         req.generation() == null
             || blockedGeneration == null
             || req.generation() >= blockedGeneration;
-    boolean fromCurrentPod =
-        before.startedAt() == null
-            || req.podStartedAt() == null
-            || !req.podStartedAt()
-                .isBefore(AgentRuntimeSlotRepository.podStartCutoff(before.startedAt()));
+    // 차단한 Pod 시작 시각을 알면(WP-1958) 그 Pod 이후의 보고만 비운다 — 새 Pod 가 차단했는데 옛 Pod 의 늦은 칸 보고가 지우면 안 된다.
+    // 모르면(옛 이미지의 차단) 지금 규칙 그대로 관찰한 시작 시각과 견준다.
+    OffsetDateTime podRef =
+        before.paneBlockedPodStartedAt() != null
+            ? before.paneBlockedPodStartedAt()
+            : before.startedAt();
+    boolean fromCurrentPod = !AgentRuntimeSlotRepository.isOlderPod(pod, podRef);
     boolean mayClearPane = fromCurrentGeneration && fromCurrentPod;
     if (paneStored && mayClearPane) {
-      settings.updatePaneBlocked(userId, null, null, null);
+      settings.updatePaneBlocked(userId, null, null, null, null);
     }
     boolean visiblePaneCleared = paneVisible && mayClearPane;
 

@@ -4,12 +4,14 @@ import com.workplace.agentruntime.dto.AgentPaneReportRequest;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import java.time.OffsetDateTime;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 「오류」+사유를 놓치지 않는다(WP-1913). 저장 원문이 아니라 화면 기준으로 비교하므로, 같은 사유를 다른 generation 에서 다시 보고해 화면이 「시작 중」 →
  * 「오류」로 바뀔 때도 알림이 나간다(WP-1913 리뷰 반려 ①).
  */
+@Slf4j
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -60,11 +63,35 @@ public class AgentPaneReportService {
     // 옛 Pod 의 늦은 보고는 지금 generation 이 아니라 — 새 generation 이 뜬 뒤에 도착한 옛 Pod 의 차단(늦은 blocked)이 지금 사유를
     // 덮거나, 옛 Pod 의 OK 가 지금 차단을 지우지 않게 무시한다(WP-1913 리뷰 반려 ①). 보고는 최선 노력이라 조용히 204 로 끝낸다.
     if (req.generation() != null && req.generation() != before.generation()) return;
-    // OK 는 칸 비움(null) — BLOCKED 는 이유·지금 시각·보고한 Pod 의 generation 을 함께 기록한다.
+    // 보고한 Pod 시작 시각(WP-1958) — 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(시각 없는 보고처럼 다룬다).
+    OffsetDateTime now = OffsetDateTime.now();
+    OffsetDateTime pod = AgentRuntimeSlotRepository.acceptedPodStart(req.podStartedAt(), now);
+    // 지금 Pod 시작 = 관찰한 시작 시각과 칸 보고가 올려 둔 Pod 시작 시각 중 늦은 쪽.
+    OffsetDateTime current =
+        AgentRuntimeSlotRepository.currentPodStart(
+            before.startedAt(), before.reportedPodStartedAt());
+    // 같은 generation 이어도 지금 Pod 보다 30초 넘게 앞선 옛 Pod 의 늦은 보고는 새 Pod 의 차단을 덮거나 지우지 않게 버린다(WP-1958).
+    if (AgentRuntimeSlotRepository.isOlderPod(pod, current)) {
+      log.info(
+          "옛 Pod 의 늦은 칸 차단 보고를 버렸어요: agentUserId={} state={} podStartedAt={} currentPodStart={}",
+          userId,
+          req.state(),
+          pod,
+          current);
+      return;
+    }
+    // 받은 보고의 Pod 시작 시각으로 「지금 Pod 시작」을 끌어올린다 — 다음 옛 Pod 보고를 가르는 기준.
+    if (pod != null
+        && (before.reportedPodStartedAt() == null || pod.isAfter(before.reportedPodStartedAt()))) {
+      settings.raiseReportedPodStart(userId, pod);
+    }
+    // OK 는 칸 비움(null) — BLOCKED 는 이유·지금 시각·보고한 Pod 의 generation·시작 시각을 함께 기록한다.
     String nextMessage = blocked ? message : null;
-    OffsetDateTime nextBlockedAt = blocked ? OffsetDateTime.now() : null;
+    OffsetDateTime nextBlockedAt = blocked ? now : null;
     Long nextBlockedGeneration = blocked ? req.generation() : null;
-    settings.updatePaneBlocked(userId, nextMessage, nextBlockedAt, nextBlockedGeneration);
+    OffsetDateTime nextBlockedPod = blocked ? pod : null;
+    settings.updatePaneBlocked(
+        userId, nextMessage, nextBlockedAt, nextBlockedGeneration, nextBlockedPod);
     // 화면에 보이는 것(「오류」+사유)이 실제로 바뀔 때만 알린다 — 바뀌는 기준은 저장 원문이 아니라,
     // 읽을 때 화면에 합치는 AgentRuntimeStatusResolver.currentPaneBlocked 이다.
     // gen 3 이 막힌 뒤 설정을 고쳐 gen 4 가 되고, gen 4 Pod 가 같은 사유를 보고하면 저장 원문은 그대로여도
@@ -78,7 +105,10 @@ public class AgentPaneReportService {
             nextBlockedGeneration,
             before.generation(),
             nextBlockedAt,
-            before.startedAt());
+            before.startedAt(),
+            nextBlockedPod,
+            // 이번 보고로 올라간 뒤의 보고 Pod 시작(화면이 읽을 때 쓰는 값과 같게, WP-1958).
+            AgentRuntimeSlotRepository.laterOf(before.reportedPodStartedAt(), pod));
     // 같은 메시지의 거듭된 보고(진입점 재시도)는 보이는 값이 그대로라 알리지 않는다(변경 알림 계약: 바뀐 것이 없으면 보지 않는다).
     if (!Objects.equals(visibleBefore, visibleAfter)) {
       changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, userId, null);

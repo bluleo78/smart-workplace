@@ -81,7 +81,21 @@ function addKey() {
 }
 
 // Works 가 띄운 AI 라는 공통 조건 — generation 있는 키 신원 화면 보고.
-const WORKS = { GENIA_AGENT_GENERATION: '7', GENIA_WORKS_AS: 'ai-dev' };
+// GW_PROC_DIR 를 없는 경로로 둬 Pod 시작 시각을 모르는 환경으로 고정한다 — 실제 /proc 이 읽히는 Linux 에서도 본문이 같게(WP-1958).
+const WORKS = { GENIA_AGENT_GENERATION: '7', GENIA_WORKS_AS: 'ai-dev', GW_PROC_DIR: '/nonexistent-proc' };
+
+/** 가짜 /proc — 1/stat(starttime 이 20번째 필드)과 uptime 을 만든다. 지금 기준 startAgoSec 초 전에 PID 1 이 시작한 것으로 흉내 낸다. */
+function fakeProc({ startAgoSec, uptimeSec = 100000 }) {
+  const hz = Number(spawnSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).stdout.trim());
+  const dir = mkdtempSync(join(tmpdir(), 'gw-proc-'));
+  mkdirSync(join(dir, '1'));
+  // starttime = (uptime - 시작 후 경과) 초를 tick 으로. comm 에 공백·괄호가 있어도 읽혀야 하므로 「(a b)」 로 둔다.
+  const ticks = (uptimeSec - startAgoSec) * hz;
+  // ") " 뒤 필드: state(1번째) + 0 18개 + starttime(20번째).
+  writeFileSync(join(dir, '1', 'stat'), `1 (a b) S ${'0 '.repeat(18)}${ticks} 0 0\n`);
+  writeFileSync(join(dir, 'uptime'), `${uptimeSec}.50 1.00\n`);
+  return dir;
+}
 
 test('blocked 는 PUT /agent-runtime/me/pane 에 state·message 를 보낸다', async () => {
   addKey();
@@ -147,6 +161,38 @@ test('ok 는 state:OK 만 보낸다(메시지 없음)', async () => {
     assert.equal(srv.reqs[0].url, '/api/v1/agent-runtime/me/pane');
     assert.deepEqual(JSON.parse(srv.reqs[0].body), { state: 'OK', generation: 7 });
     assert.equal('message' in JSON.parse(srv.reqs[0].body), false);
+  } finally {
+    srv.close();
+  }
+});
+
+test('blocked/ok 본문에 podStartedAt 을 싣는다 (WP-1958)', async () => {
+  addKey();
+  const srv = await fakePaneServer();
+  const proc = fakeProc({ startAgoSec: 600 });
+  try {
+    const env = { ...WORKS, GW_PROC_DIR: proc, GENIA_WORKS_API_URL: srv.url };
+    await runAsync('gw-boot', ['blocked', '막힘'], env);
+    await runAsync('gw-boot', ['ok'], env);
+    const expected = Date.now() - 600 * 1000;
+    for (const q of srv.reqs) {
+      const body = JSON.parse(q.body);
+      assert.match(body.podStartedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      assert.ok(Math.abs(Date.parse(body.podStartedAt) - expected) <= 5000, `podStartedAt=${body.podStartedAt}`);
+    }
+    assert.equal(srv.reqs.length, 2);
+  } finally {
+    srv.close();
+  }
+});
+
+test('podStartedAt 을 모르면(/proc 을 못 읽음) 싣지 않는다 (WP-1958)', async () => {
+  addKey();
+  const srv = await fakePaneServer();
+  try {
+    const r = await runAsync('gw-boot', ['ok'], { ...WORKS, GENIA_WORKS_API_URL: srv.url });
+    assert.deepEqual([r.status, r.stdout, r.stderr], [0, '', '']);
+    assert.equal('podStartedAt' in JSON.parse(srv.reqs[0].body), false);
   } finally {
     srv.close();
   }
