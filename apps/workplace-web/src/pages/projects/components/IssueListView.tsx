@@ -38,12 +38,12 @@ import { useSetIssueSort } from '../hooks/useIssueSortParam';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { columnHeadCells, issueListColumnCount, issueListMinWidthRem, useColumnDefs } from './issueListColumnDefs';
-import { headerCount } from './issueListHeaderCount';
+import { countsJudgments, headerCount } from './issueListHeaderCount';
 import { ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
 import { SortableTh } from './IssueSortHeader';
 
-/** 신뢰할 수 없는 총계(그룹 기준 불일치·요청 실패)를 대체해 넘기는 빈 맵 — headerCount 는 이때 행 수 폴백으로 내려간다. */
+/** 신뢰할 수 없는 총계(그룹 기준 불일치·요청 실패·오프라인 자리채움)를 대체해 넘기는 빈 맵 — headerCount 는 총계를 기다리지 않는 이 경우에만 행 수 폴백으로 내려간다. */
 const EMPTY_GROUP_COUNTS: ReadonlyMap<string, number> = new Map();
 
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 에픽(직계 부모 또는 하위 태스크의 할아버지 에픽, WP-1692) 유형 색 토큰(배경 없는 글자용 fg). */
@@ -102,20 +102,27 @@ export function IssueListView({
   //    isError 로 함께 보고, 그룹 기준 변경(stale — 키 체계가 달라 이전 기준 총계는 못 쓴다)도 기다림으로 본다.
   //    오프라인(paused)만 예외로 두어 행 수로 바로 내린다 — 요청이 시작되지 않아 기다림이 끝나지 않아 목록은
   //    캐시로 보이는데 헤더만 계속 비어 있었기 때문이다(3차 2). 'idle' 은 구독 전이라 로딩으로 둔다.
-  //  · countsMap: stale·요청 실패일 땐 빈 맵 — 신뢰 못 하는 총계를 헤더에 못 보게 한다. headerCount 는 이때
-  //    (오프라인 stale·요청 실패) 행 수로 내려가 헤더가 계속 비지 않고(3차 2), statusId·assignee id 등 다른 키
-  //    체계의 수가 잘못 뜨지도 않으며(3차 nit 1-3), 실패 뒤 이전 필터 총계가 최종값처럼 남지도 않는다(3차 nit 1-5).
+  //  · countsMap: stale·요청 실패·오프라인 자리채움일 땐 빈 맵 — 신뢰 못 하는 총계를 헤더에 못 보게 한다. headerCount 는
+  //    그 셋(온라인 stale 은 아님 — 기다림이라 빈 수)일 때만 행 수로 내려가 헤더가 계속 비지 않고(3차 2·4차),
+  //    statusId·assignee id 등 다른 키 체계의 수가 잘못 뜨지도 않으며(3차 nit 1-3), 실패 뒤 이전 필터 총계가
+  //    최종값처럼 남지도 않는다(3차 nit 1-5).
   //  · countsProvisional: 임시(이전 필터) 총계는 쓰는 동안 키 없는 그룹을 실제 총계가 올 때까지 비운다(3차 3) —
-  //    placeholder 는 같은 프로젝트일 때만 이어 받는다(3차 1, useIssueGroupCounts).
+  //    placeholder 는 같은 프로젝트일 때만 이어 받는다(3차 1, useIssueGroupCounts). 오프라인 자리채움(paused)에서는
+  //    총계를 신뢰하지 않아 맵과 임시 갈래가 함께 꺼진다 — 헤더가 온라인 될 때까지 계속 비던 일도(3차 2) 이전 필터
+  //    총계가 새 필터 행 위에 뜨는 일도 없다(4차). 둘 다 issueListHeaderCount.countsJudgments 가 정한다.
   //  · rowsUpdated: 자리채움이 끝나 행이 새 결과로 바뀌었는지 — 임시 총계와 어긋나 보이는 순간인지 알린다(3차 nit 1).
   const countsBy = groupCountsBy(groupBy);
   const countsOffline = groupCounts.fetchStatus === 'paused';
   const countsStaleBy = groupCounts.data != null && countsBy != null && groupCounts.data.groupBy !== countsBy;
   const countsAwaiting = (groupCounts.data === undefined && !groupCounts.isError) || countsStaleBy;
   const countsLoading = countsAwaiting && !countsOffline;
-  const countsUsable = !countsStaleBy && !groupCounts.isError;
+  const { usable: countsUsable, provisional: countsProvisional } = countsJudgments({
+    countsStaleBy,
+    countsError: groupCounts.isError,
+    countsOffline,
+    isPlaceholderData: groupCounts.isPlaceholderData,
+  });
   const countsMap = countsUsable ? countByKey : EMPTY_GROUP_COUNTS;
-  const countsProvisional = countsUsable && groupCounts.isPlaceholderData;
   const rowsUpdated = !refreshing;
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
