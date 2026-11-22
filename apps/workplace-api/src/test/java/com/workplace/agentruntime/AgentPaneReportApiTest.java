@@ -509,6 +509,35 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
         + "\"}";
   }
 
+  /** 도는 Pod 의 차단을 직접 맞춘다(WP-1969) — 사유·generation·그 Pod 의 시작 시각. */
+  private void seedBlock(Long generation, OffsetDateTime pod) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "도는 Pod 차단")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, generation)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT, pod)
+        .set(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT, pod)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  private String okBody(OffsetDateTime podStart, long generation) {
+    return "{\"state\":\"OK\",\"generation\":"
+        + generation
+        + ",\"podStartedAt\":\""
+        + podStart
+        + "\"}";
+  }
+
+  /** 원하는 상태·적용 방식을 바꾼다(WP-1969) — {@link #seedUnapplied} 뒤에 부른다. */
+  private void setMode(String desired, String applyMode) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.DESIRED, desired)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, applyMode)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
   private long desiredEvents() {
     return appEvents.stream(AgentRuntimeDesiredChanged.class).count();
   }
@@ -560,10 +589,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
-    dsl.update(AGENT_RUNTIME_SETTING)
-        .set(AGENT_RUNTIME_SETTING.DESIRED, "STOP")
-        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
-        .execute();
+    setMode("STOP", "IDLE");
     slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
     appEvents.clear();
 
@@ -584,10 +610,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
-    dsl.update(AGENT_RUNTIME_SETTING)
-        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "NOW")
-        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
-        .execute();
+    setMode("RUN", "NOW");
     slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
     appEvents.clear();
 
@@ -601,7 +624,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   }
 
   /**
-   * 꺼 둔 AI 도 generation 을 밝히지 않은 BLOCKED 는 받아 칸을 합친다 — 그래도 지금 적용 전이가 생기는데 runner 에 알리지
+   * 꺼 둔 AI 도 generation 을 밝히지 않은 BLOCKED 는 받아 칸을 합친다 — 남은 칸이 쉬는 중이라 지금 적용 전이가 생겨도 runner 에 알리지
    * 않는다(WP-1969). 꺼진 AI 를 깨워 다시 띄우지 않게 하는 {@code desired == RUN} 조건이 막는 길이다.
    */
   @Test
@@ -610,18 +633,16 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
-    dsl.update(AGENT_RUNTIME_SETTING)
-        .set(AGENT_RUNTIME_SETTING.DESIRED, "STOP")
-        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
-        .execute();
+    setMode("STOP", "IDLE");
     slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "NEW", AgentState.IDLE, null, null, t2.plusSeconds(5), t2);
     appEvents.clear();
 
     report(key, blockedBody(t2)).andExpect(status().isNoContent());
 
     Record row = settingOf();
     assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("시작 실패");
-    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
     assertThat(desiredEvents()).isZero();
   }
 
@@ -681,39 +702,110 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   @Test
   void 더_새_generation_의_차단은_도는_generation_의_보고가_덮지_못한다() throws Exception {
     seedUnapplied(3, 2);
-    dsl.update(AGENT_RUNTIME_SETTING)
-        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "새 차단")
-        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
-        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, 3L)
-        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
-        .execute();
+    seedBlock(3L, null);
     appEvents.clear();
 
     report(key, "{\"state\":\"BLOCKED\",\"message\":\"옛 차단\",\"generation\":2}")
         .andExpect(status().isNoContent());
 
     Record row = settingOf();
-    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("새 차단");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("도는 Pod 차단");
     assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION)).isEqualTo(3L);
     assertThat(runtimeEvents()).isZero();
   }
 
-  /** 적용 대기 중에도 지난 generation 의 OK 는 무시한다 — 도는 Pod 의 차단을 지우는 건 BLOCKED 만 받는 예외 밖이다(WP-1969). */
+  /** 적용 대기 중 도는 Pod 가 회복해 OK 를 보내면 그 Pod 의 차단을 지운다 — 남으면 회복한 Pod 를 다시 띄운다(WP-1969). */
   @Test
-  void 적용_대기_중에도_지난_generation_의_OK_는_무시한다() throws Exception {
+  void 적용_대기_중_도는_Pod_의_OK_는_그_차단을_지운다() throws Exception {
+    OffsetDateTime t2 = OffsetDateTime.now().minusMinutes(5);
     seedUnapplied(2, 1);
-    dsl.update(AGENT_RUNTIME_SETTING)
-        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "도는 Pod 차단")
-        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
-        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, 1L)
-        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
-        .execute();
+    seedBlock(1L, t2);
     appEvents.clear();
 
-    report(key, "{\"state\":\"OK\",\"generation\":1}").andExpect(status().isNoContent());
+    report(key, okBody(t2, 1)).andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    // 앞 generation 의 차단은 화면에서 이미 가려져 있었고, 지워도 지금 적용으로 바뀌지 않는다.
+    assertThat(runtimeEvents()).isZero();
+    assertThat(desiredEvents()).isZero();
+  }
+
+  /** 다른 generation 이거나 generation 을 모르는 차단은 도는 Pod 의 OK 가 지우지 못한다(WP-1969). */
+  @Test
+  void 적용_대기_중_OK_는_같은_generation_의_차단만_지운다() throws Exception {
+    OffsetDateTime t2 = OffsetDateTime.now().minusMinutes(5);
+    seedUnapplied(3, 2);
+    for (Long stored : new Long[] {null, 1L, 3L}) {
+      seedBlock(stored, t2);
+
+      report(key, okBody(t2, 2)).andExpect(status().isNoContent());
+
+      assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE))
+          .as("저장된 차단 generation %s", stored)
+          .isEqualTo("도는 Pod 차단");
+    }
+  }
+
+  /** 같은 generation 이어도 앞 컨테이너의 늦은 OK 는 새 컨테이너의 차단을 지우지 못한다(WP-1969). */
+  @Test
+  void 적용_대기_중에도_앞_컨테이너의_늦은_OK_는_무시한다() throws Exception {
+    OffsetDateTime t2 = OffsetDateTime.now().minusMinutes(5);
+    seedUnapplied(2, 1);
+    seedBlock(1L, t2);
+
+    report(key, okBody(t2.minusMinutes(5), 1)).andExpect(status().isNoContent());
 
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("도는 Pod 차단");
-    assertThat(runtimeEvents()).isZero();
+  }
+
+  /** 꺼 뒀거나 다시 시작이 걸린 AI 에게 온 앞 generation 의 OK 는 끝나는 Pod 의 늦은 쓰기라 버린다(WP-1969). */
+  @Test
+  void 쉴_때_적용_대기가_아니면_앞_generation_의_OK_는_무시한다() throws Exception {
+    OffsetDateTime t2 = OffsetDateTime.now().minusMinutes(5);
+    seedUnapplied(2, 1);
+    seedBlock(1L, t2);
+    setMode("RUN", "NOW");
+    report(key, okBody(t2, 1)).andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("도는 Pod 차단");
+
+    setMode("STOP", "IDLE");
+    report(key, okBody(t2, 1)).andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("도는 Pod 차단");
+  }
+
+  /** 차단한 컨테이너의 칸이 모두 오래돼 상태가 비어도 일하는 중일 수 있어 지금 적용으로 바꾸지 않는다(WP-1969). */
+  @Test
+  void 차단한_컨테이너의_칸이_모두_오래됐으면_runner_에_알리지_않는다() throws Exception {
+    OffsetDateTime t2 = OffsetDateTime.now().minusHours(8);
+    seedMerged(t2.minusMinutes(3), t2, "WP-2");
+    seedUnapplied(2, 1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2);
+    appEvents.clear();
+
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    // 상태는 비어도 이 컨테이너에서 칸 보고가 있었다는 근거는 남는다.
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT)).isNotNull();
+    assertThat(desiredEvents()).isZero();
+  }
+
+  /** generation 을 모르는 차단은 상태가 비어도 도는 Pod 의 시작 실패로 보지 않는다(WP-1969). */
+  @Test
+  void generation_없는_차단은_상태가_비어도_runner_에_알리지_않는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t1, "WP-1");
+    seedUnapplied(2, 1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    appEvents.clear();
+
+    report(key, blockedBody(t2)).andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(desiredEvents()).isZero();
   }
 
   /** 사람은 보고할 수 없다 — 403 AGENT_ONLY. */

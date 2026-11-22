@@ -175,6 +175,46 @@ class RunnerApiTest extends IntegrationTestBase {
     assertThat(applyNowOfA1()).isFalse();
   }
 
+  /** generation 을 모르는 차단은 도는 Pod 의 것인지 알 수 없어, AI 상태가 없어도 기다린다(WP-1969). */
+  @Test
+  void desired_whenBlockWithoutGenerationAndNoAgentState_applyNowFalse() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, null, "IDLE");
+    setBlock(a1, null, null, null);
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /** 일하다 끊긴 칸이 있는데 차단한 Pod 의 시작 시각을 모르면 그 Pod 의 일인지 알 수 없어 기다린다(WP-1969). */
+  @Test
+  void desired_whenBlockWithoutPodStartAndSilentWork_applyNowFalse() throws Exception {
+    long behind = fx.generationOf(a1) - 1;
+    setObserved(a1, behind, null, "IDLE");
+    setBlock(a1, behind, null, null);
+    setReportedAt(a1, OffsetDateTime.now().minusHours(7));
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /** 상태가 비어도 차단한 Pod 가 뜬 뒤 칸 보고가 있었으면(모두 오래된 칸) 기다리고, 그 전 보고면 바로 적용한다(WP-1969). */
+  @Test
+  void desired_whenNoAgentState_dependsOnSlotReportSinceBlockedPodStart() throws Exception {
+    long behind = fx.generationOf(a1) - 1;
+    OffsetDateTime pod = OffsetDateTime.now().minusHours(8);
+    setObserved(a1, behind, null, "IDLE");
+    setBlock(a1, behind, pod, null);
+    setReportedAt(a1, pod.plusSeconds(5));
+    assertThat(applyNowOfA1()).isFalse();
+
+    setReportedAt(a1, pod.minusMinutes(1));
+    assertThat(applyNowOfA1()).isTrue();
+  }
+
+  /** AI 상태 보고 시각 칸을 직접 맞춘다(WP-1969). */
+  private void setReportedAt(long agent, OffsetDateTime at) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT, at)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
   /** 차단 기록이 없으면 AI 상태가 없어도 기다린다 — 평소 동작 그대로(WP-1969). */
   @Test
   void desired_whenNoBlockAndNoAgentState_applyNowFalse() throws Exception {
@@ -210,19 +250,7 @@ class RunnerApiTest extends IntegrationTestBase {
     slots.upsert(a1, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
     String aiKey = keyService.issueManaged(a1, 1L, null, null, "L1").plaintext();
 
-    useTenant(1L);
-    mvc.perform(
-            put("/api/v1/agent-runtime/me/pane")
-                .header("Authorization", "Bearer " + aiKey)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    "{\"state\":\"BLOCKED\",\"message\":\"시작 실패\",\"generation\":"
-                        + running
-                        + ",\"podStartedAt\":\""
-                        + t2
-                        + "\"}"))
-        .andExpect(status().isNoContent());
-    useTenant(1L);
+    reportPane(aiKey, "\"state\":\"BLOCKED\",\"message\":\"시작 실패\"", running, t2);
     settingService.put(
         admin,
         a1,
@@ -231,6 +259,30 @@ class RunnerApiTest extends IntegrationTestBase {
 
     assertThat(fx.generationOf(a1)).isEqualTo(running + 1);
     assertThat(applyNowOfA1()).isTrue();
+
+    // 같은 컨테이너가 회복해 OK 를 보내면 첫 상태 보고 전이라도 다시 띄우지 않는다.
+    reportPane(aiKey, "\"state\":\"OK\"", running, t2);
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /** 진입점처럼 칸 차단 보고를 보낸다(WP-1969) — AI 키 요청이 바꾼 테넌트는 되돌린다. */
+  private void reportPane(String aiKey, String stateJson, long generation, OffsetDateTime pod)
+      throws Exception {
+    useTenant(1L);
+    mvc.perform(
+            put("/api/v1/agent-runtime/me/pane")
+                .header("Authorization", "Bearer " + aiKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{"
+                        + stateJson
+                        + ",\"generation\":"
+                        + generation
+                        + ",\"podStartedAt\":\""
+                        + pod
+                        + "\"}"))
+        .andExpect(status().isNoContent());
+    useTenant(1L);
   }
 
   /** L1 토큰 → 켜져 있고 실제 위치가 L1(기본 따라가기)인 A1 만. 템플릿 값·설정·비밀값 참조·조회 주기·MCP 주소가 실린다. */

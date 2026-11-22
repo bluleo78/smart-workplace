@@ -135,7 +135,7 @@ public class AgentStatusReportService {
     boolean visiblePaneCleared = paneVisible && mayClearPane;
 
     // 옛 Pod 칸은 빼고(있을 때만 지움), 오래 보고가 끊긴 칸(죽은 칸)도 빼고 합쳐 쓴다. 방금 보고한 칸은 옛 Pod 거르기에서 늘 제외되고 보고
-    // 시각이 지금이라 오래되지도 않으므로 늘 남는다 — 그래서 agent_reported_at(살아 있는 칸의 가장 늦은 보고 시각)도 지금이다.
+    // 시각이 지금이라 오래되지도 않으므로 늘 남는다 — 그래서 agent_reported_at(AgentSlotAggregate.latestReportedAt)도 지금이다.
     // 차단을 비운 뒤에 쓰므로 RETURNING 행에 비운 차단이 반영된다 — 응답·깨움 판정이 이 보고가 지운 차단을 다시 읽지 않는다.
     Row row =
         slotWriter.write(userId, slots.findAll(userId), before.startedAt(), newCurrent, now, key);
