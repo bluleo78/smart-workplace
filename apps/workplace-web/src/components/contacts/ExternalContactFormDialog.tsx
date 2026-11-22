@@ -205,8 +205,9 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
         <AlertDialogContent data-testid="contact-duplicate-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>이미 존재하는 연락처입니다</AlertDialogTitle>
+            {/* WP-1936: 단추는 이미 isEdit 로 갈라 쓰는데 본문은 편집에서도 「추가」 라고 말해 서로 모순됐다 — 본문도 같은 값으로 갈라 같은 행동을 말하게 한다. */}
             <AlertDialogDescription>
-              동일한 이름과 이메일을 가진 연락처가 이미 있습니다. 그래도 추가하시겠습니까?
+              {`동일한 이름과 이메일을 가진 연락처가 이미 있습니다. ${isEdit ? '그래도 수정하시겠습니까?' : '그래도 추가하시겠습니까?'}`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
