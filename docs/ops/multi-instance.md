@@ -29,10 +29,9 @@
 | 메일 OAuth state | `mail/service/OAuthStateStore` | 시작과 콜백이 다른 파드로 가면 「state 없음」으로 메일 계정 연결이 실패합니다 | 막힘 | state 를 DB 표나 Redis 로 옮깁니다(TTL 10분, 한 번 쓰면 삭제) |
 | 메일 수동 동기화 진행률·동시 실행 가드 | `mail/service/MailSyncProgress` | 진행률 조회가 다른 파드로 가면 「대기」로 보입니다. 같은 계정 동기화가 두 파드에서 겹칠 수 있습니다 | 바꿔야 함 | 진행 상태를 DB 로 옮기거나 DB 행 잠금으로 가드합니다 |
 | 메일함별 동기화 가드 | `mail/service/folder/MailFolderSyncGuard` | 파드 사이 겹침은 막지 못하지만 넣기가 멱등이라 결과는 같습니다(주석에 명시) | 괜찮음 | — |
-| 공개 경로 속도 제한 | `global/security/ratelimit/TokenBucketLimiter` | 같은 IP 의 실제 한도가 `대수 × 한도` 가 됩니다 | 바꿔야 함 | [rate-limit.md](rate-limit.md) 「여러 대로 늘릴 때 고려할 점」 |
 | 테넌트 상태 캐시 | `global/tenant/TenantStatusChecker` | 다른 파드에서 정지한 테넌트를 이 파드가 최대 5초 더 ACTIVE 로 봅니다(비활성은 캐시하지 않음) | 괜찮음 | 이미 여러 대를 고려해 설계됨 |
 | AI 요약 등 재생성 가능한 캐시 | `messaging/service/CatchupSummaryCache` 등 | 파드마다 따로 만들어 적중률이 떨어지고 AI 호출이 늘어납니다 | 괜찮음 | 비용이 문제 되면 공유 캐시로 |
-| 예약 작업(`@Scheduled`) | `*Scheduler`, `*Job` | ShedLock(`V148__shedlock.sql`)으로 한 파드만 실행합니다. 새 예약 작업에도 `@SchedulerLock` 을 꼭 붙입니다 | 괜찮음 | 파드 안 주기 작업(SSE heartbeat 등)은 잠금 없이 파드마다 도는 게 맞습니다 |
+| 예약 작업(`@Scheduled`) | `*Scheduler`, `*Job` | 공유 DB의 ShedLock(`V148__shedlock.sql`)은 같은 작업의 동시 실행을 막습니다. 기본 최소 잠금 `PT10S`는 거의 동시에 깨어난 다른 파드가 곧바로 실행하지 못하게 하며, 작업 주기 전체를 파드 간에 보장하려면 주기에 맞는 최소 잠금이 필요합니다 | 괜찮음 | 새 예약 작업에도 `@SchedulerLock`을 붙입니다. 파드별 주기 작업(SSE heartbeat 등)은 각 파드에서 실행합니다 |
 | 업로드 파일 | `/data/storage-data`(PVC `storage-data`) | RWX(NFS)라 여러 파드가 함께 마운트할 수 있습니다 | 괜찮음 | — |
 | DB 커넥션 | Hikari 풀(파드마다) | 커넥션 수가 `대수 × 풀 크기` 가 됩니다 | 바꿔야 함 | PostgreSQL `max_connections` 안에 드는지 확인합니다(WP-752 풀 고갈 참고) |
 
@@ -57,7 +56,22 @@
 - **collab**: 노트 문서 상태를 메모리에 들고 있어 **늘릴 수 없습니다**. 늘리려면 Yjs 상태 공유(Redis 등)가 먼저입니다. [collab-k8s-handoff.md](collab-k8s-handoff.md)
 - **worker**: api 가 HTTP 로 작업을 보내고 콜백으로 결과를 받습니다. 작업 상태는 api DB(`file_extraction`)에 있어 여러 대여도 됩니다. 파일은 RWX 볼륨에서 읽습니다.
 - **converter**: 이미 2대입니다. 파드당 동시 1건이라 바쁘면 429 를 돌려주고 호출자가 재시도합니다.
-- **web · admin**: 정적 파일만 내보내 상태가 없습니다.
+- **web · admin**: 정적 파일을 서빙합니다. web 롤아웃 중에는 아래에 기록한 해시 에셋 404가 발생할 수 있습니다.
+
+## 다중 인스턴스 운영 판정(WP-1980)
+
+아래 일곱 항목은 현재 동작을 수용·문서화했으며, 도움말 재색인은 파드 간 실행 간격을 수정했습니다.
+
+| 항목 | 위치 | 여러 파드에서의 동작 | 판정 | 운영 대응 |
+|---|---|---|---|---|
+| 공개 경로 속도 제한 | api `global/security/ratelimit/TokenBucketLimiter` | 각 파드가 버킷을 따로 관리합니다. 같은 버킷 키의 요청이 고르게 분산되면 해당 키의 한도는 대략 `API 파드 수 × 파드당 설정 한도`가 됩니다. 기본 키는 정책·IP이며, `DRIVE_PLAYBACK`은 재생 토큰 해시를 키에 추가하므로 같은 IP에서도 토큰별로 한도를 따로 셉니다 | 수용·문서화 | API를 늘릴 때 기존 총한도를 유지하려면 파드당 한도를 줄이거나 버킷을 공유 저장소로 옮깁니다. [rate-limit.md](rate-limit.md#여러-대로-늘릴-때-고려할-점) |
+| 아바타 처리 동시성 | api `user/service/AvatarImageProcessor` | 파드당 동시에 2건, 전체 최대 `2 × API 파드 수`를 처리합니다. 요청을 받은 파드에서 3초 동안 자리가 나지 않으면 429를 반환합니다 | 수용·문서화 | 파드별 상한을 유지하고, 429를 받은 업로드는 잠시 뒤 재시도합니다 |
+| 메일 분석 차단기 | api `mail/service/MailAnalysisBreaker` | 백필에서 테넌트별 모델 실패가 5회 연속이면 10분 동안 차단하고, 실패한 메일은 30분 동안 건너뜁니다. 연속 실패·열림 상태와 메일별 재시도 대기 표가 파드별이어서 장애 중 다른 파드가 모델을 다시 호출할 수 있습니다 | 수용·문서화 | 백필에 파드별 차단을 적용합니다. 장애 중 모델 호출을 볼 때는 파드별 로그를 함께 확인합니다 |
+| 도움말 재색인 | api `help/service/HelpIndexScheduler` | 1분마다 실행을 시도합니다. 마지막 성공 시각은 로컬에 기록하며 성공 뒤 10분 이내에는 재색인을 건너뜁니다 | 수정 | 공유 DB의 ShedLock 최소 유지 시간을 `PT10M`으로 설정해 파드 간 재색인 시작 간격을 최소 10분으로 맞췄습니다. 실패하면 마지막 성공 시각은 갱신되지 않으며 재시도는 실패한 실행이 잠금을 잡은 때부터 최소 10분 뒤에 가능합니다 |
+| 첨부 원본 없음 표시 | api `mail/service/MailAttachmentPreviewService` | 원본 없음 표시를 사용자·첨부별로 해당 파드에 10분간 보관합니다. 같은 요청이 다른 파드로 가면 원본 확인을 반복할 수 있습니다 | 수용·문서화 | 파드별 10분 표시를 유지합니다 |
+| Wiki·Home·Mail AI 요약 SingleFlight | api `WikiSummaryService`, `HomeContextSummaryService`, `MailAnalysisService`와 `mail/util/SingleFlight` | 중복 실행 방지는 파드별로 동작하므로 파드 간 LLM 호출과 비용이 중복될 수 있습니다. Wiki·Home 요약과 일반 메일 분석은 DB 조건부 저장으로 결과를 보호합니다. 메일의 공용 요약 강제 생성과 개인 요약만 생성하는 경로는 저장 시 이미 요약이 생겼는지 확인하지 않아, 여러 파드가 동시에 생성하면 나중에 저장한 결과가 앞선 결과를 덮어쓸 수 있습니다 | 수용·문서화 | 파드별 중복 방지와 메일 요약의 덮어쓰기 가능성을 수용하고, 확장 뒤 LLM 호출량과 비용을 확인합니다 |
+| worker → converter 동시성 | `apps/workplace-worker/app/config.py`, `converter.py` | `WORKER_CONVERTER_CONCURRENCY`의 기본값은 worker 파드당 1건입니다. worker가 늘면 converter에 들어오는 동시 요청도 늘어 포화 시 converter의 429와 worker의 재시도가 증가할 수 있습니다 | 수용·문서화 | 파드별 상한을 유지하고, worker를 늘릴 때 converter의 429와 재시도 횟수를 확인합니다 |
+| web 롤아웃 중 해시 에셋 404 | `apps/workplace-web/nginx.conf`, `PersonCardAssignHost.tsx` 등 | `index.html`은 재검증하고 해시가 붙은 에셋은 불변 장기 캐시합니다. 롤아웃 중 구·신 파드가 섞이면 새 index가 참조한 청크를 구 파드에 요청해 404가 날 수 있습니다 | 수용·문서화 | 일부 지연 로딩 창은 청크 로드 실패 시 새로고침을 안내합니다. 동적 import 실패를 전역에서 복구하는 처리는 찾지 못했으므로 사용자가 직접 새로고침해야 할 수 있습니다 |
 
 ## 늘리는 순서(권장)
 

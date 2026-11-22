@@ -10,6 +10,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.junit.jupiter.api.Test;
 
 /** HelpIndexScheduler — 10분 간격 판단(첫 틱·성공 뒤 건너뜀·실패 뒤 재시도)을 가짜 시계로 확인한다. */
@@ -33,6 +34,15 @@ class HelpIndexSchedulerTest {
     public Instant instant() {
       return now;
     }
+  }
+
+  /** 파드가 여러 개여도 재색인 시작 간격이 10분보다 짧아지지 않도록 잠금 설정을 검증한다. */
+  @Test
+  void schedulerLockMinimumDurationEqualsReindexInterval() throws NoSuchMethodException {
+    SchedulerLock schedulerLock =
+        HelpIndexScheduler.class.getMethod("refresh").getAnnotation(SchedulerLock.class);
+    assertThat(schedulerLock.lockAtLeastFor()).isNotBlank();
+    assertThat(Duration.parse(schedulerLock.lockAtLeastFor())).isEqualTo(Duration.ofMinutes(10));
   }
 
   @Test
