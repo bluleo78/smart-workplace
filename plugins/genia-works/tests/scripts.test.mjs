@@ -405,6 +405,10 @@ function job(args) {
 function pidAlive(pid) {
   return spawnSync('ps', ['-o', 'pid=', '-p', pid]).stdout.toString().trim() !== '';
 }
+// 그 pid 의 시작 시각(없으면 '') — 정리 때 재사용된 남의 pid 를 가른다.
+function lstart(pid) {
+  return spawnSync('ps', ['-o', 'lstart=', '-p', pid]).stdout.toString().trim();
+}
 function groupAlive(pid) {
   return spawnSync('ps', ['-axo', 'pgid=']).stdout.toString().split('\n').some((g) => g.trim() === pid);
 }
@@ -529,7 +533,7 @@ test('bg-job stop: setsid 가 늦어도 start 직후 stop 의 ok 는 작업이 �
       const started = spawnSync(bin0, [...args, 'start', main, key, work, '--', 'sleep', '30'], { env, encoding: 'utf8' });
       assert.match(started.stdout, /^started \d+$/m, started.stderr);
       const pid = readFileSync(join(main, '.work-loop', 'state', 'jobs', `${key}.pid`), 'utf8').split('-')[0];
-      pids.push(pid);
+      pids.push([pid, lstart(pid)]);
       const r = spawnSync(bin0, [...args, 'stop', main, key], { env, encoding: 'utf8' });
       assert.equal(r.stdout.trim(), 'ok', r.stderr);
       assert.equal(pidAlive(pid), false, 'stop 이 ok 를 냈는데 작업이 살아 있다');
@@ -540,14 +544,16 @@ test('bg-job stop: setsid 가 늦어도 start 직후 stop 의 ok 는 작업이 �
     const t0 = Date.now();
     const quick = spawnSync(join(scripts, 'bg-job'), ['start', main, 'WP-9', work, '--', 'true'], { encoding: 'utf8' });
     assert.match(quick.stdout, /^started (\d+)$/m, quick.stderr);
-    pids.push(quick.stdout.match(/^started (\d+)$/m)[1]);
+    const quickPid = quick.stdout.match(/^started (\d+)$/m)[1];
+    pids.push([quickPid, lstart(quickPid)]);
     assert.ok(Date.now() - t0 < 3000, `start 가 너무 오래 걸렸다: ${Date.now() - t0}ms`);
   } finally {
-    // 정리용 SIGKILL 은 그 pid 가 아직 살아 있고 그 그룹이 남아 있을 때만 — 재사용된 남의 pid·그룹을 죽이지 않는다.
-    for (const pid of pids) {
-      if (pidAlive(pid) && groupAlive(pid)) {
-        try { process.kill(-Number(pid), 'SIGKILL'); } catch {}
-      }
+    // 정리용 SIGKILL 은 그 pid 가 띄운 그 작업일 때만(시작 시각이 띄운 직후 읽은 것과 같을 때) — 재사용된 남의 pid·그룹을 죽이지 않는다.
+    // 그룹이 남았으면 그룹째, 회귀로 그룹 없이(setsid 전) pid 만 남았으면 pid 로.
+    for (const [pid, started] of pids) {
+      // 끝난 pid 는 lstart 가 '' 라 같지 않다.
+      if (!started || lstart(pid) !== started) continue;
+      try { process.kill(groupAlive(pid) ? -Number(pid) : Number(pid), 'SIGKILL'); } catch {}
     }
     rmSync(shim, { recursive: true, force: true });
     rmSync(main, { recursive: true, force: true });
@@ -582,6 +588,28 @@ test('bg-job start: setsid 를 기다리는 동안에도 status 는 running 이�
     rmSync(shim, { recursive: true, force: true });
     rmSync(main, { recursive: true, force: true });
     rmSync(work, { recursive: true, force: true });
+  }
+});
+
+// WP-1965 리뷰 후속 — 시작 시각 없이 "<pid>-" 로 남은 pid 파일이면 그 pid 가 재사용된 남의 프로세스일 수 있다. stop 은 그 pid 에 직접 신호를
+// 보내지 않아야 한다(그룹 신호만). 이 테스트와 같은 그룹의 sleep 을 남의 프로세스로 두면 그룹 신호는 닿지 않으니, 살아남고 stop 은 끝내지 못했다(exit 2)고 한다.
+test('bg-job stop: 시작 시각 없는 pid 파일의 pid 에는 직접 신호를 보내지 않는다 (WP-1965)', async () => {
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const dir = join(main, '.work-loop', 'state', 'jobs');
+  mkdirSync(dir, { recursive: true });
+  const other = spawn('sleep', ['30']);
+  // 신호를 받아 끝나도 node 가 거두기 전엔 좀비로 ps 에 남으므로, 살아 있는지는 exit 이벤트로 본다.
+  let exited = false;
+  other.on('exit', () => { exited = true; });
+  try {
+    writeFileSync(join(dir, 'WP-11.pid'), `${other.pid}-\n`);
+    const r = job(['stop', main, 'WP-11']);
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    await new Promise((res) => setTimeout(res, 200));
+    assert.equal(exited, false, '키 없는 pid 파일의 pid(남의 프로세스일 수 있음)에 신호를 보냈다');
+  } finally {
+    other.kill('SIGKILL');
+    rmSync(main, { recursive: true, force: true });
   }
 });
 
