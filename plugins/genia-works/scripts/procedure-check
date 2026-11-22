@@ -44,18 +44,49 @@ fi
 # (`브랜치:` 가 이슈 번호 뒤 `-<n>` 으로 끝남 — fix/wp-1806-2, 3번 「이해」가 만든다)가 함께 있으면 인정한다.
 # `마지막 완료 단계` 에 기대지 않아 쌓은 뒤 출발 검사에서도 풀린다. 새 요청 때 남은 줄을 지우는 것은 process-issue.md 가 정한다.
 # WP-1997 — 자기 이슈가 적은 선언 줄만 예외로 본다: 줄머리에 `리뷰 후속 수정 — 앞 PR #<숫자>` 가 있고,
-# 같은 줄에 자기 키가 아닌 이슈 키가 없어야 한다(다른 이슈의 PR 메모를 인용한 글은 예외로 쓰지 않는다).
+# 자기 키가 아닌 이슈 키가 그 줄과 그 위 문단에 없어야 한다(다른 이슈의 PR 메모를 인용한 글은 예외로 쓰지 않는다).
+# 리뷰 후속 ① 키 토큰은 프로젝트 접두어 + 숫자만 키로 본다 — `UTF-8`·`SDD-2` 같은 낱말이 키로 오인되면
+#   진짜 선언 줄이 일반 규칙으로 떨어진다(검토자 지적: 프로젝트 접두어 토큰으로 좁힐 것).
+#   notes 경로 인자로 키 형식을 얻지 못하면 첫 갈래는 쓰지 않는다 — 접두어를 모르면 외부 키를 못 잡아
+#   인용까지 예외로 주게 되므로 fail-closed 로 두고 두 번째 갈래(리뷰 후속:+브랜치)로만 판정한다.
+# 리뷰 후속 ② 선언 줄 위 문단(바로 위의 빈 줄은 헤더·본문 사이 공백이라 건너뛰고, 그 위 연속 줄)도 함께 본다 —
+#   `### WP-1958 절` 처럼 머리에 다른 이슈 키가 있는 여러 줄 인용이 줄머리 선언으로 예외를 빠지지 않게(검토자 지적, 채택안).
+#   진짜 선언이 가려져도 `리뷰 후속:`+`브랜치 -n` 두 번째 갈래가 있어 실제 리뷰 후속은 막히지 않는다.
 followup_stmt=$(awk -v key="$key" '
-  /^[ \t]*(- )?리뷰 후속 수정 — 앞 PR #[0-9]/ {
-    rest = $0
-    ok = 1
-    while (match(rest, /[A-Z][A-Z0-9]*-[0-9]+/)) {
-      if (substr(rest, RSTART, RLENGTH) != key) ok = 0
-      rest = substr(rest, RSTART + RLENGTH)
+  # 한 줄에 자기 키가 아닌 이슈 키(프로젝트 접두어 + 숫자)가 있으면 1 — 인용으로 본다.
+  function has_other_key(s,   r, t) {
+    r = s
+    while (match(r, re)) {
+      t = substr(r, RSTART, RLENGTH)
+      if (t != key) return 1
+      r = substr(r, RSTART + RLENGTH)
     }
-    if (ok) found = 1
+    return 0
   }
-  END { print found ? 1 : 0 }' "$notes")
+  # 선언 줄 위 문단 — 바로 위의 빈 줄은 헤더·본문 사이 공백이라 건너뛰고, 그 위로는 빈 줄에서 끊는다.
+  function above_has_other_key(i,   j) {
+    j = i - 1
+    while (j >= 1 && line[j] ~ /^[ \t]*$/) j--
+    for (; j >= 1; j--) {
+      if (line[j] ~ /^[ \t]*$/) break
+      if (has_other_key(line[j])) return 1
+    }
+    return 0
+  }
+  { line[NR] = $0 }
+  END {
+    # 키 형식이 아니면(경로 인자로 파일 이름만 얻은 경우) 접두어를 못 알아내 외부 키를 놓친다 — 첫 갈래를 끈다.
+    if (key ~ /^[A-Z][A-Z0-9]*-[0-9]+$/) {
+      prefix = key
+      sub(/-[0-9]+$/, "", prefix)
+      re = prefix "-[0-9]+"
+      for (i = 1; i <= NR; i++) {
+        if (line[i] !~ /^[ \t]*(- )?리뷰 후속 수정 — 앞 PR #[0-9]/) continue
+        if (!has_other_key(line[i]) && !above_has_other_key(i)) found = 1
+      }
+    }
+    print found ? 1 : 0
+  }' "$notes")
 if [ "$followup_stmt" = 1 ] || {
   grep -Eq '^[[:space:]]*(- )?리뷰 후속:[[:space:]]*#?[0-9]' "$notes" &&
     grep -Eq "^[[:space:]]*(- )?브랜치:.*-${key##*-}-[0-9]+[[:space:]]*\$" "$notes"
