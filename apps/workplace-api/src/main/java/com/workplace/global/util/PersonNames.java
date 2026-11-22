@@ -11,7 +11,7 @@ public final class PersonNames {
 
   /**
    * 보이지 않는 문자 — 공백류(유니코드 공백·전각 공백 포함), 서식 문자(제로폭 공백·결합자·BOM 등 \p{Cf}), 한글 채움 문자, 점자 빈칸(U+2800,
-   * WP-724).
+   * WP-724). 운영 코드는 {@link InvisibleChars} 를 쓰고, 이 문자열은 옛 정규식 오라클 테스트가 같은 범위를 확인하는 데 쓴다(WP-2011).
    */
   static final String INVISIBLE_CLASS = "[\\s\\p{Z}\\p{Cf}\\u115F\\u1160\\u3164\\uFFA0\\u2800]";
 
@@ -24,9 +24,6 @@ public final class PersonNames {
       Pattern.compile(
           "[^\\s\\p{Z}\\p{Cf}\\p{Cc}\\p{Mn}\\p{Me}\\u115F\\u1160\\u3164\\uFFA0\\u2800]");
 
-  private static final Pattern INVISIBLE_EDGES =
-      Pattern.compile("^" + INVISIBLE_CLASS + "+|" + INVISIBLE_CLASS + "+$");
-
   /** 금지 문자 — 제어 문자(C0·C1: 줄바꿈·탭 등), 줄/문단 구분자, 양방향 제어 문자(SafeFileNames 와 같은 범위에서 경로 구분자만 뺐다). */
   private static final Pattern FORBIDDEN =
       Pattern.compile("[\\p{Cc}\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069]");
@@ -36,8 +33,7 @@ public final class PersonNames {
    * 문자가 있으면 IllegalArgumentException(400).
    */
   public static String normalize(String raw) {
-    String name =
-        raw == null ? "" : INVISIBLE_EDGES.matcher(UnicodeNames.toNfc(raw)).replaceAll("");
+    String name = raw == null ? "" : InvisibleChars.stripEdges(UnicodeNames.toNfc(raw));
     if (!hasVisibleChar(name)) {
       throw new IllegalArgumentException("이름을 입력해 주세요");
     }

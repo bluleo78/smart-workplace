@@ -1,14 +1,7 @@
 package com.workplace.global.util;
 
-import java.util.regex.Pattern;
-
 /** 문자열 가공 유틸. 알림 제목·미리보기, AI 요청 본문처럼 길이 제한이 있는 곳에서 공용으로 쓴다. */
 public final class Texts {
-
-  /** 앞뒤의 보이지 않는 문자(공백류·서식 문자·한글 채움 등) — 사람 이름과 같은 범위({@link PersonNames#INVISIBLE_CLASS}). */
-  private static final Pattern INVISIBLE_EDGES =
-      Pattern.compile(
-          "^" + PersonNames.INVISIBLE_CLASS + "+|" + PersonNames.INVISIBLE_CLASS + "+$");
 
   private Texts() {}
 
@@ -59,12 +52,12 @@ public final class Texts {
   /**
    * 앞뒤의 보이지 않는 문자를 떼고, 남는 것이 없으면 null — 웹·채팅에서 복사한 비밀값(토큰)처럼 앞뒤에 눈에 안 보이는 문자가 묻어 오는 값을 저장할 때
    * 쓴다(WP-1721). {@link #stripToNull} 은 {@link Character#isWhitespace} 기준이라 NBSP(U+00A0)·폭 없는
-   * 공백(U+200B)·BOM (U+FEFF) 같은 문자를 남긴다. 지우는 범위는 사람 이름·제목과 같은 {@link PersonNames#INVISIBLE_CLASS} 다
-   * — 정의가 따로 놀지 않게 한 곳을 쓴다. 가운데 문자는 건드리지 않는다.
+   * 공백(U+200B)·BOM (U+FEFF) 같은 문자를 남긴다. 지우는 범위는 사람 이름·제목과 같은 {@link InvisibleChars} 다 — 정의가 따로 놀지
+   * 않게 한 곳을 쓴다. 가운데 문자는 건드리지 않는다.
    */
   public static String stripInvisibleToNull(String s) {
     if (s == null) return null;
-    String stripped = INVISIBLE_EDGES.matcher(s).replaceAll("");
+    String stripped = InvisibleChars.stripEdges(s);
     return stripped.isEmpty() ? null : stripped;
   }
 

@@ -27,11 +27,6 @@ public final class SingleLineTitles {
    */
   private static final Pattern BIDI_CONTROLS = Pattern.compile("[\\u202A-\\u202E\\u2066-\\u2069]");
 
-  /** 앞뒤의 보이지 않는 문자(공백류·제로폭·한글 채움) — 사람 이름과 같은 범위({@link PersonNames}). */
-  private static final Pattern INVISIBLE_EDGES =
-      Pattern.compile(
-          "^" + PersonNames.INVISIBLE_CLASS + "+|" + PersonNames.INVISIBLE_CLASS + "+$");
-
   /**
    * NFC 로 맞추고 양방향 제어 문자를 지우고 줄바꿈·탭을 공백 하나로 바꾼 뒤 앞뒤의 보이지 않는 문자를 지운다. 그려지는 글자가 없으면(결합 문자·변형 선택자만 남은
    * 경우 포함, WP-724) 빈 문자열 — 호출 쪽의 「입력해 주세요」 검증이 그대로 거절한다. null 은 그대로(「제목 유지」 요청).
@@ -40,7 +35,7 @@ public final class SingleLineTitles {
     if (raw == null) return null;
     String noBidi = BIDI_CONTROLS.matcher(UnicodeNames.toNfc(raw)).replaceAll("");
     String oneLine = LINE_BREAKS.matcher(noBidi).replaceAll(" ");
-    String trimmed = INVISIBLE_EDGES.matcher(oneLine).replaceAll("");
+    String trimmed = InvisibleChars.stripEdges(oneLine);
     return PersonNames.hasVisibleChar(trimmed) ? trimmed : "";
   }
 
