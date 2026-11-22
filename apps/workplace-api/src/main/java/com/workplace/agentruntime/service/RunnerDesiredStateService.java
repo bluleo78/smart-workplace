@@ -290,7 +290,7 @@ public class RunnerDesiredStateService {
     Map<Long, ObservedUpdate> out = new LinkedHashMap<>(updated);
     for (Long id : targets) {
       ObservedUpdate u = updated.get(id);
-      // updateObserved 가 새 시작이면 보고한 Pod 시작 시각(reported)을 이미 비웠으므로 관찰값이 곧 지금 Pod 시작이다(WP-1958).
+      // 지금 Pod 시작 = 관찰값과 보고값(reported) 중 늦은 쪽 — updateObserved 는 여유를 넘게 앞선 보고값만 비운다(WP-1958).
       OffsetDateTime observed = u.row().startedAt();
       OffsetDateTime current =
           AgentRuntimeSlotRepository.currentPodStart(observed, u.row().reportedPodStartedAt());

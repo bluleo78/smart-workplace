@@ -19,6 +19,7 @@ import org.jooq.Field;
 import org.jooq.Row3;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
+import org.jooq.types.DayToSecond;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -125,6 +126,11 @@ public class AgentRuntimeSlotRepository {
    */
   public static OffsetDateTime podStartCutoff(OffsetDateTime podStartedAt) {
     return podStartedAt.minus(POD_START_CLOCK_SKEW_GRACE);
+  }
+
+  /** {@link #podStartCutoff(OffsetDateTime)} 의 SQL 판 — UPDATE 안에서 열 값끼리 견줄 때 같은 여유를 쓴다(WP-1958). */
+  static Field<OffsetDateTime> podStartCutoff(Field<OffsetDateTime> podStartedAt) {
+    return podStartedAt.sub(DayToSecond.valueOf(POD_START_CLOCK_SKEW_GRACE));
   }
 
   /** 둘 중 null 이 아닌 늦은 시각 — 둘 다 null 이면 null(보고한 Pod 시작 시각을 올리는 계산용, WP-1958). 두 보고 서비스가 함께 쓴다. */
