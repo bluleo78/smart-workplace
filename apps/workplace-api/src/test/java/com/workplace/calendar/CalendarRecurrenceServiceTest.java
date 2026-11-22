@@ -2,6 +2,7 @@ package com.workplace.calendar;
 
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT_EXCEPTION;
+import static com.workplace.jooq.Tables.CALENDAR_EVENT_NOTE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -12,6 +13,9 @@ import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.calendar.service.CalendarService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.wiki.dto.CreatePageRequest;
+import com.workplace.wiki.service.WikiPageService;
+import com.workplace.wiki.service.WikiSpaceService;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -26,6 +30,9 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired CalendarEventService service;
   @Autowired CalendarService calendarService;
+  // 「전체 일정」 이동이 회차 노트까지 옮기는지 보려고 회의록 페이지를 직접 만든다(WP-1927).
+  @Autowired WikiSpaceService wikiSpaceService;
+  @Autowired WikiPageService wikiPageService;
 
   private static final OffsetDateTime BASE = OffsetDateTime.parse("2026-06-10T09:00:00Z");
 
@@ -63,6 +70,41 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
         .from(CALENDAR_EVENT_EXCEPTION)
         .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(masterId))
         .fetchOne(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID);
+  }
+
+  /** 마스터의 첫 예외 행 키(occurrence_date) — 「전체 일정」 이동 뒤 키가 함께 밀렸는지 확인할 때 쓴다(WP-1927). */
+  private OffsetDateTime exceptionOccurrence(long masterId) {
+    return dsl.select(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE)
+        .from(CALENDAR_EVENT_EXCEPTION)
+        .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(masterId))
+        .fetchOne(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE);
+  }
+
+  /** 마스터의 모든 예외 행 키(occurrence_date) — 예외가 여러 개일 때 이동 방향 검증에 쓴다(WP-1927). */
+  private List<OffsetDateTime> exceptionOccurrences(long masterId) {
+    return dsl.select(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE)
+        .from(CALENDAR_EVENT_EXCEPTION)
+        .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(masterId))
+        .fetch(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE);
+  }
+
+  /** 일정에 잇은 회차 노트 키(occurrence_start) — 이동 뒤 노트 연결이 함께 밀렸는지 확인할 때 쓴다(WP-1927). */
+  private OffsetDateTime noteOccurrenceStart(long masterId) {
+    return dsl.select(CALENDAR_EVENT_NOTE.OCCURRENCE_START)
+        .from(CALENDAR_EVENT_NOTE)
+        .where(CALENDAR_EVENT_NOTE.EVENT_ID.eq(masterId))
+        .fetchOne(CALENDAR_EVENT_NOTE.OCCURRENCE_START);
+  }
+
+  /** 회의록 노트 한 장 — 노트 연결(linkNote)의 대상. 소유자가 팀 공간을 만들고 그 아래 페이지를 만든다(WP-1927). */
+  private long notePage(long owner) {
+    // 멤버십을 함께 준다 — 노트 공간 멤버 검증이 활성 테넌트 멤버를 요구하는 경로가 있어도 통과하도록.
+    withMembership(owner);
+    long spaceId =
+        wikiSpaceService
+            .createTeamSpace(owner, "이동노트-" + UUID.randomUUID().toString().substring(0, 8))
+            .id();
+    return wikiPageService.create(owner, spaceId, new CreatePageRequest(null, "이동 노트")).id();
   }
 
   /** THIS 수정 → 해당 회차만 오버라이드 일정으로 대체되고 나머지 회차는 그대로. */
@@ -723,5 +765,265 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
             first.minusDays(2).toInstant(),
             second.minusDays(2).toInstant(),
             first.plusWeeks(2).minusDays(2).toInstant());
+  }
+
+  /**
+   * WP-1927: 「전체 일정」 이동은 취소 예외 키(occurrence_date)도 같은 이동량만큼 옮겨야 한다 — 안 옮기면 예외가 옛 날짜에 남아 옮긴 자리의 회차가
+   * 되살아난다.
+   */
+  @Test
+  void updateScopeAll_movesCancelledExceptionWithSeries() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    // 가운데 회차를 취소(THIS 삭제)해 예외 행 하나를 만든다 — 키는 second.
+    service.delete(u, master.id(), EditScope.THIS, second);
+
+    // 첫 회차를 하루 뒤로 끌어 옮긴 뒤 「전체 일정」 — 이동량 +1일.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", first.plusDays(1)),
+        EditScope.ALL,
+        first);
+
+    // 예외 키도 +1일 — 취소는 옮긴 시리즈의 가운데 회차에 그대로 붙어 있어야 한다.
+    OffsetDateTime cancelled = exceptionOccurrence(master.id());
+    assertThat(cancelled).isNotNull();
+    assertThat(cancelled.toInstant()).isEqualTo(second.plusDays(1).toInstant());
+    // 목록에 second+1d 회차가 없어야 한다 — 취소가 유지됐다는 뜻(예외 키가 안 밀리면 이 회차가 되살아난다).
+    assertThat(service.list(u, first.minusDays(1), first.plusWeeks(3).plusDays(2)))
+        .extracting(e -> e.startsAt().toInstant())
+        .doesNotContain(second.plusDays(1).toInstant());
+  }
+
+  /**
+   * WP-1927: 「전체 일정」 이동은 「이 회차만」 고친 오버라이드 일정의 시각도 옮겨야 한다 — 키만 옮기고 일정을 두면 회차 자리와 날짜가 갈라져 옛 날짜 일정이 하나
+   * 더 보인다. 제목·내용은 이동으로 바뀌지 않아야 한다.
+   */
+  @Test
+  void updateScopeAll_movesOverrideEventWithSeries() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    // 가운데 회차만 따로 고쳐 오버라이드 별도 일정과 예외 행을 만든다.
+    service.update(
+        u, master.id(), editReq("이 회차만", "FREQ=WEEKLY;COUNT=3", second), EditScope.THIS, second);
+    Long overrideId = overrideEventId(master.id());
+    assertThat(overrideId).isNotNull();
+
+    // +1일 「전체 일정」 이동.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", second.plusDays(1)),
+        EditScope.ALL,
+        second);
+
+    // 오버라이드 일정의 시각만 +1일, 제목은 그대로.
+    CalendarEventResponse moved = service.get(u, overrideId);
+    assertThat(moved.startsAt().toInstant()).isEqualTo(second.plusDays(1).toInstant());
+    assertThat(moved.title()).isEqualTo("이 회차만");
+    // 예외 키도 같은 이동량 — 일정과 키가 어긋나면 원본이 하나 더 생긴다.
+    OffsetDateTime exc = exceptionOccurrence(master.id());
+    assertThat(exc).isNotNull();
+    assertThat(exc.toInstant()).isEqualTo(second.plusDays(1).toInstant());
+  }
+
+  /**
+   * WP-1927: 「전체 일정」 이동은 회차에 잇은 노트 연결 키(occurrence_start)도 옮겨야 한다 — 안 옮기면 노트가 어디에도 붙지 않아 회차 화면에서
+   * 사라진다.
+   */
+  @Test
+  void updateScopeAll_movesOccurrenceNoteLink() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    long pageId = notePage(u);
+    service.linkNote(u, master.id(), second, pageId);
+
+    // +1일 「전체 일정」 이동.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", second.plusDays(1)),
+        EditScope.ALL,
+        second);
+
+    // 노트 키가 +1일 로 옮겨졌는지.
+    OffsetDateTime noteKey = noteOccurrenceStart(master.id());
+    assertThat(noteKey).isNotNull();
+    assertThat(noteKey.toInstant()).isEqualTo(second.plusDays(1).toInstant());
+    // 옮긴 회차에서는 그 노트가 보이고, 옛 회차 날짜로는 없다.
+    assertThat(service.getNote(u, master.id(), second.plusDays(1)).note().pageId())
+        .isEqualTo(pageId);
+    assertThat(service.getNote(u, master.id(), second).note()).isNull();
+  }
+
+  /**
+   * WP-1927: 「전체 일정」 이동을 두 번 하면 예외 키도 두 번의 이동량만큼 쌓여 밀려야 한다(총 +3일) — 한 번만 옮기면 두 번째 이동 뒤 키가 다시 옛날짜로
+   * 돌아간 것과 같아 취소 회차가 되살아난다.
+   */
+  @Test
+  void updateScopeAll_twiceShiftsExceptionsTwice() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    service.delete(u, master.id(), EditScope.THIS, second);
+
+    // +1일 이동 → 예외 키는 second+1d.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", first.plusDays(1)),
+        EditScope.ALL,
+        first);
+    // 이어서 +2일(총 +3일) — 기준은 이미 옮겨진 시리즈의 첫 회차(first+1d). 취소돼 옮겨진 회차(second+1d)는 이동 기준이 될 수
+    // 없다(WP-1927) — 화면에도 없는 회차를 끌 수 없으므로 실제 회차를 기준으로 삼는다.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", first.plusDays(3)),
+        EditScope.ALL,
+        first.plusDays(1));
+
+    OffsetDateTime cancelled = exceptionOccurrence(master.id());
+    assertThat(cancelled).isNotNull();
+    assertThat(cancelled.toInstant()).isEqualTo(second.plusDays(3).toInstant());
+  }
+
+  /**
+   * WP-1927: 이동량이 반복 주기와 같을 때(주간 시리즈 +7일) 예외 키 두 개가 서로의 자리를 스쳐야 한다 — 예외 테이블의 유니크 (event_id,
+   * occurrence_date) 에 앞 행이 먼저 밀리면 아직 안 옮긴 뒷 행에 부딪혀 500 이 나기 때문이다. 갱신을 이동 방향과 반대로 하면 그 자리가 이미 비어
+   * 있다.
+   */
+  @Test
+  void updateScopeAll_shiftByWholePeriodDoesNotCollideOnExceptionKey() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    OffsetDateTime third = first.plusWeeks(2);
+    // 회차 2·3 두 곳에 예외 행을 만든다 — 둘 다 옮길 것이므로 유니크 충돌 여지가 생긴다.
+    service.delete(u, master.id(), EditScope.THIS, second);
+    service.delete(u, master.id(), EditScope.THIS, third);
+    assertThat(exceptionOccurrences(master.id())).hasSize(2);
+
+    // 정확히 한 주(+7일) 끌어 옮긴다 — 옮긴 자리가 곧 옆 회차의 자리다.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", first.plusWeeks(1)),
+        EditScope.ALL,
+        first);
+
+    // 예외 키는 옮긴 시리즈의 2·3 번째 회차(first+2주, first+3주)여야 하고 중복·누락이 없어야 한다.
+    List<OffsetDateTime> moved = exceptionOccurrences(master.id());
+    assertThat(moved).hasSize(2);
+    assertThat(moved)
+        .extracting(k -> k.toInstant())
+        .containsExactlyInAnyOrder(third.toInstant(), first.plusWeeks(3).toInstant());
+    // 취소는 그대로 — 옮긴 시리즈에서 2·3 회차는 보이지 않고 첫 회차만 남는다.
+    assertThat(service.list(u, first.minusDays(1), first.plusWeeks(4)))
+        .extracting(e -> e.startsAt().toInstant())
+        .contains(second.toInstant())
+        .doesNotContain(third.toInstant(), first.plusWeeks(3).toInstant());
+  }
+
+  /**
+   * WP-1927: 이미 취소된 회차를 「전체 일정」 이동의 기준으로 받으면 거절해야 한다 — 취소 회차를 출발점으로 삼으면 이동량이 그 회차에 다시 붙어 취소 기록이
+   * 어긋나고, 시리즈 전체가 이미 사라진 회차를 기준으로 밀린다.
+   */
+  @Test
+  void updateScopeAll_onCancelledOccurrence_isRejected() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    // 두 번째 회차를 취소해 예외 행을 만든다.
+    service.delete(u, master.id(), EditScope.THIS, second);
+
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    u,
+                    master.id(),
+                    editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", second.plusDays(1)),
+                    EditScope.ALL,
+                    second))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("취소된 회차");
+
+    // 거절됐으니 마스터 기준일과 예외 키는 그대로여야 한다.
+    assertThat(service.get(u, master.id()).startsAt().toInstant()).isEqualTo(first.toInstant());
+    assertThat(exceptionOccurrence(master.id()).toInstant()).isEqualTo(second.toInstant());
+  }
+
+  /**
+   * WP-1927 반려 원칙(사전검증과 실행이 어긋나면 안 된다): 취소 회차 기준 이동은 실행이 아니라 확인 카드(validateUpdatable)에서 먼저 걸려야 한다 —
+   * 카드가 뜨고 승인해야 400 이 나는 것을 막는다(WP-1915 반려 3 과 같은 취지).
+   */
+  @Test
+  void validateUpdatable_scopeAllOnCancelledOccurrence_isRejectedBeforeCard() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    service.delete(u, master.id(), EditScope.THIS, second);
+
+    assertThatThrownBy(
+            () ->
+                service.validateUpdatable(
+                    u,
+                    master.id(),
+                    editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", second.plusDays(1)),
+                    EditScope.ALL,
+                    second))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("취소된 회차");
+    assertThat(service.get(u, master.id()).startsAt().toInstant()).isEqualTo(first.toInstant());
+    assertThat(exceptionOccurrence(master.id()).toInstant()).isEqualTo(second.toInstant());
+  }
+
+  /**
+   * WP-1927: 「전체 일정」 이동이 BYDAY 규칙 요일까지 옮기는지 서비스 경로 전체에서 확인한다 — 규칙 후보를 고르는 배선이 후보 1(UNTIL 만 옮긴 원문)만
+   * 쓰게 되면 회차가 이동량을 따르지 않아 이 테스트가 실패해야 한다.
+   */
+  @Test
+  void updateScopeAll_movesBydayRuleWithSeries() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST; // 화요일
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;BYDAY=TU;COUNT=4", first, first.plusHours(1)));
+
+    // 화요일 회차를 수요일로 끌어 옮긴다 — 이동량 +1일.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;BYDAY=TU;COUNT=4", first.plusDays(1)),
+        EditScope.ALL,
+        first);
+
+    // 규칙의 요일까지 밀렸는지(BYDAY=TU → BYDAY=WE).
+    assertThat(service.get(u, master.id()).recurrenceRule()).contains("BYDAY=WE");
+    // 회차가 이동량만큼 이동했는지 — 옛 화요일 자리에는 아무것도 남지 않아야 한다.
+    assertThat(service.list(u, first.minusDays(1), first.plusWeeks(4)))
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactlyInAnyOrder(
+            first.plusDays(1).toInstant(),
+            first.plusDays(8).toInstant(),
+            first.plusDays(15).toInstant(),
+            first.plusDays(22).toInstant());
   }
 }

@@ -289,6 +289,85 @@ class RecurrenceExpanderTest {
     assertThat(RecurrenceExpander.shiftUntil(null, Duration.ofDays(3))).isNull();
   }
 
+  // ── shiftRule·shiftsBy(WP-1927 — 「전체 일정」 이동의 규칙 후보 만들기와 전개 견적 검증) ──────────
+
+  /**
+   * WP-1927: 주간 BYDAY 요일은 이동량만큼 순환 이동해야 한다 — 마스터 시작만 밀면 회차는 원래 요일에 남고 첫 회차가 하나 더 생긴다. 월·수 시리즈를 +1일
+   * 끌면 화·목 이어야 하고, 전개 견적으로도 `새 = 옛 + 1일` 이 맞아야 한다.
+   */
+  @Test
+  void shiftRule_weeklyByday_movesWeekdays() {
+    String oldRule = "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=6";
+    var oldStart = OffsetDateTime.parse("2026-11-02T09:00:00Z"); // 월요일
+    Duration delta = Duration.ofDays(1);
+    var newStart = oldStart.plus(delta);
+
+    String moved = RecurrenceExpander.shiftRule(oldRule, delta, newStart);
+
+    assertThat(moved).contains("BYDAY=TU,TH");
+    assertThat(expander.shiftsBy(oldRule, oldStart, moved, newStart, delta)).isTrue();
+  }
+
+  /** WP-1927: 요일·날짜 파트가 없는 규칙은 원문 그대로가 후보 1 이다 — 전개가 DTSTART 에 묶여 UNTIL 만 옮겨도 이동량을 그대로 따른다. */
+  @Test
+  void shiftRule_plainRule_isUnchanged() {
+    String oldRule = "FREQ=WEEKLY;COUNT=4";
+    var oldStart = OffsetDateTime.parse("2026-11-02T09:00:00Z");
+    Duration delta = Duration.ofDays(1);
+    var newStart = oldStart.plus(delta);
+
+    String moved = RecurrenceExpander.shiftRule(oldRule, delta, newStart);
+
+    assertThat(moved).isEqualTo(oldRule);
+    assertThat(expander.shiftsBy(oldRule, oldStart, moved, newStart, delta)).isTrue();
+  }
+
+  /** WP-1927: 월간 BYMONTHDAY 날짜는 이동량만큼 더한다 — 15일 시리즈를 +2일 끌면 17일이 되고 전개도 그만큼 밀려야 한다. */
+  @Test
+  void shiftRule_monthlyBymonthday_movesDay() {
+    String oldRule = "FREQ=MONTHLY;BYMONTHDAY=15;COUNT=4";
+    var oldStart = OffsetDateTime.parse("2026-11-15T09:00:00Z");
+    Duration delta = Duration.ofDays(2);
+    var newStart = oldStart.plus(delta);
+
+    String moved = RecurrenceExpander.shiftRule(oldRule, delta, newStart);
+
+    assertThat(moved).contains("BYMONTHDAY=17");
+    assertThat(expander.shiftsBy(oldRule, oldStart, moved, newStart, delta)).isTrue();
+  }
+
+  /**
+   * WP-1927: nth 요일(BYDAY=1MO — 이달의 첫 월요일)은 이동량으로 옮길 수 없다 — 1월 첫 월요일 +1일 은 첫 화요일이 아니라 열흘이 늦은 화요일이라
+   * 조용히 잘못된 시리즈가 된다. 거절 대상이다.
+   */
+  @Test
+  void shiftRule_monthlyNthWeekday_isRejected() {
+    assertThatThrownBy(
+            () ->
+                RecurrenceExpander.shiftRule(
+                    "FREQ=MONTHLY;BYDAY=1MO;COUNT=4",
+                    Duration.ofDays(1),
+                    OffsetDateTime.parse("2026-11-03T09:00:00Z")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage(RecurrenceExpander.SHIFT_RULE_MESSAGE);
+  }
+
+  /**
+   * WP-1927: 이동량이 정수 날짜가 아니면(3시간 이동) 요일 파트를 밀 수 없다 — 요일을 밀지 않은 규칙은 전개 견적에서 이동량과 어긋나므로 후보를 만들지 않고
+   * 거절한다.
+   */
+  @Test
+  void shiftRule_partOfDayDelta_rejectedForByday() {
+    assertThatThrownBy(
+            () ->
+                RecurrenceExpander.shiftRule(
+                    "FREQ=WEEKLY;BYDAY=MO;COUNT=4",
+                    Duration.ofHours(3),
+                    OffsetDateTime.parse("2026-11-02T12:00:00Z")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage(RecurrenceExpander.SHIFT_RULE_MESSAGE);
+  }
+
   /** expand 도 잘못된 규칙이면 동일하게 IllegalArgumentException(list per-master 격리 대상). */
   @Test
   void expand_invalidRule_throws() {
