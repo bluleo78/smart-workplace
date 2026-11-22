@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -50,6 +51,22 @@ class AiRunInternalControllerTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired AiRunRecorder recorder;
   @Autowired AiRunRepository repo;
+
+  /**
+   * 이 클래스가 테넌트 1 에 커밋해 둔 행을 지운다 — 같은 DB 를 쓰는 다른 테스트(AI 현황 조회)가 남의 행에 깨지지 않게. 이 클래스의 행은 모두 시작 시각이
+   * T0(고정 과거값)라 그 값으로만 골라 지운다. 다른 테넌트에 심은 행은 그 테넌트가 아무도 안 쓰는 전용이라 두어도 영향이 없다.
+   */
+  @AfterEach
+  void cleanupCommittedRuns() {
+    TenantContext.set(1L);
+    try {
+      new TransactionTemplate(txManager)
+          .executeWithoutResult(
+              s -> dsl.deleteFrom(AI_RUN).where(AI_RUN.STARTED_AT.eq(T0)).execute());
+    } finally {
+      TenantContext.clear();
+    }
+  }
 
   private static AiRunRecord rec(UUID id, Long tenant, String status, String kind) {
     return new AiRunRecord(
