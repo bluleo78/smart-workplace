@@ -8,7 +8,9 @@ import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.global.dto.ErrorResponse;
+import java.io.CharConversionException;
 import java.io.IOException;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -212,5 +214,34 @@ class GlobalExceptionHandlerTest {
             new org.springframework.dao.DeadlockLoserDataAccessException("deadlock", null));
     assertThat(method).isNotNull();
     assertThat(method.getName()).isEqualTo("handlePessimisticLockingFailure");
+  }
+
+  /** 413 코드의 InvalidParameterException 은 413 + 크기 안내(WP-1949). */
+  @Test
+  void 매개변수_413_은_413_과_크기_안내() {
+    ResponseEntity<ErrorResponse> res =
+        handler.handleInvalidParameter(new InvalidParameterException("x", 413), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+    assertThat(res.getBody().message()).isEqualTo(InvalidParameterResponses.TOO_LARGE_MESSAGE);
+  }
+
+  /** 원인 없는 InvalidParameterException(개수 초과 등)은 400 + 일반 안내. */
+  @Test
+  void 매개변수_그_밖은_400_과_일반_안내() {
+    ResponseEntity<ErrorResponse> res =
+        handler.handleInvalidParameter(new InvalidParameterException("x"), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(res.getBody().message()).isEqualTo(InvalidParameterResponses.GENERIC_MESSAGE);
+  }
+
+  /** 디코딩 실패 원인이면 400 + %25 인코딩 안내. */
+  @Test
+  void 매개변수_디코딩_실패는_400_과_인코딩_안내() {
+    ResponseEntity<ErrorResponse> res =
+        handler.handleInvalidParameter(
+            new InvalidParameterException("x", new CharConversionException("y")), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(res.getBody().message())
+        .isEqualTo(InvalidParameterResponses.INVALID_ENCODING_MESSAGE);
   }
 }
