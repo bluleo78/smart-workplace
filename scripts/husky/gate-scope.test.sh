@@ -174,15 +174,15 @@ check "CI vitest 대신 표시가 회귀로 넘어간다" "$out" "ci=1"
 check "단계 안내에 vitest 대신이 나온다" "$out" "web vitest 는 main CI 결과로 대신"
 git checkout -q main
 
-# ci-vitest-result.sh — 가짜 gh 로 CI 상태별 종료 코드를 본다(0 통과 · 1 실패 · 2 모름 → 직접 vitest).
+# ci-vitest-result.sh — 가짜 gh 로 CI 상태별 종료 코드를 본다(0 통과 · 2 그 밖 → 직접 vitest).
 mkdir -p "$TMP/bin"
 fake_gh() { printf '#!/bin/sh\n%s\n' "$1" > "$TMP/bin/gh"; chmod +x "$TMP/bin/gh"; }
-ci() { PATH="$TMP/bin:$PATH" CI_VITEST_WAIT_SECONDS=0 CI_VITEST_POLL_SECONDS=0 sh "$HOOKS/ci-vitest-result.sh" abc >/dev/null 2>&1 && echo "exit=0" || echo "exit=$?"; }
+ci() { PATH="$TMP/bin:$PATH" sh "$HOOKS/ci-vitest-result.sh" abc >/dev/null 2>&1 && echo "exit=0" || echo "exit=$?"; }
 fake_gh 'echo "completed success"'; check "CI 통과 → 0" "$(ci)" "exit=0"
-fake_gh 'echo "completed failure"'; check "CI 실패 → 1" "$(ci)" "exit=1"
+fake_gh 'echo "completed failure"'; check "CI 실패 → 2(직접 돌아 판정)" "$(ci)" "exit=2"
 fake_gh 'echo "null null"';         check "push 실행 없음 → 2" "$(ci)" "exit=2"
 fake_gh 'exit 1';                    check "조회 실패 → 2" "$(ci)" "exit=2"
-fake_gh 'echo "in_progress "';       check "기다림 초과 → 2" "$(ci)" "exit=2"
+fake_gh 'echo "in_progress "';       check "진행 중 → 기다리지 않고 2" "$(ci)" "exit=2"
 check "sha 없이 부르면 2" "$(sh "$HOOKS/ci-vitest-result.sh" >/dev/null 2>&1 && echo "exit=0" || echo "exit=$?")" "exit=2"
 
 finish

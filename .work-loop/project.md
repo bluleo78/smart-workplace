@@ -74,7 +74,7 @@ FULL_REGRESSION_BASE=origin/green FULL_REGRESSION_CI_VITEST=1 pnpm test:full   #
 ```
 
 - **범위는 green 뒤 바뀐 앱만**: green 은 이미 전체를 통과한 커밋이라 `origin/green` 과 갈라진 뒤 바뀐 코드 파일로 범위를 고른다(web 만 → web 단계만 15~18분, api·공유 영역이 바뀌면 전체 33~45분, 문서만이면 돌 단계 없이 통과). 띄우기 전에 `git fetch origin` 으로 `origin/green` 을 새로 받는다.
-- **web vitest 는 main CI 결과로 대신**: main push 마다 CI `verify` 가 웹 vitest 를 돈다. 풀테스트는 그 커밋의 CI 결과를 기다려 보고(`scripts/husky/ci-vitest-result.sh`) 통과면 다시 돌지 않는다 — CI 실패면 풀테스트도 실패(main 이 깨졌다), 결과를 못 찾으면 vitest 를 직접 돈다.
+- **web vitest 는 main CI 결과로 대신**: main push 마다 CI `verify` 가 웹 vitest 를 돈다. 풀테스트는 그 커밋의 CI 결과를 기다리지 않고 한 번 보고(`scripts/husky/ci-vitest-result.sh`) 이미 통과면 다시 돌지 않는다 — 아직 도는 중·실패(흔들림일 수 있다)·결과 없음이면 vitest 를 직접 돈다.
 
 - 실패한 테스트만 다시 돌릴 때(불안정 확인·수정 확인): api `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-api && ./gradlew test --tests "<클래스>"'`, web vitest `cd apps/workplace-web && npx vitest run <파일>`, web E2E `scripts/husky/run-locked.sh sh -c 'cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e <spec>'`, admin E2E `cd apps/workplace-admin && pnpm test:e2e <spec>`.
 - green 의 첫 위치는 v0.9.82 릴리스 커밋이다(WP-2003). 릴리스 태그는 green 이 가리키는 커밋에 찍는다.

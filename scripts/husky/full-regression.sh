@@ -14,8 +14,8 @@
 #                           origin/green 을 준다 — green 은 이미 전체 검사를 통과한 커밋이라 그 뒤 바뀐 앱만 돌면 된다(WP-2003).
 #                           이 값을 주었는데 그 뒤 바뀐 코드 파일이 없으면(문서만) 아무 단계도 돌지 않고 통과한다.
 #   FULL_REGRESSION_CI_VITEST — 1 이면 web vitest 를 돌리지 않고 지금 커밋의 main push CI(`ci.yml` — 웹 vitest 를 돈다) 결과로
-#                           대신한다(WP-2003). CI 가 끝날 때까지 기다리고, 실패면 실패한다. CI 결과를 찾지 못하면(gh 없음·실행 없음)
-#                           예전처럼 vitest 를 직접 돈다.
+#                           대신한다(WP-2003). 기다리지 않고 한 번만 본다 — 이미 통과면 건너뛰고, 진행 중·실패·결과 없음이면
+#                           예전처럼 vitest 를 직접 돈다(실패도 CI 흔들림일 수 있어 직접 돌아 판정한다).
 
 set -e
 
@@ -84,10 +84,10 @@ else
       (cd apps/workplace-web && pnpm typecheck:e2e)
       # web 단위·페이지 테스트(vitest 전체, 3분 안팎) — E2E 보다 먼저 돌려 순수 로직 회귀를 빠르게 실패시킨다 (WP-79).
       # 페이지 테스트는 pre-commit 이 빼고 돌므로 여기가 유일한 게이트다 (WP-995)
-      # 풀테스트(FULL_REGRESSION_CI_VITEST=1)는 main push CI 가 같은 커밋에서 돈 웹 vitest 결과로 대신한다 — 결과를 못 찾으면 직접 돈다.
+      # 풀테스트(FULL_REGRESSION_CI_VITEST=1)는 main push CI 가 같은 커밋에서 돈 웹 vitest 결과로 대신한다 — 통과가 아니면(진행 중·실패·없음) 직접 돈다.
       if [ "$FULL_REGRESSION_CI_VITEST" = 1 ]; then
         ci=0; sh scripts/husky/ci-vitest-result.sh "$(git rev-parse HEAD)" || ci=$?
-        case $ci in 0) ;; 1) exit 1 ;; *) (cd apps/workplace-web && pnpm test) ;; esac
+        [ "$ci" = 0 ] || (cd apps/workplace-web && pnpm test)
       else
         (cd apps/workplace-web && pnpm test)
       fi
