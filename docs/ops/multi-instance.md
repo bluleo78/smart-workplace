@@ -71,11 +71,12 @@
 파드마다 Hikari 풀이 따로라, DB 접속 수는 파드 수에 비례합니다. 롤링 배포 중에는 `rollout.maxSurge` 만큼 새 파드가 더 뜨고, 옛 파드는 종료 중(preStop 10초 + graceful 최대 30초)에도 풀을 쥐고 있습니다. 종료 중 파드는 maxSurge 에 세지 않으므로 다음 새 파드가 함께 뜹니다. 그래서 maxSurge 를 두 번 셉니다.
 
 ```
-(appReplicas + rollout.maxSurge × 2) × api.dbPoolMaxSize + db.reservedConnections ≤ db.maxConnections
+(appReplicas + rollout.maxSurge × 2) × api.dbPoolMaxSize + rollout.maxSurge × 2 + db.reservedConnections ≤ db.maxConnections
 ```
 
-- 지금 값: (1+2)×10+15 = 45 ≤ 100. 이 값(풀 10, 예비 15, 상한 100)으로 api 는 최대 6대까지 갑니다((6+2)×10+15 = 95).
-- 예비(`db.reservedConnections` 15)는 superuser 예약 3 + Flyway 2(기동 중인 새 파드(maxSurge 대)의 Flyway 접속 — Flyway 는 기동 때만 붙습니다) + 사람·운영 접속 10 입니다.
+- 지금 값: (1+2)×10+2+13 = 45 ≤ 100. 이 값(풀 10, Flyway 2, 예비 13, 상한 100)으로 api 는 최대 6대까지 갑니다((6+2)×10+2+13 = 95).
+- 예비(`db.reservedConnections` 13)는 superuser 예약 3 + 사람·운영 접속 10 입니다. Flyway 접속은 기동 중인 새 파드(maxSurge 대)마다 2 개(Flyway 는 기동 때만 붙습니다)라 식의 `rollout.maxSurge × 2` 항으로 따로 세므로 maxSurge 를 올리면 같이 늘어납니다.
+- 입력 검사: `appReplicas`·`rollout.maxSurge`·`api.dbPoolMaxSize` 등은 정수여야 하고, `api.dbPoolMaxSize` 는 1 이상이어야 합니다(Hikari 는 1 미만이면 기본 10 을 씁니다).
 - 대수를 늘릴 때 고칠 값: `db.maxConnections`(PostgreSQL 메모리도 함께 봅니다), 또는 `api.dbPoolMaxSize` 를 줄입니다. 값은 `deploy/helm/values.yaml` 에 있습니다.
 - helm 이 이 식을 렌더 때 검사해, 넘으면 계산식과 값을 보여 주며 실패합니다(`swp.dbConnectionBudget`).
 - db StatefulSet 의 args(`max_connections`)를 바꾸면 파드 템플릿이 바뀌어 반영 때 db 파드가 한 번 다시 뜹니다(잠깐 DB 끊김, api 재접속). 반영 전에 알립니다. 같은 반영에서 ConfigMap 키가 바뀌면 checksum/config 로 앱 파드도 함께 다시 뜨고, 새 api 파드는 db 가 Ready 될 때까지 Flyway 접속에 실패해 몇 번 재시작할 수 있습니다 — 반영 시간이 그만큼 길어집니다.

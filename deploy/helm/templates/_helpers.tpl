@@ -66,14 +66,19 @@ DB 커넥션 합계 가드(WP-1972) — 출력은 없고, 합계가 db.maxConnec
 옛 파드는 preStop 10s + graceful 최대 30s 동안 풀을 쥔 채 종료 중인데 Deployment 컨트롤러는 종료 중 파드를
 maxSurge 에 세지 않아 다음 새 파드가 함께 뜬다 — 그래서 maxSurge 를 두 번(새 파드 몫 + 종료 중인 옛 파드 몫) 센다.
 대수만 늘리고 max_connections 를 안 올리면 운영에서 풀 고갈(WP-752)이 나므로 배포 전에 막는다.
-식: (appReplicas + rollout.maxSurge × 2) × api.dbPoolMaxSize + db.reservedConnections <= db.maxConnections
+Flyway 는 기동 중인 새 파드가 기동 때만 2 개씩 붙으므로 그 몫(maxSurge × 2)을 식에 넣는다 — maxSurge 를 올리면 같이 늘어난다.
+식: (appReplicas + rollout.maxSurge × 2) × api.dbPoolMaxSize + rollout.maxSurge × 2 + db.reservedConnections <= db.maxConnections
 */}}
 {{- define "swp.dbConnectionBudget" -}}
 {{- /* "50%"·"20x" 같은 값은 int 변환이 0 으로 읽어 합계를 적게 세므로 정수가 아니면 거절한다("1" 같은 숫자 문자열은 허용) */ -}}
-{{- range $k, $v := dict "rollout.maxSurge" .Values.rollout.maxSurge "api.dbPoolMaxSize" .Values.api.dbPoolMaxSize "db.maxConnections" .Values.db.maxConnections "db.reservedConnections" .Values.db.reservedConnections -}}
+{{- range $k, $v := dict "rollout.maxSurge" .Values.rollout.maxSurge "appReplicas" .Values.appReplicas "api.dbPoolMaxSize" .Values.api.dbPoolMaxSize "db.maxConnections" .Values.db.maxConnections "db.reservedConnections" .Values.db.reservedConnections -}}
 {{- if not (regexMatch "^[0-9]+$" (toString $v)) -}}
 {{- fail (printf "%s 는 DB 커넥션 합계 계산을 위해 정수여야 합니다(현재 값: %v)" $k $v) -}}
 {{- end -}}
+{{- end -}}
+{{- /* Hikari 는 maximum-pool-size 가 1 미만이면 기본 10 을 쓴다 — 0 을 받으면 가드는 0 으로 세는데 파드마다 10 개를 열므로 1 이상만 받는다 */ -}}
+{{- if lt (int .Values.api.dbPoolMaxSize) 1 -}}
+{{- fail (printf "api.dbPoolMaxSize 는 1 이상이어야 합니다(현재 값: %v) — Hikari 는 1 미만이면 기본 10 을 씁니다" .Values.api.dbPoolMaxSize) -}}
 {{- end -}}
 {{- /* api 대수는 지금 appReplicas 한 값이다 — 앱별 replicas 로 나누면(WP-1970) api 값으로 바꿔야 한다 */ -}}
 {{- $replicas := int .Values.appReplicas -}}
@@ -81,8 +86,10 @@ maxSurge 에 세지 않아 다음 새 파드가 함께 뜬다 — 그래서 maxS
 {{- $pool := int .Values.api.dbPoolMaxSize -}}
 {{- $reserved := int .Values.db.reservedConnections -}}
 {{- $max := int .Values.db.maxConnections -}}
-{{- $total := add (mul (add $replicas (mul 2 $surge)) $pool) $reserved -}}
+{{- /* Flyway 몫: 새 파드(maxSurge 대)마다 기동 중 2 개 */ -}}
+{{- $flyway := mul 2 $surge -}}
+{{- $total := add (mul (add $replicas (mul 2 $surge)) $pool) $flyway $reserved -}}
 {{- if gt $total $max -}}
-{{- fail (printf "DB 커넥션 합계 %d > db.maxConnections %d: (appReplicas %d + rollout.maxSurge %d × 2) × api.dbPoolMaxSize %d + db.reservedConnections %d. 대수·풀을 줄이거나 db.maxConnections 를 올리세요(docs/ops/multi-instance.md)" $total $max $replicas $surge $pool $reserved) -}}
+{{- fail (printf "DB 커넥션 합계 %d > db.maxConnections %d: (appReplicas %d + rollout.maxSurge %d × 2) × api.dbPoolMaxSize %d + Flyway %d + db.reservedConnections %d. 대수·풀을 줄이거나 db.maxConnections 를 올리세요(docs/ops/multi-instance.md)" $total $max $replicas $surge $pool $flyway $reserved) -}}
 {{- end -}}
 {{- end -}}

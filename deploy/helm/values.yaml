@@ -104,9 +104,9 @@ db:
   storage: 10Gi
   # PostgreSQL max_connections(WP-1972) — 컨테이너 args 로 명시해 이미지 기본값이 바뀌어도 한도가 흔들리지 않게 한다.
   maxConnections: 100
-  # 앱 풀 밖에서 쓰는 접속 예비분: superuser_reserved_connections 3 + Flyway 2(기동 중인 새 파드(maxSurge 대)의 Flyway 접속 — Flyway 는 기동 때만 붙는다) + 사람·운영 접속 10.
+  # 앱 풀 밖에서 쓰는 접속 예비분: superuser_reserved_connections 3 + 사람·운영 접속 10. Flyway 접속(기동 중인 새 파드마다 2 개 = maxSurge × 2)은 가드 식이 maxSurge 에 비례해 따로 더하므로 여기 넣지 않는다.
   # 이 값까지 더한 합계가 maxConnections 를 넘으면 렌더 가드(swp.dbConnectionBudget)가 막는다 — 합계식은 docs/ops/multi-instance.md.
-  reservedConnections: 15
+  reservedConnections: 13
   resources:
     requests:
       cpu: 100m
