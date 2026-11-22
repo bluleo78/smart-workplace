@@ -24,7 +24,7 @@ export interface AiAgentStatus {
   description: string | null
   /** 알림 구독(SSE) 연결이 있는가 — 서버 안에서 도는 AI(INTERNAL)는 null(판단하지 않음). */
   connected: boolean | null
-  /** 연결이 마지막으로 끊긴 시각 — 연결 중이거나 한 번도 붙은 적 없으면 null. */
+  /** 마지막으로 연결을 확인한 시각(약 1분 단위) — 연결 중이거나 모르면(붙은 적 없음·하루 넘게 지남) null. */
   disconnectedAt: string | null
   /** 마지막으로 작업을 끝낸 시각 — 「쉬는 중 n분째」의 기준. */
   lastEndedAt: string | null

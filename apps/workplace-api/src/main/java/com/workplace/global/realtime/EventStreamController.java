@@ -1,7 +1,10 @@
 package com.workplace.global.realtime;
 
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
+import com.workplace.global.security.PermissionInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,9 +26,18 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class EventStreamController {
 
   private final SseRegistry registry;
+  private final AgentConnectionTracker tracker;
 
   @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-  public SseEmitter stream(@AuthenticationPrincipal Long callerId) {
-    return registry.register(callerId);
+  public SseEmitter stream(@AuthenticationPrincipal Long callerId, Authentication authentication) {
+    SseEmitter emitter = registry.register(callerId);
+    // AI 키(ak_) 인증만 ROLE_AGENT 가 붙는다 — 그 권한만으로 AI 를 가려 사람 연결은 DB 를 부르지 않는다. 등록 뒤 컨트롤러에서
+    // 불러, SSE map compute 락 안에서 DB 를 부르지 않는다(WP-751).
+    if (authentication != null
+        && PermissionInterceptor.hasAuthority(
+            authentication, ApiKeyAuthenticationFilter.ROLE_AGENT)) {
+      tracker.connected(callerId);
+    }
+    return emitter;
   }
 }

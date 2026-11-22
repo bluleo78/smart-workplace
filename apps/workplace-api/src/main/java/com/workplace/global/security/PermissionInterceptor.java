@@ -83,7 +83,8 @@ public class PermissionInterceptor implements HandlerInterceptor {
     return h.hasMethodAnnotation(a) || h.getBeanType().isAnnotationPresent(a);
   }
 
-  private static boolean hasAuthority(Authentication authentication, String authority) {
+  /** 인증이 그 권한을 갖는지 — SSE 접속의 AI 키 판별(WP-1975)도 쓴다. */
+  public static boolean hasAuthority(Authentication authentication, String authority) {
     return authentication.getAuthorities().stream()
         .anyMatch(a -> authority.equals(a.getAuthority()));
   }

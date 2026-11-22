@@ -3,7 +3,8 @@ package com.workplace.issue.service;
 import com.workplace.global.ai.AgentSlotCounter;
 import com.workplace.global.ai.AgentSlotLimits;
 import com.workplace.global.dto.UserSummary;
-import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.realtime.AgentConnectionRepository;
+import com.workplace.global.realtime.AgentConnectionRepository.LastSeen;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiAgentStatusResponse;
@@ -47,6 +48,12 @@ public class AiAgentStatusService implements AgentSlotCounter {
   static final Duration RECONNECT_GRACE = Duration.ofMinutes(3);
 
   /**
+   * 끊긴 시각을 보여 주는 기간(WP-1201) — 지나면 「언제 끊겼는지 모름」이라 목록에서 시각을 아는 끊김 뒤로 간다. 없으면 오래 안 쓴 AI 가 막 끊기거나 막힌
+   * AI 위에 줄곧 남는다.
+   */
+  private static final Duration DISCONNECT_RETENTION = Duration.ofDays(1);
+
+  /**
    * 상한에 세는 상태 — 작업 중·답변 필요·인증 필요·대기 중(다음 회차 대기·차단됨·일시 중지·검토 필요는 세지 않는다). 대기 중(PR 리뷰·기차·순서·수정·다른 AI
    * 답 대기)도 세어, PR 을 올린 뒤 머지(또는 취소)될 때까지 새 일을 가져가지 않게 한다 — 한 세션에 여러 이슈 맥락이 섞이지 않게(WP-1810, 이전
    * WP-1216 기준을 뒤집음). 다만 빼는 행은 {@link #slotRows} 참고.
@@ -61,7 +68,7 @@ public class AiAgentStatusService implements AgentSlotCounter {
   private final AiAgentRepository aiAgentRepository;
   private final IssueRepository issueRepository;
   private final UserRepository userRepository;
-  private final SseRegistry sseRegistry;
+  private final AgentConnectionRepository agentConnectionRepository;
   private final AgentSlotLimits agentSlotLimits;
 
   @Transactional(readOnly = true)
@@ -77,14 +84,16 @@ public class AiAgentStatusService implements AgentSlotCounter {
     Map<Long, Instant> lastEnded = aiAgentRepository.findLastEndedAt(ids);
     // AI 마다의 동시 진행 상한(WP-1754) — 한 번에 읽는다.
     Map<Long, Integer> limits = agentSlotLimits.limitsOf(ids);
-    Instant now = Instant.now();
+    // 연결 시각은 DB 한 곳에서 한 번에 읽는다 — 어느 파드가 받아도 같은 답(WP-1975).
+    Map<Long, LastSeen> lastSeen = agentConnectionRepository.findLastSeen(ids);
 
     List<AiAgentStatus> result = new ArrayList<>();
     for (ActiveAgent a : agents) {
       List<WorkRow> rows = worksByAgent.getOrDefault(a.id(), List.of());
       // 나와 관련 — 내가 볼 수 있는 내 관련 이슈를 진행 중인 AI 만.
       if (!all && rows.stream().noneMatch(r -> r.mine() && r.visible())) continue;
-      result.add(toStatus(a, rows, lastEnded.get(a.id()), now, limits.get(a.id())));
+      result.add(
+          toStatus(a, rows, lastEnded.get(a.id()), lastSeen.get(a.id()), limits.get(a.id())));
     }
     // 최상위 slotLimit 은 하위 호환용 기본값(AgentSlotLimits.DEFAULT) 그대로 — 화면은 AI 별 agents[].slotLimit 을
     // 쓴다(WP-1754).
@@ -156,7 +165,7 @@ public class AiAgentStatusService implements AgentSlotCounter {
   }
 
   private AiAgentStatus toStatus(
-      ActiveAgent a, List<WorkRow> rows, Instant lastEndedAt, Instant now, int slotLimit) {
+      ActiveAgent a, List<WorkRow> rows, Instant lastEndedAt, LastSeen lastSeen, int slotLimit) {
     List<AiAgentWork> works = new ArrayList<>();
     int hidden = 0;
     for (WorkRow r : rows) {
@@ -179,9 +188,13 @@ public class AiAgentStatusService implements AgentSlotCounter {
     Boolean connected = null;
     Instant disconnectedAt = null;
     if (AgentRuntime.EXTERNAL.equals(a.runtime())) {
-      Instant seen = sseRegistry.lastSeen(a.id()).orElse(null);
-      connected = isConnected(seen, now);
-      disconnectedAt = connected ? null : seen;
+      // 판정 시계는 시각을 읽은 같은 문장의 DB now() 하나 — 파드 시계가 섞이지 않는다. 행이 없으면(한 번도 안 붙음) 끊김·시각 모름.
+      connected = lastSeen != null && isConnected(lastSeen.at(), lastSeen.now());
+      if (!connected
+          && lastSeen != null
+          && lastSeen.at().isAfter(lastSeen.now().minus(DISCONNECT_RETENTION))) {
+        disconnectedAt = lastSeen.at();
+      }
     }
     return new AiAgentStatus(
         new UserSummary(a.id(), a.username(), a.name(), UserKind.AGENT),
@@ -196,8 +209,8 @@ public class AiAgentStatusService implements AgentSlotCounter {
   }
 
   /**
-   * 연결 판정 — 마지막으로 연결돼 있던 시각이 {@link #RECONNECT_GRACE} 안이면 연결로 본다(지금 연결 중이면 지금). 시각을 모르면(서버 재시작 뒤 아직
-   * 안 붙음) 끊김.
+   * 연결 판정 — DB 에 적힌 마지막 연결 시각이 {@link #RECONNECT_GRACE} 안이면 연결로 본다({@code now} 는 그 시각을 읽은 DB 의 현재
+   * 시각). 시각이 없으면(한 번도 안 붙음) 끊김.
    */
   static boolean isConnected(Instant lastSeen, Instant now) {
     return lastSeen != null && Duration.between(lastSeen, now).compareTo(RECONNECT_GRACE) < 0;

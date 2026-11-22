@@ -1,10 +1,6 @@
 package com.workplace.global.realtime;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Collection;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -26,27 +22,10 @@ public class SseRegistry {
   private static final long EMITTER_TIMEOUT = 3_600_000L; // 1h
   private static final int MAX_EMITTERS_PER_USER = 5; // 탭/기기 다중 허용
 
-  /** 끊김 시각을 기억하는 기간 — 지나면 「언제 끊겼는지 모름」으로 돌아간다. */
-  private static final Duration DISCONNECT_RETENTION = Duration.ofDays(1);
-
-  /**
-   * 사용자의 마지막 연결이 끊긴 시각(WP-1201 — AI 위임 작업 「AI별」 보기의 「연결 끊김 · n분째」). 연결이 하나라도 있으면 키가 없다. 서버가 다시 뜨면
-   * 비어 있어 그 전 끊김 시각은 모른다(연결 없음 + 시각 없음). 단일 노드 in-memory 라 API 를 여러 대 띄우면 다른 노드의 연결은 보이지 않는다 — 그때는
-   * 공용 저장소(예: DB·Redis)로 옮겨야 한다. 등록·마지막 연결 정리 콜백이 emitter 묶음의 compute 안에서 고쳐 같은 키의 순서가 섞이지 않는다.
-   */
-  private final ConcurrentHashMap<Long, Instant> disconnectedAt = new ConcurrentHashMap<>();
-
   private final KeyedSseEmitters<Long> emitters;
 
   public SseRegistry(ObjectMapper objectMapper) {
-    this.emitters =
-        new KeyedSseEmitters<>(
-            objectMapper,
-            EMITTER_TIMEOUT,
-            MAX_EMITTERS_PER_USER,
-            // 다시 붙었으니 끊김 시각을 지운다.
-            disconnectedAt::remove,
-            userId -> disconnectedAt.put(userId, Instant.now()));
+    this.emitters = new KeyedSseEmitters<>(objectMapper, EMITTER_TIMEOUT, MAX_EMITTERS_PER_USER);
   }
 
   /** 유저의 새 SSE 연결 등록. 한도 초과 시 가장 오래된 연결을 complete. */
@@ -72,19 +51,15 @@ public class SseRegistry {
   /** 30초 heartbeat 코멘트로 죽은 연결 감지·정리. */
   @Scheduled(fixedRate = 30_000)
   public void sendHeartbeat() {
-    // 끊김 시각은 하루가 지나면 버린다 — 다시 붙지 않는 사용자(대부분 사람)의 기록이 서버 수명 내내 쌓이지 않게.
-    Instant cutoff = Instant.now().minus(DISCONNECT_RETENTION);
-    disconnectedAt.values().removeIf(t -> t.isBefore(cutoff));
     emitters.heartbeat();
   }
 
   /**
-   * 사용자가 마지막으로 연결돼 있던 시각(WP-1201) — 지금 연결이 있으면 지금, 끊겼으면 끊긴 시각, 이 서버가 뜬 뒤 한 번도 안 붙었으면(또는 하루 넘게 끊겨
-   * 정리됐으면) 비어 있다. 끊긴 지 얼마나 됐는지·연결로 볼지는 호출부가 정한다.
+   * 이 파드에 유저의 SSE 연결이 하나라도 있는지 — 연결 시각 기록기(WP-1975)가 끊김을 가린다. 「외부 AI 연결됨」 판정은 이 값이 아니라
+   * DB(agent_connection)를 읽는다.
    */
-  public Optional<Instant> lastSeen(long userId) {
-    if (emitters.isConnected(userId)) return Optional.of(Instant.now());
-    return Optional.ofNullable(disconnectedAt.get(userId));
+  public boolean isConnected(long userId) {
+    return emitters.isConnected(userId);
   }
 
   /** 테스트/모니터링용 — 현재 연결된 유저 수. */

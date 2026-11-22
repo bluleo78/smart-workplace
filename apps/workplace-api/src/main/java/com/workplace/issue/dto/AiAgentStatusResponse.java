@@ -17,7 +17,7 @@ public record AiAgentStatusResponse(List<AiAgentStatus> agents, int slotLimit) {
    * AI 한 명.
    *
    * @param connected 알림 구독(SSE) 연결 여부 — 서버 안에서 도는 AI(INTERNAL)는 판단하지 않아 null
-   * @param disconnectedAt 끊긴 시각 — 연결 중이거나 모르면 null
+   * @param disconnectedAt 마지막으로 연결을 확인한 시각(약 1분 단위, 끊긴 순간이 아니다) — 연결 중이거나 모르면(하루 넘게 지남 포함) null
    * @param lastEndedAt 마지막으로 작업을 끝낸 시각 — 「쉬는 중 n분째」의 기준
    * @param works 열린 작업 중 호출자가 볼 수 있는 것
    * @param hiddenWorks 호출자가 볼 수 없는 프로젝트의 열린 작업 수

@@ -51,6 +51,7 @@ import com.workplace.fileai.security.FileSecurityCheckService;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.filepreview.service.FilePreviewService;
 import com.workplace.global.config.SecurityConfig;
+import com.workplace.global.realtime.AgentConnectionTracker;
 import com.workplace.global.realtime.EventStreamController;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
@@ -208,6 +209,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 @MockitoBean(
     types = {
       AgentApiKeyRepository.class,
+      AgentConnectionTracker.class,
       AttachmentViewService.class,
       AuditLogService.class,
       AuthService.class,
