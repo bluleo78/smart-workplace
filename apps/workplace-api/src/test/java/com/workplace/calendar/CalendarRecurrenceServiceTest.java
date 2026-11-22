@@ -3,6 +3,7 @@ package com.workplace.calendar;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT_EXCEPTION;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT_NOTE;
+import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -1025,5 +1026,103 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
             first.plusDays(8).toInstant(),
             first.plusDays(15).toInstant(),
             first.plusDays(22).toInstant());
+  }
+
+  /**
+   * WP-1927 리뷰 후속: 이동량이 0 인 scope=ALL 수정(제목·규칙만 바꾸는 AI·MCP 경로)은 취소된 회차를 기준으로 받아야 한다 — 옮기지도 않는 요청에
+   * 취소 회차 거절이 걸리면 그 회차가 있는 시리즈의 제목·규칙을 고칠 수 없다.
+   */
+  @Test
+  void updateScopeAll_zeroDeltaOnCancelledOccurrence_isAllowed() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    service.delete(u, master.id(), EditScope.THIS, second);
+
+    // 취소된 second 를 기준으로 이동량 0 인 「전체 일정」 수정 — 거절되지 않고 제목만 바뀐다.
+    service.update(
+        u, master.id(), editReq("제목만 변경", "FREQ=WEEKLY;COUNT=3", second), EditScope.ALL, second);
+
+    assertThat(service.get(u, master.id()).title()).isEqualTo("제목만 변경");
+    // 이동이 없으니 마스터 기준일·취소 키·회차 목록은 그대로여야 한다.
+    assertThat(service.get(u, master.id()).startsAt().toInstant()).isEqualTo(first.toInstant());
+    assertThat(exceptionOccurrence(master.id()).toInstant()).isEqualTo(second.toInstant());
+    assertThat(service.list(u, first.minusDays(1), first.plusWeeks(3)))
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactly(first.toInstant(), first.plusWeeks(2).toInstant());
+  }
+
+  /** WP-1927 리뷰 후속: 같은 이동량 0 수정은 사전검증(확인 카드)에서도 걸리지 않아야 한다 — 실행만 풀고 카드가 막으면 진행할 수 없다. */
+  @Test
+  void validateUpdatable_scopeAllOnCancelledOccurrence_zeroDelta_isAllowed() {
+    long u = user();
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", first, first.plusHours(1)));
+    OffsetDateTime second = first.plusWeeks(1);
+    service.delete(u, master.id(), EditScope.THIS, second);
+
+    service.validateUpdatable(
+        u, master.id(), editReq("제목만 변경", "FREQ=WEEKLY;COUNT=3", second), EditScope.ALL, second);
+
+    // 사전검증은 쓰기가 없으므로 제목·기준일은 그대로 남는다.
+    assertThat(service.get(u, master.id()).title()).isEqualTo("회의");
+    assertThat(service.get(u, master.id()).startsAt().toInstant()).isEqualTo(first.toInstant());
+  }
+
+  /**
+   * WP-1927 리뷰 후속: 「전체 일정」 이동으로 옮긴 오버라이드 일정의 참석자 응답도 「응답 필요」로 되돌아와야 한다 — 마스터만 알리면 옮긴 회차의 새 시각을 참석자가
+   * 다시 확인하지 않는다.
+   */
+  @Test
+  void updateScopeAll_movesOverride_resetsAttendeeRsvp() {
+    long u = user();
+    long guest = user();
+    withMembership(guest); // 초대는 활성 구성원만 가능하다
+    OffsetDateTime first = SERIES_FIRST;
+    CalendarEventResponse master =
+        service.create(
+            u,
+            new CalendarEventRequest(
+                "회의",
+                null,
+                first,
+                first.plusHours(1),
+                false,
+                null,
+                null,
+                null,
+                "FREQ=WEEKLY;COUNT=3",
+                List.of(guest),
+                null));
+    OffsetDateTime second = first.plusWeeks(1);
+    // 가운데 회차만 따로 고쳐 오버라이드 일정을 만든다 — 참석자는 마스터에서 그대로 복제된다.
+    service.update(
+        u, master.id(), editReq("이 회차만", "FREQ=WEEKLY;COUNT=3", second), EditScope.THIS, second);
+    Long overrideId = overrideEventId(master.id());
+    assertThat(overrideId).isNotNull();
+    service.respondRsvp(guest, overrideId, "ACCEPTED");
+    assertThat(rsvpStatus(overrideId, guest)).isEqualTo("ACCEPTED");
+
+    // +1일 「전체 일정」 이동 — 옮긴 오버라이드 일정의 응답도 다시 확인 대상이 된다.
+    service.update(
+        u,
+        master.id(),
+        editReq("매주 회의", "FREQ=WEEKLY;COUNT=3", second.plusDays(1)),
+        EditScope.ALL,
+        second);
+
+    assertThat(rsvpStatus(overrideId, guest)).isEqualTo("NEEDS_ACTION");
+  }
+
+  /** 참석자 응답 상태 조회 — 이동 뒤 응답 초기화를 확인할 때 쓴다(WP-1927 리뷰 후속). */
+  private String rsvpStatus(long eventId, long userId) {
+    return dsl.select(EVENT_ATTENDEE.RSVP_STATUS)
+        .from(EVENT_ATTENDEE)
+        .where(EVENT_ATTENDEE.EVENT_ID.eq(eventId))
+        .and(EVENT_ATTENDEE.USER_ID.eq(userId))
+        .fetchOne(EVENT_ATTENDEE.RSVP_STATUS);
   }
 }

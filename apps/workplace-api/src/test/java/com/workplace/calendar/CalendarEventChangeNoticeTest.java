@@ -256,4 +256,61 @@ class CalendarEventChangeNoticeTest extends IntegrationTestBase {
     assertThat(n.eventTitle()).isEqualTo("스탠드업");
     assertThat(n.eventStartsAt()).isEqualTo(occ3.toInstant());
   }
+
+  /**
+   * WP-1927 리뷰 후속: 「전체 일정」으로 시리즈를 옮기면 마스터뿐 아니라 함께 옮긴 오버라이드(이 회차만 수정) 일정에도 알림이 가고, 그 회차의 참석자 응답이 다시
+   * 「응답 필요」로 돌아와야 한다 — 마스터만 알리면 옮긴 회차의 새 시각을 참석자가 확인하지 않는다.
+   */
+  @Test
+  @DisplayName("「전체 일정」로 옮기면 함께 옮긴 오버라이드 일정에도 알림이 가고 그 회차의 응답이 다시 필요해진다")
+  void 전체_일정_이동_오버라이드_알림() throws Exception {
+    long org = seedUser("org", "HUMAN");
+    long guest = seedUser("g", "HUMAN");
+    long masterId =
+        service
+            .create(
+                org,
+                req("주간 회의", NOW, NOW.plusHours(1), null, "FREQ=WEEKLY;COUNT=3", List.of(guest)))
+            .id();
+    service.respondRsvp(guest, masterId, "ACCEPTED");
+
+    // 회차 시간은 그대로 두고 제목만 바꿔 오버라이드 일정을 만든다 — 이때는 알림이 없다(오버라이드에 응답이 복제된다).
+    OffsetDateTime occ2 = NOW.plusWeeks(1);
+    long overrideId =
+        service
+            .update(
+                org,
+                masterId,
+                req("주간 회의(중간)", occ2, occ2.plusHours(1), null, null, null),
+                EditScope.THIS,
+                occ2)
+            .id();
+    assertThat(rsvp(overrideId, guest)).isEqualTo("ACCEPTED");
+    settle();
+    assertThat(notifs(guest, "CALENDAR_EVENT_UPDATED")).isZero();
+
+    // +1일 「전체 일정」 이동 — 마스터 알림 1건 + 함께 옮긴 오버라이드 알림 1건이 나가야 한다.
+    service.update(
+        org,
+        masterId,
+        req(
+            "주간 회의",
+            NOW.plusDays(1),
+            NOW.plusDays(1).plusHours(1),
+            null,
+            "FREQ=WEEKLY;COUNT=3",
+            null),
+        EditScope.ALL,
+        NOW);
+
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(() -> assertThat(notifs(guest, "CALENDAR_EVENT_UPDATED")).isEqualTo(2));
+    assertThat(rsvp(overrideId, guest)).isEqualTo("NEEDS_ACTION");
+    assertThat(notificationService.listRecent(guest, 20, 0))
+        .extracting(NotificationResponse::eventId)
+        .contains(overrideId);
+    settle();
+    assertThat(notifs(org, "CALENDAR_EVENT_UPDATED")).isZero();
+  }
 }
