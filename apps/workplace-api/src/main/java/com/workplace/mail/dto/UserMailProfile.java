@@ -71,9 +71,49 @@ public record UserMailProfile(
    * 같다). null → 빈 문자열.
    */
   public static String oneLine(String s) {
-    return s == null
-        ? ""
-        : s.replaceAll("(?U)\\s*[\\r\\n]+\\s*", " ").replaceAll("(?U)^\\s+|\\s+$", "");
+    if (s == null) {
+      return "";
+    }
+    // 1) 공백 묶음 단위로 한 번 훑는다 — 묶음에 \r·\n 이 하나라도 있으면 묶음 전체를 공백 하나로, 없으면 그대로 둔다.
+    //    (옛 정규식 \s*[\r\n]+\s* 는 줄바꿈 없는 긴 공백에서 시작 위치마다 되짚어 제곱 시간이 걸렸다.)
+    //    공백은 모두 BMP 안에 있어 char 단위로 훑어도 서로게이트(짝 없는 것 포함)는 공백이 아닌 글자로 그대로 옮겨진다.
+    StringBuilder folded = new StringBuilder(s.length());
+    int i = 0;
+    int n = s.length();
+    while (i < n) {
+      char ch = s.charAt(i);
+      if (!isWhiteSpace(ch)) {
+        folded.append(ch);
+        i++;
+        continue;
+      }
+      int runStart = i;
+      boolean hasBreak = false;
+      while (i < n && isWhiteSpace(s.charAt(i))) {
+        hasBreak |= s.charAt(i) == '\r' || s.charAt(i) == '\n';
+        i++;
+      }
+      if (hasBreak) {
+        folded.append(' ');
+      } else {
+        folded.append(s, runStart, i);
+      }
+    }
+    // 2) 앞뒤 공백 제거 — 공백은 BMP 안에만 있어 char 단위로 깎아도 서로게이트를 깨지 않는다.
+    int start = 0;
+    int end = folded.length();
+    while (start < end && isWhiteSpace(folded.charAt(start))) {
+      start++;
+    }
+    while (end > start && isWhiteSpace(folded.charAt(end - 1))) {
+      end--;
+    }
+    return folded.substring(start, end);
+  }
+
+  /** 정규식 (?U)\s 와 같은 White_Space 판정 — 공백·줄/문단 구분자 분류 + 제어 공백(9~13)·NEL(0x85). */
+  private static boolean isWhiteSpace(int cp) {
+    return Character.isSpaceChar(cp) || (cp >= 9 && cp <= 13) || cp == 0x85;
   }
 
   private static List<String> oneLines(List<String> list) {
