@@ -222,7 +222,8 @@ class GlobalExceptionHandlerTest {
     ResponseEntity<ErrorResponse> res =
         handler.handleInvalidParameter(new InvalidParameterException("x", 413), request);
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
-    assertThat(res.getBody().message()).isEqualTo(InvalidParameterResponses.TOO_LARGE_MESSAGE);
+    assertThat(res.getBody().message())
+        .isEqualTo(InvalidParameterResponses.Cause.TOO_LARGE.message());
   }
 
   /** 원인 없는 InvalidParameterException(개수 초과 등)은 400 + 일반 안내. */
@@ -231,17 +232,29 @@ class GlobalExceptionHandlerTest {
     ResponseEntity<ErrorResponse> res =
         handler.handleInvalidParameter(new InvalidParameterException("x"), request);
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-    assertThat(res.getBody().message()).isEqualTo(InvalidParameterResponses.GENERIC_MESSAGE);
+    assertThat(res.getBody().message()).isEqualTo(InvalidParameterResponses.Cause.OTHER.message());
   }
 
-  /** 디코딩 실패 원인이면 400 + %25 인코딩 안내. */
+  /** % 디코딩 실패(CharConversionException) 원인이면 400 + %25 인코딩 안내. */
   @Test
-  void 매개변수_디코딩_실패는_400_과_인코딩_안내() {
+  void 매개변수_퍼센트_디코딩_실패는_400_과_퍼센트_안내() {
     ResponseEntity<ErrorResponse> res =
         handler.handleInvalidParameter(
             new InvalidParameterException("x", new CharConversionException("y")), request);
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(res.getBody().message())
-        .isEqualTo(InvalidParameterResponses.INVALID_ENCODING_MESSAGE);
+        .isEqualTo(InvalidParameterResponses.Cause.INVALID_PERCENT_ENCODING.message());
+  }
+
+  /** 문자셋 디코딩 실패(CharacterCodingException) 원인이면 %25 안내가 아니라 UTF-8 안내(WP-1949 리뷰 후속). */
+  @Test
+  void 매개변수_문자셋_디코딩_실패는_400_과_UTF8_안내() {
+    ResponseEntity<ErrorResponse> res =
+        handler.handleInvalidParameter(
+            new InvalidParameterException("x", new java.nio.charset.MalformedInputException(1)),
+            request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(res.getBody().message())
+        .isEqualTo(InvalidParameterResponses.Cause.INVALID_CHARSET.message());
   }
 }

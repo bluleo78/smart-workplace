@@ -1,6 +1,7 @@
 package com.workplace.agentaccount.usage;
 
 import com.workplace.auth.service.AgentProviders;
+import com.workplace.global.util.ExceptionCauses;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -64,8 +65,7 @@ public class ClaudeUsageProbe implements UsageProbe {
               .exchange((req, res) -> new Raw(res.getStatusCode(), res.getHeaders()));
     } catch (RestClientException | IllegalArgumentException e) {
       // 원인 예외는 URL 등을 담을 수 있어 예외에 잇지 않는다. 진단용으로 예외 클래스 이름 체인만 로그에 남긴다(메시지·토큰·URL 은 남기지 않음).
-      log.warn(
-          "AI 계정 사용량 조회 연결 실패 — provider {}: {}", provider(), UsageProbeException.causeChain(e));
+      log.warn("AI 계정 사용량 조회 연결 실패 — provider {}: {}", provider(), ExceptionCauses.classChain(e));
       throw new UsageProbeException("NETWORK", "연결 실패");
     }
     int status = raw.status().value();
