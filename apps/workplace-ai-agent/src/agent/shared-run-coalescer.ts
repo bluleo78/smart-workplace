@@ -21,16 +21,22 @@ export interface RunLeaseStore<E> {
   release(event: E, token: string, leaseMs: number): Promise<E | null>;
 }
 
-/** 키의 대기 칸에서 꺼낼 처리 하나 — token 이 있으면 이미 넘겨받은 임대로 바로 소유 루프를 돈다. */
-interface HeldItem<E> {
-  event: E;
-  token?: string;
-}
+/**
+ * 키의 대기 칸에서 꺼낼 처리 하나.
+ * - fresh: acquire 부터 한다.
+ * - owned: 이미 넘겨받은 임대(token)로 바로 소유 루프를 돈다.
+ * - recover: acquire 가 실패한 이벤트 — processOne 과 같은 규칙으로 fallback 으로 답한 뒤 그 토큰으로 반납한다(mayRelease 면).
+ *   서버가 ACQUIRED 를 커밋하고 응답만 잃었으면 다시 acquire 해도 DUPLICATE 라 답이 사라지기 때문이다(WP-1979 리뷰 후속 반려).
+ */
+type HeldItem<E> =
+  | { kind: 'fresh'; event: E }
+  | { kind: 'owned'; event: E; token: string }
+  | { kind: 'recover'; event: E; token: string; mayRelease: boolean };
 
-/** 키를 쥔 동안의 대기 칸 — 넘겨받은 임대(소유 루프로 돌 것, 차례대로)와 가장 최근 이벤트(acquire 부터 할 것). */
+/** 키를 쥔 동안의 대기 칸 — 차례대로 할 처리(owned·recover)와 가장 최근 이벤트(acquire 부터 할 것). */
 interface HeldSlot<E> {
   latest: E | null;
-  owned: HeldItem<E>[];
+  queue: HeldItem<E>[];
   /** 이 파드가 지금 이 키의 임대를 쥐고 소유 루프를 도는가 — 그동안 온 같은 키 이벤트는 대기 칸 대신 서버 acquire 로 보낸다. */
   owning: boolean;
 }
@@ -97,8 +103,8 @@ export function createSharedRunCoalescer<E>(opts: {
         opts.onError(current, e);
         firstErr ??= { e };
       }
-      // 반납 전에 대기 칸의 이벤트를 서버 대기로 보낸다 — 임대를 얻기 전(acquire 응답 대기)에 왔거나 forward 가 한 번 실패해 대기 칸에
-      // 남은 이벤트가 다른 파드의 더 옛 서버 대기와 따로 돌면 같은 대화에 두 번 답한다. 서버 대기에 올리면 둘 중 새 것만 release 가 넘긴다.
+      // 반납 전에 대기 칸의 이벤트를 서버 대기로 보낸다 — 임대를 얻기 전(acquire 응답 대기)에 와 대기 칸에 남은 이벤트가 다른 파드의
+      // 더 옛 서버 대기와 따로 돌면 같은 대화에 두 번 답한다. 서버 대기에 올리면 둘 중 새 것만 release 가 넘긴다.
       if (k !== undefined) await flushLatest(k);
       let next: E | null = null;
       try {
@@ -150,7 +156,7 @@ export function createSharedRunCoalescer<E>(opts: {
       slot.latest = event;
       return;
     }
-    return drain(k, { event }, []);
+    return drain(k, { kind: 'fresh', event }, []);
   }
 
   /**
@@ -159,7 +165,7 @@ export function createSharedRunCoalescer<E>(opts: {
    * 오류는 처리마다 기록하고 끝까지 돈 뒤 첫 오류로 거부한다(WP-1828 — runOwned 와 같은 규칙).
    */
   async function drain(k: string, first: HeldItem<E>, rest: HeldItem<E>[]): Promise<void> {
-    const slot: HeldSlot<E> = { latest: null, owned: [], owning: false };
+    const slot: HeldSlot<E> = { latest: null, queue: [], owning: false };
     heldKeys.set(k, slot);
     putInSlot(slot, rest);
     let firstErr: { e: unknown } | undefined;
@@ -167,7 +173,8 @@ export function createSharedRunCoalescer<E>(opts: {
     // processOne·runOwned 오류는 잡아 두므로 루프를 빠져나가는 예외가 없다 — 키는 루프 뒤에 비운다.
     while (item) {
       try {
-        if (item.token !== undefined) await runOwned(item.event, item.token);
+        if (item.kind === 'owned') await runOwned(item.event, item.token);
+        else if (item.kind === 'recover') await fallbackThenRelease(item.event, item.token, item.mayRelease);
         else await processOne(item.event);
       } catch (e) {
         firstErr ??= { e };
@@ -179,21 +186,22 @@ export function createSharedRunCoalescer<E>(opts: {
     if (firstErr) throw firstErr.e;
   }
 
-  /** 대기 칸에서 다음 처리를 꺼낸다 — 넘겨받은 임대 먼저, 없으면 가장 최근 이벤트. 비었으면 null. */
+  /** 대기 칸에서 다음 처리를 꺼낸다 — 차례대로 할 처리 먼저, 없으면 가장 최근 이벤트. 비었으면 null. */
   function takeNext(slot: HeldSlot<E>): HeldItem<E> | null {
-    const owned = slot.owned.shift();
-    if (owned) return owned;
+    const queued = slot.queue.shift();
+    if (queued) return queued;
     if (slot.latest === null) return null;
     const event = slot.latest;
     slot.latest = null;
-    return { event };
+    return { kind: 'fresh', event };
   }
 
   /**
    * 소유 루프 중에 온 같은 키 이벤트를 서버 acquire 로 보낸다. QUEUED·DUPLICATE 면 서버 대기가 맡으니 끝이다(release 가 최신 하나를 넘긴다).
    * ACQUIRED 면 — acquire 가 소유 루프의 마지막 release 뒤에 닿아 임대가 비어 있었다 — 그 토큰으로 이 파드가 돌아야 한다: 아직 키를 쥐고 있으면
-   * 대기 칸(owned)에 두고, 이미 놓았으면 새로 쥐고 돈다(같은 파드 겹침 없음). acquire 가 실패하면 예전처럼 대기 칸으로 돌려 일반 처리(acquire·fallback)에
-   * 맡기되, 서버가 커밋했을 수 있으면 먼저 그 토큰으로 반납해 임대가 묶이지 않게 한다(넘겨받은 밀린 이벤트가 있으면 그것도 owned 로 돈다).
+   * 대기 칸(owned)에 두고, 이미 놓았으면 새로 쥐고 돈다(같은 파드 겹침 없음). acquire 가 실패하면 processOne 과 같은 규칙 — fallback 으로 답한 뒤
+   * 그 토큰으로 반납(서버가 커밋했을 수 있을 때) — 을 키의 차례(recover)로 미뤄 한다. 다시 acquire 하면 서버가 ACQUIRED 를 커밋하고 응답만 잃었을 때
+   * DUPLICATE 로 답이 사라진다.
    */
   async function forward(k: string, event: E): Promise<void> {
     const token = randomUUID();
@@ -202,14 +210,14 @@ export function createSharedRunCoalescer<E>(opts: {
       res = await opts.store(event).acquire(event, leaseMs, token);
     } catch (e) {
       console.warn('[shared-run-coalescer] 소유 중 온 이벤트 acquire 실패 — 대기 칸으로', e instanceof Error ? e.message : String(e));
-      const next = mayHaveCommitted(e) ? await releaseAfterFailedAcquire(event, token) : null;
-      return enqueue(k, next ? [{ event: next, token }, { event }] : [{ event }]);
+      // 지금 소유 루프와 겹치지 않게 키의 차례로 미뤄 fallback·반납한다(다시 acquire 하지 않는다 — 커밋됐으면 DUPLICATE 로 사라진다).
+      return enqueue(k, [{ kind: 'recover', event, token, mayRelease: mayHaveCommitted(e) }]);
     }
     if (res.status !== 'ACQUIRED') return;
-    return enqueue(k, [{ event, token: res.token }]);
+    return enqueue(k, [{ kind: 'owned', event, token: res.token }]);
   }
 
-  /** 키의 대기 칸에 가장 최근 이벤트가 있으면 꺼내 서버 acquire 로 보낸다(forward — 실패하면 다시 대기 칸으로 돌아간다). */
+  /** 키의 대기 칸에 가장 최근 이벤트가 있으면 꺼내 서버 acquire 로 보낸다(forward — 실패하면 키의 차례로 fallback·반납). */
   async function flushLatest(k: string): Promise<void> {
     const slot = heldKeys.get(k);
     if (!slot || slot.latest === null) return;
@@ -225,11 +233,11 @@ export function createSharedRunCoalescer<E>(opts: {
     putInSlot(slot, items);
   }
 
-  /** 대기 칸에 넣는다 — 넘겨받은 임대는 차례대로, 일반 이벤트는 가장 최근 것만. */
+  /** 대기 칸에 넣는다 — owned·recover 는 차례대로, fresh 는 가장 최근 것만. */
   function putInSlot(slot: HeldSlot<E>, items: HeldItem<E>[]): void {
     for (const it of items) {
-      if (it.token !== undefined) slot.owned.push(it);
-      else slot.latest = it.event;
+      if (it.kind === 'fresh') slot.latest = it.event;
+      else slot.queue.push(it);
     }
   }
 
