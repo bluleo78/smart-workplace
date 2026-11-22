@@ -23,6 +23,36 @@ function fakeFallback() {
   return { submit: vi.fn((_e: number) => undefined as Promise<void> | undefined), activeKeys: () => 0 } satisfies RunCoalescer<number>;
 }
 
+/** 서버 임대 행 하나를 흉내 내는 저장소 — MessagingAgentRunService 의 acquire·release 판정을 그대로 옮겼다(이벤트 값 = messageId). */
+function fakeServer() {
+  const row = { owner: null as string | null, lastStarted: 0, pending: null as number | null };
+  const store = {
+    acquire: vi.fn(async (id: number, _lease: number, token: string): Promise<Acq> => {
+      if (id <= row.lastStarted || (row.pending !== null && id <= row.pending)) return { status: 'DUPLICATE' };
+      if (row.owner === null) {
+        row.owner = token;
+        row.lastStarted = id;
+        row.pending = null;
+        return { status: 'ACQUIRED', token };
+      }
+      row.pending = id;
+      return { status: 'QUEUED' };
+    }),
+    release: vi.fn(async (_id: number, token: string) => {
+      if (row.owner !== token) return null;
+      if (row.pending !== null) {
+        const next = row.pending;
+        row.lastStarted = next;
+        row.pending = null;
+        return next;
+      }
+      row.owner = null;
+      return null;
+    }),
+  } satisfies RunLeaseStore<number>;
+  return { row, store };
+}
+
 const acquired = async (): Promise<Acq> => ({ status: 'ACQUIRED', token: 't1' });
 
 describe('createSharedRunCoalescer (WP-1979)', () => {
@@ -152,19 +182,19 @@ describe('createSharedRunCoalescer (WP-1979)', () => {
     const p1 = c.submit(1);
     await new Promise((r) => setTimeout(r, 0));
     expect(run.mock.calls.map((x) => x[0])).toEqual([5]);
-    // 5 가 도는 동안 같은 키 새 이벤트 둘 — 폴백·acquire 어느 쪽으로도 바로 돌지 않는다
-    store.acquire.mockImplementation(async () => ({ status: 'ACQUIRED', token: 't2' }));
+    // 5 를 임대로 도는 동안 같은 키 새 이벤트 둘 — 폴백으로도 바로 돌지 않고 서버 대기로 간다(QUEUED, 리뷰 후속)
+    store.acquire.mockImplementation(async () => ({ status: 'QUEUED' }));
     store.acquire.mockClear();
     await c.submit(2);
     await c.submit(3);
-    expect(store.acquire).not.toHaveBeenCalled();
+    expect(store.acquire.mock.calls.map((x) => (x as unknown[])[0])).toEqual([2, 3]);
     expect(fb.submit).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledTimes(1);
+    // 서버 대기는 최신 하나(3)만 남아 5 의 release 가 넘겨준다
+    store.release.mockReset();
+    store.release.mockResolvedValueOnce(3).mockResolvedValue(null);
     finishOwned();
     await p1;
-    // 끝난 뒤 가장 최근 것(3)만 임대로 이어 처리한다
-    expect(store.acquire).toHaveBeenCalledTimes(1);
-    expect((store.acquire.mock.calls[0] as unknown[])[0]).toBe(3);
     expect(run.mock.calls.map((x) => x[0])).toEqual([5, 3]);
     expect(maxRunning).toBe(1);
   });
@@ -266,8 +296,154 @@ describe('createSharedRunCoalescer (WP-1979)', () => {
     await p1;
     // e1 → (release 가 넘긴) e4 로 끝나고, 대기 칸의 e3 는 acquire 에서 DUPLICATE 라 돌지 않는다
     expect(run.mock.calls.map((x) => x[0])).toEqual([1, 4]);
-    expect(server.acquire).toHaveBeenLastCalledWith(3, expect.any(Number), expect.any(String));
+    // e3 는 e1 을 쥔 동안 와서 서버 대기로 갔고(QUEUED) 더 새 e4 가 그 대기를 덮었다
+    expect(server.acquire).toHaveBeenNthCalledWith(2, 3, expect.any(Number), expect.any(String));
+    await expect((server.acquire as ReturnType<typeof vi.fn>).mock.results[1]!.value).resolves.toEqual({ status: 'QUEUED' });
     expect(row).toEqual({ owner: null, lastStarted: 4, pending: null });
+  });
+
+  // WP-1979 리뷰 후속: 반대 순서 — 다른 파드의 더 옛 e2 가 서버 대기이고, 이 파드가 e1 을 쥔 동안 더 새 e3 가 오면 e3 만 돈다.
+  it('소유 중 온 같은 키 이벤트는 서버 대기로 보내 다른 파드의 더 옛 대기를 덮는다 — 옛 e2 와 새 e3 에 두 번 답하지 않는다', async () => {
+    const { row, store } = fakeServer();
+    let finish!: () => void;
+    const blocked = new Promise<void>((r) => (finish = r));
+    const run = vi.fn(async (e: number) => {
+      if (e === 1) await blocked;
+    });
+    const podA = createSharedRunCoalescer<number>({ store: () => store, fallback: fakeFallback(), run, onError: vi.fn(), key: () => 'a' });
+    const p1 = podA.submit(1);
+    await new Promise((r) => setTimeout(r, 0));
+    // 파드 B 의 더 옛 e2 가 먼저 서버 대기에 오르고, 그 뒤 파드 A 에 더 새 e3 가 온다
+    await expect(store.acquire(2, 1000, 'pod-b')).resolves.toEqual({ status: 'QUEUED' });
+    await podA.submit(3);
+    expect(row.pending).toBe(3);
+    finish();
+    await p1;
+    // e1 → (release 가 넘긴) e3 로 끝난다 — e2 는 돌지 않는다
+    expect(run.mock.calls.map((x) => x[0])).toEqual([1, 3]);
+    expect(row).toEqual({ owner: null, lastStarted: 3, pending: null });
+  });
+
+  it('소유 루프의 마지막 release 뒤에 닿은 acquire 가 ACQUIRED 면 그 토큰으로 겹치지 않게 돈다', async () => {
+    const { row, store } = fakeServer();
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((r) => (releaseGate = r));
+    const realRelease = store.release.getMockImplementation()!;
+    // e1 의 release 가 끝난 뒤에야 e2 의 acquire 가 서버에 닿게 한다
+    let acquireGate!: () => void;
+    const acquireWait = new Promise<void>((r) => (acquireGate = r));
+    const realAcquire = store.acquire.getMockImplementation()!;
+    store.acquire.mockImplementation(async (id, lease, token) => {
+      if (id === 2) await acquireWait;
+      return realAcquire(id, lease, token);
+    });
+    store.release.mockImplementation(async (id, token) => {
+      const r = await realRelease(id, token);
+      if (id === 1) releaseGate();
+      return r;
+    });
+    let running = 0;
+    let maxRunning = 0;
+    const run = vi.fn(async () => {
+      running++;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((r) => setTimeout(r, 0));
+      running--;
+    });
+    const c = createSharedRunCoalescer<number>({ store: () => store, fallback: fakeFallback(), run, onError: vi.fn(), key: () => 'a' });
+    const p1 = c.submit(1);
+    await new Promise((r) => setTimeout(r, 0));
+    const p2 = c.submit(2);
+    await gate;
+    await p1;
+    acquireGate();
+    await p2;
+    expect(run.mock.calls.map((x) => (x as unknown[])[0])).toEqual([1, 2]);
+    expect(maxRunning).toBe(1);
+    expect(row).toEqual({ owner: null, lastStarted: 2, pending: null });
+  });
+
+  it('소유 중 온 이벤트의 acquire 가 실패하면 반납을 한 번 해 보고 대기 칸으로 돌려 끝난 뒤 처리한다', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let finish!: () => void;
+    const blocked = new Promise<void>((r) => (finish = r));
+    const store = fakeStore(acquired, [null, null, null]);
+    store.acquire.mockImplementationOnce(acquired).mockImplementationOnce(async () => {
+      throw new Error('timeout');
+    });
+    const run = vi.fn(async (e: number) => {
+      if (e === 1) await blocked;
+    });
+    const c = createSharedRunCoalescer<number>({ store: () => store, fallback: fakeFallback(), run, onError: vi.fn(), key: () => 'a' });
+    const p1 = c.submit(1);
+    await new Promise((r) => setTimeout(r, 0));
+    await c.submit(2);
+    // 실패한 acquire 의 토큰으로 반납을 시도했다
+    const token2 = (store.acquire.mock.calls[1] as unknown[])[2];
+    expect(store.release).toHaveBeenCalledWith(2, token2, expect.any(Number));
+    expect(run).toHaveBeenCalledTimes(1);
+    finish();
+    await p1;
+    // 1 이 끝난 뒤 대기 칸의 2 를 다시 acquire 해 돈다
+    expect(run.mock.calls.map((x) => x[0])).toEqual([1, 2]);
+    expect(store.acquire).toHaveBeenCalledTimes(3);
+  });
+
+  it('acquire 응답을 기다리는 동안 대기 칸에 온 새 이벤트도 반납 전에 서버 대기로 보내 다른 파드의 옛 대기와 두 번 답하지 않는다', async () => {
+    const { row, store } = fakeServer();
+    const realAcquire = store.acquire.getMockImplementation()!;
+    let letAcquire!: () => void;
+    const acquireWait = new Promise<void>((r) => (letAcquire = r));
+    store.acquire.mockImplementationOnce(async (id, lease, token) => {
+      await acquireWait;
+      return realAcquire(id, lease, token);
+    });
+    let finish!: () => void;
+    const blocked = new Promise<void>((r) => (finish = r));
+    const run = vi.fn(async (e: number) => {
+      if (e === 1) await blocked;
+    });
+    const podA = createSharedRunCoalescer<number>({ store: () => store, fallback: fakeFallback(), run, onError: vi.fn(), key: () => 'a' });
+    const p1 = podA.submit(1);
+    // e1 의 acquire 가 아직 서버에 닿지 않은 동안 e3 가 온다 — 대기 칸으로
+    await podA.submit(3);
+    letAcquire();
+    await new Promise((r) => setTimeout(r, 0));
+    // 파드 A 가 e1 임대를 얻은 뒤 파드 B 의 더 옛 e2 가 서버 대기에 오른다
+    await expect(store.acquire(2, 1000, 'pod-b')).resolves.toEqual({ status: 'QUEUED' });
+    finish();
+    await p1;
+    expect(run.mock.calls.map((x) => x[0])).toEqual([1, 3]);
+    expect(row).toEqual({ owner: null, lastStarted: 3, pending: null });
+  });
+
+  it('소유 중 forward 가 실패해 대기 칸에 남은 이벤트는 반납 전에 다시 서버 대기로 보낸다', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { row, store } = fakeServer();
+    const realAcquire = store.acquire.getMockImplementation()!;
+    let failOnce = true;
+    store.acquire.mockImplementation(async (id, lease, token) => {
+      if (id === 3 && failOnce) {
+        failOnce = false;
+        throw new Error('timeout');
+      }
+      return realAcquire(id, lease, token);
+    });
+    let finish!: () => void;
+    const blocked = new Promise<void>((r) => (finish = r));
+    const run = vi.fn(async (e: number) => {
+      if (e === 1) await blocked;
+    });
+    const podA = createSharedRunCoalescer<number>({ store: () => store, fallback: fakeFallback(), run, onError: vi.fn(), key: () => 'a' });
+    const p1 = podA.submit(1);
+    await new Promise((r) => setTimeout(r, 0));
+    await expect(store.acquire(2, 1000, 'pod-b')).resolves.toEqual({ status: 'QUEUED' });
+    await podA.submit(3);
+    expect(row.pending).toBe(2);
+    finish();
+    await p1;
+    expect(run.mock.calls.map((x) => x[0])).toEqual([1, 3]);
+    expect(row).toEqual({ owner: null, lastStarted: 3, pending: null });
   });
 
   it('다른 키는 서로 기다리지 않는다', async () => {

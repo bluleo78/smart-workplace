@@ -6,6 +6,9 @@
 // acquire 가 실패하면(api 가 구버전이라 404 등) 같은 이벤트를 메모리 합치기(fallback)에 맡겨 답이 끊기지 않게 한다.
 // 토큰은 이 모듈이 acquire 전에 만들어 보낸다 — 서버가 ACQUIRED 를 커밋했는데 응답만 잃었어도(타임아웃·연결 끊김·502)
 // fallback 실행이 끝난 뒤 그 토큰으로 반납해 대화가 임대 만료(약 16분)까지 묶이지 않게 한다.
+// 이 파드가 임대를 쥐고 도는 동안(소유 루프) 온 같은 대화 이벤트는 대기 칸에 두지 않고 바로 서버에 acquire 해 서버 대기에 올린다
+// (WP-1979 리뷰 후속) — 대기 칸에만 두면 다른 파드가 먼저 서버 대기에 올린 더 옛 이벤트가 release 로 넘어와 돈 뒤 대기 칸의
+// 더 새 이벤트가 또 돌아 같은 대화에 두 번 답한다. 서버 대기는 최신 하나만 남기므로 둘 중 새 것만 돈다.
 import { randomUUID } from 'node:crypto';
 import { trackInflight } from '../graceful-shutdown.js';
 import { DEFAULT_MAX_RUN_MS, runWithLimit, type RunCoalescer } from './run-coalescer.js';
@@ -16,6 +19,20 @@ export interface RunLeaseStore<E> {
   acquire(event: E, leaseMs: number, token: string): Promise<{ status: 'ACQUIRED'; token: string } | { status: 'QUEUED' | 'DUPLICATE' }>;
   /** 임대를 돌려주고, 기다리던 이벤트가 있으면 돌려준다(서버가 임대를 이어서 갱신해 둔다). */
   release(event: E, token: string, leaseMs: number): Promise<E | null>;
+}
+
+/** 키의 대기 칸에서 꺼낼 처리 하나 — token 이 있으면 이미 넘겨받은 임대로 바로 소유 루프를 돈다. */
+interface HeldItem<E> {
+  event: E;
+  token?: string;
+}
+
+/** 키를 쥔 동안의 대기 칸 — 넘겨받은 임대(소유 루프로 돌 것, 차례대로)와 가장 최근 이벤트(acquire 부터 할 것). */
+interface HeldSlot<E> {
+  latest: E | null;
+  owned: HeldItem<E>[];
+  /** 이 파드가 지금 이 키의 임대를 쥐고 소유 루프를 도는가 — 그동안 온 같은 키 이벤트는 대기 칸 대신 서버 acquire 로 보낸다. */
+  owning: boolean;
 }
 
 /**
@@ -36,8 +53,9 @@ export function createSharedRunCoalescer<E>(opts: {
   onError: (event: E, error: unknown) => void;
   maxRunMs?: number;
   /**
-   * 이벤트의 대화 키 — 이 파드가 같은 키를 쥔 동안(acquire 진행·소유 실행·fallback·release 대기) 온 새 이벤트는 키별 대기 칸에
-   * 가장 최근 것만 남겼다가 쥔 처리가 끝나면 이어 받는다(같은 파드 겹침 방지, WP-1979 반려 1). 없으면 이벤트마다 따로 처리한다.
+   * 이벤트의 대화 키 — 이 파드가 같은 키를 쥔 동안 온 새 이벤트는 따로 돌지 않는다(같은 파드 겹침 방지, WP-1979 반려 1).
+   * 임대를 쥔 소유 루프 중이면 서버 acquire 로 보내 서버 대기에 올리고, 그 밖(acquire 진행·fallback·release 대기)이면 키별 대기 칸에
+   * 가장 최근 것만 남겼다가 — 소유 루프의 반납 직전에 서버 대기로 보내거나 쥔 처리가 끝난 뒤 — 이어 받는다(리뷰 후속). 없으면 이벤트마다 따로 처리한다.
    */
   key?: (event: E) => string;
   /** acquire 실패가 서버 커밋 뒤 응답 유실일 수 있는가 — 아니면(확실한 HTTP 거절) 반납을 건너뛴다. 기본은 항상 true. */
@@ -46,14 +64,29 @@ export function createSharedRunCoalescer<E>(opts: {
   const maxRunMs = opts.maxRunMs ?? DEFAULT_MAX_RUN_MS;
   const leaseMs = maxRunMs + LEASE_MARGIN_MS;
   /**
-   * 이 파드가 쥐고 있는 대화 키 → 그동안 온 이벤트 중 가장 최근 것(없으면 null). 키를 쥔 처리가 끝나면 대기 칸을 꺼내 이어 처리한다.
+   * 이 파드가 쥐고 있는 대화 키 → 그 키의 대기 칸(HeldSlot — 넘겨받은 임대와 가장 최근 이벤트). 키를 쥔 처리가 끝나면 대기 칸을 꺼내 이어 처리한다.
    * 왜: acquire 응답을 기다리는 동안·폴백 뒤 release 가 넘긴 밀린 이벤트를 도는 동안에도 같은 키 새 이벤트가 따로 돌면
    * 한 파드 안에서 같은 대화의 답이 겹친다(공유 임대는 파드 사이만 막는다).
    */
-  const heldKeys = new Map<string, E | null>();
+  const heldKeys = new Map<string, HeldSlot<E>>();
 
-  /** 임대를 얻은 뒤의 실행 루프 — 오류가 나도 release·밀린 실행을 하고 첫 오류로 거부한다(WP-1828). */
+  /**
+   * 임대를 얻은 뒤의 실행 루프 — 실행 → (대기 칸을 서버 대기로) → release → 넘겨받은 밀린 이벤트로 다시 실행.
+   * 오류가 나도 release·밀린 실행을 하고 첫 오류로 거부한다(WP-1828). 도는 동안 키의 대기 칸에 owning 을 켜 둔다 — 그동안 온 같은 키
+   * 이벤트는 서버 acquire 로 간다(handle). 같은 키의 소유 루프는 drain 이 키를 쥐어 한 번에 하나만 돈다.
+   */
   async function runOwned(first: E, token: string): Promise<void> {
+    const k = opts.key?.(first);
+    const slot = k === undefined ? undefined : heldKeys.get(k);
+    if (slot) slot.owning = true;
+    try {
+      await ownedLoop(first, token, k);
+    } finally {
+      if (slot) slot.owning = false;
+    }
+  }
+
+  async function ownedLoop(first: E, token: string, k: string | undefined): Promise<void> {
     let current: E | null = first;
     // 첫 오류만 기억하고 끝까지 돈다 — 마지막에 그 오류로 거부한다.
     let firstErr: { e: unknown } | undefined;
@@ -64,6 +97,9 @@ export function createSharedRunCoalescer<E>(opts: {
         opts.onError(current, e);
         firstErr ??= { e };
       }
+      // 반납 전에 대기 칸의 이벤트를 서버 대기로 보낸다 — 임대를 얻기 전(acquire 응답 대기)에 왔거나 forward 가 한 번 실패해 대기 칸에
+      // 남은 이벤트가 다른 파드의 더 옛 서버 대기와 따로 돌면 같은 대화에 두 번 답한다. 서버 대기에 올리면 둘 중 새 것만 release 가 넘긴다.
+      if (k !== undefined) await flushLatest(k);
       let next: E | null = null;
       try {
         next = await opts.store(current).release(current, token, leaseMs);
@@ -89,12 +125,7 @@ export function createSharedRunCoalescer<E>(opts: {
     } catch (e) {
       firstErr = { e };
     }
-    let next: E | null = null;
-    try {
-      if (mayRelease) next = await opts.store(event).release(event, token, leaseMs);
-    } catch (e) {
-      console.warn('[shared-run-coalescer] acquire 실패 뒤 release 도 실패', e instanceof Error ? e.message : String(e));
-    }
+    const next = mayRelease ? await releaseAfterFailedAcquire(event, token) : null;
     if (next) {
       try {
         await runOwned(next, token);
@@ -106,33 +137,118 @@ export function createSharedRunCoalescer<E>(opts: {
   }
 
   /**
-   * 키를 쥐고 이벤트 하나와, 쥔 동안 대기 칸에 쌓인 가장 최근 이벤트를 차례로 처리한다. 이미 쥐고 있으면 대기 칸만 바꾸고 바로 이행한다.
-   * 오류는 처리마다 기록하고 끝까지 돈 뒤 첫 오류로 거부한다(WP-1828 — runOwned 와 같은 규칙).
+   * 이벤트를 받는다. 키가 없으면 따로 처리한다. 이 파드가 그 키를 쥐고 있으면 — 임대를 쥔 소유 루프 중이면 서버 acquire 로 보내고(forward),
+   * 그 밖(acquire 응답 대기·fallback·release 대기)이면 대기 칸에 가장 최근 것만 남겨 쥔 처리가 끝난 뒤 이어 받는다. 쥐고 있지 않으면 키를 쥐고 처리한다.
    */
   async function handle(event: E): Promise<void> {
     const k = opts.key?.(event);
     if (k === undefined) return processOne(event);
-    if (heldKeys.has(k)) {
+    const slot = heldKeys.get(k);
+    if (slot) {
+      if (slot.owning) return forward(k, event);
       // 쥔 처리가 끝나면 이어 받는다 — 그 사이 여러 개가 오면 가장 최근 것만 남긴다(답은 최신 맥락으로 한 번).
-      heldKeys.set(k, event);
+      slot.latest = event;
       return;
     }
-    heldKeys.set(k, null);
+    return drain(k, { event }, []);
+  }
+
+  /**
+   * 키를 쥐고 첫 처리와, 쥔 동안 대기 칸에 쌓인 것을 차례로 처리한다 — 넘겨받은 임대(owned)가 먼저, 그다음 가장 최근 이벤트(latest).
+   * 임대를 쥔 처리를 먼저 해야 그 임대가 만료까지 묶이지 않는다. rest 는 처음부터 대기 칸에 넣어 둘 것이다(enqueue).
+   * 오류는 처리마다 기록하고 끝까지 돈 뒤 첫 오류로 거부한다(WP-1828 — runOwned 와 같은 규칙).
+   */
+  async function drain(k: string, first: HeldItem<E>, rest: HeldItem<E>[]): Promise<void> {
+    const slot: HeldSlot<E> = { latest: null, owned: [], owning: false };
+    heldKeys.set(k, slot);
+    putInSlot(slot, rest);
     let firstErr: { e: unknown } | undefined;
-    let current: E | null = event;
-    // processOne 오류는 안에서 삼키므로 루프를 빠져나가는 예외가 없다 — 키는 루프 뒤에 비운다.
-    while (current) {
+    let item: HeldItem<E> | null = first;
+    // processOne·runOwned 오류는 잡아 두므로 루프를 빠져나가는 예외가 없다 — 키는 루프 뒤에 비운다.
+    while (item) {
       try {
-        await processOne(current);
+        if (item.token !== undefined) await runOwned(item.event, item.token);
+        else await processOne(item.event);
       } catch (e) {
         firstErr ??= { e };
       }
-      current = heldKeys.get(k) ?? null;
-      heldKeys.set(k, null);
+      item = takeNext(slot);
     }
     // 대기 칸 확인과 삭제 사이에 await 가 없어 그 틈에 온 이벤트를 잃지 않는다(단일 스레드).
     heldKeys.delete(k);
     if (firstErr) throw firstErr.e;
+  }
+
+  /** 대기 칸에서 다음 처리를 꺼낸다 — 넘겨받은 임대 먼저, 없으면 가장 최근 이벤트. 비었으면 null. */
+  function takeNext(slot: HeldSlot<E>): HeldItem<E> | null {
+    const owned = slot.owned.shift();
+    if (owned) return owned;
+    if (slot.latest === null) return null;
+    const event = slot.latest;
+    slot.latest = null;
+    return { event };
+  }
+
+  /**
+   * 소유 루프 중에 온 같은 키 이벤트를 서버 acquire 로 보낸다. QUEUED·DUPLICATE 면 서버 대기가 맡으니 끝이다(release 가 최신 하나를 넘긴다).
+   * ACQUIRED 면 — acquire 가 소유 루프의 마지막 release 뒤에 닿아 임대가 비어 있었다 — 그 토큰으로 이 파드가 돌아야 한다: 아직 키를 쥐고 있으면
+   * 대기 칸(owned)에 두고, 이미 놓았으면 새로 쥐고 돈다(같은 파드 겹침 없음). acquire 가 실패하면 예전처럼 대기 칸으로 돌려 일반 처리(acquire·fallback)에
+   * 맡기되, 서버가 커밋했을 수 있으면 먼저 그 토큰으로 반납해 임대가 묶이지 않게 한다(넘겨받은 밀린 이벤트가 있으면 그것도 owned 로 돈다).
+   */
+  async function forward(k: string, event: E): Promise<void> {
+    const token = randomUUID();
+    let res: Awaited<ReturnType<RunLeaseStore<E>['acquire']>>;
+    try {
+      res = await opts.store(event).acquire(event, leaseMs, token);
+    } catch (e) {
+      console.warn('[shared-run-coalescer] 소유 중 온 이벤트 acquire 실패 — 대기 칸으로', e instanceof Error ? e.message : String(e));
+      const next = mayHaveCommitted(e) ? await releaseAfterFailedAcquire(event, token) : null;
+      return enqueue(k, next ? [{ event: next, token }, { event }] : [{ event }]);
+    }
+    if (res.status !== 'ACQUIRED') return;
+    return enqueue(k, [{ event, token: res.token }]);
+  }
+
+  /** 키의 대기 칸에 가장 최근 이벤트가 있으면 꺼내 서버 acquire 로 보낸다(forward — 실패하면 다시 대기 칸으로 돌아간다). */
+  async function flushLatest(k: string): Promise<void> {
+    const slot = heldKeys.get(k);
+    if (!slot || slot.latest === null) return;
+    const event = slot.latest;
+    slot.latest = null;
+    await forward(k, event);
+  }
+
+  /** 처리할 것을 키의 대기 칸에 넣는다 — 키를 쥔 처리가 없으면 첫 것으로 새로 쥐고 나머지는 그 대기 칸에 넣는다. */
+  async function enqueue(k: string, items: [HeldItem<E>, ...HeldItem<E>[]]): Promise<void> {
+    const slot = heldKeys.get(k);
+    if (!slot) return drain(k, items[0], items.slice(1));
+    putInSlot(slot, items);
+  }
+
+  /** 대기 칸에 넣는다 — 넘겨받은 임대는 차례대로, 일반 이벤트는 가장 최근 것만. */
+  function putInSlot(slot: HeldSlot<E>, items: HeldItem<E>[]): void {
+    for (const it of items) {
+      if (it.token !== undefined) slot.owned.push(it);
+      else slot.latest = it.event;
+    }
+  }
+
+  /** acquire 실패가 서버 커밋 뒤 응답 유실일 수 있는가 — 아니면(확실한 HTTP 거절) 서버에 아무것도 없어 반납하지 않는다. */
+  function mayHaveCommitted(e: unknown): boolean {
+    return opts.mayHaveCommitted ? opts.mayHaveCommitted(e) : true;
+  }
+
+  /**
+   * 응답을 잃었을 수 있는 acquire 뒤, 그때 보낸 토큰으로 한 번 반납한다 — 서버가 실은 ACQUIRED 를 커밋했다면 임대를 풀거나 밀린 이벤트를
+   * 넘겨받고(같은 토큰으로 돌 것), 소유자가 아니면 서버는 아무것도 바꾸지 않는다. 반납 실패(구버전 api 의 404 등)는 경고 한 줄로 끝낸다.
+   */
+  async function releaseAfterFailedAcquire(event: E, token: string): Promise<E | null> {
+    try {
+      return await opts.store(event).release(event, token, leaseMs);
+    } catch (e) {
+      console.warn('[shared-run-coalescer] acquire 실패 뒤 release 도 실패', e instanceof Error ? e.message : String(e));
+      return null;
+    }
   }
 
   /** 이벤트 하나 — acquire 해 소유 루프를 돌거나, acquire 가 실패하면 fallback 뒤 반납한다. QUEUED·DUPLICATE 는 실행하지 않는다. */
@@ -145,7 +261,7 @@ export function createSharedRunCoalescer<E>(opts: {
     } catch (e) {
       console.warn('[shared-run-coalescer] acquire 실패 — 메모리 합치기로 대체', e instanceof Error ? e.message : String(e));
       // 확실한 HTTP 거절이면 서버에 아무것도 커밋되지 않았으니 반납하지 않는다.
-      await fallbackThenRelease(event, token, opts.mayHaveCommitted ? opts.mayHaveCommitted(e) : true);
+      await fallbackThenRelease(event, token, mayHaveCommitted(e));
       return;
     }
     if (res.status !== 'ACQUIRED') return;
