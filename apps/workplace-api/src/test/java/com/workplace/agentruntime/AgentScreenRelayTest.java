@@ -20,6 +20,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.websocket.ContainerProvider;
+import jakarta.websocket.DeploymentException;
 import jakarta.websocket.WebSocketContainer;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -37,8 +38,10 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,6 +51,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.lang.NonNull;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.PingMessage;
+import org.springframework.web.socket.PongMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketSession;
@@ -176,10 +181,19 @@ class AgentScreenRelayTest extends IntegrationTestBase {
 
   // ------------------------------------------------------------------ 도우미
 
-  /** 받은 프레임 — 텍스트는 String, 바이너리는 byte[]. 닫힘은 {@code closed} 로. */
+  /**
+   * 받은 프레임 — 텍스트는 String, 바이너리는 byte[]. 닫힘은 {@code closed}, 등록 확인은 {@code pong} 으로(소켓마다 새로 만든다).
+   */
   private static final class Recorder extends AbstractWebSocketHandler {
     final BlockingQueue<Object> frames = new LinkedBlockingQueue<>();
     final CompletableFuture<CloseStatus> closed = new CompletableFuture<>();
+    final CompletableFuture<Void> pong = new CompletableFuture<>();
+
+    @Override
+    protected void handlePongMessage(
+        @NonNull WebSocketSession session, @NonNull PongMessage message) {
+      pong.complete(null);
+    }
 
     @Override
     protected void handleTextMessage(
@@ -200,6 +214,8 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     public void afterConnectionClosed(
         @NonNull WebSocketSession session, @NonNull CloseStatus status) {
       closed.complete(status);
+      // 등록(pong) 전에 닫혔다면 10초 타임아웃 대신 바로 원인을 드러낸다 (이미 pong 을 받았으면 무효)
+      pong.completeExceptionally(new IllegalStateException("등록 전에 닫혔다: " + status));
     }
 
     Object next() throws InterruptedException {
@@ -234,12 +250,30 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     return om.readTree(r.body());
   }
 
+  /**
+   * 서버가 이 소켓을 등록할 때까지 기다린다. 클라이언트의 101 응답은 서버의 afterConnectionEstablished (등록)보다 먼저 오고, Tomcat 은
+   * onOpen 이 끝난 뒤에야 프레임을 읽으므로 ping 에 pong 이 돌아오면 등록이 끝난 것이다.
+   */
+  private static void awaitRegistered(WebSocketSession s, Recorder rec) throws Exception {
+    s.sendMessage(new PingMessage());
+    rec.pong.get(WAIT.toSeconds(), TimeUnit.SECONDS);
+  }
+
+  /** 핸드셰이크가 403 으로 거절됐음을 단언한다 — 잘못 받아들인 뒤 pong 대기가 실패해도 예외라서 사유까지 본다. */
+  private static void assertHandshakeRejected(ThrowingCallable connect) {
+    assertThatThrownBy(connect)
+        .isInstanceOf(ExecutionException.class)
+        .hasRootCauseInstanceOf(DeploymentException.class)
+        .hasMessageContaining("[403]");
+  }
+
   private WebSocketSession browser(String ticket, Recorder rec) throws Exception {
     WebSocketSession s =
         client
             .execute(rec, "ws://localhost:" + port + "/api/v1/admin/agent-screen?ticket=" + ticket)
             .get(10, TimeUnit.SECONDS);
     sockets.add(s);
+    awaitRegistered(s, rec);
     return s;
   }
 
@@ -255,6 +289,8 @@ class AgentScreenRelayTest extends IntegrationTestBase {
                     "ws://localhost:" + port + "/api/v1/agent-runtime/runner/screen/" + sessionId))
             .get(10, TimeUnit.SECONDS);
     sockets.add(s);
+    // runner 등록 전에는 브라우저 프레임이 버려지고 두 번째 runner 도 핸드셰이크에서 403 이 되지 않으므로 등록을 기다린다
+    awaitRegistered(s, rec);
     return s;
   }
 
@@ -370,13 +406,11 @@ class AgentScreenRelayTest extends IntegrationTestBase {
   /** 표 없이 붙으면 거절. */
   @Test
   void browserSocket_whenNoTicket_isRejected() {
-    assertThatThrownBy(
-            () ->
-                client
-                    .execute(
-                        new Recorder(), "ws://localhost:" + port + "/api/v1/admin/agent-screen")
-                    .get(10, TimeUnit.SECONDS))
-        .isInstanceOf(Exception.class);
+    assertHandshakeRejected(
+        () ->
+            client
+                .execute(new Recorder(), "ws://localhost:" + port + "/api/v1/admin/agent-screen")
+                .get(10, TimeUnit.SECONDS));
   }
 
   /** 표는 한 번만 — 같은 표로 다시 붙으면 거절. */
@@ -385,7 +419,9 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     JsonNode opened = openSession(agent);
     String ticket = opened.get("ticket").asString();
     browser(ticket, new Recorder());
-    assertThatThrownBy(() -> browser(ticket, new Recorder())).isInstanceOf(Exception.class);
+    // 세션에 브라우저가 이미 있어도 403 이므로 표가 없어졌는지는 따로 본다.
+    assertThat(tickets.consume(ticket, Instant.now())).isEmpty();
+    assertHandshakeRejected(() -> browser(ticket, new Recorder()));
   }
 
   /** 만료된 표는 거절 — 같은 세션의 유효한 표는 그대로 쓸 수 있다. */
@@ -395,7 +431,7 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     UUID id = UUID.fromString(opened.get("sessionId").asString());
     String expired =
         tickets.issue(new AgentScreenTickets.Claims(id, 1L, admin, Instant.now().minusSeconds(1)));
-    assertThatThrownBy(() -> browser(expired, new Recorder())).isInstanceOf(Exception.class);
+    assertHandshakeRejected(() -> browser(expired, new Recorder()));
     assertThat(browser(opened.get("ticket").asString(), new Recorder()).isOpen()).isTrue();
   }
 
@@ -446,10 +482,10 @@ class AgentScreenRelayTest extends IntegrationTestBase {
       assertThat(event.get("sessionId").asString()).isEqualTo(id);
       assertThat(event.get("agentUserId").asLong()).isEqualTo(agent);
 
-      assertThatThrownBy(() -> runner(id, t2, new Recorder())).isInstanceOf(Exception.class);
+      assertHandshakeRejected(() -> runner(id, t2, new Recorder()));
       assertThat(runner(id, t1, new Recorder()).isOpen()).isTrue();
       // 세션당 runner 하나 — 두 번째는 거절.
-      assertThatThrownBy(() -> runner(id, t1, new Recorder())).isInstanceOf(Exception.class);
+      assertHandshakeRejected(() -> runner(id, t1, new Recorder()));
     } finally {
       stream.body().close();
       http.shutdownNow();
