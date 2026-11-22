@@ -19,6 +19,8 @@ const profile = (over: Record<string, unknown> = {}) => ({
 })
 const detail = { id: 7, username: 'minsu', name: '김민수', email: 'minsu@example.com', title: '팀장', kind: 'HUMAN', groups: ['개발팀', '보안TF'], isFavorite: false }
 const account = { id: 3, provider: 'IMAP', emailAddress: 'me@example.com', displayName: null }
+/** 내 AI 목록이 빈 응답 — AGENT 카드가 작업 수를 보려 부른다. */
+const emptyAiAgents = http.get('/api/v1/me/ai-agents', () => HttpResponse.json({ slotLimit: 3, agents: [] }))
 
 /** 열린 쓰기 창의 받는 사람 — 컨텍스트가 든 초안을 그대로 보인다(도크 본체 없이). */
 function DraftProbe() {
@@ -159,7 +161,7 @@ test('AI 카드: 「AI」·설명·작업 수가 보이고 「일 맡기기」�
 })
 
 test('onAssignWork 가 없으면 AI 카드에 「일 맡기기」가 없다', async () => {
-  const view = setup(agent, [http.get('/api/v1/me/ai-agents', () => HttpResponse.json({ slotLimit: 3, agents: [] }))])
+  const view = setup(agent, [emptyAiAgents])
   const card = await openCard(agent, view)
   expect(within(card).getByRole('button', { name: '메시지' })).toBeInTheDocument()
   expect(within(card).queryByRole('button', { name: '일 맡기기' })).not.toBeInTheDocument()
@@ -353,7 +355,7 @@ test('kind 없이 연 카드는 프로필 kind 가 AGENT 면 AI 표식과 「일
   const onAssignWork = vi.fn()
   const view = setup(unknownKind, [
     http.get('/api/v1/members/:id', () => HttpResponse.json(profile({ userId: 9, username: 'reviewbot', name: '리뷰봇', kind: 'AGENT' }))),
-    http.get('/api/v1/me/ai-agents', () => HttpResponse.json({ slotLimit: 3, agents: [] })),
+    emptyAiAgents,
   ], { onAssignWork })
   const card = await openCard(unknownKind, view)
   expect(within(card).getByText('AI')).toBeInTheDocument()
@@ -382,11 +384,16 @@ test('kind 없이 프로필 응답 전에는 행동 단추를 그리지 않는�
       await delay(300)
       return HttpResponse.json(profile({ userId: 9, kind: 'AGENT' }))
     }),
+    // AGENT 프로필이 도착하면 카드가 내 AI 목록을 조회한다 — 늦은 응답을 기다리므로 핸들러가 필요하다(WP-1967)
+    emptyAiAgents,
   ])
   await view.user.click(screen.getByTestId('person-card-trigger-9'))
   const card = await screen.findByTestId('person-card')
   expect(within(card).getByTestId('person-card-actions-pending')).toBeInTheDocument()
   expect(within(card).queryByRole('button', { name: '메시지' })).not.toBeInTheDocument()
+  // 늦은 프로필 응답(delay 300ms)이 반영된 뒤에 끝낸다 — 응답을 남기고 끝나면 DOM 환경 정리 뒤에 XHR 응답이 터진다(WP-1967).
+  // 응답이 AGENT 프로필이라 도착 뒤에는 「메시지」가 나타난다
+  expect(await within(card).findByRole('button', { name: '메시지' })).toBeInTheDocument()
 })
 
 // 코드 리뷰 반영(WP-1768) — kind 를 모르는 카드의 사람 전용 칸·비활성·나 판정.
@@ -398,10 +405,16 @@ test('kind 없이 연 카드는 프로필 응답 전에는 「연락처에서 �
       await delay(300)
       return HttpResponse.json(profile({ userId: 9, kind: 'AGENT' }))
     }),
+    // AGENT 프로필이 도착하면 카드가 내 AI 목록을 조회한다 — 늦은 응답을 기다리므로 핸들러가 필요하다(WP-1967)
+    emptyAiAgents,
   ])
   await view.user.click(screen.getByTestId('person-card-trigger-9'))
   const card = await screen.findByTestId('person-card')
   expect(within(card).getByTestId('person-card-actions-pending')).toBeInTheDocument()
+  expect(within(card).queryByRole('link', { name: '연락처에서 보기' })).not.toBeInTheDocument()
+  // 늦은 프로필 응답(delay 300ms)이 반영된 뒤에 끝낸다 — 응답을 남기고 끝나면 DOM 환경 정리 뒤에 XHR 응답이 터진다(WP-1967)
+  await waitFor(() => expect(within(card).queryByTestId('person-card-actions-pending')).not.toBeInTheDocument())
+  // 응답 뒤에도 AGENT 라 「연락처에서 보기」는 여전히 없다
   expect(within(card).queryByRole('link', { name: '연락처에서 보기' })).not.toBeInTheDocument()
 })
 
