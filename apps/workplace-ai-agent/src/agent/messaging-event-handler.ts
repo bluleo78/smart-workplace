@@ -103,6 +103,8 @@ const runner = createSharedRunCoalescer<QueuedRun>({
   onError: logRunError,
   key: (q) => messagingRunKey(q.env),
   mayHaveCommitted: acquireMayHaveCommitted,
+  // 메시지 id 는 DB 순번이라 더 새 메시지 = 더 큰 id(서버 DUPLICATE 판정과 같은 기준).
+  order: (q) => q.env.payload.messageId,
 });
 
 // WP-1828: 실행 결과 promise — WP-1979 부터 임대 결과를 기다려야 하므로 AGENT 메시지 거름이 아니면 항상 promise 이고,
