@@ -5,20 +5,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.agentruntime.dto.AgentState;
+import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
+import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.support.WebSessionAuth;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import org.jooq.DSLContext;
@@ -56,6 +62,8 @@ class RunnerApiTest extends IntegrationTestBase {
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired RunnerSseRegistry sseRegistry;
   @Autowired JwtTokenProvider jwtTokenProvider;
+  @Autowired AgentApiKeyService keyService;
+  @Autowired AgentRuntimeSlotRepository slots;
 
   private long admin;
   private AgentRuntimeTestFixtures fx;
@@ -122,6 +130,107 @@ class RunnerApiTest extends IntegrationTestBase {
     JsonNode agents = fx.json(desired(t1).andExpect(status().isOk())).get("agents");
     assertThat(agents).hasSize(1);
     return agents.get(0).get("applyNow").asBoolean();
+  }
+
+  /**
+   * 진입점 차단 칸을 직접 맞춘다(WP-1969) — 사유·시각과 그 사유를 보고한 Pod 의 generation·시작 시각, 칸 보고가 올린 Pod 시작 시각. 시각 인자가
+   * null 이면 해당 칸은 모르는 값으로 둔다.
+   */
+  private void setBlock(
+      long agent, Long blockGeneration, OffsetDateTime blockPod, OffsetDateTime reportedPod) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "시작 실패")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, blockGeneration)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT, blockPod)
+        .set(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT, reportedPod)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /** 쉴 때 적용 설정이 저장됐는데 도는 Pod 의 컨테이너가 시작에 실패했고 진행 중인 일이 없으면(AI 상태 없음) 기다리지 않고 바로 적용한다(WP-1969). */
+  @Test
+  void desired_whenBlockedRunningPodAndNoAgentState_applyNowTrue() throws Exception {
+    long behind = fx.generationOf(a1) - 1;
+    setObserved(a1, behind, null, "IDLE");
+    setBlock(a1, behind, null, null);
+    assertThat(applyNowOfA1()).isTrue();
+  }
+
+  /** 같은 상황이라도 AI 가 작업 중(WORKING)이면 끊지 않는다(WP-1969). */
+  @Test
+  void desired_whenBlockedRunningPodAndAgentWorking_applyNowFalse() throws Exception {
+    long behind = fx.generationOf(a1) - 1;
+    setObserved(a1, behind, "WORKING", "IDLE");
+    setBlock(a1, behind, null, null);
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /** 이슈에서 막힌(BLOCKED) AI 상태는 쉬는 중이 아니라 진행 중인 일로 본다 — 끊지 않는다(WP-1969). */
+  @Test
+  void desired_whenBlockedRunningPodAndAgentBlockedOnIssue_applyNowFalse() throws Exception {
+    long behind = fx.generationOf(a1) - 1;
+    setObserved(a1, behind, "BLOCKED", "IDLE");
+    setBlock(a1, behind, null, null);
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /** 차단 기록이 없으면 AI 상태가 없어도 기다린다 — 평소 동작 그대로(WP-1969). */
+  @Test
+  void desired_whenNoBlockAndNoAgentState_applyNowFalse() throws Exception {
+    setObserved(a1, fx.generationOf(a1) - 1, null, "IDLE");
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /** 지금 Pod 보다 30초 넘게 앞선 Pod 의 차단은 옛 것이라 믿지 않는다(WP-1969). */
+  @Test
+  void desired_whenBlockFromOlderPod_applyNowFalse() throws Exception {
+    long behind = fx.generationOf(a1) - 1;
+    OffsetDateTime reported = OffsetDateTime.now().minusMinutes(1);
+    setObserved(a1, behind, null, "IDLE");
+    setBlock(a1, behind, reported.minusSeconds(31), reported);
+    assertThat(applyNowOfA1()).isFalse();
+  }
+
+  /**
+   * 끝에서 끝까지(WP-1969) — 컨테이너 재시작 전에 일하던 칸(T1)이 남은 채 새 컨테이너(T2)가 시작에 실패해 진짜 차단 보고가 오고, 그 뒤 관리자가 쉴 때
+   * 적용으로 설정을 저장하면 runner 에 지금 적용으로 내려간다.
+   */
+  @Test
+  void desired_afterContainerRestartBlockedThenSettingSaved_applyNowTrue() throws Exception {
+    long running = fx.generationOf(a1);
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    setObserved(a1, running, "WORKING", "IDLE");
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT, t1)
+        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, "WP-1")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
+        .execute();
+    slots.upsert(a1, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    String aiKey = keyService.issueManaged(a1, 1L, null, null, "L1").plaintext();
+
+    useTenant(1L);
+    mvc.perform(
+            put("/api/v1/agent-runtime/me/pane")
+                .header("Authorization", "Bearer " + aiKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"state\":\"BLOCKED\",\"message\":\"시작 실패\",\"generation\":"
+                        + running
+                        + ",\"podStartedAt\":\""
+                        + t2
+                        + "\"}"))
+        .andExpect(status().isNoContent());
+    useTenant(1L);
+    settingService.put(
+        admin,
+        a1,
+        new PutAgentRuntimeSettingRequest(
+            "claude-code", null, Map.of("model", "auto"), ApplyMode.IDLE));
+
+    assertThat(fx.generationOf(a1)).isEqualTo(running + 1);
+    assertThat(applyNowOfA1()).isTrue();
   }
 
   /** L1 토큰 → 켜져 있고 실제 위치가 L1(기본 따라가기)인 A1 만. 템플릿 값·설정·비밀값 참조·조회 주기·MCP 주소가 실린다. */

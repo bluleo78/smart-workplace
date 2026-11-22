@@ -13,7 +13,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * 칸별 AI 상태를 다시 합쳐 실행 설정의 agent_* 칸에 쓰는 한 경로(WP-1409) — AI 상태 보고({@link AgentStatusReportService})와
- * runner 관찰 보고의 새 Pod 정리({@link RunnerDesiredStateService})가 같은 규칙으로 쓰게 한 곳에 둔다.
+ * runner 관찰 보고의 새 Pod 정리({@link RunnerDesiredStateService}), 받아들인 칸 차단 보고({@link
+ * AgentPaneReportService}, WP-1969)가 같은 규칙으로 쓰게 한 곳에 둔다.
  *
  * <p>순서: 이미 읽은 칸에서 옛 Pod 칸({@link AgentRuntimeSlotRepository#isFromOldPod})을 빼고 — 뺀 것이 있을 때만 DB 에서도
  * 지운다 — 오래된 칸을 뺀 나머지를 {@link AgentSlotAggregate} 로 합쳐 쓴다. 호출자가 설정 행을 먼저 잠근 뒤 부른다(설정 행 → 칸 테이블 잠금

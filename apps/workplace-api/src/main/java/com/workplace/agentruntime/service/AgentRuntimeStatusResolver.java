@@ -121,14 +121,56 @@ public final class AgentRuntimeStatusResolver {
       OffsetDateTime startedAt,
       OffsetDateTime paneBlockedPodStartedAt,
       OffsetDateTime reportedPodStartedAt) {
-    if (!blocked(message)) return null;
-    if (messageGeneration != null && messageGeneration != generation) return null;
-    if (AgentRuntimeSlotRepository.isOlderPod(blockedAt, startedAt)) return null;
+    return paneBlockFresh(
+            message,
+            messageGeneration,
+            generation,
+            blockedAt,
+            startedAt,
+            paneBlockedPodStartedAt,
+            reportedPodStartedAt)
+        ? message
+        : null;
+  }
+
+  /**
+   * 지금 도는 Pod 의 컨테이너가 시작에 실패했는지(WP-1969).
+   *
+   * <p>화면용 {@link #currentPaneBlocked(Row)} 는 원하는 generation 과 견주므로, 쉴 때 적용이 미뤄진 동안에는 한 단계 앞
+   * generation 으로 도는 Pod 의 차단을 가린다. 이 메서드는 같은 신선도 규칙을 관찰 generation 으로 적용한다 — 적용 판정용이고 표시에는 쓰지 않는다.
+   * 차단 generation 을 모르는 값(null)은 믿고, 관찰 generation 을 모르면(뜬 적 없음) false 다.
+   */
+  public static boolean blocksRunningPod(Row r) {
+    if (r.observedGeneration() == null) return false;
+    return paneBlockFresh(
+        r.paneBlockedMessage(),
+        r.paneBlockedGeneration(),
+        r.observedGeneration(),
+        r.paneBlockedAt(),
+        r.startedAt(),
+        r.paneBlockedPodStartedAt(),
+        r.reportedPodStartedAt());
+  }
+
+  /**
+   * 저장한 차단이 {@code expectedGeneration} 의 지금 Pod 것이라 믿을 수 있는지 — 두 읽기({@link
+   * #currentPaneBlocked}·{@link #blocksRunningPod})가 견주는 generation 만 달리하고 나머지 신선도 규칙은 이 한 곳을 쓴다.
+   */
+  private static boolean paneBlockFresh(
+      String message,
+      Long messageGeneration,
+      long expectedGeneration,
+      OffsetDateTime blockedAt,
+      OffsetDateTime startedAt,
+      OffsetDateTime paneBlockedPodStartedAt,
+      OffsetDateTime reportedPodStartedAt) {
+    if (!blocked(message)) return false;
+    if (messageGeneration != null && messageGeneration != expectedGeneration) return false;
+    if (AgentRuntimeSlotRepository.isOlderPod(blockedAt, startedAt)) return false;
     // 차단한 Pod 가 지금 Pod 보다 앞선 Pod 면(재시작 전 Pod 의 차단) 가린다 — 시각은 서버 시계가 아니라 Pod 가 직접 보고한 값이다.
     OffsetDateTime current =
         AgentRuntimeSlotRepository.currentPodStart(startedAt, reportedPodStartedAt);
-    if (AgentRuntimeSlotRepository.isOlderPod(paneBlockedPodStartedAt, current)) return null;
-    return message;
+    return !AgentRuntimeSlotRepository.isOlderPod(paneBlockedPodStartedAt, current);
   }
 
   /**

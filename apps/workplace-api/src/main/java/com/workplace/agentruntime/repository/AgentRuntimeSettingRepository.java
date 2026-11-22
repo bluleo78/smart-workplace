@@ -457,7 +457,8 @@ public class AgentRuntimeSettingRepository {
    * @param podStartedAt 그 사유를 보고한 Pod 의 시작 시각(WP-1958, 보고에 없으면 null) — message 가 null 이면 함께 지운다.
    *     끝나는 중인 옛 Pod 의 늦은 보고가 새 Pod 의 차단 사유를 덮지 않게 서비스가 비교한다
    * @param generation 그 사유를 보고한 Pod 의 generation — null(보고에 없음)도 그대로 남긴다. 지금 generation 과 다른 값을 들고
-   *     있는 보고는 서비스가 이 메서드를 부르기 전에 걸러 낸다(끝나는 중인 옛 Pod 의 늦은 보고가 새 generation 을 덮지 않게)
+   *     있는 보고는 서비스가 이 메서드를 부르기 전에 걸러 낸다(끝나는 중인 옛 Pod 의 늦은 보고가 새 generation 을 덮지 않게 — 예외는 {@code
+   *     AgentPaneReportService#acceptableGeneration}, WP-1969)
    */
   public void updatePaneBlocked(
       long agentUserId,

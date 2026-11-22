@@ -1,15 +1,19 @@
 package com.workplace.agentruntime;
 
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
+import static com.workplace.jooq.Tables.AGENT_RUNTIME_SLOT_STATE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
+import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.auth.service.AgentApiKeyService;
@@ -51,6 +55,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired AgentApiKeyService keyService;
   @Autowired ApplicationEvents appEvents;
+  @Autowired AgentRuntimeSlotRepository slots;
 
   private long admin;
   private long agent;
@@ -372,6 +377,343 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
 
     report(key, "{\"state\":\"OK\"}").andExpect(status().isNoContent());
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /**
+   * 칸 테이블 시드(WP-1969) — runner 가 관찰한 Pod 시작(started_at = p, 컨테이너가 재시작해도 그대로)과 칸이 올려 둔 Pod 시작
+   * (reported_pod_started_at = reported)을 따로 두고, 합친 상태를 WORKING+이슈 키로 맞춘다. 앞 컨테이너가 일하다 멈춘 뒤 새 컨테이너가
+   * 뜬 상황의 출발점이다.
+   */
+  private void seedMerged(OffsetDateTime p, OffsetDateTime reported, String issueKey) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, p)
+        .set(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT, reported)
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, issueKey)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  private long slotCount() {
+    return dsl.fetchCount(
+        AGENT_RUNTIME_SLOT_STATE, AGENT_RUNTIME_SLOT_STATE.AGENT_USER_ID.eq(agent));
+  }
+
+  private String blockedBody(OffsetDateTime podStart) {
+    return "{\"state\":\"BLOCKED\",\"message\":\"시작 실패\",\"podStartedAt\":\"" + podStart + "\"}";
+  }
+
+  /** 새 컨테이너만 시작에 실패해 BLOCKED 만 보내도 앞 컨테이너의 WORKING 칸이 합쳐 빠진다(WP-1969). */
+  @Test
+  void 새_컨테이너의_차단은_앞_컨테이너의_작업중_칸을_뺀다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t1, "WP-1");
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+
+    report(key, blockedBody(t2)).andExpect(status().isNoContent());
+
+    assertThat(slotCount()).isZero();
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)).isNull();
+  }
+
+  /** 같은 컨테이너(Pod 시작 T2)에서 일하는 칸은 차단 보고 뒤에도 남고, 앞 컨테이너(T1) 칸만 빠진다. */
+  @Test
+  void 같은_컨테이너에서_일하는_칸은_차단_보고_뒤에도_남는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t2, "WP-2");
+    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2);
+    slots.upsert(agent, "OLD", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+
+    report(key, blockedBody(t2)).andExpect(status().isNoContent());
+
+    List<String> keys =
+        dsl.select(AGENT_RUNTIME_SLOT_STATE.SLOT_KEY)
+            .from(AGENT_RUNTIME_SLOT_STATE)
+            .where(AGENT_RUNTIME_SLOT_STATE.AGENT_USER_ID.eq(agent))
+            .fetch(AGENT_RUNTIME_SLOT_STATE.SLOT_KEY);
+    assertThat(keys).containsExactly("NEW");
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+  }
+
+  /** 옛 컨테이너의 늦은 차단은 옛 Pod 보고라 버려진다 — 칸·합친 상태·차단 메시지 모두 그대로. */
+  @Test
+  void 옛_컨테이너의_늦은_차단은_칸을_다시_합치지_않는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t2, "WP-2");
+    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2);
+
+    report(key, blockedBody(t1)).andExpect(status().isNoContent());
+
+    assertThat(slotCount()).isEqualTo(1);
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /** 차단으로 AI 상태가 바뀌면 알림은 한 번 — 같은 보고가 거듭돼도 더 알리지 않는다. */
+  @Test
+  void 차단으로_AI_상태가_바뀌면_알림은_한_번이고_거듭된_보고는_알리지_않는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t1, "WP-1");
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    appEvents.clear();
+
+    report(key, blockedBody(t2)).andExpect(status().isNoContent());
+    assertThat(runtimeEvents()).isEqualTo(1);
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+
+    report(key, blockedBody(t2)).andExpect(status().isNoContent());
+    assertThat(runtimeEvents()).isEqualTo(1);
+  }
+
+  /** 칸이 하나도 없는 AI 가 이미 보이는 차단을 같은 메시지로 다시 보고해도 합치기 쓰기 때문에 알림이 나가지 않는다(WP-1969). */
+  @Test
+  void 칸이_없는_AI_의_같은_차단_보고는_합치기로_알리지_않는다() throws Exception {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "시작 실패")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"시작 실패\"}").andExpect(status().isNoContent());
+
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /**
+   * 적용 대기 시드(WP-1969) — generation 을 올려 두고 지금 도는 Pod 는 한 단계 앞 generation 에 남겨 둔 상태(쉴 때 적용 설정이 저장돼
+   * 아직 안 나간 상황)로 맞춘다. 켜진(RUN) AI 라 runner 에 알릴 수 있다.
+   */
+  private void seedUnapplied(long generation, long observed) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.GENERATION, generation)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, observed)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.DESIRED, "RUN")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  private String blockedBody(OffsetDateTime podStart, long generation) {
+    return "{\"state\":\"BLOCKED\",\"message\":\"시작 실패\",\"generation\":"
+        + generation
+        + ",\"podStartedAt\":\""
+        + podStart
+        + "\"}";
+  }
+
+  private long desiredEvents() {
+    return appEvents.stream(AgentRuntimeDesiredChanged.class).count();
+  }
+
+  /** 적용 대기 중(generation 2, 도는 Pod 는 1)에도 지금 도는 generation 1 의 차단은 받아 앞 컨테이너 칸을 뺀다(WP-1969). */
+  @Test
+  void 적용_대기_중에도_지금_도는_generation_의_차단은_받는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t1, "WP-1");
+    seedUnapplied(2, 1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("시작 실패");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION)).isEqualTo(1L);
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+  }
+
+  /** 차단으로 지금 적용이 되면 runner 에 한 번만 알린다 — 같은 보고가 거듭돼도 더 알리지 않는다(WP-1969). */
+  @Test
+  void 적용_대기_중_차단으로_지금_적용이_되면_runner_에_한_번_알린다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t1, "WP-1");
+    seedUnapplied(2, 1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    appEvents.clear();
+
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+    assertThat(desiredEvents()).isEqualTo(1);
+    assertThat(runtimeEvents()).isEqualTo(1);
+
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+    assertThat(desiredEvents()).isEqualTo(1);
+    // 거듭된 같은 보고는 화면에 보이는 값도 그대로라 관리자 화면 알림도 더 나가지 않는다.
+    assertThat(runtimeEvents()).isEqualTo(1);
+  }
+
+  /**
+   * 꺼 둔(STOP) AI 에게 온 지금 도는 Pod(관찰 generation)의 BLOCKED 는 받지 않는다(WP-1969) — 끝나는 중인 Pod 의 늦은 쓰기를
+   * WP-1913 이 버리던 대로 둔다. 차단도 합친 칸도 runner 알림도 그대로다.
+   */
+  @Test
+  void 꺼_둔_AI_의_관찰_generation_차단은_받지_않는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t1, "WP-1");
+    seedUnapplied(2, 1);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.DESIRED, "STOP")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    appEvents.clear();
+
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+    assertThat(slotCount()).isEqualTo(1);
+    assertThat(desiredEvents()).isZero();
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /** 다시 시작이 걸려 있으면(RUN + 바로 적용) 앞 Pod 의 관찰 generation BLOCKED 는 받지 않는다(WP-1969). */
+  @Test
+  void 다시_시작이_걸린_AI_의_관찰_generation_차단은_받지_않는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t1, "WP-1");
+    seedUnapplied(2, 1);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "NOW")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    appEvents.clear();
+
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+    assertThat(slotCount()).isEqualTo(1);
+    assertThat(desiredEvents()).isZero();
+  }
+
+  /**
+   * 꺼 둔 AI 도 generation 을 밝히지 않은 BLOCKED 는 받아 칸을 합친다 — 그래도 지금 적용 전이가 생기는데 runner 에 알리지
+   * 않는다(WP-1969). 꺼진 AI 를 깨워 다시 띄우지 않게 하는 {@code desired == RUN} 조건이 막는 길이다.
+   */
+  @Test
+  void 꺼_둔_AI_의_generation_없는_차단은_받되_runner_에_알리지_않는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t1, "WP-1");
+    seedUnapplied(2, 1);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.DESIRED, "STOP")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    appEvents.clear();
+
+    report(key, blockedBody(t2)).andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("시작 실패");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(desiredEvents()).isZero();
+  }
+
+  /**
+   * 새 Pod 를 아직 관찰하지 못한(started_at 없음) AI 의 옛 WORKING 칸은 BLOCKED 로 다시 합치지 않는다(WP-1969) — 옛 칸을 가를 기준이
+   * 없어 합치면 이미 지워진 AI 상태가 되살아난다. 칸 행은 그대로 두고 AI 상태는 비어 있어야 한다.
+   */
+  @Test
+  void 새_Pod_를_관찰하기_전의_차단은_옛_칸을_되살리지_않는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1, null);
+
+    report(key, blockedBody(t2)).andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("시작 실패");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)).isNull();
+    assertThat(slotCount()).isEqualTo(1);
+  }
+
+  /** 같은 상황에서 쉴 때 적용 대기 중이면 저장된 차단을 보고 지금 적용으로 판정해 runner 에 알린다(WP-1969). */
+  @Test
+  void 새_Pod_를_관찰하기_전의_차단도_저장된_차단으로_적용_전이를_알린다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedUnapplied(2, 1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1, null);
+    appEvents.clear();
+
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(desiredEvents()).isEqualTo(1);
+    // 화면은 그대로다 — 옛 칸은 처음부터 합친 상태에 없었고 차단은 아직 앞 generation 이라 가려진다.
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /** 같은 컨테이너에서 일하는 칸이 남아 있으면 차단 보고가 와도 지금 적용으로 바뀌지 않아 runner 에 알리지 않는다(WP-1969). */
+  @Test
+  void 같은_컨테이너가_일하는_중이면_차단_보고로_runner_에_알리지_않는다() throws Exception {
+    OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
+    OffsetDateTime t2 = t1.plusMinutes(5);
+    seedMerged(t1.minusMinutes(3), t2, "WP-2");
+    seedUnapplied(2, 1);
+    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2);
+    appEvents.clear();
+
+    report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+    assertThat(desiredEvents()).isZero();
+  }
+
+  /** 더 새 generation(3) 의 차단은 도는 generation(2) 의 보고가 덮지 못한다(WP-1969). */
+  @Test
+  void 더_새_generation_의_차단은_도는_generation_의_보고가_덮지_못한다() throws Exception {
+    seedUnapplied(3, 2);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "새 차단")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, 3L)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"옛 차단\",\"generation\":2}")
+        .andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("새 차단");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION)).isEqualTo(3L);
+    assertThat(runtimeEvents()).isZero();
+  }
+
+  /** 적용 대기 중에도 지난 generation 의 OK 는 무시한다 — 도는 Pod 의 차단을 지우는 건 BLOCKED 만 받는 예외 밖이다(WP-1969). */
+  @Test
+  void 적용_대기_중에도_지난_generation_의_OK_는_무시한다() throws Exception {
+    seedUnapplied(2, 1);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "도는 Pod 차단")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, 1L)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    report(key, "{\"state\":\"OK\",\"generation\":1}").andExpect(status().isNoContent());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("도는 Pod 차단");
+    assertThat(runtimeEvents()).isZero();
   }
 
   /** 사람은 보고할 수 없다 — 403 AGENT_ONLY. */
