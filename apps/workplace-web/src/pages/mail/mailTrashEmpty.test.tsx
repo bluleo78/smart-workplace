@@ -321,7 +321,7 @@ test('실행 취소 토스트 중인 되살리기가 있으면 비우기 POST �
   expect(moves.last().body).toEqual({ messageIds: [10], target: { kind: 'RESTORE' } })
 })
 
-test('totalCount 0 이고 목록이 비면 비우기 비활성 + 「휴지통이 비어 있어요」', async () => {
+test('totalCount 0 이고 목록이 비면 비우기 비활성 + 중립 빈 상태 「이 메일함에 메일이 없어요」', async () => {
   const { starts } = renderTrash({ folder: { totalCount: 0 }, rows: [] })
   // WP-1947: 규격 레이아웃(아이콘+제목+설명).
   const emptyBox = await screen.findByTestId('mail-box-empty')
