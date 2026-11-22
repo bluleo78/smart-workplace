@@ -45,6 +45,19 @@ export function pushUndo(stack: DashboardWidgetConfig[][], snap: DashboardWidget
   return [...stack, snap].slice(-MAX_UNDO)
 }
 
+/**
+ * 초안 끝에 위젯 하나를 붙이는 순수 함수(WP-1954) — 상한·싱글턴을 최신 초안(prev)으로 검사한다.
+ * 렌더 시점의 낡은 클로저 draft 로 검사하면 같은 틱에 연속 호출(「+ 위젯 추가」 더블 클릭)에서
+ * 두 번째 추가가 첫 추가를 보지 못해 상한(12)을 넘거나 시스템 위젯이 중복된다. 업데이터의 prev 는
+ * 같은 틱의 연속 호출도 순서대로 반영한 값이라 여기서 막아야 확실하다.
+ * 막았을 때는 새 배열 대신 prev 를 그대로(같은 참조) 돌려 React 가 불필요하게 다시 그리지 않게 한다.
+ */
+export function appendWidget(prev: DashboardWidgetConfig[], entry: DashboardWidgetConfig): DashboardWidgetConfig[] {
+  if (prev.length >= MAX_WIDGETS) return prev
+  if (prev.some((w) => w.id === entry.id)) return prev
+  return [...prev, entry]
+}
+
 // 편집 세션 번호 발급기 — 모듈 수준이라 재마운트·주인(계정) 전환을 넘어 번호가 겹치지 않는다.
 let editSessionSeq = 0
 
@@ -226,7 +239,8 @@ export function useDashboardEditDraft({ device, savedWidgets, savedVersion, coll
   }
 
   // 위젯 추가 — 시스템 위젯은 이미 draft 에 있으면 무시(싱글턴), 카탈로그 위젯은 새 UUID 인스턴스로 추가.
-  // 상한(MAX_WIDGETS) 도달 시 무시(모달 쪽에서도 버튼 비활성화로 방지, 여기는 방어적 가드).
+  // 아래 바깥 가드(draft.length·draft.some)는 공지·undo 스냅샷을 만들기 전에 빠르게 끊기 위한 것(WP-1954) —
+  // 같은 틱 연속 호출에서는 낡을 수 있으므로, 실제로 추가할지는 최신 prev 로 검사하는 appendWidget 이 결정한다.
   function addWidget(type: string) {
     if (draft.length >= MAX_WIDGETS) return
     const sys = getDashboardWidget(type)
@@ -235,7 +249,8 @@ export function useDashboardEditDraft({ device, savedWidgets, savedVersion, coll
       snapshot()
       // 편집 중인 기기의 기본 항목 수(편집 밖 호출은 없지만 null 이면 기존처럼 데스크톱 5).
       const count = DEFAULT_COUNT[editDevice ?? 'desktop']
-      setDraft((prev) => [...prev, { id: type, type, count, hidden: false }])
+      // 상한·싱글턴은 최신 초안(prev)으로 검사한다(appendWidget) — 렌더 시점 draft 는 같은 틱 연속 호출에 낡을 수 있다.
+      setDraft((prev) => appendWidget(prev, { id: type, type, count, hidden: false }))
       setLiveMsg(`${sys.title} 위젯을 추가했습니다`)
       setRecentlyAddedId(type)
       return
@@ -244,10 +259,10 @@ export function useDashboardEditDraft({ device, savedWidgets, savedVersion, coll
     if (!cat) return
     const id = crypto.randomUUID()
     snapshot()
-    setDraft((prev) => [
-      ...prev,
-      { id, type, count: 0, hidden: false, params: cat.defaultParams, label: null },
-    ])
+    // 상한·싱글턴은 최신 초안(prev)으로 검사한다(appendWidget) — 카탈로그 위젯은 id 가 매번 달라 싱글턴 검사는 사실상 상한 검사.
+    setDraft((prev) =>
+      appendWidget(prev, { id, type, count: 0, hidden: false, params: cat.defaultParams, label: null }),
+    )
     setLiveMsg(`${cat.title} 위젯을 추가했습니다`)
     setRecentlyAddedId(id)
   }
