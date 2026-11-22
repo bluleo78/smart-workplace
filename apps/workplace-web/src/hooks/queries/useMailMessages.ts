@@ -154,15 +154,18 @@ export function useSyncMailFolder(accountId: number | undefined) {
   return useMutation({
     mutationFn: ({ folderId, older }: { folderId: number; older: boolean }) =>
       syncMailFolder(accountId as number, folderId, older),
-    onSuccess: (result) => {
-      const refresh = () => {
-        qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
-        qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0) });
-        // WP-1708 동기화로 휴지통 메일이 바뀔 수 있다 — 실시간 휴지통 수도 다시 받는다(30초 staleTime 안에 낡은 수를 보이지 않게).
-        qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0) });
-      };
-      refresh();
-      if (result.running) setTimeout(refresh, FOLDER_SYNC_RETRY_MS);
+    onSuccess: async (result) => {
+      // 목록과 휴지통 수가 새로고침될 때까지 동기화 진행 상태를 유지한다.
+      const refresh = () => Promise.all([
+        qc.invalidateQueries({ queryKey: ['mail-messages', accountId] }),
+        qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0) }),
+        qc.invalidateQueries({ queryKey: mailMessageKeys.trashCount(accountId ?? 0) }),
+      ]);
+      await refresh();
+      if (result.running) {
+        await new Promise<void>((resolve) => setTimeout(resolve, FOLDER_SYNC_RETRY_MS));
+        await refresh();
+      }
     },
     onError: (e) => handleApiError(e, '메일함을 가져오지 못했어요'),
   });

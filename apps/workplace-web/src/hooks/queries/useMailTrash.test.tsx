@@ -221,3 +221,74 @@ describe('동기화 뒤 실시간 휴지통 수 무효화', () => {
     expect(inval).toHaveBeenCalledWith({ queryKey: ['mail-trash-count', 3] })
   })
 })
+
+describe('useSyncMailFolder 완료 시점', () => {
+  const queryKeys = [
+    ['mail-messages', 3],
+    ['mail-unread-counts', 3, 'folders'],
+    ['mail-trash-count', 3],
+  ]
+  const cases = [false, true].flatMap((running) =>
+    queryKeys.map((lastKey) => ({ running, lastKey, lastQuery: lastKey[0] })),
+  )
+
+  it.each(cases)('running=$running — $lastQuery 재조회가 끝날 때까지 기다린다', async ({ running, lastKey }) => {
+    vi.useFakeTimers()
+    try {
+      syncMailFolder.mockResolvedValue({ running })
+      const { qc, wrapper } = setup()
+      const finishRefreshes = new Map<string, () => void>()
+      const inval = vi.spyOn(qc, 'invalidateQueries').mockImplementation(
+        (filters) => new Promise<void>((resolve) => {
+          finishRefreshes.set(JSON.stringify(filters?.queryKey), resolve)
+        }),
+      )
+      const { result } = renderHook(() => useSyncMailFolder(3), { wrapper })
+      const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+      const finishRefreshesFor = (keys: typeof queryKeys) => act(async () => {
+        for (const key of keys) {
+          const finish = finishRefreshes.get(JSON.stringify(key))
+          expect(finish).toBeDefined()
+          finish?.()
+        }
+        await vi.advanceTimersByTimeAsync(1)
+      })
+      const firstKeys = queryKeys.filter((key) => key !== lastKey)
+
+      act(() => { result.current.mutate({ folderId: 9, older: false }) })
+      await advance(1)
+      expect(inval).toHaveBeenCalledTimes(3)
+      expect(result.current.isPending).toBe(true)
+
+      await finishRefreshesFor(firstKeys)
+      expect(result.current.isPending).toBe(true)
+      if (running) {
+        // 마지막 초기 재조회가 끝날 때까지 후속 재조회 타이머가 시작하지 않는다.
+        await advance(3_000)
+        expect(inval).toHaveBeenCalledTimes(3)
+        expect(result.current.isPending).toBe(true)
+      }
+      await finishRefreshesFor([lastKey])
+
+      if (running) {
+        expect(result.current.isPending).toBe(true)
+        // 마지막 초기 재조회를 완료하면서 1ms를 진행했으므로 2,998ms 뒤에도 재조회 전이다.
+        await advance(2_998)
+        expect(inval).toHaveBeenCalledTimes(3)
+        expect(result.current.isPending).toBe(true)
+
+        finishRefreshes.clear()
+        await advance(1)
+        expect(inval).toHaveBeenCalledTimes(6)
+        expect(result.current.isPending).toBe(true)
+        await finishRefreshesFor(firstKeys)
+        expect(result.current.isPending).toBe(true)
+        await finishRefreshesFor([lastKey])
+      }
+
+      expect(result.current.isSuccess).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

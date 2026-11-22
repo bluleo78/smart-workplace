@@ -5,15 +5,20 @@
 // 메일 모듈만 renderScreen 으로 띄운다(testkit-b4).
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { useLayoutEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { record, renderMail, unreadCounts } from '@/test/kits/mail/testkit-b4'
+import { gate } from '@/test/loadErrorRetry'
 import type { MailFolderSyncResult, MailServerFolder } from '@/types/mailFolder'
 import type { EmailMessageSummary, MailOlderResult } from '@/types/mailMessage'
 
 import { mailAccount, mailServerFolder, summary } from '../../../e2e/factories/mail.factory'
 
 const LIST = '/api/v1/mail/accounts/1/messages'
+const FOLDERS = '/api/v1/mail/accounts/1/folders'
+const BOX_SYNC = `${FOLDERS}/5/sync`
 const OLDER = '/api/v1/mail/accounts/1/messages/older'
 
 // 목록 끝 감시 줄 — 짧은 목록은 끝이 바로 보이는 것과 같게, 관찰을 시작하면 곧 「보인다」고 알린다.
@@ -369,8 +374,194 @@ test('메일함 안 읽은 수가 0 이면 모두 읽음이 꺼지고, 가져오
     ],
   })
   expect(await screen.findByText('메일 서버에 연결하지 못했습니다')).toBeInTheDocument()
-  expect(screen.getByTestId('mail-box-status-text')).toHaveTextContent('아직 가져오지 않았어요')
+  await waitFor(() => expect(screen.getByTestId('mail-box-status-text')).toHaveTextContent('메일함을 가져오지 못했어요'))
   expect(screen.getByTestId('mail-mark-all-read')).toBeDisabled()
+})
+
+/** 서버 메일함 상태 줄과 빈 목록 안내를 함께 확인하고 라이브 영역을 돌려준다. */
+async function expectBoxState(statusText: string | RegExp, title: string) {
+  return waitFor(() => {
+    expect(screen.getByTestId('mail-box-status-text')).toHaveTextContent(statusText)
+    const region = within(screen.getByTestId('mail-box-empty')).getByRole('status')
+    expect(within(region).getByText(title, { exact: true })).toBeInTheDocument()
+    return region
+  })
+}
+
+test.each([
+  { name: '조회 실패', response: () => new HttpResponse(null, { status: 500 }), text: '메일함 목록을 불러오지 못했어요' },
+  { name: '삭제된 주소', response: () => HttpResponse.json([]), text: '메일함을 찾을 수 없어요' },
+])('폴더 조회가 대기하는 동안 0건을 확정하지 않고 $name 결과를 두 영역에 표시한다', async ({ response, text }) => {
+  const folders = gate()
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  const { queryClient } = renderMail('/mail/1?box=5', {
+    handlers: [
+      list.handler,
+      http.get(FOLDERS, async () => {
+        await folders.promise
+        return response()
+      }),
+    ],
+  })
+  try {
+    await waitFor(() => {
+      expect(list.calls).toHaveLength(1)
+      expect(queryClient.isFetching({ queryKey: ['mail-messages', 1] })).toBe(0)
+    })
+    const loading = await expectBoxState('메일함을 가져오는 중…', '메일함을 가져오는 중…')
+    expect(loading).not.toHaveTextContent('이 메일함에 메일이 없어요')
+    expect(screen.getByTestId('mail-box-refresh')).toBeDisabled()
+    folders.release()
+    expect(await expectBoxState(text, text)).toBe(loading)
+  } finally {
+    folders.release()
+  }
+})
+
+test('동기화가 500으로 실패하면 빈 목록에서도 실패를 알리고 새로 고침으로 복구한다', async () => {
+  const sync = gate()
+  let retried = false
+  const { user } = renderMail('/mail/1?box=5', {
+    handlers: [
+      http.get(FOLDERS, () => HttpResponse.json(folderList(retried ? { 5: { folderSyncedAt: syncedAt(), syncedSince: since(90) } } : {}))),
+      http.post(BOX_SYNC, async () => {
+        await sync.promise
+        return retried ? HttpResponse.json(syncResult()) : new HttpResponse(null, { status: 500 })
+      }),
+    ],
+  })
+  try {
+    const loading = await expectBoxState('메일함을 가져오는 중…', '메일함을 가져오는 중…')
+    sync.release()
+    expect(await expectBoxState('메일함을 가져오지 못했어요', '메일함을 가져오지 못했어요')).toBe(loading)
+
+    retried = true
+    await user.click(screen.getByTestId('mail-box-refresh'))
+    expect(await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')).toBe(loading)
+  } finally {
+    sync.release()
+  }
+})
+
+test('동기화 성공이나 마지막 가져온 시각이 없으면 미동기화로 알린다', async () => {
+  // 묶음 메일함은 주소로 열어도 자동 가져오기를 하지 않는다.
+  renderMail('/mail/1?box=8', {
+    handlers: [http.get(FOLDERS, () => HttpResponse.json(folderList()))],
+  })
+  await expectBoxState('아직 가져오지 않았어요', '아직 가져오지 않았어요')
+})
+
+test('빈 메일함의 동기화가 성공하면 시각이 없어도 확정된 0건을 알린다', async () => {
+  renderMail('/mail/1?box=5', {
+    handlers: [
+      http.get(FOLDERS, () => HttpResponse.json(folderList())),
+      http.post(BOX_SYNC, () => HttpResponse.json(syncResult({ fetched: 0, saved: 0, folderSyncedAt: null, syncedSince: null }))),
+    ],
+  })
+  await expectBoxState('메일함을 가져왔어요', '이 메일함에 메일이 없어요')
+})
+
+/** 주소가 바뀐 첫 DOM을 읽는다. 레이아웃 이펙트는 자동 가져오기를 보내는 이펙트보다 먼저 실행된다. */
+function FolderEntryProbe({ onEnter }: { onEnter: () => void }) {
+  const { search } = useLocation()
+  useLayoutEffect(() => {
+    if (new URLSearchParams(search).get('box') === '5') onEnter()
+  }, [search, onEnter])
+  return null
+}
+
+test('캐시에 0건인 메일함을 다시 열면 자동 동기화 요청 전 첫 화면부터 진행 중으로 알린다', async () => {
+  const reentrySync = gate()
+  const sync = record('post', BOX_SYNC, async (_call, count) => {
+    if (count === 2) await reentrySync.promise
+    return HttpResponse.json(syncResult())
+  })
+  let captureReentry = false
+  const commits: { row?: string | null; empty?: string | null }[] = []
+  const { user, location } = renderMail('/mail/1?box=5', {
+    handlers: [
+      sync.handler,
+      http.get(FOLDERS, () => HttpResponse.json(folderList({ 5: { folderSyncedAt: syncedAt(), syncedSince: since(90) } }))),
+    ],
+    extra: (
+      <FolderEntryProbe onEnter={() => {
+        if (!captureReentry) return
+        const empty = screen.getByTestId('mail-box-empty')
+        commits.push({
+          row: screen.getByTestId('mail-box-status-text').textContent,
+          empty: within(empty).queryByRole('status')?.firstElementChild?.textContent,
+        })
+      }} />
+    ),
+  })
+  try {
+    await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')
+    await user.click(screen.getByTestId('mail-folder-inbox'))
+    await waitFor(() => expect(location()).not.toContain('box=5'))
+    captureReentry = true
+
+    await user.click(screen.getByTestId('mail-box-5'))
+    await waitFor(() => expect(sync.calls).toHaveLength(2))
+    expect(commits).toEqual([{ row: '메일함을 가져오는 중…', empty: '메일함을 가져오는 중…' }])
+    const loading = await expectBoxState('메일함을 가져오는 중…', '메일함을 가져오는 중…')
+
+    reentrySync.release()
+    expect(await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')).toBe(loading)
+  } finally {
+    reentrySync.release()
+  }
+})
+
+test.each([
+  { button: 'mail-box-refresh', result: 'success' },
+  { button: 'mail-box-older', result: 'failure' },
+])('이미 동기화된 0건 메일함에서 $button 후 보류된 목록이 $result 응답을 받을 때까지 진행 상태를 유지한다', async ({ button, result }) => {
+  const requery = gate()
+  const retry = gate()
+  let holdList = false
+  let retrying = false
+  const list = record('get', LIST, async () => {
+    if (retrying) {
+      await retry.promise
+      return HttpResponse.json([])
+    }
+    if (!holdList) return HttpResponse.json([])
+    await requery.promise
+    return result === 'failure' ? new HttpResponse(null, { status: 500 }) : HttpResponse.json([])
+  })
+  const { user } = renderMail('/mail/1?box=5', {
+    handlers: [
+      list.handler,
+      http.get(FOLDERS, () => HttpResponse.json(folderList({ 5: { folderSyncedAt: syncedAt(), syncedSince: since(90) } }))),
+      http.post(BOX_SYNC, () => HttpResponse.json(syncResult())),
+    ],
+  })
+  try {
+    const ready = await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')
+    const previousListCalls = list.calls.length
+    holdList = true
+    await user.click(screen.getByTestId(button))
+    await waitFor(() => expect(list.calls.length).toBeGreaterThan(previousListCalls))
+    expect(await expectBoxState('메일함을 가져오는 중…', '메일함을 가져오는 중…')).toBe(ready)
+    expect(ready).not.toHaveTextContent('이 메일함에 메일이 없어요')
+    requery.release()
+    if (result === 'failure') {
+      expect(await expectBoxState('메일 목록을 불러오지 못했어요', '메일 목록을 불러오지 못했어요')).toBe(ready)
+
+      retrying = true
+      const retryButton = within(screen.getByTestId('mail-list-error')).getByRole('button', { name: /다시 시도/ })
+      await user.click(retryButton)
+      await waitFor(() => {
+        expect(retryButton).toHaveAttribute('aria-busy', 'true')
+        expect(retryButton).toHaveFocus()
+      })
+      retry.release()
+    }
+    expect(await expectBoxState(/^최근 90일 · .+에 가져옴$/, '이 메일함에 메일이 없어요')).toBe(ready)
+  } finally {
+    requery.release()
+    retry.release()
+  }
 })
 
 // ── 목록 이어 보기 — 서버 이전 메일(mail-older.spec, WP-965) ─────────────────────────────────────────────
