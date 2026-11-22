@@ -331,4 +331,32 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await expect(page.getByTestId('issue-body-textarea')).toBeVisible();
   });
 
+  test('본문 편집 진입 직후 고른 본문을 입력이 통째로 바꾼다(WP-1996)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // 편집칸이 뜨는 프레임에서 고르게 미리 등록 — 편집기 생성보다 먼저 등록된 rAF 라 같은 프레임 안에서
+    // 마운트 동작과 나란히 돈다(부하로 프레임이 겹칠 때의 순서를 재현).
+    await page.evaluate(() => {
+      const selectInFrame = () => {
+        const el = document.querySelector('[data-testid="issue-body-textarea"]') as HTMLElement | null;
+        if (!el) { requestAnimationFrame(selectInFrame); return; }
+        el.focus();
+        const sel = window.getSelection()!;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      };
+      requestAnimationFrame(selectInFrame);
+    });
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    const editor = page.getByTestId('issue-body-textarea');
+    await expect(editor).toBeFocused();                       // 자동 포커스는 유지
+    // 두 프레임을 기다린다 — 한 프레임은 편집기 마운트·선택 반영, 다음 프레임에서 그 뒤 동작이 끝나는 구간.
+    // 그 사이에 tiptap 이 미룬 포커스가 끼어들면 선택이 문서 끝으로 접히므로, 두 프레임을 확실히 지난 뒤 입력한다.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null)))));
+    await page.keyboard.insertText('저장 안 하고 이탈할 초안');
+    await expect(editor).toHaveText('저장 안 하고 이탈할 초안'); // 원본이 통째로 바뀐다(덧붙지 않는다)
+  });
+
 });

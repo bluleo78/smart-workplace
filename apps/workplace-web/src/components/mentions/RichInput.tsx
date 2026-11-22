@@ -16,10 +16,11 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Text from '@tiptap/extension-text';
 import { isHistoryTransaction } from '@tiptap/pm/history';
 import type { Node as PMNode } from '@tiptap/pm/model';
+import { Selection } from '@tiptap/pm/state';
 import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
 import { ArrowUp, Loader2 } from 'lucide-react';
-import { type Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
@@ -85,6 +86,9 @@ interface RichInputProps {
   // maxLength 초과 시 입력창 아래에 role=alert 로 보일 안내 문구(현재 글자 수를 받는다). 입력은 자르지 않고(붙여넣기 유실 방지) 전송만 막는다.
   // 미전달이면 카운터(빨간 N / max)만 보인다.
   overLimitMessage?: (count: number) => string;
+  /** 마운트 시 커서를 본문 끝에 두고 바로 포커스한다(WP-1996) — 마운트 시점에 정해져야 한다.
+   *  마운트 뒤 false→true 로 바뀌면 같은 효과가 다시 돌아(마운트된 편집기라도 커서가 끝으로 옮겨가고 포커스를 뺏는다)는 뜻이라,
+   *  편집 도중 값을 바꿀 호출처에는 쓰지 않는다. 미전달이면 두 마운트 effect 도 아무것도 하지 않는다. */
   autoFocus?: boolean;
   /** 포커스 요청 번호(WP-1372) — 0 보다 크면 본문 끝에 포커스하고 onFocusRequestDone 을 부른다. 에디터가 아직 만들어지기 전이면 만들어진 뒤 한다.
    *  한 번만 쓰는 요청이다 — 호출처는 onFocusRequestDone 에서 0 으로 돌려, 입력창이 나중에 다시 만들어져도(포털 대상 교체·쓰기 권한 바뀜) 포커스를
@@ -352,9 +356,10 @@ export function RichInput({
   // (RichInput 내부 버튼 행을 justify-between 구조로 확장해 composer 와 editor 간 레이아웃 통합)
 
   const editor = useEditor({
-    // 자동 포커스는 본문 끝에 둔다 — 기존 메시지·코멘트 수정은 이어 쓰기가 자연스럽고, 빈 컴포저(이슈 채팅 드로워)는 끝=처음이다.
-    // true(=start)는 마운트 직후 비동기로 커서를 맨 앞으로 옮겨, 그 사이 사용자가 끝으로 옮긴 커서를 되돌렸다(WP-85 flaky).
-    autofocus: autoFocus ? 'end' : false,
+    // 커서 배치와 포커스는 아래 마운트 effect 가 준다(WP-1996) — tiptap 에 맡기면 생성 직후 0ms 타이머로
+    // focus('end') 를 다시 불러, 그 사이에 이미 화면에 있던 편집칸에서 고른 선택을 문서 끝으로 접어 넣는다
+    // (WP-85 와 같은 계열의 미룬 포커스). false 로 두면 그 타이머가 그냥 지나간다.
+    autofocus: false,
     // 본문이 바뀔 때마다(타이핑) 호출. 호출처에서 throttle.
     // isEmpty 상태도 함께 갱신 — disableWhenEmpty 전송 버튼 비활성화에 사용.
     // charCount 도 갱신 — maxLength 초과 시 버튼 비활성화 및 카운터 표시에 사용.
@@ -569,6 +574,30 @@ export function RichInput({
       },
     },
   });
+
+  // 자동 포커스(WP-1996): 커서와 포커스를 commit 틱 안(페인트 전)에 동기로 건다 — useLayoutEffect 는
+  // 그 틱에 끝나는 사용자·CDP 입력과 겹칠 수 없고, 편집기 DOM 은 자식 EditorContent 의 componentDidMount 에서
+  // 부모에 붙은 뒤 이 effect 가 같은 틱에 도달하므로 편집칸은 그 틱이 끝나기 전엔 화면에 없다.
+  // focus('end') 명령을 쓰지 않는 이유는 그 명령이 rAF 로 포커스를 다시 미룬다 — 바로잡으려던 원인이다.
+  // 대신 Selection.atEnd 가 아니면만 동기 tr.setSelection 으로 옮긴 뒤 view.focus() — 둘 다 즉시, 다음 프레임으로 미는 것이 없다.
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || !autoFocus) return;
+    const atEnd = Selection.atEnd(editor.state.doc);
+    if (!editor.state.selection.eq(atEnd)) editor.view.dispatch(editor.state.tr.setSelection(atEnd));
+    editor.view.focus();
+  }, [editor, autoFocus]);
+
+  // 포커스 되찾기(WP-1996): 같은 틱에 끝나는 Radix FocusScope(모달 위 서랍)가 같은 커밋의 effect 로 포커스를 되찾아
+  // 빼앗으면, 커밋의 모든 effect 가 끝난 마이크로태스크에서 한 번 더 건다. 이미 포커스를 잡고 있으면(hasFocus())
+  // 아무것도 하지 않으므로 본문 편집의 선택을 건드리지 않는다. setSelection 을 넣지 않는 이유 — state 선택은 이미 끝이라
+  // 되찾을 때도 그대로 쓴다(오늘날 되찾는 대상은 빈 칸이다). DOM 이 이미 떨어져 나간(마운트 해제 직후) 경우엔 건드리지 않는다.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !autoFocus) return;
+    queueMicrotask(() => {
+      if (editor.isDestroyed || !editor.view.dom.isConnected || editor.view.hasFocus()) return;
+      editor.view.focus();
+    });
+  }, [editor, autoFocus]);
 
   /**
    * 이미지 파일을 at(없으면 현재 커서) 자리에 각자 한 줄로 넣고 병렬 업로드한다(WP-362). 업로드 중엔 자리표시 노드로 보이고,
