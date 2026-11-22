@@ -1015,7 +1015,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
             .map(
                 id ->
                     new RunnerObservedAgent(
-                        id, fx.generationOf(id), "RUNNING", null, null, null, null))
+                        id, fx.generationOf(id), "RUNNING", null, null, null, null, null))
             .toList());
   }
 

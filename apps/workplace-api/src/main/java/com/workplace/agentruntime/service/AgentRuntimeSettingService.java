@@ -460,6 +460,7 @@ public class AgentRuntimeSettingService {
         r.desired(),
         r.generation(),
         r.observedGeneration(),
+        r.failedGeneration(),
         r.phase(),
         AgentRuntimeStatusResolver.currentPaneBlocked(r),
         failureHeldUntilIdle);

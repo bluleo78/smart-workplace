@@ -59,6 +59,8 @@ export type RunnerPhase = 'STARTING' | 'RUNNING' | 'STOPPING' | 'STOPPED' | 'FAI
 export interface RunnerObservedAgent {
   agentUserId: number;
   observedGeneration: number | null;
+  /** runner 가 새 설정(desired generation)을 반영하다 실패한 그 generation — 없으면 null. 옛 Pod 의 observedGeneration 과 따로 싣는다(WP-2019). */
+  failedGeneration: number | null;
   phase: RunnerPhase;
   message: string | null;
   cpuMillicores: number | null;

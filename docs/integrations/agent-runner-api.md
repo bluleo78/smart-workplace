@@ -169,6 +169,7 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
 ```
 
 - `phase`: `STARTING` · `RUNNING` · `STOPPING` · `STOPPED` · `FAILED` 중 하나(그 밖은 400). `observedGeneration` 은 그 Pod 가 반영한 generation 이다. 단 클러스터가 Pod·PVC·ConfigMap 만들기를 거절해(쿼터 등) Pod 가 없는 `FAILED` 는 desired generation 을 싣는다 — Works 가 「이 요청의 실패」로 받는다. Secret 거절은 키가 전달되지 않았으므로 싣지 않는다(`null`). `message` 500자, 한 번에 200명까지.
+- `failedGeneration`(선택, WP-2019): runner 실패 기록이 있을 때 그 실패가 난 desired generation, 없으면 `null`(생략도 같다 — 옛 runner). 옛 Pod 가 남아 있어 `observedGeneration` 이 뒤처져도 새 설정 실패를 알리는 칸이다. `phase=FAILED` 이고 `failedGeneration` ≥ 현재 desired generation 이면 Works 가 「오류」로 보인다(관찰 generation 이 `null` 이어도). 서버는 보고 값을 그대로 덮어쓴다 — `null` 이면 저장 칸도 지워진다. 0 이상 정수만 받는다(음수는 400). runner 는 미뤄 둔 generation(떠 있는 Pod 의 generation ≠ desired 이고 `applyNow=false`)의 실패에는 싣지 않는다(`null`) — 쉴 때로 미룬 실패가 이미 FAILED 로 보이고, 실으면 「켜기」가 일하는 Pod 를 끊기 때문이다. Works 는 `failedGeneration` ≥ generation 이면 적용 안내(`pendingApply`)를 비운다.
 - **이 위치의 AI 만** 반영한다(꺼진 AI 의 `STOPPING`·`STOPPED` 도 받는다 — 지운 뒤 `STOPPED` 를 보내야 관리자 화면이 「끄는 중」에서 「꺼짐」으로 바뀐다). 없는 AI·다른 위치의 AI 는 `ignored` 로 돌려준다. AI 를 다른 위치로 옮긴 뒤 옛 위치가 보낸 보고는 `ignored` 다 — 예외는 꺼진 AI(desired `STOP`)의 `STOPPING`·`STOPPED` 보고 하나로, 어느 위치에서 와도 받는다(WP-1751). 그래서 꺼진 AI 를 옮긴 뒤에도 옛 위치 runner 가 Pod 를 지우고 `STOPPED` 를 보내면 「꺼짐」이 된다.
 - 응답: `{"updated": 1, "ignored": []}`. 보고는 generation 도, 원하는 상태도 바꾸지 않는다.
 - `observedGeneration` 은 줄지 않는다 — 늦게 도착한 옛 Pod 보고(더 작은 값)는 그 칸을 되돌리지 않고, 값이 없는 보고는 그대로 둔다.

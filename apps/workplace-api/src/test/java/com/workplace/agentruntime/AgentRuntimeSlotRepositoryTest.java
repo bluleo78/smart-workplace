@@ -278,7 +278,8 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
     settings.updateObserved(
         location,
         true,
-        List.of(new RunnerObservedAgent(agent, null, "RUNNING", null, null, null, startedAt)));
+        List.of(
+            new RunnerObservedAgent(agent, null, "RUNNING", null, null, null, startedAt, null)));
   }
 
   /** runner 가 관찰한 started_at 이 보고한 Pod 시작보다 30초 넘게 늦으면 보고한 값을 비운다 — 더 이른 값이면 그대로(WP-1958). */

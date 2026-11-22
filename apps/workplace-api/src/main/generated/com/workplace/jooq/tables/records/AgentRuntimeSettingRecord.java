@@ -495,6 +495,24 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (OffsetDateTime) get(32);
     }
 
+    /**
+     * Setter for <code>public.agent_runtime_setting.failed_generation</code>.
+     * runner 실패 기록이 있을 때 그 실패가 난 desired generation(WP-2019). 보고마다 그대로 덮어쓴다 —
+     * 없으면 NULL
+     */
+    public void setFailedGeneration(Long value) {
+        set(33, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.failed_generation</code>.
+     * runner 실패 기록이 있을 때 그 실패가 난 desired generation(WP-2019). 보고마다 그대로 덮어쓴다 —
+     * 없으면 NULL
+     */
+    public Long getFailedGeneration() {
+        return (Long) get(33);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -518,7 +536,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -554,6 +572,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setPaneBlockedGeneration(paneBlockedGeneration);
         setReportedPodStartedAt(reportedPodStartedAt);
         setPaneBlockedPodStartedAt(paneBlockedPodStartedAt);
+        setFailedGeneration(failedGeneration);
         resetTouchedOnNotNull();
     }
 }

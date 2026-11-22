@@ -203,6 +203,31 @@ class AgentRuntimeStatusResolverTest {
     assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, null, at(1), null)).isEqualTo("설정 오류");
   }
 
+  /**
+   * runner 가 새 설정(generation 5)의 실패를 failedGeneration 으로 보고하면 옛 Pod(observed 4)가 남아도
+   * FAILED(WP-2019).
+   */
+  @Test
+  void resolve_whenFailedGenerationReachesCurrent_returnsFailedEvenIfObservedBehind() {
+    assertThat(resolve(RUN, 5, 4L, 5L, "FAILED", null, false)).isEqualTo(AgentRuntimeStatus.FAILED);
+    assertThat(resolve(RUN, 5, null, 5L, "FAILED", null, false))
+        .isEqualTo(AgentRuntimeStatus.FAILED);
+  }
+
+  /** 옛 generation 의 실패(failedGeneration < generation)는 새 요청을 가리지 못한다. */
+  @Test
+  void resolve_whenFailedGenerationIsOlder_returnsStarting() {
+    assertThat(resolve(RUN, 6, 4L, 5L, "FAILED", null, false))
+        .isEqualTo(AgentRuntimeStatus.STARTING);
+  }
+
+  /** 끄기가 실패 뒤에 오면(generation 이 오름) failedGeneration 이 옛 것이라 끄는 중으로 보인다. */
+  @Test
+  void resolve_whenStopAfterFailedGeneration_returnsStopping() {
+    assertThat(resolve(STOP, 6, 4L, 5L, "FAILED", null, false))
+        .isEqualTo(AgentRuntimeStatus.STOPPING);
+  }
+
   private static java.time.OffsetDateTime at(int second) {
     return java.time.OffsetDateTime.of(2026, 11, 21, 20, 0, second, 0, java.time.ZoneOffset.UTC);
   }

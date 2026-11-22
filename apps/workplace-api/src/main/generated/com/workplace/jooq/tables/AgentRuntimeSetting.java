@@ -236,6 +236,13 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, OffsetDateTime> PANE_BLOCKED_POD_STARTED_AT = createField(DSL.name("pane_blocked_pod_started_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.agent_runtime_setting.failed_generation</code>.
+     * runner 실패 기록이 있을 때 그 실패가 난 desired generation(WP-2019). 보고마다 그대로 덮어쓴다 —
+     * 없으면 NULL
+     */
+    public final TableField<AgentRuntimeSettingRecord, Long> FAILED_GENERATION = createField(DSL.name("failed_generation"), SQLDataType.BIGINT, this, "runner 실패 기록이 있을 때 그 실패가 난 desired generation(WP-2019). 보고마다 그대로 덮어쓴다 — 없으면 NULL");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

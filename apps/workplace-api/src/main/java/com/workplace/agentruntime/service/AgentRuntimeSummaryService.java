@@ -94,6 +94,7 @@ public class AgentRuntimeSummaryService {
                         r.desired(),
                         r.generation(),
                         r.observedGeneration(),
+                        r.failedGeneration(),
                         r.phase(),
                         AgentRuntimeStatusResolver.currentPaneBlocked(r),
                         failedPending.contains(r.agentUserId())

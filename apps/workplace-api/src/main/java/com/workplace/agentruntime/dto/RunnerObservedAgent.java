@@ -13,6 +13,8 @@ import java.time.OffsetDateTime;
  * @param observedGeneration 지금 떠 있는 Pod 가 반영한 generation(Pod 가 없으면 null 가능)
  * @param phase STARTING·RUNNING·STOPPING·STOPPED·FAILED
  * @param message 실패 사유 등 짧은 설명
+ * @param failedGeneration runner 실패 기록이 있을 때 그 실패가 난 desired generation(WP-2019) — 옛 Pod 가 남아 있어
+ *     observedGeneration 이 뒤처져도 새 설정의 실패를 알 수 있다. 기록이 없거나 옛 runner 면 null
  */
 public record RunnerObservedAgent(
     @NotNull Long agentUserId,
@@ -21,4 +23,5 @@ public record RunnerObservedAgent(
     @Size(max = 500) String message,
     @PositiveOrZero Integer cpuMillicores,
     @PositiveOrZero Long memoryBytes,
-    OffsetDateTime startedAt) {}
+    OffsetDateTime startedAt,
+    @PositiveOrZero Long failedGeneration) {}
