@@ -1157,7 +1157,11 @@ public class CalendarEventService {
       OffsetDateTime expectedUpdatedAt) {
     CalendarEventResponse target =
         lockAndRecheckOccurrence(
-                callerId, id, scope, occurrenceDate, isShiftRequest(scope, occurrenceDate, req))
+                callerId,
+                id,
+                scope,
+                occurrenceDate,
+                isMovingShiftRequest(scope, occurrenceDate, req))
             .target();
     // 로컬 일정의 버전 비교는 여기 한 곳뿐이다 — 잠금 아래에서 보므로 거의 동시에 들어온 두 저장 중 뒤의 것은 앞 저장이 올린
     // updatedAt 을 읽고 막힌다(WP-1920).
@@ -1177,7 +1181,7 @@ public class CalendarEventService {
       repo.update(id, writeReq);
       // 마스터와 같은 tx 안에서 — 부분 적용을 남기지 않는다(옮기는 대상·이유는 shiftOccurrenceArtifacts javadoc).
       if (shifted) {
-        shiftOccurrenceArtifacts(id, Duration.between(occurrenceDate, req.startsAt()));
+        shiftOccurrenceArtifacts(callerId, id, Duration.between(occurrenceDate, req.startsAt()));
       }
       boolean scheduleChanged =
           !target.startsAt().equals(writeReq.startsAt())
@@ -2087,7 +2091,9 @@ public class CalendarEventService {
     // 대상 행은 한 번만 읽어 회차 식별자 판정·이동 뒤 규칙 검증·외부 컨텍스트 해석에 함께 쓴다.
     CalendarEventResponse cur =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
-    requireOccurrenceDateIfRecurring(cur, scope, occurrenceDate, maybeShift);
+    // 취소 회차 거절은 실제로 옮길 때만 한다 — 이동량 0 인 scope=ALL 수정(제목·규칙만)은 취소된 회차도 기준이 될 수 있다(WP-1927 리뷰 후속).
+    requireOccurrenceDateIfRecurring(
+        cur, scope, occurrenceDate, isMovingShiftRequest(scope, occurrenceDate, req));
     // 이동 뒤 조합(새 시작 + 옮긴 규칙)으로 검증한다 — 이동 전 req.startsAt 기준이면 UNTIL 이 겹쳐 맞는 이동도 400 으로 막혔다
     // (WP-1915 반려 2). 규칙 후보의 전개 견적 검증(WP-1927)도 seriesShift 안에서 먼저 걸려, 옮길 수 없는 반복 규칙의 이동은
     // 쓰기가 일어나기 전에 여기서 400 이 나온다. 이동 요청이어도 대상이 반복 행이 아니면(단일 일정) 요청 그대로 본다.
@@ -2370,6 +2376,21 @@ public class CalendarEventService {
   }
 
   /**
+   * 이동량이 실제로 있는 「전체 일정」 이동 요청 — 취소 회차 거절(WP-1927)은 이 경우에만 한다(WP-1927 리뷰 후속). 이동량 0 인 scope=ALL
+   * 수정(제목·규칙만 바꾸는 AI·MCP {@code update_event} 경로)에서는 occurrenceDate 가 기준일일 뿐이라 취소된 회차도 무리없이 기준이 된다
+   * — 옮기지도 않는데 거절하면 그 자리의 제목·규칙을 고칠 수 없다.
+   *
+   * <p>취소 회차 거절 말고 나머지 이동 판정(이동 뒤 규칙 검증·마스터 밀기)은 이동량 0 이어도 {@link #isShiftRequest} 를 그대로 쓴다 — 0 이동도
+   * 규칙 후보 견적 검증은 거치기 때문이다.
+   */
+  private static boolean isMovingShiftRequest(
+      EditScope scope, OffsetDateTime occurrenceDate, CalendarEventRequest req) {
+    return isShiftRequest(scope, occurrenceDate, req)
+        && req.startsAt() != null
+        && !Duration.between(occurrenceDate, req.startsAt()).isZero();
+  }
+
+  /**
    * 「전체 일정」 이동이 실제로 일어나는 요청인지의 공통 판정 — 대상이 반복 행이고 {@link #isShiftRequest} 일 때만 마스터를 민다. 하나라도 아니면
    * 요청을 그대로 쓴다(범위 없는 전체 교체·반복 해제·occurrenceDate 없는 ALL).
    *
@@ -2457,13 +2478,16 @@ public class CalendarEventService {
 
   /**
    * 「전체 일정」 이동 때 시리즈에 딸린 것들을 같은 이동량만큼 함께 옮긴다(WP-1927) — ① 취소·오버라이드 예외 키, ② 회차 노트 연결 키, ③ 오버라이드 별도
-   * 일정의 시작·종료(이어서 리마인더 재무장). 이동하지 않으면 예외 키가 옛날짜에 남아 취소했던 회차가 되살아나고, 오버라이드 일정과 회차 노트가 어느 회차에도 붙지
-   * 않는다.
+   * 일정의 시작·종료(이어서 리마인더 재무장), ④ 그 일정의 참석자 알림·응답 초기화·변경 발행(WP-1927 리뷰 후속 — 마스터 시간 변경과 같게 옮긴 일정마다).
+   * 이동하지 않으면 예외 키가 옛날짜에 남아 취소했던 회차가 되살아나고, 오버라이드 일정과 회차 노트가 어느 회차에도 붙지 않으며, 옮긴 일정의 참석자는 바뀐 시각을 알지
+   * 못한다.
    *
    * <p>반복이 아닌 일정·이동이 아닌 ALL 편집에서는 부르지 않는다(호출자가 {@link #isShiftedAllScope} 로 가른다). 마스터 {@code
    * repo.update} 와 같은 tx 안에서만 불려 부분 적용을 남기지 않는다.
+   *
+   * @param callerId 이동을 요청한 사용자 — 옮긴 오버라이드 일정의 알림·응답 초기화·변경 발행에도 같다(오버라이드는 마스터와 같은 주인)
    */
-  private void shiftOccurrenceArtifacts(long masterId, Duration delta) {
+  private void shiftOccurrenceArtifacts(long callerId, long masterId, Duration delta) {
     if (delta == null || delta.isZero()) {
       return;
     }
@@ -2487,6 +2511,16 @@ public class CalendarEventService {
               .orElseThrow(() -> new CalendarEventNotFoundException(overrideId));
       // 오버라이드 일정은 항상 단일 일정이라 규칙은 null — 시작 시각 기준으로 리마인더를 다시 무장한다.
       applyReminder(overrideId, moved.reminderMinutes(), moved.startsAt(), null, true);
+      // 옮긴 일정의 참석자에게도 마스터 시간 변경과 같이 알린다(WP-1927 리뷰 후속) — 이동량이 0이 아닌 곳에서만 오므로 시간은 항상
+      // 바뀌었고(장소는 이동하지 않는다), 알림과 함께 응답을 「응답 필요」로 되돌려 새 시각에 다시 답하게 한다. 변경 발행은 이 일정의
+      // 참석자에게도 갱신을 보내기 위한 것이다(변경 전 명단은 이동으로 바뀌지 않는다).
+      noticeIfRescheduled(callerId, overrideId, true, false, true);
+      publishEventChanged(
+          ResourceChangedEvent.OP_UPDATED,
+          overrideId,
+          owner,
+          internalAttendeeIds(overrideId),
+          callerId);
     }
   }
 
