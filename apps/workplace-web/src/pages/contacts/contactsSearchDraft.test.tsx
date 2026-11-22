@@ -116,3 +116,26 @@ test('공백만 친 검색어는 URL q 로 쓰지 않고, 있던 q 는 지운다
   })
   expect(location()).toBe('/contacts')
 })
+
+test('검색어를 치고 debounce 가 끝나기 전에 행을 고르면 열린 상세가 남은 입력 때문에 닫히지 않는다(WP-1948)', async () => {
+  const { location } = renderPage('/contacts', { handlers })
+  const input = await screen.findByTestId('contact-search', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const row = await screen.findByTestId('contact-row-MEMBER-2', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const select = row.querySelector('button') as HTMLButtonElement
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  fireEvent.change(input, { target: { value: '이수' } })
+  // 300ms 안에 행을 고른다 — 상세가 열린다.
+  await act(async () => {
+    fireEvent.click(select)
+  })
+  expect(location()).toContain('contact=')
+  // 남은 debounce 가 끝나도 q 쓰기가 방금 연 상세를 지우면 안 된다.
+  act(() => {
+    vi.advanceTimersByTime(500)
+  })
+  expect(location()).toContain('contact=')
+  expect(location()).not.toContain('q=')
+  expect(screen.getByTestId('contact-detail-member')).toBeInTheDocument()
+  // 고른 행은 URL 의 q(없음) 목록에서 나온 것이라, 입력칸도 URL 과 같게 되돌아온다(문서화된 동작: 취소).
+  expect(input).toHaveValue('')
+})

@@ -273,13 +273,15 @@ function ContactSearchInput({
   groupId,
   scopeName,
   onWrite,
+  cancelKey,
 }: {
   search: string
   groupId: number | null
   scopeName: string
   onWrite: (q: string) => void
+  cancelKey: unknown
 }) {
-  const { draft, setDraft } = useSearchDraft(search, onWrite)
+  const { draft, setDraft } = useSearchDraft(search, onWrite, 300, cancelKey)
   return (
     <FilterInput
       placeholder="이름·이메일"
@@ -307,11 +309,17 @@ export function ContactsPage() {
   // 같은 히스토리 항목에서 처리해 리셋 이펙트 경합·이중 항목이 없다. 그룹 보기의 검색어 변경만 예외로 상세를 둔다(WP-999 — writeQuery).
   const contactParam = useHistoryParam('contact')
   const selected = decodeContactParam(contactParam.value)
-  const selectContact = (sel: ContactSelection) => contactParam.open(encodeContactParam(sel))
+  // 행을 고르는 순간 남은 검색 debounce 를 접는 신호(WP-1948) — 300ms 안에 고르면 예약돼 있던 q 쓰기가
+  // writeQuery 로 방금 연 상세(?contact)를 지운다. 접으면 입력칸 draft 도 URL q 로 되돌아간다.
+  const [searchCancel, setSearchCancel] = useState(0)
+  const selectContact = (sel: ContactSelection) => {
+    setSearchCancel((n) => n + 1)
+    contactParam.open(encodeContactParam(sel))
+  }
   // 행에 넘기는 안정된 선택 콜백(WP-1948) — 렌더마다 새 함수를 주면 ContactRow memo 가 무력해진다.
   // 최신 selectContact 는 useLatest 의 ref 로 들고, 콜백 자체는 한 번만 만든다.
   const selectContactRef = useLatest(selectContact)
-  const selectRow = useCallback((sel: ContactSelection) => selectContactRef.current(sel), [])
+  const selectRow = useCallback((sel: ContactSelection) => selectContactRef.current(sel), [selectContactRef])
   // 모바일: 상세가 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selected != null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -475,12 +483,13 @@ export function ContactsPage() {
             {/* 목록 위 필터 줄(WP-1355) — 키워드(→ q) 다음에 그룹 범위 칩. 데스크톱·모바일 같은 줄이 폭에 맞춰 한 줄/두 줄로 바뀐다(돋보기 없음).
                 자리표시는 통합 목록이 찾는 기준(이름·이메일)만 쓴다 — 소속(organization)은 통합 검색 대상이 아니다. */}
             {/* 모바일에서 상세가 열려도 필터 줄은 내리지 않는다(WP-1948) — 목록 칸 전체가 hidden 이라 보이지 않고,
-                내리면 검색 draft·300ms debounce 가 사라져 상세를 열기 직전 친 글자를 잃는다. */}
+                내리면 검색 draft 가 사라져 상세를 열기 직전 친 글자가 입력칸에서 증발한다. 행을 고르면 남은 debounce 를
+                접어(searchCancel) 예약된 q 쓰기가 방금 연 상세를 닫지 않게 한다. */}
             <FilterLine
               data-testid="contact-filter-line"
               className="border-b px-4 py-2"
               keyword={
-                <ContactSearchInput search={search} groupId={groupId} scopeName={scopeName} onWrite={writeQuery} />
+                <ContactSearchInput search={search} groupId={groupId} scopeName={scopeName} onWrite={writeQuery} cancelKey={searchCancel} />
               }
               chips={groupId != null ? <SearchScopeChip name={scopeName} onClear={leaveGroup} className="max-w-48" /> : undefined}
             />
