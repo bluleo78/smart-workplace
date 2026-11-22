@@ -103,6 +103,7 @@ import com.workplace.jooq.tables.IssueVersion;
 import com.workplace.jooq.tables.IssueWatcher;
 import com.workplace.jooq.tables.Label;
 import com.workplace.jooq.tables.LoginAttempts;
+import com.workplace.jooq.tables.MailAccountJob;
 import com.workplace.jooq.tables.MailAttachmentBlob;
 import com.workplace.jooq.tables.MailAttachmentPreview;
 import com.workplace.jooq.tables.MailDraft;
@@ -710,6 +711,11 @@ public class Public extends SchemaImpl {
     public final LoginAttempts LOGIN_ATTEMPTS = LoginAttempts.LOGIN_ATTEMPTS;
 
     /**
+     * The table <code>public.mail_account_job</code>.
+     */
+    public final MailAccountJob MAIL_ACCOUNT_JOB = MailAccountJob.MAIL_ACCOUNT_JOB;
+
+    /**
      * The table <code>public.mail_attachment_blob</code>.
      */
     public final MailAttachmentBlob MAIL_ATTACHMENT_BLOB = MailAttachmentBlob.MAIL_ATTACHMENT_BLOB;
@@ -1263,6 +1269,7 @@ public class Public extends SchemaImpl {
             IssueWatcher.ISSUE_WATCHER,
             Label.LABEL,
             LoginAttempts.LOGIN_ATTEMPTS,
+            MailAccountJob.MAIL_ACCOUNT_JOB,
             MailAttachmentBlob.MAIL_ATTACHMENT_BLOB,
             MailAttachmentPreview.MAIL_ATTACHMENT_PREVIEW,
             MailDraft.MAIL_DRAFT,

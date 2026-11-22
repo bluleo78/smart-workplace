@@ -171,7 +171,7 @@ class MailSentFolderSyncTest extends MailSyncTestSupport {
     appendSent("<ext-3@webmail.example>", "첫 번째");
     syncService.sync(user, accountId);
     // 백필이 목킹돼 첫 sync 의 진행 상태가 끝나지 않으므로(가드 유지) 2차 sync 가 UID 증분 경로를 타도록 수동 종료한다.
-    progress.finish(accountId);
+    progress.discardForTest(accountId);
 
     appendSent("<ext-4@webmail.example>", "두 번째");
     MailSyncResult second = syncService.sync(user, accountId);

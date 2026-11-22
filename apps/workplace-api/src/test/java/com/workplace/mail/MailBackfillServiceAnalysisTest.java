@@ -17,15 +17,18 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.MailAccountJobRepository.Kind;
 import com.workplace.mail.service.MailAnalysisBreaker;
 import com.workplace.mail.service.MailAnalysisService;
 import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailBodyFetcher;
+import com.workplace.mail.service.MailJobRun;
 import com.workplace.mail.service.MailPushService;
 import com.workplace.mail.service.MailPushService.NewMailPush;
 import com.workplace.mail.service.MailSyncProgress;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import org.junit.jupiter.api.Test;
@@ -36,6 +39,9 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 
 /** WP-149 본문 적재 직후 분석 — 이번에 적재된 메일만, 진행바를 끝낸 뒤(트랜잭션 밖) 분석한다. */
 class MailBackfillServiceAnalysisTest {
+
+  /** 동기화가 넘기는 진행 실행 핸들(WP-1977) — 보충이 이 핸들로 진행을 끝내는지 확인한다. */
+  private static final MailJobRun RUN = new MailJobRun(Kind.SYNC, 9L, UUID.randomUUID(), 1L);
 
   @Test
   void backfillNow_analyzesOnlyNewlyLoaded_afterProgressFinish() {
@@ -62,13 +68,13 @@ class MailBackfillServiceAnalysisTest {
             mock(MailPushService.class),
             new MailAnalysisBreaker(),
             Runnable::run)
-        .backfillNow(7L, 9L);
+        .backfillNow(7L, 9L, null, RUN);
 
     InOrder order = inOrder(progress, analysis);
-    order.verify(progress, calls(1)).finish(9L);
+    order.verify(progress, calls(1)).finish(RUN);
     order.verify(analysis).analyzeAfterLoad(eq(7L), eq(1L), any());
     verify(analysis, never()).analyzeAfterLoad(eq(7L), eq(2L), any());
-    verify(progress, times(1)).finish(9L); // 분석 뒤 두 번째 finish 가 다음 동기화 상태를 지우지 않는다
+    verify(progress, times(1)).finish(RUN); // 분석 뒤 두 번째 finish 가 다음 동기화 상태를 지우지 않는다
   }
 
   /**
@@ -103,9 +109,9 @@ class MailBackfillServiceAnalysisTest {
     MailAnalysisService analysis = mock(MailAnalysisService.class);
     var handedOff = new ArrayList<Runnable>();
 
-    oneLoaded(progress, analysis, handedOff::add).backfillNow(7L, 9L);
+    oneLoaded(progress, analysis, handedOff::add).backfillNow(7L, 9L, null, RUN);
 
-    verify(progress, times(1)).finish(9L);
+    verify(progress, times(1)).finish(RUN);
     verify(analysis, never()).analyzeAfterLoad(anyLong(), anyLong(), any());
     assertThat(handedOff).hasSize(1);
     handedOff.get(0).run();
@@ -122,9 +128,9 @@ class MailBackfillServiceAnalysisTest {
           throw new RejectedExecutionException("가득 참");
         };
 
-    oneLoaded(progress, analysis, rejecting).backfillNow(7L, 9L);
+    oneLoaded(progress, analysis, rejecting).backfillNow(7L, 9L, null, RUN);
 
-    verify(progress, times(1)).finish(9L);
+    verify(progress, times(1)).finish(RUN);
     verify(analysis, never()).analyzeAfterLoad(anyLong(), anyLong(), any());
   }
 
@@ -154,9 +160,9 @@ class MailBackfillServiceAnalysisTest {
             mock(MailPushService.class),
             new MailAnalysisBreaker(),
             Runnable::run)
-        .backfillNow(7L, 9L);
+        .backfillNow(7L, 9L, null, RUN);
 
-    verify(progress, times(1)).finish(9L);
+    verify(progress, times(1)).finish(RUN);
     verify(analysis).analyzeAfterLoad(eq(7L), eq(2L), any());
   }
 
@@ -188,7 +194,7 @@ class MailBackfillServiceAnalysisTest {
             mock(MailPushService.class),
             new MailAnalysisBreaker(),
             Runnable::run)
-        .backfillNow(7L, 9L);
+        .backfillNow(7L, 9L, null, RUN);
 
     verify(analysis, times(MailBackfillService.ANALYZE_AFTER_LOAD_LIMIT))
         .analyzeAfterLoad(eq(7L), anyLong(), any());
@@ -219,13 +225,13 @@ class MailBackfillServiceAnalysisTest {
     try {
       new MailBackfillService(
               repo, fetcher, progress, analysis, tx, push, new MailAnalysisBreaker(), Runnable::run)
-          .backfill(7L, 9L, new NewMailPush(account, 3L));
+          .backfill(7L, 9L, new NewMailPush(account, 3L), RUN);
     } finally {
       TenantContext.clear();
     }
 
     InOrder order = inOrder(progress, push, analysis);
-    order.verify(progress).finish(9L);
+    order.verify(progress).finish(RUN);
     order.verify(push).sendNewMail(7L, account, 3L);
     order.verify(analysis).analyzeAfterLoad(eq(7L), eq(1L), any());
   }
@@ -253,12 +259,12 @@ class MailBackfillServiceAnalysisTest {
               push,
               new MailAnalysisBreaker(),
               Runnable::run)
-          .backfill(7L, 9L, new NewMailPush(account, 3L));
+          .backfill(7L, 9L, new NewMailPush(account, 3L), RUN);
     } finally {
       TenantContext.clear();
     }
 
-    verify(progress).finish(9L);
+    verify(progress).finish(RUN);
     verify(push).sendNewMail(7L, account, 3L);
   }
 
@@ -281,7 +287,7 @@ class MailBackfillServiceAnalysisTest {
             push,
             new MailAnalysisBreaker(),
             Runnable::run)
-        .backfillNow(7L, 9L);
+        .backfillNow(7L, 9L, null, RUN);
 
     verify(push, never()).sendNewMail(anyLong(), any(), anyLong());
   }

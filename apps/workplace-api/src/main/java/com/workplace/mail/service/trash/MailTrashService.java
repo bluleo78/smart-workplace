@@ -16,6 +16,7 @@ import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailFolderRepository.FolderTarget;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.MoveSource;
+import com.workplace.mail.service.MailJobRun;
 import com.workplace.mail.service.MailServerErrors;
 import com.workplace.mail.service.folder.FolderRole;
 import com.workplace.mail.service.trash.MailEraser.Item;
@@ -27,7 +28,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.core.task.TaskRejectedException;
@@ -45,6 +48,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>휴지통 비우기({@link #startEmpty})는 오래 걸릴 수 있어(Outlook) 확인만 여기서 하고 실제 지우기는 전용 실행기의 {@link
  * MailTrashEmptyJob} 이 하며, 진행은 {@link MailTrashEmptyProgress} 로 폴링한다.
  */
+@Slf4j
 @Service
 public class MailTrashService {
 
@@ -184,17 +188,34 @@ public class MailTrashService {
   public MailTrashEmptyStatus startEmpty(long userId, long accountId) {
     EmptyPlan plan = txTemplate.execute(status -> emptyPlan(userId, accountId));
     Objects.requireNonNull(plan);
-    if (!emptyProgress.tryStart(accountId)) {
+    Optional<MailJobRun> started = emptyProgress.tryStart(accountId);
+    if (started.isEmpty()) {
       return emptyProgress.snapshot(accountId);
     }
+    MailJobRun run = started.get();
     try {
       emptyExecutor.execute(
-          () -> emptyJob.run(userId, plan.account(), plan.trash(), plan.eraser()));
+          () -> emptyJob.run(userId, plan.account(), plan.trash(), plan.eraser(), run));
     } catch (TaskRejectedException e) {
-      emptyProgress.release(accountId);
+      releaseQuietly(run);
       throw MailTrashException.of(MailTrashException.TRASH_EMPTY_BUSY);
     }
     return emptyProgress.snapshot(accountId);
+  }
+
+  /**
+   * 실행기가 거절한 시작을 되돌린다. 되돌림이 DB 오류로 던져도 사용자에게는 원래 사유(503 {@code TRASH_EMPTY_BUSY})가 나가야 하므로 경고만 남긴다
+   * — 지우지 못한 RUNNING 행은 하트비트에서 빠졌으니 TTL 뒤 만료된다.
+   */
+  private void releaseQuietly(MailJobRun run) {
+    try {
+      emptyProgress.release(run);
+    } catch (RuntimeException e) {
+      log.warn(
+          "휴지통 비우기 시작 되돌림 실패 — TTL 뒤 만료됨: accountId={} {}",
+          run.accountId(),
+          e.getClass().getSimpleName());
+    }
   }
 
   /** 휴지통 비우기 상태. 남의 계정이면 404(남의 진행을 보이지 않는다), 작업 기록이 없으면 IDLE. */

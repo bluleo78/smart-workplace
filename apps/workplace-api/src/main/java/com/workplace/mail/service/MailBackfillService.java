@@ -88,16 +88,20 @@ public class MailBackfillService {
    * 가드: 전파 실패(비테넌트/시스템 트리거) 시 GUC 미설정으로 RLS fail-closed 가 되어 조용히 no-op 되므로, 명시적으로 경고 후 skip 하여 잘못된
    * 비테넌트 실행을 방지한다(이때는 새 메일 푸시도 싣지 못해 보내지 않는다 — 후보 조회·발송 테넌트 모두 테넌트 문맥이 필요하다).
    *
+   * <p>테넌트 문맥이 없어 건너뛸 때도 진행은 끝낸다 — 진행 끝내기는 핸들에 저장된 테넌트로 문맥을 세워 쓰므로 RUNNING 이 TTL 까지 남지
+   * 않는다(WP-1977).
+   *
    * @param push 보충이 끝난 뒤 보낼 새 메일 푸시(WP-1739) — 동기화가 넘긴다. 첫 동기화처럼 보내지 않을 때는 null
+   * @param run 동기화가 선점한 진행 실행 핸들(WP-1977) — 보충이 진행 쓰기·끝내기를 이 실행에 한다
    */
   @Async("mailBodyBackfillExecutor")
-  public void backfill(long userId, long accountId, NewMailPush push) {
+  public void backfill(long userId, long accountId, NewMailPush push, MailJobRun run) {
     if (TenantContext.get() == null) {
       log.warn("본문 백필 skip — TenantContext 없음(비테넌트 트리거 의심) accountId={}", accountId);
-      progress.finish(accountId);
+      progress.finish(run);
       return;
     }
-    backfillNow(userId, accountId, push);
+    backfillNow(userId, accountId, push, run);
   }
 
   /**
@@ -110,7 +114,7 @@ public class MailBackfillService {
    * <p>발송 정보 없이 부르므로 새 메일 푸시는 하지 않는다 — 새 메일 푸시는 동기화 경로({@link #backfill})에서만 나간다(WP-1739).
    */
   public void backfillNow(long userId, long accountId) {
-    backfillNow(userId, accountId, null);
+    backfillNow(userId, accountId, null, null);
   }
 
   /**
@@ -123,6 +127,17 @@ public class MailBackfillService {
    * @param push 보충이 끝난 뒤 보낼 새 메일 푸시 — null 이면 보내지 않는다
    */
   public void backfillNow(long userId, long accountId, NewMailPush push) {
+    backfillNow(userId, accountId, push, null);
+  }
+
+  /**
+   * 동기 보충 본체 + 미뤄 둔 새 메일 푸시 + 진행 반영(WP-1977). 진행 쓰기(본문 1건마다)·끝내기는 동기화가 넘긴 실행 핸들에 한다 — 핸들이 없으면(동기화 밖
+   * 보충·테스트) 진행은 건드리지 않는다.
+   *
+   * @param push 보충이 끝난 뒤 보낼 새 메일 푸시 — null 이면 보내지 않는다
+   * @param run 동기화가 선점한 진행 실행 핸들 — null 이면 진행을 쓰지 않는다
+   */
+  public void backfillNow(long userId, long accountId, NewMailPush push, MailJobRun run) {
     List<Long> loaded = new ArrayList<>();
     try {
       // 대상 목록 조회(RLS 테이블) — 짧은 트랜잭션으로 GUC 주입.
@@ -131,7 +146,7 @@ public class MailBackfillService {
       // 본문 적재는 IMAP 네트워크 I/O 를 포함하므로 메시지별 짧은 트랜잭션으로 감싼다(풀 고갈 방지 + RLS write GUC 주입).
       for (BodyTarget t : targets) {
         Boolean ok = txTemplate.execute(status -> bodyFetcher.fetchBody(userId, t));
-        progress.incBody(accountId);
+        progress.incBody(run);
         // 적재 후 분석은 받은편지함만 한다(analyzeAfterLoad 가 그 밖은 건너뜀) — 동기화한 보낸 메일(WP-950)이 분석 상한 슬롯을 차지하지 않게
         // 받은편지함 메일만 모은다.
         if (Boolean.TRUE.equals(ok) && "INBOX".equals(t.folderName())) {
@@ -141,7 +156,7 @@ public class MailBackfillService {
     } catch (Exception e) {
       log.warn("본문 백그라운드 보충 실패 (accountId={}): {}", accountId, e.toString());
     } finally {
-      progress.finish(accountId); // 정확히 한 번 — 분석(수 분 소요 가능) 전에 끝낸다
+      progress.finish(run); // 정확히 한 번 — 분석(수 분 소요 가능) 전에 끝낸다
     }
     // WP-1739: 미뤄 둔 새 메일 푸시 — 본문 적재(자동 발송 판정)가 끝난 뒤, 분석 전에 보낸다.
     sendNewMailQuietly(userId, push);

@@ -62,7 +62,7 @@ class MailTrashControllerTest extends ExternalClientMockedTestBase {
   @AfterEach
   void restoreExecutor() {
     ReflectionTestUtils.setField(trashService, "emptyExecutor", originalExecutor);
-    startedAccounts.forEach(progress::release); // 진행 상태도 싱글턴 — 시작 전으로
+    startedAccounts.forEach(progress::discardForTest); // 진행 상태도 싱글턴 — 시작 전으로
   }
 
   private String token(long userId) {

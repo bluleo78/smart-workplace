@@ -103,6 +103,7 @@ import com.workplace.jooq.tables.IssueVersion;
 import com.workplace.jooq.tables.IssueWatcher;
 import com.workplace.jooq.tables.Label;
 import com.workplace.jooq.tables.LoginAttempts;
+import com.workplace.jooq.tables.MailAccountJob;
 import com.workplace.jooq.tables.MailAttachmentBlob;
 import com.workplace.jooq.tables.MailAttachmentPreview;
 import com.workplace.jooq.tables.MailDraft;
@@ -692,6 +693,11 @@ public class Tables {
      * 로그인 실패 카운터 (브루트포스 방어)
      */
     public static final LoginAttempts LOGIN_ATTEMPTS = LoginAttempts.LOGIN_ATTEMPTS;
+
+    /**
+     * The table <code>public.mail_account_job</code>.
+     */
+    public static final MailAccountJob MAIL_ACCOUNT_JOB = MailAccountJob.MAIL_ACCOUNT_JOB;
 
     /**
      * The table <code>public.mail_attachment_blob</code>.

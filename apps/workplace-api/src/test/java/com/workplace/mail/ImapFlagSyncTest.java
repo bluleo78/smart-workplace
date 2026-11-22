@@ -55,7 +55,7 @@ class ImapFlagSyncTest extends MailSyncTestSupport {
   @AfterEach
   void cleanup() {
     if (seededAccount != null) {
-      progress.finish(seededAccount);
+      progress.discardForTest(seededAccount);
       cleanupInTenant(
           1L,
           () -> dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(seededAccount)).execute());
@@ -80,7 +80,7 @@ class ImapFlagSyncTest extends MailSyncTestSupport {
 
   private void sync() {
     syncService.sync(seededUser, seededAccount);
-    progress.finish(seededAccount);
+    progress.discardForTest(seededAccount);
   }
 
   private long idOf(String subject) {

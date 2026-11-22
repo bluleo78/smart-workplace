@@ -14,6 +14,7 @@ import com.workplace.mail.service.folder.MailFolderService;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
@@ -106,9 +107,12 @@ public class MailSyncService {
     long maxInboxId = start.maxInboxId();
 
     // 계정당 동시 실행 가드 — try 진입 전에 점유 시도. 이미 진행 중이면 즉시 빈 결과.
-    if (!progress.tryStart(accountId)) {
+    // WP-1977: 선점하면 실행 핸들을 받는다 — 진행 쓰기·끝내기는 이 핸들로 해 만료 뒤 다시 선점된 새 실행을 덮지 않는다.
+    Optional<MailJobRun> started = progress.tryStart(accountId);
+    if (started.isEmpty()) {
       return new MailSyncResult(0, 0, 0);
     }
+    MailJobRun run = started.get();
     boolean triggeredBackfill = false;
     try {
       MailFetcher fetcher = fetchers.get(account.provider());
@@ -125,13 +129,13 @@ public class MailSyncService {
         // 한 회 보충 상한까지만 진행률로 표기한다 — 백필은 BATCH_LIMIT 만 처리하므로(잔여는 다음 sync)
         // 진행바가 "본문 200/250" 후 사라져 오해를 주지 않도록 total 을 상한으로 보정한다.
         int shown = Math.min(missing, MailBackfillService.BATCH_LIMIT);
-        progress.startBodies(accountId, shown);
+        progress.startBodies(run, shown);
         // WP-1739: 보충을 띄우면 새 메일 푸시는 보충이 끝난 뒤 보충이 보낸다 — 자동 발송 판정(auto_generated)이 본문을 받을 때
         // 헤더로 정해지므로, 지금 판정하면 대량·자동 발송 메일이 「업무 메일만」에서 걸러지지 않는다.
         // WP-1812: 본문 보충 실행기가 가득 차 거절되면 보충을 띄우지 못한 것이다 — 보충 표시를 false 로 둬 finally 가 진행바를
         // 끝내게 하고(백필이 끝낼 책임을 못 진다), 새 메일 푸시도 아래에서 바로 보낸다. 남은 본문은 다음 주기가 다시 집는다.
         try {
-          backfillService.backfill(userId, accountId, deferredPush(account, maxInboxId));
+          backfillService.backfill(userId, accountId, deferredPush(account, maxInboxId), run);
           triggeredBackfill = true;
         } catch (TaskRejectedException e) {
           log.warn("메일 본문 보충 실행기가 가득 차 건너뜀 — 다음 주기에 재시도 account={}", accountId);
@@ -174,7 +178,7 @@ public class MailSyncService {
     } finally {
       // 보충할 게 없거나 에러로 끝났으면 여기서 즉시 종료(백필을 트리거했다면 백필이 종료 책임).
       if (!triggeredBackfill) {
-        progress.finish(accountId);
+        progress.finish(run);
       }
     }
   }

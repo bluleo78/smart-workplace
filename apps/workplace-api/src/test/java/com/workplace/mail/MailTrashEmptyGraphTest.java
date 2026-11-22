@@ -112,7 +112,7 @@ class MailTrashEmptyGraphTest extends ExternalClientMockedTestBase {
     ReflectionTestUtils.setField(graphMailEraser, "pauser", originalPauser);
     ReflectionTestUtils.setField(graphMailEraser, "localFlush", originalLocalFlush);
     // 진행 상태도 싱글턴이다 — 이 클래스가 시작한 계정은 시작 전으로 되돌린다
-    startedAccounts.forEach(progress::release);
+    startedAccounts.forEach(progress::discardForTest);
   }
 
   /** [user, account, trashFolderId] — Graph 계정과 휴지통(role TRASH) 행. */

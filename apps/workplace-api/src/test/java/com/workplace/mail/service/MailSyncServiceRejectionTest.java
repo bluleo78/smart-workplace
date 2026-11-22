@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -16,9 +17,11 @@ import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.MailAccountJobRepository;
 import com.workplace.mail.service.folder.MailFolderService;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskRejectedException;
@@ -44,7 +47,14 @@ class MailSyncServiceRejectionTest {
   void setUp() {
     accountRepo = mock(EmailAccountRepository.class);
     messageRepo = mock(EmailMessageRepository.class);
-    progress = spy(new MailSyncProgress());
+    // 진행 가드는 DB 저장소로 옮겨졌다 — 저장소를 목으로 두고 선점(tryStart)은 성공하도록 스텁한다.
+    MailAccountJobRepository jobRepo = mock(MailAccountJobRepository.class);
+    when(jobRepo.tryStart(any(), anyLong(), any(), any()))
+        .thenReturn(Optional.of(UUID.randomUUID()));
+    progress =
+        spy(
+            new MailSyncProgress(
+                jobRepo, mock(PlatformTransactionManager.class), mock(MailJobHeartbeat.class)));
     backfillService = mock(MailBackfillService.class);
     summaryBackfillService = mock(MailSummaryBackfillService.class);
     fetcher = mock(MailFetcher.class);
@@ -94,13 +104,13 @@ class MailSyncServiceRejectionTest {
     when(messageRepo.countMissingBody(ACCOUNT)).thenReturn(3);
     doThrow(new TaskRejectedException("full"))
         .when(backfillService)
-        .backfill(anyLong(), anyLong(), any());
+        .backfill(anyLong(), anyLong(), any(), any());
 
     MailSyncResult result = service.sync(USER, ACCOUNT);
 
     assertThat(result).isNotNull();
-    // 백필이 거절돼 끝낼 책임을 못 지므로 finally 가 진행바를 정확히 한 번 끝낸다.
-    verify(progress).finish(ACCOUNT);
+    // 백필이 거절돼 끝낼 책임을 못 지므로 finally 가 진행바를 정확히 한 번 끝낸다(선점한 실행 핸들로).
+    verify(progress).finish(argThat(r -> r != null && r.accountId() == ACCOUNT));
   }
 
   @Test
@@ -114,7 +124,7 @@ class MailSyncServiceRejectionTest {
     MailSyncResult result = service.sync(USER, ACCOUNT);
 
     assertThat(result).isNotNull();
-    verify(progress).finish(ACCOUNT);
-    verify(backfillService, never()).backfill(anyLong(), anyLong(), any());
+    verify(progress).finish(argThat(r -> r != null && r.accountId() == ACCOUNT));
+    verify(backfillService, never()).backfill(anyLong(), anyLong(), any(), any());
   }
 }
