@@ -31,8 +31,10 @@ import type {
   NotificationToolClient,
   ProjectToolClient,
   WikiToolClient,
+  WorkflowToolClient,
 } from './tool-client.js';
 import { buildWikiTools } from './wiki-tools.js';
+import { buildWorkflowTools } from './workflow-tools.js';
 
 /** 공유 도구 전체가 요구하는 클라이언트 — 각 앱이 자기 API 클라이언트를 이 모양으로 어댑팅한다. */
 export type SharedToolClient = IssueToolClient &
@@ -48,7 +50,8 @@ export type SharedToolClient = IssueToolClient &
   HomeToolClient &
   AttachmentToolClient &
   FileToolClient &
-  HelpToolClient;
+  HelpToolClient &
+  WorkflowToolClient;
 
 /**
  * 앱별 옵션 — 메시징(parentMessageIdFor)과 read_file 의 이미지 입력(WP-250: imageInput 기본 true)·이슈 챗 출처 안내(WP-392: issueChatSource
@@ -75,5 +78,7 @@ export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptio
     ...buildAttachmentTools(client, opts.imageInput, opts.issueChatSource),
     ...buildFileTools(client, opts),
     ...buildHelpTools(client),
+    // WP-1988: 이슈 워크플로우 실행(issue 앱). 뒤에 붙여 기존 도구 순서(스냅샷)를 흔들지 않는다.
+    ...buildWorkflowTools(client),
   ];
 }

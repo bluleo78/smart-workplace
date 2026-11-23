@@ -235,6 +235,17 @@ function sharedMock(): MockedShared {
     // WP-1510: 제품 매뉴얼(manual) — SharedToolClient 모양을 채운다(WP-1511 부터 assistant 라우터가 직접 쓴다).
     searchManual: vi.fn(),
     getManualSection: vi.fn(),
+    // WP-1988: 워크플로우(WorkflowToolClient) — 타입을 채운다(프로필 연결은 WP-1994).
+    getIssueWorkflow: vi.fn(),
+    startIssueWorkflow: vi.fn(),
+    moveIssueWorkflow: vi.fn(),
+    listWorkflows: vi.fn(),
+    getWorkflow: vi.fn(),
+    getWorkflowVersionYaml: vi.fn(),
+    createWorkflow: vi.fn(),
+    saveWorkflowDraft: vi.fn(),
+    validateWorkflow: vi.fn(),
+    publishWorkflow: vi.fn(),
   };
 }
 
@@ -907,12 +918,21 @@ describe('공유 도구 패리티 (#846)', () => {
 
   // 공유 패키지에 도구를 추가하고 ai-agent 에 연결하지 않으면 AI Chat 에서 조용히 못 쓰는 도구가 된다(#850).
   // WP-348: 확인 카드가 있는 작업의 직접 실행 도구(CARD_ONLY_SHARED_TOOLS)만 예외 — 경로마다 도구 하나.
+  // WP-1988: 워크플로우 도구 6종은 공유 도구로만 먼저 더했고 ai-agent 프로필 연결은 WP-1994 에서 한다 — 그때 이 목록을 지운다.
+  const NOT_YET_WIRED = new Set([
+    'get_issue_workflow',
+    'start_issue_workflow',
+    'move_issue_workflow',
+    'get_workflow',
+    'validate_workflow',
+    'update_workflow',
+  ]);
   it('assistant 프로필은 공유 도구를 전부 노출한다(확인 카드 전용 작업 제외)', () => {
     const c = client();
     const names = new Set(buildTools(c, AGENT_ID, 'assistant').map((t) => t.name));
     const missing = buildSharedTools(c.sc)
       .map((t) => t.name)
-      .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS) && !AI_AGENT_EXCLUDED_SHARED_TOOLS.has(n));
+      .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS) && !AI_AGENT_EXCLUDED_SHARED_TOOLS.has(n) && !NOT_YET_WIRED.has(n));
     expect(missing).toEqual([]);
   });
 

@@ -137,6 +137,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
   const issueId = async (issueKey: string): Promise<number> =>
     ((await http.get(issue(issueKey))).data as { summary: { id: number } }).summary.id;
 
+  /** 워크플로우 API 는 숫자 project id 경로를 쓴다 — 프로젝트 상세(GET /projects/{key})의 id. 캐시하지 않는다. */
+  const projectId = async (projectKey: string): Promise<number> =>
+    ((await http.get(project(projectKey))).data as { id: number }).id;
+
   /**
    * issueKey → 이슈 챗 threadId. 이슈의 챗 스레드 id 는 바뀌지 않으므로 클라이언트 인스턴스 안에서 캐시한다 — 첨부 읽기·받기마다 같은 GET 을
    * 되풀이하지 않게. 실패한 요청은 캐시에서 빼 다음 호출이 다시 시도한다.
@@ -334,6 +338,42 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async claimIssue(issueKey, queueLabel) {
       return (await http.post(`${issue(issueKey)}/claim`, { queueLabel })).data;
+    },
+
+    // ── 워크플로우(WP-1988) ── 서버 경로는 숫자 id 를 쓰므로 이슈·프로젝트 키는 기존 조회로 id 를 얻는다.
+    async getIssueWorkflow(issueKey) {
+      return (await http.get(`/issues/${await issueId(issueKey)}/workflow`)).data;
+    },
+    async startIssueWorkflow(issueKey, workflowId) {
+      return (await http.post(`/issues/${await issueId(issueKey)}/workflow/start`, { workflowId })).data;
+    },
+    async moveIssueWorkflow(issueKey, body) {
+      return (await http.post(`/issues/${await issueId(issueKey)}/workflow/move`, body)).data;
+    },
+    async listWorkflows(projectKey) {
+      return (await http.get(`/projects/${await projectId(projectKey)}/workflows`)).data ?? [];
+    },
+    async getWorkflow(workflowId) {
+      return (await http.get(`/workflows/${workflowId}`)).data;
+    },
+    async getWorkflowVersionYaml(workflowId, versionNo) {
+      return ((await http.get(`/workflows/${workflowId}/versions/${versionNo}`)).data as { sourceYaml: string }).sourceYaml;
+    },
+    async createWorkflow(projectKey, name, yaml) {
+      return (await http.post(`/projects/${await projectId(projectKey)}/workflows`, { name, yaml })).data;
+    },
+    async saveWorkflowDraft(workflowId, yaml, expectedDraftUpdatedAt) {
+      // 초안 시각은 준 때만 싣는다 — 없으면 서버가 충돌 검사를 건너뛴다(웹 첫 저장과 같다).
+      const body = { yaml, ...(expectedDraftUpdatedAt !== undefined && { expectedDraftUpdatedAt }) };
+      return (await http.put(`/workflows/${workflowId}/draft`, body)).data;
+    },
+    async validateWorkflow(projectKey, yaml) {
+      return (await http.post('/workflows/validate', { projectId: await projectId(projectKey), yaml })).data;
+    },
+    async publishWorkflow(workflowId, expectedDraftUpdatedAt) {
+      // 초안 시각이 있을 때만 본문으로 보낸다(서버 ExpectedDraftRequest — 없으면 충돌 검사 생략).
+      const body = expectedDraftUpdatedAt === undefined ? undefined : { expectedDraftUpdatedAt };
+      return (await http.post(`/workflows/${workflowId}/publish`, body)).data;
     },
 
     // ── 도움말(제품 매뉴얼, WP-1510) ──
