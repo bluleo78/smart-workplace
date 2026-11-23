@@ -180,7 +180,7 @@ public class AgentStatusReportService {
         identity == PodIdentity.MATCH || !AgentRuntimeSlotRepository.isOlderPod(pod, podRef);
     boolean mayClearPane = fromCurrentGeneration && fromCurrentPod;
     if (paneStored && mayClearPane) {
-      settings.updatePaneBlocked(userId, null, null, null, null);
+      settings.updatePaneBlocked(userId, null, null, null, null, null);
     }
     boolean visiblePaneCleared = paneVisible && mayClearPane;
 

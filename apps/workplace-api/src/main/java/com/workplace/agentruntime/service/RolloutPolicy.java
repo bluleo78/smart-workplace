@@ -56,7 +56,7 @@ final class RolloutPolicy {
     if (row.applyMode() == ApplyMode.NOW || row.observedGeneration() == null) return Decision.NOW;
     if (row.isIdle() && !reportedBeforePodStart(row)) return Decision.NOW;
     if (AgentRuntimeStatusResolver.blocksRunningPod(row)
-        && noWorkInProgress(row, row.paneBlockedPodStartedAt())) {
+        && noWorkInProgress(row, blockingPodUid(row), row.paneBlockedPodStartedAt())) {
       return Decision.NOW;
     }
     // runner 가 관찰한 시작 실패(WP-2000) — 기준 Pod 는 차단 기록이 없으니 지금 Pod 의 시작 시각이다.
@@ -65,6 +65,7 @@ final class RolloutPolicy {
     if ("FAILED".equals(row.phase())
         && (noWorkInProgress(
                 row,
+                row.observedPodUid(),
                 AgentRuntimeSlotRepository.currentPodStart(
                     row.startedAt(), row.reportedPodStartedAt()))
             || workReportExpired(row, now, slotStaleAfter))) {
@@ -189,12 +190,32 @@ final class RolloutPolicy {
    * 오래돼도 비는데 그때는 일하는 중일 수 있다 — 일하던 칸의 마지막 보고 시각은 남으므로({@link AgentSlotAggregate}) 그것이 차단한 Pod 가 뜨기
    * 전 것일 때만 참이다. 남은 시각이 있는데 기준 Pod 의 시작 시각을 모르면 가를 수 없어 거짓이다.
    *
+   * <p>마지막 상태 보고가 기준 Pod 것이 아닌지는 칸 거르기와 같은 규칙({@link AgentRuntimeSlotRepository#isOldPodReport})으로
+   * 가른다(WP-2010). 보고 칸의 Pod 정체·시작 시각(agent_reported_pod_uid·agent_reported_pod_started_at)을 기준 Pod
+   * 와 견주고, 시각 없는 보고의 기준도 기준 Pod 의 시작 시각이다.
+   *
+   * @param podUid 기준 Pod 의 정체(uid) — 차단 규칙은 차단한 Pod, 시작 실패 규칙은 지금 Pod. 모르면 null
    * @param podStart 기준 Pod 의 시작 시각 — 차단 규칙은 차단한 Pod, 시작 실패 규칙은 지금 Pod. 모르면 null
    */
-  private static boolean noWorkInProgress(Row row, OffsetDateTime podStart) {
+  private static boolean noWorkInProgress(Row row, String podUid, OffsetDateTime podStart) {
     if (row.agentState() != null) return row.isIdle();
     return row.agentReportedAt() == null
-        || AgentRuntimeSlotRepository.isOlderPod(row.agentReportedAt(), podStart);
+        || AgentRuntimeSlotRepository.isOldPodReport(
+            row.agentReportedPodUid(),
+            row.agentReportedPodStartedAt(),
+            row.agentReportedAt(),
+            podUid,
+            podStart);
+  }
+
+  /**
+   * 차단 규칙의 기준 Pod 정체(WP-2010 R3) — 차단을 기록한 Pod 가 관찰한 지금 Pod 일 때만 그 정체를 쓰고, 아니면(다르거나 하나라도 모름) null 로
+   * 시각 규칙에 맡긴다. 차단 기록 Pod 가 지금 Pod 가 아닌데 정체로 견주면, 그보다 새 Pod 의 상태 보고가 정체 불일치로 옛 것이 되어 일하는 중인데도 지금
+   * 적용될 수 있다.
+   */
+  private static String blockingPodUid(Row row) {
+    String blocked = AgentRuntimeSlotRepository.nullIfNoIdentity(row.paneBlockedPodUid());
+    return blocked != null && blocked.equals(row.observedPodUid()) ? blocked : null;
   }
 
   /**

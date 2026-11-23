@@ -88,11 +88,14 @@ public class AgentRuntimeSettingRepository {
       List<String> agentIssueKeys,
       OffsetDateTime agentNextCheckAt,
       OffsetDateTime agentReportedAt,
+      String agentReportedPodUid,
+      OffsetDateTime agentReportedPodStartedAt,
       String paneBlockedMessage,
       OffsetDateTime paneBlockedAt,
       Long paneBlockedGeneration,
       OffsetDateTime reportedPodStartedAt,
       OffsetDateTime paneBlockedPodStartedAt,
+      String paneBlockedPodUid,
       @With boolean acceptNewWork,
       @With Integer slotLimit) {
 
@@ -134,11 +137,14 @@ public class AgentRuntimeSettingRepository {
             r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)),
         r.get(AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT),
         r.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT),
+        r.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_POD_UID),
+        r.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_POD_STARTED_AT),
         r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE),
         r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT),
         r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION),
         r.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT),
         r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT),
+        r.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_UID),
         r.get(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK),
         Optional.ofNullable(r.get(AGENT_RUNTIME_SETTING.SLOT_LIMIT))
             .map(Short::intValue)
@@ -385,9 +391,18 @@ public class AgentRuntimeSettingRepository {
                 vUid.isNotNull()
                     .and(s.OBSERVED_POD_UID.isNotNull())
                     .and(s.OBSERVED_POD_UID.ne(vUid)));
-    // AI 보고가 새 Pod 시작 뒤에 왔으면 새 Pod 의 보고라 지우지 않는다.
+    // AI 보고가 새 Pod 시작 뒤에 왔으면 새 Pod 의 보고라 지우지 않는다. 단 그 보고의 정체를 알고 새로 관찰한 정체와 다르면 시각이 뒤여도
+    // 끝나는 중인 옛 Pod 의 늦은 보고라 지운다(WP-2010 R4). 관찰이 정체를 싣지 않으면(옛 runner) 정체로 견줄 수 없어 시각만 본다.
     Condition reportedByNewPod =
-        vStart.isNotNull().and(s.AGENT_REPORTED_AT.isNotNull()).and(s.AGENT_REPORTED_AT.ge(vStart));
+        vStart
+            .isNotNull()
+            .and(s.AGENT_REPORTED_AT.isNotNull())
+            .and(s.AGENT_REPORTED_AT.ge(vStart))
+            .and(
+                s.AGENT_REPORTED_POD_UID
+                    .isNull()
+                    .or(vUid.isNull())
+                    .or(s.AGENT_REPORTED_POD_UID.eq(vUid)));
     newPod = newPod.andNot(reportedByNewPod);
 
     List<SelectField<?>> returning = new ArrayList<>(List.of(s.fields()));
@@ -425,6 +440,9 @@ public class AgentRuntimeSettingRepository {
         .set(s.AGENT_ISSUE_KEYS, clearedIf(newPod, s.AGENT_ISSUE_KEYS))
         .set(s.AGENT_NEXT_CHECK_AT, clearedIf(newPod, s.AGENT_NEXT_CHECK_AT))
         .set(s.AGENT_REPORTED_AT, clearedIf(newPod, s.AGENT_REPORTED_AT))
+        // WP-2010: 보고 시각과 짝인 그 보고의 Pod 정체·시작 시각도 함께 비운다 — 시각만 비고 짝이 남으면 적용 판정이 짝이 맞지 않는 값을 읽는다.
+        .set(s.AGENT_REPORTED_POD_UID, clearedIf(newPod, s.AGENT_REPORTED_POD_UID))
+        .set(s.AGENT_REPORTED_POD_STARTED_AT, clearedIf(newPod, s.AGENT_REPORTED_POD_STARTED_AT))
         .from(v, before)
         .where(s.AGENT_USER_ID.eq(vId))
         // 받을 행은 before(위 curAt 으로 잠가 읽은 행)가 정한다 — 잠근 행이라 그 사이 조건이 바뀌지 않는다.
@@ -601,6 +619,9 @@ public class AgentRuntimeSettingRepository {
    *
    * @param issueKeys 현재 이슈 키 목록(칸 키 순) — 첫 키를 agent_issue_key 에도 쓴다
    * @param reportedAt 합친 칸의 마지막 보고 시각 — 뜻은 {@code AgentSlotAggregate#latestReportedAt}(WP-1969)
+   * @param reportedPodUid 그 시각을 낸 칸의 Pod 정체(WP-2010) — agent_reported_pod_uid 에 쓴다. 정체를 모르면 null
+   * @param reportedPodStartedAt 그 시각을 낸 같은 칸의 Pod 시작 시각(WP-2010) — agent_reported_pod_started_at 에
+   *     쓴다. 모르면 null
    * @return 쓴 뒤 행
    */
   public Row writeAgentState(
@@ -608,7 +629,9 @@ public class AgentRuntimeSettingRepository {
       AgentState state,
       List<String> issueKeys,
       OffsetDateTime nextCheckAt,
-      OffsetDateTime reportedAt) {
+      OffsetDateTime reportedAt,
+      String reportedPodUid,
+      OffsetDateTime reportedPodStartedAt) {
     var s = AGENT_RUNTIME_SETTING;
     return dsl.update(s)
         .set(s.AGENT_STATE, state == null ? null : state.name())
@@ -616,6 +639,8 @@ public class AgentRuntimeSettingRepository {
         .set(s.AGENT_ISSUE_KEYS, issueKeys.toArray(new String[0]))
         .set(s.AGENT_NEXT_CHECK_AT, nextCheckAt)
         .set(s.AGENT_REPORTED_AT, reportedAt)
+        .set(s.AGENT_REPORTED_POD_UID, reportedPodUid)
+        .set(s.AGENT_REPORTED_POD_STARTED_AT, reportedPodStartedAt)
         .where(s.AGENT_USER_ID.eq(agentUserId))
         .returning()
         .fetchOne(this::map);
@@ -630,6 +655,7 @@ public class AgentRuntimeSettingRepository {
    * @param at 차단을 보고한 시각 — message 가 null 이면 함께 지운다
    * @param podStartedAt 그 사유를 보고한 Pod 의 시작 시각(WP-1958, 보고에 없으면 null) — message 가 null 이면 함께 지운다.
    *     끝나는 중인 옛 Pod 의 늦은 보고가 새 Pod 의 차단 사유를 덮지 않게 서비스가 비교한다
+   * @param podUid 그 사유를 보고한 Pod 의 정체(WP-2010, 모르면 null) — message 가 null 이면 함께 지운다
    * @param generation 그 사유를 보고한 Pod 의 generation — null(보고에 없음)도 그대로 남긴다. 지금 generation 과 다른 값을 들고
    *     있는 보고는 서비스가 이 메서드를 부르기 전에 걸러 낸다(끝나는 중인 옛 Pod 의 늦은 보고가 새 generation 을 덮지 않게 — 예외는 {@code
    *     AgentPaneReportService#acceptableGeneration}, WP-1969)
@@ -639,14 +665,19 @@ public class AgentRuntimeSettingRepository {
       String message,
       OffsetDateTime at,
       Long generation,
-      OffsetDateTime podStartedAt) {
+      OffsetDateTime podStartedAt,
+      String podUid) {
     var s = AGENT_RUNTIME_SETTING;
-    OffsetDateTime savedAt = message == null ? null : at;
+    // message 가 null 이면 나머지 칸도 함께 비운다. 정체는 공백이면 없음(null)으로 맞춘다(WP-2010).
+    boolean blocked = message != null;
     dsl.update(s)
         .set(s.PANE_BLOCKED_MESSAGE, message)
-        .set(s.PANE_BLOCKED_AT, savedAt)
-        .set(s.PANE_BLOCKED_GENERATION, message == null ? null : generation)
-        .set(s.PANE_BLOCKED_POD_STARTED_AT, message == null ? null : podStartedAt)
+        .set(s.PANE_BLOCKED_AT, blocked ? at : null)
+        .set(s.PANE_BLOCKED_GENERATION, blocked ? generation : null)
+        .set(s.PANE_BLOCKED_POD_STARTED_AT, blocked ? podStartedAt : null)
+        .set(
+            s.PANE_BLOCKED_POD_UID,
+            blocked ? AgentRuntimeSlotRepository.nullIfNoIdentity(podUid) : null)
         .where(s.AGENT_USER_ID.eq(agentUserId))
         .execute();
   }
