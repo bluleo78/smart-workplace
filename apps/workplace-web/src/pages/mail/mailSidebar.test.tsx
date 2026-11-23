@@ -958,12 +958,59 @@ test('이전 메일이 아직 가져올 수 없음(running)이면 빈 목록에 
   const emptyBox = await screen.findByTestId('mail-list-empty')
   expect(emptyBox.querySelector('svg')).not.toBeNull()
   expect(within(emptyBox).getByText('받은 메일이 없어요')).toBeInTheDocument()
-  expect(within(emptyBox).getByText('동기화를 눌러보세요.')).toBeInTheDocument()
+  expect(within(emptyBox).getByText('새로고침 단추를 눌러보세요.')).toBeInTheDocument()
   await waitFor(() => expect(olders.calls).toHaveLength(1))
   await waitFor(() => expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument())
   await act(() => new Promise((r) => setTimeout(r, 300)))
   expect(olders.calls).toHaveLength(1)
   expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument()
+})
+
+// ── 빈 상태 문구 회귀 가드(WP-1864 리뷰) — 검색 0건·보낸편지함은 받은편지함 안내와 다른 문구를 쓴다 ─────
+
+test('검색 결과가 0건이면 「검색 결과가 없어요」와 「다른 검색어로 찾아보세요.」를 보인다 (WP-1864)', async () => {
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  renderMail('/mail/1?q=없는검색어', { handlers: [list.handler] })
+  const emptyBox = await screen.findByTestId('mail-list-empty')
+  // 실제로 검색을 건 목록을 받아야 빈 상태다 — 받은편지함 기본 0건과 구분된다.
+  expect(list.last().url.searchParams.get('query')).toBe('없는검색어')
+  expect(within(emptyBox).getByText('검색 결과가 없어요')).toBeInTheDocument()
+  expect(within(emptyBox).getByText('다른 검색어로 찾아보세요.')).toBeInTheDocument()
+  expect(within(emptyBox).queryByText('새로고침 단추를 눌러보세요.')).not.toBeInTheDocument()
+})
+
+test('보낸편지함이 비어 있으면 「보낸 메일이 없어요」와 「메일을 보내면 여기에 모여요.」를 보인다 (WP-1864)', async () => {
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  renderMail('/mail/1?folder=sent', { handlers: [list.handler] })
+  const emptyBox = await screen.findByTestId('mail-list-empty')
+  expect(list.last().url.searchParams.get('folder')).toBe('SENT')
+  expect(within(emptyBox).getByText('보낸 메일이 없어요')).toBeInTheDocument()
+  expect(within(emptyBox).getByText('메일을 보내면 여기에 모여요.')).toBeInTheDocument()
+  expect(within(emptyBox).queryByText('새로고침 단추를 눌러보세요.')).not.toBeInTheDocument()
+})
+
+// 동기화 단추가 없는 보기(서버 메일함·별표 모아 보기) — 단추를 가리키는 문구를 쓰지 않는다(WP-1864 재반려 1).
+
+test('서버 메일함 보기는 동기화 단추가 없고 그 안내 문구도 없다 (WP-1864)', async () => {
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  renderMail('/mail/1?box=5', {
+    handlers: [
+      list.handler,
+      // 가져온 메일함(folderSyncedAt 있음) — 상태 줄이 새로 고침을 맡아 목록 위 동기화 단추는 그리지 않는다.
+      http.get(FOLDERS, () => HttpResponse.json(folderList({ 5: { folderSyncedAt: syncedAt(), syncedSince: since(90) } }))),
+    ],
+  })
+  expect(await screen.findByTestId('mail-box-empty')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-sync')).not.toBeInTheDocument()
+  expect(screen.queryByText('새로고침 단추를 눌러보세요.')).not.toBeInTheDocument()
+})
+
+test('별표 모아 보기는 동기화 단추가 없고 그 안내 문구도 없다 (WP-1864)', async () => {
+  const list = record('get', LIST, () => HttpResponse.json([]))
+  renderMail('/mail/1?flagged=true', { handlers: [list.handler] })
+  expect(await screen.findByTestId('mail-flagged-empty')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-sync')).not.toBeInTheDocument()
+  expect(screen.queryByText('새로고침 단추를 눌러보세요.')).not.toBeInTheDocument()
 })
 
 test('running 으로 기다리던 중 목록이 다시 받아지면 이전 메일을 다시 묻는다 (WP-1878)', async () => {

@@ -4,7 +4,9 @@
 //  - 안 읽은 메일만·모두 읽음은 오른쪽 end 슬롯 — MailListActions
 // 두 컴포넌트는 렌더만 한다. 상태·동작(동기화 요청·URL 갱신·모두 읽음 확인)은 페이지가 넘긴다.
 import { CheckCheck, RefreshCw } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDateTime, formatRelativeTime } from '@/lib/formatters'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
@@ -24,18 +26,42 @@ export function MailSyncControls({
   /** 본문 보충 진행률 — 있으면 동기화 시각 대신 보인다 */
   progress: { done: number; total: number } | null
 }) {
+  // 아이콘 단추의 이름 한 곳에서 — aria-label 과 툴팁이 같은 문자열을 써야 어긋날 수 없다(CopyLinkButton 과 같은 방식).
+  const label = '지금 새로고침'
+  // 트리거는 바깥 span 이라 Radix 는 aria-describedby 를 span 에만 단다(WP-1864 재반려 2 — 단추가 설명을 물어야 한다).
+  // 열렸을 때 span 에 붙은 그 id 를 그대로 단추에 옮겨 준다 — 툴팁 설명은 툴팁 하나가 원본이라 복제하지 않는다.
+  const [open, setOpen] = useState(false)
+  const [describedBy, setDescribedBy] = useState<string | undefined>(undefined)
+  const triggerRef = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    setDescribedBy((open && triggerRef.current?.getAttribute('aria-describedby')) || undefined)
+  }, [open])
   return (
     <>
-      <button
-        type="button"
-        data-testid="mail-sync"
-        aria-label="지금 새로고침"
-        onClick={onSync}
-        disabled={busy}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 @max-2xl:h-10 @max-2xl:w-10"
-      >
-        <RefreshCw className={cn('h-4 w-4', busy && 'animate-spin')} />
-      </button>
+      {/* 아이콘만 있는 단추라 눌러야 무엇인지 알 수 있었다(WP-1864) — hover·focus 툴팁으로 이름을 보인다.
+          트리거를 버튼이 아닌 바깥 span 에 둔다 — disabled 단추는 Safari 등 일부 브라우저에서 이벤트가 불안정해,
+          호버·초점·이탈이 항상 잡히도록(검토자 지적, WP-1864). 꺼진 단추는 pointer-events 를 끊어
+          포인터가 그대로 span 에 닿게 한다 — 같은 파일의 「모두 읽음」 단추와 같은 방식이다(검토자 지적, WP-1864). */}
+      <TooltipProvider delayDuration={300}>
+        <Tooltip onOpenChange={setOpen}>
+          <TooltipTrigger asChild>
+            <span ref={triggerRef} className="inline-flex shrink-0">
+              <button
+                type="button"
+                data-testid="mail-sync"
+                aria-label={label}
+                aria-describedby={describedBy}
+                onClick={onSync}
+                disabled={busy}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50 @max-2xl:h-10 @max-2xl:w-10"
+              >
+                <RefreshCw className={cn('h-4 w-4', busy && 'animate-spin')} />
+              </button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{label}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시(절대 시각은 title).
           한 줄 유지. 좁은 줄은 가로 스크롤 줄이라 줄어들지 않으므로, 필터 줄이 좁을 때(FilterLine 의 @2xl 분기와 같은 컨테이너 폭
           기준 — 모바일·데스크톱 좁은 메일 열 모두)만 폭 상한을 둬 넘치면 말줄임한다 — 그래야 360px 에서도 오른쪽 끝 「모두 읽음」이 화면 안에 남는다.
