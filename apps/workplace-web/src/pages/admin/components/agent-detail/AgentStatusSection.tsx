@@ -209,7 +209,7 @@ function digitParticle(text: string, withFinal: string, withoutFinal: string): s
 const keyObjectParticle = (text: string) => digitParticle(text, '을', '를') ?? objectParticle(text);
 const keySubjectParticle = (text: string) => digitParticle(text, '이', '가') ?? subjectParticle(text);
 
-/** 확인 창 ①의 종류 — 쉴 때 적용을 지금 하기 / 재시작 / 쉴 때까지 미룬 실패의 재시작(retry). */
+/** 확인 창 ①의 종류 — 지금 적용(apply) / 실행 중 재시작(restart) / 실패 경로의 재시작(retry) — 확정 단추가 각 본문을 부른다. */
 type NowConfirm = 'apply' | 'restart' | 'retry' | null;
 
 /**
@@ -231,7 +231,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const status = saved?.status ?? 'OFF';
   const observed = saved?.observed ?? null;
   const running = isRunningStatus(status);
-  // 원하는 상태가 RUN 인데 실패면 자리는 이미 잡혀 있어 확인 없이 「재시작」·「종료」.
+  // 원하는 상태가 RUN 인데 실패면 자리는 이미 잡혀 있어 「재시작」·「종료」 단추를 보인다(하던 일이 있으면 확인 창은 아래 게이트가 맡는다).
   const failedOn = status === 'FAILED' && saved?.desired === 'RUN';
   const off = !running && !failedOn && status !== 'STOPPING';
   // 시작 실패가 쉴 때까지 미뤄진 상태(FAILED + 서버 판정 AT_IDLE) — 하던 일이 있어 서버가 바꾸지 않고 기다린다.
@@ -255,9 +255,11 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   // 다시 시작된 사유 경고(WP-1794) — 실행 중일 때만. 오류는 위 detail 이 사유를 보인다.
   const notice = runtimeNotice({ status, message: observed?.message });
   const working = running && observed?.agentState === 'WORKING';
-  // 하던 일을 끊게 되는지 — 지금 적용·재시작 확인 창을 거칠지(실행 중이거나 미뤄진 실패인데 AI 가 일하는 중).
-  const live = running || held; // 도는 중이거나 쉴 때로 미룬 실패 — 하던 일이 있을 수 있다
-  const interrupts = live && observed?.agentState === 'WORKING';
+  // 하던 일을 끊게 되는지 — 지금 적용·재시작 확인 창을 거칠지(일하는 중이면 누구나, 아니면 확인 없이 바로).
+  // 하던 일 — 작업 중·차단됨(서버 판정과 같은 기준). 실패(FAILED)도 하던 일이 있으니 failedOn 을 함께 본다.
+  const live = running || failedOn;
+  const hasWork = observed?.agentState === 'WORKING' || observed?.agentState === 'BLOCKED';
+  const interrupts = live && hasWork;
   // 확인 창에 적을 현재 이슈 — 여러 칸이 일하면 모두(쉼표로 이음), 조사는 마지막 키 기준. 없으면 null.
   const issueKeys = currentIssueKeys(observed ?? {});
   const issueKey = issueKeys.length > 0 ? issueKeys.join(', ') : null;
@@ -266,9 +268,10 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const acceptSwitchShown = saved != null && saved.desired !== 'STOP';
   const acceptNewWork = acceptMut.isPending ? acceptMut.variables : (saved?.acceptNewWork ?? true);
   const newWorkPaused = acceptSwitchShown && !acceptNewWork;
-  // 종료하면 끊길 하던 작업 — 상태 알약 옆에 보이는 이슈 키와 같은 값. 없으면 확인 없이 바로 종료한다.
+  // 종료하면 끊길 하던 작업 — 알약 옆 이슈 키와 같은 목록을 쓰되, 하던 일이 있을 수 있는 축(live: 실행 중·실패)일 때만 담는다.
+  // 키가 비어도 하던 일이 있으면(interrupts) 확인 창을 먼저 띄운다(WP-2018).
   const stopKeys = live ? issueKeys : [];
-  const onStop = () => (stopKeys.length > 0 ? setStopConfirm(stopKeys) : action.mutate('stop'));
+  const onStop = () => ((interrupts || stopKeys.length > 0) ? setStopConfirm(stopKeys) : action.mutate('stop'));
   // 알약 옆 설명 — 이슈 키·다음 확인·실패 사유가 없을 때 그 상태가 무엇인지 한 줄로.
   const stateNote =
     restartingWithNew
@@ -293,17 +296,18 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
     if (dirty && draft) save.mutate(draft.body(), { onSuccess: () => action.mutate('start') });
     else action.mutate('start');
   };
-  // 실패한 채 실행 중이면 — 바뀐 설정은 NOW 로 저장해 바로 다시 만들고, 아니면 재시작(서버가 다시 만든다).
-  const onRetry = () => {
+  // 재시작 본문 — 바뀐 설정은 NOW 로 저장해 바로 다시 만들고, 없으면 쉴 때까지 미룬 실패(held)는 restart(서버 start 는 미룬 실패를 바꾸지 않는다),
+  // 그 밖의 실패는 기존 start(서버가 다시 만든다). 확인 창 ①의 확정 단추도 이 본문을 그대로 부른다(WP-2018).
+  const runRetry = () => {
     if (dirty && draft) save.mutate(draft.body('NOW'));
+    else if (held) action.mutate('restart');
     else action.mutate('start');
   };
-  // 쉴 때까지 미뤄진 실패의 재시작 — 서버 start 는 미룬 실패를 바꾸지 않으니 고친 설정은 NOW 로 저장하고, 아니면 restart.
-  const retryHeld = () => {
-    if (dirty && draft) save.mutate(draft.body('NOW'));
-    else action.mutate('restart');
+  // 실패 경로의 재시작 단추 — 하던 일이 있으면(작업 중·차단됨) 확인 창을 먼저 띄우고, 없으면 재시작 본문을 그대로 보낸다(WP-2018).
+  const onRetryClick = () => {
+    if (interrupts) setNowConfirm('retry');
+    else runRetry();
   };
-  const onRetryHeld = () => (interrupts ? setNowConfirm('retry') : retryHeld());
   // 지금 적용 — 같은 설정을 NOW 로 다시 보내 작업 중이어도 바로 다시 만든다. 일하는 중이면 확인 창 ①.
   const applyNow = () => saved && save.mutate({ templateName: saved.templateName, locationId: saved.locationId, config: saved.config, applyMode: 'NOW' });
   const onApplyNow = () => (interrupts ? setNowConfirm('apply') : applyNow());
@@ -411,8 +415,9 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         </div>
       )}
 
-      {/* 「동시 진행」(WP-1754) — 한 번에 맡는 이슈 수. 실행 설정이 있으면 켜져 있든 종료됐든 고를 수 있다(종료된 AI 도 다음 시작부터 적용). */}
-      {saved != null && <SlotLimitRow agentId={agent.id} saved={saved} running={live} />}
+      {/* 「동시 진행」(WP-1754) — 한 번에 맡는 이슈 수. 실행 설정이 있으면 켜져 있든 종료됐든 고를 수 있다(종료된 AI 도 다음 시작부터 적용).
+          확인 창 게이트의 `live` 와 달리 자리 표시는 기존 범위 유지 — 미룬 실패(held)까지만 자리 조회를 켠다. */}
+      {saved != null && <SlotLimitRow agentId={agent.id} saved={saved} running={running || held} />}
 
       {applyHeld && (
         <div
@@ -508,13 +513,13 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
       <div className="flex flex-wrap items-center gap-2">
         {(running || failedOn) && (
           <>
-            {/* 실행 중이면 지금 설정으로 다시 띄우고(확인 창 ①), 실패면 고친 설정을 저장하고 다시 켠다. */}
+            {/* 실행 중이면 지금 설정으로 다시 띄우고(확인 창 ①), 실패면 고친 설정을 저장하고 다시 켠다 — 하던 일이 있으면 둘 다 확인 창을 먼저 거친다. */}
             {running ? (
               <Button size="sm" variant="outline" disabled={pendingReq} onClick={onRestart} data-testid="agent-runtime-restart">
                 재시작
               </Button>
             ) : (
-              <Button size="sm" variant="outline" disabled={pendingReq || (draft?.missingRequired ?? false)} onClick={held ? onRetryHeld : onRetry} data-testid="agent-runtime-start">
+              <Button size="sm" variant="outline" disabled={pendingReq || (draft?.missingRequired ?? false)} onClick={onRetryClick} data-testid="agent-runtime-start">
                 재시작
               </Button>
             )}
@@ -533,7 +538,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         )}
       </div>
 
-      {/* 확인 창 ① — 일하는 중에 지금 적용·재시작. 일하는 중이 아니면 확인 없이 바로 한다. */}
+      {/* 확인 창 ① — 하던 일이 있는 중(작업 중·차단됨, 실패 포함)에 지금 적용·재시작. 하던 일이 없으면 확인 없이 바로 한다. */}
       <AlertDialog open={nowConfirm != null} onOpenChange={(o) => !o && setNowConfirm(null)}>
         <AlertDialogContent size="sm" data-help="agent.status.run">
           <AlertDialogHeader>
@@ -549,8 +554,9 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
             <AlertDialogCancel>취소</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
+                // 게이트는 단추를 누른 시점에 거쳤으니 확정은 재시작 본문만 부른다 — held 는 확정 시점의 값으로 다시 읽는다(WP-2018).
                 if (nowConfirm === 'restart') action.mutate('restart');
-                else if (nowConfirm === 'retry') retryHeld();
+                else if (nowConfirm === 'retry') runRetry();
                 else applyNow();
                 setNowConfirm(null);
               }}
@@ -561,14 +567,19 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* 종료 확인 창(WP-1514) — 하던 작업이 있을 때만. 종료는 작업 공간을 지우니 끊길 이슈와, 마치게 하는 방법(「새 작업 받기」 끄기)을 알린다. */}
+      {/* 종료 확인 창(WP-1514) — 하던 일이 있을 때만(차단됐는데 이슈 키가 아직 없어도). 종료는 작업 공간을 지우니 끊길 이슈와, 마치게 하는 방법(「새 작업 받기」 끄기)을 알린다. */}
       <AlertDialog open={stopConfirm != null} onOpenChange={(open) => !open && setStopConfirm(null)}>
         <AlertDialogContent size="sm" data-help="agent.status.run">
           <AlertDialogHeader>
             <AlertDialogTitle>{agent.name} {keyObjectParticle(agent.name)} 종료할까요?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-1">
-                <p>하던 작업 {confirmKeys.join(', ')} {keySubjectParticle(confirmKeys.at(-1) ?? '')} 끊기고, 작업 공간의 커밋·push 하지 않은 변경은 지워져요.</p>
+                {/* 키가 있으면 끊길 이슈를 조사와 함께 적고, 비면 「하던 일이」로 받친다 — 문장 자리만 바꾼다(WP-2018). */}
+                <p>
+                  {confirmKeys.length > 0
+                    ? `하던 작업 ${confirmKeys.join(', ')} ${keySubjectParticle(confirmKeys.at(-1) ?? '')} 끊기고, 작업 공간의 커밋·push 하지 않은 변경은 지워져요.`
+                    : '하던 일이 끊기고, 작업 공간의 커밋·push 하지 않은 변경은 지워져요.'}
+                </p>
                 <p>하던 작업을 마치게 하려면 「새 작업 받기」를 먼저 끄세요.</p>
               </div>
             </AlertDialogDescription>
