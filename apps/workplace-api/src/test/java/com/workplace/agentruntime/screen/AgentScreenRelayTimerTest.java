@@ -8,10 +8,10 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -19,8 +19,11 @@ import static org.mockito.Mockito.when;
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -38,14 +41,27 @@ import tools.jackson.databind.ObjectMapper;
 class AgentScreenRelayTimerTest {
 
   @Test
-  void tick_이_Error_로_끝나도_다음_주기가_돈다() {
+  void 임대_갱신이_Error_로_끝나도_던지지_않아_다음_주기가_돈다() {
     RunnerSseRegistry registry = mock(RunnerSseRegistry.class);
-    AgentScreenTickets tickets = mock(AgentScreenTickets.class);
-    // 첫 호출은 Error, 이후는 정상 — 타이머가 살아 있으면 2번 이상 불린다.
-    doThrow(new StackOverflowError("테스트")).doNothing().when(tickets).removeExpired(any());
-    AgentScreenRelay relay = new AgentScreenRelay(registry, tickets, new ObjectMapper());
+    // 첫 임대 갱신은 Error, 이후는 정상 — 갱신 주기 작업이 Error 를 삼켜야 executor 가 다음 주기(30초)를 취소하지 않는다.
+    // 주기가 30초라 실제 스레드를 기다리지 않고 주기 작업(renew)을 직접 두 번 부른다.
+    AtomicInteger renewCalls = new AtomicInteger();
+    AgentScreenRoutes routes = spy(new InMemoryAgentScreenRoutes());
+    doAnswer(
+            inv -> {
+              if (renewCalls.incrementAndGet() == 1) throw new StackOverflowError("테스트");
+              return Set.of();
+            })
+        .when(routes)
+        .renew(any(), any());
+    AgentScreenRelay relay =
+        new AgentScreenRelay(
+            registry, routes, new AgentScreenPod("127.0.0.1", 6060), new ObjectMapper());
     try {
-      verify(tickets, timeout(5_000).atLeast(2)).removeExpired(any());
+      relay.reserve(UUID.randomUUID(), 1L, 10L, 100L, 1L, Instant.now().plusSeconds(60), null);
+      assertDoesNotThrow(relay::renew);
+      assertDoesNotThrow(relay::renew);
+      assertEquals(2, renewCalls.get());
     } finally {
       relay.shutdown();
     }
@@ -53,14 +69,14 @@ class AgentScreenRelayTimerTest {
 
   @Test
   void tick_은_한_세션이_실패해도_다른_세션을_계속_처리한다() {
-    AgentScreenRelay relay = newRelayWithoutTimer(mock(AgentScreenTickets.class));
+    AgentScreenRelay relay = newRelayWithoutTimer();
     relay.setService(mock(AgentScreenService.class));
     try {
       Instant past = Instant.now().minusSeconds(60);
       UUID a = UUID.randomUUID();
       UUID b = UUID.randomUUID();
-      relay.reserve(a, 1L, 10L, 100L, 1L, past);
-      relay.reserve(b, 1L, 10L, 100L, 1L, past);
+      relay.reserve(a, 1L, 10L, 100L, 1L, past, null);
+      relay.reserve(b, 1L, 10L, 100L, 1L, past, null);
       // 먼저 처리되는 세션의 닫기에서만 Error — close 안의 단계 격리와 무관하게 tick 의 세션별 catch 만 본다.
       AgentScreenRelay failing = spy(relay);
       doThrow(new StackOverflowError("테스트"))
@@ -83,11 +99,11 @@ class AgentScreenRelayTimerTest {
   void tick_은_입력_기록이_매번_Error_여도_기한이_지난_세션을_닫는다() {
     AgentScreenService service = mock(AgentScreenService.class);
     doThrow(new StackOverflowError("테스트")).when(service).recordInput(anyLong(), any(), anyList());
-    AgentScreenRelay relay = newRelayWithoutTimer(mock(AgentScreenTickets.class));
+    AgentScreenRelay relay = newRelayWithoutTimer();
     relay.setService(service);
     try {
       UUID id = UUID.randomUUID();
-      relay.reserve(id, 1L, 10L, 100L, 1L, Instant.now().minusSeconds(60));
+      relay.reserve(id, 1L, 10L, 100L, 1L, Instant.now().minusSeconds(60), null);
       pairsOf(relay).get(id).recorder.append(new byte[] {'a'});
 
       relay.tick();
@@ -101,7 +117,7 @@ class AgentScreenRelayTimerTest {
 
   @Test
   void tick_은_한_세션의_핑이_Error_여도_다른_세션에_핑을_보낸다() throws Exception {
-    AgentScreenRelay relay = newRelayWithoutTimer(mock(AgentScreenTickets.class));
+    AgentScreenRelay relay = newRelayWithoutTimer();
     relay.setService(mock(AgentScreenService.class));
     // 두 세션이 같은 소켓 목을 쓴다 — 순회 순서와 무관하게 첫 핑만 Error, 둘째 핑은 정상.
     WebSocketSession socket = openSocket();
@@ -113,8 +129,8 @@ class AgentScreenRelayTimerTest {
       Instant future = Instant.now().plusSeconds(60);
       UUID a = UUID.randomUUID();
       UUID b = UUID.randomUUID();
-      relay.reserve(a, 1L, 10L, 100L, 1L, future);
-      relay.reserve(b, 1L, 10L, 100L, 1L, future);
+      relay.reserve(a, 1L, 10L, 100L, 1L, future, null);
+      relay.reserve(b, 1L, 10L, 100L, 1L, future, null);
       pairsOf(relay).get(a).browser = socket;
       pairsOf(relay).get(b).browser = socket;
       ReflectionTestUtils.setField(relay, "lastPing", Instant.EPOCH);
@@ -129,14 +145,14 @@ class AgentScreenRelayTimerTest {
 
   @Test
   void ping_은_브라우저_핑이_Error_여도_runner_에_핑을_보낸다() throws Exception {
-    AgentScreenRelay relay = newRelayWithoutTimer(mock(AgentScreenTickets.class));
+    AgentScreenRelay relay = newRelayWithoutTimer();
     relay.setService(mock(AgentScreenService.class));
     WebSocketSession browser = openSocket();
     WebSocketSession runner = openSocket();
     doThrow(new StackOverflowError("테스트")).when(browser).sendMessage(any(PingMessage.class));
     try {
       UUID id = UUID.randomUUID();
-      relay.reserve(id, 1L, 10L, 100L, 1L, Instant.now().plusSeconds(60));
+      relay.reserve(id, 1L, 10L, 100L, 1L, Instant.now().plusSeconds(60), null);
       pairsOf(relay).get(id).browser = browser;
       pairsOf(relay).get(id).runner = runner;
       ReflectionTestUtils.setField(relay, "lastPing", Instant.EPOCH);
@@ -151,10 +167,10 @@ class AgentScreenRelayTimerTest {
 
   @Test
   void tick_은_핑_단계가_Error_로_끝나도_밖으로_던지지_않는다() {
-    AgentScreenRelay relay = newRelayWithoutTimer(mock(AgentScreenTickets.class));
+    AgentScreenRelay relay = newRelayWithoutTimer();
     relay.setService(mock(AgentScreenService.class));
     try {
-      relay.reserve(UUID.randomUUID(), 1L, 10L, 100L, 1L, Instant.now().plusSeconds(60));
+      relay.reserve(UUID.randomUUID(), 1L, 10L, 100L, 1L, Instant.now().plusSeconds(60), null);
       ReflectionTestUtils.setField(relay, "lastPing", Instant.EPOCH);
       // ping 이 소켓별 catch 밖에서 던지는 경우(예: catch 안 로그가 다시 던짐)를 흉내 낸다 — 바깥 catch 가 없으면 tick 밖으로 새어
       // executor 가 주기 작업을 취소한다.
@@ -168,6 +184,73 @@ class AgentScreenRelayTimerTest {
     }
   }
 
+  /**
+   * 임대 갱신(DB)이 멈춰도 타이머의 핑은 제때 나간다(WP-1978 리뷰) — 갱신이 타이머 스레드에서 돌면 DB 가 멈춘 동안 핑도 멈춰 넘겨 온 소켓의 퐁 제한이
+   * 거짓으로 지나 멀쩡한 화면이 닫힌다. 실제 타이머를 돌리고 갱신을 래치로 붙든 채 핑이 나가는지 본다.
+   */
+  @Test
+  void 임대_갱신이_멈춰도_핑은_나간다() throws Exception {
+    CountDownLatch renewEntered = new CountDownLatch(1);
+    CountDownLatch releaseRenew = new CountDownLatch(1);
+    AgentScreenRoutes routes = spy(new InMemoryAgentScreenRoutes());
+    doAnswer(
+            inv -> {
+              renewEntered.countDown();
+              releaseRenew.await(30, TimeUnit.SECONDS);
+              return Set.of();
+            })
+        .when(routes)
+        .renew(any(), any());
+    AgentScreenRelay relay =
+        new AgentScreenRelay(
+            mock(RunnerSseRegistry.class),
+            routes,
+            new AgentScreenPod("127.0.0.1", 6060),
+            new ObjectMapper());
+    relay.setService(mock(AgentScreenService.class));
+    WebSocketSession browser = openSocket();
+    try {
+      UUID id = UUID.randomUUID();
+      relay.reserve(id, 1L, 10L, 100L, 1L, Instant.now().plusSeconds(60), null);
+      pairsOf(relay).get(id).browser = browser;
+      // 갱신 주기(30초)를 기다리지 않고 다른 스레드에서 갱신을 돌려 DB 호출 안에 붙들어 둔다 — 실제 타이머의 핑이 그 갱신을 기다리지 않는지 본다.
+      Thread renewing = new Thread(relay::renew, "test-renew");
+      renewing.setDaemon(true);
+      renewing.start();
+      assertEquals(true, renewEntered.await(5, TimeUnit.SECONDS));
+
+      ReflectionTestUtils.setField(relay, "lastPing", Instant.EPOCH);
+
+      verify(browser, org.mockito.Mockito.timeout(5_000)).sendMessage(any(PingMessage.class));
+    } finally {
+      releaseRenew.countDown();
+      relay.shutdown();
+    }
+  }
+
+  /**
+   * 표 만료 뒤 유예(FORWARD_GRACE) 동안은 「열지 않음」으로 닫지 않는다(WP-1978 리뷰) — 다른 파드가 만료 직전에 표를 쓰고 이어 붙이는 중일 수 있다.
+   * 유예가 지나면 닫는다.
+   */
+  @Test
+  void 표_만료_뒤_유예_동안은_닫지_않는다() {
+    AgentScreenRelay relay = newRelayWithoutTimer();
+    relay.setService(mock(AgentScreenService.class));
+    try {
+      UUID withinGrace = UUID.randomUUID();
+      UUID pastGrace = UUID.randomUUID();
+      relay.reserve(withinGrace, 1L, 10L, 100L, 1L, Instant.now().minusSeconds(5), null);
+      relay.reserve(pastGrace, 1L, 10L, 100L, 1L, Instant.now().minusSeconds(11), null);
+
+      relay.tick();
+
+      assertEquals(true, relay.canAttachBrowser(withinGrace, 1L));
+      assertFalse(relay.canAttachBrowser(pastGrace, 1L));
+    } finally {
+      relay.shutdown();
+    }
+  }
+
   /** 열린 상태로 보이는 소켓 목. */
   private static WebSocketSession openSocket() {
     WebSocketSession s = mock(WebSocketSession.class);
@@ -176,10 +259,14 @@ class AgentScreenRelayTimerTest {
   }
 
   /** 백그라운드 타이머를 멈춘 relay — tick 을 테스트가 직접 부른다. */
-  private static AgentScreenRelay newRelayWithoutTimer(AgentScreenTickets tickets) {
+  private static AgentScreenRelay newRelayWithoutTimer() {
     AgentScreenRelay relay =
-        new AgentScreenRelay(mock(RunnerSseRegistry.class), tickets, new ObjectMapper());
-    ((ScheduledExecutorService) ReflectionTestUtils.getField(relay, "timer")).shutdownNow();
+        new AgentScreenRelay(
+            mock(RunnerSseRegistry.class),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            new ObjectMapper());
+    relay.stopTimerForTest();
     return relay;
   }
 

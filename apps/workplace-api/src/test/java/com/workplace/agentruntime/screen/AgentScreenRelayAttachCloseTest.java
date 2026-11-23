@@ -34,11 +34,14 @@ class AgentScreenRelayAttachCloseTest {
   void setUp() {
     relay =
         new AgentScreenRelay(
-            mock(RunnerSseRegistry.class), mock(AgentScreenTickets.class), new ObjectMapper());
+            mock(RunnerSseRegistry.class),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            new ObjectMapper());
     relay.setService(mock(AgentScreenService.class));
     relay.stopTimerForTest();
     id = UUID.randomUUID();
-    relay.reserve(id, TENANT, 2L, 3L, 4L, Instant.now().plusSeconds(600));
+    relay.reserve(id, TENANT, 2L, 3L, 4L, Instant.now().plusSeconds(600), null);
     pair = relay.pairOf(id);
   }
 
@@ -86,7 +89,7 @@ class AgentScreenRelayAttachCloseTest {
   void attachBrowser_afterClose_closesNewSocketWithPolicyViolation() throws Exception {
     relay.close(pair, "t", false);
     WebSocketSession sock = socket();
-    relay.attachBrowser(id, sock);
+    relay.attachBrowser(id, sock, false);
     ArgumentCaptor<CloseStatus> cap = ArgumentCaptor.forClass(CloseStatus.class);
     verify(sock, timeout(5000)).close(cap.capture());
     assertThat(cap.getValue().getCode()).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
@@ -95,7 +98,7 @@ class AgentScreenRelayAttachCloseTest {
   @Test
   void close_afterAttachBrowser_closesAttachedSocket() throws Exception {
     WebSocketSession sock = socket();
-    relay.attachBrowser(id, sock);
+    relay.attachBrowser(id, sock, false);
     relay.close(pair, "t", false);
     ArgumentCaptor<CloseStatus> cap = ArgumentCaptor.forClass(CloseStatus.class);
     verify(sock, timeout(5000)).close(cap.capture());
@@ -106,8 +109,8 @@ class AgentScreenRelayAttachCloseTest {
   void attachBoth_racingClose_allSocketsEndClosed() throws Exception {
     WebSocketSession browser = socket();
     WebSocketSession runner = socket();
-    Thread tb = new Thread(() -> relay.attachBrowser(id, browser));
-    Thread tr = new Thread(() -> relay.attachRunner(id, runner));
+    Thread tb = new Thread(() -> relay.attachBrowser(id, browser, false));
+    Thread tr = new Thread(() -> relay.attachRunner(id, runner, false));
     Thread tc = new Thread(() -> relay.close(pair, "t", false));
     synchronized (relay) {
       tb.start();

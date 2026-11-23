@@ -11,6 +11,7 @@ import com.workplace.agentruntime.service.AgentRuntimeStatusResolver;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.WorkspaceMemberGuard;
@@ -56,7 +57,6 @@ public class AgentScreenService {
   private final WorkspaceMemberGuard memberGuard;
   private final UserRepository userRepository;
   private final AuditLogService auditLogService;
-  private final AgentScreenTickets tickets;
   private final AgentScreenRelay relay;
   private final TenantScopedRunner tenantScopedRunner;
   private final TransactionTemplate tx;
@@ -68,7 +68,6 @@ public class AgentScreenService {
       WorkspaceMemberGuard memberGuard,
       UserRepository userRepository,
       AuditLogService auditLogService,
-      AgentScreenTickets tickets,
       AgentScreenRelay relay,
       TenantScopedRunner tenantScopedRunner,
       PlatformTransactionManager txManager) {
@@ -78,7 +77,6 @@ public class AgentScreenService {
     this.memberGuard = memberGuard;
     this.userRepository = userRepository;
     this.auditLogService = auditLogService;
-    this.tickets = tickets;
     this.relay = relay;
     this.tenantScopedRunner = tenantScopedRunner;
     this.tx = new TransactionTemplate(txManager);
@@ -89,7 +87,7 @@ public class AgentScreenService {
 
   /**
    * 작업 화면을 연다. 순서: 구성원 확인(아니면 404) → 실행 설정이 켜져 있고 상태가 RUNNING·APPLY_PENDING 인지(아니면 409) → 실제 위치(없으면
-   * 409) → 이 AI 의 열린 화면 수 자리 잡기(3개면 409) → 세션 행·감사 → 접속 표 발급.
+   * 409) → 모든 파드를 합친 이 AI 의 열린 화면 수 자리 잡기(접속 표 해시와 함께 공유 경로 표에, 3개면 409) → 세션 행·감사 → 접속 표 평문 응답.
    */
   public AgentScreenSessionResponse open(long callerId, long agentId) {
     long tenantId = TenantContext.require();
@@ -109,7 +107,16 @@ public class AgentScreenService {
 
     UUID sessionId = UUID.randomUUID();
     Instant expiresAt = Instant.now().plusSeconds(TICKET_TTL_SECONDS);
-    if (!relay.reserve(sessionId, tenantId, agentId, locationId, callerId, expiresAt)) {
+    // 접속 표(32바이트 난수, URL 에 안전한 Base64) — 공유 경로 표에는 해시만 넣고 평문은 응답에만 싣는다(DB·로그로 평문이 새지 않게, WP-1978).
+    String ticket = CapabilityTokens.generateUrlSafe(32);
+    if (!relay.reserve(
+        sessionId,
+        tenantId,
+        agentId,
+        locationId,
+        callerId,
+        expiresAt,
+        CapabilityTokens.sha256Hex(ticket))) {
       throw new AgentScreenConflictException("이 AI 의 작업 화면이 이미 3개 열려 있어요");
     }
     try {
@@ -125,8 +132,6 @@ public class AgentScreenService {
       relay.release(sessionId);
       throw e;
     }
-    String ticket =
-        tickets.issue(new AgentScreenTickets.Claims(sessionId, tenantId, callerId, expiresAt));
     return new AgentScreenSessionResponse(
         sessionId.toString(), ticket, expiresAt.atOffset(ZoneOffset.UTC));
   }
@@ -177,9 +182,9 @@ public class AgentScreenService {
   }
 
   /**
-   * 닫히지 않은 채 남은 옛 세션 행을 닫는다 — 파드가 비정상 종료하면 그 파드의 세션 행이 열린 채 남는다(정상 종료는 중계가 스스로 닫는다). 열린 화면 수는 메모리로
-   * 세므로 자리를 막지는 않지만 기록이 「열린 채」로 남지 않게 한다. 최대 수명(4시간)보다 오래된 행만 닫는다 — 롤링 배포 중 옛 파드에서 아직 살아 있는 세션의 기록을
-   * 새 파드가 닫아 버리지 않게. 서버가 뜰 때와 한 시간마다 돈다(어느 파드가 돌아도 같은 결과).
+   * 닫히지 않은 채 남은 옛 세션 행을 닫는다 — 파드가 비정상 종료하면 그 파드의 세션 행이 열린 채 남는다(정상 종료는 중계가 스스로 닫는다). 열린 화면 수는 공유 경로
+   * 표의 임대로 세므로 자리를 막지는 않지만 기록이 「열린 채」로 남지 않게 한다. 최대 수명(4시간)보다 오래된 행만 닫는다 — 롤링 배포 중 옛 파드에서 아직 살아 있는
+   * 세션의 기록을 새 파드가 닫아 버리지 않게. 서버가 뜰 때와 한 시간마다 돈다(어느 파드가 돌아도 같은 결과).
    */
   @EventListener(ApplicationReadyEvent.class)
   @Scheduled(fixedDelay = 1, initialDelay = 1, timeUnit = TimeUnit.HOURS)

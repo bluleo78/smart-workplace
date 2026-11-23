@@ -29,6 +29,7 @@ class AgentScreenRelayInputSendLockTest {
   private static final long AGENT = 2L;
 
   private AgentScreenRelay relay;
+  private InMemoryAgentScreenRoutes routes;
   private AgentScreenService service;
   private AgentScreenRelay.Pair holder; // 이미 입력을 쥔 화면
   private AgentScreenRelay.Pair other; // 입력을 달라는 같은 AI 의 다른 화면
@@ -38,16 +39,20 @@ class AgentScreenRelayInputSendLockTest {
 
   @BeforeEach
   void setUp() {
+    routes = new InMemoryAgentScreenRoutes();
     relay =
         new AgentScreenRelay(
-            mock(RunnerSseRegistry.class), mock(AgentScreenTickets.class), new ObjectMapper());
+            mock(RunnerSseRegistry.class),
+            routes,
+            new AgentScreenPod("127.0.0.1", 6060),
+            new ObjectMapper());
     service = mock(AgentScreenService.class);
     relay.setService(service);
     relay.stopTimerForTest();
     UUID holderId = UUID.randomUUID();
     otherId = UUID.randomUUID();
-    relay.reserve(holderId, TENANT, AGENT, 3L, 4L, Instant.now().plusSeconds(600));
-    relay.reserve(otherId, TENANT, AGENT, 3L, 4L, Instant.now().plusSeconds(600));
+    relay.reserve(holderId, TENANT, AGENT, 3L, 4L, Instant.now().plusSeconds(600), null);
+    relay.reserve(otherId, TENANT, AGENT, 3L, 4L, Instant.now().plusSeconds(600), null);
     holder = relay.pairOf(holderId);
     other = relay.pairOf(otherId);
   }
@@ -56,6 +61,12 @@ class AgentScreenRelayInputSendLockTest {
   void tearDown() {
     release.countDown();
     relay.shutdown();
+  }
+
+  /** 이미 입력을 쥔 화면으로 만든다 — 메모리 플래그와 공유 경로 표의 입력 중 표시(판정은 표로 한다, WP-1978). */
+  private void holdInput() {
+    holder.inputEnabled = true;
+    assertThat(routes.claimInput(holder.id, TENANT, AGENT)).isTrue();
   }
 
   /** 입력 켜기 프레임 — 브라우저 요청·runner 알림 모두 같은 모양이다. */
@@ -102,18 +113,18 @@ class AgentScreenRelayInputSendLockTest {
 
   @Test
   void requestInput_rejectionSend_doesNotHoldRelayLock() throws Exception {
-    holder.inputEnabled = true;
-    relay.attachBrowser(otherId, stuckSocket());
-    relay.attachRunner(otherId, socket());
+    holdInput();
+    relay.attachBrowser(otherId, stuckSocket(), false);
+    relay.attachRunner(otherId, socket(), false);
     Thread sender = new Thread(() -> relay.fromBrowserText(otherId, inputOn()));
     assertCloseNotBlockedWhileSending(sender);
   }
 
   @Test
   void runnerInput_firstRejectionSend_doesNotHoldRelayLock() throws Exception {
-    holder.inputEnabled = true;
-    relay.attachBrowser(otherId, socket());
-    relay.attachRunner(otherId, stuckSocket());
+    holdInput();
+    relay.attachBrowser(otherId, socket(), false);
+    relay.attachRunner(otherId, stuckSocket(), false);
     Thread sender = new Thread(() -> relay.fromRunner(otherId, inputOn()));
     assertCloseNotBlockedWhileSending(sender);
     assertThat(other.inputEnabled).isFalse();
@@ -124,13 +135,13 @@ class AgentScreenRelayInputSendLockTest {
     // 기록하는 동안 다른 화면이 먼저 입력을 켠 경우 — 기록 뒤 다시 보기에서 거절된다.
     doAnswer(
             inv -> {
-              holder.inputEnabled = true;
+              holdInput();
               return null;
             })
         .when(service)
         .recordInputEnabled(TENANT, otherId, AGENT, 4L);
-    relay.attachBrowser(otherId, socket());
-    relay.attachRunner(otherId, stuckSocket());
+    relay.attachBrowser(otherId, socket(), false);
+    relay.attachRunner(otherId, stuckSocket(), false);
     Thread sender = new Thread(() -> relay.fromRunner(otherId, inputOn()));
     assertCloseNotBlockedWhileSending(sender);
     assertThat(other.inputEnabled).isFalse();

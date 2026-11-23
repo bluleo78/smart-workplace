@@ -16,6 +16,7 @@ import com.workplace.jooq.tables.AgentReportedModel;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentScreenInput;
+import com.workplace.jooq.tables.AgentScreenRoute;
 import com.workplace.jooq.tables.AgentScreenSession;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
@@ -245,6 +246,7 @@ public class Indexes {
     public static final Index IDX_AGENT_RUNTIME_SETTING_AGENT = Internal.createIndex(DSL.name("idx_agent_runtime_setting_agent"), AgentRuntimeSetting.AGENT_RUNTIME_SETTING, new OrderField[] { AgentRuntimeSetting.AGENT_RUNTIME_SETTING.AGENT_USER_ID }, false);
     public static final Index IDX_AGENT_RUNTIME_SETTING_LOCATION = Internal.createIndex(DSL.name("idx_agent_runtime_setting_location"), AgentRuntimeSetting.AGENT_RUNTIME_SETTING, new OrderField[] { AgentRuntimeSetting.AGENT_RUNTIME_SETTING.LOCATION_ID }, false);
     public static final Index IDX_AGENT_SCREEN_INPUT_SESSION = Internal.createIndex(DSL.name("idx_agent_screen_input_session"), AgentScreenInput.AGENT_SCREEN_INPUT, new OrderField[] { AgentScreenInput.AGENT_SCREEN_INPUT.SESSION_ID, AgentScreenInput.AGENT_SCREEN_INPUT.ID }, false);
+    public static final Index IDX_AGENT_SCREEN_ROUTE_AGENT = Internal.createIndex(DSL.name("idx_agent_screen_route_agent"), AgentScreenRoute.AGENT_SCREEN_ROUTE, new OrderField[] { AgentScreenRoute.AGENT_SCREEN_ROUTE.TENANT_ID, AgentScreenRoute.AGENT_SCREEN_ROUTE.AGENT_USER_ID }, false);
     public static final Index IDX_AGENT_SCREEN_SESSION_AGENT = Internal.createIndex(DSL.name("idx_agent_screen_session_agent"), AgentScreenSession.AGENT_SCREEN_SESSION, new OrderField[] { AgentScreenSession.AGENT_SCREEN_SESSION.AGENT_USER_ID, AgentScreenSession.AGENT_SCREEN_SESSION.OPENED_AT.desc() }, false);
     public static final Index IDX_AGENT_SCREEN_SESSION_LOCATION = Internal.createIndex(DSL.name("idx_agent_screen_session_location"), AgentScreenSession.AGENT_SCREEN_SESSION, new OrderField[] { AgentScreenSession.AGENT_SCREEN_SESSION.LOCATION_ID }, false);
     public static final Index IDX_AGENT_WORK_EVENT_TENANT = Internal.createIndex(DSL.name("idx_agent_work_event_tenant"), AgentWorkEvent.AGENT_WORK_EVENT, new OrderField[] { AgentWorkEvent.AGENT_WORK_EVENT.TENANT_ID }, false);

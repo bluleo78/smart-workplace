@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.AGENT_LOCATION;
 import static com.workplace.jooq.Tables.AGENT_RUNNER_TOKEN;
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.AGENT_SCREEN_INPUT;
+import static com.workplace.jooq.Tables.AGENT_SCREEN_ROUTE;
 import static com.workplace.jooq.Tables.AGENT_SCREEN_SESSION;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.USER;
@@ -12,11 +13,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
+import com.workplace.agentruntime.screen.AgentScreenRoutes;
 import com.workplace.agentruntime.screen.AgentScreenService;
-import com.workplace.agentruntime.screen.AgentScreenTickets;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.websocket.ContainerProvider;
@@ -30,7 +32,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -79,7 +80,7 @@ class AgentScreenRelayTest extends IntegrationTestBase {
   @Autowired AgentLocationService locationService;
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired JwtTokenProvider jwt;
-  @Autowired AgentScreenTickets tickets;
+  @Autowired AgentScreenRoutes routes;
   @Autowired AgentScreenService screenService;
 
   private long admin;
@@ -154,6 +155,8 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     List<Long> users = new ArrayList<>(agents);
     users.add(admin);
     users.add(member);
+    // 공유 경로 표는 전역 표(RLS 없음)라 테넌트 컨텍스트 없이 지운다.
+    dsl.deleteFrom(AGENT_SCREEN_ROUTE).where(AGENT_SCREEN_ROUTE.AGENT_USER_ID.in(agents)).execute();
     cleanupInTenant(
         1L,
         () -> {
@@ -401,6 +404,31 @@ class AgentScreenRelayTest extends IntegrationTestBase {
         });
   }
 
+  /**
+   * 화면 수 상한은 모든 파드를 합쳐 센다(WP-1978) — 다른 파드가 주인인 같은 AI 의 살아 있는 경로 행 3개가 있으면 이 파드에 열린 화면이 없어도 409.
+   */
+  @Test
+  void limit_countsRowsOfOtherPods() throws Exception {
+    for (int i = 0; i < 3; i++) {
+      dsl.insertInto(AGENT_SCREEN_ROUTE)
+          .set(AGENT_SCREEN_ROUTE.SESSION_ID, UUID.randomUUID())
+          .set(AGENT_SCREEN_ROUTE.TENANT_ID, 1L)
+          .set(AGENT_SCREEN_ROUTE.AGENT_USER_ID, agent)
+          .set(AGENT_SCREEN_ROUTE.LOCATION_ID, l1)
+          .set(AGENT_SCREEN_ROUTE.OPENED_BY, admin)
+          .set(AGENT_SCREEN_ROUTE.OWNER_POD_ID, "other-pod")
+          .set(AGENT_SCREEN_ROUTE.OWNER_ADDR, "10.0.0.9:9090")
+          .set(AGENT_SCREEN_ROUTE.TICKET_EXPIRES_AT, OffsetDateTime.now().plusSeconds(30))
+          .set(AGENT_SCREEN_ROUTE.LEASE_UNTIL, OffsetDateTime.now().plusSeconds(90))
+          .execute();
+    }
+
+    HttpResponse<String> r = post(admin, agent);
+
+    assertThat(r.statusCode()).isEqualTo(409);
+    assertThat(r.body()).contains("이 AI 의 작업 화면이 이미 3개 열려 있어요");
+  }
+
   // ------------------------------------------------------------------ 표
 
   /** 표 없이 붙으면 거절. */
@@ -420,19 +448,31 @@ class AgentScreenRelayTest extends IntegrationTestBase {
     String ticket = opened.get("ticket").asString();
     browser(ticket, new Recorder());
     // 세션에 브라우저가 이미 있어도 403 이므로 표가 없어졌는지는 따로 본다.
-    assertThat(tickets.consume(ticket, Instant.now())).isEmpty();
+    assertThat(routes.consumeTicket(CapabilityTokens.sha256Hex(ticket))).isEmpty();
     assertHandshakeRejected(() -> browser(ticket, new Recorder()));
   }
 
-  /** 만료된 표는 거절 — 같은 세션의 유효한 표는 그대로 쓸 수 있다. */
+  /**
+   * 만료된 표는 거절 — 공유 경로 표(WP-1978)의 표 만료 시각을 과거로 돌리면 403 이고, 거절은 표를 쓰지 않으므로 만료를 되돌리면 같은 표로 붙는다(거절 까닭이
+   * 만료였음을 보인다).
+   */
   @Test
   void browserSocket_whenTicketExpired_isRejected() throws Exception {
     JsonNode opened = openSession(agent);
     UUID id = UUID.fromString(opened.get("sessionId").asString());
-    String expired =
-        tickets.issue(new AgentScreenTickets.Claims(id, 1L, admin, Instant.now().minusSeconds(1)));
-    assertHandshakeRejected(() -> browser(expired, new Recorder()));
-    assertThat(browser(opened.get("ticket").asString(), new Recorder()).isOpen()).isTrue();
+    String ticket = opened.get("ticket").asString();
+    setTicketExpiresAt(id, OffsetDateTime.now().minusSeconds(1));
+    assertHandshakeRejected(() -> browser(ticket, new Recorder()));
+    setTicketExpiresAt(id, OffsetDateTime.now().plusSeconds(30));
+    assertThat(browser(ticket, new Recorder()).isOpen()).isTrue();
+  }
+
+  /** 공유 경로 표에서 그 화면의 표 만료 시각을 바꾼다. */
+  private void setTicketExpiresAt(UUID sessionId, OffsetDateTime at) {
+    dsl.update(AGENT_SCREEN_ROUTE)
+        .set(AGENT_SCREEN_ROUTE.TICKET_EXPIRES_AT, at)
+        .where(AGENT_SCREEN_ROUTE.SESSION_ID.eq(sessionId))
+        .execute();
   }
 
   // ------------------------------------------------------------------ runner
