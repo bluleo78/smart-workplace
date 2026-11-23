@@ -76,8 +76,12 @@ public class AgentStatusReportService {
 
     String key = slotKeyOf(req.slot());
     OffsetDateTime now = OffsetDateTime.now();
-    // 보고한 Pod 시작 시각(WP-1958) — 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(시각 없는 보고처럼 다룬다).
+    // 보고한 Pod 시작 시각(WP-1958) — 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 기준·시각 판정에는 없는 것처럼 버린다(단 정체
+    // 판정에는 아래 clockSkewFiltered 로 「시계 이상으로 걸러진 값」임을 함께 넘겨 애초에 시각이 없는 보고와 갈린다 — WP-2026).
     OffsetDateTime pod = AgentRuntimeSlotRepository.acceptedPodStart(req.podStartedAt(), now);
+    // 시계 이상으로 걸러진 값인지(WP-2026) — 정체 판정에 「시각은 있었으나 걸러진 값」과 애초에 시각이 없는 보고를 갈라 넘긴다.
+    boolean clockSkewFiltered =
+        AgentRuntimeSlotRepository.clockSkewFiltered(req.podStartedAt(), pod);
     // 지금 Pod 시작 = 관찰한 시작 시각과 보고가 올려 둔 Pod 시작 시각 중 늦은 쪽 — runner 가 새 Pod 를 관찰하기 전에도 새 Pod 의 보고로
     // 옛 Pod 를 가른다. 정체 판정(아래)이 ADOPT 를 가르는 데도 이 값을 쓴다.
     OffsetDateTime current =
@@ -87,11 +91,25 @@ public class AgentStatusReportService {
     // 지금 정체와 같으면 지금 Pod(MATCH), 바로 앞 정체면 끝나는 중인 옛 Pod(OTHER — 저장 없이 버린 채 저장된 행 기준 응답), 그 밖에 보고에
     // 시작 시각이 있으면 재시작 직후 새 Pod 가 밝힌 정체(ADOPT — 지금 Pod 로 받아들인 뒤 MATCH 로 잇는다). 정체를 모르면(보고에 없음 —
     // 옛 이미지) 지금처럼 시각 규칙으로 가른다. ADOPT 는 보고의 Pod 시작이 지금 알던 Pod 시작보다 30초 넘게 이른 경우에 거절하고(C1 — 두
-    // 세대 넘게 지연된 옛 Pod), 시작 시각이 없는 모르는 정체도 거절한다(OTHER — 2차 반려 ②) : acceptedPodStart 가 시계 이상을 걸러
-    // null 로 만든 뒤 검사 없이 ADOPT 되면 정체가 과거로 되돌아 영구 교착이 생기고, 관찰이 정체를 밝힌 뒤 MATCH 로 받기 때문이다.
+    // 세대 넘게 지연된 옛 Pod), 애초에 시각이 없는 모르는 정체도 거절한다(OTHER — 2차 반려 ②) : 시각 없이 ADOPT 되면 그 인식이 기준 없이 박히고,
+    // 그 뒤 옛 Pod 가 시각을 실어 다시 ADOPT 하면 정체가 과거로 되돌아 영구 교착이 생긴다(6차 반려 ①). 다만 시계 이상으로 걸러진 값이고 정체
+    // 미확정(관찰·앞 정체 모두 비어 있음)이면 ADOPT 로 받는다(WP-2026) — 보고에 시각은 있었던 것이므로, 관찰 보고에 정체를 싣지 못하는 구 runner 는
+    // 이 조합에서 영구 OTHER 로 버려졌다. 이 ADOPT 는 기준(시각)을 세우지 못하므로 adoptPodIdentity 가 표시(basisless_pod_uid)와
+    // 표시 시각(basisless_marked_at)을 함께 남기고, 아래 barBasislessAdopt 가 그 표시가 선 **서버 시각 60초 창 안에서만** 다른
+    // 정체의
+    // ADOPT 를 막아(WP-2026 리뷰 반려 ①·3차 반려 ①) 정상 시각의 다른 정체가 정체를 갈아끼워 살아 있는 Pod 가 previous 로 박히는 교착이
+    // 다시 열리지 않는다. 시각 없는 관찰 자리에는 표시가 없어 막지 않는다 — 거기서는 새 Pod 의 정상 시각 보고를 ADOPT 로 받아야 한다(2차
+    // 반려 ②). 표시가 선 자리의 정체가 정상 시각 보고를 MATCH 로 이어 보고 기준(reported_pod_started_at)을 채우면 표시·표시 시각을 함께
+    // 지우고 일반 규칙(이른 정체 C1·시각 없는 거절)으로 돌아간다(3차 반려 ②) — 정체 없는 관찰이 started_at 을 되살려도 그 시작이 표시 시각보다
+    // 늦지 않으면 창은 그대로다(2차 반려 ①의 다른 순서). 정체를 이미 아는 구간의 거절은 그대로다(6차 반려 ① 교착 유지).
     PodIdentity identity =
         AgentRuntimeSlotRepository.podIdentity(
-            req.podUid(), before.observedPodUid(), before.previousPodUid(), pod, current);
+            req.podUid(),
+            before.observedPodUid(),
+            before.previousPodUid(),
+            pod,
+            current,
+            clockSkewFiltered);
     // 5차 반려 ④: 낮은 generation 보고는 정체를 ADOPT 하지 않는다 — 몇 초만 살았던 옛 Pod 의 늦은 보고가 정체를 되돌리면(observed=옛
     // Pod,
     // previous=지금 Pod) 살아 있는 지금 Pod 가 영원히 previous 로 남아 이 뒤의 상태 보고가 계속 무시된다. 막힌 보고는 OTHER 로 바뀌어
@@ -99,6 +117,21 @@ public class AgentStatusReportService {
     // 저장 없이 저장된 행 기준 응답을 준다.
     identity =
         AgentRuntimeSlotRepository.barStaleAdopt(identity, req.generation(), before.generation());
+    // 기준 없이 밝힌 정체의 표시(basisless_pod_uid)는 짧은 창(서버 시각 60초) 안에서만 다른 정체의 ADOPT 를 막는다(WP-2026 3차 반려
+    // ①·②) —
+    // 표시가 있는 자리에만 막아, 시각 없는 관찰 자리에서는 새 Pod 의 정상 시각 보고를 그대로 ADOPT 로 받는다(2차 반려 ②). 창 밖(서버 시각 60초
+    // 경과)·관찰이 표시 뒤에 생긴 시작을 비춤·표시가 지금 정체와 다름 — 셋 중 하나면 막지 않는다. 표시 잠금을 특정 미래 사건 하나에만 걸어 두면
+    // 그 사건이 안 오는 상태마다 영구 교착이 돼 3차 반려 ①·② 가 나왔다.
+    identity =
+        AgentRuntimeSlotRepository.barBasislessAdopt(
+            identity,
+            before.basislessPodUid(),
+            before.basislessMarkedAt(),
+            before.reportedPodStartedAt(),
+            before.observedPodUid(),
+            before.startedAt(),
+            // 창은 표시를 남길 때와 같은 DB 서버 시각으로 재야 길이가 어긋나지 않는다(위 now 는 노드 시계와 견주는 값).
+            settings.dbNow());
     if (identity == PodIdentity.ADOPT) {
       log.info(
           "보고가 처음 밝힌 Pod 정체를 지금 Pod 로 받았어요: agentUserId={} slot={} podUid={} previous={}",

@@ -253,6 +253,21 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, String> PREVIOUS_POD_UID = createField(DSL.name("previous_pod_uid"), SQLDataType.CLOB, this, "");
 
+    /**
+     * The column <code>public.agent_runtime_setting.basisless_pod_uid</code>.
+     * 기준(시각) 없이 ADOPT 로만 밝힌 Pod 정체 — 다른 정체의 ADOPT 를 막는 표시다. basisless_marked_at
+     * 로부터 60초(서버 시각 기준) 안에서만, 그리고 그 표시 정체가 지금 정체일 때만 막는다(WP-2026). 관찰이 표시 뒤에 생긴
+     * 시작을 started_at 에 비추거나 기준이 갱신되면 함께 지워진다. null 이면 그런 ADOPT 가 없다.
+     */
+    public final TableField<AgentRuntimeSettingRecord, String> BASISLESS_POD_UID = createField(DSL.name("basisless_pod_uid"), SQLDataType.CLOB, this, "기준(시각) 없이 ADOPT 로만 밝힌 Pod 정체 — 다른 정체의 ADOPT 를 막는 표시다. basisless_marked_at 로부터 60초(서버 시각 기준) 안에서만, 그리고 그 표시 정체가 지금 정체일 때만 막는다(WP-2026). 관찰이 표시 뒤에 생긴 시작을 started_at 에 비추거나 기준이 갱신되면 함께 지워진다. null 이면 그런 ADOPT 가 없다.");
+
+    /**
+     * The column <code>public.agent_runtime_setting.basisless_marked_at</code>.
+     * basisless_pod_uid 를 남긴 서버 시각 — 그 뒤 60초(서버 시각 기준)가 지나면 다른 정체의 ADOPT 를 막지
+     * 않는다(WP-2026 3차 반려 ①). 표시와 함께 지워진다.
+     */
+    public final TableField<AgentRuntimeSettingRecord, OffsetDateTime> BASISLESS_MARKED_AT = createField(DSL.name("basisless_marked_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "basisless_pod_uid 를 남긴 서버 시각 — 그 뒤 60초(서버 시각 기준)가 지나면 다른 정체의 ADOPT 를 막지 않는다(WP-2026 3차 반려 ①). 표시와 함께 지워진다.");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

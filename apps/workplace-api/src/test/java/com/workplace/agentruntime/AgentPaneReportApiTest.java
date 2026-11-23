@@ -928,11 +928,13 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
    * 관찰이 아직 옛 정체를 가리키는 동안에 온 새 Pod 의 첫 보고도 204 로 받아 지금 Pod 로 밝힌다(WP-1968 반려 ①) — runner 관찰(약 60초)을
    * 기다리는 동안 재시작 직후 새 Pod 의 시작 OK 가 OTHER 로 버려져 관리자 화면에 「오류」가 영영 남지 않게 한다. 정체는 지금 정체 → 바로 앞 정체로 미뤄
    * 둔다(지연 도착한 옛 Pod 보고가 되돌리지 못하게). 보고에 Pod 시작 시각을 함께 싣는다 — 시각 없는 모르는 정체는 ADOPT 하지 않기 때문이다(2차 반려 ②,
-   * 아래 {@code 시각_없는_모르는_정체는_ADOPT_하지_않고_409로_버린다}).
+   * 아래 {@code 시각_없는_모르는_정체는_ADOPT_하지_않고_409로_버린다}). 갈아끼움을 막는 굳힘은 **표시**({@code basisless_pod_uid})가
+   * 있는 자리에만 걸린다 — 기준 없이 ADOPT 로만 밝힌 정체 자리(WP-2026 리뷰 반려 ①, 아래 {@code
+   * 기준_없는_관찰_정체는_정상_시각의_다른_정체에_갈아끼워지지_않는다}).
    */
   @Test
   void 보고가_처음_밝힌_정체는_관찰_없이_지금_Pod_로_받는다() throws Exception {
-    setObservedPodUid("pod-a");
+    setPodIdentity("pod-a", null, OffsetDateTime.now().minusMinutes(10));
     OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
 
     report(
@@ -979,10 +981,10 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   }
 
   /**
-   * 시작 시각이 걸러진(null) 모르는 정체는 ADOPT 하지 않고 409 로 버린다(WP-1968 2차 반려 ②) — acceptedPodStart 가 서버 시계보다
-   * 30초 넘게 앞선 시작을 null 로 바꾸므로, 빠른 시계 노드의 죽은 옛 Pod 늦은 보고가 검사 없이 ADOPT 돼 정체를 과거로 되돌리면 살아 있는 Pod 가 영원히
-   * previous 로 남는 교착(상태 버림·칸 409 무한)이 생기고 WP-1958 보호도 사라진다. 관찰(약 60초)이 정체를 밝힌 뒤 다시 보내면 MATCH 로
-   * 받아진다.
+   * 시각이 없는 모르는 정체는 ADOPT 하지 않고 409 로 버린다(WP-1968 2차 반려 ②) — 보고에 시각 자체가 없어 기준 없이 ADOPT 되면 정체가 과거로
+   * 되돌아 살아 있는 Pod 가 영원히 previous 로 남는 교착(상태 버림·칸 409 무한)이 생기고 WP-1958 보호도 사라진다. 관찰(약 60초)이 정체를 밝힌 뒤
+   * 다시 보내면 MATCH 로 받아진다. 시계 이상으로 걸러진 시각의 보고는 정체 미확정일 때만 ADOPT 로 받아 갈라 두었으므로(WP-2026) 그 경우는 아래
+   * {@code 시계_이상으로_걸러진_시각의_첫_칸_보고는_409_없이_204} 테스트가 따로 다룬다.
    */
   @Test
   void 시각_없는_모르는_정체는_ADOPT_하지_않고_409로_버린다() throws Exception {
@@ -994,13 +996,192 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
         .execute();
 
-    // 시작 시각 없이 정체만 다른 보고(시계 이상으로 시각이 걸러진 보고) — 정체를 갈아끼우지 않고 거절한다.
+    // 시각 없이 정체만 다른 보고 — 정체를 갈아끼우지 않고 거절한다.
     report(key, "{\"state\":\"OK\",\"podUid\":\"pod-b\"}").andExpect(status().isConflict());
 
     Record row = settingOf();
     assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
     assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
     assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+  }
+
+  /**
+   * 서버 시각보다 30초 넘게 앞선 Pod 시작(시계 이상)의 첫 칸 보고는 정체 미확정이라도 409 없이 204 로 받아 지금 Pod 로 밝힌다(WP-2026) — 관찰
+   * 보고에 정체를 싣지 못하는 구 runner 는 이 조합에서 시작 OK 가 영영 409 로 버려지고 차단 칸이 풀리지 않았다.
+   */
+  @Test
+  void 시계_이상으로_걸러진_시각의_첫_칸_보고는_409_없이_204() throws Exception {
+    setObservedPodUid(null);
+    setPreviousPodUid(null);
+    // 서버 시각보다 40초 앞(30초 여유 밖)의 Pod 시작 — acceptedPodStart 가 걸러 정체 판정에는 시계 이상으로 걸러진 값으로 간다.
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podUid\":\"pod-b\",\"podStartedAt\":\""
+                + skewStart
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    // 시계 이상으로 걸러진 값은 기준으로 오르지 않는다(acceptedPodStart 가 없는 것처럼 다룬 자리).
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+
+    // 밝힌 정체로 이어지는 다음 보고(정체 일치)는 그대로 받아져 차단을 비운다.
+    OffsetDateTime okStart = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-b\",\"podStartedAt\":\"" + okStart + "\"}")
+        .andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+  }
+
+  /**
+   * 관찰 정체가 이미 있는 상태에서 다른 정체가 시계 이상 시각을 싣고 오면 그대로 409 로 버린다(WP-2026) — 시계 이상 걸러짐의 ADOPT 는 정체 미확정일 때만
+   * 허용이라, 정체를 아는 구간의 교착 방지(5차 반려 ② · 6차 반려 ①)는 그대로다. 애초에 시각이 없는 같은 거절(위 {@code
+   * 시각_없는_모르는_정체는_ADOPT_하지_않고_409로_버린다})과 짝을 이뤄, 시각 유무·시계 이상 여부가 아니라 정체 아님을 거절의 기준으로 남긴다.
+   */
+  @Test
+  void 관찰_정체가_있는_상태의_시계_이상_다른_정체_보고는_409() throws Exception {
+    setObservedPodUid("pod-b");
+    setPreviousPodUid(null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "로그인 오류")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-a\",\"podStartedAt\":\"" + skewStart + "\"}")
+        .andExpect(status().isConflict());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+  }
+
+  /**
+   * 기준 없이 밝힌 정체는 관찰이 시각을 밝힐 때까지 다른 정체에 갈아끼워지지 않는다(WP-2026 리뷰 반려 ①) — 시계 이상 첫 ADOPT 는 기준(시각)을 세우지 못해
+   * {@code isOlderPod} 가 판정하지 못하므로, 그 동안 정상 시각의 다른 정체를 ADOPT 로 받으면 앞서 밝힌 살아 있는 Pod 가 previous 로 박혀
+   * 칸 409 루프·상태 미저장의 영구 교착이 다시 열린다. 살아 있는 Pod 의 보고는 그대로 204 로 받아지고, 그 보고가 기준을 채우면 굳힘은 풀려 일반 규칙(이른
+   * 정체 거절)으로 돌아온다.
+   */
+  @Test
+  void 기준_없는_관찰_정체는_정상_시각의_다른_정체에_갈아끼워지지_않는다() throws Exception {
+    // 1) 시계 이상 첫 보고로 정체만 밝힌다 — 기준(시각)은 그대로 비어 있다.
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podUid\":\"pod-new\",\"podStartedAt\":\""
+                + skewStart
+                + "\"}")
+        .andExpect(status().isNoContent());
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+
+    // 2) 정상 시각의 다른 정체 보고 — 기준이 없어 시각으로 견볼 수 없으므로 ADOPT 로 받지 않고 409 로 거절한다(정체는 그대로, 칸도 그대로).
+    OffsetDateTime oldStart = OffsetDateTime.now().minusMinutes(10).truncatedTo(ChronoUnit.MICROS);
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-old\",\"podStartedAt\":\"" + oldStart + "\"}")
+        .andExpect(status().isConflict());
+    row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+
+    // 3) 살아 있는 Pod(pod-new)의 보고는 계속 받아져 차단이 풀리고, 정상 시각이면 기준이 채워져 굳힘도 풀린다.
+    OffsetDateTime newStart = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-new\",\"podStartedAt\":\"" + newStart + "\"}")
+        .andExpect(status().isNoContent());
+    row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(newStart.toInstant());
+
+    // 4) 기준이 채워진 뒤엔 일반 규칙으로 돌아가, 그보다 30초 넘게 이른 옛 정체는 C1 이 409 로 막는다.
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"늦은 옛 Pod\",\"podUid\":\"pod-old\",\"podStartedAt\":\""
+                + oldStart
+                + "\"}")
+        .andExpect(status().isConflict());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /**
+   * 시각 없는 관찰 정체 자리의 정상 시각 다른 정체는 204 로 받아 지금 Pod 로 갈아끼운다(WP-2026 리뷰 반려 ②) — 굳힘(barBasislessAdopt)이
+   * 「관찰 정체 있음 + 시각 없음」 전체에 걸면 관찰이 정체만 밝히고 시각은 못 밝힌 자리에서 새 Pod 의 정상 시각 보고가 영영 ADOPT 되지 않아 기존 동작이
+   * 깨진다. 표시({@code basisless_pod_uid})가 있는 자리에만 막아 두 자리를 갈라 둔다 — 그 표시는 기준 없이 ADOPT 로만 밝힌 정체에 남는다.
+   */
+  @Test
+  void 시각_없는_관찰_정체_자리의_정상_시각_다른_정체는_204로_받는다() throws Exception {
+    // 관찰이 정체만 밝힌 자리 — 시작·기준 시각은 그대로 비어 있고 표시도 없다.
+    setObservedPodUid("pod-b");
+    setPreviousPodUid(null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "로그인 오류")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+
+    // 정상 시각의 다른 정체 보고 — 굳힘에 걸리지 않고 지금 Pod 로 받아 204 다(기존 동작 유지, 반려 ②).
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-a\",\"podStartedAt\":\"" + podStart + "\"}")
+        .andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(podStart.toInstant());
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    // 기준(시각)이 함께 간 ADOPT 라 표시는 남지 않는다 — 굳힘은 다음 보고에서도 다시 걸리지 않는다.
+    assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isNull();
+  }
+
+  /**
+   * 시계 이상 첫 ADOPT 는 <b>보고 기준만</b> 비우고 관찰한 {@code started_at} 은 그대로 두고 표시만 남긴다(WP-2026 3차 반려 ③) — 시작
+   * 시각까지 비우면 이른 Pod 거절(C1)이 꺼지고 다음 관찰이 새 Pod 로 판정해 {@code agent_*} 칸을 비운다. 표시 잠금은 이제 서버 시각 60초 창
+   * 안에서만 막으므로, 그 안에는 옛 Pod 의 늦은 보고도 정체를 갈아끼우지 못한다. 기준이 함께 간 ADOPT 로 받으면 표시·표시 시각을 모두 지운다.
+   */
+  @Test
+  void 시계_이상_ADOPT_는_보고_기준만_비우고_관찰_시각은_지킨다() throws Exception {
+    // ① 의 자리 — 정체는 아직 모르고(관찰·앞 정체 비어 있음) 구 runner 관찰이 옛 Pod 시작(T_a)만 남겨 두었다.
+    OffsetDateTime oldStart = OffsetDateTime.now().minusMinutes(10).truncatedTo(ChronoUnit.MICROS);
+    setPodIdentity(null, null, oldStart);
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+
+    // 새 Pod(pod-b)의 시계 이상 첫 칸 보고 — 정체는 밝히되 기준은 비우고 표시만 남긴다.
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podUid\":\"pod-b\",\"podStartedAt\":\""
+                + skewStart
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    // 관찰이 비친 옛 Pod 시작(T_a)은 그대로 두고(3차 반려 ③ — C1 이 늘 서 있도록), 보고 기준만 비운다.
+    assertThat(row.get(AGENT_RUNTIME_SETTING.STARTED_AT).toInstant())
+        .isEqualTo(oldStart.toInstant());
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT)).isNotNull();
+
+    // 옛 Pod(pod-a)의 늦은 보고({@code T_a}) — 기준이 비어 있어 시각으로 견볼 수 없고 표시가 선 동안이라 정체를 갈아끼우지 못한다.
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-a\",\"podStartedAt\":\"" + oldStart + "\"}")
+        .andExpect(status().isConflict());
+
+    row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
   }
 
   /** 지금 정체·바로 앞 정체·지금 Pod 시작을 한 번에 심는다 — 재시작이 여러 번 지난 상황을 재현하기 위해(WP-1968 반려 C1). */
