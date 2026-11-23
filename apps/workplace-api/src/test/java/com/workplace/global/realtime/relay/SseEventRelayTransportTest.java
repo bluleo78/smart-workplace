@@ -656,13 +656,21 @@ class SseEventRelayTransportTest extends IntegrationTestBase {
       }
       keys.append(']');
 
+      final int 이전_완료 = 중계.completedDelivers(); // 누적값 기준을 잡아 앞선 통지와 섞이지 않는다(리뷰 Minor)
       중계.publish(new RelayMessage(RelayMessage.TARGET_USER, "fanout.big", "{}", keys.toString()));
 
       await()
           .atMost(Duration.ofSeconds(5))
           .untilAsserted(() -> assertThat(첫_수신.getCount()).as("큰 fanOut 이 전달 줄에 도착한다").isZero());
-      // 발행 쪽이 5000 파트의 전달 작업을 모두 내놓는다(그룹핑 뒤 줄 제출) — 멈춰 있는 동안에만 유실이 갈리므로 그 뒤에 내려 놓는다.
-      Thread.sleep(1_000L);
+      // 발행 쪽이 5000 파트의 전달 작업을 모두 내놓았는지 제출 완료 카운터로 기다린다(잠시 자는 대신 실제 조건 — WP-1973 리뷰 후속 3).
+      // 제출이 끝나기 전에 내려 놓으면 유실 경고가 나지 않아 구 구현과 새 구현이 갈리지 않는다.
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .untilAsserted(
+              () ->
+                  assertThat(중계.completedDelivers())
+                      .as("통지 하나의 전달 작업 제출이 끝난다")
+                      .isGreaterThan(이전_완료));
       방해.countDown();
 
       await()
