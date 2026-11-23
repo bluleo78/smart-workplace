@@ -234,20 +234,26 @@ import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 </PageErrorBoundary>
 ```
 
-폴백 UI(실제 구현):
+폴백 UI(실제 구현) — 「다시 시도」는 같은 자리를 다시 그려 보고, 「홈으로」는 replace 로 주소를 바꿔 오류 화면에서 나간다:
 
 ```tsx
 <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 p-8 text-center">
   <AlertTriangle className="h-12 w-12 text-destructive" />
   <div className="space-y-2">
-    <h2 className="text-lg font-semibold">페이지를 불러오는 중 문제가 발생했습니다</h2>
+    <h2 className="text-lg font-semibold">
+      페이지를 불러오는 중 문제가 발생했습니다
+    </h2>
     <p className="text-sm text-muted-foreground max-w-md">
-      일시적인 오류가 발생했습니다. 다시 시도하거나 페이지를 새로고침해 주세요.
+      일시적인 오류가 발생했습니다. 다시 시도하거나 홈으로 돌아갈 수 있습니다.
     </p>
   </div>
-  <Button variant="outline" onClick={handleRetry}>
-    <RefreshCw className="mr-2 h-4 w-4" /> 다시 시도
-  </Button>
+  <div className="flex flex-wrap items-center justify-center gap-2">
+    <Button variant="outline" onClick={this.handleRetry}>
+      <RefreshCw className="mr-2 h-4 w-4" />
+      다시 시도
+    </Button>
+    <HomeButton onDismiss={this.handleDismissError} />
+  </div>
 </div>
 ```
 
