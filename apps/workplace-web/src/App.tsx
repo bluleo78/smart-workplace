@@ -1,4 +1,4 @@
-import { type ComponentType, lazy, type ReactNode, Suspense, useState } from 'react'
+import { type ComponentType, lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 
 import { AdminRoute } from './components/AdminRoute'
@@ -13,12 +13,16 @@ import { WikiSharePublicViewContext } from './components/wiki/wikiSharePublicVie
 import { useAuth } from './hooks/useAuth'
 import { useRouteDocumentTitle } from './hooks/useDocumentTitle'
 import { useIsMobile } from './hooks/useIsMobile'
+import { AUTH_FLAG_KEY } from './lib/auth/sessionFlag'
+import { type Preload, type RoutePreloadKey, startRoutePreloads } from './lib/routePreloads'
+import { safeLocalStorage } from './lib/safeLocalStorage'
 
 // 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const SignupPage = lazy(() => import('./pages/SignupPage'))
 const SsoCompletePage = lazy(() => import('./pages/SsoCompletePage'))
-const HomePage = lazy(() => import('./pages/HomePage'))
+const loadHomePage = () => import('./pages/HomePage')
+const HomePage = lazy(loadHomePage)
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserListPage = lazy(() => import('./pages/admin/UserListPage'))
 const UserDetailPage = lazy(() => import('./pages/admin/UserDetailPage'))
@@ -29,11 +33,12 @@ const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
 const HelpMetricsPage = lazy(() => import('./pages/admin/HelpMetricsPage'))
 const AgentManagementPage = lazy(() => import('./pages/admin/AgentManagementPage'))
 const AgentDetailPage = lazy(() => import('./pages/admin/AgentDetailPage'))
-const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
-const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'))
-const ProjectTabsLayout = lazy(() =>
-  import('./pages/projects/tabs/ProjectTabsLayout').then((m) => ({ default: m.ProjectTabsLayout })),
-)
+const loadProjectListPage = () => import('./pages/projects/ProjectListPage')
+const ProjectListPage = lazy(loadProjectListPage)
+const loadProjectIssuesPage = () => import('./pages/projects/ProjectDetailPage')
+const ProjectDetailPage = lazy(loadProjectIssuesPage)
+const loadProjectTabsLayout = () => import('./pages/projects/tabs/ProjectTabsLayout')
+const ProjectTabsLayout = lazy(() => loadProjectTabsLayout().then((m) => ({ default: m.ProjectTabsLayout })))
 const ProjectOverviewTab = lazy(() => import('./pages/projects/tabs/ProjectOverviewTab'))
 const ProjectNotesTab = lazy(() => import('./pages/projects/tabs/ProjectNotesTab'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
@@ -45,24 +50,22 @@ const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
 const MyTasksPage = lazy(() => import('./pages/me/MyTasksPage'))
 const MyTasksIndexRedirect = lazy(() => import('./pages/me/MyTasksIndexRedirect'))
 const AiDelegatedTasksPage = lazy(() => import('./pages/me/AiDelegatedTasksPage'))
-const ChatModuleLayout = lazy(() =>
-  import('./components/chat/ChatModuleLayout').then((m) => ({ default: m.ChatModuleLayout })),
-)
-const ChannelListPage = lazy(() => import('./pages/chat/ChannelListPage'))
+const loadChatLayout = () => import('./components/chat/ChatModuleLayout')
+const ChatModuleLayout = lazy(() => loadChatLayout().then((m) => ({ default: m.ChatModuleLayout })))
+const loadChatList = () => import('./pages/chat/ChannelListPage')
+const ChannelListPage = lazy(loadChatList)
 const ChannelPage = lazy(() => import('./pages/chat/ChannelPage'))
 const DmPage = lazy(() => import('./pages/chat/DmPage'))
 const NewMessagePage = lazy(() => import('./pages/chat/NewMessagePage'))
 const SelfDmRedirect = lazy(() => import('./pages/chat/SelfDmRedirect'))
 const ThreadsInboxPage = lazy(() => import('./pages/chat/ThreadsInboxPage'))
-const DriveModuleLayout = lazy(() =>
-  import('./components/drive/DriveModuleLayout').then((m) => ({ default: m.DriveModuleLayout })),
-)
+const loadDriveLayout = () => import('./components/drive/DriveModuleLayout')
+const DriveModuleLayout = lazy(() => loadDriveLayout().then((m) => ({ default: m.DriveModuleLayout })))
 const DrivePage = lazy(() =>
   import('./pages/drive/DrivePage').then((m) => ({ default: m.DrivePage })),
 )
-const DriveIndexRedirect = lazy(() =>
-  import('./pages/drive/DriveIndexRedirect').then((m) => ({ default: m.DriveIndexRedirect })),
-)
+const loadDriveIndex = () => import('./pages/drive/DriveIndexRedirect')
+const DriveIndexRedirect = lazy(() => loadDriveIndex().then((m) => ({ default: m.DriveIndexRedirect })))
 // 공개 공유 링크 다운로드 랜딩 — 인증 없이 접근 가능.
 const ShareLinkPage = lazy(() => import('./pages/drive/ShareLinkPage'))
 // WP-1539: 드라이브 「공유받은 항목」 — 내가 연 사내 공유 링크 목록
@@ -85,9 +88,8 @@ const DriveAttachmentsView = lazy(() =>
   import('./pages/drive/DriveAttachmentsView').then((m) => ({ default: m.DriveAttachmentsView })),
 )
 
-const WikiModuleLayout = lazy(() =>
-  import('./components/wiki/WikiModuleLayout').then((m) => ({ default: m.WikiModuleLayout })),
-)
+const loadWikiLayout = () => import('./components/wiki/WikiModuleLayout')
+const WikiModuleLayout = lazy(() => loadWikiLayout().then((m) => ({ default: m.WikiModuleLayout })))
 const WikiPage = lazy(() => import('./pages/wiki/WikiPage').then((m) => ({ default: m.WikiPage })))
 // WP-579 공유 링크 화면 — 노트 사이드바 없이 링크로 볼 수 있는 페이지만. 외부 보기는 로그인 없이.
 const WikiSharePage = lazy(() => import('./pages/wiki/WikiSharePage').then((m) => ({ default: m.WikiSharePage })))
@@ -116,9 +118,8 @@ function WikiShareGate() {
     </WikiSharePublicViewContext.Provider>
   )
 }
-const WikiIndexRedirect = lazy(() =>
-  import('./pages/wiki/WikiIndexRedirect').then((m) => ({ default: m.WikiIndexRedirect })),
-)
+const loadWikiIndex = () => import('./pages/wiki/WikiIndexRedirect')
+const WikiIndexRedirect = lazy(() => loadWikiIndex().then((m) => ({ default: m.WikiIndexRedirect })))
 const ContactModuleLayout = lazy(() =>
   import('./components/contacts/ContactModuleLayout').then((m) => ({
     default: m.ContactModuleLayout,
@@ -135,16 +136,14 @@ const CalendarModuleLayout = lazy(() =>
 const CalendarPage = lazy(() =>
   import('./pages/calendar/CalendarPage').then((m) => ({ default: m.CalendarPage })),
 )
-const MailModuleLayout = lazy(() =>
-  import('./components/mail/MailModuleLayout').then((m) => ({ default: m.MailModuleLayout })),
-)
+const loadMailLayout = () => import('./components/mail/MailModuleLayout')
+const MailModuleLayout = lazy(() => loadMailLayout().then((m) => ({ default: m.MailModuleLayout })))
 // 메일 작성 새 창(WP-1535) — 앱 셸 없이 작성창만 그리는 독립 창.
 const MailComposeWindowPage = lazy(() => import('./pages/mail/MailComposeWindowPage'))
 // Claude 앱 연결 동의 화면(WP-1686) — ProtectedRoute 안·AppLayout 밖.
 const OAuthConsentPage = lazy(() => import('./pages/oauth/OAuthConsentPage'))
-const MailInboxPage = lazy(() =>
-  import('./pages/mail/MailInboxPage').then((m) => ({ default: m.MailInboxPage })),
-)
+const loadMailInbox = () => import('./pages/mail/MailInboxPage')
+const MailInboxPage = lazy(() => loadMailInbox().then((m) => ({ default: m.MailInboxPage })))
 const M365CallbackPage = lazy(() => import('./pages/oauth/M365CallbackPage'))
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
 const AppsPage = lazy(() => import('./pages/apps/AppsPage'))
@@ -194,7 +193,48 @@ function RouteDocumentTitle() {
   return null
 }
 
+// 로그인 흔적(AUTH_FLAG_KEY)이 있는지 — 없으면 곧 로그인 화면이라 청크를 미리 받지 않는다.
+// 흔적은 refresh 가 거절돼야 지워지므로 세션이 이미 만료된 사람도 한 번은 미리 받는다 — 로그인으로 가며 버리는 청크 몇 개라 감수한다.
+function hasSessionHint(): boolean {
+  try {
+    return !!safeLocalStorage()?.getItem(AUTH_FLAG_KEY)
+  } catch {
+    // 읽기 자체의 예외(저장소 접근 오류)는 흔적 없음으로 본다
+    return false
+  }
+}
+
+/**
+ * WP-2021: 첫 주소의 페이지 청크를 인증을 기다리지 않고 미리 받는다 — App 이 처음 그려진 뒤 한 번 부른다.
+ * 위 lazy 선언과 같은 import 함수를 불러 모듈이 한 번만 내려받아진다. 로그인 흔적이 없으면 아무것도 하지 않는다.
+ */
+function preloadInitialRoute(): void {
+  if (!hasSessionHint()) return
+  const loaders: Record<RoutePreloadKey, Preload> = {
+    projectTabs: loadProjectTabsLayout,
+    projectIssues: loadProjectIssuesPage,
+    projectList: loadProjectListPage,
+    home: loadHomePage,
+    mailLayout: loadMailLayout,
+    mailInbox: loadMailInbox,
+    chatLayout: loadChatLayout,
+    chatList: loadChatList,
+    wikiLayout: loadWikiLayout,
+    wikiIndex: loadWikiIndex,
+    driveLayout: loadDriveLayout,
+    driveIndex: loadDriveIndex,
+  }
+  startRoutePreloads(window.location.pathname, loaders)
+}
+
 export default function App() {
+  // 첫 주소 청크 미리 받기는 첫 그리기 뒤로 미룬다 — 그리기 전에 부르면 청크가 먼저 도착해 실행되며 첫 long task 가 길어져
+  // 첫 페인트·인증 요청이 밀렸다(운영 빌드 메일 LCP 360 → 428ms). 효과는 그린 뒤에 돌고, 인증(refresh)이 오가는 동안 청크를 받는다.
+  useEffect(() => {
+    const id = setTimeout(preloadInitialRoute, 0)
+    return () => clearTimeout(id)
+  }, [])
+
   return (
     <PageErrorBoundary>
       {/* 아바타 주소 표(WP-1222) — 로그인한 동안 한 번 받아 모든 아바타가 userId 로 찾는다. */}

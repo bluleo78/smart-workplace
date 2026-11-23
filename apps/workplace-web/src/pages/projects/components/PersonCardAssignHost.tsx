@@ -8,6 +8,7 @@ import { useMatch } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { PersonCardAssignContext } from '@/components/users/personCard/PersonCardAssignContext';
+import { isChunkLoadError } from '@/lib/chunkLoadError';
 
 import type { IssueCreateDialog as IssueCreateDialogType } from './IssueCreateDialog';
 
@@ -40,17 +41,12 @@ const ASSIGN_DIALOG_LOAD_ERROR = '새 이슈 창을 열지 못했습니다 — �
 /** 창 안에서 그리다 오류가 났을 때 알릴 문구 — 창만 닫고 앱 셸은 그대로 둔다. 새로고침이 아니라 다시 열기를 권한다. */
 const ASSIGN_DIALOG_RENDER_ERROR = '새 이슈 창에 문제가 생겨 닫았습니다 — 다시 열어 주세요';
 
-/** 브라우저·번들러가 지연 묶음을 못 받았을 때 내는 오류 문구(Chrome·Firefox·Safari·webpack 류). */
-const CHUNK_LOAD_MESSAGE = /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading (CSS )?chunk .* failed/i;
-
 /**
  * 창 묶음 로드 실패인가 — loadDialog 가 감싼 오류, 또는 감싸기 전에 경계로 온 청크 실패 모양(ChunkLoadError 이름·브라우저 문구).
  * 이 경우만 새로고침을 권한다(새 배포의 묶음 이름을 받아야 낫는다).
  */
 function isDialogLoadError(error: unknown): boolean {
-  if (error instanceof AssignDialogLoadError) return true;
-  if (!(error instanceof Error)) return false;
-  return error.name === 'ChunkLoadError' || CHUNK_LOAD_MESSAGE.test(error.message);
+  return error instanceof AssignDialogLoadError || isChunkLoadError(error);
 }
 
 /**

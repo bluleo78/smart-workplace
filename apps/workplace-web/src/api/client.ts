@@ -2,6 +2,7 @@ import axios from 'axios';
 
 import { markTenantChanged, readActiveTenant, tenantChangedSince } from '@/lib/activeTenant';
 import { isTransientRequestError } from '@/lib/api-error';
+import { AUTH_FLAG_KEY } from '@/lib/auth/sessionFlag';
 
 let accessToken: string | null = null;
 
@@ -182,7 +183,7 @@ client.interceptors.response.use(
         // 다음 요청의 401 이 다시 refresh 를 시도한다.
         if (result.outcome === 'error') return Promise.reject(failure);
         // 거절(401·403 — 만료·폐기·정지) — 세션을 정리하고 로그인으로.
-        localStorage.removeItem('hasSession');
+        localStorage.removeItem(AUTH_FLAG_KEY);
         window.location.href = '/login';
         return Promise.reject(error);
       } finally {

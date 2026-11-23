@@ -136,7 +136,8 @@ describe('탭바·탭 루트', () => {
     renderPage('/notifications', { handlers: [http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: false, vapidPublicKey: null }))] })
     expect(await screen.findByTestId('mobile-tab-notifications', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByTestId('mobile-tabbar')).toBeInTheDocument()
-    const header = screen.getByTestId('mobile-list-header')
+    // 앱 셸(탭바)은 페이지 청크를 기다리지 않고 먼저 그려지므로(WP-2021) 화면 머리는 따로 기다린다.
+    const header = await screen.findByTestId('mobile-list-header')
     expect(within(header).getByRole('heading', { level: 1 })).toHaveTextContent('알림')
     expect(within(header).getByTestId('inbox-mark-all')).toBeInTheDocument()
     // WP-1689 — 머리 액션에 「읽은 알림 보관」도 함께.
