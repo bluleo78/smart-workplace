@@ -130,7 +130,11 @@ export const HelpMarkdown = memo(function HelpMarkdown({ section, values, vars, 
       h3: ({ children }) => <h3 className="text-sm font-semibold">{children}</h3>,
       h4: ({ children }) => <h4 className="text-sm font-semibold">{children}</h4>,
       ul: ({ children, className }) => <ul className={markdownListClass(className, 'list-disc')}>{children}</ul>,
-      ol: ({ children, className }) => <ol className={markdownListClass(className, 'list-decimal')}>{children}</ol>,
+      // 끊긴 번호 목록(사이사이 들여쓰지 않은 글머리 줄)도 CommonMark 처럼 처음 쓴 번호에서 이어 그린다(WP-2027) —
+      // react-markdown 은 start !== 1 일 때만 이 prop 을 주므로 1번 목록은 속성 없이 그대로다.
+      ol: ({ children, className, start }) => (
+        <ol start={start} className={markdownListClass(className, 'list-decimal')}>{children}</ol>
+      ),
       li: ({ children, className }) => <li className={cn('leading-relaxed', className?.includes('task-list-item') && 'relative pl-5')}>{children}</li>,
       hr: () => <hr className="border-border" />,
       blockquote: ({ children }) => <blockquote className="border-l-2 border-border pl-3 text-muted-foreground">{children}</blockquote>,

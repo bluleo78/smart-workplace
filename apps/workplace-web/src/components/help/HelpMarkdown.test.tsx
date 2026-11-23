@@ -134,6 +134,20 @@ describe('HelpMarkdown', () => {
     await userEvent.unhover(strong)
     expect(outside).not.toHaveAttribute('data-help-highlight')
   })
+
+  // WP-2027: 끊긴 번호 목록(사이사이 들여쓰지 않은 글머리 줄)도 CommonMark 처럼 처음 쓴 번호에서 이어 그린다 — 도움말 절도 같은 결함이었다.
+  it('번호 목록이 시작 번호를 그대로 그린다(WP-2027)', () => {
+    const { container } = render(
+      <HelpMarkdown section={section('1. 첫째\n- 사이 글머리\n2. 둘째')} values={noValues} vars={null} onNavigate={() => {}} />,
+    )
+    const lists = container.querySelectorAll('ol')
+    expect(lists).toHaveLength(2)
+    // 1번으로 시작하는 목록은 속성을 붙이지 않고 지금처럼 그린다.
+    expect(lists[0].hasAttribute('start')).toBe(false)
+    // 번호 목록 스타일은 그대로 남는다.
+    expect(lists[1].className).toContain('list-decimal')
+    expect(lists[1].getAttribute('start')).toBe('2')
+  })
 })
 
 describe('HelpMarkdown — 포커스한 화면 단추 강조(WP-1506)', () => {

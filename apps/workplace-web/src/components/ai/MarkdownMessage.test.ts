@@ -136,3 +136,22 @@ describe('MarkdownMessage 한국어 굵게', () => {
     expect(render('**bold**')).toContain('<strong class="font-semibold">bold</strong>')
   })
 })
+
+// WP-2027: 끊긴 번호 목록(사이사이 들여쓰지 않은 글머리 줄)의 시작 번호를 그린다 — CommonMark 는 끊긴 목록도 처음 쓴 번호를 시작 번호로 살린다.
+describe('MarkdownMessage 번호 목록 시작 번호 (WP-2027)', () => {
+  it('글머리 줄로 끊긴 번호 목록이 각각 1·2·3 번으로 그려진다', () => {
+    const html = render('1. 첫째\n- 사이 글머리\n2. 둘째\n- 사이 글머리\n3. 셋째')
+    // 세 목록이 각각 다른 시작 번호를 가진다.
+    expect(html.match(/<ol /g)).toHaveLength(3)
+    expect(html).toMatch(/<ol class="list-decimal[^"]*"><li/) // 첫째 목록은 start 없음(1번)
+    expect(html).toMatch(/<ol start="2" class="list-decimal[^"]*"><li/)
+    expect(html).toMatch(/<ol start="3" class="list-decimal[^"]*"><li/)
+    expect(html).toContain('첫째')
+    expect(html).toContain('둘째')
+    expect(html).toContain('셋째')
+  })
+
+  it('번호가 1부터 이어지는 목록은 속성 없이 지금처럼 그린다', () => {
+    expect(render('1. 하나\n2. 둘')).not.toContain('start=')
+  })
+})
