@@ -32,6 +32,7 @@ const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
 const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
 const HelpMetricsPage = lazy(() => import('./pages/admin/HelpMetricsPage'))
 const AiStatusOverviewPage = lazy(() => import('./pages/admin/aiStatus/AiStatusOverviewPage'))
+const AiStatusHistoryPage = lazy(() => import('./pages/admin/aiStatus/AiStatusHistoryPage'))
 const AgentManagementPage = lazy(() => import('./pages/admin/AgentManagementPage'))
 const AgentDetailPage = lazy(() => import('./pages/admin/AgentDetailPage'))
 const loadProjectListPage = () => import('./pages/projects/ProjectListPage')
@@ -389,6 +390,7 @@ export default function App() {
                     <Route path="settings/audit-logs" element={<AuditLogListPage />} />
                     <Route path="settings/help-metrics" element={<HelpMetricsPage />} />
                     <Route path="settings/ai-status" element={<AiStatusOverviewPage />} />
+                    <Route path="settings/ai-status/history" element={<AiStatusHistoryPage />} />
                     {/* 에이전트(WP-1281·1451) — 한 화면 세 탭 [목록 | 실행 환경 | 계정] + 상세 페이지. locations·accounts 는 정적 경로라 :id 보다 먼저 맞는다. */}
                     <Route path="settings/agents" element={<AgentManagementPage />} />
                     <Route path="settings/agents/locations" element={<AgentManagementPage />} />
