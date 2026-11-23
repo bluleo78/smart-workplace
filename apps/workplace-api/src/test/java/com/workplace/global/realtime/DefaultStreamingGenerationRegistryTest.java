@@ -468,4 +468,104 @@ class DefaultStreamingGenerationRegistryTest {
     single.shutdown();
     assertThat(aborted.get()).isEqualTo(1);
   }
+
+  /** launch 의 임대 연장이 실패하면 제출하지 않고 예약을 반납한 뒤 예외를 던진다 — 5분 예약 임대로 긴 생성을 돌리지 않게. */
+  @Test
+  void launch_임대_연장이_실패하면_제출하지_않고_반납하고_예외를_던진다() {
+    InMemoryGenerationSlotStore failing =
+        new InMemoryGenerationSlotStore() {
+          @Override
+          public synchronized void extend(String correlationId, java.time.Instant expiresAt) {
+            throw new IllegalStateException("db down");
+          }
+        };
+    DefaultStreamingGenerationRegistry reg =
+        new DefaultStreamingGenerationRegistry(failing, null, Duration.ofSeconds(1));
+    Reservation r = reg.reserve(1L, tag("s-a"), 3);
+    AtomicInteger submitted = new AtomicInteger();
+    TaskExecutorAdapter counting =
+        new TaskExecutorAdapter(
+            task -> {
+              submitted.incrementAndGet();
+              task.run();
+            });
+    assertThatThrownBy(() -> reg.launch(r, counting, Duration.ofSeconds(10), () -> {}, () -> {}))
+        .isInstanceOf(IllegalStateException.class);
+    assertThat(submitted.get()).isZero();
+    assertThat(reg.active(1L, "home")).isEmpty();
+    // 로컬 핸들도 반납돼 취소는 404 다.
+    assertThatThrownBy(() -> reg.cancel(r.correlationId(), 1L))
+        .isInstanceOf(StreamingGenerationNotFoundException.class);
+    reg.shutdown();
+  }
+
+  /** 공유 행이 사라졌어도(임대 만료 정리 등) 이 파드에서 아직 도는 같은 id 는 덮지 않는다 — BUSY, 원래 핸들은 그대로 취소된다. */
+  @Test
+  void 로컬에_같은_id_가_살아_있으면_저장소_행이_없어도_BUSY() {
+    InMemoryGenerationSlotStore store = new InMemoryGenerationSlotStore();
+    DefaultStreamingGenerationRegistry reg =
+        new DefaultStreamingGenerationRegistry(store, null, Duration.ofSeconds(1));
+    Reservation r = reg.reserve(1L, tag("s-a"), 3, "cid-1");
+    store.remove("cid-1");
+
+    assertThatThrownBy(() -> reg.reserve(2L, tag("s-b"), 3, "cid-1"))
+        .isInstanceOfSatisfying(
+            StreamingGenerationRejectedException.class,
+            e ->
+                assertThat(e.reason()).isEqualTo(StreamingGenerationRejectedException.Reason.BUSY));
+    // 거절된 예약은 행을 남기지 않는다.
+    assertThat(store.find("cid-1")).isEmpty();
+    reg.cancel("cid-1", 1L);
+    assertThat(r.cancelReason()).isEqualTo(CancelReason.USER);
+    reg.shutdown();
+  }
+
+  /** 다른 파드의 생성인데 중계가 없으면 넘길 수 없다 — 조용히 성공하지 않고 404 다. */
+  @Test
+  void 다른_파드_생성인데_중계가_없으면_NotFound() {
+    InMemoryGenerationSlotStore shared = new InMemoryGenerationSlotStore();
+    DefaultStreamingGenerationRegistry podA =
+        new DefaultStreamingGenerationRegistry(shared, null, Duration.ofSeconds(1));
+    DefaultStreamingGenerationRegistry podB =
+        new DefaultStreamingGenerationRegistry(shared, null, Duration.ofSeconds(1));
+    Reservation r = podA.reserve(1L, tag("s-a"), 3);
+
+    assertThatThrownBy(() -> podB.cancel(r.correlationId(), 1L))
+        .isInstanceOf(StreamingGenerationNotFoundException.class);
+    assertThat(r.cancelReason()).isNull();
+    assertThat(shared.find(r.correlationId())).isPresent();
+    podA.shutdown();
+    podB.shutdown();
+  }
+
+  /** 낡은 행(이 파드 이름인데 핸들 없음)은 취소 때 지우고 404 다. */
+  @Test
+  void 이_파드의_낡은_행_취소는_행을_지우고_NotFound() {
+    InMemoryGenerationSlotStore store = new InMemoryGenerationSlotStore();
+    DefaultStreamingGenerationRegistry reg =
+        new DefaultStreamingGenerationRegistry(store, null, Duration.ofSeconds(1));
+    store.reserve(
+        1L, tag("s-a"), 3, "stale-1", reg.podId(), java.time.Instant.now().plusSeconds(300));
+
+    assertThatThrownBy(() -> reg.cancel("stale-1", 1L))
+        .isInstanceOf(StreamingGenerationNotFoundException.class);
+    assertThat(store.find("stale-1")).isEmpty();
+    reg.shutdown();
+  }
+
+  /** 종료 정리는 아직 도는(로컬 핸들이 있는) 생성의 행을 남긴다. */
+  @Test
+  void shutdown_은_살아_있는_핸들의_행을_남긴다() {
+    InMemoryGenerationSlotStore store = new InMemoryGenerationSlotStore();
+    DefaultStreamingGenerationRegistry reg =
+        new DefaultStreamingGenerationRegistry(store, null, Duration.ofSeconds(1));
+    Reservation running = reg.reserve(1L, tag("s-a"), 3);
+    store.reserve(
+        1L, tag("s-b"), 3, "stale-1", reg.podId(), java.time.Instant.now().plusSeconds(300));
+
+    reg.shutdown();
+
+    assertThat(store.find(running.correlationId())).isPresent();
+    assertThat(store.find("stale-1")).isEmpty();
+  }
 }

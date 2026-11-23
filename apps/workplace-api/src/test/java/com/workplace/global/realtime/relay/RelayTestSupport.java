@@ -1,6 +1,7 @@
 package com.workplace.global.realtime.relay;
 
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
+import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
 import com.workplace.global.realtime.SseRegistry;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -39,7 +40,8 @@ public final class RelayTestSupport {
     SseRegistry registry = new SseRegistry(relay);
     RunnerSseRegistry runner = new RunnerSseRegistry(relay);
     // 배선은 곧바로 수신자 등록까지 이어진다 — 등록이 끝나면 첫 LISTEN 을 기다렸다가 돌아온다.
-    new RelayLocalDispatcher(registry, runner, relay).register();
+    new RelayLocalDispatcher(registry, runner, new DefaultStreamingGenerationRegistry(), relay)
+        .register();
     relay.awaitFirstListen();
     return new Pod(registry, runner, relay, new CopyOnWriteArrayList<>());
   }

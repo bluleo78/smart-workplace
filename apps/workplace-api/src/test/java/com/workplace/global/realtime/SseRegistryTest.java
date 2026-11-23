@@ -34,7 +34,8 @@ class SseRegistryTest {
 
   /** 로컬 배선 — 운영에서는 RelayLocalDispatcher 의 @PostConstruct 가 startup 에 부른다. */
   private final RelayLocalDispatcher dispatcher =
-      new RelayLocalDispatcher(registry, new RunnerSseRegistry(relay), relay);
+      new RelayLocalDispatcher(
+          registry, new RunnerSseRegistry(relay), new DefaultStreamingGenerationRegistry(), relay);
 
   @BeforeEach
   void registerLocalDispatch() {

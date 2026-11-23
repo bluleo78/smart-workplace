@@ -48,6 +48,13 @@ public record RelayMessage(
   public static final String TARGET_RUNNER_CLOSE = "runner.close";
 
   /**
+   * AI 생성 취소 대상(WP-1974) — 취소 요청을 받은 파드에 생성 핸들이 없으면, 생성이 도는 파드가 이 메시지를 받아 로컬에서 멈춘다. payload 는
+   * {@code {"c":correlationId}}, keys 는 {@code [ownerUserId]}(같은 소유자의 메시지가 한 전달 줄로 가게). 닫힘 타깃이 아니다
+   * — 접미사 {@link #CLOSE_SUFFIX} 를 쓰지 않는다.
+   */
+  public static final String TARGET_GENERATION_CANCEL = "generation.cancel";
+
+  /**
    * 닫힘 신호 대상 뒤에 붙는 접미사 — 전달 줄을 고를 때는 닫힘 신호에 한해 이 접미사를 떼어 낸 뒤를 쓴다. {@code user} 와 {@code user.close}
    * 가 같은 줄에 가야 닫힘이 앞선 이벤트를 앞지르지 않는다(WP-1973 리뷰 3차). <b>새 닫힘 타깃을 만들 땐 반드시 이 접미사로 짓고 {@link
    * #isCloseTarget(String)} 에 등록해야 한다</b> — 한쪽만 바꾸면 발행 재시도와 줄 분리가 갈려 같은 하자가 그대로 재발한다.
@@ -163,6 +170,21 @@ public record RelayMessage(
     } catch (RuntimeException e) {
       return List.of(this);
     }
+  }
+
+  /**
+   * AI 생성 취소 중계 메시지(WP-1974) — correlationId 는 호출자가 정한 문자열일 수 있어 Jackson 으로 직렬화해 따옴표·역슬래시를 안전하게
+   * 싣는다.
+   */
+  public static RelayMessage generationCancel(String correlationId, long ownerUserId) {
+    String payload = MAPPER.writeValueAsString(Map.of("c", correlationId));
+    return new RelayMessage(TARGET_GENERATION_CANCEL, null, payload, "[" + ownerUserId + "]");
+  }
+
+  /** {@link #generationCancel} 의 payload 에서 correlationId 를 꺼낸다 — 없으면 null(수신 쪽이 건너뛴다). */
+  public static String generationCancelId(RelayMessage message) {
+    if (message.payloadJson() == null) return null;
+    return textOrNull(MAPPER.readTree(message.payloadJson()), "c");
   }
 
   /** runner 스트림 닫힘 신호 — keysJson 은 {@code [tenantId, locationId]}. */

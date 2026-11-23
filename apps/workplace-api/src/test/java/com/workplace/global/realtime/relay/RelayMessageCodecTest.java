@@ -37,6 +37,22 @@ class RelayMessageCodecTest {
     assertThat(작은_메시지.needsOutbox()).isFalse();
   }
 
+  /**
+   * 생성 취소 중계(WP-1974)는 payload 에 correlationId, keys 에 소유자를 싣고 순환에서 그대로 돌아온다 — 닫힘 타깃이 아니므로 발행 파드 id
+   * 를 싣지 않는다.
+   */
+  @Test
+  void 생성_취소는_id와_소유자를_싣고_순환한다() {
+    RelayMessage 취소 = RelayMessage.generationCancel("c-\"1", 42L);
+
+    assertThat(취소.target()).isEqualTo(RelayMessage.TARGET_GENERATION_CANCEL);
+    assertThat(취소.keysJson()).isEqualTo("[42]");
+    assertThat(RelayMessage.isCloseTarget(취소.target())).isFalse();
+    assertThat(RelayMessage.decode(취소.encode())).isEqualTo(취소);
+    assertThat(RelayMessage.generationCancelId(RelayMessage.decode(취소.encode())))
+        .isEqualTo("c-\"1");
+  }
+
   /** 닫힘 신호는 event 없이 keysJson 만 간다 — 수신 파드는 키를 읽어 자기 연결을 닫으면 된다. */
   @Test
   void 닫힘_신호는_event_없이_keys만_간다() {
