@@ -12,7 +12,7 @@ import type {
 import { AI_STATUS_PERIODS } from '@/api/aiStatus'
 import type { StatusBadgeType } from '@/components/ui/status-badge'
 import { issuePath } from '@/lib/appUrl'
-import { clock24, EMPTY_GLYPH, formatDateTime, formatMonthDayClock, formatNumber, parseUtcDate } from '@/lib/formatters'
+import { clock24, EMPTY_GLYPH, formatDateTime, formatDateTimeMinute, formatMonthDayClock, formatNumber, parseUtcDate } from '@/lib/formatters'
 
 /** 처리 이력 필터 — 주소와 1:1. period 는 from·to 가 없을 때의 조회 기간이다. */
 export interface RunsFilter {
@@ -52,22 +52,45 @@ export const ACTOR_TYPE_OPTIONS: { value: AiRunActorType; label: string }[] = [
   { value: 'AGENT', label: 'AI' },
 ]
 
-/** 시각(ISO) 문자열이 해석되면 그대로, 아니면 null. */
+/**
+ * 서버가 받는 ISO-8601 instant 꼴(Java Instant.parse 와 같은 틀 — 초까지 있어야 하고 시간대 Z 또는 ±hh:mm).
+ * 월·일·시·분·초의 범위도 본다(Date.parse 는 「T24:00:00Z」를 받지만 서버는 400).
+ */
+const ISO_INSTANT = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/
+
+/** 시각 문자열이 엄격한 ISO-8601 instant 이고 그 달에 있는 날이면 그대로, 아니면 null — 손으로 고친 값이 서버로 나가 400 이 되지 않게(WP-1825 리뷰 후속). */
 function validInstant(v: string | null): string | null {
-  return v !== null && v !== '' && !Number.isNaN(Date.parse(v)) ? v : null
+  const m = v === null ? null : ISO_INSTANT.exec(v)
+  if (!m) return null
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  // 2월 30일처럼 넘치는 날은 Date 가 다음 달로 굴리므로 되돌려 대조한다
+  if (new Date(Date.UTC(y, mo - 1, d)).getUTCDate() !== d) return null
+  return v
 }
 
-/** 주소 → 필터. 알 수 없는 값은 기본값으로 떨어뜨려 손으로 고친 주소에도 화면이 깨지지 않게 한다. */
-export function parseHistorySearch(sp: URLSearchParams): RunsFilter {
+/** 「미래 from」 판정에 두는 여유 — 브라우저 시계가 서버보다 늦어도 개요에서 고른 최근 구간을 잃지 않게. */
+const FUTURE_SKEW_MS = 5 * 60_000
+
+/**
+ * 주소 → 필터. 알 수 없는 값은 기본값으로 떨어뜨려 손으로 고친 주소에도 화면이 깨지지 않게 한다.
+ * 구간은 서버가 400 으로 거절할 값을 미리 버린다 — 꼴이 틀린 값, from 보다 앞선 to, to 없는 미래 from.
+ * nowMs 는 「미래」 판정 기준(테스트용 — 기본은 지금).
+ */
+export function parseHistorySearch(sp: URLSearchParams, nowMs: number = Date.now()): RunsFilter {
   const period = sp.get('period')
   const status = sp.get('status')
   const actorType = sp.get('actorType')
-  const from = validInstant(sp.get('from'))
+  const rawFrom = validInstant(sp.get('from'))
+  const fromMs = rawFrom === null ? NaN : Date.parse(rawFrom)
+  // to 는 from 보다 앞이 아닐 때만(같아도 서버가 받는다 — 빈 구간). from 없이 to 만 있으면 화면에 칩이 없는 숨은 조건이 되므로 버린다
+  const rawTo = rawFrom === null ? null : validInstant(sp.get('to'))
+  const to = rawTo !== null && Date.parse(rawTo) >= fromMs ? rawTo : null
+  // to 없는 미래 from 은 서버가 400(from > 지금)이라 버린다 — 뒤에 to 가 있으면 서버가 받으므로 둔다. 시계 차이는 여유를 둔다
+  const from = to !== null || fromMs <= nowMs + FUTURE_SKEW_MS ? rawFrom : null
   return {
     period: AI_STATUS_PERIODS.find((p) => p === period) ?? DEFAULT_PERIOD,
     from,
-    // from 없이 to 만 있으면 버린다 — 화면에 칩이 없는 숨은 조건이 되기 때문
-    to: from ? validInstant(sp.get('to')) : null,
+    to,
     kinds: [...new Set(sp.getAll('kind').filter((k) => k !== ''))],
     status: RUN_STATUS_OPTIONS.find((o) => o.value === status)?.value ?? null,
     actorType: ACTOR_TYPE_OPTIONS.find((o) => o.value === actorType)?.value ?? null,
@@ -126,11 +149,22 @@ export function toRunsParams(f: RunsFilter, baseMs: number): AiRunsParams {
   return params
 }
 
+/**
+ * 기준 시각을 다시 잡을지 가르는 열쇠 — 기간에서 거슬러 계산하는 from 을 뺀 정규화된 요청 조건(검색어는 깎은 값).
+ * 검색어 끝 공백만 바뀌는 것처럼 요청이 같으면 열쇠도 같아 1페이지부터 다시 받지 않는다(WP-1825 리뷰 후속).
+ */
+export function runsBaseKey(f: RunsFilter): string {
+  // baseMs 0 으로 계산한 from 은 기간마다 같은 값이라 기간을 대신 담는다(구간이 있으면 구간 그대로)
+  return JSON.stringify(toRunsParams(f, 0))
+}
+
 /** 구간 칩 글자 — 로컬 시각. 같은 날이면 뒤쪽 날짜를 줄이고, to 가 없으면 「이후」. */
 export function rangeChipLabel(from: string, to: string | null): string {
   const f = parseUtcDate(from)
   if (to === null) return `구간 ${formatMonthDayClock(from)} 이후`
   const t = parseUtcDate(to)
+  // 연도가 다르면 월/일만으로는 짧은 구간처럼 읽히므로 양쪽 모두 연도까지 쓴다
+  if (f.getFullYear() !== t.getFullYear()) return `구간 ${formatDateTimeMinute(from)}–${formatDateTimeMinute(to)}`
   const sameDay = f.getMonth() === t.getMonth() && f.getDate() === t.getDate()
   return `구간 ${formatMonthDayClock(from)}–${sameDay ? clock24(t) : formatMonthDayClock(to)}`
 }
@@ -181,7 +215,8 @@ export function targetHref(t: AiRunTarget | null): string | null {
 
 /** 대상 글자 — 이름, 없으면 id, 둘 다 없으면 빈 값 표기. */
 export function targetText(t: AiRunTarget | null): string {
-  return t?.label ?? t?.id ?? EMPTY_GLYPH
+  // 빈 label('')도 「없음」으로 보고 다음 값을 쓴다
+  return t?.label || t?.id || EMPTY_GLYPH
 }
 
 /** 토큰 글자 「입력 / 출력」 — 둘 다 없으면 빈 값 표기. */

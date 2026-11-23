@@ -2,7 +2,7 @@
 // 기간이 기본이고, 개요에서 막대·경고로 넘어온 구간(from·to)이 있으면 구간이 기간을 이긴다(구간 칩의 ×로 기간으로 돌아간다).
 import { ChevronDown, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
-import { useLocation, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 
 import type { AiRunActorType, AiRunListItem, AiRunStatus } from '@/api/aiStatus'
 import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter'
@@ -30,6 +30,7 @@ import {
   parseHistorySearch,
   rangeChipLabel,
   RUN_STATUS_OPTIONS,
+  runsBaseKey,
   type RunsFilter,
   toHistorySearch,
   toRunsParams,
@@ -104,10 +105,11 @@ function MobilePeriodChip({
 /** AI 현황 처리 이력 화면. */
 export default function AiStatusHistoryPage() {
   const [filter, setFilter] = useRunsFilter()
-  const { search: urlSearch } = useLocation()
-  // 기간 조회의 기준 시각 — 주소(조건)가 바뀔 때만 새로 잡는다. 렌더마다 바뀌면 쿼리 키가 계속 달라져 끝없이 다시 받는다.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- urlSearch 가 바뀔 때만 다시 잡는 것이 목적
-  const baseMs = useMemo(() => nowMs(), [urlSearch])
+  // 기간 조회의 기준 시각 — 정규화된 요청 조건이 바뀔 때만 새로 잡는다(주소 글자 그대로가 아니라 — 검색어 끝 공백만 바뀌면 그대로).
+  // 렌더마다 바뀌면 쿼리 키가 계속 달라져 끝없이 다시 받는다.
+  const baseKey = runsBaseKey(filter)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- baseKey 가 바뀔 때만 다시 잡는 것이 목적
+  const baseMs = useMemo(() => nowMs(), [baseKey])
   const params = useMemo(() => toRunsParams(filter, baseMs), [filter, baseMs])
   const query = useAiStatusRuns(params)
   const scrollRoot = useSettingsScrollRoot()
