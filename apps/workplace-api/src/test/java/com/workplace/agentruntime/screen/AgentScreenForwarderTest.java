@@ -2,12 +2,15 @@ package com.workplace.agentruntime.screen;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.PingMessage;
 import org.springframework.web.socket.PongMessage;
+import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
@@ -119,6 +123,60 @@ class AgentScreenForwarderTest {
     forwarder.inboundClosed(inbound, CloseStatus.NORMAL);
 
     assertThat(closedWith(upstream).getCode()).isEqualTo(CloseStatus.NORMAL.getCode());
+  }
+
+  /**
+   * 주인 파드가 위쪽 다리를 닫을 때 받은 다리로 넘기던 마지막 프레임(끝남 상태)이 아직 나가는 중이면, 다 나간 뒤에 받은 다리를 닫는다(WP-1978 리뷰 후속 ② —
+   * 바로 닫으면 그 프레임이 버려진다, WP-2015 와 같은 결함).
+   */
+  @Test
+  void 위쪽_다리가_닫히면_받은_다리로_나가던_프레임을_보낸_뒤에_닫는다() throws Exception {
+    AbstractWebSocketHandler handler = linked();
+    CountDownLatch sending = new CountDownLatch(1);
+    AtomicLong sentAt = new AtomicLong();
+    AtomicLong closedAt = new AtomicLong();
+    CountDownLatch closed = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              if (inv.getArgument(0) instanceof TextMessage) {
+                sending.countDown();
+                Thread.sleep(300); // 느린 브라우저 쪽 보내기
+                sentAt.set(System.nanoTime());
+              }
+              return null;
+            })
+        .when(inbound)
+        .sendMessage(any());
+    doAnswer(
+            inv -> {
+              closedAt.set(System.nanoTime());
+              closed.countDown();
+              return null;
+            })
+        .when(inbound)
+        .close(any());
+    Thread sender =
+        new Thread(
+            () -> {
+              try {
+                handler.handleMessage(upstream, new TextMessage("{\"type\":\"status\"}"));
+              } catch (Exception e) {
+                throw new IllegalStateException(e);
+              }
+            });
+    sender.start();
+    assertThat(sending.await(2, TimeUnit.SECONDS)).isTrue();
+
+    long beforeClose = System.nanoTime();
+    handler.afterConnectionClosed(upstream, CloseStatus.NORMAL);
+    // 드레인 대기는 별도 스레드에서 한다 — 닫힘을 알린 스레드는 바로 돌아온다(공유 I/O 스레드를 붙잡지 않게).
+    assertThat(System.nanoTime() - beforeClose).isLessThan(TimeUnit.MILLISECONDS.toNanos(150));
+    assertThat(closed.await(3, TimeUnit.SECONDS)).isTrue();
+    sender.join(2_000);
+
+    assertThat(closedAt.get()).isPositive();
+    assertThat(closedAt.get()).isGreaterThanOrEqualTo(sentAt.get());
+    assertThat(sentAt.get()).isPositive();
   }
 
   @Test

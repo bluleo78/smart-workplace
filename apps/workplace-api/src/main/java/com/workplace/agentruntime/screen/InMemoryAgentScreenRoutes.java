@@ -136,4 +136,11 @@ public class InMemoryAgentScreenRoutes implements AgentScreenRoutes {
   public synchronized void removeByPod(String podId) {
     rows.values().removeIf(row -> row.route.ownerPodId().equals(podId));
   }
+
+  @Override
+  public synchronized int removeExpired() {
+    int before = rows.size();
+    rows.values().removeIf(row -> !row.alive());
+    return before - rows.size();
+  }
 }

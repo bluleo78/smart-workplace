@@ -14,7 +14,6 @@ import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import com.workplace.global.realtime.relay.NoopSseEventRelay;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -557,11 +556,6 @@ class AgentScreenRelayEndedFrameTest {
     CountDownLatch sendStarted = new CountDownLatch(1);
     // 목을 만들 때는 데코레이터가 아직 없으니 홀더로 참조를 넘겨, sendMessage 안에서 데코레이터를 잡아 세운다.
     BlindSpotSessionDecorator[] holder = new BlindSpotSessionDecorator[1];
-    // 리플렉션은 미리 꺼내 둔다 — 보내기가 시작된 뒤에 찾으면 찾는 시간이 유휴 오탐 안에 끼어들어 판을 흐릴 수 있다.
-    Method closeAfterDrain =
-        AgentScreenRelay.class.getDeclaredMethod(
-            "closeQuietlyAfterDrain", WebSocketSession.class, CloseStatus.class);
-    closeAfterDrain.setAccessible(true);
 
     WebSocketSession raw = mock(WebSocketSession.class);
     when(raw.isOpen()).thenReturn(true);
@@ -606,7 +600,7 @@ class AgentScreenRelayEndedFrameTest {
           .as("목의 sendMessage 가 불려 데코레이터가 유휴으로 보이게 된다")
           .isTrue();
 
-      closeAfterDrain.invoke(null, blind, CloseStatus.NORMAL);
+      ScreenSockets.closeQuietlyAfterDrain(blind, CloseStatus.NORMAL);
 
       sender.join(5_000);
       assertThat(sender.isAlive()).as("보내기 스레드가 끝난다").isFalse();
@@ -771,13 +765,8 @@ class AgentScreenRelayEndedFrameTest {
     when(raw.isOpen()).thenReturn(true);
     StuckBufferSessionDecorator stuck = new StuckBufferSessionDecorator(raw);
 
-    Method closeAfterDrain =
-        AgentScreenRelay.class.getDeclaredMethod(
-            "closeQuietlyAfterDrain", WebSocketSession.class, CloseStatus.class);
-    closeAfterDrain.setAccessible(true);
-
     long start = System.currentTimeMillis();
-    closeAfterDrain.invoke(null, stuck, CloseStatus.NORMAL);
+    ScreenSockets.closeQuietlyAfterDrain(stuck, CloseStatus.NORMAL);
     long elapsed = System.currentTimeMillis() - start;
 
     assertThat(elapsed).as("버퍼가 줄지 않으면 드레인 상한(2_000 ms)을 채우지 않는다").isLessThan(1_500);

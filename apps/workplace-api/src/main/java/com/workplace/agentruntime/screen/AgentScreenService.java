@@ -61,6 +61,14 @@ public class AgentScreenService {
   private final TenantScopedRunner tenantScopedRunner;
   private final TransactionTemplate tx;
 
+  /**
+   * 화면 열기의 기록 단계 전용 — 늘 새 트랜잭션이라 호출자가 트랜잭션 안에서 불러도 기록의 커밋이 이 안에서 끝나, 커밋 실패 때 자리를 돌려주는 약속이 호출자에 기대지
+   * 않는다(WP-1978 리뷰 후속 ③).
+   */
+  private final TransactionTemplate recordTx;
+
+  private final AgentScreenRoutes routes;
+
   public AgentScreenService(
       AgentRuntimeSettingRepository settings,
       AgentLocationService locationService,
@@ -70,7 +78,8 @@ public class AgentScreenService {
       AuditLogService auditLogService,
       AgentScreenRelay relay,
       TenantScopedRunner tenantScopedRunner,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AgentScreenRoutes routes) {
     this.settings = settings;
     this.locationService = locationService;
     this.screens = screens;
@@ -79,23 +88,32 @@ public class AgentScreenService {
     this.auditLogService = auditLogService;
     this.relay = relay;
     this.tenantScopedRunner = tenantScopedRunner;
+    this.routes = routes;
     this.tx = new TransactionTemplate(txManager);
     // 요청 트랜잭션 안에서 불려도(open) 같은 트랜잭션에 합류하고, 중계 스레드에서는 새로 연다.
     this.tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+    this.recordTx = new TransactionTemplate(txManager);
+    this.recordTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     relay.setService(this);
   }
 
   /**
    * 작업 화면을 연다. 순서: 구성원 확인(아니면 404) → 실행 설정이 켜져 있고 상태가 RUNNING·APPLY_PENDING 인지(아니면 409) → 실제 위치(없으면
    * 409) → 모든 파드를 합친 이 AI 의 열린 화면 수 자리 잡기(접속 표 해시와 함께 공유 경로 표에, 3개면 409) → 세션 행·감사 → 접속 표 평문 응답.
+   *
+   * <p>확인·자리 잡기·기록을 세 단계로 나눠 각자의 트랜잭션에서 한다(WP-1978 리뷰 후속 ③). 자리 잡기(공유 경로 표)는 저장소가 스스로 트랜잭션을 열어 곧바로
+   * 커밋하므로, 바깥 트랜잭션이 커넥션을 쥔 채 그 안에서 부르면 요청 하나가 커넥션 둘을 잡는다 — 풀이 마를 때 서로 기다리게 되고, 바깥 커밋이 실패하면 자리 행만 남아
+   * 표 만료까지 상한 자리를 쥔다. 그래서 자리 잡기는 어느 트랜잭션에도 들지 않게 두고, 기록 트랜잭션이 커밋까지 실패하면 자리를 돌려준다.
    */
   public AgentScreenSessionResponse open(long callerId, long agentId) {
     long tenantId = TenantContext.require();
-    // 실행 설정 조회도 RLS 표라 트랜잭션(GUC) 안에서 해야 한다 — 확인·자리·기록을 한 트랜잭션에 둔다.
-    return tx.execute(s -> doOpen(tenantId, callerId, agentId));
+    // 실행 설정 조회도 RLS 표라 트랜잭션(GUC) 안에서 해야 한다 — 확인만 먼저 끝내고 커넥션을 돌려준다.
+    long locationId = tx.execute(s -> checkOpenable(tenantId, agentId));
+    return reserveAndRecord(tenantId, callerId, agentId, locationId);
   }
 
-  private AgentScreenSessionResponse doOpen(long tenantId, long callerId, long agentId) {
+  /** 열 수 있는지 확인하고 실제 위치를 돌려준다 — 구성원이 아니면 404, 실행 중이 아니거나 위치가 없으면 409. */
+  private long checkOpenable(long tenantId, long agentId) {
     memberGuard.require(agentId, tenantId);
     Row row =
         settings
@@ -104,7 +122,15 @@ public class AgentScreenService {
             .orElseThrow(() -> new AgentScreenConflictException(NOT_RUNNING));
     Long locationId = locationService.effectiveLocationId(row.locationId());
     if (locationId == null) throw new AgentScreenConflictException(NOT_RUNNING);
+    return locationId;
+  }
 
+  /**
+   * 자리를 잡고(트랜잭션 밖 — 저장소가 스스로 커밋) 세션 행·감사를 한 트랜잭션에 남긴다. 기록이 커밋까지 실패하면 잡아 둔 자리를 바로 돌려준다(만료까지 자리를 막지
+   * 않게).
+   */
+  private AgentScreenSessionResponse reserveAndRecord(
+      long tenantId, long callerId, long agentId, long locationId) {
     UUID sessionId = UUID.randomUUID();
     Instant expiresAt = Instant.now().plusSeconds(TICKET_TTL_SECONDS);
     // 접속 표(32바이트 난수, URL 에 안전한 Base64) — 공유 경로 표에는 해시만 넣고 평문은 응답에만 싣는다(DB·로그로 평문이 새지 않게, WP-1978).
@@ -120,13 +146,17 @@ public class AgentScreenService {
       throw new AgentScreenConflictException("이 AI 의 작업 화면이 이미 3개 열려 있어요");
     }
     try {
-      screens.insert(sessionId, agentId, locationId, callerId);
-      audit(
-          callerId,
-          "AGENT_SCREEN_OPENED",
-          agentId,
-          "작업 화면 열기",
-          Map.of("sessionId", sessionId.toString(), "locationId", locationId));
+      // 커밋 실패(제약 위반이 커밋 때 드러나는 경우 등)까지 이 try 가 잡도록 새 트랜잭션을 여기서 열고 닫는다.
+      recordTx.executeWithoutResult(
+          s -> {
+            screens.insert(sessionId, agentId, locationId, callerId);
+            audit(
+                callerId,
+                "AGENT_SCREEN_OPENED",
+                agentId,
+                "작업 화면 열기",
+                Map.of("sessionId", sessionId.toString(), "locationId", locationId));
+          });
     } catch (RuntimeException e) {
       // 기록에 실패하면 잡아 둔 자리를 바로 돌려준다(만료까지 자리를 막지 않게).
       relay.release(sessionId);
@@ -194,6 +224,14 @@ public class AgentScreenService {
         OffsetDateTime.now().minus(AgentScreenRelay.MAX_LIFETIME).minusMinutes(5);
     tenantScopedRunner.forEachActiveTenant(
         t -> screens.closeOpenedBefore(cutoff, "작업 화면 서버가 끊겨 닫혔어요"));
+    // 죽은 파드가 남긴 임대 지난 경로 행을 모든 AI 에 걸쳐 지운다(WP-1978 리뷰 후속 ④) — 예약 때의 정리는 같은 AI 의 행만 지워, 다시 화면을
+    // 열지 않는 AI 의 행이 쌓인다. 판정은 임대로 하므로 남아 있어도 틀리지는 않지만 표가 커지지 않게. 실패해도 다음 시간에 다시 한다.
+    try {
+      int removed = routes.removeExpired();
+      if (removed > 0) log.info("작업 화면 임대 지난 경로 행 정리 {}건", removed);
+    } catch (RuntimeException e) {
+      log.warn("작업 화면 임대 지난 경로 행 정리 실패", e);
+    }
   }
 
   private void inTenant(long tenantId, Runnable work) {

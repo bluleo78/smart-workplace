@@ -1,6 +1,7 @@
 package com.workplace.agentruntime.screen;
 
 import static com.workplace.agentruntime.screen.ScreenSockets.closeQuietly;
+import static com.workplace.agentruntime.screen.ScreenSockets.closeQuietlyAfterDrain;
 import static com.workplace.agentruntime.screen.ScreenSockets.copy;
 import static com.workplace.agentruntime.screen.ScreenSockets.decorate;
 
@@ -70,6 +71,14 @@ public class AgentScreenRelay {
   static final Duration PONG_TIMEOUT = Duration.ofSeconds(60);
 
   /**
+   * 핑을 보낸 뒤 퐁을 기다려 주는 최소 시간(WP-1978 리뷰 후속 ①) — 퐁 제한은 「마지막 퐁 뒤 {@link #PONG_TIMEOUT}」만으로 보지 않고, 그 퐁
+   * 뒤에 핑을 실제로 보냈고 그 핑에도 이만큼 답이 없을 때만 끊긴 것으로 본다. 타이머 스레드가 DB 호출(닫기의 경로 정리·입력 기록)로 35초 넘게 묶여 핑을 못 보낸
+   * 동안에는 상대가 답할 핑 자체가 없으므로 끊김으로 치지 않는다. 핑 주기(25초) 두 번 + 이 값 = {@link #PONG_TIMEOUT} 이라, 상대가 정말
+   * 사라졌으면 예전과 같은 60초 안팎에 닫힌다.
+   */
+  static final Duration PONG_ANSWER_WAIT = PONG_TIMEOUT.minus(PING_INTERVAL.multipliedBy(2));
+
+  /**
    * 표 만료 뒤 주인 파드가 기다려 주는 유예(WP-1978 리뷰) — 만료 직전의 표를 주인이 아닌 파드가 받으면 그 파드는 표를 쓴 뒤(DB 확인) 주인 파드에 이어
    * 붙이기까지 몇 초(최대 ~5초)가 더 걸린다. 그 사이 주인이 표 만료 시각에 맞춰 「열지 않음」으로 닫으면 표를 정상으로 쓴 브라우저가 닫힌 화면을 만난다. 그래서
    * 주인은 표 만료 뒤 이만큼 더 기다린 다음에야 닫는다(표 자체의 한 번·만료 판정은 공유 경로 표가 DB 시계로 따로 한다).
@@ -80,19 +89,6 @@ public class AgentScreenRelay {
    * 공유 경로 표의 임대 갱신 주기 — 임대({@link AgentScreenRoutes#LEASE}, 90초)보다 충분히 짧게 해 DB 가 잠깐 끊겨도 만료되지 않게.
    */
   static final Duration RENEW_INTERVAL = Duration.ofSeconds(30);
-
-  /**
-   * 끝남 알림 보낸 뒤 소켓을 닫기 전에 데코레이터 버퍼가 비기를 기다리는 상한(WP-2015) — 보내는 중에 닫으면 남은 프레임이 버려진다. 기한이 지나면 그냥
-   * 닫는다(핸들러 스레드에서 불리므로 오래 멈추지 않는다 — 타이머·종료 경로는 아래 {@link #browserCloser} 로 넘긴다).
-   */
-  private static final int ENDED_DRAIN_TIMEOUT_MS = 2_000;
-
-  /**
-   * 위 드레인 대기의 폴링 간격 — 프레임이 나가는 순간을 놓치지 않게 짧게 확인한다. 라이브러리는 쓰기 시작한 그 밀리초에 진행 중인 보내기를 0 으로 보여 줘 첫 관찰의
-   * 유휴은 오판일 수 있어, 유휴를 두 번 관찰할 때까지 한 번은 반드시 이 간격만큼 기다린다 — 그래서 보내는 중이 아닌 닫기에도 이 간격 한 번(최소 한 폴링)이
-   * 든다(WP-2015 리뷰 후속 ④ — 유휴 오판을 막는 값이라 줄이지 않는다).
-   */
-  private static final int ENDED_DRAIN_POLL_MS = 20;
 
   static final String REASON_RUNNER_JOIN = "실행 환경에 연결하지 못했어요";
   static final String REASON_NOT_OPENED = "작업 화면을 열지 않았어요";
@@ -136,6 +132,10 @@ public class AgentScreenRelay {
     // 퐁 제한을 보지 않는다(WP-1978).
     volatile Instant browserPong;
     volatile Instant runnerPong;
+    // 넘겨 온 브라우저·runner 소켓에 마지막으로 핑을 보내려 한 때 — 퐁 제한은 「이 소켓에 핑을 보낸 뒤에도 답이 없음」을 이 값으로 본다(보내기 실패도 시도로
+    // 친다 — 쓰기가 계속 실패하는 소켓도 제한으로 닫히게). 첫 핑 회차 전에는 null 이라 판정하지 않는다(WP-1978 리뷰 후속 ①).
+    volatile Instant browserPingAt;
+    volatile Instant runnerPingAt;
 
     Pair(
         UUID id,
@@ -735,8 +735,8 @@ public class AgentScreenRelay {
   }
 
   /**
-   * 세션이 닫혀야 할 까닭 — 표를 안 씀(표 만료 + {@link #FORWARD_GRACE} 뒤), 다른 파드가 넘겨 온 소켓의 퐁이 60초 없음, runner 가 15초
-   * 안에 안 붙음, 30분 무활동, 4시간 지남.
+   * 세션이 닫혀야 할 까닭 — 표를 안 씀(표 만료 + {@link #FORWARD_GRACE} 뒤), 다른 파드가 넘겨 온 소켓의 퐁이 60초 없음(그 사이 보낸 핑에도 답
+   * 없음 — {@link #podLinkLost}), runner 가 15초 안에 안 붙음, 30분 무활동, 4시간 지남.
    */
   static Optional<String> expiry(Pair p, Instant now) {
     if (p.browser == null) {
@@ -745,7 +745,8 @@ public class AgentScreenRelay {
           ? Optional.empty()
           : Optional.of(REASON_NOT_OPENED);
     }
-    if (podLinkLost(p.browserPong, now) || podLinkLost(p.runnerPong, now)) {
+    if (podLinkLost(p.browserPong, p.browserPingAt, now)
+        || podLinkLost(p.runnerPong, p.runnerPingAt, now)) {
       return Optional.of(REASON_POD_LINK_LOST);
     }
     if (p.runner == null
@@ -758,9 +759,17 @@ public class AgentScreenRelay {
     return Optional.empty();
   }
 
-  /** 넘겨 온 소켓의 마지막 퐁이 {@link #PONG_TIMEOUT} 을 넘었는지 — 직접 붙은 소켓(퐁 시각 null)은 보지 않는다. */
-  private static boolean podLinkLost(Instant lastPong, Instant now) {
-    return lastPong != null && !now.isBefore(lastPong.plus(PONG_TIMEOUT));
+  /**
+   * 넘겨 온 소켓이 끊겼는지 — 마지막 퐁이 {@link #PONG_TIMEOUT} 을 넘었고, 그 퐁 뒤에 이 소켓에 보낸 핑이 있으며 그 핑에도 {@link
+   * #PONG_ANSWER_WAIT} 동안 답이 없을 때만 참이다(WP-1978 리뷰 후속 ①). 퐁 시각만 보면 타이머 스레드가 DB 호출로 묶여 핑을 못 보낸 동안에도
+   * 퐁이 끊긴 것처럼 보여 멀쩡한 넘긴 화면을 닫는다 — 핑을 보내지 않았으면 답이 없는 것이 당연하다. 직접 붙은 소켓(퐁 시각 null)은 보지 않는다.
+   */
+  private static boolean podLinkLost(Instant lastPong, Instant pingAt, Instant now) {
+    return lastPong != null
+        && pingAt != null
+        && pingAt.isAfter(lastPong)
+        && !now.isBefore(lastPong.plus(PONG_TIMEOUT))
+        && !now.isBefore(pingAt.plus(PONG_ANSWER_WAIT));
   }
 
   /**
@@ -829,15 +838,25 @@ public class AgentScreenRelay {
 
   /** 한 세션의 두 소켓에 핑을 보낸다. 테스트가 spy 로 실패를 넣을 수 있게 패키지 공개다. */
   void ping(Pair p) {
-    for (WebSocketSession s : new WebSocketSession[] {p.browser, p.runner}) {
-      if (s == null) continue;
-      // 소켓마다 Error 까지 잡는다 — 한 소켓의 실패가 같은 세션의 다른 소켓·뒤 세션의 핑을 막지 않게(WP-2009).
-      try {
-        if (s.isOpen()) s.sendMessage(new PingMessage());
-      } catch (Throwable e) {
-        log.debug("작업 화면 핑 실패 session={}", p.id, e);
-      }
+    WebSocketSession browser = p.browser;
+    WebSocketSession runner = p.runner;
+    // 보내기 직전 시각을 소켓마다 적는다 — 타이머가 앞 단계(DB)에 묶였다 풀린 회차여도 실제로 핑이 나간 때를 퐁 판정이 쓰게(WP-1978 리뷰 후속 ①).
+    if (pingSocket(p, browser)) p.browserPingAt = Instant.now();
+    if (pingSocket(p, runner)) p.runnerPingAt = Instant.now();
+  }
+
+  /**
+   * 소켓 하나에 핑을 보내 본다 — 열린 소켓이라 보내기를 시도했으면 true(실패해도 시도로 친다). Error 까지 잡아 한 소켓의 실패가 같은 세션의 다른 소켓·뒤
+   * 세션의 핑을 막지 않게 한다(WP-2009).
+   */
+  private boolean pingSocket(Pair p, WebSocketSession s) {
+    if (s == null || !s.isOpen()) return false;
+    try {
+      s.sendMessage(new PingMessage());
+    } catch (Throwable e) {
+      log.debug("작업 화면 핑 실패 session={}", p.id, e);
     }
+    return true;
   }
 
   // ---------------------------------------------------------------- 보내기
@@ -866,49 +885,5 @@ public class AgentScreenRelay {
       log.debug("작업 화면 상태 보내기 실패 session={}", p.id, e);
       return false;
     }
-  }
-
-  /** 끝남 알림이 데코레이터 버퍼에 남아 있는 동안 소켓을 닫으면 그 프레임이 사라진다(WP-2015) — 나갈 때까지만 기다리고, 기한이 지나면 그냥 닫는다. */
-  private static void closeQuietlyAfterDrain(WebSocketSession s, CloseStatus status) {
-    drainBeforeClose(s);
-    closeQuietly(s, status);
-  }
-
-  /**
-   * 닫기 전에 데코레이터에 남은 마지막 프레임이 나갈 때만 기다린다 — 느린 소켓을 무한히 기다리지 않는다. 보내는 중이 아닌 닫기에서도 유휴를 두 번 관찰할 때까지
-   * {@link #ENDED_DRAIN_POLL_MS} 한 번은 기다린다(첫 관찰의 유휴가 오판일 수 있어 — 위 상수 설명, WP-2015 리뷰 후속 ④).
-   */
-  private static void drainBeforeClose(WebSocketSession s) {
-    if (s == null || !s.isOpen()) return;
-    if (!(s instanceof ConcurrentWebSocketSessionDecorator d)) return;
-    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(ENDED_DRAIN_TIMEOUT_MS);
-    // 버퍼가 비고 진행 중인 보내기가 끝날 때까지 기다린다 — 그 동안 앞선 보내기 스레드가 끝남 알림까지 밀어낸다.
-    // 라이브러리는 쓰기 시작한 그 밀리초에 진행 중인 보내기를 0 으로 보여 줘 오판할 수 있으므로(WP-2015),
-    // 한 번 유휴을 관찰한 뒤 ENDED_DRAIN_POLL_MS 가 지난 재확인에서도 유휴일 때만 나간다(오탐은 그 재확인에서 잡는다).
-    boolean idleOnPreviousPoll = false;
-    int previousBuffer = -1;
-    while (System.nanoTime() < deadline) {
-      int buffer = d.getBufferSize();
-      long sinceSendStarted = d.getTimeSinceSendStarted();
-      boolean idle = buffer == 0 && sinceSendStarted == 0;
-      if (idle && idleOnPreviousPoll) return;
-      idleOnPreviousPoll = idle;
-      // 진행 중인 보내기는 없는데 버퍼만 남아 두 폴링 동안 줄지 않으면 — 그 버퍼를 비울 주체가 없어 기한을 채워도 프레임은 나가지 않는다.
-      // 보내기 실패(한도 초과 등) 뒤에 닫히는 스레드가 2초를 헛대기하지 않게 한다(WP-2015 리뷰 후속 ②).
-      if (!idle && sinceSendStarted == 0 && buffer > 0 && buffer == previousBuffer) return;
-      previousBuffer = buffer;
-      try {
-        Thread.sleep(ENDED_DRAIN_POLL_MS);
-      } catch (InterruptedException e) {
-        // 대기 중 끊김 — 플래그를 되돌리고 닫기를 미루지 않는다.
-        Thread.currentThread().interrupt();
-        return;
-      }
-    }
-    // 기한을 채워 나간다 — 끝남 프레임이 아직 나가지 못했을 수 있다(WP-2015): 유실 흔적을 남긴다.
-    log.debug(
-        "작업 화면 끝남 프레임 대기 초과 buffer={} timeSince={}",
-        d.getBufferSize(),
-        d.getTimeSinceSendStarted());
   }
 }
