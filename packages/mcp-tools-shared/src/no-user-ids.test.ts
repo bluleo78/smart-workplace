@@ -588,6 +588,8 @@ describe('워크플로우 (WP-1988)', () => {
       activeVersion: { no: 2, createdAt: 't', createdBy: kim },
       draftYaml: 'y', draftUpdatedAt: 't', draftProblems: [],
     }),
+    // 게시본 원문 — 초안과 같아 응답에는 실리지 않는다.
+    getWorkflowVersionYaml: vi.fn().mockResolvedValue('y'),
   };
   const tools = buildWorkflowTools(client as never) as never as Parameters<typeof find>[0];
 
