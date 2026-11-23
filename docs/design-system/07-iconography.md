@@ -222,7 +222,7 @@ Button(`button.tsx`)은 `[&_svg:not([class*='size-'])]:size-4` 로 내부 `<svg>
 
 > 돋보기는 어디 있는지 모르는 것을 찾는 상단 검색에만 쓰고, 지금 보는 목록을 좁히는 칸은 깔때기(`FilterInput`)를 쓴다 — 구분 규칙은 [05 §B-1 검색과 필터](./05-page-patterns.md#검색과-필터)(WP-1352).
 
-> 실측 근거: `sonner.tsx`(`CircleCheck`/`Info`/`TriangleAlert`/`OctagonX`/`Loader2`), `table-empty.tsx`(`SearchX`), `simple-pagination.tsx`(`Chevron*`), `search-input.tsx`(`Search`), `filter-input.tsx`(`Funnel`), `query-input.tsx`(지우기 `X`), `password-input.tsx`(`Eye`/`EyeOff`), `searchable-select.tsx`(`Check`/`ChevronsUpDown`), `PageErrorBoundary.tsx`(`AlertTriangle`/`RefreshCw`).
+> 실측 근거: `sonner.tsx`(`CircleCheck`/`Info`/`TriangleAlert`/`OctagonX`/`Loader2`), `table-empty.tsx`(`SearchX`), `simple-pagination.tsx`(`Chevron*`), `search-input.tsx`(`Search`), `filter-input.tsx`(`Funnel`), `query-input.tsx`(지우기 `X`), `password-input.tsx`(`Eye`/`EyeOff`), `searchable-select.tsx`(`Check`/`ChevronsUpDown`), `PageErrorBoundary.tsx`(`AlertTriangle`/`RefreshCw`/`Home`).
 
 ### 7.2 AI 마커 어휘
 
