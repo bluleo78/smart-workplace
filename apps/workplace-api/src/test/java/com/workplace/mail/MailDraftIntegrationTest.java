@@ -357,7 +357,6 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
         .getId();
   }
 
-  /** 빈 값 저장 — 자동 저장이라 받는사람·제목·본문이 비어도 저장된다(mode 생략은 new). */
   /** 기밀 표시(WP-2029) — 저장한 값이 상세에 그대로 돌아오고, 필드 없이 저장하거나 기존 행은 false. */
   @Test
   void confidential_저장하면_상세에_돌아오고_없으면_false() throws Exception {
@@ -382,6 +381,7 @@ class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.confidential").value(false));
   }
 
+  /** 빈 값 저장 — 자동 저장이라 받는사람·제목·본문이 비어도 저장된다(mode 생략은 new). */
   @Test
   void create_emptyValuesAllowed() throws Exception {
     long me = user();
