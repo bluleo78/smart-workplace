@@ -275,6 +275,26 @@ describe('alertRows', () => {
   test('accountId 가 없으면 라벨의 창 꼬리를 뗀 이름으로 한 계정을 센다', () => {
     const noId = (label: string): AiStatusAlert => ({ ...acct(0, label, 'WARNING', 85, 80), accountId: null })
     const rows = alertRows([noId('운영 · 5h'), noId('운영 · 7d')], '24h')
+    expect(rows[0].item.label).toBe('운영 5시간·7일 한도 근접(80% 이상)')
+  })
+
+  test('한 계정이 5시간·7일 두 창에 함께 걸리면 묶어도 계정 이름과 창을 남긴다', () => {
+    const rows = alertRows([acct(1, '운영 · 5h', 'DANGER', 100, 100), acct(1, '운영 · 7d', 'WARNING', 85, 80)], '24h')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].item.level).toBe('danger')
+    expect(rows[0].item.label).toBe('운영 5시간·7일 한도 근접(80% 이상) · 5시간 도달')
+    expect(rows[0].item.label).not.toContain('AI 계정 1개')
+    expect(rows[0].target).toEqual({ label: '계정 보기', href: '/settings/agents/accounts' })
+  })
+
+  test('한 계정의 두 창이 모두 기준 100% 이상이면 「한도 도달(100% 이상)」', () => {
+    const rows = alertRows([acct(1, '운영 · 5h', 'DANGER', 100, 100), acct(1, '운영 · 7d', 'DANGER', 101, 100)], '24h')
+    expect(rows[0].item.label).toBe('운영 5시간·7일 한도 도달(100% 이상)')
+  })
+
+  test('한 계정인데 라벨이 없어 이름을 모르면 「AI 계정 1개」 로 적는다', () => {
+    const noLabel = (): AiStatusAlert => ({ ...acct(7, '', 'WARNING', 85, 80), label: null })
+    const rows = alertRows([noLabel(), noLabel()], '24h')
     expect(rows[0].item.label).toBe('AI 계정 1개 한도 근접(80% 이상)')
   })
 
@@ -363,12 +383,12 @@ describe('statCards', () => {
     ])
   })
 
-  test('statCards — 동시 처리 직전 값이 있으면 아랫줄에 붙고, 한도가 없으면 자리만 —', () => {
+  test('statCards — 동시 처리 직전 값이 있으면 아랫줄에 붙고, 한도가 없으면 자리만 —(단위 「건」 은 늘 끝)', () => {
     const withPrev = statCards({ ...metrics, slotUsage: { current: { used: 3, limit: 8 }, previous: { used: 2, limit: 8 } } })
     expect(withPrev[5].meta).toBe('진행 중 / 한도 · 직전 2 / 8건')
 
     const noLimit = statCards({ ...metrics, slotUsage: { current: { used: 3, limit: null }, previous: null } })
-    expect(noLimit[5].value).toBe('3건 / —')
+    expect(noLimit[5].value).toBe('3 / —건')
 
     const noSample = statCards({ ...metrics, slotUsage: { current: null, previous: null } })
     expect(noSample[5].value).toBe('—')
