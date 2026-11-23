@@ -33,6 +33,7 @@ import {
 import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { extractApiError } from '@/lib/api-error'
 import { canManageDriveSpace, hasDriveSpaceMembers, partitionSpaces,spaceDisplayName } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
@@ -217,6 +218,8 @@ export function DriveSidebar() {
   const [creating, setCreating] = useState(false)
   // 이름 중복(409) 인라인 에러 — 컨테이너류 이름 하드 차단 정책(#688/#696/#803).
   const [spaceNameError, setSpaceNameError] = useState<string | null>(null)
+  // 이름 칸 Enter 처리(WP-1928) — 한글 조합 Enter·macOS Chrome 의 꼬리 Enter 는 글자 확정용이지 제출이 아니므로, 훅이 거른 뒤에만 제출을 부른다(SC 3.2.2).
+  const enterKey = useSingleLineEnter()
   // 드라이브 쿼터 — 사이드바 하단 저장 공간 블록 (#81, WP-1391). TanStack Query 전환(#820) —
   // 업로드/삭제/롤백 mutation 성공 시 invalidateQueries(driveQuotaKeys.all) 로
   // 재조회되므로 이 컴포넌트가 리마운트되지 않아도 최신 값이 반영된다.
@@ -461,9 +464,8 @@ export function DriveSidebar() {
           <Input
             value={spaceName}
             onChange={(e) => { setSpaceName(e.target.value); setSpaceNameError(null) }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void submitCreate()
-            }}
+            onCompositionEnd={enterKey.onCompositionEnd}
+            onKeyDown={(e) => enterKey.handleEnter(e, () => void submitCreate())}
             placeholder="공간 이름"
             autoFocus
             aria-invalid={!!spaceNameError}
