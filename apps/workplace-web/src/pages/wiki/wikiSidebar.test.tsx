@@ -64,6 +64,22 @@ async function rowMenu(user: ReturnType<typeof renderScreen>['user'], id: number
   await user.click(await screen.findByRole('menuitem', { name: item }))
 }
 
+/** 값을 넣기만 하므로 user.type(키당 25ms) 대신 change 로 넣는다 — 조합 이벤트와 섞이지 않게(WP-1928 리뷰 후속 ③, #1696). */
+function setInputValue(input: Element, value: string) {
+  fireEvent.change(input, { target: { value } })
+}
+
+/**
+ * 이벤트 하나를 고정 timeStamp 로 넣는다 — 훅의 100ms 꼬리 판정 창(IME_TRAILING_ENTER_MS)에 실행 속도가 기대지 않게(WP-1928 리뷰 후속 ①, #1696).
+ * 간격 10ms(1000 → 1010 → 1020)는 그 창 안이다. dispatch 는 같은 파일 「같은 틱 두 번 클릭」처럼 act 로 감싼다.
+ */
+function fireAt(node: Element, event: Event, timeStamp: number) {
+  Object.defineProperty(event, 'timeStamp', { value: timeStamp })
+  act(() => {
+    node.dispatchEvent(event)
+  })
+}
+
 // ── 스페이스 만들기(wiki-space-create) ─────────────────────────────────────────
 
 test('드롭다운의 새 스페이스 → 이름만 POST 하고 새 스페이스로 이동하며 목록에 반영된다', async () => {
@@ -135,7 +151,7 @@ test('조합 중 Enter(isComposing / keyCode 229)는 스페이스를 만들지 �
   await openCreateDialog(user)
   const input = screen.getByTestId('wiki-space-create-input')
   // 이름이 있어야 제출 가드(빈 이름)가 막지 않고 실제 제출이 시도된다.
-  await user.type(input, '조합확인중')
+  setInputValue(input, '조합확인중')
   // 한글 조합 확정용 Enter — 글자를 확정하는 키이지 제출이 아니다(WP-1928).
   fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
   fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
@@ -147,7 +163,7 @@ test('조합 중 Enter(isComposing / keyCode 229)는 스페이스를 만들지 �
 // WP-1928: macOS Chrome 꼬리 Enter — 조합 Enter → compositionend 직후에 오는 비조합 Enter 도 제출이 아니다(훅의 trailingFromRef 가 한 번만 무시).
 test('조합 종료 뒤 따라오는 Enter(꼬리 Enter)도 스페이스를 만들지 않는다', async () => {
   let posts = 0
-  const { user } = open({
+  const { user, location } = open({
     handlers: [
       http.post('/api/v1/wiki/spaces', async () => {
         posts++
@@ -157,14 +173,18 @@ test('조합 종료 뒤 따라오는 Enter(꼬리 Enter)도 스페이스를 만�
   })
   await openCreateDialog(user)
   const input = screen.getByTestId('wiki-space-create-input')
-  await user.type(input, '조합확인중')
-  // 세 이벤트는 timeStamp 차(100ms)로 꼬리를 판정하므로 시계 대기 없이 연달아 보낸다 — 대기하면 판정이 빠진다.
-  fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
-  fireEvent.compositionEnd(input)
-  fireEvent.keyDown(input, { key: 'Enter' })
+  setInputValue(input, '조합확인중')
+  // 세 이벤트의 timeStamp 를 고정값으로 넣는다 — 실제 시각에 기대면 바쁜 CI 에서 세 이벤트 사이가 100ms(훅의 창)를 넘겨 흔들린다(WP-1928 리뷰 후속 ①, #1696).
+  fireAt(input, new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }), 1000)
+  fireAt(input, new CompositionEvent('compositionend', { bubbles: true }), 1010)
+  fireAt(input, new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }), 1020)
   await new Promise((r) => setTimeout(r, 100))
   expect(posts).toBe(0)
   expect(screen.getByTestId('wiki-space-create-dialog')).toBeInTheDocument()
+  // 전달 반증 — 위 세 이벤트가 실제로 React 에 도달해 꼬리를 한 번 소비했는지, 그 뒤의 Enter 는 제출된다(공허 통과 방어, WP-1928 리뷰 후속).
+  fireAt(input, new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }), 5000)
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/5'))
+  expect(posts).toBe(1)
 })
 
 // WP-1928: 조합 중 Enter 만 막는다 — 조합이 아닌 평소 Enter 로는 여전히 만들어진다(제출 경로 회귀 방지).
@@ -180,10 +200,13 @@ test('조합이 아닌 Enter 는 스페이스를 만든다', async () => {
     ],
   })
   await openCreateDialog(user)
-  await user.type(screen.getByTestId('wiki-space-create-input'), '엔터로생성')
-  fireEvent.keyDown(screen.getByTestId('wiki-space-create-input'), { key: 'Enter' })
+  const input = screen.getByTestId('wiki-space-create-input')
+  setInputValue(input, '엔터로생성')
+  fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() => expect(location()).toBe('/wiki/spaces/5'))
   expect(posts).toBe(1)
+  // 제출이 끝나면 대화상자도 닫힌다 — 드라이브 쪽 테스트와 같은 단언(WP-1928 리뷰 후속 ②, #1696).
+  expect(screen.queryByTestId('wiki-space-create-dialog')).not.toBeInTheDocument()
 })
 
 test('취소하고 다시 열면 이전 입력값이 남지 않는다', async () => {
