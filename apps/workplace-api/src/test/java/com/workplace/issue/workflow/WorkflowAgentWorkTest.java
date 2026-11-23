@@ -1,5 +1,6 @@
 package com.workplace.issue.workflow;
 
+import static com.workplace.jooq.Tables.AGENT_SERVER_RUN;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
@@ -39,12 +40,14 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -1017,49 +1020,336 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
 
   @Test
   @DisplayName(
-      "노드 담당 내부 AI 의 실행이 이동 없이 정상으로 끝나면 노드를 멈추지 않고 작업만 시작 전(SUBMITTED)+이유 note 로 둔다(판정 F4)")
-  void serverRunFinishedWithoutMove_marksSubmittedWithNote() {
+      "노드 담당 내부 AI 의 마지막 도는 실행이 이동 없이 정상으로 끝나면 노드를 멈추지 않고 작업만 대기 중(WAITING)+이유 note 로 둔다(재반려 G2)")
+  void serverRunFinishedWithoutMove_marksWaitingWithNote() {
     long bot = agent("INTERNAL");
-    long wf = publish(yaml(bot, agent("INTERNAL")));
-    long issue = issue(lead);
-    ok(startReq(issue, wf), pm);
-    serverRun(bot, issue, "STARTED", true, null);
+    long issue = internalStartedIssue(bot);
+    String run = newRun();
+    serverRun(bot, issue, "STARTED", true, null, run);
     assertThat(activeStates(issue, bot)).containsExactly("WORKING");
     events.clear();
 
-    serverRun(bot, issue, "FINISHED", true, null);
+    serverRun(bot, issue, "FINISHED", true, null, run);
 
-    // 끝 보고에는 어느 실행인지·무엇이 깨웠는지가 없어 노드를 멈추지 않는다 — 「일하는 중 아님」만 보인다.
-    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    // 이 실행이 그 AI 의 마지막 도는 실행이라 「일했고 쉬는 중」 — 시작 전(SUBMITTED)이 아니다.
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
     assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
     assertThat(allStates(issue, bot)).doesNotContain("REVIEW");
     assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
     assertThat(runStatus(issue)).isEqualTo("RUNNING");
     assertThat(runRevision(issue)).isZero();
     assertThat(runEvents(issue)).doesNotContain("NODE_BLOCKED");
-    // 답변 필요(AI_QUESTION)·검토 요청 알림의 근원인 AI 작업 알림 이벤트가 없다.
+    // WAITING 은 알릴 상태(ON_ENTER)가 아니라 AI 작업 알림 이벤트가 없다.
+    assertThat(events.stream(AgentWorkNoticeEvent.class)).isEmpty();
+    assertThat(serverRunRows(issue, bot)).isZero();
+  }
+
+  @Test
+  @DisplayName("진행 중 행이 없으면 마지막 도는 실행의 이동 없는 정상 끝이라도 행을 새로 열지 않는다 — 실행 뒤에 행이 닫혔다")
+  void serverRunFinishedWithoutMove_noRow_untouched() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String run = newRun();
+    serverRun(bot, issue, "STARTED", true, null, run);
+    // 실행 중 행이 다른 길로 닫힌 경우를 흉내 낸다.
+    dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.STATE, "COMPLETED")
+        .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
+        .where(AGENT_WORK.ID.eq(activeRowId(issue, bot)))
+        .execute();
+    events.clear();
+
+    serverRun(bot, issue, "FINISHED", true, null, run);
+
+    assertThat(activeStates(issue, bot)).isEmpty();
+    assertThat(allStates(issue, bot)).containsExactly("COMPLETED");
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
     assertThat(events.stream(AgentWorkNoticeEvent.class)).isEmpty();
   }
 
   @Test
-  @DisplayName("노드 담당 내부 AI 의 진행 중 행이 없을 때 이동 없는 정상 끝은 시작 전(SUBMITTED)+이유 note 행을 연다(판정 F4)")
-  void serverRunFinishedWithoutMove_noRow_opensSubmitted() {
+  @DisplayName(
+      "실행 A 가 스스로 같은 AI 의 다음 노드로 넘긴 뒤 A 가 정상으로 끝나면(마지막 도는 실행) 새 방문에 「이동 없이 끝남」 행을 열지 않는다(우려 1)")
+  void serverRunSelfMoveThenFinish_doesNotMarkNewVisit() {
     long bot = agent("INTERNAL");
-    long wf = publish(yaml(bot, agent("INTERNAL")));
-    long issue = issue(lead);
-    ok(startReq(issue, wf), pm);
+    long issue = internalStartedIssue(bot);
+    String runA = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runA);
+    runService.move(issue, new MoveRequest("work", "again", null, null, null, 0, "k-self"), bot);
+    TenantContext.set(1L);
+    // 떠난 행은 COMPLETED, 내부 AI 의 새 방문(work2)에는 행이 없다(깨우기만).
     assertThat(activeStates(issue, bot)).isEmpty();
-    events.clear();
+
+    serverRun(bot, issue, "FINISHED", true, null, runA);
+
+    assertThat(activeStates(issue, bot)).isEmpty();
+    assertThat(allStates(issue, bot)).containsExactly("COMPLETED");
+    assertThat(nodeRun(issue, "work2").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(serverRunRows(issue, bot)).isZero();
+  }
+
+  @Test
+  @DisplayName(
+      "실행 A 가 도는 사이 노드 재진입으로 행이 SUBMITTED 가 되면, A 의 정상 끝(마지막 도는 실행)은 행을 SUBMITTED·note 없음 그대로 둔다(우려 1)")
+  void serverRunFinish_afterReentrySubmitted_keepsSubmitted() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runA = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runA);
+    ok(move(issue, "work", "ask", "어느 쪽으로 할까요?", 0, "k1"), pm);
+    ok(move(issue, "work_ask", "answered", "A 로 해 주세요", 1, "k2"), pm);
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+
+    serverRun(bot, issue, "FINISHED", true, null, runA);
+
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(activeNote(issue, bot)).isNull();
+    assertThat(serverRunRows(issue, bot)).isZero();
+  }
+
+  @Test
+  @DisplayName(
+      "같은 AI 가 다음 노드로 넘어가 새 실행 B 가 시작한 뒤 옛 실행 A 의 정상 끝이 오면 작업 중 그대로이고, 이슈 완료 때 COMPLETED 로 닫히며 도는 실행 기록도 지운다(재반려 1a)")
+  void serverRunOldFinish_afterNextNodeStarted_keepsWorking() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runA = newRun();
+    String runB = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runA);
+    ok(move(issue, "work", "again", null, 0, "k1"), pm);
+    serverRun(bot, issue, "STARTED", true, null, runB);
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+
+    serverRun(bot, issue, "FINISHED", true, null, runA);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+    assertThat(activeNote(issue, bot)).isNotEqualTo("이동 없이 실행이 끝났습니다");
+    assertThat(nodeRun(issue, "work2").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(serverRunRows(issue, bot)).isEqualTo(1);
+
+    ok(issuePatch(issue, "DONE"), pm);
+
+    assertThat(activeStates(issue, bot)).isEmpty();
+    assertThat(allStates(issue, bot)).containsExactly("COMPLETED", "COMPLETED");
+    assertThat(serverRunRows(issue, bot)).isZero();
+  }
+
+  @Test
+  @DisplayName(
+      "노드 실행 N 이 도는 중 챗 답 실행 C 가 먼저 끝나면 작업 중 그대로이고, 이어 N 이 끝나면 대기 중+이유 note, 새 실행이 시작하면 다시 작업 중(재반려 1b)")
+  void serverRunChatFinish_whileNodeRunRunning_keepsWorking() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runN = newRun();
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN);
+    serverRun(bot, issue, "STARTED", true, null, runC);
+
+    serverRun(bot, issue, "FINISHED", true, null, runC);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+
+    serverRun(bot, issue, "FINISHED", true, null, runN);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+    long rowId = activeRowId(issue, bot);
+
+    serverRun(bot, issue, "STARTED", true, null, newRun());
+
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+    assertThat(activeRowId(issue, bot)).isEqualTo(rowId);
+  }
+
+  @Test
+  @DisplayName("이동 없는 끝으로 대기 중이 된 뒤 이슈를 완료하면 그 작업은 CANCELED 가 아니라 COMPLETED 로 닫힌다(재반려 2)")
+  void serverRunFinishedWithoutMove_thenIssueDone_completes() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    runToFinish(bot, issue);
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+
+    ok(issuePatch(issue, "DONE"), pm);
+
+    assertThat(activeStates(issue, bot)).isEmpty();
+    assertThat(allStates(issue, bot)).containsExactly("COMPLETED");
+  }
+
+  @Test
+  @DisplayName("실행 id 없는 정상 끝(옛 ai-agent)은 어느 실행인지 몰라 작업 중 그대로이고, 이슈 완료 때 COMPLETED 로 닫힌다")
+  void serverRunFinished_withoutRunId_keepsWorking() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    serverRun(bot, issue, "STARTED", true, null);
 
     serverRun(bot, issue, "FINISHED", true, null);
 
-    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
-    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
     assertThat(allStates(issue, bot)).doesNotContain("REVIEW");
-    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+
+    ok(issuePatch(issue, "DONE"), pm);
+
+    assertThat(allStates(issue, bot)).containsExactly("COMPLETED");
+  }
+
+  @Test
+  @DisplayName("다른 실행 B 가 살아 있으면 모르는 실행 id 의 정상 끝(늦게 온 옛 실행 등)은 작업 중 그대로다 — 형식이 틀린 id 도 같다")
+  void serverRunFinished_unknownRunId_whileOtherRunLive_keepsWorking() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runB = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runB);
+
+    serverRun(bot, issue, "FINISHED", true, null, newRun());
+    serverRun(bot, issue, "FINISHED", true, null, "not-a-uuid");
+
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+    assertThat(serverRunRows(issue, bot)).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("STARTED 보고를 잃어 표에 없는 실행 id 라도 남은 도는 실행이 없고 행이 작업 중이면 정상 끝이 대기 중으로 내린다(코드 리뷰 2)")
+  void serverRunFinished_lostStarted_noOtherRun_marksWaiting() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    // 실행 id 없이 작업 중 행만 만든다 — 그 실행의 STARTED 기록이 표에 없는 상황.
+    serverRun(bot, issue, "STARTED", true, null);
+    assertThat(serverRunRows(issue, bot)).isZero();
+
+    serverRun(bot, issue, "FINISHED", true, null, newRun());
+
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+  }
+
+  @Test
+  @DisplayName("도는 중 담당에서 빠진 AI 의 실행 기록은 지워져, 다시 지정된 뒤 새 실행의 이동 없는 끝이 대기 중으로 내려간다(코드 리뷰 1)")
+  void serverRun_unassignedMidRun_thenReassigned_newRunMarksWaiting() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runA = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runA);
+    ok(assign(issue, null, lead), pm);
+    assertThat(serverRunRows(issue, bot)).isZero();
+    // 담당이 아니라 이른 return — 그래도 표에서는 지운다(이미 비어 있다).
+    serverRun(bot, issue, "FINISHED", true, null, runA);
+    ok(assign(issue, null, lead, bot), pm);
+    String runB = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runB);
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+
+    serverRun(bot, issue, "FINISHED", true, null, runB);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+    assertThat(serverRunRows(issue, bot)).isZero();
+  }
+
+  @Test
+  @DisplayName("끝 보고가 이른 return(담당 아님)에 걸려도 그 실행의 도는 실행 행은 지운다(코드 리뷰 1)")
+  void serverRunFinished_earlyReturn_stillDeletesRun() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runA = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runA);
+    // 담당 해제 정리를 거치지 않고 담당 행만 빼 이른 return 을 일으킨다.
+    dsl.deleteFrom(ISSUE_ASSIGNEE)
+        .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issue))
+        .and(ISSUE_ASSIGNEE.USER_ID.eq(bot))
+        .execute();
+    assertThat(serverRunRows(issue, bot)).isEqualTo(1);
+
+    serverRun(bot, issue, "FINISHED", true, null, runA);
+
+    assertThat(serverRunRows(issue, bot)).isZero();
+  }
+
+  @Test
+  @DisplayName("새 실행의 STARTED 는 그 이슈·AI 의 오래된(FINISHED 없이 죽은) 실행 행을 함께 지운다(코드 리뷰 5)")
+  void serverRunStarted_purgesStaleRows() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    UUID stale = UUID.randomUUID();
+    insertStaleRun(issue, bot, stale);
+    String run = newRun();
+
+    serverRun(bot, issue, "STARTED", true, null, run);
+
+    assertThat(serverRunRows(issue, bot)).isEqualTo(1);
+    assertThat(dsl.fetchExists(AGENT_SERVER_RUN, AGENT_SERVER_RUN.RUN_ID.eq(UUID.fromString(run))))
+        .isTrue();
+  }
+
+  @Test
+  @DisplayName("FINISHED 없이 오래 남은(실행 제한 시간을 넉넉히 넘긴) 도는 실행 행은 세지 않아, 마지막 실행의 끝이 대기 중으로 내린다")
+  void serverRunFinished_staleRunIgnored() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String run = newRun();
+    serverRun(bot, issue, "STARTED", true, null, run);
+    insertStaleRun(issue, bot, UUID.randomUUID());
+
+    serverRun(bot, issue, "FINISHED", true, null, run);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+  }
+
+  @Test
+  @DisplayName("이동 없는 끝(대기 중) 뒤 질문 왕복으로 노드에 다시 들어오면 그 note 가 질문처럼 남지 않고 SUBMITTED·note 없음이 된다")
+  void finishedWithoutMove_thenReenter_resetsToSubmitted() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    runToFinish(bot, issue);
+    long rowId = activeRowId(issue, bot);
+
+    ok(move(issue, "work", "ask", "어느 쪽으로 할까요?", 0, "k1"), pm);
+
+    assertThat(activeStates(issue, bot)).containsExactly("INPUT_REQUIRED");
+    assertThat(activeNote(issue, bot)).isNull();
+
+    ok(move(issue, "work_ask", "answered", "A 로 해 주세요", 1, "k2"), pm);
+
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(activeNote(issue, bot)).isNull();
+    assertThat(activeRowId(issue, bot)).isEqualTo(rowId);
+  }
+
+  @Test
+  @DisplayName("이동 없는 끝(대기 중) 뒤 멈춘 노드를 다시 시도(RETRY)하면 SUBMITTED·note 없음이 되고 그 AI 를 다시 깨운다")
+  void finishedWithoutMove_thenRetry_resetsToSubmitted() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    runToFinish(bot, issue);
+    // 쉬는 행을 그대로 둔 채 실행만 멈춘다 — 실패 끝은 행을 차단됨으로 덮으므로 실행·방문을 직접 멈춘다.
+    dsl.update(WORKFLOW_RUN)
+        .set(WORKFLOW_RUN.STATUS, "SUSPENDED")
+        .set(WORKFLOW_RUN.REVISION, 1)
+        .where(WORKFLOW_RUN.ISSUE_ID.eq(issue))
+        .execute();
+    dsl.update(NODE_RUN)
+        .set(NODE_RUN.STATUS, "BLOCKED")
+        .set(NODE_RUN.WAITING_REASON, "BLOCKED")
+        .where(NODE_RUN.NODE_KEY.eq("work"))
+        .and(NODE_RUN.LEFT_AT.isNull())
+        .and(
+            NODE_RUN.RUN_ID.in(
+                DSL.select(WORKFLOW_RUN.ID)
+                    .from(WORKFLOW_RUN)
+                    .where(WORKFLOW_RUN.ISSUE_ID.eq(issue))))
+        .execute();
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    events.clear();
+
+    ok(
+        post(API + "/issues/" + issue + "/workflow/recover")
+            .content(json("action", "RETRY", "expectedRevision", 1)),
+        lead);
+
     assertThat(runStatus(issue)).isEqualTo("RUNNING");
-    assertThat(runEvents(issue)).doesNotContain("NODE_BLOCKED");
-    assertThat(events.stream(AgentWorkNoticeEvent.class)).isEmpty();
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(activeNote(issue, bot)).isNull();
+    assertThat(wakes()).hasSize(1);
   }
 
   @Test
@@ -1098,6 +1388,20 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("워크플로우가 없는 이슈의 내부 AI 정상 끝 보고는 실행 id 가 있어도 지금처럼 검토 대기를 쓴다")
+  void serverRunFinished_noWorkflow_withRunId_unchanged() {
+    long bot = agent("INTERNAL");
+    long issue = issue(lead, bot);
+    String run = newRun();
+    serverRun(bot, issue, "STARTED", true, null, run);
+
+    serverRun(bot, issue, "FINISHED", true, null, run);
+
+    assertThat(activeStates(issue, bot)).containsExactly("REVIEW");
+    assertThat(serverRunRows(issue, bot)).isZero();
+  }
+
+  @Test
   @DisplayName("노드를 이미 떠난 내부 AI 의 정상 끝 보고는 떠날 때 COMPLETED 로 닫힌 작업을 검토 대기로 되살리지 않는다(코드 리뷰 I2)")
   void serverRunSucceeded_afterLeavingNode_keepsCompleted() {
     long bot = agent("INTERNAL");
@@ -1133,8 +1437,54 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
 
   /** 서버 실행기(ai-agent)의 실행 보고 — 내부 AI 의 시작·끝을 서비스로 직접 알린다(같은 시험 트랜잭션). */
   private void serverRun(long agentId, long issue, String phase, boolean ok, String note) {
-    serverAgentRunService.report(agentId, issue, new ServerAgentRunReport(phase, ok, note));
+    serverRun(agentId, issue, phase, ok, note, null);
+  }
+
+  /** 실행 id 를 실은 실행 보고(WP-1986 — 지금 ai-agent 의 모양). */
+  private void serverRun(
+      long agentId, long issue, String phase, boolean ok, String note, String runId) {
+    serverAgentRunService.report(agentId, issue, new ServerAgentRunReport(phase, ok, note, runId));
     TenantContext.set(1L);
+  }
+
+  /** 실행 id 하나(ai-agent 가 실행마다 만드는 UUID 문자열). */
+  private static String newRun() {
+    return UUID.randomUUID().toString();
+  }
+
+  /** 새 실행 하나를 시작하고 정상으로 끝낸다(STARTED → FINISHED ok, 같은 실행 id). */
+  private void runToFinish(long agentId, long issue) {
+    String run = newRun();
+    serverRun(agentId, issue, "STARTED", true, null, run);
+    serverRun(agentId, issue, "FINISHED", true, null, run);
+  }
+
+  /** FINISHED 없이 죽은 실행의 행 — 시작 시각을 1시간 전으로 직접 넣는다(시험 트랜잭션은 now() 가 멈춰 있다). */
+  private void insertStaleRun(long issue, long agentId, UUID runId) {
+    dsl.insertInto(AGENT_SERVER_RUN)
+        .set(AGENT_SERVER_RUN.TENANT_ID, 1L)
+        .set(AGENT_SERVER_RUN.ISSUE_ID, issue)
+        .set(AGENT_SERVER_RUN.AGENT_ID, agentId)
+        .set(AGENT_SERVER_RUN.RUN_ID, runId)
+        .set(
+            AGENT_SERVER_RUN.STARTED_AT,
+            DSL.field("now() - interval '1 hour'", OffsetDateTime.class))
+        .execute();
+  }
+
+  /** 내부 AI bot 이 맡는 work(agent_task)에 머물게 시작한 이슈 id(lead 담당). */
+  private long internalStartedIssue(long bot) {
+    long wf = publish(yaml(bot, agent("INTERNAL")));
+    long issue = issue(lead);
+    ok(startReq(issue, wf), pm);
+    return issue;
+  }
+
+  /** (이슈, AI) 의 남은 도는 서버 실행 행 수. */
+  private int serverRunRows(long issue, long agentId) {
+    return dsl.fetchCount(
+        AGENT_SERVER_RUN,
+        AGENT_SERVER_RUN.ISSUE_ID.eq(issue).and(AGENT_SERVER_RUN.AGENT_ID.eq(agentId)));
   }
 
   // ───────────────────────── 도우미 ─────────────────────────

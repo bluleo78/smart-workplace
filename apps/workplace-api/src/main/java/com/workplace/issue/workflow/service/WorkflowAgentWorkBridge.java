@@ -135,13 +135,14 @@ public class WorkflowAgentWorkBridge {
   /**
    * 내부 AI 가 노드에 다시 들어갈 때 남은 멈춤 상태를 풀어 준다(코드 리뷰 I3). 질문으로 떠나면 {@link #onNodeLeft} 가 내부 AI 의 행도
    * INPUT_REQUIRED 로 두는데, 답으로 돌아와도 그대로면 나중의 챗 답이 그 행을 되살려 같은 AI 를 한 번 더 깨운다(진입이 이미 깨웠다). 다시 시도로 돌아온
-   * 차단(BLOCKED)·권한 필요도 같다 — 실행은 다시 진행 중인데 작업만 「차단됨」으로 남는다. 그래서 진행 중 행이 이 상태들이면 SUBMITTED 로 되돌린다. 행이
-   * 없거나 작업 중 등이면 그대로 둔다(내부 AI 는 SUBMITTED 를 새로 만들지 않는다 — 지금 규칙).
+   * 차단(BLOCKED)·권한 필요도 같고, 「이동 없이 끝나 쉬는 중」도 다시 깨웠으니 쉬는 중이 아니다. 그래서 진행 중 행이 지울 note 를 든 상태({@link
+   * AgentWorkState#holdsClearableNote})면 SUBMITTED 로 되돌리고 note 를 지운다. 다른 대기 중은 무엇을 기다리는지가 사라지면 안
+   * 되므로 그대로 둔다. 행이 없거나 작업 중 등이면 그대로 둔다(내부 AI 는 SUBMITTED 를 새로 만들지 않는다 — 지금 규칙).
    */
   private void resetInternalInterrupt(long issueId, long agentId) {
     agentWorkRepository
         .findActive(issueId, agentId)
-        .filter(row -> AgentWorkState.holdsReasonNote(row.state()))
+        .filter(row -> AgentWorkState.holdsClearableNote(row.state(), row.note()))
         .ifPresent(row -> agentWorkService.markState(issueId, row, AgentWorkState.SUBMITTED));
   }
 
@@ -341,11 +342,8 @@ public class WorkflowAgentWorkBridge {
     NOT_OWNED,
     /** 워크플로우가 맡았고 작업 기록은 그대로 둔다(검토 대기를 쓰지 않는다). */
     OWNED,
-    /**
-     * 노드 담당이 이동 없이 끝났다 — 부르는 쪽은 작업을 시작 전(SUBMITTED, note 「이동 없이 실행이 끝났습니다」)으로 남긴다(행이 없으면 연다).
-     * 실행·node_run 은 그대로다.
-     */
-    SUBMIT
+    /** 노드 담당이 이동 없이 끝났고 진행 중 행이 작업 중이다 — 쉬는 중으로 내릴지는 부르는 쪽이 정한다({@link #onServerRunSuccess}). */
+    FINISHED_WITHOUT_MOVE
   }
 
   /**
@@ -353,12 +351,17 @@ public class WorkflowAgentWorkBridge {
    * — 워크플로우에서 검토·노드 끝내기는 이동으로만 한다(원장 R9).
    *
    * <ul>
-   *   <li>활성 실행의 지금 agent_task 노드 담당이고 진행 중 행이 WORKING·SUBMITTED 거나 없으면 {@link
-   *       ServerRunSuccess#SUBMIT}. 노드를 멈추지 않는다 — 끝 보고에는 어느 실행인지·무엇이 깨웠는지가 없어, 멈추면 사람 댓글에 답만 한 실행이나
-   *       늦게 온 옛 실행의 끝도 잘 가던 노드를 멈춘다. 시작 전과 note 로 「일하는 중이 아님」만 보이고, 노드는 보통 이동이나 새 깨우기로 이어 갈 수 있게
-   *       둔다
+   *   <li>활성 실행의 지금 agent_task 노드 담당이고 진행 중 행이 WORKING 이면 {@link
+   *       ServerRunSuccess#FINISHED_WITHOUT_MOVE}. 노드를 멈추지 않는다 — 사람 댓글에 답만 한 실행의 끝도 잘 가던 노드를 멈추면 안
+   *       된다. 작업을 쉬는 중으로 내릴지는 실행 id 로 마지막 도는 실행인지 가리는 부르는 쪽({@code ServerAgentRunService})이 정한다 — 이
+   *       다리는 어느 실행인지 모른다
+   *   <li>노드 담당인데 진행 중 행이 시작 전(SUBMITTED)이거나 없으면 {@link ServerRunSuccess#OWNED} — 손대지 않는다. 끝난 실행의
+   *       STARTED 가 행을 WORKING 으로 올렸으니, 지금 SUBMITTED 면 그 뒤에 노드 진입·다시 시도가 다시 쓴 것이고, 없으면 그 뒤에 노드를 떠나며
+   *       닫힌 것이다(내부 AI 가 스스로 자기 다음 노드로 넘기면 떠난 행은 COMPLETED 이고 새 방문에는 행이 없다). 어느 쪽이든 끝난 실행은 지금 방문보다
+   *       앞선 것이라, 쉬는 중으로 내리거나 행을 새로 열면 막 깨운 일이 「이동 없이 끝남」으로 보인다
    *   <li>노드 담당인데 행이 기다림·끼어듦(WAITING·INPUT_REQUIRED·AUTH_REQUIRED·BLOCKED)이면 {@link
-   *       ServerRunSuccess#OWNED} — 이미 다른 사람 차례·멈춤이 보이니 손대지 않는다
+   *       ServerRunSuccess#OWNED} — 이미 다른 사람 차례·멈춤이 보이니 손대지 않는다. 앞선 끝이 남긴 「이동 없이 끝나 쉬는 중」(WAITING)도
+   *       이미 쉬는 중이라 그대로 두면 된다(새 실행이면 STARTED 가 먼저 작업 중으로 올린다)
    *   <li>이미 노드를 떠난 AI 면 {@link ServerRunSuccess#OWNED} — 떠날 때 {@link #onNodeLeft} 가 행을 COMPLETED 로
    *       닫았는데, 실행 끝 보고가 그 뒤에 오면 진행 중 행이 없어 새 「검토 대기」 행이 생겨 끝낸 일을 다시 검토 대기로 되돌린다. 판정: 진행 중 행이 없고, 이
    *       이슈의 지금 실행(활성, 없으면 가장 최근 — end 로 옮겨 끝난 실행 포함)에서 떠난 방문의 담당이었다
@@ -373,11 +376,10 @@ public class WorkflowAgentWorkBridge {
       // 위 호출이 이슈 행을 잠근 뒤라 그사이 이동이 행을 바꾸지 못한다.
       String rowState =
           agentWorkRepository.findActive(issueId, agentId).map(AgentWorkRow::state).orElse(null);
-      boolean notWaiting =
-          rowState == null
-              || AgentWorkState.WORKING.equals(rowState)
-              || AgentWorkState.SUBMITTED.equals(rowState);
-      return notWaiting ? ServerRunSuccess.SUBMIT : ServerRunSuccess.OWNED;
+      // 작업 중일 때만 이 실행의 끝이 지금 방문의 일일 수 있다 — 시작 전·없음은 끝난 실행보다 뒤의 진입·떠남이 행을 바꾼 것(위 Javadoc).
+      return AgentWorkState.WORKING.equals(rowState)
+          ? ServerRunSuccess.FINISHED_WITHOUT_MOVE
+          : ServerRunSuccess.OWNED;
     }
     if (agentWorkRepository.findActive(issueId, agentId).isPresent()) {
       return ServerRunSuccess.NOT_OWNED;

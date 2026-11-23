@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import static com.workplace.jooq.Tables.AGENT_SERVER_RUN;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -21,6 +22,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.junit.jupiter.api.AfterEach;
@@ -120,6 +122,28 @@ class ServerAgentRunTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.items[?(@.title == '체크리스트 작성')]").exists());
   }
 
+  // WP-1986: 실행 id 는 JSON 으로 받아 도는 실행 표에 넣고 끝에 지운다. 형식이 틀린 id 는 400 이 아니라 없는 것으로 본다.
+  @Test
+  void 실행_id를_받아_시작에_넣고_끝에_지우며_틀린_id는_조용히_넘긴다() throws Exception {
+    String runId = UUID.randomUUID().toString();
+    report(agent, "STARTED", false, null, runId).andExpect(status().isNoContent());
+    assertThat(serverRunRows()).isEqualTo(1);
+
+    report(agent, "FINISHED", true, null, runId).andExpect(status().isNoContent());
+    assertThat(serverRunRows()).isZero();
+    // 워크플로우 없는 이슈는 지금처럼 검토 대기.
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("REVIEW");
+
+    report(agent, "STARTED", false, null, "1-2-3-4-5").andExpect(status().isNoContent());
+    report(agent, "STARTED", false, null, "not-a-uuid").andExpect(status().isNoContent());
+    assertThat(serverRunRows()).isZero();
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("WORKING");
+  }
+
+  private int serverRunRows() {
+    return dsl.fetchCount(AGENT_SERVER_RUN, AGENT_SERVER_RUN.ISSUE_ID.eq(issueId));
+  }
+
   @Test
   void 실패로_끝나면_막힘과_사유를_남긴다() throws Exception {
     report(agent, "STARTED", false, null).andExpect(status().isNoContent());
@@ -197,10 +221,16 @@ class ServerAgentRunTest extends IntegrationTestBase {
   }
 
   private ResultActions report(long as, String phase, boolean ok, String note) throws Exception {
+    return report(as, phase, ok, note, null);
+  }
+
+  private ResultActions report(long as, String phase, boolean ok, String note, String runId)
+      throws Exception {
     Map<String, Object> body = new HashMap<>();
     body.put("phase", phase);
     body.put("ok", ok);
     body.put("note", note);
+    if (runId != null) body.put("runId", runId);
     ResultActions r =
         mvc.perform(
             post(path())

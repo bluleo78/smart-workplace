@@ -17,6 +17,7 @@ import com.workplace.jooq.tables.AgentReportedModel.AgentReportedModelPath;
 import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
 import com.workplace.jooq.tables.AgentScreenSession.AgentScreenSessionPath;
+import com.workplace.jooq.tables.AgentServerRun.AgentServerRunPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AiAgentCredential.AiAgentCredentialPath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
@@ -590,6 +591,19 @@ public class User extends TableImpl<UserRecord> {
             _agentScreenSessionOpenedByFkey = new AgentScreenSessionPath(this, null, Keys.AGENT_SCREEN_SESSION__AGENT_SCREEN_SESSION_OPENED_BY_FKEY.getInverseKey());
 
         return _agentScreenSessionOpenedByFkey;
+    }
+
+    private transient AgentServerRunPath _agentServerRun;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_server_run</code> table
+     */
+    public AgentServerRunPath agentServerRun() {
+        if (_agentServerRun == null)
+            _agentServerRun = new AgentServerRunPath(this, null, Keys.AGENT_SERVER_RUN__AGENT_SERVER_RUN_AGENT_ID_FKEY.getInverseKey());
+
+        return _agentServerRun;
     }
 
     private transient AgentWorkPath _agentWork;

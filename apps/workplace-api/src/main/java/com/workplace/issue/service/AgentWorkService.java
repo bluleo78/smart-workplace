@@ -13,6 +13,7 @@ import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.AgentsResumedByChatReply;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
+import com.workplace.issue.repository.AgentServerRunRepository;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRecurrenceRepository;
@@ -63,6 +64,7 @@ public class AgentWorkService {
   // 작업 기록을 닫는 경로(이슈 종료·삭제·담당 해제)에서 반복도 함께 거둔다(WP-1114). 반복을 먼저 잠가 결과 보고(반복 → 작업 기록)와 잠금 순서를
   // 맞춘다.
   private final IssueRecurrenceRepository recurrenceRepository;
+  private final AgentServerRunRepository serverRunRepository;
   private final IssueRepository issueRepository;
   private final ProjectRepository projectRepository;
   private final IssueChangeNotifier notifier;
@@ -221,6 +223,8 @@ public class AgentWorkService {
    */
   public void endAllOnIssueDone(Collection<Long> issueIds) {
     recurrenceRepository.retire(issueIds, null);
+    // 그 이슈의 서버 AI 도는 실행 기록도 지운다(WP-1986) — 끝난 이슈에 남으면 쓸 데가 없고, 뒤늦은 끝 보고는 끝난 이슈라 어차피 넘어간다.
+    serverRunRepository.deleteByIssues(issueIds);
     repository.endActiveOnIssueDone(issueIds);
   }
 
@@ -230,14 +234,16 @@ public class AgentWorkService {
    */
   public void cancelAllForIssues(Collection<Long> issueIds) {
     recurrenceRepository.retire(issueIds, null);
+    // 서버 AI 도는 실행 기록도 지운다(WP-1986, 완료와 같은 이유). 이슈는 소프트 삭제라 FK CASCADE 는 영구 삭제 때만 돈다.
+    serverRunRepository.deleteByIssues(issueIds);
     repository.endActive(issueIds, AgentWorkState.CANCELED);
   }
 
   /**
    * 서버가 쓰는 상태 전환(WP-1986 — 워크플로우 노드 진입·떠남). 진행 중 행을 지정 상태로 바꾸고 화면 갱신 알림만 낸다 — 보고 경로가 아니라 진행 상태
    * 알림(AgentWorkNoticeEvent)·챗 글은 내지 않는다(질문은 이동 의견 댓글과 답변 노드 진입이 알린다). 끝 상태면 {@link #end} 로 닫는다. 답변
-   * 필요·인증 필요·차단됨에서 다른 상태로 바뀌면 그 질문·막힘 note 를 지운다 — 다시 시도·재진입으로 SUBMITTED 가 된 행에 옛 사유가 남지 않게. 보고
-   * 경로({@link #startOrUpdateTracked})는 새 note 가 없을 때 답변 필요·인증 필요를 떠날 때만 지우므로 규칙이 다르다.
+   * 필요·인증 필요·차단됨·이동 없이 끝나 쉬는 중에서 다른 상태로 바뀌면 그 질문·막힘 note 를 지운다 — 다시 시도·재진입으로 SUBMITTED 가 된 행에 옛 사유가
+   * 남지 않게. 보고 경로({@link #startOrUpdateTracked})는 새 note 가 없을 때 답변 필요·인증 필요를 떠날 때만 지우므로 규칙이 다르다.
    *
    * @return 바꿨으면 true. 진행 중 행이 없거나 이미 그 상태면 false
    */
@@ -259,9 +265,9 @@ public class AgentWorkService {
       return end(issueId, row.workerId(), state, AgentWorkPatch.empty());
     }
     if (row == null || state.equals(row.state())) return false;
-    // 답변 필요·인증 필요·차단됨을 떠나면 그 질문·막힘 note 를 지운다 — 남기면 다시 시도·재진입으로 SUBMITTED 가 된 행에 옛 사유가 남아 아직
-    // 막힌 것처럼 보인다(막힌 이유는 node_run 의 waiting_reason·error 와 NODE_BLOCKED 이벤트에 남는다).
-    boolean clearNote = AgentWorkState.holdsReasonNote(row.state());
+    // 답변 필요·인증 필요·차단됨·「이동 없이 끝나 쉬는 중」을 떠나면 그 note 를 지운다 — 다시 시도·재진입으로 SUBMITTED 가 된 행에
+    // 옛 사유가 남아 아직 막힌 것처럼 보이지 않게(막힌 이유는 node_run 의 waiting_reason·error 와 NODE_BLOCKED 이벤트에 남는다).
+    boolean clearNote = AgentWorkState.holdsClearableNote(row.state(), row.note());
     var patch = new AgentWorkPatch(null, state, null, clearNote, null, null, null);
     if (repository.update(row.id(), patch) == 0) return false;
     notifyChanged(issueId, null);
@@ -280,6 +286,9 @@ public class AgentWorkService {
   /** 이슈에서 지정한 작업자들의 진행 중 작업만 취소하고, 그 AI 들이 돌리던 반복도 거둔다(담당 해제, WP-1114). 알림은 호출자가 이미 낸다. */
   public void cancelForWorkers(long issueId, Collection<Long> workerIds) {
     recurrenceRepository.retire(List.of(issueId), workerIds);
+    // 그 AI 들의 서버 실행 기록도 지운다(WP-1986) — 빠진 뒤의 끝 보고는 담당 확인에서 넘어가므로,
+    // 남은 행이 다시 지정된 뒤의 새 실행 끝을 「아직 도는 실행이 있음」으로 막지 않게.
+    serverRunRepository.deleteForWorkers(issueId, workerIds);
     repository.endActiveForWorkers(issueId, workerIds, AgentWorkState.CANCELED);
   }
 

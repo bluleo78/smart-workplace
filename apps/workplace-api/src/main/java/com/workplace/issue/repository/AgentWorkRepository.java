@@ -118,8 +118,12 @@ public class AgentWorkRepository {
    * 무소식 판정에 같은 기준을 쓰도록 공개한다.
    */
   public static Field<OffsetDateTime> staleBefore() {
-    return DSL.field(
-        "now() - make_interval(secs => {0})", OffsetDateTime.class, STALE_AFTER.toSeconds());
+    return staleBefore(STALE_AFTER);
+  }
+
+  /** DB 시계의 지금에서 {@code age} 를 뺀 시각 — 서버 시계 하나로 「오래된 행」을 가르는 식(서버 AI 도는 실행 표도 쓴다, WP-1986). */
+  public static Field<OffsetDateTime> staleBefore(Duration age) {
+    return DSL.field("now() - make_interval(secs => {0})", OffsetDateTime.class, age.toSeconds());
   }
 
   /** (이슈, 작업자)의 진행 중 작업 1건. */

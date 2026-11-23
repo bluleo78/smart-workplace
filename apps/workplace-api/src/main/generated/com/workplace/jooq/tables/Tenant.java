@@ -19,6 +19,7 @@ import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
 import com.workplace.jooq.tables.AgentScreenInput.AgentScreenInputPath;
 import com.workplace.jooq.tables.AgentScreenSession.AgentScreenSessionPath;
+import com.workplace.jooq.tables.AgentServerRun.AgentServerRunPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
 import com.workplace.jooq.tables.AiCapacitySample.AiCapacitySamplePath;
@@ -386,6 +387,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _agentRunnerToken = new AgentRunnerTokenPath(this, null, Keys.AGENT_RUNNER_TOKEN__AGENT_RUNNER_TOKEN_TENANT_ID_FKEY.getInverseKey());
 
         return _agentRunnerToken;
+    }
+
+    private transient AgentServerRunPath _agentServerRun;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_server_run</code> table
+     */
+    public AgentServerRunPath agentServerRun() {
+        if (_agentServerRun == null)
+            _agentServerRun = new AgentServerRunPath(this, null, Keys.AGENT_SERVER_RUN__AGENT_SERVER_RUN_TENANT_ID_FKEY.getInverseKey());
+
+        return _agentServerRun;
     }
 
     private transient AgentWorkEventPath _agentWorkEvent;

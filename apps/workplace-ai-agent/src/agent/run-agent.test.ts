@@ -233,15 +233,33 @@ describe('runAgent (인-프로세스 SDK)', () => {
       const c = client('tk-X');
       await runAgent(envWithAgent(), { client: c });
       expect(vi.mocked(c.reportAgentRun).mock.calls).toEqual([
-        [201, 1, { phase: 'STARTED', ok: true }],
-        [201, 1, { phase: 'FINISHED', ok: true }],
+        [201, 1, { phase: 'STARTED', ok: true, runId: expect.any(String) }],
+        [201, 1, { phase: 'FINISHED', ok: true, runId: expect.any(String) }],
       ]);
+    });
+
+    // WP-1986: API 가 끝 보고가 어느 실행의 것인지 가리게 시작·끝에 같은 실행 id(UUID)를 싣고, 실행마다 새 id 를 만든다.
+    it('시작·끝 보고에 같은 실행 id(UUID)를 싣고 실행마다 다른 id 를 쓴다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue(okEvents as never);
+      const c = client('tk-X');
+      await runAgent(envWithAgent(), { client: c });
+      await runAgent(envWithAgent(), { client: c });
+      const ids = vi.mocked(c.reportAgentRun).mock.calls.map((call) => call[2].runId);
+      expect(ids).toHaveLength(4);
+      expect(ids[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(ids[1]).toBe(ids[0]);
+      expect(ids[3]).toBe(ids[2]);
+      expect(ids[2]).not.toBe(ids[0]);
     });
 
     it('결과가 비정상이면 사유 없이 FINISHED(실패) 를 보낸다 — API 가 기본 문구를 쓴다', async () => {
       const c = client('tk-X');
       await runAgent(envWithAgent(), { client: c });
-      expect(vi.mocked(c.reportAgentRun).mock.calls.at(-1)).toEqual([201, 1, { phase: 'FINISHED', ok: false }]);
+      expect(vi.mocked(c.reportAgentRun).mock.calls.at(-1)).toEqual([
+        201,
+        1,
+        { phase: 'FINISHED', ok: false, runId: expect.any(String) },
+      ]);
     });
 
     it('실행이 던지면 FINISHED(실패, 정해 둔 문구 — 원시 오류는 싣지 않음) 를 보내고 다시 던진다', async () => {
@@ -251,7 +269,7 @@ describe('runAgent (인-프로세스 SDK)', () => {
       expect(vi.mocked(c.reportAgentRun).mock.calls.at(-1)).toEqual([
         201,
         1,
-        { phase: 'FINISHED', ok: false, note: 'AI 실행 중 오류가 났습니다' },
+        { phase: 'FINISHED', ok: false, note: 'AI 실행 중 오류가 났습니다', runId: expect.any(String) },
       ]);
     });
 
@@ -259,7 +277,11 @@ describe('runAgent (인-프로세스 SDK)', () => {
       const c = client(new Error('boom'));
       await runAgent(envWithAgent(), { client: c });
       expect(vi.mocked(c.reportAgentRun).mock.calls).toEqual([
-        [201, 1, { phase: 'FINISHED', ok: false, note: 'AI 의 연결 정보를 가져오지 못했습니다' }],
+        [
+          201,
+          1,
+          { phase: 'FINISHED', ok: false, note: 'AI 의 연결 정보를 가져오지 못했습니다', runId: expect.any(String) },
+        ],
       ]);
     });
 

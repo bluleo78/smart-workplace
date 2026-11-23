@@ -90,6 +90,31 @@ public final class AgentWorkState {
   }
 
   /**
+   * 서버 AI(내부 AI)의 마지막 도는 실행이 노드 이동 없이 정상으로 끝났을 때 대기 중(WAITING) 행에 남기는 note(WP-1986) — 「일했고 지금은 쉬는
+   * 중」을 보인다({@link #isFinishedWithoutMove}).
+   */
+  public static final String NOTE_FINISHED_WITHOUT_MOVE = "이동 없이 실행이 끝났습니다";
+
+  /**
+   * 「이동 없이 끝나 쉬는 중」 행인지 — 대기 중(WAITING)이고 note 가 {@link #NOTE_FINISHED_WITHOUT_MOVE} 다. 사람·다른 AI 를
+   * 기다리는 대기 중과 가른다.
+   *
+   * <p>왜 note 로 가르나: 따로 표시할 칸이 없고, tool 은 반복 회차와 같은 값("workplace")인 데다 MCP 쓰기가 덮어써 믿을 수 없다. 서버만 쓰는
+   * 고정 문구라 보고 note 와 우연히 같을 일은 드물다(같은 방식: {@code AiAgentStatusService} 의 반복 줄 대기·자리 대기 판정).
+   */
+  public static boolean isFinishedWithoutMove(String state, String note) {
+    return WAITING.equals(state) && NOTE_FINISHED_WITHOUT_MOVE.equals(note);
+  }
+
+  /**
+   * 이 상태를 떠날 때 지울 note 를 들고 있는지 — 사유 note({@link #holdsReasonNote}) 또는 「이동 없이 끝나 쉬는 중」. 재진입·다시 시도로
+   * 되돌리거나 다른 상태로 바꿀 때 옛 말이 남지 않게 한다. 다른 대기 중(무엇을 기다리는지 적은 note)은 지우면 안 되므로 넣지 않는다.
+   */
+  public static boolean holdsClearableNote(String state, String note) {
+    return holdsReasonNote(state) || isFinishedWithoutMove(state, note);
+  }
+
+  /**
    * 명시 보고로 보낼 수 있는 상태인지 — 진행 상태에서 SUBMITTED(담당자 추가가 만드는 "시작 전" 이라 보고할 수 없다)를 뺀 것 + 종료 상태. 보고 요청 검증이
    * 이 목록 하나에서 나온다.
    */
