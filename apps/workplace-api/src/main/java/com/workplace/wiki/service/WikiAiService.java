@@ -29,7 +29,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 인에디터 /ai 스트리밍(#593 편입). EDITOR 권한 확인 → 페이지 본문 컨텍스트 로드 → AssistantResolver 로 비서 해석 →
@@ -52,6 +53,13 @@ public class WikiAiService {
   private final WikiAiAgentStreamClient agent;
   private final AsyncTaskExecutor executor;
   private final StreamingGenerationRegistry registry;
+
+  /**
+   * 페이지·권한·비서를 읽는 읽기 전용 트랜잭션(RLS GUC 주입용). 생성 슬롯 등록은 이 트랜잭션이 끝난 뒤에 한다 — 슬롯 저장소는 자기 트랜잭션으로 커넥션을 따로
+   * 빌리므로, 안에서 부르면 요청 하나가 커넥션 둘을 쥐어 동시 요청이 풀 크기를 넘을 때 서로를 기다리며 막힌다(WP-1974 리뷰 후속).
+   */
+  private final TransactionTemplate readTx;
+
   private final SseRegistry sseRegistry;
   private final WikiPageService pageService;
 
@@ -67,6 +75,7 @@ public class WikiAiService {
       AssistantResolver assistantResolver,
       WikiAiAgentStreamClient agent,
       @Qualifier("wikiAiStreamExecutor") AsyncTaskExecutor executor,
+      PlatformTransactionManager txManager,
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry,
       WikiPageService pageService,
@@ -78,6 +87,8 @@ public class WikiAiService {
     this.agent = agent;
     this.executor = executor;
     this.registry = registry;
+    this.readTx = new TransactionTemplate(txManager);
+    this.readTx.setReadOnly(true);
     this.sseRegistry = sseRegistry;
     this.pageService = pageService;
     this.memoryReader = memoryReader;
@@ -87,19 +98,24 @@ public class WikiAiService {
   /**
    * EDITOR 권한·컨텍스트·비서를 동기 해석한 뒤, 펌프를 레지스트리에 등록하고 correlationId 를 즉시 반환한다.
    *
-   * <p>{@code @Transactional} 필수(#654) — RLS 정책의 {@code app.tenant_id} GUC 는 트랜잭션 시작 시점(AOP doBegin
-   * 훅)에 주입되므로, 어노테이션이 없으면 {@link #pages}.findDetail() 이 GUC 미설정 커넥션으로 실행돼 RLS 가 모든 행을 비가시 처리 → 항상
-   * 404 가 된다. 쓰기는 없으므로 readOnly.
+   * <p>읽기 트랜잭션 필수(#654) — RLS 정책의 {@code app.tenant_id} GUC 는 트랜잭션 시작 시점(doBegin 훅)에 주입되므로, 트랜잭션 없이
+   * {@link #pages}.findDetail() 을 부르면 GUC 미설정 커넥션으로 실행돼 RLS 가 모든 행을 비가시 처리 → 항상 404 가 된다. 다만 그
+   * 트랜잭션은 1~3) 읽기에만 두고 4) 레지스트리 등록 전에 끝낸다 — 등록은 슬롯 저장소가 커넥션을 따로 빌려 쓰기 때문이다({@link #readTx}).
    */
-  @Transactional(readOnly = true)
   public String startCompose(long callerId, long pageId, WikiAiRequest req) {
-    // 1) 페이지 로드(존재 은닉 위해 NotFound).
-    WikiPageDetail page =
-        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    // 2) EDITOR 권한 강제(VIEWER 거부). 멤버 아니면 NotFound, 역할 미달이면 Forbidden — 모두 시작 전 동기 throw.
-    perms.requireRole(page.spaceId(), callerId, "EDITOR");
-    // 3) 비서 해석(미설정이면 HomeAssistantNotConfiguredException → 일반 4xx).
-    AssistantSpec spec = assistantResolver.resolve(callerId);
+    ComposeContext ctx =
+        readTx.execute(
+            status -> {
+              // 1) 페이지 로드(존재 은닉 위해 NotFound).
+              WikiPageDetail detail =
+                  pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+              // 2) EDITOR 권한 강제(VIEWER 거부). 멤버 아니면 NotFound, 역할 미달이면 Forbidden — 모두 시작 전 동기 throw.
+              perms.requireRole(detail.spaceId(), callerId, "EDITOR");
+              // 3) 비서 해석(미설정이면 HomeAssistantNotConfiguredException → 일반 4xx).
+              return new ComposeContext(detail, assistantResolver.resolve(callerId));
+            });
+    WikiPageDetail page = ctx.page();
+    AssistantSpec spec = ctx.spec();
 
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
     // 주체는 요청 스레드에서 잡아 넘긴다 — executor 스레드에는 SecurityContext 가 없어 AUTO 로 떨어지기 때문이다(WP-1829 리뷰 반영).
@@ -189,6 +205,9 @@ public class WikiAiService {
                       }
                     }));
   }
+
+  /** 읽기 트랜잭션에서 해석한 페이지·비서 — 트랜잭션이 끝난 뒤 레지스트리 등록과 펌프에 넘긴다. */
+  private record ComposeContext(WikiPageDetail page, AssistantSpec spec) {}
 
   /**
    * attribution 은 부가 신호일 뿐이라 실패해도 스트림 완료/에러 이벤트를 막지 않는다(§3 실패 격리) — 예외를 삼키고 경고 로그만 남긴다. {@code

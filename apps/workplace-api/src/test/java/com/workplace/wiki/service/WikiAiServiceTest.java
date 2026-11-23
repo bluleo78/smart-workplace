@@ -46,6 +46,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.core.task.support.TaskExecutorAdapter;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 /**
  * WikiAiService 단위 테스트(#593 편입). 의존성을 목으로, executor 는 동기(TaskExecutorAdapter(Runnable::run))로 주입해
@@ -65,12 +68,18 @@ class WikiAiServiceTest {
   private SharedAiMemoryReader sharedReader;
   private WikiAiService service;
 
+  /** 읽기 TransactionTemplate 이 콜백을 바로 실행하게 하는 스텁 — 트랜잭션 경계는 통합 테스트(WikiAiComposePoolTest)가 본다. */
+  private PlatformTransactionManager txManager;
+
   private static final long CALLER = 7L;
   private static final long PAGE_ID = 100L;
   private static final long SPACE_ID = 42L;
 
   @BeforeEach
   void setup() {
+    txManager = mock(PlatformTransactionManager.class);
+    when(txManager.getTransaction(any(TransactionDefinition.class)))
+        .thenReturn(new SimpleTransactionStatus());
     pages = mock(WikiPageRepository.class);
     perms = mock(WikiPermissions.class);
     assistantResolver = mock(AssistantResolver.class);
@@ -87,6 +96,7 @@ class WikiAiServiceTest {
             assistantResolver,
             agent,
             new TaskExecutorAdapter(Runnable::run),
+            txManager,
             registry,
             sseRegistry,
             pageService,
@@ -213,6 +223,7 @@ class WikiAiServiceTest {
             assistantResolver,
             agent,
             new TaskExecutorAdapter(held::add),
+            txManager,
             registry,
             sseRegistry,
             pageService,
@@ -417,6 +428,7 @@ class WikiAiServiceTest {
             assistantResolver,
             agent,
             realExecutor,
+            txManager,
             realRegistry,
             sseRegistry,
             pageService,
@@ -467,6 +479,7 @@ class WikiAiServiceTest {
             assistantResolver,
             agent,
             new TaskExecutorAdapter(Runnable::run),
+            txManager,
             mockRegistry,
             sseRegistry,
             pageService,

@@ -12,19 +12,25 @@ import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * {@link GenerationSlotStore} 의 DB 구현(WP-1974) — streaming_generation 표로 여러 api 파드가 같은 슬롯 상태를 본다.
  *
- * <p>모든 쓰기는 REQUIRES_NEW 트랜잭션으로 즉시 커밋한다 — 호출자(readOnly 이거나 나중에 롤백될 수 있는 바깥 트랜잭션)의 운명과 슬롯 상태를 분리해,
- * 다른 파드가 곧바로 같은 슬롯을 보게 하고 읽기 전용 트랜잭션에서도 쓸 수 있게 한다. 만료 시각(expires_at)은 앱 시계로 계산해 적고, 만료 비교는 DB
- * 시계({@code now()})로 한다. 파드 시계가 DB 와 조금 어긋나면 임대가 그 오차만큼 당겨지거나 늘어날 뿐이며, 임대 여유(마진)가 이를 흡수한다.
+ * <p>모든 쓰기는 REQUIRES_NEW 트랜잭션으로 즉시 커밋한다 — 호출자 트랜잭션의 운명과 슬롯 상태를 분리해 다른 파드가 곧바로 같은 슬롯을 보게 한다. 다만 바깥
+ * 트랜잭션 안에서 부르면 커넥션을 하나 더 빌려(요청 하나가 둘을 쥠) 동시 요청이 풀 크기를 넘을 때 서로를 기다리며 막힌다 — 호출자는 바깥 트랜잭션을 끝낸 뒤 레지스트리를
+ * 부른다(WP-1974 리뷰 후속, WikiAiService). 어기면 경고를 남긴다({@link #write}). 만료 시각(expires_at)은 앱 시계로 계산해 적고,
+ * 만료 비교는 DB 시계({@code now()})로 한다. 파드 시계가 DB 와 조금 어긋나면 임대가 그 오차만큼 당겨지거나 늘어날 뿐이며, 임대 여유(마진)가 이를
+ * 흡수한다.
  */
 @Component
 public class JooqGenerationSlotStore implements GenerationSlotStore {
@@ -35,13 +41,36 @@ public class JooqGenerationSlotStore implements GenerationSlotStore {
    */
   private static final int LOCK_CLASS = 1974;
 
+  private static final Logger log = LoggerFactory.getLogger(JooqGenerationSlotStore.class);
+
   private final DSLContext dsl;
   private final TransactionTemplate requiresNew;
+
+  /** 중첩 대여 경고를 이미 남겼는지 — 스택을 담은 경고는 한 번만. */
+  private final AtomicBoolean nestedWarned = new AtomicBoolean(false);
 
   public JooqGenerationSlotStore(DSLContext dsl, PlatformTransactionManager txManager) {
     this.dsl = dsl;
     this.requiresNew = new TransactionTemplate(txManager);
     this.requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+  }
+
+  /**
+   * 쓰기를 자기 트랜잭션(REQUIRES_NEW)으로 즉시 커밋한다. 바깥 트랜잭션이 열려 있으면 커넥션 중첩 대여라 경고한다 — 동시 요청이 풀 크기를 넘으면 모두가 두
+   * 번째 커넥션을 기다리며 막히므로, 새 호출부가 트랜잭션 안에서 부르게 되면 로그로 바로 드러나게 한다.
+   */
+  private void write(Runnable work) {
+    if (TransactionSynchronizationManager.isActualTransactionActive()) {
+      // 호출 위치(스택)는 처음 한 번만 경고로 남기고 이후는 debug — 그런 호출부가 생기면 AI 턴마다 여러 번 써서 로그가 넘친다.
+      if (nestedWarned.compareAndSet(false, true)) {
+        log.warn(
+            "바깥 트랜잭션 안에서 생성 슬롯을 써 커넥션을 하나 더 빌립니다 — 호출부를 트랜잭션 밖으로 옮겨야 합니다",
+            new IllegalStateException("호출 위치"));
+      } else {
+        log.debug("바깥 트랜잭션 안에서 생성 슬롯 쓰기(커넥션 중첩 대여)");
+      }
+    }
+    requiresNew.executeWithoutResult(status -> work.run());
   }
 
   private static OffsetDateTime toOffset(Instant instant) {
@@ -56,8 +85,7 @@ public class JooqGenerationSlotStore implements GenerationSlotStore {
       String correlationId,
       String podId,
       Instant expiresAt) {
-    requiresNew.executeWithoutResult(
-        status -> doReserve(ownerUserId, tag, perUserLimit, correlationId, podId, expiresAt));
+    write(() -> doReserve(ownerUserId, tag, perUserLimit, correlationId, podId, expiresAt));
   }
 
   /** 소유자 단위 advisory 락 안에서 만료 정리 → 태그 BUSY/LIMIT 판정 → INSERT 를 한 번에 한다. */
@@ -100,8 +128,7 @@ public class JooqGenerationSlotStore implements GenerationSlotStore {
   public void registerUntagged(
       long ownerUserId, String correlationId, String podId, Instant expiresAt) {
     // 상한·태그 판정이 없어 advisory 락도 필요 없다 — 같은 id 충돌만 INSERT 가 가른다.
-    requiresNew.executeWithoutResult(
-        status -> insertOrBusy(ownerUserId, null, correlationId, podId, expiresAt));
+    write(() -> insertOrBusy(ownerUserId, null, correlationId, podId, expiresAt));
   }
 
   /**
@@ -128,8 +155,8 @@ public class JooqGenerationSlotStore implements GenerationSlotStore {
 
   @Override
   public void extend(String correlationId, Instant expiresAt) {
-    requiresNew.executeWithoutResult(
-        status ->
+    write(
+        () ->
             dsl.update(STREAMING_GENERATION)
                 .set(STREAMING_GENERATION.EXPIRES_AT, toOffset(expiresAt))
                 .where(STREAMING_GENERATION.CORRELATION_ID.eq(correlationId))
@@ -138,8 +165,8 @@ public class JooqGenerationSlotStore implements GenerationSlotStore {
 
   @Override
   public void remove(String correlationId) {
-    requiresNew.executeWithoutResult(
-        status ->
+    write(
+        () ->
             dsl.deleteFrom(STREAMING_GENERATION)
                 .where(STREAMING_GENERATION.CORRELATION_ID.eq(correlationId))
                 .execute());
@@ -170,8 +197,8 @@ public class JooqGenerationSlotStore implements GenerationSlotStore {
 
   @Override
   public void removeByPod(String podId, Collection<String> keepIds) {
-    requiresNew.executeWithoutResult(
-        status ->
+    write(
+        () ->
             dsl.deleteFrom(STREAMING_GENERATION)
                 .where(STREAMING_GENERATION.POD_ID.eq(podId))
                 // 아직 도는 생성의 행은 남긴다 — 자신의 반납이나 임대 만료로 사라진다.
