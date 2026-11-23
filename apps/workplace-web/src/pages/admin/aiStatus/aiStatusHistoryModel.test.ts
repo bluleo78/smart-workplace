@@ -14,6 +14,7 @@ import {
   parseHistorySearch,
   rangeChipLabel,
   runDetailId,
+  runsBaseKey,
   type RunsFilter,
   runStatusBadge,
   runStatusLabel,
@@ -29,6 +30,10 @@ import { historyHref } from './aiStatusModel'
 const BASE: RunsFilter = { period: '24h', from: null, to: null, kinds: [], status: null, actorType: null, model: null, q: '' }
 const SERVER_KINDS = ["AI_CHAT","HOME_PRIORITY_CLASSIFY","HOME_CONTEXT_SUMMARY","HOME_SUGGESTIONS","HOME_MEMORY_CLEANUP","HOME_SHARED_MEMORY_CHECK","HOME_SHARED_MEMORY_EXTRACT","MAIL_ANALYZE_CONTENT","MAIL_CLASSIFY_BATCH","MAIL_ANALYZE_PERSONAL","MAIL_LEARN_CATEGORY","MAIL_REPLY_DRAFT","MAIL_COMPOSE_DRAFT","MAIL_DRAFT_COACHING","MAIL_ISSUE_DRAFT","MESSAGING_CLASSIFY","MESSAGING_CATCHUP","WIKI_SUMMARIZE","WIKI_COMPOSE","ISSUE_PROGRESS_SUMMARY","ISSUE_CLASSIFY","WORK_PROFILE","PROJECT_STATUS","PROJECT_REPORT","PERSONAL_REPORT","DRIVE_SUMMARIZE","DRIVE_SECURITY_CHECK","DRIVE_OVERVIEW"]
 
+/** 구간 판정 기준 시각 — 「미래 from」 테스트용. */
+const NOW = Date.parse('2026-11-24T00:00:00.000Z')
+const read = (qs: string) => parseHistorySearch(new URLSearchParams(qs), NOW)
+
 describe('주소 변환', () => {
   test('주소를 필터로 읽는다(중복·빈 kind 제거)', () => {
     const sp = new URLSearchParams('period=7d&kind=A&kind=A&kind=&status=FAILED&from=2026-11-20T05:00:00.000Z&to=2026-11-20T06:00:00.000Z')
@@ -43,6 +48,31 @@ describe('주소 변환', () => {
     expect(f.q).toBe('')
     // from 없이 to 만 있으면 to 를 버린다(숨은 조건 방지)
     expect(parseHistorySearch(new URLSearchParams('to=2026-11-20T05:00:00.000Z')).to).toBeNull()
+  })
+  test('구간은 서버가 받는 ISO instant 꼴만 받는다', () => {
+    const fromOf = (v: string) => parseHistorySearch(new URLSearchParams({ from: v }), NOW).from
+    // 날짜만·시간대 없음·초 없음·말 꼴 — Date.parse 는 받지만 서버(Instant.parse)는 400
+    for (const bad of ['2026-11-20', '2026-11-20T05:00:00', '2026-11-20T05:00Z', 'Nov 20 2026', '2026-02-30T00:00:00Z', '2026-11-20T24:00:00Z', '2026-13-01T00:00:00Z']) {
+      expect(fromOf(bad)).toBeNull()
+    }
+    expect(fromOf('2026-11-20T14:00:00+09:00')).toBe('2026-11-20T14:00:00+09:00')
+    expect(fromOf('2026-11-20T05:00:00Z')).toBe('2026-11-20T05:00:00Z')
+    expect(fromOf('2024-02-29T00:00:00.123Z')).toBe('2024-02-29T00:00:00.123Z')
+  })
+  test('to 가 from 보다 앞이면 to 만 버리고, 같으면 둔다', () => {
+    expect(read('from=2026-11-20T05:00:00.000Z&to=2026-11-20T04:00:00.000Z')).toMatchObject({ from: '2026-11-20T05:00:00.000Z', to: null })
+    expect(read('from=2026-11-20T05:00:00.000Z&to=2026-11-20T05:00:00.000Z').to).toBe('2026-11-20T05:00:00.000Z')
+    expect(read('from=2026-11-20T05:00:00.000Z&to=2026-11-21').to).toBeNull()
+    expect(read('from=2026-11-20T05:00:00.000Z&to=2026-11-20T06:00:00.000Z').to).toBe('2026-11-20T06:00:00.000Z')
+  })
+  test('to 없는 미래 from 은 버리되 시계 차이 5분은 두고, 뒤에 to 가 있으면 둔다', () => {
+    expect(read('from=2026-11-25T00:00:00.000Z').from).toBeNull()
+    // 브라우저 시계가 2분 늦어 최근 막대의 from 이 1분 뒤로 보여도 둔다
+    expect(read('from=2026-11-24T00:01:00.000Z').from).toBe('2026-11-24T00:01:00.000Z')
+    expect(read('from=2026-11-25T00:00:00.000Z&to=2026-11-26T00:00:00.000Z')).toMatchObject({
+      from: '2026-11-25T00:00:00.000Z',
+      to: '2026-11-26T00:00:00.000Z',
+    })
   })
   test('개요 historyHref 와 왕복해도 같다', () => {
     const href = historyHref({ period: '7d', kinds: ['MAIL'], status: 'FAILED' })
@@ -142,5 +172,23 @@ describe('종류 이름', () => {
     for (const code of [...SERVER_KINDS, 'DELEGATED_WORK']) expect(AI_RUN_KIND_LABELS[code]).toBeTruthy()
     expect(SERVER_KINDS).toHaveLength(28)
     expect(AI_RUN_KIND_OPTIONS.map((o) => o.value)).toEqual(Object.keys(AI_RUN_KIND_LABELS))
+  })
+})
+
+describe('칩·대상 글자·기준 시각 열쇠', () => {
+  test('구간 칩 — 월·일이 같아도 연도가 다르면 양쪽에 연도까지 쓴다', () => {
+    const f = new Date(2025, 10, 20, 14, 0).toISOString()
+    const t = new Date(2026, 10, 20, 15, 30).toISOString()
+    expect(rangeChipLabel(f, t)).toBe('구간 2025-11-20 14:00–2026-11-20 15:30')
+  })
+  test('대상 글자 — 빈 label 이면 id, 둘 다 비면 빈 값 표기', () => {
+    expect(targetText({ type: 'ISSUE', id: 'WP-1', label: '' })).toBe('WP-1')
+    expect(targetText({ type: 'ISSUE', id: '', label: '' })).toBe('—')
+  })
+  test('기준 시각 열쇠 — 검색어 끝 공백만 바뀌면 같고, 조건·기간이 바뀌면 다르다', () => {
+    expect(runsBaseKey({ ...BASE, q: 'abc' })).toBe(runsBaseKey({ ...BASE, q: 'abc ' }))
+    expect(runsBaseKey({ ...BASE, q: 'abc' })).not.toBe(runsBaseKey({ ...BASE, q: 'abd' }))
+    expect(runsBaseKey(BASE)).not.toBe(runsBaseKey({ ...BASE, period: '7d' }))
+    expect(runsBaseKey(BASE)).not.toBe(runsBaseKey({ ...BASE, status: 'FAILED' }))
   })
 })
