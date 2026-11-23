@@ -48,7 +48,9 @@ class MailOlderMailboxGraphTest extends ExternalClientMockedTestBase {
   private static final String TOKEN = "FAKE_TOKEN";
   private static final String SELECT =
       "$select=subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,isRead,"
-          + "hasAttachments,internetMessageId,conversationId,flag"; // WP-1741: flag(별표)
+          + "hasAttachments,internetMessageId,conversationId,flag"
+          // WP-1741: flag(별표) · WP-2030: 확장 속성(기밀 판정) $expand
+          + "&$expand=singleValueExtendedProperties($filter=id%20eq%20'Integer%200x0036')";
 
   @Autowired DSLContext dsl;
   @Autowired MailFolderService folderService;

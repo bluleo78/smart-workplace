@@ -1,6 +1,6 @@
 // 메일 별표(WP-1741) — 휴대폰 화면 테스트. 목록 행 별(터치에서도 보이고 눌림·행이 열리지 않음)과 상세 ⋯ 메뉴 「별표」/「별표 해제」를 본다.
 // 한 파일 한 뷰포트라 데스크톱 판정(mailFlag.test.tsx)과 나눴다.
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
@@ -51,4 +51,17 @@ test('mobile ⋯ menu 별표 then 별표 해제', async () => {
   await user.click(again)
   await waitFor(() => expect(put.calls).toHaveLength(2))
   expect(put.last().body).toEqual({ flagged: false })
+})
+
+test('mobile 기밀 메일 상세는 제목 앞 배지와 「[기밀]」 뺀 제목을 보인다(WP-2030)', async () => {
+  renderMail('/mail/1?messageId=10', {
+    handlers: [
+      BELL,
+      http.get(LIST, () => HttpResponse.json([summary({ id: 10, seen: true, subject: '[기밀] 단가 협상안', confidential: true })])),
+      http.get('/api/v1/mail/messages/10', () => HttpResponse.json(detail({ id: 10, seen: true, subject: '[기밀] 단가 협상안', confidential: true }))),
+    ],
+  })
+  const heading = await screen.findByRole('heading', { level: 2, name: /단가 협상안/ })
+  expect(heading).not.toHaveTextContent('[기밀]')
+  expect(within(heading).getByTestId('mail-confidential-badge')).toBeInTheDocument()
 })

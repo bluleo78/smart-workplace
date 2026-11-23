@@ -239,6 +239,17 @@ test('제목이 보이지 않는 글자(제로폭 공백)뿐인 메일은 행·�
   expect(within(await screen.findByTestId('mail-detail')).getByRole('heading', { level: 2 })).toHaveTextContent('(제목 없음)')
 })
 
+test('제목이 머리말 「[기밀]」뿐인 기밀 메일은 머리말을 뺀 뒤 「(제목 없음)」으로 보인다(WP-2030·WP-1110)', async () => {
+  renderMail('/mail/1?messageId=100', {
+    messages: [summary({ id: 100, fromName: '앨리스', subject: '[기밀]', snippet: '본문', seen: true, confidential: true })],
+    handlers: [detailHandler(100, { subject: '[기밀]', bodyText: '본문', confidential: true })],
+  })
+  const row = await screen.findByTestId('mail-row-100')
+  expect(row).toHaveTextContent('(제목 없음)')
+  expect(screen.getByTestId('mail-row-open-100')).toHaveAccessibleName('앨리스 (제목 없음) (기밀)')
+  expect(within(await screen.findByTestId('mail-detail')).getByRole('heading', { level: 2 })).toHaveTextContent('(제목 없음)')
+})
+
 test('계정을 바꾸면 앞 계정의 선택이 풀리고 빈 상세 안내가 보인다(#474 회귀)', async () => {
   const { user, location } = renderMail('/mail/1?messageId=100', {
     accounts: [mailAccount(), mailAccount({ id: 2, emailAddress: 'work@example.com' })],
@@ -786,4 +797,35 @@ test('메일 상세 로딩·조회 실패 상태에도 숨은 구역 헤딩(h2)�
   const pane = screen.getByTestId('mail-detail-pane')
   expect(await within(pane).findByText('메일을 불러오지 못했습니다')).toBeInTheDocument()
   expect(within(pane).getByRole('heading', { level: 2, name: '메일 상세' })).toHaveClass('sr-only')
+})
+
+// ── 받은 기밀 메일 배지(WP-2030) ────────────────────────────────────────
+
+test('기밀 메일 행은 배지와 「[기밀]」 뺀 제목을 보이고, 기밀 아닌 「[기밀] 공지」 행은 배지 없이 제목 그대로다(WP-2030)', async () => {
+  renderMail('/mail/1', {
+    messages: [
+      summary({ id: 20, subject: '[기밀] 단가 협상안', confidential: true }),
+      summary({ id: 21, subject: '[기밀] 공지', confidential: false }),
+    ],
+  })
+  const row = await screen.findByTestId('mail-row-20')
+  expect(within(row).getByTestId('mail-confidential-badge')).toHaveTextContent('기밀')
+  expect(within(row).getByText('단가 협상안')).toBeInTheDocument()
+  expect(within(row).queryByText('[기밀] 단가 협상안')).not.toBeInTheDocument()
+  const plain = screen.getByTestId('mail-row-21')
+  expect(within(plain).queryByTestId('mail-confidential-badge')).not.toBeInTheDocument()
+  expect(within(plain).getByText('[기밀] 공지')).toBeInTheDocument()
+})
+
+test('기밀 메일 상세(데스크톱)는 제목 옆 배지와 「[기밀]」 뺀 제목을 보인다(WP-2030)', async () => {
+  const { user } = renderMail('/mail/1', {
+    handlers: [
+      http.get(LIST, () => HttpResponse.json([summary({ id: 20, subject: '[기밀] 단가 협상안', confidential: true })])),
+      http.get('/api/v1/mail/messages/20', () => HttpResponse.json(detail({ id: 20, subject: '[기밀] 단가 협상안', confidential: true }))),
+    ],
+  })
+  await user.click(await screen.findByTestId('mail-row-20'))
+  const panel = await screen.findByTestId('mail-detail')
+  expect(within(panel).getByTestId('mail-confidential-badge')).toBeInTheDocument()
+  expect(within(panel).getByRole('heading', { level: 2, name: /단가 협상안/ })).not.toHaveTextContent('[기밀]')
 })

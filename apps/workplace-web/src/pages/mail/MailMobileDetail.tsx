@@ -10,8 +10,10 @@ import { AiIcon } from '@/components/ai/AiIcon'
 import { AiLabel } from '@/components/ai/AiLabel'
 import { AI_CONTENT_CONTAINER_CLASS } from '@/components/ai/aiMarker'
 import { GeniaWorksSenderMark } from '@/components/mail/GeniaWorksSenderMark'
+import { MailConfidentialBadge } from '@/components/mail/MailConfidentialBadge'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileHeaderMore } from '@/components/mobile/MobileHeaderMore'
+import { mailDisplaySubject } from '@/lib/mailConfidentialSubject'
 import { formatMailHeaderTime } from '@/lib/mailDetailTime'
 import {
   type MailRecipient,
@@ -19,7 +21,6 @@ import {
   recipientFullLabel,
   summarizeRecipients,
 } from '@/lib/mailRecipients'
-import { mailSubjectText } from '@/lib/mailSubject'
 import { cn } from '@/lib/utils'
 
 import type { EmailMessageDetail } from '../../types/mailMessage'
@@ -251,7 +252,8 @@ export function MailMobileDetail({
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const [titleEl, setTitleEl] = useState<HTMLHeadingElement | null>(null)
   const titleShown = useScrolledPast(scrollEl, titleEl)
-  const subject = mailSubjectText(detail.subject)
+  // WP-2030: 받은 기밀 메일은 「[기밀]」 머리말을 빼고 배지를 제목 앞에 보인다.
+  const subject = mailDisplaySubject(detail)
   // 수신 일시(WP-1723) — 390px 에서 줄바꿈·넘침 없이 제목 아래 자기 줄을 쓰도록 오른쪽 정렬 한 줄로 그린다.
   // 받은편지함은 receivedAt, 수신 일시 없는 메일은 sentAt 로 대체하고, 없으면 줄 자체를 숨긴다.
   const headerTime = formatMailHeaderTime(detail.receivedAt ?? detail.sentAt)
@@ -282,6 +284,7 @@ export function MailMobileDetail({
           <div className="border-b px-4 py-3">
             {summary && <div className="mb-3">{summary}</div>}
             <h2 ref={setTitleEl} className="text-lg font-semibold leading-snug">
+              {detail.confidential && <MailConfidentialBadge className="mr-2 align-middle" />}
               {subject}
             </h2>
             {headerTime && (

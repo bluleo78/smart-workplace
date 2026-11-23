@@ -2,6 +2,7 @@ package com.workplace.mail.outbound;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.workplace.mail.config.M365GraphProperties;
+import com.workplace.mail.exception.GraphHttpException;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailSyncException;
 import java.io.IOException;
@@ -167,7 +168,7 @@ public class GraphApiClient {
             "Graph API 오류: status={} errorCode={}",
             resp.statusCode(),
             extractErrorCode(resp.body()));
-        throw new MailSyncException("Graph API 호출 실패: " + resp.statusCode());
+        throw new GraphHttpException(resp.statusCode());
       }
       return mapper.readValue(resp.body(), type);
     } catch (MailSyncException e) {

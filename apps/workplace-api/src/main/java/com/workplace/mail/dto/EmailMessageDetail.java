@@ -11,7 +11,7 @@ import java.util.List;
  * @param categoryByMe WP-1341 사용자가 직접 바꾼 분류인지(분류 메뉴의 「AI 분류로 되돌리기」 표시)
  * @param flagged WP-1741 별표(서버 플래그 — IMAP \Flagged, Graph flag)
  * @param sentByGeniaWorks WP-1364 받은 원본의 X-Mailer 가 Gen:iA Works 인지(본문 검증 전 사본은 false)
- * @param confidential WP-2029 기밀로 보낸 메일인지(보낸 사본에만 기록 — 받은 메일은 false)
+ * @param confidential WP-2029 기밀 메일인지(보낸 사본은 발송 때, 받은 메일은 동기화 때 Sensitivity 헤더로 판정해 기록)
  */
 public record EmailMessageDetail(
     long id,

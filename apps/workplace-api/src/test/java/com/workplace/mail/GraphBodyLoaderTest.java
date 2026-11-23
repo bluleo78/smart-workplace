@@ -35,6 +35,7 @@ import com.workplace.mail.service.GraphBodyLoader.ItemBody;
 import com.workplace.mail.service.GraphInlineContentIdResolver.GraphAttachmentContentId;
 import com.workplace.mail.service.MailInlineContentIdBackfiller;
 import com.workplace.mail.service.MailMessageService;
+import com.workplace.mail.service.graph.GraphMessage;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
@@ -56,6 +57,7 @@ import org.springframework.transaction.annotation.Transactional;
 class GraphBodyLoaderTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
+  @Autowired tools.jackson.databind.ObjectMapper objectMapper;
   @Autowired GraphBodyLoader graphBodyLoader;
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EmailMessageRepository messageRepo;
@@ -195,6 +197,42 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
             .where(EMAIL_MESSAGE.ID.eq(messageId))
             .fetchOneInto(String.class);
     assertThat(bodyHtmlViaContent).contains("hi");
+  }
+
+  /**
+   * WP-2030: Graph 가 본문 GET 의 기밀 확장 속성 {@code $expand} 를 400 으로 거절하면 그 부분을 빼고 한 번 다시 시도해 본문은 그대로
+   * 적재한다(확장 속성 때문에 본문 적재가 실패하지 않게).
+   */
+  @Test
+  void loadBody_expandRejected_retriesWithoutExpand() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId, "TEST_AT");
+    long messageId = seedGraphMessage(accountId, "GX");
+
+    when(graphApiClient.get(
+            eq("TEST_AT"),
+            org.mockito.ArgumentMatchers.argThat(
+                (String u) -> u != null && u.contains("GX?$select=body") && u.contains("$expand")),
+            eq(GraphMessageBody.class)))
+        .thenThrow(new com.workplace.mail.exception.GraphHttpException(400));
+    when(graphApiClient.get(
+            eq("TEST_AT"),
+            org.mockito.ArgumentMatchers.argThat(
+                (String u) -> u != null && u.contains("GX?$select=body") && !u.contains("$expand")),
+            eq(GraphMessageBody.class)))
+        .thenReturn(new GraphMessageBody(new ItemBody("html", "<p>retry</p>"), "retry", false));
+
+    BodyTarget target = messageRepo.findBodyTarget(accountId, messageId).orElseThrow();
+    graphBodyLoader.loadBody(userId, target, accountOf(accountId));
+
+    String bodyHtmlViaContent =
+        dsl.select(EMAIL_CONTENT.BODY_HTML)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .fetchOneInto(String.class);
+    assertThat(bodyHtmlViaContent).contains("retry");
   }
 
   /** body.contentType="text" 이면 bodyText 에 저장되고 bodyHtml 은 null. */
@@ -718,5 +756,106 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
     assertThat(
             messageRepo.findDetailByIdAndUser(userId, messageId).orElseThrow().sentByGeniaWorks())
         .isFalse();
+  }
+
+  /** WP-2030: 본문 적재 때 Sensitivity 헤더가 Company-Confidential 이면 content 를 기밀로 올린다. 다른 값은 그대로. */
+  @Test
+  void loadBody_sensitivityHeader_marksConfidential() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId, "TEST_AT");
+    long messageId = seedGraphMessage(accountId, "G50");
+    long otherId = seedGraphMessage(accountId, "G51");
+
+    when(graphApiClient.get(
+            eq("TEST_AT"),
+            contains("G50?$select=body,bodyPreview,hasAttachments,internetMessageHeaders"),
+            eq(GraphMessageBody.class)))
+        .thenReturn(
+            new GraphMessageBody(
+                new ItemBody("html", "<p>비밀</p>"),
+                "비밀",
+                false,
+                List.of(new GraphHeader("sensitivity", "Company-Confidential"))));
+    when(graphApiClient.get(
+            eq("TEST_AT"),
+            contains("G51?$select=body,bodyPreview,hasAttachments,internetMessageHeaders"),
+            eq(GraphMessageBody.class)))
+        .thenReturn(
+            new GraphMessageBody(
+                new ItemBody("html", "<p>보통</p>"),
+                "보통",
+                false,
+                List.of(new GraphHeader("Sensitivity", "Personal"))));
+
+    graphBodyLoader.loadBody(
+        userId,
+        messageRepo.findBodyTarget(accountId, messageId).orElseThrow(),
+        accountOf(accountId));
+    graphBodyLoader.loadBody(
+        userId, messageRepo.findBodyTarget(accountId, otherId).orElseThrow(), accountOf(accountId));
+
+    assertThat(confidentialOf(messageId)).isTrue();
+    assertThat(confidentialOf(otherId)).isFalse();
+  }
+
+  /** WP-2030: 헤더가 비어 와도 확장 속성(PidTagSensitivity=3)이 있으면 본문 적재가 기밀로 올린다. 요청 URL 에 $expand 가 실린다. */
+  @Test
+  void loadBody_extendedProperty_marksConfidential() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId, "TEST_AT");
+    long messageId = seedGraphMessage(accountId, "G52");
+
+    when(graphApiClient.get(
+            eq("TEST_AT"),
+            contains("G52?$select=body,bodyPreview,hasAttachments,internetMessageHeaders&$expand="),
+            eq(GraphMessageBody.class)))
+        .thenReturn(
+            new GraphMessageBody(
+                new ItemBody("html", "<p>비밀</p>"),
+                "비밀",
+                false,
+                List.of(),
+                null,
+                List.of(new GraphMessage.ExtendedProperty("Integer 0x36", "3"))));
+
+    graphBodyLoader.loadBody(
+        userId,
+        messageRepo.findBodyTarget(accountId, messageId).orElseThrow(),
+        accountOf(accountId));
+
+    assertThat(confidentialOf(messageId)).isTrue();
+  }
+
+  /** WP-2030: 실제 Graph 본문 응답 모양의 JSON 에서 확장 속성이 읽히고 판정된다. 속성이 없거나 값이 0 이면 기밀 아님. */
+  @Test
+  void graphMessageBody_parsesExtendedProperties() throws Exception {
+    String json =
+        """
+        {"body":{"contentType":"html","content":"<p>x</p>"},"bodyPreview":"x","hasAttachments":false,
+         "singleValueExtendedProperties":[{"id":"Integer 0x36","value":"3"}]}
+        """;
+    GraphMessageBody b = objectMapper.readValue(json, GraphMessageBody.class);
+    assertThat(
+            com.workplace.mail.service.graph.GraphMessageMapper.isConfidential(
+                b.singleValueExtendedProperties()))
+        .isTrue();
+
+    GraphMessageBody none =
+        objectMapper.readValue("{\"bodyPreview\":\"x\"}", GraphMessageBody.class);
+    assertThat(
+            com.workplace.mail.service.graph.GraphMessageMapper.isConfidential(
+                none.singleValueExtendedProperties()))
+        .isFalse();
+  }
+
+  /** 메시지 행의 공유 content 기밀 표시. */
+  private boolean confidentialOf(long messageId) {
+    return Boolean.TRUE.equals(
+        dsl.select(EMAIL_CONTENT.CONFIDENTIAL)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .fetchOne(EMAIL_CONTENT.CONFIDENTIAL));
   }
 }

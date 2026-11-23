@@ -17,6 +17,7 @@ import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { GeniaWorksSenderMark } from '@/components/mail/GeniaWorksSenderMark'
+import { MailConfidentialBadge } from '@/components/mail/MailConfidentialBadge'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { CopyLinkButton } from '@/components/share/CopyLinkButton'
@@ -46,6 +47,7 @@ import { UNDO_DELETE_DELAY_MS } from '@/lib/deleteWithUndo'
 import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { forwardAttachments } from '@/lib/mailComposeAttachments'
+import { confidentialDisplaySubject, mailDisplaySubject } from '@/lib/mailConfidentialSubject'
 import { formatMailHeaderTime } from '@/lib/mailDetailTime'
 import { folderRangeDays } from '@/lib/mailFolders'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
@@ -337,7 +339,7 @@ function MessageRow({
             data-testid={`mail-row-open-${m.id}`}
             // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2).
             // WP-1325: 외부 메일은 이름 뒤에 「외부」를 붙여 화면 읽기 프로그램에도 태그와 같은 정보를 준다.
-            aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'}${m.externalSender ? ' (외부)' : ''} ${mailSubjectText(m.subject)}`}
+            aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'}${m.externalSender ? ' (외부)' : ''} ${mailDisplaySubject(m)}${m.confidential ? ' (기밀)' : ''}`}
             aria-current={open ? 'true' : undefined}
             className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none"
           >
@@ -397,7 +399,8 @@ function MessageRow({
           </span>
         </span>
         <span className={cn('truncate text-sm', m.seen ? 'text-muted-foreground' : 'font-medium')}>
-          {mailSubjectText(m.subject)}
+          {/* WP-2030: 받은 기밀 메일은 서버가 붙인 「[기밀]」 머리말을 빼고 아래 배지로 보인다. */}
+          {mailDisplaySubject(m)}
         </span>
         {m.snippet && (
           <span
@@ -411,8 +414,10 @@ function MessageRow({
           </span>
         )}
         {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
-        {(categoryBadge || needsReply || (pendingVisible && m.categoryPending)) && (
+        {(categoryBadge || needsReply || m.confidential || (pendingVisible && m.categoryPending)) && (
           <span className="mt-0.5 flex items-center gap-1">
+            {/* 기밀 배지(WP-2030) — 본문을 열기 전에도 서버가 판정해 내려준 값으로 보인다. */}
+            {m.confidential && <MailConfidentialBadge />}
             {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
             {categoryBadge &&
               (m.categoryByMe ? (
@@ -560,7 +565,9 @@ function buildReplyDraft(detail: EmailMessageDetail, all: boolean, accountId: nu
     to: detail.fromAddress ? [detail.fromAddress] : [],
     cc: all ? replyAllCc(detail.toAddresses, detail.ccAddresses, selfAddress, detail.fromAddress) : [],
     bcc: [],
-    subject: withPrefix('Re:', detail.subject),
+    // WP-2030: 기밀 원문이면 「[기밀]」 머리말을 빼고 기밀 토글을 켠 채 연다(서버가 머리말을 다시 붙인다).
+    subject: withPrefix('Re:', confidentialDisplaySubject(detail.subject ?? '', !!detail.confidential)),
+    ...(detail.confidential ? { confidential: true } : {}),
     initialHtml: '',
     // 인용문은 에디터 밖 raw HTML/text 로 보관 — AI 개선본 교체(setContent)가 지우지 않는다.
     quote: buildQuote(detail, 'reply'),
@@ -1056,7 +1063,11 @@ function MessageDetailPanel({
         )}
         {/* 수신 일시는 목록에만 있고 상세엔 없었다 — WP-1723. 제목은 줄바꿈·찍어내기(긴 제목이 시간 칸을 못 밀게 min-w-0), 시간은 오른쪽 끝 고정. */}
         <div className="flex items-start justify-between gap-3">
-          <h2 className="min-w-0 break-words text-lg font-semibold">{mailSubjectText(detail.subject)}</h2>
+          <h2 className="min-w-0 break-words text-lg font-semibold">
+            {/* WP-2030: 받은 기밀 메일은 「[기밀]」 머리말을 빼고 배지를 제목 앞에 보인다. */}
+            {detail.confidential && <MailConfidentialBadge className="mr-2 align-middle" />}
+            {mailDisplaySubject(detail)}
+          </h2>
           {headerTime && (
             <time
               data-testid="mail-detail-time"
@@ -2033,7 +2044,8 @@ function MailInbox() {
       mode: 'forward',
       accountId: accountIdNum as number,
       to: [], cc: [], bcc: [],
-      subject: withPrefix('Fwd:', d.subject),
+      subject: withPrefix('Fwd:', confidentialDisplaySubject(d.subject ?? '', !!d.confidential)),
+      ...(d.confidential ? { confidential: true } : {}),
       initialHtml: '',
       quote,
       attachments: forwardAttachments(d.attachments ?? [], inlined),

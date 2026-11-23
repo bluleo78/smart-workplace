@@ -53,6 +53,13 @@ public class MailContentShareGate {
     }
   }
 
+  /** WP-2030: 본문 적재 때 Sensitivity 헤더로 받은 기밀 메일이면 content 에 표시한다(false→true 만 — 아니면 건드리지 않는다). */
+  public void recordConfidential(long contentId, boolean confidential) {
+    if (confidential) {
+      contentRepo.markConfidential(contentId);
+    }
+  }
+
   /**
    * 내려받은 본문을 envelope 의 content 에 기록하거나 검증한다.
    *

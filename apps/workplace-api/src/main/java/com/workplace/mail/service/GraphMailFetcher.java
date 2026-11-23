@@ -4,6 +4,7 @@ import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.ParsedMessage;
+import com.workplace.mail.exception.GraphHttpException;
 import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailFolderRepository;
@@ -18,6 +19,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -47,6 +49,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class GraphMailFetcher implements MailFetcher {
 
   /**
+   * WP-2030: 확장 속성 PidTagSensitivity 를 함께 받아 기밀 판정하는 {@code $expand} 쿼리 조각. 공백은 URI.create 가 거부하므로
+   * %20 로 미리 인코딩한다. 본문 적재({@link GraphBodyLoader})도 같은 조각을 쓴다.
+   */
+  static final String SENSITIVITY_EXPAND =
+      "$expand=singleValueExtendedProperties($filter=id%20eq%20'"
+          + MailSensitivity.GRAPH_PROP_ID.replace(" ", "%20")
+          + "')";
+
+  /**
    * Graph INBOX delta 초기 URL — 첫 동기화 시 사용. $select 로 필요한 필드만 요청해 응답 크기를 최소화한다.
    *
    * <p>절대 URL 이 아니라 상대 경로 → {@link GraphApiClient#get} 이 GRAPH_BASE_URL 을 자동 접두한다.
@@ -54,7 +65,10 @@ public class GraphMailFetcher implements MailFetcher {
   static final String SELECT =
       "$select=subject,from,toRecipients,ccRecipients,"
           + "receivedDateTime,sentDateTime,isRead,hasAttachments,"
-          + "internetMessageId,conversationId,flag"; // WP-1741: flag — 별표(flagStatus) 동기화
+          + "internetMessageId,conversationId,flag"
+          // WP-1741: flag — 별표(flagStatus) 동기화
+          + "&"
+          + SENSITIVITY_EXPAND;
 
   /** Graph INBOX delta 초기 URL. */
   static final String INITIAL_DELTA_URL = "/me/mailFolders/inbox/messages/delta?" + SELECT;
@@ -305,7 +319,7 @@ public class GraphMailFetcher implements MailFetcher {
     try {
       String url = folderOlderUrl(remoteId, from, to);
       while (url != null) {
-        GraphDeltaPage page = graphApiClient.get(token, url, GraphDeltaPage.class);
+        GraphDeltaPage page = getDeltaPage(token, url);
         if (page == null || page.value() == null) {
           throw new MailSyncException("M365 메일 목록 응답이 비었습니다");
         }
@@ -369,7 +383,7 @@ public class GraphMailFetcher implements MailFetcher {
 
     try {
       while (url != null) {
-        GraphDeltaPage page = graphApiClient.get(token, url, GraphDeltaPage.class);
+        GraphDeltaPage page = getDeltaPage(token, url);
 
         for (GraphMessage m : page.value()) {
           fetched++;
@@ -420,5 +434,51 @@ public class GraphMailFetcher implements MailFetcher {
     } catch (Exception e) {
       throw new MailSyncException("M365 메일 동기화에 실패했습니다", e);
     }
+  }
+
+  /** delta·목록 페이지를 가져온다 — 기밀 확장 속성 {@code $expand} 를 400 으로 거절하면 빼고 한 번 다시 시도한다(WP-2030). */
+  private GraphDeltaPage getDeltaPage(String token, String url) {
+    return getWithExpandFallback(graphApiClient, token, url, GraphDeltaPage.class);
+  }
+
+  /**
+   * Graph GET — 실제 M365 가 기밀 확장 속성 {@code $expand} 를 HTTP 400 으로 거절하면 동기화·본문 적재 전체가 실패하므로(WP-2030),
+   * 그 요청 URL 에 그 {@code $expand}(서버가 준 nextLink 의 {@code %24expand} 꼴 포함)가 들어 있을 때만 그 부분을 뺀 URL 로 한
+   * 번 다시 시도한다. 이 경우 기밀 판정은 본문의 Sensitivity 헤더만 본다. 400 이 아니거나 $expand 가 없으면 예외를 그대로 던진다. 본문
+   * 적재({@link GraphBodyLoader})도 같은 규칙을 쓴다.
+   */
+  static <T> T getWithExpandFallback(
+      GraphApiClient client, String token, String url, Class<T> type) {
+    try {
+      return client.get(token, url, type);
+    } catch (GraphHttpException e) {
+      String stripped = stripSensitivityExpand(url);
+      if (e.status() != 400 || stripped.equals(url)) {
+        throw e;
+      }
+      log.warn("Graph 가 $expand 를 거절해(400) 확장 속성 없이 한 번 다시 시도합니다 — 기밀 판정은 본문 헤더만 봅니다");
+      return client.get(token, stripped, type);
+    }
+  }
+
+  /** 기밀 확장 속성 {@code $expand} 쿼리 조각 — {@code $} 가 {@code %24} 로 인코딩된 nextLink 도 잡는다(대소문자 무시). */
+  private static final String EXPAND_PATTERN =
+      "(?:\\$|%24)expand=singleValueExtendedProperties\\([^)]*\\)";
+
+  /** 뒤쪽 파라미터(앞의 &), 첫 파라미터(뒤에 & 가 이어짐), 유일한 파라미터 — 세 위치를 미리 컴파일해 둔다. */
+  private static final Pattern EXPAND_AFTER_AMP =
+      Pattern.compile("&" + EXPAND_PATTERN, Pattern.CASE_INSENSITIVE);
+
+  private static final Pattern EXPAND_FIRST =
+      Pattern.compile("\\?" + EXPAND_PATTERN + "&", Pattern.CASE_INSENSITIVE);
+
+  private static final Pattern EXPAND_ONLY =
+      Pattern.compile("\\?" + EXPAND_PATTERN, Pattern.CASE_INSENSITIVE);
+
+  /** URL 에서 기밀 확장 속성 {@code $expand} 쿼리 조각을 뺀다(앞의 {@code &}, 또는 첫 파라미터면 뒤의 {@code &} 와 함께). */
+  public static String stripSensitivityExpand(String url) {
+    String r = EXPAND_AFTER_AMP.matcher(url).replaceAll("");
+    r = EXPAND_FIRST.matcher(r).replaceAll("?");
+    return EXPAND_ONLY.matcher(r).replaceAll("");
   }
 }

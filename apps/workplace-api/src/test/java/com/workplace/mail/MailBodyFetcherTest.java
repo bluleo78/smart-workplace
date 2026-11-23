@@ -125,4 +125,37 @@ class MailBodyFetcherTest extends ExternalClientMockedTestBase {
             .fetchOneInto(Boolean.class);
     assertThat(auto).isTrue();
   }
+
+  /** WP-2030: 동기화 때 놓쳤더라도(표시를 내려 둠) 본문 적재가 Sensitivity 헤더로 content 의 기밀 표시를 다시 올린다. */
+  @Test
+  void fetchBody_sensitivityHeader_marksConfidential() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    MailTestPorts.sendWithHeader(
+        "box@test.local", "boss@example.com", "기밀", "비밀 본문", "Sensitivity", "Company-Confidential");
+    greenMail.waitForIncomingEmail(1);
+
+    syncService.sync(user, accountId);
+    long messageId = messageRepo.listMissingBody(accountId, 10).get(0).messageId();
+    // 동기화 판정이 놓친 상황을 흉내 낸다
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.CONFIDENTIAL, false)
+        .where(
+            EMAIL_CONTENT.ID.eq(
+                dsl.select(EMAIL_MESSAGE.CONTENT_ID)
+                    .from(EMAIL_MESSAGE)
+                    .where(EMAIL_MESSAGE.ID.eq(messageId))
+                    .fetchOneInto(Long.class)))
+        .execute();
+    bodyFetcher.fetchBody(user, messageRepo.findBodyTarget(accountId, messageId).orElseThrow());
+
+    Boolean conf =
+        dsl.select(EMAIL_CONTENT.CONFIDENTIAL)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .fetchOneInto(Boolean.class);
+    assertThat(conf).isTrue();
+  }
 }

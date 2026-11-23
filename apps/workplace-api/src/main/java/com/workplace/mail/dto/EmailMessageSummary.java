@@ -31,7 +31,7 @@ public record EmailMessageSummary(
     // WP-1742: 원래 메일함 역할(INBOX·SENT·ARCHIVE·USER 등) — 받은·보낸편지함은 email_folder.role 이 비어 있어 판정해 채운다.
     // 별표 모아 보기 목록만.
     String folderRole,
-    // WP-2029: 기밀로 보낸 메일(보낸 사본). 목록·상세의 「기밀」 배지는 WP-2030 이 이 값으로 그린다.
+    // WP-2029: 기밀 메일(보낸 사본은 발송 때, 받은 메일은 Sensitivity 헤더로 동기화 때 판정). 목록·상세의 「기밀」 배지가 이 값으로 그려진다.
     boolean confidential) {
 
   /** 외부 메일 판정을 붙인 복사본(WP-1325) — 목록 조회 뒤 한 번의 일괄 조회로 채운다. */

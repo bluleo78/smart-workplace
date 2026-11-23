@@ -210,17 +210,30 @@ public class EmailMessageRepository {
    */
   public Optional<Long> insertIgnoreConflict(long accountId, long folderId, ParsedMessage m) {
     // 이미 있는 envelope(재동기화)면 content 를 만들지 않는다 — 지문 없는 content 는 매번 새 행이 생겨 고아가 된다(WP-130)
-    if (dsl.fetchExists(
-        EMAIL_MESSAGE,
-        EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId),
-        EMAIL_MESSAGE.FOLDER_ID.eq(folderId),
-        EMAIL_MESSAGE.IMAP_UID.eq(m.imapUid()))) {
+    var existing =
+        dsl.select(EMAIL_MESSAGE.CONTENT_ID)
+            .from(EMAIL_MESSAGE)
+            .where(
+                EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId),
+                EMAIL_MESSAGE.FOLDER_ID.eq(folderId),
+                EMAIL_MESSAGE.IMAP_UID.eq(m.imapUid()))
+            .fetchOptional();
+    if (existing.isPresent()) {
+      // WP-2030: 기밀 판정이 이 동기화 이후 생겼어도(예: 이미 공유된 content) 기존 envelope 의 content 를 올린다(false→true 만)
+      Long existingContentId = existing.get().value1();
+      if (m.confidential() && existingContentId != null) {
+        contentRepo.markConfidential(existingContentId);
+      }
       return Optional.empty();
     }
     // 현재 GUC 와 일치하는 테넌트 ID 로 email_content 를 공유 생성(find-or-create).
     // TenantContext.get() 은 TenantAwareTransactionManager 가 GUC 로 주입한 값과 동일하다.
     long tenantId = requireTenantId();
     long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.IMAP);
+    // WP-2030: 공유 content 는 한 번 기밀이면 계속 기밀(false→true 만) — 이미 false 로 있던 공유 content 도 올린다
+    if (m.confidential()) {
+      contentRepo.markConfidential(contentId);
+    }
     return dsl.insertInto(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
         .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
@@ -300,12 +313,19 @@ public class EmailMessageRepository {
       boolean syncSeen,
       boolean syncFlagged) {
     // 존재 확인은 계정 단위 — (account_id, provider_message_id) 유니크라 한 메일은 계정에 한 행뿐이다(폴더 무관).
-    if (dsl.fetchExists(
-        EMAIL_MESSAGE,
-        EMAIL_MESSAGE
-            .ACCOUNT_ID
-            .eq(accountId)
-            .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId)))) {
+    // WP-2030: 존재 확인과 기밀 반영에 쓸 content id 를 한 번에 읽는다.
+    var existing =
+        dsl.select(EMAIL_MESSAGE.CONTENT_ID)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
+            .fetchOptional();
+    if (existing.isPresent()) {
+      // WP-2030: 기밀 판정이 이 동기화 이후 생겼어도 기존 envelope 의 content 를 올린다(false→true 만)
+      Long existingContentId = existing.get().value1();
+      if (m.confidential() && existingContentId != null) {
+        contentRepo.markConfidential(existingContentId);
+      }
       // 기존 행 — 서버 읽음·별표 상태만 반영(값이 같으면 0건이라 SSE·순환 없음).
       // 두 속성은 반영 대기가 따로라 UPDATE 도 따로 한다 — 한 문장으로 묶으면 한쪽 대기가 다른 쪽 갱신까지 막는다.
       int changed = 0;
@@ -332,6 +352,10 @@ public class EmailMessageRepository {
     // Graph 경로도 동일하게 email_content 공유(find-or-create).
     long tenantId = requireTenantId();
     long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.GRAPH);
+    // WP-2030: 공유 content 는 한 번 기밀이면 계속 기밀(false→true 만) — 이미 false 로 있던 공유 content 도 올린다
+    if (m.confidential()) {
+      contentRepo.markConfidential(contentId);
+    }
     boolean inserted =
         dsl.insertInto(EMAIL_MESSAGE)
             .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
@@ -892,7 +916,10 @@ public class EmailMessageRepository {
                 EMAIL_MESSAGE.FROM_NAME,
                 EMAIL_CONTENT.SUBJECT, // content 에서 읽음
                 verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
-                verified(EMAIL_CONTENT.CONFIDENTIAL), // WP-2029 기밀 발송 표시
+                // WP-2029 기밀 발송 표시. WP-2030: 받은 메일도 동기화 때 헤더로 판정해 저장하므로
+                // verified() 를 쓰지 않는다 — 본문 적재 전에도 배지를 보여야 한다.
+                // 기밀 여부는 본문 유래 값이 아니라 발신 측 헤더로 정한 메타라 위조 메일이 다른 사람 본문을 여는 경로가 아니다
+                EMAIL_CONTENT.CONFIDENTIAL,
                 EMAIL_MESSAGE.RECEIVED_AT,
                 EMAIL_MESSAGE.SEEN,
                 EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
@@ -1091,7 +1118,10 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.FROM_NAME,
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
             verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
-            verified(EMAIL_CONTENT.CONFIDENTIAL), // WP-2029 기밀 발송 표시
+            // WP-2029 기밀 발송 표시. WP-2030: 받은 메일도 동기화 때 헤더로 판정해 저장하므로
+            // verified() 를 쓰지 않는다 — 본문 적재 전에도 배지를 보여야 한다.
+            // 기밀 여부는 본문 유래 값이 아니라 발신 측 헤더로 정한 메타라 위조 메일이 다른 사람 본문을 여는 경로가 아니다
+            EMAIL_CONTENT.CONFIDENTIAL,
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
@@ -1360,7 +1390,7 @@ public class EmailMessageRepository {
                 categoryByMeField(),
                 // WP-1364: 공유 content 의 속성이라 본문처럼 검증된 사본에만 보인다(WP-130)
                 verified(EMAIL_CONTENT.SENT_BY_GENIA_WORKS),
-                verified(EMAIL_CONTENT.CONFIDENTIAL)) // WP-2029
+                EMAIL_CONTENT.CONFIDENTIAL) // WP-2029·2030 동기화 때 판정한 메타 — verified 미적용
             .from(EMAIL_MESSAGE)
             .join(EMAIL_ACCOUNT)
             .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))

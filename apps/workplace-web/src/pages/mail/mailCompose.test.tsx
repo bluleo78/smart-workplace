@@ -1008,3 +1008,31 @@ test('되돌린 메일은 고치지 않고 닫아도 쓰기 형태로 다시 저
   expect(body.bodyHtml).toContain('/api/v1/files/701/content')
   expect(body.inlineUploads).toEqual([{ attachmentId: 701, contentId: 'pasted-701@genia-works' }])
 })
+
+// ── 받은 기밀 메일 답장·전달(WP-2030) ──────────────────────────────────
+
+test('기밀 메일 답장 → 기밀 토글이 켜지고 제목 칸은 「Re: 단가」(머리말 제외)(WP-2030)', async () => {
+  const view = withSource({ subject: '[기밀] 단가', confidential: true })
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-reply'))
+  const toggle = await screen.findByRole('button', { name: '기밀' })
+  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByTestId('mail-compose-subject')).toHaveValue('Re: 단가')
+})
+
+test('기밀 메일 전달 → 기밀 토글이 켜지고 제목 칸은 「Fwd: 단가」(WP-2030)', async () => {
+  const view = withSource({ subject: '[기밀] 단가', confidential: true })
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-forward'))
+  const toggle = await screen.findByRole('button', { name: '기밀' })
+  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByTestId('mail-compose-subject')).toHaveValue('Fwd: 단가')
+})
+
+test('기밀이 아닌 메일 답장 → 기밀 토글은 꺼져 있다(WP-2030)', async () => {
+  const view = withSource({ subject: '[기밀] 공지', confidential: false })
+  await openSource(view)
+  await view.user.click(screen.getByTestId('mail-reply'))
+  const toggle = await screen.findByRole('button', { name: '기밀' })
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
+})
