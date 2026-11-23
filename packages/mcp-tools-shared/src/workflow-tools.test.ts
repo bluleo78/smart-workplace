@@ -449,9 +449,31 @@ describe('get_workflow', () => {
     const c = mockClient();
     c.listWorkflows.mockResolvedValue([wf(5, 'Dev', true, 2)]);
     c.getWorkflow.mockResolvedValueOnce(detail({ name: 'Dev' }));
+    c.getWorkflowVersionYaml.mockResolvedValueOnce('name: 개발\n');
     const body = out(await tool(c, 'get_workflow').handler({ projectKey: 'WP', name: 'dev' }));
+    expect(c.getWorkflowVersionYaml).toHaveBeenCalledWith(5, 2);
     expect(body).not.toHaveProperty('publishedYaml');
-    expect(c.getWorkflowVersionYaml).not.toHaveBeenCalled();
+  });
+
+  it('getWorkflow_staleListDraftChanged_decidesFromDetail: 목록이 초안 같음이라 해도 상세 초안이 게시본과 다르면 publishedYaml 을 싣는다', async () => {
+    const c = mockClient();
+    // 목록을 읽은 뒤 그사이 누가 초안을 바꿨다 — 목록 draftChanged 는 false 지만 상세 draftYaml 은 게시본과 다르다.
+    c.listWorkflows.mockResolvedValue([wf(5, '개발', true, 2)]);
+    c.getWorkflow.mockResolvedValueOnce(detail({ draftYaml: 'name: 개발 새 초안\n' }));
+    c.getWorkflowVersionYaml.mockResolvedValueOnce('name: 개발\n');
+    const body = out(await tool(c, 'get_workflow').handler({ projectKey: 'WP', name: '개발' }));
+    expect(body).toMatchObject({ draftYaml: 'name: 개발 새 초안\n', publishedYaml: 'name: 개발\n' });
+  });
+
+  it('getWorkflow_publishedYaml_usesDetailActiveVersion: 목록을 읽은 뒤 그사이 게시돼도 상세의 activeVersion.no 버전 YAML 을 읽는다', async () => {
+    const c = mockClient();
+    // 목록은 2번이 활성이라 했지만 상세를 읽을 때는 3번이 게시돼 있다.
+    c.listWorkflows.mockResolvedValue([{ ...wf(5, '개발', true, 2), draftChanged: true }]);
+    c.getWorkflow.mockResolvedValueOnce(detail({ activeVersion: { no: 3, createdAt: '2026-11-23T00:00:00Z', createdBy: null } }));
+    c.getWorkflowVersionYaml.mockResolvedValueOnce('name: 개발 3판\n');
+    const body = out(await tool(c, 'get_workflow').handler({ projectKey: 'WP', name: '개발' }));
+    expect(c.getWorkflowVersionYaml).toHaveBeenCalledWith(5, 3);
+    expect(body).toMatchObject({ activeVersionNo: 3, publishedYaml: 'name: 개발 3판\n' });
   });
 
   it('게시한 적 없으면 activeVersionNo·publishedAt·publishedBy 가 null 이다', async () => {
@@ -591,6 +613,24 @@ describe('update_workflow', () => {
     const err = apiError(403, { code: 'FORBIDDEN' });
     c.publishWorkflow.mockRejectedValueOnce(err);
     await expect(tool(c, 'update_workflow').handler({ projectKey: 'WP', name: '개발', yaml: 'y', publish: true })).rejects.toBe(err);
+  });
+
+  it('update_expectedDraftUpdatedAt_unknownName_rejects: 본 초안 시각을 줬는데 이름이 없으면 새로 만들지 않고 거절한다', async () => {
+    const c = mockClient();
+    c.listWorkflows.mockResolvedValue([wf(5, '개발', true, 2)]);
+    await expect(
+      tool(c, 'update_workflow').handler({ projectKey: 'WP', name: '개발2', yaml: 'y', expectedDraftUpdatedAt: '2026-11-22T00:00:00Z', publish: true }),
+    ).rejects.toThrow('이름 개발2 의 워크플로우가 없습니다 — get_workflow 로 이름을 확인하세요 (있는 것: 개발)');
+    expect(c.createWorkflow).not.toHaveBeenCalled();
+    expect(c.saveWorkflowDraft).not.toHaveBeenCalled();
+    expect(c.publishWorkflow).not.toHaveBeenCalled();
+  });
+
+  it('워크플로우가 하나도 없으면 「있는 것: 없음」으로 알린다', async () => {
+    const c = mockClient();
+    await expect(
+      tool(c, 'update_workflow').handler({ projectKey: 'WP', name: '개발', yaml: 'y', expectedDraftUpdatedAt: 't' }),
+    ).rejects.toThrow('(있는 것: 없음)');
   });
 
   it('대소문자만 다른 여럿과 겹치면 새로 만들지 않고 거절한다', async () => {

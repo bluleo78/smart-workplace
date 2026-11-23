@@ -195,7 +195,7 @@ async function viewJson(v: IssueWorkflowViewRow, client: Pick<MemberToolClient, 
 }
 
 /** 오류 안내에 붙일 이름 목록. */
-const namesOf = (rows: WorkflowSummaryRow[]) => rows.map((w) => w.name).join(', ');
+const namesOf = (rows: WorkflowSummaryRow[]) => (rows.length ? rows.map((w) => w.name).join(', ') : '없음');
 
 /** 이름이 대소문자만 다른 워크플로우가 여럿일 때의 거절 문장 — 시작·조회(pickWorkflow)와 저장(update_workflow)이 같이 쓴다. */
 const ambiguousNameError = (rows: WorkflowSummaryRow[], name: string) =>
@@ -353,13 +353,12 @@ export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolver
           });
         }
         const summary = pickWorkflow(rows, name);
-        const versionNo = summary.activeVersionNo;
-        // 초안이 게시본과 다를 때만 게시본 원문을 더 읽는다(같으면 draftYaml 과 겹쳐 토큰만 든다) — 상세와 병렬로.
-        const [d, publishedYaml] = await Promise.all([
-          client.getWorkflow(summary.id),
-          summary.draftChanged && versionNo != null ? client.getWorkflowVersionYaml(summary.id, versionNo) : undefined,
-        ]);
+        const d = await client.getWorkflow(summary.id);
         const active = d.activeVersion;
+        // 게시본은 상세의 activeVersion.no 로 읽어 상세 draftYaml 과 다를 때만 싣는다 — 목록 값(activeVersionNo·draftChanged)은
+        // 그사이 게시·초안 저장으로 낡을 수 있어 쓰지 않는다. 번호가 상세에 있어 두 호출은 차례로 한다.
+        const versionYaml = active != null ? await client.getWorkflowVersionYaml(summary.id, active.no) : undefined;
+        const publishedYaml = versionYaml !== d.draftYaml ? versionYaml : undefined;
         return JSON.stringify({
           name: d.name,
           enabled: d.enabled,
@@ -394,7 +393,7 @@ export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolver
       // 초안을 덮어쓰지만 게시본·지난 버전은 남아 되돌릴 수 있어 destructive 는 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Saves workflow YAML as draft by name; creates the workflow if the name is new. publish: true publishes unless errors; ' +
+        'Saves workflow YAML as draft by name; creates the workflow if the name is new (not when expectedDraftUpdatedAt is given). publish: true publishes unless errors; ' +
         "publishing needs project manage permission. expectedDraftUpdatedAt (get_workflow's draftUpdatedAt) avoids overwriting others' edits.",
       inputSchema: updateWorkflowInput,
       async handler(args) {
@@ -402,6 +401,10 @@ export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolver
         const rows = await client.listWorkflows(projectKey);
         const found = findWorkflowByName(rows, name);
         if (found === 'ambiguous') throw ambiguousNameError(rows, name);
+        // 본 초안 시각을 줬다는 것은 있는 초안을 고친다는 뜻이다 — 이름을 못 찾았는데 새로 만들면 오타 난 이름으로 워크플로우가 하나 더 생긴다.
+        if (found === null && expectedDraftUpdatedAt != null) {
+          throw new Error(`이름 ${name} 의 워크플로우가 없습니다 — get_workflow 로 이름을 확인하세요 (있는 것: ${namesOf(rows)})`);
+        }
         const { id, created, problems, draftUpdatedAt } = await saveOrCreate(client, found, projectKey, name, yaml, expectedDraftUpdatedAt ?? undefined);
         const base = { saved: true, created };
         const lines = formatProblems(problems);
