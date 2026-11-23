@@ -119,6 +119,7 @@ import {
   toCategoryState,
 } from '../../types/mailMessage'
 import { MailDraftsPage } from './MailDraftsPage'
+import { mailListEmptyCopy } from './mailEmptyCopy'
 import { MAIL_DETAIL_PARAM } from './mailHistory'
 import { MailListActions, MailSyncControls } from './MailInboxFilterControls'
 import { MailMobileDetail, MailMobileDetailBar, MailMobileSummaryButton } from './MailMobileDetail'
@@ -1789,6 +1790,8 @@ function MailInbox() {
   // 동기화 버튼·상태(chips)는 계정 받은편지함만(서버 메일함 보기는 상태 줄이 맡는다), 안 읽은 메일만·모두 읽음(end)은 INBOX 계열만.
   // WP-1742 별표 보기도 숨긴다 — 동기화는 받은편지함만 하므로 모든 메일함을 모은 보기에 두면 그 보기를 새로 받는 단추로 오해한다.
   const showSyncControls = folderParam === 'INBOX' && !folderView && !flaggedView
+  // 목록 빈 상태의 제목·설명 — 문구 갈래는 mailEmptyCopy 에 있어 단위 테스트로 지킨다(WP-1864 리뷰 후속).
+  const listEmptyCopy = mailListEmptyCopy({ search, folderParam, showSyncControls, viewTitle: view.title })
   // 「모두 읽음」은 INBOX 이고 보낸편지함 보기가 아닐 때만. 「안 읽은 메일만」은 INBOX 에서만(showMarkAll 에 INBOX 가 이미 들어 있다).
   // WP-1742 별표 보기에도 두지 않는다 — 모두 읽음 API 가 별표 범위를 몰라 받은편지함 전체를 읽음 처리하게 된다.
   const showMarkAll = folderParam === 'INBOX' && view.kind !== 'sent' && !flaggedView
@@ -2330,17 +2333,13 @@ function MailInbox() {
                       testId="mail-list-empty"
                       className="gap-2 py-16"
                       icon={search ? SearchX : folderParam === 'SENT' ? Send : Inbox}
-                      title={search ? '검색 결과가 없어요' : folderParam === 'SENT' ? '보낸 메일이 없어요' : '받은 메일이 없어요'}
-                      description={
-                        search
-                          ? '다른 검색어로 찾아보세요.'
-                          : folderParam === 'SENT'
-                            ? '메일을 보내면 여기에 모여요.'
-                            : // 동기화 단추가 없는 보기(서버 메일함·별표 모아 보기)에서는 단추를 가리키는 문구를 쓰지 않는다(WP-1864 재반려 1).
-                              showSyncControls
-                              ? '새로고침 단추를 눌러보세요.'
-                              : '이 보기에 보여 줄 메일이 없어요.'
-                      }
+                      // 문구 갈래는 mailListEmptyCopy 가 정한다 — 동기화 단추가 없는 보기는 단추를 가리키지 않고
+                      // 제목도 그 보기에 맞춘다(WP-1864 재반려 1·리뷰 후속). 이 빈 상태에 오는 조합은 검색·보낸편지함·
+                      // 받은편지함뿐이고(서버 메일함은 mail-box-empty, 별표 모아 보기는 검색하지 않을 때 mail-flagged-empty,
+                      // 임시보관함은 mail-drafts-empty — 2026-11-23 실측) 단추 없는 네 번째 갈래는 렌더로 닿지 않아
+                      // mailEmptyCopy.test.ts 가 단위로 지킨다.
+                      title={listEmptyCopy.title}
+                      description={listEmptyCopy.description}
                     />
                     {/* WP-965 최근 범위에 메일이 없어도 그 이전 메일은 서버에 있을 수 있다 — 빈 목록에서도 이어 받는다. */}
                     {olderFolder != null && listEnd}
