@@ -46,6 +46,10 @@ app:
   encryption:
     # 테스트용 32바이트 키 (AES-256)
     master-key: dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3Q=
+  # SSE 파드 사이 중계(WP-1973) 끔 — 기존 통합 테스트가 새 커넥션을 열지 않고 fan-out 이 지금처럼 로컬 직행으로 간다(중계 통합 테스트만 true 로 켠다).
+  realtime:
+    relay:
+      enabled: false
 
 # ai-agent 발사: 테스트 기본 off. 통합 테스트는 @TestPropertySource 로 override.
 workplace:

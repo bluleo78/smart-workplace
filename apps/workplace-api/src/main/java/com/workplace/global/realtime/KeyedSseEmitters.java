@@ -6,10 +6,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import tools.jackson.databind.ObjectMapper;
 
 /**
  * 키별 SSE emitter 묶음 — 사용자용 {@link SseRegistry}(키 userId)와 runner 변경 스트림 레지스트리(키 테넌트·위치, WP-1249)가
@@ -22,13 +20,11 @@ import tools.jackson.databind.ObjectMapper;
  *
  * @param <K> 연결을 묶는 키
  */
-@Slf4j
 public class KeyedSseEmitters<K> {
 
   private final ConcurrentHashMap<K, CopyOnWriteArrayList<SseEmitter>> emitters =
       new ConcurrentHashMap<>();
 
-  private final ObjectMapper objectMapper;
   private final long timeoutMillis;
   private final int maxPerKey;
   private final Consumer<K> onAttach;
@@ -41,12 +37,7 @@ public class KeyedSseEmitters<K> {
    * @param onLastDetach 키의 마지막 연결이 빠질 때(compute 안에서) — 끊김·서버 쪽 닫기 모두
    */
   public KeyedSseEmitters(
-      ObjectMapper objectMapper,
-      long timeoutMillis,
-      int maxPerKey,
-      Consumer<K> onAttach,
-      Consumer<K> onLastDetach) {
-    this.objectMapper = objectMapper;
+      long timeoutMillis, int maxPerKey, Consumer<K> onAttach, Consumer<K> onLastDetach) {
     this.timeoutMillis = timeoutMillis;
     this.maxPerKey = maxPerKey;
     this.onAttach = onAttach;
@@ -54,8 +45,8 @@ public class KeyedSseEmitters<K> {
   }
 
   /** 콜백 없는 묶음. */
-  public KeyedSseEmitters(ObjectMapper objectMapper, long timeoutMillis, int maxPerKey) {
-    this(objectMapper, timeoutMillis, maxPerKey, k -> {}, k -> {});
+  public KeyedSseEmitters(long timeoutMillis, int maxPerKey) {
+    this(timeoutMillis, maxPerKey, k -> {}, k -> {});
   }
 
   /**
@@ -84,9 +75,11 @@ public class KeyedSseEmitters<K> {
     return emitter;
   }
 
-  /** 지정 키들의 연결에 이벤트를 보낸다(연결 없는 키는 건너뜀). 실패한 연결은 정리한다. best-effort. */
-  public void send(Collection<K> keys, String eventName, Object payload) {
-    String json = toJson(payload);
+  /**
+   * 지정 키들의 연결에 이미 만든 JSON 문자열을 그대로 보낸다(연결 없는 키는 건너뜀, 실패한 연결은 정리). 문자열을 emitter 마다 다시 직렬화하지 않아 중계
+   * 경로와 로컬 직행(중계 끄기)이 같은 payload 를 쓴다 (WP-1973). best-effort.
+   */
+  public void sendJson(Collection<K> keys, String eventName, String payloadJson) {
     for (K key : keys) {
       CopyOnWriteArrayList<SseEmitter> list = emitters.get(key);
       if (list == null) continue;
@@ -95,7 +88,7 @@ public class KeyedSseEmitters<K> {
         trySend(
             key,
             emitter,
-            SseEmitter.event().name(eventName).data(json, MediaType.APPLICATION_JSON));
+            SseEmitter.event().name(eventName).data(payloadJson, MediaType.APPLICATION_JSON));
       }
     }
   }
@@ -167,15 +160,6 @@ public class KeyedSseEmitters<K> {
       emitter.complete();
     } catch (Exception ignored) {
       // best-effort — 이미 끊긴 연결
-    }
-  }
-
-  private String toJson(Object payload) {
-    try {
-      return objectMapper.writeValueAsString(payload);
-    } catch (Exception e) {
-      log.warn("SSE payload 직렬화 실패: {}", e.getMessage());
-      return "{}";
     }
   }
 }

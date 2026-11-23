@@ -154,6 +154,7 @@ import com.workplace.jooq.tables.SharedAiMemory;
 import com.workplace.jooq.tables.SharedAiMemoryChange;
 import com.workplace.jooq.tables.SharedAiMemoryForgotten;
 import com.workplace.jooq.tables.Shedlock;
+import com.workplace.jooq.tables.SseRelayEvent;
 import com.workplace.jooq.tables.StagedUploadLink;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.jooq.tables.TenantCanary;
@@ -966,6 +967,11 @@ public class Public extends SchemaImpl {
     public final Shedlock SHEDLOCK = Shedlock.SHEDLOCK;
 
     /**
+     * SSE 파드 사이 중계 아웃박스 — 7000 바이트를 넘는 페이로드를 행으로 남긴다
+     */
+    public final SseRelayEvent SSE_RELAY_EVENT = SseRelayEvent.SSE_RELAY_EVENT;
+
+    /**
      * The table <code>public.staged_upload_link</code>.
      */
     public final StagedUploadLink STAGED_UPLOAD_LINK = StagedUploadLink.STAGED_UPLOAD_LINK;
@@ -1314,6 +1320,7 @@ public class Public extends SchemaImpl {
             SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE,
             SharedAiMemoryForgotten.SHARED_AI_MEMORY_FORGOTTEN,
             Shedlock.SHEDLOCK,
+            SseRelayEvent.SSE_RELAY_EVENT,
             StagedUploadLink.STAGED_UPLOAD_LINK,
             Tenant.TENANT,
             TenantCanary.TENANT_CANARY,
