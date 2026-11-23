@@ -33,6 +33,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -198,37 +199,13 @@ public class WorkflowAgentWorkBridge {
    * @return 보고자가 지금 agent_task 노드의 담당이라 실행 규칙을 적용했으면 true(부르는 쪽이 보고 상태 바꾸기를 건너뛰는 데 쓴다)
    */
   public boolean onAgentReport(long issueId, long agentId, String state, String note) {
-    if (runRepository.findActiveByIssue(issueId).isEmpty()) {
+    NodeAssignment at = currentNodeAssignment(issueId, agentId);
+    if (at == null) {
       return false;
     }
-    issueRepository.findActiveByIdForNoKeyUpdate(issueId);
-    RunRow run = runRepository.findActiveByIssue(issueId).orElse(null);
-    if (run == null) {
-      return false;
-    }
-    WorkflowModel model = modelOf(run.versionId());
-    Node node = run.currentNode() == null ? null : model.nodes().get(run.currentNode());
-    NodeRunRow visit = currentVisit(run);
-    if (node == null || visit == null || !NodeTypes.AGENT_TASK.equals(node.type())) {
-      return false;
-    }
-    // 이동 권한과 같은 판정을 쓰려고 판정에 필요한 칸만 채운 실행 모습을 만든다(노드 담당 ∩ 지금 이슈 담당).
-    Set<Long> issueAssignees = new LinkedHashSet<>(assigneeRepository.findUserIdsByIssue(issueId));
-    RunState runState =
-        new RunState(
-            model,
-            run.status(),
-            run.revision(),
-            false,
-            run.currentNode(),
-            visit.status(),
-            visit.assigneeIds(),
-            issueAssignees,
-            null,
-            null);
-    if (!new MoveActor(agentId, false).isAssignee(runState)) {
-      return false;
-    }
+    RunRow run = at.run();
+    NodeRunRow visit = at.visit();
+    RunState runState = at.runState();
     // 진행만 알리는 보고(state 없음)는 상태를 바꾸지 않으므로 이동 규칙과 상관없다 — Set.of 는 null 을 물으면 NPE 라 먼저 거른다(코드 리뷰 I1).
     if (state != null && USE_MOVE_STATES.contains(state)) {
       // 멈춘 노드는 이동을 받지 않으므로(WORKFLOW_NODE_SUSPENDED) 「이동을 쓰라」는 따를 수 없는 안내다 — 이동 거절과 같은 code 로 조치를 먼저
@@ -268,6 +245,48 @@ public class WorkflowAgentWorkBridge {
         agentId,
         now);
     return true;
+  }
+
+  /** 보고자가 지금 agent_task 노드 담당일 때의 활성 실행·지금 방문·판정용 실행 모습. */
+  private record NodeAssignment(RunRow run, NodeRunRow visit, RunState runState) {}
+
+  /**
+   * 그 AI 가 활성 실행의 지금 agent_task 노드 담당인지 가린다 — 아니면 null. 이동 권한과 같은 기준({@link MoveActor#isAssignee})을
+   * 쓴다. 실행이 있으면 이슈 행을 먼저 잠근다(이동·조치와 같은 순서 — {@link #onAgentReport} Javadoc).
+   */
+  private NodeAssignment currentNodeAssignment(long issueId, long agentId) {
+    if (runRepository.findActiveByIssue(issueId).isEmpty()) {
+      return null;
+    }
+    issueRepository.findActiveByIdForNoKeyUpdate(issueId);
+    RunRow run = runRepository.findActiveByIssue(issueId).orElse(null);
+    if (run == null) {
+      return null;
+    }
+    WorkflowModel model = modelOf(run.versionId());
+    Node node = run.currentNode() == null ? null : model.nodes().get(run.currentNode());
+    NodeRunRow visit = currentVisit(run);
+    if (node == null || visit == null || !NodeTypes.AGENT_TASK.equals(node.type())) {
+      return null;
+    }
+    // 이동 권한과 같은 판정을 쓰려고 판정에 필요한 칸만 채운 실행 모습을 만든다(노드 담당 ∩ 지금 이슈 담당).
+    Set<Long> issueAssignees = new LinkedHashSet<>(assigneeRepository.findUserIdsByIssue(issueId));
+    RunState runState =
+        new RunState(
+            model,
+            run.status(),
+            run.revision(),
+            false,
+            run.currentNode(),
+            visit.status(),
+            visit.assigneeIds(),
+            issueAssignees,
+            null,
+            null);
+    if (!new MoveActor(agentId, false).isAssignee(runState)) {
+      return null;
+    }
+    return new NodeAssignment(run, visit, runState);
   }
 
   /**
@@ -399,11 +418,13 @@ public class WorkflowAgentWorkBridge {
   }
 
   /**
-   * 활성 실행의 지금 agent_task 노드 담당인지 — {@link #onServerRunSuccess} 와 같은 판정({@link #onAgentReport} 에 상태
-   * 없이 묻는다).
+   * 그 AI 가 활성 실행의 지금 agent_task 노드 담당이면 지금 방문(node_run)에 들어간 시각, 아니면 empty — {@link
+   * #onServerRunSuccess} 와 같은 판정·같은 잠금. 서버 실행의 실패 끝·미룬 실패가 지금 방문의 것인지(그 실행의 시작이 이 시각 뒤인지) 가르는 데 쓴다.
+   * 다시 시도도 새 방문이라 시각이 바뀐다.
    */
-  public boolean isCurrentNodeAssignee(long issueId, long agentId) {
-    return onAgentReport(issueId, agentId, null, null);
+  public Optional<Instant> currentVisitEnteredAt(long issueId, long agentId) {
+    return Optional.ofNullable(currentNodeAssignment(issueId, agentId))
+        .map(at -> at.visit().enteredAt());
   }
 
   /** 워크플로우 이슈인지 — 그 이슈에 활성 실행이 있다. */

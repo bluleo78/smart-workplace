@@ -3,6 +3,10 @@ package com.workplace.issue.repository;
 import static com.workplace.jooq.Tables.AGENT_SERVER_RUN;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -15,7 +19,11 @@ import org.springframework.stereotype.Repository;
 
 /**
  * 서버 AI 의 이슈 실행(agent_server_run, WP-1986) — 끝 보고가 그 (이슈, AI) 의 마지막 도는 실행의 것인지 가른다(열의 뜻은 V338
- * COMMENT). 시각은 서버 시계(DB now())만 쓴다.
+ * COMMENT).
+ *
+ * <p>시각: started_at 만 앱 시계(Instant.now())로 쓴다 — 노드 방문의 node_run.entered_at 도 앱 시계로 쓰여, 「이 실행이 지금 방문
+ * 전에 시작했나」를 같은 시계로 견줘야 DB·앱 시계 차이나 한 트랜잭션 안에서 멈춘 now() 에 흔들리지 않는다. 끝난 시각과 오래된 행 판정은 DB now() 로
+ * 견준다(차이는 30분 기준에 묻힌다).
  */
 @Repository
 @RequiredArgsConstructor
@@ -35,6 +43,7 @@ public class AgentServerRunRepository {
             .set(AGENT_SERVER_RUN.ISSUE_ID, issueId)
             .set(AGENT_SERVER_RUN.AGENT_ID, agentId)
             .set(AGENT_SERVER_RUN.RUN_ID, runId)
+            .set(AGENT_SERVER_RUN.STARTED_AT, appNow())
             .onConflict(
                 AGENT_SERVER_RUN.ISSUE_ID, AGENT_SERVER_RUN.AGENT_ID, AGENT_SERVER_RUN.RUN_ID)
             .doUpdate()
@@ -52,6 +61,8 @@ public class AgentServerRunRepository {
         .set(AGENT_SERVER_RUN.ISSUE_ID, issueId)
         .set(AGENT_SERVER_RUN.AGENT_ID, agentId)
         .set(AGENT_SERVER_RUN.RUN_ID, runId)
+        // STARTED 를 잃은 실행의 묘비는 시작 시각이 지금이라 지금 방문의 실행으로 본다(충돌 갈래는 시작 시각을 건드리지 않는다).
+        .set(AGENT_SERVER_RUN.STARTED_AT, appNow())
         .set(AGENT_SERVER_RUN.FINISHED_AT, DSL.currentOffsetDateTime())
         .onConflict(AGENT_SERVER_RUN.ISSUE_ID, AGENT_SERVER_RUN.AGENT_ID, AGENT_SERVER_RUN.RUN_ID)
         .doUpdate()
@@ -69,11 +80,22 @@ public class AgentServerRunRepository {
         .execute();
   }
 
+  /** 그 실행의 시작 시각(행이 없으면 empty). */
+  public Optional<Instant> runStartedAt(long issueId, long agentId, UUID runId) {
+    return dsl.select(AGENT_SERVER_RUN.STARTED_AT)
+        .from(AGENT_SERVER_RUN)
+        .where(runOf(issueId, agentId, runId))
+        .fetchOptional(AGENT_SERVER_RUN.STARTED_AT)
+        .map(OffsetDateTime::toInstant);
+  }
+
   /**
-   * 미룬 실패 사유 중 끝난 지 {@code maxAge} 안의 가장 늦은 것을 돌려주고, 그 (이슈, AI) 의 사유를 모두 비운다 — 한 문장(CTE 의 UPDATE 와
-   * 본 SELECT 는 같은 스냅숏을 봐 비우기 전 값을 고른다).
+   * 지금 방문({@code visitEnteredAt} 이후 시작한 실행)의 미룬 실패 사유 중 끝난 지 {@code maxAge} 안의 가장 늦은 것을 돌려주고, 그
+   * (이슈, AI) 의 사유를 모두 비운다 — 앞 방문의 사유는 따르지 않되 남겨 두지도 않는다. 한 문장(CTE 의 UPDATE 와 본 SELECT 는 같은 스냅숏을 봐
+   * 비우기 전 값을 고른다).
    */
-  public Optional<String> takePendingFailure(long issueId, long agentId, Duration maxAge) {
+  public Optional<String> takePendingFailure(
+      long issueId, long agentId, Duration maxAge, Instant visitEnteredAt) {
     var cleared =
         DSL.name("cleared")
             .as(
@@ -88,6 +110,7 @@ public class AgentServerRunRepository {
         .where(workerOf(issueId, agentId))
         .and(AGENT_SERVER_RUN.FAILED_NOTE.isNotNull())
         .and(AGENT_SERVER_RUN.FINISHED_AT.gt(AgentWorkRepository.staleBefore(maxAge)))
+        .and(AGENT_SERVER_RUN.STARTED_AT.ge(utc(visitEnteredAt)))
         .orderBy(AGENT_SERVER_RUN.FINISHED_AT.desc())
         .limit(1)
         .fetchOptional(AGENT_SERVER_RUN.FAILED_NOTE);
@@ -96,6 +119,16 @@ public class AgentServerRunRepository {
   /** 그 (이슈, AI) 의 미룬 실패 사유를 모두 비운다(값은 쓰지 않을 때). */
   public void discardPendingFailures(long issueId, long agentId) {
     clearFailedNotes(issueId, List.of(agentId));
+  }
+
+  /** 그 (이슈, AI) 의 미룬 실패 중 {@code visitEnteredAt} 전에 시작한 실행(앞 방문)의 사유만 비운다 — 지금 방문의 사유는 남긴다. */
+  public void discardPendingFailuresBefore(long issueId, long agentId, Instant visitEnteredAt) {
+    dsl.update(AGENT_SERVER_RUN)
+        .setNull(AGENT_SERVER_RUN.FAILED_NOTE)
+        .where(workerOf(issueId, agentId))
+        .and(AGENT_SERVER_RUN.FAILED_NOTE.isNotNull())
+        .and(AGENT_SERVER_RUN.STARTED_AT.lt(utc(visitEnteredAt)))
+        .execute();
   }
 
   /** (이슈, AI 들) 의 미룬 실패 사유를 모두 비운다 — 노드를 떠날 때(그 실패는 떠난 노드의 것이다). */
@@ -149,6 +182,15 @@ public class AgentServerRunRepository {
         .and(AGENT_SERVER_RUN.AGENT_ID.in(agentIds))
         .and(AGENT_SERVER_RUN.FAILED_NOTE.isNotNull())
         .execute();
+  }
+
+  /** 시작 시각으로 쓰는 앱 시계 — node_run.entered_at 과 같은 시계·같은 정밀도(마이크로초). */
+  private static OffsetDateTime appNow() {
+    return utc(Instant.now().truncatedTo(ChronoUnit.MICROS));
+  }
+
+  private static OffsetDateTime utc(Instant at) {
+    return at.atOffset(ZoneOffset.UTC);
   }
 
   /** 한 (이슈, AI) 의 행을 고르는 조건. */

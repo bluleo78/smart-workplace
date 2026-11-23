@@ -1375,8 +1375,7 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     assertThat(activeStates(issue, bot)).containsExactly("BLOCKED");
     assertThat(activeNote(issue, bot)).isEqualTo("빌드가 깨졌습니다");
     // 처리한 사유는 비워 두 번 쓰지 않는다.
-    assertThat(dsl.fetchExists(AGENT_SERVER_RUN, AGENT_SERVER_RUN.FAILED_NOTE.isNotNull()))
-        .isFalse();
+    assertThat(hasFailedNote(issue)).isFalse();
   }
 
   @Test
@@ -1420,8 +1419,108 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     assertThat(activeNote(issue, other)).isEqualTo("실패했습니다");
     assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
     assertThat(runStatus(issue)).isEqualTo("RUNNING");
-    assertThat(dsl.fetchExists(AGENT_SERVER_RUN, AGENT_SERVER_RUN.FAILED_NOTE.isNotNull()))
-        .isFalse();
+    assertThat(hasFailedNote(issue)).isFalse();
+  }
+
+  @Test
+  @DisplayName(
+      "앞 노드(work)에서 시작한 실행의 실패 끝은 같은 AI 가 맡은 다음 노드(work2) 방문에 미뤄지지 않아, work2 실행이 모두 정상으로 끝나면 대기 중이다")
+  void failureFromRunStartedOnPreviousNode_notDeferred() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runN1 = newRun();
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN1);
+    serverRun(bot, issue, "STARTED", true, null, runC);
+    ok(move(issue, "work", "again", null, 0, "k1"), pm);
+    String runN2 = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN2);
+
+    // C 는 work 방문에서 시작했다 — 지금 방문(work2)과 상관없는 실행이라 미루지도 멈추지도 않는다.
+    serverRun(bot, issue, "FINISHED", false, "답을 쓰지 못했습니다", runC);
+
+    assertThat(hasFailedNote(issue)).isFalse();
+    assertThat(nodeRun(issue, "work2").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(runStatus(issue)).isEqualTo("RUNNING");
+
+    serverRun(bot, issue, "FINISHED", true, null, runN1);
+    serverRun(bot, issue, "FINISHED", true, null, runN2);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+    assertThat(runEvents(issue)).doesNotContain("NODE_BLOCKED");
+  }
+
+  @Test
+  @DisplayName("앞 노드(work)에서 시작한 실행이 다음 노드(work2)로 옮긴 뒤 마지막 실행으로 실패해도 work2 를 멈추지 않는다")
+  void lastFailureFromPreviousNodeRun_doesNotBlockNewNode() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runC);
+    ok(move(issue, "work", "again", null, 0, "k1"), pm);
+
+    serverRun(bot, issue, "FINISHED", false, "답을 쓰지 못했습니다", runC);
+
+    assertThat(nodeRun(issue, "work2").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(runStatus(issue)).isEqualTo("RUNNING");
+    assertThat(runEvents(issue)).doesNotContain("NODE_BLOCKED");
+    assertThat(activeStates(issue, bot)).doesNotContain("BLOCKED");
+    assertThat(hasFailedNote(issue)).isFalse();
+  }
+
+  @Test
+  @DisplayName("멈춘 방문에서 미룬 실패는 다시 시도(새 방문) 뒤 새 방문의 마지막 실행 끝에 따르지 않아 다시 멈추지 않는다")
+  void failureDeferredBeforeRetry_notAppliedToRetriedVisit() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runX = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runX);
+    serverRun(bot, issue, "FINISHED", false, "빌드가 깨졌습니다", runX);
+    assertThat(runStatus(issue)).isEqualTo("SUSPENDED");
+    // 멈춘 방문에서 B·C 가 돌고 B 가 실패 — C 가 돌아 미뤄진다.
+    String runB = newRun();
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runB);
+    serverRun(bot, issue, "STARTED", true, null, runC);
+    serverRun(bot, issue, "FINISHED", false, "답을 쓰지 못했습니다", runB);
+    assertThat(hasFailedNote(issue)).isTrue();
+
+    ok(
+        post(API + "/issues/" + issue + "/workflow/recover")
+            .content(json("action", "RETRY", "expectedRevision", 1)),
+        lead);
+    String runD = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runD);
+    serverRun(bot, issue, "FINISHED", true, null, runC);
+
+    serverRun(bot, issue, "FINISHED", true, null, runD);
+
+    assertThat(runStatus(issue)).isEqualTo("RUNNING");
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+    // 앞 방문의 사유는 꺼낼 때 함께 비워 남지 않는다.
+    assertThat(hasFailedNote(issue)).isFalse();
+  }
+
+  @Test
+  @DisplayName("같은 방문에서 미룬 실패는 AI 가 대기 중을 보고한 뒤 다른 실행이 아직 돌 때의 정상 끝(OWNED)에 지워지지 않는다")
+  void ownedEndWhileOtherRunLive_keepsSameVisitFailure() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runB = newRun();
+    String runC = newRun();
+    String runA = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runB);
+    serverRun(bot, issue, "STARTED", true, null, runC);
+    serverRun(bot, issue, "STARTED", true, null, runA);
+    serverRun(bot, issue, "FINISHED", false, "답을 쓰지 못했습니다", runB);
+    reportOk(issue, bot, "WAITING", "CI 를 기다립니다", null);
+
+    serverRun(bot, issue, "FINISHED", true, null, runA);
+
+    assertThat(hasFailedNote(issue)).isTrue();
   }
 
   @Test
@@ -1720,6 +1819,13 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   /** DB now() 로부터 몇 시간 전 시각. */
   private static Field<OffsetDateTime> hoursAgo(int hours) {
     return DSL.field("now() - make_interval(hours => {0})", OffsetDateTime.class, hours);
+  }
+
+  /** 이 이슈에 미룬 실패 사유가 남아 있는지 — 다른 시험의 행과 섞이지 않게 이슈로 좁힌다. */
+  private boolean hasFailedNote(long issue) {
+    return dsl.fetchExists(
+        AGENT_SERVER_RUN,
+        AGENT_SERVER_RUN.ISSUE_ID.eq(issue).and(AGENT_SERVER_RUN.FAILED_NOTE.isNotNull()));
   }
 
   /** 실행 id 의 행이 표에 남아 있는지(끝난 행 포함). */

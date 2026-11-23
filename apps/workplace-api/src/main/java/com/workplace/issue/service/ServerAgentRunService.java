@@ -12,7 +12,9 @@ import com.workplace.issue.workflow.service.WorkflowAgentWorkBridge;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -34,6 +36,9 @@ import org.springframework.transaction.annotation.Transactional;
  * AgentServerRunRepository}) 그때만 작업 중 행을 대기 중(WAITING + {@link
  * AgentWorkState#NOTE_FINISHED_WITHOUT_MOVE})으로 내린다 — 「일했고 쉬는 중」이라 이슈 완료 때 COMPLETED 로 닫히고 알림도 없다.
  * 다른 실행이 도는 중의 실패 끝은 미뤘다가 마지막 실행이 끝날 때 따른다(agent_server_run 의 V338 COMMENT).
+ *
+ * <p>방문: 실패 끝·미룬 실패는 지금 노드 방문(node_run.entered_at) 뒤에 시작한 실행의 것만 따른다. 앞 방문(앞 노드·다시 시도 전의 멈춘 방문)에서
+ * 시작한 실행의 실패는 지금 방문과 상관없어 노드를 멈추지 않는다.
  */
 @Service
 @Transactional
@@ -107,19 +112,25 @@ public class ServerAgentRunService {
     if (finished) {
       // 이 끝으로 그 AI 의 도는 실행이 다 끝났는지 — runId 없는 보고(옛 ai-agent)는 어느 실행인지 몰라 마지막으로 보지 않는다.
       boolean lastRun = runId != null && !hasLiveRun(issueId, agentId);
+      // 지금 노드 담당이면 지금 방문에 들어간 시각 — 워크플로우 없음·노드 담당 아님이면 empty.
+      Optional<Instant> visit = workflowBridge.currentVisitEnteredAt(issueId, agentId);
       if (report.ok()) {
         switch (workflowBridge.onServerRunSuccess(issueId, agentId)) {
           case OWNED -> {
-            // 노드를 떠남·다시 들어옴 등 — 미룬 실패는 지금 노드의 것이 아니게 됐다(다른 실행이 돌아도 뒤 실행이 따르지 않게 비운다).
-            serverRunRepository.discardPendingFailures(issueId, agentId);
+            // 노드를 떠남·다시 들어옴·AI 가 스스로 기다림을 보고함 등. 마지막 실행이면 미룬 실패를 모두 비운다 — AI 의 명시 보고가 뒤의 뜻이라
+            // 앞 실행의 실패로 노드를 멈추지 않는다. 다른 실행이 아직 돌면 앞 방문의 사유만 비우고 지금 방문의 사유는 그 실행의 끝에 맡긴다.
+            if (visit.isEmpty() || lastRun) {
+              serverRunRepository.discardPendingFailures(issueId, agentId);
+            } else {
+              serverRunRepository.discardPendingFailuresBefore(issueId, agentId, visit.get());
+            }
             return;
           }
           case FINISHED_WITHOUT_MOVE -> {
-            // 다른 실행이 아직 돌면 작업 중 그대로, 마지막이면 미룬 실패를 따르고 없으면 쉬는 중으로 내린다.
+            // 다른 실행이 아직 돌면 작업 중 그대로, 마지막이면 지금 방문의 미룬 실패를 따르고 없으면 쉬는 중으로 내린다.
             if (!lastRun) return;
             patch =
-                serverRunRepository
-                    .takePendingFailure(issueId, agentId, FINISHED_MEMORY)
+                takeVisitFailure(issueId, agentId, visit)
                     .map(note -> blockNode(issueId, agentId, note))
                     .orElse(
                         patch(AgentWorkState.WAITING, AgentWorkState.NOTE_FINISHED_WITHOUT_MOVE));
@@ -127,8 +138,10 @@ public class ServerAgentRunService {
           case NOT_OWNED -> {}
         }
       } else {
+        // 앞 방문에서 시작한 실행의 실패는 지금 노드와 상관없다 — 노드도 작업 기록도 바꾸지 않고 사유도 미루지 않는다.
+        if (startedBeforeVisit(issueId, agentId, runId, visit)) return;
         // 지금 노드 담당 AI 의 다른 실행이 아직 돌면 노드를 멈추지 않고 사유를 미룬다 — 노드 담당이 아니면(워크플로우 없음·손으로 넣은 담당) 바로 차단.
-        if (runId != null && !lastRun && workflowBridge.isCurrentNodeAssignee(issueId, agentId)) {
+        if (runId != null && !lastRun && visit.isPresent()) {
           serverRunRepository.deferFailure(issueId, agentId, runId, patch.note());
           return;
         }
@@ -151,6 +164,25 @@ public class ServerAgentRunService {
   private AgentWorkPatch blockNode(long issueId, long agentId, String note) {
     workflowBridge.onAgentReport(issueId, agentId, AgentWorkState.BLOCKED, note);
     return patch(AgentWorkState.BLOCKED, note);
+  }
+
+  /** 그 실행이 지금 방문 전에 시작했는지 — 실행 id·방문·실행 행 중 하나라도 없으면 false(지금 방문의 실행으로 본다). */
+  private boolean startedBeforeVisit(
+      long issueId, long agentId, UUID runId, Optional<Instant> visit) {
+    if (runId == null || visit.isEmpty()) return false;
+    return serverRunRepository
+        .runStartedAt(issueId, agentId, runId)
+        .map(started -> started.isBefore(visit.get()))
+        .orElse(false);
+  }
+
+  /** 지금 방문의 미룬 실패 사유를 꺼낸다(앞 방문의 사유는 함께 비운다) — 방문이 없으면 사유 없음으로 보고 남은 사유를 비운다. */
+  private Optional<String> takeVisitFailure(long issueId, long agentId, Optional<Instant> visit) {
+    if (visit.isEmpty()) {
+      serverRunRepository.discardPendingFailures(issueId, agentId);
+      return Optional.empty();
+    }
+    return serverRunRepository.takePendingFailure(issueId, agentId, FINISHED_MEMORY, visit.get());
   }
 
   /** (이슈, AI) 에 아직 도는 실행이 있는지 — FINISHED 없이 죽은 실행은 {@link #RUN_STALE_AFTER} 뒤 세지 않는다. */
