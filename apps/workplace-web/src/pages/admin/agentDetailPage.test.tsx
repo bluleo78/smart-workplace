@@ -40,6 +40,7 @@ import {
   TEMPLATES,
 } from '../../test/kits/admin/agentRuntime'
 import AgentDetailPage from './AgentDetailPage'
+import { AgentRunSection } from './components/agent-detail/AgentRunSection'
 
 // WP-1507: 에이전트 화면·상세는 AI 화면 참고용으로 /help 묶음을 받는다 — 모든 테스트에 묶음을 깐다(테스트 핸들러가 앞에 붙어 이긴다).
 beforeEach(() => {
@@ -1492,6 +1493,32 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     expect(off).toHaveTextContent('다음에 시작할 때 반영')
     expect(off).not.toHaveTextContent('바로 반영')
     expect(off).not.toHaveTextContent('쉴 때 적용')
+  })
+
+  test('AI 계정 꼬리표 — 저장한 실행 설정이 없을 때(saved 없음)에도 「다음에 시작할 때 반영」 (WP-2020 리뷰 후속)', async () => {
+    // 저장 설정이 없으면 페이지는 실행 묶음 자체를 그리지 않아, worksRun 을 직접 줘 saved 없음을 재현한다 —
+    // AgentRunSection 의 계산(appliesAtIdle=false·stopped=true)이 「다음에 시작할 때」로 떨어지는지 지킨다.
+    const runtime = agentRuntimeApi({ accounts: ACCOUNTS, projects: PROJECTS, repoCredentials: [repoCred(1, 'github.com')] })
+    const { user } = renderScreen(
+      <AgentRunSection
+        agent={createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE' })}
+        templates={TEMPLATES}
+        worksRun={{ template: CLAUDE_TEMPLATE, saved: null, draft: null }}
+        savedTemplateName="claude-code"
+        savedLocationId={null}
+      />,
+      {
+        path: `/settings/agents/${id}`,
+        handlers: [...runtime.handlers, http.get('/api/v1/admin/agents/:id/keys', () => HttpResponse.json([]))],
+      },
+    )
+    const group = await screen.findByTestId('agent-ai-account-group')
+    expect(group).toHaveTextContent('다음에 시작할 때 반영')
+    expect(group).not.toHaveTextContent('바로 반영')
+    expect(group).not.toHaveTextContent('쉴 때 적용')
+    // 고르기 창 안내도 같은 갈래인지 한 테스트에서 같이 본다(WP-2020).
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(STOPPED_NOTICE)
   })
 
   test('AI 계정 꼬리표 — 실행 중이고 쉬는 중이 아닐 때는 작업 설정처럼 「실행 중이면 쉴 때 적용」 (WP-1515)', async () => {

@@ -49,8 +49,9 @@ export type AccountChangeWhen = 'atIdle' | 'stopped' | 'now';
 
 /**
  * 새 계정이 반영되는 갈래를 한 곳에서만 정한다(WP-1515·WP-2020) — 표면마다 따로 계산하면 어긋나는 이슈가 다시 생긴다.
- * 순서는 서버 계약에서 나온다: 쉴 때 적용(`accountChangeAppliesNow=false`)은 서버 RolloutPolicy 가 `desired != RUN` 일 때만
- * false 를 주므로 꺼짐(stopped)과 겹치지 않아 앞에 둔다.
+ * 순서는 서버 계약에서 나온다: 서버 RolloutPolicy 는 `desired != RUN` 이면 `accountChangeAppliesNow=true` 를 주므로
+ * 쉴 때 적용(`accountChangeAppliesNow=false`)은 `desired == RUN` 일 때만 온다 — 그때는 꺼짐(stopped)이 될 수 없어
+ * 앞에 둬도 겹치지 않는다.
  */
 export function accountChangeWhen(appliesAtIdle: boolean, stopped: boolean): AccountChangeWhen {
   if (appliesAtIdle) return 'atIdle';
