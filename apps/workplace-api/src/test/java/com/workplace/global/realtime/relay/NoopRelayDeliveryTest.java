@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.realtime.StreamingGenerationRegistry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -117,7 +118,9 @@ class NoopRelayDeliveryTest {
     doThrow(new IllegalStateException("터진 레지스트리"))
         .when(sseRegistry)
         .deliverLocal(any(), any(), any());
-    new RelayLocalDispatcher(sseRegistry, runnerRegistry, relay).register();
+    new RelayLocalDispatcher(
+            sseRegistry, runnerRegistry, mock(StreamingGenerationRegistry.class), relay)
+        .register();
 
     assertThatCode(
             () -> {

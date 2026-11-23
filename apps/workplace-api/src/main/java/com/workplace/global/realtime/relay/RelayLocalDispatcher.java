@@ -3,6 +3,7 @@ package com.workplace.global.realtime.relay;
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import com.workplace.global.json.JsonMappers;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.realtime.StreamingGenerationRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -27,12 +28,18 @@ public class RelayLocalDispatcher {
 
   private final SseRegistry sseRegistry;
   private final RunnerSseRegistry runnerSseRegistry;
+  // AI 생성 취소 중계(WP-1974)를 자기 파드의 생성 핸들로 넘길 곳.
+  private final StreamingGenerationRegistry generationRegistry;
   private final SseEventRelay relay;
 
   public RelayLocalDispatcher(
-      SseRegistry sseRegistry, RunnerSseRegistry runnerSseRegistry, SseEventRelay relay) {
+      SseRegistry sseRegistry,
+      RunnerSseRegistry runnerSseRegistry,
+      StreamingGenerationRegistry generationRegistry,
+      SseEventRelay relay) {
     this.sseRegistry = sseRegistry;
     this.runnerSseRegistry = runnerSseRegistry;
+    this.generationRegistry = generationRegistry;
     this.relay = relay;
   }
 
@@ -74,6 +81,15 @@ public class RelayLocalDispatcher {
             return;
           }
           runnerSseRegistry.closeLocal(keys[0], keys[1]);
+        }
+        case RelayMessage.TARGET_GENERATION_CANCEL -> {
+          // 다른 파드가 받은 취소 — 이 파드에 생성 핸들이 있으면 멈추고, 없으면 레지스트리가 무시한다.
+          String correlationId = RelayMessage.generationCancelId(message);
+          if (correlationId == null) {
+            log.warn("중계 생성 취소 메시지에 correlationId 가 없다 — 건너뛴다");
+            return;
+          }
+          generationRegistry.cancelLocal(correlationId);
         }
         // 아는 target 만 전달한다 — 새 버전 파드가 보낸 모르는 target 은 건너뛴다(앞으로의 호환).
         default -> log.warn("알 수 없는 중계 target({}) — 건너뛴다", message.target());

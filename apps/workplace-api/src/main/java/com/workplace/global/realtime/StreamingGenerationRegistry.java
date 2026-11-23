@@ -37,6 +37,12 @@ public interface StreamingGenerationRegistry {
    */
   void cancel(String correlationId, long callerId);
 
+  /**
+   * 이 파드에서 도는 생성만 사용자 취소로 멈춘다(WP-1974) — 다른 파드가 받은 취소가 중계로 도착했을 때 부른다. 소유자 검증은 취소를 받은 파드가 이미 했으므로
+   * 하지 않고, 이 파드에 핸들이 없으면(다른 파드의 생성·이미 끝남) 아무것도 하지 않는다.
+   */
+  void cancelLocal(String correlationId);
+
   /** 생성 분류 태그(WP-190) — scope 는 도메인(예: "home"), key 는 그 안의 대상(예: 홈 채팅 sessionId). */
   record GenerationTag(String scope, String key) {}
 

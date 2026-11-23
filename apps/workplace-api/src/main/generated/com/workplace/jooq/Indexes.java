@@ -144,6 +144,7 @@ import com.workplace.jooq.tables.SharedAiMemory;
 import com.workplace.jooq.tables.SharedAiMemoryChange;
 import com.workplace.jooq.tables.SharedAiMemoryForgotten;
 import com.workplace.jooq.tables.StagedUploadLink;
+import com.workplace.jooq.tables.StreamingGeneration;
 import com.workplace.jooq.tables.TenantCanary;
 import com.workplace.jooq.tables.ThreadReadState;
 import com.workplace.jooq.tables.User;
@@ -508,6 +509,7 @@ public class Indexes {
     public static final Index IDX_SAVED_VIEW_TENANT = Internal.createIndex(DSL.name("idx_saved_view_tenant"), SavedView.SAVED_VIEW, new OrderField[] { SavedView.SAVED_VIEW.TENANT_ID }, false);
     public static final Index IDX_STAGED_UPLOAD_LINK_TENANT = Internal.createIndex(DSL.name("idx_staged_upload_link_tenant"), StagedUploadLink.STAGED_UPLOAD_LINK, new OrderField[] { StagedUploadLink.STAGED_UPLOAD_LINK.TENANT_ID }, false);
     public static final Index IDX_STAGED_UPLOAD_LINK_USER_EXPIRES = Internal.createIndex(DSL.name("idx_staged_upload_link_user_expires"), StagedUploadLink.STAGED_UPLOAD_LINK, new OrderField[] { StagedUploadLink.STAGED_UPLOAD_LINK.USER_ID, StagedUploadLink.STAGED_UPLOAD_LINK.EXPIRES_AT }, false);
+    public static final Index IDX_STREAMING_GENERATION_OWNER = Internal.createIndex(DSL.name("idx_streaming_generation_owner"), StreamingGeneration.STREAMING_GENERATION, new OrderField[] { StreamingGeneration.STREAMING_GENERATION.OWNER_USER_ID, StreamingGeneration.STREAMING_GENERATION.SCOPE }, false);
     public static final Index IDX_TENANT_CANARY_TENANT = Internal.createIndex(DSL.name("idx_tenant_canary_tenant"), TenantCanary.TENANT_CANARY, new OrderField[] { TenantCanary.TENANT_CANARY.TENANT_ID }, false);
     public static final Index IDX_THREAD_READ_STATE_USER = Internal.createIndex(DSL.name("idx_thread_read_state_user"), ThreadReadState.THREAD_READ_STATE, new OrderField[] { ThreadReadState.THREAD_READ_STATE.USER_ID }, false);
     public static final Index IDX_USER_API_TOKEN_HASH = Internal.createIndex(DSL.name("idx_user_api_token_hash"), UserApiToken.USER_API_TOKEN, new OrderField[] { UserApiToken.USER_API_TOKEN.TOKEN_HASH }, false);

@@ -162,6 +162,7 @@ import com.workplace.jooq.tables.SharedAiMemoryForgotten;
 import com.workplace.jooq.tables.Shedlock;
 import com.workplace.jooq.tables.SseRelayEvent;
 import com.workplace.jooq.tables.StagedUploadLink;
+import com.workplace.jooq.tables.StreamingGeneration;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.jooq.tables.TenantCanary;
 import com.workplace.jooq.tables.ThreadReadState;
@@ -1000,6 +1001,11 @@ public class Tables {
      * The table <code>public.staged_upload_link</code>.
      */
     public static final StagedUploadLink STAGED_UPLOAD_LINK = StagedUploadLink.STAGED_UPLOAD_LINK;
+
+    /**
+     * AI 생성 슬롯 — 파드 사이 공유되는 진행 중 생성(BUSY/LIMIT 판정·취소 소유자 검증)
+     */
+    public static final StreamingGeneration STREAMING_GENERATION = StreamingGeneration.STREAMING_GENERATION;
 
     /**
      * 테넌트(고객사 워크스페이스) — 글로벌
