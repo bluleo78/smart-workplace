@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.calendar.service.CalendarService;
@@ -25,6 +26,7 @@ import com.workplace.wiki.service.WikiSpaceService;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,6 +85,61 @@ class NotificationSettingFilterTest extends IntegrationTestBase {
 
     assertThat(count(h, NotificationType.ASSIGNED)).isEqualTo(1);
     assertThat(pushRecipients()).containsExactly(h);
+  }
+
+  /** WP-1986: 깨우기 알림도 받는 사람의 알림 설정(ASSIGNED 줄)을 따른다 — 끈 사람 0건, 대조군은 1건. */
+  @Test
+  void workflowWake_respectsMutedSetting() {
+    cell(h, NotificationSettingItem.ISSUE_ASSIGNED, NotificationActor.HUMAN, false);
+
+    service.createWorkflowWakeAndFanOut(issueId, List.of(h, other), Set.of(), actor);
+
+    assertThat(count(h, NotificationType.ASSIGNED)).isZero();
+    assertThat(count(other, NotificationType.ASSIGNED)).isEqualTo(1);
+  }
+
+  /** WP-1986: 깨우기 알림은 행위자가 외부 AI 면 받는 사람이어도 거르지 않고, 알림의 actor 표시는 행위자 그대로다. */
+  @Test
+  void workflowWake_keepsExternalAgentActorAsRecipient_andAsDisplayedActor() {
+    long bot = createAgentUserWithMembership("nsf-ext");
+    dsl.update(USER).set(USER.AGENT_RUNTIME, "EXTERNAL").where(USER.ID.eq(bot)).execute();
+
+    service.createWorkflowWakeAndFanOut(issueId, List.of(bot), Set.of(), bot);
+
+    assertThat(count(bot, NotificationType.ASSIGNED)).isEqualTo(1);
+    assertThat(
+            dsl.select(NOTIFICATION.ACTOR_ID)
+                .from(NOTIFICATION)
+                .where(NOTIFICATION.RECIPIENT_ID.eq(bot))
+                .and(NOTIFICATION.TYPE.eq("ASSIGNED"))
+                .fetchSingle()
+                .value1())
+        .isEqualTo(bot);
+  }
+
+  /** WP-1986: 이미 알림 받은 사람은 빼되, 행위자(외부 AI)는 이미 받은 사람에 들어 있어도 깨우기 알림을 받는다. */
+  @Test
+  void workflowWake_excludesAlreadyNotified_butKeepsExternalActor() {
+    long bot = createAgentUserWithMembership("nsf-ext2");
+    dsl.update(USER).set(USER.AGENT_RUNTIME, "EXTERNAL").where(USER.ID.eq(bot)).execute();
+
+    service.createWorkflowWakeAndFanOut(issueId, List.of(bot, h), Set.of(bot, h), bot);
+
+    assertThat(count(bot, NotificationType.ASSIGNED)).isEqualTo(1);
+    assertThat(count(h, NotificationType.ASSIGNED)).isZero();
+  }
+
+  /** WP-1986: 행위자가 내부 AI·사람이면 깨우기 알림도 일반 경로처럼 행위자를 거른다(내부 AI 는 ai-agent 발사로 깨어난다). */
+  @Test
+  void workflowWake_dropsNonExternalActor() {
+    long bot = createAgentUserWithMembership("nsf-int");
+
+    service.createWorkflowWakeAndFanOut(issueId, List.of(bot), Set.of(), bot);
+    service.createWorkflowWakeAndFanOut(issueId, List.of(actor, h), Set.of(), actor);
+
+    assertThat(count(bot, NotificationType.ASSIGNED)).isZero();
+    assertThat(count(actor, NotificationType.ASSIGNED)).isZero();
+    assertThat(count(h, NotificationType.ASSIGNED)).isEqualTo(1);
   }
 
   @Test

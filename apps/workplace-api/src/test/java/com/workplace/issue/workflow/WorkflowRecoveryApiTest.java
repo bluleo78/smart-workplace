@@ -134,6 +134,34 @@ class WorkflowRecoveryApiTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("BLOCKED 노드 RETRY — 같은 행이 SUBMITTED 로 돌아가며 막힘 note 를 지운다(막힌 이유는 node_run 에 남는다)")
+  void retryAfterBlocked_clearsNote() {
+    long bot = agent("EXTERNAL");
+    long issue = startedIssue(bot, true);
+    reportOk(issue, bot, "BLOCKED", "막힘");
+    assertThat(activeNote(issue, bot)).isEqualTo("막힘");
+
+    ok(recover(issue, "RETRY", null, null, 1), lead);
+
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(activeNote(issue, bot)).isNull();
+    assertThat(nodeRuns(issue, "work").get(0).get(NODE_RUN.ERROR)).isEqualTo("막힘");
+  }
+
+  @Test
+  @DisplayName("막힌 AI 가 ON_ERROR 로 같은 노드에 다시 들어오면 SUBMITTED·막힘 note 없음")
+  void reentryAfterBlocked_clearsNote() {
+    long bot = agent("EXTERNAL");
+    long issue = startedIssue(yaml(bot, "\n    onError: { to: work, assignTo: bot }"));
+    reportOk(issue, bot, "BLOCKED", "막힘");
+
+    ok(recover(issue, "ON_ERROR", null, null, 1), lead);
+
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(activeNote(issue, bot)).isNull();
+  }
+
+  @Test
   @DisplayName("FAILED 노드 RETRY — 끝난 작업 대신 새 SUBMITTED 를 연다")
   void retry_afterFailed_opensNewSubmitted() {
     long bot = agent("EXTERNAL");
@@ -689,6 +717,16 @@ class WorkflowRecoveryApiTest extends IntegrationTestBase {
         .and(AGENT_WORK.WORKER_ID.eq(worker))
         .orderBy(AGENT_WORK.ID)
         .fetch(AGENT_WORK.STATE);
+  }
+
+  /** 그 작업자의 진행 중 agent_work note(없으면 null). */
+  private String activeNote(long issue, long worker) {
+    return dsl.select(AGENT_WORK.NOTE)
+        .from(AGENT_WORK)
+        .where(AGENT_WORK.ISSUE_ID.eq(issue))
+        .and(AGENT_WORK.WORKER_ID.eq(worker))
+        .and(AGENT_WORK.ENDED_AT.isNull())
+        .fetchSingle(AGENT_WORK.NOTE);
   }
 
   private long activeRowId(long issue, long worker) {

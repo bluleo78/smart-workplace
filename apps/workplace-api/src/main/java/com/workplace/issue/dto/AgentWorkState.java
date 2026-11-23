@@ -82,6 +82,14 @@ public final class AgentWorkState {
   }
 
   /**
+   * 사유 note(질문·요청·막힘 이유)를 들고 있는 상태인지 — 답변 필요·인증 필요·차단됨. 이 상태를 떠나면 그 note 는 낡으므로 지운다(막힌 이유는 node_run
+   * 에 남는다). 그 외·null·모르는 값은 false.
+   */
+  public static boolean holdsReasonNote(String state) {
+    return isInterrupt(state) || BLOCKED.equals(state);
+  }
+
+  /**
    * 명시 보고로 보낼 수 있는 상태인지 — 진행 상태에서 SUBMITTED(담당자 추가가 만드는 "시작 전" 이라 보고할 수 없다)를 뺀 것 + 종료 상태. 보고 요청 검증이
    * 이 목록 하나에서 나온다.
    */

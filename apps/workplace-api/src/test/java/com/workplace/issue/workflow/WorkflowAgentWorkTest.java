@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.NODE_RUN;
+import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
@@ -20,6 +21,7 @@ import com.workplace.global.security.AgentToolContext;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.ServerAgentRunReport;
+import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.AgentsResumedByChatReply;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
@@ -28,6 +30,8 @@ import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowRunEnded;
 import com.workplace.issue.service.ServerAgentRunService;
 import com.workplace.issue.workflow.dto.MoveRequest;
 import com.workplace.issue.workflow.service.WorkflowRunService;
+import com.workplace.notify.outbound.NotificationDispatcher;
+import com.workplace.notify.service.NotificationService;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
@@ -80,6 +84,7 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   @Autowired WorkflowRunService runService;
   @Autowired AgentApiKeyService agentKeyService;
   @Autowired ServerAgentRunService serverAgentRunService;
+  @Autowired NotificationService notificationService;
 
   /** 프로젝트 OWNER(관리자) — 모든 노드를 옮길 수 있다(override). */
   private long pm;
@@ -161,6 +166,68 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     assertThat(events.stream(IssueAssignedEvent.class)).isEmpty();
     assertThat(wakes()).hasSize(1);
     assertThat(wakes().getFirst().alreadyNotifiedIds()).doesNotContain(bot);
+  }
+
+  @Test
+  @DisplayName(
+      "외부 AI 가 자기 노드에서 자기가 맡은 다음 노드로 이동하면 그 AI 에게 ASSIGNED 가 정확히 1건 가고 작업이 SUBMITTED 로 열린다")
+  void externalAgentMovesToOwnNextNode_isNotified() {
+    long bot = agent("EXTERNAL");
+    // 실제 AI 는 issue:write 를 가진 역할로 등록된다 — 직접 이동하려면 USER 역할이 필요하다.
+    TestFixtures.grantRole(dsl, bot, "USER");
+    long wf = publish(yaml(bot, agent("EXTERNAL")));
+    long issue = issue(lead);
+    ok(startReq(issue, wf), pm);
+    events.clear();
+
+    // 노드 담당 외부 AI(bot)가 직접 넘긴다 — 같은 AI 가 다음 노드(work2)도 맡는다.
+    expectAsAgent(move(issue, "work", "again", null, 0, "k-self"), bot);
+
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(wakes()).hasSize(1);
+    assertThat(wakes().getFirst().actorId()).isEqualTo(bot);
+    assertThat(wakes().getFirst().agentIds()).containsExactly(bot);
+    // 이 시험 트랜잭션은 커밋되지 않아 커밋 뒤 리스너가 돌지 않는다 — 이 스레드에서 새로 만든 dispatcher 로 소비자를 직접 부른다.
+    new NotificationDispatcher(notificationService).onWorkflowNodeWake(wakes().getFirst());
+    assertThat(assignedNotifications(issue, bot)).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("내부 AI 가 자기 노드에서 자기가 맡은 다음 노드로 이동하면 깨우기는 나가도 자기에게 ASSIGNED 알림은 가지 않는다")
+  void internalAgentMovesToOwnNextNode_notNotified() {
+    long bot = agent("INTERNAL");
+    long wf = publish(yaml(bot, agent("INTERNAL")));
+    long issue = issue(lead);
+    ok(startReq(issue, wf), pm);
+    events.clear();
+
+    // 노드 담당 내부 AI(bot)가 직접 넘긴다 — 같은 AI 가 다음 노드(work2)도 맡는다.
+    runService.move(
+        issue, new MoveRequest("work", "again", null, null, null, 0, "k-self-int"), bot);
+
+    assertThat(wakes()).hasSize(1);
+    assertThat(wakes().getFirst().actorId()).isEqualTo(bot);
+    assertThat(wakes().getFirst().agentIds()).containsExactly(bot);
+    // 내부 AI 는 ai-agent 발사로 깨어난다 — 깨우기 알림은 행위자인 내부 AI 를 받는 사람에서 뺀다.
+    new NotificationDispatcher(notificationService).onWorkflowNodeWake(wakes().getFirst());
+    assertThat(assignedNotifications(issue, bot)).isZero();
+  }
+
+  @Test
+  @DisplayName("사람이 AI 노드로 이동시키면 AI 는 ASSIGNED 를 1건만 받는다(기존과 같음)")
+  void humanMovesToAgentNode_assignedOnce() {
+    long bot = agent("EXTERNAL");
+    long wf = publish(yaml(bot, agent("EXTERNAL")));
+    long issue = issue(lead);
+    ok(startReq(issue, wf), pm);
+    events.clear();
+
+    ok(move(issue, "work", "again", null, 0, "k-human"), pm);
+
+    assertThat(wakes()).hasSize(1);
+    assertThat(wakes().getFirst().actorId()).isEqualTo(pm);
+    new NotificationDispatcher(notificationService).onWorkflowNodeWake(wakes().getFirst());
+    assertThat(assignedNotifications(issue, bot)).isEqualTo(1);
   }
 
   @Test
@@ -749,6 +816,42 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     assertThat(wakes().getFirst().alreadyNotifiedIds()).contains(bot);
   }
 
+  @Test
+  @DisplayName("외부 AI 가 스스로 담당하고 startWorkflowId 로 시작하면(시작 노드도 자기) ASSIGNED 가 정확히 1건 가 깨어난다")
+  void agentStartsWorkflowOnItself_assignedOnce() {
+    long bot = agent("EXTERNAL");
+    TestFixtures.grantRole(dsl, bot, "USER");
+    long wf = publish(yaml(bot, agent("EXTERNAL")));
+    long issue = issue();
+    events.clear();
+
+    expectAsAgent(assign(issue, wf, lead, bot), bot);
+
+    dispatchNotices();
+    assertThat(assignedNotifications(issue, bot)).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("사람이 같은 AI 를 담당으로 넣고 시작해도 AI 는 ASSIGNED 를 1건만 받는다(중복 없음)")
+  void humanStartsWorkflowForAgent_assignedOnce() {
+    long bot = agent("EXTERNAL");
+    long wf = publish(yaml(bot, agent("EXTERNAL")));
+    long issue = issue();
+    events.clear();
+
+    ok(assign(issue, wf, lead, bot), pm);
+
+    dispatchNotices();
+    assertThat(assignedNotifications(issue, bot)).isEqualTo(1);
+  }
+
+  /** 커밋 뒤 리스너가 돌지 않는 시험 트랜잭션이라, 담당 변경·깨우기 이벤트를 소비자에게 직접 넘긴다. */
+  private void dispatchNotices() {
+    var dispatcher = new NotificationDispatcher(notificationService);
+    events.stream(IssueAssignedEvent.class).forEach(dispatcher::onIssueAssigned);
+    wakes().forEach(dispatcher::onWorkflowNodeWake);
+  }
+
   // ───────────────────────── 이슈 닫기 ─────────────────────────
 
   @Test
@@ -913,20 +1016,85 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   }
 
   @Test
-  @DisplayName("노드 담당 내부 AI 의 실행이 정상으로 끝나도 검토 대기를 쓰지 않는다 — 노드는 이동으로만 끝난다(코드 리뷰 I2)")
-  void serverRunSucceeded_byNodeAgent_doesNotWriteReview() {
+  @DisplayName(
+      "노드 담당 내부 AI 의 실행이 이동 없이 정상으로 끝나면 노드를 멈추지 않고 작업만 시작 전(SUBMITTED)+이유 note 로 둔다(판정 F4)")
+  void serverRunFinishedWithoutMove_marksSubmittedWithNote() {
     long bot = agent("INTERNAL");
     long wf = publish(yaml(bot, agent("INTERNAL")));
     long issue = issue(lead);
     ok(startReq(issue, wf), pm);
     serverRun(bot, issue, "STARTED", true, null);
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+    events.clear();
 
     serverRun(bot, issue, "FINISHED", true, null);
 
-    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+    // 끝 보고에는 어느 실행인지·무엇이 깨웠는지가 없어 노드를 멈추지 않는다 — 「일하는 중 아님」만 보인다.
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
     assertThat(allStates(issue, bot)).doesNotContain("REVIEW");
     assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
     assertThat(runStatus(issue)).isEqualTo("RUNNING");
+    assertThat(runRevision(issue)).isZero();
+    assertThat(runEvents(issue)).doesNotContain("NODE_BLOCKED");
+    // 답변 필요(AI_QUESTION)·검토 요청 알림의 근원인 AI 작업 알림 이벤트가 없다.
+    assertThat(events.stream(AgentWorkNoticeEvent.class)).isEmpty();
+  }
+
+  @Test
+  @DisplayName("노드 담당 내부 AI 의 진행 중 행이 없을 때 이동 없는 정상 끝은 시작 전(SUBMITTED)+이유 note 행을 연다(판정 F4)")
+  void serverRunFinishedWithoutMove_noRow_opensSubmitted() {
+    long bot = agent("INTERNAL");
+    long wf = publish(yaml(bot, agent("INTERNAL")));
+    long issue = issue(lead);
+    ok(startReq(issue, wf), pm);
+    assertThat(activeStates(issue, bot)).isEmpty();
+    events.clear();
+
+    serverRun(bot, issue, "FINISHED", true, null);
+
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+    assertThat(allStates(issue, bot)).doesNotContain("REVIEW");
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(runStatus(issue)).isEqualTo("RUNNING");
+    assertThat(runEvents(issue)).doesNotContain("NODE_BLOCKED");
+    assertThat(events.stream(AgentWorkNoticeEvent.class)).isEmpty();
+  }
+
+  @Test
+  @DisplayName("노드 담당 내부 AI 의 행이 기다림(WAITING)이면 이동 없는 정상 끝 보고가 행·노드·실행을 건드리지 않는다")
+  void serverRunFinishedWithoutMove_waitingRowUntouched() {
+    long bot = agent("INTERNAL");
+    long wf = publish(yaml(bot, agent("INTERNAL")));
+    long issue = issue(lead);
+    ok(startReq(issue, wf), pm);
+    serverRun(bot, issue, "STARTED", true, null);
+    // 내부 AI 는 기다림을 보고할 REST 길이 없어 행을 직접 기다림으로 둔다.
+    dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.STATE, "WAITING")
+        .where(AGENT_WORK.ID.eq(activeRowId(issue, bot)))
+        .execute();
+
+    serverRun(bot, issue, "FINISHED", true, null);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(allStates(issue, bot)).doesNotContain("REVIEW");
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(runStatus(issue)).isEqualTo("RUNNING");
+    assertThat(runRevision(issue)).isZero();
+  }
+
+  @Test
+  @DisplayName("워크플로우가 없는 이슈의 내부 AI 정상 끝 보고는 지금처럼 검토 대기를 쓴다")
+  void serverRunFinished_noWorkflow_unchanged() {
+    long bot = agent("INTERNAL");
+    long issue = issue(lead, bot);
+    serverRun(bot, issue, "STARTED", true, null);
+
+    serverRun(bot, issue, "FINISHED", true, null);
+
+    assertThat(activeStates(issue, bot)).containsExactly("REVIEW");
   }
 
   @Test
@@ -1129,6 +1297,17 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     return post(API + "/issues/" + issue + "/workflow/move").content(om.writeValueAsString(body));
   }
 
+  /** 그 이슈에서 그 사람이 받은 ASSIGNED 알림 수. */
+  private int assignedNotifications(long issue, long recipient) {
+    return dsl.fetchCount(
+        NOTIFICATION,
+        NOTIFICATION
+            .ISSUE_ID
+            .eq(issue)
+            .and(NOTIFICATION.RECIPIENT_ID.eq(recipient))
+            .and(NOTIFICATION.TYPE.eq("ASSIGNED")));
+  }
+
   /** 워크플로우 노드 깨우기 이벤트. */
   private List<WorkflowNodeWakeEvent> wakes() {
     return events.stream(WorkflowNodeWakeEvent.class).toList();
@@ -1152,6 +1331,16 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
         .and(AGENT_WORK.WORKER_ID.eq(worker))
         .orderBy(AGENT_WORK.ID)
         .fetch(AGENT_WORK.STATE);
+  }
+
+  /** 그 작업자의 진행 중 agent_work note(없으면 null). */
+  private String activeNote(long issue, long worker) {
+    return dsl.select(AGENT_WORK.NOTE)
+        .from(AGENT_WORK)
+        .where(AGENT_WORK.ISSUE_ID.eq(issue))
+        .and(AGENT_WORK.WORKER_ID.eq(worker))
+        .and(AGENT_WORK.ENDED_AT.isNull())
+        .fetchSingle(AGENT_WORK.NOTE);
   }
 
   private long activeRowId(long issue, long worker) {
@@ -1199,6 +1388,23 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
       return text.isBlank() ? null : om.readTree(text);
     } catch (Exception e) {
       throw new IllegalStateException("보고 실패", e);
+    } finally {
+      TenantContext.set(1L);
+    }
+  }
+
+  /** AI 키(+ 도구 맥락 헤더)로 호출한 요청이 200 인지 확인한다 — 외부 AI 가 직접 이동하는 경로. */
+  private void expectAsAgent(MockHttpServletRequestBuilder req, long worker) {
+    req.contentType(MediaType.APPLICATION_JSON)
+        .header("Authorization", "Bearer " + agentKey(worker))
+        .header(AgentToolContext.HEADER, "claude-code");
+    try {
+      var response = mvc.perform(req).andReturn().getResponse();
+      assertThat(response.getStatus())
+          .as("%s", response.getContentAsString(StandardCharsets.UTF_8))
+          .isEqualTo(200);
+    } catch (Exception e) {
+      throw new IllegalStateException("AI 요청 실패", e);
     } finally {
       TenantContext.set(1L);
     }

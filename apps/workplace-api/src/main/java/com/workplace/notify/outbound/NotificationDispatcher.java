@@ -67,18 +67,16 @@ public class NotificationDispatcher {
   }
 
   /**
-   * 워크플로우 노드 깨우기(WP-1986): 노드 AI 에게 ASSIGNED — 외부 AI 는 이 알림으로 깨어난다. 이번 시작·이동의 담당 변경으로 이미 ASSIGNED 를
-   * 받은 사람(alreadyNotifiedIds)은 빼 같은 알림이 두 번 가지 않게 한다. 남는 사람이 없으면 보내지 않는다.
+   * 워크플로우 노드 깨우기(WP-1986): 노드 AI 에게 ASSIGNED — 외부 AI 는 이 알림으로 깨어난다. 받는 사람 확정(이미 ASSIGNED 를 받은 사람
+   * 제외, 행위자 예외, 실행 방식 판정)은 {@link NotificationService#createWorkflowWakeAndFanOut} 이 한 곳에서 트랜잭션 안에
+   * 한다. 여기서는 후보·이미 알림 받은 사람·행위자를 그대로 넘긴다.
    */
   @Async("notifyEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onWorkflowNodeWake(WorkflowNodeWakeEvent e) {
     try {
-      List<Long> recipients =
-          e.agentIds().stream().filter(id -> !e.alreadyNotifiedIds().contains(id)).toList();
-      if (recipients.isEmpty()) return;
-      service.createAndFanOut(
-          NotificationType.ASSIGNED, recipients, e.actorId(), e.issueId(), null);
+      service.createWorkflowWakeAndFanOut(
+          e.issueId(), e.agentIds(), e.alreadyNotifiedIds(), e.actorId());
     } catch (Exception ex) {
       log.warn("[notify] 워크플로우 깨우기 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
     }

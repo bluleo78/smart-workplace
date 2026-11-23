@@ -26,8 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>기록을 바꾸지 않는 경우: 이슈가 끝났거나(완료·취소 — 완료 처리가 이미 기록을 닫았다) AI 가 담당에서 빠졌으면(스스로 빠짐 포함) 되살리지 않는다. 그 AI 가
  * 이 이슈의 반복을 돌리면 반복이 기록(다음 회차 대기 등)을 맡으므로 건드리지 않는다.
  *
- * <p>워크플로우 이슈(WP-1986): 지금 노드 담당 AI 의 실패 끝은 노드를 멈추고(조치로 잇는다), 정상 끝은 검토 대기를 쓰지 않는다 — {@link
- * WorkflowAgentWorkBridge} 가 판정한다.
+ * <p>워크플로우 이슈(WP-1986): 지금 노드 담당 AI 의 실패 끝은 노드를 멈추고(조치로 잇는다), 정상 끝은 검토 대기를 쓰지 않고 노드도 멈추지 않는다(이동 없이
+ * 끝났으면 시작 전 + 이유 note) — {@link WorkflowAgentWorkBridge} 가 판정한다.
  */
 @Service
 @Transactional
@@ -40,6 +40,9 @@ public class ServerAgentRunService {
   static final String NOTE_WORKING = "맡은 일을 처리하는 중";
   static final String NOTE_DONE = "처리를 마쳤습니다 — 이슈 코멘트로 결과를 확인해 주세요";
   static final String NOTE_FAILED_DEFAULT = "실행이 정상적으로 끝나지 않았습니다";
+
+  /** 노드 담당 내부 AI 의 실행이 이동 없이 정상으로 끝났을 때 작업 note 에 남기는 말 — 「일하는 중이 아님」을 보인다. */
+  static final String NOTE_FINISHED_WITHOUT_MOVE = "이동 없이 실행이 끝났습니다";
 
   /** note 한도 — 보고 API 와 같은 값을 쓴다. */
   static final int NOTE_MAX = AgentWorkReportService.NOTE_MAX;
@@ -73,11 +76,20 @@ public class ServerAgentRunService {
     }
     // 워크플로우 맞물림(코드 리뷰 I2) — 끝 보고는 명시 보고와 같은 실행 규칙을 따른다. 실패는 차단(BLOCKED) 보고와 같은 경로로 지금 노드 담당이면
     // node_run BLOCKED·실행 SUSPENDED·NODE_BLOCKED 를 남겨 조치(/recover)로 잇는다(작업 기록은 아래에서 지금처럼 차단됨).
-    // 정상 끝은 노드 담당이거나 이미 노드를 떠났으면(떠날 때 COMPLETED 로 닫혔다) 검토 대기를 쓰지 않는다 — 워크플로우에서 노드는
-    // 이동으로만 끝난다. 그 밖은 지금 그대로.
+    // 정상 끝은 검토 대기를 쓰지 않는다 — 워크플로우에서 노드는 이동으로만 끝난다. 노드 담당이 이동 없이 끝났으면 노드를 멈추지 않고 작업만 시작 전
+    // (SUBMITTED, 이유 note)으로 둔다(행이 없으면 연다, WP-1986 판정 F4). 끝 보고에는 어느 실행인지·무엇이 깨웠는지가 없어, 멈추면 사람 댓글에
+    // 답만 한 실행이나 늦게 온 옛 실행의 끝도 잘 가던 노드를 멈추기 때문이다 — 시작 전과 note 로 「일하는 중이 아님」만 보이고 노드는 보통 이동·새
+    // 깨우기로 이어 간다. SUBMITTED 는 알릴 상태가 아니라 AI 작업 알림도 없다. 기다림·끼어듦 행이거나 이미 노드를 떠났으면(떠날 때 COMPLETED 로
+    // 닫혔다) 아무것도 쓰지 않는다. 그 밖은 지금 그대로.
     if (ServerAgentRunReport.FINISHED.equals(report.phase())) {
       if (report.ok()) {
-        if (workflowBridge.ownsServerRunSuccess(issueId, agentId)) return;
+        switch (workflowBridge.onServerRunSuccess(issueId, agentId)) {
+          case OWNED -> {
+            return;
+          }
+          case SUBMIT -> patch = patch(AgentWorkState.SUBMITTED, NOTE_FINISHED_WITHOUT_MOVE);
+          case NOT_OWNED -> {}
+        }
       } else {
         workflowBridge.onAgentReport(issueId, agentId, AgentWorkState.BLOCKED, patch.note());
       }

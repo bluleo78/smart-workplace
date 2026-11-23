@@ -236,7 +236,8 @@ public class AgentWorkService {
   /**
    * 서버가 쓰는 상태 전환(WP-1986 — 워크플로우 노드 진입·떠남). 진행 중 행을 지정 상태로 바꾸고 화면 갱신 알림만 낸다 — 보고 경로가 아니라 진행 상태
    * 알림(AgentWorkNoticeEvent)·챗 글은 내지 않는다(질문은 이동 의견 댓글과 답변 노드 진입이 알린다). 끝 상태면 {@link #end} 로 닫는다. 답변
-   * 필요·인증 필요에서 다른 상태로 바뀌면 질문 note 를 지운다(보고 경로와 같은 규칙).
+   * 필요·인증 필요·차단됨에서 다른 상태로 바뀌면 그 질문·막힘 note 를 지운다 — 다시 시도·재진입으로 SUBMITTED 가 된 행에 옛 사유가 남지 않게. 보고
+   * 경로({@link #startOrUpdateTracked})는 새 note 가 없을 때 답변 필요·인증 필요를 떠날 때만 지우므로 규칙이 다르다.
    *
    * @return 바꿨으면 true. 진행 중 행이 없거나 이미 그 상태면 false
    */
@@ -258,9 +259,10 @@ public class AgentWorkService {
       return end(issueId, row.workerId(), state, AgentWorkPatch.empty());
     }
     if (row == null || state.equals(row.state())) return false;
-    var patch =
-        new AgentWorkPatch(
-            null, state, null, AgentWorkState.isInterrupt(row.state()), null, null, null);
+    // 답변 필요·인증 필요·차단됨을 떠나면 그 질문·막힘 note 를 지운다 — 남기면 다시 시도·재진입으로 SUBMITTED 가 된 행에 옛 사유가 남아 아직
+    // 막힌 것처럼 보인다(막힌 이유는 node_run 의 waiting_reason·error 와 NODE_BLOCKED 이벤트에 남는다).
+    boolean clearNote = AgentWorkState.holdsReasonNote(row.state());
+    var patch = new AgentWorkPatch(null, state, null, clearNote, null, null, null);
     if (repository.update(row.id(), patch) == 0) return false;
     notifyChanged(issueId, null);
     return true;

@@ -141,10 +141,7 @@ public class WorkflowAgentWorkBridge {
   private void resetInternalInterrupt(long issueId, long agentId) {
     agentWorkRepository
         .findActive(issueId, agentId)
-        .filter(
-            row ->
-                AgentWorkState.isInterrupt(row.state())
-                    || AgentWorkState.BLOCKED.equals(row.state()))
+        .filter(row -> AgentWorkState.holdsReasonNote(row.state()))
         .ifPresent(row -> agentWorkService.markState(issueId, row, AgentWorkState.SUBMITTED));
   }
 
@@ -338,34 +335,61 @@ public class WorkflowAgentWorkBridge {
     return NodeRunRow.latestVisit(runRepository.findNodeRuns(run.id()), run.currentNode());
   }
 
+  /** 서버 실행기의 정상 끝을 워크플로우가 어떻게 받았는지 — 부르는 쪽이 작업 기록을 어떻게 남길지 정한다. */
+  public enum ServerRunSuccess {
+    /** 워크플로우와 상관없다 — 지금처럼 검토 대기를 쓴다. */
+    NOT_OWNED,
+    /** 워크플로우가 맡았고 작업 기록은 그대로 둔다(검토 대기를 쓰지 않는다). */
+    OWNED,
+    /**
+     * 노드 담당이 이동 없이 끝났다 — 부르는 쪽은 작업을 시작 전(SUBMITTED, note 「이동 없이 실행이 끝났습니다」)으로 남긴다(행이 없으면 연다).
+     * 실행·node_run 은 그대로다.
+     */
+    SUBMIT
+  }
+
   /**
-   * 서버 실행기(내부 AI)의 정상 끝(FINISHED ok)을 워크플로우가 맡는지(코드 리뷰 I2) — 맡으면 부르는 쪽은 「검토 대기」를 쓰지 않는다.
+   * 서버 실행기(내부 AI)의 정상 끝(FINISHED ok)을 워크플로우가 어떻게 받는지(코드 리뷰 I2·WP-1986 판정 F4). 어느 경우든 검토 대기는 쓰지 않는다
+   * — 워크플로우에서 검토·노드 끝내기는 이동으로만 한다(원장 R9).
    *
    * <ul>
-   *   <li>활성 실행의 지금 agent_task 노드 담당이면 맡는다 — 워크플로우에서 검토·노드 끝내기는 이동으로만 한다(원장 R9). 행은 그대로 두고 노드는
-   *       이동으로만 끝난다
-   *   <li>이미 노드를 떠난 AI 면 맡는다 — 떠날 때 {@link #onNodeLeft} 가 행을 COMPLETED 로 닫았는데, 실행 끝 보고가 그 뒤에 오면 진행
-   *       중 행이 없어 새 「검토 대기」 행이 생겨 끝낸 일을 다시 검토 대기로 되돌린다. 판정: 진행 중 행이 없고, 이 이슈의 지금 실행(활성, 없으면 가장 최근 —
-   *       end 로 옮겨 끝난 실행 포함)에서 떠난 방문의 담당이었다
-   *   <li>그 밖(워크플로우 없음·손으로 넣은 담당 등)은 맡지 않는다 — 지금처럼 검토 대기를 쓴다
+   *   <li>활성 실행의 지금 agent_task 노드 담당이고 진행 중 행이 WORKING·SUBMITTED 거나 없으면 {@link
+   *       ServerRunSuccess#SUBMIT}. 노드를 멈추지 않는다 — 끝 보고에는 어느 실행인지·무엇이 깨웠는지가 없어, 멈추면 사람 댓글에 답만 한 실행이나
+   *       늦게 온 옛 실행의 끝도 잘 가던 노드를 멈춘다. 시작 전과 note 로 「일하는 중이 아님」만 보이고, 노드는 보통 이동이나 새 깨우기로 이어 갈 수 있게
+   *       둔다
+   *   <li>노드 담당인데 행이 기다림·끼어듦(WAITING·INPUT_REQUIRED·AUTH_REQUIRED·BLOCKED)이면 {@link
+   *       ServerRunSuccess#OWNED} — 이미 다른 사람 차례·멈춤이 보이니 손대지 않는다
+   *   <li>이미 노드를 떠난 AI 면 {@link ServerRunSuccess#OWNED} — 떠날 때 {@link #onNodeLeft} 가 행을 COMPLETED 로
+   *       닫았는데, 실행 끝 보고가 그 뒤에 오면 진행 중 행이 없어 새 「검토 대기」 행이 생겨 끝낸 일을 다시 검토 대기로 되돌린다. 판정: 진행 중 행이 없고, 이
+   *       이슈의 지금 실행(활성, 없으면 가장 최근 — end 로 옮겨 끝난 실행 포함)에서 떠난 방문의 담당이었다
+   *   <li>그 밖(워크플로우 없음·손으로 넣은 담당 등)은 {@link ServerRunSuccess#NOT_OWNED} — 지금처럼 검토 대기를 쓴다
    * </ul>
    *
    * 노드 담당 판정은 {@link #onAgentReport} 에 상태 없이(진행만 알리는 보고처럼) 물어 같은 기준·같은 잠금을 쓴다 — 상태가 없으니 아무것도 바꾸지
    * 않는다.
    */
-  public boolean ownsServerRunSuccess(long issueId, long agentId) {
+  public ServerRunSuccess onServerRunSuccess(long issueId, long agentId) {
     if (onAgentReport(issueId, agentId, null, null)) {
-      return true;
+      // 위 호출이 이슈 행을 잠근 뒤라 그사이 이동이 행을 바꾸지 못한다.
+      String rowState =
+          agentWorkRepository.findActive(issueId, agentId).map(AgentWorkRow::state).orElse(null);
+      boolean notWaiting =
+          rowState == null
+              || AgentWorkState.WORKING.equals(rowState)
+              || AgentWorkState.SUBMITTED.equals(rowState);
+      return notWaiting ? ServerRunSuccess.SUBMIT : ServerRunSuccess.OWNED;
     }
     if (agentWorkRepository.findActive(issueId, agentId).isPresent()) {
-      return false;
+      return ServerRunSuccess.NOT_OWNED;
     }
     RunRow run = runRepository.findCurrentByIssue(issueId).orElse(null);
     if (run == null) {
-      return false;
+      return ServerRunSuccess.NOT_OWNED;
     }
-    return runRepository.findNodeRuns(run.id()).stream()
-        .anyMatch(v -> v.leftAt() != null && v.assigneeIds().contains(agentId));
+    boolean leftNode =
+        runRepository.findNodeRuns(run.id()).stream()
+            .anyMatch(v -> v.leftAt() != null && v.assigneeIds().contains(agentId));
+    return leftNode ? ServerRunSuccess.OWNED : ServerRunSuccess.NOT_OWNED;
   }
 
   /** 워크플로우 이슈인지 — 그 이슈에 활성 실행이 있다. */

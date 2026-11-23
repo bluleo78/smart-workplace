@@ -2,7 +2,6 @@ package com.workplace.notify.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -373,26 +372,12 @@ class NotificationDispatcherTest {
     assertThat(TenantContext.get()).isNull();
   }
 
-  /** WP-1986: 워크플로우 깨우기 알림은 이번 담당 변경으로 이미 ASSIGNED 를 받은 사람을 빼고 노드 AI 에게만 간다. */
+  /** WP-1986: 깨우기 알림은 후보·이미 알림 받은 사람·행위자를 그대로 서비스에 넘긴다(받는 사람 확정은 서비스가 한다). */
   @Test
-  @SuppressWarnings("unchecked")
-  void onWorkflowNodeWake_excludesAlreadyNotified() {
+  void onWorkflowNodeWake_passesCandidatesToService() {
     dispatcher.onWorkflowNodeWake(
         new WorkflowNodeWakeEvent(1L, 10L, 5L, "dev", List.of(21L, 22L), Set.of(21L), 1L));
 
-    ArgumentCaptor<List<Long>> recipients = ArgumentCaptor.forClass(List.class);
-    verify(service)
-        .createAndFanOut(
-            eq(NotificationType.ASSIGNED), recipients.capture(), eq(1L), eq(10L), eq(null));
-    assertThat(recipients.getValue()).containsExactly(22L);
-  }
-
-  /** WP-1986: 노드 AI 모두가 이미 알림을 받았으면 깨우기 알림은 보내지 않는다. */
-  @Test
-  void onWorkflowNodeWake_allAlreadyNotified_sendsNothing() {
-    dispatcher.onWorkflowNodeWake(
-        new WorkflowNodeWakeEvent(1L, 10L, 5L, "dev", List.of(21L), Set.of(21L), 1L));
-
-    verify(service, never()).createAndFanOut(any(), any(), any(), anyLong(), any());
+    verify(service).createWorkflowWakeAndFanOut(10L, List.of(21L, 22L), Set.of(21L), 1L);
   }
 }
