@@ -56,7 +56,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
   gh 로그인이 Pod 시작 때 고정되므로 Secret 의 version 이 Pod 의 것과 다르면 모델 연결 교체처럼 Pod 를 다시 만든다. 위치 GitHub Secret(`GITHUB_SECRET_NAME`)은 없어졌다.
 - agent-key 는 desired `version` 이 null 이거나 기록과 다를 때, 또는 기록한 rotate-after 가 지났을 때만 받는다. 끄기·위치 이동으로 5분 유예에 든 키는
   Works 가 desired 에서 `version=null` 로 내므로 「수명을 줄였는지」는 Works 한 곳이 정한다(runner 는 desired 의 `rotateAfter` 를 견주지 않는다).
-- 관찰 보고의 `failedGeneration`(WP-2019)은 runner 실패 기록(`failures`)이 있을 때 그 실패가 일어난 desired generation(없으면 null) — 옛 Pod 가 떠 있어 `observedGeneration` 이 옛 것이어도 Works 가 새 설정 자체의 실패를 알아보게 한다. `observedGeneration` 계산은 그대로.
+- 관찰 보고의 `failedGeneration`(WP-2019)은 runner 실패 기록(`failures`)이 있을 때 그 실패가 일어난 desired generation(없으면 null) — 옛 Pod 가 떠 있어 `observedGeneration` 이 옛 것이어도 Works 가 새 설정 자체의 실패를 알아보게 한다. 미뤄 둔 generation(떠 있는 Pod ≠ desired·applyNow=false, 끝난·지워지는 중인 Pod 제외 — `isGenerationPending`)의 실패면 종류와 무관하게 null. `observedGeneration` 계산은 그대로.
 - 클러스터가 apply·delete 를 거절하면(400·403·422 — 쿼터·PodSecurity·검증) 그 AI 를 FAILED(사유 한 줄)로 보고하고 30초 뒤 다시 본다.
   404·409·429·5xx·네트워크 오류는 일시 오류로 5초 재시도. 지우는 중인 Pod·PVC 가 사라지기만 기다리는 회차는 15초. desired 에서 빠진 AI 의 거절은 로그로만 남긴다(관찰 보고가 STOPPING/STOPPED 라).
 - 모든 컨테이너에 requests 를 둔다(네임스페이스 쿼터 승인) — agent 는 템플릿 값(없으면 limit, 그것도 없으면 cpu 1·memory 2Gi), dind 는 `DIND_RESOURCES`,

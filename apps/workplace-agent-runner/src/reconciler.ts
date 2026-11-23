@@ -177,9 +177,17 @@ const sameRecord = (a: Record<string, string>, b: Record<string, string>) => {
  * 미뤄 둔 generation 인지(WP-2019) — 떠 있는 Pod 의 generation ≠ desired generation 이고 applyNow=false. 라벨이 없는(null) 옛 Pod 도
  * 다른 generation 으로 본다(plan.ts 와 같다). keep 이 Pod 를 갈지 않는 판정(swapPod)과, 그 generation 에서 난 실패에
  * failedGeneration 을 싣지 않는 판정이 이 한 함수를 쓴다 — 두 곳이 어긋나지 않게.
+ * 끝나 버린 Pod(finished)·지워지는 중인 Pod(deleting)는 미루지 않는다 — 일하는 AI 가 없고 다음 Pod 는 applyNow 와 무관하게
+ * desired generation 으로 뜨므로, 그 회차의 실패는 종류(Secret·클러스터 거절 등)와 무관하게 새 설정 실패로 싣는다(PR #1684 리뷰 후속).
  */
 function isGenerationPending(agent: RunnerDesiredAgent, current: ActualAgent): boolean {
-  return current.pod !== undefined && current.pod.generation !== agent.generation && !agent.applyNow;
+  return (
+    current.pod !== undefined &&
+    !current.pod.finished &&
+    !current.pod.deleting &&
+    current.pod.generation !== agent.generation &&
+    !agent.applyNow
+  );
 }
 
 /**
@@ -348,8 +356,9 @@ export class Reconciler {
     const generationPending = isGenerationPending(agent, current);
     // 미뤄 둔 generation 의 실패는 failedGeneration 을 싣지 않는다(null) — 쉴 때로 미룬 실패가 이미 FAILED 로 보이고, 실으면 API 켜기가 일하는 Pod 를 끊는다
     const failedGeneration = failedGenerationOf(agent, current);
+    // 모든 fail() 이 failedGeneration 한 판정을 거친다 — 이미지 검사·이름 충돌(create·recreate)은 값이 desired generation 그대로지만 기준이 갈리지 않게(PR #1684 리뷰 후속)
     if (kind !== 'keep' && imageProblem) {
-      this.fail(id, imageProblem, { blocking: true, generation: agent.generation });
+      this.fail(id, imageProblem, { blocking: true, generation: failedGeneration });
       return undefined;
     }
     // 끝나 버린 Pod 를 연속으로 다시 만드는 중이면 간격이 지날 때까지 두고 본다(재시도 없음 — 클러스터 다시 보기가 간격 뒤 깨운다)
@@ -369,7 +378,7 @@ export class Reconciler {
     if (kind === 'create') {
       const foreign = await this.findForeign(current, id);
       if (foreign) {
-        this.fail(id, foreign, { blocking: true, generation: agent.generation });
+        this.fail(id, foreign, { blocking: true, generation: failedGeneration });
         return undefined;
       }
     }
@@ -400,7 +409,7 @@ export class Reconciler {
         versionChanged(current.pod.loginVersion, secret.loginVersion) ||
         versionChanged(current.pod.reposVersion, secret.repos.version));
     if (swapPod && imageProblem) {
-      this.fail(id, imageProblem, { blocking: true, generation: agent.generation });
+      this.fail(id, imageProblem, { blocking: true, generation: failedGeneration });
       return undefined;
     }
     // 실패 기록은 이 AI 의 할 일이 끝까지 된 뒤에 지운다 — 중간(Pod apply 거절 등)에 관찰 보고가 끼어들어도 사유가 사라지지 않게
