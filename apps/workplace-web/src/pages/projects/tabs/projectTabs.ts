@@ -1,26 +1,26 @@
-// 프로젝트 화면 탭 정의(WP-1477) — 개요·이슈·노트·타임라인·사이클·버전.
+// 프로젝트 화면 탭 정의(WP-1477) — 개요·이슈·노트·타임라인·사이클·워크플로우·버전.
 // 탭 목록·길(경로)·저장값 해석·「들어올 때 마지막 탭으로 되돌릴지」 판단을 순수 함수로 모아 단위 테스트로 지킨다.
 import { PROJECT_TAB_PATHS } from '@/lib/projectTabPaths'
 
 /** 프로젝트 탭 식별자. */
-export type ProjectTabId = 'overview' | 'issues' | 'notes' | 'timeline' | 'cycles' | 'versions'
+export type ProjectTabId = 'overview' | 'issues' | 'notes' | 'timeline' | 'cycles' | 'workflow' | 'versions'
 
-/**
- * 탭 정의 — 표시 순서대로. 노트 탭은 프로젝트의 노트 공간을 불러온 프로젝트에서만 보인다(WP-1481) —
- * 그 판정은 정적 값이 아니라 호출부가 넘기는 notesVisible 로 한다(visibleProjectTabs·parseTab).
- */
+/** 탭 정의 — 표시 순서대로. 노트와 워크플로우의 가시성은 실행 시점에 정한다. */
 export const PROJECT_TABS: readonly { id: ProjectTabId; label: string }[] = [
   { id: 'overview', label: '개요' },
   { id: 'issues', label: '이슈' },
   { id: 'notes', label: '노트' },
   { id: 'timeline', label: '타임라인' },
   { id: 'cycles', label: '사이클' },
+  { id: 'workflow', label: '워크플로우' },
   { id: 'versions', label: '버전' },
 ]
 
-/** 지금 보이는 탭 — 노트 탭은 노트 공간이 있을 때(notesVisible)만 낀다. */
-export function visibleProjectTabs(notesVisible: boolean) {
-  return PROJECT_TABS.filter((t) => t.id !== 'notes' || notesVisible)
+/** 프로젝트별로 사용할 수 있는 탭만 보인다. */
+export function visibleProjectTabs(notesVisible: boolean, workflowVisible = false) {
+  return PROJECT_TABS.filter((t) =>
+    (t.id !== 'notes' || notesVisible) && (t.id !== 'workflow' || workflowVisible),
+  )
 }
 
 /**
@@ -101,9 +101,9 @@ export function tabFromPath(pathname: string, key: string): ProjectTabId | null 
   return PROJECT_TAB_PATHS.find((t) => t === rest) ?? null
 }
 
-/** 저장값을 탭으로 해석 — 보이는 탭만 통과(노트 공간이 없을 때의 노트·모르는 값·없음은 null). notesVisible 기본은 숨김. */
-export function parseTab(raw: string | null, notesVisible = false): ProjectTabId | null {
-  const found = visibleProjectTabs(notesVisible).find((t) => t.id === raw)
+/** 기억한 값 중 지금 표시하는 탭만 되살린다. */
+export function parseTab(raw: string | null, notesVisible = false, workflowVisible = false): ProjectTabId | null {
+  const found = visibleProjectTabs(notesVisible, workflowVisible).find((t) => t.id === raw)
   return found ? found.id : null
 }
 

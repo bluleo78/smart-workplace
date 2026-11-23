@@ -12,6 +12,7 @@ import { ProjectTabsLayout } from '@/pages/projects/tabs/ProjectTabsLayout'
 import { issueDetailSubHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { projectScreen } from '@/test/kits/projects/projectScreens'
 import { renderRoutesScreen, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
+import { gate } from '@/test/loadErrorRetry'
 import { rememberProjectTab } from '@/test/projectTabMemory'
 import { PAGE_LOAD_TIMEOUT, renderPage, settleHistory } from '@/test/renderPage'
 import type { ProjectResponse } from '@/types/project'
@@ -19,6 +20,7 @@ import type { ProjectResponse } from '@/types/project'
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { createProjectOverview } from '../../../e2e/factories/projectOverview.factory'
+import { draftTime, workflowDetail } from './workflow/workflowTestSupport'
 
 // 개인 프로젝트의 이슈 길은 레이아웃이 개인 전용 화면을 바로 그린다 — 여기선 레이아웃의 분기만 보므로 그 화면을 자리 표시로 바꾼다
 // (개인 화면 자체는 personalProjectDetail.test.tsx·mobile/personalProject.test.tsx 가 본다).
@@ -63,7 +65,111 @@ function appHandlers(project: ProjectResponse = createProject({ key: KEY, name: 
   ]
 }
 
+const workflowSummaries = [{ id: 42, name: '작업 정리', enabled: false, activeVersionNo: 2, draftChanged: true }]
+const publishedYaml = 'name: 게시 워크플로우'
+
+/** 조회자가 초안과 다른 게시 원문을 읽는지 확인할 수 있게 두 응답을 구분한다. */
+function publishedWorkflowHandlers() {
+  return [
+    http.get('/api/v1/workflows/42', () => HttpResponse.json(workflowDetail)),
+    http.get('/api/v1/workflows/42/versions', () =>
+      HttpResponse.json([{ versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 0 }]),
+    ),
+    http.get('/api/v1/workflows/42/versions/2', () => HttpResponse.json({
+      versionNo: 2,
+      sourceYaml: publishedYaml,
+      model: { schema: 'genia/workflow@1', roles: [], shared: [], nodes: [], start: [], layout: [] },
+    })),
+  ]
+}
+
 describe('프로젝트 탭 — 앱 라우트', () => {
+  test('워크플로우가 없는 프로젝트의 일반 멤버가 워크플로우 주소를 열면 프로젝트 기본 경로로 이동한다', async () => {
+    const project = createProject({ key: KEY, ownerId: 2, viewerRole: 'MEMBER' })
+    const { location } = renderPage(`/projects/${KEY}/workflow`, {
+      projectTabs: NO_MEMORY,
+      handlers: appHandlers(project),
+    })
+
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`), { timeout: PAGE_LOAD_TIMEOUT })
+  })
+
+  test('개인 프로젝트 조회자는 워크플로우 목록을 기다린 뒤 게시 YAML을 읽기 전용으로 본다', async () => {
+    const project = createProject({ key: KEY, id: workflowDetail.projectId, ownerId: 2, type: 'PERSONAL' })
+    const workflowList = gate()
+    const path = `/projects/${KEY}/workflow`
+    const { location } = renderPage(path, {
+      projectTabs: NO_MEMORY,
+      handlers: [
+        ...appHandlers(project),
+        http.get(`/api/v1/projects/${project.id}/workflows`, async () => {
+          await workflowList.promise
+          return HttpResponse.json(workflowSummaries)
+        }),
+        ...publishedWorkflowHandlers(),
+      ],
+    })
+
+    // 목록 응답 전에도 워크플로우 주소에 머무는지 확인한다.
+    try {
+      await waitFor(() => {
+        expect(location()).toBe(path)
+        expect(screen.getByText('워크플로우를 불러오는 중…')).toBeInTheDocument()
+      }, { timeout: PAGE_LOAD_TIMEOUT })
+    } finally {
+      workflowList.release()
+    }
+
+    const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+    expect(yaml).toHaveValue(publishedYaml)
+    expect(yaml).toHaveAttribute('readonly')
+    expect(location()).toBe(path)
+  })
+
+  test('워크플로우 목록 조회에 실패하면 같은 주소에서 다시 불러와 게시 YAML을 읽는다', async () => {
+    const project = createProject({ key: KEY, id: workflowDetail.projectId, ownerId: 2, viewerRole: 'MEMBER' })
+    const getWorkflows = vi.fn((): Response => HttpResponse.json(workflowSummaries))
+      .mockReturnValueOnce(HttpResponse.json({ message: '일시적인 오류' }, { status: 500 }))
+    const path = `/projects/${KEY}/workflow`
+    const { user, location } = renderPage(path, {
+      projectTabs: NO_MEMORY,
+      handlers: [
+        ...appHandlers(project),
+        http.get(`/api/v1/projects/${project.id}/workflows`, getWorkflows),
+        ...publishedWorkflowHandlers(),
+      ],
+    })
+
+    await waitFor(() => {
+      expect(location()).toBe(path)
+      expect(screen.getByRole('alert')).toHaveTextContent('워크플로우를 불러오지 못했습니다.')
+    }, { timeout: PAGE_LOAD_TIMEOUT })
+    await user.click(within(screen.getByRole('alert')).getByRole('button', { name: '다시 불러오기' }))
+
+    const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+    expect(yaml).toHaveValue(publishedYaml)
+    expect(yaml).toHaveAttribute('readonly')
+    expect(location()).toBe(path)
+    expect(getWorkflows).toHaveBeenCalledTimes(2)
+  })
+
+  test('기억한 워크플로우 목록을 불러올 수 없으면 프로젝트 개요를 연다', async () => {
+    rememberProjectTab(KEY, 'workflow')
+    const project = createProject({ key: KEY, ownerId: 2, viewerRole: 'MEMBER' })
+    const { location } = renderPage(`/projects/${KEY}`, {
+      projectTabs: NO_MEMORY,
+      handlers: [
+        ...appHandlers(project),
+        http.get(`/api/v1/projects/${project.id}/workflows`, () =>
+          HttpResponse.json({ message: '일시적인 오류' }, { status: 500 }),
+        ),
+      ],
+    })
+
+    expect(await screen.findByTestId('project-overview-widgets', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(location()).toBe(`/projects/${KEY}/overview`)
+  })
+
   test('처음 /projects/WP 에 들어오면(기억 없음) 개요 탭으로 열리고, 머리줄은 설정·+ 새 태스크만 둔다 — 이슈 탭을 누르면 이슈 목록이 열리고 기억된다', async () => {
     const setItem = spySetItem()
     const { user, location } = renderPage(`/projects/${KEY}`, { handlers: appHandlers(), projectTabs: NO_MEMORY })

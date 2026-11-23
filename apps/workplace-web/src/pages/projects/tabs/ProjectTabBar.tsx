@@ -1,4 +1,4 @@
-// 프로젝트 탭 줄(WP-1477) — 개요·이슈·노트·타임라인·사이클·버전. 모양은 components/ui/tabs 의 line 변형(밑줄)과 같게 하되
+// 프로젝트 탭 줄(WP-1477) — 개요·이슈·노트·타임라인·사이클·워크플로우·버전. 모양은 components/ui/tabs 의 line 변형(밑줄)과 같게 하되
 // 탭을 링크(<Link>)로 그려 새 창 열기·주소 복사가 되게 한다. 좁은 폭에서는 줄바꿈 없이 가로 스크롤(스크롤바 숨김).
 import { Link } from 'react-router-dom'
 
@@ -30,11 +30,13 @@ export function ProjectTabBar({
   projectKey,
   active,
   notesVisible,
+  workflowVisible,
 }: {
   projectKey: string
   active: ProjectTabId | null
   /** 프로젝트 노트 공간을 불러왔을 때만 「노트」 탭을 낀다(WP-1481). */
   notesVisible: boolean
+  workflowVisible: boolean
 }) {
   return (
     // 스크롤바 숨김은 !important(`…!`)로 건다 — index.css 의 전역 `* { scrollbar-width: thin }` 은 레이어 밖 규칙이라
@@ -44,7 +46,7 @@ export function ProjectTabBar({
       className={cn('shrink-0 overflow-x-auto border-b whitespace-nowrap [scrollbar-width:none]! [&::-webkit-scrollbar]:hidden', pageGutterClass)}
     >
       <div className="flex w-max items-center gap-1">
-        {visibleProjectTabs(notesVisible).map((t) => (
+        {visibleProjectTabs(notesVisible, workflowVisible).map((t) => (
           <Link
             key={t.id}
             aria-current={active === t.id ? 'page' : undefined}

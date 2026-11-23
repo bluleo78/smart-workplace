@@ -1,20 +1,23 @@
-// 프로젝트 화면 탭 레이아웃(WP-1477) — /projects/:key 와 그 탭 길(overview·notes·timeline·cycles·versions)을 감싼다.
+// 프로젝트 화면 탭 레이아웃(WP-1477) — /projects/:key 와 그 탭 길(overview·notes·timeline·cycles·workflow·versions)을 감싼다.
 // 프로젝트 로딩·오류 화면, 개인/팀 분기(이 레이아웃에서만), 화면 틀(머리줄·탭 줄)과 새 태스크 대화상자를 맡고 본문은 <Outlet/>.
 // 탭 사이를 오가도 이 레이아웃은 그대로라 머리줄·탭 줄이 다시 그려지지 않는다.
 import { ArrowLeft, Plus } from 'lucide-react'
 import { type ComponentProps, type ReactNode, Suspense, useMemo, useState } from 'react'
-import { Link, Navigate, Outlet, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, Outlet, useMatch, useNavigate, useParams } from 'react-router-dom'
 
 import { Page } from '@/components/layout/Page'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { Button } from '@/components/ui/button'
+import { useProjectMembers } from '@/hooks/queries/useProjectMembers'
 import { useWikiProjectSpace } from '@/hooks/queries/useWikiProjectSpace'
+import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useProjectWorkflows } from '@/lib/workflows'
 
 import { useCycles } from '../../../hooks/queries/useCycles'
 import { useProject } from '../../../hooks/queries/useProjects'
-import { canCreateIssueIn } from '../../../lib/projectPermissions'
+import { canCreateIssueIn, canManageProject, isProjectOwner } from '../../../lib/projectPermissions'
 import type { ProjectResponse } from '../../../types/project'
 import { IssueCreateDialog } from '../components/IssueCreateDialog'
 import { ProjectUnavailableState } from '../components/ProjectUnavailableState'
@@ -25,17 +28,24 @@ import { PROJECT_TABS } from './projectTabs'
 import { ProjectTabsContext, type ProjectTabsValue } from './ProjectTabsContext'
 import { useRememberedProjectTab } from './useRememberedProjectTab'
 
+/** 목록 조회를 레이아웃에서 소유해 탭을 열 때 같은 요청을 다시 보내지 않는다. */
+export interface ProjectWorkflowContext {
+  canManage: boolean
+  workflows: ReturnType<typeof useProjectWorkflows>
+}
+
 /** 프로젝트·탭 본문 모듈을 처음 불러오는 동안 — 머리줄·탭 줄은 그대로 두고 본문 자리만 비운다(프로젝트 로딩도 같은 모양). */
 const tabFallback = <p className="w-full p-6 text-muted-foreground">로딩 중…</p>
 
 /**
  * 프로젝트 탭 레이아웃. 개인/팀 판단은 여기서만 한다 — 탭 화면들은 컨텍스트(useProjectTabs)로 불러온 프로젝트를 받는다.
  * - 팀·공개 프로젝트: 머리줄(이름·키·설정·+ 새 태스크)·탭 줄·마지막 탭 기억.
- * - 개인 프로젝트: 탭·기억 없음. 이슈 길은 자기 Page 를 그리는 개인 전용 화면을 바로 그리고, 타임라인·사이클·버전은
+ * - 개인 프로젝트: 탭·기억 없음. 이슈 길은 자기 Page 를 그리는 개인 전용 화면을 바로 그리고, 타임라인·사이클·워크플로우·버전은
  *   main 과 같은 화면 머리줄(← 돌아가기·화면 이름)의 같은 틀로 감싼다. 개요 탭 주소는 이슈 화면으로 보낸다.
  */
 export function ProjectTabsLayout() {
   const { key = '', pageId: notesPageId } = useParams()
+  const workflowRoute = useMatch('/projects/:key/workflow')
   const isMobile = useIsMobile()
   const navigate = useNavigate()
   const project = useProject(key)
@@ -46,13 +56,29 @@ export function ProjectTabsLayout() {
   // 조회 중엔 null(모름) — 기억한 탭이 노트일 때만 판정을 기다린다.
   const noteSpace = useWikiProjectSpace(key, { enabled: team })
   const notesVisible = notesTabVisible(team, noteSpace)
-  const { redirectTo, tab, waitingNotes } = useRememberedProjectTab(key, team, notesVisible)
+  const { user, isAdmin } = useAuth()
+  const workflows = useProjectWorkflows(project.data?.id)
+  // 오래된 프로젝트 응답에만 역할 목록이 필요하다. 우회 권한은 기존 프로젝트 설정 규칙을 그대로 쓴다.
+  const needsMemberRole = team && !isAdmin && project.data?.viewerIsMember === true && project.data.viewerRole === undefined
+  const members = useProjectMembers(needsMemberRole ? key : '')
+  // 개인 프로젝트는 생성 때 정한 소유자만 관리한다. 워크스페이스 관리자도 우회할 수 없다.
+  const isPersonal = project.data?.type === 'PERSONAL'
+  const isOwner = isPersonal
+    ? Boolean(user && project.data?.ownerId === user.id)
+    : project.data?.viewerRole === 'OWNER' || isProjectOwner(members.data, user?.id)
+  const canManage = project.data != null && canManageProject(isOwner, isAdmin, isPersonal)
+  // 개인 프로젝트 조회자도 목록을 받기 전에는 읽을 워크플로우가 있는지 알 수 없다.
+  let workflowVisible: boolean | null = false
+  if (canManage || (workflows.data?.length ?? 0) > 0) workflowVisible = true
+  else if ((project.data != null && workflows.isPending) || (needsMemberRole && members.isPending)) workflowVisible = null
+
+  const { redirectTo, tab, waitingVisibility } = useRememberedProjectTab(key, team, notesVisible, workflowVisible)
   // 이슈 탭의 그룹 판정(기본이 사이클 그룹이면)은 사이클 목록을 기다린다(WP-1929) — 본문 페이지 청크가 로드된 뒤에야
   // 처음 요청이 나가면 그만큼 판정(groupPending)이 늦어 스켈레톤이 길어진다. 그래서 레이아웃에서 먼저 받아 둔다
   // (상태 목록은 이미 레이아웃의 새 태스크 대화상자가 앞에서 받는다). 같은 쿼리 키라 본문이 다시 요청하지 않는다.
-  // redirectTo(기본 경로 → 다른 탭으로 이동)·waitingNotes(노트 판정 대기) 동안엔 이슈 본문이 그려지지 않으니 요청하지 않는다 —
+  // redirectTo(기본 경로 → 다른 탭으로 이동)·waitingVisibility(노트·워크플로우 판정 대기) 동안엔 이슈 본문이 그려지지 않으니 요청하지 않는다 —
   // 개인·다른 탭에서 쓰이지 않을 요청이 붙는 것을 막는다.
-  useCycles(key, { enabled: team && tab === 'issues' && !redirectTo && !waitingNotes })
+  useCycles(key, { enabled: team && tab === 'issues' && !redirectTo && !waitingVisibility })
 
   // 새 태스크 대화상자 — 머리줄 「+ 새 태스크」(기본 상태)와 이슈 탭 보드 컬럼 「이슈 추가」(그 컬럼 상태 id, WP-464·WP-808)가 같이 연다.
   const [open, setOpen] = useState(false)
@@ -83,16 +109,21 @@ export function ProjectTabsLayout() {
   if (project.isLoading) return tabFallback
   if (project.error || !context) return <ProjectUnavailableState />
 
-  // 개인 프로젝트 — 탭·탭 줄·기억 없음. 개요·노트 탭은 개인 프로젝트에 없어 이슈 화면으로 보낸다.
+  // 조회 결과가 비어 있을 때만 숨긴 탭의 주소를 돌려보낸다. 조회에 실패하면 본문에서 다시 불러올 수 있다.
+  if (workflowRoute && workflowVisible === false && workflows.data != null) return <Navigate replace to={`/projects/${key}`} />
+
+  // 개인 프로젝트 — 탭·탭 줄·기억 없음. 팀 전용 탭 주소는 개인 이슈 화면으로 보낸다.
   if (!team) {
     if (tab === 'overview' || tab === 'notes') return <Navigate replace to={`/projects/${key}`} />
     let body: ReactNode
-    if (tab === 'issues') body = <PersonalIssuesScreen projectKey={key} project={context.project} />
-    else if (tab === null) body = <Outlet />
+    if (tab === 'issues') {
+      body = <PersonalIssuesScreen projectKey={key} project={context.project} workflowVisible={workflowVisible === true} />
+    } else if (tab === null) body = <Outlet />
     else
       body = (
         <ProjectScreenFrame
           testId="project-personal-page"
+          workflowContext={{ canManage, workflows }}
           header={{
             icon: (
               <Button variant="ghost" size="icon" aria-label="프로젝트로 돌아가기" onClick={() => navigate(`/projects/${key}`)}>
@@ -110,7 +141,7 @@ export function ProjectTabsLayout() {
 
   // 조건 없이 /projects/:key 에 들어왔으면 기억한 탭(없으면 기본 탭 — 지금은 이슈라 그대로)으로 바꿔 보낸다 — 그동안 이슈 목록은 그리지 않는다.
   if (redirectTo) return <Navigate replace to={redirectTo} />
-  if (waitingNotes) return tabFallback
+  if (waitingVisibility) return tabFallback
 
   // 모바일 노트 페이지(/projects/:key/notes/:pageId)는 페이지 전체 화면 — 프로젝트 머리줄·탭 줄을 그리지 않는다.
   // 페이지 머리줄(WikiPageHeader 의 ‹ 페이지 제목)이 그 자리의 단 하나의 머리줄이고 ‹ 는 노트 목록으로 돌아간다(노트 앱 모바일 상세와 같은 모양).
@@ -152,7 +183,15 @@ export function ProjectTabsLayout() {
           // 메뉴 항목은 링크 하나(포커스 한 번) — Link 안에 Button 을 중첩하지 않는다(U3-C3).
           mobileActions: <Link to={settingsPath}>설정</Link>,
         }}
-        tabBar={<ProjectTabBar projectKey={key} active={tab} notesVisible={notesVisible === true} />}
+        workflowContext={{ canManage, workflows }}
+        tabBar={
+          <ProjectTabBar
+            projectKey={key}
+            active={tab}
+            notesVisible={notesVisible === true}
+            workflowVisible={workflowVisible === true}
+          />
+        }
       >
         <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} initialStatusId={createStatusId} />
       </ProjectScreenFrame>
@@ -180,18 +219,20 @@ function ProjectScreenFrame({
   header,
   tabBar,
   children,
+  workflowContext,
 }: {
   testId?: string
   header?: ComponentProps<typeof Page.Header>
   tabBar?: ReactNode
   children?: ReactNode
+  workflowContext?: ProjectWorkflowContext
 }) {
   return (
     <Page data-testid={testId}>
       {header && <Page.Header {...header} />}
       {tabBar}
       <Suspense fallback={tabFallback}>
-        <Outlet />
+        <Outlet context={workflowContext} />
       </Suspense>
       {children}
     </Page>
@@ -202,9 +243,13 @@ function ProjectScreenFrame({
  * 개인 프로젝트 이슈 화면 — 레이아웃이 개인 프로젝트의 이슈 길에서 바로 그린다(이슈 탭 ProjectDetailPage 는 팀 전용).
  * 필터·보기·그룹 기억(WP-1035)은 팀 이슈 탭과 같은 주소·같은 규칙이라 여기서도 되살린 뒤에 그린다. 탭 제목은 「이슈 · {프로젝트}」(WP-814).
  */
-function PersonalIssuesScreen({ projectKey, project }: { projectKey: string; project: ProjectResponse }) {
+function PersonalIssuesScreen({ projectKey, project, workflowVisible }: {
+  projectKey: string
+  project: ProjectResponse
+  workflowVisible: boolean
+}) {
   const restoring = useRememberedIssueQuery(projectKey, true)
   useDocumentTitle(['이슈', project.name])
   if (restoring) return tabFallback
-  return <PersonalProjectDetail project={project} />
+  return <PersonalProjectDetail project={project} workflowVisible={workflowVisible} />
 }
