@@ -279,6 +279,42 @@ describe('Reconciler', () => {
     expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ phase: 'FAILED', failedGeneration: null });
   });
 
+  // 리뷰 후속(PR #1684): 끝난 Pod 를 다시 만드는 회차는 미뤄 둔 generation 이 아니다 — 새 generation 으로 곧 만들므로
+  // 이미지 검사 실패든 클러스터 거절이든 같은 기준으로 failedGeneration 에 desired generation 을 싣는다
+  // 끝난 Pod·지워지는 중인 Pod 는 미뤄 둔 generation 이 아니다 — Secret 단계 실패(모델 연결 종류)도 failedGeneration 에 5 를 싣는다
+  it.each([
+    ['끝난', (pod: V1Pod) => { pod.status = { phase: 'Failed', reason: 'Terminated' }; }],
+    ['지워지는 중인', (pod: V1Pod) => { pod.metadata = { ...pod.metadata, deletionTimestamp: new Date('2026-11-01T01:00:00Z') }; }],
+  ] as const)('%s Pod(gen 4)에서 미뤄 둔 generation 5(applyNow=false)의 Secret 단계가 실패하면 failedGeneration 에 5 를 싣는다 (WP-2019)', async (_, mutatePod) => {
+    const cluster = new FakeCluster();
+    seedRunningAgent(cluster, desiredAgent({ generation: 4 }));
+    mutatePod(cluster.get<V1Pod>('Pod', 'agent-42')!);
+    const works = new FakeWorks(desired([
+      desiredAgent({
+        generation: 5,
+        applyNow: false,
+        secrets: [desiredAgent().secrets[0]!, { name: 'claude', source: 'WORKS', version: 58, rotateAfter: null }],
+      }),
+    ]));
+    works.getClaudeSecret.mockResolvedValue({ version: 57, provider: 'opencode', payload: '{}' });
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ phase: 'FAILED', failedGeneration: 5 });
+  });
+
+  it('끝난 Pod(gen 4)를 미뤄 둔 generation 5(applyNow=false)로 다시 만들다 클러스터가 거절해도 failedGeneration 에 5 를 싣는다 (WP-2019)', async () => {
+    const cluster = new FakeCluster();
+    seedRunningAgent(cluster, desiredAgent({ generation: 4 }));
+    cluster.get<V1Pod>('Pod', 'agent-42')!.status = { phase: 'Failed', reason: 'Terminated' };
+    vi.spyOn(cluster, 'delete').mockRejectedValue(new ClusterError('delete', 'Pod', 'agent-42', 403, 'Forbidden', QUOTA_SERVER));
+    const works = new FakeWorks(desired([desiredAgent({ generation: 5, applyNow: false })]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ phase: 'FAILED', failedGeneration: 5 });
+  });
+
   it('실패가 없는 정상 보고는 failedGeneration 이 null 이다 (WP-2019)', async () => {
     const cluster = new FakeCluster();
     const agent = desiredAgent();
