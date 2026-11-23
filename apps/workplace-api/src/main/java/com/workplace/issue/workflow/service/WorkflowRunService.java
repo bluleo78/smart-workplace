@@ -55,8 +55,9 @@ import tools.jackson.databind.ObjectMapper;
  * 워크플로우 실행의 시작·이동·조회(WP-1985). 판정은 순수 함수({@link WorkflowRouting}·{@link AssigneeResolution}·{@link
  * MoveRules})가 하고, 이 서비스는 읽기·잠금·순서·쓰기를 맡는다(원장 R1 — 규칙을 다시 쓰지 않는다).
  *
- * <p>순서(설계 §6·§7): 이슈 읽기(404) → 쓰기 권한(403) → 이슈 행 잠금 → 판정 → 쓰기. 잠금 순서는 이슈 → 구성원 → 실행 → 나머지다: 의견
- * 댓글·담당 변경(구성원 행을 잠근다)을 실행 행 revision 갱신·node_run·이벤트보다 먼저 쓴다. 한 트랜잭션이라 설계 §9 의 「갱신 → 후처리」 순서와 결과는
+ * <p>순서(설계 §6·§7): 이슈 읽기(404) → 쓰기 권한(403) → 이슈 행 잠금 → 판정 → 쓰기. 잠금 순서는 이슈 → 구성원 → 실행 → 나머지다: 담당 변경
+ * → 의견 댓글(둘 다 구성원 행을 잠근다)을 실행 행 revision 갱신·node_run·이벤트보다 먼저 쓴다. 댓글을 담당 변경 뒤에 쓰는 것은 댓글 알림이 댓글 쓸 때의
+ * 담당에게 가기 때문이다(빠지는 옛 담당이 아니라 새 담당이 받게). 설계 §9 의 「실행·node_run → 댓글 → 담당」과 순서가 다르지만 한 트랜잭션이라 저장 결과는
  * 같고, 이슈 행 잠금 덕에 그 사이 revision 이 바뀌지 않는다(revision 비교 갱신은 그래도 지킨다).
  *
  * <p>내부 AI 실행·agent_work 는 만들지 않는다(WP-1986) — 담당·댓글은 Task 3 의 좁은 경로만 쓴다.
@@ -125,7 +126,7 @@ public class WorkflowRunService {
       throw WorkflowException.disabled();
     }
     if (workflow.activeVersionId() == null) {
-      throw WorkflowException.notPublished();
+      throw WorkflowException.notPublishedForStart();
     }
     if (runRepository.findActiveByIssue(issue.id()).isPresent()) {
       throw WorkflowException.alreadyActive();
@@ -224,7 +225,8 @@ public class WorkflowRunService {
   }
 
   /**
-   * 노드 이동(설계 §7). 같은 실행·key·요청자의 재시도는 저장한 첫 응답을 그대로, 다른 요청자의 같은 key 는 409 STALE. 성공 응답만 멱등 저장한다.
+   * 노드 이동(설계 §7). 겨눈 실행(요청의 runId, 없으면 지금 실행)·key·요청자의 재시도는 저장한 첫 응답을 그대로, 다른 요청자의 같은 key 는 409
+   * STALE. 옛 실행을 겨눈 새 key 는 받지 않는다(409 STALE). 성공 응답만 멱등 저장한다.
    */
   public IssueWorkflowView move(long issueId, MoveRequest req, long actorId) {
     // 1. 이슈 읽기(404)·쓰기(403) → 이슈 행 잠금
@@ -240,14 +242,31 @@ public class WorkflowRunService {
         currentRun(issue.id())
             .orElseThrow(() -> WorkflowException.fromViolation(MoveViolation.notActive()));
 
-    // 3. 멱등 — 판정보다 먼저(끝난 뒤의 재시도도 첫 결과를 받게)
-    Optional<IdempotentRow> stored = runRepository.findIdempotent(run.id(), req.idempotencyKey());
+    // 3. 멱등 — 판정보다 먼저(끝난 뒤의 재시도도 첫 결과를 받게). 요청이 겨눈 실행 하나에서만 찾는다(리뷰 후속 R40).
+    // 왜 이슈 전체가 아니라 겨눈 실행: AI 는 key 를 결정적으로 만들어 실행 A 에서 쓴 key 를 실행 B 에서 다시 쓴다. 이슈 전체에서 찾으면 같은
+    // 요청자는 A 의 응답을 받고 B 는 움직이지 않으며, 다른 요청자는 맞는 revision 이어도 늘 STALE 이다.
+    // runId 가 없거나 지금 실행이면 지금 실행을 겨눈 것이다(하위 호환). 옛 실행을 겨누면 그 실행의 첫 응답을 돌려주는 재시도만 받는다 — A 를 끝낸
+    // 이동의 응답을 잃은 사이 B 가 시작돼도 재시도가 B 의 새 이동이 되지 않게. 다른 이슈의 runId·없는 runId 는 존재를 드러내지 않게 404 가 아니라
+    // 같은 STALE 이다(실행의 issue_id 를 비교한다).
+    boolean targetsCurrent = req.runId() == null || req.runId() == run.id();
+    if (!targetsCurrent
+        && runRepository.findRun(req.runId()).filter(r -> r.issueId() == issue.id()).isEmpty()) {
+      // 이 이슈의 실행이 아니다 — 다른 이슈의 실행 멱등 응답을 읽거나 존재를 알아내지 못하게 STALE.
+      throw staleNow(run);
+    }
+    long targetRunId = targetsCurrent ? run.id() : req.runId();
+    Optional<IdempotentRow> stored =
+        runRepository.findIdempotent(targetRunId, req.idempotencyKey());
     if (stored.isPresent()) {
-      // 요청자를 모르면(탈퇴 등) 다른 요청자로 본다.
+      // 요청자를 모르면(탈퇴 등) 다른 요청자로 본다. STALE 은 지금 실행 기준의 노드·revision 을 싣는다.
       if (!Objects.equals(stored.get().actorId(), actorId)) {
         throw staleNow(run);
       }
       return objectMapper.readValue(stored.get().responseJson(), IssueWorkflowView.class);
+    }
+    if (!targetsCurrent) {
+      // 옛 실행을 겨눈 새 이동 — 요청자가 본 실행이 이미 지나갔으니 지금 실행 기준으로 다시 보게 한다.
+      throw staleNow(run);
     }
 
     // 4~8. 판정
@@ -289,11 +308,17 @@ public class WorkflowRunService {
     // 넣음 ⊆ ¬C, 뺌 ⊆ C 라 둘은 겹치지 않는다(applyWorkflowChange 의 겹침 예외가 나지 않는다).
 
     Instant now = now();
-    Long commentId = writer.comment(actorId, issue.id(), req.comment());
+    // 담당 교체 → 의견 댓글 순서: 댓글 알림(COMMENTED)의 받는 담당은 댓글을 쓸 때의 이슈 담당이라, 교체 뒤에 써야 빠지는 옛 담당이 아니라
+    // 새 담당이 받는다(리뷰 후속). 둘 다 실행 행 갱신 전이라 잠금 순서(이슈 → 구성원 → 실행)는 그대로다.
     writer.applyAssignees(actorId, project, issue, add, remove);
+    WorkflowRunWriter.WrittenComment comment = writer.comment(actorId, issue.id(), req.comment());
+    Long commentId = comment == null ? null : comment.id();
 
     String status = statusOf(model, route);
-    Map<String, Object> context = withQa(plan.context(), model, from, outcome, req, actorId);
+    // _qa 에는 저장된(첨부 자리 표시를 바꾼) 댓글 본문을 넣는다 — 요청 원문의 file:N 은 저장 뒤 쓸모가 없다(리뷰 후속).
+    Map<String, Object> context =
+        withQa(
+            plan.context(), model, from, outcome, comment == null ? null : comment.body(), actorId);
     if (!runRepository.compareAndAdvance(
         run.id(),
         run.revision(),
@@ -561,13 +586,16 @@ public class WorkflowRunService {
    *   <li>답(떠나는 노드의 returnTo 로 가는 결과): 그 답 노드의 마지막 미답 질문에 {@code answer, answeredBy} 를 채운 새 맵으로 바꾼다
    *   <li>최근 {@link #QA_MAX} 개만 남긴다. 값이 없는 칸은 넣지 않는다
    * </ul>
+   *
+   * @param commentBody 저장된 의견 댓글 본문(자리 표시를 바꾼 것). 댓글을 만들지 않았으면(없음·공백뿐) null 이라 question·answer 칸을
+   *     넣지 않는다
    */
   private static Map<String, Object> withQa(
       Map<String, Object> planned,
       WorkflowModel model,
       Node from,
       Outcome outcome,
-      MoveRequest req,
+      String commentBody,
       long actorId) {
     boolean question = OutputRules.isQuestion(model, from, outcome);
     boolean answer = from.returnTo() != null && from.returnTo().equals(outcome.to());
@@ -582,8 +610,8 @@ public class WorkflowRunService {
       Map<String, Object> entry = new LinkedHashMap<>();
       entry.put("askNode", from.key());
       entry.put("answerNode", outcome.to());
-      if (req.comment() != null) {
-        entry.put("question", req.comment());
+      if (commentBody != null) {
+        entry.put("question", commentBody);
       }
       entry.put("askedBy", actorId);
       qa.add(entry);
@@ -594,8 +622,8 @@ public class WorkflowRunService {
             && !m.containsKey("answer")) {
           Map<String, Object> filled = new LinkedHashMap<>();
           m.forEach((k, v) -> filled.put(String.valueOf(k), v));
-          if (req.comment() != null) {
-            filled.put("answer", req.comment());
+          if (commentBody != null) {
+            filled.put("answer", commentBody);
           }
           filled.put("answeredBy", actorId);
           qa.set(i, filled);

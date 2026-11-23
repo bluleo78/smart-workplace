@@ -64,7 +64,11 @@ public final class AssigneeResolution {
 
   /**
    * assigneeRole 판정의 기준 사람들(설계 §8) — assignTo 가 역할이면 assigneeIds(모두 그 역할의 지금 구성원일 때만) 또는 그 역할의 지금
-   * 구성원, keep·생략이면 현재 노드 담당. 담당 확정보다 먼저 정한다.
+   * 구성원, keep·생략이면 현재 노드 담당 ∩ 지금 이슈 담당. 담당 확정보다 먼저 정한다.
+   *
+   * <p>왜 이슈 담당과 교집합: {@link #forMove} 의 생략 기준·{@link MoveActor} 의 담당 판정처럼 사람이 이슈에서 뺀 노드 담당은 더 이상 그
+   * 노드의 담당이 아니다(원장 R1 — check·plan·options 가 같은 기준). 교집합이 비면 기준도 비어 assigneeRole 조건은 맞지 않고 decision
+   * 의 다른 조건·default 로 간다 — 기준이 빈 다른 경로({@code WorkflowRouting} 의 판정)와 같다.
    *
    * <p>왜 검증된 id 만 쓰나: 연쇄가 end 에 닿거나 한도를 넘으면 담당 고르기({@link #forMove})가 그 id 들을 담당으로 쓰지 않는다. 아무 id 나
    * 기준으로 받으면 이동자가 decision 을 end 로 몰 수 있다(코드 리뷰 R28). 역할 밖 id 가 섞이면 보내지 않은 것처럼 역할 구성원으로 판정하고, 그 id
@@ -78,7 +82,7 @@ public final class AssigneeResolution {
       List<Long> req = distinct(requested);
       return !req.isEmpty() && roleIds.containsAll(req) ? req : roleIds;
     }
-    return state.nodeAssignees();
+    return keepIn(state.nodeAssignees(), state.issueAssignees());
   }
 
   /**

@@ -249,6 +249,26 @@ class AssigneeResolutionTest {
   }
 
   @Test
+  @DisplayName("keep·생략의 decision 기준은 노드 담당 ∩ 지금 이슈 담당 — 사람이 이슈에서 뺀 노드 담당은 기준에 들지 않는다")
+  void keepOrOmitted_routingBasis_excludesRemovedIssueAssignee() {
+    for (String assignTo : new String[] {"keep", null}) {
+      // 노드 담당은 a·c 지만 c(o 역할)는 사람이 이슈 담당에서 뺐다 — c 가 기준이면 d 가 end 로 보낸다.
+      WorkflowModel model = steerable("o", assignTo);
+      MoveRequest r = new MoveRequest("from", "go", null, null, null, 0, "k");
+      MoveRules.MovePlan plan =
+          MoveRules.plan(r, state(model, list(A, C), ids(A), Map.of()), members(model));
+      assertThat(plan.basis()).containsExactly(A);
+      assertThat(plan.route().stopNode()).isEqualTo("t");
+
+      // 교집합이 비면 기준도 비어 assigneeRole 조건은 맞지 않고 default 로 간다.
+      MoveRules.MovePlan empty =
+          MoveRules.plan(r, state(model, list(C), ids(A), Map.of()), members(model));
+      assertThat(empty.basis()).isEmpty();
+      assertThat(empty.route().stopNode()).isEqualTo("t");
+    }
+  }
+
+  @Test
   @DisplayName("decision 을 지나 X ∩ Y 가 비면 Y 에서 고른 id 는 지금처럼 받는다")
   void throughDecision_fallbackPickStillAccepted() {
     WorkflowModel disjoint = model(List.of("a"), List.of("b", "c"));

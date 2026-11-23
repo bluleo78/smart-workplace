@@ -1,11 +1,13 @@
 package com.workplace.issue.workflow;
 
+import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_COMMENT;
 import static com.workplace.jooq.Tables.NODE_RUN;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.WORKFLOW;
 import static com.workplace.jooq.Tables.WORKFLOW_MOVE_IDEMPOTENCY;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
@@ -15,9 +17,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
+import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.storage.FileStore;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeEntered;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowRunEnded;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowVisitLimitReached;
@@ -36,6 +41,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -79,6 +85,7 @@ class WorkflowRunApiTest extends IntegrationTestBase {
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired NotificationService notificationService;
+  @Autowired FileStore fileStore;
 
   /** 프로젝트 OWNER(관리자) — 역할에는 들지 않는다. */
   private long pm;
@@ -234,6 +241,19 @@ class WorkflowRunApiTest extends IntegrationTestBase {
         .where(ISSUE.ID.eq(issue))
         .execute();
     assertCode(expect(startReq(issue, wf, false), lead, 409), "WORKFLOW_ISSUE_CLOSED");
+  }
+
+  @Test
+  @DisplayName("게시된 버전이 없는 워크플로우의 시작은 409 WORKFLOW_NOT_PUBLISHED 와 시작용 문구")
+  void start_notPublished_409_startMessage() {
+    long wf = publish(spec());
+    // 켜진 채 게시 버전이 지워진 상태(FK ON DELETE SET NULL) — 켜기와 달리 시작 문구로 알린다.
+    dsl.update(WORKFLOW).setNull(WORKFLOW.ACTIVE_VERSION_ID).where(WORKFLOW.ID.eq(wf)).execute();
+
+    JsonNode body = expect(startReq(issue(lead), wf, false), lead, 409);
+
+    assertCode(body, "WORKFLOW_NOT_PUBLISHED");
+    assertThat(body.get("message").asString()).isEqualTo("게시된 버전이 없는 워크플로우로는 실행을 시작할 수 없습니다.");
   }
 
   @Test
@@ -711,6 +731,108 @@ class WorkflowRunApiTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName(
+      "실행 A 를 끝낸 이동의 응답을 잃은 사이 실행 B 가 시작돼도 A 의 runId 를 실은 같은 key 재시도는 A 의 첫 응답이고 B 는 움직이지 않는다")
+  void retryAfterNewRun_returnsFirstResultOfEndedRun() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    JsonNode first = ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
+    assertThat(first.get("status").asString()).isEqualTo("COMPLETED");
+    long runA = first.get("runId").asLong();
+    JsonNode runB = ok(startReq(issue, wf, false), owner);
+    assertThat(runB.get("runId").asLong()).isNotEqualTo(runA);
+
+    JsonNode retry = ok(moveReq(issue, "work", "done", null, null, null, 0, "K", runA), owner);
+
+    assertThat(retry).isEqualTo(first);
+    JsonNode seen = ok(get(viewPath(issue)), owner);
+    assertThat(seen.get("runId").asLong()).isEqualTo(runB.get("runId").asLong());
+    assertThat(seen.get("revision").asInt()).isZero();
+    assertThat(seen.get("currentNode").get("key").asString()).isEqualTo("work");
+    // 다른 요청자가 옛 실행 A 의 key 를 겨누면 지금 실행(B) 기준의 409 STALE.
+    JsonNode stale =
+        expect(moveReq(issue, "work", "done", null, null, null, 0, "K", runA), pm, 409);
+    assertCode(stale, "WORKFLOW_STALE");
+    assertThat(stale.get("errors").get("currentNode").asString()).isEqualTo("work");
+    assertThat(stale.get("errors").get("revision").asString()).isEqualTo("0");
+  }
+
+  @Test
+  @DisplayName("결정적 key 재사용 — 실행 A 에서 쓴 key 로 같은 요청자가 runId 없이 실행 B 를 이동하면 B 가 실제로 움직인다")
+  void deterministicKey_reusedInNewRun_sameActor_movesNewRun() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    JsonNode first = ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
+    long runB = ok(startReq(issue, wf, false), owner).get("runId").asLong();
+
+    JsonNode moved = ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
+
+    assertThat(moved).isNotEqualTo(first);
+    assertThat(moved.get("runId").asLong()).isEqualTo(runB);
+    assertThat(moved.get("status").asString()).isEqualTo("COMPLETED");
+    assertThat(moved.get("revision").asInt()).isEqualTo(1);
+    assertThat(eventTypes(issue)).filteredOn("MOVED"::equals).hasSize(2);
+  }
+
+  @Test
+  @DisplayName("결정적 key 재사용 — 실행 A 에서 쓴 key 로 다른 요청자가 B 의 runId 를 실어 B 를 이동하면 STALE 이 아니라 200")
+  void deterministicKey_reusedInNewRun_otherActor_movesNewRun() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
+    long runB = ok(startReq(issue, wf, false), owner).get("runId").asLong();
+
+    // pm 은 관리자라 담당이 아니어도 이동할 수 있다(override).
+    JsonNode moved = ok(moveReq(issue, "work", "done", null, null, null, 0, "K", runB), pm);
+
+    assertThat(moved.get("runId").asLong()).isEqualTo(runB);
+    assertThat(moved.get("status").asString()).isEqualTo("COMPLETED");
+  }
+
+  @Test
+  @DisplayName("옛 실행을 겨눈 새 key 는 새 이동으로 받지 않고 지금 실행 기준 409 WORKFLOW_STALE")
+  void oldRunTarget_newKey_409Stale() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    long runA =
+        ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner).get("runId").asLong();
+    ok(startReq(issue, wf, false), owner);
+
+    JsonNode stale =
+        expect(moveReq(issue, "work", "done", null, null, null, 0, "fresh", runA), owner, 409);
+
+    assertCode(stale, "WORKFLOW_STALE");
+    assertThat(stale.get("errors").get("currentNode").asString()).isEqualTo("work");
+    assertThat(stale.get("errors").get("revision").asString()).isEqualTo("0");
+    assertThat(eventTypes(issue)).filteredOn("MOVED"::equals).hasSize(1);
+  }
+
+  @Test
+  @DisplayName("다른 이슈의 runId·없는 runId 를 겨누면 404 가 아니라 409 WORKFLOW_STALE")
+  void otherIssueRunTarget_409Stale() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    long other = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    long otherRun = ok(startReq(other, wf, false), owner).get("runId").asLong();
+
+    JsonNode stale =
+        expect(moveReq(issue, "work", "done", null, null, null, 0, "k", otherRun), owner, 409);
+    assertCode(stale, "WORKFLOW_STALE");
+    JsonNode missing =
+        expect(
+            moveReq(issue, "work", "done", null, null, null, 0, "k", Long.MAX_VALUE), owner, 409);
+    assertCode(missing, "WORKFLOW_STALE");
+
+    assertThat(eventTypes(issue)).containsExactly("RUN_STARTED");
+    assertThat(eventTypes(other)).containsExactly("RUN_STARTED");
+  }
+
+  @Test
   @DisplayName("다른 요청자가 같은 key 를 보내면 첫 응답이 아니라 409 WORKFLOW_STALE")
   void sameKey_otherActor_409Stale() {
     long wf = publish(spec());
@@ -781,6 +903,11 @@ class WorkflowRunApiTest extends IntegrationTestBase {
     noRev.remove("expectedRevision");
     noRev.put("idempotencyKey", "k");
     expect(post(movePath(issue)).content(om.writeValueAsString(noRev)), lead, 400);
+    // runId 는 선택이지만 있으면 양수여야 한다.
+    Map<String, Object> badRun = new LinkedHashMap<>(noKey);
+    badRun.put("idempotencyKey", "k");
+    badRun.put("runId", 0);
+    expect(post(movePath(issue)).content(om.writeValueAsString(badRun)), lead, 400);
     assertThat(eventTypes(issue)).containsExactly("RUN_STARTED");
   }
 
@@ -808,6 +935,53 @@ class WorkflowRunApiTest extends IntegrationTestBase {
                 .value1())
         .isEqualTo("질문입니다");
     assertThat(commentCount(issue)).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("이동 의견 댓글은 담당 교체 뒤에 써 — 빠지는 옛 담당은 COMMENTED 받는 사람에 없고 새 담당은 있다")
+  void moveComment_afterAssigneeChange_notifiesNewAssignees() {
+    long wf = publish(spec());
+    long issue = issue(lead);
+    ok(startReq(issue, wf, false), lead);
+    // dev1 은 워크플로우가 넣은 담당 — dev → dev_ask 이동에서 빠지고 owner 가 들어온다.
+    ok(moveReq(issue, "triage", "ready", null, List.of(dev1), null, 0, "k1"), lead);
+    events.clear();
+
+    ok(moveReq(issue, "dev", "ask", null, null, "질문입니다", 1, "k2"), dev1);
+
+    List<IssueCommentedEvent> commented = events.stream(IssueCommentedEvent.class).toList();
+    assertThat(commented).hasSize(1);
+    // 알림 받는 담당은 댓글을 쓸 때 담긴다(IssueCommentedEvent.assignees) — 교체 뒤 담당이어야 한다.
+    assertThat(commented.getFirst().assignees().stream().map(u -> u.id()).toList())
+        .containsExactlyInAnyOrder(lead, owner);
+    assertThat(issueAssignees(issue)).containsExactlyInAnyOrder(lead, owner);
+    // node_run.comment_id 연결은 그대로.
+    assertThat(latestNodeRun(issue, "dev").get(NODE_RUN.COMMENT_ID))
+        .isEqualTo(commented.getFirst().commentId());
+  }
+
+  @Test
+  @DisplayName("질문 의견의 _qa.question 은 첨부 자리 표시를 바꿔 저장한 댓글 본문이다")
+  void qaQuestion_usesStoredCommentBody() {
+    long wf = publish(spec());
+    long issue = issue(dev1);
+    ok(startReq(issue, wf, false), dev1);
+    long file = seedStagedText(dev1, "notes.txt");
+
+    JsonNode asked =
+        ok(
+            moveReq(issue, "dev", "ask", null, null, "로그 봐 주세요 ![로그](file:" + file + ")", 0, "q1"),
+            dev1);
+
+    Long commentId = latestNodeRun(issue, "dev").get(NODE_RUN.COMMENT_ID);
+    String stored =
+        dsl.select(ISSUE_COMMENT.BODY)
+            .from(ISSUE_COMMENT)
+            .where(ISSUE_COMMENT.ID.eq(commentId))
+            .fetchSingle()
+            .value1();
+    assertThat(stored).doesNotContain("file:").contains("notes.txt");
+    assertThat(asked.get("context").get("_qa").get(0).get("question").asString()).isEqualTo(stored);
   }
 
   @Test
@@ -909,6 +1083,29 @@ class WorkflowRunApiTest extends IntegrationTestBase {
             .id();
     TenantContext.set(1L);
     return id;
+  }
+
+  /**
+   * MCP upload_file 로 올린 것과 같은 스테이징 첨부(이미지 아님) — FILE 행 + 저장소 바이트를 직접
+   * 시드한다(IssueBodyFilePlaceholderTest 와 같은 방식). 본문의 {@code file:N} 자리 표시가 저장 때 「**이름** (첨부 파일)」로
+   * 바뀐다.
+   */
+  private long seedStagedText(long uploader, String name) {
+    byte[] bytes = "plain text log line".getBytes(StandardCharsets.UTF_8);
+    String path = "tenant-1/staged/" + UUID.randomUUID();
+    fileStore.storeBytes(path, bytes);
+    return dsl.insertInto(FILE)
+        .set(FILE.ORIGINAL_NAME, name)
+        .set(FILE.STORED_NAME, path)
+        .set(FILE.STORAGE_PATH, path)
+        .set(FILE.MIME_TYPE, "text/plain")
+        .set(FILE.SIZE_BYTES, (long) bytes.length)
+        .set(FILE.CATEGORY, StagedFileClaimer.CATEGORY_ATTACHMENT)
+        .set(FILE.UPLOADED_BY, uploader)
+        .set(FILE.EXPIRES_AT, OffsetDateTime.now().plusHours(24))
+        .returning(FILE.ID)
+        .fetchOne()
+        .getId();
   }
 
   private String username(long userId) {
@@ -1135,6 +1332,21 @@ class WorkflowRunApiTest extends IntegrationTestBase {
       String comment,
       int revision,
       String idempotencyKey) {
+    return moveReq(
+        issue, from, outcome, outputs, assigneeIds, comment, revision, idempotencyKey, null);
+  }
+
+  /** 겨눈 실행(runId)을 함께 싣는 이동 요청 — null 이면 싣지 않는다(지금 실행을 겨눈 것으로 본다). */
+  private MockHttpServletRequestBuilder moveReq(
+      long issue,
+      String from,
+      String outcome,
+      Map<String, Object> outputs,
+      List<Long> assigneeIds,
+      String comment,
+      int revision,
+      String idempotencyKey,
+      Long runId) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("fromNode", from);
     body.put("outcome", outcome);
@@ -1143,6 +1355,7 @@ class WorkflowRunApiTest extends IntegrationTestBase {
     if (comment != null) body.put("comment", comment);
     body.put("expectedRevision", revision);
     body.put("idempotencyKey", idempotencyKey);
+    if (runId != null) body.put("runId", runId);
     return post(movePath(issue)).content(om.writeValueAsString(body));
   }
 

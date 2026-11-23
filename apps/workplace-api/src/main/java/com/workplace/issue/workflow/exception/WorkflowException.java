@@ -146,11 +146,20 @@ public class WorkflowException extends RuntimeException {
 
   /** 게시한 버전 없이 켜려고 했다. */
   public static WorkflowException notPublished() {
-    return new WorkflowException(
-        HttpStatus.CONFLICT,
-        "WORKFLOW_NOT_PUBLISHED",
-        "게시한 버전이 없어 켤 수 없습니다. 먼저 게시해 주세요.",
-        List.of());
+    return notPublished("게시한 버전이 없어 켤 수 없습니다. 먼저 게시해 주세요.");
+  }
+
+  /**
+   * 게시한 버전이 없는 워크플로우로 실행을 시작하려 했다(켜진 채 게시 버전이 지워진 경우 등). code·상태는 {@link #notPublished()} 와 같고 문구만
+   * 시작에 맞춘다 — 켜기 문구(「켤 수 없습니다」)는 시작하는 사람에게 맞지 않는다.
+   */
+  public static WorkflowException notPublishedForStart() {
+    return notPublished("게시된 버전이 없는 워크플로우로는 실행을 시작할 수 없습니다.");
+  }
+
+  /** 게시 버전 없음 409 의 공통 모양 — code·상태를 한곳에 두어 켜기·시작 문구가 갈라져도 계약은 같게 한다. */
+  private static WorkflowException notPublished(String message) {
+    return new WorkflowException(HttpStatus.CONFLICT, "WORKFLOW_NOT_PUBLISHED", message, List.of());
   }
 
   /** 오류가 있는 초안의 게시 거절 — 고칠 곳을 바로 보여 주도록 경고까지 모든 문제를 함께 담는다. */

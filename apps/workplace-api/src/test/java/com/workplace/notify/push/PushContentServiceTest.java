@@ -306,7 +306,7 @@ class PushContentServiceTest extends IntegrationTestBase {
     assertThat(PushCategory.of(NotificationType.WORKFLOW_VISIT_LIMIT))
         .isEqualTo(PushCategory.of(NotificationType.AI_WORK_FAILED));
     assertThat(m.category()).isEqualTo(PushCategory.ISSUE);
-    assertThat(m.body()).isEqualTo("박민수님이 넘긴 AI 작업이 되돌림 한도에 이르렀습니다");
+    assertThat(m.body()).isEqualTo("박민수님이 넘긴 워크플로우 단계가 되돌림 한도에 이르렀습니다");
     assertThat(m.url()).isEqualTo("/projects/" + key + "/issues/7");
   }
 
