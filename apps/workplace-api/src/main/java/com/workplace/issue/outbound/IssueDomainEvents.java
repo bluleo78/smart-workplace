@@ -72,6 +72,9 @@ public final class IssueDomainEvents {
    *
    * <p>actorCanWriteContent: 댓글 작성자가 원래 쓰기 권한이 있는 사람(멤버·ADMIN·OPEN 보고자)이면 true, 「비멤버 댓글」 설정으로만 댓글을
    * 단 비멤버면 false(WP-1495). 알림·SSE 는 둘 다 처리하고, AI 발사(IssueEventDispatcher)만 false 를 건너뛴다.
+   *
+   * <p>wakeAgent: false 면 ai-agent issue.commented 발사만 건너뛴다(WP-1985) — 워크플로우 이동의 의견 댓글은 알림·SSE·워처는
+   * 그대로 내지만 내부 AI 실행을 띄우지 않는다(깨우기는 WP-1986 이 노드 진입 이벤트로 한다).
    */
   public record IssueCommentedEvent(
       long issueId,
@@ -84,7 +87,37 @@ public final class IssueDomainEvents {
       long commentId,
       String commentBody,
       Instant occurredAt,
-      boolean actorCanWriteContent) {}
+      boolean actorCanWriteContent,
+      boolean wakeAgent) {
+
+    /** 보통의 댓글 — 작성 자격만 맞으면 AI 담당자를 깨운다. */
+    public IssueCommentedEvent(
+        long issueId,
+        String projectKey,
+        String issueKey,
+        int issueNumber,
+        String title,
+        UserSummary actor,
+        List<UserSummary> assignees,
+        long commentId,
+        String commentBody,
+        Instant occurredAt,
+        boolean actorCanWriteContent) {
+      this(
+          issueId,
+          projectKey,
+          issueKey,
+          issueNumber,
+          title,
+          actor,
+          assignees,
+          commentId,
+          commentBody,
+          occurredAt,
+          actorCanWriteContent,
+          true);
+    }
+  }
 
   /** 코멘트 수정 (#717). commentBody 는 수정된(새) 본문. */
   public record IssueCommentUpdatedEvent(

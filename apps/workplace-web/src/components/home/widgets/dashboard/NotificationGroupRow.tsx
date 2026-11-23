@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Plug,
   RefreshCw,
+  RotateCcw,
   UserPlus,
 } from "lucide-react";
 import { useId } from "react";
@@ -46,6 +47,7 @@ const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   PERSONAL_ASSISTANT_REVOKED: Bot, // 내 개인 비서 AI 연결 해제(WP-1170)
   OAUTH_APP_CONNECTED: Plug, // 새 앱 연결(WP-1686)
   MAIL_SEND_FAILED: MailX, // 메일 보내기 실패(WP-1786)
+  WORKFLOW_VISIT_LIMIT: RotateCcw, // 워크플로우 되돌림 한도(WP-1985)
 };
 
 // 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.

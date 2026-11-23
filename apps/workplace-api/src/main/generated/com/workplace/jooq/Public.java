@@ -125,6 +125,7 @@ import com.workplace.jooq.tables.MessageReaction;
 import com.workplace.jooq.tables.MessagingAgentRun;
 import com.workplace.jooq.tables.MessagingClassifyWatermark;
 import com.workplace.jooq.tables.Milestone;
+import com.workplace.jooq.tables.NodeRun;
 import com.workplace.jooq.tables.Notification;
 import com.workplace.jooq.tables.NotificationAppSetting;
 import com.workplace.jooq.tables.NotificationSetting;
@@ -194,6 +195,9 @@ import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkProfile;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.Workflow;
+import com.workplace.jooq.tables.WorkflowMoveIdempotency;
+import com.workplace.jooq.tables.WorkflowRun;
+import com.workplace.jooq.tables.WorkflowRunEvent;
 import com.workplace.jooq.tables.WorkflowVersion;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 
@@ -828,6 +832,11 @@ public class Public extends SchemaImpl {
     public final Milestone MILESTONE = Milestone.MILESTONE;
 
     /**
+     * 노드 방문 — 실행이 한 노드에 들어가 나올 때까지의 기록(같은 노드를 다시 방문하면 visit_no 가 늘어남)
+     */
+    public final NodeRun NODE_RUN = NodeRun.NODE_RUN;
+
+    /**
      * The table <code>public.notification</code>.
      */
     public final Notification NOTIFICATION = Notification.NOTIFICATION;
@@ -1173,6 +1182,21 @@ public class Public extends SchemaImpl {
     public final Workflow WORKFLOW = Workflow.WORKFLOW;
 
     /**
+     * 이동 멱등 기록 — 같은 실행·같은 key 의 재시도에 첫 응답을 그대로 돌려주려고 저장
+     */
+    public final WorkflowMoveIdempotency WORKFLOW_MOVE_IDEMPOTENCY = WorkflowMoveIdempotency.WORKFLOW_MOVE_IDEMPOTENCY;
+
+    /**
+     * 워크플로우 실행 — 이슈 하나에 대한 한 번의 진행(활성 실행은 이슈당 하나)
+     */
+    public final WorkflowRun WORKFLOW_RUN = WorkflowRun.WORKFLOW_RUN;
+
+    /**
+     * 워크플로우 실행 이벤트 — 시작·이동·중단 등 실행에 일어난 일을 쌓는 기록
+     */
+    public final WorkflowRunEvent WORKFLOW_RUN_EVENT = WorkflowRunEvent.WORKFLOW_RUN_EVENT;
+
+    /**
      * 워크플로우 게시 버전 — 게시 때의 YAML 원문과 해석한 모델을 고치지 않고 쌓는다
      */
     public final WorkflowVersion WORKFLOW_VERSION = WorkflowVersion.WORKFLOW_VERSION;
@@ -1327,6 +1351,7 @@ public class Public extends SchemaImpl {
             MessagingAgentRun.MESSAGING_AGENT_RUN,
             MessagingClassifyWatermark.MESSAGING_CLASSIFY_WATERMARK,
             Milestone.MILESTONE,
+            NodeRun.NODE_RUN,
             Notification.NOTIFICATION,
             NotificationAppSetting.NOTIFICATION_APP_SETTING,
             NotificationSetting.NOTIFICATION_SETTING,
@@ -1396,6 +1421,9 @@ public class Public extends SchemaImpl {
             WorkProfile.WORK_PROFILE,
             WorkerJob.WORKER_JOB,
             Workflow.WORKFLOW,
+            WorkflowMoveIdempotency.WORKFLOW_MOVE_IDEMPOTENCY,
+            WorkflowRun.WORKFLOW_RUN,
+            WorkflowRunEvent.WORKFLOW_RUN_EVENT,
             WorkflowVersion.WORKFLOW_VERSION,
             WorkspaceAssistant.WORKSPACE_ASSISTANT
         );

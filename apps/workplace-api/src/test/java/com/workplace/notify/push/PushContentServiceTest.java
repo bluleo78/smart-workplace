@@ -294,6 +294,22 @@ class PushContentServiceTest extends IntegrationTestBase {
         .isEqualTo("박민수님이 작업에 실패했습니다");
   }
 
+  /** 워크플로우 되돌림 한도(WP-1985) — 분류는 AI 작업 실패와 같은 ISSUE, 행위자 이름 뒤 전용 문구, 이슈 상세로. */
+  @Test
+  void forInbox_workflowVisitLimit_sameCategoryAsAiWorkFailed() {
+    seedIssue();
+    PushMessage m =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L, NotificationType.WORKFLOW_VISIT_LIMIT, List.of(99L), actor, issueId, null));
+
+    assertThat(PushCategory.of(NotificationType.WORKFLOW_VISIT_LIMIT))
+        .isEqualTo(PushCategory.of(NotificationType.AI_WORK_FAILED));
+    assertThat(m.category()).isEqualTo(PushCategory.ISSUE);
+    assertThat(m.body()).isEqualTo("박민수님이 넘긴 AI 작업이 되돌림 한도에 이르렀습니다");
+    assertThat(m.url()).isEqualTo("/projects/" + key + "/issues/7");
+  }
+
   /** 상태 경로 「답변 필요」(WP-913) — 인박스와 같은 상태별 문구. 상태 없는 AI_QUESTION(챗 질문)은 기존 문구(위 테스트). */
   @Test
   void forInbox_aiQuestion_textByAgentWorkState() {

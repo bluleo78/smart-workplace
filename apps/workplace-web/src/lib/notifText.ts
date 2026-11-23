@@ -35,6 +35,8 @@ export const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   OAUTH_APP_CONNECTED: '새 앱 연결',
   // WP-1786 메일 보내기 실패 — 행위자 없는 알림. 결과를 모르는 변형은 notificationAction 이 MAIL_SEND_UNKNOWN 으로 바꾼다. 메일 제목은 InboxList 가 아래 줄에.
   MAIL_SEND_FAILED: '메일을 보내지 못함',
+  // WP-1985 워크플로우 되돌림 한도 — 행위자는 그 노드로 다시 넘긴 사람. 서버 푸시(PushContentService)와 같은 문구.
+  WORKFLOW_VISIT_LIMIT: '님이 넘긴 AI 작업이 되돌림 한도에 이르렀습니다',
 };
 
 // 메일 보내기 실패 중 결과를 모르는 변형(WP-1786, mailSendUnknown) — 보내다 멈춰 나갔는지 모르니 보낸편지함을 보게 한다.

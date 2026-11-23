@@ -15,9 +15,10 @@ public enum PushCategory {
   MAIL;
 
   /**
-   * 인박스 알림 유형 → 기본 카테고리. 이슈 계열은 ISSUE, 일정 계열은 CALENDAR, 이슈 챗·코멘트 멘션은 MENTION. AI_QUESTION 은 기본
-   * ISSUE 이고 그 질문 글에서 멘션된 수신자만 NotificationService 가 MENTION 으로 따로 보낸다(WP-452). MAIL 은
-   * NotificationType 에 없으므로 이 매핑에서는 나오지 않는다 — 메일 새 알림은 직접 호출로만 온다(WP-1739).
+   * 인박스 알림 유형 → 기본 카테고리. 이슈 계열은 ISSUE(워크플로우 되돌림 한도 WP-1985 도 AI_WORK_FAILED 와 같이 ISSUE), 일정 계열은
+   * CALENDAR, 이슈 챗·코멘트 멘션은 MENTION. AI_QUESTION 은 기본 ISSUE 이고 그 질문 글에서 멘션된 수신자만 NotificationService
+   * 가 MENTION 으로 따로 보낸다(WP-452). MAIL 은 NotificationType 에 없으므로 이 매핑에서는 나오지 않는다 — 메일 새 알림은 직접 호출로만
+   * 온다(WP-1739).
    */
   public static PushCategory of(NotificationType type) {
     return switch (type) {
@@ -28,7 +29,8 @@ public enum PushCategory {
           PRIORITY_CHANGED,
           AI_QUESTION,
           AI_REVIEW_REQUESTED,
-          AI_WORK_FAILED ->
+          AI_WORK_FAILED,
+          WORKFLOW_VISIT_LIMIT ->
           ISSUE;
       // 노트 공유 알림(WP-579)·개인 비서 연결 회수(WP-1170)·새 앱 연결(WP-1686)·메일 발송 실패(WP-1786)는 「나를 향한」 알림이라
       // MENTION 으로 묶는다.

@@ -69,6 +69,14 @@ class NotificationSettingItemTest {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
+  /** 워크플로우 되돌림 한도(WP-1985)는 AI 작업 실패와 같은 「실패」 줄로 받는다(설계 §10). */
+  @Test
+  void workflowVisitLimit_sharesAiFailedItem() {
+    assertThat(NotificationSettingItem.of(NotificationType.WORKFLOW_VISIT_LIMIT))
+        .isEqualTo(NotificationSettingItem.of(NotificationType.AI_WORK_FAILED))
+        .isEqualTo(ISSUE_AI_FAILED);
+  }
+
   @Test
   void mentionTypes_shareOneItem() {
     assertThat(NotificationSettingItem.of(NotificationType.ISSUE_COMMENT_MENTION))

@@ -1,7 +1,11 @@
 package com.workplace.issue.workflow.exception;
 
+import com.workplace.issue.workflow.domain.MoveViolation;
 import com.workplace.issue.workflow.dto.WorkflowProblem;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -15,14 +19,90 @@ public class WorkflowException extends RuntimeException {
   private final HttpStatus status;
   private final String code;
   private final List<WorkflowProblem> problems;
+  private final Map<String, String> details;
 
   /** 상태·코드·문구·문제를 묶는다(사유는 아래 팩토리로만 늘린다). */
   private WorkflowException(
       HttpStatus status, String code, String message, List<WorkflowProblem> problems) {
+    this(status, code, message, problems, Map.of());
+  }
+
+  /** errors 에 code 옆으로 실을 칸(실행 오류의 currentNode·revision·keys·role·candidates)까지 묶는다. */
+  private WorkflowException(
+      HttpStatus status,
+      String code,
+      String message,
+      List<WorkflowProblem> problems,
+      Map<String, String> details) {
     super(message);
     this.status = status;
     this.code = code;
     this.problems = List.copyOf(problems);
+    this.details = Collections.unmodifiableMap(new LinkedHashMap<>(details));
+  }
+
+  /**
+   * 실행 판정의 위반을 응답으로(WP-1985) — 판정(순수 함수)이 값으로 돌려준 상태·code·문장·칸을 그대로 옮긴다. 위반의 errors 에는 code 가 없으므로
+   * 처리기가 code 를 앞에 더한다.
+   */
+  public static WorkflowException fromViolation(MoveViolation v) {
+    return new WorkflowException(
+        HttpStatus.valueOf(v.status()), v.code(), v.message(), List.of(), v.errors());
+  }
+
+  /** 이슈에 이미 진행 중인 실행이 있다(WP-1985). */
+  public static WorkflowException alreadyActive() {
+    return new WorkflowException(
+        HttpStatus.CONFLICT, "WORKFLOW_ALREADY_ACTIVE", "이 이슈에는 이미 진행 중인 워크플로우가 있습니다.", List.of());
+  }
+
+  /** 꺼진 워크플로우는 시작할 수 없다(WP-1985). */
+  public static WorkflowException disabled() {
+    return new WorkflowException(
+        HttpStatus.CONFLICT, "WORKFLOW_DISABLED", "꺼진 워크플로우는 시작할 수 없습니다. 먼저 켜 주세요.", List.of());
+  }
+
+  /** 닫힌 이슈에는 시작할 수 없다(WP-1985). */
+  public static WorkflowException issueClosed() {
+    return new WorkflowException(
+        HttpStatus.CONFLICT, "WORKFLOW_ISSUE_CLOSED", "닫힌 이슈에는 워크플로우를 시작할 수 없습니다.", List.of());
+  }
+
+  /** 지금 담당 중 어떤 시작 조건에도 맞는 사람이 없다(WP-1985). */
+  @SuppressWarnings("deprecation")
+  public static WorkflowException noStartMatch() {
+    return new WorkflowException(
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        "WORKFLOW_NO_START_MATCH",
+        "지금 담당 중 시작 조건의 역할에 든 사람이 없습니다. 역할 구성원을 담당으로 넣고 다시 시작해 주세요.",
+        List.of());
+  }
+
+  /** 실행 목록의 status 가 실행 상태 값 하나가 아니다(WP-1985). 받은 값은 되비추지 않는다. */
+  public static WorkflowException invalidRunStatus() {
+    return new WorkflowException(
+        HttpStatus.BAD_REQUEST,
+        "WORKFLOW_INVALID_RUN_STATUS",
+        "status 는 RUNNING·WAITING·SUSPENDED·COMPLETED·CANCELED 중 하나여야 합니다.",
+        List.of());
+  }
+
+  /** 실행 목록의 cursor 를 읽을 수 없다(WP-1985) — 앞 응답의 nextCursor 를 그대로 보내야 한다. */
+  public static WorkflowException invalidCursor() {
+    return new WorkflowException(
+        HttpStatus.BAD_REQUEST,
+        "WORKFLOW_INVALID_CURSOR",
+        "cursor 를 읽을 수 없습니다. 앞 응답의 nextCursor 를 그대로 보내 주세요.",
+        List.of());
+  }
+
+  /** 실행 목록의 size 가 1~{@code max} 밖이다(WP-1985). */
+  public static WorkflowException invalidPageSize(int max) {
+    return new WorkflowException(
+        HttpStatus.BAD_REQUEST,
+        "WORKFLOW_INVALID_PAGE_SIZE",
+        "size 는 1 부터 " + max + " 까지입니다.",
+        List.of());
   }
 
   /** 같은 프로젝트에 같은 이름(대소문자 무시)이 있다. */
@@ -92,6 +172,11 @@ public class WorkflowException extends RuntimeException {
   /** 응답 {@code errors.code} — 부르는 쪽이 사유를 가르는 계약이다. */
   public String code() {
     return code;
+  }
+
+  /** errors 에 code 다음으로 실을 칸(없으면 빈 맵). */
+  public Map<String, String> details() {
+    return details;
   }
 
   /** 게시를 막은 문제(422 외에는 빈 목록). */

@@ -203,6 +203,16 @@ public class IssueRepository {
     return lockOneThenReread(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()), LockMode.SHARE);
   }
 
+  /**
+   * id 의 활성 이슈를 수정 잠금(FOR NO KEY UPDATE)으로 다시 읽는다(WP-1985). 워크플로우 시작·이동이 같은 이슈의 담당 교체·다른 이동과 한 줄로
+   * 서도록 가장 먼저 잡는다(잠금 순서: 이슈 → 구성원 → 실행). 키는 안 바뀌므로 댓글·담당 같은 FK 참조 INSERT 는 막지 않는다. 지워졌으면 빈 결과.
+   */
+  public Optional<IssueRow> findActiveByIdForNoKeyUpdate(Long id) {
+    // WP-1420: 잠그기와 읽기를 나눈다 — lockOneThenReread 참고
+    return lockOneThenReread(
+        ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()), LockMode.NO_KEY_UPDATE);
+  }
+
   /** 프로젝트·번호의 활성 이슈 조건 — 번호로 잠그는 두 조회가 같은 조건을 쓰게 한다(WP-1420). */
   private static Condition activeByProjectAndNumber(Long projectId, int number) {
     return ISSUE

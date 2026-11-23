@@ -55,6 +55,13 @@ describe('notificationAction — AI 작업 알림 (WP-913)', () => {
   });
 });
 
+// WP-1985 — 워크플로우 되돌림 한도: 서버 푸시(PushContentService)와 같은 문구.
+describe('notificationAction — 워크플로우 되돌림 한도 (WP-1985)', () => {
+  it('행위자 이름 뒤에 붙는 한도 문구', () => {
+    expect(notificationAction(n({ type: 'WORKFLOW_VISIT_LIMIT' }))).toBe('님이 넘긴 AI 작업이 되돌림 한도에 이르렀습니다');
+  });
+});
+
 // WP-1170 — 개인 비서 연결 해제: 행위자(관리자) 이름 뒤에 붙는 문구와, 행위자 없는(일회성 정리) 문구.
 describe('개인 비서 연결 해제 문구 (WP-1170)', () => {
   it('행위자가 있으면 이름 뒤에 붙는 해제 문구', () => {

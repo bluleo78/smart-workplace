@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
@@ -16,6 +17,7 @@ import static com.workplace.jooq.Tables.WIKI_PAGE;
 import com.workplace.global.share.ProjectMembership;
 import com.workplace.global.share.WikiShareTargets;
 import com.workplace.global.share.WikiSpaceMembership;
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.SingleLineTitles;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
@@ -478,6 +480,29 @@ public class NotificationRepository {
                 // 대상 판정(지정한 사람·지정한 부서 구성원)은 입구 판정과 같은 한 규칙(WP-1023) — 별칭 s 의 공유 id 열과 받는 사람 값.
                 WikiShareTargets.listedOn(
                     DSL.field(DSL.name("s", "id"), Long.class), DSL.val(recipientId))));
+  }
+
+  /**
+   * 이슈 프로젝트의 활성 사람 OWNER id(id 순) — 워크플로우 되돌림 한도 알림(WP-1985)의 수신 후보. OWNER 는 직접 멤버 행에만 있다(부서로 들어온
+   * 사람은 MEMBER 고정, V233). AI OWNER 는 알림을 읽을 사람이 아니라 빼고, 활성은 프로젝트 멤버 목록과 같은 규칙({@link
+   * WorkspaceActive} — 전역 활성 + 그 워크스페이스 멤버십 ACTIVE)이다. project_member·issue 는 RLS 대상이라 테넌트 GUC 가
+   * 주입된 트랜잭션 안에서 부른다.
+   */
+  public List<Long> findActiveHumanOwnerIds(long issueId) {
+    return dsl.select(USER.ID)
+        .from(PROJECT_MEMBER)
+        .join(ISSUE)
+        .on(ISSUE.PROJECT_ID.eq(PROJECT_MEMBER.PROJECT_ID))
+        .join(USER)
+        .on(USER.ID.eq(PROJECT_MEMBER.USER_ID))
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(PROJECT_MEMBER.USER_ID, PROJECT_MEMBER.TENANT_ID))
+        .where(ISSUE.ID.eq(issueId))
+        .and(PROJECT_MEMBER.ROLE.eq("OWNER"))
+        .and(USER.KIND.eq("HUMAN"))
+        .and(WorkspaceActive.condition())
+        .orderBy(USER.ID)
+        .fetch(USER.ID);
   }
 
   /**

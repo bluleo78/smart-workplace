@@ -36,6 +36,7 @@ import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
+import com.workplace.jooq.tables.WorkflowRun.WorkflowRunPath;
 import com.workplace.jooq.tables.records.IssueRecord;
 
 import java.time.LocalDate;
@@ -688,6 +689,19 @@ public class Issue extends TableImpl<IssueRecord> {
             _notification = new NotificationPath(this, null, Keys.NOTIFICATION__NOTIFICATION_ISSUE_ID_FKEY.getInverseKey());
 
         return _notification;
+    }
+
+    private transient WorkflowRunPath _workflowRun;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.workflow_run</code> table
+     */
+    public WorkflowRunPath workflowRun() {
+        if (_workflowRun == null)
+            _workflowRun = new WorkflowRunPath(this, null, Keys.WORKFLOW_RUN__WORKFLOW_RUN_ISSUE_ID_FKEY.getInverseKey());
+
+        return _workflowRun;
     }
 
     /**

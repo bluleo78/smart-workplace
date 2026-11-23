@@ -251,6 +251,8 @@ public class PushContentService {
       case OAUTH_APP_CONNECTED -> "새 앱이 연결됐어요";
       // 메일 발송 실패(WP-1786)도 forInbox 가 전용 문구를 쓴다 — switch 를 빠짐없이 두려고 채운다.
       case MAIL_SEND_FAILED -> "메일을 보내지 못했어요";
+      // 워크플로우 되돌림 한도(WP-1985) — 행위자는 그 노드로 다시 넘긴 사람. 웹 notifText 의 ACTION_LABEL 과 같은 문구.
+      case WORKFLOW_VISIT_LIMIT -> "님이 넘긴 AI 작업이 되돌림 한도에 이르렀습니다";
     };
   }
 }
