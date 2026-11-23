@@ -18,6 +18,7 @@ import { AiStatusKindsTable } from './AiStatusKindsTable'
 import { AiStatusMetricCards } from './AiStatusMetricCards'
 import { PERIOD_OPTIONS, periodLabel, statCards, updatedAgoLabel } from './aiStatusModel'
 import { AiStatusSmallGraphs } from './AiStatusSmallGraphs'
+import { AiStatusTabs } from './AiStatusTabs'
 import { AiStatusThroughput } from './AiStatusThroughput'
 
 /**
@@ -99,7 +100,10 @@ export default function AiStatusOverviewPage() {
       actions={<PeriodToggle options={PERIOD_OPTIONS} value={period} onChange={setPeriod} aria-label="기간" />}
       meta={data ? <UpdatedAgoMeta generatedAt={data.generatedAt} /> : undefined}
     >
-      {body}
+      <div className="space-y-4">
+        <AiStatusTabs />
+        {body}
+      </div>
     </SettingsPage>
   )
 }

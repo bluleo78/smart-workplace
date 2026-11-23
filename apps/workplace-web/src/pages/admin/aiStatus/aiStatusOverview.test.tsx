@@ -119,7 +119,7 @@ function throughput24(): Throughput {
 
 /** 개요 화면을 MSW 응답과 함께 띄운다 — 나간 요청 주소를 모아 기간 파라미터를 단언한다(helpMetrics.test.tsx 패턴). */
 function renderOverview(
-  opts: { fail?: boolean; failAfterFirst?: boolean; gateSecond?: Promise<void>; alerts?: AiStatusAlert[]; fixture?: Partial<AiStatusOverview> } = {},
+  opts: { fail?: boolean; failAfterFirst?: boolean; gateSecond?: Promise<void>; alerts?: AiStatusAlert[]; fixture?: Partial<AiStatusOverview>; path?: string } = {},
 ) {
   const urls: URL[] = []
   const handlers = [
@@ -139,7 +139,7 @@ function renderOverview(
         }))
     }),
   ]
-  const view = renderScreen(<AiStatusOverviewPage />, { path: '/settings/ai-status', handlers })
+  const view = renderScreen(<AiStatusOverviewPage />, { path: opts.path ?? '/settings/ai-status', handlers })
   return { ...view, last: () => urls.at(-1), count: () => urls.length }
 }
 
@@ -521,4 +521,11 @@ test('연결된 AI 계정이 없으면 계정 한도 제목 아래에 「연결�
   const usage = await screen.findByTestId('ai-status-alert-usage')
   expect(within(usage).getByText('AI 계정 5시간 한도')).toBeInTheDocument()
   expect(within(usage).getByText('연결된 AI 계정 없음')).toBeInTheDocument()
+})
+
+test('개요 화면에도 탭이 있고 「처리 이력」 은 기간을 가지고 처리 이력 주소로 간다 (WP-1825)', async () => {
+  const { user, location } = renderOverview({ path: '/settings/ai-status?period=7d' })
+  await screen.findByTestId('ai-status-alert-usage')
+  await user.click(screen.getByTestId('ai-status-tab-history'))
+  expect(location()).toBe('/settings/ai-status/history?period=7d')
 })

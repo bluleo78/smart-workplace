@@ -1,4 +1,4 @@
-// AI 현황 개요 조회(WP-1824) — 관리자 「AI 현황 › 개요」 화면이 부르는 GET /admin/ai-status/overview 와 그 응답 DTO.
+// AI 현황 개요 조회(WP-1824)·처리 이력 조회(WP-1825) — 관리자 「AI 현황 › 개요」 화면이 부르는 GET /admin/ai-status/overview 와 그 응답 DTO.
 // 서버 레코드(AiStatusOverview·AiStatusAlert)를 필드 그대로 옮긴다 — Instant 는 ISO 문자열, 박스형 스칼라(Long·Integer·Double)는
 // 값이 없을 수 있어 number | null, 레코드 요소는 JSON 에 없을 수 있을 때만 null 로 둔다.
 import { client } from './client'
@@ -149,5 +149,93 @@ export type AiStatusOverview = {
 /** 기간 period 로 관리자 AI 현황 개요를 부른다 — 기간 코드를 period 파라미터로 그대로 보낸다(없으면 서버가 24h 기본). */
 export async function getAiStatusOverview(period: AiStatusPeriod): Promise<AiStatusOverview> {
   const { data } = await client.get<AiStatusOverview>('/admin/ai-status/overview', { params: { period } })
+  return data
+}
+// ─── 처리 이력(WP-1825) — GET /admin/ai-status/runs(커서 페이지)·/runs/{runId}(상세). 서버 AiRun* 레코드를 필드 그대로 옮긴다. ───
+
+/** 처리 상태 코드 — 서버 status 문자열의 알려진 값(그 밖의 값이 와도 깨지지 않게 응답 타입은 string). */
+export type AiRunStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'SKIPPED'
+
+/** 실행 주체 종류 코드 — 자동·사용자·에이전트. */
+export type AiRunActorType = 'AUTO' | 'USER' | 'AGENT'
+
+/** 처리 대상(메일·이슈 등) — 대상이 없으면 전체가 null, 있어도 각 값은 없을 수 있다. */
+export interface AiRunTarget {
+  type: string | null
+  id: string | null
+  label: string | null
+}
+
+/** 처리를 일으킨 주체 — 자동 처리는 id·name 이 null. */
+export interface AiRunActor {
+  type: string
+  id: number | null
+  name: string | null
+}
+
+/** 처리 이력 목록 한 줄. */
+export interface AiRunListItem {
+  id: string
+  kind: string
+  target: AiRunTarget | null
+  actor: AiRunActor | null
+  status: string
+  startedAt: string | null
+  endedAt: string | null
+  waitMs: number | null
+  durationMs: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  model: string | null
+  errorReason: string | null
+}
+
+/** 처리 이력 한 페이지 — nextCursor 가 null 이면 마지막. */
+export interface AiRunPage {
+  items: AiRunListItem[]
+  nextCursor: string | null
+}
+
+/** 처리 이력 상세 — 목록 한 줄(item)에 캐시 토큰·자격 증명·시도 횟수·오류 상세를 더한다. */
+export interface AiRunDetail {
+  item: AiRunListItem
+  runId: string
+  cacheReadTokens: number | null
+  cacheWriteTokens: number | null
+  credentialLabel: string | null
+  attempt: number | null
+  sourceAt: string | null
+  errorDetail: string | null
+}
+
+/** 처리 이력 필터 — 비어 있는 값은 요청에 싣지 않는다. */
+export interface AiRunsParams {
+  kind?: string[]
+  status?: string
+  actorType?: string
+  model?: string
+  q?: string
+  from?: string
+  to?: string
+}
+
+/**
+ * 처리 이력 한 페이지를 부른다. kind 는 반복 파라미터(kind=A&kind=B)로 보내고(paramsSerializer indexes: null),
+ * 빈 문자열·빈 배열·undefined 는 아예 싣지 않는다 — 서버가 빈 값을 필터로 읽지 않게.
+ */
+export async function getAiStatusRuns(params: AiRunsParams & { cursor?: string; size?: number }): Promise<AiRunPage> {
+  const query: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue
+    if (Array.isArray(value) && value.length === 0) continue
+    query[key] = value
+  }
+  const { data } = await client.get<AiRunPage>('/admin/ai-status/runs', { params: query, paramsSerializer: { indexes: null } })
+  return data
+}
+
+/** 처리 한 건의 상세를 부른다. */
+export async function getAiStatusRunDetail(runId: string): Promise<AiRunDetail> {
+  const { data } = await client.get<AiRunDetail>(`/admin/ai-status/runs/${runId}`)
   return data
 }
