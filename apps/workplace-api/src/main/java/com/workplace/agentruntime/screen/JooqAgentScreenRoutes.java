@@ -207,4 +207,12 @@ public class JooqAgentScreenRoutes implements AgentScreenRoutes {
   public void removeByPod(String podId) {
     dsl.deleteFrom(AGENT_SCREEN_ROUTE).where(AGENT_SCREEN_ROUTE.OWNER_POD_ID.eq(podId)).execute();
   }
+
+  @Override
+  public int removeExpired() {
+    // 임대 판정과 같은 DB 시계로 — 살아 있는 행(임대 > now())은 건드리지 않는다.
+    return dsl.deleteFrom(AGENT_SCREEN_ROUTE)
+        .where(AGENT_SCREEN_ROUTE.LEASE_UNTIL.le(DSL.currentOffsetDateTime()))
+        .execute();
+  }
 }

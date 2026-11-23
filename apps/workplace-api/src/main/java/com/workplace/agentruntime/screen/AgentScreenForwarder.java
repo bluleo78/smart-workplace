@@ -1,6 +1,7 @@
 package com.workplace.agentruntime.screen;
 
 import static com.workplace.agentruntime.screen.ScreenSockets.closeQuietly;
+import static com.workplace.agentruntime.screen.ScreenSockets.closeQuietlyAfterDrain;
 import static com.workplace.agentruntime.screen.ScreenSockets.copy;
 import static com.workplace.agentruntime.screen.ScreenSockets.decorate;
 
@@ -14,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -79,6 +82,12 @@ public class AgentScreenForwarder {
   private final String internalToken;
   private final ScheduledExecutorService pinger;
 
+  /**
+   * 받은 다리의 드레인 뒤 닫기를 맡는 스레드들(WP-1978 리뷰 후속 ②) — 위쪽 다리 닫힘은 WebSocket 클라이언트의 공유 I/O 스레드나 핑 스레드에서 올 수
+   * 있어, 거기서 관마다 최대 2초를 기다리면 다른 관의 읽기·핑이 밀린다. 그래서 기다리는 일은 여기로 넘긴다(중계의 browserCloser 와 같은 방식).
+   */
+  private final ExecutorService closer;
+
   public AgentScreenForwarder(
       @Value("${workplace.ai-agent.internal-token:}") String internalToken) {
     this.internalToken = internalToken;
@@ -88,6 +97,7 @@ public class AgentScreenForwarder {
     container.setDefaultMaxTextMessageBufferSize(AgentScreenWebSocketConfig.MAX_MESSAGE_BYTES);
     this.client = new StandardWebSocketClient(container);
     this.pinger = ScreenSockets.daemonScheduler("agent-screen-forward-ping");
+    this.closer = ScreenSockets.daemonCachedPool("agent-screen-forward-closer");
     long every = AgentScreenRelay.PING_INTERVAL.toSeconds();
     pinger.scheduleWithFixedDelay(this::pingAll, every, every, TimeUnit.SECONDS);
   }
@@ -102,6 +112,7 @@ public class AgentScreenForwarder {
     for (Link link : List.copyOf(links.values())) {
       closeBoth(link, POD_SHUTDOWN, CloseStatus.GOING_AWAY);
     }
+    closer.shutdown();
   }
 
   /** 백그라운드 핑을 멈춘다(테스트용 — 테스트가 {@link #pingAll(long)} 을 직접 부른다). */
@@ -206,11 +217,31 @@ public class AgentScreenForwarder {
 
   /** 위쪽·받은 다리를 각각 주어진 상태로 닫고 관을 지운다 — 이미 닫혔으면 무시. */
   private void closeBoth(Link link, CloseStatus upstreamStatus, CloseStatus inboundStatus) {
+    closeBoth(link, upstreamStatus, inboundStatus, false);
+  }
+
+  /**
+   * 위쪽·받은 다리를 각각 주어진 상태로 닫고 관을 지운다 — 이미 닫혔으면 무시. drainInbound 면 받은 다리를 닫기 전에 그 데코레이터 버퍼가 비기를 제한
+   * 시간까지 기다린다 — 기다림은 {@link #closer} 에서 한다(WP-1978 리뷰 후속 ② — 주인 파드가 화면을 끝내며 보낸 마지막 「끝남」 상태 프레임이 아직
+   * 버퍼에 있을 때 바로 닫으면 그 프레임이 버려진다, WP-2015 와 같은 결함). 관은 먼저 닫힌 것으로 표시하므로 기다리는 동안 새 프레임은 더 쌓이지 않는다.
+   */
+  private void closeBoth(
+      Link link, CloseStatus upstreamStatus, CloseStatus inboundStatus, boolean drainInbound) {
     if (!link.closed.compareAndSet(false, true)) return;
     links.remove(link.inbound.getId(), link);
     link.ready.completeExceptionally(new IllegalStateException("closed: " + upstreamStatus));
     closeQuietly(link.upstream, sendable(upstreamStatus));
-    closeQuietly(link.inbound, sendable(inboundStatus));
+    CloseStatus inbound = sendable(inboundStatus);
+    if (!drainInbound) {
+      closeQuietly(link.inbound, inbound);
+      return;
+    }
+    try {
+      closer.execute(() -> closeQuietlyAfterDrain(link.inbound, inbound));
+    } catch (RejectedExecutionException e) {
+      // 종료로 실행기를 닫은 뒤 온 닫기 — 넘길 곳이 없어 바로 닫는다.
+      closeQuietly(link.inbound, inbound);
+    }
   }
 
   /**
@@ -296,10 +327,14 @@ public class AgentScreenForwarder {
       link.ready.complete(null);
     }
 
+    /**
+     * 주인 파드가 위쪽 다리를 닫으면 받은 다리도 같은 상태로 닫는다 — 주인이 닫기 직전에 보낸 마지막 프레임(끝남 상태)이 받은 다리 버퍼에 남아 있을 수 있어 버퍼가
+     * 빌 때까지(제한 시간까지) 기다린 뒤 닫는다(WP-1978 리뷰 후속 ②). 이 스레드는 위쪽 다리의 처리 스레드라 기다려도 다른 관을 막지 않는다.
+     */
     @Override
     public void afterConnectionClosed(
         @NonNull WebSocketSession session, @NonNull CloseStatus status) {
-      closeBoth(link, status);
+      closeBoth(link, status, status, true);
     }
   }
 }

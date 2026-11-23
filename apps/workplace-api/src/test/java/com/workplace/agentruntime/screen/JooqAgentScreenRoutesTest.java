@@ -195,6 +195,31 @@ class JooqAgentScreenRoutesTest extends IntegrationTestBase {
     assertThat(routes.find(expired.sessionId())).isEmpty();
   }
 
+  /** 임대 지난 행은 AI 와 상관없이 모두 지우고, 살아 있는 행은 남긴다(WP-1978 리뷰 후속 ④). */
+  @Test
+  void removeExpired_removesExpiredRowsOfAllAgents() {
+    Route alive = route(agent, "pod-a");
+    Route deadSame = route(agent, "pod-b");
+    Route deadOther = route(agent + 1, "pod-c");
+    reserve(alive, hash());
+    reserve(deadSame, hash());
+    reserve(deadOther, hash());
+    dsl.update(Tables.AGENT_SCREEN_ROUTE)
+        .set(
+            Tables.AGENT_SCREEN_ROUTE.LEASE_UNTIL,
+            OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(5))
+        .where(Tables.AGENT_SCREEN_ROUTE.SESSION_ID.in(deadSame.sessionId(), deadOther.sessionId()))
+        .execute();
+
+    assertThat(routes.removeExpired()).isGreaterThanOrEqualTo(2);
+
+    assertThat(
+            dsl.fetchCount(
+                Tables.AGENT_SCREEN_ROUTE, Tables.AGENT_SCREEN_ROUTE.TENANT_ID.eq(tenant)))
+        .isEqualTo(1);
+    assertThat(routes.find(alive.sessionId())).contains(alive);
+  }
+
   @Test
   void removeByPod_onlyThatPod() {
     Route a = route(agent, "pod-a");

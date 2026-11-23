@@ -61,11 +61,20 @@ class AgentScreenRelayPodLinkTest {
     return Instant.now().minus(AgentScreenRelay.PONG_TIMEOUT).minusSeconds(1);
   }
 
+  /** 그 소켓에 퐁 뒤 핑을 보냈고 답을 기다려 주는 시간도 지난 상태로 둔다 — 보낸 핑에도 답이 없음. */
+  private void pingedButUnanswered() {
+    AgentScreenRelay.Pair p = relay.pairOf(id);
+    Instant pingAt = Instant.now().minus(AgentScreenRelay.PONG_ANSWER_WAIT).minusSeconds(1);
+    p.browserPingAt = pingAt;
+    p.runnerPingAt = pingAt;
+  }
+
   @Test
   void 넘겨_온_브라우저의_퐁이_60초_없으면_tick_이_화면을_닫는다() {
     relay.attachBrowser(id, socket("b"), true);
     relay.attachRunner(id, socket("r"), false);
     relay.pairOf(id).browserPong = stale();
+    pingedButUnanswered();
 
     relay.tick();
 
@@ -78,6 +87,7 @@ class AgentScreenRelayPodLinkTest {
     relay.attachBrowser(id, socket("b"), false);
     relay.attachRunner(id, socket("r"), true);
     relay.pairOf(id).runnerPong = stale();
+    pingedButUnanswered();
 
     relay.tick();
 
@@ -103,11 +113,48 @@ class AgentScreenRelayPodLinkTest {
     relay.attachBrowser(id, socket("b"), true);
     relay.attachRunner(id, socket("r"), false);
     relay.pairOf(id).browserPong = stale();
+    pingedButUnanswered();
 
     relay.pong(id, socket("other"));
     relay.tick();
 
     verify(service).recordClosed(eq(1L), eq(id), eq(AgentScreenRelay.REASON_POD_LINK_LOST));
+  }
+
+  /**
+   * 타이머 스레드가 DB 호출로 묶여 핑을 못 보낸 동안(마지막 핑이 마지막 퐁보다 앞섬)은 퐁이 60초 없어도 끊김으로 치지 않는다(WP-1978 리뷰 후속 ①) — 보낸
+   * 핑이 없으니 답이 없는 것이 당연하다. 풀린 뒤 보낸 핑에 답을 기다려 주는 동안에도 닫지 않는다.
+   */
+  @Test
+  void 타이머가_묶여_핑을_못_보냈으면_퐁이_60초_없어도_닫지_않는다() {
+    relay.attachBrowser(id, socket("b"), true);
+    relay.attachRunner(id, socket("r"), false);
+    Instant pong = stale();
+    relay.pairOf(id).browserPong = pong;
+    // 마지막으로 이 소켓에 핑을 보낸 때가 마지막 퐁보다 앞선다 — 그 뒤로 타이머가 묶여 핑을 못 보냄.
+    relay.pairOf(id).browserPingAt = pong.minusSeconds(1);
+    ReflectionTestUtils.setField(relay, "lastPing", Instant.EPOCH); // 풀린 첫 tick 이 핑을 보내게
+
+    relay.tick(); // 묶였던 타이머가 풀린 첫 tick — 만료 검사 뒤 핑을 보낸다
+    relay.tick(); // 방금 보낸 핑의 답을 기다려 주는 중
+
+    verify(service, never()).recordClosed(any(Long.class), any(), any());
+    assertThat(relay.pairOf(id)).isNotNull();
+    // 풀린 tick 이 이 소켓에 실제로 핑을 보낸 시각을 적었다.
+    assertThat(relay.pairOf(id).browserPingAt).isAfter(pong);
+  }
+
+  /** 퐁 뒤에 핑을 보냈더라도 답을 기다려 주는 시간 안이면 닫지 않는다. */
+  @Test
+  void 보낸_핑의_답을_기다리는_동안은_닫지_않는다() {
+    relay.attachBrowser(id, socket("b"), true);
+    relay.attachRunner(id, socket("r"), false);
+    relay.pairOf(id).browserPong = stale();
+    relay.pairOf(id).browserPingAt = Instant.now().minusSeconds(1);
+
+    relay.tick();
+
+    verify(service, never()).recordClosed(any(Long.class), any(), any());
   }
 
   @Test

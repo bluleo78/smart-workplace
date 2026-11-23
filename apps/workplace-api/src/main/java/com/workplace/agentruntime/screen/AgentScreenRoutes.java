@@ -59,4 +59,10 @@ public interface AgentScreenRoutes {
 
   /** 파드 종료 때 그 파드의 행을 모두 지운다. */
   void removeByPod(String podId);
+
+  /**
+   * 모든 AI 의 임대가 지난 행을 지우고 지운 수를 돌려준다(WP-1978 리뷰 후속 ④) — 죽은 파드가 남긴 행은 예약 때 같은 AI 것만 지워져, 다시 열리지 않는
+   * AI 의 행이 쌓이지 않게 주기 정리에서 부른다.
+   */
+  int removeExpired();
 }
