@@ -1,11 +1,11 @@
-// 「AI 현황 › 개요」 화면(WP-1824) — 서버 개요 응답이 지표 6장·경고 목록·사용률 막대·처리량 막대·작은 그래프 6·종류별 표로
+// 「AI 현황 › 개요」 화면(WP-1824) — 서버 개요 응답이 지표 6장·경고 목록(계정 경고는 한 줄)·처리량 막대·작은 그래프 5·종류별 표로
 // 이어지는지, 기간·단위 단추가 화면에 반영되는지, 모바일 폭에서 처리량 재묶음·종류별 목록으로 갈라지는지를 MSW 네트워크 계층에서 본다.
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 
 import type { AiStatusAlert, AiStatusOverview, KindRow, Throughput } from '@/api/aiStatus'
-import { formatCompactNumber, formatDateTime, formatLocalClockTime24 } from '@/lib/formatters'
+import { formatCompactNumber, formatDateTime } from '@/lib/formatters'
 import { stubChartResize } from '@/test/kits/chartResize'
 import { renderScreen } from '@/test/renderScreen'
 import { mockResizableViewport } from '@/test/viewport'
@@ -31,16 +31,13 @@ function localClock(iso: string): string {
 /** 머리 갱신 표기의 기준 시각 — 5초 전으로 두어 「갱신 n초 전」이 나온다. */
 const GENERATED_AT = new Date(Date.now() - 5_000).toISOString()
 
-/** 계정 5시간 초기화 시각 — 한 시간 뒤로 두어 초기화 문구·막대 색이 판정 가능하다. */
-const RESETS_AT = new Date(Date.now() + 60 * 60 * 1000).toISOString()
-
 /** 기본 경고 — 위험(DANGER)·주의(WARNING) 한 개씩, 경고가 필요한 테스트가 기본으로 받는다. */
 const DEFAULT_ALERTS: AiStatusAlert[] = [
   { code: 'KIND_FAILURE', severity: 'DANGER', kind: 'MAIL', accountId: null, label: null, value: 0.5, threshold: 0.1 },
   { code: 'ACCOUNT_USAGE', severity: 'WARNING', kind: null, accountId: 3, label: '운영 · 5h', value: 85, threshold: 75 },
 ]
 
-/** 개요 응답 픽스처 — 지표·경고·사용률 단언에 쓰는 값을 실제 응답 모양 그대로 둔다(나머지 블록 값은 최소). */
+/** 개요 응답 픽스처 — 지표·경고 단언에 쓰는 값을 실제 응답 모양 그대로 둔다(나머지 블록 값은 최소). */
 function overviewFixture(overrides: Partial<AiStatusOverview> = {}): AiStatusOverview {
   return {
     period: '24h',
@@ -71,19 +68,10 @@ function overviewFixture(overrides: Partial<AiStatusOverview> = {}): AiStatusOve
       slotUsed: [3, 3],
       slotLimit: [8, 8],
       backlog: {},
-      account5h: [],
     },
     kinds: [
       { kind: 'MAIL', count: 11, failureRate: 0.1, p50: 800, p95: 1500, inputTokens: 1000, outputTokens: 300, lastFailure: null },
     ],
-    usage: {
-      slotUsed: 3,
-      slotLimit: 8,
-      queueWaiting: 3,
-      accounts: [
-        { accountId: 1, label: '운영', usedPercent5h: 85, usedPercent7d: 40, resetsAt5h: RESETS_AT, resetsAt7d: RESETS_AT },
-      ],
-    },
     alerts: DEFAULT_ALERTS,
     ...overrides,
   }
@@ -151,7 +139,7 @@ test('지표 6장이 서버 값을 제목·아랫줄과 함께 그려진다 — 
     ['card-failure-rate', '실패율'],
     ['card-response-time', '응답 시간'],
     ['card-wait-time', '대기 시간'],
-    ['card-slot-usage', '작업 칸 사용률'],
+    ['card-slot-usage', '동시 처리'],
   ]
   for (const [testId, title] of expected) {
     const card = await screen.findByTestId(testId)
@@ -161,10 +149,10 @@ test('지표 6장이 서버 값을 제목·아랫줄과 함께 그려진다 — 
   const runs = screen.getByTestId('card-runs')
   expect(within(runs).getByText('12')).toBeInTheDocument()
   expect(within(runs).getByText('직전 8')).toBeInTheDocument()
-  // 작업 칸 — 「3 / 8 칸」 과 아랫줄 「직전 2 / 8 칸」
+  // 동시 처리 — 「3 / 8건」 과 아랫줄 「진행 중 / 한도 · 직전 2 / 8건」
   const slot = screen.getByTestId('card-slot-usage')
-  expect(within(slot).getByText('3 / 8 칸')).toBeInTheDocument()
-  expect(within(slot).getByText('직전 2 / 8 칸')).toBeInTheDocument()
+  expect(within(slot).getByText('3 / 8건')).toBeInTheDocument()
+  expect(within(slot).getByText('진행 중 / 한도 · 직전 2 / 8건')).toBeInTheDocument()
   // 응답·대기 카드는 p95 임을 아랫줄에 밝히고, 대기 카드는 줄 선 건수도 보인다
   expect(within(screen.getByTestId('card-response-time')).getByText('p95 · 직전 1.2초')).toBeInTheDocument()
   expect(within(screen.getByTestId('card-wait-time')).getByText('p95 · 직전 2초 · 대기 3건')).toBeInTheDocument()
@@ -184,33 +172,38 @@ test('경고가 AlertList 로 그려지고(위험·주의 구분), 없으면 「
   expect(within(list).getByText('위험')).toBeInTheDocument()
   expect(within(list).getByText('주의')).toBeInTheDocument()
   expect(within(list).getByText('MAIL 실패율 50% · 기준 10%')).toBeInTheDocument()
-  expect(within(list).getByText('운영 5시간 사용률 85% · 기준 75%')).toBeInTheDocument()
+  // 계정 경고가 하나면 묶지 않고 계정·창·사용률·기준을 그대로 보인다
+  expect(within(list).getByText(/운영 5시간 사용률 85% · 기준 75%/)).toBeInTheDocument()
   first.unmount()
   renderOverview({ alerts: [] })
   expect(await screen.findByText('이상 없음')).toBeInTheDocument()
 })
 
-test('작업 칸·AI 계정 사용률이 막대로 그려진다', async () => {
+test('사용률 패널이 없다 — 막대·「사용률」 제목·계정 5시간 목록이 없다', async () => {
   renderOverview()
-  // 작업 칸 — 3/8 = 37.5% 이고 값이 없지 않아 막대가 나온다(primary)
-  const slotBar = await screen.findByRole('progressbar', { name: '작업 칸 사용률' })
-  expect(slotBar).toHaveAttribute('aria-valuenow', '37')
-  expect(slotBar).toHaveAttribute('data-tone', 'primary')
-  // AI 계정 5시간 — 85% 라 「곧 한도」 경고색(warning), 초기화 시각이 함께 보인다
-  const accountBar = await screen.findByRole('progressbar', { name: '운영 5시간 사용률' })
-  expect(accountBar).toHaveAttribute('aria-valuenow', '85')
-  expect(accountBar).toHaveAttribute('data-tone', 'warning')
-  const usage = screen.getByTestId('ai-status-alert-usage')
-  expect(within(usage).getByText('3 / 8 칸')).toBeInTheDocument()
-  expect(within(usage).getByText(`${formatLocalClockTime24(RESETS_AT)} 초기화`)).toBeInTheDocument()
+  await screen.findByTestId('ai-status-alert-usage')
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: '사용률' })).not.toBeInTheDocument()
+  expect(screen.queryByTestId('usage-slot')).not.toBeInTheDocument()
 })
 
-test('작업 칸 한도를 모르면 사용률 자리도 카드와 같이 아는 값은 두고 한도만 「—」 다 — 막대는 그리지 않는다', async () => {
-  const fixture = overviewFixture()
-  renderOverview({ fixture: { usage: { ...fixture.usage, slotLimit: null } } })
-  const slot = await screen.findByTestId('usage-slot')
-  expect(within(slot).getByText('3 / — 칸')).toBeInTheDocument()
-  expect(within(slot).queryByRole('progressbar')).not.toBeInTheDocument()
+test('계정 경고 여러 개는 한 줄로 묶인다 — 계정 수·기준과 「계정 보기」 링크만 남는다', async () => {
+  const acct = (accountId: number, label: string, value: number): AiStatusAlert => ({
+    code: 'ACCOUNT_USAGE', severity: 'WARNING', kind: null, accountId, label, value, threshold: 80,
+  })
+  renderOverview({
+    alerts: [
+      { code: 'KIND_FAILURE', severity: 'DANGER', kind: 'MAIL', accountId: null, label: null, value: 0.5, threshold: 0.1 },
+      acct(1, '운영 · 5h', 85),
+      acct(1, '운영 · 7d', 82),
+      acct(2, '개발 · 5h', 90),
+    ],
+  })
+  const list = await screen.findByRole('list')
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+  const row = within(list).getByText('AI 계정 2개 한도 근접(80% 이상)').closest('li') as HTMLElement
+  expect(within(row).getByRole('link', { name: '계정 보기' })).toHaveAttribute('href', '/settings/agents/accounts')
+  expect(within(list).queryByText(/사용률 85% · 기준/)).not.toBeInTheDocument()
 })
 
 test('기간 단추를 7일로 바꾸면 period=7d 요청이 가고 주소에 ?period=7d 가 남는다', async () => {
@@ -312,7 +305,7 @@ test('처리량 단추는 토큰·건수 두 개다', async () => {
   expect(buttons[1]).toHaveAttribute('aria-pressed', 'false')
 })
 
-test('작은 그래프 6개가 모두 그려진다 — graph-response … graph-account-5h', async () => {
+test('작은 그래프 5개가 모두 그려진다 — graph-response … graph-slot', async () => {
   renderOverview({
     fixture: {
       series: {
@@ -324,7 +317,6 @@ test('작은 그래프 6개가 모두 그려진다 — graph-response … graph-
         slotUsed: [3, 3],
         slotLimit: [8, 8],
         backlog: { MAIL: [1, 2] },
-        account5h: [{ accountId: 1, label: '운영', values: [85, 90] }],
       },
     },
   })
@@ -333,8 +325,7 @@ test('작은 그래프 6개가 모두 그려진다 — graph-response … graph-
     ['graph-failures', '기간별 실패 건수'],
     ['graph-queue-wait', '기간별 대기 건수'],
     ['graph-backlog', '기간별 밀린 건수(종류별)'],
-    ['graph-slot', '기간별 작업 칸 사용(상한 포함)'],
-    ['graph-account-5h', '기간별 AI 계정 5시간 사용률(한도 포함)'],
+    ['graph-slot', '기간별 동시 처리(한도 포함)'],
   ]
   for (const [testId, ariaLabel] of expected) {
     const card = await screen.findByTestId(testId)
@@ -344,9 +335,9 @@ test('작은 그래프 6개가 모두 그려진다 — graph-response … graph-
   const grid = screen.getByTestId('ai-status-small-graphs')
   expect(grid.className).toContain('sm:grid-cols-2')
   expect(grid.className).toContain('xl:grid-cols-3')
-  // 기준선 라벨 — 작업 칸은 「상한」, AI 계정 5시간은 「한도」
-  expect(within(screen.getByTestId('graph-slot')).getByText('상한')).toBeInTheDocument()
-  expect(within(screen.getByTestId('graph-account-5h')).getByText('한도')).toBeInTheDocument()
+  // 기준선 라벨 — 동시 처리는 「한도」, 계정 5시간 그래프는 없다
+  expect(within(screen.getByTestId('graph-slot')).getByText('한도')).toBeInTheDocument()
+  expect(screen.queryByTestId('graph-account-5h')).not.toBeInTheDocument()
 })
 
 test('종류별 표는 실패율 내림차순 상위 6행만 보이고 「나머지 n종 보기」 를 누르면 남은 행이 펼쳐진다', async () => {
@@ -427,7 +418,6 @@ test('기간에 값이 하나도 없으면 처리량·작은 그래프가 「데
         slotUsed: [null, null],
         slotLimit: [null, null],
         backlog: {},
-        account5h: [],
       },
     },
   })
@@ -435,8 +425,8 @@ test('기간에 값이 하나도 없으면 처리량·작은 그래프가 「데
   const throughput = await screen.findByTestId('ai-status-throughput')
   expect(within(throughput).getByText('데이터 없음')).toBeInTheDocument()
   expect(within(throughput).queryByRole('img')).not.toBeInTheDocument()
-  // 작은 그래프 6장 모두 같은 빈 상태
-  const graphIds = ['graph-response', 'graph-failures', 'graph-queue-wait', 'graph-backlog', 'graph-slot', 'graph-account-5h']
+  // 작은 그래프 5장 모두 같은 빈 상태
+  const graphIds = ['graph-response', 'graph-failures', 'graph-queue-wait', 'graph-backlog', 'graph-slot']
   for (const testId of graphIds) {
     const card = screen.getByTestId(testId)
     expect(within(card).getByText('데이터 없음')).toBeInTheDocument()
@@ -514,13 +504,6 @@ test('모바일에서 묶인 막대를 누르면 묶인 구간 전체가 이력 
   } finally {
     act(() => viewport.setWidth(1024))
   }
-})
-
-test('연결된 AI 계정이 없으면 계정 한도 제목 아래에 「연결된 AI 계정 없음」 이 보인다', async () => {
-  renderOverview({ fixture: { usage: { slotUsed: 3, slotLimit: 8, queueWaiting: 3, accounts: [] } } })
-  const usage = await screen.findByTestId('ai-status-alert-usage')
-  expect(within(usage).getByText('AI 계정 5시간 한도')).toBeInTheDocument()
-  expect(within(usage).getByText('연결된 AI 계정 없음')).toBeInTheDocument()
 })
 
 test('개요 화면에도 탭이 있고 「처리 이력」 은 기간을 가지고 처리 이력 주소로 간다 (WP-1825)', async () => {

@@ -8,7 +8,6 @@ import type { AlertItem, AlertLevel } from '@/components/metrics/AlertList'
 import { colorIndexFor } from '@/components/metrics/chartColors'
 import { hasAnyValue } from '@/components/metrics/chartData'
 import type { ChartSeries } from '@/components/metrics/chartTypes'
-import { formatUsedPercent } from '@/lib/agentAccountUsage'
 import {
   EMPTY_GLYPH,
   formatCompactNumber,
@@ -53,10 +52,8 @@ export type SmallGraphDef = {
   series: ChartSeries[]
   limit?: { value: number; label: string }
   ariaLabel: string
-  /** 값 포매터 — 그래프마다 단위가 다르다(응답 시간 ms · 계정 사용률 % · 나머지는 건수). */
+  /** 값 포매터 — 그래프마다 단위가 다르다(응답 시간 ms · 나머지는 건수). */
   valueFormatter: (v: number) => string
-  /** 차트 아래 한 줄 안내(계정 초과분 알림 등) — 없으면 그리지 않는다. */
-  footnote?: string
 }
 
 /** 처리량의 기타 합산 종류 코드(서버가 쓰는 상수). */
@@ -64,9 +61,6 @@ const OTHER = 'OTHER'
 
 /** 차트 x 축 필드 이름 — 설계 §5-3 의 `행 { t, <kinds…> }`. 모델·차트 부품이 모두 이 상수를 쓴다. */
 export const X_KEY = 't'
-
-/** 계정 5시간 그래프에 그리는 최대 계정 수 — 초과분은 알림 한 줄로만 알린다. */
-export const MAX_ACCOUNT_SERIES = 5
 
 /** null 을 그대로 두고 값이 있을 때만 포매터를 돌린다 — 데이터 없는 칸은 EMPTY_GLYPH 다. 모델과 표가 함께 쓴다. */
 export const numberText = (v: number | null | undefined): string => (v == null ? EMPTY_GLYPH : formatNumber(v))
@@ -239,6 +233,13 @@ function whenPresent(v: number | null, format: (v: number) => string): string | 
   return v == null ? null : format(v)
 }
 
+/** 계정 경고 라벨(「이름 · 창」) → 이름·꼬리 — 마지막 ' · ' 기준으로 쪼갠다(구분자가 없으면 전체가 이름, 꼬리는 빈 문자열). */
+function splitAccountLabel(label: string): { name: string; tail: string } {
+  const sep = label.lastIndexOf(' · ')
+  if (sep === -1) return { name: label, tail: '' }
+  return { name: label.slice(0, sep), tail: label.slice(sep + 3) }
+}
+
 /** 경고 종류별 한 줄 문구 — 확정 용어의 명사형이고, 없는 값은 붙이지 않는다(서버가 준 값만 쓴다). */
 function alertLabel(a: AiStatusAlert): string {
   let parts: (string | null)[]
@@ -255,10 +256,7 @@ function alertLabel(a: AiStatusAlert): string {
       break
     }
     case 'ACCOUNT_USAGE': {
-      const raw = a.label ?? ''
-      const sep = raw.lastIndexOf(' · ')
-      const name = sep === -1 ? raw : raw.slice(0, sep)
-      const tail = sep === -1 ? '' : raw.slice(sep + 3)
+      const { name, tail } = splitAccountLabel(a.label ?? '')
       const subject = [name, WINDOW_TEXT[tail] ?? tail].filter(Boolean).join(' ')
       const percent = (v: number) => formatPercent(v / 100)
       parts = [alertHead(subject, '사용률', whenPresent(a.value, percent)), alertThreshold(a.threshold, percent)]
@@ -277,12 +275,7 @@ function alertLabel(a: AiStatusAlert): string {
   return parts.filter((p) => p != null).join(' · ')
 }
 
-/** 서버 경고 → AlertList 항목(수준·문구) — 이동 동작은 화면이 alertTarget 으로 링크를 붙인다(모델은 JSX 를 만들지 않는다). */
-export function alertItems(alerts: AiStatusAlert[]): AlertItem[] {
-  return alerts.map(alertItem)
-}
-
-/** 경고 한 줄 → AlertList 항목 — 화면이 같은 경고에 alertTarget 링크를 붙일 때 인덱스 짝짓기 없이 한 번에 만들도록 따로 둔다. */
+/** 경고 한 줄 → AlertList 항목(수준·문구) — 이동 동작은 화면이 alertTarget 으로 링크를 붙인다(모델은 JSX 를 만들지 않는다). */
 export function alertItem(a: AiStatusAlert, i: number): AlertItem {
   return { id: alertId(a, i), level: alertLevel(a.severity), label: alertLabel(a) }
 }
@@ -349,6 +342,76 @@ export function alertTarget(a: AiStatusAlert, period: AiStatusPeriod): AlertTarg
   }
 }
 
+/** 경고 표 한 줄 — AlertList 항목과 그 줄의 이동(없으면 null). */
+export interface AlertRow {
+  item: AlertItem
+  target: AlertTarget | null
+}
+
+/** 계정 사용률 경고 코드 — 여러 개여도 개요에서는 한 줄로 묶는다. */
+const ACCOUNT_USAGE = 'ACCOUNT_USAGE'
+
+/** 심각도 순위 — 묶은 줄의 수준은 묶인 것 중 가장 높은 것(danger > warning > info). */
+const LEVEL_RANK: Record<AlertLevel, number> = { info: 0, warning: 1, danger: 2 }
+
+/** 계정 경고가 가리키는 계정 키 — accountId, 없으면 라벨에서 ` · <창>` 꼬리를 뗀 이름. 둘 다 없으면 null(합치지 않는다). */
+function accountKey(a: AiStatusAlert): string | null {
+  if (a.accountId != null) return `id:${a.accountId}`
+  if (!a.label) return null
+  return `name:${splitAccountLabel(a.label).name}`
+}
+
+/**
+ * 계정 사용률 경고 둘 이상 → 묶은 한 줄(수준·문구·「계정 보기」 이동).
+ * 묶은 줄은 서로 다른 계정 n개 중 기준 100% 이상(도달)이 m개다 — 모두 도달이면 「n개 한도 도달(100% 이상)」,
+ * 아니면 「n개 한도 근접(가장 낮은 기준% 이상)」 에 m>0 이면 「 · m개 도달」 을 붙인다. 기준이 하나도 없으면 괄호를 뺀다.
+ */
+function groupAccountAlerts(accountAlerts: AiStatusAlert[]): AlertRow {
+  const level = accountAlerts
+    .map((x) => alertLevel(x.severity))
+    .reduce((top, cur) => (LEVEL_RANK[cur] > LEVEL_RANK[top] ? cur : top))
+  // 계정별로 합친다(값 = 그 계정의 경고 중 하나라도 도달) — 키가 없는 경고는 서로 합치지 않고 각각 한 계정으로 센다
+  const reachedByAccount = new Map<string, boolean>()
+  accountAlerts.forEach((x, i) => {
+    const key = accountKey(x) ?? `anon:${i}`
+    const reached = x.threshold != null && x.threshold >= 100
+    reachedByAccount.set(key, (reachedByAccount.get(key) ?? false) || reached)
+  })
+  const n = reachedByAccount.size
+  const m = [...reachedByAccount.values()].filter(Boolean).length
+  const thresholds = accountAlerts.map((x) => x.threshold).filter((v): v is number => v != null)
+  const minThreshold = thresholds.length === 0 ? null : Math.min(...thresholds)
+  const criterion = minThreshold == null ? '' : `(${formatPercent(minThreshold / 100)} 이상)`
+  // 모두 한도에 닿았으면 「도달(100% 이상)」, 섞였으면 「근접(최저 기준)」 뒤에 도달한 계정 수를 덧붙인다
+  const label =
+    m === n
+      ? `AI 계정 ${n}개 한도 도달${criterion}`
+      : `AI 계정 ${n}개 한도 근접${criterion}${m > 0 ? ` · ${m}개 도달` : ''}`
+  return {
+    item: { id: `${ACCOUNT_USAGE}-group`, level, label },
+    target: { label: '계정 보기', href: ACCOUNTS_PATH },
+  }
+}
+
+/**
+ * 개요 경고 줄 — 계정 사용률 경고(5시간·7일 창 × 계정 수만큼 늘어난다)가 둘 이상이면 첫 계정 경고 자리에 한 줄로 묶고(groupAccountAlerts)
+ * 「계정 보기」 로 보낸다. 하나뿐이면 묶지 않고 계정·창·사용률·기준을 그대로 보인다(링크는 같다). 그 밖의 경고는 서버 순서 그대로 한 줄씩이다.
+ */
+export function alertRows(alerts: AiStatusAlert[], period: AiStatusPeriod): AlertRow[] {
+  const accountAlerts = alerts.filter((a) => a.code === ACCOUNT_USAGE)
+  const groupAt = accountAlerts.length >= 2 ? alerts.findIndex((a) => a.code === ACCOUNT_USAGE) : -1
+  const rows: AlertRow[] = []
+  alerts.forEach((a, i) => {
+    if (groupAt !== -1 && a.code === ACCOUNT_USAGE) {
+      // 묶는 경우 — 첫 계정 경고 자리에 묶음 한 줄, 나머지 계정 경고는 건너뛴다
+      if (i === groupAt) rows.push(groupAccountAlerts(accountAlerts))
+      return
+    }
+    rows.push({ item: alertItem(a, i), target: alertTarget(a, period) })
+  })
+  return rows
+}
+
 /**
  * 처리량 막대 한 칸 → 그 시간대의 이력 주소 — from 은 막대의 구간 시작, to 는 거기서 spanSeconds 뒤(미포함, API 의 to 와 같다).
  * 모바일에서 막대를 n개씩 묶었으면 spanSeconds 는 구간 길이 × n 이다. 마지막 묶음은 구간이 n개보다 적을 수 있어
@@ -369,12 +432,14 @@ export function mergeStep(rowCount: number, maxBars: number): number {
   return Math.max(1, Math.ceil(rowCount / maxBars))
 }
 
-/** 작업 칸 「사용 / 한도 칸」 — 아는 값은 두고 모르는 자리만 EMPTY_GLYPH. 지표 카드와 사용률 자리가 함께 써 같은 값을 같게 읽힌다. */
-export function slotUsageText(used: number | null | undefined, limit: number | null | undefined): string {
-  return `${used ?? EMPTY_GLYPH} / ${limit ?? EMPTY_GLYPH} 칸`
+/** 동시 처리 지표 카드의 값·직전 값 표기 「진행 중 / 한도건」 — 아는 값은 두고 모르는 자리만 EMPTY_GLYPH. */
+function slotUsageText(used: number | null | undefined, limit: number | null | undefined): string {
+  // 「건」 은 아는 마지막 숫자 뒤에 붙인다 — 한도를 알면 「3 / 8건」, 모르면 「3건 / —」
+  if (limit == null) return `${used == null ? EMPTY_GLYPH : `${used}건`} / ${EMPTY_GLYPH}`
+  return `${used ?? EMPTY_GLYPH} / ${limit}건`
 }
 
-/** 작업 칸 값 표기 — 최근 표본이 없으면 '—', 있으면 「n / m 칸」(설계 §5-1). */
+/** 동시 처리 값 표기 — 최근 표본이 없으면 '—', 있으면 「n / m건」(설계 §5-1). */
 function slotText(slot: AiStatusOverview['metrics']['slotUsage']['current']): string {
   if (slot == null) return EMPTY_GLYPH
   return slotUsageText(slot.used, slot.limit)
@@ -428,9 +493,9 @@ export function statCards(m: AiStatusOverview['metrics']): StatCardDef[] {
     },
     {
       testId: 'card-slot-usage',
-      title: '작업 칸 사용률',
+      title: '동시 처리',
       value: slotText(m.slotUsage.current),
-      meta: `직전 ${slotText(m.slotUsage.previous)}`,
+      meta: `진행 중 / 한도 · 직전 ${slotText(m.slotUsage.previous)}`,
     },
   ]
 }
@@ -446,7 +511,7 @@ function zipRows(buckets: string[], seriesFields: Record<string, (number | null)
   })
 }
 
-/** 구간 배열의 뒤에서 앞으로 보아 남아 있는 마지막 값 — 작업 칸 상한처럼 기준선에 쓴다(전부 null 이면 null). */
+/** 구간 배열의 뒤에서 앞으로 보아 남아 있는 마지막 값 — 동시 처리 한도처럼 기준선에 쓴다(전부 null 이면 null). */
 function lastValue(values: (number | null)[]): number | null {
   for (let i = values.length - 1; i >= 0; i--) {
     if (values[i] != null) return values[i]
@@ -455,16 +520,10 @@ function lastValue(values: (number | null)[]): number | null {
 }
 
 /**
- * 작은 그래프 6개 정의 — 응답 시간·실패(막대)·대기 / 밀린 건수·작업 칸·AI 계정 5시간 한도 순서로,
- * 계정은 accountId 오름차순 상위 5개만(키는 s0…s4, 라벨은 계정 이름) 그린다.
+ * 작은 그래프 5개 정의 — 응답 시간·실패(막대)·대기 / 밀린 건수·동시 처리 순서(계정 사용률은 계정 화면에서 본다).
  */
 export function smallGraphs(s: AiStatusOverview['series']): SmallGraphDef[] {
   const backlogKeys = Object.keys(s.backlog).sort()
-  const accounts = [...s.account5h].sort((a, b) => a.accountId - b.accountId).slice(0, MAX_ACCOUNT_SERIES)
-  const accountFields: Record<string, (number | null)[]> = {}
-  accounts.forEach((a, i) => {
-    accountFields[`s${i}`] = a.values
-  })
   const slotLimit = lastValue(s.slotLimit)
 
   return [
@@ -510,26 +569,13 @@ export function smallGraphs(s: AiStatusOverview['series']): SmallGraphDef[] {
     },
     {
       testId: 'graph-slot',
-      title: '작업 칸',
+      title: '동시 처리',
       kind: 'line',
       rows: zipRows(s.buckets, { used: s.slotUsed }),
-      series: [{ key: 'used', label: '사용', colorIndex: 1 }],
-      ...(slotLimit == null ? {} : { limit: { value: slotLimit, label: '상한' } }),
-      ariaLabel: '기간별 작업 칸 사용(상한 포함)',
+      series: [{ key: 'used', label: '진행 중', colorIndex: 1 }],
+      ...(slotLimit == null ? {} : { limit: { value: slotLimit, label: '한도' } }),
+      ariaLabel: '기간별 동시 처리(한도 포함)',
       valueFormatter: formatNumber,
-    },
-    {
-      testId: 'graph-account-5h',
-      title: 'AI 계정 5시간 한도',
-      kind: 'line',
-      rows: zipRows(s.buckets, accountFields),
-      series: accounts.map((a, i) => ({ key: `s${i}`, label: a.label, colorIndex: colorIndexFor(i) })),
-      limit: { value: 100, label: '한도' },
-      ariaLabel: '기간별 AI 계정 5시간 사용률(한도 포함)',
-      valueFormatter: formatUsedPercent,
-      ...(s.account5h.length > MAX_ACCOUNT_SERIES
-        ? { footnote: `계정 ${s.account5h.length}개 중 ${MAX_ACCOUNT_SERIES}개 표시` }
-        : {}),
     },
   ]
 }

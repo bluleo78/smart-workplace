@@ -1,5 +1,5 @@
 // 「AI 현황 › 개요」 화면(WP-1824) — 머리(기간 단추·갱신 표기)와 데이터 묶음(조회 훅·모델 함수)을 한곳에서 맡고,
-// 지표·경고·사용률·처리량·작은 그래프·종류별 표 블록을 그린다. 로딩은 스켈레톤 자리, 오류는 공용 LoadErrorState —
+// 지표·경고·처리량·작은 그래프·종류별 표 블록을 그린다. 로딩은 스켈레톤 자리, 오류는 공용 LoadErrorState —
 // 단 이미 받은 데이터(data)가 있으면 재조회 실패에도 그대로 이어 그리고(머리 갱신 표기와 모순되지 않게) 오류 안내는 data 없을 때만 그린다.
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
@@ -34,7 +34,7 @@ function UpdatedAgoMeta({ generatedAt }: { generatedAt: string }) {
   return <span data-testid="ai-status-updated-at">{updatedAgoLabel(generatedAt, nowMs)}</span>
 }
 
-/** 로딩 자리 — 지표·경고·사용률이 들어갈 자리에 같은 모양의 스켈레톤을 놓는다(내용은 아직 없다). */
+/** 로딩 자리 — 지표·경고가 들어갈 자리에 같은 모양의 스켈레톤을 놓는다(내용은 아직 없다). */
 function AiStatusSkeleton() {
   return (
     <div data-testid="ai-status-skeleton" className="space-y-6">
@@ -43,10 +43,7 @@ function AiStatusSkeleton() {
           <Skeleton key={i} className="h-24" />
         ))}
       </div>
-      <div className="grid grid-cols-12 gap-4">
-        <Skeleton className="col-span-12 h-40 lg:col-span-8" />
-        <Skeleton className="col-span-12 h-40 lg:col-span-4" />
-      </div>
+      <Skeleton className="h-40" />
     </div>
   )
 }
@@ -81,7 +78,7 @@ export default function AiStatusOverviewPage() {
           </p>
         )}
         <AiStatusMetricCards cards={statCards(data.metrics)} />
-        <AiStatusAlertUsage alerts={data.alerts} usage={data.usage} period={shownPeriod} />
+        <AiStatusAlertUsage alerts={data.alerts} period={shownPeriod} />
         {/* 처리량 + 작은 그래프 — 도움말 절 ai-status.charts 로 잇는다 */}
         <div className="space-y-6" data-help="ai-status.charts">
           <AiStatusThroughput throughput={data.throughput} period={shownPeriod} bucketSeconds={data.bucketSeconds} windowEnd={data.to} />

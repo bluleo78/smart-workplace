@@ -1,5 +1,5 @@
-// AI 현황 개요의 작은 그래프 자리(WP-1824) — 모델이 만든 정의 6개(응답 시간·실패·대기·밀린 건수·작업 칸·계정 5시간)를
-// 카드로 조립한다. 데스크톱은 2열(sm)·3열(xl), 모바일은 한 열(설계 §5-3 5). 계정은 상위 5개만 그리므로 초과분은 차트 아래 한 줄로 알린다.
+// AI 현황 개요의 작은 그래프 자리(WP-1824) — 모델이 만든 정의 5개(응답 시간·실패·대기·밀린 건수·동시 처리)를
+// 카드로 조립한다. 데스크톱은 2열(sm)·3열(xl), 모바일은 한 열(설계 §5-3 5).
 import { useMemo } from 'react'
 
 import type { Series } from '@/api/aiStatus'
@@ -11,7 +11,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import type { ChartRow } from './aiStatusModel'
 import { chartIsEmpty, smallGraphs, X_KEY, xFormatterFor } from './aiStatusModel'
 
-/** 작은 그래프 그리드 — 정의 kind(line|bar)에 따라 차트를 고르고 카드마다 모델의 aria-label·포매터·각주를 그대로 쓴다. */
+/** 작은 그래프 그리드 — 정의 kind(line|bar)에 따라 차트를 고르고 카드마다 모델의 aria-label·포매터를 그대로 쓴다. */
 export function AiStatusSmallGraphs({
   series,
   bucketSeconds,
@@ -53,7 +53,6 @@ export function AiStatusSmallGraphs({
                 aria-label={def.ariaLabel}
               />
             )}
-            {def.footnote && <p className="mt-2 text-xs text-muted-foreground">{def.footnote}</p>}
           </ChartCard>
         </div>
       ))}

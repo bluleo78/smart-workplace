@@ -19,4 +19,7 @@ test('사이드바 「AI 현황」 으로 들어가면 개요 API 값이 지표 
   await expect(page).toHaveURL(/\/settings\/ai-status$/)
   await expect(page.getByRole('heading', { name: 'AI 현황' })).toBeVisible()
   await expect(page.getByTestId('card-runs')).toContainText('12')
+  // 동시 처리 카드 — 제목과 「진행 중 / 한도」 값이 개요 API 의 slotUsage 에서 온다
+  await expect(page.getByTestId('card-slot-usage')).toContainText('동시 처리')
+  await expect(page.getByTestId('card-slot-usage')).toContainText('3 / 8건')
 })
