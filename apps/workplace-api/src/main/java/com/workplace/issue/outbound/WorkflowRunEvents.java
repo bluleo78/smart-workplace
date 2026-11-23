@@ -79,4 +79,24 @@ public final class WorkflowRunEvents {
    */
   public record WorkflowVisitLimitReached(
       long tenantId, long runId, long issueId, String nodeKey, int visits, long actorId) {}
+
+  /**
+   * 기다림 타이머(WP-1987) — 한 방문이 오래 기다려 담당에게 다시 알린다. 알림 모듈이 동기로 받아 알림을 만든다(타이머의 방문별 세이브포인트 안에서 처리되어,
+   * 알림이 실패하면 그 방문의 표시 이벤트도 함께 되돌아간다).
+   *
+   * @param assigneeIds 다시 알릴 담당 사용자 id
+   */
+  public record WorkflowTurnRemind(
+      long tenantId, long runId, long issueId, String nodeKey, List<Long> assigneeIds) {
+    /** 목록을 불변으로(null 은 빈 목록). */
+    public WorkflowTurnRemind {
+      assigneeIds = assigneeIds == null ? List.of() : List.copyOf(assigneeIds);
+    }
+  }
+
+  /**
+   * 기다림 타이머(WP-1987) — 그래도 머물러 프로젝트 관리자에게 알린다(받는 사람은 알림 모듈이 정한다). 처리 방식은 {@link WorkflowTurnRemind}
+   * 와 같다.
+   */
+  public record WorkflowTurnEscalate(long tenantId, long runId, long issueId, String nodeKey) {}
 }

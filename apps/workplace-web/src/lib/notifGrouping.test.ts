@@ -46,6 +46,13 @@ describe('notifSection', () => {
     expect(notifSection(notif({ type: 'AI_WORK_FAILED' }))).toBe('mine')
   })
 
+  it('워크플로우 차례 타이머 알림은 내 차례, 델타는 「오래 기다림」·「관리자 확인」 (WP-1987)', () => {
+    expect(notifSection(notif({ type: 'WORKFLOW_TURN_REMIND' }))).toBe('mine')
+    expect(notifSection(notif({ type: 'WORKFLOW_TURN_ESCALATE' }))).toBe('mine')
+    expect(groupNotifications([notif({ id: 1, type: 'WORKFLOW_TURN_REMIND' })]).mine[0].deltaSummary).toBe('오래 기다림')
+    expect(groupNotifications([notif({ id: 2, type: 'WORKFLOW_TURN_ESCALATE' })]).mine[0].deltaSummary).toBe('관리자 확인')
+  })
+
   it('워크플로우 되돌림 한도는 내 차례, 델타는 「되돌림 한도」, 이슈 상세로 (WP-1985)', () => {
     expect(notifSection(notif({ type: 'WORKFLOW_VISIT_LIMIT' }))).toBe('mine')
     const { mine } = groupNotifications([notif({ id: 1, type: 'WORKFLOW_VISIT_LIMIT' })])
@@ -90,6 +97,8 @@ const ALL_TYPES = Object.keys({
   OAUTH_APP_CONNECTED: true,
   MAIL_SEND_FAILED: true,
   WORKFLOW_VISIT_LIMIT: true,
+  WORKFLOW_TURN_REMIND: true,
+  WORKFLOW_TURN_ESCALATE: true,
 } satisfies Record<NotificationResponse['type'], true>) as NotificationResponse['type'][]
 
 describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
@@ -108,6 +117,8 @@ describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
         'PERSONAL_ASSISTANT_REVOKED',
         'REPORTER_ASSIGNED',
         'WIKI_SHARE_ACCESS_REQUESTED',
+        'WORKFLOW_TURN_ESCALATE',
+        'WORKFLOW_TURN_REMIND',
         'WORKFLOW_VISIT_LIMIT',
       ].sort(),
     )

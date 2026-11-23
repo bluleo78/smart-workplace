@@ -55,6 +55,14 @@ describe('notificationAction — AI 작업 알림 (WP-913)', () => {
   });
 });
 
+// WP-1987 — 워크플로우 차례 타이머: 행위자 없는 독립 문구, 서버 푸시와 같은 글자.
+describe('notificationAction — 워크플로우 차례 타이머 (WP-1987)', () => {
+  it('다시 알림·관리자 알림 문구', () => {
+    expect(notificationAction(n({ type: 'WORKFLOW_TURN_REMIND' }))).toBe('워크플로우 차례가 오래 기다리고 있습니다');
+    expect(notificationAction(n({ type: 'WORKFLOW_TURN_ESCALATE' }))).toBe('워크플로우 단계가 오래 멈춰 있습니다 — 관리자 확인이 필요합니다');
+  });
+});
+
 // WP-1985 — 워크플로우 되돌림 한도: 서버 푸시(PushContentService)와 같은 문구.
 describe('notificationAction — 워크플로우 되돌림 한도 (WP-1985)', () => {
   it('행위자 이름 뒤에 붙는 한도 문구', () => {

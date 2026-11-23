@@ -549,6 +549,17 @@ export function InboxList({
                             {formatDateTimeMinute(n.eventStartsAt)}
                           </span>
                         </>
+                      ) : n.type === "WORKFLOW_TURN_REMIND" ||
+                        n.type === "WORKFLOW_TURN_ESCALATE" ? (
+                        // 워크플로우 차례 타이머(WP-1987) — 행위자 없는 시스템 알림. 「시스템님이」로 읽히지 않게 문구만 + 이슈 줄.
+                        <>
+                          <span className="font-medium">
+                            {notificationAction(n)}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {n.projectKey}-{n.issueNumber} {n.issueTitle}
+                          </span>
+                        </>
                       ) : (
                         <>
                           <span className="font-medium">

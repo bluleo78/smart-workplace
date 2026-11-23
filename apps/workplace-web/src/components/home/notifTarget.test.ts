@@ -54,6 +54,9 @@ describe('notifTarget', () => {
     expect(notifTarget(notif({ type: 'AI_WORK_FAILED', agentWorkState: 'FAILED' }))).toBe('/projects/WP/issues/452')
     // 워크플로우 되돌림 한도(WP-1985)도 이슈 상세로 — 챗 드로워 없이.
     expect(notifTarget(notif({ type: 'WORKFLOW_VISIT_LIMIT' }))).toBe('/projects/WP/issues/452')
+    // 워크플로우 차례 타이머(WP-1987)도 이슈 상세로.
+    expect(notifTarget(notif({ type: 'WORKFLOW_TURN_REMIND' }))).toBe('/projects/WP/issues/452')
+    expect(notifTarget(notif({ type: 'WORKFLOW_TURN_ESCALATE' }))).toBe('/projects/WP/issues/452')
   })
 
   it('AI 질문은 상태(권한 필요·차단됨)가 있어도 챗 드로워로 연다 (WP-913)', () => {

@@ -37,6 +37,9 @@ export const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   MAIL_SEND_FAILED: '메일을 보내지 못함',
   // WP-1985 워크플로우 되돌림 한도 — 행위자는 그 노드로 다시 넘긴 사람. 노드 종류를 알림에 싣지 않아 모든 노드에 맞는 한 문구. 서버 푸시(PushContentService)와 같은 문구.
   WORKFLOW_VISIT_LIMIT: '님이 넘긴 워크플로우 단계가 되돌림 한도에 이르렀습니다',
+  // WP-1987 워크플로우 차례 타이머 — 행위자 없는 알림이라 이름 접두 없이 독립 문구. 서버 푸시(PushContentService)와 같은 문구.
+  WORKFLOW_TURN_REMIND: '워크플로우 차례가 오래 기다리고 있습니다',
+  WORKFLOW_TURN_ESCALATE: '워크플로우 단계가 오래 멈춰 있습니다 — 관리자 확인이 필요합니다',
 };
 
 // 메일 보내기 실패 중 결과를 모르는 변형(WP-1786, mailSendUnknown) — 보내다 멈춰 나갔는지 모르니 보낸편지함을 보게 한다.

@@ -38,5 +38,15 @@ public enum NotificationType {
   MAIL_SEND_FAILED,
   // 워크플로우 실행이 한 노드에 되돌림이 아닌 방문으로 maxVisits 번 이상 들어감(WP-1985, 설계 §10) — 이동은 그대로 하고 프로젝트의 활성 사람
   // OWNER(행위자 제외)에게 알린다. 설정 줄·푸시 분류는 AI_WORK_FAILED 와 같다(「내가 맡긴 AI 작업이 막혔다」는 같은 성격)
-  WORKFLOW_VISIT_LIMIT
+  WORKFLOW_VISIT_LIMIT,
+  // 워크플로우 노드가 한 방문에서 오래 기다림(WP-1987, 타이머) — 행위자 없는 시스템 알림. REMIND 는 그 노드 담당자에게 다시 알리고, ESCALATE 는
+  // 프로젝트 관리자(활성 사람 OWNER)에게 알린다. 설정 줄은 REMIND 는 ISSUE_ASSIGNED, ESCALATE 는
+  // ISSUE_AI_FAILED(WORKFLOW_VISIT_LIMIT 와 같은 「단계가 막혀 관리자가 안다」), 푸시 분류는 ISSUE. 노드·실행 상태는 바꾸지 않는다
+  WORKFLOW_TURN_REMIND,
+  WORKFLOW_TURN_ESCALATE;
+
+  /** 워크플로우 차례 타이머 알림(WP-1987)인지 — 행위자 없는 시스템 알림이라 푸시 문구·생성 가드가 따로 다룬다. */
+  public boolean isWorkflowTurn() {
+    return this == WORKFLOW_TURN_REMIND || this == WORKFLOW_TURN_ESCALATE;
+  }
 }

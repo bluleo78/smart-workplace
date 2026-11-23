@@ -78,6 +78,8 @@ public enum NotificationSettingItem {
     return switch (type) {
       // 보고자로 지정됨(WP-944)도 「나에게 맡겨진 이슈」라 같은 줄로 받는다.
       case ASSIGNED, REPORTER_ASSIGNED -> ISSUE_ASSIGNED;
+      // 워크플로우 차례 타이머 알림(WP-1987) — 다시 알림은 「나에게 맡겨진 일」이 오래 기다린다는 뜻이라 같은 줄. 행위자가 없어 「사람이」 칸으로 판정된다.
+      case WORKFLOW_TURN_REMIND -> ISSUE_ASSIGNED;
       case COMMENTED -> ISSUE_COMMENTED;
       case STATUS_CHANGED -> ISSUE_STATUS_CHANGED;
       case PRIORITY_CHANGED -> ISSUE_PRIORITY_CHANGED;
@@ -85,7 +87,8 @@ public enum NotificationSettingItem {
       case AI_QUESTION -> ISSUE_AI_NEEDS_INPUT;
       case AI_REVIEW_REQUESTED -> ISSUE_AI_REVIEW_REQUESTED;
       // 워크플로우 되돌림 한도(WP-1985)도 「AI 에게 넘긴 일이 막혔다」라 실패 줄로 받는다(설계 §10).
-      case AI_WORK_FAILED, WORKFLOW_VISIT_LIMIT -> ISSUE_AI_FAILED;
+      // 워크플로우 단계 멈춤 관리자 알림(WP-1987)도 「단계가 막혀 관리자가 안다」는 같은 뜻이라 실패 줄.
+      case AI_WORK_FAILED, WORKFLOW_VISIT_LIMIT, WORKFLOW_TURN_ESCALATE -> ISSUE_AI_FAILED;
       case REMINDER -> CALENDAR_REMINDER;
       case CALENDAR_INVITED -> CALENDAR_INVITED;
       case CALENDAR_RSVP_CHANGED -> CALENDAR_RSVP_CHANGED;
