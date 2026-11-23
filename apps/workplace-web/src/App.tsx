@@ -14,7 +14,7 @@ import { useAuth } from './hooks/useAuth'
 import { useRouteDocumentTitle } from './hooks/useDocumentTitle'
 import { useIsMobile } from './hooks/useIsMobile'
 import { AUTH_FLAG_KEY } from './lib/auth/sessionFlag'
-import { type Preload, type RoutePreloadKey, startRoutePreloads } from './lib/routePreloads'
+import { type Preload, type RoutePreloadKey, startInitialRoutePreloads } from './lib/routePreloads'
 import { safeLocalStorage } from './lib/safeLocalStorage'
 
 // 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
@@ -206,7 +206,7 @@ function hasSessionHint(): boolean {
 }
 
 /**
- * WP-2021: 첫 주소의 페이지 청크를 인증을 기다리지 않고 미리 받는다 — App 이 처음 그려진 뒤 한 번 부른다.
+ * WP-2021: 첫 주소의 페이지 청크를 인증을 기다리지 않고 미리 받는다 — App 이 그려진 뒤 부르지만, 실제로 받기는 문서당 한 번뿐이다(startInitialRoutePreloads).
  * 위 lazy 선언과 같은 import 함수를 불러 모듈이 한 번만 내려받아진다. 로그인 흔적이 없으면 아무것도 하지 않는다.
  */
 function preloadInitialRoute(): void {
@@ -225,7 +225,7 @@ function preloadInitialRoute(): void {
     driveLayout: loadDriveLayout,
     driveIndex: loadDriveIndex,
   }
-  startRoutePreloads(window.location.pathname, loaders)
+  startInitialRoutePreloads(window.location.pathname, loaders)
 }
 
 export default function App() {

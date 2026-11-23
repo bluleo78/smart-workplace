@@ -18,6 +18,7 @@ describe('selectRoutePreloads', () => {
     expect(selectRoutePreloads('/projects/WP/notes')).toEqual(['projectTabs'])
     expect(selectRoutePreloads('/projects/WP/notes/5')).toEqual(['projectTabs'])
     expect(selectRoutePreloads('/projects/WP/versions')).toEqual(['projectTabs'])
+    expect(selectRoutePreloads('/projects/WP/workflow')).toEqual(['projectTabs'])
     expect(selectRoutePreloads('/projects/WP/versions/3')).toEqual([])
     expect(selectRoutePreloads('/projects/WP/settings')).toEqual([])
   })
@@ -72,5 +73,21 @@ describe('startRoutePreloads', () => {
     expect(home).not.toHaveBeenCalled()
     expect(catchSpy).toHaveBeenCalledTimes(1)
     expect(onUnhandled).not.toHaveBeenCalled()
+  })
+})
+
+describe('startInitialRoutePreloads', () => {
+  it('같은 문서에서 여러 번 불러도 처음 한 번만 미리 받는다(App 다시 마운트)', async () => {
+    // 모듈 안의 「이미 시작함」 표시를 새로 시작하려고 모듈을 다시 불러온다
+    vi.resetModules()
+    const { startInitialRoutePreloads } = await import('./routePreloads')
+    const mailLayout = vi.fn().mockResolvedValue(1)
+    const mailInbox = vi.fn().mockResolvedValue(1)
+    const loaders = partial({ mailLayout, mailInbox })
+    startInitialRoutePreloads('/mail', loaders)
+    startInitialRoutePreloads('/mail', loaders)
+    startInitialRoutePreloads('/mail/3', loaders)
+    expect(mailLayout).toHaveBeenCalledTimes(1)
+    expect(mailInbox).toHaveBeenCalledTimes(1)
   })
 })

@@ -11,7 +11,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import type { ErrorInfo, ReactNode } from 'react';
 import { Component } from 'react';
 
-import { isChunkLoadError } from '@/lib/chunkLoadError';
+import { clearChunkReload, isChunkFailureAfterReload, isChunkLoadError, markChunkReload } from '@/lib/chunkLoadError';
 
 import { Button } from './ui/button';
 
@@ -22,22 +22,27 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  /** 청크 실패로 새로고침한 직후 또 청크 실패가 났는가 — 새로고침으로는 낫지 않는 경우(옛 index.html 캐시 등)라 다른 안내를 보인다. */
+  chunkFailedAfterReload: boolean;
 }
 
 export class PageErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, chunkFailedAfterReload: false };
   }
 
-  /** React가 렌더링 오류를 감지했을 때 state를 에러 상태로 전환 */
+  /** React가 렌더링 오류를 감지했을 때 state를 에러 상태로 전환 — 청크 실패면 새로고침 직후의 되풀이인지도 본다 */
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    const chunkFailedAfterReload = isChunkFailureAfterReload(error);
+    return { hasError: true, error, chunkFailedAfterReload };
   }
 
-  /** 오류 상세를 콘솔에 기록 (프로덕션 로깅 서비스 연동 가능) */
+  /** 오류 상세를 콘솔에 기록하고(프로덕션 로깅 서비스 연동 가능), 새로고침 직후 되풀이면 새로고침 표시를 지운다 */
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[PageErrorBoundary]', error, info);
+    // 되풀이를 알린 때만 표시를 지운다 — 다른 오류·다른 경계가 지우면 진짜 되풀이를 놓친다
+    if (this.state.chunkFailedAfterReload) clearChunkReload();
   }
 
   /**
@@ -45,11 +50,13 @@ export class PageErrorBoundary extends Component<Props, State> {
    * 같은 실패가 되풀이되므로(모듈 맵·React.lazy 가 실패를 쥔다) 페이지를 새로고침해 다시 받는다(WP-2021).
    */
   handleRetry = () => {
-    if (isChunkLoadError(this.state.error)) {
+    const { error } = this.state;
+    if (error && isChunkLoadError(error)) {
+      markChunkReload(error);
       window.location.reload();
       return;
     }
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, chunkFailedAfterReload: false });
   };
 
   render() {
@@ -62,7 +69,9 @@ export class PageErrorBoundary extends Component<Props, State> {
               페이지를 불러오는 중 문제가 발생했습니다
             </h2>
             <p className="text-sm text-muted-foreground max-w-md">
-              일시적인 오류가 발생했습니다. 다시 시도하거나 페이지를 새로고침해 주세요.
+              {this.state.chunkFailedAfterReload
+                ? '새로고침해도 화면 파일을 받지 못했습니다. 새 버전이 배포되는 중이면 잠시 뒤 다시 열고, 계속되면 브라우저 캐시를 지운 뒤 다시 열어 주세요.'
+                : '일시적인 오류가 발생했습니다. 다시 시도하거나 페이지를 새로고침해 주세요.'}
             </p>
           </div>
           <Button variant="outline" onClick={this.handleRetry}>

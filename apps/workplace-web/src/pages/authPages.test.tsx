@@ -13,6 +13,7 @@ import { describe, expect, test } from 'vitest'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { AddMemberDialog } from '@/components/users/AddMemberDialog'
 import { AuthProvider } from '@/hooks/AuthContext'
+import { AUTH_FLAG_KEY } from '@/lib/auth/sessionFlag'
 import LoginPage from '@/pages/LoginPage'
 import SignupPage from '@/pages/SignupPage'
 import { renderScreen } from '@/test/renderScreen'
@@ -96,7 +97,7 @@ describe('로그인 → 워크스페이스 선택 (#219)', () => {
     expect(await screen.findByTestId('home-landed')).toBeInTheDocument()
     expect(location()).toBe('/')
     expect(screen.queryByText('워크스페이스 선택')).not.toBeInTheDocument()
-    expect(window.localStorage.getItem('hasSession')).toBe('true')
+    expect(window.localStorage.getItem(AUTH_FLAG_KEY)).toBe('true')
   })
 
   // 소속이 없으면 비밀번호 오류로 오해되지 않는 전용 안내 — 인증 미완료라 로그인 화면에 남는다.
@@ -241,7 +242,7 @@ describe('가입 가용성 게이트 (#495)', () => {
 describe('세션 확인 일시 실패 (WP-859)', () => {
   /** 앱을 다시 연 상태 — 세션 표시가 남아 있어 AuthProvider 가 refresh 부터 한다. */
   function reopen(handlers: RequestHandler[]) {
-    window.localStorage.setItem('hasSession', '1')
+    window.localStorage.setItem(AUTH_FLAG_KEY, '1')
     return renderAuthRoutes('/', [...availability(), ...handlers])
   }
 
@@ -252,7 +253,7 @@ describe('세션 확인 일시 실패 (WP-859)', () => {
     ])
     expect(await screen.findByTestId('auth-connection-error')).toHaveTextContent('서버에 연결하지 못했습니다')
     expect(location()).toBe('/')
-    expect(window.localStorage.getItem('hasSession')).not.toBeNull()
+    expect(window.localStorage.getItem(AUTH_FLAG_KEY)).not.toBeNull()
   })
 
   test('refresh 가 401(만료)이면 세션 표시를 지우고 로그인으로 간다', async () => {
@@ -262,7 +263,7 @@ describe('세션 확인 일시 실패 (WP-859)', () => {
     await waitFor(() => expect(location()).toBe('/login'))
     expect(await screen.findByRole('button', { name: '로그인' })).toBeInTheDocument()
     expect(screen.queryByTestId('auth-connection-error')).not.toBeInTheDocument()
-    expect(window.localStorage.getItem('hasSession')).toBeNull()
+    expect(window.localStorage.getItem(AUTH_FLAG_KEY)).toBeNull()
   })
 })
 
