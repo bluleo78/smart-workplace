@@ -32,9 +32,10 @@ public class AgentSlotStateWriter {
    * 칸을 다시 합쳐 쓴다.
    *
    * @param agentSlots 그 AI 의 칸(이미 읽은 것 — 순서 무관)
-   * @param currentPodUid 지금 Pod 정체(모르면 null) — 정체를 아는 칸을 가르는 기준(WP-1968 반려 ③)
-   * @param observedStartedAt runner 가 관찰한 지금 Pod 의 시작 시각(모르면 null) — 정체를 모르는 칸을 가르는 기준
-   * @param currentPodStart 관찰값과 칸 보고가 올린 Pod 시작 시각 중 늦은 쪽(모르면 null) — 정체를 모르는 칸을 가르는 기준(WP-1958)
+   * @param currentPodUid 지금 Pod 정체(모르면 null) — 옛 칸 규칙은 {@link
+   *     AgentRuntimeSlotRepository#isOldPodReport}
+   * @param observedStartedAt runner 가 관찰한 지금 Pod 시작 시각(모르면 null) — 시각 없는 칸의 기준
+   * @param currentPodStart 관찰값과 칸 보고가 올린 Pod 시작 시각 중 늦은 쪽(모르면 null) — 시각 있는 칸의 기준(WP-1958)
    * @param now 지금 시각(오래된 칸 판정 기준)
    * @param reportingSlotKey 방금 보고한 칸 키(보고 흐름) — 옛 Pod 칸으로 보지 않는다. runner 정리 흐름은 null
    * @return 쓴 뒤 행
@@ -69,6 +70,12 @@ public class AgentSlotStateWriter {
     }
     AgentSlotAggregate agg = AgentSlotAggregate.of(current, now, properties.slotStaleAfter());
     return settings.writeAgentState(
-        agentUserId, agg.state(), agg.issueKeys(), agg.nextCheckAt(), agg.latestReportedAt());
+        agentUserId,
+        agg.state(),
+        agg.issueKeys(),
+        agg.nextCheckAt(),
+        agg.latestReportedAt(),
+        agg.latestReportedPodUid(),
+        agg.latestReportedPodStartedAt());
   }
 }

@@ -541,6 +541,60 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (String) get(35);
     }
 
+    /**
+     * Setter for
+     * <code>public.agent_runtime_setting.agent_reported_pod_uid</code>.
+     * agent_reported_at 을 낸 칸의 Pod 정체(metadata.uid) — 정체를 모르는 보고는 NULL
+     */
+    public void setAgentReportedPodUid(String value) {
+        set(36, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.agent_runtime_setting.agent_reported_pod_uid</code>.
+     * agent_reported_at 을 낸 칸의 Pod 정체(metadata.uid) — 정체를 모르는 보고는 NULL
+     */
+    public String getAgentReportedPodUid() {
+        return (String) get(36);
+    }
+
+    /**
+     * Setter for
+     * <code>public.agent_runtime_setting.agent_reported_pod_started_at</code>.
+     * agent_reported_at 을 낸 같은 칸의 Pod 시작 시각 — 시각을 모르는 보고는 NULL
+     */
+    public void setAgentReportedPodStartedAt(OffsetDateTime value) {
+        set(37, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.agent_runtime_setting.agent_reported_pod_started_at</code>.
+     * agent_reported_at 을 낸 같은 칸의 Pod 시작 시각 — 시각을 모르는 보고는 NULL
+     */
+    public OffsetDateTime getAgentReportedPodStartedAt() {
+        return (OffsetDateTime) get(37);
+    }
+
+    /**
+     * Setter for
+     * <code>public.agent_runtime_setting.pane_blocked_pod_uid</code>. 칸
+     * 차단(pane_blocked_*)을 보고한 Pod 정체(metadata.uid) — 차단이 풀리면 NULL
+     */
+    public void setPaneBlockedPodUid(String value) {
+        set(38, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.agent_runtime_setting.pane_blocked_pod_uid</code>. 칸
+     * 차단(pane_blocked_*)을 보고한 Pod 정체(metadata.uid) — 차단이 풀리면 NULL
+     */
+    public String getPaneBlockedPodUid() {
+        return (String) get(38);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -564,7 +618,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration, String observedPodUid, String previousPodUid) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration, String observedPodUid, String previousPodUid, String agentReportedPodUid, OffsetDateTime agentReportedPodStartedAt, String paneBlockedPodUid) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -603,6 +657,9 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setFailedGeneration(failedGeneration);
         setObservedPodUid(observedPodUid);
         setPreviousPodUid(previousPodUid);
+        setAgentReportedPodUid(agentReportedPodUid);
+        setAgentReportedPodStartedAt(agentReportedPodStartedAt);
+        setPaneBlockedPodUid(paneBlockedPodUid);
         resetTouchedOnNotNull();
     }
 }

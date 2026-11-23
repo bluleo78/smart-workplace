@@ -148,6 +148,76 @@ class AgentSlotAggregateTest {
     assertThat(a.latestReportedAt()).isNull();
   }
 
+  /** 가장 늦게 보고한 살아 있는 칸의 Pod 정체가 합친 값에 실린다(WP-2010). */
+  @Test
+  void latestReportedPodUid_followsLatestSlot() {
+    var a =
+        AgentSlotAggregate.of(
+            List.of(
+                new Slot("HR", WORKING, "HR-1", null, T1, null, "pod-old"),
+                new Slot("WP", IDLE, null, null, T1.plusMinutes(5), null, "pod-new")),
+            T1.plusHours(1),
+            Duration.ofDays(3650));
+    assertThat(a.latestReportedPodUid()).isEqualTo("pod-new");
+  }
+
+  /** 모두 오래됐으면 일하던 칸 중 가장 늦은 칸의 정체 — IDLE 칸이 더 늦어도 쓰지 않는다. */
+  @Test
+  void latestReportedPodUid_allStale_usesLastWorkSlot() {
+    OffsetDateTime now = OffsetDateTime.parse("2026-01-02T00:00:00Z");
+    var a =
+        AgentSlotAggregate.of(
+            List.of(
+                new Slot("HR", WORKING, "HR-1", null, now.minusHours(9), null, "pod-work"),
+                new Slot("WP", IDLE, null, null, now.minusHours(7), null, "pod-idle")),
+            now,
+            Duration.ofHours(6));
+    assertThat(a.state()).isNull();
+    assertThat(a.latestReportedPodUid()).isEqualTo("pod-work");
+  }
+
+  /** 가장 늦게 보고한 칸의 Pod 시작 시각이 정체와 같은 칸에서 실린다(WP-2010 R2). */
+  @Test
+  void latestReportedPodStartedAt_followsLatestSlot() {
+    OffsetDateTime start = T1.minusMinutes(30);
+    var a =
+        AgentSlotAggregate.of(
+            List.of(
+                new Slot("HR", WORKING, "HR-1", null, T1, T1.minusHours(3), "pod-old"),
+                new Slot("WP", IDLE, null, null, T1.plusMinutes(5), start, "pod-new")),
+            T1.plusHours(1),
+            Duration.ofDays(3650));
+    assertThat(a.latestReportedPodUid()).isEqualTo("pod-new");
+    assertThat(a.latestReportedPodStartedAt()).isEqualTo(start);
+  }
+
+  /** 모두 오래됐으면 일하던 칸 중 가장 늦은 칸의 Pod 시작 시각 — 정체와 같은 칸이다. */
+  @Test
+  void latestReportedPodStartedAt_allStale_usesLastWorkSlot() {
+    OffsetDateTime now = OffsetDateTime.parse("2026-01-02T00:00:00Z");
+    OffsetDateTime start = now.minusHours(10);
+    var a =
+        AgentSlotAggregate.of(
+            List.of(
+                new Slot("HR", WORKING, "HR-1", null, now.minusHours(9), start, "pod-work"),
+                new Slot("WP", IDLE, null, null, now.minusHours(7), null, "pod-idle")),
+            now,
+            Duration.ofHours(6));
+    assertThat(a.latestReportedPodStartedAt()).isEqualTo(start);
+    assertThat(agg(List.of()).latestReportedPodStartedAt()).isNull();
+  }
+
+  /** 공백 정체는 정체 없음(null)이다. */
+  @Test
+  void latestReportedPodUid_blankIsNull() {
+    var a =
+        AgentSlotAggregate.of(
+            List.of(new Slot("HR", WORKING, "HR-1", null, T1, null, "  ")),
+            T1,
+            Duration.ofDays(3650));
+    assertThat(a.latestReportedPodUid()).isNull();
+  }
+
   /** 오래된 칸 거르기 없이 규칙만 보려고 아주 긴 공백을 준다. */
   private static AgentSlotAggregate agg(List<Slot> slots) {
     return AgentSlotAggregate.of(slots, T1, Duration.ofDays(3650));

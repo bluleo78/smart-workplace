@@ -154,13 +154,17 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
     Row before = settings.find(agent).orElseThrow();
     OffsetDateTime now = OffsetDateTime.now();
 
-    Row row = settings.writeAgentState(agent, AgentState.WORKING, List.of("HR-2", "WP-9"), T1, now);
+    Row row =
+        settings.writeAgentState(
+            agent, AgentState.WORKING, List.of("HR-2", "WP-9"), T1, now, "pod-a", T0);
 
     assertThat(row.agentState()).isEqualTo("WORKING");
     assertThat(row.agentIssueKey()).isEqualTo("HR-2");
     assertThat(row.agentIssueKeys()).containsExactly("HR-2", "WP-9");
     assertThat(row.agentNextCheckAt().toInstant()).isEqualTo(T1.toInstant());
     assertThat(row.agentReportedAt()).isNotNull();
+    assertThat(row.agentReportedPodUid()).isEqualTo("pod-a");
+    assertThat(row.agentReportedPodStartedAt().toInstant()).isEqualTo(T0.toInstant());
     assertThat(row.generation()).isEqualTo(before.generation());
     assertThat(row.desired()).isEqualTo(before.desired());
     assertThat(row.applyMode()).isEqualTo(before.applyMode());
@@ -168,16 +172,18 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
     assertThat(settings.find(agent).orElseThrow().agentIssueKeys()).containsExactly("HR-2", "WP-9");
 
     // 칸이 모두 사라지면(합친 상태 없음) 칸들이 비워진다.
-    Row cleared = settings.writeAgentState(agent, null, List.of(), null, now);
+    Row cleared = settings.writeAgentState(agent, null, List.of(), null, now, null, null);
     assertThat(cleared.agentState()).isNull();
+    assertThat(cleared.agentReportedPodUid()).isNull();
+    assertThat(cleared.agentReportedPodStartedAt()).isNull();
     assertThat(cleared.agentIssueKeys()).isEmpty();
   }
 
   private static final OffsetDateTime T2 = T0.plusHours(2);
 
   /**
-   * WP-1958 옛 Pod 판정 — 칸에 보고한 Pod 시작 시각이 있으면 지금 Pod 시작 기준으로, 없으면 지금 규칙(관찰 시작 시각 기준)으로 가른다. 메모리와 SQL
-   * 이 같은 결과여야 한다.
+   * WP-1958 옛 Pod 판정 — 칸에 보고한 Pod 시작 시각이 있으면 지금 Pod 시작 기준으로, 없으면 관찰 시작 시각 기준으로 가른다(WP-2010 R1 — 시각
+   * 없는 칸은 보고가 올린 기준이 아니라 runner 가 관찰한 started_at 과 견준다). 메모리와 SQL 이 같은 결과여야 한다.
    */
   @Test
   void oldPodRule_usesSlotPodStartWhenPresent() {
@@ -186,6 +192,7 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
     Slot a = new Slot("A", WORKING, "A-1", null, T2.plusSeconds(60), T2.minusSeconds(31), null);
     Slot b = new Slot("B", WORKING, "B-1", null, T2.plusSeconds(60), T2.minusSeconds(29), null);
     Slot c = new Slot("C", WORKING, "C-1", null, T0.minusSeconds(31), null, null);
+    // 시각 없는 칸은 관찰 시작(T0)과 견준다 — 지금 Pod 시작(T2)보다 앞서 보고했어도 관찰 뒤라 남는다.
     Slot d = new Slot("D", WORKING, "D-1", null, T2.minusSeconds(60), null, null);
     assertThat(AgentRuntimeSlotRepository.isFromOldPod(a, null, observed, current)).isTrue();
     assertThat(AgentRuntimeSlotRepository.isFromOldPod(b, null, observed, current)).isFalse();
@@ -219,20 +226,148 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
 
   /**
    * WP-1958 observed 가 null(runner 가 아직 새 Pod 를 관찰 못 함)이고 current 만 있는 경우 — 시각 있는 칸은 current 기준으로
-   * 지워지고(cutoff 앞은 삭제, 정확히 cutoff 는 생존), 시각 없는 칸은 관찰값이 없어 가를 수 없으므로 지우지 않는다(메모리 isFromOldPod 도
-   * observed null 이면 거짓).
+   * 지워지고(cutoff 앞은 삭제, 정확히 cutoff 는 생존), 시각 없는 칸은 관찰값이 없어 가를 수 없으므로 지우지 않는다(WP-2010 R1 — 메모리
+   * isFromOldPod 도 observed null 이면 거짓).
    */
   @Test
   void oldPodRule_observedNull_judgesByCurrentOnly() {
     slots.upsert(agent, "A", WORKING, "A-1", null, T2, T2.minusSeconds(31), null);
     slots.upsert(agent, "B", WORKING, "B-1", null, T2, T2.minusSeconds(30), null);
     slots.upsert(agent, "C", WORKING, "C-1", null, T0.minusSeconds(3600), null, null);
+    Slot c = new Slot("C", WORKING, "C-1", null, T0.minusSeconds(3600), null, null);
+    assertThat(AgentRuntimeSlotRepository.isFromOldPod(c, null, null, T2)).isFalse();
 
     assertThat(
             slots.deleteReportedBeforePodStart(Map.of(agent, new PodStarts(null, T2, null)), null))
         .containsExactly(agent);
 
     assertThat(keysOf(agent)).containsExactly("B", "C");
+  }
+
+  /**
+   * WP-2010 한 규칙 isOldPodReport 의 네 갈래 — ① 정체가 둘 다 있고 다르면 시각과 무관하게 옛 것 ② 보고에 Pod 시작 시각이 있으면 지금 Pod
+   * 시작과 견준다(같은 정체도) ③ 시각 없는 같은 정체는 옛 것이 아니다 ④ 그 밖의 시각 없는 보고는 보고 시각을 시각 없는 기준(timelessBasis)과 견준다.
+   */
+  @Test
+  void isOldPodReport_fourBranches() {
+    OffsetDateTime cur = T2;
+    OffsetDateTime basis = T0;
+    // ① 정체가 다르면 시각이 미래여도 옛 것이다.
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                "p0", cur.plusDays(1), cur.plusDays(1), "p1", cur, basis))
+        .isTrue();
+    assertThat(AgentRuntimeSlotRepository.isOldPodReport("p0", null, null, "p1", null, null))
+        .isTrue();
+    // ② 같은 정체라도 보고 Pod 시작이 지금 Pod 시작보다 여유를 넘게 이르면 옛 것(같은 Pod 안 컨테이너 재시작).
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                "p1", cur.minusSeconds(31), cur, "p1", cur, basis))
+        .isTrue();
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                "p1", cur.minusSeconds(29), T0.minusDays(1), "p1", cur, basis))
+        .isFalse();
+    // ② 정체를 모르는 보고도 시작 시각이 있으면 같은 규칙 — 보고 시각은 보지 않는다.
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                "  ", cur.minusSeconds(31), cur, "p1", cur, basis))
+        .isTrue();
+    // ② 지금 Pod 시작을 모르면 시작 시각으로는 가를 수 없다.
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                null, cur.minusDays(1), null, null, null, basis))
+        .isFalse();
+    // ③ 같은 정체 + 시작 시각 없음 — 보고 시각이 기준보다 한참 일러도 옛 것이 아니다(API 시계와 노드 시계를 견주지 않는다).
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                "p1", null, basis.minusDays(1), "p1", cur, basis))
+        .isFalse();
+    // ④ 정체를 모르고 시작 시각도 없으면 보고 시각을 시각 없는 기준 cutoff 와 견준다 — 지금 Pod 시작(cur)이 아니라 basis 다.
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                null, null, basis.minusSeconds(31), null, cur, basis))
+        .isTrue();
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                null, null, basis.minusSeconds(30), null, cur, basis))
+        .isFalse();
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                "p1", null, cur.minusSeconds(60), null, cur, basis))
+        .isFalse();
+    // ④ 기준이나 보고 시각을 모르면 옛 것이 아니다.
+    assertThat(
+            AgentRuntimeSlotRepository.isOldPodReport(
+                null, null, basis.minusDays(1), null, cur, null))
+        .isFalse();
+    assertThat(AgentRuntimeSlotRepository.isOldPodReport(null, null, null, null, cur, basis))
+        .isFalse();
+  }
+
+  /**
+   * 같은 정체의 칸(WP-2010 최종 리뷰 F1·R2) — 시작 시각을 실은 칸은 같은 Pod 안 컨테이너 재시작이라 지금 Pod 시작과 견줘 뺀다. 시각 없는 같은 정체
+   * 칸은 보고 시각(API 시계)을 노드 시계 기준과 견주지 않으므로 남는다(R2 ③ — 빠른 노드 시계에서 지금 칸이 지워지지 않게). 메모리 거르기와 SQL 지우기가
+   * 같다.
+   */
+  @Test
+  void samePodUid_containerRestart_dropsEarlierContainerSlotsByTime() {
+    OffsetDateTime cur = T2;
+    slots.upsert(
+        agent, "OLD", WORKING, "OLD-1", null, cur.minusSeconds(55), cur.minusSeconds(60), "pod-a");
+    slots.upsert(agent, "NEAR", WORKING, "NEAR-1", null, cur, cur.minusSeconds(29), "pod-a");
+    slots.upsert(agent, "TL_OLD", WORKING, "T-1", null, cur.minusSeconds(31), null, "pod-a");
+    slots.upsert(agent, "TL_NEW", WORKING, "T-2", null, cur.plusSeconds(5), null, "pod-a");
+
+    // 메모리 판정과 SQL 이 같은 칸을 가른다(둘이 갈리면 지우고도 읽기에서 다시 걸러 칸이 남는다).
+    List<String> memoryOld =
+        slots.findAll(agent).stream()
+            .filter(s -> AgentRuntimeSlotRepository.isFromOldPod(s, "pod-a", cur, cur))
+            .map(Slot::slotKey)
+            .toList();
+    assertThat(memoryOld).containsExactly("OLD");
+    assertThat(
+            slots.deleteReportedBeforePodStart(
+                Map.of(agent, new PodStarts(cur, cur, "pod-a")), null))
+        .containsExactly(agent);
+    assertThat(keysOf(agent)).containsExactlyInAnyOrder("NEAR", "TL_OLD", "TL_NEW");
+  }
+
+  /**
+   * 메모리 판정(isFromOldPod)과 SQL 지우기(deleteReportedBeforePodStart)가 같은 칸을 고른다(WP-2010 R2) — 칸
+   * 정체(같음·다름·모름) × 칸 시작 시각(있음·없음) × 보고 시각(관찰 기준 앞·뒤)의 모든 조합을 지금 정체를 아는 경우와 모르는 경우로 견준다.
+   */
+  @Test
+  void oldPodRule_memoryAndSqlAgreeAcrossIdentityAndTime() {
+    OffsetDateTime observed = T0;
+    OffsetDateTime current = T2;
+    for (String currentUid : java.util.Arrays.asList("pod-a", null)) {
+      dsl.deleteFrom(com.workplace.jooq.Tables.AGENT_RUNTIME_SLOT_STATE).execute();
+      int n = 0;
+      for (String uid : java.util.Arrays.asList("pod-a", "pod-b", null)) {
+        for (OffsetDateTime podStart :
+            java.util.Arrays.asList(current.minusSeconds(60), current.minusSeconds(10), null)) {
+          for (OffsetDateTime reportedAt :
+              List.of(observed.minusSeconds(60), observed.minusSeconds(10))) {
+            slots.upsert(agent, "S" + (n++), WORKING, null, null, reportedAt, podStart, uid);
+          }
+        }
+      }
+      List<String> memoryOld =
+          slots.findAll(agent).stream()
+              .filter(
+                  s -> AgentRuntimeSlotRepository.isFromOldPod(s, currentUid, observed, current))
+              .map(Slot::slotKey)
+              .sorted()
+              .toList();
+      List<String> all = keysOf(agent);
+      slots.deleteReportedBeforePodStart(
+          Map.of(agent, new PodStarts(observed, current, currentUid)), null);
+      List<String> remaining = keysOf(agent);
+      List<String> sqlDeleted = all.stream().filter(k -> !remaining.contains(k)).toList();
+      assertThat(sqlDeleted).as("지금 정체 %s", currentUid).isEqualTo(memoryOld);
+      assertThat(memoryOld).isNotEmpty();
+    }
   }
 
   /** 서버 시각보다 30초 넘게 앞선 보고 Pod 시작 시각은 시계 이상으로 보고 버린다(null). */
@@ -550,15 +685,66 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
     assertThat(settings.find(agent).orElseThrow().reportedPodStartedAt()).isNotNull();
   }
 
+  /**
+   * 새 Pod 관찰이 마지막 상태 보고 시각을 비울 때 그 보고의 Pod 정체도 함께 비운다(WP-2010 최종 리뷰 F3) — 시각만 비고 정체가 남으면 다음 합치기 전까지
+   * 적용 판정이 짝이 맞지 않는 값을 읽는다.
+   */
+  @Test
+  void updateObserved_newPodClearsReportedPodUidWithReportedAt() {
+    observe(T0);
+    settings.writeAgentState(
+        agent, WORKING, List.of("WP-1"), T1, T0.plusMinutes(1), "pod-a", T0.plusSeconds(5));
+    assertThat(settings.find(agent).orElseThrow().agentReportedPodUid()).isEqualTo("pod-a");
+
+    observe(T2);
+
+    Row row = settings.find(agent).orElseThrow();
+    assertThat(row.agentReportedAt()).isNull();
+    assertThat(row.agentReportedPodUid()).isNull();
+    assertThat(row.agentReportedPodStartedAt()).isNull();
+  }
+
+  /**
+   * 새 Pod 관찰 뒤에 도착한 옛 Pod 정체의 늦은 상태 보고는 새 Pod 의 보고로 남기지 않는다(WP-2010 R4) — 보고 시각이 새 Pod 시작보다 늦어도 그
+   * 보고의 정체가 새로 관찰한 정체와 다르면 지운다. 정체가 같으면(새 Pod 의 보고) 그대로 남는다.
+   */
+  @Test
+  void updateObserved_newPodClearsLateReportFromOtherIdentity() {
+    observeWithUid(T0, "pod-a");
+    // 옛 Pod(pod-a)의 늦은 보고 — 받은 시각은 새 Pod 시작(T1) 뒤다.
+    settings.writeAgentState(agent, WORKING, List.of("WP-1"), null, T1.plusMinutes(1), "pod-a", T0);
+
+    Row row = observeWithUid(T1, "pod-b").get(agent).row();
+
+    assertThat(row.agentState()).isNull();
+    assertThat(row.agentReportedAt()).isNull();
+    assertThat(row.agentReportedPodUid()).isNull();
+  }
+
+  /** 새 Pod 정체가 낸 보고(새 Pod 시작 뒤)는 새 Pod 관찰이 지우지 않는다(WP-2010 R4 의 반대쪽). */
+  @Test
+  void updateObserved_newPodKeepsReportFromNewIdentity() {
+    observeWithUid(T0, "pod-a");
+    settings.writeAgentState(agent, WORKING, List.of("WP-1"), null, T1.plusMinutes(1), "pod-b", T1);
+
+    Row row = observeWithUid(T1, "pod-b").get(agent).row();
+
+    assertThat(row.agentState()).isEqualTo("WORKING");
+    assertThat(row.agentReportedPodUid()).isEqualTo("pod-b");
+  }
+
   /** 진입점 차단 보고에 Pod 시작 시각을 함께 저장하고, 차단이 풀리면(message null) 비운다. */
   @Test
   void updatePaneBlocked_storesAndClearsPodStart() {
-    settings.updatePaneBlocked(agent, "막힘", T1, null, T2);
+    settings.updatePaneBlocked(agent, "막힘", T1, null, T2, "pod-b");
     Row blocked = settings.find(agent).orElseThrow();
     assertThat(blocked.paneBlockedPodStartedAt().toInstant()).isEqualTo(T2.toInstant());
+    assertThat(blocked.paneBlockedPodUid()).isEqualTo("pod-b");
 
-    settings.updatePaneBlocked(agent, null, null, null, T2);
-    assertThat(settings.find(agent).orElseThrow().paneBlockedPodStartedAt()).isNull();
+    settings.updatePaneBlocked(agent, null, null, null, T2, "pod-b");
+    Row cleared = settings.find(agent).orElseThrow();
+    assertThat(cleared.paneBlockedPodStartedAt()).isNull();
+    assertThat(cleared.paneBlockedPodUid()).isNull();
   }
 
   /** 지금 정체·바로 앞 정체를 직접 심는다 — 재시작 직후 상황을 재현하기 위해(WP-1968 반려 ①·②). */
@@ -591,8 +777,8 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   }
 
   /**
-   * 칸은 정체로만 옛 Pod 인지 가른다(WP-1968 반려 ③) — 노드 시계가 빠른 죽은 Pod 가 지금보다 **뒤**인 시작 시각을 들고 있어도, 정체가 다르면 옛
-   * Pod 칸이라 메모리 거르기와 SQL 지우기가 같이 지운다. 정체를 모르는 칸(옛 플러그인)은 지금까지의 시각 규칙 그대로다.
+   * 정체가 다른 칸은 시각과 무관하게 옛 Pod 칸이다(WP-1968 반려 ③·WP-2010) — 노드 시계가 빠른 죽은 Pod 가 지금보다 **뒤**인 시작 시각을 들고
+   * 있어도, 정체가 다르면 옛 Pod 칸이라 메모리 거르기와 SQL 지우기가 같이 지운다. 정체를 모르는 칸(옛 플러그인)은 지금까지의 시각 규칙 그대로다.
    */
   @Test
   void slotPodUid_filtersOldPodByIdentityNotByClock() {
@@ -646,7 +832,7 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void updateObserved_firstObservationKeepsAgentState() {
     observe(T0); // 지금까지의 관찰 — 정체 칸은 아직 비어 있다(배포 전처럼)
-    settings.writeAgentState(agent, WORKING, List.of("WP-1"), T1, OffsetDateTime.now());
+    settings.writeAgentState(agent, WORKING, List.of("WP-1"), T1, OffsetDateTime.now(), null, null);
 
     Row row = observeWithUid(T0, "pod-a").get(agent).row();
 
@@ -663,7 +849,7 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void updateObserved_sameIdentityWithDifferentStartKeepsAgentState() {
     observeWithUid(T2, "pod-a"); // 지금 정체를 이미 밝혔다(정체만 적은 첫 보고)
-    settings.writeAgentState(agent, WORKING, List.of("WP-1"), T1, OffsetDateTime.now());
+    settings.writeAgentState(agent, WORKING, List.of("WP-1"), T1, OffsetDateTime.now(), null, null);
 
     // 같은 정체, 다른 시작 시각 — runner 가 정확한 Pod 시작을 다시 알린 것이다.
     Row row = observeWithUid(T1, "pod-a").get(agent).row();
@@ -823,7 +1009,7 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void updateObserved_blankPodUidKeepsIdentityAndAgentState() {
     seedIdentity("pod-a", null, T0);
-    settings.writeAgentState(agent, WORKING, List.of("WP-1"), T1, OffsetDateTime.now());
+    settings.writeAgentState(agent, WORKING, List.of("WP-1"), T1, OffsetDateTime.now(), null, null);
 
     assertThat(observeWithUid(T0, "  ")).containsKey(agent);
 

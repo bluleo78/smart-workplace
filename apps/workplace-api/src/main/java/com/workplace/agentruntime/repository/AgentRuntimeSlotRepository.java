@@ -281,34 +281,93 @@ public class AgentRuntimeSlotRepository {
   }
 
   /**
-   * 이 칸이 지금 Pod 가 뜨기 전(옛 Pod)의 보고인지(WP-1253·WP-1958·WP-1968 반려 ③). 칸과 지금 Pod 의 정체를 **모두** 아는(두 값에
-   * 공백이 없는) 경우엔 정체로만 가른다 — 지금 Pod 와 다르면 옛 Pod 칸이라 어떤 시작 시각이든 뺀다. 노드 시계가 빨라 죽은 Pod 가 높은 시작 시각을 들고
-   * 있어도 칸이 남지 않는다. 정체를 하나라도 모르면(옛 플러그인·관찰 전) 기존 시각 규칙으로 그대로 가른다.
+   * 한 보고(칸 한 줄·합친 AI 상태·차단 기록)가 옛 Pod 의 것인지 가르는 **한 규칙**(WP-2010 — 칸 거르기 메모리·SQL 과 적용 판정이 함께 쓴다).
+   * 위에서부터 처음 맞는 갈래로 정한다(WP-1958·WP-1968·WP-2010).
+   *
+   * <ol>
+   *   <li>정체를 둘 다 알고 다르면 시각과 무관하게 옛 것이다(노드 시계가 빨라도 죽은 Pod 가 남지 않게).
+   *   <li>보고가 Pod 시작 시각을 실었으면 지금 Pod 시작과 {@link #isOlderPod} 로 견준다 — 정체가 같아도 이 갈래다. 같은 Pod 안 컨테이너
+   *       재시작은 uid 가 같아 시각으로만 가를 수 있고, 이를 빼면 앞 컨테이너의 WORKING 칸이 남아 설정이 영영 나가지 않는다.
+   *   <li>시작 시각 없이 정체가 같으면 옛 것이 아니다 — 서버 시계와 노드 시계를 견주면 지금 Pod 의 보고가 지워질 수 있다.
+   *   <li>그 밖(정체를 모르는 시각 없는 보고)은 보고 시각이 {@code timelessBasis} 의 cutoff({@link #podStartCutoff})보다
+   *       앞서는지로 가른다. 칸 거르기는 보고가 올릴 수 있는 기준이 아니라 runner 가 관찰한 started_at 을 쓴다(빠른 시계의 보고가 기준을 올려 지금
+   *       Pod 칸을 되돌릴 수 없이 지우지 않게).
+   * </ol>
+   *
+   * <p>견줄 값을 모르면 그 갈래에서는 옛 것이 아니다.
+   *
+   * @param reportPodUid 보고의 Pod 정체(모르면 null·공백)
+   * @param reportPodStartedAt 보고가 실은 Pod 시작 시각(모르면 null)
+   * @param reportedAt 보고를 받은 시각 — 서버 시계(모르면 null)
+   * @param currentPodUid 지금 Pod 정체(모르면 null·공백)
+   * @param currentPodStart 시작 시각을 실은 보고와 견줄 지금 Pod 시작(칸 거르기는 {@link #currentPodStart} 로 합친 값, 모르면
+   *     null)
+   * @param timelessBasis 시각 없는 보고와 견줄 기준(칸 거르기는 관찰한 started_at, 모르면 null)
+   */
+  public static boolean isOldPodReport(
+      String reportPodUid,
+      OffsetDateTime reportPodStartedAt,
+      OffsetDateTime reportedAt,
+      String currentPodUid,
+      OffsetDateTime currentPodStart) {
+    return isOldPodReport(
+        reportPodUid,
+        reportPodStartedAt,
+        reportedAt,
+        currentPodUid,
+        currentPodStart,
+        currentPodStart);
+  }
+
+  /** 시각 없는 보고의 기준({@code timelessBasis})을 따로 받는 판정 — 규칙은 위 문서와 같다. */
+  public static boolean isOldPodReport(
+      String reportPodUid,
+      OffsetDateTime reportPodStartedAt,
+      OffsetDateTime reportedAt,
+      String currentPodUid,
+      OffsetDateTime currentPodStart,
+      OffsetDateTime timelessBasis) {
+    boolean bothKnown = !isNoIdentity(reportPodUid) && !isNoIdentity(currentPodUid);
+    // ① 정체가 다르면 시각과 무관하게 옛 것.
+    if (bothKnown && !reportPodUid.equals(currentPodUid)) return true;
+    // ② 시작 시각이 있으면 같은 노드 시계끼리 견준다(같은 정체 — 컨테이너 재시작 — 도).
+    if (reportPodStartedAt != null) return isOlderPod(reportPodStartedAt, currentPodStart);
+    // ③ 시각 없는 같은 정체는 서버 시계와 노드 시계를 견주지 않는다.
+    if (bothKnown) return false;
+    // ④ 정체를 모르는 시각 없는 보고만 기준과 견준다.
+    return timelessBasis != null
+        && reportedAt != null
+        && reportedAt.isBefore(podStartCutoff(timelessBasis));
+  }
+
+  /**
+   * 이 칸이 지금 Pod 가 뜨기 전(옛 Pod·같은 Pod 의 재시작 전 컨테이너)의 보고인지(WP-1253·WP-1958·WP-1968 반려 ③·WP-2010) — 칸의
+   * 값으로 {@link #isOldPodReport} 를 부른다(규칙·까닭은 그쪽).
    *
    * @param slot 칸 한 줄
-   * @param currentPodUid 지금 Pod 정체(null·공백이면 시각 규칙)
-   * @param observedStartedAt runner 가 관찰한 지금 Pod 시작 시각
-   * @param currentPodStart {@link #currentPodStart} 로 합친 지금 Pod 시작 시각
+   * @param currentPodUid 지금 Pod 정체(모르면 null·공백)
+   * @param observedStartedAt runner 가 관찰한 지금 Pod 시작 — 시각 없는 칸의 기준(모르면 null)
+   * @param currentPodStart {@link #currentPodStart} 로 합친 지금 Pod 시작 — 시각 있는 칸의 기준(모르면 null)
    */
   public static boolean isFromOldPod(
       Slot slot,
       String currentPodUid,
       OffsetDateTime observedStartedAt,
       OffsetDateTime currentPodStart) {
-    if (!isNoIdentity(slot.podUid()) && !isNoIdentity(currentPodUid)) {
-      return !slot.podUid().equals(currentPodUid);
-    }
-    if (slot.podStartedAt() != null) {
-      return isOlderPod(slot.podStartedAt(), currentPodStart);
-    }
-    return observedStartedAt != null
-        && slot.reportedAt().isBefore(podStartCutoff(observedStartedAt));
+    return isOldPodReport(
+        slot.podUid(),
+        slot.podStartedAt(),
+        slot.reportedAt(),
+        currentPodUid,
+        currentPodStart,
+        observedStartedAt);
   }
 
   /**
-   * AI 별 지금 Pod 판정 묶음(WP-1958·WP-1968 반려 ③) — {@code observed} 는 runner 관찰값, {@code current} 는
-   * 보고값까지 합친 값(둘 다 null 가능), {@code podUid} 는 지금 Pod 정체(모르면 null — 그때는 시각 규칙). 빈 정체(공백)는 만들 때 null
-   * 로 맞춘다 — 메모리 판정이 공백을 「모른다」로 보는데 SQL 만 실제 값으로 봐 형제 칸을 지우기 때문이다(WP-1968 2차 반려 ⑤).
+   * AI 별 지금 Pod 판정 묶음(WP-1958·WP-1968 반려 ③·WP-2010) — {@code observed} 는 runner 관찰값(시각 없는 칸의 기준),
+   * {@code current} 는 보고값까지 합친 값(시각 있는 칸의 기준), {@code podUid} 는 지금 Pod 정체(모르면 null). 쓰임은 {@link
+   * #isOldPodReport}. 빈 정체(공백)는 만들 때 null 로 맞춘다 — 메모리 판정이 공백을 「모른다」로 보는데 SQL 만 실제 값으로 봐 형제 칸을 지우기
+   * 때문이다(WP-1968 2차 반려 ⑤).
    */
   public record PodStarts(OffsetDateTime observed, OffsetDateTime current, String podUid) {
     public PodStarts {
@@ -317,9 +376,8 @@ public class AgentRuntimeSlotRepository {
   }
 
   /**
-   * 옛 Pod 칸({@link #isFromOldPod} — 정체를 아는 칸은 정체, 나머지는 같은 기준 {@link #podStartCutoff})을 한 문장으로 지운다.
-   * 정체를 아는 칸은 지금 Pod 정체(current)와 다른 칸만, 정체를 모르는 칸은 지금까지 쓰던 시각 기준으로 가른다. 새 Pod 칸이 이미 보고했으면 그 보고는
-   * 정체·시각 모두 지금 것이라 지워지지 않는다. 호출자는 메모리에서 옛 Pod 칸을 거른 AI 에 대해서만 부른다 — 지울 것이 없는 보고마다 DELETE 를 보내지 않게.
+   * 옛 Pod 칸({@link #isFromOldPod})을 한 문장으로 지운다 — 메모리 판정과 같은 {@link #isOldPodReport} 규칙의 SQL 판이다.
+   * 호출자는 메모리에서 옛 Pod 칸을 거른 AI 에 대해서만 부른다 — 지울 것이 없는 보고마다 DELETE 를 보내지 않게.
    *
    * @param starts AI id → 지금 Pod 판정(시각·정체)
    * @param keepSlotKey 지우지 않을 칸 키 — 보고 흐름의 방금 보고한 칸(없으면 null)
@@ -349,15 +407,14 @@ public class AgentRuntimeSlotRepository {
     Field<OffsetDateTime> vObs = v.field("obs_cutoff", OffsetDateTime.class);
     Field<OffsetDateTime> vCur = v.field("cur_cutoff", OffsetDateTime.class);
     Field<String> vUid = v.field("pod_uid", String.class);
-    // 정체를 아는 칸은 정체로, 모르는 칸은 메모리 판정(isFromOldPod)과 같은 시각 규칙으로 — 두 판정이 갈리면 지우고도 읽기에서 다시 걸러
-    // 칸이 남는다(WP-1968 반려 ③).
+    // isOldPodReport 문서의 ①~④ 를 그대로 옮긴다 — 두 판정이 갈리면 지우고도 읽기에서 다시 걸러 칸이 남는다.
+    // NULL 비교는 거짓이 되므로 기준을 모르는 갈래는 지우지 않는다(메모리 판정의 「모르면 옛 것이 아니다」와 같다).
     Condition identityOld = t.POD_UID.isNotNull().and(vUid.isNotNull()).and(t.POD_UID.ne(vUid));
-    Condition byTime =
-        t.POD_STARTED_AT
-            .isNotNull()
-            .and(t.POD_STARTED_AT.lt(vCur))
-            .or(t.POD_STARTED_AT.isNull().and(t.REPORTED_AT.lt(vObs)));
-    Condition oldPod = identityOld.or(byTime.and(t.POD_UID.isNull().or(vUid.isNull())));
+    Condition identitySame = t.POD_UID.isNotNull().and(vUid.isNotNull()).and(t.POD_UID.eq(vUid));
+    Condition olderStart = t.POD_STARTED_AT.isNotNull().and(t.POD_STARTED_AT.lt(vCur));
+    Condition timelessOld =
+        t.POD_STARTED_AT.isNull().andNot(identitySame).and(t.REPORTED_AT.lt(vObs));
+    Condition oldPod = identityOld.or(olderStart).or(timelessOld);
     return new LinkedHashSet<>(
         dsl.deleteFrom(t)
             .using(v)

@@ -603,6 +603,45 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   }
 
   /**
+   * 같은 Pod 안 컨테이너 재시작(restartPolicy Always — uid 가 같다)에서 새 컨테이너가 시작에 실패하면, 칸·차단 보고가 모두 같은 podUid 를
+   * 실어도 앞 컨테이너의 WORKING 칸(시작이 새 컨테이너보다 60초 이름)이 빠지고 미뤄 둔 설정이 지금 적용된다(WP-2010 최종 리뷰 F1 · WP-1969).
+   * 정체가 같다고 시각을 보지 않으면 앞 컨테이너 칸이 남아 영영 쉴 때까지 기다린다.
+   */
+  @Test
+  void 같은_Pod_정체의_컨테이너_재시작_차단은_앞_컨테이너_칸을_빼고_지금_적용한다() throws Exception {
+    OffsetDateTime newContainer =
+        OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+    OffsetDateTime oldContainer = newContainer.minusSeconds(60);
+    setObservedPodUid("pod-a");
+    seedMerged(oldContainer, oldContainer, "WP-1");
+    seedUnapplied(2, 1);
+    slots.upsert(
+        agent,
+        "WP",
+        AgentState.WORKING,
+        "WP-1",
+        null,
+        oldContainer.plusSeconds(5),
+        oldContainer,
+        "pod-a");
+    appEvents.clear();
+
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"시작 실패\",\"generation\":1,\"podUid\":\"pod-a\",\"podStartedAt\":\""
+                + newContainer
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    assertThat(slotCount()).isZero();
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_UID)).isEqualTo("pod-a");
+    // 차단으로 지금 적용이 되어 runner 를 한 번 깨운다.
+    assertThat(desiredEvents()).isEqualTo(1);
+  }
+
+  /**
    * 보이는 칸은 그대로(차단은 관찰 generation 이라 화면 사유가 가려짐, 합친 상태도 그대로)인데 차단으로 적용 판정만 쉴 때 → 지금으로 바뀌면 화면 알림 한 번과
    * runner 깨우기 한 번이 나간다(WP-2000).
    */
@@ -724,7 +763,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
 
   /**
    * 새 Pod 를 아직 관찰하지 못한(started_at 없음) AI 의 옛 WORKING 칸은 BLOCKED 로 다시 합치지 않는다(WP-1969) — 옛 칸을 가를 기준이
-   * 없어 합치면 이미 지워진 AI 상태가 되살아난다. 칸 행은 그대로 두고 AI 상태는 비어 있어야 한다.
+   * 없어 합치면 이미 지워진 AI 상태가 되살아난다. 칸 행은 그대로 두고 AI 상태는 비어 있어야 한다(WP-2010 R1 — 시각 없는 칸은 관찰한 시작과만 견준다).
    */
   @Test
   void 새_Pod_를_관찰하기_전의_차단은_옛_칸을_되살리지_않는다() throws Exception {
@@ -739,6 +778,67 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
     assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)).isNull();
     assertThat(slotCount()).isEqualTo(1);
+  }
+
+  /**
+   * WP-2010 R1 — 관찰(started_at) 전에는 칸 차단이 올린 지금 Pod 시작이 있어도 시각 없는 칸을 가르지 않는다. 보고가 올린 기준은 빠른 시계의 보고가
+   * 올릴 수 있어, 그것과 견주면 지금 Pod 의 시각 없는 칸을 되돌릴 수 없이 지운다. 정체는 이미 알아(MATCH — 처음 밝히는 ADOPT 는 started_at 을
+   * 함께 적는다) 차단 보고는 기준(reported_pod_started_at)만 올린다. 설정 행은 AI 상태 WORKING, 시각 없는 칸은 지금 Pod 시작(1분
+   * 전)보다 앞선 10분 전 보고 — 칸도 AI 상태도 그대로 남는다(관찰이 started_at 을 밝힌 뒤 정리된다).
+   */
+  @Test
+  void blockedBeforeObservation_keepsTimelessSlotUntilObserved() throws Exception {
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
+    setObservedPodUid("pod-b");
+    setPreviousPodUid(null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, "WP-1")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    slots.upsert(
+        agent,
+        "WP",
+        AgentState.WORKING,
+        "WP-1",
+        null,
+        OffsetDateTime.now().minusMinutes(10),
+        null,
+        null);
+
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"시작 실패\",\"podUid\":\"pod-b\",\"podStartedAt\":\""
+                + podStart
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    assertThat(slotCount()).isEqualTo(1);
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+  }
+
+  /** WP-2010 — 같은 조건에서 시각 없는 칸이 지금 Pod 시작 뒤(지금)에 보고됐으면 남고 AI 상태도 WORKING 그대로다. */
+  @Test
+  void blockedBeforeObservation_keepsTimelessCurrentSlot() throws Exception {
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
+    setObservedPodUid(null);
+    setPreviousPodUid(null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, "WP-1")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, OffsetDateTime.now(), null, null);
+
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"시작 실패\",\"podUid\":\"pod-b\",\"podStartedAt\":\""
+                + podStart
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    assertThat(slotCount()).isEqualTo(1);
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
   }
 
   /** 같은 상황에서 쉴 때 적용 대기 중이면 저장된 차단을 보고 지금 적용으로 판정해 runner 에 알린다(WP-1969). */

@@ -157,7 +157,7 @@ public class AgentPaneReportService {
     Long nextBlockedGeneration = blocked ? req.generation() : null;
     OffsetDateTime nextBlockedPod = blocked ? pod : null;
     settings.updatePaneBlocked(
-        userId, nextMessage, nextBlockedAt, nextBlockedGeneration, nextBlockedPod);
+        userId, nextMessage, nextBlockedAt, nextBlockedGeneration, nextBlockedPod, req.podUid());
     // OK 는 칸을 합치지 않고, 아래 상태 변화 판정만 한다(WP-1969).
     Row merged = blocked ? mergeSlotsOnBlock(userId, before, basisAfter, now) : before;
     // 이 보고로 미뤄 둔 generation 이 지금 적용으로 바뀌면 runner 를 한 번 깨운다(WP-1969) — BLOCKED 든 OK 든 같다.
@@ -212,8 +212,12 @@ public class AgentPaneReportService {
    * <p>컨테이너만 재시작해 새 컨테이너가 시작에 실패하면 BLOCKED 만 오고 칸 보고는 오지 않는다. 그래서 올라간 Pod 시작으로 앞 컨테이너의 WORKING 칸을
    * 빼지 않으면 AI 가 영영 작업 중으로 보이고 「쉴 때 적용」 설정이 나가지 않는다.
    *
-   * <p>관찰한 Pod 시작(started_at)이 없으면 시각 없는 옛 칸은 가를 수 없다. 이때 AI 상태까지 비어 있으면 합쳐 봐야 이미 지운 상태가 그 칸에서 되살아날
-   * 뿐이라, 합치지 않고 차단을 쓴 뒤의 행을 읽는다. AI 상태가 남아 있으면 시각 있는 옛 칸을 빼야 하므로 합친다.
+   * <p>옛 칸을 가르는 규칙은 {@link AgentRuntimeSlotRepository#isOldPodReport} 한 곳이다 — 같은 Pod 안 컨테이너 재시작도 칸이
+   * 실은 Pod 시작으로 가른다.
+   *
+   * <p>관찰한 Pod 시작(started_at)이 없으면 시각 없는 옛 칸은 가를 수 없다(시각 없는 칸의 기준은 관찰값이다 — WP-2010 R1). 이때 AI 상태까지
+   * 비어 있으면 합쳐 봐야 이미 지운 상태가 그 칸에서 되살아날 뿐이라, 합치지 않고 차단을 쓴 뒤의 행을 읽는다. AI 상태가 남아 있으면 시각 있는 옛 칸을 빼야 하므로
+   * 합친다.
    */
   private Row mergeSlotsOnBlock(
       long userId, Row before, OffsetDateTime basisAfter, OffsetDateTime now) {

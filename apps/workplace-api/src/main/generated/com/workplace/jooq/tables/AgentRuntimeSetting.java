@@ -253,6 +253,27 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, String> PREVIOUS_POD_UID = createField(DSL.name("previous_pod_uid"), SQLDataType.CLOB, this, "");
 
+    /**
+     * The column
+     * <code>public.agent_runtime_setting.agent_reported_pod_uid</code>.
+     * agent_reported_at 을 낸 칸의 Pod 정체(metadata.uid) — 정체를 모르는 보고는 NULL
+     */
+    public final TableField<AgentRuntimeSettingRecord, String> AGENT_REPORTED_POD_UID = createField(DSL.name("agent_reported_pod_uid"), SQLDataType.CLOB, this, "agent_reported_at 을 낸 칸의 Pod 정체(metadata.uid) — 정체를 모르는 보고는 NULL");
+
+    /**
+     * The column
+     * <code>public.agent_runtime_setting.agent_reported_pod_started_at</code>.
+     * agent_reported_at 을 낸 같은 칸의 Pod 시작 시각 — 시각을 모르는 보고는 NULL
+     */
+    public final TableField<AgentRuntimeSettingRecord, OffsetDateTime> AGENT_REPORTED_POD_STARTED_AT = createField(DSL.name("agent_reported_pod_started_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "agent_reported_at 을 낸 같은 칸의 Pod 시작 시각 — 시각을 모르는 보고는 NULL");
+
+    /**
+     * The column
+     * <code>public.agent_runtime_setting.pane_blocked_pod_uid</code>. 칸
+     * 차단(pane_blocked_*)을 보고한 Pod 정체(metadata.uid) — 차단이 풀리면 NULL
+     */
+    public final TableField<AgentRuntimeSettingRecord, String> PANE_BLOCKED_POD_UID = createField(DSL.name("pane_blocked_pod_uid"), SQLDataType.CLOB, this, "칸 차단(pane_blocked_*)을 보고한 Pod 정체(metadata.uid) — 차단이 풀리면 NULL");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
