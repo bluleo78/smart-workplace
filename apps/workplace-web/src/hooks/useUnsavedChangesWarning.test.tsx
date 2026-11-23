@@ -25,9 +25,9 @@ describe('useUnsavedChangesWarning', () => {
     expect(dispatchBeforeUnload()).toBe(true)
   })
 
-  it('세션에서 복원되는 입력은 새로고침 경고 없이 자동 새로고침만 막는다', () => {
-    renderHook(() => useUnsavedChangesWarning(true, { warnOnBeforeUnload: false }))
-    expect(dispatchBeforeUnload()).toBe(false)
+  it('세션에 저장되는 입력도 탭을 닫을 때 경고하고 자동 새로고침을 막는다', () => {
+    renderHook(() => useUnsavedChangesWarning(true))
+    expect(dispatchBeforeUnload()).toBe(true)
     expect(hasUnsavedInput()).toBe(true)
   })
 

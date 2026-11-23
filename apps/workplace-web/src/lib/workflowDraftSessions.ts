@@ -72,13 +72,7 @@ export function getWorkflowDraftSessions(key: string | null): ReadonlyMap<number
   return next
 }
 
-/** 초안 쓰기가 실패했으면 표준 새로고침 경고를 유지할 수 있게 저장 가능 여부를 돌려준다. */
-export function canPersistWorkflowDraftSessions(key: string | null): boolean {
-  if (key === null) return false
-  return storageWritable.get(key) ?? readStorageValue(key) !== undefined
-}
-
-/** 저장 실패 여부를 호출자에게 알려, 복원할 수 없으면 새로고침 경고를 유지한다. */
+/** 저장 결과를 호출자에게 알려 세션 저장 실패와 메모리 초안 상태를 구분한다. */
 export function writeWorkflowDraftSessions(key: string | null, sessions: ReadonlyMap<number, WorkflowDraftSession>): boolean {
   if (key === null) return false
   try {
@@ -168,10 +162,12 @@ function publishWorkflowDraftSessions(key: string, sessions: ReadonlyMap<number,
   return saved
 }
 
+/** 저장소 안의 초안 변경을 같은 사용자 범위의 화면에 알려 생명주기 밖 응답도 반영한다. */
 function notifyWorkflowDraftSessions(key: string): void {
   for (const listener of listeners.get(key) ?? []) listener()
 }
 
+/** sessionStorage 접근 실패를 undefined 로 돌려 저장 불가 상태와 빈 저장값을 구분한다. */
 function readStorageValue(key: string): string | null | undefined {
   try {
     return window.sessionStorage.getItem(key)

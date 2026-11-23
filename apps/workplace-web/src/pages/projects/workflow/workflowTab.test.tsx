@@ -56,6 +56,20 @@ it('앱 안에서 다른 프로젝트 탭을 다녀와도 저장하지 않은 YA
   expect(await screen.findByRole('textbox', { name: '워크플로우 YAML' })).toHaveValue(changedYaml)
 })
 
+it('sessionStorage 에 저장된 미저장 YAML도 탭 닫기 경고를 유지한다', async () => {
+  renderWorkflow()
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), {
+    target: { value: 'name: 탭 닫기 경고' },
+  })
+  const storageKey = Object.keys(window.sessionStorage).find((key) => key.startsWith('workflow-drafts:'))!
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).not.toBeNull())
+
+  const event = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(event)
+
+  expect(event.defaultPrevented).toBe(true)
+})
+
 it('탭을 떠난 사이 저장이 끝나면 세션 초안을 지우고 저장된 YAML을 보여 준다', async () => {
   renderWorkflow({ multiple: true })
   const changedYaml = 'name: 저장 완료\nnodes:\n  review: {}'

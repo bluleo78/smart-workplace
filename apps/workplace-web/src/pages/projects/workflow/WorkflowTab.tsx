@@ -18,8 +18,8 @@ import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { apiErrorResponse, apiErrorStatus, extractApiError, isConflictError } from '@/lib/api-error'
 import type { WorkflowDraftSession } from '@/lib/workflowDraftSessions'
 import {
-  canPersistWorkflowDraftSessions, getWorkflowDraftGeneration, getWorkflowDraftSessions,
-  subscribeWorkflowDraftSessions, updateWorkflowDraftSession, workflowDraftStorageKey,
+  getWorkflowDraftGeneration, getWorkflowDraftSessions, subscribeWorkflowDraftSessions,
+  updateWorkflowDraftSession, workflowDraftStorageKey,
 } from '@/lib/workflowDraftSessions'
 import {
   useWorkflow, useWorkflowVersion, useWorkflowVersions, workflowApi, type WorkflowDetail, workflowKeys, type WorkflowProblem,
@@ -58,16 +58,12 @@ function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowC
   const draftStorageKey = workflowDraftStorageKey(user?.id, activeTenant?.tenantId, projectId)
   const [selectedId, setSelectedId] = useState<number>()
   const [creating, setCreating] = useState(false)
-  const draftStorageAvailable = canPersistWorkflowDraftSessions(draftStorageKey)
   const subscribe = useCallback((listener: () => void) => subscribeWorkflowDraftSessions(draftStorageKey, listener), [draftStorageKey])
   const getSnapshot = useCallback(() => getWorkflowDraftSessions(draftStorageKey), [draftStorageKey])
   const drafts = useSyncExternalStore(subscribe, getSnapshot, () => getWorkflowDraftSessions(null))
   const queryClient = useQueryClient()
   const summaries = workflows.data ?? []
-  useUnsavedChangesWarning(
-    [...drafts.values()].some(({ edit }) => edit !== null),
-    { warnOnBeforeUnload: !draftStorageAvailable },
-  )
+  useUnsavedChangesWarning([...drafts.values()].some(({ edit }) => edit !== null))
 
   const selected = summaries.find((item) => item.id === selectedId) ?? summaries[0]
   const id = selected?.id

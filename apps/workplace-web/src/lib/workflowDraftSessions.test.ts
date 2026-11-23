@@ -3,7 +3,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
 import {
-  canPersistWorkflowDraftSessions, clearWorkflowDraftSessions, getWorkflowDraftGeneration, getWorkflowDraftSessions,
+  clearWorkflowDraftSessions, getWorkflowDraftGeneration, getWorkflowDraftSessions,
   invalidateWorkflowDraftSessions, pruneWorkflowDraftSessions, readWorkflowDraftSessions, updateWorkflowDraftSession,
   workflowDraftStorageKey, writeWorkflowDraftSessions,
 } from './workflowDraftSessions'
@@ -68,7 +68,6 @@ it('세션 저장소 쓰기가 실패해도 메모리 초안을 유지하고 복
   const edit = { edit: { yaml: 'draft', expectedDraftUpdatedAt: 'old', baseYaml: '' }, conflict: false }
   try {
     expect(updateWorkflowDraftSession(key, 42, edit)).toBe(false)
-    expect(canPersistWorkflowDraftSessions(key)).toBe(false)
     expect(getWorkflowDraftSessions(key).get(42)).toEqual(edit)
   } finally {
     write.mockRestore()
