@@ -324,9 +324,29 @@ public class WorkflowRunRepository {
   }
 
   /**
-   * 방문 행을 잠근다(SELECT … FOR UPDATE) — 타이머가 같은 방문을 동시에 처리하지 않게 한다. 방문이 그새 ACTIVE 가 아니게 됐으면(떠남) false.
+   * 열린 실행의 활성 방문을 잠근다 — 타이머가 같은 방문을 동시에 처리하지 않게 하고, 후보 조회 뒤 멈춘(SUSPENDED)·취소·완료된 실행에 알리지 않게
+   * 한다(WP-1987 리뷰). 호출자가 아는 runId 로 실행 행을 바로 잠근다. 방문이 그새 ACTIVE 가 아니거나(떠남) 실행이 RUNNING·WAITING 이
+   * 아니면 false.
+   *
+   * <p>두 단계로, 실행 행 → 방문 행 순서로 잠근다(노드 이동·멈춤이 실행 행을 먼저 고치는 순서와 같아 교착이 없다):
+   *
+   * <ol>
+   *   <li>실행 행 FOR SHARE + 상태 조건 — 커밋 안 된 멈춤·취소(실행 행 UPDATE)가 있으면 그 커밋을 기다리고, READ COMMITTED 의
+   *       재확인으로 바뀐 상태를 보고 건너뛴다. KEY SHARE 는 키가 아닌 열 UPDATE 와 충돌하지 않아 상태 변경을 기다리지 못하므로 SHARE 를 쓴다.
+   *       반대로 이 방문 트랜잭션이 끝날 때까지 그 실행의 이동·멈춤이 기다리지만, 방문 트랜잭션은 이벤트·알림 몇 건이라 짧다.
+   *   <li>방문 행 FOR UPDATE + ACTIVE 조건 — 다른 파드의 타이머와 같은 방문을 겹쳐 처리하지 않는다.
+   * </ol>
    */
-  public boolean lockActiveNodeRun(long nodeRunId) {
+  public boolean lockActiveNodeRunOfOpenRun(long runId, long nodeRunId) {
+    boolean runOpen =
+        dsl.select(WORKFLOW_RUN.ID)
+            .from(WORKFLOW_RUN)
+            .where(WORKFLOW_RUN.ID.eq(runId))
+            .and(WORKFLOW_RUN.STATUS.in("RUNNING", "WAITING"))
+            .forShare()
+            .fetchOptional()
+            .isPresent();
+    if (!runOpen) return false;
     return dsl.select(NODE_RUN.ID)
         .from(NODE_RUN)
         .where(NODE_RUN.ID.eq(nodeRunId))
