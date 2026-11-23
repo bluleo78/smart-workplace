@@ -33,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
  * WorkflowAgentWorkBridge#onServerRunSuccess}. 이동 없이 끝났으면 실행 id 로 그 AI 의 마지막 도는 실행의 끝인지 가려({@link
  * AgentServerRunRepository}) 그때만 작업 중 행을 대기 중(WAITING + {@link
  * AgentWorkState#NOTE_FINISHED_WITHOUT_MOVE})으로 내린다 — 「일했고 쉬는 중」이라 이슈 완료 때 COMPLETED 로 닫히고 알림도 없다.
+ * 다른 실행이 도는 중의 실패 끝은 미뤘다가 마지막 실행이 끝날 때 따른다(agent_server_run 의 V338 COMMENT).
  */
 @Service
 @Transactional
@@ -54,6 +55,9 @@ public class ServerAgentRunService {
    * 않았다).
    */
   static final Duration RUN_STALE_AFTER = Duration.ofMinutes(30);
+
+  /** 끝난 실행 id 를 기억해 늦은 STARTED 를 무시하고 미룬 실패를 따르는 기간 — 묘비는 오래된 행 정리가 지우므로 같은 값이어야 한다. */
+  static final Duration FINISHED_MEMORY = RUN_STALE_AFTER;
 
   /** note 한도 — 보고 API 와 같은 값을 쓴다. */
   static final int NOTE_MAX = AgentWorkReportService.NOTE_MAX;
@@ -81,9 +85,10 @@ public class ServerAgentRunService {
     // 「남은 실행 없음」 판정 뒤 새 실행의 STARTED 가 먼저 커밋되지 않게(이동·조치와 같은 이슈 우선 순서). 삭제된 이슈는 오지 않는다.
     IssueRow issue = issueRepository.findActiveByIdForNoKeyUpdate(issueId).orElse(null);
     if (issue == null) return;
-    // 끝난 실행은 이른 return(담당에서 빠짐·반복이 맡음) 전에 도는 실행 표에서 지운다 — 남으면 뒤의 다른 실행 끝을 막는다.
-    if (runId != null && ServerAgentRunReport.FINISHED.equals(report.phase())) {
-      serverRunRepository.deleteFinished(issueId, agentId, runId);
+    boolean finished = ServerAgentRunReport.FINISHED.equals(report.phase());
+    // 끝남은 이른 return(담당 아님·반복이 맡음) 전에 표시한다 — 도는 행으로 남거나 늦은 STARTED 가 되살리지 않게.
+    if (runId != null && finished) {
+      serverRunRepository.markFinished(issueId, agentId, runId, RUN_STALE_AFTER);
     }
     if (!agentWorkService.isLiveFor(issue, agentId)) return;
     // 그 AI 의 반복이 이 이슈에 있으면 반복이 기록을 맡는다 — 코멘트 실행이 「다음 회차 대기」를 덮지 않게. 지운 반복(묘비)은 맡지 않는다.
@@ -93,29 +98,43 @@ public class ServerAgentRunService {
         .isPresent()) {
       return;
     }
-    if (runId != null && ServerAgentRunReport.STARTED.equals(report.phase())) {
-      serverRunRepository.insertStarted(issueId, agentId, runId, RUN_STALE_AFTER);
+    // 이미 끝난 실행의 늦은 STARTED 는 지금 상태를 작업 중으로 덮지 않는다.
+    if (runId != null
+        && ServerAgentRunReport.STARTED.equals(report.phase())
+        && !serverRunRepository.insertStarted(issueId, agentId, runId, RUN_STALE_AFTER)) {
+      return;
     }
-    if (ServerAgentRunReport.FINISHED.equals(report.phase())) {
+    if (finished) {
+      // 이 끝으로 그 AI 의 도는 실행이 다 끝났는지 — runId 없는 보고(옛 ai-agent)는 어느 실행인지 몰라 마지막으로 보지 않는다.
+      boolean lastRun = runId != null && !hasLiveRun(issueId, agentId);
       if (report.ok()) {
         switch (workflowBridge.onServerRunSuccess(issueId, agentId)) {
           case OWNED -> {
+            // 노드를 떠남·다시 들어옴 등 — 미룬 실패는 지금 노드의 것이 아니게 됐다.
+            if (lastRun) serverRunRepository.discardPendingFailures(issueId, agentId);
             return;
           }
           case FINISHED_WITHOUT_MOVE -> {
-            // 그 AI 의 다른 실행(다음 노드의 새 실행·이슈 댓글로 깨어난 실행)이 아직 돌면 작업 중 그대로 둔다. 이 실행이 표에 없어도
-            // (STARTED 를 잃음) 남은 실행이 없으면 내린다. runId 없는 보고(배포 중의 옛 ai-agent)는 어느 실행인지 몰라 그대로 둔다.
-            if (runId == null
-                || serverRunRepository.hasLiveRun(issueId, agentId, RUN_STALE_AFTER)) {
-              return;
-            }
-            patch = patch(AgentWorkState.WAITING, AgentWorkState.NOTE_FINISHED_WITHOUT_MOVE);
+            // 다른 실행이 아직 돌면 작업 중 그대로, 마지막이면 미룬 실패를 따르고 없으면 쉬는 중으로 내린다.
+            if (!lastRun) return;
+            patch =
+                serverRunRepository
+                    .takePendingFailure(issueId, agentId, FINISHED_MEMORY)
+                    .map(note -> blockNode(issueId, agentId, note))
+                    .orElse(
+                        patch(AgentWorkState.WAITING, AgentWorkState.NOTE_FINISHED_WITHOUT_MOVE));
           }
           case NOT_OWNED -> {}
         }
       } else {
-        // 실패 끝은 차단 보고와 같은 경로 — 노드 담당이면 노드를 멈춰 조치(/recover)로 잇는다.
-        workflowBridge.onAgentReport(issueId, agentId, AgentWorkState.BLOCKED, patch.note());
+        // 워크플로우 이슈에서 다른 실행이 아직 돌면 노드를 멈추지 않고 사유를 미룬다 — 워크플로우 없는 이슈는 정상 끝처럼 실행을 가르지 않는다.
+        if (runId != null && !lastRun && workflowBridge.isWorkflowIssue(issueId)) {
+          serverRunRepository.deferFailure(issueId, agentId, runId, patch.note());
+          return;
+        }
+        // 지금 멈추므로 앞서 미룬 실패도 처리된 것 — 사유는 이 실행의 것을 쓴다.
+        serverRunRepository.discardPendingFailures(issueId, agentId);
+        patch = blockNode(issueId, agentId, patch.note());
       }
     }
     // 읽은 뒤 다른 트랜잭션이 이슈를 닫았으면 AgentWorkIssueClosedException(409) 이 그대로 나간다 — 같은 트랜잭션이 이미 롤백 전용이라
@@ -126,6 +145,17 @@ public class ServerAgentRunService {
     if (!Objects.equals(transition.previousState(), state)) {
       agentWorkService.publishEnteredNotice(issue, agentId, state);
     }
+  }
+
+  /** 실패를 차단 보고와 같은 경로로 — 노드 담당이면 노드를 멈춰 조치(/recover)로 잇고, 작업은 그 사유로 차단됨이 된다. */
+  private AgentWorkPatch blockNode(long issueId, long agentId, String note) {
+    workflowBridge.onAgentReport(issueId, agentId, AgentWorkState.BLOCKED, note);
+    return patch(AgentWorkState.BLOCKED, note);
+  }
+
+  /** (이슈, AI) 에 아직 도는 실행이 있는지 — FINISHED 없이 죽은 실행은 {@link #RUN_STALE_AFTER} 뒤 세지 않는다. */
+  private boolean hasLiveRun(long issueId, long agentId) {
+    return serverRunRepository.hasLiveRun(issueId, agentId, RUN_STALE_AFTER);
   }
 
   /** 보고 → 작업 기록 패치. 알 수 없는 phase 는 400. */

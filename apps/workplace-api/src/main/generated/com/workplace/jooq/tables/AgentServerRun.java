@@ -43,7 +43,8 @@ import org.jooq.impl.TableImpl;
 
 
 /**
- * 서버 AI 의 도는 이슈 실행 — STARTED 에 넣고 FINISHED 에 지운다(끝 보고가 마지막 도는 실행의 것인지 가르는 데 쓴다)
+ * 서버 AI 의 이슈 실행 — STARTED 에 넣고 FINISHED 에 끝남(finished_at)을 표시한다(끝 보고가 마지막 도는
+ * 실행의 것인지 가르고, 끝난 실행의 늦은 STARTED 를 무시하는 데 쓴다)
  */
 @SuppressWarnings({ "all", "unchecked", "rawtypes", "this-escape" })
 public class AgentServerRun extends TableImpl<AgentServerRunRecord> {
@@ -93,12 +94,26 @@ public class AgentServerRun extends TableImpl<AgentServerRunRecord> {
      */
     public final TableField<AgentServerRunRecord, OffsetDateTime> STARTED_AT = createField(DSL.name("started_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "STARTED 를 받은 서버 시각(오래 남은 행을 도는 실행으로 세지 않는 데 쓴다)");
 
+    /**
+     * The column <code>public.agent_server_run.finished_at</code>. FINISHED 를
+     * 받은 서버 시각 — null 이면 도는 실행. STARTED 없이 FINISHED 가 먼저 오면 이 값을 채운 행(묘비)을 넣는다.
+     * 끝난 행은 RUN_STALE_AFTER(30분) 동안 늦은 STARTED 를 막다가 같은 이슈·AI 의 다음 보고 때 지운다
+     */
+    public final TableField<AgentServerRunRecord, OffsetDateTime> FINISHED_AT = createField(DSL.name("finished_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "FINISHED 를 받은 서버 시각 — null 이면 도는 실행. STARTED 없이 FINISHED 가 먼저 오면 이 값을 채운 행(묘비)을 넣는다. 끝난 행은 RUN_STALE_AFTER(30분) 동안 늦은 STARTED 를 막다가 같은 이슈·AI 의 다음 보고 때 지운다");
+
+    /**
+     * The column <code>public.agent_server_run.failed_note</code>. 미뤄 둔 실패 사유 —
+     * 워크플로우 이슈에서 같은 AI 의 다른 실행이 돌아 실패 끝이 노드를 멈추지 않았을 때 남긴다. 마지막 실행이 노드에 머문 채
+     * 끝나면(정상 끝이어도) 이 사유로 노드를 멈추고, 처리·담당 해제·노드를 떠난 끝에서 비운다
+     */
+    public final TableField<AgentServerRunRecord, String> FAILED_NOTE = createField(DSL.name("failed_note"), SQLDataType.CLOB, this, "미뤄 둔 실패 사유 — 워크플로우 이슈에서 같은 AI 의 다른 실행이 돌아 실패 끝이 노드를 멈추지 않았을 때 남긴다. 마지막 실행이 노드에 머문 채 끝나면(정상 끝이어도) 이 사유로 노드를 멈추고, 처리·담당 해제·노드를 떠난 끝에서 비운다");
+
     private AgentServerRun(Name alias, Table<AgentServerRunRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
 
     private AgentServerRun(Name alias, Table<AgentServerRunRecord> aliased, Field<?>[] parameters, Condition where) {
-        super(alias, null, aliased, parameters, DSL.comment("서버 AI 의 도는 이슈 실행 — STARTED 에 넣고 FINISHED 에 지운다(끝 보고가 마지막 도는 실행의 것인지 가르는 데 쓴다)"), TableOptions.table(), where);
+        super(alias, null, aliased, parameters, DSL.comment("서버 AI 의 이슈 실행 — STARTED 에 넣고 FINISHED 에 끝남(finished_at)을 표시한다(끝 보고가 마지막 도는 실행의 것인지 가르고, 끝난 실행의 늦은 STARTED 를 무시하는 데 쓴다)"), TableOptions.table(), where);
     }
 
     /**

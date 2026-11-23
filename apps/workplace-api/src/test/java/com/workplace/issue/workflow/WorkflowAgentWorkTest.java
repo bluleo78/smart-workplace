@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -1108,8 +1109,7 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   }
 
   @Test
-  @DisplayName(
-      "같은 AI 가 다음 노드로 넘어가 새 실행 B 가 시작한 뒤 옛 실행 A 의 정상 끝이 오면 작업 중 그대로이고, 이슈 완료 때 COMPLETED 로 닫히며 도는 실행 기록도 지운다(재반려 1a)")
+  @DisplayName("새 노드의 실행 B 가 도는 중 옛 실행 A 의 정상 끝은 작업 중 그대로이고, 이슈 완료 때 COMPLETED 로 닫히며 실행 기록도 지운다")
   void serverRunOldFinish_afterNextNodeStarted_keepsWorking() {
     long bot = agent("INTERNAL");
     long issue = internalStartedIssue(bot);
@@ -1270,7 +1270,7 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     long bot = agent("INTERNAL");
     long issue = internalStartedIssue(bot);
     UUID stale = UUID.randomUUID();
-    insertStaleRun(issue, bot, stale);
+    insertRun(issue, bot, stale, 1, null);
     String run = newRun();
 
     serverRun(bot, issue, "STARTED", true, null, run);
@@ -1287,12 +1287,187 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     long issue = internalStartedIssue(bot);
     String run = newRun();
     serverRun(bot, issue, "STARTED", true, null, run);
-    insertStaleRun(issue, bot, UUID.randomUUID());
+    insertRun(issue, bot, UUID.randomUUID(), 1, null);
 
     serverRun(bot, issue, "FINISHED", true, null, run);
 
     assertThat(activeStates(issue, bot)).containsExactly("WAITING");
     assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+  }
+
+  @Test
+  @DisplayName(
+      "FINISHED 뒤 늦게 온 같은 실행의 STARTED 는 도는 실행을 만들지 않고 대기 중을 덮지 않으며, 다음 실행의 끝은 다시 대기 중으로 내린다")
+  void serverRunLateStarted_afterFinished_ignored() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    // 실행 id 없이 작업 중 행만 만든다 — 실행 R 의 STARTED 가 아직 반영되지 않은 상황.
+    serverRun(bot, issue, "STARTED", true, null);
+    String runR = newRun();
+    serverRun(bot, issue, "FINISHED", true, null, runR);
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+
+    serverRun(bot, issue, "STARTED", true, null, runR);
+
+    assertThat(serverRunRows(issue, bot)).isZero();
+    assertThat(runRowExists(UUID.fromString(runR))).isTrue();
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+
+    String runS = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runS);
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+    serverRun(bot, issue, "FINISHED", true, null, runS);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(serverRunRows(issue, bot)).isZero();
+  }
+
+  @Test
+  @DisplayName(
+      "노드 실행 N 이 도는 중 댓글 실행 C 가 실패로 끝나면 노드·실행·작업이 그대로이고, 이어 N 이 실패로 끝나면 지금처럼 노드 BLOCKED·실행 SUSPENDED 다")
+  void serverRunFailed_whileOtherRunLive_keepsNode() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runN = newRun();
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN);
+    serverRun(bot, issue, "STARTED", true, null, runC);
+
+    serverRun(bot, issue, "FINISHED", false, "답을 쓰지 못했습니다", runC);
+
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(runStatus(issue)).isEqualTo("RUNNING");
+    assertThat(runRevision(issue)).isZero();
+    assertThat(runEvents(issue)).doesNotContain("NODE_BLOCKED");
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+    assertThat(serverRunRows(issue, bot)).isEqualTo(1);
+
+    serverRun(bot, issue, "FINISHED", false, "빌드가 깨졌습니다", runN);
+
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("BLOCKED");
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.ERROR)).isEqualTo("빌드가 깨졌습니다");
+    assertThat(runStatus(issue)).isEqualTo("SUSPENDED");
+    assertThat(runEvents(issue)).contains("NODE_BLOCKED");
+    assertThat(activeStates(issue, bot)).containsExactly("BLOCKED");
+  }
+
+  @Test
+  @DisplayName(
+      "노드 실행 N 이 실패로 끝났지만 댓글 실행 C 가 돌아 미뤘으면, C 가 정상으로 끝날 때 대기 중 대신 N 의 실패로 노드 BLOCKED·실행 SUSPENDED 다")
+  void serverRunDeferredFailure_appliedWhenLastRunSucceeds() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runN = newRun();
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN);
+    serverRun(bot, issue, "STARTED", true, null, runC);
+    serverRun(bot, issue, "FINISHED", false, "빌드가 깨졌습니다", runN);
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+
+    serverRun(bot, issue, "FINISHED", true, null, runC);
+
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("BLOCKED");
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.ERROR)).isEqualTo("빌드가 깨졌습니다");
+    assertThat(runStatus(issue)).isEqualTo("SUSPENDED");
+    assertThat(runEvents(issue)).contains("NODE_BLOCKED");
+    assertThat(activeStates(issue, bot)).containsExactly("BLOCKED");
+    assertThat(activeNote(issue, bot)).isEqualTo("빌드가 깨졌습니다");
+    // 처리한 사유는 비워 두 번 쓰지 않는다.
+    assertThat(dsl.fetchExists(AGENT_SERVER_RUN, AGENT_SERVER_RUN.FAILED_NOTE.isNotNull()))
+        .isFalse();
+  }
+
+  @Test
+  @DisplayName("실행 id 없는 실패 끝은 다른 도는 실행이 있어도 어느 실행인지 몰라 지금처럼 노드를 멈춘다")
+  void serverRunFailed_withoutRunId_whileOtherRunLive_stillBlocks() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    serverRun(bot, issue, "STARTED", true, null, newRun());
+
+    serverRun(bot, issue, "FINISHED", false, "빌드가 깨졌습니다");
+
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("BLOCKED");
+    assertThat(runStatus(issue)).isEqualTo("SUSPENDED");
+    assertThat(runEvents(issue)).contains("NODE_BLOCKED");
+    assertThat(activeStates(issue, bot)).containsExactly("BLOCKED");
+  }
+
+  @Test
+  @DisplayName(
+      "끝난 실행 행은 끝난 지 RUN_STALE_AFTER 가 지나면 새 STARTED 때 정리되고, 그 안의 끝난 행은 늦은 STARTED 를 막으려고 남는다")
+  void serverRunStarted_purgesOldFinishedRows() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    UUID old = UUID.randomUUID();
+    UUID recent = UUID.randomUUID();
+    // 오래전에 끝난 행과, 오래전에 시작했지만 방금 끝난 행(정리 기준은 끝난 시각이다).
+    insertRun(issue, bot, old, 2, 1);
+    insertRun(issue, bot, recent, 1, 0);
+
+    serverRun(bot, issue, "STARTED", true, null, newRun());
+
+    assertThat(runRowExists(old)).isFalse();
+    assertThat(runRowExists(recent)).isTrue();
+    assertThat(serverRunRows(issue, bot)).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("끝 보고도 그 이슈·AI 의 끝난 지 RUN_STALE_AFTER 가 지난 행을 지운다 — 담당 아님 경로로 묘비가 쌓이지 않게")
+  void serverRunFinished_purgesOldFinishedRows() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    UUID old = UUID.randomUUID();
+    insertRun(issue, bot, old, 2, 1);
+    dsl.deleteFrom(ISSUE_ASSIGNEE)
+        .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issue))
+        .and(ISSUE_ASSIGNEE.USER_ID.eq(bot))
+        .execute();
+    String run = newRun();
+
+    serverRun(bot, issue, "FINISHED", true, null, run);
+
+    assertThat(runRowExists(old)).isFalse();
+    assertThat(runRowExists(UUID.fromString(run))).isTrue();
+  }
+
+  @Test
+  @DisplayName("끝난 실행은 담당 해제·재지정 뒤에도 기억돼, 그 실행의 늦은 STARTED 가 도는 실행을 만들지 않는다")
+  void serverRunLateStarted_afterUnassignReassign_ignored() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runA = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runA);
+    serverRun(bot, issue, "FINISHED", true, null, runA);
+    ok(assign(issue, null, lead), pm);
+    ok(assign(issue, null, lead, bot), pm);
+
+    serverRun(bot, issue, "STARTED", true, null, runA);
+
+    assertThat(serverRunRows(issue, bot)).isZero();
+    assertThat(runRowExists(UUID.fromString(runA))).isTrue();
+  }
+
+  @Test
+  @DisplayName("같은 실행의 STARTED 재시도는 오래된 행 정리에 그 실행의 행을 지웠다 다시 넣지 않는다(시작 시각이 그대로)")
+  void serverRunStarted_retryKeepsOwnRow() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    UUID run = UUID.randomUUID();
+    insertRun(issue, bot, run, 1, null);
+
+    serverRun(bot, issue, "STARTED", true, null, run.toString());
+
+    // 지웠다 다시 넣었다면 시작 시각이 지금(now())이 됐을 것이다.
+    assertThat(
+            dsl.fetchExists(
+                AGENT_SERVER_RUN,
+                AGENT_SERVER_RUN
+                    .RUN_ID
+                    .eq(run)
+                    .and(AGENT_SERVER_RUN.STARTED_AT.lt(DSL.currentOffsetDateTime()))))
+        .isTrue();
   }
 
   @Test
@@ -1459,19 +1634,6 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     serverRun(agentId, issue, "FINISHED", true, null, run);
   }
 
-  /** FINISHED 없이 죽은 실행의 행 — 시작 시각을 1시간 전으로 직접 넣는다(시험 트랜잭션은 now() 가 멈춰 있다). */
-  private void insertStaleRun(long issue, long agentId, UUID runId) {
-    dsl.insertInto(AGENT_SERVER_RUN)
-        .set(AGENT_SERVER_RUN.TENANT_ID, 1L)
-        .set(AGENT_SERVER_RUN.ISSUE_ID, issue)
-        .set(AGENT_SERVER_RUN.AGENT_ID, agentId)
-        .set(AGENT_SERVER_RUN.RUN_ID, runId)
-        .set(
-            AGENT_SERVER_RUN.STARTED_AT,
-            DSL.field("now() - interval '1 hour'", OffsetDateTime.class))
-        .execute();
-  }
-
   /** 내부 AI bot 이 맡는 work(agent_task)에 머물게 시작한 이슈 id(lead 담당). */
   private long internalStartedIssue(long bot) {
     long wf = publish(yaml(bot, agent("INTERNAL")));
@@ -1480,11 +1642,44 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     return issue;
   }
 
-  /** (이슈, AI) 의 남은 도는 서버 실행 행 수. */
+  /** (이슈, AI) 의 남은 도는(끝남 표시가 없는) 서버 실행 행 수. */
   private int serverRunRows(long issue, long agentId) {
     return dsl.fetchCount(
         AGENT_SERVER_RUN,
-        AGENT_SERVER_RUN.ISSUE_ID.eq(issue).and(AGENT_SERVER_RUN.AGENT_ID.eq(agentId)));
+        AGENT_SERVER_RUN
+            .ISSUE_ID
+            .eq(issue)
+            .and(AGENT_SERVER_RUN.AGENT_ID.eq(agentId))
+            .and(AGENT_SERVER_RUN.FINISHED_AT.isNull()));
+  }
+
+  /**
+   * 실행 행을 시각을 정해 직접 넣는다(시험 트랜잭션은 now() 가 멈춰 있다) — {@code finishedHoursAgo} 가 null 이면 도는 행(FINISHED
+   * 없이 죽은 실행 등), 있으면 끝난 행.
+   */
+  private void insertRun(
+      long issue, long agentId, UUID runId, int startedHoursAgo, Integer finishedHoursAgo) {
+    var insert =
+        dsl.insertInto(AGENT_SERVER_RUN)
+            .set(AGENT_SERVER_RUN.TENANT_ID, 1L)
+            .set(AGENT_SERVER_RUN.ISSUE_ID, issue)
+            .set(AGENT_SERVER_RUN.AGENT_ID, agentId)
+            .set(AGENT_SERVER_RUN.RUN_ID, runId)
+            .set(AGENT_SERVER_RUN.STARTED_AT, hoursAgo(startedHoursAgo));
+    if (finishedHoursAgo != null) {
+      insert = insert.set(AGENT_SERVER_RUN.FINISHED_AT, hoursAgo(finishedHoursAgo));
+    }
+    insert.execute();
+  }
+
+  /** DB now() 로부터 몇 시간 전 시각. */
+  private static Field<OffsetDateTime> hoursAgo(int hours) {
+    return DSL.field("now() - make_interval(hours => {0})", OffsetDateTime.class, hours);
+  }
+
+  /** 실행 id 의 행이 표에 남아 있는지(끝난 행 포함). */
+  private boolean runRowExists(UUID runId) {
+    return dsl.fetchExists(AGENT_SERVER_RUN, AGENT_SERVER_RUN.RUN_ID.eq(runId));
   }
 
   // ───────────────────────── 도우미 ─────────────────────────
