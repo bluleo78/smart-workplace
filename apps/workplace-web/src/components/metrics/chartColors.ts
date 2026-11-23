@@ -11,6 +11,14 @@ import type { ChartSeries } from './chartTypes'
 /** 1~5: 계열 색, 'other': 기타 회색 */
 export type ChartColorIndex = 1 | 2 | 3 | 4 | 5 | 'other'
 
+/** 고정 배정에 쓰는 계열 색 번호 다섯 개 */
+const SERIES_COLOR_INDEXES: ChartColorIndex[] = [1, 2, 3, 4, 5]
+
+/** i 번째(0 부터) 계열의 색 번호 — 6번째부터는 'other' 회색 */
+export function colorIndexFor(i: number): ChartColorIndex {
+  return SERIES_COLOR_INDEXES[i] ?? 'other'
+}
+
 /** 색 번호 → CSS 변수 참조 문자열 (index.css 의 --chart-1..5, --chart-other) */
 export function chartColorVar(i: ChartColorIndex): string {
   return `var(--chart-${i})`

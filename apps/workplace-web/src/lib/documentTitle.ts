@@ -30,6 +30,7 @@ const SETTINGS_TITLES: Record<string, string> = {
   sso: 'SSO',
   'audit-logs': '감사 로그',
   'help-metrics': '도움말 측정',
+  'ai-status': 'AI 현황',
 }
 
 // 설정 › 앱 설정 하위 화면 이름(WP-887) — /settings/apps/{앱}. 사이드바 「앱 설정」 항목 이름과 같게 둔다.

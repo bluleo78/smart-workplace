@@ -67,7 +67,7 @@ export default function TrendChartImpl<D>({
           cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
           content={buildTooltipContent(config, xKey, xFormatter, valueFormatter)}
         />
-        {series.length >= 2 && <ChartLegend content={<ChartLegendContent />} />}
+        {series.length >= 2 && <ChartLegend content={<ChartLegendContent className="flex-wrap gap-y-1" />} />}
         {limit && (
           <ReferenceLine
             y={limit.value}

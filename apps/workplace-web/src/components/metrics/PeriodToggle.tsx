@@ -24,7 +24,8 @@ export function PeriodToggle<T extends string>({
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
           className={cn(
-            'rounded px-2.5 py-1 text-xs',
+            // whitespace-nowrap: 좁은 모바일 ⋯ 팝오버에서도 '1시간' 같은 라벨이 글자 중간에서 줄바꿈되지 않게 한다
+            'whitespace-nowrap rounded px-2.5 py-1 text-xs',
             value === o.value ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
           )}
         >

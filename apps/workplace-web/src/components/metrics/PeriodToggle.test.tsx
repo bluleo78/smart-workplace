@@ -18,6 +18,11 @@ describe('PeriodToggle', () => {
     expect(screen.getByRole('button', { name: '30일' })).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('라벨이 글자 중간에서 줄바꿈되지 않는다(좁은 모바일 팝오버)', () => {
+    render(<PeriodToggle options={OPTIONS} value="7d" onChange={() => {}} aria-label="기간" />)
+    for (const name of ['7일', '30일']) expect(screen.getByRole('button', { name })).toHaveClass('whitespace-nowrap')
+  })
+
   it('누르면 onChange(value)', async () => {
     const onChange = vi.fn()
     render(<PeriodToggle options={OPTIONS} value="7d" onChange={onChange} aria-label="기간" />)
