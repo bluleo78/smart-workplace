@@ -39,7 +39,10 @@ export interface NotificationResponse {
     | "MAIL_SEND_FAILED"
     // WP-1985: 워크플로우 실행이 한 노드에 되돌림이 아닌 방문으로 maxVisits 번 이상 들어감 — 이동은 그대로 되고 프로젝트의 활성 사람 OWNER
     // (그 노드로 넘긴 행위자 제외)가 받는다. 설정은 AI 「실패」 줄과 같다. 이슈 상세로 연다.
-    | "WORKFLOW_VISIT_LIMIT";
+    | "WORKFLOW_VISIT_LIMIT"
+    // WP-1987: 워크플로우 노드가 오래 기다림 — 행위자 없는 시스템 알림. REMIND 는 담당자, ESCALATE 는 프로젝트 관리자(OWNER)가 받는다. 이슈 상세로 연다.
+    | "WORKFLOW_TURN_REMIND"
+    | "WORKFLOW_TURN_ESCALATE";
   actorId: number | null;
   actorName: string | null;
   actorKind: string | null; // 'HUMAN' | 'AGENT' | null

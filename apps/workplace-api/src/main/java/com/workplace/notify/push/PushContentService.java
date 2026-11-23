@@ -89,7 +89,8 @@ public class PushContentService {
                       category,
                       Texts.truncateCodePoints(
                           i.projectKey() + "-" + i.number() + " " + i.title(), 120),
-                      actor + issueLabel(e),
+                      // 타이머 알림(WP-1987)은 행위자가 없어 「시스템」 접두를 붙이지 않는다.
+                      e.type().isWorkflowTurn() ? label(e.type()) : actor + issueLabel(e),
                       issueUrl(i.projectKey(), i.number(), e.type()),
                       "issue-" + e.issueId(),
                       "normal",
@@ -254,6 +255,10 @@ public class PushContentService {
       // 워크플로우 되돌림 한도(WP-1985) — 행위자는 그 노드로 다시 넘긴 사람. 노드 종류(AI·사람 작업·decision)를 알림에 싣지 않아 모든 노드에 맞는
       // 한 문구. 웹 notifText 의 ACTION_LABEL 과 같은 문구.
       case WORKFLOW_VISIT_LIMIT -> "님이 넘긴 워크플로우 단계가 되돌림 한도에 이르렀습니다";
+      // 워크플로우 차례 타이머(WP-1987) — 행위자 없는 알림이라 이름 접두 없이 독립 문구. forInbox 가 actor 를 붙이지 않는다.
+      // 웹 notifText 의 ACTION_LABEL 과 같은 문구.
+      case WORKFLOW_TURN_REMIND -> "워크플로우 차례가 오래 기다리고 있습니다";
+      case WORKFLOW_TURN_ESCALATE -> "워크플로우 단계가 오래 멈춰 있습니다 — 관리자 확인이 필요합니다";
     };
   }
 }

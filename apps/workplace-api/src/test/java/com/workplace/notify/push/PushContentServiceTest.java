@@ -310,6 +310,25 @@ class PushContentServiceTest extends IntegrationTestBase {
     assertThat(m.url()).isEqualTo("/projects/" + key + "/issues/7");
   }
 
+  /** 워크플로우 차례 타이머(WP-1987) — 행위자 없는 독립 문구(이름·「시스템」 접두 없음), 분류 ISSUE, 이슈 상세로. */
+  @Test
+  void forInbox_workflowTurn_standalonePhrase() {
+    seedIssue();
+    PushMessage remind =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L, NotificationType.WORKFLOW_TURN_REMIND, List.of(99L), null, issueId, null));
+    PushMessage escalate =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L, NotificationType.WORKFLOW_TURN_ESCALATE, List.of(99L), null, issueId, null));
+
+    assertThat(remind.category()).isEqualTo(PushCategory.ISSUE);
+    assertThat(remind.body()).isEqualTo("워크플로우 차례가 오래 기다리고 있습니다");
+    assertThat(escalate.body()).isEqualTo("워크플로우 단계가 오래 멈춰 있습니다 — 관리자 확인이 필요합니다");
+    assertThat(remind.url()).isEqualTo("/projects/" + key + "/issues/7");
+  }
+
   /** 상태 경로 「답변 필요」(WP-913) — 인박스와 같은 상태별 문구. 상태 없는 AI_QUESTION(챗 질문)은 기존 문구(위 테스트). */
   @Test
   void forInbox_aiQuestion_textByAgentWorkState() {

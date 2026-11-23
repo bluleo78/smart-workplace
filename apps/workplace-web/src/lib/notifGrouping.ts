@@ -56,6 +56,8 @@ export function notifSection(n: NotificationResponse): NotifSection {
     n.type === "AI_REVIEW_REQUESTED" ||
     n.type === "AI_WORK_FAILED" ||
     n.type === "WORKFLOW_VISIT_LIMIT" || // WP-1985
+    n.type === "WORKFLOW_TURN_REMIND" || // WP-1987 오래 기다리는 내 차례 — 행동 필요
+    n.type === "WORKFLOW_TURN_ESCALATE" || // WP-1987 관리자 확인 필요
     isPersonalAssistantRevokedType(n) ||
     isOAuthAppConnectedType(n) || // WP-1686
     isMailSendFailedType(n) || // WP-1786
@@ -102,6 +104,8 @@ const TYPE_ORDER: NotificationResponse["type"][] = [
   "AI_REVIEW_REQUESTED", // WP-913
   "AI_WORK_FAILED", // WP-913
   "WORKFLOW_VISIT_LIMIT", // WP-1985
+  "WORKFLOW_TURN_REMIND", // WP-1987
+  "WORKFLOW_TURN_ESCALATE", // WP-1987
   "ISSUE_CHAT_MENTION",
   "ISSUE_COMMENT_MENTION",
   "ASSIGNED",
@@ -139,6 +143,10 @@ function deltaSummary(group: NotificationResponse[]): string {
       parts.push(c > 1 ? `AI 실패 ${c}건` : "AI 실패");
     else if (t === "WORKFLOW_VISIT_LIMIT")
       parts.push(c > 1 ? `되돌림 한도 ${c}건` : "되돌림 한도"); // WP-1985
+    else if (t === "WORKFLOW_TURN_REMIND")
+      parts.push(c > 1 ? `오래 기다림 ${c}건` : "오래 기다림"); // WP-1987
+    else if (t === "WORKFLOW_TURN_ESCALATE")
+      parts.push(c > 1 ? `관리자 확인 ${c}건` : "관리자 확인"); // WP-1987
     else if (t === "ISSUE_CHAT_MENTION")
       parts.push(c > 1 ? `멘션 ${c}건` : "멘션");
     else if (t === "ISSUE_COMMENT_MENTION")

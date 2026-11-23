@@ -18,6 +18,8 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueReporterChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeWakeEvent;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowTurnEscalate;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowTurnRemind;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowVisitLimitReached;
 import com.workplace.mail.outbound.MailSendFailedEvent;
 import com.workplace.notify.dto.NotificationType;
@@ -329,6 +331,31 @@ public class NotificationDispatcher {
           e.nodeKey(),
           ex.getMessage());
     }
+  }
+
+  /**
+   * 워크플로우 기다림 타이머(WP-1987): 담당에게 다시 알림(REMIND).
+   *
+   * <p>예외적으로 동기 {@code @EventListener} — 타이머가 방문별 세이브포인트 안에서 표시 이벤트와 함께 알림을 만들어야, 알림이 실패하면 그 방문의
+   * 표시도 되돌아가 다음 poll 에서 다시 시도한다. 그래서 AFTER_COMMIT·@Async 로 바꾸지 말고, 예외를 삼키지 않고 전파한다. (아래 ESCALATE 도
+   * 같다)
+   */
+  @EventListener
+  public void onWorkflowTurnRemind(WorkflowTurnRemind e) {
+    service.createWorkflowTurnAndFanOut(
+        NotificationType.WORKFLOW_TURN_REMIND, e.issueId(), e.assigneeIds());
+  }
+
+  /**
+   * 워크플로우 기다림 타이머(WP-1987): 프로젝트 관리자에게 알림(ESCALATE) — 동기·예외 전파인 이유는 {@link #onWorkflowTurnRemind}.
+   * 관리자가 없으면 알림만 생략한다.
+   */
+  @EventListener
+  public void onWorkflowTurnEscalate(WorkflowTurnEscalate e) {
+    List<Long> managers = service.workflowManagerIds(e.issueId());
+    if (managers.isEmpty()) return;
+    service.createWorkflowTurnAndFanOut(
+        NotificationType.WORKFLOW_TURN_ESCALATE, e.issueId(), managers);
   }
 
   /**

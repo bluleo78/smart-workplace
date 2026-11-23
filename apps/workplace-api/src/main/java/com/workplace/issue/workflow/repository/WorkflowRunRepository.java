@@ -23,6 +23,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -280,6 +281,59 @@ public class WorkflowRunRepository {
         .where(NODE_RUN.RUN_ID.eq(runId))
         .orderBy(NODE_RUN.ID)
         .fetch(WorkflowRunRows::toNodeRun);
+  }
+
+  /**
+   * 열린 실행(RUNNING·WAITING)의 활성 방문(ACTIVE) 전부 — 기다림 타이머(WP-1987)가 오래 머문 방문을 찾는 입력. id 순.
+   * SUSPENDED(멈춤) 실행은 사람이 조치할 때까지 기다리는 상태라 타이머 대상이 아니다.
+   */
+  public List<NodeRunRow> findActiveNodeRunsOfOpenRuns() {
+    return dsl.select(NODE_RUN.fields())
+        .from(NODE_RUN)
+        .join(WORKFLOW_RUN)
+        .on(WORKFLOW_RUN.ID.eq(NODE_RUN.RUN_ID))
+        .where(NODE_RUN.STATUS.eq("ACTIVE"))
+        .and(WORKFLOW_RUN.STATUS.in("RUNNING", "WAITING"))
+        // 이미 관리자에게 알린(TIMER_ESCALATE) 방문은 더 할 일이 없어 매 poll 마다 다시 읽지 않는다.
+        .andNotExists(
+            select(DSL.one())
+                .from(WORKFLOW_RUN_EVENT)
+                .where(WORKFLOW_RUN_EVENT.RUN_ID.eq(NODE_RUN.RUN_ID))
+                .and(WORKFLOW_RUN_EVENT.TYPE.eq("TIMER_ESCALATE"))
+                .and(payloadNodeRunId().eq(NODE_RUN.ID.cast(String.class))))
+        .orderBy(NODE_RUN.ID)
+        .fetchInto(NODE_RUN)
+        .map(WorkflowRunRows::toNodeRun);
+  }
+
+  /** 타이머 이벤트 payload 의 nodeRunId 글 — SQL 에서 방문과 맞대는 한 곳의 식. */
+  private static Field<String> payloadNodeRunId() {
+    return DSL.field("{0}->>'nodeRunId'", String.class, WORKFLOW_RUN_EVENT.PAYLOAD);
+  }
+
+  /** 실행의 한 종류 이벤트 중 그 방문(nodeRunId)의 것 — 타이머 표시 이벤트 확인용. 없으면 empty. */
+  public Optional<RunEventRow> findVisitEvent(long runId, String type, long nodeRunId) {
+    return dsl.selectFrom(WORKFLOW_RUN_EVENT)
+        .where(WORKFLOW_RUN_EVENT.RUN_ID.eq(runId))
+        .and(WORKFLOW_RUN_EVENT.TYPE.eq(type))
+        .and(payloadNodeRunId().eq(Long.toString(nodeRunId)))
+        .orderBy(WORKFLOW_RUN_EVENT.ID)
+        .limit(1)
+        .fetchOptional()
+        .map(WorkflowRunRows::toEvent);
+  }
+
+  /**
+   * 방문 행을 잠근다(SELECT … FOR UPDATE) — 타이머가 같은 방문을 동시에 처리하지 않게 한다. 방문이 그새 ACTIVE 가 아니게 됐으면(떠남) false.
+   */
+  public boolean lockActiveNodeRun(long nodeRunId) {
+    return dsl.select(NODE_RUN.ID)
+        .from(NODE_RUN)
+        .where(NODE_RUN.ID.eq(nodeRunId))
+        .and(NODE_RUN.STATUS.eq("ACTIVE"))
+        .forUpdate()
+        .fetchOptional()
+        .isPresent();
   }
 
   /** 실행 이벤트를 쌓는다. {@code actorId} 는 시스템이 일으킨 것이면 null. */

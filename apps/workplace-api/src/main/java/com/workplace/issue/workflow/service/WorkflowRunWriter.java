@@ -78,6 +78,11 @@ class WorkflowRunWriter {
   static final String ON_ERROR_MOVED = "ON_ERROR_MOVED";
   static final String OVERRIDE_MOVED = "OVERRIDE_MOVED";
 
+  /** 기다림 타이머(WP-1987) — 한 방문이 오래 기다려 담당에게 다시 알림 / 관리자에게 알림. 쓰는 곳은 {@link WorkflowTimerService}. */
+  static final String TIMER_REMIND = "TIMER_REMIND";
+
+  static final String TIMER_ESCALATE = "TIMER_ESCALATE";
+
   /** node_run 상태(활성 방문). */
   static final String NODE_COMPLETED = "COMPLETED";
 

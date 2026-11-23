@@ -239,6 +239,31 @@ public class NotificationService {
   }
 
   /**
+   * 워크플로우 차례 타이머 알림(WP-1987) — 노드가 한 방문에서 오래 기다리면 REMIND(담당자) 또는 ESCALATE(관리자)를 행위자 없이 보낸다. 열람
+   * 권한·설정 필터·SSE·푸시는 기존 create 경로 그대로. 노드·실행 상태는 건드리지 않는다.
+   *
+   * @param type WORKFLOW_TURN_REMIND 또는 WORKFLOW_TURN_ESCALATE 만 허용
+   * @throws IllegalArgumentException 그 밖의 종류
+   */
+  @Transactional
+  public void createWorkflowTurnAndFanOut(
+      NotificationType type, long issueId, List<Long> recipientIds) {
+    if (!type.isWorkflowTurn()) {
+      throw new IllegalArgumentException("워크플로우 차례 알림 종류가 아닙니다: " + type);
+    }
+    create(IssueNotice.of(type, null, issueId, null), recipientIds);
+  }
+
+  /**
+   * 이슈 프로젝트의 관리자(활성 사람 OWNER) — 타이머 에스컬레이션 수신자. issue 패키지가 notify repository 를 직접 쓰지 않도록 서비스로 연다.
+   * RLS 대상이라 테넌트가 주입된 트랜잭션 안에서 부른다.
+   */
+  @Transactional(readOnly = true)
+  public List<Long> workflowManagerIds(long issueId) {
+    return repo.findActiveHumanOwnerIds(issueId);
+  }
+
+  /**
    * 검토 요청·실패 — 대체 규칙으로 고른 한 사람에게만 만들고, 설정 필터는 그 뒤 건다. 대리인은 firstReachableDelegate 가 이미 사람·이슈 열람 가능을
    * 확인했고 작업자는 AI(이벤트 계약)라, 열람·종류를 다시 조회하지 않고 설정 판정부터 한다. 고른 대리인을 돌려준다(없으면 null) — 설정으로 받지 않았어도 같은
    * 보고의 멘션 알림에서 뺀다.

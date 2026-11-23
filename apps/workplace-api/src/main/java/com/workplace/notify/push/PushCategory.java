@@ -30,7 +30,9 @@ public enum PushCategory {
           AI_QUESTION,
           AI_REVIEW_REQUESTED,
           AI_WORK_FAILED,
-          WORKFLOW_VISIT_LIMIT ->
+          WORKFLOW_VISIT_LIMIT,
+          WORKFLOW_TURN_REMIND,
+          WORKFLOW_TURN_ESCALATE ->
           ISSUE;
       // 노트 공유 알림(WP-579)·개인 비서 연결 회수(WP-1170)·새 앱 연결(WP-1686)·메일 발송 실패(WP-1786)는 「나를 향한」 알림이라
       // MENTION 으로 묶는다.

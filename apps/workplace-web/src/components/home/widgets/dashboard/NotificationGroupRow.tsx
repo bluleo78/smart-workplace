@@ -7,6 +7,7 @@ import {
   CalendarX,
   CircleAlert,
   ClipboardCheck,
+  Clock,
   FileText,
   MailX,
   MessageCircleQuestion,
@@ -48,6 +49,8 @@ const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   OAUTH_APP_CONNECTED: Plug, // 새 앱 연결(WP-1686)
   MAIL_SEND_FAILED: MailX, // 메일 보내기 실패(WP-1786)
   WORKFLOW_VISIT_LIMIT: RotateCcw, // 워크플로우 되돌림 한도(WP-1985)
+  WORKFLOW_TURN_REMIND: Clock, // 워크플로우 차례가 오래 기다림(WP-1987)
+  WORKFLOW_TURN_ESCALATE: Clock, // 워크플로우 단계가 오래 멈춤 — 관리자 확인(WP-1987)
 };
 
 // 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.
