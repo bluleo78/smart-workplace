@@ -864,11 +864,17 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     long bot = agent("EXTERNAL");
     long issue = startedIssue(bot);
     events.clear();
+    // 진행 중 실행은 endedAt 이 null 이다.
+    assertThat(ok(get(API + "/issues/" + issue + "/workflow"), pm).get("endedAt").isNull())
+        .isTrue();
 
     ok(issuePatch(issue, "DONE"), pm);
 
     assertThat(runStatus(issue)).isEqualTo("CANCELED");
     assertThat(runEndedAt(issue)).isNotNull();
+    // 취소된 실행의 view 는 endedAt 을 싣는다(웹 이력의 취소 줄 시각).
+    assertThat(ok(get(API + "/issues/" + issue + "/workflow"), pm).get("endedAt").isNull())
+        .isFalse();
     assertThat(runRevision(issue)).isEqualTo(1);
     var node = nodeRun(issue, "work");
     assertThat(node.get(NODE_RUN.STATUS)).isEqualTo("CANCELED");

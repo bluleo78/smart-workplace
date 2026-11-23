@@ -26,7 +26,7 @@ import { Badge } from '@/components/ui/badge';
 
 import { type ActivityOrder, DEFAULT_ACTIVITY_ORDER, orderActivity } from '../../../lib/activityOrder';
 import { formatDateTimeMinute, parseUtcDate } from '../../../lib/formatters';
-import { type TimelineRow, useIssueWorkflow, workflowStepsToTimelineRows } from '../../../lib/workflow';
+import { isWorkflowTimelineRow, type TimelineRow, useIssueWorkflow, workflowStepsToTimelineRows } from '../../../lib/workflow';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
 import {
   formatAssigneesChanged,
@@ -189,7 +189,7 @@ export function IssueActivityTimeline({
   // 변경 이력과 워크플로우 이동 줄을 시간순(오래된 순)으로 합친다 — 정렬은 안정 정렬이라 같은 시각이면 받은 순서를 지킨다.
   // 시각은 정렬 전에 한 번만 읽고, 이력·실행이 바뀔 때만 다시 합친다(펼치기 같은 로컬 상태에는 다시 하지 않는다).
   const merged = useMemo<(IssueHistoryEntry | TimelineRow)[]>(() => {
-    const rows = run ? workflowStepsToTimelineRows(run.path, run.currentNode, run.status) : [];
+    const rows = run ? workflowStepsToTimelineRows(run.path, run.currentNode, run.status, run.endedAt) : [];
     return [...entries, ...rows]
       .map((e) => ({ e, t: parseUtcDate(e.createdAt).getTime() }))
       .sort((a, b) => a.t - b.t)
@@ -223,7 +223,7 @@ export function IssueActivityTimeline({
       {!newestFirst && showMoreButton}
       <ol className="space-y-2 text-sm" role="list" aria-label="활동 타임라인">
         {visible.map((e) => {
-        if ('text' in e) return <WorkflowMoveItem key={e.id} row={e} />;
+        if (isWorkflowTimelineRow(e)) return <WorkflowMoveItem key={e.id} row={e} />;
         const isAgent = e.actorKind === 'AGENT';
         return (
           <li

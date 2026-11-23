@@ -117,6 +117,29 @@ describe('워크플로우 사람 차례 배너', () => {
     expect(screen.getByRole('button', { name: '넘기기' })).toBeEnabled()
   })
 
+  // 서버(OutputRules)와 같게 host 있는 http(s) 만 url — 'abc:def'·'javascript:x' 는 거절.
+  test('urlOutput_rejectsNonHttpSchemes', async () => {
+    setup(run({ outcomes: [outcome({ requiredOutputs: [{ key: 'link', type: 'url' }] })] }))
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    for (const bad of ['abc:def', 'javascript:x']) {
+      await user.clear(screen.getByLabelText('link'))
+      await user.type(screen.getByLabelText('link'), bad)
+      expect(screen.getByRole('button', { name: '넘기기' })).toBeDisabled()
+    }
+    await user.clear(screen.getByLabelText('link'))
+    await user.type(screen.getByLabelText('link'), 'https://a.b/c')
+    expect(screen.getByRole('button', { name: '넘기기' })).toBeEnabled()
+  })
+
+  // 들어온 시각을 모르면 오래된 글이 답 후보가 되지 않게 단추를 숨긴다.
+  test('enteredAtNull_noSendAsAnswerButton', async () => {
+    const base = run()
+    setup(run({ currentNode: { ...(base.currentNode as object), enteredAt: null } }), [], { posted: { body: '글', at: Date.now() } })
+    await screen.findByRole('button', { name: 'answered' })
+    expect(screen.queryByRole('button', { name: '방금 쓴 글을 답으로 보내기' })).not.toBeInTheDocument()
+  })
+
   test('move_doubleClick_sendsOnceWithSameKey', async () => {
     const moves: Record<string, unknown>[] = []
     setup(run(), moves)

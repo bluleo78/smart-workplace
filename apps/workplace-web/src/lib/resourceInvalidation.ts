@@ -43,15 +43,15 @@ export interface InvalidationTarget {
 
 type Rule = (p: ResourceChangedPayload) => InvalidationTarget[];
 
-/**
- * issue 리소스 무효화 대상 — projectKey(pk) 기준. 다른 리소스 규칙(예: 프로젝트 변경)도 재사용한다.
- * ids(이벤트가 실은 이슈 id)가 있으면 워크플로우 캐시는 그 이슈 것만, 없으면 접두사 전체를 다시 읽는다.
- */
 /** 이벤트에 이슈 id 가 있으면 그 이슈 키만, 없으면 접두사 키로 무효화한다(워크플로우 실행·미리보기가 함께 쓴다). */
 function byIssueIds(ids: number[] | undefined, all: QueryKey, detail: (id: number) => QueryKey): InvalidationTarget[] {
   return ids && ids.length > 0 ? ids.map((id) => ({ queryKey: detail(id) })) : [{ queryKey: all }]
 }
 
+/**
+ * issue 리소스 무효화 대상 — projectKey(pk) 기준. 다른 리소스 규칙(예: 프로젝트 변경)도 재사용한다.
+ * ids(이벤트가 실은 이슈 id)가 있으면 워크플로우 캐시는 그 이슈 것만, 없으면 접두사 전체를 다시 읽는다.
+ */
 export function issueTargets(pk: string, ids?: number[]): InvalidationTarget[] {
   return [
     { queryKey: ['issues', 'search', pk] }, // 목록·보드·타임라인·하위 이슈
