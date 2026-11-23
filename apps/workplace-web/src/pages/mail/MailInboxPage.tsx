@@ -1270,7 +1270,7 @@ export function MailInboxPage() {
   // 이미 받은 목록이 있으면(백그라운드 재조회 실패) 화면을 덮지 않으므로 이 판정은 거짓이다. 실패 분기는 로딩 분기보다 먼저 둔다.
   const accountsFailed = failedWithoutData(accountsQuery)
   // 주소의 계정이 내 계정 목록에 없으면(없는 번호·남의 계정·/mail/abc) 메일함을 열지 않는다 — 열면 빈 목록의
-  // 「동기화를 눌러보세요」나 소용없는 「다시 시도」만 보인다(WP-926). 계정 목록을 못 불러온 경우는 판단하지 않고 그대로 둔다.
+  // 「새로고침 단추를 눌러보세요」나 소용없는 「다시 시도」만 보인다(WP-926). 계정 목록을 못 불러온 경우는 판단하지 않고 그대로 둔다.
   if (accountId) {
     if (accountsLoading && !accountsFailed) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
     if (accounts && !accounts.some((a) => String(a.id) === accountId)) {
@@ -2336,7 +2336,10 @@ function MailInbox() {
                           ? '다른 검색어로 찾아보세요.'
                           : folderParam === 'SENT'
                             ? '메일을 보내면 여기에 모여요.'
-                            : '동기화를 눌러보세요.'
+                            : // 동기화 단추가 없는 보기(서버 메일함·별표 모아 보기)에서는 단추를 가리키는 문구를 쓰지 않는다(WP-1864 재반려 1).
+                              showSyncControls
+                              ? '새로고침 단추를 눌러보세요.'
+                              : '이 보기에 보여 줄 메일이 없어요.'
                       }
                     />
                     {/* WP-965 최근 범위에 메일이 없어도 그 이전 메일은 서버에 있을 수 있다 — 빈 목록에서도 이어 받는다. */}
