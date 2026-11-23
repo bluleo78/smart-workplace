@@ -27,7 +27,18 @@ describe('workflowStepsToTimelineRows', () => {
     expect(workflowStepsToTimelineRows(path, null, 'CANCELED')[1].text).toBe('개발AI 실행을 취소했습니다')
     const noActor = [step('b', '구현', null, '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z')]
     expect(workflowStepsToTimelineRows(noActor, null, 'CANCELED')[1].text).toBe('실행을 취소했습니다')
-    expect(workflowStepsToTimelineRows(path, null, 'DONE')[1].text).toBe('개발AI 구현 단계를 마쳤습니다')
+    expect(workflowStepsToTimelineRows(path, null, 'COMPLETED')[1].text).toBe('개발AI 구현 단계를 마쳤습니다')
+  })
+
+  test('cancelledRun_withCurrentNode_addsCancelRowAtEndedAt — 서버 모양(취소돼도 current 있음)', () => {
+    const path = [step('a', '분류', who(2, '팀장AI'), '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z')]
+    const rows = workflowStepsToTimelineRows(path, cur('b', '구현', '2026-01-01T01:00:00Z'), 'CANCELED', '2026-01-01T03:00:00Z')
+    expect(rows[1].text).toBe('팀장AI 단계를 분류 → 구현 (으)로 옮겼습니다')
+    const last = rows[rows.length - 1]
+    expect(last.text).toBe('실행을 취소했습니다')
+    expect(last.createdAt).toBe('2026-01-01T03:00:00Z')
+    // endedAt 이 없으면 취소 줄을 빼 지금처럼 둔다.
+    expect(workflowStepsToTimelineRows(path, cur('b', '구현', '2026-01-01T01:00:00Z'), 'CANCELED')).toHaveLength(2)
   })
 
   test('앞뒤 단계가 같으면 다시 시작했습니다', () => {

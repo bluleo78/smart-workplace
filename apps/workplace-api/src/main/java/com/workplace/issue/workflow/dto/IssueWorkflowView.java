@@ -21,6 +21,7 @@ import java.util.Map;
  * @param path 지나온 노드(들어간 순서, 지금 노드 제외)
  * @param remainingNodeKeys end 까지 남은 기본 경로(질문 경로 제외, 지금 노드 제외)
  * @param context 실행 context(노드 키 → 출력, 예약 키 {@code _qa})
+ * @param endedAt 실행이 끝난 시각(진행 중·실행 없음이면 null) — 웹이 취소 시각을 이력에 쓴다
  */
 public record IssueWorkflowView(
     Long runId,
@@ -32,12 +33,13 @@ public record IssueWorkflowView(
     List<OutcomeView> outcomes,
     List<NodeRunSummary> path,
     List<String> remainingNodeKeys,
-    Map<String, Object> context) {
+    Map<String, Object> context,
+    Instant endedAt) {
 
   /** 실행이 하나도 없는 이슈의 view. */
   public static IssueWorkflowView none() {
     return new IssueWorkflowView(
-        null, null, 0, null, null, null, List.of(), List.of(), List.of(), Map.of());
+        null, null, 0, null, null, null, List.of(), List.of(), List.of(), Map.of(), null);
   }
 
   /**

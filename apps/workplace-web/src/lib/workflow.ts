@@ -52,6 +52,8 @@ export interface WorkflowPathStep {
 export interface IssueWorkflowView {
   runId: number | null
   status: RunStatus | null
+  /** 실행이 끝난 시각(진행 중·실행 없음이면 null) */
+  endedAt: string | null
   revision: number
   workflowId: number | null
   versionNo: number | null
@@ -172,13 +174,19 @@ export function useRecoverIssueWorkflow(issueId: number, projectKey: string) {
   })
 }
 
-/** 이슈 이력 탭에 섞는 한 줄 — 워크플로우 단계 이동 기록(WP-1989). 이력 줄(IssueHistoryEntry)과 `text` 유무로 가른다. */
+/** 이슈 이력 탭에 섞는 한 줄 — 워크플로우 단계 이동 기록(WP-1989). 이력 줄(IssueHistoryEntry)과 `kind` 로 가른다. */
 export interface TimelineRow {
+  kind: 'workflow'
   id: string
   actorName: string
   actorKind: 'HUMAN' | 'AGENT'
   createdAt: string
   text: string
+}
+
+/** 이력 합친 목록의 원소가 워크플로우 이동 줄인가 — 이력 줄과 가르는 타입 가드. */
+export function isWorkflowTimelineRow(e: object): e is TimelineRow {
+  return 'kind' in e && e.kind === 'workflow'
 }
 
 /**
@@ -191,13 +199,15 @@ export interface TimelineRow {
 export function workflowStepsToTimelineRows(
   path: WorkflowPathStep[],
   current: { key: string; name: string | null; enteredAt: string | null } | null = null,
-  runStatus?: string | null,
+  runStatus?: RunStatus | null,
+  endedAt?: string | null,
 ): TimelineRow[] {
   const first = path[0] ?? current
   if (!first) return []
   // 시작 시각을 모르면(서버가 현재 방문을 못 줄 때 null) 시작 줄을 뺀다 — 정렬 비교가 NaN 이 되지 않게.
   const rows: TimelineRow[] = !first.enteredAt ? [] : [
     {
+      kind: 'workflow',
       id: 'workflow-start',
       actorName: '',
       actorKind: 'HUMAN',
@@ -218,6 +228,7 @@ export function workflowStepsToTimelineRows(
     else if (next.key === s.key) text = `${prefix}${name} 단계를 다시 시작했습니다`
     else text = `${prefix}단계를 ${name} → ${next.name ?? next.key} (으)로 옮겼습니다`
     rows.push({
+      kind: 'workflow',
       id: `workflow-${s.key}-${i}`,
       actorName: who,
       actorKind: s.actor?.kind === 'AGENT' ? 'AGENT' : 'HUMAN',
@@ -225,6 +236,11 @@ export function workflowStepsToTimelineRows(
       text,
     })
   })
+  // 서버는 취소해도 current_node 를 지우지 않아 취소된 실행에도 current 가 있다 — 마지막 방문 뒤에 취소 줄을 더한다.
+  // 취소 시각(endedAt)을 모르면 줄을 뺀다(정렬 비교가 NaN 이 되지 않게). 행위자는 path 로 알 수 없어 이름 없이 쓴다.
+  if (runStatus === 'CANCELED' && current && endedAt) {
+    rows.push({ kind: 'workflow', id: 'workflow-canceled', actorName: '', actorKind: 'HUMAN', createdAt: endedAt, text: '실행을 취소했습니다' })
+  }
   return rows
 }
 

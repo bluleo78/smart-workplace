@@ -32,11 +32,11 @@ interface Props {
 /** 브라우저·서버 시계 차이 여유 — 「답으로 보내기」 후보 판정에만 쓴다. */
 const CLOCK_SKEW_MS = 60_000
 
-/** URL 로 읽히는 값인가 — new URL 이 받아들이면 URL 이다(빈 글자는 던진다). */
+/** URL 인가 — 서버(OutputRules)와 같게 host 가 있는 http(s) 만 받는다('abc:def'·'javascript:x' 는 거절). */
 function isUrl(s: string): boolean {
   try {
-    new URL(s)
-    return true
+    const u = new URL(s)
+    return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== ''
   } catch {
     return false
   }
@@ -115,8 +115,9 @@ function BannerBody({
 
   // 이 노드에 들어온 뒤에 쓴 글만 답 후보 — 몇 시간 전 글이 「방금 쓴 글」로 뜨지 않게 한다.
   // 글 시각은 브라우저 시계, enteredAt 은 서버 시계라 차이가 날 수 있어 1분 여유를 둔다(늦은 시계에서 버튼이 숨는 것을 막는다).
-  const enteredMs = cur.enteredAt ? parseUtcDate(cur.enteredAt).getTime() - CLOCK_SKEW_MS : 0
-  const postedBody = posted && posted.at >= enteredMs ? posted.body : null
+  // enteredAt 을 모르면 후보로 보지 않는다(0 으로 두면 오래된 글이 후보가 된다).
+  const enteredMs = cur.enteredAt ? parseUtcDate(cur.enteredAt).getTime() - CLOCK_SKEW_MS : null
+  const postedBody = posted && enteredMs != null && posted.at >= enteredMs ? posted.body : null
   // 필수 담당인데 고를 후보가 없으면 넘길 수 없다 — 이유를 보인다.
   const noCandidate = outcome?.assigneeRequired === true && outcome.candidateAssignees.length === 0
 

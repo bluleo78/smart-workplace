@@ -463,7 +463,8 @@ public class WorkflowRunService {
         runRepository.findNodeRuns(run.id()),
         issueAssignees(issue.id()),
         IssueStatuses.isClosed(issue.status()),
-        readContext(run.contextJson()));
+        readContext(run.contextJson()),
+        run.endedAt());
   }
 
   /** 저장하지 않은 시작 계획의 모습(dryRun) — 실제 시작과 같은 방문을 만든 것처럼 꾸민다(id 0). */
@@ -513,7 +514,8 @@ public class WorkflowRunService {
         visits,
         assigneesAfter,
         false,
-        Map.of());
+        Map.of(),
+        null);
   }
 
   /** dryRun 의 꾸민 방문 한 줄. */

@@ -20,6 +20,7 @@ import com.workplace.issue.workflow.dto.IssueWorkflowView.RequiredOutput;
 import com.workplace.issue.workflow.repository.NodeRunRow;
 import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.repository.UserRepository;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -55,6 +56,7 @@ class WorkflowRunViews {
    * @param nodeRuns 들어간 순서의 노드 방문(마지막 것이 지금 노드)
    * @param issueAssignees 지금 이슈 담당
    * @param context 실행 context
+   * @param endedAt 실행이 끝난 시각(진행 중·dryRun 이면 null)
    */
   record Snapshot(
       Long runId,
@@ -68,7 +70,8 @@ class WorkflowRunViews {
       List<NodeRunRow> nodeRuns,
       List<Long> issueAssignees,
       boolean issueClosed,
-      Map<String, Object> context) {}
+      Map<String, Object> context,
+      Instant endedAt) {}
 
   /**
    * 판정에 쓸 실행 상태 — 이동 판정과 view 의 후보 계산이 같은 값을 보게 여기 한 곳에서 만든다. {@code lastAssigneesByNode} 는 노드마다 가장
@@ -180,7 +183,8 @@ class WorkflowRunViews {
         List.copyOf(outcomeViews),
         List.copyOf(path),
         state.isActive() ? remaining(model, s.currentNode()) : List.of(),
-        s.context());
+        s.context(),
+        s.endedAt());
   }
 
   /** 지나온 방문 — 지금 노드의 방문을 뺀 나머지(들어간 순서). */
