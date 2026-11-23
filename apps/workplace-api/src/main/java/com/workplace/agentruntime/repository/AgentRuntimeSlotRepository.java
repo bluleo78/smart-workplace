@@ -102,6 +102,13 @@ public class AgentRuntimeSlotRepository {
   public static final Duration POD_START_CLOCK_SKEW_GRACE = Duration.ofSeconds(30);
 
   /**
+   * 기준 없는 ADOPT 표시({@code basisless_pod_uid})가 다른 정체의 ADOPT 를 막는 창 — 60초(관찰 1주기), <b>서버 시각</b>
+   * 기준(WP-2026 3차 반려 ①). 그 안에는 정체를 모르는 자리에서 기준 없이 밝힌 정체를 지키고, 지나면 막지 않는다 — 표시 잠금이 영구 교착이 되지 않게 하는
+   * 시간 제한이다. 노드 시계로 재면 이 이슈(시계 앞섬)와 같은 구멍이 나므로 {@code basisless_marked_at} 에 적어 둔 서버 시각과 비교한다.
+   */
+  public static final Duration BASISLESS_LOCK = Duration.ofSeconds(60);
+
+  /**
    * 그 AI 의 모든 칸 — 순서 없음(정렬은 합치기 {@code AgentSlotAggregate} 가 한 번만 한다). 다른 워크스페이스의 칸은 RLS 로 보이지 않는다.
    */
   public List<Slot> findAll(long agentUserId) {
@@ -178,6 +185,14 @@ public class AgentRuntimeSlotRepository {
   }
 
   /**
+   * 보고 시각이 시계 이상으로 {@link #acceptedPodStart} 가 null 로 만든 값인지(WP-2026) — 보고에 시각은 있었으나 30초 여유 밖이라 걸러진
+   * 경우와 애초에 시각이 없는 보고를 가르는 데 쓴다. 두 보고 서비스가 같은 자리에서 같은 뜻으로 계산하게 {@link #acceptedPodStart} 옆에 둔다.
+   */
+  public static boolean clockSkewFiltered(OffsetDateTime reported, OffsetDateTime accepted) {
+    return reported != null && accepted == null;
+  }
+
+  /**
    * 상태·칸 보고의 Pod 정체 판정(WP-1968 반려 ①) — 보고에 실은 Pod 정체를 지금까지 알던 정체(지금 Pod · 바로 앞 Pod)와 견본다. 시계 대신 정체로
    * 받고/버려, 빠른 시계를 가진 죽은 Pod 가 높은 시작 시각을 올려 지금 Pod 의 보고를 오판하지 않는다.
    *
@@ -205,23 +220,31 @@ public class AgentRuntimeSlotRepository {
   /**
    * 보고의 Pod 정체({@code podUid})와 지금까지 알던 정체를 견본다(WP-1968 반려 ①·⑥·C1·2차 반려 ②·④).
    *
+   * <p>시계 이상 플래그를 받는 인자는 꼭 필요한 자리에서만 쓴다 — 지금까지 main 코드의 호출자는 두 보고 서비스뿐이고, 거기서만 시계 이상 여부를 안다. 플래그를
+   * 모르는 자리가 생기면 이 인자를 빼지 말고 명시적으로 {@code false} 를 넘길 것: 빼면 시계 이상으로 걸러진 값과 애초에 시각이 없는 보고가 같은 거절로 묶여
+   * WP-2026 이 조용히 다시 열린다(WP-2026 리뷰 반려 ②).
+   *
    * @param reportPodUid 보고에 실은 정체 — 없으면(옛 이미지) 시계 규칙이던 {@link PodIdentity#UNKNOWN}
    * @param observedPodUid 지금 Pod 로 아는 정체 — 없으면(아직 한 번도 관찰·보고받지 못함) 처음 밝히는 보고인데, 보고에 시작 시각이 있어야
    *     {@link PodIdentity#ADOPT} 다(6차 반려 ①). 이때는 상태를 비우지 않는다(⑥ 배포 뒤 첫 인식을 새 Pod 로 오판하지 않기 위해). 단
    *     시각이 이미 늦은(이른) 정체는 3차 반려 ③ 처럼 {@link PodIdentity#OTHER} — 관찰 전이어도 지금 알던 시작보다 이른 정체는 ADOPT 로
    *     되돌리지 않는다
    * @param previousPodUid 바로 앞에 알던 정체 — 보고의 정체가 여기 있으면 끝나는 중인 옛 Pod ({@link PodIdentity#OTHER})
-   * @param reportedPodStartedAt 보고에 실은 그 Pod 시작 — ADOPT 를 가르는 데 쓴다. null(시계 이상으로 걸러진 값·시각을 못 읽은
-   *     이미지)이면 첫 인식을 포함해 {@link PodIdentity#OTHER}(2차 반려 ②·6차 반려 ①)
+   * @param reportedPodStartedAt 보고에 실은 그 Pod 시작 — ADOPT 를 가르는 데 쓴다. null 이면 첫 인식을 포함해 {@link
+   *     PodIdentity#OTHER}(2차 반려 ②·6차 반려 ①) 단, 시계 이상으로 걸러진 값이고 정체 미확정이면 {@link
+   *     PodIdentity#ADOPT}(WP-2026)
    * @param currentPodStartedAt 지금 알던 Pod 시작 — 이보다 30초 넘게 이른 정체는 두 세대 넘게 지연된 옛 Pod ({@link
    *     PodIdentity#OTHER})
+   * @param clockSkewFiltered 보고 시각이 시계 이상으로 {@link #acceptedPodStart} 가 null 로 만든 값인지 — 보고에 시각은
+   *     있었으나 서버보다 30초 넘게 앞선 경우와 애초에 시각이 없는 보고를 가르는 데 쓴다(WP-2026)
    */
   public static PodIdentity podIdentity(
       String reportPodUid,
       String observedPodUid,
       String previousPodUid,
       OffsetDateTime reportedPodStartedAt,
-      OffsetDateTime currentPodStartedAt) {
+      OffsetDateTime currentPodStartedAt,
+      boolean clockSkewFiltered) {
     // 빈 문자열(공백뿐인 문자열 포함)은 null 과 같은 뜻 — 「모른다」로 두어 시각 규칙으로 가르게 한다. 지금 Pod 이 비어 있는 정체를
     // 보냈는데 OTHER 로 보면 관찰 정체와 달라져 지금 Pod 의 보고가 거절되고, 빈 정체끼리면 MATCH 로 시각 검사 없이 받아진다.
     if (isNoIdentity(reportPodUid)) return PodIdentity.UNKNOWN;
@@ -240,9 +263,24 @@ public class AgentRuntimeSlotRepository {
     // 되돌아 1번과 같은 영구 교착이 생긴다. 첫 인식에서 시각 없이 ADOPT 하면 그 인식이 기준 없이 박히고, 그 뒤 옛 Pod 가 시각을 실어
     // 다시 ADOPT 하면 previous 가 그 옛 Pod 로 박혀 살아 있는 지금 Pod 는 영구 OTHER(상태 미저장·칸 409)가 된다(6차 반려 ①).
     // 관찰(약 60초)이 정체와 시작 시각을 함께 밝힌 뒤 MATCH 로 잇는다.
-    if (reportedPodStartedAt == null) return PodIdentity.OTHER;
+    if (reportedPodStartedAt == null) {
+      // 시계 이상으로 걸러진 값이고 정체 미확정(관찰·앞 정체 모두 비어 있음)이면 첫 ADOPT 를 허용한다 — 보고에 시각은 있었으나 서버보다
+      // 30초 넘게 앞선 경우, 관찰 보고에 정체를 싣지 못하는 구 runner 는 회복 경로가 없어 이 조합에서만 새 Pod 가 영구 OTHER 가 됐다
+      // (WP-2026). 이 ADOPT 는 기준 없이 정체만 갈아끼우므로 adoptPodIdentity 가 표시(basisless_pod_uid)와 그 표시 시각
+      // (basisless_marked_at)을 함께 남기고, 두 보고 서비스는 그 표시를 보는 barBasislessAdopt 로 **서버 시각 60초 창 안에서만**
+      // 다른
+      // 정체의 ADOPT 를 막는다 — 「관찰 정체 있는데 기준 없음」 전체가 아니라 **기준 없이 밝힌 정체에 한정**해서다(WP-2026 리뷰 반려 ①·②:
+      // 시각 없는 관찰 자리에서는 새 Pod 의 정상 시각 보고를 그대로 ADOPT 로 받아야 한다). 창 밖·관찰이 표시 뒤에 생긴 시작을 비춤·표시 정체가
+      // 지금 정체와 달라지면 막지 않는다 — 표시 잠금이 특정 미래 사건 하나에만 걸려 영구 교착이 되지 않게(3차 반려 ①). 정체를 이미 아는 구간은
+      // 애초에 이 분기에도 들지 않는다(6차 반려 ① 교착 유지).
+      if (clockSkewFiltered && isNoIdentity(observedPodUid) && isNoIdentity(previousPodUid)) {
+        return PodIdentity.ADOPT;
+      }
+      return PodIdentity.OTHER;
+    }
     // 첫 인식(정체를 아직 모름)은 위 두 검사 뒤에 본다(3차 반려 ③) — 관찰 전이어도 지금 알던 시작보다 이른 정체의 늦은 보고가 ADOPT 되면
-    // 배포 직후에라도 started_at 을 그 옛 Pod 값으로 되돌린다. 이제 첫 인식도 시작 시각을 요구하므로(위) 기준 없는 ADOPT 는 없다.
+    // 배포 직후에라도 started_at 을 그 옛 Pod 값으로 되돌린다. 이제 첫 인식도 시작 시각을 요구하므로(위, 시계 이상 필터는 위 null 분기에서만
+    // 예외) 기준 없는 ADOPT 는 없다.
     return PodIdentity.ADOPT;
   }
 
@@ -262,6 +300,60 @@ public class AgentRuntimeSlotRepository {
     if (identity != PodIdentity.ADOPT) return identity;
     if (reportedGeneration == null || currentGeneration == null) return identity;
     return reportedGeneration < currentGeneration ? PodIdentity.OTHER : identity;
+  }
+
+  /**
+   * 기준(시각) 없이 밝힌 정체의 표시는 <b>짧은 창 안에서만</b> 다른 정체의 ADOPT 를 막는다(WP-2026 리뷰 반려 ① — 3차 반려로 해제 조건을 바꿈) —
+   * 시계 이상으로 걸러진 첫 ADOPT 는 기준을 세우지 못해 위 C1({@link #isOlderPod})이 판정하지 못한다. 그 동안 정상 시각의 다른 정체를 ADOPT
+   * 로 받으면 앞서 밝힌 살아 있는 정체가 previous 로 박혀 영구 교착(상태 미저장·칸 409)이 되살아난다.
+   *
+   * <p>표시 잠금을 「표시 정체가 앞으로 정상 시각으로 기준을 채울 때까지」(1~3차 반려의 규칙)로 두면, 그 사건이 오지 않는 상태가 매번 새 교착이 된다 (3차 반려
+   * ① 시계가 계속 앞선 노드 → 정상 노드 새 Pod 로 교체해도 영구 409, ② MATCH 가 기준을 채워도 표시가 남아 관찰이 기준을 비운 뒤 새 Pod ADOPT 를
+   * 다시 막음). 그래서 해제 조건을 <b>지금 행에 이미 있는 값</b>으로 바꿨다 — 셋 중 하나면 막지 않는다:
+   *
+   * <ol>
+   *   <li>(a) <b>서버 시각 기준 {@link #BASISLESS_LOCK} 경과</b> — 노드 시계로 재면 이 이슈(시계 앞섬)와 같은 구멍이 나므로 표시를 남긴
+   *       서버 시각({@code basisless_marked_at})과 지금 서버 시각으로 잰다
+   *   <li>(b) <b>관찰이 표시 뒤에 생긴 시작을 {@code started_at} 에 비췄다</b> — 그 시점부터 C1 이 다시 제대로 선다. 서버 시각보다
+   *       앞선(시계 이상) 시작은 신뢰하지 않는다
+   *   <li>(c) <b>표시가 지금 정체와 다르다</b> — 표시를 남긴 정체는 이미 갈아끼워졌다는 뜻
+   * </ol>
+   *
+   * <p><b>표시가 있는 자리에만</b> 건다(2차 반려 ②) — 관찰로 정체만 알고 시각은 모르는 자리(시각 없는 관찰)는 표시가 없어 새 Pod 의 정상 시각 보고를
+   * ADOPT 로 받아야 한다(기존 동작).
+   *
+   * @param identity 정체 판정 결과 — ADOPT 가 아니면 값이 그대로다
+   * @param basislessPodUid 기준 없이 ADOPT 로만 밝힌 정체({@code basisless_pod_uid}) — 없으면 막지 않는다
+   * @param basislessMarkedAt 위 표시를 남긴 서버 시각({@code basisless_marked_at}) — 없으면 창을 잴 수 없어 막지 않는다
+   * @param reportedPodStartedAt 보고가 올려 둔 Pod 시작 기준({@code reported_pod_started_at}) — null 이면 아직
+   *     기준이 없다
+   * @param observedPodUid 지금 Pod 로 아는 정체 — 표시 정체와 다르면 (c) 로 풀린다
+   * @param startedAt 관찰이 비친 지금 Pod 시작({@code started_at}) — 표시 뒤에 생긴 시작이면 (b) 로 풀린다
+   * @param serverNow 지금 서버 시각 — 창 경과를 재는 기준(노드 시계 아님)
+   * @return ADOPT 를 막았으면 {@link PodIdentity#OTHER}(저장 없이 버림 — 칸은 409, 상태는 저장된 행 기준 응답), 그 밖은 원래 값
+   */
+  public static PodIdentity barBasislessAdopt(
+      PodIdentity identity,
+      String basislessPodUid,
+      OffsetDateTime basislessMarkedAt,
+      OffsetDateTime reportedPodStartedAt,
+      String observedPodUid,
+      OffsetDateTime startedAt,
+      OffsetDateTime serverNow) {
+    if (identity != PodIdentity.ADOPT) return identity;
+    if (isNoIdentity(basislessPodUid)) return identity;
+    if (basislessMarkedAt == null) return identity;
+    // (c) 표시를 남긴 정체가 이미 다른 정체로 갈아끼워졌으면 막을 대상이 없다.
+    if (!basislessPodUid.equals(observedPodUid)) return identity;
+    // (b) 표시 뒤에 생긴(더 늦은) 관찰 시작 — 서버 시각보다 앞선 값은 노드 시계 앞섬이라 이 이슈와 같은 구멍이 나므로 신뢰하지 않는다.
+    if (startedAt != null
+        && startedAt.isAfter(basislessMarkedAt)
+        && !startedAt.isAfter(serverNow)) {
+      return identity;
+    }
+    // (a) 서버 시각 기준 짧은 창 — 창 안에서만 기준 없는 ADOPT 자리를 지킨다.
+    if (!basislessMarkedAt.plus(BASISLESS_LOCK).isAfter(serverNow)) return identity;
+    return reportedPodStartedAt == null ? PodIdentity.OTHER : identity;
   }
 
   /** 정체가 없는 상태 — null 또는 공백뿐인 문자열. 빈 문자열은 null 과 같은 뜻으로 다뤄야 한다(WP-1968·2차 반려 ⑤). */

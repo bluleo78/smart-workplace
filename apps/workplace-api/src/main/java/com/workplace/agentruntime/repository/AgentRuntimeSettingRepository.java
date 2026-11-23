@@ -82,6 +82,10 @@ public class AgentRuntimeSettingRepository {
       OffsetDateTime startedAt,
       String observedPodUid,
       String previousPodUid,
+      /** 기준 없이 ADOPT 로만 밝힌 정체(WP-2026 리뷰 반려 ①·②) — 짧은 창 안에서만 다른 정체의 ADOPT 를 막는 표시. */
+      String basislessPodUid,
+      /** 위 표시를 남긴 서버 시각(WP-2026 3차 반려 ①) — 노드 시계가 아니라 서버 시각으로 창을 잰다. */
+      OffsetDateTime basislessMarkedAt,
       OffsetDateTime observedAt,
       String agentState,
       String agentIssueKey,
@@ -129,6 +133,8 @@ public class AgentRuntimeSettingRepository {
         r.get(AGENT_RUNTIME_SETTING.STARTED_AT),
         r.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID),
         r.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID),
+        r.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID),
+        r.get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT),
         r.get(AGENT_RUNTIME_SETTING.OBSERVED_AT),
         r.get(AGENT_RUNTIME_SETTING.AGENT_STATE),
         r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY),
@@ -429,6 +435,8 @@ public class AgentRuntimeSettingRepository {
         // null·옛 Pod 관찰이 새 Pod 가 올린 값을 지우면 안 된다.
         // 여유가 없으면 초 단위로 내린 보고값을 관찰마다 비우고 다음 보고가 다시 올린다.
         // started_at 이 바뀐 것만으로 비우면 낡은 관찰이나 새 Pod 자신의 startTime 이 새 Pod 의 보고값을 지운다.
+        // 표시(basisless_pod_uid·basisless_marked_at)는 여기서 건드리지 않는다 — 표시는 기준이 비어 있을 때만 서 있고,
+        // 관찰은 기준을 채우지 않고 비우기만 하므로 표시를 지워야 할 자리가 없다(표시 ⇒ 기준 null 불변식, WP-2026 3차 반려 ②).
         .set(
             s.REPORTED_POD_STARTED_AT,
             clearedIf(
@@ -581,13 +589,21 @@ public class AgentRuntimeSettingRepository {
    * 인식은 {@code previous} 를 비운 채 쓴다 — 배포 뒤 첫 보고를 새 Pod 로 오판해 상태를 비우지 않기 때문이다(WP-1968 반려 ⑥).
    *
    * <p>보고에 시작 시각이 있으면 지금 Pod 시작({@link Row#startedAt})과 기준({@link Row#reportedPodStartedAt})을 그 값으로
-   * 고쳐, 끝나는 중인 옛 Pod 가 올려 둔 높은 시각이 남아 새 Pod 의 보고·차단이 옛 Pod 로 오판되지 않는다(WP-1968 반려 ②·④). 시각이 없으면 기존
-   * 값을 그대로 두고 다음 관찰이 고친다. 호출자가 이 행을 이미 잠겼다고 가정한다({@link #findForUpdate}).
+   * 고쳐, 끝나는 중인 옛 Pod 가 올려 놓은 높은 시각이 남아 새 Pod 의 보고·차단이 옛 Pod 로 오판되지 않는다(WP-1968 반려 ②·④). 시각이 없으면 (시계
+   * 이상으로 걸러진 첫 ADOPT — WP-2026) 정체만 갈아끼우고 **표시**({@link Row#basislessPodUid})와 그 표시를 남긴 **서버
+   * 시각**({@link Row#basislessMarkedAt})을 남긴다 — 판정({@code barBasislessAdopt})이 그 두 칸을 보고 짧은 창(서버 시각
+   * 60초) 안에서만 다른 정체의 ADOPT 를 막기 때문이다(WP-2026 3차 반려 ①·②). 이때 **보고 기준만 비우고 관찰 {@code started_at} 은
+   * 그대로 둔다**(3차 반려 ③ — 시작 시각까지 비우면 이른 Pod 거절(C1)이 꺼지고 다음 관찰이 새 Pod 로 판정해 {@code agent_*} 칸을 비운다).
+   * 기준이 있는 ADOPT 로 받으면 표시·표시 시각을 모두 지운다 — 기준이 채워져 시각 규칙으로 돌아갔다는 뜻이다.
+   *
+   * <p><b>남은 위험</b>: 표시의 60초 창이 지나고 그 사이 관찰이 아직 도착하지 않았으면, 그 옛 Pod 자신의 시작 시각을 들고 온 늦은 보고가 C1 을 통과해
+   * 정체를 되돌릴 수 있다(기존 대비 창만큼의 노출 — 표시가 영구 잠금이 되는 것과의 트레이드오프). UNKNOWN 보고가 보고 기준을 올려 창을 여는 틈도 같다. 둘 다
+   * PR 본문 「남은 위험」에 적는다. 호출자가 이 행을 이미 잠겼다고 가정한다({@link #findForUpdate}).
    *
    * @param before 잠긴 설정 행 — 지금까지 알던 정체와 사용자 id 를 읽는다
    * @param podUid 보고가 밝힌 정체
    * @param podStartedAt 보고한 Pod 시작 시각(시계 이상이 이미 걸러진 값 — {@link
-   *     AgentRuntimeSlotRepository#acceptedPodStart})
+   *     AgentRuntimeSlotRepository#acceptedPodStart}). null 이면 기준 없는 ADOPT 다
    * @return 받아들인 뒤의 행(뒤의 판정·합치기가 이 행 기준으로 잇게)
    */
   public Row adoptPodIdentity(Row before, String podUid, OffsetDateTime podStartedAt) {
@@ -595,13 +611,17 @@ public class AgentRuntimeSettingRepository {
     return dsl.update(s)
         .set(s.PREVIOUS_POD_UID, before.observedPodUid())
         .set(s.OBSERVED_POD_UID, podUid)
+        .set(s.BASISLESS_POD_UID, podStartedAt == null ? podUid : null)
+        // 표시 시각은 서버 시각으로 — 노드 시계(이 이슈의 원인)로 재면 같은 구멍이 난다(WP-2026 3차 반려 ①).
+        .set(s.BASISLESS_MARKED_AT, podStartedAt == null ? DSL.currentOffsetDateTime() : null)
+        // 관찰이 비친 지금 Pod 시작은 기준 없는 ADOPT 에서도 건드리지 않는다(3차 반려 ③) — 이른 Pod 거절(C1)의 근거라서다.
         .set(
             s.STARTED_AT,
             podStartedAt == null ? s.STARTED_AT : DSL.val(podStartedAt, s.STARTED_AT.getDataType()))
         .set(
             s.REPORTED_POD_STARTED_AT,
             podStartedAt == null
-                ? s.REPORTED_POD_STARTED_AT
+                ? DSL.val(null, s.REPORTED_POD_STARTED_AT.getDataType())
                 : DSL.val(podStartedAt, s.REPORTED_POD_STARTED_AT.getDataType()))
         .where(s.AGENT_USER_ID.eq(before.agentUserId()))
         .returning()
@@ -683,6 +703,16 @@ public class AgentRuntimeSettingRepository {
   }
 
   /**
+   * DB 서버 시각 — 표시 잠금({@code basisless_pod_uid})의 60초 창을 재는 기준(WP-2026 3차 반려 ①). 표시를 남길 때 쓰는 {@code
+   * current_offset_date_time()} 과 같은 시계라 창 길이가 어긋나지 않는다. 노드 시계(보고가 들고 온 Pod 시작 시각)로 재면 이 이슈(시계 앞섬)와
+   * 같은 구멍이 나므로 절대 쓰지 않는다.
+   */
+  public OffsetDateTime dbNow() {
+    return dsl.select(DSL.currentOffsetDateTime().as("server_now"))
+        .fetchOne(r -> r.get("server_now", OffsetDateTime.class));
+  }
+
+  /**
    * 보고가 알려 준 Pod 시작 시각을 올린다(WP-1958) — {@code GREATEST} 한 문장이라 올라가기만 하고(Postgres GREATEST 는 NULL 을
    * 무시해 첫 값도 들어간다) 동시 보고가 내려 쓰지 않는다. null 이면 아무것도 하지 않는다. runner 관찰이 새 Pod 를 아직 못 봤을 때 지금 Pod 시작의
    * 근거가 된다.
@@ -694,6 +724,9 @@ public class AgentRuntimeSettingRepository {
         .set(
             s.REPORTED_POD_STARTED_AT,
             DSL.greatest(s.REPORTED_POD_STARTED_AT, DSL.val(podStartedAt)))
+        // 기준이 채워지면 기준 없는 ADOPT 표시도 함께 지운다(WP-2026 3차 반려 ② — 표시는 기준 없을 때만 의미가 있다).
+        .set(s.BASISLESS_POD_UID, (String) null)
+        .set(s.BASISLESS_MARKED_AT, (OffsetDateTime) null)
         .where(s.AGENT_USER_ID.eq(agentUserId))
         .execute();
   }
@@ -707,10 +740,14 @@ public class AgentRuntimeSettingRepository {
    */
   public void setReportedPodStart(long agentUserId, OffsetDateTime podStartedAt) {
     var s = AGENT_RUNTIME_SETTING;
-    dsl.update(s)
-        .set(s.REPORTED_POD_STARTED_AT, podStartedAt)
-        .where(s.AGENT_USER_ID.eq(agentUserId))
-        .execute();
+    UpdateSetMoreStep<AgentRuntimeSettingRecord> step =
+        dsl.update(s).set(s.REPORTED_POD_STARTED_AT, podStartedAt);
+    // 기준을 실제로 채울 때만 표시를 지운다 — 비우는 호출(null)에서는 표시가 남아 짧은 창 방어를 그대로 쓴다(WP-2026 3차 반려 ②).
+    if (podStartedAt != null) {
+      step.set(s.BASISLESS_POD_UID, (String) null)
+          .set(s.BASISLESS_MARKED_AT, (OffsetDateTime) null);
+    }
+    step.where(s.AGENT_USER_ID.eq(agentUserId)).execute();
   }
 
   /**

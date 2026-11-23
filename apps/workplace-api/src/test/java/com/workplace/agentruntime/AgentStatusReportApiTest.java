@@ -1166,6 +1166,17 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
         .execute();
   }
 
+  /**
+   * 기준 없는 ADOPT 표시를 남긴 서버 시각(basisless_marked_at)을 직접 맞춘다 — 표시 잠금의 60초 창(서버 시각 기준)을 재현하기 위해(WP-2026
+   * 3차 반려 ①). 테스트가 창 밖·창 안을 각각 재현할 수 있게 시간을 되돌린다.
+   */
+  private void setBasislessMarkedAt(OffsetDateTime markedAt) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT, markedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
   /** 바로 앞에 쓰이던 Pod 정체(previous_pod_uid)를 직접 심는다 — 끝나는 중인 옛 Pod 의 늦은 보고를 재현하기 위해(WP-1968 반려 ①). */
   private void setPreviousPodUid(String previousPodUid) {
     dsl.update(AGENT_RUNTIME_SETTING)
@@ -1243,10 +1254,13 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   /**
    * 관찰이 아직 옛 정체를 가리키는 동안에 온 새 Pod 의 첫 보고도 지금 Pod 로 받아들인다(WP-1968 반려 ①) — runner 관찰(약 60초)을 기다리는 동안
    * 재시작 직후 새 Pod 의 보고가 버려지지 않게 한다. 칸은 그 보고로 쓰이고, 지금 정체는 바로 앞 정체로 미뤄 둔다(지연 도착한 옛 Pod 보고가 되돌리지 못하게).
+   * 관찰이 정체와 함께 시작 시각도 밝혔다고 본다 — 갈아끼움을 막는 굳힘은 **표시**({@code basisless_pod_uid})가 있는 자리(기준 없이 ADOPT
+   * 로만 밝힌 정체, WP-2026 리뷰 반려 ①)에만 걸려, 시각 없는 관찰 자리에서는 다른 정체도 ADOPT 로 받는다(반려 ②).
    */
   @Test
   void status_보고가_밝힌_정체는_관찰_없이_지금_Pod_로_받는다() throws Exception {
     setObservedPod("pod-old", null);
+    setStartedAt(POD_NEW); // 관찰이 밝힌 지금 Pod 시작 — 시각 없는 관찰 자리와 갈리게(둘 다 ADOPT, 표시는 기준 없는 자리에만 남는다)
     setRow(agent, null, "IDLE", "RUN");
 
     report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, POD_NEW, "pod-new"))
@@ -1396,9 +1410,279 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   }
 
   /**
-   * 시작 시각이 걸러진(null) 모르는 정체의 상태 보고는 저장하지 않고 저장된 행 기준 응답을 준다(WP-1968 2차 반려 ②) — acceptedPodStart 가
-   * 시계 이상을 걸러 null 로 만든 뒤 검사 없이 ADOPT 되면, 빠른 시계 노드의 죽은 옛 Pod 가 정체를 과거로 되돌려 영구 교착이 생기고 WP-1958 보호도
-   * 사라진다. 관찰(약 60초)이 정체를 밝힌 뒤 다시 오면 MATCH 로 저장된다.
+   * 서버 시각보다 30초 넘게 앞선 Pod 시작(시계 이상)의 첫 보고는 정체 미확정이라도 지금 Pod 로 받아 저장한다(WP-2026) — 관찰 보고에 정체를 싣지 못하는
+   * 구 runner 는 이 조합에서 영구 OTHER 로 버려졌다.
+   */
+  @Test
+  void status_시계_이상으로_걸러진_시각의_첫_보고는_정체를_받는다() throws Exception {
+    // OBSERVED_POD_UID · STARTED_AT · REPORTED_POD_STARTED_AT 모두 비어 있는 상태(정체 미확정)에서,
+    // podStartedAt 을 서버 시각보다 40초 앞(30초 여유 밖)으로 보고하고 podUid 를 함께 싣는다.
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+
+    // 기대: 저장 없이 버려지지 않고(정체 미확정 + 시계 이상은 OTHER 가 아니라 ADOPT) 저장·응답까지 이번 보고가 반영된다.
+    // 응답 값은 채택/거절 어느 쪽이든 RUN — 판별은 아래 저장 단언이 한다.
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, skewStart, "pod-new"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RUN"));
+
+    assertThat(slotKeysOf(agent)).containsExactly("X");
+    assertThat(slotState("X")).isEqualTo("WORKING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    // 시계 이상으로 걸러진 값은 기준·시각으로 오르지 않는다(acceptedPodStart 가 없는 것처럼 다룬 자리) — 애초에 시각이 없는 보고와 다르게,
+    // 정체는 이번 보고가 스스로 밝혀 저장됐다.
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.STARTED_AT)).isNull();
+
+    // 이후 같은 podUid 보고(정체 일치)가 그대로 이어진다 — 정상 시각이면 기준도 그 값으로 갱신된다.
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_NEW, "pod-new"))
+        .andExpect(status().isOk());
+    assertThat(slotState("X")).isEqualTo("IDLE");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+  }
+
+  /**
+   * 기준(시각) 없이 밝힌 정체는 관찰이 시각을 밝힐 때까지 다른 정체에 갈아끼워지지 않는다(WP-2026 리뷰 반려 ①) — 시계 이상 첫 ADOPT 는 기준을 세우지 못해
+   * {@code isOlderPod} 가 판정하지 못한다. 그래서 그 동안 정상 시각의 다른 정체는 ADOPT 로 받지 않고(거절), 앞서 밝힌 살아 있는 Pod 의 보고는
+   * 그대로 저장된다 — 앞서 밝힌 정체가 previous 로 박혀 영구 교착(상태 미저장·칸 409)에 빠지지 않게. 관찰(약 60초)이 시각을 밝히거나 같은 정체의 정상
+   * 시각 보고가 기준을 채우면 일반 규칙으로 돌아간다.
+   */
+  @Test
+  void status_기준_없이_밝힌_정체는_정상_시각의_다른_정체에_갈아끼워지지_않는다() throws Exception {
+    // 1) 시계 이상 첫 보고로 정체를 밝힌다 — 기준(시각)은 그대로 비어 있다.
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, skewStart, "pod-new"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+
+    // 2) 정상 시각의 다른 정체 보고 — 기준이 없어 시각으로 견볼 수 없으므로 ADOPT 로 받지 않고 거절한다(정체는 그대로).
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_NEW, "pod-old"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    // 거절된 보고는 칸·합친 상태도 건드리지 않는다 — 살아 있는 Pod 의 값이 그대로다.
+    assertThat(slotState("X")).isEqualTo("WORKING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+
+    // 3) 살아 있는 Pod(pod-new)의 보고는 계속 저장된다 — 정체가 previous 로 박히지 않았음을 함께 고정한다. (실제 Pod 은 시작 시각을 바꾸지
+    // 않으니 같은 skewStart 가 시계 차이 여유(30초)가 지난 뒤 acceptedPodStart 를 통과해 기준을 채운다 — 여기서는 「기준이 채워지면 굳힘이
+    // 풀린다」는 자리만 고정하기 위해 정상 시각을 쓴다.)
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_NEW, "pod-new"))
+        .andExpect(status().isOk());
+    assertThat(slotState("X")).isEqualTo("IDLE");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    // 정상 시각 보고가 기준을 채우면 이 굳힘은 풀린다 — 관찰 없이도 일반 규칙으로 돌아온다.
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+  }
+
+  /**
+   * 시각 없는 관찰 정체 자리의 정상 시각 다른 정체는 저장한다(WP-2026 리뷰 반려 ②) — 굳힘(barBasislessAdopt)이 「관찰 정체 있음 + 시각 없음」
+   * 전체에 걸면 관찰이 정체만 밝히고 시각은 못 밝힌 자리에서 새 Pod 의 정상 시각 보고가 영영 ADOPT 되지 않아 기존 동작이 깨진다. 표시({@code
+   * basisless_pod_uid})가 있는 자리에만 막아 두 자리를 갈라 둔다 — 그 표시는 기준 없이 ADOPT 로만 밝힌 정체에 남는다.
+   */
+  @Test
+  void status_시각_없는_관찰_정체_자리의_정상_시각_다른_정체는_저장한다() throws Exception {
+    // 관찰이 정체만 밝힌 자리 — 시작·기준 시각은 그대로 비어 있고 표시도 없다.
+    setObservedPod("pod-b", null);
+    setStartedAt(null);
+
+    // 정상 시각의 다른 정체 보고 — 굳힘에 걸리지 않고 지금 Pod 로 받아 저장한다(기존 동작 유지, 반려 ②).
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, POD_NEW, "pod-a"))
+        .andExpect(status().isOk());
+
+    assertThat(slotKeysOf(agent)).containsExactly("X");
+    assertThat(slotState("X")).isEqualTo("WORKING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+    // 기준(시각)이 함께 간 ADOPT 라 표시는 남지 않는다 — 굳힘은 다음 보고에서도 다시 걸리지 않는다.
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isNull();
+  }
+
+  /**
+   * 표시가 선 뒤에 오는 정체 없는 관찰이 시각을 되살려도 옛 Pod 의 늦은 보고는 정체를 갈아끼우지 못한다(WP-2026 리뷰 반려 ①의 다른 순서 — 관찰이 ADOPT
+   * 보다 뒤에 오는 경우) — 시계 이상 첫 ADOPT 로 표시만 남긴 자리에 구 runner 관찰(정체 없음·시각만)이 와 {@code started_at} 을 되살리면,
+   * 굳힘의 문을 {@code started_at} 이 아니라 보고 기준({@code reported_pod_started_at})으로 잡지 않았다면 풀려 옛 Pod 가 정체를
+   * 되돌려 영구 교착(상태 미저장·칸 409)이 된다.
+   */
+  @Test
+  void status_표시_선_뒤_정체_없는_관찰이_시각을_되살려도_늦은_정체_보고는_거절한다() throws Exception {
+    // 1) 빈 자리에서 시계 이상 첫 보고로 정체만 밝힌다 — 표시가 남고 기준(started_at·reported)은 비어 있다.
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, skewStart, "pod-b"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.STARTED_AT)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    assertThat(slotState("X")).isEqualTo("WORKING");
+
+    // 2) 정체 없이(구 runner) 시각만 실은 관찰이 뒤에 온다 — started_at 을 되살리지만 보고 기준은 그대로 비어 있고 표시도 남아 있다.
+    observe(null, POD_OLD, "RUNNING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.STARTED_AT).toInstant())
+        .isEqualTo(POD_OLD.toInstant());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+
+    // 3) 그 관찰과 같은 시각을 실은 옛 Pod(pod-a)의 늦은 보고 — 시각으로는 견볼 수 없어(같은 값이라 C1 이 안 잡는다) ADOPT 로 갔을 텐데,
+    //    보고 기준이 아직 비어 있어 표시가 선 동안 거절한다. 칸(첫 보고의 WORKING)도 정체도 그대로다.
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_OLD, "pod-a"))
+        .andExpect(status().isOk());
+    assertThat(slotState("X")).isEqualTo("WORKING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+  }
+
+  /**
+   * 표시 잠금은 <b>서버 시각 60초 창</b> 안에서만 다른 정체의 ADOPT 를 막는다(WP-2026 3차 반려 ①) — 표시 정체가 기준을 채우는 사건 하나에만 걸어
+   * 두면 그 사건이 오지 않는 상태가 매번 새 교착이 됐다(시계가 계속 앞선 노드 → 정상 노드 새 Pod 로 교체해도 영구 409). 창은 노드 시계가 아니라 표시를 남긴
+   * 서버 시각으로 잰다 — 이 이슈 자체가 노드 시계 앞섬이라 그렇게 재면 같은 구멍이 난다.
+   */
+  @Test
+  void status_표시_잠금은_서버_시각_60초_창에서만_막는다() throws Exception {
+    // 1) 빈 자리에서 시계 이상 첫 보고 — 정체만 밝히고 표시와 표시 시각(서버)을 남긴다.
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, skewStart, "pod-b"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+    OffsetDateTime marked = settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT);
+    assertThat(marked).isNotNull();
+
+    // 2) 창 안(55초 — HTTP 처리 지연까지 5초 여유) — 정상 노드의 새 Pod(pod-a) 보고도 정체를 갈아끼우지 못한다(거절, 칸·정체는 그대로).
+    setBasislessMarkedAt(OffsetDateTime.now().minusSeconds(55));
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_NEW, "pod-a"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+
+    // 3) 창 밖(61초) — ADOPT 로 받아 정체를 갈아끼우고 표시·표시 시각을 지운다(영구 교착 없음).
+    setBasislessMarkedAt(OffsetDateTime.now().minusSeconds(61));
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_NEW, "pod-a"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT)).isNull();
+  }
+
+  /**
+   * 기준을 채우는 모든 곳에서 표시를 함께 지운다(WP-2026 3차 반려 ②) — 표시가 시각 있는 ADOPT 로만 지워지면, MATCH 가 기준을 채운 뒤 관찰이 기준을
+   * 비웠을 때 낡은 표시가 새 Pod 의 정상 ADOPT 를 다시 막는다(검토자가 3차 반려 ②로 막은 두 번째 교착).
+   */
+  @Test
+  void status_MATCH가_기준을_채우면_표시가_지워져_관찰이_기준을_비워도_새_Pod는_ADOPT된다() throws Exception {
+    // 1) 시계 이상 첫 보고로 표시만 남긴다.
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, skewStart, "pod-b"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+
+    // 2) 표시 정체 자신(pod-b)의 정상 시각 보고는 MATCH 로 이어져 보고 기준을 채우고 표시·표시 시각을 지운다.
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_NEW, "pod-b"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNotNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT)).isNull();
+
+    // 3) 뒤에 온 관찰이 더 늦은 시작을 비춰 보고 기준을 비워도 — 표시가 이미 없어 새로운 정체(pod-a)의 정상 시각 보고를 막지 않는다.
+    observe(null, POD_NEW.plusSeconds(120), "RUNNING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_NEW.plusSeconds(180), "pod-a"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
+  }
+
+  /**
+   * 기준 없는 ADOPT 뒤에도 <b>이른 Pod 거절(C1)은 유지</b>된다(WP-2026 3차 반려 ③) — 기준 없는 ADOPT 가 관찰한 {@code
+   * started_at} 까지 비우면 이른 Pod 거절이 꺼지고 다음 관찰이 새 Pod 로 판정해 {@code agent_*} 칸을 비운다. 보고 기준({@code
+   * reported_pod_started_at})만 비우고 관찰 시각은 그대로 둔다. 표시 잠금의 창은 넘겨 둬(C1 만 남게) 시각 규칙이 실제로 서는지 본다.
+   */
+  @Test
+  void status_기준_없는_ADOPT_뒤에도_이른_Pod_거절은_유지된다() throws Exception {
+    // 1) 구 runner 관찰이 옛 Pod 시작만 남긴 자리(정체는 모른다).
+    OffsetDateTime normalStart = OffsetDateTime.now().minusMinutes(10).withNano(0);
+    setObservedPod(null, null);
+    setStartedAt(normalStart);
+
+    // 2) 시계 이상 첫 보고로 정체만 밝힌다 — 관찰 시각(normalStart)은 그대로 두고 보고 기준만 비운다(3차 반려 ③).
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, skewStart, "pod-b"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.STARTED_AT).toInstant())
+        .isEqualTo(normalStart.toInstant());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+
+    // 3) 표시 잠금의 창은 넘겨 둔다(61초) — 이제 막는 것은 위 C1(관찰 시각)뿐이다. 두 세대 넘게 이른 옛 Pod(pod-a)의 늦은 보고는
+    //    관찰 시각이 그대로라 여전히 거절된다. 시각까지 비웠다면 current 가 비어 C1 이 서지 못해 ADOPT 로 받아 정체가 갈아끼워졌을 것이다.
+    setBasislessMarkedAt(OffsetDateTime.now().minusSeconds(61));
+    OffsetDateTime earlyStart = normalStart.minusMinutes(5);
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, earlyStart, "pod-a"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.STARTED_AT).toInstant())
+        .isEqualTo(normalStart.toInstant());
+    assertThat(slotState("X")).isEqualTo("WORKING");
+  }
+
+  /**
+   * 시계 이상으로 걸러진 시각의 첫 보고라도 낮은 generation 은 정체를 ADOPT 하지 않는다(WP-2026) — 정체 미확정 + 시계 이상으로 ADOPT 가
+   * 허용돼도 그 뒤의 {@code barStaleAdopt} 가 낮은 generation 보고를 막아(5차 반려 ④) 앞 세대 Pod 가 정체를 못 박지 않는다. 시계 이상
+   * 플래그가 세대 판정까지 통과시키지 않음을 함께 고정한다.
+   */
+  @Test
+  void status_시계_이상_첫_보고도_낮은_generation_은_거절한다() throws Exception {
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    // 정체 미확정(모든 정체·시각 칸이 비어 있는 상태)에서 시계 이상으로 걸러지는 미래 시각 + 정체의 첫 보고를
+    // 낮은 generation 로 보낸다 — podIdentity 에서는 ADOPT, barStaleAdopt 에서는 OTHER 로 바뀌어야 한다.
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", gen - 1, skewStart, "pod-new"))
+        .andExpect(status().isOk());
+
+    // 저장은 하나도 되지 않는다 — 칸·합친 상태·정체·기준이 그대로 비어 있다.
+    assertThat(slotKeysOf(agent)).isEmpty();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.STARTED_AT)).isNull();
+  }
+
+  /**
+   * 관찰 정체가 이미 있는 상태의 시계 이상 다른 정체 보고는 저장 없이 거절한다(WP-2026) — 시계 이상 걸러짐의 ADOPT 는 정체 미확정일 때만 허용이라, 정체를
+   * 아는 구간에서는 6차 반려 ① 교착(정체가 과거로 되돌아 살아 있는 Pod 가 영구 OTHER)이 되살아나지 않는다(5차 반려 ② · 6차 반려 ① 유지).
+   */
+  @Test
+  void status_관찰_정체가_있는_상태의_시계_이상_다른_정체_보고는_저장하지_않는다() throws Exception {
+    setObservedPod("pod-b", POD_NEW);
+    OffsetDateTime skewStart = OffsetDateTime.now().plusSeconds(40);
+
+    // 응답 값은 채택/거절 어느 쪽이든 RUN — 판별은 아래 저장 단언이 한다.
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, skewStart, "pod-a"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RUN"));
+
+    // 칸·합친 상태·정체·기준 어느 것도 쓰지 않고 저장된 행 기준 응답이다.
+    assertThat(slotKeysOf(agent)).isEmpty();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+  }
+
+  /**
+   * 애초에 시작 시각이 없는 모르는 정체의 상태 보고는 저장하지 않고 저장된 행 기준 응답을 준다(WP-1968 2차 반려 ②) — 시각 없이 ADOPT 되면 그 인식이 기준
+   * 없이 박히고, 그 뒤 옛 Pod 가 시각을 실어 다시 ADOPT 하면 정체가 과거로 되돌아 살아 있는 Pod 가 영구 OTHER 로 남는다(6차 반려 ①). 시계 이상으로
+   * 걸러진 시각의 보고는 정체 미확정일 때만 ADOPT 로 받아 갈라 두었으므로(WP-2026) 그 경우는 위 {@code
+   * status_시계_이상으로_걸러진_시각의_첫_보고는_정체를_받는다} 테스트가 따로 다룬다. 관찰(약 60초)이 정체를 밝힌 뒤 다시 오면 MATCH 로 저장된다.
    */
   @Test
   void status_시각_없는_모르는_정체는_저장하지_않는다() throws Exception {

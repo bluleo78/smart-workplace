@@ -595,6 +595,44 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (String) get(38);
     }
 
+    /**
+     * Setter for <code>public.agent_runtime_setting.basisless_pod_uid</code>.
+     * 기준(시각) 없이 ADOPT 로만 밝힌 Pod 정체 — 다른 정체의 ADOPT 를 막는 표시다. basisless_marked_at
+     * 로부터 60초(서버 시각 기준) 안에서만, 그리고 그 표시 정체가 지금 정체일 때만 막는다(WP-2026). 관찰이 표시 뒤에 생긴
+     * 시작을 started_at 에 비추거나 기준이 갱신되면 함께 지워진다. null 이면 그런 ADOPT 가 없다.
+     */
+    public void setBasislessPodUid(String value) {
+        set(39, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.basisless_pod_uid</code>.
+     * 기준(시각) 없이 ADOPT 로만 밝힌 Pod 정체 — 다른 정체의 ADOPT 를 막는 표시다. basisless_marked_at
+     * 로부터 60초(서버 시각 기준) 안에서만, 그리고 그 표시 정체가 지금 정체일 때만 막는다(WP-2026). 관찰이 표시 뒤에 생긴
+     * 시작을 started_at 에 비추거나 기준이 갱신되면 함께 지워진다. null 이면 그런 ADOPT 가 없다.
+     */
+    public String getBasislessPodUid() {
+        return (String) get(39);
+    }
+
+    /**
+     * Setter for <code>public.agent_runtime_setting.basisless_marked_at</code>.
+     * basisless_pod_uid 를 남긴 서버 시각 — 그 뒤 60초(서버 시각 기준)가 지나면 다른 정체의 ADOPT 를 막지
+     * 않는다(WP-2026 3차 반려 ①). 표시와 함께 지워진다.
+     */
+    public void setBasislessMarkedAt(OffsetDateTime value) {
+        set(40, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.basisless_marked_at</code>.
+     * basisless_pod_uid 를 남긴 서버 시각 — 그 뒤 60초(서버 시각 기준)가 지나면 다른 정체의 ADOPT 를 막지
+     * 않는다(WP-2026 3차 반려 ①). 표시와 함께 지워진다.
+     */
+    public OffsetDateTime getBasislessMarkedAt() {
+        return (OffsetDateTime) get(40);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -618,7 +656,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration, String observedPodUid, String previousPodUid, String agentReportedPodUid, OffsetDateTime agentReportedPodStartedAt, String paneBlockedPodUid) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration, String observedPodUid, String previousPodUid, String agentReportedPodUid, OffsetDateTime agentReportedPodStartedAt, String paneBlockedPodUid, String basislessPodUid, OffsetDateTime basislessMarkedAt) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -660,6 +698,8 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setAgentReportedPodUid(agentReportedPodUid);
         setAgentReportedPodStartedAt(agentReportedPodStartedAt);
         setPaneBlockedPodUid(paneBlockedPodUid);
+        setBasislessPodUid(basislessPodUid);
+        setBasislessMarkedAt(basislessMarkedAt);
         resetTouchedOnNotNull();
     }
 }
