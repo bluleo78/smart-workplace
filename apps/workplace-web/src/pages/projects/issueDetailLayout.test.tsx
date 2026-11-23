@@ -39,6 +39,38 @@ describe('속성 레일 3그룹', () => {
   })
 })
 
+describe('AI 작업 단계 그룹 배선 (WP-1989)', () => {
+  test('워크플로우가 켜진 프로젝트의 실행 있는 이슈는 레일에 「AI 작업 단계」 그룹과 단계가 보인다', async () => {
+    const requested: string[] = []
+    await openIssueDetail({
+      key: KEY,
+      detail: detailWith({ id: 100 }),
+      handlers: [
+        http.get('/api/v1/issues/:id/workflow', ({ params }) => {
+          requested.push(String(params.id))
+          return HttpResponse.json({
+            runId: 5, status: 'WAITING', revision: 1, workflowId: 3, versionNo: 2,
+            currentNode: { key: 'ask', name: '질문 답변', type: 'human_task', roleKey: null, assignees: [{ id: 1, username: 'admin', name: '관리자', kind: 'HUMAN' }], enteredAt: new Date().toISOString(), nodeRunStatus: 'ACTIVE', instructions: null },
+            outcomes: [],
+            path: [{ key: 'triage', name: '분류', outcome: 'done', actor: null, enteredAt: new Date().toISOString(), leftAt: new Date().toISOString() }],
+            remainingNodeKeys: [], context: {},
+          })
+        }),
+        http.get('/api/v1/projects/1/workflows', () =>
+          HttpResponse.json([{ id: 3, name: 'AI 개발 흐름', enabled: true, activeVersionNo: 2, draftChanged: false }])),
+        http.get('/api/v1/workflows/3/versions/2', () => HttpResponse.json({}, { status: 404 })),
+      ],
+    })
+    const group = await screen.findByTestId('property-group-workflow')
+    expect(within(group).getByText('AI 작업 단계')).toBeInTheDocument()
+    expect(await within(group).findByText('✓ 분류')).toBeInTheDocument()
+    // 이슈 id(summary.id)로 조회한다 — 번호(1)가 아니다.
+    expect(requested).toContain('100')
+    // 지금 단계 담당이 나(로그인 사용자)이므로 상세 본문 위에 「내 차례」 배너가 보인다(배선: meId=user.id).
+    expect(await screen.findByTestId('issue-workflow-banner')).toBeInTheDocument()
+  })
+})
+
 describe('보고자 (WP-272·WP-944)', () => {
   test('상태·담당 그룹 담당자 아래에 읽기 전용 보고자 이름과 생성일이 보인다', async () => {
     await openIssueDetail({

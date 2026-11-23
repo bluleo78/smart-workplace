@@ -444,6 +444,7 @@ export function IssueCommentList({
   onScrolledToComment,
   linkedCommentId = null,
   onLinkedCommentHandled,
+  onBodyPosted,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -465,6 +466,8 @@ export function IssueCommentList({
   linkedCommentId?: number | null;
   /** linkedCommentId 를 처리했다(찾았든 못 찾았든) — 부모가 id 를 비운다. */
   onLinkedCommentHandled?: () => void;
+  /** 새 코멘트를 올렸다(본문) — 워크플로우 배너의 「답으로 보내기」용(WP-1989). */
+  onBodyPosted?: (body: string) => void;
 }) {
   const { user } = useAuth();
   const currentUserId = user?.id ?? 0;
@@ -539,7 +542,7 @@ export function IssueCommentList({
     <div key="composer" className="space-y-2">
       {commentLocked
         ? <CommentLockedNotice />
-        : <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} />}
+        : <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} onBodyPosted={onBodyPosted} />}
     </div>
   );
 

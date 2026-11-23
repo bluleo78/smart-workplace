@@ -247,7 +247,7 @@ export function IssueMobilePropertyChips({
           const next = picked.map(Number);
           const cur = issue.assignees.map((a) => a.id);
           // 집합이 같으면 요청하지 않는다(데스크톱 팝오버와 동일).
-          if (next.length !== cur.length || next.some((id) => !cur.includes(id))) assignees.mutate(next);
+          if (next.length !== cur.length || next.some((id) => !cur.includes(id))) assignees.mutate({ userIds: next });
         }}
       />
       <MobileDateSheet

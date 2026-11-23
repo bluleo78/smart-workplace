@@ -22,6 +22,7 @@ export function IssueCommentComposer({
   editorMaxHeightClass,
   inlineSubmit,
   onPosted,
+  onBodyPosted,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -32,6 +33,8 @@ export function IssueCommentComposer({
   inlineSubmit?: boolean;
   /** 작성에 성공한 코멘트 id — 모바일 하단 작성창은 이것으로 목록의 새 코멘트까지 스크롤한다(WP-1016). */
   onPosted?: (commentId: number) => void;
+  /** 작성에 성공한 코멘트 본문 — 이슈 상세의 워크플로우 배너가 「방금 쓴 글을 답으로 보내기」에 쓴다(WP-1989). */
+  onBodyPosted?: (body: string) => void;
 }) {
   const create = useCreateComment(projectKey, issueNumber, issueId);
 
@@ -53,6 +56,7 @@ export function IssueCommentComposer({
     try {
       const created = await create.mutateAsync({ body });
       onPosted?.(created.id);
+      onBodyPosted?.(body);
       toast.success('코멘트를 작성했습니다');
     } catch (e) {
       handleApiError(e, '코멘트 작성에 실패했습니다');

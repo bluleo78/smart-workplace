@@ -20,12 +20,13 @@ import {
   UserRoundPen,
   Users,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 
 import { type ActivityOrder, DEFAULT_ACTIVITY_ORDER, orderActivity } from '../../../lib/activityOrder';
-import { formatDateTimeMinute } from '../../../lib/formatters';
+import { formatDateTimeMinute, parseUtcDate } from '../../../lib/formatters';
+import { type TimelineRow, useIssueWorkflow, workflowStepsToTimelineRows } from '../../../lib/workflow';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
 import {
   formatAssigneesChanged,
@@ -133,6 +134,33 @@ function formatCustomFieldChanged(toValue: string | null): string {
   }
 }
 
+/** 워크플로우 이동 줄(WP-1989) — 문장에 행위자 이름이 들어 있어 머리줄에는 AI 표식과 시각만 둔다. */
+function WorkflowMoveItem({ row }: { row: TimelineRow }) {
+  const agent = row.actorKind === 'AGENT';
+  return (
+    <li
+      className={agent ? 'border-l-2 border-l-ai-accent pl-3' : 'border-l-2 border-l-border pl-3'}
+      data-agent={agent ? 'true' : undefined}
+      data-workflow-move="true"
+    >
+      <div className="flex items-start gap-2">
+        <GitBranch className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <div className="text-muted-foreground flex items-center gap-1">
+            {agent && (
+              <Badge variant="secondary" className="bg-ai-accent-subtle text-ai-accent">
+                AI
+              </Badge>
+            )}
+            <span>{formatDateTimeMinute(row.createdAt)}</span>
+          </div>
+          <div>{row.text}</div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
 // 접기 기본값: 최근 5건만 표시. "이전 N건 더 보기" 토글로 전체 펼침 (#341).
 const MAX_VISIBLE = 5;
 
@@ -141,25 +169,42 @@ export function IssueActivityTimeline({
   entries,
   projectKey,
   order = DEFAULT_ACTIVITY_ORDER,
+  issueId,
 }: {
   entries: IssueHistoryEntry[];
   /** 부모 이력의 키(RX-68) 표기용(부모는 늘 같은 프로젝트, WP-862)·관계 상대가 같은 프로젝트인지 가르는 기준(WP-887). */
   projectKey: string;
   /** 보이는 순서(WP-1016) — entries 는 늘 오래된 순으로 받는다. */
   order?: ActivityOrder;
+  /**
+   * 이슈 id(WP-1989) — 워크플로우 실행의 지나온 단계와 지금 단계를 여기서 구독해(카드·배너와 캐시 공유) 이동 기록으로 섞는다.
+   * 페이지가 아니라 타임라인이 구독해 실행이 바뀔 때 이 목록만 다시 그린다. 없으면 이력만.
+   */
+  issueId?: number;
 }) {
   // showAll: 전체 보기 여부. 기본은 최근 MAX_VISIBLE 건만 표시.
   const [showAll, setShowAll] = useState(false);
+  const run = useIssueWorkflow(issueId).data;
 
-  if (entries.length === 0) {
+  // 변경 이력과 워크플로우 이동 줄을 시간순(오래된 순)으로 합친다 — 정렬은 안정 정렬이라 같은 시각이면 받은 순서를 지킨다.
+  // 시각은 정렬 전에 한 번만 읽고, 이력·실행이 바뀔 때만 다시 합친다(펼치기 같은 로컬 상태에는 다시 하지 않는다).
+  const merged = useMemo<(IssueHistoryEntry | TimelineRow)[]>(() => {
+    const rows = run ? workflowStepsToTimelineRows(run.path, run.currentNode, run.status) : [];
+    return [...entries, ...rows]
+      .map((e) => ({ e, t: parseUtcDate(e.createdAt).getTime() }))
+      .sort((a, b) => a.t - b.t)
+      .map(({ e }) => e);
+  }, [entries, run]);
+
+  if (merged.length === 0) {
     return <p className="text-muted-foreground text-sm">변경 이력 없음</p>;
   }
 
   // 접어도 늘 최근 MAX_VISIBLE 건이 보인다 — 오래된 순이면 끝에서, 최신순이면 앞에서 자른다.
   const newestFirst = order === 'newest';
-  const ordered = orderActivity(entries, order);
+  const ordered = orderActivity(merged, order);
   const visible = showAll ? ordered : newestFirst ? ordered.slice(0, MAX_VISIBLE) : ordered.slice(-MAX_VISIBLE);
-  const hiddenCount = entries.length - MAX_VISIBLE;
+  const hiddenCount = merged.length - MAX_VISIBLE;
 
   // 더 오래된 항목을 펼치는 버튼 — 그 항목이 들어올 쪽에 둔다(오래된 순이면 목록 위, 최신순이면 목록 아래).
   const showMoreButton = !showAll && hiddenCount > 0 && (
@@ -178,6 +223,7 @@ export function IssueActivityTimeline({
       {!newestFirst && showMoreButton}
       <ol className="space-y-2 text-sm" role="list" aria-label="활동 타임라인">
         {visible.map((e) => {
+        if ('text' in e) return <WorkflowMoveItem key={e.id} row={e} />;
         const isAgent = e.actorKind === 'AGENT';
         return (
           <li

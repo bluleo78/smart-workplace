@@ -39,11 +39,14 @@ export function IssueChatDrawer({
   issueNumber,
   open,
   onClose,
+  onPosted,
 }: {
   projectKey: string;
   issueNumber: number;
   open: boolean;
   onClose: () => void;
+  /** 채팅에 글을 올렸다(본문) — 워크플로우 배너의 「답으로 보내기」용(WP-1989). */
+  onPosted?: (body: string) => void;
 }) {
   const isMobile = useIsMobile();
   // AI 옆 패널과 공존(WP-54 공용 훅, WP-1374) — side 모드면 서랍을 non-modal 로 열어 패널을 aria-hidden·포인터 차단으로 막지 않고,
@@ -116,7 +119,7 @@ export function IssueChatDrawer({
             embedded: 카드 크롬 없이 드로워 높이를 채움(메시지 flex-1 스크롤 + 컴포저 하단 고정). */}
         <div className="flex min-h-0 flex-1 flex-col">
           {open && (
-            <IssueChatSection projectKey={projectKey} issueNumber={issueNumber} embedded />
+            <IssueChatSection projectKey={projectKey} issueNumber={issueNumber} embedded onPosted={onPosted} />
           )}
         </div>
       </SheetContent>

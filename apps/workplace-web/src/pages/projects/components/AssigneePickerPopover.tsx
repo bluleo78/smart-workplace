@@ -1,10 +1,12 @@
 // 이슈 담당자 다중 선택 픽커 — LabelPickerPopover 와 동일 패턴.
 // 팝오버가 열릴 때 current 를 selected 로 reset, 닫힐 때 변경된 집합만 PUT 호출.
 
+import { useQueryClient } from '@tanstack/react-query';
 import { UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { labelWithValue } from '@/lib/labelWithValue';
@@ -19,7 +21,57 @@ import { useUpdateIssueAssignees } from '../../../hooks/queries/useUpdateIssueAs
 import { assigneeCandidates } from '../../../lib/assigneeCandidates';
 import { toSummary } from '../../../lib/issueRowMenu';
 import { displayNameWithStatus, isInactiveUser } from '../../../lib/userStatus';
+import { isRunEnded, issueWorkflowKey, type IssueWorkflowView, startableWorkflows, useIssueWorkflow } from '../../../lib/workflow';
+import { useProjectWorkflows, workflowKeys, type WorkflowSummary } from '../../../lib/workflows';
 import type { UserSummary } from '../../../types/user';
+import { WorkflowRadioList } from './WorkflowRadioList';
+
+/** 실행이 없거나 끝났고 시작할 워크플로우가 있을 때만 시작을 권한다(진행 중이면 이미 흐름이 있다). 실행 조회 전에는 권하지 않는다. */
+function startableForAssign(run: IssueWorkflowView | undefined, list: WorkflowSummary[] | undefined): WorkflowSummary[] {
+  return run != null && isRunEnded(run) ? startableWorkflows(list) : [];
+}
+
+/**
+ * 「지정하고 바로 시작」 체크박스와 워크플로우 고르기 — 팝오버 내용 안에만 있어 열렸을 때만 실행·워크플로우 목록을 구독한다.
+ * 고른 값(켬·워크플로우)은 닫힐 때 저장에 쓰려고 부모가 쥔다.
+ */
+function StartFlowOption({
+  issueId,
+  projectId,
+  startFlow,
+  onStartFlowChange,
+  flowId,
+  onFlowIdChange,
+}: {
+  issueId: number;
+  projectId: number | undefined;
+  startFlow: boolean;
+  onStartFlowChange: (v: boolean) => void;
+  flowId: number | null;
+  onFlowIdChange: (id: number) => void;
+}) {
+  const run = useIssueWorkflow(issueId);
+  const wfList = useProjectWorkflows(projectId);
+  const startable = startableForAssign(run.data, wfList.data);
+  if (startable.length === 0) return null;
+  return (
+    <div className="mt-2 space-y-1 border-t pt-2">
+      <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <Checkbox checked={startFlow} onCheckedChange={(v) => onStartFlowChange(v === true)} aria-label="지정하고 바로 시작" />
+        지정하고 바로 시작
+      </label>
+      {startFlow && startable.length > 1 && (
+        <WorkflowRadioList
+          aria-label="시작할 워크플로우"
+          workflows={startable}
+          value={flowId ?? startable[0].id}
+          onValueChange={onFlowIdChange}
+          className="gap-1"
+        />
+      )}
+    </div>
+  );
+}
 
 export function AssigneePickerPopover({
   projectKey,
@@ -27,6 +79,9 @@ export function AssigneePickerPopover({
   current,
   disabled = false,
   personCard = false,
+  issueId,
+  projectId,
+  closed = false,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -38,9 +93,17 @@ export function AssigneePickerPopover({
    * 이름(카드 단추)만 그 위에서 포인터를 받는다 — 단추 안에 단추를 둘 수 없어서다. 끄면 지금처럼 필드 전체가 한 단추.
    */
   personCard?: boolean;
+  /** 이슈·프로젝트 숫자 id(WP-1989) — 둘 다 있고 워크플로우가 켜진 프로젝트면 「지정하고 바로 시작」 체크박스를 보인다. */
+  issueId?: number;
+  projectId?: number;
+  /** 닫힌(완료·취소) 이슈면 「지정하고 바로 시작」을 보이지 않고 시작도 보내지 않는다 — 서버가 WORKFLOW_ISSUE_CLOSED 로 거절한다. */
+  closed?: boolean;
 }) {
   const members = useProjectMembers(projectKey);
-  const update = useUpdateIssueAssignees(projectKey, issueNumber);
+  const update = useUpdateIssueAssignees(projectKey, issueNumber, issueId);
+  const qc = useQueryClient();
+  const [startFlow, setStartFlow] = useState(true);
+  const [flowId, setFlowId] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<number[]>(() => current.map((u) => u.id));
@@ -66,13 +129,28 @@ export function AssigneePickerPopover({
     if (next) {
       setSelected(current.map((u) => u.id));
       setSearch('');
+      setStartFlow(true);
+      setFlowId(null);
     } else {
       const before = current
         .map((u) => u.id)
         .sort((a, b) => a - b)
         .join(',');
       const after = [...selected].sort((a, b) => a - b).join(',');
-      if (before !== after) update.mutate(selected);
+      if (before !== after) {
+        // 새로 더한 사람이 있을 때만 시작한다 — 빼기만 하거나 모두 비우는 변경에서 시작하면 서버가 422 로 담당 해제까지 되돌린다.
+        const added = selected.length > 0 && selected.some((id) => !current.some((u) => u.id === id));
+        // 시작 가능 여부는 열려 있던 체크박스와 같은 캐시에서 읽는다 — 닫힌 동안에는 구독하지 않아 여기서 한 번만 본다.
+        const startable =
+          issueId != null && !closed
+            ? startableForAssign(
+                qc.getQueryData<IssueWorkflowView>(issueWorkflowKey(issueId)),
+                qc.getQueryData<WorkflowSummary[]>(workflowKeys.list(projectId)),
+              )
+            : [];
+        const startWorkflowId = startable.length > 0 && startFlow && added ? (flowId ?? startable[0].id) : undefined;
+        update.mutate({ userIds: selected, startWorkflowId });
+      }
     }
     setOpen(next);
   }
@@ -204,6 +282,16 @@ export function AssigneePickerPopover({
             <p className="text-xs text-muted-foreground py-2 text-center">결과 없음</p>
           )}
         </div>
+        {issueId != null && !closed && (
+          <StartFlowOption
+            issueId={issueId}
+            projectId={projectId}
+            startFlow={startFlow}
+            onStartFlowChange={setStartFlow}
+            flowId={flowId}
+            onFlowIdChange={setFlowId}
+          />
+        )}
       </PopoverContent>
     </Popover>
   );

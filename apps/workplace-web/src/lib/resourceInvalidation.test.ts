@@ -12,6 +12,20 @@ import {
 } from './resourceInvalidation';
 
 describe('invalidationTargets', () => {
+  it('issue → 이슈 id 가 있으면 워크플로우 캐시는 그 이슈 것만, 없으면 접두사', () => {
+    const base = { resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 21 } as const;
+    const withId = invalidationTargets({ ...base, ids: [39] }).map((t) => t.queryKey);
+    expect(withId).toContainEqual(['issue-workflow', 39]);
+    expect(withId).not.toContainEqual(['issue-workflow']);
+    expect(invalidationTargets({ ...base }).map((t) => t.queryKey)).toContainEqual(['issue-workflow']);
+  });
+
+  it('issue 변경 → 시작 미리보기 캐시도 그 이슈 것만(없으면 접두사) 무효화한다', () => {
+    const base = { resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 21 } as const;
+    expect(invalidationTargets({ ...base, ids: [39] }).map((t) => t.queryKey)).toContainEqual(['issue-workflow-preview', 39]);
+    expect(invalidationTargets({ ...base }).map((t) => t.queryKey)).toContainEqual(['issue-workflow-preview']);
+  });
+
   it('issue → 해당 프로젝트 검색·상세·하위 리소스 + 내 이슈 계열', () => {
     const keys = invalidationTargets({
       resource: 'issue', op: 'updated', scopeType: 'PROJECT', scopeId: 7, ids: [39], actorId: 1,
@@ -118,6 +132,10 @@ describe('프로젝트 설정 규칙 (WP-60)', () => {
   it('project-member created/updated → projects 만 (담당자 해제가 없어 이슈 대상 불필요)', () => {
     expect(keysOf('project-member', 'created')).toEqual([['projects']]);
     expect(keysOf('project-member', 'updated')).toEqual([['projects']]);
+  });
+
+  it('이슈 갱신은 워크플로우 단계(issue-workflow)도 다시 읽게 한다 (WP-1989)', () => {
+    expect(keysOf('issue', 'updated')).toContainEqual(['issue-workflow']);
   });
 
   it('project-member-group → projects 만 (부서 목록·멤버 후보 목록이 그 아래, 담당 해제는 project-member/deleted 가 맡는다)', () => {
