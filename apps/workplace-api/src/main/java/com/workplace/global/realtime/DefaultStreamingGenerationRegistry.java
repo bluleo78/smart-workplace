@@ -13,16 +13,19 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -49,6 +52,12 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
   /** launch 때 만료를 「타임아웃 + 강제 반납 유예」 보다 이만큼 더 둔다 — 정상 종결(행 삭제)이 늘 만료보다 먼저 오게. */
   static final Duration RUN_LEASE_MARGIN = Duration.ofMinutes(1);
 
+  /** 반납 때 지우지 못한 슬롯 행을 다시 지워 보는 간격 — 남은 행은 임대가 끝날 때까지 같은 대화를 BUSY 로 막고 상한을 깎는다. */
+  static final Duration REMOVAL_RETRY_INTERVAL = Duration.ofSeconds(5);
+
+  /** 다시 지우기를 그만두는 시간 — 이만큼 지나면 행의 임대(가장 긴 실행 임대보다 길다)도 이미 끝나 다른 판정을 막지 않는다. */
+  static final Duration REMOVAL_RETRY_GIVE_UP = Duration.ofHours(1);
+
   private final Duration stuckReleaseGrace;
   private final GenerationSlotStore store;
 
@@ -65,6 +74,22 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
   private final ScheduledExecutorService timeoutScheduler = newTimeoutScheduler();
 
   /**
+   * 반납 때 지우지 못한 슬롯 행(WP-1974 리뷰 후속) — correlationId → 처음 실패한 시각. 정리 스케줄러가 주기적으로 다시 지운다. 로컬 핸들은 이미
+   * 없으므로, 남겨 두면 임대가 끝날 때까지 다른 파드까지 같은 대화를 BUSY 로 본다.
+   */
+  private final ConcurrentHashMap<String, Instant> pendingRemovals = new ConcurrentHashMap<>();
+
+  /** 다시 지우기 간격 — 운영은 {@link #REMOVAL_RETRY_INTERVAL}, 테스트는 짧게. */
+  private final Duration removalRetryInterval;
+
+  /** 다시 지우기 주기를 걸었는지 — 첫 반납 실패 때 한 번만 건다. */
+  private final AtomicBoolean cleanupScheduled = new AtomicBoolean(false);
+
+  /** 다시 지우기 전용 데몬 스레드 — DB 호출이 타임아웃 스케줄러를 붙잡아 취소·타임아웃이 늦어지지 않게 따로 둔다. 할 일이 없으면 맵만 보고 끝난다. */
+  private final ScheduledExecutorService cleanupScheduler =
+      Executors.newSingleThreadScheduledExecutor(cleanupThreads());
+
+  /**
    * 타임아웃 스케줄러 — 단일 스레드에 removeOnCancel 을 켠다. 기본값(false)이면 종결로 취소한 타임아웃 태스크가 예정 시각까지 큐에 남아 핸들 → 시작 전
    * 취소 콜백 → 스트리밍 텍스트를 붙든다(턴마다 최대 타임아웃만큼 메모리 보유).
    */
@@ -72,6 +97,13 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
     ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
     scheduler.setRemoveOnCancelPolicy(true);
     return scheduler;
+  }
+
+  /** 정리 스레드 팩토리 — 이름을 붙인 데몬 스레드라 종료를 막지 않고 스레드 덤프에서 알아본다. */
+  private static ThreadFactory cleanupThreads() {
+    CustomizableThreadFactory factory = new CustomizableThreadFactory("generation-slot-cleanup-");
+    factory.setDaemon(true);
+    return factory;
   }
 
   /** 단위 테스트·단일 노드용 — 메모리 저장소, 중계 없음, 기본 유예(30초). */
@@ -93,9 +125,31 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
   /** 테스트용 — 저장소·중계를 주입하고 유예를 짧게 줄 수 있다(파드 사이 통합 테스트). */
   DefaultStreamingGenerationRegistry(
       GenerationSlotStore store, SseEventRelay relay, Duration stuckReleaseGrace) {
+    this(store, relay, stuckReleaseGrace, REMOVAL_RETRY_INTERVAL);
+  }
+
+  /** 테스트용 — 다시 지우기 간격도 짧게 줄 수 있다(반납 실패 뒤 행이 정리되는지 검증). */
+  DefaultStreamingGenerationRegistry(
+      GenerationSlotStore store,
+      SseEventRelay relay,
+      Duration stuckReleaseGrace,
+      Duration removalRetryInterval) {
     this.store = store;
     this.relay = relay;
     this.stuckReleaseGrace = stuckReleaseGrace;
+    this.removalRetryInterval = removalRetryInterval;
+  }
+
+  /**
+   * 다시 지우기 주기를 처음 필요할 때 한 번만 건다 — 반납 실패가 없으면 정리 스레드를 띄우지 않는다(테스트처럼 shutdown 없이 버려지는 인스턴스가 스레드를 남기지
+   * 않게).
+   */
+  private void ensureCleanupScheduled() {
+    if (cleanupScheduled.compareAndSet(false, true)) {
+      long interval = removalRetryInterval.toMillis();
+      cleanupScheduler.scheduleWithFixedDelay(
+          this::retryPendingRemovals, interval, interval, TimeUnit.MILLISECONDS);
+    }
   }
 
   @Override
@@ -223,11 +277,46 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
   @PreDestroy
   void shutdown() {
     timeoutScheduler.shutdownNow();
+    cleanupScheduler.shutdownNow();
+    // 다시 지우기를 기다리던 행도 핸들이 없으니 아래 removeByPod 가 함께 지운다.
     try {
       store.removeByPod(podId, List.copyOf(generations.keySet()));
     } catch (RuntimeException e) {
       log.warn("파드 종료 중 생성 슬롯 정리 실패(pod {}): {}", podId, e.getMessage());
     }
+  }
+
+  /**
+   * 반납 때 지우지 못한 행을 다시 지운다(정리 스케줄러). 같은 id 로 이 파드에서 새 생성이 자리를 잡았으면(핸들이 있다) 그쪽이 앞 행을 지우므로 목록에서만 뺀다.
+   * 실패하면 다음 주기에 다시 하고, 오래돼 임대가 이미 끝났을 만큼 지났으면 그만둔다.
+   *
+   * <p>확인과 삭제를 그 id 의 {@code computeIfPresent} 안에서 한다 — {@link #register} 도 같은 id 로 같은 자리를 거쳐야
+   * 예약하므로, 여기서 「핸들 없음」을 본 뒤 새 생성이 예약한 행을 지우는 경합이 없다(새 예약은 이 삭제가 끝난 뒤에 행을 넣는다). 맵 칸을 잡은 채 DB 를 부르지만,
+   * 붙드는 것은 다시 지우기를 기다리는 같은 칸의 키뿐이다.
+   */
+  void retryPendingRemovals() {
+    Instant giveUpBefore = Instant.now().minus(REMOVAL_RETRY_GIVE_UP);
+    for (String id : pendingRemovals.keySet()) {
+      pendingRemovals.computeIfPresent(
+          id,
+          (key, failedAt) -> {
+            if (generations.containsKey(key) || failedAt.isBefore(giveUpBefore)) {
+              return null;
+            }
+            try {
+              store.remove(key);
+              return null;
+            } catch (RuntimeException e) {
+              log.debug("생성 슬롯 다시 지우기 실패(correlationId {}): {}", key, e.getMessage());
+              return failedAt;
+            }
+          });
+    }
+  }
+
+  /** 다시 지우기를 기다리는 행 수 — 반납 실패 테스트가 정리됐는지 확인한다. */
+  int pendingRemovalCount() {
+    return pendingRemovals.size();
   }
 
   /** 이 파드의 식별자 — 파드 사이 테스트가 「이 파드의 낡은 행」을 직접 만들 때 쓴다. */
@@ -249,6 +338,22 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
     if (generations.putIfAbsent(id, handle) != null) {
       throw new StreamingGenerationRejectedException(Reason.BUSY);
     }
+    // 같은 id 의 앞 생성이 반납 때 행을 지우지 못하고 다시 지우기를 기다리면, 그 행은 끝난 생성의 것이다 — 지금 지우고 새로 예약한다. 정리 스케줄러와
+    // 같은 자리(computeIfPresent)를 거쳐, 스케줄러가 새 예약의 행을 지우지 않게 한다(retryPendingRemovals). 지우지 못하면 처음 실패
+    // 시각을
+    // 그대로 둔 채 BUSY 로 거절한다 — 앞 행이 남아 있는 동안은 어차피 같은 id 를 다시 잡을 수 없다.
+    try {
+      pendingRemovals.computeIfPresent(
+          id,
+          (key, failedAt) -> {
+            store.remove(key);
+            return null;
+          });
+    } catch (RuntimeException e) {
+      generations.remove(id, handle);
+      log.warn("앞 생성 슬롯 정리 실패로 예약 거절(correlationId {}): {}", id, e.getMessage());
+      throw new StreamingGenerationRejectedException(Reason.BUSY);
+    }
     Instant leaseEnd = Instant.now().plus(RESERVE_LEASE);
     try {
       if (tag == null) {
@@ -267,12 +372,22 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
     return handle;
   }
 
-  /** 슬롯 행을 지운다 — 실패해도 호출 흐름을 막지 않고 context(무엇을 하다 실패했는지)와 함께 경고만 남긴다(행은 임대 만료로 정리된다). */
+  /**
+   * 슬롯 행을 지운다 — 실패해도 호출 흐름을 막지 않고 context(무엇을 하다 실패했는지)와 함께 경고를 남긴 뒤, 정리 스케줄러가 다시 지우도록 맡긴다(남은 행은
+   * 임대가 끝날 때까지 같은 대화를 BUSY 로 막고 상한을 깎는다 — WP-1974 리뷰 후속).
+   */
   private void removeQuietly(String correlationId, String context) {
     try {
       store.remove(correlationId);
     } catch (RuntimeException e) {
-      log.warn("{} 실패(correlationId {}): {}", context, correlationId, e.getMessage());
+      pendingRemovals.putIfAbsent(correlationId, Instant.now());
+      ensureCleanupScheduled();
+      log.warn(
+          "{} 실패 — {}초 뒤 다시 지움(correlationId {}): {}",
+          context,
+          removalRetryInterval.toSeconds(),
+          correlationId,
+          e.getMessage());
     }
   }
 
@@ -321,7 +436,7 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
         if (t != null) t.cancel(false);
         ScheduledFuture<?> stuck = stuckReleaseFuture;
         if (stuck != null) stuck.cancel(false);
-        // 공유 행도 지운다 — 실패해도 종결 경로를 막지 않고 경고만.
+        // 공유 행도 지운다 — 실패해도 종결 경로를 막지 않고 다시 지우기에 맡긴다.
         removeQuietly(correlationId, "생성 슬롯 반납");
       }
     }

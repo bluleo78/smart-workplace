@@ -568,4 +568,81 @@ class DefaultStreamingGenerationRegistryTest {
     assertThat(store.find(running.correlationId())).isPresent();
     assertThat(store.find("stale-1")).isEmpty();
   }
+
+  /** 처음 몇 번 지우기에 실패하는 메모리 저장소 — 반납 중 DB 오류를 흉내 낸다. */
+  private static final class FlakyRemoveStore extends InMemoryGenerationSlotStore {
+    final AtomicInteger failuresLeft;
+
+    FlakyRemoveStore(int failures) {
+      this.failuresLeft = new AtomicInteger(failures);
+    }
+
+    @Override
+    public synchronized void remove(String correlationId) {
+      if (failuresLeft.getAndDecrement() > 0) {
+        throw new IllegalStateException("DB 일시 오류");
+      }
+      super.remove(correlationId);
+    }
+  }
+
+  /** 반납 때 행 삭제가 실패해도 정리 스케줄러가 다시 지워, 임대가 끝날 때까지 같은 대화가 BUSY 로 남지 않는다(WP-1974 리뷰 후속). */
+  @Test
+  void 반납_삭제가_실패하면_다시_지워_BUSY_가_풀린다() throws InterruptedException {
+    FlakyRemoveStore store = new FlakyRemoveStore(2);
+    DefaultStreamingGenerationRegistry reg =
+        new DefaultStreamingGenerationRegistry(
+            store, null, Duration.ofSeconds(1), Duration.ofMillis(50));
+    Reservation r = reg.reserve(1L, tag("s-a"), 3);
+
+    r.release();
+
+    // 첫 삭제는 실패해 행이 남지만 로컬 핸들은 이미 없다 — 다시 지우기를 기다린다.
+    awaitTrue(() -> store.find(r.correlationId()).isEmpty());
+    awaitTrue(() -> reg.pendingRemovalCount() == 0);
+    // 같은 태그로 새로 시작할 수 있다(BUSY 아님).
+    assertThat(reg.reserve(1L, tag("s-a"), 3).correlationId()).isNotBlank();
+    reg.shutdown();
+  }
+
+  /** 다시 지우기를 기다리는 같은 id 로 새로 예약하면, 끝난 앞 생성의 행을 먼저 지우고 예약한다. */
+  @Test
+  void 다시_지우기_대기_중인_같은_id_예약은_앞_행을_지우고_잡는다() {
+    FlakyRemoveStore store = new FlakyRemoveStore(1);
+    // 다시 지우기가 시험 도중 끼지 않게 간격을 길게 둔다.
+    DefaultStreamingGenerationRegistry reg =
+        new DefaultStreamingGenerationRegistry(
+            store, null, Duration.ofSeconds(1), Duration.ofMinutes(10));
+    Reservation first = reg.reserve(1L, tag("s-a"), 3, "same-id");
+    first.release();
+    assertThat(store.find("same-id")).isPresent();
+    assertThat(reg.pendingRemovalCount()).isEqualTo(1);
+
+    Reservation second = reg.reserve(1L, tag("s-a"), 3, "same-id");
+
+    assertThat(second.correlationId()).isEqualTo("same-id");
+    assertThat(reg.pendingRemovalCount()).isZero();
+    assertThat(store.find("same-id")).isPresent();
+    reg.shutdown();
+  }
+
+  /** 앞 행을 지우지 못하면 원시 DB 오류가 아니라 BUSY 로 거절하고, 다시 지우기 대기는 그대로 남는다. */
+  @Test
+  void 다시_지우기_대기_중_앞_행_삭제가_또_실패하면_BUSY() {
+    FlakyRemoveStore store = new FlakyRemoveStore(2);
+    DefaultStreamingGenerationRegistry reg =
+        new DefaultStreamingGenerationRegistry(
+            store, null, Duration.ofSeconds(1), Duration.ofMinutes(10));
+    reg.reserve(1L, tag("s-a"), 3, "same-id").release();
+
+    assertThatThrownBy(() -> reg.reserve(1L, tag("s-a"), 3, "same-id"))
+        .isInstanceOfSatisfying(
+            StreamingGenerationRejectedException.class,
+            e ->
+                assertThat(e.reason()).isEqualTo(StreamingGenerationRejectedException.Reason.BUSY));
+    assertThat(reg.pendingRemovalCount()).isEqualTo(1);
+    // 세 번째는 지워져 예약된다.
+    assertThat(reg.reserve(1L, tag("s-a"), 3, "same-id").correlationId()).isEqualTo("same-id");
+    reg.shutdown();
+  }
 }
