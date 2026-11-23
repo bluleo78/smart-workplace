@@ -1380,6 +1380,51 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("앞 노드에서 미룬 실패는 같은 AI 가 다음 노드로 넘어간 뒤 새 노드 실행의 이동 없는 끝에 끼지 않는다")
+  void serverRunDeferredFailure_notAppliedAfterNodeChange() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runN1 = newRun();
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN1);
+    serverRun(bot, issue, "STARTED", true, null, runC);
+    serverRun(bot, issue, "FINISHED", false, "답을 쓰지 못했습니다", runC);
+    ok(move(issue, "work", "again", null, 0, "k1"), pm);
+    String runN2 = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN2);
+    serverRun(bot, issue, "FINISHED", true, null, runN1);
+
+    serverRun(bot, issue, "FINISHED", true, null, runN2);
+
+    assertThat(nodeRun(issue, "work2").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(runStatus(issue)).isEqualTo("RUNNING");
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+  }
+
+  @Test
+  @DisplayName("노드 담당이 아닌(손으로 넣은) AI 의 실패 끝은 다른 실행이 돌아도 미루지 않고 바로 차단됨이며 노드는 그대로다")
+  void serverRunFailed_notNodeAssignee_blocksImmediately() {
+    long bot = agent("INTERNAL");
+    long other = agent("INTERNAL");
+    long wf = publish(yaml(bot, agent("INTERNAL")));
+    long issue = issue(lead, other);
+    ok(startReq(issue, wf), pm);
+    String runX = newRun();
+    serverRun(other, issue, "STARTED", true, null, runX);
+    serverRun(other, issue, "STARTED", true, null, newRun());
+
+    serverRun(other, issue, "FINISHED", false, "실패했습니다", runX);
+
+    assertThat(activeStates(issue, other)).containsExactly("BLOCKED");
+    assertThat(activeNote(issue, other)).isEqualTo("실패했습니다");
+    assertThat(nodeRun(issue, "work").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(runStatus(issue)).isEqualTo("RUNNING");
+    assertThat(dsl.fetchExists(AGENT_SERVER_RUN, AGENT_SERVER_RUN.FAILED_NOTE.isNotNull()))
+        .isFalse();
+  }
+
+  @Test
   @DisplayName("실행 id 없는 실패 끝은 다른 도는 실행이 있어도 어느 실행인지 몰라 지금처럼 노드를 멈춘다")
   void serverRunFailed_withoutRunId_whileOtherRunLive_stillBlocks() {
     long bot = agent("INTERNAL");

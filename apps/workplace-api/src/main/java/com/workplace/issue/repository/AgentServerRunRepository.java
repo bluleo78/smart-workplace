@@ -98,6 +98,12 @@ public class AgentServerRunRepository {
     clearFailedNotes(issueId, List.of(agentId));
   }
 
+  /** (이슈, AI 들) 의 미룬 실패 사유를 모두 비운다 — 노드를 떠날 때(그 실패는 떠난 노드의 것이다). */
+  public void discardPendingFailures(long issueId, Collection<Long> agentIds) {
+    if (agentIds == null || agentIds.isEmpty()) return;
+    clearFailedNotes(issueId, agentIds);
+  }
+
   /** (이슈, AI) 에 아직 도는 실행이 있는지 — 끝난 행과 {@code staleAfter} 보다 오래전에 시작한 행(죽은 실행)은 세지 않는다. */
   public boolean hasLiveRun(long issueId, long agentId, Duration staleAfter) {
     return dsl.fetchExists(

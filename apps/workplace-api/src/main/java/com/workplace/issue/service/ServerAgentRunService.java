@@ -110,8 +110,8 @@ public class ServerAgentRunService {
       if (report.ok()) {
         switch (workflowBridge.onServerRunSuccess(issueId, agentId)) {
           case OWNED -> {
-            // 노드를 떠남·다시 들어옴 등 — 미룬 실패는 지금 노드의 것이 아니게 됐다.
-            if (lastRun) serverRunRepository.discardPendingFailures(issueId, agentId);
+            // 노드를 떠남·다시 들어옴 등 — 미룬 실패는 지금 노드의 것이 아니게 됐다(다른 실행이 돌아도 뒤 실행이 따르지 않게 비운다).
+            serverRunRepository.discardPendingFailures(issueId, agentId);
             return;
           }
           case FINISHED_WITHOUT_MOVE -> {
@@ -127,8 +127,8 @@ public class ServerAgentRunService {
           case NOT_OWNED -> {}
         }
       } else {
-        // 워크플로우 이슈에서 다른 실행이 아직 돌면 노드를 멈추지 않고 사유를 미룬다 — 워크플로우 없는 이슈는 정상 끝처럼 실행을 가르지 않는다.
-        if (runId != null && !lastRun && workflowBridge.isWorkflowIssue(issueId)) {
+        // 지금 노드 담당 AI 의 다른 실행이 아직 돌면 노드를 멈추지 않고 사유를 미룬다 — 노드 담당이 아니면(워크플로우 없음·손으로 넣은 담당) 바로 차단.
+        if (runId != null && !lastRun && workflowBridge.isCurrentNodeAssignee(issueId, agentId)) {
           serverRunRepository.deferFailure(issueId, agentId, runId, patch.note());
           return;
         }

@@ -6,6 +6,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeEntered;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeWakeEvent;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowRunEnded;
+import com.workplace.issue.repository.AgentServerRunRepository;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.AgentWorkRepository.AgentWorkRow;
 import com.workplace.issue.repository.IssueAssigneeRepository;
@@ -72,6 +73,7 @@ public class WorkflowAgentWorkBridge {
 
   private final AgentWorkService agentWorkService;
   private final AgentWorkRepository agentWorkRepository;
+  private final AgentServerRunRepository serverRunRepository;
   private final IssueRepository issueRepository;
   private final UserRepository userRepository;
   private final WorkflowRepository workflowRepository;
@@ -156,6 +158,8 @@ public class WorkflowAgentWorkBridge {
    * @param asked 대상 노드의 returnTo 가 떠난 노드인 질문 이동인지
    */
   public void onNodeLeft(long issueId, List<Long> nodeAssigneeIds, boolean asked) {
+    // 떠난 노드에서 미룬 실패는 다음 노드의 실행 끝이 따르지 않게 비운다(같은 AI 가 다음 노드를 맡아도).
+    serverRunRepository.discardPendingFailures(issueId, nodeAssigneeIds);
     markAgents(
         issueId, nodeAssigneeIds, asked ? AgentWorkState.INPUT_REQUIRED : AgentWorkState.COMPLETED);
   }
@@ -392,6 +396,14 @@ public class WorkflowAgentWorkBridge {
         runRepository.findNodeRuns(run.id()).stream()
             .anyMatch(v -> v.leftAt() != null && v.assigneeIds().contains(agentId));
     return leftNode ? ServerRunSuccess.OWNED : ServerRunSuccess.NOT_OWNED;
+  }
+
+  /**
+   * 활성 실행의 지금 agent_task 노드 담당인지 — {@link #onServerRunSuccess} 와 같은 판정({@link #onAgentReport} 에 상태
+   * 없이 묻는다).
+   */
+  public boolean isCurrentNodeAssignee(long issueId, long agentId) {
+    return onAgentReport(issueId, agentId, null, null);
   }
 
   /** 워크플로우 이슈인지 — 그 이슈에 활성 실행이 있다. */
