@@ -2,7 +2,7 @@
 // 작업 공간 AI 는 AI 마다 연결 정보를 넣지 않고 워크스페이스 계정 목록(설정 › 에이전트 › 계정)에서 하나를 고른다.
 // 지금 묶인 계정(라벨·종류·5시간/주간 사용률·상태)을 보이고, 「계정 고르기」/「바꾸기」가 이 방식에 맞는 종류(accountFits)의 계정만 고르는 창을 연다.
 // 고르면 PUT /admin/agents/{id}/agent-account {accountId} — 실행 중이고 AI 가 쉬는 중(IDLE)이라고 보고하지 않았으면 서버가 쉴 때 새 계정으로
-// 다시 띄우고(WP-1515, 작업 설정과 같은 「쉴 때 적용」), 쉬는 중이거나 시작에 실패했는데 하던 일이 없으면 바로 다시 시작한다(꺼져 있으면 다시 시작이 아니라 다음에 켤 때 새 계정으로 뜬다). 창에 어느 쪽인지 안내를 둔다.
+// 다시 띄우고(WP-1515, 작업 설정과 같은 「쉴 때 적용」), 쉬는 중이거나 시작에 실패했는데 하던 일이 없으면 바로 다시 시작한다(꺼져 있으면 다시 시작이 아니라 다음에 켤 때 새 계정으로 뜬다, WP-2000). 창에 어느 쪽인지 안내를 둔다(WP-2020).
 // 고른 계정이 없고 예전 방식(AI 별 연결)의 키가 남아 있으면 그 사실을 한 줄로 알린다 — 다시 넣는 UI 는 두지 않고 계정을 고르게 한다.
 // 보기 전용(readOnly, 사용 중지된 AI)은 묶인 계정만 보이고 「계정 고르기」/「바꾸기」를 두지 않는다 — 다시 사용으로 바꾼 뒤에 고른다.
 // 연결 해제(DELETE)는 두지 않는다 — 풀면 이 AI 는 일할 계정이 없어질 뿐이고, 계정 정리는 다른 계정으로 바꾸거나 실행 방식을 바꾸면 서버가 함께 푼다.
@@ -26,7 +26,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useAgentAccounts, useAgentBoundAccount, useBindAgentAccount } from '@/hooks/queries/useAgentAccounts';
 import { useAgentProviderCredentialMeta } from '@/hooks/queries/useAgentProviderCredential';
 import { useMinuteNow } from '@/hooks/useMinuteNow';
-import { accountFits, accountLabel } from '@/lib/agentAccount';
+import { ACCOUNT_SWITCH_NOTICE, ACCOUNT_SWITCHED_TOAST_SUFFIX, accountChangeWhen, accountFits, accountLabel } from '@/lib/agentAccount';
 import { handleApiError } from '@/lib/api-error';
 import { failedWithoutData } from '@/lib/queryFailure';
 import { cn } from '@/lib/utils';
@@ -35,16 +35,7 @@ import type { CredentialProvider } from '@/types/providerCredential';
 
 import { AccountStatusCell, AccountUsagePair } from '../AgentAccountUsageParts';
 
-/**
- * 계정을 바꾸면 언제 새 계정으로 바뀌는지 안내(WP-1515).
- * 쉴 때 적용(서버 accountChangeAppliesNow=false)이면 서버가 generation 만 올려 두고 쉴 때 다시 띄운다(하던 일은 옛 계정으로 마친다) — 바로 바꾸려면 상태의 「지금 적용」.
- * 상태가 차단됨이거나 아직 보고 전일 수도 있어 「일하는 중」이라 단정하지 않고 「하던 작업이 있으면」으로 쓴다.
- * 쉬는 중이거나, 시작에 실패했는데 하던 일이 없으면 바로 새 계정으로 다시 시작한다(WP-2000). 꺼져 있으면 Pod 가 없어 다시 시작되는 것은 없고 다음 시작 때 새 계정으로 뜬다 — 서버가 true 로 주는 것은 「쉴 때까지 기다리지 않는다」는 뜻이다.
- */
-const ACCOUNT_SWITCH_NOTICE = {
-  atIdle: '하던 작업이 있으면 마치고 쉴 때 새 계정으로 바뀌어요. 바로 바꾸려면 바꾼 뒤 「지금 적용」을 누르세요',
-  now: '바꾸면 이 AI 의 작업 공간이 새 계정으로 다시 시작돼요',
-} as const;
+// 안내(ACCOUNT_SWITCH_NOTICE)·토스트 덧말(ACCOUNT_SWITCHED_TOAST_SUFFIX) 문구는 lib/agentAccount 에 한곳에서 둔다 — 꼬리표와 같은 갈래(WP-1515·WP-2020).
 
 /** 계정 탭 주소 — 맞는 계정이 없을 때 먼저 추가하러 보낸다. */
 const ACCOUNTS_TAB_PATH = '/settings/agents/accounts';
@@ -55,12 +46,14 @@ interface Props {
   required: CredentialProvider | null;
   /** 보기 전용 — 사용 중지된 AI. 고르기 단추·창 없이 묶인 계정(없으면 빈 줄)만 보인다. */
   readOnly?: boolean;
-  /** 바꾸면 쉴 때 적용되는지(서버 accountChangeAppliesNow 의 반대) — 고르기 창의 안내를 「쉴 때 바뀜」/「바로 다시 시작」 중에서 고른다. */
+  /** 바꾸면 쉴 때 적용되는지(서버 accountChangeAppliesNow 의 반대) — 고르기 창의 안내를 「쉴 때 바뀜」/「바로 다시 시작」/「다음에 시작할 때」 중에서 고른다(WP-1515·WP-2020). */
   appliesAtIdle?: boolean;
+  /** desired 가 RUN 이 아닌 상태(꺼짐·종료 중·끄는 중) — 서버가 generation 을 올리지 않아 다음에 시작할 때 새 계정으로 뜬다(WP-2020). */
+  stopped?: boolean;
 }
 
 /** 작업 공간 AI 의 계정 — 묶인 계정을 보이고, 보기 전용이 아니면 고르는 창을 연다. */
-export function AgentAccountPicker({ agentUserId, required, readOnly = false, appliesAtIdle = false }: Props) {
+export function AgentAccountPicker({ agentUserId, required, readOnly = false, appliesAtIdle = false, stopped = false }: Props) {
   const bound = useAgentBoundAccount(agentUserId);
   // 예전 방식(AI 마다 넣은 연결, WP-1448 전) — 고른 계정이 없을 때 남아 있으면 알린다. runner 는 고른 계정이 없으면 이 연결로 일한다.
   // 고른 계정이 「없음」으로 확인됐을 때만 받는다 — 계정이 묶여 있으면 옛 연결은 보이지 않으니 부르지 않는다.
@@ -108,7 +101,7 @@ export function AgentAccountPicker({ agentUserId, required, readOnly = false, ap
       )}
       {/* 창을 열 때만 목록을 받는다 — 상세 화면에 머무는 동안 계정 목록을 60초마다 다시 받지 않게. */}
       {open && !readOnly && required != null && (
-        <ChooseAccountDialog agentUserId={agentUserId} required={required} currentId={account?.id ?? null} appliesAtIdle={appliesAtIdle} now={now} onClose={() => setOpen(false)} />
+        <ChooseAccountDialog agentUserId={agentUserId} required={required} currentId={account?.id ?? null} appliesAtIdle={appliesAtIdle} stopped={stopped} now={now} onClose={() => setOpen(false)} />
       )}
     </div>
   );
@@ -146,6 +139,7 @@ function ChooseAccountDialog({
   required,
   currentId,
   appliesAtIdle,
+  stopped,
   now,
   onClose,
 }: {
@@ -153,6 +147,7 @@ function ChooseAccountDialog({
   required: CredentialProvider;
   currentId: number | null;
   appliesAtIdle: boolean;
+  stopped: boolean;
   now: Date;
   onClose: () => void;
 }) {
@@ -161,13 +156,14 @@ function ChooseAccountDialog({
   const [picked, setPicked] = useState<number | null>(currentId);
   const fitting = (accounts.data ?? []).filter((a) => fitsTemplate(a.provider, required));
   const kind = `${accountLabel(required)} 계정`;
+  // 안내와 토스트가 같은 갈래를 고르게 한 번만 정한다(WP-1515·WP-2020).
+  const switchWhen = accountChangeWhen(appliesAtIdle, stopped);
 
   const confirm = () => {
     if (picked == null) return;
     bind.mutate(picked, {
       onSuccess: (a) => {
-        // 쉴 때 적용이면 아직 옛 계정으로 일한다 — 바뀐 시점을 오해하지 않게 쉴 때 적용된다고 덧붙인다(WP-1515).
-        toast.success(`「${a.label}」 계정으로 바꿨습니다.${appliesAtIdle ? ' 쉴 때 적용돼요.' : ''}`);
+        toast.success(`「${a.label}」 계정으로 바꿨습니다.${ACCOUNT_SWITCHED_TOAST_SUFFIX[switchWhen]}`);
         onClose();
       },
       onError: (e) => handleApiError(e, '계정을 바꾸지 못했습니다'),
@@ -184,12 +180,12 @@ function ChooseAccountDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* 쉴 때 적용이면 바꿔도 바로 바뀌지 않는다는 점을 경고색으로, 아니면 다시 시작한다는 사실만 안내색으로(WP-1515). */}
+        {/* 쉴 때 적용은 경고색, 그 밖은 안내색 — 문구는 안내·토스트가 함께 고르는 갈래(switchWhen)로 가져온다(WP-1515·WP-2020). */}
         <p
-          className={cn('rounded-md px-3 py-2 text-xs', appliesAtIdle ? 'bg-warning-subtle text-warning' : 'border border-info/30 bg-info/10 text-foreground')}
+          className={cn('rounded-md px-3 py-2 text-xs', switchWhen === 'atIdle' ? 'bg-warning-subtle text-warning' : 'border border-info/30 bg-info/10 text-foreground')}
           data-testid="agent-account-switch-notice"
         >
-          {appliesAtIdle ? ACCOUNT_SWITCH_NOTICE.atIdle : ACCOUNT_SWITCH_NOTICE.now}
+          {ACCOUNT_SWITCH_NOTICE[switchWhen]}
         </p>
 
         {failedWithoutData(accounts) ? (

@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'vitest'
 
 import { CLAUDE_TEMPLATE } from '../test/kits/admin/agentRuntime'
-import { accountFits, accountLabel, isLoginProvider, loginProgram } from './agentAccount'
+import { accountChangeWhen, accountFits, accountLabel, isLoginProvider, loginProgram } from './agentAccount'
 
 const codexTemplate = { ...CLAUDE_TEMPLATE, name: 'codex', account: 'chatgpt' as const }
 
@@ -61,5 +61,13 @@ describe('agentAccount', () => {
   test('externalMode_keepsAnyAccount', () => {
     // 내 컴퓨터 방식은 Works 의 AI 계정을 쓰지 않으니 무엇이든 그대로 둔다
     expect(accountFits('genia', { mode: 'EXTERNAL', template: null })).toBe(true)
+  })
+
+  test('accountChangeWhen_picksOneBranchForNoticeToastAndLabel', () => {
+    // 꼬리표·고르기 창 안내·토스트 덧말이 같은 갈래를 고르는지 — 표면마다 따로 계산하면 어긋난다(WP-2020)
+    expect(accountChangeWhen(true, true)).toBe('atIdle') // 쉬 때 적용이 꺼짐과 겹쳐도 앞에 둔다
+    expect(accountChangeWhen(true, false)).toBe('atIdle')
+    expect(accountChangeWhen(false, true)).toBe('stopped')
+    expect(accountChangeWhen(false, false)).toBe('now')
   })
 })

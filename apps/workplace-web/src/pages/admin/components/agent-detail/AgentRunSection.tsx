@@ -2,7 +2,8 @@
 // 방식 카드 셋(기본 / Works 실행 방식들 / 외부). 다른 카드를 누르면 그 방식에 필요한 칸이 펼쳐지고 「취소 · 바꾸기」, 바꾸기는 무엇이 달라지는지
 // 요약하는 확인 창(②)을 거쳐 저장한다 — 「기본」 카드도 바로 저장하지 않는다(예전엔 눌러서 바로 저장).
 // 묶음마다 반영 방식을 제목 옆에 붙인다: 기본 방식의 AI 계정·공통 비서·저장소 연결은 바로 반영, 작업 설정은 저장해야 반영(실행 중이면 쉴 때 적용),
-// 작업 공간 AI 의 AI 계정은 실행 중이면 쉴 때 적용(아니면 바로 반영, WP-1515 — 사람이 바꾼 계정은 작업 설정처럼 하던 일을 마치고 쉴 때 새 계정으로 다시 뜬다), 접속 키는 Works 가 관리.
+// 작업 공간 AI 의 AI 계정은 고르기 창·토스트와 같은 세 갈래(바로 반영 / 실행 중이면 쉴 때 적용 / 다음에 시작할 때 반영, WP-1515·WP-2020),
+// 접속 키는 Works 가 관리.
 // 도움말 문맥(WP-1507): 섹션·묶음·확인 창에 매뉴얼 15장 agent.run 층의 data-help 를 글자 그대로 단다(변형 분기마다 같은 묶음은 같은 id).
 
 import { CircleHelp } from 'lucide-react';
@@ -28,6 +29,7 @@ import { useAgentProviderCredentialMeta } from '../../../../hooks/queries/useAge
 import { useSaveAgentRuntimeSetting, useUseServerTemplate } from '../../../../hooks/queries/useAgentRuntime';
 import { useSetAgentRuntime } from '../../../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../../../hooks/queries/useAssistant';
+import { ACCOUNT_HOW, accountChangeWhen } from '../../../../lib/agentAccount';
 import {
   currentCardId,
   modeChangeSummary,
@@ -320,8 +322,14 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
   const keys = useAgentKeys(agent.id);
   const running = saved?.desired === 'RUN';
   // 계정을 바꾸면 쉴 때 적용되는지 — 서버가 판정해 내려준 accountChangeAppliesNow 만 따른다(화면이 상태·보고로 다시 판정하지 않는다, WP-2000).
-  // 계정 고르기 창이 「쉴 때 바뀜」/「바로 다시 시작」 안내를 고르는 데 쓴다(WP-1515).
+  // 계정 고르기 창의 안내·토스트 갈래(「쉴 때 바뀜」/「바로 다시 시작」/「다음에 시작할 때」)를 고르는 데 쓴다(WP-1515·WP-2020).
   const appliesAtIdle = saved?.accountChangeAppliesNow === false;
+  // 꺼진 AI — desired 가 RUN 이 아니면 서버(AgentAccountRuntimeNotifier)가 generation 을 올리지 않아 Pod 가 새로 뜨지 않고,
+  // 바꾼 계정은 다음에 시작할 때 반영된다. 상태(status)가 아니라 desired 로 가른다 — 오류(FAILED)이면서 desired=RUN 인 AI 는
+  // 서버가 다시 띄우므로 꺼짐이 아니다(WP-2020 리뷰). 고르기 창이 「다음에 시작할 때」 안내를 쓰는 조건과 같다.
+  const stopped = !running;
+  // 묶음 꼬리표도 고르기 창과 같은 갈래 — 판정은 lib/agentAccount 의 accountChangeWhen 하나만 쓴다(WP-2020 리뷰).
+  const accountHow = ACCOUNT_HOW[accountChangeWhen(appliesAtIdle, stopped)];
   // 다음 교체 무렵 — 가장 새로 받은 자동 발급 키의 만료 7일 전(서버 ManagedKeyChain.rotateAfter). 그때부터 새 키를 받아 쉴 때 적용한다.
   const latestManaged = (keys.data ?? [])
     .filter((k) => k.managed && k.revokedAt == null && k.expiresAt)
@@ -330,9 +338,9 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
   return (
     <>
       {template.account && (
-        // 사람이 바꾼 계정은 실행 중이면 쉴 때 적용된다(WP-1515, 서버가 실행 설정 저장처럼 generation 을 올린다) — 작업 설정과 같은 꼬리표.
-        <DetailGroup title="AI 계정" how={running ? '실행 중이면 쉴 때 적용' : '바로 반영'} data-testid="agent-ai-account-group" data-help="agent.run.account.pick">
-          <AgentAccountPicker agentUserId={agent.id} required={template.account} appliesAtIdle={appliesAtIdle} />
+        // 사람이 바꾼 계정이 언제 반영되는지 — 고르기 창·토스트와 같은 세 갈래(accountHow)로 정한다(WP-1515·WP-2020).
+        <DetailGroup title="AI 계정" how={accountHow} data-testid="agent-ai-account-group" data-help="agent.run.account.pick">
+          <AgentAccountPicker agentUserId={agent.id} required={template.account} appliesAtIdle={appliesAtIdle} stopped={stopped} />
         </DetailGroup>
       )}
       {template.requires.includes('repo') && (
