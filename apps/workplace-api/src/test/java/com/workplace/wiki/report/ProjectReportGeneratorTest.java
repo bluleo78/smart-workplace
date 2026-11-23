@@ -274,12 +274,40 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     aiReturnsMessy(activity());
     generator.run(project.id(), NOW);
     String body = page(rowPageId(PERIOD_START)).body();
-    assertThat(body).doesNotContain("999").doesNotContain("+500");
+    // 본문 전체 단언은 프로젝트 키에 숫자가 들어가면 이슈 링크에 걸린다(WP-2025) — 표 줄로 범위를 좁힌다.
+    assertThat(body).doesNotContain("| 999 |").doesNotContain("+500");
     assertThat(body)
         .contains("| 완료 | 1 | +1 |")
         .contains("| 새로 생김 | 1 | +1 |")
         .contains("| 열린 이슈 | 0 | — |")
         .contains("| 기한 지남 | 0 | — |");
+  }
+
+  /**
+   * 프로젝트 키에 "999" 가 들어가도(이슈 링크에 키가 그대로 보여도) 숫자 고침 검증이 통과한다(WP-2025) — 무작위 키가 본문 전체 단언에 걸리던 플리키 재발
+   * 방지.
+   */
+  @Test
+  void run_fixesNumbersEvenWhenProjectKeyContains999() {
+    // seed() 의 무작위 키 대신 "999" 를 품은 키로 같은 회차를 만든다.
+    project =
+        projectService.create(owner, new CreateProjectRequest("RG999", "리포트-RG999", null, "TEAM"));
+    settingsService.update(
+        owner,
+        project.key(),
+        new UpdateProjectReportSettingsRequest(true, "WEEKLY", "MONDAY", "09:00"));
+    dueAt(NOW);
+    int number = activity();
+    aiReturnsMessy(number);
+
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.GENERATED);
+
+    String body = page(rowPageId(PERIOD_START)).body();
+    // 표 줄 기준으로 단언한다 — 본문의 이슈 링크에 키 RG999 가 섞여 있어 전체 단언은 키의 999 에 걸린다(WP-2025).
+    assertThat(body).doesNotContain("| 999 |").doesNotContain("+500");
+    assertThat(body).contains("| 완료 | 1 | +1 |");
+    // 키는 이슈 링크에 그대로 남는다 — 링크까지 고쳐지지 않았는지 함께 본다.
+    assertThat(body).contains(issueUrl(number));
   }
 
   /** 배지는 시스템 규칙(사이클 없음 → 순조로움)으로 — AI 가 쓴 「위험」은 고쳐진다. 저장 배지도 시스템 값. */
