@@ -141,6 +141,20 @@ describe('buildAttentionRows — 메일', () => {
   it('제목이 없으면 "(제목 없음)"으로 표시한다', () => {
     expect(build({ mailRecent: [mail({ subject: null })] })[0].title).toBe('(제목 없음)')
   })
+
+  // WP-2030 리뷰 후속: 받은 기밀 메일은 머리말을 뺀 제목, 메타·이름에 「기밀」
+  it('기밀 메일은 「[기밀]」 머리말을 빼고 메타·이름에 기밀을 적는다', () => {
+    const [row] = build({ mailRecent: [mail({ subject: '[기밀] 단가 협상안', confidential: true })] })
+    expect(row.title).toBe('단가 협상안')
+    expect(row.meta).toBe('기밀 · 회신 필요')
+    expect(row.ariaLabel).toBe('메일 열기: 단가 협상안 (기밀)')
+  })
+
+  it('기밀이 아니면 「[기밀]」 으로 시작하는 제목도 그대로 둔다', () => {
+    const [row] = build({ mailRecent: [mail({ subject: '[기밀] 공지' })] })
+    expect(row.title).toBe('[기밀] 공지')
+    expect(row.meta).toBe('회신 필요')
+  })
 })
 
 describe('buildAttentionRows — 메시징', () => {

@@ -25,3 +25,8 @@ export function confidentialDisplaySubject(subject: string, confidential: boolea
 export function mailDisplaySubject(m: { subject?: string | null; confidential?: boolean | null }): string {
   return mailSubjectText(confidentialDisplaySubject(m.subject ?? '', !!m.confidential));
 }
+
+/** 메일 행 링크의 접근 이름 — 「메일 열기: <표시 제목>」, 기밀이면 끝에 「(기밀)」(배지·머리말이 이름에 안 들어가므로 — WP-2030 리뷰 후속). */
+export function mailOpenLabel(m: { subject?: string | null; confidential?: boolean | null }): string {
+  return `메일 열기: ${mailDisplaySubject(m)}${m.confidential ? ' (기밀)' : ''}`;
+}

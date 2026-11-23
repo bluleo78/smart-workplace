@@ -2,8 +2,8 @@
 // 화면 없이 규칙(어떤 항목이 끼는지·meta 문구·딥링크·정렬 순서)을 단위 테스트로 고정하기 위함이다.
 import type { PriorityItem } from '@/api/priorityItems'
 import { formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { mailDisplaySubject, mailOpenLabel } from '@/lib/mailConfidentialSubject'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
-import { mailSubjectText } from '@/lib/mailSubject'
 import type { IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
@@ -113,11 +113,12 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
       rows.push({
         key: `mail-${m.id}`,
         source: '메일',
-        title: mailSubjectText(m.subject),
-        meta: '회신 필요',
+        // 받은 기밀 메일은 머리말을 뺀 제목 + 메타에 「기밀」(공통 행이라 배지 대신 글자 — WP-2030 리뷰 후속)
+        title: mailDisplaySubject(m),
+        meta: m.confidential ? '기밀 · 회신 필요' : '회신 필요',
         // accountId 기반 딥링크 — Task 6 가 소비.
         to: `/mail/${m.accountId}?messageId=${m.id}`,
-        ariaLabel: `메일 열기: ${mailSubjectText(m.subject)}`,
+        ariaLabel: mailOpenLabel(m),
         sourceChipDescribed: false,
         urgency: 2,
         recency: parseUtcDate(m.receivedAt ?? '1970-01-01T00:00:00Z').getTime(),

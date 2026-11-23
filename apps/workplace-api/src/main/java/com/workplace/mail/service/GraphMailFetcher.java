@@ -449,6 +449,20 @@ public class GraphMailFetcher implements MailFetcher {
    */
   static <T> T getWithExpandFallback(
       GraphApiClient client, String token, String url, Class<T> type) {
+    return getWithExpandFallback(client, token, url, type, () -> {});
+  }
+
+  /**
+   * {@link #getWithExpandFallback(GraphApiClient, String, String, Class)} 와 같고, 뺀 URL 로 다시 시도해 성공했을
+   * 때 {@code onStrippedRetrySucceeded} 를 부른다 — 본문 적재가 계정별로 거절을 기억하는 데 쓴다(리뷰 후속). 다른 까닭의 400 으로 기억하지
+   * 않게 다시 시도가 통했을 때만 부른다.
+   */
+  static <T> T getWithExpandFallback(
+      GraphApiClient client,
+      String token,
+      String url,
+      Class<T> type,
+      Runnable onStrippedRetrySucceeded) {
     try {
       return client.get(token, url, type);
     } catch (GraphHttpException e) {
@@ -457,7 +471,9 @@ public class GraphMailFetcher implements MailFetcher {
         throw e;
       }
       log.warn("Graph 가 $expand 를 거절해(400) 확장 속성 없이 한 번 다시 시도합니다 — 기밀 판정은 본문 헤더만 봅니다");
-      return client.get(token, stripped, type);
+      T result = client.get(token, stripped, type);
+      onStrippedRetrySucceeded.run();
+      return result;
     }
   }
 

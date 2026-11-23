@@ -4,10 +4,11 @@ import { Link } from 'react-router-dom'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { relTime } from '@/components/ai/relTime'
+import { MailConfidentialBadge } from '@/components/mail/MailConfidentialBadge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMailSummary } from '@/hooks/queries/useMailSummary'
+import { mailDisplaySubject, mailOpenLabel } from '@/lib/mailConfidentialSubject'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
-import { mailSubjectText } from '@/lib/mailSubject'
 import { showsLoadError } from '@/lib/queryFailure'
 import type { MailSummaryItem } from '@/types/dashboard'
 
@@ -137,7 +138,7 @@ export default function UnreadMailBody({
               <Link
                 to={`/mail/${m.accountId}?messageId=${m.id}`}
                 data-testid="dash-mail-row"
-                aria-label={`메일 열기: ${mailSubjectText(m.subject)}`}
+                aria-label={mailOpenLabel(m)}
                 aria-describedby={describedBy || undefined}
                 className="flex gap-2 rounded px-1 py-1.5 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
@@ -160,7 +161,11 @@ export default function UnreadMailBody({
                       {m.receivedAt ? relTime(m.receivedAt) : ''}
                     </span>
                   </span>
-                  <span className="block truncate text-sm text-foreground/90">{mailSubjectText(m.subject)}</span>
+                  {/* 제목 줄 — 받은 기밀 메일이면 머리말을 빼고 뒤에 「기밀」 배지(WP-2030 리뷰 후속) */}
+                  <span className="flex items-center gap-1">
+                    <span className="min-w-0 truncate text-sm text-foreground/90">{mailDisplaySubject(m)}</span>
+                    {m.confidential && <MailConfidentialBadge className="py-0" />}
+                  </span>
                   <span className="flex items-center gap-1">
                     <span id={snippetId} className="block min-w-0 truncate text-xs text-muted-foreground">
                       {m.snippet?.trim() || ''}

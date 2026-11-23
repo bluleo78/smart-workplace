@@ -341,12 +341,14 @@ public class ImapMailFetcher implements MailFetcher {
     } finally {
       closeQuietly(box, store);
     }
-    int saved = insertAll(accountId, folder.id(), parsedList);
+    InsertCounts counts = insertAll(accountId, folder.id(), parsedList);
+    int saved = counts.saved();
     OffsetDateTime newSince = from.atOffset(ZoneOffset.UTC);
     txTemplate.executeWithoutResult(
         status -> folderRepo.markFolderSynced(folder.id(), newSince, OffsetDateTime.now()));
     return Optional.of(
-        new OlderFetch(new MailSyncResult(fetched, saved, 0, 0), from, hasMore, true));
+        new OlderFetch(
+            new MailSyncResult(fetched, saved, counts.changed(), 0), from, hasMore, true));
   }
 
   /**
@@ -368,25 +370,31 @@ public class ImapMailFetcher implements MailFetcher {
     }
   }
 
-  /** 파싱한 메타를 메시지별 짧은 트랜잭션으로 넣고 새로 들어간 수를 돌려준다. 개별 저장 실패는 격리한다(실패해도 진행 — 커서는 호출자가 관리). */
-  private int insertAll(long accountId, long folderId, List<ParsedMessage> parsedList) {
+  /**
+   * 파싱한 메타를 메시지별 짧은 트랜잭션으로 넣고 새로 들어간 수와, 기존 메일이 기밀로 올라간 수(WP-2030 — 목록 갱신 이벤트용)를 돌려준다. 개별 저장 실패는
+   * 격리한다(실패해도 진행 — 커서는 호출자가 관리).
+   */
+  private InsertCounts insertAll(long accountId, long folderId, List<ParsedMessage> parsedList) {
     int saved = 0;
+    int changed = 0;
     for (ParsedMessage parsed : parsedList) {
       try {
-        boolean inserted =
-            Boolean.TRUE.equals(
-                txTemplate.execute(
-                    status ->
-                        messageRepo.insertIgnoreConflict(accountId, folderId, parsed).isPresent()));
-        if (inserted) {
+        EmailMessageRepository.UpsertOutcome outcome =
+            txTemplate.execute(status -> messageRepo.insertForSync(accountId, folderId, parsed));
+        if (outcome == EmailMessageRepository.UpsertOutcome.INSERTED) {
           saved++;
+        } else if (outcome == EmailMessageRepository.UpsertOutcome.SEEN_CHANGED) {
+          changed++;
         }
       } catch (Exception e) {
         log.warn("메일 메타 저장 중 건너뜀: {}", e.toString());
       }
     }
-    return saved;
+    return new InsertCounts(saved, changed);
   }
+
+  /** insertAll 결과 — 새로 넣은 수와 기존 메일의 상태가 바뀐(기밀로 올라간) 수. */
+  private record InsertCounts(int saved, int changed) {}
 
   /** fetchMetadata 결과 — 동기화 결과와, 이번이 첫 동기화(또는 UIDVALIDITY 변경으로 다시 받기)였는지. */
   private record FetchOutcome(MailSyncResult result, boolean firstSync) {}
@@ -499,9 +507,11 @@ public class ImapMailFetcher implements MailFetcher {
       txTemplate.executeWithoutResult(status -> messageRepo.deleteByFolder(folder.id()));
     }
     // 개별 저장 실패가 동기화 전체를 막지 않도록 메시지별 짧은 트랜잭션으로 격리한다(실패해도 진행 — 커서는 이미 전진).
-    int saved = insertAll(accountId, folder.id(), parsedList);
+    InsertCounts counts = insertAll(accountId, folder.id(), parsedList);
+    int saved = counts.saved();
     // WP-148: 신규 저장 뒤 읽음 변화 반영(best-effort — 실패해도 커서 저장·동기화 성공은 그대로)
-    int seenChanged = applySeenChanges(accountId, folder.id(), seenChanges);
+    // WP-2030: 기존 메일이 기밀로 올라간 수도 상태 변화로 더해 목록 갱신 이벤트가 가게 한다
+    int seenChanged = applySeenChanges(accountId, folder.id(), seenChanges) + counts.changed();
     // WP-959: 서버에서 사라진 메일을 로컬에서도 지운다(best-effort)
     int removed = applyRemovals(accountId, folder.id(), removedUids);
     long finalMaxUid = maxUid;

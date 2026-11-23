@@ -3,6 +3,7 @@
 // WP-160: 한 줄에 필요한 만큼만 받는다 — 프로젝트·연락처는 이름 MAX_NAMES 개, 메일은 최신 1건(별도 쿼리 키).
 // 이슈 목록은 응답에 전체 건수(total)가 없고 타일 건수 배지가 받은 건수(items.length)·hasMore 로 "N"/"N+" 를 그리므로,
 // 크기를 줄이면 배지 문구가 바뀌어 위젯과 같은 조회를 유지한다. 노트·드라이브·채널은 원래 목록 자체가 작아 그대로 둔다.
+import { MailConfidentialPrefix } from '@/components/mail/MailConfidentialBadge'
 import { useContactsHead } from '@/hooks/queries/useContacts'
 import { useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
 import { useActivity,useMyIssues } from '@/hooks/queries/useHomeQueries'
@@ -12,7 +13,7 @@ import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useProjects } from '@/hooks/queries/useProjects'
 import { useWikiSpaces } from '@/hooks/queries/useWikiSpaces'
-import { mailSubjectText } from '@/lib/mailSubject'
+import { mailDisplaySubject } from '@/lib/mailConfidentialSubject'
 import type { ContactTypeFilter } from '@/types/contact'
 import type { MailFolder } from '@/types/mailMessage'
 
@@ -63,7 +64,9 @@ export function MailListSummary({ params, render }: MobileSummaryProps) {
       status: 'ready',
       text: (
         <>
-          <span className="font-medium">{mailSender(first)}</span> · {mailSubjectText(first.subject)}
+          <span className="font-medium">{mailSender(first)}</span> · {/* 한 줄 요약이라 배지 대신 「기밀 · 」 글자 + 머리말 뺀 제목(WP-2030 리뷰 후속) */}
+          {first.confidential && <MailConfidentialPrefix />}
+          {mailDisplaySubject(first)}
         </>
       ),
     }

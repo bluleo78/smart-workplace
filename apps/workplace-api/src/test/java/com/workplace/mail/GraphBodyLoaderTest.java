@@ -57,6 +57,7 @@ import org.springframework.transaction.annotation.Transactional;
 class GraphBodyLoaderTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
+
   @Autowired tools.jackson.databind.ObjectMapper objectMapper;
   @Autowired GraphBodyLoader graphBodyLoader;
   @Autowired EmailAccountRepository accountRepo;
@@ -233,6 +234,22 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
             .where(EMAIL_MESSAGE.ID.eq(messageId))
             .fetchOneInto(String.class);
     assertThat(bodyHtmlViaContent).contains("retry");
+
+    // 리뷰 후속: 거절을 기억해, 다음 메일 본문 GET 은 400 을 다시 맞지 않고 처음부터 expand 뺀 URL 로 보낸다
+    long secondId = seedGraphMessage(accountId, "GY");
+    when(graphApiClient.get(
+            eq("TEST_AT"),
+            org.mockito.ArgumentMatchers.argThat(
+                (String u) -> u != null && u.contains("GY?$select=body") && !u.contains("$expand")),
+            eq(GraphMessageBody.class)))
+        .thenReturn(new GraphMessageBody(new ItemBody("html", "<p>second</p>"), "second", false));
+    clearInvocations(graphApiClient);
+    graphBodyLoader.loadBody(
+        userId,
+        messageRepo.findBodyTarget(accountId, secondId).orElseThrow(),
+        accountOf(accountId));
+    verify(graphApiClient, never())
+        .get(eq("TEST_AT"), contains("$expand"), eq(GraphMessageBody.class));
   }
 
   /** body.contentType="text" 이면 bodyText 에 저장되고 bodyHtml 은 null. */

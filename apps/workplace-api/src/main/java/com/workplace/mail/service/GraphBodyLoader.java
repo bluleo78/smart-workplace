@@ -18,12 +18,14 @@ import com.workplace.mail.util.MailerHeaders;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
 import java.io.ByteArrayInputStream;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -48,6 +50,16 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class GraphBodyLoader implements MailBodyLoader {
+
+  /**
+   * 기밀 확장 속성 {@code $expand} 거절을 기억하는 시간(WP-2030 리뷰 후속). 본문 GET 은 메일마다 나가므로, 거절한 계정은 그동안 처음부터
+   * expand 없이 보내 메일마다 400 한 번(오류 로그)을 되풀이하지 않는다. 지나면 다시 넣어 본다. 델타는 기억이 필요 없다 — 뺀 URL 로 다시 시도한 응답의
+   * deltaLink 에 이미 expand 가 없다.
+   */
+  private static final long EXPAND_REJECTION_MEMORY_MILLIS = Duration.ofHours(1).toMillis();
+
+  /** 계정 id → 거절을 기억하는 끝 시각(epoch ms). 계정 단위라 한 계정의 거절이 다른 계정·테넌트의 판정을 끄지 않는다. */
+  private final Map<Long, Long> expandRejectedUntil = new ConcurrentHashMap<>();
 
   private final EmailMessageRepository messageRepo;
 
@@ -112,10 +124,7 @@ public class GraphBodyLoader implements MailBodyLoader {
               // 있다
               + "&"
               + GraphMailFetcher.SENSITIVITY_EXPAND;
-      // $expand 를 400 으로 거절하면 빼고 한 번 다시 시도한다 — 확장 속성 때문에 본문 적재까지 실패하지 않게
-      GraphMessageBody msgResp =
-          GraphMailFetcher.getWithExpandFallback(
-              graphApiClient, accessToken, msgUrl, GraphMessageBody.class);
+      GraphMessageBody msgResp = fetchMessageBody(accessToken, msgUrl, target.accountId());
 
       String bodyHtml = null;
       String bodyText = null;
@@ -383,4 +392,24 @@ public class GraphBodyLoader implements MailBodyLoader {
       String contentType,
       @JsonProperty("size") Long size,
       Boolean isInline) {}
+
+  /**
+   * 본문 GET — {@code $expand} 를 400 으로 거절하면 빼고 한 번 다시 시도한다(확장 속성 때문에 본문 적재까지 실패하지 않게). 그 계정이 최근
+   * 거절했으면 처음부터 뺀 URL 로 보낸다.
+   */
+  private GraphMessageBody fetchMessageBody(String accessToken, String msgUrl, long accountId) {
+    Long until = expandRejectedUntil.get(accountId);
+    if (until != null && System.currentTimeMillis() < until) {
+      return graphApiClient.get(
+          accessToken, GraphMailFetcher.stripSensitivityExpand(msgUrl), GraphMessageBody.class);
+    }
+    return GraphMailFetcher.getWithExpandFallback(
+        graphApiClient,
+        accessToken,
+        msgUrl,
+        GraphMessageBody.class,
+        () ->
+            expandRejectedUntil.put(
+                accountId, System.currentTimeMillis() + EXPAND_REJECTION_MEMORY_MILLIS));
+  }
 }

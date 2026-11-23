@@ -2,13 +2,14 @@
 // 추가 요청 없이 접힘·타일 한 줄을 만든다. 무엇을 고를지는 summaryLogic(vitest)에 있다.
 import { notifLabel } from '@/components/home/notifTarget'
 import { useSynthesisCounts } from '@/components/home/synthesis/useSynthesisCounts'
+import { MailConfidentialPrefix } from '@/components/mail/MailConfidentialBadge'
 import { useMyIssues, useWatchedIssues } from '@/hooks/queries/useHomeQueries'
 import { useMailSummary } from '@/hooks/queries/useMailSummary'
 import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
-import { mailSubjectText } from '@/lib/mailSubject'
+import { mailDisplaySubject } from '@/lib/mailConfidentialSubject'
 import { buildMyTaskRows, dueLabel } from '@/lib/myTasks'
 
 import { mailSender } from '../../dashboard/bodyRules'
@@ -108,7 +109,9 @@ export function UnreadMailSummary({ render }: MobileSummaryProps) {
       count: mailBadgeCount(q.data),
       text: (
         <>
-          <span className="font-medium">{mailSender(latest)}</span> · {mailSubjectText(latest.subject)}
+          <span className="font-medium">{mailSender(latest)}</span> · {/* 한 줄 요약이라 배지 대신 「기밀 · 」 글자 + 머리말 뺀 제목(WP-2030 리뷰 후속) */}
+          {latest.confidential && <MailConfidentialPrefix />}
+          {mailDisplaySubject(latest)}
         </>
       ),
     }

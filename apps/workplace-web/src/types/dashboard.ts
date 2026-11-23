@@ -46,6 +46,7 @@ export type MailSummaryItem = Pick<
   | 'hasAttachment'  // 첨부 표시(백엔드 이미 전송)
   | 'aiCategory'
   | 'aiNeedsReply'
+  | 'confidential'   // 받은 기밀 메일 표시(WP-2030 리뷰 후속 — 백엔드 이미 전송)
 >
 
 // 메일 요약 위젯 데이터(백엔드 MailSummaryResponse 와 1:1).

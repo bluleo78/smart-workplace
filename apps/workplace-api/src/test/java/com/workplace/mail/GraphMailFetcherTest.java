@@ -45,6 +45,7 @@ import tools.jackson.databind.ObjectMapper;
 class GraphMailFetcherTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
+
   @Autowired GraphMailFetcher graphMailFetcher;
   @Autowired EmailFolderRepository folderRepo;
   @Autowired EmailMessageRepository messageRepo;
@@ -689,8 +690,11 @@ class GraphMailFetcherTest extends ExternalClientMockedTestBase {
 
     graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
     assertThat(confidentialOf(accountId, "E1")).isFalse();
-    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    var second = graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
     assertThat(confidentialOf(accountId, "E1")).isTrue();
+    // 리뷰 후속: 기밀로 올린 것은 상태 변화로 세어 목록 갱신 이벤트(SSE) 근거가 된다
+    assertThat(second.seenChanged()).isEqualTo(1);
+    assertThat(second.changed()).isTrue();
   }
 
   /** 계정의 서버 보낸편지함(sentitems) 폴더 id(WP-950 — findByProviderId 는 폴더 단위). */
