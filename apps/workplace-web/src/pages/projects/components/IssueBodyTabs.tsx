@@ -33,6 +33,7 @@ export function IssueBodyTabs({
   onScrolledToComment,
   linkedCommentId = null,
   onLinkedCommentHandled,
+  onBodyPosted,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -51,6 +52,8 @@ export function IssueBodyTabs({
   /** 코멘트 링크(#comment-<id>)로 열어 온 코멘트 — 코멘트 탭을 보이고 목록이 그리로 스크롤한다(WP-1175). */
   linkedCommentId?: number | null;
   onLinkedCommentHandled?: () => void;
+  /** 새 코멘트 본문 — 워크플로우 배너의 「답으로 보내기」용(WP-1989). */
+  onBodyPosted?: (body: string) => void;
 }) {
   const [order, setOrder] = useActivityOrder();
   // 이력 탭을 보던 중에 같은 이슈의 코멘트 링크를 열면 코멘트 탭으로 돌린다 — 숨은 탭에는 목록이 없어 스크롤할 곳이 없다.
@@ -100,10 +103,11 @@ export function IssueBodyTabs({
             onScrolledToComment={onScrolledToComment}
             linkedCommentId={linkedCommentId}
             onLinkedCommentHandled={onLinkedCommentHandled}
+            onBodyPosted={onBodyPosted}
           />
         </TabsContent>
         <TabsContent value="activity" className="pt-4">
-          <IssueActivityTimeline entries={history} projectKey={projectKey} order={order} />
+          <IssueActivityTimeline entries={history} projectKey={projectKey} order={order} issueId={issueId} />
         </TabsContent>
       </Tabs>
     </section>

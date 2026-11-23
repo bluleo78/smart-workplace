@@ -123,6 +123,10 @@ export const shellHandlers = [
   ),
   // 워크플로우 탭 가시성은 프로젝트 화면에서 확인한다 — 기본은 등록된 정의 없음.
   http.get(`${API}/projects/:id/workflows`, () => HttpResponse.json([])),
+  // 이슈의 워크플로우 실행(WP-1989) — 이슈 상세 레일이 늘 부른다. 기본은 실행 없음(켜지지 않은 프로젝트 = 카드 없음).
+  http.get(`${API}/issues/:id/workflow`, () =>
+    HttpResponse.json({ runId: null, status: null, revision: 0, workflowId: null, versionNo: null, currentNode: null, outcomes: [], path: [], remainingNodeKeys: [], context: {} }),
+  ),
   // 프로젝트 설정 「리포트」의 정기 리포트 줄(WP-1483, WP-1654 위치 필드) — 서버 기본값(꺼짐·매주·월요일·09:00, 템플릿 없음, 기본 저장 위치 「리포트」, 읽기 전용).
   // 설정 화면을 띄우는 다른 테스트가 모킹 누락으로 깨지지 않게 깐다. 줄 자체의 판정은 ReportSettings.test.tsx.
   http.get(`${API}/projects/:key/report-settings`, () =>

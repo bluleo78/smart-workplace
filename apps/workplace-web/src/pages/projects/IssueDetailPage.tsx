@@ -51,6 +51,7 @@ import { useUpdateIssueType } from '../../hooks/queries/useUpdateIssueType';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
+import { useCanManageProjectOf } from '../../hooks/useCanManageProject';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { aiClassifyApplyToast } from '../../lib/aiClassifyResult';
@@ -72,8 +73,10 @@ import { IssueCommentComposer } from './components/IssueCommentComposer';
 import { CommentLockedNotice } from './components/IssueCommentList';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 import { IssueReporterField } from './components/IssueReporterField';
+import { IssueWorkflowBanner } from './components/IssueWorkflowBanner';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
 import { PersonCardAssignHost } from './components/PersonCardAssignHost';
+import { StartWorkflowDialog } from './components/StartWorkflowDialog';
 import { WorkflowLockedHint } from './components/WorkflowLockedHint';
 import { useVersionedPatch } from './hooks/useVersionedPatch';
 import { ISSUES_TAB_STATE, projectTabPath } from './tabs/projectTabs';
@@ -119,6 +122,10 @@ export default function IssueDetailPage() {
   const isMobile = useIsMobile();
   // 모바일 하단 작성창으로 방금 쓴 코멘트 id — 활동 목록이 그 코멘트까지 스크롤한 뒤 비운다(WP-1016).
   const [postedCommentId, setPostedCommentId] = useState<number | null>(null);
+  // 방금 올린 코멘트·채팅 글 본문 — 사람 차례 배너가 「답으로 보내기」로 쓴다(WP-1989).
+  const [lastPosted, setLastPosted] = useState<{ body: string; at: number } | null>(null);
+  // 글을 올린 시각과 함께 기록 — 배너가 지금 노드에 들어온 뒤의 글만 답 후보로 삼는다.
+  const notePosted = (body: string) => setLastPosted({ body, at: Date.now() });
   // 코멘트 링크(#comment-<id>)로 들어온 코멘트(WP-1175) — 해시 값마다 한 번만 그리로 스크롤한다.
   // 처리한 해시를 기억해, 코멘트를 달거나 채팅 드로워·첨부 미리보기를 열고 닫아도(useHistoryParam 이 해시를 그대로 둔 채 이동한다)
   // 되돌아가지 않게 한다. 해시가 사라지거나 다른 코멘트로 바뀌면 다시 처리한다.
@@ -142,11 +149,15 @@ export default function IssueDetailPage() {
     lastEditor === 'title' ? (titleControls ?? bodyControls) : (bodyControls ?? titleControls);
   // 모바일 「＋ 속성」 시트 open 상태 — 칩 줄의 「＋ 속성」 버튼이 열고, 아래 MobileSheetShell(issue-more-props-sheet)이 이 값으로 열림/닫힘을 제어한다.
   const [moreOpen, setMoreOpen] = useState(false);
+  // 워크플로우 시작 창(WP-1989) — 카드의 「워크플로우 시작」이 연다.
+  const [startFlowOpen, setStartFlowOpen] = useState(false);
   // 시트 안 링크(의존성·상위 배지)로 다른 이슈로 이동하면 같은 라우트라 페이지 인스턴스가 재사용된다 — 이슈가 바뀌면 시트를 닫는다(렌더 중 상태 조정).
   const [prevIssueKey, setPrevIssueKey] = useState(`${key}/${issueNumber}`);
   if (prevIssueKey !== `${key}/${issueNumber}`) {
     setPrevIssueKey(`${key}/${issueNumber}`);
     setMoreOpen(false);
+    // 다른 이슈의 「방금 쓴 글」이 새 이슈 배너의 답 후보로 넘어가지 않게 비운다(WP-1989).
+    setLastPosted(null);
   }
   const watcherCount = watchers.data?.length ?? 0;
   const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
@@ -166,6 +177,8 @@ export default function IssueDetailPage() {
   // 첨부 삭제 권한 UI 토글용 — 첨부자 또는 OWNER. 백엔드 가드가 최종 검증.
   const members = useProjectMembers(key);
   const isOwner = isProjectOwner(members.data, user?.id);
+  // 워크플로우 「다른 노드로 옮기기」 노출 — 서버 isManager(프로젝트 OWNER·ADMIN)와 같은 프로젝트 관리 판정을 쓴다. 최종 검증은 서버.
+  const canManageWorkflow = useCanManageProjectOf(key, project.data);
 
   // WP-54: AI 채팅 화면 컨텍스트 — 이 이슈를 "보고 있는 대상"으로 등록(데이터 로딩 전엔 미등록).
   // Rules of Hooks: 아래 조기 반환 이전에 호출한다. 개인 프로젝트 리다이렉트 경로에선 곧 언마운트되어 해제된다.
@@ -414,6 +427,12 @@ export default function IssueDetailPage() {
               isAiClassifying={classify.isPending}
               aiClassifyReason={classifyReason}
               variant={variant}
+              // AI 작업 단계 카드(WP-1989) — 「워크플로우 시작」은 시작 창을 연다.
+              workflow={
+                project.data
+                  ? { issueId: summary.id, projectId: project.data.id, isManager: canManageWorkflow, onStart: () => setStartFlowOpen(true) }
+                  : undefined
+              }
             />
   );
 
@@ -521,6 +540,16 @@ export default function IssueDetailPage() {
                   </div>
                 )}
               </div>
+              {/* 워크플로우 사람 차례 배너(WP-1989) — 내 차례일 때만 보인다. */}
+              {user && (
+                <IssueWorkflowBanner
+                  issueId={summary.id}
+                  projectKey={key}
+                  meId={user.id}
+                  posted={lastPosted}
+                  onPostedBodyUsed={() => setLastPosted(null)}
+                />
+              )}
               {/* AI 진행(WP-1079) — 제목 아래·AI 현황 요약 위. 진행 중 작업이 없으면 스스로 숨고, 비서 가용성과 무관(작업은 구성원이 보고했다).
                   답변 필요 배지가 이슈 채팅을 연다(옛 질문 카드 대체). 모바일은 좁은 폭에 맞춰 작업자마다 여러 줄로 쌓는다. */}
               <AgentWorkCard list={summary.agentWork} onOpenChat={openChat} stacked={isMobile} />
@@ -592,6 +621,7 @@ export default function IssueDetailPage() {
                 onScrolledToComment={() => setPostedCommentId(null)}
                 linkedCommentId={linkedCommentId}
                 onLinkedCommentHandled={onLinkedCommentHandled}
+                onBodyPosted={notePosted}
               />
             </div>
             {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
@@ -624,6 +654,7 @@ export default function IssueDetailPage() {
                 editorMaxHeightClass="max-h-[calc(4lh+1rem+2px)]"
                 inlineSubmit
                 onPosted={setPostedCommentId}
+                onBodyPosted={notePosted}
               />
             )}
           </div>
@@ -659,6 +690,17 @@ export default function IssueDetailPage() {
           </div>
         </MobileSheetShell>
       )}
+      {project.data && (
+        <StartWorkflowDialog
+          open={startFlowOpen}
+          onOpenChange={setStartFlowOpen}
+          issueId={summary.id}
+          projectKey={key}
+          projectId={project.data.id}
+          issueTitle={summary.title}
+          assignees={summary.assignees.map((a) => ({ id: a.id, name: a.name, kind: a.kind ?? 'HUMAN' }))}
+        />
+      )}
       {/* 삭제 확인 AlertDialog — window.confirm() 대체. childCount > 0 시 자식 수 경고 포함. */}
       <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
         <AlertDialogContent>
@@ -682,6 +724,7 @@ export default function IssueDetailPage() {
         issueNumber={issueNumber}
         open={chatOpen}
         onClose={closeChat}
+        onPosted={notePosted}
       />
     </Page>
     </PersonCardAssignHost>

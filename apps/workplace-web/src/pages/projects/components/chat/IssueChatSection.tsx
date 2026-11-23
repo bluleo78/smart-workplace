@@ -51,6 +51,8 @@ interface IssueChatSectionProps {
    */
   focusRequest?: number;
   onFocusRequestDone?: () => void;
+  /** 글을 올리는 데 성공했다(본문) — 이슈 상세의 워크플로우 배너가 「방금 쓴 글을 답으로 보내기」에 쓴다(WP-1989). */
+  onPosted?: (body: string) => void;
 }
 
 /**
@@ -70,6 +72,7 @@ function IssueChatSectionBody({
   plain = false,
   focusRequest = 0,
   onFocusRequestDone,
+  onPosted,
 }: IssueChatSectionProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const auth = useAuth();
@@ -339,7 +342,10 @@ function IssueChatSectionBody({
             threadId={threadId}
             members={mentionCandidates}
             onSubmit={(body, fileIds, driveFileIds) =>
-              createMutation.mutateAsync({ body, fileIds, driveFileIds })
+              createMutation.mutateAsync({ body, fileIds, driveFileIds }).then((r) => {
+                onPosted?.(body)
+                return r
+              })
             }
             onTyping={handleTyping}
             // 드로워(embedded)로 열면 바로 입력할 수 있게 컴포저에 포커스. 터치 기기는 가상 키보드가

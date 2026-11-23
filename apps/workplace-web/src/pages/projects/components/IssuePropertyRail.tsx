@@ -3,6 +3,8 @@
 // 왜: 9개 속성이 단일 스크롤에 나열되어 과밀한 기존 aside 를 해소(#343).
 // 첨부 섹션은 Task 2 에서, 활동 섹션은 Task 3 에서 본문 탭으로 이동 완료.
 
+import { isClosedStatus } from '@/lib/issueGrouping';
+
 import { IssueComponentsField } from '../../../components/components/IssueComponentsField';
 import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
@@ -38,6 +40,7 @@ import { IssuePropertyGroup } from './IssuePropertyGroup';
 import { AddIssueRelationButton, IssueRelationsSection } from './IssueRelationsSection';
 import { IssueReporterField, type ReporterEdit } from './IssueReporterField';
 import { IssueStatusSelect } from './IssueStatusSelect';
+import { IssueWorkflowGroup } from './IssueWorkflowCard';
 import { MilestonePickerPopover } from './MilestonePickerPopover';
 
 // 속성 레일이 받는 props — 기존 aside 가 사용하던 summary.* 값 그대로 전달.
@@ -80,6 +83,13 @@ interface IssuePropertyRailProps {
   aiClassifyReason?: string | null;
   /** sheet = 모바일 ＋ 속성 시트(WP-196): 칩과 겹치는 상태·우선순위·담당자·마감을 숨기고, 부모 슬롯은 SUBTASK 만 노출. 기본 rail(데스크톱). */
   variant?: 'rail' | 'sheet';
+  /** AI 작업 단계 카드(WP-1989) — 이슈 숫자 id·프로젝트 id 가 있고 워크플로우를 쓰는 이슈일 때만 그룹이 나타난다. */
+  workflow?: {
+    issueId: number;
+    projectId: number;
+    isManager: boolean;
+    onStart: () => void;
+  };
 }
 
 export function IssuePropertyRail({
@@ -118,6 +128,7 @@ export function IssuePropertyRail({
   isAiClassifying,
   aiClassifyReason,
   variant = 'rail',
+  workflow,
 }: IssuePropertyRailProps) {
   // 상태 선택지 — 프로젝트 상태 목록(WP-808). 시트(variant=sheet)는 상태 칩이 맡지만 같은 캐시라 추가 요청은 없다.
   const statuses = useProjectStatusList(projectKey);
@@ -216,6 +227,9 @@ export function IssuePropertyRail({
               disabled={updatePending || !canEditWorkflow}
               // 이름을 누르면 사람 카드(WP-1767) — 고르기는 이름 밖 빈 자리(겹 단추)로 연다.
               personCard
+              issueId={workflow?.issueId}
+              projectId={workflow?.projectId}
+              closed={isClosedStatus(status)}
             />
           </div>
           {/* 구성요소(WP-933) — 담당자 바로 아래. 사용 중 구성요소가 없는 프로젝트면 행이 스스로 숨는다. 붙이기는 라벨과 같은 워크플로 권한. */}
@@ -252,6 +266,19 @@ export function IssuePropertyRail({
           <IssueVersionsField projectKey={projectKey} issueNumber={issueNumber} kind="fix" current={fixVersions} disabled={!canEditWorkflow} />
           <IssueVersionsField projectKey={projectKey} issueNumber={issueNumber} kind="affects" current={affectsVersions} disabled={!canEditWorkflow} />
         </>
+      )}
+
+      {/* AI 작업 단계(WP-1989) — 상태·담당 바로 뒤. 워크플로우를 켜지 않은 프로젝트(실행도 없음)면 그룹째 그리지 않는다. 이슈 상태와는 별개 축. */}
+      {workflow && (
+        <IssueWorkflowGroup
+          issueId={workflow.issueId}
+          projectKey={projectKey}
+          projectId={workflow.projectId}
+          canEdit={canEditWorkflow}
+          isManager={workflow.isManager}
+          closed={isClosedStatus(status)}
+          onStart={workflow.onStart}
+        />
       )}
 
       {/* 그룹 2: 일정 — 기본 펼침 */}

@@ -10,6 +10,7 @@ import { avatarKeys } from '../hooks/queries/avatarKeys';
 import { calendarKeys } from '../hooks/queries/calendarKeys';
 import { contactKeys } from '../hooks/queries/contactKeys';
 import { driveKeys } from '../hooks/queries/driveKeys';
+import { issueWorkflowKeys } from '../hooks/queries/issueWorkflowKeys';
 import { mailMessageKeys } from '../hooks/queries/mailMessageKeys';
 import { messagingKeys } from '../hooks/queries/messagingKeys';
 import { notificationKeys } from '../hooks/queries/notificationKeys';
@@ -42,13 +43,25 @@ export interface InvalidationTarget {
 
 type Rule = (p: ResourceChangedPayload) => InvalidationTarget[];
 
-/** issue 리소스 무효화 대상 — projectKey(pk) 기준. 다른 리소스 규칙(예: 프로젝트 변경)도 재사용한다. */
-export function issueTargets(pk: string): InvalidationTarget[] {
+/**
+ * issue 리소스 무효화 대상 — projectKey(pk) 기준. 다른 리소스 규칙(예: 프로젝트 변경)도 재사용한다.
+ * ids(이벤트가 실은 이슈 id)가 있으면 워크플로우 캐시는 그 이슈 것만, 없으면 접두사 전체를 다시 읽는다.
+ */
+/** 이벤트에 이슈 id 가 있으면 그 이슈 키만, 없으면 접두사 키로 무효화한다(워크플로우 실행·미리보기가 함께 쓴다). */
+function byIssueIds(ids: number[] | undefined, all: QueryKey, detail: (id: number) => QueryKey): InvalidationTarget[] {
+  return ids && ids.length > 0 ? ids.map((id) => ({ queryKey: detail(id) })) : [{ queryKey: all }]
+}
+
+export function issueTargets(pk: string, ids?: number[]): InvalidationTarget[] {
   return [
     { queryKey: ['issues', 'search', pk] }, // 목록·보드·타임라인·하위 이슈
     { queryKey: ['issues', pk] }, // 상세(detail) 전체
     { queryKey: ['me-issues'] },
     { queryKey: ['ai-tasks'] }, // AI 작업 목록·건수(WP-377)
+    // 이슈 워크플로우 카드·배너(WP-1989) — 다른 사람·AI 가 단계를 옮겨도 이슈 갱신 알림으로 단계를 다시 읽는다(키에 pk 가 없어 id 가 없으면 접두사로).
+    ...byIssueIds(ids, issueWorkflowKeys.all, issueWorkflowKeys.detail),
+    // 시작 창 미리보기(담당 기준) — 다른 사람이 담당을 바꾸면 낡으므로 같은 방식으로 함께 무효화한다.
+    ...byIssueIds(ids, issueWorkflowKeys.previewAll, issueWorkflowKeys.preview),
     { queryKey: ['watched-issues'] },
     { queryKey: ['my-issue-dues'] },
     { queryKey: ['home', 'myIssues'] },
@@ -104,7 +117,8 @@ const notificationsOnDelete = (p: ResourceChangedPayload): InvalidationTarget[] 
 
 // 리소스 → 무효화 대상. 새 리소스는 resource-contract.json 과 함께 여기에 규칙을 추가한다.
 const RULES: Record<string, Rule> = {
-  issue: (p) => (p.projectKey ? [...issueTargets(p.projectKey), ...notificationsOnDelete(p)] : []),
+  // 이벤트가 이슈 id 를 실으면 워크플로우 캐시는 그 이슈 것만 다시 읽는다(없으면 접두사 전체).
+  issue: (p) => (p.projectKey ? [...issueTargets(p.projectKey, p.ids), ...notificationsOnDelete(p)] : []),
   project: (p) => [
     { queryKey: ['projects'] }, // 목록·상세·멤버(['projects','detail',pk,'members'])
     { queryKey: ['pinnedViews'] },

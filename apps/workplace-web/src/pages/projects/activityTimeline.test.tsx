@@ -7,6 +7,7 @@ import { screen, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import type { WorkflowNodeView, WorkflowPathStep } from '@/lib/workflow'
 import { renderScreen } from '@/test/renderScreen'
 import type { IssueDetailResponse, IssueHistoryEntry } from '@/types/issue'
 
@@ -28,11 +29,17 @@ function openDetail(detail: IssueDetailResponse) {
 }
 
 /** 이력 탭을 열고 활동 타임라인 목록을 돌려준다 — 활동 섹션은 「이력」 탭 안에 있다(#343). 코멘트 탭의 작성창이 멤버를 부른다. */
-async function openHistory(history: IssueHistoryEntry[]) {
+/** 실행 없음 응답 모양(서버 IssueWorkflowView). */
+const NO_RUN = { runId: null, status: null, revision: 0, workflowId: null, versionNo: null, currentNode: null, outcomes: [], path: [], remainingNodeKeys: [], context: {} }
+
+async function openHistory(history: IssueHistoryEntry[], workflowRun?: { path: WorkflowPathStep[]; currentNode: WorkflowNodeView | null }) {
   const detail = createIssueDetail({ history })
+  // 타임라인이 이슈 id 로 실행을 구독한다 — 실행을 주면 그 path·지금 단계를, 안 주면 실행 없음 응답을 쓴다.
+  const run = workflowRun ? { ...NO_RUN, runId: 1, status: 'RUNNING', ...workflowRun } : NO_RUN
+  const runHandlers = [http.get(`/api/v1/issues/${detail.summary.id}/workflow`, () => HttpResponse.json(run))]
   const view = renderScreen(
     <IssueBodyTabs projectKey={KEY} issueNumber={1} issueId={detail.summary.id} comments={detail.comments} history={detail.history} canReact />,
-    { path: `/projects/${KEY}/issues/1`, handlers: [http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([OWNER]))] },
+    { path: `/projects/${KEY}/issues/1`, handlers: [http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([OWNER])), ...runHandlers] },
   )
   await view.user.click(screen.getByRole('tab', { name: /이력/ }))
   const timeline = await screen.findByRole('list', { name: '활동 타임라인' })
@@ -140,5 +147,39 @@ describe('이슈 상세 — 부모 상태 (WP-869)', () => {
       createIssueDetail({ summary: createIssue({ id: 1, number: 1, parent: { number: 5, title: '결제 개편 에픽', type: makeEpicType(), status: 'DONE' } }) }),
     )
     expect(within(screen.getByTestId('issue-parent-slot')).getByTestId('issue-parent-status')).toHaveTextContent(/^완료$/)
+  })
+})
+
+// 워크플로우 이동 기록(WP-1989) — 실행 path 의 단계 진입을 이력 줄로 바꿔 변경 이력과 시간순으로 섞는다.
+describe('활동 타임라인 — 워크플로우 이동 기록', () => {
+  const who = (id: number, name: string) => ({ id, username: name, name, kind: 'AGENT' as const })
+  // 서버 모양 — path 에는 지금 단계가 없고, 지금 단계는 currentNode 로 따로 온다.
+  const path: WorkflowPathStep[] = [
+    { key: 'triage', name: '분류', outcome: 'done', actor: who(2, '팀장AI'), enteredAt: '2026-06-07T00:16:00Z', leftAt: '2026-06-07T01:02:00Z' },
+  ]
+  const currentNode = { key: 'dev', name: '구현', type: 'task', roleKey: null, assignees: [], enteredAt: '2026-06-07T01:02:00Z', nodeRunStatus: 'ACTIVE' as const, instructions: null }
+  const run = { path, currentNode }
+  const mid = createHistoryEntry({ id: 9, actorName: '사람', createdAt: '2026-06-07T01:00:00Z', eventType: 'PRIORITY_CHANGED', fromValue: 'LOW', toValue: 'HIGH' })
+
+  test('시작과 이동이 이력에 섞이고 AI 행 표식이 붙는다(최신순이면 이동이 위)', async () => {
+    const { timeline, user } = await openHistory([mid], run)
+    // 실행 조회는 타임라인이 따로 하므로 이동 줄이 섞여 들어올 때까지 기다린다.
+    await within(timeline).findByText(/옮겼습니다/)
+    await user.click(screen.getByTestId('activity-order-newest'))
+    const items = within(timeline).getAllByRole('listitem')
+    // 최신순: 분류 → 구현 이동(10:02, 행위자는 분류를 마친 팀장AI) → 우선순위(10:00) → 시작(09:16, 행위자 없음)
+    expect(items[0]).toHaveTextContent('팀장AI 단계를 분류 → 구현 (으)로 옮겼습니다')
+    expect(items[0]).toHaveAttribute('data-agent', 'true')
+    expect(items[1]).toHaveTextContent('낮음 → 높음')
+    expect(items[2]).toHaveTextContent('워크플로우를 시작했습니다 — 분류')
+    expect(items[2]).not.toHaveAttribute('data-agent', 'true')
+    // 오래된 순으로 돌리면 뒤집힌다.
+    await user.click(screen.getByTestId('activity-order-oldest'))
+    expect(within(timeline).getAllByRole('listitem')[0]).toHaveTextContent('워크플로우를 시작했습니다')
+  })
+
+  test('workflowRun 이 없으면 예전 이력 그대로', async () => {
+    const { timeline } = await openHistory([mid])
+    expect(within(timeline).getAllByRole('listitem')).toHaveLength(1)
   })
 })
