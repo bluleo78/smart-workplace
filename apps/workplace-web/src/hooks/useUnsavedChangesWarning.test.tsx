@@ -25,6 +25,12 @@ describe('useUnsavedChangesWarning', () => {
     expect(dispatchBeforeUnload()).toBe(true)
   })
 
+  it('세션에 저장되는 입력도 탭을 닫을 때 경고하고 자동 새로고침을 막는다', () => {
+    renderHook(() => useUnsavedChangesWarning(true))
+    expect(dispatchBeforeUnload()).toBe(true)
+    expect(hasUnsavedInput()).toBe(true)
+  })
+
   it('입력이 사라지면(저장·취소·모달 닫힘) 경고를 해제한다', () => {
     const { rerender } = renderHook(({ dirty }) => useUnsavedChangesWarning(dirty), {
       initialProps: { dirty: true },

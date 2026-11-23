@@ -23,6 +23,7 @@ import { clearIssueBodyDrafts } from '../lib/issueBodyDraft';
 import { clearPushOnLogout } from '../lib/push/subscription';
 import type { LoginFormData, SignupFormData } from '../lib/validations/auth';
 import { withTimeout } from '../lib/withTimeout';
+import { clearWorkflowDraftSessions, invalidateWorkflowDraftSessions } from '../lib/workflowDraftSessions';
 import type { Membership, UserResponse } from '../types/auth';
 import type { RoleResponse } from '../types/role';
 import { AuthContext } from './auth-context-value';
@@ -41,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserResponse | null>(null);
   const [roles, setRoles] = useState<RoleResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [activeTenant, setActiveTenant] = useState<Membership | null>(null);
   const [tenantOptions, setTenantOptions] = useState<Membership[] | null>(null);
   // 로그인/선택 화면에 띄울 세션 안내(워크스페이스 상실·무소속). LoginPage 와 WorkspaceSelectCard 가 표시한다.
@@ -180,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // WP-1534: 새 토큰을 깔기 전에 이전 신원에 묶인 작업(업로드 큐 등)을 동기로 끊는다 — 남은 파일이 새 토큰으로 나가지 않게.
+    invalidateWorkflowDraftSessions();
     emitIdentityChange();
     setAccessToken(res.accessToken);
 
@@ -210,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // tenant-scoped 토큰 재발급(refresh 쿠키도 tenant-scoped 로 세팅됨).
     const { data: token } = await authApi.selectTenant(membership.tenantId);
     // WP-1534: 다른 테넌트 토큰을 깔기 전에 이전 신원에 묶인 작업을 끊는다(리로드 전 틈에 새 토큰으로 나가지 않게).
+    invalidateWorkflowDraftSessions();
     emitIdentityChange();
     setAccessToken(token.accessToken);
     writeActiveTenant(membership);
@@ -225,6 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     const { data: tokens } = await deduplicatedRefresh();
     // WP-1534: SSO 로 받은 새 토큰을 깔기 전에 이전 신원에 묶인 작업을 끊는다.
+    invalidateWorkflowDraftSessions();
     emitIdentityChange();
     setAccessToken(tokens.accessToken);
     const { data: memberships } = await authApi.memberships();
@@ -258,6 +263,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     // WP-1534: 로그아웃을 누른 그 순간 사용자에 묶인 작업(업로드 큐 등)을 동기로 끊는다 — 아래 푸시 정리·서버 로그아웃을
     // 기다리는 몇 초 동안, 그리고 토큰을 비운 뒤 user 가 다시 그려지기 전까지 다음 파일이 나가지 않게.
+    setIsLoggingOut(true);
+    clearWorkflowDraftSessions();
     emitIdentityChange();
     try {
       // 서버 logout(토큰 폐기) 전에 이 기기의 푸시 매핑을 지운다 — 토큰이 아직 살아 있어야 인증 호출이 통과한다.
@@ -267,6 +274,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await withTimeout(clearPushOnLogout(), 3000);
       await authApi.logout();
     } finally {
+      // 로그아웃 요청이 지연되는 동안 입력된 초안도 지우고 그 사이 시작된 쓰기 응답을 무효화한다.
+      clearWorkflowDraftSessions();
       setAccessToken(null);
       setConnectionError(false);
       localStorage.removeItem(AUTH_FLAG_KEY);
@@ -280,6 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthNotice(null);
       setUser(null);
       setRoles([]);
+      setIsLoggingOut(false);
       // WP-700: 앞 사용자의 화면 데이터 캐시를 비운다 — 같은 탭에서 다음에 로그인한 사람에게 보이지 않게.
       queryClient.clear();
     }
@@ -305,10 +315,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const ctxValue = useMemo(
     () => ({
-      user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions, authNotice, connectionError, retryAuth,
+      user, roles, isLoading, isLoggingOut, isAuthenticated, activeTenant, tenantOptions, authNotice, connectionError, retryAuth,
       login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser, patchUser,
     }),
-    [user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions, authNotice, connectionError, retryAuth,
+    [user, roles, isLoading, isLoggingOut, isAuthenticated, activeTenant, tenantOptions, authNotice, connectionError, retryAuth,
       login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser, patchUser]
   );
 

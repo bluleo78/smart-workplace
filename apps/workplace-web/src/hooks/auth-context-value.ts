@@ -8,6 +8,8 @@ export interface AuthContextValue {
   user: UserResponse | null;
   roles: RoleResponse[];
   isLoading: boolean;
+  /** 로그아웃 정리가 진행 중이면 워크플로우 초안 쓰기를 막는다. */
+  isLoggingOut: boolean;
   isAuthenticated: boolean;
   /** 현재 활성 워크스페이스(테넌트). 미선택/무소속이면 null. */
   activeTenant: Membership | null;

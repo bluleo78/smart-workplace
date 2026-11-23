@@ -2,7 +2,7 @@
 // 프로젝트 로딩·오류 화면, 개인/팀 분기(이 레이아웃에서만), 화면 틀(머리줄·탭 줄)과 새 태스크 대화상자를 맡고 본문은 <Outlet/>.
 // 탭 사이를 오가도 이 레이아웃은 그대로라 머리줄·탭 줄이 다시 그려지지 않는다.
 import { ArrowLeft, Plus } from 'lucide-react'
-import { type ComponentProps, type ReactNode, Suspense, useMemo, useState } from 'react'
+import { type ComponentProps, type ReactNode, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, Outlet, useMatch, useNavigate, useParams } from 'react-router-dom'
 
 import { Page } from '@/components/layout/Page'
@@ -13,6 +13,8 @@ import { useWikiProjectSpace } from '@/hooks/queries/useWikiProjectSpace'
 import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { apiErrorStatus } from '@/lib/api-error'
+import { pruneWorkflowDraftSessions, workflowDraftStorageKey } from '@/lib/workflowDraftSessions'
 import { useProjectWorkflows } from '@/lib/workflows'
 
 import { useCycles } from '../../../hooks/queries/useCycles'
@@ -56,7 +58,7 @@ export function ProjectTabsLayout() {
   // 조회 중엔 null(모름) — 기억한 탭이 노트일 때만 판정을 기다린다.
   const noteSpace = useWikiProjectSpace(key, { enabled: team })
   const notesVisible = notesTabVisible(team, noteSpace)
-  const { user, isAdmin } = useAuth()
+  const { user, activeTenant, isAdmin } = useAuth()
   const workflows = useProjectWorkflows(project.data?.id)
   // 오래된 프로젝트 응답에만 역할 목록이 필요하다. 우회 권한은 기존 프로젝트 설정 규칙을 그대로 쓴다.
   const needsMemberRole = team && !isAdmin && project.data?.viewerIsMember === true && project.data.viewerRole === undefined
@@ -67,6 +69,28 @@ export function ProjectTabsLayout() {
     ? Boolean(user && project.data?.ownerId === user.id)
     : project.data?.viewerRole === 'OWNER' || isProjectOwner(members.data, user?.id)
   const canManage = project.data != null && canManageProject(isOwner, isAdmin, isPersonal)
+  const workflowPermissionsResolved = project.data != null && (!needsMemberRole || members.data !== undefined)
+
+  // 레이아웃은 프로젝트 탭을 옮겨도 남으므로 확정된 권한·목록으로 세션 초안을 정리한다.
+  useEffect(() => {
+    const projectId = project.data?.id
+    if (!user || projectId === undefined) return
+    const storageKey = workflowDraftStorageKey(user.id, activeTenant?.tenantId, projectId)
+    // 권한 거절·삭제는 확정된 무효 상태다. 네트워크·5xx 오류나 목록의 일시 실패는 캐시 초안을 보존한다.
+    if ([401, 403, 404].includes(apiErrorStatus(project.error) ?? 0)) {
+      pruneWorkflowDraftSessions(storageKey, new Set(), false)
+      return
+    }
+    if (!workflowPermissionsResolved) return
+    if (!canManage) {
+      pruneWorkflowDraftSessions(storageKey, new Set(), false)
+      return
+    }
+    if (!workflows.data) return
+    pruneWorkflowDraftSessions(storageKey, new Set(workflows.data.map(({ id }) => id)), canManage)
+  }, [
+    activeTenant?.tenantId, canManage, project.data?.id, project.error, user, workflowPermissionsResolved, workflows.data,
+  ])
   // 개인 프로젝트 조회자도 목록을 받기 전에는 읽을 워크플로우가 있는지 알 수 없다.
   let workflowVisible: boolean | null = false
   if (canManage || (workflows.data?.length ?? 0) > 0) workflowVisible = true

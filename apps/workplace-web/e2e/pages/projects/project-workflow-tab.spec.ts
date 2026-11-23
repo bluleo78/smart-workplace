@@ -46,7 +46,7 @@ test('프로젝트 워크플로우 탭에서 YAML 경고 위치를 찾아간다'
   await expect(confirmation.getByRole('button', { name: '게시', exact: true })).toBeEnabled()
 })
 
-test('다른 프로젝트 탭을 다녀와도 저장하지 않은 워크플로 YAML을 복원한다', { tag: ['@wiring'] }, async ({ authenticatedPage: page }) => {
+test('다른 프로젝트 탭을 다녀와도 저장하지 않은 워크플로 YAML을 복원한다', { tag: ['@flow'] }, async ({ authenticatedPage: page }) => {
   await mockWorkflow(page)
   await page.goto('/projects/WP/workflow')
   const changedYaml = 'name: 편집 중\nnodes:\n  review: {}\nnotes: 아직 저장 안 함'

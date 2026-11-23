@@ -3,7 +3,7 @@
 //   e2e/pages/auth.spec.ts(초안 정리·WP-700 캐시)·e2e/pages/pwa/push-open.spec.ts(대기 목적지)·e2e/pages/layout/app-rail-order.spec.ts(전부)
 // renderPage 를 쓰는 이유: 앱 레일의 사용자 메뉴(앱 셸)로 로그아웃하고, 로그인 화면 → 다른 화면으로 넘나들며 그 화면 내용을 보며,
 // 대기 목적지는 앱 셸(AppLayout)이 진입할 때 소비한다 — 모두 App·AuthProvider 전체가 있어야 한다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test } from 'vitest'
 
@@ -42,6 +42,38 @@ test('로그아웃하면 이슈 본문 초안(옛 키 포함)이 지워지고 �
   await logoutViaRail(view)
   expect(Object.keys(window.localStorage).filter((k) => k.startsWith('issue-body-draft:'))).toEqual([])
   expect(window.localStorage.getItem('theme')).toBe('dark')
+})
+
+test('로그아웃하면 이 탭의 워크플로우 초안을 지우고 다른 세션 값은 남긴다', async () => {
+  window.sessionStorage.setItem('workflow-drafts:1:none:7', JSON.stringify([[42, { edit: { yaml: '초안' }, conflict: false }]]))
+  window.sessionStorage.setItem('workflow-drafts:1:3:7', JSON.stringify([[43, { edit: { yaml: '다른 테넌트' }, conflict: false }]]))
+  window.sessionStorage.setItem('other-tab-session-value', 'keep')
+  const view = renderPage('/', { handlers: loginPageHandlers })
+  await logoutViaRail(view)
+  expect(Object.keys(window.sessionStorage).filter((key) => key.startsWith('workflow-drafts:'))).toEqual([])
+  expect(window.sessionStorage.getItem('other-tab-session-value')).toBe('keep')
+})
+
+test('로그아웃 대기 중 다시 기록된 워크플로우 초안도 로그아웃 완료 때 지운다', async () => {
+  let releaseLogout!: () => void
+  let signalLogoutStarted!: () => void
+  const logoutStarted = new Promise<void>((resolve) => { signalLogoutStarted = resolve })
+  window.sessionStorage.setItem('workflow-drafts:1:none:7', JSON.stringify([[42, { edit: { yaml: '초안' }, conflict: false }]]))
+  const delayedLogout = http.post(`${API}/auth/logout`, async () => {
+    signalLogoutStarted()
+    await new Promise<void>((resolve) => { releaseLogout = resolve })
+    return new HttpResponse(null, { status: 204 })
+  })
+  const view = renderPage('/', { handlers: [delayedLogout, ...loginPageHandlers] })
+  await view.user.click(await screen.findByRole('button', { name: '사용자 메뉴' }, { timeout: PAGE_LOAD_TIMEOUT }))
+  await view.user.click(await screen.findByRole('menuitem', { name: '로그아웃' }))
+  await logoutStarted
+  window.sessionStorage.setItem('workflow-drafts:1:none:7', JSON.stringify([[42, { edit: { yaml: '로그아웃 중 입력' }, conflict: false }]]))
+
+  await act(async () => { releaseLogout() })
+
+  await waitFor(() => expect(view.location()).toBe('/login'))
+  expect(Object.keys(window.sessionStorage).filter((key) => key.startsWith('workflow-drafts:'))).toEqual([])
 })
 
 // WP-700 — 로그아웃 뒤 같은 탭(새로고침 없음)에서 다른 사람이 로그인하면, 캐시 유지 시간 동안 앞 사용자의 프로젝트 목록이 그대로 그려졌다.
