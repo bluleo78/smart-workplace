@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "swp.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.appReplicas }}
+  replicas: {{ include "swp.replicas" (dict "root" $ "id" "web") }}
   # 과거 ReplicaSet 보관 개수 — rollout restart 반복 시 0-replica RS 누적 방지
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   {{- include "swp.rollingStrategy" . | nindent 2 }}
@@ -20,6 +20,7 @@ spec:
     spec:
       {{- include "swp.imagePullSecrets" . | nindent 6 }}
       terminationGracePeriodSeconds: {{ .Values.rollout.terminationGracePeriodSeconds }}
+      {{- with include "swp.spread" (dict "root" $ "id" "web" "name" "web") }}{{ . | nindent 6 }}{{- end }}
       containers:
         - name: web
           image: {{ include "swp.image" (dict "root" $ "id" "web") | quote }}
