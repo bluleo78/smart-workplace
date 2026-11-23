@@ -122,9 +122,9 @@ class ServerAgentRunTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.items[?(@.title == '체크리스트 작성')]").exists());
   }
 
-  // WP-1986: 실행 id 는 JSON 으로 받아 도는 실행 표에 넣고 끝에 지운다. 형식이 틀린 id 는 400 이 아니라 없는 것으로 본다.
+  // WP-1986: 실행 id 는 JSON 으로 받아 도는 실행 표에 넣고 끝에 끝남을 표시한다. 형식이 틀린 id 는 400 이 아니라 없는 것으로 본다.
   @Test
-  void 실행_id를_받아_시작에_넣고_끝에_지우며_틀린_id는_조용히_넘긴다() throws Exception {
+  void 실행_id를_받아_시작에_넣고_끝에_끝남을_표시하며_틀린_id는_조용히_넘긴다() throws Exception {
     String runId = UUID.randomUUID().toString();
     report(agent, "STARTED", false, null, runId).andExpect(status().isNoContent());
     assertThat(serverRunRows()).isEqualTo(1);
@@ -140,8 +140,11 @@ class ServerAgentRunTest extends IntegrationTestBase {
     assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("WORKING");
   }
 
+  /** 이슈의 도는(끝남 표시가 없는) 실행 행 수 — 끝난 실행은 늦은 STARTED 를 막으려고 끝남을 표시해 남긴다. */
   private int serverRunRows() {
-    return dsl.fetchCount(AGENT_SERVER_RUN, AGENT_SERVER_RUN.ISSUE_ID.eq(issueId));
+    return dsl.fetchCount(
+        AGENT_SERVER_RUN,
+        AGENT_SERVER_RUN.ISSUE_ID.eq(issueId).and(AGENT_SERVER_RUN.FINISHED_AT.isNull()));
   }
 
   @Test

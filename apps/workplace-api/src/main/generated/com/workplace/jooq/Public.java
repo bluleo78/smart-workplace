@@ -310,8 +310,8 @@ public class Public extends SchemaImpl {
     public final AgentScreenSession AGENT_SCREEN_SESSION = AgentScreenSession.AGENT_SCREEN_SESSION;
 
     /**
-     * 서버 AI 의 도는 이슈 실행 — STARTED 에 넣고 FINISHED 에 지운다(끝 보고가 마지막 도는 실행의 것인지 가르는 데
-     * 쓴다)
+     * 서버 AI 의 이슈 실행 — STARTED 에 넣고 FINISHED 에 끝남(finished_at)을 표시한다(끝 보고가 마지막
+     * 도는 실행의 것인지 가르고, 끝난 실행의 늦은 STARTED 를 무시하는 데 쓴다)
      */
     public final AgentServerRun AGENT_SERVER_RUN = AgentServerRun.AGENT_SERVER_RUN;
 
