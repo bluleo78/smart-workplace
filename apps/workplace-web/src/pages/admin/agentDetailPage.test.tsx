@@ -357,6 +357,71 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     expect(dialog).toHaveTextContent('이어 받아요')
   })
 
+  // 확인 창 게이트(WP-2018) — 하던 일이 있는 AI(작업 중·차단됨, 실패 포함)는 재시작 전에 확인을 거치고,
+  // 하던 일이 없으면(아이들) 확인 없이 바로 보낸다. 판정은 saved.status 와 observed.agentState 뿐이다.
+  test('실행 중 작업 중은 재시작을 확인한다', async () => {
+    const observed = createObserved({ agentState: 'WORKING' })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-restart'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('지금 재시작할까요?')
+    await user.click(within(dialog).getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(calls.actions).toEqual([])
+  })
+
+  test('실행 중 차단됨도 재시작을 확인한다', async () => {
+    const observed = createObserved({ agentState: 'BLOCKED', agentIssueKeys: ['WP-1234'] })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-restart'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('지금 재시작할까요?')
+    expect(dialog).toHaveTextContent('WP-1234')
+    await user.click(within(dialog).getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(calls.actions).toEqual([])
+  })
+
+  test('실패했지만 작업 중이면 재시작을 확인한다', async () => {
+    const observed = createObserved({ agentState: 'WORKING' })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-start'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('지금 재시작할까요?')
+    await user.click(within(dialog).getByRole('button', { name: '재시작' }))
+    await waitFor(() => expect(calls.actions).toEqual(['start']))
+  })
+
+  test('실행 중 아이들은 재시작을 확인 없이 바로 보낸다', async () => {
+    const observed = createObserved({ agentState: 'IDLE' })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-restart'))
+    await waitFor(() => expect(calls.actions).toEqual(['restart']))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  // 게이트의 반대쪽 — 실패(FAILED)여도 아이들은 하던 일이 없으니 확인 없이 바로 보낸다(회귀 금지).
+  test('실패했지만 아이들은 재시작을 확인 없이 바로 보낸다', async () => {
+    const observed = createObserved({ agentState: 'IDLE' })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-start'))
+    await waitFor(() => expect(calls.actions).toEqual(['start']))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  // 「지금 적용」도 같은 게이트를 거친다(interrupts 확장, WP-2018).
+  test('쉴 때 적용 대기인데 차단됨이면 지금 적용도 확인 창을 거친다', async () => {
+    const observed = createObserved({ agentState: 'BLOCKED', agentIssueKeys: ['WP-1234'] })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'APPLY_PENDING', desired: 'RUN', pendingApply: 'AT_IDLE', observed }) } }))
+    const banner = await screen.findByTestId('agent-runtime-apply-pending')
+    await user.click(within(banner).getByTestId('agent-runtime-apply-now'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('지금 적용할까요?')
+    expect(calls.saves).toEqual([])
+    await user.click(within(dialog).getByRole('button', { name: '지금 적용' }))
+    await waitFor(() => expect(calls.saves.map((b) => b.applyMode)).toEqual(['NOW']))
+  })
+
   test('쉴 때 적용 대기면 「바꾼 설정은 쉴 때 적용돼요.」와 「지금 적용」 — 계정·작업 설정을 함께 가리키는 말 (WP-1515)', async () => {
     const observed = createObserved({ agentState: 'IDLE' })
     const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'APPLY_PENDING', desired: 'RUN', pendingApply: 'AT_IDLE', observed }) } }))
@@ -476,11 +541,16 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     })
 
-    test('서버 판정이 없으면(pendingApply null) 배너 없이 재시작은 기존대로 start', async () => {
+    // 서버 판정(pendingApply)이 없어도 하던 일이 있으면(WP-2018) 재시작은 확인 창을 먼저 거친다 — 확인 뒤에도 미룬 실패와 달리 start 로 보낸다.
+    test('서버 판정이 없으면(pendingApply null) 배너 없이 재시작은 확인 뒤 start', async () => {
       const { user, calls } = await renderDetail(works({ settings: { [id]: heldSetting(working(), null) } }))
       expect(await screen.findByTestId('agent-runtime-status')).toHaveTextContent('오류')
       expect(screen.queryByTestId('agent-runtime-apply-pending')).not.toBeInTheDocument()
       await user.click(screen.getByTestId('agent-runtime-start'))
+      const dialog = await screen.findByRole('alertdialog')
+      expect(dialog).toHaveTextContent('지금 재시작할까요?')
+      expect(calls.actions).toEqual([])
+      await user.click(within(dialog).getByRole('button', { name: '재시작' }))
       await waitFor(() => expect(calls.actions).toEqual(['start']))
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     })
@@ -645,6 +715,55 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     await user.click(await screen.findByTestId('agent-runtime-stop'))
     await waitFor(() => expect(calls.actions).toEqual(['stop']))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  // 종료 게이트의 경계(WP-2018) — 차단된 AI 는 이슈 키가 없어도 하던 일이 있으니 확인을 먼저 거친다.
+  test('차단됐는데 이슈 키가 없으면 종료를 확인한다', async () => {
+    const observed = createObserved({ agentState: 'BLOCKED' })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-stop'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('AI 200 을 종료할까요?')
+    expect(dialog).toHaveTextContent('하던 일이 끊기고, 작업 공간의 커밋·push 하지 않은 변경은 지워져요.')
+    expect(calls.actions).toEqual([])
+    await user.click(within(dialog).getByRole('button', { name: '종료' }))
+    await waitFor(() => expect(calls.actions).toEqual(['stop']))
+  })
+
+  // 키 전용 경로(WP-2018) — 하던 일이 없어도(IDLE) 이슈 키가 있으면 종료를 확인한다(interrupts 항을 빼면 이 테스트가 깨진다).
+  test('실행 중 이슈 키가 있으면 종료를 확인한다', async () => {
+    const observed = createObserved({ agentState: 'IDLE', agentIssueKeys: ['WP-1234'] })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-stop'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('하던 작업 WP-1234 가 끊기고')
+    expect(calls.actions).toEqual([])
+    await user.click(within(dialog).getByRole('button', { name: '종료' }))
+    await waitFor(() => expect(calls.actions).toEqual(['stop']))
+  })
+
+  // 실패 축(WP-2018) — live 에 failedOn(FAILED+RUN)이 더해져 하던 일이 없어도 이슈 키가 있으면 종료를 확인한다.
+  test('실패한 AI 도 이슈 키가 있으면 종료를 확인한다', async () => {
+    const observed = createObserved({ agentState: 'IDLE', agentIssueKeys: ['WP-1234'] })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-stop'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('하던 작업 WP-1234 가 끊기고')
+    expect(calls.actions).toEqual([])
+    await user.click(within(dialog).getByRole('button', { name: '종료' }))
+    await waitFor(() => expect(calls.actions).toEqual(['stop']))
+  })
+
+  // 실패 축의 하던 일 쪽(WP-2018) — FAILED+RUN 도 차단됨이면 이슈 키가 없어도 interrupts 가 확인 창을 먼저 띄운다.
+  test('실패하고 차단됐는데 이슈 키가 없으면 종료를 확인한다', async () => {
+    const observed = createObserved({ agentState: 'BLOCKED' })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-stop'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('하던 일이 끊기고')
+    expect(calls.actions).toEqual([])
+    await user.click(within(dialog).getByRole('button', { name: '종료' }))
+    await waitFor(() => expect(calls.actions).toEqual(['stop']))
   })
 
   test('작업 화면 보기는 작업 공간이 떠 있을 때(실행 중·쉴 때 적용 대기)만 보인다 (WP-1277)', async () => {
