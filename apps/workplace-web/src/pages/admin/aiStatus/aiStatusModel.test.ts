@@ -4,7 +4,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { AiStatusAlert, AiStatusOverview, KindRow, Tokens } from '@/api/aiStatus'
 
 import {
-  alertItems,
+  alertItem,
+  alertRows,
   alertTarget,
   bucketHistoryHref,
   chartIsEmpty,
@@ -185,7 +186,7 @@ describe('sortKinds', () => {
   })
 })
 
-describe('alertItems', () => {
+describe('alertItem', () => {
   const alerts: AiStatusAlert[] = [
     { code: 'KIND_FAILURE', severity: 'DANGER', kind: 'MAIL_CLASSIFY', accountId: null, label: null, value: 0.25, threshold: 0.09 },
     { code: 'QUEUE_WAIT', severity: 'WARNING', kind: null, accountId: null, label: null, value: 1900, threshold: 1800 },
@@ -194,8 +195,8 @@ describe('alertItems', () => {
     { code: 'SOMETHING_NEW', severity: 'INFO', kind: null, accountId: null, label: null, value: null, threshold: null },
   ]
 
-  test('alertItems — 심각도를 AlertList 수준으로 옮기고 경고 종류별 문구를 만든다', () => {
-    const items = alertItems(alerts)
+  test('alertItem — 심각도를 AlertList 수준으로 옮기고 경고 종류별 문구를 만든다', () => {
+    const items = alerts.map(alertItem)
 
     expect(items.map((i) => i.level)).toEqual(['danger', 'warning', 'warning', 'warning', 'info'])
     expect(items[0].label).toBe('MAIL_CLASSIFY 실패율 25% · 기준 9%')
@@ -205,20 +206,92 @@ describe('alertItems', () => {
     expect(items[4].label).toBe('SOMETHING_NEW')
   })
 
-  test('alertItems — 같은 계정이 5시간·7일 창에 모두 걸려도 id 가 겹치지 않는다', () => {
+  test('alertItem — 같은 계정이 5시간·7일 창에 모두 걸려도 id 가 겹치지 않는다', () => {
     const both: AiStatusAlert[] = [
       { code: 'ACCOUNT_USAGE', severity: 'WARNING', kind: null, accountId: 7, label: '운영 · 5h', value: 85, threshold: 80 },
       { code: 'ACCOUNT_USAGE', severity: 'WARNING', kind: null, accountId: 7, label: '운영 · 7d', value: 90, threshold: 80 },
     ]
-    const items = alertItems(both)
+    const items = both.map(alertItem)
     expect(new Set(items.map((i) => i.id)).size).toBe(2)
   })
 
-  test('alertItems — id 는 중복 없고 이동 동작은 아직 없다(WP-1825)', () => {
-    const items = alertItems(alerts)
+  test('alertItem — id 는 중복 없고 이동 동작은 아직 없다(WP-1825)', () => {
+    const items = alerts.map(alertItem)
 
     expect(new Set(items.map((i) => i.id)).size).toBe(items.length)
     expect(items.every((i) => i.action === undefined)).toBe(true)
+  })
+})
+
+describe('alertRows', () => {
+  const base: AiStatusAlert = { code: '', severity: 'WARNING', kind: null, accountId: null, label: null, value: null, threshold: null }
+  const acct = (accountId: number, label: string, severity: string, value: number, threshold: number | null): AiStatusAlert => ({
+    ...base,
+    code: 'ACCOUNT_USAGE',
+    severity,
+    accountId,
+    label,
+    value,
+    threshold,
+  })
+
+  test('계정 경고 여러 개는 첫 계정 경고 자리에 한 줄로 묶인다', () => {
+    const alerts: AiStatusAlert[] = [
+      { ...base, code: 'KIND_FAILURE', severity: 'DANGER', kind: 'MAIL', value: 0.25, threshold: 0.09 },
+      { ...base, code: 'QUEUE_WAIT', value: 1900, threshold: 1800 },
+      acct(1, '운영 · 5h', 'WARNING', 85, 80),
+      acct(1, '운영 · 7d', 'WARNING', 90, 80),
+      acct(2, '보조 · 7d', 'WARNING', 82, 80),
+      { ...base, code: 'BACKLOG_STUCK', kind: 'MAIL', value: 12, threshold: 10 },
+    ]
+    const rows = alertRows(alerts, '24h')
+
+    expect(rows).toHaveLength(4)
+    expect(rows[2].item).toEqual({ id: 'ACCOUNT_USAGE-group', level: 'warning', label: 'AI 계정 2개 한도 근접(80% 이상)' })
+    expect(rows[2].target).toEqual({ label: '계정 보기', href: '/settings/agents/accounts' })
+    expect(rows[0].item.label).toBe(alertItem(alerts[0], 0).label)
+    expect(rows[0].target).toEqual(alertTarget(alerts[0], '24h'))
+    expect(rows[3].item.label).toBe(alertItem(alerts[5], 5).label)
+    expect(rows[3].target).toEqual(alertTarget(alerts[5], '24h'))
+  })
+
+  test('묶인 것 중 위험이 있으면 위험이다', () => {
+    const rows = alertRows([acct(1, '운영 · 5h', 'WARNING', 85, 80), acct(2, '보조 · 5h', 'DANGER', 100, 100)], '24h')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].item.level).toBe('danger')
+    expect(rows[0].item.label).toBe('AI 계정 2개 한도 근접(80% 이상) · 1개 도달')
+  })
+
+  test('계정 경고가 하나면 묶지 않고 상세 문구와 「계정 보기」 를 그대로 둔다', () => {
+    const one = acct(3, '운영 · 5h', 'WARNING', 85, 80)
+    const rows = alertRows([one], '24h')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].item).toEqual(alertItem(one, 0))
+    expect(rows[0].item.label).toContain('사용률 85%')
+    expect(rows[0].item.label).not.toContain('AI 계정 1개')
+    expect(rows[0].target).toEqual({ label: '계정 보기', href: '/settings/agents/accounts' })
+  })
+
+  test('accountId 가 없으면 라벨의 창 꼬리를 뗀 이름으로 한 계정을 센다', () => {
+    const noId = (label: string): AiStatusAlert => ({ ...acct(0, label, 'WARNING', 85, 80), accountId: null })
+    const rows = alertRows([noId('운영 · 5h'), noId('운영 · 7d')], '24h')
+    expect(rows[0].item.label).toBe('AI 계정 1개 한도 근접(80% 이상)')
+  })
+
+  test('기준이 모두 없으면 괄호를 뺀다', () => {
+    const rows = alertRows([acct(1, '운영 · 5h', 'WARNING', 85, null), acct(2, '보조 · 5h', 'WARNING', 86, null)], '24h')
+    expect(rows[0].item.label).toBe('AI 계정 2개 한도 근접')
+  })
+
+  test('모든 계정이 기준 100% 이상이면 「한도 도달」로 적는다', () => {
+    const rows = alertRows([acct(1, '운영 · 5h', 'DANGER', 100, 100), acct(2, '보조 · 5h', 'DANGER', 105, 100)], '24h')
+    expect(rows[0].item.label).toBe('AI 계정 2개 한도 도달(100% 이상)')
+  })
+
+  test('계정 경고가 없으면 묶은 줄도 없다', () => {
+    const rows = alertRows([{ ...base, code: 'KIND_FAILURE', kind: 'MAIL', value: 0.25, threshold: 0.09 }], '24h')
+    expect(rows).toHaveLength(1)
+    expect(rows.some((r) => r.item.id.includes('ACCOUNT_USAGE-group'))).toBe(false)
   })
 })
 
@@ -277,17 +350,28 @@ describe('statCards', () => {
       '실패율',
       '응답 시간',
       '대기 시간',
-      '작업 칸 사용률',
+      '동시 처리',
     ])
-    expect(cards.map((c) => c.value)).toEqual(['1,234', '1.5M', '5%', '12.3초', '4분 5초', '3 / 8 칸'])
+    expect(cards.map((c) => c.value)).toEqual(['1,234', '1.5M', '5%', '12.3초', '4분 5초', '3 / 8건'])
     expect(cards.map((c) => c.meta)).toEqual([
       '직전 1,000',
       '직전 1.4M · 입력 1.2M · 출력 340K',
       '직전 3.4% · +1.6%p',
       'p95 · 직전 10초',
       'p95 · 직전 — · 대기 12건',
-      '직전 —',
+      '진행 중 / 한도 · 직전 —',
     ])
+  })
+
+  test('statCards — 동시 처리 직전 값이 있으면 아랫줄에 붙고, 한도가 없으면 자리만 —', () => {
+    const withPrev = statCards({ ...metrics, slotUsage: { current: { used: 3, limit: 8 }, previous: { used: 2, limit: 8 } } })
+    expect(withPrev[5].meta).toBe('진행 중 / 한도 · 직전 2 / 8건')
+
+    const noLimit = statCards({ ...metrics, slotUsage: { current: { used: 3, limit: null }, previous: null } })
+    expect(noLimit[5].value).toBe('3건 / —')
+
+    const noSample = statCards({ ...metrics, slotUsage: { current: null, previous: null } })
+    expect(noSample[5].value).toBe('—')
   })
 })
 
@@ -304,17 +388,9 @@ describe('smallGraphs', () => {
       FILE_SUMMARY: [1, 2, 3],
       MAIL_CLASSIFY: [null, 1, 2],
     },
-    account5h: [
-      { accountId: 30, label: 'C', values: [10, null, 20] },
-      { accountId: 10, label: 'A', values: [50, 60, 70] },
-      { accountId: 20, label: 'B', values: [5, 6, 7] },
-      { accountId: 40, label: 'D', values: [1, 1, 1] },
-      { accountId: 50, label: 'E', values: [2, 2, 2] },
-      { accountId: 60, label: 'F', values: [3, 3, 3] },
-    ],
   }
 
-  test('smallGraphs — testId 6개 순서와 막대는 실패 하나만', () => {
+  test('smallGraphs — testId 5개 순서와 막대는 실패 하나만', () => {
     const defs = smallGraphs(series)
 
     expect(defs.map((d) => d.testId)).toEqual([
@@ -323,35 +399,22 @@ describe('smallGraphs', () => {
       'graph-queue-wait',
       'graph-backlog',
       'graph-slot',
-      'graph-account-5h',
     ])
-    expect(defs.map((d) => d.kind)).toEqual(['line', 'bar', 'line', 'line', 'line', 'line'])
-    expect(defs.map((d) => d.title)).toEqual(['응답 시간', '실패', '대기', '밀린 건수', '작업 칸', 'AI 계정 5시간 한도'])
+    expect(defs.map((d) => d.kind)).toEqual(['line', 'bar', 'line', 'line', 'line'])
+    expect(defs.map((d) => d.title)).toEqual(['응답 시간', '실패', '대기', '밀린 건수', '동시 처리'])
     expect(defs.every((d) => d.ariaLabel.length > 0)).toBe(true)
   })
 
-  test('smallGraphs — null 구간은 null, 작업 칸·계정 그래프의 기준선', () => {
+  test('smallGraphs — null 구간은 null, 동시 처리 그래프의 기준선', () => {
     const defs = smallGraphs(series)
     const byId = Object.fromEntries(defs.map((d) => [d.testId, d]))
 
     expect(byId['graph-response'].rows[1]).toEqual({ t: 'b1', p95: 600, p50: null })
-    expect(byId['graph-slot'].limit).toEqual({ value: 8, label: '상한' })
-    expect(byId['graph-account-5h'].limit).toEqual({ value: 100, label: '한도' })
+    expect(byId['graph-slot'].limit).toEqual({ value: 8, label: '한도' })
+    expect(byId['graph-slot'].series).toEqual([{ key: 'used', label: '진행 중', colorIndex: 1 }])
+    expect(byId['graph-slot'].ariaLabel).toBe('기간별 동시 처리(한도 포함)')
     expect(byId['graph-response'].limit).toBeUndefined()
     expect(byId['graph-queue-wait'].rows[2].queueWaiting).toBeNull()
-  })
-
-  test('smallGraphs — 계정은 accountId 오름차순 상위 5개만, 키는 s0…s4', () => {
-    const def = smallGraphs(series).find((d) => d.testId === 'graph-account-5h')
-
-    expect(def?.series.map((s) => s.label)).toEqual(['A', 'B', 'C', 'D', 'E']) // 60번 F 제외
-    expect(def?.series.map((s) => s.key)).toEqual(['s0', 's1', 's2', 's3', 's4'])
-    expect(def?.series.map((s) => s.colorIndex)).toEqual([1, 2, 3, 4, 5])
-    expect(def?.rows).toEqual([
-      { t: 'b0', s0: 50, s1: 5, s2: 10, s3: 1, s4: 2 },
-      { t: 'b1', s0: 60, s1: 6, s2: null, s3: 1, s4: 2 },
-      { t: 'b2', s0: 70, s1: 7, s2: 20, s3: 1, s4: 2 },
-    ])
   })
 
   test('smallGraphs — 밀린 건수 계열은 종류 코드 오름차순으로 고정 배정', () => {

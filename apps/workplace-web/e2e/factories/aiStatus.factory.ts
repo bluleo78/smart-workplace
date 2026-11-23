@@ -1,7 +1,7 @@
 // 관리자 AI 현황 개요(WP-1824) 응답 팩토리 — 응답 타입 AiStatusOverview 를 적용해 API 스펙이 바뀌면 E2E 모킹이 컴파일 오류로 드러나게 한다.
 import type { AiStatusOverview } from '../../src/api/aiStatus'
 
-/** 24시간·15분 구간 두 칸짜리 개요 — 처리 12건(직전 8), 작업 칸 3/8, 종류 MAIL 하나, 경고 없음. */
+/** 24시간·15분 구간 두 칸짜리 개요 — 처리 12건(직전 8), 동시 처리 3/8, 종류 MAIL 하나, 경고 없음. */
 export function createAiStatusOverview(over: Partial<AiStatusOverview> = {}): AiStatusOverview {
   const buckets = ['2026-11-21T22:00:00Z', '2026-11-21T22:15:00Z']
   return {
@@ -33,10 +33,8 @@ export function createAiStatusOverview(over: Partial<AiStatusOverview> = {}): Ai
       slotUsed: [3, 3],
       slotLimit: [8, 8],
       backlog: {},
-      account5h: [],
     },
     kinds: [{ kind: 'MAIL', count: 11, failureRate: 0.1, p50: 800, p95: 1500, inputTokens: 1000, outputTokens: 300, lastFailure: null }],
-    usage: { slotUsed: 3, slotLimit: 8, queueWaiting: 3, accounts: [] },
     alerts: [],
     ...over,
   }

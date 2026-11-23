@@ -33,7 +33,7 @@ export interface Wait {
   queueWaiting: number | null
 }
 
-/** 작업 칸 사용(최근 표본) — 표본이 없으면 전체가 null 이고 필드도 없을 수 있다. */
+/** 동시 처리 사용(최근 표본) — 표본이 없으면 전체가 null 이고 필드도 없을 수 있다. */
 export interface Slot {
   used: number | null
   limit: number | null
@@ -64,13 +64,6 @@ export interface Throughput {
   otherKindCount: number
 }
 
-/** 계정별 5시간 사용률 시계열(구간 최댓값) — 표본 없는 구간은 null. */
-export interface AccountSeries {
-  accountId: number
-  label: string
-  values: (number | null)[]
-}
-
 /** 작은 그래프 시계열 — 모든 배열이 buckets 와 같은 길이고 없는 구간은 null. */
 export interface Series {
   buckets: string[]
@@ -81,7 +74,6 @@ export interface Series {
   slotUsed: (number | null)[]
   slotLimit: (number | null)[]
   backlog: Record<string, (number | null)[]>
-  account5h: AccountSeries[]
 }
 
 /** 종류별 마지막 실패 — 실패 이유(error_reason)는 없을 수 있다. */
@@ -102,24 +94,6 @@ export interface KindRow {
   lastFailure: LastFailure | null
 }
 
-/** 계정 한 줄의 현재 사용률과 초기화 시각 — 창(5h·7d) 값이 없으면 그 필드는 null. */
-export interface AccountUsage {
-  accountId: number
-  label: string
-  usedPercent5h: number | null
-  usedPercent7d: number | null
-  resetsAt5h: string | null
-  resetsAt7d: string | null
-}
-
-/** 최근 표본(10분 안) 기준 현재 사용률 — 표본이 없으면 값 필드는 null, accounts 는 빈 목록. */
-export interface Usage {
-  slotUsed: number | null
-  slotLimit: number | null
-  queueWaiting: number | null
-  accounts: AccountUsage[]
-}
-
 /** AI 현황 화면의 경고 한 줄 — code·severity 는 늘 있고 나머지는 경고 종류에 따라 null. */
 export interface AiStatusAlert {
   code: string
@@ -131,7 +105,7 @@ export interface AiStatusAlert {
   threshold: number | null
 }
 
-/** AI 현황 개요 응답 — 서버 AiStatusOverview 레코드와 1:1. 구간 데이터가 없는 칸은 0 이 아니라 null 이다. */
+/** AI 현황 개요 응답 — 서버 AiStatusOverview 레코드와 1:1. 구간 데이터가 없는 칸은 0 이 아니라 null 이다. 서버는 usage 블록(slotUsed·slotLimit·queueWaiting)도 보내지만 화면이 쓰지 않아 타입에서 뺐다(무시된다). */
 export type AiStatusOverview = {
   period: string
   bucketSeconds: number
@@ -142,7 +116,6 @@ export type AiStatusOverview = {
   throughput: Throughput
   series: Series
   kinds: KindRow[]
-  usage: Usage
   alerts: AiStatusAlert[]
 }
 
