@@ -731,26 +731,105 @@ class WorkflowRunApiTest extends IntegrationTestBase {
   }
 
   @Test
-  @DisplayName("실행 A 를 끝낸 이동의 응답을 잃은 사이 실행 B 가 시작돼도 같은 key 재시도는 A 의 첫 응답이고 B 는 움직이지 않는다")
+  @DisplayName(
+      "실행 A 를 끝낸 이동의 응답을 잃은 사이 실행 B 가 시작돼도 A 의 runId 를 실은 같은 key 재시도는 A 의 첫 응답이고 B 는 움직이지 않는다")
   void retryAfterNewRun_returnsFirstResultOfEndedRun() {
     long wf = publish(simpleYaml(username(owner)));
     long issue = issue(owner);
     ok(startReq(issue, wf, false), owner);
     JsonNode first = ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
     assertThat(first.get("status").asString()).isEqualTo("COMPLETED");
+    long runA = first.get("runId").asLong();
     JsonNode runB = ok(startReq(issue, wf, false), owner);
-    assertThat(runB.get("runId").asLong()).isNotEqualTo(first.get("runId").asLong());
+    assertThat(runB.get("runId").asLong()).isNotEqualTo(runA);
 
-    JsonNode retry = ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
+    JsonNode retry = ok(moveReq(issue, "work", "done", null, null, null, 0, "K", runA), owner);
 
     assertThat(retry).isEqualTo(first);
     JsonNode seen = ok(get(viewPath(issue)), owner);
     assertThat(seen.get("runId").asLong()).isEqualTo(runB.get("runId").asLong());
     assertThat(seen.get("revision").asInt()).isZero();
     assertThat(seen.get("currentNode").get("key").asString()).isEqualTo("work");
-    // 다른 요청자의 같은 key 는 지금 실행(B) 기준의 409 STALE.
-    JsonNode stale = expect(moveReq(issue, "work", "done", null, null, null, 0, "K"), pm, 409);
+    // 다른 요청자가 옛 실행 A 의 key 를 겨누면 지금 실행(B) 기준의 409 STALE.
+    JsonNode stale =
+        expect(moveReq(issue, "work", "done", null, null, null, 0, "K", runA), pm, 409);
     assertCode(stale, "WORKFLOW_STALE");
+    assertThat(stale.get("errors").get("currentNode").asString()).isEqualTo("work");
+    assertThat(stale.get("errors").get("revision").asString()).isEqualTo("0");
+  }
+
+  @Test
+  @DisplayName("결정적 key 재사용 — 실행 A 에서 쓴 key 로 같은 요청자가 runId 없이 실행 B 를 이동하면 B 가 실제로 움직인다")
+  void deterministicKey_reusedInNewRun_sameActor_movesNewRun() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    JsonNode first = ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
+    long runB = ok(startReq(issue, wf, false), owner).get("runId").asLong();
+
+    JsonNode moved = ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
+
+    assertThat(moved).isNotEqualTo(first);
+    assertThat(moved.get("runId").asLong()).isEqualTo(runB);
+    assertThat(moved.get("status").asString()).isEqualTo("COMPLETED");
+    assertThat(moved.get("revision").asInt()).isEqualTo(1);
+    assertThat(eventTypes(issue)).filteredOn("MOVED"::equals).hasSize(2);
+  }
+
+  @Test
+  @DisplayName("결정적 key 재사용 — 실행 A 에서 쓴 key 로 다른 요청자가 B 의 runId 를 실어 B 를 이동하면 STALE 이 아니라 200")
+  void deterministicKey_reusedInNewRun_otherActor_movesNewRun() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner);
+    long runB = ok(startReq(issue, wf, false), owner).get("runId").asLong();
+
+    // pm 은 관리자라 담당이 아니어도 이동할 수 있다(override).
+    JsonNode moved = ok(moveReq(issue, "work", "done", null, null, null, 0, "K", runB), pm);
+
+    assertThat(moved.get("runId").asLong()).isEqualTo(runB);
+    assertThat(moved.get("status").asString()).isEqualTo("COMPLETED");
+  }
+
+  @Test
+  @DisplayName("옛 실행을 겨눈 새 key 는 새 이동으로 받지 않고 지금 실행 기준 409 WORKFLOW_STALE")
+  void oldRunTarget_newKey_409Stale() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    long runA =
+        ok(moveReq(issue, "work", "done", null, null, null, 0, "K"), owner).get("runId").asLong();
+    ok(startReq(issue, wf, false), owner);
+
+    JsonNode stale =
+        expect(moveReq(issue, "work", "done", null, null, null, 0, "fresh", runA), owner, 409);
+
+    assertCode(stale, "WORKFLOW_STALE");
+    assertThat(stale.get("errors").get("currentNode").asString()).isEqualTo("work");
+    assertThat(stale.get("errors").get("revision").asString()).isEqualTo("0");
+    assertThat(eventTypes(issue)).filteredOn("MOVED"::equals).hasSize(1);
+  }
+
+  @Test
+  @DisplayName("다른 이슈의 runId·없는 runId 를 겨누면 404 가 아니라 409 WORKFLOW_STALE")
+  void otherIssueRunTarget_409Stale() {
+    long wf = publish(simpleYaml(username(owner)));
+    long issue = issue(owner);
+    long other = issue(owner);
+    ok(startReq(issue, wf, false), owner);
+    long otherRun = ok(startReq(other, wf, false), owner).get("runId").asLong();
+
+    JsonNode stale =
+        expect(moveReq(issue, "work", "done", null, null, null, 0, "k", otherRun), owner, 409);
+    assertCode(stale, "WORKFLOW_STALE");
+    JsonNode missing =
+        expect(
+            moveReq(issue, "work", "done", null, null, null, 0, "k", Long.MAX_VALUE), owner, 409);
+    assertCode(missing, "WORKFLOW_STALE");
+
+    assertThat(eventTypes(issue)).containsExactly("RUN_STARTED");
+    assertThat(eventTypes(other)).containsExactly("RUN_STARTED");
   }
 
   @Test
@@ -824,6 +903,11 @@ class WorkflowRunApiTest extends IntegrationTestBase {
     noRev.remove("expectedRevision");
     noRev.put("idempotencyKey", "k");
     expect(post(movePath(issue)).content(om.writeValueAsString(noRev)), lead, 400);
+    // runId 는 선택이지만 있으면 양수여야 한다.
+    Map<String, Object> badRun = new LinkedHashMap<>(noKey);
+    badRun.put("idempotencyKey", "k");
+    badRun.put("runId", 0);
+    expect(post(movePath(issue)).content(om.writeValueAsString(badRun)), lead, 400);
     assertThat(eventTypes(issue)).containsExactly("RUN_STARTED");
   }
 
@@ -1248,6 +1332,21 @@ class WorkflowRunApiTest extends IntegrationTestBase {
       String comment,
       int revision,
       String idempotencyKey) {
+    return moveReq(
+        issue, from, outcome, outputs, assigneeIds, comment, revision, idempotencyKey, null);
+  }
+
+  /** 겨눈 실행(runId)을 함께 싣는 이동 요청 — null 이면 싣지 않는다(지금 실행을 겨눈 것으로 본다). */
+  private MockHttpServletRequestBuilder moveReq(
+      long issue,
+      String from,
+      String outcome,
+      Map<String, Object> outputs,
+      List<Long> assigneeIds,
+      String comment,
+      int revision,
+      String idempotencyKey,
+      Long runId) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("fromNode", from);
     body.put("outcome", outcome);
@@ -1256,6 +1355,7 @@ class WorkflowRunApiTest extends IntegrationTestBase {
     if (comment != null) body.put("comment", comment);
     body.put("expectedRevision", revision);
     body.put("idempotencyKey", idempotencyKey);
+    if (runId != null) body.put("runId", runId);
     return post(movePath(issue)).content(om.writeValueAsString(body));
   }
 

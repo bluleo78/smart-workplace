@@ -225,8 +225,8 @@ public class WorkflowRunService {
   }
 
   /**
-   * 노드 이동(설계 §7). 같은 이슈(그 이슈의 어느 실행이든)·key·요청자의 재시도는 저장한 첫 응답을 그대로, 다른 요청자의 같은 key 는 409 STALE. 성공
-   * 응답만 멱등 저장한다.
+   * 노드 이동(설계 §7). 겨눈 실행(요청의 runId, 없으면 지금 실행)·key·요청자의 재시도는 저장한 첫 응답을 그대로, 다른 요청자의 같은 key 는 409
+   * STALE. 옛 실행을 겨눈 새 key 는 받지 않는다(409 STALE). 성공 응답만 멱등 저장한다.
    */
   public IssueWorkflowView move(long issueId, MoveRequest req, long actorId) {
     // 1. 이슈 읽기(404)·쓰기(403) → 이슈 행 잠금
@@ -242,16 +242,32 @@ public class WorkflowRunService {
         currentRun(issue.id())
             .orElseThrow(() -> WorkflowException.fromViolation(MoveViolation.notActive()));
 
-    // 3. 멱등 — 판정보다 먼저(끝난 뒤의 재시도도 첫 결과를 받게). 같은 이슈의 실행들에서 찾는다 — 끝낸 실행 A 의 응답을 잃은 사이
-    // 실행 B 가 시작돼도 재시도가 B 의 새 이동이 되지 않게(리뷰 후속). 다른 요청자면 지금 실행(B) 기준의 STALE 이다.
+    // 3. 멱등 — 판정보다 먼저(끝난 뒤의 재시도도 첫 결과를 받게). 요청이 겨눈 실행 하나에서만 찾는다(리뷰 후속 R40).
+    // 왜 이슈 전체가 아니라 겨눈 실행: AI 는 key 를 결정적으로 만들어 실행 A 에서 쓴 key 를 실행 B 에서 다시 쓴다. 이슈 전체에서 찾으면 같은
+    // 요청자는 A 의 응답을 받고 B 는 움직이지 않으며, 다른 요청자는 맞는 revision 이어도 늘 STALE 이다.
+    // runId 가 없거나 지금 실행이면 지금 실행을 겨눈 것이다(하위 호환). 옛 실행을 겨누면 그 실행의 첫 응답을 돌려주는 재시도만 받는다 — A 를 끝낸
+    // 이동의 응답을 잃은 사이 B 가 시작돼도 재시도가 B 의 새 이동이 되지 않게. 다른 이슈의 runId·없는 runId 는 존재를 드러내지 않게 404 가 아니라
+    // 같은 STALE 이다(저장소가 issue_id 로 거른다).
+    boolean targetsCurrent = req.runId() == null || req.runId() == run.id();
+    long targetRunId =
+        targetsCurrent
+            ? run.id()
+            : runRepository
+                .findRunOfIssue(issue.id(), req.runId())
+                .orElseThrow(() -> staleNow(run))
+                .id();
     Optional<IdempotentRow> stored =
-        runRepository.findIdempotentInIssue(issue.id(), req.idempotencyKey());
+        runRepository.findIdempotent(targetRunId, req.idempotencyKey());
     if (stored.isPresent()) {
-      // 요청자를 모르면(탈퇴 등) 다른 요청자로 본다.
+      // 요청자를 모르면(탈퇴 등) 다른 요청자로 본다. STALE 은 지금 실행 기준의 노드·revision 을 싣는다.
       if (!Objects.equals(stored.get().actorId(), actorId)) {
         throw staleNow(run);
       }
       return objectMapper.readValue(stored.get().responseJson(), IssueWorkflowView.class);
+    }
+    if (!targetsCurrent) {
+      // 옛 실행을 겨눈 새 이동 — 요청자가 본 실행이 이미 지나갔으니 지금 실행 기준으로 다시 보게 한다.
+      throw staleNow(run);
     }
 
     // 4~8. 판정
