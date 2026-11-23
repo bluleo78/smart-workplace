@@ -1294,13 +1294,11 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     await waitFor(() => expect(screen.getByTestId('agent-runtime-start')).toBeEnabled())
   })
 
-  test('바꾸기 — 이 방식에 맞는 종류만, 줄마다 사용률·상태·다른 AI 수와 다시 시작 안내, 고르면 PUT {accountId} 후 새 계정을 보인다', async () => {
+  test('바꾸기 — 이 방식에 맞는 종류만, 줄마다 사용률·상태·다른 AI 수와 다음에 시작할 때 안내, 고르면 PUT {accountId} 후 새 계정을 보인다', async () => {
     const { user, calls } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
     await screen.findByTestId('agent-account-bound')
     const dialog = await openChooser(user)
-    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(
-      '바꾸면 이 AI 의 작업 공간이 새 계정으로 다시 시작돼요',
-    )
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(STOPPED_NOTICE)
     // Claude 구독 둘만 — ChatGPT·OpenAI 호환·Gen:iA 는 고를 수 없다
     const radios = await within(dialog).findAllByRole('radio')
     expect(radios.map((r) => r.dataset.testid)).toEqual(['agent-account-option-1', 'agent-account-option-3'])
@@ -1323,7 +1321,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     await user.click(within(dialog).getByTestId('agent-account-option-3'))
     await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
     await waitFor(() => expect(calls.binds).toEqual([{ accountId: 3 }]))
-    expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다.')).toBeInTheDocument()
+    expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다. 다음에 시작할 때 적용돼요.')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByTestId('agent-account-choose-dialog')).not.toBeInTheDocument())
     await waitFor(() => expect(screen.getByTestId('agent-account-bound-label')).toHaveTextContent('Claude 팀 B'))
   })
@@ -1488,24 +1486,47 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     expect(screen.queryByTestId('agent-runtime-check-account-error')).not.toBeInTheDocument()
   })
 
-  test('AI 계정 꼬리표 — 꺼져 있으면 「바로 반영」 (WP-1515)', async () => {
+  test('AI 계정 꼬리표 — 꺼져 있으면 고르기 창·토스트와 같은 「다음에 시작할 때」 갈래다 (WP-2020)', async () => {
     await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
     const off = await screen.findByTestId('agent-ai-account-group')
-    expect(off).toHaveTextContent('바로 반영')
+    expect(off).toHaveTextContent('다음에 시작할 때 반영')
+    expect(off).not.toHaveTextContent('바로 반영')
     expect(off).not.toHaveTextContent('쉴 때 적용')
   })
 
-  test('AI 계정 꼬리표 — 실행 중이면 작업 설정처럼 「실행 중이면 쉴 때 적용」 (WP-1515)', async () => {
-    const observed = createObserved({ agentState: 'IDLE' })
-    await renderDetail(claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+  test('AI 계정 꼬리표 — 실행 중이고 쉬는 중이 아닐 때는 작업 설정처럼 「실행 중이면 쉴 때 적용」 (WP-1515)', async () => {
+    const observed = createObserved({ agentState: 'WORKING' })
+    // 서버 RolloutPolicy 는 일하는 중에 accountChangeAppliesNow=false 를 준다 — 화면은 이 값만 읽는다(WP-2000).
+    const { user } = await renderDetail(
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', accountChangeAppliesNow: false, observed }) } }),
+    )
     const on = await screen.findByTestId('agent-ai-account-group')
     expect(on).toHaveTextContent('실행 중이면 쉴 때 적용')
     expect(on).not.toHaveTextContent('바로 반영')
+    // 꼬리표와 고르는 창이 같은 갈래인지 한 테스트에서 같이 본다(WP-2020).
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(AT_IDLE_NOTICE)
+  })
+
+  test('AI 계정 꼬리표 — 쉬는 중(IDLE)이라 바로 다시 뜨는 실행 중 AI 는 고르기 창 「다시 시작돼요」와 같은 「바로 반영」 (WP-2020)', async () => {
+    const observed = createObserved({ agentState: 'IDLE' })
+    // 서버는 쉬는 중에 accountChangeAppliesNow=true 를 준다 — 화면은 observed 가 아니라 이 값만 읽는다(WP-2000).
+    const { user } = await renderDetail(
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', accountChangeAppliesNow: true, observed }) } }),
+    )
+    const on = await screen.findByTestId('agent-ai-account-group')
+    expect(on).toHaveTextContent('바로 반영')
+    expect(on).not.toHaveTextContent('쉴 때 적용')
+    expect(on).not.toHaveTextContent('다음에 시작할 때')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(NOW_NOTICE)
   })
 
   // 쉴 때 적용 안내 — 서버 RolloutPolicy 처럼 실행 중이고 IDLE 보고가 아니면(일하는 중·차단됨·보고 전) 쉴 때 새 계정으로 바뀐다(WP-1515).
   const AT_IDLE_NOTICE = '하던 작업이 있으면 마치고 쉴 때 새 계정으로 바뀌어요. 바로 바꾸려면 바꾼 뒤 「지금 적용」을 누르세요'
   const NOW_NOTICE = '바꾸면 이 AI 의 작업 공간이 새 계정으로 다시 시작돼요'
+  // 꺼진 AI 는 작업 공간이 지금 뜨지 않는다 — 다음에 시작할 때 새 계정으로 다시 뜬다(WP-2020).
+  const STOPPED_NOTICE = '바꾸면 다음에 시작할 때 새 계정이 적용돼요'
 
   /** 실행 중인 AI 의 고르기 창에서 3번 계정으로 바꾸고, 창 안내 문구를 돌려준다. */
   async function switchWhileRunning(agentState: 'WORKING' | 'BLOCKED' | 'IDLE' | null) {
@@ -1555,15 +1576,69 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(NOW_NOTICE)
   })
 
-  test('꺼져 있으면 바로 다시 시작 안내, 토스트에 쉴 때 적용을 붙이지 않는다 (WP-1515)', async () => {
+  test('꺼진AI(종료됨)는 고르기 창이 「다음에 시작할 때」 안내를, 토스트도 같은 말을 한다 (WP-2020)', async () => {
+    // createSetting 기본이 status: 'OFF' — 작업 공간은 지금 뜨지 않고 다음에 시작할 때 새 계정으로 뜬다.
     const { user, calls } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
     await screen.findByTestId('agent-account-bound')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(STOPPED_NOTICE)
+    await user.click(await within(dialog).findByTestId('agent-account-option-3'))
+    await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
+    await waitFor(() => expect(calls.binds).toEqual([{ accountId: 3 }]))
+    expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다. 다음에 시작할 때 적용돼요.')).toBeInTheDocument()
+  })
+
+  test('꺼진 AI(OFF)에 observed 보고가 남아 있어도 고르기 창은 「다음에 시작할 때」 안내를 쓴다 (WP-2020)', async () => {
+    // 상태는 꺼짐인데 이전 실행의 observed(WORKING)가 남아 있는 경우 — 보고(observed)·상태(status)는 안 보고 desired 만 본다.
+    const { user } = await renderDetail(
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'OFF', observed: createObserved({ agentState: 'WORKING' }) }) } }),
+    )
+    await screen.findByTestId('agent-account-bound')
+    expect(await screen.findByTestId('agent-ai-account-group')).toHaveTextContent('다음에 시작할 때 반영')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(STOPPED_NOTICE)
+  })
+
+  test('오류(FAILED)이지만 다시 뜨려는 AI(desired RUN)는 고르기 창이 「다시 시작돼요」 안내 — 꺼짐 갈래로 가지 않는다 (WP-2020)', async () => {
+    // 서버 AgentAccountRuntimeNotifier 는 desired=RUN 이면 generation 을 올려 다시 띄운다 — 오류 상태라 「다음에 시작할 때」는 틀린 안내다.
+    const { user, calls } = await renderDetail(
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'RUN' }) } }),
+    )
+    await screen.findByTestId('agent-account-bound')
+    // 묶음 꼬리표도 같은 판정 조건 — 창·토스트와 어긋나지 않는다.
+    expect(await screen.findByTestId('agent-ai-account-group')).toHaveTextContent('바로 반영')
     const dialog = await openChooser(user)
     expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(NOW_NOTICE)
     await user.click(await within(dialog).findByTestId('agent-account-option-3'))
     await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
     await waitFor(() => expect(calls.binds).toEqual([{ accountId: 3 }]))
     expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다.')).toBeInTheDocument()
+  })
+
+  test('정말 꺼진 오류 AI(FAILED + desired STOP)는 고르기 창·토스트·꼬리표가 모두 「다음에 시작할 때」 (WP-2020)', async () => {
+    // desired 가 RUN 이 아니면 서버가 generation 을 올리지 않는다 — 오류로 멈춘 채 다음 시작에 새 계정으로 뜬다.
+    const { user, calls } = await renderDetail(
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'STOP' }) } }),
+    )
+    await screen.findByTestId('agent-account-bound')
+    expect(await screen.findByTestId('agent-ai-account-group')).toHaveTextContent('다음에 시작할 때 반영')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(STOPPED_NOTICE)
+    await user.click(await within(dialog).findByTestId('agent-account-option-3'))
+    await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
+    await waitFor(() => expect(calls.binds).toEqual([{ accountId: 3 }]))
+    expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다. 다음에 시작할 때 적용돼요.')).toBeInTheDocument()
+  })
+
+  test('꺼지는 중(STOPPING)인 AI도 고르기 창 안내는 「다음에 시작할 때」 — 실행 중 갈래로 새지 않는다 (WP-2020)', async () => {
+    // STOPPING 은 종료 진행 상태(desired 도 STOP) — 작업 공간은 지금 뜨지 않는다.
+    const { user } = await renderDetail(
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'STOPPING' }) } }),
+    )
+    await screen.findByTestId('agent-account-bound')
+    expect(await screen.findByTestId('agent-ai-account-group')).toHaveTextContent('다음에 시작할 때 반영')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(STOPPED_NOTICE)
   })
 
   test('계정을 바꾸면 다시 시작되거나 쉴 때 적용 대기가 되니 이 AI 의 실행 상태도 다시 받게 한다', async () => {

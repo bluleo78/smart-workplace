@@ -43,3 +43,46 @@ export function accountFits(
   const account = card.mode === 'WORKSPACE' ? card.template?.account : null;
   return account ? account === provider : SERVER_ACCOUNTS.includes(provider);
 }
+
+/** 새 계정이 반영되는 갈래 — 아래 문구 표가 이 값을 키로 쓴다(WP-1515·WP-2020). */
+export type AccountChangeWhen = 'atIdle' | 'stopped' | 'now';
+
+/**
+ * 새 계정이 반영되는 갈래를 한 곳에서만 정한다(WP-1515·WP-2020) — 표면마다 따로 계산하면 어긋나는 이슈가 다시 생긴다.
+ * 순서는 서버 계약에서 나온다: 쉴 때 적용(`accountChangeAppliesNow=false`)은 서버 RolloutPolicy 가 `desired != RUN` 일 때만
+ * false 를 주므로 꺼짐(stopped)과 겹치지 않아 앞에 둔다.
+ */
+export function accountChangeWhen(appliesAtIdle: boolean, stopped: boolean): AccountChangeWhen {
+  if (appliesAtIdle) return 'atIdle';
+  if (stopped) return 'stopped';
+  return 'now';
+}
+
+/**
+ * 계정을 바꾸면 언제 새 계정으로 바뀌는지 고르기 창 안내(WP-1515·WP-2020).
+ * 쉴 때 적용(서버 accountChangeAppliesNow=false)이면 서버가 generation 만 올려 두고 쉴 때 다시 띄운다 — 바로 바꾸려면 상태의 「지금 적용」.
+ * 상태가 차단됨이거나 아직 보고 전일 수도 있어 「일하는 중」이라 단정하지 않고 「하던 작업이 있으면」으로 쓴다.
+ * 쉬는 중이거나, 시작에 실패했는데 하던 일이 없으면 바로 다시 시작한다(WP-2000). 꺼져 있으면 다음에 시작할 때 적용된다(WP-2020).
+ */
+export const ACCOUNT_SWITCH_NOTICE: Record<AccountChangeWhen, string> = {
+  atIdle: '하던 작업이 있으면 마치고 쉴 때 새 계정으로 바뀌어요. 바로 바꾸려면 바꾼 뒤 「지금 적용」을 누르세요',
+  now: '바꾸면 이 AI 의 작업 공간이 새 계정으로 다시 시작돼요',
+  stopped: '바꾸면 다음에 시작할 때 새 계정이 적용돼요',
+};
+
+/**
+ * 계정을 바꾼 뒤 토스트의 덧말 — 안내(ACCOUNT_SWITCH_NOTICE)와 같은 갈래를 쓴다(WP-1515·WP-2020).
+ * 쉴 때 적용이면 아직 옛 계정으로 일하니 바뀐 시점을 오해하지 않게, 꺼진 AI 는 지금 작업 공간이 뜨지 않는다는 점을 덧말이 암시한다.
+ */
+export const ACCOUNT_SWITCHED_TOAST_SUFFIX: Record<AccountChangeWhen, string> = {
+  atIdle: ' 쉴 때 적용돼요.',
+  now: '',
+  stopped: ' 다음에 시작할 때 적용돼요.',
+};
+
+/** 「AI 계정」 묶음 옆 꼬리표 — 고르기 창·토스트와 같은 갈래의 말(WP-1515·WP-2020). */
+export const ACCOUNT_HOW: Record<AccountChangeWhen, string> = {
+  atIdle: '실행 중이면 쉴 때 적용',
+  stopped: '다음에 시작할 때 반영',
+  now: '바로 반영',
+};
