@@ -6,11 +6,10 @@ import { afterEach, beforeEach, vi } from 'vitest'
 
 import { AIAssistantProvider, useAssistant } from '@/components/ai/AIAssistantContext'
 import { workflowKeys } from '@/lib/workflows'
+import { ProjectTabsLayout } from '@/pages/projects/tabs/ProjectTabsLayout'
+import WorkflowTab from '@/pages/projects/workflow/WorkflowTab'
 import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
-
-import { ProjectTabsLayout } from '../tabs/ProjectTabsLayout'
-import WorkflowTab from './WorkflowTab'
 
 const base = '/api/v1'
 export const draftTime = '2026-11-22T10:00:00Z'

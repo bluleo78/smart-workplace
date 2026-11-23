@@ -3,9 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { expect, it, vi } from 'vitest'
 
+import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProblem } from '@/test/kits/projects/workflowTestSupport'
 import { server } from '@/test/msw/server'
-
-import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProblem } from './workflowTestSupport'
 
 // 프로젝트 탭과 본문의 권한이 같아야 직접 주소로 들어와도 쓰기 단추가 생기지 않는다.
 vi.mock('../components/IssueCreateDialog', () => ({ IssueCreateDialog: () => null }))

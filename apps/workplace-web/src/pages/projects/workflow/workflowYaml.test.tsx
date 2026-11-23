@@ -4,9 +4,8 @@ import { http, HttpResponse } from 'msw'
 import { expect, it, vi } from 'vitest'
 
 import { hasUnsavedInput } from '@/lib/unsavedInput'
+import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProblem } from '@/test/kits/projects/workflowTestSupport'
 import { server } from '@/test/msw/server'
-
-import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProblem } from './workflowTestSupport'
 
 vi.mock('../components/IssueCreateDialog', () => ({ IssueCreateDialog: () => null }))
 

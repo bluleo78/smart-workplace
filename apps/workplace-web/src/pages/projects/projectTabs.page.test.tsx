@@ -12,6 +12,7 @@ import { ProjectTabsLayout } from '@/pages/projects/tabs/ProjectTabsLayout'
 import { issueDetailSubHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { projectScreen } from '@/test/kits/projects/projectScreens'
 import { renderRoutesScreen, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
+import { draftTime, workflowDetail } from '@/test/kits/projects/workflowTestSupport'
 import { gate } from '@/test/loadErrorRetry'
 import { rememberProjectTab } from '@/test/projectTabMemory'
 import { PAGE_LOAD_TIMEOUT, renderPage, settleHistory } from '@/test/renderPage'
@@ -20,7 +21,6 @@ import type { ProjectResponse } from '@/types/project'
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { createProjectOverview } from '../../../e2e/factories/projectOverview.factory'
-import { draftTime, workflowDetail } from './workflow/workflowTestSupport'
 
 // 개인 프로젝트의 이슈 길은 레이아웃이 개인 전용 화면을 바로 그린다 — 여기선 레이아웃의 분기만 보므로 그 화면을 자리 표시로 바꾼다
 // (개인 화면 자체는 personalProjectDetail.test.tsx·mobile/personalProject.test.tsx 가 본다).

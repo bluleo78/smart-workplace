@@ -3,9 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { expect, it, vi } from 'vitest'
 
+import { draftTime, nextDraftTime, olderYaml, renderWorkflow, workflowDetail } from '@/test/kits/projects/workflowTestSupport'
 import { server } from '@/test/msw/server'
-
-import { draftTime, nextDraftTime, olderYaml, renderWorkflow, workflowDetail } from './workflowTestSupport'
 
 vi.mock('../components/IssueCreateDialog', () => ({ IssueCreateDialog: () => null }))
 
