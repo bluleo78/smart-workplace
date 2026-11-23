@@ -7,6 +7,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.ServerAgentRunReport;
 import com.workplace.issue.repository.IssueRecurrenceRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.workflow.service.WorkflowAgentWorkBridge;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import java.util.Objects;
@@ -24,6 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>기록을 바꾸지 않는 경우: 이슈가 끝났거나(완료·취소 — 완료 처리가 이미 기록을 닫았다) AI 가 담당에서 빠졌으면(스스로 빠짐 포함) 되살리지 않는다. 그 AI 가
  * 이 이슈의 반복을 돌리면 반복이 기록(다음 회차 대기 등)을 맡으므로 건드리지 않는다.
+ *
+ * <p>워크플로우 이슈(WP-1986): 지금 노드 담당 AI 의 실패 끝은 노드를 멈추고(조치로 잇는다), 정상 끝은 검토 대기를 쓰지 않는다 — {@link
+ * WorkflowAgentWorkBridge} 가 판정한다.
  */
 @Service
 @Transactional
@@ -44,6 +48,7 @@ public class ServerAgentRunService {
   private final IssueRepository issueRepository;
   private final IssueRecurrenceRepository recurrenceRepository;
   private final UserRepository userRepository;
+  private final WorkflowAgentWorkBridge workflowBridge;
 
   /**
    * 실행 보고를 반영한다. 반영하지 않는 경우(이슈 없음·끝남·담당 아님·반복이 맡음·동시 종료)는 조용히 넘긴다 — ai-agent 는 결과와 상관없이 다음 일로 간다.
@@ -65,6 +70,17 @@ public class ServerAgentRunService {
         .filter(r -> !r.deleted() && r.agentUserId() == agentId)
         .isPresent()) {
       return;
+    }
+    // 워크플로우 맞물림(코드 리뷰 I2) — 끝 보고는 명시 보고와 같은 실행 규칙을 따른다. 실패는 차단(BLOCKED) 보고와 같은 경로로 지금 노드 담당이면
+    // node_run BLOCKED·실행 SUSPENDED·NODE_BLOCKED 를 남겨 조치(/recover)로 잇는다(작업 기록은 아래에서 지금처럼 차단됨).
+    // 정상 끝은 노드 담당이거나 이미 노드를 떠났으면(떠날 때 COMPLETED 로 닫혔다) 검토 대기를 쓰지 않는다 — 워크플로우에서 노드는
+    // 이동으로만 끝난다. 그 밖은 지금 그대로.
+    if (ServerAgentRunReport.FINISHED.equals(report.phase())) {
+      if (report.ok()) {
+        if (workflowBridge.ownsServerRunSuccess(issueId, agentId)) return;
+      } else {
+        workflowBridge.onAgentReport(issueId, agentId, AgentWorkState.BLOCKED, patch.note());
+      }
     }
     // 읽은 뒤 다른 트랜잭션이 이슈를 닫았으면 AgentWorkIssueClosedException(409) 이 그대로 나간다 — 같은 트랜잭션이 이미 롤백 전용이라
     // 여기서 삼켜도 커밋이 실패한다. ai-agent 는 보고 실패를 로그로만 남기고 넘어간다.

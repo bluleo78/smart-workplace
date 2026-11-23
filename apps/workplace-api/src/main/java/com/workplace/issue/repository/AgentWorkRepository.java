@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -580,21 +581,49 @@ public class AgentWorkRepository {
    * 건드리지 않는다. 되돌린 행의 작업자 id 를 돌려준다(WP-1067 — 그 AI 들에게 알림을 보내 깨운다).
    */
   public List<Long> resumeInputRequiredAgents(long issueId) {
+    return resumeInputRequiredAgents(issueId, Set.of());
+  }
+
+  /**
+   * {@link #resumeInputRequiredAgents(long)} 와 같되 {@code excludedWorkerIds} 의 작업은 그대로 둔다 — 워크플로우가
+   * 질문 이동으로 물은 AI 는 답변 노드의 이동이 되살리므로 챗 답이 건드리지 않게 뺀다(WP-1986). 비어 있으면 조건을 더하지 않는다.
+   */
+  public List<Long> resumeInputRequiredAgents(long issueId, Collection<Long> excludedWorkerIds) {
+    Condition notExcluded =
+        excludedWorkerIds == null || excludedWorkerIds.isEmpty()
+            ? DSL.noCondition()
+            : AGENT_WORK.WORKER_ID.notIn(excludedWorkerIds);
     return recordEvents(
         dsl.update(AGENT_WORK)
             .set(AGENT_WORK.STATE, AgentWorkState.WORKING)
             // 응답으로 질문이 해소됐으니 질문 note 를 지운다(남으면 "작업 중 · 질문" 으로 보인다).
             .setNull(AGENT_WORK.NOTE)
             .set(AGENT_WORK.UPDATED_AT, DSL.currentOffsetDateTime())
-            .where(AGENT_WORK.ISSUE_ID.eq(issueId))
-            .and(AGENT_WORK.ENDED_AT.isNull())
-            .and(AGENT_WORK.STATE.eq(AgentWorkState.INPUT_REQUIRED))
-            .and(
-                AGENT_WORK.WORKER_ID.in(
-                    dsl.select(USER.ID).from(USER).where(USER.KIND.eq(UserKind.AGENT))))
+            .where(inputRequiredAgents(issueId))
+            .and(notExcluded)
             .returning(eventFieldsWith(AGENT_WORK.WORKER_ID)),
         false,
         AGENT_WORK.WORKER_ID);
+  }
+
+  /**
+   * {@link #resumeInputRequiredAgents} 가 되살릴 행(답변 필요로 멈춘 AI 구성원의 진행 중 작업)이 하나라도 있는지(WP-1986). 챗 답마다
+   * 워크플로우 판정을 하지 않게 되살리기 앞에서 싸게 거른다.
+   */
+  public boolean hasInputRequiredAgents(long issueId) {
+    return dsl.fetchExists(dsl.selectOne().from(AGENT_WORK).where(inputRequiredAgents(issueId)));
+  }
+
+  /** 이슈의 답변 필요(INPUT_REQUIRED)로 멈춘 AI 구성원 진행 중 작업 — 되살리기와 그 앞 확인이 같은 조건을 쓰게 한곳에 둔다. */
+  private Condition inputRequiredAgents(long issueId) {
+    return AGENT_WORK
+        .ISSUE_ID
+        .eq(issueId)
+        .and(AGENT_WORK.ENDED_AT.isNull())
+        .and(AGENT_WORK.STATE.eq(AgentWorkState.INPUT_REQUIRED))
+        .and(
+            AGENT_WORK.WORKER_ID.in(
+                dsl.select(USER.ID).from(USER).where(USER.KIND.eq(UserKind.AGENT))));
   }
 
   /** AGENT_WORK 컬럼을 가진 Record → AgentWorkRow (OffsetDateTime → Instant). */

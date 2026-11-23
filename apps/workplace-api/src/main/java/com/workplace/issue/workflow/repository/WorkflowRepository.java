@@ -231,6 +231,20 @@ public class WorkflowRepository {
             .and(WORKFLOW.ACTIVE_VERSION_ID.isNotNull()));
   }
 
+  /**
+   * 프로젝트의 켜져 있고 게시된 정의들의 활성 버전 id(WP-1986 코드 리뷰 I4) — 담당 지정의 깨우기 억제가 「이 이슈에 시작될 수 있는 정의가 있는가」를 시작
+   * 조건으로 판정하는 데 쓴다. 정의 id 순. 다른 테넌트의 것은 RLS 로 보이지 않는다.
+   */
+  public List<Long> findEnabledPublishedVersionIds(long projectId) {
+    return dsl.select(WORKFLOW.ACTIVE_VERSION_ID)
+        .from(WORKFLOW)
+        .where(WORKFLOW.PROJECT_ID.eq(projectId))
+        .and(WORKFLOW.ENABLED.isTrue())
+        .and(WORKFLOW.ACTIVE_VERSION_ID.isNotNull())
+        .orderBy(WORKFLOW.ID)
+        .fetch(WORKFLOW.ACTIVE_VERSION_ID);
+  }
+
   /** 요약에 쓰는 칸만 고른다(원문·모델 없이). */
   private SelectJoinStep<Record4<Long, Integer, OffsetDateTime, Long>> selectVersionSummary() {
     return dsl.select(

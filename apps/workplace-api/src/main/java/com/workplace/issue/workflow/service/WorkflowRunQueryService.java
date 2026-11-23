@@ -57,7 +57,7 @@ public class WorkflowRunQueryService {
   private final IssueRepository issueRepository;
   private final ProjectRepository projectRepository;
   private final ProjectAccessGuard accessGuard;
-  private final WorkflowModelCache modelCache;
+  private final WorkflowModelLoader modelLoader;
   private final WorkflowRunViews views;
 
   /**
@@ -230,13 +230,7 @@ public class WorkflowRunQueryService {
 
   /** 버전 모델 사본(캐시). 부르는 쪽이 RLS 로 그 실행이 보인 것을 확인한 뒤에만 부른다. */
   private WorkflowModel model(long versionId) {
-    return modelCache.get(
-        versionId,
-        () ->
-            workflowRepository
-                .findVersionById(versionId)
-                .orElseThrow(WorkflowException::notFound)
-                .modelJson());
+    return modelLoader.get(versionId);
   }
 
   /** 모델의 노드 이름(노드가 없거나 키가 null 이면 null). */

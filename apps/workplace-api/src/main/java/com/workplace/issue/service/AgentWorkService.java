@@ -17,6 +17,12 @@ import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRecurrenceRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.workflow.domain.NodeTypes;
+import com.workplace.issue.workflow.domain.WorkflowModel;
+import com.workplace.issue.workflow.repository.NodeRunRow;
+import com.workplace.issue.workflow.repository.RunRow;
+import com.workplace.issue.workflow.repository.WorkflowRunRepository;
+import com.workplace.issue.workflow.service.WorkflowModelLoader;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.user.dto.AgentRuntime;
@@ -29,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -61,6 +68,10 @@ public class AgentWorkService {
   private final IssueChangeNotifier notifier;
   // 진행 상태 알림(AgentWorkNoticeEvent)·챗 답 재개 깨우기(AgentsResumedByChatReply)를 낸다.
   private final ApplicationEventPublisher publisher;
+  // 워크플로우 이슈의 챗 답에서 질문 이동으로 물은 AI 를 가린다(WP-1986 — 그 AI 만 재개 생략). 다리 서비스(WorkflowAgentWorkBridge)가 이
+  // 서비스를 쓰므로 다리·실행 서비스를 주입하면 생성자 순환이 생긴다 — 같은 판정을 저장소·모델 로더(의존 없는 부품)로 직접 한다.
+  private final WorkflowRunRepository workflowRunRepository;
+  private final WorkflowModelLoader workflowModelLoader;
 
   /** 이슈들의 진행 중 작업을 급한 순으로 정렬해 이슈별로 돌려준다. 작업 없는 이슈는 키가 없다. */
   @Transactional(readOnly = true)
@@ -222,6 +233,48 @@ public class AgentWorkService {
     repository.endActive(issueIds, AgentWorkState.CANCELED);
   }
 
+  /**
+   * 서버가 쓰는 상태 전환(WP-1986 — 워크플로우 노드 진입·떠남). 진행 중 행을 지정 상태로 바꾸고 화면 갱신 알림만 낸다 — 보고 경로가 아니라 진행 상태
+   * 알림(AgentWorkNoticeEvent)·챗 글은 내지 않는다(질문은 이동 의견 댓글과 답변 노드 진입이 알린다). 끝 상태면 {@link #end} 로 닫는다. 답변
+   * 필요·인증 필요에서 다른 상태로 바뀌면 질문 note 를 지운다(보고 경로와 같은 규칙).
+   *
+   * @return 바꿨으면 true. 진행 중 행이 없거나 이미 그 상태면 false
+   */
+  public boolean markState(long issueId, long workerId, String state) {
+    if (AgentWorkState.isTerminal(state)) {
+      return end(issueId, workerId, state, AgentWorkPatch.empty());
+    }
+    return markState(issueId, repository.findActive(issueId, workerId).orElse(null), state);
+  }
+
+  /**
+   * {@link #markState(long, long, String)} 와 같되 이미 읽은 진행 중 행을 받는다 — 부르는 쪽(워크플로우 노드 진입)이 방금 읽은 행을 다시
+   * 읽지 않게 한다. 끝 상태면 행의 작업자로 {@link #end} 에 넘긴다.
+   *
+   * @param row 그 이슈의 진행 중 행(없으면 null — 아무것도 하지 않는다)
+   */
+  public boolean markState(long issueId, AgentWorkRepository.AgentWorkRow row, String state) {
+    if (row != null && AgentWorkState.isTerminal(state)) {
+      return end(issueId, row.workerId(), state, AgentWorkPatch.empty());
+    }
+    if (row == null || state.equals(row.state())) return false;
+    var patch =
+        new AgentWorkPatch(
+            null, state, null, AgentWorkState.isInterrupt(row.state()), null, null, null);
+    if (repository.update(row.id(), patch) == 0) return false;
+    notifyChanged(issueId, null);
+    return true;
+  }
+
+  /**
+   * 이슈에서 지정한 AI 들의 반복만 거둔다 — agent_work 는 건드리지 않는다(WP-1986). 워크플로우 이동이 담당에서 뺀 AI 의 작업은 노드 떠남이
+   * COMPLETED 로 닫으므로(취소가 아니다) {@link #cancelForWorkers} 를 쓰지 않는다.
+   */
+  public void retireRecurrence(long issueId, Collection<Long> workerIds) {
+    if (workerIds == null || workerIds.isEmpty()) return;
+    recurrenceRepository.retire(List.of(issueId), workerIds);
+  }
+
   /** 이슈에서 지정한 작업자들의 진행 중 작업만 취소하고, 그 AI 들이 돌리던 반복도 거둔다(담당 해제, WP-1114). 알림은 호출자가 이미 낸다. */
   public void cancelForWorkers(long issueId, Collection<Long> workerIds) {
     recurrenceRepository.retire(List.of(issueId), workerIds);
@@ -278,7 +331,13 @@ public class AgentWorkService {
    */
   @EventListener
   public void onHumanReply(IssueHumanReplyPosted e) {
-    List<Long> resumed = repository.resumeInputRequiredAgents(e.issueId());
+    // 워크플로우가 질문 이동으로 물은 AI 는 빼고 되살린다(WP-1986 설계 §9-1) — 그 답은 답변 노드의 answered 이동이고, 그 이동이 원래 노드로
+    // 다시 들어가 SUBMITTED + 깨우기를 한다. 챗 답으로도 되살리면 같은 AI 를 두 번 깨운다. 그 밖의 AI(손으로 넣은 담당, decision·질문 아닌
+    // 노드에 있을 때 보고로 물은 AI)는 지금처럼 되살린다 — 워크플로우가 그 질문을 맡지 않으므로 빼면 답할 길 없이 「답변 필요」에 갇힌다(최종 리뷰 I1).
+    // 되살릴 답변 필요 행이 없으면(챗 답 대부분) 워크플로우 판정(질의 2~3번)을 하지 않는다 — 결과는 어차피 빈 목록이다.
+    if (!repository.hasInputRequiredAgents(e.issueId())) return;
+    List<Long> resumed =
+        repository.resumeInputRequiredAgents(e.issueId(), workflowAskers(e.issueId()));
     if (resumed.isEmpty()) return;
     notifyChanged(e.issueId(), null);
     if (e.chatActorId() == null) return;
@@ -287,6 +346,29 @@ public class AgentWorkService {
     if (!toWake.isEmpty()) {
       publisher.publishEvent(new AgentsResumedByChatReply(e.issueId(), e.chatActorId(), toWake));
     }
+  }
+
+  /**
+   * 워크플로우가 질문 이동으로 물어 답을 기다리는 AI — 활성 실행의 지금 노드가 returnTo 가 있는 human_task(답변 노드)일 때만, returnTo 노드의
+   * 가장 최근 방문 담당이다(질문으로 떠날 때 그 담당의 작업이 INPUT_REQUIRED 로 남았다). 실행이 답변 노드를 다른 결과로 떠나면 더는 비우지 않는다 — 남은
+   * 답변 필요는 챗 답이 되살린다. 실행이 없거나 다른 노드면 빈 집합.
+   *
+   * <p>사람도 섞여 있을 수 있지만 되살리기는 AI 행만 보므로 걸러 두지 않는다. 모델은 RLS 로 보인 실행 행의 버전 id 로만 캐시에서 꺼낸다(캐시 규칙).
+   */
+  private Set<Long> workflowAskers(long issueId) {
+    RunRow run = workflowRunRepository.findActiveByIssue(issueId).orElse(null);
+    if (run == null || run.currentNode() == null) return Set.of();
+    // 버전 행이 없으면(깨진 저장 상태) 묻는 AI 를 모르는 것으로 보고 빈 집합 — 여기서 던지면 사람의 챗 글까지 함께 되돌려진다(코드 리뷰 nit).
+    // 로더는 트랜잭션 프록시가 없는 부품이라 그 안에서 삼킨 예외가 트랜잭션을 롤백 전용으로 만들지 않는다.
+    WorkflowModel model = workflowModelLoader.find(run.versionId()).orElse(null);
+    if (model == null) return Set.of();
+    WorkflowModel.Node node = model.nodes().get(run.currentNode());
+    if (node == null || !NodeTypes.HUMAN_TASK.equals(node.type()) || node.returnTo() == null) {
+      return Set.of();
+    }
+    NodeRunRow asked =
+        NodeRunRow.latestVisit(workflowRunRepository.findNodeRuns(run.id()), node.returnTo());
+    return asked == null ? Set.of() : Set.copyOf(asked.assigneeIds());
   }
 
   /**

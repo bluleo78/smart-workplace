@@ -2,6 +2,7 @@ package com.workplace.notify.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -17,6 +18,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeWakeEvent;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowVisitLimitReached;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
@@ -25,6 +27,7 @@ import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessRequeste
 import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiSharedWithPeopleEvent;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -368,5 +371,28 @@ class NotificationDispatcherTest {
     verify(service).createWorkflowVisitLimitAndFanOut(40L, 5L);
     assertThat(seen).containsExactly(7L);
     assertThat(TenantContext.get()).isNull();
+  }
+
+  /** WP-1986: 워크플로우 깨우기 알림은 이번 담당 변경으로 이미 ASSIGNED 를 받은 사람을 빼고 노드 AI 에게만 간다. */
+  @Test
+  @SuppressWarnings("unchecked")
+  void onWorkflowNodeWake_excludesAlreadyNotified() {
+    dispatcher.onWorkflowNodeWake(
+        new WorkflowNodeWakeEvent(1L, 10L, 5L, "dev", List.of(21L, 22L), Set.of(21L), 1L));
+
+    ArgumentCaptor<List<Long>> recipients = ArgumentCaptor.forClass(List.class);
+    verify(service)
+        .createAndFanOut(
+            eq(NotificationType.ASSIGNED), recipients.capture(), eq(1L), eq(10L), eq(null));
+    assertThat(recipients.getValue()).containsExactly(22L);
+  }
+
+  /** WP-1986: 노드 AI 모두가 이미 알림을 받았으면 깨우기 알림은 보내지 않는다. */
+  @Test
+  void onWorkflowNodeWake_allAlreadyNotified_sendsNothing() {
+    dispatcher.onWorkflowNodeWake(
+        new WorkflowNodeWakeEvent(1L, 10L, 5L, "dev", List.of(21L), Set.of(21L), 1L));
+
+    verify(service, never()).createAndFanOut(any(), any(), any(), anyLong(), any());
   }
 }

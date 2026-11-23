@@ -4,6 +4,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.workflow.domain.AssigneeResolution;
 import com.workplace.issue.workflow.domain.AssigneeResolution.Options;
+import com.workplace.issue.workflow.domain.NodeTypes;
 import com.workplace.issue.workflow.domain.OutputRules;
 import com.workplace.issue.workflow.domain.RunRoleMembers;
 import com.workplace.issue.workflow.domain.RunState;
@@ -94,13 +95,7 @@ class WorkflowRunViews {
 
   /** 지금 노드의 방문 — 그 노드 키를 가진 가장 최근 방문(없으면 null). */
   static NodeRunRow currentVisit(Snapshot s) {
-    List<NodeRunRow> runs = s.nodeRuns();
-    for (int i = runs.size() - 1; i >= 0; i--) {
-      if (runs.get(i).nodeKey().equals(s.currentNode())) {
-        return runs.get(i);
-      }
-    }
-    return null;
+    return NodeRunRow.latestVisit(s.nodeRuns(), s.currentNode());
   }
 
   /** 지금 노드의 결과 하나와 그 결과의 담당 후보 — 결과 순서대로 한 목록에 둔다. */
@@ -115,7 +110,7 @@ class WorkflowRunViews {
 
     // 결과별 후보를 먼저 계산해 사람 id 를 모은 뒤 한 번에 요약한다.
     List<OutcomeOptions> choices = new ArrayList<>();
-    if (node != null && state.isActive() && isTask(node)) {
+    if (node != null && state.isActive() && NodeTypes.isTask(node)) {
       for (Outcome o : node.outcomes().values()) {
         choices.add(new OutcomeOptions(o, AssigneeResolution.options(node, o, state, s.members())));
       }
@@ -256,7 +251,7 @@ class WorkflowRunViews {
     if (n == null) {
       return out;
     }
-    if ("start".equals(n.type())) {
+    if (NodeTypes.START.equals(n.type())) {
       for (Condition c : model.start()) {
         out.add(c.to());
       }
@@ -275,11 +270,6 @@ class WorkflowRunViews {
       out.add(n.defaultTo());
     }
     return out;
-  }
-
-  /** 사람이 맡는 노드인지. */
-  private static boolean isTask(Node n) {
-    return "agent_task".equals(n.type()) || "human_task".equals(n.type());
   }
 
   /** id → 사람 요약(한 번의 조회). 사용자 행이 없으면 빠진다. */

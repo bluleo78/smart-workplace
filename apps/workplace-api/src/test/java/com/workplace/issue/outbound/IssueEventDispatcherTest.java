@@ -20,11 +20,14 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueRecurringRunEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeWakeEvent;
+import com.workplace.issue.outbound.WorkflowWakeContextReader.WakeContext;
 import com.workplace.issue.service.IssueRecurrenceService;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -46,6 +49,7 @@ class IssueEventDispatcherTest {
   private AiAgentEventClient client;
   private ServerAgentResolver resolver;
   private SharedAiMemoryReader sharedReader;
+  private WorkflowWakeContextReader wakeReader;
   private IssueEventDispatcher dispatcher;
 
   @BeforeEach
@@ -53,6 +57,7 @@ class IssueEventDispatcherTest {
     client = Mockito.mock(AiAgentEventClient.class);
     resolver = Mockito.mock(ServerAgentResolver.class);
     sharedReader = Mockito.mock(SharedAiMemoryReader.class);
+    wakeReader = Mockito.mock(WorkflowWakeContextReader.class);
     // 기본: 모든 AGENT 담당자를 내부(INTERNAL) 실행으로 취급 — 외부 케이스는 internalAgents(...) 로 따로 지정.
     internalAgents(AGENT_ASSIGNEE.id());
   }
@@ -81,7 +86,14 @@ class IssueEventDispatcherTest {
     @SuppressWarnings("unchecked")
     ObjectProvider<IssueRecurrenceService> recurrence = Mockito.mock(ObjectProvider.class);
     return new IssueEventDispatcher(
-        client, props, resolver, sharedReader, Runnable::run, recurrence, Runnable::run);
+        client,
+        props,
+        resolver,
+        sharedReader,
+        Runnable::run,
+        recurrence,
+        Runnable::run,
+        wakeReader);
   }
 
   /** WP-386: 이슈 이벤트에 조직 + 그 프로젝트 공용 메모리를 싣는다(대행 에이전트 권한으로 리더가 고른다). */
@@ -106,6 +118,49 @@ class IssueEventDispatcherTest {
     verify(client).publish(captor.capture());
     assertThat(captor.getValue().payload()).containsEntry("sharedMemories", shared.items());
     assertThat(captor.getValue().payload()).containsEntry("sharedMemoryMoreCount", 1);
+  }
+
+  /**
+   * WP-1986: 워크플로우 노드 깨우기는 행위자가 AI 여도(AI → AI 넘김) 노드의 내부 AI 마다 그 AI 를 실행 주체로 고정해 issue.assigned 를
+   * 보낸다 — 이슈 담당 중 첫 내부 AI(다른 AI)가 아니다. 외부 AI 는 알림으로 깨어나므로 보내지 않는다.
+   */
+  @Test
+  void 워크플로우_깨우기는_AI_행위자여도_노드의_내부_AI_로_발사한다() {
+    dispatcher = build(true);
+    var nodeAgent = new UserSummary(301L, "node-bot", "Node Bot", "AGENT");
+    var externalAgent = new UserSummary(302L, "ext-bot", "Ext Bot", "AGENT");
+    var event =
+        new WorkflowNodeWakeEvent(
+            1L, 42L, 7L, "dev", List.of(301L, 302L), Set.of(), AGENT_ACTOR.id());
+    when(wakeReader.read(event))
+        .thenReturn(
+            Optional.of(
+                new WakeContext(
+                    "WP",
+                    "WP-42",
+                    "분석",
+                    AGENT_ACTOR,
+                    // 이슈 담당의 첫 내부 AI 는 AGENT_ASSIGNEE(201) 지만 노드 AI(301)가 실행 주체여야 한다.
+                    List.of(AGENT_ASSIGNEE, nodeAgent, externalAgent),
+                    List.of(nodeAgent, externalAgent),
+                    List.of(301L))));
+
+    dispatcher.onWorkflowNodeWake(event);
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(1)).publish(captor.capture());
+    assertThat(captor.getValue().type()).isEqualTo("issue.assigned");
+    assertThat(captor.getValue().payload()).containsEntry("actingAgentId", 301L);
+    assertThat(captor.getValue().payload()).containsEntry("issueKey", "WP-42");
+  }
+
+  /** WP-1986: AI 연동이 꺼져 있으면 워크플로우 깨우기도 읽지도 보내지도 않는다. */
+  @Test
+  void 워크플로우_깨우기는_꺼져_있으면_발사하지_않는다() {
+    dispatcher = build(false);
+    dispatcher.onWorkflowNodeWake(
+        new WorkflowNodeWakeEvent(1L, 42L, 7L, "dev", List.of(301L), Set.of(), 1L));
+    verifyNoInteractions(client, wakeReader);
   }
 
   /** WP-989: 깨우지 않는 담당 변경(반복 저장이 비서를 담당에 넣음)은 issue.assigned 를 보내지 않는다. */
@@ -445,7 +500,8 @@ class IssueEventDispatcherTest {
         sharedReader,
         eventExecutor,
         provider,
-        failExecutor);
+        failExecutor,
+        wakeReader);
   }
 
   /**

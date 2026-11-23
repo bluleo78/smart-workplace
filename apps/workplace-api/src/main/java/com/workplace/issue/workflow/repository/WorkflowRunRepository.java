@@ -10,10 +10,12 @@ import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.max;
 import static org.jooq.impl.DSL.select;
 
+import com.workplace.issue.workflow.domain.RunState;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -201,6 +203,77 @@ public class WorkflowRunRepository {
         .execute();
   }
 
+  /**
+   * 열린 노드 방문을 막힘·실패 상태로 바꾼다(WP-1986 — AI 의 차단·실패 보고). 나온 시각(left_at)은 채우지 않는다 — 막힌 방문이 지금 방문으로 남아야
+   * 조치(다시 시도 등)가 그 방문을 닫고 이어 간다.
+   *
+   * @param status BLOCKED 또는 FAILED
+   * @param waitingReason 막힌 사유(보고 상태 — BLOCKED·AUTH_REQUIRED). 실패면 null
+   * @param error 보고의 note(없으면 null)
+   */
+  public void blockNodeRun(long nodeRunId, String status, String waitingReason, String error) {
+    dsl.update(NODE_RUN)
+        .set(NODE_RUN.STATUS, status)
+        .set(NODE_RUN.WAITING_REASON, waitingReason)
+        .set(NODE_RUN.ERROR, error)
+        .where(NODE_RUN.ID.eq(nodeRunId))
+        .execute();
+  }
+
+  /**
+   * 이슈들의 활성 실행을 한 문장으로 CANCELED 로 끝낸다(WP-1986 — 이슈 닫기·삭제). 활성인 것만 바꾸므로 활성 실행이 없는 이슈는 아무 일도 없다.
+   * revision 을 1 올린다 — 옛 revision 을 든 이동·조치가 409 STALE 로 걸러지게.
+   *
+   * <p>잠금: 부르는 쪽(닫힘 경로)이 이미 이슈 행을 갱신한 트랜잭션 안이라 상태 조건부 UPDATE 하나로 충분하다(설계 §9-6).
+   *
+   * @return 이번에 끝낸 실행(끝난 뒤 모습) — 열린 방문 닫기·이벤트·RunEnded 발행에 쓴다
+   */
+  public List<RunRow> cancelActiveRunsOfIssues(Collection<Long> issueIds, Instant endedAt) {
+    if (issueIds == null || issueIds.isEmpty()) {
+      return List.of();
+    }
+    return dsl.update(WORKFLOW_RUN)
+        .set(WORKFLOW_RUN.STATUS, RunState.CANCELED)
+        .set(WORKFLOW_RUN.ENDED_AT, utc(endedAt))
+        .set(WORKFLOW_RUN.REVISION, WORKFLOW_RUN.REVISION.plus(1))
+        .where(WORKFLOW_RUN.ISSUE_ID.in(issueIds))
+        .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+        .returning()
+        .fetch(WorkflowRunRows::toRun);
+  }
+
+  /**
+   * 실행 하나를 revision 비교로 CANCELED 로 끝낸다(조치 CANCEL 이 쓴다). 활성이 아니거나 revision 이 다르면 false 이고 행은 그대로다.
+   * 끝낸 뒤 열린 방문은 {@link #cancelOpenNodeRuns} 로 닫는다.
+   */
+  public boolean cancelActiveRun(long runId, int expectedRevision, Instant endedAt) {
+    return dsl.update(WORKFLOW_RUN)
+            .set(WORKFLOW_RUN.STATUS, RunState.CANCELED)
+            .set(WORKFLOW_RUN.ENDED_AT, utc(endedAt))
+            .set(WORKFLOW_RUN.REVISION, WORKFLOW_RUN.REVISION.plus(1))
+            .where(WORKFLOW_RUN.ID.eq(runId))
+            .and(WORKFLOW_RUN.REVISION.eq(expectedRevision))
+            .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+            .execute()
+        == 1;
+  }
+
+  /**
+   * 실행들의 열린 방문(나온 시각 없음 — ACTIVE·BLOCKED, 그리고 실패 보고로 FAILED 가 된 막힌 방문)을 CANCELED 로 닫는다(나온 시각 =
+   * {@code leftAt}). 막힘·실패 사유(waiting_reason·error)는 지우지 않고 남긴다 — 왜 멈춰 있었는지 기록이 보이게.
+   */
+  public void cancelOpenNodeRuns(Collection<Long> runIds, Instant leftAt) {
+    if (runIds == null || runIds.isEmpty()) {
+      return;
+    }
+    dsl.update(NODE_RUN)
+        .set(NODE_RUN.STATUS, RunState.CANCELED)
+        .set(NODE_RUN.LEFT_AT, utc(leftAt))
+        .where(NODE_RUN.RUN_ID.in(runIds))
+        .and(NODE_RUN.LEFT_AT.isNull())
+        .execute();
+  }
+
   /** 실행의 노드 방문 전부 — 들어간 순서(id 순). */
   public List<NodeRunRow> findNodeRuns(long runId) {
     return dsl.selectFrom(NODE_RUN)
@@ -224,6 +297,15 @@ public class WorkflowRunRepository {
   public List<RunEventRow> findEvents(long runId) {
     return dsl.selectFrom(WORKFLOW_RUN_EVENT)
         .where(WORKFLOW_RUN_EVENT.RUN_ID.eq(runId))
+        .orderBy(WORKFLOW_RUN_EVENT.ID)
+        .fetch(WorkflowRunRows::toEvent);
+  }
+
+  /** 실행의 한 종류 이벤트만 — 일어난 순서(id 순). 종류는 SQL 로 걸러 다른 이벤트를 읽지 않는다(WP-1986). */
+  public List<RunEventRow> findEvents(long runId, String type) {
+    return dsl.selectFrom(WORKFLOW_RUN_EVENT)
+        .where(WORKFLOW_RUN_EVENT.RUN_ID.eq(runId))
+        .and(WORKFLOW_RUN_EVENT.TYPE.eq(type))
         .orderBy(WORKFLOW_RUN_EVENT.ID)
         .fetch(WorkflowRunRows::toEvent);
   }

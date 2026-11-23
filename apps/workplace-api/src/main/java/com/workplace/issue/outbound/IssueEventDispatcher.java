@@ -11,6 +11,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueRecurringRunEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeWakeEvent;
 import com.workplace.issue.service.IssueRecurrenceRules;
 import com.workplace.issue.service.IssueRecurrenceService;
 import com.workplace.user.dto.UserKind;
@@ -70,6 +71,9 @@ public class IssueEventDispatcher {
   @Qualifier("recurrenceDispatchFailExecutor")
   private final Executor failExecutor;
 
+  /** WP-1986: 워크플로우 노드 깨우기 발사 재료(이슈·담당·사용자 요약)를 읽기 트랜잭션으로 읽는다. */
+  private final WorkflowWakeContextReader workflowWakeReader;
+
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueAssigned(IssueAssignedEvent e) {
@@ -90,6 +94,36 @@ public class IssueEventDispatcher {
     p.put("added", e.added().stream().map(IssueEventDispatcher::summary).toList());
     p.put("removed", e.removed().stream().map(IssueEventDispatcher::summary).toList());
     dispatch("issue.assigned", p, e.issueKey());
+  }
+
+  /**
+   * 워크플로우 노드 깨우기(WP-1986) — 노드 AI 중 서버가 실행할(내부) AI 마다 그 AI 를 실행 주체로 고정해 issue.assigned 를 보낸다. 외부 AI
+   * 는 ASSIGNED 알림(notify)으로 깨어나므로 여기서는 건너뛴다.
+   *
+   * <p>담당 지정 발사와 달리 행위자가 AI 여도 보낸다 — 워크플로우 넘김은 원래 AI → AI 이고, 되돌림·방문 한도와 연쇄 한도가 고리를 막는다. 실행 주체도 이슈
+   * 담당 중 첫 내부 AI 가 아니라 그 노드의 AI 다. AI 연동이 꺼져 있으면 읽지도 않는다.
+   */
+  @Async("aiAgentEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onWorkflowNodeWake(WorkflowNodeWakeEvent e) {
+    if (!props.enabled() || e.agentIds().isEmpty()) return;
+    var ctx = workflowWakeReader.read(e).orElse(null);
+    if (ctx == null) return;
+    for (Long agentId : ctx.internalAgentIds()) {
+      Map<String, Object> p =
+          baseFields(
+              e.issueId(),
+              ctx.projectKey(),
+              ctx.issueKey(),
+              ctx.title(),
+              ctx.actor(),
+              ctx.assignees(),
+              Instant.now(),
+              agentId);
+      p.put("added", ctx.agents().stream().map(IssueEventDispatcher::summary).toList());
+      p.put("removed", List.of());
+      dispatch("issue.assigned", p, ctx.issueKey());
+    }
   }
 
   @Async("aiAgentEventExecutor")

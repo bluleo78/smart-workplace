@@ -16,10 +16,12 @@ import com.workplace.issue.workflow.domain.WorkflowModel.Node;
 import com.workplace.issue.workflow.domain.WorkflowRouting.Route;
 import com.workplace.issue.workflow.domain.WorkflowRouting.Step;
 import com.workplace.issue.workflow.repository.NodeRunRow;
+import com.workplace.issue.workflow.repository.RunEventRow;
 import com.workplace.issue.workflow.repository.WorkflowRunRepository;
 import com.workplace.project.dto.ProjectRow;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +29,7 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -54,6 +57,26 @@ class WorkflowRunWriter {
   static final String VISIT_LIMIT = "VISIT_LIMIT";
   static final String AUTO_LIMIT = "AUTO_LIMIT";
   static final String RUN_COMPLETED = "RUN_COMPLETED";
+
+  /**
+   * 노드 담당 AI 의 차단(BLOCKED·AUTH_REQUIRED)·실패 보고로 실행이 멈춤(WP-1986). 쓰는 곳은 {@link
+   * WorkflowAgentWorkBridge}.
+   */
+  static final String NODE_BLOCKED = "NODE_BLOCKED";
+
+  static final String NODE_FAILED = "NODE_FAILED";
+
+  /** 이슈 닫기·삭제(WP-1986)나 조치 CANCEL 로 실행이 취소됨. 쓰는 곳은 {@link WorkflowAgentWorkBridge}. */
+  static final String RUN_CANCELED = "RUN_CANCELED";
+
+  /**
+   * 멈춘 실행의 조치(WP-1986) — 다시 시도(같은 노드 새 방문), onError 로 보냄, 관리자 옮기기(override). 쓰는 곳은 {@link
+   * WorkflowRecoveryService}.
+   */
+  static final String RETRIED = "RETRIED";
+
+  static final String ON_ERROR_MOVED = "ON_ERROR_MOVED";
+  static final String OVERRIDE_MOVED = "OVERRIDE_MOVED";
 
   /** node_run 상태(활성 방문). */
   static final String NODE_COMPLETED = "COMPLETED";
@@ -116,6 +139,11 @@ class WorkflowRunWriter {
    * @param stopWorkflowAssigned 그중 워크플로우가 넣은 사람
    * @param failedAssignees 연쇄 한도를 넘었을 때 FAILED 방문에 옮겨 적을 담당(떠난 노드의 것, 시작이면 매치된 사람)
    * @param failedWorkflowAssigned 위의 workflow_assigned_ids
+   * @param notifiedIds 이번 담당 변경({@link #applyAssignees} 의 add)으로 이미 ASSIGNED 알림을 받은 사람 — 진입 이벤트에 실어
+   *     깨우기 알림이 겹치지 않게 한다(WP-1986)
+   * @param retry 조치 다시 시도(RETRY)의 진입인지 — 참이면 이번 첫 방문(머무는 노드, 연쇄 한도 다시 시도면 첫 자동 노드)을 방문 수에 세지 않는다(설계
+   *     §5-5). {@code WorkflowRecoveryService.retry} 만 켠다(코드 리뷰 nit — 방문 순서로 짐작하면 같은 노드로의
+   *     onError·옮기기도 다시 시도로 보여 maxVisits 를 피했다)
    */
   record Entry(
       long runId,
@@ -130,7 +158,76 @@ class WorkflowRunWriter {
       List<Long> failedAssignees,
       List<Long> failedWorkflowAssigned,
       long actorId,
-      Instant now) {}
+      Instant now,
+      Set<Long> notifiedIds,
+      boolean retry) {
+
+    /** 다시 시도가 아닌 진입(시작·이동·onError·옮기기). */
+    Entry(
+        long runId,
+        long issueId,
+        WorkflowModel model,
+        List<NodeRunRow> existing,
+        String startKey,
+        String returnTo,
+        Route route,
+        List<Long> stopAssignees,
+        List<Long> stopWorkflowAssigned,
+        List<Long> failedAssignees,
+        List<Long> failedWorkflowAssigned,
+        long actorId,
+        Instant now,
+        Set<Long> notifiedIds) {
+      this(
+          runId,
+          issueId,
+          model,
+          existing,
+          startKey,
+          returnTo,
+          route,
+          stopAssignees,
+          stopWorkflowAssigned,
+          failedAssignees,
+          failedWorkflowAssigned,
+          actorId,
+          now,
+          notifiedIds,
+          false);
+    }
+
+    /** 이미 알림 받은 사람이 없는 진입(담당 변경 없음) — notifiedIds 가 생기기 전 호출부 호환. */
+    Entry(
+        long runId,
+        long issueId,
+        WorkflowModel model,
+        List<NodeRunRow> existing,
+        String startKey,
+        String returnTo,
+        Route route,
+        List<Long> stopAssignees,
+        List<Long> stopWorkflowAssigned,
+        List<Long> failedAssignees,
+        List<Long> failedWorkflowAssigned,
+        long actorId,
+        Instant now) {
+      this(
+          runId,
+          issueId,
+          model,
+          existing,
+          startKey,
+          returnTo,
+          route,
+          stopAssignees,
+          stopWorkflowAssigned,
+          failedAssignees,
+          failedWorkflowAssigned,
+          actorId,
+          now,
+          Set.of());
+    }
+  }
 
   /**
    * 노드에 들어간다 — 지나는 자동 노드는 COMPLETED(entered=left), 머무는 노드는 ACTIVE, end 는 COMPLETED, 한도를 넘었으면 멈춘 자동
@@ -140,19 +237,25 @@ class WorkflowRunWriter {
   void enter(Entry e) {
     Map<String, Integer> visits = new HashMap<>();
     Map<String, Integer> forward = new HashMap<>();
-    for (NodeRunRow r : e.existing()) {
+    List<NodeRunRow> existing = e.existing();
+    Set<Long> retriedStops = retriedStopVisitIds(e.runId(), existing);
+    for (int i = 0; i < existing.size(); i++) {
+      NodeRunRow r = existing.get(i);
       visits.merge(r.nodeKey(), 1, Integer::sum);
-      if (!r.viaReturn()) {
+      if (!r.viaReturn() && !isRetryVisit(r, i == 0 ? null : existing.get(i - 1), retriedStops)) {
         forward.merge(r.nodeKey(), 1, Integer::sum);
       }
     }
     long tenantId = TenantContext.get();
 
     if (e.startKey() != null) {
-      passAuto(e, e.startKey(), visits, forward);
+      passAuto(e, e.startKey(), visits, forward, false);
     }
+    // 다시 시도 표시는 이번 첫 방문에만 — 연쇄 한도 다시 시도는 멈춘 decision 부터 다시 지나므로 첫 자동 노드, 그 밖은 머무는 노드다.
+    boolean first = true;
     for (Step step : e.route().passed()) {
-      passAuto(e, step.nodeKey(), visits, forward);
+      passAuto(e, step.nodeKey(), visits, forward, first && e.retry());
+      first = false;
       event(e, AUTO_MOVED, map("from", step.nodeKey(), "to", step.to()), null);
     }
 
@@ -192,22 +295,70 @@ class WorkflowRunWriter {
         e.stopWorkflowAssigned(),
         viaReturn,
         e.now());
-    checkVisitLimit(e, node, viaReturn, forward, e.actorId());
+    boolean retry = e.route().passed().isEmpty() && e.retry();
+    if (!retry) {
+      checkVisitLimit(e, node, viaReturn, forward, e.actorId());
+    }
     publisher.publishEvent(
         new WorkflowNodeEntered(
-            tenantId, e.runId(), e.issueId(), stop, node.type(), e.stopAssignees()));
+            tenantId,
+            e.runId(),
+            e.issueId(),
+            stop,
+            node.type(),
+            e.stopAssignees(),
+            e.actorId(),
+            e.notifiedIds()));
   }
 
   /** 머물지 않는 자동 노드(start·decision) 방문 — COMPLETED 로 들어가고 바로 나온다. */
   private void passAuto(
-      Entry e, String key, Map<String, Integer> visits, Map<String, Integer> forward) {
+      Entry e,
+      String key,
+      Map<String, Integer> visits,
+      Map<String, Integer> forward,
+      boolean retry) {
     boolean viaReturn = key.equals(e.returnTo());
     int visitNo = visits.merge(key, 1, Integer::sum);
     runRepository.insertClosedNodeRun(
         e.runId(), key, visitNo, NODE_COMPLETED, List.of(), List.of(), viaReturn, null, e.now());
     // 자동 단계라 실행 이벤트의 actor_id 는 null(클래스 Javadoc 규칙). 게시 검증기는 start·decision 에 maxVisits 를 받지 않지만,
     // 저장 모델이 검증을 거치지 않았을 때도 규칙이 어긋나지 않게 둔다.
-    checkVisitLimit(e, e.model().nodes().get(key), viaReturn, forward, null);
+    if (!retry) {
+      checkVisitLimit(e, e.model().nodes().get(key), viaReturn, forward, null);
+    }
+  }
+
+  /**
+   * 지난 방문이 다시 시도(조치 RETRY)로 연 것인지 — 바로 앞 방문이 같은 노드의 멈춘 방문이고, 그 방문이 실행 이벤트 {@code RETRIED} 의
+   * nodeRunId 다. 다시 시도는 되돌림이 아니라 방문 수(maxVisits)에 세지 않는다(설계 §5-5). 방문 행에 표시 칸이 없어(마이그레이션 없음) 조치가 남긴
+   * 이벤트를 명시 표시로 쓴다 — 방문 순서만으로 짐작하면 같은 노드로의 onError·관리자 옮기기도 다시 시도로 보여 한도를 피했다(코드 리뷰 nit). 조치는 멈춘
+   * 방문을 닫자마자 같은 노드의 새 방문을 넣으므로 그 둘은 붙어 있다.
+   *
+   * @param retriedStops 다시 시도가 닫은 멈춘 방문 id({@link #retriedStopVisitIds})
+   */
+  static boolean isRetryVisit(NodeRunRow row, NodeRunRow previous, Set<Long> retriedStops) {
+    return previous != null
+        && retriedStops.contains(previous.id())
+        && previous.nodeKey().equals(row.nodeKey());
+  }
+
+  /**
+   * 다시 시도가 닫은 멈춘 방문 id — 실행 이벤트 {@code RETRIED} 의 nodeRunId. 멈춘(FAILED) 방문이 없으면 다시 시도도 없었으므로 이벤트를
+   * 읽지 않고, 읽을 때도 RETRIED 만 SQL 로 걸러 읽는다(이동마다 이벤트 전체를 읽지 않게).
+   */
+  private Set<Long> retriedStopVisitIds(long runId, List<NodeRunRow> existing) {
+    if (existing.stream().noneMatch(r -> RunState.NODE_FAILED.equals(r.status()))) {
+      return Set.of();
+    }
+    Set<Long> ids = new HashSet<>();
+    for (RunEventRow ev : runRepository.findEvents(runId, RETRIED)) {
+      JsonNode id = objectMapper.readTree(ev.payloadJson()).get("nodeRunId");
+      if (id != null && id.isNumber()) {
+        ids.add(id.asLong());
+      }
+    }
+    return ids;
   }
 
   /**

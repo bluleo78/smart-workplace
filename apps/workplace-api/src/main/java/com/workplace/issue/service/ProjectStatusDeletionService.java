@@ -17,6 +17,7 @@ import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueRepository.MigratedIssue;
 import com.workplace.issue.repository.ProjectStatusRepository;
+import com.workplace.issue.workflow.service.WorkflowAgentWorkBridge;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.repository.ProjectRepository;
@@ -58,6 +59,7 @@ public class ProjectStatusDeletionService {
   private final IssueHistoryRepository historyRepository;
   private final SavedViewRepository savedViewRepository;
   private final AgentWorkService agentWorkService;
+  private final WorkflowAgentWorkBridge workflowBridge;
   private final ProjectAccessGuard accessGuard;
   private final ProjectChangeNotifier changeNotifier;
   private final ProjectStatusAudit audit;
@@ -157,6 +159,8 @@ public class ProjectStatusDeletionService {
       } else {
         agentWorkService.cancelAllForIssues(activeIds);
       }
+      // 닫힌 이슈의 활성 워크플로우 실행은 취소로 끝낸다(WP-1986 §5-4, 이슈 수정 경로와 같은 규칙).
+      workflowBridge.onIssuesClosed(activeIds);
     }
 
     // 7) 종료→열림으로 바뀐 하위가 완료 에픽 아래 남지 않게 그 에픽을 진행 중 기본 상태로 되돌린다(WP-689, 이슈 수정 경로와 같은 규칙).

@@ -3,7 +3,9 @@ package com.workplace.issue.workflow.controller;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.workflow.dto.IssueWorkflowView;
 import com.workplace.issue.workflow.dto.MoveRequest;
+import com.workplace.issue.workflow.dto.RecoverRequest;
 import com.workplace.issue.workflow.dto.StartWorkflowRequest;
+import com.workplace.issue.workflow.service.WorkflowRecoveryService;
 import com.workplace.issue.workflow.service.WorkflowRunService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,10 +19,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 이슈의 워크플로우 실행 REST(WP-1985) — 조회·시작·이동. 경로·필드·{@code errors.code} 는 웹·MCP·AI 실행기가 쓰는 계약이다.
+ * 이슈의 워크플로우 실행 REST(WP-1985) — 조회·시작·이동, 멈춘 실행의 조치(WP-1986). 경로·필드·{@code errors.code} 는 웹·MCP·AI
+ * 실행기가 쓰는 계약이다.
  *
- * <p>조회는 이슈 상세와 같은 {@code project:read}, 시작·이동은 {@code issue:write}. 프로젝트별 읽기·구성원·담당·관리자 판정은 서비스가
- * 한다. 저장소를 직접 주입하지 않는다(트랜잭션은 서비스가 연다).
+ * <p>조회는 이슈 상세와 같은 {@code project:read}, 시작·이동·조치는 {@code issue:write}. 프로젝트별 읽기·구성원·담당·관리자 판정은
+ * 서비스가 한다. 저장소를 직접 주입하지 않는다(트랜잭션은 서비스가 연다).
  */
 @RestController
 @RequestMapping("/api/v1/issues/{issueId}/workflow")
@@ -28,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class IssueWorkflowController {
 
   private final WorkflowRunService runService;
+  private final WorkflowRecoveryService recoveryService;
 
   /** 실행 view — 실행이 없으면 200 과 빈 view. */
   @GetMapping
@@ -53,6 +57,14 @@ public class IssueWorkflowController {
   public ResponseEntity<IssueWorkflowView> move(
       Authentication auth, @PathVariable long issueId, @Valid @RequestBody MoveRequest req) {
     return ResponseEntity.ok(runService.move(issueId, req, callerId(auth)));
+  }
+
+  /** 멈춘 실행의 조치 — 다시 시도·onError·관리자 옮기기·취소(WP-1986). */
+  @PostMapping("/recover")
+  @RequirePermission("issue:write")
+  public ResponseEntity<IssueWorkflowView> recover(
+      Authentication auth, @PathVariable long issueId, @Valid @RequestBody RecoverRequest req) {
+    return ResponseEntity.ok(recoveryService.recover(issueId, req, callerId(auth)));
   }
 
   /** 인증 주체(사용자 id). */

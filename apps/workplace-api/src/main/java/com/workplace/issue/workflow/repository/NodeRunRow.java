@@ -29,4 +29,20 @@ public record NodeRunRow(
     Instant enteredAt,
     Instant leftAt,
     Long actorId,
-    boolean viaReturn) {}
+    boolean viaReturn) {
+
+  /**
+   * 그 노드 키의 가장 최근 방문(없으면 null) — 실행 view·AI 작업 다리·챗 답 재개가 같은 판정을 쓰게 한곳에 둔다(WP-1986). {@code
+   * nodeKey} 가 null 이면 맞는 방문이 없어 null 이다.
+   *
+   * @param runs 들어간 순서의 노드 방문
+   */
+  public static NodeRunRow latestVisit(List<NodeRunRow> runs, String nodeKey) {
+    for (int i = runs.size() - 1; i >= 0; i--) {
+      if (runs.get(i).nodeKey().equals(nodeKey)) {
+        return runs.get(i);
+      }
+    }
+    return null;
+  }
+}
