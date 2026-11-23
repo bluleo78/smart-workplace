@@ -1738,6 +1738,25 @@ test('gw-boot 도 계산한 Pod 시작 시각이 지금보다 뒤면 싣지 않�
   }
 });
 
+test('gw-status: GENIA_AGENT_POD_UID 가 있으면 본문에 podUid 를 싣고, 없으면 싣지 않는다 (WP-1968)', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '{"desired":"RUN"}' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' };
+  try {
+    // 정체가 있으면 — 서버가 관찰 정체와 견려 지금 Pod 의 보고인지 가른다(시계가 아니라 정체로, WP-1968).
+    const withUid = await runAsync('gw-status', ['IDLE'], { ...env, GENIA_AGENT_POD_UID: 'uid-1' });
+    assert.deepEqual([withUid.status, withUid.stdout], [0, 'RUN\n']);
+    assert.equal(JSON.parse(srv.reqs[0].body).podUid, 'uid-1');
+
+    // 없으면 필드 자체를 뺀다 — 빈 문자열은 다른 값이라 정체를 모르는 옛 이미지와의 호환을 깬다.
+    const without = await runAsync('gw-status', ['IDLE'], env);
+    assert.deepEqual([without.status, without.stdout], [0, 'RUN\n']);
+    assert.equal('podUid' in JSON.parse(srv.reqs[1].body), false);
+  } finally {
+    srv.close();
+  }
+});
+
 test('gw-status: GENIA_WORKS_PROJECT 가 있으면 대문자 slot 을 싣고, 형식이 아니면 빼고 보고한다 (WP-1409)', async () => {
   run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
   const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });

@@ -464,9 +464,13 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.accountChangeAppliesNow").value(true));
   }
 
-  /** 도는 Pod 의 컨테이너가 시작에 실패했고 일이 없으면(WP-1969) 판정은 NOW, phase 는 RUNNING 이라 상태는 적용 대기다(WP-2000). */
+  /**
+   * 도는 Pod 의 컨테이너가 시작에 실패했고 일이 없으면(WP-1969) 판정은 NOW — 차단이 지금 도는 Pod(관찰 generation)의 것이라 화면에도 「오류」로
+   * 보인다(WP-1968 5차 반려 ③: 차단 저장은 보고한 generation 그대로 두고, 화면 판정만 관찰 generation 을 더 견준다 — 「쉴 때 적용」 대기 중
+   * 도는 Pod 의 실패를 감추면 관리자가 시작 실패 사유를 보지 못한다).
+   */
   @Test
-  void get_whenBlockedRunningPodAndNoWork_pendingNowAndApplyPending() throws Exception {
+  void get_whenBlockedRunningPodAndNoWork_pendingNowAndFailed() throws Exception {
     long agent = runningBehind("RUNNING", null);
     dsl.update(AGENT_RUNTIME_SETTING)
         .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "시작 실패")
@@ -478,7 +482,7 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
     call(get(base(agent)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pendingApply").value("NOW"))
-        .andExpect(jsonPath("$.status").value("APPLY_PENDING"));
+        .andExpect(jsonPath("$.status").value("FAILED"));
   }
 
   /**

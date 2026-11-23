@@ -68,8 +68,12 @@ esac
 # Pod 시작 시각(WP-1958) — 서버가 같은 generation 으로 재시작한 뒤 옛 Pod 의 늦은 보고를 거르는 데 쓴다. 모르거나 미래면 빈 값 → 싣지 않는다.
 # 도우미가 실패해도 보고는 계속한다.
 pod_started=$("$here/gw-pod-start" 2>/dev/null) || pod_started=""
+# Pod 정체(WP-1968) — runner 가 downward API 로 넣는 GENIA_AGENT_POD_UID. 시계가 아니라 정체로 지금 Pod 의 보고를 가른다.
+# 없으면 빈 값 → 필드 자체를 뺀다(옛 이미지 — 서버는 없는 값을 그대로 믿고 시각 규칙을 쓴다). 늘 종료 0 이라 실패해도 보고는 계속한다.
+pod_uid=$(gw_pod_uid)
 pod_field=""
 [ -z "$pod_started" ] || pod_field=$(printf ',"podStartedAt":"%s"' "$pod_started")
+[ -z "$pod_uid" ] || pod_field="$pod_field,\"podUid\":\"$pod_uid\""
 
 case "${1:-}" in
   blocked) body=$(printf '{"state":"BLOCKED","message":"%s","generation":%s%s}' "$msg" "$GENIA_AGENT_GENERATION" "$pod_field") ;;
@@ -81,5 +85,8 @@ key=$(gw_identity_key) || key=""
 
 gw_api_request "$key" 5 10 -X PUT -H 'Content-Type: application/json' -d "$body" \
   "$(gw_api_url)/agent-runtime/me/pane"
+# 응답 검사는 바꾸지 않는다 — 204·200 아니면 실패(종료 1)이므로 409(서버가 받지 않았다 — 정체 불일치·지금 Pod 보다 이른 옛 Pod, WP-1968 2차 반려 ②)도
+# 그대로 실패로 남는다: 감독 회차가 표식을 남기지 않고 차단 사유 파일을 지우지 않아, 다음 회차에 다시 보낸다(WP-1968). 정체를 모르는 옛 이미지의
+# generation 불일치는 서버가 저장 없이 조용히 204 로 받는다(2차 반려 ③) — 다시 보내도 성공할 수 없어 409 면 표식 없이 다시 보내는 고리가 된다.
 [ "$GW_CODE" = 204 ] || [ "$GW_CODE" = 200 ] || fallback "칸 차단 보고 실패(HTTP ${GW_CODE:-000})"
 exit 0

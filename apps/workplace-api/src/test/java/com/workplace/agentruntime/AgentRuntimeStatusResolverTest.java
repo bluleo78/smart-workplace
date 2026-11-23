@@ -3,6 +3,7 @@ package com.workplace.agentruntime;
 import static com.workplace.agentruntime.dto.Desired.RUN;
 import static com.workplace.agentruntime.dto.Desired.STOP;
 import static com.workplace.agentruntime.service.AgentRuntimeStatusResolver.currentPaneBlocked;
+import static com.workplace.agentruntime.service.AgentRuntimeStatusResolver.expectedPaneBlockGeneration;
 import static com.workplace.agentruntime.service.AgentRuntimeStatusResolver.resolve;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -201,6 +202,23 @@ class AgentRuntimeStatusResolverTest {
     assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, at(1), null, at(50))).isEqualTo("설정 오류");
     // 지금 Pod 시작을 둘 다 모르면 견줄 수 없다
     assertThat(currentPaneBlocked("설정 오류", 3L, 3L, null, null, at(1), null)).isEqualTo("설정 오류");
+  }
+
+  /**
+   * 관찰 generation 으로 견주는 것은 「쉴 때 적용」 대기 중에만이다(WP-1968 5차 반려 ③·6차 반려 ②) — 즉시 적용(NOW)에서는 관찰이 뒤처진
+   * 동안(다음 관찰까지) 옛 Pod 의 차단이 「오류」로 남아 WP-1913 이 회귀한다. 반영 안 된 generation 이 없으면 어느 쪽이든 값이 같다.
+   */
+  @Test
+  void expectedPaneBlockGeneration_observedOnlyWhileApplyingAtIdle() {
+    // 쉴 때 적용 대기 중(설정 5 · 관찰 4 · 저장 차단 4) — 지금 도는 Pod 차단을 그대로 보인다.
+    assertThat(expectedPaneBlockGeneration(4L, 5L, 4L, true)).isEqualTo(4L);
+    // 즉시 적용(NOW) — 같은 값이라도 설정 generation 으로만 견주어 옛 Pod 차단을 가린다.
+    assertThat(expectedPaneBlockGeneration(4L, 5L, 4L, false)).isEqualTo(5L);
+    // 관찰 전(모르는 값)·저장 차단 generation 을 모르면 쉴 때 적용이어도 설정 generation 그대로다.
+    assertThat(expectedPaneBlockGeneration(4L, 5L, null, true)).isEqualTo(5L);
+    assertThat(expectedPaneBlockGeneration(null, 5L, 4L, true)).isEqualTo(5L);
+    // 반영 안 된 generation 이 없으면 두 값이 같아 어느 쪽이든 같다.
+    assertThat(expectedPaneBlockGeneration(5L, 5L, 5L, false)).isEqualTo(5L);
   }
 
   /**

@@ -232,8 +232,10 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   }
 
   /**
-   * 지금 generation 과 다른 Pod 의 늦은 차단 보고는 무시한다 — 끝나는 중인 옛 Pod 가 설정을 바꾼 뒤의 새 generation 을 자기 사유로 덮지
-   * 않게(WP-1913 리뷰 반려 ①). 보고는 최선 노력이라 응답은 그대로 204 다.
+   * 지금 generation 과 다른 Pod 의 늦은 차단 보고는 저장 없이 버린다 — 끝나는 중인 옛 Pod 가 설정을 바꾼 뒤의 새 generation 을 자기 사유로
+   * 덮지 않게(WP-1913 리뷰 반려 ①). 정체를 모르는 보고(옛 이미지)는 **조용한 204** 다 — 그 이미지는 generation 이 다시 맞을 일이 없어 다시
+   * 보내도 성공할 수 없으므로, 409 로 알리면 gw-boot 가 표식 없이 계속 다시 보내는 고리가 된다(WP-1968 2차 반려 ③). 정체가 같은 지금 Pod 는
+   * generation 을 보지 않고 받고(반려 ⑤), 지난 정체는 정체 판정에서 이미 409 다.
    */
   @Test
   void 지금_generation과_다른_차단_보고는_무시한다() throws Exception {
@@ -248,7 +250,10 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION)).isNull();
   }
 
-  /** 옛 Pod 의 늦은 OK 보고도 지금 차단을 지우지 못한다 — 지금 generation 을 지우는 것은 지금 Pod 의 OK 뿐이다(WP-1913 리뷰 반려 ①). */
+  /**
+   * 옛 Pod 의 늦은 OK 보고도 저장 없이 버려 지금 차단을 지우지 못한다 — 지금 generation 을 지우는 것은 지금 Pod 의 OK 뿐이다(WP-1913 리뷰
+   * 반려 ①). 정체를 모르는 보고의 generation 불일치라 응답은 조용한 204 이고, 저장·지우기 어느 것도 일어나지 않는다 (WP-1968 2차 반려 ③).
+   */
   @Test
   void 지금_generation과_다른_OK_보고는_차단을_지우지_못한다() throws Exception {
     long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
@@ -297,7 +302,10 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
         .execute();
   }
 
-  /** 같은 generation 의 옛 Pod(T1) 가 새 Pod(T2) 상태 보고 뒤 늦게 보낸 BLOCKED 는 무시한다(WP-1958). */
+  /**
+   * 같은 generation 의 옛 Pod(T1) 가 새 Pod(T2) 상태 보고 뒤 늦게 보낸 BLOCKED 는 저장 없이 409 로 버린다(WP-1958·WP-1968)
+   * — 정체를 모르는 보고(시각 규칙)도 받지 않은 보고라 감독 회차가 실패로 보고 다시 보내게 한다.
+   */
   @Test
   void 같은_generation_에서_옛_파드의_늦은_BLOCKED_는_무시한다() throws Exception {
     long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
@@ -312,13 +320,13 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
                 + ",\"podStartedAt\":\""
                 + t2.minusMinutes(10)
                 + "\"}")
-        .andExpect(status().isNoContent());
+        .andExpect(status().isConflict());
 
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
     assertThat(runtimeEvents()).isZero();
   }
 
-  /** 옛 Pod(T1) 의 늦은 OK 는 새 Pod(T2) 의 차단을 지우지 못한다(WP-1958). */
+  /** 옛 Pod(T1) 의 늦은 OK 는 저장 없이 409 로 버려 새 Pod(T2) 의 차단을 지우지 못한다(WP-1958·WP-1968). */
   @Test
   void 같은_generation_에서_옛_파드의_늦은_OK_는_새_파드_차단을_지우지_못한다() throws Exception {
     long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
@@ -340,7 +348,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
                 + ",\"podStartedAt\":\""
                 + t2.minusMinutes(10)
                 + "\"}")
-        .andExpect(status().isNoContent());
+        .andExpect(status().isConflict());
 
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("새 Pod 차단");
     assertThat(runtimeEvents()).isZero();
@@ -351,6 +359,9 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   void BLOCKED_는_보고한_파드_시각을_저장한다() throws Exception {
     // DB 저장 컬럼이 timestamptz(마이크로초) 이라 나노 자릿수는 반올림된다 — 정렬하지 않으면
     // 내림·반올림이 갈려 실행마다 절반 확률로 단언이 어긋났다(WP-1998). 단언 쪽 truncation 은 방어선.
+
+    // 마이크로초로 끊어 보낸다 — DB(timestamptz)는 마이크로초에서 반올림해, 나노초를 그대로 싣고 자른 값과 견주면 절반의 실행에서 1µs 가
+    // 어긋났다(WP-2017).
     OffsetDateTime t = OffsetDateTime.now().minusMinutes(2).truncatedTo(ChronoUnit.MICROS);
 
     report(key, "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"podStartedAt\":\"" + t + "\"}")
@@ -418,7 +429,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
 
     report(key, blockedBody(t2)).andExpect(status().isNoContent());
 
@@ -434,8 +445,8 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t2, "WP-2");
-    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2);
-    slots.upsert(agent, "OLD", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2, null);
+    slots.upsert(agent, "OLD", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
 
     report(key, blockedBody(t2)).andExpect(status().isNoContent());
 
@@ -448,15 +459,18 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
   }
 
-  /** 옛 컨테이너의 늦은 차단은 옛 Pod 보고라 버려진다 — 칸·합친 상태·차단 메시지 모두 그대로. */
+  /**
+   * 옛 컨테이너의 늦은 차단은 옛 Pod 보고라 버려진다 — 칸·합친 상태·차단 메시지 모두 그대로. 버렸다고 감독 회차가 알 수 있게 409 로 답한다(WP-1968 —
+   * 다시 보내면 받을 수 있는 버림).
+   */
   @Test
   void 옛_컨테이너의_늦은_차단은_칸을_다시_합치지_않는다() throws Exception {
     OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t2, "WP-2");
-    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2);
+    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2, null);
 
-    report(key, blockedBody(t1)).andExpect(status().isNoContent());
+    report(key, blockedBody(t1)).andExpect(status().isConflict());
 
     assertThat(slotCount()).isEqualTo(1);
     Record row = settingOf();
@@ -470,7 +484,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
     appEvents.clear();
 
     report(key, blockedBody(t2)).andExpect(status().isNoContent());
@@ -558,7 +572,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
 
     report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
 
@@ -575,7 +589,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
     appEvents.clear();
 
     report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
@@ -652,7 +666,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
     setMode("STOP", "IDLE");
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
     appEvents.clear();
 
     report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
@@ -673,7 +687,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
     setMode("RUN", "NOW");
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
     appEvents.clear();
 
     report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
@@ -696,8 +710,8 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
     setMode("STOP", "IDLE");
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
-    slots.upsert(agent, "NEW", AgentState.IDLE, null, null, t2.plusSeconds(5), t2);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
+    slots.upsert(agent, "NEW", AgentState.IDLE, null, null, t2.plusSeconds(5), t2, null);
     appEvents.clear();
 
     report(key, blockedBody(t2)).andExpect(status().isNoContent());
@@ -716,7 +730,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   void 새_Pod_를_관찰하기_전의_차단은_옛_칸을_되살리지_않는다() throws Exception {
     OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
     OffsetDateTime t2 = t1.plusMinutes(5);
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1, null);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1, null, null);
 
     report(key, blockedBody(t2)).andExpect(status().isNoContent());
 
@@ -733,7 +747,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t1 = OffsetDateTime.now().minusMinutes(10);
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedUnapplied(2, 1);
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1, null);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1, null, null);
     appEvents.clear();
 
     report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
@@ -752,7 +766,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t2, "WP-2");
     seedUnapplied(2, 1);
-    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2);
+    slots.upsert(agent, "NEW", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2, null);
     appEvents.clear();
 
     report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
@@ -809,14 +823,17 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     }
   }
 
-  /** 같은 generation 이어도 앞 컨테이너의 늦은 OK 는 새 컨테이너의 차단을 지우지 못한다(WP-1969). */
+  /**
+   * 같은 generation 이어도 앞 컨테이너의 늦은 OK 는 새 컨테이너의 차단을 지우지 못한다(WP-1969) — 버린다고 감독 회차가 알 수 있게
+   * 409(WP-1968).
+   */
   @Test
   void 적용_대기_중에도_앞_컨테이너의_늦은_OK_는_무시한다() throws Exception {
     OffsetDateTime t2 = OffsetDateTime.now().minusMinutes(5);
     seedUnapplied(2, 1);
     seedBlock(1L, t2);
 
-    report(key, okBody(t2.minusMinutes(5), 1)).andExpect(status().isNoContent());
+    report(key, okBody(t2.minusMinutes(5), 1)).andExpect(status().isConflict());
 
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("도는 Pod 차단");
   }
@@ -842,7 +859,7 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t2 = OffsetDateTime.now().minusHours(8);
     seedMerged(t2.minusMinutes(3), t2, "WP-2");
     seedUnapplied(2, 1);
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-2", null, t2.plusSeconds(5), t2, null);
     appEvents.clear();
 
     report(key, blockedBody(t2, 1)).andExpect(status().isNoContent());
@@ -862,13 +879,319 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     OffsetDateTime t2 = t1.plusMinutes(5);
     seedMerged(t1.minusMinutes(3), t1, "WP-1");
     seedUnapplied(2, 1);
-    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(agent, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
     appEvents.clear();
 
     report(key, blockedBody(t2)).andExpect(status().isNoContent());
 
     assertThat(settingOf().get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
     assertThat(desiredEvents()).isZero();
+  }
+
+  // ---- WP-1968: 칸 차단 보고를 Pod 정체로 받고, 버림은 409 로 알린다 ----
+
+  /** runner 가 관찰한 Pod 정체(observed_pod_uid)를 직접 심는다 — 칸 보고의 podUid 와 견보기 위해(WP-1968). */
+  private void setObservedPodUid(String observedPodUid) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID, observedPodUid)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /** 바로 앞에 쓰이던 Pod 정체(previous_pod_uid)를 직접 심는다 — 끝나는 중인 옛 Pod 의 늦은 보고를 재현하기 위해(WP-1968 반려 ①). */
+  private void setPreviousPodUid(String previousPodUid) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID, previousPodUid)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /**
+   * **지난** Pod(바로 앞 정체)의 OK 는 저장 없이 409 로 거절하고 차단 칸을 비우지 못한다(WP-1968 반려 ①) — 끝나는 중인 옛 Pod 의 늦은 OK 가
+   * 지금 Pod 의 차단을 지우면 관리자 화면의 「오류」가 사라져 진입점 오류가 영영 안 보이게 되고, 지금은 204 라 호출하는 감독 회차(gw-boot)가 성공으로 알아채
+   * 다시 보내지 않기 때문이다. 지금 정체와 **다른** 보고(재시작 직후 새 Pod)는 409 가 아니라 지금 Pod 로 받아진다 — 아래 {@code
+   * 보고가_처음_밝힌_정체는_관찰_없이_지금_Pod_로_받는다}.
+   */
+  @Test
+  void 지난_Pod_의_OK_보고는_409로_거절하고_칸을_비우지_못한다() throws Exception {
+    setObservedPodUid("pod-a");
+    setPreviousPodUid("pod-b");
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podUid\":\"pod-a\"}")
+        .andExpect(status().isNoContent());
+
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-b\"}").andExpect(status().isConflict());
+
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+  }
+
+  /**
+   * 관찰이 아직 옛 정체를 가리키는 동안에 온 새 Pod 의 첫 보고도 204 로 받아 지금 Pod 로 밝힌다(WP-1968 반려 ①) — runner 관찰(약 60초)을
+   * 기다리는 동안 재시작 직후 새 Pod 의 시작 OK 가 OTHER 로 버려져 관리자 화면에 「오류」가 영영 남지 않게 한다. 정체는 지금 정체 → 바로 앞 정체로 미뤄
+   * 둔다(지연 도착한 옛 Pod 보고가 되돌리지 못하게). 보고에 Pod 시작 시각을 함께 싣는다 — 시각 없는 모르는 정체는 ADOPT 하지 않기 때문이다(2차 반려 ②,
+   * 아래 {@code 시각_없는_모르는_정체는_ADOPT_하지_않고_409로_버린다}).
+   */
+  @Test
+  void 보고가_처음_밝힌_정체는_관찰_없이_지금_Pod_로_받는다() throws Exception {
+    setObservedPodUid("pod-a");
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podUid\":\"pod-b\",\"podStartedAt\":\""
+                + podStart
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-a");
+
+    // 그 뒤에 도착한 옛 Pod 의 늦은 OK 는 이제(정체가 밝혀진 뒤) 409 로 거절된다.
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-a\"}").andExpect(status().isConflict());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+  }
+
+  /**
+   * 첫 인식(관찰된 정체가 없음)도 시작 시각을 요구한다(WP-1968 6차 반려 ①) — 시각 없이 ADOPT 하면 그 인식이 기준 없이 박히고, 그 뒤 옛 Pod A 가
+   * 시각을 실어 다시 ADOPT 되면 observed=A·previous=B 로 박혀 살아 있는 Pod B 가 영구 OTHER(상태 미저장·칸 409)가 된다 — 이 이슈의
+   * 시계가 앞선 경우 그대로. 저장은 하나도 되지 않아 관찰(약 60초)이 정체를 밝힌 뒤의 보고가 이어받는다(HTTP 레벨 방어선 — 저장소 레벨 {@code
+   * podIdentity_firstIdentificationRequiresStart} 와 같은 규칙).
+   */
+  @Test
+  void 시각_없는_첫_보고는_ADOPT_하지_않고_409로_버린다() throws Exception {
+    setObservedPodUid(null);
+    setPreviousPodUid(null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "로그인 오류")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    // 관찰된 정체가 없는 첫 보고 — 시작 시각이 없어 인식을 밝히지 못하면 거절한다.
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podUid\":\"pod-b\"}")
+        .andExpect(status().isConflict());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+  }
+
+  /**
+   * 시작 시각이 걸러진(null) 모르는 정체는 ADOPT 하지 않고 409 로 버린다(WP-1968 2차 반려 ②) — acceptedPodStart 가 서버 시계보다
+   * 30초 넘게 앞선 시작을 null 로 바꾸므로, 빠른 시계 노드의 죽은 옛 Pod 늦은 보고가 검사 없이 ADOPT 돼 정체를 과거로 되돌리면 살아 있는 Pod 가 영원히
+   * previous 로 남는 교착(상태 버림·칸 409 무한)이 생기고 WP-1958 보호도 사라진다. 관찰(약 60초)이 정체를 밝힌 뒤 다시 보내면 MATCH 로
+   * 받아진다.
+   */
+  @Test
+  void 시각_없는_모르는_정체는_ADOPT_하지_않고_409로_버린다() throws Exception {
+    setObservedPodUid("pod-a");
+    setPreviousPodUid(null);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "로그인 오류")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    // 시작 시각 없이 정체만 다른 보고(시계 이상으로 시각이 걸러진 보고) — 정체를 갈아끼우지 않고 거절한다.
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-b\"}").andExpect(status().isConflict());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+  }
+
+  /** 지금 정체·바로 앞 정체·지금 Pod 시작을 한 번에 심는다 — 재시작이 여러 번 지난 상황을 재현하기 위해(WP-1968 반려 C1). */
+  private void setPodIdentity(String observed, String previous, OffsetDateTime startedAt) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID, observed)
+        .set(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID, previous)
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, startedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /**
+   * 정체를 아직 모르는 첫 OK 도 204 로 받아 차단을 비우되, 지난 상태까지 비우지 않는다(WP-1968 반려 ⑥) — 배포 뒤 `observed_pod_uid` 칸이
+   * 아직 비어 있어 첫 보고를 새 Pod 로 오판하면 모든 AI 의 `agent_*` 상태가 한 번에 지워졌다. 정체만 지금 Pod 로 밝히고(previous 는 비워 둔다)
+   * 상태는 그대로 둔다.
+   */
+  @Test
+  void 첫_정체를_밝히는_OK는_차단만_비우고_지난_상태는_그대로_둔다() throws Exception {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "로그인 오류")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-new\",\"podStartedAt\":\"" + podStart + "\"}")
+        .andExpect(status().isNoContent());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /**
+   * 두 세대 전 정체의 늦은 OK 는 409 로 버리되 지금 Pod 보고는 그대로 204 다(WP-1968 반려 C1) — 그 옛 Pod 의 보고를 ADOPT 로 받으면
+   * 정체가 과거로 되돌아가 살아 있는 지금 Pod 가 `previous` 로 남아 영원히 OTHER(상태 미저장·칸 409·관찰 필터)가 되는 교착이 생긴다.
+   */
+  @Test
+  void 두_세대_전_정체의_늦은_OK는_409로_버리고_지금_Pod_OK는_204로_받는다() throws Exception {
+    OffsetDateTime podStart = OffsetDateTime.now().minusMinutes(5).truncatedTo(ChronoUnit.MICROS);
+    OffsetDateTime olderStart =
+        OffsetDateTime.now().minusMinutes(30).truncatedTo(ChronoUnit.MICROS);
+    setPodIdentity("pod-c", "pod-b", podStart);
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podUid\":\"pod-c\",\"podStartedAt\":\""
+                + podStart
+                + "\"}")
+        .andExpect(status().isNoContent());
+
+    // 두 세대 전 정체(pod-a, 시작이 지금 Pod 보다 이른다)의 늦은 OK — 정체를 되돌리지 않고 409 로 버린다.
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-a\",\"podStartedAt\":\"" + olderStart + "\"}")
+        .andExpect(status().isConflict());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-c");
+
+    // 살아 있는 지금 Pod(pod-c)의 OK 는 교착 없이 그대로 받아져 차단이 비워진다.
+    report(key, "{\"state\":\"OK\",\"podUid\":\"pod-c\",\"podStartedAt\":\"" + podStart + "\"}")
+        .andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /**
+   * 낮은 generation 보고는 정체를 ADOPT 하지 않는다(WP-1968 5차 반려 ④) — 몇 초만 살았던 옛 Pod(B)의 늦은 보고가 정체를 되돌리면
+   * (observed=B·previous=C) 살아 있는 지금 Pod(C)가 영원히 previous 로 남아 이 뒤의 칸 보고가 계속 409 가 된다. 지금 도는 Pod(관찰
+   * generation)의 generation 을 싣고도 정체가 다른 보고는 ADOPT 대신 409 로 버린다 — 정체 갈아끼움도 차단 저장도 없다.
+   */
+  @Test
+  void 낮은_generation_보고는_정체를_ADOPT_하지_않고_409로_버린다() throws Exception {
+    long gen = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
+    // 관찰 generation 은 옛 값(설정이 올라 지금 적용을 기다리는 중)이고, 지금 Pod 로 아는 정체는 살아 있는 C.
+    seedUnapplied(gen, gen - 1);
+    setObservedPodUid("pod-c");
+
+    // 몇 초만 살았던 옛 Pod B 의 늦은 보고 — 정체도 다르고 generation 도 앞세대다.
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"옛 Pod 차단\",\"generation\":"
+                + (gen - 1)
+                + ",\"podStartedAt\":\""
+                + OffsetDateTime.now()
+                + "\",\"podUid\":\"pod-b\"}")
+        .andExpect(status().isConflict());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-c");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /**
+   * 「쉴 때 적용」 대기 중(설정 generation 이 앞서고 관찰 generation 은 도는 Pod 값) 정체가 같은 지금 Pod 의 보고는 204 로 받아 칸을
+   * 비운다(WP-1968 반려 ⑤·5차 반려 ③) — IDLE 적용을 미뤄 둔 동안 설정 generation 이 오르면 지금 Pod 의 칸 차단 보고가 매 회차 409 를
+   * 받아 시작 OK 가 영영 반영되지 않았다. generation 거르기({@code acceptableGeneration})는 정체와 상관없이 같은
+   * 기준이라(WP-1969), 관찰 generation 이 맞는 보고만 그 예외로 받는다. 정체를 모르는(옛 플러그인) 보고도 generation 불일치는 조용히 204 로
+   * 버린다 — 다시 보내도 성공할 수 없는 버림이라 409 로 알리면 재전송 고리가 된다(2차 반려 ③).
+   */
+  @Test
+  void generation이_뒤처져도_정체가_같으면_204로_받는다() throws Exception {
+    setObservedPodUid("pod-a");
+    OffsetDateTime t = OffsetDateTime.now().minusMinutes(2).truncatedTo(ChronoUnit.MICROS);
+    long podGeneration = settingOf().get(AGENT_RUNTIME_SETTING.GENERATION);
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"generation\":"
+                + podGeneration
+                + ",\"podUid\":\"pod-a\"}")
+        .andExpect(status().isNoContent());
+    // 설정 generation 한 칸 올려 지금 Pod 보고(그대로)보다 뒤처지게 하고, 관찰 generation 은 도는 Pod 값으로 맞춘다 — 쉴 때 적용
+    // 대기(WP-1969 예외).
+    seedUnapplied(podGeneration + 1, podGeneration);
+
+    report(
+            key,
+            "{\"state\":\"OK\",\"podStartedAt\":\""
+                + t
+                + "\",\"podUid\":\"pod-a\",\"generation\":"
+                + podGeneration
+                + "}")
+        .andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+
+    // 정체를 모르는(옛 이미지) 보고의 generation 불일치는 조용히 204 — 그 이미지는 generation 이 다시 맞을 일이 없어 다시 보내도 성공할 수
+    // 없으므로, 409 로 답하면 gw-boot 가 표식 없이 계속 다시 보내는 고리가 된다(WP-1968 2차 반려 ③). 저장도 지우지도 않는다.
+    report(key, "{\"state\":\"BLOCKED\",\"message\":\"다시 막힘\",\"generation\":0}")
+        .andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /**
+   * 정체가 같아도 저장된 기준보다 이른 시작의 보고는 409 로 버리고 칸을 비운다(WP-1968 5차 반려 ②) — 같은 Pod 안 컨테이너 재시작(restartPolicy
+   * Always → uid 고정)에서는 정체가 같아도 재시작 전 컨테이너의 늦은 보고가 차단을 덮고 기준을 되돌려 WP-1958 이 회귀한다. 같은 기준(재시작 후
+   * 컨테이너)의 보고는 그대로 받아져 차단을 실제로 비운다.
+   */
+  @Test
+  void 정체가_같아도_기준보다_이른_시작_보고는_409로_버린다() throws Exception {
+    OffsetDateTime early = OffsetDateTime.now().minusMinutes(2).truncatedTo(ChronoUnit.MICROS);
+    OffsetDateTime start = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+    setObservedPodUid("pod-a");
+    // 재시작한 컨테이너가 올려 둔 기준(더 늦은 시작) — 정체는 같은 Pod 이지만 앞 컨테이너의 시작은 이전이다.
+    setReportedPodStart(start);
+    appEvents.clear();
+
+    // 재시작 전 컨테이너의 늦은 OK — 정체가 같아도 시작이 기준보다 이르면 409 로 버린다.
+    report(key, "{\"state\":\"OK\",\"podStartedAt\":\"" + early + "\",\"podUid\":\"pod-a\"}")
+        .andExpect(status().isConflict());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(runtimeEvents()).isZero();
+
+    // 같은 기준의 보고(재시작 후 컨테이너)는 204 로 받아 차단을 실제로 비운다.
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podStartedAt\":\""
+                + start
+                + "\",\"podUid\":\"pod-a\"}")
+        .andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+
+    report(key, "{\"state\":\"OK\",\"podStartedAt\":\"" + start + "\",\"podUid\":\"pod-a\"}")
+        .andExpect(status().isNoContent());
+    assertThat(settingOf().get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+  }
+
+  /**
+   * 정체가 같아도 이른 시작의 차단 보고는 409 로 버리고 기준을 되돌리지 못한다(WP-1968 5차 반려 ②) — 같은 Pod 안 컨테이너 재시작에서 재시작 전 컨테이너의
+   * 시작이 {@code reported_pod_started_at} 을 덮으면, 그 뒤 재시작 후 컨테이너의 정상 보고가 영영 옛 Pod 로 오판된다.
+   */
+  @Test
+  void 정체가_같아도_이른_시작_차단은_409로_버리고_기준을_되돌리지_못한다() throws Exception {
+    OffsetDateTime early = OffsetDateTime.now().minusMinutes(2).truncatedTo(ChronoUnit.MICROS);
+    OffsetDateTime start = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
+    setObservedPodUid("pod-a");
+    setReportedPodStart(start);
+    appEvents.clear();
+
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"podStartedAt\":\""
+                + early
+                + "\",\"podUid\":\"pod-a\"}")
+        .andExpect(status().isConflict());
+
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    // 기준이 앞 컨테이너의 시작으로 되돌려지지 않는다.
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(start.toInstant());
+    assertThat(runtimeEvents()).isZero();
   }
 
   /** 사람은 보고할 수 없다 — 403 AGENT_ONLY. */

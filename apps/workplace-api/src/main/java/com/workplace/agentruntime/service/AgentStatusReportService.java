@@ -8,6 +8,7 @@ import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository.PodIdentity;
 import com.workplace.agentruntime.repository.VisibleRuntimeState;
 import com.workplace.auth.dto.ManagedKeyChain;
 import com.workplace.auth.service.AgentApiKeyService;
@@ -57,10 +58,12 @@ public class AgentStatusReportService {
   private final AgentRuntimeProperties properties;
 
   /**
-   * 상태 보고 처리. 순서: 테넌트가 없으면 RUN → 설정 행을 잠가 읽음(없으면 RUN — 칸도 저장하지 않는다) → 칸 저장 → 남아 있던 진입점 차단 메시지 비움(지금
-   * generation 이상이고 지금 Pod 의 보고일 때만, 화면에 보이던 것을 비우면 알림 포함) → 옛 Pod 칸 정리 → 모든 칸을 합쳐 agent_* 칸에 씀(비운
-   * 차단이 반영된 행 — 응답·깨움 판정에 쓴다) → 합친 상태가 쉬는 중으로 막 바뀌었고 교체 대기면 이벤트 → 화면 값이 바뀌었거나 칸 차단을 비웠으면 알림(한 보고에 한
-   * 번) → 원하는 상태 계산. 깨움은 막 쉬는 중이 됐거나 runner 판정이 지금 적용으로 바뀐 보고에서 한 번만 낸다.
+   * 상태 보고 처리. 순서: 테넌트가 없으면 RUN → 설정 행을 잠가 읽음(없으면 RUN — 칸도 저장하지 않는다) → Pod 정체 판정(WP-1968 — 관찰 정체와
+   * 다르면 저장 없이 저장된 행 기준 응답, 낮은 generation 보고는 ADOPT 로 받지 않고(5차 반려 ④), 정체를 모르면 지금 시각 규칙) → 정체가 같아도 지금
+   * Pod 보다 이른 시작 거절(5차 반려 ②) → 칸 저장 → 기준 갱신(정체가 같으면 보고 값으로 덮어씀) → 남아 있던 진입점 차단 메시지 비움(지금 generation
+   * 이상이고 지금 Pod 의 보고일 때만, 화면에 보이던 것을 비우면 알림 포함) → 옛 Pod 칸 정리 → 모든 칸을 합쳐 agent_* 칸에 씀(비운 차단이 반영된 행 —
+   * 응답·깨움 판정에 쓴다) → 합친 상태가 쉬는 중으로 막 바뀌었고 교체 대기면 이벤트 → 화면 값이 바뀌었거나 칸 차단을 비웠으면 알림(한 보고에 한 번) → 원하는 상태
+   * 계산. 깨움은 막 쉬는 중이 됐거나 runner 판정이 지금 적용으로 바뀐 보고에서 한 번만 낸다.
    *
    * <p>설정 행을 먼저 잠그므로 같은 AI 의 두 칸이 동시에 보고해도 칸 쓰기·합치기가 차례로 서서 합친 값이 어긋나지 않는다.
    */
@@ -76,12 +79,49 @@ public class AgentStatusReportService {
     // 보고한 Pod 시작 시각(WP-1958) — 서버 시각보다 30초 넘게 앞선 값은 시계 이상이라 버린다(시각 없는 보고처럼 다룬다).
     OffsetDateTime pod = AgentRuntimeSlotRepository.acceptedPodStart(req.podStartedAt(), now);
     // 지금 Pod 시작 = 관찰한 시작 시각과 보고가 올려 둔 Pod 시작 시각 중 늦은 쪽 — runner 가 새 Pod 를 관찰하기 전에도 새 Pod 의 보고로
-    // 옛 Pod 를 가른다.
+    // 옛 Pod 를 가른다. 정체 판정(아래)이 ADOPT 를 가르는 데도 이 값을 쓴다.
     OffsetDateTime current =
         AgentRuntimeSlotRepository.currentPodStart(
             before.startedAt(), before.reportedPodStartedAt());
-    // 지금 Pod 보다 30초 넘게 앞선 Pod 의 보고는 끝나는 중인 옛 Pod 의 늦은 보고다 — 칸·합친 상태·차단 비움 어느 것도 쓰지 않고 버린다.
-    // 쓰면 새 Pod 가 IDLE 인데 옛 Pod 의 WORKING 이 칸을 덮어 AI 가 영영 작업 중으로 남는다. 응답(원하는 상태)은 저장된 행 기준으로 준다.
+    // WP-1968 반려 ①: 보고에 실은 Pod 정체(metadata.uid)를 지금까지 알던 정체와 견본다 — 관찰(약 60초)을 기다리지 않고 보고가 스스로 밝힌다.
+    // 지금 정체와 같으면 지금 Pod(MATCH), 바로 앞 정체면 끝나는 중인 옛 Pod(OTHER — 저장 없이 버린 채 저장된 행 기준 응답), 그 밖에 보고에
+    // 시작 시각이 있으면 재시작 직후 새 Pod 가 밝힌 정체(ADOPT — 지금 Pod 로 받아들인 뒤 MATCH 로 잇는다). 정체를 모르면(보고에 없음 —
+    // 옛 이미지) 지금처럼 시각 규칙으로 가른다. ADOPT 는 보고의 Pod 시작이 지금 알던 Pod 시작보다 30초 넘게 이른 경우에 거절하고(C1 — 두
+    // 세대 넘게 지연된 옛 Pod), 시작 시각이 없는 모르는 정체도 거절한다(OTHER — 2차 반려 ②) : acceptedPodStart 가 시계 이상을 걸러
+    // null 로 만든 뒤 검사 없이 ADOPT 되면 정체가 과거로 되돌아 영구 교착이 생기고, 관찰이 정체를 밝힌 뒤 MATCH 로 받기 때문이다.
+    PodIdentity identity =
+        AgentRuntimeSlotRepository.podIdentity(
+            req.podUid(), before.observedPodUid(), before.previousPodUid(), pod, current);
+    // 5차 반려 ④: 낮은 generation 보고는 정체를 ADOPT 하지 않는다 — 몇 초만 살았던 옛 Pod 의 늦은 보고가 정체를 되돌리면(observed=옛
+    // Pod,
+    // previous=지금 Pod) 살아 있는 지금 Pod 가 영원히 previous 로 남아 이 뒤의 상태 보고가 계속 무시된다. 막힌 보고는 OTHER 로 바뀌어
+    // 아래에서
+    // 저장 없이 저장된 행 기준 응답을 준다.
+    identity =
+        AgentRuntimeSlotRepository.barStaleAdopt(identity, req.generation(), before.generation());
+    if (identity == PodIdentity.ADOPT) {
+      log.info(
+          "보고가 처음 밝힌 Pod 정체를 지금 Pod 로 받았어요: agentUserId={} slot={} podUid={} previous={}",
+          userId,
+          key,
+          req.podUid(),
+          before.observedPodUid());
+      before = settings.adoptPodIdentity(before, req.podUid(), pod);
+      identity = PodIdentity.MATCH;
+    }
+    if (identity == PodIdentity.OTHER) {
+      log.info(
+          "지난 Pod 의 늦은 상태 보고를 버렸어요: agentUserId={} slot={} podUid={} observedPodUid={}",
+          userId,
+          key,
+          req.podUid(),
+          before.observedPodUid());
+      return new AgentStatusReportResponse(desiredFor(before, req.generation(), tenantId, null));
+    }
+    // 시각 거절은 정체와 상관없이 본다(5차 반려 ②) — 같은 Pod 안 컨테이너 재시작(restartPolicy Always → uid 고정)에서는 정체가 같아도
+    // 재시작 전 컨테이너의 늦은 보고가 기준을 되돌려 WP-1958 이 회귀한다. 지금 Pod 시작보다 30초 넘게 이른 시작은 정체가 같아도 지금 Pod 가
+    // 아니다. 정체를 모르는 보고(UNKNOWN)도 같은 시각 규칙이다 — 늦은 보고는 칸·합친 상태·차단 비움 어느 것도 쓰지 않는다(새 Pod 가 IDLE
+    // 인데 옛 Pod 의 WORKING 이 칸을 덮어 AI 가 영영 작업 중으로 남는다). 응답(원하는 상태)은 저장된 행 기준으로 준다.
     if (AgentRuntimeSlotRepository.isOlderPod(pod, current)) {
       log.info(
           "옛 Pod 의 늦은 상태 보고를 버렸어요: agentUserId={} slot={} podStartedAt={} currentPodStart={}",
@@ -91,16 +131,13 @@ public class AgentStatusReportService {
           current);
       return new AgentStatusReportResponse(desiredFor(before, req.generation(), tenantId, null));
     }
-    slots.upsert(userId, key, req.state(), req.issueKey(), req.nextCheckAt(), now, pod);
-    if (pod != null
-        && (before.reportedPodStartedAt() == null || pod.isAfter(before.reportedPodStartedAt()))) {
-      settings.raiseReportedPodStart(userId, pod);
-    }
-    // 이번 보고로 올라간 뒤의 지금 Pod 시작(위 거르기를 통과했으니 pod 는 current 이상이거나 30초 여유 안이다).
+    // 칸 행에는 이 보고를 보낸 Pod 정체를 남긴다(WP-1968 반려 ③) — 정체가 없는 보고(옛 플러그인)는 null 로 남아 기존 시각 규칙으로 가른다.
+    slots.upsert(
+        userId, key, req.state(), req.issueKey(), req.nextCheckAt(), now, pod, req.podUid());
+    // 기준(reported_pod_started_at) 갱신과 이 보고 뒤의 기준(합치기 계산에 쓴다) — 갱신 규칙·근거는 메서드 문서(WP-1968).
+    OffsetDateTime basisAfter = settings.refreshReportedPodStart(before, identity, pod);
     OffsetDateTime newCurrent =
-        AgentRuntimeSlotRepository.currentPodStart(
-            before.startedAt(),
-            AgentRuntimeSlotRepository.laterOf(before.reportedPodStartedAt(), pod));
+        AgentRuntimeSlotRepository.currentPodStart(before.startedAt(), basisAfter);
     // 칸이 도는 중인 보고 = 칸이 띄워졌다는 증거 — 남아 있던 진입점 차단 보고를 비운다(WP-1913 백스톱).
     // 진입점이 다시 차단되면 그때 다시 쌓인다. 비우려면 아래 두 조건을 **모두** 만족해야 한다.
     // ① generation — 보고한 generation 이 차단의 generation 이상일 때만. 차단 generation 을 모르는(_null) 옛 이미지의
@@ -126,13 +163,21 @@ public class AgentStatusReportService {
         req.generation() == null
             || blockedGeneration == null
             || req.generation() >= blockedGeneration;
-    // 차단한 Pod 시작 시각을 알면(WP-1958) 그 Pod 이후의 보고만 비운다 — 새 Pod 가 차단했는데 옛 Pod 의 늦은 칸 보고가 지우면 안 된다.
-    // 모르면(옛 이미지의 차단) 지금 규칙 그대로 관찰한 시작 시각과 견준다.
+    // ② 지금 Pod — 정체가 같은 보고는 여기까지 오기 전 위 시각 거절(5차 반려 ② — 지금 Pod 시작과 견빔)을 이미 통과했고, 칸이 기록한 시작
+    //    (pane_blocked_pod_started_at)과는 정체로 견준다(WP-1968 반려 ④: 끝나는 중인 옛 Pod 가 빠른 시계로 그 값을 높게 올려 둔
+    // 뒤에도 지금
+    //    Pod 가 자기 차단을 비울 수 있게). 정체를 모르는 보고(옛 플러그인)는
+    //    지금까지처럼 보고에 실은 **Pod 시작 시각**이 지금 Pod 보다 30초 이상 뒤일 때만(= podStartCutoff(startedAt) 이후). 그보다
+    // 앞선
+    //    보고는 끝나는 중인 옛 Pod 의 것이라 새 Pod 진입점이 다시 보고하기 전에 「오류」를 지우면 안 된다(WP-1253 칸 거르기와 같은 여유).
+    //    서버가 보고를 받은 시각으로는 이 판정을 못 한다 — 옛 Pod 의 늦은 보고도 새 Pod 가 뜬 뒤에 도착해 받은 시각이 늘 지금이기 때문이다(리뷰
+    //    반려 ①). 지금 Pod 를 아직 관찰 전(시작 시각 null)이거나, 보고가 시각을 모르면 그대로 믿는다.
     OffsetDateTime podRef =
         before.paneBlockedPodStartedAt() != null
             ? before.paneBlockedPodStartedAt()
             : before.startedAt();
-    boolean fromCurrentPod = !AgentRuntimeSlotRepository.isOlderPod(pod, podRef);
+    boolean fromCurrentPod =
+        identity == PodIdentity.MATCH || !AgentRuntimeSlotRepository.isOlderPod(pod, podRef);
     boolean mayClearPane = fromCurrentGeneration && fromCurrentPod;
     if (paneStored && mayClearPane) {
       settings.updatePaneBlocked(userId, null, null, null, null);
@@ -143,7 +188,14 @@ public class AgentStatusReportService {
     // 시각이 지금이라 오래되지도 않으므로 늘 남는다 — 그래서 agent_reported_at(AgentSlotAggregate.latestReportedAt)도 지금이다.
     // 차단을 비운 뒤에 쓰므로 RETURNING 행에 비운 차단이 반영된다 — 응답·깨움 판정이 이 보고가 지운 차단을 다시 읽지 않는다.
     Row row =
-        slotWriter.write(userId, slots.findAll(userId), before.startedAt(), newCurrent, now, key);
+        slotWriter.write(
+            userId,
+            slots.findAll(userId),
+            before.observedPodUid(),
+            before.startedAt(),
+            newCurrent,
+            now,
+            key);
 
     // 「쉬는 중으로 막 바뀜」은 합친 상태로 판정한다 — 모든 칸이 쉬게 된 보고에서만 이벤트가 나간다.
     boolean becameIdle = row.isIdle() && !before.isIdle();

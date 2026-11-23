@@ -133,6 +133,20 @@ public class AgentRuntimeSlotStateRecord extends UpdatableRecordImpl<AgentRuntim
         return (OffsetDateTime) get(7);
     }
 
+    /**
+     * Setter for <code>public.agent_runtime_slot_state.pod_uid</code>.
+     */
+    public void setPodUid(String value) {
+        set(8, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_slot_state.pod_uid</code>.
+     */
+    public String getPodUid() {
+        return (String) get(8);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -156,7 +170,7 @@ public class AgentRuntimeSlotStateRecord extends UpdatableRecordImpl<AgentRuntim
     /**
      * Create a detached, initialised AgentRuntimeSlotStateRecord
      */
-    public AgentRuntimeSlotStateRecord(Long tenantId, Long agentUserId, String slotKey, String state, String issueKey, OffsetDateTime nextCheckAt, OffsetDateTime reportedAt, OffsetDateTime podStartedAt) {
+    public AgentRuntimeSlotStateRecord(Long tenantId, Long agentUserId, String slotKey, String state, String issueKey, OffsetDateTime nextCheckAt, OffsetDateTime reportedAt, OffsetDateTime podStartedAt, String podUid) {
         super(AgentRuntimeSlotState.AGENT_RUNTIME_SLOT_STATE);
 
         setTenantId(tenantId);
@@ -167,6 +181,7 @@ public class AgentRuntimeSlotStateRecord extends UpdatableRecordImpl<AgentRuntim
         setNextCheckAt(nextCheckAt);
         setReportedAt(reportedAt);
         setPodStartedAt(podStartedAt);
+        setPodUid(podUid);
         resetTouchedOnNotNull();
     }
 }

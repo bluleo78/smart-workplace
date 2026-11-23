@@ -297,6 +297,8 @@ export function buildAgentResources(
   const env: V1EnvVar[] = [
     { name: 'GENIA_AGENT_NAME', value: agent.username },
     { name: 'GENIA_AGENT_GENERATION', value: String(agent.generation) },
+    // WP-1968 — Pod 자체 uid 를 downward API 로 싣는다: 옛/새 Pod 를 시계가 아니라 정체로 가르게 하려고
+    { name: 'GENIA_AGENT_POD_UID', valueFrom: { fieldRef: { fieldPath: 'metadata.uid' } } },
     { name: 'GENIA_WORKS_TENANT', value: String(agent.tenantId) },
     { name: 'GENIA_WORKS_API_URL', value: ctx.apiUrl },
     { name: 'GENIA_WORKS_MCP_URL', value: ctx.mcpUrl },

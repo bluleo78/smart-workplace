@@ -13,8 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
+import com.workplace.agentruntime.dto.RunnerObservedAgent;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
+import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
@@ -64,6 +66,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   @Autowired AgentApiKeyRepository keyRepo;
   @Autowired ApplicationEvents appEvents;
   @Autowired AgentRuntimeSlotRepository slots;
+  @Autowired AgentRuntimeSettingRepository settings;
 
   private long admin;
   private AgentRuntimeTestFixtures fx;
@@ -474,7 +477,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   private String slotReport(
       String state, String slot, String issueKey, Long generation, String nextCheckAt)
       throws Exception {
-    return slotReportBody(state, slot, issueKey, generation, nextCheckAt, null);
+    return slotReportBody(state, slot, issueKey, generation, nextCheckAt, null, null);
   }
 
   /**
@@ -483,17 +486,30 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   private String slotReportWithPod(
       String state, String slot, String issueKey, Long generation, OffsetDateTime podStartedAt)
       throws Exception {
-    return slotReportBody(state, slot, issueKey, generation, null, podStartedAt);
+    return slotReportBody(state, slot, issueKey, generation, null, podStartedAt, null);
   }
 
-  /** 칸 보고 본문 — null 인 값은 싣지 않는다. 선택 값(다음 확인 시각·Pod 시작 시각)은 한 군데서만 쌓아 본문이 어긋나지 않게 한다. */
+  /** 칸 보고 본문(Pod 정체 포함) — 보고하는 Pod 의 {@code metadata.uid} 를 싣고 관찰 정체와 견겨 보고를 받거나 버린다(WP-1968). */
+  private String slotReportWithIdentity(
+      String state,
+      String slot,
+      String issueKey,
+      Long generation,
+      OffsetDateTime podStartedAt,
+      String podUid)
+      throws Exception {
+    return slotReportBody(state, slot, issueKey, generation, null, podStartedAt, podUid);
+  }
+
+  /** 칸 보고 본문 — null 인 값은 싣지 않는다. 선택 값(다음 확인 시각·Pod 시작 시각·Pod 정체)은 한 군데서만 쌓아 본문이 어긋나지 않게 한다. */
   private String slotReportBody(
       String state,
       String slot,
       String issueKey,
       Long generation,
       String nextCheckAt,
-      OffsetDateTime podStartedAt)
+      OffsetDateTime podStartedAt,
+      String podUid)
       throws Exception {
     Map<String, Object> body = new java.util.LinkedHashMap<>();
     body.put("state", state);
@@ -502,6 +518,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     if (generation != null) body.put("generation", generation);
     if (nextCheckAt != null) body.put("nextCheckAt", nextCheckAt);
     if (podStartedAt != null) body.put("podStartedAt", podStartedAt);
+    if (podUid != null) body.put("podUid", podUid);
     return om.writeValueAsString(body);
   }
 
@@ -601,7 +618,14 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     long g = fx.generationOf(agent);
     setRow(agent, g - 1, "IDLE", "RUN");
     slots.upsert(
-        agent, "HR", AgentState.WORKING, "HR-2", null, OffsetDateTime.now().minusHours(7), null);
+        agent,
+        "HR",
+        AgentState.WORKING,
+        "HR-2",
+        null,
+        OffsetDateTime.now().minusHours(7),
+        null,
+        null);
 
     report(key, slotReport("IDLE", "WP", null, g - 1))
         .andExpect(status().isOk())
@@ -1129,5 +1153,286 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     tools.jackson.databind.JsonNode agents = om.readTree(json).get("agents");
     assertThat(agents).hasSize(1);
     assertThat(agents.get(0).get("applyNow").asBoolean()).isFalse();
+  }
+
+  // ---- WP-1968 상태 보고를 Pod 정체로 받고/버린다 ----
+
+  /** runner 가 관찰한 Pod 정체와 보고가 올려 둔 Pod 시작 기준(reported_pod_started_at)을 직접 맞춘다. */
+  private void setObservedPod(String observedPodUid, OffsetDateTime reportedPodStartedAt) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID, observedPodUid)
+        .set(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT, reportedPodStartedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /** 바로 앞에 쓰이던 Pod 정체(previous_pod_uid)를 직접 심는다 — 끝나는 중인 옛 Pod 의 늦은 보고를 재현하기 위해(WP-1968 반려 ①). */
+  private void setPreviousPodUid(String previousPodUid) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID, previousPodUid)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /**
+   * 정체가 같아도 저장된 기준보다 이른 시작의 보고는 저장하지 않는다(WP-1968 5차 반려 ②) — 같은 Pod 안 컨테이너 재시작(restartPolicy Always
+   * → uid 고정)에서는 정체가 같아도 재시작 전 컨테이너의 늦은 보고가 기준을 되돌리고 칸을 덮어 WP-1958 이 회귀한다. 응답은 저장된 행 기준 그대로다.
+   */
+  @Test
+  void status_정체가_같아도_이른_시작_보고는_저장하지_않는다() throws Exception {
+    // 저장된 기준이 보고 값보다 5분 뒤(재시작한 컨테이너가 올려 둔 값) — 정체는 같지만 보고한 시작은 앞 컨테이너 쪽이다.
+    setObservedPod("pod-a", POD_NEW.plusMinutes(5));
+
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, POD_NEW, "pod-a"))
+        .andExpect(status().isOk());
+
+    // 칸·합친 상태·기준 어느 것도 쓰지 않는다.
+    assertThat(slotKeysOf(agent)).isEmpty();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.plusMinutes(5).toInstant());
+  }
+
+  /**
+   * 정체가 같은 지금 Pod 는 시계와 상관없이 자기 진입점 차단을 비운다(WP-1968 반려 ④) — 빠른 시계의 죽은 옛 Pod 가 높은 {@code
+   * pane_blocked_pod_started_at} 을 남기면, 지금 Pod 의 정상 보고가 「지금 Pod 보다 이른 옛 보고」로 오판돼 「오류」가 영영 남았다.
+   */
+  @Test
+  void status_정체가_같으면_지난_Pod_가_남긴_차단을_비운다() throws Exception {
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    setObservedPod("pod-b", POD_NEW);
+    setPreviousPodUid("pod-a");
+    // 빠른 시계의 죽은 옛 Pod 가 남긴 차단 — 차단한 시작 시각이 지금 Pod 시작보다 뒤라 시계 판정으로는 비워지지 않는다.
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "설정 오류로 칸을 못 띄웠어요")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, gen)
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT, POD_NEW.plusMinutes(5))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, POD_NEW, "pod-b"))
+        .andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_POD_STARTED_AT)).isNull();
+  }
+
+  /**
+   * **지난** Pod 의 보고는 저장하지 않는다(버리기) — 보고의 Pod 정체가 바로 앞 정체(끝나는 중인 옛 Pod)면 칸·합친 상태·기준 어느 것도 쓰지 않고, 상태
+   * 엔드포인트는 오늘 옛 Pod 거절과 같이 HTTP 200 + 응답 `desired` 는 저장된 행 기준이다(여기서는 desired=STOP → DRAIN, 칸이 쓰였다면
+   * WORKING 저장과 기준 이동이 드러난다). 지금 정체와 **다른** 보고(재시작 직후 새 Pod)는 버리지 않고 지금 Pod 로 받아진다(WP-1968 반려 ①).
+   */
+  @Test
+  void status_지난_Pod_의_보고는_저장하지_않고_저장된_행_기준을_준다() throws Exception {
+    setObservedPod("pod-a", null);
+    setPreviousPodUid("pod-b");
+    setRow(agent, null, "IDLE", "STOP");
+
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, POD_NEW, "pod-b"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("DRAIN"));
+
+    assertThat(slotKeysOf(agent)).isEmpty();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    // 관찰 정체도 되돌아가지 않는다(지금 Pod 를 옛 Pod 로 뒤집지 않는다).
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
+  }
+
+  /**
+   * 관찰이 아직 옛 정체를 가리키는 동안에 온 새 Pod 의 첫 보고도 지금 Pod 로 받아들인다(WP-1968 반려 ①) — runner 관찰(약 60초)을 기다리는 동안
+   * 재시작 직후 새 Pod 의 보고가 버려지지 않게 한다. 칸은 그 보고로 쓰이고, 지금 정체는 바로 앞 정체로 미뤄 둔다(지연 도착한 옛 Pod 보고가 되돌리지 못하게).
+   */
+  @Test
+  void status_보고가_밝힌_정체는_관찰_없이_지금_Pod_로_받는다() throws Exception {
+    setObservedPod("pod-old", null);
+    setRow(agent, null, "IDLE", "RUN");
+
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, POD_NEW, "pod-new"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RUN"));
+
+    assertThat(slotKeysOf(agent)).containsExactly("X");
+    assertThat(slotState("X")).isEqualTo("WORKING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-old");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+
+    // 그 뒤 옛 Pod 의 늦은 보고는 이미 정체가 밝혀진 뒤라 버려진다 — 칸이 옛 Pod 로 바뀌지 않는다.
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_OLD, "pod-old"))
+        .andExpect(status().isOk());
+    assertThat(slotState("X")).isEqualTo("WORKING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-new");
+  }
+
+  /**
+   * 정체가 없는 보고(관찰 정체 null + 보고 `podUid` 없음 — 옛 플러그인)는 정체 판정이 UNKNOWN 이라 지금 시각 규칙이 그대로다: 지금 Pod 보다
+   * 30초 넘게 앞선 옛 Pod 보고는 칸을 쓰지 않고 버리고, 정상 보고의 기준은 기존처럼 max 로 올라간다(Review Focus 1·5 — 정체를 싣지 않는 이미지의
+   * 동작이 바뀌지 않음을 고정)(WP-1968).
+   */
+  @Test
+  void status_정체가_없는_보고는_시각_규칙_그대로다() throws Exception {
+    setStartedAt(POD_NEW); // 관찰 정체(OBSERVED_POD_UID)는 그대로 null
+
+    report(key, slotReportWithPod("IDLE", "A", null, null, POD_NEW)).andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+
+    report(key, slotReportWithPod("WORKING", "B", "WP-9", null, POD_OLD))
+        .andExpect(status().isOk());
+
+    assertThat(slotKeysOf(agent)).containsExactly("A");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    // 옛 Pod 보고는 기준도 올리지 않는다.
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+  }
+
+  /**
+   * 관찰 정체는 있는데 보고에 정체가 없는 보고(이미 배포된 옛 이미지)도 UNKNOWN 이라 시각 규칙으로만 가른다(WP-1968 Review Focus 5) — 관찰
+   * 정체가 있다는 이유로 거절하지 않고, 정상 보고는 받아 기준을 올린다. 위 「정체가 없는 보고」(관찰까지 없는 쪽)와 짝을 이뤄, 정체를 싣지 않는 이미지의 동작이 관찰
+   * 유무와 상관없이 그대로임을 고정한다.
+   */
+  @Test
+  void status_관찰_정체가_있어도_보고에_정체가_없으면_시각_규칙_그대로다() throws Exception {
+    setStartedAt(POD_NEW);
+    setObservedPod("pod-a", null); // 관찰 정체는 있고, 보고에는 podUid 가 없다
+
+    report(key, slotReportWithPod("IDLE", "A", null, null, POD_NEW)).andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+
+    // 정체로 거절하지 않으므로 버려짐은 시각 규칙이 맡는다 — 30초 넘게 이른 옛 Pod 보고는 기존처럼 칸을 쓰지 않는다.
+    report(key, slotReportWithPod("WORKING", "B", "WP-9", null, POD_OLD))
+        .andExpect(status().isOk());
+
+    assertThat(slotKeysOf(agent)).containsExactly("A");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+  }
+
+  /** runner 관찰 한 건을 정체·phase·시작 시각과 함께 보낸다 — 배포 직후 롤링 재시작을 재현하기 위해(WP-1968 2차 반려 ①). */
+  private void observe(String podUid, OffsetDateTime startedAt, String phase) {
+    Long loc = settingOf(agent).get(AGENT_RUNTIME_SETTING.LOCATION_ID);
+    settings.updateObserved(
+        loc == null ? 0L : loc,
+        true,
+        List.of(
+            new RunnerObservedAgent(
+                agent, null, phase, null, null, null, startedAt, null, podUid)));
+  }
+
+  /**
+   * 배포 직후 롤링 재시작 — 새 Pod B 보고가 ADOPT 로 정체를 채운 뒤(previous 는 비어 있음) 늦게 도착한 옛 Pod A 관찰이 정체를 뒤집지 않고, B
+   * 의 다음 보고도 그대로 저장된다(WP-1968 2차 반려 ①) — 뒤집히면 observed=A·previous=B 가 돼 B 의 보고는 영영 OTHER(상태 버림·칸
+   * 409 무한)이고, B 관찰은 previous=B 라 stale 로 걸려 스스로 회복되지 않는다.
+   */
+  @Test
+  void status_배포_직후_새_Pod_보고_뒤_옛_Pod_관찰이_정체를_뒤집지_못한다() throws Exception {
+    // 배포 직후 — observed·previous 가 비어 있어 새 Pod B 의 첫 보고가 ADOPT 로 정체를 밝힌다.
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, POD_NEW, "pod-b"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(slotState("X")).isEqualTo("WORKING");
+
+    // 아직 끝나는 중인 옛 Pod A 를 늦게 관찰한다 — 지난 정체라 아예 받지 않는다(정체·시각이 되돌아가지 않는다).
+    observe("pod-a", POD_OLD, "RUNNING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+
+    // B 의 다음 보고는 교착 없이 MATCH 로 저장된다.
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, POD_NEW, "pod-b"))
+        .andExpect(status().isOk());
+    assertThat(slotState("X")).isEqualTo("IDLE");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+  }
+
+  /**
+   * 끝나는 중인 옛 Pod 관찰은 previous 가 비어 있어도 정체를 되돌리지 않는다(WP-1968 2차 반려 ①) — 시작 시각이 지금과 같아 시계로는 잡히지 않아도,
+   * 끝나는 중(STOPPING·STOPPED·시작이 이르지 않은 FAILED)의 정체가 다른 관찰은 지금 정체를 밝힌 보고를 무력화하지 않는다. 끝나지 않은 정체가 다른
+   * 관찰(정체를 밝히는 첫 관찰)은 그대로 받아 정체를 갈아끼운다 — 필터가 과잉이 아님을 함께 고정한다.
+   */
+  @Test
+  void status_끝나는_중인_옛_Pod_관찰은_previous_없이도_정체를_되돌리지_못한다() throws Exception {
+    // 보고가 방금 ADOPT 한 정체(pod-b) — previous 는 비어 있고 시작 시각만 B 의 것으로 바뀌어 있다.
+    setObservedPod("pod-b", POD_NEW);
+    setStartedAt(POD_NEW);
+
+    observe("pod-a", POD_NEW, "STOPPED");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
+
+    observe("pod-a", POD_NEW, "RUNNING");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-b");
+  }
+
+  /**
+   * 새로 뜬 실패 Pod 의 관찰이 받아진다(WP-1968 3차 반려 ①) — FAILED 를 무조건 끝나는 중 phase 로 넣어 두면 지금 정체(이전 Pod)를 가리키는
+   * 행에 새 Pod 의 FAILED 관찰이 매번 버려져, ImagePullBackOff 같은 「오류」가 화면에 안 뜬다. 시작이 이르지 않은(끝나는 중인)FAILED 는
+   * 그대로 걸린다.
+   */
+  @Test
+  void status_실패한_새_Pod_첫_관찰이_버려지지_않는다() throws Exception {
+    // 지금 Pod(pod-a, 시작 POD_OLD)보다 뒤에 뜬 실패 Pod(pod-b) — 관찰이 받아져 정체를 갈아끼운다.
+    setObservedPod("pod-a", POD_OLD);
+    setStartedAt(POD_OLD);
+
+    observe("pod-b", POD_NEW, "FAILED");
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-a");
+
+    // 바로 앞 정체(previous)의 FAILED 관찰은 끝나는 중인 옛 Pod 라 그대로 지난 정체다.
+    observe("pod-a", POD_OLD, "FAILED");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-a");
+  }
+
+  /**
+   * 시작 시각이 걸러진(null) 모르는 정체의 상태 보고는 저장하지 않고 저장된 행 기준 응답을 준다(WP-1968 2차 반려 ②) — acceptedPodStart 가
+   * 시계 이상을 걸러 null 로 만든 뒤 검사 없이 ADOPT 되면, 빠른 시계 노드의 죽은 옛 Pod 가 정체를 과거로 되돌려 영구 교착이 생기고 WP-1958 보호도
+   * 사라진다. 관찰(약 60초)이 정체를 밝힌 뒤 다시 오면 MATCH 로 저장된다.
+   */
+  @Test
+  void status_시각_없는_모르는_정체는_저장하지_않는다() throws Exception {
+    setObservedPod("pod-a", POD_NEW);
+    setRow(agent, null, "IDLE", "RUN");
+
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, null, "pod-new"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RUN"));
+
+    assertThat(slotKeysOf(agent)).isEmpty();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
+  }
+
+  /**
+   * 낮은 generation 보고는 정체를 ADOPT 하지 않는다(WP-1968 5차 반려 ④) — 몇 초만 살았던 옛 Pod(B)의 늦은 보고가 정체를 되돌리면
+   * (observed=B·previous=C) 살아 있는 지금 Pod(C)가 영원히 previous 로 남아 이 뒤의 상태 보고가 계속 무시된다. ADOPT 대신 저장 없이
+   * 버리고 정체는 그대로다.
+   */
+  @Test
+  void status_낮은_generation_보고는_정체를_ADOPT_하지_않는다() throws Exception {
+    long gen = settingOf(agent).get(AGENT_RUNTIME_SETTING.GENERATION);
+    setObservedPod("pod-c", POD_NEW);
+
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", gen - 1, POD_NEW, "pod-b"))
+        .andExpect(status().isOk());
+
+    assertThat(slotKeysOf(agent)).isEmpty();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-c");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
+        .isEqualTo(POD_NEW.toInstant());
   }
 }

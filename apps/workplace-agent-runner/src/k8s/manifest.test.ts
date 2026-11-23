@@ -71,6 +71,8 @@ describe('buildAgentResources', () => {
     const env = Object.fromEntries((agent.env ?? []).map((e) => [e.name, e]));
     expect(env.GENIA_AGENT_NAME?.value).toBe('dev-ai');
     expect(env.GENIA_AGENT_GENERATION?.value).toBe('7');
+    // WP-1968 — Pod 정체(uid)는 downward API 로: 옛/새 Pod 를 시계가 아니라 정체로 가르게 하려고
+    expect(env.GENIA_AGENT_POD_UID?.valueFrom?.fieldRef?.fieldPath).toBe('metadata.uid');
     expect(env.GENIA_WORKS_TENANT?.value).toBe('1');
     expect(env.GENIA_WORKS_API_URL?.value).toBe('https://works.example.test/api/v1');
     expect(env.GENIA_WORKS_MCP_URL?.value).toBe('https://works.example.test/mcp');

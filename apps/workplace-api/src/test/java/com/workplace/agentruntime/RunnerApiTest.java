@@ -351,7 +351,7 @@ class RunnerApiTest extends IntegrationTestBase {
         .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, "WP-1")
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
         .execute();
-    slots.upsert(a1, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1);
+    slots.upsert(a1, "WP", AgentState.WORKING, "WP-1", null, t1.plusSeconds(5), t1, null);
     String aiKey = keyService.issueManaged(a1, 1L, null, null, "L1").plaintext();
 
     reportPane(aiKey, "\"state\":\"BLOCKED\",\"message\":\"시작 실패\"", running, t2);
@@ -621,6 +621,111 @@ class RunnerApiTest extends IntegrationTestBase {
                 .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
                 .fetchOne(0, Long.class))
         .isNull();
+  }
+
+  /** 설정 행에 저장된 관찰 Pod 정체(WP-1968). */
+  private String observedPodUidOf(long agent) {
+    return dsl.selectFrom(AGENT_RUNTIME_SETTING)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .fetchOne(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID);
+  }
+
+  /**
+   * WP-1968: 관찰 보고의 Pod 정체(podUid)를 설정 행에 저장한다 — 다음 작업이 이 값으로 보고의 주인을 가려, 노드 시계가 어긋나도 새 Pod 보고가
+   * 버려지지 않게 한다.
+   */
+  @Test
+  void observed_savesPodUidOnSettingRow() throws Exception {
+    observed(
+            t1,
+            "{\"agents\":[{\"agentUserId\":"
+                + a1
+                + ",\"phase\":\"RUNNING\",\"podUid\":\"pod-alpha\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1));
+
+    assertThat(observedPodUidOf(a1)).isEqualTo("pod-alpha");
+  }
+
+  /** WP-1968: podUid 없는 보고(옛 runner·일시 오류)는 지난 정체를 지우지 않는다 — coalesce 로 지난 값을 지킨다. */
+  @Test
+  void observed_withoutPodUid_keepsPreviousPodUid() throws Exception {
+    observed(
+            t1,
+            "{\"agents\":[{\"agentUserId\":"
+                + a1
+                + ",\"phase\":\"RUNNING\",\"podUid\":\"pod-alpha\"}]}")
+        .andExpect(status().isOk());
+
+    observed(t1, "{\"agents\":[{\"agentUserId\":" + a1 + ",\"phase\":\"RUNNING\"}]}")
+        .andExpect(status().isOk());
+
+    assertThat(observedPodUidOf(a1)).isEqualTo("pod-alpha");
+  }
+
+  /** 설정 행의 AI 상태(agent_state)를 직접 읽는다 — 관찰 정체 판정이 옛 Pod 보고 상태를 지우는지 단언하기 위해(WP-1968). */
+  private String agentStateOf(long agent) {
+    return dsl.selectFrom(AGENT_RUNTIME_SETTING)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .fetchOne(AGENT_RUNTIME_SETTING.AGENT_STATE);
+  }
+
+  /**
+   * WP-1968: 관찰 정체(podUid)가 지난 정체와 바뀌면(새 Pod) 옛 Pod 가 보고한 agent_state 를 지운다 — 옛 Pod 의 「쉬는 중」이 새 Pod
+   * 를 바로 갈아치우지 않게. 정체를 A 로 먼저 잡은 뒤 상태를 심어, 최초 관찰(정체 없음→A)이 아니라 「바뀜(A→B)」만으로 지워짐을 단언한다. 보고는
+   * phase·podUid 만 싣는다 — startedAt·observedGeneration 없이는 reportedByNewPod 가드(AI 보고가 그 Pod 시작 뒤면
+   * 남긴다)와 다른 새 Pod 조건이 개입할 여지가 없어 정체 변경이 유일한 근거가 된다.
+   */
+  @Test
+  void observed_podUidChange_clearsAgentStateReportedByOldPod() throws Exception {
+    // 정체를 A 로 잡는다 — 관찰 정체가 없는 행에 심은 상태는 최초 관찰(null→A)만으로도 지워져 바뀜을 따로 단언할 수 없게 된다.
+    observed(
+            t1,
+            "{\"agents\":[{\"agentUserId\":"
+                + a1
+                + ",\"phase\":\"RUNNING\",\"podUid\":\"pod-a\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1));
+    // 옛 Pod A 가 보고한 것처럼 상태를 심는다(관찰 정체는 그대로 A).
+    setObserved(a1, fx.generationOf(a1), "WORKING", "NOW");
+    assertThat(agentStateOf(a1)).isEqualTo("WORKING");
+
+    // 정체가 B 로 바뀌면 새 Pod — 심어 둔 상태가 지워진다(정체 조건이 없으면 유지돼 빨간 불이 된다).
+    observed(
+            t1,
+            "{\"agents\":[{\"agentUserId\":"
+                + a1
+                + ",\"phase\":\"RUNNING\",\"podUid\":\"pod-b\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1));
+    assertThat(agentStateOf(a1)).isNull();
+  }
+
+  /**
+   * WP-1968: 같은 정체(podUid)를 반복 관찰하면 새 Pod 가 아니라서 심어 둔 agent_state 가 유지된다 — 정체 비교가 값이 다를 때만 새 Pod 로
+   * 보는지(같은 정체를 과잉 정리하지 않는지) 단언한다. 최초 관찰이 상태를 지우지 않도록 정체를 먼저 잡은 뒤 상태를 심는다.
+   */
+  @Test
+  void observed_samePodUid_keepsAgentState() throws Exception {
+    observed(
+            t1,
+            "{\"agents\":[{\"agentUserId\":"
+                + a1
+                + ",\"phase\":\"RUNNING\",\"podUid\":\"pod-a\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1));
+    setObserved(a1, fx.generationOf(a1), "WORKING", "NOW");
+    assertThat(agentStateOf(a1)).isEqualTo("WORKING");
+
+    // 같은 정체를 다시 관찰해도 상태는 그대로다.
+    observed(
+            t1,
+            "{\"agents\":[{\"agentUserId\":"
+                + a1
+                + ",\"phase\":\"RUNNING\",\"podUid\":\"pod-a\"}]}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(1));
+    assertThat(agentStateOf(a1)).isEqualTo("WORKING");
   }
 
   /** 꺼진 AI(desired STOP)라도 이 위치의 AI 면 정지 보고를 받는다 — 상태가 「끄는 중」에 머물지 않게. */
