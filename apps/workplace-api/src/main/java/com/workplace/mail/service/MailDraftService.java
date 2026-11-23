@@ -162,7 +162,8 @@ public class MailDraftService {
         row.inlineUploads(),
         row.inReplyToMessageId(),
         row.sendState(),
-        row.sendError());
+        row.sendError(),
+        row.confidential());
   }
 
   /**
@@ -255,7 +256,8 @@ public class MailDraftService {
             null,
             req.inlineImages(),
             req.inlineUploads(),
-            req.inReplyToMessageId());
+            req.inReplyToMessageId(),
+            req.confidential());
     // 보내기에는 본문 상한이 없다(MailComposeService.prepare 와 같은 규칙) — 큰 HTML 메일에 답장·전달하면 인용한 원본이 붙어 임시저장
     // 상한(2MB)을 넘을 수 있는데, 여기서 막으면 바로 보내던 시절엔 나가던 메일이 거절된다. 열은 TEXT 라 담을 수 있다.
     Fields fields = toFields(userId, save, false);
@@ -372,7 +374,8 @@ public class MailDraftService {
         bodyHtml,
         preview(req.bodyText()),
         req.sourceMessageId(),
-        Boolean.TRUE.equals(req.quoteRemoved()));
+        Boolean.TRUE.equals(req.quoteRemoved()),
+        Boolean.TRUE.equals(req.confidential()));
   }
 
   /**

@@ -193,6 +193,12 @@ public class MailDraft extends TableImpl<MailDraftRecord> {
      */
     public final TableField<MailDraftRecord, JSONB> INLINE_UPLOADS = createField(DSL.name("inline_uploads"), SQLDataType.JSONB.nullable(false).defaultValue(DSL.field(DSL.raw("'[]'::jsonb"), SQLDataType.JSONB)), this, "");
 
+    /**
+     * The column <code>public.mail_draft.confidential</code>. WP-2029: 임시저장 시점의
+     * 기밀 발송 선택
+     */
+    public final TableField<MailDraftRecord, Boolean> CONFIDENTIAL = createField(DSL.name("confidential"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "WP-2029: 임시저장 시점의 기밀 발송 선택");
+
     private MailDraft(Name alias, Table<MailDraftRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

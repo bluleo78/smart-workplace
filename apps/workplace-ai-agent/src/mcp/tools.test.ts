@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, RECURRING_RUN_DIRECT_ACTIONS, RECURRING_RUN_ISSUE_CHAT_TOOLS, RECURRING_RUN_SELF_WRITE_TOOLS, RECURRING_RUN_TOOLS, RECURRING_RUN_WRITE_TOOLS, RECURRING_TEST_GATED_TOOLS, RECURRING_TEST_PAUSED_MESSAGE, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
+import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, confidentialSummary, RECURRING_RUN_DIRECT_ACTIONS, RECURRING_RUN_ISSUE_CHAT_TOOLS, RECURRING_RUN_SELF_WRITE_TOOLS, RECURRING_RUN_TOOLS, RECURRING_RUN_WRITE_TOOLS, RECURRING_TEST_GATED_TOOLS, RECURRING_TEST_PAUSED_MESSAGE, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -721,6 +721,7 @@ describe('프로필 구성', () => {
     const tools = buildTools(c, AGENT_ID, 'recurring');
     const cases: Array<[string, Record<string, unknown>, string, Record<string, unknown>]> = [
       ['send_mail', { accountId: 3, to: ['a@x.com'], subject: '주간 보고', bodyText: '본문' }, 'mail.send', { accountId: 3, to: ['a@x.com'], subject: '주간 보고', bodyText: '본문' }],
+      ['send_mail', { accountId: 3, to: ['a@x.com'], subject: '단가', bodyText: '본문', confidential: true }, 'mail.send', { accountId: 3, subject: '단가', confidential: true }],
       ['delete_event', { eventId: 7, scope: 'THIS', occurrenceDate: '2026-11-02T09:00:00+09:00' }, 'calendar.delete_event', { id: 7, scope: 'THIS', occurrenceDate: '2026-11-02T09:00:00+09:00' }],
       ['delete_external_contact', { externalId: 5 }, 'contacts.delete_contact', { id: 5 }],
       ['delete_user_group', { groupId: 4 }, 'contacts.delete_user_group', { id: 4 }],
@@ -1812,6 +1813,46 @@ describe('propose_send_mail / propose_delete_contact / 드라이브 삭제 제�
       expect(w.actionType).toBe('mail.send');
       expect(w.params).toMatchObject({ accountId: 5, to: ['a@x.com'], subject: '안녕하세요' });
     });
+  });
+
+  // WP-2029: 기밀 표시 — 제목은 API 가 붙이므로 에이전트는 확인카드 summary 에만 「[기밀] 」을 붙이고 params 에 confidential 을 싣는다.
+  it('propose_send_mail 은 confidential 이면 summary 에 [기밀] 머리말을 붙이고 params 에 싣는다', async () => {
+    await withSidecar(async (sidecar) => {
+      await find(buildTools(client(), 7, 'assistant'), 'propose_send_mail').handler({
+        accountId: 5, to: ['a@x.com'], subject: '단가', confidential: true, summary: '이승권 님께 단가 메일',
+      });
+      const [w] = readLines(sidecar);
+      expect(w.summary).toBe('[기밀] 이승권 님께 단가 메일');
+      expect(w.params).toMatchObject({ confidential: true, subject: '단가' });
+    });
+  });
+
+  it('propose_send_mail 은 summary 에 이미 [기밀] 머리말이 있으면 그대로 둔다', async () => {
+    await withSidecar(async (sidecar) => {
+      await find(buildTools(client(), 7, 'assistant'), 'propose_send_mail').handler({
+        accountId: 5, to: ['a@x.com'], confidential: true, summary: '[기밀] 단가 메일',
+      });
+      expect(readLines(sidecar)[0].summary).toBe('[기밀] 단가 메일');
+    });
+  });
+
+  it('propose_send_mail 은 confidential 이 없으면 summary 그대로이고 params 에 키가 없다', async () => {
+    await withSidecar(async (sidecar) => {
+      await find(buildTools(client(), 7, 'assistant'), 'propose_send_mail').handler({
+        accountId: 5, to: ['a@x.com'], summary: 'a@x.com 에게 발송',
+      });
+      const [w] = readLines(sidecar);
+      expect(w.summary).toBe('a@x.com 에게 발송');
+      expect(w.params).not.toHaveProperty('confidential');
+    });
+  });
+
+  it('confidentialSummary 는 confidential 일 때만, [기밀] 머리말이 없을 때만 머리말을 붙인다', () => {
+    expect(confidentialSummary('요약', true)).toBe('[기밀] 요약');
+    expect(confidentialSummary('요약', false)).toBe('요약');
+    expect(confidentialSummary('요약')).toBe('요약');
+    expect(confidentialSummary('[기밀] 요약', true)).toBe('[기밀] 요약');
+    expect(confidentialSummary('기밀 해제 안내 메일을 보냅니다', true)).toBe('[기밀] 기밀 해제 안내 메일을 보냅니다');
   });
 
   it('propose_delete_contact 는 externalId 를 실행기 params.id 로 매핑한다(#833)', async () => {

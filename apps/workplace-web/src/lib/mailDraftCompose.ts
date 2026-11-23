@@ -51,6 +51,8 @@ export interface DraftComposeValues {
   /** 인용문의 cid 이미지(WP-69) — 자동 저장도 보내기 요청과 같은 inlineImages 를 담는다(WP-1786). 인용문을 지웠으면 싣지 않는다. */
   quoteInlineImages?: QuoteInlineImage[];
   attachments: ComposeAttachment[];
+  /** 기밀 표시(WP-2029) — 생략하면 false. */
+  confidential?: boolean;
 }
 
 /**
@@ -79,6 +81,7 @@ export function buildDraftSavePayload(v: DraftComposeValues): MailDraftSaveReque
       : (v.quoteInlineImages ?? []).map(({ attachment, contentId }) => ({ attachmentId: attachment.id, contentId })),
     inlineUploads: pastedInlineUploads(v.bodyHtml),
     inReplyToMessageId: v.draft.inReplyToMessageId ?? null,
+    confidential: !!v.confidential,
   };
 }
 
@@ -118,6 +121,8 @@ export function savePayloadFromDetail(d: MailDraftDetail, preview: string): Mail
     quoteRemoved: d.quoteRemoved,
     // 작성창 칩과 같은 나눔 규칙(sendAttachmentIds) — 상세 첨부는 모두 올라간 것이다.
     ...sendAttachmentIds(draftAttachmentChips(d)),
+    // 지운 임시저장을 되살려도 기밀 표시를 잃지 않는다(WP-2029).
+    confidential: !!d.confidential,
     inlineImages: d.inlineImages ?? [],
     inlineUploads: d.inlineUploads ?? [],
     inReplyToMessageId: d.inReplyToMessageId ?? null,
@@ -208,6 +213,8 @@ export function composeFromDraft(
     // 답장 대상은 저장된 값(WP-1786)을 먼저 — 옛 행엔 없어 답장 원본 id 로 채운다.
     inReplyToMessageId: d.inReplyToMessageId ?? (d.mode === 'reply' ? d.sourceMessageId : null),
     sourceMessageId: d.sourceMessageId,
+    // 기밀로 저장된 작성은 토글이 켜진 채 열린다(WP-2029). 키가 없으면 false.
+    confidential: !!d.confidential,
     draftId: d.id,
     draftVersion: d.version,
     // 보내기 형태로 연 작성은 저장 안 된 작성이다 — 고치지 않고 닫아도(✕·탭 닫기) 곧 쓰기 형태로 다시 저장해, 서버 행에 보내기 형태

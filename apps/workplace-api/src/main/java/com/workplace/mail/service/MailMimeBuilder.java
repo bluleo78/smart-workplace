@@ -74,6 +74,7 @@ public class MailMimeBuilder {
       msg.setRecipients(Message.RecipientType.CC, parse(mail.cc()));
     }
     // Bcc 는 헤더 미설정 — 봉투(envelope)로만 전달(SMTP). Graph 는 MIME 의 To/Cc 만 사용.
+    // WP-2029: 기밀 머리말은 MailComposeService.buildMail 이 OutgoingMail.subject 에 이미 붙였다 — 여기서는 그대로 쓴다
     msg.setSubject(mail.subject() == null ? "" : mail.subject(), "UTF-8");
     msg.setSentDate(Date.from(mail.sentAt()));
     if (mail.inReplyTo() != null) {
@@ -113,6 +114,10 @@ public class MailMimeBuilder {
     }
     msg.setContent(body);
     msg.setHeader("X-Mailer", mailerHeader()); // WP-1364
+    if (mail.confidential()) {
+      // WP-2029: 받는 쪽 메일 앱(Outlook 등)이 인식하는 기밀 표시 헤더
+      msg.setHeader("Sensitivity", "Company-Confidential");
+    }
     msg.saveChanges();
     return msg;
   }

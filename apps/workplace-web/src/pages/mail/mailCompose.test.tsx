@@ -29,6 +29,7 @@ type SendBody = {
   mode?: string
   sourceMessageId?: number | null
   quoteRemoved?: boolean
+  confidential?: boolean
 }
 const sendHandler = (reply?: () => Response) =>
   record<SendBody>('post', '/api/v1/mail/accounts/1/send', () => reply?.() ?? HttpResponse.json({ draftId: 900, sendAt: '2026-11-19T00:00:10Z' }))
@@ -90,6 +91,104 @@ test('답장 → 받는사람은 발신자 칩, 제목 Re:, inReplyToMessageId �
   expect(send.last().body.inReplyToMessageId).toBe(5)
   expect(send.last().body.subject).toMatch(/^Re:/)
   expect(send.last().body.to).toEqual(['alice@example.com'])
+})
+
+// ── 기밀 표시(WP-2029) ─────────────────────────────────────────────────
+// 서버가 「[기밀] 」 머리말과 Sensitivity 헤더를 붙인다 — 웹은 칸 글자 그대로 보내고 머리말은 표시만 한다.
+
+test('기밀 토글 — 켜면 aria-pressed·[기밀] 머리말이 보이고 보내기 body 는 confidential:true·칸 글자 그대로, 다시 누르면 머리말이 사라진다(WP-2029)', async () => {
+  const send = sendHandler()
+  const { user } = renderMail('/mail/1', { handlers: [send.handler] })
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  await user.click(screen.getByTestId('mail-compose-to'))
+  await user.paste('rcpt@test.local')
+  await user.click(screen.getByTestId('mail-compose-subject'))
+  await user.paste('단가 협상안')
+  const toggle = screen.getByRole('button', { name: '기밀' })
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.queryByTestId('mail-compose-confidential-prefix')).not.toBeInTheDocument()
+  await user.click(toggle)
+  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByTestId('mail-compose-confidential-prefix')).toHaveTextContent('[기밀]')
+  await user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  expect(send.last().body.confidential).toBe(true)
+  expect(send.last().body.subject).toBe('단가 협상안')
+})
+
+test('기밀 토글을 다시 누르면 머리말이 사라진다(WP-2029)', async () => {
+  const { user } = renderMail('/mail/1')
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  const toggle = screen.getByRole('button', { name: '기밀' })
+  await user.click(toggle)
+  expect(screen.getByTestId('mail-compose-confidential-prefix')).toBeInTheDocument()
+  await user.click(toggle)
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.queryByTestId('mail-compose-confidential-prefix')).not.toBeInTheDocument()
+})
+
+test('제목 칸에 「[기밀] 견적」을 쓰고 토글을 켜면 칸은 「견적」이 되고, 꺼도 「견적」이 남는다(WP-2029)', async () => {
+  const { user } = renderMail('/mail/1')
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  await user.click(screen.getByTestId('mail-compose-subject'))
+  await user.paste('[기밀] 견적')
+  const toggle = screen.getByRole('button', { name: '기밀' })
+  await user.click(toggle)
+  expect(screen.getByTestId('mail-compose-subject')).toHaveValue('견적')
+  await user.click(toggle)
+  expect(screen.getByTestId('mail-compose-subject')).toHaveValue('견적')
+})
+
+test('토글 없이 보내면 confidential 은 false 이거나 없다(WP-2029)', async () => {
+  const send = sendHandler()
+  const { user } = renderMail('/mail/1', { handlers: [send.handler] })
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  await user.click(screen.getByTestId('mail-compose-to'))
+  await user.paste('rcpt@test.local')
+  await user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  expect(send.last().body.confidential ?? false).toBe(false)
+})
+
+test('기밀로 저장된 임시저장(되돌리기로 열림)은 토글이 켜진 채 열린다(WP-2029)', async () => {
+  const send = sendHandler()
+  const cancel = record('post', '/api/v1/mail/drafts/900/cancel-send', () =>
+    HttpResponse.json(draftDetail({ id: 900, subject: '기밀 건', confidential: true, version: 2 })),
+  )
+  const view = renderMail('/mail/1', {
+    handlers: [send.handler, cancel.handler, http.put('/api/v1/mail/drafts/900', () => HttpResponse.json({ version: 9, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }))],
+  })
+  await view.user.click(await screen.findByTestId('mail-compose-new'))
+  await view.user.click(screen.getByTestId('mail-compose-to'))
+  await view.user.paste('rcpt@test.local')
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await view.user.click(await screen.findByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(cancel.calls).toHaveLength(1))
+  expect(await screen.findByRole('button', { name: '기밀' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('기밀로 다시 연 임시저장에서 토글을 끄면 임시저장 PUT 에 confidential:false 가 실린다(WP-2029)', async () => {
+  const send = sendHandler()
+  const cancel = record('post', '/api/v1/mail/drafts/900/cancel-send', () =>
+    HttpResponse.json(draftDetail({ id: 900, subject: '기밀 건', confidential: true, version: 2 })),
+  )
+  const put = record<{ confidential?: boolean }>('put', '/api/v1/mail/drafts/900', () =>
+    HttpResponse.json({ version: 9, updatedAt: '2026-11-19T00:00:20Z', attachmentCount: 0 }),
+  )
+  const view = renderMail('/mail/1', { handlers: [send.handler, cancel.handler, put.handler] })
+  await view.user.click(await screen.findByTestId('mail-compose-new'))
+  await view.user.click(screen.getByTestId('mail-compose-to'))
+  await view.user.paste('rcpt@test.local')
+  await view.user.click(screen.getByTestId('mail-compose-send'))
+  await view.user.click(await screen.findByRole('button', { name: '되돌리기' }))
+  const toggle = await screen.findByRole('button', { name: '기밀' })
+  await waitFor(() => expect(toggle).toHaveAttribute('aria-pressed', 'true'))
+  // 되돌린 작성의 첫 저장(쓰기 형태 재저장)이 끝난 뒤 기준선을 잡는다.
+  await waitFor(() => expect(put.calls.length).toBeGreaterThan(0))
+  const before = put.calls.length
+  await view.user.click(toggle)
+  await waitFor(() => expect(put.calls.length).toBeGreaterThan(before), { timeout: 5000 })
+  expect(put.last().body.confidential).toBe(false)
 })
 
 // ── 예약 보내기(WP-1787) ─────────────────────────────────────────────

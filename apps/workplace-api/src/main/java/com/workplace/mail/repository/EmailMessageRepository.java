@@ -892,6 +892,7 @@ public class EmailMessageRepository {
                 EMAIL_MESSAGE.FROM_NAME,
                 EMAIL_CONTENT.SUBJECT, // content 에서 읽음
                 verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
+                verified(EMAIL_CONTENT.CONFIDENTIAL), // WP-2029 기밀 발송 표시
                 EMAIL_MESSAGE.RECEIVED_AT,
                 EMAIL_MESSAGE.SEEN,
                 EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
@@ -1090,6 +1091,7 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.FROM_NAME,
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
             verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
+            verified(EMAIL_CONTENT.CONFIDENTIAL), // WP-2029 기밀 발송 표시
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.FLAGGED, // WP-1741 별표
@@ -1233,6 +1235,10 @@ public class EmailMessageRepository {
     contentRepo.updateBody(contentId, m.bodyText(), m.bodyHtml(), m.snippet());
     // WP-1364: 이 앱이 보낸 메일이라 X-Mailer 를 붙였다 — 서버에서 동기화된 보낸 사본과 같게 표시를 세운다
     contentRepo.markSentByGeniaWorks(contentId);
+    // WP-2029: 기밀로 보낸 메일이면 보낸 사본에도 표시 — 제목은 m.subject() 가 이미 머리말 적용본이다
+    if (m.confidential()) {
+      contentRepo.markConfidential(contentId);
+    }
 
     long messageId =
         dsl.insertInto(EMAIL_MESSAGE)
@@ -1353,7 +1359,8 @@ public class EmailMessageRepository {
                 effectiveCategoryField(), // WP-1341: 상세 분류 메뉴의 현재 분류
                 categoryByMeField(),
                 // WP-1364: 공유 content 의 속성이라 본문처럼 검증된 사본에만 보인다(WP-130)
-                verified(EMAIL_CONTENT.SENT_BY_GENIA_WORKS))
+                verified(EMAIL_CONTENT.SENT_BY_GENIA_WORKS),
+                verified(EMAIL_CONTENT.CONFIDENTIAL)) // WP-2029
             .from(EMAIL_MESSAGE)
             .join(EMAIL_ACCOUNT)
             .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -2397,7 +2404,8 @@ public class EmailMessageRepository {
         Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class)), // WP-1341
         null, // WP-1742 원래 메일함 이름·id·역할 — 여러 메일함을 섞는 목록만 fetchSummaries 가 붙인다
         null,
-        null);
+        null,
+        Boolean.TRUE.equals(r.get(EMAIL_CONTENT.CONFIDENTIAL))); // WP-2029
   }
 
   /**
@@ -2427,7 +2435,8 @@ public class EmailMessageRepository {
         null,
         r.get(EFFECTIVE_CATEGORY, String.class),
         Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class)),
-        Boolean.TRUE.equals(r.get(EMAIL_CONTENT.SENT_BY_GENIA_WORKS))); // WP-1364
+        Boolean.TRUE.equals(r.get(EMAIL_CONTENT.SENT_BY_GENIA_WORKS)), // WP-1364
+        Boolean.TRUE.equals(r.get(EMAIL_CONTENT.CONFIDENTIAL))); // WP-2029
   }
 
   /**

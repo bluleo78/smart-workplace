@@ -99,8 +99,31 @@ describe('buildDraftSavePayload', () => {
       inlineImages: [],
       inlineUploads: [],
       inReplyToMessageId: null,
+      confidential: false,
     });
     expect(p).not.toHaveProperty('version');
+  });
+
+  it('confidential 값을 저장 요청에 싣는다(WP-2029)', () => {
+    const p = buildDraftSavePayload({
+      draft: { accountId: 1, mode: 'new' },
+      to: '',
+      cc: '',
+      bcc: '',
+      subject: '견적',
+      bodyHtml: '',
+      bodyText: '',
+      quoteRemoved: false,
+      attachments: [],
+      confidential: true,
+    });
+    expect(p.confidential).toBe(true);
+  });
+
+  it('기밀 상세를 되돌리기 요청·작성창 값으로 옮기고, 키가 없으면 false(WP-2029)', () => {
+    expect(savePayloadFromDetail(detail({ confidential: true }), '').confidential).toBe(true);
+    expect(composeFromDraft(detail({ confidential: true }), source).confidential).toBe(true);
+    expect(composeFromDraft(detail(), source).confidential).toBe(false);
   });
 
   it('첨부는 올라간 것만 출처별 id 목록으로 — 올리는 중·실패는 빠진다', () => {
@@ -231,6 +254,7 @@ describe('savePayloadFromDetail', () => {
       inlineImages: [],
       inlineUploads: [],
       inReplyToMessageId: null,
+      confidential: false,
     });
   });
 });

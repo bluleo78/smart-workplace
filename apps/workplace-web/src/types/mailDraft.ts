@@ -84,6 +84,8 @@ export interface MailDraftDetail {
   sendState?: 'QUEUED' | 'SENDING' | 'FAILED' | null;
   /** FAILED 의 사유(사용자 문구). */
   sendError?: string | null;
+  /** 기밀 표시(WP-2029) — 다시 열면 작성창 토글이 켜진 채 열린다. 옛 응답엔 없을 수 있다(= false). */
+  confidential?: boolean;
 }
 
 /**
@@ -112,6 +114,8 @@ export interface MailDraftSaveRequest {
   inlineUploads?: MailInlineRef[];
   /** 답장 원본 메일 id(WP-1786) — 답장이 아니면 null. */
   inReplyToMessageId?: number | null;
+  /** 기밀 표시(WP-2029) — 생략하면 false. */
+  confidential?: boolean;
   version?: number;
 }
 

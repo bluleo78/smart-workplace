@@ -12,8 +12,8 @@
 //   그 창에서는 같은 작성창을 popout 모드로 그린다 — 창 전체를 채우고, 닫기·버리기·보내기는 서버 작업이 끝난 뒤 onDone 으로 페이지에 넘긴다(페이지가 창을 닫는다).
 
 import { useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Loader2, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Trash2, X } from 'lucide-react';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ExternalLink, Loader2, Lock, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Trash2, X } from 'lucide-react';
+import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -51,6 +51,7 @@ import {
   rememberMailComposePopout,
   toastMailComposePopupBlocked,
 } from '@/lib/mailComposeChannel';
+import { CONFIDENTIAL_PREFIX, stripConfidentialPrefix } from '@/lib/mailConfidential';
 import {
   buildDraftSavePayload,
   MAIL_ALREADY_SENDING,
@@ -164,6 +165,8 @@ function FieldRow({
   value,
   onChange,
   maxLength,
+  leading,
+  trailing,
 }: {
   label: string;
   mobile: boolean;
@@ -172,6 +175,10 @@ function FieldRow({
   onChange: (v: string) => void;
   /** 입력 길이 상한 — 서버 상한(제목 500자)을 넘겨 저장·발송이 거절되지 않게 입력에서 막는다. */
   maxLength?: number;
+  /** 입력 칸 앞에 붙는 표시(기밀 머리말, WP-2029) — 입력이 아니라 표시만이다. */
+  leading?: ReactNode;
+  /** 입력 칸 뒤에 붙는 단추(기밀 토글, WP-2029). */
+  trailing?: ReactNode;
 }) {
   return (
     <div className={cn('flex items-center gap-2 border-b focus-within:border-primary', mobile ? 'py-3' : 'pb-2')}>
@@ -180,6 +187,7 @@ function FieldRow({
           {label}
         </label>
       )}
+      {leading}
       <input
         id={testId}
         data-testid={testId}
@@ -189,6 +197,7 @@ function FieldRow({
         placeholder={mobile ? undefined : label}
         className={cn('min-w-0 flex-1 bg-transparent outline-none', mobile ? 'text-[15px]' : 'text-sm')}
       />
+      {trailing}
     </div>
   );
 }
@@ -362,6 +371,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const bodyFocusRef = useRef<{ instanceId: number | undefined; dropIfMinimized: boolean } | undefined>(undefined);
   // 인용문을 지웠는지 — 기밀 문단을 빼고 회신하는 것도 쓴 내용으로 본다.
   const [quoteRemoved, setQuoteRemoved] = useState(false);
+  // 기밀 표시(WP-2029) — 켜면 서버가 제목 앞에 「[기밀] 」을 붙이고 Sensitivity 헤더를 싣는다. 웹은 칸 글자를 그대로 보낸다.
+  const [confidential, setConfidential] = useState(false);
   // 첨부(WP-574) — 📎·끌어다 놓기로 받은 파일을 바로 올린다. 창 전체가 놓을 자리라 패널에 dropProps 를 편다.
   // 인용문이 다시 붙이는 본문 이미지도 한 통 합계(25MB)에 든다 — 인용문을 지우면 0.
   const attachments = useMailComposeAttachments(quoteInlineBytes(draft?.quote));
@@ -401,6 +412,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     !!draft &&
     (bodyEdited ||
       quoteRemoved ||
+      confidential !== !!draft.confidential ||
       attachments.changed ||
       to !== draft.to.join(', ') ||
       cc !== draft.cc.join(', ') ||
@@ -428,6 +440,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       bodyHtml: bodyHtmlRef.current,
       bodyText: bodyTextRef.current,
       quoteRemoved,
+      confidential,
       // 보내기 요청과 같은 인용 이미지 참조(WP-1786) — 인용문을 지웠으면 clearQuote 로 quote 가 비어 빠진다.
       quoteInlineImages: draft?.quote?.inlineImages,
       attachments: attachments.items,
@@ -525,6 +538,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     setBodyEdited(false);
     // 임시보관함에서 연 작성은 지웠던 인용문 상태를 이어받는다 — 다음 저장이 quoteRemoved 를 false 로 되돌려 인용문이 되살아나지 않게.
     setQuoteRemoved(!!draft.quoteRemoved);
+    // 기밀로 저장된 작성은 토글이 켜진 채 열린다(WP-2029).
+    setConfidential(!!draft.confidential);
     // 처음 초점 — 답장(전체 답장 포함)은 받는 사람이 이미 채워져 있으니 본문으로(WP-1746, Outlook 식). 에디터는 비동기로 준비되므로
     // 여기서는 요청만 걸고 아래 「본문 끝 초점」 효과가 composerReadyFor 뒤에 준다. 늘 「내가 쓴 글 끝」(focusEnd — 서명과 그 앞 빈 줄 위)이라
     // 빈 새 답장이면 첫 줄, 임시저장·AI 답장 초안처럼 쓴 글이 있으면 그 끝에서 이어 쓴다.
@@ -591,6 +606,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       initialHtml: bodyHtmlRef.current,
       attachments: attachments.items.filter((a): a is ComposeAttachment => a.status === 'done'),
       quoteRemoved,
+      confidential,
       // 「다시 열기」 표시는 그 자리에서 정한다(되돌리기로 연 작성은 이미 저장된 것이다).
       unsaved: undefined,
       instanceId: undefined,
@@ -1083,6 +1099,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       mode: draft.mode,
       sourceMessageId: draft.sourceMessageId ?? null,
       quoteRemoved,
+      // 기밀이 아니면 싣지 않는다 — 기밀 아닌 메일의 요청은 지금과 같다. 제목은 칸 글자 그대로(머리말은 서버가 붙인다).
+      ...(confidential ? { confidential: true } : {}),
       ...(sendAt ? { sendAt } : {}),
     };
     try {
@@ -1140,6 +1158,41 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       }
     });
   }
+
+  // 기밀 토글(WP-2029) — 켜면 칸 안의 「[기밀]」을 걷어 머리말이 두 번 보이지 않게 한다(끄면 칸 글자는 그대로).
+  const toggleConfidential = () => {
+    const next = !confidential;
+    setConfidential(next);
+    if (next) {
+      const stripped = stripConfidentialPrefix(subjectRef.current);
+      if (stripped !== subjectRef.current) changeSubject(stripped);
+    }
+    // 토글 변경도 임시저장 대상이다(켜도 끄도 저장) — 제목이 안 바뀌어도 저장을 건다. 저장은 디바운스라 changeSubject 와 겹쳐도 한 번만 나간다.
+    autosave.schedule();
+  };
+  const confidentialToggle = (
+    <button
+      type="button"
+      aria-pressed={confidential}
+      onClick={toggleConfidential}
+      // 터치에선 44px 높이 — 음수 세로 여백으로 줄 높이는 그대로 둔다. 좁은 화면에서 잘리지 않게 shrink-0.
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-xs pointer-coarse:-my-3 pointer-coarse:min-h-11 pointer-coarse:px-2',
+        confidential
+          ? 'border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300'
+          : 'border-transparent text-muted-foreground hover:text-foreground',
+      )}
+    >
+      <Lock className="size-3" aria-hidden />
+      기밀
+    </button>
+  );
+  // 제목 칸 앞 머리말 — 표시만(보내는 제목에는 서버가 붙인다).
+  const confidentialPrefix = confidential && (
+    <span data-testid="mail-compose-confidential-prefix" className="shrink-0 text-xs font-medium text-rose-600 dark:text-rose-300">
+      {CONFIDENTIAL_PREFIX}
+    </span>
+  );
 
   const ccBccToggle = !showCcBcc && (
     <button
@@ -1339,7 +1392,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
               <MailRecipientInput key={`bcc-${draft?.instanceId}`} label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={edit(setBcc)} />
             </>
           )}
-          <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={changeSubject} maxLength={MAIL_SUBJECT_MAX} />
+          <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={changeSubject} maxLength={MAIL_SUBJECT_MAX} leading={confidentialPrefix} trailing={confidentialToggle} />
           {/* 작성/AI 검토 탭 */}
           <div className="flex border-b border-border text-sm" data-testid="mail-compose-tabs">
             <button

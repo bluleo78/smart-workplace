@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.action.dto.MailSendActionParams;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.CalendarNotFoundException;
 import com.workplace.contacts.exception.ContactNotFoundException;
@@ -169,6 +170,38 @@ class ConfirmActionValidateTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> dispatcher.validate(owner, "mail.send", p))
         .isInstanceOf(EmailAccountNotFoundException.class);
+  }
+
+  @Test
+  @DisplayName("mail.send — confidential:true 는 모르는 필드로 400 이 되지 않고 요청에 실린다(WP-2029)")
+  void validate_mailSend_confidential_isAcceptedAndCarried() {
+    // 무엇을·왜: 확인카드 params 는 엄격 매핑(모르는 필드 거절)이라, 받는 필드로 등록돼야 기밀 메일을 AI 가 제안할 수 있다.
+    // 계정 소유 실패(404)까지 도달했다면 params 매핑·검증은 통과한 것이다.
+    ObjectNode p = params();
+    p.put("accountId", MISSING_ID);
+    p.putArray("to").add("someone@example.com");
+    p.put("subject", "기밀");
+    p.put("bodyText", "본문");
+    p.put("confidential", true);
+
+    assertThatThrownBy(() -> dispatcher.validate(owner, "mail.send", p))
+        .isInstanceOf(EmailAccountNotFoundException.class);
+
+    ObjectNode body = p.deepCopy();
+    body.remove("accountId");
+    assertThat(
+            objectMapper
+                .convertValue(body, MailSendActionParams.class)
+                .toRequest()
+                .isConfidential())
+        .isTrue();
+    body.remove("confidential");
+    assertThat(
+            objectMapper
+                .convertValue(body, MailSendActionParams.class)
+                .toRequest()
+                .isConfidential())
+        .isFalse();
   }
 
   @Test

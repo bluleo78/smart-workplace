@@ -15,6 +15,7 @@ import java.util.List;
  * @param inReplyToMessageId 답장 원본 메일 id(WP-1786)
  * @param sendState 발송 상태 — 일반이면 null, QUEUED·SENDING·FAILED(WP-1786)
  * @param sendError FAILED 의 사유(WP-1786)
+ * @param confidential 기밀 표시(WP-2029) — 없던 행은 false
  * @param version 다음 수정(PUT)에 넘길 낙관적 잠금 버전
  */
 public record MailDraftDetail(
@@ -36,7 +37,8 @@ public record MailDraftDetail(
     List<InlineUploadRef> inlineUploads,
     Long inReplyToMessageId,
     String sendState,
-    String sendError) {
+    String sendError,
+    boolean confidential) {
 
   /** 업로드 첨부 출처. */
   public static final String SOURCE_UPLOAD = "upload";

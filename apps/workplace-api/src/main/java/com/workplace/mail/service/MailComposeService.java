@@ -702,7 +702,8 @@ public class MailComposeService {
         plan.to(),
         plan.cc(),
         plan.bcc(),
-        nz(req.subject()),
+        // 기밀이면 머리말 적용 제목을 여기서 한 번 정한다 — 발송 MIME 과 보낸 사본이 같은 제목을 쓴다(WP-2029)
+        req.isConfidential() ? ConfidentialSubject.apply(req.subject()) : nz(req.subject()),
         req.bodyText(),
         req.bodyHtml(),
         inReplyTo,
@@ -710,7 +711,8 @@ public class MailComposeService {
         snippet(req.bodyText()),
         Instant.now(),
         inlineParts,
-        attachments);
+        attachments,
+        req.isConfidential());
   }
 
   /**

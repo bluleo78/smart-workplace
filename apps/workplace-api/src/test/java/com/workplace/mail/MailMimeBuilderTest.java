@@ -242,6 +242,45 @@ class MailMimeBuilderTest {
         .isEqualTo("Gen:iA Works 0.9.46");
   }
 
+  /** 제목과 기밀 여부만 바꾼 reply() 사본(WP-2029). */
+  private OutgoingMail withSubject(String subject, boolean confidential) {
+    OutgoingMail r = reply();
+    return new OutgoingMail(
+        r.messageId(),
+        r.threadId(),
+        r.fromAddress(),
+        r.fromName(),
+        r.to(),
+        r.cc(),
+        r.bcc(),
+        subject,
+        r.bodyText(),
+        r.bodyHtml(),
+        r.inReplyTo(),
+        r.references(),
+        r.snippet(),
+        r.sentAt(),
+        r.inlineImages(),
+        r.attachments(),
+        confidential);
+  }
+
+  /** WP-2029: 기밀 발송은 Sensitivity 헤더를 단다. 머리말은 buildMail 이 붙인 제목을 그대로 쓴다(두 번 붙이지 않는다). */
+  @Test
+  void build_confidential_setsSensitivityAndKeepsPrefixedSubject() throws Exception {
+    MimeMessage msg = builder.build(account(), withSubject("[기밀] 단가 협상안", true));
+    assertThat(msg.getSubject()).isEqualTo("[기밀] 단가 협상안");
+    assertThat(msg.getHeader("Sensitivity")[0]).isEqualTo("Company-Confidential");
+  }
+
+  /** WP-2029: 기밀이 아니면 제목·헤더가 그대로다. */
+  @Test
+  void build_notConfidential_keepsSubjectAndNoSensitivity() throws Exception {
+    MimeMessage msg = builder.build(account(), withSubject("단가 협상안", false));
+    assertThat(msg.getSubject()).isEqualTo("단가 협상안");
+    assertThat(msg.getHeader("Sensitivity")).isNull();
+  }
+
   /** WP-1364: 초대 응답 메일에도 X-Mailer 가 붙는다. */
   @Test
   void buildCalendarReply_setsXMailer() throws Exception {

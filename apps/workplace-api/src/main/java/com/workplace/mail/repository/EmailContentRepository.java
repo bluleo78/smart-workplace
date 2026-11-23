@@ -281,6 +281,16 @@ public class EmailContentRepository {
         > 0;
   }
 
+  /** WP-2029: 기밀로 보낸 메일의 보낸 사본(전용 content)에 기밀 표시를 세운다. */
+  public boolean markConfidential(long contentId) {
+    return dsl.update(EMAIL_CONTENT)
+            .set(EMAIL_CONTENT.CONFIDENTIAL, true)
+            .where(EMAIL_CONTENT.ID.eq(contentId))
+            .and(EMAIL_CONTENT.CONFIDENTIAL.isFalse())
+            .execute()
+        > 0;
+  }
+
   /**
    * 받은 사본 쪽 판정(본문 적재 때): 같은 테넌트에서 우리 앱이 보낸 사본과 Message-ID·보낸 사람이 같으면 이 content 도 표시한다(false→true
    * 만).

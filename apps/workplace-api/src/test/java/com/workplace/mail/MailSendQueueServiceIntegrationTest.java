@@ -391,6 +391,76 @@ class MailSendQueueServiceIntegrationTest extends ExternalClientMockedTestBase {
     assertThat(back.forwardAttachmentIds()).containsExactly(fwd);
   }
 
+  /** 기밀 표시(WP-2029) — 대기 행에 저장되고, 스케줄러용 요청으로 되돌려도·되돌리기 상세에도 남는다. */
+  @Test
+  void enqueue_기밀이면_대기_행과_toSendRequest_에_남는다() {
+    long me = user();
+    long acc = account(me);
+    MailSendRequest req =
+        new MailSendRequest(
+            List.of("peer@example.com"),
+            List.of(),
+            List.of(),
+            "제목",
+            "<p>본문</p>",
+            "본문",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            true);
+
+    QueuedSend q = queueService.enqueue(me, acc, req);
+
+    assertThat(draftService.get(me, q.draftId()).confidential()).isTrue();
+    assertThat(queueService.toSendRequest(claimedRow(q.draftId())).isConfidential()).isTrue();
+  }
+
+  @Test
+  void cancel_기밀로_대기한_행은_되돌린_상세에도_기밀이다() {
+    long me = user();
+    long acc = account(me);
+    MailSendRequest req =
+        new MailSendRequest(
+            List.of("peer@example.com"),
+            List.of(),
+            List.of(),
+            "제목",
+            "<p>본문</p>",
+            "본문",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            true);
+
+    QueuedSend q = queueService.enqueue(me, acc, req);
+
+    assertThat(queueService.cancel(me, q.draftId()).confidential()).isTrue();
+  }
+
+  @Test
+  void enqueue_기밀_표시가_없으면_toSendRequest_는_기밀이_아니다() {
+    long me = user();
+    long acc = account(me);
+
+    QueuedSend q = queueService.enqueue(me, acc, simple(null));
+
+    assertThat(queueService.toSendRequest(claimedRow(q.draftId())).isConfidential()).isFalse();
+  }
+
   @Test
   void cancel_SENDING_이면_409_ALREADY_SENDING() {
     long me = user();
@@ -525,6 +595,7 @@ class MailSendQueueServiceIntegrationTest extends ExternalClientMockedTestBase {
                     false,
                     List.of(),
                     List.of(),
+                    null,
                     null,
                     null,
                     null,
