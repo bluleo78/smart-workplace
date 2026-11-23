@@ -3,10 +3,11 @@
 // 모바일(list-detail): 모듈 루트면 사이드바를 전체폭 목록(탭 첫 화면)으로, 그 외 경로면 뒤로가기 바 + Outlet 만.
 // 사이드바 컴포넌트는 손대지 않고 래퍼 CSS 로 폭(w-56→전체)·테두리·자체 제목 헤더를 정리한다
 // (8개 사이드바 모두 <aside> 첫 자식이 sidebarTitleClass 제목 헤더라는 구조 규약에 기대어 숨김).
-import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react'
+import { type ReactNode, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { NodeSlot, PageHost } from '@/components/layout/NodeSlot'
+import { PageLoader } from '@/components/layout/PageLoader'
 import { ResizableSidebar } from '@/components/layout/ResizableSidebar'
 import { useNodeBridge } from '@/components/layout/useNodeBridge'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -117,8 +118,12 @@ export function ResponsiveModuleLayout({
       <MobileDetailCtx.Provider value={isMobile && !isList ? detailCtx : null}>
         {branch}
         {!isList && (
+          // WP-2021: 본문 청크(lazy)만 이 경계에서 기다린다. 경계가 없으면 청크가 걸린 동안 위의 모듈 사이드바까지 커밋되지 못해
+          // 사이드바의 조회(projects·pinned-views 등)가 본문 청크 뒤로 밀린다. 청크 로드 실패는 바깥 PageErrorBoundary 가 잡는다.
           <PageHost bridge={pageBridge}>
-            <Outlet />
+            <Suspense fallback={<PageLoader />}>
+              <Outlet />
+            </Suspense>
           </PageHost>
         )}
       </MobileDetailCtx.Provider>

@@ -18,6 +18,7 @@ import {
 import { clearStarterStorage } from '../lib/ai/starterStorage';
 import { isTransientRequestError } from '../lib/api-error';
 import { emitIdentityChange } from '../lib/auth/identityChange';
+import { AUTH_FLAG_KEY } from '../lib/auth/sessionFlag';
 import { clearIssueBodyDrafts } from '../lib/issueBodyDraft';
 import { clearPushOnLogout } from '../lib/push/subscription';
 import type { LoginFormData, SignupFormData } from '../lib/validations/auth';
@@ -25,8 +26,6 @@ import { withTimeout } from '../lib/withTimeout';
 import type { Membership, UserResponse } from '../types/auth';
 import type { RoleResponse } from '../types/role';
 import { AuthContext } from './auth-context-value';
-
-const AUTH_FLAG_KEY = 'hasSession';
 
 // React StrictMode(dev)에서 useEffect가 두 번 실행되어 refresh API가 중복 호출되는 것을 방지.
 // 동시 호출 시 동일한 Promise를 반환하여 실제 HTTP 요청은 한 번만 발생한다.

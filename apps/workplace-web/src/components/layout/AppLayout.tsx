@@ -1,6 +1,6 @@
 // src/components/layout/AppLayout.tsx
 // 전역 셸 — 좌측 앱 런처 LNB + 모듈 콘텐츠 + AI 어시스턴트(칩/사이드/풀스크린). 상단 GNB 없음.
-import { useEffect, useMemo } from 'react'
+import { Suspense, useEffect, useMemo } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
@@ -18,6 +18,7 @@ import { AppRail } from '@/components/layout/AppRail'
 import { HeaderDensityProvider } from '@/components/layout/HeaderDensityContext'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { NodeSlot, PageHost } from '@/components/layout/NodeSlot'
+import { PageLoader } from '@/components/layout/PageLoader'
 import { RightDock } from '@/components/layout/RightDock'
 import { MAIN_CONTENT_ID, SkipToMainLink } from '@/components/layout/SkipToMainLink'
 import { TopCenterSlot } from '@/components/layout/TopCenterSlot'
@@ -155,7 +156,9 @@ export function AppLayout() {
                   </div>
                 )}
                 {/* WP-1468: 페이지는 셸 분기 뒤 형제 자리에서 한 번만 렌더 — 셸이 바뀌어도 다시 마운트되지 않고 각 셸의 NodeSlot 이 호스트 DOM 을 옮겨 붙인다(이유는 NodeSlot.tsx·useNodeBridge.ts). */}
-                <PageHost bridge={pageBridge}><Outlet /></PageHost>
+                {/* WP-2021: 페이지 청크(lazy)만 이 경계에서 기다린다. 경계가 App 최상위 하나뿐이면 청크가 걸린 동안 셸(AppLayout)까지 커밋되지 못해
+                    셸의 전역 조회·SSE(/api/v1/events)가 페이지 청크 뒤로 밀린다. 청크 로드 실패는 바깥 PageErrorBoundary 가 그대로 잡는다. */}
+                <PageHost bridge={pageBridge}><Suspense fallback={<PageLoader />}><Outlet /></Suspense></PageHost>
                 </GlobalPersonCardAssignHost>
               </MessagingConnectionContext.Provider>
               </DashboardEditDraftProvider>

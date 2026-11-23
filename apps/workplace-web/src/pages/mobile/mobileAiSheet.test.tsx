@@ -60,7 +60,8 @@ describe('목록 화면 컨텍스트 칩', () => {
       http.get('/api/v1/wiki/spaces', () => HttpResponse.json([wikiSpace({ id: 1, type: 'PERSONAL', name: '내 위키', role: 'OWNER' })])),
       http.get('/api/v1/wiki/spaces/1/pages', () => HttpResponse.json([wikiPageSummary({ id: 101, title: '개인 메모' })])),
     ])
-    expect(await within(sheet).findByTestId('chat-context-chip')).toHaveTextContent('위키 스페이스 내 위키')
+    // 셸이 페이지보다 먼저 그려져(WP-2021) 스페이스 이름을 받기 전 칩(「#1」)이 먼저 보일 수 있다 — 이름이 채워질 때까지 기다린다.
+    await waitFor(() => expect(within(sheet).getByTestId('chat-context-chip')).toHaveTextContent('위키 스페이스 내 위키'))
   })
 
   // 앱 목록은 참고할 데이터가 없는 런처 화면 — 칩을 등록하지 않는다.

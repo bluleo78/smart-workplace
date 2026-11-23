@@ -11,6 +11,8 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import type { ErrorInfo, ReactNode } from 'react';
 import { Component } from 'react';
 
+import { isChunkLoadError } from '@/lib/chunkLoadError';
+
 import { Button } from './ui/button';
 
 interface Props {
@@ -38,8 +40,15 @@ export class PageErrorBoundary extends Component<Props, State> {
     console.error('[PageErrorBoundary]', error, info);
   }
 
-  /** 새로고침을 통해 에러 상태를 초기화하고 재시도 */
+  /**
+   * 다시 시도 — 오류 상태를 풀고 다시 그린다. 청크 로드 실패(배포 중 502·옛 묶음 이름)는 같은 문서에서 다시 그려도
+   * 같은 실패가 되풀이되므로(모듈 맵·React.lazy 가 실패를 쥔다) 페이지를 새로고침해 다시 받는다(WP-2021).
+   */
   handleRetry = () => {
+    if (isChunkLoadError(this.state.error)) {
+      window.location.reload();
+      return;
+    }
     this.setState({ hasError: false, error: null });
   };
 
