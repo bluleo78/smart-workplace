@@ -51,7 +51,7 @@ import {
   rememberMailComposePopout,
   toastMailComposePopupBlocked,
 } from '@/lib/mailComposeChannel';
-import { CONFIDENTIAL_PREFIX, stripConfidentialPrefix } from '@/lib/mailConfidential';
+import { CONFIDENTIAL_PREFIX, showsConfidentialPrefix, stripConfidentialPrefix } from '@/lib/mailConfidential';
 import {
   buildDraftSavePayload,
   MAIL_ALREADY_SENDING,
@@ -1159,7 +1159,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     });
   }
 
-  // 기밀 토글(WP-2029) — 켜면 칸 안의 「[기밀]」을 걷어 머리말이 두 번 보이지 않게 한다(끄면 칸 글자는 그대로).
+  // 기밀 토글(WP-2029) — 켜면 칸 맨 앞의 「[기밀]」 머리말을 걷어 머리말이 두 번 보이지 않게 한다(끄면 칸 글자는 그대로).
   const toggleConfidential = () => {
     const next = !confidential;
     setConfidential(next);
@@ -1187,8 +1187,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
       기밀
     </button>
   );
-  // 제목 칸 앞 머리말 — 표시만(보내는 제목에는 서버가 붙인다).
-  const confidentialPrefix = confidential && (
+  // 제목 칸 앞 머리말 — 표시만(보내는 제목에는 서버가 붙인다). 제목에 [기밀] 이 이미 있으면 서버가 더 붙이지 않아 숨긴다.
+  const confidentialPrefix = showsConfidentialPrefix(confidential, subject) && (
     <span data-testid="mail-compose-confidential-prefix" className="shrink-0 text-xs font-medium text-rose-600 dark:text-rose-300">
       {CONFIDENTIAL_PREFIX}
     </span>

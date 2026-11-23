@@ -139,6 +139,36 @@ test('제목 칸에 「[기밀] 견적」을 쓰고 토글을 켜면 칸은 「�
   expect(screen.getByTestId('mail-compose-subject')).toHaveValue('견적')
 })
 
+test('답장 제목 「RE: [기밀] 단가」에서 토글을 켜면 칸은 그대로이고, 서버가 머리말을 더 붙이지 않으므로 앞 머리말도 보이지 않는다(WP-2029)', async () => {
+  const send = sendHandler()
+  const { user } = renderMail('/mail/1', { handlers: [send.handler] })
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  await user.click(screen.getByTestId('mail-compose-to'))
+  await user.paste('rcpt@test.local')
+  await user.click(screen.getByTestId('mail-compose-subject'))
+  await user.paste('RE: [기밀] 단가')
+  const toggle = screen.getByRole('button', { name: '기밀' })
+  await user.click(toggle)
+  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByTestId('mail-compose-subject')).toHaveValue('RE: [기밀] 단가')
+  // 보이는 제목 = 받는 사람이 볼 제목(「RE: [기밀] 단가」) — 앞 머리말을 더 그리면 「[기밀] RE: [기밀] 단가」로 겹쳐 보인다
+  expect(screen.queryByTestId('mail-compose-confidential-prefix')).not.toBeInTheDocument()
+  await user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  expect(send.last().body.confidential).toBe(true)
+  expect(send.last().body.subject).toBe('RE: [기밀] 단가')
+})
+
+test('토글을 켠 뒤 제목 칸에 「[기밀] 견적」을 쓰면 앞 머리말은 숨어 겹쳐 보이지 않는다(WP-2029)', async () => {
+  const { user } = renderMail('/mail/1')
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  await user.click(screen.getByRole('button', { name: '기밀' }))
+  expect(screen.getByTestId('mail-compose-confidential-prefix')).toBeInTheDocument()
+  await user.click(screen.getByTestId('mail-compose-subject'))
+  await user.paste('[기밀] 견적')
+  expect(screen.queryByTestId('mail-compose-confidential-prefix')).not.toBeInTheDocument()
+})
+
 test('토글 없이 보내면 confidential 은 false 이거나 없다(WP-2029)', async () => {
   const send = sendHandler()
   const { user } = renderMail('/mail/1', { handlers: [send.handler] })
