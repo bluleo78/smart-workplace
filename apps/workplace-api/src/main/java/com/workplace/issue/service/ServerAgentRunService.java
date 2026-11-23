@@ -114,7 +114,11 @@ public class ServerAgentRunService {
       boolean lastRun = runId != null && !hasLiveRun(issueId, agentId);
       // 지금 노드 담당이면 지금 방문에 들어간 시각 — 워크플로우 없음·노드 담당 아님이면 empty.
       Optional<Instant> visit = workflowBridge.currentVisitEnteredAt(issueId, agentId);
-      if (report.ok()) {
+      // 앞 방문에서 시작한 실행의 실패는 지금 노드와 상관없다 — 노드를 멈추지도 사유를 미루지도 않는다. 다만 그 실행이 마지막이면 지금 방문의
+      // 실행도 다 끝난 것이라, 정상 끝과 같이 지금 방문을 마무리한다(미룬 실패 적용 또는 쉬는 중).
+      boolean staleFailure = !report.ok() && startedBeforeVisit(issueId, agentId, runId, visit);
+      if (staleFailure && !lastRun) return;
+      if (report.ok() || staleFailure) {
         switch (workflowBridge.onServerRunSuccess(issueId, agentId)) {
           case OWNED -> {
             // 노드를 떠남·다시 들어옴·AI 가 스스로 기다림을 보고함 등. 마지막 실행이면 미룬 실패를 모두 비운다 — AI 의 명시 보고가 뒤의 뜻이라
@@ -135,11 +139,12 @@ public class ServerAgentRunService {
                     .orElse(
                         patch(AgentWorkState.WAITING, AgentWorkState.NOTE_FINISHED_WITHOUT_MOVE));
           }
-          case NOT_OWNED -> {}
+          case NOT_OWNED -> {
+            // 앞 방문 실행의 실패는 검토 대기도 차단도 쓰지 않는다.
+            if (staleFailure) return;
+          }
         }
       } else {
-        // 앞 방문에서 시작한 실행의 실패는 지금 노드와 상관없다 — 노드도 작업 기록도 바꾸지 않고 사유도 미루지 않는다.
-        if (startedBeforeVisit(issueId, agentId, runId, visit)) return;
         // 지금 노드 담당 AI 의 다른 실행이 아직 돌면 노드를 멈추지 않고 사유를 미룬다 — 노드 담당이 아니면(워크플로우 없음·손으로 넣은 담당) 바로 차단.
         if (runId != null && !lastRun && visit.isPresent()) {
           serverRunRepository.deferFailure(issueId, agentId, runId, patch.note());

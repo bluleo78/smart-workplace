@@ -1470,6 +1470,51 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("앞 노드에서 시작한 실행이 마지막으로 실패해 끝나면 지금 방문에서 미룬 실패를 따라 work2 를 멈춘다")
+  void lastFailureFromPreviousNodeRun_appliesCurrentVisitDeferredFailure() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runC);
+    ok(move(issue, "work", "again", null, 0, "k1"), pm);
+    String runN2 = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN2);
+    // N2 는 지금 방문의 실행 — C 가 아직 돌아 사유가 미뤄진다.
+    serverRun(bot, issue, "FINISHED", false, "빌드가 깨졌습니다", runN2);
+    assertThat(hasFailedNote(issue)).isTrue();
+
+    // C(앞 방문)가 마지막으로 실패 — C 의 사유는 쓰지 않고 지금 방문의 미룬 사유로 멈춘다.
+    serverRun(bot, issue, "FINISHED", false, "답을 쓰지 못했습니다", runC);
+
+    assertThat(activeStates(issue, bot)).containsExactly("BLOCKED");
+    assertThat(activeNote(issue, bot)).isEqualTo("빌드가 깨졌습니다");
+    assertThat(nodeRun(issue, "work2").get(NODE_RUN.STATUS)).isEqualTo("BLOCKED");
+    assertThat(runStatus(issue)).isEqualTo("SUSPENDED");
+    assertThat(hasFailedNote(issue)).isFalse();
+  }
+
+  @Test
+  @DisplayName("앞 노드에서 시작한 실행이 마지막으로 실패해 끝나고 지금 방문 실행은 정상으로 끝났으면 대기 중으로 내린다")
+  void lastFailureFromPreviousNodeRun_afterCurrentVisitSuccess_waits() {
+    long bot = agent("INTERNAL");
+    long issue = internalStartedIssue(bot);
+    String runC = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runC);
+    ok(move(issue, "work", "again", null, 0, "k1"), pm);
+    String runN2 = newRun();
+    serverRun(bot, issue, "STARTED", true, null, runN2);
+    serverRun(bot, issue, "FINISHED", true, null, runN2);
+    assertThat(activeStates(issue, bot)).containsExactly("WORKING");
+
+    serverRun(bot, issue, "FINISHED", false, "답을 쓰지 못했습니다", runC);
+
+    assertThat(activeStates(issue, bot)).containsExactly("WAITING");
+    assertThat(activeNote(issue, bot)).isEqualTo("이동 없이 실행이 끝났습니다");
+    assertThat(nodeRun(issue, "work2").get(NODE_RUN.STATUS)).isEqualTo("ACTIVE");
+    assertThat(runEvents(issue)).doesNotContain("NODE_BLOCKED");
+  }
+
+  @Test
   @DisplayName("멈춘 방문에서 미룬 실패는 다시 시도(새 방문) 뒤 새 방문의 마지막 실행 끝에 따르지 않아 다시 멈추지 않는다")
   void failureDeferredBeforeRetry_notAppliedToRetriedVisit() {
     long bot = agent("INTERNAL");
