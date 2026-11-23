@@ -9,3 +9,12 @@ export function safeLocalStorage(): Storage | null {
     return null;
   }
 }
+
+/** window.sessionStorage 또는 null(접근 불가) — 탭 안에서만 남길 표시(청크 실패 새로고침 등)에 쓴다. 호출할 때마다 다시 본다. */
+export function safeSessionStorage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}

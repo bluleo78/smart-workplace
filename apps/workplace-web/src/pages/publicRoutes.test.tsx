@@ -16,6 +16,7 @@ import { setAccessToken } from '@/api/client'
 import { AuthContext } from '@/hooks/auth-context-value'
 import { AuthProvider } from '@/hooks/AuthContext'
 import { useAuth } from '@/hooks/useAuth'
+import { AUTH_FLAG_KEY } from '@/lib/auth/sessionFlag'
 import { PENDING_PUSH_TARGET_KEY } from '@/lib/push/openTarget'
 import LoginPage from '@/pages/LoginPage'
 import M365CallbackPage from '@/pages/oauth/M365CallbackPage'
@@ -326,7 +327,7 @@ describe('알림 탭 진입점 /push-open', () => {
   // 다른 테넌트면 select-tenant 로 토큰을 다시 받고 목적지로 전체 리로드한다. jsdom 은 location.assign 이동을 하지 않으므로
   // 실제 AuthProvider 의 selectTenant 를 감싸 넘긴 목적지를 기록한다(요청 payload 는 MSW 로 본다).
   test('다른 테넌트면 그 테넌트로 전환하고 목적지를 넘긴다', async () => {
-    window.localStorage.setItem('hasSession', 'true')
+    window.localStorage.setItem(AUTH_FLAG_KEY, 'true')
     window.localStorage.setItem('activeTenant', JSON.stringify(T1))
     const selected: unknown[] = []
     const redirects: string[] = []

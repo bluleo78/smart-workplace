@@ -5,6 +5,8 @@
 import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AUTH_FLAG_KEY } from '@/lib/auth/sessionFlag';
+
 /** 서명 없는 테스트용 JWT — 웹은 tenant 클레임만 판독한다. */
 function jwt(payload: Record<string, unknown>): string {
   const b64url = (o: unknown) =>
@@ -164,11 +166,11 @@ describe('api/client — 테넌트 변경 리로드 대기', () => {
       new AxiosError('401', 'ERR_BAD_REQUEST', undefined, null, { status: 401 } as AxiosResponse),
     );
     client.defaults.adapter = unauthorizedAdapter;
-    localStorage.setItem('hasSession', 'true');
+    localStorage.setItem(AUTH_FLAG_KEY, 'true');
     setAccessToken(jwt({ tenant: 10 }));
 
     expect(await settleState(client.get('/me/issues'))).toBe('rejected');
-    expect(localStorage.getItem('hasSession')).toBeNull();
+    expect(localStorage.getItem(AUTH_FLAG_KEY)).toBeNull();
     expect(window.location.href).toBe('/login');
   });
 
@@ -180,13 +182,13 @@ describe('api/client — 테넌트 변경 리로드 대기', () => {
     const { client, setAccessToken } = await import('./client');
     vi.spyOn(axios, 'post').mockRejectedValue(refreshError);
     client.defaults.adapter = unauthorizedAdapter;
-    localStorage.setItem('hasSession', 'true');
+    localStorage.setItem(AUTH_FLAG_KEY, 'true');
     setAccessToken(jwt({ tenant: 10 }));
 
     // 원래 401 이 아니라 refresh 의 오류로 실패한다 — 호출부가 만료(401)로 오판하지 않게.
     const err = await client.get('/me/issues').catch((e: unknown) => e);
     expect(err).toBe(refreshError);
-    expect(localStorage.getItem('hasSession')).toBe('true');
+    expect(localStorage.getItem(AUTH_FLAG_KEY)).toBe('true');
     expect(window.location.href).toBe('/');
   });
 });

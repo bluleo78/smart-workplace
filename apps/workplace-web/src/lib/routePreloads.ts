@@ -24,6 +24,19 @@ export function startRoutePreloads(pathname: string, loaders: Record<RoutePreloa
   }
 }
 
+/** 이 문서에서 첫 주소 미리 받기를 이미 시작했는가 — App 이 다시 마운트돼도(E2E 이어 쓰기 등) 한 번만 돌게 한다. */
+let initialPreloadStarted = false
+
+/**
+ * 첫 주소의 청크 미리 받기를 문서당 한 번만 시작한다(WP-2021 리뷰 후속) — 미리 받기는 첫 진입을 위한 것이라
+ * App 이 같은 문서에서 다시 마운트될 때(주소가 바뀐 뒤) 또 돌면 그 주소의 청크를 쓸데없이 다시 고른다.
+ */
+export function startInitialRoutePreloads(pathname: string, loaders: Record<RoutePreloadKey, Preload>): void {
+  if (initialPreloadStarted) return
+  initialPreloadStarted = true
+  startRoutePreloads(pathname, loaders)
+}
+
 /**
  * 첫 주소의 페이지 청크를 인증(users/me)과 병렬로 미리 받는 표(WP-2021) — 첫 일치 항목의 키만 쓴다. 키에 대응하는 로더는 App.tsx 가 쥔다.
  * 앱 셸 밖 화면(/mail/compose 새 창, /wiki/share/:token, /wiki/open/:pageId)과 탭이 아닌 프로젝트 하위 화면
@@ -31,8 +44,8 @@ export function startRoutePreloads(pathname: string, loaders: Record<RoutePreloa
  */
 export const ROUTE_PRELOADS = [
   [/^\/projects\/[^/]+\/?$/, ['projectTabs', 'projectIssues']],
-  // 탭 라우트만: overview·timeline·cycles·versions(목록)·notes(/:pageId). versions/:id 상세는 탭 밖이다.
-  [/^\/projects\/[^/]+\/(?:(?:timeline|cycles|versions|overview)|notes(?:\/[^/]+)?)\/?$/, ['projectTabs']],
+  // 탭 라우트만: overview·timeline·cycles·versions(목록)·workflow·notes(/:pageId). versions/:id 상세는 탭 밖이다.
+  [/^\/projects\/[^/]+\/(?:(?:timeline|cycles|versions|overview|workflow)|notes(?:\/[^/]+)?)\/?$/, ['projectTabs']],
   [/^\/projects\/?$/, ['projectList']],
   // /mail/compose 는 셸 밖 새 창이라 제외
   [/^\/mail(?!\/compose(?:\/|$))(?:\/|$)/, ['mailLayout', 'mailInbox']],

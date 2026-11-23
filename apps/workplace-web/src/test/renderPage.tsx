@@ -20,6 +20,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from '@/App'
 import { AppToaster } from '@/components/AppToaster'
 import { AuthProvider } from '@/hooks/AuthContext'
+import { AUTH_FLAG_KEY } from '@/lib/auth/sessionFlag'
 import type { UserResponse } from '@/types/auth'
 import type { RoleResponse } from '@/types/role'
 
@@ -62,7 +63,7 @@ export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handl
   configure({ asyncUtilTimeout: PAGE_ASYNC_TIMEOUT })
   server.use(...handlers, ...authHandlers(user ?? createUser({ aiAvailable: true }), roles), ...shellHandlers)
   // AuthProvider 는 이 표식이 있을 때만 refresh 로 세션을 되살린다(E2E 의 hasSession 주입과 같음).
-  window.localStorage.setItem('hasSession', '1')
+  window.localStorage.setItem(AUTH_FLAG_KEY, '1')
   // 라우터는 jsdom 의 실제 세션 히스토리(window.history)를 쓴다(WP-995) — MemoryRouter 는 window.history 를 건드리지 않아
   // history.state 로 「앱 안에서 연 항목」을 알아보는 닫기(useHistoryParam·useIssueOrigin)·뒤로 가기·window.location 을 읽는
   // 코드가 jsdom 에서 무동작이었다. 시작 주소는 현재 항목을 바꿔 둔다 — state 가 비어 있어 라우터는 이 항목을 첫 항목(idx 0)으로 본다.
