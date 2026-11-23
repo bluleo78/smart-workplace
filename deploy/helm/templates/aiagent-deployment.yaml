@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "swp.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.appReplicas }}
+  replicas: {{ include "swp.replicas" (dict "root" $ "id" "aiAgent") }}
   # 과거 ReplicaSet 보관 개수 — rollout restart 반복 시 0-replica RS 누적 방지
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   # 무중단 롤링(WP-167). 예전 Recreate 는 RWO PVC 단일 점유 때문이었으나, 그 PVC 는 앱 HOME(/home/node)과 다른 경로
@@ -33,6 +33,7 @@ spec:
           configMap:
             name: ai-agent-extra-ca
       {{- end }}
+      {{- with include "swp.spread" (dict "root" $ "id" "aiAgent" "name" "ai-agent") }}{{ . | nindent 6 }}{{- end }}
       containers:
         - name: ai-agent
           image: {{ include "swp.image" (dict "root" $ "id" "ai-agent") | quote }}

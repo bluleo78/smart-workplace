@@ -47,6 +47,7 @@ revisionHistoryLimit: 3
 # 앱 Deployment 6개(api·ai-agent·web·admin·worker·mcp)의 replicas. db StatefulSet 은 제외.
 # 2026-09-30 prod 이관(WP-116): 신규 클러스터에 설치할 때 --set appReplicas=0 으로 db 만 먼저 띄워,
 # api 의 Flyway 가 빈 DB 를 초기화하기 전에 pg_restore 를 끝내기 위해 둔 값.
+# 값을 바꾸면 이 값을 두지 않은 모든 앱이 함께 움직인다. 앱별 값(<앱>.replicas)이 있으면 그 앱만 덮어쓴다 — 단 appReplicas=0 이면 어느 앱이든 0이다.
 appReplicas: 1
 
 # 무중단 롤링 배포(WP-164). preStop 대기 동안 Endpoint 에서 빠지고, 그 뒤 앱이 graceful 종료한다.
@@ -115,6 +116,7 @@ db:
       memory: 1Gi
 
 api:
+  # replicas: <정수> 를 넣으면 이 앱만 그 값이 된다(없으면 appReplicas 사용 — 값을 여기에 기본값으로 적지 않는다)
   # 볼륨 권한 init 컨테이너 — 공개 이미지지만 앱 이미지처럼 digest 로 고정(노드마다 다른 빌드·rollback 어긋남 방지)
   initImage: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
   # 접속이 HTTPS(http→https 308 리다이렉트)라 브라우저 Origin은 https. 호스트 바뀌면 같이 수정.
@@ -134,6 +136,7 @@ api:
       memory: 1536Mi
 
 aiAgent:
+  # replicas: <정수> 를 넣으면 이 앱만 그 값이 된다(없으면 appReplicas 사용 — 값을 여기에 기본값으로 적지 않는다)
   # 2026-08-04: limit 1Gi에서 반복 OOMKilled(파드당 ~9분 주기, 8일간 누적 재시작 18회+) → 2Gi로 상향.
   resources:
     requests:
@@ -154,6 +157,7 @@ aiAgent:
 
 # 신규 worker 서비스 (api 파일 처리). api와 storage 볼륨 공유.
 worker:
+  # replicas: <정수> 를 넣으면 이 앱만 그 값이 된다(없으면 appReplicas 사용 — 값을 여기에 기본값으로 적지 않는다)
   # 임베딩(BGE-M3) 서버 — 미지정 시 워커 기본값 localhost:11434 로 붙어 Connection refused (WP-383·384)
   ollamaBaseUrl: http://bluelion.iptime.org:11434
   embedModel: bge-m3
@@ -170,6 +174,7 @@ storage:
 
 # 신규 mcp 서비스 (외부 MCP 클라이언트용, 7090). Ingress로 노출.
 mcp:
+  # replicas: <정수> 를 넣으면 이 앱만 그 값이 된다(없으면 appReplicas 사용 — 값을 여기에 기본값으로 적지 않는다)
   resources:
     requests:
       cpu: 50m
@@ -201,6 +206,7 @@ collab:
       memory: 512Mi
 
 web:
+  # replicas: <정수> 를 넣으면 이 앱만 그 값이 된다(없으면 appReplicas 사용 — 값을 여기에 기본값으로 적지 않는다)
   resources:
     requests:
       cpu: 50m
@@ -209,6 +215,7 @@ web:
       memory: 256Mi
 
 admin:
+  # replicas: <정수> 를 넣으면 이 앱만 그 값이 된다(없으면 appReplicas 사용 — 값을 여기에 기본값으로 적지 않는다)
   resources:
     requests:
       cpu: 50m

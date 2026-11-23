@@ -348,3 +348,147 @@ test('api 볼륨 권한 init 컨테이너는 표식 파일이 있을 때 전체 
   // then 블록 안에서 chown -R 이 touch 보다 앞서야 한다 — touch 가 먼저면 실패 시 표식이 남아 무음으로 깨진다
   assert.ok(block.indexOf('chown -R') < block.indexOf('touch'));
 });
+
+// WP-1971 — 앱별 복제 수·PDB·분산 배치. appReplicas 로 함께 움직이는 여섯 앱(전환·db 는 빠진다).
+const SIX_APPS = ['api', 'ai-agent', 'web', 'admin', 'mcp', 'worker'];
+
+test('기본값에서는 여섯 앱이 모두 appReplicas(1)대로 렌더된다 (WP-1971)', () => {
+  for (const name of SIX_APPS) {
+    assert.match(BASE_DOCS.get(`Deployment/${name}`), /^\s+replicas: 1$/m, name);
+  }
+});
+
+test('appReplicas 만 바꾸면 앱별 값이 없는 앱이 따라 움직인다 (WP-1971)', () => {
+  const r = render('-f', IMAGES, '--set', 'appReplicas=3');
+  assert.ok(r.ok, r.err);
+  for (const name of SIX_APPS) {
+    assert.match(docs(r.out).get(`Deployment/${name}`), /^\s+replicas: 3$/m, name);
+  }
+});
+
+test('앱별 복제 수는 그 앱만 바꾸고 나머지는 appReplicas 를 쓴다 (WP-1971 완료 조건 1)', () => {
+  const r = render('-f', IMAGES, '--set', 'web.replicas=2', '--set', 'admin.replicas=2',
+    '--set', 'mcp.replicas=2', '--set', 'worker.replicas=2');
+  assert.ok(r.ok, r.err);
+  const d = docs(r.out);
+  for (const name of ['web', 'admin', 'mcp', 'worker']) assert.match(d.get(`Deployment/${name}`), /^\s+replicas: 2$/m, name);
+  for (const name of ['api', 'ai-agent']) assert.match(d.get(`Deployment/${name}`), /^\s+replicas: 1$/m, name);
+});
+
+test('appReplicas=0 동결은 앱별 값을 이기고, 앱별 값이 정수가 아니면 렌더가 실패한다 (WP-1971)', () => {
+  const frozen = render('-f', IMAGES, '--set', 'appReplicas=0', '--set', 'web.replicas=2');
+  assert.ok(frozen.ok, frozen.err);
+  for (const name of SIX_APPS) {
+    assert.match(docs(frozen.out).get(`Deployment/${name}`), /^\s+replicas: 0$/m, name);
+  }
+  const bad = render('-f', IMAGES, '--set-string', 'api.replicas=8x');
+  assert.equal(bad.ok, false);
+  assert.match(bad.err, /api\.replicas 는 정수여야 합니다/);
+});
+
+test('기본값(1대)에서는 PDB 와 분산 배치가 하나도 렌더되지 않는다 (WP-1971)', () => {
+  assert.equal([...BASE_DOCS.keys()].filter((k) => k.startsWith('PodDisruptionBudget/')).length, 0);
+  for (const name of SIX_APPS) {
+    assert.doesNotMatch(BASE_DOCS.get(`Deployment/${name}`), /topologySpreadConstraints/, name);
+  }
+});
+
+test('두 대가 된 앱에만 PDB(minAvailable 1)와 노드 분산 배치가 렌더된다 (WP-1971)', () => {
+  const r = render('-f', IMAGES, '--set', 'web.replicas=2', '--set', 'admin.replicas=2',
+    '--set', 'mcp.replicas=2', '--set', 'worker.replicas=2');
+  assert.ok(r.ok, r.err);
+  const d = docs(r.out);
+  const pdbs = [...d.keys()].filter((k) => k.startsWith('PodDisruptionBudget/'));
+  assert.deepEqual(pdbs.sort(), ['PodDisruptionBudget/admin', 'PodDisruptionBudget/mcp',
+    'PodDisruptionBudget/web', 'PodDisruptionBudget/worker']);
+  for (const name of ['admin', 'mcp', 'web', 'worker']) {
+    const pdb = d.get(`PodDisruptionBudget/${name}`);
+    assert.match(pdb, /minAvailable: 1/);
+    assert.match(pdb, new RegExp(`app: ${name}\\n`));
+    const dep = d.get(`Deployment/${name}`);
+    assert.match(dep, /topologySpreadConstraints:/);
+    assert.match(dep, /topologyKey: kubernetes\.io\/hostname/);
+    assert.match(dep, /whenUnsatisfiable: ScheduleAnyway/);
+    assert.match(dep, /maxSkew: 1/);
+  }
+  for (const name of ['api', 'ai-agent']) assert.doesNotMatch(d.get(`Deployment/${name}`), /topologySpreadConstraints/);
+});
+
+test('분산 배치는 노드가 한 대여도 스케줄을 거부하지 않는다 — ScheduleAnyway (WP-1971)', () => {
+  const r = render('-f', IMAGES, '--set', 'web.replicas=2');
+  assert.ok(r.ok, r.err);
+  const web = docs(r.out).get('Deployment/web');
+  assert.match(web, /whenUnsatisfiable: ScheduleAnyway/);
+  assert.doesNotMatch(web, /whenUnsatisfiable: DoNotSchedule/);
+  assert.match(web, /app: web\n/);   // labelSelector 는 Deployment selector 와 같은 app 라벨
+});
+
+test('aiAgent 값 키로 ai-agent 만 바뀐다 — 값 키와 이름이 다른 유일한 앱 (WP-1971)', () => {
+  const r = render('-f', IMAGES, '--set', 'aiAgent.replicas=2');
+  assert.ok(r.ok, r.err);
+  const d = docs(r.out);
+  assert.match(d.get('Deployment/ai-agent'), /^\s+replicas: 2$/m);
+  assert.match(d.get('PodDisruptionBudget/ai-agent'), /minAvailable: 1/);
+  for (const name of ['api', 'web', 'admin', 'mcp', 'worker']) {
+    assert.match(d.get(`Deployment/${name}`), /^\s+replicas: 1$/m, name);
+  }
+});
+
+test('기본값 렌더의 여섯 앱 pod spec 에 공백 전용 줄이 늘지 않는다 — 완료 조건 2 (WP-1971)', () => {
+  for (const name of SIX_APPS) {
+    const body = BASE_DOCS.get(`Deployment/${name}`);
+    // pod spec 의 공백 전용 줄은 imagePullSecrets 헬퍼(nindent)가 남기는 1개뿐이어야 한다.
+    // 빈 출력에 `| nindent 6` 을 단 swp.spread include 가 돌아오면(1대) 앱마다 2개가 된다 —
+    // 완료 조건 2 「기본값 렌더링 결과는 지금과 같다」를 공백 줄 수로 잡는다.
+    assert.equal((body.match(/^ +$/gm) || []).length, 1, name);
+  }
+});
+
+test('DB 커넥션 가드는 appReplicas 가 아니라 api 앱별 복제 수로 센다 (WP-1971)', () => {
+  // api 는 1 그대로, web 을 2로 올려도 합계는 변하지 않는다
+  assert.ok(render('-f', IMAGES, '--set', 'web.replicas=2').ok);
+  // api=8 → (8+2)×10+2+13 = 115 > 100
+  const { ok, err } = render('-f', IMAGES, '--set', 'api.replicas=8');
+  assert.equal(ok, false);
+  assert.match(err, /DB 커넥션 합계/);
+  assert.match(err, /115/);
+  // appReplicas 6 이어도 api 만 2 면 (2+2)×10+2+13 = 55 ≤ 100 로 통과 — 가드는 api 값을 센다
+  assert.ok(render('-f', IMAGES, '--set', 'appReplicas=6', '--set', 'api.replicas=2').ok);
+});
+
+// 스펙 §6 차트 테스트 표에서 아직 안 쓴 줄 세 개(WP-1971): 롤아웃 전략, api.replicas=0, 동결의 converter·collab.
+
+test('여섯 앱 모두 RollingUpdate 로 maxSurge·maxUnavailable 값을 쓰고 ai-agent 는 Recreate 가 아니다 (WP-1971)', () => {
+  // 기본(운영 값 + images) 렌더: values.yaml 기본 maxSurge 1 / maxUnavailable 0 이 그대로 나와야 한다.
+  const base = /strategy:\n\s+type: RollingUpdate\n\s+rollingUpdate:\n\s+maxSurge: 1\n\s+maxUnavailable: 0\n/;
+  for (const name of SIX_APPS) {
+    const body = BASE_DOCS.get(`Deployment/${name}`);
+    assert.ok(body, `Deployment/${name} 렌더 없음`);
+    assert.match(body, base, name);
+    assert.doesNotMatch(body, /type: Recreate/, name);
+  }
+  // 값을 바꾸면 여섯 앱 모두 따라간다.
+  const r = render('-f', IMAGES, '--set', 'rollout.maxSurge=2', '--set', 'rollout.maxUnavailable=1');
+  assert.ok(r.ok, r.err);
+  const changed = /strategy:\n\s+type: RollingUpdate\n\s+rollingUpdate:\n\s+maxSurge: 2\n\s+maxUnavailable: 1\n/;
+  for (const name of SIX_APPS) assert.match(docs(r.out).get(`Deployment/${name}`), changed, name);
+  // collab 은 문서 상태를 메모리에 들고 있어 유일하게 Recreate — 두 파드가 같은 문서를 덮어쓰지 않게(_helpers.tpl 주석과 일치).
+  assert.match(BASE_DOCS.get('Deployment/collab'), /type: Recreate/);
+});
+
+test('api.replicas=0 + appReplicas=1 이면 api 는 0, web 은 1 그대로 렌더된다 (WP-1971)', () => {
+  const r = render('-f', IMAGES, '--set', 'appReplicas=1', '--set', 'api.replicas=0');
+  assert.ok(r.ok, r.err);
+  const d = docs(r.out);
+  assert.match(d.get('Deployment/api'), /^\s+replicas: 0$/m, 'api');
+  assert.match(d.get('Deployment/web'), /^\s+replicas: 1$/m, 'web');
+});
+
+test('appReplicas=0 동결은 converter·collab 에도 흐른다 (WP-1971)', () => {
+  // 두 앱은 swp.replicas 를 쓰지 않지만 appReplicas=0(신규 클러스터 이관)에서 함께 0 이어야 한다.
+  const r = render('-f', IMAGES, '--set', 'appReplicas=0');
+  assert.ok(r.ok, r.err);
+  const d = docs(r.out);
+  assert.match(d.get('Deployment/converter'), /^\s+replicas: 0$/m, 'converter');
+  assert.match(d.get('Deployment/collab'), /^\s+replicas: 0$/m, 'collab');
+});

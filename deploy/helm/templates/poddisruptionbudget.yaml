@@ -1,0 +1,20 @@
+{{- /* 6개 앱 Deployment 순회 — effective 복제 수가 2 이상일 때만 PDB(1대일 때는 drain 을 막지 않는다) */}}
+{{- $apps := list (dict "id" "api" "name" "api") (dict "id" "aiAgent" "name" "ai-agent")
+                  (dict "id" "web" "name" "web") (dict "id" "admin" "name" "admin")
+                  (dict "id" "mcp" "name" "mcp") (dict "id" "worker" "name" "worker") -}}
+{{- range $a := $apps -}}
+{{- if ge (int (include "swp.replicas" (dict "root" $ "id" $a.id))) 2 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $a.name }}
+  labels:
+    {{- include "swp.labels" $ | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ $a.name }}
+{{- end -}}
+{{- end -}}
