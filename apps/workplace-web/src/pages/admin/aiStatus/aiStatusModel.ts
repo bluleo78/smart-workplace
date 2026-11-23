@@ -256,8 +256,8 @@ function alertLabel(a: AiStatusAlert): string {
       break
     }
     case 'ACCOUNT_USAGE': {
-      const { name, tail } = splitAccountLabel(a.label ?? '')
-      const subject = [name, WINDOW_TEXT[tail] ?? tail].filter(Boolean).join(' ')
+      const { name, window } = accountParts(a)
+      const subject = [name, window].filter(Boolean).join(' ')
       const percent = (v: number) => formatPercent(v / 100)
       parts = [alertHead(subject, '사용률', whenPresent(a.value, percent)), alertThreshold(a.threshold, percent)]
       break
@@ -358,13 +358,30 @@ const LEVEL_RANK: Record<AlertLevel, number> = { info: 0, warning: 1, danger: 2 
 function accountKey(a: AiStatusAlert): string | null {
   if (a.accountId != null) return `id:${a.accountId}`
   if (!a.label) return null
-  return `name:${splitAccountLabel(a.label).name}`
+  return `name:${accountParts(a).name}`
+}
+
+/** 계정 경고가 기준 100% 이상(한도 도달)인가 — 묶은 줄의 「도달」 판정을 한 곳에 둔다. */
+function isReached(a: AiStatusAlert): boolean {
+  return a.threshold != null && a.threshold >= 100
+}
+
+/** 계정 경고 라벨(「이름 · 5h」) → 이름·화면 용어 창(5시간·7일) — 라벨이 없으면 둘 다 빈 문자열. 한 줄 문구와 묶은 줄이 함께 쓴다. */
+function accountParts(a: AiStatusAlert): { name: string; window: string } {
+  const { name, tail } = splitAccountLabel(a.label ?? '')
+  return { name, window: WINDOW_TEXT[tail] ?? tail }
+}
+
+/** 빈 값을 빼고 겹치는 값을 한 번만 남겨 「·」 로 잇는다(순서 그대로) — 묶은 줄의 창 목록. */
+function joinUnique(values: string[]): string {
+  return [...new Set(values.filter(Boolean))].join('·')
 }
 
 /**
  * 계정 사용률 경고 둘 이상 → 묶은 한 줄(수준·문구·「계정 보기」 이동).
- * 묶은 줄은 서로 다른 계정 n개 중 기준 100% 이상(도달)이 m개다 — 모두 도달이면 「n개 한도 도달(100% 이상)」,
- * 아니면 「n개 한도 근접(가장 낮은 기준% 이상)」 에 m>0 이면 「 · m개 도달」 을 붙인다. 기준이 하나도 없으면 괄호를 뺀다.
+ * 문구는 「<주체> 한도 도달(기준)」(모두 도달) 또는 「<주체> 한도 근접(가장 낮은 기준% 이상)」 에 도달이 있으면 「 · <도달> 도달」 이다. 기준이 하나도 없으면 괄호를 뺀다.
+ * 주체·도달 단위는 서로 다른 계정 수 n 으로 갈린다 — 여럿이면 「AI 계정 n개」·「m개」, 하나면(한 계정이 5시간·7일 두 창에 함께 걸림)
+ * 묶어도 어느 계정인지 남게 「<이름> <창·창>」·「<도달한 창>」(예: 「운영 5시간·7일 한도 근접(80% 이상) · 5시간 도달」). 이름을 모르면 개수로 적는다.
  */
 function groupAccountAlerts(accountAlerts: AiStatusAlert[]): AlertRow {
   const level = accountAlerts
@@ -374,19 +391,23 @@ function groupAccountAlerts(accountAlerts: AiStatusAlert[]): AlertRow {
   const reachedByAccount = new Map<string, boolean>()
   accountAlerts.forEach((x, i) => {
     const key = accountKey(x) ?? `anon:${i}`
-    const reached = x.threshold != null && x.threshold >= 100
-    reachedByAccount.set(key, (reachedByAccount.get(key) ?? false) || reached)
+    reachedByAccount.set(key, (reachedByAccount.get(key) ?? false) || isReached(x))
   })
   const n = reachedByAccount.size
   const m = [...reachedByAccount.values()].filter(Boolean).length
   const thresholds = accountAlerts.map((x) => x.threshold).filter((v): v is number => v != null)
   const minThreshold = thresholds.length === 0 ? null : Math.min(...thresholds)
   const criterion = minThreshold == null ? '' : `(${formatPercent(minThreshold / 100)} 이상)`
-  // 모두 한도에 닿았으면 「도달(100% 이상)」, 섞였으면 「근접(최저 기준)」 뒤에 도달한 계정 수를 덧붙인다
-  const label =
-    m === n
-      ? `AI 계정 ${n}개 한도 도달${criterion}`
-      : `AI 계정 ${n}개 한도 근접${criterion}${m > 0 ? ` · ${m}개 도달` : ''}`
+
+  const parts = accountAlerts.map(accountParts)
+  const name = n === 1 ? parts.find((p) => p.name !== '')?.name : undefined
+  const reached = accountAlerts.filter(isReached)
+  const subject = name ? [name, joinUnique(parts.map((p) => p.window))].filter(Boolean).join(' ') : `AI 계정 ${n}개`
+  const allReached = name ? reached.length === accountAlerts.length : m === n
+  // 도달한 것 — 한 계정이면 도달한 창 이름(모르면 생략), 여럿이면 도달한 계정 수
+  const reachedUnit = name ? joinUnique(reached.map((x) => accountParts(x).window)) : `${m}개`
+  const reachedTail = reached.length === 0 ? '' : ` · ${[reachedUnit, '도달'].filter(Boolean).join(' ')}`
+  const label = allReached ? `${subject} 한도 도달${criterion}` : `${subject} 한도 근접${criterion}${reachedTail}`
   return {
     item: { id: `${ACCOUNT_USAGE}-group`, level, label },
     target: { label: '계정 보기', href: ACCOUNTS_PATH },
@@ -432,11 +453,12 @@ export function mergeStep(rowCount: number, maxBars: number): number {
   return Math.max(1, Math.ceil(rowCount / maxBars))
 }
 
-/** 동시 처리 지표 카드의 값·직전 값 표기 「진행 중 / 한도건」 — 아는 값은 두고 모르는 자리만 EMPTY_GLYPH. */
+/**
+ * 동시 처리 지표 카드의 값·직전 값 표기 「진행 중 / 한도건」 — 아는 값은 두고 모르는 자리만 EMPTY_GLYPH.
+ * 단위 「건」 은 값이 있든 없든 늘 끝 한 자리에 둔다(「3 / 8건」·「3 / —건」) — 다른 카드·이전 「n / m 칸」 표기처럼 단위 자리가 값에 따라 옮겨 다니지 않게.
+ */
 function slotUsageText(used: number | null | undefined, limit: number | null | undefined): string {
-  // 「건」 은 아는 마지막 숫자 뒤에 붙인다 — 한도를 알면 「3 / 8건」, 모르면 「3건 / —」
-  if (limit == null) return `${used == null ? EMPTY_GLYPH : `${used}건`} / ${EMPTY_GLYPH}`
-  return `${used ?? EMPTY_GLYPH} / ${limit}건`
+  return `${used ?? EMPTY_GLYPH} / ${limit ?? EMPTY_GLYPH}건`
 }
 
 /** 동시 처리 값 표기 — 최근 표본이 없으면 '—', 있으면 「n / m건」(설계 §5-1). */

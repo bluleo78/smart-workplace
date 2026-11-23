@@ -105,7 +105,7 @@ export interface AiStatusAlert {
   threshold: number | null
 }
 
-/** AI 현황 개요 응답 — 서버 AiStatusOverview 레코드와 1:1. 구간 데이터가 없는 칸은 0 이 아니라 null 이다. 서버는 usage 블록(slotUsed·slotLimit·queueWaiting)도 보내지만 화면이 쓰지 않아 타입에서 뺐다(무시된다). */
+/** AI 현황 개요 응답 — 서버 AiStatusOverview 레코드와 1:1. 구간 데이터가 없는 칸은 0 이 아니라 null 이다. 서버는 usage 블록(slotUsed·slotLimit·queueWaiting·accounts)과 series.account5h(계정별 5시간 사용률 계열)도 보내지만 화면이 쓰지 않아 타입에서 뺐다(무시된다 — 계정 사용률은 AI 계정 화면에서 본다). */
 export type AiStatusOverview = {
   period: string
   bucketSeconds: number
