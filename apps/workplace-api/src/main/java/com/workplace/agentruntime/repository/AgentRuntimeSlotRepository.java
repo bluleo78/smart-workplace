@@ -296,13 +296,13 @@ public class AgentRuntimeSlotRepository {
    *
    * <p>견줄 값을 모르면 그 갈래에서는 옛 것이 아니다.
    *
+   * <p>칸 거르기는 ④ 의 기준이 관찰한 started_at 으로 따로라 6인자 판정을 쓴다.
+   *
    * @param reportPodUid 보고의 Pod 정체(모르면 null·공백)
    * @param reportPodStartedAt 보고가 실은 Pod 시작 시각(모르면 null)
    * @param reportedAt 보고를 받은 시각 — 서버 시계(모르면 null)
    * @param currentPodUid 지금 Pod 정체(모르면 null·공백)
-   * @param currentPodStart 시작 시각을 실은 보고와 견줄 지금 Pod 시작(칸 거르기는 {@link #currentPodStart} 로 합친 값, 모르면
-   *     null)
-   * @param timelessBasis 시각 없는 보고와 견줄 기준(칸 거르기는 관찰한 started_at, 모르면 null)
+   * @param currentPodStart 지금 Pod 시작 — 시작 시각을 실은 보고와 견주고, 시각 없는 보고(④)의 기준으로도 쓴다(모르면 null)
    */
   public static boolean isOldPodReport(
       String reportPodUid,
@@ -319,7 +319,11 @@ public class AgentRuntimeSlotRepository {
         currentPodStart);
   }
 
-  /** 시각 없는 보고의 기준({@code timelessBasis})을 따로 받는 판정 — 규칙은 위 문서와 같다. */
+  /**
+   * 시각 없는 보고(④)의 기준을 따로 받는 판정 — 규칙과 나머지 인자는 5인자 판정과 같다.
+   *
+   * @param timelessBasis 시각 없는 보고(④)와 견줄 기준(칸 거르기는 관찰한 started_at, 모르면 null)
+   */
   public static boolean isOldPodReport(
       String reportPodUid,
       OffsetDateTime reportPodStartedAt,
