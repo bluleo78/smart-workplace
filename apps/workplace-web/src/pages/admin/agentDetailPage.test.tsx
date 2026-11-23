@@ -365,6 +365,8 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     await user.click(await screen.findByTestId('agent-runtime-restart'))
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toHaveTextContent('지금 재시작할까요?')
+    // 리뷰 후속(WP-2018) — 가장 흔한 작업 중 문구가 제대로 나와야, 차단됨·시작 실패가 「아닌」 쪽으로 검증된다.
+    expect(dialog).toHaveTextContent('처리하고 있어요')
     await user.click(within(dialog).getByRole('button', { name: '취소' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(calls.actions).toEqual([])
@@ -377,17 +379,23 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toHaveTextContent('지금 재시작할까요?')
     expect(dialog).toHaveTextContent('WP-1234')
+    // 리뷰 후속(WP-2018) — 차단됨은 「사람의 답 대기」로, 작업 중 문구와 나눠 보인다.
+    expect(dialog).toHaveTextContent('사람의 답을 기다리고 있어요')
+    expect(dialog).not.toHaveTextContent('처리하고 있어요')
     await user.click(within(dialog).getByRole('button', { name: '취소' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(calls.actions).toEqual([])
   })
 
   test('실패했지만 작업 중이면 재시작을 확인한다', async () => {
-    const observed = createObserved({ agentState: 'WORKING' })
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WP-1' })
     const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'RUN', observed }) } }))
     await user.click(await screen.findByTestId('agent-runtime-start'))
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toHaveTextContent('지금 재시작할까요?')
+    // 리뷰 후속(WP-2018) — 시작 실패는 「시작에 실패」로 나뉘고, 이슈 키 자리의 조사도 주제격(은/는) 이어야 한다(목적격은 문법이 깨진다).
+    expect(dialog).toHaveTextContent('시작에 실패했지만 WP-1 은 아직 하던 일이에요')
+    expect(dialog).not.toHaveTextContent('처리하고 있어요')
     await user.click(within(dialog).getByRole('button', { name: '재시작' }))
     await waitFor(() => expect(calls.actions).toEqual(['start']))
   })
@@ -409,6 +417,29 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
+  // 리뷰 후속(WP-2018) — 확인 창을 열 때 보낼 동작을 고정한다. 열고~확정 사이에 시작 실패 미룸(held)이 풀려도
+  // 창에서 보고 확인한 요청이 나가야 한다 — 확정 시점에 다시 읽으면 사람이 본 것과 다른 동작이 나간다.
+  test('확인 창을 연 뒤 미룬 실패가 풀려도 확정은 열 때의 동작을 보낸다', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319' })
+    const held = createSetting(id, { status: 'FAILED', desired: 'RUN', pendingApply: 'AT_IDLE', observed })
+    const { user, calls, queryClient } = await renderDetail(works({ settings: { [id]: held } }))
+    // 미룬 실패이므로 「바꾼 설정은 쉴 때 적용돼요.」 배너가 있고(held), 재시작은 확인 창을 먼저 거친다.
+    await screen.findByTestId('agent-runtime-apply-pending')
+    await user.click(await screen.findByTestId('agent-runtime-start'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('지금 재시작할까요?')
+    expect(calls.actions).toEqual([])
+
+    // 창이 떠 있는 동안 서버가 미룬 실패를 풀었다(pendingApply AT_IDLE → null) — 배너가 사라진 것으로 확인한다.
+    server.use(http.get('/api/v1/admin/agents/:id/runtime-setting', () => HttpResponse.json({ ...held, pendingApply: null })))
+    await queryClient.invalidateQueries({ queryKey: agentRuntimeKeys.setting(id) })
+    await waitFor(() => expect(screen.queryByTestId('agent-runtime-apply-pending')).not.toBeInTheDocument())
+
+    // 확정 — 열 때의 미룬 실패(restart)를 그대로 보낸다. 다시 읽었으면 held 가 없어 start 가 나간다.
+    await user.click(within(dialog).getByRole('button', { name: '재시작' }))
+    await waitFor(() => expect(calls.actions).toEqual(['restart']))
+  })
+
   // 「지금 적용」도 같은 게이트를 거친다(interrupts 확장, WP-2018).
   test('쉴 때 적용 대기인데 차단됨이면 지금 적용도 확인 창을 거친다', async () => {
     const observed = createObserved({ agentState: 'BLOCKED', agentIssueKeys: ['WP-1234'] })
@@ -420,6 +451,32 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     expect(calls.saves).toEqual([])
     await user.click(within(dialog).getByRole('button', { name: '지금 적용' }))
     await waitFor(() => expect(calls.saves.map((b) => b.applyMode)).toEqual(['NOW']))
+  })
+
+  // 리뷰 후속(WP-2018) — 「지금 적용」은 창을 열 때가 아니라 확정 때의 설정을 보낸다.
+  // 창이 떠 있는 사이 다른 관리자가 저장하면 그 새 설정이 나가야지, 열 때 읽은 옛 config 로 덮어쓰면 안 된다(이 PR 이 만든 회귀).
+  test('확인 창을 연 뒤 다른 관리자가 저장한 설정은 지금 적용 확정에 그대로 간다', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319' })
+    const settingAtOpen = createSetting(id, { status: 'APPLY_PENDING', desired: 'RUN', pendingApply: 'AT_IDLE', observed })
+    const { user, calls, queryClient } = await renderDetail(works({ settings: { [id]: settingAtOpen } }))
+    const banner = await screen.findByTestId('agent-runtime-apply-pending')
+    await user.click(within(banner).getByTestId('agent-runtime-apply-now'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('지금 적용할까요?')
+    expect(calls.saves).toEqual([])
+
+    // 창이 떠 있는 동안 다른 관리자가 저장했다 — 서버 설정이 바뀌어 다시 읽힌다(배너가 사라진 것을 신호로 삼는다).
+    // templateName·locationId·config 세 값을 다 바꿔, 어느 하나라도 열 때 값으로 굳으면 걸러지게 한다(WP-2018 리뷰).
+    const savedByOther = { ...settingAtOpen, locationId: 1, config: { model: 'sonnet', queue: 'AI 개발팀' }, pendingApply: null }
+    server.use(http.get('/api/v1/admin/agents/:id/runtime-setting', () => HttpResponse.json(savedByOther)))
+    await queryClient.invalidateQueries({ queryKey: agentRuntimeKeys.setting(id) })
+    await waitFor(() => expect(screen.queryByTestId('agent-runtime-apply-pending')).not.toBeInTheDocument())
+
+    // 확정 — 확정 시점의 최신 설정이 나간다. 열 때의 값을 그대로 쓰면 locationId null · opus 로 덮어쓴다.
+    await user.click(within(dialog).getByRole('button', { name: '지금 적용' }))
+    await waitFor(() =>
+      expect(calls.saves).toEqual([{ templateName: 'claude-code', locationId: 1, config: { model: 'sonnet', queue: 'AI 개발팀' }, applyMode: 'NOW' }]),
+    )
   })
 
   test('쉴 때 적용 대기면 「바꾼 설정은 쉴 때 적용돼요.」와 「지금 적용」 — 계정·작업 설정을 함께 가리키는 말 (WP-1515)', async () => {

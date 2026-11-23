@@ -55,11 +55,12 @@ import { canViewScreen } from '../../../../lib/agentScreen';
 import { handleApiError } from '../../../../lib/api-error';
 import { issuePath } from '../../../../lib/appUrl';
 import { parseIssueKeyQuery } from '../../../../lib/sendToChat';
-import { cn, objectParticle, subjectParticle } from '../../../../lib/utils';
+import { cn, subjectParticle } from '../../../../lib/utils';
 import type { AgentResponse } from '../../../../types/agent';
 import type { AgentRuntimeSetting, AgentTemplate } from '../../../../types/agentRuntime';
 import { NewWorkPausedBadge } from '../NewWorkPausedBadge';
 import { AgentScreenDialog } from './AgentScreenDialog';
+import { confirmSituation, keyObjectParticle, keySubjectParticle } from './confirmSituation';
 import { useAgentStartChecks } from './useAgentStartChecks';
 import type { WorkSettingsDraft } from './useWorkSettingsDraft';
 
@@ -196,21 +197,21 @@ function issueKeyPath(key: string): string | null {
   return k ? issuePath(k.projectKey, k.number) : null;
 }
 
-/**
- * 이슈 키 뒤 조사 — 「WP-1271 을/이」. 숫자로 끝나면 읽는 소리(일·이·삼…)의 받침으로 고르고,
- * 아니면 일반 조사 규칙(목적격 objectParticle·주격 subjectParticle)을 따른다.
- */
-function digitParticle(text: string, withFinal: string, withoutFinal: string): string | null {
-  const last = text.slice(-1);
-  if (!/\d/.test(last)) return null;
-  return '013678'.includes(last) ? withFinal : withoutFinal;
-}
-
-const keyObjectParticle = (text: string) => digitParticle(text, '을', '를') ?? objectParticle(text);
-const keySubjectParticle = (text: string) => digitParticle(text, '이', '가') ?? subjectParticle(text);
-
 /** 확인 창 ①의 종류 — 지금 적용(apply) / 실행 중 재시작(restart) / 실패 경로의 재시작(retry) — 확정 단추가 각 본문을 부른다. */
-type NowConfirm = 'apply' | 'restart' | 'retry' | null;
+type NowConfirmKind = 'apply' | 'restart' | 'retry';
+
+/**
+ * 확인 창 ①을 열 때 고정해 둔 값(WP-2018 리뷰 후속) — 문구·이슈 키·보낼 동작을 여는 시점의 것으로 저장한다.
+ * 확정은 이 값을 그대로 쓰므로, 창이 떠 있는 사이 폴링으로 held·설정·이슈 키가 바뀌어도 창에서 보고 확인한 것과 같은 요청이 나간다.
+ * 지금 적용(apply)만 예외다 — 설정은 확정 때의 최신 값을 보내야 하므로 동작을 고정하지 않는다(WP-2018 리뷰).
+ * `kind` 로 갈라지는 union 이라 apply 가 아닐 때만 `run` 은 반드시 있다 — 비어 있는 run 이 조용히 아무것도 안 보내는 것을 막는다(WP-2018 리뷰).
+ * null 이면 닫힘(종료 확인 창 stopConfirm 은 이미 같은 방식으로 키를 고정해 둔다).
+ */
+type NowConfirmBase = { situation: string; issueKey: string | null };
+type NowConfirm =
+  | ({ kind: 'apply'; run: null } & NowConfirmBase)
+  | ({ kind: Exclude<NowConfirmKind, 'apply'>; run: () => void } & NowConfirmBase)
+  | null;
 
 /**
  * 「실행」 묶음 — 상태 종류: 종료됨 · 시작 중 · 작업 중 · 대기 중 · 차단됨 · 오류 · 종료 중(statusPill).
@@ -222,7 +223,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const action = useAgentRuntimeAction(agent.id);
   const acceptMut = useSetAgentAcceptNewWork(agent.id);
   const [nowConfirm, setNowConfirm] = useState<NowConfirm>(null);
-  const restartConfirm = nowConfirm === 'restart' || nowConfirm === 'retry';
+  const restartConfirm = nowConfirm != null && nowConfirm.kind !== 'apply';
   // 종료 확인 창 — 열릴 때의 이슈 키를 고정해 둔다(폴링으로 키가 비어도 문구가 깨지지 않게). null 이면 닫힘.
   const [stopConfirm, setStopConfirm] = useState<string[] | null>(null);
   const confirmKeys = stopConfirm ?? [];
@@ -258,7 +259,9 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   // 하던 일을 끊게 되는지 — 지금 적용·재시작 확인 창을 거칠지(일하는 중이면 누구나, 아니면 확인 없이 바로).
   // 하던 일 — 작업 중·차단됨(서버 판정과 같은 기준). 실패(FAILED)도 하던 일이 있으니 failedOn 을 함께 본다.
   const live = running || failedOn;
-  const hasWork = observed?.agentState === 'WORKING' || observed?.agentState === 'BLOCKED';
+  // 차단됨(사람의 답 대기) — 하던 일의 하나이자, 확인 창 문구를 작업 중과 나눠 쓰는 기준이다(WP-2018 리뷰 후속).
+  const blockedNow = observed?.agentState === 'BLOCKED';
+  const hasWork = observed?.agentState === 'WORKING' || blockedNow;
   const interrupts = live && hasWork;
   // 확인 창에 적을 현재 이슈 — 여러 칸이 일하면 모두(쉼표로 이음), 조사는 마지막 키 기준. 없으면 null.
   const issueKeys = currentIssueKeys(observed ?? {});
@@ -303,15 +306,27 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
     else if (held) action.mutate('restart');
     else action.mutate('start');
   };
+  // 확인 창 ①을 연다 — 문구·이슈 키를 이 순간 것으로 고정해 둔다(WP-2018 리뷰 후속).
+  // 창이 떠 있는 사이 폴링으로 held·설정·이슈 키가 바뀌어도 확정은 창에서 보고 확인한 그대로 보낸다.
+  // run 은 열 때의 렌더 스코프를 잡는다 — 이를 ref 로 바꾸거나 최신값 읽기로 다시 쓰면 고정이 풀리니 회귀 테스트를 함께 민다.
+  const nowConfirmBody = (): NowConfirmBase => ({
+    situation: confirmSituation({ name: agent.name, failedOn, blocked: blockedNow, issueKey }),
+    issueKey,
+  });
+  const openNowConfirm = (kind: Exclude<NowConfirmKind, 'apply'>, run: () => void) => setNowConfirm({ kind, ...nowConfirmBody(), run });
+  // 지금 적용(apply)만 run 을 두지 않는다 — 확정 시점의 최신 설정을 보내기 때문이다(아래 applyNow 주석).
+  const openApplyConfirm = () => setNowConfirm({ kind: 'apply', ...nowConfirmBody(), run: null });
   // 실패 경로의 재시작 단추 — 하던 일이 있으면(작업 중·차단됨) 확인 창을 먼저 띄우고, 없으면 재시작 본문을 그대로 보낸다(WP-2018).
   const onRetryClick = () => {
-    if (interrupts) setNowConfirm('retry');
+    if (interrupts) openNowConfirm('retry', runRetry);
     else runRetry();
   };
   // 지금 적용 — 같은 설정을 NOW 로 다시 보내 작업 중이어도 바로 다시 만든다. 일하는 중이면 확인 창 ①.
+  // applyNow 는 렌더마다 다시 만들어지므로, 확인 창에서 확정할 때도 지금 그린 applyNow 를 부른다 — 창을 열 때 읽은 config 를 그대로 보내면
+  // 창이 떠 있는 사이 다른 관리자가 저장한 설정을 옛 값으로 덮어쓴다(WP-2018 리뷰 — run 을 비워 두는 까닭이다).
   const applyNow = () => saved && save.mutate({ templateName: saved.templateName, locationId: saved.locationId, config: saved.config, applyMode: 'NOW' });
-  const onApplyNow = () => (interrupts ? setNowConfirm('apply') : applyNow());
-  const onRestart = () => (interrupts ? setNowConfirm('restart') : action.mutate('restart'));
+  const onApplyNow = () => (interrupts ? openApplyConfirm() : applyNow());
+  const onRestart = () => (interrupts ? openNowConfirm('restart', () => action.mutate('restart')) : action.mutate('restart'));
   // 실제로 도는 실행 환경이 사용량을 잴 수 없다고 알려 왔으면 CPU·메모리를 「알 수 없음」으로(WP-1280)
   const usageUnknown = metricsUnavailable(saved?.effectiveLocation);
 
@@ -538,26 +553,29 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         )}
       </div>
 
-      {/* 확인 창 ① — 하던 일이 있는 중(작업 중·차단됨, 실패 포함)에 지금 적용·재시작. 하던 일이 없으면 확인 없이 바로 한다. */}
+      {/* 확인 창 ① — 하던 일이 있는 중(작업 중·차단됨, 실패 포함)에 지금 적용·재시작. 하던 일이 없으면 확인 없이 바로 한다.
+          문구·이슈 키·보낼 동작은 창을 열 때 것으로 고정된다(WP-2018 리뷰 후속) — 지금 적용만 확정 시점의 최신 설정을 보낸다. */}
       <AlertDialog open={nowConfirm != null} onOpenChange={(o) => !o && setNowConfirm(null)}>
         <AlertDialogContent size="sm" data-help="agent.status.run">
           <AlertDialogHeader>
             <AlertDialogTitle>{restartConfirm ? '지금 재시작할까요?' : '지금 적용할까요?'}</AlertDialogTitle>
             <AlertDialogDescription>
-              {agent.name}
-              {subjectParticle(agent.name)} {issueKey ? `${issueKey} ${keyObjectParticle(issueKey)}` : '이슈를'} 처리하고 있어요.{' '}
+              {nowConfirm?.situation}{' '}
               {restartConfirm ? '지금 재시작하면' : '지금 적용하면'} 작업 공간을 새 설정으로 다시 띄우고, 뜬 뒤{' '}
-              {issueKey ? `${issueKey} ${keyObjectParticle(issueKey)}` : '하던 이슈를'} 이어 받아요. 커밋하지 않은 변경은 작업 공간에 남아요.
+              {nowConfirm?.issueKey ? `${nowConfirm.issueKey} ${keyObjectParticle(nowConfirm.issueKey)}` : '하던 이슈를'} 이어 받아요.
+              커밋하지 않은 변경은 작업 공간에 남아요.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                // 게이트는 단추를 누른 시점에 거쳤으니 확정은 재시작 본문만 부른다 — held 는 확정 시점의 값으로 다시 읽는다(WP-2018).
-                if (nowConfirm === 'restart') action.mutate('restart');
-                else if (nowConfirm === 'retry') runRetry();
-                else applyNow();
+                // 게이트는 단추를 누른 시점에 거쳤고, 문구·이슈 키·보낼 동작(retry·restart)은 창을 열 때 것으로 고정한다 — 확정 시점에 held 를 다시 읽지 않는다(WP-2018 리뷰 후속).
+                // 지금 적용만 applyNow 를 불러 확정 시점의 최신 설정을 보낸다(위 applyNow 주석).
+                if (nowConfirm != null) {
+                  if (nowConfirm.kind === 'apply') applyNow();
+                  else nowConfirm.run();
+                }
                 setNowConfirm(null);
               }}
             >
