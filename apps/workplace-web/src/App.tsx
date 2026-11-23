@@ -6,8 +6,8 @@ import { DriveUploadProvider } from './components/drive/upload/DriveUploadProvid
 import { IssueModuleLayout } from './components/issue/IssueModuleLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { PageLoader } from './components/layout/PageLoader'
-import { PageErrorBoundary } from './components/PageErrorBoundary'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import { AvatarsProvider } from './components/users/AvatarsProvider'
 import { WikiSharePublicViewContext } from './components/wiki/wikiSharePublicView'
 import { useAuth } from './hooks/useAuth'
@@ -237,7 +237,7 @@ export default function App() {
   }, [])
 
   return (
-    <PageErrorBoundary>
+    <RouteErrorBoundary>
       {/* 아바타 주소 표(WP-1222) — 로그인한 동안 한 번 받아 모든 아바타가 userId 로 찾는다. */}
       <AvatarsProvider>
         {/* WP-1534: 드라이브 업로드 큐 — 공유 링크 입구(WikiShareGate)가 AppLayout 을 따로 마운트해도 업로드가 끊기지 않게 셸보다 한 단계 위. */}
@@ -409,6 +409,6 @@ export default function App() {
         </Suspense>
         </DriveUploadProvider>
       </AvatarsProvider>
-    </PageErrorBoundary>
+    </RouteErrorBoundary>
   )
 }

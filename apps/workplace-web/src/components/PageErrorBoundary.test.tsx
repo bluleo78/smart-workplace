@@ -62,3 +62,68 @@ describe('PageErrorBoundary 다시 시도', () => {
     expect(screen.getByText('페이지 내용')).toBeInTheDocument();
   });
 });
+
+describe('PageErrorBoundary resetKey', () => {
+  /** resetKey 를 바꿔 다시 그릴 수 있게 경계를 만든다. */
+  function ui(resetKey: string, shouldThrow: { current: boolean }, onRender?: () => void) {
+    return (
+      <PageErrorBoundary resetKey={resetKey}>
+        <Thrower error={new Error('렌더 오류')} shouldThrow={shouldThrow} />
+        {onRender ? <Counter onRender={onRender} /> : null}
+      </PageErrorBoundary>
+    );
+  }
+
+  /** 렌더될 때마다 콜백을 불러 렌더 횟수를 센다. */
+  function Counter({ onRender }: { onRender: () => void }) {
+    onRender();
+    return null;
+  }
+
+  it('오류 중 resetKey 가 바뀌면 오류를 풀고 자식을 다시 그린다', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const shouldThrow = { current: true };
+    const { rerender } = render(ui('/a', shouldThrow));
+    expect(screen.getByText('페이지를 불러오는 중 문제가 발생했습니다')).toBeInTheDocument();
+
+    shouldThrow.current = false;
+    rerender(ui('/b', shouldThrow));
+
+    expect(screen.getByText('페이지 내용')).toBeInTheDocument();
+  });
+
+  it('resetKey 가 바뀐 뒤에도 자식이 던지면 다시 오류 화면', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const shouldThrow = { current: true };
+    const { rerender } = render(ui('/a', shouldThrow));
+
+    rerender(ui('/b', shouldThrow));
+
+    expect(screen.getByText('페이지를 불러오는 중 문제가 발생했습니다')).toBeInTheDocument();
+  });
+
+  it('오류가 없을 때 resetKey 가 바뀌어도 자식은 그대로', () => {
+    const shouldThrow = { current: false };
+    const onRender = vi.fn();
+    const { rerender } = render(ui('/a', shouldThrow, onRender));
+    expect(onRender).toHaveBeenCalledTimes(1);
+
+    rerender(ui('/b', shouldThrow, onRender));
+
+    expect(screen.getByText('페이지 내용')).toBeInTheDocument();
+    expect(screen.queryByText('페이지를 불러오는 중 문제가 발생했습니다')).not.toBeInTheDocument();
+    // 상태를 되돌리지 않으므로 부모가 다시 그린 한 번 외에 추가 렌더가 없다
+    expect(onRender).toHaveBeenCalledTimes(2);
+  });
+
+  it('resetKey 가 같으면 오류 화면 유지', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const shouldThrow = { current: true };
+    const { rerender } = render(ui('/a', shouldThrow));
+
+    shouldThrow.current = false;
+    rerender(ui('/a', shouldThrow));
+
+    expect(screen.getByText('페이지를 불러오는 중 문제가 발생했습니다')).toBeInTheDocument();
+  });
+});
