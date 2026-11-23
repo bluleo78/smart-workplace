@@ -31,6 +31,7 @@ export const testAuthValue: AuthContextValue = {
   },
   roles: [],
   isLoading: false,
+  isLoggingOut: false,
   isAuthenticated: true,
   activeTenant: { tenantId: 1, tenantName: 'Test', tenantSlug: 'test' },
   tenantOptions: null,

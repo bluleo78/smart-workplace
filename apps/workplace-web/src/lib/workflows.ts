@@ -149,6 +149,7 @@ export function useWorkflowVersion(id: number, no: number | null) {
 
 /** 정의 API 쓰기와 저장 없는 검증. 초안을 기준으로 쓰는 세 요청은 모두 편집 기준 시각을 함께 보낸다. */
 export const workflowApi = {
+  get: (id: number) => client.get<WorkflowDetail>(`/workflows/${id}`).then((r) => r.data),
   create: (projectId: number, name: string, yaml: string) =>
     client.post<WorkflowDetail>(`/projects/${projectId}/workflows`, { name, yaml }).then((r) => r.data),
   validate: (projectId: number, yaml: string, signal: AbortSignal) =>

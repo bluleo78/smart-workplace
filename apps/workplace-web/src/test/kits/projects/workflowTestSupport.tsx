@@ -5,6 +5,8 @@ import { Link, Navigate, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, vi } from 'vitest'
 
 import { AIAssistantProvider, useAssistant } from '@/components/ai/AIAssistantContext'
+import { projectKeys } from '@/hooks/queries/useProjects'
+import { clearWorkflowDraftSessions } from '@/lib/workflowDraftSessions'
 import { workflowKeys } from '@/lib/workflows'
 import { ProjectTabsLayout } from '@/pages/projects/tabs/ProjectTabsLayout'
 import WorkflowTab from '@/pages/projects/workflow/WorkflowTab'
@@ -21,8 +23,14 @@ export const workflowProblem = {
 }
 
 // 화면 회귀 테스트는 앱의 세션 초안 저장소를 공유하지 않도록 각 테스트 앞뒤로 비운다.
-beforeEach(() => window.sessionStorage.clear())
-afterEach(() => window.sessionStorage.clear())
+beforeEach(() => {
+  clearWorkflowDraftSessions()
+  window.sessionStorage.clear()
+})
+afterEach(() => {
+  clearWorkflowDraftSessions()
+  window.sessionStorage.clear()
+})
 
 /** 실행 전인 실제 서버처럼 활성 버전과 초안을 따로 유지하는 기본 응답. */
 export const workflowDetail = {
@@ -37,14 +45,16 @@ export function renderWorkflow({ manager = true, empty = false, enterTab = true,
 } = {}) {
   const summary = { id: 42, name: '작업 정리', enabled: false, activeVersionNo: 2, draftChanged: false }
   const summaries = multiple ? [summary, { ...summary, id: 43, name: '다른 워크플로우', activeVersionNo: null }] : [summary]
-  const getSummaries = vi.fn(() => HttpResponse.json(empty ? [] : summaries))
+  let currentSummaries = empty ? [] : summaries
+  const getSummaries = vi.fn(() => HttpResponse.json(currentSummaries))
+  let canManage = manager
   let viewerRole: 'OWNER' | 'MEMBER' | undefined = 'MEMBER'
   if (manager) viewerRole = 'OWNER'
   if (personal) viewerRole = undefined
   server.use(
     http.get(base + '/projects/WP', () => HttpResponse.json({
-      id: 7, key: 'WP', name: '업무', type: personal ? 'PERSONAL' : 'TEAM', ownerId: manager ? 1 : 2,
-      viewerIsMember: true, viewerRole,
+      id: 7, key: 'WP', name: '업무', type: personal ? 'PERSONAL' : 'TEAM', ownerId: canManage ? 1 : 2,
+      viewerIsMember: true, viewerRole: canManage ? viewerRole : 'MEMBER',
     })),
     http.get(base + '/wiki/project-spaces/WP', () => new HttpResponse(null, { status: 404 })),
     http.get(base + '/projects/7/workflows', getSummaries),
@@ -90,6 +100,10 @@ export function renderWorkflow({ manager = true, empty = false, enterTab = true,
   )
   return {
     getSummaries,
+    setSummaries: (next: typeof summaries) => { currentSummaries = next },
+    setManager: (next: boolean) => { canManage = next },
     refreshWorkflow: () => queryClient.invalidateQueries({ queryKey: workflowKeys.detail(42), exact: true }),
+    refreshSummaries: () => queryClient.invalidateQueries({ queryKey: workflowKeys.list(7), exact: true }),
+    refreshProject: () => queryClient.invalidateQueries({ queryKey: projectKeys.detail('WP'), exact: true }),
   }
 }

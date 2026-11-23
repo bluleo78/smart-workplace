@@ -17,6 +17,7 @@ const signedOut: AuthContextValue = {
   user: null,
   roles: [],
   isLoading: false,
+  isLoggingOut: false,
   isAuthenticated: false,
   activeTenant: null,
   tenantOptions: null,

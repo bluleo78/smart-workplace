@@ -1,5 +1,5 @@
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { useOutletContext } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -16,6 +16,11 @@ import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { apiErrorResponse, apiErrorStatus, extractApiError, isConflictError } from '@/lib/api-error'
+import type { WorkflowDraftSession } from '@/lib/workflowDraftSessions'
+import {
+  canPersistWorkflowDraftSessions, getWorkflowDraftGeneration, getWorkflowDraftSessions,
+  subscribeWorkflowDraftSessions, updateWorkflowDraftSession, workflowDraftStorageKey,
+} from '@/lib/workflowDraftSessions'
 import {
   useWorkflow, useWorkflowVersion, useWorkflowVersions, workflowApi, type WorkflowDetail, workflowKeys, type WorkflowProblem,
 } from '@/lib/workflows'
@@ -31,6 +36,11 @@ import { WorkflowYamlEditor } from './WorkflowYamlEditor'
 
 const VALIDATION_DELAY = 350
 const NO_PROBLEMS: WorkflowProblem[] = []
+
+/** 신원이 바뀐 뒤 도착한 초안 응답은 새 사용자·테넌트 화면에 이어 쓰지 않는다. */
+function assertWorkflowDraftGeneration(generation: number): void {
+  if (generation !== getWorkflowDraftGeneration()) throw new Error('워크플로우 세션이 변경되었습니다.')
+}
 const YAML_VIEW = 'YAML'
 
 /** 목록은 레이아웃에서 받아 탭을 선택해도 같은 프로젝트 조회를 되풀이하지 않는다. */
@@ -44,42 +54,43 @@ export default function WorkflowTab() {
 
 /** 프로젝트가 바뀌면 선택을 초기화하고, 워크플로우를 만들면 받은 상세를 바로 연다. */
 function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowContext & { projectId: number }) {
-  const { user, activeTenant } = useAuth()
-  const draftStorageKey = `workflow-drafts:${user?.id ?? 'anonymous'}:${activeTenant?.tenantId ?? 'none'}:${projectId}`
+  const { user, activeTenant, isLoggingOut } = useAuth()
+  const draftStorageKey = workflowDraftStorageKey(user?.id, activeTenant?.tenantId, projectId)
   const [selectedId, setSelectedId] = useState<number>()
   const [creating, setCreating] = useState(false)
-  const [drafts, setDrafts] = useState<ReadonlyMap<number, DraftSession>>(() => readDraftSessions(draftStorageKey))
-  useUnsavedChangesWarning([...drafts.values()].some(({ edit }) => edit !== null))
-
-  // 워크플로 탭은 앱 내부 이동에 언마운트되므로, 저장 전 편집을 같은 사용자·테넌트 세션에 보관한다.
-  useEffect(() => {
-    try {
-      if (drafts.size === 0) window.sessionStorage.removeItem(draftStorageKey)
-      else window.sessionStorage.setItem(draftStorageKey, JSON.stringify([...drafts.entries()]))
-    } catch {
-      // 저장소가 차단된 환경에서는 현재 화면의 편집을 계속 허용하고 beforeunload 경고만 유지한다.
-    }
-  }, [draftStorageKey, drafts])
+  const draftStorageAvailable = canPersistWorkflowDraftSessions(draftStorageKey)
+  const subscribe = useCallback((listener: () => void) => subscribeWorkflowDraftSessions(draftStorageKey, listener), [draftStorageKey])
+  const getSnapshot = useCallback(() => getWorkflowDraftSessions(draftStorageKey), [draftStorageKey])
+  const drafts = useSyncExternalStore(subscribe, getSnapshot, () => getWorkflowDraftSessions(null))
   const queryClient = useQueryClient()
   const summaries = workflows.data ?? []
+  useUnsavedChangesWarning(
+    [...drafts.values()].some(({ edit }) => edit !== null),
+    { warnOnBeforeUnload: !draftStorageAvailable },
+  )
+
   const selected = summaries.find((item) => item.id === selectedId) ?? summaries[0]
   const id = selected?.id
   const detail = useWorkflow(id)
 
   // 고른 워크플로우만 화면에 마운트하되 입력과 충돌 상태는 각 정의 id 로 보관한다.
-  function updateDraft(workflowId: number, draft: DraftSession | null) {
-    setDrafts((previous) => {
-      const next = new Map(previous)
-      if (draft) next.set(workflowId, draft)
-      else next.delete(workflowId)
-      return next
-    })
+  function updateDraft(workflowId: number, draft: WorkflowDraftSession | null, generation?: number) {
+    if (isLoggingOut) return
+    updateWorkflowDraftSession(draftStorageKey, workflowId, draft, generation)
   }
 
   const create = useMutation({
-    mutationFn: (name: string) => workflowApi.create(projectId, name, `schema: genia/workflow@1\nname: ${JSON.stringify(name)}\nroles: {}\nnodes: {}\nstart: []\n`),
-    onSuccess: async (item) => {
+    mutationFn: async (name: string) => {
+      if (isLoggingOut) throw new Error('로그아웃 중에는 워크플로우를 변경할 수 없습니다.')
+      const generation = getWorkflowDraftGeneration()
+      const item = await workflowApi.create(projectId, name, `schema: genia/workflow@1\nname: ${JSON.stringify(name)}\nroles: {}\nnodes: {}\nstart: []\n`)
+      assertWorkflowDraftGeneration(generation)
+      return { item, generation }
+    },
+    onSuccess: async ({ item, generation }) => {
+      if (generation !== getWorkflowDraftGeneration() || isLoggingOut) return
       await queryClient.cancelQueries({ queryKey: workflowKeys.list(projectId) })
+      if (generation !== getWorkflowDraftGeneration() || isLoggingOut) return
       queryClient.setQueryData(workflowKeys.detail(item.id), item)
       queryClient.setQueryData<typeof summaries>(workflowKeys.list(projectId), (previous) => [
         ...(previous ?? []).filter((summary) => summary.id !== item.id),
@@ -114,7 +125,7 @@ function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowC
               </select>
             ) : <p className="text-sm text-muted-foreground">아직 등록된 워크플로우가 없습니다.</p>}
             {canManage && (
-              <Button variant="outline" size="sm" onClick={() => { create.reset(); setCreating(true) }}>워크플로우 만들기</Button>
+              <Button variant="outline" size="sm" disabled={isLoggingOut} onClick={() => { create.reset(); setCreating(true) }}>워크플로우 만들기</Button>
             )}
           </div>
           {id !== undefined && !detail.data && detail.isPending && <p className="text-sm text-muted-foreground">워크플로우를 불러오는 중…</p>}
@@ -129,12 +140,9 @@ function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowC
               detail={detail.data}
               draft={drafts.get(detail.data.id)}
               updateDraft={updateDraft}
-              reload={async () => {
-                const refreshed = await detail.refetch({ throwOnError: true })
-                if (!refreshed.data) throw new Error('초안 조회 결과가 없습니다.')
-                return refreshed.data
-              }}
+              reload={() => workflowApi.get(detail.data.id)}
               canManage={canManage}
+              isLoggingOut={isLoggingOut}
               draftChanged={selected?.draftChanged === true}
             />
           )}
@@ -142,9 +150,9 @@ function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowC
       )}
       {canManage && (
         <CreateWorkflowDialog
-          open={creating}
-          onOpenChange={(open) => { if (!create.isPending) setCreating(open) }}
-          busy={create.isPending}
+          open={creating && !isLoggingOut}
+          onOpenChange={(open) => { if (!create.isPending && !isLoggingOut) setCreating(open) }}
+          busy={create.isPending || isLoggingOut}
           error={create.isError ? extractApiError(create.error, '워크플로우를 만들지 못했습니다.') : null}
           onCreate={(name) => create.mutate(name)}
         />
@@ -194,31 +202,6 @@ interface DraftEdit {
   baseYaml: string
 }
 
-interface DraftSession {
-  edit: DraftEdit | null
-  conflict: boolean
-}
-
-/** 세션 저장소의 값은 페이지 재진입 때 복원하므로 구조가 맞는 초안만 읽는다. */
-function readDraftSessions(key: string): ReadonlyMap<number, DraftSession> {
-  try {
-    const value: unknown = JSON.parse(window.sessionStorage.getItem(key) ?? 'null')
-    if (!Array.isArray(value)) return new Map()
-    const entries = value.filter((entry): entry is [number, DraftSession] => {
-      if (!Array.isArray(entry) || typeof entry[0] !== 'number' || !entry[1] || typeof entry[1] !== 'object') return false
-      const session = entry[1] as Partial<DraftSession>
-      if (typeof session.conflict !== 'boolean') return false
-      if (session.edit === null) return true
-      const edit = session.edit as Partial<DraftEdit> | undefined
-      return !!edit && typeof edit.yaml === 'string'
-        && typeof edit.expectedDraftUpdatedAt === 'string' && typeof edit.baseYaml === 'string'
-    })
-    return new Map(entries)
-  } catch {
-    return new Map()
-  }
-}
-
 interface PublishConfirmation {
   yaml: string
   edit: DraftEdit | null
@@ -232,12 +215,13 @@ type WorkflowAction =
   | { type: 'restore'; versionNo: number; expectedDraftUpdatedAt: string }
 
 /** 입력을 시작할 때 본 초안 시각을 고정해, 백그라운드 조회가 다른 사람의 변경을 덮게 하지 않는다. */
-function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft, reload }: {
+function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft, updateDraft, reload }: {
   detail: WorkflowDetail
   canManage: boolean
+  isLoggingOut: boolean
   draftChanged: boolean
-  draft: DraftSession | undefined
-  updateDraft: (workflowId: number, draft: DraftSession | null) => void
+  draft: WorkflowDraftSession | undefined
+  updateDraft: (workflowId: number, draft: WorkflowDraftSession | null, generation?: number) => void
   reload: () => Promise<WorkflowDetail>
 }) {
   const { id, projectId, activeVersion } = detail
@@ -274,33 +258,38 @@ function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft,
   else if (published.isError) changeCountLabel = '게시 안 한 변경 수를 불러오지 못했습니다.'
 
   // 응답으로 받은 초안을 먼저 반영하고 목록의 배지는 백그라운드에서 맞춘다.
-  async function acceptDraft(updated: Pick<WorkflowDetail, 'draftYaml' | 'draftUpdatedAt' | 'draftProblems'>) {
+  async function acceptDraft(updated: Pick<WorkflowDetail, 'draftYaml' | 'draftUpdatedAt' | 'draftProblems'>, generation: number) {
     await queryClient.cancelQueries({ queryKey: workflowKeys.detail(id), exact: true })
+    assertWorkflowDraftGeneration(generation)
     queryClient.setQueryData<WorkflowDetail>(workflowKeys.detail(id), (current) => ({ ...(current ?? detail), ...updated }))
-    updateDraft(id, null)
+    updateDraft(id, null, generation)
     void queryClient.invalidateQueries({ queryKey: workflowKeys.list(projectId) })
   }
 
   /** 초안 저장이 성공한 응답만 받아 편집과 충돌 상태를 지운다. */
-  async function saveDraft(input: DraftEdit) {
+  async function saveDraft(input: DraftEdit, generation: number) {
     const saved = await workflowApi.saveDraft(id, input.yaml, input.expectedDraftUpdatedAt)
-    await acceptDraft({ draftYaml: input.yaml, draftUpdatedAt: saved.draftUpdatedAt, draftProblems: saved.problems })
+    assertWorkflowDraftGeneration(generation)
+    await acceptDraft({ draftYaml: input.yaml, draftUpdatedAt: saved.draftUpdatedAt, draftProblems: saved.problems }, generation)
     return saved
   }
 
   const write = useMutation({
     mutationKey: workflowKeys.detail(id),
     mutationFn: async (action: WorkflowAction) => {
+      if (isLoggingOut) throw new Error('로그아웃 중에는 워크플로우를 변경할 수 없습니다.')
+      const generation = getWorkflowDraftGeneration()
       setWorkError(null)
       let unsavedEdit = edit
       try {
         if (action.type === 'reload') {
-          await acceptDraft(await reload())
+          await acceptDraft(await reload(), generation)
           return
         }
         if (action.type === 'restore') {
           const restored = await workflowApi.restoreDraft(id, action.versionNo, action.expectedDraftUpdatedAt)
-          await acceptDraft(restored)
+          assertWorkflowDraftGeneration(generation)
+          await acceptDraft(restored, generation)
           setMode('yaml')
           setPanel('editor')
           toast.success('버전을 초안으로 복원했습니다.')
@@ -308,7 +297,7 @@ function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft,
         }
         if (action.type === 'save') {
           if (edit) {
-            await saveDraft(edit)
+            await saveDraft(edit, generation)
             toast.success('초안을 저장했습니다.')
           }
           return
@@ -319,7 +308,7 @@ function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft,
         let publishTime = confirmation.expectedDraftUpdatedAt
         unsavedEdit = confirmation.edit
         if (confirmation.edit) {
-          const saved = await saveDraft(confirmation.edit)
+          const saved = await saveDraft(confirmation.edit, generation)
           unsavedEdit = null
           publishTime = saved.draftUpdatedAt
           if (saved.problems.some((problem) => problem.severity === 'ERROR')) {
@@ -330,7 +319,10 @@ function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft,
             return
           }
         }
+        // 로그아웃·로그인·테넌트 전환이 저장 도중 끝났다면 이전 화면의 게시 요청을 새 토큰으로 보내지 않는다.
+        assertWorkflowDraftGeneration(generation)
         const result = await workflowApi.publish(id, publishTime)
+        assertWorkflowDraftGeneration(generation)
         setPublishConfirmation(null)
         setPublishedHere({ versionNo: result.versionNo, yaml: confirmation.yaml })
         void queryClient.invalidateQueries({ queryKey: workflowKeys.detail(id) })
@@ -342,9 +334,10 @@ function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft,
           toast.success('버전 ' + result.versionNo + '을 게시했습니다.')
         }
       } catch (error) {
+        if (generation !== getWorkflowDraftGeneration()) throw error
         setPublishConfirmation(null)
         if (isConflictError(error) && action.type !== 'reload') {
-          updateDraft(id, { edit: unsavedEdit, conflict: true })
+          updateDraft(id, { edit: unsavedEdit, conflict: true }, generation)
           throw error
         }
         if (action.type === 'publish' && apiErrorStatus(error) === 422) {
@@ -366,7 +359,7 @@ function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft,
   const busy = useIsMutating({ mutationKey: workflowKeys.detail(id), exact: true }) > 0
   const hasErrors = problems.some((problem) => problem.severity === 'ERROR')
   // 검증 요청에 실패하면 진단 목록이 비어 있어도 검증이 끝날 때까지 게시를 막는다.
-  const canPublish = canManage && !conflict && !busy && !validation.pending && !validation.failed && !hasErrors
+  const canPublish = canManage && !isLoggingOut && !conflict && !busy && !validation.pending && !validation.failed && !hasErrors
 
   // 그래프의 오류 단추가 사라지면 새로 열린 YAML 편집기로 포커스를 옮긴다.
   function openYamlDiagnostics() {
@@ -405,8 +398,8 @@ function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft,
               <span className="text-xs text-muted-foreground" role="status">
                 {changeCountLabel}
               </span>
-              <Button size="sm" variant="ghost" disabled={!edit || busy || conflict} onClick={() => updateDraft(id, null)}>되돌리기</Button>
-              <Button size="sm" variant="outline" disabled={!edit || busy || conflict} onClick={() => write.mutate({ type: 'save' })}>초안 저장</Button>
+              <Button size="sm" variant="ghost" disabled={!edit || busy || conflict || isLoggingOut} onClick={() => updateDraft(id, null)}>되돌리기</Button>
+              <Button size="sm" variant="outline" disabled={!edit || busy || conflict || isLoggingOut} onClick={() => write.mutate({ type: 'save' })}>초안 저장</Button>
               <Button size="sm" disabled={!canPublish} onClick={() => setPublishConfirmation({ yaml, edit, expectedDraftUpdatedAt: expected })}>게시</Button>
             </div>
           )}
@@ -437,7 +430,7 @@ function SelectedWorkflow({ detail, canManage, draftChanged, draft, updateDraft,
                     conflict,
                   })
                 }}
-                readOnly={busy}
+                readOnly={busy || isLoggingOut}
               />
               <WorkflowProblemsPanel
                 problems={problems}

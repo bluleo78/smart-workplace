@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { expect, it, vi } from 'vitest'
 
+import { clearWorkflowDraftSessions } from '@/lib/workflowDraftSessions'
 import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProblem } from '@/test/kits/projects/workflowTestSupport'
 import { server } from '@/test/msw/server'
 
@@ -18,16 +19,254 @@ it('tab_visibleForManager', async () => {
   expect(getSummaries).toHaveBeenCalledTimes(1)
 })
 
+it('로그아웃 뒤 늦게 끝난 워크플로우 생성은 화면 캐시를 되살리지 않는다', async () => {
+  const { getSummaries } = renderWorkflow({ empty: true })
+  let releaseCreate!: () => void
+  let signalCreateStarted!: () => void
+  const createStarted = new Promise<void>((resolve) => { signalCreateStarted = resolve })
+  server.use(http.post('/api/v1/projects/7/workflows', async () => {
+    signalCreateStarted()
+    await new Promise<void>((resolve) => { releaseCreate = resolve })
+    return HttpResponse.json({ ...workflowDetail, id: 44, name: '늦은 생성' })
+  }))
+  await userEvent.click(await screen.findByRole('button', { name: '워크플로우 만들기' }))
+  const dialog = screen.getByRole('dialog')
+  fireEvent.change(within(dialog).getByLabelText('이름'), { target: { value: '늦은 생성' } })
+  fireEvent.click(within(dialog).getByRole('button', { name: '만들기' }))
+  await createStarted
+
+  clearWorkflowDraftSessions()
+  await act(async () => { releaseCreate() })
+
+  await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('button', { name: '만들기' })).toBeEnabled())
+  expect(getSummaries).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole('combobox', { name: '워크플로우 선택' })).not.toBeInTheDocument()
+})
+
 it('앱 안에서 다른 프로젝트 탭을 다녀와도 저장하지 않은 YAML을 복원한다', async () => {
   renderWorkflow()
   const changedYaml = 'name: 편집 중\nnodes:\n  review: {}\nnotes: 아직 저장 안 함'
-  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: changedYaml } })
+  const editor = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  fireEvent.change(editor, { target: { value: changedYaml } })
 
   await userEvent.click(screen.getByRole('link', { name: /^개요$/ }))
   expect(await screen.findByText('개요 본문')).toBeVisible()
   await userEvent.click(screen.getByRole('link', { name: '워크플로우로 돌아가기' }))
 
   expect(await screen.findByRole('textbox', { name: '워크플로우 YAML' })).toHaveValue(changedYaml)
+})
+
+it('탭을 떠난 사이 저장이 끝나면 세션 초안을 지우고 저장된 YAML을 보여 준다', async () => {
+  renderWorkflow({ multiple: true })
+  const changedYaml = 'name: 저장 완료\nnodes:\n  review: {}'
+  let releaseSave!: () => void
+  let signalSaveStarted!: () => void
+  const saveStarted = new Promise<void>((resolve) => { signalSaveStarted = resolve })
+  let latest = workflowDetail
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.put('/api/v1/workflows/42/draft', async () => {
+      signalSaveStarted()
+      await new Promise<void>((resolve) => { releaseSave = resolve })
+      latest = { ...workflowDetail, draftYaml: changedYaml, draftUpdatedAt: nextDraftTime }
+      return HttpResponse.json({ draftUpdatedAt: nextDraftTime, problems: [] })
+    }),
+    http.get('/api/v1/workflows/42', () => HttpResponse.json(latest)),
+  )
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: changedYaml } })
+  const save = screen.getByRole('button', { name: '초안 저장' })
+  await waitFor(() => expect(Object.keys(window.sessionStorage).some((key) => key.startsWith('workflow-drafts:'))).toBe(true))
+  await waitFor(() => expect(save).toBeEnabled())
+  fireEvent.click(save)
+  await saveStarted
+  const storageKey = Object.keys(window.sessionStorage).find((key) => key.startsWith('workflow-drafts:'))!
+
+  await userEvent.click(screen.getByRole('link', { name: /^개요$/ }))
+  expect(await screen.findByText('개요 본문')).toBeVisible()
+  await userEvent.click(screen.getByRole('link', { name: '워크플로우로 돌아가기' }))
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: '워크플로우 선택' }), '43')
+  const otherYaml = 'name: 별도 초안\nnodes:\n  check: {}'
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: otherYaml } })
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).not.toBeNull())
+
+  await act(async () => { releaseSave() })
+  await waitFor(() => {
+    const sessions = JSON.parse(window.sessionStorage.getItem(storageKey) ?? '[]') as Array<[number, unknown]>
+    expect(sessions.map(([workflowId]) => workflowId)).toEqual([43])
+  })
+  expect(await screen.findByRole('textbox', { name: '워크플로우 YAML' })).toHaveValue(otherYaml)
+})
+
+it('탭을 떠난 사이 충돌이 나면 세션 초안에 충돌 상태를 보관한다', async () => {
+  renderWorkflow()
+  const changedYaml = 'name: 충돌 보존\nnodes:\n  review: {}'
+  let releaseSave!: () => void
+  let signalSaveStarted!: () => void
+  const saveStarted = new Promise<void>((resolve) => { signalSaveStarted = resolve })
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.put('/api/v1/workflows/42/draft', async () => {
+      signalSaveStarted()
+      await new Promise<void>((resolve) => { releaseSave = resolve })
+      return HttpResponse.json({ errors: { code: 'WORKFLOW_DRAFT_CONFLICT' } }, { status: 409 })
+    }),
+  )
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: changedYaml } })
+  const save = screen.getByRole('button', { name: '초안 저장' })
+  await waitFor(() => expect(save).toBeEnabled())
+  fireEvent.click(save)
+  await saveStarted
+  const storageKey = Object.keys(window.sessionStorage).find((key) => key.startsWith('workflow-drafts:'))!
+
+  await userEvent.click(screen.getByRole('link', { name: /^개요$/ }))
+  expect(await screen.findByText('개요 본문')).toBeVisible()
+  await act(async () => { releaseSave() })
+  await waitFor(() => {
+    const sessions = JSON.parse(window.sessionStorage.getItem(storageKey) ?? '[]') as Array<[number, { edit: { yaml: string }; conflict: boolean }]>
+    expect(sessions[0]?.[1]).toEqual(expect.objectContaining({ edit: expect.objectContaining({ yaml: changedYaml }), conflict: true }))
+  })
+
+  await userEvent.click(screen.getByRole('link', { name: '워크플로우로 돌아가기' }))
+  expect(await screen.findByRole('button', { name: '최신 초안 불러오기' })).toBeVisible()
+  expect(screen.getByRole('textbox', { name: '워크플로우 YAML' })).toHaveValue(changedYaml)
+})
+
+it('로그아웃 뒤 늦게 도착한 충돌 응답은 세션 초안을 되살리지 않는다', async () => {
+  renderWorkflow()
+  const changedYaml = 'name: 로그아웃\nnodes:\n  review: {}'
+  let releaseSave!: () => void
+  let signalSaveStarted!: () => void
+  const saveStarted = new Promise<void>((resolve) => { signalSaveStarted = resolve })
+  let signalSaveFinished!: () => void
+  const saveFinished = new Promise<void>((resolve) => { signalSaveFinished = resolve })
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.put('/api/v1/workflows/42/draft', async () => {
+      signalSaveStarted()
+      await new Promise<void>((resolve) => { releaseSave = resolve })
+      signalSaveFinished()
+      return HttpResponse.json({ errors: { code: 'WORKFLOW_DRAFT_CONFLICT' } }, { status: 409 })
+    }),
+  )
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: changedYaml } })
+  fireEvent.click(screen.getByRole('button', { name: '초안 저장' }))
+  await saveStarted
+  const storageKey = Object.keys(window.sessionStorage).find((key) => key.startsWith('workflow-drafts:'))!
+  clearWorkflowDraftSessions()
+  await act(async () => { releaseSave() })
+  await saveFinished
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).toBeNull())
+})
+
+it('초안 저장 중 신원이 바뀌면 늦은 응답 뒤 게시하지 않는다', async () => {
+  renderWorkflow()
+  const changedYaml = 'name: 다른 신원\nnodes:\n  review: {}'
+  let releaseSave!: () => void
+  let signalSaveStarted!: () => void
+  const saveStarted = new Promise<void>((resolve) => { signalSaveStarted = resolve })
+  const publishRequest = vi.fn(() => HttpResponse.json({ versionNo: 3, runningRunsOnOlderVersions: 0 }))
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.put('/api/v1/workflows/42/draft', async () => {
+      signalSaveStarted()
+      await new Promise<void>((resolve) => { releaseSave = resolve })
+      return HttpResponse.json({ draftUpdatedAt: nextDraftTime, problems: [] })
+    }),
+    http.post('/api/v1/workflows/42/publish', publishRequest),
+  )
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: changedYaml } })
+  const publish = screen.getByRole('button', { name: '게시' })
+  await waitFor(() => expect(publish).toBeEnabled())
+  fireEvent.click(publish)
+  const dialog = screen.getByRole('dialog')
+  const confirm = within(dialog).getByRole('button', { name: '게시' })
+  await waitFor(() => expect(confirm).toBeEnabled())
+  fireEvent.click(confirm)
+  await saveStarted
+
+  clearWorkflowDraftSessions()
+  await act(async () => { releaseSave() })
+  await waitFor(() => expect(publishRequest).not.toHaveBeenCalled())
+})
+
+it('탭을 떠난 사이 최신 초안 불러오기가 끝나도 성공 상태를 반영한다', async () => {
+  renderWorkflow()
+  const changedYaml = 'name: 로컬 충돌\nnodes:\n  review: {}'
+  let signalSaveStarted!: () => void
+  const saveStarted = new Promise<void>((resolve) => { signalSaveStarted = resolve })
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.put('/api/v1/workflows/42/draft', () => {
+      signalSaveStarted()
+      return HttpResponse.json({ errors: { code: 'WORKFLOW_DRAFT_CONFLICT' } }, { status: 409 })
+    }),
+  )
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: changedYaml } })
+  fireEvent.click(screen.getByRole('button', { name: '초안 저장' }))
+  await saveStarted
+  const reload = await screen.findByRole('button', { name: '최신 초안 불러오기' })
+
+  let releaseReload!: () => void
+  let signalReloadStarted!: () => void
+  const reloadStarted = new Promise<void>((resolve) => { signalReloadStarted = resolve })
+  const latestYaml = 'name: 최신 서버 초안\nnodes:\n  review: {}'
+  const storageKey = Object.keys(window.sessionStorage).find((key) => key.startsWith('workflow-drafts:'))!
+  let reloadCalls = 0
+  server.use(http.get('/api/v1/workflows/42', async () => {
+    reloadCalls += 1
+    if (reloadCalls === 1) {
+      signalReloadStarted()
+      await new Promise<void>((resolve) => { releaseReload = resolve })
+    }
+    return HttpResponse.json({ ...workflowDetail, draftYaml: latestYaml, draftUpdatedAt: nextDraftTime })
+  }))
+  fireEvent.click(reload)
+  await reloadStarted
+  await userEvent.click(screen.getByRole('link', { name: /^개요$/ }))
+  expect(await screen.findByText('개요 본문')).toBeVisible()
+  await act(async () => { releaseReload() })
+  await userEvent.click(screen.getByRole('link', { name: '워크플로우로 돌아가기' }))
+
+  expect(await screen.findByRole('textbox', { name: '워크플로우 YAML' })).toHaveValue(latestYaml)
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).toBeNull())
+})
+
+it('프로젝트 재조회가 일시 실패하면 기존 세션 초안을 보존한다', async () => {
+  const { refreshProject } = renderWorkflow()
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: 'name: 보존할 초안' } })
+  const storageKey = Object.keys(window.sessionStorage).find((key) => key.startsWith('workflow-drafts:'))!
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).not.toBeNull())
+  server.use(http.get('/api/v1/projects/WP', () => HttpResponse.json({ message: '잠시 후 다시 시도' }, { status: 500 })))
+
+  await act(refreshProject)
+
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).not.toBeNull())
+})
+
+it('워크플로우가 목록에서 사라지면 그 정의의 세션 초안을 지운다', async () => {
+  const { setSummaries, refreshSummaries } = renderWorkflow()
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: 'name: 삭제 대상' } })
+  const storageKey = Object.keys(window.sessionStorage).find((key) => key.startsWith('workflow-drafts:'))!
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).not.toBeNull())
+
+  await userEvent.click(screen.getByRole('link', { name: /^개요$/ }))
+  expect(await screen.findByText('개요 본문')).toBeVisible()
+  setSummaries([])
+  await act(refreshSummaries)
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).toBeNull())
+})
+
+it('관리 권한이 사라지면 그 세션의 편집 초안을 지운다', async () => {
+  const { setManager, refreshProject } = renderWorkflow()
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: 'name: 권한 회수' } })
+  const storageKey = Object.keys(window.sessionStorage).find((key) => key.startsWith('workflow-drafts:'))!
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).not.toBeNull())
+
+  await userEvent.click(screen.getByRole('link', { name: /^개요$/ }))
+  expect(await screen.findByText('개요 본문')).toBeVisible()
+  setManager(false)
+  await act(refreshProject)
+  await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).toBeNull())
 })
 
 it('publishDialog_mentionsRunningRuns', async () => {

@@ -25,6 +25,12 @@ describe('useUnsavedChangesWarning', () => {
     expect(dispatchBeforeUnload()).toBe(true)
   })
 
+  it('세션에서 복원되는 입력은 새로고침 경고 없이 자동 새로고침만 막는다', () => {
+    renderHook(() => useUnsavedChangesWarning(true, { warnOnBeforeUnload: false }))
+    expect(dispatchBeforeUnload()).toBe(false)
+    expect(hasUnsavedInput()).toBe(true)
+  })
+
   it('입력이 사라지면(저장·취소·모달 닫힘) 경고를 해제한다', () => {
     const { rerender } = renderHook(({ dirty }) => useUnsavedChangesWarning(dirty), {
       initialProps: { dirty: true },
