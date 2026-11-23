@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { FormError } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 
 interface WikiCreateSpaceDialogProps {
   open: boolean
@@ -36,6 +37,8 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending, e
   // disabled 표시(재시도 가능 시점 안내)를 위한 보조 용도.
   const submittingRef = useRef(false)
   const [submitting, setSubmitting] = useState(false)
+  // 이름 칸 Enter 처리(WP-1928) — 한글 조합 Enter·macOS Chrome 의 꼬리 Enter 는 글자 확정용이지 제출이 아니므로, 훅이 거른 뒤에만 제출을 부른다(SC 3.2.2).
+  const enterKey = useSingleLineEnter()
 
   // 부모의 mutation 이 끝나면(성공 또는 실패) 가드를 해제 — 실패 시 다이얼로그가
   // 유지되므로 재시도가 가능해야 한다. pending 은 부모 소유 상태이므로 여기선 그
@@ -84,9 +87,8 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending, e
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submit()
-          }}
+          onCompositionEnd={enterKey.onCompositionEnd}
+          onKeyDown={(e) => enterKey.handleEnter(e, () => submit())}
           placeholder="예: 제품팀 노트"
           autoFocus
           aria-invalid={!!error}

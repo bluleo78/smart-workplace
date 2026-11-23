@@ -3,7 +3,7 @@
 //   wiki-space-create · wiki-space-delete · wiki-members · wiki-tree · wiki-move-dialog(자기 하위 제외) · wiki-permissions(VIEWER 트리)
 //   · wiki.spec(사이드바 삭제·스페이스 선택기)
 // 끌어 옮기기(@input)·버튼 크기·터치 ⋯ 배치(@layout)는 E2E 에 남는다. 사이드바만 renderScreen 으로 띄운다(에디터 모듈을 불러오지 않는다).
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, onTestFinished, test } from 'vitest'
 
@@ -118,6 +118,70 @@ test('만들기 버튼을 같은 틱에 두 번 눌러도 생성 요청은 1번�
     confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/5'))
+  expect(posts).toBe(1)
+})
+
+test('조합 중 Enter(isComposing / keyCode 229)는 스페이스를 만들지 않는다', async () => {
+  let posts = 0
+  const { user } = open({
+    handlers: [
+      http.post('/api/v1/wiki/spaces', async () => {
+        posts++
+        return HttpResponse.json(wikiSpace({ id: 5, name: '조합 중', role: 'OWNER' }))
+      }),
+    ],
+  })
+  await openCreateDialog(user)
+  const input = screen.getByTestId('wiki-space-create-input')
+  // 이름이 있어야 제출 가드(빈 이름)가 막지 않고 실제 제출이 시도된다.
+  await user.type(input, '조합확인중')
+  // 한글 조합 확정용 Enter — 글자를 확정하는 키이지 제출이 아니다(WP-1928).
+  fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+  fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+  await new Promise((r) => setTimeout(r, 100))
+  expect(posts).toBe(0)
+  expect(screen.getByTestId('wiki-space-create-dialog')).toBeInTheDocument()
+})
+
+// WP-1928: macOS Chrome 꼬리 Enter — 조합 Enter → compositionend 직후에 오는 비조합 Enter 도 제출이 아니다(훅의 trailingFromRef 가 한 번만 무시).
+test('조합 종료 뒤 따라오는 Enter(꼬리 Enter)도 스페이스를 만들지 않는다', async () => {
+  let posts = 0
+  const { user } = open({
+    handlers: [
+      http.post('/api/v1/wiki/spaces', async () => {
+        posts++
+        return HttpResponse.json(wikiSpace({ id: 5, name: '조합 중', role: 'OWNER' }))
+      }),
+    ],
+  })
+  await openCreateDialog(user)
+  const input = screen.getByTestId('wiki-space-create-input')
+  await user.type(input, '조합확인중')
+  // 세 이벤트는 timeStamp 차(100ms)로 꼬리를 판정하므로 시계 대기 없이 연달아 보낸다 — 대기하면 판정이 빠진다.
+  fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+  fireEvent.compositionEnd(input)
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await new Promise((r) => setTimeout(r, 100))
+  expect(posts).toBe(0)
+  expect(screen.getByTestId('wiki-space-create-dialog')).toBeInTheDocument()
+})
+
+// WP-1928: 조합 중 Enter 만 막는다 — 조합이 아닌 평소 Enter 로는 여전히 만들어진다(제출 경로 회귀 방지).
+test('조합이 아닌 Enter 는 스페이스를 만든다', async () => {
+  let posts = 0
+  const { user, location } = open({
+    handlers: [
+      http.post('/api/v1/wiki/spaces', async ({ request }) => {
+        posts++
+        const { name } = (await request.json()) as { name: string }
+        return HttpResponse.json(wikiSpace({ id: 5, name, role: 'OWNER' }))
+      }),
+    ],
+  })
+  await openCreateDialog(user)
+  await user.type(screen.getByTestId('wiki-space-create-input'), '엔터로생성')
+  fireEvent.keyDown(screen.getByTestId('wiki-space-create-input'), { key: 'Enter' })
   await waitFor(() => expect(location()).toBe('/wiki/spaces/5'))
   expect(posts).toBe(1)
 })

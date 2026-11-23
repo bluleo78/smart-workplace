@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 드라이브 사이드바(DriveSidebar) — 화면 컴포넌트 테스트(WP-971, WP-995, WP-984).
-// 팀 공간 만들기 대화상자(#582·#696): 빈 이름 비활성·연속 클릭 1회 요청·취소 뒤 입력 초기화·409 인라인 에러·만든 공간이 목록에 보임
+// 팀 공간 만들기 대화상자(#582·#696): 빈 이름 비활성·연속 클릭 1회 요청·취소 뒤 입력 초기화·409 인라인 에러·만든 공간이 목록에 보임·조합 중 Enter 차단·일반 Enter 제출 유지(WP-1928)
 // — e2e/pages/drive/drive-space-create.spec.ts·drive.spec.ts 에서 옮겼다.
 // 사이드바 머리말·저장 공간 막대(경고색·클램프)·종류별 내역 펼침(WP-1391)·채널 공간 숨김, 팀 공간 ⋯ 이름 변경·삭제·멤버 창(추가·역할·제거·잠금)도 브라우저 없이 판정되므로
 // drive.spec.ts·drive-space-rename-delete.spec.ts·drive-space-members.spec.ts 에서 옮겼다.
 // 포커스 복원·타이머 지연 입력·터치 태블릿 ⋯ 크기는 E2E(@input·@layout)가, 드라이브 화면 배선은 drive.spec.ts 의 E2E 가 지킨다.
 // 대화상자를 가진 사이드바만 renderScreen 으로 띄운다 — App 전체(renderPage)일 때 11.7초, 지금 6.3초.
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
@@ -78,6 +78,67 @@ test('만들기 버튼을 같은 틱에 두 번 눌러도 생성 요청은 1번�
   })
   await waitFor(() => expect(location()).toBe(`/drive/spaces/${NEW_SPACE_ID}`))
   expect(posts).toBe(1)
+})
+
+test('조합 중 Enter(isComposing / keyCode 229)는 공간을 만들지 않는다', async () => {
+  let posts = 0
+  const { user } = await openCreateDialog({
+    handlers: [
+      http.post('/api/v1/drive/spaces', async () => {
+        posts++
+        return HttpResponse.json({ ...personalSpace, id: NEW_SPACE_ID, type: 'TEAM' })
+      }),
+    ],
+  })
+  const input = screen.getByTestId('space-name-input')
+  await user.type(input, '조합확인중')
+  // 한글 조합 확정용 Enter — 글자를 확정하는 키이지 제출이 아니다(WP-1928).
+  fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+  fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+  await new Promise((r) => setTimeout(r, 100))
+  expect(posts).toBe(0)
+  expect(screen.getByTestId('space-name-dialog')).toBeInTheDocument()
+})
+
+// WP-1928: macOS Chrome 꼬리 Enter — 조합 Enter → compositionend 직후에 오는 비조합 Enter 도 제출이 아니다(훅의 trailingFromRef 가 한 번만 무시).
+test('조합 종료 뒤 따라오는 Enter(꼬리 Enter)도 공간을 만들지 않는다', async () => {
+  let posts = 0
+  const { user } = await openCreateDialog({
+    handlers: [
+      http.post('/api/v1/drive/spaces', async () => {
+        posts++
+        return HttpResponse.json({ ...personalSpace, id: NEW_SPACE_ID, type: 'TEAM' })
+      }),
+    ],
+  })
+  const input = screen.getByTestId('space-name-input')
+  await user.type(input, '조합확인중')
+  // 세 이벤트는 timeStamp 차(100ms)로 꼬리를 판정하므로 시계 대기 없이 연달아 보낸다 — 대기하면 판정이 빠진다.
+  fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+  fireEvent.compositionEnd(input)
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await new Promise((r) => setTimeout(r, 100))
+  expect(posts).toBe(0)
+  expect(screen.getByTestId('space-name-dialog')).toBeInTheDocument()
+})
+
+// WP-1928: 조합 중 Enter 만 막는다 — 조합이 아닌 평소 Enter 로는 여전히 만들어진다(제출 경로 회귀 방지).
+test('조합이 아닌 Enter 는 공간을 만든다', async () => {
+  let posts = 0
+  const { user, location } = await openCreateDialog({
+    handlers: [
+      http.post('/api/v1/drive/spaces', async () => {
+        posts++
+        return HttpResponse.json({ ...personalSpace, id: NEW_SPACE_ID, type: 'TEAM' })
+      }),
+    ],
+  })
+  const input = screen.getByTestId('space-name-input')
+  await user.type(input, '엔터로생성')
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await waitFor(() => expect(location()).toBe(`/drive/spaces/${NEW_SPACE_ID}`))
+  expect(posts).toBe(1)
+  expect(screen.queryByTestId('space-name-dialog')).not.toBeInTheDocument()
 })
 
 test('취소하고 다시 열면 이전 입력값이 남지 않는다', async () => {
