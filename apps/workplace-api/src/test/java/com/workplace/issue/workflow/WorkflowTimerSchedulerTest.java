@@ -41,9 +41,10 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * WP-1987 기다림 타이머 스케줄러({@link WorkflowTimerScheduler#poll()})의 테넌트 경로 검증. poll() 은 테넌트 러너가 별도
- * 트랜잭션(GUC 주입)을 여는 경로라 시험 트랜잭션 안에서는 데이터가 보이지 않는다 — 그래서 {@code @Transactional} 없이 시드를 커밋하고, 끝나면 만든
- * 프로젝트(이슈·정의·실행·알림은 FK CASCADE, 실행은 먼저 명시 삭제)를 회수한다. 판정 규칙 자체는 {@code WorkflowTimerTest} 가 본다.
+ * WP-1987 기다림 타이머 스케줄러({@link WorkflowTimerScheduler#poll()})의 테넌트 경로 검증. poll() 은 테넌트 컨텍스트만 세우고
+ * 서비스가 후보 조회·방문마다 따로 짧은 트랜잭션(GUC 주입)을 열어 커밋하는 경로라, 시험 트랜잭션의 커밋 안 된 데이터는 보이지 않는다 — 그래서
+ * {@code @Transactional} 없이 시드를 커밋하고, 끝나면 만든 프로젝트(이슈·정의·실행·알림은 FK CASCADE, 실행은 먼저 명시 삭제)를 회수한다. 판정
+ * 규칙 자체는 {@code WorkflowTimerTest} 가 본다.
  */
 class WorkflowTimerSchedulerTest extends IntegrationTestBase {
 
@@ -77,7 +78,7 @@ class WorkflowTimerSchedulerTest extends IntegrationTestBase {
   }
 
   @Test
-  @DisplayName("poll() 이 테넌트 트랜잭션에서 오래 머문 방문에 TIMER_REMIND 와 알림 1건을 남긴다")
+  @DisplayName("poll() 이 테넌트 컨텍스트에서 방문별 트랜잭션으로 오래 머문 방문에 TIMER_REMIND 와 알림 1건을 남긴다")
   void poll_remindsDueVisitUnderTenant() {
     TenantContext.set(1L);
     long pm = human();

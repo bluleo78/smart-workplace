@@ -10,12 +10,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.service.IssueClock;
+import com.workplace.issue.workflow.repository.WorkflowRunRepository;
 import com.workplace.issue.workflow.service.WorkflowTimerService;
 import com.workplace.jooq.tables.records.NodeRunRecord;
 import com.workplace.notify.service.NotificationService;
@@ -48,7 +50,11 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * WP-1987 기다림 타이머(WorkflowTimerService)의 판정·중복 방지·불변 검증. 시각은 {@link IssueClock#now()} 를 방문의
- * entered_at 기준으로 고정해 「오래 머문」 상황을 만든다. 서비스는 시험 트랜잭션 안에서 직접 부른다(스케줄러는 테스트 프로필에서 꺼져 있다).
+ * entered_at 기준으로 고정해 「오래 머문」 상황을 만든다. 서비스는 시험 트랜잭션 안에서 직접 부른다(스케줄러는 테스트 프로필에서 꺼져 있다) — 방문
+ * 트랜잭션(NESTED)은 이때 시험 트랜잭션의 세이브포인트로 돈다.
+ *
+ * <p>runDue 반환값(처리한 방문 수)은 테넌트 전체 수라 다른 테스트가 커밋해 남긴 ACTIVE 방문이 섞일 수 있다. 그래서 정확한 수를 단언하지 않고, 이 테스트가
+ * 만든 이슈의 표시 이벤트(workflow_run_event TIMER_*)와 알림 받는 사람으로 판정한다(반환값은 「적어도 1」만 본다).
  */
 @Transactional
 class WorkflowTimerTest extends IntegrationTestBase {
@@ -62,6 +68,10 @@ class WorkflowTimerTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired IssueClock issueClock;
   @MockitoSpyBean NotificationService notificationService;
+
+  /** 후보 조회와 잠금 사이에 실행 상태를 바꾸는 시험용 스파이. */
+  @MockitoSpyBean WorkflowRunRepository runRepository;
+
   @Autowired WorkflowTimerService timerService;
 
   /** 프로젝트 OWNER(관리자). */
@@ -100,17 +110,17 @@ class WorkflowTimerTest extends IntegrationTestBase {
     NodeRunRecord visit = visit(issue, "work");
     Instant entered = visit.getEnteredAt().toInstant();
 
-    assertThat(runDue(entered.plus(Duration.ofHours(47)))).isZero();
-    assertThat(timerEvents(issue)).isEmpty();
+    runDue(entered.plus(Duration.ofHours(47)));
+    assertTimerEvents(issue);
 
-    assertThat(runDue(entered.plus(Duration.ofHours(48)))).isEqualTo(1);
-    assertThat(timerEvents(issue)).containsExactly("TIMER_REMIND");
+    assertThat(runDue(entered.plus(Duration.ofHours(48)))).isGreaterThanOrEqualTo(1);
+    assertTimerEvents(issue, "TIMER_REMIND");
     JsonNode payload = payloads(issue, "TIMER_REMIND").get(0);
     assertThat(payload.get("nodeRunId").asLong()).isEqualTo(visit.getId());
     assertThat(payload.get("node").asString()).isEqualTo("work");
     assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).containsExactly(worker);
 
-    assertThat(runDue(entered.plus(Duration.ofHours(49)))).isZero();
+    runDue(entered.plus(Duration.ofHours(49)));
     assertThat(timerEvents(issue)).hasSize(1);
     assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).hasSize(1);
   }
@@ -119,16 +129,17 @@ class WorkflowTimerTest extends IntegrationTestBase {
   @DisplayName("다시 알린 뒤 같은 기간이 또 지나면 관리자에게 한 번 알린다")
   void afterRemind_samePeriod_escalatesToManagers() {
     long issue = startWork(humanYaml(null));
-    Instant entered = visit(issue, "work").getEnteredAt().toInstant();
+    Instant entered = enteredAt(issue, "work");
     Instant remindAt = entered.plus(Duration.ofDays(2));
     runDue(remindAt);
 
-    assertThat(runDue(remindAt.plus(Duration.ofHours(47)))).isZero();
-    assertThat(runDue(remindAt.plus(Duration.ofDays(2)))).isEqualTo(1);
-    assertThat(timerEvents(issue)).containsExactly("TIMER_REMIND", "TIMER_ESCALATE");
+    runDue(remindAt.plus(Duration.ofHours(47)));
+    assertTimerEvents(issue, "TIMER_REMIND");
+    assertThat(runDue(remindAt.plus(Duration.ofDays(2)))).isGreaterThanOrEqualTo(1);
+    assertTimerEvents(issue, "TIMER_REMIND", "TIMER_ESCALATE");
     assertThat(recipients(issue, "WORKFLOW_TURN_ESCALATE")).containsExactly(pm);
 
-    assertThat(runDue(remindAt.plus(Duration.ofDays(9)))).isZero();
+    runDue(remindAt.plus(Duration.ofDays(9)));
     assertThat(timerEvents(issue)).hasSize(2);
     assertThat(recipients(issue, "WORKFLOW_TURN_ESCALATE")).hasSize(1);
   }
@@ -137,7 +148,7 @@ class WorkflowTimerTest extends IntegrationTestBase {
   @DisplayName("타이머는 노드·실행 상태를 바꾸지 않는다")
   void timer_neverMovesNode() {
     long issue = startWork(humanYaml(null));
-    Instant entered = visit(issue, "work").getEnteredAt().toInstant();
+    Instant entered = enteredAt(issue, "work");
     var before = dsl.selectFrom(WORKFLOW_RUN).where(WORKFLOW_RUN.ISSUE_ID.eq(issue)).fetchSingle();
     String nodeStatus = visit(issue, "work").getStatus();
 
@@ -145,7 +156,7 @@ class WorkflowTimerTest extends IntegrationTestBase {
     runDue(entered.plus(Duration.ofDays(30)));
 
     var after = dsl.selectFrom(WORKFLOW_RUN).where(WORKFLOW_RUN.ISSUE_ID.eq(issue)).fetchSingle();
-    assertThat(timerEvents(issue)).containsExactly("TIMER_REMIND", "TIMER_ESCALATE");
+    assertTimerEvents(issue, "TIMER_REMIND", "TIMER_ESCALATE");
     assertThat(after.getCurrentNode()).isEqualTo(before.getCurrentNode());
     assertThat(after.getStatus()).isEqualTo(before.getStatus());
     assertThat(after.getRevision()).isEqualTo(before.getRevision());
@@ -156,7 +167,7 @@ class WorkflowTimerTest extends IntegrationTestBase {
   @DisplayName("떠난 방문과 취소된 실행에는 타이머가 없다")
   void completedNode_noTimer() {
     long left = startWork(humanYaml(null));
-    Instant entered = visit(left, "work").getEnteredAt().toInstant();
+    Instant entered = enteredAt(left, "work");
     ok(moveReq(left, "work", "done", 0, "k1"), worker);
     assertThat(visit(left, "work").getStatus()).isEqualTo("COMPLETED");
 
@@ -169,34 +180,36 @@ class WorkflowTimerTest extends IntegrationTestBase {
 
     runDue(entered.plus(Duration.ofDays(60)));
 
-    assertThat(timerEvents(left)).isEmpty();
-    assertThat(timerEvents(canceled)).isEmpty();
+    assertTimerEvents(left);
+    assertTimerEvents(canceled);
   }
 
   @Test
   @DisplayName("agent_task 는 timeout 을 적었을 때만 — PT1H 뒤 다시 알리고, 안 적으면 10일 뒤에도 없다")
   void agentTask_withExplicitTimeout_reminds() {
     long timed = startWork(agentYaml("timeout: { after: PT1H, then: remind }"));
-    Instant entered = visit(timed, "work").getEnteredAt().toInstant();
-    assertThat(runDue(entered.plus(Duration.ofMinutes(59)))).isZero();
-    assertThat(runDue(entered.plus(Duration.ofHours(1)))).isEqualTo(1);
-    assertThat(timerEvents(timed)).containsExactly("TIMER_REMIND");
+    Instant entered = enteredAt(timed, "work");
+    runDue(entered.plus(Duration.ofMinutes(59)));
+    assertTimerEvents(timed);
+    assertThat(runDue(entered.plus(Duration.ofHours(1)))).isGreaterThanOrEqualTo(1);
+    assertTimerEvents(timed, "TIMER_REMIND");
 
     long plain = startWork(agentYaml(""));
-    Instant enteredPlain = visit(plain, "work").getEnteredAt().toInstant();
+    Instant enteredPlain = enteredAt(plain, "work");
     runDue(enteredPlain.plus(Duration.ofDays(10)));
-    assertThat(timerEvents(plain)).isEmpty();
+    assertTimerEvents(plain);
   }
 
   @Test
   @DisplayName("returnTo 가 있는 답변 노드는 timeout 이 없으면 24시간에 다시 알린다")
   void answerNode_defaultsTo1Day() {
     long issue = startAsk();
-    Instant entered = visit(issue, "dev_ask").getEnteredAt().toInstant();
+    Instant entered = enteredAt(issue, "dev_ask");
 
-    assertThat(runDue(entered.plus(Duration.ofHours(23)))).isZero();
-    assertThat(runDue(entered.plus(Duration.ofHours(24)))).isEqualTo(1);
-    assertThat(timerEvents(issue)).containsExactly("TIMER_REMIND");
+    runDue(entered.plus(Duration.ofHours(23)));
+    assertTimerEvents(issue);
+    assertThat(runDue(entered.plus(Duration.ofHours(24)))).isGreaterThanOrEqualTo(1);
+    assertTimerEvents(issue, "TIMER_REMIND");
     assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).containsExactly(worker);
   }
 
@@ -204,13 +217,14 @@ class WorkflowTimerTest extends IntegrationTestBase {
   @DisplayName("then: escalate 는 다시 알림 없이 기한 뒤 바로 관리자에게 알린다")
   void thenEscalate_skipsRemind() {
     long issue = startWork(humanYaml("timeout: { after: PT3H, then: escalate }"));
-    Instant entered = visit(issue, "work").getEnteredAt().toInstant();
+    Instant entered = enteredAt(issue, "work");
 
-    assertThat(runDue(entered.plus(Duration.ofHours(2)))).isZero();
-    assertThat(runDue(entered.plus(Duration.ofHours(3)))).isEqualTo(1);
-    assertThat(runDue(entered.plus(Duration.ofDays(9)))).isZero();
+    runDue(entered.plus(Duration.ofHours(2)));
+    assertTimerEvents(issue);
+    assertThat(runDue(entered.plus(Duration.ofHours(3)))).isGreaterThanOrEqualTo(1);
+    runDue(entered.plus(Duration.ofDays(9)));
 
-    assertThat(timerEvents(issue)).containsExactly("TIMER_ESCALATE");
+    assertTimerEvents(issue, "TIMER_ESCALATE");
     assertThat(recipients(issue, "WORKFLOW_TURN_ESCALATE")).containsExactly(pm);
     assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).isEmpty();
   }
@@ -219,9 +233,9 @@ class WorkflowTimerTest extends IntegrationTestBase {
   @DisplayName("같은 노드에 다시 들어가면 새 방문이라 기간을 처음부터 센다")
   void newVisit_startsOver() {
     long issue = startWork(humanYaml(null));
-    Instant first = visit(issue, "work").getEnteredAt().toInstant();
+    Instant first = enteredAt(issue, "work");
     runDue(first.plus(Duration.ofDays(2)));
-    assertThat(timerEvents(issue)).containsExactly("TIMER_REMIND");
+    assertTimerEvents(issue, "TIMER_REMIND");
 
     ok(moveReq(issue, "work", "again", 0, "k1"), worker);
     ok(moveReq(issue, "work2", "back", 1, "k2"), worker);
@@ -234,8 +248,12 @@ class WorkflowTimerTest extends IntegrationTestBase {
         .where(NODE_RUN.ID.eq(second.getId()))
         .execute();
 
-    assertThat(runDue(base.plus(Duration.ofHours(47)))).isZero();
-    assertThat(runDue(base.plus(Duration.ofHours(48)))).isEqualTo(1);
+    runDue(base.plus(Duration.ofHours(47)));
+    // 47시간에는 새 방문이 아직 기한 전 — 새 방문(second)을 가리키는 다시 알림이 하나도 없어야 한다(첫 방문 것만 남는다).
+    assertThat(payloads(issue, "TIMER_REMIND")).hasSize(1);
+    assertThat(payloads(issue, "TIMER_REMIND"))
+        .noneMatch(p -> p.get("nodeRunId").asLong() == second.getId());
+    assertThat(runDue(base.plus(Duration.ofHours(48)))).isGreaterThanOrEqualTo(1);
     assertThat(payloads(issue, "TIMER_REMIND")).hasSize(2);
     assertThat(payloads(issue, "TIMER_REMIND").get(1).get("nodeRunId").asLong())
         .isEqualTo(second.getId());
@@ -253,7 +271,7 @@ class WorkflowTimerTest extends IntegrationTestBase {
 
     runDue(visit.getEnteredAt().toInstant().plus(Duration.ofDays(2)));
 
-    assertThat(timerEvents(issue)).containsExactly("TIMER_REMIND");
+    assertTimerEvents(issue, "TIMER_REMIND");
     assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).isEmpty();
   }
 
@@ -261,11 +279,12 @@ class WorkflowTimerTest extends IntegrationTestBase {
   @DisplayName("서비스를 두 번 돌려도 알림은 한 번만 나간다")
   void runDue_twice_notifiesOnce() {
     long issue = startWork(humanYaml(null));
-    Instant now = visit(issue, "work").getEnteredAt().toInstant().plus(Duration.ofDays(3));
+    Instant now = enteredAt(issue, "work").plus(Duration.ofDays(3));
 
-    assertThat(runDue(now)).isEqualTo(1);
-    assertThat(runDue(now)).isZero();
+    assertThat(runDue(now)).isGreaterThanOrEqualTo(1);
+    runDue(now);
 
+    assertTimerEvents(issue, "TIMER_REMIND");
     assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).hasSize(1);
   }
 
@@ -274,7 +293,7 @@ class WorkflowTimerTest extends IntegrationTestBase {
   void failingVisit_doesNotBlockOthers() {
     long bad = startWork(humanYaml(null));
     long good = startWork(humanYaml(null));
-    Instant now = visit(good, "work").getEnteredAt().toInstant().plus(Duration.ofDays(3));
+    Instant now = enteredAt(good, "work").plus(Duration.ofDays(3));
     // bad 이슈의 알림 단계에서 SQL 오류를 내 트랜잭션을 망가뜨린다(세이브포인트가 없으면 뒤 방문까지 실패한다).
     doAnswer(
             inv -> {
@@ -286,10 +305,10 @@ class WorkflowTimerTest extends IntegrationTestBase {
         .when(notificationService)
         .createWorkflowTurnAndFanOut(any(), anyLong(), any());
 
-    assertThat(runDue(now)).isEqualTo(1);
+    assertThat(runDue(now)).isGreaterThanOrEqualTo(1);
 
-    assertThat(timerEvents(bad)).isEmpty();
-    assertThat(timerEvents(good)).containsExactly("TIMER_REMIND");
+    assertTimerEvents(bad);
+    assertTimerEvents(good, "TIMER_REMIND");
     assertThat(recipients(good, "WORKFLOW_TURN_REMIND")).containsExactly(worker);
   }
 
@@ -309,8 +328,38 @@ class WorkflowTimerTest extends IntegrationTestBase {
 
     runDue(visit.getEnteredAt().toInstant().plus(Duration.ofDays(30)));
 
-    assertThat(timerEvents(issue)).isEmpty();
+    assertTimerEvents(issue);
     assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).isEmpty();
+  }
+
+  @Test
+  @DisplayName("후보 조회 뒤 잠그기 전에 실행이 멈추면(SUSPENDED) 알리지 않는다")
+  void runSuspendedBetweenSnapshotAndLock_noTimer() {
+    long issue = startWork(humanYaml(null));
+    NodeRunRecord visit = visit(issue, "work");
+    long visitId = visit.getId();
+    long runId = visit.getRunId();
+    // 후보 조회(RUNNING 이라 후보에 든다)가 끝난 뒤, 이 방문을 잠그기 직전에 실행을 멈춘다 — 다른 트랜잭션이 그 사이 멈춘 상황.
+    doAnswer(
+            inv -> {
+              if ((long) inv.getArgument(1) == visitId) {
+                dsl.update(WORKFLOW_RUN)
+                    .set(WORKFLOW_RUN.STATUS, "SUSPENDED")
+                    .where(WORKFLOW_RUN.ID.eq(runId))
+                    .execute();
+              }
+              return inv.callRealMethod();
+            })
+        .when(runRepository)
+        .lockActiveNodeRunOfOpenRun(anyLong(), anyLong());
+
+    runDue(visit.getEnteredAt().toInstant().plus(Duration.ofDays(30)));
+
+    // 잠그는 단계까지 갔는데도(후보였다) 잠금 쿼리가 열린 실행이 아니라고 보고 건너뛰었다.
+    verify(runRepository).lockActiveNodeRunOfOpenRun(runId, visitId);
+    assertTimerEvents(issue);
+    assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).isEmpty();
+    assertThat(recipients(issue, "WORKFLOW_TURN_ESCALATE")).isEmpty();
   }
 
   @Test
@@ -329,15 +378,25 @@ class WorkflowTimerTest extends IntegrationTestBase {
                 .value1())
         .isEqualTo("WAITING");
 
-    runDue(visit(issue, "work").getEnteredAt().toInstant().plus(Duration.ofDays(2)));
+    runDue(enteredAt(issue, "work").plus(Duration.ofDays(2)));
 
-    assertThat(timerEvents(issue)).containsExactly("TIMER_REMIND");
+    assertTimerEvents(issue, "TIMER_REMIND");
     assertThat(recipients(issue, "WORKFLOW_TURN_REMIND")).containsExactly(worker);
   }
 
   // ───────────────────────── 시험 도우미 ─────────────────────────
 
-  /** 시각을 고정하고 타이머를 한 번 돌린 뒤 남긴 표시 이벤트 수를 돌려준다. */
+  /** 이슈의 노드 방문이 들어간 시각 — 「오래 머문」 시각을 이 시각 기준으로 만든다. */
+  private Instant enteredAt(long issue, String node) {
+    return visit(issue, node).getEnteredAt().toInstant();
+  }
+
+  /** 이슈에 남은 타이머 표시 이벤트(TIMER_*)가 순서까지 정확히 expected 인지 단언한다(없으면 빈 목록). */
+  private void assertTimerEvents(long issue, String... expected) {
+    assertThat(timerEvents(issue)).containsExactly(expected);
+  }
+
+  /** 시각을 고정하고 타이머를 한 번 돌린 뒤 처리한 방문 수(테넌트 전체 — 정확한 수는 단언하지 않는다)를 돌려준다. */
   private int runDue(Instant now) {
     doReturn(now).when(issueClock).now();
     return timerService.runDue(now);

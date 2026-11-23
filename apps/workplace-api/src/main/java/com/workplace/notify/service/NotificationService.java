@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 인박스 행·SSE notify.created·웹 푸시 셋 다 없다 — 푸시는 insert 된 수신자에게만 나가므로 필터를 insert 앞 한 곳에 두면 세 채널이 함께
  * 따른다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
@@ -116,7 +118,16 @@ public class NotificationService {
 
   /** keepActor=true 면 행위자도 받는 사람에 남긴다(깨우기 알림용) — 그 밖의 거르기·푸시는 같다. */
   private void create(IssueNotice n, List<Long> recipientIds, boolean keepActor) {
-    List<Long> recipients = insertAndFanOut(n, recipientIds, keepActor);
+    create(n, recipientIds, keepActor, false);
+  }
+
+  /**
+   * sseAfterCommit=true 면 SSE {@code notify.created} 를 지금 트랜잭션의 커밋 뒤로 미룬다 — 커밋 전 동기 경로(워크플로우 타이머)에서
+   * 아직 보이지 않거나 롤백될 알림을 웹에 알리지 않으려고. 푸시는 받는 쪽(PushDispatcher)이 이미 AFTER_COMMIT 이다.
+   */
+  private void create(
+      IssueNotice n, List<Long> recipientIds, boolean keepActor, boolean sseAfterCommit) {
+    List<Long> recipients = insertAndFanOut(n, recipientIds, keepActor, sseAfterCommit);
     if (recipients.isEmpty()) return;
     publishPush(n, PushCategory.of(n.type()), recipients);
   }
@@ -240,7 +251,9 @@ public class NotificationService {
 
   /**
    * 워크플로우 차례 타이머 알림(WP-1987) — 노드가 한 방문에서 오래 기다리면 REMIND(담당자) 또는 ESCALATE(관리자)를 행위자 없이 보낸다. 열람
-   * 권한·설정 필터·SSE·푸시는 기존 create 경로 그대로. 노드·실행 상태는 건드리지 않는다.
+   * 권한·설정 필터·푸시는 기존 create 경로 그대로. 노드·실행 상태는 건드리지 않는다.
+   *
+   * <p>타이머의 방문 트랜잭션 안에서 동기로 불리므로(표시 이벤트와 알림을 함께 커밋·롤백) SSE 는 {@link AfterCommit} 으로 그 커밋 뒤에 보낸다.
    *
    * @param type WORKFLOW_TURN_REMIND 또는 WORKFLOW_TURN_ESCALATE 만 허용
    * @throws IllegalArgumentException 그 밖의 종류
@@ -251,7 +264,7 @@ public class NotificationService {
     if (!type.isWorkflowTurn()) {
       throw new IllegalArgumentException("워크플로우 차례 알림 종류가 아닙니다: " + type);
     }
-    create(IssueNotice.of(type, null, issueId, null), recipientIds);
+    create(IssueNotice.of(type, null, issueId, null), recipientIds, false, true);
   }
 
   /**
@@ -303,6 +316,12 @@ public class NotificationService {
    * 알림용).
    */
   private List<Long> insertAndFanOut(IssueNotice n, List<Long> recipientIds, boolean keepActor) {
+    return insertAndFanOut(n, recipientIds, keepActor, false);
+  }
+
+  /** sseAfterCommit 은 {@link #deliver(IssueNotice, List, Map, boolean)} 로 그대로 넘긴다. */
+  private List<Long> insertAndFanOut(
+      IssueNotice n, List<Long> recipientIds, boolean keepActor, boolean sseAfterCommit) {
     List<Long> candidates =
         recipientIds.stream()
             .filter(Objects::nonNull)
@@ -312,7 +331,8 @@ public class NotificationService {
     if (candidates.isEmpty()) return candidates;
     Set<Long> readable = new HashSet<>(repo.filterCanReadIssue(n.issueId(), candidates));
     // 후보 순서를 유지한다(푸시 묶음·테스트가 수신자 순서에 기대지 않지만 결정적으로 두려고).
-    return deliver(n, candidates.stream().filter(readable::contains).toList(), Map.of());
+    return deliver(
+        n, candidates.stream().filter(readable::contains).toList(), Map.of(), sseAfterCommit);
   }
 
   /**
@@ -321,6 +341,18 @@ public class NotificationService {
    */
   private List<Long> deliver(
       IssueNotice n, List<Long> readableRecipients, Map<Long, String> knownKinds) {
+    return deliver(n, readableRecipients, knownKinds, false);
+  }
+
+  /**
+   * sseAfterCommit=true 면 SSE 전송만 커밋 뒤로 미룬다. 페이로드(이슈 키 조회 — DB)는 커밋 전에 만든다 — {@link AfterCommit} 콜백
+   * 안에서는 DB 를 쓰지 않아야 한다.
+   */
+  private List<Long> deliver(
+      IssueNotice n,
+      List<Long> readableRecipients,
+      Map<Long, String> knownKinds,
+      boolean sseAfterCommit) {
     List<Long> recipients = allowed(readableRecipients, n.type(), n.actorId(), knownKinds);
     if (recipients.isEmpty()) return recipients;
     repo.insertBatch(
@@ -333,7 +365,21 @@ public class NotificationService {
         n.agentWorkState());
     // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회. 이슈 키는 외부 AI 가 맡은 프로젝트의 알림에만 깨어나도록 거르는
     // 데 쓴다(WP-720).
-    registry.fanOut(recipients, "notify.created", issuePayload(n));
+    Map<String, Object> payload = issuePayload(n);
+    if (sseAfterCommit) {
+      // 커밋 뒤 콜백의 예외는 TransactionTemplate 밖으로 번져 이미 커밋된 일을 「실패」로 보이게 한다 — SSE 실패는 여기서 로그만 남긴다
+      // (알림 행은 이미 커밋됐고 웹은 다음 조회에서 받는다).
+      AfterCommit.run(
+          () -> {
+            try {
+              registry.fanOut(recipients, "notify.created", payload);
+            } catch (RuntimeException e) {
+              log.warn("[notify] 커밋 뒤 알림 SSE 전송 실패 type={} issueId={}", n.type(), n.issueId(), e);
+            }
+          });
+    } else {
+      registry.fanOut(recipients, "notify.created", payload);
+    }
     return recipients;
   }
 

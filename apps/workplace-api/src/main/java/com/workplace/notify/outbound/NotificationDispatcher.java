@@ -336,9 +336,9 @@ public class NotificationDispatcher {
   /**
    * 워크플로우 기다림 타이머(WP-1987): 담당에게 다시 알림(REMIND).
    *
-   * <p>예외적으로 동기 {@code @EventListener} — 타이머가 방문별 세이브포인트 안에서 표시 이벤트와 함께 알림을 만들어야, 알림이 실패하면 그 방문의
-   * 표시도 되돌아가 다음 poll 에서 다시 시도한다. 그래서 AFTER_COMMIT·@Async 로 바꾸지 말고, 예외를 삼키지 않고 전파한다. (아래 ESCALATE 도
-   * 같다)
+   * <p>예외적으로 동기 {@code @EventListener} — 타이머가 방문별 짧은 트랜잭션 안에서 표시 이벤트와 함께 알림을 만들어야, 알림이 실패하면 그 방문의
+   * 표시도 되돌아가 다음 poll 에서 다시 시도한다. 그래서 AFTER_COMMIT·@Async 로 바꾸지 말고, 예외를 삼키지 않고 전파한다. SSE 는 서비스가 그 방문
+   * 트랜잭션의 커밋 뒤에 보낸다. (아래 ESCALATE 도 같다)
    */
   @EventListener
   public void onWorkflowTurnRemind(WorkflowTurnRemind e) {
