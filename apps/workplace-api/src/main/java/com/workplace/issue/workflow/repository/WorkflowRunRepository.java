@@ -237,6 +237,24 @@ public class WorkflowRunRepository {
         .fetchOptional(r -> new IdempotentRow(r.value1(), r.value2().data()));
   }
 
+  /**
+   * 같은 이슈의 실행들 중 이 key 로 저장된 첫 응답(없으면 empty) — 표 PK 는 (실행, key) 그대로 두고 이슈의 실행을 조인해 찾는다.
+   *
+   * <p>왜 이슈 범위: 실행 A 를 끝낸 이동의 응답을 잃은 사이 실행 B 가 시작되면, 지금 실행(B)에서만 찾을 때 재시도가 B 의 새 이동으로 처리된다(리뷰 후속).
+   * 옛 자료에 같은 key 가 여러 실행에 있으면 가장 최근 실행의 것을 쓴다(fetchOptional 이 여러 행에 예외를 내지 않게 하나만).
+   */
+  public Optional<IdempotentRow> findIdempotentInIssue(long issueId, String key) {
+    return dsl.select(WORKFLOW_MOVE_IDEMPOTENCY.ACTOR_ID, WORKFLOW_MOVE_IDEMPOTENCY.RESPONSE)
+        .from(WORKFLOW_MOVE_IDEMPOTENCY)
+        .join(WORKFLOW_RUN)
+        .on(WORKFLOW_RUN.ID.eq(WORKFLOW_MOVE_IDEMPOTENCY.RUN_ID))
+        .where(WORKFLOW_RUN.ISSUE_ID.eq(issueId))
+        .and(WORKFLOW_MOVE_IDEMPOTENCY.KEY.eq(key))
+        .orderBy(WORKFLOW_MOVE_IDEMPOTENCY.RUN_ID.desc())
+        .limit(1)
+        .fetchOptional(r -> new IdempotentRow(r.value1(), r.value2().data()));
+  }
+
   /** 첫 응답을 저장한다. 같은 (실행, key) 가 이미 있으면 덮지 않고 false — 첫 응답이 이긴다. */
   public boolean insertIdempotent(long runId, String key, Long actorId, String responseJson) {
     return dsl.insertInto(WORKFLOW_MOVE_IDEMPOTENCY)

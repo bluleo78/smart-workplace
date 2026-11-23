@@ -33,12 +33,14 @@ import tools.jackson.databind.ObjectMapper;
  * 시작·이동의 후처리(WP-1985, 설계 §9) — 의견 댓글, 이슈 담당, 노드 방문(node_run), 실행 이벤트, 도메인 이벤트를 쓴다. 판정은 하지 않는다(서비스가
  * {@code MoveRules} 로 통과시킨 계획만 받는다).
  *
- * <p>잠금 순서(이슈 → 구성원 → 실행): 댓글(워처 등록이 구성원 행을 잠근다)·담당({@code applyWorkflowChange} 가 구성원 행을 잠근다)을 실행 행
- * 갱신·node_run·이벤트 쓰기(실행 행 FK 로 실행 행을 잠근다)보다 먼저 부른다. 모두 한 트랜잭션이라 설계 §9 의 「실행·node_run → 댓글 → 담당」 순서와
- * 결과는 같다.
+ * <p>잠금 순서(이슈 → 구성원 → 실행): 담당({@code applyWorkflowChange} 가 구성원 행을 잠근다) → 댓글(워처 등록이 구성원 행을 잠근다)을 실행
+ * 행 갱신·node_run·이벤트 쓰기(실행 행 FK 로 실행 행을 잠근다)보다 먼저 부른다. 댓글을 담당 뒤에 쓰는 것은 댓글 알림이 쓸 때의 담당에게 가기 때문이다. 설계
+ * §9 의 「실행·node_run → 댓글 → 담당」과 순서는 다르지만 한 트랜잭션이라 저장 결과는 같다.
  *
- * <p>실행 이벤트 actor_id 규칙: 사람의 요청이 직접 일으킨 RUN_STARTED·MOVED·VISIT_LIMIT 은 요청자를 적고, 요청 안에서 시스템이 이어 만든
- * 자동 단계(AUTO_MOVED·AUTO_LIMIT)와 끝 도달(RUN_COMPLETED)은 null 이다. 상세 화면은 null 을 「자동」으로 읽는다.
+ * <p>실행 이벤트 actor_id 규칙: 사람의 요청이 직접 일으킨 RUN_STARTED·MOVED 와 사람이 직접 들어간(머무는) 노드의 VISIT_LIMIT 은 요청자를
+ * 적고, 요청 안에서 시스템이 이어 만든 자동 단계(AUTO_MOVED·AUTO_LIMIT·자동으로 지난 start·decision 의 VISIT_LIMIT)와 끝
+ * 도달(RUN_COMPLETED)은 null 이다. 상세 화면은 null 을 「자동」으로 읽는다. 되돌림 한도 알림({@link
+ * WorkflowVisitLimitReached})의 행위자는 어느 경우든 이동을 일으킨 사람이다(알림 문구 「님이 넘긴」에 행위자가 필요하다).
  */
 @Component
 @RequiredArgsConstructor
@@ -67,16 +69,27 @@ class WorkflowRunWriter {
    * 의견을 이슈 댓글로 남긴다. 그려지는 글자가 없으면 의견이 없는 것으로 보고 만들지 않는다(설계 §7 「공백은 없음」) — 의견이 필요한 결과는 이미 {@code
    * MoveRules} 가 422 로 걸렀다.
    *
-   * @return 만든 댓글 id(없으면 null)
+   * <p>담당 교체({@link #applyAssignees}) 뒤에 부른다 — 댓글 알림(COMMENTED)은 댓글을 쓸 때의 이슈 담당에게 가므로, 먼저 쓰면 빠지는 옛
+   * 담당이 받고 새 담당은 받지 못한다.
+   *
+   * @return 만든 댓글의 id·저장된 본문(첨부 자리 표시를 바꾼 것). 만들지 않았으면 null
    */
-  Long comment(long actorId, long issueId, String comment) {
+  WrittenComment comment(long actorId, long issueId, String comment) {
     if (comment == null || !PersonNames.hasVisibleChar(comment)) {
       return null;
     }
-    return commentService
-        .createForWorkflow(actorId, issueId, new CreateCommentRequest(comment))
-        .id();
+    var saved =
+        commentService.createForWorkflow(actorId, issueId, new CreateCommentRequest(comment));
+    return new WrittenComment(saved.id(), saved.body());
   }
+
+  /**
+   * 저장된 의견 댓글.
+   *
+   * @param id 댓글 id(node_run.comment_id 로 잇는다)
+   * @param body 저장된 본문 — 요청 원문과 달리 file:N 자리 표시가 실제 주소·첨부 이름으로 바뀌어 있다
+   */
+  record WrittenComment(long id, String body) {}
 
   /**
    * 이슈 담당을 바꾼다. 바뀌는 것이 없어도 이슈 갱신 알림(SSE)을 한 번 낸다 — 단계 화면을 새로 그리게(설계 §9). 바뀌면 {@code
@@ -179,7 +192,7 @@ class WorkflowRunWriter {
         e.stopWorkflowAssigned(),
         viaReturn,
         e.now());
-    checkVisitLimit(e, node, viaReturn, forward);
+    checkVisitLimit(e, node, viaReturn, forward, e.actorId());
     publisher.publishEvent(
         new WorkflowNodeEntered(
             tenantId, e.runId(), e.issueId(), stop, node.type(), e.stopAssignees()));
@@ -192,12 +205,18 @@ class WorkflowRunWriter {
     int visitNo = visits.merge(key, 1, Integer::sum);
     runRepository.insertClosedNodeRun(
         e.runId(), key, visitNo, NODE_COMPLETED, List.of(), List.of(), viaReturn, null, e.now());
-    checkVisitLimit(e, e.model().nodes().get(key), viaReturn, forward);
+    // 자동 단계라 실행 이벤트의 actor_id 는 null(클래스 Javadoc 규칙). 게시 검증기는 start·decision 에 maxVisits 를 받지 않지만,
+    // 저장 모델이 검증을 거치지 않았을 때도 규칙이 어긋나지 않게 둔다.
+    checkVisitLimit(e, e.model().nodes().get(key), viaReturn, forward, null);
   }
 
-  /** 되돌림이 아닌 방문 수(이번 포함)가 maxVisits 이상이면 이동은 그대로 하고 알린다(설계 §10 — 「3 이면 세 번째」). 되돌림 방문은 세지 않는다. */
+  /**
+   * 되돌림이 아닌 방문 수(이번 포함)가 maxVisits 이상이면 이동은 그대로 하고 알린다(설계 §10 — 「3 이면 세 번째」). 되돌림 방문은 세지 않는다.
+   *
+   * @param eventActorId 실행 이벤트 actor_id — 머무는 노드면 요청자, 자동으로 지난 노드면 null. 알림 행위자는 늘 이동을 일으킨 사람
+   */
   private void checkVisitLimit(
-      Entry e, Node node, boolean viaReturn, Map<String, Integer> forward) {
+      Entry e, Node node, boolean viaReturn, Map<String, Integer> forward, Long eventActorId) {
     if (node == null || viaReturn) {
       return;
     }
@@ -209,7 +228,7 @@ class WorkflowRunWriter {
         e,
         VISIT_LIMIT,
         map("node", node.key(), "visits", count, "maxVisits", node.maxVisits()),
-        e.actorId());
+        eventActorId);
     publisher.publishEvent(
         new WorkflowVisitLimitReached(
             TenantContext.get(), e.runId(), e.issueId(), node.key(), count, e.actorId()));

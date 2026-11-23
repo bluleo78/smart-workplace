@@ -58,7 +58,7 @@ describe('notificationAction — AI 작업 알림 (WP-913)', () => {
 // WP-1985 — 워크플로우 되돌림 한도: 서버 푸시(PushContentService)와 같은 문구.
 describe('notificationAction — 워크플로우 되돌림 한도 (WP-1985)', () => {
   it('행위자 이름 뒤에 붙는 한도 문구', () => {
-    expect(notificationAction(n({ type: 'WORKFLOW_VISIT_LIMIT' }))).toBe('님이 넘긴 AI 작업이 되돌림 한도에 이르렀습니다');
+    expect(notificationAction(n({ type: 'WORKFLOW_VISIT_LIMIT' }))).toBe('님이 넘긴 워크플로우 단계가 되돌림 한도에 이르렀습니다');
   });
 });
 
