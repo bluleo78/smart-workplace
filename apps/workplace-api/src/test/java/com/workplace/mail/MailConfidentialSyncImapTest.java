@@ -149,6 +149,28 @@ class MailConfidentialSyncImapTest extends MailSyncTestSupport {
     assertThat(contentConfidential(contentId)).isTrue();
   }
 
+  /** 리뷰 후속: 기존 envelope 를 기밀로 올리면 상태 변화(목록 갱신 이벤트 근거)로 돌려주고, 이미 기밀이면 변화 없음. */
+  @Test
+  void insertForSync_raisingExistingEnvelope_reportsChange() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    append("워밍업", null);
+    syncService.sync(user, accountId);
+    long folderId =
+        dsl.select(EMAIL_FOLDER.ID)
+            .from(EMAIL_FOLDER)
+            .where(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+            .fetchSingle(EMAIL_FOLDER.ID);
+    String msgId = "<sse-" + System.nanoTime() + "@corp>";
+    assertThat(messageRepo.insertForSync(accountId, folderId, parsed(900020L, msgId, false)))
+        .isEqualTo(EmailMessageRepository.UpsertOutcome.INSERTED);
+    assertThat(messageRepo.insertForSync(accountId, folderId, parsed(900020L, msgId, true)))
+        .isEqualTo(EmailMessageRepository.UpsertOutcome.SEEN_CHANGED);
+    assertThat(messageRepo.insertForSync(accountId, folderId, parsed(900020L, msgId, true)))
+        .isEqualTo(EmailMessageRepository.UpsertOutcome.UNCHANGED);
+  }
+
   private static boolean confidentialOf(List<EmailMessageSummary> rows, String subject) {
     return rows.stream()
         .filter(r -> subject.equals(r.subject()))

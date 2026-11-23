@@ -2,10 +2,11 @@ import { Mail, Paperclip } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { EmptyState } from '@/components/layout/EmptyState';
+import { MailConfidentialBadge } from '@/components/mail/MailConfidentialBadge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMailAccounts } from '@/hooks/queries/useMailAccounts';
 import { useMailMessages } from '@/hooks/queries/useMailMessages';
-import { mailSubjectText } from '@/lib/mailSubject'
+import { mailDisplaySubject, mailOpenLabel } from '@/lib/mailConfidentialSubject';
 import { showsLoadError } from '@/lib/queryFailure';
 import type { EmailMessageSummary, MailFolder } from '@/types/mailMessage';
 
@@ -34,7 +35,7 @@ function MessageRows({ items }: { items: EmailMessageSummary[] }) {
           {/* 메시지 전용 상세 라우트가 없어 메일함(/mail)으로 딥링크(UnreadMailBody 와 동일 폴백). */}
           <Link
             to="/mail"
-            aria-label={`메일 열기: ${mailSubjectText(m.subject)}`}
+            aria-label={mailOpenLabel(m)}
             className="flex items-center gap-2 py-2 text-sm hover:text-ai-accent"
           >
             {/* 미읽음 표식 — primary 점(메일함 행 막대와 같은 색, WP-155). 읽음이면 자리만 차지(정렬 유지). */}
@@ -49,8 +50,10 @@ function MessageRows({ items }: { items: EmailMessageSummary[] }) {
               {sender(m)}
             </span>
             <span className={`flex-1 truncate ${m.seen ? '' : 'font-medium'}`}>
-              {mailSubjectText(m.subject)}
+              {mailDisplaySubject(m)}
             </span>
+            {/* 받은 기밀 메일 배지 — 메일함 목록 행과 같은 배지(WP-2030 리뷰 후속). 제목 머리말 「[기밀]」 은 위에서 뺐다. */}
+            {m.confidential && <MailConfidentialBadge className="py-0" />}
             {m.hasAttachment && (
               <Paperclip className="size-3 shrink-0 text-muted-foreground" aria-label="첨부 있음" />
             )}

@@ -4,6 +4,11 @@ import { Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /** 「기밀」 배지 — 장식 아이콘은 스크린리더에서 뺀다(글자 「기밀」 이 이름). */
+/** 한 줄 요약처럼 배지를 둘 자리가 없는 곳의 「기밀 · 」 글자 — 배지와 같은 장미색(WP-2030 리뷰 후속). */
+export function MailConfidentialPrefix() {
+  return <span className="text-rose-600 dark:text-rose-300">기밀 · </span>
+}
+
 export function MailConfidentialBadge({ className }: { className?: string }) {
   return (
     <span

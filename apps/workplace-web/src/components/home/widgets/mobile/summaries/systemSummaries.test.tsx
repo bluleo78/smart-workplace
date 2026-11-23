@@ -13,7 +13,7 @@ vi.mock('@/hooks/queries/useMailSummary', () => ({
   useMailSummary: () => ({ data: mailSummary.current, isLoading: false, isError: false }),
 }))
 
-function mail(subject: string | null): MailSummaryItem {
+function mail(subject: string | null, confidential = false): MailSummaryItem {
   return {
     id: 1,
     accountId: 1,
@@ -26,11 +26,17 @@ function mail(subject: string | null): MailSummaryItem {
     hasAttachment: false,
     aiCategory: null,
     aiNeedsReply: null,
+    confidential,
   } as MailSummaryItem
 }
 
-function renderSummary(subject: string | null) {
-  mailSummary.current = { unreadCount: 1, needsReplyCount: 0, classificationActive: false, recent: [mail(subject)] }
+function renderSummary(subject: string | null, confidential = false) {
+  mailSummary.current = {
+    unreadCount: 1,
+    needsReplyCount: 0,
+    classificationActive: false,
+    recent: [mail(subject, confidential)],
+  }
   render(<UnreadMailSummary render={(d) => <p data-testid="summary">{d.text}</p>} />)
   return screen.getByTestId('summary').textContent
 }
@@ -51,5 +57,10 @@ describe('UnreadMailSummary — 메일 제목', () => {
 
   it('보이는 제목은 그대로', () => {
     expect(renderSummary('견적 요청')).toBe('김철수 · 견적 요청')
+  })
+
+  // WP-2030 리뷰 후속: 받은 기밀 메일은 머리말을 뺀 제목
+  it('기밀 메일은 「[기밀]」 머리말을 빼고 「기밀 · 」 을 앞에 둔다', () => {
+    expect(renderSummary('[기밀] 단가 협상안', true)).toBe('김철수 · 기밀 · 단가 협상안')
   })
 })

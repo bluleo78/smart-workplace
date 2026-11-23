@@ -64,6 +64,18 @@ test('배지·미리보기·시각이 없는 메일 행은 보낸 사람만 설�
   expect(link).toHaveAccessibleDescription('김개발')
 })
 
+// WP-2030 리뷰 후속: 받은 기밀 메일 행은 머리말을 뺀 제목 + 「기밀」 배지, 이름에 (기밀)
+test('기밀 메일 행은 머리말을 빼고 배지를 보인다', () => {
+  renderScreen(
+    <UnreadMailBody previewData={[mail({ subject: '[기밀] 단가 협상안', confidential: true })]} />,
+    { path: '/' },
+  )
+  const link = screen.getByRole('link', { name: '메일 열기: 단가 협상안 (기밀)' })
+  expect(link).toHaveTextContent('단가 협상안')
+  expect(link).not.toHaveTextContent('[기밀]')
+  expect(screen.getByTestId('mail-confidential-badge')).toBeInTheDocument()
+})
+
 test('대화 행은 설명에 배지·미리보기·시간을 담는다', () => {
   renderScreen(<ConversationsBody previewData={[conv()]} />, { path: '/' })
   const link = screen.getByRole('link', { name: '대화 열기: 기획팀' })

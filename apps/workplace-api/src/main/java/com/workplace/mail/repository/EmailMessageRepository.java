@@ -209,6 +209,25 @@ public class EmailMessageRepository {
    * empty 를 반환한다.
    */
   public Optional<Long> insertIgnoreConflict(long accountId, long folderId, ParsedMessage m) {
+    return insertOrRaise(accountId, folderId, m).insertedId();
+  }
+
+  /**
+   * 동기화용 저장 — {@link #insertIgnoreConflict} 와 같고, 이미 있는 envelope 의 content 를 이번에 기밀로 올렸는지도
+   * 돌려준다(WP-2030). 올렸으면 새 메일은 아니지만 목록이 바뀐 것이라 호출자가 상태 변화로 세어 목록 갱신 이벤트(SSE)를 보낸다.
+   */
+  public UpsertOutcome insertForSync(long accountId, long folderId, ParsedMessage m) {
+    InsertResult r = insertOrRaise(accountId, folderId, m);
+    if (r.insertedId().isPresent()) {
+      return UpsertOutcome.INSERTED;
+    }
+    return r.raisedConfidential() ? UpsertOutcome.SEEN_CHANGED : UpsertOutcome.UNCHANGED;
+  }
+
+  /** {@link #insertOrRaise} 결과 — 새로 넣은 id(이미 있으면 empty)와 기존 envelope 의 content 를 기밀로 올렸는지. */
+  private record InsertResult(Optional<Long> insertedId, boolean raisedConfidential) {}
+
+  private InsertResult insertOrRaise(long accountId, long folderId, ParsedMessage m) {
     // 이미 있는 envelope(재동기화)면 content 를 만들지 않는다 — 지문 없는 content 는 매번 새 행이 생겨 고아가 된다(WP-130)
     var existing =
         dsl.select(EMAIL_MESSAGE.CONTENT_ID)
@@ -221,42 +240,44 @@ public class EmailMessageRepository {
     if (existing.isPresent()) {
       // WP-2030: 기밀 판정이 이 동기화 이후 생겼어도(예: 이미 공유된 content) 기존 envelope 의 content 를 올린다(false→true 만)
       Long existingContentId = existing.get().value1();
-      if (m.confidential() && existingContentId != null) {
-        contentRepo.markConfidential(existingContentId);
-      }
-      return Optional.empty();
+      boolean raised =
+          m.confidential()
+              && existingContentId != null
+              && contentRepo.markConfidential(existingContentId);
+      return new InsertResult(Optional.empty(), raised);
     }
     // 현재 GUC 와 일치하는 테넌트 ID 로 email_content 를 공유 생성(find-or-create).
     // TenantContext.get() 은 TenantAwareTransactionManager 가 GUC 로 주입한 값과 동일하다.
     long tenantId = requireTenantId();
     long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.IMAP);
     // WP-2030: 공유 content 는 한 번 기밀이면 계속 기밀(false→true 만) — 이미 false 로 있던 공유 content 도 올린다
-    if (m.confidential()) {
-      contentRepo.markConfidential(contentId);
-    }
-    return dsl.insertInto(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
-        .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
-        .set(EMAIL_MESSAGE.IMAP_UID, m.imapUid())
-        .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
-        .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
-        .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
-        .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
-        .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
-        .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
-        .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
-        .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
-        // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
-        .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
-        .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
-        .set(EMAIL_MESSAGE.SEEN, m.seen())
-        .set(EMAIL_MESSAGE.FLAGGED, m.flagged()) // WP-1741: 서버 \Flagged
-        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
-        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
-        .onConflictDoNothing()
-        .returning(EMAIL_MESSAGE.ID)
-        .fetchOptional()
-        .map(r -> r.get(EMAIL_MESSAGE.ID));
+    boolean raisedShared = m.confidential() && contentRepo.markConfidential(contentId);
+    Optional<Long> insertedId =
+        dsl.insertInto(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
+            .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+            .set(EMAIL_MESSAGE.IMAP_UID, m.imapUid())
+            .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
+            .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
+            .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
+            .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
+            .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
+            .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
+            .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
+            .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
+            // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
+            .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
+            .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
+            .set(EMAIL_MESSAGE.SEEN, m.seen())
+            .set(EMAIL_MESSAGE.FLAGGED, m.flagged()) // WP-1741: 서버 \Flagged
+            .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
+            .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+            .onConflictDoNothing()
+            .returning(EMAIL_MESSAGE.ID)
+            .fetchOptional()
+            .map(r -> r.get(EMAIL_MESSAGE.ID));
+    // 동시 삽입 충돌로 넣지 못했어도 공유 content 를 올렸으면 변화로 알린다(목록 SSE — 리뷰 후속)
+    return new InsertResult(insertedId, insertedId.isEmpty() && raisedShared);
   }
 
   /**
@@ -266,7 +287,9 @@ public class EmailMessageRepository {
   public enum UpsertOutcome {
     /** 새 envelope 삽입. */
     INSERTED,
-    /** 기존 envelope 의 seen·flagged(WP-1741) 중 하나 이상이 서버 값으로 바뀜 — 새 메일이 아닌 상태 변화. */
+    /**
+     * 기존 envelope 의 seen·flagged(WP-1741) 중 하나 이상이 서버 값으로 바뀌었거나 기밀로 올라감(WP-2030) — 새 메일이 아닌 상태 변화.
+     */
     SEEN_CHANGED,
     /** 변화 없음(기존 행 · 같은 seen · 동시 삽입 충돌). */
     UNCHANGED
@@ -323,12 +346,15 @@ public class EmailMessageRepository {
     if (existing.isPresent()) {
       // WP-2030: 기밀 판정이 이 동기화 이후 생겼어도 기존 envelope 의 content 를 올린다(false→true 만)
       Long existingContentId = existing.get().value1();
-      if (m.confidential() && existingContentId != null) {
-        contentRepo.markConfidential(existingContentId);
-      }
+      // 이번에 기밀로 올렸으면 상태 변화로 센다 — 열린 목록에 배지가 바로 보이게 갱신 이벤트(SSE)를 보낸다
+      int changed =
+          m.confidential()
+                  && existingContentId != null
+                  && contentRepo.markConfidential(existingContentId)
+              ? 1
+              : 0;
       // 기존 행 — 서버 읽음·별표 상태만 반영(값이 같으면 0건이라 SSE·순환 없음).
       // 두 속성은 반영 대기가 따로라 UPDATE 도 따로 한다 — 한 문장으로 묶으면 한쪽 대기가 다른 쪽 갱신까지 막는다.
-      int changed = 0;
       if (syncSeen) {
         changed +=
             dsl.update(EMAIL_MESSAGE)
@@ -353,9 +379,7 @@ public class EmailMessageRepository {
     long tenantId = requireTenantId();
     long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.GRAPH);
     // WP-2030: 공유 content 는 한 번 기밀이면 계속 기밀(false→true 만) — 이미 false 로 있던 공유 content 도 올린다
-    if (m.confidential()) {
-      contentRepo.markConfidential(contentId);
-    }
+    boolean raisedShared = m.confidential() && contentRepo.markConfidential(contentId);
     boolean inserted =
         dsl.insertInto(EMAIL_MESSAGE)
             .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
@@ -381,7 +405,9 @@ public class EmailMessageRepository {
             .returning(EMAIL_MESSAGE.ID)
             .fetchOptional()
             .isPresent();
-    return inserted ? UpsertOutcome.INSERTED : UpsertOutcome.UNCHANGED;
+    if (inserted) return UpsertOutcome.INSERTED;
+    // 동시 삽입 충돌로 넣지 못했어도 공유 content 를 올렸으면 변화로 알린다(목록 SSE — 리뷰 후속)
+    return raisedShared ? UpsertOutcome.SEEN_CHANGED : UpsertOutcome.UNCHANGED;
   }
 
   /**
