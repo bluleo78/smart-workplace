@@ -53,12 +53,15 @@ class AgentScreenRelayRecordTest {
   void setUp() {
     relay =
         new AgentScreenRelay(
-            mock(RunnerSseRegistry.class), mock(AgentScreenTickets.class), new ObjectMapper());
+            mock(RunnerSseRegistry.class),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            new ObjectMapper());
     service = mock(AgentScreenService.class);
     relay.setService(service);
     relay.stopTimerForTest();
     id = UUID.randomUUID();
-    relay.reserve(id, TENANT, 2L, 3L, 4L, Instant.now().plusSeconds(600));
+    relay.reserve(id, TENANT, 2L, 3L, 4L, Instant.now().plusSeconds(600), null);
     pair = relay.pairOf(id);
     runner = mock(WebSocketSession.class);
     when(runner.isOpen()).thenReturn(true);

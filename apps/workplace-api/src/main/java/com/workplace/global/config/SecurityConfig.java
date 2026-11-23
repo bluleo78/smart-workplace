@@ -184,6 +184,16 @@ public class SecurityConfig {
                     .requestMatchers(
                         org.springframework.http.HttpMethod.GET, "/api/v1/admin/agent-screen")
                     .permitAll()
+                    // AI 작업 화면 파드 사이 내부 WebSocket(WP-1978) — 다른 api 파드가 넘겨 온 소켓을
+                    // 주인 파드가 받는 경로. 핸드셰이크 가로채기(AgentScreenWebSocketConfig 의 내부 경로
+                    // 인터셉터)가 내부 서비스 토큰(X-Internal-Token)을 상수 시간으로 견주고 없거나 다르면
+                    // 403 이다. 업그레이드 요청(GET)만 연다.
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.GET,
+                        com.workplace.agentruntime.screen.AgentScreenWebSocketConfig
+                                .INTERNAL_PATH_PREFIX
+                            + "**")
+                    .permitAll()
                     .requestMatchers(RunnerTokenAuthenticationFilter.PATH_PREFIX + "**")
                     .hasRole("RUNNER")
                     .requestMatchers("/api/v1/**")

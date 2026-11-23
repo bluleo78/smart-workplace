@@ -106,6 +106,16 @@ test('agentPluginVersion 은 api 의 AGENT_PLUGIN_VERSION 으로 들어가고, �
   assert.doesNotMatch(BASE_DOCS.get('Deployment/api'), /AGENT_PLUGIN_VERSION/);
 });
 
+test('api 는 파드 IP 를 AGENT_SCREEN_POD_ADDRESS 로 받고 application.yml 이 같은 이름을 읽는다 — 작업 화면 파드 사이 잇기 (WP-1978)', () => {
+  const api = BASE_DOCS.get('Deployment/api');
+  assert.match(api, /- name: POD_IP\n\s+valueFrom:\n\s+fieldRef:\n\s+fieldPath: status\.podIP/);
+  assert.match(api, /- name: AGENT_SCREEN_POD_ADDRESS\n\s+value: "?\$\(POD_IP\)"?/);
+  // 쿠버네티스는 앞에 정의된 env 만 $(…) 로 풀므로 POD_IP 가 먼저 와야 한다.
+  assert.ok(api.indexOf('name: POD_IP') < api.indexOf('name: AGENT_SCREEN_POD_ADDRESS'));
+  const yml = readFileSync(fileURLToPath(new URL('../../../apps/workplace-api/src/main/resources/application.yml', import.meta.url)), 'utf8');
+  assert.match(yml, /pod-address: \$\{AGENT_SCREEN_POD_ADDRESS:\}/);
+});
+
 test('이미지 값이 없으면 렌더가 실패한다(:latest 로 새지 않는다)', () => {
   const { ok, err } = render();
   assert.equal(ok, false);

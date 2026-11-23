@@ -54,7 +54,10 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     // 닫힘 기록을 검증할 수 있게 서비스를 넣는다 — 안 넣으면 NPE 경고만 남고 검증도 못 한다.
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
@@ -105,16 +108,17 @@ class AgentScreenRelayEndedFrameTest {
         .close(any(CloseStatus.class));
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
-    relay.attachBrowser(id, rawBrowser);
-    relay.attachRunner(id, rawRunner);
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
+    relay.attachBrowser(id, rawBrowser, false);
+    relay.attachRunner(id, rawRunner, false);
 
     Thread runnerOutput = new Thread(() -> relay.fromRunner(id, new BinaryMessage(new byte[64])));
     runnerOutput.start();
     assertThat(sendEntered.await(10, TimeUnit.SECONDS)).as("브라우저 목의 첫 보내기에서 멈춰야 한다").isTrue();
 
     // 닫기는 끝남 알림을 데코레이터 버퍼에 넣은 뒤 유한 드레인 대기(2초)에 들어간다 — 막힌 보내기가 안 풀리니 대기는 끝까지 이어진다(WP-2015).
-    Thread closer = new Thread(() -> relay.runnerClosed(id, rawRunner));
+    Thread closer =
+        new Thread(() -> relay.runnerClosed(id, rawRunner, AgentScreenRelay.REASON_RUNNER_CLOSED));
     closer.start();
     // 래치는 "close" 가 기록되면(= 닫기가 끝나면) 곧바로, 아니면 1_000ms 지난 뒤에 풀린다 —
     // 첫 보내기가 드레인 상한(ENDED_DRAIN_TIMEOUT_MS 2_000ms) 안에서 풀리지 않아 대기가 끝까지 이어지는 판이라
@@ -146,7 +150,10 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     // 닫힘 기록을 검증할 수 있게 서비스를 넣는다 — 안 넣으면 NPE 경고만 남고 검증도 못 한다.
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
@@ -197,12 +204,13 @@ class AgentScreenRelayEndedFrameTest {
         .close(any(CloseStatus.class));
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
-    relay.attachBrowser(id, rawBrowser);
-    relay.attachRunner(id, rawRunner);
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
+    relay.attachBrowser(id, rawBrowser, false);
+    relay.attachRunner(id, rawRunner, false);
 
     Thread runnerOutput = new Thread(() -> relay.fromRunner(id, new BinaryMessage(new byte[64])));
-    Thread closer = new Thread(() -> relay.runnerClosed(id, rawRunner));
+    Thread closer =
+        new Thread(() -> relay.runnerClosed(id, rawRunner, AgentScreenRelay.REASON_RUNNER_CLOSED));
     try {
       runnerOutput.start();
       assertThat(sendEntered.await(10, TimeUnit.SECONDS)).as("브라우저 목의 첫 보내기에서 멈춰야 한다").isTrue();
@@ -234,12 +242,15 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
 
     // Pair 로 가는 공개 길이 없고 pairs 는 private — 리플렉션으로 자리 하나를 꺼내 close(Pair, …) 를 직접 부른다(이 테스트에서만 쓰는
     // 접근).
@@ -264,7 +275,10 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
 
@@ -314,12 +328,13 @@ class AgentScreenRelayEndedFrameTest {
         .close(any(CloseStatus.class));
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
-    relay.attachBrowser(id, rawBrowser);
-    relay.attachRunner(id, rawRunner);
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
+    relay.attachBrowser(id, rawBrowser, false);
+    relay.attachRunner(id, rawRunner, false);
 
     Thread runnerOutput = new Thread(() -> relay.fromRunner(id, new BinaryMessage(new byte[64])));
-    Thread closer = new Thread(() -> relay.runnerClosed(id, rawRunner));
+    Thread closer =
+        new Thread(() -> relay.runnerClosed(id, rawRunner, AgentScreenRelay.REASON_RUNNER_CLOSED));
     try {
       runnerOutput.start();
       assertThat(sendEntered.await(10, TimeUnit.SECONDS)).as("브라우저 목의 첫 보내기에서 멈춰야 한다").isTrue();
@@ -354,7 +369,10 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
 
@@ -404,9 +422,9 @@ class AgentScreenRelayEndedFrameTest {
         .close(any(CloseStatus.class));
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
-    relay.attachBrowser(id, rawBrowser);
-    relay.attachRunner(id, rawRunner);
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
+    relay.attachBrowser(id, rawBrowser, false);
+    relay.attachRunner(id, rawRunner, false);
 
     Thread runnerOutput = new Thread(() -> relay.fromRunner(id, new BinaryMessage(new byte[64])));
     // close() 반환 직후의 인터럽트 플래그 — 대기가 플래그를 되살리고 끊었는지까지 검별하기 위해 적어 둔다.
@@ -414,7 +432,7 @@ class AgentScreenRelayEndedFrameTest {
     Thread closer =
         new Thread(
             () -> {
-              relay.runnerClosed(id, rawRunner);
+              relay.runnerClosed(id, rawRunner, AgentScreenRelay.REASON_RUNNER_CLOSED);
               interruptFlagAfterClose.set(Thread.currentThread().isInterrupted());
             });
     try {
@@ -458,7 +476,10 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
 
@@ -500,11 +521,12 @@ class AgentScreenRelayEndedFrameTest {
         .close(any(CloseStatus.class));
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
-    relay.attachBrowser(id, rawBrowser);
-    relay.attachRunner(id, rawRunner);
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
+    relay.attachBrowser(id, rawBrowser, false);
+    relay.attachRunner(id, rawRunner, false);
 
-    Thread closer = new Thread(() -> relay.runnerClosed(id, rawRunner));
+    Thread closer =
+        new Thread(() -> relay.runnerClosed(id, rawRunner, AgentScreenRelay.REASON_RUNNER_CLOSED));
     long start = System.currentTimeMillis();
     closer.start();
     closer.join(5_000);
@@ -608,7 +630,10 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     // 실제 1초 타이머가 테스트 중에 끼어들지 않게 끄고 tick 을 직접 부른다.
     relay.stopTimerForTest();
     AgentScreenService screenService = mock(AgentScreenService.class);
@@ -660,9 +685,9 @@ class AgentScreenRelayEndedFrameTest {
         .close(any(CloseStatus.class));
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
-    relay.attachBrowser(id, rawBrowser);
-    relay.attachRunner(id, rawRunner);
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
+    relay.attachBrowser(id, rawBrowser, false);
+    relay.attachRunner(id, rawRunner, false);
 
     Thread runnerOutput = new Thread(() -> relay.fromRunner(id, new BinaryMessage(new byte[64])));
     runnerOutput.start();
@@ -703,7 +728,10 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     relay.stopTimerForTest();
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
@@ -720,7 +748,7 @@ class AgentScreenRelayEndedFrameTest {
     StuckBufferSessionDecorator stuck = new StuckBufferSessionDecorator(raw);
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
     AgentScreenRelay.Pair p = relay.pairOf(id);
     p.browser = stuck;
 
@@ -764,7 +792,10 @@ class AgentScreenRelayEndedFrameTest {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
         new AgentScreenRelay(
-            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
+            new RunnerSseRegistry(new NoopSseEventRelay()),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            om);
     relay.stopTimerForTest();
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
@@ -809,9 +840,9 @@ class AgentScreenRelayEndedFrameTest {
         .close(any(CloseStatus.class));
 
     UUID id = UUID.randomUUID();
-    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30));
-    relay.attachBrowser(id, rawBrowser);
-    relay.attachRunner(id, rawRunner);
+    relay.reserve(id, 1L, 10L, 20L, 30L, Instant.now().plusSeconds(30), null);
+    relay.attachBrowser(id, rawBrowser, false);
+    relay.attachRunner(id, rawRunner, false);
 
     Thread runnerOutput = new Thread(() -> relay.fromRunner(id, new BinaryMessage(new byte[64])));
     try {
@@ -819,7 +850,7 @@ class AgentScreenRelayEndedFrameTest {
       assertThat(sendEntered.await(10, TimeUnit.SECONDS)).as("브라우저 목의 첫 보내기에서 멈춰야 한다").isTrue();
 
       long start = System.currentTimeMillis();
-      relay.browserClosed(id, rawBrowser);
+      relay.browserClosed(id, rawBrowser, AgentScreenRelay.REASON_BROWSER_CLOSED);
       long elapsed = System.currentTimeMillis() - start;
 
       // 회귀는 진행 중인 보내기 때문에 드레인 상한(2_000 ms)을 그대로 채운다.

@@ -18,6 +18,7 @@ import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentRuntimeSlotState;
 import com.workplace.jooq.tables.AgentScreenInput;
+import com.workplace.jooq.tables.AgentScreenRoute;
 import com.workplace.jooq.tables.AgentScreenSession;
 import com.workplace.jooq.tables.AgentServerRun;
 import com.workplace.jooq.tables.AgentWork;
@@ -281,6 +282,11 @@ public class Tables {
      * The table <code>public.agent_screen_input</code>.
      */
     public static final AgentScreenInput AGENT_SCREEN_INPUT = AgentScreenInput.AGENT_SCREEN_INPUT;
+
+    /**
+     * AI 작업 화면 공유 경로 — 파드 사이 공유되는 화면의 주인 파드·접속 표·입력 중 상태(상한·입력 판정)
+     */
+    public static final AgentScreenRoute AGENT_SCREEN_ROUTE = AgentScreenRoute.AGENT_SCREEN_ROUTE;
 
     /**
      * The table <code>public.agent_screen_session</code>.

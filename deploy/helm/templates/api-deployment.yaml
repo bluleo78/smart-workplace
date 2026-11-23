@@ -90,6 +90,14 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: WORKPLACE_AI_AGENT_TOKEN
+            # AI 작업 화면 파드 사이 접속 주소(WP-1978) — 다른 api 파드가 이 파드 IP:9090 의 내부 경로로 WebSocket 을 열어 화면 소켓을 넘긴다.
+            # POD_IP 를 먼저 둬야 $(POD_IP) 가 풀린다.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: AGENT_SCREEN_POD_ADDRESS
+              value: "$(POD_IP)"
             # worker가 ro로 마운트하는 동일 공유 파일 저장 루트 경로
             - name: WORKPLACE_STORAGE_ROOT_DIR
               value: /data/storage-data

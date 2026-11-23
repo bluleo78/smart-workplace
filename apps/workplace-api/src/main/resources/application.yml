@@ -243,6 +243,9 @@ workplace:
       timeout-seconds: ${WORKER_RENDER_TIMEOUT_SECONDS:20}
 
 app:
+  # WP-1978: AI 작업 화면 — 다른 api 파드가 이 파드에 내부 WebSocket 을 열 주소의 host. 비면 로컬 호스트 주소(운영은 파드 IP 를 넣는다).
+  agent-screen:
+    pod-address: ${AGENT_SCREEN_POD_ADDRESS:}
   jwt:
     secret: ${JWT_SECRET}
     access-expiration: 1800000        # 30분

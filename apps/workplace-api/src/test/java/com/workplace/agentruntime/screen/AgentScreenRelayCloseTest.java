@@ -47,7 +47,7 @@ class AgentScreenRelayCloseTest {
 
   private static final String REASON = "테스트 까닭";
 
-  private AgentScreenTickets tickets;
+  private InMemoryAgentScreenRoutes routes;
   private AgentScreenService service;
   private WebSocketSession browser;
   private WebSocketSession runner;
@@ -55,15 +55,20 @@ class AgentScreenRelayCloseTest {
 
   @BeforeEach
   void setUp() throws InterruptedException {
-    tickets = mock(AgentScreenTickets.class);
+    routes = spy(new InMemoryAgentScreenRoutes());
     service = mock(AgentScreenService.class);
     browser = mock(WebSocketSession.class);
     runner = mock(WebSocketSession.class);
     when(browser.isOpen()).thenReturn(true);
     when(runner.isOpen()).thenReturn(true);
-    relay = new AgentScreenRelay(mock(RunnerSseRegistry.class), tickets, new ObjectMapper());
+    relay =
+        new AgentScreenRelay(
+            mock(RunnerSseRegistry.class),
+            routes,
+            new AgentScreenPod("127.0.0.1", 6060),
+            new ObjectMapper());
     relay.setService(service);
-    // 실제 1초 타이머의 tick 이 tickets 목에 끼어들면 Mockito 스텁이 엉뚱한 메서드에 붙는다 — 공유 relay 의 타이머는 멈춰 둔다
+    // 실제 1초 타이머의 tick 이 routes 스파이에 끼어들면 Mockito 스텁이 엉뚱한 메서드에 붙는다 — 공유 relay 의 타이머는 멈춰 둔다
     var timer = timerOf(relay);
     timer.shutdownNow();
     // shutdownNow 는 이미 시작한 tick 을 기다리지 않는다 — 끝난 뒤에야 테스트가 목을 스텁한다
@@ -101,9 +106,9 @@ class AgentScreenRelayCloseTest {
   }
 
   @Test
-  void close_whenTicketCleanupThrows_finishesRemainingSteps() throws Exception {
+  void close_whenRouteCleanupThrows_finishesRemainingSteps() throws Exception {
     var p = pair(true);
-    doThrow(new IllegalStateException("x")).when(tickets).removeForSession(p.id);
+    doThrow(new IllegalStateException("x")).when(routes).remove(p.id);
 
     assertThatCode(() -> relay.close(p, REASON, true)).doesNotThrowAnyException();
 
@@ -175,7 +180,7 @@ class AgentScreenRelayCloseTest {
   @Test
   void close_whenEveryStepThrows_triesAllAndDoesNotRepeat() throws Exception {
     var p = pair(true);
-    doThrow(new StackOverflowError()).when(tickets).removeForSession(any());
+    doThrow(new StackOverflowError()).when(routes).remove(any());
     doThrow(new StackOverflowError()).when(service).recordInput(anyLong(), any(), anyList());
     doThrow(new StackOverflowError()).when(browser).sendMessage(any());
     doThrow(new StackOverflowError()).when(browser).close(any(CloseStatus.class));
@@ -189,7 +194,7 @@ class AgentScreenRelayCloseTest {
             })
         .doesNotThrowAnyException();
 
-    verify(tickets, times(1)).removeForSession(p.id);
+    verify(routes, times(1)).remove(p.id);
     verify(service, times(1)).recordInput(eq(1L), eq(p.id), anyList());
     verify(browser, times(1)).sendMessage(any(TextMessage.class));
     verify(browser, times(1)).close(any(CloseStatus.class));
@@ -200,7 +205,7 @@ class AgentScreenRelayCloseTest {
   @Test
   void close_whenNoSocketAttached_records() {
     var p = pair(false);
-    doThrow(new IllegalStateException("x")).when(tickets).removeForSession(p.id);
+    doThrow(new IllegalStateException("x")).when(routes).remove(p.id);
 
     assertThatCode(() -> relay.close(p, REASON, true)).doesNotThrowAnyException();
 
@@ -210,7 +215,7 @@ class AgentScreenRelayCloseTest {
   @Test
   void close_whenBrowserClosedIt_doesNotNotify() throws Exception {
     var p = pair(true);
-    doThrow(new IllegalStateException("x")).when(tickets).removeForSession(p.id);
+    doThrow(new IllegalStateException("x")).when(routes).remove(p.id);
 
     assertThatCode(() -> relay.close(p, REASON, false)).doesNotThrowAnyException();
 
@@ -223,9 +228,9 @@ class AgentScreenRelayCloseTest {
   void shutdown_whenOneSessionFails_closesTheOthers() {
     UUID a = UUID.randomUUID();
     UUID b = UUID.randomUUID();
-    relay.reserve(a, 1L, 10L, 100L, 1L, Instant.MAX);
-    relay.reserve(b, 1L, 10L, 100L, 1L, Instant.MAX);
-    doThrow(new IllegalStateException("x")).doNothing().when(tickets).removeForSession(any());
+    relay.reserve(a, 1L, 10L, 100L, 1L, Instant.MAX, null);
+    relay.reserve(b, 1L, 10L, 100L, 1L, Instant.MAX, null);
+    doThrow(new IllegalStateException("x")).doNothing().when(routes).remove(any());
 
     assertThatCode(() -> relay.shutdown()).doesNotThrowAnyException();
 
@@ -240,10 +245,13 @@ class AgentScreenRelayCloseTest {
     // 공유 relay 는 타이머를 꺼 두었으므로, 타이머가 살아 있는 전용 relay 로 본다
     var own =
         new AgentScreenRelay(
-            mock(RunnerSseRegistry.class), mock(AgentScreenTickets.class), new ObjectMapper());
+            mock(RunnerSseRegistry.class),
+            new InMemoryAgentScreenRoutes(),
+            new AgentScreenPod("127.0.0.1", 6060),
+            new ObjectMapper());
     var timer = timerOf(own);
     try {
-      own.reserve(UUID.randomUUID(), 1L, 10L, 100L, 1L, Instant.MAX);
+      own.reserve(UUID.randomUUID(), 1L, 10L, 100L, 1L, Instant.MAX, null);
       AgentScreenRelay failing = spy(own);
       doThrow(new StackOverflowError()).when(failing).close(any(), anyString(), anyBoolean());
       assertFalse(timer.isShutdown());
