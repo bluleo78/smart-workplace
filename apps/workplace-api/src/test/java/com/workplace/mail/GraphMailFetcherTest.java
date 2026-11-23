@@ -22,6 +22,7 @@ import com.workplace.mail.service.graph.GraphDeltaPage;
 import com.workplace.mail.service.graph.GraphMessage;
 import com.workplace.mail.service.graph.GraphMessage.EmailAddress;
 import com.workplace.mail.service.graph.GraphMessage.Recipient;
+import com.workplace.mail.service.graph.GraphMessageMapper;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
@@ -290,6 +291,77 @@ class GraphMailFetcherTest extends ExternalClientMockedTestBase {
     assertThat(m.removed()).isNull(); // @removed 없으면 null
   }
 
+  /** WP-2030: Graph 응답 모양의 JSON 으로 확장 속성이 읽히고(id 가 "Integer 0x36" 꼴이어도) 값만으로 기밀이 판정된다. */
+  @Test
+  void graphMessage_parsesExtendedPropertyAndJudgesConfidential() throws Exception {
+    String confidentialJson =
+        """
+        {"id":"AAMk1","subject":"[기밀] 단가","singleValueExtendedProperties":[{"id":"Integer 0x36","value":"3"}]}
+        """;
+    String zeroJson =
+        """
+        {"id":"AAMk2","singleValueExtendedProperties":[{"id":"Integer 0x36","value":"0"}]}
+        """;
+    String noneJson = "{\"id\":\"AAMk3\"}";
+
+    assertThat(
+            GraphMessageMapper.isConfidential(
+                objectMapper.readValue(confidentialJson, GraphMessage.class)))
+        .isTrue();
+    assertThat(
+            GraphMessageMapper.isConfidential(objectMapper.readValue(zeroJson, GraphMessage.class)))
+        .isFalse();
+    assertThat(
+            GraphMessageMapper.isConfidential(objectMapper.readValue(noneJson, GraphMessage.class)))
+        .isFalse();
+  }
+
+  /** WP-2030: delta 가 $expand 를 400 으로 거절하면 그 부분을 뺀 URL 로 한 번 다시 시도해 동기화를 이어간다. */
+  @Test
+  void fetchNewMessages_retriesWithoutExpandWhenDeltaRejectsIt() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+
+    // expand 가 든 요청은 400, 뺀 요청은 정상 페이지
+    when(graphApiClient.get(
+            eq("FAKE_TOKEN"),
+            org.mockito.ArgumentMatchers.contains("$expand=singleValueExtendedProperties"),
+            eq(GraphDeltaPage.class)))
+        .thenThrow(new com.workplace.mail.exception.GraphHttpException(400));
+    when(graphApiClient.get(
+            eq("FAKE_TOKEN"),
+            org.mockito.ArgumentMatchers.argThat(
+                (String u) ->
+                    u != null && u.contains("inbox/messages/delta") && !u.contains("$expand")),
+            eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("R1", "재시도")), null, "RETRY_DELTA"));
+    when(graphApiClient.get(
+            eq("FAKE_TOKEN"),
+            org.mockito.ArgumentMatchers.startsWith("/me/mailFolders/sentitems/"),
+            eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(), null, "SENT_DELTA"));
+
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+
+    assertThat(messageRepo.findByProviderId(accountId, inboxId(accountId), "R1")).isPresent();
+    var folder = folderRepo.ensureFolder(accountId, "INBOX");
+    assertThat(folderRepo.getDeltaLink(folder.id())).contains("RETRY_DELTA");
+  }
+
+  /** WP-2030: 기밀 확장 속성 $expand 빼기 — 서버가 준 nextLink 의 %24expand 꼴과 첫 파라미터 위치도 빼고, 없으면 그대로 둔다. */
+  @Test
+  void stripSensitivityExpand_handlesEncodedAndPositions() {
+    String exp = "expand=singleValueExtendedProperties($filter=id%20eq%20'Integer%200x0036')";
+    assertThat(GraphMailFetcher.stripSensitivityExpand("/a?$select=x&$" + exp + "&$top=5"))
+        .isEqualTo("/a?$select=x&$top=5");
+    assertThat(GraphMailFetcher.stripSensitivityExpand("https://g/a?%24select=x&%24" + exp))
+        .isEqualTo("https://g/a?%24select=x");
+    assertThat(GraphMailFetcher.stripSensitivityExpand("/a?$" + exp + "&$top=5"))
+        .isEqualTo("/a?$top=5");
+    assertThat(GraphMailFetcher.stripSensitivityExpand("/a?$select=x")).isEqualTo("/a?$select=x");
+  }
+
   /**
    * {@link GraphMessage}의 {@code @removed} 마커 Jackson 매핑 검증.
    *
@@ -526,6 +598,99 @@ class GraphMailFetcherTest extends ExternalClientMockedTestBase {
     assertThat(r.sentSaved()).isZero();
     assertThat(messageRepo.findByProviderId(accountId, inboxId(accountId), "I1")).isPresent();
     assertThat(folderRepo.getDeltaLink(sentItems.id())).isEmpty();
+  }
+
+  /** WP-2030: 확장 속성 목록을 실은 delta 항목 — 기밀 판정 재료(PidTagSensitivity). */
+  private GraphMessage messageWithProps(String id, List<GraphMessage.ExtendedProperty> props) {
+    GraphMessage base = message(id, "제목 " + id);
+    return new GraphMessage(
+        base.id(),
+        base.subject(),
+        base.from(),
+        base.toRecipients(),
+        base.ccRecipients(),
+        base.receivedDateTime(),
+        base.sentDateTime(),
+        base.isRead(),
+        base.hasAttachments(),
+        base.internetMessageId(),
+        base.conversationId(),
+        null,
+        null,
+        props);
+  }
+
+  /** 행의 공유 content 기밀 표시. */
+  private boolean confidentialOf(long accountId, String providerId) {
+    long mid =
+        messageRepo.findByProviderId(accountId, inboxId(accountId), providerId).orElseThrow();
+    return Boolean.TRUE.equals(
+        dsl.select(EMAIL_CONTENT.CONFIDENTIAL)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(mid))
+            .fetchOne(EMAIL_CONTENT.CONFIDENTIAL));
+  }
+
+  /**
+   * WP-2030: 요청 URL 에 확장 속성 $expand 가 실리고, Sensitivity=3(Confidential) 만 기밀로 저장된다. 속성 없음·값 2 는 기밀
+   * 아님. id 는 보지 않는다($filter 가 이미 좁힘).
+   */
+  @Test
+  void fetchNewMessages_extendedPropertySensitivity_marksConfidential() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+    var conf = new GraphMessage.ExtendedProperty("Integer 0x0036", "3");
+    var personal = new GraphMessage.ExtendedProperty("Integer 0x0036", "2");
+    var otherId = new GraphMessage.ExtendedProperty("Integer 0x36", "3");
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(
+                    messageWithProps("C1", List.of(conf)),
+                    messageWithProps("C2", List.of(personal)),
+                    messageWithProps("C3", List.of(otherId)),
+                    messageWithProps("C4", null)),
+                null,
+                "D1"));
+
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+
+    org.mockito.Mockito.verify(graphApiClient, org.mockito.Mockito.atLeastOnce())
+        .get(
+            eq("FAKE_TOKEN"),
+            org.mockito.ArgumentMatchers.contains(
+                "$expand=singleValueExtendedProperties($filter=id%20eq%20'Integer%200x0036')"),
+            eq(GraphDeltaPage.class));
+    assertThat(confidentialOf(accountId, "C1")).isTrue();
+    assertThat(confidentialOf(accountId, "C2")).isFalse();
+    assertThat(confidentialOf(accountId, "C3")).isTrue();
+    assertThat(confidentialOf(accountId, "C4")).isFalse();
+  }
+
+  /** WP-2030: 이미 저장된(기밀 아님) 메일이 이후 delta 에서 기밀로 오면 기존 행의 content 도 올린다. */
+  @Test
+  void fetchNewMessages_existingMessageLaterConfidential_raisesContent() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("E1", "제목")), null, "D1"));
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("D1"), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(
+                    messageWithProps(
+                        "E1", List.of(new GraphMessage.ExtendedProperty("Integer 0x0036", "3")))),
+                null,
+                "D2"));
+
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    assertThat(confidentialOf(accountId, "E1")).isFalse();
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    assertThat(confidentialOf(accountId, "E1")).isTrue();
   }
 
   /** 계정의 서버 보낸편지함(sentitems) 폴더 id(WP-950 — findByProviderId 는 폴더 단위). */

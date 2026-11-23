@@ -29,7 +29,44 @@ public record GraphMessage(
     /** {@code @removed} 마커 — 삭제된 항목에만 존재(null이면 신규/변경). */
     @JsonProperty("@removed") Map<String, String> removed,
     /** WP-1741 후속 조치 플래그(별표). delta 응답에 없으면 null — 누락을 「별표 없음」으로 오인해 로컬 별표를 지우지 않는다. */
-    Flag flag) {
+    Flag flag,
+    /**
+     * WP-2030 확장 속성(PidTagSensitivity 등). {@code $expand} 로 요청한 id 만 오며, 속성이 없으면 null/빈 목록 — 누락은
+     * 「기밀 아님」.
+     */
+    List<ExtendedProperty> singleValueExtendedProperties) {
+
+  /** 확장 속성 없이 생성(기존 호출부·테스트 호환). */
+  public GraphMessage(
+      String id,
+      String subject,
+      Recipient from,
+      List<Recipient> toRecipients,
+      List<Recipient> ccRecipients,
+      String receivedDateTime,
+      String sentDateTime,
+      Boolean isRead,
+      boolean hasAttachments,
+      String internetMessageId,
+      String conversationId,
+      Map<String, String> removed,
+      Flag flag) {
+    this(
+        id,
+        subject,
+        from,
+        toRecipients,
+        ccRecipients,
+        receivedDateTime,
+        sentDateTime,
+        isRead,
+        hasAttachments,
+        internetMessageId,
+        conversationId,
+        removed,
+        flag,
+        null);
+  }
 
   /** flag 없이 생성(기존 호출부·테스트 호환). */
   public GraphMessage(
@@ -58,6 +95,7 @@ public record GraphMessage(
         internetMessageId,
         conversationId,
         removed,
+        null,
         null);
   }
 
@@ -66,6 +104,10 @@ public record GraphMessage(
    */
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record Flag(String flagStatus) {}
+
+  /** Graph singleValueExtendedProperty — id 는 「Integer 0x0036」 형식, value 는 문자열. */
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record ExtendedProperty(String id, String value) {}
 
   /** 수신자(from · toRecipients · ccRecipients). */
   @JsonIgnoreProperties(ignoreUnknown = true)

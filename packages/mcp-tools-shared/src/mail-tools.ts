@@ -97,12 +97,14 @@ export function toMailListItem(row: Raw): Raw {
  * 헤더 메시지 id(messageId)·스레드 id 는 답장 헤더용 내부 값이라 뺀다. 첨부의 인라인 이미지 참조(contentId)도 빼고, 첨부 id 는 attachmentId 로 이름을 바꾼다(WP-358).
  */
 export function toMailDetailView(raw: Raw): Raw {
-  const { bodyText, bodyHtml, attachments, ...rest } = omitKeys(raw, 'threadId', 'messageId');
+  const { bodyText, bodyHtml, attachments, confidential, ...rest } = omitKeys(raw, 'threadId', 'messageId');
   const text = typeof bodyText === 'string' ? bodyText : '';
   const html = typeof bodyHtml === 'string' ? bodyHtml : '';
   const body = text.trim() === '' && html.trim() !== '' ? htmlToText(html) : text;
   return dropEmpty({
     ...rest,
+    // WP-2030: 기밀 표시는 목록과 같이 true 일 때만 싣는다(false 는 반복 노이즈).
+    ...(confidential === true && { confidential: true }),
     bodyText: body,
     // 첨부 식별자는 이슈 첨부와 같은 이름 attachmentId 로 준다(read_file 입력, WP-358).
     attachments: Array.isArray(attachments)

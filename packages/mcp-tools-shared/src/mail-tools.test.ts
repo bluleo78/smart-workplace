@@ -151,6 +151,14 @@ describe('buildMailTools', () => {
     expect(out).toMatchObject({ id: 9, issueKey: 'WP-12' });
   });
 
+  it('WP-2030: get_mail → confidential 은 true 일 때만 싣고 false 면 키를 뺀다(목록과 같은 규칙)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getMail).mockResolvedValue({ id: 9, bodyText: '본문', confidential: true });
+    expect(JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })))).toMatchObject({ confidential: true });
+    vi.mocked(c.getMail).mockResolvedValue({ id: 9, bodyText: '본문', confidential: false });
+    expect(JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })))).not.toHaveProperty('confidential');
+  });
+
   it('WP-357: 연결 이슈 조회가 실패해도 메일 읽기는 막지 않는다(부가 정보)', async () => {
     const c = mockClient();
     vi.mocked(c.getMail).mockResolvedValue({ id: 9, bodyText: '본문' });

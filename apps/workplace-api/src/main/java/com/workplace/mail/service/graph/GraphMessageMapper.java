@@ -1,6 +1,7 @@
 package com.workplace.mail.service.graph;
 
 import com.workplace.mail.dto.ParsedMessage;
+import com.workplace.mail.service.MailSensitivity;
 import java.time.Instant;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -70,7 +71,25 @@ public final class GraphMessageMapper {
         null /* snippet — on-demand 적재 */,
         List.of() /* attachments — on-demand */,
         null /* structure — Graph 경로는 공유 지문 미사용 */,
-        isFlagged(m) /* WP-1741 별표 — 누락(null)은 신규 삽입 시 별표 없음 */);
+        isFlagged(m) /* WP-1741 별표 — 누락(null)은 신규 삽입 시 별표 없음 */,
+        isConfidential(m) /* WP-2030 기밀 — 확장 속성 Sensitivity=3 */);
+  }
+
+  /**
+   * 확장 속성 중 PidTagSensitivity 값이 Confidential(3)이면 기밀(WP-2030). 요청의 {@code $filter} 가 이미 그 속성 하나로
+   * 좁히므로 id 는 보지 않고 값만 본다(id 가 "Integer 0x36" 처럼 다른 꼴로 와도 잡는다). 속성이 없으면 기밀 아님.
+   */
+  public static boolean isConfidential(GraphMessage m) {
+    return isConfidential(m.singleValueExtendedProperties());
+  }
+
+  /** 확장 속성 목록에 Confidential(3) 값이 있으면 true — 본문 적재({@code GraphBodyLoader})도 같은 판정을 공유한다. */
+  public static boolean isConfidential(List<GraphMessage.ExtendedProperty> props) {
+    if (props == null) {
+      return false;
+    }
+    return props.stream()
+        .anyMatch(p -> p != null && MailSensitivity.isConfidentialGraphValue(p.value()));
   }
 
   /**
